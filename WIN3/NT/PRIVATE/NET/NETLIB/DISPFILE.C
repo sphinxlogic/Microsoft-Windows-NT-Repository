@@ -92,10 +92,10 @@ NetpDbgDisplayFile(
     )
 {
     // largest possible info level (assumes subsets):
-    LPFILE_INFO_3 p = Info; 
+    LPFILE_INFO_3 p = Info;
 
-    NetpDbgPrint( "File info (level " FORMAT_DWORD ") at "
-            FORMAT_LPVOID ":\n", Level, (LPVOID) Info);
+    NetpKdPrint(( "File info (level " FORMAT_DWORD ") at "
+            FORMAT_LPVOID ":\n", Level, (LPVOID) Info));
 
     switch (Level) {
 
@@ -115,7 +115,7 @@ NetpDbgDisplayFile(
         break;
 
     default :
-        NetpDbgPrint( "NetpDbgDisplayFile: **INVALID INFO LEVEL**\n");
+        NetpKdPrint(( "NetpDbgDisplayFile: **INVALID INFO LEVEL**\n"));
         NetpAssert(FALSE);
         break;
     }
@@ -145,8 +145,8 @@ NetpDbgDisplayFileArray(
         EntrySize = sizeof(FILE_INFO_3);
         break;
     default :
-        NetpDbgPrint( "NetpDbgDisplayFileArray: "
-                "**INVALID INFO LEVEL**\n");
+        NetpKdPrint(( "NetpDbgDisplayFileArray: "
+                "**INVALID INFO LEVEL**\n"));
         NetpAssert(FALSE);
     }
 

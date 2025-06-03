@@ -172,6 +172,13 @@ DWORD BackupModuleNumber;
 //
 PSVCS_GLOBAL_DATA       ElfGlobalData;
 
+//
+// Global anonymous logon sid - used in log ACL's. The only SID allocated
+// specifically by the eventlog service, all others are passed in from
+// the service controller in ElfGlobalData.
+//
+
+PSID AnonymousLogonSid = NULL;
 
 //
 // The local computer name.  Used when we generate events ourself.
@@ -196,3 +203,16 @@ HANDLE  ElfGlobalSvcRefHandle=NULL;
 WCHAR   DefaultMessageBoxTitle[]=L"Eventlog Service";
 LPWSTR  GlobalAllocatedMsgTitle=NULL;
 LPWSTR  GlobalMessageBoxTitle=DefaultMessageBoxTitle;
+
+#ifdef _CAIRO_
+
+//
+// The eventlog service links to ALERTSYS.DLL by hand (eventlog.c) after
+// eventlog initialization, since this dll's initialization code requires
+// a running eventlog service.
+//
+
+HINSTANCE    ghAlertSysDll  = NULL;
+PREPORTALERT gpfReportAlert = NULL;
+
+#endif // _CAIRO_

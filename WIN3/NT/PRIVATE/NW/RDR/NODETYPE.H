@@ -43,6 +43,7 @@ typedef NODE_TYPE_CODE *PNODE_TYPE_CODE;
 #define NW_NTC_FILE_LOCK                ((NODE_TYPE_CODE)0x0F0D)
 #define NW_NTC_LOGON                    ((NODE_TYPE_CODE)0x0F0E)
 #define NW_NTC_MINI_IRP_CONTEXT         ((NODE_TYPE_CODE)0x0F0F)
+#define NW_NTC_NDS_CREDENTIAL           ((NODE_TYPE_CODE)0x0F10)
 
 typedef CSHORT NODE_BYTE_SIZE;
 
@@ -60,4 +61,3 @@ typedef CSHORT NODE_BYTE_SIZE;
 #define NodeType(Ptr) (*((PNODE_TYPE_CODE)(Ptr)))
 
 #endif // _NODETYPE_
-

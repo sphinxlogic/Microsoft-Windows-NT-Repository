@@ -14,7 +14,7 @@
 
 #include "precomp.h"
 #pragma hdrstop
-#include "winp.h"
+#include "wingdip.h"
 
 MODNAME(wgfont.c);
 
@@ -51,12 +51,6 @@ ULONG FASTCALL WG32AddFontResource(PVDMFRAME pFrame)
 }
 
 
-//LPSTR lpZapfDingbats = "ZAPFDINGBATS";
-//LPSTR lpZapf_Dingbats = "ZAPF DINGBATS";
-//LPSTR lpSymbol = "SYMBOL";
-//LPSTR lpTmsRmn = "TMS RMN";
-//LPSTR lpHelv = "HELV";
-
 #define PITCH_MASK  ( FIXED_PITCH | VARIABLE_PITCH )
 
 ULONG FASTCALL WG32CreateFont(PVDMFRAME pFrame)
@@ -91,7 +85,7 @@ ULONG FASTCALL WG32CreateFont(PVDMFRAME pFrame)
         // Capitalize the string for faster compares.
 
         strncpy(achCapString, psz14, LF_FACESIZE);
-        CharUpperBuff(achCapString, min(LF_FACESIZE, lstrlen(achCapString)));
+        _strupr(achCapString);
 
         // Here we are going to implement a bunch of Win 3.1 hacks rather
         // than contaminate the 32-bit engine.  These same hacks can be found
@@ -105,13 +99,7 @@ ULONG FASTCALL WG32CreateFont(PVDMFRAME pFrame)
         // set to specify FIXED_PITCH.  To work around this, we will patch
         // the pitch field for a "Helv" font to be variable.
 
-        // if ( !lstrcmp(achCapString, lpHelv) )
-
-        if ( ((achCapString[0]  == 'H') &&
-              (achCapString[1]  == 'E') &&
-              (achCapString[2]  == 'L') &&
-              (achCapString[3]  == 'V') &&
-              (achCapString[4]  == '\0')) )
+        if ( !strcmp(achCapString, szHelv) )
         {
             lfPitchAndFamily |= ( (lfPitchAndFamily & ~PITCH_MASK) | VARIABLE_PITCH );
         }
@@ -123,16 +111,7 @@ ULONG FASTCALL WG32CreateFont(PVDMFRAME pFrame)
             // the lfCharSet and lfPitchAndFamily taken from the LOGFONT for
             // "Script".  Here we will over the lfCharSet to be ANSI_CHARSET.
 
-            // if ( !lstrcmp(achCapString, lpTmsRmn) )
-
-            if ( ((achCapString[0]  == 'T') &&
-                  (achCapString[1]  == 'M') &&
-                  (achCapString[2]  == 'S') &&
-                  (achCapString[3]  == ' ') &&
-                  (achCapString[4]  == 'R') &&
-                  (achCapString[5]  == 'M') &&
-                  (achCapString[6]  == 'N') &&
-                  (achCapString[7]  == '\0')) )
+            if ( !strcmp(achCapString, szTmsRmn) )
             {
                 lfCharSet = ANSI_CHARSET;
             }
@@ -143,50 +122,24 @@ ULONG FASTCALL WG32CreateFont(PVDMFRAME pFrame)
                 // for a "Symbol" font but have the char set set to ANSI.  PowerPoint
                 // has the same problem with "Zapf Dingbats".
 
-                //if ( !lstrcmp(achCapString, lpSymbol) ||
-                //     !lstrcmp(achCapString, lpZapfDingbats) ||
-                //     !lstrcmp(achCapString, lpZapf_Dingbats) )
-
-                if ( ((achCapString[0]  == 'S') &&
-                      (achCapString[1]  == 'Y') &&
-                      (achCapString[2]  == 'M') &&
-                      (achCapString[3]  == 'B') &&
-                      (achCapString[4]  == 'O') &&
-                      (achCapString[5]  == 'L') &&
-                      (achCapString[6]  == '\0')) ||
-
-                     ((achCapString[0]  == 'Z') &&
-                      (achCapString[1]  == 'A') &&
-                      (achCapString[2]  == 'P') &&
-                      (achCapString[3]  == 'F') &&
-                      (achCapString[4]  == 'D') &&
-                      (achCapString[5]  == 'I') &&
-                      (achCapString[6]  == 'N') &&
-                      (achCapString[7]  == 'G') &&
-                      (achCapString[8]  == 'B') &&
-                      (achCapString[9]  == 'A') &&
-                      (achCapString[10] == 'T') &&
-                      (achCapString[11] == 'S') &&
-                      (achCapString[12] == '\0')) ||
-
-                     ((achCapString[0]  == 'Z') &&
-                      (achCapString[1]  == 'A') &&
-                      (achCapString[2]  == 'P') &&
-                      (achCapString[3]  == 'F') &&
-                      (achCapString[4]  == ' ') &&
-                      (achCapString[5]  == 'D') &&
-                      (achCapString[6]  == 'I') &&
-                      (achCapString[7]  == 'N') &&
-                      (achCapString[8]  == 'G') &&
-                      (achCapString[9]  == 'B') &&
-                      (achCapString[10] == 'A') &&
-                      (achCapString[11] == 'T') &&
-                      (achCapString[12] == 'S') &&
-                      (achCapString[13] == '\0')) )
+                if ( !strcmp(achCapString, szSymbol) ||
+                     !strcmp(achCapString, szZapfDingbats) ||
+                     !strcmp(achCapString, szZapf_Dingbats) )
                 {
                     lfCharSet = SYMBOL_CHARSET;
                 }
             }
+        }
+
+        // Win3.1(Win95) hack for Mavis Beacon Teaches Typing 3.0
+        // The app uses a fixed width of 34*13 for the typing screen.
+        // NT returns 14 from GetTextExtent for Mavis Beacon Courier FP font (width of 14)
+        // while Win95 returns 13, thus long strings won't fit in the typing screen on NT.
+        // Force the width to 13.
+
+        if ( iWidth==14 && (INT32(parg16->f1)== 20) && !strcmp(achCapString, szMavisCourier))
+        {
+           iWidth = 13;
         }
     }
 
@@ -238,13 +191,7 @@ ULONG FASTCALL WG32CreateFontIndirect(PVDMFRAME pFrame)
     // set to specify FIXED_PITCH.  To work around this, we will patch
     // the pitch field for a "Helv" font to be variable.
 
-    // if ( !lstrcmp(achCapString, lpHelv) )
-
-    if ( ((achCapString[0]  == 'H') &&
-          (achCapString[1]  == 'E') &&
-          (achCapString[2]  == 'L') &&
-          (achCapString[3]  == 'V') &&
-          (achCapString[4]  == '\0')) )
+    if ( !strcmp(achCapString, szHelv) )
     {
         logfont.lfPitchAndFamily |= ( (logfont.lfPitchAndFamily & ~PITCH_MASK) | VARIABLE_PITCH );
     }
@@ -256,16 +203,7 @@ ULONG FASTCALL WG32CreateFontIndirect(PVDMFRAME pFrame)
         // the lfCharSet and lfPitchAndFamily taken from the LOGFONT for
         // "Script".  Here we will over the lfCharSet to be ANSI_CHARSET.
 
-        // if ( !lstrcmp(achCapString, lpTmsRmn) )
-
-        if ( ((achCapString[0]  == 'T') &&
-              (achCapString[1]  == 'M') &&
-              (achCapString[2]  == 'S') &&
-              (achCapString[3]  == ' ') &&
-              (achCapString[4]  == 'R') &&
-              (achCapString[5]  == 'M') &&
-              (achCapString[6]  == 'N') &&
-              (achCapString[7]  == '\0')) )
+        if ( !strcmp(achCapString, szTmsRmn) )
         {
             logfont.lfCharSet = ANSI_CHARSET;
         }
@@ -276,46 +214,9 @@ ULONG FASTCALL WG32CreateFontIndirect(PVDMFRAME pFrame)
             // for a "Symbol" font but have the char set set to ANSI.  PowerPoint
             // has the same problem with "Zapf Dingbats".
 
-            //if ( !lstrcmp(achCapString, lpSymbol) ||
-            //     !lstrcmp(achCapString, lpZapfDingbats) ||
-            //     !lstrcmp(achCapString, lpZapf_Dingbats) )
-
-            if ( ((achCapString[0]  == 'S') &&
-                  (achCapString[1]  == 'Y') &&
-                  (achCapString[2]  == 'M') &&
-                  (achCapString[3]  == 'B') &&
-                  (achCapString[4]  == 'O') &&
-                  (achCapString[5]  == 'L') &&
-                  (achCapString[6]  == '\0')) ||
-
-                 ((achCapString[0]  == 'Z') &&
-                  (achCapString[1]  == 'A') &&
-                  (achCapString[2]  == 'P') &&
-                  (achCapString[3]  == 'F') &&
-                  (achCapString[4]  == 'D') &&
-                  (achCapString[5]  == 'I') &&
-                  (achCapString[6]  == 'N') &&
-                  (achCapString[7]  == 'G') &&
-                  (achCapString[8]  == 'B') &&
-                  (achCapString[9]  == 'A') &&
-                  (achCapString[10] == 'T') &&
-                  (achCapString[11] == 'S') &&
-                  (achCapString[12] == '\0')) ||
-
-                 ((achCapString[0]  == 'Z') &&
-                  (achCapString[1]  == 'A') &&
-                  (achCapString[2]  == 'P') &&
-                  (achCapString[3]  == 'F') &&
-                  (achCapString[4]  == ' ') &&
-                  (achCapString[5]  == 'D') &&
-                  (achCapString[6]  == 'I') &&
-                  (achCapString[7]  == 'N') &&
-                  (achCapString[8]  == 'G') &&
-                  (achCapString[9]  == 'B') &&
-                  (achCapString[10] == 'A') &&
-                  (achCapString[11] == 'T') &&
-                  (achCapString[12] == 'S') &&
-                  (achCapString[13] == '\0')) )
+            if ( !strcmp(achCapString, szSymbol) ||
+                 !strcmp(achCapString, szZapfDingbats) ||
+                 !strcmp(achCapString, szZapf_Dingbats) )
             {
                 logfont.lfCharSet = SYMBOL_CHARSET;
             }
@@ -362,12 +263,12 @@ INT W32EnumFontFunc(LPENUMLOGFONT pEnumLogFont,
 
     if (pFntData->vpFaceName == (VPVOID)NULL) {
         if (W32GetAppCompatFlags((HAND16)NULL) & GACF_ENUMHELVNTMSRMN) {
-            if (!lstrcmp(pEnumLogFont->elfLogFont.lfFaceName, lpMSSansSerif)) {
-                lstrcpy(pEnumLogFont->elfLogFont.lfFaceName, "Helv");
+            if (!strcmp(pEnumLogFont->elfLogFont.lfFaceName, lpMSSansSerif)) {
+                strcpy(pEnumLogFont->elfLogFont.lfFaceName, "Helv");
                 lpFaceNameT = lpMSSansSerif;
             }
-            else if (!lstrcmp(pEnumLogFont->elfLogFont.lfFaceName, lpMSSerif)) {
-                lstrcpy(pEnumLogFont->elfLogFont.lfFaceName, "Tms Rmn");
+            else if (!strcmp(pEnumLogFont->elfLogFont.lfFaceName, lpMSSerif)) {
+                strcpy(pEnumLogFont->elfLogFont.lfFaceName, "Tms Rmn");
                 lpFaceNameT = lpMSSerif;
             }
         }
@@ -393,7 +294,7 @@ CallAgain:
         // Just to be sure, we again copy all the data for callback. This will
         // take care of any apps which modify the passed in structures.
 
-        lstrcpy(pEnumLogFont->elfLogFont.lfFaceName, lpFaceNameT);
+        strcpy(pEnumLogFont->elfLogFont.lfFaceName, lpFaceNameT);
         lpFaceNameT = (LPSTR)NULL;
         goto CallAgain;
     }
@@ -477,10 +378,13 @@ ULONG FASTCALL WG32GetCharWidth(PVDMFRAME pFrame)
     pi4 = STACKORHEAPALLOC(ci * sizeof(INT), sizeof(BufferT), BufferT);
 
     if (pi4) {
+        ULONG ulLast = WORD32(parg16->wLastChar);
+        if (ulLast > 0xff)
+            ulLast = 0xff;
 
         ul = GETBOOL16(GetCharWidth(HDC32(parg16->hDC),
                                     WORD32(parg16->wFirstChar),
-                                    WORD32(parg16->wLastChar),
+                                    ulLast,
                                     pi4));
 
         PUTINTARRAY16(parg16->lpIntBuffer, ci, pi4);
@@ -523,4 +427,40 @@ ULONG FASTCALL WG32RemoveFontResource(PVDMFRAME pFrame)
     FREEARGPTR(parg16);
 
     RETURN(ul);
+}
+
+
+/* WG32GetCurLogFont
+ *
+ * This thunk implements the undocumented Win3.0 and Win3.1 API
+ * GetCurLogFont (GDI.411). Symantec QA4.0 uses it.
+ *
+ * HFONT GetCurLogFont (HDC)
+ * HDC   hDC;        // Device Context
+ *
+ * This function returns the current Logical font selected for the
+ * specified device context.
+ *
+ * To implement this undocumented API we will use the NT undocumented API
+ * GetHFONT.
+ *
+ * SudeepB 08-Mar-1996
+ *
+ */
+
+extern HFONT APIENTRY GetHFONT (HDC hdc);
+
+ULONG FASTCALL WG32GetCurLogFont(PVDMFRAME pFrame)
+{
+
+    ULONG    ul;
+    register PGETCURLOGFONT16 parg16;
+
+    GETARGPTR(pFrame, sizeof(GETCURLOGFONT16), parg16);
+
+    ul = GETHFONT16 (GetHFONT(HDC32 (parg16->hDC)));
+
+    FREEARGPTR(parg16);
+
+    return (ul);
 }

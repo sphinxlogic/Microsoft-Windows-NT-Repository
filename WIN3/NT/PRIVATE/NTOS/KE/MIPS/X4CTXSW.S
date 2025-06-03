@@ -19,53 +19,67 @@
 //
 // Environment:
 //
-//    Kernel mode only, IRQL DISPATCH_LEVEL.
+//    Kernel mode only.
 //
 // Revision History:
 //
 //--
 
 #include "ksmips.h"
+//#define _COLLECT_SWITCH_DATA_ 1
 
 //
 // Define external variables that can be addressed using GP.
 //
 
-        .extern KeTickCount       3 * 4
-        .extern KiActiveSummary   4
-        .extern KiDecrementCount  1
-        .extern KiDispatcherLock  4
-        .extern KiWaitInListHead  2 * 4
+        .extern KeNumberProcessIds 4
+        .extern KeTickCount        3 * 4
+        .extern KiContextSwapLock  4
+        .extern KiDispatcherLock   4
+        .extern KiIdleSummary      4
+        .extern KiReadySummary     4
+        .extern KiSynchIrql        4
+        .extern KiWaitInListHead   2 * 4
+        .extern KiWaitOutListHead  2 * 4
 
-        SBTTL("Set Server Event and Wait on Client Event")
+        SBTTL("Switch To Thread")
 //++
 //
 // NTSTATUS
-// KiSetServerWaitClientEvent (
-//    IN PKEVENT ServerEvent,
-//    IN PKEVENT ClientEvent,
-//    IN KPROCESSOR_MODE WaitMode
+// KiSwitchToThread (
+//    IN PKTHREAD NextThread
+//    IN ULONG WaitReason,
+//    IN ULONG WaitMode,
+//    IN PKEVENT WaitObject
 //    )
 //
 // Routine Description:
 //
+//    This function performs an optimal switch to the specified target thread
+//    if possible. No timeout is associated with the wait, thus the issuing
+//    thread will wait until the wait event is signaled or an APC is deliverd.
 //
-//    This function sets the specified server event waits on specified client
-//    event. The wait is performed such that an optimal switch to the waiting
-//    thread occurs if possible. No timeout is associated with the wait, and
-//    thus, the issuing thread will wait until the client event is signaled,
-//    an APC occurs, or the thread is alerted.
+//    N.B. This routine is called with the dispatcher database locked.
 //
-//    N.B. This routine takes advantage of the interface to the actual
-//         context switch code.
+//    N.B. The wait IRQL is assumed to be set for the current thread and the
+//        wait status is assumed to be set for the target thread.
+//
+//    N.B. It is assumed that if a queue is associated with the target thread,
+//        then the concurrency count has been incremented.
+//
+//    N.B. Control is returned from this function with the dispatcher database
+//        unlocked.
 //
 // Arguments:
 //
-//    ServerEvent - Supplies a pointer to a dispatcher object of type event.
+//    NextThread - Supplies a pointer to a dispatcher object of type thread.
 //
-//    ClientEvent - Supplies a pointer to a dispatcher object of type event.
+//    WaitReason - supplies the reason for the wait operation.
 //
-//    WaitMode  - Supplies the processor mode in which the wait is to occur.
+//    WaitMode  - Supplies the processor wait mode.
+//
+//    WaitObject - Supplies a pointer to a dispatcher object of type event
+//        or semaphore.
 //
 // Return Value:
 //
@@ -73,10 +87,9 @@
 //    the specified object satisfied the wait. A value of STATUS_USER_APC is
 //    returned if the wait was aborted to deliver a user APC to the current
 //    thread.
-//
 //--
 
-        NESTED_ENTRY_S(KiSetServerWaitClientEvent, ExceptionFrameLength, zero, _TEXT$00)
+        NESTED_ENTRY(KiSwitchToThread, ExceptionFrameLength, zero)
 
         subu    sp,sp,ExceptionFrameLength // allocate context frame
         sw      ra,ExIntRa(sp)          // save return address
@@ -86,113 +99,44 @@
 
         PROLOGUE_END
 
-        lw      s1,KiPcr + PcCurrentThread(zero) // get current thread address
-        li      a3,EVENT_PAIR_INCREMENT // set default priority boost value
-
 //
-// Raise IRQL to DISPATCH_LEVEL and acquire the dispatcher database lock.
-//
-// N.B. The raise IRQL code is duplicated here to avoid any extra overhead
-//      since this is such a common operation.
+// Save the wait reason, the wait mode, and the wait object address.
 //
 
-        li	t0,DISPATCH_LEVEL	// get new IRQL level
-        lbu     t1,KiPcr + PcIrqlTable(t0) // get translation table entry value
-        li      t2,~(0xff << PSR_INTMASK) // get interrupt enable mask
-        lbu     t3,KiPcr + PcCurrentIrql(zero) // get current IRQL
-        sll     t1,t1,PSR_INTMASK       // shift table entry into position
-
-        DISABLE_INTERRUPTS(t4)          // disable interrupts
-
-        and     t4,t4,t2                // clear current interrupt enables
-        or      t4,t4,t1                // set new interrupt enables
-        sb      t0,KiPcr + PcCurrentIrql(zero) // set new IRQL level
-
-        ENABLE_INTERRUPTS(t4)           // enable interrupts
-
-        lw      s0,KiPcr + PcPrcb(zero)   // get address of PRCB
-        sb      t3,ThWaitIrql(s1)       // set client wait IRQL
-
-//
-// Acquire the dispatcher database lock.
-//
-
-#if !defined(NT_UP)
-
-10:     ll      t0,KiDispatcherLock     // get current lock value
-        move    t1,s1                   // set ownership value
-        bne     zero,t0,10b             // if ne, spin lock owned
-        sc      t1,KiDispatcherLock     // set spin lock owned
-        beq     zero,t1,10b             // if eq, store conditional failure
-
-#endif
-
-//
-// If the client event is not in the Signaled state, the server event
-// queue is not empty, and another thread has not already been selected
-// for the current processor, then attempt to do a direct dispatch to
-// the target thread.
-//
-
-        lw      t0,EvSignalState(a1)    // get client event signal state
-
-#if !defined(NT_UP)
-
-        lw      t1,PbNextThread(s0)     // get address of next thread
-
-#endif
-
-        lw      t2,EvWaitListHead + LsFlink(a0) // get first wait list entry
-        bne     zero,t0,LongWayBoost    // if ne, client event signaled
-        addu    t3,a0,EvWaitListHead    // compute wait listhead address
-
-#if !defined(NT_UP)
-
-        bne     zero,t1,LongWayBoost    // if ne, next thread selected
-
-#endif
-
-        subu    t4,t2,WbWaitListEntry   // compute address of wait block
-        beq     t2,t3,LongWayBoost      // if eq, server wait list is empty
+        sw      a1,ExceptionFrameLength + (1 * 4)(sp) // save wait reason
+        sw      a2,ExceptionFrameLength + (2 * 4)(sp) // save wait mode
+        sw      a3,ExceptionFrameLength + (3 * 4)(sp) // save wait object address
 
 //
 // If the target thread's kernel stack is resident, the target thread's
-// process is in the balance set, and the target thread can run on the
-// current processor, then do a direct dispatch to the target thread
-// bypassing all the general wait logic, thread priorities permiting.
+// process is in the balance set, the target thread can can run on the
+// current processor, and another thread has not already been selected
+// to run on the current processor, then do a direct dispatch to the
+// target thread bypassing all the general wait logic, thread priorities
+// permiting.
 //
 
-        lw      s2,WbThread(t4)         // get address of waiting thread
+        lw      t9,ThApcState + AsProcess(a0) // get target process address
+        lbu     v0,ThKernelStackResident(a0) // get kernel stack resident
+        lw      s0,KiPcr + PcPrcb(zero)   // get address of PRCB
+        lbu     v1,PrState(t9)          // get target process state
+        lw      s1,KiPcr + PcCurrentThread(zero) // get current thread address
+        beq     zero,v0,LongWay         // if eq, kernel stack not resident
+        xor     v1,v1,ProcessInMemory   // check if process in memory
+        move    s2,a0                   // set target thread address
+        bne     zero,v1,LongWay         // if ne, process not in memory
 
 #if !defined(NT_UP)
 
-        lbu     t0,ThNextProcessor(s1)  // get current processor number
+        lw      t0,PbNextThread(s0)     // get address of next thread
+        lbu     t1,ThNextProcessor(s1)  // get current processor number
+        lw      t2,ThAffinity(s2)       // get target thread affinity
+        lw      t3,KiPcr + PcSetMember(zero) // get processor set member
+        bne     zero,t0,LongWay         // if ne, next thread selected
+        and     t3,t3,t2                // check if for compatible affinity
+        beq     zero,t3,LongWay         // if eq, affinity not compatible
 
 #endif
-
-        lw      t1,ThApcState + AsProcess(s2) // get waiting process address
-        lbu     v0,ThKernelStackResident(s2) // get kernel stack resident
-
-#if !defined(NT_UP)
-
-        li      t3,1                    // generate current processor affinity
-        sll     t3,t3,t0                //
-        lw      t4,ThAffinity(s2)       // get waiting thread affinity
-
-#endif
-
-        lbu     t5,PrState(t1)          // get waiting process state
-        beq     zero,v0,LongWayBoost    // if eq, kernel stack not resident
-
-#if !defined(NT_UP)
-
-        and     t6,t3,t4                // check if for compatible affinity
-        beq     zero,t6,LongWayBoost    // if eq, affinity not compatible
-
-#endif
-
-        xor     t5,t5,ProcessInMemory   // check if process in memory
-        bne     zero,t5,LongWayBoost    // if ne, process not in memory
 
 //
 // Compute the new thread priority.
@@ -206,7 +150,7 @@
         lbu     t6,ThPriorityDecrement(s2) // get priority decrement value
         lbu     t7,ThBasePriority(s2)   // get client base priority
         beq     zero,v1,50f             // if eq, realtime server
-        addu    t8,t7,a3                // computed boosted priority
+        addu    t8,t7,1                 // computed boosted priority
         bne     zero,t6,30f             // if ne, server boost active
 
 //
@@ -235,8 +179,8 @@
 
 20:     sltu    v0,t7,BASE_PRIORITY_THRESHOLD // check if above threshold
         subu    t8,t4,t7                // compute priority decrement value
-        bne     zero,v0,LongWayBoost    // if ne, priority below threshold
-        lbu     t7,KiDecrementCount     // get system decrement count value
+        bne     zero,v0,LongWay         // if ne, priority below threshold
+        li      t7,ROUND_TRIP_DECREMENT_COUNT // get system decrement count value
         sb      t8,ThPriorityDecrement(s2) // set priority decrement value
         sb      t4,ThPriority(s2)       // set current server priority
         sb      t7,ThDecrementCount(s2) // set server decrement count
@@ -260,7 +204,7 @@
 
         sltu    v0,t5,t4                // check if server lower priority
         beq     zero,v0,70f             // if eq, server not lower priority
-        b       LongWayBoost            //
+        b       LongWay                 //
 
 //
 // The server has exhausted the number of times an optimal switch may
@@ -270,14 +214,14 @@
 
 40:     sb      zero,ThPriorityDecrement(s2) // clear server priority decrement
         sb      t7,ThPriority(s2)       // set server priority to base
-        b       LongWayNoBoost          //
+        b       LongWay                 //
 
 //
 // The client is not realtime and the server is realtime. An optimal switch
 // to the server can be performed.
 //
 
-50:     lb      t8,PrThreadQuantum(t1)  // get process quantum value
+50:     lb      t8,PrThreadQuantum(t9)  // get process quantum value
         b       65f                     //
 
 //
@@ -286,131 +230,77 @@
 //
 
 60:     sltu    v0,t5,t4                // check if server is lower priority
-        lb      t8,PrThreadQuantum(t1)  // get process quantum value
-        bne     zero,v0,LongWayBoost    // if ne, server is lower priority
+        lb      t8,PrThreadQuantum(t9)  // get process quantum value
+        bne     zero,v0,LongWay         // if ne, server is lower priority
 65:     sb      t8,ThQuantum(s2)        // set server thread quantum
 
 //
-// An optimal switch to the server can to executed.
-//
-// Remove the wait block from the wait list of the server event, and remove
-// the target thread from the waitin list.
+// Set the next processor for the server thread.
 //
 
-70:     lw      t6,LsFlink(t2)          // get forward link
-        lw      t7,LsBlink(t2)          // get backward link
-        sw      t6,LsFlink(t7)          // set forward link in previous
-        sw      t7,LsBlink(t6)          // set backward link in next
-        lw      t6,ThWaitListEntry + LsFlink(s2) // get forward link
-        lw      t7,ThWaitListEntry + LsBlink(s2) // get backward link
-        sw      t6,LsFlink(t7)          // set forward link in previous
-        sw      t7,LsBlink(t6)          // set backward link in next
-
-//
-// Remove the client thread from the active matrix, insert the server
-// thread in the active matrix, and set the next processor for the server thread.
-//
+70:                                     //
 
 #if !defined(NT_UP)
 
-        lbu     t5,ThPriority(s2)       // get new server priority
-        sll     t1,t4,2                 // compute client offset in active matrix
-        la      v0,KiActiveMatrix       // get base address of active matrix
-        addu    t1,t1,v0                // compute address of client entry
-        lw      t6,0(t1)                // get client active matrix entry
-        sll     t2,t5,2                 // compute server offset in active matrix
-        addu    t2,t2,v0                // compute address of server entry
-        lw      t7,0(t2)                // get server active matrix entry
-        lw      t8,KiActiveSummary      // get active summary
-        xor     t6,t6,t3                // clear client member
-        or      t7,t7,t3                // set server member
-        li      t3,1                    // get one bit for mask generation
-        bne     zero,t6,75f             // if ne, more active at client level
-        sll     t4,t3,t4                // generate client priority mask
-        xor     t8,t8,t4                // clear client priority in active summary
-75:     sll     t5,t3,t5                // set server priority in active summary
-        or      t8,t8,t5                //
-        sw      t6,0(t1)                // set client active matrix entry
-        sw      t7,0(t2)                // set server active matrix entry
-        sw      t8,KiActiveSummary      // store updated active summary
-        sb      t0,ThNextProcessor(s2)  // set server next processor number
+        sb      t1,ThNextProcessor(s2)  // set server next processor number
 
 #endif
 
 //
-// Set the address of the wait block list in the client thread, complete
-// the initialization of the builtin event wait block, and insert the wait
-// block in client event wait list.
+// Set the address of the wait block list in the client thread, initialization
+// the event wait block, and insert the wait block in client event wait list.
 //
 
         addu    t0,s1,EVENT_WAIT_BLOCK_OFFSET // compute wait block address
         sw      t0,ThWaitBlockList(s1)  // set address of wait block list
         sw      zero,ThWaitStatus(s1)   // set initial wait status
-        sw      a1,WbObject(t0)         // set address of client event object
-        addu    t1,a1,EvWaitListHead    // compute event wait listhead address
+        sw      a3,WbObject(t0)         // set address of wait object
+        sw      t0,WbNextWaitBlock(t0)  // set next wait block address
+        lui     t1,WaitAny              // get wait type and wait key
+        sw      t1,WbWaitKey(t0)        // set wait key and wait type
+        addu    t1,a3,EvWaitListHead    // compute wait object listhead address
         lw      t2,LsBlink(t1)          // get backward link of listhead
         addu    t3,t0,WbWaitListEntry   // compute wait block list entry address
         sw      t3,LsBlink(t1)          // set backward link of listhead
         sw      t3,LsFlink(t2)          // set forward link in last entry
         sw      t1,LsFlink(t3)          // set forward link in wait entry
         sw      t2,LsBlink(t3)          // set backward link in wait entry
+
 //
 // Set the client thread wait parameters, set the thread state to Waiting,
-// and insert the thread in the wait list.
-//
-// N.B. It is not necessary to increment and decrement the wait reason count
-//      since both the server and the client have the same wait reason.
+// and insert the thread in the proper wait list.
 //
 
         sb      zero,ThAlertable(s1)    // set alertable FALSE.
+        sb      a1,ThWaitReason(s1)     //
         sb      a2,ThWaitMode(s1)       // set the wait mode
-        li      t0,WrEventPair          // set wait reason
-        sb      t0,ThWaitReason(s1)     //
+        lb      a3,ThEnableStackSwap(s1) // get kernel stack swap enable
         lw      t1,KeTickCount + 0      // get low part of tick count
         sw      t1,ThWaitTime(s1)       // set thread wait time
         li      t0,Waiting              // set thread state
         sb      t0,ThState(s1)          //
-        la      t1,KiWaitInListHead     // get address of waitin listhead
-        lw      t2,LsBlink(t1)          // get backlink of wait listhead
-        addu    t3,s1,ThWaitListEntry   // compute client wait list entry address
+        la      t1,KiWaitInListHead     // get address of wait in listhead
+        beq     zero,a2,75f             // if eq, wait mode is kernel
+        beq     zero,a3,75f             // if eq, kernel stack swap disabled
+        sltu    t0,t4,LOW_REALTIME_PRIORITY + 9 // check if priority in range
+        bne     zero,t0,76f             // if ne, thread priority in range
+75:     la      t1,KiWaitOutListHead     // get address of wait out listhead
+76:     lw      t2,LsBlink(t1)          // get backlink of wait listhead
+        addu    t3,s1,ThWaitListEntry   // compute wait list entry address
         sw      t3,LsBlink(t1)          // set backward link of listhead
         sw      t3,LsFlink(t2)          // set forward link in last entry
         sw      t1,LsFlink(t3)          // set forward link in wait entry
         sw      t2,LsBlink(t3)          // set backward link in wait entry
 
 //
-// Swap context to the next thread
-//
-
-        sw      a1,ExceptionFrameLength + (1 * 4)(sp) // save client event address
-        sw      a2,ExceptionFrameLength + (2 * 4)(sp) // save wait mode
-
-//
-// If the next thread is processing a queue entry, then increment the
-// current thread count.
-//
-// N.B. The normal context field of the thread suspend APC object is
-//      used to hold the address of the queue object.
-//
-
-        lw      a0,ThSuspendApc + ApNormalContext(s2) // get queue object address
-        beq     zero,a0,77f             // if eq, no queue object attached
-        lw      a1,QuCurrentCount(a0)   // increment current thread count
-        addu    a1,a1,1                 //
-        sw      a1,QuCurrentCount(a0)   //
-
-//
 // If the current thread is processing a queue entry, then attempt to
 // activate another thread that is blocked on the queue object.
-//
-// N.B. The normal context field of the thread suspend APC object is
-//      used to hold the address of the queue object.
 //
 // N.B. The next thread address can change if the routine to activate
 //      a queue waiter is called.
 //
 
-77:     lw      a0,ThSuspendApc + ApNormalContext(s1) // get queue object address
+77:     lw      a0,ThQueue(s1)          // get queue object address
         beq     zero,a0,78f             // if eq, no queue object attached
         sw      s2,PbNextThread(s0)     // set next thread address
         jal     KiActivateWaiterQueue   // attempt to activate a blocked thread
@@ -420,18 +310,15 @@
         jal     SwapContext             // swap context
 
 //
-// N.B. SwapContext restores the registers s0, s1, and s2.
-//
-
-        lw      v0,ThWaitStatus(v1)     // get wait completion status
-
-//
 // Lower IRQL to its previous level.
 //
 // N.B. SwapContext releases the dispatcher database lock.
 //
+// N.B. The register s2 contains the address of the new thread on return.
+//
 
-        lbu     a0,ThWaitIrql(v1)       // get original IRQL
+        lw      v0,ThWaitStatus(s2)     // get wait completion status
+        lbu     a0,ThWaitIrql(s2)       // get original IRQL
         lbu     t0,KiPcr + PcIrqlTable(a0) // get translation table entry value
         li      t1,~(0xff << PSR_INTMASK) // get interrupt enable mask
         sll     t0,t0,PSR_INTMASK       // shift table entry into position
@@ -453,87 +340,80 @@
         bne     zero,v1,90f             // if ne, normal wait completion
 
 //
-// Raise IRQL to DISPATCH_LEVEL and acquire the dispatcher database lock.
-//
-// N.B. The raise IRQL code is duplicated here to avoid any extra overhead
-//      since this is such a common operation.
+// Disable interrupts an attempt to acquire the dispatcher database lock.
 //
 
         lw      s1,KiPcr + PcCurrentThread(zero) // get current thread address
-        li	t0,DISPATCH_LEVEL	// get new IRQL level
-        lbu     t1,KiPcr + PcIrqlTable(t0) // get translation table entry value
-        li      t2,~(0xff << PSR_INTMASK) // get interrupt enable mask
-        lbu     t3,KiPcr + PcCurrentIrql(zero) // get current IRQL
-        sll     t1,t1,PSR_INTMASK       // shift table entry into position
+        lbu	s2,KiSynchIrql          // get new IRQL level
 
-        DISABLE_INTERRUPTS(t4)          // disable interrupts
-
-        and     t4,t4,t2                // clear current interrupt enables
-        or      t4,t4,t1                // set new interrupt enables
-        sb      t0,KiPcr + PcCurrentIrql(zero) // set new IRQL level
-
-        ENABLE_INTERRUPTS(t4)           // enable interrupts
-
-        sb      t3,ThWaitIrql(s1)       // set client wait IRQL
-
-//
-// Acquire the dispatcher database lock.
-//
+79:     DISABLE_INTERRUPTS(t4)          // disable interrupts
 
 #if !defined(NT_UP)
 
 80:     ll      t0,KiDispatcherLock     // get current lock value
         move    t1,s1                   // set ownership value
-        bne     zero,t0,80b             // if ne, spin lock owned
+        bne     zero,t0,85f             // if ne, spin lock owned
         sc      t1,KiDispatcherLock     // set spin lock owned
         beq     zero,t1,80b             // if eq, store conditional failure
 
 #endif
 
-        lw      a1,ExceptionFrameLength + (1 * 4)(sp) // restore client event address
-        lw      a2,ExceptionFrameLength + (2 * 4)(sp) // restore wait mode
+//
+// Raise IRQL to synchronization level and save wait IRQL.
+//
+// N.B. The raise IRQL code is duplicated here to avoid any extra overhead
+//      since this is such a common operation.
+//
+
+        lbu     t1,KiPcr + PcIrqlTable(s2) // get translation table entry value
+        li      t2,~(0xff << PSR_INTMASK) // get interrupt enable mask
+        sll     t1,t1,PSR_INTMASK       // shift table entry into position
+        lbu     t3,KiPcr + PcCurrentIrql(zero) // get current IRQL
+        and     t4,t4,t2                // clear current interrupt enables
+        or      t4,t4,t1                // set new interrupt enables
+        sb      s2,KiPcr + PcCurrentIrql(zero) // set new IRQL level
+
+        ENABLE_INTERRUPTS(t4)           // enable interrupts
+
+        sb      t3,ThWaitIrql(s1)       // set client wait IRQL
         b       ContinueWait            //
 
-//
-// Set the serve event and complete the client wait the long way.
-//
+#if !defined(NT_UP)
 
-LongWayNoBoost:                         //
-        move    a3,zero                 // clear boost value
-LongWayBoost:                           //
-        lw      t0,EvWaitListHead + LsFlink(a0) // get first wait list entry
-        addu    t1,a0,EvWaitListHead + LsFlink // compute wait listhead address
-        lw      t2,EvSignalState(a0)    // get server event signal state
-        li      t3,1                    // set server event signal state
-        sw      t3,EvSignalState(a0)    //
-        beq     t0,t1,ContinueWait      // if eq, event wait list empty
-        sw      a1,ExceptionFrameLength + (1 * 4)(sp) // save client event address
-        bne     zero,t2,ContinueWait    // if ne, previous state signaled
-        sw      a2,ExceptionFrameLength + (2 * 4)(sp) // save wait mode
-        move    a1,a3                   // set priority increment value
-        jal     KiWaitTest              // test if wait can be satisfied
-        lw      a1,ExceptionFrameLength + (1 * 4)(sp) // restore client event address
-        lw      a2,ExceptionFrameLength + (2 * 4)(sp) // restore wait mode
+85:     ENABLE_INTERRUPTS(t4)           // enable interrupts
+
+        b       79b                     // try again
+
+#endif
 
 //
-// Continue the event pair wait and return the wait completion status.
+// Ready the target thread for execution and wait on the specified wait
+// object.
+//
+
+LongWay:                                //
+        jal     KiReadyThread           // ready thread for execution
+
+//
+// Continue the and return the wait completion status.
 //
 // N.B. The wait continuation routine is called with the dispatcher
 //      database locked.
 //
 
 ContinueWait:                           //
-        move    a0,a1                   // set client event address
-        li      a1,WrEventPair          // set wait reason
+        lw      a0,ExceptionFrameLength + (3 * 4)(sp) // get wait object address
+        lw      a1,ExceptionFrameLength + (1 * 4)(sp) // get wait reason
+        lw      a2,ExceptionFrameLength + (2 * 4)(sp) // get wait mode
         jal     KiContinueClientWait    // continue client wait
-        lw      s0,ExIntS0(sp)          // restore register s0 - s2
+90:     lw      s0,ExIntS0(sp)          // restore register s0 - s2
         lw      s1,ExIntS1(sp)          //
         lw      s2,ExIntS2(sp)          //
-90:     lw      ra,ExIntRa(sp)          // get return address
+        lw      ra,ExIntRa(sp)          // get return address
         addu    sp,sp,ExceptionFrameLength // deallocate context frame
         j       ra                      // return
 
-        .end    KiSetServerWaitClientEvent
+        .end    KiSwitchToThread
 
         SBTTL("Unlock Dispatcher Database")
 //++
@@ -545,7 +425,7 @@ ContinueWait:                           //
 //
 // Routine Description:
 //
-//    This routine is entered at IRQL DISPATCH_LEVEL with the dispatcher
+//    This routine is entered at synchronization level with the dispatcher
 //    database locked. Its function is to either unlock the dispatcher
 //    database and return or initiate a context switch if another thread
 //    has been selected for execution.
@@ -553,7 +433,7 @@ ContinueWait:                           //
 //    N.B. This code merges with the following swap context code.
 //
 //    N.B. A context switch CANNOT be initiated if the previous IRQL
-//         is DISPATCH_LEVEL.
+//         is greater than or equal to DISPATCH_LEVEL.
 //
 //    N.B. This routine is carefully written to be a leaf function. If,
 //        however, a context swap should be performed, the routine is
@@ -570,13 +450,14 @@ ContinueWait:                           //
 //
 //--
 
-        LEAF_ENTRY_S(KiUnlockDispatcherDatabase, _TEXT$00)
+        LEAF_ENTRY(KiUnlockDispatcherDatabase)
 
 //
 // Check if a thread has been scheduled to execute on the current processor.
 //
 
         lw      t0,KiPcr + PcPrcb(zero) // get address of PRCB
+        and     a0,a0,0xff              // isolate old IRQL
         sltu    t1,a0,DISPATCH_LEVEL    // check if IRQL below dispatch level
         lw      t2,PbNextThread(t0)     // get next thread address
         bne     zero,t2,30f             // if ne, a new thread selected
@@ -652,9 +533,12 @@ ContinueWait:                           //
 // If the new IRQL is less than dispatch level, then switch to the new
 // thread.
 //
+// N.B. the jump to the switch to the next thread is required.
+//
 
-30:     lw      t3,KiPcr + PcDpcRoutineActive(zero) // get DPC active flag
+30:     lw      t3,PbDpcRoutineActive(t0) // get DPC active flag
         beq     zero,t1,20b             // if eq, IRQL not below dispatch
+        j       KxUnlockDispatcherDatabase //
 
         .end    KiUnlockDispatcherDataBase
 
@@ -663,7 +547,7 @@ ContinueWait:                           //
 //      drops into this function from above.
 //
 
-        NESTED_ENTRY_S(KxUnlockDispatcherDatabase, ExceptionFrameLength, zero, _TEXT$00)
+        NESTED_ENTRY(KxUnlockDispatcherDatabase, ExceptionFrameLength, zero)
 
         subu    sp,sp,ExceptionFrameLength // allocate context frame
         sw      ra,ExIntRa(sp)          // save return address
@@ -680,49 +564,37 @@ ContinueWait:                           //
         sw      zero,PbNextThread(s0)   // clear next thread address
 
 //
-// Reready current thread for execution and swap context to the selected thread.
+// Reready current thread for execution and swap context to the selected
+// thread.
+//
+// N.B. The return from the call to swap context is directly to the swap
+//      thread exit.
 //
 
         move    a0,s1                   // set address of previous thread object
         sw      s2,PbCurrentThread(s0)  // set address of current thread object
         jal     KiReadyThread           // reready thread for execution
-        jal     SwapContext             // swap context
-        lbu     a0,ThWaitIrql(v1)       // get original wait IRQL
-        b       20f                     // join common code
+        la      ra,KiSwapThreadExit     // set return address
+        j       SwapContext             // swap context
 
         .end    KxUnlockDispatcherDatabase
 
-        SBTTL("Swap Context")
+        SBTTL("Swap Thread")
 //++
 //
 // VOID
-// KiSwapContext (
-//    IN PKTHREAD Thread,
-//    IN BOOLEAN Ready
+// KiSwapThread (
+//    VOID
 //    )
 //
 // Routine Description:
 //
-//    This routine is called to perform a context switch to the specified
-//    thread. If specified, the previous thread is readied for execution.
-//
-//    Since this routine is called as subroutine all volatile registers are
-//    considered free.
-//
-//    This routine is entered at IRQL DISPATCH_LEVEL with the dispatcher
-//    database locked. When a return to the caller finally occurs, the
-//    dispatcher database is unlocked and the IRQL is lowered to the value
-//    just prior to acquiring the dispatcher database lock.
-//
-//    It is assumed that floating point exceptions are disabled.
+//    This routine is called to select and the next thread to run on the
+//    current processor and to perform a context switch to the thread.
 //
 // Arguments:
 //
-//    Thread (a0) - Supplies a pointer to a dispatcher object of type
-//        thread.
-//
-//    Ready (a1) - Supplies a boolean value that determines whether the
-//        previous thread is to be readied for execution.
+//    None.
 //
 // Return Value:
 //
@@ -730,7 +602,7 @@ ContinueWait:                           //
 //
 //--
 
-        NESTED_ENTRY_S(KiSwapContext, ExceptionFrameLength, zero, _TEXT$00)
+        NESTED_ENTRY(KiSwapThread, ExceptionFrameLength, zero)
 
         subu    sp,sp,ExceptionFrameLength // allocate context frame
         sw      ra,ExIntRa(sp)          // save return address
@@ -740,50 +612,284 @@ ContinueWait:                           //
 
         PROLOGUE_END
 
+        .set    noreorder
+        .set    noat
         lw      s0,KiPcr + PcPrcb(zero)   // get address of PRCB
+        lw      t0,KiReadySummary       // get ready summary
         lw      s1,KiPcr + PcCurrentThread(zero) // get current thread address
-        move    s2,a0                   // save next thread address
-        beq     zero,a1,10f             // if eq, don't reready old thread
-        move    a0,s1                   // set address of thread object
-        jal     KiReadyThread           // reready thread for execution
+        lw      s2,PbNextThread(s0)     // get address of next thread
+
+#if !defined(NT_UP)
+
+        lw      t1,KiPcr + PcSetMember(zero) // get processor affinity mask
+        lbu     v0,PbNumber(s0)         // get current processor number
+        lw      v1,KeTickCount + 0      // get low part of tick count
+
+#endif
+
+        srl     t3,t0,16                // isolate bits <31:16> of summary
+        li      t2,16                   // set base bit number
+        bnel    zero,s2,120f            // if ne, next thread selected
+        sw      zero,PbNextThread(s0)   // zero address of next thread
 
 //
-// Swap context to the next thread
+// Find the highest nibble in the ready summary that contains a set bit
+// and left justify so the nibble is in bits <31:28>.
 //
 
-10:     sw      s2,PbCurrentThread(s0)  // set address of current thread object
-        jal     SwapContext             // swap context
+        bne     zero,t3,10f             // if ne, bits <31:16> are nonzero
+        srl     t3,t3,8                 // isolate bits <31:24> of summary
+        li      t2,0                    // set base bit number
+        srl     t3,t0,8                 // isolate bits <15:8> of summary
+10:     bnel    zero,t3,20f             // if ne, bits <15:8> are nonzero
+        addu    t2,t2,8                 // add bit offset to nonzero byte
+20:     srl     t3,t0,t2                // isolate highest nonzero byte
+        addu    t2,t2,3                 // adjust to high bit in nibble
+        sltu    t4,t3,0x10              // check if high nibble nonzero
+        xor     t4,t4,1                 // complement less than indicator
+        sll     t4,t4,2                 // multiply by nibble width
+        addu    t2,t2,t4                // compute ready queue priority
+        la      t3,KiDispatcherReadyListHead // get ready listhead base address
+        nor     t4,t2,zero              // compute left justify shift count
+        sll     t4,t0,t4                // left justify ready summary to nibble
 
 //
-// N.B. SwapContext restores the registers s0, s1, and s2.
+// If the next bit is set in the ready summary, then scan the corresponding
+// dispatcher ready queue.
 //
 
-        lw      v0,ThWaitStatus(v1)     // get wait completion status
+30:     bltz    t4,50f                  // if ltz, queue contains an entry
+        sll     t4,t4,1                 // position next ready summary bit
+        bne     zero,t4,30b             // if ne, more queues to scan
+        subu    t2,t2,1                 // decrement ready queue priority
+
+//
+// All ready queues were scanned without finding a runnable thread so
+// default to the idle thread and set the appropriate bit in idle summary.
+//
+
+40:                                     //
+
+#if defined(_COLLECT_SWITCH_DATA_)
+
+        la      t0,KeThreadSwitchCounters // get switch counters address
+        lw      v0,TwSwitchToIdle(t0)   // increment switch to idle count
+        addu    v0,v0,1                 //
+        sw      v0,TwSwitchToIdle(t0)   //
+
+#endif
+
+#if defined(NT_UP)
+
+        li      t0,1                    // get current idle summary
+#else
+
+        lw      t0,KiIdleSummary        // get current idle summary
+        or      t0,t0,t1                // set member bit in idle summary
+
+#endif
+
+        sw      t0,KiIdleSummary        // set new idle summary
+        b       120f                    //
+        lw      s2,PbIdleThread(s0)     // set address of idle thread
+
+//
+// If the thread can execute on the current processor, then remove it from
+// the dispatcher ready queue.
+//
+
+50:     sll     t5,t2,3                 // compute ready listhead offset
+        addu    t5,t5,t3                // compute ready queue address
+        lw      t6,LsFlink(t5)          // get address of first queue entry
+        subu    s2,t6,ThWaitListEntry   // compute address of thread object
+
+#if !defined(NT_UP)
+
+60:     lw      t7,ThAffinity(s2)       // get thread affinity
+        lw      t8,ThWaitTime(s2)       // get time of thread ready
+        lbu     t9,ThNextProcessor(s2)  // get last processor number
+        and     t7,t7,t1                // check for compatible thread affinity
+        bne     zero,t7,70f             // if ne, thread affinity compatible
+        subu    t8,v1,t8                // compute length of wait
+        lw      t6,LsFlink(t6)          // get address of next entry
+        bne     t5,t6,60b               // if ne, not end of list
+        subu    s2,t6,ThWaitListEntry   // compute address of thread object
+        bne     zero,t4,30b             // if ne, more queues to scan
+        subu    t2,t2,1                 // decrement ready queue priority
+        b       40b                     //
+        nop                             // fill
+
+//
+// If the thread last ran on the current processor, the processor is the
+// ideal processor for the thread, the thread has been waiting for longer
+// than a quantum, ot its priority is greater than low realtime plus 9,
+// then select the thread. Otherwise, an attempt is made to find a more
+// appropriate candidate.
+//
+
+70:     lbu     a0,ThIdealProcessor(s2) // get ideal processor number
+        beq     v0,t9,110f              // if eq, last processor number match
+        sltu    t7,t2,LOW_REALTIME_PRIORITY + 9 // check if priority in range
+        beq     v0,a0,100f              // if eq, ideal processor number match
+        sltu    t8,t8,READY_SKIP_QUANTUM + 1 // check if wait time exceeded
+        and     t8,t8,t7                // check if priority and time match
+        beql    zero,t8,110f            // if eq, priority or time mismatch
+        sb      v0,ThNextProcessor(s2)  // set next processor number
+
+//
+// Search forward in the ready queue until the end of the list is reached
+// or a more appropriate thread is found.
+//
+
+        lw      t7,LsFlink(t6)          // get address of next entry
+80:     beq     t5,t7,100f              // if eq, end of list
+        subu    a1,t7,ThWaitListEntry   // compute address of thread object
+        lw      a2,ThAffinity(a1)       // get thread affinity
+        lw      t8,ThWaitTime(a1)       // get time of thread ready
+        lbu     t9,ThNextProcessor(a1)  // get last processor number
+        lbu     a0,ThIdealProcessor(a1) // get ideal processor number
+        and     a2,a2,t1                // check for compatible thread affinity
+        subu    t8,v1,t8                // compute length of wait
+        beq     zero,a2,85f             // if eq, thread affinity not compatible
+        sltu    t8,t8,READY_SKIP_QUANTUM + 1 // check if wait time exceeded
+        beql    v0,t9,90f               // if eq, processor number match
+        move    s2,a1                   // set thread address
+        beql    v0,a0,90f               // if eq, processor number match
+        move    s2,a1                   // set thread address
+85:     bne     zero,t8,80b             // if ne, wait time not exceeded
+        lw      t7,LsFlink(t7)          // get address of next entry
+        b       110f                    //
+        sb      v0,ThNextProcessor(s2)  // set next processor number
+
+90:     move    t6,t7                   // set list entry address
+100:    sb      v0,ThNextProcessor(s2)  // set next processor number
+        .set    at
+        .set    reorder
+
+110:                                    //
+
+#if defined(_COLLECT_SWITCH_DATA_)
+
+        la      v1,KeThreadSwitchCounters + TwFindIdeal// get counter address
+        lbu     a0,ThIdealProcessor(s2) // get ideal processor number
+        lbu     t9,ThLastprocessor(s2)  // get last processor number
+        beq     v0,a0,115f              // if eq, processor number match
+        addu    v1,v1,TwFindLast - TwFindIdeal // compute counter address
+        beq     v0,t9,115f              // if eq, processor number match
+        addu    v1,v1,TwFindAny - TwFindLast // compute counter address
+115:    lw      v0,0(v1)                // increment appropriate counter
+        addu    v0,v0,1                 //
+        sw      v0,0(v1)                //
+
+#endif
+
+#endif
+
+//
+// Remove the selected thread from the ready queue.
+//
+
+        lw      t7,LsFlink(t6)          // get list entry forward link
+        lw      t8,LsBlink(t6)          // get list entry backward link
+        li      t1,1                    // set bit for mask generation
+        sw      t7,LsFlink(t8)          // set forward link in previous entry
+        sw      t8,LsBlink(t7)          // set backward link in next entry
+        bne     t7,t8,120f              // if ne, list is not empty
+        sll     t1,t1,t2                // compute ready summary set member
+        xor     t1,t1,t0                // clear ready summary bit
+        sw      t1,KiReadySummary       //
+
+//
+// Swap context to the next thread.
+//
+
+        .set    noreorder
+        .set    noat
+120:    jal     SwapContext             // swap context
+        sw      s2,PbCurrentThread(s0)  // set address of current thread object
+        .set    at
+        .set    reorder
 
 //
 // Lower IRQL, deallocate context frame, and return wait completion status.
 //
 // N.B. SwapContext releases the dispatcher database lock.
 //
+// N.B. The register v0 contains the kernel APC pending state on return.
+//
+// N.B. The register s2 contains the address of the new thread on return.
+//
 
-        lbu     a0,ThWaitIrql(v1)       // get original wait IRQL
-20:     lbu     t0,KiPcr + PcIrqlTable(a0) // get translation table entry value
+        ALTERNATE_ENTRY(KiSwapThreadExit)
+
+        lw      s1,ThWaitStatus(s2)     // get wait completion status
+        lbu     a0,ThWaitIrql(s2)       // get original wait IRQL
+        sltu    v1,a0,APC_LEVEL         // check if wait IRQL is zero
+        and     v1,v1,v0                // check if IRQL and APC pending set
+        beq     zero,v1,10f             // if eq, IRQL or pending not set
+
+//
+// Lower IRQL to APC level and dispatch APC interrupt.
+//
+
+        .set    noreorder
+        .set    noat
+        li      a0,APC_LEVEL            // set new IRQL level
+        lbu     t0,KiPcr + PcIrqlTable(a0) // get translation table entry value
         li      t1,~(0xff << PSR_INTMASK) // get interrupt enable mask
+        li      t2,1 << PSR_CU1         // get coprocessor 1 enable bit
+        mfc0    t3,psr                  // get current PSR
+        mtc0    t2,psr
         sll     t0,t0,PSR_INTMASK       // shift table entry into position
-
-        DISABLE_INTERRUPTS(t2)          // disable interrupts
-
-        and     t2,t2,t1                // clear current interrupt enables
-        or      t2,t2,t0                // set new interrupt enables
+        and     t3,t3,t1                // clear current interrupt enables
+        or      t3,t3,t0                // set new interrupt enables
+        mfc0    t4,cause                // get exception cause register
         sb      a0,KiPcr + PcCurrentIrql(zero) // set new IRQL
+        and     t4,t4,DISPATCH_INTERRUPT // clear APC interrupt pending
+        mtc0    t4,cause                //
+        mtc0    t3,psr                  // enable interrupts
+        .set    at
+        .set    reorder
 
-        ENABLE_INTERRUPTS(t2)           // enable interrupts
+        lw      t0,KiPcr + PcPrcb(zero) // get current processor block address
+        lw      t1,PbApcBypassCount(t0) // increment the APC bypass count
+        addu    t1,t1,1                 //
+        sw      t1,PbApcBypassCount(t0) // store result
+        move    a0,zero                 // set previous mode to kernel
+        move    a1,zero                 // set exception frame address
+        move    a2,zero                 // set trap frame addresss
+        jal     KiDeliverApc            // deliver kernel mode APC
+        move    a0,zero                 // set original wait IRQL
 
+//
+// Lower IRQL to wait level, set return status, restore registers, and
+// return.
+//
+
+        .set    noreorder
+        .set    noat
+10:     lbu     t0,KiPcr + PcIrqlTable(a0) // get translation table entry value
+        li      t1,~(0xff << PSR_INTMASK) // get interrupt enable mask
+        li      t2,1 << PSR_CU1         // get coprocessor 1 enable bit
+        mfc0    t3,psr                  // get current PSR
+        mtc0    t2,psr
+        sll     t0,t0,PSR_INTMASK       // shift table entry into position
+        and     t3,t3,t1                // clear current interrupt enables
+        or      t3,t3,t0                // set new interrupt enables
+        sb      a0,KiPcr + PcCurrentIrql(zero) // set new IRQL
+        mtc0    t3,psr                  // enable interrupts
+        .set    at
+        .set    reorder
+
+        move    v0,s1                   // set return status
+        lw      s0,ExIntS0(sp)          // restore register s0 - s2
+        lw      s1,ExIntS1(sp)          //
+        lw      s2,ExIntS2(sp)          //
         lw      ra,ExIntRa(sp)          // get return address
         addu    sp,sp,ExceptionFrameLength // deallocate context frame
         j       ra                      // return
 
-        .end    KiSwapContext
+        .end    KiSwapThread
 
         SBTTL("Dispatch Interrupt")
 //++
@@ -800,8 +906,8 @@ ContinueWait:                           //
 //    IRQL remains at DISPATCH_LEVEL, and the dispatcher database is still
 //    unlocked.
 //
-//    N.B. On entry to this routine only the volatile integer registers have
-//       been saved. The volatile floating point registers have not been saved.
+//    N.B. On entry to this routine all integer registers and the volatile
+//         floating registers have been saved.
 //
 // Arguments:
 //
@@ -813,63 +919,64 @@ ContinueWait:                           //
 //
 //--
 
-        NESTED_ENTRY_S(KiDispatchInterrupt, ExceptionFrameLength, zero, _TEXT$00)
+        NESTED_ENTRY(KiDispatchInterrupt, ExceptionFrameLength, zero)
 
         subu    sp,sp,ExceptionFrameLength // allocate context frame
         sw      ra,ExIntRa(sp)          // save return address
-        sw      s0,ExIntS0(sp)          // save integer registers s0 - s2
-        sw      s1,ExIntS1(sp)          //
-        sw      s2,ExIntS2(sp)          //
-        lw      s0,KiPcr + PcPrcb(zero) // get address of PRCB
 
         PROLOGUE_END
 
-        SAVE_VOLATILE_FLOAT_STATE       // save volatile floating state
-
-//
-// Check for a quantum end, disable interrupts, and clear dispatch interrupt pending.
-//
-
-PollDpcList:                            //
-
-        DISABLE_INTERRUPTS(t0)          // disable interrupts
-
-        .set    noreorder
-        .set    noat
-        mfc0    t1,cause                // get exception cause register
-        addu    s1,s0,PbDpcListHead     // compute DPC listhead address
-        and     t1,t1,APC_INTERRUPT     // clear dispatch interrupt pending
-        mtc0    t1,cause                // set exception cause register
-        .set    at
-        .set    reorder
+        lw      s0,KiPcr + PcPrcb(zero) // get address of PRCB
 
 //
 // Process the deferred procedure call list.
 //
 
-#if !defined(NT_UP)
+PollDpcList:                            //
 
-        addu    s2,s0,PbDpcLock         // compute DPC lock address
-10:     ll      t1,0(s2)                // get current lock value
-        move    t2,s2                   // set lock ownership value
-        bne     zero,t1,10b             // if ne, spin lock owned
-        sc      t2,0(s2)                // set spin lock owned
-        beq     zero,t2,10b             // if eq, store conditional failed
+        DISABLE_INTERRUPTS(s1)          // disable interrupts
 
-#endif
+        .set    noreorder
+        .set    noat
+        mfc0    t0,cause                // get exception cause register
+        and     t0,t0,APC_INTERRUPT     // clear dispatch interrupt pending
+        mtc0    t0,cause                // set exception cause register
+        .set    at
+        .set    reorder
 
-        lw      a0,LsFlink(s1)          // get address of next entry
-        beq     a0,s1,20f               // if eq, DPC list is empty
-        jal     KiProcessDpcList        // process the DPC list
-20:                                     //
+        addu    a1,s0,PbDpcListHead     // compute DPC listhead address
+        lw      a0,LsFlink(a1)          // get address of next entry
+        beq     a0,a1,20f               // if eq, DPC list is empty
 
-#if !defined(NT_UP)
+//
+// Switch to interrupt stack to process the DPC list.
+//
 
-        sw      zero,0(s2)              // set spin lock not owned
+        lw      t1,KiPcr + PcInterruptStack(zero) // get interrupt stack address stack
+        subu    t2,t1,ExceptionFrameLength // allocate exception frame
+        sw      sp,ExIntS4(t2)          // save old stack pointer
+        sw      zero,ExIntRa(t2)        // clear return address
+        sw      t1,KiPcr + PcInitialStack(zero) // set initial stack address
+        subu    t1,t1,KERNEL_STACK_SIZE // compute and set stack limit
+        sw      t1,KiPcr + PcStackLimit(zero) //
+        move    sp,t2                   // set new stack pointer
+        sw      sp,KiPcr + PcOnInterruptStack(zero) // set stack indicator
+        move    v0,s1                   // set previous PSR value
+        jal     KiRetireDpcList         // process the DPC list
 
-#endif
+//
+// Switch back to previous stack and restore the initial stack limit.
+//
 
-        ENABLE_INTERRUPTS(t0)           // enable interrupts
+        lw      t1,KiPcr + PcCurrentThread(zero) // get current thread address
+        lw      t2,ThInitialStack(t1)   // get initial stack address
+        lw      t3,ThStackLimit(t1)     // get stack limit
+        lw      sp,ExIntS4(sp)          // restore stack pointer
+        sw      t2,KiPcr + PcInitialStack(zero) // set initial stack address
+        sw      t3,KiPcr + PcStackLimit(zero) // set stack limit
+        sw      zero,KiPcr + PcOnInterruptStack(zero) // clear stack indicator
+
+20:     ENABLE_INTERRUPTS(s1)           // enable interrupts
 
 //
 // Check to determine if quantum end has occured.
@@ -880,39 +987,50 @@ PollDpcList:                            //
 //      database unlocked.
 //
 
-        lw      t0,PbQuantumEnd(s0)     // get quantum end indicator
-        beq     zero,t0,30f             // if eq, no quantum end request
-        sw      zero,PbQuantumEnd(s0)   // clear quantum end indicator
-        jal     KiQuantumEnd            // process quantum end request
-        bne     zero,v0,40f             // if ne, next thread selected
-25:     lw      s0,ExIntS0(sp)          // restore integer registers s0 - s2
-        lw      s1,ExIntS1(sp)          //
-        lw      s2,ExIntS2(sp)          //
-        b       50f                     //
+        lw      t0,KiPcr + PcQuantumEnd(zero) // get quantum end indicator
+        bne     zero,t0,70f             // if ne, quantum end request
 
 //
 // Check to determine if a new thread has been selected for execution on
 // this processor.
 //
 
-30:     lw      s2,PbNextThread(s0)     // get address of next thread object
-        beq     zero,s2,25b             // if eq, no new thread selected
+        lw      s2,PbNextThread(s0)     // get address of next thread object
+        beq     zero,s2,50f             // if eq, no new thread selected
 
 //
-// Lock dispatcher database and reread address of next thread object since it
-// is possible for it to change in a multiprocessor system.
+// Disable interrupts and attempt to acquire the dispatcher database lock.
 //
+
+        lbu     a0,KiSynchIrql          // get new IRQL value
+
+        DISABLE_INTERRUPTS(t3)          // disable interrupts
 
 #if !defined(NT_UP)
 
-        la      s1,KiDispatcherLock     // get dispatcher base lock address
-35:     ll      t0,0(s1)                // get current lock value
-        move    t1,s1                   // set lock ownership value
-        bne     zero,t0,PollDpcList     // if ne, spin lock owned
-        sc      t1,0(s1)                // set spin lock owned
-        beq     zero,t1,35b             // if eq, store conditional failed
+30:     ll      t0,KiDispatcherLock     // get current lock value
+        move    t1,s2                   // set lock ownership value
+        bne     zero,t0,60f             // if ne, spin lock owned
+        sc      t1,KiDispatcherLock     // set spin lock owned
+        beq     zero,t1,30b             // if eq, store conditional failed
 
 #endif
+
+//
+// Raise IRQL to synchronization level.
+//
+// N.B. The raise IRQL code is duplicated here to avoid any extra overhead
+//      since this is such a common operation.
+//
+
+        lbu     t0,KiPcr + PcIrqlTable(a0) // get translation table entry value
+        li      t1,~(0xff << PSR_INTMASK) // get interrupt enable mask
+        sll     t0,t0,PSR_INTMASK       // shift table entry into position
+        and     t3,t3,t1                // clear current interrupt enables
+        or      t3,t3,t0                // set new interrupt enables
+        sb      a0,KiPcr + PcCurrentIrql(zero) // set new IRQL
+
+        ENABLE_INTERRUPTS(t3)           // enable interrupts
 
 40:     lw      s1,KiPcr + PcCurrentThread(zero) // get current thread object address
         lw      s2,PbNextThread(s0)     // get address of next thread object
@@ -928,11 +1046,36 @@ PollDpcList:                            //
         jal     SwapContext             // swap context
 
 //
-// Restore volatile floating registers f0 - f19 from the trap frame.
+// Restore saved registers, deallocate stack frame, and return.
 //
 
-50:     RESTORE_VOLATILE_FLOAT_STATE    // restore volatile floating state
+50:     lw      ra,ExIntRa(sp)          // get return address
+        addu    sp,sp,ExceptionFrameLength // deallocate context frame
+        j       ra                      // return
 
+//
+// Enable interrupts and check DPC queue.
+//
+
+#if !defined(NT_UP)
+
+60:     ENABLE_INTERRUPTS(t3)           // enable interrupts
+
+        j       PollDpcList             //
+
+#endif
+
+//
+// Process quantum end event.
+//
+// N.B. If the quantum end code returns a NULL value, then no next thread
+//      has been selected for execution. Otherwise, a next thread has been
+//      selected and the dispatcher databased is locked.
+//
+
+70:     sw      zero,KiPcr + PcQuantumEnd(zero) // clear quantum end indicator
+        jal     KiQuantumEnd            // process quantum end request
+        bne     zero,v0,40b             // if ne, next thread selected
         lw      ra,ExIntRa(sp)          // get return address
         addu    sp,sp,ExceptionFrameLength // deallocate context frame
         j       ra                      // return
@@ -948,20 +1091,68 @@ PollDpcList:                            //
 //
 // Arguments:
 //
-//    s0 - Address of Processor Control Block (PRCB).
+//    s0 - Address of Processor Control Block.
 //    s1 - Address of previous thread object.
 //    s2 - Address of next thread object.
 //    sp - Pointer to a exception frame.
 //
 // Return value:
 //
-//    v1 - Address of current thread object.
+//    v0 - Kernel APC pending.
+//    s0 - Address of Processor Control Block.
+//    s2 - Address of current thread object.
 //
 //--
 
-        NESTED_ENTRY_S(SwapContext, 0, zero, _TEXT$00)
+        NESTED_ENTRY(SwapContext, 0, zero)
+
+//
+// Set the thread state to running.
+//
+
+        li      t0,Running              // set thread state to running
+        sb      t0,ThState(s2)          //
+
+//
+// Acquire the context swap lock so the address space of the old process
+// cannot be deleted and then release the dispatcher database lock.
+//
+// N.B. This lock is used to protect the address space until the context
+//    switch has sufficiently progressed to the point where the address
+//    space is no longer needed. This lock is also acquired by the reaper
+//    thread before it finishes thread termination.
+//
+
+#if !defined(NT_UP)
+
+10:     ll      t0,KiContextSwapLock    // get current lock value
+        move    t1,s2                   // set ownership value
+        bne     zero,t0,10b             // if ne, lock already owned
+        sc      t1,KiContextSwapLock    // set lock ownership value
+        beq     zero,t1,10b             // if eq, store conditional failed
+        sw      zero,KiDispatcherLock   // set lock not owned
+
+#endif
+
+//
+// Save old thread nonvolatile context.
+//
 
         sw      ra,ExSwapReturn(sp)     // save return address
+        sw      s3,ExIntS3(sp)          // save integer registers s3 - s8.
+        sw      s4,ExIntS4(sp)          //
+        sw      s5,ExIntS5(sp)          //
+        sw      s6,ExIntS6(sp)          //
+        sw      s7,ExIntS7(sp)          //
+        sw      s8,ExIntS8(sp)          //
+        sdc1    f20,ExFltF20(sp)        // save floating registers f20 - f31
+        sdc1    f22,ExFltF22(sp)        //
+        sdc1    f24,ExFltF24(sp)        //
+        sdc1    f26,ExFltF26(sp)        //
+        sdc1    f28,ExFltF28(sp)        //
+        sdc1    f30,ExFltF30(sp)        //
+
+        PROLOGUE_END
 
 //
 // Accumlate the total time spent in a thread.
@@ -969,11 +1160,11 @@ PollDpcList:                            //
 
 #if defined(PERF_DATA)
 
-        addu    a0,sp,ExIntS3           // compute address of result
+        addu    a0,sp,ExFltF20          // compute address of result
         move    a1,zero                 // set address of optional frequency
         jal     KeQueryPerformanceCounter // query performance counter
-        lw      t0,ExIntS3(sp)          // get current cycle count
-        lw      t1,ExIntS3 + 4(sp)      //
+        lw      t0,ExFltF20(sp)         // get current cycle count
+        lw      t1,ExFltF20 + 4(sp)     //
         lw      t2,PbStartCount(s0)     // get starting cycle count
         lw      t3,PbStartCount + 4(s0) //
         sw      t0,PbStartCount(s0)     // set starting cycle count
@@ -993,100 +1184,169 @@ PollDpcList:                            //
 
 #endif
 
-        sw      s3,ExIntS3(sp)          // save integer registers s3 - s8.
-        sw      s4,ExIntS4(sp)          //
-        sw      s5,ExIntS5(sp)          //
-        sw      s6,ExIntS6(sp)          //
-        sw      s7,ExIntS7(sp)          //
-        sw      s8,ExIntS8(sp)          //
-
-        PROLOGUE_END
-
-        lw      t0,PbContextSwitches(s0) // increment number of context switches
-        addu    t0,t0,1                 //
-        sw      t0,PbContextSwitches(s0) //
-        lw      t1,ThContextSwitches(s2) // increment number of context switches
-        addu    t1,t1,1                 //
-        sw      t1,ThContextSwitches(s2) //
-
-        sw      s2,KiPcr + PcCurrentThread(zero) // set address of new thread object
-        li      t0,Running              // set state of new thread to running
-        sb      t0,ThState(s2)          //
-
 //
-// Save the nonvolatile floating state.
+// The following entry point is used to switch from the idle thread to
+// another thread.
 //
 
-        sdc1    f20,ExFltF20(sp)        // save floating registers f20 - f31
-        sdc1    f22,ExFltF22(sp)        //
-        sdc1    f24,ExFltF24(sp)        //
-        sdc1    f26,ExFltF26(sp)        //
-        sdc1    f28,ExFltF28(sp)        //
-        sdc1    f30,ExFltF30(sp)        //
+        ALTERNATE_ENTRY(SwapFromIdle)
+
+#if DBG
+
+        lw      t0,ThInitialStack(s1)   // get initial stack address
+        lw      t1,ThStackLimit(s1)     // get stack limit
+        sltu    t2,sp,t0                // stack within limits?
+        sltu    t3,sp,t1                //
+        xor     t3,t3,t2                //
+        bne     zero,t3,5f              // if ne, stack within limits
+        li      a0,PANIC_STACK_SWITCH   // set bug check code
+        move    a1,t0                   // set initial stack address
+        move    a2,t1                   // set stack limit
+        move    a3,sp                   // set stack address
+        jal     KeBugCheckEx            // bug check
+
+#endif
 
 //
-// Save the current PSR in the context frame, store the kernel stack pointer
-// in the previous thread object, load the new kernel stack pointer from the
-// new thread object, load the fixed entries in the TB that map the new kernel
-// stack, select and new process id and swap to the new process, and restore
-// the previous PSR from the context frame.
+// Get the old and new process object addresses.
 //
 
-        lw      s3,ThApcState + AsProcess(s2) // get new process object address
-        lw      s4,ThApcState + AsProcess(s1) // get old process object address
+5:      lw      s3,ThApcState + AsProcess(s2) // get new process address
+        lw      s4,ThApcState + AsProcess(s1) // get old process address
 
 //
-// Swap kernel stack pointers.
+// Save the processor state, swap stack pointers, and set the new stack
+// limits.
 //
 
         .set    noreorder
         .set    noat
-        mfc0    t0,psr                  // get old PSR
+        mfc0    s7,psr                  // save current PSR
         li      t1,1 << PSR_CU1         // disable interrupts
         mtc0    t1,psr                  // 3 cycle hazzard
-        sw      t0,ExPsr(sp)            // save old PSR
         lw      t2,ThInitialStack(s2)   // get new initial stack pointer
+        lw      t3,ThStackLimit(s2)     // get new stack limit
         sw      sp,ThKernelStack(s1)    // save old kernel stack pointer
         lw      sp,ThKernelStack(s2)    // get new kernel stack pointer
-        sw      t2,KiPcr + PcInitialStack(zero) // set new initial stack pointer
-        beql    s3,s4,20f               // if eq, old/new process is the same
-        move    v0,zero                 // set PID roll over false
-        move    a1,s4                   // set address of old process
-        jal     KiSwapProcess           // swap address space to next process
-        move    a0,s3                   // set address of new process
+        ld      t1,ThTeb(s2)            // get user TEB and TLS array addresses
+        sw      t2,KiPcr + PcInitialStack(zero) // set initial stack pointer
+        sw      t3,KiPcr + PcStackLimit(zero) // set stack limit
+        sd      t1,KiPcr + PcTeb(zero)  // set user TEB and TLS array addresses
+
+//
+// If the new process is not the same as the old process, then swap the
+// address space to the new process.
+//
+// N.B. The context swap lock cannot be dropped until all references to the
+//      old process address space are complete. This includes any possible
+//      TB Misses that could occur referencing the new address space while
+//      still executing in the old address space.
+//
+// N.B. The process address space swap is executed with interrupts disabled.
+//
+
+#if defined(NT_UP)
+
+        beq     s3,s4,20f               // if eq, old and new process match
+
+#else
+
+        beql    s3,s4,20f               // if eq, old and new process match
+        sw      zero,KiContextSwapLock  // set spin lock not owned
+
+//
+// Update the processor set masks.
+//
+
+        lw      t0,KiPcr + PcSetMember(zero) // get processor set member
+        lw      t2,PrActiveProcessors(s3) // get new active processor set
+        lw      t1,PrActiveProcessors(s4) // get old active processor set
+        or      t2,t2,t0                // set processor member in set
+        xor     t1,t1,t0                // clear processor member in set
+        sw      t2,PrActiveProcessors(s3) // set new active processor set
+        sw      t1,PrActiveProcessors(s4) // set old active processor set
+        sw      zero,KiContextSwapLock  // set spin lock not owned
+
+#endif
+
+        lw      s5,PrDirectoryTableBase(s3) // get page directory PDE
+        lw      s6,PrDirectoryTableBase + 4(s3) // get hyper space PDE
+        .set    at
+        .set    reorder
+
+//
+// Allocate a new process PID. If the new PID number is greater than the
+// number of PIDs supported on the host processor, then flush the entire
+// TB and reset the PID number ot zero.
+//
+
+        lw      v1,KiPcr + PcCurrentPid(zero) // get current processor PID
+        lw      t2,KeNumberProcessIds   // get number of process id's
+        addu    v1,v1,1 << ENTRYHI_PID  // increment master system PID
+        sltu    t2,v1,t2                // any more PIDs to allocate
+        bne     zero,t2,10f             // if ne, more PIDs to allocate
+
+//
+// Flush the random part of the TB.
+//
+
+        jal     KiFlushRandomTb         // flush random part of TB
+        move    v1,zero                 // set next PID value
+
+//
+// Swap address space to the specified process.
+//
+
+10:     sw      v1,KiPcr + PcCurrentPid(zero) // set current processor PID
+        li      t3,PDE_BASE             // get virtual address of PDR
+        or      t3,t3,v1                // merge process PID
+        li      t4,PDR_ENTRY << INDEX_INDEX // set entry index for PDR
+
+        .set    noreorder
+        .set    noat
+        mtc0    t3,entryhi              // set VPN2 and PID of TB entry
+        mtc0    s5,entrylo0             // set first PDE value
+        mtc0    s6,entrylo1             // set second PDE value
+        mtc0    t4,index                // set index of PDR entry
+        nop                             // 1 cycle hazzard
+        tlbwi                           // write system PDR TB entry
+        nop                             // 3 cycle hazzard
+        nop                             //
+        nop                             //
+        .set    at
+        .set    reorder
 
 //
 // If the new thread has a kernel mode APC pending, then request an APC
 // interrupt.
 //
 
-20:     lw      t1,ThTeb(s2)            // get address of user TEB
-        lbu     t2,ThApcState + AsKernelApcPending(s2) // get kernel APC pending
-        lw      t0,ExPsr(sp)            // get new PSR
+        .set    noreorder
+        .set    noat
+20:     lbu     v0,ThApcState + AsKernelApcPending(s2) // get kernel APC pending
         mfc0    t3,cause                // get cause register contents
-        sll     t2,t2,(APC_LEVEL + CAUSE_INTPEND - 1) // shift APC pending
+        sll     t2,v0,(APC_LEVEL + CAUSE_INTPEND - 1) // shift APC pending
         or      t3,t3,t2                // merge possible APC interrupt request
         mtc0    t3,cause                // write exception cause register
-        mtc0    t0,psr                  // set new PSR
-        sw      t1,KiPcr + PcTeb(zero)  // set address of user TEB
+        mtc0    s7,psr                  // set new PSR
         .set    at
         .set    reorder
 
 //
-// Enable interrupts and unlock the dispatcher database.
+// Update the number of context switches for the current processor and the
+// new thread and save the address of the new thread objhect in the PCR.
 //
 
-#if !defined(NT_UP)
-
-        beq     zero,v0,30f             // if eq, PID rollover did not occur
-        jal     KiSynchronizeProcessIds // synchronize PIDs on other processors
-        sw      zero,KiProcessIdWrapLock // set spin lock not owned
-30:     sw      zero,KiDispatcherLock   // set spin lock not owned
-
-#endif
+        lw      t0,PbContextSwitches(s0) // increment processor context switches
+        addu    t0,t0,1                 //
+        sw      t0,PbContextSwitches(s0) //
+        lw      t1,ThContextSwitches(s2) // increment thread context switches
+        addu    t1,t1,1                 //
+        sw      t1,ThContextSwitches(s2) //
+        sw      s2,KiPcr + PcCurrentThread(zero) // set address of new thread
 
 //
-// Restore the nonvolatile floating state.
+// Restore new thread nonvolatile context.
 //
 
         ldc1    f20,ExFltF20(sp)        // restore floating registers f20 - f31
@@ -1095,11 +1355,6 @@ PollDpcList:                            //
         ldc1    f26,ExFltF26(sp)        //
         ldc1    f28,ExFltF28(sp)        //
         ldc1    f30,ExFltF30(sp)        //
-
-//
-// Restore integer registers s3 - s8.
-//
-
         lw      s3,ExIntS3(sp)          // restore integer registers s3 - s8.
         lw      s4,ExIntS4(sp)          //
         lw      s5,ExIntS5(sp)          //
@@ -1108,183 +1363,135 @@ PollDpcList:                            //
         lw      s8,ExIntS8(sp)          //
 
 //
-// Set address of current thread object, restore remaining integer registers,
-// and return.
+// Set address of current thread object and return.
+//
+// N.B. The register s2 contains the address of the new thread on return.
 //
 
-        move    v1,s2                   // set address of current thread object
         lw      ra,ExSwapReturn(sp)     // get return address
-        lw      s0,ExIntS0(sp)          // restore integer registers s0 - s2
-        lw      s1,ExIntS1(sp)          //
-        lw      s2,ExIntS2(sp)          //
         j       ra                      // return
 
         .end    SwapContext
 
-        SBTTL("Process Deferred Procedure Call List")
+        SBTTL("Swap Process")
 //++
+//
+// BOOLEAN
+// KiSwapProcess (
+//    IN PKPROCESS NewProcess,
+//    IN PKPROCESS OldProcess
+//    )
 //
 // Routine Description:
 //
-//    This routine is called to process the deferred procedure call list.
-//    DPC routines are called using a separate stack to provide an extra
-//    set of storage.
+//    This function swaps the address space from one process to another by
+//    assigning a new process id, if necessary, and loading the fixed entry
+//    in the TB that maps the process page directory page.
 //
 // Arguments:
 //
-//    a0 - Address of the first entry in DPC list.
-//    s0 - Address of the PRCB.
-//    s1 - Address of the DPC listhead.
-//    s2 - Address of the DPC lock.
-//    t0 - Previous processor status.
+//    NewProcess (a0) - Supplies a pointer to a control object of type process
+//      which represents the new process that is switched to.
 //
-// Return value:
+//    OldProcess (a1) - Supplies a pointer to a control object of type process
+//      which represents the old process that is switched from.
 //
-//    s1 - Address of the DPC lock.
-//    t0 - Previous processor status.
+// Return Value:
+//
+//    None.
 //
 //--
 
         .struct 0
-        .space  4 * 4                   // argument save area
-DpRa:   .space  4                       // return address
-DpSp:   .space  4                       // saved stack pointer
-DpBs:   .space  4                       // base of previous stack
-        .space  4                       //
+SpArg:  .space  4 * 4                   // argument register save area
+        .space  4 * 3                   // fill for alignment
+SpRa:   .space  4                       // saved return address
+SpFrameLength:                          // length of stack frame
+SpA0:   .space  4                       // saved argument register a0
 
-#if DBG
+        NESTED_ENTRY(KiSwapProcess, SpFrameLength, zero)
 
-DpStart:.space  4                       // DPC start time in ticks
-DpFunct:.space  4                       // DPC function address
-DpCount:.space  4                       // interrupt count at start of DPC
-DpTime: .space  4                       // interrupt time at start of DPC
-
-#endif
-
-DpcFrameLength:                         // DPC frame length
-
-        NESTED_ENTRY_S(KiProcessDpcListRoutine, DpcFrameLength, zero, _TEXT$00)
-
-        sw      sp,DpSp(sp)             // save old stack pointer
-        sw      ra,DpRa(sp)             // save return address
+        subu    sp,sp,SpFrameLength     // allocate stack frame
+        sw      ra,SpRa(sp)             // save return address
 
         PROLOGUE_END
 
 //
-// Save current initial stack address and set new initial stack address.
+// Acquire the context swap lock, clear the processor set member in he old
+// process, set the processor member in the new process, and release the
+// context swap lock.
 //
-
-        ALTERNATE_ENTRY(KiProcessDpcList)
-
-        lw      t1,KiPcr + PcInterruptStack(zero) // get address of DPC stack
-        lw      t2,KiPcr + PcInitialStack(zero) // get current initial stack address
-        subu    t3,t1,DpcFrameLength    // allocate DPC frame
-        sw      sp,DpSp(t3)             // save old stack pointer
-        sw      ra,DpRa(t3)             // save return address
-        sw      t2,DpBs(t3)             // save current initial stack address
-        sw      t1,KiPcr + PcInitialStack(zero) // set current initial stack address
-        move    sp,t3                   // set new stack pointer
-        sw      sp,KiPcr + PcOnInterruptStack(zero) // set stack indicator
-
-//
-// Process next entry in the DPC list.
-//
-
-10:     lw      t1,LsFlink(a0)          // get address of next entry
-        subu    a0,a0,DpDpcListEntry    // compute address of DPC Object
-        sw      t1,LsFlink(s1)          // set address of next in header
-        sw      s1,LsBlink(t1)          // set address of previous in next
-        lw      a1,DpDeferredContext(a0) // get deferred context argument
-        lw      a2,DpSystemArgument1(a0) // get first system argument
-        lw      a3,DpSystemArgument2(a0) // get second system argument
-        lw      t1,DpDeferredRoutine(a0) // get deferred routine address
-        sw      zero,DpLock(a0)         // clear DPC inserted state
 
 #if !defined(NT_UP)
 
-        sw      zero,0(s2)              // set spin lock not owned
-
-#endif
-
-        ENABLE_INTERRUPTS(t0)           // enable interrupts
-
-#if DBG
-
-        sw      t1,DpFunct(sp)          // save DPC function address
-        lw      t2,KeTickCount          // save current tick count
-        sw      t2,DpStart(sp)          //
-        lw      t2,KiPcr + PcPrcb(zero) // get address of current PRCB
-        lw      t3,PbInterruptCount(t2) // get current interrupt count
-        lw      t4,PbInterruptTime(t2)  // get current interrupt time
-        sw      t3,DpCount(sp)          // save interrupt count at start of DPC
-        sw      t4,DpTime(sp)           // save interrupt time at start of DPC
-
-#endif
-
-        li      t2,TRUE                 // set DPC routine active
-        sw      t2,KiPcr + PcDpcRoutineActive(zero) //
-        jal     t1                      // call DPC routine
-
-#if DBG
-
-        lbu     t0,KiPcr + PcCurrentIrql(zero) // get current IRQL
-        sltu    t1,t0,DISPATCH_LEVEL    // check if less than dispatch level
-        beq     zero,t1,13f             // if eq, not less than dispatch level
-        lw      t1,DpFunct(sp)          // get DPC function address
-        jal     DbgBreakPoint           // execute debug breakpoint
-
-#endif
-
-13:     sw      zero,KiPcr + PcDpcRoutineActive(zero) // clear DPC routine active
-
-#if DBG
-
-        lw      t0,KeTickCount          // get current tick count
-        lw      t1,DpStart(sp)          // get starting tick count
-        lw      t2,DpFunct(sp)          // get DPC function address
-        subu    t3,t0,t1                // compute time in DPC function
-        sltu    t3,t3,100               // check if less than one second
-        bne     zero,t3,15f             // if ne, less than one second
-        lw      a0,KiPcr + PcPrcb(zero) // get address of current PRCB
-        lw      t3,PbInterruptCount(a0) // get current interrupt count
-        lw      t4,PbInterruptTime(a0)  // get current interrupt time
-        lw      t5,DpCount(sp)          // get starting interrupt count
-        lw      t6,DpTime(sp)           // get starting interrupt time
-        subu    t3,t3,t5                // compute number of interrupts
-        subu    t4,t4,t6                // compute time of interrupts
-        jal     DbgBreakPoint           // execute debug breakpoint
-15:                                     //
+10:     ll      t0,KiContextSwapLock    // get current lock value
+        move    t1,a0                   // set ownership value
+        bne     zero,t0,10b             // if ne, lock already owned
+        sc      t1,KiContextSwapLock    // set lock ownership value
+        beq     zero,t1,10b             // if eq, store conditional failed
+        lw      t0,KiPcr + PcSetMember(zero) // get processor set member
+        lw      t2,PrActiveProcessors(a0) // get new active processor set
+        lw      t1,PrActiveProcessors(a1) // get old active processor set
+        or      t2,t2,t0                // set processor member in set
+        xor     t1,t1,t0                // clear processor member in set
+        sw      t2,PrActiveProcessors(a0) // set new active processor set
+        sw      t1,PrActiveProcessors(a1) // set old active processor set
+        sw      zero,KiContextSwapLock  // clear lock value
 
 #endif
 
 //
-// Check to determine if any more DPCs are available to process.
+// Allocate a new process PID. If the new PID number is greater than the
+// number of PIDs supported on the host processor, then flush the entire
+// TB and reset the PID number ot zero.
 //
 
-        DISABLE_INTERRUPTS(t0)          // disable interrupts
-
-#if !defined(NT_UP)
-
-20:     ll      t1,0(s2)                // get current lock value
-        move    t2,s2                   // set lock ownership value
-        bne     zero,t1,20b             // if ne, spin lock owned
-        sc      t2,0(s2)                // set spin lock owned
-        beq     zero,t2,20b             // if eq, store conditional failed
-
-#endif
-
-        lw      a0,LsFlink(s1)          // get address of next entry
-        bne     a0,s1,10b               // if ne, DPC list is not empty
+        lw      v1,KiPcr + PcCurrentPid(zero) // get current processor PID
+        lw      t2,KeNumberProcessIds   // get number of process id's
+        addu    v1,v1,1 << ENTRYHI_PID  // increment master system PID
+        sltu    t2,v1,t2                // any more PIDs to allocate
+        bne     zero,t2,15f             // if ne, more PIDs to allocate
 
 //
-// Switch back to previous stack and restore the initial stack limit.
+// Flush the random part of the TB.
 //
 
-        lw      t1,DpBs(sp)             // get previous initial stack address
-        lw      ra,DpRa(sp)             // get return address
-        sw      t1,KiPcr + PcInitialStack(zero) // set current initial stack address
-        sw      zero,KiPcr + PcOnInterruptStack(zero) // clear stack indicator
-        lw      sp,DpSp(sp)             // restore stack pointer
+        sw      a0,SpA0(sp)             // save process object address
+        jal     KiFlushRandomTb         // flush random part of TB
+        lw      a0,SpA0(sp)             // restore process object address
+        move    v1,zero                 // set next PID value
+
+//
+// Swap address space to the specified process.
+//
+
+15:     sw      v1,KiPcr + PcCurrentPid(zero) // set current processor PID
+        lw      t1,PrDirectoryTableBase(a0) // get page directory PDE
+        lw      t2,PrDirectoryTableBase + 4(a0) // get hyper space PDE
+        li      t3,PDE_BASE             // get virtual address of PDR
+        or      t3,t3,v1                // merge process PID
+        li      t4,PDR_ENTRY << INDEX_INDEX // set entry index for PDR
+
+        DISABLE_INTERRUPTS(t5)          // disable interrupts
+
+        .set    noreorder
+        .set    noat
+        mtc0    t3,entryhi              // set VPN2 and PID of TB entry
+        mtc0    t1,entrylo0             // set first PDE value
+        mtc0    t2,entrylo1             // set second PDE value
+        mtc0    t4,index                // set index of PDR entry
+        nop                             // 1 cycle hazzard
+        tlbwi                           // write system PDR TB entry
+        nop                             // 3 cycle hazzard
+        nop                             //
+        nop                             //
+        .set    at
+        .set    reorder
+
+        ENABLE_INTERRUPTS(t5)           // enable interrupts
+
+        lw      ra,SpRa(sp)             // restore return address
+        addu    sp,sp,SpFrameLength     // deallocate stack frame
         j       ra                      // return
 
-        .end    KiProcessDpcListRoutine
+        .end    KiSwapProcess

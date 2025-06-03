@@ -100,12 +100,9 @@ Return Value:
 
     InitialStack = (LONG)Thread->InitialStack;
     if (ARGUMENT_PRESENT(ContextRecord)) {
-        TrFrame = (PKTRAP_FRAME)(((InitialStack) -
-                  sizeof(KTRAP_FRAME)) & 0xfffffff0);
-        ExFrame = (PKEXCEPTION_FRAME)(((ULONG)TrFrame -
-                  sizeof(KEXCEPTION_FRAME)) & 0xfffffff0);
-        CxFrame = (PKEXCEPTION_FRAME)(((ULONG)ExFrame -
-                  sizeof(KEXCEPTION_FRAME)) & 0xfffffff0);
+        TrFrame = (PKTRAP_FRAME)(InitialStack - sizeof(KTRAP_FRAME));
+        ExFrame = (PKEXCEPTION_FRAME)((ULONG)TrFrame - sizeof(KEXCEPTION_FRAME));
+        CxFrame = (PKEXCEPTION_FRAME)((ULONG)ExFrame - sizeof(KEXCEPTION_FRAME));
 
         //
         // Zero the exception and trap frames and copy information from the
@@ -114,7 +111,8 @@ Return Value:
 
         RtlZeroMemory((PVOID)ExFrame, sizeof(KEXCEPTION_FRAME));
         RtlZeroMemory((PVOID)TrFrame, sizeof(KTRAP_FRAME));
-        KeContextToKframes(TrFrame, ExFrame,
+        KeContextToKframes(TrFrame,
+                           ExFrame,
                            ContextRecord,
                            ContextRecord->ContextFlags | CONTEXT_CONTROL,
                            UserMode);
@@ -135,8 +133,7 @@ Return Value:
 
     } else {
         ExFrame = NULL;
-        CxFrame = (PKEXCEPTION_FRAME)(((InitialStack) -
-                  sizeof(KEXCEPTION_FRAME)) & 0xfffffff0);
+        CxFrame = (PKEXCEPTION_FRAME)(InitialStack - sizeof(KEXCEPTION_FRAME));
 
         //
         // Set the previous mode in thread object to kernel.
@@ -161,38 +158,13 @@ Return Value:
     CxFrame->IntS1 = (ULONG)StartContext;
     CxFrame->IntS2 = (ULONG)StartRoutine;
     CxFrame->IntS3 = (ULONG)SystemRoutine;
-    CxFrame->Psr = 0;
-
-#if defined(R3000)
-
-    ((PSR *)(&CxFrame->Psr))->IEC = 1;
-    ((PSR *)(&CxFrame->Psr))->IEP = 1;
-    ((PSR *)(&CxFrame->Psr))->IEO = 1;
-    ((PSR *)(&CxFrame->Psr))->KUO = 1;
-
-#endif
-
-#if defined(R4000)
-
-    ((PSR *)(&CxFrame->Psr))->IE = 1;
-    ((PSR *)(&CxFrame->Psr))->KSU = 0;
-
-#endif
-
-    ((PSR *)(&CxFrame->Psr))->INTMASK = PCR->IrqlTable[DISPATCH_LEVEL];
-    ((PSR *)(&CxFrame->Psr))->CU1 = 1;
-
-    //
-    // Set the initial kernel stack pointer.
-    //
-
     Thread->KernelStack = (PVOID)CxFrame;
     return;
 }
 
 BOOLEAN
 KeSetAutoAlignmentProcess (
-    IN PKPROCESS Process,
+    IN PRKPROCESS Process,
     IN BOOLEAN Enable
     )
 

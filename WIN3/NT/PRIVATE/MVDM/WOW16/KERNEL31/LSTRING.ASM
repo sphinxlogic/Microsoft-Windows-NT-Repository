@@ -257,7 +257,7 @@ lscat_DOTWRS:
         test dx, word ptr cs:[gacf_dotwrs+2]
         pop  dx
         jz   @F
-        jnz  replace_slashes
+        jmp  short replace_slashes
 
 gacf_dotwrs:
         DD WOWCF_SANITIZEDOTWRSFILES

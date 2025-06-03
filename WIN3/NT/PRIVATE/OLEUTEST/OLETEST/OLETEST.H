@@ -18,8 +18,6 @@
 //system includes
 #include <windows.h>
 
-#define assert(x) if( !(x) ) { DebugBreak(); }
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -39,6 +37,7 @@
 #endif // !WIN32
 
 //app includes
+#include "assert.h"
 #include "task.h"
 #include "stack.h"
 #include "app.h"
@@ -50,4 +49,3 @@
 #else
 	Error!  Oletest.h included multiple times.
 #endif //!_OLETEST_H
-

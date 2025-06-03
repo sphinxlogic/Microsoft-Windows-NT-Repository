@@ -43,7 +43,7 @@ Revision History:
 
 HANDLE      DriverHandle;
 
-UCHAR                                       NumberOfProcessors;
+ULONG                                       NumberOfProcessors;
 ULONG                                       Buffer[INFSIZE/4];
 
 extern  ULONG   UseGlobalMax, GlobalMax;
@@ -101,7 +101,7 @@ Revision History:
     // Open P5Stat driver
     //
 
-    RtlInitUnicodeString(&DriverName, L"\\Device\\P5Stat");
+    RtlInitUnicodeString(&DriverName, L"\\Device\\PStat");
     InitializeObjectAttributes(
             &ObjA,
             &DriverName,
@@ -121,6 +121,8 @@ Revision History:
     if (!NT_SUCCESS(status)) {
         return 0;
     }
+
+    InitPossibleEventList();
 
     return(NumberOfProcessors);
 }
@@ -233,7 +235,8 @@ Revision History:
     return(TRUE);
 }
 
-UpdateInternalStats()
+VOID
+UpdateInternalStats(VOID)
 {
     IO_STATUS_BLOCK             IOSB;
 
@@ -243,7 +246,7 @@ UpdateInternalStats()
         (PIO_APC_ROUTINE) NULL,
         (PVOID) NULL,
         &IOSB,
-        P5STAT_READ_STATS,
+        PSTAT_READ_STATS,
         Buffer,                 // input buffer
         INFSIZE,
         NULL,                   // output buffer
@@ -251,7 +254,8 @@ UpdateInternalStats()
     );
 }
 
-SetP5CounterEncodings (PVOID encoding)
+VOID
+SetCounterEvents (PVOID Events, ULONG length)
 {
     IO_STATUS_BLOCK             IOSB;
 
@@ -261,9 +265,9 @@ SetP5CounterEncodings (PVOID encoding)
         (PIO_APC_ROUTINE) NULL,
         (PVOID) NULL,
         &IOSB,
-        P5STAT_SET_CESR,
-        encoding,               // input buffer
-        8,
+        PSTAT_SET_CESR,
+        Events,                 // input buffer
+        length,
         NULL,                   // output buffer
         0
     );
@@ -320,9 +324,9 @@ SnapPrivateInfo (
 
     for (i=0; i < NumberOfProcessors; i++) {
         if (pPerf->Mega) {
-            PLARGE_INTEGER li = PrivateStat;
+            PULONGLONG li = (PULONGLONG) PrivateStat;
 
-            *li = RtlLargeIntegerShiftRight (*li, 10);
+            *li = *li >> 10;
         }
 
         j = *PrivateStat / DELAY_SECONDS;
@@ -337,7 +341,7 @@ SnapPrivateInfo (
             pPerf->CurrentDataPoint[i+1] = 0 - l;
         }
 
-        PrivateStat = ((PUCHAR) PrivateStat) + len;
+        PrivateStat = (PULONG)((PUCHAR)PrivateStat + len);
     }
 }
 
@@ -493,3 +497,4 @@ Revision History:
 
     return ;
 }
+

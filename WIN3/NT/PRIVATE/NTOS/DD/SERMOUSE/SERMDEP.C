@@ -51,6 +51,10 @@ Revision History:
 #include "mseries.h"
 #include "debug.h"
 
+#ifdef PNP_IDENTIFY
+#include "devdesc.h"
+#endif
+
 //
 // Use the alloc_text pragma to specify the driver initialization routines
 // (they can be paged out).
@@ -70,6 +74,11 @@ Revision History:
 typedef struct _DEVICE_EXTENSION_LIST_ENTRY {
     LIST_ENTRY          ListEntry;
     DEVICE_EXTENSION    DeviceExtension;
+
+#ifdef PNP_IDENTIFY
+    HWDESC_INFO         HardwareInfo;
+#endif
+
 } DEVICE_EXTENSION_LIST_ENTRY, *PDEVICE_EXTENSION_LIST_ENTRY;
 
 
@@ -245,6 +254,11 @@ Return Value:
     ULONG i;
     UNICODE_STRING fullDeviceName;
     UNICODE_STRING deviceNameSuffix;
+    UNICODE_STRING servicesPath;
+
+#ifdef PNP_IDENTIFY
+    PHWDESC_INFO hardwareInfo = (PHWDESC_INFO) (TmpDeviceExtension + 1);
+#endif
 
 #define DUMP_COUNT 4
     ULONG dumpData[DUMP_COUNT];
@@ -502,13 +516,17 @@ Return Value:
     addressSpace = (deviceExtension->Configuration.PortList[0].Flags
                        & CM_RESOURCE_PORT_IO) == CM_RESOURCE_PORT_IO? 1:0;
 
-    HalTranslateBusAddress(
+    if (!HalTranslateBusAddress(
         deviceExtension->Configuration.InterfaceType,
         deviceExtension->Configuration.BusNumber,
         deviceExtension->Configuration.PortList[0].u.Port.Start,
         &addressSpace,
         &cardAddress
-        );
+        )) {
+
+        addressSpace = 1;
+        cardAddress.QuadPart = 0;
+    }
 
     if (!addressSpace) {
 
@@ -766,6 +784,42 @@ Return Value:
     }
 
     ASSERT(status == STATUS_SUCCESS);
+
+#ifdef PNP_IDENTIFY
+
+    //
+    // Pull off the UNICODE_NULL we appended to the string earlier for this
+    // routine
+    //
+
+    servicesPath = *RegistryPath;
+    servicesPath.Length -= sizeof(UNICODE_NULL);
+
+    status = LinkDeviceToDescription(
+                &servicesPath,
+                &fullDeviceName,
+                hardwareInfo->InterfaceType,
+                hardwareInfo->InterfaceNumber,
+                hardwareInfo->ControllerType,
+                hardwareInfo->ControllerNumber,
+                hardwareInfo->PeripheralType,
+                hardwareInfo->PeripheralNumber
+                );
+
+#endif
+
+    if(!NT_SUCCESS(status)) {
+
+        SerMouPrint((
+            1,
+            "SERMOUSE-SerialMouseInitialize: LinkDeviceToDescription returned "
+            "status %#08lx\n",
+            status
+            ));
+
+        status = STATUS_SUCCESS;
+    }
+                            
 
 SerialMouseInitializeExit:
 
@@ -1115,6 +1169,7 @@ Return Value:
             return;
         }
         deviceExtension = &(deviceExtensionListEntry->DeviceExtension);
+        RtlZeroMemory(deviceExtension, sizeof(DEVICE_EXTENSION));
 
         SerMouServiceParameters(
             deviceExtension,
@@ -1399,16 +1454,29 @@ Return Value:
             deviceExtension->ProtocolHandler =
                 MSerSetProtocol(port, MSER_PROTOCOL_MP);
             hardwareButtons = 2;
+            deviceExtension->HardwarePresent = MOUSE_HARDWARE_PRESENT;
             break;
         case MOUSE_3B:
             deviceExtension->ProtocolHandler =
                 MSerSetProtocol(port, MSER_PROTOCOL_MP);
             hardwareButtons = 3;
+            deviceExtension->HardwarePresent = MOUSE_HARDWARE_PRESENT;
             break;
         case BALLPOINT:
             deviceExtension->ProtocolHandler =
                 MSerSetProtocol(port, MSER_PROTOCOL_BP);
+            deviceExtension->HardwarePresent |= BALLPOINT_HARDWARE_PRESENT;
+            deviceExtension->Configuration.MouseAttributes.MouseIdentifier =
+                BALLPOINT_SERIAL_HARDWARE;
             hardwareButtons = 2;
+            break;
+        case MOUSE_Z:
+            deviceExtension->ProtocolHandler =
+                MSerSetProtocol(port, MSER_PROTOCOL_Z);
+            hardwareButtons = 3;
+            deviceExtension->HardwarePresent |= WHEELMOUSE_HARDWARE_PRESENT;
+            deviceExtension->Configuration.MouseAttributes.MouseIdentifier =
+                WHEELMOUSE_SERIAL_HARDWARE;
             break;
         }
     }
@@ -1545,6 +1613,10 @@ Return Value:
     BOOLEAN defaultInterruptShare;
     KINTERRUPT_MODE defaultInterruptMode;
 
+#ifdef PNP_IDENTIFY
+    PHWDESC_INFO hardwareInfo;
+#endif
+
     SerMouPrint((
         1,
         "SERMOUSE-SerMouPeripheralCallout: Path @ 0x%x, Bus Type 0x%x, Bus Number 0x%x\n",
@@ -1567,6 +1639,24 @@ Return Value:
     //
 
     deviceExtension = (PDEVICE_EXTENSION) Context;
+
+#ifdef PNP_IDENTIFY
+
+    //
+    // Kludge to identify ourselves so that PnP can determine which driver owns
+    // which arc device
+    //
+
+    hardwareInfo = (PHWDESC_INFO) ((PDEVICE_EXTENSION) deviceExtension + 1);
+    hardwareInfo->InterfaceType = BusType;
+    hardwareInfo->InterfaceNumber = BusNumber;
+    hardwareInfo->ControllerType = ControllerType;
+    hardwareInfo->ControllerNumber = ControllerNumber;
+    hardwareInfo->PeripheralType = PeripheralType;
+    hardwareInfo->PeripheralNumber = PeripheralNumber;
+
+#endif
+
     if (deviceExtension->HardwarePresent) {
 
         //

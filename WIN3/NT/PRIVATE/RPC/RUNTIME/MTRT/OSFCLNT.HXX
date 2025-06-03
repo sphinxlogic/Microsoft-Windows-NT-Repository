@@ -291,11 +291,6 @@ Fields:
     Association - Contains a pointer to the association which owns this
         connection.
 
-    ClientAuthInfo - Contains the authentication and authorization
-        information for this connection.  If the connection is
-        unauthenticated, the AuthenticationLevel field of this structure
-        will be RPC_C_AUTHN_LEVEL_NONE.
-
     ClientSecurityContext - Optionally contains the security context being
         used for this connection.
 
@@ -335,25 +330,23 @@ friend class OSF_CASSOCIATION;
 
 private:
 
-    unsigned short	MaxFrag;
-    BITSET		Bindings;
-    int			AssociationKey;
+    unsigned short      MaxFrag;
+    BITSET              Bindings;
+    int                 AssociationKey;
     OSF_BINDING_HANDLE * CurrentBinding;
     unsigned long CallId;
-    unsigned long		DataRep;
+    unsigned long               DataRep;
 
     // Indicates the call stack.  Whenever a request message is sent or
     // received, the stack is incremented.  Likewise, whenever a response
     // message is sent or received, the stack is decremented.
 
-    int CallStack;
 
     unsigned int PresentationContext;
     PRPC_DISPATCH_TABLE DispatchTableCallback;
     unsigned int ConnectionAbortedFlag;
     OSF_CASSOCIATION * Association;
 
-    CLIENT_AUTH_INFO ClientAuthInfo;
     CSECURITY_CONTEXT ClientSecurityContext;
     int ThirdLegAuthNeeded;
     unsigned int TokenLength;
@@ -366,11 +359,15 @@ private:
     unsigned int AlertMsgsSent;
 
     unsigned long SavedHeaderSize;
-    void PAPI *   SavedHeader; 
+    void PAPI *   SavedHeader;
+    int FirstFrag ;
+    int FirstReceive ;
+    unsigned int FragmentLength;
+    rpcconn_request PAPI * Request ;
+    unsigned char PacketType ;
+    unsigned int CurrentBufferLength ;
 
 protected:
-
-    int PendingAlert;
 
     DCE_SECURITY_INFO DceSecurityInfo;
 
@@ -380,6 +377,8 @@ protected:
     int OutstandingBuffers;
 
     OSF_CCONNECTION (
+        CLIENT_AUTH_INFO * ClientAuthInfo,
+        RPC_STATUS PAPI * pStatus
         );
 
 public:
@@ -388,6 +387,12 @@ public:
     // and OSF_BINDING_HANDLE::RemoveActiveConnection.
 
     int ActiveConnectionsKey;
+
+    int PendingAlert;
+    int AlertsEnabled;
+    int CallStack;
+    BOOL EnableCancels ;
+    
 
     virtual~OSF_CCONNECTION (
         );
@@ -410,23 +415,56 @@ public:
         IN unsigned int RecursionCount
         );
 
+    virtual RPC_STATUS
+    Send (
+        IN PRPC_MESSAGE Message
+        ) ;
+
+    RPC_STATUS
+    SendRecur (
+        IN OUT PRPC_MESSAGE Message,
+        IN unsigned int RecursionCount
+        ) ;
+
+    RPC_STATUS
+    SendNextChunk(
+        IN OUT PRPC_MESSAGE Message
+        ) ;
+
+    RPC_STATUS
+    Receive (
+        IN PRPC_MESSAGE Message,
+        IN unsigned int Size
+        ) ;
+
     virtual RPC_STATUS // Value to be returned by RpcGetBuffer API.
     GetBuffer ( // Perform a buffer allocation operation in a handle specific
                 // way.
-	IN OUT PRPC_MESSAGE Message
+        IN OUT PRPC_MESSAGE Message
         );
 
     RPC_STATUS
     GetBufferDo ( // Actually perform the buffer allocation.
-	IN unsigned int culRequiredLength,
-	OUT void PAPI *PAPI * ppBuffer
+        IN unsigned int culRequiredLength,
+        OUT void PAPI *PAPI * ppBuffer
         );
 
     virtual void
     FreeBuffer ( // Perform a buffer deallocation operation in a handle
                  // specific way.
-	IN PRPC_MESSAGE Message
+        IN PRPC_MESSAGE Message
         );
+
+    virtual void
+    FreePipeBuffer (
+        IN PRPC_MESSAGE Message
+        ) ;
+
+    virtual RPC_STATUS
+    ReallocPipeBuffer (
+        IN PRPC_MESSAGE Message,
+        IN unsigned int NewSize
+        ) ;
 
     virtual RPC_STATUS
     BindingCopy (
@@ -457,6 +495,15 @@ public:
         ) = 0;
 
     virtual RPC_STATUS
+    TransSendReceiveWithTimeout (
+        IN void PAPI * SendBuffer,
+        IN unsigned int SendBufferLength,
+        OUT void PAPI * PAPI * ReceiveBuffer,
+        OUT unsigned int PAPI * ReceiveBufferLength,
+        IN DWORD dwTimeout
+        ) ;
+
+    virtual RPC_STATUS
     TransSetTimeout (
         IN long Timeout
         ) = 0;
@@ -482,14 +529,14 @@ public:
     SendBindPacket ( // Construct and send the bind packet; the reply
                      // is received, but not decoded.  Note, this routine
                      // will also send an alter context packet.
-	IN PRPC_SYNTAX_IDENTIFIER InterfaceSyntax,
-	IN PRPC_SYNTAX_IDENTIFIER TransferSyntaxes,
-	IN unsigned int TransferSyntaxCount,
-	IN unsigned char PresentContext,
+        IN PRPC_SYNTAX_IDENTIFIER InterfaceSyntax,
+        IN PRPC_SYNTAX_IDENTIFIER TransferSyntaxes,
+        IN unsigned int TransferSyntaxCount,
+        IN unsigned char PresentContext,
         IN unsigned long AssocGroup,
         IN unsigned char PacketType,
         OUT void PAPI * PAPI * Buffer, // The buffer should be 0.
-	OUT unsigned int PAPI * BufferLength
+        OUT unsigned int PAPI * BufferLength
         );
 
     void
@@ -508,8 +555,8 @@ public:
     int // Indicates success (0), or an error.
     AddPContext ( // Add the presentation context to those know for this
                   // connection.
-	IN int PresentContext
-	) {return(Bindings.Insert(PresentContext));}
+        IN int PresentContext
+        ) {return(Bindings.Insert(PresentContext));}
 
     int
     SupportedPContext (
@@ -529,7 +576,7 @@ public:
     void
     SetCurrentBinding (
         IN OSF_BINDING_HANDLE * Binding
-	) {CurrentBinding = Binding;}
+        ) {CurrentBinding = Binding;}
 
     RPC_STATUS // Value indicating whether the authentication stuff
                // happened correctly (if it exists), and the error if there
@@ -554,6 +601,29 @@ public:
     AbortConnection (
         );
 
+    void
+    SendOrphan (
+        );
+
+    void
+    SendAlert(
+        );
+
+    RPC_STATUS
+    PingServer(
+        ) ;
+
+#if defined(NTENV) || defined(DOSWIN32RPC)
+
+    RPC_STATUS
+    Cancel(
+        void * ThreadHandle
+        );
+
+    unsigned
+    TestCancel(
+        );
+#endif
 private:
 
 // --------------------------------------------------------------------
@@ -564,18 +634,12 @@ private:
         IN int DidNotExecute
         );
 
-    void
-    SendOrphan (
-        );
-
-    void
-    SendAlert(
-        );
-
     RPC_STATUS
     ReceiveMessage (
         IN OUT PRPC_MESSAGE Message,
-        OUT unsigned int PAPI * RemoteFaultOccured
+        OUT unsigned int PAPI * RemoteFaultOccured,
+        IN unsigned int Size,
+        OUT unsigned int PAPI * DidNotExecute
         );
 
 #define MAX_ALLOC_Hint 16*1024
@@ -588,15 +652,37 @@ private:
 
     RPC_STATUS
     ReceiveRequestOrResponse (
-        IN OUT PRPC_MESSAGE Message
+        IN OUT PRPC_MESSAGE Message,
+        IN unsigned int Size
         );
+
+    RPC_STATUS
+    ReceiveNextChunk(
+        IN OUT PRPC_MESSAGE Message,
+        IN unsigned int Size,
+        IN int SecurityFailureOccured = 0
+        ) ;
 
     RPC_STATUS
     SendRequestOrResponse (
         IN OUT PRPC_MESSAGE Message,
         IN unsigned char PacketType,
-        IN RPC_UUID * ObjectUuid OPTIONAL
+        IN RPC_UUID * ObjectUuid OPTIONAL,
+        IN int PipeSend = 0
         );
+
+    RPC_STATUS
+    SendFragment(
+        IN OUT rpcconn_common PAPI *pFragment,
+        IN unsigned int LastFragmentFlag,
+        IN unsigned int HeaderSize, 
+        IN unsigned int MaxSecuritySize,
+        IN unsigned int LengthLeft,
+        IN unsigned int MaximumFragmentLength,
+        IN unsigned char PAPI *ReservedForSecurity,
+        OUT void PAPI * PAPI *ReceiveBuffer,
+        OUT unsigned int PAPI *ReceiveBufferLength
+        ) ;
 
     void
     SetLastTimeUsedToNow (
@@ -605,7 +691,213 @@ private:
     unsigned long
     InquireLastTimeUsed (
         );
+
+    RPC_STATUS
+    DoPreSendProcessing(
+        ) ;
+
+    void
+    DoPostReceiveProcessing(
+        IN PRPC_MESSAGE Message,
+        IN RPC_STATUS RpcStatus
+        ) ;
+
+    void
+    DoConnectionCleanup (
+        IN OUT PRPC_MESSAGE Message,
+        IN void PAPI *OriginalBuffer,
+        IN RPC_STATUS RpcStatus,
+        IN BOOL RemoteFaultOccured,
+        IN BOOL DidNotExecute
+        ) ;
+
+    void
+    FreeTheConnection (
+        IN OUT PRPC_MESSAGE Message
+        ) ;
+
+    void
+    AbortTheConnection (
+        IN OUT PRPC_MESSAGE Message,
+        IN void PAPI *OriginalBuffer
+        ) ;
 };
+
+
+inline void
+OSF_CCONNECTION::FreeTheConnection (
+    IN OUT PRPC_MESSAGE Message
+    )
+{
+    if (   (OutstandingBuffers == 0)
+        && (CallStack == 0))
+        {
+        FreeConnection();
+        Message->Handle = 0;
+        }
+    else
+        {
+        Message->Handle = (RPC_BINDING_HANDLE) this;
+        }
+}
+
+inline void
+OSF_CCONNECTION::AbortTheConnection (
+    IN OUT PRPC_MESSAGE Message,
+    IN void PAPI * OriginalBuffer
+    )
+{
+    if ( OriginalBuffer )
+        {
+        TransFreeBuffer((char PAPI *) OriginalBuffer - sizeof(rpcconn_request));
+        }
+
+    AbortConnection();
+    Message->Handle = 0;
+}
+
+inline void
+OSF_CCONNECTION::DoConnectionCleanup(
+    IN OUT PRPC_MESSAGE Message,
+    IN void PAPI *OriginalBuffer,
+    IN RPC_STATUS RpcStatus,
+    IN BOOL RemoteFaultOccured,
+    IN BOOL DidNotExecute
+    )
+{
+    if (EnableCancels && (CallStack == 0))
+        {
+        EVAL_AND_ASSERT(RPC_S_OK == UnregisterForCancels());
+        EnableCancels = 0;
+        }
+
+    if (RpcStatus == RPC_S_OK)
+        {
+        FreeTheConnection(Message) ;
+        return ;
+        }
+
+    if (RemoteFaultOccured)
+        {
+        switch (RpcStatus)
+            {
+            case RPC_S_OUT_OF_MEMORY:
+            case RPC_S_UNKNOWN_IF:
+            case RPC_S_ACCESS_DENIED:
+            case RPC_S_PROTOCOL_ERROR:
+                AbortTheConnection(Message, OriginalBuffer) ;
+                break;
+    
+            case RPC_S_SERVER_TOO_BUSY:
+            case RPC_S_PROCNUM_OUT_OF_RANGE:
+            case RPC_S_UNSUPPORTED_TYPE:
+                FreeTheConnection (Message);
+                break;
+    
+            default:
+                if (DidNotExecute)
+                    {
+                    // We received an extended error
+                    AbortTheConnection(Message, OriginalBuffer) ;
+                    }
+                else
+                    {
+                    // We received a user exception
+                    FreeTheConnection(Message) ;
+                    }
+            }
+        }
+    else
+        {
+        AbortTheConnection(Message, OriginalBuffer) ;
+        }
+}
+
+
+inline RPC_STATUS
+OSF_CCONNECTION::DoPreSendProcessing(
+    )
+/*++
+Routine Description:
+    
+Return Value:
+--*/
+{
+    RPC_STATUS RpcStatus ;
+
+    if (CallStack == 0)
+        {
+        EnableCancels = FALSE ;
+        TransSetTimeout(RPC_C_CANCEL_INFINITE_TIMEOUT);
+
+#ifdef NTENV
+
+        if (ThreadGetRpcCancelTimeout() != RPC_C_CANCEL_INFINITE_TIMEOUT)
+            {
+    
+            PendingAlert = RpcTestCancel() == RPC_S_OK ? TRUE : FALSE;
+            if (PendingAlert)
+                {
+                return RPC_S_CALL_CANCELLED;
+                }
+    
+            RpcStatus = RegisterForCancels(this);
+            if (RpcStatus != RPC_S_OK)
+                {
+                return RpcStatus;
+                }
+            EnableCancels = TRUE;
+            }
+        else
+#endif
+            {
+            PendingAlert = FALSE;
+            }
+        }
+
+    return (RPC_S_OK) ;
+}
+
+
+inline void
+OSF_CCONNECTION::DoPostReceiveProcessing(
+    IN PRPC_MESSAGE Message,
+    IN RPC_STATUS RpcStatus
+    )
+/*++
+Routine Description:
+    Do the book keeping required after a receive is complete,
+    
+   WARNING! Do not touch any member privates of the this pointer directly
+   The *this* pointer could have been deleted [see auto retry logic
+    in SendReceiveRecur & SendRecur
+--*/
+{
+#ifdef NTENV
+    if (RpcStatus == RPC_S_OK)
+        {
+        if (  ((OSF_CCONNECTION *) Message->Handle)->PendingAlert == TRUE )
+            {
+            RpcCancelThread(GetCurrentThread());
+            ((OSF_CCONNECTION *)Message->Handle)->PendingAlert = FALSE;
+            }
+        }
+#endif
+}
+
+
+inline  RPC_STATUS
+OSF_CCONNECTION::TransSendReceiveWithTimeout (
+        IN void PAPI * SendBuffer,
+        IN unsigned int SendBufferLength,
+        OUT void PAPI * PAPI * ReceiveBuffer,
+        OUT unsigned int PAPI * ReceiveBufferLength,
+        IN DWORD dwTimeout
+        )
+{
+    ASSERT(0) ;
+    return RPC_S_INTERNAL_ERROR ;
+}
 
 
 inline void
@@ -657,6 +949,8 @@ Arguments:
 {
     this->PresentationContext = PresentationContext;
     this->DispatchTableCallback = DispatchTable;
+    FirstFrag = 1 ;
+    FirstReceive = 1 ;
 }
 
 
@@ -758,8 +1052,12 @@ Routine Description:
 
 --*/
 {
-    RpcpMemoryCopy(&(this->RpcInterfaceInformation),RpcInterfaceInformation,
-            sizeof(RPC_CLIENT_INTERFACE));
+    unsigned int Length;
+
+    Length = (RpcInterfaceInformation->Length > sizeof(RPC_SERVER_INTERFACE) ) ?
+        sizeof(RPC_SERVER_INTERFACE) : RpcInterfaceInformation->Length;
+
+    RpcpMemoryCopy(&(this->RpcInterfaceInformation),RpcInterfaceInformation, Length);
 }
 
 
@@ -786,8 +1084,13 @@ Return Value:
 
 --*/
 {
+    unsigned int Length;
+
+    Length = (RpcInterfaceInformation->Length > sizeof(RPC_SERVER_INTERFACE) ) ?
+        sizeof(RPC_SERVER_INTERFACE) : RpcInterfaceInformation->Length;
+
     return(RpcpMemoryCompare(&(this->RpcInterfaceInformation),
-            RpcInterfaceInformation, sizeof(RPC_CLIENT_INTERFACE)));
+            RpcInterfaceInformation, Length));
 }
 
 NEW_SDICT(OSF_BINDING);
@@ -826,8 +1129,7 @@ private:
     int BindHandleCount; // Counts the number of OSF_BINDING_HANDLEs using
                          // this association.  This particular variable is
                          // protected by the AssociationDictMutex.
-
-    OSF_BINDING_DICT	Bindings;
+    OSF_BINDING_DICT    Bindings;
     OSF_CCONNECTION_DICT FreeConnections;
     unsigned long AssocGroupId;
 
@@ -841,11 +1143,13 @@ private:
     unsigned int OpenConnectionCount;
 
     unsigned int MaintainContext;
-    INTERLOCKED_INTEGER CallIdCounter;
+    unsigned long  CallIdCounter;
 
     //This mutex is *only used* to serialize
-    //Binds.. 
+    //Binds..
     MUTEX AssociationMutex;
+    BOOL AssociationValid ;
+    int FailureCount ;
 
 public:
 
@@ -868,7 +1172,8 @@ private:
         OUT OSF_CCONNECTION * PAPI * TheCConnection,
         IN int PresentContext,
         IN unsigned int Timeout,
-        IN CLIENT_AUTH_INFO * ClientAuthInfo
+        IN CLIENT_AUTH_INFO * ClientAuthInfo,
+        IN unsigned long MyAssocGroupId
         );
 
 public:
@@ -904,6 +1209,10 @@ public:
         IN OSF_CCONNECTION * CConnection
         );
 
+    RPC_STATUS
+    PingServer(
+        ) ;
+
 private:
 
     RPC_STATUS // Return value which eventually gets returned from
@@ -911,7 +1220,7 @@ private:
     ProcessBindAckOrNak ( // Process the rpc_bind_ack or rpc_bind_nak
                           // messages.
         IN rpcconn_common PAPI * Buffer,
-	IN unsigned int BufferLength,
+	    IN unsigned int BufferLength,
         IN OSF_CCONNECTION * CConnection
         );
 
@@ -930,10 +1239,6 @@ public:
     IncrementCount ( // Note, whoever calls this routine must have already
                      // requested the AssociationDictMutex.
         ) {BindHandleCount += 1;}
-
-    unsigned long
-    AllocateCallId (
-        );
 
     void
     ShutdownRequested ( // A connection in the association received a
@@ -968,7 +1273,18 @@ public:
     DCE_BINDING *
     DuplicateDceBinding (
         );
+
+    BOOL
+    IsValid (
+        ) ;
 };
+
+inline BOOL
+OSF_CASSOCIATION::IsValid (
+    )
+{
+    return AssociationValid ;
+}
 
 
 inline void
@@ -986,18 +1302,6 @@ Routine Description:
 --*/
 {
     MaintainContext = 1;
-}
-
-
-#ifdef MIPS
-unsigned long
-#else
-inline unsigned long
-#endif
-OSF_CASSOCIATION::AllocateCallId (
-    )
-{
-    return((unsigned long) CallIdCounter.Increment());
 }
 
 

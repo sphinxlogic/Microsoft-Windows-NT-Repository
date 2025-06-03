@@ -119,24 +119,48 @@ typedef struct _STD_HANDLES {
     ULONG   hStdIn;
 } STD_HANDLES, *PSTD_HANDLES;
 
-typedef struct _Redirection_Info {
-    HANDLE  hPipe;
-    HANDLE  hFile;
-    PCHAR   pszFile;
-    ULONG   dwParameter;
-} REDIRECTION_INFO, *PREDIRECTION_INFO;
+#define PIPE_INPUT_BUFFER_SIZE	512
+#define PIPE_OUTPUT_BUFFER_SIZE PIPE_INPUT_BUFFER_SIZE
+#define PIPE_INPUT_TIMEOUT		55
+#define PIPE_OUTPUT_TIMEOUT	PIPE_INPUT_TIMEOUT
+
+typedef struct	_PIPE_INPUT{
+    struct _PIPE_INPUT	*Next;
+    HANDLE		hFileRead;
+    HANDLE		hFileWrite;
+    HANDLE		hPipe;
+    HANDLE		hDataEvent;
+    HANDLE		hThread;
+    CHAR		*pFileName;
+    DWORD		BufferSize;
+    BOOL		fEOF;
+    BOOL		WaitData;
+    BYTE		*Buffer;
+    CRITICAL_SECTION	CriticalSection;
+} PIPE_INPUT, *PPIPE_INPUT;
+
+typedef struct	_PIPE_OUTPUT {
+    HANDLE		hFile;
+    HANDLE		hPipe;
+    HANDLE		hExitEvent;
+    CHAR		*pFileName;
+    DWORD		BufferSize;
+    BYTE		*Buffer;
+} PIPE_OUTPUT, *PPIPE_OUTPUT;
 
 typedef struct _RedirComplete_Info {
     HANDLE  ri_hStdErr;
     HANDLE  ri_hStdOut;
     HANDLE  ri_hStdIn;
-    HANDLE  ri_hStdOutFile;
-    HANDLE  ri_hStdOutFileDup;
     HANDLE  ri_hStdErrFile;
-    HANDLE  ri_hStdErrFileDup;
-    PSZ     ri_pszStdOutFile;
-    PSZ     ri_pszStdErrFile;
-    PSZ     ri_pszStdInFile;
+    HANDLE  ri_hStdOutFile;
+    HANDLE  ri_hStdInFile;
+    HANDLE  ri_hStdOutThread;
+    HANDLE  ri_hStdErrThread;
+    PPIPE_INPUT ri_pPipeStdIn;
+    PPIPE_OUTPUT ri_pPipeStdOut;
+    PPIPE_OUTPUT ri_pPipeStdErr;
+
 } REDIRCOMPLETE_INFO, *PREDIRCOMPLETE_INFO;
 
 typedef struct	_VDMENVBLK {
@@ -144,7 +168,6 @@ typedef struct	_VDMENVBLK {
     DWORD	cchRemain;
     CHAR	*lpszzEnv;
 } VDMENVBLK, *PVDMENVBLK;
-
 
 #pragma pack()
 
@@ -166,9 +189,7 @@ VOID   cmdGetCurrentDir		    (VOID);
 VOID   cmdSetDirectories	    (PCHAR,VDMINFO *);
 VOID   CheckDotExeForWOW	    (LPSTR);
 BOOL   cmdCheckCopyForRedirection   (PREDIRCOMPLETE_INFO);
-VOID   cmdCopyForRedirection	    (LPDWORD);
 BOOL   cmdCreateTempFile	    (PHANDLE,PCHAR *);
-VOID   cmdCloseRedirectionHandles   (PREDIRECTION_INFO);
 VOID   cmdCheckBinary		    (VOID);
 VOID   cmdInitConsole		    (VOID);
 VOID   nt_init_event_thread	    (VOID);
@@ -180,17 +201,22 @@ VOID   cmdGetConfigSys              (VOID);
 VOID   cmdGetAutoexecBat            (VOID);
 VOID   DeleteConfigFiles            (VOID);
 VOID   cmdGetKbdLayout		    (VOID);
-PCHAR  cmdXformEnvironment	    (PCHAR);
+BOOL   cmdXformEnvironment	    (PCHAR, PANSI_STRING);
 VOID   cmdGetInitEnvironment	    (VOID);
 VOID   cmdUpdateCurrentDirectories  (BYTE);
 BOOL   cmdCreateVDMEnvironment	    (PVDMENVBLK);
 DWORD  cmdGetEnvironmentVariable    (PVDMENVBLK, PCHAR, PCHAR, DWORD);
 BOOL   cmdSetEnvironmentVariable    (PVDMENVBLK, PCHAR, PCHAR);
 DWORD  cmdExpandEnvironmentStrings  (PVDMENVBLK, PCHAR, PCHAR, DWORD);
-NTSTATUS MyRtlSetEnvironmentVariable (PWCHAR *, PCHAR, PCHAR);
 PREDIRCOMPLETE_INFO  cmdCheckStandardHandles      (PVDMINFO,USHORT UNALIGNED *);
 VOID   cmdGetStartInfo              (VOID);
 BOOL   cmdHandleStdinWithPipe       (PREDIRCOMPLETE_INFO);
+BOOL   cmdHandleStdOutErrWithPipe   (PREDIRCOMPLETE_INFO, USHORT);
+LPSTR  cmdSkipOverPathName	    (LPSTR);
+BOOL   cmdPipeFileDataEOF	    (HANDLE, BOOL *);
+BOOL   cmdPipeFileEOF		    (HANDLE);
+VOID   cmdPipeInThread		    (LPVOID);
+VOID   cmdPipeOutThread 	    (LPVOID);
 
 /** Command Externs **/
 
@@ -217,8 +243,7 @@ extern HANDLE	hFileStdErrDup;
 extern VDMINFO	VDMInfo;
 extern PSZ	pszFileStdOut;
 extern PSZ	pszFileStdErr;
-extern BOOL	IsPifCallOut;
-extern CHAR	cmdHomeDirectory[];
+extern CHAR     cmdHomeDirectory[];
 extern HANDLE   SCS_hStdIn;
 extern HANDLE   SCS_hStdOut;
 extern HANDLE   SCS_hStdErr;
@@ -259,3 +284,9 @@ extern VDMENVBLK cmdVDMEnvBlk;
 extern CHAR	*lpszzVDMEnv32;
 extern DWORD	cchVDMEnv32;
 extern UINT	VdmExitCode;
+
+// application path name extention type.
+#define EXTENTION_STRING_LEN	4
+#define BAT_EXTENTION_STRING	".BAT"
+#define EXE_EXTENTION_STRING	".EXE"
+#define COM_EXTENTION_STRING	".COM"

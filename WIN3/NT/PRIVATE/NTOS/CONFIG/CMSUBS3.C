@@ -21,8 +21,6 @@ Revision History:
 #include    "cmp.h"
 
 #ifdef ALLOC_PRAGMA
-#pragma alloc_text(PAGE,CmpLockRegistry)
-#pragma alloc_text(PAGE,CmpTryLockRegistryExclusive)
 #pragma alloc_text(PAGE,CmpUnlockRegistry)
 
 #if DBG
@@ -34,18 +32,13 @@ Revision History:
 
 
 //
-// Locking
-//
-
-//
-// Macros for kernel mode environment
+// Global registry lock
 //
 
 ERESOURCE CmpRegistryLock;
 
-//
-// Access to the registry is serialized by a shared resource, CmpRegistryLock.
-//
+PVOID       CmpCaller;
+PVOID       CmpCallerCaller;
 
 VOID
 CmpLockRegistry(
@@ -84,9 +77,9 @@ Return Value:
 
 }
 
-BOOLEAN
-CmpTryLockRegistryExclusive(
-    IN BOOLEAN CanWait
+VOID
+CmpLockRegistryExclusive(
+    VOID
     )
 /*++
 
@@ -112,23 +105,11 @@ Return Value:
 {
     BOOLEAN Status;
 
-    #if DBG
-    PVOID       Caller;
-    PVOID       CallerCaller;
-    #endif
 
     KeEnterCriticalRegion();
-    Status = ExAcquireResourceExclusive(&CmpRegistryLock,CanWait);
+    ExAcquireResourceExclusive(&CmpRegistryLock,TRUE);
 
-    #if DBG
-    RtlGetCallersAddress(&Caller, &CallerCaller);
-    CMLOG(CML_FLOW, CMS_LOCKING) {
-        KdPrint(("CmpLockRegistry: c, cc: %08lx  %08lx\n", Caller, CallerCaller));
-    }
-    #endif
-
-    return(Status);
-
+    RtlGetCallersAddress(&CmpCaller, &CmpCallerCaller);
 }
 
 VOID
@@ -142,22 +123,9 @@ Routine Description:
 
 --*/
 {
-    #if DBG
-    PVOID       Caller;
-    PVOID       CallerCaller;
-    #endif
-
-
     ASSERT_CM_LOCK_OWNED();
     ExReleaseResource(&CmpRegistryLock);
     KeLeaveCriticalRegion();
-
-    #if DBG
-    RtlGetCallersAddress(&Caller, &CallerCaller);
-    CMLOG(CML_FLOW, CMS_LOCKING) {
-        KdPrint(("CmpUnlockRegistry: c, cc: %08lx  %08lx\n", Caller, CallerCaller));
-    }
-    #endif
 }
 
 
@@ -185,4 +153,3 @@ CmpTestRegistryLockExclusive(VOID)
 }
 
 #endif
-

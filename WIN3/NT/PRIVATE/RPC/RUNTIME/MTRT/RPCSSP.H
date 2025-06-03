@@ -26,10 +26,6 @@ Revision History:
 #define SECURITY_WIN32
 #endif // WIN32RPC
 
-#ifdef OS2_12
-#define SECURITY_OS212
-#endif // OS2_12
-
 #ifdef MAC
 #define SECURITY_MAC
 #endif

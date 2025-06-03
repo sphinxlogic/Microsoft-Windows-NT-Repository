@@ -25,6 +25,7 @@ typedef UCHAR   *PUCHAR;
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <mmsystem.h>
 
 #include "charmap.h"
 #include "fcntl.h"
@@ -74,19 +75,32 @@ typedef UCHAR   *PUCHAR;
 #define RT_ERROR        0x7fff
 #define RT_NEWBITMAP    MAKEINTRESOURCE((DWORD)RT_BITMAP+DIFFERENCE)
 
-// BUGBUG only here until they're in winuser.h
+// These are 'hidden' resources that users never see/use directly.
 #define RT_MENUEX       MAKEINTRESOURCE(15)
 #define RT_DIALOGEX     MAKEINTRESOURCE(18)
-#define RT_PLUGPLAY     MAKEINTRESOURCE(19)
-#define RT_VXD          MAKEINTRESOURCE(20)
 
+// These are here only temporary here they should in winuser.w
+#define RT_ANICURSOR    MAKEINTRESOURCE(21)
+#define RT_ANIICON      MAKEINTRESOURCE(22)
+
+#define RT_LAST         MAKEINTRESOURCE(22)
+
+// AFX resource types (Should these be in winuser.h?)
+#define RT_DLGINIT      MAKEINTRESOURCE(240)
+#define RT_TOOLBAR      MAKEINTRESOURCE(241)
+
+// BUGBUG only here until they're in winuser.h
 #define GFE_ZEROINIT    0x0001
 #define GFE_SHORT       0x0002
 
-#define MFT_SEPARATOR   0x00000800L
-
+#ifdef MFR_POPUP
+#if (MFR_POPUP != 0x01) && (MFR_END != 0x80)
+#error MFR_POPUP or MFR_END definition(s) invalid
+#endif
+#else
 #define MFR_POPUP       0x01
 #define MFR_END         0x80
+#endif
 
 #define BS_PUSHBOX      0x0AL
 // END BUGBUG
@@ -210,6 +224,7 @@ typedef UCHAR   *PUCHAR;
 #define TKCAPTION           135
 #define TKDLGINCLUDE        136
 #define TKLSTR              137
+#define TKDLGINIT           138
 #define TKEXSTYLE           0xf7  /* so as not to conflict with x-coordinate */
 
 /* memory and load flags */
@@ -423,6 +438,7 @@ typedef struct tagDLGHDR
     WORD    pointsize;
     WORD    wWeight;
     BYTE    bItalic;
+    BYTE    bCharSet;
     DWORD   dwHelpID;
 } DLGHDR, *PDLGHDR;
 
@@ -436,8 +452,8 @@ typedef struct tagMENUITEM
 {
     SHORT       id;
     WCHAR       szText[ MAXTOKSTR ];
-    UCHAR       OptFlags;
-    UCHAR       PopFlag;
+    WORD        OptFlags;
+    WORD        PopFlag;
 } MENUITEM, *PMENUITEM;
 
 #define BLOCKSIZE 16
@@ -467,11 +483,10 @@ typedef struct tagRESINFO
     DWORD       characteristics;
     LONG        exstyleT;
     LONG        BinOffset;
-    LONG        HdrOffset;
     LONG        size;
     struct tagRESINFO *next;
     WORD        *poffset;
-    WCHAR       *name;
+    PWCHAR      name;
     POBJLST     pObjLst;
     WORD        language;
     SHORT       flags;
@@ -510,6 +525,7 @@ typedef struct tagRESADDITIONAL
 /* ----- Global variables ----- */
 extern  SHORT       ResCount;
 extern  PTYPEINFO   pTypInfo;
+extern  UINT        uiDefaultCodePage;
 extern  UINT        uiCodePage;
 extern  SHORT       nFontsRead;
 extern  PFONTDIR    pFontList;
@@ -528,18 +544,26 @@ extern  UINT        mnEndFlagLoc;   /* patch location for end of a menu. */
                                     /* we set the high order bit there    */
 extern  BOOL        fVerbose;       /* verbose mode (-v) */
 extern  BOOL        fAFXSymbols;
+extern  BOOL        fMacRsrcs;
+extern  BOOL        fAppendNull;
 extern  long        lOffIndex;
+extern  WORD        idBase;
 extern  PCHAR       szTempFileName;
 extern  PCHAR       szTempFileName2;
 extern  CHAR        inname[_MAX_PATH];
 extern  PFILE       fhBin;
 extern  PFILE       fhInput;
-extern  CHAR        rgchIncludes[_MAX_PATH*2];
+extern  PFILE       fhCode;
+extern  PCHAR       pchInclude;
 extern  SHORT       k1,k2,k3,k4;
 extern  PRESINFO    pResString;
 
 extern  HINSTANCE   hInstance;
+extern  HANDLE      hHeap;
 
+extern  int         nBogusFontNames;
+extern  WCHAR      *pszBogusFontNames[16];
+extern  WCHAR       szSubstituteFontName[MAXTOKSTR];
 
 /*---------------------------------------------------------------------------*/
 /*                                                                           */
@@ -571,7 +595,6 @@ int     LexInit(PFILE);
 int     LitChar();
 int     OurGetChar();
 VOID    SkipWhitespace();
-
 
 /*---------------------------------------------------------------------------*/
 /*                                                                           */
@@ -613,22 +636,28 @@ PCHAR       MyFAlloc(UINT, PCHAR);
 
 DWORD   GetNewBitmap(void);
 BOOL    AddFontRes(PRESINFO);
-VOID    AppendString(PWCHAR);
+VOID    AppendString(PWCHAR, BOOL);
 VOID    CtlAlloc();
 PFILE   CtlFile(PFILE);
 VOID    CtlFree();
 VOID    CtlInit();
 VOID    FixMenuPatch();
+VOID    GenWarning2(int iMsg, PCHAR arg);
+VOID    GenWarning4(int iMsg, PCHAR arg1, PCHAR arg2, PCHAR arg3);
 VOID    GenError1(int iMsg);
 VOID    GenError2(int iMsg, PCHAR arg);
 USHORT  GetBufferLen();
-PCHAR   GetBufferPtr();
+void    SetItemCount(int Index, USHORT wCount);
+USHORT  GetItemCount(int Index);
 DWORD   GetIcon(LONG);
+DWORD   GetAniIconsAniCursors(LONG nbyFile);
+DWORD	FileIsAnimated(LONG nbyFile);
 int     GetBitmap(long nbyFile);
 VOID    GetNewIconsCursors(PTYPEINFO, PRESINFO, LPWSTR);
 WORD    GetRCData(PRESINFO);
 PCHAR   GetSpace(WORD cb);
 VOID    IncItemCount();
+VOID    SwapItemCount(VOID);
 void    FixMenuPatch    (WORD);
 void    FixOldMenuPatch (WORD);
 VOID    MarkAccelFlagsByte();
@@ -636,7 +665,7 @@ VOID    MarkMenuPatch();
 VOID    PatchAccelEnd();
 LONG    ResourceSize();
 VOID    SaveResFile(PTYPEINFO, PRESINFO);
-void    SetItemExtraCount(WORD);
+void    SetItemExtraCount(WORD, BOOL);
 void    SetUpDlg        (PDLGHDR, BOOL);
 void    SetUpItem       (PCTRL,   BOOL);
 WORD    SetUpMenu       (PMENU);
@@ -644,11 +673,18 @@ WORD    SetUpOldMenu    (PMENUITEM);
 VOID    WriteAlign();
 VOID    WriteBuffer(PCHAR, USHORT);
 int     WriteControl(PFILE, PCHAR, int, LONG);
-VOID    WriteString(PWCHAR);
+VOID    WriteString(PWCHAR, BOOL);
+VOID    WriteMacString(PWCHAR sz, BOOL fMacCP, BOOL fPascal);
+int     ExpandString(BYTE* pb, int cb, BYTE* pbExpand);
+WORD    SwapWord(WORD w);
+DWORD   SwapLong(DWORD dw);
+
+#define SwappedWord(w)  (fMacRsrcs ? SwapWord(w) : (w))
+#define SwappedLong(dw) (fMacRsrcs ? SwapLong(dw) : (dw))
 
 #define WriteByte(b)    (*GetSpace(sizeof(CHAR)) = (b))
-#define WriteLong(dw)   (*((DWORD UNALIGNED*) GetSpace(sizeof(DWORD))) = (dw))
-#define WriteWord(w)    (*((WORD UNALIGNED*)  GetSpace(sizeof(WORD))) = (w))
+#define WriteLong(dw)   (*((DWORD UNALIGNED*) GetSpace(sizeof(DWORD))) = SwappedLong(dw))
+#define WriteWord(w)    (*((WORD UNALIGNED*)  GetSpace(sizeof(WORD))) = SwappedWord(w))
 
 
 /*---------------------------------------------------------------------------*/
@@ -680,14 +716,15 @@ int     IsmnOption      (UINT, PMENUITEM);
 VOID    ParseCtl        (PCTRL, BOOL);
 int     ParseMenu       (int, PRESINFO);
 int     ParseOldMenu    (int, PRESINFO);
-PUSHORT VersionBlockStruct(PWCHAR pstrKey, PCHAR pstrValue, USHORT LenValue);
-PUSHORT VersionBlockVariable(PWCHAR pstrKey);
+int     VersionBlockStruct(PWCHAR pstrKey, PCHAR pstrValue, USHORT LenValue);
+int     VersionBlockVariable(PWCHAR pstrKey);
 VOID    VersionGet4Words(PDWORD pdw);
 VOID    VersionGetDWord(PDWORD pdw);
 int     VersionParse();
 USHORT  VersionParseBlock();
-PUSHORT VersionParseFixed();
-USHORT  VersionParseValue(PUSHORT pwType); // void arg list in AFX
+int     VersionParseFixed();
+USHORT  VersionParseValue(int IndexType); // void arg list in AFX
+int     GetToolbar (PRESINFO);
 
 
 /*---------------------------------------------------------------------------*/
@@ -730,9 +767,11 @@ int     fgetl (PWCHAR, int, BOOL, PFILE);
 
 LONG    MakeFontDir();              // AFX only
 
+void SendWarning(PSTR str);
 void SendError(PSTR str);
 
-extern RC_CALLBACK  lpfnRCCallback;
+extern RC_PARSE_CALLBACK lpfnParseCallback;
+extern RC_MESSAGE_CALLBACK  lpfnMessageCallback;
 extern HWND         hWndCaller;
 
 #define fflush(errFile)
@@ -748,3 +787,16 @@ void WriteResInfo(PRESINFO pRes, PTYPEINFO pType, BOOL bWriteMapEntry);
 void WriteResIndex(PRESINFO pRes, PTYPEINFO pType);
 void UpdateStatus(unsigned nCode, unsigned long dwStatus);
 
+// offset in a macintosh resource file of the start of the resource data
+#define MACDATAOFFSET 256
+
+void GetMacIcon(TYPEINFO *pType, RESINFO *pRes);
+void GetMacCursor(TYPEINFO *pType, RESINFO *pRes);
+
+void WriteMacMap(void);
+BOOL IsIcon(TYPEINFO* ptype);
+
+#define res_type(ch1,ch2,ch3,ch4) (((unsigned long)(unsigned char)(ch1)<<24)| \
+                                ((unsigned long)(unsigned char)(ch2)<<16)| \
+                                ((unsigned long)(unsigned char)(ch3)<<8)| \
+                                ((unsigned long)(unsigned char)(ch4)))

@@ -25,6 +25,34 @@ Revision History:
 extern "C" {
 #endif /* __cplusplus */
 
+
+#define PRINTER_NOTIFY_STATUS_ENDPOINT 1
+#define PRINTER_NOTIFY_STATUS_POLL     2
+#define PRINTER_NOTIFY_STATUS_INFO     4
+
+
+#define ROUTER_UNKNOWN      0
+#define ROUTER_SUCCESS      1
+#define ROUTER_STOP_ROUTING 2
+
+
+typedef struct _PRINTER_NOTIFY_INIT {
+    DWORD Size;
+    DWORD Reserved;
+    DWORD PollTime;
+} PRINTER_NOTIFY_INIT, *PPRINTER_NOTIFY_INIT, *LPPRINTER_NOTIFY_INIT;
+
+typedef struct _SPLCLIENT_INFO_1{
+    DWORD       dwSize;
+    LPWSTR      pMachineName;
+    LPWSTR      pUserName;
+    DWORD       dwBuildNum;
+    DWORD       dwMajorVersion;
+    DWORD       dwMinorVersion;
+    WORD        wProcessorArchitecture;
+} SPLCLIENT_INFO_1, *PSPLCLIENT_INFO_1, *LPSPLCLIENT_INFO_1;
+
+
 typedef struct _PRINTPROVIDOR {
 
    BOOL (*fpOpenPrinter)(LPWSTR   pPrinterName,
@@ -283,16 +311,16 @@ typedef struct _PRINTPROVIDOR {
                               DWORD   dwClientMajorVersion,
                               DWORD   dwClientMinorVersion,
                               PDWORD  pdwServerMajorVersion,
-                              PDWORD  pdwServerMinorVersion
-                              );
+                              PDWORD  pdwServerMinorVersion);
 
-   BOOL (*fpFindFirstPrinterChangeNotification)(HANDLE hPrinter,
-                                                DWORD fdwFlags,
-                                                DWORD fdwOptions,
-                                                HANDLE hNotify,
-                                                PDWORD pfdwStatus,
-                                                PVOID  pvReserved0,
-                                                PVOID  pvReserved1);
+   BOOL (*fpFindFirstPrinterChangeNotification)(
+            HANDLE hPrinter,
+            DWORD fdwFlags,
+            DWORD fdwOptions,
+            HANDLE hNotify,
+            PDWORD pfdwStatus,
+            PVOID pPrinterNotifyOptions,
+            PVOID pPrinterNotifyInit);
 
    BOOL (*fpFindClosePrinterChangeNotification)(HANDLE hPrinter);
 
@@ -301,6 +329,43 @@ typedef struct _PRINTPROVIDOR {
                        DWORD    Level,
                        LPBYTE   lpBuffer,
                        LPWSTR   lpMonitorName);
+
+   BOOL (*fpShutDown)(LPVOID pvReserved);
+
+   BOOL (*fpRefreshPrinterChangeNotification)(HANDLE hPrinter,
+                                              DWORD  Reserved,
+                                              PVOID pvReserved,
+                                              PVOID pPrinterNotifyInfo);
+
+   BOOL (*fpOpenPrinterEx)(LPWSTR     pPrinterName,
+                           LPHANDLE   phPrinter,
+                           LPPRINTER_DEFAULTS pDefault,
+                           LPBYTE     pClientInfo,
+                           DWORD      Level);
+
+   HANDLE (*fpAddPrinterEx)(LPWSTR  pName,
+                            DWORD   Level,
+                            LPBYTE  pPrinter,
+                            LPBYTE  pClientInfo,
+                            DWORD   ClientInfoLevel);
+
+   BOOL (*fpSetPort)(LPWSTR     pName,
+                     LPWSTR     pPortName,
+                     DWORD      Level,
+                     LPBYTE     pPortInfo);
+
+   DWORD (*fpEnumPrinterData)(HANDLE   hPrinter,
+                              DWORD    dwIndex,
+                              LPWSTR   pValueName,
+                              DWORD    cbValueName,
+                              LPDWORD  pcbValueName,
+                              LPDWORD  pType,
+                              LPBYTE   pData,
+                              DWORD    cbData,
+                              LPDWORD  pcbData);
+
+   DWORD (*fpDeletePrinterData)(HANDLE   hPrinter,
+                                LPWSTR   pValueName);
 
    } PRINTPROVIDOR, *LPPRINTPROVIDOR;
 
@@ -382,6 +447,125 @@ ClosePort(
     HANDLE  hPort
 );
 
+typedef struct _MONITOR
+{
+    BOOL (WINAPI *pfnEnumPorts)
+    (
+    LPWSTR   pName,
+    DWORD   Level,
+    LPBYTE  pPorts,
+    DWORD   cbBuf,
+    LPDWORD pcbNeeded,
+    LPDWORD pcReturned
+    );
+
+    BOOL (WINAPI *pfnOpenPort)
+    (
+    LPWSTR  pName,
+    PHANDLE pHandle
+    );
+
+    BOOL (WINAPI *pfnOpenPortEx)
+    (
+    LPWSTR  pPortName,
+    LPWSTR  pPrinterName,
+    PHANDLE pHandle,
+    struct _MONITOR FAR *pMonitor
+    );
+
+
+    BOOL (WINAPI *pfnStartDocPort)
+    (
+    HANDLE  hPort,
+    LPWSTR  pPrinterName,
+    DWORD   JobId,
+    DWORD   Level,
+    LPBYTE  pDocInfo
+    );
+
+    BOOL (WINAPI *pfnWritePort)
+    (
+    HANDLE  hPort,
+    LPBYTE  pBuffer,
+    DWORD   cbBuf,
+    LPDWORD pcbWritten
+    );
+
+    BOOL (WINAPI *pfnReadPort)
+    (
+    HANDLE hPort,
+    LPBYTE pBuffer,
+    DWORD  cbBuffer,
+    LPDWORD pcbRead
+    );
+
+    BOOL (WINAPI *pfnEndDocPort)
+    (
+    HANDLE   hPort
+    );
+
+    BOOL (WINAPI *pfnClosePort)
+    (
+        HANDLE  hPort
+    );
+
+    BOOL (WINAPI *pfnAddPort)
+    (
+    LPWSTR   pName,
+    HWND    hWnd,
+    LPWSTR   pMonitorName
+    );
+
+    BOOL (WINAPI *pfnAddPortEx)
+    (
+    LPWSTR   pName,
+    DWORD    Level,
+    LPBYTE   lpBuffer,
+    LPWSTR   lpMonitorName
+    );
+
+    BOOL (WINAPI *pfnConfigurePort)
+    (
+    LPWSTR   pName,
+    HWND  hWnd,
+    LPWSTR pPortName
+    );
+
+    BOOL (WINAPI *pfnDeletePort)
+    (
+    LPWSTR   pName,
+    HWND    hWnd,
+    LPWSTR   pPortName
+    );
+
+    BOOL (WINAPI *pfnGetPrinterDataFromPort)
+    (
+    HANDLE  hPort,
+    DWORD   ControlID,
+    LPWSTR  pValueName,
+    LPWSTR  lpInBuffer,
+    DWORD   cbInBuffer,
+    LPWSTR  lpOutBuffer,
+    DWORD   cbOutBuffer,
+    LPDWORD lpcbReturned
+    );
+
+    BOOL (WINAPI *pfnSetPortTimeOuts)
+    (
+    HANDLE  hPort,
+    LPCOMMTIMEOUTS lpCTO,
+    DWORD   reserved    // must be set to 0
+    );
+
+} MONITOR, FAR *LPMONITOR;
+
+typedef struct _MONITOREX
+{
+    DWORD       dwMonitorSize;
+    MONITOR     Monitor;
+
+} MONITOREX, FAR *LPMONITOREX;
+
 HANDLE
 CreatePrinterIC(
     HANDLE  hPrinter,
@@ -436,30 +620,40 @@ ClosePrinterToken(
 );
 
 
-//
-// FindFirstPrinterChangeNotification status codes,
-// return from the providor.
-//
-#define PRINTER_NOTIFY_STATUS_ENDPOINT 1
-#define PRINTER_NOTIFY_STATUS_POLL     2
-
-//
-// Information returned from providor in FindFirstPrinterChangeNotification
-//
-typedef struct _PRINTER_NOTIFY_INIT {
-    DWORD cbSize;
-    DWORD Reserved;
-    DWORD PollTime;
-} PRINTER_NOTIFY_INIT, *PPRINTER_NOTIFY_INIT, *LPPRINTER_NOTIFY_INIT;
-
-
 BOOL
 ReplyPrinterChangeNotification(
     HANDLE hNotify,
     DWORD fdwFlags,
-    DWORD cbBuffer,
-    LPBYTE pBuffer
+    PDWORD pdwResult,
+    PVOID pPrinterNotifyInfo
 );
+
+BOOL
+PartialReplyPrinterChangeNotification(
+    HANDLE hNotify,
+    PPRINTER_NOTIFY_INFO_DATA pInfoDataSrc
+);
+
+PPRINTER_NOTIFY_INFO
+RouterAllocPrinterNotifyInfo(
+    DWORD cPrinterNotifyInfoData
+);
+
+BOOL
+RouterFreePrinterNotifyInfo(
+    PPRINTER_NOTIFY_INFO pInfo
+);
+
+
+#define PRINTER_NOTIFY_INFO_DATA_COMPACT 1
+
+BOOL
+AppendPrinterNotifyInfoData(
+    PPRINTER_NOTIFY_INFO pInfoDest,
+    PPRINTER_NOTIFY_INFO_DATA pInfoDataSrc,
+    DWORD fdwFlags
+);
+
 
 DWORD
 CallRouterFindFirstPrinterChangeNotification(
@@ -476,11 +670,51 @@ ProvidorFindFirstPrinterChangeNotification(
     DWORD fdwOptions,
     HANDLE hNotify,
     PVOID pvReserved0,
-    PPRINTER_NOTIFY_INIT* pPrinterNotifyInit);
+    PVOID pvReserved1);
 
 BOOL
 ProvidorFindClosePrinterChangeNotification(
     HANDLE hPrinter);
+
+
+
+BOOL
+SpoolerFindFirstPrinterChangeNotification(
+    HANDLE hPrinter,
+    DWORD fdwFlags,
+    DWORD fdwOptions,
+    PHANDLE phEvent,
+    PVOID pPrinterNotifyOptions,
+    PVOID pvReserved);
+
+BOOL
+SpoolerFindNextPrinterChangeNotification(
+    HANDLE hPrinter,
+    LPDWORD pfdwChange,
+    PVOID pvReserved0,
+    PVOID ppPrinterNotifyInfo);
+
+VOID
+SpoolerFreePrinterNotifyInfo(
+    PPRINTER_NOTIFY_INFO pInfo);
+
+BOOL
+SpoolerFindClosePrinterChangeNotification(
+    HANDLE hPrinter);
+
+BOOL
+WINAPI
+InitializeMonitorEx(
+    LPWSTR      pRegistryRoot,
+    LPMONITOR   pMonitor
+);
+
+LPMONITOREX
+WINAPI
+InitializePrintMonitor(
+    LPWSTR      pRegistryRoot
+);
+
 
 #ifdef __cplusplus
 }                   /* End of extern "C" { */

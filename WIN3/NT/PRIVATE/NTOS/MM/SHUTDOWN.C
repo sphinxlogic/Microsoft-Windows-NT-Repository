@@ -20,13 +20,14 @@ Revision History:
 --*/
 
 #include "mi.h"
-#include <ntiodump.h>
 
 extern ULONG MmSystemShutdown;
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGELK,MmShutdownSystem)
 #endif
+
+ULONG MmZeroPageFile;
 
 
 
@@ -58,14 +59,20 @@ Return Value:
     ULONG ModifiedPage;
     PMMPFN Pfn1;
     PSUBSECTION Subsection;
+    PCONTROL_AREA ControlArea;
     PULONG Page;
-    ULONG MdlHack[(sizeof(MDL)/4) + 2];
+    ULONG MdlHack[(sizeof(MDL)/4) + MM_MAXIMUM_WRITE_CLUSTER];
     PMDL Mdl;
     NTSTATUS Status;
     KEVENT IoEvent;
     IO_STATUS_BLOCK IoStatus;
     KIRQL OldIrql;
     LARGE_INTEGER StartingOffset;
+    ULONG count;
+    ULONG j, k;
+    ULONG first;
+    ULONG write;
+    PMMPAGING_FILE PagingFile;
 
     UNREFERENCED_PARAMETER( RebootPending );
 
@@ -75,6 +82,8 @@ Return Value:
 
     if (!MmSystemShutdown) {
 
+        MmLockPagableSectionByHandle(ExPageLockHandle);
+
         Mdl = (PMDL)&MdlHack;
         Page = (PULONG)(Mdl + 1);
 
@@ -83,6 +92,7 @@ Return Value:
         MmInitializeMdl(Mdl,
                         NULL,
                         PAGE_SIZE);
+
         Mdl->MdlFlags |= MDL_PAGES_LOCKED;
 
         LOCK_PFN (OldIrql);
@@ -103,8 +113,9 @@ Return Value:
                 //
 
                 Subsection = MiGetSubsectionAddress (&Pfn1->OriginalPte);
-                if ((!Subsection->ControlArea->u.Flags.Image) &&
-                   (!Subsection->ControlArea->u.Flags.NoModifiedWriting)) {
+                ControlArea = Subsection->ControlArea;
+                if ((!ControlArea->u.Flags.Image) &&
+                   (!ControlArea->u.Flags.NoModifiedWriting)) {
 
                     MiUnlinkPageFromList (Pfn1);
 
@@ -119,9 +130,11 @@ Return Value:
                     // is I/O in progress.
                     //
 
-                    Pfn1->ReferenceCount += 1;
+                    Pfn1->u3.e2.ReferenceCount += 1;
 
                     *Page = ModifiedPage;
+                    ControlArea->NumberOfMappedViews += 1;
+                    ControlArea->NumberOfPfnReferences += 1;
 
                     UNLOCK_PFN (OldIrql);
 
@@ -129,8 +142,9 @@ Return Value:
                                                                   Pfn1->PteAddress);
 
                     Mdl->StartVa = (PVOID)(Pfn1->u3.e1.PageColor << PAGE_SHIFT);
+                    KeClearEvent (&IoEvent);
                     Status = IoSynchronousPageWrite (
-                                            Subsection->ControlArea->FilePointer,
+                                            ControlArea->FilePointer,
                                             Mdl,
                                             &StartingOffset,
                                             &IoEvent,
@@ -159,10 +173,7 @@ Return Value:
                         // error.
                         //
 
-                        LOCK_PFN (OldIrql);
                         Pfn1->u3.e1.Modified = 1;
-                        MiDecrementReferenceCount (ModifiedPage);
-                        UNLOCK_PFN (OldIrql);
                         return(FALSE);
                     }
 
@@ -172,6 +183,17 @@ Return Value:
 
                     LOCK_PFN (OldIrql);
                     MiDecrementReferenceCount (ModifiedPage);
+                    ControlArea->NumberOfMappedViews -= 1;
+                    ControlArea->NumberOfPfnReferences -= 1;
+                    if (ControlArea->NumberOfPfnReferences == 0) {
+
+                        //
+                        // This routine return with the PFN lock released!.
+                        //
+
+                        MiCheckControlArea (ControlArea, NULL, OldIrql);
+                        LOCK_PFN (OldIrql);
+                    }
 
                     //
                     // Restart scan at the front of the list.
@@ -206,8 +228,139 @@ Return Value:
         //
 
         MmSystemShutdown = 1;
+
+        //
+        // Check to see if the paging file should be overwritten.
+        // Only free blocks are written.
+        //
+
+        if (MmZeroPageFile) {
+
+            //
+            // Get pages to complete the write request.
+            //
+
+            Mdl->StartVa = NULL;
+            j = 0;
+            Page = (PULONG)(Mdl + 1);
+
+            LOCK_PFN (OldIrql);
+
+            if (MmAvailablePages < (MmModifiedWriteClusterSize + 20)) {
+                UNLOCK_PFN(OldIrql);
+                return TRUE;
+            }
+
+            do {
+                *Page = MiRemoveZeroPage (j);
+                Pfn1 = MI_PFN_ELEMENT (*Page);
+                Pfn1->u3.e2.ReferenceCount = 1;
+                Pfn1->u2.ShareCount = 0;
+                Pfn1->OriginalPte.u.Long = 0;
+                MI_SET_PFN_DELETED (Pfn1);
+                Page += 1;
+                j += 1;
+            } while (j < MmModifiedWriteClusterSize);
+
+            k = 0;
+
+            while (k < MmNumberOfPagingFiles) {
+
+                PagingFile = MmPagingFile[k];
+
+                count = 0;
+                write = FALSE;
+
+                for (j = 1; j < PagingFile->Size; j++) {
+
+                    if (RtlCheckBit (PagingFile->Bitmap, j) == 0) {
+
+                        if (count == 0) {
+                            first = j;
+                        }
+                        count += 1;
+                        if (count == MmModifiedWriteClusterSize) {
+                            write = TRUE;
+                        }
+                    } else {
+                        if (count != 0) {
+
+                            //
+                            // Issue a write.
+                            //
+
+                            write = TRUE;
+                        }
+                    }
+
+                    if ((j == (PagingFile->Size - 1)) &&
+                        (count != 0)) {
+                        write = TRUE;
+                    }
+
+                    if (write) {
+
+                        UNLOCK_PFN (OldIrql);
+
+                        StartingOffset.QuadPart = (LONGLONG)first << PAGE_SHIFT;
+                        Mdl->ByteCount = count << PAGE_SHIFT;
+                        KeClearEvent (&IoEvent);
+
+                        Status = IoSynchronousPageWrite (
+                                                PagingFile->File,
+                                                Mdl,
+                                                &StartingOffset,
+                                                &IoEvent,
+                                                &IoStatus);
+
+                        //
+                        // Ignore all I/O failures - there is nothing that can be
+                        // done at this point.
+                        //
+
+                        if (!NT_SUCCESS(Status)) {
+                            KeSetEvent (&IoEvent, 0, FALSE);
+                        }
+
+                        Status = KeWaitForSingleObject (&IoEvent,
+                                                        WrPageOut,
+                                                        KernelMode,
+                                                        FALSE,
+                                                        &MmTwentySeconds);
+
+                        if (Status == STATUS_TIMEOUT) {
+
+                            //
+                            // The write did not complete in 20 seconds, assume
+                            // that the file systems are hung and return an
+                            // error.
+                            //
+
+                            return(FALSE);
+                        }
+
+                        if (Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA) {
+                            MmUnmapLockedPages (Mdl->MappedSystemVa, Mdl);
+                        }
+
+                        LOCK_PFN (OldIrql);
+                        count = 0;
+                        write = FALSE;
+                    }
+                }
+                k += 1;
+            }
+            j = 0;
+            Page = (PULONG)(Mdl + 1);
+            do {
+                MiDecrementReferenceCount (*Page);
+                Page += 1;
+                j += 1;
+            } while (j < MmModifiedWriteClusterSize);
+            UNLOCK_PFN (OldIrql);
+        }
+        MmUnlockPagableImageSection(ExPageLockHandle);
     }
     return TRUE;
 }
-
 

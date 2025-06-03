@@ -195,7 +195,7 @@ FindMark (
         for (l = 0L; l < pFileMark->cLines; l++) {
             GetLine (l, lbuf, pFileMark);
             if (sscanf (lbuf, " %[^ ] %[^ ] %ld %d ", szMark, buf, &y, &x) >= 3)
-            if (!stricmp (szMark, pszMark)) {
+            if (!_stricmp (szMark, pszMark)) {
                 CanonFilename (buf, szFile);
                 if (!(pFile = FileNameToHandle (szFile, NULL))) {
                     pFile = AddFile (szFile);
@@ -238,11 +238,11 @@ FindLocalMark (
     REGISTER MARK UNALIGNED * pm;
 
     for (pm = pfmCache->marks; !TESTFLAG(pm->flags, MF_DUMMY) ; (char *)pm += pm->cb) {
-        if (!stricmp (pszMark, pm->szName)) {
+        if (!_stricmp (pszMark, pm->szName)) {
             if (fDirtyOnly && !TESTFLAG(pm->flags, MF_DIRTY)) {
                 return NULL;
             } else {
-                return pm;
+                return (MARK *)pm;
             }
         }
         assert (pm->cb);
@@ -281,7 +281,7 @@ GetMarkFromLoc (
             break;
         }
     }
-    return pm;
+    return (MARK *) pm;
 }
 
 
@@ -386,7 +386,7 @@ MarkInsLine (
     }
 
     if (pm = GetMarkFromLoc (line, 0)) {
-        AdjustMarks (pm, n);
+        AdjustMarks ((MARK *)pm, n);
     }
 }
 
@@ -445,7 +445,7 @@ MarkDelStream (
         // it is inside the stream
         //
         if (pmStart == NULL) {
-            if (flcmp (&flStart, &pm->fl) < 1) {
+            if (flcmp (&flStart, (fl *) &pm->fl) < 1) {
                 pmStart = pm;
             } else {
                 continue;
@@ -457,7 +457,7 @@ MarkDelStream (
         // of the stream.  If these are the same,
         // there are no marks to remove.
         //
-        if (flcmp (&flEnd, &pm->fl) < 1) {
+        if (flcmp (&flEnd, (fl *) &pm->fl) < 1) {
             // We know that we will end up here
             // because the last "mark" is higher
             // than any real mark
@@ -474,7 +474,7 @@ MarkDelStream (
             if (pmStart->fl.lin == yEnd) {
                 pmStart->fl.col -= xEnd;
             }
-            AdjustMarks (pmStart, yStart - (yEnd + 1));
+            AdjustMarks ((MARK *)pmStart, yStart - (yEnd + 1));
         }
 
         assert (pm->cb ||
@@ -537,19 +537,19 @@ MarkDelBox (
         /* First, look for lowest possible mark */
         fAgain = FALSE;
         if (!fInBox) {
-            if (flcmp (&flUpLeft, &pm->fl) < 1) {
+            if (flcmp (&flUpLeft, (fl *) &pm->fl) < 1) {
                 fAgain = TRUE;
                 fInBox = TRUE;
             } else {
                 ;
             }
-        } else if (flcmp (&pm->fl, &flLoRight) < 1) {
+        } else if (flcmp ((fl *) &pm->fl, &flLoRight) < 1) {
             /* Now we're in range.  Check
             ** for being inside the box.
             */
             if (pm->fl.col >= xLeft) {
                 if (pm->fl.col <= xRight) {
-                    DelPMark (pm);
+                    DelPMark ((MARK *) pm);
                     fAgain = TRUE;
                 } else {   /* Mark to the right of box */
                     pm->fl.col -= xRight - xLeft + 1;
@@ -613,8 +613,8 @@ fReadMarks (
     for (l = 0L; l < pFileMark->cLines; l++) {
         GetLine (l, lbuf, pFileMark);
         if (sscanf (lbuf, " %[^ ] %[^ ] %ld %d ", szMark, szFile, &yMark, &xMark) >= 3) {
-            if (!stricmp (szFile, pFile->pName)) {
-                UpdMark (&pfm, szMark, yMark, xMark, FALSE);
+            if (!_stricmp (szFile, pFile->pName)) {
+                UpdMark ((FILEMARKS **) &pfm, szMark, yMark, xMark, FALSE);
             }
         }
     }
@@ -624,7 +624,7 @@ fReadMarks (
     // actually found some marks for this file, we
     // put them in VM.
     //
-    return fFMtoPfile (pFile, pfm);
+    return fFMtoPfile (pFile, (FILEMARKS *)pfm);
 }
 
 
@@ -670,7 +670,7 @@ WriteMarks (
     for (l = 0L; l < pFileMark->cLines; l++) {
         GetLine (l, lbuf, pFileMark);
         if (sscanf (lbuf, " %[^ ] %[^ ] %ld %d ", szMark, szFile, &yMark, &xMark) >= 3) {
-            if (!stricmp (szFile, pFile->pName)) {
+            if (!_stricmp (szFile, pFile->pName)) {
                 if (pm = FindLocalMark (szMark, TRUE)) {
                     sprintf (lbuf, "%s %s %ld %d", szMark, szFile, pm->fl.lin+1, pm->fl.col+1);
                     PutLine (l, lbuf, pFileMark);
@@ -753,7 +753,7 @@ UpdMark (
     //
     if (pfm = *ppfm) {
         for (pm = pfm->marks; !TESTFLAG(pm->flags, MF_DUMMY); (char *)pm += pm->cb) {
-            if (!stricmp (pszMark, pm->szName)) {
+            if (!_stricmp (pszMark, pm->szName)) {
                 fExist = TRUE;
                 break;
             }
@@ -761,7 +761,7 @@ UpdMark (
             // Check for current mark coming later than
             // new mark
             //
-            if (flcmp (&pm->fl, &flMark) > 0) {
+            if (flcmp ((fl *) &pm->fl, &flMark) > 0) {
                 break;
             }
         }
@@ -818,7 +818,7 @@ UpdMark (
     pm->flags = flags;
     pm->fl = flMark;
 
-    *ppfm = pfm;
+    *ppfm = (FILEMARKS *)pfm;
 }
 
 
@@ -893,7 +893,7 @@ DeleteMark (
     for (pFile = pFileHead; pFile; pFile = pFile->pFileNext) {
         if (TESTFLAG (FLAGS(pFile), VALMARKS) && fCacheMarks (pFile)) {
             if (pm = FindLocalMark (pszMark, FALSE)) {
-                DelPMark (pm);
+                DelPMark ((MARK *)pm);
                 domessage ("%s: mark deleted", pszMark);
                 return;
             }
@@ -1041,7 +1041,7 @@ MarkCopyBox (
         return;
     }
 
-    AddFMToFile (pFileDst, pfm, xDst, yDst);
+    AddFMToFile (pFileDst, (FILEMARKS *)pfm, xDst, yDst);
 
 	if ( pfm ) {
 		FREE (pfm);
@@ -1095,11 +1095,11 @@ GetFMFromFile (
     flEnd.col = xRight;
 
     for (pm = pfmCache->marks; !TESTFLAG(pm->flags, MF_DUMMY); (char *)pm += pm->cb) {
-        if ((fInRange || flcmp (&flStart, &pm->fl) < 1) &&
-            (flcmp (&pm->fl, &flEnd) < 1)) {
+        if ((fInRange || flcmp (&flStart, (fl *) &pm->fl) < 1) &&
+            (flcmp ((fl *) &pm->fl, &flEnd) < 1)) {
             fInRange = TRUE;
             if ((pm->fl.col >= xLeft && pm->fl.col <= xRight)) {
-                UpdMark (   &pfm,
+                UpdMark (   (FILEMARKS **) &pfm,
                             pm->szName,
                             pm->fl.lin - yTop + 1,
                             pm->fl.col - xLeft + 1,
@@ -1109,7 +1109,7 @@ GetFMFromFile (
             break;  /* We're out of range again*/
         }
     }
-    return pfm;
+    return (FILEMARKS *) pfm;
 }
 
 
@@ -1449,7 +1449,7 @@ PutMarks (
 		pfm = (FILEMARKS *)ZEROMALLOC (cb = (unsigned)Marks->cb);
 		memmove((char *)pfm, vaMarks, cb);
 
-		AddFMToFile (pFile, pfm, 0, y);
+		AddFMToFile (pFile, (FILEMARKS *) pfm, 0, y);
 	}
 }
 

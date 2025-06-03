@@ -154,6 +154,18 @@ Return Value:
 
     }
 
+
+    //
+    // For non-memory-mapped cards, there is nothing else to check.
+    //
+
+    if (!AdaptP->MemMapped) {
+
+        return NULL;
+
+    }
+
+
     //
     // Now read in the PROM configuration register.
     //
@@ -955,6 +967,7 @@ Return Value:
 
         TimerExpired=FALSE;
 
+        NdisInitializeTimer(&Timer, DelayComplete, &TimerExpired);
         NdisSetTimer(&Timer, 1000);
 
         NdisRawReadPortUchar(AdaptP->MappedIoBaseAddr+NIC_INTR_STATUS, &Tmp);
@@ -2765,4 +2778,3 @@ Return Value:
     return FALSE;
 
 }
-

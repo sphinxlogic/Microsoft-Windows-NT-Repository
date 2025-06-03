@@ -77,6 +77,17 @@ Revision History:
 #define FSCTL_SRV_GET_CHALLENGE         _SRV_CONTROL_CODE( 14, METHOD_BUFFERED )
 #define FSCTL_SRV_GET_DEBUG_STATISTICS  _SRV_CONTROL_CODE( 15, METHOD_BUFFERED )
 #define FSCTL_SRV_XACTSRV_DISCONNECT    _SRV_CONTROL_CODE( 16, METHOD_BUFFERED )
+#define FSCTL_SRV_REGISTRY_CHANGE       _SRV_CONTROL_CODE( 17, METHOD_NEITHER )
+#define FSCTL_SRV_GET_QUEUE_STATISTICS  _SRV_CONTROL_CODE( 18, METHOD_BUFFERED )
+#define FSCTL_SRV_SHARE_STATE_CHANGE    _SRV_CONTROL_CODE( 19, METHOD_BUFFERED )
+#define FSCTL_SRV_BEGIN_PNP_NOTIFICATIONS _SRV_CONTROL_CODE(20, METHOD_BUFFERED )
+
+//
+// The following FSCTL can be issued by a kernel driver to hook into the server
+//   for accelerated direct host IPX performance.  A pointer to an SRV_IPX_SMART_CARD
+//   structure is given for the START fsctl as the InputBuffer.
+
+#define FSCTL_SRV_IPX_SMART_CARD_START  _SRV_CONTROL_CODE( 21, METHOD_NEITHER )
 
 //
 // API FSCTLs.
@@ -112,6 +123,79 @@ Revision History:
 
 #define SS_STARTUP_LEVEL    -1L
 
+#ifdef  INCLUDE_SRV_IPX_SMART_CARD_INTERFACE
+
+//
+// Structure passed to the srv via the FSCTL_SRV_IPX_SMART_CARD_START call by an
+//  intelligent direct host IPX card.  The Smart card fills in its own
+//  Open, Close, Read, and DeRegister entry points - which the server
+//  calls at the appropriate times.  The server fills in its own
+//  ReadComplete entry point which the smart card calls when it is done
+//  transferring the data to the client.
+//
+typedef struct {
+    //
+    // This routine is called by the server when it is opening a file on
+    //  behalf of a direct host IPX client.  It gives the smart card a chance
+    //  to decide it it wants to help with file access.  If the smart card is
+    //  interested, it should return TRUE and set SmartCardContext to a
+    //  non-zero value of its choice.
+    //
+    BOOLEAN (* Open)(
+        IN PVOID SmbHeader,             // Points to request PNT_SMB_HEADER
+        IN PFILE_OBJECT FileObject,     // FileObject opened by the client
+        IN PUNICODE_STRING FileName,    // Name of the file opened by the client
+        IN PTDI_ADDRESS_IPX IpxAddress, // Address of the client
+        IN ULONG Flags,                 // FO_CACHE_SUPPORTED (for now)
+        OUT PVOID *SmartCardContext     // Context value returned by this routine
+        );
+
+    //
+    // This is called by the server when the file is being closed.  The context
+    //  value received at Open time is passed to this routine.
+    //
+    VOID ( * Close )(
+        IN PVOID SmartCardContext       // Same context returned by Open() above
+        );
+
+    //
+    // This is called by the server to see if the smart card wishes to handle the
+    //  client's read request.  If the card is handling the read, it should return
+    //  TRUE and the server will discontinue processing the read.  When the card is
+    //  finished handling the read, it must call ReadComplete (below) to inform the
+    //  server. If Read returns FALSE, the server handles the read as usual.  
+    //
+    BOOLEAN ( * Read )(
+        IN PVOID SmbHeader,             // Points to request PNT_SMB_HEADER
+        IN PVOID SmartCardContext,      // Same context returned by Open() above
+        IN ULONG Key,                   // Key value needed to read through locks
+        IN PVOID SrvContext             // Opaque value provided by the server
+        );
+
+    //
+    // This is the server's entry point which the smart card must call when it is
+    //  finished handling the Read request (above).
+    //
+    VOID ( * ReadComplete )(
+        IN PVOID SrvContext,            // Same as SrvContext in Read() above
+        IN PFILE_OBJECT FileObject,     // Client FileObject to which this applies
+        IN PMDL Mdl OPTIONAL,           // Mdl smart card is now finished with
+        IN ULONG Length                 // Length of data indicated by the MDL
+        );
+
+    //
+    // This is called by the server when the server wishes to disconnect from the
+    //  card.  Once this returns, the card should not call back into the server.
+    //
+    VOID ( *DeRegister )(
+        VOID
+        );
+
+
+} SRV_IPX_SMART_CARD, *PSRV_IPX_SMART_CARD;
+
+#endif
+        
 //
 // SMB_STATISTICS holds the count of SMBs and total turn around for a
 // class of SMBs.  For example, a single SMB_STATISTIC structure could
@@ -164,7 +248,7 @@ typedef struct _BLOCK_COUNTS {
 #define MAX_NON_TRANS_SMB 0x84
 
 #ifndef TRANS2_MAX_FUNCTION
-#define TRANS2_MAX_FUNCTION 0x0D
+#define TRANS2_MAX_FUNCTION 0x11
 #endif
 
 #define MAX_STATISTICS_SMB MAX_NON_TRANS_SMB + TRANS2_MAX_FUNCTION + 1
@@ -194,6 +278,7 @@ typedef struct _SRV_STATISTICS {
     // Causes of session termination
     //
 
+    ULONG SessionLogonAttempts;
     ULONG SessionsTimedOut;
     ULONG SessionsErroredOut;
     ULONG SessionsLoggedOff;
@@ -244,7 +329,36 @@ typedef struct _SRV_STATISTICS {
 
     SRV_TIMED_COUNTER TotalWorkContextBlocksQueued;
 
+
 } SRV_STATISTICS, *PSRV_STATISTICS;
+
+//
+// Per work-queue statistics for the server.  There is a workqueue for each
+// processor in the system for nonblocking work, and a single workqueue for
+// blocking work.
+//
+// These statistics are retrieved via FSCTL_SRV_GET_QUEUE_STATISTICS to the
+// server driver.  For an N-processor system, the first N structs are per-processor,
+// the N+1'th struct is for the blocking work queue.
+//
+typedef struct _SRV_QUEUE_STATISTICS {
+    ULONG   QueueLength;           // current length of the workitem queue
+    ULONG   ActiveThreads;         // # of threads currently servicing requests
+    ULONG   AvailableThreads;      // # of threads waiting for work
+    ULONG   FreeWorkItems;         // # of free work items
+    ULONG   StolenWorkItems;       // # of work items taken from this free list
+                                   //   by another queue
+    ULONG   NeedWorkItem;          // # of work items we are currently short for this queue
+    ULONG   CurrentClients;        // # of clients being serviced by this queue
+    LARGE_INTEGER BytesReceived;   // # of bytes in from the network to clients on this queue
+    LARGE_INTEGER BytesSent;       // # of bytes sent to the network from clients on this queue
+    LARGE_INTEGER ReadOperations;  // # file read operations by clients on this queue
+    LARGE_INTEGER BytesRead;       // # of data bytes read from files by clients on this queue
+    LARGE_INTEGER WriteOperations; // # of file write ops by clients on this queue
+    LARGE_INTEGER BytesWritten;    // # of data bytes written to files by clients on this queue
+    SRV_TIMED_COUNTER TotalWorkContextBlocksQueued; // as above, but per-queue
+
+} SRV_QUEUE_STATISTICS, *PSRV_QUEUE_STATISTICS;
 
 //
 // SRV_STATISTICS_DEBUG is the structure used for the
@@ -464,6 +578,14 @@ typedef struct _SERVER_REQUEST_PACKET {
 
 #define SRP_RETURN_SINGLE_ENTRY 0x01
 #define SRP_CLEAR_STATISTICS    0x02
+#define SRP_SET_SHARE_IN_DFS    0x04
+#define SRP_CLEAR_SHARE_IN_DFS  0x08
+
+//
+// Flag used in the XPORT_ADD function
+//
+
+#define SRP_XADD_PRIMARY_MACHINE 0x1    // this is the primary machine name
 
 //
 // #defines for the share GENERIC_MAPPING structure, which must be available

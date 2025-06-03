@@ -17,13 +17,12 @@ Author:
 
 Revision History:
 
---*/
-#include "dpmi32p.h"
+    Neil Sandlin (neilsa) 31-Jul-1995 - Updates for the 486 emulator
 
-// bugbug fix for mips
-#if !defined(i386)
-typedef ULONG LDT_ENTRY;
-#endif
+--*/
+#include "precomp.h"
+#pragma hdrstop
+#include "softpc.h"
 
 PUCHAR
 DpmiMapAndCopyBuffer(
@@ -54,7 +53,7 @@ Return Value:
     // if the buffer is already in low memory, don't do anything
     //
 
-    if ((ULONG)(Buffer + BufferLength) < MAX_V86_ADDRESS) {
+    if ((ULONG)(Buffer + BufferLength - IntelBase) < MAX_V86_ADDRESS) {
         return Buffer;
     }
 
@@ -161,7 +160,7 @@ PUCHAR
 DpmiMapString(
     USHORT StringSeg,
     ULONG StringOff,
-    PUSHORT Length
+    PWORD16 Length
     )
 /*++
 
@@ -238,7 +237,7 @@ Return Value:
     //
     *Length = CurrentChar + 1;
 
-    return DpmiMapAndCopyBuffer(String, CurrentChar + 1);
+    return DpmiMapAndCopyBuffer(String, (USHORT) (CurrentChar + 1));
 
 }
 
@@ -275,7 +274,7 @@ Return Value:
 --*/
 {
     USHORT ClientAX, ClientBX, ClientCS, ClientIP, ClientDS, ClientES, Selector;
-    PUSHORT Stack;
+    PWORD16 Stack;
     VSAVEDSTATE State;
 
     ASSERT(getMSW() & MSW_PE);
@@ -298,7 +297,7 @@ Return Value:
     //
     // Push a return to a bop
     //
-    Stack = (PUSHORT)Sim32GetVDMPointer(
+    Stack = (PWORD16)Sim32GetVDMPointer(
         ((ULONG)getSS() << 16) | getSP(),
         1,
         TRUE
@@ -320,8 +319,8 @@ Return Value:
     // Make the call
     //
     setES(0);
-    setCS((DosxSegmentToSelector >> 16));
-    setIP(DosxSegmentToSelector & 0xFFFF);
+    setCS((USHORT) (DosxSegmentToSelector >> 16));
+    setIP((USHORT) (DosxSegmentToSelector & 0xFFFF));
     setDS(DosxPmDataSelector);
 
     host_simulate();
@@ -376,6 +375,13 @@ Return Value:
         LargeBufferInUseCount += Length;
         return (LargeXlatBuffer + LargeBufferInUseCount - Length);
     }
+
+    //
+    // Whoops!  No buffer space available.  Bomb with a predictable
+    // address.
+    //
+    ASSERT(0);      // this is an internal error
+    return (PUCHAR)0xf00df00d;
 
 }
 
@@ -438,4 +444,4 @@ Return Value:
     SmallBufferInUse = FALSE;
     LargeBufferInUseCount = 0;
 }
-
+

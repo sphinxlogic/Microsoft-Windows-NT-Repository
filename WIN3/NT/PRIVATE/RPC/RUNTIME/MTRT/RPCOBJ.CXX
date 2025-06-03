@@ -20,13 +20,8 @@ Revision History:
 
 --*/
 
-#include <sysinc.h>
-#include <rpc.h>
-#include <util.hxx>
-#include <rpcuuid.hxx>
+#include <precomp.hxx>
 #include <rpcobj.hxx>
-#include <sdict.hxx>
-#include <mutex.hxx>
 
 static RPC_OBJECT_INQ_FN PAPI * ObjectTypeInquiryFn = 0;
 
@@ -380,4 +375,3 @@ Return Value:
         return(1);
     return(0);
 }
-

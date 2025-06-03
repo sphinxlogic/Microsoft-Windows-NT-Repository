@@ -73,7 +73,7 @@ SyA0:   .space  4                       // saved argument registers a0 - a2
 SyA1:   .space  4                       //
 SyA2:   .space  4                       //
 
-        NESTED_ENTRY_S(KeSynchronizeExecution, SyFrameLength, zero, _TEXT$00)
+        NESTED_ENTRY(KeSynchronizeExecution, SyFrameLength, zero)
 
         subu    sp,sp,SyFrameLength     // allocate stack frame
         sw      ra,SyRa(sp)             // save return address
@@ -586,7 +586,7 @@ RdFrameLength:                          // length of stack frame
 
 #if defined(NT_UP)
 
-        LEAF_ENTRY_S(KiInterruptDispatchSame, _TEXT$00)
+        LEAF_ENTRY(KiInterruptDispatchSame)
 
         lw      t0,InServiceRoutine(a0) // get address of service routine
         lw      a1,InServiceContext(a0) // get service context
@@ -601,7 +601,7 @@ SdS0:   .space  4                       // saved integer register s0
 SdRa:   .space  4                       // saved return address
 SdFrameLength:                          // length of stack frame
 
-        NESTED_ENTRY_S(KiInterruptDispatchSame, SdFrameLength, zero, _TEXT$00)
+        NESTED_ENTRY(KiInterruptDispatchSame, SdFrameLength, zero)
 
         subu    sp,sp,SdFrameLength     // allocate stack frame
         sw      ra,SdRa(sp)             // save return address

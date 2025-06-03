@@ -440,7 +440,7 @@ Notes:
         //      Skip to the first line to be displayed
         //
         if ( FirstLineToDisplay > 0 ) {
-        Pager.SkipLines( FirstLineToDisplay, _TabExp );
+                Pager.SkipLines( FirstLineToDisplay, _TabExp );
         }
 
         LinesToDisplay  = Pager.QueryLinesPerPage() - 1;
@@ -459,10 +459,10 @@ Notes:
                 //      Display a group of lines
                 //
                 Pager.DisplayPage( LinesToDisplay,
-                                                   ClearScreen,
-                                                   _SqueezeBlanksSwitch,
-                           _ExpandFormFeedSwitch,
-                           _TabExp );
+                                   ClearScreen,
+                                   _SqueezeBlanksSwitch,
+                                   _ExpandFormFeedSwitch,
+                                   _TabExp );
 
                 //
                 //      If not at end of stream, we wait for an option

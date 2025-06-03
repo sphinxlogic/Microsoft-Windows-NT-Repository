@@ -170,12 +170,12 @@ typedef struct _ACCESS_STATE {
    ACCESS_MASK OriginalDesiredAccess;
    SECURITY_SUBJECT_CONTEXT SubjectSecurityContext;
    PSECURITY_DESCRIPTOR SecurityDescriptor;
-   PPRIVILEGE_SET PrivilegesUsed;
+   PVOID AuxData;
    union {
       INITIAL_PRIVILEGE_SET InitialPrivilegeSet;
       PRIVILEGE_SET PrivilegeSet;
       } Privileges;
-          
+
    BOOLEAN AuditPrivileges;
    UNICODE_STRING ObjectName;
    UNICODE_STRING ObjectTypeName;
@@ -222,13 +222,64 @@ where:
        SEASSIGNSECURITY SHOULD EVER LOOK IN THIS FIELD FOR AN
        OBJECT'S SECURITY DESCRIPTOR.
 
-    PrivilegesUsed - Pointer to the set of privileges that have been
-        used for access.
+    AuxData - points to an auxillary data structure to be used for future
+        expansion of the access state in an upwardly compatible way.  This
+        field replaces the PrivilegesUsed pointer, which was for internal
+        use only.
 
     Privileges - A set of privileges, some of which may have the
         UsedForAccess bit set.  If the pre-allocated number of privileges
         is not enough, we will allocate space from pool memory to allow
         for growth.
+
+*/
+
+
+
+//*******************************************************************************
+//                                                                              *
+//  Since the AccessState structure is publically exposed to driver             *
+//  writers, this structure contains additional data added after NT 3.51.       *
+//                                                                              *
+//  Its contents must be accessed only through Se level interfaces,             *
+//  never directly by name.                                                     *
+//                                                                              *
+//  This structure is pointed to by the AuxData field of the AccessState.       *
+//  It is allocated by SeCreateAccessState and freed by SeDeleteAccessState.    *
+//                                                                              *
+//  DO NOT EXPOSE THIS STRUCTURE TO THE PUBLIC.                                 *
+//                                                                              *
+//*******************************************************************************
+
+
+typedef struct _AUX_ACCESS_DATA {
+    PPRIVILEGE_SET PrivilegesUsed;
+    GENERIC_MAPPING GenericMapping;
+    ACCESS_MASK AccessesToAudit;
+} AUX_ACCESS_DATA, *PAUX_ACCESS_DATA;
+
+/*
+where:
+
+    PrivilegesUsed - Points to the set of privileges used during the access
+        validation.
+
+    GenericMapping - Points to the generic mapping for the object being accessed.
+        Normally this would be filled in with the generic mapping passed to
+        SeCreateAccessState, but in the case of the IO system (which does not
+        know the type of object being accessed until it parses the name),
+        it must be filled in later.  See the discussion of the GenericMapping
+        parameter in SeCreateAccessState for more details.
+
+    AccessToAudit - Used as a temporary holding area for the access mask
+        to put into the audit record.  This field is necessary because the
+        access being put into the newly created handle may not be the ones
+        we want to audit.  This occurs when a file is opened for read-only
+        transacted mode, where a read only file is opened for write access.
+        We don't want to audit the fact that we granted write access, since
+        we really didn't, and customers would be confused to see the extra
+        bit in the audit record.
+
 
 */
 
@@ -346,6 +397,26 @@ typedef struct _SE_EXPORTS {
 
 *************************************************************/
 
+
+
+// begin_ntifs
+///////////////////////////////////////////////////////////////////////////////
+//                                                                           //
+//              Logon session notification callback routines                 //
+//                                                                           //
+///////////////////////////////////////////////////////////////////////////////
+
+//
+//  These callback routines are used to notify file systems that have
+//  registered of logon sessions being terminated, so they can cleanup state
+//  associated with this logon session
+//
+
+typedef NTSTATUS
+(*PSE_LOGON_SESSION_TERMINATED_ROUTINE)(
+    IN PLUID LogonId);
+
+// end_ntifs
 
 
 
@@ -702,7 +773,12 @@ SeCaptureSecurityQos (
     IN POBJECT_ATTRIBUTES ObjectAttributes OPTIONAL,
     IN KPROCESSOR_MODE RequestorMode,
     IN PBOOLEAN SecurityQosPresent,
-    IN PSECURITY_QUALITY_OF_SERVICE CapturedSecurityQos
+    IN PSECURITY_ADVANCED_QUALITY_OF_SERVICE CapturedSecurityQos
+    );
+
+VOID
+SeFreeCapturedSecurityQos(
+    IN PVOID SecurityQos
     );
 
 NTSTATUS
@@ -830,6 +906,23 @@ SeAccessCheck (
     OUT PNTSTATUS AccessStatus
     );
 
+BOOLEAN
+SeProxyAccessCheck (
+    IN PUNICODE_STRING Volume,
+    IN PUNICODE_STRING RelativePath,
+    IN BOOLEAN ContainerObject,
+    IN PSECURITY_DESCRIPTOR SecurityDescriptor,
+    IN PSECURITY_SUBJECT_CONTEXT SubjectSecurityContext,
+    IN BOOLEAN SubjectContextLocked,
+    IN ACCESS_MASK DesiredAccess,
+    IN ACCESS_MASK PreviouslyGrantedAccess,
+    OUT PPRIVILEGE_SET *Privileges OPTIONAL,
+    IN PGENERIC_MAPPING GenericMapping,
+    IN KPROCESSOR_MODE AccessMode,
+    OUT PACCESS_MASK GrantedAccess,
+    OUT PNTSTATUS AccessStatus
+    );
+
 // end_ntddk
 
 NTKERNELAPI
@@ -885,6 +978,27 @@ SeOpenObjectAuditAlarm (
     IN KPROCESSOR_MODE AccessMode,
     OUT PBOOLEAN GenerateOnClose
     );
+
+NTKERNELAPI
+VOID
+SeOpenObjectForDeleteAuditAlarm (
+    IN PUNICODE_STRING ObjectTypeName,
+    IN PVOID Object OPTIONAL,
+    IN PUNICODE_STRING AbsoluteObjectName OPTIONAL,
+    IN PSECURITY_DESCRIPTOR SecurityDescriptor,
+    IN PACCESS_STATE AccessState,
+    IN BOOLEAN ObjectCreated,
+    IN BOOLEAN AccessGranted,
+    IN KPROCESSOR_MODE AccessMode,
+    OUT PBOOLEAN GenerateOnClose
+    );
+
+VOID
+SeDeleteObjectAuditAlarm(
+    IN PVOID Object,
+    IN HANDLE Handle
+    );
+
 
 // end_ntifs
 
@@ -1098,18 +1212,25 @@ SeImpersonateClient(
 
 // end_ntifs
 
+//
+// Do not export the following routines to drivers.
+// If you need to do so, create a new routine that
+// does not take the AuxData parameter and export
+// that.
+//
+
 NTSTATUS
 SeCreateAccessState(
    IN PACCESS_STATE AccessState,
+   IN PAUX_ACCESS_DATA AuxData,
    IN ACCESS_MASK DesiredAccess,
-   IN PGENERIC_MAPPING GenericMapping OPTIONAL
+   IN PGENERIC_MAPPING GenericMapping
    );
 
 VOID
 SeDeleteAccessState(
     IN PACCESS_STATE AccessState
     );
-
 
 NTSTATUS
 SeUpdateClientSecurity(
@@ -1202,6 +1323,14 @@ SeAuditingFileEvents(                                           // ntifs
     IN PSECURITY_DESCRIPTOR SecurityDescriptor                  // ntifs
     );                                                          // ntifs
 
+NTKERNELAPI                                                     // ntifs
+BOOLEAN                                                         // ntifs
+SeAuditingFileOrGlobalEvents(                                   // ntifs
+    IN BOOLEAN AccessGranted,                                   // ntifs
+    IN PSECURITY_DESCRIPTOR SecurityDescriptor,                 // ntifs
+    IN PSECURITY_SUBJECT_CONTEXT SubjectSecurityContext         // ntifs
+    );                                                          // ntifs
+
 VOID
 SeAuditProcessCreation(
     PEPROCESS Process,
@@ -1219,6 +1348,42 @@ SeAuditHandleDuplication(
     PVOID NewHandle,
     PEPROCESS SourceProcess,
     PEPROCESS TargetProcess
+    );
+
+// begin_ntifs
+
+VOID
+SeSetAccessStateGenericMapping (
+    PACCESS_STATE AccessState,
+    PGENERIC_MAPPING GenericMapping
+    );
+
+// end_ntifs
+
+// begin_ntifs
+
+NTSTATUS
+SeRegisterLogonSessionTerminatedRoutine(
+    IN PSE_LOGON_SESSION_TERMINATED_ROUTINE CallbackRoutine
+    );
+
+NTSTATUS
+SeUnregisterLogonSessionTerminatedRoutine(
+    IN PSE_LOGON_SESSION_TERMINATED_ROUTINE CallbackRoutine
+    );
+
+NTSTATUS
+SeMarkLogonSessionForTerminationNotification(
+    IN PLUID LogonId
+    );
+
+// end_ntifs
+
+NTSTATUS
+SeQueryInformationToken (
+    IN PACCESS_TOKEN Token,
+    IN TOKEN_INFORMATION_CLASS TokenInformationClass,
+    OUT PVOID *TokenInformation
     );
 
 
@@ -1267,6 +1432,8 @@ extern PSID  SeWorldSid;
 extern PSID  SeLocalSid;
 extern PSID  SeCreatorOwnerSid;
 extern PSID  SeCreatorGroupSid;
+extern PSID  SeCreatorOwnerServerSid;
+extern PSID  SeCreatorGroupServerSid;
 
 
 //
@@ -1294,9 +1461,11 @@ extern PSID SeAliasBackupOpsSid;
 //
 
 extern PSECURITY_DESCRIPTOR SePublicDefaultSd;
+extern PSECURITY_DESCRIPTOR SePublicOpenSd;
 extern PSECURITY_DESCRIPTOR SeSystemDefaultSd;
 
 extern PACL SePublicDefaultDacl;
+extern PACL SePublicOpenDacl;
 extern PACL SeSystemDefaultDacl;
 
 //

@@ -917,7 +917,8 @@ Return Value:
                 //
 
                 if ( (Vcb->OpenFileCount == 0) &&
-                     (Vcb->VcbCondition == VcbNotMounted) &&
+                     ((Vcb->VcbCondition == VcbNotMounted) ||
+                      (Vcb->VcbCondition == VcbBad)) &&
                      FatCheckForDismount( &IrpContext, Vcb ) ) {
 
                     //

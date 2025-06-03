@@ -79,7 +79,6 @@ static EMCB emcb = {
 static CRITICAL_SECTION CallbackCriticalSection;
 
 
-#define CheckErr(xosd) if ( xosd != xosdNone ) return xosd
 
 
 XOSD PASCAL
@@ -736,13 +735,19 @@ Return Value:
     }
 
     xosd = emfunc ( emfRegisterDBF, NULL, htidNull, 0, (LONG) lpdbf );
-    CheckErr ( xosd );
+    if (xosd != xosdNone) {
+        return xosd;
+    }
 
     xosd = emfunc ( emfInit, NULL, htidNull, 0, (LONG) (LPV) &emcb );
-    CheckErr ( xosd );
+    if (xosd != xosdNone) {
+        return xosd;
+    }
 
     xosd = emfunc ( emfGetModel, NULL, htidNull, 0, (LONG) (LPV) &wModel );
-    CheckErr ( xosd );
+    if (xosd != xosdNone) {
+        return xosd;
+    }
 
     while ( hemm = LLNext ( llem, hemm ) ) {
         lpemm = LLLock ( hemm );
@@ -887,10 +892,12 @@ Return Value:
     XOSD xosd = xosdNone;
 
     xosd = tlfunc ( tlfRegisterDBF, NULL, 0, (LONG) lpdbf );
-    CheckErr ( xosd );
+    if (xosd != xosdNone) {
+        return xosd;
+    }
 
     xosd = tlfunc ( tlfGlobalInit, NULL, 0, (LONG) TLCallBack );
-    CheckErr ( xosd );
+    return xosd;
 }
 
 
@@ -900,17 +907,19 @@ XOSD PASCAL OSDTLGetInfo( TLFUNC tlfunc, LPGIS lpgis, UINT wLen) {
     XOSD xosd = xosdNone;
 
     xosd = tlfunc ( tlfGetInfo, NULL, wLen, (LONG) lpgis );
-    CheckErr ( xosd );
+    return xosd;
 }
 
 XOSD PASCAL OSDTLSetup( TLFUNC tlfunc, LSZ lszInit, UINT wLen, LPV lpv) {
     XOSD xosd = xosdNone;
 
     xosd = tlfunc ( tlfSetUIStruct, NULL, 0, (LONG) lpv );
-    CheckErr ( xosd );
+    if (xosd != xosdNone) {
+        return xosd;
+    }
 
     xosd = tlfunc ( tlfSetup, NULL, wLen, (LONG) lszInit );
-    CheckErr ( xosd );
+    return xosd;
 }
 
 
@@ -1990,7 +1999,9 @@ Return Value:
     (void)CallEM ( emfSetAddr, hpid, htid, adrCurrent, lpaddr );    // [00]
                                                                     // [00]
     xosd = CallEM ( emfAssemble, hpid, htid, 0, lsz );              // [00]
-    CheckErr ( xosd );                                              // [00]
+    if (xosd != xosdNone) {
+        return xosd;
+    }
                                                                     // [00]
     (void)CallEM ( emfGetAddr, hpid, htid, adrCurrent, lpaddr );    // [00]
                                                                     // [00]
@@ -3346,9 +3357,10 @@ CreateProc (
     // clean up
 
     LLUnlock ( (HLLE)hpid );
-    CheckErr ( xosd );
 
-    *lphpid = hpid;
+    if (xosd == xosdNone) {
+        *lphpid = hpid;
+    }
 
     return xosd;
 }

@@ -203,7 +203,7 @@ Return Value:
 {
     PRTL_USER_PROCESS_PARAMETERS p;
     NTSTATUS Status;
-    UNICODE_STRING NullString = {0, 0, NULL};
+    UNICODE_STRING NullString = {0, 1, L""};
     ULONG ByteCount, MaxByteCount;
     PWSTR pDst;
     PPEB Peb = NtCurrentPeb();
@@ -330,8 +330,14 @@ Return Value:
         RtlpCopyProcString( &pDst, &p->WindowTitle, WindowTitle, 0 );
         RtlpCopyProcString( &pDst, &p->DesktopInfo, DesktopInfo, 0 );
         RtlpCopyProcString( &pDst, &p->ShellInfo,   ShellInfo, 0 );
-        RtlpCopyProcString( &pDst, &p->RuntimeData, RuntimeData, 0 );
-
+        if (RuntimeData->Length != 0) {
+            RtlpCopyProcString( &pDst, &p->RuntimeData, RuntimeData, 0 );
+            }
+        else {
+            p->RuntimeData.Buffer = NULL;
+            p->RuntimeData.Length = 0;
+            p->RuntimeData.MaximumLength = 0;
+            }
         *ProcessParameters = RtlDeNormalizeProcessParams( p );
         p = NULL;
         }
@@ -615,6 +621,9 @@ RtlpCreateStack(
         return( Status );
         }
 
+    InitialTeb->OldInitialTeb.OldStackBase = NULL;
+    InitialTeb->OldInitialTeb.OldStackLimit = NULL;
+    InitialTeb->StackAllocationBase = Stack;
     InitialTeb->StackBase = Stack + MaximumStackSize;
 
     Stack += MaximumStackSize - CommittedStackSize;
@@ -667,7 +676,7 @@ RtlpCreateStack(
 #endif // DBG
             return( Status );
             }
-        InitialTeb->StackLimit = (PVOID)((PUCHAR)InitialTeb->StackLimit + RegionSize);
+        InitialTeb->StackLimit = (PVOID)((PUCHAR)InitialTeb->StackLimit - RegionSize);
         }
 
     return( STATUS_SUCCESS );
@@ -681,23 +690,11 @@ RtlpFreeStack(
     )
 {
     NTSTATUS Status;
-    MEMORY_BASIC_INFORMATION MemInfo;
     ULONG Zero;
 
-    Status = NtQueryVirtualMemory(
-                NtCurrentProcess(),
-                InitialTeb->StackLimit,
-                MemoryBasicInformation,
-                (PVOID)&MemInfo,
-                sizeof(MemInfo),
-                NULL
-                );
-    if ( !NT_SUCCESS(Status) ) {
-        return Status;
-        }
     Zero = 0;
     Status = ZwFreeVirtualMemory( Process,
-                                  &MemInfo.AllocationBase,
+                                  &InitialTeb->StackAllocationBase,
                                   &Zero,
                                   MEM_RELEASE
                                 );
@@ -711,8 +708,7 @@ RtlpFreeStack(
         return( Status );
         }
 
-    InitialTeb->StackLimit = NULL;
-    InitialTeb->StackBase = NULL;
+    RtlZeroMemory( InitialTeb, sizeof( *InitialTeb ) );
     return( STATUS_SUCCESS );
 }
 
@@ -855,19 +851,14 @@ Return Value:
         ParentProcess = NtCurrentProcess();
         }
 
-    if ( RtlGetNtGlobalFlags() & FLG_DISABLE_CSRDEBUG ) {
-        InitializeObjectAttributes( &ObjectAttributes, NULL, 0, NULL,
-                                    ProcessSecurityDescriptor );
-        }
-    else {
+    InitializeObjectAttributes( &ObjectAttributes, NULL, 0, NULL,
+                                ProcessSecurityDescriptor );
+    if ( RtlGetNtGlobalFlags() & FLG_ENABLE_CSRDEBUG ) {
         if ( wcsstr(NtImagePathName->Buffer,L"csrss") ||
-             wcsstr(NtImagePathName->Buffer,L"CSRSS")   ) {
-                RtlInitUnicodeString(&Unicode,L"\\WindowsSS");
-                InitializeObjectAttributes( &ObjectAttributes, &Unicode, 0, NULL,
-                                            ProcessSecurityDescriptor );
-                }
-        else {
-            InitializeObjectAttributes( &ObjectAttributes, NULL, 0, NULL,
+             wcsstr(NtImagePathName->Buffer,L"CSRSS")
+           ) {
+            RtlInitUnicodeString(&Unicode,L"\\WindowsSS");
+            InitializeObjectAttributes( &ObjectAttributes, &Unicode, 0, NULL,
                                         ProcessSecurityDescriptor );
             }
         }
@@ -1345,4 +1336,43 @@ Return Value:
     //
 
     return( Status );
+}
+
+
+VOID
+RtlFreeUserThreadStack(
+    HANDLE hProcess,
+    HANDLE hThread
+    )
+{
+    NTSTATUS Status;
+    PTEB Teb;
+    THREAD_BASIC_INFORMATION ThreadInfo;
+    PVOID StackDeallocationBase;
+    ULONG Size;
+
+    Status = NtQueryInformationThread( hThread,
+                                       ThreadBasicInformation,
+                                       &ThreadInfo,
+                                       sizeof( ThreadInfo ),
+                                       NULL
+                                     );
+    Teb = ThreadInfo.TebBaseAddress;
+    if (!NT_SUCCESS( Status ) || !Teb) {
+        return;
+        }
+
+    Status = NtReadVirtualMemory( hProcess,
+                                  &Teb->DeallocationStack,
+                                  &StackDeallocationBase,
+                                  sizeof( StackDeallocationBase ),
+                                  &Size
+                                );
+    if (!NT_SUCCESS( Status ) || !StackDeallocationBase) {
+        return;
+        }
+
+    Size = 0;
+    NtFreeVirtualMemory( hProcess, &StackDeallocationBase, &Size, MEM_RELEASE );
+    return;
 }

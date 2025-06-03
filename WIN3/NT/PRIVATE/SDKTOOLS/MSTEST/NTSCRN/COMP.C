@@ -406,7 +406,7 @@ INT FARPUBLIC fViewScreen(FileName, hwnd, rnIn, nscr, action, pscale)  /* [10] *
  {                                      /* the size of the actual bitmap */
     FD  fdScreen = fdNull ;             /* handle to screen file */
     REN rn ;                            /* [13] */
-    INT i = 0, j ;
+    INT i = 0, j=0 ;
     VM vmCurr;
 
     // No trapping is done on hwnd; it is assumed to be correct in this case

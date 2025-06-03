@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------
 //
-// Copyright (C) 1993, Microsoft Corporation.
+// Copyright (C) 1995, Microsoft Corporation.
 //
 // File:        t2.cxx
 //
@@ -16,6 +16,8 @@
 #include <fileenum.hxx>
 #include <dumpsec.hxx>
 #include "caclsmsg.h"
+#include <locale.h>
+#include <string.h>
 
 #if DBG
 ULONG Debug;
@@ -94,6 +96,8 @@ VOID usage()
 //----------------------------------------------------------------------------
 VOID main(INT argc, char *argv[])
 {
+    setlocale( LC_CTYPE, "" );
+
     LONG astart[MAX_OPTIONS], aend[MAX_OPTIONS];
     MODE emode;
 
@@ -188,8 +192,8 @@ ULONG GetCmdLineArgs(INT argc, char *argv[],
 
         if (argc >= 2)
         {
-            if ( (0 == stricmp(&argv[1][1], "deBug")) ||
-                 (0 == stricmp(&argv[1][1], "b"))  )
+            if ( (0 == _stricmp(&argv[1][1], "deBug")) ||
+                 (0 == _stricmp(&argv[1][1], "b"))  )
             {
                 *debug = DEBUG_LAST_ERROR;
             }
@@ -222,8 +226,8 @@ ULONG GetCmdLineArgs(INT argc, char *argv[],
                     return(ERROR_BAD_ARGUMENTS);
             }
 
-            if ( (0 == stricmp(&argv[k][1], "Tree")) ||
-                 (0 == stricmp(&argv[k][1], "t")) )
+            if ( (0 == _stricmp(&argv[k][1], "Tree")) ||
+                 (0 == _stricmp(&argv[k][1], "t")) )
             {
                 if (*option & OPTION_TREE)
                     return(ERROR_BAD_ARGUMENTS);
@@ -232,8 +236,8 @@ ULONG GetCmdLineArgs(INT argc, char *argv[],
                 continue;
             }
 
-            if ( (0 == stricmp(&argv[k][1], "Continue")) ||
-                 (0 == stricmp(&argv[k][1], "c")) )
+            if ( (0 == _stricmp(&argv[k][1], "Continue")) ||
+                 (0 == _stricmp(&argv[k][1], "c")) )
             {
                 if (*option & OPTION_CONTINUE_ON_ERROR)
                     return(ERROR_BAD_ARGUMENTS);
@@ -242,8 +246,8 @@ ULONG GetCmdLineArgs(INT argc, char *argv[],
                 continue;
             }
 
-            if ( (0 == stricmp(&argv[k][1], "Edit")) ||
-                 (0 == stricmp(&argv[k][1], "E")) )
+            if ( (0 == _stricmp(&argv[k][1], "Edit")) ||
+                 (0 == _stricmp(&argv[k][1], "E")) )
             {
                 if (*emode != MODE_DISPLAY)
                     return(ERROR_BAD_ARGUMENTS);
@@ -253,8 +257,8 @@ ULONG GetCmdLineArgs(INT argc, char *argv[],
             }
 
 #if DBG
-            if ( (0 == stricmp(&argv[k][1], "deBug")) ||
-                 (0 == stricmp(&argv[k][1], "b"))  )
+            if ( (0 == _stricmp(&argv[k][1], "deBug")) ||
+                 (0 == _stricmp(&argv[k][1], "b"))  )
             {
                 if (*debug)
                     return(ERROR_BAD_ARGUMENTS);
@@ -263,23 +267,23 @@ ULONG GetCmdLineArgs(INT argc, char *argv[],
                 continue;
             }
 #endif
-            if ( (0 == stricmp(&argv[k][1], "Deny")) ||
-                 (0 == stricmp(&argv[k][1], "D")) )
+            if ( (0 == _stricmp(&argv[k][1], "Deny")) ||
+                 (0 == _stricmp(&argv[k][1], "D")) )
             {
                 am = ARG_MODE_INDEX_DENY;
                 *option |= OPTION_DENY;
-            } else if ( (0 == stricmp(&argv[k][1], "Revoke")) ||
-                        (0 == stricmp(&argv[k][1], "R")) )
+            } else if ( (0 == _stricmp(&argv[k][1], "Revoke")) ||
+                        (0 == _stricmp(&argv[k][1], "R")) )
             {
                 am = ARG_MODE_INDEX_REVOKE;
                 *option |= OPTION_REVOKE;
-            } else if ( (0 == stricmp(&argv[k][1], "Grant")) ||
-                        (0 == stricmp(&argv[k][1], "G")) )
+            } else if ( (0 == _stricmp(&argv[k][1], "Grant")) ||
+                        (0 == _stricmp(&argv[k][1], "G")) )
             {
                 am = ARG_MODE_INDEX_GRANT;
                 *option |= OPTION_GRANT;
-            } else if ( (0 == stricmp(&argv[k][1], "rePlace")) ||
-                        (0 == stricmp(&argv[k][1], "P")) )
+            } else if ( (0 == _stricmp(&argv[k][1], "rePlace")) ||
+                        (0 == _stricmp(&argv[k][1], "P")) )
             {
                 *option |= OPTION_REPLACE;
                 am = ARG_MODE_INDEX_REPLACE;
@@ -333,7 +337,13 @@ ULONG GetCmdLineArgs(INT argc, char *argv[],
                 (*option & OPTION_REPLACE) )
     {
         if (*emode == MODE_DISPLAY)
+        {
+            if (*option & OPTION_REVOKE)
+            {
+                return(ERROR_BAD_ARGUMENTS);
+            }
             *emode = MODE_REPLACE;
+        }
     }
     return(ERROR_SUCCESS);
 }
@@ -354,11 +364,16 @@ ULONG DisplayAces(CHAR *filename, ULONG option)
     WCHAR *pwfilename;
     BOOL fdir;
     ULONG ret;
+    ULONG lngth;
+    ULONG cbwritten;
+    HANDLE hStdout;
+
+    hStdout = GetStdHandle(STD_OUTPUT_HANDLE);
 
     if (NO_ERROR == (ret = cfe.Init(filename, &pwfilename, &fdir)))
     {
         while ( (NO_ERROR == ret) ||
-                ( (ERROR_ACCESS_DENIED == ret ) &&
+                ( ( (ERROR_ACCESS_DENIED == ret ) || (ERROR_SHARING_VIOLATION == ret) )&&
                   (option & OPTION_CONTINUE_ON_ERROR) ) )
         {
 #if DBG
@@ -367,10 +382,13 @@ ULONG DisplayAces(CHAR *filename, ULONG option)
             else
                 DISPLAY((stderr, "processing dir: "))
 #endif
-            fprintf(stdout, "%ws",pwfilename);
+            WriteConsole(hStdout, pwfilename, wcslen(pwfilename), &cbwritten, NULL);
             if (ERROR_ACCESS_DENIED == ret)
             {
                 printmessage(stdout,MSG_CACLS_ACCESS_DENIED, NULL);
+            } else if (ERROR_SHARING_VIOLATION == ret)
+            {
+                printmessage(stdout,MSG_CACLS_SHARING_VIOLATION, NULL);
             } else
             {
                 DISPLAY((stderr, "\n"))
@@ -421,7 +439,7 @@ ULONG DisplayAces(CHAR *filename, ULONG option)
             fprintf(stdout, "\n");
 
             if ( (NO_ERROR == ret) ||
-                 ( (ERROR_ACCESS_DENIED == ret ) &&
+                ( ( (ERROR_ACCESS_DENIED == ret ) || (ERROR_SHARING_VIOLATION == ret) )&&
                    (option & OPTION_CONTINUE_ON_ERROR) ) )
                 ret = cfe.Next(&pwfilename, &fdir);
         }
@@ -431,7 +449,8 @@ ULONG DisplayAces(CHAR *filename, ULONG option)
             case ERROR_NO_MORE_FILES:
                 ret = ERROR_SUCCESS;
                 break;
-           case ERROR_ACCESS_DENIED:
+        case ERROR_ACCESS_DENIED:
+        case ERROR_SHARING_VIOLATION:
                 break;
             case ERROR_SUCCESS:
                 break;
@@ -471,6 +490,12 @@ ULONG ModifyAces(CHAR *filename,
     ULONG ret = ERROR_SUCCESS;
     WCHAR *pwfilename;
     ULONG curoption;
+    ULONG cbwritten;
+    HANDLE hStdout;
+    WCHAR usr[MAX_PATH];
+
+    hStdout = GetStdHandle(STD_OUTPUT_HANDLE);
+
 
     VERBOSER((stderr, "user:permission pairs\n"))
 
@@ -496,10 +521,7 @@ ULONG ModifyAces(CHAR *filename,
                     }
                     if (GENERIC_NONE == access)
                     {
-                        if (k & OPTION_REPLACE)
-                        {
-                            curoption = OPTION_DENY;
-                        } else
+                        if (!(k & OPTION_REPLACE))
                         {
                             if (user)
                                 LocalFree(user);
@@ -508,6 +530,7 @@ ULONG ModifyAces(CHAR *filename,
                     }
                 } else
                 {
+
                     user = mbstowcs(argv[q]);
                     access = GENERIC_NONE;
                 }
@@ -543,7 +566,6 @@ ULONG ModifyAces(CHAR *filename,
     {
         CHAR well[MAX_PATH];
         CHAR msgbuf[MAX_PATH];
-        ULONG size;
         printmessage(stdout,MSG_CACLS_ARE_YOU_SURE, NULL);
         FormatMessageA(FORMAT_MESSAGE_FROM_HMODULE, NULL, MSG_CACLS_Y, 0,
                       msgbuf, MAX_PATH, NULL);
@@ -553,11 +575,11 @@ ULONG ModifyAces(CHAR *filename,
         if ('\n' == well[strlen(well) - sizeof(CHAR)])
             well[strlen(well) - sizeof(CHAR)] = '\0';
 
-        if (0 != stricmp(well, msgbuf))
+        if (0 != _stricmp(well, msgbuf))
         {
             FormatMessageA(FORMAT_MESSAGE_FROM_HMODULE, NULL, MSG_CACLS_YES, 0,
                           msgbuf, MAX_PATH, NULL);
-            if (0 != stricmp(well, msgbuf))
+            if (0 != _stricmp(well, msgbuf))
                 return(ERROR_SUCCESS);
         }
     }
@@ -565,7 +587,7 @@ ULONG ModifyAces(CHAR *filename,
     if (NO_ERROR == (ret = cfe.Init(filename, &pwfilename, &fdir)))
     {
         while ( (NO_ERROR == ret) ||
-                ( (ERROR_ACCESS_DENIED == ret ) &&
+                ( ( (ERROR_ACCESS_DENIED == ret ) || (ERROR_SHARING_VIOLATION == ret) )&&
                   (option & OPTION_CONTINUE_ON_ERROR) ) )
         {
             CFileSecurity cfs(pwfilename);
@@ -577,25 +599,53 @@ ULONG ModifyAces(CHAR *filename,
                     ERRORS((stderr, "SetFS on %ws failed %ld\n",pwfilename, ret))
                     return(ret);
                 }
-            } else
-            {
-                ERRORS((stderr, "init failed, %d\n",ret))
-                return(ret);
-            }
-
-            if (fdir)
-            {
-                printmessage(stdout, MSG_CACLS_PROCESSED_DIR, NULL);
-                fprintf(stdout, "%ws\n", pwfilename);
             }
             else
             {
-                printmessage(stdout, MSG_CACLS_PROCESSED_FILE, NULL);
-                fprintf(stdout, "%ws\n", pwfilename);
+               //
+               // If the error is access denied or sharing violation and we are to continue on error,
+               // then keep going. Otherwise bail out here.
+               //
+
+               if (!(((ERROR_ACCESS_DENIED == ret) || (ERROR_SHARING_VIOLATION == ret)) &&
+                   (option & OPTION_CONTINUE_ON_ERROR))) {
+
+                  ERRORS((stderr, "init failed, %d\n",ret))
+                  return(ret);
+               }
+            }
+
+            if (NO_ERROR == ret)
+            {
+
+                if (fdir)
+                {
+                    printmessage(stdout, MSG_CACLS_PROCESSED_DIR, NULL);
+                    WriteConsole(hStdout, pwfilename, wcslen(pwfilename), &cbwritten, NULL);
+                    fprintf(stdout, "\n");
+                }
+                else
+                {
+                    printmessage(stdout, MSG_CACLS_PROCESSED_FILE, NULL);
+                    WriteConsole(hStdout, pwfilename, wcslen(pwfilename), &cbwritten, NULL);
+                    fprintf(stdout, "\n");
+                }
+            }
+            else if (ERROR_ACCESS_DENIED == ret)
+            {
+                printmessage(stdout, MSG_CACLS_ACCESS_DENIED, NULL);
+                WriteConsole(hStdout, pwfilename, wcslen(pwfilename), &cbwritten, NULL);
+                fprintf(stdout, "\n");
+            }
+            else if (ret == ERROR_SHARING_VIOLATION)
+            {
+                printmessage(stdout, MSG_CACLS_SHARING_VIOLATION, NULL);
+                WriteConsole(hStdout, pwfilename, wcslen(pwfilename), &cbwritten, NULL);
+                fprintf(stdout, "\n");
             }
 
             if ( (NO_ERROR == ret) ||
-                 ( (ERROR_ACCESS_DENIED == ret ) &&
+                 ( ( (ERROR_ACCESS_DENIED == ret ) || (ERROR_SHARING_VIOLATION == ret) ) &&
                    (option & OPTION_CONTINUE_ON_ERROR) ) )
                 ret = cfe.Next(&pwfilename, &fdir);
         }
@@ -606,6 +656,7 @@ ULONG ModifyAces(CHAR *filename,
                 ret = ERROR_SUCCESS;
                 break;
             case ERROR_ACCESS_DENIED:
+            case ERROR_SHARING_VIOLATION:
                 break;
             case ERROR_SUCCESS:
                 break;
@@ -688,7 +739,7 @@ ULONG DebugEnumerate(CHAR *filename, ULONG option)
 BOOL GetUserAndAccess(CHAR *arg, WCHAR **user, ULONG *access)
 {
     CHAR *saccess = strchr(arg,':');
-
+    WCHAR usr[MAX_PATH];
     if (saccess)
     {
         *saccess = NULL;
@@ -698,7 +749,7 @@ BOOL GetUserAndAccess(CHAR *arg, WCHAR **user, ULONG *access)
             return(FALSE);
         *user = mbstowcs(arg);
 
-        if (0 == stricmp(saccess,"F"))
+        if (0 == _stricmp(saccess,"F"))
         {
             *access = ( STANDARD_RIGHTS_ALL |
                         FILE_READ_DATA |
@@ -711,15 +762,15 @@ BOOL GetUserAndAccess(CHAR *arg, WCHAR **user, ULONG *access)
                         FILE_READ_ATTRIBUTES |
                         FILE_WRITE_ATTRIBUTES );
         }
-        else if (0 == stricmp(saccess,"R"))
+        else if (0 == _stricmp(saccess,"R"))
         {
             *access = FILE_GENERIC_READ | FILE_EXECUTE;
         }
-        else if (0 == stricmp(saccess,"C"))
+        else if (0 == _stricmp(saccess,"C"))
         {
             *access = FILE_GENERIC_WRITE | FILE_GENERIC_READ | FILE_EXECUTE | DELETE;
         }
-        else if (0 == stricmp(saccess,"N"))
+        else if (0 == _stricmp(saccess,"N"))
         {
             *access = GENERIC_NONE;
         }
@@ -747,7 +798,7 @@ WCHAR *mbstowcs(char *aname )
         if (NULL == pwname)
             return(NULL);
         WCHAR *prwname = pwname;
-        for (; *prwname = (WCHAR)(*aname);prwname++,aname++  );
+        MultiByteToWideChar(0,0,aname,-1,pwname,MAX_PATH);
         return(pwname);
     } else
         return(NULL);
@@ -828,6 +879,12 @@ void printfsid(SID *psid, ULONG *outputoffset)
 
     WCHAR *domain = NULL;
     WCHAR *user;
+    ULONG cbwritten;
+    HANDLE hStdout;
+
+    hStdout = GetStdHandle(STD_OUTPUT_HANDLE);
+
+
 
     if (NO_ERROR == ( ret = ca.GetAccountDomain(&domain) ) )
     {
@@ -838,12 +895,16 @@ void printfsid(SID *psid, ULONG *outputoffset)
         }
         else
         {
-            fprintf(stdout, " %ws\\",domain);
+///            fprintf(stdout, " %ws\\",domain);
+            fprintf(stdout, " ");
+            WriteConsole(hStdout, domain, wcslen(domain), &cbwritten, NULL);
+            fprintf(stdout, "\\");
             *outputoffset +=2 + wcslen(domain);
         }
         if (NO_ERROR == ( ret = ca.GetAccountName(&user) ) )
         {
-            fprintf(stdout, "%ws:",user);
+            WriteConsole(hStdout, user, wcslen(user), &cbwritten, NULL);
+            fprintf(stdout, ":");
             *outputoffset += 1 + wcslen(user);
         } else
         {
@@ -880,7 +941,7 @@ void printface(ACE_HEADER *paceh, BOOL fdir, ULONG outputoffset)
     {
         outputoffset+= printmessage(stdout, MSG_CACLS_OBJECT_INHERIT, NULL);
     }
-    if (paceh->AceFlags & CONTAINER_INHERIT_ACE   ) 
+    if (paceh->AceFlags & CONTAINER_INHERIT_ACE   )
     {
         outputoffset+= printmessage(stdout, MSG_CACLS_CONTAINER_INHERIT, NULL);
     }
@@ -888,7 +949,7 @@ void printface(ACE_HEADER *paceh, BOOL fdir, ULONG outputoffset)
     {
         outputoffset+= printmessage(stdout, MSG_CACLS_NO_PROPAGATE_INHERIT, NULL);
     }
-    if (paceh->AceFlags & INHERIT_ONLY_ACE        ) 
+    if (paceh->AceFlags & INHERIT_ONLY_ACE        )
     {
         outputoffset+= printmessage(stdout, MSG_CACLS_INHERIT_ONLY, NULL);
     }
@@ -1091,7 +1152,7 @@ void printfmask(ULONG mask, UCHAR acetype, BOOL fdir, ULONG outputoffset)
 ULONG  printmessage (FILE* fp, DWORD messageID, ...)
 {
     WCHAR  messagebuffer[4096];
-	va_list ap;
+        va_list ap;
 
     va_start(ap, messageID);
 
@@ -1100,9 +1161,8 @@ ULONG  printmessage (FILE* fp, DWORD messageID, ...)
        FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM, NULL, messageID, 0,
                         messagebuffer, 4095, &ap);
 
-    fprintf(fp, "%ws", messagebuffer);
+    fwprintf(fp,  messagebuffer);
 
     va_end(ap);
     return(wcslen(messagebuffer));
 }
-

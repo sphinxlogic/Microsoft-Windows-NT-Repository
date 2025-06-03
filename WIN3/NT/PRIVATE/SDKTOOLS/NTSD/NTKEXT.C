@@ -8,6 +8,10 @@
 #undef  NULL
 #include "ntsdp.h"
 
+extern  BOOLEAN KdVerbose;
+#define fVerboseOutput KdVerbose
+
+
 NTSTATUS
 DbgKdReadIoSpaceExtended(
     IN PVOID IoAddress,
@@ -44,11 +48,21 @@ DelImages(
     VOID
     );
 
+VOID
+DelImage (
+    PSZ pszName,
+    PVOID BaseOfDll,
+    ULONG ProcessId
+    );
+
+
 VerifyKernelBase (
     IN BOOLEAN  SyncVersion,
     IN BOOLEAN  DumpVersion,
     IN BOOLEAN  LoadImage
     );
+
+BOOL GenerateKernelModLoad( VOID );
 
 
 
@@ -57,12 +71,13 @@ static HANDLE   hExtensionMod        = NULL;
 static BOOL     fDefaultOldStyleExt  = FALSE;
 static BOOL     fOldStyleExt         = FALSE;
 
+static ULONG    ExtThread;
+
 BOOL  fDoVersionCheck = TRUE;
 PWINDBG_CHECK_VERSION CheckVersion;
 UCHAR SectorBuffer[ 512 ];
 extern DBGKD_GET_VERSION vs;
-
-extern char *KernelImageFileName;
+extern LPSTR SymbolSearchPath;
 
 #if defined(TARGET_i386)
 #define DEFAULT_EXTENSION_LIB "kdextx86.dll"
@@ -70,14 +85,19 @@ extern char *KernelImageFileName;
 #define DEFAULT_EXTENSION_LIB "kdextmip.dll"
 #elif defined(TARGET_ALPHA)
 #define DEFAULT_EXTENSION_LIB "kdextalp.dll"
+#elif defined(TARGET_PPC)
+#define DEFAULT_EXTENSION_LIB "kdextppc.dll"
 #else
 #error( "unknown target machine" );
 #endif
 
+
+CHAR szDefaultAlternate[256] = "userkdx.dll";
+
 ULONG GetExpressionRoutine(char *CommandString);
 BOOL CheckControlC(VOID);
 ULONG disasmRoutine(PULONG, PUCHAR, BOOLEAN);
-void AddImage(PSZ, PVOID, ULONG, ULONG, HANDLE, PSZ);
+void AddImage(PSZ, PVOID, ULONG, ULONG, ULONG, PSZ, BOOL);
 
 VOID
 bangReload(
@@ -136,17 +156,24 @@ ExtCallStack(
     DWORD             Frames
     );
 
+DWORD
+ExtGetSymbol(
+    LPVOID            Offset,
+    PUCHAR            Buffer,
+    PULONG            Displacement
+    );
+
 
 static  WINDBG_EXTENSION_APIS WindbgExtensions =
 {
         sizeof(WindbgExtensions),
-        dprintf,
-        GetExpressionRoutine,
-        (PWINDBG_GET_SYMBOL)GetSymbol,
+        (PWINDBG_OUTPUT_ROUTINE)dprintf,
+        (PWINDBG_GET_EXPRESSION)GetExpressionRoutine,
+        (PWINDBG_GET_SYMBOL)ExtGetSymbol,
         (PWINDBG_DISASM)disasmRoutine,
         CheckControlC,
-        ExtReadProcessMemory,
-        ExtWriteProcessMemory,
+        (PWINDBG_READ_PROCESS_MEMORY_ROUTINE)ExtReadProcessMemory,
+        (PWINDBG_WRITE_PROCESS_MEMORY_ROUTINE)ExtWriteProcessMemory,
         ExtGetThreadContext,
         ExtSetThreadContext,
         ExtIoctl,
@@ -158,7 +185,7 @@ static NTKD_EXTENSION_APIS KdExtensions =
         sizeof(NTKD_EXTENSION_APIS),
         dprintf,
         GetExpressionRoutine,
-        (PNTKD_GET_SYMBOL)GetSymbol,
+        (PNTKD_GET_SYMBOL)ExtGetSymbol,
         (PNTKD_DISASM)disasmRoutine,
         CheckControlC,
         (PNTKD_READ_VIRTUAL_MEMORY)ReadVirtualMemory,
@@ -167,6 +194,17 @@ static NTKD_EXTENSION_APIS KdExtensions =
         (PNTKD_WRITE_PHYSICAL_MEMORY)WritePhysicalMemory
 };
 
+
+DWORD
+ExtGetSymbol (
+    LPVOID offset,
+    PUCHAR pchBuffer,
+    PULONG pDisplacement
+    )
+{
+    GetSymbolStdCall((ULONG)offset, pchBuffer, pDisplacement, NULL);
+    return 1;
+}
 
 
 BOOL
@@ -214,7 +252,7 @@ ExtGetThreadContext(
     DWORD       cbSizeOfContext
     )
 {
-    return DbgKdGetContext( (USHORT)Processor, lpContext ) == STATUS_SUCCESS;
+    return DbgGetThreadContext( (THREADORPROCESSOR)Processor, lpContext );
 }
 
 BOOL
@@ -224,7 +262,7 @@ ExtSetThreadContext(
     DWORD       cbSizeOfContext
     )
 {
-    return DbgKdSetContext( (USHORT)Processor, lpContext ) == STATUS_SUCCESS;
+    return DbgSetThreadContext( (THREADORPROCESSOR)Processor, lpContext );
 }
 
 BOOL
@@ -239,6 +277,7 @@ ExtIoctl(
     PPHYSICAL          phy;
     PIOSPACE           is;
     PIOSPACE_EX        isex;
+    PREAD_WRITE_MSR    msr;
     PREADCONTROLSPACE  prc;
 
 
@@ -310,6 +349,20 @@ ExtIoctl(
             phy->BufLen = cb;
             break;
 
+        case IG_SET_THREAD:
+            ExtThread = *(PULONG)lpvData;
+            break;
+
+        case IG_READ_MSR:
+            msr = (PREAD_WRITE_MSR)lpvData;
+            DbgKdReadMsr (msr->Msr, &msr->Value);
+            break;
+
+        case IG_WRITE_MSR:
+            msr = (PREAD_WRITE_MSR)lpvData;
+            DbgKdWriteMsr (msr->Msr, msr->Value);
+            break;
+
         default:
             dprintf( "\n*** Bad IOCTL request from an extension [%d]\n\n", IoctlType );
             return FALSE;
@@ -337,7 +390,7 @@ ExtCallStack(
         return 0;
     }
 
-    FrameCount = StackTrace( FramePointer, StackPointer, ProgramCounter, StackFrames, Frames );
+    FrameCount = StackTrace( FramePointer, StackPointer, ProgramCounter, StackFrames, Frames, ExtThread );
 
     for (i=0; i<FrameCount; i++) {
         ExtStackFrames[i].FramePointer    =  StackFrames[i].AddrFrame.Offset;
@@ -350,12 +403,30 @@ ExtCallStack(
     }
 
     free( StackFrames );
+    ExtThread = 0;
     return FrameCount;
 }
 
 VOID
+bangInternalHelp(
+    VOID
+    )
+{
+    dprintf("Built in ! commands:\n");
+    dprintf("   !reload [filename]\n");
+    dprintf("   !sympath [dir[;...]]\n");
+    dprintf("\n");
+    dprintf("The following are useful when developing extension libraries:\n");
+    dprintf("   !load <extlib>\n");
+    dprintf("   !unload\n");
+    dprintf("   !noversion\n");
+
+}
+
+VOID
 fnBangCmd(
-    PUCHAR argstring
+    PUCHAR argstring,
+    PUCHAR *pNext
     )
 {
     PWINDBG_CHECK_VERSION           CheckVersion2        = NULL;
@@ -368,10 +439,41 @@ fnBangCmd(
     PUCHAR                          lpsz;
     LPSTR                           lpszMod;
     LPSTR                           lpszFnc;
+    UCHAR                           string[_MAX_PATH];
+    PUCHAR                          lpszOrig;
+    BOOL                            fHaveTriedAlternate = FALSE;
+
+    //
+    // For most commands, allow the conventional use of ';' for
+    // command separator, but for certain very special commands,
+    // do something screwy.  One very special command, in fact.
+    //
 
 
+    //
+    // copy command into local buffer
+    //
 
-    lpszMod = lpsz = argstring;
+    lpsz = string;
+    lpszMod = argstring;
+    while (*lpszMod && *lpszMod != ';') {
+        *lpsz++ = *lpszMod++;
+    }
+    *lpsz = '\0';
+
+    //
+    // point to next command:
+    //
+    if (pNext) {
+        *pNext = lpszMod;
+    }
+
+    //
+    //
+    //
+
+    lpszMod = lpsz = string;
+
     while((*lpsz != '.') && (*lpsz != ' ') && (*lpsz != '\t') && (*lpsz != '\0')) {
         lpsz++;
     }
@@ -392,7 +494,7 @@ fnBangCmd(
         if ( *lpsz != '\0' ) {
             *lpsz++ = '\0';
         }
-        if (stricmp(lpszFnc, "load") == 0) {
+        if (_stricmp(lpszFnc, "load") == 0) {
             lpszMod = lpsz;
             fManualLoad = TRUE;
         } else {
@@ -426,9 +528,11 @@ fnBangCmd(
         }
     }
 
-    strlwr( lpszFnc );
 
-    if(fLoadingDefault) {
+restart_load:
+    _strlwr( lpszFnc );
+
+    if (fLoadingDefault) {
         if(hDefaultLibrary) {
             fOldStyleExt = fDefaultOldStyleExt;
         } else {
@@ -468,17 +572,33 @@ fnBangCmd(
         return;
     }
 
-    if (stricmp(lpszFnc,"?")==0) {
+    if (_stricmp(lpszFnc,"?")==0) {
         lpszFnc = "help";
-    } else if (stricmp(lpszFnc,"reload")==0) {
+    } else if (_stricmp(lpszFnc,"reload")==0) {
         bangReload( lpsz );
         return;
-    } else if (stricmp(lpszFnc,"sympath")==0) {
-        bangSymPath( lpsz );
+    } else if (_stricmp(lpszFnc,"sympath")==0) {
+
+        if (pNext) {
+            //
+            // consume entire cmd string
+            //
+            while (**pNext) {
+                (*pNext)++;
+            }
+        }
+
+        //
+        // pass whole thing to SymPath
+        //
+
+        bangSymPath( argstring + (lpsz - string));
+
         return;
-    } else if (stricmp(lpszFnc,"load")==0) {
+
+    } else if (_stricmp(lpszFnc,"load")==0) {
         return;
-    } else if (stricmp(lpszFnc,"unload")==0) {
+    } else if (_stricmp(lpszFnc,"unload")==0) {
         FreeLibrary( hExtensionMod );
         if ((DWORD)hExtensionMod == (DWORD)hDefaultLibrary) {
             hDefaultLibrary = NULL;
@@ -486,7 +606,14 @@ fnBangCmd(
         }
         dprintf("Extension dll unloaded\r\n");
         return;
-    } else if (stricmp(lpszFnc,"noversion")==0) {
+
+
+    } else if (!_stricmp(lpszFnc, "setdll" )) {
+        dprintf("Setting default dll extension to '%s'\n", lpsz);
+        strncpy(szDefaultAlternate, lpsz, sizeof(szDefaultAlternate)-1);
+        szDefaultAlternate[sizeof(szDefaultAlternate)-1] = 0;
+        return;
+    } else if (_stricmp(lpszFnc,"noversion")==0) {
         dprintf("Extension dll system version checking is disabled\r\n");
         fDoVersionCheck = FALSE;
         return;
@@ -500,6 +627,10 @@ fnBangCmd(
         }
     }
 
+    if (strcmp(lpszFnc, "help") == 0) {
+        bangInternalHelp();
+    }
+
     if (fOldStyleExt) {
         KdExtRoutine = (PNTKD_EXTENSION_ROUTINE)GetProcAddress( hExtensionMod, lpszFnc );
     } else {
@@ -507,10 +638,22 @@ fnBangCmd(
     }
 
     if ((!WindbgExtRoutine) && (!KdExtRoutine)) {
-        if (fLoadingDefault && stricmp(lpszFnc,"getloaded")==0) {
+        if (fLoadingDefault && _stricmp(lpszFnc,"getloaded")==0) {
             return;
         }
         dprintf("Missing extension: '%s.%s'\r\n", lpszMod, lpszFnc);
+
+        if (fHaveTriedAlternate == FALSE) {
+
+            dprintf("Trying alternate default '%s'\r\n", szDefaultAlternate);
+
+            lpszMod = szDefaultAlternate;
+            fHaveTriedAlternate = TRUE;
+            fLoadingDefault = FALSE;
+
+            goto restart_load;
+        }
+
         if(!fLoadingDefault) {
             FreeLibrary( hExtensionMod );
         }
@@ -518,7 +661,7 @@ fnBangCmd(
     }
 
     GetRegPCValue(&TempAddr);
-    try {
+    __try {
 
 
         if (fOldStyleExt) {
@@ -530,12 +673,12 @@ fnBangCmd(
             (WindbgExtRoutine)( 0,
                                 0,
                                 Flat(TempAddr),
-                                DefaultProcessor,
+                                NtsdCurrentProcessor,
                                 lpsz );
 
         }
 
-    } except( EXCEPTION_EXECUTE_HANDLER ) {
+    } __except( EXCEPTION_EXECUTE_HANDLER ) {
 
         dprintf( "KD: %x exception in !%s command\n", GetExceptionCode(), lpszFnc );
 
@@ -555,24 +698,24 @@ bangSymPath(
 {
     char *s;
 
-    try {
+    __try {
         if ( *args ) {
 
             s = malloc(strlen(args)+MAX_PATH);
             if ( s ) {
                 strcpy(s,args);
-                free(SymbolSearchPath);
+                free( SymbolSearchPath );
                 SymbolSearchPath = s;
-                bangReload("");
-                }
+                SymSetSearchPath( pProcessCurrent->hProcess, SymbolSearchPath );
+                dprintf("Symbol search path is: %s\n", SymbolSearchPath );
+                bangReload( "" );
             }
-        else {
-            dprintf("bangSymPath: Current Symbol Path is %s\n",SymbolSearchPath);
-            }
+        } else {
+            dprintf( "Current Symbol Path is %s\n", SymbolSearchPath );
         }
-    except(EXCEPTION_EXECUTE_HANDLER) {
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
         ;
-        }
+    }
 }
 
 VOID
@@ -602,22 +745,30 @@ Return Value:
 --*/
 
 {
-    LIST_ENTRY List;
-    PLIST_ENTRY Next;
-    ULONG ListHead;
-    NTSTATUS Status;
-    ULONG Result;
+    LIST_ENTRY            List;
+    PLIST_ENTRY           Next;
+    ULONG                 ListHead;
+    NTSTATUS              Status;
+    ULONG                 Result = 0;
     PLDR_DATA_TABLE_ENTRY DataTable;
-    LDR_DATA_TABLE_ENTRY DataTableBuffer;
-    CHAR AnsiBuffer[256];
-    WCHAR UnicodeBuffer[128];
-    UNICODE_STRING BaseName;
-    PIMAGE_NT_HEADERS NtHeaders;
-    ULONG CheckSum, SizeOfImage;
-    ANSI_STRING AnsiString;
-    BOOLEAN GettingUserModules;
-    DWORD Address;
-    DWORD len;
+    LDR_DATA_TABLE_ENTRY  DataTableBuffer;
+    CHAR                  AnsiString[256];
+    WCHAR                 UnicodeBuffer[128];
+    LPSTR                 SpecificModule = NULL;
+    UNICODE_STRING        BaseName;
+    PIMAGE_NT_HEADERS     NtHeaders;
+    ULONG                 CheckSum;
+    ULONG                 SizeOfImage;
+    BOOLEAN               GettingUserModules;
+    LONG                  Address = 0;
+    DWORD                 len;
+    DWORD                 len2;
+    PCHAR                 p;
+    BOOL                  UnloadOnly = FALSE;
+    BOOL                  ReallyVerbose = FALSE;
+    BOOL                  Fail = FALSE;
+    BOOL                  NoUserSymbols = FALSE;
+    BOOL                  ForceSymbolLoad = FALSE;
 
 
     if ((DWORD)vs.KernBase < 0x80000000) {
@@ -628,46 +779,116 @@ Return Value:
         }
     }
 
-    Result = 0;
-    while (*args) {
-        while (*args <= ' ') {
-            if (!*args) {
+    while (*args && !Fail) {
+        while (*args && *args <= ' ') {
+            args++;
+        }
+
+        if (*args == '/' || *args == '-') {
+
+            args++;
+            while (*args > ' ') {
+
+                switch (*args++) {
+                case 'u':
+                    UnloadOnly = TRUE;
+                    break;
+
+                case 'v':
+                    ReallyVerbose = TRUE;
+                    break;
+
+                case 'n':
+                    NoUserSymbols = TRUE;
+                    break;
+
+                default:
+                    dprintf("bangReload: unknown option '%c'\n", args[-1]);
+                    dprintf("usage: !reload [flags] [module] ...\n");
+                    dprintf("  flags:   /n  do not load from usermode list\n");
+                    dprintf("           /u  unload symbols, no reload\n");
+                    dprintf("           /v  verbose\n");
+                    return;
+                }
+            }
+
+        } else {
+
+            AnsiString[ 0 ] = '\0';
+            Address = 0;
+
+            if (!sscanf(args,"%s", AnsiString) || !strlen(AnsiString)) {
+
                 break;
+
+            } else {
+
+                len = strlen( AnsiString );
+                if (isdigit(*AnsiString)) {
+                    if (sscanf(args, "%x", &Address) != 1) {
+                        dprintf("Invalid address %s\n", args);
+                        return;
+                    }
+                    if (ReallyVerbose) {
+                        dprintf("Finding image for address %08x\n", Address);
+                    }
+                    if (LookupImageByAddress( Address, AnsiString )) {
+                        SpecificModule = _strdup( AnsiString );
+                        Address = 0;
+                    } else {
+                        dprintf( "could not find image at address %08x\n", Address );
+                        return;
+                    }
+                } else if (p = strchr(AnsiString, '=')) {
+                    *p++ = 0;
+                    if (sscanf(p, "%x", &Address) != 1) {
+                        dprintf("Invalid address %s\n", p);
+                        return;
+                    }
+                }
+                args += len;
+
+                if (UnloadOnly) {
+
+                    DelImage( AnsiString, (PVOID)(-1), 0xffffffff );
+                    return;
+
+                }
+
+                if ((_stricmp( AnsiString, KERNEL_IMAGE_NAME_MP ) == 0) ||
+                    (_stricmp( AnsiString, "NT" ) == 0) ||
+                    (_stricmp( AnsiString, KERNEL_IMAGE_NAME ) == 0)) {
+                    SpecificModule = KERNEL_IMAGE_NAME;
+                    ForceSymbolLoad = TRUE;
+                } else {
+                    SpecificModule = _strdup( AnsiString );
+                    if (!SpecificModule) {
+                        return;
+                    }
+                }
+
+                Result = 1;
             }
-            else {
-                args++;
-            }
-        }
-        AnsiBuffer[ 0 ] = '\0';
-        if (sscanf(args,"%s", AnsiBuffer) && strlen(AnsiBuffer)) {
-            len = strlen( AnsiBuffer );
-            if (isdigit(*AnsiBuffer)) {
-                sscanf(args, "%x", &Address);
-                LookupImageByAddress(Address, AnsiBuffer);
-            }
-            AddImage(AnsiBuffer, (PVOID)-1, 0, (ULONG) -1, (HANDLE)-1, NULL);
-            args += len;
-            Result = 1;
-        }
-        else {
-            break;
         }
     }
 
-
-    if (Result) {
-        return;
+    if (SpecificModule) {
+        goto LoadSpecific;
     }
-
 
     DelImages();
 
-    AddImage( KernelImageFileName, (PVOID) vs.KernBase, 0, (ULONG) -1, (HANDLE)-1, NULL);
+    if (UnloadOnly) {
+        return;
+    }
 
+    GenerateKernelModLoad();
+
+LoadSpecific:
     if ((ListHead = vs.PsLoadedModuleList) == 0 &&
            !GetOffsetFromSym("PsLoadedModuleList", &ListHead, 0)) {
         dprintf("Couldn't get offset of PsLoadedModuleListHead\n");
-        return;
+        Next = NULL;
     } else {
         Status = DbgKdReadVirtualMemory((PVOID)ListHead,
                                         &List,
@@ -675,18 +896,36 @@ Return Value:
                                         &Result);
         if (!NT_SUCCESS(Status) || (Result < sizeof(LIST_ENTRY))) {
             dprintf("Unable to get value of PsLoadedModuleListHead %08lx\n",Status);
-            return;
+            Next = NULL;
+        } else {
+            Next = List.Flink;
+            if (Next == NULL) {
+                dprintf("PsLoadedModuleList is NULL!\n");
+            }
         }
     }
 
-    Next = List.Flink;
     if (Next == NULL) {
-        dprintf("PsLoadedModuleList is NULL!\n");
+
+        if (SpecificModule) {
+            AddImage(SpecificModule,
+                     (PVOID)Address,
+                     0,
+                     (ULONG)-1,
+                     (ULONG)-1,
+                     NULL,
+                     TRUE
+                     );
+            free(SpecificModule);
+        }
+
         return;
     }
 
-    if (!ReloadCrashModules()) {
-        dprintf( "*** could not load crashdump drivers ***\n" );
+    if (!SpecificModule && !ReloadCrashModules()) {
+        if (fVerboseOutput) {
+            dprintf( "*** could not load crashdump drivers ***\n" );
+        }
     }
 
     GettingUserModules = FALSE;
@@ -725,7 +964,14 @@ getUserModules:
             continue;
             }
 
-        assert(BaseName.Length < 128);
+        if (BaseName.Length >= 128) {
+            if (GettingUserModules) {
+                dprintf("User image list is corrupt.  Your kernel symbols are probably wrong.\n");
+            } else {
+                dprintf("Kernel image list is corrupt.  Check your kernel symbols and try !drivers.\n");
+            }
+            return;
+        }
 
         Status = DbgKdReadVirtualMemory((PVOID)BaseName.Buffer,
                                         UnicodeBuffer,
@@ -737,66 +983,113 @@ getUserModules:
                     Status);
             return;
         }
-        BaseName.Buffer = UnicodeBuffer;
-        BaseName.Length = (USHORT)Result;
-        BaseName.MaximumLength = (USHORT)(Result + sizeof( UNICODE_NULL ));
+
         UnicodeBuffer[ Result / sizeof( WCHAR ) ] = UNICODE_NULL;
-        AnsiString.Buffer = AnsiBuffer;
-        AnsiString.MaximumLength = 256;
-        Status = RtlUnicodeStringToAnsiString(&AnsiString,
-                                              &BaseName,
-                                              FALSE);
-        if (!NT_SUCCESS(Status)) {
-            dprintf("Unable to convert Unicode string %wZ to Ansi\n",
-                    &BaseName);
+
+        if (!WideCharToMultiByte(CP_ACP,
+                                 0,
+                                 UnicodeBuffer,
+                                 Result,
+                                 AnsiString,
+                                 sizeof(AnsiString),
+                                 NULL,
+                                 NULL)
+           ){
+            dprintf("Unable to convert Unicode string %ls to Ansi\n", &UnicodeBuffer);
             return;
         }
-        AnsiString.Buffer[AnsiString.Length] = '\0';
+
+        if (SpecificModule) {
+            if (_stricmp( SpecificModule, AnsiString ) != 0) {
+                continue;
+            }
+        }
 
         //
         // don't bother reloading the kernel, since we know those symbols
         // are correct.  (or else we couldn't get the PsLoadedModuleList)
         //
-        if ((stricmp(AnsiString.Buffer, KernelImageFileName) == 0) ||
-            (stricmp(AnsiString.Buffer, KERNEL_IMAGE_NAME) == 0)) {
+        if ((!SpecificModule) &&
+            ((_stricmp(AnsiString, KERNEL_IMAGE_NAME) == 0) ||
+             (_stricmp(AnsiString, KERNEL_IMAGE_NAME_MP) == 0))) {
             continue;
+        }
+
+        CheckSum = 0xFFFFFFFF;
+        SizeOfImage = 0;
+        if (GettingUserModules) {
+            CheckSum = (DWORD)DataTableBuffer.CheckSum;
+            SizeOfImage = (DWORD)DataTableBuffer.SizeOfImage;
         } else {
-            CheckSum = 0xFFFFFFFF;
-            SizeOfImage = 0;
-            if (GettingUserModules) {
-                CheckSum = (DWORD)DataTableBuffer.CheckSum;
-                SizeOfImage = (DWORD)DataTableBuffer.SizeOfImage;
-                }
-            else {
-                Status = DbgKdReadVirtualMemory((PVOID)DataTableBuffer.DllBase,
-                                                SectorBuffer,
-                                                sizeof(SectorBuffer),
-                                                &Result);
-                if (!NT_SUCCESS(Status) || (Result < sizeof(SectorBuffer))) {
+            Status = DbgKdReadVirtualMemory((PVOID)DataTableBuffer.DllBase,
+                                            SectorBuffer,
+                                            sizeof(SectorBuffer),
+                                            &Result);
+            if (!NT_SUCCESS(Status) || (Result < sizeof(SectorBuffer))) {
+                if (Status == STATUS_UNSUCCESSFUL) {
+                    dprintf("Unsuccessful read of image header for %s - use \".pagein %08lx\"\n",
+                            AnsiString,
+                            DataTableBuffer.DllBase);
+                } else {
                     dprintf("Unable to read image header for %s at %08lx - status %08lx\n",
-                            AnsiString.Buffer,
+                            AnsiString,
                             DataTableBuffer.DllBase,
                             Status);
-                } else {
-                    NtHeaders = RtlImageNtHeader(SectorBuffer);
-                    if (NtHeaders != NULL) {
-                        CheckSum = NtHeaders->OptionalHeader.CheckSum;
-                        SizeOfImage = NtHeaders->OptionalHeader.SizeOfImage;
-                    }
+                }
+            } else {
+                NtHeaders = ImageNtHeader(SectorBuffer);
+                if (NtHeaders != NULL) {
+                    CheckSum = NtHeaders->OptionalHeader.CheckSum;
+                    SizeOfImage = NtHeaders->OptionalHeader.SizeOfImage;
                 }
             }
+        }
 
-            AddImage(AnsiString.Buffer,
-                     DataTableBuffer.DllBase,
-                     SizeOfImage,
-                     CheckSum,
-                     (HANDLE)-1,
-                     NULL
-                    );
+        if (ReallyVerbose) {
+            dprintf("AddImage: %s\n DllBase  = %08x\n Size     = %08x\n Checksum = %08x\n",
+                AnsiString,
+                DataTableBuffer.DllBase,
+                SizeOfImage,
+                CheckSum);
+        }
+
+        AddImage(
+            AnsiString,
+            (PVOID)Address ? (PVOID)Address : DataTableBuffer.DllBase,
+            SizeOfImage,
+            CheckSum,
+            (ULONG)-1,
+            NULL,
+            ForceSymbolLoad
+            );
+
+        if (SpecificModule) {
+            free( SpecificModule );
+            return;
         }
     }
 
-    if (GettingUserModules) {
+    if (SpecificModule) {
+        //
+        // must have been a usermode module
+        //
+
+        AddImage(
+            SpecificModule,
+            (PVOID)Address,
+            0,
+            0,
+            0,
+            NULL,
+            TRUE
+            );
+
+        free( SpecificModule );
+
+        return;
+    }
+
+    if (GettingUserModules || NoUserSymbols) {
         return;
     }
 
@@ -962,10 +1255,11 @@ ReloadCrashModules(
         AddImage(
             AnsiBuffer,
             DataTableBuffer.DllBase,
-            (DWORD)DataTableBuffer.SizeOfImage,
-            (DWORD)DataTableBuffer.CheckSum,
-            (HANDLE)-1,
-            ModName
+            (ULONG)DataTableBuffer.SizeOfImage,
+            (ULONG)DataTableBuffer.CheckSum,
+            (ULONG)-1,
+            ModName,
+            FALSE
             );
     }
 
@@ -989,10 +1283,11 @@ ReloadCrashModules(
     AddImage(
         "diskdump.sys",
         DataTableBuffer.DllBase,
-        (DWORD)DataTableBuffer.SizeOfImage,
-        (DWORD)DataTableBuffer.CheckSum,
-        (HANDLE)-1,
-        NULL
+        (ULONG)DataTableBuffer.SizeOfImage,
+        (ULONG)DataTableBuffer.CheckSum,
+        (ULONG)-1,
+        NULL,
+        FALSE
         );
 
     return TRUE;

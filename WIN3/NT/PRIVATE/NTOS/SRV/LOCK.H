@@ -66,12 +66,10 @@ typedef struct _SRV_GLOBAL_SPIN_LOCKS {
     ULONG Reserved4[7];
     KSPIN_LOCK Timer;
     ULONG Reserved5[7];
-#if SRVDBG || SRVDBG_HEAP || SRVDBG_HANDLES
+#if SRVDBG || SRVDBG_HANDLES
     KSPIN_LOCK Debug;
     ULONG Reserved6[7];
 #endif
-    KSPIN_LOCK WorkItem;
-    ULONG Reserved7[7];
 } SRV_GLOBAL_SPIN_LOCKS, *PSRV_GLOBAL_SPIN_LOCKS;
 
 //
@@ -387,6 +385,7 @@ SrvReleaseLock(
 //
 //    configuration
 //    smbbufferlist
+//    Connection->LicenseLock
 //
 // The levels of all of these locks are made equal and high in an
 // attempt to find level requirements not listed above.
@@ -403,7 +402,10 @@ SrvReleaseLock(
 #define CONNECTION_LOCK_LEVEL                   (ULONG)0x00007000
 #define CONFIGURATION_LOCK_LEVEL                (ULONG)0x00010000
 #define UNLOCKABLE_CODE_LOCK_LEVEL              (ULONG)0x00010000
+#define STARTUPSHUTDOWN_LOCK_LEVEL              (ULONG)0x00020000
 #define DEBUG_LOCK_LEVEL                        (ULONG)0x00050000
+#define LICENSE_LOCK_LEVEL                      (ULONG)0x00100000
+#define FCBLIST_LOCK_LEVEL                      (ULONG)0x00200000
 
 #endif // else !SRVDBG_LOCK
 

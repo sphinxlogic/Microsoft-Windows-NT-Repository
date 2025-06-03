@@ -20,6 +20,9 @@
 
 MODNAME(wuser.c);
 
+extern HANDLE hmodWOW32;
+
+
 /*++
     HDC BeginPaint(<hwnd>, <lpPaint>)
     HWND <hwnd>;
@@ -244,6 +247,25 @@ ULONG FASTCALL WU32DragObject(PVDMFRAME pFrame)
                             DWORD32(parg16->f4),
                             HCURSOR32(parg16->f5)
     );
+
+    FREEARGPTR(parg16);
+    RETURN(ul);
+}
+
+
+ULONG FASTCALL WU32DragDetect(PVDMFRAME pFrame)
+{
+    ULONG ul;
+    POINT pt;
+    register PDRAGDETECT16 parg16;
+
+    GETARGPTR(pFrame, sizeof(*parg16), parg16);
+    COPYPOINT16(parg16->pt, pt);
+
+    ul = (ULONG) DragDetect(
+                     HWND32(parg16->hwnd),
+                     pt
+                     );
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -728,6 +750,9 @@ ULONG FASTCALL WU32EnumProps(PVDMFRAME pFrame)
     vpEnumPropsProc =        parg16->f2;
 
     vpString = malloc16(MAX_WIN16_PROP_TEXT);
+    // 16-bit memory may have moved - invalidate flat pointers
+    FREEARGPTR(parg16);
+    FREEVDMPTR(pFrame);
 
     if (vpString) {
         ul = GETINT16(EnumProps(hwnd,(PROPENUMPROC)W32EnumPropsFunc));
@@ -779,6 +804,47 @@ ULONG FASTCALL WU32ExcludeUpdateRgn(PVDMFRAME pFrame)
 
     FREEARGPTR(parg16);
     RETURN(ul);
+}
+
+/*++
+    int FillWindow(<hWndParent>, <hWnd>, <hDC>, <hBrush>)
+    HWND <hWndParent>;
+    HWND  <hWnd>;
+    HDC <hDC>;
+    HBRUSH <hBrush>;
+
+    The %FillWindow% function paints a given window by using the specified
+    brush.
+
+    <hWndParent>
+        Identifies the parent of the window to be painted.
+
+    <hWnd>
+        Identifies the window to be painted.
+
+    <hDC>
+        Identifies the device context.
+
+    <hBrush>
+        Identifies the brush used to fill the rectangle.
+
+--*/
+
+ULONG FASTCALL WU32FillWindow(PVDMFRAME pFrame)
+{
+    register PFILLWINDOW16 parg16;
+
+    GETARGPTR(pFrame, sizeof(FILLWINDOW16), parg16);
+
+    (pfnOut.pfnFillWindow)(
+    HWND32(parg16->f1),
+    HWND32(parg16->f2),
+    HDC32(parg16->f3),
+    HBRUSH32(parg16->f4)
+    );
+
+    FREEARGPTR(parg16);
+    RETURN(0);
 }
 
 
@@ -998,12 +1064,42 @@ ULONG FASTCALL WU32GetDC(PVDMFRAME pFrame)
         ReleaseCachedDCs(htask16, parg16->f1, 0, 0, SRCHDC_TASK16_HWND16);
     }
 
+    CURRENTPTD()->ulLastDesktophDC = 0;
+    
     ul = GETHDC16(GetDC(
     HWND32(parg16->f1)
     ));
 
-    if (ul)
+    if (ul) {
+// Some apps such as MSWORKS and MS PUBLISHER use some wizard code that accepts
+// a hDC or a hWnd as a parameter and attempt to figure out what type of handle
+// it is by using the IsWindow() call. Since both handles come from different
+// handle spaces they may end up the same value and this wizard code will end
+// up writing to the DC for a random window. By ORing in a 1 we ensure that the
+// handle types will never share the same value since all hWnds are even. Note
+// that this hack is also made in WG32CreateCompatibleDC()
+//
+// Note that there are some apps that use the lower 2 bits of the hDC for their
+// own purposes.
+        if (CURRENTPTD()->dwWOWCompatFlags & WOWCF_UNIQUEHDCHWND) {
+            ul = ul | 1;
+        } else if ((CURRENTPTD()->dwWOWCompatFlagsEx & WOWCFEX_FIXDCFONT4MENUSIZE) &&
+	          (parg16->f1 == 0)) {
+// WP tutorial assumes that the font selected in the hDC for desktop window
+// (ie, result of GetDC(NULL)) is the same font as the font selected for 
+// drawing the menu. Unfortunetly in SUR this is not true as the user can
+// select any font for the menu. So we remember the hDC returned for GetDC(0)
+// and check for it in GetTextExtentPoint. If the app does try to use it we
+// find the hDC for the current menu window and substitute that. When the app
+// does another GetDC or ReleaseDC we forget the hDC returned for the original
+// GetDC(0).
+            CURRENTPTD()->ulLastDesktophDC = ul;
+        }
+	
+	
+	
         StoreDC(htask16, parg16->f1, (HAND16)ul);
+    }
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -1471,14 +1567,51 @@ ULONG FASTCALL WU32GlobalAddAtom(PVDMFRAME pFrame)
 
 ULONG FASTCALL WU32GlobalDeleteAtom(PVDMFRAME pFrame)
 {
+
+    // Envoy viewer (part of PerfectOffice) has a bug in GlobalDeleteAtom
+    // where it expects the wrong return value (the app thought 0 was
+    // failure while its for success). This causes the app to go in an
+    // infinite loop trying to delete a global object. This app works on
+    // Win3.1 because Win3.1 returns some garbage in AX if the atom is
+    // already deleted which takes this app out of the loop. On Win95 and
+    // NT3.51 that is not the case and 0 is always returned. The following
+    // comaptibility fix mimics the win3.1 behavior for this app.
+
     ULONG ul;
+    static USHORT envoyHandle16=0;
+    static BOOL   fFoundEnvoyAtom = FALSE;
+    BOOL    IsEnvoy;
+    CHAR  envoyString [32];
     register PGLOBALDELETEATOM16 parg16;
 
     GETARGPTR(pFrame, sizeof(GLOBALDELETEATOM16), parg16);
 
+    IsEnvoy = (CURRENTPTD()->dwWOWCompatFlagsEx & WOWCFEX_GLOBALDELETEATOM);
+    if (IsEnvoy){
+        if (!fFoundEnvoyAtom && GlobalGetAtomName (ATOM32(parg16->f1),
+                               envoyString,
+                               32) &&
+                !_stricmp (envoyString, "SomeEnvoyViewerIsRunning")) {
+            envoyHandle16 = parg16->f1;
+        }
+
+    }
     ul = GETATOM16(GlobalDeleteAtom(
     ATOM32(parg16->f1)
     ));
+
+    if (IsEnvoy){
+        if (envoyHandle16 && !fFoundEnvoyAtom) {
+            fFoundEnvoyAtom = TRUE;
+        }
+        else if (fFoundEnvoyAtom) {
+            if (envoyHandle16 == parg16->f1) {
+                envoyHandle16 = 0;
+                fFoundEnvoyAtom = FALSE;
+                ul = parg16->f1;
+            }
+        }
+    }
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -2124,6 +2257,7 @@ ULONG FASTCALL WU32ReleaseDC(PVDMFRAME pFrame)
 
     GETARGPTR(pFrame, sizeof(RELEASEDC16), parg16);
 
+    CURRENTPTD()->ulLastDesktophDC = 0;
 
     CacheReleasedDC(htask16, parg16->f1, parg16->f2);
     ul = TRUE;
@@ -2295,6 +2429,15 @@ ULONG FASTCALL WU32SetCapture(PVDMFRAME pFrame)
 
     GETARGPTR(pFrame, sizeof(SETCAPTURE16), parg16);
 
+    // MS Works Ver 3.0B has an unintialized local variable. We need to make
+    // sure it see's a positive int value in the location on the stack where we
+    // write the 32-bit thunk address for fast dispatching to this thunk.
+
+    if (CURRENTPTD()->dwWOWCompatFlagsEx & WOWCFEX_SETCAPSTACK) {
+        // wCallID has already been used for dispatch so we can overwrite it.
+        pFrame->wCallID = 0x100;
+    }
+
     ul = GETHWND16(SetCapture(HWND32(parg16->f1)));
 
     FREEARGPTR(parg16);
@@ -2341,7 +2484,6 @@ ULONG FASTCALL WU32SetDoubleClickTime(PVDMFRAME pFrame)
 
 ULONG FASTCALL WU32SetEventHook(PVDMFRAME pFrame)
 {
-    ULONG   ul;
     PTD     ptd;
     PTDB    pTDB;
     DWORD   dwButtonPushed;
@@ -2355,21 +2497,24 @@ ULONG FASTCALL WU32SetEventHook(PVDMFRAME pFrame)
     // Retail Build
 
     ptd = CURRENTPTD();
+    if (ptd->dwFlags & TDF_FORCETASKEXIT) {
+        goto SetEventHookExit;
+    }
 
     pTDB = (PVOID)SEGPTR(ptd->htask16,0);
 
     RtlZeroMemory(szModName, sizeof(szModName));
     RtlCopyMemory(szModName, pTDB->TDB_ModName, sizeof(szModName)-1);
 
-    if (!LoadString(HMODULEINSTANCE, iszEventHook,
+    if (!LoadString(hmodWOW32, iszEventHook,
                     szErrorMessage, sizeof(szErrorMessage)/sizeof(CHAR)))
     {
-        strcpy(szErrorMessage, "Could not find error message resource" );
+        szErrorMessage[0] = 0;
     }
-    if (!LoadString(HMODULEINSTANCE, iszApplication,
+    if (!LoadString(hmodWOW32, iszApplication,
                     szTitle, sizeof(szTitle)/sizeof(CHAR)))
     {
-        strcpy(szTitle, "Could not find error box title: " );
+        szTitle[0] = 0;
     }
     strcat(szTitle, szModName);
 
@@ -2389,12 +2534,13 @@ ULONG FASTCALL WU32SetEventHook(PVDMFRAME pFrame)
 
         GETFRAMEPTR(ptd->vpStack, pFrame);
         pFrame->wRetID = RET_FORCETASKEXIT;
+
+        ptd->dwFlags |= TDF_FORCETASKEXIT;
     }
 
-    ul = 0;
-
+SetEventHookExit:
     FREEARGPTR(parg16);
-    RETURN(ul);
+    RETURN(0);
 }
 
 
@@ -2772,26 +2918,55 @@ ULONG FASTCALL WU32SetScrollRange(PVDMFRAME pFrame)
         Text in windows.
 --*/
 
+#define SSC_BUF_SIZE	    256
+
 ULONG FASTCALL WU32SetSysColors(PVDMFRAME pFrame)
 {
     PINT p2;
     PDWORD p3;
     register PSETSYSCOLORS16 parg16;
-    INT BufferT[256];
+    INT BufElements[SSC_BUF_SIZE];
 
     GETARGPTR(pFrame, sizeof(SETSYSCOLORS16), parg16);
-    p2 = STACKORHEAPALLOC(INT32(parg16->f1) * sizeof(INT), sizeof(BufferT), BufferT);
+    p2 = STACKORHEAPALLOC(INT32(parg16->f1) * sizeof(INT), sizeof(BufElements), BufElements);
     getintarray16(parg16->f2, INT32(parg16->f1), p2);
     GETDWORDARRAY16(parg16->f3, INT32(parg16->f1), p3);
 
-    SetSysColors(
+    if (SetSysColors(
         INT32(parg16->f1),
         p2,
         p3
-        );
+        ) == FALSE) {
+#ifndef i386
+    PDWORD p4;
+    ULONG   BufRGB [SSC_BUF_SIZE];
+
+        // On RISC platforms, SetSysColors could fail if the third parameter
+        // is unaligned. We need to check that and copy it to an aligned
+        // buffer before making this call. Win16 SetSysColor never fails
+        // so on x86 if this ever fails under NT, it will just pass through.
+
+        if ((ULONG)p3 & 3) {
+
+            p4 = STACKORHEAPALLOC(INT32(parg16->f1) * sizeof(INT), sizeof(BufRGB), BufRGB);
+
+            RtlMoveMemory ((PVOID)p4, (CONST VOID *)p3,
+                                       INT32(parg16->f1) * sizeof(ULONG));
+
+
+            SetSysColors(
+                INT32(parg16->f1),
+                p2,
+                p4
+                );
+            STACKORHEAPFREE(p4, BufRGB);
+        }
+#endif
+
+    }
 
     FREEDWORDARRAY16(p3);
-    STACKORHEAPFREE(p2, BufferT);
+    STACKORHEAPFREE(p2, BufElements);
     FREEARGPTR(parg16);
     RETURN(0);
 }
@@ -3193,6 +3368,91 @@ ULONG FASTCALL WU32WinHelp(PVDMFRAME pFrame)
 #endif
 
 
+#pragma pack(1)
+
+//
+// win16 Module Table structure (based off of ne header)
+// see wow16\inc\newexe.inc
+//
+
+typedef struct _NE_MODULE {
+    USHORT ne_magic;           // Magic number
+    USHORT ne_usage;           // usage count of module
+    USHORT ne_enttab;          // Offset of Entry Table
+    USHORT ne_pnextexe;        // sel next module table
+    USHORT ne_pautodata;       // offset autodata seg table
+    USHORT ne_pfileinfo;       // offset load file info
+    USHORT ne_flags;           // Flag word
+    USHORT ne_autodata;        // Automatic data segment number
+    USHORT ne_heap;            // Initial heap allocation
+    USHORT ne_stack;           // Initial stack allocation
+    ULONG  ne_csip;            // Initial CS:IP setting
+    ULONG  ne_sssp;            // Initial SS:SP setting
+    USHORT ne_cseg;            // Count of file segments
+    USHORT ne_cmod;            // Entries in Module Reference Table
+    USHORT ne_cbnrestab;       // Size of non-resident name table
+    USHORT ne_segtab;          // Offset of Segment Table
+    USHORT ne_rsrctab;         // Offset of Resource Table
+    USHORT ne_restab;          // Offset of resident name table
+    USHORT ne_modtab;          // Offset of Module Reference Table
+    USHORT ne_imptab;          // Offset of Imported Names Table
+    ULONG  ne_nrestab;         // Offset of Non-resident Names Table
+    USHORT ne_cmovent;         // Count of movable entries
+    USHORT ne_align;           // Segment alignment shift count
+    USHORT ne_cres;            // Count of resource segments
+    UCHAR  ne_exetyp;          // Target Operating system
+    UCHAR  ne_flagsothers;     // Other .EXE flags
+    USHORT ne_pretthunks;      // offset to return thunks
+    USHORT ne_psegrefbytes;    // offset to segment ref. bytes
+    USHORT ne_swaparea;        // Minimum code swap area size
+    USHORT ne_expver;          // Expected Windows version number
+} NEMODULE;
+typedef NEMODULE UNALIGNED *PNEMODULE;
+
+#pragma pack()
+
+//
+//   Performs Module cleanup (win31:tmdstroy.c\ModuleUnload())
+//
+void
+ModuleUnload(
+   HAND16  hModule16,
+   BOOL fTaskExit
+   )
+{
+   PNEMODULE pNeModule = SEGPTR(hModule16, 0);
+   PTD ptd = CURRENTPTD();
+
+   if (pNeModule->ne_usage == 1 || fTaskExit) {
+       W32UnhookHooks(hModule16,FALSE);
+   }
+
+   if (fTaskExit) {
+       ptd->dwFlags |= TDF_TASKCLEANUPDONE;
+       (pfnOut.pfnWOWCleanup)(HINSTRES32(ptd->hInst16), (DWORD) ptd->htask16, NULL, 0);
+   }
+
+   if (pNeModule->ne_usage > 1) {
+       return;
+       }
+
+
+    /*   WowCleanup, UserSrv private api
+     *   It cleans up any USER objects created by this hModule, most notably
+     *   classes, and subclassed windows.
+     */
+   (pfnOut.pfnWOWCleanup)((HANDLE)hModule16,
+                          0,
+                          (PNEMODULESEG)((ULONG)pNeModule + pNeModule->ne_segtab),
+                          pNeModule->ne_cseg
+                          );
+
+   RemoveHmodFromCache(hModule16);
+
+}
+
+
+
 
 /*++
     BOOL SignalProc(<hwnd>, <lpHelpFile>, <wCommand>, <dwData>)
@@ -3228,15 +3488,9 @@ ULONG FASTCALL WU32SignalProc(PVDMFRAME pFrame)
         case SG_GP_FAULT:
             lparam    = FETCHDWORD(parg16->f4);
             ptd = CURRENTPTD();
-            ptd->gfIgnoreInput = TRUE;
-            ptd->fInitvpCBStack = TRUE;
-            hModule16 = GetExePtr16((HAND16)HIWORD(lparam));
-            if ( GetModuleUsage16(hModule16) <= 1 ) {
-                DestroyClasses16(hModule16, FALSE);
-                RemoveHmodFromCache(hModule16);
-                W32UnhookHooks(hModule16,FALSE);
-                FreeCursorIconAlias(ptd->htask16);
-            }
+            ptd->dwFlags |= TDF_INITCALLBACKSTACK | TDF_IGNOREINPUT;
+            ModuleUnload(GetExePtr16((HAND16)HIWORD(lparam)), TRUE);
+            FreeCursorIconAlias(ptd->htask16, CIALIAS_HTASK);
             break;
 
         case SG_LOAD_DLL:
@@ -3244,17 +3498,18 @@ ULONG FASTCALL WU32SignalProc(PVDMFRAME pFrame)
 
         case SG_EXIT_DLL:
             hModule16 = FETCHWORD(parg16->f1);
-            if ( GetModuleUsage16(hModule16) <= 1 ) {
-                RemoveHmodFromCache(hModule16);
-                W32UnhookHooks(hModule16,FALSE);
-                DestroyClasses16(hModule16, TRUE);
-            }
+            ModuleUnload(hModule16, FALSE);
+            FreeCursorIconAlias(hModule16, CIALIAS_HMOD);
             break;
     }
 
     FREEARGPTR(parg16);
     RETURN(0);
 }
+
+
+
+
 
 // This routine checks the RECT structure (in PAINTSTRUCT) on BeginPaint
 // call and updates its fields for maximum positive and minimum negative
@@ -3298,4 +3553,3 @@ SHORT   ConvertInt16 (LONG x)
 
     return ((SHORT)0);
 }
-

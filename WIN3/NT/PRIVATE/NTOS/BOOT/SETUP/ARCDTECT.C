@@ -20,6 +20,19 @@ Revision History:
 #include "setupldr.h"
 #include <stdlib.h>
 
+
+//
+// Stuff used for detecting video
+//
+#define MAX_VIDEO_ADAPTERS 5
+ULONG VideoAdapterCount;
+PCONFIGURATION_COMPONENT_DATA VideoAdapter[MAX_VIDEO_ADAPTERS];
+
+VOID
+DecideVideoAdapter(
+    VOID
+    );
+
 BOOLEAN FoundUnknownScsi;
 
 //
@@ -222,7 +235,7 @@ Return Value:
         //
         // Sanity check to make sure we're talking about the same driver
         //
-        if(strcmpi(ScsiDevice->BaseDllName, ScsiFileName)) {
+        if(_strcmpi(ScsiDevice->BaseDllName, ScsiFileName)) {
             SlError(400);
             return FALSE;
         }
@@ -289,9 +302,10 @@ Return Value:
                        (ULONG)-1,
                        EnumerateVideoAdapters);
 
+    DecideVideoAdapter();
 }
 
-
+
 BOOLEAN
 EnumerateVideoAdapters(
     IN PCONFIGURATION_COMPONENT_DATA ConfigData
@@ -307,7 +321,7 @@ Routine Description:
 
 Arguments:
 
-    ConfigData - Supplies a pointer to the ARC node of the SCSI adapter.
+    ConfigData - Supplies a pointer to the ARC node of the display adapter.
 
 Return Value:
 
@@ -318,67 +332,135 @@ Return Value:
 --*/
 
 {
+    //
+    // Just remember this guy for later.
+    //
+    if(VideoAdapterCount < MAX_VIDEO_ADAPTERS) {
+        VideoAdapter[VideoAdapterCount++] = ConfigData;
+    }
+    return(TRUE);
+}
+
+
+VOID
+DecideVideoAdapter(
+    VOID
+    )
+{
+    IN PCONFIGURATION_COMPONENT_DATA ConfigData;
     PCHAR AdapterName,MonitorId;
     PCONFIGURATION_COMPONENT_DATA MonitorData;
     PMONITOR_CONFIGURATION_DATA Monitor;
+    CHAR ArcPath[256];
+    CHAR ConsoleOut[256];
+    PCHAR p,q;
+    ULONG u;
 
-    AdapterName = SlpSearchSection("Map.Display",ConfigData->ComponentEntry.Identifier);
-    if (AdapterName==NULL) {
+    if(VideoAdapterCount) {
         //
-        // We found a display adapter in the ARC tree, but it is not one of the ones
-        // specified in our INF file, so trigger the prompt for an OEM driver
-        // disk.
+        // The first thing we want to do is to see whether any of the
+        // adapters we found match the value of the CONSOLEOUT nvram var.
+        // If so then use that node for detection. Before comparing we have to
+        // change all instances of () to (0) in the value of CONSOLEOUT.
+        //
+        ConfigData = NULL;
+        if(p = ArcGetEnvironmentVariable("CONSOLEOUT")) {
+            strncpy(ArcPath,p,sizeof(ArcPath)-1);
+            ArcPath[sizeof(ArcPath)-1] = 0;
+            ConsoleOut[0] = 0;
+            for(p=ArcPath; q=strstr(p,"()"); p=q+2) {
+                *q = 0;
+                strcat(ConsoleOut,p);
+                strcat(ConsoleOut,"(0)");
+            }
+            strcat(ConsoleOut,p);
+
+            //
+            // Finally, we need to truncate the consoleout variable after
+            // the video adapter, if any.
+            //
+            _strlwr(ConsoleOut);
+            if(p = strstr(ConsoleOut,")video(")) {
+                *(p+sizeof(")video(")+1) = 0;
+            }
+
+            for(u=0; u<VideoAdapterCount; u++) {
+
+                ArcPath[0] = 0;
+                BlGetPathnameFromComponent(VideoAdapter[u],ArcPath);
+
+                if(!_stricmp(ConsoleOut,ArcPath)) {
+                    ConfigData = VideoAdapter[u];
+                    break;
+                }
+            }
+        }
+
+        //
+        // If we didn't find a match for CONSOLEOUT then use the last node
+        // we found in the tree scan.
+        //
+        if(!ConfigData) {
+            ConfigData = VideoAdapter[VideoAdapterCount-1];
+        }
+
+        AdapterName = SlpSearchSection("Map.Display",ConfigData->ComponentEntry.Identifier);
+        if (AdapterName==NULL) {
+            //
+            // We found a display adapter in the ARC tree, but it is not one of the ones
+            // specified in our INF file, so trigger the prompt for an OEM driver
+            // disk.
+            //
+
+            PromptOemVideo = TRUE;
+            return;
+        }
+
+        BlLoaderBlock->SetupLoaderBlock->VideoDevice.IdString = AdapterName;
+        BlLoaderBlock->SetupLoaderBlock->VideoDevice.Description = NULL;
+        BlLoaderBlock->SetupLoaderBlock->VideoDevice.ThirdPartyOptionSelected = FALSE;
+        BlLoaderBlock->SetupLoaderBlock->VideoDevice.FileTypeBits = 0;
+        BlLoaderBlock->SetupLoaderBlock->VideoDevice.Files = NULL;
+        BlLoaderBlock->SetupLoaderBlock->VideoDevice.BaseDllName = NULL;
+
+        //
+        // If there is a monitor peripheral associated with this device,
+        // capture its configuration data.  Otherwise, let Setup assume an
+        // appropriate default.
         //
 
-        PromptOemVideo = TRUE;
-        return(TRUE);
-    }
+        MonitorData = ConfigData->Child;
+        if (MonitorData==NULL) {
+            BlLoaderBlock->SetupLoaderBlock->Monitor = NULL;
+            BlLoaderBlock->SetupLoaderBlock->MonitorId = NULL;
+        } else {
+            Monitor = BlAllocateHeap(MonitorData->ComponentEntry.ConfigurationDataLength);
+            if (Monitor==NULL) {
+                SlFriendlyError(ENOMEM, "video detection", 0, NULL);
+                return;
+            }
+            MonitorId = BlAllocateHeap(MonitorData->ComponentEntry.IdentifierLength+1);
+            if (MonitorId==NULL) {
+                SlFriendlyError(ENOMEM, "video detection", 0, NULL);
+                return;
+            }
 
-    BlLoaderBlock->SetupLoaderBlock->VideoDevice.IdString = AdapterName;
-    BlLoaderBlock->SetupLoaderBlock->VideoDevice.Description = NULL;
-    BlLoaderBlock->SetupLoaderBlock->VideoDevice.ThirdPartyOptionSelected = FALSE;
-    BlLoaderBlock->SetupLoaderBlock->VideoDevice.FileTypeBits = 0;
-    BlLoaderBlock->SetupLoaderBlock->VideoDevice.Files = NULL;
-    BlLoaderBlock->SetupLoaderBlock->VideoDevice.BaseDllName = NULL;
+            strncpy(MonitorId,
+                    MonitorData->ComponentEntry.Identifier,
+                    MonitorData->ComponentEntry.IdentifierLength);
 
-    //
-    // If there is a monitor peripheral associated with this device,
-    // capture its configuration data.  Otherwise, let Setup assume an
-    // appropriate default.
-    //
+            MonitorId[MonitorData->ComponentEntry.IdentifierLength] = 0;
 
-    MonitorData = ConfigData->Child;
-    if (MonitorData==NULL) {
-        BlLoaderBlock->SetupLoaderBlock->Monitor = NULL;
-        BlLoaderBlock->SetupLoaderBlock->MonitorId = NULL;
-    } else {
-        Monitor = BlAllocateHeap(MonitorData->ComponentEntry.ConfigurationDataLength);
-        if (Monitor==NULL) {
-            SlFriendlyError(ENOMEM, "video detection", 0, NULL);
-            return(FALSE);
+            RtlCopyMemory((PVOID)Monitor,
+                          MonitorData->ConfigurationData,
+                          MonitorData->ComponentEntry.ConfigurationDataLength);
+
+            BlLoaderBlock->SetupLoaderBlock->Monitor = Monitor;
+            BlLoaderBlock->SetupLoaderBlock->MonitorId = MonitorId;
         }
-        MonitorId = BlAllocateHeap(MonitorData->ComponentEntry.IdentifierLength+1);
-        if (MonitorId==NULL) {
-            SlFriendlyError(ENOMEM, "video detection", 0, NULL);
-            return(FALSE);
-        }
-
-        strncpy(MonitorId,
-                MonitorData->ComponentEntry.Identifier,
-                MonitorData->ComponentEntry.IdentifierLength);
-
-        MonitorId[MonitorData->ComponentEntry.IdentifierLength] = 0;
-
-        RtlCopyMemory((PVOID)Monitor,
-                      MonitorData->ConfigurationData,
-                      MonitorData->ComponentEntry.ConfigurationDataLength);
-
-        BlLoaderBlock->SetupLoaderBlock->Monitor = Monitor;
-        BlLoaderBlock->SetupLoaderBlock->MonitorId = MonitorId;
     }
-
-    return(TRUE);
 }
+
 
 
 PCHAR
@@ -451,7 +533,7 @@ Return Value:
                 break;
             }
         } else {
-            if (stricmp(TargetName, SearchName) == 0) {
+            if (_stricmp(TargetName, SearchName) == 0) {
                 //
                 // we have a match
                 //

@@ -89,8 +89,8 @@ Return Value:
         // Compute length of context record and new aligned user stack pointer.
         //
 
-        Length = (sizeof(CONTEXT) + 15) & (~15);
-        UserStack = (ContextRecord.IntSp & (~15)) - Length;
+        Length = sizeof(CONTEXT);
+        UserStack = (ULONG)(ContextRecord.XIntSp & (~7)) - Length;
 
         //
         // Probe user stack area for writeability and then transfer the
@@ -107,12 +107,12 @@ Return Value:
         // to the user APC dispatcher.
         //
 
-        TrapFrame->IntSp = UserStack;
-        TrapFrame->IntS8 = UserStack;
-        TrapFrame->IntA0 = (ULONG)NormalContext;
-        TrapFrame->IntA1 = (ULONG)SystemArgument1;
-        TrapFrame->IntA2 = (ULONG)SystemArgument2;
-        TrapFrame->IntA3 = (ULONG)NormalRoutine;
+        TrapFrame->XIntSp = (LONG)UserStack;
+        TrapFrame->XIntS8 = (LONG)UserStack;
+        TrapFrame->XIntA0 = (LONG)NormalContext;
+        TrapFrame->XIntA1 = (LONG)SystemArgument1;
+        TrapFrame->XIntA2 = (LONG)SystemArgument2;
+        TrapFrame->XIntA3 = (LONG)NormalRoutine;
         TrapFrame->Fir = KeUserApcDispatcher;
 
     //

@@ -27,14 +27,6 @@ NwCommonCreate (
     IN PIRP_CONTEXT IrpContext
     );
 
-NTSTATUS
-ReadAttachEas(
-    IN PIRP Irp,
-    OUT PUNICODE_STRING UserName,
-    OUT PUNICODE_STRING Password,
-    OUT PULONG ShareType
-    );
-
 IO_STATUS_BLOCK
 OpenRedirector(
     IN PIRP_CONTEXT IrpContext,
@@ -204,18 +196,36 @@ Return Value:
 
     } except( NwExceptionFilter( Irp, GetExceptionInformation() )) {
 
-        //
-        //  We had some trouble trying to perform the requested
-        //  operation, so we'll abort the I/O request with
-        //  the error Status that we get back from the
-        //  execption code
-        //
+        if ( IrpContext == NULL ) {
 
-        Status = NwProcessException( IrpContext, GetExceptionCode() );
+            //
+            //  If we couldn't allocate an irp context, just complete
+            //  irp without any fanfare.
+            //
+
+            Status = STATUS_INSUFFICIENT_RESOURCES;
+            Irp->IoStatus.Status = Status;
+            Irp->IoStatus.Information = 0;
+            IoCompleteRequest ( Irp, IO_NETWORK_INCREMENT );
+
+        } else {
+
+            //
+            //  We had some trouble trying to perform the requested
+            //  operation, so we'll abort the I/O request with
+            //  the error Status that we get back from the
+            //  execption code
+            //
+
+            Status = NwProcessException( IrpContext, GetExceptionCode() );
+        }
     }
 
-    NwDequeueIrpContext( IrpContext, FALSE );
-    NwCompleteRequest( IrpContext, Status );
+    if ( IrpContext  ) {
+        NwDequeueIrpContext( IrpContext, FALSE );
+        NwCompleteRequest( IrpContext, Status );
+    }
+
     if ( TopLevel ) {
         NwSetTopLevelIrp( NULL );
     }
@@ -269,7 +279,8 @@ Return Value:
     BOOLEAN CreateTreeConnection;
     BOOLEAN DeleteOnClose;
     BOOLEAN DeferredLogon;
-    BOOLEAN CodeSectionReferenced = FALSE;
+    BOOLEAN DereferenceCodeSection = FALSE;
+    BOOLEAN OpenedTreeHandle = FALSE;
 
     UNICODE_STRING CreateFileName;
     UNICODE_STRING Drive;
@@ -280,9 +291,9 @@ Return Value:
     UNICODE_STRING UserName, Password;
     ULONG ShareType;
     WCHAR DriveLetter;
+    DWORD dwExtendedCreate = FALSE;
 
     PSCB Scb = NULL;
-    PNONPAGED_SCB NpScb;
     PICB Icb;
     UNICODE_STRING DefaultServer;
 
@@ -333,6 +344,23 @@ Return Value:
         return STATUS_INVALID_PARAMETER;
     }
 
+    //
+    // Fail requests that don't have the proper impersonation level.
+    //
+
+    if ( IrpSp->Parameters.Create.SecurityContext ) {
+
+        if ( IrpSp->Parameters.Create.SecurityContext->SecurityQos ) {
+
+            if ( IrpSp->Parameters.Create.SecurityContext->SecurityQos->ImpersonationLevel <
+                 SecurityImpersonation ) {
+
+                DebugTrace(-1, Dbg, "NwCommonCreate -> Insufficient impersation level.\n", 0);
+                return STATUS_ACCESS_DENIED;
+            }
+        }
+    }
+
     Iosb.Status = STATUS_SUCCESS;
 
     FileObject        = IrpSp->FileObject;
@@ -344,10 +372,32 @@ Return Value:
 
         if ( IrpSp->FileObject->RelatedFileObject != NULL ) {
 
+            //
+            //  If we open a handle then the DereferenceCodeSection flag
+            //  will be set to false. The dereference will eventually
+            //  happen when the file is closed.
+            //
+
             NwReferenceUnlockableCodeSection();
-            CodeSectionReferenced = TRUE;
+            DereferenceCodeSection = TRUE;
+
+            //
+            // Record the relative file name for this open.
+            //
+
+            IrpContext->Specific.Create.FullPathName = CreateFileName;
 
             Iosb = CreateRemoteFile( IrpContext, NULL );
+
+            //
+            // If we succeeded, we want to keep the code section
+            // referenced because we have opened a handle.
+            //
+
+            if ( NT_SUCCESS( Iosb.Status ) ) {
+                DereferenceCodeSection = FALSE;
+            }
+
             try_return( Iosb.Status );
         }
 
@@ -372,15 +422,18 @@ Return Value:
         IrpContext->Specific.Create.VolumeName = Volume;
         IrpContext->Specific.Create.PathName = Path;
         IrpContext->Specific.Create.DriveLetter = DriveLetter;
+        IrpContext->Specific.Create.FileName = FileName;
         IrpContext->Specific.Create.FullPathName = CreateFileName;
+
+        RtlInitUnicodeString( &IrpContext->Specific.Create.UidConnectName, NULL );
 
         //
         //  For now assume default username and password
         //
 
-        UserName.Buffer = NULL;
-        Password.Buffer = NULL;
         ShareType = RESOURCETYPE_ANY;
+        RtlInitUnicodeString( &UserName, NULL );
+        RtlInitUnicodeString( &Password, NULL );
 
         if ( Server.Length == 0) {
 
@@ -407,7 +460,7 @@ Return Value:
             }
 
             NwReferenceUnlockableCodeSection();
-            CodeSectionReferenced = TRUE;
+            DereferenceCodeSection = TRUE;
 
             //
             //  If the only requested access is FILE_LIST_DIRECTORY,
@@ -470,6 +523,7 @@ Return Value:
                                     &DefaultServer,
                                     NULL,
                                     NULL,
+                                    NULL,
                                     DeferredLogon,
                                     FALSE );
 
@@ -485,6 +539,8 @@ Return Value:
                 }
 
                 if ( !NT_SUCCESS(Iosb.Status)) {
+
+                    PNONPAGED_SCB NpScb;
 
                     //
                     //  First dequeue the IRP context, in case it was left
@@ -509,6 +565,7 @@ Return Value:
                                           &Scb,
                                           IrpContext,
                                           &NpScb->ServerName,
+                                          NULL,
                                           NULL,
                                           NULL,
                                           DeferredLogon,
@@ -543,6 +600,7 @@ Return Value:
                                       NULL,
                                       NULL,
                                       NULL,
+                                      NULL,
                                       DeferredLogon,
                                       FALSE );
                 }
@@ -551,12 +609,23 @@ Return Value:
                     try_return( Iosb.Status );
                 }
 
-                NpScb = Scb->pNpScb;
-
             } else {
 
-                if ( CreateTreeConnection ) {
-                    ReadAttachEas( Irp, &UserName, &Password, &ShareType );
+                //
+                // On handle opens to a server or tree we support the concept
+                // of an open with supplemental credentials.  In this case, we return
+                // a handle to the server or a dir server using the provided
+                // credentials regardless of whether or not there are existing
+                // connections to the resource.  This is primarily for admin
+                // tools like OleDs.
+                //
+
+                ReadAttachEas( Irp, &UserName, &Password, &ShareType, &dwExtendedCreate );
+
+                if ( dwExtendedCreate ) {
+                    ASSERT( UserName.Length > 0 );
+                    IrpContext->Specific.Create.fExCredentialCreate = TRUE;
+                    IrpContext->Specific.Create.puCredentialName = &UserName;
                 }
 
                 //
@@ -567,23 +636,61 @@ Return Value:
                                   &Scb,
                                   IrpContext,
                                   &Server,
+                                  NULL,
                                   &UserName,
                                   &Password,
                                   DeferredLogon,
                                   DeleteOnClose );
 
-                if ( NT_SUCCESS(Iosb.Status)) {
-                    if ( CreateTreeConnection && !DeleteOnClose ) {
-                        TreeConnectScb( Scb );
+                if ( ( Iosb.Status == STATUS_REMOTE_NOT_LISTENING ) ||
+                     ( Iosb.Status == STATUS_BAD_NETWORK_PATH ) ||
+                     ( Iosb.Status == STATUS_UNSUCCESSFUL ) ) {
+
+                    //
+                    // If we couldn't find the server or something
+                    // inexplicable occurred, attempt to open \\tree.
+                    //
+
+                    Iosb.Status = NdsCreateTreeScb( IrpContext,
+                                                    &Scb,           // dest scb
+                                                    &Server,        // tree we want
+                                                    &UserName,
+                                                    &Password,
+                                                    DeferredLogon,
+                                                    DeleteOnClose );
+
+                    if ( !NT_SUCCESS( Iosb.Status ) ) {
+                        try_return( Iosb.Status );
                     }
-                } else {
+
+                    OpenedTreeHandle = TRUE;
+
+                } else if ( !NT_SUCCESS( Iosb.Status ) ) {
+
+                    //
+                    // If we failed to get the bindery server for
+                    // some legitimate reason, bail out now.
+                    //
                     try_return( Iosb.Status );
                 }
+
+                //
+                // We must have a connection at this point.  We don't tree
+                // connect the dir server since it's virtual.
+                //
+
+                if ( !OpenedTreeHandle && CreateTreeConnection && !DeleteOnClose ) {
+                        TreeConnectScb( Scb );
+                }
+
             }
 
             //
             //  Now create the ICB.
             //
+
+            ASSERT( Iosb.Status == STATUS_SUCCESS );
+            ASSERT( Scb != NULL );
 
             Icb = NwCreateIcb( NW_NTC_ICB_SCB, Scb );
             Icb->FileObject = FileObject;
@@ -595,14 +702,28 @@ Return Value:
 
             Icb->State = ICB_STATE_OPENED;
 
+            //
+            // Is this a tree handle?
+            //
+
+            Icb->IsTreeHandle = OpenedTreeHandle;
+
         } else {
 
             NwReferenceUnlockableCodeSection();
-            CodeSectionReferenced = TRUE;
+            DereferenceCodeSection = TRUE;
 
             DeferredLogon = FALSE;
+
             if ( CreateTreeConnection ) {
-                ReadAttachEas( Irp, &UserName, &Password, &ShareType );
+
+                //
+                // We ignore the extended create attribute here because
+                // we DO NOT support extended credential creates to random
+                // files and directories!
+                //
+
+                ReadAttachEas( Irp, &UserName, &Password, &ShareType, NULL );
 
                 if ( DeleteOnClose ) {
 
@@ -616,19 +737,48 @@ Return Value:
             }
 
             IrpContext->Specific.Create.ShareType = ShareType;
+            IrpContext->Specific.Create.NdsCreate = FALSE;
 
             Iosb.Status = CreateScb(
                               &Scb,
                               IrpContext,
                               &Server,
+                              NULL,
                               &UserName,
                               &Password,
                               DeferredLogon,
                               DeleteOnClose );
 
+            if ( Iosb.Status == STATUS_REMOTE_NOT_LISTENING ||
+                 Iosb.Status == STATUS_BAD_NETWORK_PATH ||
+                 Iosb.Status == STATUS_UNSUCCESSFUL ) {
+
+                //
+                // If we couldn't find the server or something
+                // inexplicable occurred, attempt to open \\tree.
+                //
+
+                IrpContext->Specific.Create.NdsCreate = TRUE;
+                IrpContext->Specific.Create.NeedNdsData = TRUE;
+
+                Iosb.Status = NdsCreateTreeScb( IrpContext,
+                                                &Scb,
+                                                &Server,
+                                                &UserName,
+                                                &Password,
+                                                DeferredLogon,
+                                                DeleteOnClose );
+            }
+
+            //
+            // If we have success, then there's a volume to connect.
+            //
+
             if ( NT_SUCCESS( Iosb.Status ) ) {
 
                 NTSTATUS CreateScbStatus;
+
+                ASSERT( Scb != NULL );
 
                 //
                 //  Remember the status from create SCB, since it might
@@ -637,9 +787,50 @@ Return Value:
 
                 CreateScbStatus = Iosb.Status;
 
-                Iosb = CreateRemoteFile(
-                           IrpContext,
-                           &Drive );
+                //
+                // We catch this exception in case we have to retry the
+                // create on the NDS path.  This sucks, as does the
+                // exception structure in this code right now, but it's
+                // legacy and now is not the time to change it.
+                //
+
+                try {
+
+                    Iosb = CreateRemoteFile(
+                               IrpContext,
+                               &Drive );
+
+                } except ( EXCEPTION_EXECUTE_HANDLER ) {
+
+                    Iosb.Status = GetExceptionCode();
+                }
+
+                //
+                // If this is a server whose name is the same as the tree
+                // that it is a member of, and the create was marked as
+                // non-nds and it failed, retry an nds create.
+                //
+
+                if ( ( !NT_SUCCESS( Iosb.Status) ) &&
+                     ( !(IrpContext->Specific.Create.NdsCreate) ) &&
+                     ( RtlEqualUnicodeString( &(Scb->pNpScb->ServerName),
+                                              &(Scb->NdsTreeName),
+                                              TRUE ) ) ) {
+
+                    IrpContext->Specific.Create.NdsCreate = TRUE;
+                    IrpContext->Specific.Create.NeedNdsData = TRUE;
+
+                    Iosb = CreateRemoteFile(
+                               IrpContext,
+                               &Drive );
+
+                    //
+                    // If this fails, it will raise status before setting IOSB
+                    // and we'll return the status from the original create,
+                    // which is the more interesting one.
+                    //
+
+                }
 
                 //
                 //  If we successfully open the remote file, return the
@@ -649,14 +840,32 @@ Return Value:
                 if ( NT_SUCCESS( Iosb.Status ) ) {
                     Iosb.Status = CreateScbStatus;
                 }
+
             }
         }
 
-    try_exit:NOTHING;
+        //
+        // If we succeeded, we want to keep the code section
+        // referenced because we have opened a handle.
+        //
+
+        if ( NT_SUCCESS( Iosb.Status ) ) {
+            DereferenceCodeSection = FALSE;
+        }
+
+    try_exit: NOTHING;
     } finally {
 
+
+        //
+        // Track the Scb in the IrpContext, not in the local Scb
+        // variable since we may have been routed to another server
+        // in process.
+        //
+
         if ( Scb != NULL ) {
-            NwDereferenceScb( Scb->pNpScb );
+            ASSERT( IrpContext->pNpScb );
+            NwDereferenceScb( IrpContext->pNpScb );
         }
 
         if ( DefaultServer.Buffer != NULL ) {
@@ -665,9 +874,10 @@ Return Value:
 
         DebugTrace(-1, Dbg, "NwCommonCreate -> %08lx\n", Iosb.Status);
 
-        if ( !NT_SUCCESS( Iosb.Status ) && CodeSectionReferenced ) {
+        if ( DereferenceCodeSection ) {
             NwDereferenceUnlockableCodeSection ();
         }
+
     }
 
     //
@@ -680,6 +890,15 @@ Return Value:
         Iosb.Status = STATUS_BAD_NETWORK_PATH;
     }
 
+    //
+    // Map an unbound transport error to server not found, so that MPR
+    // will try to connect on the next provider.
+    //
+
+    if ( Iosb.Status == STATUS_NETWORK_UNREACHABLE ) {
+        Iosb.Status = STATUS_BAD_NETWORK_PATH;
+    }
+
     return Iosb.Status;
 }
 
@@ -689,7 +908,8 @@ ReadAttachEas(
     IN PIRP Irp,
     OUT PUNICODE_STRING UserName,
     OUT PUNICODE_STRING Password,
-    OUT PULONG ShareType
+    OUT PULONG ShareType,
+    OUT PDWORD CredentialExtension
     )
 
 /*++
@@ -712,6 +932,11 @@ Arguments:
 
     ShareType -  Returns the value of the share type EA
 
+    CredentialExtension - Returns whether or not this create
+        should use the provided credentials for an credential
+        extended connection.  This is primarily for OleDs
+        accessing the ds in multiple security contexts.
+
 Return Value:
 
     NTSTATUS - Status of operation
@@ -727,10 +952,14 @@ Return Value:
     RtlInitUnicodeString( UserName, NULL );
     RtlInitUnicodeString( Password, NULL );
     *ShareType = RESOURCETYPE_ANY;
+    if ( CredentialExtension ) {
+        *CredentialExtension = FALSE;
+    }
 
     DebugTrace(+1, Dbg, "ReadAttachEas....\n", 0);
 
     if ( EaBuffer != NULL) {
+
         while (TRUE) {
             ULONG EaNameLength = EaBuffer->EaNameLength;
 
@@ -748,7 +977,14 @@ Return Value:
 
             } else if (strcmp(EaBuffer->EaName, EA_NAME_TYPE) == 0) {
 
-                *ShareType = *(PULONG)(EaBuffer->EaName+EaNameLength+1);
+                *ShareType = *(ULONG UNALIGNED *)(EaBuffer->EaName+EaNameLength+1);
+
+            } else if (strcmp(EaBuffer->EaName, EA_NAME_CREDENTIAL_EX) == 0)  {
+
+                if ( CredentialExtension ) {
+                    *CredentialExtension = TRUE;
+                    DebugTrace(0, Dbg, "ReadAttachEas signals a credential extension.\n", 0 );
+                }
 
             } else {
                 DebugTrace(0, Dbg, "ReadAttachEas Unknown EA -> %s\n", EaBuffer->EaName);
@@ -900,14 +1136,14 @@ Return Value:
     BOOLEAN OpenTargetDirectory;
     ULONG AllocationSize;
 
-    //  Unhandled open features.
+    // Unhandled open features.
 
-    //PFILE_FULL_EA_INFORMATION EaBuffer;
-    //ULONG EaLength;
-    //BOOLEAN SequentialOnly;
-    //BOOLEAN NoIntermediateBuffering;
-    //BOOLEAN IsPagingFile;
-    //BOOLEAN NoEaKnowledge;
+    // PFILE_FULL_EA_INFORMATION EaBuffer;
+    // ULONG EaLength;
+    // BOOLEAN SequentialOnly;
+    // BOOLEAN NoIntermediateBuffering;
+    // BOOLEAN IsPagingFile;
+    // BOOLEAN NoEaKnowledge;
 
     ULONG CreateDisposition;
 
@@ -915,6 +1151,7 @@ Return Value:
     PICB Icb = NULL;
     PDCB Dcb;
     PVCB Vcb = NULL;
+    PSCB Scb;
 
     BOOLEAN IsAFile;
     BOOLEAN MayBeADirectory = FALSE;
@@ -926,6 +1163,11 @@ Return Value:
 
     BOOLEAN CreateTreeConnection;
     PUNICODE_STRING VolumeName;
+
+    NTSTATUS Status;
+    UNICODE_STRING NdsConnectName;
+    WCHAR ConnectBuffer[MAX_NDS_NAME_CHARS];
+    BOOLEAN MadeUidNdsName = FALSE;
 
     PAGED_CODE();
 
@@ -943,6 +1185,7 @@ Return Value:
 
     SetFlag( IrpContext->Flags, IRP_FLAG_RECONNECTABLE );
 
+
     try {
 
         //
@@ -950,7 +1193,12 @@ Return Value:
         //
 
         RelatedFileObject = FileObject->RelatedFileObject;
-        FileName          = FileObject->FileName;
+
+        //
+        // We actually want the parsed file name.
+        // FileName          = FileObject->FileName;
+        //
+        FileName          = IrpContext->Specific.Create.FullPathName;
         Options           = IrpSp->Parameters.Create.Options;
         FileAttributes    = IrpSp->Parameters.Create.FileAttributes;
         AllocationSize    = Irp->Overlay.AllocationSize.LowPart;
@@ -974,12 +1222,12 @@ Return Value:
         //  Things we currently ignore, because netware servers don't support it.
         //
 
-        //SequentialOnly          = BooleanFlagOn( Options, FILE_SEQUENTIAL_ONLY );
-        //NoIntermediateBuffering = BooleanFlagOn( Options, FILE_NO_INTERMEDIATE_BUFFERING );
-        //NoEaKnowledge           = BooleanFlagOn( Options, FILE_NO_EA_KNOWLEDGE );
-        //EaBuffer          = Irp->AssociatedIrp.SystemBuffer;
-        //EaLength          = IrpSp->Parameters.Create.EaLength;
-        //IsPagingFile = BooleanFlagOn( IrpSp->Flags, SL_OPEN_PAGING_FILE );
+        // SequentialOnly          = BooleanFlagOn( Options, FILE_SEQUENTIAL_ONLY );
+        // NoIntermediateBuffering = BooleanFlagOn( Options, FILE_NO_INTERMEDIATE_BUFFERING );
+        // NoEaKnowledge           = BooleanFlagOn( Options, FILE_NO_EA_KNOWLEDGE );
+        // EaBuffer                = Irp->AssociatedIrp.SystemBuffer;
+        // EaLength                = IrpSp->Parameters.Create.EaLength;
+        // IsPagingFile            = BooleanFlagOn( IrpSp->Flags, SL_OPEN_PAGING_FILE );
 
         if ( BooleanFlagOn( Options, FILE_CREATE_TREE_CONNECTION ) ) {
             CreateDisposition = FILE_OPEN;
@@ -1053,6 +1301,9 @@ Return Value:
         }
 
         if ( Dcb == NULL ) {
+
+RetryFindVcb:
+
             Vcb = NwFindVcb(
                       IrpContext,
                       VolumeName,
@@ -1061,14 +1312,86 @@ Return Value:
                       CreateTreeConnection,
                       ( BOOLEAN )( CreateTreeConnection && DeleteOnClose ) );
 
-            //
-            //  If this was an open to delete a tree connect, and we failed
-            //  to find the VCB, simply return the error.
-            //
+            if ( Vcb == NULL ) {
 
-            if (  Vcb == NULL ) {
-                Iosb.Status = STATUS_BAD_NETWORK_PATH;
-                try_return ( Iosb );
+                //
+                //  If this create failed because we need nds data, get
+                //  the data from the ds and resubmit the request.
+                //
+
+                if ( IrpContext->Specific.Create.NdsCreate &&
+                     IrpContext->Specific.Create.NeedNdsData ) {
+
+                    //
+                    // Release the open resource so we can move around.
+                    //
+
+                    NwReleaseOpenLock( );
+                    OwnOpenLock = FALSE;
+
+                    //
+                    // Take the volume name and build the server/share
+                    // connect name.
+                    //
+
+                    NdsConnectName.Buffer = ConnectBuffer;
+                    NdsConnectName.MaximumLength = sizeof( ConnectBuffer );
+                    NdsConnectName.Length = 0;
+
+                    //
+                    // Get the ds information.  We may jump servers here.
+                    //
+
+                    Status = NdsMapObjectToServerShare( IrpContext,
+                                                        &Scb,
+                                                        &NdsConnectName,
+                                                        CreateTreeConnection,
+                                                        &(IrpContext->Specific.Create.dwNdsOid) );
+
+                    if( !NT_SUCCESS( Status ) ) {
+                        ExRaiseStatus( Status );
+                    }
+
+                    //
+                    // Make sure we are on the scb queue after all the
+                    // possible server jumping.
+                    //
+
+                    NwAppendToQueueAndWait( IrpContext );
+
+                    NwAcquireOpenLock( );
+                    OwnOpenLock = TRUE;
+
+                    //
+                    // Prepend the Uid to the server/share name.
+                    //
+
+                    MergeStrings( &IrpContext->Specific.Create.UidConnectName,
+                                  &Scb->UnicodeUid,
+                                  &NdsConnectName,
+                                  PagedPool );
+
+                    MadeUidNdsName = TRUE;
+
+                    //
+                    // We have the data, so re-do the connect.
+                    //
+
+                    IrpContext->Specific.Create.NeedNdsData = FALSE;
+                    goto RetryFindVcb;
+
+                } else {
+
+                    //
+                    //  If this was an open to delete a tree connect, and we failed
+                    //  to find the VCB, simply return the error.
+                    //
+
+                    Iosb.Status = STATUS_BAD_NETWORK_PATH;
+                    try_return ( Iosb );
+
+                }
+
             }
 
         } else {
@@ -1077,6 +1400,8 @@ Return Value:
             NwReferenceVcb( Vcb );
 
         }
+
+        ASSERT( Vcb->Scb == IrpContext->pScb );
 
         //
         //  If this is the target name for a rename then we want to find the
@@ -1242,8 +1567,7 @@ Return Value:
         } else {
 
             SearchFlags = NtAttributesToNwAttributes( FileAttributes );
-            ShareFlags = NtDesiredAccessToNwShareFlags( DesiredAccess );
-            ShareFlags |= NtShareAccessToNwShareFlags( ShareAccess );
+            ShareFlags = NtToNwShareFlags( DesiredAccess, ShareAccess );
 
             IsAFile = NonDirectoryFile ||
                       (Fcb->State == FCB_STATE_OPENED &&
@@ -1267,6 +1591,7 @@ Return Value:
                 case FILE_WRITE_ATTRIBUTES:
                 case FILE_READ_ATTRIBUTES:
                 case DELETE:
+
                     Iosb.Status = FileOrDirectoryExists(
                                       IrpContext,
                                       Vcb,
@@ -1290,9 +1615,19 @@ Return Value:
                         Iosb.Status = STATUS_ACCESS_DENIED;
                     }
 
+                    if ( ( Iosb.Status == STATUS_OBJECT_NAME_NOT_FOUND ) &&
+                         ( (DesiredAccess & ~SYNCHRONIZE) == DELETE ) ) {
+                        //
+                        // we may not have scan rights. fake the return as OK.
+                        // NW allows the delete without scan rights.
+                        //
+                        Iosb.Status = STATUS_SUCCESS;
+                    }
+
                     break;
 
                 default:
+
                     Iosb = OpenFile( IrpContext, Vcb, Icb, SearchFlags, ShareFlags );
 
                     if ( ( Iosb.Status == STATUS_OBJECT_NAME_NOT_FOUND ||
@@ -1306,7 +1641,23 @@ Return Value:
 
                         Iosb = ChangeDirectory( IrpContext, Vcb, Icb );
                         MayBeADirectory = TRUE;
+
+                    } else if ( (Iosb.Status == STATUS_SHARING_VIOLATION) &&
+                                ((ShareFlags == (NW_OPEN_FOR_READ | NW_DENY_WRITE)) ||
+                                (ShareFlags == (NW_OPEN_FOR_READ)))) {
+
+                        //
+                        // if the file was already open exclusive (eg. GENERIC_EXECUTE)
+                        // then a debugger opening it again for read will fail with
+                        // sharing violation. In this case, we will try open exclusive
+                        // again to see if that passes.
+                        //
+
+                        ShareFlags |= NW_OPEN_EXCLUSIVE ;
+                        ShareFlags &= ~(NW_DENY_WRITE | NW_DENY_READ);
+                        Iosb = OpenFile( IrpContext, Vcb, Icb, SearchFlags, ShareFlags );
                     }
+
                     break;
 
                 }
@@ -1399,7 +1750,11 @@ try_exit: NOTHING;
     } finally {
 
         if ( Vcb != NULL ) {
-            NwDereferenceVcb( Vcb, IrpContext );
+            NwDereferenceVcb( Vcb, IrpContext, FALSE );
+        }
+
+        if ( MadeUidNdsName ) {
+            FREE_POOL( IrpContext->Specific.Create.UidConnectName.Buffer );
         }
 
         if ( AbnormalTermination() || !NT_SUCCESS( Iosb.Status ) ) {
@@ -1426,13 +1781,13 @@ try_exit: NOTHING;
             }
 
             //
-            //  If this was a tree connect, derefence the extra reference
-            //  on the VCB.
+            //  If this was a tree connect, derefence the extra
+            //  reference on the VCB.
             //
 
             if ( CreateTreeConnection && !DeleteOnClose ) {
                 if ( Vcb != NULL ) {
-                    NwDereferenceVcb( Vcb, IrpContext );
+                    NwDereferenceVcb( Vcb, IrpContext, FALSE );
                 }
             }
 
@@ -1505,6 +1860,7 @@ Return Value:
     IO_STATUS_BLOCK Iosb;
     PFCB Fcb;
     BYTE Attributes;
+    BOOLEAN FirstTime = TRUE;
 
     PAGED_CODE();
 
@@ -1520,12 +1876,14 @@ Return Value:
         return( Iosb );
     }
 
+Retry:
+
     if ( !BooleanFlagOn( Icb->SuperType.Fcb->Flags, FCB_FLAGS_LONG_NAME ) ) {
 
         Iosb.Status = ExchangeWithWait (
                           IrpContext,
                           SynchronousResponseCallback,
-                          "FwbbU",
+                          "FwbbJ",
                           NCP_SEARCH_FILE,
                           -1,
                           Vcb->Specific.Disk.Handle,
@@ -1541,6 +1899,7 @@ Return Value:
                               14,
                               &Attributes );
         }
+
 
     } else {
 
@@ -1579,6 +1938,21 @@ Return Value:
 
             Iosb.Status = STATUS_OBJECT_PATH_NOT_FOUND;
         }
+    }
+
+    if ((Iosb.Status == STATUS_INVALID_HANDLE) &&
+        (FirstTime)) {
+
+        //
+        //  Check to see if Volume handle is invalid. Caused when volume
+        //  is unmounted and then remounted.
+        //
+
+        FirstTime = FALSE;
+
+        NwReopenVcbHandle( IrpContext, Vcb );
+
+        goto Retry;
     }
 
     Fcb = Icb->SuperType.Fcb;
@@ -1647,7 +2021,7 @@ Return Value:
         Iosb.Status = ExchangeWithWait (
                           IrpContext,
                           SynchronousResponseCallback,
-                          "SbbU",
+                          "SbbJ",
                           NCP_DIR_FUNCTION, NCP_CREATE_DIRECTORY,
                           Vcb->Specific.Disk.Handle,
                           0xFF,
@@ -1734,9 +2108,11 @@ Return Value:
     USHORT LastModifiedDate;
     USHORT LastModifiedTime;
     USHORT CreationDate;
+    USHORT CreationTime = DEFAULT_TIME;
     USHORT LastAccessDate;
     NTSTATUS Status;
     PFCB Fcb;
+    BOOLEAN FirstTime = TRUE;
 
     PAGED_CODE();
 
@@ -1762,7 +2138,7 @@ Return Value:
          Vcb->Specific.Disk.LongNameSpace == LFN_NO_OS2_NAME_SPACE ||
 
          IsFatNameValid( Name ) ) {
-
+Retry:
         //
         //  First try a file
         //
@@ -1772,7 +2148,7 @@ Return Value:
         Status = ExchangeWithWait (
                      IrpContext,
                      SynchronousResponseCallback,
-                     "FwbbU",
+                     "FwbbJ",
                      NCP_SEARCH_FILE,
                      -1,
                      Vcb->Specific.Disk.Handle,
@@ -1794,6 +2170,21 @@ Return Value:
                          &LastModifiedTime );
         }
 
+        if ((Status == STATUS_INVALID_HANDLE) &&
+            (FirstTime)) {
+
+            //
+            //  Check to see if Volume handle is invalid. Caused when volume
+            //  is unmounted and then remounted.
+            //
+
+            FirstTime = FALSE;
+
+            NwReopenVcbHandle( IrpContext, Vcb );
+
+            goto Retry;
+        }
+
         if ( Status == STATUS_UNSUCCESSFUL ) {
 
             //
@@ -1803,7 +2194,7 @@ Return Value:
             Status = ExchangeWithWait (
                          IrpContext,
                          SynchronousResponseCallback,
-                         "FwbbU",
+                         "FwbbJ",
                          NCP_SEARCH_FILE,
                          -1,
                          Vcb->Specific.Disk.Handle,
@@ -1838,11 +2229,13 @@ Return Value:
 
                 //
                 //  Work-around for netware bug.  If netware returns short
-                //  packet, just return success.
+                //  packet, just return success.  We exit prematurely
+                //  because we have no attributes to record.
                 //
 
-                Status = STATUS_SUCCESS;
                 Icb = NULL;
+                *IsAFile = TRUE;
+                return ( STATUS_SUCCESS );
             }
 
             if ( !NT_SUCCESS( Status ) ) {
@@ -1865,8 +2258,9 @@ Return Value:
                      Vcb->Specific.Disk.LongNameSpace,
                      SEARCH_ALL_DIRECTORIES,
                      LFN_FLAG_INFO_ATTRIBUTES |
-                        LFN_FLAG_INFO_FILE_SIZE |
-                        LFN_FLAG_INFO_MODIFY_TIME,
+                     LFN_FLAG_INFO_FILE_SIZE |
+                     LFN_FLAG_INFO_MODIFY_TIME |
+                     LFN_FLAG_INFO_CREATION_TIME,
                      Vcb->Specific.Disk.VolumeNumber,
                      Vcb->Specific.Disk.Handle,
                      0,
@@ -1877,11 +2271,12 @@ Return Value:
                          IrpContext,
                          IrpContext->rsp,
                          IrpContext->ResponseLength,
-                         "N_e=e_x_xx_x",
+                         "N_e=e_xx_xx_x",
                          4,
                          &Attributes,
                          &FileSize,
-                         8,
+                         6,
+                         &CreationTime,
                          &CreationDate,
                          4,
                          &LastModifiedTime,
@@ -1917,9 +2312,10 @@ Return Value:
         ASSERT( Fcb->NodeTypeCode == NW_NTC_FCB );
 
         Fcb->NonPagedFcb->Attributes = (UCHAR)Attributes;
-        Fcb->NonPagedFcb->Header.FileSize = LiFromUlong( FileSize );
+        Fcb->NonPagedFcb->Header.FileSize.QuadPart = FileSize;
         Fcb->LastModifiedDate = LastModifiedDate;
         Fcb->LastModifiedTime = LastModifiedTime;
+        Fcb->CreationTime = CreationTime;
         Fcb->CreationDate = CreationDate;
         Fcb->LastAccessDate = LastAccessDate;
 
@@ -1927,6 +2323,7 @@ Return Value:
         DebugTrace( 0, Dbg, "FileSize.Low-> %08lx\n", Fcb->NonPagedFcb->Header.FileSize.LowPart );
         DebugTrace( 0, Dbg, "ModifiedDate-> %08lx\n", Fcb->LastModifiedDate );
         DebugTrace( 0, Dbg, "ModifiedTime-> %08lx\n", Fcb->LastModifiedTime );
+        DebugTrace( 0, Dbg, "CreationTime-> %08lx\n", Fcb->CreationTime );
         DebugTrace( 0, Dbg, "CreationDate-> %08lx\n", Fcb->CreationDate );
         DebugTrace( 0, Dbg, "LastAccDate -> %08lx\n", Fcb->LastAccessDate );
 
@@ -1997,12 +2394,31 @@ Return Value:
         Iosb.Status = ExchangeWithWait (
                           IrpContext,
                           SynchronousResponseCallback,
-                          "FbbbU",
+                          "FbbbJ",
                           NCP_OPEN_FILE,
                           Vcb->Specific.Disk.Handle,
                           SEARCH_ALL_FILES,
                           OpenFlags,
                           &Icb->SuperType.Fcb->RelativeFileName );
+
+        if ( ( ReadExecOnlyFiles ) &&
+             ( !NT_SUCCESS( Iosb.Status ) ) ) {
+
+            //
+            // Retry the open with the appropriate flags for
+            // execute only files.
+            //
+
+            Iosb.Status = ExchangeWithWait (
+                              IrpContext,
+                              SynchronousResponseCallback,
+                              "FbbbJ",
+                              NCP_OPEN_FILE,
+                              Vcb->Specific.Disk.Handle,
+                              SEARCH_EXEC_ONLY_FILES,
+                              OpenFlags,
+                              &Icb->SuperType.Fcb->RelativeFileName );
+        }
 
         if ( NT_SUCCESS( Iosb.Status ) ) {
             Iosb.Status = ParseResponse(
@@ -2020,6 +2436,8 @@ Return Value:
                               &Fcb->LastModifiedDate,
                               &Fcb->LastModifiedTime );
 
+            Fcb->CreationTime = DEFAULT_TIME;
+
         }
 
     } else {
@@ -2033,8 +2451,9 @@ Return Value:
                           LFN_FLAG_OM_OPEN,
                           NW_ATTRIBUTE_HIDDEN | NW_ATTRIBUTE_SYSTEM,    // Search Flags,
                           LFN_FLAG_INFO_ATTRIBUTES |
-                              LFN_FLAG_INFO_FILE_SIZE |
-                              LFN_FLAG_INFO_MODIFY_TIME,
+                          LFN_FLAG_INFO_FILE_SIZE |
+                          LFN_FLAG_INFO_MODIFY_TIME |
+                          LFN_FLAG_INFO_CREATION_TIME,
                           0,               // Create attributes
                           OpenFlags,       // Desired access
                           Vcb->Specific.Disk.VolumeNumber,
@@ -2042,17 +2461,41 @@ Return Value:
                           0,       // Short directory flag
                           &Icb->SuperType.Fcb->RelativeFileName );
 
+        if ( ( ReadExecOnlyFiles ) &&
+             ( !NT_SUCCESS( Iosb.Status ) ) ) {
+                                           
+            Iosb.Status = ExchangeWithWait ( 
+                              IrpContext,
+                              SynchronousResponseCallback,
+                              "LbbWDDWbDbC",
+                              NCP_LFN_OPEN_CREATE,
+                              Vcb->Specific.Disk.LongNameSpace,
+                              LFN_FLAG_OM_OPEN,
+                              NW_ATTRIBUTE_EXEC_ONLY,
+                              LFN_FLAG_INFO_ATTRIBUTES |
+                              LFN_FLAG_INFO_FILE_SIZE |
+                              LFN_FLAG_INFO_MODIFY_TIME |
+                              LFN_FLAG_INFO_CREATION_TIME,
+                              0,               // Create attributes
+                              OpenFlags,       // Desired access
+                              Vcb->Specific.Disk.VolumeNumber,
+                              Vcb->Specific.Disk.Handle,
+                              0,       // Short directory flag
+                              &Icb->SuperType.Fcb->RelativeFileName );
+        }
+
         if ( NT_SUCCESS( Iosb.Status ) ) {
             Iosb.Status = ParseResponse(
                               IrpContext,
                               IrpContext->rsp,
                               IrpContext->ResponseLength,
-                              "Ne_e=e_x_xx_x",
+                              "Ne_e=e_xx_xx_x",
                               &Icb->Handle[2],
                               6,
                               &Fcb->NonPagedFcb->Attributes,
                               &Fcb->NonPagedFcb->Header.FileSize,
-                              8,
+                              6,
+                              &Fcb->CreationTime,
                               &Fcb->CreationDate,
                               4,
                               &Fcb->LastModifiedTime,
@@ -2086,6 +2529,7 @@ Return Value:
         DebugTrace( 0, Dbg, "ModifiedDate-> %08lx\n", Fcb->LastModifiedDate );
         DebugTrace( 0, Dbg, "ModifiedTime-> %08lx\n", Fcb->LastModifiedTime );
         DebugTrace( 0, Dbg, "CreationDate-> %08lx\n", Fcb->CreationDate );
+        DebugTrace( 0, Dbg, "CreationTime-> %08lx\n", Fcb->CreationTime );
         DebugTrace( 0, Dbg, "LastAccDate -> %08lx\n", Fcb->LastAccessDate );
 
     }
@@ -2187,7 +2631,7 @@ Return Value:
         Iosb.Status = ExchangeWithWait (
                           IrpContext,
                           SynchronousResponseCallback,
-                          "FbbU",  // NCP Create New File
+                          "FbbJ",  // NCP Create New File
                           NCP_CREATE_NEW_FILE,
                           Vcb->Specific.Disk.Handle,
                           CreateAttributes,
@@ -2207,6 +2651,9 @@ Return Value:
                               &Fcb->LastAccessDate,
                               &Fcb->LastModifiedDate,
                               &Fcb->LastModifiedTime );
+
+        Fcb->CreationTime = DEFAULT_TIME;
+
         }
 
     } else {
@@ -2220,8 +2667,9 @@ Return Value:
                           LFN_FLAG_OM_CREATE,
                           0,       // Search Flags
                           LFN_FLAG_INFO_ATTRIBUTES |
-                              LFN_FLAG_INFO_FILE_SIZE |
-                              LFN_FLAG_INFO_MODIFY_TIME,
+              LFN_FLAG_INFO_FILE_SIZE |
+              LFN_FLAG_INFO_MODIFY_TIME |
+              LFN_FLAG_INFO_CREATION_TIME,
                           CreateAttributes,
                           0,       // Desired access
                           Vcb->Specific.Disk.VolumeNumber,
@@ -2234,12 +2682,13 @@ Return Value:
                               IrpContext,
                               IrpContext->rsp,
                               IrpContext->ResponseLength,
-                              "Ne_e=e_x_xx_x",
+                              "Ne_e=e_xx_xx_x",
                               &Icb->Handle[2],
                               6,
                               &Fcb->NonPagedFcb->Attributes,
                               &Fcb->NonPagedFcb->Header.FileSize,
-                              8,
+                              6,
+                  &Fcb->CreationTime,
                               &Fcb->CreationDate,
                               4,
                               &Fcb->LastModifiedTime,
@@ -2257,6 +2706,7 @@ Return Value:
         DebugTrace( 0, Dbg, "ModifiedDate-> %08lx\n", Fcb->LastModifiedDate );
         DebugTrace( 0, Dbg, "ModifiedTime-> %08lx\n", Fcb->LastModifiedTime );
         DebugTrace( 0, Dbg, "CreationDate-> %08lx\n", Fcb->CreationDate );
+        DebugTrace( 0, Dbg, "CreationTime-> %08lx\n", Fcb->CreationTime );
         DebugTrace( 0, Dbg, "LastAcceDate-> %08lx\n", Fcb->LastAccessDate );
     }
 
@@ -2348,30 +2798,6 @@ Return Value:
 
     PAGED_CODE();
 
-    //
-    //  If the user opens the file for shared access, then we will need to
-    //  create the file close, then reopen it (since we have no NCP to say
-    //  create with shared access).   If the file is being created read-only,
-    //  and the creator requests write access then we pull the additional
-    //  trick of creating the file without the read-only, and set it later,
-    //  so that the second open can succeed.
-    //
-
-    CloseAndReopen = FALSE;
-    DelayedAttributes = 0;
-
-    if ( OpenFlags != NW_OPEN_EXCLUSIVE ) {
-        CloseAndReopen = TRUE;
-
-        if ( ( CreateAttributes & NW_ATTRIBUTE_READ_ONLY ) &&
-             ( OpenFlags & NW_OPEN_FOR_WRITE ) ) {
-
-            DelayedAttributes = CreateAttributes;
-            CreateAttributes = 0;
-        }
-    }
-
-
     Fcb = Icb->SuperType.Fcb;
 
     //
@@ -2388,10 +2814,38 @@ Return Value:
 
         }
 
+        //
+        //  If the user opens the file for shared access, then we will need to
+        //  create the file close, then reopen it (since we have no NCP to say
+        //  create with shared access).   If the file is being created read-only,
+        //  and the creator requests write access then we pull the additional
+        //  trick of creating the file without the read-only, and set it later,
+        //  so that the second open can succeed.
+        //
+
+        if ( ( CreateAttributes & NW_ATTRIBUTE_READ_ONLY ) &&
+             ( OpenFlags & NW_OPEN_FOR_WRITE ) ) {
+
+            DelayedAttributes = CreateAttributes;
+            CreateAttributes = 0;
+        } else {
+            DelayedAttributes = 0;
+        }
+
+        //
+        //  Dos namespace create always returns the file exclusive.
+        //
+
+        if (!FlagOn(OpenFlags, NW_OPEN_EXCLUSIVE)) {
+            CloseAndReopen = TRUE;
+        } else {
+            CloseAndReopen = FALSE;
+        }
+
         Iosb.Status = ExchangeWithWait (
                           IrpContext,
                           SynchronousResponseCallback,
-                          "FbbU",
+                          "FbbJ",
                           NCP_CREATE_FILE,
                           Vcb->Specific.Disk.Handle,
                           CreateAttributes,
@@ -2412,6 +2866,33 @@ Return Value:
                               &Fcb->LastAccessDate,
                               &Fcb->LastModifiedDate,
                               &Fcb->LastModifiedTime );
+
+            Fcb->CreationTime = DEFAULT_TIME;
+
+        }
+
+        //
+        //  We've created the file, and the users wants shared access to the
+        //  file.  Close the file and reopen in sharing mode.
+        //
+
+        if (( NT_SUCCESS( Iosb.Status ) ) &&
+            ( CloseAndReopen )) {
+
+            CloseFile( IrpContext, Icb );
+            Iosb = OpenFile( IrpContext, Vcb, Icb, CreateAttributes, OpenFlags );
+        }
+
+        if ( DelayedAttributes != 0 ) {
+            ExchangeWithWait(
+                IrpContext,
+                SynchronousResponseCallback,
+                "FbbbU",
+                NCP_SET_FILE_ATTRIBUTES,
+                DelayedAttributes,
+                Fcb->Vcb->Specific.Disk.Handle,
+                SEARCH_ALL_FILES,
+                &Fcb->RelativeFileName );
         }
 
     } else {
@@ -2425,10 +2906,11 @@ Return Value:
                           LFN_FLAG_OM_OVERWRITE,
                           0,       // Search Flags
                           LFN_FLAG_INFO_ATTRIBUTES |
-                              LFN_FLAG_INFO_FILE_SIZE |
-                              LFN_FLAG_INFO_MODIFY_TIME,
+              LFN_FLAG_INFO_FILE_SIZE |
+              LFN_FLAG_INFO_MODIFY_TIME |
+              LFN_FLAG_INFO_CREATION_TIME,
                           CreateAttributes,
-                          0,       // DesiredAccess
+                          OpenFlags,       // DesiredAccess
                           Vcb->Specific.Disk.VolumeNumber,
                           Vcb->Specific.Disk.Handle,
                           0,       // Short directory flag
@@ -2439,12 +2921,13 @@ Return Value:
                               IrpContext,
                               IrpContext->rsp,
                               IrpContext->ResponseLength,
-                              "Ne_e=e_x_xx_x",
+                              "Ne_e=e_xx_xx_x",
                               &Icb->Handle[2],
                               6,
                               &Fcb->NonPagedFcb->Attributes,
                               &Fcb->NonPagedFcb->Header.FileSize,
-                              8,
+                              6,
+                              &Fcb->CreationTime,
                               &Fcb->CreationDate,
                               4,
                               &Fcb->LastModifiedTime,
@@ -2462,33 +2945,10 @@ Return Value:
         DebugTrace( 0, Dbg, "ModifiedDate-> %08lx\n", Fcb->LastModifiedDate );
         DebugTrace( 0, Dbg, "ModifiedTime-> %08lx\n", Fcb->LastModifiedTime );
         DebugTrace( 0, Dbg, "CreationDate-> %08lx\n", Fcb->CreationDate );
+        DebugTrace( 0, Dbg, "CreationTime-> %08lx\n", Fcb->CreationTime );
         DebugTrace( 0, Dbg, "LastAccDate -> %08lx\n", Fcb->LastAccessDate );
     } else {
         return( Iosb );
-    }
-
-
-    //
-    //  We've created the file, and the users wants shared access to the
-    //  file.  Close the file and reopen in sharing mode.
-    //
-    //  BUGBUG  This is not necessary with long name NCPs.
-
-    if ( CloseAndReopen ) {
-        CloseFile( IrpContext, Icb );
-        Iosb = OpenFile( IrpContext, Vcb, Icb, CreateAttributes, OpenFlags );
-    }
-
-    if ( DelayedAttributes != 0 ) {
-        ExchangeWithWait(
-            IrpContext,
-            SynchronousResponseCallback,
-            "FbbbU",
-            NCP_SET_FILE_ATTRIBUTES,
-            DelayedAttributes,
-            Fcb->Vcb->Specific.Disk.Handle,
-            SEARCH_ALL_FILES,
-            &Fcb->RelativeFileName );
     }
 
     //
@@ -2829,7 +3289,7 @@ Return Value:
     Iosb.Status = ExchangeWithWait (
                       IrpContext,
                       SynchronousResponseCallback,
-                      "Sd_ddw_b_r_bbwwww_xxrr",  // Format string
+                      "Sd_ddw_b_r_bbwwww_x-x_",  // Format string
                       NCP_ADMIN_FUNCTION, NCP_CREATE_QUEUE_JOB,
                       Vcb->Specific.Print.QueueId,// Queue ID
                       6,                        // Skip bytes
@@ -2847,10 +3307,9 @@ Return Value:
                       0x3C,                     // Maximum lines BUGBUG
                       0x84,                     // Maximum characters BUGBUG
                       22,                       // Skip bytes
-                      &IrpContext->pScb->UserName, 13,  // Banner Name
-                      &Vcb->ShareName, 13,      // Header Name
-                      "", 14,                   // File name
-                      "", 1                     // Directory name
+                      &IrpContext->pScb->UserName, 12,  // Banner Name
+                      &Vcb->ShareName, 12,      // Header Name
+                      1+14+80                   // null last string & skip rest of client area
                       );
 
     //

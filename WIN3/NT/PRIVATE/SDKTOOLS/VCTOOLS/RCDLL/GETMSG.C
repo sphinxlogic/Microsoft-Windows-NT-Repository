@@ -8,8 +8,7 @@
 /*                                                                      */
 /************************************************************************/
 
-#include "prerc.h"
-#pragma hdrstop
+#include "rc.h"
 
 
 /************************************************************************/
@@ -26,7 +25,7 @@ PCHAR GET_MSG (int msgnumber)
         return msgbuf;
     else {
 #if DBG
-	fprintf(stderr, "Internal error : message not found: %d\n", msgnumber);
+        printf("Internal error : message not found: %d\n", msgnumber);
 #endif
         return ("");
     }
@@ -47,3 +46,4 @@ void SET_MSG (PCHAR exp, UINT n, PCHAR fmt, ...)
 
     va_end (arg_list);
 }
+

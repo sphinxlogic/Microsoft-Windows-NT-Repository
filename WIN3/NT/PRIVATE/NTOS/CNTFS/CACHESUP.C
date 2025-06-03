@@ -26,6 +26,8 @@ Revision History:
 
 #define BugCheckFileId                   (NTFS_BUG_CHECK_CACHESUP)
 
+#define MAX_ZERO_THRESHOLD               (0x00400000)
+
 //
 //  Local debug trace level
 //
@@ -34,21 +36,25 @@ Revision History:
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE, NtfsCompleteMdl)
-#pragma alloc_text(PAGE, NtfsCreateInternalAttributeStream)
+#pragma alloc_text(PAGE, NtfsCreateInternalStreamCommon)
 #pragma alloc_text(PAGE, NtfsDeleteInternalAttributeStream)
 #pragma alloc_text(PAGE, NtfsMapStream)
 #pragma alloc_text(PAGE, NtfsPinMappedData)
 #pragma alloc_text(PAGE, NtfsPinStream)
 #pragma alloc_text(PAGE, NtfsPreparePinWriteStream)
 #pragma alloc_text(PAGE, NtfsZeroData)
+#ifdef _CAIRO_
+#pragma alloc_text(PAGE, NtOfsPutData)
+#endif _CAIRO_
 #endif
 
 
 VOID
-NtfsCreateInternalAttributeStream (
+NtfsCreateInternalStreamCommon (
     IN PIRP_CONTEXT IrpContext,
     IN PSCB Scb,
-    IN BOOLEAN UpdateScb
+    IN BOOLEAN UpdateScb,
+    IN BOOLEAN CompressedStream
     )
 
 /*++
@@ -83,6 +89,9 @@ Arguments:
     UpdateScb - Indicates if the caller wants to update the Scb from the
                 attribute.
 
+    CompressedStream - Supplies TRUE if caller wishes to create the
+                       compressed stream.
+
 Return Value:
 
     None.
@@ -92,30 +101,47 @@ Return Value:
 {
     PVCB Vcb = Scb->Vcb;
 
+    CC_FILE_SIZES CcFileSizes;
+    PFILE_OBJECT CallersFileObject;
+    PFILE_OBJECT *FileObjectPtr = &Scb->FileObject;
     PFILE_OBJECT UnwindStreamFile = NULL;
 
     BOOLEAN UnwindInitializeCacheMap = FALSE;
     BOOLEAN DecrementScbCleanup = FALSE;
 
-    LONGLONG SavedValidDataLength;
-    BOOLEAN MungeFsContext2 = FALSE;
-    BOOLEAN RestoreValidDataLength = FALSE;
+    BOOLEAN AcquiredFastMutex = FALSE;
 
     ASSERT_IRP_CONTEXT( IrpContext );
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsCreateInternalAttributeStream\n", 0 );
-    DebugTrace( 0, Dbg, "Scb        -> %08lx\n", Scb );
+    DebugTrace( +1, Dbg, ("NtfsCreateInternalAttributeStream\n") );
+    DebugTrace( 0, Dbg, ("Scb        -> %08lx\n", Scb) );
+
+    //
+    //  Change FileObjectPtr if he wants the compressed stream
+    //
+
+    if (CompressedStream) {
+        FileObjectPtr = &Scb->Header.FileObjectC;
+    }
 
     //
     //  If there is no file object, we create one and initialize
     //  it.
     //
 
-    if (Scb->FileObject == NULL) {
+    if (*FileObjectPtr == NULL) {
 
-        ExAcquireFastMutex( &StreamFileCreationFastMutex );
+        //
+        //  Only acquire the mutex if we don't have the file exclusive.
+        //
+
+        if (!NtfsIsExclusiveScb( Scb )) {
+
+            ExAcquireFastMutexUnsafe( &StreamFileCreationFastMutex );
+            AcquiredFastMutex = TRUE;
+        }
 
         try {
 
@@ -123,22 +149,50 @@ Return Value:
             //  Someone could have gotten there first.
             //
 
-            if (Scb->FileObject == NULL) {
+            if (*FileObjectPtr == NULL) {
 
                 UnwindStreamFile = IoCreateStreamFileObject( NULL, Scb->Vcb->Vpb->RealDevice );
 
+                //
+                //  Propagate any flags from the caller's FileObject to our
+                //  stream file that the Cache Manager may look at, so we do not
+                //  miss hints like sequential only or temporary.
+                //
+
+                if (!FlagOn(Scb->ScbState, SCB_STATE_MODIFIED_NO_WRITE) &&
+                    (IrpContext->OriginatingIrp != NULL) &&
+                    (CallersFileObject = IoGetCurrentIrpStackLocation(IrpContext->OriginatingIrp)->FileObject)) {
+
+                    SetFlag( UnwindStreamFile->Flags,
+                             CallersFileObject->Flags & NTFS_FO_PROPAGATE_TO_STREAM );
+                }
+
                 UnwindStreamFile->SectionObjectPointer = &Scb->NonpagedScb->SegmentObject;
+
+                //
+                //  For a compressed stream, we have to use separate section
+                //  object pointers.
+                //
+
+                if (CompressedStream) {
+                    UnwindStreamFile->SectionObjectPointer = &Scb->NonpagedScb->SegmentObjectC;
+
+                }
 
                 //
                 //  If we have created the stream file, we set it to type
                 //  'StreamFileOpen'
                 //
 
-                NtfsSetFileObject( IrpContext,
-                                   UnwindStreamFile,
+                NtfsSetFileObject( UnwindStreamFile,
                                    StreamFileOpen,
                                    Scb,
                                    NULL );
+
+                if (FlagOn( Scb->ScbState, SCB_STATE_TEMPORARY )) {
+
+                    SetFlag( UnwindStreamFile->Flags, FO_TEMPORARY_FILE );
+                }
 
                 //
                 //  Initialize the fields of the file object.
@@ -154,14 +208,14 @@ Return Value:
                 //  cleanup call has already occurred.
                 //
 
-                NtfsIncrementCloseCounts( IrpContext, Scb, 1, TRUE, FALSE );
+                NtfsIncrementCloseCounts( Scb, TRUE, FALSE );
 
                 //
                 //  Increment the cleanup count in this Scb to prevent the
                 //  Scb from going away if the cache call fails.
                 //
 
-                Scb->CleanupCount += 1;
+                InterlockedIncrement( &Scb->CleanupCount );
                 DecrementScbCleanup = TRUE;
 
                 //
@@ -175,31 +229,31 @@ Return Value:
                 }
 
                 //
-                //  If we log changes to this stream, then we want to tag the
-                //  Cache Map with out LogHandle, so that we can get dirty pages
-                //  back.  We also want to set the MODIFIED_NO_WRITE flag so that
+                //  We also want to set the MODIFIED_NO_WRITE flag so that
                 //  we will tell the Cache Manager that we do not want to allow
                 //  modified page writing, and so that we will tell the FT driver to
-                //  serialize writes.  We want to register with the cache manager if
+                //  serialize writes.  Set this stream to MODIFIED_NO_WRITE if
                 //
-                //      1 - This stream is USA protected.
-                //      2 - A restart is in progress.
-                //      3 - There is an attribute definition table and this attribute
-                //          is defined as DEF_LOG_NONRESIDENT.
-                //
-                //  We specifically exclude the Log file.
+                //      1 - Any stream with with non-$DATA type code (or)
+                //      2 - This stream is USA protected             (or)
+                //      3 - This is a stream of compressed data      (or)
+                //      4 - This stream is the volume bitmap stream  (or)
+                //      5 - A restart is in progress                 (or)
                 //
 
-                if (FlagOn(Scb->ScbState, SCB_STATE_USA_PRESENT)
-                     || FlagOn( Vcb->VcbState, VCB_STATE_RESTART_IN_PROGRESS )
-                     || ((Vcb->AttributeDefinitions != NULL)
-                         && FlagOn( NtfsGetAttributeDefinition( IrpContext,
-                                                                Vcb,
-                                                                Scb->AttributeTypeCode)->Flags,
-                                                                ATTRIBUTE_DEF_LOG_NONRESIDENT ))) {
+                ExAcquireFastMutex( Scb->Header.FastMutex );
+                if ((Scb->AttributeTypeCode != $DATA) ||
+                    FlagOn(Scb->ScbState, SCB_STATE_USA_PRESENT) ||
+                    (Scb == Vcb->BitmapScb) ||
+                    FlagOn( Vcb->VcbState, VCB_STATE_RESTART_IN_PROGRESS )) {
 
                     SetFlag( Scb->ScbState, SCB_STATE_MODIFIED_NO_WRITE );
+
+                } else if (!CompressedStream) {
+
+                    SetFlag(Scb->Header.Flags2, FSRTL_FLAG2_DO_MODIFIED_WRITE);
                 }
+                ExReleaseFastMutex( Scb->Header.FastMutex );
 
                 //
                 //  Check if we need to initialize the cache map for the stream file.
@@ -211,19 +265,7 @@ Return Value:
 
                     BOOLEAN PinAccess;
 
-                    //
-                    //  We will munge the FsContext2 field in the FileObject in
-                    //  order to prevent the cache and memory manager from
-                    //  putting this file object in the ModifyNoWrite list.
-                    //  We test if this is a Data attribute of a non-crucial
-                    //  file.
-                    //
-
-                    if (!FlagOn( Scb->ScbState, SCB_STATE_MODIFIED_NO_WRITE )) {
-
-                        MungeFsContext2 = TRUE;
-                        UnwindStreamFile->FsContext2 = (PVOID) 1;
-                    }
+                    CcFileSizes = *(PCC_FILE_SIZES)&Scb->Header.AllocationSize;
 
                     //
                     //  If this is a stream with Usa protection, we want to tell
@@ -238,34 +280,24 @@ Return Value:
                     //  push up the file size during restart.
                     //
 
-                    SavedValidDataLength = Scb->Header.ValidDataLength.QuadPart;
+                    if (FlagOn( Scb->ScbState, SCB_STATE_USA_PRESENT ) ||
+                        (Scb == Vcb->BitmapScb) ||
+                        (Scb->AttributeTypeCode == $BITMAP) ||
+                        FlagOn( Vcb->VcbState, VCB_STATE_RESTART_IN_PROGRESS )) {
 
-                    if (FlagOn( Scb->ScbState, SCB_STATE_USA_PRESENT )
-                        || FlagOn( Vcb->VcbState, VCB_STATE_RESTART_IN_PROGRESS )) {
-
-                        Scb->Header.ValidDataLength.QuadPart = MAXLONGLONG;
-                        RestoreValidDataLength = TRUE;
+                        CcFileSizes.ValidDataLength.QuadPart = MAXLONGLONG;
                     }
 
-                    PinAccess = (BOOLEAN) (Scb->AttributeTypeCode != $DATA
-                                           || FlagOn( Scb->Fcb->FcbState, FCB_STATE_PAGING_FILE )
-                                           || (Scb->Fcb->FileReference.LowPart < FIRST_USER_FILE_NUMBER
-                                               && Scb->Fcb->FileReference.HighPart == 0));
+                    PinAccess =
+                        (BOOLEAN) (Scb->AttributeTypeCode != $DATA ||
+                                   FlagOn( Scb->Fcb->FcbState, FCB_STATE_PAGING_FILE ) ||
+                                   NtfsSegmentNumber( &Scb->Fcb->FileReference ) < FIRST_USER_FILE_NUMBER);
 
                     CcInitializeCacheMap( UnwindStreamFile,
-                                          (PCC_FILE_SIZES)&Scb->Header.AllocationSize,
+                                          &CcFileSizes,
                                           PinAccess,
                                           &NtfsData.CacheManagerCallbacks,
-                                          Scb );
-
-                    Scb->Header.ValidDataLength.QuadPart = SavedValidDataLength;
-                    RestoreValidDataLength = FALSE;
-
-                    if (MungeFsContext2) {
-
-                        UnwindStreamFile->FsContext2 = 0;
-                        MungeFsContext2 = FALSE;
-                    }
+                                          (PCHAR)Scb + CompressedStream );
 
                     UnwindInitializeCacheMap = TRUE;
                 }
@@ -288,7 +320,7 @@ Return Value:
                 //  file object until the cache is initialized.
                 //
 
-                Scb->FileObject = UnwindStreamFile;
+                *FileObjectPtr = UnwindStreamFile;
             }
 
         } finally {
@@ -300,16 +332,6 @@ Return Value:
             //
 
             if (AbnormalTermination()) {
-
-                if (MungeFsContext2) {
-
-                    UnwindStreamFile->FsContext2 = 0;
-                }
-
-                if (RestoreValidDataLength) {
-
-                    Scb->Header.ValidDataLength.QuadPart = SavedValidDataLength;
-                }
 
                 //
                 //  Uninitialize the cache file if we initialized it.
@@ -336,12 +358,15 @@ Return Value:
 
             if (DecrementScbCleanup) {
 
-                Scb->CleanupCount -= 1;
+                InterlockedDecrement( &Scb->CleanupCount );
             }
 
-            ExReleaseFastMutex( &StreamFileCreationFastMutex );
+            if (AcquiredFastMutex) {
 
-            DebugTrace(-1, Dbg, "NtfsCreateInternalAttributeStream -> VOID\n", 0 );
+                ExReleaseFastMutexUnsafe( &StreamFileCreationFastMutex );
+            }
+
+            DebugTrace( -1, Dbg, ("NtfsCreateInternalAttributeStream -> VOID\n") );
         }
     }
 
@@ -349,9 +374,8 @@ Return Value:
 }
 
 
-VOID
+BOOLEAN
 NtfsDeleteInternalAttributeStream (
-    IN PIRP_CONTEXT IrpContext,
     IN PSCB Scb,
     IN BOOLEAN ForceClose
     )
@@ -374,33 +398,87 @@ Arguments:
 
 Return Value:
 
-    None.
+    BOOLEAN - TRUE if we dereference a file object, FALSE otherwise.
 
 --*/
 
 {
     PFILE_OBJECT FileObject;
+    PFILE_OBJECT FileObjectC;
+
+    BOOLEAN Dereferenced = FALSE;
 
     PAGED_CODE();
 
-    ExAcquireFastMutex( &StreamFileCreationFastMutex );
+    //
+    //  We normally already have the paging Io resource.  If we do
+    //  not, then it is typically some cleanup path of create or
+    //  whatever.  This code assumes that if we cannot get the paging
+    //  Io resource, then there is other activity still going on,
+    //  and it is ok to not delete the stream!  For example, it could
+    //  be the lazy writer, who definitely needs the stream.
+    //
 
-    FileObject = Scb->FileObject;
-    Scb->FileObject = NULL;
+    if (((Scb->FileObject != NULL) || (Scb->Header.FileObjectC != NULL)) &&
+        ((Scb->Header.PagingIoResource == NULL) ||
+         ExAcquireResourceExclusive( Scb->Header.PagingIoResource, FALSE ))) {
 
-    ExReleaseFastMutex( &StreamFileCreationFastMutex );
+        ExAcquireFastMutex( &StreamFileCreationFastMutex );
 
-    if (FileObject != NULL) {
+        //
+        //  Capture both file objects and clear the fields so no one else
+        //  can access them.
+        //
 
-        if (FileObject->PrivateCacheMap != NULL) {
+        FileObject = Scb->FileObject;
+        Scb->FileObject = NULL;
 
-            CcUninitializeCacheMap( FileObject,
-                                    (ForceClose ? &Li0 : NULL),
-                                    NULL );
+        FileObjectC = Scb->Header.FileObjectC;
+        Scb->Header.FileObjectC = NULL;
+
+        ExReleaseFastMutex( &StreamFileCreationFastMutex );
+
+        if (Scb->Header.PagingIoResource != NULL) {
+            ExReleaseResource( Scb->Header.PagingIoResource );
         }
 
-        ObDereferenceObject( FileObject );
+        //
+        //  Now dereference each file object.
+        //
+
+        if (FileObject != NULL) {
+
+            if (FileObject->PrivateCacheMap != NULL) {
+
+                CcUninitializeCacheMap( FileObject,
+                                        (ForceClose ? &Li0 : NULL),
+                                        NULL );
+            }
+
+            ObDereferenceObject( FileObject );
+            Dereferenced = TRUE;
+        }
+
+        if (FileObjectC != NULL) {
+
+            if (FileObjectC->PrivateCacheMap != NULL) {
+
+                CcUninitializeCacheMap( FileObjectC,
+                                        (ForceClose ? &Li0 : NULL),
+                                        NULL );
+            }
+
+            //
+            //  For the compressed stream, deallocate the additional
+            //  section object pointers.
+            //
+
+            ObDereferenceObject( FileObjectC );
+            Dereferenced = TRUE;
+        }
     }
+
+    return Dereferenced;
 }
 
 
@@ -457,10 +535,10 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsMapStream\n", 0 );
-    DebugTrace( 0, Dbg, "Scb        = %08lx\n", Scb );
-    DebugTrace2(0, Dbg, "FileOffset = %08lx %08lx\n", FileOffset.LowPart, FileOffset.HighPart );
-    DebugTrace( 0, Dbg, "Length     = %08lx\n", Length );
+    DebugTrace( +1, Dbg, ("NtfsMapStream\n") );
+    DebugTrace( 0, Dbg, ("Scb        = %08lx\n", Scb) );
+    DebugTrace( 0, Dbg, ("FileOffset = %016I64x\n", FileOffset) );
+    DebugTrace( 0, Dbg, ("Length     = %08lx\n", Length) );
 
     //
     //  The file object should already exist in the Scb.
@@ -486,15 +564,15 @@ Return Value:
     if (!CcMapData( Scb->FileObject,
                     (PLARGE_INTEGER)&FileOffset,
                     Length,
-                    BooleanFlagOn(IrpContext->Flags, IRP_CONTEXT_FLAG_WAIT),
+                    TRUE,
                     Bcb,
                     Buffer )) {
 
         NtfsRaiseStatus( IrpContext, STATUS_CANT_WAIT, NULL, NULL );
     }
 
-    DebugTrace( 0, Dbg, "Buffer -> %08lx\n", *Buffer );
-    DebugTrace(-1, Dbg, "NtfsMapStream -> VOID\n", 0 );
+    DebugTrace( 0, Dbg, ("Buffer -> %08lx\n", *Buffer) );
+    DebugTrace( -1, Dbg, ("NtfsMapStream -> VOID\n") );
 
     return;
 }
@@ -552,10 +630,10 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsPinMappedData\n", 0 );
-    DebugTrace( 0, Dbg, "Scb        = %08lx\n", Scb );
-    DebugTrace2(0, Dbg, "FileOffset = %08lx %08lx\n", FileOffset.LowPart, FileOffset.HighPart );
-    DebugTrace( 0, Dbg, "Length     = %08lx\n", Length );
+    DebugTrace( +1, Dbg, ("NtfsPinMappedData\n") );
+    DebugTrace( 0, Dbg, ("Scb        = %08lx\n", Scb) );
+    DebugTrace( 0, Dbg, ("FileOffset = %016I64x\n", FileOffset) );
+    DebugTrace( 0, Dbg, ("Length     = %08lx\n", Length) );
 
     //
     //  The file object should already exist in the Scb.
@@ -587,7 +665,7 @@ Return Value:
         NtfsRaiseStatus( IrpContext, STATUS_CANT_WAIT, NULL, NULL );
     }
 
-    DebugTrace(-1, Dbg, "NtfsMapStream -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsMapStream -> VOID\n") );
 
     return;
 }
@@ -644,10 +722,10 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsPinStream\n", 0 );
-    DebugTrace( 0, Dbg, "Scb        = %08lx\n", Scb );
-    DebugTrace2(0, Dbg, "FileOffset = %08lx %08lx\n", FileOffset.LowPart, FileOffset.HighPart );
-    DebugTrace( 0, Dbg, "Length     = %08lx\n", Length );
+    DebugTrace( +1, Dbg, ("NtfsPinStream\n") );
+    DebugTrace( 0, Dbg, ("Scb        = %08lx\n", Scb) );
+    DebugTrace( 0, Dbg, ("FileOffset = %016I64x\n", FileOffset) );
+    DebugTrace( 0, Dbg, ("Length     = %08lx\n", Length) );
 
     //
     //  The file object should already exist in the Scb.
@@ -686,9 +764,9 @@ Return Value:
         NtfsRaiseStatus( IrpContext, STATUS_CANT_WAIT, NULL, NULL );
     }
 
-    DebugTrace( 0, Dbg, "Bcb -> %08lx\n", *Bcb );
-    DebugTrace( 0, Dbg, "Buffer -> %08lx\n", *Buffer );
-    DebugTrace(-1, Dbg, "NtfsMapStream -> VOID\n", 0 );
+    DebugTrace( 0, Dbg, ("Bcb -> %08lx\n", *Bcb) );
+    DebugTrace( 0, Dbg, ("Buffer -> %08lx\n", *Buffer) );
+    DebugTrace( -1, Dbg, ("NtfsMapStream -> VOID\n") );
 
     return;
 }
@@ -721,10 +799,10 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsPreparePinWriteStream\n", 0 );
-    DebugTrace( 0, Dbg, "Scb        = %08lx\n", Scb );
-    DebugTrace2(0, Dbg, "FileOffset = %08lx %08lx\n", FileOffset.LowPart, FileOffset.HighPart );
-    DebugTrace( 0, Dbg, "Length     = %08lx\n", Length );
+    DebugTrace( +1, Dbg, ("NtfsPreparePinWriteStream\n") );
+    DebugTrace( 0, Dbg, ("Scb        = %08lx\n", Scb) );
+    DebugTrace( 0, Dbg, ("FileOffset = %016I64x\n", FileOffset) );
+    DebugTrace( 0, Dbg, ("Length     = %08lx\n", Length) );
 
     //
     //  The file object should already exist in the Scb.
@@ -764,100 +842,9 @@ Return Value:
         NtfsRaiseStatus( IrpContext, STATUS_CANT_WAIT, NULL, NULL );
     }
 
-    DebugTrace( 0, Dbg, "Bcb -> %08lx\n", *Bcb );
-    DebugTrace( 0, Dbg, "Buffer -> %08lx\n", *Buffer );
-    DebugTrace(-1, Dbg, "NtfsPreparePinWriteStream -> VOID\n", 0 );
-
-    return;
-}
-
-
-VOID
-NtfsSetDirtyBcb (
-    IN PIRP_CONTEXT IrpContext,
-    IN PBCB Bcb,
-    IN PLSN Lsn,
-    IN PVCB Vcb OPTIONAL
-    )
-
-/*++
-
-Routine Description:
-
-    This routine saves a reference to the bcb in the irp context and
-    sets the bcb dirty.
-
-Arguments:
-
-    Bcb - Supplies the Bcb being set dirty
-
-Return Value:
-
-    None.
-
---*/
-
-{
-    KIRQL SavedIrql;
-
-    BOOLEAN SetTimer = FALSE;
-
-    ASSERT_IRP_CONTEXT( IrpContext );
-
-    DebugTrace(+1, Dbg, "NtfsSetDirtyBcb\n", 0 );
-    DebugTrace( 0, Dbg, "IrpContext = %08lx\n", IrpContext );
-    DebugTrace( 0, Dbg, "Bcb        = %08lx\n", Bcb );
-    DebugTrace( 0, Dbg, "Vcb        = %08lx\n", Vcb );
-
-    //
-    //  Set the bcb dirty
-    //
-
-    ASSERT(!ARGUMENT_PRESENT(Lsn) || (Lsn->QuadPart != 0));
-    CcSetDirtyPinnedData( Bcb, Lsn );
-
-    //
-    //  Check to see if we should show modification, and then if we to
-    //  restart the timer.
-    //
-
-    KeAcquireSpinLock( &NtfsData.VolumeCheckpointSpinLock, &SavedIrql );
-
-    //
-    //  Mark that something is now dirty, and start the timer if it is not
-    //  already going.
-    //
-
-    if ( !NtfsData.Modified ) {
-
-        NtfsData.Modified = TRUE;
-    }
-
-    if ( !NtfsData.TimerSet ) {
-
-        NtfsData.TimerSet = TRUE;
-
-        SetTimer = TRUE;
-    }
-
-    KeReleaseSpinLock( &NtfsData.VolumeCheckpointSpinLock, SavedIrql );
-
-    if ( SetTimer ) {
-
-        LONGLONG FiveSecondsFromNow;
-
-        FiveSecondsFromNow = -5*1000*1000*10;
-
-        KeSetTimer( &NtfsData.VolumeCheckpointTimer,
-                    *(PLARGE_INTEGER)&FiveSecondsFromNow,
-                    &NtfsData.VolumeCheckpointDpc );
-    }
-
-    //
-    //  And return to our caller
-    //
-
-    DebugTrace(-1, Dbg, "NtfsSetDirtyBcb -> VOID\n", 0 );
+    DebugTrace( 0, Dbg, ("Bcb -> %08lx\n", *Bcb) );
+    DebugTrace( 0, Dbg, ("Buffer -> %08lx\n", *Buffer) );
+    DebugTrace( -1, Dbg, ("NtfsPreparePinWriteStream -> VOID\n") );
 
     return;
 }
@@ -892,9 +879,9 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsCompleteMdl\n", 0 );
-    DebugTrace( 0, Dbg, "IrpContext = %08lx\n", IrpContext );
-    DebugTrace( 0, Dbg, "Irp        = %08lx\n", Irp );
+    DebugTrace( +1, Dbg, ("NtfsCompleteMdl\n") );
+    DebugTrace( 0, Dbg, ("IrpContext = %08lx\n", IrpContext) );
+    DebugTrace( 0, Dbg, ("Irp        = %08lx\n", Irp) );
 
     //
     // Do completion processing.
@@ -921,7 +908,7 @@ Return Value:
 
     default:
 
-        DebugTrace( DEBUG_TRACE_ERROR, 0, "Illegal Mdl Complete.\n", 0);
+        DebugTrace( DEBUG_TRACE_ERROR, 0, ("Illegal Mdl Complete.\n") );
 
         ASSERTMSG("Illegal Mdl Complete, About to bugcheck ", FALSE);
         NtfsBugCheck( IrpContext->MajorFunction, 0, 0 );
@@ -939,7 +926,7 @@ Return Value:
 
     NtfsCompleteRequest( &IrpContext, &Irp, STATUS_SUCCESS );
 
-    DebugTrace(-1, Dbg, "NtfsCompleteMdl -> STATUS_SUCCESS\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsCompleteMdl -> STATUS_SUCCESS\n") );
 
     return STATUS_SUCCESS;
 }
@@ -956,14 +943,36 @@ NtfsZeroData (
 
 /*++
 
+Routine Description:
+
+    This routine is called to zero a range of a file in order to
+    advance valid data length.
+
+Arguments:
+
+    Scb - Scb for the stream to zero.
+
+    FileObject - FileObject for the stream.
+
+    StartingZero - Offset to begin the zero operation.
+
+    ByteCount - Length of range to zero.
+
+Return Value:
+
+    BOOLEAN - TRUE if the entire range was zeroed, FALSE if the request
+        is broken up or the cache manager would block.
 
 --*/
+
 {
     LONGLONG Temp;
 
     ULONG SectorSize;
 
     BOOLEAN Finished;
+    BOOLEAN CompleteZero = TRUE;
+    BOOLEAN ScbAcquired = FALSE;
 
     PVCB Vcb = Scb->Vcb;
 
@@ -978,6 +987,18 @@ NtfsZeroData (
     Wait = BooleanFlagOn(IrpContext->Flags, IRP_CONTEXT_FLAG_WAIT);
 
     SectorSize = Vcb->BytesPerSector;
+
+    //
+    //  If this is a non-compressed file and the amount to zero is larger
+    //  than our threshold then limit the range.
+    //
+
+    if (!FlagOn( Scb->ScbState, SCB_STATE_COMPRESSED ) &&
+        (ByteCount > MAX_ZERO_THRESHOLD)) {
+
+        ByteCount = MAX_ZERO_THRESHOLD;
+        CompleteZero = FALSE;
+    }
 
     ZeroStart = StartingZero + (SectorSize - 1);
     (ULONG)ZeroStart &= ~(SectorSize - 1);
@@ -1039,13 +1060,70 @@ NtfsZeroData (
         //
 
 
-        NtfsDeleteAllocation( IrpContext,
-                              FileObject,
-                              Scb,
-                              LlClustersFromBytes(Vcb, ZeroStart),
-                              LlClustersFromBytes(Vcb, BeyondZeroEnd),
-                              TRUE,
-                              TRUE );
+        Temp = LlClustersFromBytes( Vcb, BeyondZeroEnd ) - 1;
+
+        //
+        //  If the caller has not already started a transaction (like write.c),
+        //  then let's just do the delete as an atomic action.
+        //
+
+        if (!ExIsResourceAcquiredExclusive( Scb->Header.Resource )) {
+
+            NtfsAcquireExclusiveScb( IrpContext, Scb );
+            ScbAcquired = TRUE;
+        }
+
+        try {
+
+            //
+            //  Delete the space.
+            //
+
+            NtfsDeleteAllocation( IrpContext,
+                                  FileObject,
+                                  Scb,
+                                  LlClustersFromBytes(Vcb, ZeroStart),
+                                  Temp,
+                                  TRUE,
+                                  TRUE );
+
+            //
+            //  If we didn't raise then update the Scb values.
+            //
+
+            Scb->ValidDataToDisk = BeyondZeroEnd;
+
+            //
+            //  If we succeed, commit the atomic action.  Release all of the exclusive
+            //  resources if our user explicitly acquired the Fcb here.
+            //
+
+            if (ScbAcquired) {
+                NtfsCheckpointCurrentTransaction( IrpContext );
+
+                while (!IsListEmpty( &IrpContext->ExclusiveFcbList )) {
+
+                    NtfsReleaseFcb( IrpContext,
+                                    (PFCB)CONTAINING_RECORD( IrpContext->ExclusiveFcbList.Flink,
+                                                             FCB,
+                                                             ExclusiveFcbLinks ));
+                }
+
+                ScbAcquired = FALSE;
+            }
+
+            if (FlagOn( Scb->ScbState, SCB_STATE_UNNAMED_DATA )) {
+
+                Scb->Fcb->Info.AllocatedLength = Scb->TotalAllocated;
+                SetFlag( Scb->Fcb->InfoFlags, FCB_INFO_CHANGED_ALLOC_SIZE );
+            }
+
+        } finally {
+
+            if (ScbAcquired) {
+                NtfsReleaseScb( IrpContext, Scb );
+            }
+        }
 
         return TRUE;
     }
@@ -1064,6 +1142,340 @@ NtfsZeroData (
                            (PLARGE_INTEGER)&BeyondZeroEnd,
                            Wait );
 
+    //
+    //  If we are breaking this request up then commit the current
+    //  transaction (including updating the valid data length in
+    //  in the Scb) and return FALSE.
+    //
+
+    if (Finished && !CompleteZero) {
+
+        //
+        //  Synchronize the valid data length change using the mutex.
+        //
+
+        ExAcquireFastMutex( Scb->Header.FastMutex );
+        Scb->Header.ValidDataLength.QuadPart = BeyondZeroEnd;
+        ExReleaseFastMutex( Scb->Header.FastMutex );
+        NtfsCheckpointCurrentTransaction( IrpContext );
+        return FALSE;
+    }
+
     return Finished;
 }
+
+
+#ifdef _CAIRO_
+NTFSAPI
+VOID
+NtOfsPutData (
+    IN PIRP_CONTEXT IrpContext,
+    IN PSCB Scb,
+    IN LONGLONG Offset,
+    IN ULONG Length,
+    IN PVOID Data OPTIONAL
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called to update a range of a recoverable stream.
+
+Arguments:
+
+    Scb - Scb for the stream to zero.
+
+    Offset - Offset in stream to update.
+
+    Length - Length of stream to update in bytes.
+
+    Data - Data to update stream with if specified, else range should be zeroed.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    PAGED_CODE();
+
+    ASSERT((Offset + Length) <= Scb->Header.FileSize.QuadPart);
+    ASSERT(FlagOn(Scb->ScbState, SCB_STATE_MODIFIED_NO_WRITE));
+
+    //
+    //  First handle the resident case.
+    //
+
+    if (FlagOn(Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT)) {
+
+        ATTRIBUTE_ENUMERATION_CONTEXT Context;
+        PFILE_RECORD_SEGMENT_HEADER FileRecord;
+        PATTRIBUTE_RECORD_HEADER Attribute;
+        ULONG RecordOffset, AttributeOffset;
+        PVCB Vcb = Scb->Vcb;
+
+        NtfsInitializeAttributeContext( &Context );
+
+        try {
+
+            //
+            //  Lookup and pin the attribute.
+            //
+
+            NtfsLookupAttributeForScb( IrpContext, Scb, NULL, &Context );
+            NtfsPinMappedAttribute( IrpContext, Vcb, &Context );
+
+            //
+            //  Extract the relevant pointers and calculate offsets.
+            //
+
+            FileRecord = NtfsContainingFileRecord(&Context);
+            Attribute = NtfsFoundAttribute(&Context);
+            RecordOffset = PtrOffset(FileRecord, Attribute);
+            AttributeOffset = Attribute->Form.Resident.ValueOffset + (ULONG)Offset;
+
+            //
+            //  Log the change while we still have the old data.
+            //
+
+            FileRecord->Lsn =
+            NtfsWriteLog( IrpContext,
+                          Vcb->MftScb,
+                          NtfsFoundBcb(&Context),
+                          UpdateResidentValue,
+                          Data,
+                          Length,
+                          UpdateResidentValue,
+                          Add2Ptr(Attribute, Attribute->Form.Resident.ValueOffset + (ULONG)Offset),
+                          Length,
+                          NtfsMftOffset(&Context),
+                          RecordOffset,
+                          AttributeOffset,
+                          Vcb->BytesPerFileRecordSegment );
+
+            //
+            //  Now update this data by calling the same routine as restart.
+            //
+
+            NtfsRestartChangeValue( IrpContext,
+                                    FileRecord,
+                                    RecordOffset,
+                                    AttributeOffset,
+                                    Data,
+                                    Length,
+                                    FALSE );
+
+            //
+            //  If there is a stream for this attribute, then we must update it in the
+            //  cache, copying from the attribute itself in order to handle the zeroing
+            //  (Data == NULL) case.
+            //
+
+            if (Scb->FileObject != NULL) {
+                CcCopyWrite( Scb->FileObject,
+                             (PLARGE_INTEGER)&Offset,
+                             Length,
+                             TRUE,
+                             Add2Ptr(Attribute, AttributeOffset) );
+            }
+
+            //
+            //  Optionally update ValidDataLength
+            //
+
+            Offset += Length;
+            if (Offset > Scb->Header.ValidDataLength.QuadPart) {
+                Scb->Header.ValidDataLength.QuadPart = Offset;
+            }
+
+        } finally {
+            NtfsCleanupAttributeContext( &Context );
+        }
+
+    //
+    //  Now handle the nonresident case.
+    //
+
+    } else {
+
+        PVOID Buffer;
+        LONGLONG NewValidDataLength = Offset + Length;
+        PBCB Bcb = NULL;
+        ULONG PageOffset = (ULONG)Offset & (PAGE_SIZE - 1);
+        ULONG MovingBackwards = FALSE;
+
+        ASSERT(Scb->FileObject != NULL);
+        ASSERT((Offset & ~(VACB_MAPPING_GRANULARITY - 1)) == ((Offset + Length - 1) & ~(VACB_MAPPING_GRANULARITY - 1)));
+
+        //
+        //  If we are starting beyond ValidDataLength, then recurse to
+        //  zero what we need.
+        //
+
+        if (Offset > Scb->Header.ValidDataLength.QuadPart) {
+
+            ASSERT((Offset - Scb->Header.ValidDataLength.QuadPart) <= MAXULONG);
+
+            NtOfsPutData( IrpContext,
+                          Scb,
+                          Scb->Header.ValidDataLength.QuadPart,
+                          (ULONG)(Offset - Scb->Header.ValidDataLength.QuadPart),
+                          NULL );
+        }
+
+        try {
+
+            //
+            //  Now loop until there are no more pages with new data
+            //  to log.
+            //
+
+            while (Length != 0) {
+
+                ULONG BytesThisPage;
+
+                NtfsPinStream( IrpContext,
+                               Scb,
+                               Offset,
+                               1,
+                               &Bcb,
+                               &Buffer );
+
+                //
+                //  Compute the number of bytes of for this page, assuming a
+                //  forward move.
+                //
+
+                BytesThisPage = PAGE_SIZE - PageOffset;
+
+                if (BytesThisPage > Length) {
+                    BytesThisPage = Length;
+                }
+
+                //
+                //  See if we need to switch to moving backwards.
+                //
+
+                if (!MovingBackwards &&
+                    ((PCHAR)Buffer > (PCHAR)Data) &&
+                    (Data != NULL) &&
+                    ((PageOffset + Length) > PAGE_SIZE)) {
+
+                    //
+                    //  We are now doing the move backwards - we will only do this once.
+                    //
+
+                    MovingBackwards = TRUE;
+
+                    //
+                    //  Figure out how many bytes there are to move in the last page, and
+                    //  then see how much we have to adjust our Offset and pointers by to
+                    //  get to the last page (temporarily in PageOffset).
+                    //
+
+                    BytesThisPage = ((PageOffset + Length - 1) & (PAGE_SIZE - 1)) + 1;
+                    PageOffset = Length - BytesThisPage;
+
+                    //
+                    //  Now adjust everyone by the right amount.
+                    //
+
+                    Offset += PageOffset;
+                    Data = Add2Ptr( Data, PageOffset );
+                    Buffer = Add2Ptr( Buffer, PageOffset );
+
+                    //
+                    //  Of course the page offset in the last page is 0.
+                    //
+
+                    PageOffset = 0;
+                }
+
+                //
+                //  Now log the changes to this page.
+                //
+
+                (VOID)
+                NtfsWriteLog( IrpContext,
+                              Scb,
+                              Bcb,
+                              UpdateNonresidentValue,
+                              Data,
+                              BytesThisPage,
+                              UpdateNonresidentValue,
+                              Buffer,
+                              BytesThisPage,
+                              Offset - PageOffset,
+                              PageOffset,
+                              0,
+                              PageOffset + BytesThisPage );
+
+                //
+                //  Move the data into place.
+                //
+
+                if (Data != NULL) {
+                    RtlMoveMemory( Buffer, Data, BytesThisPage );
+                } else {
+                    RtlZeroMemory( Buffer, BytesThisPage );
+                }
+
+                //
+                //  Now we pin the page and calculate the beginning
+                //  buffer in the page.
+                //
+
+                NtfsUnpinBcb( &Bcb );
+
+                Length -= BytesThisPage;
+                PageOffset = 0;
+
+                if (MovingBackwards) {
+
+                    //
+                    //  Now decrement the counts and move through the
+                    //  caller's buffer.
+                    //
+
+                    BytesThisPage = PAGE_SIZE;
+                    if (Length < PAGE_SIZE) {
+                        PageOffset = PAGE_SIZE - Length;
+                        BytesThisPage = Length;
+                    }
+                    Data = Add2Ptr( Data, (0 - BytesThisPage) );
+                    Offset -= BytesThisPage;
+
+                } else {
+
+                    //
+                    //  Now decrement the counts and move through the
+                    //  caller's buffer.
+                    //
+
+                    if (Data != NULL) {
+                        Data = Add2Ptr( Data, BytesThisPage );
+                    }
+                    Offset += BytesThisPage;
+                }
+            }
+
+            //
+            //  Optionally update ValidDataLength
+            //
+
+            if (NewValidDataLength > Scb->Header.ValidDataLength.QuadPart) {
+
+                Scb->Header.ValidDataLength.QuadPart = NewValidDataLength;
+                NtfsWriteFileSizes( IrpContext, Scb, &Offset, TRUE, TRUE );
+            }
+
+        } finally {
+            NtfsUnpinBcb( &Bcb );
+        }
+    }
+}
+#endif _CAIRO_
+
 

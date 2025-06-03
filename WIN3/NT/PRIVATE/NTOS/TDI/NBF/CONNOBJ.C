@@ -54,6 +54,40 @@ Revision History:
 #include "precomp.h"
 #pragma hdrstop
 
+#ifdef RASAUTODIAL
+#include <acd.h>
+#include <acdapi.h>
+#endif // RASAUTODIAL
+
+#ifdef RASAUTODIAL
+extern BOOLEAN fAcdLoadedG;
+extern ACD_DRIVER AcdDriverG;
+
+//
+// Imported routines
+//
+BOOLEAN
+NbfAttemptAutoDial(
+    IN PTP_CONNECTION         Connection,
+    IN ULONG                  ulFlags,
+    IN ACD_CONNECT_CALLBACK   pProc,
+    IN PVOID                  pArg
+    );
+
+VOID
+NbfRetryTdiConnect(
+    IN BOOLEAN fSuccess,
+    IN PVOID *pArgs
+    );
+
+BOOLEAN
+NbfCancelTdiConnect(
+    IN PDEVICE_OBJECT pDeviceObject,
+    IN PIRP pIrp
+    );
+#endif // RASAUTODIAL
+
+
 
 VOID
 ConnectionEstablishmentTimeout(
@@ -164,6 +198,33 @@ Return Value:
 
             }
 
+#ifdef RASAUTODIAL
+            //
+            // If this is a connect operation that has
+            // returned with STATUS_BAD_NETWORK_PATH, then
+            // attempt to create an automatic connection.
+            //
+            if (fAcdLoadedG &&
+                StopStatus == STATUS_BAD_NETWORK_PATH)
+            {
+                KIRQL adirql;
+                BOOLEAN fEnabled;
+
+                ACQUIRE_SPIN_LOCK(&AcdDriverG.SpinLock, &adirql);
+                fEnabled = AcdDriverG.fEnabled;
+                RELEASE_SPIN_LOCK(&AcdDriverG.SpinLock, adirql);
+                if (fEnabled && NbfAttemptAutoDial(
+                                  Connection,
+                                  0,
+                                  NbfRetryTdiConnect,
+                                  Connection))
+                {
+                    RELEASE_DPC_C_SPIN_LOCK (&Connection->SpinLock);
+                    goto done;
+                }
+            }
+#endif // RASAUTODIAL
+
             RELEASE_DPC_C_SPIN_LOCK (&Connection->SpinLock);
 
             NbfStopConnection (Connection, StopStatus);
@@ -202,6 +263,7 @@ Return Value:
     // incremented to account for the new timer.
     //
 
+done:
     NbfDereferenceConnection ("Timer timed out",Connection, CREF_TIMER);
 
     LEAVE_NBF;
@@ -764,6 +826,7 @@ Return Value:
     ULONG DisconnectReason;
     PIRP DisconnectIrp;
     KIRQL oldirql;
+    ULONG Lflags2;
 
     IF_NBFDBG (NBF_DEBUG_CONNOBJ) {
         NbfPrint1 ("NbfIndicateDisconnect:  Entered for connection %lx.\n",
@@ -782,6 +845,7 @@ Return Value:
             // Turn off all but the still-relevant bits in the flags.
             //
 
+            Lflags2 = TransportConnection->Flags2;
             TransportConnection->Flags2 &=
                 (CONNECTION_FLAGS2_ASSOCIATED |
                  CONNECTION_FLAGS2_DISASSOCIATED |
@@ -833,21 +897,24 @@ Return Value:
             //
 
 
-            if (DisconnectIrp != (PIRP)NULL) {
+            if (DisconnectIrp != (PIRP)NULL ||
+                (Lflags2 & CONNECTION_FLAGS2_LDISC) != 0) {
 
-                IF_NBFDBG (NBF_DEBUG_SETUP) {
-                    NbfPrint1("IndicateDisconnect %lx, complete IRP\n", TransportConnection);
+                if (DisconnectIrp != (PIRP)NULL) {
+                    IF_NBFDBG (NBF_DEBUG_SETUP) {
+                        NbfPrint1("IndicateDisconnect %lx, complete IRP\n", TransportConnection);
+                    }
+
+                    //
+                    // Now complete the IRP if needed. This will be non-null
+                    // only if TdiDisconnect was called, and we have not
+                    // yet completed it.
+                    //
+
+                    DisconnectIrp->IoStatus.Information = 0;
+                    DisconnectIrp->IoStatus.Status = STATUS_SUCCESS;
+                    IoCompleteRequest (DisconnectIrp, IO_NETWORK_INCREMENT);
                 }
-
-                //
-                // Now complete the IRP if needed. This will be non-null
-                // only if TdiDisconnect was called, and we have not
-                // yet completed it.
-                //
-
-                DisconnectIrp->IoStatus.Information = 0;
-                DisconnectIrp->IoStatus.Status = STATUS_SUCCESS;
-                IoCompleteRequest (DisconnectIrp, IO_NETWORK_INCREMENT);
 
             } else if ((TransportConnection->Status != STATUS_LOCAL_DISCONNECT) &&
                     (addressFile != NULL) &&
@@ -902,7 +969,7 @@ Return Value:
                         TDI_DISCONNECT_ABORT);
 
 #if MAGIC
-                if ((*(PULONG)NtGlobalFlag) & 0x10000) {
+                if (NbfEnableMagic) {
                     extern VOID NbfSendMagicBullet (PDEVICE_CONTEXT, PTP_LINK);
                     NbfSendMagicBullet (DeviceContext, NULL);
                 }
@@ -1091,7 +1158,7 @@ Return Value:
 --*/
 
 {
-    INTERLOCKED_RESULT result;
+    LONG result;
 
     IF_NBFDBG (NBF_DEBUG_CONNOBJ) {
         NbfPrint2 ("NbfReferenceConnection: entered for connection %lx, "
@@ -1104,11 +1171,9 @@ Return Value:
     StoreConnectionHistory( TransportConnection, TRUE );
 #endif
 
-    result = ExInterlockedIncrementLong (
-                 &TransportConnection->ReferenceCount,
-                 TransportConnection->ProviderInterlock);
+    result = InterlockedIncrement (&TransportConnection->ReferenceCount);
 
-    if (result == ResultZero) {
+    if (result == 0) {
 
         //
         // The first increment causes us to increment the
@@ -1126,7 +1191,7 @@ Return Value:
 
     }
 
-    ASSERT (result != ResultNegative);
+    ASSERT (result >= 0);
 
 } /* NbfRefConnection */
 #endif
@@ -1157,7 +1222,7 @@ Return Value:
 --*/
 
 {
-    INTERLOCKED_RESULT result;
+    LONG result;
 
     IF_NBFDBG (NBF_DEBUG_CONNOBJ) {
         NbfPrint2 ("NbfDereferenceConnection: entered for connection %lx, "
@@ -1170,9 +1235,7 @@ Return Value:
     StoreConnectionHistory( TransportConnection, FALSE );
 #endif
 
-    result = ExInterlockedDecrementLong (
-                &TransportConnection->ReferenceCount,
-                TransportConnection->ProviderInterlock);
+    result = InterlockedDecrement (&TransportConnection->ReferenceCount);
 
     //
     // If all the normal references to this connection are gone, then
@@ -1180,7 +1243,7 @@ Return Value:
     // "the regular ref count is non-zero".
     //
 
-    if (result == ResultNegative) {
+    if (result < 0) {
 
         //
         // If the refcount is -1, then we need to disconnect from
@@ -1614,11 +1677,10 @@ Return Value:
             if (q != &Connection->InProgressRequest) {
                 ListenRequest = CONTAINING_RECORD (q, TP_REQUEST, Linkage);
                 if ((ListenRequest->Buffer2 != NULL) &&
-                    (RtlCompareMemory(
+                    (!RtlEqualMemory(
                          ListenRequest->Buffer2,
                          RemoteName,
-                         NETBIOS_NAME_LENGTH) !=
-                             NETBIOS_NAME_LENGTH)) {
+                         NETBIOS_NAME_LENGTH))) {
                     continue;
                 }
             } else {
@@ -1735,6 +1797,11 @@ Return Value:
         }
 
         //
+        // If this flag was on, turn it off.
+        //
+        Connection->Flags &= ~CONNECTION_FLAGS_W_RESYNCH;
+
+        //
         // Stop the timer if it was running.
         //
 
@@ -1802,7 +1869,7 @@ Return Value:
             }
             RELEASE_DPC_C_SPIN_LOCK (&Connection->SpinLock);
             Request = CONTAINING_RECORD (p, TP_REQUEST, Linkage);
-            Request->IoRequestPacket->CancelRoutine = (PDRIVER_CANCEL)NULL;
+            IoSetCancelRoutine(Request->IoRequestPacket, NULL);
             IoReleaseCancelSpinLock(cancelirql);
 #if DBG
             IF_NBFDBG (NBF_DEBUG_TEARDOWN) {
@@ -1811,7 +1878,8 @@ Return Value:
                 KeQuerySystemTime (&Time);
                 MilliSeconds.LowPart = Time.LowPart;
                 MilliSeconds.HighPart = Time.HighPart;
-                MilliSeconds = RtlLargeIntegerSubtract (MilliSeconds, Request->Time);
+                MilliSeconds.QuadPart = MilliSeconds.QuadPart -
+                                                            (Request->Time).QuadPart;
                 MilliSeconds = RtlExtendedLargeIntegerDivide (MilliSeconds, 10000L, &junk);
                 NbfPrint3 ("NbfStopConnection: Canceling pending CONNECT, Irp: %lx Time Pending: %ld%ld msec\n",
                         Request->IoRequestPacket, MilliSeconds.HighPart, MilliSeconds.LowPart);
@@ -1943,7 +2011,7 @@ Return Value:
             }
             RELEASE_DPC_SPIN_LOCK (Connection->LinkSpinLock);
             Irp = CONTAINING_RECORD (p, IRP, Tail.Overlay.ListEntry);
-            Irp->CancelRoutine = (PDRIVER_CANCEL)NULL;
+            IoSetCancelRoutine(Irp, NULL);
             IoReleaseCancelSpinLock(cancelirql);
 #if DBG
             IF_NBFDBG (NBF_DEBUG_TEARDOWN) {
@@ -1974,7 +2042,7 @@ Return Value:
                 break;
             }
             Irp = CONTAINING_RECORD (p, IRP, Tail.Overlay.ListEntry);
-            Irp->CancelRoutine = (PDRIVER_CANCEL)NULL;
+            IoSetCancelRoutine(Irp, NULL);
 #if DBG
             IF_NBFDBG (NBF_DEBUG_TEARDOWN) {
                 NbfPrint1 ("NbfStopConnection: Canceling pending RECEIVE, Irp: %lx\n",
@@ -2145,6 +2213,7 @@ Return Value:
     PTP_CONNECTION Connection;
     PTP_REQUEST Request;
     PLIST_ENTRY p;
+    BOOLEAN fCanceled = TRUE;
 
     UNREFERENCED_PARAMETER (DeviceObject);
 
@@ -2176,19 +2245,31 @@ Return Value:
 
     Request = CONTAINING_RECORD (p, TP_REQUEST, Linkage);
     ASSERT (Request->IoRequestPacket == Irp);
-    Request->IoRequestPacket->CancelRoutine = (PDRIVER_CANCEL)NULL;
+#ifdef RASAUTODIAL
+    //
+    // If there's an automatic connection in
+    // progress, cancel it.
+    //
+    if (Connection->Flags2 & CONNECTION_FLAGS2_AUTOCONNECTING)
+        fCanceled = NbfCancelTdiConnect(NULL, Irp);
+#endif // RASAUTODIAL
+
+    if (fCanceled)
+        IoSetCancelRoutine(Request->IoRequestPacket, NULL);
 
     IoReleaseCancelSpinLock(Irp->CancelIrql);
 
-    IF_NBFDBG (NBF_DEBUG_CONNOBJ) {
-        NbfPrint2("NBF: Cancelled in-progress connect/listen %lx on %lx\n",
-                Request->IoRequestPacket, Connection);
-    }
+    if (fCanceled) {
+        IF_NBFDBG (NBF_DEBUG_CONNOBJ) {
+            NbfPrint2("NBF: Cancelled in-progress connect/listen %lx on %lx\n",
+                    Request->IoRequestPacket, Connection);
+        }
 
-    KeRaiseIrql (DISPATCH_LEVEL, &oldirql);
-    NbfCompleteRequest (Request, STATUS_CANCELLED, 0);
-    NbfStopConnection (Connection, STATUS_LOCAL_DISCONNECT);   // prevent indication to clients
-    KeLowerIrql (oldirql);
+        KeRaiseIrql (DISPATCH_LEVEL, &oldirql);
+        NbfCompleteRequest (Request, STATUS_CANCELLED, 0);
+        NbfStopConnection (Connection, STATUS_LOCAL_DISCONNECT);   // prevent indication to clients
+        KeLowerIrql (oldirql);
+    }
 
     NbfDereferenceConnection ("Cancel done", Connection, CREF_TEMP);
 

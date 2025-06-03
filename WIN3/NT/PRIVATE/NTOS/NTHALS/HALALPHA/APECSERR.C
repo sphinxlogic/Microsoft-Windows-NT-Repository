@@ -21,10 +21,32 @@ Environment:
 
 Revision History:
 
+    Chao Chen 31-Aug-1995 Added in ECC correctable error handling.
+
+    Balakumar.N 26-Sep-1995  added Uncorrectable Error Logging code and 
+                             merged Chao's changes to handle correctable error.
+
 --*/
 
 #include "halp.h"
 #include "apecs.h"
+#include "stdio.h"
+
+// 
+// Declare the extern variable UncorrectableError declared in 
+// inithal.c.
+//
+extern PERROR_FRAME PUncorrectableError;
+
+//
+// Define the context structure for use by interrupt service routines.
+//
+
+typedef BOOLEAN  (*PSECOND_LEVEL_DISPATCH)(
+    PKINTERRUPT InterruptObject,
+    PVOID ServiceContext
+    );
+
 
 VOID
 HalpSetMachineCheckEnables( 
@@ -41,6 +63,16 @@ HalpApecsReportFatalError(
 ULONG
 HalpSimm(
     ULONGLONG Address
+    );
+
+VOID
+HalpApecsCorrectableError(
+    VOID
+    );
+
+VOID
+HalpApecsConfig(
+    PAPECS_CONFIGURATION Config
     );
 
 // jnfix - temp count
@@ -164,6 +196,131 @@ Return Value:
 
 }
 
+VOID
+HalpReadApecsErrorRegisters(
+    VOID
+    )
+{
+    COMANCHE_EDSR Edsr;
+    EPIC_ECSR Ecsr;
+    ULONG ErrorAddress;
+    ULONG ErrorHighAddress;
+    ULONG ErrorLowAddress;
+    ULONG Pear;
+    ULONG Sear;
+    ULONG SystemErrorAddress;
+    PAPECS_UNCORRECTABLE_FRAME  apecserr = NULL;
+
+    if(PUncorrectableError){
+        apecserr = (PAPECS_UNCORRECTABLE_FRAME)
+                PUncorrectableError->UncorrectableFrame.RawSystemInformation;
+    }
+
+    if(apecserr)
+        HalpApecsConfig( &apecserr->Configuration);
+
+    //
+    // Read both of the error registers.  It is possible that more
+    // than one error was reported simulataneously.
+    //
+
+    Edsr.all = READ_COMANCHE_REGISTER( 
+                   &((PCOMANCHE_CSRS)(APECS_COMANCHE_BASE_QVA))->ErrorAndDiagnosticStatusRegister );
+
+    Ecsr.all = READ_EPIC_REGISTER( 
+        &((PEPIC_CSRS)(APECS_EPIC_BASE_QVA))->EpicControlAndStatusRegister );
+
+
+    //
+    // Read all of the relevant error address registers.
+    //
+
+    ErrorLowAddress = READ_COMANCHE_REGISTER(
+        &((PCOMANCHE_CSRS)(APECS_COMANCHE_BASE_QVA))->ErrorLowAddressRegister );
+
+    ErrorHighAddress = READ_COMANCHE_REGISTER(
+        &((PCOMANCHE_CSRS)(APECS_COMANCHE_BASE_QVA))->ErrorHighAddressRegister);
+
+    ErrorAddress = ((ULONG)(ErrorHighAddress) << 21) +
+                   ((ULONG)(ErrorLowAddress) << 5);
+
+    Sear = READ_EPIC_REGISTER(
+        &((PEPIC_CSRS)(APECS_EPIC_BASE_QVA))->SysbusErrorAddressRegister );
+
+    SystemErrorAddress = (ULONG)(Sear) << 2;
+
+    Pear = READ_EPIC_REGISTER(
+        &((PEPIC_CSRS)(APECS_EPIC_BASE_QVA))->PciErrorAddressRegister );
+
+    // 
+    // Fill in the Apecs uncorrectbale frame
+    //
+    if(apecserr)
+        apecserr->ComancheEdsr =  Edsr.all;
+
+    if( PUncorrectableError && 
+        ( (Edsr.Bctaperr == 1) ||
+          (Edsr.Bctcperr == 1) ||
+          (Edsr.Nxmerr   == 1) )  ) {
+        PUncorrectableError->UncorrectableFrame.PhysicalAddress = 
+               ErrorAddress; 
+        PUncorrectableError->UncorrectableFrame.Flags.
+                    PhysicalAddressValid = 1;
+
+        PUncorrectableError->UncorrectableFrame.Flags.AddressSpace = 
+                    MEMORY_SPACE;
+        PUncorrectableError->UncorrectableFrame.Flags.
+                    MemoryErrorSource = SYSTEM_MEMORY;
+    }
+
+    if(apecserr)
+        apecserr->EpicEcsr = Ecsr.all;
+
+    if( PUncorrectableError && 
+        ( (Ecsr.Merr == 1) ||
+          (Ecsr.Umrd == 1) ) ) {
+
+        PUncorrectableError->UncorrectableFrame.PhysicalAddress = 
+               SystemErrorAddress; 
+        PUncorrectableError->UncorrectableFrame.Flags.
+                    PhysicalAddressValid = 1;
+
+        PUncorrectableError->UncorrectableFrame.Flags.AddressSpace = 
+                    MEMORY_SPACE;
+        PUncorrectableError->UncorrectableFrame.Flags.
+                    MemoryErrorSource = SYSTEM_MEMORY;
+    }
+
+    if( PUncorrectableError &&
+        ( (Ecsr.Ndev == 1) ||
+          (Ecsr.Tabt == 1) ||
+          (Ecsr.Iope == 1) ||
+          (Ecsr.Ddpe == 1) ||
+          (Ecsr.Iptl == 1) ||
+          (Ecsr.Iort == 1) ) ){
+        
+        PUncorrectableError->UncorrectableFrame.PhysicalAddress = 
+               Pear; 
+        PUncorrectableError->UncorrectableFrame.Flags.
+                    PhysicalAddressValid = 1;
+
+        PUncorrectableError->UncorrectableFrame.Flags.AddressSpace = 
+                    IO_SPACE;
+        PUncorrectableError->UncorrectableFrame.Flags.
+                    MemoryErrorSource = 0;
+    }
+
+    if(apecserr){
+        apecserr->EpicPciErrAddr = Pear;
+        apecserr->EpicSysErrAddr = SystemErrorAddress;
+        apecserr->ComancheErrAddr = ErrorAddress;
+    }
+
+    return;
+
+}
+
+
 BOOLEAN
 HalpPlatformMachineCheck(
     IN PEXCEPTION_RECORD ExceptionRecord,
@@ -199,6 +356,8 @@ Return Value:
     COMANCHE_EDSR Edsr;
     EPIC_ECSR Ecsr;
 
+    PAPECS_UNCORRECTABLE_FRAME  apecserr = NULL;
+
     //
     // Check if there are any memory errors pending in the Comanche.
     //
@@ -206,8 +365,28 @@ Return Value:
     // error indicates a non-dismissable error.
     //
 
-    Edsr.all = READ_COMANCHE_REGISTER( 
-                   &((PCOMANCHE_CSRS)(APECS_COMANCHE_BASE_QVA))->ErrorAndDiagnosticStatusRegister );
+    HalpReadApecsErrorRegisters();
+
+    if(PUncorrectableError)
+        apecserr = (PAPECS_UNCORRECTABLE_FRAME)
+                PUncorrectableError->UncorrectableFrame.RawSystemInformation;
+
+    if(apecserr == NULL){
+        Edsr.all = READ_COMANCHE_REGISTER( 
+                    &((PCOMANCHE_CSRS)(APECS_COMANCHE_BASE_QVA))->
+                                        ErrorAndDiagnosticStatusRegister );
+
+        Ecsr.all = READ_EPIC_REGISTER( 
+                    &((PEPIC_CSRS)(APECS_EPIC_BASE_QVA))->
+                                        EpicControlAndStatusRegister );
+
+    }
+    else {
+
+        Edsr.all = apecserr->ComancheEdsr;
+
+        Ecsr.all = apecserr->EpicEcsr;
+    }
 
     if( (Edsr.Losterr == 1) ||
         (Edsr.Bctaperr == 1) ||
@@ -226,9 +405,6 @@ Return Value:
     // errors, lost errors, and retry timeouts are all considered
     // non-dismissable errors.
     //
-
-    Ecsr.all = READ_EPIC_REGISTER( 
-        &((PEPIC_CSRS)(APECS_EPIC_BASE_QVA))->EpicControlAndStatusRegister );
 
     if( (Ecsr.Merr == 1) ||
         (Ecsr.Iptl == 1) ||
@@ -335,13 +511,53 @@ Return Value:
 
     } //endif Ecsr.Ndev == 1
 
-//
-// The system is not well and cannot continue reliable execution.
-// Print some useful messages and return FALSE to indicate that the error
-// was not handled.
-//
+
+    //
+    // Handle any ECC correctable errors.
+    //
+
+    if( Ecsr.Cmrd ) {
+
+      //
+      // Handle the error and then clear the error bit.
+      //
+
+      HalpApecsCorrectableError();
+      Ecsr.Cmrd = 0;
+      Ecsr.Lost = 0;
+
+      //
+      // If there are no other outstanding errors, then return.
+      //
+
+      if ( Ecsr.all )
+        return TRUE;
+    }
+
+    //
+    // A Pass1 APECS chip bug will erroneously report a lost operation,
+    // so, if a Pass1 chip, then ignore the error.
+    //
+
+    if ( (Ecsr.Lost == 1) && (Ecsr.Pass2 == 1)) {
+        goto FatalError;
+    }
+
+    //
+    // The system is not well and cannot continue reliable execution.
+    // Print some useful messages and return FALSE to indicate that the error
+    // was not handled.
+    //
 
 FatalError:
+
+    if(PUncorrectableError) {
+        PUncorrectableError->UncorrectableFrame.Flags.SystemInformationValid =
+                                                 1;
+        PUncorrectableError->UncorrectableFrame.Flags.ErrorStringValid =  1;
+        sprintf(PUncorrectableError->UncorrectableFrame.ErrorString,
+                        "Uncorrectable Error From Apecs Chipset Detected");
+    }
 
     HalpApecsReportFatalError();
 
@@ -375,12 +591,30 @@ Return Value:
 {
     COMANCHE_EDSR Edsr;
     EPIC_ECSR Ecsr;
+    PAPECS_UNCORRECTABLE_FRAME  apecserr = NULL;
 
-    Edsr.all = READ_COMANCHE_REGISTER( 
-                   &((PCOMANCHE_CSRS)(APECS_COMANCHE_BASE_QVA))->ErrorAndDiagnosticStatusRegister );
+    HalpReadApecsErrorRegisters();
 
-    Ecsr.all = READ_EPIC_REGISTER( 
-        &((PEPIC_CSRS)(APECS_EPIC_BASE_QVA))->EpicControlAndStatusRegister );
+    if(PUncorrectableError)
+        apecserr = (PAPECS_UNCORRECTABLE_FRAME)
+                PUncorrectableError->UncorrectableFrame.RawSystemInformation;
+
+    if(apecserr == NULL){
+        Edsr.all = READ_COMANCHE_REGISTER( 
+                    &((PCOMANCHE_CSRS)(APECS_COMANCHE_BASE_QVA))->
+                                        ErrorAndDiagnosticStatusRegister );
+
+        Ecsr.all = READ_EPIC_REGISTER( 
+                    &((PEPIC_CSRS)(APECS_EPIC_BASE_QVA))->
+                                        EpicControlAndStatusRegister );
+
+    }
+    else {
+
+        Edsr.all = apecserr->ComancheEdsr;
+
+        Ecsr.all = apecserr->EpicEcsr;
+    }
 
     //
     // Any error from the COMANCHE represents a fatal condition.
@@ -473,11 +707,14 @@ FatalErrorInterrupt:
     HalpApecsReportFatalError();
 
 //jnfix - add some of the address registers?
+//
+// Add the address of the error frame as 4th parameter.
+//
     KeBugCheckEx( DATA_BUS_ERROR,
                   Edsr.all,
                   Ecsr.all,
                   0,
-                  0 );
+                  (ULONG)PUncorrectableError );
 
                      
 }
@@ -515,6 +752,8 @@ Return Value:
     ULONG Sear;
     ULONGLONG SystemErrorAddress;
     UCHAR OutBuffer[MAX_ERROR_STRING];
+    PAPECS_UNCORRECTABLE_FRAME  apecserr = NULL;
+    PEXTENDED_ERROR PExtErr = NULL;
 
     //
     // Begin the error output by acquiring ownership of the display
@@ -525,37 +764,54 @@ Return Value:
 
     HalDisplayString( "\nFatal system hardware error.\n\n" );
 
+    // 
+    // Extract register values to report from Error Frame.
     //
-    // Read both of the error registers.  It is possible that more
-    // than one error was reported simulataneously.
-    //
+    if(PUncorrectableError){
+        apecserr = (PAPECS_UNCORRECTABLE_FRAME)
+                PUncorrectableError->UncorrectableFrame.RawSystemInformation;
+        PExtErr = &PUncorrectableError->UncorrectableFrame.ErrorInformation;
+    }
 
-    Edsr.all = READ_COMANCHE_REGISTER( 
-                   &((PCOMANCHE_CSRS)(APECS_COMANCHE_BASE_QVA))->ErrorAndDiagnosticStatusRegister );
+    if(apecserr == NULL){
+        Edsr.all = READ_COMANCHE_REGISTER( 
+                    &((PCOMANCHE_CSRS)(APECS_COMANCHE_BASE_QVA))->
+                                        ErrorAndDiagnosticStatusRegister );
 
-    Ecsr.all = READ_EPIC_REGISTER( 
-        &((PEPIC_CSRS)(APECS_EPIC_BASE_QVA))->EpicControlAndStatusRegister );
+        Ecsr.all = READ_EPIC_REGISTER( 
+                    &((PEPIC_CSRS)(APECS_EPIC_BASE_QVA))->
+                                        EpicControlAndStatusRegister );
 
-    //
-    // Read all of the relevant error address registers.
-    //
-
-    ErrorLowAddress = READ_COMANCHE_REGISTER(
+        ErrorLowAddress = READ_COMANCHE_REGISTER(
         &((PCOMANCHE_CSRS)(APECS_COMANCHE_BASE_QVA))->ErrorLowAddressRegister );
 
-    ErrorHighAddress = READ_COMANCHE_REGISTER(
+        ErrorHighAddress = READ_COMANCHE_REGISTER(
         &((PCOMANCHE_CSRS)(APECS_COMANCHE_BASE_QVA))->ErrorHighAddressRegister);
 
-    ErrorAddress = ((ULONGLONG)(ErrorHighAddress) << 21) +
+        ErrorAddress = ((ULONGLONG)(ErrorHighAddress) << 21) +
                    ((ULONGLONG)(ErrorLowAddress) << 5);
 
-    Sear = READ_EPIC_REGISTER(
-        &((PEPIC_CSRS)(APECS_EPIC_BASE_QVA))->SysbusErrorAddressRegister );
+        Sear = READ_EPIC_REGISTER(
+            &((PEPIC_CSRS)(APECS_EPIC_BASE_QVA))->SysbusErrorAddressRegister );
 
-    SystemErrorAddress = (ULONGLONG)(Sear) << 2;
+        SystemErrorAddress = (ULONGLONG)(Sear) << 2;
+    
+        Pear = READ_EPIC_REGISTER(
+            &((PEPIC_CSRS)(APECS_EPIC_BASE_QVA))->PciErrorAddressRegister );
 
-    Pear = READ_EPIC_REGISTER(
-        &((PEPIC_CSRS)(APECS_EPIC_BASE_QVA))->PciErrorAddressRegister );
+    }
+    else {
+
+        Edsr.all = apecserr->ComancheEdsr;
+
+        Ecsr.all = apecserr->EpicEcsr;
+
+        Pear = apecserr->EpicPciErrAddr;
+        SystemErrorAddress = apecserr->EpicSysErrAddr;
+        ErrorAddress = apecserr->ComancheErrAddr;
+    }
+
+
 
     //
     // Interpret any errors from the COMANCHE EDSR.
@@ -565,6 +821,32 @@ Return Value:
     HalDisplayString( OutBuffer );
 
     if( Edsr.Bctaperr == 1 ){
+
+        if(PExtErr){
+            PUncorrectableError->UncorrectableFrame.Flags.ExtendedErrorValid = 
+                                                            1;
+
+            PUncorrectableError->UncorrectableFrame.Flags.ErrorStringValid = 1;
+            sprintf(PUncorrectableError->UncorrectableFrame.ErrorString,
+                    "B-Cache Tag Address Parity Error");
+
+            PUncorrectableError->UncorrectableFrame.Flags.MemoryErrorSource = 
+                                                    SYSTEM_CACHE;
+            //
+            // At present the HalpSimm routine doesn't do anything
+            // it expected to be fixed in the near future.
+            //
+            PExtErr->CacheError.Flags.CacheSimmValid = 1;
+            PExtErr->CacheError.CacheSimm = HalpSimm(ErrorAddress);
+            HalpGetProcessorInfo(&PExtErr->CacheError.ProcessorInfo);
+            if( Edsr.Dmacause == 1 ){
+                PExtErr->CacheError.TransferType = BUS_DMA_OP;
+            }
+            if( Edsr.Viccause == 1 ){
+                PExtErr->CacheError.TransferType = VICTIM_WRITE;
+            }
+
+        }
 
         sprintf( OutBuffer,
                  "Bcache Tag Address Parity Error, Address: %Lx, SIMM = %d\n",
@@ -576,6 +858,34 @@ Return Value:
 
     if( Edsr.Bctcperr == 1 ){
 
+        if(PExtErr){
+            PUncorrectableError->UncorrectableFrame.Flags.ExtendedErrorValid = 
+                                                            1;
+
+            PUncorrectableError->UncorrectableFrame.Flags.ErrorStringValid = 1;
+            sprintf(PUncorrectableError->UncorrectableFrame.ErrorString,
+                    "B-Cache Tag Control Parity Error");
+
+            PUncorrectableError->UncorrectableFrame.Flags.MemoryErrorSource = 
+                                                    SYSTEM_CACHE;
+            //
+            // At present the HalpSimm routine doesn't do anything
+            // it is expected to be fixed in the near future.
+            //
+            PExtErr->CacheError.Flags.CacheSimmValid = 1;
+            PExtErr->CacheError.CacheSimm = HalpSimm(ErrorAddress);
+            HalpGetProcessorInfo(&PExtErr->CacheError.ProcessorInfo);
+            if( Edsr.Dmacause == 1 ){
+                PExtErr->CacheError.TransferType = BUS_DMA_OP;
+            }
+            if( Edsr.Viccause == 1 ){
+                PExtErr->CacheError.TransferType = VICTIM_WRITE;
+            }
+
+
+        }
+
+
         sprintf( OutBuffer,
                  "Bcache Tag Control Parity Error, Address: %Lx, SIMM = %d\n",
                  ErrorAddress, HalpSimm(ErrorAddress) );
@@ -585,6 +895,33 @@ Return Value:
     }
 
     if( Edsr.Nxmerr == 1 ){
+
+        if(PExtErr){
+            PUncorrectableError->UncorrectableFrame.Flags.ExtendedErrorValid = 
+                                                            1;
+
+            PUncorrectableError->UncorrectableFrame.Flags.ErrorStringValid = 1;
+            sprintf(PUncorrectableError->UncorrectableFrame.ErrorString,
+                    "Non-existent memory error");
+
+            PUncorrectableError->UncorrectableFrame.Flags.MemoryErrorSource = 
+                                                    SYSTEM_MEMORY;
+            //
+            // At present the HalpSimm routine doesn't do anything
+            // it expected to be fixed in the near future.
+            //
+            PExtErr->MemoryError.Flags.MemorySimmValid = 1;
+            PExtErr->MemoryError.MemorySimm = HalpSimm(ErrorAddress);
+            HalpGetProcessorInfo(&PExtErr->MemoryError.ProcessorInfo);
+            if( Edsr.Dmacause == 1 ){
+                PExtErr->MemoryError.TransferType = BUS_DMA_OP;
+            }
+            if( Edsr.Viccause == 1 ){
+                PExtErr->MemoryError.TransferType = VICTIM_WRITE;
+            }
+
+
+        }
 
         sprintf( OutBuffer,
                  "Non-existent memory error, Address: %Lx\n",
@@ -620,6 +957,23 @@ Return Value:
 
     if( Ecsr.Iort == 1 ){
 
+        if(PExtErr){
+            PUncorrectableError->UncorrectableFrame.Flags.ExtendedErrorValid = 
+                                                            1;
+
+            PUncorrectableError->UncorrectableFrame.Flags.ErrorStringValid = 1;
+            sprintf(PUncorrectableError->UncorrectableFrame.ErrorString,
+                    "PCI Retry timeout error");
+            PExtErr->IoError.Interface = PCIBus;
+            
+            // 
+            //  Since APECS supports only one PCI Bus we will simply set
+            // the busnumber to 0. 
+            // 
+            PExtErr->IoError.BusNumber = 0;
+
+        }
+
         sprintf( OutBuffer,
                  "PCI Retry timeout error, PCI Address: 0x%x\n",
                  Pear );
@@ -629,6 +983,22 @@ Return Value:
 
     if( Ecsr.Ddpe == 1 ){
 
+        if(PExtErr){
+            PUncorrectableError->UncorrectableFrame.Flags.ExtendedErrorValid = 
+                                                            1;
+
+            PUncorrectableError->UncorrectableFrame.Flags.ErrorStringValid = 1;
+            sprintf(PUncorrectableError->UncorrectableFrame.ErrorString,
+                    "DMA Data Parity Error");
+            PExtErr->IoError.Interface = PCIBus;
+            
+            // 
+            //  Since APECS supports only one PCI Bus we will simply set
+            // the busnumber to 0. 
+            // 
+            PExtErr->IoError.BusNumber = 0;
+
+        }
         sprintf( OutBuffer,
                  "DMA Data Parity Error at PCI Address: 0x%x\n",
                  Pear );
@@ -638,6 +1008,22 @@ Return Value:
 
     if( Ecsr.Iope == 1 ){
 
+        if(PExtErr){
+            PUncorrectableError->UncorrectableFrame.Flags.ExtendedErrorValid = 
+                                                            1;
+
+            PUncorrectableError->UncorrectableFrame.Flags.ErrorStringValid = 1;
+            sprintf(PUncorrectableError->UncorrectableFrame.ErrorString,
+                    "I/O Data Parity Error");
+            PExtErr->IoError.Interface = PCIBus;
+            
+            // 
+            //  Since APECS supports only one PCI Bus we will simply set
+            // the busnumber to 0. 
+            // 
+            PExtErr->IoError.BusNumber = 0;
+
+        }
         sprintf( OutBuffer,
                  "I/O Data Parity Error at PCI Address: 0x%x\n",
                  Pear );
@@ -647,6 +1033,22 @@ Return Value:
 
     if( Ecsr.Tabt == 1 ){
 
+        if(PExtErr){
+            PUncorrectableError->UncorrectableFrame.Flags.ExtendedErrorValid = 
+                                                            1;
+
+            PUncorrectableError->UncorrectableFrame.Flags.ErrorStringValid = 1;
+            sprintf(PUncorrectableError->UncorrectableFrame.ErrorString,
+                    "Target Abort Error");
+            PExtErr->IoError.Interface = PCIBus;
+            
+            // 
+            //  Since APECS supports only one PCI Bus we will simply set
+            // the busnumber to 0. 
+            // 
+            PExtErr->IoError.BusNumber = 0;
+
+        }
         sprintf( OutBuffer,
                  "Target Abort Error at PCI Address: 0x%x\n",
                  Pear );
@@ -656,6 +1058,22 @@ Return Value:
 
     if( Ecsr.Ndev == 1 ){
 
+        if(PExtErr){
+            PUncorrectableError->UncorrectableFrame.Flags.ExtendedErrorValid = 
+                                                            1;
+
+            PUncorrectableError->UncorrectableFrame.Flags.ErrorStringValid = 1;
+            sprintf(PUncorrectableError->UncorrectableFrame.ErrorString,
+                    "No Device Error");
+            PExtErr->IoError.Interface = PCIBus;
+            
+            // 
+            //  Since APECS supports only one PCI Bus we will simply set
+            // the busnumber to 0. 
+            // 
+            PExtErr->IoError.BusNumber = 0;
+
+        }
         sprintf( OutBuffer,
                  "No Device Error at PCI Address: 0x%x\n",
                  Pear );
@@ -665,6 +1083,22 @@ Return Value:
 
     if( Ecsr.Iptl == 1 ){
 
+        if(PExtErr){
+            PUncorrectableError->UncorrectableFrame.Flags.ExtendedErrorValid = 
+                                                            1;
+
+            PUncorrectableError->UncorrectableFrame.Flags.ErrorStringValid = 1;
+            sprintf(PUncorrectableError->UncorrectableFrame.ErrorString,
+                    "Invalid Page Table Lookup");
+            PExtErr->IoError.Interface = PCIBus;
+            
+            // 
+            //  Since APECS supports only one PCI Bus we will simply set
+            // the busnumber to 0. 
+            // 
+            PExtErr->IoError.BusNumber = 0;
+
+        }
         sprintf( OutBuffer,
                  "Invalid Page Table Lookup at PCI Address: 0x%x\n",
                  Pear );
@@ -674,6 +1108,26 @@ Return Value:
 
     if( Ecsr.Umrd == 1 ){
 
+        if(PExtErr){
+            PUncorrectableError->UncorrectableFrame.Flags.ExtendedErrorValid = 
+                                                            1;
+
+            PUncorrectableError->UncorrectableFrame.Flags.ErrorStringValid = 1;
+            sprintf(PUncorrectableError->UncorrectableFrame.ErrorString,
+                    "memory read error");
+
+            PUncorrectableError->UncorrectableFrame.Flags.MemoryErrorSource = 
+                                                    SYSTEM_MEMORY;
+            //
+            // At present the HalpSimm routine doesn't do anything
+            // it expected to be fixed in the near future.
+            //
+            PExtErr->MemoryError.Flags.MemorySimmValid = 1;
+            PExtErr->MemoryError.MemorySimm = HalpSimm(ErrorAddress);
+            HalpGetProcessorInfo(&PExtErr->MemoryError.ProcessorInfo);
+            
+
+        }
         sprintf( OutBuffer,
                  "Uncorrectable memory read error, System Address: 0x%Lx\n",
                  SystemErrorAddress );
@@ -728,4 +1182,361 @@ Return Value:
 
     return( 0xffffffff );
 
+}
+
+
+VOID
+HalpApecsCorrectableError(
+    VOID
+    )
+/*++
+
+Routine Description:
+
+    Handle ECC correctable errors from the APECS.
+
+Arguments:
+
+    None.
+
+Return Value:
+
+    None.
+
+--*/
+{
+  static ERROR_FRAME Frame;
+  static APECS_CORRECTABLE_FRAME ApecsFrame;
+
+  ERROR_FRAME TempFrame;
+  PCORRECTABLE_ERROR CorrPtr;
+  PBOOLEAN ErrorlogBusy;
+  PULONG DispatchCode;
+  PKINTERRUPT InterruptObject;
+  PKSPIN_LOCK ErrorlogSpinLock;
+  EPIC_ECSR Ecsr;
+  ULONG Sear;
+  ULONGLONG SystemErrorAddress;
+
+  //
+  // Read the Epic control and status register.
+  //
+
+  Ecsr.all = READ_EPIC_REGISTER(
+    &((PEPIC_CSRS)(APECS_EPIC_BASE_QVA))->EpicControlAndStatusRegister );
+
+  //
+  // Get the system address.  Note, bits 2-4 of the address not available.
+  //
+
+  Sear = READ_EPIC_REGISTER(
+           &((PEPIC_CSRS)(APECS_EPIC_BASE_QVA))->SysbusErrorAddressRegister );
+
+  SystemErrorAddress = (ULONGLONG)Sear << 2;
+
+#if (DBG) || (HALDBG)
+
+  if( (CorrectedMemoryReads % 32) == 0 ){
+    DbgPrint("APECS: CorrectedMemoryReads = %d, Address = 0x%Lx\n",
+	     CorrectedMemoryReads,
+	     SystemErrorAddress );
+  }
+
+#endif
+
+  //
+  // Get the interrupt object.
+  //
+
+  DispatchCode = (PULONG)(PCR->InterruptRoutine[CORRECTABLE_VECTOR]);
+  InterruptObject = CONTAINING_RECORD(DispatchCode,
+				      KINTERRUPT,
+				      DispatchCode);
+
+  //
+  // Set various pointers so we can use them later.
+  //
+
+  CorrPtr = &TempFrame.CorrectableFrame;
+  ErrorlogBusy = (PBOOLEAN)((PUCHAR)InterruptObject->ServiceContext +
+			    sizeof(PERROR_FRAME));
+  ErrorlogSpinLock = (PKSPIN_LOCK)((PUCHAR)ErrorlogBusy + sizeof(PBOOLEAN));
+
+  //
+  // Update the number of correctable errors.
+  //
+
+  CorrectedMemoryReads += 1;
+
+  //
+  // Clear the data structures that we will use.
+  //
+
+  RtlZeroMemory(&TempFrame, sizeof(ERROR_FRAME));
+
+  //
+  // Fill in the error frame information.
+  //
+
+  TempFrame.Signature = ERROR_FRAME_SIGNATURE;
+  TempFrame.FrameType = CorrectableFrame;
+  TempFrame.VersionNumber = ERROR_FRAME_VERSION;
+  TempFrame.SequenceNumber = CorrectedMemoryReads;
+  TempFrame.PerformanceCounterValue =
+    KeQueryPerformanceCounter(NULL).QuadPart;
+
+  //
+  // Check for lost error.
+  //
+
+  if( Ecsr.Lost ) {
+
+      //
+      // Since the error registers are locked from a previous error,
+      // we don't know where the error came from.  Mark everything
+      // as UNIDENTIFIED.
+      //
+
+      CorrPtr->Flags.LostCorrectable = 1;
+      CorrPtr->Flags.LostAddressSpace = UNIDENTIFIED;
+      CorrPtr->Flags.LostMemoryErrorSource = UNIDENTIFIED;
+  }
+
+  //
+  // Either a DMA read or DMA TLB read ECC error.  We can't tell
+  // since the EPIC chip doesn't provid enough information.  Just
+  // log everything as a DMA ECC error.
+  //
+
+  CorrPtr->Flags.AddressSpace = MEMORY_SPACE;
+  CorrPtr->Flags.ExtendedErrorValid = 1;
+  CorrPtr->Flags.MemoryErrorSource = SYSTEM_MEMORY;
+  CorrPtr->ErrorInformation.MemoryError.TransferType = BUS_DMA_READ;
+
+  //
+  // Get the physical address where the error occurred.
+  //
+
+  CorrPtr->Flags.PhysicalAddressValid = 1;
+  CorrPtr->PhysicalAddress = SystemErrorAddress;
+
+  //
+  // Scrub the error if it's any type of memory error.
+  //
+
+  if (CorrPtr->Flags.AddressSpace == MEMORY_SPACE &&
+      CorrPtr->Flags.PhysicalAddressValid )
+    CorrPtr->Flags.ScrubError = 1;
+
+  //
+  // Acquire the spinlock.
+  //
+
+  KiAcquireSpinLock(ErrorlogSpinLock);
+
+  //
+  // Check to see if an errorlog operation is in progress already.
+  //
+
+  if (!*ErrorlogBusy) {
+
+    //
+    // The error is expected to be a corrected ECC error on a DMA or
+    // Scatter/Gather TLB read.  Read the error registers relevant
+    // to this error.
+    //
+
+    ApecsFrame.EpicEcsr = Ecsr.all;
+
+    ApecsFrame.EpicSysErrAddr = Sear;
+
+    //
+    // Read the CIA configuration registers for logging information.
+    //
+
+    ApecsFrame.Configuration.ApecsRev = Ecsr.Pass2;
+    HalpApecsConfig( &ApecsFrame.Configuration );
+
+    //
+    // Set the raw system information.
+    //
+
+    CorrPtr->RawSystemInformationLength = sizeof(APECS_CORRECTABLE_FRAME);
+    CorrPtr->RawSystemInformation = &ApecsFrame;
+
+    //
+    // Set the raw processor information.  Disregard at the moment.
+    //
+
+    CorrPtr->RawProcessorInformationLength = 0;
+
+    //
+    // Set reporting processor information.  Disregard at the moment.
+    //
+
+    CorrPtr->Flags.ProcessorInformationValid = 0;
+
+    //
+    // Set system information.  Disregard at the moment.
+    //
+
+    CorrPtr->Flags.SystemInformationValid = 0;
+
+    //
+    // Copy the information that we need to log.
+    //
+
+    RtlCopyMemory(&Frame,
+		  &TempFrame,
+		  sizeof(ERROR_FRAME));
+    
+    //
+    // Put frame into ISR service context.
+    //
+
+    *(PERROR_FRAME *)InterruptObject->ServiceContext = &Frame;
+
+  } else {
+
+    //
+    // An errorlog operation is in progress already.  We will
+    // set various lost bits and then get out without doing
+    // an actual errorloging call.
+    //
+
+    Frame.CorrectableFrame.Flags.LostCorrectable = TRUE;
+    Frame.CorrectableFrame.Flags.LostAddressSpace =
+      TempFrame.CorrectableFrame.Flags.AddressSpace;
+    Frame.CorrectableFrame.Flags.LostMemoryErrorSource =
+      TempFrame.CorrectableFrame.Flags.MemoryErrorSource;
+  }
+
+  //
+  // Release the spinlock.
+  //
+
+  KiReleaseSpinLock(ErrorlogSpinLock);
+
+  //
+  // Dispatch to the secondary correctable interrupt service routine.
+  // The assumption here is that if this interrupt ever happens, then
+  // some driver enabled it, and the driver should have the ISR connected.
+  //
+
+  ((PSECOND_LEVEL_DISPATCH)InterruptObject->DispatchAddress)(
+    InterruptObject,
+    InterruptObject->ServiceContext);
+
+  //
+  // Clear lost and correctable error bit.
+  //
+
+  if (Ecsr.Lost) {
+
+    Ecsr.all = 0;
+    Ecsr.Cmrd = 1;
+    Ecsr.Lost = 1;
+    
+  } else {
+
+    Ecsr.all = 0;
+    Ecsr.Cmrd = 1;
+  }
+
+  WRITE_EPIC_REGISTER(
+    &((PEPIC_CSRS)(APECS_EPIC_BASE_QVA))->EpicControlAndStatusRegister,
+    Ecsr.all);
+
+  return;
+}
+
+
+VOID
+HalpApecsConfig(
+    PAPECS_CONFIGURATION Config
+    )
+/*++
+
+Routine Description:
+
+    Reads in the configuration registers from the Comanche chip.
+
+Arguments:
+
+    Pointer to the configuration frame.
+
+Return Value:
+
+    None.
+
+--*/
+{
+  //
+  // Read in all the registers.
+  //
+
+  Config->CGcr =
+    READ_COMANCHE_REGISTER(
+      &((PCOMANCHE_CSRS)(APECS_COMANCHE_BASE_QVA))->GeneralControlRegister
+      );
+
+  Config->CTer =
+    READ_COMANCHE_REGISTER(
+      &((PCOMANCHE_CSRS)(APECS_COMANCHE_BASE_QVA))->TagEnableRegister
+      );
+
+  Config->CGtr =
+    READ_COMANCHE_REGISTER(
+      &((PCOMANCHE_CSRS)(APECS_COMANCHE_BASE_QVA))->GlobalTimingRegister
+      );
+
+  Config->CRtr =
+    READ_COMANCHE_REGISTER(
+      &((PCOMANCHE_CSRS)(APECS_COMANCHE_BASE_QVA))->RefreshTimingRegister
+      );
+
+  Config->CBank0 =
+    READ_COMANCHE_REGISTER(
+     &((PCOMANCHE_CSRS)(APECS_COMANCHE_BASE_QVA))->Bank0ConfigurationRegister
+      );
+
+  Config->CBank1 =
+    READ_COMANCHE_REGISTER(
+     &((PCOMANCHE_CSRS)(APECS_COMANCHE_BASE_QVA))->Bank1ConfigurationRegister
+      );
+
+  Config->CBank2 =
+    READ_COMANCHE_REGISTER(
+     &((PCOMANCHE_CSRS)(APECS_COMANCHE_BASE_QVA))->Bank2ConfigurationRegister
+      );
+
+  Config->CBank3 =
+    READ_COMANCHE_REGISTER(
+     &((PCOMANCHE_CSRS)(APECS_COMANCHE_BASE_QVA))->Bank3ConfigurationRegister
+      );
+
+  Config->CBank4 =
+    READ_COMANCHE_REGISTER(
+     &((PCOMANCHE_CSRS)(APECS_COMANCHE_BASE_QVA))->Bank4ConfigurationRegister
+      );
+
+  Config->CBank5 =
+    READ_COMANCHE_REGISTER(
+     &((PCOMANCHE_CSRS)(APECS_COMANCHE_BASE_QVA))->Bank5ConfigurationRegister
+      );
+
+  Config->CBank6 =
+    READ_COMANCHE_REGISTER(
+     &((PCOMANCHE_CSRS)(APECS_COMANCHE_BASE_QVA))->Bank6ConfigurationRegister
+      );
+
+  Config->CBank7 =
+    READ_COMANCHE_REGISTER(
+     &((PCOMANCHE_CSRS)(APECS_COMANCHE_BASE_QVA))->Bank7ConfigurationRegister
+      );
+
+  Config->CBank8 =
+    READ_COMANCHE_REGISTER(
+     &((PCOMANCHE_CSRS)(APECS_COMANCHE_BASE_QVA))->Bank8ConfigurationRegister
+      );
 }

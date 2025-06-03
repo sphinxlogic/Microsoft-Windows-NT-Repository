@@ -21,24 +21,22 @@ Environment:
 --*/
 
 #include "resource.h"
-#include "button.h"
 #include "dialogs.h"
-#include "dispfile.h"
 #include "drives.h"
 #include "environ.h"
-#include "filever.h"
 #include "hardware.h"
 #include "network.h"
-#include "system.h"
-#include "mapfile.h"
 #include "mem.h"
+#include "msg.h"
 #include "osver.h"
 #include "resource.h"
+#include "resprint.h"
 #include "service.h"
 #include "strresid.h"
 #include "winmsd.h"
 #include "computer.h"
 #include "report.h"
+#include "video.h"
 
 #include <commctrl.h>
 #include <commdlg.h>
@@ -47,19 +45,18 @@ Environment:
 #include <stdio.h>
 #include <string.h>
 #include <tchar.h>
+#include <windowsx.h>
+
 
 //
-// Status window id.
+// External Global Variables.
 //
 
-#define ID_STATUS   ( 13579 )
-
-//
-//*** External Global Variables.
-//
-
-TCHAR  _lpszSelectedComputer [ MAX_COMPUTERNAME_LENGTH + 3 ];
+TCHAR  _lpszSelectedComputer [ COMPUTERNAME_LENGTH ];
+HKEY   _hKeyLocalMachine = HKEY_LOCAL_MACHINE;
+HKEY   _hKeyUsers = HKEY_USERS;
 BOOL   _fIsRemote;
+
 
 //
 // Module handle.
@@ -73,17 +70,6 @@ HANDLE  _hModule;
 
 HANDLE  _hIcon;
 
-//
-// Application's standard mouse cursor
-//
-
-HANDLE  _hCursorStandard;
-
-//
-// Application's wait mouse cursor
-//
-
-HANDLE  _hCursorWait;
 
 //
 // Main window handle.
@@ -92,8 +78,19 @@ HANDLE  _hCursorWait;
 HANDLE  _hWndMain;
 
 //
-//*** Internal Global Variables.
+// Application's global ImageLists
 //
+
+HIMAGELIST  _h16x16Imagelist;      // 16x16 images
+HIMAGELIST  _h32x32Imagelist;      // 32x32 images
+HIMAGELIST  _hSystemImage;         // single image of system.bmp
+
+
+//
+// Internal Global Variables.
+//
+
+TCHAR g_szRunApp[MAX_PATH];    	// command line for the app selected in run dlg
 
 //
 // Application's accelerator table handle.
@@ -105,87 +102,120 @@ HANDLE  _hAccel;
 // Internal function prototypes.
 //
 
-BOOL
-ProcessSpecialCommands(
-    IN HWND hWnd,
-    IN UINT message,
-    IN WPARAM wParam,
-    IN LPARAM lParam
+VOID Usage(
+    VOID
     );
 
+BOOL
+InitializeApplication(
+    INT         argc,
+    CHAR        *argv[]
+    );
+
+void
+InitImageLists( void );
+
+BOOL
+DoRunApplication( IN HWND hWnd );
+
+BOOL
+GetRunCommand (HWND hDlg,
+      LPWSTR pszCommand,
+      INT nMaxLen
+      );
+
+BOOL
+GetRunHistoryCommand (HWND hDlg,
+      LPWSTR pszCommand,
+      INT nMaxLen
+      );
+
+BOOL
+InitHistoryList (HWND hDlg);
+
+BOOL
+ReviseHistoryList (LPWSTR pszCommand);
+
+BOOL StartProcess (LPWSTR pszApplication,
+      LPWSTR pszParameters);
+
+
+BOOL
+MakeTabs(
+      IN HWND hWnd,
+      IN HWND hMainTabControl
+      );
+
+BOOL
+GetTabClientRect( IN HWND hWndTab,
+      IN LPRECT lpRect
+      );
+
+
+DLGTEMPLATE * WINAPI
+DoLockDlgRes(LPWSTR lpszResName);
+
+VOID
+FixupNulls(LPWSTR p);
+
+
 //
-// Template strings for files to be added to Files menu.
+// Structure for the Run Application dialog
 //
 
-LPTSTR
-SpecialFilesTemplate[ ] = {
-    TEXT( "%SystemRoot%\\system32\\autoexec.nt" ),
-    TEXT( "%SystemRoot%\\system32\\config.nt" ),
-    TEXT( "%SystemRoot%\\win.ini" )
-};
+struct {
 
-//
-// Buffers for expanded (i.e. full paths) for special files.
-//
-
-LPTSTR
-SpecialFiles[ NumberOfEntries( SpecialFilesTemplate )];
-
-//
-// Help ids for the menu items that display the special files.
-//
-
-UINT
-FileHelpIds[ ] = {
-
-    IDS_HELP_FILE_AUTOEXEC_NT,
-    IDS_HELP_FILE_CONFIG_NT,
-    IDS_HELP_FILE_WIN_INI
-};
-
-//
-// Simple macro that makes an entry in the tool menu list.
-//
-
-#define MAKE_TOOL_MENU( id, name )                                          \
-    { IDM_TOOL_##id, IDS_TOOL_##id, name }
-
-//
-// Tools menu data that includes, menu id, string resource id (for displaying
-// in menu) and exeecutable file name.
-//
-
-struct
-{
-    UINT    MenuId;
-    UINT    DisplayNameId;
-    LPTSTR  FileName;
+    UINT    iDisplayName;
+    TCHAR   szExecutableName[MAX_PATH];
 
 }   Tools[ ] = {
 
-    MAKE_TOOL_MENU( EVENTVWR, TEXT( "eventvwr.exe" )),
-    MAKE_TOOL_MENU( REGEDT32, TEXT( "regedt32.exe" )),
-    MAKE_TOOL_MENU( WINDISK,  TEXT( "windisk.exe"  ))
-
-};
+    {IDS_EVENTVWR,    TEXT( "eventvwr.exe" ) },
+    {IDS_REGEDT32,    TEXT( "regedt32.exe" ) },
+    {IDS_WINDISK,     TEXT( "windisk.exe"  ) },
+	{IDS_TASKMGR,     TEXT( "taskmgr.exe"  ) },
+    {IDS_PERFMON,     TEXT( "perfmon.exe"  ) },
+    {IDS_CONTROLP,    TEXT( "control.exe"  ) },
+    {IDS_NOTEPAD,     TEXT( "notepad.exe"  ) },
+    {IDS_AUTOEXEC_NT, TEXT( "notepad.exe %systemroot%\\system32\\autoexec.nt" ) },
+    {IDS_CONFIG_NT,   TEXT( "notepad.exe %systemroot%\\system32\\config.nt" ) },
+    {IDS_EXPLORER,    TEXT( "explorer.exe" ) },
+    {IDS_SYSTEDIT,    TEXT( "sysedit.exe"  ) }
+    };
 
 //
-// Macro to compute position of pop-up menu.
+// Begin Code
 //
 
-#define MenuIndex( id )                                                     \
-    (((( id ) - IDM_BASE ) / 100 ) - 1 )
-
-BOOL
-AddFilesToFileMenu(
+VOID Usage(
+    VOID
+    )
+
+{
+    TCHAR szBuffer[1024];
+
+    WFormatMessage(szBuffer, sizeof( szBuffer ), IDS_FORMAT_COMMAND_LINE_HELP);
+
+    MessageBox( _hWndMain, szBuffer, GetString(IDS_APPLICATION_FULLNAME), MB_OK );
+
+}
+
+
+
+int
+_CRTAPI1
+main(
+    INT         argc,
+    CHAR        *argv[]
     )
 
 /*++
 
 Routine Description:
 
-    This function adds a set of predefined files to the file menu so that they
-    can be easily selected for viewing.
+    Main is the entry point for Winmsd. It initializes the application and
+    manages the message pump. When the message pump quits, main performs some
+    global cleanup.
 
 Arguments:
 
@@ -193,291 +223,59 @@ Arguments:
 
 Return Value:
 
-    BOOL    - Returns TRUE if the file names were succesfully added.
+    int - Returns the result of the PostQuitMessgae API or -1 if
+          initialization failed.
 
 --*/
 
 {
-    BOOL        Success;
-    HMENU       hMenuBar;
-    HMENU       hFileMenu;
-    int         i;
+    MSG     msg;
+    DLGHDR  *pHdr; 
+	BOOL    bHandled;
+	TCHAR   buffer[MAX_PATH];
 
-    DbgHandleAssert( _hWndMain );
-    DbgAssert( sizeof( SpecialFilesTemplate ) == sizeof( SpecialFiles ));
-    DbgAssert( NumberOfEntries( SpecialFilesTemplate ) <= 9 );
+    if( InitializeApplication( argc, argv )) {
 
-    //
-    // Get the menu handle for the File menu.
-    //
+		pHdr = (DLGHDR *) GetWindowLong( _hWndMain, GWL_USERDATA ); 
 
-    hMenuBar = GetMenu( _hWndMain );
-    DbgHandleAssert( hMenuBar );
-    if( hMenuBar == NULL ) {
-        return FALSE;
-    }
-    hFileMenu = GetSubMenu( hMenuBar, MenuIndex( IDM_FILE ));
-    DbgHandleAssert( hFileMenu );
-    if( hFileMenu == NULL ) {
-        return FALSE;
-    }
+        while( GetMessage( &msg, NULL, 0, 0 )) {
 
+			bHandled = FALSE;
 
-    //
-    // Draw a separator at the end of the File menu.
-    //
+			bHandled = TranslateAccelerator( _hWndMain, _hAccel, &msg );
 
-    Success = AppendMenu(
-                hFileMenu,
-                MF_SEPARATOR,
-                0,
-                NULL
-                );
-    DbgAssert( Success );
+			if (FALSE == bHandled)
+			{
+				if (pHdr->hwndDisplay)
+				{
+					bHandled = TranslateAccelerator(pHdr->hwndDisplay, _hAccel, &msg);
+				}
 
-    //
-    // Add each of the special file name to the File menu.
-    //
+				if (FALSE == bHandled && FALSE == IsDialogMessage(_hWndMain, &msg))
+				{
+					TranslateMessage(&msg);          // Translates virtual key codes
 
-    for( i = 0; i < NumberOfEntries( SpecialFilesTemplate ); i++ ) {
-
-        DWORD       Chars;
-
-        //
-        // Allocate a buffer for the expanded file names.
-        //
-
-        SpecialFiles[ i ] = AllocateMemory( TCHAR, MAX_PATH * sizeof( TCHAR ));
-        DbgPointerAssert( SpecialFiles[ i ] );
-        if( SpecialFiles[ i ] == NULL ) {
-
-            int j;
-
-            //
-            // If a memory allocation fails, delete all previously allocated
-            // buffers.
-            //
-
-            for( j = 0; j < i; j++ ) {
-
-                Success = FreeMemory( SpecialFiles[ j ]);
-                DbgAssert( Success );
-            }
-            return FALSE;
+					DispatchMessage(&msg);           // Dispatches message to window
+				}
+			}
+			
         }
 
-        //
-        // Insert the accelerator mark, the file number (acceleartor) and a
-        // space between the file number and its name.
-        //
-
-        SpecialFiles[ i ][ 0 ] = TEXT( '&' );
-        SpecialFiles[ i ][ 1 ] = TEXT( '0' + i + 1 );
-        SpecialFiles[ i ][ 2 ] = TEXT( ' ' );
-
-        //
-        // Expand the environment variables so that full paths are displayed
-        // in the File menu.
-        //
-
-        Chars = ExpandEnvironmentStrings(
-                    SpecialFilesTemplate[ i ],
-                    &SpecialFiles[ i ][ 3 ],
-                    MAX_PATH
-                    );
-        DbgAssert(( Chars != 0 ) && ( Chars <= MAX_PATH * sizeof( TCHAR )));
-
-        //
-        // Append the special file name to the File menu.
-        //
-
-        Success = AppendMenu(
-                    hFileMenu,
-                    MF_ENABLED | MF_STRING,
-                    IDM_FILE_EXIT + i + 1,
-                    SpecialFiles[ i ]
-                    );
-        DbgAssert( Success );
+        return msg.wParam;
     }
 
     //
-    // After all of the special files are added, force the menu bar to redraw.
+    // Initialization failed.
     //
 
-    Success = DrawMenuBar( _hWndMain );
-    DbgAssert( Success );
-
-    return TRUE;
+    return -1;
 }
-BOOL
-AddToolsToToolMenu(
-    )
 
-/*++
 
-Routine Description:
-
-    This function adds a set of predefined tools to the tools menu.
-
-Arguments:
-
-    None.
-
-Return Value:
-
-    BOOL    - Returns TRUE if the tool names were succesfully added.
-
---*/
-
-{
-    BOOL        Success;
-    HMENU       hMenuBar;
-    HMENU       hToolMenu;
-    int         i;
-
-    DbgHandleAssert( _hWndMain );
-
-    //
-    // Get the menu handle for the Tools menu.
-    //
-
-    hMenuBar = GetMenu( _hWndMain );
-    DbgHandleAssert( hMenuBar );
-    if( hMenuBar == NULL ) {
-        return FALSE;
-    }
-    hToolMenu = GetSubMenu( hMenuBar, MenuIndex( IDM_TOOL ));
-    DbgHandleAssert( hToolMenu );
-    if( hToolMenu == NULL ) {
-        return FALSE;
-    }
-
-    //
-    // Delete the dummy menu required by RC.
-    //
-
-    Success = DeleteMenu(
-                hToolMenu,
-                0,
-                MF_BYPOSITION
-                );
-    DbgAssert( Success );
-
-    //
-    // Add each of the tools to the tool menu.
-    //
-
-    for( i = 0; i < NumberOfEntries( Tools ); i++ ) {
-
-        Success = AppendMenu(
-                    hToolMenu,
-                    MF_ENABLED | MF_STRING,
-                    Tools[ i ].MenuId,
-                    GetString(
-                        Tools[ i  ].DisplayNameId
-                        )
-                    );
-        DbgAssert( Success );
-    }
-
-    Success = DrawMenuBar( _hWndMain );
-    DbgAssert( Success );
-
-    return TRUE;
-}
-
-BOOL
-RunTool(
-    IN UINT MenuId
-    )
-
-/*++
-
-Routine Description:
-
-    This function runs the tool specified by the supplied menu id.
-
-Arguments:
-
-    MenuId  - Supplies the id of the menu item (tool) selected by the user.
-
-Return Value:
-
-    BOOL    - Returns TRUE if selected tool was succesfully run.
-
---*/
-
-{
-    BOOL                Success;
-    int                 Tool;
-    STARTUPINFO         StartUpInfo;
-    PROCESS_INFORMATION ProcessInfo;
-
-    //
-    // Map the supplied tool menu id to an index to the name of the tool.
-    //
-
-    switch( MenuId ) {
-
-    case IDM_TOOL_EVENTVWR:
-        Tool = 0;
-        break;
-
-    case IDM_TOOL_REGEDT32:
-        Tool = 1;
-        break;
-
-    case IDM_TOOL_WINDISK:
-        Tool = 2;
-        break;
-
-    default:
-        return FALSE;
-        break;
-    }
-
-    //
-    // Initialize the STARTUPINFO structure.
-    //
-
-    ZeroMemory( &StartUpInfo, sizeof( StartUpInfo ));
-    StartUpInfo.cb = sizeof( StartUpInfo );
-
-    //
-    // Create the simplest process for the specified tool.
-    //
-
-    Success = CreateProcess(
-                NULL,
-                Tools[ Tool ].FileName,
-                NULL,
-                NULL,
-                FALSE,
-                0,
-                NULL,
-                NULL,
-                &StartUpInfo,
-                &ProcessInfo
-                );
-    DbgAssert( Success );
-    if( Success == FALSE ) {
-        return FALSE;
-    }
-
-    //
-    // Close the unneeded process and thread handles.
-    //
-
-    Success = CloseHandle( ProcessInfo.hProcess );
-    DbgAssert( Success );
-    Success = CloseHandle( ProcessInfo.hThread );
-    DbgAssert( Success );
-
-    return TRUE;
-}
-
 BOOL
 InitializeApplication(
+    INT         argc,
+    CHAR        *argv[]
     )
 
 /*++
@@ -499,9 +297,116 @@ Return Value:
 --*/
 
 {
-    BOOL        Success;
     WNDCLASS    Wc;
     ATOM        Window;
+    OSVERSIONINFO vi;
+    TCHAR       szBuffer[MAX_PATH];
+    INT         nArg = 1;
+    CHAR        *pch;
+    BOOL        Success;
+    DWORD       dwNumChars;
+    INT         nDestination = 0;
+    INT         nDetailLevel = 0;
+
+    //
+    // Make sure we are running NT 4.0 or greater
+    //
+    vi.dwOSVersionInfoSize  = sizeof( OSVERSIONINFO );
+
+    GetVersionEx( &vi );
+
+    if ((vi.dwMajorVersion < 4) ||
+        (vi.dwPlatformId != VER_PLATFORM_WIN32_NT)) {
+
+        lstrcpy(szBuffer, GetString( IDS_NT_REQUIRED ) );
+
+        MessageBox( NULL, szBuffer, GetString( IDS_APPLICATION_FULLNAME ), MB_ICONSTOP | MB_OK );
+
+        return(FALSE);
+
+    }
+
+    //
+    // Set the current machine name.
+    //
+
+    dwNumChars = sizeof(szBuffer);
+    GetComputerName(szBuffer, &dwNumChars);
+
+    wsprintf( _lpszSelectedComputer, L"\\\\%s", szBuffer);
+
+    //
+    // Collect the command line options, if any.
+    //
+
+    while( nArg < argc ){
+
+      pch = argv[nArg];
+
+      if ( *pch == '-' || *pch == '/') {
+
+         pch++;
+
+         switch( toupper( *pch ) ) {
+         case 'S':
+             nDetailLevel = IDC_SUMMARY_REPORT;
+             break;
+
+         case 'A':
+             nDetailLevel = IDC_COMPLETE_REPORT;
+             break;
+
+         case 'P':
+             nDestination = IDC_SEND_TO_PRINTER;
+             break;
+
+         case 'F':
+             nDestination = IDC_SEND_TO_FILE;
+             break;
+
+         default:
+             Usage();
+             return(FALSE);
+
+         }
+
+         pch++;
+
+
+      } else {
+
+         if ( *pch == '\\') {
+
+            MultiByteToWideChar( CP_ACP,
+                  MB_PRECOMPOSED,
+                  pch,
+                  -1,
+                  _lpszSelectedComputer,
+                  sizeof(_lpszSelectedComputer)
+                  );
+
+            //
+            // If the workstation service is not started, fail this attempt
+            //
+
+	        if (NERR_WkstaNotStarted == NetWkstaGetInfo( L"", 100L,(LPBYTE *) szBuffer ))
+	        {
+                //bugbug: we should throw up a messagebox here.
+		        return FALSE;
+	        }  
+
+            Success = VerifyComputer( _lpszSelectedComputer );
+            if (!Success) {
+               return(FALSE);
+            }
+
+         }
+
+      }
+
+      nArg++;
+
+    }
 
     //
     // Get the application's module (instance) handle.
@@ -524,20 +429,11 @@ Return Value:
     }
 
     //
-    // Load the application's cursors.
+    // Initialize the applications global image lists (helper.c)
     //
 
-    _hCursorStandard = LoadCursor( NULL, MAKEINTRESOURCE( IDC_ARROW ));
-    DbgHandleAssert( _hCursorStandard );
-    if( _hCursorStandard == NULL ) {
-        return FALSE;
-    }
+    InitImageLists();
 
-    _hCursorWait = LoadCursor( NULL, MAKEINTRESOURCE( IDC_WAIT ));
-    DbgHandleAssert( _hCursorWait );
-    if( _hCursorWait == NULL ) {
-        return FALSE;
-    }
     //
     // Load the application's accelerator table.
     //
@@ -545,52 +441,6 @@ Return Value:
     _hAccel = LoadAccelerators( _hModule, MAKEINTRESOURCE( IDA_WINMSD ));
     DbgHandleAssert( _hAccel );
     if(  _hAccel == NULL ) {
-        return FALSE;
-    }
-
-#if defined( CTL3D )
-
-    //
-    // Register with the ctl3d dll and tell it that all dialogs/controls should
-    // automatically be subclassed.
-    //
-
-    Success = Ctl3dRegister( _hModule );
-    DbgAssert( Success );
-    if( Success == FALSE ) {
-        return FALSE;
-    }
-
-    Success = Ctl3dAutoSubclass( _hModule );
-    DbgAssert( Success );
-    if( Success == FALSE ) {
-        return FALSE;
-    }
-
-#endif // CTL3D
-
-    //
-    // Register the child window class for the file display dialog. This
-    // window class is used to display the file.
-    //
-
-    Wc.style            =   CS_HREDRAW
-                          | CS_OWNDC
-                          | CS_SAVEBITS
-                          | CS_VREDRAW;
-    Wc.lpfnWndProc      = DisplayFileWndProc;
-    Wc.cbClsExtra       = 0;
-    Wc.cbWndExtra       = sizeof( LPFILE_MAP );
-    Wc.hInstance        = _hModule;
-    Wc.hIcon            = NULL;
-    Wc.hCursor          = NULL;
-    Wc.hbrBackground    = ( HBRUSH ) ( COLOR_WINDOW + 1 );
-    Wc.lpszMenuName     = NULL;
-    Wc.lpszClassName    = GetString( IDS_DISPLAY_FILE_WINDOW_CLASS );
-
-    Window = RegisterClass( &Wc );
-    DbgAssert( Window != 0 );
-    if( Window == 0 ) {
         return FALSE;
     }
 
@@ -610,7 +460,7 @@ Return Value:
     Wc.hCursor          = LoadCursor( NULL, IDC_ARROW );
     Wc.hbrBackground    = ( HBRUSH ) ( COLOR_BTNFACE + 1 );
     Wc.lpszMenuName     = NULL;
-    Wc.lpszClassName    = GetString( IDS_APPLICATION_NAME );
+    Wc.lpszClassName    = L"Diagnostics";
 
     Window = RegisterClass( &Wc );
     DbgAssert( Window != 0 );
@@ -635,29 +485,105 @@ Return Value:
     }
 
     //
-    // Add the special file names to the file menu.
+    // Set the window title.
     //
 
-    Success = AddFilesToFileMenu( );
-    DbgAssert( Success );
+    wsprintf(szBuffer, L"%s - %s",
+              GetString( IDS_APPLICATION_FULLNAME ),
+              _lpszSelectedComputer);
+
+    SetWindowText(_hWndMain, szBuffer);
 
     //
-    // Add the tool names to the tools menu.
+    // if we have been given a detail level or a destination on the
+    // cmd line, then generate a report now, and terminate.
     //
+    if( nDestination || nDetailLevel ){
 
-    Success = AddToolsToToolMenu( );
-    DbgAssert( Success );
+       //
+       // Make sure we have a destination
+       //
+       if ( !nDestination ) {
+          nDestination = IDC_SEND_TO_FILE;
+       }
 
-    //
-    // Display the main window.
-    //
+       //
+       // Make sure we have a detail level
+       //
+       if ( !nDetailLevel ) {
+          nDetailLevel = IDC_SUMMARY_REPORT;
+       }
 
-    ShowWindow( _hWndMain, SW_SHOWDEFAULT );
-    UpdateWindow( _hWndMain );
+       Success = GenerateReport ( _hWndMain, nDestination, IDC_ALL_TABS, nDetailLevel, TRUE );
+
+       if(!Success){
+          lstrcpy( szBuffer, GetString(IDS_REPORT_FAILED) );
+          MessageBox(_hWndMain, szBuffer, GetString(IDS_APPLICATION_FULLNAME), MB_OK | MB_ICONSTOP );
+       }
+
+       return(FALSE);
+
+   }
+
+   //
+   // Show the main window
+   //
+
+   ShowWindow( _hWndMain, SW_SHOW );
+
 
     return TRUE;
 }
-
+
+void
+InitImageLists( void )
+/*++
+
+Routine Description:
+
+    InitImageLists - create the image lists used by application
+
+Arguments:
+
+    none
+
+Return Value:
+
+    none
+
+--*/
+{
+
+   // Create the 16 x 16 Image List
+   _h16x16Imagelist = ImageList_LoadBitmap( _hModule,
+                                           L"IDB_16x16",
+                                           16,
+                                           0,
+                                           0x00808000);
+
+   DbgHandleAssert( _h16x16Imagelist );
+
+
+   // Create the 32 x 32 Image List
+   _h32x32Imagelist = ImageList_LoadBitmap( _hModule,
+                                           L"IDB_32x32",
+                                           32,
+                                           0,
+                                           0x00808000);
+
+   DbgHandleAssert( _h32x32Imagelist );
+
+   // system image list (one item)
+   _hSystemImage = ImageList_LoadBitmap( _hModule,
+                                           L"IDB_SYSTEM",
+                                           114,
+                                           0,
+                                           0x00FF00FF);
+
+   DbgHandleAssert( _hSystemImage );
+
+}
+
 LRESULT
 MainWndProc(
     IN HWND hWnd,
@@ -671,8 +597,7 @@ MainWndProc(
 Routine Description:
 
     MainWndProc processes messages for Winmsd's main window. This entails
-    handling of messages from the menu bar, the array of push buttons that
-    display additional data and creation and updates of the status bar.
+    handling of messages from the menu bar.
 
 Arguments:
 
@@ -686,57 +611,127 @@ Return Value:
 
 {
     BOOL        Success;
-    HCURSOR     hSaveCursor;
+    PRINTDLG    PrtDlg;
+    TCHAR       szBuffer[MAX_PATH];
 
     static
-    HWND        hWndStatus;
+    HWND        hMainTabControl;
 
     static
-    UINT        HelpId;
+    int         nCurrentTab;
 
-    static
-    UINT        OldHelpId;
+    DLGHDR      *pHdr;
 
     switch( message ) {
 
-#if defined( CTL3D )
+	case WM_PAINT: 	
+		{
+			PAINTSTRUCT ps;
+			RECT rc;
 
-    //
-    // Handle 3d color effects for controls.
-    //
+			//
+			// Don't waste our time if we're minimized
+			//
 
-    CASE_WM_CTLCOLOR_WINDOW;
+			if (FALSE == IsIconic(hWnd))
+			{
+				BeginPaint(hWnd, &ps);
+				GetClientRect(hWnd, &rc);
 
-    //
-    // Handle changes in system colors.
-    //
+				//
+				// Draw an edge just below menu bar
+				//
 
-    case WM_SYSCOLORCHANGE:
+				DrawEdge(ps.hdc, &rc, EDGE_ETCHED, BF_TOP);
+				EndPaint(hWnd, &ps);
+			}
 
-        Success = Ctl3dColorChange( );
-        DbgAssert( Success );
-        return Success;
-
-#endif // CTL3D
+			break;
+		}
 
 
     case WM_CREATE:
         {
-            int     ScreenHeight;
-            int     ScreenWidth;
-
+            DWORD   cb;
+            BOOL    Success;
+            HKEY    hKey; 
+            WINDOWPLACEMENT wp;
+            DWORD   dwSize;
+            DWORD   dwType;
+            int     fDefault = TRUE;
+            
             //
-            // Display the main window in the center of the screen.
+            // Read the window location in from the registry
             //
+            if (ERROR_SUCCESS == RegOpenKeyEx(HKEY_CURRENT_USER,
+                                  SZ_WINMSD_KEY,
+                                  0,
+                                  KEY_READ,
+                                  &hKey))
+            {
+                fDefault = FALSE;
 
-            ScreenWidth  = GetSystemMetrics( SM_CXSCREEN );
-            ScreenHeight = GetSystemMetrics( SM_CYSCREEN );
+                dwSize = sizeof(wp);
+ 
+                if (ERROR_SUCCESS != RegQueryValueEx(hKey,
+                                                    L"Preferences", 
+                                                    0, 
+                                                    &dwType, 
+                                                    (LPBYTE) &wp,
+                                                    &dwSize)
+
+                    // Validate type and size of options info we got from the registry
+
+                    || dwType           != REG_BINARY
+                    || dwSize           != sizeof(wp)
+
+                    // Validate points
+
+                    || wp.rcNormalPosition.left  > GetSystemMetrics(SM_CXMAXIMIZED)
+                    || wp.rcNormalPosition.top   > GetSystemMetrics(SM_CYMAXIMIZED) )
+        
+                {
+                     fDefault = TRUE;
+                } 
+
+                RegCloseKey( hKey ); 
+
+            }  
+
+            
+            if (fDefault)
+            {
+                //
+                // use default values
+                //
+
+                wp.rcNormalPosition.left = GetSystemMetrics( SM_CXSCREEN ) / 2 ;
+                wp.rcNormalPosition.top  = GetSystemMetrics( SM_CYSCREEN ) / 2;
+
+                //
+                // Make it look good on my dual screen, I just hate
+                // it being centered across two monitors.  This centers
+                // it on the first monitor.
+                //
+
+                if (wp.rcNormalPosition.left > 1600) {
+                   wp.rcNormalPosition.left = wp.rcNormalPosition.left / 2;
+                }
+
+                if (wp.rcNormalPosition.top > 1280) {
+                   wp.rcNormalPosition.top = wp.rcNormalPosition.top / 2;
+                }
+
+                wp.rcNormalPosition.left = wp.rcNormalPosition.left - (((( LPCREATESTRUCT ) lParam )->cx ) / 2);
+                wp.rcNormalPosition.top  = wp.rcNormalPosition.top -  (((( LPCREATESTRUCT ) lParam )->cy ) / 2);  
+
+            }   
 
             Success = SetWindowPos(
                             hWnd,
                             NULL,
-                            ( ScreenWidth  - (( LPCREATESTRUCT ) lParam )->cx ) / 2,
-                            ( ScreenHeight - (( LPCREATESTRUCT ) lParam )->cy ) / 2,
+                            wp.rcNormalPosition.left,
+                            wp.rcNormalPosition.top,
                             0,
                             0,
                               SWP_NOSIZE
@@ -750,474 +745,431 @@ Return Value:
 
     case WM_INITDIALOG:
         {
-            DWORD dwNumChars ;
-            TCHAR szBuffer [ MAX_PATH ] ;
+            //
+            // Check for aliases
+            //
+            TCHAR szMessage[MAX_PATH];
+            DWORD dwNumChars = MAX_PATH;
+
+            if ( GetServerPrimaryName(&_lpszSelectedComputer[2], szBuffer, dwNumChars ) )
+            {  
+               wsprintf(szMessage, GetString(IDS_ALIAS_NAME), _lpszSelectedComputer, szBuffer);
+
+               MessageBox( hWnd, szMessage, GetString( IDS_APPLICATION_FULLNAME ), MB_OK | MB_ICONINFORMATION );
+
+               lstrcpy(&_lpszSelectedComputer[2], szBuffer);
+            }   
 
             //
-            // Set _lpszSelectedComputer to the current ComputerName
+            // Get the handle of the tab control
             //
-
-            dwNumChars = MAX_COMPUTERNAME_LENGTH + 1;
-            Success = GetComputerName ( szBuffer, &dwNumChars );
-            DbgAssert( Success );
-
-            _fIsRemote = FALSE;
+            hMainTabControl =  GetDlgItem( hWnd, IDC_MAIN_TAB );
 
             //
-            // Add Double backslash prefix
+            // Fill out tab control with appropriate tabs
             //
+            MakeTabs( hWnd, hMainTabControl );
 
-            lstrcpy ( _lpszSelectedComputer, GetString( IDS_WHACK_WHACK ) );
-            lstrcat ( _lpszSelectedComputer, szBuffer ) ;
+            // Set Tab control to first tab
+            pHdr = (DLGHDR *) GetWindowLong( hWnd, GWL_USERDATA );
+            pHdr->hwndDisplay = CreateDialogIndirect( _hModule,
+                    pHdr->apRes[ 0 ], hWnd, pHdr->ChildTabProc[ 0 ] );
 
-            //
-            // Add button label prefix
-            //
+            return( TRUE );
 
-            lstrcpy ( szBuffer, GetString( IDS_COMPUTER_BUTTON_LABEL ) );
-            lstrcat ( szBuffer, _lpszSelectedComputer ) ;
-
-            //
-            // Label the Computer dialog button
-            //
-
-            Success = SetDlgItemText(
-                                hWnd,
-                                IDC_PUSH_COMPUTER,
-                                szBuffer
-                                );
-
-            DbgAssert( Success );
-
-            //
-            // Subclass the buttons where focus notification is needed.
-            //
-
-            Success = SubclassButtons( hWnd );
-            DbgAssert( Success );
-            if( Success == FALSE ) {
-                SendMessage(
-                    hWnd,
-                    WM_DESTROY,
-                    0,
-                    0
-                    );
-                return FALSE;
-            }
-
-            //
-            // Set the HelpId and the OldHelpId to the default
-            // value and create the status window.
-            //
-
-               HelpId = IDS_DEFAULT_HELP;
-            OldHelpId = IDS_DEFAULT_HELP;
-            DbgAssert( HelpId != 0 );
-
-            hWndStatus = CreateStatusWindow(
-                            WS_CHILD | WS_BORDER | WS_VISIBLE | WS_DISABLED,
-                            ( LPWSTR ) GetStringA( HelpId ),
-                            hWnd,
-                            ID_STATUS
-                            );
-            DbgHandleAssert( hWndStatus );
-            if( hWndStatus == NULL ) {
-                SendMessage(
-                    hWnd,
-                    WM_DESTROY,
-                    0,
-                    0
-                    );
-                return FALSE;
-            }
-            return TRUE;
         }
 
-    case WM_ACTIVATEAPP:
-    case WM_SETFOCUS:
-
-        DbgButtonAssert( hWnd );
-        SetFocus( _hWndButtonFocus );
-        return 0;
-
-    case WM_CLOSE:
-
-        //
-        // Closing the main window is equivalent to existing.
-        //
-
-        DestroyWindow( hWnd );
-        return 0;
-
-    case WM_SIZE:
-
-        //
-        // Let the status window know about the change in size and the hand off
-        // the message to DefWindowProc.
-        //
-
-        SendDlgItemMessage( hWnd, ID_STATUS, WM_SIZE, 0, 0L );
-        break;
-
-    case WM_MENUSELECT:
+    case WM_INITMENU:
         {
-            //
-            // If the menu was closed set the help id to the button that has
-            // the keyboard focus.
-            //
-
-            if(( HIWORD( wParam ) == ( WORD ) -1 ) && (( HMENU ) lParam == NULL )) {
-
-                //
-                // Get the help id for the button with the focus.
-                //
-
-                HelpId = GetButtonFocusHelpId( );
-                DbgAssert( HelpId != 0 );
-
-            } else if( HIWORD( wParam ) & MF_POPUP ) {
-
-                static
-                UINT    MenuHelpIds[ ] = {
-
-                            IDS_HELP_FILE_MENU,
-                            IDS_HELP_TOOL_MENU,
-                            IDS_HELP_HELP_MENU
-
-                            };
-
-                //
-                // Set the help id to the help for the pop-up menu.
-                //
-
-                HelpId = MenuHelpIds[ LOWORD( wParam )];
-                DbgAssert( HelpId != 0 );
-
-            } else if( ! ( HIWORD( wParam ) & MF_POPUP )) {
-
-                //
-                // The selected menu is a menu item so set the help id
-                // appropriately.
-                //
-
-                static
-                VALUE_ID_MAP    MenuHelpIds[ ] = {
-
-                    IDM_FILE_FIND_FILE,   IDS_HELP_FILE_FIND_FILE,
-                    IDM_FILE_SAVE,        IDS_HELP_FILE_SAVE,
-                    IDM_FILE_PRINT,       IDS_HELP_FILE_PRINT,
-                    IDM_FILE_PRINT_SETUP, IDS_HELP_FILE_PRINT_SETUP,
-                    IDM_FILE_EXIT,        IDS_HELP_FILE_EXIT,
-                    IDM_TOOL_EVENTVWR,    IDS_HELP_TOOL_EVENTVWR,
-                    IDM_TOOL_REGEDT32,    IDS_HELP_TOOL_REGEDT32,
-                    IDM_TOOL_WINDISK,     IDS_HELP_TOOL_WINDISK,
-                    IDM_HELP_ABOUT,       IDS_HELP_HELP_ABOUT
-                };
-
-                int             i;
-
-                //
-                // If the selected menu item is a file, search the list of
-                // file help ids.
-                //
-
-                if(    ( IDM_FILE_EXIT < LOWORD( wParam ))
-                    && ( LOWORD( wParam ) <= IDM_FILE_EXIT
-                                            + NumberOfEntries( FileHelpIds ))) {
-
-                    for( i = 0; i < NumberOfEntries( FileHelpIds ); i++ ) {
-
-                        if( LOWORD( wParam ) == IDM_FILE_EXIT + i + 1 ) {
-
-                            HelpId = FileHelpIds[ i ];
-                            DbgAssert( HelpId != 0 );
-                            break;
-                        }
-                    }
-
-                } else {
-
-                    for( i = 0; i < NumberOfEntries( MenuHelpIds ); i++ ) {
-
-                        if( LOWORD( wParam ) == MenuHelpIds[ i ].Value ) {
-
-                            HelpId = MenuHelpIds[ i ].Id;
-                            DbgAssert( HelpId != 0 );
-                            break;
-                        }
-                    }
-                }
-            }
-
-            //
-            // Force the new menu help text to be displayed.
-            //
-
-            SendMessage( hWnd, WM_ENTERIDLE, MSGF_MENU, ( LPARAM ) hWnd );
-
-            return 0;
+        // Call SHRestricted, @100 in shell32.dll
+        HMODULE hModule = GetModuleHandle(L"Shell32");
+        FARPROC SHRestricted = GetProcAddress( hModule, (LPCSTR) MAKEWORD(100,0));
+        HMENU hMenu = GetMenu(_hWndMain);
+        //
+        // Remove restriced items from the menu
+        //
+        if (SHRestricted(0x00000001))
+        {
+	        DeleteMenu(hMenu, IDM_RUN_APPLICATION, MF_BYCOMMAND);
         }
 
-    case WM_BUTTONFOCUS:
+        //
+        // Remove restriced items from the menu
+        //
+        if (SHRestricted(0x00000080))
+        {
+	        DeleteMenu(hMenu, IDM_FILE_FIND_FILE, MF_BYCOMMAND);  	     
+        }  
 
         //
-        // Handle the application defined message by setting the help id
-        // to that associated with the button that has the focus.
+        // Enable/Disable the "View Local" menu, based on whether we are 
+        // local or not
         //
-
-        HelpId =   ( wParam == 0 )
-                 ? IDS_DEFAULT_HELP
-                 : wParam;
-        DbgAssert( HelpId != 0 );
+        EnableMenuItem(hMenu, IDM_VIEW_LOCAL, !_fIsRemote); 
 
         //
-        // Force the new button help text to be displayed.
+        // If the workstation service is not started, grey the Select Computer Menu
         //
 
-        SendMessage( hWnd, WM_ENTERIDLE, MSGF_MENU, ( LPARAM ) hWnd );
+	    if (NERR_WkstaNotStarted == NetWkstaGetInfo( L"", 100L,(LPBYTE *) szBuffer ))
+	    {
+		    EnableMenuItem(hMenu, IDM_SELECT_COMPUTER, MF_GRAYED);
+	    }     
 
-        return 0;
+        DrawMenuBar(_hWndMain);
 
-    case WM_ENTERIDLE:
+        break;
+        }
+    case WM_NOTIFY:
+        {
+            static
+            int         nPreviousTab = 1;
 
-        //
-        // When in an idle state, display the current help text in the
-        // status window.
-        //
+            // switch on notification code
 
-        //
-        // See if HelpId has changed since we last updated the status windows
-        //
+            switch ( ((LPNMHDR)lParam)->code ) { 
 
-        if ( HelpId == OldHelpId )
-            return 0;
+            case TCN_SELCHANGE:
+				{
+					TC_ITEM tci;
+					int iSel;
 
-        DbgHandleAssert( hWndStatus );
+					pHdr = (DLGHDR *) GetWindowLong( hWnd, GWL_USERDATA );
 
-        Success = SendMessage(
-                    hWndStatus,
-                    SB_SETTEXT,
-                    0,
-                    ( LPARAM ) GetString( HelpId )
-                    );
-        DbgAssert( Success );
+					iSel = TabCtrl_GetCurSel( pHdr->hwndTab );
 
-        OldHelpId = HelpId;
+					//
+					//get the proper index to the appropriate procs
+					//that were set in MakeTabs
+					//
+					tci.mask = TCIF_PARAM;
+					TabCtrl_GetItem(pHdr->hwndTab, iSel, &tci);						
 
-        return 0;
+					// Destroy the current child dialog box, if any.
+					if (pHdr->hwndDisplay != NULL)
+					  DestroyWindow(pHdr->hwndDisplay);
+
+					// Create the new child dialog box.
+					pHdr->hwndDisplay = CreateDialogIndirect( 
+							_hModule,
+							pHdr->apRes[ tci.lParam ], 
+							hWnd, 
+							pHdr->ChildTabProc[ tci.lParam ] 
+							);
+
+					return(TRUE);
+				}              
+
+            case TTN_NEEDTEXT:
+               {
+                  LPTOOLTIPTEXT lpttt = (LPTOOLTIPTEXT) lParam;
+                  int idCtrl = GetDlgCtrlID((HWND) ((LPNMHDR) lParam)->idFrom);	
+
+                  lpttt->lpszText = (unsigned short *) IDS_APPLICATION_FULLNAME;
+                  lpttt->hinst = _hModule;
+                  return(TRUE);
+
+               }
+
+           }
+           break;
+        }
+
 
     case WM_COMMAND:
         {
+            switch (LOWORD( wParam)) {
 
-            LPCTSTR     DlgTemplate;
-            DLGPROC     DlgProc;
-            LPARAM      lParamInit;
+            // pass these messages on to the TabProc
+            case IDC_PUSH_PROPERTIES:
+            case IDC_PUSH_REFRESH:
+               pHdr = (DLGHDR *) GetWindowLong( hWnd, GWL_USERDATA );
 
-            //
-            // Handle special case commands i.e.those that don't create
-            // a dialog.
-            //
+               PostMessage(pHdr->hwndDisplay,
+                     message,
+                     wParam,
+                     lParam
+                     );
 
-            Success = ProcessSpecialCommands(
-                        hWnd,
-                        message,
-                        wParam,
-                        lParam
-                        );
+               return TRUE;
 
-            if( Success ) {
-                DbgButtonAssert( hWnd );
-                SetFocus( _hWndButtonFocus );
-                return 0;
-            }
+            case IDM_COPY_TAB:
+               if (GetKeyState(VK_SHIFT) & 0x8000) {
 
-            //
-            // By default 0 is passed to the dialog procedures.
-            //
+                  GenerateReport ( hWnd, IDC_CLIPBOARD, IDC_CURRENT_TAB, IDC_COMPLETE_REPORT, FALSE );
 
-            lParamInit = 0;
+               } else {
 
-            //
-            // Initialize lParamInit to a SYSTEM_RESOURCES object for those
-            // dialogs that need it.
-            //
+                  GenerateReport ( hWnd, IDC_CLIPBOARD, IDC_CURRENT_TAB, IDC_SUMMARY_REPORT, FALSE );
 
-            switch( LOWORD( wParam )) {
+               }
+               break;
 
-                case IDC_PUSH_DEVICES:
-                case IDC_PUSH_IRQ_PORT_STATUS:
-                case IDC_PUSH_DMA_MEM_STATUS:
+			case IDM_NEXTTAB:
+			case IDM_PREVTAB:
+				{
+					int iSel;
+					NMHDR nmhdr;
 
-                    //
-                    // Set the pointer to an hourglass - this could take a while
-                    //
+					pHdr = (DLGHDR *) GetWindowLong( hWnd, GWL_USERDATA );
+					iSel = TabCtrl_GetCurSel( pHdr->hwndTab );
 
-                    hSaveCursor = SetCursor ( LoadCursor ( NULL, IDC_WAIT ) ) ;
-                    DbgHandleAssert( hSaveCursor ) ;
+					// set the new tab
+					iSel += (LOWORD( wParam) == IDM_NEXTTAB) ? 1 : -1; 
 
-                    lParamInit = ( LPARAM ) CreateSystemResourceLists( );
+					// make sure we are not tabbing past legal limits
+					if (iSel == TabCtrl_GetItemCount(pHdr->hwndTab)) 
+					{
+						iSel = 0;
+					}
+					else if (iSel < 0) 
+					{
+						iSel = (TabCtrl_GetItemCount(pHdr->hwndTab)) - 1;						
+					}		
 
-                    //
-                    //  Lengthy operation completed.  Restore Cursor.
-                    //
+					TabCtrl_SetCurSel(pHdr->hwndTab, iSel);
 
-                    SetCursor ( hSaveCursor ) ;
+					// SetCurSel doesn't do the page change (that would make too much
+					// sense), so we have to fake up a TCN_SELCHANGE notification
 
-                    DbgPointerAssert(( LPSYSTEM_RESOURCES ) lParamInit );
-                    if(( LPSYSTEM_RESOURCES ) lParamInit == NULL ) {
-                        return 0;
-                    }
-            }
+					nmhdr.hwndFrom = GetDlgItem(_hWndMain, IDC_MAIN_TAB);
+					nmhdr.idFrom   = IDC_MAIN_TAB;
+					nmhdr.code     = TCN_SELCHANGE;
+					
+					SendMessage( hWnd, WM_NOTIFY, (WPARAM) IDC_MAIN_TAB, (LPARAM) &nmhdr);
 
-            //
-            // Based on the command (push button or menu id) initialize the
-            // parameters need for the dialog procedure or perform the
-            // appropriate action. Note that 'break'ing out of this switch will
-            // cause a dialog box to be created.
-            //
+					break;
+				}
 
-            switch( LOWORD( wParam )) {
+            case IDM_FILE_FIND_FILE:
+               {
+					// Call SHFindFile, @90 in shell32.dll
+					HMODULE hModule = GetModuleHandle(L"Shell32");
+					FARPROC pfn = GetProcAddress( hModule, (LPCSTR) MAKEWORD(90,0));
 
-                case IDC_PUSH_ENVIRONMENT:
+					if(pfn)
+					{
+						pfn( NULL, NULL);
+					}
 
-                    DlgTemplate = MAKEINTRESOURCE( IDD_ENVIRONMENT );
-                    DlgProc     = EnvironmentDlgProc;
-                    break;
+					break;
+               }
 
-                case IDC_PUSH_MEMORY:
+            case IDM_RUN_APPLICATION:
 
-                    DlgTemplate = MAKEINTRESOURCE( IDD_MEMORY );
-                    DlgProc     = MemoryDlgProc;
-                    break;
+                  Success = DoRunApplication( hWnd );
+                  break;
 
-                case IDC_PUSH_HARDWARE:
-
-                    DlgTemplate = MAKEINTRESOURCE( IDD_HARDWARE );
-                    DlgProc     = HardwareDlgProc;
-                    break;
-
-                case IDC_PUSH_NETWORK:
-
-                    DlgTemplate = MAKEINTRESOURCE( IDD_NETWORK );
-                    DlgProc     = NetworkDlgProc;
-                    break;
-
-                case IDC_PUSH_SYSTEM:
-
-                    DlgTemplate = MAKEINTRESOURCE( IDD_SYSTEM );
-                    DlgProc     = SystemDlgProc;
-                    break;
-
-                case IDC_PUSH_OS_VERSION:
-
-                    DlgTemplate = MAKEINTRESOURCE( IDD_OS_VERSION );
-                    DlgProc     = OsVersionDlgProc;
-                    break;
-
-                case IDC_PUSH_DRIVERS:
-
-                    DlgTemplate = MAKEINTRESOURCE( IDD_SERVICE_LIST );
-                    DlgProc     = ServiceListDlgProc;
-                    lParamInit  = SERVICE_DRIVER;
-                    break;
-
-                case IDC_PUSH_SERVICES:
-
-                    DlgTemplate = MAKEINTRESOURCE( IDD_SERVICE_LIST );
-                    DlgProc     = ServiceListDlgProc;
-                    lParamInit  = SERVICE_WIN32;
-                    break;
-
-                case IDC_PUSH_DEVICES:
-
-                    DlgTemplate = MAKEINTRESOURCE( IDD_DEVICES );
-                    DlgProc     = DeviceListDlgProc;
-                    break;
-
-                case IDC_PUSH_IRQ_PORT_STATUS:
-
-                    DlgTemplate = MAKEINTRESOURCE( IDD_IRQ_PORT_RESOURCE );
-                    DlgProc     = IrqAndPortResourceDlgProc;
-                    break;
-
-                case IDC_PUSH_DMA_MEM_STATUS:
-
-                    DlgTemplate = MAKEINTRESOURCE( IDD_DMA_MEM_RESOURCE );
-                    DlgProc     = DmaAndMemoryResourceDlgProc;
-                    break;
-
-                case IDC_PUSH_DRIVES:
-
-                    DlgTemplate = MAKEINTRESOURCE( IDD_DRIVES );
-                    DlgProc     = DrivesDlgProc;
-                    break;
+            case IDM_WHATS_THIS:
+                  PostMessage(hWnd, WM_SYSCOMMAND, SC_CONTEXTHELP, 0);
+                  break;
 
 
-                case IDM_FILE_FIND_FILE:
-
-                    DlgTemplate = MAKEINTRESOURCE( IDD_FIND_FILE );
-                    DlgProc     = FindFileDlgProc;
-                    break;
-
-                case IDM_FILE_PRINT:
-                case IDM_FILE_SAVE:
-
-                    DlgTemplate = MAKEINTRESOURCE( IDD_REPORT );
-                    DlgProc     = ReportDlgProc;
-                    lParamInit  = LOWORD( wParam );
-                    break;
-
-                }
-
+            case IDC_PUSH_PRINT:
+            case IDM_FILE_PRINT:
+            case IDM_FILE_SAVE:
+  
                 //
-                // Create the dialog box based on the parameters set up above.
+                // Call the create report setup dialog.
                 //
-
                 DialogBoxParam(
                    _hModule,
-                   DlgTemplate,
+                   MAKEINTRESOURCE( IDD_REPORT ),
                    hWnd,
-                   DlgProc,
-                   lParamInit
+                   ReportDlgProc,
+                   LOWORD( wParam )
                    );
+                 break;
+                
+            case IDOK:
+            case IDM_FILE_EXIT:
+                 PostMessage(hWnd, WM_CLOSE, 0, 0L);
+                 break;
 
-                switch( LOWORD( wParam )) {
+            case IDM_FILE_PRINT_SETUP:
+                 //
+                 // Call the Printer setup common dialog.
+                 //
+                 PrtDlg.lStructSize   = sizeof(PRINTDLG);
+                 PrtDlg.hwndOwner     = hWnd;
+                 PrtDlg.hDevMode      = NULL;
+                 PrtDlg.hDevNames     = NULL;
+                 PrtDlg.hDC           = NULL;
+                 PrtDlg.Flags         = PD_PRINTSETUP;
 
-                    case IDC_PUSH_DEVICES:
-                    case IDC_PUSH_IRQ_PORT_STATUS:
-                    case IDC_PUSH_DMA_MEM_STATUS:
+                 PrintDlg ( &PrtDlg ) ;
+                 return TRUE;
 
-                        Success = DestroySystemResourceLists(
-                                        ( LPSYSTEM_RESOURCES ) lParamInit
-                                        );
-                        DbgAssert( Success );
-                }
+            case IDM_SELECT_COMPUTER:
+				{
+					TC_ITEM tci;
+					TCHAR szBuffer[MAX_PATH];
+					int iSel;
 
-                //
-                // Set the focus back to the button that was just pressed.
-                // By default the main window will get the focus.
-                //
+					//
+					// Select Computer.
+					//
 
-                DbgButtonAssert( hWnd );
-                SetFocus( _hWndButtonFocus );
-                return 0;
+					if( SelectComputer( hWnd, _lpszSelectedComputer ) )
+					{	  
+						pHdr = (DLGHDR *) GetWindowLong( hWnd, GWL_USERDATA );
+
+						//
+						// Recreate the tab control for the new machine
+						//
+
+						MakeTabs( hWnd, hMainTabControl );
+
+						// Set Tab control to first tab
+						pHdr = (DLGHDR *) GetWindowLong( hWnd, GWL_USERDATA );
+						pHdr->hwndDisplay = CreateDialogIndirect( _hModule,
+						pHdr->apRes[ 0 ], hWnd, pHdr->ChildTabProc[ 0 ] );
+
+						return(TRUE);
+
+					}
+
+					return(FALSE);
+				}
+
+              case IDM_VIEW_LOCAL:
+                 {
+					 DWORD  cb;
+
+					 //
+					 // View local machine.
+					 //
+
+					 //
+					 // Reset the pointer to HKEY_LOCAL_MACHINE and the fIsRemote flag
+					 //
+
+					 _fIsRemote = FALSE;
+					 RegCloseKey( _hKeyLocalMachine );
+					 _hKeyLocalMachine = HKEY_LOCAL_MACHINE;
+
+                     RegCloseKey( _hKeyUsers );
+					 _hKeyUsers = HKEY_USERS;
+
+
+					 //
+					 // Reset the window title
+					 //
+
+					 cb = sizeof(_lpszSelectedComputer);
+					 GetComputerName(_lpszSelectedComputer, &cb);
+
+					 wsprintf(szBuffer, L"Windows NT %s - \\\\%s",
+						   GetString( IDS_APPLICATION_NAME ),
+						   _lpszSelectedComputer);
+
+					 Success = SetWindowText(hWnd, szBuffer);
+
+					 DbgAssert( Success );
+
+					 //
+					 // Recreate the tab control for the new machine
+					 //
+					 
+					 MakeTabs( hWnd, hMainTabControl );
+
+					 // Set Tab control to first tab
+					 pHdr = (DLGHDR *) GetWindowLong( hWnd, GWL_USERDATA );
+					 pHdr->hwndDisplay = CreateDialogIndirect( 
+							_hModule,
+							pHdr->apRes[ 0 ], 
+							hWnd, 
+							pHdr->ChildTabProc[ 0 ] 
+							);
+					 
+					 return TRUE;
+                 }
+
+            case IDM_HELP_ABOUT:
+                 //
+                 // Display the About dialog.
+                 //
+                 ShellAbout(
+                     hWnd,
+                     ( LPWSTR ) GetString( IDS_APPLICATION_NAME ),
+                     INTERNAL_VERSION,
+                     _hIcon
+                     );
+
+                 return TRUE;
+
             }
+            break;
 
-        //
-        // Unhandled WM_COMMAND messages.
-        //
+        }
+    case WM_CLOSE:
+        {
+            DWORD dwDisposition;
+            HKEY  hKey;
+            WINDOWPLACEMENT wp;
 
-        break;
+            //
+            // Do some clean up
+            //
+            pHdr = (DLGHDR *) GetWindowLong( hWnd, GWL_USERDATA );
 
-        default:
-        	return DefWindowProc ( hWnd, message, wParam, lParam ) ;
 
+            //
+            // Save the window position to the registry
+            //
+
+            wp.length = sizeof(WINDOWPLACEMENT);
+
+            GetWindowPlacement(hWnd, &wp);
+
+            if (ERROR_SUCCESS == RegCreateKeyEx(HKEY_CURRENT_USER,
+                                                SZ_WINMSD_KEY,
+                                                0,
+                                                TEXT("REG_BINARY"),
+                                                REG_OPTION_NON_VOLATILE,
+                                                KEY_WRITE,
+                                                NULL,
+                                                &hKey,
+                                                &dwDisposition))
+            {
+                RegSetValueEx(hKey,
+                              L"Preferences",
+                              0,
+                              REG_BINARY,
+                              (LPBYTE) &wp,
+                              sizeof(wp)); 
+
+                RegCloseKey(hKey); 
+            }  
+            
+            //
+            // Close the registry keys
+            //
+            RegCloseKey(_hKeyLocalMachine);
+            RegCloseKey(_hKeyUsers);
+
+            //
+            // Destroy Current tab
+            //
+            DestroyWindow(pHdr->hwndDisplay);
+
+            //
+            // Free memory associated with Tab structure
+            //
+            LocalFree( pHdr );
+
+            //
+            // Commit suicide
+            //
+            DestroyWindow( hWnd );
+
+            break;
+        }
     case WM_DESTROY:
 
         //
         // Destroy the application.
         //
-
         PostQuitMessage( 0 );
         return 0;
     }
@@ -1227,83 +1179,293 @@ Return Value:
     //
 
     return DefWindowProc( hWnd, message, wParam, lParam );
-}
-
-int
-_CRTAPI1
-main(
-    )
 
+}
+
+
+BOOL
+GetTabClientRect( IN HWND hWndTab,
+                  IN LPRECT lpRect
+                  )
 /*++
 
 Routine Description:
 
-    Main is the entry point for Winmsd. It initializes the application and
-    manages the message pump. When the message pump quits, main performs some
-    global cleanup (i.e. unregistering from the 3d controls).
+  GetTabClientRect calculates the client area of the Tab control relative
+  to the main window
 
 Arguments:
 
-    None.
+  HWND hWndTab -- handle of tab control
+  LPRECT lpRect -- pointer to RECT structure that will recieve the data
 
 Return Value:
 
-    int - Returns the result of the PostQuitMessgae API or -1 if
-          initialization failed.
+  BOOL - TRUE if successful
 
 --*/
 
 {
+   UINT fSuccess = TRUE;
 
-    MSG     msg;
+   // first get the size of the tab control
+   if (GetWindowRect( hWndTab, lpRect ) == FALSE)
+      fSuccess = FALSE;
 
-    if( InitializeApplication( )) {
+   // adjust it to compensate for the tabs
+   TabCtrl_AdjustRect( hWndTab, FALSE , lpRect);
 
-        while( GetMessage( &msg, NULL, 0, 0 )) {
+   // convert the screen coordinates to client coordinates
+   MapWindowPoints( HWND_DESKTOP, GetParent(hWndTab), (LPPOINT) lpRect, 2);
 
-            if( ! IsDialogMessage( _hWndMain, &msg )) {
+   return(fSuccess);
 
-                TranslateMessage( &msg );
-                DispatchMessage( &msg );
-            }
-        }
-
-#if defined( CTL3D )
-
-    {
-
-        BOOL    Success;
-
-        Success = Ctl3dUnregister( _hModule );
-        DbgAssert( Success == TRUE );
-    }
-
-#endif // CTL3D
-
-        return msg.wParam;
-    }
-
-    //
-    // Initialization failed.
-    //
-
-    return -1;
 }
-
-BOOL
-ProcessSpecialCommands(
-    IN HWND hWnd,
-    IN UINT message,
-    IN WPARAM wParam,
-    IN LPARAM lParam
-    )
 
+
+BOOL
+MakeTabs(
+    IN HWND hWnd,
+    IN HWND hMainTabControl
+    )
 /*++
 
 Routine Description:
 
-    ProcessSpecialCommands processes WM_COMMAND messages that don't cause a
-    standard Winmsd dialog.
+    MakeTabs fills out the Main Tab Control with appropriate tabs
+
+Arguments:
+
+    HWND hWnd - handle of main window
+    HWND hMainTabControl - handle to the tab control
+
+Return Value:
+
+    BOOL - Returns TRUE if successful.
+
+--*/
+{
+
+    DLGHDR *pHdr = (DLGHDR *) LocalAlloc(LPTR, sizeof(DLGHDR));
+	DLGHDR *pOldHdr = (DLGHDR *) GetWindowLong( hWnd, GWL_USERDATA );
+
+    TC_ITEM tci;
+    TCHAR   pszTabText[30];
+	
+    int i;
+
+    DWORD Tab[C_PAGES] = {IDD_VERSION_TAB,
+                          IDD_HARDWARE_TAB,
+                          IDD_VIDEO_TAB,
+                          IDD_DRIVES_TAB,
+                          IDD_MEMORY_TAB,
+                          //IDD_INSTALLATION_TAB,
+                          IDD_DRIVERS_SERVICES_TAB,
+                          IDD_IRQ_PORT_DMA_MEM_TAB,
+                          IDD_ENVIRONMENT_TAB,
+                          //IDD_PRINTING_TAB,
+                          IDD_NETWORK_TAB
+                          };
+
+
+	//
+	// If the old pointer is valid, remove all tabs free 
+	// the structure, then save a pointer to the new DLGHDR structure.
+	//
+
+	if (pOldHdr)
+	{
+        
+        // Destroy the current child dialog box, if any.
+        if (pOldHdr->hwndDisplay != NULL)
+        {
+            DestroyWindow(pOldHdr->hwndDisplay);
+        }
+
+		TabCtrl_DeleteAllItems(hMainTabControl);	
+
+		LocalFree(pOldHdr);
+
+	}
+
+    SetWindowLong(hWnd, GWL_USERDATA, (LONG) pHdr);
+
+	//
+	// Save pointers to the tab procs
+	//
+
+	pHdr->ChildTabProc[0] = VersionTabProc;
+	pHdr->ChildTabProc[1] = HardwareTabProc;
+	pHdr->ChildTabProc[2] = VideoTabProc;
+	pHdr->ChildTabProc[3] = DrivesTabProc;
+    pHdr->ChildTabProc[4] = MemoryTabProc;
+	pHdr->ChildTabProc[5] = DevicesAndServicesTabProc;
+	pHdr->ChildTabProc[6] = DeviceDlgProc;
+	pHdr->ChildTabProc[7] = EnvironmentTabProc;
+	pHdr->ChildTabProc[8] = NetworkDlgProc;
+
+	//
+	// Save pointers to the print procs
+	//
+
+	pHdr->TabPrintProc[0] = BuildOsVerReport;
+	pHdr->TabPrintProc[1] = BuildHardwareReport;
+	pHdr->TabPrintProc[2] = BuildVideoReport;
+	pHdr->TabPrintProc[3] = BuildDrivesReport;
+    pHdr->TabPrintProc[4] = BuildMemoryReport;
+	pHdr->TabPrintProc[5] = BuildServicesReport;
+	pHdr->TabPrintProc[6] = BuildResourceReport;
+	pHdr->TabPrintProc[7] = BuildEnvironmentReport;
+	pHdr->TabPrintProc[8] = BuildNetworkReport;	
+
+    // Save the handle to the main tab control.
+    pHdr->hwndTab = hMainTabControl;
+
+	//
+	// Assume we will be displaying the tab
+	//									   
+	for (i = 0; i < C_PAGES; i++) 
+	{
+		pHdr->fActiveTab[i] = TRUE;
+    }
+
+	// Check to see if the network is running
+	// if it is not, do not display the network tab
+	if (NERR_WkstaNotStarted == NetWkstaGetInfo( L"", 100L,(LPBYTE *) pszTabText ))
+	{
+		pHdr->fActiveTab[8] = FALSE;
+	}
+
+	// If we are remote, disable the Drives and Memory tabs
+	if (_fIsRemote)
+	{
+		pHdr->fActiveTab[3] = FALSE;
+		pHdr->fActiveTab[4] = FALSE;   
+	}
+
+	//
+	// For the Active tabs, insert them in the control
+	//
+
+    tci.mask         = TCIF_TEXT | TCIF_PARAM;
+    tci.pszText      = pszTabText;
+    tci.cchTextMax   = sizeof( pszTabText );
+
+    for (i = 0; i < C_PAGES; i++) {
+
+		if ( pHdr->fActiveTab[i] )
+		{
+			// Get the Tab title, the current index + the strind ID
+			tci.pszText = (LPTSTR) GetString( i + IDS_FIRST_TAB);
+
+			// store the index to the procs
+			tci.lParam = i;
+
+			// insert the tab
+			TabCtrl_InsertItem( hMainTabControl, i + 1, &tci );
+
+			// lock the resources for the dialog
+			pHdr->apRes[i] = DoLockDlgRes( MAKEINTRESOURCE( Tab[i] ) );	 
+		}  
+
+    }
+
+    // Save the size of the tab control's client area
+    GetTabClientRect( pHdr->hwndTab , &pHdr->rcDisplay );
+
+
+    return(TRUE);
+
+}
+
+
+DLGTEMPLATE * WINAPI
+DoLockDlgRes(LPWSTR lpszResName)
+/*++
+
+Routine Description:
+
+    DoLockDlgRes - loads and locks a dialog template resource.
+
+Arguments:
+
+    lpszResName - name of the resource
+
+Return Value:
+
+    Returns a pointer to the locked resource.
+
+--*/
+{
+
+    HRSRC hrsrc = FindResource(NULL, lpszResName, RT_DIALOG);
+    HGLOBAL hglb = LoadResource(_hModule, hrsrc);
+    return (DLGTEMPLATE *) LockResource(hglb);
+
+}
+
+
+BOOL
+DoRunApplication( IN HWND hWnd )
+/*++
+
+Routine Description:
+
+    DoRunApplication
+
+    Invoke the run application dialog box. Afterwards, execute the command
+    that the user entered. [Borrowed from MSINFO32]
+
+
+Arguments:
+
+    hWnd - handle of main window
+
+Return Value:
+
+    TRUE is successful
+
+--*/
+{
+    BOOL bOK = FALSE;
+
+
+     //
+     // Call the dialog
+     //
+     BOOL fRun = DialogBox(_hModule,
+                           MAKEINTRESOURCE(IDD_RUN_APPLICATION),
+                           hWnd,
+                           (DLGPROC) RunDlgProc);
+
+     //
+     // Execute the command line
+     //
+     if (fRun)
+         {
+         HCURSOR hcurPrev = SetCursor(LoadCursor(NULL, IDC_WAIT));
+         StartProcess(NULL, g_szRunApp);
+         SetCursor(hcurPrev);
+         bOK = TRUE;
+         }
+
+
+    return (bOK);
+}
+
+
+
+LRESULT
+RunDlgProc(
+    HWND    hDlg,
+    UINT    message,
+    WPARAM  wParam,
+    LPARAM  lParam)
+/*++
+
+Routine Description:
+
+    RunDlgProc "Run System Applications" dialog box procedure.
 
 Arguments:
 
@@ -1311,106 +1473,529 @@ Arguments:
 
 Return Value:
 
-    BOOL - Returns TRUE if the message was processed.
+    LRESULT - Depending on input message and processing options.
+
+--*/
+{
+    OPENFILENAME ofn;
+
+    switch (message)
+    {
+    case WM_INITDIALOG:
+        {
+        HWND hWndRunList = GetDlgItem(hDlg, didlbxProgs);
+        int i;
+
+        //
+        //  Initialize applications listbox w/ existing applications
+        //
+
+        for (i = 0; i < NumberOfEntries( Tools ); i++){
+               ListBox_AddString( hWndRunList, GetString( Tools[i].iDisplayName) );
+        }
+
+        //
+        //  Set the initial selection to null and disable the OK button
+        //
+
+        ListBox_SetCurSel(hWndRunList, -1);
+        EnableControl(hDlg, IDOK, FALSE);
+
+        //
+        //  Setup the history list
+        //
+
+        InitHistoryList(hDlg);
+        return(TRUE);
+
+        }
+
+    case WM_COMMAND:
+        {
+        HWND hWndRunList = GetDlgItem(hDlg, didlbxProgs);
+        WORD wID = LOWORD(wParam);
+        WORD wNotifyCode = HIWORD(wParam);
+        BOOL bValid;
+
+        if ((wID == IDOK) || (wID == IDCANCEL))
+            {
+            if (wID == IDCANCEL)
+                {
+                g_szRunApp[0] = UNICODE_NULL;
+                }
+            else
+                {
+				    GetRunCommand(hDlg, g_szRunApp, sizeof(g_szRunApp));
+                }
+            EndDialog(hDlg, (wID == IDOK));
+            return(TRUE);
+            }
+
+        //  If the run history list is clicked, remove any highlight from run list
+        //  and enable OK if command is nonblank
+        else if (wID == didcbxRunHistory)
+            {
+            if ((wNotifyCode == CBN_EDITCHANGE) ||
+                (wNotifyCode == CBN_SELCHANGE)  ||
+                (wNotifyCode == CBN_SETFOCUS))
+                {
+                ListBox_SetCurSel(hWndRunList, -1);
+                bValid = GetRunHistoryCommand(hDlg, g_szRunApp, sizeof(g_szRunApp));
+                EnableControl(hDlg, IDOK, bValid);
+                }
+            break;
+            }
+
+        else if (wID == didbtnBrowse)
+            {
+            TCHAR szFilters[MAX_PATH];
+            TCHAR szTitle[64];
+            TCHAR szDir[MAX_PATH];
+            TCHAR szPath[MAX_PATH];
+
+
+            // get filters and fix nulls
+            lstrcpy(szFilters, GetString (IDS_PROGRAMFILTERS) );
+            FixupNulls(szFilters);
+
+            //get title
+            lstrcpy(szTitle, GetString( IDS_BROWSE ) );
+
+            // On NT, we like to start apps in the HOMEPATH directory.  This
+            // should be the current directory for the current process.
+
+            GetEnvironmentVariable(TEXT("HOMEDRIVE"), szDir, sizeof(szDir));
+            GetEnvironmentVariable(TEXT("HOMEPATH"), szPath, sizeof(szPath));
+
+            lstrcat(szDir, L"\\");
+            lstrcat(szDir, szPath);
+
+            // reuse szPath for filename
+            szPath[0] = UNICODE_NULL;
+
+             // Setup info for comm dialog.
+             ofn.lStructSize       = sizeof(ofn);
+             ofn.hwndOwner         = hDlg;
+             ofn.hInstance         = NULL;
+             ofn.lpstrFilter       = szFilters;
+             ofn.lpstrCustomFilter = NULL;
+             ofn.nFilterIndex      = 1;
+             ofn.nMaxCustFilter    = 0;
+             ofn.lpstrFile         = szPath;
+             ofn.nMaxFile          = MAX_PATH;
+             ofn.lpstrInitialDir   = szDir;
+             ofn.lpstrTitle        = szTitle;
+             ofn.Flags             = OFN_PATHMUSTEXIST | OFN_HIDEREADONLY | OFN_FILEMUSTEXIST;
+             ofn.lpfnHook          = NULL;
+             ofn.lpstrDefExt       = NULL;
+             ofn.lpstrFileTitle    = NULL;
+
+            // Call it.
+            if (GetOpenFileName(&ofn)){
+
+               //if there is a space in the path, quote the string
+               if(wcschr(ofn.lpstrFile, L' ')){
+                  wsprintf(szDir, L"\"%s\"", ofn.lpstrFile);
+                  SetDlgItemText( hDlg, didcbxRunHistory,  szDir);
+               }
+               else{
+                  SetDlgItemText( hDlg, didcbxRunHistory, ofn.lpstrFile);
+               }
+
+               EnableControl(hDlg, IDOK, TRUE);
+               SetFocus( GetDlgItem( hDlg, IDOK ) );
+            }
+            return(TRUE);
+            }
+        else if (wID == didlbxProgs)
+            {
+            INT nCurSel = ListBox_GetCurSel(hWndRunList);
+            BOOL bValidSelection = (nCurSel != LB_ERR);
+            if (wNotifyCode == LBN_DBLCLK)
+                {
+                if (bValidSelection)
+                    {
+			             GetRunCommand(hDlg, g_szRunApp, lstrlen(g_szRunApp));
+		                EndDialog(hDlg, TRUE);
+		                return (TRUE);
+                    }
+                }
+            EnableControl(hDlg, IDOK, bValidSelection);
+            }
+        break;
+        }
+    }
+
+    return(FALSE);
+}
+
+
+
+BOOL
+GetRunCommand (HWND hDlg,
+      LPWSTR pszCommand,
+      INT nMaxLen
+      )
+/*++
+
+Routine Description:
+
+    GetRunCommand Copies the command line for the selected application (to be run)
+    into the specified buffer.
 
 --*/
 
 {
-    PRINTDLG    PrtDlg;
-    BOOL        Success;
+	BOOL bOK = TRUE;
 
-    if( LOWORD( wParam ) == IDCANCEL ) {
+    HWND hWndRunList = GetDlgItem(hDlg, didlbxProgs);
+    INT nAppPos = ListBox_GetCurSel(hWndRunList);
 
-        //
-        // Grab Bogus IDCANCEL Message
-        //
+    if (nAppPos == -1)
+        {
+        BOOL bValid = GetRunHistoryCommand(hDlg, pszCommand, nMaxLen);
+        if (bValid)
+            {
+            ReviseHistoryList(pszCommand);
+            }
+        else
+            {
+            bOK = FALSE;
+            pszCommand[0] = UNICODE_NULL;
+            }
+        }
 
-        return TRUE;
+    else
+    {
+        TCHAR ExpandedPath[MAX_PATH];
 
-    } else if( LOWORD( wParam ) == IDM_FILE_EXIT ) {
+        ExpandEnvironmentStrings(Tools[nAppPos].szExecutableName, ExpandedPath, MAX_PATH);
 
-        //
-        // Terminate Winmsd.
-        //
-
-        SendMessage( hWnd, WM_CLOSE, 0, 0 );
-        return TRUE;
-
-    } else if( LOWORD( wParam ) == IDM_FILE_PRINT_SETUP ) {
-
-        //
-        // Call the Printer setup common dialog.
-        //
-
-        PrtDlg.lStructSize   = sizeof(PRINTDLG);
-        PrtDlg.hwndOwner     = hWnd;
-        PrtDlg.hDevMode      = NULL;
-        PrtDlg.hDevNames     = NULL;
-        PrtDlg.hDC           = NULL;
-        PrtDlg.Flags         = PD_PRINTSETUP;
-
-        PrintDlg ( &PrtDlg ) ;
-        return TRUE;
-
-    } else if( LOWORD( wParam ) == IDC_PUSH_COMPUTER ) {
-
-        //
-        // Select Computer.
-        //
-
-        Success = SelectComputer( hWnd, _lpszSelectedComputer );
-
-        return TRUE;
-
-    } else if( LOWORD( wParam ) == IDM_HELP_ABOUT ) {
-
-        //
-        // Display the About dialog.
-        //
-
-        ShellAbout(
-            hWnd,
-            ( LPWSTR ) GetString( IDS_APPLICATION_NAME ),
-            INTERNAL_VERSION,
-            _hIcon
-            );
-        return TRUE;
-
-    } else if(      ( IDM_FILE_EXIT < LOWORD( wParam ))
-                &&  ( LOWORD( wParam ) <= IDM_FILE_EXIT
-                      + NumberOfEntries( SpecialFiles ))) {
-
-        DISPLAY_FILE    DisplayFile;
-
-        //
-        // Handle special files in File menu.
-        //
-
-        DisplayFile.Name
-            = &SpecialFiles
-              [ LOWORD( wParam ) - IDM_FILE_EXIT - 1 ]
-              [ 3 ];
-        DisplayFile.Size = 0;
-        SetSignature( &DisplayFile );
-
-        DialogBoxParam(
-           _hModule,
-           MAKEINTRESOURCE( IDD_DISPLAY_FILE ),
-           hWnd,
-           DisplayFileDlgProc,
-           ( LPARAM ) &DisplayFile
-           );
-        return TRUE;
-
-    } else {
-
-        //
-        // See if one of the tools needs to be run.
-        //
-
-        Success = RunTool( LOWORD(wParam ));
-        return Success;
+        lstrcpy(pszCommand, ExpandedPath);
     }
 
+	return (bOK);
+}
+
+
+BOOL
+GetRunHistoryCommand (HWND hDlg,
+      LPWSTR pszCommand,
+      INT nMaxLen
+      )
+/*++
+
+Routine Description:
+
+    GetRunHistoryCommand -- Gets the current command in the run history list
+
+--*/
+
+{
+    HWND hWndRunHistory = GetDlgItem(hDlg, didcbxRunHistory);
+    INT nCommandLen = GetDlgItemText(hDlg, didcbxRunHistory, (LPTSTR) pszCommand, nMaxLen);
+    LPWSTR pszStart = NULL;
+    BOOL bOK = 0;
+
+    if (nCommandLen == 0)
+        {
+        INT nCurSel = ComboBox_GetCurSel(hWndRunHistory);
+        if (nCurSel != CB_ERR)
+            {
+            nCommandLen = ComboBox_GetLBText(hWndRunHistory, nCurSel, pszCommand);
+            DbgAssert((nCommandLen != LB_ERR) && (nCommandLen <= nMaxLen));
+            }
+        }
+
+    pszStart = pszCommand;
+
+    //BUGBUG: the following line is intended to skip initial spaces, but does not work
+    // while( lstrcmp(pszStart++, L" ") == 0 );
+    bOK = ((nCommandLen > 0) && (*pszStart != UNICODE_NULL));
+
+    return (bOK);
+}
+
+BOOL
+InitHistoryList (HWND hDlg)
+/*++
+
+Routine Description:
+
+    InitHistoryList -- Initialize the history list for the previous commands exectued
+
+--*/
+
+{
+    HWND    hWndRunHistory = GetDlgItem(hDlg, didcbxRunHistory);
+    LPTSTR  pszRunHistory = NULL;
+    LPWSTR  pszPos = NULL;
+    LPWSTR  pszEnd = NULL;
+    DWORD   cb;
+    BOOL    Success;
+    HKEY    hKey;
+
+    // Allocate a buffer for the history list
+    cb = MAX_HISTORY * MAX_PATH * sizeof(TCHAR);
+    pszRunHistory = (LPTSTR) LocalAlloc(LPTR, cb);
+
+    if( pszRunHistory == NULL )
+       return(FALSE);
+
+    //
+    // Open the winmsd key in the registry
+    //
+
+    Success = RegCreateKeyEx( HKEY_CURRENT_USER,
+                              SZ_WINMSD_KEY,
+                              0,
+                              NULL,
+                              REG_OPTION_NON_VOLATILE,
+                              KEY_ALL_ACCESS,
+                              NULL,
+                              &hKey,
+                              &cb);
+
+    if(Success != ERROR_SUCCESS){
+      LocalFree(pszRunHistory);
+       return( FALSE );
+    }
+
+    //
+    // Read the history value
+    //
+    cb = LocalSize( pszRunHistory );
+
+    Success = RegQueryValueEx( hKey,
+                               (LPWSTR) GetString(IDS_HISTORY),
+                               0,
+                               NULL,
+                               (LPBYTE) pszRunHistory,
+                               &cb);
+
+    if(Success != ERROR_SUCCESS){
+      LocalFree(pszRunHistory);
+       return( FALSE );
+    }
+
+    RegCloseKey(hKey);
+
+    pszPos = pszRunHistory;
+    pszEnd = pszRunHistory + cb;
+
+    while (*pszPos && (pszPos < pszEnd))
+        {
+        ComboBox_AddString(hWndRunHistory, pszPos);
+        pszPos += 1 + lstrlen(pszPos);
+        }
+
+   LocalFree(pszRunHistory);
+
+    return (TRUE);
+}
+
+
+BOOL
+ReviseHistoryList (LPWSTR pszCommand)
+/*++
+
+Routine Description:
+
+    ReviseHistoryList -- Add the command to the front of the history list,
+                         removing any existing occurrence(s).
+
+--*/
+
+{
+    LPWSTR  pszNewHistory = NULL;
+    DWORD   cbMax = MAX_HISTORY * MAX_PATH * sizeof(TCHAR);
+    DWORD   dwDisposition;
+    UINT    pos;
+    DWORD   cbRemainingBytes;
+    BOOL    Success;
+    HKEY    hKey;
+
+    // Allocate a buffer for the new history list + 1 MAX_PATH for new command
+    pszNewHistory = (LPWSTR) LocalAlloc(LPTR, cbMax + (MAX_PATH * sizeof(TCHAR)));
+
+    // make sure we have a buffer
+    if(pszNewHistory == NULL){
+       DbgAssert(pszNewHistory);
+       return(FALSE);
+    }
+
+    // Put the command at the front of the history list, obtained from registry
+    lstrcpy(pszNewHistory, pszCommand);
+
+    //set the pos to the next available char
+    pos = lstrlen(pszNewHistory) + 1;
+
+    //
+    // Open the winmsd key in the registry
+    //
+
+    Success = RegCreateKeyEx( HKEY_CURRENT_USER,
+                              SZ_WINMSD_KEY,
+                              0,
+                              NULL,
+                              REG_OPTION_NON_VOLATILE,
+                              KEY_ALL_ACCESS,
+                              NULL,
+                              &hKey,
+                              &dwDisposition);
+
+    if((Success == ERROR_SUCCESS) && (dwDisposition == REG_OPENED_EXISTING_KEY)){
+
+       //
+       // We opened an existing key so read the value for the old run history
+       //
+       cbRemainingBytes = cbMax - pos;
+
+       Success = RegQueryValueEx( hKey,
+                                  GetString(IDS_HISTORY),
+                                  0,
+                                  NULL,
+                                  (LPBYTE) &pszNewHistory[pos],
+                                  &cbRemainingBytes);
+
+       if((Success == ERROR_SUCCESS) && cbRemainingBytes){
+
+          // make sure the list is double NULL terminated
+          cbMax = cbRemainingBytes + pos;
+          pszNewHistory[cbMax + 1] = UNICODE_NULL;
+          pszNewHistory[cbMax + 2] = UNICODE_NULL;
+
+          while ((pszNewHistory[pos] != UNICODE_NULL)){
+
+              //Stop if the current element matches the text completely
+              if (lstrcmpi(pszNewHistory, &pszNewHistory[pos]) == 0){
+
+                    // move the rest of the string up, and exit the while loop.
+                    cbMax -= (lstrlen( &pszNewHistory[pos] ) + 1);
+                    MoveMemory(&pszNewHistory[pos],
+                               &pszNewHistory[pos + (lstrlen( &pszNewHistory[pos] ) + 1)],
+                               cbRemainingBytes);
+                    break;
+              }
+              pos += lstrlen( &pszNewHistory[pos] ) + 1;
+              cbRemainingBytes = cbMax - pos;
+          }
+       }
+    }
+
+    //
+    // Write the history value back to the registry
+    //
+
+
+    Success = RegSetValueEx( hKey,
+                             GetString(IDS_HISTORY),
+                             0,
+                             REG_MULTI_SZ,
+                             (LPBYTE) pszNewHistory,
+                             cbMax);
+
+    RegCloseKey(hKey);
+
+    LocalFree(pszNewHistory);
+
+    return (TRUE);
+}
+
+
+BOOL StartProcess (LPWSTR pszApplication, LPWSTR pszParameters)
+/*++
+
+Routine Description:
+
+    StartProcess -- Starts the command line specified by pszApplication
+
+--*/
+
+{
+    BOOL bOK = TRUE;
+    PROCESS_INFORMATION pi;
+    STARTUPINFO si;
+
+    memset(&si, 0, sizeof(si));
+    si.cb = sizeof(si);
+
+    bOK = CreateProcess(pszApplication,         // module name
+                        (LPWSTR)pszParameters,	// command line
+                        NULL,	                  // process security attributes
+                        NULL, 				      // thread security attributes
+                        FALSE, 				      // new process inherits handles
+                        NORMAL_PRIORITY_CLASS,  // creation flags
+                        NULL, 				      // new environment block
+                        NULL, 				      // current directory name
+                        &si, 		               // STARTUPINFO
+                        &pi);			            // PROCESS_INFORMATION
+	if (!bOK)
+		{
+         // WORKITEM: handle failure with a msg
+		}
+
+    return (bOK);
+}
+
+VOID
+FixupNulls(LPWSTR p)
+/*++
+
+Routine Description:
+
+    FixupNulls -- since LoadString() only reads up to a null we have to mark
+                  special characters where we want nulls then convert them
+                  after loading.
+
+--*/
+{
+   LPTSTR pT;
+
+   while (*p) {
+      if (*p == L'#') {
+         pT = p;
+         p = CharNext(p);
+         *pT = UNICODE_NULL;
+      }
+      else
+         p = CharNext(p);
+   }
+}
+
+//
+//  debug support
+// 
+
+#if DBG
+#define DEBUG 1
+#endif
+
+#ifdef DEBUG
+
+int dprintf(LPCTSTR szFormat, ...)
+{
+    TCHAR szBuffer[4096];
+    TCHAR szPrefix[MAX_PATH];
+
+    va_list  vaList;
+    va_start(vaList, szFormat);
+    
+    wvsprintf(szBuffer, szFormat, vaList);
+
+    wsprintf(szPrefix, L"WinMSD: %s", szBuffer);
+
+    OutputDebugString(szPrefix);
+
+    va_end  (vaList);
+    return TRUE;
+}
+
+#else
+
+int dprintf(LPCTSTR szFormat, ...)
+{
     return FALSE;
 }
+
+#endif

@@ -961,5 +961,4 @@ ValidateHeaderFooter( doc )
         }
     }
 }
-
-
+

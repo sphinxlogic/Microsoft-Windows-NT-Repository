@@ -317,6 +317,29 @@ BOOL BookTab_OnCreate(HWND hwnd, CREATESTRUCT FAR* lpCreateStruct)
         pData->tab[i].data = (DWORD)0;
     }
 
+#ifdef JAPAN // BookTab_OnCreate()
+    // create the proper fonts:
+    // 8 pt MS Gothic bold for selected and
+    // 8 pt MS Gothic regular for not selected 
+    {
+    #ifdef UNICODE
+    WCHAR szGothic[] = {0xff2d, 0xff33, 0x20, 0x30b4, 0x30b7, 0x30c3, 0x30af, 0 };
+    #else
+    #error Ansi string of szGothic is nessesory.
+    #endif
+
+    pData->hfSelected   = CreateFont( -8, 0, 0, 0,
+                                      FW_BOLD, FALSE, FALSE, FALSE,
+                                      SHIFTJIS_CHARSET, OUT_TT_PRECIS,
+                                      CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
+                                      0x4, szGothic );
+    pData->hfUnselected = CreateFont( -8, 0, 0, 0,
+                                      FW_NORMAL, FALSE, FALSE, FALSE,
+                                      SHIFTJIS_CHARSET, OUT_TT_PRECIS,
+                                      CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
+                                      0x4, szGothic );
+    }
+#else
     // create the proper fonts:
     // 8 pt sans serif bold for selected and
     // 8 pt sans serif regular for not selected 
@@ -330,6 +353,7 @@ BOOL BookTab_OnCreate(HWND hwnd, CREATESTRUCT FAR* lpCreateStruct)
                                       ANSI_CHARSET, OUT_TT_PRECIS,
                                       CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
                                       0x4, TEXT("MS Sans Serif") );
+#endif // JAPAN
 
     // fill the rest of the sizing info 
     BookTab_OnSize( hwnd, 0, lpCreateStruct->cx, lpCreateStruct->cy );

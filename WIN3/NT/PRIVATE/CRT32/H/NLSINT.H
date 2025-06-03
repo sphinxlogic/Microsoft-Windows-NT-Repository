@@ -33,7 +33,7 @@ typedef unsigned int size_t;
  *  Currently, run-times only support a single character decimal point.
  */
 #define __decimal_point 		_decimal_point
-extern char *_decimal_point;		/* localized decimal point string */
+extern char _decimal_point[];           /* localized decimal point string */
 
 #define __decimal_point_length		_decimal_point_length
 #ifdef _INTL

@@ -157,6 +157,11 @@ VOID AddDLEsForNTFS( DLE_HAND hand ) ;
 extern FUNC_LIST NTFSFuncTab ;
 #endif
 
+#if defined( FS_EMS )
+VOID AddDLEsForEMS( DLE_HAND hand ) ;
+extern FUNC_LIST EMSFuncTab ;
+#endif
+
 #if defined( FS_ERSATZ )
 INT16 InitializeErsatzFS( DLE_HAND dle_hand ) ;
 extern FUNC_LIST ErsatzFuncTab ;

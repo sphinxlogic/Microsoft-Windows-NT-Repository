@@ -174,7 +174,7 @@ int DoCommDlg(int iWhichOper)
     {
         case imiOpen:
         case imiSaveAs:
-            if (lpfnOFNHook);
+            if (lpfnOFNHook)
                 FreeProcInstance(lpfnOFNHook);
             lpfnOFNHook = NULL;
         break;
@@ -417,4 +417,4 @@ DoSaveAsFilenameGet(LPSTR lpstrDefault,LPSTR lpstrFilenameBuf,int *fBackup,int *
     return nRetval;
 }
 
-
+

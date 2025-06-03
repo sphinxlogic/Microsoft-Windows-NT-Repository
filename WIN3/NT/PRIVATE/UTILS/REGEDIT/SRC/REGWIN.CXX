@@ -4,21 +4,21 @@ Copyright (c) 1991  Microsoft Corporation
 
 Module Name:
 
-	Regwin.cxx
+        Regwin.cxx
 
 Abstract:
 
-	This module contains the definition for the REGISTRY_WINDOW class.
-	REGISTRY_WINDOW is derived from	the abstract WINDOW class and supplies
-	an implementation for a MDI client window.
+        This module contains the definition for the REGISTRY_WINDOW class.
+        REGISTRY_WINDOW is derived from the abstract WINDOW class and supplies
+        an implementation for a MDI client window.
 
 Author:
 
-	David J. Gilman (davegi) 02-Aug-1991
+        David J. Gilman (davegi) 02-Aug-1991
 
 Environment:
 
-	Ulib, Regedit, Windows, User Mode
+        Ulib, Regedit, Windows, User Mode
 
 --*/
 
@@ -36,7 +36,7 @@ Environment:
 //
 
 LPWSTR  REGISTRY_WINDOW::_WindowClassName   = (LPWSTR)L"REGISTRY_WINDOW";
-BOOLEAN	REGISTRY_WINDOW::_Registered		= FALSE;
+BOOLEAN REGISTRY_WINDOW::_Registered            = FALSE;
 
 // HANDLE  REGISTRY_WINDOW::_AutoRefreshEvent = NULL;
 
@@ -59,22 +59,22 @@ REGISTRY_WINDOW::Initialize (
     IN PREGEDIT_INTERNAL_REGISTRY   InternalRegistry,
     IN PREGISTRY_WINDOW_SET         RegistryWindowSet,
     IN PWINDOW_POSITION             WindowPosition
-	)
+        )
 
 /*++
 
 Routine Description:
 
-	Initialize a REGISTRY_WINDOW object by registering its window class,
-	creating its window and inititializing its internal state.
+        Initialize a REGISTRY_WINDOW object by registering its window class,
+        creating its window and inititializing its internal state.
 
 Arguments:
 
-	MDIHandle			- Supplies a handle to the MDICLIENT window used to
-						  create the registry (mdi client) window.
-	Title				- Supplies the title of the window (i.e. the name of
-						  its root node and backing store).
-	InternalRegistry	- Supplies a pointer to this REGISTRY_WINDOW's
+        MDIHandle                       - Supplies a handle to the MDICLIENT window used to
+                                                  create the registry (mdi client) window.
+        Title                           - Supplies the title of the window (i.e. the name of
+                                                  its root node and backing store).
+        InternalRegistry        - Supplies a pointer to this REGISTRY_WINDOW's
                           REGEDIT_INTERNAL_REGISTRY object.
     RegistryWindowSet   - Pointer to a structure that contains the signature
                           of this registry window.
@@ -86,8 +86,8 @@ Arguments:
 
 Return Value:
 
-	BOOLEAN	- Returns TRUE if the registeration and creation operations
-			  are successful.
+        BOOLEAN - Returns TRUE if the registeration and creation operations
+                          are successful.
 
 --*/
 
@@ -99,8 +99,8 @@ Return Value:
     _RefreshFlag = FALSE;
     _TreeViewFocus = TRUE;
 
-    DbgPtrAssert( Title );
-    DbgPtrAssert( WindowPosition );
+    DebugPtrAssert( Title );
+    DebugPtrAssert( WindowPosition );
 
     if( Register( )) {
 
@@ -119,7 +119,7 @@ Return Value:
 
         String = ( ( PWSTRING )Title )->QueryWSTR();
         if( String == NULL ) {
-            DbgPrint( "Title->QuerySTR() failed" );
+            DebugPrint( "Title->QuerySTR() failed" );
             return( FALSE );
         }
         mdicreate.szClass   = _WindowClassName;
@@ -150,8 +150,8 @@ Return Value:
             //
 
             if( !CreateNotificationThread() ) {
-                DbgPrintf("Unable to create thread for %s \n", String );
-                DbgPrint( "CreateNotificationThread failed" );
+                DebugPrintf("Unable to create thread for %s \n", String );
+                DebugPrint( "CreateNotificationThread failed" );
             }
 
             //
@@ -244,7 +244,7 @@ Return Value:
                 //
                 //  Unable to create the notification thread
                 //
-                DbgPrint( "CreateThread() failed" );
+                DebugPrint( "CreateThread() failed" );
                 CloseHandle( _NotificationEvent );
                 _NotificationEvent = NULL;
                 FREE( ThreadInfo );
@@ -265,12 +265,12 @@ Return Value:
             CloseHandle( _NotificationEvent );
             _NotificationEvent = NULL;
         } else {
-            DbgPrint( "Unable to create _NotificationEvent" );
+            DebugPrint( "Unable to create _NotificationEvent" );
         }
         if( ThreadInfo != NULL ) {
             FREE( ThreadInfo );
         } else {
-            DbgPrint( "Unable to allocate ThreadInfo" );
+            DebugPrint( "Unable to allocate ThreadInfo" );
         }
         return( FALSE );
     }
@@ -353,32 +353,32 @@ Return Value:
 
 VOID
 REGISTRY_WINDOW::InitMenu(
-	IN	HMENU	Menu,
-	IN	INT		PopupMenu
-	)
+        IN      HMENU   Menu,
+        IN      INT             PopupMenu
+        )
 
 /*++
 
 Routine Description:
 
-	Figures out which items of the pulldown menu which should be enabled
-	or grayed.  Windows will generate a WM_INITMENUPOPUP just before a
-	pulldown menu is painted.
+        Figures out which items of the pulldown menu which should be enabled
+        or grayed.  Windows will generate a WM_INITMENUPOPUP just before a
+        pulldown menu is painted.
 
-	Passes the message along if it can't figure out the status of menu
-	items.
+        Passes the message along if it can't figure out the status of menu
+        items.
 
-	This routine handles the status of menu items in the View pulldown.
+        This routine handles the status of menu items in the View pulldown.
 
 Arguments:
 
-	Menu				- handle of the main menu
-	PopupMenu 			- the item number of the pulldown menu.  eg.
-						  File menu is 0, Edit is 1.
+        Menu                            - handle of the main menu
+        PopupMenu                       - the item number of the pulldown menu.  eg.
+                                                  File menu is 0, Edit is 1.
 
 Return Value:
 
-	None.
+        None.
 
 --*/
 
@@ -450,32 +450,32 @@ Return Value:
     case VIEW_MENU:
         EnableMenuItem( Menu, ( UINT )IDM_SPLIT, ( UINT )MF_ENABLED );
         if( _Split == 0 ) {
-			//
-			// splitter is at extreme left edge
-			// therefore we're in "Data Only" mode
-			//
+                        //
+                        // splitter is at extreme left edge
+                        // therefore we're in "Data Only" mode
+                        //
             CheckMenuItem( Menu, ( UINT )IDM_TREE_AND_DATA, ( UINT )MF_UNCHECKED );
             CheckMenuItem( Menu, ( UINT )IDM_TREE_ONLY,     ( UINT )MF_UNCHECKED );
             CheckMenuItem( Menu, ( UINT )IDM_DATA_ONLY,     ( UINT )MF_CHECKED );
 
-		} else if( _Split == -1 ) {
-			//
-			// splitter is at extreme right edge
-			// therefore we're in "Tree Only" mode
-			//
+                } else if( _Split == -1 ) {
+                        //
+                        // splitter is at extreme right edge
+                        // therefore we're in "Tree Only" mode
+                        //
             CheckMenuItem( Menu, ( UINT )IDM_TREE_AND_DATA, ( UINT )MF_UNCHECKED );
             CheckMenuItem( Menu, ( UINT )IDM_TREE_ONLY,     ( UINT )MF_CHECKED );
             CheckMenuItem( Menu, ( UINT )IDM_DATA_ONLY,     ( UINT )MF_UNCHECKED );
 
-		} else {
-			//
-			// in "both" mode
-			//
+                } else {
+                        //
+                        // in "both" mode
+                        //
             CheckMenuItem( Menu, ( UINT )IDM_TREE_AND_DATA, ( UINT )MF_CHECKED );
             CheckMenuItem( Menu, ( UINT )IDM_TREE_ONLY,     ( UINT )MF_UNCHECKED );
             CheckMenuItem( Menu, ( UINT )IDM_DATA_ONLY,     ( UINT )MF_UNCHECKED );
         }
-		break;
+                break;
 
     case SECURITY_MENU:
         if( _TreeViewFocus ) {
@@ -507,116 +507,116 @@ Return Value:
 
 VOID
 REGISTRY_WINDOW::LButtonDown(
-	IN	LONG	XPos
-	)
+        IN      LONG    XPos
+        )
 
 /*++
 
 Routine Description:
 
-	Called when the left mouse button is depressed and the pointer is
-	in the RegWin's own client area.
-	The mouse is only in the client area of the RegWin when it is in the
-	area between the tree view and data view panes.  We call this area the
-	splitter bar and this routine allows us to move it.
+        Called when the left mouse button is depressed and the pointer is
+        in the RegWin's own client area.
+        The mouse is only in the client area of the RegWin when it is in the
+        area between the tree view and data view panes.  We call this area the
+        splitter bar and this routine allows us to move it.
 
-	This routine is also called when View/Split is selected.
+        This routine is also called when View/Split is selected.
 
 Arguments:
 
-	XPos			- x position of the mouse cursor when
+        XPos                    - x position of the mouse cursor when
 
 Return Value:
 
-	None.
+        None.
 
 --*/
 
 {
-	MSG msg;
+        MSG msg;
     INT x, y, dx, dy;
-	RECT rc;
-	HDC hdc;
+        RECT rc;
+        HDC hdc;
 
-	if (IsIconic(_Handle))
-		return;
+        if (IsIconic(_Handle))
+                return;
 
-	y = 0;
+        y = 0;
     x = ( INT )( LOWORD( XPos ) );
 
-	GetClientRect(_Handle, &rc);
+        GetClientRect(_Handle, &rc);
 
-	dx = 4;
+        dx = 4;
     dy = ( INT )(rc.bottom - y);   // the height of the client less the drives window
 
-	hdc = GetDC(_Handle);
+        hdc = GetDC(_Handle);
 
-	// split bar loop
+        // split bar loop
 
-	PatBlt(hdc, x - dx / 2, y, dx, dy, PATINVERT);
+        PatBlt(hdc, x - dx / 2, y, dx, dy, PATINVERT);
 
-	SetCapture(_Handle);
+        SetCapture(_Handle);
 
-	SetCursor( _SplitCursor );
+        SetCursor( _SplitCursor );
 
-	while (GetMessage(&msg, NULL, 0, 0)) {
-	
-		if (msg.message == WM_KEYDOWN || msg.message == WM_SYSKEYDOWN ||
-		  (msg.message >= WM_MOUSEFIRST && msg.message <= WM_MOUSELAST)) {
-		
-			if (msg.message == WM_LBUTTONUP || msg.message == WM_LBUTTONDOWN)
-			    break;
-			
-			if (msg.message == WM_KEYDOWN) {
+        while (GetMessage(&msg, NULL, 0, 0)) {
 
-				if (msg.wParam == VK_LEFT) {
-				    msg.message = WM_MOUSEMOVE;
-				    msg.pt.x -= 2;
-				} else if (msg.wParam == VK_RIGHT) {
-				    msg.message = WM_MOUSEMOVE;
-				    msg.pt.x += 2;
-				} else if (msg.wParam == VK_RETURN ||
-						   msg.wParam == VK_ESCAPE) {
-				    break;
-				}
-				
+                if (msg.message == WM_KEYDOWN || msg.message == WM_SYSKEYDOWN ||
+                  (msg.message >= WM_MOUSEFIRST && msg.message <= WM_MOUSELAST)) {
+
+                        if (msg.message == WM_LBUTTONUP || msg.message == WM_LBUTTONDOWN)
+                            break;
+
+                        if (msg.message == WM_KEYDOWN) {
+
+                                if (msg.wParam == VK_LEFT) {
+                                    msg.message = WM_MOUSEMOVE;
+                                    msg.pt.x -= 2;
+                                } else if (msg.wParam == VK_RIGHT) {
+                                    msg.message = WM_MOUSEMOVE;
+                                    msg.pt.x += 2;
+                                } else if (msg.wParam == VK_RETURN ||
+                                                   msg.wParam == VK_ESCAPE) {
+                                    break;
+                                }
+
                 SetCursorPos(( INT )msg.pt.x, ( INT )msg.pt.y);
-			}
-			
-			if (msg.message == WM_MOUSEMOVE) {
-			
-				// erase old
-				
-				PatBlt(hdc, x - dx / 2, y, dx, dy, PATINVERT);
-				ScreenToClient(_Handle, &msg.pt);
-                x = ( INT )msg.pt.x;
-				
-				// put down new
-				
-				PatBlt(hdc, x - dx / 2, y, dx, dy, PATINVERT);
-			}
-		} else {
-			DispatchMessage(&msg);
-		}
-	}
-	ReleaseCapture();
-	
-	// erase old
-	
-	PatBlt(hdc, x - dx / 2, y, dx, dy, PATINVERT);
-	ReleaseDC(_Handle, hdc);
+                        }
 
-	if (msg.wParam != VK_ESCAPE) {
-		
+                        if (msg.message == WM_MOUSEMOVE) {
+
+                                // erase old
+
+                                PatBlt(hdc, x - dx / 2, y, dx, dy, PATINVERT);
+                                ScreenToClient(_Handle, &msg.pt);
+                x = ( INT )msg.pt.x;
+
+                                // put down new
+
+                                PatBlt(hdc, x - dx / 2, y, dx, dy, PATINVERT);
+                        }
+                } else {
+                        DispatchMessage(&msg);
+                }
+        }
+        ReleaseCapture();
+
+        // erase old
+
+        PatBlt(hdc, x - dx / 2, y, dx, dy, PATINVERT);
+        ReleaseDC(_Handle, hdc);
+
+        if (msg.wParam != VK_ESCAPE) {
+
         if( x < 0 ) {
-			//
-			// the button was released left of the frame so set the user wants
-			// only a data window
-			//
-			_Split = 0;
-		} else {
-			_Split = x;
-		}
+                        //
+                        // the button was released left of the frame so set the user wants
+                        // only a data window
+                        //
+                        _Split = 0;
+                } else {
+                        _Split = x;
+                }
 
         Resize( ( INT )rc.right, ( INT )rc.bottom );
     }
@@ -626,27 +626,27 @@ Return Value:
 
 BOOLEAN
 REGISTRY_WINDOW::Register (
-	)
+        )
 
 /*++
 
 Routine Description:
 
-	Register the REGISTRY_WINDOW window class.
+        Register the REGISTRY_WINDOW window class.
 
 Arguments:
 
-	None.
+        None.
 
 Return Value:
 
-	BOOLEAN		- Returns TRUE if the REGISTRY_WINDOW window class
-				  is registered.
+        BOOLEAN         - Returns TRUE if the REGISTRY_WINDOW window class
+                                  is registered.
 
 --*/
 
 {
-	WNDCLASS    wndclass;
+        WNDCLASS    wndclass;
 
     if( !_Registered ) {
         _Registered = TRUE;
@@ -656,7 +656,7 @@ Return Value:
         // usually OK because that's what we wanted to do anyway.
         //
 
-        wndclass.style         = CS_HREDRAW | CS_VREDRAW;
+        wndclass.style         = CS_HREDRAW | CS_VREDRAW | CS_NOCLOSE;
         wndclass.lpfnWndProc   = (WNDPROCFN)REGISTRY_WINDOW::WndProc;
         wndclass.cbClsExtra    = 0;
         wndclass.cbWndExtra    = sizeof( DWORD );
@@ -686,68 +686,68 @@ Return Value:
 
 VOID
 REGISTRY_WINDOW::Resize(
-	INT dxWindow,
-	INT dyWindow
-	)
+        INT dxWindow,
+        INT dyWindow
+        )
 
 /*++
 
 Routine Description:
 
-	Resizes the RegWin to the size specified.  Accounts for the
-	splitter bar being 'stuck' to the left or right edge.
+        Resizes the RegWin to the size specified.  Accounts for the
+        splitter bar being 'stuck' to the left or right edge.
 
 Arguments:
 
-	dxWindow		- width of client area for regwin
-    dyWindow		- height of client area
+        dxWindow                - width of client area for regwin
+    dyWindow            - height of client area
 
 Return Value:
 
-	None.
+        None.
 
 --*/
 
 {
 
-	// bugbug: (w-wilson) change 0 to some threshold
-	if( _Split + dxFrame > dxWindow ) {
-		//
-		// the button was released right of the frame so set the user wants
-		// only a tree window
-		//
-		_Split = -1;
-	}
-	// otherwise,
-	// the button was released in between so leave the split position
-	//
+        // bugbug: (w-wilson) change 0 to some threshold
+        if( _Split + dxFrame > dxWindow ) {
+                //
+                // the button was released right of the frame so set the user wants
+                // only a tree window
+                //
+                _Split = -1;
+        }
+        // otherwise,
+        // the button was released in between so leave the split position
+        //
 
-	//
-	// resize the treeview
-	//	- position the treeview in the upper left corner (0,0)
-	//	- use the splitter bar position as the width
-	//	- use full height of client area
-	//
-	if( _Split >= 0 ) {
-		_StructureView->Resize( 0, 0, _Split, dyWindow );
-	} else {
-		_StructureView->Resize( 0, 0, dxWindow - dxFrame, dyWindow );
-	}
+        //
+        // resize the treeview
+        //      - position the treeview in the upper left corner (0,0)
+        //      - use the splitter bar position as the width
+        //      - use full height of client area
+        //
+        if( _Split >= 0 ) {
+                _StructureView->Resize( 0, 0, _Split, dyWindow );
+        } else {
+                _StructureView->Resize( 0, 0, dxWindow - dxFrame, dyWindow );
+        }
 
-	//
-	// resize the dataview
-	//	- position the dataview beside the treeview and splitter bar
-	//		-> X = treeview width(_Split) + splitter width(dxFrame)
-	//		-> Y = 0
-	//		-> width = full width - (treeview width + splitter width)
-	//		-> height= full height of client area
-	//
-	if( _Split >= 0 ) {
-		_DataView->Resize( _Split + dxFrame, 0,
-						   dxWindow - (_Split + dxFrame), dyWindow );
-	} else {
-		_DataView->Resize( 0, 0, 0, 0 );
-	}
+        //
+        // resize the dataview
+        //      - position the dataview beside the treeview and splitter bar
+        //              -> X = treeview width(_Split) + splitter width(dxFrame)
+        //              -> Y = 0
+        //              -> width = full width - (treeview width + splitter width)
+        //              -> height= full height of client area
+        //
+        if( _Split >= 0 ) {
+                _DataView->Resize( _Split + dxFrame, 0,
+                                                   dxWindow - (_Split + dxFrame), dyWindow );
+        } else {
+                _DataView->Resize( 0, 0, 0, 0 );
+        }
 
 }
 
@@ -758,30 +758,30 @@ LONG
 APIENTRY
 EXPORT
 REGISTRY_WINDOW::WndProc (
-	HWND hWnd,
-	WORD wMessage,
-	WPARAM wParam,
-	LONG lParam
-	)
+        HWND hWnd,
+        WORD wMessage,
+        WPARAM wParam,
+        LONG lParam
+        )
 
 /*++
 
 Routine Description:
 
-	Handle all requests made of the REGISTRY_WINDOW window class.
+        Handle all requests made of the REGISTRY_WINDOW window class.
 
 Arguments:
 
-	Standard Window's exported function signature.
+        Standard Window's exported function signature.
 
 Return Value:
 
-	LONG	- Returns 0 if the message was handled.
+        LONG    - Returns 0 if the message was handled.
 
 --*/
 
 {
-	REGISTER PREGISTRY_WINDOW	pRegWin;
+        REGISTER PREGISTRY_WINDOW       pRegWin;
     RECT                        rc;
     INT                         PopupMenuId;
     DSTRING                     FindString;
@@ -789,74 +789,74 @@ Return Value:
 
 
     //
-	// WM_CREATE is handled specially as it is when the connection between
-	// a Window and its associated object is established.
-	//
+        // WM_CREATE is handled specially as it is when the connection between
+        // a Window and its associated object is established.
+        //
 
-	if( wMessage == WM_CREATE ) {
+        if( wMessage == WM_CREATE ) {
 
-		//
-		// Save 'this' to owning WINDOW Class and initialize the _Handle
-		// member data.
-		//
+                //
+                // Save 'this' to owning WINDOW Class and initialize the _Handle
+                // member data.
+                //
 
-		pRegWin =
-			( PREGISTRY_WINDOW )
-			((( LPMDICREATESTRUCT )
-			((( LPCREATESTRUCT ) lParam )->lpCreateParams ))->lParam );
-		SetObjectPointer( hWnd, pRegWin );
-		pRegWin->_Handle = hWnd;
+                pRegWin =
+                        ( PREGISTRY_WINDOW )
+                        ((( LPMDICREATESTRUCT )
+                        ((( LPCREATESTRUCT ) lParam )->lpCreateParams ))->lParam );
+                SetObjectPointer( hWnd, pRegWin );
+                pRegWin->_Handle = hWnd;
 
-		//
-		// - find out the size of the client area
-		// - calculate the initial splitter position as the middle
-		//		- subtract dxFrame from width to allow for splitter bar
-		//
+                //
+                // - find out the size of the client area
+                // - calculate the initial splitter position as the middle
+                //              - subtract dxFrame from width to allow for splitter bar
+                //
         GetClientRect( hWnd, &rc );
         if( pRegWin->_Split == CW_USEDEFAULT ) {
             pRegWin->_Split     = ( INT )( (rc.right - dxFrame) / 2 );
         }
 
-		//
-		// initialize the treeview
-		//
-		pRegWin->_StructureView		= NEW TREE_STRUCTURE_VIEW;
-		pRegWin->_StructureView->Initialize( hWnd,
+                //
+                // initialize the treeview
+                //
+                pRegWin->_StructureView         = NEW TREE_STRUCTURE_VIEW;
+                pRegWin->_StructureView->Initialize( hWnd,
                                              pRegWin->_IR );
-		//
-		// initialize the dataview
-		//
-		pRegWin->_DataView			= NEW DATA_VIEW;
-		pRegWin->_DataView->Initialize( hWnd,
+                //
+                // initialize the dataview
+                //
+                pRegWin->_DataView                      = NEW DATA_VIEW;
+                pRegWin->_DataView->Initialize( hWnd,
                                         pRegWin->_IR );
 
         SetFocus( pRegWin->_StructureView->QueryHandle() );
-		//
-		// we don't need to call Resize() to set the sizes of the
-		// child windows because a WM_SIZE always follows a WM_CREATE
-		// and the handler for WM_SIZE calls Resize()
-		//
-		return 0;
-	}
+                //
+                // we don't need to call Resize() to set the sizes of the
+                // child windows because a WM_SIZE always follows a WM_CREATE
+                // and the handler for WM_SIZE calls Resize()
+                //
+                return 0;
+        }
 
-	//
-	// Retrieve 'this' pointer.
-	//
+        //
+        // Retrieve 'this' pointer.
+        //
 
-	pRegWin = ( PREGISTRY_WINDOW ) GetObjectPointer( hWnd );
+        pRegWin = ( PREGISTRY_WINDOW ) GetObjectPointer( hWnd );
 
 
-	//
-	// This 'if' clause is for all messages after WM_CREATE.
-	//
+        //
+        // This 'if' clause is for all messages after WM_CREATE.
+        //
 
-	if( pRegWin != NULL ) {
+        if( pRegWin != NULL ) {
 
-		//
-		// Check the 'this' wasn't trampled.
-		//
+                //
+                // Check the 'this' wasn't trampled.
+                //
 
-		DbgWinAssert( hWnd == pRegWin->_Handle );
+                DbgWinAssert( hWnd == pRegWin->_Handle );
 
 
         switch( wMessage ) {
@@ -947,28 +947,26 @@ Return Value:
             if( pRegWin->_NotificationThreadHandle != NULL ) {
                 if( !TerminateThread( pRegWin->_NotificationThreadHandle,
                                       0 )  ) {
-                    DbgPrintf( "TerminateThread() failed, Handle = %#x, Error = %#x \n",
+                    DebugPrintf( "TerminateThread() failed, Handle = %#x, Error = %#x \n",
                                pRegWin->_NotificationThreadHandle,
                                GetLastError );
-                    DbgPrint( "TerminateThread() failed" );
+                    DebugPrint( "TerminateThread() failed" );
                 }
                 if( !CloseHandle( pRegWin->_NotificationThreadHandle ) ) {
-                    DbgPrintf( "CloseHandle() failed, Handle = %#x, Error = %#x \n",
+                    DebugPrintf( "CloseHandle() failed, Handle = %#x, Error = %#x \n",
                                pRegWin->_NotificationThreadHandle,
                                GetLastError );
-                    DbgPrint( "TerminateThread() failed" );
+                    DebugPrint( "TerminateThread() failed" );
                 }
             }
 
-            SendMessage( pRegWin->_DataView->QueryHandle(),
-                         wMessage,
-                         wParam,
-                         lParam );
+            if( !DestroyWindow( pRegWin->_DataView->QueryHandle() ) ) {
+                GetLastError();
+            }
 
-            SendMessage( pRegWin->_StructureView->QueryHandle(),
-                         wMessage,
-                         wParam,
-                         lParam );
+            if( !DestroyWindow( pRegWin->_StructureView->QueryHandle() ) ) {
+                GetLastError();
+            }
 
             DELETE( pRegWin->_DataView );
             DELETE( pRegWin->_StructureView );
@@ -977,9 +975,9 @@ Return Value:
 
 
 
-		case WM_COMMAND:
+        case WM_COMMAND:
 
-	    switch( LOWORD( wParam ) ) {
+            switch( LOWORD( wParam ) ) {
 
 
             case ID_ENTER_KEY:
@@ -1049,53 +1047,53 @@ Return Value:
 
 
             case IDM_EXPAND_ONE_LEVEL:
-			case IDM_EXPAND_BRANCH:
-			case IDM_EXPAND_ALL:
+                        case IDM_EXPAND_BRANCH:
+                        case IDM_EXPAND_ALL:
             case IDM_COLLAPSE_BRANCH:
                 pRegWin->DisableNotificationThread();
                 SendMessage( pRegWin->_StructureView->QueryHandle(),
-							 wMessage, wParam, lParam );
+                                                         wMessage, wParam, lParam );
                 pRegWin->EnableNotificationThread();
                 break;
 
-			case IDM_BINARY:
+                        case IDM_BINARY:
             case IDM_STRING:
             case IDM_ULONG:
             case IDM_MULTISZ:
                 pRegWin->DisableNotificationThread();
                 SendMessage( pRegWin->_DataView->QueryHandle(),
-							 wMessage, wParam, lParam );
+                                                         wMessage, wParam, lParam );
                 pRegWin->EnableNotificationThread();
                 break;
 
-			//
-			// Handle menu commands.
-			//
+                        //
+                        // Handle menu commands.
+                        //
 
-			case IDM_TREE_AND_DATA:
-				GetClientRect(hWnd, &rc);
+                        case IDM_TREE_AND_DATA:
+                                GetClientRect(hWnd, &rc);
                 pRegWin->_Split     = ( INT )( (rc.right - dxFrame) / 2 );
                 pRegWin->Resize( ( INT )rc.right, ( INT )rc.bottom );
-				break;
+                                break;
 
-			case IDM_TREE_ONLY:
-				if( pRegWin->_Split != -1 ) {
-					GetClientRect(hWnd, &rc);
-					pRegWin->_Split		= -1;
+                        case IDM_TREE_ONLY:
+                                if( pRegWin->_Split != -1 ) {
+                                        GetClientRect(hWnd, &rc);
+                                        pRegWin->_Split         = -1;
                     pRegWin->Resize( ( INT )rc.right, ( INT )rc.bottom );
-				}
-				break;
+                                }
+                                break;
 
-			case IDM_DATA_ONLY:
-				if( pRegWin->_Split != 0 ) {
-					GetClientRect(hWnd, &rc);
-					pRegWin->_Split		= 0;
+                        case IDM_DATA_ONLY:
+                                if( pRegWin->_Split != 0 ) {
+                                        GetClientRect(hWnd, &rc);
+                                        pRegWin->_Split         = 0;
                     pRegWin->Resize( ( INT )rc.right, ( INT )rc.bottom );
-				}
-				break;
+                                }
+                                break;
 
-			case IDM_SPLIT:
-				pRegWin->LButtonDown( lParam );
+                        case IDM_SPLIT:
+                                pRegWin->LButtonDown( lParam );
                 break;
 
 
@@ -1123,9 +1121,9 @@ Return Value:
 
 
             default:
-				return DefMDIChildProc( hWnd, wMessage, wParam, lParam );
-			}
-			break;
+                                return DefMDIChildProc( hWnd, wMessage, wParam, lParam );
+                        }
+                        break;
 
 
         case INFORM_CHANGE_FONT:
@@ -1137,65 +1135,65 @@ Return Value:
 
         case TR_NEWCURSEL:
             pRegWin->_DataView->SetDataNode( (PCREGEDIT_NODE)lParam );
-			break;
+                        break;
 
-		case WM_PAINT:
-			{
-			PAINTSTRUCT ps;
-			HDC			hdc;
-			
-			hdc = BeginPaint(hWnd, &ps);
-			
-			if( !IsIconic(hWnd) ) {
+                case WM_PAINT:
+                        {
+                        PAINTSTRUCT ps;
+                        HDC                     hdc;
 
-				//
-				// we want to paint the bottom part of the splitter bar
-				//
-			    GetClientRect(hWnd, &rc);
+                        hdc = BeginPaint(hWnd, &ps);
 
-				//
-				// - we leave bottom alone
-				// - top is the bottom - the height of a horiz scrollbar
-				//
-			    rc.top = rc.bottom - GetSystemMetrics(SM_CYHSCROLL);
+                        if( !IsIconic(hWnd) ) {
 
-				//
-				// - set the left edge of rect to the splitter position.
-				//
-				//   This will be the correct position except when it's -1
-				//   which indicates the bar is 'stuck' to the right edge
-				//   of the RegWin.  So, when it's -1, set the left edge
-				//   the right edge less the width of the splitter and leave
-				//   the right edge alone.
-				//
-				//   If not -1 then the split position (left edge) is correct
-				//   so just set the right edge to left + splitter width
-				//
-				rc.left = pRegWin->_Split;
-				
-			    if( rc.left == -1 ) {
-			        rc.left = rc.right - dxFrame;
-				} else {
-					rc.right = rc.left + dxFrame;
-				}
-			
-			    // draw the black pane handle
-			
-			    FillRect(hdc, &rc, (HBRUSH)GetStockObject(BLACK_BRUSH));
-			}
-			
-			EndPaint(hWnd, &ps);
-			break;
-			}
+                                //
+                                // we want to paint the bottom part of the splitter bar
+                                //
+                            GetClientRect(hWnd, &rc);
 
-		case WM_LBUTTONDOWN:
-			pRegWin->LButtonDown( lParam );
-			break;
+                                //
+                                // - we leave bottom alone
+                                // - top is the bottom - the height of a horiz scrollbar
+                                //
+                            rc.top = rc.bottom - GetSystemMetrics(SM_CYHSCROLL);
+
+                                //
+                                // - set the left edge of rect to the splitter position.
+                                //
+                                //   This will be the correct position except when it's -1
+                                //   which indicates the bar is 'stuck' to the right edge
+                                //   of the RegWin.  So, when it's -1, set the left edge
+                                //   the right edge less the width of the splitter and leave
+                                //   the right edge alone.
+                                //
+                                //   If not -1 then the split position (left edge) is correct
+                                //   so just set the right edge to left + splitter width
+                                //
+                                rc.left = pRegWin->_Split;
+
+                            if( rc.left == -1 ) {
+                                rc.left = rc.right - dxFrame;
+                                } else {
+                                        rc.right = rc.left + dxFrame;
+                                }
+
+                            // draw the black pane handle
+
+                            FillRect(hdc, &rc, (HBRUSH)GetStockObject(BLACK_BRUSH));
+                        }
+
+                        EndPaint(hWnd, &ps);
+                        break;
+                        }
+
+                case WM_LBUTTONDOWN:
+                        pRegWin->LButtonDown( lParam );
+                        break;
 
         case WM_SIZE:
             if (wParam != SIZEICONIC) {
-				pRegWin->Resize( LOWORD( lParam ), HIWORD( lParam ) );
-			}
+                                pRegWin->Resize( LOWORD( lParam ), HIWORD( lParam ) );
+                        }
 
             if (wParam == SIZEFULLSCREEN) {
                 WINDOWS_APPLICATION::_ChildWindowMaximized = TRUE;
@@ -1210,40 +1208,33 @@ Return Value:
                 PostMessage( hWnd, REFRESH_WINDOW, 0, 0 );
             }
 
-			//
-			// NOTE!!!!! MUST FALL THROUGH TO DefMDIChildProc!!!!
-			//
+                        //
+                        // NOTE!!!!! MUST FALL THROUGH TO DefMDIChildProc!!!!
+                        //
             return DefMDIChildProc( hWnd, wMessage, wParam, lParam );
 
-		default:
+                default:
 
-			//
-			// Let windows handle the message
-			//
+                        //
+                        // Let windows handle the message
+                        //
 
-			return DefMDIChildProc( hWnd, wMessage, wParam, lParam );
+                        return DefMDIChildProc( hWnd, wMessage, wParam, lParam );
 
-		}
+                }
 
-	} else {
+        } else {
 
-		//
-		// No 'this' pointer (pRegWin == NULL).
-		//
+                //
+                // No 'this' pointer (pRegWin == NULL).
+                //
+                // Let Windows handle the message.
+                //
 
-		switch( wMessage ) {
+                return DefMDIChildProc( hWnd, wMessage, wParam, lParam );
+        }
 
-		default:
-
-			//
-			// Let Windows handle the message.
-			//
-
-			return DefMDIChildProc( hWnd, wMessage, wParam, lParam );
-		}
-	}
-
-	return( 0 );
+        return( 0 );
 }
 
 
@@ -1318,8 +1309,8 @@ Return Value:
     FREE( NotificationInfo );
     TimeOutEvent = CreateEvent( NULL, FALSE, FALSE, NULL );
     if( TimeOutEvent == NULL ) {
-        DbgPrint( "Unable to create TimeOutEvent" );
-        DbgPrintf( "UnableToCreateTimeOutEvent, GetLastError() = %#x \n",
+        DebugPrint( "Unable to create TimeOutEvent" );
+        DebugPrintf( "UnableToCreateTimeOutEvent, GetLastError() = %#x \n",
                    GetLastError() );
     }
 
@@ -1330,7 +1321,7 @@ Return Value:
     RootName = RegistryWindow->_IR->GetRootName();
     if( ( RootName == NULL ) ||
         ( ( RootNameSTR = RootName->QuerySTR() ) == NULL ) ) {
-            DbgPrint( "Unable to get RootName" );
+            DebugPrint( "Unable to get RootName" );
     }
 #endif
     //
@@ -1367,7 +1358,7 @@ Return Value:
                                                              TRUE ) &&
                WaitForSingleObject( TimeOutEvent, 1000 ) == 0 ) {
 
-//            DbgPrint( "Registry is being modified" );
+//            DebugPrint( "Registry is being modified" );
         }
         //
         // Reset the event so thjat it is ready for the next time.
@@ -1386,7 +1377,7 @@ Return Value:
             //
 #if 0
             if( RootNameSTR != NULL ) {
-                DbgPrintf( "%s generated a notification \n", RootNameSTR );
+                DebugPrintf( "%s generated a notification \n", RootNameSTR );
             }
 #endif
 

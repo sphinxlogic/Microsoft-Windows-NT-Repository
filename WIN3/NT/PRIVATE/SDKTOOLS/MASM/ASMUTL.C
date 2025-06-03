@@ -567,7 +567,7 @@ SHORT PASCAL CODESIZE
 tokenIS(
 	char *pLiteral
 ){
-    return(stricmp(naim.pszName, pLiteral) == 0);
+    return(_stricmp(naim.pszName, pLiteral) == 0);
 }
 
 #ifdef M8086

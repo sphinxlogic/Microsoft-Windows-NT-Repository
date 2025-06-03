@@ -19,4 +19,3 @@
 #define idBmMarksVGA   202
 #define idBmMarks8514  203
 #define idBmMarksMax   204
-

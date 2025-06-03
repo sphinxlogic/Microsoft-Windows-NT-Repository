@@ -199,4 +199,3 @@ ISTACK::Pop()
 	assert( CurrentElement != 0 );
 	return pStack[ --CurrentElement ];
 	}
-

@@ -17,9 +17,7 @@ mikemon    11-13-90    Commented the source.
 
 -------------------------------------------------------------------- */
 
-#include <sysinc.h>
-#include <rpc.h>
-#include <util.hxx>
+#include <precomp.hxx>
 #include <bitset.hxx>
 
 BITSET::~BITSET (
@@ -74,4 +72,3 @@ BITSET::MemberP (
     return(((pBits[Key/(sizeof(int)*8)]
             & (1 << (Key % (sizeof(int)*8)))) ? 1 : 0));
 }
-

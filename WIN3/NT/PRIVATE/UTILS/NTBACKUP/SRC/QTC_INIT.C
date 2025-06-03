@@ -418,6 +418,20 @@ INT QTC_LoadBsetInfo( CHAR_PTR name, QTC_TAPE_PTR tape )
       QTC_GetFileName( tape->tape_fid, tape->tape_seq_num, name_buffer );
    }
    else {
+      //first lets make sure this is a valid name
+      if ( (strlen( name ) != 12) ||
+          (name[10] < '0') ||
+          ((name[10] > '9' ) && (name[10] < 'A') ) ||
+          ((name[10] > 'F' ) && (name[10] < 'a') ) ||
+          (name[10] > 'f' ) ||
+          (name[11] < '0') ||
+          ((name[11] > '9' ) && (name[11] < 'A') ) ||
+          ((name[11] > 'F' ) && (name[11] < 'a') ) ||
+          (name[11] > 'f' ) ) {
+
+         return( QTC_OPEN_FAILED );
+      }
+
       QTC_GetDataFromName( name, &fid, &seq );
    }
 

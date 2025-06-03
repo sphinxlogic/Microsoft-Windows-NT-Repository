@@ -41,8 +41,8 @@ CG_STATUS
 CG_POINTER::GenUnMarshall(
 	CCB		*	pCCB )
 {
-	_expr_node	*	pExprDest	= pCCB->GetDestExpression();
-	_expr_node	*	pExprSource	= pCCB->GetSourceExpression();
+	expr_node	*	pExprDest	= pCCB->GetDestExpression();
+	expr_node	*	pExprSource	= pCCB->GetSourceExpression();
 	short			CurEmbedLevel = pCCB->GetCurrentEmbeddingLevel();
 	STM_ACTION		Action;
 
@@ -155,7 +155,7 @@ CG_POINTER::GenAllocateForUnMarshall(
 			 	   		pCCB->GetDestExpression(),
 			 	   		pCCB->GetSourceExpression(),
 		     	   //		FinalSizeExpression( pCCB )
-		     	   		new _expr_constant( 4L )
+		     	   		new expr_constant( 4L )
 		   		  		);
 		}
 	else
@@ -164,13 +164,13 @@ CG_POINTER::GenAllocateForUnMarshall(
 			 	   		pCCB->GetDestExpression(),
 			 	   		pCCB->GetSourceExpression(),
 		     	   //		FinalSizeExpression( pCCB )
-		     	   		new _expr_constant( 4L )
+		     	   		new expr_constant( 4L )
 		   		  		);
 		}
 	
 	Out_Assign( pCCB,
 				MakeDereferentExpressionIfNecessary(pCCB->GetDestExpression()),
-				new _expr_constant( 0L ) );
+				new expr_constant( 0L ) );
 
 	Out_Endif( pCCB );
 	return CG_OK;
@@ -237,11 +237,11 @@ CG_QUALIFIED_POINTER::GenQPUnMarshall(
 	{
 	ALIGNMENT_PROPERTY	Al;
 	STM_ACTION			Action;
-	_expr_node		*	pSource	= pCCB->GetSourceExpression();
-	_expr_node		*	pDest	= pCCB->GetDestExpression();
+	expr_node		*	pSource	= pCCB->GetSourceExpression();
+	expr_node		*	pDest	= pCCB->GetDestExpression();
 	node_skl		*	pType;
-	_expr_node		*	pFirstExpr;
-	_expr_node		*	XmittedLengthExpr;
+	expr_node		*	pFirstExpr;
+	expr_node		*	XmittedLengthExpr;
 	long				SizeOfElement;
 	BOOL				fNeedsMaxCount	= NeedsMaxCountMarshall();
 	BOOL				fNeedsFirstAndLength = NeedsFirstAndLengthMarshall();
@@ -310,9 +310,9 @@ CG_QUALIFIED_POINTER::GenQPUnMarshall(
 			{
 			Out_AddToBufferPointer( pCCB,
 									pSource,
-									new _expr_constant( 4L ));
+									new expr_constant( 4L ));
 									
-			pFirstExpr = new _expr_constant( 0L );
+			pFirstExpr = new expr_constant( 0L );
 			}
 
 		Out_UnMarshallBaseType( pCCB,
@@ -332,9 +332,9 @@ CG_QUALIFIED_POINTER::GenQPUnMarshall(
 	
 		if( SizeOfElement > 1 )
 			{
-			XmittedLengthExpr = new _expr_b_arithmetic( OP_STAR,
+			XmittedLengthExpr = new expr_b_arithmetic( OP_STAR,
 											 	  XmittedLengthExpr,
-											 	  new _expr_constant(SizeOfElement)
+											 	  new expr_constant(SizeOfElement)
 										   	 	  );
 	
 			}
@@ -378,12 +378,12 @@ CG_STATUS
 CG_STRING_POINTER::GenBasicUnMarshall(
 	CCB		*	pCCB )
 	{
-	_expr_node		*	pSource	= pCCB->GetSourceExpression();
-	_expr_node		*	pDest	= pCCB->GetDestExpression();
+	expr_node		*	pSource	= pCCB->GetSourceExpression();
+	expr_node		*	pDest	= pCCB->GetDestExpression();
 	ALIGNMENT_PROPERTY	Al = ((CG_NDR *)GetChild())->GetWireAlignment();
-	_expr_node		*	pSizeExpr;
+	expr_node		*	pSizeExpr;
 
-	pSizeExpr = new _expr_constant( ((CG_NDR *)GetChild())->GetMemorySize() );
+	pSizeExpr = new expr_constant( ((CG_NDR *)GetChild())->GetMemorySize() );
 	Out_StringUnMarshall( pCCB, pDest, pSizeExpr );
 	pCCB->SetCurAlignmentState( MAKE_WC_ALIGNMENT( Al ) );
 	return CG_OK;

@@ -47,41 +47,48 @@ int  FormDest( char * );
 
 
 char *rgstrUsage[] = {
-    "Usage: TC [/dhqanstijrILFS] src-tree dst-tree",
+    "Usage: TC [/adhijnqrstAFLS] src-tree dst-tree",
+    "    /a  only those files with the archive bit on are copied",
+    "    /b  copies to inuse files are delayed to reboot",
     "    /d  deletes source files/directories as it copies them",
     "    /h  copy hidden directories, implied by /d",
-    "    /q  silent operation.  Normal mode displays activity",
-    "    /a  only those files with the archive bit on are copied",
-    "    /n  no subdirectories",
-    "    /s  structure only",
-    "    /t  only those files with source time > dest time are copied",
     "    /i  ignore hidden, has nothing to do with hidden dir",
     "    /j  ignore system files, has nothing to do with hidden dir",
+    "    /n  no subdirectories",
+    "    /q  silent operation.  Normal mode displays activity",
     "    /r  read-only files are overwritten",
+    "    /s  structure only",
+    "    /t  only those files with source time > dest time are copied",
     "    /A  allow errors from copy (won't delete if /d present)",
-    "    /L  large disk copy (no full disk checking)",
     "    /F  list files that would be copied",
+    "    /L  large disk copy (no full disk checking)",
     "    /S  produce batch script to do copy",
     0};
 
-flagType    fDelete = FALSE;            /* TRUE => delete/rmdir source after  */
-flagType    fQuiet = FALSE;             /* TRUE => no msg except for error    */
-flagType    fArchive = FALSE;           /* TRUE => copy only ARCHIVEed files  */
-flagType    fTime = FALSE;              /* TRUE => copy later dated files     */
-flagType    fHidden = FALSE;            /* TRUE => copy hidden directories    */
-flagType    fNoSub = FALSE;             /* TRUE => do not copy subdirect      */
-flagType    fStructure = FALSE;         /* TRUE => copy only directory        */
-flagType    fInCopyNode = FALSE;        /* TRUE => prevent recursion          */
-flagType    fIgnoreHidden = FALSE;      /* TRUE => don't consider hidden      */
-flagType    fIgnoreSystem;              /* TRUE => don't consider system      */
-flagType    fOverwriteRO;               /* TRUE => ignore R/O bit             */
-flagType    fLarge = FALSE;             /* TRUE => disables ChkSpace          */
-flagType    fFiles = FALSE;             /* TRUE => output files               */
-flagType    fScript = FALSE;            /* TRUE => output files as script     */
-flagType    fAllowError = FALSE;        /* TRUE => fcopy errors ignored       */
+flagType    fReboot = FALSE;            // TRUE => delay reboot
+flagType    fDelete = FALSE;            // TRUE => delete/rmdir source after
+flagType    fQuiet = FALSE;             // TRUE => no msg except for error
+flagType    fArchive = FALSE;           // TRUE => copy only ARCHIVEed files
+flagType    fTime = FALSE;              // TRUE => copy later dated files
+flagType    fHidden = FALSE;            // TRUE => copy hidden directories
+flagType    fNoSub = FALSE;             // TRUE => do not copy subdirect
+flagType    fStructure = FALSE;         // TRUE => copy only directory
+flagType    fInCopyNode = FALSE;        // TRUE => prevent recursion
+flagType    fIgnoreHidden = FALSE;      // TRUE => don't consider hidden
+flagType    fIgnoreSystem;              // TRUE => don't consider system
+flagType    fOverwriteRO;               // TRUE => ignore R/O bit
+flagType    fLarge = FALSE;             // TRUE => disables ChkSpace
+flagType    fFiles = FALSE;             // TRUE => output files
+flagType    fScript = FALSE;            // TRUE => output files as script
+flagType    fAllowError = FALSE;        // TRUE => fcopy errors ignored
+flagType    fRebootNecessary = FALSE;   // TRUE => reboot ultimately necessary
+
+
 
 char source[MAX_PATH];
 char dest[MAX_PATH];
+char tempdir[MAX_PATH];
+char tempfile[MAX_PATH];
 int  drv;
 
 int srclen, dstlen;
@@ -131,11 +138,11 @@ long l;
 
     if (!fLarge)
         while (freespac (d) < sizeround (l, d)) {
-            cprintf ("Please insert a new disk in drive %c: and strike any key",
+            _cprintf ("Please insert a new disk in drive %c: and strike any key",
                      d + 'A'-1);
-            if (getch () == '\003')  /* ^C */
+            if (_getch () == '\003')  /* ^C */
                 exit (1);
-            cprintf ("\n\r");
+            _cprintf ("\n\r");
             pend = pathStr;
             drive(dest, pend);
             pend += strlen(pend);
@@ -161,6 +168,9 @@ char *v[];
         SHIFT(c,v);
         while (*++p)
             switch (*p) {
+                case 'b':
+                    fReboot = TRUE;
+                    break;
                 case 'd':
                     fDelete = TRUE;
                     /* fall through; d => h */
@@ -223,7 +233,8 @@ char *v[];
     fbuf.fbuf.dwFileAttributes = FILE_ATTRIBUTE_DIRECTORY;
     drv = toupper(*dest) - 'A' + 1;
     CopyNode (source, &fbuf, NULL);
-    return( 0 );
+
+    return( fRebootNecessary ? 2 : 0 );
 }
 
 /* copy node walks the source node and its children (recursively)
@@ -240,6 +251,9 @@ CopyNode (
     int attr;
     flagType fCopy;
     flagType fDestRO;
+
+    DWORD Status;
+    char *pszError;
 
     FormDest (p);
     if (TESTFLAG (pfb->fbuf.dwFileAttributes, FILE_ATTRIBUTE_DIRECTORY)) {
@@ -269,25 +283,25 @@ CopyNode (
     }
     MakeDir (dest);
 
-        pend = strend (p);
-        if (!fPathChr (pend[-1]))
-            strcat (p, "\\");
-        strcat (p, "*.*");
-        forfile (p, FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM, CopyNode, NULL);
-        *pend = '\0';
+    pend = strend (p);
+    if (!fPathChr (pend[-1]))
+        strcat (p, "\\");
+    strcat (p, "*.*");
+    forfile (p, FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM, CopyNode, NULL);
+    *pend = '\0';
 
-        /*  if we're not just outputting files then
-         *      if we're to delete this node then
-         *          ...
-         */
-        if (!fFiles)
-            if (fDelete)
-                if (rmdir (p) == -1)
-                    Usage ("Unable to rmdir ", p, " - ", error (), 0);
-        }
+    /*  if we're not just outputting files then
+     *      if we're to delete this node then
+     *          ...
+     */
+    if (!fFiles)
+        if (fDelete)
+            if (_rmdir (p) == -1)
+                Usage ("Unable to rmdir ", p, " - ", error (), 0);
+    }
     else
     if (!fStructure) {
-        if (access(p, 04) == -1)        /* If we can read the source */
+        if (_access(p, 04) == -1)        /* If we can read the source */
             Usage ("Unable to peek status of ", p, " - ", error (), 0);
 
         /*  do not copy the file if:
@@ -304,16 +318,16 @@ CopyNode (
         /* If destination exists, check the time of the destination to
          * see if we should copy the file
          */
-        if (access (dest, 00) != -1 ) {
-            struct stat srcbuf;
-            struct stat dstbuf;
+        if (_access (dest, 00) != -1 ) {
+            struct _stat srcbuf;
+            struct _stat dstbuf;
             /* We have now determined that both the source and destination
              * exist, we now want to check to see if the destination is
              * read only, and if the /T switch was specified if the
              * destination is newer than the source.
              */
-            if (stat (p, &srcbuf) != -1) {/* if source is stat'able */
-                if (stat (dest, &dstbuf) != -1 ) { /* and destination too, */
+            if (_stat (p, &srcbuf) != -1) {/* if source is stat'able */
+                if (_stat (dest, &dstbuf) != -1 ) { /* and destination too, */
                     attr = GetFileAttributes( dest ); /* get dest's flag */
                     fDestRO = (flagType)TESTFLAG ( attr, FILE_ATTRIBUTE_READONLY ); /* Flag dest R.O. */
                     if ( fTime && srcbuf.st_mtime <= dstbuf.st_mtime)
@@ -339,39 +353,100 @@ CopyNode (
                     RSETFLAG (attr, FILE_ATTRIBUTE_READONLY);
                     SetFileAttributes( dest, attr );
                 }
-                unlink(dest);
+                _unlink(dest);
                 ChkSpace(drv, pfb->fbuf.nFileSizeLow);
                 }
             if (!fQuiet)
                 printf ("%s => %s\t", p, dest);
 
+            Status = NO_ERROR;
+            pszError = "[OK]";
+
             if (fFiles) {
-                pend = NULL;
                 if (fScript)
                     printf ("copy %s %s\n", p, dest);
                 else
                     printf ("file %s\n", p, dest);
                 }
             else
-                pend = fcopy (p, dest);
+            if (!CopyFile (p, dest, FALSE)) {
+                pszError = error ();
+                Status = GetLastError ();
+
+                //  If we received a sharing violation, we try to perform
+                //  a boot-delayed copy.
+
+                do {
+                    if (Status != ERROR_SHARING_VIOLATION)
+                        continue;
+
+                    if (!fReboot)
+                        continue;
+
+                    Status = NO_ERROR;
+                    pszError = "[reboot necessary]";
+
+                    //  We attempt to delay this operation until reboot.
+                    //  Since there is at least one DLL that we cannot
+                    //  rename in this fashion, we perform delayed DELETE
+                    //  of unused files.
+
+                    //  get a temp name in the same directory
+                    upd (dest, ".", tempdir);
+                    if (GetTempFileName (tempdir, "tc", 0, tempfile) == 0) {
+                        pszError = error ();
+                        Status = GetLastError ();
+                        continue;
+                        }
+
+                    //  rename dest file to temp name
+                    if (!MoveFileEx (dest, tempfile, MOVEFILE_REPLACE_EXISTING)) {
+                        pszError = error ();
+                        Status = GetLastError ();
+                        DeleteFile (tempfile);
+                        continue;
+                        }
+
+                    //  copy again
+                    if (!CopyFile (p, dest, TRUE)) {
+                        pszError = error ();
+                        Status = GetLastError ();
+                        DeleteFile (dest);
+                        MoveFile (tempfile, dest);
+                        continue;
+                        }
+
+                    //  mark temp for delete
+                    if (!MoveFileEx (tempfile, NULL, MOVEFILE_DELAY_UNTIL_REBOOT)) {
+                        pszError = error ();
+                        Status = GetLastError ();
+                        DeleteFile (dest);
+                        MoveFile (tempfile, dest);
+                        continue;
+                        }
+
+                     fRebootNecessary = TRUE;
+                } while (FALSE);
+
+                }
 
             /*  Display noise if we're not quiet
              */
             if (!fQuiet)
-                printf ("%s\n", pend == NULL ? "[OK]" : "");
+                printf ("%s\n", pszError);
 
             /*  If we got an error and we're not supposed to ignore them
              *      quit and report error
              */
-            if (pend != NULL)
+            if (Status != NO_ERROR)
                 if (!fAllowError)
-                    Usage ("Unable to copy ", p, " to ", dest, " - ", pend, 0);
+                    Usage ("Unable to copy ", p, " to ", dest, " - ", pszError, 0);
                 else
-                    printf ("Unable to copy %s to %s - %s\n", p, dest, pend);
+                    printf ("Unable to copy %s to %s - %s\n", p, dest, pszError);
 
             /*  If we're not just producing a file list and no error on copy
              */
-            if (!fFiles && pend == NULL) {
+            if (!fFiles && Status == NO_ERROR) {
 
                 /*  If we're supposed to copy archived files and archive was
                  *      set, go reset the source
@@ -399,7 +474,7 @@ CopyNode (
 
                     /*  Delete source and report error
                      */
-                    if (unlink (p) == -1)
+                    if (_unlink (p) == -1)
                         Usage ("Unable to del ", p, " - ", error (), 0);
                     }
                 }
@@ -431,7 +506,7 @@ char *p;
         dstend--;
     *dstend = '\0';
     if (*subsrc != '\0') {
-        strlwr(subsrc);
+        _strlwr(subsrc);
         strcat (dest, "\\");
         strcat (dest, subsrc);
         }
@@ -442,13 +517,13 @@ char *p;
 void    MakeDir (p)
 char *p;
 {
-    struct stat dbuf;
+    struct _stat dbuf;
     char *pshort;
     int i;
 
     if (strlen (p) > 3) {
 
-        if (stat (p, &dbuf) != -1)
+        if (_stat (p, &dbuf) != -1)
             if (!TESTFLAG (dbuf.st_mode, S_IFDIR))
                 Usage (p, " is a file", 0);
             else
@@ -472,7 +547,7 @@ char *p;
             else
                 printf ("dir %s\n", p);
         else {
-            i = mkdir (p);
+            i = _mkdir (p);
             if (!fQuiet)
                 printf ("%s\n", i != -1 ? "[OK]" : "");
             if (i == -1)
@@ -480,4 +555,3 @@ char *p;
             }
         }
 }
-

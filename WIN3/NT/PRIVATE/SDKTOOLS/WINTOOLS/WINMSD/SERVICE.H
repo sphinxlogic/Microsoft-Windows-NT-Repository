@@ -26,22 +26,26 @@ Environment:
 
 #define _SERVICE_
 
+#define SZ_CURRENTVERSIONKEY  TEXT("Software\\Microsoft\\Windows NT\\CurrentVersion")
+#define SZ_SYSTEMROOT         TEXT("SystemRoot")
+
 #include "wintools.h"
 
-
-BOOL
-BuildDriversReport(
-    IN HWND hWnd
-    );
-
 BOOL
 BuildServicesReport(
-    IN HWND hWnd
+    IN HWND hWnd,
+    IN UINT iDetailLevel
     );
 
+BOOL
+BuildReports(
+    IN HWND hWnd,
+    DWORD   ServiceType,
+    IN UINT iDetailLevel
+    );
 
 BOOL
-DisplayServiceDlgProc(
+DevicesAndServicesDetailsProc(
     IN HWND hWnd,
     IN UINT message,
     IN WPARAM wParam,
@@ -49,7 +53,16 @@ DisplayServiceDlgProc(
     );
 
 BOOL
-ServiceListDlgProc(
+DevicesAndServicesDetailsProc2(
+    IN HWND hWnd,
+    IN UINT message,
+    IN WPARAM wParam,
+    IN LPARAM lParam
+    );
+
+
+BOOL
+DevicesAndServicesTabProc(
     IN HWND hWnd,
     IN UINT message,
     IN WPARAM wParam,
@@ -57,3 +70,4 @@ ServiceListDlgProc(
     );
 
 #endif // _SERVICE_
+

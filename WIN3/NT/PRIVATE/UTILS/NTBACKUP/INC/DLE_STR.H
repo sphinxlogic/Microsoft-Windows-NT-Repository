@@ -182,8 +182,9 @@ Copyright(c) Maynard Electronics, Inc. 1984-89
 #define     SMS_OBJECT           ((UINT8)15)     /* m   */
 #define     LOCAL_NTFS_DRV       ((UINT8)16)     /* t   */
 #define     GRFS_SERVER          ((UINT8)17)     /* gr  */
+#define     FS_EMS_DRV           ((UINT8)18)     /* x   */
 
-#define     MAX_DRV_TYPES        ((UINT8)18)
+#define     MAX_DRV_TYPES        ((UINT8)19)
 
 /*
             GRFS specific device sub types
@@ -193,6 +194,16 @@ Copyright(c) Maynard Electronics, Inc. 1984-89
 #define     GRFS_OS2_AGENT       ((UINT8)2)
 #define     GRFS_MAC_AGENT       ((UINT8)3)
 #define     GRFS_UNIX_AGENT      ((UINT8)4)
+
+/*
+          EMS specific device sub types
+*/
+#define EMS_ENTERPRISE    ((UINT8)1)
+#define EMS_SITE          ((UINT8)2)
+#define EMS_SERVER        ((UINT8)3)
+#define EMS_BRICK         ((UINT8)4)
+#define EMS_MDB           ((UINT8)5)
+#define EMS_DSA           ((UINT8)6)
 
 
 /*       Used by DLE_UpdateList to release specific DLE's */
@@ -229,6 +240,7 @@ Copyright(c) Maynard Electronics, Inc. 1984-89
 #define DLE_FEAT_CASE_PRESERVING        0x0400    /* Device retains case but FRED==fred */
 #define DLE_FEAT_NON_VOLUME_OBJECT      0x0800    /* Device is non-volume, eg Directory services, bindery */
 #define DLE_FEAT_UNICODE_NAMES          0x1000    /* Device accepts Unicode names */
+#define DLE_FEAT_NON_DISPLAYABLE_CONT   0x2000    /* Device accepts Unicode names */
 
 /**
                OS specific portions of DLE
@@ -292,6 +304,7 @@ typedef struct LOCAL_NTFS_DRV_DLE_INFO {
      CHAR_PTR  registry_path;           /* needed for mapped LANMAN drvs */
      INT       registry_path_size;      /* needed for mapped LANMAN drvs */
      INT16     fname_leng ;             /* size of path element          */
+     DWORD     vol_flags ;              /* flags from GetVolInfo()       */
      CHAR_PTR  fs_name;                 /* name of file system           */
      VOID_PTR  sd;                      /* sec. descriptor for create    */
      VOID_PTR  sdacl;                   /* acl for sec descriptor above  */
@@ -300,6 +313,46 @@ typedef struct LOCAL_NTFS_DRV_DLE_INFO {
      CHAR      user_name[ 2 ] ;         /* user name  -  must be last    */
 
 } LOCAL_DOS_NTFS_DLE_INFO;
+
+
+typedef struct EMS_ENTERP_DLE_INFO *EMS_ENTERP_DLE_INFO_PTR;
+
+typedef struct EMS_ENTERP_DLE_INFO {
+     INT       type ;                     /* ems dle type must be first element */
+     CHAR_PTR  enterprise_name;         /* volume label                  */
+     CHAR_PTR  server_name;             /* volume label                  */
+} EMS_ENTERP_DLE_INFO;
+
+typedef struct EMS_SITE_DLE_INFO *EMS_SITE_DLE_INFO_PTR;
+
+typedef struct EMS_SITE_DLE_INFO {
+     INT       type  ;                  /* ems dle type must be first element */
+     CHAR_PTR  site_name;               /* volume label                  */
+} EMS_SITE_DLE_INFO;
+
+typedef struct EMS_SERVER_DLE_INFO *EMS_SERVER_DLE_INFO_PTR;
+
+typedef struct EMS_SERVER_DLE_INFO {
+     INT       type ;                   /* ems dle type must be first element */
+     VOID_PTR  mail_hand ;              /* handle from logon             */
+     CHAR_PTR  server_name;             /* volume label                  */
+} EMS_SERVER_DLE_INFO;
+
+typedef struct EMS_MDB_DSA_DLE_INFO *EMS_MDB_DSA_DLE_INFO_PTR;
+
+typedef struct EMS_MDB_DSA_DLE_INFO {
+     INT       type ;                   /* ems dle type must be first element */
+     CHAR_PTR  server_name;             /* volume label                  */
+} EMS_MDB_DSA_DLE_INFO;
+
+typedef struct EMS_BRICK_DLE_INFO *EMS_BRICK_DLE_INFO_PTR;
+
+typedef struct EMS_BRICK_DLE_INFO {
+     INT       type ;                   /* ems dle type must be first element */
+     VOID_PTR  mail_hand ;         /* handle from logon             */
+     CHAR_PTR  server_name;             /* volume label                  */
+
+} EMS_BRICK_DLE_INFO;
 
 typedef struct LOCAL_OS2_DRV_DLE_INFO *LOCAL_OS2_DRV_DLE_INFO_PTR;
 
@@ -530,6 +583,11 @@ typedef union {
      VOID_PTR                      any;         /* generic reference to any of the following pointers */
      LOCAL_IMAGE_DLE_INFO_PTR      image;
      LOCAL_DOS_DRV_DLE_INFO_PTR    dos;
+     EMS_ENTERP_DLE_INFO_PTR       xenterp ;
+     EMS_SITE_DLE_INFO_PTR         xsite;
+     EMS_SERVER_DLE_INFO_PTR       xserv;
+     EMS_MDB_DSA_DLE_INFO_PTR      xmono;
+     EMS_BRICK_DLE_INFO_PTR        xbrick;
      LOCAL_NTFS_DRV_DLE_INFO_PTR   ntfs;
      LOCAL_OS2_DRV_DLE_INFO_PTR    os2;
      REMOTE_WORK_STAT_DLE_PTR      work_stat;
@@ -601,4 +659,4 @@ typedef struct HEAD_DLE {
 } HEAD_DLE ;
 
 #endif
-
+

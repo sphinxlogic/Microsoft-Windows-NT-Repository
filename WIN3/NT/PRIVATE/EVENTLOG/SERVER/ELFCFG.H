@@ -33,6 +33,9 @@ Revision History:
 #define     ELF_DEFAULT_MAX_FILE_SIZE         512*1024
 #define     ELF_DEFAULT_RETENTION_PERIOD      1*24*3600
 
+#define     ELF_GUEST_ACCESS_UNRESTRICTED     0
+#define     ELF_GUEST_ACCESS_RESTRICTED       1
+
 //
 // Maximum size for the buffer that will read the key values from the
 // registry.
@@ -54,9 +57,10 @@ Revision History:
 //
 //
 
-#define     VALUE_FILENAME        L"File"
-#define     VALUE_MAXSIZE         L"Maxsize"
-#define     VALUE_RETENTION       L"Retention"
-#define     VALUE_DEBUG           L"DBFlags"
+#define     VALUE_FILENAME              L"File"
+#define     VALUE_MAXSIZE               L"Maxsize"
+#define     VALUE_RETENTION             L"Retention"
+#define     VALUE_RESTRICT_GUEST_ACCESS L"RestrictGuestAccess"
+#define     VALUE_DEBUG                 L"DBFlags"
 
 #endif // ifndef _EVENTDEFAULTS_

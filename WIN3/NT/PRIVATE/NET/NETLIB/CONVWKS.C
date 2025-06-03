@@ -102,7 +102,7 @@ NetpConvertWkstaInfo (
 
 
     IF_DEBUG(CONVWKS) {
-        NetpDbgPrint( "NetpConvertWkstaInfo: input wksta info:\n" );
+        NetpKdPrint(( "NetpConvertWkstaInfo: input wksta info:\n" ));
         NetpDbgDisplayWksta( FromLevel, FromInfo );
     }
 
@@ -208,7 +208,7 @@ NetpConvertWkstaInfo (
     }
 
     IF_DEBUG(CONVWKS) {
-        NetpDbgPrint( "NetpConvertWkstaInfo: output wksta info:\n" );
+        NetpKdPrint(( "NetpConvertWkstaInfo: output wksta info:\n" ));
         NetpDbgDisplayWksta( FromLevel, FromInfo );
     }
 
@@ -296,22 +296,22 @@ NetpMakeWkstaLevelForNT(
     (*ppLevel0)->wki0_charcount =
         pLevel502->wki502_maximum_collection_count;
     (*ppLevel0)->wki0_keepconn        = pLevel502->wki502_keep_conn;
-    (*ppLevel0)->wki0_keepsearch      = -1;
+    (*ppLevel0)->wki0_keepsearch      = (ULONG)-1;
     (*ppLevel0)->wki0_maxthreads      = pLevel502->wki502_max_threads;
     (*ppLevel0)->wki0_maxcmds         = pLevel502->wki502_max_cmds;
-    (*ppLevel0)->wki0_numworkbuf      = -1;
-    (*ppLevel0)->wki0_sizworkbuf      = -1;
-    (*ppLevel0)->wki0_maxwrkcache     = -1;
+    (*ppLevel0)->wki0_numworkbuf      = (ULONG)-1;
+    (*ppLevel0)->wki0_sizworkbuf      = (ULONG)-1;
+    (*ppLevel0)->wki0_maxwrkcache     = (ULONG)-1;
     (*ppLevel0)->wki0_sesstimeout     = pLevel502->wki502_sess_timeout;
-    (*ppLevel0)->wki0_sizerror        = -1;
-    (*ppLevel0)->wki0_numalerts       = -1;
-    (*ppLevel0)->wki0_numservices     = -1;
-    (*ppLevel0)->wki0_errlogsz        = -1;
-    (*ppLevel0)->wki0_printbuftime    = -1;
-    (*ppLevel0)->wki0_numcharbuf      = -1;
+    (*ppLevel0)->wki0_sizerror        = (ULONG)-1;
+    (*ppLevel0)->wki0_numalerts       = (ULONG)-1;
+    (*ppLevel0)->wki0_numservices     = (ULONG)-1;
+    (*ppLevel0)->wki0_errlogsz        = (ULONG)-1;
+    (*ppLevel0)->wki0_printbuftime    = (ULONG)-1;
+    (*ppLevel0)->wki0_numcharbuf      = (ULONG)-1;
     (*ppLevel0)->wki0_sizcharbuf      = pLevel502->wki502_siz_char_buf;
     (*ppLevel0)->wki0_wrkheuristics   = NULL;
-    (*ppLevel0)->wki0_mailslots       = -1;
+    (*ppLevel0)->wki0_mailslots       = (ULONG)-1;
 
     //
     // If we're building a level 1, do the incremental fields

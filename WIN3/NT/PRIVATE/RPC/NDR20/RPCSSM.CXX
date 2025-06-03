@@ -4,12 +4,12 @@ Copyright (c) 1993 Microsoft Corporation
 
 Module Name:
 
-    rpcssm.c
+    rpcssm.cxx
 
 Abstract:
 
-    We implement the memory routines used by the stubs in this file.
-    These are rpc_ss_* and rpc_sm_*
+    RpcS* memory package routines are implemented here.
+    These corespond to DCE rpc_ss_* and rpc_sm_* routines.
 
 Author:
 
@@ -18,34 +18,65 @@ Author:
 Revision History:
 
     Ryszardk    Nov 30, 1993    added rpc_sm_* package,
-                rewrote rpc_ss_* package
+                                rewrote rpc_ss_* package
 
 -------------------------------------------------------------------*/
 
 #include <assert.h>
-#include <sysinc.h>
-#include <rpc.h>
 extern "C"
 {
 #include <ndrp.h>           // rpcndr.h and  NDR_ASSERT
 
 void NdrRpcDeleteAllocationContext();
+void ForceNdrCleanupSegIntoMemory();
 }
+#include "util.hxx"
 #include "rpcssm.hxx"
 
-// -----------------------------------------------------------------
+#if defined( DOS ) && !defined( WIN )
+#pragma code_seg( "NDR20_6" )
+#endif
 
 
 // =======================================================================
 //      RpcSs Package
 // =======================================================================
 
+// This structure is being initialized with (plain) malloc and free
+// by an assignement in NdrClientInitializeNew.
+// It is used only by the client side.
+// We need a pointer, too, because of a C compiler problem on Dos.
+
+MALLOC_FREE_STRUCT  RpcSsDefaults = { 0, 0 };
+extern "C"
+MALLOC_FREE_STRUCT  __RPC_FAR * pRpcSsDefaults = &RpcSsDefaults;
+
+
+extern "C" void NdrpSetRpcSsDefaults(RPC_CLIENT_ALLOC *pfnAlloc,
+                      RPC_CLIENT_FREE *pfnFree)
+{
+    pRpcSsDefaults->pfnAllocate = pfnAlloc;
+    pRpcSsDefaults->pfnFree     = pfnFree;
+}
+
+// These are default allocator and deallocator used by the client side
+// when the memory package hasn't been enabled. They map to C-runtime
+// malloc and free.
+// When the client side executes in an enabled environment, the client
+// doesn't use these two routines; instead, it uses the same default
+// allocator that the server does (NdrRpcSsDefaultAllocate/Free).
+// Those map into I_RpcAllocate/I_RpcFree, and those in turn map into
+// system Rtl* routines.
+
 static void __RPC_FAR * __RPC_API
 DefaultAllocate (
     IN size_t Size
     )
 {
-    return(I_RpcAllocate((unsigned int) Size));
+    if ( RpcSsDefaults.pfnAllocate == NULL )
+        RpcRaiseException( RPC_X_WRONG_STUB_VERSION );
+
+    return( RpcSsDefaults.pfnAllocate( Size ) ) ;
 }
 
 static void __RPC_API
@@ -53,7 +84,30 @@ DefaultFree (
     IN void __RPC_FAR * Ptr
     )
 {
-    I_RpcFree(Ptr);
+    if ( RpcSsDefaults.pfnFree == NULL )
+        RpcRaiseException( RPC_X_WRONG_STUB_VERSION );
+
+    RpcSsDefaults.pfnFree( Ptr );
+}
+
+// -----------------------------------------------------------------
+
+
+RPC_STATUS
+CheckIfMtrtHeapInitialized()
+{
+    // Check if the Rpc mtrt heap was initialized (any platform).
+    // It calls a macro that returns from this routine with
+    // "out of memory" error when it fails.
+    // It's under an if only to facilitate testing.
+
+#if  !defined(NEWNDR_INTERNAL)
+
+    InitializeIfNecessary();
+
+#endif // NEWNDR_INTERNAL
+
+    return( RPC_S_OK );
 }
 
 
@@ -64,9 +118,9 @@ GetCreateAllocationContext (
 
 Return Value:
 
-    The allocation information for this thread will be returned.  If there
-    is no allocation information for this thread some will be allocated.  If
-    there is insufficient memory, as exception will be raised.
+    The allocation information for this thread is returned.  If there is
+    no allocation information context for this thread, one gets allocated.
+    If there is insufficient memory, an exception is raised.
 
 Exceptions:
 
@@ -79,28 +133,41 @@ Notes.
 
 --*/
 {
-    PALLOCATION_CONTEXT  AllocationContext;
-    int  Successful = 1;
-
-    AllocationContext =  GetAllocContext();
+    PALLOCATION_CONTEXT  AllocationContext =  GetAllocContext();;
 
     if ( AllocationContext == 0 )
         {
-        AllocationContext = (PALLOCATION_CONTEXT)
+        if ( CheckIfMtrtHeapInitialized() == RPC_S_OK )
+            {
+            AllocationContext = (PALLOCATION_CONTEXT)
                             I_RpcAllocate( sizeof(ALLOCATION_CONTEXT) );
+            }
+
         if ( AllocationContext == 0 )
             {
             RpcRaiseException(RPC_S_OUT_OF_MEMORY);
             }
+
         InitializeCriticalSection( &(AllocationContext->CriticalSection) );
         AllocationContext->ClientAlloc = DefaultAllocate;
         AllocationContext->ClientFree  = DefaultFree;
-        AllocationContext->EnableCounter = 0;
-        #if defined(__RPC_WIN32__)
-            AllocationContext->pBlockDescr = 0;
-        #else
+        AllocationContext->EnableCount = 0;
+
+        #if defined( SIMPLE_BLOCK_LIST )
+
             AllocationContext->FirstBlock = 0;
+        #else
+            SYSTEM_INFO          SystemInfo;
+
+            AllocationContext->ThreadCount = 1;
+            AllocationContext->pInitialStacks = 0;
+            AllocationContext->pEnableStack = 0;
+            AllocationContext->pBlockDescr = 0;
+            GetSystemInfo( &SystemInfo );
+            AllocationContext->PageSize = SystemInfo.dwPageSize;
+            AllocationContext->Granularity = SystemInfo.dwAllocationGranularity;
         #endif
+
         SetAllocContext( AllocationContext );   // Tls
         }
 
@@ -108,331 +175,9 @@ Notes.
 }
 
 
-#if defined(__RPC_WIN32__)
+// -----------------------------------------------------------------
 
-void __RPC_FAR * 
-FindBlockForTheChunk(
-    PALLOCATION_CONTEXT AllocationContext, 
-    size_t       Size )
-/*++
-
-Routine Description:
-
-    This routine returns the pointer to the allocated chunk of memory.
-    If it cannot allocate a chunk it returns NULL.
-    This is used only in Win32 version.
-
-Note:
-
-    This is called within the critical section.
-
---*/
-{
-    char __RPC_FAR *    AllocationBlock;
-    size_t              SizeToAllocate = RPCSS_PURE_BLOCK_SIZE;
-    unsigned long       i;
-    PALLOC_BLOCK_DESCR  pBlockDescr;
-    char __RPC_FAR *    pChunk;   
-
-    // Round the size to a multiple of 8, so that
-    // each memory chunk is always on an aligned by 8 boundary.
-
-    Size = ALIGN_TO_8( Size );
-
-    // See if the chunk can be allocated within an existing block.
-    // We use the first fit algorithm to do that.
-
-    if ( Size <= RPCSS_PURE_BLOCK_SIZE )
-        {
-        for ( i = 0;  i < AllocationContext->FFIndex; i++ )
-            {
-            pBlockDescr = & AllocationContext->pBlockDescr[i];
-            if ( pBlockDescr->SizeLeft >= Size )
-                {
-                pChunk = pBlockDescr->FirstFree;
-                pBlockDescr->FirstFree += Size;
-                pBlockDescr->SizeLeft  -= Size;
-
-                #if defined( DEBUGRPC )
-                    pBlockDescr->Counter ++;
-                #endif
-
-                return( pChunk );
-                }
-            }
-        }
-    else
-        SizeToAllocate = Size;
-
-    //
-    // Being here means a need to allocate a new block:
-    //    the chunk cannot be fit in.
-    //
-
-    if ( AllocationContext->FFIndex >= AllocationContext->DescrSize )
-        {
-        // need to reallocate the array of descriptors
-
-        size_t NewDescrSize = AllocationContext->DescrSize +
-                                        DESCR_ARRAY_INCR;
-        pBlockDescr = (PALLOC_BLOCK_DESCR)
-                     I_RpcAllocate( NewDescrSize * sizeof( ALLOC_BLOCK_DESCR ));
-        if ( pBlockDescr == 0 )
-            {
-            return( NULL );
-            }
-
-        RpcpMemoryCopy( pBlockDescr,
-                        AllocationContext->pBlockDescr,
-                        (size_t)(AllocationContext->FFIndex
-                                            * sizeof( ALLOC_BLOCK_DESCR )) );
-        AllocationContext->pBlockDescr = pBlockDescr;
-        AllocationContext->DescrSize = NewDescrSize;
-        }
-
-    // Now allocate the block. Whatever the allocation routine it is,
-    // it should return a buffer aligned to 8.
-
-    AllocationBlock = (char __RPC_FAR *) I_RpcAllocate( SizeToAllocate );
-    if ( AllocationBlock == 0 )
-        {
-        return( NULL );
-        }
-    NDR_ASSERT( ((unsigned long)AllocationBlock & 0x7) == 0,
-                "buffer alignment error at allocation time" );
-
-    pBlockDescr = & AllocationContext->pBlockDescr[ AllocationContext->FFIndex ];
-    pBlockDescr->AllocationBlock = AllocationBlock;
-    pBlockDescr->FirstFree = AllocationBlock + Size;
-    pBlockDescr->SizeLeft  = SizeToAllocate - Size;
-
-    #if defined( DEBUGRPC )
-        pBlockDescr->Counter = 1;
-    #endif
-
-    AllocationContext->FFIndex++;
-
-    return( AllocationBlock );
-}
-
-
-void __RPC_FAR * RPC_ENTRY
-RpcSsAllocate (
-    IN size_t Size
-    )
-/*++
-
-Routine Description:
-
-    RpcSsAllocate, RpcSsDisableAllocate, RpcSsEnableAllocate, and RpcSsFree
-    together form a somewhat specialized memory allocator.  A call to
-    RpcSsEnableAllocate sets up an allocation context for the calling thread.
-    An application (and/or the stubs) then allocate memory from this context
-    using RpcSsAllocate and free memory using RpcSsFree.  When the application
-    (and/or the stubs) call RpcSsDisableAllocate, any memory allocated by
-Delete
-    RpcSsAllocate in the context which has not been freed (by RpcSsFree) will
-    be freed, and the context will be freed.
-
-    RpcSsAllocate allocates memory in the allocation context of this thread.
-
-Arguments:
-
-    Size - Supplies the amount of memory required in bytes.
-
-Return Value:
-
-    A pointer to the allocated block of memory will be returned.
-
-Note:
-
-    This is Win32 version.
-
-Exceptions:
-
-    RPC_S_OUT_OF_MEMORY - If insufficient memory is available, this exception
-                          will be raised.
-    RPC_S_INVALID_ARG   - If no allocation context yet.
-
---*/
-{
-    void __RPC_FAR *        AllocatedChunk = 0;
-    PALLOCATION_CONTEXT     AllocationContext = GetAllocContext();
-
-    if ( AllocationContext == 0 )
-        {
-        RpcRaiseException( RPC_S_INVALID_ARG );
-        }
-
-    EnterCriticalSection( &(AllocationContext->CriticalSection) );
-
-    if ( AllocationContext->pBlockDescr )
-        AllocatedChunk = FindBlockForTheChunk( AllocationContext, Size );
-
-    LeaveCriticalSection( &(AllocationContext->CriticalSection) );
-
-    if ( AllocatedChunk == NULL )
-        {
-        RpcRaiseException(RPC_S_OUT_OF_MEMORY);
-        }
-
-    return( AllocatedChunk );
-}
-
-
-void RPC_ENTRY
-RpcSsDisableAllocate (
-    void
-    )
-/*++
-
-Routine Description:
-
-    Multiple enable/disable are allowed and the EnableCounter is used to keep
-    track of it.
-    We disable only when counter comes back to 0.
-    We ignore too many disables.
-
-    This routine will free memory associated with the allocation context
-    for this thread as well as the allocation context.  See the description
-    of RpcSsAllocate for more information.
-    However, the routine frees only blocks allocated with the default
-    allocator. Other blocks are considered to be allocated
-    with a swapped/set user allocator and so we leave them alone.
-    Allocation context gets freed when process detaches.
-
-Note:
-
-    This is Win32 version.
---*/
-{
-    PALLOCATION_CONTEXT  AllocationContext = GetAllocContext();
-    unsigned long i;
-
-    if ( AllocationContext == 0 )
-        return;
-
-    EnterCriticalSection( &(AllocationContext->CriticalSection) );
-
-    if ( AllocationContext->EnableCounter > 0 )
-        AllocationContext->EnableCounter--;
-
-    if ( AllocationContext->EnableCounter == 0 )
-        {
-        for ( i = 0;  i < AllocationContext->FFIndex; i++ )
-            {
-            DefaultFree( AllocationContext->pBlockDescr[i].AllocationBlock );
-            }
-        I_RpcFree( AllocationContext->pBlockDescr );
-        AllocationContext->pBlockDescr = 0;
-        AllocationContext->DescrSize = 0;
-        AllocationContext->FFIndex = 0;
-        AllocationContext->ClientAlloc = DefaultAllocate;
-        AllocationContext->ClientFree  = DefaultFree;
-        }
-
-    LeaveCriticalSection( &(AllocationContext->CriticalSection) );
-}
-
-
-void RPC_ENTRY
-RpcSsEnableAllocate (
-    void
-    )
-/*++
-
-Routine Description:
-
-    This routine will set up an allocation context for this thread.  See the
-    description of RpcSsAllocate for more information.
-
-Note:
-
-    The behavior is on purpose such that it is valid to call EnableAllocate
-    several times in a row without calling DisableAllocate.
-    This is to be as close to the DCE (DEC) behavior as possible.
-    (even though it seems to go against the OSF spec).
-
-    This is Win32 version.
-
-Exceptions:
-
-    RPC_S_OUT_OF_MEMORY - If insufficient memory is available, this exception
-        will be raised.
---*/
-{
-    PALLOCATION_CONTEXT  AllocationContext =  GetCreateAllocationContext();
-    int  Successful = 1;
-
-    EnterCriticalSection( &(AllocationContext->CriticalSection) );
-
-    if ( AllocationContext->EnableCounter == 0 )
-        {
-        AllocationContext->pBlockDescr = (PALLOC_BLOCK_DESCR)
-                I_RpcAllocate( DESCR_ARRAY_SIZE * sizeof(ALLOC_BLOCK_DESCR) );
-        if ( AllocationContext->pBlockDescr )
-            {
-            AllocationContext->DescrSize = DESCR_ARRAY_SIZE;
-            AllocationContext->FFIndex = 0;
-            AllocationContext->ClientAlloc = RpcSsAllocate;
-            AllocationContext->ClientFree  = RpcSsFree;
-            }
-        else
-            Successful = 0;
-        }
-
-    if ( Successful )
-        AllocationContext->EnableCounter++;
-
-    LeaveCriticalSection( &(AllocationContext->CriticalSection) );
-
-    if ( ! Successful )
-            {
-            RpcRaiseException(RPC_S_OUT_OF_MEMORY);
-            }
-}
-
-
-void RPC_ENTRY
-RpcSsFree (
-    IN void __RPC_FAR * NodeToFree
-    )
-/*++
-
-Routine Description:
-
-    When a block of memory allocated by RpcSsAllocate is no longer needed,
-    it can be freed using RpcSsFree.
-    The memory is freed from the allocation context of this thread.
-    Actually. when the current deallocator is the default one, do nothing
-    -  all will be freed at the Disable time and we want speed.
-    However when the user swapped/set a private allocator/deallocator,
-    we mark the chunk as freed as we don't want leaks.
-
-Arguments:
-
-    NodeToFree - Supplies the block of memory, allocated by RpcSsAllocate, to
-        be freed.
-
-Note:
-
-    This is Win32 version.
---*/
-{
-    PALLOCATION_CONTEXT     AllocationContext = GetAllocContext();
-    
-    if ( AllocationContext == 0 )
-        {
-        #if defined( DEBUGRPC )
-            RpcRaiseException( RPC_S_INVALID_ARG );
-        #else
-            return;
-        #endif
-        }
-}
-
-
-#else   // win32, i.e. 16 bit now
+#if defined( SIMPLE_BLOCK_LIST )
 
 void __RPC_FAR * RPC_ENTRY
 RpcSsAllocate (
@@ -442,7 +187,7 @@ RpcSsAllocate (
 
 Routine Description:
 
-    This is 16 bit version of RpcSsAllocate.
+    This is 16 bit and Mac version of RpcSsAllocate.
 
     It creates a list of blocks rather than an array.
 
@@ -452,7 +197,7 @@ Routine Description:
     PALLOCATION_BLOCK    NewBlock;
     PALLOCATION_CONTEXT  AllocationContext = GetAllocContext();
 
-    if ( AllocationContext == 0  ||  ! AllocationContext->EnableCounter )
+    if ( AllocationContext == 0  ||  ! AllocationContext->EnableCount )
         {
         // The package isn't enabled currently.
 
@@ -487,7 +232,7 @@ RpcSsDisableAllocate (
 
 Routine Description:
 
-    This is 16 bit version of RpcSsDisableAllocate.
+    This is 16 bit and Mac version of RpcSsDisableAllocate.
 
 --*/
 {
@@ -496,10 +241,10 @@ Routine Description:
     if ( AllocationContext == 0 )
         return;
 
-    if ( AllocationContext->EnableCounter > 0 )
-        AllocationContext->EnableCounter--;
+    if ( AllocationContext->EnableCount > 0 )
+        AllocationContext->EnableCount--;
 
-    if ( AllocationContext->EnableCounter == 0 )
+    if ( AllocationContext->EnableCount == 0 )
         {
         PALLOCATION_BLOCK    CurrentBlock;
 
@@ -528,18 +273,18 @@ RpcSsEnableAllocate (
 
 Routine Description:
 
-    This is 16 bit version of RpcSsEnableAllocate.
+    This is 16 bit and Mac version of RpcSsEnableAllocate.
 
 --*/
 {
     PALLOCATION_CONTEXT  AllocationContext = GetCreateAllocationContext();
 
-    if ( AllocationContext->EnableCounter == 0 )
+    if ( AllocationContext->EnableCount == 0 )
         {
         AllocationContext->ClientAlloc = RpcSsAllocate;
         AllocationContext->ClientFree  = RpcSsFree;
         }
-    AllocationContext->EnableCounter++;
+    AllocationContext->EnableCount++;
 }
 
 
@@ -551,7 +296,7 @@ RpcSsFree (
 
 Routine Description:
 
-    This is 16 bit version of RpcSsDisableAllocate.
+    This is 16 bit and Mac version of RpcSsFree.
 
 --*/
 {
@@ -590,9 +335,539 @@ Routine Description:
         }
 }
 
-#endif  // win32
+// -----------------------------------------------------------------
+
+
+#else  // !simple block, i.e. NT and Chicago page array scheme now
+
+void __RPC_FAR *
+FindBlockForTheChunk(
+    PALLOCATION_CONTEXT AllocationContext,
+    size_t       Size )
+/*++
+
+Routine Description:
+
+    This routine returns the pointer to the allocated chunk of memory.
+    If it cannot allocate a chunk it returns NULL.
+    This is used only in Win32 version.
+
+Note:
+
+    This is called within the critical section.
+
+--*/
+{
+    char __RPC_FAR *    AllocationBlock;
+    DWORD               SizeToAllocate;
+    unsigned long       i, BlockSize;
+    PALLOC_BLOCK_DESCR  pDescrTemp;
+    char __RPC_FAR *    pChunk;
+
+    // Round the size to a multiple of 8, so that
+    // each memory chunk is always on an aligned by 8 boundary.
+
+    Size = ALIGN_TO_8( Size );
+
+    // If the size is 0, allocate 8 bytes anyways to guarantee uniqueness
+    // and to prevent aliasing problems.
+
+    if ( Size == 0 )
+        Size = 8;
+
+    // See if the chunk can be allocated within an existing block.
+    // We use the first fit algorithm to do that.
+
+    BlockSize = AllocationContext->PageSize;
+
+    if ( Size < BlockSize )
+        {
+        for ( i = 0;  i < AllocationContext->FFIndex; i++ )
+            {
+            pDescrTemp = & AllocationContext->pBlockDescr[i];
+            if ( pDescrTemp->SizeLeft >= Size )
+                {
+                pChunk = pDescrTemp->FirstFree;
+                pDescrTemp->FirstFree += Size;
+                pDescrTemp->SizeLeft  -= Size;
+
+                #if defined( DEBUGRPC )
+                    pDescrTemp->Counter ++;
+                #endif
+
+                return( pChunk );
+                }
+            }
+        // Doesn't fit anywhere: allocate a new block.
+
+        SizeToAllocate = BlockSize;
+        }
+    else
+        {
+        // Size is too big to fit in leftovers.
+        // Round it up to the block size boundary.
+
+        ulong Alignment = BlockSize - 1;
+
+        SizeToAllocate = (Size + Alignment) & ~Alignment;
+        }
+
+    //
+    // Being here means a need to allocate a new block of pages.
+    //
+
+    if ( AllocationContext->FFIndex >= AllocationContext->DescrSize )
+        {
+        // need to reallocate the array of descriptors first.
+
+        size_t NewDescrSize = AllocationContext->DescrSize +
+                                        DESCR_ARRAY_INCR;
+        pDescrTemp = (PALLOC_BLOCK_DESCR)
+                     I_RpcAllocate( NewDescrSize * sizeof( ALLOC_BLOCK_DESCR ));
+        if ( pDescrTemp == 0 )
+            {
+            return( NULL );
+            }
+
+        RpcpMemoryCopy( pDescrTemp,
+                        AllocationContext->pBlockDescr,
+                        (size_t)(AllocationContext->FFIndex
+                                            * sizeof( ALLOC_BLOCK_DESCR )) );
+
+        if ( AllocationContext->pBlockDescr !=
+                AllocationContext->pInitialStacks->DescrStack )
+            I_RpcFree( AllocationContext->pBlockDescr );
+
+        AllocationContext->pBlockDescr = pDescrTemp;
+        AllocationContext->DescrSize = NewDescrSize;
+        }
+
+    // Now allocate the new block.
+
+    AllocationBlock = (char __RPC_FAR *) VirtualAlloc( NULL,  // new pages
+                                                       SizeToAllocate,
+                                                       MEM_COMMIT,
+                                                       PAGE_READWRITE );
+    if ( AllocationBlock == 0 )
+        {
+        return( NULL );
+        }
+
+    NDR_ASSERT( ((ulong)AllocationBlock & 0x7) == 0,
+                "buffer alignment error at allocation time" );
+
+    pDescrTemp = & AllocationContext->pBlockDescr[ AllocationContext->FFIndex ];
+    pDescrTemp->AllocationBlock = AllocationBlock;
+    pDescrTemp->FirstFree = AllocationBlock + Size;
+    pDescrTemp->SizeLeft  = SizeToAllocate - Size;
+
+    #if defined( DEBUGRPC )
+        pDescrTemp->Counter = 1;
+    #endif
+
+    AllocationContext->FFIndex++;
+
+    return( AllocationBlock );
+}
+
+
+void __RPC_FAR * RPC_ENTRY
+RpcSsAllocate (
+    IN size_t Size
+    )
+/*++
+
+Routine Description:
+
+    Allocate memory within the allocation context fot the thread. A call to
+    RpcSsEnableAllocate sets up an allocation context for the calling thread.
+    When the application (and/or the stubs) call RpcSsDisableAllocate,
+    any memory allocated by RpcSsAllocate in the context which has not been
+     freed (by RpcSsFree) will be freed, and the context will be freed.
+
+Arguments:
+
+    Size - Supplies the amount of memory required in bytes.
+
+Return Value:
+
+    A pointer to the allocated block of memory will be returned.
+
+Note:
+
+    This is Win32 version.
+
+Exceptions:
+
+    RPC_S_OUT_OF_MEMORY - If insufficient memory is available, this exception
+                          will be raised.
+    RPC_S_INVALID_ARG   - If no allocation context yet.
+
+--*/
+{
+    void __RPC_FAR *        AllocatedChunk = 0;
+    PALLOCATION_CONTEXT     AllocationContext = GetAllocContext();
+
+    if ( AllocationContext == 0 )
+        {
+        RpcRaiseException( RPC_S_INVALID_ARG );
+        }
+
+    EnterCriticalSection( &(AllocationContext->CriticalSection) );
+
+    if ( AllocationContext->EnableCount )
+        AllocatedChunk = FindBlockForTheChunk( AllocationContext, Size );
+
+    LeaveCriticalSection( &(AllocationContext->CriticalSection) );
+
+    if ( AllocatedChunk == NULL )
+        {
+        RpcRaiseException(RPC_S_OUT_OF_MEMORY);
+        }
+
+    return( AllocatedChunk );
+}
+
+
+static void
+NdrpReleaseMemory(
+    PALLOCATION_CONTEXT  AllocationContext
+    )
+/*++
+
+Routine Description:
+
+    Releases all the memory related to the package except for the
+    control block itself.
+
+Note:
+
+    This is Win32 version and is called from the critical section
+    in disable allocate and set thread.
+--*/
+{
+    unsigned long i;
+
+    for ( i = 0;  i < AllocationContext->FFIndex; i++ )
+        {
+        VirtualFree( AllocationContext->pBlockDescr[i].AllocationBlock,
+                     0,  // free all of it
+                     MEM_RELEASE );
+        }
+    I_RpcFree( AllocationContext->pInitialStacks );
+    if ( AllocationContext->pEnableStack !=
+            AllocationContext->pInitialStacks->EnableStack )
+        I_RpcFree( AllocationContext->pEnableStack );
+    if ( AllocationContext->pBlockDescr !=
+            AllocationContext->pInitialStacks->DescrStack )
+        I_RpcFree( AllocationContext->pBlockDescr );
+
+    AllocationContext->pInitialStacks = 0;
+    AllocationContext->pEnableStack = 0;
+    AllocationContext->StackMax = 0;
+    AllocationContext->StackTop = 0;
+    AllocationContext->pBlockDescr = 0;
+    AllocationContext->DescrSize = 0;
+    AllocationContext->FFIndex = 0;
+    AllocationContext->ClientAlloc = DefaultAllocate;
+    AllocationContext->ClientFree  = DefaultFree;
+
+    NDR_ASSERT( AllocationContext->ThreadCount, "when relesing all memory" );
+    AllocationContext->ThreadCount--;
+}
+
+static void
+NdrpDisableAllocate(
+    BOOL    fCalledFromStub
+    )
+/*++
+
+Routine Description:
+
+    Multiple enable/disable are allowed and the EnableCount is used to keep
+    track of it.
+    We disable only when counter comes back to 0.
+    We ignore too many disables.
+
+    This routine will free memory associated with the allocation context
+    for this thread as well as the allocation context.
+
+    However, the routine frees only blocks allocated with the default
+    allocator. Other blocks are considered to be allocated
+    with a swapped/set user allocator and so we leave them alone.
+    Allocation context gets freed when process detaches.
+
+Note:
+
+    This is Win32 version.
+--*/
+{
+    PALLOCATION_CONTEXT  AllocationContext = GetAllocContext();
+    unsigned long        NewLevel, i;
+    BOOL                 fTooManyDisables = FALSE;
+    BOOL                 fLastThreadGoingAway = FALSE;
+
+    if ( AllocationContext == 0 )
+        return;
+
+    EnterCriticalSection( &(AllocationContext->CriticalSection) );
+
+    if ( fCalledFromStub )
+        {
+        NDR_ASSERT( AllocationContext->StackTop, "mismatch in stub calls" );
+        NewLevel = AllocationContext
+                            ->pEnableStack[ -- AllocationContext->StackTop ];
+        }
+    else
+        NewLevel = AllocationContext->EnableCount - 1;
+
+    // We are forcing the EnableCount to get the value from the EnableStack,
+    // when possible.
+
+    if ( AllocationContext->EnableCount )
+        AllocationContext->EnableCount = NewLevel;
+    else
+        {
+        // doesn't fall below zero.
+
+        fTooManyDisables = TRUE;
+        }
+
+    if ( AllocationContext->EnableCount == 0 )
+        {
+        // First free everything except the control block.
+
+        if ( !fTooManyDisables )
+            NdrpReleaseMemory( AllocationContext );
+
+        // Now see if we need to free the context itself.
+
+        // Because of the thread reusage in the runtime, and consequently,
+        // some threads hanging around forever, we need to dispose
+        // of this, even though it costs a new allocation later.
+
+        if ( AllocationContext->ThreadCount == 0 )
+            {
+            fLastThreadGoingAway = TRUE;
+            SetAllocContext( NULL );
+            }
+        }
+
+    LeaveCriticalSection( &(AllocationContext->CriticalSection) );
+
+    if ( fLastThreadGoingAway)
+        {
+        DeleteCriticalSection( &(AllocationContext->CriticalSection) );
+        I_RpcFree( AllocationContext );
+        }
+
+}
 
 
+
+void RPC_ENTRY
+RpcSsDisableAllocate (
+    void
+    )
+/*++
+
+Routine Description:
+
+    See the description of NdrpDisableAllocate.
+
+Note:
+
+    This is Win32 version.
+--*/
+{
+    NdrpDisableAllocate( FALSE );
+}
+
+
+static void
+NdrpEnableAllocate (
+    BOOL    fCalledFromStub
+    )
+/*++
+
+Routine Description:
+
+    This routine will set up an allocation context for this thread.
+
+Note:
+
+    The behavior is such that it is valid to call EnableAllocate
+    several times in a row without calling DisableAllocate.
+    The number to calls to Disable has to much that of Enable.
+
+    This is Win32 version.
+
+Exceptions:
+
+    RPC_S_OUT_OF_MEMORY - If insufficient memory is available, this exception
+        will be raised.
+--*/
+{
+    PALLOCATION_CONTEXT  AllocationContext =  GetCreateAllocationContext();
+    int  Successful = 1;
+
+    EnterCriticalSection( &(AllocationContext->CriticalSection) );
+
+    if ( AllocationContext->EnableCount == 0 )
+        {
+        AllocationContext->pInitialStacks = (INIT_STACKS_BLOCK *)
+            I_RpcAllocate( sizeof( INIT_STACKS_BLOCK ) );
+
+        if ( AllocationContext->pInitialStacks )
+            {
+            AllocationContext->pEnableStack =
+                AllocationContext->pInitialStacks->EnableStack;
+            AllocationContext->StackMax = ENABLE_STACK_SIZE;
+            AllocationContext->StackTop = 0;
+
+            AllocationContext->pBlockDescr =
+                AllocationContext->pInitialStacks->DescrStack;
+            AllocationContext->DescrSize = DESCR_ARRAY_SIZE;
+            AllocationContext->FFIndex = 0;
+
+            AllocationContext->ClientAlloc = RpcSsAllocate;
+            AllocationContext->ClientFree  = RpcSsFree;
+            }
+        else
+            Successful = 0;
+        }
+
+    if ( Successful )
+        {
+        if ( fCalledFromStub )
+            {
+            // Push the current enable level on the EnableStack to have
+            // a point to come back when disabling from the server stub.
+
+            if ( AllocationContext->StackTop >= AllocationContext->StackMax )
+                {
+                // Need to reallocate the EnableStack first.
+
+                ulong   NewMax;
+                ulong * pStackTemp;
+
+                NewMax = AllocationContext->StackMax + ENABLE_STACK_SIZE;
+                pStackTemp = (ulong *) I_RpcAllocate( NewMax * sizeof(ulong) );
+
+                if ( pStackTemp )
+                    {
+                    RpcpMemoryCopy( pStackTemp,
+                                    AllocationContext->pEnableStack,
+                                    AllocationContext->StackMax * sizeof(ulong) );
+                    if ( AllocationContext->pEnableStack !=
+                             AllocationContext->pInitialStacks->EnableStack )
+                         I_RpcFree( AllocationContext->pEnableStack );
+
+                    AllocationContext->pEnableStack = pStackTemp;
+                    AllocationContext->StackMax = NewMax;
+                    }
+                else
+                    Successful = 0;
+                }
+
+            if ( Successful )
+                AllocationContext->pEnableStack[ AllocationContext->StackTop++ ]
+                     = AllocationContext->EnableCount;
+            else
+                if ( AllocationContext->EnableCount == 0 )
+                    {
+                    // just allocated the stuff ..
+                    I_RpcFree( AllocationContext->pInitialStacks );
+                    AllocationContext->pInitialStacks = 0;
+                    AllocationContext->pEnableStack = 0;
+                    AllocationContext->pBlockDescr = 0;
+                    }
+            }
+
+        // Increment the counter to a new level.
+
+        if ( Successful )
+            {
+            AllocationContext->EnableCount++;
+            }
+        }
+
+    LeaveCriticalSection( &(AllocationContext->CriticalSection) );
+
+    if ( ! Successful )
+        {
+        RpcRaiseException(RPC_S_OUT_OF_MEMORY);
+        }
+}
+
+
+void RPC_ENTRY
+RpcSsEnableAllocate (
+    void
+    )
+/*++
+
+Routine Description:
+
+    This routine will set up an allocation context for this thread.
+
+Note:
+
+    The behavior is such that it is valid to call EnableAllocate
+    several times in a row without calling DisableAllocate.
+    The number to calls to Disable should much that of Enable.
+
+    This is Win32 version.
+
+Exceptions:
+
+    RPC_S_OUT_OF_MEMORY - If insufficient memory is available, this exception
+        will be raised.
+--*/
+{
+    NdrpEnableAllocate( FALSE );
+}
+
+
+void RPC_ENTRY
+RpcSsFree (
+    IN void __RPC_FAR * NodeToFree
+    )
+/*++
+
+Routine Description:
+
+    When a block of memory allocated by RpcSsAllocate is no longer needed,
+    it can be freed using RpcSsFree.
+    Actually, for win32 we do nothing
+        -  all blocks will be freed at the Disable time as we want speed.
+
+Arguments:
+
+    NodeToFree - Supplies the block of memory, allocated by RpcSsAllocate, to
+        be freed.
+
+Note:
+
+    This is Win32 version.
+--*/
+{
+    PALLOCATION_CONTEXT     AllocationContext = GetAllocContext();
+
+    if ( AllocationContext == 0 )
+        {
+        #if defined( DEBUGRPC )
+            RpcRaiseException( RPC_S_INVALID_ARG );
+        #else
+            return;
+        #endif
+        }
+}
+
+#endif  // WIN
+
+
+// -----------------------------------------------------------------
 
 
 RPC_SS_THREAD_HANDLE RPC_ENTRY
@@ -603,9 +878,9 @@ RpcSsGetThreadHandle (
 
 Return Value:
 
-    A handle to the allocation context for this thread will be returned.  This
-    makes it possible for two threads to share an allocation context.  See
-    RpcSsSetThreadHandle as well.
+    A handle to the allocation context for this thread will be returned.
+    This makes it possible for two threads to share an allocation context.
+    See RpcSsSetThreadHandle as well.
 
     != NULL     - only when the environement is actually enabled.
 
@@ -621,7 +896,7 @@ Return Value:
 
     // Check if the memory environement is enabled.
 
-    if ( AllocationContext->EnableCounter > 0 )
+    if ( AllocationContext->EnableCount > 0 )
          Handle = AllocationContext;
 
     LeaveCriticalSection( &(AllocationContext->CriticalSection) );
@@ -645,19 +920,48 @@ Routine Description:
 Arguments:
 
     ClientAlloc - Supplies the routine to use to allocate memory.
-        MIDL_user_allocate will call this routine.
-
-    ClientFree - Supplies the routine to use to free memory.
-        MIDL_user_free will call this routine.
+    ClientFree  - Supplies the routine to use to free memory.
 
 Exceptions:
 
     RPC_S_OUT_OF_MEMORY - If insufficient memory is available, this exception
         will be raised.
 
-Note:
+Note. Back door to enable.
 
-    This routine is in fact doing EnableAllocate along the way
+    DCE (DEC's intrepretation of DCE) has this weird requirement that
+    the user can set (or swap in) his private allocator pair without first
+    enabling the package. This makes it possible for the client side stub
+    to use a private allocator (instead of malloc/free (in osf mode)) to
+    allocate when unmarshalling.
+
+    However, that doesn't enable the package. So, issuing a regular API like
+    RpcSsAllocate still fails.
+
+    The expected behavior is to Enable the package, set or swap private
+    allocators and then RpcSsAllocate is a valid call.
+
+    This has some impact on the disable behavior. The implementation allows
+    for multiple enables and disables. To prevent leaking/passing on an
+    non-empty memory context with a thread when the thread is reused,
+    there is a control mechanism (the enable stack) that makes sure that
+    disbling from the stubs resets the enable level to the one at the
+    enable time.
+
+    Now, when the (server) stub issues enable, the corresponding disable
+    will do the right thing, regardless of what the user might have messed up.
+    If there weren't eanough disables, it will free everything; if there were
+    too many disables, it would quietly do nothing.
+
+    When the user issues an enable, the matching disable will clean up
+    everything. If there is insufficient number of disable call on the client,
+    there is a leak and we cannot do anything about it. Too many calls are ok.
+
+    Now at last. If the user issues set/swap, an (empty) context is created
+    with the disabled state. If the package has never been enabled, this empty
+    context won't be deleted by a disable (this would be a disable too many).
+    This is harmul both on client and server so I leave it as it is.
+
 
 --*/
 {
@@ -685,6 +989,7 @@ Routine Description:
 
     The allocation context for this thread will set to be the supplied
     allocation context.
+    For 32bit environment, the ThreadReCount is updated.
 
 Arguments:
 
@@ -697,8 +1002,91 @@ Exceptions:
 
 --*/
 {
+#if defined( SIMPLE_BLOCK_LIST )
+
+    // Note that 16 bit version doesn't support tracking all the referents
+    // of the allocation context. For Dos and Mac this didn't make sense.
+    // For 16 bit Windows we could have an EnableStack and references that
+    // work on per task basis. I didn't think such finesse made much sense
+    // for 16 bit windows given the cost, so I resolved not to implement it.
+    // However, supporting disabling by means of setting the thread handle
+    // to 0 can be done very easily, if needed. Just call
+    // NdrRpcDeleteAllocationContext once.
+
     GetAllocContext();
-    SetAllocContext( (PALLOCATION_CONTEXT) Id );;
+    SetAllocContext( (PALLOCATION_CONTEXT) Id );
+
+#else
+    // This is 32bit code.
+
+    // DCE doesn't really specify any means to support some kind of thread
+    // ref counting and so additional semantics has been defined for this
+    // API.
+    // In order to define some orderly behavior for the apps passing
+    // thread handles around, we keep track of how many threads can
+    // access an allocation context. For an app to be clean, each thread
+    // that issues set call(s) with non-zero argument should signal it's
+    // done with a single set call with 0.
+
+    // The ThreadCount has a special flavor here, which is to
+    // count the threads that can access the context, not the references
+    // in the sense of set calls.
+    // The original thread doesn't issue a set but we still have to
+    // account for it. So we start the ThreadCount with 1, and then
+    // the last disable (the one that frees the memory) decrements the count.
+    // Which means that the thread issuing the last disable effectively
+    // does a set to zero at the same time.
+
+    // The rules below support decrementing the ThreadCount by means
+    // of calling the routine with thread id == 0, or with thread id being
+    // different from the current one.
+    // If this happens to be the call that would remove the last chance
+    // to reference the context, we force to free everything, including
+    // the control block.
+    // In other words, set 0 on the last thread does the disable.
+
+
+    PALLOCATION_CONTEXT pOldContext = GetAllocContext();
+    PALLOCATION_CONTEXT pNewContext = (PALLOCATION_CONTEXT) Id;
+
+    if ( pOldContext != pNewContext )
+        {
+        if ( pOldContext )
+            {
+            BOOL fLastThreadGoingAway = FALSE;
+
+            EnterCriticalSection( &(pOldContext->CriticalSection) );
+
+            if ( pOldContext->ThreadCount == 1 )
+                {
+                // delete the memory and decrease the ref count
+
+                NdrpReleaseMemory( pOldContext );
+
+                fLastThreadGoingAway = TRUE;
+                SetAllocContext( NULL );
+                }
+
+            LeaveCriticalSection( &(pOldContext->CriticalSection) );
+
+            if ( fLastThreadGoingAway)
+                {
+                DeleteCriticalSection( &(pOldContext->CriticalSection) );
+                I_RpcFree( pOldContext );
+                }
+            }
+
+        if ( pNewContext )
+            {
+            EnterCriticalSection( &(pNewContext->CriticalSection) );
+            pNewContext->ThreadCount++;
+            LeaveCriticalSection( &(pNewContext->CriticalSection) );
+            }
+        }
+
+    SetAllocContext( pNewContext );
+
+#endif
 }
 
 
@@ -719,24 +1107,15 @@ Routine Description:
 
 Arguments:
 
-    ClientAlloc - Supplies the routine to use to allocate memory.
-        MIDL_user_allocate will call this routine.
-
-    ClientFree - Supplies the routine to use to free memory.
-        MIDL_user_free will call this routine.
-
+    ClientAlloc    - Supplies the routine to use to allocate memory.
+    ClientFree     - Supplies the routine to use to free memory.
     OldClientAlloc - Returns the old value of the client allocator.
-
-    OldClientFree - Returns the old value of the client deallocator.
+    OldClientFree  - Returns the old value of the client deallocator.
 
 Exceptions:
 
     RPC_S_OUT_OF_MEMORY - If insufficient memory is available, this exception
         will be raised.
-
-Note:
-
-    This routine is in fact doing EnableAllocate along the way
 
 --*/
 {
@@ -776,16 +1155,8 @@ RpcSmAllocate (
 
 Routine Description:
 
-    RpcSmAllocate, RpcSmDisableAllocate, RpcSmEnableAllocate, and RpcSmFree
-    together form a somewhat specialized memory allocator.  A call to
-    RpcSmEnableAllocate sets up an allocation context for the calling thread.
-    An application (and/or the stubs) then allocate memory from this context
-    using RpcSmAllocate and free memory using RpcSmFree.  When the application
-    (and/or the stubs) call RpcSmDisableAllocate, any memory allocated by
-    RpcSmAllocate in the context which has not been freed (by RpcSmFree) will
-    be freed, and the context will be freed.
-
-    RpcSmAllocate allocates memory in the allocation context of this thread.
+    Same as RpcSsAllocate, except that this one returns an error code,
+    as opposed to raising an exception.
 
 Arguments:
 
@@ -825,9 +1196,8 @@ RpcSmClientFree (
 
 Routine Description:
 
-    RpcSmClientFree frees the memory using appropriate allocator:
-    If the thread context was enabled, than it uses RpcSsFree,
-    Otherwise it uses the default or swapped in deallocator.
+    Same as RpcSsClientFree, except that this one returns an error code,
+    as opposed to raising an exception.
 
 Arguments:
 
@@ -865,9 +1235,8 @@ RpcSmDisableAllocate (
 
 Routine Description:
 
-    This routine will free all memory associated with the allocation context
-    for this thread as well as the allocation context.  See the description
-    of RpcSsAllocate for more information.
+    Same as RpcSsDisableAllocate, except that this one returns an error code,
+    as opposed to raising an exception.
 
 Return Value:
 
@@ -938,8 +1307,8 @@ RpcSmEnableAllocate (
 
 Routine Description:
 
-    This routine will set up an allocation context for this thread.  See the
-    description of RpcSsAllocate for more information.
+    Same as RpcSsEnableAllocate, except that this one returns an error code,
+    as opposed to raising an exception.
 
 Exceptions:
 
@@ -968,10 +1337,8 @@ RpcSmFree (
 
 Routine Description:
 
-    When a block of memory allocated by RpcSmAllocate is no longer needed,
-    it can be freed using RpcSmFree.  The memory is freed from the allocation
-    context of this thread.  Also see the description of RpcSmAllocate for
-    more information.
+    Same as RpcSsFree, except that this one returns an error code,
+    as opposed to raising an exception.
 
 Arguments:
 
@@ -1006,9 +1373,8 @@ Arguments:
 
 Return Value:
 
-    A handle to the allocation context for this thread will be returned.  This
-    makes it possible for two threads to share an allocation context.  See
-    RpcSmSetThreadHandle as well.
+    Same as RpcSsGetThreadHandle, except that this one returns an error code,
+    as opposed to raising an exception.
 
 --*/
 {
@@ -1036,15 +1402,13 @@ RpcSmSetClientAllocFree (
 
 Routine Description:
 
-    The routines to be used by the client to allocate and free memory can
-    be set using this routine.  See also RpcSmSwapClientAllocFree.
+    Same as RpcSsSetClientAllocFree, except that this one returns an error code,
+    as opposed to raising an exception.
 
 Arguments:
 
     ClientAlloc - Supplies the routine to use to allocate memory.
-                  MIDL_user_allocate will call this routine.
     ClientFree  - Supplies the routine to use to free memory.
-                  MIDL_user_free will call this routine.
 
 Return Value:
 
@@ -1077,8 +1441,8 @@ RpcSmSetThreadHandle (
 
 Routine Description:
 
-    The allocation context for this thread will set to be the supplied
-    allocation context.
+    Same as RpcSsSetThreadHandle, except that this one returns an error code,
+    as opposed to raising an exception.
 
 Arguments:
 
@@ -1119,19 +1483,15 @@ RpcSmSwapClientAllocFree (
 
 Routine Description:
 
-    The routines to be used by the client to allocate and free memory can
-    be set using this routine.  The previous values of these routines will
-    be returned.  See also RpcSmSetClientAllocFree.
+    Same as RpcSsSwapClientAllocFree, except that this one returns an error
+    code, as opposed to raising an exception.
 
 Arguments:
 
-    ClientAlloc - Supplies the routine to use to allocate memory.
-                  MIDL_user_allocate will call this routine.
-    ClientFree  - Supplies the routine to use to free memory.
-                  MIDL_user_free will call this routine.
-
-    OldClientAlloc - Returns the old value of the client allocator.
-    OldClientFree  - Returns the old value of the client deallocator.
+    ClientAlloc     - Supplies the routine to use to allocate memory.
+    ClientFree      - Supplies the routine to use to free memory.
+    OldClientAlloc  - Returns the old value of the client allocator.
+    OldClientFree   - Returns the old value of the client deallocator.
 
 Return Value:
 
@@ -1164,9 +1524,246 @@ Exceptions:
 //     Package initialization
 // =======================================================================
 
-#if defined(__RPC_WIN32__)
+#if defined( DOS )  &&	!defined( WIN )
+
+//
+// This is DOS initialization only.
+//
+// On Dos, we have only one memory manager.
+// Consequently, we need only one "slot" for keeping the alloc context.
+//
+
+static PALLOCATION_CONTEXT  NoTlsAllocContext = NULL;
+
+
+PALLOCATION_CONTEXT
+GetAllocContext (
+    )
+/*++
+
+Return Value:
+
+    The allocation context pointer will be returned.
+
+--*/
+{
+    return( NoTlsAllocContext );
+}
+
+
+void
+SetAllocContext (
+    IN PALLOCATION_CONTEXT  AllocContext
+    )
+/*++
+
+Arguments:
+
+    AllocContext - Supplies a new allocation context pointer.
+
+--*/
+{
+    NoTlsAllocContext = AllocContext;
+}
 
 
+// =======================================================================
+
+#elif defined( MAC ) // this is Mac only
+
+//
+// On Macs, we currently only have one thread and one memory manager.
+// Consequently, we need only one "slot" for keeping the alloc context.
+//
+// MACDLLBUGBUG: This needs to change when moving to a DLL soon.
+//               Pending this change, the code is the same as for Dos.
+//
+
+static PALLOCATION_CONTEXT  NoTlsAllocContext = NULL;
+
+
+PALLOCATION_CONTEXT
+GetAllocContext (
+    )
+/*++
+
+Return Value:
+
+    The allocation context pointer will be returned.
+
+--*/
+{
+    return( NoTlsAllocContext );
+}
+
+
+void
+SetAllocContext (
+    IN PALLOCATION_CONTEXT  AllocContext
+    )
+/*++
+
+Arguments:
+
+    AllocContext - Supplies a new allocation context pointer.
+
+--*/
+{
+    NoTlsAllocContext = AllocContext;
+}
+
+
+// =======================================================================
+
+#elif defined( WIN )   // this is win16 only
+
+//
+// This is Win16 initialization only
+//
+// For 16 bit Windows, we can have one memory manager per task (process).
+// So, we use a dictionary of contexts with the key being the task id.
+
+#pragma data_seg("_DATA")
+
+
+static PALLOCATION_CONTEXT_DICT * RpcssmContextDict = NULL;
+
+
+void __far *
+operator new (
+    IN size_t Size
+    )
+{
+    // Calls the near alloc and returns ds:offset into the Dlls 64k
+    // private data segment.
+    // It's done this way because we want to get the dictionary
+    // in the local data segment of the rpcrt1.dll.
+
+    return( (void __near *)LocalAlloc(LMEM_FIXED, Size));
+}
+
+
+PALLOCATION_CONTEXT
+GetAllocContext(
+    )
+/*++
+
+Return Value:
+
+    The allocation context pointer will be returned.
+
+--*/
+{
+    unsigned long TaskId = GetCurrentTask();
+
+    if ( RpcssmContextDict == NULL )
+        {
+        RpcssmContextDict = new PALLOCATION_CONTEXT_DICT;
+        if ( RpcssmContextDict == NULL )
+            RpcRaiseException( RPC_S_OUT_OF_MEMORY );
+        }
+
+    return( RpcssmContextDict->Find( TaskId ));
+}
+
+
+PALLOCATION_CONTEXT
+GetAllocContextNoCreate(
+    )
+/*++
+
+Return Value:
+
+    The allocation context pointer will be returned.
+    Unlike GetAllocContext(), never creates the context dctionary.
+
+--*/
+{
+    if ( RpcssmContextDict == NULL )
+        {
+        return 0;
+        }
+    else
+        {
+        unsigned long TaskId = GetCurrentTask();
+
+        return RpcssmContextDict->Find( TaskId );
+        }
+}
+
+
+void
+SetAllocContext(
+    IN PALLOCATION_CONTEXT  AllocContext
+    )
+/*++
+
+Arguments:
+
+    AllocContext - Supplies a new allocation context pointer.
+
+--*/
+{
+    unsigned long TaskId = GetCurrentTask();
+
+    NDR_ASSERT( RpcssmContextDict->Find( GetCurrentTask() ) == NULL,
+                "overwriting another context" );
+
+    if ( RpcssmContextDict->Insert( TaskId, AllocContext ) == -1 )
+        RpcRaiseException( RPC_S_OUT_OF_MEMORY );
+}
+
+
+//  Task cleanup and other weird Win16 issues.
+//
+//
+// When a task goes away the runtime will call this routine to dispose of
+// the context for that task memory env, if any has been activated.
+//
+
+// This is for 16 bit version.
+// There is no 32 bit equivalent as some threads hang around forever and ever.
+
+void
+NdrRpcDeleteAllocationContext()
+{
+    PALLOCATION_CONTEXT  AllocationContext = GetAllocContextNoCreate();
+
+    if ( AllocationContext != NULL )
+        {
+        while ( AllocationContext->EnableCount > 0 )
+            RpcSmDisableAllocate();
+        RpcssmContextDict->Delete( GetCurrentTask() );
+        I_RpcFree( AllocationContext );
+        }
+}
+
+void
+ForceNdrCleanupSegIntoMemory()
+
+/*++
+
+Routine Description:
+
+    This routine is used by the runtime to make sure the segment containing
+    NdrRpcDeleteAllocationContext is loaded.  For details, see the
+    description of NotificationStart()  in runtime\mtrt\win\wdatexit.c .
+
+--*/
+{
+    //
+    // Yes, it's empty.
+    // No, don't delete it.
+    //
+}
+
+
+
+// =======================================================================
+
+#else   // default: win32 now
+
+
 DWORD RpcAllocTlsIndex = 0xFFFFFFFF;
 
 PALLOCATION_CONTEXT
@@ -1220,143 +1817,16 @@ Arguments:
 }
 
 
-// =======================================================================
-
-#else  // __RPC_WIN32__   i.e 16 bit
-
-#if defined(__RPC_DOS__)
-
 //
-// On Dos, we have only one memory manager.
-// Consequently, we need only one "slot" for keeping the alloc context.
+// We can't rely on a call like that in Win32 as some threads hang for ever.
+// The runtime doesn't call us when a thread goes away and into recycling.
 //
+//void
+//NdrRpcDeleteAllocationContext()
+//{
+//}
 
-static PALLOCATION_CONTEXT  NoTlsAllocContext = NULL;
-
-
-PALLOCATION_CONTEXT
-GetAllocContext (
-    )
-/*++
-
-Return Value:
-
-    The allocation context pointer will be returned.
-
---*/
-{
-    return( NoTlsAllocContext );
-}
-
-
-void
-SetAllocContext (
-    IN PALLOCATION_CONTEXT  AllocContext
-    )
-/*++
-
-Arguments:
-
-    AllocContext - Supplies a new allocation context pointer.
-
---*/
-{
-    NoTlsAllocContext = AllocContext;
-}
-
-
-// =======================================================================
-
-#else
-
-//
-// For 16 bit Windows, we can have one memory manager per task (process).
-// So, we use a dictionary of contexts with the key being the task id.
-
-#pragma data_seg("_DATA")
-
-static PALLOCATION_CONTEXT_DICT * RpcssmContextDict = NULL;
-
-
-void __far *
-operator new (
-    IN size_t Size
-    )
-{
-    // Calls the near alloc and returns ds:offset into the Dlls 64k
-    // private data segment.  
-    // It's done this way because we want to get the dictionary
-    // in the local data segment of the rpcrt1.dll.
-
-    return( (void __near *)LocalAlloc(LMEM_FIXED, Size));
-}
-
-PALLOCATION_CONTEXT
-GetAllocContext(
-    )
-/*++
-
-Return Value:
-
-    The allocation context pointer will be returned.
-
---*/
-{
-    unsigned long TaskId = GetCurrentTask();
-
-    if ( RpcssmContextDict == NULL )
-        {
-        RpcssmContextDict = new PALLOCATION_CONTEXT_DICT;
-        if ( RpcssmContextDict == NULL )
-            RpcRaiseException( RPC_S_OUT_OF_MEMORY );
-        }
-
-    return( RpcssmContextDict->Find( TaskId ));
-}
-
-
-void
-SetAllocContext(
-    IN PALLOCATION_CONTEXT  AllocContext
-    )
-/*++
-
-Arguments:
-
-    AllocContext - Supplies a new allocation context pointer.
-
---*/
-{
-    unsigned long TaskId = GetCurrentTask();
-
-    NDR_ASSERT( RpcssmContextDict->Find( GetCurrentTask() ) == NULL,
-                "overwriting another context" );
-
-    if ( RpcssmContextDict->Insert( TaskId, AllocContext ) == -1 )
-        RpcRaiseException( RPC_S_OUT_OF_MEMORY );
-}
-
-//
-// When a task goes away the runtime will call this routine to dispose of
-// the context for that task memory env, if any has been activated.
-//
-
-void
-NdrRpcDeleteAllocationContext()
-{
-    PALLOCATION_CONTEXT  AllocationContext = GetAllocContext();
-
-    if ( AllocationContext != NULL )
-        {
-        while ( AllocationContext->EnableCounter > 0 )
-            RpcSmDisableAllocate();
-        RpcssmContextDict->Delete( GetCurrentTask() );
-        I_RpcFree( AllocationContext ); 
-        }
-}
-
-#endif  // Dos vs.Win16
-#endif  // Win32
+#endif  // system dependent initialization elifs
 
 
 
@@ -1369,7 +1839,13 @@ void RPC_ENTRY
 NdrRpcSsEnableAllocate(
     PMIDL_STUB_MESSAGE  pMessage )
 {
+
+#if defined( SIMPLE_BLOCK_LIST )
     RpcSsEnableAllocate();
+#else
+    NdrpEnableAllocate( TRUE );
+#endif
+
     pMessage->pfnAllocate = RpcSsAllocate;
     pMessage->pfnFree     = RpcSsFree;
 }
@@ -1378,7 +1854,12 @@ void RPC_ENTRY
 NdrRpcSsDisableAllocate(
     PMIDL_STUB_MESSAGE  pMessage )
 {
+#if defined( SIMPLE_BLOCK_LIST )
     RpcSsDisableAllocate();
+#else
+    NdrpDisableAllocate( TRUE );
+#endif
+
     pMessage->pfnAllocate = NdrRpcSsDefaultAllocate;
     pMessage->pfnFree     = NdrRpcSsDefaultFree;
 }
@@ -1463,6 +1944,7 @@ NdrRpcSmClientFree (
     (* ClientFree)( NodeToFree );
 }
 
+
 // =======================================================================
 //     Private entry point for test
 // =======================================================================
@@ -1478,6 +1960,7 @@ RpcSsGetInfo(
 }
 
 #endif
+
 
 
 

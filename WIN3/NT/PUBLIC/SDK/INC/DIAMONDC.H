@@ -1,16 +1,17 @@
 /***    types.h  - Common defines for FCI/FDI stuff -- goes into FCI/FDI.H
  *
- *      Microsoft Confidential
- *      Copyright (C) Microsoft Corporation 1993-1994
- *      All Rights Reserved.
+ *  Microsoft Confidential
+ *  Copyright (C) Microsoft Corporation 1993-1994
+ *  All Rights Reserved.
  *
- *      History:
- *          03-Mar-1993 chuckst Merged from other files
- *          08-Mar-1994 bens    Changed symbol to control recursive include
- *          09-Mar-1994 bens    Cleanups for RESERVE modifications
- *          16-Mar-1994 bens    Nuke padlong()
- *          21-Mar-1994 bens    Spruce up comments
- *          22-Mar-1994 bens    Add BIT16 test so we can build 16 or 32 bit!
+ *  History:
+ *      03-Mar-1993 chuckst Merged from other files
+ *      08-Mar-1994 bens    Changed symbol to control recursive include
+ *      09-Mar-1994 bens    Cleanups for RESERVE modifications
+ *      16-Mar-1994 bens    Nuke padlong()
+ *      21-Mar-1994 bens    Spruce up comments
+ *      22-Mar-1994 bens    Add BIT16 test so we can build 16 or 32 bit!
+ *      26-May-1994 bens    Added Quantum compression definitions
  */
 
 #ifndef INCLUDED_TYPES_FCI_FDI
@@ -48,13 +49,18 @@
 
 
 //** Specify structure packing explicitly for clients of FDI
-#include "pshpack4.h"
+#include <pshpack4.h>
 
+//** Don't redefine types defined in Win16 WINDOWS.H (_INC_WINDOWS)
+//   or Win32 WINDOWS.H (_WINDOWS_)
+//
+#if !defined(_INC_WINDOWS) && !defined(_WINDOWS_)
 typedef int            BOOL;     /* f */
 typedef unsigned char  BYTE;     /* b */
-typedef unsigned short USHORT;   /* us */
 typedef unsigned int   UINT;     /* ui */
+typedef unsigned short USHORT;   /* us */
 typedef unsigned long  ULONG;    /* ul */
+#endif   // _INC_WINDOWS
 
 typedef unsigned long  CHECKSUM; /* csum */
 
@@ -94,7 +100,7 @@ typedef ERF FAR *PERF;  /* perf */
 
 #ifdef _DEBUG
 // don't hide statics from map during debugging
-#define STATIC      
+#define STATIC
 #else // !DEBUG
 #define STATIC static
 #endif // !DEBUG
@@ -134,22 +140,54 @@ typedef void (FAR DIAMONDAPI *PFNFREE)(void HUGE *pv); /* pfnf */
  *
  *  These are passed to FCIAddFile(), and are also stored in the CFFOLDER
  *  structures in cabinet files.
+ *
+ *  NOTE: We reserve bits for the TYPE, QUANTUM_LEVEL, and QUANTUM_MEM
+ *        to provide room for future expansion.  Since this value is stored
+ *        in the CFDATA records in the cabinet file, we don't want to
+ *        have to change the format for existing compression configurations
+ *        if we add new ones in the future.  This will allows us to read
+ *        old cabinet files in the future.
  */
-#define tcompNONE           0x0000   // Uncompressed
-#define tcompMSZIP          0x0001   // MSZIP
 
-#define tcompIS_QUANTUM     0x0010   // Bit set => Quantum compressor
-#define tcompQUANTUM_MASK   0x000F   // Mask to retrieve Quantum level
-#define tcompQUANTUM1       0x0011   // Quantum level 1
-#define tcompQUANTUM2       0x0012   // Quantum level 2
-#define tcompQUANTUM3       0x0013   // Quantum level 3
-#define tcompQUANTUM4       0x0014   // Quantum level 4
+typedef unsigned short TCOMP; /* tcomp */
 
-#define tcompBAD            -1       // For internal use (none selected)
+#define tcompMASK_TYPE          0x000F  // Mask for compression type
+#define tcompTYPE_NONE          0x0000  // No compression
+#define tcompTYPE_MSZIP         0x0001  // MSZIP
+#define tcompTYPE_QUANTUM       0x0002  // Quantum
+#define tcompBAD                0x000F  // Unspecified compression type
+
+#define tcompMASK_QUANTUM_LEVEL 0x00F0  // Mask for Quantum Compression Level
+#define tcompQUANTUM_LEVEL_LO   0x0010  // Lowest Quantum Level (1)
+#define tcompQUANTUM_LEVEL_HI   0x0070  // Highest Quantum Level (7)
+#define tcompSHIFT_QUANTUM_LEVEL     4  // Amount to shift over to get int
+
+#define tcompMASK_QUANTUM_MEM   0x1F00  // Mask for Quantum Compression Memory
+#define tcompQUANTUM_MEM_LO     0x0A00  // Lowest Quantum Memory (10)
+#define tcompQUANTUM_MEM_HI     0x1500  // Highest Quantum Memory (21)
+#define tcompSHIFT_QUANTUM_MEM       8  // Amount to shift over to get int
+
+#define tcompMASK_RESERVED      0xE000  // Reserved bits (high 3 bits)
+
+
+
+#define CompressionTypeFromTCOMP(tc) \
+            ((tc) & tcompMASK_TYPE)
+
+#define CompressionLevelFromTCOMP(tc) \
+            (((tc) & tcompMASK_QUANTUM_LEVEL) >> tcompSHIFT_QUANTUM_LEVEL)
+
+#define CompressionMemoryFromTCOMP(tc) \
+            (((tc) & tcompMASK_QUANTUM_MEM) >> tcompSHIFT_QUANTUM_MEM)
+
+#define TCOMPfromTypeLevelMemory(t,l,m)           \
+            (((m) << tcompSHIFT_QUANTUM_MEM  ) |  \
+             ((l) << tcompSHIFT_QUANTUM_LEVEL) |  \
+             ( t                             ))
 
 
 //** Revert to default structure packing
-#include "poppack.h"
+#include <poppack.h>
 
 #endif // !INCLUDED_TYPES_FCI_FDI
 /***    fci_int.h - File Compression Interface definitions
@@ -172,13 +210,15 @@ typedef void (FAR DIAMONDAPI *PFNFREE)(void HUGE *pv); /* pfnf */
  *      22-Mar-1994 bens    Documented error cods
  *      29-Mar-1994 bens    Add FCIFlushFolder, renamed FCIFlushCabinet
  *      18-Apr-1994 bens    Changed CDECL to DIAMONDAPI
+ *      18-May-1994 bens    Add ccab.fFailOnIncompressible field for
+ *                              Chicago M6 hack.
  */
 
 #ifndef INCLUDED_FCI
 #define INCLUDED_FCI 1
 
 //** Specify structure packing explicitly for clients of FCI
-#include "pshpack4.h"
+#include <pshpack4.h>
 
 
 /***    FCIERROR - Error codes returned in erf.erfOper field
@@ -206,6 +246,10 @@ FCIERR_CAB_FILE,            // Could not create cabinet file
 FCIERR_USER_ABORT,          // Client requested abort
 
 FCIERR_MCI_FAIL,            // Failure compressing data
+
+#ifndef REMOVE_CHICAGO_M6_HACK
+FCIERR_M6_HACK_INCOMPRESSIBLE, // Data was incompressible
+#endif
 } FCIERROR;
 
 
@@ -232,6 +276,9 @@ typedef struct {
     UINT   cbReserveCFData;     // Space to reserve in CFDATA
     int    iCab;                // sequential numbers for cabinets
     int    iDisk;               // Disk number
+#ifndef REMOVE_CHICAGO_M6_HACK
+    int    fFailOnIncompressible; // TRUE => Fail if a block is incompressible
+#endif
 
 //  then shorts
     USHORT setID;               // Cabinet set ID
@@ -320,7 +367,7 @@ typedef int (DIAMONDAPI *PFNFCIGETOPENINFO)(char   *pszName,
                                                USHORT *ptime,    \
                                                USHORT *pattribs, \
                                                void   *pv)
-                            
+
 /***    FNFCISTATUS - Status/Cabinet Size callback
  *
  *  Entry:
@@ -431,6 +478,7 @@ HFCI DIAMONDAPI FCICreate(PERF              perf,
  *      hfci          - FCI context handle
  *      pszSourceFile - Name of file to add to folder
  *      pszFileName   - Name to store into folder/cabinet
+ *      fExecute      - Flag indicating execute on extract
  *      pfn_progress  - Progress callback
  *      pfnfcignc     - GetNextCabinet callback
  *      pfnfcis       - Status callback
@@ -443,7 +491,7 @@ HFCI DIAMONDAPI FCICreate(PERF              perf,
  *
  *  Exit-Failure:
  *      returns FALSE, error filled in
- *    
+ *
  *    This is the main function used to add file(s) to a cabinet
  *    or series of cabinets.  If the current file causes the current
  *    folder/cabinet to overflow the disk image currently being built,
@@ -454,13 +502,14 @@ HFCI DIAMONDAPI FCICreate(PERF              perf,
 BOOL DIAMONDAPI FCIAddFile(HFCI                  hfci,
                            char                 *pszSourceFile,
                            char                 *pszFileName,
+                           BOOL                  fExecute,
                            PFNFCIGETNEXTCABINET  pfnfcignc,
                            PFNFCISTATUS          pfnfcis,
                            PFNFCIGETOPENINFO     pfnfcigoi,
-                           int                   typeCompress,
+                           TCOMP                 typeCompress,
                            void                 *pv
                           );
-            
+
 
 /***   FCIFlushCabinet - Complete the current cabinet under construction
  *
@@ -489,7 +538,7 @@ BOOL DIAMONDAPI FCIFlushCabinet(HFCI                  hfci,
                                 void                 *pv
                                );
 
-                                                                  
+
 /***   FCIFlushFolder - Complete the current folder under construction
  *
  *  This will force the termination of the current folder, which may or
@@ -513,7 +562,7 @@ BOOL DIAMONDAPI FCIFlushFolder(HFCI                  hfci,
                                void                 *pv
                               );
 
-                                                                  
+
 /***   FCIDestroy - Destroy a FCI context and delete temp files
  *
  *  Entry:
@@ -526,9 +575,9 @@ BOOL DIAMONDAPI FCIFlushFolder(HFCI                  hfci,
  *      return code FALSE, error structure filled in
  */
 BOOL DIAMONDAPI FCIDestroy (HFCI hfci);
-                                                                  
+
 //** Revert to default structure packing
-#include "poppack.h"
+#include <poppack.h>
 
 #endif // !INCLUDED_FCI
-
+

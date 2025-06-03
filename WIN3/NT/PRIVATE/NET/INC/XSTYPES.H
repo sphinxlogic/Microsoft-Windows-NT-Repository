@@ -60,6 +60,7 @@ typedef struct _TRANSACTION {
 
     DWORD StartTime;
     DWORD Timeout;
+    DWORD cMaxBufferSize;
 
     LPWORD InSetup;
     LPWORD OutSetup;
@@ -115,6 +116,7 @@ typedef struct _XS_PARAMETER_HEADER {
     WORD Converter;
     LPWSTR ClientMachineName;
     LPWSTR ClientTransportName;
+    PUCHAR ServerName;              // points to NETBIOS_NAME_LEN array
     PUCHAR EncryptionKey;
     DWORD Flags;
 } XS_PARAMETER_HEADER, *PXS_PARAMETER_HEADER, *LPXS_PARAMETER_HEADER;

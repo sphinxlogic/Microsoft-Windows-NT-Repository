@@ -212,12 +212,9 @@ typedef struct _CCB {
     LIST_ENTRY ListEntry;
 
     //
-    // A handle and the corresponding file and device objects for this
-    // open file.  The handle belongs to the context of the process that
-    // issued the original file open.
+    // The file and device objects for this open file.
     //
 
-    HANDLE Handle;
     PDEVICE_OBJECT DeviceObject;
     PFILE_OBJECT FileObject;
 
@@ -323,6 +320,11 @@ typedef struct _MASTER_QUERY_PATH_CONTEXT {
     //
 
     PKNOWN_PREFIX KnownPrefix;
+
+    //
+    // The status code to be returned from this operation
+    //
+    NTSTATUS ErrorStatus;
 
 } MASTER_QUERY_PATH_CONTEXT, *PMASTER_QUERY_PATH_CONTEXT;
 

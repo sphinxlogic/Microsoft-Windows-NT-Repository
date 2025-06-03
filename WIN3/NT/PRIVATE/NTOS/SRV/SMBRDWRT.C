@@ -54,19 +54,13 @@ TimeoutLockRequest (
 //
 
 STATIC
-VOID
-RestartChainedClose (
-    IN OUT PWORK_CONTEXT WorkContext
-    );
-
-STATIC
-VOID
+VOID SRVFASTCALL
 RestartLockAndRead (
     IN OUT PWORK_CONTEXT WorkContext
     );
 
 STATIC
-VOID
+VOID SRVFASTCALL
 RestartPipeReadAndXPeek (
     IN OUT PWORK_CONTEXT WorkContext
     );
@@ -75,28 +69,25 @@ STATIC
 BOOLEAN
 SetNewPosition (
     IN PRFCB Rfcb,
-    IN OUT PLARGE_INTEGER Offset,
+    IN OUT PULONG Offset,
     IN BOOLEAN RelativeSeek
     );
 
 STATIC
-VOID
+VOID SRVFASTCALL
 SetNewSize (
     IN OUT PWORK_CONTEXT WorkContext
     );
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text( PAGE, SrvSmbLockAndRead )
-#if !defined(SRV_ASM) || !defined(i386)
-//#pragma alloc_text( PAGE, SrvSmbRead )
-#endif
 #pragma alloc_text( PAGE, SrvSmbReadAndX )
 #pragma alloc_text( PAGE, SrvSmbSeek )
 //#pragma alloc_text( PAGE, SrvSmbWrite )
 #ifndef SLMDBG
 #pragma alloc_text( PAGE, SrvSmbWriteAndX )
 #endif
-#pragma alloc_text( PAGE, RestartChainedClose )
+#pragma alloc_text( PAGE, SrvRestartChainedClose )
 #pragma alloc_text( PAGE, RestartLockAndRead )
 #pragma alloc_text( PAGE, RestartPipeReadAndXPeek )
 #pragma alloc_text( PAGE, SrvRestartWriteAndUnlock )
@@ -250,7 +241,7 @@ Return Value:
                     lfcb->FileObject,
                     &offset,
                     &length,
-                    SRV_CURRENT_PROCESS,
+                    IoGetCurrentProcess(),
                     key,
                     failImmediately,
                     TRUE,
@@ -264,6 +255,7 @@ Return Value:
                 //
 
                 if ( NT_SUCCESS( WorkContext->Irp->IoStatus.Status ) ) {
+                    InterlockedIncrement( &rfcb->NumberOfLocks );
                     return SrvSmbRead( WorkContext );
                 } else {
                     WorkContext->Parameters.Lock.Timer = NULL;
@@ -274,7 +266,6 @@ Return Value:
             }
 
             INCREMENT_DEBUG_STAT2( SrvDbgStatistics.FastLocksFailed );
-
         }
 
         //
@@ -313,7 +304,7 @@ Return Value:
         if ( timer != NULL ) {
             SrvSetTimer(
                 timer,
-                SrvLockViolationDelay,
+                &SrvLockViolationDelayRelative,
                 TimeoutLockRequest,
                 WorkContext
                 );
@@ -349,7 +340,6 @@ Return Value:
 } // SrvSmbLockAndRead
 
 
-#if !defined(SRV_ASM) || !defined(i386)
 SMB_PROCESSOR_RETURN_TYPE
 SrvSmbRead (
     SMB_PROCESSOR_PARAMETERS
@@ -505,6 +495,53 @@ Return Value:
     }
 
     //
+    // Form the lock key using the FID and the PID.  (This is also
+    // irrelevant for pipes.)
+    //
+    // *** The FID must be included in the key in order to account for
+    //     the folding of multiple remote compatibility mode opens into
+    //     a single local open.
+    //
+
+    key = rfcb->ShiftedFid |
+            SmbGetAlignedUshort( &WorkContext->RequestHeader->Pid );
+
+    //
+    // See if the direct host IPX smart card can handle this read.  If so,
+    //  return immediately, and the card will call our restart routine at
+    //  SrvIpxSmartCardReadComplete
+    //
+    if( rfcb->PagedRfcb->IpxSmartCardContext ) {
+        IF_DEBUG( SIPX ) {
+            KdPrint(( "SrvSmbRead: calling SmartCard Read for context %X\n",
+                        WorkContext ));
+        }
+
+        //
+        // Set the fields needed by SrvIpxSmartCardReadComplete in case the smart
+        //  card is going to handle this request
+        //
+        WorkContext->Parameters.SmartCardRead.MdlReadComplete = lfcb->MdlReadComplete;
+        WorkContext->Parameters.SmartCardRead.DeviceObject = lfcb->DeviceObject;
+
+        if( SrvIpxSmartCard.Read( WorkContext->RequestBuffer->Buffer,
+                                  rfcb->PagedRfcb->IpxSmartCardContext,
+                                  key,
+                                  WorkContext ) == TRUE ) {
+
+            IF_DEBUG( SIPX ) {
+                KdPrint(( "  SrvSmbRead:  SmartCard Read returns TRUE\n" ));
+            }
+
+            return SmbStatusInProgress;
+        }
+
+        IF_DEBUG( SIPX ) {
+            KdPrint(( "  SrvSmbRead:  SmartCard Read returns FALSE\n" ));
+        }
+    }
+
+    //
     // Determine the maximum amount of data we can read.  This is the
     // minimum of the amount requested by the client and the amount of
     // room left in the response buffer.  (Note that even though we may
@@ -525,18 +562,6 @@ Return Value:
     //
 
     offset.QuadPart = SmbGetUlong( &request->Offset );
-
-    //
-    // Form the lock key using the FID and the PID.  (This is also
-    // irrelevant for pipes.)
-    //
-    // *** The FID must be included in the key in order to account for
-    //     the folding of multiple remote compatibility mode opens into
-    //     a single local open.
-    //
-
-    key = rfcb->ShiftedFid |
-            SmbGetAlignedUshort( &WorkContext->RequestHeader->Pid );
 
     //
     // Try the fast I/O path first.  If that fails, fall through to the
@@ -674,7 +699,6 @@ Return Value:
     return SmbStatusInProgress;
 
 } // SrvSmbRead
-#endif // !defined(SRV_ASM) || !defined(i386)
 
 
 SMB_PROCESSOR_RETURN_TYPE
@@ -714,6 +738,10 @@ Return Value:
     LARGE_INTEGER offset;
     ULONG key;
     SHARE_TYPE shareType;
+    BOOLEAN largeRead;
+    PMDL mdl = NULL;
+    UCHAR minorFunction;
+    PBYTE readBuffer;
 
     PAGED_CODE( );
 
@@ -832,12 +860,8 @@ Return Value:
     }
 #endif
 
-    //
-    // Determine the maximum amount of data we can read.  This is the
-    // minimum of the amount requested by the client and the amount of
-    // room left in the response buffer.  (Note that even though we may
-    // use an MDL read, the read length is still limited to the size of
-    // an SMB buffer.)
+    readLength = (CLONG)SmbGetUshort( &request->MaxCount );
+
     //
     // The returned data must be longword aligned.  (Note the assumption
     // that the SMB itself is longword aligned.)
@@ -845,14 +869,34 @@ Return Value:
 
     bufferOffset = (PCHAR)response->Buffer -
                                     (PCHAR)WorkContext->ResponseHeader;
+
+    WorkContext->Parameters.ReadAndX.PadCount = (USHORT)(3 - (bufferOffset & 03));
+
     bufferOffset = (bufferOffset + 3) & ~3;
 
-    readAddress = (PCHAR)WorkContext->ResponseHeader + bufferOffset;
+    //
+    // If we are not reading from a disk file, or we're connectionless,
+    //   or there's an ANDX command, or we're not NTAS,
+    //   don't let the client exceed the negotiated buffer size.
+    //
+    if( shareType != ShareTypeDisk ||
+        request->AndXCommand != SMB_COM_NO_ANDX_COMMAND ||
+        WorkContext->Endpoint->IsConnectionless ) {
 
-    readLength = MIN(
-                    (CLONG)SmbGetUshort( &request->MaxCount ),
+        readLength = MIN( readLength,
                     WorkContext->ResponseBuffer->BufferLength - bufferOffset
                     );
+    } else {
+        //
+        // We're letting large reads through!  Make sure it isn't
+        //  too large
+        //
+        readLength = MIN( readLength, 0xF000 );
+    }
+
+    largeRead = ( readLength > WorkContext->ResponseBuffer->BufferLength - bufferOffset );
+
+    readAddress = (PCHAR)WorkContext->ResponseHeader + bufferOffset;
 
     WorkContext->Parameters.ReadAndX.ReadAddress = readAddress;
     WorkContext->Parameters.ReadAndX.ReadLength = readLength;
@@ -955,228 +999,392 @@ Return Value:
     // normal build-an-IRP path.
     //
 
-    if ( lfcb->FastIoRead != NULL ) {
+    if( !largeRead ) {
+small_read:
+
+        if ( lfcb->FastIoRead != NULL ) {
+
+            INCREMENT_DEBUG_STAT2( SrvDbgStatistics.FastReadsAttempted );
+
+            if ( lfcb->FastIoRead(
+                    lfcb->FileObject,
+                    &offset,
+                    readLength,
+                    TRUE,
+                    key,
+                    readAddress,
+                    &WorkContext->Irp->IoStatus,
+                    lfcb->DeviceObject
+                    ) ) {
+
+                //
+                // The fast I/O path worked.  Call the restart routine directly
+                // to do postprocessing (including sending the response).
+                //
+
+                SrvFsdRestartReadAndX( WorkContext );
+
+                IF_SMB_DEBUG(READ_WRITE2) KdPrint(( "SrvSmbReadAndX complete.\n" ));
+                return SmbStatusInProgress;
+            }
+
+            INCREMENT_DEBUG_STAT2( SrvDbgStatistics.FastReadsFailed );
+
+        }
+
+        //
+        // The turbo path failed.  Build the read request, reusing the
+        // receive IRP.
+        //
+
+        if ( shareType == ShareTypePipe ) {
+
+            //
+            // Pipe read.  If this is a non-blocking read, ensure we won't
+            // block; otherwise, proceed with the request.
+            //
+
+            if ( rfcb->BlockingModePipe &&
+                            (SmbGetUshort( &request->MinCount ) == 0) ) {
+
+                PFILE_PIPE_PEEK_BUFFER pipePeekBuffer;
+
+                //
+                // This is a non-blocking read.  Allocate a buffer to peek
+                // the pipe, so that we can tell if a read operation will
+                // block.  This buffer is freed in
+                // RestartPipeReadAndXPeek().
+                //
+
+                pipePeekBuffer = ALLOCATE_NONPAGED_POOL(
+                    FIELD_OFFSET( FILE_PIPE_PEEK_BUFFER, Data[0] ),
+                    BlockTypeDataBuffer
+                    );
+
+                if ( pipePeekBuffer == NULL ) {
+
+                    //
+                    //  Return to client with out of memory status.
+                    //
+
+                    SrvSetSmbError( WorkContext, STATUS_INSUFF_SERVER_RESOURCES );
+                    return SmbStatusSendResponse;
+
+                }
+
+                //
+                // Save the address of the peek buffer so that the restart
+                // routine can find it.
+                //
+
+                WorkContext->Parameters.ReadAndX.PipePeekBuffer = pipePeekBuffer;
+
+                //
+                // Build the pipe peek request.  We just want the header
+                // information.  We do not need any data.
+                //
+
+                WorkContext->FsdRestartRoutine = SrvQueueWorkToFspAtDpcLevel;
+                WorkContext->FspRestartRoutine = RestartPipeReadAndXPeek;
+
+                SrvBuildIoControlRequest(
+                    WorkContext->Irp,
+                    lfcb->FileObject,
+                    WorkContext,
+                    IRP_MJ_FILE_SYSTEM_CONTROL,
+                    FSCTL_PIPE_PEEK,
+                    pipePeekBuffer,
+                    0,
+                    NULL,
+                    FIELD_OFFSET( FILE_PIPE_PEEK_BUFFER, Data[0] ),
+                    NULL,
+                    NULL
+                    );
+
+                //
+                // Pass the request to NPFS.
+                //
+
+                (VOID)IoCallDriver( lfcb->DeviceObject, WorkContext->Irp );
+
+            } else {
+
+                //
+                // This operation may block.  If we are short of receive
+                // work items, reject the request.
+                //
+
+                if ( SrvReceiveBufferShortage( ) ) {
+
+                    //
+                    // Fail the operation.
+                    //
+
+                    SrvStatistics.BlockingSmbsRejected++;
+
+                    SrvSetSmbError( WorkContext, STATUS_INSUFF_SERVER_RESOURCES );
+                    return SmbStatusSendResponse;
+
+                } else {
+
+                    //
+                    // It is okay to start a blocking operation.
+                    // SrvReceiveBufferShortage() has already incremented
+                    // SrvBlockingOpsInProgress.
+                    //
+
+                    WorkContext->BlockingOperation = TRUE;
+
+                    //
+                    // Proceed with a potentially blocking read.
+                    //
+
+                    WorkContext->Parameters.ReadAndX.PipePeekBuffer = NULL;
+                    RestartPipeReadAndXPeek( WorkContext );
+
+                }
+
+            }
+
+        } else {
+
+            //
+            // This is not a pipe read.
+            //
+            // Note that we never do MDL reads here.  The reasoning behind
+            // this is that because the read is going into an SMB buffer, it
+            // can't be all that large (by default, no more than 4K bytes),
+            // so the difference in cost between copy and MDL is minimal; in
+            // fact, copy read is probably faster than MDL read.
+            //
+            // Build an MDL describing the read buffer.  Note that if the
+            // file system can complete the read immediately, the MDL isn't
+            // really needed, but if the file system must send the request
+            // to its FSP, the MDL _is_ needed.
+            //
+            // *** Note the assumption that the response buffer already has
+            //     a valid full MDL from which a partial MDL can be built.
+            //
+
+            IoBuildPartialMdl(
+                WorkContext->ResponseBuffer->Mdl,
+                WorkContext->ResponseBuffer->PartialMdl,
+                readAddress,
+                readLength
+                );
+
+            //
+            // Build the IRP.
+            //
+
+            SrvBuildReadOrWriteRequest(
+                    WorkContext->Irp,           // input IRP address
+                    lfcb->FileObject,           // target file object address
+                    WorkContext,                // context
+                    IRP_MJ_READ,                // major function code
+                    0,                          // minor function code
+                    readAddress,                // buffer address
+                    readLength,                 // buffer length
+                    WorkContext->ResponseBuffer->PartialMdl, // MDL address
+                    offset,                     // byte offset
+                    key                         // lock key
+                    );
+
+            IF_SMB_DEBUG(READ_WRITE2) {
+                KdPrint(( "SrvSmbReadAndX: copy read from file 0x%lx, "
+                            "offset %ld, length %ld, destination 0x%lx\n",
+                            lfcb->FileObject, offset.LowPart, readLength,
+                            readAddress ));
+            }
+
+            //
+            // Pass the request to the file system.  If the chained command
+            // is Close, we need to arrange to restart in the FSP after the
+            // read completes.
+            //
+
+            if ( WorkContext->NextCommand != SMB_COM_CLOSE ) {
+                WorkContext->FsdRestartRoutine = SrvFsdRestartReadAndX;
+                DEBUG WorkContext->FspRestartRoutine = NULL;
+            } else {
+                WorkContext->FsdRestartRoutine = SrvQueueWorkToFspAtDpcLevel;
+                WorkContext->FspRestartRoutine = SrvFsdRestartReadAndX;
+            }
+
+            (PVOID)IoCallDriver( lfcb->DeviceObject, WorkContext->Irp );
+
+            //
+            // The read has been started.  Control will return to the restart
+            // routine when the read completes.
+            //
+
+        }
+
+        IF_SMB_DEBUG(READ_WRITE2) KdPrint(( "SrvSmbReadAndX complete.\n" ));
+        return SmbStatusInProgress;
+    }
+
+    //
+    // The client is doing a read from a disk file which exceeds our SMB buffer.
+    //  We do our best to satisfy it.  If we are unable to get buffers, we
+    //  resort to doing a short read which fits in our smb buffer.
+    //
+
+    WorkContext->Parameters.ReadAndX.MdlRead = FALSE;
+
+
+    //
+    //Does the target file system support the cache manager routines?
+    //
+    if( lfcb->FileObject->Flags & FO_CACHE_SUPPORTED ) {
+
+        //
+        // We can use an MDL read.  Try the fast I/O path first.
+        //
+
+        WorkContext->Irp->MdlAddress = NULL;
+        WorkContext->Irp->IoStatus.Information = 0;
 
         INCREMENT_DEBUG_STAT2( SrvDbgStatistics.FastReadsAttempted );
 
-        if ( lfcb->FastIoRead(
+        if( lfcb->MdlRead(
                 lfcb->FileObject,
                 &offset,
                 readLength,
-                TRUE,
                 key,
-                readAddress,
+                &WorkContext->Irp->MdlAddress,
                 &WorkContext->Irp->IoStatus,
                 lfcb->DeviceObject
-                ) ) {
+            ) ) {
 
             //
-            // The fast I/O path worked.  Call the restart routine directly
-            // to do postprocessing (including sending the response).
+            // The fast I/O path worked.  Send the data.
             //
-
-            SrvFsdRestartReadAndX( WorkContext );
-
-            IF_SMB_DEBUG(READ_WRITE2) KdPrint(( "SrvSmbReadAndX complete.\n" ));
+            WorkContext->Parameters.ReadAndX.MdlRead = TRUE;
+            WorkContext->Parameters.ReadAndX.CacheMdl = WorkContext->Irp->MdlAddress;
+            SrvFsdRestartLargeReadAndX( WorkContext );
             return SmbStatusInProgress;
         }
 
         INCREMENT_DEBUG_STAT2( SrvDbgStatistics.FastReadsFailed );
 
+        if( WorkContext->Irp->MdlAddress ) {
+            //
+            // The fast I/O path failed.  We need to issue a regular MDL read
+            // request.
+            //
+            // The fast path may have partially succeeded, returning a partial MDL
+            // chain.  We need to adjust our read request to account for that.
+            //
+            offset.QuadPart += WorkContext->Irp->IoStatus.Information;
+            readLength -= WorkContext->Irp->IoStatus.Information;
+            mdl = WorkContext->Irp->MdlAddress;
+            WorkContext->Parameters.ReadAndX.CacheMdl = mdl;
+            readBuffer = NULL;
+            minorFunction = IRP_MN_MDL;
+            WorkContext->Parameters.ReadAndX.MdlRead = TRUE;
+        }
+    }
+
+    if( WorkContext->Parameters.ReadAndX.MdlRead == FALSE ) {
+
+        minorFunction = 0;
+
+        //
+        // We have to use a normal "copy" read.  We need to allocate a
+        //  separate buffer to hold the data, and we'll use the SMB buffer
+        //  itself to hold the MDL
+        //
+        readBuffer = ALLOCATE_HEAP( readLength, BlockTypeLargeReadX );
+
+        if( readBuffer == NULL ) {
+
+            IF_DEBUG( ERRORS ) {
+                KdPrint(( "SrvSmbReadX: Unable to allocate large buffer\n" ));
+            }
+            //
+            // Trim back the read length so it will fit in the smb buffer and
+            //  return as much data as we can.
+            //
+            readLength = MIN( readLength,
+                WorkContext->ResponseBuffer->BufferLength - bufferOffset
+                );
+
+            largeRead = FALSE;
+            goto small_read;
+        }
+
+        WorkContext->Parameters.ReadAndX.Buffer = readBuffer;
+
+        //
+        // Use the SMB buffer as the MDL to describe the just allocated read buffer.
+        //  Lock the buffer into memory
+        //
+        mdl = (PMDL)readAddress;
+        MmInitializeMdl( mdl, readBuffer, readLength );
+        MmProbeAndLockPages( mdl, KernelMode, IoWriteAccess );
+        MmGetSystemAddressForMdl( mdl );
+
+        if( lfcb->FastIoRead != NULL ) {
+            INCREMENT_DEBUG_STAT2( SrvDbgStatistics.FastReadsAttempted );
+            
+            if ( lfcb->FastIoRead(
+                    lfcb->FileObject,
+                    &offset,
+                    readLength,
+                    TRUE,
+                    key,
+                    readBuffer,
+                    &WorkContext->Irp->IoStatus,
+                    lfcb->DeviceObject
+                    ) ) {
+            
+                //
+                // The fast I/O path worked.  Send the data.
+                //
+            
+                SrvFsdRestartLargeReadAndX( WorkContext );
+                return SmbStatusInProgress;
+            }
+
+            INCREMENT_DEBUG_STAT2( SrvDbgStatistics.FastReadsFailed );
+        }
     }
 
     //
-    // The turbo path failed.  Build the read request, reusing the
-    // receive IRP.
+    // We didn't satisfy the request with the fast I/O path
+    //
+    SrvBuildReadOrWriteRequest(
+           WorkContext->Irp,               // input IRP address
+           lfcb->FileObject,               // target file object address
+           WorkContext,                    // context
+           IRP_MJ_READ,                    // major function code
+           minorFunction,                  // minor function code
+           readBuffer,                     // buffer address
+           readLength,                     // buffer length
+           mdl,                            // MDL address
+           offset,                         // byte offset
+           key                             // lock key
+           );
+
+    //
+    // Pass the request to the file system.  We want to queue the
+    //  response to the head because we've tied up a fair amount
+    //  resources with this SMB.
+    //
+    WorkContext->QueueToHead = 1;
+    WorkContext->FsdRestartRoutine = SrvFsdRestartLargeReadAndX;
+    (VOID)IoCallDriver( lfcb->DeviceObject, WorkContext->Irp );
+
+    //
+    // The read has been started.  When it completes, processing
+    //  continues at SrvFsdRestartLargeReadAndX
     //
 
-    if ( shareType == ShareTypePipe ) {
-
-        //
-        // Pipe read.  If this is a non-blocking read, ensure we won't
-        // block; otherwise, proceed with the request.
-        //
-
-        if ( rfcb->BlockingModePipe &&
-                        (SmbGetUshort( &request->MinCount ) == 0) ) {
-
-            PFILE_PIPE_PEEK_BUFFER pipePeekBuffer;
-
-            //
-            // This is a non-blocking read.  Allocate a buffer to peek
-            // the pipe, so that we can tell if a read operation will
-            // block.  This buffer is freed in
-            // RestartPipeReadAndXPeek().
-            //
-
-            pipePeekBuffer = ALLOCATE_NONPAGED_POOL(
-                FIELD_OFFSET( FILE_PIPE_PEEK_BUFFER, Data[0] ),
-                BlockTypeDataBuffer
-                );
-
-            if ( pipePeekBuffer == NULL ) {
-
-                //
-                //  Return to client with out of memory status.
-                //
-
-                SrvSetSmbError( WorkContext, STATUS_INSUFF_SERVER_RESOURCES );
-                return SmbStatusSendResponse;
-
-            }
-
-            //
-            // Save the address of the peek buffer so that the restart
-            // routine can find it.
-            //
-
-            WorkContext->Parameters.ReadAndX.PipePeekBuffer = pipePeekBuffer;
-
-            //
-            // Build the pipe peek request.  We just want the header
-            // information.  We do not need any data.
-            //
-
-            WorkContext->FsdRestartRoutine = SrvQueueWorkToFspAtDpcLevel;
-            WorkContext->FspRestartRoutine = RestartPipeReadAndXPeek;
-
-            SrvBuildIoControlRequest(
-                WorkContext->Irp,
-                lfcb->FileObject,
-                WorkContext,
-                IRP_MJ_FILE_SYSTEM_CONTROL,
-                FSCTL_PIPE_PEEK,
-                pipePeekBuffer,
-                0,
-                NULL,
-                FIELD_OFFSET( FILE_PIPE_PEEK_BUFFER, Data[0] ),
-                NULL,
-                NULL
-                );
-
-            //
-            // Pass the request to NPFS.
-            //
-
-            (VOID)IoCallDriver( lfcb->DeviceObject, WorkContext->Irp );
-
-        } else {
-
-            //
-            // This operation may block.  If we are short of receive
-            // work items, reject the request.
-            //
-
-            if ( SrvReceiveBufferShortage( ) ) {
-
-                //
-                // Fail the operation.
-                //
-
-                SrvStatistics.BlockingSmbsRejected++;
-
-                SrvSetSmbError( WorkContext, STATUS_INSUFF_SERVER_RESOURCES );
-                return SmbStatusSendResponse;
-
-            } else {
-
-                //
-                // It is okay to start a blocking operation.
-                // SrvReceiveBufferShortage() has already incremented
-                // SrvBlockingOpsInProgress.
-                //
-
-                WorkContext->BlockingOperation = TRUE;
-
-                //
-                // Proceed with a potentially blocking read.
-                //
-
-                WorkContext->Parameters.ReadAndX.PipePeekBuffer = NULL;
-                RestartPipeReadAndXPeek( WorkContext );
-
-            }
-
-        }
-
-    } else {
-
-        //
-        // This is not a pipe read.
-        //
-        // Note that we never do MDL reads here.  The reasoning behind
-        // this is that because the read is going into an SMB buffer, it
-        // can't be all that large (by default, no more than 4K bytes),
-        // so the difference in cost between copy and MDL is minimal; in
-        // fact, copy read is probably faster than MDL read.
-        //
-        // Build an MDL describing the read buffer.  Note that if the
-        // file system can complete the read immediately, the MDL isn't
-        // really needed, but if the file system must send the request
-        // to its FSP, the MDL _is_ needed.
-        //
-        // *** Note the assumption that the response buffer already has
-        //     a valid full MDL from which a partial MDL can be built.
-        //
-
-        IoBuildPartialMdl(
-            WorkContext->ResponseBuffer->Mdl,
-            WorkContext->ResponseBuffer->PartialMdl,
-            readAddress,
-            readLength
-            );
-
-        //
-        // Build the IRP.
-        //
-
-        SrvBuildReadOrWriteRequest(
-                WorkContext->Irp,           // input IRP address
-                lfcb->FileObject,           // target file object address
-                WorkContext,                // context
-                IRP_MJ_READ,                // major function code
-                0,                          // minor function code
-                readAddress,                // buffer address
-                readLength,                 // buffer length
-                WorkContext->ResponseBuffer->PartialMdl, // MDL address
-                offset,                     // byte offset
-                key                         // lock key
-                );
-
-        IF_SMB_DEBUG(READ_WRITE2) {
-            KdPrint(( "SrvSmbReadAndX: copy read from file 0x%lx, "
-                        "offset %ld, length %ld, destination 0x%lx\n",
-                        lfcb->FileObject, offset.LowPart, readLength,
-                        readAddress ));
-        }
-
-        //
-        // Pass the request to the file system.  If the chained command
-        // is Close, we need to arrange to restart in the FSP after the
-        // read completes.
-        //
-
-        if ( WorkContext->NextCommand != SMB_COM_CLOSE ) {
-            WorkContext->FsdRestartRoutine = SrvFsdRestartReadAndX;
-            DEBUG WorkContext->FspRestartRoutine = NULL;
-        } else {
-            WorkContext->FsdRestartRoutine = SrvQueueWorkToFspAtDpcLevel;
-            WorkContext->FspRestartRoutine = SrvFsdRestartReadAndX;
-        }
-
-        (PVOID)IoCallDriver( lfcb->DeviceObject, WorkContext->Irp );
-
-        //
-        // The read has been started.  Control will return to the restart
-        // routine when the read completes.
-        //
-
-    }
-
-    IF_SMB_DEBUG(READ_WRITE2) KdPrint(( "SrvSmbReadAndX complete.\n" ));
     return SmbStatusInProgress;
 
 } // SrvSmbReadAndX
+
 
 SMB_PROCESSOR_RETURN_TYPE
 SrvSmbSeek (
@@ -1208,7 +1416,7 @@ Return Value:
     PRFCB rfcb;
     PLFCB lfcb;
     LONG offset;
-    LARGE_INTEGER newPosition;
+    ULONG newPosition;
     IO_STATUS_BLOCK iosb;
     FILE_STANDARD_INFORMATION fileInformation;
     BOOLEAN lockHeld = FALSE;
@@ -1306,7 +1514,7 @@ Return Value:
         // Negative seeks must be handled specially.
         //
 
-        newPosition.QuadPart = offset;
+        newPosition = offset;
         if ( !SetNewPosition( rfcb, &newPosition, FALSE ) ) {
             goto negative_seek;
         }
@@ -1323,7 +1531,7 @@ Return Value:
         // specially.
         //
 
-        newPosition.QuadPart = offset;
+        newPosition = offset;
         if ( !SetNewPosition( rfcb, &newPosition, TRUE ) ) {
             goto negative_seek;
         }
@@ -1384,7 +1592,21 @@ Return Value:
 
         }
 
-        newPosition.QuadPart = fileInformation.EndOfFile.QuadPart + offset;
+        if ( fileInformation.EndOfFile.HighPart != 0 ) {
+
+            INTERNAL_ERROR(
+                ERROR_LEVEL_UNEXPECTED,
+                "SrvSmbSeek: EndOfFile is beyond where client can read",
+                NULL,
+                NULL
+                );
+
+            SrvLogServiceFailure( SRV_SVC_NT_QUERY_INFO_FILE, STATUS_END_OF_FILE);
+            SrvSetSmbError( WorkContext, STATUS_END_OF_FILE);
+            return SmbStatusSendResponse;
+        }
+
+        newPosition = fileInformation.EndOfFile.LowPart + offset;
         if ( !SetNewPosition( rfcb, &newPosition, FALSE ) ) {
             goto negative_seek;
         }
@@ -1417,11 +1639,11 @@ Return Value:
     //
 
     IF_SMB_DEBUG(READ_WRITE2) {
-        KdPrint(( "SrvSmbSeek: New file position %ld\n", newPosition.LowPart ));
+        KdPrint(( "SrvSmbSeek: New file position %ld\n", newPosition ));
     }
 
     response->WordCount = 2;
-    SmbPutUlong( &response->Offset, newPosition.LowPart );
+    SmbPutUlong( &response->Offset, newPosition );
     SmbPutUshort( &response->ByteCount, 0 );
 
     WorkContext->ResponseParameters = NEXT_LOCATION( response, RESP_SEEK, 0 );
@@ -1444,7 +1666,7 @@ negative_seek:
 
     if (! ( smbDialect >= SmbDialectPcLan10
                           ||
-          ( smbDialect > SmbDialectNtLanMan &&
+          ( !IS_NT_DIALECT( smbDialect ) &&
             rfcb->ShareType == ShareTypePipe ) ) ) {
 
         //
@@ -1464,7 +1686,7 @@ negative_seek:
     // Core client.  Seek to beginning of file.
     //
 
-    newPosition.QuadPart = 0;
+    newPosition = 0;
     SetNewPosition( rfcb, &newPosition, FALSE );
 
     IF_SMB_DEBUG(READ_WRITE2) {
@@ -1625,7 +1847,7 @@ Return Value:
             // This is a Write and Close.
             //
 
-            RestartChainedClose( WorkContext );
+            SrvRestartChainedClose( WorkContext );
             return SmbStatusInProgress;
 
         }
@@ -1780,7 +2002,7 @@ Return Value:
                   (writeAddress - (PCHAR)WorkContext->RequestHeader)
               );
 
-        offset = rfcb->CurrentPosition;
+        offset.QuadPart = rfcb->CurrentPosition;
     }
 
 #ifdef SLMDBG
@@ -2695,8 +2917,8 @@ Return Value:
 } // SrvSmbWriteAndX
 
 
-VOID
-RestartChainedClose (
+VOID SRVFASTCALL
+SrvRestartChainedClose (
     IN OUT PWORK_CONTEXT WorkContext
     )
 
@@ -2733,18 +2955,21 @@ Return Value:
     // Set the file last write time.
     //
 
-    (VOID)SrvSetLastWriteTime(
-              rfcb,
-              WorkContext->Parameters.LastWriteTime,
-              rfcb->Lfcb->GrantedAccess
-              );
+    if ( rfcb->WriteAccessGranted ) {
+
+        (VOID)SrvSetLastWriteTime(
+                  rfcb,
+                  WorkContext->Parameters.LastWriteTime,
+                  rfcb->Lfcb->GrantedAccess
+                  );
+    }
 
     //
     // Close the file.
     //
 
     IF_SMB_DEBUG(READ_WRITE2) {
-        KdPrint(( "RestartChainedClose: closing RFCB 0x%lx\n", WorkContext->Rfcb ));
+        KdPrint(( "SrvRestartChainedClose: closing RFCB 0x%lx\n", WorkContext->Rfcb ));
     }
 
 #ifdef SLMDBG
@@ -2810,10 +3035,10 @@ Return Value:
 
     return;
 
-} // RestartChainedClose
+} // SrvRestartChainedClose
 
 
-VOID
+VOID SRVFASTCALL
 RestartLockAndRead (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -2841,7 +3066,6 @@ Return Value:
     LARGE_INTEGER offset;
     NTSTATUS status;
     SMB_STATUS smbStatus;
-    PPAGED_RFCB pagedRfcb = WorkContext->Rfcb->PagedRfcb;
     PSRV_TIMER timer;
 
     PAGED_CODE( );
@@ -2877,7 +3101,7 @@ Return Value:
         request = (PREQ_READ)WorkContext->RequestParameters;
         offset.QuadPart = SmbGetUlong( &request->Offset );
 
-        pagedRfcb->LastFailingLockOffset = offset;
+        WorkContext->Rfcb->PagedRfcb->LastFailingLockOffset = offset;
 
         //
         // Send back the bad news.
@@ -2897,6 +3121,10 @@ Return Value:
     // The lock request completed successfully.  Start the read.
     //
 
+    InterlockedIncrement(
+        &WorkContext->Rfcb->NumberOfLocks
+        );
+
     smbStatus = SrvSmbRead( WorkContext );
     if ( smbStatus != SmbStatusInProgress ) {
         SrvEndSmbProcessing( WorkContext, smbStatus );
@@ -2907,7 +3135,7 @@ Return Value:
 } // RestartLockAndRead
 
 
-VOID
+VOID SRVFASTCALL
 RestartPipeReadAndXPeek(
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -2995,7 +3223,7 @@ Return Value:
     deviceObject = lfcb->DeviceObject;
 
     irp->Tail.Overlay.OriginalFileObject = lfcb->FileObject;
-    irp->Tail.Overlay.Thread = SrvIrpThread;
+    irp->Tail.Overlay.Thread = WorkContext->CurrentWorkQueue->IrpThread;
     DEBUG irp->RequestorMode = KernelMode;
 
     //
@@ -3078,7 +3306,7 @@ Return Value:
 } // RestartPipeReadAndXPeek
 
 
-VOID
+VOID SRVFASTCALL
 SrvRestartWriteAndUnlock (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -3235,7 +3463,7 @@ Return Value:
 } // SrvRestartWriteAndUnlock
 
 
-VOID
+VOID SRVFASTCALL
 SrvRestartWriteAndXRaw (
     IN PWORK_CONTEXT WorkContext
     )
@@ -3303,14 +3531,14 @@ Return Value:
     //case SMB_COM_CLOSE_AND_TREE_DISC:   // Bogus SMB
 
         //
-        // Call RestartChainedClose to get the file time set and the
+        // Call SrvRestartChainedClose to get the file time set and the
         // file closed.
         //
 
         WorkContext->Parameters.LastWriteTime =
             ((PREQ_CLOSE)WorkContext->RequestParameters)->LastWriteTimeInSeconds;
 
-        RestartChainedClose( WorkContext );
+        SrvRestartChainedClose( WorkContext );
 
         break;
 
@@ -3332,7 +3560,7 @@ Return Value:
 } // SrvRestartWriteAndXRaw
 
 
-VOID
+VOID SRVFASTCALL
 SetNewSize (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -3484,7 +3712,7 @@ Return Value:
 BOOLEAN
 SetNewPosition (
     IN PRFCB Rfcb,
-    IN OUT PLARGE_INTEGER Offset,
+    IN OUT PULONG Offset,
     IN BOOLEAN RelativeSeek
     )
 
@@ -3509,31 +3737,28 @@ Return Value:
 --*/
 
 {
-    KIRQL oldIrql;
+    LARGE_INTEGER newPosition;
 
     UNLOCKABLE_CODE( 8FIL );
 
-    ACQUIRE_SPIN_LOCK( &Rfcb->SpinLock, &oldIrql );
-
     if ( RelativeSeek ) {
-        Offset->QuadPart = Rfcb->CurrentPosition.QuadPart + Offset->QuadPart;
+        newPosition.QuadPart = Rfcb->CurrentPosition + *Offset;
+    } else {
+        newPosition.QuadPart = *Offset;
     }
 
-    if ( Offset->QuadPart < 0 ) {
-
-        RELEASE_SPIN_LOCK( &Rfcb->SpinLock, oldIrql );
+    if ( newPosition.QuadPart < 0 ) {
         return FALSE;
     }
 
-    Rfcb->CurrentPosition = *Offset;
-
-    RELEASE_SPIN_LOCK( &Rfcb->SpinLock, oldIrql );
+    Rfcb->CurrentPosition = newPosition.LowPart;
+    *Offset = newPosition.LowPart;
     return TRUE;
 
 } // SetNewPosition
 
 
-VOID
+VOID SRVFASTCALL
 SrvBuildAndSendErrorResponse (
     IN OUT PWORK_CONTEXT WorkContext
     )

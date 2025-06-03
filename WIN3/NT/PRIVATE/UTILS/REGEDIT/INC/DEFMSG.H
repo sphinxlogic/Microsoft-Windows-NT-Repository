@@ -168,6 +168,7 @@
 #define     MSG_CANT_ACCESS_REGISTRY        6012
 #define     MSG_SERVER_UNAVAILABLE          6013
 #define     MSG_DISABLING_AUTOREFRESH       6014
+#define     MSG_CANT_READ_CURRENT_CONFIG    6015
 
 
 #define     MSG_SEC_EDITOR_QUERY_VALUE              7000
@@ -215,6 +216,7 @@
 #define     MSG_KEY_USERS                   9018
 #define     MSG_KEY_CURRENT_USER            9019
 #define     MSG_DEFAULT_FACE_NAME           9020
+#define     MSG_KEY_CURRENT_CONFIG          9021
 
 #define     MSG_LOAD_HIVE_ALREADY_EXISTS_EX 11000
 #define     MSG_LOAD_HIVE_ACCESS_DENIED_EX  11001
@@ -270,3 +272,5 @@
 #define     MSG_SHARE_DEVICE_EXCLUSIVE       14064
 #define     MSG_SHARE_DRIVER_EXCLUSIVE       14065
 #define     MSG_SHARE_SHARED                 14066
+
+#define     MSG_REGEDIT_DISABLED             14067

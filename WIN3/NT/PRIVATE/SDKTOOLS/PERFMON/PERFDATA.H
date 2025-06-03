@@ -32,13 +32,13 @@ PPERFOBJECT FirstObject (PPERFDATA pPerfData) ;
 
 PPERFOBJECT NextObject (PPERFOBJECT pObject) ;
 
-PERF_COUNTER_DEFINITION *
+PPERFCOUNTERDEF 
 FirstCounter(
-    PERF_OBJECT_TYPE *pObjectDef) ;
+    PPERFOBJECT pObjectDef) ;
 
-PERF_COUNTER_DEFINITION *
+PPERFCOUNTERDEF 
 NextCounter(
-    PERF_COUNTER_DEFINITION *pCounterDef) ;
+    PPERFCOUNTERDEF pCounterDef) ;
 #endif
 
 #define FirstObject(pPerfData)         \
@@ -48,14 +48,15 @@ NextCounter(
    ((PPERFOBJECT) ((PBYTE) pObject + pObject->TotalByteLength))
 
 #define FirstCounter(pObjectDef)       \
-   ((PERF_COUNTER_DEFINITION *) ((PCHAR)pObjectDef + pObjectDef->HeaderLength))
+   ((PPERFCOUNTERDEF ) ((PCHAR)pObjectDef + pObjectDef->HeaderLength))
 
 #define NextCounter(pCounterDef)       \
-   ((PERF_COUNTER_DEFINITION *) ((PCHAR)pCounterDef + pCounterDef->ByteLength))
+   ((PPERFCOUNTERDEF ) ((PCHAR)pCounterDef + pCounterDef->ByteLength))
 
 void
 GetInstanceNameStr (PPERFINSTANCEDEF pInstance,
-                    LPTSTR lpszInstance) ;
+                    LPTSTR lpszInstance,
+                    DWORD   dwCodePage);
 
 LPTSTR   
 GetInstanceName (PPERFINSTANCEDEF pInstance) ;
@@ -64,16 +65,19 @@ void
 GetPerfComputerName(PPERFDATA pPerfData,
                     LPTSTR szComputerName) ;
 
-PERF_INSTANCE_DEFINITION *GetInstanceByName(
-    PERF_DATA_BLOCK *pDataBlock,
-    PERF_OBJECT_TYPE *pObjectDef,
+PPERFINSTANCEDEF GetInstanceByName(
+    PPERFDATA pDataBlock,
+    PPERFOBJECT pObjectDef,
     LPTSTR pInstanceName,
-    LPTSTR pParentName) ;
+    LPTSTR pParentName,
+    DWORD   dwIndex) ;
 
 
-PERF_INSTANCE_DEFINITION *GetInstanceByUniqueID(
-    PERF_OBJECT_TYPE *pObjectDef,
-    LONG UniqueID) ;
+PPERFINSTANCEDEF GetInstanceByUniqueID(
+    PPERFOBJECT pObjectDef,
+    LONG UniqueID,
+    DWORD   dwIndex) ;
+
 
 
 HKEY OpenSystemPerfData (IN LPCTSTR lpszSystem) ;
@@ -138,15 +142,15 @@ QueryPerformanceName(
     BOOL Help
     );
 
-PERF_INSTANCE_DEFINITION *
+PPERFINSTANCEDEF 
 FirstInstance(
-    PERF_OBJECT_TYPE *pObjectDef) ;
+    PPERFOBJECT pObjectDef) ;
 
 
 
-PERF_INSTANCE_DEFINITION *
+PPERFINSTANCEDEF 
 NextInstance(
-    PERF_INSTANCE_DEFINITION *pInstDef) ;
+    PPERFINSTANCEDEF pInstDef) ;
 
 
 
@@ -158,27 +162,27 @@ DWORD GetSystemNames(PPERFSYSTEM pSysInfo) ;
 
 
 
-PERF_OBJECT_TYPE *GetObjectDefByTitleIndex(
-    PERF_DATA_BLOCK *pDataBlock,
+PPERFOBJECT GetObjectDefByTitleIndex(
+    PPERFDATA pDataBlock,
     DWORD ObjectTypeTitleIndex) ;
 
 
-PERF_OBJECT_TYPE *GetObjectDefByName(
+PPERFOBJECT GetObjectDefByName(
     PPERFSYSTEM pSystem,
-    PERF_DATA_BLOCK *pDataBlock,
+    PPERFDATA pDataBlock,
     LPTSTR pObjectName) ;
 
 DWORD GetObjectIdByName(
     PPERFSYSTEM pSystem,
-    PERF_DATA_BLOCK *pDataBlock,
+    PPERFDATA pDataBlock,
     LPTSTR pObjectName) ;
 
 LPTSTR
 InstanceName(
-PERF_INSTANCE_DEFINITION *pInstDef) ;
+PPERFINSTANCEDEF pInstDef) ;
 
 void PerfDataThread (PPERFSYSTEM pSystem) ;
 
 
-
-
+
+

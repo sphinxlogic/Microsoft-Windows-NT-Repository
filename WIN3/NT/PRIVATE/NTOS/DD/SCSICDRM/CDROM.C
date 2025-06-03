@@ -40,6 +40,16 @@ Revision History:
 
 #define PLAY_ACTIVE(DeviceExtension) *((PBOOLEAN) (DeviceExtension+1))
 
+#define MSF_TO_LBA(Minutes,Seconds,Frames) \
+                (ULONG)((60 * 75 * (Minutes)) + (75 * (Seconds)) + ((Frames) - 150))
+
+#ifdef POOL_TAGGING
+#ifdef ExAllocatePool
+#undef ExAllocatePool
+#endif
+#define ExAllocatePool(a,b) ExAllocatePoolWithTag(a,b,'CscS')
+#endif
+
 
 NTSTATUS
 DriverEntry(
@@ -107,6 +117,15 @@ HitachProcessError(
     BOOLEAN *Retry
     );
 
+#ifdef _PPC_
+NTSTATUS
+FindScsiAdapter (
+    IN HANDLE KeyHandle,
+    IN UNICODE_STRING ScsiUnicodeString[],
+    OUT PUCHAR IntermediateController
+    );
+#endif
+
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE, DriverEntry)
 #pragma alloc_text(PAGE, FindScsiCdRoms)
@@ -117,6 +136,9 @@ HitachProcessError(
 #pragma alloc_text(PAGE, CdRomIsPlayActive)
 #pragma alloc_text(PAGE, GetTableOfContents)
 #pragma alloc_text(PAGE, ScsiCdRomRead)
+#ifdef _PPC_
+#pragma alloc_text(PAGE, FindScsiAdapter)
+#endif
 #endif
 
 
@@ -407,14 +429,11 @@ Return Value:
 --*/
 {
     UCHAR ntNameBuffer[64];
-    UCHAR arcNameBuffer[64];
     STRING ntNameString;
-    STRING arcNameString;
     UNICODE_STRING ntUnicodeString;
-    UNICODE_STRING arcUnicodeString;
     NTSTATUS status;
     PDEVICE_OBJECT deviceObject = NULL;
-    PDEVICE_EXTENSION deviceExtension;
+    PDEVICE_EXTENSION deviceExtension = NULL;
     PVOID senseData = NULL;
 
     //
@@ -616,45 +635,22 @@ Return Value:
     deviceExtension->TimeOutValue = SCSI_CDROM_TIMEOUT;
 
     //
+    // When Read command is issued to FMCD-101 or FMCD-102 and there is a music
+    // cd in it. It takes longer time than SCSI_CDROM_TIMEOUT before returning
+    // error status. So I modified TimeoutValue in case FMCD-101 or FMCD-102.
+    //
+
+    if (( RtlCompareMemory( ((PINQUIRYDATA)LunInfo->InquiryData)->VendorId,"FUJITSU", 7 ) == 7 ) &&
+        (( RtlCompareMemory( ((PINQUIRYDATA)LunInfo->InquiryData)->ProductId,"FMCD-101", 8 ) == 8 ) ||
+         ( RtlCompareMemory( ((PINQUIRYDATA)LunInfo->InquiryData)->ProductId,"FMCD-102", 8 ) == 8 ))) {
+        deviceExtension->TimeOutValue = 20;
+    }
+
+    //
     // Back pointer to device object.
     //
 
     deviceExtension->DeviceObject = deviceObject;
-
-    //
-    // Create a symbolic link from the cdrom name to the corresponding
-    // ARC name, to be used if we're booting off the cdrom.  This will
-    // fail if it's not system initialization time; that's fine.  The
-    // ARC name looks something like \ArcName\scsi(0)cdrom(0)fdisk(0).
-    //
-
-    sprintf(arcNameBuffer,
-            "\\ArcName\\scsi(%d)cdrom(%d)fdisk(%d)",
-            PortNumber,
-            LunInfo->TargetId + LunInfo->PathId * SCSI_MAXIMUM_TARGETS_PER_BUS,
-            LunInfo->Lun);
-
-    RtlInitString(&arcNameString, arcNameBuffer);
-
-    status = RtlAnsiStringToUnicodeString(&arcUnicodeString,
-                                          &arcNameString,
-                                          TRUE);
-
-    if (!NT_SUCCESS(status)) {
-
-        DebugPrint((1,
-                    "CreateCdRomDeviceObjects: Cannot convert string %s\n",
-                    arcNameBuffer));
-
-        RtlFreeUnicodeString(&ntUnicodeString);
-
-        goto CreateCdRomDeviceObjectExit;
-    }
-
-    IoAssignArcName(&arcUnicodeString, &ntUnicodeString);
-
-    RtlFreeUnicodeString(&ntUnicodeString);
-    RtlFreeUnicodeString(&arcUnicodeString);
 
     //
     // Allocate buffer for drive geometry.
@@ -700,7 +696,7 @@ Return Value:
 
         deviceExtension->DiskGeometry->BytesPerSector = 2048;
         deviceExtension->SectorShift = 11;
-        deviceExtension->PartitionLength = LiFromUlong(0x7fffffff);
+        deviceExtension->PartitionLength.QuadPart = (LONGLONG)(0x7fffffff);
     }
 
     return(STATUS_SUCCESS);
@@ -850,11 +846,10 @@ Return Value:
     // the sector size.
     //
 
-    startingOffset = LiFromUlong(transferByteCount);
-    startingOffset = LiAdd(startingOffset,
-                           currentIrpStack->Parameters.Read.ByteOffset);
+    startingOffset.QuadPart = currentIrpStack->Parameters.Read.ByteOffset.QuadPart +
+                              transferByteCount;
 
-    if (LiGtr( startingOffset, deviceExtension->PartitionLength) ||
+    if ((startingOffset.QuadPart > deviceExtension->PartitionLength.QuadPart) ||
         (transferByteCount & deviceExtension->DiskGeometry->BytesPerSector - 1)) {
 
         DebugPrint((1,"ScsiCdRomRead: Invalid I/O parameters\n"));
@@ -1017,7 +1012,7 @@ RetryControl:
 
             deviceExtension->DiskGeometry->BytesPerSector = 2048;
             deviceExtension->SectorShift = 11;
-            deviceExtension->PartitionLength = LiFromUlong(0x7fffffff);
+            deviceExtension->PartitionLength.QuadPart = (LONGLONG)(0x7fffffff);
         }
 
         //
@@ -1182,6 +1177,7 @@ RetryControl:
 
         {
             PCDROM_SEEK_AUDIO_MSF inputBuffer = Irp->AssociatedIrp.SystemBuffer;
+            ULONG                 logicalBlockAddress;
 
             //
             // Seek Audio MSF
@@ -1200,29 +1196,32 @@ RetryControl:
                 break;
             }
 
-            cdb->PLAY_AUDIO_MSF.OperationCode = SCSIOP_PLAY_AUDIO_MSF;
-
-            cdb->PLAY_AUDIO_MSF.StartingM = inputBuffer->M;
-            cdb->PLAY_AUDIO_MSF.StartingS = inputBuffer->S;
-            cdb->PLAY_AUDIO_MSF.StartingF = inputBuffer->F;
-
-            cdb->PLAY_AUDIO_MSF.EndingM = inputBuffer->M;
-            cdb->PLAY_AUDIO_MSF.EndingS = inputBuffer->S;
-            cdb->PLAY_AUDIO_MSF.EndingF = inputBuffer->F;
-
-            srb.CdbLength = 10;
-
             //
-            // Set timeout value.
+            // Zero and fill in new Srb
             //
 
-            srb.TimeOutValue = deviceExtension->TimeOutValue;
+            RtlZeroMemory(&srb, sizeof(SCSI_REQUEST_BLOCK));
 
-            status = ScsiClassSendSrbSynchronous(DeviceObject,
-                          &srb,
-                          NULL,
-                          0,
-                          FALSE);
+
+            // Fill in cdb for this operation
+            //
+
+            srb.CdbLength                = 10;
+            srb.TimeOutValue             = deviceExtension->TimeOutValue;
+            cdb->SEEK.OperationCode      = SCSIOP_SEEK;
+
+            logicalBlockAddress = MSF_TO_LBA(inputBuffer->M, inputBuffer->S, inputBuffer->F);
+
+            cdb->SEEK.LogicalBlockAddress[0] = ((PFOUR_BYTE)&logicalBlockAddress)->Byte3;
+            cdb->SEEK.LogicalBlockAddress[1] = ((PFOUR_BYTE)&logicalBlockAddress)->Byte2;
+            cdb->SEEK.LogicalBlockAddress[2] = ((PFOUR_BYTE)&logicalBlockAddress)->Byte1;
+            cdb->SEEK.LogicalBlockAddress[3] = ((PFOUR_BYTE)&logicalBlockAddress)->Byte0;
+
+            status = ScsiClassSendSrbSynchronous(deviceExtension->DeviceObject,
+                                                 &srb,
+                                                 NULL,
+                                                 0,
+                                                 FALSE);
 
         }
 
@@ -1235,6 +1234,11 @@ RetryControl:
         //
 
         DebugPrint((2, "ScsiCdRomDeviceControl: Pause audio\n"));
+
+        if (PLAY_ACTIVE(deviceExtension) == FALSE) {
+            status = STATUS_SUCCESS;
+            break;
+        }
 
         PLAY_ACTIVE(deviceExtension) = FALSE;
 
@@ -1673,11 +1677,10 @@ RetryControl:
     DebugPrint((2, "ScsiCdRomDeviceControl: Set volume control\n"));
 
     {
-
+        PAUDIO_OUTPUT audioInput = NULL;
         PAUDIO_OUTPUT audioOutput;
-        PAUDIO_OUTPUT audioInput;
-        PVOID inputBuffer;
         PVOLUME_CONTROL volumeControl = Irp->AssociatedIrp.SystemBuffer;
+        PVOID inputBuffer;
         ULONG i;
 
         if (irpStack->Parameters.DeviceIoControl.InputBufferLength <
@@ -1949,7 +1952,7 @@ RetryControl:
 
                     deviceExtension->DiskGeometry->BytesPerSector = 2048;
                     deviceExtension->SectorShift = 11;
-                    deviceExtension->PartitionLength = LiFromUlong(0x7fffffff);
+                    deviceExtension->PartitionLength.QuadPart = (LONGLONG)(0x7fffffff);
                 }
             }
         }
@@ -2091,19 +2094,21 @@ Return Value:
 --*/
 
 {
-    PDEVICE_EXTENSION deviceExtension = DeviceObject->DeviceExtension;
-    PSENSE_DATA senseBuffer = Srb->SenseInfoBuffer;
-    LARGE_INTEGER largeInt = LiFromUlong(1);
-    PUCHAR modePage;
-    PIO_STACK_LOCATION irpStack;
-    PIRP irp;
+    PDEVICE_EXTENSION   deviceExtension = DeviceObject->DeviceExtension;
+    PSENSE_DATA         senseBuffer = Srb->SenseInfoBuffer;
+    LARGE_INTEGER       largeInt;
+    PUCHAR              modePage;
+    PIO_STACK_LOCATION  irpStack;
+    PIRP                irp;
     PSCSI_REQUEST_BLOCK srb;
     PCOMPLETION_CONTEXT context;
-    PCDB cdb;
-    ULONG alignment;
+    PCDB                cdb;
+    ULONG               alignment;
 
     UNREFERENCED_PARAMETER(Status);
     UNREFERENCED_PARAMETER(Retry);
+
+    largeInt.QuadPart = (LONGLONG) 1;
 
     //
     // Check the status.  The initialization command only needs to be sent
@@ -2346,4 +2351,3 @@ Return Value:
 }
 
 
-

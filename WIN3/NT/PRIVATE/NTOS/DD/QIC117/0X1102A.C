@@ -29,6 +29,15 @@
 * HISTORY:
 *		$Log:   J:\se.vcs\driver\q117cd\src\0x1102a.c  $
 *	
+*	   Rev 1.13   15 May 1995 10:47:28   GaryKiwi
+*	Phoenix merge from CBW95s
+*	
+*	   Rev 1.12.1.0   11 Apr 1995 18:04:06   garykiwi
+*	PHOENIX pass #1
+*	
+*	   Rev 1.13   30 Jan 1995 14:25:08   BOBLEHMA
+*	Changed device_descriptor.version to cqd_context->firmware_version.
+*	
 *	   Rev 1.12   14 Apr 1994 11:50:40   KEVINKES
 *	Changed seek slop back to previous rev and added rev seek slop if 
 *	the drive is a Jumbo B.
@@ -77,6 +86,7 @@
 #define FCT_ID 0x1102a
 #include "include\public\adi_api.h"
 #include "include\public\frb_api.h"
+#include "include\public\vendor.h"
 #include "include\private\kdi_pub.h"
 #include "include\private\cqd_pub.h"
 #include "q117cd\include\cqd_defs.h"
@@ -160,7 +170,7 @@ dStatus cqd_HighSpeedSeek
             cqd_context->rd_wr_op.eot) {
 
 				if ((cqd_context->device_descriptor.vendor == VENDOR_CMS) &&
-						(cqd_context->device_descriptor.version >= FIRM_VERSION_88)) {
+						(cqd_context->firmware_version >= FIRM_VERSION_88)) {
 
                seek_offset += 1l;
 
@@ -174,8 +184,8 @@ dStatus cqd_HighSpeedSeek
 
             if ((cqd_context->drive_parms.seek_mode == SEEK_TIMED) ||
 					((cqd_context->device_descriptor.vendor == VENDOR_CMS) &&
-						(cqd_context->device_descriptor.version >= FIRM_VERSION_60) &&
-						(cqd_context->device_descriptor.version < FIRM_VERSION_80))) {
+						(cqd_context->firmware_version >= FIRM_VERSION_60) &&
+						(cqd_context->firmware_version < FIRM_VERSION_80))) {
 
                seek_offset += SEEK_SLOP;
 

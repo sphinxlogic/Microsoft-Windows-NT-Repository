@@ -22,6 +22,7 @@ Author:
 
 #define _FMIFS_DEFN_
 
+
 //
 // These are the defines for 'PacketType'.
 //
@@ -48,7 +49,8 @@ typedef enum _FMIFS_PACKET_TYPE {
     FmIfsDblspaceMounted,
 #endif // DBLSPACE_ENABLED
     FmIfsCheckOnReboot,
-    FmIfsTextMessage
+    FmIfsTextMessage,
+    FmIfsHiddenStatus
 } FMIFS_PACKET_TYPE, *PFMIFS_PACKET_TYPE;
 
 typedef struct _FMIFS_PERCENT_COMPLETE_INFORMATION {
@@ -119,7 +121,8 @@ typedef enum _FMIFS_MEDIA_TYPE {
     FmMediaF3_2Pt88_512,    // 3.5",  2.88MB, 512 bytes/sector
     FmMediaF3_20Pt8_512,    // 3.5",  20.8MB, 512 bytes/sector
     FmMediaRemovable,       // Removable media other than floppy
-    FmMediaFixed
+    FmMediaFixed,
+    FmMediaF3_120M_512      // 3.5", 120M Floppy
 } FMIFS_MEDIA_TYPE, *PFMIFS_MEDIA_TYPE;
 
 
@@ -147,6 +150,26 @@ VOID
 
 typedef
 VOID
+(*PFMIFS_FORMATEX_ROUTINE)(
+    IN  PWSTR               DriveName,
+    IN  FMIFS_MEDIA_TYPE    MediaType,
+    IN  PWSTR               FileSystemName,
+    IN  PWSTR               Label,
+    IN  BOOLEAN             Quick,
+    IN  ULONG               ClusterSize,
+    IN  FMIFS_CALLBACK      Callback
+    );
+
+typedef
+BOOLEAN
+(*PFMIFS_ENABLECOMP_ROUTINE)(
+    IN  PWSTR               DriveName,
+    IN  USHORT              CompressionFormat
+    );
+
+
+typedef
+VOID
 (*PFMIFS_CHKDSK_ROUTINE)(
     IN  PWSTR               DriveName,
     IN  PWSTR               FileSystemName,
@@ -155,8 +178,18 @@ VOID
     IN  BOOLEAN             OnlyIfDirty,
     IN  BOOLEAN             Recover,
     IN  PWSTR               PathToCheck,
+    IN  BOOLEAN             Extend,
     IN  FMIFS_CALLBACK      Callback
     );
+
+typedef
+VOID
+(*PFMIFS_EXTEND_ROUTINE)(
+    IN  PWSTR               DriveName,
+    IN  BOOLEAN             Verify,
+    IN  FMIFS_CALLBACK      Callback
+    );
+
 
 typedef
 VOID
@@ -182,6 +215,7 @@ BOOLEAN
     IN  ULONG               NumberOfArrayEntries,
     OUT PULONG              NumberOfMediaTypes
     );
+
 
 typedef
 VOID
@@ -253,6 +287,23 @@ Format(
     );
 
 VOID
+FormatEx(
+    IN  PWSTR               DriveName,
+    IN  FMIFS_MEDIA_TYPE    MediaType,
+    IN  PWSTR               FileSystemName,
+    IN  PWSTR               Label,
+    IN  BOOLEAN             Quick,
+    IN  ULONG               ClusterSize,
+    IN  FMIFS_CALLBACK      Callback
+    );
+
+BOOLEAN
+EnableVolumeCompression(
+    IN  PWSTR               DriveName,
+    IN  USHORT              CompressionFormat
+    );
+
+VOID
 Chkdsk(
     IN  PWSTR               DriveName,
     IN  PWSTR               FileSystemName,
@@ -261,6 +312,14 @@ Chkdsk(
     IN  BOOLEAN             OnlyIfDirty,
     IN  BOOLEAN             Recover,
     IN  PWSTR               PathToCheck,
+    IN  BOOLEAN             Extend,
+    IN  FMIFS_CALLBACK      Callback
+    );
+
+VOID
+Extend(
+    IN  PWSTR               DriveName,
+    IN  BOOLEAN             Verify,
     IN  FMIFS_CALLBACK      Callback
     );
 

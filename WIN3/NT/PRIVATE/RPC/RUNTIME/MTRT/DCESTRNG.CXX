@@ -19,12 +19,7 @@ Revision History:
 
 --*/
 
-#include <sysinc.h>
-#include <rpc.h>
-#include <rpcdcep.h>
-#include <util.hxx>
-#include <rpcuuid.hxx>
-#include <binding.hxx>
+#include <precomp.hxx>
 
 
 RPC_STATUS RPC_ENTRY
@@ -155,13 +150,26 @@ Return Value:
 {
     RPC_STATUS Status;
     DCE_BINDING * DceBinding;
+    RPC_CHAR __RPC_FAR * CopiedStringBinding;
 
     InitializeIfNecessary();
 
     if (!ARGUMENT_PRESENT(StringBinding))
         return(RPC_S_INVALID_ARG);
 
-    DceBinding = new DCE_BINDING(StringBinding,&Status);
+#ifdef WIN32RPC
+    CopiedStringBinding = (RPC_CHAR *)
+              _alloca( (RpcpStringLength(StringBinding)+1)*(sizeof(RPC_CHAR)) );
+    if (CopiedStringBinding == 0)
+        {
+        return (RPC_S_OUT_OF_MEMORY);
+        }
+    RpcpStringCopy(CopiedStringBinding, StringBinding);
+#else
+    CopiedStringBinding = StringBinding;
+#endif
+
+    DceBinding = new DCE_BINDING(CopiedStringBinding,&Status);
 
     if ( DceBinding == 0 )
         {

@@ -25,6 +25,11 @@ Revision History:
 
 #include    <winioctl.h>
 #include    <nddeapi.h>
+
+#ifndef DS_3DLOOK
+#define DS_3DLOOK 0x0004L
+#endif
+
 //
 //  Application specific windows messages
 //
@@ -100,9 +105,7 @@ Revision History:
 
 #define     NCDU_FLOPPY_COMPLETE    (STRING_BASE    + 41)
 #define     NCDU_NETUTILS_SHARED    (STRING_BASE    + 42)
-#define     NCDU_WFW_CAPTION        (STRING_BASE    + 43)
-
-#define     NCDU_NETBEUI_NOT_ROUT   (STRING_BASE    + 45)
+#define     NCDU_NETBEUI_NOT_ROUT   (STRING_BASE    + 43)
 
 #define     NCDU_CANNOT_SHARE_REMDIR (STRING_BASE   + 46)
 #define     NCDU_SHARE_IS_NOT_USED  (STRING_BASE    + 47)
@@ -124,9 +127,7 @@ Revision History:
 
 #define     NCDU_DRIVE_NOT_AVAILABLE (STRING_BASE   + 61)
 #define     NCDU_UNABLE_GET_PATH_INFO (STRING_BASE   + 62)
-#define     NCDU_WFW_MESSAGE1       (STRING_BASE    + 63)
-#define     NCDU_WFW_MESSAGE2       (STRING_BASE    + 64)
-#define     NCDU_INSUF_MEM_AT_BOOT  (STRING_BASE    + 65)
+#define     NCDU_INSUF_MEM_AT_BOOT  (STRING_BASE    + 63)
 
 #define     NCDU_NW_LINK_TRANSPORT  (STRING_BASE    + 66)
 #define     NCDU_TCP_IP_TRANSPORT   (STRING_BASE    + 67)
@@ -139,7 +140,7 @@ Revision History:
 #define SZ_APP_TITLE            (FORMAT_BASE + 1)
 #define FMT_CREATE_SHARE_ERROR  (FORMAT_BASE + 2)
 #define CSZ_ABOUT_ENTRY         (FORMAT_BASE + 3)
-        
+
 #define FMT_LOAD_NET_CLIENT     (FORMAT_BASE + 4)
 #define FMT_CONFIRM_TARGET      (FORMAT_BASE + 5)
 #define FMT_INSTALL_TARGET_CLIENT       (FORMAT_BASE + 6)
@@ -203,6 +204,9 @@ Revision History:
 #define CSZ_35_HD               (FORMAT_BASE + 57)
 #define CSZ_525_HD              (FORMAT_BASE + 58)
 #define CSZ_DEFAULT_CLIENT_SHARE (FORMAT_BASE + 59)
+#define CSZ_WINDOWS_95		    (FORMAT_BASE + 60)    
+
+#define CSZ_WINDOWS_NT          (FORMAT_BASE + 61)
 
 #define DISK_FORMAT_BASE            0xA000
 #define IDS_APP_NAME                (DISK_FORMAT_BASE + 1)
@@ -242,6 +246,7 @@ Revision History:
 
 #define IDS_FORMATCOMPLETE          (DISK_FORMAT_BASE + 31)
 #define IDS_FORMATANOTHER           (DISK_FORMAT_BASE + 32)
+#define IDS_CORRECT_FMT_ERROR       (DISK_FORMAT_BASE + 33)
 
 #define IDS_COPYERROR               (DISK_FORMAT_BASE + 100)
 #define FUNC_COPY                   1
@@ -260,7 +265,7 @@ Revision History:
 
 #define     MAX_PATH_BYTES          (MAX_PATH * sizeof(TCHAR))
 #define     SMALL_BUFFER_SIZE       4096
-#define     MEDIUM_BUFFER_SIZE      (SMALL_BUFFER_SIZE * 4)    
+#define     MEDIUM_BUFFER_SIZE      (SMALL_BUFFER_SIZE * 4)
 
 #define     MAX_EXITMSG             32
 #define     MAX_SHARENAME           16
@@ -341,6 +346,7 @@ typedef struct _NETCARD_INFO {
     TCHAR   szInfKey[NETCARD_KEY_SIZE];     // Netcard Key Name
     TCHAR   szDeviceKey[NETCARD_KEY_SIZE];  // netcard device key
     TCHAR   szNifKey[NETCARD_KEY_SIZE];     // Netcard Info Key
+    BOOL    bTokenRing;                     // TRUE = Token Ring Netcard
 } NETCARD_INFO, *PNETCARD_INFO;
 
 typedef struct _PROTOCOL_INFO {
@@ -701,6 +707,12 @@ TrimSpaces (
     IN  OUT LPTSTR  szString
 );
 
+DWORD
+TranslateEscapeChars (
+    IN  LPTSTR szNewString,
+    IN  LPTSTR szString
+);
+
 BOOL
 IsUncPath (
     IN  LPCTSTR  szPath
@@ -727,7 +739,7 @@ BOOL
 RegisterMainWindowClass(
     IN  HINSTANCE   hInstance
 );
-    
+
 DWORD
 AddStringToMultiSz (
     LPTSTR OUT   mszDest,
@@ -956,5 +968,4 @@ QuietGetFileSize (
 
 #include    "otnbtstr.h"    // string constant definitions
 
-#endif      //_otnboot_H_ 
-
+#endif      //_otnboot_H_

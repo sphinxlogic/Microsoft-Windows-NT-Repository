@@ -28,7 +28,10 @@ Notes:
 
 #include <pch.cxx>
 
+#define _IFSUTIL_MEMBER_
+
 #include "ulib.hxx"
+#include "ifsutil.hxx"
 
 #include "error.hxx"
 
@@ -47,6 +50,7 @@ DefineClassDescriptors(
         );
 
 extern "C"
+IFSUTIL_EXPORT
 BOOLEAN
 InitializeIfsUtil (
     PVOID DllHandle,
@@ -54,6 +58,7 @@ InitializeIfsUtil (
     PCONTEXT Context
         );
 
+IFSUTIL_EXPORT
 BOOLEAN
 InitializeIfsUtil (
     PVOID DllHandle,
@@ -96,7 +101,7 @@ Return Value:
 
         } else {
 
-                DbgAbort( "IfsUtil initialization failed!!!\n" );
+                DebugAbort( "IfsUtil initialization failed!!!\n" );
                 return( FALSE );
         }
 }
@@ -152,7 +157,7 @@ DefineClassDescriptors(
 
         } else {
 
-                DbgPrint( "Could not initialize class descriptors!");
+                DebugPrint( "Could not initialize class descriptors!");
                 return FALSE;
         }
 }

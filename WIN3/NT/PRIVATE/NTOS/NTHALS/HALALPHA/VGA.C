@@ -61,6 +61,7 @@ Revision History:
 #include "arc.h"
 #include "halvga.h"
 #include "fwcallbk.h"
+#include "stdio.h"
 
 //
 // Define forward referenced procedure prototypes.
@@ -216,12 +217,6 @@ Return Value:
     char String[16];
 
     //
-    // [jrm] Call the firmware to initialize the video display.
-    //
-
-    VenVideoDisplayInitialize(&UnusedParameter);
-
-    //
     // Initialize static data.
     //
 
@@ -243,6 +238,12 @@ Return Value:
     if (HalpResetDisplayParameters) {
         HalpDisplayOwnedByHal = HalpResetDisplayParameters(MaxColumn+1, MaxRow+1);
     }
+
+    //
+    // [jrm] Call the firmware to initialize the video display.
+    //
+
+    VenVideoDisplayInitialize(&UnusedParameter);
 
     //
     // Initialize the current display column, row, and ownership values.

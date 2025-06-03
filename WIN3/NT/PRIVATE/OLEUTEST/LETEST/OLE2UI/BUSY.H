@@ -43,4 +43,3 @@ void    MakeWindowActive(HWND hWndSwitchTo);
 
 
 
-

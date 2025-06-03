@@ -27,7 +27,6 @@ extern	"C"	{
 #include "cmdana.hxx"
 #include "control.hxx"
 #include "filehndl.hxx"
-#include "baduse.hxx"
 #include "lextable.hxx"
 
 /****************************************************************************
@@ -62,22 +61,28 @@ extern LexTable 				*	pMidlLexTable;
 /****************************************************************************
  						node_interface procedures
  ****************************************************************************/
-node_interface::node_interface()
-		: named_node( NODE_INTERFACE )
-	{
-	ProcCount			= 0;
-	CallBackProcCount	= 0;
-	pBaseIntf			= NULL;
-	pDefiningFile		= NULL;
-	OptimFlags			= 0;
-	fIAmIUnknown		= 0;
-	fPickle				= 0;
-	fSemAnalyzed		= 0;
-	pMyCG				= NULL;
-	pProcTbl			= NULL;
-	}
+node_interface::node_interface( NODE_T Kind )
+        : named_node( Kind )
+    {
+    ProcCount           = 0;
+    CallBackProcCount   = 0;
+    pBaseIntf           = NULL;
+    pDefiningFile       = NULL;
+    OptimFlags          = OPTIMIZE_NONE;
+    OptimLevel          = OPT_LEVEL_OS_DEFAULT;
+    fIAmIUnknown        = 0;
+    fPickle             = 0;
+    fHasProcsWithRpcSs  = 0;
+    fHasHookOle         = 0;
+    fSemAnalyzed        = 0;
+    fPrintedDef         = 0;
+    fPrintedIID         = 0;
+    pMyCG               = NULL;
+    pMyTlbCG            = NULL;
+    pProcTbl            = NULL;
+    }
 
-void				
+void                
 node_interface::GetVersionDetails( unsigned short * Maj, 
 								   unsigned short * Min )
 	{
@@ -129,6 +134,8 @@ node_file::node_file(
 	short		ImpLevel ) : named_node( NODE_FILE, pInputName )
 	{
 
+	fHasComClasses = FALSE;
+
 	/**
 	 ** save our file name and import level
 	 **/
@@ -143,7 +150,6 @@ node_file::node_file(
 	 ** be the input name, else munge it.
 	 **/
 
-
 	if( pCompiler->GetPassNumber() == IDL_PASS )
 		{
 		fAcfInclude = FALSE;
@@ -156,9 +162,9 @@ node_file::node_file(
 		}
 
 	fIsXXXBaseIdl = FALSE;
-	pAuxRoutinesList = NULL;
 
 	}
+
 void
 node_file::SetFileName(
 	char	*	pFullName )
@@ -198,43 +204,6 @@ node_file::SetFileName(
 	strcat( pNewName, pExt );
 
 	SetSymName( pNewName );
-
-	// insert the default client auxillary name
-	if ( ImportLevel == 0 )
-		{
-		SetClientAuxillaryFileName( pCommand->GetCauxFName() );
-
-		SetServerAuxillaryFileName( pCommand->GetSauxFName() );
-		}
-	else
-		{
-		// insert the default client auxillary name
-
-		strcpy( pExt, ".c" );
-		lenExt = 2;
-
-		strcpy( pPath, pCommand->GetOutputPath());
-		lenPath = strlen ( pPath );
-				
-		pNewName = new char [ lenDrive + lenPath + lenName + 2 + lenExt + 1 ];
-		strcpy( pNewName, pPath );
-		strcat( pNewName, pName );
-		strcat( pNewName, "_x" );
-		strcat( pNewName, pExt );
-
-		SetClientAuxillaryFileName( pNewName );
-
-		// insert the default server auxillary name
-
-		pNewName = new char [ lenDrive + lenPath + lenName + 2 + lenExt + 1 ];
-		strcpy( pNewName, pPath );
-		strcat( pNewName, pName );
-		strcat( pNewName, "_y" );
-		strcat( pNewName, pExt );
-
-		SetServerAuxillaryFileName( pNewName );
-
-		}
 
 	// insert the original name into the symbol table to be able to
 	// access the filename later and get at the aux thru the symbol table
@@ -318,7 +287,8 @@ node_file::AcfName(
 			}
 		else
 			{
-			pPath	= agPath;
+			// agLast has the whole thing...
+			pPath	= "";
 			}
 		}
 	else
@@ -389,19 +359,4 @@ node_forward::GetSymDetails(
 	*pTag	= SKey.GetKind();
 	*ppName	= SKey.GetString();
 	}
-#ifdef obsolete
-char *
-node_forward::GetNameOfType()
-	{
-	return SKey.GetString();
-	}
-node_skl *
-node_forward::GetResolvedType()
-	{
-	return (pBaseSymTbl->SymSearch( SKey ));
-	}
-#endif //obsolete
-
-/****************************************************************************
- 						node_id procedures
- ****************************************************************************/
+

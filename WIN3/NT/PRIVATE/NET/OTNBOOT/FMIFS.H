@@ -174,5 +174,4 @@ QuerySupportedMedia(
     );
 
 #endif // _FMIFS_DEFN_
-
-
+

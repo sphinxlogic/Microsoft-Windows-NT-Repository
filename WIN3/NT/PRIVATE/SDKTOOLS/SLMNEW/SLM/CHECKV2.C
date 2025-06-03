@@ -1,40 +1,19 @@
 /* This file contains functions specific to version 2 and 3 status files.
  */
 
-#include <sys/types.h>
-#include <sys/stat.h>
-
-#include "slm.h"
-#include "sys.h"
-#include "util.h"
-#include "stfile.h"
-#include "ad.h"
-#include "dir.h"
-#include "slmck.h"
-#include "proto.h"
-#include "ckproto.h"
-
+#include "precomp.h"
+#pragma hdrstop
 EnableAssert
 
-#if 0
-private IFI2 Cfi2Block(AD *, SD *, FI2 huge *);
-private IED2 Ced2Block(AD *, SD *, ED2 huge *);
-private char huge *HpbVer2FindBlock(AD *, SD *, char huge *);
-private SP SpIsSh2(AD *, SD *, SH2 huge *);
-private SP SpIsFi2(AD *, SD *, FI2 huge *, IFI2);
-private SP SpIsEd2(SD *, ED2 huge *, IED2);
-private SP SpIsFs2(SD *, FS2 huge *, IFS2);
-private F FIsF(int);
-#endif
-
-/* tries to determine if stuff in status buffer is a version 2 status file. */
+/* tries to determine if stuff in status buffer is a version 2 or greater status file. */
 F
-FIsVer2(
+FIsVer234or5(
     SD *psd)
 {
-    return (((SH2 far *)psd->hpbStatus)->version == 2 ||
-            ((SH2 far *)psd->hpbStatus)->version == 3 ||
-            ((SH2 far *)psd->hpbStatus)->version == 4);
+    return (((SH2 *)psd->hpbStatus)->version == 2 ||
+            ((SH2 *)psd->hpbStatus)->version == 3 ||
+            ((SH2 *)psd->hpbStatus)->version == 4 ||
+            ((SH2 *)psd->hpbStatus)->version == 5);
 }
 
 
@@ -49,7 +28,7 @@ FVer2Lock(
     SD *psd,
     NM *nm)
 {
-    SH2 far *psh2 = (SH2 far *)psd->hpbStatus;
+    SH2 *psh2 = (SH2 *)psd->hpbStatus;
 
     if ((psh2->lck == lckNil && !psh2->fAdminLock) ||
         (psh2->fAdminLock &&
@@ -74,10 +53,10 @@ FVer2Block(
     AD *pad,
     SD *psd)
 {
-    char huge *hpbBlock = psd->hpbStatus;
+    char *hpbBlock = psd->hpbStatus;
     unsigned long cbReal, cbCalc;
 
-    cbReal = CbStatusFromPsh((SH2 far *)psd->hpbStatus);
+    cbReal = CbStatusFromPsh((SH2 *)psd->hpbStatus);
     cbCalc = CbHugeDiff(psd->hpbStatMac, psd->hpbStatus);
     if (cbReal == cbCalc)
     {
@@ -85,16 +64,16 @@ FVer2Block(
          * is in the right place and set up pointers.
          */
 
-        psd->psh2 = (SH2 far *)LpbFromHpb(hpbBlock);
+        psd->psh2 = (SH2 *)LpbFromHpb(hpbBlock);
         hpbBlock += sizeof(SH2);
 
-        psd->rgfi2 = (FI2 far *)LpbFromHpb(hpbBlock);
-        hpbBlock = (char huge *)((FI2 huge *)hpbBlock + psd->psh2->ifiMac);
+        psd->rgfi2 = (FI2 *)LpbFromHpb(hpbBlock);
+        hpbBlock = (char *)((FI2 *)hpbBlock + psd->psh2->ifiMac);
 
-        psd->rged2 = (ED2 far *)LpbFromHpb(hpbBlock);
-        hpbBlock = (char huge *)((ED2 huge *)hpbBlock + psd->psh2->iedMac);
+        psd->rged2 = (ED2 *)LpbFromHpb(hpbBlock);
+        hpbBlock = (char *)((ED2 *)hpbBlock + psd->psh2->iedMac);
 
-        psd->rgfs2 = (FS2 far *)LpbFromHpb(hpbBlock);
+        psd->rgfs2 = (FS2 *)LpbFromHpb(hpbBlock);
 
         return fTrue;
     }
@@ -120,8 +99,8 @@ F FVer2Block(pad, psd)
  * we may increment our pointers in units greater than bytes once we
  * have blocked something in the file.
  *
- * File is blocked using huge pointers.  Once blocking is done, we use
- * LpbFromHpb to normalize the pointers to far before storing them in the
+ * File is blocked using pointers.  Once blocking is done, we use
+ * LpbFromHpb to normalize the pointers to before storing them in the
  * sd.  This assumes that no single field of the status file (sh,rgfi,rged,
  * or rgfs) is greater than 64K, which is also assumed by SLM.
  *
@@ -131,21 +110,21 @@ F FVer2Block(pad, psd)
 AD *pad;
 SD *psd;
         {
-        char huge *hpbBlock = psd->hpbStatus;
+        char *hpbBlock = psd->hpbStatus;
         short fHaveSh2 = fTrue;         /* true if found the SH */
         short fHaveFi2 = fTrue;
         short fHaveEd2 = fTrue;
         IFI2 cfi2;
         IED2 ced2;
-        char huge *hpb;
+        char *hpb;
 
         if(fVerbose)
                 PrErr("Blocking status file\n");
 
         /* try to find SH at the start of the buffer */
-        psd->psh2 = (SH2 far *)LpbFromHpb(psd->hpbStatus);
+        psd->psh2 = (SH2 *)LpbFromHpb(psd->hpbStatus);
 
-        if (!FFromSp(SpIsSh2(pad, psd, (SH2 huge *)psd->hpbStatus)))
+        if (!FFromSp(SpIsSh2(pad, psd, (SH2 *)psd->hpbStatus)))
                 {
                 // psd->psh2 = NULL;
                 fHaveSh2 = fFalse;
@@ -156,22 +135,22 @@ SD *psd;
         /* try to find the FI */
         if (fHaveSh2)
                 {
-                psd->rgfi2 = (FI2 far *)LpbFromHpb(hpbBlock);
-                cfi2 = Cfi2Block(pad, psd, (FI2 huge *)hpbBlock);
-                hpbBlock = (char huge *)((FI2 huge *)hpbBlock + cfi2);
+                psd->rgfi2 = (FI2 *)LpbFromHpb(hpbBlock);
+                cfi2 = Cfi2Block(pad, psd, (FI2 *)hpbBlock);
+                hpbBlock = (char *)((FI2 *)hpbBlock + cfi2);
                 }
         else
                 {
                 /* start of status file missing or garbage, so search for FI
                  * at every possible place.
                  */
-                for (hpb = hpbBlock; hpb < psd->hpbStatMac && !FFromSp(SpIsFi2(pad, psd, (FI2 huge *)hpb, 4)); hpb++)
+                for (hpb = hpbBlock; hpb < psd->hpbStatMac && !FFromSp(SpIsFi2(pad, psd, (FI2 *)hpb, 4)); hpb++)
                         ;
                 if (hpb < psd->hpbStatMac)
                         {
-                        psd->rgfi2 = (FI2 far *)LpbFromHpb(hpb);
-                        cfi2 = Cfi2Block(pad, psd, (FI2 huge *)hpb);
-                        hpbBlock = (char huge *)((FI2 huge *)hpb + cfi2);
+                        psd->rgfi2 = (FI2 *)LpbFromHpb(hpb);
+                        cfi2 = Cfi2Block(pad, psd, (FI2 *)hpb);
+                        hpbBlock = (char *)((FI2 *)hpb + cfi2);
                         }
                 else
                         {
@@ -186,23 +165,23 @@ SD *psd;
         /* try to find ED */
         if (fHaveFi2)
                 {
-                psd->rged2 = (ED2 far *)LpbFromHpb(hpbBlock);
-                ced2 = Ced2Block(pad, psd, (ED2 huge *)hpbBlock);
-                hpbBlock = (char huge *)((ED2 huge *)hpbBlock + ced2);
+                psd->rged2 = (ED2 *)LpbFromHpb(hpbBlock);
+                ced2 = Ced2Block(pad, psd, (ED2 *)hpbBlock);
+                hpbBlock = (char *)((ED2 *)hpbBlock + ced2);
                 }
         else
                 {
                 for (hpb = hpbBlock; hpb < psd->hpbStatMac; hpb++)
                         {
                         CheckForBreak();
-                        if (FFromSp(SpIsEd2(psd, (ED2 huge *)hpb, 3)))
+                        if (FFromSp(SpIsEd2(psd, (ED2 *)hpb, 3)))
                                 break;
                         }
                 if (hpb != psd->hpbStatMac)
                         {
-                        psd->rged2 = (ED2 far *)LpbFromHpb(hpb);
-                        ced2 = Ced2Block(pad, psd, (ED2 huge *)hpb);
-                        hpbBlock = (char huge *)((ED2 huge *)hpb + ced2);
+                        psd->rged2 = (ED2 *)LpbFromHpb(hpb);
+                        ced2 = Ced2Block(pad, psd, (ED2 *)hpb);
+                        hpbBlock = (char *)((ED2 *)hpb + ced2);
                         }
                 else
                         {
@@ -212,7 +191,7 @@ SD *psd;
                 }
 
         /* rest should be FS */
-        psd->rgfs2 = (FS2 far *)LpbFromHpb(hpbBlock);
+        psd->rgfs2 = (FS2 *)LpbFromHpb(hpbBlock);
 
         return (fHaveSh2 && fHaveFi2 && fHaveEd2);
         }
@@ -225,10 +204,10 @@ private IFI2 Cfi2Block(pad, psd, pfi2Min)
  */
 AD *pad;
 SD *psd;
-FI2 huge *pfi2Min;
+FI2 *pfi2Min;
         {
-        FI2 huge *pfi2;
-        char huge *hpb = NULL;
+        FI2 *pfi2;
+        char *hpb = NULL;
         IFI2 ifi2;
         SP spT;                 /* for checking things */
 
@@ -236,19 +215,19 @@ FI2 huge *pfi2Min;
                 {
                 if(!FFromSp(SpIsFi2(pad, psd, pfi2, 2)))
                         {
-                        if (FFromSp(SpIsEd2(psd, (ED2 huge *)pfi2, 2)))
+                        if (FFromSp(SpIsEd2(psd, (ED2 *)pfi2, 2)))
                                 break;  /* done with FI */
 
                         /* problem: something not FI or ED.
                          * Must be a bad interval in the file.
                          */
-                        hpb = HpbVer2FindBlock(pad, psd, (char huge *)pfi2);
+                        hpb = HpbVer2FindBlock(pad, psd, (char *)pfi2);
                         /* check that have Fi and that it is aligned */
-                        if (FFromSp(SpIsFi2(pad, psd, (FI2 huge *)hpb, 2)))
+                        if (FFromSp(SpIsFi2(pad, psd, (FI2 *)hpb, 2)))
                                 break;
                         else
                                 {
-                                pfi2 = (FI2 huge *)hpb;
+                                pfi2 = (FI2 *)hpb;
                                 hpb = NULL;
                                 }
                         }
@@ -265,7 +244,7 @@ FI2 huge *pfi2Min;
                 return (IFI2)(long)(pfi2 - pfi2Min);
 
         /* if have ED, make sure really at end of rgfi */
-        else if (FFromSp(spT = (SpIsEd2(psd, (ED2 huge *)pfi2, 5))))
+        else if (FFromSp(spT = (SpIsEd2(psd, (ED2 *)pfi2, 5))))
                 {
                 if (spT == spDefYes ||
                     (IFI2)(pfi2 - pfi2Min) == (IFI2)(psd->psh2->ifiMac))
@@ -273,7 +252,7 @@ FI2 huge *pfi2Min;
                 else
                         {
                         /* possibility of mistake, double check */
-                        for (ifi2 = 0; ifi2 <= 8 && SpIsFi2(pad, psd, (FI2 huge *)pfi2 + ifi2, 3) != spDefYes; ifi2++)
+                        for (ifi2 = 0; ifi2 <= 8 && SpIsFi2(pad, psd, (FI2 *)pfi2 + ifi2, 3) != spDefYes; ifi2++)
                                 ;
                         if (ifi2 > 8)
                                 /* no mistake */
@@ -297,7 +276,7 @@ FI2 huge *pfi2Min;
                  * FI end where garbage begins.
                  */
                 AssertF(hpb && CbHugeDiff(hpb, pfi2) > 0);
-                if ((IFI2)(psd->psh2->ifiMac) < (IFI2)((FI2 huge *)hpb - pfi2Min) &&
+                if ((IFI2)(psd->psh2->ifiMac) < (IFI2)((FI2 *)hpb - pfi2Min) &&
                     (IFI2)(psd->psh2->ifiMac) > (IFI2)(pfi2 - pfi2Min))
                         /* ifiMac says end of FI in garbage */
                         return psd->psh2->ifiMac;
@@ -312,10 +291,10 @@ private IED2 Ced2Block(pad, psd, ped2Min)
  */
 AD *pad;
 SD *psd;
-ED2 huge *ped2Min;
+ED2 *ped2Min;
         {
-        ED2 huge *ped2;
-        char huge *hpb = NULL;
+        ED2 *ped2;
+        char *hpb = NULL;
         IED2 ied2;
         SP spT;                 /* for checking things */
 
@@ -323,18 +302,18 @@ ED2 huge *ped2Min;
                 {
                 if(!FFromSp(SpIsEd2(psd, ped2, 2)))
                         {
-                        if (FFromSp(SpIsFs2(psd, (FS2 huge *)ped2, 8)))
+                        if (FFromSp(SpIsFs2(psd, (FS2 *)ped2, 8)))
                                 break;  /* done with ED */
 
                         /* problem: something not ED or FS.
                          * Must be a bad interval in the file.
                          */
-                        hpb = HpbVer2FindBlock(pad, psd, (char huge *)ped2);
-                        if (!FFromSp(SpIsEd2(psd, (ED2 huge *)hpb, 2)))
+                        hpb = HpbVer2FindBlock(pad, psd, (char *)ped2);
+                        if (!FFromSp(SpIsEd2(psd, (ED2 *)hpb, 2)))
                                 break;
                         else
                                 {
-                                ped2 = (ED2 huge *)hpb;
+                                ped2 = (ED2 *)hpb;
                                 hpb = NULL;
                                 }
                         }
@@ -351,14 +330,14 @@ ED2 huge *ped2Min;
                 return (IED2)(long)(ped2 - ped2Min);
 
         /* if have FS, make sure really at end of rged */
-        else if (FFromSp(spT = (SpIsFs2(psd, (FS2 huge *)ped2, 8))))
+        else if (FFromSp(spT = (SpIsFs2(psd, (FS2 *)ped2, 8))))
                 {
                 if (spT == spDefYes || ped2 - ped2Min == (int)psd->psh2->iedMac)
                         return (IED2)(long)(ped2 - ped2Min);
                 else
                         {
                         /* possibility of mistake, double check */
-                        for (ied2 = 0; ied2 <= 8 && SpIsFs2(psd, (FS2 huge *)(ped2 + ied2), 8) != spDefYes; ied2++)
+                        for (ied2 = 0; ied2 <= 8 && SpIsFs2(psd, (FS2 *)(ped2 + ied2), 8) != spDefYes; ied2++)
                                 ;
                         if (ied2 > 8)
                                 /* no mistake */
@@ -380,7 +359,7 @@ ED2 huge *ped2Min;
                  * ED end where garbage begins.
                  */
                 AssertF(CbHugeDiff(hpb, ped2) > 0);
-                if ((int)psd->psh2->iedMac < (ED2 huge *)hpb - ped2Min &&
+                if ((int)psd->psh2->iedMac < (ED2 *)hpb - ped2Min &&
                     (int)psd->psh2->iedMac > ped2 - ped2Min)
                         /* iedMac says end of ED in garbage */
                         return (int)psd->psh2->iedMac;
@@ -390,7 +369,7 @@ ED2 huge *ped2Min;
         }
 
 
-private char huge *HpbVer2FindBlock(pad, psd, hpb)
+private char *HpbVer2FindBlock(pad, psd, hpb)
 /* This function goes over the status buffer until it encounters an FI2, ED2,
  * FS2, or the end of the buffer.  We assume that we are "aligned" with the
  * structures.  Thus we increment the index and check for structures if the
@@ -401,13 +380,13 @@ private char huge *HpbVer2FindBlock(pad, psd, hpb)
  */
 AD *pad;
 SD *psd;
-char huge *hpb;
+char *hpb;
         {
         long ib;         /* position in buffer */
         for(ib = 1, hpb++; CbHugeDiff(hpb, psd->hpbStatMac) < 0 &&
-              (ib % sizeof(FI2) || !FFromSp(SpIsFi2(pad, psd, (FI2 huge *)hpb, 2))) &&
-              (ib % sizeof(ED2) || !FFromSp(SpIsEd2(psd, (ED2 huge *)hpb, 2))) &&
-              (ib % sizeof(FS2) || !FFromSp(SpIsFs2(psd, (FS2 huge *)hpb, 9)))
+              (ib % sizeof(FI2) || !FFromSp(SpIsFi2(pad, psd, (FI2 *)hpb, 2))) &&
+              (ib % sizeof(ED2) || !FFromSp(SpIsEd2(psd, (ED2 *)hpb, 2))) &&
+              (ib % sizeof(FS2) || !FFromSp(SpIsFs2(psd, (FS2 *)hpb, 9)))
              ; ib++, hpb++)
                 ;
         return hpb;
@@ -421,12 +400,12 @@ private SP SpIsSh2(pad, psd, psh2)
  */
 AD *pad;
 SD *psd;
-SH2 huge *psh2;
+SH2 *psh2;
         {
         F fTrailZ;
         WP wp;
 
-        if (CbHugeDiff((char huge *)psh2 + sizeof(SH2), psd->hpbStatMac) > 0)
+        if (CbHugeDiff((char *)psh2 + sizeof(SH2), psd->hpbStatMac) > 0)
                 return spDefNo;
 
         InitWp(&wp);
@@ -434,18 +413,18 @@ SH2 huge *psh2;
         AddWpF(&wp, twCrucial, psh2->magic == MAGIC);
         AddWpF(&wp, twCrucial, psh2->version == 2);
 
-        fTrailZ = FAllZero(LpbFromHpb((char huge *)psh2->nmLocker), cchUserMax);
+        fTrailZ = FAllZero(LpbFromHpb((char *)psh2->nmLocker), cchUserMax);
         AddWpF(&wp, twMedium, fTrailZ || FIsNm(psh2->nmLocker, cchUserMax, &fTrailZ));
         AddWpF(&wp, fTrailZ ? twMedium : twLight, fTrailZ);
 
-        AddWpF(&wp, twMedium, FAllZero(LpbFromHpb((char huge *)psh2->rgwSpare), sizeof(psh2->rgwSpare)));
+        AddWpF(&wp, twMedium, FAllZero(LpbFromHpb((char *)psh2->rgwSpare), sizeof(psh2->rgwSpare)));
 
         /* check for FI immeadiately after SH */
         if (psh2->ifiMac > 1 && (int)psh2->iedMac > 1)
-                AddWpSp(&wp, twHeavy, SpIsFi2(pad, psd, (FI2 huge *)(psh2 + 1), 2));
+                AddWpSp(&wp, twHeavy, SpIsFi2(pad, psd, (FI2 *)(psh2 + 1), 2));
 
         /* pv.szName is often empty */
-        if (FAllZero(LpbFromHpb((char huge *)psh2->pv.szName), cchPvNameMax))
+        if (FAllZero(LpbFromHpb((char *)psh2->pv.szName), cchPvNameMax))
                 AddWpF(&wp, twMedium, fTrue);
 
         AddWpF(&wp, twHeavy, FIsF(psh2->fRelease));
@@ -459,7 +438,7 @@ SH2 huge *psh2;
         }
 
 
-private SP SpIsFi2(AD *pad, SD *psd, FI2 huge *pfi2, IFI2 cfiCheck)
+private SP SpIsFi2(AD *pad, SD *psd, FI2 *pfi2, IFI2 cfiCheck)
 /* checks if pfi2 points to a version 2 FI.  Part of the check involves
  * seeing if the next part of the buffer is either an FI2 xor an ED2.
  * The variable cfiCheck keeps track of the depth of the check so we don't
@@ -478,7 +457,7 @@ private SP SpIsFi2(AD *pad, SD *psd, FI2 huge *pfi2, IFI2 cfiCheck)
         InitWp(&wp);
 
         /* normalize so field accesses are guaranteed */
-        pfi2 = (FI2 huge *)LpbFromHpb((char huge *)pfi2);
+        pfi2 = (FI2 *)LpbFromHpb((char *)pfi2);
 
         if (CbHugeDiff(pfi2, psd->hpbStatus) < 0||
             CbHugeDiff(pfi2, psd->hpbStatMac - sizeof(FI2)) > 0)
@@ -518,7 +497,7 @@ private SP SpIsFi2(AD *pad, SD *psd, FI2 huge *pfi2, IFI2 cfiCheck)
         }
 
 
-private SP SpIsEd2(SD *psd, ED2 huge *ped2, IED2 cedCheck)
+private SP SpIsEd2(SD *psd, ED2 *ped2, IED2 cedCheck)
 /* This function checks if ped2 points to an ED2.  As in the case for the FI,
  * we see if the thing after it is also an ED2 xor an FS2, and we use
  * the static variable cedCheck to count the depth of our check.
@@ -532,7 +511,7 @@ private SP SpIsEd2(SD *psd, ED2 huge *ped2, IED2 cedCheck)
         InitWp(&wp);
 
         /* normalize so field accesses are guaranteed */
-        ped2 = (ED2 huge *)LpbFromHpb((char huge *)ped2);
+        ped2 = (ED2 *)LpbFromHpb((char *)ped2);
 
         if (CbHugeDiff(ped2, psd->hpbStatus) < 0 ||
             CbHugeDiff(ped2, psd->hpbStatMac-sizeof(ED2)) > 0)
@@ -554,7 +533,7 @@ private SP SpIsEd2(SD *psd, ED2 huge *ped2, IED2 cedCheck)
 
         while (cedCheck--)
                 {
-                if (!fHaveFs2 && CbHugeDiff((ED2 huge *)ped2+1, psd->hpbStatMac) < 0)
+                if (!fHaveFs2 && CbHugeDiff((ED2 *)ped2+1, psd->hpbStatMac) < 0)
                         {
                         if (!FFromSp(sp = SpIsEd2(psd, ped2, 0)))
                                 fHaveFs2 = fTrue;
@@ -564,19 +543,19 @@ private SP SpIsEd2(SD *psd, ED2 huge *ped2, IED2 cedCheck)
                                 AddWpSp(&wp, twMedium, sp);
                                 }
                         }
-                if (fHaveFs2 && CbHugeDiff((FS2 huge *)ped2+1, psd->hpbStatMac) < 0)
+                if (fHaveFs2 && CbHugeDiff((FS2 *)ped2+1, psd->hpbStatMac) < 0)
                         {
-                        ped2 = (ED2 huge *)((FS2 huge *)ped2 + 1);
-                        AddWpSp(&wp, twMedium, SpIsFs2(psd, (FS2 far *)(FS2 huge *)ped2, 0));
+                        ped2 = (ED2 *)((FS2 *)ped2 + 1);
+                        AddWpSp(&wp, twMedium, SpIsFs2(psd, (FS2 *)(FS2 *)ped2, 0));
                         }
                 }
         return SpFromWp(&wp);
         }
 
 
-private SP SpIsFs2(SD *psd, FS2 huge *pfs2, IFS2 cfsCheck)
+private SP SpIsFs2(SD *psd, FS2 *pfs2, IFS2 cfsCheck)
 /* This tests to see if pfs2 points to an FS2.  As before, cfsCheck is used
- * to see how far down the buffer we are going to check.  Here we see if
+ * to see how down the buffer we are going to check.  Here we see if
  * the thing after the assumed FS2 is another FS xor past the end of the
  * status buffer.
  */
@@ -588,7 +567,7 @@ private SP SpIsFs2(SD *psd, FS2 huge *pfs2, IFS2 cfsCheck)
 //      AssertF(cfsCheck >= 0); cfsCheck is unsigned
 
         /* normalize so field accesses are guaranteed */
-        pfs2 = (FS2 huge *)LpbFromHpb((char huge *)pfs2);
+        pfs2 = (FS2 *)LpbFromHpb((char *)pfs2);
 
         if (CbHugeDiff(pfs2, psd->hpbStatus) < 0 ||
             CbHugeDiff(pfs2, psd->hpbStatMac-sizeof(FS2)) > 0)

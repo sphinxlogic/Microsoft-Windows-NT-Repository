@@ -4,7 +4,7 @@ Copyright (c) 1993 Microsoft Corporation
 
 Module Name :
 
-    size.c
+    bufsize.c
 
 Abstract :
 
@@ -18,10 +18,12 @@ Author :
 Revision History :
 
   ---------------------------------------------------------------------*/
+
 #include "ndrp.h"
 #include "ndrole.h"
 
-PSIZE_ROUTINE   pfnSizeRoutines[] =
+const
+PSIZE_ROUTINE   SizeRoutinesTable[] =
                 {
                 NdrPointerBufferSize,
                 NdrPointerBufferSize,
@@ -65,11 +67,29 @@ PSIZE_ROUTINE   pfnSizeRoutines[] =
 
                 NdrInterfacePointerBufferSize,
 
-                NdrContextHandleSize
+                NdrContextHandleSize,
+
+                // New Post NT 3.5 token serviced from here on.
+
+                NdrHardStructBufferSize,
+
+                NdrXmitOrRepAsBufferSize,  // transmit as ptr
+                NdrXmitOrRepAsBufferSize,  // represent as ptr
+
+                NdrUserMarshalBufferSize
+
                 };
 
+const
+PSIZE_ROUTINE * pfnSizeRoutines = &SizeRoutinesTable[-FC_RP];
+
+
+#if defined( DOS ) && !defined( WIN )
+#pragma code_seg( "NDR20_7" )
+#endif
+
 void RPC_ENTRY
-NdrPointerBufferSize ( 
+NdrPointerBufferSize( 
     PMIDL_STUB_MESSAGE  pStubMsg,
     uchar *             pMemory,
     PFORMAT_STRING      pFormat )
@@ -77,7 +97,11 @@ NdrPointerBufferSize (
 
 Routine Description :
 
-    Computes the needed buffer size for a pointer to anything.
+    Computes the needed buffer size for a top level pointer to anything.
+    Pointers embedded in structures, arrays, or unions call 
+    NdrpPointerBufferSize directly.
+
+    Used for FC_RP, FC_UP, FC_FP, FC_OP.
 
 Arguments : 
 
@@ -106,8 +130,9 @@ Return :
                            pFormat );
 }
     
+
 void 
-NdrpPointerBufferSize ( 
+NdrpPointerBufferSize( 
     PMIDL_STUB_MESSAGE  pStubMsg,
     uchar *             pMemory,
     PFORMAT_STRING      pFormat )
@@ -116,7 +141,9 @@ NdrpPointerBufferSize (
 Routine Description :
 
     Private routine for sizing a pointer to anything.  This is the entry
-    point for sizing an embedded pointer.
+    point for pointers embedded in structures, arrays, or unions.
+
+    Used for FC_RP, FC_UP, FC_FP, FC_OP.
 
 Arguments : 
 
@@ -183,8 +210,9 @@ Return :
                                                  pFormat );
 }
 
+
 void RPC_ENTRY
-NdrSimpleStructBufferSize ( 
+NdrSimpleStructBufferSize( 
     PMIDL_STUB_MESSAGE  pStubMsg,
     uchar *             pMemory,
     PFORMAT_STRING      pFormat )
@@ -193,6 +221,8 @@ NdrSimpleStructBufferSize (
 Routine Description :
 
     Computes the buffer size needed for a simple structure.
+
+    Used for FC_STRUCT and FC_PSTRUCT.
 
 Arguments : 
 
@@ -222,8 +252,9 @@ Return :
         }
 }
 
+
 void RPC_ENTRY
-NdrConformantStructBufferSize ( 
+NdrConformantStructBufferSize( 
     PMIDL_STUB_MESSAGE  pStubMsg,
     uchar *             pMemory,
     PFORMAT_STRING      pFormat )
@@ -232,6 +263,8 @@ NdrConformantStructBufferSize (
 Routine Description :
 
     Computes the buffer size needed for a conformant structure.
+
+    Used for FC_CSTRUCT and FC_CPSTRUCT.
 
 Arguments : 
 
@@ -283,8 +316,9 @@ Return :
         }
 }
 
+
 void RPC_ENTRY
-NdrConformantVaryingStructBufferSize ( 
+NdrConformantVaryingStructBufferSize( 
     PMIDL_STUB_MESSAGE  pStubMsg,
     uchar *             pMemory,
     PFORMAT_STRING      pFormat )
@@ -293,6 +327,8 @@ NdrConformantVaryingStructBufferSize (
 Routine Description :
 
     Computes the buffer size needed for a conformant varying structure.
+
+    Used for FC_CVSTRUCT.
 
 Arguments : 
 
@@ -352,8 +388,53 @@ Return :
         }
 }
 
+
 void RPC_ENTRY
-NdrComplexStructBufferSize ( 
+NdrHardStructBufferSize( 
+    PMIDL_STUB_MESSAGE  pStubMsg,
+    uchar *             pMemory,
+    PFORMAT_STRING      pFormat )
+/*++
+
+Routine Description :
+
+    Computes the buffer size needed for a hard structure.
+
+    Used for FC_HARD_STRUCT.
+
+Arguments : 
+
+    pStubMsg    - Pointer to the stub message.
+    pMemory     - Pointer to the structure being sized.
+    pFormat     - Structure's format string description.
+
+Return :
+
+    None.
+
+--*/
+{
+    LENGTH_ALIGN(pStubMsg->BufferLength,pFormat[1]);
+
+    pStubMsg->BufferLength += *((ushort *)&pFormat[10]);
+
+    if ( *((short *)&pFormat[14]) )
+        {
+        pFormat += 12;
+
+        pMemory += *((ushort *)pFormat)++;
+
+        pFormat += *((short *)pFormat);
+
+        (*pfnSizeRoutines[ROUTINE_INDEX(*pFormat)])( pStubMsg,
+                                                     pMemory,
+                                                     pFormat );
+        }
+}
+
+
+void RPC_ENTRY
+NdrComplexStructBufferSize( 
     PMIDL_STUB_MESSAGE  pStubMsg,
     uchar *             pMemory,
     PFORMAT_STRING      pFormat )
@@ -362,6 +443,8 @@ NdrComplexStructBufferSize (
 Routine Description :
 
     Computes the buffer size needed for a complex structure.
+
+    Used for FC_BOGUS_STRUCT.
 
 Arguments : 
 
@@ -382,9 +465,9 @@ Return :
     long            Alignment;
     long            Align8Mod;
 
-    #if defined(__RPC_DOS__) || defined(__RPC_WIN16__)
-        long        Align4Mod;
-    #endif
+#if defined(__RPC_DOS__) || defined(__RPC_WIN16__)
+    long        Align4Mod;
+#endif
 
     pMemorySave = pStubMsg->Memory;
 
@@ -402,9 +485,9 @@ Return :
     //
     Align8Mod = (long) pMemory % 8;
 
-    #if defined(__RPC_DOS__) || defined(__RPC_WIN16__)
-        Align4Mod = (long) pMemory % 4;
-    #endif
+#if defined(__RPC_DOS__) || defined(__RPC_WIN16__)
+    Align4Mod = (long) pMemory % 4;
+#endif
 
     pFormat += 4;
 
@@ -526,19 +609,19 @@ Return :
                 break;
 
             case FC_ALIGNM4 :
-                #if defined(__RPC_DOS__) || defined(__RPC_WIN16__)
-                    //
-                    // We have to play some tricks for the dos and win16
-                    // to handle the case when an 4 byte aligned structure
-                    // is passed by value.  The alignment of the struct on
-                    // the stack is not guaranteed to be on an 4 byte boundary.
-                    //
-                    pMemory -= Align4Mod;
-                    ALIGN( pMemory, 0x3 );
-                    pMemory += Align4Mod;
-                #else
-                    ALIGN( pMemory, 0x3 );
-                #endif
+#if defined(__RPC_DOS__) || defined(__RPC_WIN16__)
+                //
+                // We have to play some tricks for the dos and win16
+                // to handle the case when an 4 byte aligned structure
+                // is passed by value.  The alignment of the struct on
+                // the stack is not guaranteed to be on an 4 byte boundary.
+                //
+                pMemory -= Align4Mod;
+                ALIGN( pMemory, 0x3 );
+                pMemory += Align4Mod;
+#else
+                ALIGN( pMemory, 0x3 );
+#endif
 
                 break;
 
@@ -579,7 +662,8 @@ Return :
 
             default :
                 NDR_ASSERT(0,"NdrComplexStructBufferSize : bad format char");
-
+                RpcRaiseException( RPC_S_INTERNAL_ERROR );
+                return;
             } // switch 
         } // for
 
@@ -638,6 +722,7 @@ BufferSizeConfArray:
     pStubMsg->Memory = pMemorySave;
 }
 
+
 void RPC_ENTRY
 NdrFixedArrayBufferSize( 
     PMIDL_STUB_MESSAGE  pStubMsg,
@@ -647,7 +732,10 @@ NdrFixedArrayBufferSize(
 
 Routine Description :
 
-    Computes the buffer size needed for a fixed array.
+    Computes the buffer size needed for a fixed array of any number of 
+    dimensions.
+
+    Used for FC_SMFARRAY and FC_LGFARRAY.
 
 Arguments : 
 
@@ -682,6 +770,7 @@ Return :
         }
 }
 
+
 void RPC_ENTRY
 NdrConformantArrayBufferSize( 
     PMIDL_STUB_MESSAGE  pStubMsg,
@@ -691,7 +780,10 @@ NdrConformantArrayBufferSize(
 
 Routine Description :
 
-    Computes the buffer size needed for a one dimensional conformant array.
+    Computes the buffer size needed for a top level one dimensional conformant 
+    array.
+
+    Used for FC_CARRAY.
 
 Arguments : 
 
@@ -717,6 +809,7 @@ Return :
                                    pFormat );
 }
 
+
 void 
 NdrpConformantArrayBufferSize( 
     PMIDL_STUB_MESSAGE  pStubMsg,
@@ -726,8 +819,11 @@ NdrpConformantArrayBufferSize(
 
 Routine Description :
 
-    Private routine for computing the buffer size needed for a one 
-    dimensional conformant array.
+    Private routine for computing the buffer size needed for a one dimensional 
+    conformant array.  This is the entry point for unmarshalling an embedded 
+    conformant array.
+
+    Used for FC_CARRAY.
 
 Arguments : 
 
@@ -770,6 +866,7 @@ Return :
         }
 }
 
+
 void RPC_ENTRY
 NdrConformantVaryingArrayBufferSize( 
     PMIDL_STUB_MESSAGE  pStubMsg,
@@ -779,8 +876,10 @@ NdrConformantVaryingArrayBufferSize(
 
 Routine Description :
 
-    Computes the buffer size needed for a one dimensional conformant 
+    Computes the buffer size needed for a top level one dimensional conformant
     varying array.
+
+    Used for FC_CVARRAY.
 
 Arguments : 
 
@@ -806,6 +905,7 @@ Return :
                                           pFormat );
 }
 
+
 void
 NdrpConformantVaryingArrayBufferSize( 
     PMIDL_STUB_MESSAGE  pStubMsg,
@@ -816,7 +916,10 @@ NdrpConformantVaryingArrayBufferSize(
 Routine Description :
 
     Private routine for computing the buffer size needed for a one dimensional 
-    conformant varying array.
+    conformant varying array. This is the entry point for buffer sizing an 
+    embedded conformant varying array.
+
+    Used for FC_CVARRAY.
 
 Arguments : 
 
@@ -884,8 +987,9 @@ Return :
         }
 }
 
+
 void RPC_ENTRY
-NdrVaryingArrayBufferSize ( 
+NdrVaryingArrayBufferSize( 
     PMIDL_STUB_MESSAGE  pStubMsg,
     uchar *             pMemory,
     PFORMAT_STRING      pFormat )
@@ -893,7 +997,10 @@ NdrVaryingArrayBufferSize (
 
 Routine Description :
 
-    Computes the buffer size needed for a one dimensional varying array.
+    Computes the buffer size needed for a top level or embedded one 
+    dimensional varying array.
+
+    Used for FC_SMVARRAY and FC_LGVARRAY.
 
 Arguments : 
 
@@ -972,8 +1079,9 @@ Arguments :
         }
 }
 
+
 void RPC_ENTRY
-NdrComplexArrayBufferSize ( 
+NdrComplexArrayBufferSize( 
     PMIDL_STUB_MESSAGE  pStubMsg,
     uchar *             pMemory,
     PFORMAT_STRING      pFormat )
@@ -981,7 +1089,9 @@ NdrComplexArrayBufferSize (
 
 Routine Description :
 
-    Determines the buffer size for a complex array.
+    Computes the buffer size needed for a top level complex array.
+
+    Used for FC_BOGUS_STRUCT.
 
 Arguments : 
 
@@ -1016,8 +1126,9 @@ Return :
                                 pFormat );
 }
 
+
 void 
-NdrpComplexArrayBufferSize ( 
+NdrpComplexArrayBufferSize( 
     PMIDL_STUB_MESSAGE  pStubMsg,
     uchar *             pMemory,
     PFORMAT_STRING      pFormat )
@@ -1025,7 +1136,8 @@ NdrpComplexArrayBufferSize (
 
 Routine Description :
 
-    Private routine for determining the buffer size for a complex array.
+    Private routine for determing the buffer size of a complex array.  This 
+    is the entry point for buffer sizing an embedded complex array.
 
 Arguments : 
 
@@ -1162,7 +1274,7 @@ Return :
             if ( pStubMsg->IgnoreEmbeddedPointers ) 
                 goto ComplexArrayBufSizeEnd;
                 
-            pfnSize = NdrPointerBufferSize;
+            pfnSize = (PSIZE_ROUTINE) NdrpPointerBufferSize;
 
             // Need this in case we have a variant offset.
             MemoryElementSize = PTR_MEM_SIZE;
@@ -1189,23 +1301,33 @@ Return :
 
     //
     // If there is variance then increment the memory pointer to the first
-    // element actually being marshalled.
+    // element actually being sized.
     //
     if ( Offset )
         pMemory += Offset * MemoryElementSize;
 
-    if ( (pfnSize == NdrPointerBufferSize) || 
+    if ( (pfnSize == (PSIZE_ROUTINE) NdrpPointerBufferSize) || 
          (pfnSize == NdrInterfacePointerBufferSize) )
         {
         pStubMsg->pArrayInfo = 0;
 
-        for ( ; Count--; )
+        if ( pfnSize == (PSIZE_ROUTINE) NdrpPointerBufferSize )
             {
-            (*pfnSize)( pStubMsg,
-                        *((uchar **)pMemory),
-                        pFormat );
-
-            pMemory += PTR_MEM_SIZE;
+            for ( ; Count--; )
+                {
+                NdrpPointerBufferSize( pStubMsg,
+                                       *((uchar **)pMemory)++,
+                                       pFormat );
+                }
+            }
+        else
+            {
+            for ( ; Count--; )
+                {
+                NdrInterfacePointerBufferSize( pStubMsg,
+                                               *((uchar **)pMemory)++,
+                                               pFormat );
+                }
             }
 
         goto ComplexArrayBufSizeEnd;
@@ -1216,7 +1338,7 @@ Return :
     //
 
     if ( ! IS_ARRAY_OR_STRING(*pFormat) )
-        pArrayInfo->Dimension = 0;
+        pStubMsg->pArrayInfo = 0;
 
     for ( ; Count--; )
         {
@@ -1237,8 +1359,9 @@ ComplexArrayBufSizeEnd:
     pStubMsg->pArrayInfo = (Dimension == 0) ? 0 : pArrayInfo;
 }
 
+
 void RPC_ENTRY
-NdrConformantStringBufferSize ( 
+NdrNonConformantStringBufferSize( 
     PMIDL_STUB_MESSAGE  pStubMsg,
     uchar *             pMemory,
     PFORMAT_STRING      pFormat )
@@ -1246,7 +1369,87 @@ NdrConformantStringBufferSize (
 
 Routine Description :
 
-    Computes the buffer size needed for a conformant string.
+    Computes the buffer size needed for a non conformant string.
+
+    Used for FC_CSTRING, FC_WSTRING, FC_SSTRING, and FC_BSTRING (NT Beta2
+    compatability only).
+
+Arguments : 
+
+    pStubMsg    - Pointer to the stub message.
+    pMemory     - Pointer to the array being sized.
+    pFormat     - Array's format string description.
+
+Return :
+
+    None.
+
+--*/
+{
+    long    MaxSize;
+    long    Length;
+
+    // Align and add size for variance counts.
+    LENGTH_ALIGN(pStubMsg->BufferLength,0x3);
+
+    pStubMsg->BufferLength += 8;
+
+    switch ( *pFormat )
+        {
+        case FC_CSTRING : 
+        case FC_BSTRING : 
+            Length = MIDL_ascii_strlen(pMemory) + 1;
+            break;
+        case FC_WSTRING : 
+            Length = (MIDL_wchar_strlen((wchar_t *)pMemory) + 1) * 2;
+            break;
+        case FC_SSTRING : 
+            Length = NdrpStringStructLen( pMemory, pFormat[1] ) + 1;
+            Length *= pFormat[1];
+            break;
+        default :
+            NDR_ASSERT(0,"NdrNonConformantStringBufferSize : Bad format type");
+            RpcRaiseException( RPC_S_INTERNAL_ERROR );
+            return;
+        }
+
+    if ( pStubMsg->fCheckBounds )
+        {
+        MaxSize = *((ushort *)(pFormat + 2));
+
+        switch ( *pFormat ) 
+            {
+            case FC_WSTRING : 
+                MaxSize *= 2;
+                break;
+            case FC_SSTRING : 
+                MaxSize *= pFormat[1];
+                break;
+            default :
+                break;
+            }
+
+        if ( Length > MaxSize )
+            RpcRaiseException(RPC_X_INVALID_BOUND);
+        }
+
+    pStubMsg->BufferLength += Length;
+}
+
+
+void RPC_ENTRY
+NdrConformantStringBufferSize( 
+    PMIDL_STUB_MESSAGE  pStubMsg,
+    uchar *             pMemory,
+    PFORMAT_STRING      pFormat )
+/*++
+
+Routine Description :
+
+    Computes the buffer size needed for a top level conformant string.
+
+    Used for FC_C_CSTRING, FC_C_WSTRING, FC_C_SSTRING, and FC_C_BSTRING 
+    (NT Beta2 compatability only).
 
 Arguments : 
 
@@ -1277,8 +1480,9 @@ Return :
                                     pFormat );
 }
 
+
 void 
-NdrpConformantStringBufferSize (
+NdrpConformantStringBufferSize(
     PMIDL_STUB_MESSAGE  pStubMsg,
     uchar *             pMemory,
     PFORMAT_STRING      pFormat )
@@ -1288,6 +1492,9 @@ Routine Description :
 
     Private routine for computing the buffer size needed for a conformant 
     string.  This is the entry point for an embedded conformant string.
+
+    Used for FC_C_CSTRING, FC_C_WSTRING, FC_C_SSTRING, and FC_C_BSTRING
+    (NT Beta2 compatability only).
 
 Arguments : 
 
@@ -1316,12 +1523,16 @@ Return :
             Length = MIDL_ascii_strlen(pMemory) + 1;
             break;
         case FC_C_WSTRING : 
-            Length = (NdrWideStrlen((wchar_t *)pMemory) + 1) * 2;
+            Length = (MIDL_wchar_strlen((wchar_t *)pMemory) + 1) * 2;
             break;
         case FC_C_SSTRING : 
             Length = NdrpStringStructLen( pMemory, pFormat[1] ) + 1;
             Length *= pFormat[1];
             break;
+        default :
+            NDR_ASSERT(0,"NdrpConformantStringBufferSize : Bad format type");
+            RpcRaiseException( RPC_S_INTERNAL_ERROR );
+            return;
         }
 
     //
@@ -1356,8 +1567,9 @@ Return :
     pStubMsg->BufferLength += Length;
 }
 
+
 void RPC_ENTRY
-NdrNonConformantStringBufferSize ( 
+NdrEncapsulatedUnionBufferSize( 
     PMIDL_STUB_MESSAGE  pStubMsg,
     uchar *             pMemory,
     PFORMAT_STRING      pFormat )
@@ -1365,76 +1577,9 @@ NdrNonConformantStringBufferSize (
 
 Routine Description :
 
-    Computes the buffer size needed for a non conformant string.
+    Computes the buffer size needed for an encapsulated union.
 
-Arguments : 
-
-    pStubMsg    - Pointer to the stub message.
-    pMemory     - Pointer to the array being sized.
-    pFormat     - Array's format string description.
-
-Return :
-
-    None.
-
---*/
-{
-    long    MaxSize;
-    long    Length;
-
-    // Align and add size for variance counts.
-    LENGTH_ALIGN(pStubMsg->BufferLength,0x3);
-
-    pStubMsg->BufferLength += 8;
-
-    switch ( *pFormat )
-        {
-        case FC_CSTRING : 
-        case FC_BSTRING : 
-            Length = MIDL_ascii_strlen(pMemory) + 1;
-            break;
-        case FC_WSTRING : 
-            Length = (NdrWideStrlen((wchar_t *)pMemory) + 1) * 2;
-            break;
-        case FC_SSTRING : 
-            Length = NdrpStringStructLen( pMemory, pFormat[1] ) + 1;
-            Length *= pFormat[1];
-            break;
-        }
-
-    if ( pStubMsg->fCheckBounds )
-        {
-        MaxSize = *((ushort *)(pFormat + 2));
-
-        switch ( *pFormat ) 
-            {
-            case FC_WSTRING : 
-                MaxSize *= 2;
-                break;
-            case FC_SSTRING : 
-                MaxSize *= pFormat[1];
-                break;
-            default :
-                break;
-            }
-
-        if ( Length > MaxSize )
-            RpcRaiseException(RPC_X_INVALID_BOUND);
-        }
-
-    pStubMsg->BufferLength += Length;
-}
-
-void RPC_ENTRY
-NdrEncapsulatedUnionBufferSize ( 
-    PMIDL_STUB_MESSAGE  pStubMsg,
-    uchar *             pMemory,
-    PFORMAT_STRING      pFormat )
-/*++
-
-Routine Description :
-
-    Determines the buffer size needed for an encapsulated union.
+    Used for FC_ENCAPSULATED_UNION.
 
 Arguments : 
 
@@ -1455,28 +1600,38 @@ Return :
 
     switch ( SwitchType )
         {
-        case FC_BYTE :
-        case FC_CHAR :
         case FC_SMALL :
+        case FC_CHAR :
             SwitchIs = (long) *((char *)pMemory);
             break;
         case FC_USMALL :
             SwitchIs = (long) *((uchar *)pMemory);
             break;
-        case FC_SHORT :
+
         case FC_ENUM16 :
+            #if defined(__RPC_MAC__)
+                SwitchIs = (long) *((short *)(pMemory+2));
+                break;
+            #endif
+            // non-Mac: fall to short
+
+        case FC_SHORT :
             SwitchIs = (long) *((short *)pMemory);
             break;
-        case FC_WCHAR :
+
         case FC_USHORT :
+        case FC_WCHAR :
             SwitchIs = (long) *((ushort *)pMemory);
             break;
         case FC_LONG :
+        case FC_ULONG :
         case FC_ENUM32 :
             SwitchIs = *((long *)pMemory);
             break;
         default :
             NDR_ASSERT(0,"NdrEncapsulatedBufferSize : bad switch type");
+            RpcRaiseException( RPC_S_INTERNAL_ERROR );
+            return;
         }
 
     // Increment memory pointer to the union.
@@ -1489,8 +1644,9 @@ Return :
                          SwitchType );
 }
 
+
 void RPC_ENTRY
-NdrNonEncapsulatedUnionBufferSize ( 
+NdrNonEncapsulatedUnionBufferSize( 
     PMIDL_STUB_MESSAGE  pStubMsg,
     uchar *             pMemory,
     PFORMAT_STRING      pFormat )
@@ -1498,7 +1654,9 @@ NdrNonEncapsulatedUnionBufferSize (
 
 Routine Description :
 
-    Determines the buffer size needed for a non encapsulated union.
+    Computes the buffer size needed for a non encapsulated union.
+
+    Used for FC_NON_ENCAPSULATED_UNION.
 
 Arguments : 
 
@@ -1534,8 +1692,9 @@ Return :
                          SwitchType );
 }
 
+
 void 
-NdrpUnionBufferSize ( 
+NdrpUnionBufferSize( 
     PMIDL_STUB_MESSAGE  pStubMsg,
     uchar *             pMemory,
     PFORMAT_STRING      pFormat,
@@ -1546,7 +1705,7 @@ NdrpUnionBufferSize (
 Routine Description :
 
     Private routine for computing the buffer size needed for a union.  This
-    routine is used for sizing both types of unions.
+    routine is used for sizing both encapsulated and non-encapsulated unions.
 
 Arguments : 
 
@@ -1622,17 +1781,26 @@ Return :
     // We need a real solution after beta for simple type arms.  This could
     // break if we have a format string larger than about 32K.
     //
-    if ( pFormat[1] != MAGIC_UNION_BYTE )
-        pFormat += *((signed short *)pFormat);
-    else
+    if ( IS_MAGIC_UNION_BYTE(pFormat) )
         {
         // Re-align again, only does something usefull for DCE unions.
-        LENGTH_ALIGN(pStubMsg->BufferLength,SIMPLE_TYPE_ALIGNMENT(*pFormat));
 
-        pStubMsg->BufferLength += SIMPLE_TYPE_BUFSIZE(*pFormat);
+        unsigned char FcType;
+
+        #if defined(__RPC_MAC__)
+            FcType = pFormat[1];
+        #else
+            FcType = pFormat[0];
+        #endif
+
+        LENGTH_ALIGN( pStubMsg->BufferLength, SIMPLE_TYPE_ALIGNMENT( FcType ));
+
+        pStubMsg->BufferLength += SIMPLE_TYPE_BUFSIZE( FcType );
 
         return;
         }
+
+    pFormat += *((signed short *)pFormat);
 
     //
     // If the union arm we take is a pointer, we have to dereference the
@@ -1663,8 +1831,9 @@ Return :
                                                  pFormat );
 }
 
+
 void RPC_ENTRY
-NdrByteCountPointerBufferSize ( 
+NdrByteCountPointerBufferSize( 
     PMIDL_STUB_MESSAGE  pStubMsg,
     uchar *             pMemory,
     PFORMAT_STRING      pFormat )
@@ -1705,12 +1874,15 @@ Return :
         }
 }
 
+
+// This has been introduced because of C compiler problems.
+
 #if defined(__RPC_DOS__) || defined(__RPC_WIN16__)
 #pragma optimize( "", off )
 #endif 
 
 void RPC_ENTRY
-NdrXmitOrRepAsBufferSize ( 
+NdrXmitOrRepAsBufferSize( 
     PMIDL_STUB_MESSAGE  pStubMsg,
     uchar *             pMemory,
     PFORMAT_STRING      pFormat ) 
@@ -1736,8 +1908,10 @@ Return :
 {
     const XMIT_ROUTINE_QUINTUPLE * pQuintuple;
     unsigned short                 QIndex, XmitTypeSize;
+    BOOL                           fXmitByPtr = *pFormat == FC_TRANSMIT_AS_PTR ||
+                                                *pFormat == FC_REPRESENT_AS_PTR;
 
-    // Skip the token itself and Oi flag. Fetch the QuintupleIndex.
+    // Fetch the QuintupleIndex.
 
     QIndex = *(unsigned short *)(pFormat + 2);
 
@@ -1776,9 +1950,15 @@ Return :
         pFormat = pFormat + *(short *)pFormat;
     
         pTransmittedType = pStubMsg->pTransmitType;
-        (*pfnSizeRoutines[ ROUTINE_INDEX(*pFormat) ])( pStubMsg,
-                                                       pTransmittedType,
-                                                       pFormat );
+
+        // If transmitted type is a pointer, dereference it.
+
+        (*pfnSizeRoutines[ ROUTINE_INDEX(*pFormat) ])
+            ( pStubMsg,
+              fXmitByPtr ? *(uchar **)pTransmittedType
+                         : pTransmittedType,
+              pFormat );
+
         pStubMsg->pTransmitType = pTransmittedType;
     
         // Free the temporary transmitted object (it was alloc'ed by the user).
@@ -1791,6 +1971,102 @@ Return :
 #pragma optimize( "", on )
 #endif 
 
+void RPC_ENTRY
+NdrUserMarshalBufferSize( 
+    PMIDL_STUB_MESSAGE  pStubMsg,
+    uchar *             pMemory,
+    PFORMAT_STRING      pFormat ) 
+/*++
+
+Routine Description :
+
+    Computes the buffer size needed for a usr_marshall object.
+    See mrshl.c for the description of the FC layout and wire layout.
+
+Arguments : 
+
+    pStubMsg    - Pointer to the stub message.
+    pMemory     - Pointer to the usr_marshall object to buffer size.
+    pFormat     - Object's format string description.
+
+Return :
+
+    None.
+
+--*/
+{
+    const USER_MARSHAL_ROUTINE_QUADRUPLE *  pQuadruple;
+    unsigned short                          QIndex;
+    unsigned long                           UserOffset;
+    USER_MARSHAL_CB                         UserMarshalCB;
+
+    // Align for the flat object or a pointer to the user object.
+
+    LENGTH_ALIGN( pStubMsg->BufferLength, LOW_NIBBLE(pFormat[1]) );
+
+    // Check if the object is embedded.
+    // Pointer buffer mark is set only when in a complex struct or array.
+    // For unions, when the union is embedded in a complex struct or array.
+    // If the union is top level, it's the same like a top level object.
+
+    // For unique pointers we don't have to check embedding, we always add 4.
+    // For ref pointer we need to check embedding.
+
+    if ( pFormat[1] & USER_MARSHAL_POINTER )
+        {
+        if ( (pFormat[1] & USER_MARSHAL_UNIQUE)  ||
+             ((pFormat[1] & USER_MARSHAL_REF) && pStubMsg->PointerBufferMark) )
+            {
+            pStubMsg->BufferLength += 4;
+            }
+
+        // Ignore flag is off when called to do a regular buffer sizing.
+        // Ignore flag is on when called from within complex struct or array
+        // while marshalling to calculate the end of the complex struct.
+
+        if ( pStubMsg->IgnoreEmbeddedPointers )
+            return;
+
+        // For pointers we always call the user to size his stuff,
+        // Even if the unique pointer is null (he then may add nothing).
+
+        pStubMsg->BufferLength += 8;
+        }
+
+    // We are here to size a flat object or a pointee object.
+    // Optimization: if we know the wire size, don't call the user to size it.
+
+    if ( *(unsigned short *)(pFormat + 6) != 0 )
+        {
+        pStubMsg->BufferLength += *(unsigned short *)(pFormat + 6);
+        return;
+        }
+
+    // Unknown wire size: Call the user to size his stuff.
+
+    UserMarshalCB.Flags    = USER_CALL_CTXT_MASK( pStubMsg->dwDestContext );
+    UserMarshalCB.pStubMsg = pStubMsg;
+    if ( pFormat[1] & USER_MARSHAL_IID )
+        {
+        UserMarshalCB.pReserve = pFormat + 10;
+        }
+    else
+        {
+        UserMarshalCB.pReserve = 0;
+        }
+
+    UserOffset = pStubMsg->BufferLength;
+
+    QIndex = *(unsigned short *)(pFormat + 2);
+    pQuadruple = pStubMsg->StubDesc->aUserMarshalQuadruple;
+
+    UserOffset = pQuadruple[ QIndex ].pfnBufferSize( (ulong*) &UserMarshalCB,
+                                                     UserOffset,
+                                                     pMemory );
+    pStubMsg->BufferLength = UserOffset;
+}
+
+
 void RPC_ENTRY
 NdrInterfacePointerBufferSize ( 
     PMIDL_STUB_MESSAGE  pStubMsg,
@@ -1814,15 +2090,17 @@ Return :
 
 --*/
 {
-#if defined(__RPC_DOS__) || defined(__RPC_WIN16__)
+#if !defined( NDR_OLE_SUPPORT )
+
     NDR_ASSERT(0, "Unimplemented");
+
 #else //NT or Chicago
+
     IID iid;
     IID *piid;
     unsigned long size = 0;
     HRESULT hr;
 
-    //Align the buffer on an 4 byte boundary.
     LENGTH_ALIGN(pStubMsg->BufferLength,0x3);
     pStubMsg->BufferLength += (sizeof(void *));
 
@@ -1833,46 +2111,43 @@ Return :
     if ( pStubMsg->IgnoreEmbeddedPointers ) 
         return;
 
+    // If the pointer is null, we counted everything.
+
+    if ( pMemory == 0 )
+        return;
+
     //
     // Get an IID pointer.
     //
     if ( pFormat[1] != FC_CONSTANT_IID )
         {
         //
-        // Here's how to get the iid pointer if iid_is was applied to this 
-        // interface pointer.  It's magic.
+        // We do it same way as we compute variance with a long.
         //
         piid = (IID *) NdrpComputeIIDPointer( pStubMsg,
                                                pMemory,
                                                pFormat );
 
         if(piid == 0)
-            {
-            piid = &iid;
-            RpcpMemoryCopy( &iid, &IID_IUnknown, sizeof(iid) );
-            }
-
-        //Allocate space for the IID.
-        pStubMsg->BufferLength += sizeof(IID);
+            RpcRaiseException( RPC_S_INVALID_ARG );
         }
     else
         {
         // 
-        // The IID starts at pFormat[2] and is placed in the format string in 
-        // a format identical to the IID structure : long, short, short, 
-        // char[8].  
+        // The IID may not be aligned properly in the format string,
+        // so we copy it to a local variable.
         //
 
         piid = &iid;
         RpcpMemoryCopy( &iid, &pFormat[2], sizeof(iid) );
         }
 
-    //Allocate space for the length and array bounds.
+    // Allocate space for the length and array bounds.
+
     pStubMsg->BufferLength += sizeof(unsigned long) + sizeof(unsigned long);
 
     if(pMemory)
         {
-        EnsureOleLoaded();        
         hr = (*pfnCoGetMarshalSizeMax)(&size, piid, (IUnknown *)pMemory, pStubMsg->dwDestContext, pStubMsg->pvDestContext, 0);
         if(FAILED(hr))
             {
@@ -1885,6 +2160,7 @@ Return :
 #endif //NT or Chicago
 }
 
+
 void 
 NdrpEmbeddedPointerBufferSize ( 
     PMIDL_STUB_MESSAGE  pStubMsg,
@@ -1969,6 +2245,7 @@ Return :
         }
 }
 
+
 void 
 NdrpEmbeddedRepeatPointerBufferSize ( 
     PMIDL_STUB_MESSAGE  pStubMsg,
@@ -2037,6 +2314,8 @@ Return :
 
         default :
             NDR_ASSERT(0,"NdrpEmbeddedRepeatPointerMarshall : bad format char");
+            RpcRaiseException( RPC_S_INTERNAL_ERROR );
+            return;
         }
 
     // Get the increment amount between successive pointers.
@@ -2091,7 +2370,7 @@ Return :
     pStubMsg->Memory = pMemorySave;
 }
 
-
+
 void RPC_ENTRY
 NdrContextHandleSize(
     PMIDL_STUB_MESSAGE     pStubMsg,
@@ -2118,3 +2397,5 @@ Return :
     LENGTH_ALIGN(pStubMsg->BufferLength,0x3);
     pStubMsg->BufferLength += 20;
 }
+
+

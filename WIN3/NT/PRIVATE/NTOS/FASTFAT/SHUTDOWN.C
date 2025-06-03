@@ -239,7 +239,7 @@ Return Value:
                                                           FALSE,
                                                           NULL );
 
-                            (VOID) KeResetEvent( Event );
+                            KeClearEvent( Event );
                         }
                     }
                 }

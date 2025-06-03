@@ -40,10 +40,6 @@ ULONG NbDebug = 0;
 ULONG ThisCodeCantBePaged;
 #endif
 
-extern
-POBJECT_TYPE
-*IoFileObjectType;
-
 PEPROCESS NbFspProcess = NULL;
 
 NTSTATUS
@@ -249,7 +245,7 @@ Return Value:
                 //  set ReceiveIndicated.
                 //
 
-                ppcb = FindCb( pdncb->pfcb, pdncb );
+                ppcb = FindCb( pdncb->pfcb, pdncb, FALSE );
 
                 if ( ppcb != NULL ) {
 
@@ -297,7 +293,7 @@ Return Value:
 
         LOCK_SPINLOCK( pdncb->pfcb, OldIrql );
 
-        ppcb = FindCb( pdncb->pfcb, pdncb );
+        ppcb = FindCb( pdncb->pfcb, pdncb, FALSE );
 
         //
         //  If the connection block still exists remove the send. If the connection
@@ -1030,6 +1026,27 @@ Return Value:
             ((PTDI_REQUEST_KERNEL_QUERY_INFORMATION)&NewIrpSp->Parameters)
                 ->RequestConnectionInformation = &RequestInformation;
 
+        } else {
+
+            //
+            //  Avoid situation where adapter has more names added than the process and
+            //  then extra names get added to the end of the buffer.
+            //
+
+            //
+            //  Map the users buffer now so that the whole buffer is mapped (not
+            //  just sizeof ADAPTER_STATUS).
+            //
+
+            if (Irp->MdlAddress) {
+                MmGetSystemAddressForMdl (Irp->MdlAddress);
+            } else {
+
+                ASSERT(FALSE);
+            }
+
+            Irp->MdlAddress->ByteCount = sizeof(ADAPTER_STATUS);
+
         }
 
         IoCallDriver (DeviceObject, Irp);
@@ -1039,6 +1056,15 @@ Return Value:
                 KernelMode,
                 TRUE,
                 NULL);
+
+        //
+        //  Restore length now that the transport has filled in no more than
+        //  is required of it.
+        //
+
+        if (Irp->MdlAddress) {
+            Irp->MdlAddress->ByteCount = Buffer2Length;
+        }
 
         NbAddressClose( TdiHandle, TdiObject );
 
@@ -1158,6 +1184,7 @@ Return Value:
         UNLOCK( pfcb, OldIrql );
         return;
     }
+
     //
     //  Map the users buffer so we can poke around inside
     //
@@ -1588,8 +1615,7 @@ Return Value:
     pab = *(pcb->ppab);
 
     if (( pdncb->ncb_name[0] == '*') ||
-        (RtlCompareMemory( &pab->Name, pdncb->ncb_name, NCBNAMSZ) ==
-             NCBNAMSZ)) {
+        (RtlEqualMemory( &pab->Name, pdncb->ncb_name, NCBNAMSZ))) {
 
         pSessionHeader->num_sess++;
 
@@ -1844,7 +1870,7 @@ Return Value:
         //  Use handle associated with this connection
         PPCB ppcb;
 
-        ppcb = FindCb( pfcb, pdncb);
+        ppcb = FindCb( pfcb, pdncb, FALSE);
 
         if ( ppcb == NULL ) {
             //  FindCb has put the error in the NCB
@@ -2079,7 +2105,7 @@ Return Value:
                 if ( target->ncb_cmd_cplt != NRC_PENDING ) {
                     NCB_COMPLETE( pdncb, NRC_CANOCCR );
                 } else {
-                        PPCB ppcb = FindCb( pfcb, target );
+                        PPCB ppcb = FindCb( pfcb, target, FALSE );
                         if (( ppcb != NULL ) &&
                             ((*ppcb)->Status == HANGUP_PENDING )) {
                             PDNCB pdncbHangup;
@@ -2311,7 +2337,7 @@ Return Value:
                     NCB_COMPLETE( pdncb, NRC_CANOCCR );
                 } else {
                     PPCB ppcb;
-                    ppcb = FindCb( pfcb, target);
+                    ppcb = FindCb( pfcb, target, FALSE);
                     if ( ppcb == NULL ) {
                         //  No such connection
                         NCB_COMPLETE( pdncb, NRC_CANOCCR );
@@ -2590,11 +2616,7 @@ Return Value:
     //  the fcb will not get deleted while we try to lock the fcb.
     //
     FileObject = (IoGetCurrentIrpStackLocation (Irp))->FileObject;
-    ObReferenceObjectByPointer(FileObject,
-                        FILE_ALL_ACCESS,
-                        *IoFileObjectType,
-                        KernelMode);
-
+    ObReferenceObject(FileObject);
     IoReleaseCancelSpinLock( Irp->CancelIrql );
 
     LOCK( pfcb, OldIrql );
@@ -2606,7 +2628,7 @@ Return Value:
     switch ( LocalCopy.ncb_command & ~ASYNCH ) {
     case NCBRECV:
 
-        ppcb = FindCb( pfcb, &LocalCopy);
+        ppcb = FindCb( pfcb, &LocalCopy, TRUE);
         if ( ppcb != NULL ) {
             List = &(*ppcb)->ReceiveList;
         }

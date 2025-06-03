@@ -240,20 +240,20 @@ BOOLEAN X86disasm (PADDR paddr, PUCHAR pchDst, BOOLEAN fEAout)
                 if (*action & 1) {
                     if (fEAout) {
                         if (mode_32)
-                            FormAddress(&EAaddr[0], 0, X86GetRegValue(REGESI));
+                            FormAddress(&EAaddr[0], 0, (ULONG)X86GetRegValue(REGESI));
                         else
-                            FormAddress(&EAaddr[0], X86GetRegValue(REGDS),
-                                                    X86GetRegValue(REGSI));
+                            FormAddress(&EAaddr[0], (ULONG)X86GetRegValue(REGDS),
+                                                    (ULONG)X86GetRegValue(REGSI));
                         EAsize[0] = indx;
                         }
                     }
                 if (*action++ & 2) {
                     if (fEAout) {
                         if (mode_32)
-                            FormAddress(&EAaddr[1], 0, X86GetRegValue(REGEDI));
+                            FormAddress(&EAaddr[1], 0, (ULONG)X86GetRegValue(REGEDI));
                         else
-                            FormAddress(&EAaddr[1], X86GetRegValue(REGES),
-                                                    X86GetRegValue(REGDI));
+                            FormAddress(&EAaddr[1], (ULONG)X86GetRegValue(REGES),
+                                                    (ULONG)X86GetRegValue(REGDI));
                         EAsize[1] = indx;
                         }
                     }
@@ -264,9 +264,9 @@ BOOLEAN X86disasm (PADDR paddr, PUCHAR pchDst, BOOLEAN fEAout)
                 break;
 
             case CREG:                  /* set debug, test or control reg */
-                if ((opcode - 231) & 0x04)      //  remove bias from opcode
+                if ((opcode - SECTAB_OFFSET_2)&0x04) //remove bias from opcode
                     *pchOperandBuf++ = 't';
-                else if ((opcode - 231) & 0x01)
+                else if ((opcode - SECTAB_OFFSET_2) & 0x01)
                     *pchOperandBuf++ = 'd';
                 else
                     *pchOperandBuf++ = 'c';
@@ -275,9 +275,10 @@ BOOLEAN X86disasm (PADDR paddr, PUCHAR pchDst, BOOLEAN fEAout)
                 break;
 
             case SREG2:                 /* segment register */
-                // Handle special case for fs/gs (OPC0F adds 148 to these codes)
+                // Handle special case for fs/gs (OPC0F adds SECTAB_OFFSET_5
+                // to these codes)
                 if (opcode > 0x7e)
-                    ttt = BIT53((opcode-148));
+                    ttt = BIT53((opcode-SECTAB_OFFSET_5));
                 else
                 ttt = BIT53(opcode);    //  set value to fall through
 
@@ -465,7 +466,7 @@ DoImmed:
             case EGROUPT:               /* x87 ESC (D8-DF) group index */
                 indx = BIT20(opcode) * 2; /* get group index from opcode */
                 if (mod == 3) {         /* some operand variations exists */
-                                        /*   for x87 and mod == 3 */
+                                        /* for x87 and mod == 3 */
                     ++indx;             /* take the next group table entry */
                     if (indx == 3) {    /* for x87 ESC==D9 and mod==3 */
                         if (ttt > 3) {  /* for those D9 instructions */
@@ -474,12 +475,14 @@ DoImmed:
                             }
                         }
                     else if (indx == 7) { /* for x87 ESC==DB and mod==3 */
-                        if (ttt == 4)   /* only valid if ttt==4 */
-                            ttt = rm;   /* set secondary group table index */
-                        else
-                            ttt = 7;    /* no an x87 instruction */
+                        if (ttt == 4) {   /* if ttt==4 */
+                            ttt = rm;     /* set secondary group table index */
+                        } else if ((ttt<4)||(ttt>4 && ttt<7)) {
+                            // adjust for pentium pro opcodes
+                            indx = 24;   /* offset index to table by 24*/
                         }
                     }
+                }
 doGroupT:
                 /* handle group with different types of operands */
 
@@ -487,20 +490,29 @@ doGroupT:
                 action = actiontbl + groupt[indx][ttt].opr;
                                                         /* get new action */
                 break;
+            // 
+            // The secondary opcode table has been compressed in the 
+            // original design. Hence while disassembling the 0F sequence,
+            // opcode needs to be displaced by an appropriate amount depending
+            // on the number of "filled" entries in the secondary table.
+            // These displacements are used throughout the code.
+            //
 
-            case OPC0F:                 /* secondary opcode table (opcode 0F) */
-                opcode = *pMem++;       /* get real opcode */
+            case OPC0F:              /* secondary opcode table (opcode 0F) */
+                opcode = *pMem++;    /* get real opcode */
                 fMovX  = (BOOLEAN)(opcode == 0xBF || opcode == 0xB7);
-                if (opcode < 7) /* for the first 7 opcodes */
-                    opcode += 256;      /* point begin of secondary opcode tab. */
+                if (opcode < 12) /* for the first 12 opcodes */
+                    opcode += SECTAB_OFFSET_1; // point to begin of sec op tab
                 else if (opcode > 0x1f && opcode < 0x27)
-                    opcode += 231;      /* adjust for non-existing opcodes */
-                else if (opcode > 0x2f && opcode < 0x33)
-                    opcode += 222;      /* adjust for non-existing opcodes */
+                    opcode += SECTAB_OFFSET_2; // adjust for undefined opcodes
+                else if (opcode > 0x2f && opcode < 0x34)
+                    opcode += SECTAB_OFFSET_3; // adjust for undefined opcodes
+                else if (opcode > 0x3f && opcode < 0x50)
+                    opcode += SECTAB_OFFSET_4; // adjust for undefined opcodes
                 else if (opcode > 0x7e && opcode < 0xd0)
-                    opcode += 148;      /* adjust for non-existing opcodes */
+                    opcode += SECTAB_OFFSET_5; // adjust for undefined opcodes
                 else
-                    opcode = 260;       /* all non-existing opcodes */
+                    opcode = SECTAB_OFFSET_UNDEF; // all non-existing opcodes
                 goto getNxtByte1;
 
             case ADR_OVR:               /* address override */
@@ -779,17 +791,17 @@ void DIdoModrm (char **ppchBuf, int segOvr, BOOLEAN fEAout)
             if (fEAout) {
                 if (segOvr) {
                     FormAddress(&EAaddr[0], GetSegRegValue(segOvr),
-                                            X86GetRegValue(reg32[rm]));
+                                            (ULONG)X86GetRegValue(reg32[rm]));
                     pchEAseg[0] = distbl[segOvr].instruct;
                     }
                 else if (reg32[rm] == REGEBP || reg32[rm] == REGESP) {
-                    FormAddress(&EAaddr[0], X86GetRegValue(REGSS),
-                                            X86GetRegValue(reg32[rm]));
+                    FormAddress(&EAaddr[0], (ULONG)X86GetRegValue(REGSS),
+                                            (ULONG)X86GetRegValue(reg32[rm]));
                     pchEAseg[0] = dszSS_;
                     }
                 else
-                    FormAddress(&EAaddr[0], X86GetRegValue(REGDS),
-                                            X86GetRegValue(reg32[rm]));
+                    FormAddress(&EAaddr[0], (ULONG)X86GetRegValue(REGDS),
+                                            (ULONG)X86GetRegValue(reg32[rm]));
                 }
             X86OutputString(ppchBuf, mrmtb32[rm]);
             }
@@ -805,7 +817,7 @@ void DIdoModrm (char **ppchBuf, int segOvr, BOOLEAN fEAout)
                     *(*ppchBuf)++ = (char)(ss + '0');
                     }
                 if (fEAout)
-                    AddrAdd(&EAaddr[0], X86GetRegValue(reg32[ind]) * ss);
+                    AddrAdd(&EAaddr[0], (ULONG)X86GetRegValue(reg32[ind]) * ss);
                 }
             }
         }
@@ -819,19 +831,19 @@ void DIdoModrm (char **ppchBuf, int segOvr, BOOLEAN fEAout)
             if (fEAout) {
                 if (segOvr) {
                     FormAddress(&EAaddr[0], GetSegRegValue(segOvr),
-                                            X86GetRegValue(reg16[rm]));
+                                            (ULONG)X86GetRegValue(reg16[rm]));
                     pchEAseg[0] = distbl[segOvr].instruct;
                     }
                 else if (reg16[rm] == REGEBP) {
-                    FormAddress(&EAaddr[0], X86GetRegValue(REGSS),
-                                            X86GetRegValue(reg16[rm]));
+                    FormAddress(&EAaddr[0], (ULONG)X86GetRegValue(REGSS),
+                                            (ULONG)X86GetRegValue(reg16[rm]));
                     pchEAseg[0] = dszSS_;
                     }
                 else
-                    FormAddress(&EAaddr[0], X86GetRegValue(REGDS),
-                                            X86GetRegValue(reg16[rm]));
+                    FormAddress(&EAaddr[0], (ULONG)X86GetRegValue(REGDS),
+                                            (ULONG)X86GetRegValue(reg16[rm]));
                 if (rm < 4)
-                    AddrAdd(&EAaddr[0], X86GetRegValue(reg16_2[rm]));
+                    AddrAdd(&EAaddr[0], (ULONG)X86GetRegValue(reg16_2[rm]));
             }
             X86OutputString(ppchBuf, mrmtb16[rm]);
             }
@@ -1042,7 +1054,7 @@ void OutputSymbol (char **ppBuf, char *pValue, int length, int segOvr)
 
     FormAddress(&EAaddr[0], GetSegRegValue(segOvr), value);
 
-    GetSymbol(value, chSymbol, &displacement);
+    GetSymbolStdCall(value, chSymbol, &displacement, NULL);
     if (chSymbol[0]) {
         X86OutputString(ppBuf, chSymbol);
         OutputHexValue(ppBuf, (char *)&displacement, length, TRUE);
@@ -1126,7 +1138,7 @@ void X86GetNextOffset (PADDR pcaddr, BOOLEAN fStep)
     else if (opcode == 0xcf) {          //  cf - iret - get RA from stack
 
         FormAddress(&addrReturn, (USHORT)X86GetRegValue(REGSS),
-                                                     X86GetRegValue(REGESP));
+                                             (ULONG)X86GetRegValue(REGESP));
 
         if (GetMemString(&addrReturn, (PUCHAR)retAddr, sizeof(retAddr)) !=
                                                        sizeof(retAddr))
@@ -1144,7 +1156,13 @@ void X86GetNextOffset (PADDR pcaddr, BOOLEAN fStep)
 
     else if (opcode == 0xc4 && *pMem == 0xc4 ) {
             subcode = *(pMem+1);
-            if ( subcode == 0x50 || subcode == 0x52 || subcode == 0x53 || subcode == 0x54 || subcode == 0x57 || subcode == 0x58 || subcode == 0x5D ) {
+            if ( subcode == 0x50 ||
+                 subcode == 0x52 ||
+                 subcode == 0x53 ||
+                 subcode == 0x54 ||
+                 subcode == 0x57 ||
+                 subcode == 0x58 ||
+                 subcode == 0x5D ) {
                 pMem += 3;
             } else {
                 pMem += 2;
@@ -1274,7 +1292,7 @@ void X86GetReturnAddress (PADDR retaddr)
     ADDR    addrReturn;
     ULONG   returnAddress;
 
-    FormAddress(&addrReturn, (USHORT)X86GetRegValue(REGSS), X86GetRegValue(REGESP));
+    FormAddress(&addrReturn, (USHORT)X86GetRegValue(REGSS), (ULONG)X86GetRegValue(REGESP));
     if (GetMemString(&addrReturn, (PUCHAR)&returnAddress, sizeof(returnAddress)) !=
                                                    sizeof(returnAddress))
         error(MEMORY);

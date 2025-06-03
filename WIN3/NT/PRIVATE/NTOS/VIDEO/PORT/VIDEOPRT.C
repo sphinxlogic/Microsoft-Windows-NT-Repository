@@ -27,8 +27,11 @@ Revision History:
 
 --*/
 
+#define _NTDRIVER_
+
 #include "dderror.h"
 #include "ntos.h"
+#include "pci.h"
 #include "stdarg.h"
 #include "stdio.h"
 #include "zwapi.h"
@@ -49,20 +52,23 @@ DriverEntry(
 #pragma alloc_text(PAGE,VideoPortCompareMemory )
 #pragma alloc_text(PAGE,pVideoPortDispatch)
 #pragma alloc_text(PAGE,VideoPortFreeDeviceBase)
+#pragma alloc_text(PAGE,pVideoPortFreeDeviceBase)
 #pragma alloc_text(PAGE,VideoPortGetBusData)
+#pragma alloc_text(PAGE,VideoPortGetCurrentIrql)
+#pragma alloc_text(PAGE,pVideoPortGetDeviceBase)
 #pragma alloc_text(PAGE,VideoPortGetDeviceBase)
 #pragma alloc_text(PAGE,pVideoPortGetDeviceDataRegistry)
 #pragma alloc_text(PAGE,VideoPortGetDeviceData)
 #pragma alloc_text(PAGE,pVideoPortGetRegistryCallback)
 #pragma alloc_text(PAGE,VideoPortGetRegistryParameters)
+#pragma alloc_text(PAGE,pVPInit)
 #pragma alloc_text(PAGE,pVideoPortInitializeBusCallback)
-#if DBG
 #pragma alloc_text(PAGE,pVideoPorInitializeDebugCallback)
-#endif
 #pragma alloc_text(PAGE,VideoPortInitialize)
 #pragma alloc_text(PAGE,pVideoPortMapToNtStatus)
 #pragma alloc_text(PAGE,pVideoPortMapUserPhysicalMem)
 #pragma alloc_text(PAGE,VideoPortMapMemory)
+#pragma alloc_text(PAGE,VideoPortMapBankedMemory)
 #pragma alloc_text(PAGE,VideoPortScanRom)
 #pragma alloc_text(PAGE,VideoPortSetBusData)
 #pragma alloc_text(PAGE,VideoPortSetRegistryParameters)
@@ -74,10 +80,17 @@ DriverEntry(
 // Debug variable for error messages
 //
 
+BOOLEAN VPFirstTime = TRUE;
 #if DBG
-ULONG VideoDebugLevel = 0;
 BOOLEAN VPResourcesReported = FALSE;
+BOOLEAN VPInitPhase = FALSE;
 #endif
+
+//
+// Debug Level for output routine
+//
+
+ULONG VideoDebugLevel = 0;
 
 //
 // Count to determine the number of video devices
@@ -110,12 +123,41 @@ VP_RESET_HW HwResetHw[6];
 PVP_RESET_HW HwResetHwPointer;
 
 //
-// Global used to determine if VgaSave was loaded, and therefore further
-// conflicts should be reported (we don't want to report conflict when we
-// cause them intentionally.
+// Global used to determine if we are running in BASEVIDEO mode.
+//
+// If we are, we don't want to generate a conflict for the VGA driver resources
+// if there is one.
+// We also want to write a volatile key in the registry indicating we booted
+// in beasevideo so the display driver loading code can handle it properly
 //
 
-// BOOLEAN VgaSaveLoaded = FALSE;
+BOOLEAN VpBaseVideo = FALSE;
+
+//
+// Pointer to physical memory. It is created during driver initialization
+// and is only closed when the driver is closed.
+//
+
+PVOID PhysicalMemorySection = NULL;
+
+//
+// Variable used to so int10 support.
+//
+
+PEPROCESS CsrProcess = NULL;
+
+//
+// Variable to determine if there is a ROM at physical address C0000 on which
+// we can do the int 10
+//
+
+ULONG VpC0000Compatible = 0;
+
+//
+// Disable USWC is case the machine does not work properly with it.
+//
+
+EnableUSWC = TRUE;
 
 
 NTSTATUS
@@ -148,7 +190,7 @@ Return Value:
     //
     //     WARNING !!!
     //
-    //     This function is never called because we are loaded as a DLL by ither video drivers !
+    //     This function is never called because we are loaded as a DLL by other video drivers !
     //
     //
     //
@@ -163,15 +205,8 @@ Return Value:
     return STATUS_SUCCESS;
 
 } // end DriverEntry()
+
 
-
-ULONG
-VideoPortCompareMemory (
-    PVOID Source1,
-    PVOID Source2,
-    ULONG Length
-    )
-
 //
 //ULONG
 //VideoPortCompareMemory (
@@ -182,37 +217,7 @@ VideoPortCompareMemory (
 //Forwarded to RtlCompareMemory(Source1,Source2,Length);
 //
 
-/*++
-
-Routine Description:
-
-    VideoPortCompareMemory compares two blocks of memory and returns the
-    number of bytes that compare equal.
-
-Arguments:
-
-    Source1 - Specifies the address of the first block of memory to compare.
-
-    Source2 - Specifies the address of the second block of memory to compare.
-
-    Length - Specifies the length, in bytes, of the memory to be compared.
-
-Return Value:
-
-    The function returns the number of bytes that are equivalent. If all
-    bytes compare equal, then the length of the orginal block of memory is
-    returned.
-
---*/
-
-{
-
-    return RtlCompareMemory(Source1,Source2,Length);
-
-}
 
-
-#if DBG
 
 VOID
 VideoPortDebugPrint(
@@ -261,57 +266,6 @@ Return Value:
     va_end(ap);
 
 } // VideoPortDebugPrint()
-
-
-VOID
-pVideoPortDebugPrint(
-    ULONG DebugPrintLevel,
-    PCHAR DebugMessage,
-    ...
-    )
-
-/*++
-
-Routine Description:
-
-    This routine allows the miniport drivers (as well as the port driver) to
-    display error messages to the debug port when running in the debug
-    environment.
-
-    When running a non-debugged system, all references to this call are
-    eliminated by the compiler.
-
-Arguments:
-
-    DebugPrintLevel - Debug print level between 0 and 3, with 3 being the
-        most verbose.
-
-Return Value:
-
-    None.
-
---*/
-
-{
-
-    va_list ap;
-
-    va_start(ap, DebugMessage);
-
-    if (DebugPrintLevel <= VideoDebugLevel) {
-
-        char buffer[256];
-
-        vsprintf(buffer, DebugMessage, ap);
-
-        DbgPrint(buffer);
-    }
-
-    va_end(ap);
-
-} // VideoPortDebugPrint()
-
-#endif
 
 
 VP_STATUS
@@ -519,12 +473,29 @@ Return Value:
 
         statusBlock->Information = FILE_OPEN;
 
+        //
+        // We will need to attach to the CSR process to do an int 10.
+        // Save the value of that process so we can do an attach later on.
+        //
+
+#if defined(_X86_)
+
+        //
+        // Only on X86 do we use CSR to do the modeset.
+        // So its the only architecture on which we have to attach to the
+        // CSR process.
+        //
+
+        pVideoPortInitializeInt10(deviceExtension);
+#endif
+
 #if DBG
         //
         // Turn off checking for mapped address since we are not in find
         // adapter ever again.
         //
 
+        VPInitPhase = TRUE;
         VPResourcesReported = TRUE;
 
 #endif
@@ -634,6 +605,7 @@ Return Value:
 
             switch (ioControlCode) {
 
+
             case IOCTL_VIDEO_ENABLE_VDM:
 
                 pVideoDebugPrint((2, "VideoPort - EnableVdm\n"));
@@ -676,7 +648,7 @@ Return Value:
                 // If the calls returns FALSE we must return an error code.
                 //
 
-                if (!SeSinglePrivilegeCheck(RtlConvertLongToLargeInteger(
+                if (!SeSinglePrivilegeCheck(RtlConvertLongToLuid(
                                                 SE_TCB_PRIVILEGE),
                                             deviceExtension->CurrentIrpRequestorMode)) {
 
@@ -709,7 +681,7 @@ Return Value:
                 // If the calls returns FALSE we must return an error code.
                 //
 
-                if (!SeSinglePrivilegeCheck(RtlConvertLongToLargeInteger(
+                if (!SeSinglePrivilegeCheck(RtlConvertLongToLuid(
                                                 SE_TCB_PRIVILEGE),
                                             deviceExtension->CurrentIrpRequestorMode)) {
 
@@ -823,6 +795,9 @@ Return Value:
     // We never have pending operation so always return the status code.
     //
 
+    pVideoDebugPrint((2, "VideoPort:  final IOCTL status: %08lx\n",
+                     finalStatus));
+
     return finalStatus;
 
 } // pVideoPortDispatch()
@@ -916,6 +891,17 @@ Environment:
 --*/
 
 {
+    pVideoPortFreeDeviceBase(HwDeviceExtension, MappedAddress);
+    return;
+}
+
+
+PVOID
+pVideoPortFreeDeviceBase(
+    IN PVOID HwDeviceExtension,
+    IN PVOID MappedAddress
+    )
+{
     PDEVICE_EXTENSION deviceExtension;
     PMAPPED_ADDRESS nextMappedAddress;
     PMAPPED_ADDRESS lastMappedAddress;
@@ -925,37 +911,75 @@ Environment:
     pVideoDebugPrint((2, "VPFreeDeviceBase at mapped address is %08lx\n",
                     MappedAddress));
 
+    lastMappedAddress = NULL;
     nextMappedAddress = deviceExtension->MappedAddressList;
-    lastMappedAddress = deviceExtension->MappedAddressList;
 
     while (nextMappedAddress) {
 
         if (nextMappedAddress->MappedAddress == MappedAddress) {
 
             //
-            // Unmap address.
+            // Count up how much memory a miniport driver is really taking
             //
 
-            MmUnmapIoSpace(nextMappedAddress->MappedAddress,
-                           nextMappedAddress->NumberOfUchars);
+            if (nextMappedAddress->bNeedsUnmapping) {
 
-            //
-            // Remove mapped address from list.
-            //
-
-            if (lastMappedAddress == deviceExtension->MappedAddressList) {
-
-                deviceExtension->MappedAddressList =
-                nextMappedAddress->NextMappedAddress;
-
-            } else {
-
-                lastMappedAddress->NextMappedAddress =
-                nextMappedAddress->NextMappedAddress;
+                deviceExtension->MemoryPTEUsage -=
+                    COMPUTE_PAGES_SPANNED(nextMappedAddress->MappedAddress,
+                                          nextMappedAddress->NumberOfUchars);
 
             }
 
-            return;
+            //
+            // BUGBUG use reference count temporarily since ATI maps too
+            // large a buffer to do two maps of it.
+            //
+
+            if (!(--nextMappedAddress->RefCount)) {
+
+                //
+                // Unmap address, if necessary.
+                //
+
+                if (nextMappedAddress->bNeedsUnmapping) {
+
+                    if (nextMappedAddress->bLargePageRequest) {
+
+                        MmUnmapVideoDisplay(nextMappedAddress->MappedAddress,
+                                            nextMappedAddress->NumberOfUchars);
+
+                    } else {
+
+                        MmUnmapIoSpace(nextMappedAddress->MappedAddress,
+                                       nextMappedAddress->NumberOfUchars);
+                    }
+                }
+
+                //
+                // Remove mapped address from list.
+                //
+
+                if (lastMappedAddress == NULL) {
+
+                    deviceExtension->MappedAddressList =
+                    nextMappedAddress->NextMappedAddress;
+
+                } else {
+
+                    lastMappedAddress->NextMappedAddress =
+                    nextMappedAddress->NextMappedAddress;
+
+                }
+
+                ExFreePool(nextMappedAddress);
+
+            }
+
+            //
+            // We just return the value to show that the call succeeded.
+            //
+
+            return (nextMappedAddress);
 
         } else {
 
@@ -965,7 +989,7 @@ Environment:
         }
     }
 
-    return;
+    return NULL;
 
 } // end VideoPortFreeDeviceBase()
 
@@ -984,6 +1008,21 @@ VideoPortGetBusData(
     PDEVICE_EXTENSION deviceExtension =
        deviceExtension = ((PDEVICE_EXTENSION) HwDeviceExtension) - 1;
 
+    //
+    // Issue a warning telling the miniport they should not read everything
+    // out of the driver config space otherwise it causes some device like
+    // NCR SCSIs to crash.
+    //
+
+#if DBG
+    if ((BusDataType == PCIConfiguration) &&
+        (Length >= sizeof(PCI_COMMON_CONFIG)))
+    {
+        pVideoDebugPrint((0, "A miniport must only call VideoPortGetBusData with sizeof(PCI_COMMON_HDR_LENGTH)\n"));
+        DbgBreakPoint();
+    }
+#endif
+
     return HalGetBusDataByOffset(BusDataType,
                                  deviceExtension->SystemIoBusNumber,
                                  SlotNumber,
@@ -992,6 +1031,26 @@ VideoPortGetBusData(
                                  Length);
 
 } // end VideoPortGetBusData()
+
+
+UCHAR
+VideoPortGetCurrentIrql(
+    )
+
+/*++
+
+Routine Description:
+
+    Stub to get Current Irql.
+
+--*/
+
+{
+
+    return (KeGetCurrentIrql());
+
+} // VideoPortGetCurrentIrql()
+
 
 PVOID
 VideoPortGetDeviceBase(
@@ -1050,42 +1109,206 @@ Environment:
 --*/
 
 {
+    //
+    // We specify large page as FALSE for the default since the miniport could
+    // be using the address at raise IRQL in an ISR.
+    //
+
+    return pVideoPortGetDeviceBase(HwDeviceExtension,
+                                   IoAddress,
+                                   NumberOfUchars,
+                                   InIoSpace,
+                                   FALSE);
+
+}
+
+PVOID
+pVideoPortGetDeviceBase(
+    IN PVOID HwDeviceExtension,
+    IN PHYSICAL_ADDRESS IoAddress,
+    IN ULONG NumberOfUchars,
+    IN UCHAR InIoSpace,
+    IN BOOLEAN bLargePage
+    )
+{
     PDEVICE_EXTENSION deviceExtension =
         deviceExtension = ((PDEVICE_EXTENSION) HwDeviceExtension) - 1;
-    PHYSICAL_ADDRESS cardAddress;
-    ULONG addressSpace = InIoSpace;
-    PVOID mappedAddress;
+    PHYSICAL_ADDRESS cardAddress = IoAddress;
+    PVOID mappedAddress = NULL;
     PMAPPED_ADDRESS newMappedAddress;
+    BOOLEAN b;
 
-    pVideoDebugPrint((2, "VPGetDeviceBase required IO address is %08lx %08lx, length of %08lx\n",
-                    IoAddress.HighPart, IoAddress.LowPart, NumberOfUchars));
+    ULONG addressSpace;
+    ULONG p6Caching = FALSE;
 
-    HalTranslateBusAddress(deviceExtension->AdapterInterfaceType, // InterfaceType
-                           deviceExtension->SystemIoBusNumber,          // BusNumber
-                           IoAddress,                         // Bus Address
-                           &addressSpace,                 // AddressSpace
-                           &cardAddress );
+    pVideoDebugPrint((2, "VPGetDeviceBase reqested %08lx mem type. address is %08lx %08lx, length of %08lx\n",
+                     InIoSpace, IoAddress.HighPart, IoAddress.LowPart, NumberOfUchars));
+
     //
-    // If the address is in memory space, map it and save the information.
+    // Properly configure the flags for translation
     //
 
-    if (!addressSpace) {
+    addressSpace = InIoSpace & 0xFF;
+
+#if defined(_X86_)
+
+    //
+    // On X86, determine if we will want to map the memory with the
+    // special caching flag.
+    //
+
+    p6Caching = addressSpace & VIDEO_MEMORY_SPACE_P6CACHE;
+
+#endif
+
+    addressSpace &= ~VIDEO_MEMORY_SPACE_P6CACHE;
+
+#if !defined(_ALPHA_)
+
+    //
+    // On non-alpha, this does'nt mean anything
+    //
+
+    addressSpace &= ~VIDEO_MEMORY_SPACE_DENSE;
+
+#endif
+
+    if (addressSpace & VIDEO_MEMORY_SPACE_USER_MODE) {
+        ASSERT(FALSE);
+        return NULL;
+    }
+
+    if ((((cardAddress.LowPart >= 0x000C0000) && (cardAddress.LowPart < 0x000C8000)) &&
+         (InIoSpace == 0) &&
+         (VpC0000Compatible == 2)) ||
+        HalTranslateBusAddress(deviceExtension->AdapterInterfaceType,
+                               deviceExtension->SystemIoBusNumber,
+                               IoAddress,
+                               &addressSpace,
+                               &cardAddress)) {
 
         //
-        // Map the device base address into the virtual address space
+        // Use reference counting for addresses to support broken ATI !
+        // Return the previously mapped address if we find the same physical
+        // address.
         //
 
-        mappedAddress = MmMapIoSpace(cardAddress,
-                                     NumberOfUchars,
-                                     FALSE);
+        PMAPPED_ADDRESS nextMappedAddress;
 
+        pVideoDebugPrint((2, "VPGetDeviceBase requested %08lx mem type. physical address is %08lx %08lx, length of %08lx\n",
+                         addressSpace, cardAddress.HighPart, cardAddress.LowPart, NumberOfUchars));
+
+        nextMappedAddress = deviceExtension->MappedAddressList;
+
+        while (nextMappedAddress) {
+
+            if ((nextMappedAddress->bLargePageRequest == bLargePage) &&
+                (nextMappedAddress->NumberOfUchars == NumberOfUchars) &&
+                (nextMappedAddress->PhysicalAddress.QuadPart == cardAddress.QuadPart)) {
+
+
+                pVideoDebugPrint((0, "VPGetDeviceBase : refCount hit on address %08lx \n",
+                                  nextMappedAddress->PhysicalAddress.LowPart));
+
+                nextMappedAddress->RefCount++;
+
+                //
+                // Count up how much memory a miniport driver is really taking
+                //
+
+                if (nextMappedAddress->bNeedsUnmapping) {
+
+                    deviceExtension->MemoryPTEUsage +=
+                        COMPUTE_PAGES_SPANNED(nextMappedAddress->MappedAddress,
+                                              nextMappedAddress->NumberOfUchars);
+
+                }
+
+                return (nextMappedAddress->MappedAddress);
+
+            } else {
+
+                nextMappedAddress = nextMappedAddress->NextMappedAddress;
+
+            }
+        }
+
+        //
+        // If the address is in IO space, don't do anything.
+        // If the address is in memory space, map it and save the information.
+        //
+
+        if (addressSpace & VIDEO_MEMORY_SPACE_IO) {
+
+            mappedAddress = (PVOID) cardAddress.LowPart;
+            b = FALSE;
+
+        } else {
+
+            //
+            // Map the device base address into the virtual address space
+            //
+            // NOTE: This routine is order dependant, and changing flags like
+            // bLargePage will affect the caching of address we do earlier
+            // on in this routine.
+            //
+
+            if (p6Caching && EnableUSWC) {
+
+                mappedAddress = MmMapIoSpace(cardAddress,
+                                             NumberOfUchars,
+                                             MmFrameBufferCached);
+
+                if (mappedAddress == NULL) {
+
+                    mappedAddress = MmMapIoSpace(cardAddress,
+                                                 NumberOfUchars,
+                                                 FALSE);
+                }
+
+
+            } else if (bLargePage) {
+
+                mappedAddress = MmMapVideoDisplay(cardAddress,
+                                                  NumberOfUchars,
+                                                  0);
+
+            } else {
+
+                mappedAddress = MmMapIoSpace(cardAddress,
+                                             NumberOfUchars,
+                                             FALSE);
+            }
+
+            if (mappedAddress == NULL) {
+
+                //
+                // A failiure occured
+                // BUGBUG we should log an error here !
+                //
+
+                pVideoDebugPrint((0, "VideoPort: MmMapIoSpace FAILED !!!\n"));
+
+                return NULL;
+            }
+
+            b = TRUE;
+
+            deviceExtension->MemoryPTEUsage +=
+                COMPUTE_PAGES_SPANNED(mappedAddress,
+                                      NumberOfUchars);
+
+
+
+        }
 
         //
         // Allocate memory to store mapped address for unmap.
         //
 
-        newMappedAddress = ExAllocatePool(NonPagedPool,
-                                          sizeof(MAPPED_ADDRESS));
+        newMappedAddress = ExAllocatePoolWithTag(NonPagedPool,
+                                                 sizeof(MAPPED_ADDRESS),
+                                                 'trpV');
 
         //
         // Save the reference if we can allocate memory for it. If we can
@@ -1098,8 +1321,12 @@ Environment:
             // Store mapped address information.
             //
 
+            newMappedAddress->PhysicalAddress = cardAddress;
+            newMappedAddress->RefCount = 1;
             newMappedAddress->MappedAddress = mappedAddress;
             newMappedAddress->NumberOfUchars = NumberOfUchars;
+            newMappedAddress->bNeedsUnmapping = b;
+            newMappedAddress->bLargePageRequest = bLargePage;
 
             //
             // Link current list to new entry.
@@ -1118,11 +1345,7 @@ Environment:
 
     } else {
 
-        //
-        // If the address is in IO space, don't do anything.
-        //
-
-        mappedAddress = (PVOID) cardAddress.LowPart;
+        pVideoDebugPrint((1, "HALTranslateBusAddress failed !!\n"));
 
     }
 
@@ -1184,20 +1407,6 @@ Environment:
     PCM_FULL_RESOURCE_DESCRIPTOR configurationData;
 
     switch (queryDevice->DeviceDataType) {
-
-    case VpMachineData:
-
-        //
-        // BUGBUG this is not yet implemeted
-        //
-
-        deviceInformation = NULL;
-
-        pVideoDebugPrint((2, "VPGetDeviceDataCallback MachineData\n"));
-
-        return STATUS_UNSUCCESSFUL;
-
-        break;
 
     case VpBusData:
 
@@ -1330,29 +1539,6 @@ Environment:
 } // end pVideoPortGetDeviceDataRegistry()
 
 
-#if DBG
-
-UCHAR
-VideoPortGetCurrentIrql(
-    )
-
-/*++
-
-Routine Description:
-
-    Stub to get Current Irql.
-
---*/
-
-{
-
-    return (KeGetCurrentIrql());
-
-} // VideoPortGetCurrentIrql()
-
-#endif
-
-
 VP_STATUS
 VideoPortGetDeviceData(
     PVOID HwDeviceExtension,
@@ -1396,12 +1582,16 @@ Environment:
 #define CMOS_MAX_DATA_SIZE 66000
 
     NTSTATUS ntStatus;
+    VP_STATUS vpStatus;
     PDEVICE_EXTENSION deviceExtension =
         deviceExtension = ((PDEVICE_EXTENSION) HwDeviceExtension) - 1;
     VP_QUERY_DEVICE queryDevice;
     PUCHAR cmosData = NULL;
     ULONG cmosDataSize;
     ULONG exCmosDataSize;
+    UNICODE_STRING Identifier;
+    PULONG pConfiguration = NULL;
+    PULONG pComponent = NULL;
 
     queryDevice.MiniportHwDeviceExtension = HwDeviceExtension;
     queryDevice.DeviceDataType = DeviceDataType;
@@ -1410,20 +1600,103 @@ Environment:
     queryDevice.MiniportContext = Context;
 
     switch (DeviceDataType) {
+
     case VpMachineData:
 
+        pVideoDebugPrint((2, "VPGetDeviceData MachineData\n"));
+
+        ntStatus = STATUS_UNSUCCESSFUL;
+
+        pConfiguration = ExAllocatePool(PagedPool, 0x1000);
+        pComponent     = ExAllocatePool(PagedPool, 0x1000);
+
+        if (pConfiguration && pComponent)
+        {
+            RTL_QUERY_REGISTRY_TABLE QueryTable[] = {
+                { NULL,
+                  RTL_QUERY_REGISTRY_DIRECT | RTL_QUERY_REGISTRY_REQUIRED,
+                  L"Identifier",
+                  &Identifier,
+                  REG_NONE,
+                  NULL,
+                  0
+                },
+                { NULL,
+                  RTL_QUERY_REGISTRY_DIRECT | RTL_QUERY_REGISTRY_REQUIRED,
+                  L"Configuration Data",
+                  pConfiguration,
+                  REG_NONE,
+                  NULL,
+                  0
+                },
+                { NULL,
+                  RTL_QUERY_REGISTRY_DIRECT | RTL_QUERY_REGISTRY_REQUIRED,
+                  L"Component Information",
+                  pComponent,
+                  REG_NONE,
+                  NULL,
+                  0
+                },
+
+                // Null entry to mark the end
+
+                { 0, 0, 0, 0, 0, 0, 0 }
+            };
+
+            //
+            // The first DWORD of the buffer contains the size of the buffer.
+            // Upon return, the first return contains the size of the data in the buffer.
+            //
+            // A NULL bufferint he UNICODE_STRING means the unicode string will be set up automatically
+            //
+
+            *pConfiguration = 0x1000 - 4;
+            *pComponent     = 0x1000 - 4;
+            Identifier.Buffer = NULL;
+
+            if (NT_SUCCESS(RtlQueryRegistryValues(RTL_REGISTRY_ABSOLUTE,
+                                                  L"\\Registry\\Machine\\Hardware\\Description\\System",
+                                                  QueryTable,
+                                                  NULL,
+                                                  NULL)))
+            {
+
+                vpStatus = ((PMINIPORT_QUERY_DEVICE_ROUTINE) CallbackRoutine)(
+                                 HwDeviceExtension,
+                                 Context,
+                                 DeviceDataType,
+                                 Identifier.Buffer,
+                                 Identifier.Length,
+                                 pConfiguration + 1,
+                                 *pConfiguration,
+                                 pComponent + 1,
+                                 *pComponent);
+
+                if (vpStatus == NO_ERROR)
+                {
+                    ntStatus = STATUS_SUCCESS;
+                }
+            }
+
+            if (Identifier.Buffer)
+            {
+                ExFreePool(Identifier.Buffer);
+            }
+        }
+
         //
-        // BUGBUG this is not yet implemeted
+        // Free up the resources
         //
 
-        pVideoDebugPrint((2, "VPGetDeviceData MachineData - not implemented\n"));
+        if (pConfiguration)
+        {
+            ExFreePool(pConfiguration);
+        }
 
-        ASSERT(FALSE);
-
-//
-//  BUGBUG
-//
-        return STATUS_UNSUCCESSFUL;
+        if (pComponent)
+        {
+            ExFreePool(pComponent);
+        }
 
         break;
 
@@ -1581,11 +1854,11 @@ Environment:
 
     } else {
 
+
+        pVideoDebugPrint((1, "VPGetDeviceData failed: return status is %08lx\n", ntStatus));
+
         return ERROR_INVALID_PARAMETER;
 
-#if DBG
-        pVideoDebugPrint((1, "VPGetDeviceData failed: return status is %08lx\n", ntStatus));
-#endif
     }
 
 } // end VideoPortGetDeviceData()
@@ -1873,6 +2146,283 @@ Environment:
 
 } // end VideoPortGetRegistryParameters()
 
+VOID
+pVPInit(
+    VOID
+    )
+
+/*++
+
+Routine Description:
+
+    First time initialization of the video port.
+
+    Normally, this is the stuff we should put in the DriverEntry routine.
+    However, the video port is being loaded as a DLL, and the DriverEntry
+    is never called.  It would just be too much work to add it back to the hive
+    and setup.
+
+    This little routine works just as well.
+
+--*/
+
+{
+
+    UNICODE_STRING UnicodeString;
+    OBJECT_ATTRIBUTES ObjectAttributes;
+    NTSTATUS ntStatus;
+    HANDLE hkRegistry;
+    UCHAR OptionsData[512];
+    HANDLE physicalMemoryHandle = NULL;
+
+    HAL_DISPLAY_BIOS_INFORMATION HalBiosInfo;
+    ULONG HalBiosInfoLen = sizeof(ULONG);
+
+
+    //
+    // DetectDisplay == Basevideo is only TRUE on ALPHA and X86 since
+    // the vga driver can not always run on MIPS or PPC (due to lack of
+    // BIOS on some machines).
+    //
+
+#if defined(_X86_)
+
+    //
+    // Check for USWC disabling
+    //
+
+    RtlInitUnicodeString(&UnicodeString,
+                         L"\\Registry\\Machine\\System\\CurrentControlSet"
+                         L"\\Control\\GraphicsDrivers\\DisableUSWC");
+
+    InitializeObjectAttributes(&ObjectAttributes,
+                               &UnicodeString,
+                               OBJ_CASE_INSENSITIVE,
+                               NULL,
+                               NULL);
+
+    ntStatus = ZwOpenKey(&hkRegistry,
+                       GENERIC_READ | GENERIC_WRITE,
+                       &ObjectAttributes);
+
+
+    if (NT_SUCCESS(ntStatus)) {
+
+        EnableUSWC = FALSE;
+        ZwClose(hkRegistry);
+    }
+
+#else
+
+    EnableUSWC = FALSE;
+
+#endif
+
+#if defined(_X86_) || defined(_ALPHA_)
+
+    //
+    // Check for a new driver installation
+    //
+
+    RtlInitUnicodeString(&UnicodeString,
+                         L"\\Registry\\Machine\\System\\CurrentControlSet"
+                         L"\\Control\\GraphicsDrivers\\DetectDisplay");
+
+    InitializeObjectAttributes(&ObjectAttributes,
+                               &UnicodeString,
+                               OBJ_CASE_INSENSITIVE,
+                               NULL,
+                               NULL);
+
+    ntStatus = ZwOpenKey(&hkRegistry,
+                       GENERIC_READ | GENERIC_WRITE,
+                       &ObjectAttributes);
+
+
+    if (NT_SUCCESS(ntStatus)) {
+
+        VpBaseVideo = TRUE;
+        ZwClose(hkRegistry);
+    }
+
+#endif
+
+    //
+    // Check for basevideo from the start options
+    //
+
+    RtlInitUnicodeString(&UnicodeString,
+                         L"\\Registry\\Machine\\System\\CurrentControlSet"
+                         L"\\Control");
+
+    InitializeObjectAttributes(&ObjectAttributes,
+                               &UnicodeString,
+                               OBJ_CASE_INSENSITIVE,
+                               NULL,
+                               NULL);
+
+    ntStatus = ZwOpenKey(&hkRegistry,
+                       GENERIC_READ | GENERIC_WRITE,
+                       &ObjectAttributes);
+
+    if (NT_SUCCESS(ntStatus)) {
+
+        PVOID pwszOptions;
+        ULONG returnSize;
+
+        RtlInitUnicodeString(&UnicodeString,
+                             L"SystemStartOptions");
+
+        ntStatus = ZwQueryValueKey(hkRegistry,
+                                 &UnicodeString,
+                                 KeyValueFullInformation,
+                                 OptionsData,
+                                 sizeof(OptionsData),
+                                 &returnSize);
+
+        if ((NT_SUCCESS(ntStatus)) &&
+            (((PKEY_VALUE_FULL_INFORMATION)OptionsData)->DataLength) &&
+            (((PKEY_VALUE_FULL_INFORMATION)OptionsData)->DataOffset)) {
+
+            pwszOptions = ((PUCHAR)OptionsData) +
+                ((PKEY_VALUE_FULL_INFORMATION)OptionsData)->DataOffset;
+
+            if (wcsstr(pwszOptions, L"BASEVIDEO")) {
+
+                VpBaseVideo = TRUE;
+            }
+        }
+
+        ZwClose(hkRegistry);
+    }
+
+
+
+    if (VpBaseVideo == TRUE) {
+
+        //
+        // If we are in Basevideo mode, then create a key and value in the
+        // currentcontrolset part of the hardware profile that USER will
+        // read to determine if the vga driver should be used or not.
+        //
+
+
+        RtlInitUnicodeString(&UnicodeString,
+                             L"\\Registry\\Machine\\System\\CurrentControlSet\\"
+                             L"Control\\GraphicsDrivers\\BaseVideo");
+
+        InitializeObjectAttributes(&ObjectAttributes,
+                                   &UnicodeString,
+                                   OBJ_CASE_INSENSITIVE,
+                                   NULL,
+                                   NULL);
+
+        ntStatus = ZwCreateKey(&hkRegistry,
+                             GENERIC_READ | GENERIC_WRITE,
+                             &ObjectAttributes,
+                             0L,
+                             NULL,
+                             REG_OPTION_VOLATILE,
+                             NULL);
+
+        if (NT_SUCCESS(ntStatus)) {
+
+            ZwClose(hkRegistry);
+
+        } else {
+
+            ASSERT(FALSE);
+        }
+    }
+
+    //
+    // Determine if we have a VGA compatible machine
+    //
+
+    ntStatus = HalQuerySystemInformation(HalDisplayBiosInformation,
+                                         HalBiosInfoLen,
+                                         &HalBiosInfo,
+                                         &HalBiosInfoLen);
+
+
+    if (NT_SUCCESS(ntStatus)) {
+
+        if (HalBiosInfo == HalDisplayInt10Bios) {
+
+            VpC0000Compatible = 2;
+
+        } else {
+
+            // == HalDisplayEmulatedBios,
+            // == HalDisplayNoBios
+
+            VpC0000Compatible = 0;
+        }
+
+    } else {
+
+        //
+        // In case of an error in the API call, we just assume it's an old HAL
+        // and use the old behaviour of the video port which is to assume
+        // there is a BIOS at C000
+        //
+
+        VpC0000Compatible = 1;
+    }
+
+
+    //
+    // Lets open the physical memory section just once, for all drivers.
+    //
+
+    //
+    // Get a pointer to physical memory so we can map the
+    // video frame buffer (and possibly video registers) into
+    // the caller's address space whenever he needs it.
+    //
+    // - Create the name
+    // - Initialize the data to find the object
+    // - Open a handle to the oject and check the status
+    // - Get a pointer to the object
+    // - Free the handle
+    //
+
+    RtlInitUnicodeString(&UnicodeString,
+                         L"\\Device\\PhysicalMemory");
+
+    InitializeObjectAttributes(&ObjectAttributes,
+                               &UnicodeString,
+                               OBJ_CASE_INSENSITIVE,
+                               (HANDLE) NULL,
+                               (PSECURITY_DESCRIPTOR) NULL);
+
+    ntStatus = ZwOpenSection(&physicalMemoryHandle,
+                             SECTION_ALL_ACCESS,
+                             &ObjectAttributes);
+
+    if (NT_SUCCESS(ntStatus)) {
+
+        ntStatus = ObReferenceObjectByHandle(physicalMemoryHandle,
+                                             SECTION_ALL_ACCESS,
+                                             (POBJECT_TYPE) NULL,
+                                             KernelMode,
+                                             &PhysicalMemorySection,
+                                             (POBJECT_HANDLE_INFORMATION) NULL);
+
+        if (!NT_SUCCESS(ntStatus)) {
+
+            pVideoDebugPrint((1, "pVPInit: Could not reference physical memory\n"));
+            ASSERT(PhysicalMemorySection == NULL);
+
+        }
+
+        ZwClose(physicalMemoryHandle);
+    }
+
+
+}
+
+
 NTSTATUS
 pVideoPortInitializeBusCallback(
     IN PVOID Context,
@@ -1887,37 +2437,12 @@ pVideoPortInitializeBusCallback(
     IN ULONG PeripheralNumber,
     IN PKEY_VALUE_FULL_INFORMATION *PeripheralInformation
     )
-
-/*++
-
-Routine Description:
-
-    This routine is only used to check if the reuested bus type is present
-    in the system. If it is not, fail loading the device since it will not
-    exist.
-    If this callback routine is called, the bus type does exist!
-
-Arguments:
-
-
-
-Return Value:
-
-    STATUS_SUCCESS.
-
-Environment:
-
-    This routine cannot be called from a miniport routine synchronized with
-    VideoPortSynchronizeRoutine or from an ISR.
-
---*/
-
 {
     return STATUS_SUCCESS;
 
 } // end pVideoPortInitializeBusCallback()
+
 
-#if DBG
 VP_STATUS
 pVideoPorInitializeDebugCallback(
     PVOID HwDeviceExtension,
@@ -1926,25 +2451,6 @@ pVideoPorInitializeDebugCallback(
     PVOID ValueData,
     ULONG ValueLength
     )
-
-/*++
-
-Routine Description:
-
-    This routine is used to get the debug level out of the registry for
-    the miniport driver.
-
-Return Value:
-
-    STATUS_SUCCESS.
-
-Environment:
-
-    This routine cannot be called from a miniport routine synchronized with
-    VideoPortSynchronizeRoutine or from an ISR.
-
---*/
-
 {
     pVideoDebugPrint((2, "VIDEOPRT: Getting debug level from miniport driver\n"));
 
@@ -1961,7 +2467,6 @@ Environment:
     }
 
 } // end pVideoPorInitializeDebugCallback()
-#endif
 
 ULONG
 VideoPortInitialize(
@@ -2020,11 +2525,16 @@ Environment:
     BOOLEAN statusNoError = FALSE;
     WCHAR deviceSubpathBuffer[STRING_LENGTH];
     UNICODE_STRING deviceSubpathUnicodeString;
-    VIDEO_PORT_CONFIG_INFO miniportConfigInfo;
     WCHAR deviceLinkBuffer[STRING_LENGTH];
     UNICODE_STRING deviceLinkUnicodeString;
     UCHAR nextMiniport;
     KAFFINITY affinity;
+
+    if (VPFirstTime)
+    {
+        VPFirstTime = FALSE;
+        pVPInit();
+    }
 
     //
     // Check if the size of the pointer, or the size of the data passed in
@@ -2104,6 +2614,7 @@ Environment:
 
         do {
 
+    PVIDEO_PORT_CONFIG_INFO miniportConfigInfo = NULL;
     PDEVICE_OBJECT deviceObject = NULL;
     PDEVICE_EXTENSION deviceExtension;
     VP_STATUS findAdapterStatus = ERROR_DEV_NOT_EXIST;
@@ -2111,49 +2622,54 @@ Environment:
     PWSTR driverKeyName = NULL;
     BOOLEAN symbolicLinkCreated = FALSE;
 
-    UNICODE_STRING physicalMemoryUnicodeString;
-    OBJECT_ATTRIBUTES objectAttributes;
-    HANDLE physicalMemoryHandle = NULL;
-
     nextMiniport = FALSE;
 
     //
-    // Zero out the buffer in which the miniport driver will store all the
-    // configuration information. This buffer is on the stack. The
-    // information it contains must be stored locally in the device
-    // extension once it returns from the miniport's find adapter routine.
+    // Allocate the buffer in which the miniport driver will store all the
+    // configuration information.
     //
 
-    RtlZeroMemory((PVOID) &miniportConfigInfo,
+    miniportConfigInfo = (PVIDEO_PORT_CONFIG_INFO)
+                             ExAllocatePool(PagedPool,
+                                            sizeof(VIDEO_PORT_CONFIG_INFO));
+
+    if (miniportConfigInfo == NULL) {
+
+        ntStatus = STATUS_INSUFFICIENT_RESOURCES;
+        goto EndOfInitialization;
+    }
+
+    RtlZeroMemory((PVOID) miniportConfigInfo,
                   sizeof(VIDEO_PORT_CONFIG_INFO));
 
-    miniportConfigInfo.Length = sizeof(VIDEO_PORT_CONFIG_INFO);
+    miniportConfigInfo->Length = sizeof(VIDEO_PORT_CONFIG_INFO);
 
     //
     // Put in the BusType specified within the HW_INITIALIZATION_DATA
     // structure by the miniport and the bus number inthe miniport config info.
     //
 
-    miniportConfigInfo.SystemIoBusNumber = busNumber;
+    miniportConfigInfo->SystemIoBusNumber = busNumber;
 
-    miniportConfigInfo.AdapterInterfaceType =
+    miniportConfigInfo->AdapterInterfaceType =
         HwInitializationData->AdapterInterfaceType;
 
     //
     // Initialize the type of interrupt based on the bus type.
     //
 
-    switch (miniportConfigInfo.AdapterInterfaceType) {
+    switch (miniportConfigInfo->AdapterInterfaceType) {
 
     case Internal:
     case MicroChannel:
+    case PCIBus:
 
-        miniportConfigInfo.InterruptMode = LevelSensitive;
+        miniportConfigInfo->InterruptMode = LevelSensitive;
         break;
 
     default:
 
-        miniportConfigInfo.InterruptMode = Latched;
+        miniportConfigInfo->InterruptMode = Latched;
         break;
 
     }
@@ -2259,7 +2775,7 @@ Environment:
     deviceExtension->HwDeviceExtension = (PVOID)(deviceExtension + 1);
     deviceExtension->HwDeviceExtensionSize =
         HwInitializationData->HwDeviceExtensionSize;
-    deviceExtension->MiniportConfigInfo = &miniportConfigInfo;
+    deviceExtension->MiniportConfigInfo = miniportConfigInfo;
 
     //
     // Save the dependent driver routines in the device extension.
@@ -2367,13 +2883,11 @@ Environment:
     // Turn on the debug level based on the miniport driver entry
     //
 
-#if DBG
     VideoPortGetRegistryParameters(deviceExtension->HwDeviceExtension,
                                    L"VideoDebugLevel",
                                    FALSE,
                                    pVideoPorInitializeDebugCallback,
                                    NULL);
-#endif
 
     //
     // Call the miniport find adapter routine to determine if an adapter is
@@ -2384,7 +2898,7 @@ Environment:
         deviceExtension->HwFindAdapter(deviceExtension->HwDeviceExtension,
                                        HwContext,
                                        NULL, // BUGBUG What is this string?
-                                       &miniportConfigInfo,
+                                       miniportConfigInfo,
                                        &nextMiniport);
 
     //
@@ -2406,28 +2920,26 @@ Environment:
     //
 
     deviceExtension->NumEmulatorAccessEntries =
-        miniportConfigInfo.NumEmulatorAccessEntries;
+        miniportConfigInfo->NumEmulatorAccessEntries;
 
     deviceExtension->EmulatorAccessEntries =
-        miniportConfigInfo.EmulatorAccessEntries;
+        miniportConfigInfo->EmulatorAccessEntries;
 
     deviceExtension->EmulatorAccessEntriesContext =
-        miniportConfigInfo.EmulatorAccessEntriesContext;
-
-    deviceExtension->ServerBiosAddressSpaceInitialized = FALSE;
+        miniportConfigInfo->EmulatorAccessEntriesContext;
 
     deviceExtension->VdmPhysicalVideoMemoryAddress =
-        miniportConfigInfo.VdmPhysicalVideoMemoryAddress;
+        miniportConfigInfo->VdmPhysicalVideoMemoryAddress;
 
     deviceExtension->VdmPhysicalVideoMemoryLength =
-        miniportConfigInfo.VdmPhysicalVideoMemoryLength;
+        miniportConfigInfo->VdmPhysicalVideoMemoryLength;
 
     //
     // Store the required information in the device extension for later use.
     //
 
     deviceExtension->HardwareStateSize =
-        miniportConfigInfo.HardwareStateSize;
+        miniportConfigInfo->HardwareStateSize;
 
     //
     // If the device supplies an interrupt service routine, we must
@@ -2435,7 +2947,9 @@ Environment:
     // they can be ignored.
     //
 
-    if (deviceExtension->HwInterrupt) {
+    if (deviceExtension->HwInterrupt &&
+        ((miniportConfigInfo->BusInterruptLevel != 0) ||
+         (miniportConfigInfo->BusInterruptVector != 0)) ) {
 
         //
         // Note: the spinlock for the interrupt object is created
@@ -2446,22 +2960,24 @@ Environment:
         deviceExtension->InterruptVector =
             HalGetInterruptVector(deviceExtension->AdapterInterfaceType,
                                   deviceExtension->SystemIoBusNumber,
-                                  miniportConfigInfo.BusInterruptLevel,
-                                  miniportConfigInfo.BusInterruptVector,
+                                  miniportConfigInfo->BusInterruptLevel,
+                                  miniportConfigInfo->BusInterruptVector,
                                   &deviceExtension->InterruptIrql,
                                   &affinity);
 
-        deviceExtension->InterruptMode = miniportConfigInfo.InterruptMode;
+        deviceExtension->InterruptMode = miniportConfigInfo->InterruptMode;
+
 
         ntStatus = IoConnectInterrupt(&deviceExtension->InterruptObject,
                                       (PKSERVICE_ROUTINE) pVideoPortInterrupt,
                                       deviceObject,
-                                      (PKSPIN_LOCK)NULL,
+                                      NULL,
                                       deviceExtension->InterruptVector,
                                       deviceExtension->InterruptIrql,
                                       deviceExtension->InterruptIrql,
                                       deviceExtension->InterruptMode,
-                                      FALSE,
+                                      (BOOLEAN) ((miniportConfigInfo->InterruptMode ==
+                                          LevelSensitive) ? TRUE : FALSE),
                                       affinity,
                                       FALSE);
 
@@ -2471,6 +2987,11 @@ Environment:
             goto EndOfInitialization;
 
         }
+
+    } else {
+
+        deviceExtension->HwInterrupt = NULL;
+
     }
 
     //
@@ -2531,52 +3052,6 @@ Environment:
     // opened.
     //
 
-
-    //
-    // Get a pointer to physical memory so we can map the
-    // video frame buffer (and possibly video registers) into
-    // the caller's address space whenever he needs it.
-    //
-    // - Create the name
-    // - Initialize the data to find the object
-    // - Open a handle to the oject and check the status
-    // - Get a pointer to the object
-    // - Free the handle
-    //
-
-    RtlInitUnicodeString(&physicalMemoryUnicodeString,
-                         L"\\Device\\PhysicalMemory");
-
-    InitializeObjectAttributes(&objectAttributes,
-                               &physicalMemoryUnicodeString,
-                               OBJ_CASE_INSENSITIVE,
-                               (HANDLE) NULL,
-                               (PSECURITY_DESCRIPTOR) NULL);
-
-    ntStatus = ZwOpenSection(&physicalMemoryHandle,
-                             SECTION_ALL_ACCESS,
-                             &objectAttributes);
-
-    if (!NT_SUCCESS(ntStatus)) {
-
-        pVideoDebugPrint((1, "VideoPortInitialize: Could not open handle to physical memory\n"));
-        goto EndOfInitialization;
-
-    }
-
-    ntStatus = ObReferenceObjectByHandle(physicalMemoryHandle,
-                                         SECTION_ALL_ACCESS,
-                                         (POBJECT_TYPE) NULL,
-                                         KernelMode,
-                                         &deviceExtension->PhysicalMemorySection,
-                                         (POBJECT_HANDLE_INFORMATION) NULL);
-
-    if (!NT_SUCCESS(ntStatus)) {
-
-        pVideoDebugPrint((1, "VideoPortInitialize: Could not reference physical memory\n"));
-        goto EndOfInitialization;
-
-    }
 
     //
     // Create symbolic link with DISPLAY so name can be used for win32 API
@@ -2640,7 +3115,7 @@ Environment:
                                      REG_SZ,
                                      driverKeyName,
                                      driverKeySize);
-#if DBG
+
     if (!NT_SUCCESS(ntStatus)) {
 
         pVideoDebugPrint((0, "VideoPortInitialize: Could not store name in DeviceMap\n"));
@@ -2650,7 +3125,7 @@ Environment:
         pVideoDebugPrint((1, "VideoPortInitialize: name is stored in DeviceMap\n"));
 
     }
-#endif
+
 
 EndOfInitialization:
 
@@ -2659,12 +3134,10 @@ EndOfInitialization:
     // Reset our flag for resources reported to FALSE;
     //
 
-    VPResourcesReported = FALSE;
-#endif
-
-    if (physicalMemoryHandle) {
-        ZwClose(physicalMemoryHandle);
+    if (VPInitPhase == FALSE) {
+        VPResourcesReported = FALSE;
     }
+#endif
 
     if (NT_SUCCESS(ntStatus)) {
 
@@ -2687,6 +3160,14 @@ EndOfInitialization:
         statusNoError = TRUE;
 
     } else {
+
+        //
+        // Free the miniport config info buffer.
+        //
+
+        if (miniportConfigInfo) {
+            ExFreePool(miniportConfigInfo);
+        }
 
         //
         // Release the resource we put in the resourcemap (if any).
@@ -2726,10 +3207,25 @@ EndOfInitialization:
             IoDeleteSymbolicLink(&deviceNameUnicodeString);
         }
 
-        // BUGBUG
+        //
         // Free up any memory mapped in by the miniport using
         // VideoPort GetDeviceBase.
         //
+
+        while (deviceExtension->MappedAddressList != NULL)
+        {
+            pVideoDebugPrint((0, "VideoPortInitialize: unfreed address %08lx, physical %08lx, size %08lx\n",
+                                 deviceExtension->MappedAddressList->MappedAddress,
+                                 deviceExtension->MappedAddressList->PhysicalAddress.LowPart,
+                                 deviceExtension->MappedAddressList->NumberOfUchars));
+
+            pVideoDebugPrint((0, "VideoPortInitialize: unfreed refcount %d, unmapping %d\n\n",
+                                 deviceExtension->MappedAddressList->RefCount,
+                                 deviceExtension->MappedAddressList->bNeedsUnmapping));
+
+            VideoPortFreeDeviceBase(deviceExtension->HwDeviceExtension,
+                                    deviceExtension->MappedAddressList->MappedAddress);
+        }
 
         //
         // Finally, delete the device object.
@@ -3016,8 +3512,10 @@ Return Value:
             errorLogPacket->ErrorCode = IO_ERR_CONFIGURATION_ERROR;
             break;
 
-        case ERROR_MORE_DATA:
         case ERROR_IO_PENDING:
+            ASSERT(FALSE);
+
+        case ERROR_MORE_DATA:
         case NO_ERROR:
 
             errorLogPacket->ErrorCode = 0;
@@ -3109,13 +3607,13 @@ Return Value:
         *status = STATUS_BUFFER_OVERFLOW;
         break;
 
-    case ERROR_IO_PENDING:
-        *status = STATUS_PENDING;
-        break;
-
     case ERROR_DEV_NOT_EXIST:
         *status = STATUS_DEVICE_DOES_NOT_EXIST;
         break;
+
+    case ERROR_IO_PENDING:
+        ASSERT(FALSE);
+        // Fall through.
 
     case NO_ERROR:
         *status = STATUS_SUCCESS;
@@ -3200,6 +3698,7 @@ Environment:
     BOOLEAN translateBaseAddress;
     BOOLEAN translateEndAddress;
     ULONG inIoSpace2;
+    ULONG inIoSpace1;
 
     //
     // Check for a length of zero. If it is, the entire physical memory
@@ -3213,12 +3712,18 @@ Environment:
 
     }
 
+    if (!(*InIoSpace & VIDEO_MEMORY_SPACE_USER_MODE)) {
+
+        return STATUS_INVALID_PARAMETER_5;
+
+    }
+
     //
     // Get a handle to the physical memory section using our pointer.
     // If this fails, return.
     //
 
-    ntStatus = ObOpenObjectByPointer(DeviceExtension->PhysicalMemorySection,
+    ntStatus = ObOpenObjectByPointer(PhysicalMemorySection,
                                      0L,
                                      (PACCESS_STATE) NULL,
                                      SECTION_ALL_ACCESS,
@@ -3235,26 +3740,28 @@ Environment:
 #ifdef _ALPHA_
 
     //
-    // Really special address space for ALPHA
+    // All flags are necessary for translation on ALPHA, except the P6 FLAG
     //
 
-    *InIoSpace |= (ULONG) 0x02;
+    inIoSpace1 = *InIoSpace & ~VIDEO_MEMORY_SPACE_P6CACHE;
+    inIoSpace2 = *InIoSpace & ~VIDEO_MEMORY_SPACE_P6CACHE;
+
+#else
+
+    //
+    // No flags are used in translation on non-alpha
+    //
+
+    inIoSpace1 = *InIoSpace & VIDEO_MEMORY_SPACE_IO;
+    inIoSpace2 = *InIoSpace & VIDEO_MEMORY_SPACE_IO;
 
 #endif
-
-    //
-    // Have a second variable used for the second HalTranslateBusAddres call.
-    //
-
-    inIoSpace2 = *InIoSpace;
 
     //
     // Initialize the physical addresses that will be translated
     //
 
-    physicalAddressEnd = RtlLargeIntegerAdd(PhysicalAddress,
-                                            RtlConvertUlongToLargeInteger(
-                                                *Length));
+    physicalAddressEnd.QuadPart = PhysicalAddress.QuadPart + (*Length - 1);
 
     //
     // Translate the physical addresses.
@@ -3264,7 +3771,7 @@ Environment:
         HalTranslateBusAddress(DeviceExtension->AdapterInterfaceType,
                                DeviceExtension->SystemIoBusNumber,
                                PhysicalAddress,
-                               InIoSpace,
+                               &inIoSpace1,
                                &physicalAddressBase);
 
     translateEndAddress =
@@ -3282,12 +3789,16 @@ Environment:
 
     }
 
+    ASSERT(inIoSpace1 == inIoSpace2);
+
     //
     // Calcualte the length of the memory to be mapped
     //
 
-    mappedLength = RtlLargeIntegerSubtract(physicalAddressEnd,
-                                           physicalAddressBase);
+    mappedLength.QuadPart = physicalAddressEnd.QuadPart -
+                            physicalAddressBase.QuadPart + 1;
+
+    pVideoDebugPrint((3, "mapped Length = %x\n", mappedLength));
 
 #ifndef _ALPHA_
 
@@ -3346,6 +3857,10 @@ Environment:
         // Map the section
         //
 
+        //
+        // BUGBUG - what to do with already cached memory ???
+        //
+
         ntStatus = ZwMapViewOfSection(physicalMemoryHandle,
                                       processHandle,
                                       VirtualAddress,
@@ -3354,7 +3869,7 @@ Environment:
                                       &viewBase,
                                       Length,
                                       ViewUnmap,
-                                      MEM_LARGE_PAGES,
+                                      0,
                                       PAGE_READWRITE | PAGE_NOCACHE);
 
         //
@@ -3375,9 +3890,143 @@ Environment:
                                    (ULONG)viewBase.LowPart;
     }
 
+#ifdef _ALPHA_
+
+    //
+    // Return the proper set of modified flags.
+    //
+
+    *InIoSpace = inIoSpace1 | *InIoSpace & VIDEO_MEMORY_SPACE_P6CACHE;
+
+#else
+
+    //
+    // Restore all the other FLAGS
+    // BUGBUG P6 flag may be affected !!
+    //
+
+    *InIoSpace = inIoSpace1 | *InIoSpace & ~VIDEO_MEMORY_SPACE_IO;
+
+#endif
+
+
+
     return ntStatus;
 
 } // end pVideoPortMapUserPhysicalMem()
+
+VP_STATUS
+VideoPortMapBankedMemory(
+    PVOID HwDeviceExtension,
+    PHYSICAL_ADDRESS PhysicalAddress,
+    PULONG Length,
+    PULONG InIoSpace,
+    PVOID *VirtualAddress,
+    ULONG BankLength,
+    UCHAR ReadWriteBank,
+    PBANKED_SECTION_ROUTINE BankRoutine,
+    PVOID Context
+    )
+
+/*++
+
+Routine Description:
+
+    VideoPortMapMemory allows the miniport driver to map a section of
+    physical memory (either memory or registers) into the calling process'
+    address space (eventhough we are in kernel mode, this function is
+    executed within the same context as the user-mode process that initiated
+    the call).
+
+Arguments:
+
+    HwDeviceExtension - Points to the miniport driver's device extension.
+
+    PhysicalAddress - Specifies the physical address to be mapped.
+
+    Length - Points to the number of bytes of physical memory to be mapped.
+        This argument returns the actual amount of memory mapped.
+
+    InIoSpace - Points to a variable that is 1 if the address is in I/O
+        space.  Otherwise, the address is assumed to be in memory space.
+
+    VirtualAddress - A pointer to a location containing:
+
+        on input: An optional handle to the process in which the memory must
+            be mapped. 0 must be used to map the memory for the display
+            driver (in the context of the windows server process).
+
+        on output:  The return value is the virtual address at which the
+            physical address has been mapped.
+
+    BankLength - Size of the bank on the device.
+
+    ReadWriteBank - TRUE is the bank is READ\WRITE, FALSE if there are
+                    two independent READ and WRITE banks.
+
+    BankRoutine - Pointer to the banking routine.
+
+    Context - Context parameter passed in by the miniport supplied on
+        each callback to the miniport.
+
+Return Value:
+
+    VideoPortMapBankedMemory returns the status of the operation.
+
+Environment:
+
+    This routine cannot be called from a miniport routine synchronized with
+    VideoPortSynchronizeRoutine or from an ISR.
+
+--*/
+
+{
+    VP_STATUS status;
+    HANDLE processHandle;
+
+    //
+    // Save the process ID, but don't change it since MapMemory relies
+    // on it also
+    //
+
+    if (*VirtualAddress == NULL) {
+
+        processHandle = NtCurrentProcess();
+
+    } else {
+
+        processHandle = (HANDLE) *VirtualAddress;
+
+    }
+
+    status = VideoPortMapMemory(HwDeviceExtension,
+                                PhysicalAddress,
+                                Length,
+                                InIoSpace,
+                                VirtualAddress);
+
+    if (status == NO_ERROR) {
+
+        NTSTATUS ntstatus;
+
+        ntstatus = MmSetBankedSection(processHandle,
+                                      *VirtualAddress,
+                                      BankLength,
+                                      ReadWriteBank,
+                                      BankRoutine,
+                                      Context);
+
+        if (!NT_SUCCESS(ntstatus)) {
+
+            ASSERT (FALSE);
+            status = ERROR_INVALID_PARAMETER;
+
+        }
+    }
+
+    return status;
+
+} // end VideoPortMapBankedMemory()
 
 VP_STATUS
 VideoPortMapMemory(
@@ -3451,30 +4100,86 @@ Environment:
     }
 
     //
+    // Let's handle the special memory types here.
+    //
+    // NOTE
+    // Large pages is automatic - the caller need not specify this attribute
+    // since it does not affect the device.
+
+    //
     // Save the process handle and zero out the Virtual address field
     //
 
     if (*VirtualAddress == NULL) {
 
-        processHandle = NtCurrentProcess();
+        if (*InIoSpace & VIDEO_MEMORY_SPACE_USER_MODE)
+        {
+            ASSERT(FALSE);
+            return ERROR_INVALID_PARAMETER;
+        }
+
+        pVideoDebugPrint((3, "VideoPortMapMemory: Map Physical Address %08lx\n",
+                         PhysicalAddress));
+
+        ntStatus = STATUS_SUCCESS;
+
+        //
+        // We specify TRUE for large pages since we know the addrses will only
+        // be used in the context of the display driver, at normal IRQL.
+        //
+
+        *VirtualAddress = pVideoPortGetDeviceBase(HwDeviceExtension,
+                                                  PhysicalAddress,
+                                                  *Length,
+                                                  (UCHAR) (*InIoSpace),
+                                                  TRUE);
+
+        //
+        // Zero can only be success if the driver is calling to MAP
+        // address 0.  Otherwise, it is an error.
+        // BUGBUG - is this really robust.
+        //
+
+        if (*VirtualAddress == NULL) {
+
+            //
+            // Only on X86 can the logical address also be 0.
+            //
+#if defined (_X86_)
+            if (PhysicalAddress.LowPart != 0)
+#endif
+                ntStatus = STATUS_INVALID_PARAMETER;
+        }
 
     } else {
+
+        if (!(*InIoSpace & VIDEO_MEMORY_SPACE_USER_MODE))
+        {
+            //
+            // We can not assert since this is an existing path and old
+            // drivers will not have this flag set.
+            //
+            // ASSERT(FALSE);
+            // return ERROR_INVALID_PARAMETER;
+            //
+
+            *InIoSpace |= VIDEO_MEMORY_SPACE_USER_MODE;
+        }
 
         processHandle = (HANDLE) *VirtualAddress;
         *VirtualAddress = NULL;
 
+        pVideoDebugPrint((3, "VideoPortMapMemory: Map Physical Address %08lx\n",
+                         PhysicalAddress));
+
+        ntStatus = pVideoPortMapUserPhysicalMem(deviceExtension,
+                                                processHandle,
+                                                PhysicalAddress,
+                                                Length,
+                                                InIoSpace,
+                                                VirtualAddress);
+
     }
-
-
-    pVideoDebugPrint((3, "pVideoPortMapMemory: Map Physical Address %08lx\n",
-                     PhysicalAddress));
-
-    ntStatus = pVideoPortMapUserPhysicalMem(deviceExtension,
-                                            processHandle,
-                                            PhysicalAddress,
-                                            Length,
-                                            InIoSpace,
-                                            VirtualAddress);
 
     if (!NT_SUCCESS(ntStatus)) {
 
@@ -3488,7 +4193,7 @@ Environment:
 
     } else {
 
-        pVideoDebugPrint((3, "VideoPortMapMemory succeded with Virtual Address = %08lx",
+        pVideoDebugPrint((3, "VideoPortMapMemory succeded with Virtual Address = %08lx\n",
                          *VirtualAddress));
 
         return NO_ERROR;
@@ -3497,13 +4202,6 @@ Environment:
 
 } // end VideoPortMapMemory()
 
-
-VOID
-VideoPortMoveMemory(
-    IN PVOID Destination,
-    IN PVOID Source,
-    IN ULONG Length
-    )
 
 //
 //VOID
@@ -3516,73 +4214,20 @@ VideoPortMoveMemory(
 //Forwarded to RtlMoveMemory(Destination,Source,Length);
 //
 
-/*++
-
-Routine Description:
-
-    VideoPortMoveMemory copies memory from the source location to the
-    destination location.
-
-Arguments:
-
-    Destination - Specifies the address of the destination location.
-
-    Source - Specifies the address of the memory to move.
-
-    Length - Specifies the length, in bytes, of the memory to be moved.
-
-Return Value:
-
-    None.
-
---*/
-
-{
-
-// #ifdef _ALPHA_
-//
-//     //
-//     //  BUGBUG BUGBUG BUGBUG
-//     //
-//     //  There really needs to be four of these move routines in the
-//     //  videoport driver: one for each combination of moving among memory on the
-//     //  I/O adapter, and main memory.  This could be alleviated if the
-//     //  WRITE_REGISTER_xyz routines were willing to deal with main memory...but
-//     //  they're not (and it'd be awfully slow to use them).  The code below would
-//     //  work if READ_/WRITE_REGISTER_xyz were modified.
-//     //
-//
-//     if ((((ULONG)Destination | (ULONG)Source) & (sizeof (ULONG) - 1)) == 0) {
-//         while (Length >= sizeof (ULONG)) {
-//             WRITE_REGISTER_ULONG ((PULONG)Destination, READ_REGISTER_ULONG ((PULONG)Source));
-//             ((PULONG)Destination)++;
-//             ((PULONG)Source)++;
-//             Length -= sizeof (ULONG);
-//         }
-//     }
-//
-//     while (Length > 0) {
-//         WRITE_REGISTER_UCHAR ((PUCHAR)Destination, READ_REGISTER_UCHAR ((PUCHAR)Source));
-//         ((PUCHAR)Destination)++;
-//         ((PUCHAR)Source)++;
-//         Length -= sizeof (UCHAR);
-//     }
-//
-// #else
-
-    RtlMoveMemory(Destination,Source,Length);
-
-// #endif
-}
-
 
 //
 // ALL the functions to read ports and registers are forwarded on free
-// builds on x86 to the appropriate kernel function.
+// builds on x86 and ALPHA to the appropriate kernel function.
 // This saves time and memory
 //
 
-// #if (DBG || !defined(i386))
+//
+// BUGBUG
+// Disable forwarders until we fix the problem with writting to the
+// BIOS data area (which must be done in the context of CSR)
+//
+//
+// #if (DBG || (!defined(_X86_) && !defined(_ALPHA_)))
 
 UCHAR
 VideoPortReadPortUchar(
@@ -3607,7 +4252,7 @@ Return Value:
 --*/
 
 {
-#if DBG
+
     UCHAR temp;
 
     IS_ACCESS_RANGES_DEFINED()
@@ -3618,11 +4263,6 @@ Return Value:
 
     return(temp);
 
-#else
-    IS_ACCESS_RANGES_DEFINED()
-
-    return(READ_PORT_UCHAR(Port));
-#endif
 } // VideoPortReadPortUchar()
 
 USHORT
@@ -3649,7 +4289,7 @@ Return Value:
 --*/
 
 {
-#if DBG
+
     USHORT temp;
 
     IS_ACCESS_RANGES_DEFINED()
@@ -3660,11 +4300,6 @@ Return Value:
 
     return(temp);
 
-#else
-    IS_ACCESS_RANGES_DEFINED()
-
-    return(READ_PORT_USHORT(Port));
-#endif
 } // VideoPortReadPortUshort()
 
 ULONG
@@ -3691,7 +4326,7 @@ Return Value:
 --*/
 
 {
-#if DBG
+
     ULONG temp;
 
     IS_ACCESS_RANGES_DEFINED()
@@ -3701,12 +4336,6 @@ Return Value:
     pVideoDebugPrint((3,"VideoPortReadPortUlong %x = %x\n", Port, temp));
 
     return(temp);
-
-#else
-    IS_ACCESS_RANGES_DEFINED()
-
-    return(READ_PORT_ULONG(Port));
-#endif
 
 } // VideoPortReadPortUlong()
 
@@ -3851,21 +4480,25 @@ Return Value:
 --*/
 
 {
-#if DBG
+
     UCHAR temp;
 
     IS_ACCESS_RANGES_DEFINED()
 
+    if (((ULONG)Register < 0x00100000) && CsrProcess) {
+        KeAttachProcess(&CsrProcess->Pcb);
+    }
+
     temp = READ_REGISTER_UCHAR(Register);
+
+    if (((ULONG)Register < 0x00100000) && CsrProcess) {
+        KeDetachProcess();
+    }
 
     pVideoDebugPrint((3,"VideoPortReadRegisterUchar %x = %x\n", Register, temp));
 
     return(temp);
-#else
-    IS_ACCESS_RANGES_DEFINED()
 
-    return(READ_REGISTER_UCHAR(Register));
-#endif
 } // VideoPortReadRegisterUchar()
 
 USHORT
@@ -3892,21 +4525,25 @@ Return Value:
 --*/
 
 {
-#if DBG
+
     USHORT temp;
 
     IS_ACCESS_RANGES_DEFINED()
 
+    if (((ULONG)Register < 0x00100000) && CsrProcess) {
+        KeAttachProcess(&CsrProcess->Pcb);
+    }
+
     temp = READ_REGISTER_USHORT(Register);
+
+    if (((ULONG)Register < 0x00100000) && CsrProcess) {
+        KeDetachProcess();
+    }
 
     pVideoDebugPrint((3,"VideoPortReadRegisterUshort %x = %x\n", Register, temp));
 
     return(temp);
-#else
-    IS_ACCESS_RANGES_DEFINED()
 
-    return(READ_REGISTER_USHORT(Register));
-#endif
 } // VideoPortReadRegisterUshort()
 
 ULONG
@@ -3934,21 +4571,25 @@ Return Value:
 --*/
 
 {
-#if DBG
+
     ULONG temp;
 
     IS_ACCESS_RANGES_DEFINED()
 
+    if (((ULONG)Register < 0x00100000) && CsrProcess) {
+        KeAttachProcess(&CsrProcess->Pcb);
+    }
+
     temp = READ_REGISTER_ULONG(Register);
+
+    if (((ULONG)Register < 0x00100000) && CsrProcess) {
+        KeDetachProcess();
+    }
 
     pVideoDebugPrint((3,"VideoPortReadRegisterUlong %x = %x\n", Register, temp));
 
     return(temp);
-#else
-    IS_ACCESS_RANGES_DEFINED()
 
-    return(READ_REGISTER_ULONG(Register));
-#endif
 } // VideoPortReadRegisterUlong()
 
 VOID
@@ -3980,7 +4621,15 @@ Return Value:
 
     IS_ACCESS_RANGES_DEFINED()
 
+    if (((ULONG)Register < 0x00100000) && CsrProcess) {
+        KeAttachProcess(&CsrProcess->Pcb);
+    }
+
     READ_REGISTER_BUFFER_UCHAR(Register, Buffer, Count);
+
+    if (((ULONG)Register < 0x00100000) && CsrProcess) {
+        KeDetachProcess();
+    }
 
 }
 
@@ -4013,7 +4662,15 @@ Return Value:
 
     IS_ACCESS_RANGES_DEFINED()
 
+    if (((ULONG)Register < 0x00100000) && CsrProcess) {
+        KeAttachProcess(&CsrProcess->Pcb);
+    }
+
     READ_REGISTER_BUFFER_USHORT(Register, Buffer, Count);
+
+    if (((ULONG)Register < 0x00100000) && CsrProcess) {
+        KeDetachProcess();
+    }
 
 }
 
@@ -4046,11 +4703,19 @@ Return Value:
 
     IS_ACCESS_RANGES_DEFINED()
 
+    if (((ULONG)Register < 0x00100000) && CsrProcess) {
+        KeAttachProcess(&CsrProcess->Pcb);
+    }
+
     READ_REGISTER_BUFFER_ULONG(Register, Buffer, Count);
+
+    if (((ULONG)Register < 0x00100000) && CsrProcess) {
+        KeDetachProcess();
+    }
 
 }
 
-// #endif // (DBG || !defined(i386))
+// #endif // (DBG || (!defined(_X86_) && !defined(_ALPHA_)))
 
 
 BOOLEAN
@@ -4086,9 +4751,9 @@ Environment:
 
     if (HwResetHw[0].ResetFunction) {
 
-        return  HwResetHw[0].ResetFunction(HwResetHw[0].HwDeviceExtension,
+        return (HwResetHw[0].ResetFunction(HwResetHw[0].HwDeviceExtension,
                                            Columns,
-                                           Rows);
+                                           Rows));
 
     } else {
 
@@ -4393,12 +5058,6 @@ Return Value:
     return;
 }
 
-
-VOID
-VideoPortStallExecution(
-    IN ULONG Microseconds
-    )
-
 //
 //VOID
 //VideoPortStallExecution(
@@ -4407,33 +5066,6 @@ VideoPortStallExecution(
 //
 //Forwarded to KeStallExecutionProcessor(Microseconds);
 //
-
-/*++
-
-Routine Description:
-
-    VideoPortStallExecution allows the miniport driver to prevent the
-    processor from executing any code for the specified number of
-    microseconds.
-
-    Maximum acceptable values are thousands of microseconds during the
-    initialization phase. Otherwise, only a few microsecond waits should
-    be performed.
-
-Arguments:
-
-    Microseconds - Specifies the number of microseconds for which processor
-        execution must be stalled.
-
-Return Value:
-
-    None.
-
---*/
-
-{
-    KeStallExecutionProcessor(Microseconds);
-}
 
 
 BOOLEAN
@@ -4630,8 +5262,11 @@ Environment:
 --*/
 
 {
+    NTSTATUS ntstatus;
+    VP_STATUS vpStatus = NO_ERROR;
 
-    UNREFERENCED_PARAMETER(HwDeviceExtension);
+    PDEVICE_EXTENSION deviceExtension =
+            ((PDEVICE_EXTENSION) HwDeviceExtension) - 1;
 
     //
     // Backwards compatibility to when the ProcessHandle was actually
@@ -4647,27 +5282,55 @@ Environment:
 
     }
 
-    //
-    // 0 means the current process ...
-    //
-
     if (((ULONG)(ProcessHandle)) == 0) {
 
-        ProcessHandle = NtCurrentProcess();
+        //
+        // If the process handle is zero, it means it was mapped by the display
+        // driver and is therefore in kernel mode address space.
+        //
 
-    }
+        if (!pVideoPortFreeDeviceBase(HwDeviceExtension, VirtualAddress)) {
 
+            ASSERT(FALSE);
 
-    if (!NT_SUCCESS(ZwUnmapViewOfSection(ProcessHandle,
-                (PVOID) ( ((ULONG)VirtualAddress) & (~(PAGE_SIZE - 1)) ) ))) {
+            vpStatus = ERROR_INVALID_PARAMETER;
 
-        return ERROR_INVALID_PARAMETER;
+        }
 
     } else {
 
-        return NO_ERROR;
+        //
+        // A process handle is passed in.
+        // This ms it was mapped for use by an application (DCI \ DirectDraw).
+        //
 
+#ifdef _ALPHA_
+        //
+        // On Alpha, VirtualAddress may not be a true VA if this was
+        // a sparse memory or IO space.   Transform the QVA to a VA,
+        // if necessary.
+        //
+
+        VirtualAddress = HalDereferenceQva(VirtualAddress,
+                                           deviceExtension->AdapterInterfaceType,
+                                           deviceExtension->SystemIoBusNumber);
+
+#endif
+
+        ntstatus = ZwUnmapViewOfSection(ProcessHandle,
+                    (PVOID) ( ((ULONG)VirtualAddress) & (~(PAGE_SIZE - 1)) ) );
+
+        if ( (!NT_SUCCESS(ntstatus)) &&
+             (ntstatus != STATUS_PROCESS_IS_TERMINATING) ) {
+
+            ASSERT(FALSE);
+
+            vpStatus = ERROR_INVALID_PARAMETER;
+
+        }
     }
+
+    return NO_ERROR;
 
 } // end VideoPortUnmapMemory()
 
@@ -4677,7 +5340,13 @@ Environment:
 // This saves time and memory
 //
 
-// #if (DBG || !defined(i386))
+//
+// BUGBUG
+// Disable forwarders until we fix the problem with writting to the
+// BIOS data area (which must be done in the context of CSR)
+//
+//
+// #if (DBG || (!defined(_X86_) && !defined(_ALPHA_)))
 
 VOID
 VideoPortWritePortUchar(
@@ -4929,7 +5598,15 @@ Return Value:
 
     IS_ACCESS_RANGES_DEFINED()
 
+    if (((ULONG)Register < 0x00100000) && CsrProcess) {
+        KeAttachProcess(&CsrProcess->Pcb);
+    }
+
     WRITE_REGISTER_UCHAR(Register, Value);
+
+    if (((ULONG)Register < 0x00100000) && CsrProcess) {
+        KeDetachProcess();
+    }
 
 } // VideoPortWriteRegisterUchar()
 
@@ -4965,7 +5642,15 @@ Return Value:
 
     IS_ACCESS_RANGES_DEFINED()
 
+    if (((ULONG)Register < 0x00100000) && CsrProcess) {
+        KeAttachProcess(&CsrProcess->Pcb);
+    }
+
     WRITE_REGISTER_USHORT(Register, Value);
+
+    if (((ULONG)Register < 0x00100000) && CsrProcess) {
+        KeDetachProcess();
+    }
 
 } // VideoPortWriteRegisterUshort()
 
@@ -5001,7 +5686,15 @@ Return Value:
 
     IS_ACCESS_RANGES_DEFINED()
 
+    if (((ULONG)Register < 0x00100000) && CsrProcess) {
+        KeAttachProcess(&CsrProcess->Pcb);
+    }
+
     WRITE_REGISTER_ULONG(Register, Value);
+
+    if (((ULONG)Register < 0x00100000) && CsrProcess) {
+        KeDetachProcess();
+    }
 
 } // VideoPortWriteRegisterUlong()
 
@@ -5035,7 +5728,15 @@ Return Value:
 
     IS_ACCESS_RANGES_DEFINED()
 
+    if (((ULONG)Register < 0x00100000) && CsrProcess) {
+        KeAttachProcess(&CsrProcess->Pcb);
+    }
+
     WRITE_REGISTER_BUFFER_UCHAR(Register, Buffer, Count);
+
+    if (((ULONG)Register < 0x00100000) && CsrProcess) {
+        KeDetachProcess();
+    }
 
 }
 
@@ -5068,7 +5769,15 @@ Return Value:
 
     IS_ACCESS_RANGES_DEFINED()
 
+    if (((ULONG)Register < 0x00100000) && CsrProcess) {
+        KeAttachProcess(&CsrProcess->Pcb);
+    }
+
     WRITE_REGISTER_BUFFER_USHORT(Register, Buffer, Count);
+
+    if (((ULONG)Register < 0x00100000) && CsrProcess) {
+        KeDetachProcess();
+    }
 
 }
 
@@ -5101,19 +5810,19 @@ Return Value:
 
     IS_ACCESS_RANGES_DEFINED()
 
+    if (((ULONG)Register < 0x00100000) && CsrProcess) {
+        KeAttachProcess(&CsrProcess->Pcb);
+    }
+
     WRITE_REGISTER_BUFFER_ULONG(Register, Buffer, Count);
+
+    if (((ULONG)Register < 0x00100000) && CsrProcess) {
+        KeDetachProcess();
+    }
 
 }
 
-// #endif // (DBG || !defined(i386))
-
-
-
-VOID
-VideoPortZeroMemory(
-    IN PVOID Destination,
-    IN ULONG Length
-    )
+// #endif
 
 //
 //VOID
@@ -5124,27 +5833,3 @@ VideoPortZeroMemory(
 //
 //Forwarded to RtlZeroMemory(Destination,Length);
 //
-
-/*++
-
-Routine Description:
-
-    VideoPortZeroMemory zeroes a block of system memory of a certain
-    length (Length) located at the address specified in Destination.
-
-Arguments:
-
-    Destination - Specifies the starting address of the block of memory to be
-        zeroed.
-
-    Length - Specifies the length, in bytes, of the memory to be zeroed.
-
- Return Value:
-
-    None.
-
---*/
-
-{
-    RtlZeroMemory(Destination,Length);
-}

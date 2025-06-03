@@ -162,15 +162,25 @@ static DLLINFO EEDefaults[] = {
     NULL, "MIPS C++",   "C++ with MIPS register set",     "eecxxmip.dll", "",
     NULL, "x86 C++",    "C++ with x86 register set",      "eecxxx86.dll", "",
     NULL, "ALPHA C++",  "C++ with ALPHA register set",    "eecxxalp.dll", "",
+    NULL, "PPC C++",    "C++ with PPC register set",      "eecxxppc.dll", "",
 
 #elif defined(HOST_i386)
 
     NULL, "x86 C++",    "C++ with x86 register set",      "eecxxx86.dll", "",
     NULL, "MIPS C++",   "C++ with MIPS register set",     "eecxxmip.dll", "",
     NULL, "ALPHA C++",  "C++ with ALPHA register set",    "eecxxalp.dll", "",
+    NULL, "PPC C++",    "C++ with PPC register set",      "eecxxppc.dll", "",
 
 #elif defined(HOST_ALPHA)
 
+    NULL, "ALPHA C++",  "C++ with ALPHA register set",    "eecxxalp.dll", "",
+    NULL, "MIPS C++",   "C++ with MIPS register set",     "eecxxmip.dll", "",
+    NULL, "x86 C++",    "C++ with x86 register set",      "eecxxx86.dll", "",
+    NULL, "PPC C++",    "C++ with PPC register set",      "eecxxppc.dll", "",
+
+#elif defined(HOST_PPC)
+
+    NULL, "PPC C++",    "C++ with PPC register set",      "eecxxppc.dll", "",
     NULL, "ALPHA C++",  "C++ with ALPHA register set",    "eecxxalp.dll", "",
     NULL, "MIPS C++",   "C++ with MIPS register set",     "eecxxmip.dll", "",
     NULL, "x86 C++",    "C++ with x86 register set",      "eecxxx86.dll", "",
@@ -187,7 +197,6 @@ static DLLINFO TLDefaults[] = {
     NULL, "SER24",  "Serial - COM1, 2400 baud", "tlser.dll", "com1:2400",
     NULL, "SER96",  "Serial - COM1, 9600 baud", "tlser.dll", "com1:9600",
     NULL, "SER192", "Serial - COM1, 19200 baud", "tlser.dll", "com1:19200",
-    NULL, "Win32S", "Serial - COM1, 19200 baud", "tlser32.dll", "com1:19200",
     NULL, NULL, NULL, NULL, NULL
 };
 
@@ -198,15 +207,25 @@ static DLLINFO EMDefaults[] = {
     NULL, "EMMip",  "MIPS CPU", "emmip.dll", "",
     NULL, "EMx86",  "x86 CPU",  "emx86.dll",  "",
     NULL, "EMAlpha",  "ALPHA CPU", "emalp.dll", "",
+    NULL, "EMPPC",  "PPC CPU", "emppc.dll", "",
 
 #elif defined(HOST_i386)
 
     NULL, "EMx86",  "x86 CPU",  "emx86.dll",  "",
     NULL, "EMMip",  "MIPS CPU", "emmip.dll", "",
     NULL, "EMAlpha",  "ALPHA CPU", "emalp.dll", "",
+    NULL, "EMPPC",  "PPC CPU", "emppc.dll", "",
 
 #elif defined(HOST_ALPHA)
 
+    NULL, "EMAlpha",  "ALPHA CPU", "emalp.dll", "",
+    NULL, "EMMip",  "MIPS CPU", "emmip.dll", "",
+    NULL, "EMx86",  "x86 CPU",  "emx86.dll",  "",
+    NULL, "EMPPC",  "PPC CPU", "emppc.dll", "",
+
+#elif defined(HOST_PPC)
+
+    NULL, "EMPPC",  "PPC CPU", "emppc.dll", "",
     NULL, "EMAlpha",  "ALPHA CPU", "emalp.dll", "",
     NULL, "EMMip",  "MIPS CPU", "emmip.dll", "",
     NULL, "EMx86",  "x86 CPU",  "emx86.dll",  "",
@@ -273,7 +292,7 @@ Returns:
     }
 
     lpName += strspn( lpName, WHITESPACE );
-    rgszDllNames[iDll] = strdup(lpName);
+    rgszDllNames[iDll] = _strdup(lpName);
 
     return;
 }                                       /* SetDllName() */
@@ -314,12 +333,12 @@ Returns:
     if (rgszDllNames[iDll] != NULL) {
         free(rgszDllNames[iDll]);
     }
-    rgszDllNames[iDll] = strdup(szBuf);
+    rgszDllNames[iDll] = _strdup(szBuf);
 
     if (rgszDllKeys[iDll] != NULL) {
         free(rgszDllKeys[iDll]);
     }
-    rgszDllKeys[iDll] = strdup(lpKey);
+    rgszDllKeys[iDll] = _strdup(lpKey);
 
     return;
 
@@ -410,7 +429,7 @@ Returns:
     FillDLLInfoList(nId);
 
     for (pInfo = *ppList; pInfo; pInfo = pInfo->pNext) {
-        if (stricmp(lpKey, pInfo->pShortName) == 0) {
+        if (_stricmp(lpKey, pInfo->pShortName) == 0) {
             strcpy(lpBuf, pInfo->pPath);
             if (pInfo->pParams && *(pInfo->pParams)) {
                 strcat(lpBuf, " ");
@@ -740,16 +759,16 @@ Returns:
     PDLLINFO p = (PDLLINFO)malloc(sizeof(DLLINFO));
     memset(p, 0, sizeof(DLLINFO));
     if (pSrc->pShortName) {
-        p->pShortName = strdup(pSrc->pShortName);
+        p->pShortName = _strdup(pSrc->pShortName);
     }
     if (pSrc->pDescription) {
-        p->pDescription = strdup(pSrc->pDescription);
+        p->pDescription = _strdup(pSrc->pDescription);
     }
     if (pSrc->pPath) {
-        p->pPath = strdup(pSrc->pPath);
+        p->pPath = _strdup(pSrc->pPath);
     }
     if (pSrc->pParams) {
-        p->pParams = strdup(pSrc->pParams);
+        p->pParams = _strdup(pSrc->pParams);
     }
     return p;
 }
@@ -786,22 +805,22 @@ Returns:
 
     memset(pItem, 0, sizeof(DLLINFO));
 
-    pItem->pShortName = strdup(lpKeyName);
+    pItem->pShortName = _strdup(lpKeyName);
 
     szBuf[0] = 0;
     dwSize = sizeof(szBuf);
     GetOptionSubItem(hKey, lpKeyName, DESCRIPTION, szBuf, &dwSize);
-    pItem->pDescription = strdup(szBuf);
+    pItem->pDescription = _strdup(szBuf);
 
     szBuf[0] = 0;
     dwSize = sizeof(szBuf);
     GetOptionSubItem(hKey, lpKeyName, PATH, szBuf, &dwSize);
-    pItem->pPath = strdup(szBuf);
+    pItem->pPath = _strdup(szBuf);
 
     szBuf[0] = 0;
     dwSize = sizeof(szBuf);
     GetOptionSubItem(hKey, lpKeyName, PARAMS, szBuf, &dwSize);
-    pItem->pParams = strdup(szBuf);
+    pItem->pParams = _strdup(szBuf);
 
     AddItem(ppList, pItem);
 }
@@ -872,7 +891,7 @@ Returns:
     for (pInfo = *ppList; pInfo; pInfo = pInfo->pNext) {
         FormatEntry(szBuf, pInfo);
         SendMessage(hCtl, CB_ADDSTRING, 0, (LPARAM)(LPSTR)szBuf);
-        if (lpSelKey && _fstricmp(pInfo->pShortName, lpSelKey) == 0) {
+        if (lpSelKey && _stricmp(pInfo->pShortName, lpSelKey) == 0) {
             nSel = nItems;
         }
         ++nItems;
@@ -934,10 +953,10 @@ Returns:
             pInfo = malloc(sizeof(DLLINFO));
             *pInfo = *pDefaults++;
 
-            pInfo->pShortName   = strdup(pInfo->pShortName);
-            pInfo->pDescription = strdup(pInfo->pDescription);
-            pInfo->pPath        = strdup(pInfo->pPath);
-            pInfo->pParams      = strdup(pInfo->pParams);
+            pInfo->pShortName   = _strdup(pInfo->pShortName);
+            pInfo->pDescription = _strdup(pInfo->pDescription);
+            pInfo->pPath        = _strdup(pInfo->pPath);
+            pInfo->pParams      = _strdup(pInfo->pParams);
 
             AddItem(ppList, pInfo);
         }
@@ -1201,9 +1220,9 @@ Return Value:
 
         hOK = GetDlgItem(hDlg, IDOK);
         hCANCEL = GetDlgItem(hDlg, IDCANCEL);
-        hHELP = GetDlgItem(hDlg, IDHELP);
+        hHELP = GetDlgItem(hDlg, IDWINDBGHELP);
 
-        // this is really stupid...
+        // picky button magic...
         lpfnButtonProc = (WNDPROC)GetWindowLong(
                                     GetDlgItem(hDlg, ID_DBUGDLL_ADD),
                                     GWL_WNDPROC);
@@ -1434,7 +1453,7 @@ Return Value:
             EndDialog(hDlg, FALSE);
             return TRUE;
 
-          case IDHELP:
+          case IDWINDBGHELP:
             Dbg(WinHelp(hDlg, szHelpFileName, (DWORD) HELP_CONTEXT,(DWORD)ID_DBUGDLL_HELP));
             return TRUE;
 
@@ -1562,7 +1581,7 @@ Return Value:
             }
 
             for (pt = pList->pDLLList; pt; pt = pt->pNext) {
-                if (pt != pInfo && _fstricmp(szBuf, pt->pShortName) == 0) {
+                if (pt != pInfo && _stricmp(szBuf, pt->pShortName) == 0) {
                     VarMsgBox(hDlg,
                              ERR_Not_Unique_Shortname,
                              MB_OK | MB_ICONINFORMATION,
@@ -1574,7 +1593,7 @@ Return Value:
             if (pInfo->pShortName) {
                 free(pInfo->pShortName);
             }
-            pInfo->pShortName = strdup(szBuf);
+            pInfo->pShortName = _strdup(szBuf);
 
             if (pInfo->pDescription) {
                 free(pInfo->pDescription);
@@ -1616,7 +1635,7 @@ Return Value:
             EndDialog(hDlg, FALSE);
             return TRUE;
 
-          case IDHELP:
+          case IDWINDBGHELP:
             Dbg(WinHelp(hDlg, szHelpFileName, (DWORD) HELP_CONTEXT,(DWORD)ID_CHDBDLL_HELP));
             return TRUE;
 
@@ -1627,4 +1646,3 @@ Return Value:
     }
     return FALSE;
 }
-

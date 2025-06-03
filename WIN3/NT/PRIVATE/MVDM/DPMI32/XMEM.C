@@ -26,7 +26,9 @@ Revision History:
         processor specific code to do actual allocation
         
 --*/
-#include "dpmi32p.h"
+#include "precomp.h"
+#pragma hdrstop
+#include "softpc.h"
 #include <malloc.h>
 
 //

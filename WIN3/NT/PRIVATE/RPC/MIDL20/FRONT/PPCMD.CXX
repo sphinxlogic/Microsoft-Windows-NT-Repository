@@ -186,6 +186,8 @@ static short					ResLineNo;
 		 	extern data
  *****************************************************************************/
 
+extern BOOL						fNoLogo;
+
 /*****************************************************************************
 		 	extern procs
  *****************************************************************************/
@@ -241,6 +243,12 @@ PPCmdEngine(
 			case '@':
 				AnalyseResponseFile( p, pIDict );
 				break;
+			case '/':
+			case '-':
+				// detect /nologo early in the cmd parse
+				if ( !strcmp( p+1, "nologo" ) )
+					fNoLogo = TRUE;
+				// fall through
 			default:
 				q	= new char[ strlen( p ) + 1 ];
 				strcpy( q, p );

@@ -47,7 +47,7 @@
 
 STDMETHODIMP CDataObject::QueryInterface ( REFIID riid, LPVOID FAR* ppvObj)
 {
-	OutputDebugString("In CDataObject::QueryInterface\r\n");
+	TestDebugOut("In CDataObject::QueryInterface\r\n");
 
 	return m_lpObj->QueryInterface(riid, ppvObj);
 };
@@ -82,7 +82,7 @@ STDMETHODIMP CDataObject::QueryInterface ( REFIID riid, LPVOID FAR* ppvObj)
 
 STDMETHODIMP_(ULONG) CDataObject::AddRef ()
 {
-	OutputDebugString("In CDataObject::AddRef\r\n");
+	TestDebugOut("In CDataObject::AddRef\r\n");
 	++m_nCount;
 	return m_lpObj->AddRef();
 };
@@ -106,7 +106,7 @@ STDMETHODIMP_(ULONG) CDataObject::AddRef ()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      CSimpSvrObj::Release        OBJ.CPP
 //
 // Comments:
@@ -117,7 +117,7 @@ STDMETHODIMP_(ULONG) CDataObject::AddRef ()
 
 STDMETHODIMP_(ULONG) CDataObject::Release ()
 {
-	OutputDebugString("In CDataObject::Release\r\n");
+	TestDebugOut("In CDataObject::Release\r\n");
 	--m_nCount;
 	return m_lpObj->Release();
 };
@@ -144,7 +144,7 @@ STDMETHODIMP_(ULONG) CDataObject::Release ()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      ResultFromScode             OLE API
 //
 // Comments:
@@ -157,7 +157,7 @@ STDMETHODIMP CDataObject::QueryGetData  ( LPFORMATETC pformatetc )
 {
 	SCODE sc = DATA_E_FORMATETC;
 
-	OutputDebugString("In CDataObject::QueryGetData\r\n");
+	TestDebugOut("In CDataObject::QueryGetData\r\n");
 
 	// check the validity of the formatetc.
 	if ( (pformatetc->cfFormat == CF_METAFILEPICT)  &&
@@ -194,7 +194,7 @@ STDMETHODIMP CDataObject::QueryGetData  ( LPFORMATETC pformatetc )
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      CreateDataAdviseHolder      OLE API
 //      IDataAdviseHolder::Advise   OLE API
 //
@@ -207,7 +207,7 @@ STDMETHODIMP CDataObject::QueryGetData  ( LPFORMATETC pformatetc )
 STDMETHODIMP CDataObject::DAdvise  ( FORMATETC FAR* pFormatetc, DWORD advf,
 									 LPADVISESINK pAdvSink, DWORD FAR* pdwConnection)
 {
-	OutputDebugString("In CDataObject::DAdvise\r\n");
+	TestDebugOut("In CDataObject::DAdvise\r\n");
 
 	// if no DataAdviseHolder has been created, then create one.
 	if (!m_lpObj->m_lpDataAdviseHolder)
@@ -240,7 +240,7 @@ STDMETHODIMP CDataObject::DAdvise  ( FORMATETC FAR* pFormatetc, DWORD advf,
 // Function Calls:
 //      Function                        Location
 //
-//      OutputDebugString               Windows API
+//      TestDebugOut               Windows API
 //      CSimpSvrObj::GetMetaFilePict()  OBJ.CPP
 //      ResultFromScode                 OLE API
 //
@@ -254,7 +254,7 @@ STDMETHODIMP CDataObject::GetData  ( LPFORMATETC pformatetcIn, LPSTGMEDIUM pmedi
 {
 	SCODE sc = DATA_E_FORMATETC;
 
-	OutputDebugString("In CDataObject::GetData\r\n");
+	TestDebugOut("In CDataObject::GetData\r\n");
 
 	// Check to the FORMATETC and fill pmedium if valid.
 	if ( (pformatetcIn->cfFormat == CF_METAFILEPICT)  &&
@@ -290,7 +290,7 @@ STDMETHODIMP CDataObject::GetData  ( LPFORMATETC pformatetcIn, LPSTGMEDIUM pmedi
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      IDataAdviseHolder::Unadvise OLE
 //
 // Comments:
@@ -301,9 +301,16 @@ STDMETHODIMP CDataObject::GetData  ( LPFORMATETC pformatetcIn, LPSTGMEDIUM pmedi
 
 STDMETHODIMP CDataObject::DUnadvise  ( DWORD dwConnection)
 {
-	OutputDebugString("In CDataObject::DUnadvise\r\n");
+	TestDebugOut("In CDataObject::DUnadvise\r\n");
 
-	return m_lpObj->m_lpDataAdviseHolder->Unadvise(dwConnection);
+	if (m_lpObj != NULL && m_lpObj->m_lpDataAdviseHolder != NULL)
+	{
+	    return m_lpObj->m_lpDataAdviseHolder->Unadvise(dwConnection);
+	}
+	
+	return ResultFromScode( E_UNEXPECTED);
+
+
 };
 
 //**********************************************************************
@@ -327,7 +334,7 @@ STDMETHODIMP CDataObject::DUnadvise  ( DWORD dwConnection)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -340,7 +347,7 @@ STDMETHODIMP CDataObject::DUnadvise  ( DWORD dwConnection)
 STDMETHODIMP CDataObject::GetDataHere  ( LPFORMATETC pformatetc,
 										 LPSTGMEDIUM pmedium )
 {
-	OutputDebugString("In CDataObject::GetDataHere\r\n");
+	TestDebugOut("In CDataObject::GetDataHere\r\n");
 	return ResultFromScode( DATA_E_FORMATETC);
 };
 
@@ -365,7 +372,7 @@ STDMETHODIMP CDataObject::GetDataHere  ( LPFORMATETC pformatetc,
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      CoGetMalloc                 OLE API
 //      IMalloc::Alloc              OLE
 //      IMalloc::Release            OLE
@@ -381,7 +388,7 @@ STDMETHODIMP CDataObject::GetCanonicalFormatEtc  ( LPFORMATETC pformatetc,
 												   LPFORMATETC pformatetcOut)
 {
 	HRESULT hresult;
-	OutputDebugString("In CDataObject::GetCanonicalFormatEtc\r\n");
+	TestDebugOut("In CDataObject::GetCanonicalFormatEtc\r\n");
 
 	if (!pformatetcOut)
 		return ResultFromScode(E_INVALIDARG);
@@ -439,7 +446,7 @@ STDMETHODIMP CDataObject::GetCanonicalFormatEtc  ( LPFORMATETC pformatetc,
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -452,7 +459,7 @@ STDMETHODIMP CDataObject::GetCanonicalFormatEtc  ( LPFORMATETC pformatetc,
 STDMETHODIMP CDataObject::SetData  ( LPFORMATETC pformatetc, STGMEDIUM FAR * pmedium,
 									 BOOL fRelease)
 {
-	OutputDebugString("In CDataObject::SetData\r\n");
+	TestDebugOut("In CDataObject::SetData\r\n");
 	return ResultFromScode( DATA_E_FORMATETC );
 };
 
@@ -479,7 +486,7 @@ STDMETHODIMP CDataObject::SetData  ( LPFORMATETC pformatetc, STGMEDIUM FAR * pme
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -490,7 +497,7 @@ STDMETHODIMP CDataObject::SetData  ( LPFORMATETC pformatetc, STGMEDIUM FAR * pme
 STDMETHODIMP CDataObject::EnumFormatEtc  ( DWORD dwDirection,
 										   LPENUMFORMATETC FAR* ppenumFormatEtc)
 {
-	OutputDebugString("In CDataObject::EnumFormatEtc\r\n");
+	TestDebugOut("In CDataObject::EnumFormatEtc\r\n");
 	// need to NULL the out parameter
 	*ppenumFormatEtc = NULL;
 	return ResultFromScode( OLE_S_USEREG );
@@ -517,7 +524,7 @@ STDMETHODIMP CDataObject::EnumFormatEtc  ( DWORD dwDirection,
 // Function Calls:
 //      Function                        Location
 //
-//      OutputDebugString               Windows API
+//      TestDebugOut               Windows API
 //      IDAtaAdviseHolder::EnumAdvise   OLE
 //
 // Comments:
@@ -529,7 +536,7 @@ STDMETHODIMP CDataObject::EnumFormatEtc  ( DWORD dwDirection,
 
 STDMETHODIMP CDataObject::EnumDAdvise  ( LPENUMSTATDATA FAR* ppenumAdvise)
 {
-	OutputDebugString("In CDataObject::EnumDAdvise\r\n");
+	TestDebugOut("In CDataObject::EnumDAdvise\r\n");
 	// need to NULL the out parameter
 	*ppenumAdvise = NULL;
 

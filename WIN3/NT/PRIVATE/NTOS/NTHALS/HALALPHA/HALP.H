@@ -37,6 +37,8 @@ Revision History:
 
 #include "nthal.h"
 #include "hal.h"
+#include "pci.h"
+#include "errframe.h"
 
 
 //
@@ -46,21 +48,6 @@ Revision History:
 extern KSPIN_LOCK HalpBeepLock;
 extern KSPIN_LOCK HalpDisplayAdapterLock;
 extern KSPIN_LOCK HalpSystemInterruptLock;
-
-//
-// KiAcquireSpinLock() and KiReleaseSpinLock() are not declared in
-// nthal.h.  Declare them here until we get them added.  -DWR
-//
-
-VOID
-KiAcquireSpinLock (
-    IN PKSPIN_LOCK SpinLock
-    );
-
-VOID
-KiReleaseSpinLock (
-    IN PKSPIN_LOCK SpinLock
-    );
 
 //
 // Define external references.
@@ -90,8 +77,8 @@ extern ULONG HalpBusType;
 // Define global data used to relate PCI devices to their interrupt
 // vector.
 //
-  
-extern ULONG *HalpPCIPinToLineTable; 
+
+extern ULONG *HalpPCIPinToLineTable;
 
 //
 // Define global data used to locate the EISA control space and the realtime
@@ -125,6 +112,27 @@ typedef enum _ADDRESS_SPACE_TYPE{
     KernelPciDenseMemory = 4,
     UserPciDenseMemory = 6,
 } ADDRESS_SPACE_TYPE, *PADDRESS_SPACE_TYPE;
+
+//
+// Prototype for Memory Size determination routine
+//
+ULONGLONG
+HalpGetMemorySize(
+    IN PLOADER_PARAMETER_BLOCK LoaderBlock
+    );
+
+ULONGLONG
+HalpGetContiguousMemorySize(
+    IN PLOADER_PARAMETER_BLOCK LoaderBlock
+    );
+    
+//
+// Prototype for BCache Size determination routine
+//
+ULONG
+HalpGetBCacheSize(
+    ULONGLONG ContiguousMemorySize
+    );
 
 //
 // Define initialization routine prototypes.
@@ -162,7 +170,8 @@ HalpInitializeInterrupts (
 
 VOID
 HalpInitializeMachineDependent(
-    IN ULONG Phase
+    IN ULONG Phase,
+    IN PLOADER_PARAMETER_BLOCK LoaderBlock
     );
 
 BOOLEAN
@@ -181,6 +190,63 @@ VOID
 HalpSetTimeIncrement(
     VOID
     );
+
+VOID
+HalpParseLoaderBlock(
+    IN PLOADER_PARAMETER_BLOCK LoaderBlock
+    );
+
+VOID
+HalpInitializeProcessorParameters(
+    VOID
+    );
+    
+//
+// Error Frame Initialization and Support Routines
+//
+VOID
+HalpAllocateUncorrectableFrame(
+    VOID
+    );
+
+VOID
+HalpGetMachineDependentErrorFrameSizes(
+    PULONG          RawProcessorSize,
+    PULONG          RawSystemInfoSize
+    );
+
+VOID
+HalpInitializeUncorrectableErrorFrame (
+    VOID
+    );
+
+VOID
+HalpGetProcessorInfo(
+    PPROCESSOR_INFO  pProcessorInfo
+    );
+
+VOID
+HalpGetSystemInfo(
+    SYSTEM_INFORMATION *SystemInfo
+    );
+
+//
+// Define profiler function prototypes.
+//
+
+NTSTATUS
+HalpProfileSourceInformation (
+    OUT PVOID   Buffer,
+    IN  ULONG   BufferLength,
+    OUT PULONG  ReturnedLength
+    );
+
+NTSTATUS
+HalpProfileSourceInterval (
+    OUT PVOID   Buffer,
+    IN  ULONG   BufferLength
+    );
+
 
 //
 // Define interrupt function prototypes.
@@ -223,6 +289,11 @@ HalpPerformanceCounter1Interrupt (
     );
 
 VOID
+HalpPerformanceCounter2Interrupt (
+    VOID
+    );
+
+VOID
 HalpStallInterrupt (
     VOID
     );
@@ -236,43 +307,9 @@ HalpVideoReboot(
 // Define microprocessor-specific function prototypes and structures.
 //
 
-// jnfix - these definitions should be moved to axp21064.h
-
-typedef enum _AXP21064_PCCOUNTER{
-    PerformanceCounter0 = 0,
-    PerformanceCounter1 = 1
-} AXP21064_PCCOUNTER, *PAXP21064_PCCOUNTER;
-
-typedef enum _AXP21064_PCMUXCONTROL{
-    TotalIssues = 0x0,
-    PipelineDry = 0x2,
-    LoadInstruction = 0x4,
-    PipelineFrozen = 0x6,
-    BranchInstructions = 0x8,
-    PalMode = 0xb,
-    TotalCycles = 0xa,
-    TotalNonIssues = 0xc,
-    ExternalCounter0 = 0xe,
-    DcacheMisses = 0x0,
-    IcacheMisses = 0x1,
-    DualIssues = 0x2,
-    BranchMispredicts = 0x3,
-    FPInstructions = 0x4,
-    IntegerOperate = 0x5,
-    StoreInstructions = 0x6,
-    ExternalCounter1 = 0x7
-} AXP21064_PCMUXCONTROL, *PAXP21064_PCMUXCONTROL;
-
-typedef enum _AXP21064_PCEVENTCOUNT{
-    CountEvents2xx8 = 0x100,
-    CountEvents2xx12 = 0x1000,
-    CountEvents2xx16 = 0x10000
-} AXP21064_PCEVENTCOUNT, *PAXP21064_PCEVENTCOUNT;
-
-typedef enum _AXP_EVENTCOUNT{
-    EventCountHigh = 1,
-    EventCountLow = 0
-} AXP_EVENTCOUNT, *PAXP_EVENTCOUNT;
+//
+// 21064 (EV4) processor family.
+//
 
 typedef enum _EV4Irq{
     Irq0 = 0,
@@ -290,6 +327,11 @@ typedef struct _EV4IrqStatus{
     KIRQL Irql;
     UCHAR Priority;
 } EV4IrqStatus, *PEV4IrqStatus;
+
+typedef struct _EV4ProfileCount {
+    ULONG ProfileCount[2];
+    ULONG ProfileCountReload[2];
+} EV4ProfileCount, *PEV4ProfileCount;
 
 VOID
 HalpInitialize21064Interrupts(
@@ -325,6 +367,11 @@ HalpEnable21064SoftwareInterrupt(
     );
 
 VOID
+HalpInitialize21064Interrupts(
+    VOID
+    );
+
+VOID
 HalpEnable21064PerformanceInterrupt(
     IN ULONG Vector,
     IN KIRQL Irql
@@ -335,6 +382,59 @@ HalpGet21064PerformanceVector(
     IN ULONG BusInterruptLevel,
     OUT PKIRQL Irql
     );
+
+ULONG
+HalpGet21064CorrectableVector(
+    IN ULONG BusInterruptLevel,
+    OUT PKIRQL Irql
+    );
+
+//
+// 21164 processor family.
+//
+
+#ifdef EV5
+
+typedef struct _EV5ProfileCount {
+    ULONG ProfileCount[3];
+    ULONG ProfileCountReload[3];
+} EV5ProfileCount, *PEV5ProfileCount;
+
+VOID
+HalpInitialize21164Interrupts(
+    VOID
+    );
+
+VOID
+HalpStart21164Interrupts(
+    VOID
+    );
+
+ULONG
+HalpGet21164PerformanceVector(
+    IN ULONG BusInterruptLevel,
+    OUT PKIRQL Irql
+    );
+
+ULONGLONG
+HalpRead21164PerformanceCounter(
+    VOID
+    );
+
+VOID
+HalpWrite21164PerformanceCounter(
+    ULONGLONG PmCtr,
+    ULONG CBOXMux1,
+    ULONG CBOXMux2
+    );
+
+ULONG
+HalpGet21164CorrectableVector(
+    IN ULONG BusInterruptLevel,
+    OUT PKIRQL Irql
+    );
+
+#endif // EV5 specific definitions
 
 //
 // Define the context structure for use by interrupt service routines.
@@ -369,20 +469,24 @@ HalpRemapVirtualAddress(
     IN PVOID PhysicalAddress
     );
 
-//
-// Low-level routine interfaces.
-//    
+#if HALDBG
 
 VOID
-HalpCachePcrValues(
-    VOID
+HalpDumpMemoryDescriptors(
+    IN PLOADER_PARAMETER_BLOCK LoaderBlock
     );
+
+#endif
+
+//
+// Low-level routine interfaces.
+//
 
 VOID
 HalpReboot(
     VOID
     );
-    
+
 VOID
 HalpImb(
     VOID
@@ -423,6 +527,45 @@ HalpWritePerformanceCounter(
 #define HalpStallExecution KeStallExecutionProcessor
 
 //
+// Define Bus Handler support function prototypes.
+//
+
+
+VOID
+HalpRegisterInternalBusHandlers (
+    VOID
+    );
+
+ULONG
+HalpGetSystemInterruptVector(
+    IN PBUS_HANDLER BusHandler,
+    IN PBUS_HANDLER RootHandler,
+    IN ULONG BusInterruptLevel,
+    IN ULONG BusInterruptVector,
+    OUT PKIRQL Irql,
+    OUT PKAFFINITY Affinity
+    );
+
+BOOLEAN
+HalpTranslateSystemBusAddress(
+    IN PBUS_HANDLER BusHandler,
+    IN PBUS_HANDLER RootHandler,
+    IN PHYSICAL_ADDRESS BusAddress,
+    IN OUT PULONG AddressSpace,
+    OUT PPHYSICAL_ADDRESS TranslatedAddress
+    );
+
+
+VOID
+HalpAdjustResourceListUpperLimits (
+    IN OUT PIO_RESOURCE_REQUIREMENTS_LIST   *pResourceList,
+    IN LARGE_INTEGER                        MaximumPortAddress,
+    IN LARGE_INTEGER                        MaximumMemoryAddress,
+    IN ULONG                                MaximumInterruptVector,
+    IN ULONG                                MaximumDmaChannel
+    );
+
+//
 // Define SIO support function prototypes.
 //
 
@@ -441,7 +584,7 @@ VOID
 HalpDisableSioInterrupt(
     IN ULONG Vector
     );
-    
+
 BOOLEAN
 HalpSioDispatch(
     VOID
@@ -466,7 +609,7 @@ VOID
 HalpDisableEisaInterrupt(
     IN ULONG Vector
     );
-    
+
 BOOLEAN
 HalpEisaDispatch(
     IN PKINTERRUPT Interrupt,
@@ -522,7 +665,8 @@ HalpReadEisaDmaCounter(
 
 ULONG
 HalpGetEisaData(
-    IN ULONG BusNumber,
+    IN PBUS_HANDLER BusHandler,
+    IN PBUS_HANDLER RootHandler,
     IN ULONG SlotNumber,
     IN PVOID Buffer,
     IN ULONG Offset,
@@ -531,19 +675,50 @@ HalpGetEisaData(
 
 NTSTATUS
 HalpAdjustEisaResourceList (
-    IN ULONG BusNumber,
+    IN PBUS_HANDLER BusHandler,
+    IN PBUS_HANDLER RootHandler,
     IN OUT PIO_RESOURCE_REQUIREMENTS_LIST   *pResourceList
     );
 
 NTSTATUS
 HalpAdjustIsaResourceList (
-    IN ULONG BusNumber,
+    IN PBUS_HANDLER BusHandler,
+    IN PBUS_HANDLER RootHandler,
     IN OUT PIO_RESOURCE_REQUIREMENTS_LIST   *pResourceList
     );
 
 //
 // Define PCI support function prototypes.
 //
+
+VOID
+HalpInitializePCIBus (
+    IN PLOADER_PARAMETER_BLOCK LoaderBlock
+    );
+
+PBUS_HANDLER
+HalpAllocateAndInitPCIBusHandler (
+    IN ULONG        BusNo,
+    IN ULONG        HwBusNo,
+    IN BOOLEAN      BusIsAcrossPPB,
+    IN ULONG        PPBBusNumber,
+    IN PCI_SLOT_NUMBER PPBSlotNumber
+    );
+
+VOID
+HalpRegisterPCIInstallHandler(
+    IN PINSTALL_BUS_HANDLER MachineSpecificPCIInstallHandler
+);
+
+NTSTATUS
+HalpDefaultPCIInstallHandler(
+      IN PBUS_HANDLER   Bus
+      );
+
+VOID
+HalpDeterminePCIDevicesPresent(
+    IN PBUS_HANDLER Bus
+);
 
 BOOLEAN
 HalpInitializePCIInterrupts(
@@ -559,13 +734,6 @@ VOID
 HalpDisablePCIInterrupt(
     IN ULONG Vector
     );
-    
-BOOLEAN
-HalpPCIDispatch(
-    IN PKINTERRUPT Interrupt,
-    IN PVOID ServiceContext,
-    IN PKTRAP_FRAME TrapFrame
-    );
 
 BOOLEAN
 HalpPCIInterruptHandler(
@@ -573,51 +741,6 @@ HalpPCIInterruptHandler(
     IN PVOID ServiceContext
     );
 
-ULONG
-HalpGetPCIData(
-    IN ULONG BusNumber,
-    IN ULONG SlotNumber,
-    IN PUCHAR Buffer,
-    IN ULONG Offset,
-    IN ULONG Length
-    );
-
-ULONG
-HalpSetPCIData(
-    IN ULONG BusNumber,
-    IN ULONG SlotNumber,
-    IN PUCHAR Buffer,
-    IN ULONG Offset,
-    IN ULONG Length
-    );
-
-
-NTSTATUS
-HalpAdjustPCIResourceList (
-    IN ULONG BusNumber,
-    IN OUT PIO_RESOURCE_REQUIREMENTS_LIST   *pResourceList
-    );
-
-VOID
-HalpAdjustResourceListUpperLimits (
-    IN OUT PIO_RESOURCE_REQUIREMENTS_LIST   *pResourceList,
-    IN LARGE_INTEGER                        MaximumPortAddress,
-    IN LARGE_INTEGER                        MaximumMemoryAddress,
-    IN ULONG                                MaximumInterruptVector,
-    IN ULONG                                MaximumDmaChannel
-    );
-
-NTSTATUS
-HalpAssignPCISlotResources(
-    IN ULONG                    BusNumber,
-    IN PUNICODE_STRING          RegistryPath,
-    IN PUNICODE_STRING          DriverClassName       OPTIONAL,
-    IN PDRIVER_OBJECT           DriverObject,
-    IN PDEVICE_OBJECT           DeviceObject          OPTIONAL,
-    IN ULONG                    Slot,
-    IN OUT PCM_RESOURCE_LIST   *pAllocatedResources
-    );
- 
 
 //
 // Environment variable support
@@ -643,6 +766,161 @@ HalpCopyNVRamBuffer(
     IN  PCHAR NvSrcPtr,
     IN  ULONG Length
     );
+
+#if defined(TAGGED_NVRAM)
+
+//
+// NVRAM API
+//
+
+UCHAR
+HalpGetNVRamUchar(
+    IN ULONG Offset
+    );
+
+VOID
+HalpSetNVRamUchar(
+    IN ULONG Offset,
+    IN UCHAR Data
+    );
+
+USHORT
+HalpGetNVRamUshort(
+    IN ULONG Offset
+    );
+
+VOID
+HalpSetNVRamUshort(
+    IN ULONG Offset,
+    IN USHORT Data
+    );
+
+ULONG
+HalpGetNVRamUlong(
+    IN ULONG Offset
+    );
+
+VOID
+HalpSetNVRamUlong(
+    IN ULONG Offset,
+    IN ULONG Data
+    );
+
+VOID
+HalpMoveMemoryToNVRam(
+    IN ULONG Offset,
+    IN PVOID Data,
+    IN ULONG Length
+    );
+
+VOID
+HalpMoveNVRamToMemory(
+    IN PVOID Data,
+    IN ULONG Offset,
+    IN ULONG Length
+    );
+
+VOID
+HalpMoveNVRamToNVRam(
+    IN ULONG Destination,
+    IN ULONG Source,
+    IN ULONG Length
+    );
+
+ULONG
+HalpGetNVRamStringLength(
+    IN ULONG Offset
+    );
+
+VOID
+HalpMoveMemoryStringToNVRam(
+    IN ULONG Offset,
+    IN PCHAR Data
+    );
+
+VOID
+HalpMoveNVRamStringToMemory(
+    IN PUCHAR Data,
+    IN ULONG Offset
+    );
+
+VOID
+HalpZeroNVRam(
+    IN ULONG Offset,
+    IN ULONG Length
+    );
+
+ULONG
+HalpComputeNVRamChecksum(
+    IN ULONG Offset,
+    IN ULONG Length
+    );
+
+BOOLEAN
+HalpIsNVRamRegion0Valid(
+    VOID
+    );
+
+BOOLEAN
+HalpSynchronizeNVRamRegion0(
+    IN BOOLEAN RecomputeChecksum
+    );
+
+BOOLEAN
+HalpInitializeNVRamRegion0(
+    IN BOOLEAN Synchronize
+    );
+
+ULONG
+HalpGetNVRamFwConfigOffset(
+    VOID
+    );
+
+ULONG
+HalpGetNVRamFwConfigLength(
+    VOID
+    );
+
+ULONG
+HalpGetNVRamLanguageOffset(
+    VOID
+    );
+
+ULONG
+HalpGetNVRamLanguageLength(
+    VOID
+    );
+
+ULONG
+HalpGetNVRamEnvironmentOffset(
+    VOID
+    );
+
+ULONG
+HalpGetNVRamEnvironmentLength(
+    VOID
+    );
+
+#if defined(EISA_PLATFORM)
+
+BOOLEAN
+HalpIsNVRamRegion1Valid(
+    VOID
+    );
+
+BOOLEAN
+HalpSynchronizeNVRamRegion1(
+    IN BOOLEAN RecomputeChecksum
+    );
+
+BOOLEAN
+HalpInitializeNVRamRegion1(
+    IN BOOLEAN Synchronize
+    );
+
+#endif // EISA_PLATFORM
+
+#endif // TAGGED_NVRAM
 
 //
 // Error handling function prototype.
@@ -728,13 +1006,6 @@ WRITE_CONFIG_ULONG(
     );
 
 //
-// Define prototypes needed for C runtime.
-//
-
-int
-sprintf( char *, const char *, ... );
-
-//
 // Define the I/O superpage enable VA base.
 //
 
@@ -766,6 +1037,14 @@ sprintf( char *, const char *, ... );
 #define __512MB (0x20000000)
 #define __1GB   (0x40000000)
 #define __2GB   (0x80000000)
+
+//
+//  CPU mask values. Used to interpret cpu bitmap values.
+//
+#define HAL_CPU0_MASK ((ULONG)0x1)
+#define HAL_CPU1_MASK ((ULONG)0x2)
+#define HAL_CPU2_MASK ((ULONG)0x4)
+#define HAL_CPU3_MASK ((ULONG)0x8)
 
 //
 // HAL Debugging Support.
@@ -811,6 +1090,6 @@ HalDebugPrint(
 //        include file in its private directory.
 //
 
-#include "machdep.h"
+#include <machdep.h>
 
 #endif // _HALP_

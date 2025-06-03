@@ -3,7 +3,7 @@
  */
 
 #include	<ndis.h>
-#include    <ndismini.h>
+//#include    <ndismini.h>
 #include	<ndiswan.h>
 #include	<mytypes.h>
 #include	<mydefs.h>
@@ -49,20 +49,42 @@ cm__est_rq(CM_CHAN *chan)
 		/* build bearer capabilities element */
 		switch ( chan->type )
 		{
-			case CM_CT_VOICE :	adv_ptr(p, ((SwitchStyle == CM_SWITCHSTYLE_NET3) ?
-                                            "\x04\x03\x80\x90\xA3" :
-					                        "\x04\x03\x80\x90\xA2"), 5);
-								chan->speed = 56000;
-								break;
+			case CM_CT_VOICE :
+				adv_ptr(p, ((SwitchStyle == CM_SWITCHSTYLE_NET3) ?
+				           "\x04\x03\x80\x90\xA3" :
+						   "\x04\x03\x80\x90\xA2"), 5);
+				chan->speed = 56000;
+				break;
 
-			case CM_CT_D56 :    adv_ptr(p, "\x04\x04\x88\x90\x21\x8F", 6);
-								chan->speed = 56000;
-								break;
+//
+// changed to make 56K Data calls in Europe get established with a bearer
+// capability of 64K Data (8 bits) but we will actually do
+// 56K Data (7 bits) on the line
+// TB 09/20
+//
+//			case CM_CT_D56 :
+//				adv_ptr(p, "\x04\x04\x88\x90\x21\x8F", 6);
+//				chan->speed = 56000;
+//				break;
+//	
+			case CM_CT_D56 :
+				if (SwitchStyle == CM_SWITCHSTYLE_NET3)
+				{
+					adv_ptr(p, "\x04\x02\x88\x90", 4);
+				}
+				else
+				{
+					adv_ptr(p, "\x04\x04\x88\x90\x21\x8F", 6);
+				}
+
+				chan->speed = 56000;
+				break;
 	
 			default :
-			case CM_CT_D64 :    adv_ptr(p, "\x04\x02\x88\x90", 4);
-								chan->speed = 64000;
-								break;
+			case CM_CT_D64 :
+				adv_ptr(p, "\x04\x02\x88\x90", 4);
+				chan->speed = 64000;
+				break;
 		}
 	}
 
@@ -177,6 +199,34 @@ cm__est_rsp(CM_CHAN *chan)
     return(CM_E_SUCC);
 }
 
+/* format a call ignore response */
+INT
+cm__est_ignore(
+	PVOID	idd,
+	USHORT	cid,
+	USHORT	lterm)
+{
+    IDD_MSG     msg;
+
+    D_LOG(D_ENTRY, ("cm__est_ignore: entry, idd: 0x%p, cid: 0x%x, lterm: 0x%x", idd, cid, lterm));
+
+    /* clear outgoing message */
+    NdisZeroMemory(&msg, sizeof(msg));
+
+    /* fillin message structure */
+    msg.opcode = Q931_EST_IGNORE;
+    msg.bufid = MAKELONG(0, cid);
+    msg.bufptr = ut_get_buf();
+	msg.buflen = 0;
+
+
+    /* send to idd */
+    if (idd_send_msg(idd, &msg, (USHORT)(lterm + IDD_PORT_CM0_TX), (VOID*)cm__q931_cmpl_handler, NULL) != IDD_E_SUCC)
+        ut_free_buf(msg.bufptr);
+
+    return(CM_E_SUCC);
+}
+
 /* format a disconenct request */
 INT
 cm__disc_rq(CM_CHAN *chan)
@@ -267,27 +317,8 @@ cm__bchan_ctrl(CM_CHAN *chan, BOOL turn_on)
 	//
 	// channel off - rxmode = IDD_FRAME_DONTCARE
 	//
-	// else
-	//
-	// answering side
-	// channel on  - rxmode = IDD_FRAME_DETECT
-	//
-	// originating side
-	// if Connection Type is PPP
-	// channel on  - rxmode = IDD_FRAME_PPP
-	//
-	// if Connection Type is DKF
-	// channel on  - rxmode = IDD_FRAME_DKF
-	//
 	if (!turn_on)
 		IddFramingType = IDD_FRAME_DONTCARE;
-//	else
-//	{
-//		if (!cm || (cm && cm->was_listen) )
-			IddFramingType = IDD_FRAME_DETECT;
-//		else
-//			IddFramingType = cm->ConnectionType == CM_PPP ? IDD_FRAME_PPP : IDD_FRAME_DKF;
-//	}
 
 	IddSetRxFraming(chan->idd, chan->bchan, IddFramingType);
 
@@ -407,7 +438,11 @@ cm__q931_handler(IDD *idd, USHORT port, ULONG Reserved, IDD_MSG *msg)
 	// copy locally then to keep track of adapter memory access
 	//
 	NdisZeroMemory(idd->RxBuffer, sizeof(idd->RxBuffer));
-	NdisMoveFromMappedMemory ((PVOID)idd->RxBuffer, (PVOID)msg->bufptr, msg->buflen);
+	IddGetDataFromAdapter(idd,
+	                      (PUCHAR)idd->RxBuffer,
+						  (PUCHAR)msg->bufptr,
+						  (USHORT)MIN(IDP_MAX_RX_BUFFER, msg->buflen));
+
 	msg->bufptr = idd->RxBuffer;
 
     /* switch to message handler */
@@ -566,8 +601,14 @@ cm__q931_bchan_handler(
 	// if not uus we don't want to do all of the copying that we
 	// would do for uus
 	//
-	NdisMoveFromMappedMemory((PUCHAR)&DetectBytes, (PUCHAR)msg->bufptr, 2 * sizeof(UCHAR));
-    if ( (msg->buflen < 4) || DetectBytes[0] != DKF_UUS_SIG || msg->bufptr[1])
+	IddGetDataFromAdapter(idd,
+	                      (PUCHAR)&DetectBytes,
+						  (PUCHAR)msg->bufptr,
+						  2);
+
+//	NdisMoveMemory((PUCHAR)&DetectBytes, (PUCHAR)msg->bufptr, 2 * sizeof(UCHAR));
+
+    if ( (msg->buflen < 4) || DetectBytes[0] != DKF_UUS_SIG || DetectBytes[1])
         return;
 
 	//
@@ -575,11 +616,15 @@ cm__q931_bchan_handler(
 	// copy locally then to keep track of adapter memory access
 	//
 	NdisZeroMemory(idd->RxBuffer, sizeof(idd->RxBuffer));
-	NdisMoveFromMappedMemory ((PVOID)idd->RxBuffer, (PVOID)msg->bufptr, msg->buflen);
+	IddGetDataFromAdapter(idd,
+	                      (PUCHAR)idd->RxBuffer,
+						  (PUCHAR)msg->bufptr,
+						  (USHORT)MIN(IDP_MAX_RX_BUFFER, msg->buflen));
+
 	msg->bufptr = idd->RxBuffer;
 
-    D_LOG(D_ALWAYS, ("cm__q931_bchan_handler: msg->buflen: 0x%x, msg->bufptr[0]: 0x%x", \
-                                              msg->buflen,msg->bufptr[0]));
+    D_LOG(D_ALWAYS, ("cm__q931_bchan_handler: msg->buflen: 0x%x, DetectByte[0]: 0x%x", \
+                                              msg->buflen, DetectBytes[0]));
 
     /* try resolving idd/bchan into a channel */
     if ( !(chan = cm__map_bchan_chan(idd, port)) )
@@ -595,13 +640,9 @@ cm__q931_bchan_handler(
 
      /* call handler */
     if ( chan->cm && !((CM*)(chan->cm))->was_listen )
-	{
         cm__org_data_ind(chan, &msg1);
-	}
     else
-	{
         cm__ans_data_ind(chan, &msg1);
-	}
 }
 
 /* transmit a uus packet */
@@ -791,7 +832,7 @@ cm__get_addr(IDD_MSG *msg, CHAR addr[32])
 	elem_len -= 2;
 
     /* copy in & terminate */
-	NdisMoveFromMappedMemory (addr, elem, elem_len);
+	NdisMoveMemory (addr, elem, elem_len);
     addr[elem_len] = '\0';
 
     return(CM_E_SUCC);

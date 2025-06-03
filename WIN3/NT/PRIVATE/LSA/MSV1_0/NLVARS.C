@@ -78,3 +78,9 @@ ULONG NlpEnumerationHandle;
 
 RTL_CRITICAL_SECTION NlpSessionCountLock;
 ULONG NlpSessionCount;
+
+//
+// Define the number of successful/unsuccessful logons attempts.
+//
+
+ULONG NlpLogonAttemptCount;

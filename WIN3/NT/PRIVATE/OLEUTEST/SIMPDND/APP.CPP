@@ -42,12 +42,12 @@ extern BOOL CALLBACK About(HWND hDlg,UINT message,WPARAM wParam,LPARAM lParam);
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 //********************************************************************
 CSimpleApp::CSimpleApp()
 {
-    OutputDebugString("In CSimpleApp's Constructor \r\n");
+    TestDebugOut("In CSimpleApp's Constructor \r\n");
 
     // Set Ref Count
     m_nCount = 0;
@@ -92,7 +92,7 @@ CSimpleApp::CSimpleApp()
 
 CSimpleApp::~CSimpleApp()
 {
-    OutputDebugString("In CSimpleApp's Destructor\r\n");
+    TestDebugOut("In CSimpleApp's Destructor\r\n");
 
     // need to uninit the library...
     if (m_fInitialized)
@@ -153,14 +153,14 @@ void CSimpleApp::DestroyDocs()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      ResultFromScode             OLE API
 //
 //********************************************************************
 
 STDMETHODIMP CSimpleApp::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 {
-    OutputDebugString("In CSimpleApp::QueryInterface\r\n");
+    TestDebugOut("In CSimpleApp::QueryInterface\r\n");
 
     *ppvObj = NULL;     // must set out pointer parameters to NULL
 
@@ -187,7 +187,7 @@ STDMETHODIMP CSimpleApp::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -200,7 +200,7 @@ STDMETHODIMP CSimpleApp::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 
 STDMETHODIMP_(ULONG) CSimpleApp::AddRef()
 {
-    OutputDebugString("In CSimpleApp::AddRef\r\n");
+    TestDebugOut("In CSimpleApp::AddRef\r\n");
     return ++m_nCount;
 }
 
@@ -223,14 +223,14 @@ STDMETHODIMP_(ULONG) CSimpleApp::AddRef()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 //
 //********************************************************************
 
 STDMETHODIMP_(ULONG) CSimpleApp::Release()
 {
-    OutputDebugString("In CSimpleApp::Release\r\n");
+    TestDebugOut("In CSimpleApp::Release\r\n");
 
     if (--m_nCount == 0)
     {
@@ -364,7 +364,7 @@ BOOL CSimpleApp::fInitInstance (HANDLE hInstance, int nCmdShow)
     if (HIWORD(dwVer) != rmm || LOWORD(dwVer) < rup)
     {
 #ifdef _DEBUG
-        OutputDebugString("WARNING: Incompatible OLE library version\r\n");
+        TestDebugOut("WARNING: Incompatible OLE library version\r\n");
 #else
         return FALSE;
 #endif
@@ -378,7 +378,11 @@ BOOL CSimpleApp::fInitInstance (HANDLE hInstance, int nCmdShow)
     OleStdCreateDbAlloc(0, &lpMalloc);
 #endif
 
-    if (OleInitialize(lpMalloc) == NOERROR)
+    //  We try passing in our own allocator first - if that fails we
+    //  try without overriding the allocator.
+
+    if (SUCCEEDED(OleInitialize(lpMalloc)) ||
+        SUCCEEDED(OleInitialize(NULL)))
     {
         m_fInitialized = TRUE;
     }
@@ -559,7 +563,7 @@ long CSimpleApp::lCommandHandler (HWND hWnd, UINT message,
                 m_lpDoc->m_hDocWnd, &rect)
                 != ResultFromScode(S_OK))
         {
-            OutputDebugString("Fail in IOleObject::DoVerb\n");
+            TestDebugOut("Fail in IOleObject::DoVerb\n");
         }
     }
     else
@@ -743,8 +747,6 @@ long CSimpleApp::lCreateDoc (HWND hWnd, UINT message,
 
     m_lpDoc = CSimpleDoc::Create(this, &rect, hWnd);
 
-    int cmd;
-
     // First time initialization - for some reason the doc sets the
     // the application's m_hHelpMenu which we need. So we do the
     // initialization here.
@@ -846,3 +848,5 @@ void CSimpleApp::PaintApp (HDC hDC)
     }
 
 }
+
+

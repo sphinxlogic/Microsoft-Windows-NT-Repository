@@ -4,8 +4,11 @@
 ;
 ;   Title:      VNBT.INC - Virtual NBT Device Service Declarations
 ;
-;   Version:	1.00
+;   Version:	1.01
 ;
+
+
+VNBT_VERSION    equ 0101h
 
 Begin_Service_Table VNBT
 

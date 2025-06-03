@@ -2,7 +2,7 @@
  Copyright (c) 1989 Microsoft Corporation
 
  Module Name:
-	
+
 	expr.cxx
 
  Abstract:
@@ -56,7 +56,7 @@ extern 	CMD_ARG			*	pCommand;
 
 
 short
-_expr_node::MakeListOfVars(
+expr_node::MakeListOfVars(
     ITERATOR & pList
     )
 {
@@ -66,7 +66,7 @@ _expr_node::MakeListOfVars(
 
 
 short
-_expr_named_constant::MakeListOfVars(
+expr_named_constant::MakeListOfVars(
     ITERATOR & pList
     )
 {
@@ -76,7 +76,7 @@ _expr_named_constant::MakeListOfVars(
 
 
 short
-_expr_variable::MakeListOfVars(
+expr_variable::MakeListOfVars(
     ITERATOR & pList
     )
 {
@@ -86,7 +86,7 @@ _expr_variable::MakeListOfVars(
 
 
 short
-_expr_op_unary::MakeListOfVars(
+expr_op_unary::MakeListOfVars(
     ITERATOR & pList
     )
 {
@@ -99,11 +99,11 @@ _expr_op_unary::MakeListOfVars(
 
 
 short
-_expr_sizeof::MakeListOfVars(
+expr_sizeof::MakeListOfVars(
     ITERATOR & pList
     )
 /*++
-    _expr_sizeof is a unary_op but it doesn't have a child!
+    expr_sizeof is a unary_op but it doesn't have a child!
 --*/
 {
     UNUSED( pList );
@@ -112,7 +112,7 @@ _expr_sizeof::MakeListOfVars(
 
 
 short
-_expr_op_binary::MakeListOfVars(
+expr_op_binary::MakeListOfVars(
     ITERATOR & pList
     )
 {
@@ -161,9 +161,9 @@ expr_node::DecorateWithPrefix(
  Arguments:
 
     pPrefix     - the prefix to be prepended to each variable
-	
+
  Return Value:
-	
+
  Notes:
 
 ----------------------------------------------------------------------------*/
@@ -183,18 +183,18 @@ expr_node::DecorateWithPrefix(
 
 
 
-_expr_index::_expr_index(
-	_expr_node * pL,
-	_expr_node * pR ) : _expr_op_binary( OP_INDEX, pL, pR )
+expr_index::expr_index(
+	expr_node * pL,
+	expr_node * pR ) : expr_op_binary( OP_INDEX, pL, pR )
 	{
 	SetType( pL->GetType() /* ->GetBasicType() */ );
 	}
 
-_expr_param *
-_expr_proc_call::SetParam(
-	_expr_param	*	pParam )
+expr_param *
+expr_proc_call::SetParam(
+	expr_param	*	pParam )
 	{
-	_expr_param	*	p	= GetFirstParam();
+	expr_param	*	p	= GetFirstParam();
 
 	IncrNoOfParams();
 	if( p )
@@ -205,18 +205,18 @@ _expr_proc_call::SetParam(
 		return SetFirstParam( pParam );
 	}
 
-_expr_param *
-_expr_proc_call::SetParam(
-    _expr_node * pExpr )
+expr_param *
+expr_proc_call::SetParam(
+    expr_node * pExpr )
     {
-    return SetParam( new _expr_param( pExpr ));
+    return SetParam( new expr_param( pExpr ));
     }
 
-_expr_param *
-_expr_param::SetLastPeerParam(
-	_expr_param	*	pParam )
+expr_param *
+expr_param::SetLastPeerParam(
+	expr_param	*	pParam )
 	{
-	_expr_param	*	p	= GetNextParam();
+	expr_param	*	p	= GetNextParam();
 
 	if( p )
 		{
@@ -274,10 +274,10 @@ MakeNewStringWithProperQuoting(
 	}
 
 
-// routines for _expr_variable...
+// routines for expr_variable...
 
 // constructor - see if the type is constant
-_expr_variable::_expr_variable( PNAME p, node_skl * pT )
+expr_variable::expr_variable( PNAME p, node_skl * pT )
 {
 	SetName( p );
 	SetType( pT );
@@ -286,8 +286,8 @@ _expr_variable::_expr_variable( PNAME p, node_skl * pT )
 }
 
 // resolve forwards on GetType
-node_skl		*	
-_expr_variable::GetType( void )
+node_skl		*
+expr_variable::GetType( void )
 {
 	if ( !pType )	return pType;
 
@@ -307,22 +307,24 @@ _expr_variable::GetType( void )
 // named constant routines...
 
 // evaluate the variable if it is a constant
-long
+EXPR_VALUE
 expr_named_constant::GetValue()
 {
 	node_skl *	pT		= GetType();
-	NODE_T		Kind	= ( pT ) ? (NODE_T) pT->NodeKind() 
+	NODE_T		Kind	= ( pT ) ? (NODE_T) pT->NodeKind()
                                  : (NODE_T) NODE_ILLEGAL;
 
-	if ( !IsConstant() ) 
+	if ( !IsConstant() )
 		return 0;
 
 	// identifiers may be const... Forwards are assumed NOT const
-	if ( Kind == NODE_ID )				
+	if ( Kind == NODE_ID )
 		{
-		node_id *		pId = (node_id *) pT;
+		node_id *		pId 	= (node_id *) pT;
+		node_skl	*	pType	= pId->GetBasicType();
+		EXPR_VALUE		Result	= (pId->GetExpr()->GetValue() );
 
-		return (pId->GetExpr()->GetValue() );
+		return (pType) ? pType->ConvertMyKindOfValueToEXPR_VALUE(Result) : Result;
 		}
 	else if ( Kind == NODE_LABEL )
 		{
@@ -338,14 +340,14 @@ expr_node *
 expr_named_constant::GetExpr()
 {
 	node_skl *	pT		= GetType();
-	NODE_T		Kind	= ( pT ) ? (NODE_T) pT->NodeKind() 
+	NODE_T		Kind	= ( pT ) ? (NODE_T) pT->NodeKind()
                                  : (NODE_T) NODE_ILLEGAL;
 
-	if ( !IsConstant() ) 
+	if ( !IsConstant() )
 		return 0;
 
 	// identifiers may be const... Forwards are assumed NOT const
-	if ( Kind == NODE_ID )				
+	if ( Kind == NODE_ID )
 		{
 		node_id *		pId = (node_id *) pT;
 
@@ -385,12 +387,11 @@ expr_list::SetPeer(
 	return Insert( (void *) pExpr );
 	}
 
-long
-_expr_u_arithmetic::GetValue()
-
+EXPR_VALUE
+expr_u_arithmetic::GetValue()
 {
-		long	LeftValue	= GetLeft()->GetValue();
-		long	Result;
+    	EXPR_VALUE	LeftValue	= GetLeft()->GetValue();
+		EXPR_VALUE	Result;
 
 		switch ( GetOperator() )
 			{
@@ -401,7 +402,18 @@ _expr_u_arithmetic::GetValue()
 				}
 			case OP_UNARY_MINUS:
 				{
-				Result = -LeftValue;
+	            if (IsStringConstant())
+                    {
+                    char * szVal = (char *)LeftValue;
+                    char * szNewVal = new char[strlen(szVal)+2];
+                    szNewVal[0] = '-';
+                    strcpy(szNewVal + 1, szVal);
+                    Result = (EXPR_VALUE) szNewVal;
+                    }
+                else
+                    {
+				    Result = -LeftValue;
+                    }    
 				break;
 				}
 			default:
@@ -410,21 +422,51 @@ _expr_u_arithmetic::GetValue()
 				break;
 				}
 			}
-		return Result;
+		return (GetType()) ? GetType()->ConvertMyKindOfValueToEXPR_VALUE(Result) : Result;
 }
 
-long				
+EXPR_VALUE
+expr_u_not::GetValue()
+{
+	EXPR_VALUE	Result = !GetLeft()->GetValue();
+
+	return (GetType()) ? GetType()->ConvertMyKindOfValueToEXPR_VALUE(Result) : Result;
+}
+
+EXPR_VALUE
+expr_u_complement::GetValue()
+{
+	EXPR_VALUE	Result = ~ GetLeft()->GetValue();
+
+	return (GetType()) ? GetType()->ConvertMyKindOfValueToEXPR_VALUE(Result) : Result;
+}
+
+EXPR_VALUE
+expr_cast::GetValue()
+{
+	return GetType()->
+				ConvertMyKindOfValueToEXPR_VALUE(GetLeft()->GetValue());
+}
+
+EXPR_VALUE
+expr_constant::GetValue()
+{
+	return (GetType()) ? GetType()->ConvertMyKindOfValueToEXPR_VALUE(Value.L) : Value.L;
+}
+
+
+EXPR_VALUE
 expr_sizeof::GetValue()
 	{
 	return	(pType) ? pType->GetSize(0) : 0;
 	}
 
-long
+EXPR_VALUE
 expr_b_arithmetic::GetValue()
 	{
-	long	LeftValue	= GetLeft()->GetValue();
-	long	RightValue	= GetRight()->GetValue();
-	long	Result;
+	EXPR_VALUE	LeftValue	= GetLeft()->GetValue();
+	EXPR_VALUE	RightValue	= GetRight()->GetValue();
+	EXPR_VALUE	Result;
 
 	switch ( GetOperator() )
 		{
@@ -462,15 +504,15 @@ expr_b_arithmetic::GetValue()
 			break;
 			}
 		}
-	return Result;
+	return (GetType()) ? GetType()->ConvertMyKindOfValueToEXPR_VALUE(Result) : Result ;
 	}
 
-long
-_expr_b_logical::GetValue()
+EXPR_VALUE
+expr_b_logical::GetValue()
 	{
-	long	LeftValue	= GetLeft()->GetValue();
-	long	RightValue	= GetRight()->GetValue();
-	long	Result;
+	EXPR_VALUE	LeftValue	= GetLeft()->GetValue();
+	EXPR_VALUE	RightValue	= GetRight()->GetValue();
+	EXPR_VALUE	Result;
 
 	switch ( GetOperator() )
 		{
@@ -490,15 +532,15 @@ _expr_b_logical::GetValue()
 			break;
 			}
 		}
-	return Result;
+	return (GetType()) ? GetType()->ConvertMyKindOfValueToEXPR_VALUE(Result) : Result ;
 	}
 
-long
-_expr_relational::GetValue()
+EXPR_VALUE
+expr_relational::GetValue()
 	{
-	long	LeftValue	= GetLeft()->GetValue();
-	long	RightValue	= GetRight()->GetValue();
-	long	Result;
+	EXPR_VALUE	LeftValue	= GetLeft()->GetValue();
+	EXPR_VALUE	RightValue	= GetRight()->GetValue();
+	EXPR_VALUE	Result;
 
 	switch ( GetOperator() )
 		{
@@ -539,15 +581,15 @@ _expr_relational::GetValue()
 			break;
 			}
 		}
-	return Result;
+	return (GetType()) ? GetType()->ConvertMyKindOfValueToEXPR_VALUE(Result) : Result;
 	}
 
-long
-_expr_shift::GetValue()
+EXPR_VALUE
+expr_shift::GetValue()
 	{
-	long	LeftValue	= GetLeft()->GetValue();
-	long	RightValue	= GetRight()->GetValue();
-	long	Result;
+	EXPR_VALUE	LeftValue	= GetLeft()->GetValue();
+	EXPR_VALUE	RightValue	= GetRight()->GetValue();
+	EXPR_VALUE	Result;
 
 	switch ( GetOperator() )
 		{
@@ -568,15 +610,15 @@ _expr_shift::GetValue()
 			break;
 			}
 		}
-	return Result;
+	return (GetType()) ? GetType()->ConvertMyKindOfValueToEXPR_VALUE(Result) : Result;
 	}
 
-long
-_expr_bitwise::GetValue()
+EXPR_VALUE
+expr_bitwise::GetValue()
 	{
-	long	LeftValue	= GetLeft()->GetValue();
-	long	RightValue	= GetRight()->GetValue();
-	long	Result;
+	EXPR_VALUE	LeftValue	= GetLeft()->GetValue();
+	EXPR_VALUE	RightValue	= GetRight()->GetValue();
+	EXPR_VALUE	Result;
 
 	switch ( GetOperator() )
 		{
@@ -602,34 +644,120 @@ _expr_bitwise::GetValue()
 			break;
 			}
 		}
-	return Result;
+	return (GetType()) ? GetType()->ConvertMyKindOfValueToEXPR_VALUE(Result) : Result ;
 	}
 
-long
+EXPR_VALUE
 expr_ternary::GetValue()
 	{
-	long	RelValue	= GetRelational()->GetValue();
-	long	result;
+	EXPR_VALUE	RelValue	= GetRelational()->GetValue();
+	EXPR_VALUE	Result;
 
 	if ( RelValue )
-		result = GetLeft()->GetValue();
+		Result = GetLeft()->GetValue();
 	else
-		result = GetRight()->GetValue();
+		Result = GetRight()->GetValue();
 
-	return result;
+	return (GetType()) ? GetType()->ConvertMyKindOfValueToEXPR_VALUE(Result) : Result;
 	}
 
 ////////////////////////////////////////////////////////////////////////
 // analysis of expressions
 //
 
-void				
+void
 expr_node::ExprAnalyze( EXPR_CTXT * pExprCtxt )
 	{
-	pExprCtxt->SetUpFlags( EX_VALUE_INVALID );	
+	pExprCtxt->SetUpFlags( EX_VALUE_INVALID );
 	}
 
-void				
+//
+// determine the type of the expression
+//
+
+void
+expr_op_unary::DetermineType()
+{
+	node_skl	*	pLeftType;
+
+	if ( !GetLeft() )
+		{
+		return;
+		}
+
+	pLeftType = GetLeft()->AlwaysGetType();
+	SetConstant( GetLeft()->IsConstant() );
+
+	switch ( GetOperator() )
+		{
+		case OP_UNARY_PLUS:
+		case OP_UNARY_COMPLEMENT:
+		case OP_UNARY_MINUS:
+		case OP_PRE_INCR:
+		case OP_PRE_DECR:
+		case OP_POST_INCR:
+		case OP_POST_DECR:
+			{
+			// same type
+			SetType( pLeftType );
+			break;
+			}
+		case OP_UNARY_NOT:
+			{
+			node_skl *	pTmpType;
+
+			GetBaseTypeNode( &pTmpType, SIGN_UNDEF, SIZE_UNDEF, TYPE_BOOLEAN );
+
+			SetType( pTmpType );
+			break;
+			}
+		case OP_UNARY_CAST:
+			{
+			SetType( GetType() );
+			break;
+			}
+		case OP_UNARY_SIZEOF:
+			{
+			node_skl *	pTmpType;
+
+			GetBaseTypeNode( &pTmpType, SIGN_SIGNED, SIZE_UNDEF, TYPE_INT );
+
+			SetType( pTmpType );
+			SetConstant( TRUE );
+			break;
+			}
+		case OP_UNARY_INDIRECTION:
+			{
+			node_skl *	pNode = pLeftType;
+
+			if ( pNode->NodeKind() != NODE_POINTER )
+				{
+				// probably the param or field; look down
+				pNode = pNode->GetBasicType();
+				}
+
+			// now get the pointee
+			pNode = pNode->GetBasicType();
+
+			SetType( pNode );
+			break;
+			}
+		case OP_UNARY_AND:
+			{
+			node_pointer	*	pPtr	= new node_pointer;
+
+			pPtr->SetChild(	pLeftType );
+			SetType( pPtr );
+			break;
+			}
+		default:
+			{
+			break;
+			}
+		}	// end of switch
+}
+
+void
 expr_op_unary::ExprAnalyze( EXPR_CTXT * pExprCtxt )
 {
 	EXPR_CTXT			LeftCtxt( pExprCtxt );
@@ -740,7 +868,7 @@ expr_op_unary::ExprAnalyze( EXPR_CTXT * pExprCtxt )
 										pIntf->GetAttribute( ATTR_PTR_KIND );
 						PtrKind = pPtrAttr->GetPtrKind();
 						}
-					else 
+					else
 						{
 						pIntf = pExprCtxt->GetCtxt()->GetInterfaceNode();
 						if ( pIntf->FInSummary( ATTR_PTR_KIND ) )
@@ -758,9 +886,9 @@ expr_op_unary::ExprAnalyze( EXPR_CTXT * pExprCtxt )
 							else
 								{
 								PtrKind	= PTR_FULL;
-								}			
+								}
 							}
-						} 
+						}
 					}
 
 				if ( ( PtrKind == PTR_FULL ) ||
@@ -769,21 +897,21 @@ expr_op_unary::ExprAnalyze( EXPR_CTXT * pExprCtxt )
 					SEM_ANALYSIS_CTXT *	pCtxt	= pExprCtxt->GetCtxt();
 
 					pExprCtxt->SetUpFlags( EX_PTR_FULL_UNIQUE );
-					SemError( pCtxt->GetParent(), 
-							  *pCtxt, 
-							  SIZE_LENGTH_SW_UNIQUE_OR_FULL, 
+					SemError( pCtxt->GetParent(),
+							  *pCtxt,
+							  SIZE_LENGTH_SW_UNIQUE_OR_FULL,
 							  NULL );
 					}
 
 				pNode = pNode->GetBasicType();
-				} 
+				}
 
 			SetType( pNode );
 			break;
 			}
 		case OP_UNARY_AND:
 			{
-			if ( GetType() ) 
+			if ( GetType() )
 				break;
 
 			node_pointer	*	pPtr	= new node_pointer;
@@ -805,15 +933,15 @@ expr_op_unary::ExprAnalyze( EXPR_CTXT * pExprCtxt )
 			break;
 			}
 		}	// end of switch
-	
+
 	pExprCtxt->pType = GetType();
 
 	// compute the value
 	if ( !pExprCtxt->AnyUpFlags( EX_VALUE_INVALID ) )
 		{
 		// tbd - update value from LeftCtxt
-		long	&	LeftValue	= LeftCtxt.Value();
-		long	&	Result		= pExprCtxt->Value();
+		EXPR_VALUE	&	LeftValue	= LeftCtxt.Value();
+		EXPR_VALUE	&	Result		= pExprCtxt->Value();
 
 
 		switch ( GetOperator() )
@@ -872,7 +1000,83 @@ expr_op_unary::ExprAnalyze( EXPR_CTXT * pExprCtxt )
 
 }
 
-void				
+//
+// determine the type of the expression
+//
+
+void
+expr_op_binary::DetermineType()
+{
+	node_skl	*	pLeftType	= NULL;
+	node_skl	*	pRightType	= NULL;
+
+
+	if ( GetLeft() )
+		pLeftType	= GetLeft()->AlwaysGetType();
+	if ( GetRight() )
+		pRightType	= GetRight()->AlwaysGetType();
+
+	SetConstant( GetRight()->IsConstant() && GetLeft()->IsConstant() );
+
+	////////////////////////////////////////////////////////////////////////
+	// do type compatibility stuff
+
+	switch ( GetOperator() )
+		{
+		case OP_PLUS:
+		case OP_MINUS:
+		case OP_STAR:
+		case OP_MOD:
+		// gaj - we implicitly assume signed types
+		case OP_LEFT_SHIFT:
+		case OP_RIGHT_SHIFT:
+		case OP_AND:
+		case OP_OR:
+		case OP_XOR:
+		case OP_SLASH:
+			{
+			// tbd - for now, just grab one of the types
+			if ( !pRightType ||
+			     (pLeftType &&
+			     		(pLeftType->GetSize(0) >= pRightType->GetSize(0) ) ) )
+				{
+				SetType( pLeftType );
+				}
+			else if ( pRightType )
+				{
+				SetType( pRightType );
+				}
+
+			break;
+			}
+		case OP_LOGICAL_AND:
+		case OP_LOGICAL_OR:
+		// gaj - we implicitly assume signed types
+		case OP_LESS:
+		case OP_LESS_EQUAL:
+		case OP_GREATER_EQUAL:
+		case OP_GREATER:
+		case OP_EQUAL:
+		case OP_NOT_EQUAL:
+			{
+			node_skl *	pTmpType;
+
+			GetBaseTypeNode( &pTmpType, SIGN_UNDEF, SIZE_UNDEF, TYPE_BOOLEAN );
+
+			SetType( pTmpType );
+			break;
+			}
+		default:
+			{
+			break;
+			}
+		}
+
+
+
+}
+
+void
 expr_op_binary::ExprAnalyze( EXPR_CTXT * pExprCtxt )
 	{
 	EXPR_CTXT			LeftCtxt( pExprCtxt );
@@ -926,8 +1130,10 @@ expr_op_binary::ExprAnalyze( EXPR_CTXT * pExprCtxt )
 		case OP_XOR:
 		case OP_SLASH:
 			{
-			// tbd - for now, just grab one of the types
-			if ( LeftCtxt.pType )
+			// tbd - for now, just grab the bigger of the types
+			if ( !RightCtxt.pType ||
+			     (LeftCtxt.pType &&
+			     		(LeftCtxt.pType->GetSize(0) >= RightCtxt.pType->GetSize(0) ) ) )
 				{
 				pExprCtxt->pType = LeftCtxt.pType;
 				pExprCtxt->TypeInfo = LeftCtxt.TypeInfo;
@@ -941,7 +1147,7 @@ expr_op_binary::ExprAnalyze( EXPR_CTXT * pExprCtxt )
 				pExprCtxt->fIntegral = RightCtxt.fIntegral;
 				SetType( pExprCtxt->pType );
 				}
-			
+
 			break;
 			}
 		case OP_LOGICAL_AND:
@@ -976,9 +1182,9 @@ expr_op_binary::ExprAnalyze( EXPR_CTXT * pExprCtxt )
 	if ( !pExprCtxt->AnyUpFlags( EX_VALUE_INVALID ) )
 		{
 		// update value directly from LeftCtxt and RightCtxt
-		long	&		LeftValue	= LeftCtxt.Value();
-		long	&		RightValue	= RightCtxt.Value();
-		long	&		Result		= pExprCtxt->Value();
+		EXPR_VALUE	&		LeftValue	= LeftCtxt.Value();
+		EXPR_VALUE	&		RightValue	= RightCtxt.Value();
+		EXPR_VALUE	&		Result		= pExprCtxt->Value();
 
 		switch ( GetOperator() )
 			{
@@ -1088,7 +1294,32 @@ expr_op_binary::ExprAnalyze( EXPR_CTXT * pExprCtxt )
 
 	}
 
-void				
+//
+// determine the type of the expression
+//
+
+void
+expr_ternary::DetermineType()
+{
+	node_skl	*	pLeftType	= NULL;
+	node_skl	*	pRightType	= NULL;
+
+
+	if ( GetLeft() )
+		pLeftType	= GetLeft()->AlwaysGetType();
+	if ( GetRight() )
+		pRightType	= GetRight()->AlwaysGetType();
+
+	SetConstant( GetRight()->IsConstant() && GetLeft()->IsConstant() );
+
+	if ( pLeftType )
+		SetType( pLeftType );
+	else if ( pRightType )
+		SetType( pRightType );
+
+}
+
+void
 expr_ternary::ExprAnalyze( EXPR_CTXT * pExprCtxt )
 	{
 	EXPR_CTXT			LeftCtxt( pExprCtxt );
@@ -1147,10 +1378,10 @@ expr_ternary::ExprAnalyze( EXPR_CTXT * pExprCtxt )
 	if ( !pExprCtxt->AnyUpFlags( EX_VALUE_INVALID ) )
 		{
 		// update value directly from LeftCtxt and RightCtxt
-		long	&		LeftValue	= LeftCtxt.Value();
-		long	&		RightValue	= RightCtxt.Value();
-		long	&		RelValue	= RelCtxt.Value();
-		long	&		Result		= pExprCtxt->Value();
+		EXPR_VALUE	&		LeftValue	= LeftCtxt.Value();
+		EXPR_VALUE	&		RightValue	= RightCtxt.Value();
+		EXPR_VALUE	&		RelValue	= RelCtxt.Value();
+		EXPR_VALUE	&		Result		= pExprCtxt->Value();
 
 		Result = (RelValue) ? LeftValue : RightValue;
 
@@ -1158,13 +1389,28 @@ expr_ternary::ExprAnalyze( EXPR_CTXT * pExprCtxt )
 
 	}
 
-void				
+//
+// determine the type of the expression
+//
+
+void
+expr_variable::DetermineType()
+{
+	if ( pType->NodeKind() == NODE_FORWARD )
+		{
+		node_forward *	pFwd = (node_forward *) pType;
+		// (permanently) resolve the forward
+		pType = pFwd->ResolveFDecl();
+		}
+}
+
+void
 expr_variable::ExprAnalyze( EXPR_CTXT * pExprCtxt )
 	{
 	pExprCtxt->SetUpFlags( EX_VALUE_INVALID );
 	pExprCtxt->SetUpFlags( EX_NON_NUMERIC );
 
-	if ( !pType )	
+	if ( !pType )
 		{
 		pExprCtxt->SetUpFlags( EX_UNSAT_FWD );
 		return;
@@ -1202,13 +1448,28 @@ expr_variable::ExprAnalyze( EXPR_CTXT * pExprCtxt )
 
 	}
 
-void				
+//
+// determine the type of the expression
+//
+
+void
+expr_named_constant::DetermineType()
+{
+	// do type compatibility stuff
+	if ( !GetType() )
+		{
+		SetType( GetExpr()->AlwaysGetType() );
+		}
+
+}
+
+void
 expr_named_constant::ExprAnalyze( EXPR_CTXT * pExprCtxt )
 	{
 	// named constants shouldn't be folded away
 	pExprCtxt->SetUpFlags( EX_NON_NUMERIC );
 
-	// update value 
+	// update value
 	pExprCtxt->Value() = GetValue();
 
 	// do type compatibility stuff
@@ -1224,7 +1485,7 @@ expr_named_constant::ExprAnalyze( EXPR_CTXT * pExprCtxt )
 		{
 		EXPR_CTXT		LeftCtxt( pExprCtxt );
 		expr_node	*	pExpr	= GetExpr();
-	
+
 		pExpr->ExprAnalyze( &LeftCtxt );
 
 		pExprCtxt->pType = LeftCtxt.pType;
@@ -1236,11 +1497,138 @@ expr_named_constant::ExprAnalyze( EXPR_CTXT * pExprCtxt )
 
 	}
 
-void				
+//
+// determine the type of the expression
+//
+
+void
+expr_constant::DetermineType()
+{
+	node_skl	*	pNewType;
+
+	// do type compatibility stuff
+	if ( GetType() )
+		return;
+
+	// do type compatibility stuff
+	switch (Format)
+		{
+		case VALUE_TYPE_STRING:
+			{
+			node_skl 	*	pBottomType;
+			GetBaseTypeNode( &pBottomType,
+							 SIGN_SIGNED,
+							 SIZE_CHAR,
+							 TYPE_INT );
+			pNewType = new node_pointer;
+			pNewType->SetChild( pBottomType );
+			break;
+			}
+		case VALUE_TYPE_WSTRING:
+			{
+			node_skl 	*	pBottomType;
+			SymKey	SKey( "wchar_t", NAME_DEF );
+
+			pBottomType	= pBaseSymTbl->SymSearch( SKey );
+			pNewType = new node_pointer;
+			pNewType->SetChild( pBottomType );
+			break;
+			}
+		case VALUE_TYPE_CHAR:
+			{
+			GetBaseTypeNode( &pNewType,
+							 SIGN_SIGNED,
+							 SIZE_CHAR,
+							 TYPE_INT );
+			break;
+			}
+		case VALUE_TYPE_WCHAR:
+			{
+			SymKey	SKey( "wchar_t", NAME_DEF );
+
+			pNewType	= pBaseSymTbl->SymSearch( SKey );
+			break;
+			}
+		case VALUE_TYPE_NUMERIC:
+		case VALUE_TYPE_HEX:
+		case VALUE_TYPE_OCTAL:
+			{
+			GetBaseTypeNode( &pNewType,
+							 SIGN_SIGNED,
+							 SIZE_UNDEF,
+							 TYPE_INT );
+			break;
+			}
+		case VALUE_TYPE_NUMERIC_U:
+		case VALUE_TYPE_HEX_U:
+		case VALUE_TYPE_OCTAL_U:
+			{
+			GetBaseTypeNode( &pNewType,
+							 SIGN_UNSIGNED,
+							 SIZE_SHORT,
+							 TYPE_INT );
+			break;
+			}
+
+		case VALUE_TYPE_NUMERIC_LONG:
+		case VALUE_TYPE_HEX_LONG:
+		case VALUE_TYPE_OCTAL_LONG:
+			{
+			GetBaseTypeNode( &pNewType,
+							 SIGN_SIGNED,
+							 SIZE_LONG,
+							 TYPE_INT );
+			break;
+			}
+
+		case VALUE_TYPE_NUMERIC_ULONG:
+		case VALUE_TYPE_HEX_ULONG:
+		case VALUE_TYPE_OCTAL_ULONG:
+			{
+			GetBaseTypeNode( &pNewType,
+							 SIGN_UNSIGNED,
+							 SIZE_LONG,
+							 TYPE_INT );
+			break;
+			}
+
+		case VALUE_TYPE_BOOL:
+			{
+			GetBaseTypeNode( &pNewType,
+							 SIGN_UNDEF,
+							 SIZE_UNDEF,
+							 TYPE_BOOLEAN );
+			break;
+			}
+
+		case VALUE_TYPE_FLOAT:
+			{
+			GetBaseTypeNode( &pNewType,
+							 SIGN_UNDEF,
+							 SIZE_UNDEF,
+							 TYPE_FLOAT );
+			break;
+			}
+		case VALUE_TYPE_DOUBLE:
+			{
+			GetBaseTypeNode( &pNewType,
+							 SIGN_UNDEF,
+							 SIZE_UNDEF,
+							 TYPE_DOUBLE );
+			break;
+			}
+
+		default:
+			break;
+		}
+	SetType( pNewType );
+}
+
+void
 expr_constant::ExprAnalyze( EXPR_CTXT * pExprCtxt )
 	{
 
-	// update value 
+	// update value
 	pExprCtxt->Value() = GetValue();
 
 	if ( GetType() )
@@ -1296,9 +1684,18 @@ expr_constant::ExprAnalyze( EXPR_CTXT * pExprCtxt )
 		case VALUE_TYPE_HEX:
 		case VALUE_TYPE_OCTAL:
 			{
+			short RealSize		= SIZE_LONG;
+			long  val			= GetValue();
+
+			if ( (val <= 127) && (val >= -128 ) )
+				RealSize = SIZE_CHAR;
+			else if ( (val <= 32767) && (val >= -32768 ) )
+				RealSize = SIZE_SHORT;
+				
+
 			GetBaseTypeNode( &pExprCtxt->pType,
 							 SIGN_SIGNED,
-							 SIZE_SHORT,
+							 RealSize,
 							 TYPE_INT );
 			break;
 			}
@@ -1306,9 +1703,17 @@ expr_constant::ExprAnalyze( EXPR_CTXT * pExprCtxt )
 		case VALUE_TYPE_HEX_U:
 		case VALUE_TYPE_OCTAL_U:
 			{
+			short RealSize		= SIZE_LONG;
+			unsigned long  val	= (unsigned long) GetValue();
+
+			if ( val <= 255 )
+				RealSize = SIZE_CHAR;
+			else if ( val <= 65536 )
+				RealSize = SIZE_SHORT;
+
 			GetBaseTypeNode( &pExprCtxt->pType,
 							 SIGN_UNSIGNED,
-							 SIZE_SHORT,
+							 RealSize,
 							 TYPE_INT );
 			break;
 			}
@@ -1367,10 +1772,20 @@ expr_constant::ExprAnalyze( EXPR_CTXT * pExprCtxt )
 	SetType( pExprCtxt->pType );
 	}
 
-void				
+//
+// determine the type of the expression
+//
+
+void
+expr_init_list::DetermineType()
+{
+	SetType( pExpr->AlwaysGetType() );
+}
+
+void
 expr_init_list::ExprAnalyze( EXPR_CTXT * pExprCtxt )
 	{
-	
+
 	// tbd - for now only process first element
 	pExpr->ExprAnalyze( pExprCtxt );
 	SetConstant( pExpr->IsConstant() );
@@ -1378,4 +1793,28 @@ expr_init_list::ExprAnalyze( EXPR_CTXT * pExprCtxt )
 
 	}
 
+short
+expr_op_binary::MakeListOfDerefedVars( ITERATOR& List )
+    {
+    if( GetLeft() )
+        GetLeft()->MakeListOfDerefedVars( List );
 
+    if( GetRight() )
+        GetRight()->MakeListOfDerefedVars( List );
+    return (short) ITERATOR_GETCOUNT( List );
+    }
+
+short
+expr_u_deref::MakeListOfDerefedVars( ITERATOR& List )
+    {
+    expr_node * pLeft = GetLeft();
+
+    if( !pLeft ) return 0;
+
+    if( pLeft->IsAVariable() )
+        ITERATOR_INSERT( List, pLeft );
+    else if( pLeft->GetOperator() == OP_UNARY_INDIRECTION )
+        pLeft->MakeListOfDerefedVars( List );
+
+    return ITERATOR_GETCOUNT( List );
+    }

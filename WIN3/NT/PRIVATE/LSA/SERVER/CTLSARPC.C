@@ -1872,7 +1872,7 @@ Return Values:
     // Now compare the ModifiedCount value returned with that set.
     //
 
-    if (!RtlLargeIntegerEqualTo( SetModifiedCount, ReturnedModifiedCount )) {
+    if (!( SetModifiedCount.QuadPart == ReturnedModifiedCount.QuadPart )) {
 
         DbgPrint(
             "LSA RPC CT - Get/Set Policy Serial Number Test failed\n"
@@ -1886,7 +1886,7 @@ Return Values:
     // Now compare the CreationTime value returned with that set.
     //
 
-    if (!RtlLargeIntegerEqualTo( SetCreationTime, ReturnedCreationTime )) {
+    if (!( SetCreationTime.QuadPart == ReturnedCreationTime.QuadPart )) {
 
         DbgPrint(
             "LSA RPC CT - Get/Set Policy Serial Number Test failed\n"
@@ -2903,9 +2903,8 @@ Return Values:
             BooleanStatus = FALSE;
         }
 
-        if (!RtlLargeIntegerEqualTo(
-                 PolicyAuditLogInfo1->AuditRetentionPeriod,
-                 PolicyAuditLogInfo2->AuditRetentionPeriod)) {
+        if (!(PolicyAuditLogInfo1->AuditRetentionPeriod.QuadPart ==
+              PolicyAuditLogInfo2->AuditRetentionPeriod.QuadPart)) {
 
             DbgPrint("AuditRetentionPeriod returned is incorrect\n");
             BooleanStatus = FALSE;
@@ -2918,9 +2917,8 @@ Return Values:
             BooleanStatus = FALSE;
         }
 
-        if (!RtlLargeIntegerEqualTo(
-                 PolicyAuditLogInfo1->TimeToShutdown,
-                 PolicyAuditLogInfo2->TimeToShutdown)) {
+        if (!(PolicyAuditLogInfo1->TimeToShutdown.QuadPart ==
+              PolicyAuditLogInfo2->TimeToShutdown.QuadPart)) {
 
             DbgPrint("TimeToShutDown returned is incorrect\n");
             BooleanStatus = FALSE;
@@ -3151,9 +3149,8 @@ Return Values:
             BooleanStatus = FALSE;
         }
 
-        if (!RtlLargeIntegerEqualTo(
-                 QuotaLimits1->TimeLimit,
-                 QuotaLimits2->TimeLimit
+        if (!(QuotaLimits1->TimeLimit.QuadPart ==
+              QuotaLimits2->TimeLimit.QuadPart
                  )) {
 
             DbgPrint(
@@ -3172,19 +3169,15 @@ Return Values:
         PolicyModificationInfo1 = (PPOLICY_MODIFICATION_INFO) PolicyInformation1;
         PolicyModificationInfo2 = (PPOLICY_MODIFICATION_INFO) PolicyInformation2;
 
-        if (!RtlLargeIntegerEqualTo(
-                 PolicyModificationInfo1->ModifiedId,
-                 PolicyModificationInfo2->ModifiedId
-                 )) {
+        if (!(PolicyModificationInfo1->ModifiedId.QuadPart ==
+              PolicyModificationInfo2->ModifiedId.QuadPart )) {
 
             DbgPrint("ModifiedId returned is incorrect\n");
             BooleanStatus = FALSE;
         }
 
-        if (!RtlLargeIntegerEqualTo(
-                 PolicyModificationInfo1->DatabaseCreationTime,
-                 PolicyModificationInfo2->DatabaseCreationTime
-                 )) {
+        if (!(PolicyModificationInfo1->DatabaseCreationTime.QuadPart ==
+              PolicyModificationInfo2->DatabaseCreationTime.QuadPart )) {
 
             DbgPrint("DatabaseCreationTime returned is incorrect\n");
             BooleanStatus = FALSE;
@@ -8452,7 +8445,7 @@ Return Value:
     // the SystemTime.
     //
 
-    if (!RtlLargeIntegerEqualTo( FredCurrentValueSetTime, SystemTime )) {
+    if (!( FredCurrentValueSetTime.QuadPart == SystemTime.QuadPart )) {
 
         DbgPrint(
             "LSA RPC CT - Set Times for Secret Values failed\n"
@@ -8463,7 +8456,7 @@ Return Value:
         goto SetTimesSecretError;
     }
 
-    if (!RtlLargeIntegerEqualTo( FredOldValueSetTime, SystemTime )) {
+    if (!( FredOldValueSetTime.QuadPart == SystemTime.QuadPart )) {
 
         DbgPrint(
             "LSA RPC CT - Set Times for Secret Values failed\n"

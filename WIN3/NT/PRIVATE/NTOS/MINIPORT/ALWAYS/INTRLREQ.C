@@ -151,7 +151,7 @@ AutoSenseReqComplete (IO_REQ_PTR Req)
   TRACE(3, ("AutoSenseReqComplete(): Completion of auto sense\n"));
   DmsPause(7, 100);
   CompleteDeferedRequest(ReqAdapterPtr(Req),
-      (ReqAPIStatus(Req) == S_TAR_NOERROR) ? S_AD_AUTOSENSE_OK : S_AD_AUTOSENSE_FAIL);
+      (APIStatus)((ReqAPIStatus(Req) == S_TAR_NOERROR) ? S_AD_AUTOSENSE_OK : S_AD_AUTOSENSE_FAIL));
 
 }
 

@@ -106,7 +106,7 @@ HWND hwndTimeout)
                  * rapid synchronous transactions which interfere with
                  * their proper closing.
                  */
-                pai->wTimeoutStatus == TOS_ABORT;
+                pai->wTimeoutStatus = TOS_ABORT;
                 PostMessage(msg.hwnd, WM_QUIT, 0, 0);
             } else {
                 if (!CallMsgFilter(&msg, MSGF_DDEMGR))
@@ -167,10 +167,9 @@ DWORD cbData;
         cbData++; // fixes GLOBALALLOC bug where 0 size object allocation fails
 
     if ((hMem = GLOBALALLOC(GMEM_DDESHARE, cbData))) {
-        pMem = (DDEDATA FAR * )GLOBALLOCK(hMem);
+        pMem = (DDEDATA FAR * )GLOBALPTR(hMem);
         *(WORD FAR * )pMem = fsStatus;
         pMem->cfFormat = wFmt;
-        GLOBALUNLOCK(hMem);
     }
 
     SEMLEAVE();
@@ -506,7 +505,7 @@ BOOL EmptyDDEPostQ()
     }
     if (fMoreToDo & !EmptyQueueTimerId) {
         EmptyQueueTimerId = SetTimer(NULL, TID_EMPTYPOSTQ,
-                TIMEOUT_QUEUECHECK, EmptyQTimerProc);
+                TIMEOUT_QUEUECHECK, (TIMERPROC)EmptyQTimerProc);
     }
 
     return(fMoreToDo);
@@ -525,5 +524,3 @@ DWORD dwTime)
     EmptyQueueTimerId = 0;
     EmptyDDEPostQ();
 }
-
-

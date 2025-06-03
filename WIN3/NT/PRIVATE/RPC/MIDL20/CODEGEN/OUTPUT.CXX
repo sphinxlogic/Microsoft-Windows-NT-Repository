@@ -23,6 +23,7 @@
 #include "becls.hxx"
 #pragma hdrstop
 #include "buffer.hxx"
+#include "midlvers.h"
 
 #if 0
                             Notes
@@ -86,15 +87,14 @@ Out_ServerProcedureProlog(
 
 ----------------------------------------------------------------------------*/
 {
-    char        TempBuffer[ 256 ];
     ISTREAM *   pStream = pCCB->GetStream();
 
-    sprintf( TempBuffer ,
-             "void __RPC_STUB\n%s_%s(" ,
-             pCCB->GetInterfaceName(),
-             pNode->GetSymName()
-           );
-
+    CSzBuffer TempBuffer( "void __RPC_STUB\n" );
+    TempBuffer.Append( pCCB->GetInterfaceName() );
+    TempBuffer.Append( "_" );
+    TempBuffer.Append( pNode->GetSymName() );
+    TempBuffer.Append( "(" );
+    
     Out_ProcedureProlog( pCCB,
                          TempBuffer,
                          pNode,
@@ -153,7 +153,7 @@ Out_ProcedureProlog(
         while( ITERATOR_GETNEXT( ParamsList, pRes ) )
             {
             if(fFirst != TRUE)
-                pStream->Write(",");
+                pStream->Write(',');
             pRes->GetType()->PrintType(
                                         (PRT_PARAM_WITH_TYPE | PRT_CSTUB_PREFIX),
                                         pStream,             // into stream
@@ -171,7 +171,7 @@ Out_ProcedureProlog(
 
     pStream->Write(" )");
     pStream->NewLine();
-    pStream->Write( "{" );
+    pStream->Write( '{' );
     pStream->IndentInc();
     pStream->NewLine();
 
@@ -214,7 +214,8 @@ Out_ProcedureProlog(
             }
         }
 
-    pStream->IndentDec();
+    pStream->Write( RPC_STATUS_TYPE_NAME" "RPC_STATUS_VAR_NAME";" );
+
     pStream->NewLine();
 
     //
@@ -316,10 +317,21 @@ Out_ClientLocalVariables(
 void
 Out_AllocAndFreeFields(
     CCB *               pCCB )
+/*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+ Routine Description:
+
+    Outputs the alloc and free fields of the stub descriptor.
+
+ Arguments:
+
+    pCCB            - A pointer to the code generation controller block.
+
+----------------------------------------------------------------------------*/
 {
     ISTREAM 		*   pStream;
 	CG_INTERFACE	*	pIntfCG	= pCCB->GetInterfaceCG();
-    
+
     pStream = pCCB->GetStream();
 
 	if ( pIntfCG->IsObject() )
@@ -337,7 +349,9 @@ Out_AllocAndFreeFields(
                                 : DEFAULT_ALLOC_RTN_NAME );
             }
         else
-            pStream->Write( DEFAULT_ALLOC_RTN_NAME );
+            pStream->Write( pIntfCG->IsAllRpcSS()
+                                ? DEFAULT_ALLOC_OSF_RTN_NAME
+                                : DEFAULT_ALLOC_RTN_NAME );
         }
     else
         {
@@ -345,7 +359,7 @@ Out_AllocAndFreeFields(
 
         pStream->Write( (pCCB->GetCodeGenSide() == CGSIDE_CLIENT)
                             ?  RPC_SM_CLIENT_ALLOCATE_RTN_NAME
-                            :  DEFAULT_ALLOC_OSF_RTN_NAME ); 
+                            :  DEFAULT_ALLOC_OSF_RTN_NAME );
         }
     pStream->Write(',');
     pStream->NewLine();
@@ -363,13 +377,15 @@ Out_AllocAndFreeFields(
                                 : DEFAULT_FREE_RTN_NAME );
             }
         else
-            pStream->Write( DEFAULT_FREE_RTN_NAME );
+            pStream->Write( pIntfCG->IsAllRpcSS()
+                                ? DEFAULT_FREE_OSF_RTN_NAME
+                                : DEFAULT_FREE_RTN_NAME );
         }
     else
         {
         pStream->Write( (pCCB->GetCodeGenSide() == CGSIDE_CLIENT)
                             ?  RPC_SM_CLIENT_FREE_RTN_NAME
-                            :  DEFAULT_FREE_OSF_RTN_NAME ); 
+                            :  DEFAULT_FREE_OSF_RTN_NAME );
         }
     pStream->Write(',');
     pStream->NewLine();
@@ -388,8 +404,8 @@ Out_StubDescriptor(
 
  Arguments:
 
-    pImplicitHandle - A pointer to the implicit CG_HANDLE used in the 
-                      interface.  Every interface has one of these even if 
+    pImplicitHandle - A pointer to the implicit CG_HANDLE used in the
+                      interface.  Every interface has one of these even if
                       it is not used.
     pCCB            - A pointer to the code gen controller block.
 
@@ -401,52 +417,218 @@ Out_StubDescriptor(
 
 ----------------------------------------------------------------------------*/
 {
-    ISTREAM *   pStream;
-    char        Buffer[80];
-    CGSIDE      Side;
-    BOOL        fObjectInterface;
+    ISTREAM *       pStream;
+    CG_INTERFACE *  pInterface;
+    CSzBuffer       Buffer;
+    CGSIDE          Side;
+    BOOL            fObjectInterface;
 
     pStream = pCCB->GetStream();
 
     Side = pCCB->GetCodeGenSide();
 
-    fObjectInterface = pCCB->GetInterfaceCG()->IsObject();
+    pInterface = pCCB->GetInterfaceCG();
+    fObjectInterface = pInterface->IsObject();
 
     pCCB->OutputExternsToMultipleInterfaceTables();
+
+    if ( pInterface->HasClientInterpretedCommOrFaultProc( pCCB ) )
+        {
+        CG_ITERATOR Iterator;
+        CG_PROC *   pProc;
+
+        pStream->NewLine();
+        pStream->Write( "static const COMM_FAULT_OFFSETS " );
+        pStream->Write( pCCB->GetInterfaceName() );
+        pStream->Write( '_' );
+        pStream->Write( "CommFaultOffsets[]" );
+        pStream->Write( " = " );
+        pStream->NewLine();
+
+        pStream->Write( '{' );
+        pStream->NewLine();
+
+        pInterface->GetMembers( Iterator );
+
+        while ( ITERATOR_GETNEXT( Iterator, pProc ) )
+            {
+            long   CommOffset[5], FaultOffset[5];
+
+            if ( ((Side == CGSIDE_CLIENT) &&
+                  (pProc->GetCGID() != ID_CG_PROC)) ||
+                 ((Side == CGSIDE_SERVER) &&
+                  (pProc->GetCGID() != ID_CG_CALLBACK_PROC)) )
+                continue;
+
+            if ( pProc->HasStatuses() )
+                {
+                pProc->GetCommAndFaultOffset( pCCB, CommOffset, FaultOffset );
+
+                if ( pCommand->IsAnyMac() )
+                    {
+                    CommOffset[0] = CommOffset[4];
+                    FaultOffset[0] = FaultOffset[4];
+                    }
+
+                if ( (pCommand->GetEnv() == ENV_DOS) ||
+                     (pCommand->GetEnv() == ENV_WIN16) ||
+                     pCommand->IsAnyMac() )
+                    {
+                    Buffer.Set( "\t{ " );
+                    Buffer.Append( CommOffset[0] );
+                    Buffer.Append( ", " );
+                    Buffer.Append( FaultOffset[0] );
+                    Buffer.Append( " }" );
+                    Buffer.Append( pProc->GetSibling() ? "," : " " );
+
+                    pStream->Write( Buffer );
+                    }
+                else
+                    {
+                    pStream->Write( "#ifdef _X86_" );
+                    pStream->NewLine();
+                    
+                    Buffer.Set( "\t{ " );
+                    Buffer.Append( CommOffset[0] );
+                    Buffer.Append( ", ");
+                    Buffer.Append( FaultOffset[0] );
+                    Buffer.Append( " }" );
+                    Buffer.Append( pProc->GetSibling() ? "," : " " );
+                    Buffer.Append( "\t/* x86 Offsets for " );
+                    Buffer.Append( pProc->GetSymName() );
+                    Buffer.Append( " */" );
+
+                    pStream->Write( Buffer );
+                    pStream->NewLine();
+                    pStream->Write( "#endif" );
+                    pStream->NewLine();
+
+                    if ( (CommOffset[2] == CommOffset[3]) &&
+                         (FaultOffset[2] == FaultOffset[3]) )
+                        {
+                        pStream->Write("#if defined(_MIPS_) || defined(_PPC_)");
+                        pStream->NewLine();
+                        
+                        Buffer.Set( "\t{ " );
+                        Buffer.Append( CommOffset[2] );
+                        Buffer.Append( ", ");
+                        Buffer.Append( FaultOffset[2] );
+                        Buffer.Append( " }" );
+                        Buffer.Append( pProc->GetSibling() ? "," : " " );
+                        Buffer.Append( "\t/* MIPS, PPC Offsets for " );
+                        Buffer.Append( pProc->GetSymName() );
+                        Buffer.Append( " */" );
+
+                        pStream->Write( Buffer );
+                        pStream->NewLine();
+                        pStream->Write( "#endif" );
+                        pStream->NewLine();
+                        }
+                    else
+                        {
+                        pStream->Write( "#ifdef _MIPS_" );
+                        pStream->NewLine();
+
+                        Buffer.Set( "\t{ " );
+                        Buffer.Append( CommOffset[2] );
+                        Buffer.Append( ", " );
+                        Buffer.Append( FaultOffset[2] );
+                        Buffer.Append( " }" );
+                        Buffer.Append( pProc->GetSibling() ? "," : " " );
+                        Buffer.Append( "\t/* MIPS Offsets for " );
+                        Buffer.Append( pProc->GetSymName() );
+                        Buffer.Append( " */");
+
+                        pStream->Write( Buffer );
+                        pStream->NewLine();
+                        pStream->Write( "#endif" );
+                        pStream->NewLine();
+
+                        pStream->Write( "#ifdef _PPC_" );
+                        pStream->NewLine();
+
+                        Buffer.Set( "\t{ ");
+                        Buffer.Append( CommOffset[3] );
+                        Buffer.Append( ", " );
+                        Buffer.Append( FaultOffset[3] );
+                        Buffer.Append( " }" );
+                        Buffer.Append( pProc->GetSibling() ? "," : " " );
+                        Buffer.Append( "\t/* PPC Offsets for " );
+                        Buffer.Append( pProc->GetSymName() );
+                        Buffer.Append( " */" );
+
+                        pStream->Write( Buffer );
+                        pStream->NewLine();
+                        pStream->Write( "#endif" );
+                        pStream->NewLine();
+                        }
+
+                    pStream->Write( "#ifdef _ALPHA_" );
+                    pStream->NewLine();
+
+                    Buffer.Set( "\t{ " );
+                    Buffer.Append( CommOffset[1] );
+                    Buffer.Append( ", " );
+                    Buffer.Append( FaultOffset[1] );
+                    Buffer.Append( " }" );
+                    Buffer.Append( pProc->GetSibling() ? "," : " " );
+                    Buffer.Append( "\t/* Alpha Offsets for " );
+                    Buffer.Append( pProc->GetSymName() );
+                    Buffer.Append( " */" );
+
+                    pStream->Write( Buffer );
+                    pStream->NewLine();
+                    pStream->Write( "#endif" );
+                    }
+                }
+            else
+                {
+                pStream->Write( "\t{ -2, -2 }" );
+                if ( pProc->GetSibling() )
+                    pStream->Write( ',' );
+                }
+
+            pStream->NewLine();
+            }
+
+        pStream->Write( "};" );
+        pStream->NewLine();
+        pStream->NewLine();
+        }
 
     //
     // If we have an implicit generic handle then output the generic info
     // structure which will be placed in the IMPLICIT_HANDLE_INFO union.
     //
 
-    if ( (Side == CGSIDE_CLIENT) && 
+    if ( (Side == CGSIDE_CLIENT) &&
          pImplicitHandle && pImplicitHandle->IsGenericHandle() )
         {
         pStream->NewLine();
         pStream->Write( "static " GENERIC_BINDING_INFO_TYPE );
-        pStream->Write( " " );
+        pStream->Write( ' ' );
         pStream->Write( pCCB->GetInterfaceName() );
-        pStream->Write( "_" );
+        pStream->Write( '_' );
         pStream->Write( GENERIC_BINDING_INFO_VAR );
         pStream->Write( " = " );
         pStream->IndentInc();
         pStream->NewLine();
-    
-        pStream->Write( "{" );
+
+        pStream->Write( '{' );
         pStream->NewLine();
 
-        pStream->Write( "&" );
+        pStream->Write( '&' );
         pStream->Write( pImplicitHandle->GetHandleIDOrParam()->GetSymName() );
-        pStream->Write( "," );
+        pStream->Write( ',' );
         pStream->NewLine();
 
         char    Buffer[80];
 
-        sprintf( Buffer, "%d,", 
+        sprintf( Buffer, "%d,",
                  ((CG_GENERIC_HANDLE *)pImplicitHandle)->GetImplicitSize() );
         pStream->Write( Buffer );
         pStream->NewLine();
-    
+
         pStream->Write( "(" GENERIC_BINDING_ROUTINE_TYPE ")" );
         pStream->Write( pImplicitHandle->GetHandleType()->GetSymName() );
         pStream->Write( "_bind," );
@@ -470,15 +652,15 @@ Out_StubDescriptor(
 
     pStream->Write( "static const " STUB_DESC_STRUCT_TYPE_NAME );
 
-    pStream->Write( " " );
+    pStream->Write( ' ' );
 
     pStream->Write( pCCB->GetInterfaceCG()->GetStubDescName() );
     pStream->Write( " = " );
 
     pStream->IndentInc();
 
-    pStream->NewLine(); 
-    pStream->Write("{" );
+    pStream->NewLine();
+    pStream->Write('{' );
     pStream->NewLine();
 
     if( (fObjectInterface == TRUE) )
@@ -503,9 +685,9 @@ Out_StubDescriptor(
     //
     if ( (Side == CGSIDE_CLIENT) && (fObjectInterface != TRUE) )
         {
-        if ( ! pImplicitHandle ) 
+        if ( ! pImplicitHandle )
             {
-            pStream->Write( "&" );
+            pStream->Write( '&' );
             pStream->Write( pCCB->GetInterfaceName() );
             pStream->Write( AUTO_BH_VAR_NAME );
             }
@@ -513,8 +695,8 @@ Out_StubDescriptor(
             {
             if ( pImplicitHandle->IsPrimitiveHandle() )
                 {
-                pStream->Write( "&" );
-                pStream->Write( 
+                pStream->Write( '&' );
+                pStream->Write(
                     pImplicitHandle->GetHandleIDOrParam()->GetSymName() );
                 }
             else // has to be implicit generic
@@ -523,53 +705,53 @@ Out_StubDescriptor(
 
                 pStream->Write( "(handle_t __RPC_FAR *)& " );
                 pStream->Write( pCCB->GetInterfaceName() );
-                pStream->Write( "_" );
+                pStream->Write( '_' );
                 pStream->Write( GENERIC_BINDING_INFO_VAR );
                 }
             }
         }
-    else    
-        pStream->Write( "0" );
+    else
+        pStream->Write( '0' );
 
-    pStream->Write( "," );
+    pStream->Write( ',' );
     pStream->NewLine();
 
-        //
-        // Output the rundown routine table on the server side interpreted stub
-        // if needed.
-        //
-        if ( (Side == CGSIDE_SERVER) && 
-             (pCCB->GetOptimOption() & OPTIMIZE_INTERPRETER) &&
-             pCCB->HasRundownRoutines()
-           )
-            {
-            pStream->Write( RUNDOWN_ROUTINE_TABLE_VAR );    
-            }
-        else
-            {
-            pStream->Write( "0" );
-            }
-    
-        pStream->Write( "," );
-        pStream->NewLine();
-    
-        //
-        // Output the generic bind/unbind routine pair table on the client side
-        // interpreted stub if needed.
-        //
-        if ( (Side == CGSIDE_CLIENT) &&
-             pCCB->GetInterpretedRoutinesUseGenHandle() 
-           )
-            {
-            pStream->Write( BINDING_ROUTINE_TABLE_VAR );    
-            }
-        else
-            {
-            pStream->Write( "0" );
-            }
-        pStream->Write( "," );
-        pStream->NewLine();
-    
+    //
+    // Output the rundown routine table on the server side interpreted stub
+    // if needed.
+    //
+    if ( (Side == CGSIDE_SERVER) &&
+         (pCCB->GetOptimOption() & OPTIMIZE_INTERPRETER) &&
+         pCCB->HasRundownRoutines()
+       )
+        {
+        pStream->Write( RUNDOWN_ROUTINE_TABLE_VAR );
+        }
+    else
+        {
+        pStream->Write( '0' );
+        }
+
+    pStream->Write( ',' );
+    pStream->NewLine();
+
+    //
+    // Output the generic bind/unbind routine pair table on the client side
+    // interpreted stub if needed.
+    //
+    if ( (Side == CGSIDE_CLIENT) &&
+         pCCB->GetInterpretedRoutinesUseGenHandle()
+       )
+        {
+        pStream->Write( BINDING_ROUTINE_TABLE_VAR );
+        }
+    else
+        {
+        pStream->Write( '0' );
+        }
+    pStream->Write( ',' );
+    pStream->NewLine();
+
     //
     // Output the expression evaluation routine table.
     //
@@ -586,45 +768,122 @@ Out_StubDescriptor(
                           :  "0," );
     pStream->NewLine();
 
-    // 
+    //
     // Output the type format string.
     //
     pStream->Write( FORMAT_STRING_STRING_FIELD );
-    pStream->Write( "," );
+    pStream->Write( ',' );
     pStream->NewLine();
 
     //
     // -error bounds_check flag.
     //
     pStream->Write( pCCB->MustCheckBounds() ? "1" : "0" );
-    pStream->Write( "," );
+    pStream->Write( ',' );
     pStream->Write( " /* -error bounds_check flag */" );
     pStream->NewLine();
 
     //
     // Ndr library version.
     //
-    sprintf( Buffer, "0x%x", NDR_VERSION );
+    if ( (pCommand->GetOptimizationFlags() & OPTIMIZE_NON_NT351)  ||
+          pCommand->GetNdrVersionControl().HasNdr20Feature() )
+        sprintf( Buffer, "0x%x", NDR_VERSION );
+    else
+        sprintf( Buffer, "0x%x", NDR_VERSION_1_1 );
     pStream->Write( Buffer );
-    pStream->Write( "," );
+    pStream->Write( ',' );
     pStream->Write( " /* Ndr library version */" );
     pStream->NewLine();
+
+    if ( fObjectInterface  &&
+         pCommand->GetNdrVersionControl().HasUserMarshal()  &&
+         (pCommand->GetOptimizationFlags() & OPTIMIZE_INTERPRETER)  &&
+         ! (pCommand->GetOptimizationFlags() & OPTIMIZE_INTERPRETER_V2)
+       )
+        {
+        pStream->NewLine(2);
+        pStream->Write( "#error [user_marshal] and [wire_marshal] not supported with -Oi and -Oic" );
+        pStream->NewLine();
+        pStream->Write( "/* use -Os or -Oicf compiler flag */" );
+        pStream->NewLine();
+
+        RpcError( NULL, 0, USER_MARSHAL_IN_OI, "" );
+        exit( USER_MARSHAL_IN_OI );
+        }
 
     //
     // The reserved fields for future use.
     //
 
-    pStream->Write( "0" );
-    pStream->Write( ", /* Reserved */" );
+    // Used one reserved field for RpcSs.
+    // In ms_ext when explicit, in osf always, to cover some weird cases.
+
+	if ( ( pCCB->GetInterfaceCG()->GetUsesRpcSS() || (pCCB->GetMode() == 0) )
+         &&
+         ( (Side == CGSIDE_CLIENT) ||
+           ((Side == CGSIDE_SERVER) && pCCB->GetMode()) )// because of callbacks
+       )
+        {
+        pStream->Write( "&" MALLOC_FREE_STRUCT_VAR_NAME "," );
+        }
+    else
+        pStream->Write( "0," );
     pStream->NewLine();
 
-    pStream->Write( "0" );
-    pStream->Write( ", /* Reserved */" );
+    // MIDL version number.
+
+    sprintf( Buffer,
+             "0x%x, /* MIDL Version %d.%d.%d */",
+             (rmj << 24) | (rmm << 16) | rup,
+             rmj,
+             rmm,
+             rup );
+    pStream->Write( Buffer );
     pStream->NewLine();
 
-    pStream->Write( "0" );
-    pStream->Write( "  /* Reserved */" );
+    // Interpreter comm/fault status info.
+
+    if ( pInterface->HasClientInterpretedCommOrFaultProc( pCCB ) )
+        {
+        pStream->Write( pCCB->GetInterfaceName() );
+        pStream->Write( '_' );
+        pStream->Write( "CommFaultOffsets," );
+        }
+    else
+        {
+        pStream->Write( "0," );
+        }
     pStream->NewLine();
+
+    // Fields for the compiler version 3.0+
+
+    //
+    // Output the usr_marshal routine table.
+    //
+    pStream->Write( pCCB->HasQuadrupleRoutines()
+                          ?  USER_MARSHAL_ROUTINE_TABLE_VAR
+                          :  "0" );
+    pStream->Write( "," );
+    pStream->NewLine();
+
+    // 4 reserved fields + a pointer to the annex structure
+
+    pStream->Write( "0,  /* Reserved1 */" );
+    pStream->NewLine();
+    pStream->Write( "0,  /* Reserved2 */" );
+    pStream->NewLine();
+    pStream->Write( "0,  /* Reserved3 */" );
+    pStream->NewLine();
+    pStream->Write( "0,  /* Reserved4 */" );
+    pStream->NewLine();
+
+    pStream->Write( "0   /* Reserved5 */" );
+    pStream->NewLine();
+
+    // No reserved fields left.
+    // Check the compiler version and or lib version if you need to access
+    // newer fields.
 
     pStream->Write("};" );
     pStream->IndentDec();
@@ -632,21 +891,18 @@ Out_StubDescriptor(
 
 }
 
-void                
+void
 Out_InterpreterServerInfo( CCB *    pCCB,
                            CGSIDE   Side )
 {
-    ITERATOR        Iterator;
-    ISTREAM *       pStream;
-    CG_INTERFACE *  pInterface;
+    ISTREAM *       pStream		= pCCB->GetStream();
+    CG_INTERFACE *  pInterface	= pCCB->GetInterfaceCG();
     CG_PROC *       pProc;
     BOOL            fHasThunk;
     char         *  pSStubPrefix;
-    char            Buffer[ 256 ];
-
-    pStream = pCCB->GetStream();
-
-    pInterface = pCCB->GetInterfaceCG();
+    CSzBuffer       Buffer;
+	BOOL			fObject		= pCCB->GetInterfaceCG()->IsObject();
+	char		*	pItfName	= pInterface->GetSymName();
 
     pStream->NewLine();
 
@@ -661,16 +917,18 @@ Out_InterpreterServerInfo( CCB *    pCCB,
     // Server routine dispatch table.
     //
 
-    if ( !pCCB->GetInterfaceCG()->IsObject() )
+    if ( !fObject )
         {
+	    CG_ITERATOR		Iterator;
+
         pStream->Write( "static const " SERVER_ROUTINE_TYPE_NAME " " );
-        pStream->Write( pInterface->GetType()->GetSymName() );
+        pStream->Write( pItfName );
         pStream->Write( SERVER_ROUTINE_TABLE_NAME "[]" );
         pStream->Write( " = " );
         pStream->IndentInc();
         pStream->NewLine();
-    
-        pStream->Write( "{" );
+
+        pStream->Write( '{' );
         pStream->NewLine();
 
         pInterface->GetMembers( Iterator );
@@ -679,21 +937,23 @@ Out_InterpreterServerInfo( CCB *    pCCB,
 
         while ( ITERATOR_GETNEXT( Iterator, pProc ) )
             {
-            if ( (Side == CGSIDE_CLIENT) && 
+            if ( (Side == CGSIDE_CLIENT) &&
                  (pProc->GetCGID() != ID_CG_CALLBACK_PROC) )
                 continue;
 
-            if ( (Side == CGSIDE_SERVER) && 
+            if ( (Side == CGSIDE_SERVER) &&
                  (pProc->GetCGID() == ID_CG_CALLBACK_PROC) )
                 continue;
 
             fNoProcsEmitted = FALSE;
-    
+
             if ( pProc->NeedsServerThunk( pCCB, Side ) )
+                {
                 fHasThunk = TRUE;
-    
+                }
+
             pStream->Write( "(" SERVER_ROUTINE_TYPE_NAME ")" );
-    
+
             if ( pProc->GetCallAsName() )
                 {
                 pStream->Write( pProc->GenMangledCallAsName( pCCB ) );
@@ -702,86 +962,109 @@ Out_InterpreterServerInfo( CCB *    pCCB,
                 {
                 if ( pProc->GetCGID() == ID_CG_ENCODE_PROC  ||
                      pProc->GetCGID() == ID_CG_TYPE_ENCODE_PROC )
-                    pStream->Write( "0" );
+                    pStream->Write( '0' );
                 else
                     {
-                    sprintf( Buffer,
-                             "%s%s",
-                             pSStubPrefix,
-                             pProc->GetType()->GetSymName() );
+                    Buffer.Set( pSStubPrefix );
+                    Buffer.Append( pProc->GetType()->GetSymName() );
                     pStream->Write( Buffer );
                     }
                 }
-    
+
             if ( pProc->GetSibling() )
-                pStream->Write( "," );
-    
+                pStream->Write( ',' );
+
             pStream->NewLine();
             }
 
         if ( fNoProcsEmitted )
             {
-            pStream->Write( "0" );
+            pStream->Write( '0' );
             pStream->NewLine();
             }
-    
+
         pStream->Write( "};" );
         pStream->IndentDec();
-        pStream->NewLine();
-        pStream->NewLine();
+        pStream->NewLine( 2 );
         }
     else    // object interfaces only need to know about thunks
         {
+    	ITERATOR		Iterator;
+	CG_OBJECT_PROC	*	pObjProc;
+
         pInterface->GetAllMemberFunctions( Iterator );
 
-        while ( ITERATOR_GETNEXT( Iterator, pProc ) )
+        while ( ITERATOR_GETNEXT( Iterator, pObjProc ) )
             {
-            if ( pProc->NeedsServerThunk( pCCB, Side ) )
+            if ( pObjProc->NeedsServerThunk( pCCB, Side ) && !pObjProc->IsDelegated() )
                 fHasThunk = TRUE;
             }
         }
-    
+
     //
     // Format string offset table.
     //
     pStream->Write( "static const unsigned short " );
-    pStream->Write( pInterface->GetType()->GetSymName() );
+    pStream->Write( pItfName );
     pStream->Write( FORMAT_STRING_OFFSET_TABLE_NAME "[]" );
     pStream->Write( " = " );
     pStream->IndentInc();
     pStream->NewLine();
-    
-    pStream->Write( "{" );
+
+    pStream->Write( '{' );
     pStream->NewLine();
 
-    pInterface->OutputProcOffsets( pCCB, TRUE );
+    pInterface->OutputProcOffsets( pCCB, TRUE, FALSE );
 
     pStream->Write( "};" );
     pStream->IndentDec();
-    pStream->NewLine();
-    pStream->NewLine();
+    pStream->NewLine( 2 );
 
+    if (pCommand->IsHookOleEnabled())
+    {
+        //
+        // Local Format string offset table.
+        //
+        pStream->Write( "#pragma data_seg(\".data$hook\")");
+        pStream->NewLine();
+        pStream->Write( "static const unsigned short " );
+        pStream->Write( pItfName );
+        pStream->Write( LOCAL_FORMAT_STRING_OFFSET_TABLE_NAME "[]" );
+        pStream->Write( " = " );
+        pStream->IndentInc();
+        pStream->NewLine();
+
+        pStream->Write( '{' );
+        pStream->NewLine();
+
+        pInterface->OutputProcOffsets( pCCB, TRUE, TRUE );
+
+        pStream->Write( "};" );
+        pStream->IndentDec();
+        pStream->NewLine();
+        pStream->Write( "#pragma data_seg()");
+        pStream->NewLine( 2 );
+    }
     //
     // Thunk table.
     //
     if ( fHasThunk )
         {
         pStream->Write( "static const " STUB_THUNK_TYPE_NAME " " );
-        pStream->Write( pInterface->GetType()->GetSymName() );
+        pStream->Write( pItfName );
         pStream->Write( STUB_THUNK_TABLE_NAME "[]" );
         pStream->Write( " = " );
         pStream->IndentInc();
         pStream->NewLine();
-    
-        pStream->Write( "{" );
+
+        pStream->Write( '{' );
         pStream->NewLine();
 
         pInterface->OutputThunkTableEntries( pCCB, TRUE );
 
         pStream->Write( "};" );
         pStream->IndentDec();
-        pStream->NewLine();
-        pStream->NewLine();
+        pStream->NewLine( 2 );
         }
 
     // ---------------------------
@@ -791,21 +1074,21 @@ Out_InterpreterServerInfo( CCB *    pCCB,
     // ---------------------------
 
     pStream->Write( "static const " SERVER_INFO_TYPE_NAME " " );
-    pStream->Write( pCCB->GetInterfaceCG()->GetType()->GetSymName() );
+    pStream->Write( pItfName );
     pStream->Write( SERVER_INFO_VAR_NAME );
     pStream->Write( " = " );
     pStream->IndentInc();
     pStream->NewLine();
 
-    pStream->Write( "{" );
+    pStream->Write( '{' );
     pStream->NewLine();
 
-    // 
+    //
     // Stub descriptor.
     //
-    pStream->Write( "&" );
+    pStream->Write( '&' );
     pStream->Write( pInterface->GetStubDescName() );
-    pStream->Write( "," );
+    pStream->Write( ',' );
     pStream->NewLine();
 
     //
@@ -813,30 +1096,34 @@ Out_InterpreterServerInfo( CCB *    pCCB,
     //
     if ( !pCCB->GetInterfaceCG()->IsObject() )
         {
-        pStream->Write( pInterface->GetType()->GetSymName() );
-        pStream->Write( SERVER_ROUTINE_TABLE_NAME ); 
+        pStream->Write( pItfName );
+        pStream->Write( SERVER_ROUTINE_TABLE_NAME );
         }
     else
         {
-        pStream->Write( "0" ); 
+        pStream->Write( '0' );
         }
 
-    pStream->Write( "," );
+    pStream->Write( ',' );
     pStream->NewLine();
 
     //
     // Procedure format string.
     //
-    pStream->Write( PROC_FORMAT_STRING_STRING_FIELD ); 
-    pStream->Write( "," );
+    pStream->Write( PROC_FORMAT_STRING_STRING_FIELD );
+    pStream->Write( ',' );
     pStream->NewLine();
 
     //
     // Array of proc format string offsets.
     //
-    pStream->Write( pInterface->GetType()->GetSymName() );
-    pStream->Write( FORMAT_STRING_OFFSET_TABLE_NAME ); 
-    pStream->Write( "," );
+	if ( fObject )
+		pStream->Write( '&' );
+    pStream->Write( pItfName );
+    pStream->Write( FORMAT_STRING_OFFSET_TABLE_NAME );
+	if ( fObject )
+		pStream->Write( "[-3]" );
+    pStream->Write( ',' );
     pStream->NewLine();
 
     //
@@ -844,12 +1131,53 @@ Out_InterpreterServerInfo( CCB *    pCCB,
     //
     if ( fHasThunk )
         {
-        pStream->Write( pInterface->GetType()->GetSymName() );
+		if ( fObject )
+			pStream->Write( '&' );
+        pStream->Write( pItfName );
         pStream->Write( STUB_THUNK_TABLE_NAME );
+	 	if ( fObject )
+			pStream->Write( "[-3]" );
+       }
+    else
+        pStream->Write( '0' );
+
+    pStream->Write( ',' );
+
+    pStream->NewLine();
+    if (pCommand->IsHookOleEnabled())
+        {
+        //
+        // Local Type format string.
+        //
+        pStream->Write( LOCAL_FORMAT_STRING_STRING_FIELD );
+        pStream->Write( ',' );
+        pStream->NewLine();
+
+        //
+        // Local Procedure format string.
+        //
+        pStream->Write( LOCAL_PROC_FORMAT_STRING_STRING_FIELD );
+        pStream->Write( ',' );
+        pStream->NewLine();
+
+        //
+        // Local Array of proc format string offsets.
+        //
+	    if ( fObject )
+		    pStream->Write( '&' );
+        pStream->Write( pItfName );
+        pStream->Write( LOCAL_FORMAT_STRING_OFFSET_TABLE_NAME );
+	    if ( fObject )
+		    pStream->Write( "[-3]" );
         }
     else
-        pStream->Write( "0" ); 
-
+        {
+        pStream->Write( "0,");
+        pStream->NewLine();
+        pStream->Write( "0,");
+        pStream->NewLine();
+        pStream->Write( "0");
+        }
     pStream->NewLine();
 
     pStream->Write( "};" );
@@ -866,12 +1194,11 @@ Out_EP_Info(
     ISTREAM     *   pStream = pCCB->GetStream();
     int             Count   = ITERATOR_GETCOUNT( *I );
     int             i;
-    char            Buffer[ 256 ];
+    CSzBuffer   Buffer;
     ENDPT_PAIR  *   pPair;
 
     pStream->NewLine();
-    sprintf( Buffer, "static RPC_PROTSEQ_ENDPOINT __RpcProtseqEndpoint[] = " );
-    pStream->Write( Buffer );
+    pStream->Write( "static RPC_PROTSEQ_ENDPOINT __RpcProtseqEndpoint[] = " );
     pStream->IndentInc();
     pStream->NewLine();
     pStream->Write( '{' );
@@ -885,14 +1212,13 @@ Out_EP_Info(
         pStream->NewLine();
         pStream->Write( '{' );
 
-        sprintf(    Buffer,
-                "(unsigned char *) \"%s\", (unsigned char *) \"%s\"",
-                pPair->pString1,
-                pPair->pString2
-              );
+        Buffer.Set( "(unsigned char *) \"" );
+        Buffer.Append( pPair->pString1 );
+        Buffer.Append( "\", (unsigned char *) \"" );
+        Buffer.Append( pPair->pString2 );
+        Buffer.Append( "\"" );
 
         pStream->Write( Buffer );
-
         pStream->Write( '}' );
 
         if( ITERATOR_PEEKTHIS( *I ) )
@@ -974,7 +1300,7 @@ void
 Out_HandleInitialize(
     CCB         *   pCCB,
     ITERATOR&       BindingParamList,
-    _expr_node  *   pAssignExpr,
+    expr_node  *   pAssignExpr,
     BOOL            fAuto,
     unsigned short  OpBits )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -1004,7 +1330,7 @@ Out_HandleInitialize(
     ISTREAM     *   pStream         = pCCB->GetStream();
     PNAME           pName           = CSTUB_INIT_RTN_NAME;
 
-    _expr_proc_call *   pProcCall   = MakeProcCallOutOfParamExprList(
+    expr_proc_call *   pProcCall   = MakeProcCallOutOfParamExprList(
                                                      pName,
                                                      (node_skl *)0,
                                                      BindingParamList
@@ -1097,8 +1423,8 @@ Out_ContextHandleInitialize(
 void
 Out_AutoHandleSendReceive(
     CCB         *   pCCB,
-    _expr_node  *   pDest,
-    _expr_node  *   pProc )
+    expr_node  *   pDest,
+    expr_node  *   pProc )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
  Routine Description:
@@ -1122,13 +1448,13 @@ Out_AutoHandleSendReceive(
 ----------------------------------------------------------------------------*/
 {
     ISTREAM     *   pStream = pCCB->GetStream();
-    _expr_node  *   pExpr   = pProc;
+    expr_node  *   pExpr   = pProc;
 
     pStream->NewLine();
 
     if( pDest )
         {
-        pExpr   = new _expr_assign( pDest, pProc );
+        pExpr   = new expr_assign( pDest, pProc );
         }
 
     pExpr->PrintCall( pStream, 0, 0 );
@@ -1160,7 +1486,7 @@ Out_NormalSendReceive(
 ----------------------------------------------------------------------------*/
 {
     ISTREAM *   pStream = pCCB->GetStream();
-    char        TempBuf[ 256 ];
+    CSzBuffer   TempBuf;
 
     pStream->NewLine();
 
@@ -1168,11 +1494,12 @@ Out_NormalSendReceive(
     // Call the send receive routine.
     //
 
-    sprintf( TempBuf,
-             "%s( (PMIDL_STUB_MESSAGE) &%s, (unsigned char __RPC_FAR *)%s );",
-             NORMAL_SR_NDR_RTN_NAME,
-             STUB_MESSAGE_VAR_NAME,
-             STUB_MSG_BUFFER_VAR_NAME );
+    TempBuf.Set( NORMAL_SR_NDR_RTN_NAME );
+    TempBuf.Append( "( (PMIDL_STUB_MESSAGE) &" );
+    TempBuf.Append( STUB_MESSAGE_VAR_NAME );
+    TempBuf.Append( ", (unsigned char __RPC_FAR *)" );
+    TempBuf.Append( STUB_MSG_BUFFER_VAR_NAME );
+    TempBuf.Append( " );" );
     pStream->Write( TempBuf );
 }
 
@@ -1194,7 +1521,7 @@ Out_NormalFreeBuffer(
 ----------------------------------------------------------------------------*/
 {
     ISTREAM     *   pStream = pCCB->GetStream();
-    _expr_node  *   pExpr   = pCCB->GetStandardResource(
+    expr_node  *   pExpr   = pCCB->GetStandardResource(
                                 ST_RES_STUB_MESSAGE_VARIABLE );
     ITERATOR        ParamList;
 
@@ -1240,27 +1567,105 @@ Out_IncludeOfFile(
 ----------------------------------------------------------------------------*/
 {
     ISTREAM *   pStream = pCCB->GetStream();
-    char        TempBuf [ 256 ];
+    CSzBuffer   TempBuf;
 
     pStream->NewLine();
 
-    sprintf(TempBuf,
-            "#include %c%s%c",
-            fAngleBrackets ? '<' : '\"',
-            p,
-            fAngleBrackets ? '>' : '\"'
-            );
+    TempBuf.Set( "#include " );
+    TempBuf.Append( fAngleBrackets ? "<" : "\"" );
+    TempBuf.Append( p );
+    TempBuf.Append( fAngleBrackets ? ">" : "\"" );
     pStream->Write( TempBuf );
+}
+
+void
+Out_MKTYPLIB_Guid(
+    CCB     *   pCCB,
+    GUID_STRS & GStrs,
+    char * szPrefix,
+    char * szName )
+/*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+ Routine Description:
+
+    Output a MKTYPLIB style guid structure.
+
+ Arguments:
+
+    pCCB          - A pointer to the code generation controller block.
+    pGString1     - Partial guid strings.
+    char * szName - name for the GUID
+
+ Return Value:
+
+ Notes:
+
+    No checks are made for the validity of the string. The front-end has done
+    that.
+
+    All strings are emitted with a leading 0x.
+
+    The 5 strings are treated this way:
+
+        1 - 3. Emitted as such
+        4 - 5. Broken into and emitted as byte hex values, without
+               transformation, so they are just picked up and written out.
+----------------------------------------------------------------------------*/
+{
+    char        TempBuf[256];
+    ISTREAM *   pStream = pCCB->GetStream();
+
+	if ( !GStrs.str1 )
+		GStrs.str1 = "00000000";
+	if ( !GStrs.str2 )
+		GStrs.str2 = "0000";
+	if ( !GStrs.str3 )
+		GStrs.str3 = "0000";
+	if ( !GStrs.str4 )
+		GStrs.str4 = "00000000";
+	if ( !GStrs.str5 )
+		GStrs.str5 = "00000000";
+
+    pStream->Write( "DEFINE_GUID(" );
+    pStream->Write( szPrefix );
+    pStream->Write( szName );
+    pStream->Write( ',' );
+    sprintf( TempBuf, "0x%s,0x%s,0x%s", GStrs.str1, GStrs.str2, GStrs.str3 );
+    pStream->Write( TempBuf );
+
+    //
+    // Each of the above strings are just broken down into six 2 byte
+    // characters with 0x preceding them.
+    //
+
+    strcpy( TempBuf, GStrs.str4 );
+    strcat( TempBuf, GStrs.str5 );
+
+    pStream->Write( "," );
+
+    //
+    // We will use the iteration counter to index into the string. Since we
+    // need 2 per iteration, double the counter. Also pGString4 is actually
+    // a 16 bit qty.
+    //
+
+    for( int i = 0; i < (6+2)*2 ; i += 2 )
+        {
+        pStream->Write( "0x");
+        pStream->Write( TempBuf[ i ] );
+        pStream->Write( TempBuf[ i+1 ] );
+        if( i < (6+2)*2-2 )
+            pStream->Write( ',' );
+        }
+
+    pStream->Write( ");" );
+    pStream->NewLine();
 }
 
 void
 Out_Guid(
     CCB     *   pCCB,
-    char    *   pGString1,
-    char    *   pGString2,
-    char    *   pGString3,
-    char    *   pGString4,
-    char    *   pGString5 )
+    GUID_STRS & GStrs )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
  Routine Description:
@@ -1294,19 +1699,19 @@ Out_Guid(
     char        TempBuf[ 256 ];
     ISTREAM *   pStream = pCCB->GetStream();
 
-	if ( !pGString1 )
-		pGString1 = "00000000";
-	if ( !pGString2 )
-		pGString2 = "0000";
-	if ( !pGString3 )
-		pGString3 = "0000";
-	if ( !pGString4 )
-		pGString4 = "00000000";
-	if ( !pGString5 )
-		pGString5 = "00000000";
+	if ( !GStrs.str1 )
+		GStrs.str1 = "00000000";
+	if ( !GStrs.str2 )
+		GStrs.str2 = "0000";
+	if ( !GStrs.str3 )
+		GStrs.str3 = "0000";
+	if ( !GStrs.str4 )
+		GStrs.str4 = "00000000";
+	if ( !GStrs.str5 )
+		GStrs.str5 = "00000000";
 
-    pStream->Write( "{" );
-    sprintf( TempBuf, "0x%s,0x%s,0x%s", pGString1, pGString2, pGString3 );
+    pStream->Write( '{' );
+    sprintf( TempBuf, "0x%s,0x%s,0x%s", GStrs.str1, GStrs.str2, GStrs.str3 );
     pStream->Write( TempBuf );
 
     //
@@ -1314,8 +1719,8 @@ Out_Guid(
     // characters with 0x preceding them.
     //
 
-    strcpy( TempBuf, pGString4 );
-    strcat( TempBuf, pGString5 );
+    strcpy( TempBuf, GStrs.str4 );
+    strcat( TempBuf, GStrs.str5 );
 
     pStream->Write( ",{" );
 
@@ -1331,7 +1736,7 @@ Out_Guid(
         pStream->Write( TempBuf[ i ] );
         pStream->Write( TempBuf[ i+1 ] );
         if( i < (6+2)*2-2 )
-            pStream->Write( "," );
+            pStream->Write( ',' );
         }
 
     pStream->Write( "}}" );
@@ -1343,18 +1748,10 @@ Out_IFInfo(
     char            *   pIntInfoTypeName,
     char            *   pIntInfoVarName,
     char            *   pIntInfoSizeOfString,
-    char            *   pUserGuidStr1,
-    char            *   pUserGuidStr2,
-    char            *   pUserGuidStr3,
-    char            *   pUserGuidStr4,
-    char            *   pUserGuidStr5,
+    GUID_STRS       & 	UserGuidStr,
     unsigned short      UserMajor,
     unsigned short      UserMinor,
-    char            *   pXferGuidStr1,
-    char            *   pXferGuidStr2,
-    char            *   pXferGuidStr3,
-    char            *   pXferGuidStr4,
-    char            *   pXferGuidStr5,
+    GUID_STRS       & 	XferGuidStr,
     unsigned short      XferSynMajor,
     unsigned short      XferSynMinor,
     char            *   pCallbackDispatchTable,
@@ -1362,7 +1759,8 @@ Out_IFInfo(
     char            *   ProtSeqEPTypeName,
     char            *   ProtSeqEPVarName,
     BOOL                fNoDefaultEpv,
-    BOOL                fSide
+    BOOL                fSide,
+    BOOL                fHasPipes
     )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
@@ -1374,18 +1772,10 @@ Out_IFInfo(
     pIntInfoTypeName        - Client InterfaceInfo type name string.
     pIntInfoVarName         - Client InterfaceInfo variable name string.
     pIntInfoSizeOfString    - string sizeof interface.
-    pUserGuidStr1           - User specified Guid string component 1.
-    pUserGuidStr2           - User specified Guid string component 2.
-    pUserGuidStr3           - User specified Guid string component 3.
-    pUserGuidStr4           - User specified Guid string component 4.
-    pUserGuidStr5           - User specified Guid string component 5.
+    UserGuidStr             - User specified Guid string components.
     UserMajor               - User specified major interface version
     UserMinor               - User specified minor interface version
-    pXferGuidStr1           - Xfer syntax identifying Guid string component 1.
-    pXferGuidStr2           - Xfer syntax identifying Guid string component 2.
-    pXferGuidStr3           - Xfer syntax identifying Guid string component 3.
-    pXferGuidStr4           - Xfer syntax identifying Guid string component 4.
-    pXferGuidStr5           - Xfer syntax identifying Guid string component 5.
+    XferGuidStr             - Xfer syntax identifying Guid string components.
     XferSynMajor            - Transfre syntax major version
     XferSynMinor            - Transfre syntax minor version
     pCallbackDispatchTable  - A pointer to the call back dispatch table name.
@@ -1394,6 +1784,7 @@ Out_IFInfo(
     ProtSeqEPVarName        - Protseq endpoint variable name.
     fNoDefaultEpv           - No default epv switch specicied.
     fSide                   - The server side (1) or client side(0)
+    fHasPipes               - TRUE if any proc in the Interface has pipes
 
  Return Value:
 
@@ -1404,30 +1795,28 @@ Out_IFInfo(
     I'm tired already specifying so many params !
 ----------------------------------------------------------------------------*/
 {
-    char        TempBuf[ 256 ];
+    CSzBuffer TempBuf;
     ISTREAM *   pStream = pCCB->GetStream();
 
-    pStream->NewLine();
-    pStream->NewLine();
-    sprintf( TempBuf,
-             "static const %s %s%s =",
-             pIntInfoTypeName,
-             pCCB->GetInterfaceName(), 
-             pIntInfoVarName
-           );
+    pStream->NewLine( 2 );
+    TempBuf.Set( "static const " );
+    TempBuf.Append( pIntInfoTypeName );
+    TempBuf.Append( " " );
+    TempBuf.Append( pCCB->GetInterfaceName() );
+    TempBuf.Append( pIntInfoVarName );
+    TempBuf.Append( " =" );
 
     pStream->Write( TempBuf );
 
     pStream->IndentInc();
 
     pStream->NewLine();
-    pStream->Write( "{" );
+    pStream->Write( '{' );
 
     pStream->NewLine();
-    sprintf( TempBuf,
-             "%s,",
-             pIntInfoSizeOfString
-           );
+
+    TempBuf.Set( pIntInfoSizeOfString );
+    TempBuf.Append( "," );
 
     pStream->Write( TempBuf );
 
@@ -1436,20 +1825,20 @@ Out_IFInfo(
     //
 
     pStream->NewLine();
-    pStream->Write( "{" );
+    pStream->Write( '{' );
     Out_Guid( pCCB,
-              pUserGuidStr1,
-              pUserGuidStr2,
-              pUserGuidStr3,
-              pUserGuidStr4,
-              pUserGuidStr5
+              UserGuidStr
             );
 
     //
     // Emit the interface version specified by the user.
     //
 
-    sprintf( TempBuf, ",{%d,%d}", UserMajor, UserMinor );
+    TempBuf.Set( ",{" );
+    TempBuf.Append( UserMajor );
+    TempBuf.Append( "," );
+    TempBuf.Append( UserMinor );
+    TempBuf.Append( "}" );
     pStream->Write( TempBuf );
     pStream->Write( "}," );
 
@@ -1458,20 +1847,20 @@ Out_IFInfo(
     //
 
     pStream->NewLine();
-    pStream->Write( "{" );
+    pStream->Write( '{' );
     Out_Guid( pCCB,
-              pXferGuidStr1,
-              pXferGuidStr2,
-              pXferGuidStr3,
-              pXferGuidStr4,
-              pXferGuidStr5
+              XferGuidStr
             );
 
     //
     // Emit the interface version specified by the user.
     //
 
-    sprintf( TempBuf, ",{%d,%d}", XferSynMajor, XferSynMinor );
+    TempBuf.Set( ",{" );
+    TempBuf.Append( XferSynMajor );
+    TempBuf.Append( "," );
+    TempBuf.Append( XferSynMinor );
+    TempBuf.Append( "}" );
     pStream->Write( TempBuf );
     pStream->Write( "}," );
 
@@ -1485,9 +1874,9 @@ Out_IFInfo(
         }
     else
         {
-        pStream->Write( "0" );
+        pStream->Write( '0' );
         }
-    pStream->Write( "," );
+    pStream->Write( ',' );
 
     //
     // If there is a protseq ep count, emit a pointer to the ep table
@@ -1498,7 +1887,9 @@ Out_IFInfo(
 
     if( ProtSeqEPCount )
         {
-        sprintf( TempBuf, "%d,", ProtSeqEPCount );
+        TempBuf.Set(",");
+        TempBuf.Prepend(ProtSeqEPCount);
+//        sprintf( TempBuf, "%d,", ProtSeqEPCount );
         pStream->Write( TempBuf );
         pStream->NewLine();
         pStream->Write( "__RpcProtseqEndpoint," );
@@ -1516,52 +1907,66 @@ Out_IFInfo(
         {
         if( fSide == 1 )
             {
-            sprintf( TempBuf,
-                    "(%s%s_%s *) %s",
-                    pCCB->GetInterfaceName(),
-                    pCCB->GenMangledName(),
-                    pCCB->IsOldNames() ? "SERVER_EPV" : "epv_t",
-                    "0xffffffff" 
-                    );
+            TempBuf.Set( "(" );
+            TempBuf.Append( pCCB->GetInterfaceName() );
+            TempBuf.Append( pCCB->GenMangledName() );
+            TempBuf.Append( "_" );
+            TempBuf.Append( pCCB->IsOldNames() ? "SERVER_EPV" : "epv_t" );
+            TempBuf.Append( " *) " );
+            TempBuf.Append( "0xffffffff" );
             pStream->Write( TempBuf );
             }
         else
             {
-            pStream->Write( "0" );
+            pStream->Write( '0' );
             }
         }
     else if( pCCB->IsMEpV() )
         {
-        if( fSide == 1) 
+        if( fSide == 1)
             pStream->Write( "&DEFAULT_EPV" );
         else
-            pStream->Write( "0" );
+            pStream->Write( '0' );
         }
     else
         {
-        pStream->Write("0");
+        pStream->Write('0');
         }
 
     //
     // Intepreter info.
     //
-    pStream->Write( "," );
+    pStream->Write( ',' );
     pStream->NewLine();
 
-    if ( ( pCCB->GetCodeGenSide() == CGSIDE_SERVER && 
+    if ( ( pCCB->GetCodeGenSide() == CGSIDE_SERVER &&
            pCCB->GetInterfaceCG()->HasInterpretedProc() ) ||
-         ( pCCB->GetCodeGenSide() == CGSIDE_CLIENT && 
+         ( pCCB->GetCodeGenSide() == CGSIDE_CLIENT &&
            pCCB->GetInterfaceCG()->HasInterpretedCallbackProc() ) )
         {
-        pStream->Write( "&" );
+        pStream->Write( '&' );
         pStream->Write( pCCB->GetInterfaceCG()->GetType()->GetSymName() );
         pStream->Write( SERVER_INFO_VAR_NAME );
         }
     else
         {
-        pStream->Write( "0" );
+        pStream->Write( '0' );
         }
 
+    //
+    // Emit flags
+    //
+    pStream->Write( ',' );
+    pStream->NewLine();
+    if (fHasPipes)
+        {
+        pStream->Write( "RPC_INTERFACE_HAS_PIPES" );
+        }
+    else
+        {
+        pStream->Write( '0' );
+        }
+    
     //
     // All Done. Phew !!
     //
@@ -1574,7 +1979,7 @@ Out_IFInfo(
 void
 Out_ForceAlignment(
     CCB             *   pCCB,
-    _expr_node      *   pResource,
+    expr_node      *   pResource,
     ALIGNMENT_PROPERTY  Alignment )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
@@ -1612,8 +2017,8 @@ Out_ForceAlignment(
     if( Alignment != AL_1 )
         {
         pStream->NewLine();
-        _expr_proc_call *   pProcCall   = new _expr_proc_call( pRtn );
-        pProcCall->SetParam( new _expr_param( pResource) );
+        expr_proc_call *   pProcCall   = new expr_proc_call( pRtn );
+        pProcCall->SetParam( new expr_param( pResource) );
         pProcCall->PrintCall( pStream, 0, 0 );
         }
 }
@@ -1623,7 +2028,7 @@ Out_MarshallSimple(
     CCB         *   pCCB,
     RESOURCE    *   pResource,
     node_skl    *   pType,
-    _expr_node  *   pSource,
+    expr_node  *   pSource,
     BOOL            fIncr,
     unsigned short  Size )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -1649,7 +2054,7 @@ Out_MarshallSimple(
 ----------------------------------------------------------------------------*/
 {
     BOOL        fUnsigned   = pType->FInSummary( ATTR_UNSIGNED );
-    char        TempBuf[ 100 ];
+    CSzBuffer   TempBuf;
     ISTREAM *   pStream = pCCB->GetStream();
     char    *   pRtn;
 
@@ -1663,25 +2068,28 @@ Out_MarshallSimple(
         }
 
     pStream->NewLine();
-    sprintf( TempBuf,
-             "*((%s %s*)%s)%s = ",
-             fUnsigned ? "unsigned" : "",
-             pRtn,
-             pResource->GetResourceName(),
-             fIncr ? "++" : ""
 
-           );
+    TempBuf.Set( "*((" );
+    if (fUnsigned)
+        TempBuf.Append( "unsigned " );
+    TempBuf.Append( pRtn );
+    TempBuf.Append( "*)" );
+    TempBuf.Append( pResource->GetResourceName() );
+    TempBuf.Append( ")" );
+    if (fIncr)
+        TempBuf.Append( "++" );
+    TempBuf.Append( " = " );
 
     pStream->Write( TempBuf );
     pSource->Print( pStream );
-    pStream->Write(";");
-
+    pStream->Write(';');
 }
+
 void
 Out_AddToBufferPointer(
     CCB         *   pCCB,
-    _expr_node  *   pSource,
-    _expr_node  *   pExprAmount )
+    expr_node  *   pSource,
+    expr_node  *   pExprAmount )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
  Routine Description:
@@ -1701,14 +2109,14 @@ Out_AddToBufferPointer(
 ----------------------------------------------------------------------------*/
 {
     ISTREAM     *   pStream = pCCB->GetStream();
-    _expr_node  *   pExpr;
+    expr_node  *   pExpr;
 
     pStream->NewLine();
-    pExpr   = new _expr_b_arithmetic( OP_PLUS,
+    pExpr   = new expr_b_arithmetic( OP_PLUS,
                                       pSource,
                                       pExprAmount
                                     );
-    pExpr   = new _expr_assign( pSource, pExpr );
+    pExpr   = new expr_assign( pSource, pExpr );
     pExpr->Print( pStream );
     pStream->Write(';');
 }
@@ -1741,7 +2149,7 @@ Out_DispatchTableStuff(
 ----------------------------------------------------------------------------*/
 {
     ISTREAM *   pStream = pCCB->GetStream();
-    char        TempBuf[ 256 ];
+    CSzBuffer   TempBuf;
     unsigned short M, m;
 
     pStream->NewLine();
@@ -1752,17 +2160,18 @@ Out_DispatchTableStuff(
     // simple name mangling. This needs to be changed for dce stuff.
     //
 
-    sprintf( TempBuf,
-             "static %s %s_table[] =",
-             RPC_DISPATCH_FUNCTION_TYPE_NAME, // RPC_DISPATCH_FUNCTION
-             pCCB->GetInterfaceName()         // interface name
-           );
+    TempBuf.Set( "static " );
+    TempBuf.Append( RPC_DISPATCH_FUNCTION_TYPE_NAME );
+    TempBuf.Append( " " );
+    TempBuf.Append( pCCB->GetInterfaceName() );
+    TempBuf.Append( "_table[] =" );
 
     pStream->Write( TempBuf );
 
     pStream->IndentInc();
     pStream->NewLine();
-    pStream->Write("{");pStream->NewLine();
+    pStream->Write('{');
+    pStream->NewLine();
 
     //
     // Now print out the names of all the procedures.
@@ -1778,17 +2187,26 @@ Out_DispatchTableStuff(
         ITERATOR_GETNEXT( ProcList, p );
 
         if ( p->Flags & DTF_PICKLING_PROC )
-            pStream->Write( "0" );
+            pStream->Write( '0' );
+
+#ifndef TEMPORARY_OI_SERVER_STUBS
         else if ( p->Flags & DTF_INTERPRETER )
-            pStream->Write( S_NDR_CALL_RTN_NAME );
+            {
+            if ( ((node_proc *)p->pNode)->GetOptimizationFlags() & OPTIMIZE_INTERPRETER_V2 )
+                pStream->Write( S_NDR_CALL_RTN_NAME_V2 );
+            else
+                pStream->Write( S_NDR_CALL_RTN_NAME );
+            }
+#endif // TEMPORARY_OI_SERVER_STUBS
+
         else
             {
             pNode = p->pNode;
-            sprintf( TempBuf,
-                     "%s_%s",
-                     pCCB->GetInterfaceName(),  // print interface name mangled
-                     pNode->GetSymName()        // with proc name.
-                   );
+
+            TempBuf.Set( pCCB->GetInterfaceName() );
+            TempBuf.Append( "_" );
+            TempBuf.Append( pNode->GetSymName() );
+
             pStream->Write( TempBuf );
             }
         pStream->Write( ',' );
@@ -1811,28 +2229,30 @@ Out_DispatchTableStuff(
     pCCB->GetVersion( &M, &m );
 
     pStream->NewLine();
-    sprintf( TempBuf,
-             "%s %s%s_DispatchTable = ",
-             RPC_DISPATCH_TABLE_TYPE_NAME,
-             pCCB->GetInterfaceName(),
-             pCCB->GenMangledName()
-           );
+
+    TempBuf.Set( RPC_DISPATCH_TABLE_TYPE_NAME );
+    TempBuf.Append( " " );
+    TempBuf.Append( pCCB->GetInterfaceName() );
+    TempBuf.Append( pCCB->GenMangledName() );
+    TempBuf.Append( "_DispatchTable = " );
 
     pStream->Write( TempBuf );
-    pStream->IndentInc(); pStream->NewLine();
-
-    pStream->Write( "{" );
+    pStream->IndentInc();
     pStream->NewLine();
-    sprintf( TempBuf,
-             "%d,",
-             CountOfProcs
-           );
+
+    pStream->Write( '{' );
+    pStream->NewLine();
+
+    TempBuf.Set( "" );
+    TempBuf.Append( CountOfProcs );
+    TempBuf.Append( "," );
+
     pStream->Write( TempBuf );
     pStream->NewLine();
-    sprintf( TempBuf,
-             "%s_table",
-             pCCB->GetInterfaceName()
-           );
+
+    TempBuf.Set( pCCB->GetInterfaceName() );
+    TempBuf.Append( "_table" );
+
     pStream->Write( TempBuf ); pStream->NewLine(); pStream->Write( "};" );
     pStream->IndentDec();
     pStream->NewLine();
@@ -1843,8 +2263,8 @@ Out_DispatchTableStuff(
 void
 Out_CallManager(
     CCB         *   pCCB,
-    _expr_proc_call *   pProcExpr,
-    _expr_node      *   pRet,
+    expr_proc_call *   pProcExpr,
+    expr_node      *   pRet,
     BOOL                fIsCallback )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
@@ -1867,9 +2287,9 @@ Out_CallManager(
     Emit code to check for the manager epv also.
 ----------------------------------------------------------------------------*/
 {
-    _expr_node  *   pAss    = pProcExpr;
-    _expr_node  *   pExpr;
-    char            Buffer[ 256 ];
+    expr_node  *   pAss    = pProcExpr;
+    expr_node  *   pExpr;
+    CSzBuffer       Buffer;
     ISTREAM     *   pStream = pCCB->GetStream();
     unsigned short  M, m;
     char        *   pTemp;
@@ -1891,23 +2311,25 @@ Out_CallManager(
         {
         pCCB->GetVersion( &M, &m );
 
-        sprintf( Buffer,
-                "((%s%s_%s *)(%s))",
-                pCCB->GetInterfaceName(),
-                pCCB->GenMangledName(),
-                pCCB->IsOldNames() ? "SERVER_EPV" : "epv_t",
-                PRPC_MESSAGE_MANAGER_EPV_NAME );
+        Buffer.Set( "((" );
+        Buffer.Append( pCCB->GetInterfaceName() );
+        Buffer.Append( pCCB->GenMangledName() );
+        Buffer.Append( "_" );
+        Buffer.Append( pCCB->IsOldNames() ? "SERVER_EPV" : "epv_t" );
+        Buffer.Append( " *)(" );
+        Buffer.Append( PRPC_MESSAGE_MANAGER_EPV_NAME );
+        Buffer.Append( "))" );
 
         pTemp = new char [ strlen( Buffer ) + 1 ];
         strcpy( pTemp, Buffer );
 
         pExpr = new expr_variable( pTemp );//this has the rhs expr for the
-                                           // manager epv call. Sneaky shit !
-        pExpr = new _expr_pointsto( pExpr, pProcExpr );
+                                           // manager epv call. Sneaky !
+        pExpr = new expr_pointsto( pExpr, pProcExpr );
         pAss = pExpr;
         if( pRet )
             {
-            pAss    = new _expr_assign( pRet, pExpr );
+            pAss    = new expr_assign( pRet, pExpr );
             Indent  = 7;        // sizeof "_RetVal"
             }
         pStream->NewLine();
@@ -1917,22 +2339,22 @@ Out_CallManager(
         pAss = pProcExpr;
         if( pRet )
             {
-            pAss    = new _expr_assign( pRet, pProcExpr );
+            pAss    = new expr_assign( pRet, pProcExpr );
             Indent  = 7;        // sizeof "_RetVal"
             }
         pStream->NewLine();
         }
     pAss->PrintCall( pStream, Indent, 0 );
 
-    
+
 }
 
 void
 Out_MarshallBaseType(
     CCB         *   pCCB,
     node_skl    *   pType,
-    _expr_node  *   pDest,
-    _expr_node  *   pSource )
+    expr_node  *   pDest,
+    expr_node  *   pSource )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
  Routine Description:
@@ -1965,11 +2387,11 @@ Out_MarshallBaseType(
 ----------------------------------------------------------------------------*/
 {
     ISTREAM         *   pStream = pCCB->GetStream();
-    _expr_node      *   pExpr;
+    expr_node      *   pExpr;
     node_pointer    *   pPtrType    = new node_pointer;
     char            *   p;
     char            *   pCast;
-    _expr_proc_call *   pProcCall;
+    expr_proc_call *   pProcCall;
     NODE_T              NT  = pType->NodeKind();
 
     if( (NT == NODE_ID) || (NT == NODE_FIELD) || (NT == NODE_PARAM) || (NT == NODE_DEF ) )
@@ -1984,6 +2406,7 @@ Out_MarshallBaseType(
         case NODE_CHAR:  p = MARSHALL_1_RTN_NAME; pCast = "char"; break;
         case NODE_SHORT:  p = MARSHALL_2_RTN_NAME; pCast = "short"; break;
         case NODE_WCHAR_T:  p = MARSHALL_2_RTN_NAME; pCast = "wchar"; break;
+        case NODE_INT:  p = MARSHALL_4_RTN_NAME; pCast = "int"; break;
         case NODE_LONG:  p = MARSHALL_4_RTN_NAME; pCast = "long"; break;
         case NODE_FLOAT:  p = MARSHALL_4_RTN_NAME; pCast = "float"; break;
         case NODE_HYPER:  p = MARSHALL_8_RTN_NAME; pCast = "hyper"; break;
@@ -1992,13 +2415,13 @@ Out_MarshallBaseType(
         default: p = "??"; pCast = "??"; break;
         }
 
-    pProcCall = new _expr_proc_call( p );
-    pProcCall->SetParam( new _expr_param( pDest ));
-    pProcCall->SetParam( new _expr_param( new _expr_variable( pCast ) ) );
+    pProcCall = new expr_proc_call( p );
+    pProcCall->SetParam( new expr_param( pDest ));
+    pProcCall->SetParam( new expr_param( new expr_variable( pCast ) ) );
 
     // Make an assignment expression
 
-    pExpr   = new _expr_assign( pProcCall, pSource );
+    pExpr   = new expr_assign( pProcCall, pSource );
 
     pStream->NewLine();
     pExpr->PrintCall( pStream, 0, TRUE ); // fool it to believe it is in proc
@@ -2009,8 +2432,8 @@ void
 Out_UnMarshallBaseType(
     CCB         *   pCCB,
     node_skl    *   pType,
-    _expr_node  *   pDest,
-    _expr_node  *   pSource )
+    expr_node  *   pDest,
+    expr_node  *   pSource )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
  Routine Description:
@@ -2043,11 +2466,11 @@ Out_UnMarshallBaseType(
 ----------------------------------------------------------------------------*/
 {
     ISTREAM         *   pStream = pCCB->GetStream();
-    _expr_node      *   pExpr;
+    expr_node      *   pExpr;
     node_pointer    *   pPtrType    = new node_pointer;
     char            *   p;
     char            *   pCast;
-    _expr_proc_call *   pProcCall;
+    expr_proc_call *   pProcCall;
     NODE_T              NT  = pType->NodeKind();
 
     if( (NT == NODE_ID) || (NT == NODE_FIELD) || (NT == NODE_PARAM) || (NT == NODE_DEF) )
@@ -2062,6 +2485,7 @@ Out_UnMarshallBaseType(
         case NODE_CHAR:  p = UNMARSHALL_1_RTN_NAME; pCast = "char"; break;
         case NODE_SHORT:  p = UNMARSHALL_2_RTN_NAME; pCast = "short"; break;
         case NODE_WCHAR_T:  p = UNMARSHALL_2_RTN_NAME; pCast = "wchar"; break;
+        case NODE_INT:  p = UNMARSHALL_4_RTN_NAME; pCast = "int"; break;
         case NODE_LONG:  p = UNMARSHALL_4_RTN_NAME; pCast = "long"; break;
         case NODE_FLOAT:  p = UNMARSHALL_4_RTN_NAME; pCast = "float"; break;
         case NODE_HYPER:  p = UNMARSHALL_8_RTN_NAME; pCast = "hyper"; break;
@@ -2070,13 +2494,13 @@ Out_UnMarshallBaseType(
         default: p = "??"; pCast = "??"; break;
         }
 
-    pProcCall = new _expr_proc_call( p );
-    pProcCall->SetParam( new _expr_param( pSource ));
-    pProcCall->SetParam( new _expr_param( new _expr_variable( pCast ) ) );
+    pProcCall = new expr_proc_call( p );
+    pProcCall->SetParam( new expr_param( pSource ));
+    pProcCall->SetParam( new expr_param( new expr_variable( pCast ) ) );
 
     // Make an assignment expression
 
-    pExpr   = new _expr_assign( pDest, pProcCall);
+    pExpr   = new expr_assign( pDest, pProcCall);
 
     pStream->NewLine();
     pExpr->PrintCall( pStream, 0, TRUE ); // fool it to believe it is in proc
@@ -2088,8 +2512,8 @@ void
 Out_ClientUnMarshallBaseType(
     CCB         *   pCCB,
     node_skl    *   pType,
-    _expr_node  *   pDest,
-    _expr_node  *   pSource )
+    expr_node  *   pDest,
+    expr_node  *   pSource )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
  Routine Description:
@@ -2117,13 +2541,13 @@ Out_ClientUnMarshallBaseType(
     // destination to the source, after cast of the source to the correct
     // type.
 
-    _expr_node  *   pExpr   =
+    expr_node  *   pExpr   =
                          MakeDerefExpressionOfCastPtrToType(
                                                     pType,
                                                     pSource
                                                            );
 
-    pExpr   = new _expr_assign( pDest, pExpr );
+    pExpr   = new expr_assign( pDest, pExpr );
 
 
     pStream->NewLine();
@@ -2153,8 +2577,7 @@ Out_TypeFormatStringExtern( CCB * pCCB )
 {
     ISTREAM *   pStream = pCCB->GetStream();
 
-    pStream->NewLine();
-    pStream->NewLine();
+    pStream->NewLine( 1 );
     pStream->Write( "extern const " FORMAT_STRING_TYPE_NAME " " );
     pStream->Write( FORMAT_STRING_STRUCT_NAME ";" );
 }
@@ -2165,7 +2588,7 @@ Out_ProcFormatStringExtern( CCB * pCCB )
 
  Routine Description:
 
-    Generates the forward extern declaration of the interface-wide 
+    Generates the forward extern declaration of the interface-wide
     procedure/parameter format string.
 
  Arguments:
@@ -2182,14 +2605,74 @@ Out_ProcFormatStringExtern( CCB * pCCB )
 {
     ISTREAM *   pStream = pCCB->GetStream();
 
-    pStream->NewLine();
-    pStream->NewLine();
+    pStream->NewLine( 1 );
     pStream->Write( "extern const " PROC_FORMAT_STRING_TYPE_NAME " " );
     pStream->Write( PROC_FORMAT_STRING_STRUCT_NAME ";" );
 }
 
 void
-Out_StubDescriptorExtern(   
+Out_LocalTypeFormatStringExtern( CCB * pCCB )
+/*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+ Routine Description:
+
+    Generates the forward extern declaration of the global type format string.
+
+ Arguments:
+
+    pCCB    - A pointer to the code generation controller block.
+
+ Return Value:
+
+    None.
+
+ Notes:
+
+----------------------------------------------------------------------------*/
+{
+    if (!pCommand->IsHookOleEnabled())
+        return;
+    
+    ISTREAM *   pStream = pCCB->GetStream();
+
+    pStream->NewLine( 1 );
+    pStream->Write( "extern const " LOCAL_FORMAT_STRING_TYPE_NAME " " );
+    pStream->Write( LOCAL_FORMAT_STRING_STRUCT_NAME ";" );
+}
+
+void
+Out_LocalProcFormatStringExtern( CCB * pCCB )
+/*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+ Routine Description:
+
+    Generates the forward extern declaration of the interface-wide
+    procedure/parameter format string.
+
+ Arguments:
+
+    pCCB    - A pointer to the code generation controller block.
+
+ Return Value:
+
+    None.
+
+ Notes:
+
+----------------------------------------------------------------------------*/
+{
+    if (!pCommand->IsHookOleEnabled())
+        return;
+
+    ISTREAM *   pStream = pCCB->GetStream();
+
+    pStream->NewLine( 1 );
+    pStream->Write( "extern const " LOCAL_PROC_FORMAT_STRING_TYPE_NAME " " );
+    pStream->Write( LOCAL_PROC_FORMAT_STRING_STRUCT_NAME ";" );
+}
+
+void
+Out_StubDescriptorExtern(
     CCB *           pCCB )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
@@ -2212,15 +2695,14 @@ Out_StubDescriptorExtern(
 {
     ISTREAM *   pStream = pCCB->GetStream();
 
-    pStream->NewLine();
-    pStream->NewLine();
+    pStream->NewLine( 2 );
 
     pStream->Write( "extern const " STUB_DESC_STRUCT_TYPE_NAME );
 
-    pStream->Write( " " );
+    pStream->Write( ' ' );
 
     pStream->Write( pCCB->GetInterfaceCG()->GetStubDescName() );
-    pStream->Write( ";" );
+    pStream->Write( ';' );
 
     pStream->NewLine();
 }
@@ -2232,16 +2714,15 @@ Out_InterpreterServerInfoExtern( CCB * pCCB )
 
     pStream = pCCB->GetStream();
 
-    pStream->NewLine();
-    pStream->NewLine();
+    pStream->NewLine( 2 );
 
     pStream->Write( "extern const " SERVER_INFO_TYPE_NAME );
 
-    pStream->Write( " " );
+    pStream->Write( ' ' );
 
     pStream->Write( pCCB->GetInterfaceCG()->GetType()->GetSymName() );
     pStream->Write( SERVER_INFO_VAR_NAME );
-    pStream->Write( ";" );
+    pStream->Write( ';' );
 }
 
 void
@@ -2288,11 +2769,11 @@ Out_NdrMarshallCall( CCB *      pCCB,
     pStream->Spaces( Spaces );
     pStream->Write( "(unsigned char __RPC_FAR *)" );
     if ( fTakeAddress )
-        pStream->Write( "&" );
+        pStream->Write( '&' );
     if ( fDereference )
-        pStream->Write( "*" );
+        pStream->Write( '*' );
     pStream->Write( pParamName );
-    pStream->Write( "," );
+    pStream->Write( ',' );
     pStream->NewLine();
 
     pStream->Spaces( Spaces );
@@ -2346,10 +2827,10 @@ Out_NdrUnmarshallCall( CCB *        pCCB,
 
     pStream->Spaces( Spaces );
     pStream->Write( "(unsigned char __RPC_FAR * __RPC_FAR *)" );
-    if ( fTakeAddress ) 
-        pStream->Write( "&" );
+    if ( fTakeAddress )
+        pStream->Write( '&' );
     pStream->Write( pParamName );
-    pStream->Write( "," );
+    pStream->Write( ',' );
     pStream->NewLine();
 
     pStream->Spaces( Spaces );
@@ -2417,11 +2898,11 @@ Out_NdrBufferSizeCall( CCB *        pCCB,
     pStream->Spaces( Spaces );
     pStream->Write( "(unsigned char __RPC_FAR *)" );
     if ( fTakeAddress )
-        pStream->Write( "&" );
+        pStream->Write( '&' );
     if ( fDereference )
-        pStream->Write( "*" );
+        pStream->Write( '*' );
     pStream->Write( pParamName );
-    pStream->Write( "," );
+    pStream->Write( ',' );
     pStream->NewLine();
 
     // Format string
@@ -2477,15 +2958,15 @@ Out_NdrFreeCall( CCB *      pCCB,
     pStream->Spaces( Spaces );
     pStream->Write( "(unsigned char __RPC_FAR *)" );
     if ( fTakeAddress )
-        pStream->Write( "&" );
+        pStream->Write( '&' );
     if ( fDereference )
-        pStream->Write( "*" );
+        pStream->Write( '*' );
     pStream->Write( pParamName );
-    pStream->Write( "," );
+    pStream->Write( ',' );
     pStream->NewLine();
 
     pStream->Spaces( Spaces );
-    pStream->Write( "&" );
+    pStream->Write( '&' );
     pStream->Write( FORMAT_STRING_STRUCT_NAME );
     sprintf( Buf, ".Format[%d] );", FormatStringOffset );
     pStream->Write( Buf );
@@ -2493,8 +2974,10 @@ Out_NdrFreeCall( CCB *      pCCB,
 }
 
 void
-Out_NdrConvert( CCB *   pCCB,
-                long    FormatStringOffset )
+Out_NdrConvert( CCB *           pCCB,
+                long            FormatStringOffset,
+                long            ParamTotal,
+                unsigned short  ProcOptimFlags )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
  Routine Description:
@@ -2511,7 +2994,23 @@ Out_NdrConvert( CCB *   pCCB,
     char        Buf[80];
 
     pStream->NewLine();
-    pStream->Write( NDR_CONVERT_RTN_NAME );
+    pStream->Write( "if ( ("  );
+    pStream->Write( (pCCB->GetCodeGenSide() == CGSIDE_CLIENT) ?
+                        RPC_MESSAGE_VAR_NAME"." : PRPC_MESSAGE_VAR_NAME"->" );
+    pStream->Write( "DataRepresentation & 0X0000FFFFUL) != "
+                    "NDR_LOCAL_DATA_REPRESENTATION )" );
+    pStream->IndentInc();
+    pStream->NewLine();
+
+    // This check should be really against OPT_LEVEL_S2.
+    // Hoever, it is RTM showstopper time and so this has to wait
+    // as it would need touching format string generation.
+    // 
+
+    if ( ProcOptimFlags  &  OPTIMIZE_NON_NT351 )
+        pStream->Write( NDR_CONVERT_RTN_NAME_V2 );
+    else
+        pStream->Write( NDR_CONVERT_RTN_NAME );
     pStream->Write( "( (PMIDL_STUB_MESSAGE) &" );
     pStream->Write( STUB_MESSAGE_VAR_NAME ", " );
 
@@ -2520,7 +3019,18 @@ Out_NdrConvert( CCB *   pCCB,
     sprintf( Buf, "[%d]", FormatStringOffset );
     pStream->Write( Buf );
 
+    //
+    // NdrConvert2 takes a third parameter.
+    //
+    if ( ProcOptimFlags  &  OPTIMIZE_NON_NT351 )
+        {
+        sprintf( Buf, ", %d", ParamTotal );
+        pStream->Write( Buf );
+        }
+
     pStream->Write( " );" );
+
+    pStream->IndentDec();
     pStream->NewLine();
 }
 
@@ -2552,7 +3062,7 @@ Out_NdrNsGetBuffer( CCB * pCCB )
         pStream->Write( AUTO_BH_VAR_NAME );
         }
     else
-        pStream->Write( "0" );
+        pStream->Write( '0' );
 
     pStream->Write( " );" );
     pStream->NewLine();
@@ -2572,21 +3082,55 @@ Out_NdrGetBuffer( CCB * pCCB )
 
 ----------------------------------------------------------------------------*/
 {
-    ISTREAM *   pStream = pCCB->GetStream();
+    ISTREAM *       pStream = pCCB->GetStream();
+    unsigned short  Env;
 
-    pStream->NewLine();
-    pStream->Write( DEFAULT_NDR_GB_RTN_NAME );
-    pStream->Write( "( (PMIDL_STUB_MESSAGE) &" );
-    pStream->Write( STUB_MESSAGE_VAR_NAME ", " );
-    pStream->Write( STUB_MSG_LENGTH_VAR_NAME ", " );
+    Env = pCommand->GetEnv();
 
-    if( pCCB->GetCodeGenSide() == CGSIDE_CLIENT )
-        pStream->Write( BH_LOCAL_VAR_NAME );
+    if ( (pCCB->GetCodeGenSide() == CGSIDE_CLIENT) ||
+         (Env == ENV_DOS) || (Env == ENV_WIN16) )
+        {
+        pStream->NewLine();
+        pStream->Write( DEFAULT_NDR_GB_RTN_NAME );
+        pStream->Write( "( (PMIDL_STUB_MESSAGE) &" );
+        pStream->Write( STUB_MESSAGE_VAR_NAME ", " );
+        pStream->Write( STUB_MSG_LENGTH_VAR_NAME ", " );
+
+        if( pCCB->GetCodeGenSide() == CGSIDE_CLIENT )
+            pStream->Write( BH_LOCAL_VAR_NAME );
+        else
+            pStream->Write( '0' );
+
+        pStream->Write( " );" );
+        pStream->NewLine();
+        }
     else
-        pStream->Write( "0" );
+        {
+        //
+        // This saves us at least 15 instructions on an x86 server.
+        //
+        pStream->NewLine();
+        pStream->Write( PRPC_MESSAGE_VAR_NAME "->BufferLength = "
+                        STUB_MSG_LENGTH_VAR_NAME ";" );
+        pStream->NewLine();
+        pStream->NewLine();
 
-    pStream->Write( " );" );
-    pStream->NewLine();
+        pStream->Write( RPC_STATUS_VAR_NAME" = I_RpcGetBuffer( "
+                        PRPC_MESSAGE_VAR_NAME " ); ");
+        pStream->NewLine();
+        pStream->Write( "if ( "RPC_STATUS_VAR_NAME" )" );
+        pStream->IndentInc();
+        pStream->NewLine();
+        pStream->Write( "RpcRaiseException( "RPC_STATUS_VAR_NAME" );" );
+        pStream->IndentDec();
+        pStream->NewLine();
+        pStream->NewLine();
+
+        pStream->Write( STUB_MSG_BUFFER_VAR_NAME
+                        " = (unsigned char __RPC_FAR *) "
+                        PRPC_MESSAGE_VAR_NAME "->Buffer;" );
+        pStream->NewLine();
+        }
 }
 
 void
@@ -2642,7 +3186,7 @@ Out_NdrSendReceive( CCB * pCCB )
     pStream->NewLine();
 }
 
-void                
+void
 Out_FreeParamInline( CCB *  pCCB )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
@@ -2684,33 +3228,33 @@ Out_CContextHandleMarshall( CCB *   pCCB,
                             BOOL    IsPointer )
 {
     ISTREAM *           pStream;
-    _expr_proc_call *   pCall;
-    _expr_node *        pHandle;
-    _expr_node  *       pExpr;
+    expr_proc_call *   pCall;
+    expr_node *        pHandle;
+    expr_node  *       pExpr;
 
     pStream = pCCB->GetStream();
 
     pStream->NewLine();
 
-    pCall = new _expr_proc_call( "NdrClientContextMarshall" );
+    pCall = new expr_proc_call( "NdrClientContextMarshall" );
 
-    pExpr = new _expr_u_address( new _expr_variable( STUB_MESSAGE_VAR_NAME ));
+    pExpr = new expr_u_address( new expr_variable( STUB_MESSAGE_VAR_NAME ));
     pExpr = MakeExpressionOfCastToTypeName( PSTUB_MESSAGE_TYPE_NAME , pExpr );
 
-    pCall->SetParam( new _expr_param( pExpr ) );
+    pCall->SetParam( new expr_param( pExpr ) );
 
-    pHandle = new _expr_variable( pName );
+    pHandle = new expr_variable( pName );
 
-    if ( IsPointer ) 
-        pHandle = new _expr_u_deref( pHandle );
+    if ( IsPointer )
+        pHandle = new expr_u_deref( pHandle );
 
     pHandle = MakeExpressionOfCastToTypeName( CTXT_HDL_C_CONTEXT_TYPE_NAME,
                                               pHandle );
 
-    pCall->SetParam( new _expr_param( pHandle ) );
+    pCall->SetParam( new expr_param( pHandle ) );
 
-    pCall->SetParam( new _expr_param( 
-                     new _expr_variable( IsPointer ? "0" : "1" ) ) );
+    pCall->SetParam( new expr_param(
+                     new expr_variable( IsPointer ? "0" : "1" ) ) );
 
     pCall->PrintCall( pStream, 0, 0 );
 }
@@ -2721,35 +3265,35 @@ Out_SContextHandleMarshall( CCB *   pCCB,
                             char *  pRundownRoutineName )
 {
     ISTREAM *           pStream;
-    _expr_proc_call *   pCall;
-    _expr_node *        pHandle;
-    _expr_node *        pRoutine;
-    _expr_node  *       pExpr;
+    expr_proc_call *   pCall;
+    expr_node *        pHandle;
+    expr_node *        pRoutine;
+    expr_node  *       pExpr;
 
     pStream = pCCB->GetStream();
 
     pStream->NewLine();
 
-    pCall = new _expr_proc_call( "NdrServerContextMarshall" );
+    pCall = new expr_proc_call( "NdrServerContextMarshall" );
 
-    pExpr = new _expr_u_address( new _expr_variable( STUB_MESSAGE_VAR_NAME ));
+    pExpr = new expr_u_address( new expr_variable( STUB_MESSAGE_VAR_NAME ));
     pExpr = MakeExpressionOfCastToTypeName( PSTUB_MESSAGE_TYPE_NAME , pExpr );
 
-    pCall->SetParam( new _expr_param( pExpr ) );
+    pCall->SetParam( new expr_param( pExpr ) );
 
-    pHandle = new _expr_variable( pName );
+    pHandle = new expr_variable( pName );
 
     pHandle = MakeExpressionOfCastToTypeName( CTXT_HDL_S_CONTEXT_TYPE_NAME,
                                               pHandle );
 
-    pCall->SetParam( new _expr_param( pHandle ) );
+    pCall->SetParam( new expr_param( pHandle ) );
 
-    pRoutine =  new _expr_variable( pRundownRoutineName ); 
+    pRoutine =  new expr_variable( pRundownRoutineName );
 
     pRoutine = MakeExpressionOfCastToTypeName( CTXT_HDL_RUNDOWN_TYPE_NAME,
                                                pRoutine );
 
-    pCall->SetParam( new _expr_param( pRoutine ) ); 
+    pCall->SetParam( new expr_param( pRoutine ) );
 
     pCall->PrintCall( pStream, 0, 0 );
 
@@ -2763,9 +3307,9 @@ Out_CContextHandleUnmarshall( CCB *     pCCB,
                               BOOL      IsReturn )
 {
     ISTREAM *           pStream;
-    _expr_proc_call *   pCall;
-    _expr_node *        pHandle;
-    _expr_node  *       pExpr;
+    expr_proc_call *   pCall;
+    expr_node *        pHandle;
+    expr_node  *       pExpr;
 
     pStream = pCCB->GetStream();
 
@@ -2773,7 +3317,7 @@ Out_CContextHandleUnmarshall( CCB *     pCCB,
 
     if ( IsPointer )
         {
-        pStream->Write( "*" );
+        pStream->Write( '*' );
         pStream->Write( pName );
         pStream->Write( " = (void *)0;" );
         pStream->NewLine();
@@ -2785,23 +3329,23 @@ Out_CContextHandleUnmarshall( CCB *     pCCB,
         pStream->NewLine();
         }
 
-    pCall = new _expr_proc_call( "NdrClientContextUnmarshall" );
+    pCall = new expr_proc_call( "NdrClientContextUnmarshall" );
 
-    pExpr = new _expr_u_address( new _expr_variable( STUB_MESSAGE_VAR_NAME ));
+    pExpr = new expr_u_address( new expr_variable( STUB_MESSAGE_VAR_NAME ));
     pExpr = MakeExpressionOfCastToTypeName( PSTUB_MESSAGE_TYPE_NAME , pExpr );
 
-    pCall->SetParam( new _expr_param( pExpr ) );
+    pCall->SetParam( new expr_param( pExpr ) );
 
-    pHandle = new _expr_variable( pName );
+    pHandle = new expr_variable( pName );
 
     if ( ! IsPointer && IsReturn )
-        pHandle = new _expr_u_address( pHandle );
+        pHandle = new expr_u_address( pHandle );
 
-    pHandle = MakeExpressionOfCastPtrToType( 
+    pHandle = MakeExpressionOfCastPtrToType(
                     (node_skl *) new node_def(CTXT_HDL_C_CONTEXT_TYPE_NAME),
                     pHandle );
 
-    pCall->SetParam( new _expr_param( pHandle ) );
+    pCall->SetParam( new expr_param( pHandle ) );
 
     CG_PROC * pProc;
 
@@ -2817,8 +3361,8 @@ Out_CContextHandleUnmarshall( CCB *     pCCB,
         strcat( FullAutoHandleName, AUTO_BH_VAR_NAME );
         }
 
-    pCall->SetParam( new _expr_param( 
-                     new _expr_variable( pProc->IsAutoHandle()  
+    pCall->SetParam( new expr_param(
+                     new expr_variable( pProc->IsAutoHandle()
                                             ? FullAutoHandleName
                                             : BH_LOCAL_VAR_NAME ) ) );
 
@@ -2833,38 +3377,38 @@ Out_SContextHandleUnmarshall( CCB *     pCCB,
                               BOOL      IsOutOnly )
 {
     ISTREAM *           pStream;
-    _expr_proc_call *   pCall;
-    _expr_node  *       pExpr;
+    expr_proc_call *   pCall;
+    expr_node  *       pExpr;
 
     pStream = pCCB->GetStream();
 
     pStream->NewLine();
 
-    if ( IsOutOnly ) 
+    if ( IsOutOnly )
         {
-        char Buffer[256];
+        CSzBuffer Buffer;
 
-        sprintf( Buffer,
-                 "%s = NDRSContextUnmarshall( (uchar *)0, %s );",
-                 pName,
-                 PRPC_MESSAGE_VAR_NAME "->DataRepresentation" );
-    
+        Buffer.Set( pName );
+        Buffer.Append( " = NDRSContextUnmarshall( (uchar *)0, " );
+        Buffer.Append( PRPC_MESSAGE_VAR_NAME "->DataRepresentation" );
+        Buffer.Append( " );" );
+
         pStream->Write(Buffer);
         pStream->NewLine();
-        
+
         return;
         }
 
-    pCall = new _expr_proc_call( "NdrServerContextUnmarshall" );
+    pCall = new expr_proc_call( "NdrServerContextUnmarshall" );
 
-    pExpr = new _expr_u_address( new _expr_variable( STUB_MESSAGE_VAR_NAME ));
+    pExpr = new expr_u_address( new expr_variable( STUB_MESSAGE_VAR_NAME ));
     pExpr = MakeExpressionOfCastToTypeName( PSTUB_MESSAGE_TYPE_NAME , pExpr );
 
-    pCall->SetParam( new _expr_param( pExpr ) );
+    pCall->SetParam( new expr_param( pExpr ) );
 
-    pExpr = new _expr_variable( pName );
+    pExpr = new expr_variable( pName );
 
-    pExpr = new _expr_assign( pExpr, pCall );
+    pExpr = new expr_assign( pExpr, pCall );
 
     pExpr->PrintCall( pStream, 0, 0 );
 
@@ -2899,22 +3443,22 @@ void
 Out_FullPointerInit( CCB * pCCB )
 {
     ISTREAM *           pStream = pCCB->GetStream();
-    _expr_proc_call *   pProc;
-    _expr_node *        pExpr;
+    expr_proc_call *   pProc;
+    expr_node *        pExpr;
 
-    pProc   = new _expr_proc_call( FULL_POINTER_INIT_RTN_NAME );
+    pProc   = new expr_proc_call( FULL_POINTER_INIT_RTN_NAME );
 
-    pProc->SetParam( new _expr_param( 
-                     new _expr_constant( (long) 0 ) ) );
+    pProc->SetParam( new expr_param(
+                     new expr_constant( (long) 0 ) ) );
 
-    pProc->SetParam( new _expr_param( 
-                     new _expr_variable( 
-                        (pCCB->GetCodeGenSide() == CGSIDE_SERVER) 
+    pProc->SetParam( new expr_param(
+                     new expr_variable(
+                        (pCCB->GetCodeGenSide() == CGSIDE_SERVER)
                             ? "XLAT_SERVER" : "XLAT_CLIENT" ) ) );
 
-    pExpr = new _expr_variable( STUB_MESSAGE_VAR_NAME ".FullPtrXlatTables" );
+    pExpr = new expr_variable( STUB_MESSAGE_VAR_NAME ".FullPtrXlatTables" );
 
-    pExpr = new _expr_assign( pExpr, pProc );
+    pExpr = new expr_assign( pExpr, pProc );
 
     pStream->NewLine();
 
@@ -2927,12 +3471,12 @@ void
 Out_FullPointerFree( CCB * pCCB )
 {
     ISTREAM *           pStream = pCCB->GetStream();
-    _expr_proc_call *   pProc;
+    expr_proc_call *   pProc;
 
-    pProc   = new _expr_proc_call( FULL_POINTER_FREE_RTN_NAME );
+    pProc   = new expr_proc_call( FULL_POINTER_FREE_RTN_NAME );
 
-    pProc->SetParam( new _expr_param( 
-                     new _expr_variable( 
+    pProc->SetParam( new expr_param(
+                     new expr_variable(
                         STUB_MESSAGE_VAR_NAME ".FullPtrXlatTables" ) ) );
 
     pStream->NewLine();
@@ -2942,7 +3486,7 @@ Out_FullPointerFree( CCB * pCCB )
     pStream->NewLine();
 }
 
-void                
+void
 Out_NdrInitStackTop( CCB * pCCB )
 {
     ISTREAM * pStream;
@@ -2983,7 +3527,7 @@ Out_DispatchTableTypedef(
 ----------------------------------------------------------------------------*/
 {
     ISTREAM         *   pStream = pCCB->GetStream();
-    char                Buffer[256];
+    CSzBuffer       Buffer;
     node_skl        *   pNode;
     node_pointer    *   pPtr;
     node_id         *   pID;
@@ -2999,26 +3543,25 @@ Out_DispatchTableTypedef(
 
     if( flag == 0 )
         {
-        sprintf( Buffer,
-             "typedef struct _%s%s_%s",
-             pInterfaceName,
-             pCCB->GenMangledName(),
-             pCCB->IsOldNames() ? "SERVER_EPV" : "epv_t"
-           );
+        Buffer.Set( "typedef struct _" );
+        Buffer.Append( pInterfaceName );
+        Buffer.Append( pCCB->GenMangledName() );
+        Buffer.Append( "_" );
+        Buffer.Append( pCCB->IsOldNames() ? "SERVER_EPV" : "epv_t" );
+
         pStream->Write( Buffer );
         pStream->NewLine();
         pStream->IndentInc();
-        pStream->Write("{");pStream->NewLine();
+        pStream->Write('{');
+        pStream->NewLine();
         }
 #if 0
     else
         {
-        sprintf( Buffer,
-             "typedef struct _%s%s_CLIENT_EPV",
-             pInterfaceName,
-             pCCB->GenMangledName(),
-             (flag == 0) ? "SERVER" : "CLIENT"
-           );
+        Buffer.Set( "typedef struct _" );
+        Buffer.Append( pInterfaceName );
+        Buffer.Append( pCCB->GenMangledName() );
+        Buffer.Append( "_CLIENT_EPV" );
         }
 #endif // 0
 
@@ -3042,21 +3585,21 @@ Out_DispatchTableTypedef(
 
     if( flag == 0 )
         {
-        sprintf( Buffer,
-                "} %s%s_%s;",
-                pInterfaceName,
-                pCCB->GenMangledName(),
-                pCCB->IsOldNames() ?"SERVER_EPV" : "epv_t"
-               );
+        Buffer.Set( "} " );
+        Buffer.Append( pInterfaceName );
+        Buffer.Append( pCCB->GenMangledName() );
+        Buffer.Append( "_" );
+        Buffer.Append( pCCB->IsOldNames() ?"SERVER_EPV" : "epv_t" );
+        Buffer.Append( ";" );
         }
     else
         {
-        sprintf( Buffer,
-                "} %s%s_%s_EPV;",
-                pInterfaceName,
-                pCCB->GenMangledName(),
-                (flag == 0) ?"SERVER" : "CLIENT"
-               );
+        Buffer.Set( "} " );
+        Buffer.Append( pInterfaceName );
+        Buffer.Append( pCCB->GenMangledName() );
+        Buffer.Append( "_" );
+        Buffer.Append( (flag == 0) ?"SERVER" : "CLIENT" );
+        Buffer.Append( "_EPV;" );
         }
     pStream->Write( Buffer );
     pStream->NewLine();
@@ -3091,7 +3634,7 @@ Out_ManagerEpv(
 ----------------------------------------------------------------------------*/
 {
     ISTREAM         *   pStream = pCCB->GetStream();
-    char                Buffer[256];
+    CSzBuffer       Buffer;
     unsigned short      M, m;
     DISPATCH_TABLE_ENTRY    *   pDEntry;
 
@@ -3099,28 +3642,32 @@ Out_ManagerEpv(
 
     pStream->NewLine();
 
-    sprintf( Buffer,
-         "static %s%s_%s DEFAULT_EPV = ",
-         pInterfaceName,
-         pCCB->GenMangledName(),
-         pCCB->IsOldNames() ? "SERVER_EPV" : "epv_t"
-       );
+    Buffer.Set( "static " );
+    Buffer.Append( pInterfaceName );
+    Buffer.Append( pCCB->GenMangledName() );
+    Buffer.Append( "_" );
+    Buffer.Append( pCCB->IsOldNames() ? "SERVER_EPV" : "epv_t" );
+    Buffer.Append( " DEFAULT_EPV = " );
+
     pStream->Write( Buffer );
     pStream->IndentInc();
     pStream->NewLine();
-    pStream->Write("{");pStream->NewLine();
+    pStream->Write('{');
+    pStream->NewLine();
 
     ITERATOR_INIT( ProcNodeList );
     while( ITERATOR_GETNEXT( ProcNodeList, pDEntry ) )
         {
-        sprintf( Buffer,
-                 "%s",
-                 pDEntry->pNode->GetSymName() );
-        
-        pStream->Write( Buffer );
+	char	*	pPrefix	= pCommand->GetUserPrefix( PREFIX_SERVER_MGR );
+        if ( pPrefix )
+		pStream->Write( pPrefix );
+
+        pStream->Write( pDEntry->pNode->GetSymName() );
         if( --Count != 0 )
+            {
             pStream->Write( ',' );
-            
+            pStream->NewLine();
+            }
         }
 
     pStream->IndentDec();
@@ -3151,7 +3698,7 @@ Out_GenHdlPrototypes(
 ----------------------------------------------------------------------------*/
 {
     ISTREAM *   pStream = pCCB->GetStream();
-    char        Buffer[ 256 ];
+    CSzBuffer   Buffer;
     node_skl*   pN;
 
     pStream->NewLine();
@@ -3160,19 +3707,19 @@ Out_GenHdlPrototypes(
         {
         PNAME   pName = pN->GetSymName();
 
-        sprintf( Buffer,
-                "handle_t __RPC_USER %s_bind( %s );",
-                pName,
-                pName
-               );
+        Buffer.Set( "handle_t __RPC_USER " );
+        Buffer.Append( pName );
+        Buffer.Append( "_bind  ( " );
+        Buffer.Append( pName );
+        Buffer.Append( " );" );
         pStream->Write( Buffer );
         pStream->NewLine();
 
-        sprintf( Buffer,
-                 "void __RPC_USER %s_unbind( %s, handle_t );",
-                 pName,
-                 pName
-               );
+        Buffer.Set( "void     __RPC_USER " );
+        Buffer.Append( pName );
+        Buffer.Append( "_unbind( " );
+        Buffer.Append( pName );
+        Buffer.Append( ", handle_t );" );
         pStream->Write( Buffer );
         pStream->NewLine();
         }
@@ -3200,7 +3747,7 @@ Out_CtxtHdlPrototypes(
 ----------------------------------------------------------------------------*/
 {
     ISTREAM *   pStream = pCCB->GetStream();
-    char        Buffer[ 256 ];
+    CSzBuffer   Buffer;
     node_skl*   pN;
 
     pStream->NewLine();
@@ -3211,13 +3758,13 @@ Out_CtxtHdlPrototypes(
 
         // A name can be a "" (an empty string).
 
-        if ( strlen(pName) ) 
+        if ( strlen(pName) )
             {
-            sprintf( Buffer,
-                    "void __RPC_USER %s_rundown( %s );",
-                    pName,
-                    pName
-                   );
+            Buffer.Set( "void __RPC_USER " );
+            Buffer.Append( pName );
+            Buffer.Append( "_rundown( " );
+            Buffer.Append( pName );
+            Buffer.Append( " );" );
             pStream->Write( Buffer );
             pStream->NewLine();
             }
@@ -3229,52 +3776,80 @@ void
 Out_TransmitAsPrototypes(
     CCB     *   pCCB,
     ITERATOR&   ListOfPresentedTypes )
-    {
+{
     ISTREAM *   pStream = pCCB->GetStream();
-    char        Buffer[256];
+    ISTREAM *   pMemoryStream = new ISTREAM;
+    CSzBuffer   Buffer;
     node_skl *  pXmittedType;
     node_skl *  pPresentedType;
+
+    char *      pMemBufferStart = pMemoryStream->GetCurrentPtr();
 
     pStream->NewLine();
 
     while( ITERATOR_GETNEXT( ListOfPresentedTypes, pPresentedType ) )
         {
+        // we reuse the same memory stream.
+        pMemoryStream->SetCurrentPtr( pMemBufferStart );
+
         pXmittedType = ((node_def *)pPresentedType)->GetTransmittedType();
 
         PNAME   pPresentedTypeName  = pPresentedType->GetSymName();
         PNAME   pTransmittedTypeName= pXmittedType->GetSymName();
 
+        pXmittedType->PrintType( PRT_TYPE_SPECIFIER,
+                                 pMemoryStream,       // into stream
+                                 (node_skl *)0        // no parent.
+                               );
+        //
+        // The type spec is in the stream, except that it needs a terminating
+        // null to use it as a string.
+        //
+
+        pTransmittedTypeName = pMemBufferStart;
+        *(pMemoryStream->GetCurrentPtr()) = 0;
+
         pStream->NewLine();
-        sprintf(Buffer,
-            "void __RPC_USER %s_to_xmit( %s __RPC_FAR *, %s __RPC_FAR * __RPC_FAR * );",
-                pPresentedTypeName,
-                pPresentedTypeName,
-                pTransmittedTypeName );
+        Buffer.Set( "void __RPC_USER " );
+        Buffer.Append( pPresentedTypeName );
+        Buffer.Append( "_to_xmit( " );
+        Buffer.Append( pPresentedTypeName );
+        Buffer.Append( " __RPC_FAR *, " );
+        Buffer.Append( pTransmittedTypeName );
+        Buffer.Append( " __RPC_FAR * __RPC_FAR * );" );
         pStream->Write( Buffer );
 
         pStream->NewLine();
-        sprintf(Buffer,
-                "void __RPC_USER %s_from_xmit( %s __RPC_FAR *, %s __RPC_FAR * );",
-                pPresentedTypeName,
-                pTransmittedTypeName,
-                pPresentedTypeName );
+        Buffer.Set( "void __RPC_USER " );
+        Buffer.Append( pPresentedTypeName );
+        Buffer.Append( "_from_xmit( " );
+        Buffer.Append( pTransmittedTypeName );
+        Buffer.Append( " __RPC_FAR *, " );
+        Buffer.Append( pPresentedTypeName );
+        Buffer.Append( " __RPC_FAR * );" );
         pStream->Write( Buffer );
 
         pStream->NewLine();
-        sprintf(Buffer,
-                "void __RPC_USER %s_free_inst( %s __RPC_FAR * );",
-                pPresentedTypeName,
-                pPresentedTypeName);
+        Buffer.Set( "void __RPC_USER " );
+        Buffer.Append( pPresentedTypeName );
+        Buffer.Append( "_free_inst( " );
+        Buffer.Append( pPresentedTypeName );
+        Buffer.Append( " __RPC_FAR * );" );
         pStream->Write( Buffer );
 
         pStream->NewLine();
-        sprintf(Buffer,
-                "void __RPC_USER %s_free_xmit( %s __RPC_FAR * );",
-                pPresentedTypeName,
-                pTransmittedTypeName);
+        Buffer.Set( "void __RPC_USER " );
+        Buffer.Append( pPresentedTypeName );
+        Buffer.Append( "_free_xmit( " );
+        Buffer.Append( pTransmittedTypeName );
+        Buffer.Append( " __RPC_FAR * );" );
         pStream->Write( Buffer );
+
+        pStream->NewLine();
         }
-    }
+
+    delete pMemoryStream;
+}
 
 
 void
@@ -3283,7 +3858,7 @@ Out_RepAsPrototypes(
     ITERATOR&   ListOfRepAsWireTypes )
     {
     ISTREAM *   pStream = pCCB->GetStream();
-    char        Buffer[256];
+    CSzBuffer   Buffer;
     node_skl *  pWireType;
 
     pStream->NewLine();
@@ -3294,38 +3869,117 @@ Out_RepAsPrototypes(
         PNAME   pTransmittedTypeName= pWireType->GetSymName();
 
         pStream->NewLine();
-        sprintf(Buffer,
-                "void __RPC_USER %s_from_local( %s __RPC_FAR *, %s __RPC_FAR * __RPC_FAR * );",
-                pTransmittedTypeName,
-                pRepAsTypeName,
-                pTransmittedTypeName );
+        Buffer.Set( "void __RPC_USER " );
+        Buffer.Append( pTransmittedTypeName );
+        Buffer.Append( "_from_local( " );
+        Buffer.Append( pRepAsTypeName );
+        Buffer.Append( " __RPC_FAR *, " );
+        Buffer.Append( pTransmittedTypeName );
+        Buffer.Append( " __RPC_FAR * __RPC_FAR * );" );
         pStream->Write( Buffer );
 
         pStream->NewLine();
-        sprintf(Buffer,
-            "void __RPC_USER %s_to_local( %s __RPC_FAR *, %s __RPC_FAR * );",
-                pTransmittedTypeName,
-                pTransmittedTypeName,
-                pRepAsTypeName );
+        Buffer.Set( "void __RPC_USER ");
+        Buffer.Append( pTransmittedTypeName );
+        Buffer.Append( "_to_local( " );
+        Buffer.Append( pTransmittedTypeName );
+        Buffer.Append( " __RPC_FAR *, " );
+        Buffer.Append( pRepAsTypeName );
+        Buffer.Append( " __RPC_FAR * );" );
         pStream->Write( Buffer );
 
         pStream->NewLine();
-        sprintf(Buffer,
-                "void __RPC_USER %s_free_inst( %s __RPC_FAR * );",
-                pTransmittedTypeName,
-                pTransmittedTypeName);
+        Buffer.Set(" void __RPC_USER " );
+        Buffer.Append( pTransmittedTypeName );
+        Buffer.Append( "_free_inst( " );
+        Buffer.Append( pTransmittedTypeName );
+        Buffer.Append( " __RPC_FAR * );" );
         pStream->Write( Buffer );
 
         pStream->NewLine();
-        sprintf(Buffer,
-                "void __RPC_USER %s_free_local( %s __RPC_FAR * );",
-                pTransmittedTypeName,
-                pRepAsTypeName);
+        Buffer.Set( "void __RPC_USER " );
+        Buffer.Append( pTransmittedTypeName );
+        Buffer.Append( "_free_local( " );
+        Buffer.Append( pRepAsTypeName );
+        Buffer.Append( " __RPC_FAR * );" );
         pStream->Write( Buffer );
+
+        pStream->NewLine();
         }
     }
 
+
 
+#define USRM_SIZE      0
+#define USRM_FREE      3
+
+
+char * UserMProtoName[ 4 ] =
+    {
+    USER_MARSHAL_SIZE "(     ",
+    USER_MARSHAL_MARSHALL "(  ",
+    USER_MARSHAL_UNMARSHALL "(",
+    USER_MARSHAL_FREE "(     "
+    };
+
+void
+Out_UserMarshalSingleProto(
+    ISTREAM *   pStream,
+    char *      pTypeName,
+    int         fProto )
+{
+    switch ( fProto )
+        {
+        case USRM_SIZE:
+            pStream->Write( "unsigned long             __RPC_USER  " );
+            break;
+        case USRM_FREE:
+            pStream->Write( "void                      __RPC_USER  " );
+            break;
+        default:
+            pStream->Write( "unsigned char __RPC_FAR * __RPC_USER  " );
+            break;
+        }
+    pStream->Write( pTypeName );
+    pStream->Write( UserMProtoName[ fProto ] );
+    pStream->Write( "unsigned long __RPC_FAR *, " );  // flags
+    switch ( fProto )
+        {
+        case USRM_SIZE:
+            pStream->Write( "unsigned long            , " );
+            break;
+        case USRM_FREE:
+            break;
+        default:
+            pStream->Write( "unsigned char __RPC_FAR *, " );
+            break;
+        }
+    pStream->Write( pTypeName );
+    pStream->Write( " __RPC_FAR * ); " );
+    pStream->NewLine();
+}
+
+void
+Out_UserMarshalPrototypes(
+    CCB     *   pCCB,
+    ITERATOR&   ListOfPresentedTypes )
+{
+    USER_MARSHAL_CONTEXT * pUsrContext;
+
+    ISTREAM *   pStream = pCCB->GetStream();
+
+    while( ITERATOR_GETNEXT( ListOfPresentedTypes, pUsrContext ) )
+        {
+        pStream->NewLine();
+
+        for (int i=0; i < 4; i++)
+            Out_UserMarshalSingleProto( pStream,
+                                       pUsrContext->pTypeName,
+                                       i );
+        }
+}
+
+
 void
 Out_CallAsServerPrototypes(
     CCB     *   pCCB,
@@ -3339,9 +3993,9 @@ Out_CallAsServerPrototypes(
     while( ITERATOR_GETNEXT( ListOfCallAsRoutines, pProc ) )
         {
         // keep these on the stack...
-        char                NewName[100];
+        CSzBuffer           NewName;
         char                TempBuf[40];
-        node_call_as    *   pCallAs = (node_call_as *) 
+        node_call_as    *   pCallAs = (node_call_as *)
                                             pProc->GetAttribute( ATTR_CALL_AS );
         unsigned short      M, m;
         node_interface  *   pIntf   = pProc->GetMyInterfaceNode();
@@ -3358,10 +4012,10 @@ Out_CallAsServerPrototypes(
                 "_v%d_%d",
                 M,
                 m );
-        strcpy( NewName, pIntf->GetSymName() );
-        strcat( NewName, TempBuf );
-        strcat( NewName, "_" );
-        strcat( NewName, pCallAs->GetCallAsName() );
+        NewName.Set( pIntf->GetSymName() );
+        NewName.Append( TempBuf );
+        NewName.Append( "_" );
+        NewName.Append( pCallAs->GetCallAsName() );
 
         NewStubProc.SetSymName( NewName );
 
@@ -3371,33 +4025,54 @@ Out_CallAsServerPrototypes(
                             pIntf );
 
         pCCB->GetStream()->NewLine();
-    
+
         }
     }
 
 void
 Out_NotifyPrototypes(
     CCB     *   pCCB,
-    ITERATOR&   ListOfNotifyProcedures )
+    ITERATOR&   ListOfNotifyProcedures,
+    BOOL        fHasFlag )
+/*
+    We generate
+        void  <proc_name>_notify( void );
+        void  <proc_name>_notify_flag( boolean );
+
+*/
     {
     ISTREAM *   pStream = pCCB->GetStream();
     node_proc * pProc;
-    node_skl  * pVoid;
+    node_skl  * pRet;
 
-	GetBaseTypeNode( &pVoid, SIGN_UNDEF, SIZE_UNDEF, TYPE_VOID );
+    GetBaseTypeNode( &pRet, SIGN_UNDEF, SIZE_UNDEF, TYPE_VOID );
 
     pStream->NewLine();
 
     while( ITERATOR_GETNEXT( ListOfNotifyProcedures, pProc ) )
         {
         // keep these on the stack...
-        char                NewName[256];
+        CSzBuffer           NewName;
         node_proc           NewStubProc( 0, 0 );
+        node_param          FlagParam;
 
-        NewStubProc.SetChild( pVoid );
+        NewStubProc.SetChild( pRet );
 
-        sprintf( NewName, "%s"NOTIFY_SUFFIX, pProc->GetSymName() );
+        if ( fHasFlag )
+            {
+            node_skl  * pParamType;
 
+            GetBaseTypeNode( &pParamType, SIGN_UNDEF, SIZE_UNDEF, TYPE_BOOLEAN );
+
+            FlagParam.SetChild( pParamType );
+            FlagParam.SetSymName( NOTIFY_FLAG_VAR_NAME );
+            
+            NewStubProc.SetFirstMember( & FlagParam );
+            }
+
+        NewName.Set( pProc->GetSymName() );
+        NewName.Append( (fHasFlag ? NOTIFY_FLAG_SUFFIX
+                                  : NOTIFY_SUFFIX )  );
         NewStubProc.SetSymName( NewName );
 
         NewStubProc.PrintType( PRT_PROC_PROTOTYPE_WITH_SEMI,
@@ -3405,7 +4080,7 @@ Out_NotifyPrototypes(
                                NULL );
 
         pCCB->GetStream()->NewLine();
-    
+
         }
     }
 
@@ -3413,8 +4088,8 @@ Out_NotifyPrototypes(
 void
 Out_PatchReference(
     CCB     *   pCCB,
-    _expr_node  *   pDest,
-    _expr_node  *   pSrc,
+    expr_node  *   pDest,
+    expr_node  *   pSrc,
     BOOL            fIncr )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
@@ -3443,18 +4118,18 @@ Out_PatchReference(
 
     node_skl    * pType = pDest->GetType();
     NODE_T        NT    = pType->NodeKind();
-    _expr_node  * pCast;
-    _expr_node  * pAss;
+    expr_node  * pCast;
+    expr_node  * pAss;
 
     if( (NT == NODE_ID) || (NT == NODE_PARAM) || (NT == NODE_FIELD) )
         {
         pType   = pType->GetBasicType();
         }
 
-    pCast   = (_expr_node *) new _expr_cast( pType, pSrc );
+    pCast   = (expr_node *) new expr_cast( pType, pSrc );
     if( fIncr )
-        pCast   = (_expr_node *) new _expr_post_incr( pCast );
-    pAss    = (_expr_node *) new _expr_assign( pDest, pCast );
+        pCast   = (expr_node *) new expr_post_incr( pCast );
+    pAss    = (expr_node *) new expr_assign( pDest, pCast );
     pStream->NewLine();
 
     pAss->Print( pStream );
@@ -3465,7 +4140,7 @@ Out_PatchReference(
 void
 Out_AlignmentOrAddAction(
     CCB             *   pCCB,
-    _expr_node      *   pDest,
+    expr_node      *   pDest,
     STM_ACTION          Action )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
@@ -3501,7 +4176,7 @@ Out_AlignmentOrAddAction(
             {
             Out_AddToBufferPointer( pCCB,
                                     pDest,
-                                    new _expr_constant( (long)HOW_MUCH_TO_ADD( Action))
+                                    new expr_constant( (long)HOW_MUCH_TO_ADD( Action))
                                   );
             }
         }
@@ -3518,7 +4193,7 @@ Out_Endif( CCB * pCCB )
 void
 Out_If(
     CCB         *   pCCB,
-    _expr_node  *   pExpr )
+    expr_node  *   pExpr )
     {
     ISTREAM *   pStream = pCCB->GetStream();
 
@@ -3545,31 +4220,31 @@ Out_Else(
 void
 Out_UniquePtrMarshall(
     CCB         *   pCCB,
-    _expr_node  *   pDestExpr,
-    _expr_node  *   pSrcExpr )
+    expr_node  *   pDestExpr,
+    expr_node  *   pSrcExpr )
     {
 
     ISTREAM         *   pStream = pCCB->GetStream();
-    _expr_proc_call *   pProc;
+    expr_proc_call *   pProc;
 
     pStream->NewLine();
 
-    pProc   = new _expr_proc_call( MARSHALL_UNIQUE_PTR_RTN_NAME );
+    pProc   = new expr_proc_call( MARSHALL_UNIQUE_PTR_RTN_NAME );
 
-    pProc->SetParam(new _expr_param( pDestExpr ));
-    pProc->SetParam(new _expr_param( pSrcExpr ));
+    pProc->SetParam(new expr_param( pDestExpr ));
+    pProc->SetParam(new expr_param( pSrcExpr ));
 
     pProc->PrintCall( pStream, 0, 0 );
     }
 void
 Out_IfUniquePtrInBuffer(
     CCB         *   pCCB,
-    _expr_node  *   pSrc )
+    expr_node  *   pSrc )
     {
-    _expr_proc_call *   pProc   = new _expr_proc_call( CHECK_UNIQUE_PTR_IN_BUFFER );
+    expr_proc_call *   pProc   = new expr_proc_call( CHECK_UNIQUE_PTR_IN_BUFFER );
     ISTREAM         *   pStream = pCCB->GetStream();
 
-    pProc->SetParam( new _expr_param( pSrc ) );
+    pProc->SetParam( new expr_param( pSrc ) );
 
     pStream->NewLine();
     pStream->Write( "if(" );
@@ -3582,8 +4257,8 @@ Out_IfUniquePtrInBuffer(
 
 void
 Out_Assign( CCB * pCCB,
-            _expr_node * pDest,
-            _expr_node * pSrc )
+            expr_node * pDest,
+            expr_node * pSrc )
     {
     ISTREAM *   pStream = pCCB->GetStream();
 
@@ -3597,36 +4272,36 @@ Out_Assign( CCB * pCCB,
 void
 Out_Memcopy(
     CCB *   pCCB,
-    _expr_node  *   pDest,
-    _expr_node  *   pSource,
-    _expr_node  *   pLength )
+    expr_node  *   pDest,
+    expr_node  *   pSource,
+    expr_node  *   pLength )
     {
     ISTREAM *   pStream = pCCB->GetStream();
-    _expr_proc_call *   pCall   = new _expr_proc_call( "memcpy" );
+    expr_proc_call *   pCall   = new expr_proc_call( "memcpy" );
 
     pStream->NewLine();
-    pCall->SetParam( new _expr_param( pDest ) );
-    pCall->SetParam( new _expr_param( pSource ) );
-    pCall->SetParam( new _expr_param( pLength ) );
+    pCall->SetParam( new expr_param( pDest ) );
+    pCall->SetParam( new expr_param( pSource ) );
+    pCall->SetParam( new expr_param( pLength ) );
     pCall->PrintCall( pStream, 0, 0 );
 
     }
 void
 Out_strlen(
     CCB *   pCCB,
-    _expr_node  *   pDest,
-    _expr_node  *   pSource,
+    expr_node  *   pDest,
+    expr_node  *   pSource,
     unsigned short  Size )
     {
     ISTREAM *   pStream         = pCCB->GetStream();
     PNAME       pName           = (Size == 1) ? "strlen" : "MIDL_wchar_strlen";
-    _expr_proc_call *   pCall   = new _expr_proc_call( pName );
-    _expr_node      *   pExpr;
+    expr_proc_call *   pCall   = new expr_proc_call( pName );
+    expr_node      *   pExpr;
 
     pStream->NewLine();
-    pCall->SetParam( new _expr_param( pSource ) );
+    pCall->SetParam( new expr_param( pSource ) );
     if( pDest )
-        pExpr = new _expr_assign( pDest, pCall );
+        pExpr = new expr_assign( pDest, pCall );
     else
         pExpr = pCall;
 
@@ -3636,28 +4311,28 @@ Out_strlen(
 void
 Out_For(
     CCB         *   pCCB,
-    _expr_node  *   pIndexExpr,
-    _expr_node  *   pInitialValue,
-    _expr_node  *   pFinalValue,
-    _expr_node  *   pIncrExpr )
+    expr_node  *   pIndexExpr,
+    expr_node  *   pInitialValue,
+    expr_node  *   pFinalValue,
+    expr_node  *   pIncrExpr )
     {
 
     ISTREAM     *   pStream = pCCB->GetStream();
-    _expr_node  *   pExpr;
+    expr_node  *   pExpr;
 
     pStream->NewLine();
     pStream->Write( "for( " );
 
-    pExpr   = new _expr_assign( pIndexExpr, pInitialValue );
+    pExpr   = new expr_assign( pIndexExpr, pInitialValue );
     pExpr->Print( pStream );
     pStream->Write( ';' );
 
-    pExpr   = new _expr_op_binary( OP_LESS, pIndexExpr, pFinalValue );
+    pExpr   = new expr_op_binary( OP_LESS, pIndexExpr, pFinalValue );
     pExpr->Print( pStream );
     pStream->Write( ';' );
 
-    pExpr   = new _expr_op_binary( OP_PLUS, pIndexExpr, pIncrExpr );
-    pExpr   = new _expr_assign( pIndexExpr, pExpr );
+    pExpr   = new expr_op_binary( OP_PLUS, pIndexExpr, pIncrExpr );
+    pExpr   = new expr_assign( pIndexExpr, pExpr );
     pExpr->Print( pStream );
     pStream->Write( ')' );
     pStream->IndentInc();
@@ -3686,8 +4361,8 @@ Out_AdvanceAndAlignTo(
 void
 Out_PlusEquals(
     CCB *   pCCB,
-    _expr_node  *pL,
-    _expr_node  *pR )
+    expr_node  *pL,
+    expr_node  *pR )
     {
     ISTREAM *   pStream = pCCB->GetStream();
 
@@ -3716,11 +4391,11 @@ void
 Out_RpcSSEnableAllocate(
     CCB *   pCCB )
     {
-    expr_proc_call * pCall = new _expr_proc_call( RPC_SS_ENABLE_ALLOCATE_RTN_NAME );
-    
-    pCall->SetParam( new _expr_param (
-                     new _expr_u_address (
-                     new _expr_variable( STUB_MESSAGE_VAR_NAME ) ) ) );
+    expr_proc_call * pCall = new expr_proc_call( RPC_SS_ENABLE_ALLOCATE_RTN_NAME );
+
+    pCall->SetParam( new expr_param (
+                     new expr_u_address (
+                     new expr_variable( STUB_MESSAGE_VAR_NAME ) ) ) );
 
     pCCB->GetStream()->NewLine();
     pCall->PrintCall( pCCB->GetStream(), 0, 0 );
@@ -3730,11 +4405,11 @@ void
 Out_RpcSSSetClientToOsf(
     CCB *   pCCB )
     {
-    expr_proc_call * pCall = new _expr_proc_call( RPC_SM_SET_CLIENT_TO_OSF_RTN_NAME );
-    
-    pCall->SetParam( new _expr_param (
-                     new _expr_u_address (
-                     new _expr_variable( STUB_MESSAGE_VAR_NAME ) ) ) );
+    expr_proc_call * pCall = new expr_proc_call( RPC_SM_SET_CLIENT_TO_OSF_RTN_NAME );
+
+    pCall->SetParam( new expr_param (
+                     new expr_u_address (
+                     new expr_variable( STUB_MESSAGE_VAR_NAME ) ) ) );
 
     pCCB->GetStream()->NewLine();
     pCall->PrintCall( pCCB->GetStream(), 0, 0 );
@@ -3744,11 +4419,11 @@ void
 Out_RpcSSDisableAllocate(
     CCB *   pCCB )
     {
-    expr_proc_call * pCall = new _expr_proc_call( RPC_SS_DISABLE_ALLOCATE_RTN_NAME );
-    
-    pCall->SetParam( new _expr_param (
-                     new _expr_u_address (
-                     new _expr_variable( STUB_MESSAGE_VAR_NAME ) ) ) );
+    expr_proc_call * pCall = new expr_proc_call( RPC_SS_DISABLE_ALLOCATE_RTN_NAME );
+
+    pCall->SetParam( new expr_param (
+                     new expr_u_address (
+                     new expr_variable( STUB_MESSAGE_VAR_NAME ) ) ) );
 
     pCCB->GetStream()->NewLine();
     pCall->PrintCall( pCCB->GetStream(), 0, 0 );
@@ -3757,14 +4432,14 @@ Out_RpcSSDisableAllocate(
 void
 Out_MemsetToZero(
     CCB *   pCCB,
-    _expr_node  *   pDest,
-    _expr_node  *   pSize )
+    expr_node  *   pDest,
+    expr_node  *   pSize )
     {
-    _expr_proc_call *   pProc   = new _expr_proc_call( (PNAME) MIDL_MEMSET_RTN_NAME );
+    expr_proc_call *   pProc   = new expr_proc_call( (PNAME) MIDL_MEMSET_RTN_NAME );
 
-    pProc->SetParam( new _expr_param( pDest ) );
-    pProc->SetParam( new _expr_param( new _expr_constant(0L) ) );
-    pProc->SetParam( new _expr_param( pSize ) );
+    pProc->SetParam( new expr_param( pDest ) );
+    pProc->SetParam( new expr_param( new expr_constant(0L) ) );
+    pProc->SetParam( new expr_param( pSize ) );
 
     pCCB->GetStream()->NewLine();
     pProc->PrintCall( pCCB->GetStream(), 0, 0 );
@@ -3797,22 +4472,22 @@ Arguments:
     while( ITERATOR_GETNEXT( ListOfCallAsRoutines, pProc ) )
     {
         node_interface  *   pIntf   = pProc->GetMyInterfaceNode();
-    
+
 		// skip for non-object routines
 		if ( !pIntf->FInSummary( ATTR_OBJECT ) )
 			continue;
 
         // keep these on the stack...
-        char        NewName[100];
-        node_call_as    *   pCallAs = (node_call_as *) 
+        CSzBuffer   NewName;
+        node_call_as    *   pCallAs = (node_call_as *)
                                             pProc->GetAttribute( ATTR_CALL_AS );
         node_proc   NewProc( pCallAs->GetCallAsType() );
 
         // local proxy routine with local param list
-        strcpy( NewName, pIntf->GetSymName() );
-        strcat( NewName, "_" );
-        strcat( NewName, pCallAs->GetCallAsName() );
-        strcat( NewName, "_Proxy" );
+        NewName.Set( pIntf->GetSymName() );
+        NewName.Append( "_" );
+        NewName.Append( pCallAs->GetCallAsName() );
+        NewName.Append( "_Proxy" );
 
         NewProc.SetSymName( NewName );
 
@@ -3824,10 +4499,10 @@ Arguments:
 
         // local stub routine, with remote param list
         node_proc   NewStubProc( pProc );
-        strcpy( NewName, pIntf->GetSymName() );
-        strcat( NewName, "_" );
-        strcat( NewName, pCallAs->GetCallAsName() );
-        strcat( NewName, "_Stub" );
+        NewName.Set( pIntf->GetSymName() );
+        NewName.Append( "_" );
+        NewName.Append( pCallAs->GetCallAsName() );
+        NewName.Append( "_Stub" );
 
         NewStubProc.SetSymName( NewName );
 
@@ -3842,7 +4517,7 @@ Arguments:
 }
 
 void
-CG_OBJECT_PROC::Out_ProxyFunctionPrototype(CCB *pCCB, PRTFLAGS F ) 
+CG_OBJECT_PROC::Out_ProxyFunctionPrototype(CCB *pCCB, PRTFLAGS F )
 /*++
 
 Routine Description:
@@ -3856,14 +4531,14 @@ Arguments:
 --*/
 {
     // keep these on the stack...
-    char            NewName[100];
+    CSzBuffer NewName;
     node_proc   *   pProc               = (node_proc *)GetType();
     node_proc       NewProc( pProc );
 
-    strcpy( NewName, pCCB->GetInterfaceName() );
-    strcat( NewName, "_" );
-    strcat( NewName, pProc->GetSymName() );
-    strcat( NewName, "_Proxy" );
+    NewName.Set( pCCB->GetInterfaceName() );
+    NewName.Append( "_" );
+    NewName.Append( pProc->GetSymName() );
+    NewName.Append( "_Proxy" );
 
     NewProc.SetSymName( NewName );
 
@@ -3893,9 +4568,41 @@ Arguments:
     ISTREAM *pStream = pCCB->GetStream();
 
     pStream->NewLine();
-    pStream->Write("EXTERN_C const IID IID_");
+    if (pCommand->IsSwitchDefined(SWITCH_MKTYPLIB))
+    {
+        node_guid * pGuid = (node_guid *) ((node_interface *)pCCB->GetInterfaceCG()->GetType())->GetAttribute(ATTR_GUID);
+        if (pGuid)
+            Out_MKTYPLIB_Guid(pCCB, pGuid->GetStrs(), "IID_", pCCB->GetInterfaceName());
+    }
+    else
+    {
+        pStream->Write("EXTERN_C const IID IID_");
+        pStream->Write(pCCB->GetInterfaceName());
+        pStream->Write(';');
+        pStream->NewLine();
+    }
+}
+
+void
+Out_CLSID(CCB *pCCB)
+/*++
+
+Routine Description:
+
+    This routine generates an CLSID declaration for the current com class.
+
+Arguments:
+
+    pCCB    - a pointer to the code generation control block.
+
+--*/
+{
+    ISTREAM *pStream = pCCB->GetStream();
+
+    pStream->NewLine();
+    pStream->Write("EXTERN_C const CLSID CLSID_");
     pStream->Write(pCCB->GetInterfaceName());
-    pStream->Write(";");
+    pStream->Write(';');
     pStream->NewLine();
 }
 
@@ -3904,13 +4611,13 @@ void
 CG_OBJECT_PROC::Out_StubFunctionPrototype(CCB *pCCB)
 {
     ISTREAM *   pStream = pCCB->GetStream();
-    char        TempBuffer[ 256 ];
+    CSzBuffer   TempBuffer;
 
-    sprintf( TempBuffer ,
-             "void __RPC_STUB %s_%s_Stub(" ,
-             pCCB->GetInterfaceName(),
-             GetType()->GetSymName()
-           );
+    TempBuffer.Set( "void __RPC_STUB " );
+    TempBuffer.Append( pCCB->GetInterfaceName() );
+    TempBuffer.Append( "_" );
+    TempBuffer.Append( GetType()->GetSymName() );
+    TempBuffer.Append( "_Stub(" );
 
     pStream->NewLine();
     pStream->Write( TempBuffer );
@@ -3968,7 +4675,7 @@ CG_OBJECT_PROC::Out_ServerStubProlog(
     //
 
     pStream->NewLine();
-    pStream->Write( "{" );
+    pStream->Write( '{' );
     pStream->IndentInc();
     pStream->NewLine();
 
@@ -4022,8 +4729,8 @@ CG_OBJECT_PROC::Out_ServerStubProlog(
 void
 Out_CallMemberFunction(
     CCB         *   pCCB,
-    _expr_proc_call *   pProcExpr,
-    _expr_node      *   pRet,
+    expr_proc_call *   pProcExpr,
+    expr_node      *   pRet,
     BOOL				fThunk)
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
@@ -4049,27 +4756,28 @@ Out_CallMemberFunction(
 
 ----------------------------------------------------------------------------*/
 {
-    _expr_node  *   pAss    = pProcExpr;
-    _expr_node  *   pExpr;
-    char            Buffer[ 256 ];
+    expr_node  *   pAss    = pProcExpr;
+    expr_node  *   pExpr;
+    CSzBuffer   Buffer;
     ISTREAM     *   pStream = pCCB->GetStream();
     char        *   pTemp;
 
-    sprintf( Buffer,
-            "(((%s *) ((CStdStubBuffer *)%sThis)->pvServerObject)->lpVtbl)",
-            pCCB->GetInterfaceName(),
-            fThunk ? "pParamStruct->" : "" );
+    Buffer.Set( "(((" );
+    Buffer.Append( pCCB->GetInterfaceName() );
+    Buffer.Append( " *) ((CStdStubBuffer *)" );
+    Buffer.Append( fThunk ? "pParamStruct->" : "" );
+    Buffer.Append( "This)->pvServerObject)->lpVtbl)" );
 
     pTemp = new char [ strlen( Buffer ) + 1 ];
     strcpy( pTemp, Buffer );
 
     pExpr = new expr_variable( pTemp );//this has the rhs expr for the
-                                       // manager epv call. Sneaky shit !
-    pExpr = new _expr_pointsto( pExpr, pProcExpr );
+                                       // manager epv call. Sneaky !
+    pExpr = new expr_pointsto( pExpr, pProcExpr );
     pAss = pExpr;
     if( pRet )
         {
-        pAss    = new _expr_assign( pRet, pExpr );
+        pAss    = new expr_assign( pRet, pExpr );
         }
 
     pAss->PrintCall( pStream, 0, 0 );
@@ -4082,16 +4790,16 @@ OutputNdrAlignmentAction( CCB * pCCB,
                           NDR_ALIGN_ACTION Action )
 {
     ISTREAM *   pStream;
-    long        Add; 
+    long        Add;
     long        Align;
-    char        Buffer[1024];
+    CSzBuffer   Buffer;
 
     pStream = pCCB->GetStream();
 
     Add = 0;
     Align = 0;
 
-    switch ( Action ) 
+    switch ( Action )
         {
         case NDR_ADD_1 :
             Add = 1;
@@ -4114,46 +4822,48 @@ OutputNdrAlignmentAction( CCB * pCCB,
         case NDR_ALIGN_8 :
             Align = 7;
             break;
-        default : 
+        default :
             return;
         };
 
-    if ( Add ) 
+    if ( Add )
         {
-        sprintf( Buffer,
-                 "%s += %d;",
-                 STUB_MSG_BUFFER_VAR_NAME,
-                 Add );
+        Buffer.Set( STUB_MSG_BUFFER_VAR_NAME );
+        Buffer.Append( " += " );
+        Buffer.Append( Add );
+        Buffer.Append( ";" );
 
         pStream->Write( Buffer );
         pStream->NewLine();
         }
 
-    if ( Align ) 
+    if ( Align )
         {
-        sprintf( Buffer,
-                 "%s = (unsigned char __RPC_FAR *)(((long)%s + %d) & ~ %#x);",
-                 STUB_MSG_BUFFER_VAR_NAME,
-                 STUB_MSG_BUFFER_VAR_NAME,
-                 Align,
-                 Align );
+        Buffer.Set( STUB_MSG_BUFFER_VAR_NAME );
+        Buffer.Append( " = (unsigned char __RPC_FAR *)(((long)" );
+        Buffer.Append( STUB_MSG_BUFFER_VAR_NAME );
+        Buffer.Append( " + " );
+        Buffer.Append( Align );
+        char sz[100];
+        sprintf( sz, ") & ~ %#x);", Align);
+        Buffer.Append( sz );
 
         pStream->Write( Buffer );
         pStream->NewLine();
         }
 }
 
-void                
-Out_MultiDimVars( 
-    CCB * pCCB, 
-    CG_PARAM * pParam 
+void
+Out_MultiDimVars(
+    CCB * pCCB,
+    CG_PARAM * pParam
     )
 {
     ISTREAM *   pStream;
     CG_NDR *    pNdr;
     char *      pParamName;
     long        i, dim;
-    char        Buffer[256];
+    CSzBuffer   Buffer;
 
     pStream = pCCB->GetStream();
 
@@ -4179,10 +4889,11 @@ Out_MultiDimVars(
         {
         expr_node * pSizeIsExpr;
 
-        sprintf( Buffer,
-                 "unsigned long _maxcount_%s[%d]",
-                 pParamName, 
-                 dim );
+        Buffer.Set( "unsigned long _maxcount_" );
+        Buffer.Append( pParamName );
+        Buffer.Append( "[" );
+        Buffer.Append( dim );
+        Buffer.Append( "]" );
 
         pStream->Write( Buffer );
 
@@ -4201,28 +4912,28 @@ Out_MultiDimVars(
                         pSizeIsExpr = ((CG_ARRAY *)pNdr)->GetSizeIsExpr();
                         break;
                     case ID_CG_SIZE_PTR :
-                        pSizeIsExpr = 
+                        pSizeIsExpr =
                             ((CG_SIZE_POINTER *)pNdr)->GetSizeIsExpr();
                         break;
                     case ID_CG_SIZE_LENGTH_PTR :
-                        pSizeIsExpr = 
+                        pSizeIsExpr =
                             ((CG_SIZE_LENGTH_POINTER *)pNdr)->GetSizeIsExpr();
                         break;
                     case ID_CG_SIZE_STRING_PTR :
-                        pSizeIsExpr = 
+                        pSizeIsExpr =
                             ((CG_SIZE_STRING_POINTER *)pNdr)->GetSizeIsExpr();
                         break;
                     }
 
                 if ( pSizeIsExpr )
                     pSizeIsExpr->Print( pStream );
-                else 
-                    pStream->Write( "0" );
-    
+                else
+                    pStream->Write( '0' );
+
                 if ( i != dim )
-                    pStream->Write( "," );
+                    pStream->Write( ',' );
                 }
-    
+
             pStream->Write( "};" );
             }
         else // CGSIDE_SERVER
@@ -4245,10 +4956,11 @@ Out_MultiDimVars(
         expr_node *     pFirstIsExpr;
         expr_node *     pLengthIsExpr;
 
-        sprintf( Buffer,
-                 "unsigned long _offset_%s[%d]",
-                 pParamName, 
-                 dim );
+        Buffer.Set( "unsigned long _offset_" );
+        Buffer.Append( pParamName );
+        Buffer.Append( "[" );
+        Buffer.Append( dim );
+        Buffer.Append( "]" );
 
         pStream->Write( Buffer );
 
@@ -4280,26 +4992,27 @@ Out_MultiDimVars(
 
                 if ( pFirstIsExpr )
                     pFirstIsExpr->Print( pStream );
-                else 
-                    pStream->Write( "0" );
+                else
+                    pStream->Write( '0' );
 
                 if ( i != dim )
-                    pStream->Write( "," );
+                    pStream->Write( ',' );
                 }
 
             pStream->Write( "};" );
             }
         else // CGSIDE_SERVER
             {
-            pStream->Write( ";" );
+            pStream->Write( ';' );
             }
 
         pStream->NewLine();
 
-        sprintf( Buffer,
-                 "unsigned long _length_%s[%d]",
-                 pParamName, 
-                 dim );
+        Buffer.Set( "unsigned long _length_" );
+        Buffer.Append( pParamName );
+        Buffer.Append( "[" );
+        Buffer.Append( dim );
+        Buffer.Append( "]" );
 
         pStream->Write( Buffer );
 
@@ -4333,35 +5046,35 @@ Out_MultiDimVars(
 
                 if ( pLengthIsExpr )
                     pLengthIsExpr->Print( pStream );
-                else 
-                    pStream->Write( "0" );
+                else
+                    pStream->Write( '0' );
 
                 if ( i != dim )
-                    pStream->Write( "," );
+                    pStream->Write( ',' );
                 }
 
             pStream->Write( "};" );
             }
         else // CGSIDE_SERVER
             {
-            pStream->Write( ";" );
+            pStream->Write( ';' );
             }
 
         pStream->NewLine();
         }
 }
 
-void                
-Out_MultiDimVarsInit( 
-    CCB * pCCB, 
-    CG_PARAM * pParam 
+void
+Out_MultiDimVarsInit(
+    CCB * pCCB,
+    CG_PARAM * pParam
     )
 {
     ISTREAM *   pStream;
     CG_NDR *    pNdr;
     char *      pParamName;
     long        i, dim;
-    char        Buffer[256];
+    CSzBuffer   Buffer;
 
     pStream = pCCB->GetStream();
 
@@ -4391,10 +5104,11 @@ Out_MultiDimVarsInit(
 
         for ( i = 0; i < dim; pNdr = (CG_NDR *) pNdr->GetChild(), i++ )
             {
-            sprintf( Buffer,
-                     "_maxcount_%s[%d] = ",
-                     pParamName, 
-                     i );
+            Buffer.Set( "_maxcount_" );
+            Buffer.Append( pParamName );
+            Buffer.Append( "[" );
+            Buffer.Append( i );
+            Buffer.Append( "] = " );
 
             pStream->Write( Buffer );
 
@@ -4407,25 +5121,25 @@ Out_MultiDimVarsInit(
                     pSizeIsExpr = ((CG_ARRAY *)pNdr)->GetSizeIsExpr();
                     break;
                 case ID_CG_SIZE_PTR :
-                    pSizeIsExpr = 
+                    pSizeIsExpr =
                         ((CG_SIZE_POINTER *)pNdr)->GetSizeIsExpr();
                     break;
                 case ID_CG_SIZE_LENGTH_PTR :
-                    pSizeIsExpr = 
+                    pSizeIsExpr =
                         ((CG_SIZE_LENGTH_POINTER *)pNdr)->GetSizeIsExpr();
                     break;
                 case ID_CG_SIZE_STRING_PTR :
-                    pSizeIsExpr = 
+                    pSizeIsExpr =
                         ((CG_SIZE_STRING_POINTER *)pNdr)->GetSizeIsExpr();
                     break;
                 }
 
             if ( pSizeIsExpr )
                 pSizeIsExpr->Print( pStream );
-            else 
-                pStream->Write( "0" );
+            else
+                pStream->Write( '0' );
 
-            pStream->Write( ";" );
+            pStream->Write( ';' );
             pStream->NewLine();
             }
         }
@@ -4436,7 +5150,7 @@ Out_MultiDimVarsInit(
     // Offset and Length vars.
     //
     if ( (pNdr->GetCGID() == ID_CG_VAR_ARRAY) ||
-         (pNdr->GetCGID() == ID_CG_CONF_VAR_ARRAY) || 
+         (pNdr->GetCGID() == ID_CG_CONF_VAR_ARRAY) ||
          (pNdr->GetCGID() == ID_CG_SIZE_LENGTH_PTR) )
         {
         expr_node *     pFirstIsExpr;
@@ -4444,10 +5158,11 @@ Out_MultiDimVarsInit(
 
         for ( i = 0; i < dim; pNdr = (CG_NDR *) pNdr->GetChild(), i++ )
             {
-            sprintf( Buffer,
-                     "_offset_%s[%d] = ",
-                     pParamName, 
-                     i );
+            Buffer.Set( "_offset_" );
+            Buffer.Append( pParamName );
+            Buffer.Append( "[" );
+            Buffer.Append( i );
+            Buffer.Append( "] = " );
 
             pStream->Write( Buffer );
 
@@ -4473,10 +5188,10 @@ Out_MultiDimVarsInit(
 
             if ( pFirstIsExpr )
                 pFirstIsExpr->Print( pStream );
-            else 
-                pStream->Write( "0" );
+            else
+                pStream->Write( '0' );
 
-            pStream->Write( ";" );
+            pStream->Write( ';' );
             pStream->NewLine();
             }
 
@@ -4484,10 +5199,11 @@ Out_MultiDimVarsInit(
 
         for ( i = 0; i < dim; pNdr = (CG_NDR *) pNdr->GetChild(), i++ )
             {
-            sprintf( Buffer,
-                     "_length_%s[%d] = ",
-                     pParamName, 
-                     i );
+            Buffer.Set( "_length_" );
+            Buffer.Append( pParamName );
+            Buffer.Append( "[" );
+            Buffer.Append( i );
+            Buffer.Append( "] = " );
 
             pStream->Write( Buffer );
 
@@ -4513,10 +5229,10 @@ Out_MultiDimVarsInit(
 
             if ( pLengthIsExpr )
                 pLengthIsExpr->Print( pStream );
-            else 
-                pStream->Write( "0" );
+            else
+                pStream->Write( '0' );
 
-            pStream->Write( ";" );
+            pStream->Write( ';' );
             pStream->NewLine();
             }
         }
@@ -4527,18 +5243,18 @@ Out_CheckUnMarshallPastBufferEnd(
     CCB *   pCCB )
     {
 #if COMMENT
-    This method will be called only within the try-except of 
+    This method will be called only within the try-except of
     unmarshalling on the server side.
 
     Generate an expression of the form:
         if( StubMessage.pBuffer > StubMessage.BufferEnd )
             RpcRaiseException( RPC_X_BAD_STUB_DATA );
 #endif
-    _expr_node  *   pBufferExpr     =
-                         new _expr_variable( STUB_MSG_BUFFER_VAR_NAME , 0);
-    _expr_node  *   pBufferEndExpr  =
-                         new _expr_variable( STUB_MSG_BUFFER_END_VAR_NAME, 0);
-    _expr_node  *   pExpr           = new _expr_relational( OP_GREATER,
+    expr_node  *   pBufferExpr     =
+                         new expr_variable( STUB_MSG_BUFFER_VAR_NAME , 0);
+    expr_node  *   pBufferEndExpr  =
+                         new expr_variable( STUB_MSG_BUFFER_END_VAR_NAME, 0);
+    expr_node  *   pExpr           = new expr_relational( OP_GREATER,
                                                             pBufferExpr,
                                                             pBufferEndExpr );
 
@@ -4546,3 +5262,6 @@ Out_CheckUnMarshallPastBufferEnd(
     Out_RaiseException( pCCB, "RPC_X_BAD_STUB_DATA" );
     Out_Endif( pCCB );
     }
+
+
+

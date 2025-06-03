@@ -153,4 +153,3 @@ union FCID *pfcid;
 
     return((*hffntb)->mpftchffn[ftc]);
     }
-

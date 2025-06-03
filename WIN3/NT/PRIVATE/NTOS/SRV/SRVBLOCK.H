@@ -53,20 +53,26 @@ Revision History:
 #define BlockTypeWorkContextInitial 0x10
 #define BlockTypeWorkContextNormal  0x11
 #define BlockTypeWorkContextRaw     0x12
+#define BlockTypeWorkContextSpecial 0x13
+#define BlockTypeCachedDirectory    0x14
 
 // The following "blocks" do NOT have block headers.
 
-#define BlockTypeDataBuffer         0x13
-#define BlockTypeTable              0x14
-#define BlockTypeNonpagedHeader     0x15
-#define BlockTypePagedConnection    0x16
-#define BlockTypePagedRfcb          0x17
-#define BlockTypeNonpagedMfcb       0x18
-#define BlockTypeTimer              0x19
+#define BlockTypeDataBuffer         0x15
+#define BlockTypeTable              0x16
+#define BlockTypeNonpagedHeader     0x17
+#define BlockTypePagedConnection    0x18
+#define BlockTypePagedRfcb          0x19
+#define BlockTypeNonpagedMfcb       0x1A
+#define BlockTypeTimer              0x1B
+#define BlockTypeAdminCheck         0x1C
+#define BlockTypeWorkQueue          0x1D
+#define BlockTypeDfs                0x1E
+#define BlockTypeLargeReadX         0x1F
 
 // The following is defined just to know how many types there are.
 
-#define BlockTypeMax                0x1A
+#define BlockTypeMax                0x20
 
 //
 // The following define the various states that blocks can be in.
@@ -88,156 +94,6 @@ Revision History:
 
 #define BlockStateMax           0x04
 
-//
-// REFERENCE_HISTORY is used to trace references and dereferences to
-// a block when SRVDBG2 is defined.
-//
-// WARNING:  When using a srv.sys with SRVDBG2 enabled, you must also
-//           use a srvsvc.dll and xactsrv.dll with SRVDBG2 enabled.
-//           This is because they share the TRANSACTION structure.
-//
-// *******************************************************************
-// *                                                                 *
-// * DO NOT CHANGE THIS STRUCTURE WITHOUT CHANGING THE CORRESPONDING *
-// * STRUCTURE IN net\inc\xstypes.h!                                 *
-// *                                                                 *
-// *******************************************************************
-//
-
-#if SRVDBG2
-
-typedef struct _REFERENCE_HISTORY_ENTRY {
-    ULONG NewReferenceCount;
-    ULONG IsDereference;
-    PVOID Caller;
-    PVOID CallersCaller;
-} REFERENCE_HISTORY_ENTRY, *PREFERENCE_HISTORY_ENTRY;
-
-typedef struct _REFERENCE_HISTORY {
-    ULONG TotalReferences;
-    ULONG TotalDereferences;
-    ULONG NextEntry;
-    PREFERENCE_HISTORY_ENTRY HistoryTable;
-} REFERENCE_HISTORY, *PREFERENCE_HISTORY;
-
-#define REFERENCE_HISTORY_LENGTH 256
-
-#endif
-
-
-//
-// BLOCK_HEADER is the standard block header that appears at the
-// beginning of most server-private data structures.  This header is
-// used primarily for debugging and tracing.  The Type and State fields
-// are described above.  The Size field indicates how much space was
-// allocated for the block.  ReferenceCount indicates the number of
-// reasons why the block should not be deallocated.  The count is set to
-// 2 by the allocation routine, to account for 1) the fact that the
-// block is "open" and 2) the pointer returned to the caller.  When the
-// block is closed, State is set to Closing, and the ReferenceCount is
-// decremented.  When all references (pointers) to the block are
-// deleted, and the reference count reaches 0, the block is deleted.
-//
-// WARNING:  When using a srv.sys with SRVDBG2 enabled, you must also
-//           use a srvsvc.dll and xactsrv.dll with SRVDBG2 enabled.
-//           This is because they share the TRANSACTION structure.
-//
-// *******************************************************************
-// *                                                                 *
-// * DO NOT CHANGE THIS STRUCTURE WITHOUT CHANGING THE CORRESPONDING *
-// * STRUCTURE IN net\inc\xstypes.h!                                 *
-// *                                                                 *
-// *******************************************************************
-//
-
-typedef struct _BLOCK_HEADER {
-    UCHAR Type;
-    UCHAR State;
-    USHORT Size;
-    ULONG ReferenceCount;
-#if SRVDBG2
-    REFERENCE_HISTORY History;
-#endif
-} BLOCK_HEADER, *PBLOCK_HEADER;
-
-//
-// Work restart routine.  This routine is invoked when a previously
-// started operation completes.  In the FSD, the restart routine is
-// invoked by the I/O completion routine.  In the FSP, the restart
-// routine is invoked by the worker thread when it retrieves a work item
-// from the work queue.
-//
-
-struct _WORK_CONTEXT;
-
-typedef
-VOID
-(*PRESTART_ROUTINE) (
-    IN OUT struct _WORK_CONTEXT *WorkContext
-    );
-
-//
-// QUEUEABLE_BLOCK_HEADER is a BLOCK_HEADER followed by a LIST_ENTRY.
-// This header is used when more than one type of block needs to be
-// queue to the same list -- it ensures that the linkage fields are at
-// the same offset in each type of block.  The timestamp can be used to
-// measure how long a block has been in the queue.
-//
-// FspRestartRoutine is the address of the routine that the worker thread
-// is to call when the work item is dequeued from the work queue.
-//
-
-typedef struct _QUEUEABLE_BLOCK_HEADER {
-    BLOCK_HEADER BlockHeader;
-    union {
-        LIST_ENTRY ListEntry;
-        SINGLE_LIST_ENTRY SingleListEntry;
-    };
-    ULONG Timestamp;
-    PRESTART_ROUTINE FspRestartRoutine;
-} QUEUEABLE_BLOCK_HEADER, *PQUEUEABLE_BLOCK_HEADER;
-
-//
-// The nonpaged header is used for blocks that are allocated from paged
-// pool so that the reference count can be kept in nonpaged pool, thus
-// allowing the use of interlocked operations.
-//
-
-typedef struct _NONPAGED_HEADER {
-    ULONG Type;
-    LONG ReferenceCount;
-    PVOID PagedBlock;
-    SINGLE_LIST_ENTRY ListEntry;
-} NONPAGED_HEADER, *PNONPAGED_HEADER;
-
-//
-// The paged header is used for the paged portions of a block.
-//
-
-typedef struct _PAGED_HEADER {
-    ULONG Type;
-    PVOID NonPagedBlock;
-} PAGED_HEADER, *PPAGED_HEADER;
-
-//
-// Macros for accessing the block header structure.
-//
-// *** Note that the existing usage of these macros assumes that the block
-//     header is the first element in the block!
-//
-
-#define GET_BLOCK_STATE(block) ( ((PBLOCK_HEADER)(block))->State )
-#define SET_BLOCK_STATE(block,state) \
-            ( ((PBLOCK_HEADER)(block))->State = (UCHAR)(state) )
-
-#define GET_BLOCK_TYPE(block) ( ((PBLOCK_HEADER)(block))->Type )
-#define SET_BLOCK_TYPE(block,type) \
-            ( ((PBLOCK_HEADER)(block))->Type = (UCHAR)(type) )
-
-#define GET_BLOCK_SIZE(block) ( ((PBLOCK_HEADER)(block))->Size )
-#define SET_BLOCK_SIZE(block,size) \
-            ( ((PBLOCK_HEADER)(block))->Size = (USHORT)(size) )
-
 
 //
 // ALLOCATE_NONPAGED_POOL is a macro that translates to a call to
@@ -247,26 +103,6 @@ typedef struct _PAGED_HEADER {
 // SrvFreeNonPagedPoolDebug.  The Srv routines are used to track pool
 // usage by the server.
 //
-
-#if SRVDBG_HEAP
-
-#define ALLOCATE_NONPAGED_POOL(size,type) \
-            SrvAllocateNonPagedPoolDebug( (size), (type) )
-#define DEALLOCATE_NONPAGED_POOL(addr) \
-            SrvFreeNonPagedPoolDebug( (addr) )
-
-PVOID
-SrvAllocateNonPagedPoolDebug (
-    IN CLONG NumberOfBytes,
-    IN UCHAR BlockType
-    );
-
-VOID
-SrvFreeNonPagedPoolDebug (
-    IN PVOID P
-    );
-
-#else // SRVDBG_HEAP
 
 //
 // When POOL_TAGGING is on, we pass the block type through to
@@ -284,14 +120,12 @@ SrvFreeNonPagedPoolDebug (
 
 #define DEALLOCATE_NONPAGED_POOL(addr) SrvFreeNonPagedPool( (addr) )
 
-#endif // else def SRVDBG_HEAP
-
 //
 // Routines that track server nonpaged pool usage in order to support the
 // "maxnonpagedmemoryusage" configuration parameter.
 //
 
-PVOID
+PVOID SRVFASTCALL
 SrvAllocateNonPagedPool (
     IN CLONG NumberOfBytes
 #ifdef POOL_TAGGING
@@ -299,9 +133,15 @@ SrvAllocateNonPagedPool (
 #endif
     );
 
-VOID
+VOID SRVFASTCALL
 SrvFreeNonPagedPool (
     IN PVOID Address
+    );
+
+VOID SRVFASTCALL
+SrvClearLookAsideList(
+    PLOOK_ASIDE_LIST l,
+    VOID (SRVFASTCALL *FreeRoutine )( PVOID )
     );
 
 //
@@ -323,23 +163,7 @@ SrvFreeNonPagedPool (
 #define ALLOCATE_HEAP(size,type) ALLOCATE_NONPAGED_POOL( (size), (type) )
 #define FREE_HEAP(addr) DEALLOCATE_NONPAGED_POOL( (addr) )
 
-#elif SRVDBG_HEAP
-
-#define ALLOCATE_HEAP(size,type) SrvAllocateHeapDebug( (size), (type) )
-#define FREE_HEAP(addr) SrvFreeHeapDebug( (addr) )
-
-PVOID
-SrvAllocateHeapDebug (
-    IN CLONG BlockSize,
-    IN UCHAR BlockType
-    );
-
-VOID
-SrvFreeHeapDebug (
-    IN PVOID P
-    );
-
-#else // SRVDBG2 || SRVDBG_HEAP
+#else // SRVDBG2
 
 //
 // When POOL_TAGGING is on, we pass the block type through to
@@ -355,14 +179,14 @@ SrvFreeHeapDebug (
 
 #define FREE_HEAP(addr) SrvFreePagedPool( (addr) )
 
-#endif // else SRVDBG2 || SRVDBG_HEAP
+#endif // else SRVDBG2
 
 //
 // Routines that track server paged pool usage in order to support the
 // "maxpagedmemoryusage" configuration parameter.
 //
 
-PVOID
+PVOID SRVFASTCALL
 SrvAllocatePagedPool (
     IN CLONG NumberOfBytes
 #ifdef POOL_TAGGING
@@ -370,7 +194,7 @@ SrvAllocatePagedPool (
 #endif
     );
 
-VOID
+VOID SRVFASTCALL
 SrvFreePagedPool (
     IN PVOID Address
     );
@@ -404,17 +228,12 @@ typedef enum _SHARE_TYPE {
     ShareTypePrint,
     ShareTypeComm,
     ShareTypePipe,
-#if 0
-#ifdef _CAIRO_
-    ShareTypeDfs,
-#endif // _CAIRO_
-#endif // This is not referenced anywhere, and there is no matching entry
     ShareTypeWild   // not a real share type, but can be specified in tcon
 } SHARE_TYPE, *PSHARE_TYPE;
 
 //
 // For each resource that the server shares, a Share Block is
-// maintained.  The global share list is anchored at SrvShareList.  A
+// maintained.  The global share list is anchored at SrvShareHashTable.  A
 // list of active tree connections using a resource is anchored in the
 // Share Block.
 //
@@ -423,7 +242,7 @@ typedef struct _SHARE {
     BLOCK_HEADER BlockHeader;   // must be first element
 
     LIST_ENTRY TreeConnectList;
-    ORDERED_LIST_ENTRY GlobalShareListEntry;
+    LIST_ENTRY GlobalShareList;
 
     HANDLE RootDirectoryHandle;
 
@@ -431,6 +250,8 @@ typedef struct _SHARE {
     UNICODE_STRING NtPathName;
     UNICODE_STRING DosPathName;
     UNICODE_STRING Remark;
+
+    ULONG ShareNameHashValue;
 
     union {
         struct {
@@ -452,10 +273,8 @@ typedef struct _SHARE {
     SHARE_TYPE ShareType;
     BOOLEAN Removable;
     BOOLEAN SpecialShare;
-
-#ifdef _CAIRO_
-    BOOLEAN IsDfs;
-#endif // _CAIRO_
+    BOOLEAN IsDfs;                                  // Is this share in the Dfs?
+    BOOLEAN IsDfsRoot;                              // Is this share the root of a Dfs?
 
     // WCHAR ShareNameData[ShareName.MaximumLength];
     // WCHAR NtPathNameData[PathName.MaximumLength];
@@ -544,8 +363,15 @@ typedef struct _ENDPOINT {
     ULONG FreeConnectionCount;
     ULONG TotalConnectionCount;
 
-    BOOLEAN IsConnectionless;
-    BOOLEAN NameInConflict;
+    //
+    // Various flags
+    //
+    struct {
+        ULONG IsConnectionless  : 1;    // connectionless transport?
+        ULONG NameInConflict    : 1;    // unable to claim name?
+        ULONG IsPrimaryName     : 1;    // set if not an alternate name
+        ULONG IsNoNetBios       : 1;    // set if we are direct hosting on a VC
+    };
 
     WCHAR NetworkAddressData[12 + 1];
 
@@ -553,10 +379,14 @@ typedef struct _ENDPOINT {
     UNICODE_STRING TransportName;       // e.g., "\Device\Nbf_Elnkii01"
     ANSI_STRING TransportAddress;       // e.g., "NTSERVER        "
     UNICODE_STRING NetworkAddress;
+    UNICODE_STRING DomainName;          // domain being served by this endpoint
+    OEM_STRING     OemDomainName;       // oem version of domain name
 
     // WCHAR NetworkNameData[NetworkName.MaximumLength/2];
     // WCHAR TransportNameData[TransportName.MaximumLength/2];
     // CHAR TransportAddressData[TransportAddress.MaximumLength];
+    // WCHAR DomainNameData[ DomainName.MaximumLength/2 ];
+    // CHAR  OemDomainNameData[ OemDomainName.MaximumLength ]
 
 #if SRVDBG29
     ULONG NextHistoryLocation;
@@ -578,6 +408,19 @@ typedef struct _HASH_TABLE_ENTRY {
     BOOLEAN Dirty;
 
 } HASH_TABLE_ENTRY, *PHASH_TABLE_ENTRY;
+
+//
+// When we discover something which is a directory, we place the name
+//  in this per-connection cache for quick re-use for CheckPath.
+//
+typedef struct {
+    BLOCK_HEADER;
+    LIST_ENTRY      ListEntry;                  // list is linked through this element
+    UNICODE_STRING  DirectoryName;              // canonicalized name of this directory
+    USHORT          Tid;                        // DirectoryName is relative to this tid
+    ULONG           TimeStamp;                  // Tick count when this element was cached
+
+} CACHED_DIRECTORY, *PCACHED_DIRECTORY;
 
 //
 // For each connection (virtual circuit) that is created, a Connection
@@ -694,6 +537,18 @@ typedef struct _CONNECTION {
     PKSPIN_LOCK EndpointSpinLock;
 
     //
+    // This is the WORK_QUEUE we are queueing on, which may not be the
+    //  same as PreferredWorkQueue due to load balancing
+    //
+    PWORK_QUEUE CurrentWorkQueue;
+
+    //
+    // A countdown for the number of operations we'll do before we try
+    //  to pick a better processor for this connection
+    //
+    ULONG BalanceCount;
+
+    //
     // Cached Rfcb
     //
 
@@ -727,9 +582,24 @@ typedef struct _CONNECTION {
 
     PENDPOINT Endpoint;
     PFILE_OBJECT FileObject;
-    PDEVICE_OBJECT DeviceObject;
 
 /* end of spin lock cache line */
+
+    PDEVICE_OBJECT DeviceObject;
+
+    //
+    // The maximum message size we can send over this connection.
+    //
+
+    ULONG   MaximumSendSize;
+
+    //
+    // This is the WORK_QUEUE we would prefer to be on, because this
+    //  queue assigns work to the same procesor that is handling the
+    //  adaptor's DPCs
+    //
+
+    PWORK_QUEUE PreferredWorkQueue;
 
     //
     // Table header for file table.
@@ -759,7 +629,7 @@ typedef struct _CONNECTION {
 
     //
     // The following two fields descibe operations in progress on this
-    // connection.  It is possible that there are multiple oplock break
+    // connection.  It is possible that there are multiple oplock breaks
     // in progress.  Also, there is a brief window when multiple raw
     // reads can be active -- after we've sent the response to one raw
     // read, but before we've done postprocessing (so it looks like the
@@ -770,7 +640,7 @@ typedef struct _CONNECTION {
     // SrvFsdSpinLock (see the block comment in oplock.c for details).
     //
 
-    ULONG OplockBreaksInProgress;
+    LONG OplockBreaksInProgress;
     ULONG RawReadsInProgress;
 
     //
@@ -790,7 +660,11 @@ typedef struct _CONNECTION {
     USHORT SequenceNumber;
     USHORT LastResponseLength;
     USHORT LastResponseBufferLength;
+    USHORT LastUid;
+    USHORT LastTid;
     NTSTATUS LastResponseStatus;
+    ULONG IpxDuplicateCount;
+    ULONG IpxDropDuplicateCount;
     ULONG LastRequestTime;
     ULONG StartupTime;
     TDI_ADDRESS_IPX IpxAddress;
@@ -833,6 +707,13 @@ typedef struct _CONNECTION {
     ULONG CachedOpenCount;
 
     //
+    // List of directories which have been recently identified.  This is a list of
+    //  CACHED_DIRECTORY entries.
+    //
+    LIST_ENTRY CachedDirectoryList;
+    ULONG      CachedDirectoryCount;
+
+    //
     // The following represent consumer capabilities.
     //
 
@@ -845,6 +726,12 @@ typedef struct _CONNECTION {
     SRV_LOCK Lock;
 
     //
+    // Lock for dealing with the license server
+    //
+
+    SRV_LOCK LicenseLock;
+
+    //
     // Oem version of the client machine name string.
     //
 
@@ -854,7 +741,7 @@ typedef struct _CONNECTION {
     // Head of singly linked list of cached transactions.
     //
 
-    SINGLE_LIST_ENTRY CachedTransactionList;
+    SLIST_HEADER CachedTransactionList;
     LONG CachedTransactionCount;
 
     //
@@ -894,14 +781,12 @@ typedef struct _CONNECTION {
 
     CHAR OemClientMachineName[COMPUTER_NAME_LENGTH+1];
 
-#if SRVDBG_CLIENT
     //
     // Information about the client context.
     //
 
     UNICODE_STRING ClientOSType;
     UNICODE_STRING ClientLanManType;
-#endif
 
     UCHAR BuiltinSavedResponse[MAX_SAVED_RESPONSE_LENGTH];
 
@@ -950,11 +835,7 @@ typedef struct _SESSION {
     CHAR NtUserSessionKey[MSV1_0_USER_SESSION_KEY_LENGTH];
     CHAR LanManSessionKey[MSV1_0_LANMAN_SESSION_KEY_LENGTH];
 
-#ifdef _CAIRO_
     CtxtHandle UserHandle;
-#else // _CAIRO_
-    HANDLE UserToken;
-#endif // _CAIRO_
 
     USHORT MaxBufferSize;                // Consumer's maximum buffer size
     CSHORT MaxMpxCount;                  // Actual max multiplexed pending requests
@@ -966,23 +847,13 @@ typedef struct _SESSION {
     BOOLEAN LogoffAlertSent;
     BOOLEAN TwoMinuteWarningSent;
     BOOLEAN FiveMinuteWarningSent;
-    BOOLEAN IsNullSession;
+    BOOLEAN IsNullSession;               // Is client using a null session?
+    BOOLEAN IsAdmin;                     // Is this an administrative user?
+    BOOLEAN IsLSNotified;                // Does license server know about this user?
+    HANDLE  hLicense;                    // if( IsLSNotified ) this is License handle
 
-#ifdef _CAIRO_
     BOOLEAN HaveHandle;                  // True Means the user has been
                                          // authenticated.
-
-    //
-    // BUGBUG - HaveCairo should be taken out! It was put in so that FALSE
-    //          would mean the Cairo rdr is running on a pure NT system with
-    //          the NT security subsystem. However, as of Jan 94, no one
-    //          has taken the effort to implement it, and it seems doubtful
-    //      whether there is any merit to having the cairo rdr work
-    //          without the Cairo security subsystem.
-    //
-
-    BOOLEAN HaveCairo;
-#endif // _CAIRO_
 
     //CHAR UserNameBuffer[UserName.MaximumLength];
 
@@ -1052,16 +923,32 @@ typedef struct _TREE_CONNECT {
 
 typedef struct _NONPAGED_MFCB {
 
-    ULONG Type;
-    PVOID PagedBlock;
+    union {
 
-    //
-    // We must serialize opens to the same file, since 2 concurrent opens
-    // may be compatibility mode opens.  This lock also protects all data
-    // in this MFCB and the LFCBs and RFCBs associated with this MFCB.
-    //
+        //
+        // When NONPAGED_MFCB structures are freed, they may be placed
+        // on the WORK_QUEUE's MfcbFreeList to avoid unnecessary Nonpaged
+        // pool activity.  SingleListEntry is used for the linkage.
+        //
 
-    SRV_LOCK Lock;
+        SINGLE_LIST_ENTRY SingleListEntry;
+
+        struct {
+            ULONG Type;
+            PVOID PagedBlock;
+
+            //
+            // We must serialize opens to the same file, since 2 concurrent opens
+            // may be compatibility mode opens.  This lock also protects all data
+            // in this MFCB and the LFCBs and RFCBs associated with this MFCB.
+            //
+
+            SRV_LOCK Lock;
+        };
+    };
+
+    LARGE_INTEGER OpenFileSize;
+    ULONG OpenFileAttributes;
 
 } NONPAGED_MFCB, *PNONPAGED_MFCB;
 
@@ -1076,13 +963,6 @@ typedef struct _MFCB {
     BLOCK_HEADER BlockHeader;   // must be first element
 
     PNONPAGED_MFCB NonpagedMfcb;
-
-    //
-    // All MFCBs are linked into the global Master File Table (MFT),
-    // which is a prefix table.
-    //
-
-    UNICODE_PREFIX_TABLE_ENTRY MftEntry;
 
     //
     // All LFCBs for a given named file are linked to the parent MFCB.
@@ -1101,8 +981,19 @@ typedef struct _MFCB {
     // The fully qualified name of the file is appended to the MFCB.
     // The FileName field is a descriptor for the name.
     //
-
     UNICODE_STRING FileName;
+
+    //
+    // Mfcbs are linked into the MfcbHashTable by MfcbHashTableEntry
+    //
+    LIST_ENTRY MfcbHashTableEntry;
+
+    //
+    // FileNameHashValue is a hash value derived from the upper case
+    //  version of FileName.  It is used to speed up name comparisons, and to
+    //  locate the hash entry
+    //
+    ULONG FileNameHashValue;
 
     //
     // CompatibilityOpen indicates whether the file is open in
@@ -1114,6 +1005,14 @@ typedef struct _MFCB {
     // WCHAR FileNameData[FileName.MaximumLength/2];
 
 } MFCB, *PMFCB;
+
+//
+// The MFCBs are all linked into the master MFCB hash table.
+//
+typedef struct {
+    LIST_ENTRY  List;           // the list of MFCBs in this bucket
+    PSRV_LOCK   Lock;           // protects this bucket's list
+} MFCBHASH, *PMFCBHASH;
 
 
 //
@@ -1130,7 +1029,10 @@ typedef struct _MFCB {
 
 typedef struct _LFCB {
 
-    BLOCK_HEADER BlockHeader;   // must be first element
+    union {
+        BLOCK_HEADER BlockHeader;           // must be first element
+        SINGLE_LIST_ENTRY SingleListEntry;  // used when LFCB is freed
+    };
 
     //
     // Multiple remote opens of a file are folded into a single local
@@ -1201,6 +1103,14 @@ typedef struct _LFCB {
     PFAST_IO_WRITE FastIoWrite;
     PFAST_IO_LOCK FastIoLock;
     PFAST_IO_UNLOCK_SINGLE FastIoUnlockSingle;
+    PFAST_IO_MDL_READ MdlRead;
+    PFAST_IO_MDL_READ_COMPLETE MdlReadComplete;
+    PFAST_IO_PREPARE_MDL_WRITE PrepareMdlWrite;
+    PFAST_IO_MDL_WRITE_COMPLETE MdlWriteComplete;
+    PFAST_IO_READ_COMPRESSED FastIoReadCompressed;
+    PFAST_IO_WRITE_COMPRESSED FastIoWriteCompressed;
+    PFAST_IO_MDL_READ_COMPLETE_COMPRESSED MdlReadCompleteCompressed;
+    PFAST_IO_MDL_WRITE_COMPLETE_COMPRESSED MdlWriteCompleteCompressed;
 
     //
     // CompatibilityOpen indicates whether the file is open in
@@ -1357,6 +1267,8 @@ typedef struct _WRITE_MPX_CONTEXT {
 
 #define NO_OPLOCK_BREAK_IN_PROGRESS     ((UCHAR)-1)
 
+#define MAX_CONCURRENT_WRITE_BULK  8
+
 typedef struct _PAGED_RFCB {
 
     PAGED_HEADER PagedHeader;
@@ -1395,11 +1307,11 @@ typedef struct _PAGED_RFCB {
     CLONG FcbOpenCount;
 
     //
-    // NumberOfLocks is the count of locks currently on the file.
-    // It is here to support the File APis.
+    // Per-file context for a direct host IPX smart card, if we have one.
+    //  The smart card is willing to handle the read operations for this file if
+    //  IpxSmartCardContext is not NULL.
     //
-
-    ULONG NumberOfLocks;
+    PVOID   IpxSmartCardContext;
 
 } PAGED_RFCB, *PPAGED_RFCB;
 
@@ -1440,10 +1352,11 @@ typedef struct _RFCB {
     //
     // CurrentPosition maintains the file position after the last Read,
     // Write, or Seek by the client.  This field is needed only to
-    // support relative Seeks.
+    // support relative Seeks.  Since clients that use relative seeks only
+    // need 32-bits of file position, this field is maintained as a ULONG.
     //
 
-    LARGE_INTEGER CurrentPosition;
+    ULONG CurrentPosition;
 
     //
     // Type of this share.  Accessed in the fsd.
@@ -1522,6 +1435,14 @@ typedef struct _RFCB {
     NTSTATUS SavedError;
 
     //
+    // NumberOfLocks is the count of locks currently on the file.
+    // It is here to support the File APis and RFCB cacheing -- you can't
+    //   cache an RFCB if it has locks in it.
+    //
+
+    LONG NumberOfLocks;
+
+    //
     // Fid is the file ID assigned to the file and returned to the
     // client.  Pid is the process ID given by the client when the file
     // was opened.  Tid is a copy of the parent tree connect's Tid
@@ -1536,12 +1457,18 @@ typedef struct _RFCB {
 
     //
     // WriteMpx is a WRITE_MPX_CONTEXT structure.  It retains context
-    // about multiplexed write operations.  If the RFCB is allocated for
-    // a connectionless session, extra space is allocated at the end of
-    // the RFCB and WriteMpx is set to point to that extra space.
+    // about multiplexed write operations.  This structure is not used
+    // on connectionless sessions.
     //
 
-    PWRITE_MPX_CONTEXT WriteMpx;
+    WRITE_MPX_CONTEXT WriteMpx;
+
+    //
+    // Write Bulk list of WorkItems - indexed by Sequence field of WRITE_BULK
+    // message.
+    //
+
+    struct _WORK_CONTEXT *WriteBulk[MAX_CONCURRENT_WRITE_BULK];
 
     //
     // FileMode tracks whether writethrough is enabled for this file
@@ -1584,11 +1511,10 @@ typedef struct _RFCB {
     BOOLEAN DeferredOplockBreak;
 
     //
-    // NumberOfLocks is the count of locks currently on the file.
-    // It is here to support the File APIs.
+    // Pointer to the paged portion of the rfcb
     //
 
-    ULONG NumberOfLocks;
+    PPAGED_RFCB PagedRfcb;
 
     //
     // CachedOpen is set if the RFCB has been cached after being
@@ -1612,10 +1538,16 @@ typedef struct _RFCB {
     BOOLEAN IsActive;
 
     //
-    // Pointer to the paged portion of the rfcb
+    // Is it ok for us to do MPX writes to this RFCB?
+    //
+    BOOLEAN MpxWritesOk;
+
+    //
+    //  This event is used when the server needs to request an oplock II
+    //  when the initial oplock request fails.
     //
 
-    PPAGED_RFCB PagedRfcb;
+    PKEVENT RetryOplockRequest;
 
     //
     // All RFCBs in the server are stored in a global list to support
@@ -1625,13 +1557,6 @@ typedef struct _RFCB {
     //
 
     ORDERED_LIST_ENTRY GlobalRfcbListEntry;
-
-    //
-    //  This event is used when the server needs to request an oplock II
-    //  when the initial oplock request fails.
-    //
-
-    PKEVENT RetryOplockRequest;
 
     //
     // GrantedAccess is the access allowed through this open.  This
@@ -1653,6 +1578,11 @@ typedef struct _RFCB {
     //
 
     OPLOCK_STATE OplockState;
+
+    //
+    // Is it ok for us to do MPX reads to this RFCB?
+    //
+    BOOLEAN MpxReadsOk;
 
 #ifdef SRVDBG_RFCBHIST
     UCHAR HistoryIndex;
@@ -1749,6 +1679,9 @@ typedef struct _BUFFER {
     ULONG Reserved;                 // Pad to quadword
 } BUFFER, *PBUFFER;
 
+#define MIN_SEND_SIZE               512
+#define MAX_PARTIAL_BUFFER_SIZE     65535
+
 //
 // For each search request that is started (Find First or core Search),
 // a search block is allocated.  This is used to hold enough information
@@ -1773,6 +1706,7 @@ typedef struct _SEARCH {
 
     PSESSION Session;
     PTREE_CONNECT TreeConnect;
+    ULONG SearchStorageType;
 
     struct _DIRECTORY_CACHE *DirectoryCache;
     CSHORT NumberOfCachedFiles;
@@ -1833,6 +1767,7 @@ typedef struct _TRANSACTION {
 
     ULONG StartTime;
     ULONG Timeout;
+    CLONG cMaxBufferSize;        // if needed we stash this here
 
     //
     // The following pointers point into either the trailing portion
@@ -1982,16 +1917,18 @@ typedef struct _IPX_CLIENT_ADDRESS {
 // The state for an I/O request is maintained in a Work Context Block.
 // Various fields in the block are filled in or not depending upon the
 // request.  When a worker thread removes a work item from the FSP work
-// queue, it uses and the context block, and items pointed to by the
+// queue, it uses the context block, and items pointed to by the
 // context block, to determine what to do.
 //
 // *** Not all of the back pointers have to be here, because a tree
 //     connect points to a session, which points to a connection, which
 //     points to an endpoint, etc.  However, depending on the operation
 //     and the state of the operation, we may have a connection pointer
-//     but no session pointer, etc.  So for now we maintain all of the
-//     pointers.  At some we might clean this up a bit, if we want to
-//     shrink the context block.
+//     but no session pointer, etc.  So we maintain all of the
+//     pointers.
+//
+// *** Any changes to the first 2 elements of this structure must be
+//     made in concert with the SPECIAL_WORK_ITEM structure in srvtypes.h
 //
 
 typedef struct _WORK_CONTEXT {
@@ -2022,6 +1959,18 @@ typedef struct _WORK_CONTEXT {
     QUEUEABLE_BLOCK_HEADER ;   // must be first element
 
     //
+    // This is the WORK_QUEUE to queue on if we're doing nonblocking work
+    //   It will always point to a valid WORK_QUEUE, even if we're doing
+    //   blocking work.
+    //
+    PWORK_QUEUE CurrentWorkQueue;
+
+    //
+    // The free list this should be returned to when work is done
+    //
+    PSLIST_HEADER FreeList;
+
+    //
     // FsdRestartRoutine is the routine that is to be called by the
     // FSD's I/O completion routine.  This routine can do more
     // processing or queue the work item to the FSP.  In this case, when
@@ -2038,23 +1987,94 @@ typedef struct _WORK_CONTEXT {
     LIST_ENTRY InProgressListEntry;
 
     //
-    // Pointers to various structures that might be used.  The Endpoint
-    // and Connection pointers are filled in by SrvRestartReceive and
-    // are available to all SMB processing routines.  These two pointers
-    // should not be cleared until just before freeing the request
-    // buffer back to the receive queue.  Connection is a referenced
-    // pointer, while Endpoint is not.  The other pointers should all be
-    // referenced pointers.  It is the responsibility of the SMB
-    // processing routines to dereference and clear these pointers when
-    // they are no longer needed.
+    // Pointers to various structures that might be used.
+    // These pointers are all referenced pointers.  It is
+    // the responsibility of the SMB processing routines to
+    // dereference and clear these pointers when they are no
+    // longer needed.
     //
-
-    PENDPOINT Endpoint;
-    PCONNECTION Connection;
     PRFCB Rfcb;
     PSHARE Share;
     PSESSION Session;
     PTREE_CONNECT TreeConnect;
+
+
+    //
+    // These are gathered in one place to facilitate quick zeroing
+    // of their values when the work context is finished
+    //
+    struct _WorkContextZeroBeforeReuse {
+        //
+        // unreferenced pointer to the endpoint structure for
+        //  this work context.  Filled in by SrvRestartReceive and
+        //  available to all SMB processing routines.
+        //
+        //  Endpoint must be the first element in this structure.  See
+        //   INITIALIZE_WORK_CONTEXT in srvmacro.h if changed.
+        //
+        PENDPOINT Endpoint;         // not a referenced pointer
+
+        //
+        // referenced pointer to the connection structure for this
+        //  this work context.  Filled in by SrvRestartReceive and
+        //  available to all SMB processing routines.
+        //
+        PCONNECTION Connection;     // a reference pointer
+
+        //
+        // The number of times this SMB has been queued to a worker thread
+        // for processing.
+        //
+
+        ULONG ProcessingCount;
+
+
+        //
+        // This is a random collection of flags that are needed to steer
+        // the WorkItem
+        //
+        struct {
+
+            //
+            // Can the processing of the current SMB block?
+            //
+
+            ULONG BlockingOperation : 1;
+
+            //
+            // UsingExtraSmbBuffer is TRUE if this work context uses the an extra SMB
+            // buffer.
+            //
+
+            ULONG UsingExtraSmbBuffer : 1;
+
+            //
+            // Did this Work Item cause a successful oplock open to occur?
+            //
+
+            ULONG OplockOpen : 1;
+
+            //
+            // If we got an ACCESS_DENIED error when opening a file, was it because
+            // of share ACL checking?
+
+            ULONG ShareAclFailure : 1;
+
+            //
+            // Should the WorkContext be queued to the head of the list?
+            //
+            ULONG QueueToHead : 1;
+
+#if DBG_STUCK
+            //
+            // Do not include this operation in the StuckOperation catching logic
+            //  which is in the scavenger
+            //
+            ULONG IsNotStuck : 1;
+#endif
+
+        };
+    };
 
     //
     // Pointers to allocated buffers.  RequestBuffer is the buffer into
@@ -2103,13 +2123,6 @@ typedef struct _WORK_CONTEXT {
     ULONG StartTime;
 
     //
-    // The number of times this SMB has been queued to a worker thread
-    // for processing.
-    //
-
-    ULONG ProcessingCount;
-
-    //
     // The PartOfInitialAllocation boolean indicates whether this work
     // item is part of the block of work items allocated at server
     // startup (see blkwork.c\SrvAllocateInitialWorkItems).  Such work
@@ -2119,26 +2132,7 @@ typedef struct _WORK_CONTEXT {
     // server's load decreases.
     //
 
-    BOOLEAN PartOfInitialAllocation;
-
-    //
-    // Can the processing of the current SMB block?
-    //
-
-    BOOLEAN BlockingOperation;
-
-    //
-    // UsingExtraSmbBuffer is TRUE if this work context uses the an extra SMB
-    // buffer.
-    //
-
-    BOOLEAN UsingExtraSmbBuffer;
-
-    //
-    // Did this Work Item cause a successful oplock open to occur?
-    //
-
-    BOOLEAN OplockOpen;
+    ULONG PartOfInitialAllocation;
 
     //
     // The following field contadins the command code of the next
@@ -2251,6 +2245,7 @@ typedef struct _WORK_CONTEXT {
                 //
 
                 LARGE_INTEGER Offset;
+                ULONG Length;
 
                 //
                 // Used only for named pipe reads
@@ -2284,6 +2279,7 @@ typedef struct _WORK_CONTEXT {
 
         struct {
             LARGE_INTEGER Offset;
+            ULONG Length;
             PVOID FinalResponseBuffer;
             CLONG ImmediateLength;
             PMDL FirstMdl;
@@ -2299,21 +2295,94 @@ typedef struct _WORK_CONTEXT {
         //
 
         struct {
-            PCHAR ReadAddress;
-            PFILE_PIPE_PEEK_BUFFER PipePeekBuffer;
             LARGE_INTEGER ReadOffset;
             ULONG ReadLength;
-            ULONG LastWriteTimeInSeconds;   // used if Close is chained
+            PCHAR ReadAddress;
+            union {
+                struct {
+                    PFILE_PIPE_PEEK_BUFFER PipePeekBuffer;
+                    ULONG LastWriteTimeInSeconds;   // used if Close is chained
+                };
+                struct {                        // used for ReadLength > negotiated size
+                    PBYTE   Buffer;             // allocated paged pool, if copy read
+                    PMDL    SavedMdl;
+                    PMDL    CacheMdl;
+                    USHORT  PadCount;
+                    BOOLEAN MdlRead;
+                };
+            };
         } ReadAndX;
 
+#define READX_BUFFER_OFFSET (sizeof(SMB_HEADER) + FIELD_OFFSET(RESP_READ_ANDX, Buffer) )
+
         //
-        // ReadMpx is the structure used when handling the ReadMpx SMB.
+        // ReadBulk is the structure used when handling the ReadBulk SMB.
+        //
+
+        struct {
+            LARGE_INTEGER Offset;
+            ULONG ReadLength;        // length of read if MDL read
+            ULONG RemainingLength;
+            ULONG RemainingCount;
+            ULONG FragmentSize;
+            FSRTL_AUXILIARY_BUFFER Aux;
+            USHORT CurrentMdlOffset; // logically part of MDL read struct below
+            BOOLEAN MdlRead;         // distinguishes an MDL from a COPY read
+            BOOLEAN FirstMessage;    // Flag to indicate if first message
+            UCHAR   CompressionTechnology; // The compression technology used
+            UCHAR   Reserved[3];
+            ULONG Key;               // lock key
+            union {
+                // The following structure is used on Copy Reads
+                struct {
+                    PVOID BulkBuffer;
+                    PMDL BulkBufferMdl;
+                    PMDL ReadBufferMdl;
+                    PCHAR NextFragmentAddress;
+                } ;
+                // The following structure is used on Mdl Reads
+                struct {
+                    PMDL FirstMdl;
+                    PMDL CurrentMdl;
+                } ;
+            } ;
+        } ReadBulk;
+
+#define READ_BULK_BUFFER_OFFSET (sizeof(SMB_HEADER) + FIELD_OFFSET(RESP_READ_BULK, Buffer) )
+
+        //
+        // WriteBulk is the structure used when handling the WriteBulk SMB.
+        //
+
+        struct {
+            PFILE_OBJECT FileObject;
+            LARGE_INTEGER Offset;
+            PMDL  Mdl;
+            ULONG WriteLength;
+            ULONG CompressedLength;
+            ULONG CurrentOffset;
+            ULONG RemainingCount;
+            ULONG Key;
+            PFSRTL_AUXILIARY_BUFFER Aux;
+            UCHAR CompressionTechnology;
+            UCHAR Sequence;
+            UCHAR IrpIndex;
+            BOOLEAN Complete;
+        } WriteBulk;
+
+#define WRITE_BULK_BUFFER_OFFSET (sizeof(SMB_HEADER) + FIELD_OFFSET(RESP_WRITE_BULK, Buffer) + 3)
+
+        //
+        // ReadMpx is the structure used when handling the ReadMpx SMB, unless
+        //  we have a SmartCard accelerating our reads.  In this case,
+        //  SmartCardRead is used.
         //
 
         struct {
             ULONG Offset;
             USHORT FragmentSize;
             USHORT RemainingLength;
+            ULONG ReadLength;
             BOOLEAN MdlRead;
             UCHAR Unused;
             USHORT CurrentMdlOffset; // logically part of MDL read struct below
@@ -2331,6 +2400,15 @@ typedef struct _WORK_CONTEXT {
         } ReadMpx;
 
         //
+        // SmartCardRead is used to handle direct host read requests if we have
+        //   a Smart Card accelerating the particular request.
+        //
+        struct {
+            PDEVICE_OBJECT DeviceObject;
+            PFAST_IO_MDL_READ_COMPLETE MdlReadComplete;
+        } SmartCardRead;
+
+        //
         // WriteMpx is the structure used when handling the WriteMpx SMB.
         //
 
@@ -2339,7 +2417,18 @@ typedef struct _WORK_CONTEXT {
             USHORT WriteLength;
             USHORT Mid;
             BOOLEAN FirstPacketOfGlom;
+            PVOID Buffer;
+            ULONG ReceiveDatagramFlags;
+            PVOID TransportContext;
+            PMDL DataMdl;
         } WriteMpx;
+
+        struct {
+            LARGE_INTEGER   CacheOffset;
+            ULONG           WriteLength;
+            PMDL            CacheMdl;
+        } WriteMpxMdlWriteComplete;
+
 
         //
         // FastTransactNamedPipe is used when handling a small named pipe
@@ -2351,6 +2440,15 @@ typedef struct _WORK_CONTEXT {
             PCHAR OutParam;
             PCHAR OutData;
         } FastTransactNamedPipe;
+
+        //
+        // These are used by SrvPnpProcessor
+        //
+        struct {
+            ULONG Index;    // index into SrvTransportBindingList of device
+            BOOLEAN Bind;   // TRUE -> Bind to transport.  FALSE -> unbind
+            PKEVENT Event;  // Event is signalled when this PNP operation is complete
+        } Pnp;
 
     } Parameters;
 
@@ -2373,6 +2471,13 @@ typedef struct _WORK_CONTEXT {
             PRFCB Rfcb;
             PFILE_FULL_EA_INFORMATION NtFullEa;
             ULONG EaErrorOffset;
+
+            //
+            // The Irp used to open the file is the same Irp used to handle
+            //  the oplock processing.  This can cause us to lose the original
+            //  iosb->Information.  Save it here.
+            //
+            ULONG IosbInformation;
 
             //
             // If TRUE, the file was opened only in order to get a handle
@@ -2425,6 +2530,16 @@ typedef struct _WORK_CONTEXT {
 
     IPX_CLIENT_ADDRESS ClientAddressData;
 
+#if DBG_STUCK
+    //
+    // Time at which this work context was allocated for this current
+    //  unit of work.  This time is examined by debugging code in the
+    //  scavenger to help find operations which are taking too long
+    //  to complete.
+    //
+    LARGE_INTEGER OpStartTime;
+#endif
+
 } WORK_CONTEXT, *PWORK_CONTEXT;
 
 //
@@ -2472,12 +2587,12 @@ SrvAllocateCommDevice (
     IN PUNICODE_STRING DosPathName
     );
 
-BOOLEAN
+BOOLEAN SRVFASTCALL
 SrvCheckAndReferenceCommDevice (
     PCOMM_DEVICE CommDevice
     );
 
-VOID
+VOID SRVFASTCALL
 SrvDereferenceCommDevice (
     IN PCOMM_DEVICE CommDevice
     );
@@ -2500,11 +2615,6 @@ SrvReferenceCommDevice (
 VOID
 SrvAllocateConnection (
     OUT PCONNECTION *Connection
-    );
-
-BOOLEAN
-SrvCheckAndReferenceConnection (
-    IN PCONNECTION Connection
     );
 
 VOID
@@ -2551,10 +2661,11 @@ SrvAllocateEndpoint (
     OUT PENDPOINT *Endpoint,
     IN PUNICODE_STRING NetworkName,
     IN PUNICODE_STRING TransportName,
-    IN PANSI_STRING TransportAddress
+    IN PANSI_STRING TransportAddress,
+    IN PUNICODE_STRING DomainName
     );
 
-BOOLEAN
+BOOLEAN SRVFASTCALL
 SrvCheckAndReferenceEndpoint (
     IN PENDPOINT Endpoint
     );
@@ -2564,7 +2675,7 @@ SrvCloseEndpoint (
     IN PENDPOINT Endpoint
     );
 
-VOID
+VOID SRVFASTCALL
 SrvDereferenceEndpoint (
     IN PENDPOINT Endpoint
     );
@@ -2596,7 +2707,8 @@ WalkConnectionTable (
 
 VOID
 SrvAllocateLfcb (
-    OUT PLFCB *Lfcb
+    OUT PLFCB *Lfcb,
+    IN PWORK_CONTEXT WorkContext
     );
 
 VOID
@@ -2611,7 +2723,8 @@ SrvDereferenceLfcb (
 
 VOID
 SrvFreeLfcb (
-    IN PLFCB Lfcb
+    IN PLFCB Lfcb,
+    IN PWORK_QUEUE queue
     );
 
 VOID
@@ -2623,21 +2736,18 @@ SrvReferenceLfcb (
 // Master File Control Block routines
 //
 
-VOID
-SrvAllocateMfcb(
-    OUT PMFCB *Mfcb,
-    IN PUNICODE_STRING FileName
-    );
 
 PMFCB
 SrvCreateMfcb(
-    IN PUNICODE_STRING FileName
+    IN PUNICODE_STRING FileName,
+    IN PWORK_CONTEXT WorkContext
     );
 
 PMFCB
 SrvFindMfcb(
     IN PUNICODE_STRING FileName,
-    IN BOOLEAN CaseInsensitive
+    IN BOOLEAN CaseInsensitive,
+    OUT PSRV_LOCK *Lock
     );
 
 VOID
@@ -2659,18 +2769,18 @@ SrvUnlinkLfcbFromMfcb (
 // Remote File Control Block routines
 //
 
-VOID
+VOID SRVFASTCALL
 SrvAllocateRfcb (
     OUT PRFCB *Rfcb,
-    IN BOOLEAN AllocateWriteMpx
+    IN PWORK_CONTEXT WorkContext
     );
 
-BOOLEAN
+BOOLEAN SRVFASTCALL
 SrvCheckAndReferenceRfcb (
     IN PRFCB Rfcb
     );
 
-VOID
+VOID SRVFASTCALL
 SrvCloseRfcb (
     IN PRFCB Rfcb
     );
@@ -2696,17 +2806,18 @@ SrvCompleteRfcbClose (
     IN PRFCB Rfcb
     );
 
-VOID
+VOID SRVFASTCALL
 SrvDereferenceRfcb (
     IN PRFCB Rfcb
     );
 
-VOID
+VOID SRVFASTCALL
 SrvFreeRfcb (
-    IN PRFCB Rfcb
+    IN PRFCB Rfcb,
+    IN PWORK_QUEUE queue
     );
 
-VOID
+VOID SRVFASTCALL
 SrvReferenceRfcb (
     IN PRFCB Rfcb
     );
@@ -2738,6 +2849,18 @@ VOID
 SrvCloseCachedRfcbsOnLfcb (
     IN PLFCB Lfcb
     );
+
+ULONG
+SrvCountCachedRfcbsForTid(
+    PCONNECTION connection,
+    USHORT Tid
+);
+
+ULONG
+SrvCountCachedRfcbsForUid(
+    PCONNECTION connection,
+    USHORT Uid
+);
 
 
 //
@@ -2839,6 +2962,32 @@ SrvAddToSearchHashTable(
     );
 
 //
+// Cached directory routines
+//
+BOOLEAN
+SrvIsDirectoryCached (
+    IN PWORK_CONTEXT    WorkContext,
+    IN PUNICODE_STRING  DirectoryName
+    );
+
+VOID
+SrvCacheDirectoryName (
+    IN PWORK_CONTEXT    WorkContext,
+    IN PUNICODE_STRING  DirectoryName
+    );
+
+VOID
+SrvRemoveCachedDirectoryName (
+    IN PWORK_CONTEXT    WorkContext,
+    IN PUNICODE_STRING  DirectoryName
+    );
+
+VOID
+SrvCloseCachedDirectoryEntries (
+    IN PCONNECTION      Connection
+    );
+
+//
 // Session routines
 //
 
@@ -2849,7 +2998,7 @@ SrvAllocateSession (
     IN PUNICODE_STRING Domain
     );
 
-BOOLEAN
+BOOLEAN SRVFASTCALL
 SrvCheckAndReferenceSession (
     IN PSESSION Session
     );
@@ -2865,7 +3014,7 @@ SrvCloseSessionsOnConnection (
     IN PUNICODE_STRING UserName OPTIONAL
     );
 
-VOID
+VOID SRVFASTCALL
 SrvDereferenceSession (
     IN PSESSION Session
     );
@@ -3028,7 +3177,7 @@ SrvAllocateTreeConnect (
     OUT PTREE_CONNECT *TreeConnect
     );
 
-BOOLEAN
+BOOLEAN SRVFASTCALL
 SrvCheckAndReferenceTreeConnect (
     IN PTREE_CONNECT TreeConnect
     );
@@ -3038,7 +3187,7 @@ SrvCloseTreeConnect (
     IN PTREE_CONNECT TreeConnect
     );
 
-VOID
+VOID SRVFASTCALL
 SrvDereferenceTreeConnect (
     IN PTREE_CONNECT TreeConnect
     );
@@ -3064,13 +3213,15 @@ SrvAllocateInitialWorkItems (
 
 VOID
 SrvAllocateNormalWorkItem (
-    OUT PWORK_CONTEXT *WorkContext
+    OUT PWORK_CONTEXT *WorkContext,
+    IN  PWORK_QUEUE queue
     );
 
 VOID
 SrvAllocateRawModeWorkItem (
-    OUT PWORK_CONTEXT *WorkContext
-    );
+    OUT PWORK_CONTEXT *WorkContext,
+    IN PWORK_QUEUE queue
+);
 
 PWORK_CONTEXT
 SrvGetRawModeWorkItem (
@@ -3082,7 +3233,7 @@ SrvRequeueRawModeWorkItem (
     IN PWORK_CONTEXT WorkContext
     );
 
-VOID
+VOID SRVFASTCALL
 SrvDereferenceWorkItem (
     IN PWORK_CONTEXT WorkContext
     );
@@ -3173,12 +3324,12 @@ SrvCancelTimer (
 #define SrvDeleteTimer(_timer) DEALLOCATE_NONPAGED_POOL(_timer)
 
 #define SrvFreeTimer(_timer) \
-        ExInterlockedPushEntryList(&SrvTimerList, &(_timer)->Next, &GLOBAL_SPIN_LOCK(Timer))
+        ExInterlockedPushEntrySList(&SrvTimerList, &(_timer)->Next, &GLOBAL_SPIN_LOCK(Timer))
 
 VOID
 SrvSetTimer (
     IN PSRV_TIMER Timer,
-    IN ULONG Timeout,
+    IN PLARGE_INTEGER Timeout,
     IN PKDEFERRED_ROUTINE TimeoutHandler,
     IN PVOID Context
     );

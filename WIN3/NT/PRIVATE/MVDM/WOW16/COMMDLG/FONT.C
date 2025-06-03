@@ -117,98 +117,6 @@ char szPtFormat[]    = "%d";
 
 WORD (FAR PASCAL *glpfnFontHook)(HWND, unsigned, WORD, LONG) = 0;
 
-#if 0
-/****************************************************************************
- *
- *  ChooseFont
- *
- *  PURPOSE    : API function that invokes the font picker dialog, which lets
- *               the user specify common char. format attributes : facename,
- *               point size, text color and attributes (bold, italic, strikeout
- *               or underline.
- *
- *  RETURNS    : TRUE  - if font picker dialog returns IDOK
- *               FALSE - if font picker dialog returns IDCANCEL
- *
- *  COMMENTS   : The chosen character attributes are fillled into the
- *               CHOOSEFONT strucure passed in.
- *
- ****************************************************************************/
-
-BOOL FAR PASCAL ChooseFont(LPCHOOSEFONT lpcf)
-{
-    BOOL ret;                           /* font picker dialog return value  */
-    HANDLE hDlgTemplate;                /* handle to loaded dialog resource */
-    HANDLE hRes;                        /* handle of res. block with dialog */
-    int id;
-
-    SetCursor(LoadCursor(NULL, IDC_WAIT));
-
-    dwExtError = 0;
-
-    if (lpcf->lStructSize != sizeof(CHOOSEFONT)) {
-        dwExtError = CDERR_STRUCTSIZE;
-        return FALSE;
-    }
-
-    /* verify that lpfnHook has a ptr. if CF_ENABLEHOOK is specified */
-    if (lpcf->Flags & CF_ENABLEHOOK && !lpcf->lpfnHook) {
-        dwExtError = CDERR_NOHOOK;
-        return FALSE;
-    }
-
-    if (lpcf->Flags & CF_ENABLETEMPLATE) {
-        /* Both custom instance handle and the dialog template name are user-
-         * specified. Locate the dialog resource in the specified instance
-         * block and load it.
-         */
-        if (!(hRes = FindResource(lpcf->hInstance, lpcf->lpTemplateName, RT_DIALOG))) {
-            dwExtError = CDERR_FINDRESFAILURE;
-            return FALSE;
-        }
-        if (!(hDlgTemplate = LoadResource(lpcf->hInstance, hRes))) {
-            dwExtError = CDERR_LOADRESFAILURE;
-            return FALSE;
-        }
-
-    } else if (lpcf->Flags & CF_ENABLETEMPLATEHANDLE) {
-        /* A handle to the pre-loaded resource has been specified */
-        hDlgTemplate = lpcf->hInstance;
-    } else {
-
-        id = FORMATDLGORD31;
-
-        if (!(hRes = FindResource(hinsCur, MAKEINTRESOURCE(id), RT_DIALOG))) {
-            dwExtError = CDERR_FINDRESFAILURE;
-            return FALSE;
-        }
-        if (!(hDlgTemplate = LoadResource(hinsCur, hRes))) {
-            dwExtError = CDERR_LOADRESFAILURE;
-            return FALSE;
-        }
-    }
-
-    if (LockResource(hDlgTemplate)){
-        if (lpcf->Flags & CF_ENABLEHOOK)
-            glpfnFontHook = lpcf->lpfnHook;
-        ret = DialogBoxIndirectParam(hinsCur, hDlgTemplate, lpcf->hwndOwner, FormatCharDlgProc, (LONG)lpcf);
-        UnlockResource(hDlgTemplate);
-        glpfnFontHook = 0;
-
-        if (ret == -1) {
-          dwExtError = CDERR_DIALOGFAILURE;
-          ret = 0;
-        }
-    }
-
-    /* if we loaded the resource, free it */
-    if (!(lpcf->Flags & CF_ENABLETEMPLATEHANDLE))
-        FreeResource(hDlgTemplate);
-
-    return ret == IDOK;
-}
-#endif
-
 void NEAR PASCAL SetStyleSelection(HWND hDlg, LPCHOOSEFONT lpcf, BOOL bInit)
 {
     if (!(lpcf->Flags & CF_NOSTYLESEL)) {
@@ -304,14 +212,16 @@ BOOL FAR PASCAL FormatCharDlgProc(HWND hDlg, unsigned wMsg, WORD wParam, LONG lP
     if (plpcf) {
        lpcf = (LPCHOOSEFONT)*plpcf++;
 
-       if ((lpcf->Flags & CF_ENABLEHOOK) && (wRet = (*lpcf->lpfnHook)(hDlg, wMsg, wParam, lParam)))
+       if (lpcf->Flags & CF_ENABLEHOOK) {
+            if ((wRet = (*lpcf->lpfnHook)(hDlg, wMsg, wParam, lParam)) != 0)
                return wRet;
+       }
     }
-    else if (glpfnFontHook && (wMsg != WM_INITDIALOG) &&
-          (wRet = (* glpfnFontHook)(hDlg, wMsg,wParam,lParam)) )
-      {
-        return(wRet);
-      }
+    else if (glpfnFontHook && (wMsg != WM_INITDIALOG)) {
+        if ((wRet = (* glpfnFontHook)(hDlg, wMsg,wParam,lParam)) != 0) {
+            return(wRet);
+        }
+    }
 
     switch(wMsg){
         case WM_INITDIALOG:
@@ -933,6 +843,8 @@ int FAR PASCAL FontFamilyEnumProc(LPLOGFONT lplf, LPTEXTMETRIC lptm, WORD nFontT
         int iItem;
         WORD nOldType, nNewType;
 
+        lptm = lptm;
+
         // bounce non TT fonts
         if ((lpData->dwFlags & CF_TTONLY) &&
             !(nFontType & TRUETYPE_FONTTYPE))
@@ -1397,6 +1309,8 @@ BOOL NEAR PASCAL GetFontStylesAndSizes(HWND hDlg, LPCHOOSEFONT lpcf, BOOL bForce
      HANDLE hMod;
      LOGFONT lf;
      WORD (FAR PASCAL *lpEnumFonts)(HDC, LPSTR, FARPROC, VOID FAR *);
+
+     bForceSizeFill = bForceSizeFill;
 
      hMod = GetModuleHandle(szGDI);
      if (wWinVer < 0x030A)
@@ -2043,4 +1957,3 @@ int NEAR PASCAL atoi(LPSTR sz)
 }
 #endif
 
-

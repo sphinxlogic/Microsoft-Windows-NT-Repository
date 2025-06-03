@@ -190,7 +190,7 @@ static OPTIONSTRUCT OptionTable[] =
     "KdCacheSize", &runDebugParams.KdParams.dwCache, 0, KdCacheHandler,
                 "{on/off}     Kernel debugger memory cache size",
     "KdPlatform", &runDebugParams.KdParams.dwPlatform, 0, KdPlatformHandler,
-               "{on/off}      Kernel debugger target system platform (x86/mips/alpha)",
+               "{on/off}      Kernel debugger target system platform (x86/mips/alpha/ppc)",
     "MasmEval", &runDebugParams.fMasmEval, 0, OnOffBOOLHandler,
              "{on/off}        Masm Style Expression Evaluation",
     "NotifyExit",&runDebugParams.fNotifyThreadTerm, 0, OnOffBOOLHandler,
@@ -230,6 +230,7 @@ extern  EI       Ei;
 
 LOGERR LogExtension(LPSTR lpsz);
 LOGERR LogVersion(LPSTR lpsz);
+BOOL   NotifyDmOfProcessorChange(DWORD);
 
 /**************************       Code          *************************/
 
@@ -276,8 +277,11 @@ Routine Description:
 Arguments:
 
    lpData  - Supplies pointer to data
+
    cb      - Supplies more data
+
    lpVal   - Supplies pointer to user input or string to format into
+
    fSet    - Supplies TRUE for set, FALSE for read/format
 
 Return Value:
@@ -303,20 +307,20 @@ Return Value:
 
         CmdLogVar(ERR_Command_Error);
 
-    } else if (_fstricmp(szToken, "yes") == 0
-            || _fstricmp(szToken, "y") == 0
-            || _fstricmp(szToken, "true") == 0
-            || _fstricmp(szToken, "1") == 0
-            || _fstricmp(szToken, "on") == 0 ) {
+    } else if (_stricmp(szToken, "yes") == 0
+            || _stricmp(szToken, "y") == 0
+            || _stricmp(szToken, "true") == 0
+            || _stricmp(szToken, "1") == 0
+            || _stricmp(szToken, "on") == 0 ) {
 
         *(BOOL *)lpData = TRUE;
         fOK = TRUE;
 
-    } else if (_fstricmp(szToken, "no") == 0
-            || _fstricmp(szToken, "n") == 0
-            || _fstricmp(szToken, "false") == 0
-            || _fstricmp(szToken, "0") == 0
-            || _fstricmp(szToken, "off") == 0 ) {
+    } else if (_stricmp(szToken, "no") == 0
+            || _stricmp(szToken, "n") == 0
+            || _stricmp(szToken, "false") == 0
+            || _stricmp(szToken, "0") == 0
+            || _stricmp(szToken, "off") == 0 ) {
 
         *(BOOL *)lpData = FALSE;
         fOK = TRUE;
@@ -347,8 +351,11 @@ Routine Description:
 Arguments:
 
    lpData  - Supplies pointer to data
+
    cb      - Supplies more data
+
    lpVal   - Supplies pointer to user input or string to format into
+
    fSet    - Supplies TRUE for set, FALSE for read/format
 
 Return Value:
@@ -357,49 +364,18 @@ Return Value:
 
 --*/
 {
-    int n;
-    BOOL fOK = FALSE;
-    char szToken[MAX_USER_LINE];
+    BOOL flag;
+    BOOL fOK;
 
-    Unreferenced( cb );
+    flag = (BOOL)*((BYTE *)lpData);
 
-    if (!fSet) {
-        sprintf(lpVal, (*(BYTE *)lpData) ? "on" : "off");
-        return TRUE;
+    fOK = OnOffBOOLHandler((LPVOID)&flag, cb, lpVal, fSet);
+    if (fOK) {
+        *((BYTE *)lpData) = (BYTE)flag;
     }
-
-    n = CPCopyToken(&lpVal, szToken);
-
-    if (*CPSkipWhitespace(lpVal)) {
-
-        CmdLogVar(ERR_Command_Error);
-
-    } else if (_fstricmp(szToken, "yes") == 0
-            || _fstricmp(szToken, "y") == 0
-            || _fstricmp(szToken, "true") == 0
-            || _fstricmp(szToken, "1") == 0
-            || _fstricmp(szToken, "on") == 0 ) {
-
-        *(BYTE *)lpData = TRUE;
-        fOK = TRUE;
-
-    } else if (_fstricmp(szToken, "no") == 0
-            || _fstricmp(szToken, "n") == 0
-            || _fstricmp(szToken, "false") == 0
-            || _fstricmp(szToken, "0") == 0
-            || _fstricmp(szToken, "off") == 0 ) {
-
-        *(BYTE *)lpData = FALSE;
-        fOK = TRUE;
-
-    } else {
-
-        CmdLogVar(ERR_True_False);
-
-    }
-
     return fOK;
 }
+
 
 
 BOOL
@@ -418,8 +394,11 @@ Routine Description:
 Arguments:
 
    lpData  - Supplies pointer to data
+
    cb      - Supplies more data
+
    lpVal   - Supplies pointer to user input or string to format into
+
    fSet    - Supplies TRUE for set, FALSE for read/format
 
 Return Value:
@@ -428,51 +407,25 @@ Return Value:
 
 --*/
 {
-    int n;
-    BOOL fOK = FALSE;
-    char szToken[MAX_USER_LINE];
-    int         dops = (int) lpData;
+    BOOL fOK;
+    BOOL flag;
+    int  dops = (int) lpData;
 
-    Unreferenced( cb );
+    flag = (runDebugParams.DisAsmOpts & dops) ? 1 : 0;
 
-    if (!fSet) {
-        sprintf(lpVal, (runDebugParams.DisAsmOpts & dops) ? "on" : "off");
-        return TRUE;
+    fOK = OnOffBOOLHandler((LPVOID)&flag, cb, lpVal, fSet);
+
+    if (fOK) {
+        if (fSet) {
+            if (flag) {
+                runDebugParams.DisAsmOpts |= dops;
+            } else {
+                runDebugParams.DisAsmOpts &= ~dops;
+            }
+        }
     }
-
-    n = CPCopyToken(&lpVal, szToken);
-
-    if (*CPSkipWhitespace(lpVal)) {
-
-        CmdLogVar(ERR_Command_Error);
-
-    } else if (_fstricmp(szToken, "yes") == 0
-            || _fstricmp(szToken, "y") == 0
-            || _fstricmp(szToken, "true") == 0
-            || _fstricmp(szToken, "1") == 0
-            || _fstricmp(szToken, "on") == 0 ) {
-
-        runDebugParams.DisAsmOpts |= dops;
-        fOK = TRUE;
-
-    } else if (_fstricmp(szToken, "no") == 0
-            || _fstricmp(szToken, "n") == 0
-            || _fstricmp(szToken, "false") == 0
-            || _fstricmp(szToken, "0") == 0
-            || _fstricmp(szToken, "off") == 0 ) {
-
-        runDebugParams.DisAsmOpts &= ~dops;
-        fOK = TRUE;
-
-    } else {
-
-        CmdLogVar(ERR_True_False);
-
-    }
-
     return fOK;
 }
-
 
 
 BOOL
@@ -665,7 +618,7 @@ Return Value:
         return FALSE;
     }
 
-    if (_fstrnicmp(p, "com", 3) == 0) {
+    if (_strnicmp(p, "com", 3) == 0) {
         p += 3;
         if (strlen(p) == 1 && isdigit(*p)) {
             runDebugParams.KdParams.dwPort = *p - '0';
@@ -780,6 +733,9 @@ Return Value:
             case 2:
                 strcpy(lpVal, "alpha" );
                 break;
+            case 3:
+                strcpy(lpVal, "ppc" );
+                break;
         }
         return TRUE;
     }
@@ -791,14 +747,17 @@ Return Value:
         return FALSE;
     }
 
-    if (_fstricmp(szToken, "x86") == 0) {
+    if (_stricmp(szToken, "x86") == 0) {
         runDebugParams.KdParams.dwPlatform = 0;
     } else
-    if (_fstricmp(szToken, "mips") == 0) {
+    if (_stricmp(szToken, "mips") == 0) {
         runDebugParams.KdParams.dwPlatform = 1;
     } else
-    if (_fstricmp(szToken, "alpha") == 0) {
+    if (_stricmp(szToken, "alpha") == 0) {
         runDebugParams.KdParams.dwPlatform = 2;
+    } else
+    if (_stricmp(szToken, "ppc") == 0) {
+        runDebugParams.KdParams.dwPlatform = 3;
     } else {
         CmdLogVar(ERR_Command_Error);
         return FALSE;
@@ -824,8 +783,11 @@ Routine Description:
 Arguments:
 
    lpData  - Supplies pointer to data
+
    cb      - Supplies more data
+
    lpVal   - Supplies pointer to user input or string to format into
+
    fSet    - Supplies TRUE for set, FALSE for read/format
 
 Return Value:
@@ -835,44 +797,14 @@ Return Value:
 --*/
 {
     int n;
-    BOOL fOK = FALSE;
+    BOOL fOK;
     char szToken[MAX_USER_LINE];
 
     Unreferenced( cb );
 
+    fOK = OnOffBOOLHandler(lpData, cb, lpVal, fSet);
     if (!fSet) {
-        sprintf(lpVal, (*(BOOL *)lpData) ? "on" : "off");
-        return TRUE;
-    }
-
-    n = CPCopyToken(&lpVal, szToken);
-
-    if (*CPSkipWhitespace(lpVal)) {
-
-        CmdLogVar(ERR_Command_Error);
-
-    } else if (_fstricmp(szToken, "yes") == 0
-            || _fstricmp(szToken, "y") == 0
-            || _fstricmp(szToken, "true") == 0
-            || _fstricmp(szToken, "1") == 0
-            || _fstricmp(szToken, "on") == 0 ) {
-
-        *(BOOL *)lpData = TRUE;
-        fOK = TRUE;
-
-    } else if (_fstricmp(szToken, "no") == 0
-            || _fstricmp(szToken, "n") == 0
-            || _fstricmp(szToken, "false") == 0
-            || _fstricmp(szToken, "0") == 0
-            || _fstricmp(szToken, "off") == 0 ) {
-
-        *(BOOL *)lpData = FALSE;
-        fOK = TRUE;
-
-    } else {
-
-        CmdLogVar(ERR_True_False);
-
+        return fOK;
     }
 
     if (fOK) {
@@ -1070,27 +1002,27 @@ Return Value:
 
     if (lptd == (LPTD)NULL) {
         if ( LpszCmdBuff == (char FAR *)NULL ) {
-            LpszCmdBuff = LpszCmdPtr = _fstrdup(lpsz);
+            LpszCmdBuff = LpszCmdPtr = _strdup(lpsz);
         } else {
             LPSTR   lpszT;
 
-            lpszT = _fmalloc( _fstrlen(LpszCmdPtr) + _fstrlen(lpsz) + 2);
-            _fstrcpy(lpszT, lpsz);
-            _fstrcat(lpszT, ";");
-            _fstrcat(lpszT, LpszCmdPtr);
+            lpszT = malloc( strlen(LpszCmdPtr) + strlen(lpsz) + 2);
+            strcpy(lpszT, lpsz);
+            strcat(lpszT, ";");
+            strcat(lpszT, LpszCmdPtr);
             free( LpszCmdBuff );
 
             LpszCmdPtr = LpszCmdBuff = lpszT;
         }
     } else if (lptd->lpszCmdBuffer == (LPSTR)NULL) {
-        lptd->lpszCmdBuffer = lptd->lpszCmdPtr = _fstrdup( lpsz );
+        lptd->lpszCmdBuffer = lptd->lpszCmdPtr = _strdup( lpsz );
     } else {
         LPSTR   lpszT;
 
-        lpszT = _fmalloc( _fstrlen(lptd->lpszCmdPtr) + _fstrlen(lpsz) + 2);
-        _fstrcpy(lpszT, lpsz);
-        _fstrcat(lpszT, ";");
-        _fstrcat(lpszT, lptd->lpszCmdPtr);
+        lpszT = malloc( strlen(lptd->lpszCmdPtr) + strlen(lpsz) + 2);
+        strcpy(lpszT, lpsz);
+        strcat(lpszT, ";");
+        strcat(lpszT, lptd->lpszCmdPtr);
         free(lptd->lpszCmdBuffer);
 
         lptd->lpszCmdBuffer = lptd->lpszCmdPtr = lpszT;
@@ -1120,7 +1052,9 @@ Return Value:
 
 --*/
 {
-    CmdInsertInit();
+    if (fLocal) {
+        CmdInsertInit();
+    }
     StringLogger( szPrompt, TRUE, fRemote, fLocal );
 }
 
@@ -1180,6 +1114,17 @@ Return Value:
     LPTD    lptd;
     char    rgchT[256];
     BOOL    fQuote;
+    char    localArg[1024];
+
+
+
+    //
+    // in case the caller passes in a read only string
+    //
+    if (lpszArg) {
+        strcpy( localArg, lpszArg );
+        lpszArg = &localArg[0];
+    }
 
     if (lpszArg && (lpszArg[0] == '*')) {
         lpszArg = NULL;
@@ -1243,7 +1188,11 @@ Return Value:
             } else if (!fQuote && (*lpsz1 == ';')) {
                 break;
             }
+#ifdef DBCS
+            lpsz1 = CharNext(lpsz1);
+#else
             lpsz1 ++;
+#endif
         }
 
         ch = *lpsz1;
@@ -1266,7 +1215,7 @@ Return Value:
                 Assert( lptd != NULL );
                 Assert(lptd->lpszCmdBuffer != NULL);
 
-                _fstrcpy(rgchT, lptd->lpszCmdPtr);
+                strcpy(rgchT, lptd->lpszCmdPtr);
                 lpsz2 = &rgchT[0];
                 free( lptd->lpszCmdBuffer);
                 lptd->lpszCmdBuffer = lptd->lpszCmdPtr = NULL;
@@ -1292,7 +1241,7 @@ Return Value:
 
                 Assert( LpszCmdBuff != NULL );
 
-                _fstrcpy(rgchT, LpszCmdPtr);
+                strcpy(rgchT, LpszCmdPtr);
                 lpsz2 = &rgchT[0];
                 free( LpszCmdBuff );
                 LpszCmdBuff = LpszCmdPtr = NULL;
@@ -1411,39 +1360,40 @@ Return Value:
 
     static char chLastDump = 0;
 
-
-    /*
-    **  Skip over any preceeding white space
-    */
+    // Skip over any preceeding white space
 
     lpsz = CPSkipWhitespace(lpsz);
 
-    /*
-    **  Strip off any trailing white space
-    */
+    if (*lpsz == 0) {
+        return(CMD_RET_SYNC);
+    }
+
+    // Strip off any trailing white space
 
     for (lpszX = lpsz-1, lpszT = lpsz; *lpszT; lpszT++) {
+#ifdef DBCS
+        if (IsDBCSLeadByte(*lpszT) && *(lpszT+1)) {
+            lpszX = lpszT + 1;
+            lpszT++;
+        } else
+#endif
         if (!isspace(*lpszT)) {
             lpszX = lpszT;
         }
     }
 
-    *(lpszX + 1) = 0;
-
-    if (*lpsz == 0) {
-            return(CMD_RET_SYNC);
+    if (lpszX+1 != lpszT) {
+        *(lpszX + 1) = 0;
     }
 
-    /*
-    **  Strip off anything relative to threads or processes which
-    **  may preceed the command
-    **
-    **  Possible starting strings are:
-    **
-    **      lead := processID | threadID | processID threadID | <blank>
-    **      processID := '|' Number | '|' '.'
-    **      threadID := '~' Number | '~' '.'
-    */
+    // Strip off anything relative to threads or processes which
+    // may preceed the command
+    //
+    // Possible starting strings are:
+    //
+    //     lead := processID | threadID | processID threadID | <blank>
+    //     processID := '|' Number | '|' '.'
+    //     threadID := '~' Number | '~' '.'
 
     LppdCommand = LppdCur;
     LptdCommand = LptdCur;
@@ -1514,6 +1464,7 @@ Return Value:
                     LptdCommand = NULL;
                 } else {
                     LptdCommand = LptdOfLppdItid(LppdCommand, i);
+                    NotifyDmOfProcessorChange( i );
                 }
             }
         }
@@ -2036,9 +1987,23 @@ Return Value:
 
         // find how much line we have to work with:
         Dbg (FirstLine(doc, &pLine, &ytmp, &pBlock));
-        cWide = AlignToTabs(pLine->Length - LHD, pLine->Length - LHD, (LPSTR)pLine->Text);
+        cWide = AlignToTabs(pLine->Length - LHD,
+                            pLine->Length - LHD,
+                            (LPSTR)pLine->Text);
 
         while (*lpsz) {
+#ifdef DBCS
+            if (IsDBCSLeadByte(*lpsz) && *(lpsz+1)) {
+                if (XNext + 2 < (MAX_USER_LINE - cWide)) {
+                    *lpPut++ = *lpsz++;
+                    *lpPut++ = *lpsz++;
+                    XNext += 2;
+                    continue;
+                } else {
+                    goto DoNewline;
+                }
+            }
+#endif
 
             if (*lpsz == '\r') {
 
@@ -2120,6 +2085,11 @@ Return Value:
     // are there too many lines in the buffer?
     ytmp = max(Docs[doc].NbLines, 1) - MAX_CMDWIN_LINES;
     if (ytmp > 0) {
+        //
+        // delete more than we need to so it doesn't happen
+        // every time a line is printed.
+        //
+        ytmp += 20;
         GetRORegion(cmdView, &Xro, &Yro);
         SetRORegion(cmdView, 0, 0);
         // This means delete full lines
@@ -2320,7 +2290,7 @@ Return Value:
     }
 
     // don't modify src string!!
-    lpch = _fstrdup(lpStr);
+    lpch = _strdup(lpStr);
     lpch2 = lpch;
     for (;;) {
         if (*lpch2 == 0) {
@@ -2350,7 +2320,11 @@ Return Value:
             StringLogger("\r\n", TRUE, fSendRemote, FALSE);
             CmdInsertInit();
         } else {
+#ifdef DBCS
+            lpch2 = CharNext( lpch2 );
+#else
             lpch2++;
+#endif
         }
     }
 
@@ -2454,10 +2428,21 @@ Return Value:
         **  Sanitize
         */
 
+#ifdef DBCS
+        ptr = rgchCmd + strlen(rgchCmd);
+        while (ptr > rgchCmd) {
+            ptr = CharPrev(rgchCmd, ptr);
+            if ( *ptr != '\n' && *ptr != '\r') {
+                break;
+            }
+            *ptr = '\0';
+        }
+#else
         ptr = rgchCmd + strlen(rgchCmd) - 1;
         while ( *ptr == '\n' || *ptr == '\r')  {
             *ptr-- = '\0';
         }
+#endif
 
         /*
         **  Log the command into the command window
@@ -2501,7 +2486,7 @@ LogSource(
     )
 {
     AutoRun = arSource;
-    PszAutoRun = strdup(lpsz);
+    PszAutoRun = _strdup(lpsz);
 
     if (CmdAutoRunInit()) {
         return LOGERROR_NOERROR;
@@ -2663,7 +2648,7 @@ Return Value:
         return LOGERROR_QUIET;
     }
 
-    lpCmdString = strdup(lpsz);
+    lpCmdString = _strdup(lpsz);
     fWaitForDebugString = TRUE;
 
     /*
@@ -2784,7 +2769,7 @@ LogDotCommand(
         LogDotHelp(lpsz + 1);
         fNoError = TRUE;
 
-    } else if (_fstrnicmp(lpsz, "help", (size_t) 4) == 0) {
+    } else if (_strnicmp(lpsz, "help", (size_t) 4) == 0) {
 
         LogDotHelp(lpsz + 4);
         fNoError = TRUE;
@@ -2793,7 +2778,7 @@ LogDotCommand(
 
         for (i = 0; i < NDOTS; i++) {
             l = strlen(DotTable[i].lpName);
-            if (_fstrnicmp(lpsz, DotTable[i].lpName, l) == 0)
+            if (_strnicmp(lpsz, DotTable[i].lpName, l) == 0)
             {
                 break;
             }
@@ -2867,7 +2852,7 @@ Return Value:
     lpsz = CPSkipWhitespace(lpsz);
 
     for (i = 0; i < NOPTS; i++) {
-        if (_fstricmp(OptionTable[i].lpName, szToken) == 0) {
+        if (_stricmp(OptionTable[i].lpName, szToken) == 0) {
             break;
         }
     }
@@ -3082,6 +3067,7 @@ LogReload(
     return (xosd == xosdNone) ? LOGERROR_NOERROR : LOGERROR_UNKNOWN;
 }
 
+
 
 LOGERR NEAR PASCAL
 LogList(
@@ -3181,7 +3167,8 @@ Return Value:
             // the document was not found so lets map it in and
             // create a document record
             //
-            if (SrcMapSourceFilename( SrcFname, sizeof(SrcFname), SRC_MAP_OPEN ) < 0) {
+            if (SrcMapSourceFilename( SrcFname, sizeof(SrcFname),
+                                      SRC_MAP_OPEN, FindDoc1 ) < 0) {
                 goto disasm;
             }
 
@@ -3256,16 +3243,16 @@ disasm:
                 sprintf(p, "%s  ", &sds.lpch[sds.ichAddr]);
                 p += strlen(p);
             }
-            cb = _fstrlen(&sds.lpch[sds.ichAddr]) + 2;
+            cb = strlen(&sds.lpch[sds.ichAddr]) + 2;
 
             if (sds.ichBytes != -1) {
                 lpch = sds.lpch + sds.ichBytes;
-                while (_fstrlen(lpch) > 16) {
+                while (strlen(lpch) > 16) {
                     sprintf(p, "%16.16s\r\n%*s", lpch, cb, " ");
                     p += strlen(p);
                     lpch += 16;
                 }
-                cb = 17 - _fstrlen(lpch);
+                cb = 17 - strlen(lpch);
                 sprintf(p, "%-17s", lpch);
                 p += strlen(p);
             }
@@ -3319,7 +3306,7 @@ disasm:
             // next address is the same as the last address and ...
             //
             if ((GetSourceFromAddress( &addrN, SrcFnameN, sizeof(SrcFnameN), &lineno )) &&
-                (stricmp(SrcFname, SrcFnameN) == 0)) {
+                (_stricmp(SrcFname, SrcFnameN) == 0)) {
                 //
                 // the line number is more that one greater
                 //
@@ -3342,4 +3329,35 @@ disasm:
     // return success
     //
     return LOGERROR_NOERROR;
+}
+
+BOOL
+NotifyDmOfProcessorChange(
+    DWORD   Processor
+    )
+{
+    XOSD            xosd = xosdUnknown;
+    PIOCTLGENERIC   pig;
+
+
+    if (!runDebugParams.fKernelDebugger) {
+        return FALSE;
+    }
+
+    pig = (PIOCTLGENERIC)malloc(sizeof(ULONG) + sizeof(IOCTLGENERIC));
+    if (!pig) {
+        return FALSE;
+    }
+    pig->ioctlSubType = IG_CHANGE_PROC;
+    pig->length = sizeof(ULONG);
+    ((PULONG)pig->data)[0] = Processor;
+    xosd = OSDIoctl(
+        LppdCur->hpid,
+        NULL,
+        ioctlGeneric,
+        pig->length + sizeof(IOCTLGENERIC),
+        (LPV)pig
+        );
+    free( pig );
+    return xosd == xosdNone;
 }

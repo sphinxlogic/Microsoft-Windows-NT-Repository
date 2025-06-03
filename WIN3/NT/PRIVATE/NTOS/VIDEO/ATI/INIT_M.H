@@ -7,10 +7,13 @@
 
 /**********************       PolyTron RCS Utilities
    
-  $Revision:   1.1  $
-      $Date:   31 Mar 1994 15:06:00  $
+  $Revision:   1.2  $
+      $Date:   03 Feb 1995 15:16:10  $
 	$Author:   RWOLFF  $
 	   $Log:   S:/source/wnt/ms11/miniport/vcs/init_m.h  $
+ * 
+ *    Rev 1.2   03 Feb 1995 15:16:10   RWOLFF
+ * Added prototypes for functions used in DCI support.
  * 
  *    Rev 1.1   31 Mar 1994 15:06:00   RWOLFF
  * Added prototype for SetPowerManagement_m().
@@ -45,6 +48,8 @@ extern VP_STATUS QueryAvailModes_m(PVIDEO_REQUEST_PACKET RequestPacket, struct q
 extern void SetCurrentMode_m(struct query_structure *QueryPtr, struct st_mode_table *CrtTable);
 extern void ResetDevice_m(void);
 extern VP_STATUS SetPowerManagement_m(struct query_structure *QueryPtr, ULONG DpmsState);
+extern VP_STATUS ShareVideoMemory_m(PVIDEO_REQUEST_PACKET RequestPacket, struct query_structure *QueryPtr);
+extern void BankMap_m(LONG BankRead, LONG BankWrite, PVOID Context);
 
 
 #ifdef INCLUDE_INIT_M

@@ -25,10 +25,51 @@ Initial revision.
 #ifndef  d_o_bkup_h
 #define  d_o_bkup_h
 
+#ifdef OEM_EMS
+
+// Control Modes
+#define   CM_HIDE     0
+#define   CM_ENABLE   1
+#define   CM_DISABLE  2
+
+typedef struct DLG_CTRL_ENTRY {
+     INT  iCtlId;
+     HWND hCtlWnd;
+     INT  iCtlDispStyle; 
+} DLG_CTRL_ENTRY;
+
+typedef struct DLG_DISPLAY_ENTRY {
+     INT            iDispType;
+     DLG_CTRL_ENTRY *CtlTable;
+     UINT16         ucCtrls;
+     DWORD          help_id;
+   
+} DLG_DISPLAY_ENTRY;
+
+typedef struct DLG_MODE {
+     WORD                wModeType;
+     DLG_DISPLAY_ENTRY   *DispTable;
+     UINT16              ucDispTables;
+     DLG_DISPLAY_ENTRY   *pCurDisp;
+} DLG_MODE;
+
+DLG_MODE *DM_InitCtrlTables( HWND, DLG_MODE *, UINT16, WORD );
+ 
+VOID DM_DispShowControls( HWND, DLG_MODE *, INT );
+
+DWORD DM_ModeGetHelpId( DLG_MODE * );
+
+#endif // OEM_EMS
+
+
 BOOL     DM_StartDialog( HWND, WORD, VOID_PTR ) ;
 INT      DM_StartBackupSet( INT ) ;
 VOID     BackupSetSave( HWND ) ;
+#ifndef OEM_EMS
 VOID     BackupSetRetrieve( HWND ) ;
+#else
+VOID     BackupSetRetrieve( HWND, DLG_MODE * );
+#endif
 INT      BackupSetDefaultDescription( VOID ) ;
 VOID     BackupSetDefaultSettings( VOID ) ;
 BSD_PTR  GetBSDPointer( WORD ) ;

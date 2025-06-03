@@ -113,13 +113,7 @@ Return Value:
 
     BOOLEAN Inserted;
 
-    //
-    // Assert that we are being called with a device queue and not something
-    // else
-    //
-
-    ASSERT_DEVICE_QUEUE( DeviceQueue );
-
+    ASSERT_DEVICE_QUEUE(DeviceQueue);
     ASSERT(KeGetCurrentIrql() == DISPATCH_LEVEL);
 
     //
@@ -189,13 +183,7 @@ Return Value:
     PLIST_ENTRY NextEntry;
     PKDEVICE_QUEUE_ENTRY QueueEntry;
 
-    //
-    // Assert that we are being called with a device queue and not something
-    // else
-    //
-
-    ASSERT_DEVICE_QUEUE( DeviceQueue );
-
+    ASSERT_DEVICE_QUEUE(DeviceQueue);
     ASSERT(KeGetCurrentIrql() == DISPATCH_LEVEL);
 
     //
@@ -267,13 +255,7 @@ Return Value:
     PKDEVICE_QUEUE_ENTRY DeviceQueueEntry;
     PLIST_ENTRY NextEntry;
 
-    //
-    // Assert that we are being called with a device queue and not something
-    // else
-    //
-
-    ASSERT_DEVICE_QUEUE( DeviceQueue );
-
+    ASSERT_DEVICE_QUEUE(DeviceQueue);
     ASSERT(KeGetCurrentIrql() == DISPATCH_LEVEL);
 
     //
@@ -347,13 +329,7 @@ Return Value:
     PKDEVICE_QUEUE_ENTRY DeviceQueueEntry;
     PLIST_ENTRY NextEntry;
 
-    //
-    // Assert that we are being called with a device queue and not something
-    // else
-    //
-
-    ASSERT_DEVICE_QUEUE( DeviceQueue );
-
+    ASSERT_DEVICE_QUEUE(DeviceQueue);
     ASSERT(KeGetCurrentIrql() == DISPATCH_LEVEL);
 
     //
@@ -438,12 +414,8 @@ Return Value:
     KIRQL OldIrql;
     BOOLEAN Removed;
 
-    //
-    // Assert that we are being called with a device queue and not something
-    // else
-    //
-
-    ASSERT_DEVICE_QUEUE( DeviceQueue );
+    ASSERT_DEVICE_QUEUE(DeviceQueue);
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
 
     //
     // Raise IRQL to dispatcher level and lock specified device queue.

@@ -21,6 +21,10 @@
 #include <sys\stat.h>
 #include <time.h>
 
+#ifndef KERNEL
+#include <profile.h>
+#endif
+
 // Do the two step to get the "right" definition of va_args...
 
 #if defined(I386_HOST) && defined(MIPS)
@@ -34,20 +38,30 @@
 #define MIPS
 #endif
 
-#undef  NULL
 #include "ntsdp.h"
+
+#include <common.ver>
 
 PUCHAR  Version_String =
 "\n"
 #ifdef KERNEL
 "Microsoft(R) Windows NT Kernel Debugger\n"
 #else
+#ifdef CHICAGO
+"Microsoft(R) Windows 95/Windows NT User-Mode Debugger, "
+#else
 "Microsoft(R) Windows NT Debugger\n"
 #endif
-"Version 3.5\n"
-"(C) 1991-1994 Microsoft Corp.\n"
+#endif
+"Version 4.00\n"
+VER_LEGALCOPYRIGHT_STR
+"\n"
 "\n";
 
+#ifdef KERNEL
+extern PSTR CrashFileName;
+ULONG X86BiosBaseAddress;
+#endif
 extern  ulong   EXPRLastExpression;     // from module ntexpr.c
 
 #define MAXPCOFFSET 10
@@ -92,6 +106,9 @@ extern  BOOLEAN     fLogAppend;
 extern  BOOLEAN UserRegTest(ULONG);
 extern  BOOLEAN ReadVirtualMemory(PUCHAR, PUCHAR, ULONG, PULONG);
 extern  LocateTextInSource(void *, void*);
+extern  BOOLEAN MYOB;
+extern  BOOLEAN NotStupid;
+ULONG GetExpressionRoutine(char *CommandString);
 
 void error(ULONG);
 void RemoveDelChar(PUCHAR);
@@ -107,9 +124,9 @@ void RemoveDelChar(PUCHAR);
 #include "ntreg.h"
 #include "alphaops.h"
 #endif
-
-extern void DumpOmapToSrc(ULONG);
-extern void DumpOmapFromSrc(ULONG);
+#ifdef _PPC_
+#include "ntreg.h"
+#endif
 
 #if defined(KERNEL)
 extern   void   SetWaitCtrlHandler(void);
@@ -117,23 +134,16 @@ extern   void   SetCmdCtrlHandler(void);
 #endif
 
 #if defined(i386) && defined(KERNEL)
-extern   ULONG  GetRegValue(ULONG);
 extern   int    G_mode_32;
 #endif
 extern   char *InitialCommand;
-BOOLEAN InitialCommandRead = FALSE;
+BOOLEAN InitialCommandRead;
 
-#ifndef KERNEL
-#ifdef ALPHA
-#define SetThreadContext(a,b) AlphaSetThreadContext(a,b)
-#define GetThreadContext(a,b) AlphaGetThreadContext(a,b)
-extern BOOL AlphaSetThreadContext( HANDLE, PCONTEXT);
-extern BOOL AlphaGetThreadContext( HANDLE, PCONTEXT);
-#endif
-#endif
+//ULONG HexValue(ULONG);
+ULONGLONG HexValueL(ULONG);
+#define HexValue(a) ((ULONG) HexValueL(a))
 
 void HexList(PUCHAR, ULONG *, ULONG);
-ULONG HexValue(ULONG);
 void AsciiList(PUCHAR, ULONG *);
 ULONG GetIdList(void);
 void GetRange(PADDR, PULONG, PBOOLEAN, ULONG
@@ -147,8 +157,11 @@ void OutDisCurrent(BOOLEAN, BOOLEAN);
 
 API_VERSION ApiVersion = { BUILD_MAJOR_VERSION, BUILD_MINOR_VERSION, API_VERSION_NUMBER, 0 };
 
+API_VERSION ImagehlpAV;
+
 void PrintVersionInformation(void);
 void VerifyVersionInformation(void);
+PUCHAR SetDefaultExtDllName(PUCHAR);
 
 void RestoreBrkpts(void);
 BOOLEAN SetBrkpts(void);
@@ -173,33 +186,30 @@ struct _ntcalls {
 ULONG NtCalls;
 BOOLEAN fDeferredDecrement;
 #else
-#ifdef i386
 void ChangeKdRegContext(ULONG, PVOID);
-#else
-void ChangeKdRegContext(ULONG);
-#endif
 void InitFirCache(ULONG, PUCHAR);
 //void UpdateFirCache(ULONG);
 #endif
 
 #ifndef KERNEL
-BOOLEAN Timing = FALSE;
+BOOLEAN Timing;
 ULONG SystemReportedTime;
 void fnOutputProcessInfo(PPROCESS_INFO);
 void fnOutputThreadInfo(PTHREAD_INFO);
-void fnSetBp(ULONG, UCHAR, UCHAR, PADDR, ULONG, PTHREAD_INFO, PUCHAR);
+ULONG fnSetBp(ULONG, UCHAR, UCHAR, PADDR, ULONG, PTHREAD_INFO, PUCHAR);
 void fnGoExecution(PADDR, ULONG, PTHREAD_INFO, BOOLEAN, PADDR);
 void fnStepTrace(PADDR, ULONG, PTHREAD_INFO, BOOLEAN, UCHAR);
+BOOLEAN SetSpecificBrkpt(ULONG);
 #else
-void fnSetBp(ULONG, UCHAR, UCHAR, PADDR, ULONG, BOOLEAN, PUCHAR);
+ULONG fnSetBp(ULONG, UCHAR, UCHAR, PADDR, ULONG, BOOLEAN, PUCHAR);
 void fnGoExecution(PADDR, ULONG, PADDR);
 void fnStepTrace(PADDR, ULONG, UCHAR);
 #endif
 
-BOOLEAN WatchTrace = FALSE;
+BOOLEAN WatchTrace;
 #ifdef KERNEL
-BOOLEAN WatchWhole = FALSE;
-BOOLEAN BrkpointsSuspended = FALSE;
+BOOLEAN WatchWhole;
+BOOLEAN BrkpointsSuspended;
 #endif
 LIST_ENTRY WatchList;
 LONG WatchLevel;
@@ -225,14 +235,16 @@ ULONG WatchCount;
 #ifndef KERNEL
 ULONG KernelCalls;
 #endif
-BOOLEAN Watching = FALSE;
+BOOLEAN Watching;
 
 #ifdef KERNEL
-ULONG BeginCurFunc = 0;     // Beginning of current func for Watch
-ULONG EndCurFunc = 0;       // End of current func for Watch
+ULONG BeginCurFunc;         // Beginning of current func for Watch
+ULONG EndCurFunc;           // End of current func for Watch
 extern ULONG LookupSymbolInDll(PCHAR, PCHAR);
 extern NTSTATUS DbgKdSetSpecialCalls(ULONG, PULONG);
 NTSTATUS DbgKdCrash(DWORD BugCheckCode);
+extern DBGKD_GET_VERSION vs;
+extern BOOLEAN NotStupid;
 #endif
 
 
@@ -241,12 +253,22 @@ NTSTATUS DbgKdCrash(DWORD BugCheckCode);
     #define INCREMENT_LEVEL(buff) (strstr(buffer," jsr"))
     #define DECREMENT_LEVEL(buff) (strstr(buffer," ret ") && strstr(buffer, " ra"))
     #define SYSTEM_CALL(buff)     (strstr(buffer," CallSys"))
+    #define ADDR_REG              A0_REG
 
 #elif defined(MIPS)
 
     #define INCREMENT_LEVEL(buff) (strstr(buffer," jal"))
     #define DECREMENT_LEVEL(buff) (strstr(buffer," jr ") && strstr(buffer, " ra"))
     #define SYSTEM_CALL(buff)     (strstr(buffer," syscall"))
+    #define ADDR_REG              REGA0
+
+#elif defined(_PPC_)
+
+    #define INCREMENT_LEVEL(buff) (strstr(buffer," bl") || strstr(buffer," blrl"))
+    #define DECREMENT_LEVEL(buff) (strstr(buffer," blr"))
+    #define SYSTEM_CALL(buff)     (strstr(buffer," sc"))
+    #define ADDR_REG              GPR3
+    BOOLEAN ppcPrefix = TRUE;
 
 #elif defined(i386)
 
@@ -257,6 +279,7 @@ NTSTATUS DbgKdCrash(DWORD BugCheckCode);
 #else
     #define DECREMENT_LEVEL(buff) (strstr(buffer," ret"))
 #endif
+    #define ADDR_REG              REGEAX
 
 #else
 
@@ -264,12 +287,11 @@ NTSTATUS DbgKdCrash(DWORD BugCheckCode);
 
 #endif
 
-void fnBangCmd(PUCHAR);
+void fnBangCmd(PUCHAR, PUCHAR*);
 void fnInteractiveEnterMemory(PADDR, ULONG);
 void fnDotCommand(void);
 void fnEvaluateExp(void);
 void fnAssemble(PADDR);
-void fnViewLines(void);
 void fnUnassemble(PADDR, ULONG, BOOLEAN, BOOLEAN);
 void fnEnterMemory(PADDR, PUCHAR, ULONG);
 void fnChangeBpState(ULONG, UCHAR);
@@ -296,11 +318,11 @@ void parseScriptCmd(void);
 #ifndef KERNEL
 void parseThreadCmds(void);
 void parseProcessCmds(void);
-void parseBpCmd(BOOLEAN, PTHREAD_INFO);
+ULONG parseBpCmd(BOOLEAN, PTHREAD_INFO);
 void parseGoCmd(PTHREAD_INFO, BOOLEAN);
 void parseStepTrace(PTHREAD_INFO, BOOLEAN, UCHAR);
 #else
-void parseBpCmd(BOOLEAN, BOOLEAN, char);
+ULONG parseBpCmd(BOOLEAN, BOOLEAN, char);
 void parseGoCmd(void);
 void parseStepTrace(UCHAR);
 #endif
@@ -311,7 +333,7 @@ VOID parseStackTrace(PULONG, PADDR*, PULONG, PULONG, PULONG);
 #if defined(i386) && !defined(KERNEL)
 BOOLEAN fOutputRegs = TRUE;     //  set if output regs on breakpoint
 #else
-BOOLEAN fOutputRegs = FALSE;    //  set if output regs on breakpoint
+BOOLEAN fOutputRegs;            //  set if output regs on breakpoint
 #endif
 
 void fnSetSuffix(void);
@@ -386,9 +408,9 @@ BOOLEAN fDataBrkptsChanged;
 #endif
 #endif
 
-UCHAR   chCommand[512];             //  top-level command buffer
+UCHAR   chCommand[_MAX_PATH];             //  top-level command buffer
 
-UCHAR   chLastCommand[80] = {0};    //  last command executed
+UCHAR   chLastCommand[_MAX_PATH];         //  last command executed
 
 //      state variables for top-level command processing
 
@@ -396,8 +418,9 @@ PUCHAR  pchStart = chCommand;   //  start of command buffer
 PUCHAR  pchCommand = chCommand; //  current pointer in command buffer
 ULONG   cbPrompt = 8;           //  size of prompt string
 //jmp_buf *pjbufReturn = &cmd_return; //  pointer to error return jmp_buf
-BOOLEAN fJmpBuf = FALSE;        // TEMP TEMP - workaround
-BOOLEAN fPhysicalAddress=FALSE;
+BOOLEAN fJmpBuf;                // TEMP TEMP - workaround
+BOOLEAN fDisableErrorPrint;
+BOOLEAN fPhysicalAddress;
 jmp_buf asm_return;             // TEMP TEMP
 
 UCHAR   dumptype = 'b';              //  'a' - ascii; 'b' - byte...
@@ -423,20 +446,151 @@ struct Brkpt {
     ULONG       handle;
     ULONG       passcnt;
     ULONG       setpasscnt;
-    char        szcommand[60];
+    char        szcommand[SYMBOLSIZE];
 #ifndef KERNEL
     PPROCESS_INFO pProcess;
     PTHREAD_INFO pThread;
 #endif
-    } brkptlist[32];
+    } brkptlist[MAX_NUMBER_OF_BREAKPOINTS];
+
+#ifdef BP_CORRUPTION
+IsAddrInBrkptList(
+    DWORD Address
+    )
+{
+    return ((DWORD)brkptlist <= Address) &&
+            (Address < (DWORD)(brkptlist + MAX_NUMBER_OF_BREAKPOINTS));
+}
+
+//
+// This does not lock the first or last page of the breakpoint list if
+// they share a page with anything else.
+//
+// the point of this is not to perfectly protect the table, but to
+// see if we can catch whoever is writing on it.
+//
+int BpLock;
+DWORD BpOldProtect;
+PVOID BpLockBase;
+DWORD BpLockSize;
+
+VOID
+LockBreakpointList(
+    VOID
+    )
+{
+    if (BpLock++ == 0) {
+        VirtualProtect(BpLockBase, BpLockSize, PAGE_READONLY, &BpOldProtect);
+    }
+}
+
+VOID
+UnlockBreakpointList(
+    VOID
+    )
+{
+    DWORD xxxProtect;
+    if (--BpLock == 0) {
+        VirtualProtect(BpLockBase, BpLockSize, BpOldProtect, &xxxProtect);
+    } else if (BpLock < 0) {
+        dprintf("%s: Unmatched UnlockBreakpointList!!\n", DebuggerName);
+        BpLock = 0;
+    }
+}
+
+BOOL
+ValidAddr(
+    PADDR paddr
+    )
+{
+    return
+    (((paddr->type & ~(ADDR_32 | FLAT_COMPUTED)) == 0) &&
+        (paddr->off == paddr->flat) &&
+#ifdef KERNEL
+        ((paddr->off & 0x80000000) != 0)
+#else
+        ((paddr->off & 0x80000000) == 0)
+#endif
+    ) ||
+    ( ((paddr->type & ~(ADDR_V86 | ADDR_16 | FLAT_COMPUTED)) == 0) &&
+        (paddr->seg != 0) &&
+        ((paddr->off & 0xffff0000) == 0)
+    ) ||
+    ( ((paddr->type & ~(ADDR_1632 | FLAT_COMPUTED)) == 0) &&
+        (paddr->seg != 0)
+    )
+    ;
+}
+
+VOID
+ValidateBreakpointTable(
+    PCHAR file,
+    int line
+    )
+{
+    int i;
+    BOOL hit = FALSE;
+    struct Brkpt *b = brkptlist;
+
+    for (i = 0; i < MAX_NUMBER_OF_BREAKPOINTS; i++, b++) {
+        BOOL valid = (
+
+        (b->fBpSet == 0) || (
+
+        (b->fBpSet == 1) &&
+        (b->status == 0 || b->status == 'e' || b->status == 'd') &&
+        ( (b->option == 255) ||
+           ((b->option == 0 || b->option == 1 || b->option == 3) &&
+            (b->size == 0 || b->size == 1 || b->size == 3))
+        ) &&
+        (b->dregindx == 0 || b->dregindx == 1 || b->dregindx == 2 || b->dregindx == 3)  &&
+#ifdef KERNEL
+        (b->bpInternal == 0 || b->bpInternal == 1) &&
+#endif // KERNEL
+        (ValidAddr(&b->addr)) &&
+/*
+        handle &&
+        passcnt &&
+        setpasscnt &&
+        szcommand[60] &&
+#ifndef KERNEL
+        pProcess &&
+        pThread &&
+#endif
+*/
+        1));
+
+        if (!valid) {
+            if (!hit) {
+                hit = TRUE;
+                dprintf("%s: %d\n", file, line);
+            }
+            dprintf("**** bad brkptlist --> %d\n", i);
+            dprintf("Addr: %04x:%08x   %08x   type: %08x\n",
+                    b->addr.seg, b->addr.off, b->addr.flat, b->addr.type);
+            dprintf("Status: %c    Option: %d Size: %d Reg: %d\n",
+                     b->status,
+                     b->option,
+                     b->size,
+                     b->dregindx
+                     );
+            dprintf("Set:        %d\n", b->fBpSet);
+#ifdef KERNEL
+            dprintf("Internal:   %d\n", b->bpInternal);
+#endif // KERNEL
+            dprintf("Handle:     %08x\n", b->handle);
+            dprintf("Passcnt:    %08x\n", b->passcnt);
+            dprintf("SetPasscnt: %08x\n", b->setpasscnt);
+        }
+    }
+}
+#endif // BP_CORRUPTION
 
 extern int fControlC;
 extern int fFlushInput;
 ULONG pageSize;
 
-#ifndef KERNEL
 extern void fnSetException(void);
-#endif
 
 UCHAR   chSymbolSuffix = 'a';   //  suffix to add to symbol if search
                                 //  failure - 'n'-none 'a'-'w'-append
@@ -447,9 +601,9 @@ UCHAR   cmdState = 'i';         //  state of present command processing
 
 #ifndef KERNEL
 extern UCHAR oldcmdState;
-PTHREAD_INFO pThreadCmd = NULL; //  pointer to thread to qualify any
+PTHREAD_INFO pThreadCmd;        //  pointer to thread to qualify any
                                 //  temporary breakpoint using 'g', 't', 'p'
-BOOLEAN fFreeze = FALSE;        //  TRUE if suspending all threads except
+BOOLEAN fFreeze;                //  TRUE if suspending all threads except
                                 //  that pointed by pThreadCmd
 #endif
 #if defined(i386)
@@ -461,8 +615,11 @@ BOOLEAN fFreeze = FALSE;        //  TRUE if suspending all threads except
 #if defined(ALPHA)
 #define CURRENT_STACK GetRegValue(SP_REG)
 #endif
+#if defined(_PPC_)
+#define CURRENT_STACK GetRegValue(GPR1)
+#endif
 
-#if defined(ALPHA)
+#if defined(ALPHA) || defined(PPC) || defined(_MIPS_)
 extern opTableInit();
 extern BOOLEAN NeedUpper(ULONG, PCONTEXT);
 extern void printQuadReg();
@@ -484,10 +641,13 @@ ADDR    deferaddr;              //  address of deferred breakpoint
 #endif
 ULONG   deferhandle;            //  handle of deferred breakpoint
 BOOLEAN fDeferBpSet;            //  TRUE if trace breakpoint set
-BOOLEAN fDeferDefined = FALSE;  //  TRUE if deferred breakpoint is used
+BOOLEAN fDeferDefined;          //  TRUE if deferred breakpoint is used
 #ifndef KERNEL
 PPROCESS_INFO pProcessDeferBrkpt; //  process of deferred breakpoint
 #endif
+UCHAR   chExceptionHandle;      //  defined only when cmdState == 'g'
+                                //  values are: 'n' - not handled
+                                //              'h' - handled
 
                                 //  defined if cmdState is 'g'
 ULONG   gocnt;                  //  number of "go" breakpoints active
@@ -503,11 +663,62 @@ PPROCESS_INFO pProcessGoBrkpt;  //  process of "go" breakpoints
 static SHORT lastSelector = -1;
 static ULONG lastBaseOffset;
 
-extern UCHAR   chExceptionHandle;
 extern PUCHAR  pszScriptFile;
 static FILE    *streamCmd;
 static void    igrep(void);
 BOOLEAN fPointerExpression;
+
+#ifdef KERNEL
+VOID
+HandleBPWithStatus(
+    VOID
+    )
+{
+    ULONG Status = (ULONG)GetRegValue(ADDR_REG);
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+
+    switch(Status) {
+
+    case DBG_STATUS_CONTROL_C:
+    case DBG_STATUS_SYSRQ:
+        if (MYOB || NotStupid) {
+            return;
+        }
+
+        GetConsoleScreenBufferInfo(ConsoleOutputHandle,&csbi);
+        SetConsoleTextAttribute(ConsoleOutputHandle, FOREGROUND_RED | FOREGROUND_INTENSITY);
+
+dprintf("*******************************************************************************\n");
+dprintf("*                                                                             *\n");
+if (Status == DBG_STATUS_SYSRQ) {
+dprintf("*   You are seeing this message because you pressed the SysRq/PrintScreen     *\n");
+dprintf("*   key on your test machine's keyboard.                                      *\n");
+}
+dprintf("*                                                                             *\n");
+if (Status == DBG_STATUS_CONTROL_C) {
+dprintf("*   You are seeing this message because you pressed CTRL+C on your debugger   *\n");
+dprintf("*   machine's keyboard.                                                       *\n");
+}
+dprintf("*                                                                             *\n");
+dprintf("*                   THIS IS NOT A BUG OR A SYSTEM CRASH                       *\n");
+dprintf("*                                                                             *\n");
+dprintf("* If you did not intend to break into the debugger, press the \"g\" key, then   *\n");
+dprintf("* press the \"Enter\" key now.  This message might immediately reappear.  If it *\n");
+dprintf("* does, press \"g\" and \"Enter\" again.                                          *\n");
+dprintf("*                                                                             *\n");
+dprintf("*******************************************************************************\n");
+
+        SetConsoleTextAttribute(ConsoleOutputHandle, csbi.wAttributes);
+
+        return;
+
+    case DBG_STATUS_BUGCHECK_FIRST:
+    case DBG_STATUS_BUGCHECK_SECOND:
+    case DBG_STATUS_FATAL:
+        return;
+    }
+}
+#endif // KERNEL
 
 VOID
 FreeWatchTrace()
@@ -545,6 +756,8 @@ PrintWatchSym(
 #define MAX_INDENT_LEVEL 11
 
 #else
+
+    Profile(&ps_ProfileTrace, Sym->Symbol, Sym->InstrCount, Sym->Level);
 
     WatchSumIt += Sym->InstrCount;
     dprintf("%4ld [%3ld] ",Sym->InstrCount, Sym->Level);
@@ -587,12 +800,21 @@ void InitNtCmd (void)
 
     VerifyVersionInformation();
 
-    for (count = 0; count < 32; count++) {
+    for (count = 0; count < MAX_NUMBER_OF_BREAKPOINTS; count++) {
         brkptlist[count].status = '\0';
         brkptlist[count].fBpSet = FALSE;
-        }
-    for (count = 0; count < 10; count++)
+    }
+
+#ifdef BP_CORRUPTION
+    BpLockBase = (PVOID) ((((DWORD)brkptlist) + pageSize - 1) & ~(pageSize - 1));
+    BpLockSize =  ((DWORD)(brkptlist + MAX_NUMBER_OF_BREAKPOINTS) & ~(pageSize - 1)) - (DWORD)BpLockBase;
+
+    LockBreakpointList();
+#endif // BP_CORRUPTION
+
+    for (count = 0; count < 10; count++) {
         golist[count].fBpSet = FALSE;
+    }
 
 #ifdef ALPHA
     opTableInit();
@@ -617,7 +839,11 @@ void InitNtCmd (void)
     }
     if (!(streamCmd = fopen(pszScriptFile, "r"))) {
 #ifdef KERNEL
-        streamCmd = NULL;
+        if (CrashFileName) {
+            streamCmd = stdin;
+        } else {
+            streamCmd = NULL;
+        }
 #else
         streamCmd = stdin;
 #endif
@@ -677,6 +903,21 @@ void ProcessStateChange (
     BOOLEAN fOutputDisCurrent = TRUE;
     BOOLEAN WatchStepOver = FALSE;
 
+#ifndef KERNEL
+    UCHAR   Symbol[MAX_SYMBOL_LEN];
+    UCHAR   prevCmdState;
+    ULONG   displacement;
+    LONG    cBrkptType;
+    PPROCESS_INFO pProcessOrig;
+    static BOOLEAN fProfilingBrkptFound = FALSE;
+    static ULONG   ProfilingBrkptIndex;
+#endif
+
+
+#ifdef BP_CORRUPTION
+    ValidateBreakpointTable(__FILE__, __LINE__);
+#endif BP_CORRUPTION
+
     lastSelector = -1;          // Prevent stale selector values
 
     if ( Flat(steptraceaddr) != -1 ) {
@@ -685,28 +926,139 @@ void ProcessStateChange (
     }
 
 #ifdef  KERNEL
-#ifdef  i386
     ChangeKdRegContext(pcEntryAddr, pCtlReport);
-#else
-    ChangeKdRegContext(pcEntryAddr);
-#endif
     ClearTraceFlag();
 #ifdef  i386
     fDataBrkptsChanged = FALSE;
     fVm86 = VM86(GetRegValue(REGEFL));
     if (!fVm86) {
-        csDesc.Selector = GetRegValue(REGCS);
+        csDesc.Selector = (ULONG)GetRegValue(REGCS);
         DbgKdLookupSelector(NtsdCurrentProcessor, &csDesc);
         f16pm = !csDesc.Descriptor.HighWord.Bits.Default_Big;
         }
 #endif
-    InitFirCache(pCtlReport->InstructionCount,
-                 pCtlReport->InstructionStream);
+    if (!CrashFileName) {
+        InitFirCache(pCtlReport->InstructionCount, pCtlReport->InstructionStream);
+    }
 #endif  //  #ifdef KERNEL
 
 #ifndef KERNEL
     SuspendAllThreads();
 #endif
+
+#ifndef KERNEL
+
+    // If profiling, determine if breakpoint is a profiling breakpoint.
+    // If so, skip normal processing of breakpoints, update profiling
+    // data structure, and continue execution.
+    if (fProfilingDLL)
+    {
+        UnfreezeThreads();
+        ChangeRegContext(pProcessEvent->pThreadEvent);
+        GetRegPCValue(&pcaddr);
+
+        if (fBrkpt && !fProfilingBrkptFound)
+        {
+            AddrSub(&pcaddr, cbBrkptLength);
+            SetRegPCValue(&pcaddr);
+
+#ifdef BP_CORRUPTION
+            UnlockBreakpointList();
+#endif // BP_CORRUPTION
+
+            for (count = 0; count < MAX_NUMBER_OF_BREAKPOINTS; count++)
+            {
+                NotFlat(brkptlist[count].addr);
+                ComputeFlatAddress(&brkptlist[count].addr,NULL);
+
+                if ( brkptlist[count].status == 'e' &&
+                     brkptlist[count].pProcess == pProcessEvent &&
+                     ( (brkptlist[count].option == (UCHAR)-1 &&
+                        AddrEqu(brkptlist[count].addr, pcaddr)) ||
+                       ( brkptlist[count].option != (UCHAR)-1
+#ifdef I386
+                        && ((GetDregValue(6) >> brkptlist[count].dregindx) & 1)
+#endif
+                       )
+                     )
+                  )
+                {
+                    if ((brkptlist[count].pThread == NULL ||
+                         brkptlist[count].pThread == pProcessEvent->pThreadEvent)
+                        && --brkptlist[count].passcnt == 0)
+                    {
+                        brkptlist[count].passcnt = 1;
+
+                        // Check to see if this is a profiling breakpoint.
+                        // If breakpoint exists in profiling data structure,
+                        // check to see if user has manually set a breakpoint
+                        // there. If so, cannot pass through
+
+                        cBrkptType = GetBrkptType(ps_ProfileDLL, count);
+                        if (cBrkptType != BRKPT_NOT_FOUND)
+                        {
+                            GetSymbolStdCall(
+                                    Flat(brkptlist[count].addr),
+                                    Symbol,
+                                    &displacement,
+                                    NULL);
+                            prevCmdState = cmdState;
+                            cmdState = 'd';
+                            UpdateProfile (&ps_ProfileDLL, Symbol, count);
+                            cmdState = prevCmdState;
+
+                            // check the type of breakpoint to see if the user
+                            // manually set the break point as well
+                            if (cBrkptType == BRKPT_PROFILE)
+                            {
+                                // Restore the profiling breakpoint
+                                pProcessOrig = pProcessCurrent;
+                                pProcessCurrent = brkptlist[count].pProcess;
+                                RestoreBreakPoint(brkptlist[count].handle);
+                                brkptlist[count].fBpSet = FALSE;
+                                pProcessCurrent = pProcessOrig;
+
+                                // Set the trace event for the profiling
+                                // breakpoint.
+                                SetSpecificBrkpt (count);
+
+                                fProfilingBrkptFound = TRUE;
+                                ProfilingBrkptIndex = count;
+
+                                FreezeThreads();
+                                ChangeRegContext(0);
+                                ResumeAllThreads();
+#ifdef BP_CORRUPTION
+                                LockBreakpointList();
+#endif // BP_CORRUPTION
+                                return;
+                            }
+                        }
+                        break;
+                    }
+                }
+            } //for
+#ifdef BP_CORRUPTION
+            LockBreakpointList();
+#endif // BP_CORRUPTION
+        }
+
+        else if (fProfilingBrkptFound)
+        {
+            // write back the profiling breakpoint that we just encountered
+            // in the previous exception
+
+            SetSpecificBrkpt(ProfilingBrkptIndex);
+            fProfilingBrkptFound = FALSE;
+
+            FreezeThreads();
+            ChangeRegContext(0);
+            ResumeAllThreads();
+            return;
+        }
+    }
+
+#endif // #ifndef KERNEL
 
     do {
         fSymbol = TRUE;
@@ -717,39 +1069,52 @@ void ProcessStateChange (
         if (!fHardBrkpt) {
             RestoreBrkpts();
 #ifndef KERNEL
-            UnfreezeThreads();
-#else
-//          UpdateFirCache((ULONG)pcEntryAddr);
-#endif
+
+            if (!fProfilingDLL)
+            {
+                UnfreezeThreads();
             }
+#else   // KERNEL
+//          UpdateFirCache((ULONG)pcEntryAddr);
+#endif  // KERNEL
+        }
 
 
 #ifndef KERNEL
-        ChangeRegContext(pProcessEvent->pThreadEvent);
+
+        if (!fProfilingDLL) {
+            ChangeRegContext(pProcessEvent->pThreadEvent);
+        }
+
 #ifdef  i386
         fVm86 = VM86(GetRegValue(REGEFL));
-#endif
-#endif
+#endif  // i386
+#endif  // KERNEL
 
-        if (fLoopError)
+        if (fLoopError) {
             cmdState = 'i';
-        else {
-            GetRegPCValue(&pcaddr);
+        } else {
 #ifndef KERNEL
-            if (fBrkpt) {
+            if (! fProfilingDLL) {
+                GetRegPCValue(&pcaddr);
+                if (fBrkpt && !fProfilingDLL) {
 #ifdef  i386
-                AddrSub(&pcaddr, cbBrkptLength);
-#endif
-                SetRegPCValue(&pcaddr);
-                fBrkpt = FALSE;
+                    AddrSub(&pcaddr, cbBrkptLength);
+#endif  // i386
+                    SetRegPCValue(&pcaddr);
+                    fBrkpt = FALSE;
                 }
-#endif
+            }
+#else   // KERNEL
+            GetRegPCValue(&pcaddr);
+#endif  // KERNEL
+
 #ifndef ALPHA
             fHardBrkpt = (BOOLEAN)(GetMemString(&pcaddr, bBrkptInstr,
                                                 cbBrkptLength) &&
                                 !memcmp(bBrkptInstr, (PUCHAR)&trapInstr,
                                                 (int)cbBrkptLength));
-#else
+#else   // ALPHA
             if (GetMemString(&pcaddr, bBrkptInstr, cbBrkptLength)) {
                 LONG index = 0;
 
@@ -771,11 +1136,11 @@ void ProcessStateChange (
                 } while (++index < NUMBER_OF_BREAK_INSTRUCTIONS);
 
             } // if (GetMemString)
-#endif
+#endif  // ALPHA
             if ((cmdState == 'p' || cmdState == 't') &&
 #ifndef KERNEL
                         pProcessStepBrkpt == pProcessEvent &&
-#endif
+#endif  // KERNEL
                         (Flat(steptraceaddr) == -1L ||
                               AddrEqu(steptraceaddr, pcaddr))) {
 
@@ -793,7 +1158,7 @@ void ProcessStateChange (
                     fPassThrough = TRUE;
                 }
                 else
-#else
+#else   // KERNEL
                 if ((InitialSP
                         &&
                      ((CURRENT_STACK + 0x1500 < InitialSP)
@@ -802,7 +1167,7 @@ void ProcessStateChange (
                    ))) {
                     fPassThrough = TRUE;
                 } else
-#endif
+#endif  // KERNEL
                 //  test if step/trace range active
                 //      if so, compute the next offset and pass through
 
@@ -814,41 +1179,41 @@ void ProcessStateChange (
                     if (WatchWhole) {
                         BeginCurFunc = Flat(steptraceaddr);
                         EndCurFunc = 0;
-                        }
-#endif
-                    fPassThrough = TRUE;
                     }
+#endif  // KERNEL
+                    fPassThrough = TRUE;
+                }
 
                 //  active step/trace event - note event if count is zero
 
                 else if ((fControlC
 #ifdef  KERNEL
                                     && DbgKdpBreakIn
-#endif
+#endif  // KERNEL
                                                     )
                         || (--steptracepasscnt == 0)
                         || (Watching && AddrEqu(WatchTarget,pcaddr)
 #ifdef KERNEL
                            && (CURRENT_STACK >= InitialSP)
-#endif
+#endif  // KERNEL
                            )) {
 #ifndef KERNEL
-                        ULONG i;
-#endif
+                    ULONG i;
+#endif  // KERNEL
 
-//                        dprintf("\n\nFinished trace cc = %d, count = %d, target = %x, pc = %x\n", (LONG)fControlC, steptracepasscnt, Flat(WatchTarget), Flat(pcaddr));
-                        fPassThrough = FALSE;
-                        fBrkptHit |= STEPTRACEHIT;
-                        steptracepasscnt = 0;
-                        fControlC = 0;
+//                  dprintf("\n\nFinished trace cc = %d, count = %d, target = %x, pc = %x\n", (LONG)fControlC, steptracepasscnt, Flat(WatchTarget), Flat(pcaddr));
+                    fPassThrough = FALSE;
+                    fBrkptHit |= STEPTRACEHIT;
+                    steptracepasscnt = 0;
+                    fControlC = 0;
 #ifdef  KERNEL
-                        DbgKdpBreakIn = FALSE;      // TEMP TEMP TEMP
-#else
+                    DbgKdpBreakIn = FALSE;      // TEMP TEMP TEMP
+#else   // KERNEL
                     if ( Timing ) {
                         dprintf("%ld us\n",SystemReportedTime);
                         Timing = FALSE;
-                        }
-#endif
+                    }
+#endif  // KERNEL
 
                     if ( Watching ) {
                         fPassThrough = FALSE;
@@ -864,24 +1229,28 @@ void ProcessStateChange (
                             ProcessWatchTraceEvent((PDBGKD_TRACE_DATA)traceData,
                                                     pcaddr);
                         }
-#else
-                        CurrentWatchSym->InstrCount++;
-                        PrintWatchSym(CurrentWatchSym);
-                        dprintf("\n");
-#endif
+#else   // KERNEL
+                        if (CurrentWatchSym) {
+                            CurrentWatchSym->InstrCount++;
+                            PrintWatchSym(CurrentWatchSym);
+                            dprintf("\n");
+                        }
+#endif  // KERNEL
                         Watching = FALSE;
                         FreeWatchTrace();
                         dprintf("%d Instructions were executed %d(%d from other threads) traces %d sums\n",WatchCount, WatchTRCalls, WatchThreadMismatch, WatchSumIt);
 #ifndef KERNEL
+                        ProcDump(&ps_ProfileTrace);
+
                         dprintf("%d system calls were executed\n\nSystem Call:\n", KernelCalls);
                         for(i = 0; i < NtCalls; i++)
                         {
                             dprintf("%d %s\n", NtCallTable[i].Count,
                                                        NtCallTable[i].Name);
                         }
-#endif
-                        }
+#endif  // KERNEL
                     }
+                }
                 else {
 
 
@@ -890,24 +1259,25 @@ void ProcessStateChange (
 #ifdef KERNEL
                             ProcessWatchTraceEvent((PDBGKD_TRACE_DATA)traceData,
                                                     pcaddr);
-#else
+#else   // KERNEL
                             ProcessWatchTraceEvent(pcaddr);
-#endif
-                            }
-                        goto skipit;
+#endif  // KERNEL
                         }
+                        goto skipit;
+                    }
 
                     //  more remaining events to occur, but output
                     //      the instruction (optionally with registers)
                     //      compute the step/trace address for next event
 
-                    if (fOutputRegs)
-                        OutputAllRegs();
+                    if (fOutputRegs) {
+                        OutputAllRegs(FALSE);
+                    }
 #ifndef KERNEL
                     OutDisCurrent(TRUE, fSymbol);   //  output with EA
-#else
+#else   // KERNEL
                     OutDisCurrent(fOutputRegs, fSymbol); //  no EA if no regs
-#endif
+#endif  // KERNEL
 skipit:
                     if ((cmdState == 'p') || WatchStepOver) {
                         ComputeNextOffset(steptraceaddr, TRUE);
@@ -916,30 +1286,34 @@ skipit:
                     }
                     GetCurrentMemoryOffsets(&steptracelow, &steptracehigh);
                     fPassThrough = TRUE;
-                    }
                 }
+            }
             else if (cmdState == 'g') {
                 for (count = 0; count < gocnt; count++) {
                     if (AddrEqu(golist[count].addr,pcaddr)) {
-#ifndef KERNEL
+#ifdef KERNEL
+                        fBrkptHit |= GOLISTHIT;
+#else // KERNEL
                         if (pProcessGoBrkpt == pProcessEvent &&
                               (pThreadCmd == NULL ||
                                pThreadCmd == pProcessEvent->pThreadEvent)) {
-                            if (fVerboseOutput)
+                            if (fVerboseOutput) {
                                 dprintf("Hit Breakpoint#%d\n",count);
-
-#endif
-                            fBrkptHit |= GOLISTHIT;
-#ifndef KERNEL
                             }
-                        else
+
+                            fBrkptHit |= GOLISTHIT;
+                        } else {
                             fPassThrough = TRUE;
-#endif
-                        break;
                         }
+#endif  // KERNEL
+                        break;
                     }
                 }
-            for (count = 0; count < 32; count++) {
+            }
+#ifdef BP_CORRUPTION
+            UnlockBreakpointList();
+#endif // BP_CORRUPTION
+            for (count = 0; count < MAX_NUMBER_OF_BREAKPOINTS; count++) {
 
                 NotFlat(brkptlist[count].addr);
                 ComputeFlatAddress(&brkptlist[count].addr,NULL);
@@ -947,48 +1321,53 @@ skipit:
                 if (brkptlist[count].status == 'e'
 #ifndef KERNEL
                         && brkptlist[count].pProcess == pProcessEvent
-#endif
+#endif  // KERNEL
 #ifdef  i386
                         && ((brkptlist[count].option == (UCHAR)-1
                                 && AddrEqu(brkptlist[count].addr, pcaddr))
                                 || (brkptlist[count].option != (UCHAR)-1
 #ifdef KERNEL
                                 && ((pCtlReport->Dr6
-#else
+#else   // KERNEL
                                 && ((GetDregValue(6)
-#endif
-                                    >> brkptlist[count].dregindx) & 1)))) {
-#else
-                        && AddrEqu(brkptlist[count].addr,pcaddr)) {
-#endif
+#endif  // KERNEL
+                                    >> brkptlist[count].dregindx) & 1))))
+#else   // i386
+                        && AddrEqu(brkptlist[count].addr,pcaddr))
+#endif  // i386
+                {
                     if (
 #ifndef KERNEL
                         (brkptlist[count].pThread == NULL ||
                              brkptlist[count].pThread
                                         == pProcessEvent->pThreadEvent) &&
-#endif
+#endif  // KERNEL
                                         --brkptlist[count].passcnt == 0) {
                         fBrkptHit |= BRKPTHIT;
                         brkptlist[count].passcnt = 1;
                         }
-                    else
+                    else {
                         fPassThrough = TRUE;
-                    break;
                     }
+                    break;
                 }
+            }
+#ifdef BP_CORRUPTION
+            LockBreakpointList();
+#endif // BP_CORRUPTION
 
             if (fDeferDefined
 #ifndef KERNEL
                         && pProcessDeferBrkpt == pProcessEvent
-#endif
-#if defined(MIPS) || defined(ALPHA)
+#endif  // KERNEL
+#if defined(MIPS) || defined(ALPHA) || defined(_PPC_)
                         && (Flat(deferaddr) == -1 || AddrEqu(deferaddr,pcaddr))
-#endif
+#endif  // !i386
                         && fBrkptHit == 0) {
                 fPassThrough = TRUE;
-                }
+            }
 
-            if (fBrkptHit == BRKPTHIT)
+            if (fBrkptHit == BRKPTHIT) {
                 if (brkptlist[count].szcommand[0] != '\0') {
                     strcpy(chCommand, brkptlist[count].szcommand);
                     pchCommand = chCommand;
@@ -998,47 +1377,59 @@ skipit:
 
                     fOutputRegs = FALSE;
                     fOutputDisCurrent = FALSE;
-                    }
+                }
             }
+        }
 
         if (cmdState == 'i' || !fPassThrough || fHardBrkpt) {
 
             cmdState = 'c';
 
 #ifdef KERNEL
-            if (fOutputRegs)
-                OutputAllRegs();
-            if (fOutputDisCurrent)
+            if (fHardBrkpt && pcEntryAddr == vs.BreakpointWithStatus) {
+                HandleBPWithStatus();
+            }
+            if (fOutputRegs) {
+                OutputAllRegs(FALSE);
+            }
+            if (fOutputDisCurrent) {
                 OutDisCurrent(fOutputRegs, fSymbol); //  no EA if no registers
-#else
-            if (fOutputRegs && !fBrkptContinue)
-                OutputAllRegs();
-            if (fOutputDisCurrent && !fBrkptContinue)
+            }
+#else   // KERNEL
+            if (fOutputRegs && !fBrkptContinue) {
+                OutputAllRegs(FALSE);
+            }
+            if (fOutputDisCurrent && !fBrkptContinue) {
                 OutDisCurrent(TRUE, fSymbol);        //  output with EA
-#endif
+            }
+#endif  // KERNEL
 
             GetRegPCValue(&assemDefault);
             dumpDefault = unasmDefault = assemDefault;
 ///////////////////////////////
 
-#ifndef KERNEL
-            if (fBrkptContinue)
-                cmdState = (Watching ? oldcmdState : 'g');
-            else
-                ProcessCommands();
-            fBrkptContinue = FALSE;
-#else
+#ifdef KERNEL
+
             ProcessCommands();
-#endif
+
+#else   // KERNEL
+            if (fBrkptContinue) {
+                fBrkptContinue = FALSE;
+                cmdState = (Watching ? oldcmdState : 'g');
+            } else {
+                ProcessCommands();
+            }
+#endif  // !KERNEL
 
 
 ///////////////////////////////
             if (cmdState == 'p' || cmdState == 't') {
 #ifndef KERNEL
-                if (pThreadCmd == NULL)
+                if (pThreadCmd == NULL) {
                     pThreadCmd = pProcessCurrent->pThreadCurrent;
+                }
                 ChangeRegContext(pThreadCmd);
-#endif
+#endif  // KERNEL
                 ComputeNextOffset(steptraceaddr,
                                   (BOOLEAN)(cmdState == 'p'));
 
@@ -1046,15 +1437,15 @@ skipit:
 #ifndef KERNEL
                 pProcessStepBrkpt = pProcessCurrent;
                 ChangeRegContext(pProcessEvent->pThreadEvent);
-#endif
-                }
+#endif  // KERNEL
+            }
             GetRegPCValue(&pcaddr);
 #ifndef ALPHA
             fHardBrkpt = (BOOLEAN)(GetMemString(&pcaddr, bBrkptInstr,
                                                         cbBrkptLength) &&
                            !memcmp(bBrkptInstr, (PUCHAR)&trapInstr,
                                                         (int)cbBrkptLength));
-#else
+#else   // ALPHA
             if (GetMemString(&pcaddr, bBrkptInstr, cbBrkptLength)) {
                 LONG index = 0;
 
@@ -1076,43 +1467,39 @@ skipit:
                 } while (++index < NUMBER_OF_BREAK_INSTRUCTIONS);
 
             } // if (GetMemString)
-#endif
-            }
+#endif  // ALPHA
+        }
 
 #ifdef KERNEL
         if (cmdState == 's') {
             fHardBrkpt = FALSE;
         }
-#endif
+#endif  // KERNEL
         if (fHardBrkpt) {
             fLoopError = FALSE;
             SetRegPCValue(AddrAdd(&pcaddr, cbBrkptLength));
 #ifdef KERNEL
             BeginCurFunc = 1;
-#endif
-            }
-        else
+#endif  // KERNEL
+        } else {
             fLoopError = !(BOOLEAN)(SetBrkpts()
 #ifndef KERNEL
                                                && FreezeThreads()
-#endif
+#endif  // KERNEL
                                                                  );
         }
+    }
     while (fHardBrkpt || fLoopError);
 
 #ifndef KERNEL
     ChangeRegContext(0);
-#else
-#ifdef  i386
+#else   // KERNEL
     ChangeKdRegContext(0, NULL);
-#else
-    ChangeKdRegContext(0);
-#endif
-#endif
+#endif  // KERNEL
 
 #ifndef KERNEL
     ResumeAllThreads();
-#endif
+#endif  // KERNEL
 }
 
 /*** ProcessCommands - high-level command processor
@@ -1154,6 +1541,7 @@ void ProcessCommands (void)
     ULONG    size;
 #ifdef KERNEL
     PUCHAR   SavedpchCommand;
+    ULONGLONG valueL;
 #endif
     PUCHAR   pargstring;
     PPROCESS_INFO       pProcessPrevious = NULL;
@@ -1223,7 +1611,7 @@ void ProcessCommands (void)
 
 #endif
             fPhysicalAddress = FALSE;
-            NtsdPrompt("> ", chCommand, 80);
+            NtsdPrompt("> ", chCommand, sizeof(chCommand));
             RemoveDelChar(chCommand);
             pchCommand = chCommand;
             if (*chCommand!='r') ExpandUserRegs(pchCommand);
@@ -1317,8 +1705,14 @@ EVALUATE:
                 if (value1 < NumberProcessors  &&
                     value1 != (ULONG)NtsdCurrentProcessor) {
 
-                    SwitchProcessor = (USHORT) value1 + 1;
-                    cmdState = 's';
+                    if (CrashFileName) {
+                        extern ULONG contextState;
+                        NtsdCurrentProcessor = (USHORT) value1;
+                        contextState = CONTEXTFIR;
+                    } else {
+                        SwitchProcessor = (USHORT) value1 + 1;
+                        cmdState = 's';
+                    }
                 }
                 break;
 #endif
@@ -1328,12 +1722,7 @@ EVALUATE:
                 break;
 
             case '!':
-                pargstring = pchCommand;
-                while (*pchCommand != '\0') {
-                    pchCommand++;
-                }
-
-                fnBangCmd(pargstring);
+                fnBangCmd(pchCommand, &pchCommand);
                 break;
 
             case '#':
@@ -1349,6 +1738,12 @@ EVALUATE:
                 break;
             case 'b':
                 ch = *pchCommand++;
+#ifdef KERNEL
+                if (CrashFileName) {
+                    dprintf( "you cannot do breakpoints on a crash dump\n" );
+                    break;
+                }
+#endif
                 switch (tolower(ch)) {
 #ifdef  i386
                     case 'a':
@@ -1405,6 +1800,7 @@ EVALUATE:
                     || ch == 'b'
                     || ch == 'c'
                     || ch == 'd'
+                    || ch == 'g'
                     || ch == 'l'
                     || ch == 'u'
                     || ch == 'w'
@@ -1425,7 +1821,10 @@ EVALUATE:
                     }
 #if defined(KERNEL) && defined(i386)
                 if ((fVm86||f16pm) && vm86DefaultSeg==-1L)
-                        vm86DefaultSeg = GetRegValue(REGDS);
+                        vm86DefaultSeg = (ULONG)GetRegValue(REGDS);
+#endif
+#ifdef _PPC_
+                ppcPrefix = FALSE;
 #endif
 //              addr1   = dumpDefault;       // default starting address
                 fLength = TRUE;
@@ -1466,6 +1865,58 @@ EVALUATE:
                                 );
                         fnDumpDwordMemory(&dumpDefault, value2);
                         break;
+#ifdef i386
+                    case 'g':
+                        {
+                            DESCRIPTOR_TABLE_ENTRY desc;
+                            ULONG   base;
+                            ULONG   limit;
+                            INT     type;
+                            LPSTR   lpName;
+
+                            desc.Selector = GetExpression();
+
+                            dprintf("Selector   Base     Limit   Type  DPL   Size  Gran\n");
+                            dprintf("-------- -------- -------- ------ --- ------- ----\n");
+
+                            DbgKdLookupSelector(NtsdCurrentProcessor, &desc);
+
+                            base = ((ULONG)desc.Descriptor.HighWord.Bytes.BaseHi << 24)
+                                   + ((ULONG)desc.Descriptor.HighWord.Bytes.BaseMid << 16)
+                                   + ((ULONG)desc.Descriptor.BaseLow);
+
+                            limit = (ULONG)desc.Descriptor.LimitLow
+                                    + ((ULONG)desc.Descriptor.HighWord.Bits.LimitHi << 16);
+                            if ( desc.Descriptor.HighWord.Bits.Granularity ) {
+                                limit <<= 12;
+                                limit += 0xFFF;
+                                }
+                            type = desc.Descriptor.HighWord.Bits.Type;
+                            if ( type & 0x10 ) {
+                                if ( type & 0x8 ) {
+                                    // Code Descriptor
+                                    lpName = " Code ";
+                                } else {
+                                    // Data Descriptor
+                                    lpName = " Data ";
+                                }
+                            } else {
+                                lpName = " Sys. ";
+                            }
+
+                                  //   1234   12345678 12345678 ?Type?  1  ....... ....
+                            dprintf("  %04X   %08lX %08lX %s  %d  %s %s\n",
+                                desc.Selector,
+                                base,
+                                limit,
+                                lpName,
+                                desc.Descriptor.HighWord.Bits.Dpl,
+                                desc.Descriptor.HighWord.Bits.Default_Big ? "  Big  " : "Not Big",
+                                desc.Descriptor.HighWord.Bits.Granularity ? "Page" : "Byte"
+                                );
+                        }
+                        break;
+#endif
                     case 'l':
                         value2 = 32;
                         value3 = 4;
@@ -1487,11 +1938,7 @@ EVALUATE:
                         value2 = 8;
                         GetRange(&addr1, &value2, &fLength, 8);
                         value1 = Flat(addr1);
-                        if (ProcessorType == 0)
-                            fnDumpTb3000(value1, value2);
-                        else
-                            fnDumpTb4000(value1, value2);
-
+                        fnDumpTb4000(value1, value2);
                         value1 = value1 + value2;
                         ADDR32(&addr1,value1);
                         break;
@@ -1517,11 +1964,10 @@ EVALUATE:
                                             ) == sizeof( UnicodeString )
                                ) {
 #if defined(KERNEL) & defined(i386)
-                                BufferAddr.type = ADDR_32;
                                 BufferAddr.seg = (USHORT)GetRegValue(REGDS);
-                                BufferAddr.off = (ULONG)UnicodeString.Buffer;
 #endif
-                                Flat(BufferAddr) = (ULONG)UnicodeString.Buffer;
+                                BufferAddr.type = ADDR_32|FLAT_COMPUTED;
+                                Off(BufferAddr) = Flat(BufferAddr) = (ULONG)UnicodeString.Buffer;
 
                                 if (dumptype == 'S') {
                                     fnDumpUnicodeMemory( &BufferAddr, UnicodeString.Length );
@@ -1554,6 +2000,9 @@ EVALUATE:
                         fnDumpWordMemory(&dumpDefault, value2);
                         break;
                     }
+#ifdef _PPC_
+                ppcPrefix = TRUE;
+#endif
                 break;
             case 'e':
                 ch = (UCHAR)tolower(*pchCommand);
@@ -1593,6 +2042,12 @@ EVALUATE:
                 fnFillMemory(&addr1, value2, list, count);
                 break;
             case 'g':
+#ifdef KERNEL
+                if (CrashFileName) {
+                    dprintf( "you cannot do a go on a crash dump\n" );
+                    break;
+                }
+#endif
                 parseGoCmd(
 #ifndef KERNEL
                            NULL, FALSE
@@ -1658,7 +2113,7 @@ EVALUATE:
             case 'k':
                 value1 = 0;
 #ifdef  i386
-                value2 = GetRegValue(REGEIP);
+                value2 = (ULONG)GetRegValue(REGEIP);
 #else
                 value2 = 0;
 #endif
@@ -1673,35 +2128,43 @@ EVALUATE:
                 break;
             case 'l':
                 ch = (UCHAR)tolower(*pchCommand);
-                if (ch == 'n')
-                {
+                if (ch == 'n') {
                     pchCommand++;
                     if ((ch = PeekChar()) != '\0' && ch != ';')
                         GetAddrExpression(X86REGCS, &addr1);
                     else
                         GetRegPCValue(&addr1);
                     fnListNear(Flat(addr1));
-                }
-                else if (ch == '+')  // "l+ xxxxxxx" dump OmapFromSrc
-                {
+                } else if (ch == 'm') {
                     pchCommand++;
-                    if ((ch = PeekChar()) != '\0' && ch != ';')
-                        GetAddrExpression(X86REGCS, &addr1);
-                    else
-                        GetRegPCValue(&addr1);
-                    DumpOmapFromSrc(Flat(addr1));
-                }
-                else if (ch == '-')  // "l- xxxxxxx" dump OmapToSrc
-                {
+                    DumpModuleTable( FALSE );
+                } else if (ch == 'd') {
+                    PIMAGE_INFO p;
                     pchCommand++;
-                    if ((ch = PeekChar()) != '\0' && ch != ';')
-                        GetAddrExpression(X86REGCS, &addr1);
-                    else
-                        GetRegPCValue(&addr1);
-                    DumpOmapToSrc(Flat(addr1));
-                }
-                else
+                    while (*pchCommand && *pchCommand == ' ') pchCommand++;
+                    _strupr( pchCommand );
+                    for (p=pProcessHead->pImageHead; p; p=p->pImageNext) {
+                        if (MatchPattern( p->szModuleName, pchCommand )) {
+                            SymLoadModule(
+                                pProcessCurrent->hProcess,
+                                NULL,
+                                NULL,
+                                NULL,
+                                (ULONG)p->lpBaseOfImage,
+                                0
+                                );
+                        }
+
+                        if (fControlC) {
+                            fControlC = 0;
+                            break;
+                        }
+                    }
+                    while (*pchCommand) pchCommand++;
+
+                } else {
                     error(SYNTAX);
+                }
 
                 break;
             case 'm':
@@ -1756,6 +2219,25 @@ EVALUATE:
             case 'w':
             case 'p':
             case 't':
+#ifdef KERNEL
+                if (tolower(pchCommand[0]) == 'r'  &&
+                    tolower(pchCommand[1]) == 'm'  &&
+                    tolower(pchCommand[2]) == 's'  &&
+                    tolower(pchCommand[3]) == 'r') {
+
+                    pchCommand +=4;
+                    value1 = GetExpression();
+                    if (!NT_SUCCESS(DbgKdWriteMsr (value1, HexValueL(8)))) {
+                        dprintf ("no such msr\n");
+                    }
+                    break;
+                }
+
+                if (CrashFileName) {
+                    dprintf( "you cannot do a t/p/w on a crash dump\n" );
+                    break;
+                }
+#endif
                 parseStepTrace(
 #ifndef KERNEL
                                NULL, FALSE,
@@ -1777,6 +2259,7 @@ EVALUATE:
 
 #ifndef KERNEL
                 if (dwPidToDebug == 0xffffffff) {
+#ifndef CHICAGO
                     UNICODE_STRING UnicodeString;
                     ULONG Parameters[ 2 ];
                     ULONG Response;
@@ -1801,7 +2284,6 @@ EVALUATE:
                                                      &WasEnabled
                                                    );
                         }
-
                     RtlInitUnicodeString( &UnicodeString, L"Debug of Windows SubSystem" );
                     Parameters[ 0 ] = (ULONG)&UnicodeString;
                     Parameters[ 1 ] = (ULONG)STATUS_UNSUCCESSFUL;
@@ -1812,14 +2294,35 @@ EVALUATE:
                                       OptionShutdownSystem,
                                       &Response
                                     );
-
+#else
+                    OutputDebugString("Subsystem shutdown\n");
+                    DebugBreak();
+#endif
                     }
 
                 ExitProcess(0);
 #else
+                SymCleanup( KD_SYM_HANDLE );
                 exit(0);
 #endif
             case 'r':
+#ifdef KERNEL
+                if (tolower(pchCommand[0]) == 'd'  &&
+                    tolower(pchCommand[1]) == 'm'  &&
+                    tolower(pchCommand[2]) == 's'  &&
+                    tolower(pchCommand[3]) == 'r') {
+
+                    pchCommand +=4;
+                    value1 = GetExpression();
+                    if (NT_SUCCESS(DbgKdReadMsr (value1, &valueL))) {
+                        dprintf ("msr[%x] = %08x:%08x\n",
+                            value1, (ULONG) (valueL >> 32), (ULONG) valueL);
+                    } else {
+                        dprintf ("no such msr\n");
+                    }
+                    break;
+                }
+#endif
                 parseRegCmd();
 #ifdef KERNEL
                 if (fSwitched) {
@@ -1831,47 +2334,21 @@ EVALUATE:
             case 's':
                 ch = (UCHAR)tolower(*pchCommand);
 
-                //  's' by itself outputs the current display mode
-
-                if (ch == ';' || ch == '\0') {
-                    if (fSourceOnly)
-                        dprintf("source");
-                    else if (fSourceMixed)
-                        dprintf("mixed");
-                    else
-                        dprintf("assembly");
-                    dprintf(" mode\n");
-                    }
-
-                //  's+', 's&', 's-' set source, mixed, and assembly modes
-
-                else if (ch == '+') {
-                    pchCommand++;
-                    fSourceOnly = TRUE;
-                    fSourceMixed = FALSE;
-                    }
-                else if (ch == '&') {
-                    pchCommand++;
-                    fSourceOnly = FALSE;
-                    fSourceMixed = TRUE;
-                    }
-                else if (ch == '-') {
-                    pchCommand++;
-                    fSourceOnly = FALSE;
-                    fSourceMixed = FALSE;
-                    LocateTextInSource(NULL, NULL);     // Close any outstanding file handle
-                    }
-
-                else if (ch == 's') {
+                if (ch == 's') {
                     pchCommand++;
                     fnSetSuffix();
-                    }
-#ifndef KERNEL
+                }
+#ifdef KERNEL
+                else if (ch == 'q') {
+                    pchCommand++;
+                    NotStupid = !NotStupid;
+                    dprintf("Quiet mode is %s\n", NotStupid? "ON" : "OFF");
+                }
+#endif
                 else if (ch == 'x') {
                     pchCommand++;
                     fnSetException();
-                    }
-#endif
+                }
                 else {
                     GetRange(&addr1, &value2, &fLength, 1
 #ifdef i386
@@ -1880,28 +2357,59 @@ EVALUATE:
                                 );
                     HexList(list, &count, 1);
                     fnSearchMemory(&addr1, value2, list, count);
-                    }
+                }
                 break;
 
             case 'u':
+                ch = (UCHAR)tolower(*pchCommand);
+#ifdef KERNEL
+                if (ch == 'x') {
+                    pchCommand += 1;
+                }
+#endif
                 value1 = Flat(unasmDefault);
                 value2 = 8;                 // eight instructions
                 fLength = TRUE;             // length, not ending addr
-                GetRange(&unasmDefault, &value2, &fLength, 0
+                addr1 = unasmDefault;
+                GetRange(&addr1, &value2, &fLength, 0
 #ifdef i386
                                 , REGCS
 #endif
                                 );
-                fnUnassemble(&unasmDefault, value2, fLength,
+                unasmDefault = addr1;
+#ifdef KERNEL
+                if (ch == 'x') {
+                    ADDR addr;
+                    char text[128];
+                    if (X86BiosBaseAddress == 0) {
+                        X86BiosBaseAddress = GetExpressionRoutine("hal!HalpEisaMemoryBase");
+                        ADDR32(&addr,X86BiosBaseAddress);
+                        GetMemString( &addr, (PUCHAR)&X86BiosBaseAddress, 4 );
+                    }
+                    addr = unasmDefault;
+                    addr.flat += (X86BiosBaseAddress + (addr.seg<<4));
+                    addr.off = addr.flat;
+                    addr.type = ADDR_V86 | INSTR_POINTER;
+                    for (value2=0; value2<8; value2++) {
+                        X86disasm( &addr, text, TRUE );
+                        addr.flat = addr.off;
+                        dprintf("%s", text );
+                    }
+                    unasmDefault = addr;
+                    unasmDefault.off -= (X86BiosBaseAddress + (addr.seg<<4));
+                    unasmDefault.flat = unasmDefault.off;
+                } else
+#endif
+                {
+                    fnUnassemble(&unasmDefault, value2, fLength,
                                     (BOOLEAN) (value1 != Flat(unasmDefault)));
+                }
                 break;
 
             case 'v':
-                if (stricmp(pchCommand,"ersion")==0) {
+                if (_stricmp(pchCommand,"ersion")==0) {
                     pchCommand += strlen(pchCommand);
                     PrintVersionInformation();
-                } else {
-                    fnViewLines();
                 }
                 break;
 
@@ -1990,6 +2498,8 @@ void error (ULONG errcode)
 {
     ULONG count = cbPrompt;
     UCHAR *pchtemp = pchStart;
+
+    if (fDisableErrorPrint) goto skiperrorprint;
 
     while (pchtemp < pchCommand)
         if (*pchtemp++ == '\t')
@@ -2090,7 +2600,7 @@ void error (ULONG errcode)
             break;
         }
     dprintf(" error in '%s'\n", pchStart);
-//    longjmp(*pjbufReturn, 1);         // TEMP TEMP
+skiperrorprint:
     if (fJmpBuf)                        // TEMP TEMP
         longjmp(asm_return,1);          // TEMP TEMP
     else                                // TEMP TEMP
@@ -2100,7 +2610,7 @@ void error (ULONG errcode)
 
 void fnInteractiveEnterMemory (PADDR Address, ULONG Size)
 {
-    UCHAR   chEnter[80];
+    UCHAR   chEnter[1024];
     PUCHAR  pchEnter;
     ULONG   Content;
     PUCHAR  pchCmdSaved = pchCommand;
@@ -2218,10 +2728,18 @@ void HexList (PUCHAR parray, ULONG *pcount, ULONG bytesize)
     *pcount = count;
 }
 
-ULONG HexValue (ULONG bytesize)
+ULONGLONG HexValueL (ULONG bytesize)
 {
-    UCHAR   ch;
-    ULONG   value = 0;
+    UCHAR       ch;
+    ULONGLONG   value = 0;
+    ULONGLONG   ovfl;
+
+    // hack for broken x86 compiler which can shift 64bit correctly
+    if (bytesize <= 4) {
+        ovfl = (1L << (8 * bytesize - 4));
+    } else {
+        ovfl = (0x100000000L << (8 * (bytesize-4) - 4));
+    }
 
     if (PeekChar() == '\'') {
         pchCommand++;
@@ -2255,7 +2773,7 @@ ULONG HexValue (ULONG bytesize)
             break;
         else
             error(SYNTAX);
-        if (value >= (ULONG)(1L << (8 * bytesize - 4)))
+        if (value >= ovfl)
             error(OVERFLOW);
         value = value * 0x10 + ch;
         }
@@ -2330,37 +2848,43 @@ void AsciiList (PUCHAR parray, ULONG *pcount)
 
 ULONG GetIdList (void)
 {
-    ULONG    id_mask = 0;
-    UCHAR    ch;
-    ULONG    shiftcnt;
+    ULONG   value = 0;
+    UCHAR   ch;
+    UCHAR   digits[5];     // allow up to four digits
+    int     i;
+
+    //
+    // Change to allow more than 32 break points to be set. Use
+    // break point numbers instead of masks.
+    //
 
     if ((ch = PeekChar()) == '*') {
-        id_mask = 0xffffffff;
+        value = ALL_BREAKPOINTS;
         pchCommand++;
-        }
-    else {
-        while (TRUE) {
+    } else {
+        for (i = 0; i < 4 ; i++) {
             if (ch >= '0' && ch <= '9') {
-                shiftcnt = ch - '0';
+                digits[i] = ch;
                 ch = *++pchCommand;
-                if (ch >= '0' && ch <= '9') {
-                    shiftcnt = shiftcnt * 10 + ch - '0';
-                    ch = *++pchCommand;
-                    }
-
-                if (shiftcnt > 31 ||
-                      (ch != ' ' && ch != '\t' && ch != '\0' && ch != ';'))
-                    error(SYNTAX);
-
-                id_mask |= (ULONG)1 << shiftcnt;
-                if ((ch = PeekChar()) == '\0' || ch == ';')
-                    break;
-                }
-            else
-                error(SYNTAX);
+            } else {
+                break;
             }
         }
-    return id_mask;
+
+        digits[i] = '\0';
+
+        if (ch == '\0' || ch == ';' || ch == ' ' || ch == '\t') {
+            value = strtol (digits, NULL, 10);
+        } else {
+            error (SYNTAX);
+        }
+    }
+
+    if (value >= MAX_NUMBER_OF_BREAKPOINTS && value != ALL_BREAKPOINTS) {
+        error (SYNTAX);
+    }
+
+    return (value);
 }
 
 /*** fnEvaluateExp - evaluate expression
@@ -2402,19 +2926,17 @@ void fnEvaluateExp (void)
 
 void fnDotCommand(void)
 {
-    ULONG   index = 0;
-    UCHAR   chCmd[12];
-    UCHAR   ch;
-    ADDR    tempAddr;
+    ULONG       index = 0;
+    UCHAR       chCmd[12];
+    UCHAR       ch;
+    ADDR        tempAddr;
+    NTSTATUS    Status;
 
     //  if there was nothing after the dot look up a function
     if (!*pchCommand) {
-            PSYMFILE pSymfile;
             PSYMBOL  pSymbol;
-
             GetRegPCValue(&tempAddr);
-
-            pSymbol = GetFunctionFromOffset(&pSymfile,Flat(tempAddr));
+            pSymbol = GetFunctionFromOffset( Flat(tempAddr) );
             return;
     }
 
@@ -2455,6 +2977,18 @@ void fnDotCommand(void)
         DbgKdCrash( CRASH_BUGCHECK_CODE );
         longjmp(reboot, 1);
     } else
+    if (!strcmp(chCmd, "pagein")) {
+        if ((ch = PeekChar()) != '\0') {
+            index = GetExpression();
+            Status = DbgKdPageIn( index );
+            if (Status == STATUS_SUCCESS) {
+                dprintf( "paging in 0x%08x\n", index );
+                cmdState = 'g';
+            } else {
+                dprintf( "could not page in 0x%08x\n", index );
+            }
+        }
+    } else
 #endif
     if (!strcmp(chCmd, "logopen"))
         fnLogOpen(FALSE);
@@ -2483,7 +3017,7 @@ void fnDotCommand(void)
 void fnLogOpen (BOOLEAN fAppend)
 {
     UCHAR   ch;
-    UCHAR   chFile[80];
+    UCHAR   chFile[_MAX_PATH];
     PUCHAR  pchFile = chFile;
 
     //  extract a pathname to use to name file
@@ -2514,10 +3048,10 @@ void fnLogOpen (BOOLEAN fAppend)
     else pchFile = chFile;
 
     if (fAppend)
-        loghandle = open(pchFile, O_APPEND | O_CREAT | O_RDWR,
+        loghandle = _open(pchFile, O_APPEND | O_CREAT | O_RDWR,
                                   S_IREAD | S_IWRITE);
     else
-        loghandle = open(pchFile, O_APPEND | O_CREAT | O_TRUNC | O_RDWR,
+        loghandle = _open(pchFile, O_APPEND | O_CREAT | O_TRUNC | O_RDWR,
                                   S_IREAD | S_IWRITE);
 
     if (loghandle != -1)
@@ -2543,7 +3077,7 @@ void fnLogClose (void)
 {
     if (loghandle != -1) {
         dprintf("closing open log file\n");
-        close(loghandle);
+        _close(loghandle);
         loghandle = -1;
         }
 }
@@ -2567,40 +3101,39 @@ void fnLogClose (void)
 HANDLE ConsoleInputHandle;
 HANDLE ConsoleOutputHandle;
 
+#define DPRINTF_SIZE (1024 * 4)
+unsigned char outbuffer[DPRINTF_SIZE];
+
 int _CRTAPI1 dprintf (char *format, ...)
 {
-    unsigned char outbuffer[4 * SYMBOLSIZE];
     DWORD cb, whocares;
     va_list arg_ptr;
     va_start(arg_ptr, format);
 
-    try {
-        cb = _vsnprintf(outbuffer, sizeof(outbuffer)-1, format, arg_ptr);
+    __try {
+        cb = _vsnprintf(outbuffer, DPRINTF_SIZE-1, format, arg_ptr);
 
         if (loghandle != -1) {
-            write(loghandle, outbuffer, cb);
-            }
+            _write(loghandle, outbuffer, cb);
+        }
 
 #ifndef KERNEL
-        if (fDebugOutput)
-            {
-            if (DbgPrint("%s", outbuffer) == STATUS_BREAKPOINT)
-                {
+        if (fDebugOutput) {
+            if (DbgPrint("%s", outbuffer) == STATUS_BREAKPOINT) {
                 fControlC = TRUE;
-                }
             }
-        else
+        } else
 #endif
-            {
-                WriteFile(
-                    ConsoleOutputHandle,
-                    outbuffer,
-                    cb,
-                    &whocares,
-                    NULL
-                    );
-            }
-    } except(EXCEPTION_EXECUTE_HANDLER) {
+        {
+            WriteFile(
+                ConsoleOutputHandle,
+                outbuffer,
+                cb,
+                &whocares,
+                NULL
+                );
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
         printf( "DPRINTF failed - Exception code == %x\n", GetExceptionCode() );
     }
 
@@ -2625,7 +3158,7 @@ int _CRTAPI1 dprintf (char *format, ...)
 void lprintf (char *string)
 {
     if (loghandle != -1)
-        write(loghandle, string, strlen(string));
+        _write(loghandle, string, strlen(string));
 }
 
 void parseScriptCmd(void)
@@ -2802,7 +3335,7 @@ void parseThreadCmds (void)
                     ChangeRegContext(pThread);
                     value1 = 0;
 #ifdef  i386
-                    value3 = GetRegValue(REGEIP);
+                    value3 = (ULONG)GetRegValue(REGEIP);
 #else
                     value3 = 0;
 #endif
@@ -2850,6 +3383,7 @@ void fnOutputThreadInfo (PTHREAD_INFO pThreadOut)
     while (pThread) {
         if (pThreadOut == NULL || pThreadOut == pThread) {
 
+#ifndef CHICAGO
             Status = NtQueryInformationThread(
                         pThread->hThread,
                         ThreadBasicInformation,
@@ -2861,10 +3395,15 @@ void fnOutputThreadInfo (PTHREAD_INFO pThreadOut)
                 dprintf("%s: NtQueryInfomationThread failed\n", DebuggerName);
                 return;
                 }
+#endif
             dprintf("%3ld  id: %lx.%lx   Teb %lx ", pThread->index,
                                            pProcessCurrent->dwProcessId,
                                            pThread->dwThreadId,
+#ifndef CHICAGO
                                            ThreadBasicInfo.TebBaseAddress
+#else
+                                           0x12345678
+#endif
                                            );
             if (pThread->fFrozen)
                 dprintf("Frozen\n");
@@ -2928,7 +3467,7 @@ fJmpBuf = TRUE;                 // TEMP TEMP
 
     while (TRUE) {
         dprintAddr(paddr);
-        NtsdPrompt("", chAssemble, 60);
+        NtsdPrompt("", chAssemble, sizeof(chAssemble));
         RemoveDelChar(chAssemble);
         pchCommand = chAssemble;
         do
@@ -2938,7 +3477,7 @@ fJmpBuf = TRUE;                 // TEMP TEMP
             break;
         pchCommand--;
 
-        ASSERT(fFlat(*paddr) || fInstrPtr(*paddr));
+        assert(fFlat(*paddr) || fInstrPtr(*paddr));
         assem(paddr, pchCommand);
         }
 
@@ -2949,89 +3488,6 @@ fJmpBuf = TRUE;                 // TEMP TEMP
     cbPrompt = cbPromptSave;
 //    pjbufReturn = pjbufReturnSave;
 fJmpBuf = FALSE;                        // TEMP TEMP
-}
-
-void fnViewLines(void)
-{
-    USHORT    lineNum;
-    USHORT    lineNum2;
-    PSYMFILE  pSymfile;
-    PSYMFILE  pSymfile2;
-    PLINENO   pLineno;
-    PLINENO   pLineno2;
-    ULONG     count = 10;
-    UCHAR     ch;
-    ULONG     baseSaved;
-
-    ch = PeekChar();
-
-    //  if no arguments, then output the next 10 lines
-
-    if (ch == ';' || ch == '\0') {
-        pLineno = GetLastLineno(&pSymfile, &lineNum);
-        if (!pLineno)
-            error(LINENUMBER);
-        }
-
-    else {
-
-        //  parse the command line to get symbol file and line
-        //      number structures.
-
-        lineNum = GetSrcExpression(&pSymfile, &pLineno);
-
-        ch = PeekChar();
-        ch = (UCHAR)tolower(ch);
-
-        //  if the next character is 'l', get expression for count
-
-        if (ch == 'l') {
-            pchCommand++;
-            count = (ULONG)GetExpression();
-            if (count == 0 || count > 0xffff)
-                error(LINENUMBER);
-            }
-
-        //  if the next character is '.', use the difference plus one
-        //      of the line number values for the line count.
-
-        else if (ch == '.') {
-            pchCommand++;
-
-            //  get line number - default is decimal
-
-            baseSaved = baseDefault;
-            baseDefault = 10;
-            count = (ULONG)GetExpression();
-            baseDefault = baseSaved;
-
-            if (count > 0xffff || count == 0 || (USHORT)count < lineNum)
-                error(LINENUMBER);
-            count = count - (ULONG)lineNum + 1;
-            }
-
-        //  if a nonNULL character, try to evaluate as an expression.
-        //      output an error if not the same module and filename
-        //      and a later line number.
-
-        else if (ch != ';' && ch != '\0') {
-            lineNum2 = GetSrcExpression(&pSymfile2, &pLineno2);
-            if (!pSymfile2 || pSymfile->modIndex != pSymfile2->modIndex
-                       || strcmp(pSymfile->pchName, pSymfile2->pchName)
-                       || lineNum > lineNum2)
-                error(LINENUMBER);
-            count = (ULONG)(lineNum2 - lineNum + 1);
-            }
-        }
-
-    //  if line number is before first breakpoint top line,
-    //      move LINENO pointer to get start of file
-
-    UpdateLineno(pSymfile, pLineno);
-    if (lineNum < pLineno->topLineNumber)
-        pLineno--;
-    if (!OutputLines(pSymfile, pLineno, lineNum, (USHORT)count))
-        dprintf("no source file to view\n");
 }
 
 /*** fnUnassemble - disassembly of an address range
@@ -3074,21 +3530,17 @@ void fnUnassemble (PADDR paddr, ULONG value, BOOLEAN fLength, BOOLEAN fFirst)
 #endif
 
     while ((fLength && value--) || (!fLength && AddrLt(*paddr,*pendaddr))) {
-        if (fSourceOnly || fSourceMixed)
-            OutputSourceFromOffset(Flat(*paddr), TRUE);
         OutputSymAddr(Flat(*paddr), fFirst, TRUE);
         fStatus = disasm(paddr, buffer, FALSE);
         dprintf("%s", buffer);
         if (!fStatus)
             error(MEMORY);
         fFirst = FALSE;
-//#ifndef KERNEL
         if (fControlC) {
             fControlC = 0;
             return;
-            }
-//#endif
         }
+    }
 }
 
 /*** fnEnterMemory - enter bytes into memory
@@ -3146,29 +3598,56 @@ void fnEnterMemory (PADDR addr, PUCHAR array, ULONG count)
 
 void fnChangeBpState (ULONG mask, UCHAR type)
 {
-    ULONG   index;
+    ULONG   index, start, limit;
+    BOOLEAN fProfilingBrkpt = FALSE;
 
-    if (type == 'c')
+    if (type == 'c') {
         type = '\0';
-    for (index = 0; index < 32; index++) {
-        if (mask & 1 && brkptlist[index].status != '\0') {
+    }
+
+    if (mask == ALL_BREAKPOINTS) {
+        start = 0;
+        limit = MAX_NUMBER_OF_BREAKPOINTS;
+    } else {
+        start = mask;
+        limit = mask+1;
+    }
+
+#ifdef BP_CORRUPTION
+    UnlockBreakpointList();
+#endif // BP_CORRUPTION
+    for (index = start; index < limit; index++) {
+        if (brkptlist[index].status != '\0') {
+#ifndef KERNEL
+            // If profiling breakpoint, change breakpoint type accordingly
+            if (type == '\0' || type == 'd')
+                fProfilingBrkpt = UpdateBrkpt(ps_ProfileDLL, index, BRKPT_PROFILE);
+            else if (type == 'e')
+                fProfilingBrkpt = UpdateBrkpt(ps_ProfileDLL, index, BRKPT_USER);
+
+            if (!fProfilingBrkpt || PROFILING) {
+                brkptlist[index].status = type;
+            }
+#else
             brkptlist[index].status = type;
-#ifdef  KERNEL
-        if (brkptlist[index].bpInternal) {
-            DbgKdSetInternalBp(Flat(brkptlist[index].addr),
-                                (type == 'e') ?
-                                    DBGKD_INTERNAL_BP_FLAG_COUNTONLY :
-                                    DBGKD_INTERNAL_BP_FLAG_INVALID);
-        }
+
+            if (brkptlist[index].bpInternal) {
+                DbgKdSetInternalBp(Flat(brkptlist[index].addr),
+                                    (type == 'e') ?
+                                        DBGKD_INTERNAL_BP_FLAG_COUNTONLY :
+                                        DBGKD_INTERNAL_BP_FLAG_INVALID);
+            }
 #ifdef  i386
             if (brkptlist[index].option != (UCHAR)-1) {
                 fDataBrkptsChanged = TRUE;
-                }
-#endif
-#endif
             }
-        mask >>= 1;
+#endif
+#endif
         }
+    }
+#ifdef BP_CORRUPTION
+    LockBreakpointList();
+#endif // BP_CORRUPTION
 }
 
 /*** fnListBpState - list breakpoint information
@@ -3194,10 +3673,8 @@ void fnListBpState (void)
 #ifndef KERNEL
     PPROCESS_INFO pProcessSaved = pProcessCurrent;
 #endif
-    PSYMFILE pSymfile;
-    PLINENO  pLineno;
 
-    for (count = 0; count < 32; count++)
+    for (count = 0; count < MAX_NUMBER_OF_BREAKPOINTS; count++)
         if (brkptlist[count].status != '\0') {
             dprintf("%2ld %c ", count, brkptlist[count].status);
             dprintAddr(&brkptlist[count].addr);
@@ -3217,21 +3694,19 @@ void fnListBpState (void)
                                        brkptlist[count].setpasscnt);
 #ifndef KERNEL
             dprintf("%2ld:", brkptlist[count].pProcess->index);
-            if (brkptlist[count].pThread != NULL)
+            if (brkptlist[count].pThread != NULL) {
                 dprintf("~%03ld ", brkptlist[count].pThread->index);
-            else
+                }
+            else {
                 dprintf("*** ");
+                }
             pProcessCurrent = brkptlist[count].pProcess;
 #endif
             OutputSymAddr(Flat(brkptlist[count].addr), TRUE, FALSE);
 
-            pLineno=GetLinenoFromOffset(&pSymfile,Flat(brkptlist[count].addr));
-            if (pLineno && pLineno->memoryOffset==Flat(brkptlist[count].addr))
-                dprintf("(%s.%d) ", pSymfile->pchName,
-                                    pLineno->breakLineNumber);
-
-            if (brkptlist[count].szcommand[0] != '\0')
+            if (brkptlist[count].szcommand[0] != '\0') {
                 dprintf("\"%s\"", brkptlist[count].szcommand);
+                }
             dprintf("\n");
             }
 #ifndef KERNEL
@@ -3240,7 +3715,7 @@ void fnListBpState (void)
 
 #ifdef KERNEL
     dprintf("\n");
-    for (count = 0; count < 32; count++) {
+    for (count = 0; count < MAX_NUMBER_OF_BREAKPOINTS; count++) {
         if ((brkptlist[count].status != '\0') && (brkptlist[count].bpInternal)) {
             ULONG flags, calls, minInst, maxInst, totInst, maxCPS;
             DbgKdGetInternalBp(Flat(brkptlist[count].addr),&flags,&calls,
@@ -3279,7 +3754,7 @@ void fnListBpState (void)
 *       *string - pointer to command string of breakpoint
 *
 *   Output:
-*       None.
+*       Returns breakpoint number.
 *
 *   Exceptions:
 *       error exit:
@@ -3288,7 +3763,7 @@ void fnListBpState (void)
 *
 *************************************************************************/
 
-void fnSetBp (ULONG bpno, UCHAR bpoption, UCHAR bpsize,
+ULONG fnSetBp (ULONG bpno, UCHAR bpoption, UCHAR bpsize,
                           PADDR bpaddr, ULONG passcnt,
 #ifdef KERNEL
                           BOOLEAN internalBp,
@@ -3299,13 +3774,9 @@ void fnSetBp (ULONG bpno, UCHAR bpoption, UCHAR bpsize,
 {
     ULONG   count;
 
-#if defined(MIPS) || defined(ALPHA)
+#if defined(MIPS) || defined(ALPHA) || defined(_PPC_)
     PIMAGE_FUNCTION_ENTRY FunctionEntry;
-#endif
-
-
-#if defined(MIPS) || defined(ALPHA)
-    FunctionEntry = LookupFunctionEntry(Flat(*bpaddr));
+    FunctionEntry = SymFunctionTableAccess( pProcessCurrent->hProcess, Flat(*bpaddr) );
     if (FunctionEntry != NULL) {
         if ( (Flat(*bpaddr) >= FunctionEntry->StartingAddress) &&
              (Flat(*bpaddr) < FunctionEntry->EndOfPrologue)) {
@@ -3314,7 +3785,11 @@ void fnSetBp (ULONG bpno, UCHAR bpoption, UCHAR bpsize,
     }
 #endif
 
-    for (count = 0; count < 32; count++)
+#ifdef BP_CORRUPTION
+    UnlockBreakpointList();
+#endif // BP_CORRUPTION
+
+    for (count = 0; count < MAX_NUMBER_OF_BREAKPOINTS; count++)
         if (brkptlist[count].status != '\0' &&
 #ifndef KERNEL
                 brkptlist[count].pProcess == pProcessCurrent &&
@@ -3323,12 +3798,17 @@ void fnSetBp (ULONG bpno, UCHAR bpoption, UCHAR bpsize,
             if (bpno == -1) {
                 bpno = count;
                 dprintf("breakpoint %ld redefined\n", count);
+#ifndef KERNEL
+                // Update the breakpoint type if breakpoint is
+                // a profiling breakpoint
+                UpdateBrkpt(ps_ProfileDLL, bpno, BRKPT_USER);
+#endif
                 }
             else if (bpno != count)
                 error(BPDUPLICATE);
             }
     if (bpno == -1) {
-        for (count = 0; count < 32; count++)
+        for (count = 0; count < MAX_NUMBER_OF_BREAKPOINTS; count++)
             if (brkptlist[count].status == '\0') {
                 bpno = count;
                 break;
@@ -3374,6 +3854,12 @@ void fnSetBp (ULONG bpno, UCHAR bpoption, UCHAR bpsize,
         }
 #endif
 #endif
+
+#ifdef BP_CORRUPTION
+    LockBreakpointList();
+#endif // BP_CORRUPTION
+
+    return (bpno);
 }
 
 #ifdef KERNEL
@@ -3387,7 +3873,7 @@ DbgKdSetSpecialCalls (
 VOID
 SetupSpecialCalls()
 {
-    ULONG SpecialCalls[5];
+    ULONG SpecialCalls[6];
 
     steptracepasscnt = 0xfffffffe;
 
@@ -3403,8 +3889,9 @@ SetupSpecialCalls()
     SpecialCalls[2] = LookupSymbolInDll("HalRequestSoftwareInterrupt","hal");
     SpecialCalls[3] = LookupSymbolInDll("KiSwapContext","NT");
     SpecialCalls[4] = LookupSymbolInDll("SwapContext","NT");
+    SpecialCalls[5] = LookupSymbolInDll("KiUnlockDispatcherDatabase", "NT");
 
-    DbgKdSetSpecialCalls(5,SpecialCalls);
+    DbgKdSetSpecialCalls(6,SpecialCalls);
 }
 #endif
 
@@ -3421,7 +3908,7 @@ SetupSpecialCalls()
 *       type - iff this is an internalBp, is it countonly ('i') or not ('w')?
 *
 *   Output:
-*       None.
+*       Returns the breakpoint number.
 *
 *   Exceptions:
 *       error exit:
@@ -3430,7 +3917,7 @@ SetupSpecialCalls()
 *
 *************************************************************************/
 
-void parseBpCmd (
+ULONG parseBpCmd (
 #ifndef KERNEL
                  BOOLEAN fDataBp, PTHREAD_INFO pThread
 #else
@@ -3458,10 +3945,12 @@ void parseBpCmd (
         if (ch >= '0' && ch <= '9') {
             bpno = bpno * 10 + ch - '0';
             ch = *++pchCommand;
-            }
-        if (bpno > 31 || (ch != ' ' && ch != '\t' && ch != '\0'))
+        }
+        if (bpno >= MAX_NUMBER_OF_BREAKPOINTS ||
+                (ch != ' ' && ch != '\t' && ch != '\0')) {
             error(SYNTAX);
         }
+    }
 
     //  if data breakpoint, get option and size values
 
@@ -3471,38 +3960,45 @@ void parseBpCmd (
         ch = PeekChar();
         ch = (UCHAR)tolower(ch);
 
-        if (ch == 'e')
+        if (ch == 'e') {
             option = 0;
-        else if (ch == 'w')
+        } else if (ch == 'w') {
             option = 1;
 #ifdef KERNEL
-        else if (ch == 'i')
+        } else if (ch == 'i') {
             option = 2;
 #endif
-        else if (ch == 'r')
+        } else if (ch == 'r') {
             option = 3;
-        else
+        } else {
             error(SYNTAX);
+        }
 
         pchCommand++;
 
         ch = PeekChar();
         ch = (UCHAR)tolower(ch);
-        if (ch == '1')
+        if (ch == '1') {
             size = 0;
-        else if (ch == '2')
+        } else if (ch == '2') {
             size = 1;
-        else if (ch == '4')
+        } else if (ch == '4') {
             size = 3;
-        else
+        } else {
             error(SYNTAX);
+        }
 
         pchCommand++;
-        for (index = 0; index <32; index++)
-            if (brkptlist[index].status=='e'
-                && brkptlist[index].option!=(UCHAR)-1) cntDataBrkpts++;
-        if (cntDataBrkpts>3) error(BPLISTFULL);
+        for (index = 0; index <MAX_NUMBER_OF_BREAKPOINTS; index++) {
+            if (brkptlist[index].status=='e' &&
+                    brkptlist[index].option!=(UCHAR)-1) {
+                cntDataBrkpts++;
+            }
         }
+        if (cntDataBrkpts>3) {
+            error(BPLISTFULL);
+        }
+    }
 
     //  get the breakpoint address, if given, in addr
 
@@ -3510,22 +4006,25 @@ void parseBpCmd (
     if (ch != '"' && ch != '\0') {
         GetAddrExpression(X86REGCS, &addr);
         ch = PeekChar();
-        }
+    }
 
     //  test alignment if data breakpoint
 
-    if (fDataBp && (size & (UCHAR)Flat(addr)))
+    if (fDataBp && (size & (UCHAR)Flat(addr))) {
         error(ALIGNMENT);
+    }
 
 #ifdef KERNEL
     //  test alignment and range if I/O breakpoint
 
     if (option == 2) {
-        if (size != 3)
+        if (size != 3) {
             error(ALIGNMENT);
+        }
 
-        if (Flat(addr) > 0xffffL)
+        if (Flat(addr) > 0xffffL) {
             error(BADRANGE);
+        }
     }
 #endif
 
@@ -3534,25 +4033,27 @@ void parseBpCmd (
     if (ch != '"' && ch != ';' && ch != '\0') {
         passcnt = GetExpression();
         ch = PeekChar();
-        }
+    }
 
     //  if next character is double quote, get the command string
 
     if (ch == '"') {
         pchCommand++;
         ch = *pchCommand++;
-        while (ch != '"' && ch != '\0' && count < 60) {
+        while (ch != '"' && ch != '\0' && count < SYMBOLSIZE) {
             *pchBpCmd++ = ch;
             ch = *pchCommand++;
             count++;
             }
-        if (count == 60)
+        if (count == SYMBOLSIZE) {
             error(STRINGSIZE);
-        if (ch == '\0' || ch == ';')
+        }
+        if (ch == '\0' || ch == ';') {
             pchCommand--;
         }
+    }
     *pchBpCmd = '\0';
-    fnSetBp(bpno, option, size, &addr, passcnt,
+    bpno = fnSetBp(bpno, option, size, &addr, passcnt,
 #ifdef KERNEL
                                  internalBp,
 #else
@@ -3569,6 +4070,8 @@ void parseBpCmd (
         }
     }
 #endif
+
+    return (bpno);
 }
 
 /*** fnGoExecution - continue execution with temporary breakpoints
@@ -3644,13 +4147,17 @@ void fnGoExecution (PADDR startaddr, ULONG bpcount,
 *
 *************************************************************************/
 
-void parseRegCmd (void)
+VOID
+parseRegCmd (
+    VOID
+    )
 {
     UCHAR   ch;
     ULONG   count;
-    UCHAR   chValue[128];
+    UCHAR   chValue[_MAX_PATH];
     PUCHAR  pchValue;
     ULONG   value;
+    BOOL    Show64 = FALSE;
 
 #if     defined(KERNEL) & defined(i386)
     //  if 't' or 'T' follows 'r', toggle the terse flag
@@ -3661,9 +4168,15 @@ void parseRegCmd (void)
         if (*pchCommand >= '0' && *pchCommand <= '3') {
             TerseLevel = *pchCommand - '0';
             pchCommand++;
-            }
         }
+    }
 #endif
+
+
+    if (*pchCommand == 'L') {
+        pchCommand++;
+        Show64 = TRUE;
+    }
 
     //  if just "r", output all the register and disassembly as EIP
 
@@ -3674,11 +4187,11 @@ void parseRegCmd (void)
             lastSelector = -1;
         }
 #endif
-        OutputAllRegs();
+        OutputAllRegs(Show64);
         OutDisCurrent(TRUE, TRUE);
         GetRegPCValue(&assemDefault);
         unasmDefault = assemDefault;
-        }
+    }
     else {
 
 #ifdef KERNEL
@@ -3690,61 +4203,43 @@ void parseRegCmd (void)
         //  parse the register name
 
 PARSE:
-#ifdef ALPHA
 
-    //
-    // Support for Large integers
-    //
+#if defined(ALPHA) || defined(_PPC_) || defined(_MIPS_)
+        //
+        // Support for floating point number
+        //
 
-    if (*pchCommand == 'L') {
-        printQuadReg();
-        return;
-    }
+        if (*pchCommand == 'F') {
+            pchCommand++;
+            printFloatReg();
+            return;
+        }
 
-    //
-    // Support for floating point number
-    //
-
-    if (*pchCommand == 'F') {
-        printFloatReg();
-        return;
-    }
-
-#endif // ALPHA
-        if ((count = GetRegName()) == -1)
+#endif // ALPHA || PPC
+        if ((count = GetRegName()) == -1) {
             error(SYNTAX);
+        }
 
         //  if "r <reg>", output value
 
         if ((ch = (UCHAR)PeekChar()) == '\0' || ch == ',' || ch == ';') {
             if (UserRegTest(count)) {
-                 dprintf("%s=%s", RegNameFromIndex(count),
+                dprintf("%s=%s", RegNameFromIndex(count),
                          GetRegFlagValue(count));
             } else {
-                 dprintf("%s=%08lx", RegNameFromIndex(count),
-                         GetRegFlagValue(count));
-#ifdef ALPHA
-                 //
-                 // indicate if the 64 bit value is not canonical
-                 // sign-extension of the 32 bits printed.
-                 //
-
-                 if (NeedUpper(count, &RegisterContext)) {
-                     dprintf("*");
-                 } else {
-                     dprintf(" ");
-                 }
-#endif // ALPHA
+                dprintf("%s=", RegNameFromIndex(count));
+                OutputOneReg(count, Show64);
             }
             if (ch == ',') {
                 dprintf(" ");
                 while (*pchCommand==' '||*pchCommand==',')
                     pchCommand++;
                 goto PARSE;
-                }
-            else
+            }
+            else {
                 dprintf("\n");
             }
+        }
         else if (ch == '=') {
 
             //  if "r <reg> =", output and prompt for new value
@@ -3754,17 +4249,17 @@ PARSE:
                 dprintf(UserRegTest(count) ? "%s=%s\n" : "%s=%08lx\n",
                         RegNameFromIndex(count), GetRegFlagValue(count));
                 if (UserRegTest(count)) {
-                    NtsdPrompt("; new value: ", chValue, 128);
+                    NtsdPrompt("; new value: ", chValue, sizeof(chValue));
                     RemoveDelChar(chValue);
-                    SetRegFlagValue(count, (ULONG)chValue);
-                    }
+                    SetRegFlagValue(count, (LONG)chValue);
+                }
                 else {
                     NtsdPrompt("; new hex value: ", chValue, 20);
                     RemoveDelChar(chValue);
                     pchValue = chValue;
-                    do
+                    do {
                         ch = *pchValue++;
-                    while (ch == ' ' || ch == '\t');
+                    } while (ch == ' ' || ch == '\t');
                     if (ch != '\0') {
                         value = 0;
                         ch = (UCHAR)tolower(ch);
@@ -3777,35 +4272,40 @@ PARSE:
                                 error(OVERFLOW);
                             value = value * 0x10 + ch;
                             ch = (UCHAR)tolower(*pchValue); pchValue++;
-                            }
-                        if (ch != '\0')
-                            error(SYNTAX);
-                        SetRegFlagValue(count, value);
                         }
+                        if (ch != '\0') {
+                            error(SYNTAX);
+                        }
+                        SetRegFlagValue(count, (LONG)value);
                     }
                 }
-            else
+            }
+            else {
 
                 //  if "r <reg> = <value>", set the value
 
                 if (UserRegTest(count)) {
-                    SetRegFlagValue(count, (ULONG)pchCommand);
+                    SetRegFlagValue(count, (LONG)pchCommand);
                     *pchCommand=0;
-                    }
-                else
-                    SetRegFlagValue(count, GetExpression());
+                }
+                else {
+                    SetRegFlagValue(count, (LONG)GetExpression());
+                }
             }
-        else
+        }
+        else {
 
             //  if "r <reg> <value>", also set the value
 
             if (UserRegTest(count)) {
-                SetRegFlagValue(count, (ULONG)pchCommand);
+                SetRegFlagValue(count, (LONG)pchCommand);
                 *pchCommand=0;
                 }
-            else
-                SetRegFlagValue(count, GetExpression());
+            else {
+                SetRegFlagValue(count, (LONG)GetExpression());
+            }
         }
+    }
 }
 
 /*** parseGoCmd - parse go command
@@ -3840,7 +4340,6 @@ void parseGoCmd (
     ADDR    addr[10];
     UCHAR   ch;
     ADDR    pcaddr;
-#ifndef KERNEL
     UCHAR   ch2;
 
     chExceptionHandle = '\0';
@@ -3852,7 +4351,6 @@ void parseGoCmd (
             chExceptionHandle = ch;
             }
         }
-#endif
 
     GetRegPCValue(&pcaddr);       //  default to current PC
     count = 0;
@@ -4128,7 +4626,7 @@ void fnDumpByteMemory (PADDR startaddr, ULONG count)
 {
     ULONG   rowindex = 0;
     ULONG   readcount;
-    UCHAR   readbuffer[128];
+    UCHAR   readbuffer[_MAX_PATH];
     UCHAR   bytestring[17];
     UCHAR   ch;
     ULONG   blockindex = 0;
@@ -4674,7 +5172,7 @@ void parseStepTrace (
 #endif
     if (((PeekChar() == 't') || (PeekChar() == 'w')) && chcmd == 'w' ) {
 #ifdef KERNEL
-        InitialSP = CURRENT_STACK;
+        InitialSP = (ULONG)CURRENT_STACK;
         WatchWhole = (PeekChar() == 'w');
         BrkpointsSuspended = TRUE;
         ClearTraceDataSyms();
@@ -4694,11 +5192,16 @@ void parseStepTrace (
         }
 
     value2 = 1;
-    if ((ch = PeekChar()) != '\0' && ch != ';')
+    if ((ch = PeekChar()) != '\0' && ch != ';') {
         value2 = GetExpression();
+    }
 #ifdef TARGET_i386
     else if (chcmd == 'w') {
-        GetSymbol(Flat(addr1), chAddrBuffer, &displacement);
+        GetSymbolStdCall(Flat(addr1),
+                         chAddrBuffer,
+                         &displacement,
+                         NULL
+                         );
         if (displacement == 0 && chAddrBuffer[ 0 ] != '\0') {
             GetReturnAddress(&addr2);
             dprintf("Tracing %s to return address %08x\n", chAddrBuffer, Flat(addr2));
@@ -4768,9 +5271,9 @@ void fnStepTrace (PADDR addr, ULONG count,
 #endif
             WatchCount = 0;
             Watching = TRUE;
+            steptracepasscnt = 0xfffffff;
             if ( count != 1 ) {
                 Flat(WatchTarget) = count;
-                steptracepasscnt = 0xfffffff;
 //                dprintf("WatchTarget = %x, count = %d\n", count, steptracepasscnt);
             }
             chStepType = 't';
@@ -4811,18 +5314,13 @@ void OutDisCurrent(BOOLEAN fEA, BOOLEAN fSymbol)
 
     GetRegPCValue(&pcvalue);
 
-    if (fSourceOnly || fSourceMixed)
-        fSourceOutput = OutputSourceFromOffset(Flat(pcvalue), fSourceMixed);
-
-    if (!fSourceOnly || !fSourceOutput) {
-        if (fSymbol)
-            OutputSymAddr(Flat(pcvalue), TRUE, TRUE);
+    if (fSymbol)
+        OutputSymAddr(Flat(pcvalue), TRUE, TRUE);
+    disasm(&pcvalue, buffer, fEA);
+    dprintf("%s", buffer);
+    if (fDelayInstruction()) {
         disasm(&pcvalue, buffer, fEA);
         dprintf("%s", buffer);
-        if (fDelayInstruction()) {
-            disasm(&pcvalue, buffer, fEA);
-            dprintf("%s", buffer);
-            }
         }
 }
 
@@ -4831,7 +5329,7 @@ void OutputSymAddr (ULONG offset, BOOLEAN fForce, BOOLEAN fLabel)
     UCHAR   chAddrBuffer[SYMBOLSIZE+100];
     ULONG   displacement;
 
-    GetSymbol(offset, chAddrBuffer, &displacement);
+    GetSymbolStdCall(offset, chAddrBuffer, &displacement, NULL);
     if ((!displacement || fForce) && chAddrBuffer[0]) {
         dprintf("%s", chAddrBuffer);
         if (displacement)
@@ -5026,19 +5524,20 @@ void fnSetSuffix (void)
     ch = (UCHAR)tolower(ch);
 
     if (ch == ';' || ch == '\0') {
-        if (chSymbolSuffix == 'n')
+        if (chSymbolSuffix == 'n') {
             dprintf("n - no suffix\n");
-        else if (chSymbolSuffix == 'a')
+        } else if (chSymbolSuffix == 'a') {
             dprintf("a - ascii\n");
-        else
+        } else {
             dprintf("w - wide\n");
         }
+    }
     else if (ch == 'n' || ch == 'a' || ch == 'w') {
         chSymbolSuffix = ch;
         pchCommand++;
-        }
-    else
+    } else {
         error(SYNTAX);
+    }
 }
 
 /*** GetMemByte - get byte memory value
@@ -5138,7 +5637,7 @@ ULONG GetMemString (PADDR paddr, PUCHAR pBufDest, ULONG length)
     PUCHAR  pBufSource;
     BOOLEAN fSuccess;
 
-    ASSERT(fFlat(*paddr) || fInstrPtr(*paddr));
+    assert(fFlat(*paddr) || fInstrPtr(*paddr));
 
 #ifdef KERNEL
     // bugbug: check if this readcachedmemory is still needed
@@ -5148,7 +5647,7 @@ ULONG GetMemString (PADDR paddr, PUCHAR pBufDest, ULONG length)
     //    }
     //
     // Pass request to ReadVirtualMemory - the lower level API will
-    // take care of page boundarys
+    // take care of page boundaries
     //
 
     pBufSource = (PUCHAR)(Flat(*paddr));
@@ -5176,11 +5675,11 @@ ULONG GetMemString (PADDR paddr, PUCHAR pBufDest, ULONG length)
 
         //  update total bytes read and new address for next read
 
-                if (fSuccess) {
-                cTotalBytesRead += cBytesRead;
+        if (fSuccess) {
+            cTotalBytesRead += cBytesRead;
             pBufSource += cBytesRead;
             pBufDest += cBytesRead;
-                        }
+            }
         }
 
     //  keep reading until failure or all bytes read
@@ -5282,7 +5781,7 @@ ULONG SetMemString (PADDR paddr, PUCHAR pvalue, ULONG length)
 //  NTSTATUS    status;
     ULONG       cBytesWritten;
 
-    ASSERT(fFlat(*paddr) || fInstrPtr(*paddr));
+    assert(fFlat(*paddr) || fInstrPtr(*paddr));
 
 //#ifdef  KERNEL
 //    WriteCachedMemory(paddr, pvalue, length);
@@ -5363,7 +5862,7 @@ void RestoreBrkpts (void)
 #ifndef KERNEL
     pProcessSave = pProcessCurrent;
 #endif
-    for (index = 31; index != -1; index--)
+    for (index = (MAX_NUMBER_OF_BREAKPOINTS - 1); index != -1; index--)
         if (brkptlist[index].fBpSet) {
 #ifndef KERNEL
             pProcessCurrent = brkptlist[index].pProcess;
@@ -5456,7 +5955,7 @@ BOOLEAN SetBrkpts (void)
         }
 #endif
 
-    for (index = 0; index < 32; index++)
+    for (index = 0; index < MAX_NUMBER_OF_BREAKPOINTS; index++)
         if (brkptlist[index].status == 'e'
 #ifdef KERNEL
             && !brkptlist[index].bpInternal
@@ -5585,7 +6084,9 @@ BOOLEAN SetBrkpts (void)
                 SetDregValue(3, pThread->DReg[3]);
                 SetDregValue(6, 0);
                 SetDregValue(7, pThread->DReg7);
-                }
+              } else {
+                SetDregValue(7, pThread->DReg7);
+              }
             pThread = pThread->pThreadNext;
             }
         pProcessCurrent = pProcessCurrent->pProcessNext;
@@ -5656,7 +6157,7 @@ BOOLEAN SetBrkpts (void)
     //  process deferred breakpoint
 
     if (fDeferDefined) {
-#if defined(MIPS) || defined(ALPHA)
+#if defined(MIPS) || defined(ALPHA) || defined(_PPC_)
         ComputeNextOffset(deferaddr, FALSE);
         if (Flat(deferaddr) != -1 ) {
             ntstatus = WriteBreakPoint( deferaddr,
@@ -5679,31 +6180,134 @@ BOOLEAN SetBrkpts (void)
 }
 
 #ifndef KERNEL
-void RemoveProcessBps (PPROCESS_INFO pProcess)
-{
-    UCHAR   index;
 
-    for (index = 0; index < 32; index++)
-        if (brkptlist[index].status != '\0'
-                && brkptlist[index].pProcess == pProcess)
-            brkptlist[index].status = '\0';
-}
+//---------------------------------------------------------------
+//
+// Purpose:  Sets a specific CODE breakpoint.
+//
+// Input:  BrkptNo   - index of the breakpoint to set in brkptlist
+//
+//---------------------------------------------------------------
+BOOLEAN SetSpecificBrkpt (ULONG BrkptNo)
+{
+    NTSTATUS ntstatus;
+    ADDR    pcaddr;
+    PPROCESS_INFO pProcessSave;
+    PPROCESS_INFO pProcess;
+    PTHREAD_INFO  pThread;
+
+#ifdef BP_CORRUPTION
+    UnlockBreakpointList();
+#endif // BP_CORRUPTION
+
+    GetRegPCValue(&pcaddr);
+    fDeferDefined = FALSE;
+
+    pProcess = pProcessHead;
+#ifdef I386
+    while (pProcess) {
+        pThread = pProcess->pThreadHead;
+        while (pThread) {
+            pThread->DReg7 = 0;
+            pThread->cntDReg = 0;
+            pThread = pThread->pThreadNext;
+        }
+        pProcess = pProcess->pProcessNext;
+    }
 #endif
 
-#ifndef KERNEL
+    if (brkptlist[BrkptNo].status == 'e') {
+        NotFlat(brkptlist[BrkptNo].addr);
+        ComputeFlatAddress(&brkptlist[BrkptNo].addr,NULL);
+
+        if (AddrEqu(brkptlist[BrkptNo].addr, pcaddr) &&
+            (brkptlist[BrkptNo].option != 2)) {
+            fDeferDefined=TRUE;
+        } else {
+            pProcessSave = pProcessCurrent;
+            pProcessCurrent = brkptlist[BrkptNo].pProcess;
+
+            ntstatus = WriteBreakPoint( brkptlist[BrkptNo].addr,
+                                        &brkptlist[BrkptNo].handle );
+
+            pProcessCurrent = pProcessSave;
+            if (!(brkptlist[BrkptNo].fBpSet = (BOOLEAN)NT_SUCCESS(ntstatus))) {
+                dprintf("bp%d at addr ", BrkptNo);
+                dprintAddr(&brkptlist[BrkptNo].addr);
+                dprintf(" failed\n");
+#ifdef BP_CORRUPTION
+                LockBreakpointList();
+#endif // BP_CORRUPTION
+                return FALSE;
+            }
+        }
+    }
+
+    //  for each thread in each process, set registers
+    pProcessSave = pProcessCurrent;
+    pProcessCurrent = pProcessHead;
+#ifdef I386
+    while (pProcessCurrent) {
+        pThread = pProcessCurrent->pThreadHead;
+        while (pThread) {
+            if (pThread->DReg7)
+                pThread->DReg7 |= 0x100;        //  local exact match
+
+            ChangeRegContext(pThread);
+            SetDregValue(0, pThread->DReg[0]);
+            SetDregValue(1, pThread->DReg[1]);
+            SetDregValue(2, pThread->DReg[2]);
+            SetDregValue(3, pThread->DReg[3]);
+            SetDregValue(6, 0);
+            SetDregValue(7, pThread->DReg7);
+
+            pThread = pThread->pThreadNext;
+        }
+        pProcessCurrent = pProcessCurrent->pProcessNext;
+    }
+#endif
+    pProcessCurrent = pProcessSave;
+    ChangeRegContext(pProcessCurrent->pThreadCurrent);
+
+    //  process deferred breakpoint
+    if (fDeferDefined) {
+        SetTraceFlag();
+        pProcessDeferBrkpt = pProcessCurrent;
+    }
+
+#ifdef BP_CORRUPTION
+    LockBreakpointList();
+#endif // BP_CORRUPTION
+    return TRUE;
+}
+
+void RemoveProcessBps (PPROCESS_INFO pProcess)
+{
+    ULONG   index;
+
+#ifdef BP_CORRUPTION
+    UnlockBreakpointList();
+#endif // BP_CORRUPTION
+    for (index = 0; index < MAX_NUMBER_OF_BREAKPOINTS; index++) {
+        if (brkptlist[index].status != '\0' && (brkptlist[index].pProcess == pProcess)) {
+            brkptlist[index].status = '\0';
+        }
+    }
+#ifdef BP_CORRUPTION
+    LockBreakpointList();
+#endif // BP_CORRUPTION
+}
+
 void RemoveThreadBps (PTHREAD_INFO pThread)
 {
-    UCHAR   index;
+    ULONG   index;
 
-    for (index = 0; index < 32; index++)
+    for (index = 0; index < MAX_NUMBER_OF_BREAKPOINTS; index++)
         if (brkptlist[index].status != '\0'
                 && brkptlist[index].pProcess == pProcessCurrent
                 && brkptlist[index].pThread == pThread)
             brkptlist[index].status = '\0';
 }
-#endif
-
-#ifndef KERNEL
 
 void SuspendAllThreads (void)
 {
@@ -5776,7 +6380,7 @@ void ChangeRegContext (PTHREAD_INFO pThreadNew)
 #ifdef i386
             RegisterContext = VDMRegisterContext;
 #endif
-            b = SetThreadContext(pThreadContext->hThread, &RegisterContext);
+            b = DbgSetThreadContext(pThreadContext->hThread, &RegisterContext);
             if (!b) {
                 dprintf("%s: SetThreadContext failed - pThread: %x  Handle: %x  Id: %x - Error == %u\n",
                         DebuggerName,
@@ -5791,7 +6395,7 @@ void ChangeRegContext (PTHREAD_INFO pThreadNew)
         pThreadContext = pThreadNew;
         if (pThreadContext != NULL && pThreadContext->hThread != NULL) {
             RegisterContext.ContextFlags = ContextType;
-            b = GetThreadContext(pThreadContext->hThread, &RegisterContext);
+            b = DbgGetThreadContext(pThreadContext->hThread, &RegisterContext);
 #ifdef i386
             VDMRegisterContext = RegisterContext;
 #endif
@@ -5892,15 +6496,44 @@ void UnfreezeThreads (void)
                 dprintf("%s: ResumeThread failed\n", DebuggerName);
                 return;
                 }
-//          ASSERT(b);
+//          assert(b);
             pThread->fSuspend = FALSE;
             }
         pThread = pThread->pThreadNext;
         }
 }
+
+#endif      // ifndef KERNEL
+
+#ifdef CHICAGO
+ULONG DbgPrompt( char *Prompt, char *buffer, ULONG cb)
+{
+    gets(buffer);
+
+    return strlen(buffer);
+}
+
+ULONG DbgPrint( char *Text, ... )
+{
+    char Temp[1024];
+    va_list valist;
+
+    va_start(valist, Text);
+    wvsprintf(Temp,Text,valist);
+    OutputDebugString(Temp);
+    va_end(valist);
+
+    return 0;
+
+}
 #endif
 
-int NtsdPrompt (char *Prompt, char *Buffer, int cb)
+int
+NtsdPrompt (
+    char *Prompt,
+    char *Buffer,
+    int cb
+    )
 {
 #ifdef KERNEL
     dprintf(Prompt);
@@ -5963,6 +6596,7 @@ int NtsdPrompt (char *Prompt, char *Buffer, int cb)
         s = strlen(Buffer);
         }
     lprintf(Buffer);
+    lprintf("\n");
     return s;
 #endif
 }
@@ -5977,6 +6611,7 @@ GetExpressionRoutine(char * CommandString)
     ULONG ReturnValue;
     PUCHAR pchTemp;
     PUCHAR pchStartSave = pchStart;
+    jmp_buf savejmpbuf;
 
 #ifndef KERNEL
     if ( strcmp(CommandString,"WOW_BIG_BDE_HACK") == 0 ) {
@@ -5992,18 +6627,30 @@ GetExpressionRoutine(char * CommandString)
     }
 #endif
 
-    ReturnValue = (ULONG)NULL;
     pchTemp = pchCommand;
     pchStart = pchCommand = CommandString;
-    ReturnValue = GetExpression();
+    fDisableErrorPrint = TRUE;
+    memcpy( savejmpbuf, cmd_return, sizeof( cmd_return ) );
+    if (setjmp(cmd_return) == 0) {
+        ReturnValue = GetExpression();
+    } else {
+        ReturnValue = 0;
+    }
+    fDisableErrorPrint = FALSE;
     pchCommand = pchTemp;
     pchStart = pchStartSave;
+    memcpy( cmd_return, savejmpbuf, sizeof( cmd_return ) );
     return ReturnValue;
 }
 
-void GetSymbolRoutine (LPVOID offset, PUCHAR pchBuffer, PULONG pDisplacement)
+void
+GetSymbolRoutine (
+    LPVOID offset,
+    PUCHAR pchBuffer,
+    PULONG pDisplacement
+    )
 {
-    GetSymbol((ULONG)offset, pchBuffer, pDisplacement);
+    GetSymbolStdCall((ULONG)offset, pchBuffer, pDisplacement, NULL);
 }
 
 #ifndef KERNEL
@@ -6064,32 +6711,63 @@ fnBangCommandExceptionFilter(
 }
 
 VOID
-fnBangCmd(PUCHAR argstring)
+fnBangCmd(
+    PUCHAR argstring,
+    PUCHAR *pNext
+    )
 {
     PUCHAR  pc;
     PUCHAR  modname;
     PUCHAR  pname;
-    PNTSD_EXTENSION_ROUTINE ExtensionRoutine;
+    PNTSD_EXTENSION_ROUTINE ExtensionRoutine = NULL;
     HANDLE hMod;
     BOOLEAN LoadingDefault;
     ADDR TempAddr;
+    UCHAR string[_MAX_PATH];
+    PUCHAR pc1;
 
     LoadingDefault = FALSE;
 
     if ( NtsdExtensions.nSize == 0 ) {
-         NtsdExtensions.nSize = sizeof(NtsdExtensions);
-         NtsdExtensions.lpOutputRoutine = dprintf;
-         NtsdExtensions.lpGetExpressionRoutine = GetExpressionRoutine;
-         NtsdExtensions.lpGetSymbolRoutine = GetSymbolRoutine;
-         NtsdExtensions.lpDisasmRoutine = disasmExportRoutine;
-         NtsdExtensions.lpCheckControlCRoutine = CheckControlC;
-         }
+        NtsdExtensions.nSize = sizeof(NtsdExtensions);
+        NtsdExtensions.lpOutputRoutine = dprintf;
+        NtsdExtensions.lpGetExpressionRoutine = GetExpressionRoutine;
+        NtsdExtensions.lpGetSymbolRoutine = GetSymbolRoutine;
+        NtsdExtensions.lpDisasmRoutine = disasmExportRoutine;
+        NtsdExtensions.lpCheckControlCRoutine = CheckControlC;
+    }
+
+
+    //
+    // copy the command into a local buffer.  Consume until
+    // a ';' or '\0'.  Leave the original string so that
+    // commands may consume the ';' as well if they want to.
+    //
+
+    //
+    // copy command until a ';' into local buffer
+    // leave argstring pointing to original command.
+    //
+
+    pc = string;
+    pc1 = argstring;
+    while (*pc1 && *pc1 != ';') {
+        *pc++ = *pc1++;
+    }
+    *pc = '\0';
+
+    //
+    // point to next command:
+    //
+    if (pNext) {
+        *pNext = pc1;
+    }
 
     //
     // syntax is module.function argument-string
     //
 
-    pc = argstring;
+    pc = string;
 
     while ((*pc == ' ' ) || (*pc == '\t')) {
         pc++;
@@ -6105,16 +6783,15 @@ fnBangCmd(PUCHAR argstring)
             *pc = '\0';
             pc++;
             }
-        }
-    else {
+    } else {
         if (*pc != '\0') {
             *pc = '\0';
             pc++;
-            }
+        }
         pname = modname;
         modname = "ntsdexts";
         LoadingDefault = TRUE;
-        }
+    }
 
     if ( !pname ) {
         pname = pc;
@@ -6142,51 +6819,65 @@ fnBangCmd(PUCHAR argstring)
     if ( LoadingDefault ) {
         if ( !hNtsdDefaultLibrary ) {
             hNtsdDefaultLibrary = LoadLibrary(modname);
-            }
+        }
         if (DefaultExtDllName) {
             if ( !hNtsdUserDefaultLibrary ) {
                 hNtsdUserDefaultLibrary = LoadLibrary(DefaultExtDllName);
-                }
+            }
             modname = DefaultExtDllName;
             hMod = hNtsdUserDefaultLibrary;
-            }
-        else
+        } else
             hMod = hNtsdDefaultLibrary;
-        }
-    else {
+    } else {
         hMod = LoadLibrary(modname);
-        }
+    }
     if ( !hMod ) {
         dprintf("LoadLibrary(\"%s\") failed\n", modname );
-        return;
-        }
 
-    ExtensionRoutine = (PNTSD_EXTENSION_ROUTINE)GetProcAddress(hMod,pname);
-    if ( !ExtensionRoutine ) {
-        if (DefaultExtDllName) {
-            ExtensionRoutine =
-                (PNTSD_EXTENSION_ROUTINE)GetProcAddress(hNtsdDefaultLibrary,
-                pname);
+    } else {
+
+        ExtensionRoutine = (PNTSD_EXTENSION_ROUTINE)GetProcAddress(hMod,pname);
+        if ( !ExtensionRoutine ) {
+            if (DefaultExtDllName) {
+                ExtensionRoutine =
+                    (PNTSD_EXTENSION_ROUTINE)GetProcAddress(hNtsdDefaultLibrary,
+                    pname);
             }
         }
+    }
+
     if ( !ExtensionRoutine ) {
-        if (!stricmp( pname, "unload" )) {
+        if (!_stricmp( pname, "unload" )) {
             FreeLibrary(hMod);
             if ( LoadingDefault ) {
-                hNtsdDefaultLibrary = NULL;
+                if (hMod == hNtsdDefaultLibrary) {
+                    hNtsdDefaultLibrary = NULL;
+                } else {
+                    hNtsdUserDefaultLibrary = NULL;
                 }
             }
-        else {
+        } else if (!_stricmp( pname, "setdll" )) {
+            dprintf("Setting default dll extension to '%s'\n",pc);
+            SetDefaultExtDllName(pc);
+            FreeLibrary(hMod);
+            if ( LoadingDefault ) {
+                if (hMod == hNtsdDefaultLibrary) {
+                    hNtsdDefaultLibrary = NULL;
+                } else {
+                    hNtsdUserDefaultLibrary = NULL;
+                }
+            }
+        } else {
             dprintf("GetProcAddress(\"%s\",\"%s\") failed\n",modname,pname);
             if ( !LoadingDefault ) {
                 FreeLibrary(hMod);
-                }
             }
+        }
 
         return;
-        }
+    }
     GetRegPCValue(&TempAddr);
-    try {
+    __try {
         (ExtensionRoutine)(
             pProcessCurrent->hProcess,
             pProcessCurrent->pThreadCurrent->hThread,
@@ -6194,13 +6885,17 @@ fnBangCmd(PUCHAR argstring)
             &NtsdExtensions,
             pc
             );
-        }
-    except (fnBangCommandExceptionFilter(GetExceptionInformation(),modname,pname)) {
-        }
+    }
+    __except (fnBangCommandExceptionFilter(GetExceptionInformation(),modname,pname)) {
+    }
+
+#ifdef BP_CORRUPTION
+    ValidateBreakpointTable(__FILE__, __LINE__);
+#endif //BP_CORRUPTION
 
     if ( !LoadingDefault ) {
         FreeLibrary(hMod);
-        }
+    }
 
     return;
 }
@@ -6210,7 +6905,7 @@ static void
 ExpandUserRegs (PUCHAR sz)
 {
     PUCHAR      szSearch = "$ux", szReg, szRegValue;
-    CHAR        cs, cch, tempBuffer[512];
+    CHAR        cs, cch, tempBuffer[_MAX_PATH];
 
     while (TRUE) {
         ULONG   index = 0L;
@@ -6535,7 +7230,7 @@ void ComputeFlatAddress (PADDR paddr, PDESCRIPTOR_TABLE_ENTRY pdesc)
 
 PADDR AddrAdd(PADDR paddr, ULONG scalar)
 {
-//  ASSERT(fFlat(paddr));
+//  assert(fFlat(paddr));
     if (fnotFlat(*paddr))
         ComputeFlatAddress(paddr, NULL);
     Flat(*paddr) += scalar;
@@ -6545,7 +7240,7 @@ PADDR AddrAdd(PADDR paddr, ULONG scalar)
 
 PADDR AddrSub(PADDR paddr, ULONG scalar)
 {
-//  ASSERT(fFlat(paddr));
+//  assert(fFlat(paddr));
     if (fnotFlat(*paddr))
         ComputeFlatAddress(paddr, NULL);
     Flat(*paddr) -= scalar;
@@ -6559,6 +7254,7 @@ PADDR AddrSub(PADDR paddr, ULONG scalar)
 
 NTSTATUS GetClientId()
 {
+#ifndef CHICAGO
         PTEB Teb;
         NTSTATUS Status;
         UNICODE_STRING LinkRecord;
@@ -6576,7 +7272,7 @@ NTSTATUS GetClientId()
         Status = RtlAnsiStringToUnicodeString(&DirectoryName_U,
                                               &Os2RootDirectoryName,
                                               TRUE);
-        ASSERT (NT_SUCCESS(Status));
+        assert (NT_SUCCESS(Status));
 
         if (!NT_SUCCESS(Status)) {
             return(Status);
@@ -6585,7 +7281,7 @@ NTSTATUS GetClientId()
         Status = RtlCreateSecurityDescriptor((PSECURITY_DESCRIPTOR)
                                              &localSecurityDescriptor,
                                              SECURITY_DESCRIPTOR_REVISION);
-        ASSERT( NT_SUCCESS( Status ) );
+        assert( NT_SUCCESS( Status ) );
 
         if (!NT_SUCCESS(Status)) {
             return Status;
@@ -6597,7 +7293,7 @@ NTSTATUS GetClientId()
                                               (PACL) NULL,
                                               FALSE);
 
-        ASSERT( NT_SUCCESS( Status ) );
+        assert( NT_SUCCESS( Status ) );
 
         if (!NT_SUCCESS(Status)) {
             return Status;
@@ -6616,7 +7312,7 @@ NTSTATUS GetClientId()
                                        &ObjectAttributes);
         RtlFreeUnicodeString (&DirectoryName_U);
 
-        ASSERT( NT_SUCCESS( Status ) );
+        assert( NT_SUCCESS( Status ) );
 
         if (!NT_SUCCESS(Status)) {
             return Status;
@@ -6626,7 +7322,7 @@ NTSTATUS GetClientId()
         Status = RtlAnsiStringToUnicodeString( &DirectoryName_U,
                                                &DirectoryName,
                                                TRUE);
-        ASSERT (NT_SUCCESS(Status));
+        assert (NT_SUCCESS(Status));
 
         if (!NT_SUCCESS(Status)) {
             return Status;
@@ -6650,9 +7346,12 @@ NTSTATUS GetClientId()
                                             );
         RtlFreeUnicodeString (&DirectoryName_U);
 
-        ASSERT( NT_SUCCESS( Status ) );
+        assert( NT_SUCCESS( Status ) );
 
         return Status;
+#else
+        return STATUS_UNSUCCESSFUL;
+#endif
 }
 
 #endif
@@ -6762,8 +7461,8 @@ ProcessWatchTraceEvent(
         int instructions_popped = 0;
         /* Fake up sym for printing */
 
-        GetSymbol(TraceDataSyms[TraceData[index].s.SymbolNumber].SymMin,
-                    &Sym.Symbol[0],&Sym.Level);
+        GetSymbolStdCall(TraceDataSyms[TraceData[index].s.SymbolNumber].SymMin,
+                    &Sym.Symbol[0],&Sym.Level, NULL);
 
         WatchLevel += TraceData[index].s.LevelChange;
         if (WatchLevel < 0) {
@@ -6845,6 +7544,47 @@ ProcessWatchTraceEvent(
 
 }
 
+void
+KdDumpVersion( void )
+{
+    ULONG Result;
+    ADDR Addr;
+    ULONG CmNtCSDVersion;
+
+    ADDR32( &Addr, LookupSymbolInDll("CmNtCSDVersion", "NT") );
+    if ( !Addr.off || !GetMemDword( &Addr, &CmNtCSDVersion ) ) {
+        CmNtCSDVersion = 0;
+    }
+
+    dprintf( "Kernel Version %d", vs.MinorVersion );
+    if (CmNtCSDVersion != 0) {
+        dprintf( ": " );
+        if (CmNtCSDVersion & 0xFFFF) {
+            dprintf( " Service Pack %u%c",
+                     (CmNtCSDVersion & 0xFF00) >> 8,
+                     (CmNtCSDVersion & 0xFF) ? 'A' + (CmNtCSDVersion & 0xFF) - 1 : '\0'
+                   );
+        }
+
+        if (CmNtCSDVersion & 0xFFFF0000) {
+            if (CmNtCSDVersion & 0xFFFF) {
+                dprintf( ", " );
+            }
+            dprintf( "RC %u", (CmNtCSDVersion >> 24) & 0xFF );
+            if (CmNtCSDVersion & 0x00FF0000) {
+                dprintf( ".%u", (CmNtCSDVersion >> 16) & 0xFF );
+            }
+        }
+    }
+
+    dprintf( " %s %s\nKernel base = 0x%08x PsLoadedModuleList = 0x%08x\n",
+             (vs.Flags & DBGKD_VERS_FLAG_MP)? "MP" : "UP",
+             vs.MajorVersion == 0xC ? "Checked" : "Free",
+             (DWORD)vs.KernBase,
+             (DWORD)vs.PsLoadedModuleList
+           );
+}
+
 #else // KERNEL
 VOID
 ProcessWatchTraceEvent(
@@ -6860,7 +7600,7 @@ ProcessWatchTraceEvent(
     //
 
     WatchTRCalls++;
-    GetSymbol(Flat(PcAddr),&Sym.Symbol[0],&Sym.Level);
+    GetSymbolStdCall(Flat(PcAddr),&Sym.Symbol[0],&Sym.Level, NULL);
     if (!CurrentWatchSym ) {
 
         /*
@@ -6934,7 +7674,7 @@ ProcessWatchTraceEvent(
             }
             fDeferredDecrement = FALSE;
         }
-        if ( !stricmp(Sym.Symbol,CurrentWatchSym->Symbol) ||
+        if ( !_stricmp(Sym.Symbol,CurrentWatchSym->Symbol) ||
              (*Sym.Symbol == 0)) {
             CurrentWatchSym->InstrCount++;
         } else {
@@ -6951,8 +7691,22 @@ ProcessWatchTraceEvent(
             CurrentWatchSym = pSym;
         }
 
-        if (INCREMENT_LEVEL(buffer)) {
+#ifndef KERNEL
+        //
+        // Adjust watch level to compensate for kernel-mode callbacks
+        //
+        if (CurrentWatchSym->InstrCount == 1) {
+            if (!_stricmp(CurrentWatchSym->Symbol, "ntdll!_KiUserCallBackDispatcher")) {
+                WatchLevel++;
+                CurrentWatchSym->Level = WatchLevel;
+            } else if (!strcmp(CurrentWatchSym->Symbol, "ntdll!_ZwCallbackReturn")) {
+                WatchLevel -= 2;
+                CurrentWatchSym->Level = WatchLevel;
+            }
+        }
+#endif
 
+        if (INCREMENT_LEVEL(buffer)) {
             // check if already queued. If so, this is a "local" procedure
             // call, such as for an inline that is not inlined.
 
@@ -7006,8 +7760,8 @@ ProcessWatchTraceEvent(
     return;
 
 }
-#endif // KERNEL
 
+#endif // KERNEL
 
 void
 PrintVersionInformation(
@@ -7021,11 +7775,27 @@ PrintVersionInformation(
     LPAPI_VERSION lpav;
 #ifdef KERNEL
     PWINDBG_EXTENSION_API_VERSION ExtensionApiVersion;
+
+    KdDumpVersion();
+#else
+    OSVERSIONINFO OsVerInfo;
+
+    OsVerInfo.dwOSVersionInfoSize = sizeof( OsVerInfo );
+    if (GetVersionEx( &OsVerInfo )) {
+        dprintf( "Windows NT %u.%u Build %u",
+                 OsVerInfo.dwMajorVersion,
+                 OsVerInfo.dwMinorVersion,
+                 OsVerInfo.dwBuildNumber
+               );
+        if (OsVerInfo.szCSDVersion[0]) {
+            dprintf( ": %s", OsVerInfo.szCSDVersion );
+        }
+        dprintf( "\n" );
+    }
 #endif
 
-    lpav = ImagehlpApiVersion();
     GetModuleFileName( NULL, buf, sizeof(buf) );
-    strlwr( buf );
+    _strlwr( buf );
     tstamp = GetTimestampForLoadedLibrary( GetModuleHandle( NULL ) );
     p = ctime( &tstamp );
     p[strlen(p)-1] = 0;
@@ -7040,27 +7810,28 @@ PrintVersionInformation(
     tstamp = GetTimestampForLoadedLibrary( GetModuleHandle( "imagehlp.dll" ) );
     p = ctime( &tstamp );
     p[strlen(p)-1] = 0;
-    strlwr( buf );
+    _strlwr( buf );
     dprintf(
         "imagehlp version: %d.%d.%d, built: %s [name: %s]\n",
-        lpav->MajorVersion,
-        lpav->MinorVersion,
-        lpav->Revision,
+        ImagehlpAV.MajorVersion,
+        ImagehlpAV.MinorVersion,
+        ImagehlpAV.Revision,
         p,
         buf );
 
 #ifdef KERNEL
-    fnBangCmd( "getloaded" );
+
+    fnBangCmd( "getloaded", NULL );
     if (hDefaultLibrary) {
         ExtensionApiVersion = (PWINDBG_EXTENSION_API_VERSION)
             GetProcAddress( hDefaultLibrary, "ExtensionApiVersion" );
         if (ExtensionApiVersion) {
-            lpav = ExtensionApiVersion();
+            lpav = (LPAPI_VERSION)ExtensionApiVersion();
             GetModuleFileName( hDefaultLibrary, buf, sizeof(buf) );
             tstamp = GetTimestampForLoadedLibrary( hDefaultLibrary );
             p = ctime( &tstamp );
             p[strlen(p)-1] = 0;
-            strlwr( buf );
+            _strlwr( buf );
             dprintf(
                 "kdext    version: %d.%d.%d, built: %s [name: %s]\n",
                 lpav->MajorVersion,
@@ -7069,7 +7840,7 @@ PrintVersionInformation(
                 p,
                 buf );
         }
-        fnBangCmd( "version" );
+        fnBangCmd( "version", NULL );
     }
 #endif
 }
@@ -7085,36 +7856,64 @@ VerifyVersionInformation(
     PWINDBG_EXTENSION_API_VERSION ExtensionApiVersion;
 #endif
 
-    lpav = ImagehlpApiVersion();
-    if ((lpav->MinorVersion != ApiVersion.MinorVersion) ||
-        (lpav->MajorVersion != ApiVersion.MajorVersion) ||
-        (lpav->Revision     != ApiVersion.Revision)) {
+    ImagehlpAV = *ImagehlpApiVersion();
+    if ((ImagehlpAV.MinorVersion != ApiVersion.MinorVersion) ||
+        (ImagehlpAV.MajorVersion != ApiVersion.MajorVersion) ||
+        (ImagehlpAV.Revision     != ApiVersion.Revision)) {
         //
         // bad version match
         //
         dprintf( "imagehlp.dll has a version mismatch with the debugger\n\n" );
-        PrintVersionInformation();
-        ExitProcess( 1 );
+        if (!MYOB) {
+            PrintVersionInformation();
+            ExitProcess( 1 );
+        }
     }
 
 #ifdef KERNEL
-    fnBangCmd( "getloaded" );
+    fnBangCmd( "getloaded", NULL );
     if (hDefaultLibrary) {
         ExtensionApiVersion = (PWINDBG_EXTENSION_API_VERSION)
             GetProcAddress( hDefaultLibrary, "ExtensionApiVersion" );
         if (ExtensionApiVersion) {
-            lpav = ExtensionApiVersion();
+            lpav = (LPAPI_VERSION)ExtensionApiVersion();
             if ((lpav->MinorVersion != ApiVersion.MinorVersion) ||
                 (lpav->MajorVersion != ApiVersion.MajorVersion) ||
                 (lpav->Revision     != ApiVersion.Revision)) {
                 //
                 // bad version match
                 //
-                dprintf( "kdext.dll has a version mismatch with the debugger\n\n" );
-                PrintVersionInformation();
-                ExitProcess( 1 );
+                dprintf( "kdext.dll has a version mismatch with the debugger:\n" );
+                dprintf( "        ext  dbg\n");
+                dprintf( "major: %04x %04x\nminor: %04x %04x\nrev:   %04x %04x\n\n",
+                lpav->MinorVersion, ApiVersion.MinorVersion,
+                lpav->MajorVersion, ApiVersion.MajorVersion,
+                lpav->Revision    , ApiVersion.Revision);
+
+                if (!MYOB) {
+                    PrintVersionInformation();
+                    ExitProcess( 1 );
+                }
             }
         }
     }
 #endif
+}
+
+DWORD
+GetContinueStatus (
+    DWORD fFirstChance,
+    BOOLEAN fDefault
+    )
+{
+    if (cmdState == 'g') {
+        if (chExceptionHandle == 'h')
+            return (DWORD)DBG_EXCEPTION_HANDLED;
+        if (chExceptionHandle == 'n')
+            return (DWORD)DBG_EXCEPTION_NOT_HANDLED;
+        }
+    if (!fFirstChance || fDefault)
+        return (DWORD)DBG_EXCEPTION_HANDLED;
+    else
+        return (DWORD)DBG_EXCEPTION_NOT_HANDLED;
 }

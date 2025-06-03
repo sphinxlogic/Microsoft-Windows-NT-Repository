@@ -35,7 +35,7 @@ Revision History:
 VOID
 FASTCALL
 KiUnwaitThread (
-    IN PKTHREAD Thread,
+    IN PRKTHREAD Thread,
     IN NTSTATUS WaitStatus,
     IN KPRIORITY Increment
     )
@@ -68,13 +68,7 @@ Return Value:
     PKPROCESS Process;
     PKQUEUE Queue;
     PKTIMER Timer;
-    PKWAIT_BLOCK WaitBlock;
-
-    //
-    // Decrement the number of threads waiting for the specified reason.
-    //
-
-    KeWaitReason[Thread->WaitReason] -= 1;
+    PRKWAIT_BLOCK WaitBlock;
 
     //
     // Set wait completion status, remove wait blocks from object wait
@@ -95,7 +89,7 @@ Return Value:
     //
 
     Timer = &Thread->Timer;
-    if (Timer->Inserted != FALSE) {
+    if (Timer->Header.Inserted != FALSE) {
         KiRemoveTreeTimer(Timer);
     }
 
@@ -103,11 +97,8 @@ Return Value:
     // If the thread is processing a queue entry, then increment the
     // count of currently active threads.
     //
-    // N.B. The normal context field of the thread suspend APC object is
-    //      used to hold the address of the queue object.
-    //
 
-    Queue = (PKQUEUE)Thread->SuspendApc.NormalContext;
+    Queue = Thread->Queue;
     if (Queue != NULL) {
         Queue->CurrentCount += 1;
     }
@@ -120,8 +111,13 @@ Return Value:
 
     Process = Thread->ApcState.Process;
     if (Thread->Priority < LOW_REALTIME_PRIORITY) {
-        if (Thread->PriorityDecrement == 0) {
+        if ((Thread->PriorityDecrement == 0) &&
+            (Thread->DisableBoost == FALSE)) {
             NewPriority = Thread->BasePriority + Increment;
+            if (((PEPROCESS)Process)->Vm.MemoryPriority == MEMORY_PRIORITY_FOREGROUND) {
+                NewPriority += PsPrioritySeperation;
+            }
+
             if (NewPriority > Thread->Priority) {
                 if (NewPriority >= LOW_REALTIME_PRIORITY) {
                     Thread->Priority = LOW_REALTIME_PRIORITY - 1;
@@ -136,7 +132,7 @@ Return Value:
             Thread->Quantum = Process->ThreadQuantum;
 
         } else {
-            Thread->Quantum -= (SCHAR)KiWaitQuantumDecrement;
+            Thread->Quantum -= WAIT_QUANTUM_DECREMENT;
             if (Thread->Quantum <= 0) {
                 Thread->Quantum = Process->ThreadQuantum;
                 Thread->Priority -= (Thread->PriorityDecrement + 1);
@@ -161,18 +157,90 @@ Return Value:
 }
 
 VOID
-FASTCALL
-KiWaitSatisfy (
-    IN PKWAIT_BLOCK WaitBlock
+KeBoostCurrentThread(
+    VOID
     )
 
 /*++
 
 Routine Description:
 
-    This function satisfies a wait for a thread and performs any side
-    effects that are necessary. If the type of wait was a wait all, then
-    the side effects are performed on all objects as necessary.
+    This function boosts the priority of the current thread for one quantum,
+    then reduce the thread priority to the base priority of the thread.
+
+Arguments:
+
+    None.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+
+    KIRQL OldIrql;
+    PKTHREAD Thread;
+
+    //
+    // Get current thread address, raise IRQL to synchronization level, and
+    // lock the dispatcher database
+    //
+
+    Thread = KeGetCurrentThread();
+
+redoboost:
+    KiLockDispatcherDatabase(&OldIrql);
+
+    //
+    // If a priority boost is not already active for the current thread
+    // and the thread priority is less than 14, then boost the thread
+    // priority to 14 and give the thread a large quantum. Otherwise,
+    // if a priority boost is active, then decrement the round trip
+    // count. If the count goes to zero, then release the dispatcher
+    // database lock, lower the thread priority to the base priority,
+    // and then attempt to boost the priority again. This will give
+    // other threads a chance to run. If the count does not reach zero,
+    // then give the thread another large qunatum.
+    //
+    // If the thread priority is above 14, then no boost is applied.
+    //
+
+    if ((Thread->PriorityDecrement == 0) && (Thread->Priority < 14)) {
+        Thread->PriorityDecrement = 14 - Thread->BasePriority;
+        Thread->DecrementCount = ROUND_TRIP_DECREMENT_COUNT;
+        Thread->Priority = 14;
+        Thread->Quantum = Thread->ApcState.Process->ThreadQuantum * 2;
+
+    } else if (Thread->PriorityDecrement != 0) {
+        Thread->DecrementCount -= 1;
+        if (Thread->DecrementCount == 0) {
+            KiUnlockDispatcherDatabase(OldIrql);
+            KeSetPriorityThread(Thread, Thread->BasePriority);
+            goto redoboost;
+
+        } else {
+            Thread->Quantum = Thread->ApcState.Process->ThreadQuantum * 2;
+        }
+    }
+
+    KiUnlockDispatcherDatabase(OldIrql);
+    return;
+}
+
+VOID
+FASTCALL
+KiWaitSatisfyAll (
+    IN PRKWAIT_BLOCK WaitBlock
+    )
+
+/*++
+
+Routine Description:
+
+    This function satisfies a wait all and performs any side effects that
+    are necessary.
 
 Arguments:
 
@@ -187,8 +255,8 @@ Return Value:
 {
 
     PKMUTANT Object;
-    PKTHREAD Thread;
-    PKWAIT_BLOCK WaitBlock1;
+    PRKTHREAD Thread;
+    PRKWAIT_BLOCK WaitBlock1;
 
     //
     // If the wait type was WaitAny, then perform neccessary side effects on
@@ -199,10 +267,13 @@ Return Value:
     WaitBlock1 = WaitBlock;
     Thread = WaitBlock1->Thread;
     do {
-        Object = (PKMUTANT)WaitBlock1->Object;
-        KiWaitSatisfyAny(Object, Thread);
+        if (WaitBlock1->WaitKey != (CSHORT)STATUS_TIMEOUT) {
+            Object = (PKMUTANT)WaitBlock1->Object;
+            KiWaitSatisfyAny(Object, Thread);
+        }
+
         WaitBlock1 = WaitBlock1->NextWaitBlock;
-    } while ((WaitBlock->WaitType != WaitAny) && (WaitBlock1 != WaitBlock));
+    } while (WaitBlock1 != WaitBlock);
 
     return;
 }
@@ -237,10 +308,10 @@ Return Value:
 
     PKEVENT Event;
     PLIST_ENTRY ListHead;
-    PKWAIT_BLOCK NextBlock;
+    PRKWAIT_BLOCK NextBlock;
     PKMUTANT Mutant;
-    PKTHREAD Thread;
-    PKWAIT_BLOCK WaitBlock;
+    PRKTHREAD Thread;
+    PRKWAIT_BLOCK WaitBlock;
     PLIST_ENTRY WaitEntry;
 
     //
@@ -285,7 +356,7 @@ Return Value:
             //
 
             WaitEntry = WaitEntry->Blink;
-            KiWaitSatisfy(WaitBlock);
+            KiWaitSatisfyAll(WaitBlock);
 
         } else {
 

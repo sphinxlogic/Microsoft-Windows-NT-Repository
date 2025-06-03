@@ -39,6 +39,13 @@ StartNextRequest(
     IN PRCB Rcb
     );
 
+#ifdef POOL_TAGGING
+#ifdef ExAllocatePool
+#undef ExAllocatePool
+#endif
+#define ExAllocatePool(a,b) ExAllocatePoolWithTag(a,b,' StF')
+#endif
+
 
 NTSTATUS
 StripeDispatch(
@@ -69,17 +76,17 @@ Return Value:
 
 {
     PDEVICE_EXTENSION  deviceExtension = DeviceObject->DeviceExtension;
-    PRCB               rcb;
     PIO_STACK_LOCATION irpStack = IoGetCurrentIrpStackLocation(Irp);
     PIO_STACK_LOCATION nextStack = IoGetNextIrpStackLocation(Irp);
+    ULONG              bytesRemaining = irpStack->Parameters.Read.Length;
+    LARGE_INTEGER      startingOffset = irpStack->Parameters.Read.ByteOffset;
+    LARGE_INTEGER      targetOffset;
+    PRCB               rcb;
     PULONG             irpCountAddress;
     ULONG              numberOfMembers;
     ULONG              whichStripe;
     ULONG              whichRow;
     ULONG              whichMember;
-    LARGE_INTEGER      startingOffset = irpStack->Parameters.Read.ByteOffset;
-    LARGE_INTEGER      targetOffset;
-    ULONG              bytesRemaining = irpStack->Parameters.Read.Length;
     ULONG              length;
 
     //
@@ -200,8 +207,7 @@ stripeDispatchContinue:
         // Calculate the ordinal of the stripe in which this IO starts.
         //
 
-        whichStripe = LiShr(startingOffset,
-                            STRIPE_SHIFT).LowPart;
+        whichStripe = (ULONG) (startingOffset.QuadPart >> STRIPE_SHIFT);
 
         //
         // Calculate the row in which this stripe occurs.
@@ -219,9 +225,9 @@ stripeDispatchContinue:
         // Calculate target partition offset.
         //
 
-        targetOffset =
-            LiFromUlong((whichRow << STRIPE_SHIFT) +
-                         STRIPE_OFFSET(startingOffset.LowPart));
+        targetOffset.QuadPart = whichRow;
+        targetOffset.QuadPart = targetOffset.QuadPart << STRIPE_SHIFT;
+        targetOffset.QuadPart += STRIPE_OFFSET(startingOffset.LowPart);
 
         //
         // Make sure IO doesn't cross stripe boundary.
@@ -308,8 +314,7 @@ stripeDispatchContinue:
         // Increment count of IRPs.
         //
 
-        ExInterlockedIncrementLong(irpCountAddress,
-                 &deviceExtension->IrpCountSpinLock);
+        InterlockedIncrement(irpCountAddress);
 
         //
         // Continue processing specific to FtType.
@@ -380,8 +385,7 @@ stripeDispatchContinue:
         // Adjust starting offset.
         //
 
-        startingOffset = LiAdd(startingOffset,
-                               LiFromUlong(length));
+        startingOffset.QuadPart += length;
 
     } while (bytesRemaining);
 
@@ -389,9 +393,7 @@ stripeDispatchContinue:
     // Decrement IRP count and check for completion.
     //
 
-    if (ExInterlockedDecrementLong(
-         irpCountAddress,
-         &deviceExtension->IrpCountSpinLock) == ResultZero) {
+    if (InterlockedDecrement(irpCountAddress) == 0) {
 
         FtpCompleteRequest(Irp, IO_NO_INCREMENT);
     }
@@ -510,9 +512,7 @@ Return Value:
         // have completed.
         //
 
-        if (ExInterlockedDecrementLong(
-             Rcb->IrpCount,
-             &deviceExtension->IrpCountSpinLock) == ResultZero) {
+        if (InterlockedDecrement(Rcb->IrpCount) == 0) {
 
             FtpCompleteRequest(originalIrp, IO_NO_INCREMENT);
         }
@@ -1037,9 +1037,7 @@ errorCleanup:
         // have completed.
         //
 
-        if (ExInterlockedDecrementLong(
-             Rcb->IrpCount,
-             &deviceExtension->IrpCountSpinLock) == ResultZero) {
+        if (InterlockedDecrement(Rcb->IrpCount) == 0) {
 
             FtpCompleteRequest(originalIrp, IO_NO_INCREMENT);
         }
@@ -1233,9 +1231,7 @@ Return Value:
     // IRPs have completed.
     //
 
-    if (ExInterlockedDecrementLong(
-            rcb->IrpCount,
-            &rcb->ZeroExtension->IrpCountSpinLock) == ResultZero) {
+    if (InterlockedDecrement(rcb->IrpCount) == 0) {
 
         //
         // Complete original IRP.
@@ -1376,23 +1372,18 @@ Return Value:
 
     if (rcb->Flags & RCB_FLAGS_SECOND_PHASE) {
 
-        if (Irp) {
+        //
+        // Free IRP and MDL.
+        //
 
-            //
-            // Free IRP and MDL.
-            //
-
-            FtpFreeMdl(Irp->MdlAddress);
-            IoFreeIrp(Irp);
-        }
+        FtpFreeMdl(rcb->SecondaryIrp->MdlAddress);
+        IoFreeIrp(rcb->SecondaryIrp);
 
         //
         // Check if both write requests have completed.
         //
 
-        if (ExInterlockedDecrementLong(
-            rcb->IrpCount,
-            &rcb->ZeroExtension->IrpCountSpinLock) == ResultZero) {
+        if (InterlockedDecrement(rcb->IrpCount) == 0) {
 
             goto completeRequest;
         }
@@ -1404,9 +1395,7 @@ Return Value:
     // Check if both read requests have completed.
     //
 
-    if (ExInterlockedDecrementLong(
-        rcb->IrpCount,
-        &rcb->ZeroExtension->IrpCountSpinLock) == ResultZero) {
+    if (InterlockedDecrement(rcb->IrpCount) == 0) {
 
         //
         // Check which read this is. The parity read buffer is the
@@ -1478,8 +1467,6 @@ Return Value:
         // Set number of IRPs to complete back to 2 for the writes.
         //
 
-        targetRcb->IrpCount = parityRcb->IrpCount =
-            (PULONG)&targetRcb->Link;
         *parityRcb->IrpCount = 2;
 
         //
@@ -1529,9 +1516,7 @@ Return Value:
             // There will not be a target write.
             //
 
-            if (ExInterlockedDecrementLong(
-                targetRcb->IrpCount,
-                &rcb->ZeroExtension->IrpCountSpinLock) == ResultZero) {
+            if (InterlockedDecrement(targetRcb->IrpCount) == 0) {
 
                 //
                 // This can't happen.
@@ -1592,9 +1577,7 @@ Return Value:
             // Check if target already completed.
             //
 
-            if (ExInterlockedDecrementLong(
-                parityRcb->IrpCount,
-                &rcb->ZeroExtension->IrpCountSpinLock) == ResultZero) {
+            if (InterlockedDecrement(parityRcb->IrpCount) == 0) {
 
                 goto completeRequest;
             }
@@ -1637,9 +1620,7 @@ completeRequest:
     // Check if original request is done.
     //
 
-    if (ExInterlockedDecrementLong(
-        rcb->PreviousRcb->IrpCount,
-        &rcb->ZeroExtension->IrpCountSpinLock) == ResultZero) {
+    if (InterlockedDecrement(rcb->PreviousRcb->IrpCount) == 0) {
 
         //
         // Complete original IRP.
@@ -1806,8 +1787,7 @@ verifyComplete:
     // have completed.
     //
 
-    if (ExInterlockedDecrementLong(Rcb->IrpCount,
-        &deviceExtension->IrpCountSpinLock) == ResultZero) {
+    if (InterlockedDecrement(Rcb->IrpCount) == 0) {
 
         FtpCompleteRequest(originalIrp, IO_DISK_INCREMENT);
     }
@@ -2154,8 +2134,7 @@ Return Value:
         // beginning request offset.
         //
 
-        byteOffset = LiAdd(Rcb->RequestOffset,
-                           LiFromUlong(failingOffset));
+        byteOffset.QuadPart = Rcb->RequestOffset.QuadPart + failingOffset;
 
         //
         // Log bad sector.
@@ -2164,8 +2143,8 @@ Return Value:
         FtpLogError(DeviceExtension,
                     FT_SECTOR_FAILURE,
                     status,
-                    LiXDiv(byteOffset,
-                           memberExtension->FtUnion.Identity.DiskGeometry.BytesPerSector).LowPart,
+                    (ULONG) (byteOffset.QuadPart/
+                             memberExtension->FtUnion.Identity.DiskGeometry.BytesPerSector),
                     NULL);
 
         //
@@ -2207,9 +2186,7 @@ Return Value:
 
         DebugPrint((1,
                     "StripeRecoverFailedIo: Attempt to map bad sector %x\n",
-                    LiShr(LiAdd(Rcb->RequestOffset,
-                                LiFromUlong(failingOffset)),
-                          (CCHAR)9).LowPart));
+                    (ULONG) ((Rcb->RequestOffset.QuadPart + failingOffset)>>9)));
 
         if (FtThreadMapBadSector(memberExtension,
                                  &byteOffset)) {
@@ -2406,18 +2383,20 @@ Return Value:
                            (PDEVICE_EXTENSION)nextStack->FtRootExtensionPtr;
     PFT_SPECIAL_READ   specialRead = Irp->AssociatedIrp.SystemBuffer;
     ULONG              bytesRemaining = specialRead->Length;
-    ULONG              numberOfMembers =
-                           zeroExtension->FtCount.NumberOfMembers;
+    ULONG              numberOfMembers = zeroExtension->FtCount.NumberOfMembers;
+    PVOID              buffer = MmGetSystemAddressForMdl(Irp->MdlAddress);
+    LARGE_INTEGER      startingOffset = specialRead->ByteOffset;
+    LARGE_INTEGER      targetOffset;
     ULONG              whichStripe;
     ULONG              whichRow;
     ULONG              whichMember;
     ULONG              parityMember;
-    LARGE_INTEGER      startingOffset = specialRead->ByteOffset;
-    LARGE_INTEGER      targetOffset;
     ULONG              length;
     PDEVICE_EXTENSION  memberExtension;
-    PVOID              buffer = MmGetSystemAddressForMdl(Irp->MdlAddress);
     NTSTATUS           status;
+
+
+    IoMarkIrpPending(Irp);
 
     //
     // Do primary read.
@@ -2449,8 +2428,7 @@ Return Value:
         // Calculate the ordinal of the stripe in which this IO starts.
         //
 
-        whichStripe = LiShr(startingOffset,
-                            STRIPE_SHIFT).LowPart;
+        whichStripe = (ULONG) (startingOffset.QuadPart >> STRIPE_SHIFT);
 
         //
         // Calculate the row in which this stripe occurs.
@@ -2484,9 +2462,9 @@ Return Value:
         // Calculate target partition offset.
         //
 
-        targetOffset =
-            LiFromUlong((whichRow << STRIPE_SHIFT) +
-                         STRIPE_OFFSET(startingOffset.LowPart));
+        targetOffset.QuadPart = whichRow;
+        targetOffset.QuadPart = targetOffset.QuadPart << STRIPE_SHIFT;
+        targetOffset.QuadPart += STRIPE_OFFSET(startingOffset.LowPart);
 
         //
         // Get member extension.
@@ -2535,8 +2513,7 @@ Return Value:
         // Adjust starting offset.
         //
 
-        startingOffset = LiAdd(startingOffset,
-                               LiFromUlong(length));
+        startingOffset.QuadPart += length;
 
     } while (bytesRemaining);
 
@@ -2925,8 +2902,7 @@ Return Value:
     // Calculate the ordinal of the stripe in which this IO starts.
     //
 
-    whichStripe = LiShr(offset,
-                        STRIPE_SHIFT).LowPart;
+    whichStripe = (ULONG) (offset.QuadPart >> STRIPE_SHIFT);
 
     //
     // Calculate the row in which this stripe occurs.
@@ -2938,9 +2914,8 @@ Return Value:
     // Calculate the ordinal of the stripe in which this IO ends.
     //
 
-    offset = LiSub(offset,LiFromUlong(1));
-    whichStripe = LiShr(LiAdd(offset, SyncInfo->ByteCount),
-                        STRIPE_SHIFT).LowPart;
+    offset.QuadPart -= 1;
+    whichStripe = (ULONG) ((offset.QuadPart + SyncInfo->ByteCount.QuadPart)>>STRIPE_SHIFT);
 
     //
     // Calculate the row in which this stripe occurs.
@@ -2993,8 +2968,7 @@ Return Value:
                 // and grabbing more memory for another row. Delay 10ms
                 //
 
-                delay = RtlLargeIntegerNegate(
-                                  RtlConvertLongToLargeInteger((LONG)(100000)));
+                delay.QuadPart = -100000;
                 KeDelayExecutionThread(KernelMode,
                                        FALSE,
                                        &delay);
@@ -3013,8 +2987,7 @@ Return Value:
             // I/O scheduled complete and free up memory for RCBs
             //
 
-            delay = RtlLargeIntegerNegate(
-                                RtlConvertLongToLargeInteger((LONG)(5000000)));
+            delay.QuadPart = -5000000;
             KeDelayExecutionThread(KernelMode,
                                    FALSE,
                                    &delay);
@@ -3081,18 +3054,17 @@ Return Value:
 --*/
 
 {
-    LARGE_INTEGER delay;
     PDEVICE_EXTENSION deviceExtension = Rcb->ZeroExtension;
-    ULONG         numberOfMembers =
-                    deviceExtension->FtCount.NumberOfMembers;
-    ULONG         bytesPerSector =
-                    deviceExtension->FtUnion.Identity.DiskGeometry.BytesPerSector;
-    PVOID         buffer;
-    LARGE_INTEGER targetOffset;
+    ULONG             numberOfMembers = deviceExtension->FtCount.NumberOfMembers;
+    ULONG             bytesPerSector =
+                       deviceExtension->FtUnion.Identity.DiskGeometry.BytesPerSector;
+    NTSTATUS          status = STATUS_SUCCESS;
+    PVOID             buffer;
+    LARGE_INTEGER     targetOffset;
+    LARGE_INTEGER     delay;
     PDEVICE_EXTENSION parityExtension;
-    NTSTATUS      status = STATUS_SUCCESS;
-    ULONG         bytesLeft;
-    ULONG         byteCount;
+    ULONG             bytesLeft;
+    ULONG             byteCount;
 
     //
     // Recover entire stripe if possible.
@@ -3134,8 +3106,7 @@ syncRowRetry:
             // and grabbing more memory for another row. Delay 10ms
             //
 
-            delay = RtlLargeIntegerNegate(
-                              RtlConvertLongToLargeInteger((LONG)(100000)));
+            delay.QuadPart = -100000;
 
             KeDelayExecutionThread(KernelMode,
                                    FALSE,
@@ -3156,7 +3127,8 @@ syncRowRetry:
     // Calculate target offset.
     //
 
-    targetOffset = LiShl(LiFromUlong(Rcb->WhichRow), STRIPE_SHIFT);
+    targetOffset.QuadPart = Rcb->WhichRow;
+    targetOffset.QuadPart = targetOffset.QuadPart << STRIPE_SHIFT;
 
     bytesLeft = byteCount;
     while (bytesLeft) {
@@ -3216,8 +3188,7 @@ syncRowRetry:
 
                 DebugPrint((1,
                             "StripeSynchronizeRow: IO to block %x failed(%x)\n",
-                            LiXDiv(targetOffset,
-                                   bytesPerSector).LowPart,
+                            (ULONG) (targetOffset.QuadPart/bytesPerSector),
                             status));
 
                 //
@@ -3227,8 +3198,7 @@ syncRowRetry:
                 FtpLogError(deviceExtension,
                             FT_SECTOR_FAILURE,
                             status,
-                            LiXDiv(targetOffset,
-                                   bytesPerSector).LowPart,
+                            (ULONG) (targetOffset.QuadPart/bytesPerSector),
                             NULL);
 
             } else {
@@ -3248,8 +3218,7 @@ syncRowRetry:
         //
 
         bytesLeft -= byteCount;
-        targetOffset = LiAdd(targetOffset,
-                             LiFromUlong(byteCount));
+        targetOffset.QuadPart += byteCount;
     }
 
 SynchronizeRowEnd:
@@ -3352,9 +3321,8 @@ Return Value:
     FtpVolumeLength(DeviceExtension,
                     &volumeLength);
 
-    volumeLength = LiSub(volumeLength, LiFromUlong(1));
-    lastStripe = LiShr(volumeLength,
-                        STRIPE_SHIFT).LowPart;
+    volumeLength.QuadPart -= 1;
+    lastStripe = (ULONG) (volumeLength.QuadPart >> STRIPE_SHIFT);
 
     //
     // Set starting row.
@@ -3413,8 +3381,7 @@ Return Value:
                 // and grabbing more memory for another row. Delay 10ms
                 //
 
-                delay = RtlLargeIntegerNegate(
-                                  RtlConvertLongToLargeInteger((LONG)(100000)));
+                delay.QuadPart = -100000;
             }
 
             //
@@ -3438,8 +3405,7 @@ Return Value:
             // I/O scheduled complete and free up memory for RCBs
             //
 
-            delay = RtlLargeIntegerNegate(
-                                RtlConvertLongToLargeInteger((LONG)(5000000)));
+            delay.QuadPart = -5000000;
             KeDelayExecutionThread(KernelMode,
                                    FALSE,
                                    &delay);
@@ -3570,4 +3536,3 @@ Return Value:
     return;
 
 } // end RestartRequestsWaitingOnBuffers()
-

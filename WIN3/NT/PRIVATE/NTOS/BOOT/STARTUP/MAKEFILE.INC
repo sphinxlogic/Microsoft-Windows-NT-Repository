@@ -123,4 +123,3 @@ obj\i386\startup.com
 $(LIBS)
 
 <<
-

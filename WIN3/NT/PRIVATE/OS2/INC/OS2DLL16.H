@@ -157,6 +157,10 @@ typedef struct _OS21X_SEM {
     struct      OS21X_SEM *Next;  // Per process list for cleanup
 } OS21X_SEM, *POS21X_SEM;
 
+#define SYSSEM_QUEUE        4
+#define SYSSEM_PRIVATE      2
+#define SYSSEM_PUBLIC       1
+
 
         //
         // per process Semaphore list head
@@ -299,11 +303,15 @@ Od2JumpTo16ExitRoutine(
         PFNEXITLIST ExitRoutine,
         ULONG ExitReason);
 
+#define SEM_FROM_SET    0
+#define SEM_FROM_REQUESTWAIT 1
+#define SEM_FROM_CLEAR 2
+
 POS21X_SEM
 Od2LookupOrCreateSem (
         HSEM hsem,
         PBOOLEAN firsttime,
-        BOOLEAN MakeRequestSem
+        ULONG source
         );
 
 #pragma pack(1)

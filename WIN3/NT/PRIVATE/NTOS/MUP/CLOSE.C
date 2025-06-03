@@ -81,6 +81,14 @@ Return Value:
     PAGED_CODE();
     DebugTrace(+1, Dbg, "MupClose\n", 0);
 
+    if (MupEnableDfs &&
+            MupDeviceObject->DeviceObject.DeviceType == FILE_DEVICE_DFS) {
+        status = DfsFsdClose((PDEVICE_OBJECT) MupDeviceObject, Irp);
+        return( status );
+    }
+
+    FsRtlEnterFileSystem();
+
     try {
 
         //
@@ -108,6 +116,7 @@ Return Value:
             status = STATUS_INVALID_HANDLE;
 
             DebugTrace(-1, Dbg, "MupClose -> %08lx\n", status );
+            FsRtlExitFileSystem();
             return status;
         }
 
@@ -167,6 +176,8 @@ Return Value:
         status = GetExceptionCode();
 
     }
+
+    FsRtlExitFileSystem();
 
     DebugTrace(-1, Dbg, "MupClose -> %08lx\n", status);
     return status;

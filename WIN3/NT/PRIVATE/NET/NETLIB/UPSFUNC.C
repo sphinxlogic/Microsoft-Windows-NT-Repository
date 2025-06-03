@@ -528,7 +528,7 @@ Return Value:
 #if DBG
     if (serviceStatus.dwCurrentState != SERVICE_STOPPED
         && serviceStatus.dwCurrentState != SERVICE_PAUSED) {
-        NetpDbgPrint("UpsNotifyUsers: service object not in expected state\n");
+        NetpKdPrint(("UpsNotifyUsers: service object not in expected state\n"));
     }
 #endif
 
@@ -657,7 +657,7 @@ Return Value:
 
 #if DBG
             if (enumStatus != NERR_Success && enumStatus != ERROR_MORE_DATA) {
-                NetpDbgPrint("UpsNotifyUsers: NetSessionEnum(level 10) returns %u\n", enumStatus);
+                NetpKdPrint(("UpsNotifyUsers: NetSessionEnum(level 10) returns %u\n", enumStatus));
             }
 #endif
 

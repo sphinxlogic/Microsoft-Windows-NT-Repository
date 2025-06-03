@@ -10,4 +10,4 @@ WARNDAT (WARN_SCOPE,        "error in lexical scopes for module %s, symbols dele
 WARNDAT (WARN_CHECKSUM_OPEN_FAILURE,    "could not open exe file for checksum computation - %s")
 WARNDAT (WARN_CHECKSUM_MAP_FAILURE,     "could not map exe file for checksum computation - %s")
 WARNDAT (WARN_CHECKSUM_MAPVIEW_FAILURE, "could not mapview of exe file for checksum computation - %s")
-
+

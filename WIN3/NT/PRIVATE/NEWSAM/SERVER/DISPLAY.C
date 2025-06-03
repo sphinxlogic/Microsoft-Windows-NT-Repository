@@ -8,7 +8,7 @@ Module Name:
 
 Abstract:
 
-    This file contains services for maintaining the cached display 
+    This file contains services for maintaining the cached display
     information.
 
     The information is stored in multiple tables because there are
@@ -43,7 +43,7 @@ Abstract:
 
 
 
-Author: 
+Author:
 
     Dave Chalmers   (Davidc)  1-April-1992
 
@@ -295,6 +295,15 @@ VOID
 SampDisplayDiagEnumRids( VOID );
 
 
+
+LONG
+SampCompareDisplayStrings(
+    IN PUNICODE_STRING String1,
+    IN PUNICODE_STRING String2,
+    IN BOOLEAN IgnoreCase
+    );
+
+
 //
 // Macros for deciding whether an account is:
 //
@@ -376,6 +385,17 @@ typedef struct _SAMP_DISPLAY_ENTRY_HEADER {
     ULONG           Rid;
 
 } SAMP_DISPLAY_ENTRY_HEADER, *PSAMP_DISPLAY_ENTRY_HEADER;
+
+
+///////////////////////////////////////////////////////////////////////////////
+//                                                                           //
+// Module-wide variables                                                     //
+//                                                                           //
+///////////////////////////////////////////////////////////////////////////////
+
+
+LCID  SampSystemDefaultLCID;
+
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1588,10 +1608,10 @@ Return Values:
                     //
 
                     CompareResult = (*CompareRoutine)( NextElement, Element );
-                    if (CompareResult != GenericGreaterThan) {
+                    if (CompareResult != GenericLessThan) {
                         break;  // break out of for loop
                     }
-                    
+
                     CurrentIndex++;
                 }
 
@@ -1664,12 +1684,12 @@ Parameters:
     AccountTypesMask - Mask indicating which types of accounts
         the caller wants enumerated.  These included:
 
-                SAM_USER_ACCOUNT         
-                SAM_GLOBAL_GROUP_ACCOUNT 
+                SAM_USER_ACCOUNT
+                SAM_GLOBAL_GROUP_ACCOUNT
                 SAM_LOCAL_GROUP_ACCOUNT     (not yet supported)
 
     StartingRid - A rid that is less than the lowest value rid to be
-        included in the enumeration.  
+        included in the enumeration.
 
 
     PreferedMaximumLength - Provides a restriction on how much memory
@@ -1682,7 +1702,7 @@ Parameters:
         ReturnCount is zero, then this will be returned as NULL.
         Otherwise, it will point to an array containing ReturnCount
         rids.
-        
+
 Return Values:
 
     STATUS_SUCCESS - The Service completed successfully, and there
@@ -1693,7 +1713,7 @@ Return Values:
 
     STATUS_INVALID_INFO_CLASS - The specified AccountTypesMask contained
         unknown or unsupported account types.
-    
+
     STATUS_NO_MEMORY - Could not allocate pool to complete the call.
 
 --*/
@@ -1781,17 +1801,17 @@ Return Values:
         }
 
         if (NT_SUCCESS(NtStatus)) {
-        
+
             //
             // Allocate a return buffer.
             // Only allocate as much as we can use.
             // This is limited either by PreferedMaximumLength
             // or the number of entries in the table.
-            // 
+            //
 
             MaxEntries =
                 ( PreferedMaximumLength / sizeof(ULONG) );
-        
+
             if (MaxEntries == 0) {
                 MaxEntries = 1;  // Always return at least one
             }
@@ -1799,28 +1819,28 @@ Return Values:
             if (MaxEntries > RtlNumberElementsGenericTable2(Table) ) {
                 MaxEntries = RtlNumberElementsGenericTable2(Table);
             }
-        
+
             PreferedMaximumLength = MaxEntries *
                                     sizeof(SAMP_DISPLAY_ENTRY_HEADER);
-        
+
             (*AccountRids) = MIDL_user_allocate( PreferedMaximumLength );
             if ((*AccountRids) == NULL) {
                 STATUS_NO_MEMORY;
             }
-        
+
             //
             // Get the restart key based upon the passed in RID.
             //
-        
+
             Table = &Domain->DisplayInformation.RidTable;
             RestartValue.Rid = StartingRid;
-        
+
             Element = RtlRestartKeyByValueGenericTable2(
                           Table,
                           &RestartValue,
                           &RestartKey
                           );
-        
+
             //
             // Now we may loop obtaining entries until we reach
             // either MaxEntries or the end of the table.
@@ -1834,7 +1854,7 @@ Return Values:
             // list again.  Instead, return status indicating we have
             // no more entries.
             //
-        
+
             Count = 0;
             if (((Element != NULL) && (RestartKey == NULL))) {
 
@@ -1845,11 +1865,11 @@ Return Values:
                 for (Element  = RtlEnumerateGenericTable2(Table, &RestartKey);
                      ( (Element != NULL)  && (Count < MaxEntries) );
                      Element = RtlEnumerateGenericTable2(Table, &RestartKey)) {
-        
+
                     //
                     // Make sure this is an account that was asked for
                     //
-        
+
                     AccountType = Element->Index;
                     if ((AccountType & AccountTypesMask) != 0) {
                         (*AccountRids)[Count] = Element->Rid;
@@ -1857,7 +1877,7 @@ Return Values:
                     }
                 }
             }
-        
+
             //
             // Now figure out what we have done:
             //
@@ -1866,26 +1886,26 @@ Return Values:
             //
             //      Count == 0 => free AccountRid array.
             //
-        
+
             if (Element == NULL) {
                 NtStatus = STATUS_SUCCESS;
             } else {
                 NtStatus = STATUS_MORE_ENTRIES;
             }
-        
+
             if (Count == 0) {
                 MIDL_user_free( (*AccountRids) );
                 (*AccountRids) = NULL;
             }
-        
+
             (*ReturnCount) = Count;
-        
+
         }
-        
+
         //
         // De-reference the object
         //
-        
+
         IgnoreStatus = SampDeReferenceContext( DomainContext, FALSE);
         ASSERT(NT_SUCCESS(IgnoreStatus));
     }
@@ -1940,6 +1960,12 @@ Return Values:
 --*/
 {
     PSAMP_DOMAIN_DISPLAY_INFORMATION DisplayInformation;
+
+    //
+    // This must be initialized before we use SampCompareDisplayStrings().
+    //
+
+    SampSystemDefaultLCID = GetSystemDefaultLCID();
 
     DisplayInformation = &SampDefinedDomains[DomainIndex].DisplayInformation;
 
@@ -2025,7 +2051,7 @@ Routine Description:
             With the addition of the RID table, this becomes
             problematic.  So, now the approach is to flush all tables
             for a domain if any the tables in that domain are flushed.
-            
+
 
 Parameters:
 
@@ -2046,25 +2072,25 @@ Return Values:
     //
     // Empty the user table and check it really is empty
     //
-    
+
     NtStatus = SampEmptyGenericTable2(&DisplayInformation->UserTable, FALSE);
     ASSERT(NT_SUCCESS(NtStatus));
-    
+
     ASSERT(RtlIsGenericTable2Empty(&DisplayInformation->UserTable));
-    
+
     DisplayInformation->TotalBytesInUserTable = 0;
-    
-    
-    
+
+
+
     //
     // Empty the machine table and check it really is empty
     //
-    
+
     NtStatus = SampEmptyGenericTable2(&DisplayInformation->MachineTable, FALSE);
     ASSERT(NT_SUCCESS(NtStatus));
-    
+
     ASSERT(RtlIsGenericTable2Empty(&DisplayInformation->MachineTable));
-    
+
     DisplayInformation->TotalBytesInMachineTable = 0;
 
 
@@ -2072,25 +2098,25 @@ Return Values:
     //
     // Empty the Interdomain table and check it really is empty
     //
-    
+
     NtStatus = SampEmptyGenericTable2(&DisplayInformation->InterdomainTable, FALSE);
     ASSERT(NT_SUCCESS(NtStatus));
-    
+
     ASSERT(RtlIsGenericTable2Empty(&DisplayInformation->InterdomainTable));
-    
+
     DisplayInformation->TotalBytesInInterdomainTable = 0;
 
 
-    
+
     //
     // Empty the Group table and check it really is empty
     //
-    
+
     NtStatus = SampEmptyGenericTable2(&DisplayInformation->GroupTable, FALSE);
     ASSERT(NT_SUCCESS(NtStatus));
-    
+
     ASSERT(RtlIsGenericTable2Empty(&DisplayInformation->GroupTable));
-    
+
     DisplayInformation->TotalBytesInGroupTable = 0;
 
 
@@ -2103,9 +2129,9 @@ Return Values:
 
     NtStatus = SampEmptyGenericTable2(&DisplayInformation->RidTable, FALSE);
     ASSERT(NT_SUCCESS(NtStatus));
-    
+
     ASSERT(RtlIsGenericTable2Empty(&DisplayInformation->RidTable));
-    
+
     DisplayInformation->TotalBytesInRidTable = 0;
 
 }
@@ -2136,7 +2162,7 @@ Routine Description:
             With the addition of the RID table, this becomes
             problematic.  So, now the approach is to flush all tables
             for a domain if any the tables in that domain are flushed.
-            
+
 
 Parameters:
 
@@ -2372,7 +2398,7 @@ SampRetrieveDisplayInfoFromDisk(
             PUNICODE_STRING         AccountName =
                                     (PUNICODE_STRING)&(EnumerationBuffer->Buffer[i].Name);
             SAMP_V1_0A_FIXED_LENGTH_USER UserV1aFixed; // Contains account control
-            SAMP_V1_FIXED_LENGTH_GROUP GroupV1Fixed; // Contains attributes
+            SAMP_V1_0A_FIXED_LENGTH_GROUP GroupV1Fixed; // Contains attributes
             SAMP_ACCOUNT_DISPLAY_INFO AccountInfo;
             PSAMP_OBJECT            AccountContext;
 
@@ -2414,30 +2440,30 @@ SampRetrieveDisplayInfoFromDisk(
                                     NtStatus) );
                         break; // out of for loop
                     }
-            
-            
+
+
                     //
                     // If this is not an account we're interested in skip it
                     //
-            
+
                     if (!DISPLAY_ACCOUNT(UserV1aFixed.UserAccountControl)) {
                         SampDeleteContext( AccountContext );
                         continue; // next account
                     }
-            
-            
-            
+
+
+
                     //
                     // Get the admin comment
                     //
-            
+
                     NtStatus = SampGetUnicodeStringAttribute(
                                    AccountContext,
                                    SAMP_USER_ADMIN_COMMENT,
                                    FALSE, // Don't make copy
                                    &AccountInfo.Comment
                                    );
-            
+
                     if (!NT_SUCCESS(NtStatus)) {
                         SampDeleteContext( AccountContext );
                         SampDiagPrint( DISPLAY_CACHE_ERRORS,
@@ -2446,19 +2472,19 @@ SampRetrieveDisplayInfoFromDisk(
                                     NtStatus) );
                         break; // out of for loop
                     }
-            
-            
+
+
                     //
                     // Get the full name
                     //
-            
+
                     NtStatus = SampGetUnicodeStringAttribute(
                                    AccountContext,
                                    SAMP_USER_FULL_NAME,
                                    FALSE, // Don't make copy
                                    &AccountInfo.FullName
                                    );
-            
+
                     if (!NT_SUCCESS(NtStatus)) {
                         SampDeleteContext( AccountContext );
                         SampDiagPrint( DISPLAY_CACHE_ERRORS,
@@ -2487,11 +2513,11 @@ SampRetrieveDisplayInfoFromDisk(
                                     NtStatus) );
                         break; // out of for loop
                     }
-                                             
+
                     //
                     // Get the admin comment
                     //
-            
+
                     NtStatus = SampGetUnicodeStringAttribute(
                                    AccountContext,
                                    SAMP_GROUP_ADMIN_COMMENT,
@@ -2641,13 +2667,13 @@ Return Values:
 
 
     switch (ObjectType) {
-       
+
     case SampUserObjectType:
 
         //
         // If the cache is Invalid there's nothing to do
         //
-        
+
         if (!DisplayInformation->UserAndMachineTablesValid) {
 
             SampDiagPrint(DISPLAY_CACHE,
@@ -2655,40 +2681,40 @@ Return Values:
 
             return(STATUS_SUCCESS);
         };
-        
-        
+
+
         //
         // If this is an update to an existing account then try
         // to do an inplace update of the cache.
         // If this fails because it's too complex etc, then revert to
         // the less efficient method of deleting the old, then adding the new.
         //
-        
+
         DoUpdate = FALSE;
         if (ARGUMENT_PRESENT(OldAccountInfo) && ARGUMENT_PRESENT(NewAccountInfo)) {
-        
+
             //
             // We can only do an update if both old and new accounts
             // are types that we keep in the display cache.
             //
-        
+
             if ( DISPLAY_ACCOUNT(OldAccountInfo->AccountControl) &&
                  DISPLAY_ACCOUNT(NewAccountInfo->AccountControl) ) {
-        
+
                 //
                 // We can only do an update if the account is still of
                 // the same type. i.e. it hasn't jumped cache table.
                 //
-        
+
                 if ( (USER_ACCOUNT(OldAccountInfo->AccountControl) ==
                       USER_ACCOUNT(NewAccountInfo->AccountControl)) &&
                      (MACHINE_ACCOUNT(OldAccountInfo->AccountControl) ==
                       MACHINE_ACCOUNT(NewAccountInfo->AccountControl)) ) {
-        
+
                     //
                     // We can only do an update if the account name hasn't changed
                     //
-        
+
                     if (RtlEqualUnicodeString( &OldAccountInfo->Name,
                                                &NewAccountInfo->Name,
                                                FALSE // Case sensitive
@@ -2696,7 +2722,7 @@ Return Values:
                         //
                         // Everything has been checked out - we can do an update
                         //
-        
+
                         DoUpdate = TRUE;
                     }
                 }
@@ -2710,7 +2736,7 @@ Return Values:
         //
         // If the cache is already Invalid there's nothing to do
         //
-        
+
         if (!DisplayInformation->GroupTableValid) {
 
             SampDiagPrint(DISPLAY_CACHE,
@@ -2729,11 +2755,11 @@ Return Values:
 
         DoUpdate = FALSE;
         if (ARGUMENT_PRESENT(OldAccountInfo) && ARGUMENT_PRESENT(NewAccountInfo)) {
-            
+
             //
             // We can only do an update if the account name hasn't changed
             //
-            
+
             if (RtlEqualUnicodeString( &OldAccountInfo->Name,
                                       &NewAccountInfo->Name,
                                       FALSE // Case sensitive
@@ -2885,10 +2911,10 @@ Return Values:
     case SampUserObjectType:
 
         if (USER_ACCOUNT(Control)) {
-        
+
             DOMAIN_DISPLAY_USER LocalUserInfo;
             PDOMAIN_DISPLAY_USER UserInfo;
-        
+
             SampDiagPrint(DISPLAY_CACHE,
                 ("SAM: DeleteDisplayAccount : Deleting account from user table\n"));
 
@@ -2898,7 +2924,7 @@ Return Values:
                 //
                 // Delete the account from the user table
                 //
-        
+
                 Success = RtlDeleteElementGenericTable2(
                                             &DisplayInformation->UserTable,
                                             (PVOID)UserInfo);
@@ -2912,7 +2938,7 @@ Return Values:
                     //
                     // Now remove it to the RID table
                     //
-        
+
                     (VOID)RtlDeleteElementGenericTable2(
                                     &DisplayInformation->RidTable,
                                     (PVOID)UserInfo);
@@ -2924,24 +2950,24 @@ Return Values:
                     }
                 }
             }
-        
-        
+
+
         } else if (MACHINE_ACCOUNT(Control)) {
-        
+
             DOMAIN_DISPLAY_MACHINE LocalMachineInfo;
             PDOMAIN_DISPLAY_MACHINE MachineInfo;
-           
+
             SampDiagPrint(DISPLAY_CACHE,
                 ("SAM: DeleteDisplayAccount : Deleting account from machine table\n"));
 
             MachineInfo = &LocalMachineInfo;
             NtStatus = SampInitializeMachineInfo(AccountInfo, &MachineInfo, FALSE);
             if (NT_SUCCESS(NtStatus)) {
-        
+
                 //
                 // Delete the account from the machine table
                 //
-        
+
                 Success = RtlDeleteElementGenericTable2(
                                             &DisplayInformation->MachineTable,
                                             (PVOID)MachineInfo);
@@ -2955,7 +2981,7 @@ Return Values:
                     //
                     // Now remove it to the RID table
                     //
-        
+
                     Success = RtlDeleteElementGenericTable2(
                                     &DisplayInformation->RidTable,
                                     (PVOID)MachineInfo);
@@ -2967,7 +2993,7 @@ Return Values:
                     }
                 }
             }
-        
+
         } else if (INTERDOMAIN_ACCOUNT(Control)) {
 
             //
@@ -2976,18 +3002,18 @@ Return Values:
 
             DOMAIN_DISPLAY_MACHINE LocalInterdomainInfo;
             PDOMAIN_DISPLAY_MACHINE InterdomainInfo;
-           
+
             SampDiagPrint(DISPLAY_CACHE,
                 ("SAM: DeleteDisplayAccount : Deleting account from Interdomain table\n"));
 
             InterdomainInfo = &LocalInterdomainInfo;
             NtStatus = SampInitializeMachineInfo(AccountInfo, &InterdomainInfo, FALSE);
             if (NT_SUCCESS(NtStatus)) {
-        
+
                 //
                 // Delete the account from the Interdomain table
                 //
-        
+
                 Success = RtlDeleteElementGenericTable2(
                                             &DisplayInformation->InterdomainTable,
                                             (PVOID)InterdomainInfo);
@@ -3001,7 +3027,7 @@ Return Values:
                     //
                     // Now remove it to the RID table
                     //
-        
+
                     Success = RtlDeleteElementGenericTable2(
                                     &DisplayInformation->RidTable,
                                     (PVOID)InterdomainInfo);
@@ -3013,15 +3039,15 @@ Return Values:
                     }
                 }
             }
-        
+
         } else {
-        
+
             //
             // This account is not one that we cache - nothing to do
             //
-        
+
             NtStatus = STATUS_SUCCESS;
-        
+
             SampDiagPrint(DISPLAY_CACHE,
                 ("SAM: DeleteDisplayAccount : Account is not one that we cache, account control = 0x%lx\n", Control));
         }
@@ -3035,11 +3061,11 @@ Return Values:
 
     case SampGroupObjectType:
 
-        {   
-        
+        {
+
             DOMAIN_DISPLAY_GROUP LocalGroupInfo;
             PDOMAIN_DISPLAY_GROUP GroupInfo;
-        
+
             SampDiagPrint(DISPLAY_CACHE,
                 ("SAM: DeleteDisplayAccount : Deleting account from Group table\n"));
 
@@ -3049,7 +3075,7 @@ Return Values:
                 //
                 // Delete the account from the Group table
                 //
-        
+
                 Success = RtlDeleteElementGenericTable2(
                                             &DisplayInformation->GroupTable,
                                             (PVOID)GroupInfo);
@@ -3063,7 +3089,7 @@ Return Values:
                     //
                     // Now remove it to the RID table
                     //
-        
+
                     (VOID)RtlDeleteElementGenericTable2(
                                     &DisplayInformation->RidTable,
                                     (PVOID)GroupInfo);
@@ -3075,7 +3101,7 @@ Return Values:
                     }
                 }
             }
-            
+
             break;  //out of switch
         }
 
@@ -3128,22 +3154,22 @@ Return Values:
 
     SampDiagPrint(DISPLAY_CACHE,
         ("SAM: AddDisplayAccount : Adding account <%wZ>\n", &AccountInfo->Name));
-    
-    
+
+
     if (ObjectType == SampGroupObjectType) {
 
         PDOMAIN_DISPLAY_GROUP GroupInfo;
-        
+
         SampDiagPrint(DISPLAY_CACHE,
             ("SAM: AddDisplayAccount : Adding account to group table\n"));
-    
+
         NtStatus = SampInitializeGroupInfo(AccountInfo, &GroupInfo, TRUE);
         if (NT_SUCCESS(NtStatus)) {
-    
+
             //
             // Add the account to the Group table
             //
-    
+
             (VOID)RtlInsertElementGenericTable2(
                             &DisplayInformation->GroupTable,
                             GroupInfo,
@@ -3175,23 +3201,23 @@ Return Values:
         }
 
     } else {
-    
+
         ASSERT(ObjectType == SampUserObjectType);
-        
+
         if (USER_ACCOUNT(Control)) {
-        
+
             PDOMAIN_DISPLAY_USER UserInfo;
-        
+
             SampDiagPrint(DISPLAY_CACHE,
                 ("SAM: AddDisplayAccount : Adding account to user table\n"));
-        
+
             NtStatus = SampInitializeUserInfo(AccountInfo, &UserInfo, TRUE);
             if (NT_SUCCESS(NtStatus)) {
-        
+
                 //
                 // Add the account to the normal user table
                 //
-        
+
                 (VOID)RtlInsertElementGenericTable2(
                                 &DisplayInformation->UserTable,
                                 UserInfo,
@@ -3203,11 +3229,11 @@ Return Values:
                     SampFreeUserInfo(UserInfo);
                     NtStatus = STATUS_INTERNAL_ERROR;
                 } else {
-        
+
                     //
                     // Now add it to the RID table
                     //
-        
+
                     (VOID)RtlInsertElementGenericTable2(
                                     &DisplayInformation->RidTable,
                                     UserInfo,
@@ -3222,21 +3248,21 @@ Return Values:
 
                 }
             }
-        
+
         } else if (MACHINE_ACCOUNT(Control)) {
-        
+
             PDOMAIN_DISPLAY_MACHINE MachineInfo;
-        
+
             SampDiagPrint(DISPLAY_CACHE,
                 ("SAM: AddDisplayAccount : Adding account to machine table\n"));
-        
+
             NtStatus = SampInitializeMachineInfo(AccountInfo, &MachineInfo, TRUE);
             if (NT_SUCCESS(NtStatus)) {
-        
+
                 //
                 // Add the account to the machine table
                 //
-        
+
                 (VOID)RtlInsertElementGenericTable2(
                                 &DisplayInformation->MachineTable,
                                 MachineInfo,
@@ -3248,11 +3274,11 @@ Return Values:
                     SampFreeMachineInfo(MachineInfo);
                     NtStatus = STATUS_INTERNAL_ERROR;
                 } else {
-        
+
                     //
                     // Now add it to the RID table
                     //
-        
+
                     (VOID)RtlInsertElementGenericTable2(
                                     &DisplayInformation->RidTable,
                                     MachineInfo,
@@ -3270,17 +3296,17 @@ Return Values:
         } else if (INTERDOMAIN_ACCOUNT(Control)) {
 
             PDOMAIN_DISPLAY_MACHINE InterdomainInfo;
-        
+
             SampDiagPrint(DISPLAY_CACHE,
                 ("SAM: AddDisplayAccount : Adding account to Interdomain table\n"));
-        
+
             NtStatus = SampInitializeMachineInfo(AccountInfo, &InterdomainInfo, TRUE);
             if (NT_SUCCESS(NtStatus)) {
-        
+
                 //
                 // Add the account to the Interdomain table
                 //
-        
+
                 (VOID)RtlInsertElementGenericTable2(
                                 &DisplayInformation->InterdomainTable,
                                 InterdomainInfo,
@@ -3292,11 +3318,11 @@ Return Values:
                     SampFreeMachineInfo(InterdomainInfo);
                     NtStatus = STATUS_INTERNAL_ERROR;
                 } else {
-        
+
                     //
                     // Now add it to the RID table
                     //
-        
+
                     (VOID)RtlInsertElementGenericTable2(
                                     &DisplayInformation->RidTable,
                                     InterdomainInfo,
@@ -3313,11 +3339,11 @@ Return Values:
             }
 
         } else {
-        
+
             //
             // This account is not one that we cache - nothing to do
             //
-        
+
             SampDiagPrint(DISPLAY_CACHE,
                 ("SAM: AddDisplayAccount : Account is not one that we cache, account control = 0x%lx\n", Control));
 
@@ -3401,51 +3427,51 @@ Notes:
         //
         // The account must be one that we cache
         //
-        
+
         ASSERT( DISPLAY_ACCOUNT(AccountInfo->AccountControl) );
-        
+
         //
         // Go find the account in the appropriate table and update it's fields.
         //
-        
+
         if (USER_ACCOUNT(AccountInfo->AccountControl)) {
-        
+
             PDOMAIN_DISPLAY_USER UserInfo;
-        
+
             //
             // Allocate space for and initialize the new data
             //
-        
+
             NtStatus = SampInitializeUserInfo(AccountInfo, &UserInfo, TRUE);
             if (NT_SUCCESS(NtStatus)) {
-        
+
                 PDOMAIN_DISPLAY_USER FoundElement;
-        
+
                 //
                 // Search for the account in the user table
                 //
-        
+
                 FoundElement = RtlLookupElementGenericTable2(
                                 &DisplayInformation->UserTable,
                                 UserInfo);
-        
+
                 if (FoundElement == NULL) {
                     SampDiagPrint(DISPLAY_CACHE,
                         ("SAM: UpdateDisplayAccount : Account <%wZ> not found in user table\n", &AccountInfo->Name));
                     ASSERT(FALSE);
                     SampFreeUserInfo(UserInfo);
                     NtStatus = STATUS_INTERNAL_ERROR;
-        
+
                 } else {
-        
+
                     //
                     // We found it. Check the old and new match where we expect.
                     // Can't change either the logon name or RID by this routine.
                     //
-        
+
                     ASSERT(RtlEqualUnicodeString(&FoundElement->LogonName, &UserInfo->LogonName, FALSE));
                     ASSERT(FoundElement->Rid == UserInfo->Rid);
-        
+
                     //
                     // Free up the existing data in the account element
                     // (all the strings) and replace it with the new data.
@@ -3457,45 +3483,45 @@ Notes:
                     SampFreeUserInfo(UserInfo);
                 }
             }
-        
+
         } else if (MACHINE_ACCOUNT(AccountInfo->AccountControl)) {
-        
+
             PDOMAIN_DISPLAY_MACHINE MachineInfo;
-        
+
             //
             // Allocate space for and initialize the new data
             //
-        
+
             NtStatus = SampInitializeMachineInfo(AccountInfo, &MachineInfo, TRUE);
             if (NT_SUCCESS(NtStatus)) {
-        
+
                 PDOMAIN_DISPLAY_MACHINE FoundElement;
-        
+
                 //
                 // Search for the account in the user table
                 //
-        
+
                 FoundElement = RtlLookupElementGenericTable2(
                                 &DisplayInformation->MachineTable,
                                 MachineInfo);
-        
+
                 if (FoundElement == NULL) {
                     SampDiagPrint(DISPLAY_CACHE,
                         ("SAM: UpdateDisplayAccount : Account <%wZ> not found in machine table\n", &AccountInfo->Name));
                     ASSERT(FALSE);
                     SampFreeMachineInfo(MachineInfo);
                     NtStatus = STATUS_INTERNAL_ERROR;
-        
+
                 } else {
-        
+
                     //
                     // We found it. Check the old and new match where we expect.
                     // Can't change either the account name or RID by this routine.
                     //
-        
+
                     ASSERT(RtlEqualUnicodeString(&FoundElement->Machine, &MachineInfo->Machine, FALSE));
                     ASSERT(FoundElement->Rid == MachineInfo->Rid);
-        
+
                     //
                     // Free up the existing data in the account element
                     // (all the strings) and replace it with the new data.
@@ -3509,43 +3535,43 @@ Notes:
             }
 
         } else if (INTERDOMAIN_ACCOUNT(AccountInfo->AccountControl)) {
-        
+
             PDOMAIN_DISPLAY_MACHINE InterdomainInfo;
-        
+
             //
             // Allocate space for and initialize the new data
             //
-        
+
             NtStatus = SampInitializeMachineInfo(AccountInfo, &InterdomainInfo, TRUE);
             if (NT_SUCCESS(NtStatus)) {
-        
+
                 PDOMAIN_DISPLAY_MACHINE FoundElement;
-        
+
                 //
                 // Search for the account in the user table
                 //
-        
+
                 FoundElement = RtlLookupElementGenericTable2(
                                 &DisplayInformation->InterdomainTable,
                                 InterdomainInfo);
-        
+
                 if (FoundElement == NULL) {
                     SampDiagPrint(DISPLAY_CACHE,
                         ("SAM: UpdateDisplayAccount : Account <%wZ> not found in Interdomain table\n", &AccountInfo->Name));
                     ASSERT(FALSE);
                     SampFreeMachineInfo(InterdomainInfo);
                     NtStatus = STATUS_INTERNAL_ERROR;
-        
+
                 } else {
-        
+
                     //
                     // We found it. Check the old and new match where we expect.
                     // Can't change either the account name or RID by this routine.
                     //
-        
+
                     ASSERT(RtlEqualUnicodeString(&FoundElement->Machine, &InterdomainInfo->Machine, FALSE));
                     ASSERT(FoundElement->Rid == InterdomainInfo->Rid);
-        
+
                     //
                     // Free up the existing data in the account element
                     // (all the strings) and replace it with the new data.
@@ -3565,43 +3591,43 @@ Notes:
     case SampGroupObjectType:
         {
             PDOMAIN_DISPLAY_GROUP GroupInfo;
-        
+
             ASSERT(DisplayInformation->GroupTableValid);
-        
+
             //
             // Allocate space for and initialize the new data
             //
-        
+
             NtStatus = SampInitializeGroupInfo(AccountInfo, &GroupInfo, TRUE);
             if (NT_SUCCESS(NtStatus)) {
-        
+
                 PDOMAIN_DISPLAY_GROUP FoundElement;
-        
+
                 //
                 // Search for the account in the group table
                 //
-        
+
                 FoundElement = RtlLookupElementGenericTable2(
                                 &DisplayInformation->GroupTable,
                                 GroupInfo);
-        
+
                 if (FoundElement == NULL) {
                     SampDiagPrint(DISPLAY_CACHE,
                         ("SAM: UpdateDisplayAccount : Account <%wZ> not found in group table\n", &AccountInfo->Name));
                     ASSERT(FALSE);
                     SampFreeGroupInfo(GroupInfo);
                     NtStatus = STATUS_INTERNAL_ERROR;
-        
+
                 } else {
-        
+
                     //
                     // We found it. Check the old and new match where we expect.
                     // Can't change either the account name or RID by this routine.
                     //
-        
+
                     ASSERT(RtlEqualUnicodeString(&FoundElement->Group, &GroupInfo->Group, FALSE));
                     ASSERT(FoundElement->Rid == GroupInfo->Rid);
-        
+
                     //
                     // Free up the existing data in the account element
                     // (all the strings) and replace it with the new data.
@@ -3661,29 +3687,29 @@ Return Values:
 
         DisplayInformation->TotalBytesInUserTable = 0;
         RestartKey = NULL;
-        
+
         for (Node = RtlEnumerateGenericTable2(  &DisplayInformation->UserTable,
                                                 &RestartKey);
              Node != NULL;
              Node = RtlEnumerateGenericTable2(  &DisplayInformation->UserTable,
                                                 &RestartKey)
             ) {
-        
+
             DisplayInformation->TotalBytesInUserTable +=
                 SampBytesRequiredUserNode((PDOMAIN_DISPLAY_USER)Node);
         }
-        
+
         DisplayInformation->TotalBytesInMachineTable = 0;
         RestartKey = NULL;
-        
+
         for (Node = RtlEnumerateGenericTable2(  &DisplayInformation->MachineTable,
                                                 &RestartKey);
              Node != NULL;
              Node = RtlEnumerateGenericTable2(  &DisplayInformation->MachineTable,
                                                 &RestartKey)
             ) {
-        
-        
+
+
             DisplayInformation->TotalBytesInMachineTable +=
                 SampBytesRequiredMachineNode((PDOMAIN_DISPLAY_MACHINE)Node);
         }
@@ -3695,19 +3721,19 @@ Return Values:
 
         DisplayInformation->TotalBytesInGroupTable = 0;
         RestartKey = NULL;
-        
+
         for (Node = RtlEnumerateGenericTable2(  &DisplayInformation->GroupTable,
                                                 &RestartKey);
              Node != NULL;
              Node = RtlEnumerateGenericTable2(  &DisplayInformation->GroupTable,
                                                 &RestartKey)
             ) {
-        
-        
+
+
             DisplayInformation->TotalBytesInGroupTable +=
                 SampBytesRequiredGroupNode((PDOMAIN_DISPLAY_GROUP)Node);
         }
-        
+
         break;  // out of switch
 
     } // end_switch
@@ -3816,7 +3842,7 @@ Return Values:
 
     UI = (*UserInfo);
 
-    
+
     UI->Rid = AccountInfo->Rid;
     UI->AccountControl = AccountInfo->AccountControl;
 
@@ -4256,7 +4282,7 @@ Parameters:
     Destination - The structure to copy data into
 
     Source - The structure containing the data to copy
-    
+
     Index - This value will be placed in the destination's Index
         field.
 
@@ -4962,7 +4988,7 @@ Return Values:
     // Do a case-insensitive comparison of the node names
     //
 
-    NameComparison = RtlCompareUnicodeString(NodeName1, NodeName2, TRUE);
+    NameComparison = SampCompareDisplayStrings(NodeName1, NodeName2, TRUE);
 
     if (NameComparison > 0) {
         return(GenericGreaterThan);
@@ -5017,7 +5043,7 @@ Return Values:
     // Do a case-insensitive comparison of the node names
     //
 
-    NameComparison = RtlCompareUnicodeString(NodeName1, NodeName2, TRUE);
+    NameComparison = SampCompareDisplayStrings(NodeName1, NodeName2, TRUE);
 
     if (NameComparison > 0) {
         return(GenericGreaterThan);
@@ -5071,7 +5097,7 @@ Return Values:
     // Do a case-insensitive comparison of the node names
     //
 
-    NameComparison = RtlCompareUnicodeString(NodeName1, NodeName2, TRUE);
+    NameComparison = SampCompareDisplayStrings(NodeName1, NodeName2, TRUE);
 
     if (NameComparison > 0) {
         return(GenericGreaterThan);
@@ -5139,6 +5165,98 @@ Return Values:
     return(GenericEqual);
 }
 
+
+LONG
+SampCompareDisplayStrings(
+    IN PUNICODE_STRING String1,
+    IN PUNICODE_STRING String2,
+    IN BOOLEAN IgnoreCase
+    )
+/*++
+
+Routine Description:
+
+    This routine is a replacement for RtlCompareUnicodeString().
+    The difference between RtlCompareUnicodeString() and this routine
+    is that this routine takes into account various customer selected
+    sort criteria (like, how is "A-MarilF" sorted in comparison to
+    "Alfred").  This routine uses CompareStringW() for its comparison
+    function.
+
+
+Parameters:
+
+    String1 - Points to a unicode string to compare.
+
+    String2 - Points to a unicode string to compare.
+
+    IgnoreCase - indicates whether the comparison is to be case
+        sensitive (FALSE) or case insensitive (TRUE).
+
+Return Values:
+
+
+    -1 - String1 is lexically less than string 2.  That is, String1
+         preceeds String2 in an ordered list.
+
+     0 - String1 and String2 are lexically equivalent.
+
+    -1 - String1 is lexically greater than string 2.  That is, String1
+         follows String2 in an ordered list.
+
+
+--*/
+
+
+{
+
+    INT
+        CompareResult;
+
+    DWORD
+        Options = 0;
+
+    if (IgnoreCase) {
+        Options = NORM_IGNORECASE;
+    }
+
+    CompareResult = CompareStringW( SampSystemDefaultLCID,
+                                     Options,
+                                     String1->Buffer,
+                                     (String1->Length / sizeof(WCHAR)),
+                                     String2->Buffer,
+                                     (String2->Length / sizeof(WCHAR))
+                                     );
+
+    //
+    // Note that CompareStringW() returns values 1, 2, and 3 for
+    // string1 less than, equal, or greater than string2 (respectively)
+    // So, to obtain the RtlCompareUnicodeString() return values of
+    // -1, 0, and 1 for the same meaning, we simply have to subtract 2.
+    //
+
+    CompareResult -= 2;
+
+    //
+    // CompareStringW has the property that alternate spellings may
+    // produce strings that compare identically while the rest of SAM
+    // treats the strings as different.  To get around this, if the
+    // strings are the same we call RtlCompareUnicodeString to make
+    // sure the strings really are the same.
+    //
+
+    if (CompareResult == 0) {
+        CompareResult = RtlCompareUnicodeString(
+                            String1,
+                            String2,
+                            IgnoreCase
+                            );
+
+    }
+    return(CompareResult);
+}
+
+
 #if SAMP_DIAGNOSTICS
 
 
@@ -5165,13 +5283,13 @@ Routine Description:
 
     If failure, it also prints the status code.
 
-    
+
 Parameters:
 
     s - the status value.
 
     Eol - if TRUE, causes an end of line to also be printed.
-   
+
 
 Return Values:
 
@@ -5243,7 +5361,7 @@ Return Values:
     SampDiagPrint(DISPLAY_CACHE,
                   ("SAM: SampDisplayDiagnostic()  - %d diagnostics run.\n",
                    DiagnosticRunCount) );
-                 
+
 
     return;
 }
@@ -5303,7 +5421,7 @@ Return Values:
                                &Domain
                                );
     ASSERT(NT_SUCCESS(NtStatus));
-                               
+
 
 
     
@@ -5390,7 +5508,7 @@ Return Values:
                                              &ReturnCount,
                                              &AccountRids
                                              );
-        
+
         SampDisplayDiagnosticSuccess( NtStatus, TRUE );
         if (NT_SUCCESS(NtStatus)) {
             SampDiagPrint(DISPLAY_CACHE,
@@ -5402,9 +5520,9 @@ Return Values:
                     for (i=0; i<ReturnCount-8; i=i+8) {
                         SampDiagPrint(DISPLAY_CACHE,
                             ("     0x%lx  0x%lx  0x%lx  0x%lx  0x%lx  0x%lx  0x%lx  0x%lx\n",
-                             AccountRids[i+0], AccountRids[i+1], 
-                             AccountRids[i+2], AccountRids[i+3], 
-                             AccountRids[i+4], AccountRids[i+5], 
+                             AccountRids[i+0], AccountRids[i+1],
+                             AccountRids[i+2], AccountRids[i+3],
+                             AccountRids[i+4], AccountRids[i+5],
                              AccountRids[i+6], AccountRids[i+7] ));
                     }
                 }
@@ -5505,7 +5623,7 @@ Return Values:
                                              &ReturnCount,
                                              &AccountRids
                                              );
-        
+
         SampDisplayDiagnosticSuccess( NtStatus, TRUE );
         if (NT_SUCCESS(NtStatus)) {
             SampDiagPrint(DISPLAY_CACHE,
@@ -5517,9 +5635,9 @@ Return Values:
                     for (i=0; i<ReturnCount-8; i=i+8) {
                         SampDiagPrint(DISPLAY_CACHE,
                             ("     0x%lx  0x%lx  0x%lx  0x%lx  0x%lx  0x%lx  0x%lx  0x%lx\n",
-                             AccountRids[i+0], AccountRids[i+1], 
-                             AccountRids[i+2], AccountRids[i+3], 
-                             AccountRids[i+4], AccountRids[i+5], 
+                             AccountRids[i+0], AccountRids[i+1],
+                             AccountRids[i+2], AccountRids[i+3],
+                             AccountRids[i+4], AccountRids[i+5],
                              AccountRids[i+6], AccountRids[i+7] ));
                     }
                 }
@@ -5620,7 +5738,7 @@ Return Values:
                                              &ReturnCount,
                                              &AccountRids
                                              );
-        
+
         SampDisplayDiagnosticSuccess( NtStatus, TRUE );
         if (NT_SUCCESS(NtStatus)) {
             SampDiagPrint(DISPLAY_CACHE,
@@ -5632,9 +5750,9 @@ Return Values:
                     for (i=0; i<ReturnCount-8; i=i+8) {
                         SampDiagPrint(DISPLAY_CACHE,
                             ("     0x%lx  0x%lx  0x%lx  0x%lx  0x%lx  0x%lx  0x%lx  0x%lx\n",
-                             AccountRids[i+0], AccountRids[i+1], 
-                             AccountRids[i+2], AccountRids[i+3], 
-                             AccountRids[i+4], AccountRids[i+5], 
+                             AccountRids[i+0], AccountRids[i+1],
+                             AccountRids[i+2], AccountRids[i+3],
+                             AccountRids[i+4], AccountRids[i+5],
                              AccountRids[i+6], AccountRids[i+7] ));
                     }
                 }
@@ -5670,7 +5788,7 @@ Return Values:
                                          &ReturnCount,
                                          &AccountRids
                                          );
-    
+
     SampDisplayDiagnosticSuccess( NtStatus, TRUE );
     if (NT_SUCCESS(NtStatus)) {
         SampDiagPrint(DISPLAY_CACHE,
@@ -5684,9 +5802,9 @@ Return Values:
                 for (i=0; i<ReturnCount-8; i=i+8) {
                     SampDiagPrint(DISPLAY_CACHE,
                         ("     0x%lx  0x%lx  0x%lx  0x%lx  0x%lx  0x%lx  0x%lx  0x%lx\n",
-                         AccountRids[i+0], AccountRids[i+1], 
-                         AccountRids[i+2], AccountRids[i+3], 
-                         AccountRids[i+4], AccountRids[i+5], 
+                         AccountRids[i+0], AccountRids[i+1],
+                         AccountRids[i+2], AccountRids[i+3],
+                         AccountRids[i+4], AccountRids[i+5],
                          AccountRids[i+6], AccountRids[i+7] ));
                 }
             }

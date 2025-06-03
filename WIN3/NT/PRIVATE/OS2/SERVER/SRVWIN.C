@@ -67,11 +67,25 @@ Os2SwitchContextToExitListDispatcher(
     );
 
 #define  CAP_BUFFER_SIZE    64
-#define  TEXT_BUFFER_SIZE   256
+#define  TEXT_BUFFER_SIZE   512
 #define  REG_TEXT_BUFFER_SIZE   640
 
 CHAR    DefaultAccessApiGPCap[] = "%s.EXE - General Protection";
-CHAR    DefaultAccessGPText[] = "An OS/2 program caused a protection violation.\n\nCS = 0x%lx\nIP = 0x%lx\n\nThe program will be terminated.\n";
+CHAR    DefaultAccessGPText[] = "An OS/2 program caused a protection violation.\
+\n\nCS\t=   0x%04lx\
+\nIP\t=   0x%04lx\
+\nAX\t=   0x%04lx\
+\nBX\t=   0x%04lx\
+\nCX\t=   0x%04lx\
+\nDX\t=   0x%04lx\
+\nSI\t=   0x%04lx\
+\nDI\t=   0x%04lx\
+\nBP\t=   0x%04lx\
+\nSP\t=   0x%04lx\
+\nSS\t=   0x%04lx\
+\nDS\t=   0x%04lx\
+\nES\t=   0x%04lx\
+\n\nThe program will be terminated.";
 CHAR    DefaultApiGPText[] = "An OS/2 program called %s()\nwith a bad pointer argument.\n\nThe application will be terminated.\n";
 
 
@@ -79,6 +93,17 @@ DWORD
 Os2AccessGPPopup(
     IN  ULONG   CS,
     IN  ULONG   IP,
+    IN  ULONG   AX,
+    IN  ULONG   BX,
+    IN  ULONG   CX,
+    IN  ULONG   DX,
+    IN  ULONG   SI,
+    IN  ULONG   DI,
+    IN  ULONG   BP,
+    IN  ULONG   SP,
+    IN  ULONG   SS,
+    IN  ULONG   DS,
+    IN  ULONG   ES,
     IN  PUCHAR  AppName
     )
 {
@@ -129,7 +154,7 @@ Os2AccessGPPopup(
     }
 
     sprintf(MessageCaption, CapString, AppName);
-    sprintf(MessageText, TextString, CS, IP);
+    sprintf(MessageText, TextString, CS, IP, AX, BX, CX, DX, SI, DI, BP, SP, SS, DS, ES);
     MessageBox(GetActiveWindow(), MessageText, MessageCaption, MB_OK | MB_ICONSTOP | MB_SYSTEMMODAL | MB_SETFOREGROUND);
     return (0L);
 }

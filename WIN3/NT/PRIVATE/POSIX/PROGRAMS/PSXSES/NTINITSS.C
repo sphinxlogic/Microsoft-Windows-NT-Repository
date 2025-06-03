@@ -346,7 +346,7 @@ retry_create:
                 // Sleep for 1 seconds
                 //
 
-                TimeOut = RtlEnlargedIntegerMultiply( 1000, -10000);
+                TimeOut.QuadPart = (LONGLONG)1000 * (LONGLONG)-10000;
                 NtDelayExecution(FALSE,&TimeOut);
                 goto retry_create;
             }
@@ -556,7 +556,7 @@ argc += 1;
 			continue;
 		}
 		*p = '\0';
-		(void)strupr(*envp);
+		_strupr(*envp);
 		if (0 == strcmp(*envp, "PATH") && !bPathFound) {
 			bPathFound = 1;
 			// Save PATH as LIBPATH.

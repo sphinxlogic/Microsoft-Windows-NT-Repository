@@ -309,16 +309,15 @@ Return Value:
 
                 useIntervalTimer = TRUE;
 
-                Extension->IntervalTime.QuadPart = UInt32x32To64(
-                                             timeoutsForIrp.ReadIntervalTimeout,
-                                             10000
-                                             );
+                Extension->IntervalTime.QuadPart =
+                    UInt32x32To64(
+                        timeoutsForIrp.ReadIntervalTimeout,
+                        10000
+                        );
 
 
-                if (RtlLargeIntegerGreaterThanOrEqualTo(
-                        Extension->IntervalTime,
-                        Extension->CutOverAmount
-                        )) {
+                if (Extension->IntervalTime.QuadPart >=
+                    Extension->CutOverAmount.QuadPart) {
 
                     Extension->IntervalTimeToUse =
                         &Extension->LongIntervalAmount;
@@ -403,22 +402,12 @@ Return Value:
 
             if (useTotalTimer) {
 
-                totalTime.QuadPart = UInt32x32To64(
-                                Extension->NumberNeededForRead,
-                                multiplierVal
-                                );
-
-                totalTime = RtlLargeIntegerAdd(
-                                totalTime,
-                                RtlConvertUlongToLargeInteger(
-                                    constantVal
-                                    )
-                                );
-
-                totalTime = RtlExtendedIntegerMultiply(
-                                totalTime,
-                                -10000
-                                );
+                totalTime.QuadPart = ((LONGLONG)(UInt32x32To64(
+                                          Extension->NumberNeededForRead,
+                                          multiplierVal
+                                          )
+                                          + constantVal))
+                                      * -10000;
 
             }
 
@@ -1135,13 +1124,8 @@ Return Value:
                 &currentTime
                 );
 
-            if (RtlLargeIntegerGreaterThanOrEqualTo(
-                    RtlLargeIntegerSubtract(
-                        currentTime,
-                        extension->LastReadTime
-                        ),
-                    extension->IntervalTime
-                    )) {
+            if ((currentTime.QuadPart - extension->LastReadTime.QuadPart) >=
+                extension->IntervalTime.QuadPart) {
 
                 SerialTryToCompleteCurrent(
                     extension,

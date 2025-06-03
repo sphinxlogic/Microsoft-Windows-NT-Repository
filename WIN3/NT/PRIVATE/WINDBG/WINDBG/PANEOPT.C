@@ -180,7 +180,7 @@ BOOL FAR PASCAL EXPORT DlgPaneOptCommand(HWND hDlg, UINT message, WPARAM wParam,
             EndDialog(hDlg, FALSE);
             return TRUE;
 
-        case IDHELP :
+        case IDWINDBGHELP :
             switch (DialogType)
                {
                  case WATCH_WIN:
@@ -206,4 +206,4 @@ BOOL FAR PASCAL EXPORT DlgPaneOptCommand(HWND hDlg, UINT message, WPARAM wParam,
     }
 }
 
-
+

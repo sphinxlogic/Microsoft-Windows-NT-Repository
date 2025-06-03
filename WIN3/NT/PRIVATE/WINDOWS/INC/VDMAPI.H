@@ -24,46 +24,57 @@ Revision History:
 #define MAXIMUM_VDM_ENVIORNMENT 	32*1024
 #define MAXIMUM_VDM_CURRENT_DIR 	64
 
+// The following value can be used to allocate space for the largest possible
+// path string in ansi, including directory, drive letter and file name.
+// I originally coded this with 13 for the path name, but DOS seems to be
+// able to handle one more, thus the 14.
+#define MAXIMUM_VDM_PATH_STRING     MAXIMUM_VDM_CURRENT_DIR+3+14
+
 // VDMState defines
-#define ASKING_FOR_FIRST_COMMAND 1	// Very First call.
-#define ASKING_FOR_WOW_BINARY	 2	// Caller is WOWVDM
-#define ASKING_FOR_DOS_BINARY	 4	// Caller is DOSVDM
-#define ASKING_FOR_SECOND_TIME	 8	// Caller is asking second time after
-#define INCREMENT_REENTER_COUNT  16	// Increment the re-entrancy count
-#define DECREMENT_REENTER_COUNT  32	// Decrement the re-entrancy count
-#define NO_PARENT_TO_WAKE	 64	// Just get the next command, dont wake up anyone
-					// allocating bigger buffers.
-#define RETURN_ON_NO_COMMAND	 128	// if there is no command return without blocking
-#define ASKING_FOR_PIF		 256	// To get the exe name to find out PIF
-					// early in the VDM initialization.
-#define STARTUP_INFO_RETURNED	 512	// on return if this bit is set means
-					// startupinfo structure was filled in.
-#define ASKING_FOR_ENVIRONMENT	1024	// ask for environment only
+#define ASKING_FOR_FIRST_COMMAND   0x1   // Very First call.
+#define ASKING_FOR_WOW_BINARY      0x2   // Caller is WOWVDM
+#define ASKING_FOR_DOS_BINARY      0x4   // Caller is DOSVDM
+#define ASKING_FOR_SECOND_TIME     0x8   // Caller is asking second time after
+#define INCREMENT_REENTER_COUNT   0x10   // Increment the re-entrancy count
+#define DECREMENT_REENTER_COUNT   0x20   // Decrement the re-entrancy count
+#define NO_PARENT_TO_WAKE         0x40   // Just get the next command, dont wake up anyone
+                                         // allocating bigger buffers.
+#define RETURN_ON_NO_COMMAND      0x80   // if there is no command return without blocking
+#define ASKING_FOR_PIF           0x100   // To get the exe name to find out PIF
+                                         // early in the VDM initialization.
+#define STARTUP_INFO_RETURNED    0x200   // on return if this bit is set means
+                                         // startupinfo structure was filled in.
+#define ASKING_FOR_ENVIRONMENT   0x400   // ask for environment only
+#define ASKING_FOR_SEPWOW_BINARY 0x800   // Caller is Separate WOW
 
 typedef struct _VDMINFO {
-    LPVOID CmdLine;
-    LPVOID Enviornment;
-    USHORT CmdSize;
-    USHORT CurDrive;
-    ULONG  EnviornmentSize;
-    ULONG  ErrorCode;
-    ULONG  VDMState;
     ULONG  iTask;
+    ULONG  dwCreationFlags;
+    ULONG  ErrorCode;
+    ULONG  CodePage;
     HANDLE StdIn;
     HANDLE StdOut;
     HANDLE StdErr;
-    ULONG  CodePage;
-    STARTUPINFOA StartupInfo;
+    LPVOID CmdLine;
+    LPVOID AppName;
+    LPVOID PifFile;
     LPVOID CurDirectory;
-    ULONG  CurDirectoryLen;
+    LPVOID Enviornment;
+    ULONG  EnviornmentSize;
+    STARTUPINFOA StartupInfo;
     LPVOID Desktop;
     ULONG  DesktopLen;
     LPVOID Title;
     ULONG  TitleLen;
     LPVOID Reserved;
     ULONG  ReservedLen;
-    ULONG  dwCreationFlags;
-    ULONG  fComingFromBat;
+    USHORT CmdSize;
+    USHORT AppLen;
+    USHORT PifLen;
+    USHORT CurDirectoryLen;
+    USHORT VDMState;
+    USHORT CurDrive;
+    BOOLEAN fComingFromBat;
 } VDMINFO, *PVDMINFO;
 
 

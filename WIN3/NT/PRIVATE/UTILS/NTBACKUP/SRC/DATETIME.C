@@ -380,4 +380,4 @@ INT16 CompDate( DATE_TIME_PTR d1, DATE_TIME_PTR d2 )
      return ret_val;
 }
 
-
+

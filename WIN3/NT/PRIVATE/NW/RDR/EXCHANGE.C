@@ -42,8 +42,11 @@ TA_IPX_ADDRESS SapBroadcastAddress =
 UCHAR SapPacketType = PACKET_TYPE_SAP;
 UCHAR NcpPacketType = PACKET_TYPE_NCP;
 
+extern BOOLEAN WorkerRunning;   //  From timer.c
+
 #ifdef NWDBG
 ULONG DropCount = 0;
+int AlwaysAllocateIrp = 1;
 #endif
 
 NTSTATUS
@@ -120,11 +123,11 @@ FspProcessServerDown(
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text( PAGE, NextSocket )
-#pragma alloc_text( PAGE, FspGetMessage )
 #pragma alloc_text( PAGE, ExchangeWithWait )
 #pragma alloc_text( PAGE, NewRouteRetry )
-#pragma alloc_text( PAGE, FspProcessServerDown )
 
+#ifndef QFE_BUILD
+#pragma alloc_text( PAGE1, FspGetMessage )
 #pragma alloc_text( PAGE1, Exchange )
 #pragma alloc_text( PAGE1, BuildRequestPacket )
 #pragma alloc_text( PAGE1, ParseResponse )
@@ -145,6 +148,7 @@ FspProcessServerDown(
 #pragma alloc_text( PAGE1, ScheduleReconnectRetry )
 #pragma alloc_text( PAGE1, ReconnectRetry )
 #pragma alloc_text( PAGE1, NewRouteBurstRetry )
+#endif
 
 #endif
 
@@ -155,6 +159,10 @@ SendDatagramHandler
 CompletionWatchDogSend
 MdlLength
 FreeReceiveIrp
+FspProcessServerDown
+
+// see ifndef QFE_BUILD above
+
 #endif
 
 NTSTATUS
@@ -249,7 +257,8 @@ Routine Description:
 
 Arguments:
 
-    pIrpC - supplies the irp context for the exchange request.
+    pIrpC - Supplies the irp context for the exchange request.  This may
+            be NULL for generic packet types.
 
     f... - supplies the information needed to create the request to the
             server. The first byte indicates the packet type and the
@@ -278,6 +287,22 @@ Arguments:
             'r'      raw bytes         ( byte*, word )
             'R'      ASCIIZ to Unicode ( UNICODE_STRING *, word )
 
+            Added 3/29/95 by CoryWest:
+
+            'W'      lo-hi word        ( word  /   word*)
+            'D'      lo-hi dword       ( dword  /  dword*)
+            'S'      unicode string copy as NDS_STRING (UNICODE_STRING *)
+            'T'      terminal unicode string copy as NDS_STRING (UNICODE_STRING *)
+
+            't'      terminal unicode string with the nds null copied
+                     as NDS_STRING (UNICODE_STRING *) (for GetUseName)
+
+            Not in use:
+
+            's'      cstring copy as NDS_STRING (char* / char *, word)
+            'V'      sized NDS value   ( byte **, dword *)
+            'l'      what's this?
+
 Return Value:
 
     STATUS - The converted error code from the NCP response.
@@ -295,8 +320,18 @@ Return Value:
 
     va_start( Arguments, FormatString );
 
-    switch ( *FormatString ) {
+    //
+    // Make sure that we have an IrpContext unless we are doing
+    // a scan of a generic packet.
+    //
 
+#ifdef NWDBG
+    if ( *FormatString != 'G' ) {
+        ASSERT( IrpContext != NULL );
+    }
+#endif
+
+    switch ( *FormatString ) {
 
     //
     //  NCP response.
@@ -307,7 +342,15 @@ Return Value:
         Length = 8;   // The data begins 8 bytes into the packet
 
         pResponseParameters = (PEPresponse *)( ((PEPrequest *)Response) + 1);
-        if ( pResponseParameters->status == 0 ) {
+
+        //
+        // If there's a message pending for us on the server and we have
+        // popups disabled, we won't pick it up, but we should continue
+        // processing NCPs correctly!
+        //
+
+        if ( ( pResponseParameters->status == 0 ) ||
+             ( pResponseParameters->status == 0x40 ) ) {
             Status = NwErrorToNtStatus( pResponseParameters->error );
         } else {
             Status = NwConnectionStatusToNtStatus( pResponseParameters->status );
@@ -546,6 +589,8 @@ Return Value:
                 Status = RtlOemStringToCountedUnicodeString( pUString, &OemString, FALSE );
 
                 if (!NT_SUCCESS( Status )) {
+
+                    ASSERT( Status == STATUS_BUFFER_OVERFLOW );
                     pUString->Length = 0;
                     NcpStatus = Status;
                 }
@@ -554,10 +599,220 @@ Return Value:
                 pUString->Length = 0;
             }
 
-            ASSERT( NT_SUCCESS( Status ));
             Length += len;
             break;
         }
+
+        case 'W':
+        {
+
+            WORD *w = va_arg ( Arguments, WORD* );
+            *w = (* (WORD *)&Response[Length]);
+            Length += 2;
+            break;
+
+        }
+
+        case 'D':
+        {
+
+            DWORD *d = va_arg ( Arguments, DWORD* );
+            *d = (* (DWORD *)&Response[Length]);
+            Length += 4;
+            break;
+
+        }
+
+        case 'S':
+        {
+
+            PUNICODE_STRING pU = va_arg( Arguments, PUNICODE_STRING );
+            USHORT strl;
+
+            if (pU) {
+
+               strl = (USHORT)(* (DWORD *)&Response[Length]);
+
+                //
+                // Don't count the null terminator that is part of
+                // Novell's counted unicode string.
+                //
+
+                pU->Length = strl - sizeof( WCHAR );
+                Length += 4;
+                RtlCopyMemory( pU->Buffer, &Response[Length], pU->Length );
+                Length += ROUNDUP4(strl);
+
+            } else {
+
+                //
+                // Skip over the string since we don't want it.
+                //
+
+                Length += ROUNDUP4((* (DWORD *)&Response[Length] ));
+                Length += 4;
+            }
+
+
+            break;
+
+        }
+
+        case 's':
+        {
+
+            PUNICODE_STRING pU = va_arg( Arguments, PUNICODE_STRING );
+            USHORT strl;
+
+            if (pU) {
+
+                strl = (USHORT)(* (DWORD *)&Response[Length]);
+                pU->Length = strl;
+                Length += 4;
+                RtlCopyMemory( pU->Buffer, &Response[Length], pU->Length );
+                Length += ROUNDUP4(strl);
+
+            } else {
+
+                //
+                // Skip over the string since we don't want it.
+                //
+
+                Length += ROUNDUP4((* (DWORD *)&Response[Length] ));
+                Length += 4;
+            }
+
+
+            break;
+
+        }
+
+        case 'T':
+        {
+
+            PUNICODE_STRING pU = va_arg( Arguments, PUNICODE_STRING );
+            USHORT strl;
+
+            if (pU) {
+
+                strl = (USHORT)(* (DWORD *)&Response[Length] );
+                strl -= sizeof( WCHAR );  // Don't count the NULL from NDS.
+
+                if ( strl <= pU->MaximumLength ) {
+
+                   pU->Length = strl;
+                   Length += 4;
+                   RtlCopyMemory( pU->Buffer, &Response[Length], pU->Length );
+
+                   //
+                   // No need to advance the pointers since this is
+                   // specifically a termination case!
+                   //
+
+                } else {
+
+                    pU->Length = 0;
+                }
+
+            }
+
+            break;
+
+        }
+
+        case 't':
+        {
+
+            PUNICODE_STRING pU = va_arg( Arguments, PUNICODE_STRING );
+            USHORT strl;
+
+            if (pU) {
+
+                strl = (USHORT)(* (DWORD *)&Response[Length] );
+
+                if ( strl <= pU->MaximumLength ) {
+
+                   pU->Length = strl;
+                   Length += 4;
+                   RtlCopyMemory( pU->Buffer, &Response[Length], pU->Length );
+
+                   //
+                   // No need to advance the pointers since this is
+                   // specifically a termination case!
+                   //
+
+                } else {
+
+                   pU->Length = 0;
+
+                }
+
+            }
+
+            break;
+
+        }
+
+        /*
+        case 's':
+        {
+
+            char *c = va_arg( Arguments, char * );
+            WORD l = va_arg( Arguments, WORD );
+            ULONG len = (* (DWORD *)&Response[Length]);
+            Length += 4;
+
+            // BUGBUG: How to fix this?
+            // l = WideCharToMultiByte(CP_ACP,0,(WCHAR *)&Response[Length],Length/2,c,l,0,0);
+            // if (!l) {
+            //     #ifdef NWDBG
+            //     DbgPrint( "ParseResponse case s couldnt translate from WCHAR.\n" );
+            //     #endif
+            //     goto ErrorExit;
+            // }
+
+            len = ROUNDUP4(len);
+            Length += len;
+            break;
+
+        }
+        case 'V':
+        {
+
+            BYTE **b = va_arg( Arguments, BYTE **);
+            DWORD *pLen = va_arg ( Arguments, DWORD *);
+            DWORD len = (* (DWORD *)&Response[Length]);
+            Length += 4;
+            if (b) {
+                *b = (BYTE *)&Response[Length];
+            }
+            if (pLen) {
+                *pLen = len;
+            }
+            Length += ROUNDUP4(len);
+            break;
+
+        }
+
+        case 'l':
+        {
+
+            BYTE* b = va_arg ( Arguments, BYTE* );
+            BYTE* w = va_arg ( Arguments, BYTE* );
+            WORD  i;
+
+            b[1] = Response[Length++];
+            b[0] = Response[Length++];
+
+            for ( i = 0; i < ((WORD) *b); i++, w += sizeof(WORD) )
+            {
+                w[1] = Response[Length++];
+                w[0] = Response[Length++];
+            }
+
+            break;
+        }
+        */
 
 #ifdef NWDBG
         default:
@@ -567,10 +822,19 @@ Return Value:
         }
 
         if ( Length > ResponseLength ) {
-            DbgPrintf ( "*****exchange: not enough response data, %d\n", Length );
-            Error( EVENT_NWRDR_INVALID_REPLY, STATUS_UNEXPECTED_NETWORK_ERROR, NULL, 0, 1, IrpContext->pNpScb->ServerName.Buffer );
 #ifdef NWDBG
-            DbgBreakPoint();
+            DbgPrintf ( "*****exchange: not enough response data, %d\n", Length );
+
+            if ( IrpContext ) {
+
+                Error( EVENT_NWRDR_INVALID_REPLY,
+                       STATUS_UNEXPECTED_NETWORK_ERROR,
+                       NULL,
+                       0,
+                       1,
+                       IrpContext->pNpScb->ServerName.Buffer );
+
+            }
 #endif
             return( STATUS_UNEXPECTED_NETWORK_ERROR );
         }
@@ -646,6 +910,7 @@ Arguments:                                                                     '
             'C'      NCP connect       ( void )
             'F'      NCP function      ( byte )
             'S'      NCP subfunction   ( byte, byte )
+            'N'      NCP subfunction w/o size ( byte, byte )
             'D'      NCP disconnect    ( void )
             'E'      Echo data          ( void )
 
@@ -662,6 +927,7 @@ Arguments:                                                                     '
             'p'      pstring           ( char* )
             'u'      p unicode string  ( UNICODE_STRING * )
             'U'      p uppercase string( UNICODE_STRING * )
+            'J'      variant of U      ( UNICODE_STRING * )
             'c'      cstring           ( char* )
             'v'      cstring           ( UNICODE_STRING* )
             'r'      raw bytes         ( byte*, word )
@@ -723,6 +989,7 @@ Return Value:
         pNpScb->MaxTimeOut = 2 * pNpScb->TickCount + 7;
         pNpScb->TimeOut = pNpScb->MaxTimeOut;
         SetFlag( pIrpC->Flags, IRP_FLAG_RETRY_SEND );
+        SetFlag( pIrpC->Flags, IRP_FLAG_REROUTE_ATTEMPTED );
 
         data_size = 0;
         break;
@@ -746,6 +1013,7 @@ Return Value:
         goto FallThrough;
 
     case 'S':
+    case 'N':
         pIrpC->PacketType = NCP_SUBFUNCTION;
         goto FallThrough;
 
@@ -758,12 +1026,11 @@ Return Value:
     FallThrough:
         if ( *f == 'D' ) {
             *(PUSHORT)&pIrpC->req[0] = PEP_COMMAND_DISCONNECT;
-            pNpScb->RetryCount = DefaultRetryCount / 4;
         } else {
             *(PUSHORT)&pIrpC->req[0] = PEP_COMMAND_REQUEST;
-            pNpScb->RetryCount = DefaultRetryCount;
         }
 
+        pNpScb->RetryCount = DefaultRetryCount ;
         pNpScb->MaxTimeOut = 2 * pNpScb->TickCount + 10;
         pNpScb->TimeOut = pNpScb->SendTimeout;
 
@@ -799,13 +1066,16 @@ Return Value:
             pIrpC->req[data_size++] = va_arg( a, byte );
         }
 
+        if ( *f == 'N' ) {
+            pIrpC->req[data_size++] = va_arg( a, byte );
+        }
+
         break;
 
     case 'B':
         pIrpC->PacketType = NCP_BURST;
         *(PUSHORT)&pIrpC->req[0] = PEP_COMMAND_BURST;
 
-        pNpScb->MaxTimeOut = 2 * pNpScb->TickCount + 10;
         pNpScb->TimeOut = pNpScb->MaxTimeOut;
 
         if ( !BooleanFlagOn( pIrpC->Flags, IRP_FLAG_RETRY_SEND ) ) {
@@ -816,7 +1086,9 @@ Return Value:
 
         *(PULONG)&pIrpC->req[4] = pNpScb->SourceConnectionId;
         *(PULONG)&pIrpC->req[8] = pNpScb->DestinationConnectionId;
-        *(PULONG)&pIrpC->req[16] = 0;           // Send delay time
+
+
+        LongByteSwap( (*(PULONG)&pIrpC->req[16]) , pNpScb->CurrentBurstDelay  ); // Send delay time
         dwData = va_arg( a, dword );            // Size of data
         LongByteSwap( pIrpC->req[24], dwData );
         dwData = va_arg( a, dword );            // Offset of data
@@ -848,7 +1120,7 @@ Return Value:
         case '_':
         {
             word l = va_arg ( a, word );
-            ASSERT( data_size + l <= MAX_DATA );
+            ASSERT( data_size + l <= MAX_SEND_DATA );
 
             while ( l-- )
                 pIrpC->req[data_size++] = 0;
@@ -858,7 +1130,7 @@ Return Value:
         case 's':
         {
             word l = va_arg ( a, word );
-            ASSERT ( data_size + l <= MAX_DATA );
+            ASSERT ( data_size + l <= MAX_SEND_DATA );
             data_size += l;
             break;
         }
@@ -911,7 +1183,7 @@ Return Value:
         {
             char* c = va_arg ( a, char* );
             word  l = strlen( c );
-            ASSERT (data_size + l <= MAX_DATA );
+            ASSERT (data_size + l <= MAX_SEND_DATA );
 
             RtlCopyMemory( &pIrpC->req[data_size], c, l+1 );
             data_size += l + 1;
@@ -925,7 +1197,7 @@ Return Value:
             ULONG Length;
 
             Length = RtlUnicodeStringToOemSize( pUString ) - 1;
-            ASSERT (( data_size + Length <= MAX_DATA) && ( (Length & 0xffffff00) == 0) );
+            ASSERT (( data_size + Length <= MAX_SEND_DATA) && ( (Length & 0xffffff00) == 0) );
 
             OemString.Buffer = &pIrpC->req[data_size];
             OemString.MaximumLength = (USHORT)Length + 1;
@@ -940,7 +1212,7 @@ Return Value:
             char* c = va_arg ( a, char* );
             byte  l = strlen( c );
 
-            if ((data_size+l>MAX_DATA) ||
+            if ((data_size+l>MAX_SEND_DATA) ||
                 ( (l & 0xffffff00) != 0) ) {
 
                 ASSERT("***exchange: Packet too long!2!\n" && FALSE );
@@ -953,12 +1225,15 @@ Return Value:
             break;
         }
 
+        case 'J':
         case 'U':
         case 'u':
         {
             PUNICODE_STRING pUString = va_arg ( a, PUNICODE_STRING );
             OEM_STRING OemString;
+            PUCHAR  pOemString;
             ULONG Length;
+            ULONG   i;
 
             //
             //  Calculate required string length, excluding trailing NUL.
@@ -967,7 +1242,7 @@ Return Value:
             Length = RtlUnicodeStringToOemSize( pUString ) - 1;
             ASSERT( Length < 0x100 );
 
-            if (( data_size + Length > MAX_DATA ) ||
+            if (( data_size + Length > MAX_SEND_DATA ) ||
                 ( (Length & 0xffffff00) != 0) ) {
                 ASSERT("***exchange:Packet too long or name >255 chars!4!\n" && FALSE);
                 return STATUS_OBJECT_PATH_SYNTAX_BAD;
@@ -989,84 +1264,71 @@ Return Value:
                              FALSE );
             }
 
-            ASSERT( NT_SUCCESS( status ));
+            if ( !NT_SUCCESS( status ) ) {
+                return status;
+            }
+
             data_size += (USHORT)Length;
-            break;
-        }
 
-#if 0
-        {
-            USHORT i;
-
-            //
-            //  Copy the string, changes all back slashes to forward slashes,
-            //  then upcase it and convert it to unicode.
-            //
-
-            PUNICODE_STRING pUString = va_arg ( a, PUNICODE_STRING );
-            UNICODE_STRING UCopyString;
-            OEM_STRING OemString;
-            ULONG Length;
-
-            if ( pUString->Length > 0 ) {
-
-                DuplicateStringWithString( (PSTRING)&UCopyString, (PSTRING)pUString, PagedPool );
+            if (( Japan ) &&
+                ( *z == 'J' )) {
 
                 //
-                //  Change all '\' to '/'
+                // Netware Japanese version The following single byte character is replaced with another one
+                // if the string is for File Name only when sending from Client to Server.
+                //
+                // U+0xFF7F SJIS+0xBF     -> 0x10
+                // U+0xFF6E SJIS+0xAE     -> 0x11
+                // U+0xFF64 SJIS+0xAA     -> 0x12
                 //
 
-                for ( i = 0 ; i < UCopyString.Length / 2 ; i++ ) {
-                    if ( UCopyString.Buffer[i] == L'\\' ) {
-                        UCopyString.Buffer[i] = L'/';
+                for ( i = 0 , pOemString = OemString.Buffer ; i < Length ; i++ , pOemString++ ) {
+
+                    if( FsRtlIsLeadDbcsCharacter( *pOemString ) ) {
+
+                        //  Skip the trailing byte
+
+                        i++; pOemString++;
+
+                        if (*pOemString == 0x5C ) {
+
+                            //
+                            // The trailbyte is 0x5C, replace it with 0x13
+                            //
+
+                            *pOemString = 0x13;
+
+                        }
+
+                    } else {
+
+                        //  Single byte character that may need modification.
+
+
+                        if ( *pOemString == 0xBF ) {
+
+                            *pOemString = 0x10;
+
+                        } else if ( *pOemString == 0xAA ) {
+
+                                *pOemString = 0x12;
+
+                        } else if ( *pOemString == 0xAE ) {
+
+                            *pOemString = 0x11;
+                        }
                     }
                 }
-
-                //
-                //  Calculate required string length, excluding trailing NUL.
-                //
-
-                Length = RtlUnicodeStringToOemSize( &UCopyString ) - 1;
-                ASSERT( Length < 0x100 );
-
-            } else {
-                UCopyString = *pUString;
-                Length = 0;
             }
 
-            if (( data_size + Length > MAX_DATA ) ||
-                ( (Length & 0xffffff00) != 0) ) {
-                ASSERT("***exchange: Packet too long or name > 255 chars!5!\n" && FALSE );
-                FREE_POOL( UCopyString.Buffer );
-                return STATUS_OBJECT_PATH_SYNTAX_BAD;
-            }
-
-            pIrpC->req[data_size++] = (UCHAR)Length;
-
-            OemString.Buffer = &pIrpC->req[data_size];
-            OemString.MaximumLength = (USHORT)Length + 1;
-
-            status = RtlUpcaseUnicodeStringToOemString(
-                          &OemString,
-                          &UCopyString,
-                          FALSE );
-
-            ASSERT( NT_SUCCESS( status ));
-
-            if ( pUString->Length > 0 ) {
-                FREE_POOL( UCopyString.Buffer );
-            }
-
-            data_size += (USHORT)Length;
             break;
         }
-#endif
 
         case 'r':
         {
             byte* b = va_arg ( a, byte* );
             word  l = va_arg ( a, word );
-            if (data_size+l>MAX_DATA) {
+            if (data_size+l>MAX_SEND_DATA) {
                 ASSERT("***exchange: Packet too long!6!\n"&& FALSE);
                 return STATUS_UNSUCCESSFUL;
             }
@@ -1092,7 +1354,7 @@ Return Value:
                 return status;
             }
 
-            if ( data_size + RequiredLength > MAX_DATA ) {
+            if ( data_size + RequiredLength > MAX_SEND_DATA ) {
                 ASSERT("***exchange: Packet too long!4!\n" && FALSE);
                 return STATUS_UNSUCCESSFUL;
             }
@@ -1153,7 +1415,7 @@ Return Value:
 
             while ( thisChar < lastChar  ) {
 
-                if ( data_size >= MAX_DATA - 1 ) {
+                if ( data_size >= MAX_SEND_DATA - 1 ) {
                     ASSERT( ("***exchange: Packet too long or name > 255 chars!5!\n" && FALSE) );
                     return STATUS_OBJECT_PATH_SYNTAX_BAD;
                 }
@@ -1173,14 +1435,14 @@ Return Value:
                 UnicodeString.Length = ( thisChar - firstChar ) * sizeof(WCHAR);
 
                 OemString.Buffer = &pIrpC->req[data_size + 1];
-                OemString.MaximumLength = MAX_DATA - data_size - 1;
+                OemString.MaximumLength = MAX_SEND_DATA - data_size - 1;
 
                 status = RtlUnicodeStringToCountedOemString( &OemString, &UnicodeString, FALSE );
 
                 pIrpC->req[data_size] = (UCHAR)OemString.Length;
                 data_size += OemString.Length + 1;
 
-                if ( !NT_SUCCESS( status ) || data_size > MAX_DATA ) {
+                if ( !NT_SUCCESS( status ) || data_size > MAX_SEND_DATA ) {
                     ASSERT("***exchange: Packet too long or name > 255 chars!5!\n" && FALSE );
                     return STATUS_OBJECT_PATH_SYNTAX_BAD;
                 }
@@ -1194,6 +1456,20 @@ Return Value:
                 for ( pchar = OemString.Buffer, i = 0;
                       i < OemString.Length;
                       pchar++, i++ ) {
+
+                            //
+                            // We need to check for dbcs, because 0xff is a
+                            // legal trail byte for EUDC characters.
+                            //
+                    if ( FsRtlIsLeadDbcsCharacter( (UCHAR)*pchar ) ) {
+
+                        //
+                        // Skip dbcs character.
+                        //
+
+                        pchar++; i++;
+                        continue;
+                    }
 
                     if (( (UCHAR)*pchar == LFN_META_CHARACTER ) ||
                          !FsRtlIsAnsiCharacterLegalHpfs(*pchar, FALSE) ) {
@@ -1222,7 +1498,7 @@ Return Value:
             ;
         }
 
-        if ( data_size > MAX_DATA )
+        if ( data_size > MAX_SEND_DATA )
         {
             DbgPrintf( "*****exchange: CORRUPT, too much request data\n" );
             DbgBreakPoint();
@@ -1423,7 +1699,7 @@ Return Value:
 #ifdef MSWDBG
     KIRQL OldIrql;
 #endif
-    DebugTrace(0, Dbg, "AppendToScbQueue...\n", 0);
+    DebugTrace(0, Dbg, "AppendToScbQueue... %08lx\n", NpScb);
     DebugTrace(0, Dbg, "IrpContext = %08lx\n", IrpContext );
 
     //
@@ -1435,6 +1711,10 @@ Return Value:
         ASSERT( NpScb->Requests.Flink == &IrpContext->NextRequest );
         return( TRUE );
     }
+
+#ifdef MSWDBG
+    NpScb->RequestQueued = TRUE;
+#endif
 
 #if 0  //  Resource layout changed on Daytona.  Disable for now.
 
@@ -1512,7 +1792,7 @@ Return Value:
     KIRQL OldIrql;
 
 
-    DebugTrace( +1, Dbg, "KickQueue...\n", 0);
+    DebugTrace( +1, Dbg, "KickQueue...%08lx\n", pNpScb);
 
     KeAcquireSpinLock( &pNpScb->NpScbSpinLock, &OldIrql );
     if ( IsListEmpty( &pNpScb->Requests )) {
@@ -1525,8 +1805,6 @@ Return Value:
 
     ASSERT( pIrpC->pNpScb->Requests.Flink == &pIrpC->NextRequest );
     ASSERT( pIrpC->NodeTypeCode == NW_NTC_IRP_CONTEXT);
-
-    //ASSERT ( pIrpC->RunRoutine != NULL );
 
     RunRoutine = pIrpC->RunRoutine;
 
@@ -1559,7 +1837,6 @@ Return Value:
 
     if ( RunRoutine != NULL ) {
 
-        //ASSERT( pNpScb->Sending == FALSE );
         ASSERT( pNpScb->Receiving == FALSE );
 
         RunRoutine( pIrpC );
@@ -1625,6 +1902,7 @@ Return Value:
         pNpScb->OkToReceive = TRUE;
     }
     pNpScb->Receiving = FALSE;
+    pNpScb->Received  = FALSE;
 
     //
     //  If this packet requires a sequence number, set it now.
@@ -1670,13 +1948,13 @@ Return Value:
             len += MmGetMdlByteCount(Next);
         } while (Next = Next->Next);
 
-        Stats.BytesTransmitted = LiAdd( Stats.BytesTransmitted, LiFromUlong( len ));
+        Stats.BytesTransmitted.QuadPart += len;
     }
 
     Status = IoCallDriver(pNpScb->Server.pDeviceObject, IrpContext->pOriginalIrp);
-    DebugTrace( -1, Dbg, "      %X\n", Status );
+    DebugTrace( -1, Dbg, "Transport returned: %08lx\n", Status );
 
-    Stats.NcpsTransmitted = LiAdd(Stats.NcpsTransmitted, NwLargeOne );
+    Stats.NcpsTransmitted.QuadPart++;
 
     return;
 
@@ -1721,7 +1999,7 @@ Return Value:
 #endif
 
     DebugTrace( +0, Dbg, "Setting event for IrpContext   %X\n", IrpContext );
-    KeSetEvent( &IrpContext->Event, 0, FALSE );
+    NwSetIrpContextEvent( IrpContext );
 }
 
 
@@ -1830,8 +2108,9 @@ Return Value:
     //
 
     DebugTrace( +1, Dbg, "CompletionSend\n", 0);
-    DebugTrace( +0, Dbg, "Irp   %X\n", Irp);
-    DebugTrace( +0, Dbg, "pIrpC %X\n", pIrpC);
+    DebugTrace( +0, Dbg, "Irp    %X\n", Irp);
+    DebugTrace( +0, Dbg, "pIrpC  %X\n", pIrpC);
+    DebugTrace( +0, Dbg, "Status %X\n", Irp->IoStatus.Status);
 
     pNpScb = pIrpC->pNpScb;
     KeAcquireSpinLock( &pNpScb->NpScbSpinLock, &OldIrql );
@@ -1840,13 +2119,14 @@ Return Value:
     pNpScb->Sending = FALSE;
 
     //
-    //  If we got a processed a receive indication while waiting for send
-    //  completion call the receive handler routine now.
+    //  If we got a receive indication while waiting for send
+    //  completion and the data is all valid, call the receive handler routine now.
     //
 
-    if ( pNpScb->Receiving ) {
+    if ( pNpScb->Received ) {
 
         pNpScb->Receiving = FALSE;
+        pNpScb->Received  = FALSE;
 
         KeReleaseSpinLock( &pNpScb->NpScbSpinLock, OldIrql );
 
@@ -1855,10 +2135,18 @@ Return Value:
             pIrpC->ResponseLength,
             pIrpC->rsp );
 
-    } else if ( Irp->IoStatus.Status== STATUS_DEVICE_DOES_NOT_EXIST  ) {
+    } else if (( Irp->IoStatus.Status == STATUS_DEVICE_DOES_NOT_EXIST  ) ||
+               ( Irp->IoStatus.Status == STATUS_BAD_NETWORK_PATH ) ||
+               ( Irp->IoStatus.Status == STATUS_INVALID_BUFFER_SIZE ) ||
+               ( Irp->IoStatus.Status == STATUS_NETWORK_UNREACHABLE )) {
 
         //
         //  The send failed.
+        //
+
+        //
+        //  FIXFIX I would prefer to use !NT_SUCCESS(Irp->IoStatus.Status) to
+        //  get into this code but would need more time to check its ok.
         //
 
         //
@@ -1960,6 +2248,8 @@ Return Value:
     PIRP_CONTEXT pIrpC;
     PNW_TDI_STRUCT pTdiStruct;
     BOOLEAN AcceptPacket = TRUE;
+    PNCP_BURST_READ_RESPONSE pBurstRsp;
+    NTSTATUS BurstStatus;
 
     *IoRequestPacket = NULL;
 #if DBG
@@ -2220,9 +2510,21 @@ Return Value:
 
                 if ( BooleanFlagOn( pIrpC->Flags, IRP_FLAG_RECONNECTABLE ) ) {
                     ClearFlag( pIrpC->Flags, IRP_FLAG_RECONNECTABLE );
-                    ScheduleReconnectRetry( pIrpC );
                     AcceptPacket = FALSE;
-                    pNpScb->OkToReceive = FALSE;
+                    if (!pNpScb->Sending) {
+                        ScheduleReconnectRetry( pIrpC );
+                        pNpScb->OkToReceive = FALSE;
+                    } else {
+                        //
+                        // If we are sending, it is not OK schedule the
+                        // retry now, because if we do and the send
+                        // completion hasnt been run we could end up
+                        // with 2 guys thinking they are at the front
+                        // of the queue. We let the send complete and
+                        // wait for that to fail instead. We will
+                        // eventually reconnect.
+                        //
+                    }
                 }
 
                 break;
@@ -2238,6 +2540,7 @@ Return Value:
                 pNpScb->State = SCB_STATE_ATTACHING;
                 AcceptPacket = FALSE;
                 pNpScb->OkToReceive = FALSE;
+                pNpScb->Receiving = TRUE;
 
                 CopyIndicatedData(
                     pIrpC,
@@ -2269,7 +2572,6 @@ process_packet:
         ASSERT ( !IsListEmpty( &pNpScb->Requests ));
         ASSERT( pIrpC->pEx != NULL );
 
-        pNpScb->OkToReceive = FALSE;
 
         //
         //  If we received this packet without a retry, adjust the
@@ -2292,21 +2594,77 @@ process_packet:
         //  to post a receive IRP.
         //
 
+#ifdef NWDBG
+        if (( BytesIndicated < BytesAvailable ) ||
+            ( AlwaysAllocateIrp )){
+#else
         if ( BytesIndicated < BytesAvailable ) {
+#endif
+
+            if ( ( BooleanFlagOn( pIrpC->Flags, IRP_FLAG_BURST_REQUEST ) ) &&
+                 ( IsListEmpty( &pIrpC->Specific.Read.PacketList ) ) ) {
+
+                pBurstRsp = (PNCP_BURST_READ_RESPONSE)RspData;
+                BurstStatus = NwBurstResultToNtStatus( pBurstRsp->Result );
+
+                //
+                // If this entire burst failed with an error, we can't
+                // let the receive data routine signal the caller until
+                // the pEx gets called and we exit on the correct paths.
+                //
+
+                if ( !NT_SUCCESS( BurstStatus ) ) {
+
+                    DebugTrace( 0, Dbg, "Special burst termination %08lx.\n", BurstStatus );
+                    pIrpC->Specific.Read.Status = BurstStatus;
+
+                    if ( pNpScb->Sending ) {
+
+                        //
+                        // If the send hasn't completed yet, we can't accept
+                        // the packet because IPX may not have completed back
+                        // to us yet!
+                        //
+
+                        KeReleaseSpinLockFromDpcLevel(&pNpScb->NpScbSpinLock );
+                        DebugTrace(-1, Dbg, "ServerDatagramHandler -> STATUS_DATA_NOT_ACCEPTED (%08lx)\n", BurstStatus );
+                        return( STATUS_DATA_NOT_ACCEPTED );
+
+                    } else {
+
+                        //
+                        // Handle this one just like normal, except that we
+                        // know it's going to fail in the receive data routine
+                        // and we don't want the timeout routine to fire
+                        // causing us all sort of grief, so we set OkToReceive
+                        // to FALSE.
+                        //
+
+                        pNpScb->OkToReceive = FALSE;
+                    }
+                }
+
+            }
 
             FreeReceiveIrp( pIrpC ); //  Free old Irp if one was allocated
 
-            try {
-                Status = AllocateReceiveIrp(
-                             pIrpC,
-                             RspData,
-                             BytesAvailable,
-                             BytesTaken,
-                             pTdiStruct );
+            Status = AllocateReceiveIrp(
+                         pIrpC,
+                         RspData,
+                         BytesAvailable,
+                         BytesTaken,
+                         pTdiStruct );
 
-            } except( NwExceptionFilter( NULL, GetExceptionInformation() )) {
+            if (Status == STATUS_MORE_PROCESSING_REQUIRED) {
+
+                pNpScb->OkToReceive = FALSE;
+                pNpScb->Receiving   = TRUE;
+
+            } else if (!NT_SUCCESS( Status ) ) {
+
                 pIrpC->ReceiveIrp = NULL;
                 Status = STATUS_INSUFFICIENT_RESOURCES;
+
             }
 
             KeReleaseSpinLockFromDpcLevel(&pNpScb->NpScbSpinLock );
@@ -2314,6 +2672,8 @@ process_packet:
             *IoRequestPacket = pIrpC->ReceiveIrp;
 
         } else {
+
+           pNpScb->OkToReceive = FALSE;
 
             //
             //  The transport has indicated all of the data.
@@ -2324,7 +2684,6 @@ process_packet:
 
             if ( pNpScb->Sending ) {
                 DebugTrace( 0, Dbg, "Received data before send completion\n", 0 );
-                pNpScb->Receiving = TRUE;
 
                 Status = CopyIndicatedData(
                              pIrpC,
@@ -2333,9 +2692,19 @@ process_packet:
                              BytesTaken,
                              ReceiveDatagramFlags );
 
+                if (NT_SUCCESS(Status)) {
+                   pNpScb->Received    = TRUE;
+                   pNpScb->Receiving   = TRUE;
+                } else {
+                    //  Ignore this packet
+                    pNpScb->OkToReceive = TRUE;
+                }
+
                 KeReleaseSpinLockFromDpcLevel(&pNpScb->NpScbSpinLock );
 
             } else {
+                pNpScb->Receiving = FALSE;
+                pNpScb->Received  = FALSE;
 
                 KeReleaseSpinLockFromDpcLevel(&pNpScb->NpScbSpinLock );
 
@@ -2357,10 +2726,10 @@ process_packet:
 
     }
 
-    Stats.NcpsReceived  = LiAdd( Stats.NcpsReceived, NwLargeOne);
-    Stats.BytesReceived = LiAdd( Stats.BytesReceived, LiFromUlong( BytesAvailable ));
+    Stats.NcpsReceived.QuadPart++;
+    Stats.BytesReceived.QuadPart += BytesAvailable;
 
-    DebugTrace(-1, Dbg, "ServerDatagramHanndler -> %08lx\n", Status );
+    DebugTrace(-1, Dbg, "ServerDatagramHandler -> %08lx\n", Status );
     return( Status );
 
 } // ServerDatagramHandler
@@ -2401,10 +2770,11 @@ Return Value:
 
 --*/
 {
-    NTSTATUS Status = STATUS_SUCCESS;
+    NTSTATUS Status;
     PMDL ReceiveMdl;
     PVOID MappedVa;
     ULONG BytesToCopy;
+    BOOLEAN DeleteMdl = FALSE;
 
     pIrpContext->ResponseLength = BytesIndicated;
 
@@ -2415,15 +2785,15 @@ Return Value:
 
     if ( pIrpContext->ReceiveDataRoutine != NULL ) {
 
-        try {
-            ReceiveMdl = pIrpContext->ReceiveDataRoutine(
-                             pIrpContext,
-                             BytesIndicated,
-                             BytesAccepted,
-                             ReceiveData );
+        Status = pIrpContext->ReceiveDataRoutine(
+                     pIrpContext,
+                     BytesIndicated,
+                     BytesAccepted,
+                     ReceiveData,
+                     &ReceiveMdl );
 
-        } except( NwExceptionFilter( NULL, GetExceptionInformation() )) {
-            return( STATUS_INSUFFICIENT_RESOURCES );
+        if ( !NT_SUCCESS( Status ) ) {
+            return( Status );
         }
 
         //
@@ -2436,6 +2806,8 @@ Return Value:
         BytesIndicated -= *BytesAccepted;
         ReceiveData += *BytesAccepted;
 
+        DeleteMdl = TRUE;
+
     } else {
 
         *BytesAccepted = 0;
@@ -2443,20 +2815,38 @@ Return Value:
 
     }
 
-    while ( BytesIndicated > 0 & ReceiveMdl != NULL ) {
+    if ( ReceiveMdl != NULL ) {
 
-        MappedVa = MmGetSystemAddressForMdl( ReceiveMdl );
-        BytesToCopy = MIN( MmGetMdlByteCount( ReceiveMdl ), BytesIndicated );
-        TdiCopyLookaheadData( MappedVa, ReceiveData, BytesToCopy, ReceiveDatagramFlags );
+        while ( BytesIndicated > 0 && ReceiveMdl != NULL ) {
 
-        ReceiveMdl = ReceiveMdl->Next;
-        BytesIndicated -= BytesToCopy;
-        ReceiveData += BytesToCopy;
+            MappedVa = MmGetSystemAddressForMdl( ReceiveMdl );
+            BytesToCopy = MIN( MmGetMdlByteCount( ReceiveMdl ), BytesIndicated );
+            TdiCopyLookaheadData( MappedVa, ReceiveData, BytesToCopy, ReceiveDatagramFlags );
 
-        ASSERT( !( BytesIndicated != 0 && ReceiveMdl == NULL ) );
+            ReceiveMdl = ReceiveMdl->Next;
+            BytesIndicated -= BytesToCopy;
+            ReceiveData += BytesToCopy;
+
+            ASSERT( !( BytesIndicated != 0 && ReceiveMdl == NULL ) );
+        }
+
+        if (DeleteMdl) {
+
+            PMDL Mdl = pIrpContext->Specific.Read.PartialMdl;
+            PMDL NextMdl;
+
+            while ( Mdl != NULL ) {
+                NextMdl = Mdl->Next;
+                DebugTrace( 0, Dbg, "Freeing MDL %x\n", Mdl );
+                FREE_MDL( Mdl );
+                Mdl = NextMdl;
+            }
+
+            pIrpContext->Specific.Read.PartialMdl = NULL;
+        }
     }
 
-    return( Status );
+    return( STATUS_SUCCESS );
 }
 
 NTSTATUS
@@ -2493,6 +2883,7 @@ Arguments:
 Return Value:
 
     NTSTATUS - Status of receive operation
+                STATUS_MORE_PROCESSING_REQUIRED means we were successful.
 
 --*/
 {
@@ -2501,59 +2892,70 @@ Return Value:
 
     ASSERT( pTdiStruct != NULL );
 
-    try {
+    Irp = ALLOCATE_IRP( pIrpContext->pNpScb->Server.pDeviceObject->StackSize, FALSE );
 
-        Irp = ALLOCATE_IRP( pIrpContext->pNpScb->Server.pDeviceObject->StackSize, FALSE );
-        if ( Irp == NULL ) {
-            ExRaiseStatus( STATUS_INSUFFICIENT_RESOURCES );
+    if ( Irp == NULL ) {
+
+        Status = STATUS_INSUFFICIENT_RESOURCES;
+        goto CleanExit;
+    }
+
+    //
+    //  If there is no receive data routine for this IRP, the
+    //  RxMdl must point to a valid place to put the data.
+    //
+    //  If there is a ReceiveDataRoutine it will build an MDL
+    //
+
+    if ( pIrpContext->ReceiveDataRoutine == NULL ) {
+
+        ULONG LengthOfMdl;
+
+        LengthOfMdl = MdlLength( pIrpContext->RxMdl );
+
+        //
+        //  If the server sent more data than we can receive, simply
+        //  ignore the excess.  In particular 3.11 pads long name
+        //  response with an excess of junk.
+        //
+
+        if ( BytesAvailable > LengthOfMdl ) {
+            BytesAvailable = LengthOfMdl;
         }
 
-        //
-        //  If there is no receive data routine for this IRP, the
-        //  RxMdl must point to a valid place to put the data.
-        //
-        //  If there is a ReceiveDataRoutine it will build an MDL
-        //
+        Irp->MdlAddress = pIrpContext->RxMdl;
+        *BytesAccepted = 0;
 
-        if ( pIrpContext->ReceiveDataRoutine == NULL ) {
+    } else {
 
-            ULONG LengthOfMdl;
+        Status = pIrpContext->ReceiveDataRoutine(
+                     pIrpContext,
+                     BytesAvailable,
+                     BytesAccepted,
+                     ReceiveData,
+                     &Irp->MdlAddress );
 
-            LengthOfMdl = MdlLength( pIrpContext->RxMdl );
+        if ( !NT_SUCCESS( Status ) ||
+             Irp->MdlAddress == NULL ) {
 
-            //
-            //  If the server sent more data than we can receive, simply
-            //  ignore the excess.  In particular 3.11 pads long name
-            //  response with an excess of junk.
-            //
+            Status = STATUS_INSUFFICIENT_RESOURCES;
+            goto CleanExit;
 
-            if ( BytesAvailable > LengthOfMdl ) {
-                BytesAvailable = LengthOfMdl;
-            }
-
-            Irp->MdlAddress = pIrpContext->RxMdl;
-            *BytesAccepted = 0;
-
-        } else {
-
-            Irp->MdlAddress = pIrpContext->ReceiveDataRoutine(
-                                  pIrpContext,
-                                  BytesAvailable,
-                                  BytesAccepted,
-                                  ReceiveData );
         }
 
-    } except( NwExceptionFilter( Irp, GetExceptionInformation() )) {
+        SetFlag( pIrpContext->Flags, IRP_FLAG_FREE_RECEIVE_MDL );
+
+    }
+
+CleanExit:
+
+    if ( !NT_SUCCESS( Status ) ) {
 
         if ( Irp != NULL ) {
             FREE_IRP( Irp );
         }
 
         Irp = NULL;
-        Status = STATUS_INSUFFICIENT_RESOURCES;
-    }
-
-    if ( !NT_SUCCESS( Status )) {
         pIrpContext->ReceiveIrp = NULL;
         Status = STATUS_DATA_NOT_ACCEPTED;
         return( Status );
@@ -2624,7 +3026,8 @@ Return Value:
 
     if ( BooleanFlagOn( IrpContext->Flags, IRP_FLAG_FREE_RECEIVE_MDL ) ) {
 
-        Mdl = Irp->MdlAddress;
+        Mdl = IrpContext->Specific.Read.PartialMdl;
+        IrpContext->Specific.Read.PartialMdl = NULL;
 
         while ( Mdl != NULL ) {
             NextMdl = Mdl->Next;
@@ -2656,10 +3059,17 @@ Return Value:
 
     if ( pNpScb->Sending ) {
         DebugTrace( 0, Dbg, "Received data before send completion\n", 0 );
-        pNpScb->Receiving = TRUE;
+
+        //
+        //  Tell send completion to call pEx.
+        //
+
+        pNpScb->Received = TRUE;
         KeReleaseSpinLock(&pNpScb->NpScbSpinLock, OldIrql );
 
     } else {
+        pNpScb->Receiving = FALSE;
+        pNpScb->Received  = FALSE;
 
         KeReleaseSpinLock( &pNpScb->NpScbSpinLock, OldIrql );
         DebugTrace(+0, Dbg, "Call pIrpC->pEx     %x\n", IrpContext->pEx );
@@ -2791,8 +3201,8 @@ Return Value:
         return STATUS_DATA_NOT_ACCEPTED;
     }
 
-    Stats.NcpsReceived  = LiAdd( Stats.NcpsReceived, NwLargeOne);
-    Stats.BytesReceived = LiAdd( Stats.BytesReceived, LiFromUlong( BytesAvailable ));
+    Stats.NcpsReceived.QuadPart++;
+    Stats.BytesReceived.QuadPart += BytesAvailable;
 
     if ( RspData[1] == NCP_SEARCH_CONTINUE ) {
         PIRP pIrp;
@@ -2812,6 +3222,7 @@ Return Value:
             return STATUS_DATA_NOT_ACCEPTED;
         }
 
+
         pIrpContext->req[0] = pNpScb->ConnectionNo;
 
         //
@@ -2823,9 +3234,33 @@ Return Value:
             ( RtlCompareMemory(
                 ((PTA_IPX_ADDRESS)SourceAddress)->Address[0].Address,
                 &pNpScb->ServerAddress,
-                8) == 8 )) {
+                8) == 8 ))
+        {
+            LARGE_INTEGER KillTime, Now;
+            BOOL ScbIsOld ;
 
-            pIrpContext->req[1] = 'Y';
+            //
+            // Check if this is a not-logged-in SCB that has not been used
+            // for while. If it is, answer NO. In attach.c, we dont disconnect
+            // from a nearest server immediately to avoid the re-connect
+            // overheads. This is where we time the sucker out.
+            //
+
+            KeQuerySystemTime( &Now );
+            KillTime.QuadPart = Now.QuadPart - ( NwOneSecond * DORMANT_SCB_KEEP_TIME);
+
+            ScbIsOld = ((pNpScb->State == SCB_STATE_LOGIN_REQUIRED) &&
+                        (pNpScb->LastUsedTime.QuadPart < KillTime.QuadPart))  ;
+
+
+            pIrpContext->req[1] = ScbIsOld ? 'N' : 'Y';
+
+            if (ScbIsOld)
+            {
+                pNpScb->State = SCB_STATE_RECONNECT_REQUIRED ;
+            }
+
+            DebugTrace(-1,Dbg,"WatchDog Response: %s\n", ScbIsOld ? "N" : "Y");
 
         } else {
 
@@ -2990,8 +3425,8 @@ Return Value:
 
     DebugTrace(0, Dbg, "SendDatagramHandler\n", 0);
 
-    Stats.NcpsReceived  = LiAdd( Stats.NcpsReceived, NwLargeOne );
-    Stats.BytesReceived = LiAdd( Stats.BytesReceived, LiFromUlong( BytesAvailable ));
+    Stats.NcpsReceived.QuadPart++;
+    Stats.BytesReceived.QuadPart += BytesAvailable;
 
     //
     //  Transport will complete the processing of the request, we don't
@@ -3025,32 +3460,61 @@ Return Value:
     if (RspData[1] == BROADCAST_MESSAGE_WAITING ) {
 
         //
-        //  Broadcast message waiting.
+        //  Broadcast message waiting.  If the scavenger
+        //  isn't running, it's safe to go get it.
         //
 
-        listEntry = ExInterlockedRemoveHeadList(
-                        &NwGetMessageList,
-                        &NwMessageSpinLock );
+       KeAcquireSpinLockAtDpcLevel( &NwScavengerSpinLock );
 
-        if ( listEntry != NULL ) {
-            pIrpContext = CONTAINING_RECORD( listEntry, IRP_CONTEXT, NextRequest );
+       if ( WorkerRunning ) {
 
-            //
-            //  Clear the cancel routine for this IRP.
-            //
+           //
+           // The scavenger is running, we can't pick up this
+           // message until the scavenger is done!
+           //
 
-            Irp = pIrpContext->pOriginalIrp;
+           DebugTrace( 0, DEBUG_TRACE_ALWAYS, "Delaying get message for scavenger.\n", 0 );
+           KeReleaseSpinLockFromDpcLevel( &NwScavengerSpinLock );
 
-            IoAcquireCancelSpinLock( &Irp->CancelIrql );
-            IoSetCancelRoutine( Irp, NULL );
-            IoReleaseCancelSpinLock( Irp->CancelIrql );
+       } else {
 
-            pIrpContext->PostProcessRoutine = FspGetMessage;
-            pIrpContext->pNpScb = pNpScb;
-            pIrpContext->pScb = pNpScb->pScb;
+           //
+           // Make sure the scavenger doesn't start.
+           //
 
-            NwPostToFsp( pIrpContext, TRUE );
-        }
+           WorkerRunning = TRUE;
+           KeReleaseSpinLockFromDpcLevel( &NwScavengerSpinLock );
+
+           listEntry = ExInterlockedRemoveHeadList(
+                           &NwGetMessageList,
+                           &NwMessageSpinLock );
+
+           if ( listEntry != NULL ) {
+
+               pIrpContext = CONTAINING_RECORD( listEntry, IRP_CONTEXT, NextRequest );
+
+               //
+               //  Clear the cancel routine for this IRP.
+               //
+
+               Irp = pIrpContext->pOriginalIrp;
+
+               IoAcquireCancelSpinLock( &Irp->CancelIrql );
+               IoSetCancelRoutine( Irp, NULL );
+               IoReleaseCancelSpinLock( Irp->CancelIrql );
+
+               pIrpContext->PostProcessRoutine = FspGetMessage;
+               pIrpContext->pNpScb = pNpScb;
+               pIrpContext->pScb = pNpScb->pScb;
+
+               NwPostToFsp( pIrpContext, TRUE );
+
+           } else {
+
+               WorkerRunning = FALSE;
+           }
+       }
+
     }
 
     DebugTrace(-1, Dbg, "                       %lx\n", STATUS_DATA_NOT_ACCEPTED);
@@ -3087,6 +3551,10 @@ Return Value:
 
 --*/
 {
+    KIRQL OldIrql;
+    PLIST_ENTRY ScbQueueEntry;
+    PNONPAGED_SCB pNpScb;
+
     UNICODE_STRING Message;
     NTSTATUS Status;
     PNWR_SERVER_MESSAGE ServerMessage;
@@ -3097,6 +3565,59 @@ Return Value:
     PAGED_CODE();
 
     NwReferenceUnlockableCodeSection();
+
+    //
+    //  The Scb may be being deleted so carefully walk the list and reference it if
+    //  we find it.
+    //
+
+    KeAcquireSpinLock( &ScbSpinLock, &OldIrql );
+
+    ScbQueueEntry = ScbQueue.Flink;
+
+    while ( ScbQueueEntry != &ScbQueue ) {
+
+        pNpScb = CONTAINING_RECORD( ScbQueueEntry, NONPAGED_SCB, ScbLinks );
+
+        if (pNpScb == IrpContext->pNpScb ) {
+
+            NwReferenceScb( pNpScb );
+
+            break;
+        }
+
+        ScbQueueEntry = ScbQueueEntry->Flink;
+    }
+
+    KeReleaseSpinLock( &ScbSpinLock, OldIrql );
+
+    if (pNpScb != IrpContext->pNpScb ) {
+
+        //
+        //  Server deleted. Its easiest to continue processing the IrpContext
+        //  with an error than try to recover it and return it to the queue.
+        //
+
+        Status = STATUS_UNSUCCESSFUL;
+        NwDereferenceUnlockableCodeSection();
+
+        //
+        // Re-enable the scavenger before we return!
+        //
+
+        WorkerRunning = FALSE;
+
+        return( Status );
+    }
+
+    //
+    //  If the message is telling us that the server is going down then don't
+    //  work too hard trying to get the message. The server is persistent with
+    //  respect to other messages so we'll come through here again when the
+    //  problem has been resolved.
+    //
+
+    SetFlag( IrpContext->Flags, IRP_FLAG_REROUTE_ATTEMPTED );
 
     if ( UP_LEVEL_SERVER( IrpContext->pScb ) ) {
         Status = ExchangeWithWait(
@@ -3113,7 +3634,15 @@ Return Value:
     }
 
     if ( !NT_SUCCESS( Status ) ) {
+        NwDereferenceScb( pNpScb );
         NwDereferenceUnlockableCodeSection();
+
+        //
+        // Re-enable the scavenger before we return!
+        //
+
+        WorkerRunning = FALSE;
+
         return( Status );
     }
 
@@ -3124,7 +3653,15 @@ Return Value:
     if ( ServerName->Length + FIELD_OFFSET( NWR_SERVER_MESSAGE, Server ) + sizeof(WCHAR) > MessageLength ) {
 
         Status = STATUS_BUFFER_TOO_SMALL;
+        NwDereferenceScb( pNpScb );
         NwDereferenceUnlockableCodeSection();
+
+        //
+        // Re-enable the scavenger before we return!
+        //
+
+        WorkerRunning = FALSE;
+
         return( Status );
 
     } else {
@@ -3163,7 +3700,15 @@ Return Value:
     }
 
     if ( !NT_SUCCESS( Status ) ) {
+        NwDereferenceScb( pNpScb );
         NwDereferenceUnlockableCodeSection();
+
+        //
+        // Re-enable the scavenger before we return!
+        //
+
+        WorkerRunning = FALSE;
+
         return( Status );
     }
 
@@ -3187,7 +3732,15 @@ Return Value:
             FIELD_OFFSET( NWR_SERVER_MESSAGE, Server ) + sizeof(WCHAR) +
             Message.Length + sizeof(WCHAR);
 
+    NwDereferenceScb( pNpScb );
     NwDereferenceUnlockableCodeSection();
+
+    //
+    // Re-enable the scavenger before we return!
+    //
+
+    WorkerRunning = FALSE;
+
     return( Status );
 }
 
@@ -3402,6 +3955,8 @@ Return Value:
     }
 
     pNewIrpContext->Specific.Create.UserUid = pScb->UserUid;
+    pNewIrpContext->pNpScb = pNpScb;
+    pNewIrpContext->pScb = pScb;
 
     //
     //  Reset the sequence numbers.
@@ -3414,7 +3969,8 @@ Return Value:
     //
     //  Now insert this new IrpContext to the head of the SCB queue for
     //  processing.  We can get away with this because we own the IRP context
-    //  currently at the front of the queue.
+    //  currently at the front of the queue.  With the RECONNECT_ATTEMPT
+    //  flag set, ConnectScb() will not remove us from the head of the queue.
     //
 
     SetFlag( pNewIrpContext->Flags, IRP_FLAG_ON_SCB_QUEUE );
@@ -3425,15 +3981,17 @@ Return Value:
         &pNewIrpContext->NextRequest,
         &pNpScb->NpScbSpinLock );
 
-    Status = CreateScb(
-                 &pNewScb,
-                 pNewIrpContext,
-                 &pNpScb->ServerName,
-                 NULL,
-                 NULL,
-                 FALSE,
-                 FALSE
-                 );
+    pNewScb = pNpScb->pScb;
+
+    Status = ConnectScb( &pNewScb,
+                         pNewIrpContext,
+                         &pNpScb->ServerName,
+                         NULL,
+                         NULL,
+                         NULL,
+                         FALSE,
+                         FALSE,
+                         TRUE );
 
     if ( !NT_SUCCESS( Status ) ) {
 
@@ -3502,6 +4060,7 @@ Return Value:
 {
     NTSTATUS Status;
     PNONPAGED_SCB pNpScb = pIrpContext->pNpScb;
+    LARGE_INTEGER CurrentTime = {0, 0};
 
     PAGED_CODE();
 
@@ -3530,13 +4089,32 @@ Return Value:
 
         if ( pNpScb != &NwPermanentNpScb ) {
 
-            Error(
-                EVENT_NWRDR_TIMEOUT,
-                STATUS_UNEXPECTED_NETWORK_ERROR,
-                NULL,
-                0,
-                1,
-                pNpScb->ServerName.Buffer );
+
+            KeQuerySystemTime( &CurrentTime );
+
+            if ( CanLogTimeOutEvent( pNpScb->NwNextEventTime,
+                                    CurrentTime
+                                    )) {
+                Error(
+                    EVENT_NWRDR_TIMEOUT,
+                    STATUS_UNEXPECTED_NETWORK_ERROR,
+                    NULL,
+                    0,
+                    1,
+                    pNpScb->ServerName.Buffer );
+
+                //
+                //  Set the LastEventTime to the CurrentTime
+                //
+
+                UpdateNextEventTime(
+                        pNpScb->NwNextEventTime,
+                        CurrentTime,
+                        TimeOutEventInterval
+                        );
+
+            }
+
 
             pNpScb->State = SCB_STATE_ATTACHING;
         }
@@ -3587,6 +4165,8 @@ Return Value:
     NTSTATUS Status;
     PIRP_CONTEXT pNewIrpContext;
     PNONPAGED_SCB pNpScb = pIrpContext->pNpScb;
+    BOOLEAN LIPNegotiated ;
+    LARGE_INTEGER CurrentTime = {0, 0};
 
     PAGED_CODE();
 
@@ -3639,6 +4219,16 @@ Return Value:
 
                     SetFlag( pNewIrpContext->Flags, IRP_FLAG_ON_SCB_QUEUE );
                     SetFlag( pNewIrpContext->Flags, IRP_FLAG_RECONNECT_ATTEMPT );
+
+                    //
+                    // Since we're doing this from a worker thread, we can't
+                    // let the dpc timer schedule _another_ worker thread
+                    // request if this also times out or we may deadlock
+                    // the delayed work queue.
+                    //
+
+                    SetFlag( pNewIrpContext->Flags, IRP_FLAG_REROUTE_ATTEMPTED );
+
                     pNewIrpContext->pNpScb = pNpScb;
 
                 }
@@ -3668,8 +4258,11 @@ Return Value:
                 //  Renegotiate the burst connection, this will automatically re-sync
                 //  the burst connection.
                 //
+                //  BUGBUG: We lose sizeof( NCP_BURST_WRITE_REQUEST ) each time
+                //  we do this right now.
+                //
 
-                NegotiateBurstMode( pNewIrpContext, pNpScb );
+                NegotiateBurstMode( pNewIrpContext, pNpScb, &LIPNegotiated );
 
                 //
                 //  Reset the sequence numbers.
@@ -3711,13 +4304,33 @@ Return Value:
         pIrpContext->pEx( pIrpContext, 0, NULL );
 
         if ( pNpScb != &NwPermanentNpScb ) {
-            Error(
-                EVENT_NWRDR_TIMEOUT,
-                STATUS_UNEXPECTED_NETWORK_ERROR,
-                NULL,
-                0,
-                1,
-                pNpScb->ServerName.Buffer );
+
+
+            KeQuerySystemTime( &CurrentTime );
+
+            if ( CanLogTimeOutEvent( pNpScb->NwNextEventTime,
+                                    CurrentTime
+                                    )) {
+                Error(
+                    EVENT_NWRDR_TIMEOUT,
+                    STATUS_UNEXPECTED_NETWORK_ERROR,
+                    NULL,
+                    0,
+                    1,
+                    pNpScb->ServerName.Buffer );
+
+                //
+                //  Set the LastEventTime to the CurrentTime
+                //
+
+                UpdateNextEventTime(
+                        pNpScb->NwNextEventTime,
+                        CurrentTime,
+                        TimeOutEventInterval
+                        );
+
+            }
+
         }
     }
 
@@ -3751,24 +4364,58 @@ Return Value:
 
 --*/
 {
-    PAGED_CODE();
+    KIRQL OldIrql;
+
+    PNONPAGED_SCB pNpScb = IrpContext->pNpScb;
+
+    //
+    //  Avoid the Scb from disappearing under us.
+    //
+
+    NwReferenceScb( pNpScb );
+
+    //
+    //  Move the IrpContext from the front of the queue just in-case it
+    //  owns the Rcb.
+    //
+
+    KeAcquireSpinLock( &IrpContext->pNpScb->NpScbSpinLock, &OldIrql );
+
+    if ( IrpContext->pNpScb->Sending ) {
+
+        //
+        //  Let send completion call the pEx routine
+        //
+
+        IrpContext->pNpScb->Received = TRUE;
+        KeReleaseSpinLock( &IrpContext->pNpScb->NpScbSpinLock, OldIrql );
+
+    } else {
+
+        IrpContext->pNpScb->Receiving = FALSE;
+        IrpContext->pNpScb->Received  = FALSE;
+        KeReleaseSpinLock( &IrpContext->pNpScb->NpScbSpinLock, OldIrql );
+
+        //
+        //  Now call the callback routine.
+        //
+
+        IrpContext->pEx(
+            IrpContext,
+            IrpContext->ResponseLength,
+            IrpContext->rsp );
+
+    }
 
     //
     //  Close all active handles for this server.
     //
 
     NwAcquireExclusiveRcb( &NwRcb, TRUE );
-    NwInvalidateAllHandlesForScb( IrpContext->pNpScb->pScb );
+    NwInvalidateAllHandlesForScb( pNpScb->pScb );
     NwReleaseRcb( &NwRcb );
 
-    //
-    //  Now call the callback routine.
-    //
-
-    IrpContext->pEx(
-        IrpContext,
-        IrpContext->ResponseLength,
-        IrpContext->rsp );
+    NwDereferenceScb( pNpScb );
 
     //
     //  Return STATUS_PENDING so that the FSP process doesn't complete
@@ -3806,6 +4453,15 @@ Return Value:
 
     DebugTrace( 0, DEBUG_TRACE_LIP, "Burst failure, NpScb = %X\n", NpScb );
 
+    if ( NpScb->NwSendDelay != NpScb->CurrentBurstDelay ) {
+
+        //
+        //  This burst has already failed
+        //
+
+        return;
+    }
+
     NpScb->NwBadSendDelay = NpScb->NwSendDelay;
 
     //
@@ -3820,46 +4476,50 @@ Return Value:
         NpScb->NwSendDelay += -temp + 2;
     }
 
-    //
-    //  If we have slowed down a lot then it might be that the server or a
-    //  bridge only has a small buffer on its NIC. If this is the case then
-    //  rather than sending a big burst with long even gaps between the
-    //  packets, we should try to send a burst the size of the buffer.
-    //
+    if ( NpScb->NwSendDelay > NpScb->NwMaxSendDelay ) {
 
-    if (( NpScb->NwSendDelay > NpScb->NwSingleBurstPacketTime * 2 ) &&
-        ( ((NpScb->MaxSendSize - 1) / NpScb->MaxPacketSize) > 3 )) {
-
-        //  Round down to the next packet
-
-        NpScb->MaxSendSize = ((NpScb->MaxSendSize - 1) / NpScb->MaxPacketSize) * NpScb->MaxPacketSize;
+        NpScb->NwSendDelay = NpScb->NwMaxSendDelay;
 
         //
-        //  Adjust SendDelay below threshold to see if things improve before
-        //  we shrik the size again.
+        //  If we have slowed down a lot then it might be that the server or a
+        //  bridge only has a small buffer on its NIC. If this is the case then
+        //  rather than sending a big burst with long even gaps between the
+        //  packets, we should try to send a burst the size of the buffer.
         //
 
-        NpScb->NwSendDelay = NpScb->NwSendDelay / 2;
+        if ( !DontShrink ) {
+
+            if (((NpScb->MaxSendSize - 1) / NpScb->MaxPacketSize) > 2 ) {
+
+                //  Round down to the next packet
+
+                NpScb->MaxSendSize = ((NpScb->MaxSendSize - 1) / NpScb->MaxPacketSize) * NpScb->MaxPacketSize;
+
+                //
+                //  Adjust SendDelay below threshold to see if things improve before
+                //  we shrink the size again.
+                //
+
+                NpScb->NwSendDelay = NpScb->NwGoodSendDelay = NpScb->NwBadSendDelay = MinSendDelay;
+
+            } else {
+
+                //
+                //  We reached the minimum size with the maximum delay. Give up on burst.
+                //
+
+                NpScb->SendBurstModeEnabled = FALSE;
+
+            }
+
+        }
     }
 
-    if ( NpScb->NwSendDelay > 50000 ) {
-
-        NpScb->NwSendDelay = 50000;
-
-    }
-
-    NpScb->NtSendDelay = LiFromLong( (LONG)NpScb->NwSendDelay * -1000 );
+    NpScb->NtSendDelay.QuadPart = NpScb->NwSendDelay * -1000 ;
 
     DebugTrace( 0, DEBUG_TRACE_LIP, "New Send Delay = %d\n", NpScb->NwSendDelay );
 
-    //
-    //  If either direction gets a burst error then we zero the success count.
-    //  This means that if we change direction of data travel and then get another
-    //  burst error we will assume its congestion in a common component and back
-    //  off more rapidly.
-    //
-
-    NpScb->BurstSuccessCount = 0;
+    NpScb->SendBurstSuccessCount = 0;
 
 }
 
@@ -3891,6 +4551,15 @@ Return Value:
 
     DebugTrace(+0, DEBUG_TRACE_LIP, "Burst failure, NpScb = %X\n", NpScb );
 
+    if ( NpScb->NwReceiveDelay != NpScb->CurrentBurstDelay ) {
+
+        //
+        //  This burst has already failed
+        //
+
+        return;
+    }
+
     NpScb->NwBadReceiveDelay = NpScb->NwReceiveDelay;
 
     //
@@ -3905,46 +4574,51 @@ Return Value:
         NpScb->NwReceiveDelay += -temp + 2;
     }
 
-    //
-    //  If we have slowed down a lot then it might be that the server or a
-    //  bridge only has a small buffer on its NIC. If this is the case then
-    //  rather than Receiveing a big burst with long even gaps between the
-    //  packets, we should try to Receive a burst the size of the buffer.
-    //
 
-    if (( NpScb->NwReceiveDelay > NpScb->NwSingleBurstPacketTime * 2 ) &&
-        ( ((NpScb->MaxReceiveSize - 1) / NpScb->MaxPacketSize) > 3 )) {
+    if ( NpScb->NwReceiveDelay > NpScb->NwMaxReceiveDelay ) {
 
-        //  Round down to the next packet
-
-        NpScb->MaxReceiveSize = ((NpScb->MaxReceiveSize - 1) / NpScb->MaxPacketSize) * NpScb->MaxPacketSize;
+        NpScb->NwReceiveDelay = MaxReceiveDelay;
 
         //
-        //  Adjust ReceiveDelay below threshold to see if things improve before
-        //  we shrik the size again.
+        //  If we have slowed down a lot then it might be that the server or a
+        //  bridge only has a small buffer on its NIC. If this is the case then
+        //  rather than Receiveing a big burst with long even gaps between the
+        //  packets, we should try to Receive a burst the size of the buffer.
         //
 
-        NpScb->NwReceiveDelay = NpScb->NwReceiveDelay / 2;
+        if ( !DontShrink ) {
+
+            if (((NpScb->MaxReceiveSize - 1) / NpScb->MaxPacketSize) > 2 ) {
+
+                //  Round down to the next packet
+
+                NpScb->MaxReceiveSize = ((NpScb->MaxReceiveSize - 1) / NpScb->MaxPacketSize) * NpScb->MaxPacketSize;
+
+                //
+                //  Adjust ReceiveDelay below threshold to see if things improve before
+                //  we shrink the size again.
+                //
+
+                NpScb->NwReceiveDelay = NpScb->NwGoodReceiveDelay = NpScb->NwBadReceiveDelay = MinReceiveDelay;
+
+            } else {
+
+                //
+                //  We reached the minimum size with the maximum delay. Give up on burst.
+                //
+
+                NpScb->ReceiveBurstModeEnabled = FALSE;
+
+            }
+
+        }
+
     }
 
-    if ( NpScb->NwReceiveDelay > 50000 ) {
-
-        NpScb->NwReceiveDelay = 50000;
-
-    }
-
-    //
-    //  If either direction gets a burst error then we zero the success count.
-    //  This means that if we change direction of data travel and then get another
-    //  burst error we will assume its congestion in a common component and back
-    //  off more rapidly.
-    //
-
-    NpScb->BurstSuccessCount = 0;
+    NpScb->ReceiveBurstSuccessCount = 0;
 
     DebugTrace( 0, DEBUG_TRACE_LIP, "New Receive Delay = %d\n", NpScb->NwReceiveDelay );
 }
-
 
 
 VOID
@@ -3971,49 +4645,86 @@ Return Value:
 
     DebugTrace( 0, DEBUG_TRACE_LIP, "Successful burst, NpScb = %X\n", NpScb );
 
-    if ( NpScb->BurstSuccessCount > 6 ) {
+    if ( NpScb->NwSendDelay != NpScb->CurrentBurstDelay ) {
 
-        if ( NpScb->NwSendDelay != 0 ) {
+        //
+        //  This burst has already failed
+        //
+
+        return;
+    }
+
+    if ( NpScb->SendBurstSuccessCount > BurstSuccessCount ) {
+
+        if (NpScb->NwSendDelay != MinSendDelay ) {
 
             NpScb->NwGoodSendDelay = NpScb->NwSendDelay;
 
             temp = NpScb->NwGoodSendDelay - NpScb->NwBadSendDelay;
 
             if (temp >= 0) {
-                NpScb->NwSendDelay -= 1 + temp / 8;
+                NpScb->NwSendDelay -= 1 + temp;
             } else {
-                NpScb->NwSendDelay -= 1 - temp / 8;
+                NpScb->NwSendDelay -= 1 - temp;
             }
+
+            if (NpScb->NwSendDelay < MinSendDelay ) {
+
+                NpScb->NwSendDelay = MinSendDelay;
+
+            }
+
+            NpScb->NtSendDelay.QuadPart = NpScb->NwSendDelay * -1000;
+
+            DebugTrace( 0, DEBUG_TRACE_LIP, "New Send Delay = %d\n", NpScb->NwSendDelay );
 
             //
             //  Start monitoring success at the new rate.
             //
 
-            NpScb->BurstSuccessCount = 0;
+            NpScb->SendBurstSuccessCount = 0;
 
-            //NpScb->NwSendDelay -= 1 + NpScb->NwSendDelay / 16;
+        } else if ( NpScb->SendBurstSuccessCount > BurstSuccessCount2 ) {
 
             //
-            //  Speed up linearly
+            //  We may have had a really bad patch causing BadSendDelay to be very big.
+            //  If we leave it at its current value then at the first sign of trouble
+            //  we will make SendDelay very big
             //
 
-            NpScb->NtSendDelay = LiFromLong( (LONG)NpScb->NwSendDelay * -1000 );
+            NpScb->NwGoodSendDelay = NpScb->NwBadSendDelay =  NpScb->NwSendDelay;
 
-            DebugTrace( 0, DEBUG_TRACE_LIP, "New Send Delay = %d\n", NpScb->NwSendDelay );
+            //
+            //  Is it time to increase the number of packets in the burst?
+            //  AllowGrowth == 0 to be the same as the VLM client.
+            //
+
+            if (( AllowGrowth ) &&
+                ( NpScb->NwSendDelay <= MinSendDelay ) &&
+                ( NpScb->MaxSendSize < NwMaxSendSize)) {
+
+                NpScb->MaxSendSize += NpScb->MaxPacketSize;
 
 
-            if (NpScb->NwSendDelay < 0 ) {
-                NpScb->NwSendDelay = 0;
-                NpScb->NtSendDelay.HighPart = 0;
-                NpScb->NtSendDelay.LowPart = 0;
+                if ( NpScb->MaxSendSize > NwMaxSendSize) {
 
+                    NpScb->MaxSendSize = NwMaxSendSize;
+
+                }
             }
+
+            NpScb->SendBurstSuccessCount = 0;
+
+        } else {
+
+            NpScb->SendBurstSuccessCount++;
 
         }
 
+
     } else {
 
-        NpScb->BurstSuccessCount++;
+        NpScb->SendBurstSuccessCount++;
 
     }
 
@@ -4044,45 +4755,88 @@ Return Value:
 
     DebugTrace( 0, DEBUG_TRACE_LIP, "Successful burst, NpScb = %X\n", NpScb );
 
-    if ( NpScb->BurstSuccessCount > 6 ) {
+    if ( NpScb->NwReceiveDelay != NpScb->CurrentBurstDelay ) {
 
-        if ( NpScb->NwReceiveDelay != 0 ) {
+        //
+        //  This burst has already failed
+        //
+
+        return;
+    }
+
+    if ( NpScb->ReceiveBurstSuccessCount > BurstSuccessCount ) {
+
+        //
+        //  Once the vlm client reaches the Maximum delay it does not
+        //  shrink again.
+        //
+
+        if ( NpScb->NwReceiveDelay != MinReceiveDelay ) {
 
             NpScb->NwGoodReceiveDelay = NpScb->NwReceiveDelay;
 
             temp = NpScb->NwGoodReceiveDelay - NpScb->NwBadReceiveDelay;
 
             if (temp >= 0) {
-                NpScb->NwReceiveDelay -= 1 + temp / 8;
+                NpScb->NwReceiveDelay -= 1 + temp;
             } else {
-                NpScb->NwReceiveDelay -= 1 - temp / 8;
+                NpScb->NwReceiveDelay -= 1 - temp;
+            }
+
+            DebugTrace( 0, DEBUG_TRACE_LIP, "New Receive Delay = %d\n", NpScb->NwReceiveDelay );
+
+
+            if (NpScb->NwReceiveDelay < MinReceiveDelay ) {
+                NpScb->NwReceiveDelay = MinReceiveDelay;
+
             }
 
             //
             //  Start monitoring success at the new rate.
             //
 
-            NpScb->BurstSuccessCount = 0;
+            NpScb->ReceiveBurstSuccessCount = 0;
 
-            //NpScb->NwReceiveDelay -= 1 + NpScb->NwReceiveDelay / 16;
+        } else if ( NpScb->ReceiveBurstSuccessCount > BurstSuccessCount2 ) {
 
             //
-            //  Speed up linearly
+            //  We may have had a really bad patch causing BadReceiveDelay to be very big.
+            //  If we leave it at its current value then at the first sign of trouble
+            //  we will make ReceiveDelay very big
             //
 
-            DebugTrace( 0, DEBUG_TRACE_LIP, "New Receive Delay = %d\n", NpScb->NwReceiveDelay );
+            NpScb->NwGoodReceiveDelay = NpScb->NwBadReceiveDelay = NpScb->NwReceiveDelay;
 
 
-            if (NpScb->NwReceiveDelay < 0 ) {
-                NpScb->NwReceiveDelay = 0;
+            //
+            //  Is it time to increase the number of packets in the burst?
+            //
 
+            if (( AllowGrowth ) &&
+                ( NpScb->NwReceiveDelay <= MinReceiveDelay ) &&
+                ( NpScb->MaxReceiveSize < NwMaxReceiveSize)) {
+
+                NpScb->MaxReceiveSize += NpScb->MaxPacketSize;
+
+
+                if ( NpScb->MaxReceiveSize > NwMaxReceiveSize) {
+
+                    NpScb->MaxReceiveSize = NwMaxReceiveSize;
+
+                }
             }
+
+            NpScb->ReceiveBurstSuccessCount = 0;
+
+        } else {
+
+            NpScb->ReceiveBurstSuccessCount++;
 
         }
 
     } else {
 
-        NpScb->BurstSuccessCount++;
+        NpScb->ReceiveBurstSuccessCount++;
 
     }
 

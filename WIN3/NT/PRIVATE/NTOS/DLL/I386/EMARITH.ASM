@@ -68,9 +68,9 @@ TopTwoPop:
 	push	offset PopWhenDone
 	mov	esi,edi
 	add	edi,Reg87Len		;edi = ST(1)
-	cmp	esi,ENDstk
+        cmp     edi,ENDstk
 	jb	TwoOpSiDi
-	mov	esi,BEGstk
+        mov     edi,BEGstk
 	jmp	TwoOpSiDi
 
 EM_ENTRY eFYL2X

@@ -25,9 +25,11 @@ Revision History:
 
 --*/
 
-
-
 #define NUMBER_OF_PTE_TO_READ 100
+
+#ifndef MM_PTE_LARGE_PAGE_MASK
+#define MM_PTE_LARGE_PAGE_MASK 0
+#endif
 
 typedef struct _SYS_PTE_LIST {
     ULONG Next;
@@ -37,6 +39,7 @@ typedef struct _SYS_PTE_LIST {
 } SYS_PTE_LIST, *PSYS_PTE_LIST;
 
 
+ULONG MmKseg2Frame;
 
 ULONG
 MiGetFrameFromPte (
@@ -44,9 +47,69 @@ MiGetFrameFromPte (
     );
 
 ULONG
+MiGetFrameFromPte (
+    ULONG lpte
+    )
+/*++
+
+Routine Description:
+
+    If the PTE is valid, returns the page frame number that
+    the PTE maps.  Zero is returned otherwise.
+
+Arguments:
+
+    lpte - the PTE to examine.
+
+--*/
+
+
+{
+    MMPTE Pte1;
+
+    Pte1.u.Long = lpte;
+
+    if (Pte1.u.Hard.Valid) {
+        return (Pte1.u.Hard.PageFrameNumber);
+    }
+    return(0);
+}
+
+ULONG
 MiGetFreeCountFromPteList (
     IN PULONG Pte
     );
+
+ULONG
+MiGetFreeCountFromPteList (
+    IN PULONG Pte
+    )
+
+/*++
+
+Routine Description:
+
+    The specified PTE points to a free list header in the
+    system PTE pool. It returns the number of free entries
+    in this block.
+
+Arguments:
+
+    Pte - the PTE to examine.
+
+--*/
+
+{
+    MMPTE Pte1;
+    MMPTE Pte2;
+
+
+    Pte1.u.Long = *Pte;
+    Pte2.u.Long = *(Pte + 1);
+    return (( Pte1.u.List.OneEntry) ?
+                1 :
+                Pte2.u.List.NextEntry);
+}
 
 ULONG
 MiGetNextFromPteList (
@@ -54,9 +117,30 @@ MiGetNextFromPteList (
     );
 
 ULONG
-MiGetPageFromPteList (
-    IN ULONG Pte
-    );
+MiGetNextFromPteList (
+    ULONG Pte
+    )
+
+/*++
+
+Routine Description:
+
+    The specified PTE points to a free list header in the
+    system PTE pool. It returns the next entry in the block.
+
+Arguments:
+
+    Pte - the PTE to examine.
+
+--*/
+
+{
+    MMPTE xyz;
+
+    xyz.u.Long = Pte;
+    return(xyz.u.List.NextEntry);
+}
+
 
 DECLARE_API( sysptes )
 
@@ -98,6 +182,8 @@ Return Value:
     ULONG   Page;
     ULONG   first;
     PSYS_PTE_LIST List;
+    ULONG FreeSysPteListBySize [MM_SYS_PTE_TABLES_MAX];
+    ULONG SysPteIndex [MM_SYS_PTE_TABLES_MAX];
 
 
     Flags = 0;
@@ -107,6 +193,33 @@ Return Value:
     PteBase      = (PMMPTE)GetUlongValue ("MmSystemPtesStart");
     PteEnd       = (PMMPTE)GetUlongValue ("MmSystemPtesEnd");
     IndexBias    = (PMMPTE)GetUlongValue ("MmSystemPteBase");
+
+    dprintf("  Total System Ptes %ld\n", 1 + (PteEnd - PteBase));
+    free = GetExpression( "MmSysPteIndex" );
+
+    if ( !ReadMemory( (DWORD)free,
+                      &SysPteIndex[0],
+                      sizeof(ULONG) * MM_SYS_PTE_TABLES_MAX,
+                      &result) ) {
+            dprintf("%08lx: Unable to get PTE index\n",free);
+    } else {
+
+        free = GetExpression( "MmSysPteListBySizeCount" );
+
+        if ( !ReadMemory( (DWORD)free,
+                          &FreeSysPteListBySize[0],
+                          sizeof(ULONG) * MM_SYS_PTE_TABLES_MAX,
+                          &result) ) {
+                dprintf("%08lx: Unable to get free PTE index\n",free);
+        } else {
+            for (i = 0; i < MM_SYS_PTE_TABLES_MAX; i++ ) {
+                dprintf("     SysPtes list of size %3ld has %3ld free\n",
+                    SysPteIndex[i],
+                    FreeSysPteListBySize[i]);
+            }
+        }
+    }
+    dprintf(" \n");
     FreeStart    = GetUlongValue ("MmFirstFreeSystemPte");
     FreeStart    = MiGetNextFromPteList (FreeStart);
     NumberOfPtes = 1 + PteEnd - PteBase;
@@ -257,4 +370,57 @@ Return Value:
         VirtualFree (List, 0, MEM_RELEASE);
     }
     return;
+}
+
+ULONG
+GetAddressState(
+    IN PVOID VirtualAddress
+    )
+
+{
+    ULONG   Address;
+    ULONG   result;
+    ULONG   flags = 0;
+    PMMPTE  Pte;
+    PMMPTE  Pde;
+    ULONG   PdeContents;
+    ULONG   PteContents;
+
+    if (MI_IS_PHYSICAL_ADDRESS (VirtualAddress)) {
+        return ADDRESS_VALID;
+    }
+    Address = (ULONG)VirtualAddress;
+
+    Pde = (PMMPTE)MiGetPdeAddress (Address);
+    Pte = (PMMPTE)MiGetPteAddress (Address);
+
+    if ( !ReadMemory( (DWORD)Pde,
+                      &PdeContents,
+                      sizeof(ULONG),
+                      &result) ) {
+        dprintf("%08lx: Unable to get PDE\n",Pde);
+        return ADDRESS_NOT_VALID;
+    }
+
+    if (PdeContents & MM_PTE_VALID_MASK) {
+        if (PdeContents & MM_PTE_LARGE_PAGE_MASK) {
+            return ADDRESS_VALID;
+        }
+        if ( !ReadMemory( (DWORD)Pte,
+                          &PteContents,
+                          sizeof(ULONG),
+                          &result) ) {
+            dprintf("%08lx: Unable to get PTE\n",Pte);
+            return ADDRESS_NOT_VALID;
+        }
+        if (PteContents & MM_PTE_VALID_MASK) {
+            return ADDRESS_VALID;
+        }
+        if (PteContents & MM_PTE_TRANSITION_MASK) {
+            if (!(PteContents & MM_PTE_PROTOTYPE_MASK)) {
+                return ADDRESS_TRANSITION;
+            }
+        }
+    }
+    return ADDRESS_NOT_VALID;
 }

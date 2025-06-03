@@ -5,7 +5,10 @@ NOEXTERNS equ 1
 SEGNAME equ <TEXT>
 endif
 
-	include user.inc
+        .xlist
+        include user.inc
+        .list
+
 	swappro  = 0
 
 ; include NEW_SEG1 struc used in GetProcModule

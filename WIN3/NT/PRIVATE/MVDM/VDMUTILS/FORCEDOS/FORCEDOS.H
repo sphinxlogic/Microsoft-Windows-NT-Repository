@@ -22,16 +22,6 @@
 
 #define MAX_EXTENTION		    3
 #define MAX_MSG_LENGTH		    256
-BOOL
-WriteTempPifFile (
-HANDLE	hPifFile,
-char	* pProgramName,
-ULONG	CommandLineSize,
-char	* pComamandLine,
-char	* pCurDirectory,
-ULONG	PifDataLength,
-BYTE	* PifData
-);
 
 BOOL
 IsDirectory

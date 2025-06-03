@@ -51,6 +51,7 @@ BOOLEAN SrvEnableRawMode = 0;
 //
 
 CLONG SrvReceiveBufferLength = 0;
+CLONG SrvReceiveBufferSize = 0;
 
 CLONG SrvInitialReceiveWorkItemCount = 0;
 CLONG SrvMaxReceiveWorkItemCount = 0;
@@ -59,6 +60,9 @@ CLONG SrvInitialRawModeWorkItemCount = 0;
 CLONG SrvMaxRawModeWorkItemCount = 0;
 
 CCHAR SrvReceiveIrpStackSize = 0;
+CLONG SrvReceiveIrpSize = 0;
+CLONG SrvReceiveMdlSize = 0;
+CLONG SrvMaxMdlSize = 0;
 
 //
 // Minimum and maximum number of free connections for an endpoint.
@@ -128,19 +132,36 @@ BOOLEAN SrvRestrictNullSessionAccess = TRUE;
 
 //
 // This flag is needed to enable old (snowball) clients to connect to the
-// server over direct hosted ipx.  It is disabled by default because
-// snowball  ipx clients don't do pipes correctly.
+// server over direct hosted ipx.  It is enabled by default even though
+// Snowball ipx clients don't do pipes correctly, because disabling it
+// breaks browsing.
+//
+// *** We actually don't expect anybody to use this parameter now that
+//     it defaults to enabled, but due to the nearness of the Daytona
+//     release, we are just changing the default instead of removing
+//     the parameter.
 //
 
-BOOLEAN SrvEnableWfW311DirectIpx = FALSE;
+BOOLEAN SrvEnableWfW311DirectIpx = TRUE;
 
 //
-// Thread counts.
+// The maximum number of threads allowed on each work queue.  The
+//  server tries to minimize the number of threads -- this value is
+//  just to keep the threads from getting out of control.
 //
+// Since the blocking work queue is not per-processor, the max thread
+//  count for the blocking work queue is the following value times the
+//  number of processors in the system.
+//
+ULONG SrvMaxThreadsPerQueue = 0;
 
-ULONG SrvNonblockingThreads = 0;
-ULONG SrvBlockingThreads = 0;
-ULONG SrvCriticalThreads = 0;
+//
+// Load balancing variables
+//
+ULONG SrvPreferredAffinity = 0;
+ULONG SrvOtherQueueAffinity = 0;
+ULONG SrvBalanceCount = 0;
+LARGE_INTEGER SrvQueueCalc = {0};
 
 //
 // Scavenger thread idle wait time.
@@ -169,6 +190,33 @@ CLONG SrvMinReceiveQueueLength = 0;
 //
 
 CLONG SrvMinFreeWorkItemsBlockingIo = 0;
+
+//
+// Enforced maximum number of RFCBs held on the internal free lists, per processor
+//
+
+CLONG SrvMaxFreeRfcbs = 0;
+
+//
+// Enforced maximum number of RFCBs held on the internal free lists, per processor
+//
+
+CLONG SrvMaxFreeMfcbs = 0;
+
+//
+// Enforced maximum size of a saved pool chunk per processor
+//
+CLONG SrvMaxPagedPoolChunkSize = 0;
+
+//
+// Enforced maximum size of a saved non paged pool chunk per processor
+//
+CLONG SrvMaxNonPagedPoolChunkSize = 0;
+
+//
+// The number of elements in the directory name cache per connection
+//
+CLONG SrvMaxCachedDirectory;
 
 //
 // Size of the shared memory section used for communication between the
@@ -264,6 +312,23 @@ ULONG SrvDiskConfiguration = 0;       // A bit mask of available disks
 PWSTR *SrvNullSessionPipes = NULL;
 PWSTR *SrvNullSessionShares = NULL;
 
+#ifdef  SRV_PNP_POWER
+//
+// List of the transports we'd like to bind to
+//
+PWSTR *SrvTransportBindingList = NULL;
+#endif
+
+//
+// List of error codes that we do not log to the error log
+//
+NTSTATUS SrvErrorLogIgnore[ SRVMAXERRLOGIGNORE+1 ];
+
+//
+// List of pipes that require a license
+//
+PWSTR *SrvPipesNeedLicense = NULL;
+
 //
 // Delay and number of retries for opens returning sharing violation
 //
@@ -276,6 +341,7 @@ LARGE_INTEGER SrvSharingViolationDelay = {0};
 //
 
 ULONG SrvLockViolationDelay = 0;
+LARGE_INTEGER SrvLockViolationDelayRelative = {0};
 ULONG SrvLockViolationOffset = 0;
 
 //
@@ -292,8 +358,27 @@ ULONG SrvMdlReadSwitchover = 0;
 ULONG SrvMpxMdlReadSwitchover = 0;
 
 //
+// maximum length of buffers to copy before taking the whole receive buffer.
+// currently this is enabled only for WRITE_MPX on direct host IPX.
+//
+
+ULONG SrvMaxCopyLength;
+
+//
 // Number of open files that can be cached after close.
 //
 
 ULONG SrvCachedOpenLimit = 0;
 
+//
+// Kerberos Realm name
+//
+
+UNICODE_STRING KerberosRealm;
+
+
+//
+// Does the server support the bulk SMBs?
+//
+BOOLEAN SrvSupportsBulkTransfer = FALSE;
+BOOLEAN SrvSupportsCompression = FALSE;

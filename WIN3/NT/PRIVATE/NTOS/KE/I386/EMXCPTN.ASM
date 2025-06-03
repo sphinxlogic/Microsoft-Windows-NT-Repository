@@ -150,7 +150,7 @@ SaveEnv:
         call    GetTagWord
         mov     [esi].E32_TagWord,ax
         mov     ax,cs
-        mov     [esi].E32_CodeSeg,ax    ; BUGBUG: Not R0 code & stack
+        mov     [esi].E32_CodeSeg,ax    ; NOTE: Not R0 code & stack
         mov     ax,ss
         mov     [esi].E32_DataSeg,ax
         mov     eax,[ebx].PrevCodeOff
@@ -243,6 +243,7 @@ GetEMSEGStatusWord:
 
         mov     dl,Reg87Len
         div     dl
+        inc     eax
         and     eax, 7                  ; eax is now the stack number
         shl     ax, 11
         or      ax, [ebx].StatusWord    ; or in the rest of the status word.
@@ -444,9 +445,9 @@ fr_continue:
         call    UseTagWord
 
         mov     eax, [esi].E32_CodeOff
-        mov     [esp+4].PrevCodeOff, eax        ; BUGBUG! Why ESP???
+        mov     [ebx].PrevCodeOff, eax
         mov     eax, [esi].E32_DataOff
-        mov     [esp+4].PrevDataOff, eax
+        mov     [ebx].PrevDataOff, eax
         ret
 
 fr_wrap:
@@ -469,8 +470,8 @@ SetEmStatusWord:
         and     ecx, not (7 shl 11)     ; remove stack field.
         mov     [ebx].StatusWord, cx
 
+        sub     ah, 8                   ; adjust for emulator's stack layout
         and     ah, 7 shl 3
-        jz      short StackPtrWasZero
         mov     al, ah
         shr     ah, 1
         add     al, ah                  ; stack field * 3 * 4
@@ -479,11 +480,6 @@ SetEmStatusWord:
         add     eax, BEGstk
         mov     [ebx].CURstk, eax
         ret
-
-StackPtrWasZero:
-        mov     [ebx].CURstk, INITstk
-        ret
-
 
 SetControlWord:
         and     ax,0F3FH                ; Limit to valid values
@@ -650,7 +646,7 @@ SaveStack:
 
 Unsupported:
         mov     ebx, PCR[PcTeb]
-        or      [ebx].CURerr,Invalid    ; (assume it's masked?) BUGBUG
+        or      [ebx].CURerr,Invalid    ; (assume it's masked?)
         mov     [ebx+edi].lManLo,0
         mov     [ebx+edi].lManHi,0C0000000H
         mov     [ebx+edi].ExpSgn,TexpMax shl 16 + bSign shl 8 + bTAG_NAN
@@ -659,4 +655,3 @@ Unsupported:
 
 _TEXT   ENDS
 END
-

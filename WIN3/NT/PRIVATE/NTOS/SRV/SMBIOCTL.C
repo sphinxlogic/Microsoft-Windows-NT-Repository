@@ -24,10 +24,6 @@ Revision History:
 #include "precomp.h"
 #pragma hdrstop
 
-#ifdef _CAIRO_
-#include <ntdddfs.h>
-#endif // _CAIRO_
-
 NTSTATUS
 ProcessOs2Ioctl (
     IN PWORK_CONTEXT WorkContext,
@@ -41,7 +37,7 @@ ProcessOs2Ioctl (
     IN PULONG OutputDataCount
     );
 
-VOID
+VOID SRVFASTCALL
 RestartNtIoctl (
     IN PWORK_CONTEXT WorkContext
     );
@@ -213,7 +209,8 @@ Return Value:
     status = SrvVerifyUidAndTid(
                 WorkContext,
                 &session,
-                &treeConnect
+                &treeConnect,
+                ShareTypeWild
                 );
 
     if ( !NT_SUCCESS(status) ) {
@@ -394,13 +391,6 @@ Return Value:
     USHORT fid;
     BOOLEAN isFsctl;
 
-#ifdef _CAIRO_
-    BOOLEAN isTID;
-    PTREE_CONNECT treeConnect;
-    PFILE_OBJECT PObject;
-    OBJECT_HANDLE_INFORMATION handleInfo;
-#endif // _CAIRO_
-
     PREQ_NT_IO_CONTROL request;
 
     PTRANSACTION transaction;
@@ -417,138 +407,74 @@ Return Value:
     fid = SmbGetAlignedUshort( &request->Fid );
     isFsctl = request->IsFsctl;
 
-#ifdef _CAIRO_
-    isTID = request->IsFlags & IsTID;
+    //
+    // Verify the FID.  If verified, the RFCB block is referenced
+    // and its addresses is stored in the WorkContext block, and the
+    // RFCB address is returned.
+    //
 
-    if ( isTID ) {
+    rfcb = SrvVerifyFid(
+                WorkContext,
+                fid,
+                TRUE,
+                SrvRestartExecuteTransaction,   // serialize with raw write
+                &status
+                );
 
-        IF_DEBUG(TRACE2) KdPrint(( "Srv: name resolve with TID\n" ));
-        treeConnect = WorkContext->TreeConnect;
-
-        //
-        // This shouldn't happen as the NtIoctl code should do this
-        // But, just to be safe ...
-        //
-
-        if ( treeConnect == NULL ) {
-
-            treeConnect = SrvVerifyTid(
-                                 WorkContext,
-                                 fid
-                                 );
-
-            if ( treeConnect == NULL ) {
-
-                  IF_DEBUG(SMB_ERRORS) {
-                      KdPrint(( "SrvSmbIoctl: Invalid TID: 0x%lx\n",
-                                   ( fid ) ));
-                  }
-
-                  SrvSetSmbError( WorkContext, STATUS_SMB_BAD_TID );
-                  return SmbTransStatusErrorWithoutData;
-            }
-        }
-
-        // ASM
-        //
-        // What follows is code to allow TID-based FSCTL on DFS shares only.
-        //
-
-        if ( !treeConnect->Share->IsDfs ) {
-            SrvSetSmbError(WorkContext, STATUS_SMB_BAD_COMMAND);
-            return SmbTransStatusErrorWithoutData;
-        }
-        status = ObReferenceObjectByHandle(
-                                treeConnect->Share->RootDirectoryHandle,
-                                0,
-                                NULL,
-                                KernelMode,
-                                (PVOID *)&PObject,
-                                &handleInfo);
-
-        //
-        // Now Reference the session so it does not get scavanged
-        //
-
-        if ( WorkContext->Session == NULL ) {
-
-            (VOID)SrvVerifyUid(
-                          WorkContext,
-                          SmbGetAlignedUshort(&WorkContext->RequestHeader->Uid)
-                          );
-        }
-
-        //
-        // It had better have worked
-        //
-
-    } else {   // We have a real FID
-#endif // _CAIRO_
-
-        //
-        // Verify the FID.  If verified, the RFCB block is referenced
-        // and its addresses is stored in the WorkContext block, and the
-        // RFCB address is returned.
-        //
-
-        rfcb = SrvVerifyFid(
-                    WorkContext,
-                    fid,
-                    TRUE,
-                    SrvRestartExecuteTransaction,   // serialize with raw write
-                    &status
-                    );
-
-        if ( rfcb == SRV_INVALID_RFCB_POINTER ) {
-
-            if ( !NT_SUCCESS( status ) ) {
-
-                //
-                // Invalid file ID or write behind error.  Reject the request.
-                //
-
-                IF_DEBUG(ERRORS) {
-                    KdPrint((
-                        "SrvSmbNtIoctl: Status %X on FID: 0x%lx\n",
-                        status,
-                        fid
-                        ));
-                }
-
-                SrvSetSmbError( WorkContext, status );
-                return SmbTransStatusErrorWithoutData;
-
-            }
-
-
-            //
-            // The work item has been queued because a raw write is in
-            // progress.
-            //
-
-            return SmbTransStatusInProgress;
-
-        }
-
-        CHECK_FUNCTION_ACCESS(
-            rfcb->GrantedAccess,
-            (UCHAR)(isFsctl ? IRP_MJ_FILE_SYSTEM_CONTROL : IRP_MJ_DEVICE_CONTROL),
-            0,
-            functionCode,
-            &status
-            );
+    if ( rfcb == SRV_INVALID_RFCB_POINTER ) {
 
         if ( !NT_SUCCESS( status ) ) {
-            SrvStatistics.GrantedAccessErrors++;
+
+            //
+            // Invalid file ID or write behind error.  Reject the request.
+            //
+
+            IF_DEBUG(ERRORS) {
+                KdPrint((
+                    "SrvSmbNtIoctl: Status %X on FID: 0x%lx\n",
+                    status,
+                    fid
+                    ));
+            }
+
             SrvSetSmbError( WorkContext, status );
             return SmbTransStatusErrorWithoutData;
+
         }
 
-#ifdef _CAIRO_
-        PObject = rfcb->Lfcb->FileObject;
+
+        //
+        // The work item has been queued because a raw write is in
+        // progress.
+        //
+
+        return SmbTransStatusInProgress;
 
     }
-#endif
+
+    CHECK_FUNCTION_ACCESS(
+        rfcb->GrantedAccess,
+        (UCHAR)(isFsctl ? IRP_MJ_FILE_SYSTEM_CONTROL : IRP_MJ_DEVICE_CONTROL),
+        0,
+        functionCode,
+        &status
+        );
+
+    if ( !NT_SUCCESS( status ) ) {
+        SrvStatistics.GrantedAccessErrors++;
+        SrvSetSmbError( WorkContext, status );
+        return SmbTransStatusErrorWithoutData;
+    }
+
+    //
+    // Since we are doing ioctls to this file, it doesn't seem like it's
+    //  a "normal" file.  We had better not cache its handle after the close.
+    //  Specifically, remote setting of the file's compression state is
+    //  not reflected to the directory entry until the file is closed.  And
+    //  setting a file's compression state is done with an ioctl
+    //
+    rfcb->IsCacheable = FALSE;
+
 
     if ( (functionCode & 3) == METHOD_IN_DIRECT ||
          (functionCode & 3) == METHOD_OUT_DIRECT ) {
@@ -558,13 +484,8 @@ Return Value:
         //
 
         mdl = IoAllocateMdl(
-#ifdef _CAIRO_
                   transaction->InData,
                   transaction->TotalDataCount,
-#else // _CAIRO_
-                  transaction->InParameters,
-                  transaction->ParameterCount,
-#endif // _CAIRO_
                   FALSE,
                   FALSE,
                   NULL
@@ -586,6 +507,7 @@ Return Value:
             );
     }
 
+
     //
     // Set the Restart Routine addresses in the work context block.
     //
@@ -598,10 +520,9 @@ Return Value:
     // Pass this request to the filesystem.
     //
 
-#ifdef _CAIRO_
     SrvBuildIoControlRequest(
         WorkContext->Irp,
-        PObject,
+        rfcb->Lfcb->FileObject,
         WorkContext,
         (UCHAR)(isFsctl ? IRP_MJ_FILE_SYSTEM_CONTROL : IRP_MJ_DEVICE_CONTROL),
         functionCode,
@@ -614,33 +535,9 @@ Return Value:
         );
 
     (PVOID)IoCallDriver(
-                IoGetRelatedDeviceObject(PObject),
+                IoGetRelatedDeviceObject(rfcb->Lfcb->FileObject ),
                 WorkContext->Irp
                 );
-
-    if ( isTID ) {
-      ObDereferenceObject( PObject );
-    }
-#else // _CAIRO_
-    SrvBuildIoControlRequest(
-        WorkContext->Irp,
-        rfcb->Lfcb->FileObject,
-        WorkContext,
-        (UCHAR)(isFsctl ? IRP_MJ_FILE_SYSTEM_CONTROL : IRP_MJ_DEVICE_CONTROL),
-        functionCode,
-        transaction->InParameters,
-        transaction->ParameterCount,
-        transaction->InData,
-        transaction->DataCount,
-        mdl,
-        NULL        // Completion routine
-        );
-
-    (PVOID)IoCallDriver(
-                IoGetRelatedDeviceObject( rfcb->Lfcb->FileObject ),
-                WorkContext->Irp
-                );
-#endif // _CAIRO_
 
     //
     // The call was successfully started, return InProgress to the caller
@@ -651,7 +548,7 @@ Return Value:
 } // SrvSmbNtIoctl
 
 
-VOID
+VOID SRVFASTCALL
 RestartNtIoctl (
     IN PWORK_CONTEXT WorkContext
     )
@@ -674,6 +571,7 @@ Return Value:
 
 {
     NTSTATUS status;
+    ULONG length;
     PTRANSACTION transaction;
 
     PAGED_CODE( );
@@ -693,11 +591,7 @@ Return Value:
 
     status = WorkContext->Irp->IoStatus.Status;
 
-#ifdef _CAIRO_
     if ( NT_ERROR(status) ) {
-#else  // _CAIRO_
-    if ( !NT_SUCCESS(status) ) {
-#endif // _CAIRO_
 
         IF_DEBUG(ERRORS) {
             KdPrint(( "RestartNtIoctl:  Io control failed: %X\n",
@@ -705,12 +599,10 @@ Return Value:
         }
         SrvSetSmbError( WorkContext, status );
 
-#ifdef _CAIRO_
         SrvCompleteExecuteTransaction(
             WorkContext,
             SmbTransStatusErrorWithoutData
             );
-#endif
 
     } else {
 
@@ -719,12 +611,16 @@ Return Value:
         //
 
         transaction = WorkContext->Parameters.Transaction;
-        transaction->SetupCount = 1;
 
-#ifdef _CAIRO_
-        transaction->DataCount = WorkContext->Irp->IoStatus.Information;
-        *transaction->OutSetup = (USHORT) WorkContext->Irp->IoStatus.Information;
+        length = MIN( WorkContext->Irp->IoStatus.Information, transaction->MaxDataCount );
+
+        if ( transaction->MaxSetupCount > 0 ) {
+            transaction->SetupCount = 1;
+            SmbPutUshort( transaction->OutSetup, (USHORT)length );
+        }
+
         transaction->ParameterCount = transaction->MaxParameterCount;
+        transaction->DataCount = length;
 
         if (!NT_SUCCESS(status) ) {
 
@@ -745,27 +641,6 @@ Return Value:
         }
 
     }
-#else // _CAIRO_
-        *(PULONG)transaction->OutSetup = WorkContext->Irp->IoStatus.Information;
-
-        transaction->ParameterCount = transaction->MaxParameterCount;
-        transaction->DataCount = transaction->MaxDataCount;
-
-    }
-
-    //
-    // Respond to the client
-    //
-
-    if ( NT_SUCCESS(status) ) {
-        SrvCompleteExecuteTransaction(WorkContext, SmbTransStatusSuccess);
-    } else {
-        SrvCompleteExecuteTransaction(
-                        WorkContext,
-                        SmbTransStatusErrorWithoutData
-                        );
-    }
-#endif // _CAIRO_
 
     return;
 
@@ -1392,11 +1267,11 @@ Return Value:
 
                 buffer = (PCHAR)smbData.PrinterId->Buffer;
 
-                if ( SrvOemServerName.Buffer != NULL ) {
+                if ( WorkContext->Connection->Endpoint->TransportAddress.Buffer != NULL ) {
                     RtlCopyMemory(
                             buffer,
-                            SrvOemServerName.Buffer,
-                            SrvOemServerName.Length + 1
+                            WorkContext->Connection->Endpoint->TransportAddress.Buffer,
+                            MIN(WorkContext->Connection->Endpoint->TransportAddress.Length+1,LM20_CNLEN)
                             );
                 } else {
                     *buffer = '\0';
@@ -1475,7 +1350,12 @@ Return Value:
         break;
 
     default:
-        status = STATUS_INVALID_PARAMETER;
+
+        // for OS/2 1.x compatibility
+
+        status = STATUS_SUCCESS;
+        *OutputParameterCount = 0;
+        *OutputDataCount = 0;
     }
 
     IF_SMB_DEBUG( TRANSACTION2 ) {

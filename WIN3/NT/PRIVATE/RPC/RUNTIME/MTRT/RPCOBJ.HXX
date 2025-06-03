@@ -47,4 +47,3 @@ InitializeObjectDictionary (
     );
 
 #endif // __RPCOBJ_HXX__
-

@@ -28,6 +28,28 @@ Revision History:
 #include "precomp.h"
 #pragma hdrstop
 
+#ifdef RASAUTODIAL
+#include <acd.h>
+#include <acdapi.h>
+#endif // RASAUTODIAL
+
+//
+// External variables
+//
+#ifdef RASAUTODIAL
+extern BOOLEAN fAcdLoadedG;
+extern ACD_DRIVER AcdDriverG;
+
+//
+// Imported routines
+//
+VOID
+NbfNoteNewConnection(
+    PTP_CONNECTION Connection,
+    PDEVICE_CONTEXT DeviceContext
+    );
+#endif // RASAUTODIAL
+
 
 VOID
 NbfTdiRequestTimeoutHandler(
@@ -89,7 +111,7 @@ Return Value:
 
 #if DBG
         KeQuerySystemTime (&time);
-        difference = RtlLargeIntegerSubtract (time, Request->Time);
+        difference.QuadPart = time.QuadPart - (Request->Time).QuadPart;
         NbfPrint1 ("RequestTimeoutHandler: Request timed out, queued for %ld seconds\n",
                 difference.LowPart / SECONDS);
 #endif
@@ -147,8 +169,15 @@ Return Value:
                 // that is about to queue it will check the STOPPING
                 // flag and complete it then.
                 //
+                // Don't stop the connection if an automatic connection
+                // is in progress.
+                //
 
-                NbfStopConnection (Connection, STATUS_IO_TIMEOUT);
+#if DBG
+                DbgPrint("RequestTimeoutHandler: AUTOCONNECTING=0x%x\n", Connection->Flags2 & CONNECTION_FLAGS2_AUTOCONNECTING);
+#endif
+                if (!(Connection->Flags2 & CONNECTION_FLAGS2_AUTOCONNECTING))
+                    NbfStopConnection (Connection, STATUS_IO_TIMEOUT);
                 break;
 
             case TDI_DISCONNECT:
@@ -758,7 +787,7 @@ Return Value:
 --*/
 
 {
-    INTERLOCKED_RESULT result;
+    LONG result;
 
     IF_NBFDBG (NBF_DEBUG_REQUEST) {
         NbfPrint1 ("NbfRefRequest:  Entered, ReferenceCount: %x\n",
@@ -771,9 +800,7 @@ Return Value:
 
     ASSERT (Request->ReferenceCount > 0);
 
-    result = ExInterlockedIncrementLong (
-              &Request->ReferenceCount,
-              Request->ProviderInterlock);
+    result = InterlockedIncrement (&Request->ReferenceCount);
 
 } /* NbfRefRequest */
 #endif
@@ -804,7 +831,7 @@ Return Value:
 --*/
 
 {
-    INTERLOCKED_RESULT result;
+    LONG result;
 
     IF_NBFDBG (NBF_DEBUG_REQUEST) {
         NbfPrint1 ("NbfDerefRequest:  Entered, ReferenceCount: %x\n",
@@ -815,11 +842,9 @@ Return Value:
     StoreRequestHistory( Request, FALSE );
 #endif
 
-    result = ExInterlockedDecrementLong (
-                &Request->ReferenceCount,
-                Request->ProviderInterlock);
+    result = InterlockedDecrement (&Request->ReferenceCount);
 
-    ASSERT (result != ResultNegative);
+    ASSERT (result >= 0);
 
     //
     // If we have deleted all references to this request, then we can
@@ -828,7 +853,7 @@ Return Value:
     // stream of execution has access to the request any longer.
     //
 
-    if (result == ResultZero) {
+    if (result == 0) {
         NbfDestroyRequest (Request);
     }
 
@@ -867,6 +892,7 @@ Return Value:
 {
     KIRQL oldirql;
     PIRP Irp;
+    PIO_STACK_LOCATION IrpSp;
     NTSTATUS FinalStatus = Status;
     NTSTATUS CopyStatus;
     BOOLEAN TimerWasSet;
@@ -916,6 +942,33 @@ Return Value:
         }
 
         Irp = Request->IoRequestPacket;
+
+#ifdef RASAUTODIAL
+        //
+        // If this is a connect operation that has
+        // returned with either STATUS_SUCCESS or
+        // STATUS_BAD_NETWORK_PATH, then
+        // inform the automatic connection driver.
+        //
+        if (fAcdLoadedG) {
+            IrpSp = IoGetCurrentIrpStackLocation(Irp);
+            if (IrpSp->MinorFunction == TDI_CONNECT &&
+                FinalStatus == STATUS_SUCCESS)
+            {
+                KIRQL adirql;
+                BOOLEAN fEnabled;
+
+                ACQUIRE_SPIN_LOCK(&AcdDriverG.SpinLock, &adirql);
+                fEnabled = AcdDriverG.fEnabled;
+                RELEASE_SPIN_LOCK(&AcdDriverG.SpinLock, adirql);
+                if (fEnabled) {
+                    NbfNoteNewConnection(
+                      IrpSp->FileObject->FsContext,
+                      (PDEVICE_CONTEXT)IrpSp->FileObject->DeviceObject);
+                }
+            }
+        }
+#endif // RASAUTODIAL
 
         //
         // For requests associated with a device context, we need
@@ -993,7 +1046,6 @@ Return Value:
 --*/
 
 {
-    INTERLOCKED_RESULT result;
 
     IF_NBFDBG (NBF_DEBUG_REQUEST) {
         NbfPrint1 ("NbfRefSendIrp:  Entered, ReferenceCount: %x\n",
@@ -1002,9 +1054,7 @@ Return Value:
 
     ASSERT (IRP_SEND_REFCOUNT(IrpSp) > 0);
 
-    result = ExInterlockedIncrementLong (
-              &IRP_SEND_REFCOUNT(IrpSp),
-              &(IRP_DEVICE_CONTEXT(IrpSp)->Interlock));
+    InterlockedIncrement (&IRP_SEND_REFCOUNT(IrpSp));
 
 } /* NbfRefSendIrp */
 
@@ -1034,18 +1084,16 @@ Return Value:
 --*/
 
 {
-    INTERLOCKED_RESULT result;
+    LONG result;
 
     IF_NBFDBG (NBF_DEBUG_REQUEST) {
         NbfPrint1 ("NbfDerefSendIrp:  Entered, ReferenceCount: %x\n",
             IRP_SEND_REFCOUNT(IrpSp));
     }
 
-    result = ExInterlockedDecrementLong (
-                &IRP_SEND_REFCOUNT(IrpSp),
-                &(IRP_DEVICE_CONTEXT(IrpSp)->Interlock));
+    result = InterlockedDecrement (&IRP_SEND_REFCOUNT(IrpSp));
 
-    ASSERT (result != ResultNegative);
+    ASSERT (result >= 0);
 
     //
     // If we have deleted all references to this request, then we can
@@ -1054,7 +1102,7 @@ Return Value:
     // stream of execution has access to the request any longer.
     //
 
-    if (result == ResultZero) {
+    if (result == 0) {
 
         PIRP Irp = IRP_SEND_IRP(IrpSp);
 

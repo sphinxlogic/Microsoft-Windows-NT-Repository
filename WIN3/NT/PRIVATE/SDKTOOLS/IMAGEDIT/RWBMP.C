@@ -46,7 +46,7 @@ BOOL LoadBitmapFile(
 {
     HFILE hf;
     OFSTRUCT OfStruct;
-    struct stat FileStatus;
+    struct _stat FileStatus;
     DWORD dwFileSize;
     DWORD dwDIBSize;
     BITMAPFILEHEADER bfh;
@@ -62,7 +62,7 @@ BOOL LoadBitmapFile(
         return FALSE;
     }
 
-    fstat(HFILE2INT(hf, O_RDONLY), &FileStatus);
+    _fstat(HFILE2INT(hf, O_RDONLY), &FileStatus);
     dwFileSize = (DWORD)FileStatus.st_size;
 
     ImageLinkFreeList();

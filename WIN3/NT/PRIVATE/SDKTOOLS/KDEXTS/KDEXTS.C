@@ -21,13 +21,16 @@ Environment:
 
 --*/
 
+#include "precomp.h"
+#pragma hdrstop
+
 #include <ntverp.h>
 #include <imagehlp.h>
 
 //
 // globals
 //
-API_VERSION            ApiVersion = { 3, 5, API_VERSION_NUMBER, 0 };
+EXT_API_VERSION        ApiVersion = { (VER_PRODUCTVERSION_W >> 8), (VER_PRODUCTVERSION_W & 0xff), EXT_API_VERSION_NUMBER, 0 };
 WINDBG_EXTENSION_APIS  ExtensionApis;
 ULONG                  STeip;
 ULONG                  STebp;
@@ -110,7 +113,7 @@ CheckVersion(
 #endif
 }
 
-LPAPI_VERSION
+LPEXT_API_VERSION
 ExtensionApiVersion(
     VOID
     )

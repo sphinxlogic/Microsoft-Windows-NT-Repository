@@ -71,15 +71,6 @@ Revision History:
 //                                                                         //
 /////////////////////////////////////////////////////////////////////////////
 
-#define SampAlNextAlias( Alias )                                            \
-    ((PSAMP_AL_ALIAS)(((PUCHAR) Alias) + Alias->MaximumLength))
-
-#define SampAlNextDomainInAlias( Domain )                                          \
-    ((PSAMP_AL_DOMAIN)(((PUCHAR) Domain) + Domain->MaximumLength))
-
-#define SampAlNextReferencedDomain( ReferencedDomain )                      \
-    ((PSAMP_AL_REFERENCED_DOMAIN)(((PUCHAR) ReferencedDomain) + ReferencedDomain->Length))
-
 #define SampAlFirstMemberDomain( MemberAliasList )                          \
     (MemberAliasList->MemberDomains)
 
@@ -198,44 +189,8 @@ SampAlGrowMemberAliasList(
     );
 
 NTSTATUS
-SampAlBackupMemberAliasList(
-    IN PSAMP_AL_MEMBER_ALIAS_LIST MemberAliasList
-    );
-
-NTSTATUS
-SampAlRestoreMemberAliasList(
-    IN LONG DomainIndex,
-    OUT PSAMP_AL_MEMBER_ALIAS_LIST *MemberAliasList
-    );
-
-NTSTATUS
-SampAlFastRestoreMemberAliasList(
-    IN LONG DomainIndex,
-    OUT PSAMP_AL_MEMBER_ALIAS_LIST *MemberAliasList
-    );
-
-NTSTATUS
-SampAlFastRestoreList(
-    IN LONG DomainIndex,
-    IN PUNICODE_STRING ListKeyName,
-    IN SAMP_AL_LIST_TYPE ListType,
-    OUT PVOID *List,
-    OUT PHANDLE ListKeyHandle
-    );
-
-NTSTATUS
-SampAlSlowRestoreMemberAliasList(
-    IN LONG DomainIndex
-    );
-
-NTSTATUS
 SampAlBuildMemberAliasList(
     IN LONG DomainIndex
-    );
-
-VOID
-SampAlDiscardMemberAliasList(
-    IN OUT LONG DomainIndex
     );
 
 NTSTATUS
@@ -301,7 +256,8 @@ NTSTATUS
 SampAlDeleteMemberAccount(
     IN OUT PSAMP_AL_MEMBER_ALIAS_LIST *MemberAliasList,
     IN OUT PSAMP_AL_MEMBER_DOMAIN *MemberDomain,
-    IN OUT PSAMP_AL_MEMBER_ACCOUNT MemberAccount
+    IN OUT PSAMP_AL_MEMBER_ACCOUNT MemberAccount,
+    OUT    PBOOLEAN                MemberDomainDeleted
     );
 
 NTSTATUS
@@ -326,7 +282,9 @@ SampAlRemoveAliasesFromMemberAccount(
     IN OUT PSAMP_AL_MEMBER_DOMAIN *MemberDomain,
     IN OUT PSAMP_AL_MEMBER_ACCOUNT *MemberAccount,
     IN ULONG Options,
-    IN PSAMPR_ULONG_ARRAY AliasRids
+    IN PSAMPR_ULONG_ARRAY AliasRids,
+    OUT    PBOOLEAN MemberDomainDeleted,
+    OUT    PBOOLEAN MemberAccountDeleted
     );
 
 NTSTATUS
@@ -505,7 +463,7 @@ GetAliasMembershipError:
     goto GetAliasMembershipFinish;
 }
 
-
+
 NTSTATUS
 SampAlQueryAliasMembership(
     IN SAMPR_HANDLE DomainHandle,
@@ -792,7 +750,7 @@ QueryAliasMembershipError:
     goto QueryAliasMembershipFinish;
 }
 
-
+
 NTSTATUS
 SampAlSlowQueryAliasMembership(
     IN SAMPR_HANDLE DomainHandle,
@@ -977,7 +935,7 @@ Return Values:
     return NtStatus;
 }
 
-
+
 NTSTATUS
 SampAlQueryMembersOfAlias(
     IN SAMPR_HANDLE AliasHandle,
@@ -1031,7 +989,7 @@ QueryMembersOfAliasError:
     goto QueryMembersOfAliasFinish;
 }
 
-
+
 NTSTATUS
 SampAlAddMembersToAlias(
     IN SAMPR_HANDLE AliasHandle,
@@ -1312,7 +1270,7 @@ AddMembersToAliasError:
     goto AddMembersToAliasFinish;
 }
 
-
+
 NTSTATUS
 SampAlRemoveMembersFromAlias(
     IN SAMPR_HANDLE AliasHandle,
@@ -1349,6 +1307,8 @@ Return Values:
     PSAMP_AL_MEMBER_ALIAS_LIST OldMemberAliasList = NULL;
     PSAMP_AL_MEMBER_DOMAIN MemberDomain = NULL;
     PSAMP_AL_MEMBER_ACCOUNT MemberAccount = NULL;
+    BOOLEAN MemberDomainDeleted;
+    BOOLEAN MemberAccountDeleted;
     ULONG AliasRid = ((PSAMP_OBJECT) AliasHandle)->TypeBody.Alias.Rid;
     ULONG MemberRid, SidIndex, MembershipCount;
     PSID DomainSid = NULL;
@@ -1484,7 +1444,9 @@ Return Values:
                      &MemberDomain,
                      &MemberAccount,
                      0,
-                     &AliasRids
+                     &AliasRids,
+                     &MemberDomainDeleted,
+                     &MemberAccountDeleted
                      );
 
         if (!NT_SUCCESS(Status)) {
@@ -1523,7 +1485,7 @@ RemoveMembersFromAliasError:
     goto RemoveMembersFromAliasFinish;
 }
 
-
+
 NTSTATUS
 SampAlLookupMembersInAlias(
     IN SAMPR_HANDLE AliasHandle,
@@ -1608,8 +1570,7 @@ LookupMembersInAliasError:
     goto LookupMembersInAliasFinish;
 }
 
-
-
+
 NTSTATUS
 SampAlDeleteAlias(
     IN SAMPR_HANDLE *AliasHandle
@@ -1636,8 +1597,12 @@ Return Values:
     PSAMP_AL_MEMBER_ALIAS_LIST MemberAliasList = NULL;
     PSAMP_AL_MEMBER_DOMAIN MemberDomain = NULL;
     PSAMP_AL_MEMBER_ACCOUNT MemberAccount = NULL;
+    BOOLEAN MemberDomainDeleted;
+    BOOLEAN MemberAccountDeleted;
     ULONG AliasRid = ((PSAMP_OBJECT) *AliasHandle)->TypeBody.Alias.Rid;
     LONG DomainIndex;
+    ULONG RidCount;
+    LONG DomainCount;
     ULONG AccountIndex;
     SAMPR_ULONG_ARRAY AliasRids;
     AliasRids.Count = 1;
@@ -1659,19 +1624,19 @@ Return Values:
     // Alias and remove it if present.  This is rather slow if there is a
     // large number of alias relationships for diverse domains.
     //
-
+    DomainCount = (LONG) MemberAliasList->DomainCount;
     for (DomainIndex = 0,
          MemberDomain = SampAlFirstMemberDomain( MemberAliasList );
-         DomainIndex < (LONG) MemberAliasList->DomainCount;
-         DomainIndex++,
-         MemberDomain = SampAlNextMemberDomain( MemberDomain )) {
+         DomainIndex < DomainCount;
+         DomainIndex++ ) {
 
+        RidCount = MemberDomain->RidCount;
         for (AccountIndex = 0,
             MemberAccount = SampAlFirstMemberAccount( MemberDomain );
-            AccountIndex < MemberDomain->RidCount;
-            AccountIndex++,
-            MemberAccount = SampAlNextMemberAccount( MemberAccount )) {
+            AccountIndex < RidCount;
+            AccountIndex++ ) {
 
+            ASSERT(MemberAccount->Signature == SAMP_AL_MEMBER_ACCOUNT_SIGNATURE);
             //
             // We now have the MemberAccount.  Now remove the Alias from it.
             //
@@ -1681,7 +1646,9 @@ Return Values:
                          &MemberDomain,
                          &MemberAccount,
                          0,
-                         &AliasRids
+                         &AliasRids,
+                         &MemberDomainDeleted,
+                         &MemberAccountDeleted
                          );
 
             if (!NT_SUCCESS(Status)) {
@@ -1694,11 +1661,38 @@ Return Values:
 
                 break;
             }
+
+            //
+            // Move the the next member account unless the one we were pointing
+            // to was deleted (in which case the next one moved to us).
+            //
+
+            if (!MemberAccountDeleted) {
+                MemberAccount = SampAlNextMemberAccount( MemberAccount );
+            }
+
+            //
+            // If the member domain was deleted, then the count of members
+            // is off as is the member account pointer.
+            //
+
+            if (MemberDomainDeleted) {
+                break;
+            }
         }
 
         if (!NT_SUCCESS(Status)) {
 
             break;
+        }
+
+        //
+        // Move the the next member domain unless the one we were pointing
+        // to was deleted (in which case the next one moved to us).
+        //
+
+        if (!MemberDomainDeleted) {
+            MemberDomain = SampAlNextMemberDomain( MemberDomain );
         }
     }
 
@@ -1717,7 +1711,7 @@ DeleteAliasError:
 
 }
 
-
+
 NTSTATUS
 SampAlRemoveAccountFromAllAliases(
     IN PSID AccountSid,
@@ -1765,6 +1759,7 @@ Return Value:
     PSAMP_AL_MEMBER_ALIAS_LIST MemberAliasList = NULL;
     PSAMP_AL_MEMBER_DOMAIN MemberDomain = NULL;
     PSAMP_AL_MEMBER_ACCOUNT MemberAccount = NULL;
+    BOOLEAN MemberDomainDeleted;
     PSID DomainSid = NULL;
     LONG DomainIndex;
     ULONG MemberRid, AliasRid;
@@ -1864,7 +1859,8 @@ Return Value:
     Status = SampAlDeleteMemberAccount(
                  &MemberAliasList,
                  &MemberDomain,
-                 MemberAccount
+                 MemberAccount,
+                 &MemberDomainDeleted
                  );
 
     if (!NT_SUCCESS(Status)) {
@@ -1897,7 +1893,7 @@ RemoveAccountFromAllAliasesError:
     goto RemoveAccountFromAllAliasesFinish;
 }
 
-
+
 NTSTATUS
 SampAlBuildAliasInformation(
     )
@@ -1949,6 +1945,7 @@ BuildAliasInformationError:
     goto BuildAliasInformationFinish;
 }
 
+
 ////////////////////////////////////////////////////////////////////////////
 //                                                                        //
 // Private functions                                                      //
@@ -2024,6 +2021,8 @@ Arguments:
     OutputMemberAccount->MaximumLength = MaximumLengthMemberAccount;
     OutputMemberAccount->UsedLength =
         SampAlOffsetFirstAlias( OutputMemberAccount );
+    ASSERT(OutputMemberAccount->MaximumLength >=
+           OutputMemberAccount->UsedLength);
     OutputMemberAccount->Rid = Rid;
     OutputMemberAccount->AliasCount = 0;
 
@@ -2042,7 +2041,7 @@ CreateMemberAccountError:
     goto CreateMemberAccountFinish;
 }
 
-
+
 NTSTATUS
 SampAlAllocateMemberAccount(
     IN OUT PSAMP_AL_MEMBER_ALIAS_LIST *MemberAliasList,
@@ -2103,6 +2102,8 @@ Arguments:
 
     *MemberAccount = SampAlNextNewMemberAccount(*MemberDomain);
     (*MemberDomain)->UsedLength += MaximumLengthMemberAccount;
+    ASSERT((*MemberDomain)->MaximumLength >=
+           (*MemberDomain)->UsedLength);
 
 AllocateMemberAccountFinish:
 
@@ -2116,7 +2117,7 @@ AllocateMemberAccountError:
     goto AllocateMemberAccountFinish;
 }
 
-
+
 NTSTATUS
 SampAlGrowMemberAccount(
     IN OUT PSAMP_AL_MEMBER_ALIAS_LIST *MemberAliasList,
@@ -2213,9 +2214,15 @@ Return Values:
     //
 
     (*MemberDomain)->UsedLength += ExtraSpaceRequired;
+    ASSERT((*MemberDomain)->MaximumLength >=
+           (*MemberDomain)->UsedLength);
 
     ASSERT( Destination + CopyLength ==
             (PUCHAR) SampAlNextNewMemberAccount( *MemberDomain ));
+    ASSERT( Destination + CopyLength <=
+            (PUCHAR)(*MemberAliasList) + (*MemberAliasList)->MaximumLength );
+    ASSERT( Destination + CopyLength <=
+            (PUCHAR)(*MemberDomain) + (*MemberDomain)->MaximumLength );
 
     if (CopyLength > 0) {
 
@@ -2233,7 +2240,7 @@ GrowMemberAccountError:
     goto GrowMemberAccountFinish;
 }
 
-
+
 NTSTATUS
 SampAlLookupMemberAccount(
     IN PSAMP_AL_MEMBER_DOMAIN MemberDomain,
@@ -2297,7 +2304,7 @@ LookupMemberAccountError:
     goto LookupMemberAccountFinish;
 }
 
-
+
 NTSTATUS
 SampAlAddAliasesToMemberAccount(
     IN OUT PSAMP_AL_MEMBER_ALIAS_LIST *MemberAliasList,
@@ -2406,6 +2413,8 @@ Return Values:
     Source = (PUCHAR) AliasRids->Element;
     CopyLength = SpaceRequired;
     (*MemberAccount)->UsedLength += SpaceRequired;
+    ASSERT((*MemberAccount)->MaximumLength >=
+           (*MemberAccount)->UsedLength);
     RtlMoveMemory( Destination, Source, CopyLength );
 
     //
@@ -2424,6 +2433,7 @@ AddAliasesToMemberAccountError:
     goto AddAliasesToMemberAccountFinish;
 }
 
+
 NTSTATUS
 SampAlLookupAliasesInMemberAccount(
     IN PSAMP_AL_MEMBER_ACCOUNT MemberAccount,
@@ -2474,14 +2484,16 @@ Arguments:
     return(Status);
 }
 
-
+
 NTSTATUS
 SampAlRemoveAliasesFromMemberAccount(
     IN OUT PSAMP_AL_MEMBER_ALIAS_LIST *MemberAliasList,
     IN OUT PSAMP_AL_MEMBER_DOMAIN *MemberDomain,
     IN OUT PSAMP_AL_MEMBER_ACCOUNT *MemberAccount,
     IN ULONG Options,
-    IN PSAMPR_ULONG_ARRAY AliasRids
+    IN PSAMPR_ULONG_ARRAY AliasRids,
+    OUT    PBOOLEAN MemberDomainDeleted,
+    OUT    PBOOLEAN MemberAccountDeleted
     )
 
 /*++
@@ -2492,6 +2504,10 @@ Routine Description:
     not already exist unless an option to check that they do exist is
     specified.  No down sizing of the Member Account occurs, but an
     empty one will be deleted.
+
+    NOTE: I don't know why ScottBi made MemberAliasList, MemberDomain, and
+          MemberAccount parameters pointers to pointers.  He never updates
+          the pointers so he could have passed them in directly.  JK
 
 Arguments:
 
@@ -2506,6 +2522,12 @@ Arguments:
         SAMP_AL_VERIFY_ALL_ALIASES_IN_ACCOUNT - Verify that none of the
            Aliases presented belong to the Member Account.
 
+    MemberDomainDeleted - Will be set to TRUE if the member domain
+        pointed to by MemberDomain was deleted.  Otherwise FALSE is returned.
+
+    MemberAccountDeleted - Will be set to TRUE if the member account
+        pointed to by MemberAccount was deleted.  Otherwise FALSE is returned.
+
     AliasRids - Pointer to counted array of Alias Rids.
 
 --*/
@@ -2514,6 +2536,9 @@ Arguments:
     NTSTATUS Status = STATUS_SUCCESS;
     ULONG ExistingAliasIndex, LastAliasIndex, RemoveAliasIndex, ExistingAlias;
     ULONG ExistingAliasCount;
+
+    (*MemberDomainDeleted)  = FALSE;
+    (*MemberAccountDeleted) = FALSE;
 
     //
     // If requested, verify that all of the Aliases are already
@@ -2544,13 +2569,11 @@ Arguments:
     }
 
     //
-    // If the Member Account is empty, there's nothing to do.
+    // If the Member Account is empty, then somebody forgot to delete it
     //
 
-    if ((*MemberAccount)->AliasCount == 0) {
+    ASSERT((*MemberAccount)->AliasCount != 0);
 
-        goto RemoveAliasesFromMemberAccountFinish;
-    }
 
     LastAliasIndex = (*MemberAccount)->AliasCount - 1;
 
@@ -2580,6 +2603,8 @@ Arguments:
 
                 (*MemberAccount)->AliasCount--;
                 (*MemberAccount)->UsedLength -= sizeof(ULONG);
+                ASSERT((*MemberAccount)->MaximumLength >=
+                       (*MemberAccount)->UsedLength);
 
                 //
                 // If the Member Account is now empty, quit.
@@ -2613,12 +2638,11 @@ Arguments:
         Status = SampAlDeleteMemberAccount(
                      MemberAliasList,
                      MemberDomain,
-                     *MemberAccount
+                     *MemberAccount,
+                     MemberDomainDeleted
                      );
-
-        if (!NT_SUCCESS(Status)) {
-
-            goto RemoveAliasesFromMemberAccountError;
+        if (NT_SUCCESS(Status)) {
+            (*MemberAccountDeleted) = TRUE;
         }
     }
 
@@ -2631,12 +2655,13 @@ RemoveAliasesFromMemberAccountError:
     goto RemoveAliasesFromMemberAccountFinish;
 }
 
-
+
 NTSTATUS
 SampAlDeleteMemberAccount(
     IN OUT PSAMP_AL_MEMBER_ALIAS_LIST *MemberAliasList,
     IN OUT PSAMP_AL_MEMBER_DOMAIN *MemberDomain,
-    IN OUT PSAMP_AL_MEMBER_ACCOUNT MemberAccount
+    IN OUT PSAMP_AL_MEMBER_ACCOUNT MemberAccount,
+    OUT    PBOOLEAN                MemberDomainDeleted
     )
 
 /*++
@@ -2655,6 +2680,10 @@ Arguments:
 
     MemberAccount - Pointer to the Member Account.
 
+    MemberDomainDeleted - Will be set to TRUE if the member domain
+        pointed to by MemberDomain was deleted.  Otherwise FALSE is returned.
+
+
 Return Values:
 
 --*/
@@ -2664,6 +2693,8 @@ Return Values:
     PUCHAR Source = NULL;
     PUCHAR Destination = NULL;
     ULONG CopyLength;
+
+    (*MemberDomainDeleted) = FALSE;
 
     //
     // Calculate pointers for moving the residual portion of the Member
@@ -2679,11 +2710,20 @@ Return Values:
     CopyLength = (PUCHAR) SampAlNextNewMemberAccount( *MemberDomain ) - Source;
 
     (*MemberDomain)->UsedLength -= MemberAccount->MaximumLength;
+    ASSERT((*MemberDomain)->MaximumLength >=
+           (*MemberDomain)->UsedLength);
     (*MemberDomain)->RidCount--;
 
     if (CopyLength > 0) {
 
         RtlMoveMemory( Destination, Source, CopyLength );
+#if DBG
+        {
+            PSAMP_AL_MEMBER_ACCOUNT Member = (PSAMP_AL_MEMBER_ACCOUNT) Destination;
+            ASSERT(Member->Signature == SAMP_AL_MEMBER_ACCOUNT_SIGNATURE);
+        }
+
+#endif
     }
 
     //
@@ -2698,9 +2738,9 @@ Return Values:
                      );
 
         if (!NT_SUCCESS(Status)) {
-
             goto DeleteMemberAccountError;
         }
+        (*MemberDomainDeleted) = TRUE;
     }
 
 DeleteMemberAccountFinish:
@@ -2712,8 +2752,7 @@ DeleteMemberAccountError:
     goto DeleteMemberAccountFinish;
 }
 
-
-
+
 NTSTATUS
 SampAlCreateMemberDomain(
     IN OUT PSAMP_AL_MEMBER_ALIAS_LIST *MemberAliasList,
@@ -2745,30 +2784,21 @@ Return Values:
     NTSTATUS Status;
     PSAMP_AL_MEMBER_DOMAIN OutputMemberDomain = NULL;
     PSAMP_AL_MEMBER_ACCOUNT OutputMemberAccount = NULL;
-    PSID CopyDomainSid = NULL;
     ULONG MaximumLengthMemberDomain;
     ULONG DomainSidLength = RtlLengthSid(DomainSid);
+    ULONG AlternativeLength;
 
-    //
-    // Make a copy of the Domain Sid
-    //
-
-    CopyDomainSid = MIDL_user_allocate(DomainSidLength);
-
-    RtlCopySid( DomainSidLength, CopyDomainSid, DomainSid );
-
-    Status = STATUS_NO_MEMORY;
-
-    if (CopyDomainSid == NULL) {
-
-        goto CreateMemberDomainError;
-    }
 
     //
     // Allocate the Member Domain.
     //
 
     MaximumLengthMemberDomain = SAMP_AL_INITIAL_MEMBER_DOMAIN_LENGTH;
+    AlternativeLength = FIELD_OFFSET(SAMP_AL_MEMBER_DOMAIN, DomainSid)
+                        + DomainSidLength;
+    if (MaximumLengthMemberDomain < AlternativeLength) {
+        MaximumLengthMemberDomain = AlternativeLength;
+    }
 
     Status = SampAlAllocateMemberDomain(
                  MemberAliasList,
@@ -2782,7 +2812,7 @@ Return Values:
     }
 
     //
-    // Scratch the new Member Domain entry.
+    // Setup the new Member Domain entry.
     //
 
     OutputMemberDomain->MaximumLength = MaximumLengthMemberDomain;
@@ -2798,6 +2828,8 @@ Return Values:
     OutputMemberDomain->UsedLength = SampAlOffsetFirstMemberAccount(
                                          OutputMemberDomain
                                          );
+    ASSERT(OutputMemberDomain->MaximumLength >=
+           OutputMemberDomain->UsedLength);
 
     ((*MemberAliasList)->DomainCount)++;
     *MemberDomain = OutputMemberDomain;
@@ -2812,7 +2844,7 @@ CreateMemberDomainError:
     goto CreateMemberDomainFinish;
 }
 
-
+
 NTSTATUS
 SampAlAllocateMemberDomain(
     IN OUT PSAMP_AL_MEMBER_ALIAS_LIST *MemberAliasList,
@@ -2870,6 +2902,8 @@ Return Values:
 
     *MemberDomain = SampAlNextNewMemberDomain(*MemberAliasList);
     (*MemberAliasList)->UsedLength += MaximumLengthMemberDomain;
+    ASSERT((*MemberAliasList)->MaximumLength >=
+           (*MemberAliasList)->UsedLength);
 
 AllocateMemberDomainFinish:
 
@@ -2882,7 +2916,7 @@ AllocateMemberDomainError:
     goto AllocateMemberDomainFinish;
 }
 
-
+
 NTSTATUS
 SampAlGrowMemberDomain(
     IN OUT PSAMP_AL_MEMBER_ALIAS_LIST *MemberAliasList,
@@ -2977,9 +3011,13 @@ Return Values:
     //
 
     (*MemberAliasList)->UsedLength += ExtraSpaceRequired;
+    ASSERT((*MemberAliasList)->MaximumLength >=
+           (*MemberAliasList)->UsedLength);
 
     ASSERT( Destination + CopyLength ==
             (PUCHAR) SampAlNextNewMemberDomain( *MemberAliasList ));
+    ASSERT( Destination + CopyLength <=
+            (PUCHAR)(*MemberAliasList) + (*MemberAliasList)->MaximumLength );
 
     if (CopyLength > 0) {
 
@@ -2997,7 +3035,7 @@ GrowMemberDomainError:
     goto GrowMemberDomainFinish;
 }
 
-
+
 NTSTATUS
 SampAlLookupMemberDomain(
     IN PSAMP_AL_MEMBER_ALIAS_LIST MemberAliasList,
@@ -3061,7 +3099,7 @@ LookupMemberDomainError:
     goto LookupMemberDomainFinish;
 }
 
-
+
 NTSTATUS
 SampAlDeleteMemberDomain(
     IN OUT PSAMP_AL_MEMBER_ALIAS_LIST *MemberAliasList,
@@ -3104,6 +3142,8 @@ Return Values:
     CopyLength = ((PUCHAR) SampAlNextNewMemberDomain( *MemberAliasList )) - Source;
 
     (*MemberAliasList)->UsedLength -= MemberDomain->MaximumLength;
+    ASSERT((*MemberAliasList)->MaximumLength >=
+           (*MemberAliasList)->UsedLength);
     (*MemberAliasList)->DomainCount--;
 
     if (CopyLength > 0) {
@@ -3114,7 +3154,7 @@ Return Values:
     return(Status);
 }
 
-
+
 NTSTATUS
 SampAlCreateMemberAliasList(
     IN LONG DomainIndex,
@@ -3173,6 +3213,8 @@ Return Values:
     OutputMemberAliasList->UsedLength = SampAlOffsetFirstMemberDomain(
                                             OutputMemberAliasList
                                             );
+    ASSERT(OutputMemberAliasList->MaximumLength >=
+           OutputMemberAliasList->UsedLength);
 
     OutputMemberAliasList->DomainIndex = DomainIndex;
     OutputMemberAliasList->DomainCount = 0;
@@ -3196,7 +3238,7 @@ CreateMemberAliasListError:
     goto CreateMemberAliasListFinish;
 }
 
-
+
 NTSTATUS
 SampAlGrowMemberAliasList(
     IN OUT PSAMP_AL_MEMBER_ALIAS_LIST *MemberAliasList,
@@ -3267,6 +3309,8 @@ Return Values:
         );
 
     OutputMemberAliasList->MaximumLength = NewMaximumLengthMemberAliasList;
+    ASSERT(OutputMemberAliasList->MaximumLength >=
+           OutputMemberAliasList->UsedLength);
     *MemberAliasList = OutputMemberAliasList;
 
 GrowMemberAliasListFinish:
@@ -3280,170 +3324,7 @@ GrowMemberAliasListError:
     goto GrowMemberAliasListFinish;
 }
 
-
-NTSTATUS
-SampAlBuildAliasInformationKeyNames(
-    IN LONG DomainIndex
-    )
-
-/*++
-
-Routine Description:
-
-    NOTE: THIS FUNCTION IS CURRENTLY NOT IN USE AND UNTESTED.  IT WILL
-    BE NEEDED IF THE MEMBER ALIAS LIST IS EVER KEPT IN A REGISTRY KEY.
-
-    This routine builds the names of the Registry Keys used to hold the
-    Alias Information for a given SAM Local Domain.  Currently there is
-    only one key, that of the Member Alias List.  The names produced are
-    relative to the SAM root.  They are stored within the
-    Domain's Global Context (SampDefinedDomains structure).
-
-    The names built comprise the following components:
-
-        1) The constant named Domain parent key name ("DOMAINS").
-
-        2) A backslash
-
-        3) The name of the Domain.
-
-        4) A backslash
-
-        5) The constant name of the Alias Registry key ("Aliases").
-
-        6) A backslash
-
-        7) The constant name of the Alias Members Registry key ("Members").
-
-        8) A backslash
-
-        9) The constant name MemberAliasList
-
-    For example, if the Domain specified is "ALPHA_DOMAIN", this would yield
-    a resultant MemberAliasListKeyName of:
-
-        "DOMAINS\ALPHA_DOMAIN\ALIASES\MEMBERS\MemberAliasList".
-
-    All allocation for these strings will be done using MIDL_user_allocate.
-    Any deallocations will be done using MIDL_user_free.
-
-Arguments:
-
-    DomainIndex - Specifies the domain whose Alias List and Referenced Domain
-        List keynames are to be built.
-
-Return Value:
-
-    NTSTATUS - Standard Nt Result Code.
-
-        STATUS_SUCCESS - The call completed successfully.
---*/
-
-{
-    NTSTATUS Status;
-    USHORT MemberAliasListKeyNameLength;
-    PSID    DomainSid = NULL;
-
-    UNICODE_STRING MemberAliasListKeyName;
-    UNICODE_STRING DRMemberAliasListKeyName;
-
-    //
-    // Initialize the Domain-Relative part of the Member Alias List's
-    // Registry Key Name.  This is ...\Aliases\Members\MemberAliasList.
-    //
-
-    RtlInitUnicodeString( &DRMemberAliasListKeyName, L"\\Aliases\\Members\\MemberAliasList" );
-
-    //
-    // Obtain the Domain Sid from the Domain Index.
-    //
-
-    DomainSid = SampDefinedDomains[DomainIndex].Sid;
-
-    //
-    // Calculate length of MemberAlias List Key.
-    //
-
-    MemberAliasListKeyNameLength =
-        SampNameDomains.Length          +
-        SampBackSlash.Length            +
-        SampDefinedDomains[DomainIndex].InternalName.Length +
-        SampBackSlash.Length            +
-        DRMemberAliasListKeyName.Length +
-        (USHORT)(sizeof(UNICODE_NULL)); // for null terminator
-
-    //
-    // Allocate Unicode String buffer for the Member Alias List Key
-    //
-
-    MemberAliasListKeyName.Buffer = MIDL_user_allocate( MemberAliasListKeyNameLength );
-
-    Status = STATUS_NO_MEMORY;
-
-    if (SampAlDrMemberAliasListKeyName.Buffer == NULL) {
-
-        goto BuildAliasInformationKeyNamesError;
-    }
-
-    MemberAliasListKeyName.Length = 0;
-    MemberAliasListKeyName.MaximumLength = MemberAliasListKeyNameLength;
-
-    //
-    // Build the Alias List Key Name.
-    //
-
-    RtlAppendUnicodeStringToString(
-        &MemberAliasListKeyName,
-        &SampNameDomains
-        );
-
-    RtlAppendUnicodeToString(
-        &MemberAliasListKeyName,
-        L"\\"
-        );
-
-    RtlAppendUnicodeStringToString(
-        &MemberAliasListKeyName,
-        &SampDefinedDomains[DomainIndex].InternalName
-        );
-
-    RtlAppendUnicodeToString(
-        &MemberAliasListKeyName,
-        L"\\"
-        );
-
-    RtlAppendUnicodeStringToString(
-        &MemberAliasListKeyName,
-        (PUNICODE_STRING) &SampAlDrMemberAliasListKeyName
-        );
-
-    //
-    // Finally, copy the Member Alias List to its resting place in the global
-    // Domain context.
-    //
-
-    SampDefinedDomains[DomainIndex].AliasInformation.MemberAliasListKeyName = MemberAliasListKeyName;
-
-BuildAliasInformationKeyNamesFinish:
-
-    //
-    // If necessary, free memory allocated for the DomainSid.
-    //
-
-    if (DomainSid != NULL) {
-
-        MIDL_user_free(DomainSid);
-        DomainSid = NULL;
-    }
-
-    return(Status);
-
-BuildAliasInformationKeyNamesError:
-
-    goto BuildAliasInformationKeyNamesFinish;
-}
-
-
+
 NTSTATUS
 SampAlBuildMemberAliasList(
     IN LONG DomainIndex
@@ -3487,19 +3368,6 @@ Arguments:
 
     SampAlInfoMakeInvalid( DomainIndex );
 
-    //
-    // Build Alias Information Registry Keys.
-    //
-    // NOTE: THE ALIAS INFORMATION IS CURRENTLY STROED IN MEMORY SO THIS
-    // STEP IS NOT CURRENTLY NEEDED
-    //
-
-    // Status = SampAlBuildAliasInformationKeyNames( DomainIndex );
-
-    // if (!NT_SUCCESS(Status)) {
-    //
-    //     goto BuildMemberAliasListError;
-    // }
 
     //
     // Allocate a scratch Domain Sid for splitting Sids.  This has length
@@ -3595,35 +3463,35 @@ Arguments:
                 // setting it to the DomainIndex for the SAM Local Domain we're
                 // initializing, since this AliasContext is used only by me.
                 //
-                
+
                 AliasContext->DomainIndex = DomainIndex;
-                
+
                 Status = SampAlQueryMembersOfAlias(
                              AliasContext,
                              &MemberSids
                              );
-                
+
                 if (NT_SUCCESS(Status)) {
-                
+
                     //
                     // Add these members to the Alias.  No need to verify that
                     // they are already present since we're loading the Member Alias
                     // List from scratch.
                     //
-                    
+
                     Status = SampAlAddMembersToAlias(
                                  AliasContext,
                                  0,
                                  &MemberSids
                                  );
                 }
-                
+
 
                 SampDeleteContext( AliasContext );
             }
 
             if (!NT_SUCCESS(Status)) {
-            
+
                 break;
             }
         }
@@ -3666,7 +3534,7 @@ BuildMemberAliasListError:
     goto BuildMemberAliasListFinish;
 }
 
-
+
 BOOLEAN
 SampAlInfoIsValidForDomain(
     IN SAMPR_HANDLE DomainHandle
@@ -3703,7 +3571,7 @@ Return Values:
     return(SampAlInfoIsValid( DomainIndex ));
 }
 
-
+
 BOOLEAN
 SampAlInfoIsValidForAlias(
     IN SAMPR_HANDLE AliasHandle
@@ -3740,207 +3608,3 @@ Return Values:
 
     return(SampAlInfoIsValid( DomainIndex ));
 }
-
-
-NTSTATUS
-SampAlFastRestoreList(
-    IN LONG DomainIndex,
-    IN PUNICODE_STRING ListKeyName,
-    IN SAMP_AL_LIST_TYPE ListType,
-    OUT PVOID *List,
-    OUT PHANDLE ListKeyHandle
-    )
-
-/*++
-
-Routine Description:
-
-    This function restores a list from a Registry Key, obtaining a handle to
-    key for future use.  If restoration fails, an installation function will
-    be called if appropriate.
-
-    THIS FUNCTION IS NOT IMPLEMENTED.  ONLY SKETCHES EXIST.
-
-Arguments:
-
-    DomainIndex - Specifies the index of the SAM Local Domain whose
-        Alias List is to be restored.
-
-    ListKeyName - Pointer to Unicode String containing the name of the
-        Registry Key whose value is the contents of the list.
-
-    ListType - Specifies the type of list
-
-        SampAlAliasMemberList - An Alias List
-        SampAlReferencedDomainList - A Referenced Domain List
-
-    List - Receives a pointer to the restored list.
-
-    ListKeyHandle - Receives the Registry Key Handle.  This handle permits
-        reads and writes to the key.
-
-Return Value:
-
-    NTSTATUS - Standard Nt Result Code
-
-        STATUS_SUCCESS - The call completed successfully.
-
---*/
-
-{
-    NTSTATUS Status;
-    OBJECT_ATTRIBUTES ObjectAttributes;
-    HANDLE OutputListKeyHandle = NULL;
-    ULONG KeyValueLength, KeyValueType, ListLength;
-    PVOID OutputList = NULL;
-
-    //
-    // Open the List key.
-    //
-
-    InitializeObjectAttributes(
-        &ObjectAttributes,
-        ListKeyName,
-        OBJ_CASE_INSENSITIVE,
-        SampKey,
-        NULL
-        );
-
-    Status = RtlpNtOpenKey(
-                 &OutputListKeyHandle,
-                 (KEY_READ),
-                 &ObjectAttributes,
-                 0
-                 );
-
-    if (!NT_SUCCESS(Status)) {
-
-        if ((Status != STATUS_OBJECT_PATH_NOT_FOUND) &&
-            (Status != STATUS_OBJECT_NAME_NOT_FOUND) ) {
-
-            goto FastRestoreListError;
-        }
-
-        //
-        // There is no List.  Attempt to install one.
-        //
-
-        switch (ListType) {
-
-        case SampAlMemberAliasList:
-
-            break;
-
-        default:
-
-            Status = STATUS_INVALID_PARAMETER;
-            break;
-        }
-
-        if (!NT_SUCCESS(Status)) {
-
-            goto FastRestoreListError;
-        }
-
-        //
-        // Try the open again, this time with feeling.
-        //
-
-        Status = RtlpNtOpenKey(
-                     &OutputListKeyHandle,
-                     (KEY_READ),
-                     &ObjectAttributes,
-                     0
-                     );
-
-        if (!NT_SUCCESS(Status)) {
-
-            goto FastRestoreListError;
-        }
-    }
-
-    //
-    // The List was successfully opened, possibly after building one
-    // on the fly.  Now query the size of the List and read it into memory.
-    //
-
-    KeyValueLength = 0;
-    KeyValueType = 0;
-
-    Status = RtlpNtQueryValueKey(
-                 OutputListKeyHandle,
-                 &KeyValueType,
-                 NULL,
-                 &ListLength,
-                 NULL
-                 );
-
-    if (NT_SUCCESS(Status)) {
-
-        KdPrint(("SAM Server: Corrupt List, length 0\n"));
-        goto FastRestoreListError;
-    }
-
-    if (Status != STATUS_BUFFER_OVERFLOW) {
-
-        goto FastRestoreListError;
-    }
-
-    //
-    // Allocate memory for the List.
-    //
-
-    Status = STATUS_NO_MEMORY;
-
-    OutputList = MIDL_user_allocate( ListLength );
-
-    if (OutputList == NULL) {
-
-        goto FastRestoreListError;
-    }
-
-    //
-    // Now read the List into memory.
-    //
-
-    Status = RtlpNtQueryValueKey(
-                 OutputListKeyHandle,
-                 NULL,
-                 OutputList,
-                 &ListLength,
-                 NULL
-                 );
-
-    if (!NT_SUCCESS(Status)) {
-
-        goto FastRestoreListError;
-    }
-
-
-FastRestoreListFinish:
-
-    //
-    // Copy the output values.
-    //
-
-    *ListKeyHandle = OutputListKeyHandle;
-    *List = OutputList;
-
-    return(Status);
-
-FastRestoreListError:
-
-    //
-    // If we opened the List's Registry Key, close it.
-    //
-
-    if (OutputListKeyHandle != NULL) {
-
-        Status = NtClose( OutputListKeyHandle );
-        OutputListKeyHandle = NULL;
-    }
-
-    goto FastRestoreListFinish;
-}
-
-

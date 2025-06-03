@@ -76,6 +76,8 @@ Revision History:
 #include "os2tile.h"
 #include "os2nt.h"
 
+#include "os2crt.h"
+
 //The following definitions should be compatible with ntrtl.h
 
 PVOID

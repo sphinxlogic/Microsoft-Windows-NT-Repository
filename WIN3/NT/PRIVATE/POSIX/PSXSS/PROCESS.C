@@ -104,7 +104,7 @@ Routine Description:
 Arguments:
 
     ClientId - Supplies the address of the client id associated with the
-	  process.  Only the UniqueProcess portion of the ClientId is used.
+      process.  Only the UniqueProcess portion of the ClientId is used.
 
 Return Value:
 
@@ -112,68 +112,72 @@ Return Value:
 
     Non-Null - A pointer to the allocated process.  The process' process lock is
                held, the process can be located in the ClientIdHashTable, and
-	       the process has a Pid.
+           the process has a Pid.
 
 --*/
 
 {
-	PPSX_PROCESS Process;
-	ULONG index;
-	NTSTATUS Status;
+    PPSX_PROCESS Process;
+    ULONG index;
+    NTSTATUS Status;
 
-	//
-	// Lock Process Table
-	//
+    //
+    // Lock Process Table
+    //
 
-	AcquireProcessStructureLock();
+    AcquireProcessStructureLock();
 
-	for (Process = FirstProcess, index = 0; Process < LastProcess;
-	  Process++, index++) {
-		if (!(Process->Flags & P_FREE)) {
-			continue;
-		}
+    for (Process = FirstProcess, index = 0; Process < LastProcess;
+      Process++, index++) {
+        if (!(Process->Flags & P_FREE)) {
+            continue;
+        }
 
-		//
-		// Slot Found. Mark process as allocated and free process table
-		// lock.
-		//
+        //
+        // Slot Found. Mark process as allocated and free process table
+        // lock.
+        //
 
-		Process->Flags &= ~P_FREE;
-		Process->ClientId = *ClientId;
+        Process->Flags &= ~P_FREE;
+        Process->ClientId = *ClientId;
+        Process->ClientPort = NULL;
 
-		//
-		// Place Process In CLIENT_ID Hash Table
-		//
+        //
+        // Place Process In CLIENT_ID Hash Table
+        //
 
-		InsertTailList(&ClientIdHashTable[CIDTOHASHINDEX(ClientId)],
-		       		   &Process->ClientIdHashLinks);
+        InsertTailList(&ClientIdHashTable[CIDTOHASHINDEX(ClientId)],
+                       &Process->ClientIdHashLinks);
 
-		if (++Process->SequenceNumber > 255)
-			Process->SequenceNumber = 1;
+        if (++Process->SequenceNumber > 255)
+            Process->SequenceNumber = 1;
 
-		MAKEPID(Process->Pid, Process->SequenceNumber, index);
+        MAKEPID(Process->Pid, Process->SequenceNumber, index);
 
-		if (Process->Pid == SPECIALPID) {
-			KdPrint(("PSXSS: seq %d, index %d\n", Process->SequenceNumber, index));
-		}
-		ASSERT(Process->Pid != SPECIALPID);
+        if (Process->Pid == SPECIALPID) {
+            KdPrint(("PSXSS: seq %d, index %d\n", Process->SequenceNumber, index));
+        }
+        ASSERT(Process->Pid != SPECIALPID);
 
-		Status = RtlInitializeCriticalSection(&Process->ProcessLock);
-		ASSERT(NT_SUCCESS(Status));
+        Status = RtlInitializeCriticalSection(&Process->ProcessLock);
+        if (!NT_SUCCESS(Status)) {
+            ReleaseProcessStructureLock();
+            return NULL;
+        }
 
-		AcquireProcessLock(Process);
+        AcquireProcessLock(Process);
 
-		//
-		// Unlock Process Table
-		//
+        //
+        // Unlock Process Table
+        //
 
-		ReleaseProcessStructureLock();
+        ReleaseProcessStructureLock();
 
-		IF_PSX_DEBUG(EXEC) {
-			KdPrint(("PsxAllocateProcess: Process = %lx, ClientId %lx.%lx "
-		 		"Pid %lx\n", Process, Process->ClientId.UniqueProcess,
-				Process->ClientId.UniqueThread, Process->Pid));
-		}
+        IF_PSX_DEBUG(EXEC) {
+            KdPrint(("PsxAllocateProcess: Process = %lx, ClientId %lx.%lx "
+                "Pid %lx\n", Process, Process->ClientId.UniqueProcess,
+                Process->ClientId.UniqueThread, Process->Pid));
+        }
         return Process;
     }
 
@@ -208,7 +212,7 @@ Arguments:
 Return Value:
 
     Null - No process whose client id matches the specified ClientId parameter
-	   is located in the ClientIdHashTable.
+       is located in the ClientIdHashTable.
 
     Non-Null - Returns the address of the process whose CLIENT_ID matches the
                specified ClientId.
@@ -231,7 +235,7 @@ Return Value:
     while (next != head) {
         Process = CONTAINING_RECORD(next, PSX_PROCESS, ClientIdHashLinks);
         if (Process->ClientId.UniqueProcess == ClientId->UniqueProcess &&
-		Process->ClientId.UniqueThread == ClientId->UniqueThread) {
+        Process->ClientId.UniqueThread == ClientId->UniqueThread) {
 
             //
             // Unlock Process Table
@@ -452,7 +456,7 @@ Return Value:
 
     if (Signal != SIGSTOP) {
         if (IsGroupOrphaned(p->ProcessGroupId)) {
-	    ReleaseProcessStructureLock();
+        ReleaseProcessStructureLock();
             return FALSE;
         }
     }
@@ -460,7 +464,7 @@ Return Value:
 
     p->State = Stopped;
     p->ExitStatus = (Signal << 8) | 0177;
-    p->Flags &= ~P_WAITED;		// proc may satisfy wait
+    p->Flags &= ~P_WAITED;      // proc may satisfy wait
 
     //
     // Possibly generate a SIGCHLD to the parent, and satisfy
@@ -477,7 +481,7 @@ Return Value:
         //
 
         if (!Parent->SignalDataBase.SignalDisposition[SIGCHLD-1].sa_flags
-			& SA_NOCLDSTOP) {
+            & SA_NOCLDSTOP) {
             PsxSignalProcess(Parent,SIGCHLD);
         }
 
@@ -486,11 +490,11 @@ Return Value:
         if (Parent->State == Waiting) {
 
             Status = BlockProcess(p, (PVOID)RestoreBlockMask,
-		 PsxStopProcessHandler, m, FALSE, &PsxProcessStructureLock);
-	    if (!NT_SUCCESS(Status)) {
-		m->Error = PsxStatusToErrno(Status);
-		return FALSE;
-	    }
+         PsxStopProcessHandler, m, FALSE, &PsxProcessStructureLock);
+        if (!NT_SUCCESS(Status)) {
+        m->Error = PsxStatusToErrno(Status);
+        return FALSE;
+        }
 
             UnblockProcess(Parent, WaitSatisfyInterrupt, FALSE, 0);
             return TRUE;
@@ -498,10 +502,10 @@ Return Value:
     }
 
     Status = BlockProcess(p, (PVOID)RestoreBlockMask, PsxStopProcessHandler,
-	 m, FALSE, &PsxProcessStructureLock);
+     m, FALSE, &PsxProcessStructureLock);
     if (!NT_SUCCESS(Status)) {
-	m->Error = PsxStatusToErrno(Status);
-	return FALSE;
+    m->Error = PsxStatusToErrno(Status);
+    return FALSE;
     }
 
     return TRUE;
@@ -616,7 +620,7 @@ Return Value:
     //
 
     if (p->State == Exited) {
-	ReleaseProcessLock(p);
+    ReleaseProcessLock(p);
         return;
     }
 
@@ -656,7 +660,7 @@ Return Value:
     //
 
     if (p->SignalDataBase.SignalDisposition[Signal-1].sa_handler
-		== (_handler)SIG_IGN) {
+        == (_handler)SIG_IGN) {
         ReleaseProcessLock(p);
         return;
     }
@@ -681,49 +685,49 @@ Return Value:
 
     if (Signal == SIGCHLD &&
         p->SignalDataBase.SignalDisposition[Signal-1].sa_handler
-		== (_handler)SIG_DFL) {
+        == (_handler)SIG_DFL) {
         ReleaseProcessLock(p);
-	return;
+    return;
     }
 
 
     if (!Pending) {
 
-    	// Fast path:  no pending unblocked signals.
-    	
+        // Fast path:  no pending unblocked signals.
+
         ReleaseProcessLock(p);
         return;
     }
 
     if (p->InPsx > 0) {
-	if (Stopped == p->State && SIGKILL != Signal) {
+    if (Stopped == p->State && SIGKILL != Signal) {
 
             //
-	    // While a process is stopped, any additional signals that
-	    // are sent to the process shall not be delivered until the
-	    // process is continued except SIGKILL, which always terminates
-	    // the receiving process.  1003.1-1990 3.3.1.3 (1b)
+        // While a process is stopped, any additional signals that
+        // are sent to the process shall not be delivered until the
+        // process is continued except SIGKILL, which always terminates
+        // the receiving process.  1003.1-1990 3.3.1.3 (1b)
             //
 
-	    ReleaseProcessLock(p);
+        ReleaseProcessLock(p);
             return;
         }
 
-	// XXX.mjb: I'm tense about this code.  The process being
-	// killed is InPsx, and we're unblocking him.  But what if
-	// a processes is killing himself, or there is more than one
-	// api request thread and the other process is executing a
-	// system call, but is not blocked?
+    // XXX.mjb: I'm tense about this code.  The process being
+    // killed is InPsx, and we're unblocking him.  But what if
+    // a processes is killing himself, or there is more than one
+    // api request thread and the other process is executing a
+    // system call, but is not blocked?
 
         ReleaseProcessLock(p);
         UnblockProcess(p, SignalInterrupt, FALSE, Signal);
-	return;
+    return;
     }
 
     if (p->State == Unconnected) {
-	// leave the signal pending
-	ReleaseProcessLock(p);
-	return;
+    // leave the signal pending
+    ReleaseProcessLock(p);
+    return;
     }
 
     ReleaseProcessLock(p);
@@ -740,314 +744,314 @@ Return Value:
     p->Flags |= P_NO_FORK;
 
     Status = RtlRemoteCall(p->Process, p->Thread, (PVOID)p->NullApiCaller,
-	0, NULL, TRUE, FALSE);
+    0, NULL, TRUE, FALSE);
 
     if (!NT_SUCCESS(Status)) {
-	KdPrint(("Dragging proc 0x%x inside for sig %d\n", p->Pid, Signal));
-	KdPrint(("PSXSS: RtlRemoteCall: 0x%x\n", Status));
+    KdPrint(("Dragging proc 0x%x inside for sig %d\n", p->Pid, Signal));
+    KdPrint(("PSXSS: RtlRemoteCall: 0x%x\n", Status));
     }
 }
 
 static NTSTATUS
 InitProcNoParent(
-	PPSX_PROCESS NewProcess,
-	IN PPSX_SESSION Session OPTIONAL,
-	IN ULONG SessionId OPTIONAL
-	);
+    PPSX_PROCESS NewProcess,
+    IN PPSX_SESSION Session OPTIONAL,
+    IN ULONG SessionId OPTIONAL
+    );
 
 static void
 InitProcFromParent(
-	PPSX_PROCESS NewProcess,
-	PPSX_PROCESS ForkProcess
-	);
+    PPSX_PROCESS NewProcess,
+    PPSX_PROCESS ForkProcess
+    );
 
 NTSTATUS
 PsxInitializeProcess(
-	IN PPSX_PROCESS NewProcess,
-	IN PPSX_PROCESS ForkProcess OPTIONAL,
-	IN ULONG SessionId OPTIONAL,
-	IN HANDLE ProcessHandle,
-	IN HANDLE ThreadHandle,
-	IN PPSX_SESSION Session OPTIONAL
-	)
+    IN PPSX_PROCESS NewProcess,
+    IN PPSX_PROCESS ForkProcess OPTIONAL,
+    IN ULONG SessionId OPTIONAL,
+    IN HANDLE ProcessHandle,
+    IN HANDLE ThreadHandle,
+    IN PPSX_SESSION Session OPTIONAL
+    )
 {
-	NTSTATUS Status;
+    NTSTATUS Status;
 
-	NewProcess->IntControlBlock = (PINTCB)NULL;
-	NewProcess->State = Unconnected;
-	NewProcess->Flags = 0;
-	NewProcess->Process = ProcessHandle;
-	NewProcess->Thread = ThreadHandle;
-	NewProcess->AlarmTimer = NULL;
-	NewProcess->ProcessIsBeingDebugged = FALSE;
+    NewProcess->IntControlBlock = (PINTCB)NULL;
+    NewProcess->State = Unconnected;
+    NewProcess->Flags = 0;
+    NewProcess->Process = ProcessHandle;
+    NewProcess->Thread = ThreadHandle;
+    NewProcess->AlarmTimer = NULL;
+    NewProcess->ProcessIsBeingDebugged = FALSE;
 
-	NewProcess->BlockingThread = (HANDLE)NULL;
+    NewProcess->BlockingThread = (HANDLE)NULL;
 
-	RtlZeroMemory((PVOID)&NewProcess->ProcessTimes, sizeof(struct tms));
+    RtlZeroMemory((PVOID)&NewProcess->ProcessTimes, sizeof(struct tms));
 
-	if (ARGUMENT_PRESENT(ForkProcess)) {
-		InitProcFromParent(NewProcess, ForkProcess);
-        	Status = STATUS_SUCCESS;
-	} else {
-		Status = InitProcNoParent(NewProcess, Session, SessionId);
-	}
-	ReleaseProcessLock(NewProcess);
+    if (ARGUMENT_PRESENT(ForkProcess)) {
+        InitProcFromParent(NewProcess, ForkProcess);
+        Status = STATUS_SUCCESS;
+    } else {
+        Status = InitProcNoParent(NewProcess, Session, SessionId);
+    }
+    ReleaseProcessLock(NewProcess);
 
-	return Status;
+    return Status;
 }
 
 static void
 InitProcFromParent(
-	PPSX_PROCESS NewProcess,
-	PPSX_PROCESS ForkProcess
-	)
+    PPSX_PROCESS NewProcess,
+    PPSX_PROCESS ForkProcess
+    )
 {
-	NTSTATUS Status;
-	
-	//
-	// Propagate Process Attributes
-	//
+    NTSTATUS Status;
 
-	//
-	// InPsx -- this new process will return directly to user-land,
-	// without the posix subsystem replying to his message.  Therefore,
-	// we set InPsx to 0 here.
-	//
+    //
+    // Propagate Process Attributes
+    //
 
-	NewProcess->InPsx = 0;
-	NewProcess->ParentPid = ForkProcess->Pid;
-	NewProcess->ProcessGroupId = ForkProcess->ProcessGroupId;
-	InsertHeadList(&ForkProcess->GroupLinks,
-		&NewProcess->GroupLinks);
+    //
+    // InPsx -- this new process will return directly to user-land,
+    // without the posix subsystem replying to his message.  Therefore,
+    // we set InPsx to 0 here.
+    //
 
-	REFERENCE_PSX_SESSION(ForkProcess->PsxSession);
-	NewProcess->PsxSession = ForkProcess->PsxSession;
+    NewProcess->InPsx = 0;
+    NewProcess->ParentPid = ForkProcess->Pid;
+    NewProcess->ProcessGroupId = ForkProcess->ProcessGroupId;
+    InsertHeadList(&ForkProcess->GroupLinks,
+        &NewProcess->GroupLinks);
 
-	NewProcess->EffectiveUid = ForkProcess->EffectiveUid;
-	NewProcess->RealUid = ForkProcess->RealUid;
-	NewProcess->EffectiveGid = ForkProcess->EffectiveGid;
-	NewProcess->RealGid = ForkProcess->RealGid;
-	NewProcess->DirectoryPrefix = ForkProcess->DirectoryPrefix;
-	NewProcess->FileModeCreationMask = ForkProcess->FileModeCreationMask;
+    REFERENCE_PSX_SESSION(ForkProcess->PsxSession);
+    NewProcess->PsxSession = ForkProcess->PsxSession;
 
-	if (ForkProcess->ProcessIsBeingDebugged && PsxpDebuggerActive) {
-		Status = NtSetInformationProcess(NewProcess->Process,
-			ProcessDebugPort, (PVOID)&PsxpDebugPort,
-			sizeof(HANDLE));
-		if (NT_SUCCESS(Status)) {
-			NewProcess->ProcessIsBeingDebugged = TRUE;
-			NewProcess->DebugUiClientId = ForkProcess->DebugUiClientId;
-		}
-	}
+    NewProcess->EffectiveUid = ForkProcess->EffectiveUid;
+    NewProcess->RealUid = ForkProcess->RealUid;
+    NewProcess->EffectiveGid = ForkProcess->EffectiveGid;
+    NewProcess->RealGid = ForkProcess->RealGid;
+    NewProcess->DirectoryPrefix = ForkProcess->DirectoryPrefix;
+    NewProcess->FileModeCreationMask = ForkProcess->FileModeCreationMask;
 
-	//
-	// Fork the signal database
-	//
+    if (ForkProcess->ProcessIsBeingDebugged && PsxpDebuggerActive) {
+        Status = NtSetInformationProcess(NewProcess->Process,
+            ProcessDebugPort, (PVOID)&PsxpDebugPort,
+            sizeof(HANDLE));
+        if (NT_SUCCESS(Status)) {
+            NewProcess->ProcessIsBeingDebugged = TRUE;
+            NewProcess->DebugUiClientId = ForkProcess->DebugUiClientId;
+        }
+    }
 
-	NewProcess->SignalDataBase = ForkProcess->SignalDataBase;
-	SIGEMPTYSET(&NewProcess->SignalDataBase.PendingSignalMask);
+    //
+    // Fork the signal database
+    //
 
-	//
-	// Fork The Open File Table
-	//
+    NewProcess->SignalDataBase = ForkProcess->SignalDataBase;
+    SIGEMPTYSET(&NewProcess->SignalDataBase.PendingSignalMask);
 
-	ForkProcessFileTable(ForkProcess, NewProcess);
-	ReleaseProcessLock(ForkProcess);
+    //
+    // Fork The Open File Table
+    //
+
+    ForkProcessFileTable(ForkProcess, NewProcess);
+    ReleaseProcessLock(ForkProcess);
 }
 
 
 static NTSTATUS
 InitProcNoParent(
-	PPSX_PROCESS NewProcess,
-	IN PPSX_SESSION Session,
-	IN ULONG SessionId OPTIONAL
-	)
+    PPSX_PROCESS NewProcess,
+    IN PPSX_SESSION Session,
+    IN ULONG SessionId OPTIONAL
+    )
 {
-	HANDLE TokenHandle = NULL;
-	TOKEN_PRIMARY_GROUP *pGroup = NULL;
-	TOKEN_GROUPS *pGroups = NULL;
-	PTOKEN_USER pTokenUser = NULL;
-	ULONG LengthNeeded;
-	PULONG pu;
-	PSID_AND_ATTRIBUTES pSA;
-	NTSTATUS Status;
-	PFILEDESCRIPTOR Fd;
-	ULONG i;
-	PSID SecondGroupChoice;		// to be used if primary group is
-					// 	no good.
-	BOOLEAN PrimaryGroupOk;		// is primary group good?
+    HANDLE TokenHandle = NULL;
+    TOKEN_PRIMARY_GROUP *pGroup = NULL;
+    TOKEN_GROUPS *pGroups = NULL;
+    PTOKEN_USER pTokenUser = NULL;
+    ULONG LengthNeeded;
+    PULONG pu;
+    PSID_AND_ATTRIBUTES pSA;
+    NTSTATUS Status;
+    PFILEDESCRIPTOR Fd;
+    ULONG i;
+    PSID SecondGroupChoice;     // to be used if primary group is
+                                //  no good.
+    BOOLEAN PrimaryGroupOk;     // is primary group good?
 
-	NewProcess->ParentPid = SPECIALPID;
-	NewProcess->ProcessGroupId = NewProcess->Pid;		// process group
-	InitializeListHead(&NewProcess->GroupLinks);
+    NewProcess->ParentPid = SPECIALPID;
+    NewProcess->ProcessGroupId = NewProcess->Pid;       // process group
+    InitializeListHead(&NewProcess->GroupLinks);
 
-	//
-	// This process doesn't get to user-land by returning from an lpc
-	// api, so we take the opportunity to set InPsx to zero here.
-	//
-	NewProcess->InPsx = 0;
+    //
+    // This process doesn't get to user-land by returning from an lpc
+    // api, so we take the opportunity to set InPsx to zero here.
+    //
+    NewProcess->InPsx = 0;
 
-	Session->SessionLeader = NewProcess->Pid;
-	NewProcess->PsxSession = Session;
+    Session->SessionLeader = NewProcess->Pid;
+    NewProcess->PsxSession = Session;
 
 //XXX.mjb: is this really right?  Or &= ~P_HAS_EXECED?
-	NewProcess->Flags |= P_HAS_EXECED;
-	NewProcess->DirectoryPrefix = NULL;
+    NewProcess->Flags |= P_HAS_EXECED;
+    NewProcess->DirectoryPrefix = NULL;
 
-	//
-	// Signal DataBase
-	//
+    //
+    // Signal DataBase
+    //
 
-	SIGEMPTYSET(&NewProcess->SignalDataBase.BlockedSignalMask);
-	SIGEMPTYSET(&NewProcess->SignalDataBase.PendingSignalMask);
-	SIGEMPTYSET(&NewProcess->SignalDataBase.SigSuspendMask);
-	for (i = 0; i < _SIGMAXSIGNO; i++) {
-		NewProcess->SignalDataBase.SignalDisposition[i].sa_handler =
-			(_handler)SIG_DFL;
-		NewProcess->SignalDataBase.SignalDisposition[i].sa_flags = 0;
-		SIGEMPTYSET(&NewProcess->SignalDataBase.SignalDisposition[i].sa_mask);
-	}
+    SIGEMPTYSET(&NewProcess->SignalDataBase.BlockedSignalMask);
+    SIGEMPTYSET(&NewProcess->SignalDataBase.PendingSignalMask);
+    SIGEMPTYSET(&NewProcess->SignalDataBase.SigSuspendMask);
+    for (i = 0; i < _SIGMAXSIGNO; i++) {
+        NewProcess->SignalDataBase.SignalDisposition[i].sa_handler =
+            (_handler)SIG_DFL;
+        NewProcess->SignalDataBase.SignalDisposition[i].sa_flags = 0;
+        SIGEMPTYSET(&NewProcess->SignalDataBase.SignalDisposition[i].sa_mask);
+    }
 
-	Fd = NewProcess->ProcessFileTable;
+    Fd = NewProcess->ProcessFileTable;
 
-	RtlEnterCriticalSection(&SystemOpenFileLock);
-	{
-		for (i = 0; i < OPEN_MAX; i++, Fd++) {
-			Fd->SystemOpenFileDesc = (PSYSTEMOPENFILE)NULL;
-			Fd->Flags = 0;
-		}
-	} RtlLeaveCriticalSection(&SystemOpenFileLock);
+    RtlEnterCriticalSection(&SystemOpenFileLock);
+    {
+        for (i = 0; i < OPEN_MAX; i++, Fd++) {
+            Fd->SystemOpenFileDesc = (PSYSTEMOPENFILE)NULL;
+            Fd->Flags = 0;
+        }
+    } RtlLeaveCriticalSection(&SystemOpenFileLock);
 
-	//
-	// Examine the new process's token to figure out what the
-	// uid should be.
-	//
+    //
+    // Examine the new process's token to figure out what the
+    // uid should be.
+    //
 
-	Status = NtOpenProcessToken(NewProcess->Process, GENERIC_READ,
-		&TokenHandle);
-	ASSERT(NT_SUCCESS(Status));
+    Status = NtOpenProcessToken(NewProcess->Process, GENERIC_READ,
+        &TokenHandle);
+    ASSERT(NT_SUCCESS(Status));
 
-	Status = NtQueryInformationToken(TokenHandle, TokenUser,
-		NULL, 0, &LengthNeeded);
-	ASSERT(STATUS_BUFFER_TOO_SMALL == Status);
+    Status = NtQueryInformationToken(TokenHandle, TokenUser,
+        NULL, 0, &LengthNeeded);
+    ASSERT(STATUS_BUFFER_TOO_SMALL == Status);
 
-	pTokenUser = RtlAllocateHeap(PsxHeap, 0, LengthNeeded);
-	if (NULL == pTokenUser) {
-		Status = STATUS_NO_MEMORY;
-		goto out;
-	}
+    pTokenUser = RtlAllocateHeap(PsxHeap, 0, LengthNeeded);
+    if (NULL == pTokenUser) {
+        Status = STATUS_NO_MEMORY;
+        goto out;
+    }
 
-	Status = NtQueryInformationToken(TokenHandle, TokenUser,
-		(PVOID)pTokenUser, LengthNeeded, &LengthNeeded);
-	if (!NT_SUCCESS(Status)) {
-		KdPrint(("PSXSS: NtQueryInfoToken: 0x%x\n", Status));
-	}
-	ASSERT(NT_SUCCESS(Status));
+    Status = NtQueryInformationToken(TokenHandle, TokenUser,
+        (PVOID)pTokenUser, LengthNeeded, &LengthNeeded);
+    if (!NT_SUCCESS(Status)) {
+        KdPrint(("PSXSS: NtQueryInfoToken: 0x%x\n", Status));
+    }
+    ASSERT(NT_SUCCESS(Status));
 
-	NewProcess->EffectiveUid = NewProcess->RealUid =
-		MakePosixId(pTokenUser->User.Sid);
+    NewProcess->EffectiveUid = NewProcess->RealUid =
+        MakePosixId(pTokenUser->User.Sid);
 
-	//
-	// Figure out the primary group.  Security allows the user to
-	// set his primary group to whatever he wants, so we make sure
-	// that his choice is reasonable.  If his PrimaryGroup is in
-	// the group array, he's fine.  If it's not, we make his
-	// PrimaryGroup the first group from the group array other
-	// than World.  If there are none other than World, that's
-	// what he gets.
-	//
+    //
+    // Figure out the primary group.  Security allows the user to
+    // set his primary group to whatever he wants, so we make sure
+    // that his choice is reasonable.  If his PrimaryGroup is in
+    // the group array, he's fine.  If it's not, we make his
+    // PrimaryGroup the first group from the group array other
+    // than World.  If there are none other than World, that's
+    // what he gets.
+    //
 
-	Status = NtQueryInformationToken(TokenHandle, TokenPrimaryGroup,
-		 NULL, 0, &LengthNeeded);
-	ASSERT(STATUS_BUFFER_TOO_SMALL == Status);
+    Status = NtQueryInformationToken(TokenHandle, TokenPrimaryGroup,
+         NULL, 0, &LengthNeeded);
+    ASSERT(STATUS_BUFFER_TOO_SMALL == Status);
 
-	pGroup = RtlAllocateHeap(PsxHeap, 0, LengthNeeded);
-	if (NULL == pGroup) {
-		NewProcess->EffectiveGid = NewProcess->RealGid = 0;
-		Status = STATUS_NO_MEMORY;
-		goto out;
-	}
+    pGroup = RtlAllocateHeap(PsxHeap, 0, LengthNeeded);
+    if (NULL == pGroup) {
+        NewProcess->EffectiveGid = NewProcess->RealGid = 0;
+        Status = STATUS_NO_MEMORY;
+        goto out;
+    }
 
-	Status = NtQueryInformationToken(TokenHandle, TokenPrimaryGroup,
-		(PVOID)pGroup, LengthNeeded, &LengthNeeded);
-	ASSERT(NT_SUCCESS(Status));
+    Status = NtQueryInformationToken(TokenHandle, TokenPrimaryGroup,
+        (PVOID)pGroup, LengthNeeded, &LengthNeeded);
+    ASSERT(NT_SUCCESS(Status));
 
-	Status = NtQueryInformationToken(TokenHandle, TokenGroups, NULL,
-		0, &LengthNeeded);
-	ASSERT(STATUS_BUFFER_TOO_SMALL == Status);
+    Status = NtQueryInformationToken(TokenHandle, TokenGroups, NULL,
+        0, &LengthNeeded);
+    ASSERT(STATUS_BUFFER_TOO_SMALL == Status);
 
-	pGroups = RtlAllocateHeap(PsxHeap, 0, LengthNeeded);
-	if (NULL == pGroups) {
-		NewProcess->EffectiveGid = NewProcess->RealGid = 0;
-		Status = STATUS_NO_MEMORY;
-		goto out;
-	}
+    pGroups = RtlAllocateHeap(PsxHeap, 0, LengthNeeded);
+    if (NULL == pGroups) {
+        NewProcess->EffectiveGid = NewProcess->RealGid = 0;
+        Status = STATUS_NO_MEMORY;
+        goto out;
+    }
 
-	Status = NtQueryInformationToken(TokenHandle, TokenGroups,
-		(PVOID)pGroups,
-		LengthNeeded, &LengthNeeded);
-	ASSERT(NT_SUCCESS(Status));
+    Status = NtQueryInformationToken(TokenHandle, TokenGroups,
+        (PVOID)pGroups,
+        LengthNeeded, &LengthNeeded);
+    ASSERT(NT_SUCCESS(Status));
 
-	SecondGroupChoice = NULL;
-	PrimaryGroupOk = FALSE;
+    SecondGroupChoice = NULL;
+    PrimaryGroupOk = FALSE;
 
-	for (i = 0; i < pGroups->GroupCount; ++i) {
-		if (RtlEqualSid(pGroups->Groups[i].Sid, pGroup->PrimaryGroup)) {
-			PrimaryGroupOk = TRUE;
-		}
-		
-		//
-		// Our second group choice is the first group in the list
-		// that is not the World group.
-		//
+    for (i = 0; i < pGroups->GroupCount; ++i) {
+        if (RtlEqualSid(pGroups->Groups[i].Sid, pGroup->PrimaryGroup)) {
+            PrimaryGroupOk = TRUE;
+        }
 
-		if (NULL == SecondGroupChoice &&
-            	    SE_WORLD_POSIX_ID != MakePosixId(pGroups->Groups[i].Sid)) {
-            		SecondGroupChoice = pGroups->Groups[i].Sid;
-		}
-	}
+        //
+        // Our second group choice is the first group in the list
+        // that is not the World group.
+        //
 
-	if (PrimaryGroupOk) {
-		NewProcess->EffectiveGid = NewProcess->RealGid =
-			MakePosixId(pGroup->PrimaryGroup);
-	} else if (NULL != SecondGroupChoice) {
-		NewProcess->EffectiveGid = NewProcess->RealGid =
-			MakePosixId(SecondGroupChoice);
-	} else {
-		NewProcess->EffectiveGid = NewProcess->RealGid =
-			SE_WORLD_POSIX_ID;
-	}
+        if (NULL == SecondGroupChoice &&
+                    SE_WORLD_POSIX_ID != MakePosixId(pGroups->Groups[i].Sid)) {
+                    SecondGroupChoice = pGroups->Groups[i].Sid;
+        }
+    }
+
+    if (PrimaryGroupOk) {
+        NewProcess->EffectiveGid = NewProcess->RealGid =
+            MakePosixId(pGroup->PrimaryGroup);
+    } else if (NULL != SecondGroupChoice) {
+        NewProcess->EffectiveGid = NewProcess->RealGid =
+            MakePosixId(SecondGroupChoice);
+    } else {
+        NewProcess->EffectiveGid = NewProcess->RealGid =
+            SE_WORLD_POSIX_ID;
+    }
 
 out:
-	if (pGroup) RtlFreeHeap(PsxHeap, 0, (PVOID)pGroup);
-	if (pGroups) RtlFreeHeap(PsxHeap, 0, (PVOID)pGroups);
-	if (pTokenUser) RtlFreeHeap(PsxHeap, 0, (PVOID)pTokenUser);
-	if (TokenHandle) NtClose(TokenHandle);
-	return Status;
+    if (pGroup) RtlFreeHeap(PsxHeap, 0, (PVOID)pGroup);
+    if (pGroups) RtlFreeHeap(PsxHeap, 0, (PVOID)pGroups);
+    if (pTokenUser) RtlFreeHeap(PsxHeap, 0, (PVOID)pTokenUser);
+    if (TokenHandle) NtClose(TokenHandle);
+    return Status;
 }
 
 
 //
 // PsxCreateProcess -- this routine is called only by PsxCreateConSession
-//	to create the first process for a brand-new session.
+//  to create the first process for a brand-new session.
 //
 
 BOOLEAN
 PsxCreateProcess(
-	PPSX_EXEC_INFO ExecInfo,
-	OUT PPSX_PROCESS *NewProcess,
-	IN HANDLE	 ParentProcess,
-	IN PPSX_SESSION Session
-	)
+    PPSX_EXEC_INFO ExecInfo,
+    OUT PPSX_PROCESS *NewProcess,
+    IN HANDLE    ParentProcess,
+    IN PPSX_SESSION Session
+    )
 {
-	NTSTATUS Status;
+    NTSTATUS Status;
         UNICODE_STRING ImageFileName;
         UNICODE_STRING Path;
         UNICODE_STRING LibPath;
         UNICODE_STRING CWD;
-	PRTL_USER_PROCESS_PARAMETERS ProcessParameters;
-	RTL_USER_PROCESS_INFORMATION ProcessInformation;
-	PPSX_PROCESS Process;
+    PRTL_USER_PROCESS_PARAMETERS ProcessParameters;
+    RTL_USER_PROCESS_INFORMATION ProcessInformation;
+    PPSX_PROCESS Process;
 
         Path.Buffer = NULL;
         LibPath.Buffer = NULL;
@@ -1069,97 +1073,97 @@ PsxCreateProcess(
 
             Status = RtlCreateProcessParameters(&ProcessParameters, &Path,
                     &LibPath, &CWD, (PUNICODE_STRING)&ExecInfo->Argv, NULL,
-		    NULL, NULL, NULL, NULL);
+            NULL, NULL, NULL, NULL);
         }
 
         RtlFreeUnicodeString( &Path );
         RtlFreeUnicodeString( &LibPath );
         RtlFreeUnicodeString( &CWD );
-	if (!NT_SUCCESS(Status)) {
-		return FALSE;  // ENOMEM
-	}
-	ProcessParameters->CurrentDirectory.Handle = NULL;
+    if (!NT_SUCCESS(Status)) {
+        return FALSE;  // ENOMEM
+    }
+    ProcessParameters->CurrentDirectory.Handle = NULL;
 
-	ImageFileName = ProcessParameters->ImagePathName;
+    ImageFileName = ProcessParameters->ImagePathName;
         ImageFileName.Buffer = (PWSTR)
                 ((PCHAR)ImageFileName.Buffer + (ULONG)ProcessParameters);
 
-	IF_PSX_DEBUG(EXEC) {
+    IF_PSX_DEBUG(EXEC) {
                 KdPrint(("PSXSS: Creating process %wZ\n", &ImageFileName));
-	}
+    }
 
         Status = RtlCreateUserProcess(&ImageFileName, OBJ_CASE_INSENSITIVE,
-		ProcessParameters, NULL,
-		NULL, ParentProcess, TRUE, NULL, NULL, &ProcessInformation);
+        ProcessParameters, NULL,
+        NULL, ParentProcess, TRUE, NULL, NULL, &ProcessInformation);
 
-	RtlDestroyProcessParameters(ProcessParameters);
+    RtlDestroyProcessParameters(ProcessParameters);
 
-	if (!NT_SUCCESS(Status)) {
-		KdPrint(("PSXSS: RtlCreateUserProcess: 0x%x\n", Status));
-		return FALSE; // ENOEXEC
-	}
+    if (!NT_SUCCESS(Status)) {
+        KdPrint(("PSXSS: RtlCreateUserProcess: 0x%x\n", Status));
+        return FALSE; // ENOEXEC
+    }
 
-	if (ProcessInformation.ImageInformation.SubSystemType !=
-		IMAGE_SUBSYSTEM_POSIX_CUI) {
-		NtClose(ProcessInformation.Process);
-		return FALSE; // ENOEXEC
-	}
+    if (ProcessInformation.ImageInformation.SubSystemType !=
+        IMAGE_SUBSYSTEM_POSIX_CUI) {
+        NtClose(ProcessInformation.Process);
+        return FALSE; // ENOEXEC
+    }
 
-	Status = NtSetInformationProcess(ProcessInformation.Process,
-		ProcessExceptionPort, (PVOID)&PsxApiPort, sizeof(PsxApiPort));
-	if (!NT_SUCCESS(Status)) {
-		KdPrint(("PSXSS: NtSetInfoProc: 0x%x\n", Status));
-	}
-	ASSERT(NT_SUCCESS(Status));
+    Status = NtSetInformationProcess(ProcessInformation.Process,
+        ProcessExceptionPort, (PVOID)&PsxApiPort, sizeof(PsxApiPort));
+    if (!NT_SUCCESS(Status)) {
+        KdPrint(("PSXSS: NtSetInfoProc: 0x%x\n", Status));
+    }
+    ASSERT(NT_SUCCESS(Status));
 
-	{
-		ULONG HardErrorMode = 0;	// disable popups
-		Status = NtSetInformationProcess(
-			ProcessInformation.Process,
-			ProcessDefaultHardErrorMode,
-			(PVOID)&HardErrorMode,
-			sizeof(HardErrorMode)
-			);
-		ASSERT(NT_SUCCESS(Status));
-	}
+    {
+        ULONG HardErrorMode = 0;    // disable popups
+        Status = NtSetInformationProcess(
+            ProcessInformation.Process,
+            ProcessDefaultHardErrorMode,
+            (PVOID)&HardErrorMode,
+            sizeof(HardErrorMode)
+            );
+        ASSERT(NT_SUCCESS(Status));
+    }
 
-	Process = PsxAllocateProcess(&ProcessInformation.ClientId);
+    Process = PsxAllocateProcess(&ProcessInformation.ClientId);
 
-	if (!Process) {
-		Status = NtTerminateProcess(ProcessInformation.Process,
-			STATUS_SUCCESS);
-		ASSERT(NT_SUCCESS(Status));
-		NtClose(ProcessInformation.Process);
-		NtClose(ProcessInformation.Thread);
-		return FALSE; // EAGAIN
-	}
+    if (!Process) {
+        Status = NtTerminateProcess(ProcessInformation.Process,
+            STATUS_SUCCESS);
+        ASSERT(NT_SUCCESS(Status));
+        NtClose(ProcessInformation.Process);
+        NtClose(ProcessInformation.Thread);
+        return FALSE; // EAGAIN
+    }
 
-	Status = PsxInitializeProcess(Process, NULL, 0L,
-		ProcessInformation.Process, ProcessInformation.Thread, Session);
-	if (!NT_SUCCESS(Status)) {
-		Status = NtTerminateProcess(ProcessInformation.Process,
-			STATUS_SUCCESS);
-		ASSERT(NT_SUCCESS(Status));
-		NtClose(ProcessInformation.Process);
-		NtClose(ProcessInformation.Thread);
-		return FALSE;
-	}
+    Status = PsxInitializeProcess(Process, NULL, 0L,
+        ProcessInformation.Process, ProcessInformation.Thread, Session);
+    if (!NT_SUCCESS(Status)) {
+        Status = NtTerminateProcess(ProcessInformation.Process,
+            STATUS_SUCCESS);
+        ASSERT(NT_SUCCESS(Status));
+        NtClose(ProcessInformation.Process);
+        NtClose(ProcessInformation.Thread);
+        return FALSE;
+    }
 
-	Process->InitialPebPsxData.Length = sizeof(Process->InitialPebPsxData);
-	Process->InitialPebPsxData.ClientStartAddress = NULL;
+    Process->InitialPebPsxData.Length = sizeof(Process->InitialPebPsxData);
+    Process->InitialPebPsxData.ClientStartAddress = NULL;
 
-	//
-	// Set the session port. The client constructs the port name from the
-	// unique id, opens the port, and sets the actual handle.
-	//
-	
-	Process->InitialPebPsxData.SessionPortHandle =
-		(HANDLE)Process->PsxSession->Terminal->UniqueId;
+    //
+    // Set the session port. The client constructs the port name from the
+    // unique id, opens the port, and sets the actual handle.
+    //
 
-	PsxInitializeDirectories(Process, &ExecInfo->CWD);
-	*NewProcess = Process;
+    Process->InitialPebPsxData.SessionPortHandle =
+        (HANDLE)Process->PsxSession->Terminal->UniqueId;
 
-	return TRUE;
+    PsxInitializeDirectories(Process, &ExecInfo->CWD);
+    *NewProcess = Process;
+
+    return TRUE;
 }
 
 PPSX_SESSION
@@ -1217,7 +1221,7 @@ Return Value:
 
     Session = RtlAllocateHeap(PsxHeap, 0,sizeof(PSX_SESSION));
     if (NULL == Session) {
-	return NULL;
+    return NULL;
     }
     Session->ReferenceCount = 1;
     Session->SessionLeader = SessionLeader;
@@ -1253,25 +1257,25 @@ Return Value:
 --*/
 
 {
-	NTSTATUS Status;
+    NTSTATUS Status;
 
-	if (Session->Terminal) {
-		Session->Terminal->ForegroundProcessGroup = SPECIALPID;
-	        Session->Terminal->Session = NULL;
+    if (Session->Terminal) {
+        Session->Terminal->ForegroundProcessGroup = SPECIALPID;
+            Session->Terminal->Session = NULL;
 
-		RtlDeleteCriticalSection(&Session->Terminal->Lock);
+        RtlDeleteCriticalSection(&Session->Terminal->Lock);
 
-		if (NULL != Session->Terminal->IoBuffer) {
-			Status = NtUnmapViewOfSection(NtCurrentProcess(),
-				Session->Terminal->IoBuffer);
-			ASSERT(NT_SUCCESS(Status));
-		}
+        if (NULL != Session->Terminal->IoBuffer) {
+            Status = NtUnmapViewOfSection(NtCurrentProcess(),
+                Session->Terminal->IoBuffer);
+            ASSERT(NT_SUCCESS(Status));
+        }
 
-		RtlFreeHeap(PsxHeap, 0, (PVOID)Session->Terminal);
-	}
+        RtlFreeHeap(PsxHeap, 0, (PVOID)Session->Terminal);
+    }
 
-	UnlockNtSessionList();
-	RtlFreeHeap(PsxHeap, 0, (PVOID)Session);
+    UnlockNtSessionList();
+    RtlFreeHeap(PsxHeap, 0, (PVOID)Session);
 }
 
 VOID
@@ -1314,161 +1318,161 @@ Return Value:
 --*/
 
 {
-	PPSX_PROCESS cp, WaitingParent,Parent;
-	PPSX_PROCESS FirstMember, NextMember;
-	PLIST_ENTRY Next;
-	NTSTATUS Status;
-	HANDLE AlarmTimer;
-	BOOLEAN OrphanedAGroupRelatedChild, AlreadyOrphaned, PreviousTimerState;
-	KERNEL_USER_TIMES ProcessTime;
-	BOOLEAN WaitForProcess;
+    PPSX_PROCESS cp, WaitingParent,Parent;
+    PPSX_PROCESS FirstMember, NextMember;
+    PLIST_ENTRY Next;
+    NTSTATUS Status;
+    HANDLE AlarmTimer;
+    BOOLEAN OrphanedAGroupRelatedChild, AlreadyOrphaned, PreviousTimerState;
+    KERNEL_USER_TIMES ProcessTime;
+    BOOLEAN WaitForProcess;
 
-	if ((ULONG)-1 == ExitStatus) {
-		//
-		// This process is dying because of some extraordinary event,
-		// and we should make sure that we clean up no matter what.
-		// XXX.mjb: ExitStatus could be different and more informative,
-		// but I haven't had a chance to test that.
-		//
+    if ((ULONG)-1 == ExitStatus) {
+        //
+        // This process is dying because of some extraordinary event,
+        // and we should make sure that we clean up no matter what.
+        // XXX.mjb: ExitStatus could be different and more informative,
+        // but I haven't had a chance to test that.
+        //
 
-		WaitForProcess = FALSE;
-		ExitStatus = 0;
-	} else {
-		WaitForProcess = TRUE;
-	}
+        WaitForProcess = FALSE;
+        ExitStatus = 0;
+    } else {
+        WaitForProcess = TRUE;
+    }
 
 
-	AcquireProcessLock(p);
-	if (Exited == p->State) {
-		ReleaseProcessLock(p);
-		return;
-	}
-	p->State = Exited;
-	p->Flags &= ~P_WAITED;		// proc may satisfy wait
+    AcquireProcessLock(p);
+    if (Exited == p->State) {
+        ReleaseProcessLock(p);
+        return;
+    }
+    p->State = Exited;
+    p->Flags &= ~P_WAITED;      // proc may satisfy wait
 
-	//
-	// The goal is that after we've changed the process state, no one else
-	// will try to muck with this process.  So we should be able to
-	// release the process lock now.
-	//
+    //
+    // The goal is that after we've changed the process state, no one else
+    // will try to muck with this process.  So we should be able to
+    // release the process lock now.
+    //
 
-	ReleaseProcessLock(p);
+    ReleaseProcessLock(p);
 
-	p->ExitStatus = ExitStatus;
+    p->ExitStatus = ExitStatus;
 
-	WaitingParent = NULL;
-	Parent = NULL;
-	OrphanedAGroupRelatedChild = FALSE;
+    WaitingParent = NULL;
+    Parent = NULL;
+    OrphanedAGroupRelatedChild = FALSE;
 
-	//
-	// If this is a local directory prefix, then deallocate it
-	//
+    //
+    // If this is a local directory prefix, then deallocate it
+    //
 
-	if (!IS_DIRECTORY_PREFIX_REMOTE(p->DirectoryPrefix)) {
-		RtlFreeHeap(PsxHeap, 0,
-			(PVOID)p->DirectoryPrefix->NtCurrentWorkingDirectory.Buffer);
-		if (0 != p->DirectoryPrefix->PsxCurrentWorkingDirectory.Length)
-	        	RtlFreeHeap(PsxHeap, 0,
-				(PVOID)p->DirectoryPrefix->PsxCurrentWorkingDirectory.Buffer);
-	        RtlFreeHeap(PsxHeap, 0,(PVOID)p->DirectoryPrefix->PsxRoot.Buffer);
-	        RtlFreeHeap(PsxHeap, 0,(PVOID)p->DirectoryPrefix);
-	}
+    if (!IS_DIRECTORY_PREFIX_REMOTE(p->DirectoryPrefix)) {
+        RtlFreeHeap(PsxHeap, 0,
+            (PVOID)p->DirectoryPrefix->NtCurrentWorkingDirectory.Buffer);
+        if (0 != p->DirectoryPrefix->PsxCurrentWorkingDirectory.Length)
+                RtlFreeHeap(PsxHeap, 0,
+                (PVOID)p->DirectoryPrefix->PsxCurrentWorkingDirectory.Buffer);
+            RtlFreeHeap(PsxHeap, 0,(PVOID)p->DirectoryPrefix->PsxRoot.Buffer);
+            RtlFreeHeap(PsxHeap, 0,(PVOID)p->DirectoryPrefix);
+    }
 
-	//
-	// Lock the process table so that we can clear process' AlarmTimer
-	// interlocked with AlarmApcRoutine. Can not use ProcessLock since
-	// it is deallocated during process exit.
-	//
-	// REVISIT deallocation of process lock...
-	//
+    //
+    // Lock the process table so that we can clear process' AlarmTimer
+    // interlocked with AlarmApcRoutine. Can not use ProcessLock since
+    // it is deallocated during process exit.
+    //
+    // REVISIT deallocation of process lock...
+    //
 
-	AcquireProcessStructureLock();
+    AcquireProcessStructureLock();
 
-	//
-	// Cancel and close alarm timer if present
-	//
+    //
+    // Cancel and close alarm timer if present
+    //
 
-	if (p->AlarmTimer) {
-		AlarmTimer = p->AlarmTimer;
-        	p->AlarmTimer = NULL;
+    if (p->AlarmTimer) {
+        AlarmTimer = p->AlarmTimer;
+            p->AlarmTimer = NULL;
 
-	        //
-	        // Unlock process table while doing timer cleanup
-	        //
+            //
+            // Unlock process table while doing timer cleanup
+            //
 
-	        ReleaseProcessStructureLock();
-	
-	        Status = NtCancelTimer(AlarmTimer, &PreviousTimerState);
-		if (!NT_SUCCESS(Status)) {
-			KdPrint(("PSXSS: NtCancelTimer: 0x%x\n", Status));
-		}
-	        ASSERT(NT_SUCCESS(Status));
-	
-	        Status = NtClose(AlarmTimer);
-	        ASSERT(NT_SUCCESS(Status));
+            ReleaseProcessStructureLock();
 
-		//
-		// Lock the process table so that we can scan process table.
-		//
+            Status = NtCancelTimer(AlarmTimer, &PreviousTimerState);
+        if (!NT_SUCCESS(Status)) {
+            KdPrint(("PSXSS: NtCancelTimer: 0x%x\n", Status));
+        }
+            ASSERT(NT_SUCCESS(Status));
 
-		AcquireProcessStructureLock();
-	}
+            Status = NtClose(AlarmTimer);
+            ASSERT(NT_SUCCESS(Status));
 
-	//
-	// Scan process table looking for children, and job control
-	// related processes.
-	//
+        //
+        // Lock the process table so that we can scan process table.
+        //
 
-	AlreadyOrphaned = IsGroupOrphaned(p->ProcessGroupId);
+        AcquireProcessStructureLock();
+    }
 
-	for (cp = FirstProcess; cp < LastProcess; cp++) {
+    //
+    // Scan process table looking for children, and job control
+    // related processes.
+    //
 
-		//
-		// Only look at non-free slots
-		//
+    AlreadyOrphaned = IsGroupOrphaned(p->ProcessGroupId);
 
-		if (cp->Flags & P_FREE) {
-			continue;
-		}
+    for (cp = FirstProcess; cp < LastProcess; cp++) {
 
-		if (cp->ParentPid == p->Pid) {
+        //
+        // Only look at non-free slots
+        //
 
-			//
-			// Orphan and send SIGHUP to each child process
-			//
+        if (cp->Flags & P_FREE) {
+            continue;
+        }
 
-			cp->ParentPid = SPECIALPID;
-			if (cp->State == Exited) {
+        if (cp->ParentPid == p->Pid) {
 
-				//
-				// Orphaning an exited process is almost like an
-				// implicit wait in the sense that process resources
-				// are freed immediately.
-				//
+            //
+            // Orphan and send SIGHUP to each child process
+            //
 
-				cp->Flags |= P_FREE;
+            cp->ParentPid = SPECIALPID;
+            if (cp->State == Exited) {
 
-				//
-				// Remove Process from CLIENT_ID Hash Table
-				//
+                //
+                // Orphaning an exited process is almost like an
+                // implicit wait in the sense that process resources
+                // are freed immediately.
+                //
 
-				RemoveEntryList(&cp->ClientIdHashLinks);
-				ASSERT(NULL != cp);
+                cp->Flags |= P_FREE;
 
-				try {
-                			RtlDeleteCriticalSection(&cp->ProcessLock);
-				} except (EXCEPTION_EXECUTE_HANDLER) {
-					KdPrint(("PSXSS: took a fault\n"));
-				}
+                //
+                // Remove Process from CLIENT_ID Hash Table
+                //
 
-            		} else {
-                		if (cp->ProcessGroupId == p->ProcessGroupId) {
-					OrphanedAGroupRelatedChild = TRUE;
-				}
-				// PsxSignalProcess(cp, SIGHUP);
-			}
-		}
-	}
+                RemoveEntryList(&cp->ClientIdHashLinks);
+                ASSERT(NULL != cp);
+
+                try {
+                            RtlDeleteCriticalSection(&cp->ProcessLock);
+                } except (EXCEPTION_EXECUTE_HANDLER) {
+                    KdPrint(("PSXSS: took a fault\n"));
+                }
+
+                    } else {
+                        if (cp->ProcessGroupId == p->ProcessGroupId) {
+                    OrphanedAGroupRelatedChild = TRUE;
+                }
+                // PsxSignalProcess(cp, SIGHUP);
+            }
+        }
+    }
 
     if (p->ParentPid != SPECIALPID) {
         //
@@ -1500,7 +1504,7 @@ Return Value:
     LockNtSessionList();
 
     FirstMember = CONTAINING_RECORD(p->GroupLinks.Flink, PSX_PROCESS,
-				    GroupLinks);
+                    GroupLinks);
     RemoveEntryList(&p->GroupLinks);
     InitializeListHead(&p->GroupLinks);
 
@@ -1531,12 +1535,12 @@ Return Value:
                     //
 
                     NextMember = FirstMember;
-		    do {
+            do {
                         Next = NextMember->GroupLinks.Flink;
                         PsxSignalProcess(NextMember, SIGCONT);
                         PsxSignalProcess(NextMember, SIGHUP);
                         NextMember = CONTAINING_RECORD(Next, PSX_PROCESS,
-							GroupLinks);
+                            GroupLinks);
                     } while (NextMember != FirstMember);
                     break;
                 }
@@ -1548,123 +1552,127 @@ Return Value:
 
     UnlockNtSessionList();
 
-	//
-	// Unlock process table here; we depend on having just one api
-	// thread, so no one can call fork while we're still closing the
-	// files and so forth.
-	//
+    //
+    // Unlock process table here; we depend on having just one api
+    // thread, so no one can call fork while we're still closing the
+    // files and so forth.
+    //
 
-	ReleaseProcessStructureLock();
+    ReleaseProcessStructureLock();
 
-	//
-	// Now just close files, deallocate the session, close the thread,
-	// terminate the process, and close the process.
-	//
+    //
+    // Now just close files, deallocate the session, close the thread,
+    // terminate the process, and close the process.
+    //
 
-	CloseProcessFileTable(p);
+    CloseProcessFileTable(p);
 
-	if (!(p->Flags & P_FOREIGN_EXEC)) {
+    if (!(p->Flags & P_FOREIGN_EXEC)) {
 
-		//
-		// When a foreign process has exited, it's responsible
-		// for shooting its own threads.
-		//
+        //
+        // When a foreign process has exited, it's responsible
+        // for shooting its own threads.
+        //
 
-		Status = NtTerminateThread(p->Thread, ExitStatus);
-		if (!NT_SUCCESS(Status)) {
-			// XXX.mjb: this may fail if the thread has already died
-			// for some reason, f.e. been shot by pview.
-			KdPrint(("PSXSS: NtTerminateThread: 0x%x\n", Status));
-		}
-	}
+        Status = NtTerminateThread(p->Thread, ExitStatus);
+#ifdef PSX_MORE_ERRORS
+        if (!NT_SUCCESS(Status)) {
+            // XXX.mjb: this may fail if the thread has already died
+            // for some reason, f.e. been shot by pview.
+            KdPrint(("PSXSS: NtTerminateThread: 0x%x\n", Status));
+        }
+#endif
+    }
 
-	p->Flags &= ~P_FOREIGN_EXEC;
+    p->Flags &= ~P_FOREIGN_EXEC;
 
-	//
-	// We like to call NtWaitForSingle object on the thread handle,
-	// but we don't do that if the process has
-	// died in some unusual way, like the dll init routine failed.
-	//
+    //
+    // We like to call NtWaitForSingle object on the thread handle,
+    // but we don't do that if the process has
+    // died in some unusual way, like the dll init routine failed.
+    //
 
-	if (WaitForProcess) {
-		Status = NtWaitForSingleObject(p->Thread, TRUE, NULL);
-		if (!NT_SUCCESS(Status)) {
-			KdPrint(("PSXSS: Exit: NtWait: 0x%x\n", Status));
-		}
-	}
+    if (WaitForProcess) {
+        Status = NtWaitForSingleObject(p->Thread, TRUE, NULL);
+        if (!NT_SUCCESS(Status)) {
+            KdPrint(("PSXSS: Exit: NtWait: 0x%x\n", Status));
+        }
+    }
 
-	Status = NtClose(p->Thread);
-	if (!NT_SUCCESS(Status)) {
-		KdPrint(("PSXSS: NtClose dead thread: 0x%x\n", Status));
-	}
-	ASSERT(NT_SUCCESS(Status));
+    Status = NtClose(p->Thread);
+    if (!NT_SUCCESS(Status)) {
+        KdPrint(("PSXSS: NtClose dead thread: 0x%x\n", Status));
+    }
+    ASSERT(NT_SUCCESS(Status));
 
-	//
-	// We like to wait on the process handle here, sometimes we don't
-	// do that, see above.
-	//
+    //
+    // We like to wait on the process handle here, sometimes we don't
+    // do that, see above.
+    //
 
-	if (WaitForProcess) {
-		Status = NtWaitForSingleObject(p->Process, TRUE, NULL);
-		if (!NT_SUCCESS(Status)) {
-			KdPrint(("PSXSS: Exit: NtWait: 0x%x\n", Status));
-		}
-	}
+    if (WaitForProcess) {
+        Status = NtWaitForSingleObject(p->Process, TRUE, NULL);
+        if (!NT_SUCCESS(Status)) {
+            KdPrint(("PSXSS: Exit: NtWait: 0x%x\n", Status));
+        }
+    }
 
-	//
-	// Get the time for this process and add to the accumulated time for
-	// the process
-	//
+    //
+    // Get the time for this process and add to the accumulated time for
+    // the process
+    //
 
-	Status = NtQueryInformationProcess(p->Process, ProcessTimes,
-		(PVOID)&ProcessTime, sizeof(KERNEL_USER_TIMES), NULL);
-	if (!NT_SUCCESS(Status)) {
-		KdPrint(("PSXSS: NtQueryInfoProc: 0x%x\n", Status));
-	} else {
-		ULONG Remainder;
-		ULONG PosixTime;
+    Status = NtQueryInformationProcess(p->Process, ProcessTimes,
+        (PVOID)&ProcessTime, sizeof(KERNEL_USER_TIMES), NULL);
+    if (!NT_SUCCESS(Status)) {
+        KdPrint(("PSXSS: NtQueryInfoProc: 0x%x\n", Status));
+    } else {
+        ULONG Remainder;
+        ULONG PosixTime;
 
-		PosixTime = RtlExtendedLargeIntegerDivide(
-			ProcessTime.KernelTime, 10000, &Remainder).LowPart;
-		p->ProcessTimes.tms_stime += PosixTime;
+        PosixTime = RtlExtendedLargeIntegerDivide(
+            ProcessTime.KernelTime, 10000, &Remainder).LowPart;
+        p->ProcessTimes.tms_stime += PosixTime;
 
-		PosixTime = RtlExtendedLargeIntegerDivide(
-			ProcessTime.UserTime, 10000, &Remainder).LowPart;
-		p->ProcessTimes.tms_utime += PosixTime;
-	}
+        PosixTime = RtlExtendedLargeIntegerDivide(
+            ProcessTime.UserTime, 10000, &Remainder).LowPart;
+        p->ProcessTimes.tms_utime += PosixTime;
+    }
 
-	NtClose(p->Process);
+    NtClose(p->Process);
 
-	DEREFERENCE_PSX_SESSION(p->PsxSession, ExitStatus >> 8);
+    DEREFERENCE_PSX_SESSION(p->PsxSession, ExitStatus >> 8);
 
-	Status = NtClose(p->ClientPort);
-	if (!NT_SUCCESS(Status)) {
-		KdPrint(("PSXSS: NtClose: 0x%x\n", Status));
-	}
+    Status = NtClose(p->ClientPort);
+#ifdef PSX_MORE_ERRORS
+    if (!NT_SUCCESS(Status)) {
+        KdPrint(("PSXSS: NtClose: 0x%x\n", Status));
+    }
+#endif
 
-	//
-	// Remove the process from ClientIdHashTable; this must be done
-	// now rather than in wait(), because unless we do it now a new
-	// process could be created with the same ClientId as this zombie.
-	// This process shouldn't be making any more api requests, and
-	// that's the only time we look processes up by ClientId (right?).
-	//
+    //
+    // Remove the process from ClientIdHashTable; this must be done
+    // now rather than in wait(), because unless we do it now a new
+    // process could be created with the same ClientId as this zombie.
+    // This process shouldn't be making any more api requests, and
+    // that's the only time we look processes up by ClientId (right?).
+    //
 
-	RemoveEntryList(&p->ClientIdHashLinks);
-	InitializeListHead(&p->ClientIdHashLinks);
+    RemoveEntryList(&p->ClientIdHashLinks);
+    InitializeListHead(&p->ClientIdHashLinks);
 
-	if (p->ParentPid == SPECIALPID) {
-		//
-		// Parent won't clean up after wait, so do all clean up here
-		//
-		p->Flags |= P_FREE;
+    if (p->ParentPid == SPECIALPID) {
+        //
+        // Parent won't clean up after wait, so do all clean up here
+        //
+        p->Flags |= P_FREE;
 
-		//
-		// REVISIT... This might have to stay around
-		//
+        //
+        // REVISIT... This might have to stay around
+        //
 
-		RtlDeleteCriticalSection(&p->ProcessLock);
-	}
+        RtlDeleteCriticalSection(&p->ProcessLock);
+    }
 
     if (NULL != WaitingParent) {
         UnblockProcess(WaitingParent, WaitSatisfyInterrupt, FALSE, 0);
@@ -1675,159 +1683,159 @@ PSZ PsxpDefaultRoot = "\\DosDevices\\C:";
 
 VOID
 PsxInitializeDirectories(
-	IN PPSX_PROCESS Process,
-	IN PANSI_STRING pCwd
-	)
+    IN PPSX_PROCESS Process,
+    IN PANSI_STRING pCwd
+    )
 {
-	PPSX_DIRECTORY_PREFIX DirectoryPrefix;
-	PSZ Root;
-	char sbWorkingDirectory[512];
-	char sbRoot[512];
+    PPSX_DIRECTORY_PREFIX DirectoryPrefix;
+    PSZ Root;
+    char sbWorkingDirectory[512];
+    char sbRoot[512];
 
-	(void)strcpy(sbWorkingDirectory, "\\DosDevices\\");
-	(void)strcat(sbWorkingDirectory, pCwd->Buffer);
+    (void)strcpy(sbWorkingDirectory, "\\DosDevices\\");
+    (void)strcat(sbWorkingDirectory, pCwd->Buffer);
 
-	(void)strcpy(sbRoot, sbWorkingDirectory);
-	sbRoot[strlen(PsxpDefaultRoot)] = '\0';
+    (void)strcpy(sbRoot, sbWorkingDirectory);
+    sbRoot[strlen(PsxpDefaultRoot)] = '\0';
 
-	Root = sbRoot;
+    Root = sbRoot;
 
-	//
-	// The current working directory should end in a "\".  We add one
-	// if it isn't there already.
-	//
+    //
+    // The current working directory should end in a "\".  We add one
+    // if it isn't there already.
+    //
 
-	if ('\\' != sbWorkingDirectory[strlen(sbWorkingDirectory) - 1]) {
-	    (void)strcat(sbWorkingDirectory, "\\");
-	}
+    if ('\\' != sbWorkingDirectory[strlen(sbWorkingDirectory) - 1]) {
+        (void)strcat(sbWorkingDirectory, "\\");
+    }
 
-	DirectoryPrefix = RtlAllocateHeap(PsxHeap, 0,sizeof(*DirectoryPrefix));
-	ASSERT(NULL != DirectoryPrefix);
+    DirectoryPrefix = RtlAllocateHeap(PsxHeap, 0,sizeof(*DirectoryPrefix));
+    ASSERT(NULL != DirectoryPrefix);
 
-	DirectoryPrefix->NtCurrentWorkingDirectory.Buffer =
-		RtlAllocateHeap(PsxHeap, 0, strlen(sbWorkingDirectory) + 1);
+    DirectoryPrefix->NtCurrentWorkingDirectory.Buffer =
+        RtlAllocateHeap(PsxHeap, 0, strlen(sbWorkingDirectory) + 1);
 
-	DirectoryPrefix->NtCurrentWorkingDirectory.Length =
-		(USHORT)strlen(sbWorkingDirectory);
+    DirectoryPrefix->NtCurrentWorkingDirectory.Length =
+        (USHORT)strlen(sbWorkingDirectory);
 
-	DirectoryPrefix->NtCurrentWorkingDirectory.MaximumLength =
-		DirectoryPrefix->NtCurrentWorkingDirectory.Length + 1;
+    DirectoryPrefix->NtCurrentWorkingDirectory.MaximumLength =
+        DirectoryPrefix->NtCurrentWorkingDirectory.Length + 1;
 
-	RtlMoveMemory(DirectoryPrefix->NtCurrentWorkingDirectory.Buffer,
-		sbWorkingDirectory,
-        	DirectoryPrefix->NtCurrentWorkingDirectory.MaximumLength);
+    RtlMoveMemory(DirectoryPrefix->NtCurrentWorkingDirectory.Buffer,
+        sbWorkingDirectory,
+            DirectoryPrefix->NtCurrentWorkingDirectory.MaximumLength);
 
-	DirectoryPrefix->PsxCurrentWorkingDirectory.Length = 0;
+    DirectoryPrefix->PsxCurrentWorkingDirectory.Length = 0;
 
-	DirectoryPrefix->PsxRoot.Buffer = RtlAllocateHeap(PsxHeap, 0,
-		 strlen(Root) + 1);
-	ASSERT(DirectoryPrefix->PsxRoot.Buffer);
+    DirectoryPrefix->PsxRoot.Buffer = RtlAllocateHeap(PsxHeap, 0,
+         strlen(Root) + 1);
+    ASSERT(DirectoryPrefix->PsxRoot.Buffer);
 
-	DirectoryPrefix->PsxRoot.Length = (USHORT)strlen(Root);
+    DirectoryPrefix->PsxRoot.Length = (USHORT)strlen(Root);
 
-	DirectoryPrefix->PsxRoot.MaximumLength =
-        	DirectoryPrefix->PsxRoot.Length + 1;
+    DirectoryPrefix->PsxRoot.MaximumLength =
+            DirectoryPrefix->PsxRoot.Length + 1;
 
-	RtlMoveMemory(DirectoryPrefix->PsxRoot.Buffer, Root,
-		DirectoryPrefix->PsxRoot.MaximumLength);
+    RtlMoveMemory(DirectoryPrefix->PsxRoot.Buffer, Root,
+        DirectoryPrefix->PsxRoot.MaximumLength);
 
-	Process->DirectoryPrefix = DirectoryPrefix;
+    Process->DirectoryPrefix = DirectoryPrefix;
 }
 
 //
 // PsxPropagateDirectories --
 //
-//		Read the root directory, the current working directory
-//		from an existing process.
+//      Read the root directory, the current working directory
+//      from an existing process.
 //
 BOOLEAN
 PsxPropagateDirectories(
     IN PPSX_PROCESS Process
     )
 {
-	NTSTATUS Status;
-	PPSX_DIRECTORY_PREFIX Prefix = NULL;
-	STRING ClientPrefix;
-	ULONG BytesRead;
-	PVOID p;
+    NTSTATUS Status;
+    PPSX_DIRECTORY_PREFIX Prefix = NULL;
+    STRING ClientPrefix;
+    ULONG BytesRead;
+    PVOID p;
 
-	Prefix = RtlAllocateHeap(PsxHeap, 0, sizeof(*Prefix));
-	if (NULL == Prefix) {
-		goto ErrorExit;
-	}
-	Prefix->PsxRoot.Buffer = NULL;
-	Prefix->NtCurrentWorkingDirectory.Buffer = NULL;
+    Prefix = RtlAllocateHeap(PsxHeap, 0, sizeof(*Prefix));
+    if (NULL == Prefix) {
+        goto ErrorExit;
+    }
+    Prefix->PsxRoot.Buffer = NULL;
+    Prefix->NtCurrentWorkingDirectory.Buffer = NULL;
 
-	Status = NtReadVirtualMemory(Process->Process,
-		(PVOID)MAKE_DIRECTORY_PREFIX_VALID(Process->DirectoryPrefix),
-		(PVOID)Prefix, sizeof(*Prefix), &BytesRead);
+    Status = NtReadVirtualMemory(Process->Process,
+        (PVOID)MAKE_DIRECTORY_PREFIX_VALID(Process->DirectoryPrefix),
+        (PVOID)Prefix, sizeof(*Prefix), &BytesRead);
 
-	if (!NT_SUCCESS(Status)) {
-	        goto ErrorExit;
-	}
+    if (!NT_SUCCESS(Status)) {
+            goto ErrorExit;
+    }
 
-	//
-	// Capture the Root and NtCurrentWorkingDirectory
-	//
-	// XXX.mjb: TODO sanity check lengths ?
-	//
+    //
+    // Capture the Root and NtCurrentWorkingDirectory
+    //
+    // XXX.mjb: TODO sanity check lengths ?
+    //
 
-	ClientPrefix = Prefix->PsxRoot;
+    ClientPrefix = Prefix->PsxRoot;
 
-	p =  RtlAllocateHeap(PsxHeap, 0, ClientPrefix.Length);
-	if (NULL == p) {
-		goto ErrorExit;
-	}
+    p =  RtlAllocateHeap(PsxHeap, 0, ClientPrefix.Length);
+    if (NULL == p) {
+        goto ErrorExit;
+    }
 
-	Prefix->PsxRoot.Buffer = p;
+    Prefix->PsxRoot.Buffer = p;
 
-	Status = NtReadVirtualMemory(Process->Process, ClientPrefix.Buffer,
-		Prefix->PsxRoot.Buffer, ClientPrefix.Length, &BytesRead);
-	if (!NT_SUCCESS(Status)) {
-		goto ErrorExit;
-	}
+    Status = NtReadVirtualMemory(Process->Process, ClientPrefix.Buffer,
+        Prefix->PsxRoot.Buffer, ClientPrefix.Length, &BytesRead);
+    if (!NT_SUCCESS(Status)) {
+        goto ErrorExit;
+    }
 
-	Prefix->PsxRoot.Length = ClientPrefix.Length;
-	Prefix->PsxRoot.MaximumLength = ClientPrefix.Length;
-	
-	ClientPrefix = Prefix->NtCurrentWorkingDirectory;
+    Prefix->PsxRoot.Length = ClientPrefix.Length;
+    Prefix->PsxRoot.MaximumLength = ClientPrefix.Length;
 
-	p = RtlAllocateHeap(PsxHeap, 0, ClientPrefix.Length);
-	if (NULL == p) {
-		goto ErrorExit;
-	}
+    ClientPrefix = Prefix->NtCurrentWorkingDirectory;
 
-	Prefix->NtCurrentWorkingDirectory.Buffer = p;
+    p = RtlAllocateHeap(PsxHeap, 0, ClientPrefix.Length);
+    if (NULL == p) {
+        goto ErrorExit;
+    }
 
-	Status = NtReadVirtualMemory(Process->Process, ClientPrefix.Buffer,
-	        Prefix->NtCurrentWorkingDirectory.Buffer,
-	        ClientPrefix.Length, &BytesRead);
-	if (!NT_SUCCESS(Status)) {
-	        goto ErrorExit;
-	}
+    Prefix->NtCurrentWorkingDirectory.Buffer = p;
 
-	Prefix->NtCurrentWorkingDirectory.Length = ClientPrefix.Length;
-	Prefix->NtCurrentWorkingDirectory.MaximumLength = ClientPrefix.Length;
-	
-	Prefix->PsxCurrentWorkingDirectory.Buffer = NULL;
-	Prefix->PsxCurrentWorkingDirectory.Length = 0;
-	Prefix->PsxCurrentWorkingDirectory.MaximumLength = 0;
-	
-	Process->DirectoryPrefix = Prefix;
-	return TRUE;
+    Status = NtReadVirtualMemory(Process->Process, ClientPrefix.Buffer,
+            Prefix->NtCurrentWorkingDirectory.Buffer,
+            ClientPrefix.Length, &BytesRead);
+    if (!NT_SUCCESS(Status)) {
+            goto ErrorExit;
+    }
+
+    Prefix->NtCurrentWorkingDirectory.Length = ClientPrefix.Length;
+    Prefix->NtCurrentWorkingDirectory.MaximumLength = ClientPrefix.Length;
+
+    Prefix->PsxCurrentWorkingDirectory.Buffer = NULL;
+    Prefix->PsxCurrentWorkingDirectory.Length = 0;
+    Prefix->PsxCurrentWorkingDirectory.MaximumLength = 0;
+
+    Process->DirectoryPrefix = Prefix;
+    return TRUE;
 
 ErrorExit:
 
-	if (NULL != Prefix->NtCurrentWorkingDirectory.Buffer) {
-		RtlFreeHeap(PsxHeap, 0, (PVOID)Prefix->NtCurrentWorkingDirectory.Buffer);
-	}
-	if (NULL != Prefix->PsxRoot.Buffer) {
-	        RtlFreeHeap(PsxHeap, 0, (PVOID)Prefix->PsxRoot.Buffer);
-	}
-	if (NULL != Prefix) {
-	        RtlFreeHeap(PsxHeap, 0, (PVOID)Prefix);
-	}
-	return FALSE;
+    if (NULL != Prefix->NtCurrentWorkingDirectory.Buffer) {
+        RtlFreeHeap(PsxHeap, 0, (PVOID)Prefix->NtCurrentWorkingDirectory.Buffer);
+    }
+    if (NULL != Prefix->PsxRoot.Buffer) {
+            RtlFreeHeap(PsxHeap, 0, (PVOID)Prefix->PsxRoot.Buffer);
+    }
+    if (NULL != Prefix) {
+            RtlFreeHeap(PsxHeap, 0, (PVOID)Prefix);
+    }
+    return FALSE;
 }
 
 //
@@ -1836,71 +1844,71 @@ ErrorExit:
 //
 VOID
 PsxFreeDirectories(
-	IN PPSX_PROCESS p
-	)
+    IN PPSX_PROCESS p
+    )
 {
-	PPSX_DIRECTORY_PREFIX Prefix;
+    PPSX_DIRECTORY_PREFIX Prefix;
 
-	Prefix = p->DirectoryPrefix;
+    Prefix = p->DirectoryPrefix;
 
-	if (NULL != Prefix->NtCurrentWorkingDirectory.Buffer) {
-		RtlFreeHeap(PsxHeap, 0, Prefix->NtCurrentWorkingDirectory.Buffer);
-	}
-	if (NULL != Prefix->PsxRoot.Buffer) {
-	        RtlFreeHeap(PsxHeap, 0, (PVOID)Prefix->PsxRoot.Buffer);
-	}
-	if (NULL != Prefix) {
-	        RtlFreeHeap(PsxHeap, 0, (PVOID)Prefix);
-	}
+    if (NULL != Prefix->NtCurrentWorkingDirectory.Buffer) {
+        RtlFreeHeap(PsxHeap, 0, Prefix->NtCurrentWorkingDirectory.Buffer);
+    }
+    if (NULL != Prefix->PsxRoot.Buffer) {
+            RtlFreeHeap(PsxHeap, 0, (PVOID)Prefix->PsxRoot.Buffer);
+    }
+    if (NULL != Prefix) {
+            RtlFreeHeap(PsxHeap, 0, (PVOID)Prefix);
+    }
 }
 
 /*++
 
 Routine Description:
 
-	Locate a Posix Session by it's Unique Id.
+    Locate a Posix Session by it's Unique Id.
 
 Arguments:
 
-	UniqueId - the session's unique id.
+    UniqueId - the session's unique id.
 
 Return Value:
 
-	NULL - no such session could be found.
+    NULL - no such session could be found.
 
-	Non-NULL - the found session.
+    Non-NULL - the found session.
 
 --*/
 
 PPSX_SESSION
 PsxLocateSessionByUniqueId(
-	ULONG UniqueId
-	)
+    ULONG UniqueId
+    )
 {
-	PPSX_PROCESS Process;
+    PPSX_PROCESS Process;
 
-	//
-	// We don't have a list of sessions at the moment, so we
-	// linear-scan the process table, checking the session of
-	// each process to see if it's the one we want.
-	//
+    //
+    // We don't have a list of sessions at the moment, so we
+    // linear-scan the process table, checking the session of
+    // each process to see if it's the one we want.
+    //
 
-	AcquireProcessStructureLock();
+    AcquireProcessStructureLock();
 
-	for (Process = FirstProcess; Process < LastProcess; Process++) {
-		if (Process->Flags & P_FREE) {
-			continue;
-		}
-
-		if (NULL == Process->PsxSession->Terminal)
-			continue;
-
-		if (Process->PsxSession->Terminal->UniqueId == UniqueId) {
-            		ReleaseProcessStructureLock();
-            		return Process->PsxSession;
-		}
+    for (Process = FirstProcess; Process < LastProcess; Process++) {
+        if (Process->Flags & P_FREE) {
+            continue;
         }
 
-	ReleaseProcessStructureLock();
-	return NULL;
+        if (NULL == Process->PsxSession->Terminal)
+            continue;
+
+        if (Process->PsxSession->Terminal->UniqueId == UniqueId) {
+                    ReleaseProcessStructureLock();
+                    return Process->PsxSession;
+        }
+        }
+
+    ReleaseProcessStructureLock();
+    return NULL;
 }

@@ -78,7 +78,7 @@ ss_scan(HANDLE hpipe, LPSTR pRoot, LONG lVersion, BOOL bChecksum, BOOL fDeep)
                         dprintf1(("file access error %d\n", GetLastError()));
 			Log_Write(hlogErrors, "file error %d for %s", GetLastError(), pRoot);
                         if (!ss_sendnewresp( hpipe, lVersion, SSRESP_ERROR
-                                           , 0, 0, 0, 0, pRoot)) {
+                                           , GetLastError(), 0, 0, 0, pRoot)) {
                                 return(FALSE);
                         }
                         if (!ss_sendnewresp( hpipe, lVersion, SSRESP_END
@@ -318,7 +318,7 @@ ss_processfile( HANDLE hpipe,
                     /* report that this file is cracked */
 		    Log_Write(hlogErrors, "Cannot find file %s", pAbsName);
                     return(ss_sendnewresp( hpipe, lVersion, SSRESP_ERROR
-                                         , 0, 0, 0, 0, pRelName));
+                                         , GetLastError(), 0, 0, 0, pRelName));
 
                 }
 
@@ -335,7 +335,7 @@ ss_processfile( HANDLE hpipe,
                         sum = checksum_file(pAbsName, &err);
                         if (err!=0) {
                                 return(ss_sendnewresp( hpipe, lVersion, SSRESP_ERROR
-                                                      , 0,  0, 0, 0, pRelName));
+                                                      , GetLastError(),  0, 0, 0, pRelName));
                         }
                 }
                 else sum = 0;           /* no checksum wanted */

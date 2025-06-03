@@ -59,12 +59,19 @@ incc	=-I. -I..\..\h
 ########## Definitions for linker ##########
 
 link_opts = /MAP
-LINK	=link
+LINK    =link
 exelink =/E
 
 ########## Definitions for compress ##########
 
 compress =compress
+
+########## Path definition so we find 16 bit tools ##########
+# Also works around stupid bug in RC 3.1 that doesn't allow rcpp.err to be
+# in a directory that is greater than 128 chars down the path, even if
+# rc 3.1 is running as an OS/2 app.
+
+PATH    = $(_NTBINDIR)\private\mvdm\tools16;$(PATH)
 
 ########## Built-in rules ##########
 
@@ -100,13 +107,13 @@ compress =compress
         convert $*.exe
 
 .skl.cl1:
-	nosrvbld $*.skl $(msg)\$(COUNTRY).msg
+        nosrvbld $*.skl $(msg)\$(COUNTRY).msg
 
 .skl.ctl:
-	buildmsg $(msg)\$(COUNTRY) $*.skl
+        buildmsg $(msg)\$(COUNTRY) $*.skl
 
 .skl.cla:
-	buildmsg $(msg)\$(COUNTRY) $*.skl
+        buildmsg $(msg)\$(COUNTRY) $*.skl
 
 .sil.inc:
 	salut $*.sil,nul,$*.inc
@@ -117,5 +124,5 @@ compress =compress
 
 .msg.idx:
         chmode -r $*.msg
-	buildidx $*.msg
+        buildidx $*.msg
         chmode +r $*.msg

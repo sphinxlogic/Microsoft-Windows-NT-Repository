@@ -37,7 +37,7 @@ CsrSbApiPortInitialize( VOID )
     n = CsrDirectoryName.Length +
         sizeof( CSR_SBAPI_PORT_NAME ) +
         sizeof( OBJ_NAME_PATH_SEPARATOR );
-    CsrSbApiPortName.Buffer = RtlAllocateHeap( CsrHeap, 0, n );
+    CsrSbApiPortName.Buffer = RtlAllocateHeap( CsrHeap, MAKE_TAG( INIT_TAG ), n );
     if (CsrSbApiPortName.Buffer == NULL) {
         return( STATUS_NO_MEMORY );
         }

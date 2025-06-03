@@ -17,6 +17,8 @@ SERVERLIST Servers[] =
     "\\\\ntjazz2",      MACH_MIPS,      0,   NULL,   1,
     "\\\\ntalpha1",     MACH_ALPHA,     0,   NULL,   1,
     "\\\\ntalpha2",     MACH_ALPHA,     0,   NULL,   1,
+    "\\\\ntppc1",       MACH_PPC,       0,   NULL,   1,
+    "\\\\ntppc2",       MACH_PPC,       0,   NULL,   1,
     NULL,               0,              0,   NULL,   0,
     };
 
@@ -28,64 +30,75 @@ FILELIST WinDbgFiles[] =
     //
     // windbg binaries
     //
-    "windbg.exe",     "nt\\mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
-    "windbgrm.exe",   "nt\\mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
-    "wdbg32s.exe",    "nt\\mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
-    "dumpref.exe",    "nt\\idw",        "idw",                    0,   0,   0,0, 0,0, 0,0,
-    "dumpchk.exe",    "nt\\idw",        "idw",                    0,   0,   0,0, 0,0, 0,0,
-    "dm.dll",         "nt\\mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
-    "dm32s.dll",      "nt\\mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
-    "dmkdx86.dll",    "nt\\mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
-    "dmkdmip.dll",    "nt\\mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
-    "dmkdalp.dll",    "nt\\mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
-    "emx86.dll",      "nt\\mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
-    "emmip.dll",      "nt\\mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
-    "emalp.dll",      "nt\\mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
-    "eecxxx86.dll",   "nt\\mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
-    "eecxxmip.dll",   "nt\\mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
-    "eecxxalp.dll",   "nt\\mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
-    "shcv.dll",       "nt\\mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
-    "symcvt.dll",     "nt\\mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
-    "tlloc.dll",      "nt\\mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
-    "tlpipe.dll",     "nt\\mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
-    "tlser.dll",      "nt\\mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
-    "tlser32.dll",    "nt\\mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
-    "tlser32s.dll",   "nt\\mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
-    "kdextx86.dll",   "nt\\mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
-    "kdextmip.dll",   "nt\\mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
-    "kdextalp.dll",   "nt\\mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
-    "imagehlp.dll",   "nt\\system32",   "system32",               0,   0,   0,0, 0,0, 0,0,
-    "windbg.hlp",     "nt\\mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
+    "windbg.exe",     "mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
+    "windbgrm.exe",   "mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
+    "wdbg32s.exe",    "mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
+    "dumpref.exe",    "idw",        "idw",                    0,   0,   0,0, 0,0, 0,0,
+    "dumpchk.exe",    "idw",        "idw",                    0,   0,   0,0, 0,0, 0,0,
+    "dm.dll",         "mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
+    "dm32s.dll",      "mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
+    "dmkdx86.dll",    "mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
+    "dmkdmip.dll",    "mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
+    "dmkdalp.dll",    "mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
+    "dmkdppc.dll",    "mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
+    "emx86.dll",      "mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
+    "emmip.dll",      "mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
+    "emalp.dll",      "mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
+    "emppc.dll",      "mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
+    "eecxxx86.dll",   "mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
+    "eecxxmip.dll",   "mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
+    "eecxxalp.dll",   "mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
+    "eecxxppc.dll",   "mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
+    "shcv.dll",       "mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
+    "symcvt.dll",     "mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
+    "tlloc.dll",      "mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
+    "tlpipe.dll",     "mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
+    "tlser.dll",      "mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
+    "tlser32.dll",    "mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
+    "tlser32s.dll",   "mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
+    "kdextx86.dll",   "mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
+    "kdextmip.dll",   "mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
+    "kdextalp.dll",   "mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
+    "kdextppc.dll",   "mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
+    "ofskd.dll",      "mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
+    "imagehlp.dll",   ".",          "system32",               0,   0,   0,0, 0,0, 0,0,
+    "mspdb41.dll",    "mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
+    "windbg.hlp",     "mstools",    "mstools",                0,   0,   0,0, 0,0, 0,0,
     //
     // now the dbg files
     //
-    "windbg.dbg",     "nt\\symbols\\exe",    "symbols\\exe",      0,   0,   0,0, 0,0, 0,0,
-    "windbgrm.dbg",   "nt\\symbols\\exe",    "symbols\\exe",      0,   0,   0,0, 0,0, 0,0,
-    "wdbg32s.dbg",    "nt\\symbols\\exe",    "symbols\\exe",      0,   0,   0,0, 0,0, 0,0,
-    "dumpref.dbg",    "nt\\symbols\\exe",    "symbols\\exe",      0,   0,   0,0, 0,0, 0,0,
-    "dumpchk.dbg",    "nt\\symbols\\exe",    "symbols\\exe",      0,   0,   0,0, 0,0, 0,0,
-    "dm.dbg",         "nt\\symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
-    "dm32s.dbg",      "nt\\symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
-    "dmkdx86.dbg",    "nt\\symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
-    "dmkdmip.dbg",    "nt\\symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
-    "dmkdalp.dbg",    "nt\\symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
-    "emx86.dbg",      "nt\\symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
-    "emmip.dbg",      "nt\\symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
-    "emalp.dbg",      "nt\\symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
-    "eecxxx86.dbg",   "nt\\symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
-    "eecxxmip.dbg",   "nt\\symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
-    "eecxxalp.dbg",   "nt\\symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
-    "shcv.dbg",       "nt\\symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
-    "symcvt.dbg",     "nt\\symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
-    "tlloc.dbg",      "nt\\symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
-    "tlpipe.dbg",     "nt\\symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
-    "tlser.dbg",      "nt\\symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
-    "tlser32.dbg",    "nt\\symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
-    "tlser32s.dbg",   "nt\\symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
-    "kdextx86.dbg",   "nt\\symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
-    "kdextmip.dbg",   "nt\\symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
-    "kdextalp.dbg",   "nt\\symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
-    "imagehlp.dbg",   "nt\\symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
+    "windbg.dbg",     "symbols\\exe",    "symbols\\exe",      0,   0,   0,0, 0,0, 0,0,
+    "windbgrm.dbg",   "symbols\\exe",    "symbols\\exe",      0,   0,   0,0, 0,0, 0,0,
+    "wdbg32s.dbg",    "symbols\\exe",    "symbols\\exe",      0,   0,   0,0, 0,0, 0,0,
+    "dumpref.dbg",    "symbols\\exe",    "symbols\\exe",      0,   0,   0,0, 0,0, 0,0,
+    "dumpchk.dbg",    "symbols\\exe",    "symbols\\exe",      0,   0,   0,0, 0,0, 0,0,
+    "dm.dbg",         "symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
+    "dm32s.dbg",      "symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
+    "dmkdx86.dbg",    "symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
+    "dmkdmip.dbg",    "symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
+    "dmkdalp.dbg",    "symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
+    "dmkdppc.dbg",    "symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
+    "emx86.dbg",      "symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
+    "emmip.dbg",      "symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
+    "emalp.dbg",      "symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
+    "emppc.dbg",      "symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
+    "eecxxx86.dbg",   "symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
+    "eecxxmip.dbg",   "symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
+    "eecxxalp.dbg",   "symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
+    "eecxxppc.dbg",   "symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
+    "shcv.dbg",       "symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
+    "symcvt.dbg",     "symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
+    "tlloc.dbg",      "symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
+    "tlpipe.dbg",     "symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
+    "tlser.dbg",      "symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
+    "tlser32.dbg",    "symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
+    "tlser32s.dbg",   "symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
+    "kdextx86.dbg",   "symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
+    "kdextmip.dbg",   "symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
+    "kdextalp.dbg",   "symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
+    "kdextppc.dbg",   "symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
+    "ofskd.dbg",      "symbols\\dll",    "symbols\\dll",     0,   0,   0,0, 0,0, 0,0,
+    "imagehlp.dbg",   "symbols\\dll",    "symbols\\dll",      0,   0,   0,0, 0,0, 0,0,
     //
     // terminator
     //
@@ -100,23 +113,30 @@ FILELIST KdFiles[] =
     //
     // kd binaries
     //
-    "i386kd.exe",       "nt\\mstools",   "mstools",               0,   0,   0,0, 0,0, 0,0,
-    "mipskd.exe",       "nt\\mstools",   "mstools",               0,   0,   0,0, 0,0, 0,0,
-    "alphakd.exe",      "nt\\mstools",   "mstools",               0,   0,   0,0, 0,0, 0,0,
-    "kdextx86.dll",     "nt\\mstools",   "mstools",               0,   0,   0,0, 0,0, 0,0,
-    "kdextmip.dll",     "nt\\mstools",   "mstools",               0,   0,   0,0, 0,0, 0,0,
-    "kdextalp.dll",     "nt\\mstools",   "mstools",               0,   0,   0,0, 0,0, 0,0,
-    "imagehlp.dll",     "nt\\system32",  "system32",              0,   0,   0,0, 0,0, 0,0,
+    "i386kd.exe",       "mstools",   "mstools",               0,   0,   0,0, 0,0, 0,0,
+    "mipskd.exe",       "mstools",   "mstools",               0,   0,   0,0, 0,0, 0,0,
+    "alphakd.exe",      "mstools",   "mstools",               0,   0,   0,0, 0,0, 0,0,
+    "ppckd.exe",        "mstools",   "mstools",               0,   0,   0,0, 0,0, 0,0,
+    "kdextx86.dll",     "mstools",   "mstools",               0,   0,   0,0, 0,0, 0,0,
+    "kdextmip.dll",     "mstools",   "mstools",               0,   0,   0,0, 0,0, 0,0,
+    "kdextalp.dll",     "mstools",   "mstools",               0,   0,   0,0, 0,0, 0,0,
+    "kdextppc.dll",     "mstools",   "mstools",               0,   0,   0,0, 0,0, 0,0,
+    "ofskd.dll",        "mstools",   "mstools",               0,   0,   0,0, 0,0, 0,0,
+    "imagehlp.dll",     ".",         "system32",              0,   0,   0,0, 0,0, 0,0,
+    "mspdb41.dll",      "mstools",   "mstools",               0,   0,   0,0, 0,0, 0,0,
     //
     // now the dbg files
     //
-    "i386kd.dbg",       "nt\\symbols\\exe",   "symbols\\exe",     0,   0,   0,0, 0,0, 0,0,
-    "mipskd.dbg",       "nt\\symbols\\exe",   "symbols\\exe",     0,   0,   0,0, 0,0, 0,0,
-    "alphakd.dbg",      "nt\\symbols\\exe",   "symbols\\exe",     0,   0,   0,0, 0,0, 0,0,
-    "kdextx86.dbg",     "nt\\symbols\\dll",   "symbols\\dll",     0,   0,   0,0, 0,0, 0,0,
-    "kdextmip.dbg",     "nt\\symbols\\dll",   "symbols\\dll",     0,   0,   0,0, 0,0, 0,0,
-    "kdextalp.dbg",     "nt\\symbols\\dll",   "symbols\\dll",     0,   0,   0,0, 0,0, 0,0,
-    "imagehlp.dbg",     "nt\\symbols\\dll",   "symbols\\dll",     0,   0,   0,0, 0,0, 0,0,
+    "i386kd.dbg",       "symbols\\exe",   "symbols\\exe",     0,   0,   0,0, 0,0, 0,0,
+    "mipskd.dbg",       "symbols\\exe",   "symbols\\exe",     0,   0,   0,0, 0,0, 0,0,
+    "alphakd.dbg",      "symbols\\exe",   "symbols\\exe",     0,   0,   0,0, 0,0, 0,0,
+    "ppckd.dbg",        "symbols\\exe",   "symbols\\exe",     0,   0,   0,0, 0,0, 0,0,
+    "kdextx86.dbg",     "symbols\\dll",   "symbols\\dll",     0,   0,   0,0, 0,0, 0,0,
+    "kdextmip.dbg",     "symbols\\dll",   "symbols\\dll",     0,   0,   0,0, 0,0, 0,0,
+    "kdextalp.dbg",     "symbols\\dll",   "symbols\\dll",     0,   0,   0,0, 0,0, 0,0,
+    "kdextppc.dbg",     "symbols\\dll",   "symbols\\dll",     0,   0,   0,0, 0,0, 0,0,
+    "ofskd.dbg",        "symbols\\dll",   "symbols\\dll",     0,   0,   0,0, 0,0, 0,0,
+    "imagehlp.dbg",     "symbols\\dll",   "symbols\\dll",     0,   0,   0,0, 0,0, 0,0,
     //
     // terminator
     //
@@ -124,7 +144,6 @@ FILELIST KdFiles[] =
     };
 
 #define MAX_KDFILES  ((sizeof(KdFiles)/sizeof(FILELIST))-1)
-
 
 //
 // globals
@@ -253,7 +272,7 @@ IsExistingConnection(
             break;
         }
         for (i=0; i<Entries; i++) {
-            if (stricmp( nrr[i].lpRemoteName, RemoteName ) == 0) {
+            if (_stricmp( nrr[i].lpRemoteName, RemoteName ) == 0) {
                 if (nrr[i].lpLocalName) {
                     strcpy( ConnDrive, nrr[i].lpLocalName );
                 }
@@ -279,21 +298,33 @@ FindShareSubName(
 {
     LPSTR p = Servers[si].Shares;
     LPSTR p2;
+    LPSTR p3;
+    CHAR  c;
     DWORD build = 0;
+    DWORD tmpbld;
+    LPSTR share = NULL;
 
 
     while (p && *p) {
-        p2 = strchr( p, '.' );
-        if (!p2) {
-            p += strlen(p) + 1;
-            continue;
+        if (strstr(p,ShareSubName)) {
+            p2 = p;
+            while (*p2 && !isdigit(*p2)) p2++;
+            if (!*p2) {
+                p += strlen(p) + 1;
+                continue;
+            }
+            p3 = p2;
+            while(isdigit(*p3)) p3++;
+            c = *p3;
+            *p3 = 0;
+            tmpbld = (DWORD)atoi( p2 );
+            *p3 = c;
+            if (tmpbld > build) {
+                build = tmpbld;
+                share = p;
+            }
         }
-        p2++;
-        if (strnicmp(p,ShareSubName,strlen(ShareSubName))==0) {
-            build = atoi( p2 );
-        }
-        p2 += strlen(p2) + 1;
-        p = p2;
+        p += strlen(p) + 1;
     }
 
     if (!build) {
@@ -301,10 +332,7 @@ FindShareSubName(
     }
 
     p2 = malloc( strlen(Servers[si].ServerName) + strlen(ShareSubName) + 16 );
-    sprintf( p2, "%s\\%s.%d",
-        Servers[si].ServerName,
-        ShareSubName,
-        build );
+    sprintf( p2, "%s\\%s", Servers[si].ServerName, share );
 
     return p2;
 }
@@ -321,7 +349,7 @@ FindShare(
 
 
     while (p && *p) {
-        if (stricmp( p, ShareName ) == 0) {
+        if (_stricmp( p, ShareName ) == 0) {
             p2 = malloc( strlen(Servers[si].ServerName) + strlen(ShareName) + 16 );
             sprintf( p2, "%s\\%s", Servers[si].ServerName, ShareName );
             return p2;
@@ -462,21 +490,12 @@ InitializeConnection(
 
     GetSystemInfo( &si );
 
-    if (si.dwProcessorType == PROCESSOR_INTEL_486 ||
-        si.dwProcessorType == PROCESSOR_INTEL_386 ||
-        si.dwProcessorType == PROCESSOR_INTEL_PENTIUM) {
-        si.dwProcessorType = MACH_I386;
-    } else if (si.dwProcessorType == PROCESSOR_MIPS_R4000) {
-        si.dwProcessorType = MACH_MIPS;
-    } else if (si.dwProcessorType == PROCESSOR_ALPHA_21064) {
-        si.dwProcessorType = MACH_ALPHA;
-    }
-
     if (PreferredServer) {
+        //  Find the server in the list if it is valid
         for (i=0; i<MAX_SERVERS; i++) {
             if (Servers[i].ServerName) {
-                if ((stricmp( PreferredServer, Servers[i].ServerName ) == 0) &&
-                    (!Servers[i].Valid)) {
+                if ((_stricmp( PreferredServer, Servers[i].ServerName ) == 0) &&
+                    Servers[i].Valid) {
                     break;
                 }
             }
@@ -484,8 +503,8 @@ InitializeConnection(
         if (i == MAX_SERVERS) {
             i = MAX_SERVERS - 1;
             if (!Servers[i].ServerName) {
-                Servers[i].ServerName = strdup( PreferredServer );
-                Servers[i].MachineType = si.dwProcessorType;
+                Servers[i].ServerName = _strdup( PreferredServer );
+                Servers[i].MachineType = si.wProcessorArchitecture;
                 Servers[i].Preference = 0;
                 Servers[i].Shares = NULL;
                 Servers[i].Valid = TRUE;
@@ -497,7 +516,7 @@ InitializeConnection(
             if (PreferredShare) {
                 p = FindShare( i, PreferredShare );
             } else {
-                p = FindShareSubName( i, "freebins" );
+                p = FindShareSubName( i, "Fre.Wks" );
             }
             if (p) {
                 if (!IsExistingConnection( p )) {
@@ -515,7 +534,7 @@ InitializeConnection(
     }
 
     for (i=0; i<MAX_SERVERS; i++) {
-        if (Servers[i].MachineType == si.dwProcessorType) {
+        if (Servers[i].MachineType == si.wProcessorArchitecture) {
             if ((!Servers[i].Valid) || (!Servers[i].ServerName)) {
                 continue;
             }
@@ -523,7 +542,7 @@ InitializeConnection(
                 if (PreferredShare) {
                     p = FindShare( i, PreferredShare );
                 } else {
-                    p = FindShareSubName( i, "freebins" );
+                    p = FindShareSubName( i, "Fre.Wks" );
                 }
                 if (p) {
                     if (!IsExistingConnection( p )) {
@@ -644,7 +663,7 @@ CopyFilesThread(
         SendMessage( lpci->hwnd, WU_DRAWMETER, 0, (LPARAM)lpmi );
 
 try_flat_dir:
-        lpci->Files[i].ErrorCode = CopyFileEx( srcfile, dstfile, CopyFileCallBack, (LPARAM)lpmi );
+        lpci->Files[i].ErrorCode = MyCopyFileEx( srcfile, dstfile, CopyFileCallBack, (LPARAM)lpmi );
 
         if (lpci->Files[i].ErrorCode == ERROR_FILE_NOT_FOUND ||
             lpci->Files[i].ErrorCode == ERROR_PATH_NOT_FOUND) {
@@ -852,7 +871,7 @@ AddServersThread(
     s = strchr( ConnName+2, '\\' ) + 1;
     while (p && *p) {
         SendMessage( hwndShares, LB_ADDSTRING, 0, (LPARAM)p );
-        if (stricmp( p, s ) == 0) {
+        if (_stricmp( p, s ) == 0) {
             SendMessage( hwndShares, LB_SETCURSEL, i, 0 );
         }
         p += strlen(p) + 1;
@@ -876,13 +895,12 @@ AddServersThread(
     }
     SendMessage( hwndFiles, LB_SETCURSEL, 0, 0 );
 
-    SendMessage( lpas->hDlg, WU_AS_DONE, 0, (LPARAM)lpas );
-
     SendMessage( hwndServers, WM_SETREDRAW, TRUE, 0L );
     SendMessage( hwndShares,  WM_SETREDRAW, TRUE, 0L );
     SendMessage( hwndFiles,   WM_SETREDRAW, TRUE, 0L );
 
     lpas->rc = 0;
+    SendMessage( lpas->hDlg, WU_AS_DONE, 0, (LPARAM)lpas );
     return 1;
 }
 
@@ -893,7 +911,6 @@ TimeoutThread(
     )
 {
     Sleep( 60 * 1000 );
-    TerminateThread( lpas->hThread, 0 );
     lpas->rc = 2;
     SendMessage( lpas->hDlg, WU_AS_DONE, 0, (LPARAM)lpas );
     return 0;
@@ -1067,7 +1084,7 @@ AddServersToListBox(
 
 
 DWORD
-CopyFileEx(
+MyCopyFileEx(
     LPSTR             lpExistingFileName,
     LPSTR             lpNewFileName,
     COPYCALLBACKPROC  lpCallBack,

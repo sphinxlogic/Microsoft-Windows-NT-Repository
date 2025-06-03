@@ -897,4 +897,3 @@ node_def::UseProcessing()
         GetChild()->UseProcessing();
     UseProcessingAction();
     }
-

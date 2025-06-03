@@ -89,6 +89,8 @@ Initial revision.
 
 #include "global.h"
 
+#include "ctl3d.h"
+
 
 // FUNCTION PROTOTYPES
 

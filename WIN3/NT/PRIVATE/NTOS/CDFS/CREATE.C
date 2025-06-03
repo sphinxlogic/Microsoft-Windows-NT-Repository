@@ -9,17 +9,11 @@ Module Name:
 Abstract:
 
     This module implements the File Create routine for Cdfs called by the
-    dispatch driver.  There are two entry points CdFsdCreate and CdFspCreate.
-    Both of these routines call a common routine CdCommonCreate which will
-    perform the actual tests and function.  Besides taking the Irp and input
-    the common create routine takes a flag indicating if it is running as
-    the Fsd or Fsp thread, because if it is the Fsd thread and it did not
-    BYOT then having to do any real disk I/O will cause it to queue up the Irp
-    to the Fsp.
+    Fsd/Fsp dispatch routines.
 
 Author:
 
-    Brian Andrew    [BrianAn]   02-Jan-1991
+    Brian Andrew    [BrianAn]   01-July-1995
 
 Revision History:
 
@@ -34,268 +28,89 @@ Revision History:
 #define BugCheckFileId                   (CDFS_BUG_CHECK_CREATE)
 
 //
-//  The debug trace level
-//
-
-#define Dbg                              (DEBUG_TRACE_CREATE)
-
-//
-//  Local procedure prototypes
+//  Local support routines
 //
 
 NTSTATUS
-CdCommonCreate (
+CdNormalizeFileNames (
     IN PIRP_CONTEXT IrpContext,
-    IN PIRP Irp
+    IN PVCB Vcb,
+    IN BOOLEAN OpenByFileId,
+    IN BOOLEAN IgnoreCase,
+    IN TYPE_OF_OPEN RelatedTypeOfOpen,
+    IN PCCB RelatedCcb OPTIONAL,
+    IN PUNICODE_STRING RelatedFileName OPTIONAL,
+    IN OUT PUNICODE_STRING FileName,
+    IN OUT PCD_NAME RemainingName
     );
 
-PVCB
-CdGetVcb (
+NTSTATUS
+CdOpenByFileId (
     IN PIRP_CONTEXT IrpContext,
-    IN PMVCB Mvcb,
-    IN USHORT CodePageNumber
+    IN PIO_STACK_LOCATION IrpSp,
+    IN PVCB Vcb,
+    IN OUT PFCB *CurrentFcb
     );
 
-IO_STATUS_BLOCK
-CdOpenVolume (
-    IN PIRP_CONTEXT IrpContext,
-    IN PFILE_OBJECT FileObject,
-    IN PMVCB Mvcb,
-    IN ACCESS_MASK DesiredAccess,
-    IN USHORT ShareAccess,
-    IN ULONG CreateDisposition
-    );
-
-IO_STATUS_BLOCK
-CdOpenExistingDcb (
-    IN PIRP_CONTEXT IrpContext,
-    IN PFILE_OBJECT FileObject,
-    IN PDCB Dcb,
-    IN ACCESS_MASK DesiredAccess,
-    IN USHORT ShareAccess,
-    IN ULONG CreateDisposition,
-    IN BOOLEAN OpenByFileId
-    );
-
-IO_STATUS_BLOCK
+NTSTATUS
 CdOpenExistingFcb (
     IN PIRP_CONTEXT IrpContext,
-    IN PFILE_OBJECT FileObject,
-    IN PMVCB Mvcb OPTIONAL,
-    IN PFCB Fcb,
-    IN ACCESS_MASK DesiredAccess,
-    IN USHORT ShareAccess,
-    IN ULONG CreateDisposition,
-    IN OUT PBOOLEAN NoIntermediateBuffering,
-    OUT PBOOLEAN OplockPostIrp,
-    IN BOOLEAN OpenedByFileId
+    IN PIO_STACK_LOCATION IrpSp,
+    IN OUT PFCB *CurrentFcb,
+    IN TYPE_OF_OPEN TypeOfOpen,
+    IN BOOLEAN IgnoreCase,
+    IN PCCB RelatedCcb OPTIONAL
     );
 
-IO_STATUS_BLOCK
-CdOpenSubdirectory (
+NTSTATUS
+CdOpenDirectoryFromPathEntry (
     IN PIRP_CONTEXT IrpContext,
-    IN PDCB ParentDcb,
-    IN PSTRING DirName,
-    OUT PDCB *NewDcb,
-    IN BOOLEAN OpenByFileId
+    IN PIO_STACK_LOCATION IrpSp,
+    IN PVCB Vcb,
+    IN OUT PFCB *CurrentFcb,
+    IN PCD_NAME DirName,
+    IN BOOLEAN IgnoreCase,
+    IN BOOLEAN ShortNameMatch,
+    IN PPATH_ENTRY PathEntry,
+    IN BOOLEAN PerformUserOpen,
+    IN PCCB RelatedCcb OPTIONAL
     );
 
-IO_STATUS_BLOCK
-CdOpenExistingDirectory (
+NTSTATUS
+CdOpenFileFromFileContext (
     IN PIRP_CONTEXT IrpContext,
-    IN PFILE_OBJECT FileObject,
-    IN PDCB ParentDcb,
-    IN PDIRENT Dirent,
-    IN ACCESS_MASK DesiredAccess,
-    IN USHORT ShareAccess,
-    IN ULONG CreateDisposition,
-    IN BOOLEAN MatchedVersion,
-    IN BOOLEAN OpenedByFileId
+    IN PIO_STACK_LOCATION IrpSp,
+    IN PVCB Vcb,
+    IN OUT PFCB *CurrentFcb,
+    IN PCD_NAME FileName,
+    IN BOOLEAN IgnoreCase,
+    IN BOOLEAN ShortNameMatch,
+    IN PFILE_ENUM_CONTEXT FileContext,
+    IN PCCB RelatedCcb OPTIONAL
     );
 
-IO_STATUS_BLOCK
-CdOpenExistingFile (
+NTSTATUS
+CdCompleteFcbOpen (
     IN PIRP_CONTEXT IrpContext,
-    IN PFILE_OBJECT FileObject,
-    IN PDCB ParentDcb,
-    IN PDIRENT Dirent,
-    IN ACCESS_MASK DesiredAccess,
-    IN USHORT ShareAccess,
-    IN ULONG CreateDisposition,
-    IN BOOLEAN MatchedVersion,
-    IN OUT PBOOLEAN NoIntermediateBuffering,
-    IN BOOLEAN OpenedByFileId
-    );
-
-LARGE_INTEGER
-CdFileIdParent (
-    IN PIRP_CONTEXT IrpContext,
-    IN LARGE_INTEGER FileId
-    );
-
-LARGE_INTEGER
-CdFileIdParent (
-    IN PIRP_CONTEXT IrpContext,
-    IN LARGE_INTEGER FileId
+    PIO_STACK_LOCATION IrpSp,
+    IN PVCB Vcb,
+    IN OUT PFCB *CurrentFcb,
+    IN TYPE_OF_OPEN TypeOfOpen,
+    IN ULONG UserCcbFlags,
+    IN ACCESS_MASK DesiredAccess
     );
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE, CdCommonCreate)
-#pragma alloc_text(PAGE, CdFileIdParent)
-#pragma alloc_text(PAGE, CdFsdCreate)
-#pragma alloc_text(PAGE, CdFspCreate)
-#pragma alloc_text(PAGE, CdGetVcb)
-#pragma alloc_text(PAGE, CdOpenExistingDcb)
-#pragma alloc_text(PAGE, CdOpenExistingDirectory)
+#pragma alloc_text(PAGE, CdCompleteFcbOpen)
+#pragma alloc_text(PAGE, CdNormalizeFileNames)
+#pragma alloc_text(PAGE, CdOpenByFileId)
+#pragma alloc_text(PAGE, CdOpenDirectoryFromPathEntry)
 #pragma alloc_text(PAGE, CdOpenExistingFcb)
-#pragma alloc_text(PAGE, CdOpenExistingFile)
-#pragma alloc_text(PAGE, CdOpenSubdirectory)
-#pragma alloc_text(PAGE, CdOpenVolume)
+#pragma alloc_text(PAGE, CdOpenFileFromFileContext)
 #endif
 
 
-NTSTATUS
-CdFsdCreate (
-    IN PVOLUME_DEVICE_OBJECT VolumeDeviceObject,
-    IN PIRP Irp
-    )
-
-/*++
-
-Routine Description:
-
-    This routine implements the FSD part of the NtCreateFile and NtOpenFile
-    API calls.
-
-Arguments:
-
-    VolumeDeviceObject - Supplies the volume device object where the
-        file/directory exists that we are trying to open/create
-
-    Irp - Supplies the Irp being processed
-
-Return Value:
-
-    NTSTATUS - The Fsd status for the Irp
-
---*/
-
-{
-    NTSTATUS Status;
-    PIRP_CONTEXT IrpContext = NULL;
-
-    BOOLEAN TopLevel;
-
-    PAGED_CODE();
-
-    //
-    //  If we were called with our file system device object instead of a
-    //  volume device object, just complete this request with STATUS_SUCCESS
-    //
-
-    if (VolumeDeviceObject->DeviceObject.Size == (USHORT)sizeof(DEVICE_OBJECT)) {
-
-        Irp->IoStatus.Status = STATUS_SUCCESS;
-        Irp->IoStatus.Information = FILE_OPENED;
-
-        IoCompleteRequest( Irp, IO_DISK_INCREMENT );
-
-        return STATUS_SUCCESS;
-    }
-
-    DebugTrace(+1, Dbg, "CdFsdCreate:  Entered\n", 0);
-
-    //
-    //  Call the common create routine, with block allowed if the operation
-    //  is synchronous.
-    //
-
-    FsRtlEnterFileSystem();
-
-    TopLevel = CdIsIrpTopLevel( Irp );
-
-    try {
-
-        IrpContext = CdCreateIrpContext( Irp, CanFsdWait( Irp ) );
-
-        Status = CdCommonCreate( IrpContext, Irp );
-
-    } except( CdExceptionFilter( IrpContext, GetExceptionInformation() )) {
-
-        //
-        //  We had some trouble trying to perform the requested
-        //  operation, so we'll abort the I/O request with
-        //  the error status that we get back from the
-        //  execption code
-        //
-
-        Status = CdProcessException( IrpContext, Irp, GetExceptionCode() );
-    }
-
-    if (TopLevel) { IoSetTopLevelIrp( NULL ); }
-
-    FsRtlExitFileSystem();
-
-    //
-    //  And return to our caller
-    //
-
-    DebugTrace(-1, Dbg, "CdFsdCreate:  Exit -> %08lx\n", Status );
-
-    return Status;
-
-    UNREFERENCED_PARAMETER( VolumeDeviceObject );
-}
-
-
-VOID
-CdFspCreate (
-    IN PIRP_CONTEXT IrpContext,
-    IN PIRP Irp
-    )
-
-/*++
-
-Routine Description:
-
-    This routine implements the FSP part of the NtCreateFile and NtOpenFile
-    API calls.
-
-Arguments:
-
-    Irp - Supplies the Irp being processed
-
-Return Value:
-
-    None
-
---*/
-
-{
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "CdFspCreate:  Entered\n", 0);
-
-    //
-    //  Call the common create routine
-    //
-
-    (VOID)CdCommonCreate( IrpContext, Irp );
-
-    //
-    //  And return to our caller
-    //
-
-    DebugTrace(-1, Dbg, "CdFspCreate:  Exit -> VOID\n", 0 );
-
-    return;
-}
-
-
-//
-//  Internal support routine
-//
-
 NTSTATUS
 CdCommonCreate (
     IN PIRP_CONTEXT IrpContext,
@@ -306,8 +121,28 @@ CdCommonCreate (
 
 Routine Description:
 
-    This is the common routine for creating/opening a file called by
-    both the fsd and fsp threads.
+    This is the common routine for opening a file called by both the
+    Fsp and Fsd threads.
+
+    The file can be opened either by name or by file Id either with or without
+    a relative name.  The file name field in the file object passed to this routine
+    contains either a unicode string or a 64 bit value which is the file Id.
+    If this is not a Joliet disk then we will convert the unicode name to
+    an Oem string in this routine.  If there is a related file object with
+    a name then we will already have converted that name to Oem.
+
+    We will store the full name for the file in the file object on a successful
+    open.  We will allocate a larger buffer if necessary and combine the
+    related and file object names.  The only exception is the relative open
+    when the related file object is for an OpenByFileId file.  If we need to
+    allocate a buffer for a case insensitive name then we allocate it at
+    the tail of the buffer we will store into the file object.  The upcased
+    portion will begin immediately after the name defined by the FileName
+    in the file object.
+
+    Once we have the full name in the file object we don't want to split the
+    name in the event of a retry.  We use a flag in the IrpContext to indicate
+    that the name has been split.
 
 Arguments:
 
@@ -315,269 +150,215 @@ Arguments:
 
 Return Value:
 
-    NTSTATUS - the return status for the operation
+    NTSTATUS - This is the status from this open operation.
 
 --*/
 
 {
-    IO_STATUS_BLOCK Iosb;
-    PIO_STACK_LOCATION IrpSp;
-
-    PVOLUME_DEVICE_OBJECT VolumeDeviceObject;
-    PMVCB Mvcb;
-    PVCB Vcb;
-    PFCB Fcb;
-    PDCB ParentDcb;
-
-    DIRENT Dirent;
-    PBCB DirentBcb;
-    PBCB PathBcb;
-
-    USHORT CodePageNumber;
+    NTSTATUS Status = STATUS_SUCCESS;
+    PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation( Irp );
 
     PFILE_OBJECT FileObject;
-    PFILE_OBJECT RelatedFileObject;
-    STRING FileName;
-    ULONG AllocationSize;
-    PFILE_FULL_EA_INFORMATION EaBuffer;
-    ACCESS_MASK DesiredAccess;
-    ULONG Options;
-    UCHAR FileAttributes;
-    USHORT ShareAccess;
-    ULONG EaLength;
 
+    COMPOUND_PATH_ENTRY CompoundPathEntry;
+    BOOLEAN CleanupCompoundPathEntry = FALSE;
+
+    FILE_ENUM_CONTEXT FileContext;
+    BOOLEAN CleanupFileContext = FALSE;
+    BOOLEAN FoundEntry;
+
+    PVCB Vcb;
+
+    BOOLEAN OpenByFileId;
+    BOOLEAN IgnoreCase;
     ULONG CreateDisposition;
 
-    BOOLEAN DirectoryFile;
-    BOOLEAN NonDirectoryFile;
-    BOOLEAN SequentialOnly;
-    BOOLEAN NoIntermediateBuffering;
-    BOOLEAN IsPagingFile;
-    BOOLEAN OpenTargetDirectory;
-    BOOLEAN CreateDirectory;
-    BOOLEAN OpenDirectory;
-    BOOLEAN OpenByFileId;
+    BOOLEAN ShortNameMatch;
+    ULONG ShortNameDirentOffset;
 
-    STRING FinalName;
-    STRING RemainingPart;
-
-    BOOLEAN ReleaseMvcb = FALSE;
-    BOOLEAN PostIrp = FALSE;
-    BOOLEAN OplockPostIrp = FALSE;
-
-    UNICODE_STRING FileNameU;
-
-    LARGE_INTEGER FileId;
-
-    ParentDcb = NULL;
+    BOOLEAN VolumeOpen = FALSE;
 
     //
-    //  Get the current IRP stack location
+    //  We will be acquiring and releasing file Fcb's as we move down the
+    //  directory tree during opens.  At any time we need to know the deepest
+    //  point we have traversed down in the tree in case we need to cleanup
+    //  any structures created here.
+    //
+    //  CurrentFcb - represents this point.  If non-null it means we have
+    //      acquired it and need to release it in finally clause.
+    //
+    //  NextFcb - represents the NextFcb to walk to but haven't acquired yet.
     //
 
-    IrpSp = IoGetCurrentIrpStackLocation( Irp );
+    TYPE_OF_OPEN RelatedTypeOfOpen = UnopenedFileObject;
+    PFILE_OBJECT RelatedFileObject;
+    PCCB RelatedCcb = NULL;
+
+    PFCB NextFcb;
+    PFCB CurrentFcb = NULL;
+
+    //
+    //  During the open we need to combine the related file object name
+    //  with the remaining name.  We also may need to upcase the file name
+    //  in order to do a case-insensitive name comparison.  We also need
+    //  to restore the name in the file object in the event that we retry
+    //  the request.  We use the following string variables to manage the
+    //  name.  We will can put these strings into either Unicode or Ansi
+    //  form.
+    //
+    //  FileName - Pointer to name as currently stored in the file
+    //      object.  We store the full name into the file object early in
+    //      the open operation.
+    //
+    //  RelatedFileName - Pointer to the name in the related file object.
+    //
+    //  RemainingName - String containing remaining name to parse.
+    //
+    //  MatchingName - Address of name structure in FileContext which matched.
+    //      We need this to know whether we matched the long or short name.
+    //
+
+    PUNICODE_STRING FileName;
+    PUNICODE_STRING RelatedFileName;
+
+    CD_NAME RemainingName;
+    CD_NAME FinalName;
+    PCD_NAME MatchingName;
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "CdCommonCreate\n", 0 );
-    DebugTrace( 0, Dbg, "Irp                       = %08lx\n", Irp );
-    DebugTrace( 0, Dbg, "->Flags                   = %08lx\n", Irp->Flags );
-    DebugTrace( 0, Dbg, "->FileObject              = %08lx\n", IrpSp->FileObject );
-    DebugTrace( 0, Dbg, " ->RelatedFileObject      = %08lx\n", IrpSp->FileObject->RelatedFileObject );
-    DebugTrace( 0, Dbg, " ->FileName               = %Z\n",    &IrpSp->FileObject->FileName );
-    DebugTrace( 0, Dbg, "->AllocationSize.LowPart  = %08lx\n", Irp->Overlay.AllocationSize.LowPart );
-    DebugTrace( 0, Dbg, "->AllocationSize.HighPart = %08lx\n", Irp->Overlay.AllocationSize.HighPart );
-    DebugTrace( 0, Dbg, "->SystemBuffer            = %08lx\n", Irp->AssociatedIrp.SystemBuffer );
-    DebugTrace( 0, Dbg, "->SecurityContext         = %08lx\n", IrpSp->Parameters.Create.SecurityContext );
-    DebugTrace( 0, Dbg, "->Options                 = %08lx\n", IrpSp->Parameters.Create.Options );
-    DebugTrace( 0, Dbg, "->FileAttributes          = %04x\n",  IrpSp->Parameters.Create.FileAttributes );
-    DebugTrace( 0, Dbg, "->ShareAccess             = %04x\n",  IrpSp->Parameters.Create.ShareAccess );
-    DebugTrace( 0, Dbg, "->EaLength                = %08lx\n", IrpSp->Parameters.Create.EaLength );
-
     //
-    //  Set the default values.
+    //  If we were called with our file system device object instead of a
+    //  volume device object, just complete this request with STATUS_SUCCESS.
     //
 
-    DirentBcb = NULL;
-    PathBcb = NULL;
-    FileName.Buffer = NULL;
-    FileName.Length = 0;
-    FileName.MaximumLength = 0;
+    if (IrpContext->Vcb == NULL) {
 
-    CodePageNumber = PRIMARY_CP_CODEPAGE_ID;
+        CdCompleteRequest( IrpContext, Irp, STATUS_SUCCESS );
+        return STATUS_SUCCESS;
+    }
+
+    //
+    //  Get create parameters from the Irp.
+    //
+
+    OpenByFileId = BooleanFlagOn( IrpSp->Parameters.Create.Options, FILE_OPEN_BY_FILE_ID );
+    IgnoreCase = !BooleanFlagOn( IrpSp->Flags, SL_CASE_SENSITIVE );
+    CreateDisposition = (IrpSp->Parameters.Create.Options >> 24) & 0x000000ff;
+
+    //
+    //  Do some preliminary checks to make sure the operation is supported.
+    //  We fail in the following cases immediately.
+    //
+    //      - Open a paging file.
+    //      - Open a target directory.
+    //      - Open a file with Eas.
+    //      - Create a file.
+    //      - Opening a structured storage type.
+    //
+
+    if (FlagOn( IrpSp->Flags, SL_OPEN_PAGING_FILE | SL_OPEN_TARGET_DIRECTORY) ||
+        (IrpSp->Parameters.Create.EaLength != 0) ||
+        (CreateDisposition == FILE_CREATE) ||
+        ((IrpSp->Parameters.Create.Options & FILE_STORAGE_TYPE_SPECIFIED) == FILE_STORAGE_TYPE_SPECIFIED)) {
+
+        CdCompleteRequest( IrpContext, Irp, STATUS_ACCESS_DENIED );
+        return STATUS_ACCESS_DENIED;
+    }
+
+    //
+    //  Copy the Vcb to a local.  Assume the starting directory is the root.
+    //
+
+    Vcb = IrpContext->Vcb;
+    NextFcb = Vcb->RootIndexFcb;
 
     //
     //  Reference our input parameters to make things easier
     //
 
-    FileObject        = IrpSp->FileObject;
-    RelatedFileObject = IrpSp->FileObject->RelatedFileObject;
-    FileNameU         = *((PUNICODE_STRING) &IrpSp->FileObject->FileName);
-    AllocationSize    = Irp->Overlay.AllocationSize.LowPart;
-    EaBuffer          = Irp->AssociatedIrp.SystemBuffer;
-    Options           = IrpSp->Parameters.Create.Options;
-    FileAttributes    = (UCHAR) (IrpSp->Parameters.Create.FileAttributes & ~FILE_ATTRIBUTE_NORMAL);
-    ShareAccess       = IrpSp->Parameters.Create.ShareAccess;
-    EaLength          = IrpSp->Parameters.Create.EaLength;
-    DesiredAccess     = IrpSp->Parameters.Create.SecurityContext->DesiredAccess;
+    FileObject = IrpSp->FileObject;
+    RelatedFileObject = NULL;
+
+    FileName = &FileObject->FileName;
 
     //
     //  Set up the file object's Vpb pointer in case anything happens.
     //  This will allow us to get a reasonable pop-up.
     //
 
-    if ( RelatedFileObject != NULL ) {
+    if ((FileObject->RelatedFileObject != NULL) && !OpenByFileId) {
+
+        RelatedFileObject = FileObject->RelatedFileObject;
         FileObject->Vpb = RelatedFileObject->Vpb;
+
+        RelatedTypeOfOpen = CdDecodeFileObject( IrpContext, RelatedFileObject, &NextFcb, &RelatedCcb );
+
+        //
+        //  Fail the request if this is not a user file object.
+        //
+
+        if (RelatedTypeOfOpen < UserVolumeOpen) {
+
+            CdCompleteRequest( IrpContext, Irp, STATUS_INVALID_PARAMETER );
+            return STATUS_INVALID_PARAMETER;
+        }
+
+        //
+        //  Remember the name in the related file object.
+        //
+
+        RelatedFileName = &RelatedFileObject->FileName;
     }
 
     //
-    //  Locate the volume device object, Mvcb and Vcb that we are trying to
-    //  access.
+    //  If we haven't initialized the names then make sure the strings are valid.
+    //  If this an OpenByFileId then verify the file id buffer.
+    //
+    //  After this routine returns we know that the full name is in the
+    //  FileName buffer and the buffer will hold the upcased portion
+    //  of the name yet to parse immediately after the full name in the
+    //  buffer.  Any trailing backslash has been removed and the flag
+    //  in the IrpContext will indicate whether we removed the
+    //  backslash.
     //
 
-    VolumeDeviceObject = (PVOLUME_DEVICE_OBJECT)IrpSp->DeviceObject;
-    Mvcb = &VolumeDeviceObject->Mvcb;
+    Status = CdNormalizeFileNames( IrpContext,
+                                   Vcb,
+                                   OpenByFileId,
+                                   IgnoreCase,
+                                   RelatedTypeOfOpen,
+                                   RelatedCcb,
+                                   RelatedFileName,
+                                   FileName,
+                                   &RemainingName );
 
     //
-    //  Decipher Option flags and values
+    //  Return the error code if not successful.
     //
 
-    DirectoryFile           = BooleanFlagOn( Options, FILE_DIRECTORY_FILE );
-    NonDirectoryFile        = BooleanFlagOn( Options, FILE_NON_DIRECTORY_FILE );
-    SequentialOnly          = BooleanFlagOn( Options, FILE_SEQUENTIAL_ONLY );
-    NoIntermediateBuffering = BooleanFlagOn( Options, FILE_NO_INTERMEDIATE_BUFFERING );
-    OpenByFileId            = BooleanFlagOn( Options, FILE_OPEN_BY_FILE_ID );
+    if (!NT_SUCCESS( Status )) {
 
-    CreateDisposition = (Options >> 24) & 0x000000ff;
-
-    IsPagingFile = BooleanFlagOn( IrpSp->Flags, SL_OPEN_PAGING_FILE );
-    OpenTargetDirectory = BooleanFlagOn( IrpSp->Flags, SL_OPEN_TARGET_DIRECTORY );
-
-    CreateDirectory = (BOOLEAN)(DirectoryFile &&
-                                ((CreateDisposition == FILE_CREATE) ||
-                                 (CreateDisposition == FILE_OPEN_IF)));
-
-    OpenDirectory   = (BOOLEAN)(DirectoryFile &&
-                                ((CreateDisposition == FILE_OPEN) ||
-                                 (CreateDisposition == FILE_OPEN_IF)));
-
+        CdCompleteRequest( IrpContext, Irp, Status );
+        return Status;
+    }
 
     //
-    //  Short circuit known invalid opens.
+    //  We want to acquire the Vcb.  Exclusively for a volume open, shared otherwise.
+    //  The file name is empty for a volume open.
     //
 
-    Iosb.Status = STATUS_SUCCESS;
+    if ((FileName->Length == 0) &&
+        (RelatedTypeOfOpen <= UserVolumeOpen) &&
+        !OpenByFileId) {
 
-    if (IsPagingFile) {
-
-        DebugTrace(0, Dbg, "CdCommonCreate:  Paging file not allowed on CDROM\n", 0);
-        Iosb.Status = STATUS_ACCESS_DENIED;
-
-    } else if (OpenTargetDirectory) {
-
-        DebugTrace(0, Dbg, "CdCommonCreate:  Cannot open target directory for rename\n", 0);
-        Iosb.Status = STATUS_ACCESS_DENIED;
-
-    } else if (EaBuffer != NULL && EaLength != 0) {
-
-        DebugTrace(0, Dbg, "CdCommonCreate:  Eas not supported on CDROM\n", 0);
-        Iosb.Status = STATUS_ACCESS_DENIED;
-
-    } else if (OpenByFileId) {
-
-        //
-        //  Check for validity of the buffer.
-        //
-
-        if (FileNameU.Length != sizeof (LARGE_INTEGER)) {
-
-            DebugTrace(0, Dbg, "CdCommonCreate:  OpenByFileId with incorrect length\n", 0);
-            Iosb.Status = STATUS_INVALID_PARAMETER;
-
-        } else {
-
-            //
-            // Extract the FileId from the FileName buffer.
-            // We copy it byte by byte, since it may not be aligned...
-            //
-
-            CopyUchar4( &FileId, FileNameU.Buffer );
-            CopyUchar4( (RtlOffsetToPointer( &FileId, sizeof( FileId.LowPart ))),
-                        (RtlOffsetToPointer( FileNameU.Buffer, sizeof( FileId.LowPart ))));
-        }
-
-    //
-    //  If there is a name, we check for wild cards and upcase it.
-    //
-
-    } else if (FileNameU.Length != 0) {
-
-        if (FsRtlDoesNameContainWildCards( &FileNameU )) {
-
-            Iosb.Status = STATUS_OBJECT_NAME_INVALID;
-
-        } else {
-
-            WCHAR Buffer[32];
-
-            //
-            //  Avoid an ExAllocatePool, if we can.  We can't change the file
-            //  name in the FileObject in case we need to reparse.
-            //
-
-            if ( FileNameU.Length > 32 ) {
-
-                FileNameU.Buffer = FsRtlAllocatePool( PagedPool, FileNameU.Length );
-
-            } else {
-
-                FileNameU.Buffer = &Buffer[0];
-            }
-
-            (VOID)RtlUpcaseUnicodeString( &FileNameU, &FileObject->FileName, FALSE );
-
-            Iosb.Status = RtlUnicodeStringToCountedOemString( &FileName, &FileNameU, TRUE );
-
-            if (FileNameU.Buffer != &Buffer[0]) {
-
-                ExFreePool( FileNameU.Buffer );
-            }
-        }
+        VolumeOpen = TRUE;
+        CdAcquireVcbExclusive( IrpContext, Vcb, FALSE );
 
     } else {
 
-        FileName.Length = 0;
-        FileName.MaximumLength = 0;
-        FileName.Buffer = NULL;
+        CdAcquireVcbShared( IrpContext, Vcb, FALSE );
     }
-
-    if (!NT_SUCCESS( Iosb.Status )) {
-
-        CdCompleteRequest( IrpContext, Irp, Iosb.Status );
-
-        DebugTrace(-1, Dbg, "CdCommonCreate:  Exit  ->  %08lx\n", Iosb.Status);
-
-        return Iosb.Status;
-    }
-
-    //
-    //  Acquire exclusive access to the Mvcb, and enqueue the Irp if
-    //  we didn't get it.
-    //
-
-    if (!CdAcquireExclusiveMvcb( IrpContext, Mvcb )) {
-
-        DebugTrace(0, Dbg, "CdCommonCreate:  Cannot acquire Mvcb\n", 0);
-
-        Iosb.Status = CdFsdPostRequest( IrpContext, Irp );
-
-        RtlFreeOemString( &FileName );
-
-        DebugTrace(-1, Dbg, "CdCommonCreate:  Exit -> %08lx\n", Iosb.Status );
-        return Iosb.Status;
-    }
-
-    ReleaseMvcb = TRUE;
 
     //
     //  Use a try-finally to facilitate cleanup.
@@ -585,1662 +366,1944 @@ Return Value:
 
     try {
 
-        BOOLEAN MatchedVersion;
-
         //
-        //  Make sure the Mvcb is in a usable condition.  This will raise
-        //  and error condition if the volume is unusable
+        //  Verify that the Vcb is not in an unusable condition.  This routine
+        //  will raise if not usable.
         //
 
-        CdVerifyMvcb( IrpContext, Mvcb );
+        CdVerifyVcb( IrpContext, Vcb );
 
         //
-        //  If the Mvcb is locked then we cannot open another file
+        //  If the Vcb is locked then we cannot open another file
         //
 
-        if (FlagOn( Mvcb->MvcbState, MVCB_STATE_FLAG_LOCKED )) {
+        if (FlagOn( Vcb->VcbState, VCB_STATE_LOCKED )) {
 
-            DebugTrace(0, Dbg, "Volume is locked\n", 0);
-
-            try_return( Iosb.Status = STATUS_ACCESS_DENIED );
+            try_return( Status = STATUS_ACCESS_DENIED );
         }
 
         //
-        //  Check if we're opening by FileId rather then by FileName.
+        //  If we are opening this file by FileId then process this immediately
+        //  and exit.
         //
 
         if (OpenByFileId) {
 
             //
-            //  Fail this open if we have a raw disk.
+            //  We only allow Dasd opens of audio disks.  Fail this request at
+            //  this point.
             //
 
-            if (FlagOn( Mvcb->MvcbState, MVCB_STATE_FLAG_RAW_DISK )) {
+            if (FlagOn( Vcb->VcbState, VCB_STATE_RAW_DISK )) {
 
-                try_return( Iosb.Status = STATUS_INVALID_DEVICE_REQUEST );
+                try_return( Status = STATUS_INVALID_DEVICE_REQUEST );
             }
 
-            Vcb = CdGetVcb( IrpContext, Mvcb, CodePageNumber );
-
             //
-            // If we find the Fcb in the Fcb Table, just use it.
+            //  The only create disposition we allow is OPEN.
             //
 
-            Fcb = CdLookupFcbTable( IrpContext, &Vcb->FcbTable, FileId );
+            if ((CreateDisposition != FILE_OPEN) &&
+                (CreateDisposition != FILE_OPEN_IF)) {
 
-            if (Fcb != NULL) {
+                try_return( Status = STATUS_ACCESS_DENIED );
+            }
 
-                //
-                //  We can open an existing fcb/dcb, now we only need to case
-                //  on which type to open.
-                //
+            //
+            //  Make sure we can wait for this request.
+            //
 
-                if (NodeType(Fcb) == CDFS_NTC_DCB
-                    || NodeType(Fcb) == CDFS_NTC_ROOT_DCB) {
+            if (!FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_WAIT )) {
 
-                    //
-                    //  This is a directory we're opening up so check if
-                    //  we were not to open a directory
-                    //
+                CdRaiseStatus( IrpContext, STATUS_CANT_WAIT );
+            }
 
-                    if (NonDirectoryFile) {
-
-                        DebugTrace(0, Dbg, "CdCommonCreate:  Cannot open directory as a file\n", 0);
-
-                        try_return( Iosb.Status = STATUS_FILE_IS_A_DIRECTORY );
-                    }
-
-                    DebugTrace(0, Dbg, "CdCommonCreate:  Open existing dcb, Dcb = %08lx\n", Fcb);
-
-                    Iosb = CdOpenExistingDcb( IrpContext,
-                                              FileObject,
-                                              (PDCB) Fcb,
-                                              DesiredAccess,
-                                              ShareAccess,
-                                              CreateDisposition,
-                                              TRUE );
-
-                    Irp->IoStatus.Information = Iosb.Information;
-                    try_return( Iosb.Status );
-                }
-
-                //
-                //  Check if we're trying to open an existing Fcb and that
-                //  the user didn't want to open a directory.  Note that this
-                //  call might actually come back with status_pending because
-                //  the user wanted to supersede or overwrite the file and we
-                //  cannot block.  If it is pending then we do not complete the
-                //  request, and we fall through the bottom to the code that
-                //  dispatches the request to the fsp.
-                //
-
-                if (NodeType(Fcb) == CDFS_NTC_FCB) {
-
-                    //
-                    //  Check if we were only to open a directory
-                    //
-
-                    if (OpenDirectory) {
-
-                        DebugTrace(0, Dbg, "CdCommonCreate:  Cannot open file as directory\n", 0);
-
-                        try_return( Iosb.Status = STATUS_NOT_A_DIRECTORY );
-                    }
-
-                    DebugTrace(0, Dbg, "CdCommonCreate:  Open existing fcb, Fcb = %08lx\n", Fcb);
-
-                    Iosb = CdOpenExistingFcb( IrpContext,
-                                              FileObject,
-                                              Mvcb,
-                                              Fcb,
-                                              DesiredAccess,
-                                              ShareAccess,
-                                              CreateDisposition,
-                                              &NoIntermediateBuffering,
-                                              &OplockPostIrp,
-                                              TRUE );
-
-                } else {
-
-                    //
-                    //  Not an Fcb or a Dcb so we bug check
-                    //
-
-                    DebugTrace(0, Dbg, "CdCommonCreate:  Fcb table is corrupt\n", 0);
-                    CdBugCheck( NodeType(Fcb), 0, 0 );
-                }
-
-            } else {
-
-                PATH_ENTRY PathEntry;
-                ULONG DirectoryNumber;
-                CD_VBO DirentOffset;
-
-                //
-                //  1) If it is a directory FileId, then read the PathEntry and
-                //     the Dirent (using the DirectoryNumber and DirentOffset
-                //     in the FileId), and create a DCB for it.
-                //
-                //  2) If it is a file
-                //
-                //       a) look for the parent in the FcbTable.
-                //          if it is not found, then read the PathEntry and
-                //          the dirent (we don't have the dirent offset, so scan
-                //          for it), and create a DCB for it.
-                //
-                //       b) read the file dirent from the parent DCB and create
-                //          a FCB for it.
-                //
-                //
-
-                DirectoryNumber = CdFileIdDirectoryNumber( FileId );
-                DirentOffset = CdFileIdDirentOffset( FileId );
-
-                if (CdFileIdIsDirectory( FileId )) {
-
-                    //
-                    //  Make sure its okay to open a directory
-                    //
-
-                    if (NonDirectoryFile) {
-
-                        DebugTrace(0, Dbg, "CdCommonCreate:  Cannot open directory as a file\n", 0);
-
-                        try_return( Iosb.Status = STATUS_FILE_IS_A_DIRECTORY );
-                    }
-
-                    //
-                    // It is a directory, so first read the PathEntry.
-                    //
-                    // We start the search from the Root PathEntry.
-                    //
-
-                    if (!CdPathByNumber( IrpContext,
-                                         Vcb,
-                                         DirectoryNumber,
-                                         Vcb->RootDcb->Specific.Dcb.ChildStartDirNumber,
-                                         Vcb->RootDcb->Specific.Dcb.ChildSearchOffset,
-                                         &PathEntry,
-                                         &PathBcb)) {
-
-                        DebugTrace(0, Dbg, "CdCommonCreate:  Could not find Path with claimed Number\n", 0);
-
-                        try_return( Iosb.Status = STATUS_INVALID_PARAMETER);
-                    }
-
-                    //
-                    // Now create and open the DCB.
-                    //
-
-                    ParentDcb = CdCreateDcb( IrpContext,
-                                             Vcb,
-                                             NULL,
-                                             &PathEntry,
-                                             NULL,
-                                             NULL,
-                                             TRUE );
-
-                    Iosb = CdOpenExistingDcb( IrpContext,
-                                              FileObject,
-                                              ParentDcb,
-                                              DesiredAccess,
-                                              ShareAccess,
-                                              CreateDisposition,
-                                              TRUE );
-                } else {
-
-                    if (OpenDirectory) {
-
-                        DebugTrace(0, Dbg, "CdCommonCreate:  Cannot open file as directory\n", 0);
-
-                        try_return( Iosb.Status = STATUS_NOT_A_DIRECTORY );
-                    }
-
-                    //
-                    // Get a Parent Dcb, either from the FcbTable, or create
-                    // one ourselves.
-                    //
-
-                    ParentDcb = CdLookupFcbTable( IrpContext,
-                                                  &Vcb->FcbTable,
-                                                  CdFileIdParent( IrpContext, FileId ));
-
-                    if (ParentDcb == NULL) {
-
-                        if (!CdPathByNumber( IrpContext,
-                                             Vcb,
-                                             DirectoryNumber,
-                                             Vcb->RootDcb->Specific.Dcb.ChildStartDirNumber,
-                                             Vcb->RootDcb->Specific.Dcb.ChildSearchOffset,
-                                             &PathEntry,
-                                             &PathBcb)) {
-
-                            DebugTrace(0, Dbg, "CdCommonCreate:  Could not find Path with claimed Number\n", 0);
-
-                            try_return( Iosb.Status = STATUS_INVALID_PARAMETER );
-                        }
-
-                        ParentDcb = CdCreateDcb( IrpContext,
+            try_return( Status = CdOpenByFileId( IrpContext,
+                                                 IrpSp,
                                                  Vcb,
-                                                 NULL,
-                                                 &PathEntry,
-                                                 NULL,
-                                                 NULL,
-                                                 TRUE );
-                    }
+                                                 &CurrentFcb ));
+        }
 
-                    if (CdLocateOffsetDirent( IrpContext,
-                                              ParentDcb,
-                                              DirentOffset,
-                                              &Dirent,
-                                              &DirentBcb )) {
+        //
+        //  If we are opening this volume Dasd then process this immediately
+        //  and exit.
+        //
 
-                        if (FlagOn( Dirent.Flags, ISO_ATTR_DIRECTORY )) {
+        if (VolumeOpen) {
 
-                            //
-                            //  Somebody is confused.  The FileId claims this
-                            //  a file, but the user claimed it was a directory.
-                            //
+            //
+            //  The only create disposition we allow is OPEN.
+            //
 
-                            DebugTrace(0, Dbg, "CdCommonCreate:  Cannot open directory as a file\n", 0);
+            if ((CreateDisposition != FILE_OPEN) &&
+                (CreateDisposition != FILE_OPEN_IF)) {
 
-                            try_return( Iosb.Status = STATUS_FILE_IS_A_DIRECTORY );
-
-                            DebugTrace(0, Dbg, "CdCommonCreate:  Open existing directory\n", 0);
-                        }
-
-                        DebugTrace(0, Dbg, "CdCommonCreate:  Open existing file\n", 0);
-
-                        Iosb = CdOpenExistingFile( IrpContext,
-                                                   FileObject,
-                                                   ParentDcb,
-                                                   &Dirent,
-                                                   DesiredAccess,
-                                                   ShareAccess,
-                                                   CreateDisposition,
-                                                   FALSE,
-                                                   &NoIntermediateBuffering,
-                                                   TRUE );
-                    } else {
-
-                        DebugTrace(0, Dbg, "CdCommonCreate:  Could not find dirent at claimed offset\n", 0);
-
-                        try_return( Iosb.Status = STATUS_INVALID_PARAMETER);
-                    }
-
-                }
+                try_return( Status = STATUS_ACCESS_DENIED );
             }
 
-            if (Iosb.Status != STATUS_PENDING) {
+            //
+            //  Acquire the Fcb first.
+            //
+
+            CurrentFcb = Vcb->VolumeDasdFcb;
+            CdAcquireFcbExclusive( IrpContext, CurrentFcb, FALSE );
+
+            try_return( Status = CdOpenExistingFcb( IrpContext,
+                                                    IrpSp,
+                                                    &CurrentFcb,
+                                                    UserVolumeOpen,
+                                                    FALSE,
+                                                    NULL ));
+        }
+
+        //
+        //  We only allow Dasd opens of audio disks.  Fail this request at
+        //  this point.
+        //
+
+        if (FlagOn( Vcb->VcbState, VCB_STATE_RAW_DISK )) {
+
+            try_return( Status = STATUS_INVALID_DEVICE_REQUEST );
+        }
+
+        //
+        //  At this point CurrentFcb points to the deepest Fcb for this open
+        //  in the tree.  Let's acquire this Fcb to keep it from being deleted
+        //  beneath us.
+        //
+
+        CdAcquireFcbExclusive( IrpContext, NextFcb, FALSE );
+        CurrentFcb = NextFcb;
+
+        //
+        //  Do a prefix search if there is more of the name to parse.
+        //
+
+        if (RemainingName.FileName.Length != 0) {
+
+            //
+            //  Do the prefix search to find the longest matching name.
+            //
+
+            CdFindPrefix( IrpContext,
+                          &CurrentFcb,
+                          &RemainingName.FileName,
+                          IgnoreCase );
+        }
+
+        //
+        //  If the remaining name length is zero then we have found our
+        //  target.
+        //
+
+        if (RemainingName.FileName.Length == 0) {
+
+            //
+            //  If this is a file so verify the user didn't want to open
+            //  a directory.
+            //
+
+            if (SafeNodeType( CurrentFcb ) == CDFS_NTC_FCB_DATA) {
+
+                if (FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_TRAIL_BACKSLASH ) ||
+                    FlagOn( IrpSp->Parameters.Create.Options, FILE_DIRECTORY_FILE )) {
+
+                    try_return( Status = STATUS_NOT_A_DIRECTORY );
+                }
 
                 //
-                //  Check if we need to set the cache support flag in
-                //  the file object
+                //  The only create disposition we allow is OPEN.
                 //
 
-                if (NT_SUCCESS(Iosb.Status) && !NoIntermediateBuffering) {
+                if ((CreateDisposition != FILE_OPEN) &&
+                    (CreateDisposition != FILE_OPEN_IF)) {
 
-                    SetFlag( FileObject->Flags, FO_CACHE_SUPPORTED );
+                    try_return( Status = STATUS_ACCESS_DENIED );
                 }
 
-                Irp->IoStatus.Information = Iosb.Information;
-
-            } else {
-
-                DebugTrace(0, Dbg, "Enqueue Irp to FSP\n", 0);
-
-                PostIrp = TRUE;
-            }
-
-            try_return( Iosb.Status );
-        }
-
-        //
-        //  Check if we are opening the volume and not a file/directory.
-        //  We are opening the volume if the name is empty and their
-        //  isn't a related file object, or if there is a related file object
-        //  then it is the Mvcb itself.
-        //
-
-        if (FileName.Length == 0
-            && (RelatedFileObject == NULL
-                || NodeType( RelatedFileObject->FsContext ) == CDFS_NTC_MVCB)) {
+                try_return( Status = CdOpenExistingFcb( IrpContext,
+                                                        IrpSp,
+                                                        &CurrentFcb,
+                                                        UserFileOpen,
+                                                        IgnoreCase,
+                                                        RelatedCcb ));
 
             //
-            //  Check if we were to open a directory
+            //  This is a directory.  Verify the user didn't want to open
+            //  as a file.
             //
 
-            if (DirectoryFile) {
+            } else if (FlagOn( IrpSp->Parameters.Create.Options, FILE_NON_DIRECTORY_FILE )) {
 
-                DebugTrace(0, Dbg, "CdCommonCreate:  Cannot open volume as a directory\n", 0);
-
-                try_return( Iosb.Status = STATUS_NOT_A_DIRECTORY );
-            }
-
-            DebugTrace(0, Dbg, "CdCommonCreate:  Opening the volume, Mvcb = %08lx\n", Mvcb);
-
-            Iosb = CdOpenVolume( IrpContext,
-                                 FileObject,
-                                 Mvcb,
-                                 DesiredAccess,
-                                 ShareAccess,
-                                 CreateDisposition );
-
-            Irp->IoStatus.Information = Iosb.Information;
-            try_return( Iosb.Status );
-        }
-
-        //
-        //  If this is a raw disk we will fail the open at this point.
-        //
-
-        if (FlagOn( Mvcb->MvcbState, MVCB_STATE_FLAG_RAW_DISK )) {
-
-            try_return( Iosb.Status = STATUS_INVALID_DEVICE_REQUEST );
-        }
-
-        Vcb = CdGetVcb( IrpContext, Mvcb, CodePageNumber );
-
-        //
-        //  Check if we're opening the root dcb
-        //
-
-        if (FileName.Length == 1 && FileName.Buffer[0] == '\\') {
+                try_return( Status = STATUS_FILE_IS_A_DIRECTORY );
 
             //
-            //  Check if we were not suppose to open a directory
+            //  Open the file as a directory.
             //
-
-            if (NonDirectoryFile) {
-
-                DebugTrace(0, Dbg, "CdCommonCreate:  Cannot open root directory as a file\n", 0);
-
-                try_return( Iosb.Status = STATUS_FILE_IS_A_DIRECTORY );
-            }
-
-            DebugTrace(0, Dbg, "CdCommonRead:  Opening root dcb\n", 0);
-
-            Iosb = CdOpenExistingDcb( IrpContext,
-                                      FileObject,
-                                      Vcb->RootDcb,
-                                      DesiredAccess,
-                                      ShareAccess,
-                                      CreateDisposition,
-                                      FALSE );
-
-            Irp->IoStatus.Information = Iosb.Information;
-            try_return( Iosb.Status );
-        }
-
-        //
-        //  If there is a related file object then this is a relative open.
-        //  The related file object is the directory to start our search at.
-        //  Return an error if it is not a directory.  Both the then and the
-        //  else clause set Fcb to point to the last Fcb/Dcb that already
-        //  exists in memory given the input file name.
-        //
-
-        if (RelatedFileObject != NULL) {
-
-            PMVCB TempMvcb;
-            PVCB TempVcb;
-            PCCB TempCcb;
-            PDCB Dcb;
-
-            if (CdDecodeFileObject( RelatedFileObject,
-                                    &TempMvcb,
-                                    &TempVcb,
-                                    &Dcb,
-                                    &TempCcb ) != UserDirectoryOpen) {
-
-                DebugTrace(0, Dbg, "CdCommonCreate:  Invalid related file object\n", 0);
-
-                try_return( Iosb.Status = STATUS_OBJECT_PATH_NOT_FOUND );
-            }
-
-            if (FlagOn( TempCcb->Flags, CCB_FLAGS_OPEN_BY_ID )) {
-
-               //
-               // If the related file object was opened by a FileId,
-               // then the DCB may not have a full parent chain, and thus
-               // the closest we *know* we can get is the related object.
-
-               Fcb = Dcb;
-               RemainingPart = FileName;
-               OpenByFileId = TRUE;
 
             } else {
 
                 //
-                //  Set up the file object's Vpb pointer in case anything happens.
+                //  The only create disposition we allow is OPEN.
                 //
 
-                FileObject->Vpb = RelatedFileObject->Vpb;
+                if ((CreateDisposition != FILE_OPEN) &&
+                    (CreateDisposition != FILE_OPEN_IF)) {
 
-                //
-                //  Check some special cases
-                //
-
-                if ( FileName.Length == 0 ) {
-
-                    Fcb = Dcb;
-                    RemainingPart.Length = 0;
-
-                } else if ( (FileName.Length == 1) && (FileName.Buffer[0] == '\\')) {
-
-                    try_return( Iosb.Status = STATUS_OBJECT_NAME_INVALID );
-
-                } else {
-
-                    Fcb = CdFindRelativePrefix( IrpContext, Dcb, &FileName, &RemainingPart );
+                    try_return( Status = STATUS_ACCESS_DENIED );
                 }
+
+                try_return( Status = CdOpenExistingFcb( IrpContext,
+                                                        IrpSp,
+                                                        &CurrentFcb,
+                                                        UserDirectoryOpen,
+                                                        IgnoreCase,
+                                                        RelatedCcb ));
             }
-
-        } else {
-
-            Fcb = CdFindPrefix( IrpContext, Vcb, &FileName, &RemainingPart );
         }
 
         //
-        //  Now that we've found the longest matching prefix we'll
-        //  check if there isn't any remaining part because that means
-        //  we've located an existing fcb/dcb to open and we can do the open
-        //  without going to the disk
+        //  We have more work to do.  We have a starting Fcb which we own shared.
+        //  We also have the remaining name to parse.  Walk through the name
+        //  component by component looking for the full name.
         //
 
-        if (RemainingPart.Length == 0) {
+        //
+        //  Our starting Fcb better be a directory.
+        //
 
-            //
-            //  We can open an existing fcb/dcb, now we only need to case
-            //  on which type to open.
-            //
+        if (!FlagOn( CurrentFcb->FileAttributes, FILE_ATTRIBUTE_DIRECTORY )) {
 
-            if (NodeType(Fcb) == CDFS_NTC_DCB
-                || NodeType(Fcb) == CDFS_NTC_ROOT_DCB) {
-
-                //
-                //  This is a directory we're opening up so check if
-                //  we were not to open a directory
-                //
-
-                if (NonDirectoryFile) {
-
-                    DebugTrace(0, Dbg, "CdCommonCreate:  Cannot open directory as a file\n", 0);
-
-                    try_return( Iosb.Status = STATUS_FILE_IS_A_DIRECTORY );
-                }
-
-                DebugTrace(0, Dbg, "CdCommonCreate:  Open existing dcb, Dcb = %08lx\n", Fcb);
-
-                Iosb = CdOpenExistingDcb( IrpContext,
-                                          FileObject,
-                                          (PDCB) Fcb,
-                                          DesiredAccess,
-                                          ShareAccess,
-                                          CreateDisposition,
-                                          OpenByFileId );
-
-                Irp->IoStatus.Information = Iosb.Information;
-                try_return( Iosb.Status );
-            }
-
-            //
-            //  Check if we're trying to open an existing Fcb and that
-            //  the user didn't want to open a directory.  Note that this
-            //  call might actually come back with status_pending because
-            //  the user wanted to supersede or overwrite the file and we
-            //  cannot block.  If it is pending then we do not complete the
-            //  request, and we fall through the bottom to the code that
-            //  dispatches the request to the fsp.
-            //
-
-            if (NodeType(Fcb) == CDFS_NTC_FCB) {
-
-                //
-                //  Check if we were only to open a directory
-                //
-
-                if (OpenDirectory) {
-
-                    DebugTrace(0, Dbg, "CdCommonCreate:  Cannot open file as directory\n", 0);
-
-                    try_return( Iosb.Status = STATUS_NOT_A_DIRECTORY );
-                }
-
-                DebugTrace(0, Dbg, "CdCommonCreate:  Open existing fcb, Fcb = %08lx\n", Fcb);
-
-                Iosb = CdOpenExistingFcb( IrpContext,
-                                          FileObject,
-                                          Mvcb,
-                                          Fcb,
-                                          DesiredAccess,
-                                          ShareAccess,
-                                          CreateDisposition,
-                                          &NoIntermediateBuffering,
-                                          &OplockPostIrp,
-                                          OpenByFileId );
-
-                if (Iosb.Status != STATUS_PENDING) {
-
-                    //
-                    //  Check if we need to set the cache support flag in
-                    //  the file object
-                    //
-
-                    if (NT_SUCCESS(Iosb.Status) && !NoIntermediateBuffering) {
-
-                        SetFlag( FileObject->Flags, FO_CACHE_SUPPORTED );
-                    }
-
-                    Irp->IoStatus.Information = Iosb.Information;
-
-                } else {
-
-                    DebugTrace(0, Dbg, "Enqueue Irp to FSP\n", 0);
-
-                    PostIrp = TRUE;
-                }
-
-                try_return( Iosb.Status );
-            }
-
-            //
-            //  Not and Fcb or a Dcb so we bug check
-            //
-
-            DebugTrace(0, Dbg, "CdCommonRead:  Prefix table is corrupt\n", 0);
-            CdBugCheck( NodeType(Fcb), 0, 0 );
+            try_return( Status = STATUS_OBJECT_PATH_NOT_FOUND );
         }
 
         //
-        //  There is more in the name to parse than we have in existing
-        //  fcbs/dcbs.  So now make sure that fcb we got for the largest
-        //  matching prefix is really a dcb otherwise we can't go any
-        //  further
+        //  If we can't wait then post this request.
         //
 
-        if (NodeType(Fcb) != CDFS_NTC_DCB
-            && NodeType(Fcb) != CDFS_NTC_ROOT_DCB) {
+        if (!FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_WAIT )) {
 
-            DebugTrace(0, Dbg, "CdCommonCreate:  Cannot open file as subdirectory, Fcb = %08lx\n", Fcb);
-
-            try_return( Iosb.Status = STATUS_OBJECT_PATH_NOT_FOUND );
+            CdRaiseStatus( IrpContext, STATUS_CANT_WAIT );
         }
 
         //
-        //  This request is more than we want to handle if we cannot
-        //  wait.  So if we cannot block then we'll send the request
-        //  off to the FSP for processing.  Which will actually call this
-        //  routine again from the Fsp but with Wait then set to TRUE.
-        //
-        //  Note, that we actually can continue on here even if Wait is
-        //  FALSE by delaying sending the request to the FSP until we need to
-        //  do any actual disk I/O (because the data isn't in the cache).
-        //  But the current plan of just sending it to the Fsp w/o going
-        //  further seems more efficient given that most requests will need
-        //  to do some actual I/O.
+        //  Make sure the final name has no version string.
         //
 
-        if (!IrpContext->Wait) {
-
-            DebugTrace(0, Dbg, "CdCommonCreate: Enqueue Irp to Fsp\n", 0);
-
-            PostIrp = TRUE;
-
-            try_return( Iosb.Status );
-        }
-
-        //
-        //  Otherwise we continue on processing the Irp and allowing ourselves
-        //  to block for I/O as necessary.  Find/create additional dcb's for
-        //  the one we're trying to open.  We loop until either remaining part
-        //  is empty or we get a bad filename.  When we exit FinalName is
-        //  the last name in the string we're after, and ParentDcb is the
-        //  parent directory that will contain the opened/created
-        //  file/directory.
-        //
-
-        ParentDcb = Fcb;
+        FinalName.VersionString.Length = 0;
 
         while (TRUE) {
 
-            //
-            //  Dissect the remaining part.
-            //
+            ShortNameMatch = FALSE;
 
-            DebugTrace(0, Dbg, "CdCommonCreate:  Dissecting the name %Z\n", &RemainingPart);
+            //
+            //  Split off the next component from the name.
+            //
 
             CdDissectName( IrpContext,
-                           Vcb->CodePage,
-                           RemainingPart,
-                           &FinalName,
-                           &RemainingPart );
-
-            DebugTrace(0, Dbg, "CdCommonCreate:  FinalName is %Z\n", &FinalName);
-            DebugTrace(0, Dbg, "CdCommonCreate:  RemainingPart is %Z\n", &RemainingPart);
+                           &RemainingName.FileName,
+                           &FinalName.FileName );
 
             //
-            //  If the remaining part is now empty then this is the last name
-            //  in the string and the one we want to open
+            //  Go ahead and look this entry up in the path table.
             //
 
-            if (RemainingPart.Length == 0) { break; }
+            CdInitializeCompoundPathEntry( IrpContext, &CompoundPathEntry );
+            CleanupCompoundPathEntry = TRUE;
+
+            FoundEntry = CdFindPathEntry( IrpContext,
+                                          CurrentFcb,
+                                          &FinalName,
+                                          IgnoreCase,
+                                          &CompoundPathEntry );
 
             //
-            //  Otherwise open the specified subdirectory, but make sure that
-            //  the name is valid before trying to open the subdirectory.
+            //  If we didn't find the entry then check if the current name
+            //  is a possible short name.
             //
 
-            if (!CdIsNameValid( IrpContext, Vcb->CodePage, FinalName, FALSE )) {
+            if (!FoundEntry) {
 
-                DebugTrace(0, Dbg, "Final name is not valid\n", 0);
-
-                try_return( Iosb.Status = STATUS_OBJECT_NAME_INVALID );
-            }
-
-            Iosb = CdOpenSubdirectory( IrpContext,
-                                       ParentDcb,
-                                       &FinalName,
-                                       &ParentDcb,
-                                       OpenByFileId );
-
-            if (!NT_SUCCESS(Iosb.Status)) {
-
-                DebugTrace(0, Dbg, "CdOpenSubdirectory:  Error opening subdirectory\n", 0);
-
-                Irp->IoStatus.Information = Iosb.Information;
-                try_return( Iosb.Status );
-            }
-        }
-
-        //
-        //  At this point ParentDcb points to the parent dcb and FinalName
-        //  denotes the file name.  Before we continue we need to make sure
-        //  that the file name is valid.
-        //
-
-        if (!CdIsNameValid( IrpContext, Vcb->CodePage, FinalName, FALSE )) {
-
-            DebugTrace(0, Dbg, "CdCommonCreate:  Final name is not valid\n", 0);
-
-            try_return( Iosb.Status = STATUS_OBJECT_NAME_INVALID );
-        }
-
-        //
-        //  We'll start by trying to locate the file dirent for the name.
-        //  Note that we already know that there isn't an Fcb/Dcb for the
-        //  file otherwise we would have found it when we did our prefix
-        //  lookup.
-        //
-
-        if (CdLocateFileDirent( IrpContext,
-                                ParentDcb,
-                                &FinalName,
-                                FALSE,
-                                ParentDcb->DirentOffset,
-                                TRUE,
-                                &MatchedVersion,
-                                &Dirent,
-                                &DirentBcb )) {
-
-            //
-            //  We were able to locate an existing dirent entry, so now
-            //  see if it is a directory that we're trying to open.
-            //
-
-            if (FlagOn( Dirent.Flags, ISO_ATTR_DIRECTORY )) {
+                ShortNameDirentOffset = CdShortNameDirentOffset( IrpContext, &FinalName.FileName );
 
                 //
-                //  Make sure its okay to open a directory
+                //  If there is an embedded short name offset then look for the
+                //  matching long name in the directory.
                 //
 
-                if (NonDirectoryFile) {
+                if (ShortNameDirentOffset != MAXULONG) {
 
-                    DebugTrace(0, Dbg, "CdCommonCreate:  Cannot open directory as a file\n", 0);
+                    if (CleanupFileContext) {
 
-                    try_return( Iosb.Status = STATUS_FILE_IS_A_DIRECTORY );
+                        CdCleanupFileContext( IrpContext, &FileContext );
+                    }
+
+                    CdInitializeFileContext( IrpContext, &FileContext );
+                    CleanupFileContext = TRUE;
+
+                    FoundEntry = CdFindFileByShortName( IrpContext,
+                                                        CurrentFcb,
+                                                        &FinalName,
+                                                        IgnoreCase,
+                                                        ShortNameDirentOffset,
+                                                        &FileContext );
+
+                    //
+                    //  If we found an entry and it is a directory then look
+                    //  this up in the path table.
+                    //
+
+                    if (FoundEntry) {
+
+                        ShortNameMatch = TRUE;
+
+                        if (FlagOn( FileContext.InitialDirent->Dirent.DirentFlags,
+                                    CD_ATTRIBUTE_DIRECTORY )) {
+
+                            CdCleanupCompoundPathEntry( IrpContext, &CompoundPathEntry );
+                            CdInitializeCompoundPathEntry( IrpContext, &CompoundPathEntry );
+
+                            FoundEntry = CdFindPathEntry( IrpContext,
+                                                          CurrentFcb,
+                                                          &FileContext.InitialDirent->Dirent.CdCaseFileName,
+                                                          IgnoreCase,
+                                                          &CompoundPathEntry );
+
+                            //
+                            //  We better find this entry.
+                            //
+
+                            if (!FoundEntry) {
+
+                                CdRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR );
+                            }
+
+                            //
+                            //  Upcase the name with the short name if case
+                            //  insensitive.
+                            //
+
+                            if (IgnoreCase) {
+
+                                CdUpcaseName( IrpContext, &FinalName, &FinalName );
+                            }
+
+                        //
+                        //  We found a matching file.  If we are at the last
+                        //  entry then break out of the loop and open the
+                        //  file below.  Otherwise we return an error.
+                        //
+
+                        } else if (RemainingName.FileName.Length == 0) {
+
+                            //
+                            //  Break out of the loop.  We will process the dirent
+                            //  below.
+                            //
+
+                            MatchingName = &FileContext.ShortName;
+                            break;
+
+                        } else {
+
+                            try_return( Status = STATUS_OBJECT_PATH_NOT_FOUND );
+                        }
+                    }
                 }
 
-                DebugTrace(0, Dbg, "CdCommonCreate:  Open existing directory\n", 0);
+                //
+                //  We didn't find the name in either the path table or as
+                //  a short name in a directory.  If the remaining name
+                //  length is zero then break out of the loop to search
+                //  the directory.
+                //
 
-                Iosb = CdOpenExistingDirectory( IrpContext,
-                                                FileObject,
-                                                ParentDcb,
-                                                &Dirent,
-                                                DesiredAccess,
-                                                ShareAccess,
-                                                CreateDisposition,
-                                                MatchedVersion,
-                                                OpenByFileId );
+                if (!FoundEntry) {
 
-                Irp->IoStatus.Information = Iosb.Information;
-                try_return( Iosb.Status );
+                    if (RemainingName.FileName.Length == 0) {
+
+                        break;
+
+                    //
+                    //  Otherwise this path could not be cracked.
+                    //
+
+                    } else {
+
+                        try_return( Status = STATUS_OBJECT_PATH_NOT_FOUND );
+                    }
+                }
             }
 
             //
-            //  Otherwise we're trying to open and existing file, and we
-            //  need to check if the user only wanted to open a directory.
+            //  If this is an ignore case open then copy the exact case
+            //  in the file object name.  If it was a short name match then
+            //  the name must be upcase already.
             //
 
-            if (OpenDirectory) {
+            if (IgnoreCase && !ShortNameMatch) {
 
-                DebugTrace(0, Dbg, "CdCommonCreate:  Cannot open file as directory\n", 0);
-
-                try_return( Iosb.Status = STATUS_NOT_A_DIRECTORY );
+                RtlCopyMemory( FinalName.FileName.Buffer,
+                               CompoundPathEntry.PathEntry.CdDirName.FileName.Buffer,
+                               CompoundPathEntry.PathEntry.CdDirName.FileName.Length );
             }
 
-            DebugTrace(0, Dbg, "CdCommonCreate:  Open existing file\n", 0);
-
-            Iosb = CdOpenExistingFile( IrpContext,
-                                       FileObject,
-                                       ParentDcb,
-                                       &Dirent,
-                                       DesiredAccess,
-                                       ShareAccess,
-                                       CreateDisposition,
-                                       MatchedVersion,
-                                       &NoIntermediateBuffering,
-                                       OpenByFileId );
-
             //
-            //  Check if we need to set the cache support flag in
-            //  the file object
+            //  If we have found the last component then open this as a directory
+            //  and return to our caller.
             //
 
-            if (NT_SUCCESS( Iosb.Status ) && !NoIntermediateBuffering) {
+            if (RemainingName.FileName.Length == 0) {
 
-                SetFlag( FileObject->Flags, FO_CACHE_SUPPORTED );
+                if (FlagOn( IrpSp->Parameters.Create.Options, FILE_NON_DIRECTORY_FILE )) {
+
+                    try_return( Status = STATUS_FILE_IS_A_DIRECTORY );
+                }
+
+                //
+                //  The only create disposition we allow is OPEN.
+                //
+
+                if ((CreateDisposition != FILE_OPEN) &&
+                    (CreateDisposition != FILE_OPEN_IF)) {
+
+                    try_return( Status = STATUS_ACCESS_DENIED );
+                }
+
+                try_return( Status = CdOpenDirectoryFromPathEntry( IrpContext,
+                                                                   IrpSp,
+                                                                   Vcb,
+                                                                   &CurrentFcb,
+                                                                   &FinalName,
+                                                                   IgnoreCase,
+                                                                   ShortNameMatch,
+                                                                   &CompoundPathEntry.PathEntry,
+                                                                   TRUE,
+                                                                   RelatedCcb ));
             }
 
-            Irp->IoStatus.Information = Iosb.Information;
-            try_return( Iosb.Status );
+            //
+            //  Otherwise open an Fcb for this intermediate index Fcb.
+            //
+
+            CdOpenDirectoryFromPathEntry( IrpContext,
+                                          IrpSp,
+                                          Vcb,
+                                          &CurrentFcb,
+                                          &FinalName,
+                                          IgnoreCase,
+                                          ShortNameMatch,
+                                          &CompoundPathEntry.PathEntry,
+                                          FALSE,
+                                          NULL );
+
+            CdCleanupCompoundPathEntry( IrpContext, &CompoundPathEntry );
+            CleanupCompoundPathEntry = FALSE;
         }
 
         //
-        //  If we tried to open or overwrite a file, we return that
-        //  the object path wasn't found.
+        //  We need to scan the current directory for a matching file name
+        //  if we don't already have one.
         //
 
-        if (CreateDisposition == FILE_OPEN
-            || CreateDisposition == FILE_OVERWRITE) {
+        if (!FoundEntry) {
 
-            try_return( Iosb.Status = STATUS_OBJECT_NAME_NOT_FOUND );
+            if (CleanupFileContext) {
+
+                CdCleanupFileContext( IrpContext, &FileContext );
+            }
+
+            CdInitializeFileContext( IrpContext, &FileContext );
+            CleanupFileContext = TRUE;
+
+            //
+            //  Split our search name into separate components.
+            //
+
+            CdConvertNameToCdName( IrpContext, &FinalName );
+
+            FoundEntry = CdFindFile( IrpContext,
+                                     CurrentFcb,
+                                     &FinalName,
+                                     IgnoreCase,
+                                     &FileContext,
+                                     &MatchingName );
         }
 
         //
-        //  Any other operation return STATUS_ACCESS_DENIED.
+        //  If we didn't find a match then check if the name is invalid to
+        //  determine which error code to return.
         //
 
-        DebugTrace(0, Dbg, "CdCommonCreate:  Attempting to open new non-existant file\n", 0);
+        if (!FoundEntry) {
 
-        try_return( Iosb.Status = STATUS_ACCESS_DENIED );
+            if ((CreateDisposition == FILE_OPEN) ||
+                (CreateDisposition == FILE_OVERWRITE)) {
 
-    try_exit: NOTHING;
+                try_return( Status = STATUS_OBJECT_NAME_NOT_FOUND );
+            }
+
+            //
+            //  Any other operation return STATUS_ACCESS_DENIED.
+            //
+
+            try_return( Status = STATUS_ACCESS_DENIED );
+        }
+
+        //
+        //  If this is a directory then the disk is corrupt because it wasn't
+        //  in the Path Table.
+        //
+
+        if (FlagOn( FileContext.InitialDirent->Dirent.Flags, CD_ATTRIBUTE_DIRECTORY )) {
+
+            CdRaiseStatus( IrpContext, STATUS_DISK_CORRUPT_ERROR );
+        }
+
+        //
+        //  Make sure our opener didn't want a directory.
+        //
+
+        if (FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_TRAIL_BACKSLASH ) ||
+            FlagOn( IrpSp->Parameters.Create.Options, FILE_DIRECTORY_FILE )) {
+
+            try_return( Status = STATUS_NOT_A_DIRECTORY );
+        }
+
+        //
+        //  The only create disposition we allow is OPEN.
+        //
+
+        if ((CreateDisposition != FILE_OPEN) &&
+            (CreateDisposition != FILE_OPEN_IF)) {
+
+            try_return( Status = STATUS_ACCESS_DENIED );
+        }
+
+        //
+        //  If this is an ignore case open then copy the exact case
+        //  in the file object name.  Any version portion should
+        //  already be upcased.
+        //
+
+        if (IgnoreCase) {
+
+            RtlCopyMemory( FinalName.FileName.Buffer,
+                           MatchingName->FileName.Buffer,
+                           MatchingName->FileName.Length );
+        }
+
+        //
+        //  Open the file using the file context.  We already have the
+        //  first and last dirents.
+        //
+
+        try_return( Status = CdOpenFileFromFileContext( IrpContext,
+                                                        IrpSp,
+                                                        Vcb,
+                                                        &CurrentFcb,
+                                                        &FinalName,
+                                                        IgnoreCase,
+                                                        (BOOLEAN) (MatchingName == &FileContext.ShortName),
+                                                        &FileContext,
+                                                        RelatedCcb ));
+
+    try_exit:  NOTHING;
     } finally {
 
         //
-        //  Unpin the dirent if pinned.
+        //  Cleanup the PathEntry if initialized.
         //
 
-        if (DirentBcb != NULL) {
+        if (CleanupCompoundPathEntry) {
 
-            CdUnpinBcb( IrpContext, DirentBcb );
+            CdCleanupCompoundPathEntry( IrpContext, &CompoundPathEntry );
         }
 
         //
-        //  Unpin the Path if pinned.
+        //  Cleanup the FileContext if initialized.
         //
 
-        if (PathBcb != NULL) {
+        if (CleanupFileContext) {
 
-            CdUnpinBcb( IrpContext, PathBcb );
+            CdCleanupFileContext( IrpContext, &FileContext );
         }
 
         //
-        //  If the parent dcb is not NULL, and can be otherwise discarded,
-        //  we uninitialize and dereference it.
+        //  The result of this open could be success, pending or some error
+        //  condition.
         //
 
-        if (ParentDcb != NULL) {
+        if (AbnormalTermination()) {
 
-            CdCleanupTreeLeaf( IrpContext, ParentDcb );
-        }
 
-        //
-        //  Free the Mvcb
-        //
+            //
+            //  In the error path we start by calling our teardown routine if we
+            //  have a CurrentFcb.
+            //
 
-        if (ReleaseMvcb) {
+            if (CurrentFcb != NULL) {
 
-            CdReleaseMvcb( IrpContext, Mvcb );
-        }
+                BOOLEAN RemovedFcb;
 
-        RtlFreeOemString( &FileName );
+                CdTeardownStructures( IrpContext, CurrentFcb, &RemovedFcb );
 
-        if (!AbnormalTermination()) {
+                if (RemovedFcb) {
 
-            if (PostIrp) {
-
-                if (!OplockPostIrp) {
-
-                    Iosb.Status = CdFsdPostRequest( IrpContext, Irp );
+                    CurrentFcb = NULL;
                 }
+            }
+
+            //
+            //  No need to complete the request.
+            //
+
+            IrpContext = NULL;
+            Irp = NULL;
+
+        //
+        //  If we posted this request through the oplock package we need
+        //  to show that there is no reason to complete the request.
+        //
+
+        } else if (Status == STATUS_PENDING) {
+
+            IrpContext = NULL;
+            Irp = NULL;
+        }
+
+        //
+        //  Release the Current Fcb if still acquired.
+        //
+
+        if (CurrentFcb != NULL) {
+
+            CdReleaseFcb( IrpContext, CurrentFcb );
+        }
+
+        //
+        //  Release the Vcb.
+        //
+
+        CdReleaseVcb( IrpContext, Vcb );
+
+        //
+        //  Call our completion routine.  It will handle the case where either
+        //  the Irp and/or IrpContext are gone.
+        //
+
+        CdCompleteRequest( IrpContext, Irp, Status );
+    }
+
+    return Status;
+}
+
+
+//
+//  Local support routine
+//
+
+NTSTATUS
+CdNormalizeFileNames (
+    IN PIRP_CONTEXT IrpContext,
+    IN PVCB Vcb,
+    IN BOOLEAN OpenByFileId,
+    IN BOOLEAN IgnoreCase,
+    IN TYPE_OF_OPEN RelatedTypeOfOpen,
+    IN PCCB RelatedCcb OPTIONAL,
+    IN PUNICODE_STRING RelatedFileName OPTIONAL,
+    IN OUT PUNICODE_STRING FileName,
+    IN OUT PCD_NAME RemainingName
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called to store the full name and upcased name into the
+    filename buffer.  We only upcase the portion yet to parse.  We also
+    check for a trailing backslash and lead-in double backslashes.  This
+    routine also verifies the mode of the related open against the name
+    currently in the filename.
+
+Arguments:
+
+    Vcb - Vcb for this volume.
+
+    OpenByFileId - Indicates if the filename should be a 64 bit FileId.
+
+    IgnoreCase - Indicates if this open is a case-insensitive operation.
+
+    RelatedTypeOfOpen - Indicates the type of the related file object.
+
+    RelatedCcb - Ccb for the related open.  Ignored if no relative open.
+
+    RelatedFileName - FileName buffer for related open.  Ignored if no
+        relative open.
+
+    FileName - FileName to update in this routine.  The name should
+        either be a 64-bit FileId or a Unicode string.
+
+    RemainingName - Name with the remaining portion of the name.  This
+        will begin after the related name and any separator.  For a
+        non-relative open we also step over the initial separator.
+
+Return Value:
+
+    NTSTATUS - STATUS_SUCCESS if the names are OK, appropriate error code
+        otherwise.
+
+--*/
+
+{
+    ULONG RemainingNameLength;
+    ULONG RelatedNameLength = 0;
+    ULONG SeparatorLength = 0;
+
+    ULONG BufferLength;
+
+    UNICODE_STRING NewFileName;
+
+    PAGED_CODE();
+
+    //
+    //  If this is the first pass then we need to build the full name and
+    //  check for name compatibility.
+    //
+
+    if (!FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_FULL_NAME )) {
+
+        //
+        //  Deal with the regular file name case first.
+        //
+
+        if (!OpenByFileId) {
+
+            //
+            //  Here is the  "M A R K   L U C O V S K Y"  hack from hell.
+            //
+            //  It's here because Mark says he can't avoid sending me double beginning
+            //  backslashes via the Win32 layer.
+            //
+
+            if ((FileName->Length > sizeof( WCHAR )) &&
+                (FileName->Buffer[1] == L'\\') &&
+                (FileName->Buffer[0] == L'\\')) {
+
+                //
+                //  If there are still two beginning backslashes, the name is bogus.
+                //
+
+                if ((FileName->Length > 2 * sizeof( WCHAR )) &&
+                    (FileName->Buffer[2] == L'\\')) {
+
+                    return STATUS_OBJECT_NAME_INVALID;
+                }
+
+                //
+                //  Slide the name down in the buffer.
+                //
+
+                RtlMoveMemory( FileName->Buffer,
+                               FileName->Buffer + 1,
+                               FileName->Length );
+
+                FileName->Length -= sizeof( WCHAR );
+            }
+
+            //
+            //  Check for a trailing backslash.  Don't strip off if only character
+            //  in the full name or for relative opens where this is illegal.
+            //
+
+            if (((FileName->Length > sizeof( WCHAR)) ||
+                 ((FileName->Length == sizeof( WCHAR )) && (RelatedTypeOfOpen == UserDirectoryOpen))) &&
+                (FileName->Buffer[ (FileName->Length/2) - 1 ] == L'\\')) {
+
+                SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_TRAIL_BACKSLASH );
+                FileName->Length -= sizeof( WCHAR );
+            }
+
+            //
+            //  Remember the length we need for this portion of the name.
+            //
+
+            RemainingNameLength = FileName->Length;
+
+            //
+            //  If this is a related file object then we verify the compatibility
+            //  of the name in the file object with the relative file object.
+            //
+
+            if (RelatedTypeOfOpen != UnopenedFileObject) {
+
+                //
+                //  If the filename length was zero then it must be legal.
+                //  If there are characters then check with the related
+                //  type of open.
+                //
+
+                if (FileName->Length != 0) {
+
+                    //
+                    //  The name length must always be zero for a volume open.
+                    //
+
+                    if (RelatedTypeOfOpen <= UserVolumeOpen) {
+
+                        return STATUS_INVALID_PARAMETER;
+
+                    //
+                    //  The remaining name cannot begin with a backslash.
+                    //
+
+                    } else if (FileName->Buffer[0] == L'\\' ) {
+
+                        return STATUS_INVALID_PARAMETER;
+
+                    //
+                    //  If the related file is a user file then there
+                    //  is no file with this path.
+                    //
+
+                    } else if (RelatedTypeOfOpen == UserFileOpen) {
+
+                        return STATUS_OBJECT_PATH_NOT_FOUND;
+                    }
+                }
+
+                //
+                //  Remember the length of the related name when building
+                //  the full name.  We leave the RelatedNameLength and
+                //  SeparatorLength at zero if the relative file is opened
+                //  by Id.
+                //
+
+                if (!FlagOn( RelatedCcb->Flags, CCB_FLAG_OPEN_BY_ID )) {
+
+                    //
+                    //  Add a separator if the name length is non-zero
+                    //  unless the relative Fcb is at the root.
+                    //
+
+                    if ((FileName->Length != 0) &&
+                        (RelatedCcb->Fcb != Vcb->RootIndexFcb)) {
+
+                        SeparatorLength = sizeof( WCHAR );
+                    }
+
+                    RelatedNameLength = RelatedFileName->Length;
+                }
+
+            //
+            //  The full name is already in the filename.  It must either
+            //  be length 0 or begin with a backslash.
+            //
+
+            } else if (FileName->Length != 0) {
+
+                if (FileName->Buffer[0] != L'\\') {
+
+                    return STATUS_INVALID_PARAMETER;
+                }
+
+                //
+                //  We will want to trim the leading backslash from the
+                //  remaining name we return.
+                //
+
+                RemainingNameLength -= sizeof( WCHAR );
+                SeparatorLength = sizeof( WCHAR );
+            }
+
+            //
+            //  Now see if the buffer is large enough to hold the full name.
+            //
+
+            BufferLength = RelatedNameLength + SeparatorLength + RemainingNameLength;
+
+            //
+            //  Now see if we need to allocate a new buffer.
+            //
+
+            if (FileName->MaximumLength < BufferLength) {
+
+                NewFileName.Buffer = FsRtlAllocatePoolWithTag( CdPagedPool,
+                                                               BufferLength,
+                                                               TAG_FILE_NAME );
+
+                NewFileName.MaximumLength = (USHORT) BufferLength;
 
             } else {
 
-                CdCompleteRequest( IrpContext, Irp, Iosb.Status );
+                NewFileName.Buffer = FileName->Buffer;
+                NewFileName.MaximumLength = FileName->MaximumLength;
+            }
+
+            //
+            //  If there is a related name then we need to slide the remaining bytes up and
+            //  insert the related name.  Otherwise the name is in the correct position
+            //  already.
+            //
+
+            if (RelatedNameLength != 0) {
+
+                //
+                //  Store the remaining name in its correct position.
+                //
+
+                if (RemainingNameLength != 0) {
+
+                    RtlMoveMemory( Add2Ptr( NewFileName.Buffer, RelatedNameLength + SeparatorLength, PVOID ),
+                                   FileName->Buffer,
+                                   RemainingNameLength );
+                }
+
+                RtlCopyMemory( NewFileName.Buffer,
+                               RelatedFileName->Buffer,
+                               RelatedNameLength );
+
+                //
+                //  Add the separator if needed.
+                //
+
+                if (SeparatorLength != 0) {
+
+                    *(Add2Ptr( NewFileName.Buffer, RelatedNameLength, PWCHAR )) = L'\\';
+                }
+
+                //
+                //  Update the filename value we got from the user.
+                //
+
+                if (NewFileName.Buffer != FileName->Buffer) {
+
+                    if (FileName->Buffer != NULL) {
+
+                        ExFreePool( FileName->Buffer );
+                    }
+
+                    FileName->Buffer = NewFileName.Buffer;
+                    FileName->MaximumLength = NewFileName.MaximumLength;
+                }
+
+                //
+                //  Copy the name length to the user's filename.
+                //
+
+                FileName->Length = (USHORT) (RelatedNameLength + SeparatorLength + RemainingNameLength);
+            }
+
+            //
+            //  Now update the remaining name to parse.
+            //
+
+            RemainingName->FileName.MaximumLength =
+            RemainingName->FileName.Length = (USHORT) RemainingNameLength;
+            RemainingName->VersionString.Length = 0;
+
+            RemainingName->FileName.Buffer = Add2Ptr( FileName->Buffer,
+                                                      RelatedNameLength + SeparatorLength,
+                                                      PWCHAR );
+
+            //
+            //  Upcase the name if necessary.
+            //
+
+            if (IgnoreCase && (RemainingNameLength != 0)) {
+
+                CdUpcaseName( IrpContext,
+                              RemainingName,
+                              RemainingName );
+            }
+
+            //
+            //  Do a quick check to make sure there are no wildcards.
+            //
+
+            if (FsRtlDoesNameContainWildCards( &RemainingName->FileName )) {
+
+                return STATUS_OBJECT_NAME_INVALID;
+            }
+
+        //
+        //  For the open by file Id case we verify the name really contains
+        //  a 64 bit value.
+        //
+
+        } else {
+
+            //
+            //  Check for validity of the buffer.
+            //
+
+            if (FileName->Length != sizeof( FILE_ID )) {
+
+                return STATUS_INVALID_PARAMETER;
             }
         }
 
-        DebugTrace(-1, Dbg, "CdCommonCreate:  Exit  ->  %08lx\n", Iosb.Status);
-    }
-
-    return Iosb.Status;
-}
-
-
-//
-//  Internal support routine
-//
-
-PVCB
-CdGetVcb (
-    IN PIRP_CONTEXT IrpContext,
-    IN PMVCB Mvcb,
-    IN USHORT CodePageNumber
-    )
-
-/*++
-
-Routine Description:
-
-    This routine is called to walk through the Vcb's for a particular
-    Mvcb.  It returns a pointer to the Vcb associated with 'CodePageNumber'.
-    If there is no code page associated with that code page number
-    then the Primary Vcb is returned.
-
-Arguments:
-
-    Mvcb - Supplies the MVCB for the volume.
-
-    CodePageNumber - Code page number for the desired Vcb.
-
-Return Value:
-
-    PVCB - Either the correct Vcb is returned if found.  Otherwise the
-           first Vcb in the chain is returned.  This operation can't
-           fail.
-
---*/
-
-{
-    PVCB Vcb;
-    BOOLEAN VcbFound;
-    PLIST_ENTRY Link;
-
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "CdGetVcb:  Entered\n", 0);
+        SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_FULL_NAME );
 
     //
-    //  Initialize the found boolean.
+    //  If we are in the retry path then the full name is already in the
+    //  file object name.  If this is a case-sensitive operation then
+    //  we need to upcase the name from the end of any related file name already stored
+    //  there.
     //
 
-    VcbFound = FALSE;
+    } else {
 
-    //
-    //  Walk through the VcbLinks looking for a match.
-    //
+        //
+        //  Assume there is no relative name.
+        //
 
-    for (Link = Mvcb->VcbLinks.Flink;
-         Link != &Mvcb->VcbLinks;
-         Link = Link->Flink) {
+        RemainingName->FileName = *FileName;
+        RemainingName->VersionString.Length = 0;
 
-        Vcb = CONTAINING_RECORD( Link, VCB, VcbLinks );
+        //
+        //  Nothing to do if the name length is zero.
+        //
 
-        if (Vcb->CodePageNumber == CodePageNumber) {
+        if (RemainingName->FileName.Length != 0) {
 
-            VcbFound = TRUE;
-            break;
+            //
+            //  If there is a relative name then we need to walk past it.
+            //
+
+            if (RelatedTypeOfOpen != UnopenedFileObject) {
+
+                //
+                //  Nothing to walk past if the RelatedCcb is opened by FileId.
+                //
+
+
+                if (!FlagOn( RelatedCcb->Flags, CCB_FLAG_OPEN_BY_ID )) {
+
+                    //
+                    //  Related file name is a proper prefix of the full name.
+                    //  We step over the related name and if we are then
+                    //  pointing at a separator character we step over that.
+                    //
+
+                    RemainingName->FileName.Buffer = Add2Ptr( RemainingName->FileName.Buffer,
+                                                              RelatedFileName->Length,
+                                                              PWCHAR );
+
+                    RemainingName->FileName.Length -= RelatedFileName->Length;
+                }
+            }
+
+            //
+            //  If we are pointing at a separator character then step past that.
+            //
+
+            if (RemainingName->FileName.Length != 0) {
+
+                if (*(RemainingName->FileName.Buffer) == L'\\') {
+
+                    RemainingName->FileName.Buffer = Add2Ptr( RemainingName->FileName.Buffer,
+                                                              sizeof( WCHAR ),
+                                                              PWCHAR );
+
+                    RemainingName->FileName.Length -= sizeof( WCHAR );
+                }
+            }
+        }
+
+        //
+        //  Upcase the name if necessary.
+        //
+
+        if (IgnoreCase && (RemainingName->FileName.Length != 0)) {
+
+            CdUpcaseName( IrpContext,
+                          RemainingName,
+                          RemainingName );
         }
     }
 
-    //
-    //  If a match wasn't found, then return the first Vcb.
-    //
-
-    if (!VcbFound) {
-
-        DebugTrace(0, Dbg, "CdGetVcb:  Using default codepage\n", 0);
-        Vcb = CONTAINING_RECORD( Mvcb->VcbLinks.Flink, VCB, VcbLinks );
-    }
-
-    DebugTrace(-1, Dbg, "CdGetVcb:  Exit\n", 0);
-
-    return Vcb;
-
-    UNREFERENCED_PARAMETER( IrpContext );
+    return STATUS_SUCCESS;
 }
 
 
 //
-//  Internal support routine
+//  Local support routine
 //
 
-IO_STATUS_BLOCK
-CdOpenVolume (
+NTSTATUS
+CdOpenByFileId (
     IN PIRP_CONTEXT IrpContext,
-    IN PFILE_OBJECT FileObject,
-    IN PMVCB Mvcb,
-    IN ACCESS_MASK DesiredAccess,
-    IN USHORT ShareAccess,
-    IN ULONG CreateDisposition
+    IN PIO_STACK_LOCATION IrpSp,
+    IN PVCB Vcb,
+    IN OUT PFCB *CurrentFcb
     )
 
 /*++
 
 Routine Description:
 
-    This routine opens the specified volume for DASD access
+    This routine is called to open a file by the FileId.  The file Id is in
+    the FileObject name buffer and has been verified to be 64 bits.
+
+    We extract the Id number and then check to see whether we are opening a
+    file or directory and compare that with the create options.  If this
+    generates no error then optimistically look up the Fcb in the Fcb Table.
+
+    If we don't find the Fcb then we need to carefully verify there is a file
+    at this offset.  First check whether the Parent Fcb is in the table.  If
+    not then lookup the parent at the path table offset given by file ID.
+
+    If found then build the Fcb from this entry and store the new Fcb in the
+    tree.
+
+    We know have the parent Fcb.  Do a directory scan to find the dirent at
+    the given offset in this stream.  This must point to the first entry
+    of a valid file.
+
+    Finally we call our worker routine to complete the open on this Fcb.
 
 Arguments:
 
-    FileObject - Supplies the File object
+    IrpSp - Stack location within the create Irp.
 
-    Mvcb - Supplies the Mvcb denoting the volume being opened
+    Vcb - Vcb for this volume.
 
-    DesiredAccess - Supplies the desired access of the caller
-
-    ShareAccess - Supplies the share access of the caller
-
-    CreateDisposition - Supplies the create disposition for this operation
+    CurrentFcb - Address to store the Fcb for this open.  We only store the
+        CurrentFcb here when we have acquired it so our caller knows to
+        free or deallocate it.
 
 Return Value:
 
-    IO_STATUS_BLOCK - Returns the completion status for the operation
+    NTSTATUS - Status indicating the result of the operation.
 
 --*/
 
 {
-    IO_STATUS_BLOCK Iosb;
+    NTSTATUS Status = STATUS_ACCESS_DENIED;
+
+    BOOLEAN UnlockVcb = FALSE;
+    BOOLEAN Found;
+
+    ULONG StreamOffset;
+
+    NODE_TYPE_CODE NodeTypeCode;
     TYPE_OF_OPEN TypeOfOpen;
 
-    //
-    //  The following variables are for abnormal termination
-    //
+    FILE_ENUM_CONTEXT FileContext;
+    BOOLEAN CleanupFileContext = FALSE;
 
-    BOOLEAN UnwindShareAccess = FALSE;
-    PCCB UnwindCcb = NULL;
-    BOOLEAN UnwindCounts = FALSE;
-    BOOLEAN UnwindVolumeLock = FALSE;
+    COMPOUND_PATH_ENTRY CompoundPathEntry;
+    BOOLEAN CleanupCompoundPathEntry = FALSE;
+
+    FILE_ID FileId;
+    FILE_ID ParentFileId;
+
+    PFCB NextFcb;
 
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "CdOpenVolume:  Entered\n", 0 );
+    //
+    //  Extract the FileId from the FileObject.
+    //
+
+    RtlCopyMemory( &FileId, IrpSp->FileObject->FileName.Buffer, sizeof( FILE_ID ));
+
+    //
+    //  Use a try-finally to facilitate cleanup.
+    //
 
     try {
 
         //
-        //  Check for proper desired access and rights
+        //  Go ahead and figure out the TypeOfOpen and NodeType.  We can
+        //  get these from the input FileId.
         //
 
-        if (CreateDisposition != FILE_OPEN
-            && CreateDisposition != FILE_OPEN_IF ) {
+        if (CdFidIsDirectory( FileId )) {
 
-            try_return( Iosb.Status = STATUS_ACCESS_DENIED );
-        }
-
-        //
-        //  Check the desired access.  We won't allow any open
-        //  that could modify the disk.
-        //
-
-        if (CdIsFcbAccessLegal( IrpContext, DesiredAccess )) {
-
-            try_return( Iosb.Status = STATUS_ACCESS_DENIED );
-        }
-
-        //
-        //  If the user does not want to share anything then we will try and
-        //  take out a lock on the volume.  We check if the volume is already
-        //  in use, and if it is then we deny the open
-        //
-
-        if (!FlagOn( ShareAccess, FILE_SHARE_READ ) &&
-            !FlagOn( ShareAccess, FILE_SHARE_WRITE ) &&
-            !FlagOn( ShareAccess, FILE_SHARE_DELETE )) {
-
-            if (Mvcb->OpenFileCount != 0) {
-
-                Iosb.Status = STATUS_ACCESS_DENIED;
-                try_return( Iosb );
-            }
+            TypeOfOpen = UserDirectoryOpen;
+            NodeTypeCode = CDFS_NTC_FCB_INDEX;
 
             //
-            //  Lock the volume
+            //  If the offset isn't zero then the file Id is bad.
             //
 
-            SetFlag( Mvcb->MvcbState, MVCB_STATE_FLAG_LOCKED );
-            Mvcb->FileObjectWithMvcbLocked = FileObject;
-            UnwindVolumeLock = TRUE;
-        }
+            if (CdQueryFidDirentOffset( FileId ) != 0) {
 
-        //
-        //  If the volume is already opened by someone then we need to check
-        //  the share access
-        //
-
-        if (Mvcb->DirectAccessOpenCount > 0) {
-
-            if ( !NT_SUCCESS( Iosb.Status
-                                = IoCheckShareAccess( DesiredAccess,
-                                                      ShareAccess,
-                                                      FileObject,
-                                                      &Mvcb->ShareAccess,
-                                                      TRUE ))) {
-
-                try_return( Iosb );
+                try_return( Status = STATUS_INVALID_PARAMETER );
             }
 
         } else {
 
-            IoSetShareAccess( DesiredAccess,
-                              ShareAccess,
-                              FileObject,
-                              &Mvcb->ShareAccess );
+            TypeOfOpen = UserFileOpen;
+            NodeTypeCode = CDFS_NTC_FCB_DATA;
         }
 
-        UnwindShareAccess = TRUE;
+        //
+        //  Acquire the Vcb and check if there is already an Fcb.
+        //  If not we will need to carefully verify the Fcb.
+        //  We will post the request if we don't find the Fcb and this
+        //  request can't wait.
+        //
+
+        CdLockVcb( IrpContext, Vcb );
+        UnlockVcb = TRUE;
+
+        NextFcb = CdLookupFcbTable( IrpContext, Vcb, FileId );
+
+        if (NextFcb == NULL) {
+
+            //
+            //  Get the path table offset from the file id.
+            //
+
+            StreamOffset = CdQueryFidPathTableOffset( FileId );
+
+            //
+            //  Build the parent FileId for this and try looking it
+            //  up in the PathTable.
+            //
+
+            CdSetFidDirentOffset( ParentFileId, 0 );
+            CdSetFidPathTableOffset( ParentFileId, StreamOffset );
+            CdFidSetDirectory( ParentFileId );
+
+            NextFcb = CdLookupFcbTable( IrpContext, Vcb, ParentFileId );
+
+            //
+            //  If not present then walk through the PathTable to this point.
+            //
+
+            if (NextFcb == NULL) {
+
+                CdUnlockVcb( IrpContext, Vcb );
+                UnlockVcb = FALSE;
+
+                //
+                //  Check that the path table offset lies within the path
+                //  table.
+                //
+
+                if (StreamOffset > Vcb->PathTableFcb->FileSize.LowPart) {
+
+                    try_return( Status = STATUS_INVALID_PARAMETER );
+                }
+
+                CdInitializeCompoundPathEntry( IrpContext, &CompoundPathEntry );
+                CleanupCompoundPathEntry = TRUE;
+
+                //
+                //  Start at the first entry in the PathTable.
+                //
+
+                CdLookupPathEntry( IrpContext,
+                                   Vcb->PathTableFcb->StreamOffset,
+                                   1,
+                                   TRUE,
+                                   &CompoundPathEntry );
+
+                //
+                //  Continue looking until we have passed our target offset.
+                //
+
+                while (TRUE) {
+
+                    //
+                    //  Move to the next entry.
+                    //
+
+                    Found = CdLookupNextPathEntry( IrpContext,
+                                                   &CompoundPathEntry.PathContext,
+                                                   &CompoundPathEntry.PathEntry );
+
+                    //
+                    //  If we didn't find the entry or are beyond it then the
+                    //  input Id is invalid.
+                    //
+
+                    if (!Found ||
+                        (CompoundPathEntry.PathEntry.PathTableOffset > StreamOffset)) {
+
+                        try_return( Status = STATUS_INVALID_PARAMETER );
+                    }
+                }
+
+                //
+                //  If the FileId specified a directory then we have found
+                //  the entry.  Make sure our caller wanted to open a directory.
+                //
+
+                if ((TypeOfOpen == UserDirectoryOpen) &&
+                    FlagOn( IrpSp->Parameters.Create.Options, FILE_NON_DIRECTORY_FILE )) {
+
+                    try_return( Status = STATUS_FILE_IS_A_DIRECTORY );
+                }
+
+                //
+                //  Lock the Vcb and create the Fcb if necessary.
+                //
+
+                CdLockVcb( IrpContext, Vcb );
+                UnlockVcb = TRUE;
+
+                NextFcb = CdCreateFcb( IrpContext, ParentFileId, NodeTypeCode, &Found );
+
+                //
+                //  It's possible that someone got in here ahead of us.
+                //
+
+                if (!Found) {
+
+                    CdInitializeFcbFromPathEntry( IrpContext,
+                                                  NextFcb,
+                                                  NULL,
+                                                  &CompoundPathEntry.PathEntry );
+                }
+
+                //
+                //  If the user wanted to open a directory then we have found
+                //  it.  Store this Fcb into the CurrentFcb and skip the
+                //  directory scan.
+                //
+
+                if (TypeOfOpen == UserDirectoryOpen) {
+
+                    *CurrentFcb = NextFcb;
+                    NextFcb = NULL;
+                }
+            }
+
+            //
+            //  Perform the directory scan if we don't already have our target.
+            //
+
+            if (NextFcb != NULL) {
+
+                //
+                //  Acquire the parent.  We currently own the Vcb lock so
+                //  do this without waiting first.
+                //
+
+                if (!CdAcquireFcbExclusive( IrpContext,
+                                            NextFcb,
+                                            TRUE )) {
+
+                    NextFcb->FcbReference += 1;
+                    CdUnlockVcb( IrpContext, Vcb );
+
+                    CdAcquireFcbExclusive( IrpContext, NextFcb, FALSE );
+
+                    CdLockVcb( IrpContext, Vcb );
+                    NextFcb->FcbReference -= 1;
+                    CdUnlockVcb( IrpContext, Vcb );
+
+                } else {
+
+                    CdUnlockVcb( IrpContext, Vcb );
+                }
+
+                UnlockVcb = FALSE;
+
+                //
+                //  Set up the CurrentFcb pointers.  We know there was
+                //  no previous parent in this case.
+                //
+
+                *CurrentFcb = NextFcb;
+
+                //
+                //  Calculate the offset in the stream.
+                //
+
+                StreamOffset = CdQueryFidDirentOffset( FileId );
+
+                //
+                //  Create the stream file if it doesn't exist.  This will update
+                //  the Fcb with the size from the self entry.
+                //
+
+                if (NextFcb->FileObject == NULL) {
+
+                    CdCreateInternalStream( IrpContext, Vcb, NextFcb );
+                }
+
+                //
+                //  If our offset is beyond the end of the directory then the
+                //  FileId is invalid.
+                //
+
+                if (StreamOffset > NextFcb->FileSize.LowPart) {
+
+                    try_return( Status = STATUS_INVALID_PARAMETER );
+                }
+
+                //
+                //  Otherwise position ourselves at the self entry and walk
+                //  through dirent by dirent until this location is found.
+                //
+
+                CdInitializeFileContext( IrpContext, &FileContext );
+                CdLookupInitialFileDirent( IrpContext,
+                                           NextFcb,
+                                           &FileContext,
+                                           NextFcb->StreamOffset );
+
+                CleanupFileContext = TRUE;
+
+                while (TRUE) {
+
+                    //
+                    //  Move to the first entry of the next file.
+                    //
+
+                    Found = CdLookupNextInitialFileDirent( IrpContext,
+                                                           NextFcb,
+                                                           &FileContext );
+
+                    //
+                    //  If we didn't find the entry or are beyond it then the
+                    //  input Id is invalid.
+                    //
+
+                    if (!Found ||
+                        (FileContext.InitialDirent->Dirent.DirentOffset > StreamOffset)) {
+
+                        try_return( Status = STATUS_INVALID_PARAMETER );
+                    }
+                }
+
+                //
+                //  This better not be a directory.  Directory FileIds must
+                //  refer to the self entry for directories.
+                //
+
+                if (FlagOn( FileContext.InitialDirent->Dirent.DirentFlags,
+                            CD_ATTRIBUTE_DIRECTORY )) {
+
+                    try_return( Status = STATUS_INVALID_PARAMETER );
+                }
+
+                //
+                //  Check that our caller wanted to open a file.
+                //
+
+                if (FlagOn( IrpSp->Parameters.Create.Options, FILE_DIRECTORY_FILE )) {
+
+                    try_return( Status = STATUS_NOT_A_DIRECTORY );
+                }
+
+                //
+                //  Otherwise we want to collect all of the dirents for this file
+                //  and create an Fcb with this.
+                //
+
+                CdLookupLastFileDirent( IrpContext, NextFcb, &FileContext );
+
+                CdLockVcb( IrpContext, Vcb );
+                UnlockVcb = TRUE;
+
+                NextFcb = CdCreateFcb( IrpContext, FileId, NodeTypeCode, &Found );
+
+                //
+                //  It's possible that someone has since created this Fcb since we
+                //  first checked.  If so then can simply use this.  Otherwise
+                //  we need to initialize a new Fcb and attach it to our parent
+                //  and insert it into the Fcb Table.
+                //
+
+                if (!Found) {
+
+                    CdInitializeFcbFromFileContext( IrpContext,
+                                                    NextFcb,
+                                                    *CurrentFcb,
+                                                    &FileContext );
+                }
+            }
 
         //
-        //  Setup the context and section object pointers, and update
-        //  our reference counts
+        //  We have the Fcb.  Check that the type of the file is compatible with
+        //  the desired type of file to open.
         //
-
-        if (FlagOn( Mvcb->MvcbState, MVCB_STATE_FLAG_RAW_DISK )) {
-
-            TypeOfOpen = RawDiskOpen;
 
         } else {
 
-            TypeOfOpen = UserVolumeOpen;
+            if (FlagOn( NextFcb->FileAttributes, FILE_ATTRIBUTE_DIRECTORY )) {
+
+                if (FlagOn( IrpSp->Parameters.Create.Options, FILE_NON_DIRECTORY_FILE )) {
+
+                    try_return( Status = STATUS_FILE_IS_A_DIRECTORY );
+                }
+
+            } else if (FlagOn( IrpSp->Parameters.Create.Options, FILE_DIRECTORY_FILE )) {
+
+                try_return( Status = STATUS_NOT_A_DIRECTORY );
+            }
         }
 
-        CdSetFileObject( FileObject,
-                         TypeOfOpen,
-                         Mvcb,
-                         UnwindCcb = CdCreateCcb( IrpContext, 0, 0 ));
-
-        SetFlag( FileObject->Flags, FO_NO_INTERMEDIATE_BUFFERING );
-        Mvcb->DirectAccessOpenCount += 1;
-        Mvcb->OpenFileCount += 1;
-        UnwindCounts = TRUE;
-
         //
-        //  And set our status to success
+        //  If we have a the previous Fcb and have inserted the next Fcb into
+        //  the Fcb Table.  It is safe to release the current Fcb if present
+        //  since it is referenced through the child Fcb.
         //
 
-        Iosb.Status = STATUS_SUCCESS;
-        Iosb.Information = FILE_OPENED;
+        if (*CurrentFcb != NULL) {
 
-    try_exit: NOTHING;
+            CdReleaseFcb( IrpContext, *CurrentFcb );
+        }
+
+        //
+        //  We now know the Fcb and currently hold the Vcb lock.
+        //  Try to acquire this Fcb without waiting.  Otherwise we
+        //  need to reference it, drop the Vcb, acquire the Fcb and
+        //  then dereference the Fcb.
+        //
+
+        if (!CdAcquireFcbExclusive( IrpContext, NextFcb, TRUE )) {
+
+            NextFcb->FcbReference += 1;
+
+            CdUnlockVcb( IrpContext, Vcb );
+
+            CdAcquireFcbExclusive( IrpContext, NextFcb, FALSE );
+
+            CdLockVcb( IrpContext, Vcb );
+            NextFcb->FcbReference -= 1;
+            CdUnlockVcb( IrpContext, Vcb );
+
+        } else {
+
+            CdUnlockVcb( IrpContext, Vcb );
+        }
+
+        UnlockVcb = FALSE;
+
+        //
+        //  Move to this Fcb.
+        //
+
+        *CurrentFcb = NextFcb;
+
+        //
+        //  Check the requested access on this Fcb.
+        //
+
+        if (!CdIllegalFcbAccess( IrpContext,
+                                 TypeOfOpen,
+                                 IrpSp->Parameters.Create.SecurityContext->DesiredAccess )) {
+
+            //
+            //  Call our worker routine to complete the open.
+            //
+
+            Status = CdCompleteFcbOpen( IrpContext,
+                                        IrpSp,
+                                        Vcb,
+                                        CurrentFcb,
+                                        TypeOfOpen,
+                                        CCB_FLAG_OPEN_BY_ID,
+                                        IrpSp->Parameters.Create.SecurityContext->DesiredAccess );
+        }
+
+    try_exit:  NOTHING;
     } finally {
 
-        //
-        //  If this is an abnormal termination then undo our work
-        //
+        if (UnlockVcb) {
 
-        if (AbnormalTermination()) {
-
-            if (UnwindCounts) {
-
-                Mvcb->DirectAccessOpenCount -= 1;
-                Mvcb->OpenFileCount -= 1;
-            }
-
-            if (UnwindCcb != NULL) {
-
-                CdDeleteCcb( IrpContext, UnwindCcb );
-            }
-
-            if (UnwindShareAccess) {
-
-                IoRemoveShareAccess( FileObject, &Mvcb->ShareAccess );
-            }
-
-            if (UnwindVolumeLock) {
-
-                ClearFlag( Mvcb->MvcbState, MVCB_STATE_FLAG_LOCKED );
-                Mvcb->FileObjectWithMvcbLocked = NULL; }
+            CdUnlockVcb( IrpContext, Vcb );
         }
 
-        DebugTrace(-1, Dbg, "CdOpenVolume:  Exit -> Iosb.Status = %08lx\n", Iosb.Status);
+        if (CleanupFileContext) {
+
+            CdCleanupFileContext( IrpContext, &FileContext );
+        }
+
+        if (CleanupCompoundPathEntry) {
+
+            CdCleanupCompoundPathEntry( IrpContext, &CompoundPathEntry );
+        }
     }
 
-    return Iosb;
+    return Status;
 }
 
 
 //
-//  Internal support routine
+//  Local support routine
 //
 
-IO_STATUS_BLOCK
-CdOpenExistingDcb (
-    IN PIRP_CONTEXT IrpContext,
-    IN PFILE_OBJECT FileObject,
-    IN PDCB Dcb,
-    IN ACCESS_MASK DesiredAccess,
-    IN USHORT ShareAccess,
-    IN ULONG CreateDisposition,
-    IN BOOLEAN OpenedByFileId
-    )
-
-/*++
-
-Routine Description:
-
-    This routine opens the specified existing dcb
-
-Arguments:
-
-    FileObject - Supplies the File object
-
-    Dcb - Supplies the already existing dcb
-
-    DesiredAccess - Supplies the desired access of the caller
-
-    ShareAccess - Supplies the share access of the caller
-
-    CreateDisposition - Supplies the create disposition for this operation
-
-    OpenedByFileId - Remember this dcb was opened based on a FileId.
-
-Return Value:
-
-    IO_STATUS_BLOCK - Returns the completion status for the operation
-
---*/
-
-{
-    IO_STATUS_BLOCK Iosb;
-
-    //
-    //  The following variables are for abnormal termination
-    //
-
-    BOOLEAN UnwindShareAccess = FALSE;
-
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "CdOpenExistingDcb:  Entered\n", 0);
-    DebugTrace( 0, Dbg, "CdOpenExistingDcb:  Filename -> %Z\n", &Dcb->FullFileName);
-
-    try {
-
-        //
-        //  Check the create disposition and desired access
-        //
-
-        if (CreateDisposition != FILE_OPEN
-            && CreateDisposition != FILE_OPEN_IF) {
-
-            Iosb.Status = STATUS_ACCESS_DENIED;
-            try_return( Iosb );
-        }
-
-        //
-        //  Check the desired access.  We won't allow any open
-        //  that could modify the disk.
-        //
-
-        if (CdIsDcbAccessLegal( IrpContext, DesiredAccess )) {
-
-            try_return( Iosb.Status = STATUS_ACCESS_DENIED );
-        }
-
-        //
-        //  If the Dcb is already opened by someone then we need
-        //  to check the share access
-        //
-
-        if (Dcb->OpenCount > 0) {
-
-            if (!NT_SUCCESS(Iosb.Status = IoCheckShareAccess( DesiredAccess,
-                                                              ShareAccess,
-                                                              FileObject,
-                                                              &Dcb->ShareAccess,
-                                                              TRUE ))) {
-
-                try_return( Iosb.Status );
-            }
-
-        } else {
-
-            IoSetShareAccess( DesiredAccess,
-                              ShareAccess,
-                              FileObject,
-                              &Dcb->ShareAccess );
-        }
-
-        UnwindShareAccess = TRUE;
-
-        //
-        //  Make sure we have a stream file.
-        //
-
-        CdOpenStreamFile( IrpContext, Dcb );
-
-        //
-        //  Setup the context and section object pointers, and update
-        //  our reference counts
-        //
-
-        CdSetFileObject( FileObject,
-                         UserDirectoryOpen,
-                         Dcb,
-                         CdCreateCcb( IrpContext,
-                                      Dcb->DirentOffset,
-                                      (OpenedByFileId
-                                       ? CCB_FLAGS_OPEN_BY_ID
-                                       : 0) ));
-
-        Dcb->UncleanCount += 1;
-        Dcb->OpenCount += 1;
-        Dcb->Vcb->Mvcb->OpenFileCount += 1;
-
-        //
-        //  And set our status to success
-        //
-
-        Iosb.Status = STATUS_SUCCESS;
-        Iosb.Information = FILE_OPENED;
-
-    try_exit: NOTHING;
-    } finally {
-
-        //
-        //  If this is an abnormal termination then undo our work
-        //
-
-        if (AbnormalTermination()) {
-
-            DebugTrace(0, Dbg, "CdOpenExistingDcb:  Abnormal termination\n", 0);
-
-            if (UnwindShareAccess) {
-
-                IoRemoveShareAccess( FileObject, &Dcb->ShareAccess );
-            }
-        }
-
-        DebugTrace( 0, Dbg, "CdOpenExistingDcb:  Open Count    -> %08lx\n", Dcb->OpenCount);
-        DebugTrace( 0, Dbg, "CdOpenExistingDcb:  Unclean Count -> %08lx\n", Dcb->UncleanCount);
-        DebugTrace(-1, Dbg, "CdOpenExistingDcb:  Exit -> Iosb.Status = %08lx\n", Iosb.Status);
-    }
-
-    return Iosb;
-}
-
-//
-//  Internal support routine
-//
-
-IO_STATUS_BLOCK
+NTSTATUS
 CdOpenExistingFcb (
     IN PIRP_CONTEXT IrpContext,
-    IN PFILE_OBJECT FileObject,
-    IN PMVCB Mvcb OPTIONAL,
-    IN PFCB Fcb,
-    IN ACCESS_MASK DesiredAccess,
-    IN USHORT ShareAccess,
-    IN ULONG CreateDisposition,
-    IN OUT PBOOLEAN NoIntermediateBuffering,
-    OUT PBOOLEAN OplockPostIrp,
-    IN BOOLEAN OpenedByFileId
+    IN PIO_STACK_LOCATION IrpSp,
+    IN OUT PFCB *CurrentFcb,
+    IN TYPE_OF_OPEN TypeOfOpen,
+    IN BOOLEAN IgnoreCase,
+    IN PCCB RelatedCcb OPTIONAL
     )
 
 /*++
 
 Routine Description:
 
-    This routine opens the specified existing fcb
+    This routine is called to open an Fcb which is already in the Fcb table.
+    We will verify the access to the file and then call our worker routine
+    to perform the final operations.
 
 Arguments:
 
-    FileObject - Supplies the File object
+    IrpSp - Pointer to the stack location for this open.
 
-    Mvcb - Supplies the already existing mvcb
+    CurrentFcb - Address of Fcb to open.  We will clear this if the Fcb
+        is released here.
 
-    Fcb - Supplies the already existing fcb
+    TypeOfOpen - Indicates whether we are opening a file, directory or volume.
 
-    DesiredAccess - Supplies the desired access of the caller
+    IgnoreCase - Indicates if this open is case-insensitive.
 
-    ShareAccess - Supplies the share access of the caller
-
-    CreateDisposition - Supplies the create disposition for this operation
-
-    NoIntermediateBuffering - Pointer to boolean indicating if the user
-                              desires non-cached access to file.  We
-                              modify this if the file does not lie on
-                              a sector boundary.
-
-    OplockPostIrp - Address to store boolean indicating if the Irp needs to
-                    be posted to the Fsp.
-
-    OpenedByFileId - Remember this file was opened based on a FileId.
+    RelatedCcb - Ccb for related file object if relative open.  We use
+        this when setting the Ccb flags for this open.  It will tell
+        us whether the name currently in the file object is relative or
+        absolute.
 
 Return Value:
 
-    IO_STATUS_BLOCK - Returns the completion status for the operation
+    NTSTATUS - Status indicating the result of the operation.
 
 --*/
 
 {
-    IO_STATUS_BLOCK Iosb;
+    ULONG CcbFlags = 0;
 
-    //
-    //  The following variables are for abnormal termination
-    //
-
-    BOOLEAN UnwindShareAccess = FALSE;
-    PCCB UnwindCcb = NULL;
+    NTSTATUS Status = STATUS_ACCESS_DENIED;
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "CdOpenExistingFcb:  Entered\n", 0);
-    DebugTrace( 0, Dbg, "CdOpenExistingFcb:  Filename -> %Z\n", &Fcb->FullFileName);
+    //
+    //  Check that the desired access is legal.
+    //
 
-    try {
-
-        *OplockPostIrp = FALSE;
+    if (!CdIllegalFcbAccess( IrpContext,
+                             TypeOfOpen,
+                             IrpSp->Parameters.Create.SecurityContext->DesiredAccess )) {
 
         //
-        //  Take special action if there is a current batch oplock or
-        //  batch oplock break in process on the Fcb.
+        //  Set the Ignore case.
         //
 
-        if (FsRtlCurrentBatchOplock( &Fcb->Specific.Fcb.Oplock )) {
+        if (IgnoreCase) {
 
-            //
-            //  We remember if a batch oplock break is underway for the
-            //  case where the sharing check fails.
-            //
+            SetFlag( CcbFlags, CCB_FLAG_IGNORE_CASE );
+        }
 
-            Iosb.Information = FILE_OPBATCH_BREAK_UNDERWAY;
+        //
+        //  Check the related Ccb to see if this was an OpenByFileId and
+        //  whether there was a version.
+        //
 
-            Iosb.Status = FsRtlCheckOplock( &Fcb->Specific.Fcb.Oplock,
-                                            IrpContext->OriginatingIrp,
-                                            IrpContext,
-                                            CdOplockComplete,
-                                            NULL );
+        if (ARGUMENT_PRESENT( RelatedCcb )) {
 
-            if (Iosb.Status != STATUS_SUCCESS
-                && Iosb.Status != STATUS_OPLOCK_BREAK_IN_PROGRESS) {
+            SetFlag( CcbFlags, FlagOn( RelatedCcb->Flags, CCB_FLAG_OPEN_WITH_VERSION ));
 
-                *OplockPostIrp = TRUE;
-                try_return( NOTHING );
+
+            if (FlagOn( RelatedCcb->Flags, CCB_FLAG_OPEN_BY_ID | CCB_FLAG_OPEN_RELATIVE_BY_ID )) {
+
+                SetFlag( CcbFlags, CCB_FLAG_OPEN_RELATIVE_BY_ID );
             }
         }
 
         //
-        //  Check the create disposition and desired access
+        //  Call our worker routine to complete the open.
         //
 
-        if (CreateDisposition != FILE_OPEN
-            && CreateDisposition != FILE_OPEN_IF) {
+        Status = CdCompleteFcbOpen( IrpContext,
+                                    IrpSp,
+                                    (*CurrentFcb)->Vcb,
+                                    CurrentFcb,
+                                    TypeOfOpen,
+                                    CcbFlags,
+                                    IrpSp->Parameters.Create.SecurityContext->DesiredAccess );
+    }
 
-            Iosb.Status = STATUS_ACCESS_DENIED;
-            try_return( Iosb );
+    return Status;
+}
+
+
+//
+//  Local support routine
+//
+
+NTSTATUS
+CdOpenDirectoryFromPathEntry (
+    IN PIRP_CONTEXT IrpContext,
+    IN PIO_STACK_LOCATION IrpSp,
+    IN PVCB Vcb,
+    IN OUT PFCB *CurrentFcb,
+    IN PCD_NAME DirName,
+    IN BOOLEAN IgnoreCase,
+    IN BOOLEAN ShortNameMatch,
+    IN PPATH_ENTRY PathEntry,
+    IN BOOLEAN PerformUserOpen,
+    IN PCCB RelatedCcb OPTIONAL
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called to open a directory where the directory was found
+    in the path table.  This routine is called in the case where this is the
+    file to open for the user and where this is an intermediate node in the
+    full path to open.
+
+    We first check that the desired access is legal for a directory.  Then we
+    construct the FileId for this and do a check to see if it is the Fcb
+    Table.  It is always possible that either it was created since or simply
+    wasn't in the prefix table at the time of the prefix table search.
+    Initialize the Fcb and store into the FcbTable if not present.
+
+    Next we will add this to the prefix table of our parent if needed.
+
+    Once we know that the new Fcb has been initialized then we move our pointer
+    in the tree down to this position.
+
+    This routine does not own the Vcb lock on entry.  We must be sure to release
+    it on exit.
+
+Arguments:
+
+    IrpSp - Stack location for this request.
+
+    Vcb - Vcb for this volume.
+
+    CurrentFcb - On input this is the parent of the Fcb to open.  On output we
+        store the Fcb for the file being opened.
+
+    DirName - This is always the exact name used to reach this file.
+
+    IgnoreCase - Indicates the type of case match for the open.
+
+    ShortNameMatch - Indicates if we are opening via the short name.
+
+    PathEntry - Path entry for the entry found.
+
+    PerformUserOpen - TRUE if we are to open this for a user, FALSE otherwise.
+
+    RelatedCcb - RelatedCcb for relative file object used to make this open.
+
+Return Value:
+
+    NTSTATUS - Status indicating the result of the operation.
+
+--*/
+
+{
+    ULONG CcbFlags = 0;
+    FILE_ID FileId;
+
+    BOOLEAN UnlockVcb = FALSE;
+    BOOLEAN FcbExisted;
+
+    PFCB NextFcb;
+    PFCB ParentFcb = NULL;
+
+    NTSTATUS Status;
+
+    PAGED_CODE();
+
+    //
+    //  Check for illegal access to this file.
+    //
+
+    if (PerformUserOpen &&
+        CdIllegalFcbAccess( IrpContext,
+                            UserDirectoryOpen,
+                            IrpSp->Parameters.Create.SecurityContext->DesiredAccess )) {
+
+        return STATUS_ACCESS_DENIED;
+    }
+
+    //
+    //  Use a try-finally to facilitate cleanup.
+    //
+
+    try {
+
+        //
+        //  Check the related Ccb to see if this was an OpenByFileId.
+        //
+
+        if (ARGUMENT_PRESENT( RelatedCcb ) &&
+            FlagOn( RelatedCcb->Flags, CCB_FLAG_OPEN_BY_ID | CCB_FLAG_OPEN_RELATIVE_BY_ID )) {
+
+            CcbFlags = CCB_FLAG_OPEN_RELATIVE_BY_ID;
+        }
+
+        if (IgnoreCase) {
+
+            SetFlag( CcbFlags, CCB_FLAG_IGNORE_CASE );
         }
 
         //
-        //  Check the desired access.  We won't allow any open
-        //  that could modify the disk.
+        //  Build the file Id for this file.
         //
 
-        if (CdIsFcbAccessLegal( IrpContext, DesiredAccess )) {
+        FileId.QuadPart = 0;
+        CdSetFidPathTableOffset( FileId, PathEntry->PathTableOffset );
+        CdFidSetDirectory( FileId );
 
-            try_return( Iosb.Status = STATUS_ACCESS_DENIED );
+        //
+        //  Lock the Vcb so we can examine the Fcb Table.
+        //
+
+        CdLockVcb( IrpContext, Vcb );
+        UnlockVcb = TRUE;
+
+        //
+        //  Get the Fcb for this directory.
+        //
+
+        NextFcb = CdCreateFcb( IrpContext, FileId, CDFS_NTC_FCB_INDEX, &FcbExisted );
+
+        //
+        //  If the Fcb was created here then initialize from the values in the
+        //  path table entry.
+        //
+
+        if (!FcbExisted) {
+
+            CdInitializeFcbFromPathEntry( IrpContext, NextFcb, *CurrentFcb, PathEntry );
         }
 
         //
-        //  Check if the Fcb has the proper share access
+        //  Now try to acquire the new Fcb without waiting.  We will reference
+        //  the Fcb and retry with wait if unsuccessful.
         //
 
-        if (!NT_SUCCESS(Iosb.Status = IoCheckShareAccess( DesiredAccess,
-                                                          ShareAccess,
-                                                          FileObject,
-                                                          &Fcb->ShareAccess,
-                                                          FALSE ))) {
+        if (!CdAcquireFcbExclusive( IrpContext, NextFcb, TRUE )) {
 
-            try_return( Iosb );
-        }
+            NextFcb->FcbReference += 1;
 
-        //
-        //  Now check that we can continue based on the oplock state of the
-        //  file.
-        //
+            CdUnlockVcb( IrpContext, Vcb );
 
-        Iosb.Status = FsRtlCheckOplock( &Fcb->Specific.Fcb.Oplock,
-                                        IrpContext->OriginatingIrp,
-                                        IrpContext,
-                                        CdOplockComplete,
-                                        NULL );
+            CdReleaseFcb( IrpContext, *CurrentFcb );
+            CdAcquireFcbExclusive( IrpContext, NextFcb, FALSE );
+            CdAcquireFcbExclusive( IrpContext, *CurrentFcb, FALSE );
 
-        if (Iosb.Status != STATUS_SUCCESS
-            && Iosb.Status != STATUS_OPLOCK_BREAK_IN_PROGRESS) {
-
-            *OplockPostIrp = TRUE;
-            try_return( NOTHING );
-        }
-
-        //
-        //  Set the flag indicating if Fast I/O is possible
-        //
-
-        Fcb->NonPagedFcb->Header.IsFastIoPossible = CdIsFastIoPossible( Fcb );
-
-        //
-        //  If the Fcb is already opened by someone then we need
-        //  to check the share access
-        //
-
-        if (Fcb->OpenCount > 0) {
-
-            IoUpdateShareAccess( FileObject, &Fcb->ShareAccess );
+            CdLockVcb( IrpContext, Vcb );
+            NextFcb->FcbReference -= 1;
+            CdUnlockVcb( IrpContext, Vcb );
 
         } else {
 
             //
-            //  If there is no stream file for this Fcb we create it now.
-            //  We don't create the stream file if the data is sector
-            //  aligned and the caller specified no intermediate buffering.
+            //  Unlock the Vcb and move down to this new Fcb.  Remember that we still
+            //  own the parent however.
             //
 
-            // if (!*NoIntermediateBuffering
-            //     || Fcb->InitialOffset != 0) {
-            //
-            //     *NoIntermediateBuffering = FALSE;
-            // }
-
-            //
-            //  BUGBUG  This is stuffed in here for the PDK.
-
-            *NoIntermediateBuffering = FALSE;
-
-            IoSetShareAccess( DesiredAccess,
-                              ShareAccess,
-                              FileObject,
-                              &Fcb->ShareAccess );
+            CdUnlockVcb( IrpContext, Vcb );
         }
 
-        UnwindShareAccess = TRUE;
+        UnlockVcb = FALSE;
+
+        ParentFcb = *CurrentFcb;
+        *CurrentFcb = NextFcb;
 
         //
-        //  Setup the context and section object pointers, and update
-        //  our reference counts
+        //  Store this name into the prefix table for the parent.
         //
 
-        CdSetFileObject( FileObject,
-                         UserFileOpen,
-                         Fcb,
-                         CdCreateCcb( IrpContext,
-                                      0,
-                                      (OpenedByFileId
-                                       ? CCB_FLAGS_OPEN_BY_ID
-                                       : 0) ));
+        if (ShortNameMatch) {
 
-        FileObject->SectionObjectPointer = &Fcb->NonPagedFcb->SegmentObject;
+            //
+            //  Make sure the exact case is always in the tree.
+            //
 
-        Fcb->UncleanCount += 1;
-        Fcb->OpenCount += 1;
-        Fcb->Vcb->Mvcb->OpenFileCount += 1;
+            CdInsertPrefix( IrpContext,
+                            NextFcb,
+                            DirName,
+                            FALSE,
+                            TRUE,
+                            ParentFcb );
 
-        //
-        //  And set our status to success
-        //
+            if (IgnoreCase) {
 
-        Iosb.Status = STATUS_SUCCESS;
-        Iosb.Information = FILE_OPENED;
+                CdInsertPrefix( IrpContext,
+                                NextFcb,
+                                DirName,
+                                TRUE,
+                                TRUE,
+                                ParentFcb );
+            }
 
-    try_exit: NOTHING;
-    } finally {
+        } else {
 
-        //
-        //  If this is an abnormal termination then undo our work
-        //
+            //
+            //  Make sure the exact case is always in the tree.
+            //
 
-        if (AbnormalTermination()) {
+            CdInsertPrefix( IrpContext,
+                            NextFcb,
+                            &PathEntry->CdDirName,
+                            FALSE,
+                            FALSE,
+                            ParentFcb );
 
-            DebugTrace(0, Dbg, "CdOpenExistingFcb:  Abnormal termination\n", 0);
+            if (IgnoreCase) {
 
-            if (UnwindShareAccess) {
-
-                IoRemoveShareAccess( FileObject, &Fcb->ShareAccess );
+                CdInsertPrefix( IrpContext,
+                                NextFcb,
+                                &PathEntry->CdCaseDirName,
+                                TRUE,
+                                FALSE,
+                                ParentFcb );
             }
         }
 
-        DebugTrace( 0, Dbg, "CdOpenExistingFcb:  Open Count    -> %08lx\n", Fcb->OpenCount);
-        DebugTrace( 0, Dbg, "CdOpenExistingFcb:  Unclean Count -> %08lx\n", Fcb->UncleanCount);
-        DebugTrace(-1, Dbg, "CdOpenExistingFcb:  Exit -> Iosb.Status = %08lx\n", Iosb.Status);
-    }
-
-    return Iosb;
-}
-
-
-//
-//  Internal support routine
-//
-
-IO_STATUS_BLOCK
-CdOpenSubdirectory (
-    IN PIRP_CONTEXT IrpContext,
-    IN PDCB ParentDcb,
-    IN PSTRING DirName,
-    OUT PDCB *NewDcb,
-    IN BOOLEAN OpenedByFileId
-    )
-
-/*++
-
-Routine Description:
-
-    This routine searches for and opens the specified subdirectory within
-    the specified directory.
-
-Arguments:
-
-    ParentDcb - Supplies the dcb to search for within
-
-    DirName - Supplies the name of a directory to search for
-
-    NewDcb - Receives the dcb of the newly opened subdirectory
-
-    OpenedByFileId - Remember this file was opened based on a FileId.
-
-Return Value:
-
-    IO_STATUS_BLOCK - Return the completion status for the operation
-
---*/
-
-{
-    IO_STATUS_BLOCK Iosb;
-
-    PATH_ENTRY PathEntry;
-    PBCB PathEntryBcb;
-
-    //
-    //  The following variable is for abnormal termination
-    //
-
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "CdOpenSubdirectory:  Entered\n", 0);
-
-    PathEntryBcb = NULL;
-
-    try {
-
         //
-        //  We already know that a DCB does not yet exist for the name
-        //  because it would have been found with the longest prefix lookup.
-        //  So now we only need to try and locate the path entry in the
-        //  Path Table for the subdirectory.
+        //  Release the parent Fcb at this point.
         //
 
-        if (!CdLookUpPathDir( IrpContext,
-                              ParentDcb,
-                              DirName,
-                              &PathEntry,
-                              &PathEntryBcb )) {
+        CdReleaseFcb( IrpContext, ParentFcb );
+        ParentFcb = NULL;
 
-            DebugTrace(0, Dbg, "CdOpenSubdirectory:  Couldn't find file dirent\n", 0);
+        //
+        //  Call our worker routine to complete the open.
+        //
 
-            Iosb.Status = STATUS_OBJECT_PATH_NOT_FOUND;
-            try_return( Iosb );
+        if (PerformUserOpen) {
+
+            Status = CdCompleteFcbOpen( IrpContext,
+                                        IrpSp,
+                                        Vcb,
+                                        CurrentFcb,
+                                        UserDirectoryOpen,
+                                        CcbFlags,
+                                        IrpSp->Parameters.Create.SecurityContext->DesiredAccess );
         }
 
-        //
-        //  Create a dcb for the new directory
-        //
-
-        *NewDcb = CdCreateDcb( IrpContext,
-                               ParentDcb->Vcb,
-                               ParentDcb,
-                               &PathEntry,
-                               NULL,
-                               NULL,
-                               OpenedByFileId );
-
-        //
-        //  And set our completion status
-        //
-
-        Iosb.Status = STATUS_SUCCESS;
-
-    try_exit: NOTHING;
     } finally {
 
         //
-        //  If this is an abnormal termination then undo our work
+        //  Unlock the Vcb if held.
         //
 
-        if (AbnormalTermination()) {
+        if (UnlockVcb) {
 
-            DebugTrace(0, Dbg, "CdOpenSubdirectory:  Abnormal termination\n", 0);
+            CdUnlockVcb( IrpContext, Vcb );
         }
 
-        if (PathEntryBcb != NULL) {
+        //
+        //  Release the parent if held.
+        //
 
-            CdUnpinBcb( IrpContext, PathEntryBcb );
+        if (ParentFcb != NULL) {
+
+            CdReleaseFcb( IrpContext, ParentFcb );
         }
-
-        DebugTrace(-1, Dbg, "CdOpenSubdirectory:  Exit -> Iosb.Status = %08lx\n", Iosb.Status);
     }
 
-    return Iosb;
+    return Status;
 }
 
 
@@ -2248,73 +2311,90 @@ Return Value:
 //  Local support routine
 //
 
-IO_STATUS_BLOCK
-CdOpenExistingDirectory (
+NTSTATUS
+CdOpenFileFromFileContext (
     IN PIRP_CONTEXT IrpContext,
-    IN PFILE_OBJECT FileObject,
-    IN PDCB ParentDcb,
-    IN PDIRENT Dirent,
-    IN ACCESS_MASK DesiredAccess,
-    IN USHORT ShareAccess,
-    IN ULONG CreateDisposition,
-    IN BOOLEAN MatchedVersion,
-    IN BOOLEAN OpenedByFileId
+    IN PIO_STACK_LOCATION IrpSp,
+    IN PVCB Vcb,
+    IN OUT PFCB *CurrentFcb,
+    IN PCD_NAME FileName,
+    IN BOOLEAN IgnoreCase,
+    IN BOOLEAN ShortNameMatch,
+    IN PFILE_ENUM_CONTEXT FileContext,
+    IN PCCB RelatedCcb OPTIONAL
     )
 
 /*++
 
 Routine Description:
 
-    This routine opens the specified directory.  The directory itself doesn't
-    currently exist in the Fcb/Dcb tree.  This routine calls 'CdCreateDcb'
-    and 'CdOpenExistingDcb' to do the actual work.
+    This routine is called to open a file where the file was found in a directory scan.
+    This should only be for a file in the case since we will find the directories in the
+    path table.
+
+    We first check that the desired access is legal for this file.  Then we
+    construct the FileId for this and do a check to see if it is the Fcb
+    Table.  It is always possible that either it was created since or simply
+    wasn't in the prefix table at the time of the prefix table search.
+    Initialize the Fcb and store into the FcbTable if not present.
+
+    Next we will add this to the prefix table of our parent if needed.
+
+    Once we know that the new Fcb has been initialized then we move our pointer
+    in the tree down to this position.
+
+    This routine does not own the Vcb lock on entry.  We must be sure to release
+    it on exit.
 
 Arguments:
 
-    FileObject - Supplies the File object.
+    IrpSp - Stack location for this request.
 
-    ParentDcb - Supplies the parent directory containing the subdirectory
-        to be opened.  On entry this is the parent dcb for this directory.
-        If a Fcb is successfully allocated, its address will be stored
-        here on exiting.
+    Vcb - Vcb for the current volume.
 
-    Dirent - Supplies the dirent for the directory.
+    CurrentFcb - On input this is the parent of the Fcb to open.  On output we
+        store the Fcb for the file being opened.
 
-    DesiredAccess - Supplies the desired access of the caller
+    FileName - This is always the exact name used to reach this file.
 
-    ShareAccess - Supplies the share access of the caller
+    IgnoreCase - Indicates the type of case of CaseName above.
 
-    CreateDisposition - Supplies the create disposition for this operation
+    ShortNameMatch - Indicates if we are opening via the short name.
 
-    MatchedVersion - Indicating how the filename match was made.
+    FileContext - This is the context used to find the file.
 
-    OpenedByFileId - Remember this dcb was opened based on a FileId.
+    RelatedCcb - RelatedCcb for relative file object used to make this open.
 
 Return Value:
 
-    IO_STATUS_BLOCK - Returns the completion status for the operation
+    NTSTATUS - Status indicating the result of the operation.
 
 --*/
 
 {
-    IO_STATUS_BLOCK Iosb;
-    PATH_ENTRY PathEntry;
-    PBCB PathEntryBcb;
+    ULONG CcbFlags = 0;
+    FILE_ID FileId;
 
-    PFCB NewDcb;
+    BOOLEAN UnlockVcb = FALSE;
+    BOOLEAN FcbExisted;
 
-    //
-    //  The following variables are used for unwinding during exceptions.
-    //
+    PFCB NextFcb;
+    PFCB ParentFcb = NULL;
 
-    BOOLEAN UnwindDcb = FALSE;
-    BOOLEAN ReturnedExistingDcb;
+    NTSTATUS Status;
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "CdOpenExistingDirectory:  Entered\n", 0);
+    //
+    //  Check for illegal access to this file.
+    //
 
-    PathEntryBcb = NULL;
+    if (CdIllegalFcbAccess( IrpContext,
+                            UserFileOpen,
+                            IrpSp->Parameters.Create.SecurityContext->DesiredAccess )) {
+
+        return STATUS_ACCESS_DENIED;
+    }
 
     //
     //  Use a try-finally to facilitate cleanup.
@@ -2323,79 +2403,201 @@ Return Value:
     try {
 
         //
-        //  We need to get the entry from the path table for this
-        //  directory.
+        //  Check if a version number was used to open this file.
         //
 
-        if (!CdLookUpPathDir( IrpContext,
-                              ParentDcb,
-                              MatchedVersion ? &Dirent->FullFilename : &Dirent->Filename,
-                              &PathEntry,
-                              &PathEntryBcb )) {
+        if (FileName->VersionString.Length != 0) {
 
-            DebugTrace(0, Dbg, "CdOpenExistingDirectory:  Can't find path entry\n", 0);
-            try_return( Iosb.Status = STATUS_OBJECT_PATH_NOT_FOUND );
+            SetFlag( CcbFlags, CCB_FLAG_OPEN_WITH_VERSION );
         }
 
         //
-        //  Try to create and attach an FCB.
+        //  Check the related Ccb to see if this was an OpenByFileId.
         //
 
-        NewDcb = CdCreateDcb( IrpContext,
-                              ParentDcb->Vcb,
-                              ParentDcb,
-                              &PathEntry,
-                              Dirent,
-                              &ReturnedExistingDcb,
-                              OpenedByFileId );
+        if (ARGUMENT_PRESENT( RelatedCcb ) &&
+            FlagOn( RelatedCcb->Flags, CCB_FLAG_OPEN_BY_ID | CCB_FLAG_OPEN_RELATIVE_BY_ID )) {
 
-        UnwindDcb = !ReturnedExistingDcb;
-
-        //
-        //  Attempt to do a normal open on the Fcb.
-        //
-
-        Iosb = CdOpenExistingDcb( IrpContext,
-                                  FileObject,
-                                  NewDcb,
-                                  DesiredAccess,
-                                  ShareAccess,
-                                  CreateDisposition,
-                                  OpenedByFileId );
-
-        //
-        //  If no error has occurred then we don't need to clean up the
-        //  Fcb.
-        //
-
-        if (NT_SUCCESS( Iosb.Status )) {
-
-            UnwindDcb = FALSE;
+            SetFlag( CcbFlags, CCB_FLAG_OPEN_RELATIVE_BY_ID );
         }
 
-        try_return( Iosb );
+        if (IgnoreCase) {
 
-    try_exit: NOTHING;
+            SetFlag( CcbFlags, CCB_FLAG_IGNORE_CASE );
+        }
+
+        //
+        //  Build the file Id for this file.  We can use the path table offset from the
+        //  parent and the directory offset from the dirent.
+        //
+
+        CdSetFidPathTableOffset( FileId, CdQueryFidPathTableOffset( (*CurrentFcb)->FileId ));
+        CdSetFidDirentOffset( FileId, FileContext->InitialDirent->Dirent.DirentOffset );
+
+        //
+        //  Lock the Vcb so we can examine the Fcb Table.
+        //
+
+        CdLockVcb( IrpContext, Vcb );
+        UnlockVcb = TRUE;
+
+        //
+        //  Get the Fcb for this file.
+        //
+
+        NextFcb = CdCreateFcb( IrpContext, FileId, CDFS_NTC_FCB_DATA, &FcbExisted );
+
+        //
+        //  If the Fcb was created here then initialize from the values in the
+        //  dirent.
+        //
+
+        if (!FcbExisted) {
+
+            CdInitializeFcbFromFileContext( IrpContext,
+                                            NextFcb,
+                                            *CurrentFcb,
+                                            FileContext );
+        }
+
+        //
+        //  Now try to acquire the new Fcb without waiting.  We will reference
+        //  the Fcb and retry with wait if unsuccessful.
+        //
+
+        if (!CdAcquireFcbExclusive( IrpContext, NextFcb, TRUE )) {
+
+            NextFcb->FcbReference += 1;
+
+            CdUnlockVcb( IrpContext, Vcb );
+
+            CdReleaseFcb( IrpContext, *CurrentFcb );
+            CdAcquireFcbExclusive( IrpContext, NextFcb, FALSE );
+            CdAcquireFcbExclusive( IrpContext, *CurrentFcb, FALSE );
+
+            CdLockVcb( IrpContext, Vcb );
+            NextFcb->FcbReference -= 1;
+            CdUnlockVcb( IrpContext, Vcb );
+
+        } else {
+
+            //
+            //  Unlock the Vcb and move down to this new Fcb.  Remember that we still
+            //  own the parent however.
+            //
+
+            CdUnlockVcb( IrpContext, Vcb );
+        }
+
+        UnlockVcb = FALSE;
+
+        ParentFcb = *CurrentFcb;
+        *CurrentFcb = NextFcb;
+
+        //
+        //  Store this name into the prefix table for the parent.
+        //
+
+
+        if (ShortNameMatch) {
+
+            //
+            //  Make sure the exact case is always in the tree.
+            //
+
+            CdInsertPrefix( IrpContext,
+                            NextFcb,
+                            FileName,
+                            FALSE,
+                            TRUE,
+                            ParentFcb );
+
+            if (IgnoreCase) {
+
+                CdInsertPrefix( IrpContext,
+                                NextFcb,
+                                FileName,
+                                IgnoreCase,
+                                TRUE,
+                                ParentFcb );
+            }
+
+        //
+        //  Insert this into the prefix table if we found this without
+        //  using a version string.
+        //
+
+        } else if (FileName->VersionString.Length == 0) {
+
+            CdInsertPrefix( IrpContext,
+                            NextFcb,
+                            &FileContext->InitialDirent->Dirent.CdCaseFileName,
+                            IgnoreCase,
+                            FALSE,
+                            ParentFcb );
+            //
+            //  Make sure the exact case is always in the tree.
+            //
+
+            CdInsertPrefix( IrpContext,
+                            NextFcb,
+                            &FileContext->InitialDirent->Dirent.CdFileName,
+                            FALSE,
+                            FALSE,
+                            ParentFcb );
+
+            if (IgnoreCase) {
+
+                CdInsertPrefix( IrpContext,
+                                NextFcb,
+                                &FileContext->InitialDirent->Dirent.CdCaseFileName,
+                                IgnoreCase,
+                                FALSE,
+                                ParentFcb );
+            }
+        }
+
+        //
+        //  Release the parent Fcb at this point.
+        //
+
+        CdReleaseFcb( IrpContext, ParentFcb );
+        ParentFcb = NULL;
+
+        //
+        //  Call our worker routine to complete the open.
+        //
+
+        Status = CdCompleteFcbOpen( IrpContext,
+                                    IrpSp,
+                                    Vcb,
+                                    CurrentFcb,
+                                    UserFileOpen,
+                                    CcbFlags,
+                                    IrpSp->Parameters.Create.SecurityContext->DesiredAccess );
+
     } finally {
 
         //
-        //  Delete the Dcb if any problems occurred.
+        //  Unlock the Vcb if held.
         //
 
-        if (UnwindDcb) {
+        if (UnlockVcb) {
 
-            CdDeleteFcb( IrpContext, (PFCB) NewDcb );
+            CdUnlockVcb( IrpContext, Vcb );
         }
 
-        if (PathEntryBcb != NULL) {
+        //
+        //  Release the parent if held.
+        //
 
-            CdUnpinBcb( IrpContext, PathEntryBcb );
+        if (ParentFcb != NULL) {
+
+            CdReleaseFcb( IrpContext, ParentFcb );
         }
-
-        DebugTrace(-1, Dbg, "CdOpenExistingDirectory:  Exit -> %08lx\n", Iosb.Status);
     }
 
-    return Iosb;
+    return Status;
 }
 
 
@@ -2403,181 +2605,295 @@ Return Value:
 //  Local support routine
 //
 
-IO_STATUS_BLOCK
-CdOpenExistingFile (
+NTSTATUS
+CdCompleteFcbOpen (
     IN PIRP_CONTEXT IrpContext,
-    IN PFILE_OBJECT FileObject,
-    IN PDCB ParentDcb,
-    IN PDIRENT Dirent,
-    IN ACCESS_MASK DesiredAccess,
-    IN USHORT ShareAccess,
-    IN ULONG CreateDisposition,
-    IN BOOLEAN MatchedVersion,
-    IN OUT PBOOLEAN NoIntermediateBuffering,
-    IN BOOLEAN OpenedByFileId
+    PIO_STACK_LOCATION IrpSp,
+    IN PVCB Vcb,
+    IN OUT PFCB *CurrentFcb,
+    IN TYPE_OF_OPEN TypeOfOpen,
+    IN ULONG UserCcbFlags,
+    IN ACCESS_MASK DesiredAccess
     )
 
 /*++
 
 Routine Description:
 
-    This routine opens the specified file.  The file itself doesn't
-    currently exist in the Fcb/Dcb tree.  This routine calls 'CdCreateFcb'
-    and 'CdOpenExistingFcb' to do the actual work.
+    This is the worker routine which takes an existing Fcb and completes
+    the open.  We will do any necessary oplock checks and sharing checks.
+    Finally we will create the Ccb and update the file object and any
+    file object flags.
 
 Arguments:
 
-    FileObject - Supplies the File object.
+    IrpSp - Stack location for the current request.
 
-    ParentDcb - Supplies the parent directory containing the subdirectory
-        to be opened.  On entry this is the parent dcb for this directory.
-        If a Fcb is successfully allocated, its address will be stored
-        here on exiting.
+    Vcb - Vcb for the current volume.
 
-    Dirent - Supplies the dirent for the file.
+    CurrentFcb - Address of pointer to Fcb to open.  We clear this field if
+        we release the resource for this file.
 
-    DesiredAccess - Supplies the desired access of the caller
+    TypeOfOpen - Type of open for this request.
 
-    ShareAccess - Supplies the share access of the caller
+    UserCcbFlags - Flags to OR into the Ccb flags.
 
-    CreateDisposition - Supplies the create disposition for this operation
-
-    MatchedVersion - Indicating how the filename match was made.
-
-    NoIntermediateBuffering - Supplies a pointer to the boolean for cache
-                              access.  We overwrite the caller's value if
-                              the file cannot be accessed directly.
-
-    OpenedByFileId - Remember this dcb was opened based on a FileId.
+    DesiredAccess - Desired access for this open.
 
 Return Value:
 
-    IO_STATUS_BLOCK - Returns the completion status for the operation
+    NTSTATUS - STATUS_SUCCESS if we complete this request, STATUS_PENDING if
+        the oplock package takes the Irp or SHARING_VIOLATION if there is a
+        sharing check conflict.
 
 --*/
 
 {
-    IO_STATUS_BLOCK Iosb;
+    NTSTATUS Status;
+    NTSTATUS OplockStatus  = STATUS_SUCCESS;
+    ULONG Information = FILE_OPENED;
 
-    PFCB NewFcb;
+    BOOLEAN LockVolume = FALSE;
 
-    BOOLEAN OplockPostIrp;
-
-    //
-    //  The following variables are used for unwinding during exceptions.
-    //
-
-    BOOLEAN UnwindFcb = FALSE;
-    BOOLEAN ReturnedExistingFcb;
+    PFCB Fcb = *CurrentFcb;
+    PCCB Ccb;
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "CdOpenExistingFile:  Entered\n", 0);
-
     //
-    //  Use a try-finally to facilitate cleanup.
+    //  If this a volume open and the user wants to lock the volume then
+    //  purge and lock the volume.
     //
 
-    try {
+    if ((TypeOfOpen <= UserVolumeOpen) &&
+        !FlagOn( IrpSp->Parameters.Create.ShareAccess, FILE_SHARE_READ )) {
 
         //
-        //  Try to create and attach an FCB.
+        //  If there are open handles then fail this immediately.
         //
 
-        NewFcb = CdCreateFcb( IrpContext,
-                              ParentDcb->Vcb,
-                              ParentDcb,
-                              Dirent,
-                              MatchedVersion,
-                              &ReturnedExistingFcb,
-                              OpenedByFileId );
+        if (Vcb->VcbCleanup != 0) {
 
-        UnwindFcb = !ReturnedExistingFcb;
-
-        //
-        //  Attempt to do a normal open on the Fcb.
-        //
-
-        Iosb = CdOpenExistingFcb( IrpContext,
-                                  FileObject,
-                                  ParentDcb->Vcb->Mvcb,
-                                  NewFcb,
-                                  DesiredAccess,
-                                  ShareAccess,
-                                  CreateDisposition,
-                                  NoIntermediateBuffering,
-                                  &OplockPostIrp,
-                                  OpenedByFileId );
-
-        //
-        //  If no error has occurred then we don't need to clean up the
-        //  Fcb.
-        //
-
-        if (NT_SUCCESS( Iosb.Status )) {
-
-            UnwindFcb = FALSE;
+            return STATUS_SHARING_VIOLATION;
         }
 
-        try_return( Iosb );
-
-    try_exit: NOTHING;
-    } finally {
-
         //
-        //  Delete the Fcb if any problems occurred.
+        //  If we can't wait then force this to be posted.
         //
 
-        if (UnwindFcb) {
+        if (!FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_WAIT )) {
 
-            CdDeleteFcb( IrpContext, NewFcb );
+            CdRaiseStatus( IrpContext, STATUS_CANT_WAIT );
         }
 
-        DebugTrace(-1, Dbg, "CdOpenExistingFile:  Exit -> %08lx\n", Iosb.Status);
+        LockVolume = TRUE;
+
+        //
+        //  Purge the volume and make sure all of the user references
+        //  are gone.
+        //
+
+        Status = CdPurgeVolume( IrpContext, Vcb, FALSE );
+
+        if (Status != STATUS_SUCCESS) {
+
+            return Status;
+        }
+
+        //
+        //  Now force all of the delayed close operations to go away.
+        //
+
+        CdFspClose( Vcb );
+
+        if (Vcb->VcbUserReference > CDFS_RESIDUAL_USER_REFERENCE) {
+
+            return STATUS_SHARING_VIOLATION;
+        }
     }
 
-    return Iosb;
+    //
+    //  If the Fcb already existed then we need to check the oplocks and
+    //  the share access.
+    //
+
+    if (Fcb->FcbCleanup != 0) {
+
+        //
+        //  If this is a user file open then check whether there are any
+        //  batch oplock.
+        //
+
+        if (TypeOfOpen == UserFileOpen) {
+
+            //
+            //  Store the address of the Fcb for a possible teardown into
+            //  the IrpContext.  We will release this in the call to
+            //  prepost the Irp.
+            //
+
+            IrpContext->TeardownFcb = CurrentFcb;
+
+            if (FsRtlCurrentBatchOplock( &Fcb->Oplock )) {
+
+                //
+                //  We remember if a batch oplock break is underway for the
+                //  case where the sharing check fails.
+                //
+
+                Information = FILE_OPBATCH_BREAK_UNDERWAY;
+
+                OplockStatus = FsRtlCheckOplock( &Fcb->Oplock,
+                                                 IrpContext->Irp,
+                                                 IrpContext,
+                                                 CdOplockComplete,
+                                                 CdPrePostIrp );
+
+                if (OplockStatus == STATUS_PENDING) {
+
+                    return STATUS_PENDING;
+                }
+            }
+
+            //
+            //  Check the share access before breaking any exclusive oplocks.
+            //
+
+            Status = IoCheckShareAccess( DesiredAccess,
+                                         IrpSp->Parameters.Create.ShareAccess,
+                                         IrpSp->FileObject,
+                                         &Fcb->ShareAccess,
+                                         FALSE );
+
+            if (!NT_SUCCESS( Status )) {
+
+                return Status;
+            }
+
+            //
+            //  Now check that we can continue based on the oplock state of the
+            //  file.
+            //
+
+            OplockStatus = FsRtlCheckOplock( &Fcb->Oplock,
+                                             IrpContext->Irp,
+                                             IrpContext,
+                                             CdOplockComplete,
+                                             CdPrePostIrp );
+
+            if (OplockStatus == STATUS_PENDING) {
+
+                return STATUS_PENDING;
+            }
+
+            IrpContext->TeardownFcb = NULL;
+
+        //
+        //  Otherwise just do the sharing check.
+        //
+
+        } else {
+
+            Status = IoCheckShareAccess( DesiredAccess,
+                                         IrpSp->Parameters.Create.ShareAccess,
+                                         IrpSp->FileObject,
+                                         &Fcb->ShareAccess,
+                                         FALSE );
+
+            if (!NT_SUCCESS( Status )) {
+
+                return Status;
+            }
+        }
+    }
+
+    //
+    //  Create the Ccb now.
+    //
+
+    Ccb = CdCreateCcb( IrpContext, Fcb, UserCcbFlags );
+
+    //
+    //  Update the share access.
+    //
+
+    if (Fcb->FcbCleanup == 0) {
+
+        IoSetShareAccess( DesiredAccess,
+                          IrpSp->Parameters.Create.ShareAccess,
+                          IrpSp->FileObject,
+                          &Fcb->ShareAccess );
+
+    } else {
+
+        IoUpdateShareAccess( IrpSp->FileObject, &Fcb->ShareAccess );
+    }
+
+    //
+    //  Set the file object type.
+    //
+
+    CdSetFileObject( IrpContext, IrpSp->FileObject, TypeOfOpen, Fcb, Ccb );
+
+    //
+    //  Set the appropriate cache flags for a user file object.
+    //
+
+    if (TypeOfOpen == UserFileOpen) {
+
+        if (FlagOn( IrpSp->Parameters.Create.Options, FILE_NO_INTERMEDIATE_BUFFERING )) {
+
+            SetFlag( IrpSp->FileObject->Flags, FO_NO_INTERMEDIATE_BUFFERING );
+
+        } else {
+
+            SetFlag( IrpSp->FileObject->Flags, FO_CACHE_SUPPORTED );
+        }
+    }
+    //
+    //  Update the open and cleanup counts.  Check the fast io state here.
+    //
+
+    CdLockVcb( IrpContext, Vcb );
+
+    CdIncrementCleanupCounts( IrpContext, Fcb );
+    CdIncrementReferenceCounts( IrpContext, Fcb, 1, 1 );
+
+    if (LockVolume) {
+
+        Vcb->VolumeLockFileObject = IrpSp->FileObject;
+        SetFlag( Vcb->VcbState, VCB_STATE_LOCKED );
+    }
+
+    CdUnlockVcb( IrpContext, Vcb );
+
+    CdLockFcb( IrpContext, Fcb );
+
+    if (TypeOfOpen == UserFileOpen) {
+
+        Fcb->IsFastIoPossible = CdIsFastIoPossible( Fcb );
+
+    } else {
+
+        Fcb->IsFastIoPossible = FastIoIsNotPossible;
+    }
+
+    CdUnlockFcb( IrpContext, Fcb );
+
+    //
+    //  Show that we opened the file.
+    //
+
+    IrpContext->Irp->IoStatus.Information = Information;
+
+    //
+    //  Point to the section object pointer in the non-paged Fcb.
+    //
+
+    IrpSp->FileObject->SectionObjectPointer = &Fcb->FcbNonpaged->SegmentObject;
+    return OplockStatus;
 }
 
-
-//
-//  Local support routine
-//
 
-LARGE_INTEGER
-CdFileIdParent (
-    IN PIRP_CONTEXT IrpContext,
-    IN LARGE_INTEGER FileId
-    )
 
-/*++
 
-Routine Description:
-
-    This routine computes the file Id of the parent of this file.
-
-Arguments:
-
-    FileId - This is the file Id of the file in question.
-
-Return Value:
-
-    LARGE_INTEGER - This is the file Id of the parent.
-
---*/
-
-{
-    LARGE_INTEGER ParentFileId;
-
-    PAGED_CODE();
-
-    CdSetFileIdDirectoryNumber( ParentFileId,
-                                CdFileIdDirectoryNumber( FileId ));
-
-    CdSetFileIdDirentOffset( ParentFileId, 0 );
-    CdSetFileIdIsDirectory( ParentFileId );
-
-    return ParentFileId;
-
-    UNREFERENCED_PARAMETER( IrpContext );
-}

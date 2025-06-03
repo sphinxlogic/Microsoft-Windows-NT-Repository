@@ -231,7 +231,10 @@ cProc   HeapReAlloc, <FAR,PUBLIC>, <ds>
         ParmW   cbSize
 cBegin
         lds     ax,lpObject
-        cCall   LocalReAlloc, <ax, cbSize, LMEM_MOVEABLE>
+
+AllocFlags EQU LMEM_MOVEABLE OR LMEM_ZEROINIT
+
+        cCall   LocalReAlloc, <ax, cbSize, AllocFlags>
         xor     dx,dx
         or      ax,ax
         jz      hral_exit

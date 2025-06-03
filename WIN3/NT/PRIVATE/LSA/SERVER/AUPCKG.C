@@ -395,6 +395,7 @@ Return Value:
     PVOID ModuleHandle;
     STRING ProcedureName;
     PLSA_AP_MS_INITIALIZE MsInitialize;
+    NTSTATUS TmpStatus;
 
 #if DBG
     DbgPrint("LSA: Loading Authentication Package - %wZ\n", PackageFileName );
@@ -430,19 +431,6 @@ Return Value:
                      );
     }
 
-
-    if ( NT_SUCCESS( Status ) ) {
-
-        RtlInitString( &ProcedureName, LSA_AP_NAME_LOGON_USER );
-        Status = LdrGetProcedureAddress(
-                     ModuleHandle,
-                     &ProcedureName,
-                     0,
-                     (PVOID *)&NewPackage->PackageApi.LsapApLogonUser
-                     );
-    }
-
-
     if ( NT_SUCCESS( Status ) ) {
 
         RtlInitString( &ProcedureName, LSA_AP_NAME_CALL_PACKAGE );
@@ -454,7 +442,6 @@ Return Value:
                      );
     }
 
-
     if ( NT_SUCCESS( Status ) ) {
 
         RtlInitString( &ProcedureName, LSA_AP_NAME_LOGON_TERMINATED );
@@ -464,6 +451,58 @@ Return Value:
                      0,
                      (PVOID *)&NewPackage->PackageApi.LsapApLogonTerminated
                      );
+    }
+
+    if ( NT_SUCCESS( Status ) ) {
+
+        RtlInitString( &ProcedureName, LSA_AP_NAME_CALL_PACKAGE_UNTRUSTED );
+        IgnoreStatus = LdrGetProcedureAddress(
+                            ModuleHandle,
+                            &ProcedureName,
+                            0,
+                            (PVOID *)&NewPackage->PackageApi.LsapApCallPackageUntrusted
+                            );
+    }
+
+    if ( NT_SUCCESS( Status ) ) {
+
+        RtlInitString( &ProcedureName, LSA_AP_NAME_LOGON_USER );
+        TmpStatus = LdrGetProcedureAddress(
+                     ModuleHandle,
+                     &ProcedureName,
+                     0,
+                     (PVOID *)&NewPackage->PackageApi.LsapApLogonUser
+                     );
+
+        if (!NT_SUCCESS( TmpStatus )) {
+            NewPackage->PackageApi.LsapApLogonUser = NULL;
+        }
+    }
+
+    if ( NT_SUCCESS( Status ) ) {
+
+        //
+        // This procedure may or may not exist.
+        //
+
+        RtlInitString( &ProcedureName, LSA_AP_NAME_LOGON_USER_EX );
+        TmpStatus = LdrGetProcedureAddress(
+                     ModuleHandle,
+                     &ProcedureName,
+                     0,
+                     (PVOID *)&NewPackage->PackageApi.LsapApLogonUserEx
+                     );
+
+        if ( !NT_SUCCESS( TmpStatus ) ) {
+            NewPackage->PackageApi.LsapApLogonUserEx = NULL;
+        }
+    }
+
+    if (NT_SUCCESS( Status )) {
+
+        if (NewPackage->PackageApi.LsapApLogonUser == NULL && NewPackage->PackageApi.LsapApLogonUserEx == NULL) {
+            Status = TmpStatus;
+        }
     }
 
     //
@@ -484,6 +523,8 @@ Return Value:
              (MsInitialize)( &LsapPrivateLsaApi );
         }
     }
+
+
 
     //
     // if anything failed, unload the DLL.
@@ -531,7 +572,8 @@ Return Value:
 
 NTSTATUS
 LsapAuApiDispatchLookupPackage(
-    IN OUT PLSAP_CLIENT_REQUEST ClientRequest
+    IN OUT PLSAP_CLIENT_REQUEST ClientRequest,
+    IN BOOLEAN TrustedClient
     )
 
 /*++
@@ -548,6 +590,9 @@ Arguments:
     Request - Represents the client's LPC request message and context.
         The request message contains a LSAP_LOOKUP_PACKAGE_ARGS message
         block.
+
+    TrustedClient - Is this connection from a trusted client, one who has
+        TCB privilege.
 
 Return Value:
 
@@ -581,7 +626,7 @@ Return Value:
 
         if ( (LsapPackageArray->Package[i]->Name->Length ==
             Arguments->PackageNameLength) &&
-            (strnicmp (
+            (_strnicmp (
                  LsapPackageArray->Package[i]->Name->Buffer,
                  Arguments->PackageName,
                  Arguments->PackageNameLength
@@ -606,7 +651,8 @@ Return Value:
 
 NTSTATUS
 LsapAuApiDispatchCallPackage(
-    IN OUT PLSAP_CLIENT_REQUEST ClientRequest
+    IN OUT PLSAP_CLIENT_REQUEST ClientRequest,
+    IN BOOLEAN TrustedClient
     )
 
 /*++
@@ -620,6 +666,12 @@ Arguments:
     Request - Represents the client's LPC request message and context.
         The request message contains a LSAP_CALL_PACKAGE_ARGS message
         block.
+
+    TrustedClient - Is this connection from a trusted client, one who has
+        TCB privilege.  For untrusted clients call the
+        LsapApCallPackageUntrusted API and for trusted clients call teh
+        LsapApCallPackage API.
+
 
 Return Value:
 
@@ -691,21 +743,39 @@ Return Value:
         LocalProtocolSubmitBuffer = NULL;
     }
 
+    ASSERT(ClientRequest->LogonProcessContext->CommPort != NULL);
 
 
     //
-    // Now call the package...
+    // Now call the package. For trusted clients, call the normal
+    // CallPackage API.  For untrusted clients, use the untrusted version.
     //
 
-    Status = (PackageApi->LsapApCallPackage)(
-                              (PLSA_CLIENT_REQUEST)ClientRequest,
-                              LocalProtocolSubmitBuffer,
-                              Arguments->ProtocolSubmitBuffer,
-                              Arguments->SubmitBufferLength,
-                              &Arguments->ProtocolReturnBuffer,
-                              &Arguments->ReturnBufferLength,
-                              &Arguments->ProtocolStatus
-                              );
+    if (TrustedClient) {
+        Status = (PackageApi->LsapApCallPackage)(
+                                  (PLSA_CLIENT_REQUEST)ClientRequest,
+                                  LocalProtocolSubmitBuffer,
+                                  Arguments->ProtocolSubmitBuffer,
+                                  Arguments->SubmitBufferLength,
+                                  &Arguments->ProtocolReturnBuffer,
+                                  &Arguments->ReturnBufferLength,
+                                  &Arguments->ProtocolStatus
+                                  );
+
+    } else if (PackageApi->LsapApCallPackageUntrusted != NULL) {
+        Status = (PackageApi->LsapApCallPackageUntrusted)(
+                                  (PLSA_CLIENT_REQUEST)ClientRequest,
+                                  LocalProtocolSubmitBuffer,
+                                  Arguments->ProtocolSubmitBuffer,
+                                  Arguments->SubmitBufferLength,
+                                  &Arguments->ProtocolReturnBuffer,
+                                  &Arguments->ReturnBufferLength,
+                                  &Arguments->ProtocolStatus
+                                  );
+
+    } else {
+        Status = STATUS_NOT_SUPPORTED;
+    }
 
 
     //

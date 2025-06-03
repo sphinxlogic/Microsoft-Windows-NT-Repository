@@ -776,7 +776,7 @@ Return Value:
                              NDIS_PACKET_TYPE_BROADCAST     |
                              NDIS_PACKET_TYPE_PROMISCUOUS    )) {
 
-        IF_REQ_LOUD(DbgPrint("ELNK3: Stupid protocol set bogus filter\n");)
+        IF_REQ_LOUD(DbgPrint("ELNK3: protocol set bogus filter\n");)
         return NDIS_STATUS_NOT_SUPPORTED;
     }
 

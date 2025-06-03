@@ -121,7 +121,7 @@ Return Value:
     total_tracks = src_drive.QueryTracks().GetLowPart();
     heads = src_drive.QueryHeads();
 
-    DbgAssert(src_drive.QuerySectors().GetHighPart() == 0);
+    DebugAssert(src_drive.QuerySectors().GetHighPart() == 0);
 
     src_top = 0;
 

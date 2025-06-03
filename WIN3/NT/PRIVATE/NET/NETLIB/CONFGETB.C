@@ -49,7 +49,7 @@ Revision History:
 #include <debuglib.h>   // IF_DEBUG()
 #include <lmapibuf.h>   // NetApiBufferFree().
 #include <lmerr.h>      // NERR_, ERROR_, NO_ERROR equates.
-#include <netdebug.h>   // NetpDbgPrint(), FORMAT_ equates.
+#include <netdebug.h>   // NetpKdPrint(()), FORMAT_ equates.
 #include <netlib.h>     // NetpMemoryFree(), etc.
 #include <prefix.h>     // PREFIX_ equates.
 #include <tstr.h>       // STRNCMP().
@@ -152,9 +152,9 @@ Return Value:
                 & ValueLength
                 );
         IF_DEBUG(CONFIG) {
-            NetpDbgPrint( PREFIX_NETLIB "NetpGetConfigBool: RegQueryValueEx("
+            NetpKdPrint(( PREFIX_NETLIB "NetpGetConfigBool: RegQueryValueEx("
                     FORMAT_LPTSTR ") returned " FORMAT_LONG ".\n",
-                    KeyWanted, Error );
+                    KeyWanted, Error ));
         }
         if (Error == ERROR_FILE_NOT_FOUND) {
             NetpMemoryFree( ValueString );
@@ -181,9 +181,9 @@ Return Value:
         } else {
             NetpMemoryFree( ValueString );
             IF_DEBUG(CONFIG) {
-                NetpDbgPrint( PREFIX_NETLIB
+                NetpKdPrint(( PREFIX_NETLIB
                         "NetpGetConfigBool: read unexpected reg type "
-                        FORMAT_DWORD ".\n", dwType );
+                        FORMAT_DWORD ".\n", dwType ));
             }
             return (ERROR_INVALID_DATA);
         }
@@ -219,9 +219,9 @@ ParseString:
 
     NetpAssert( ValueString != NULL );
     IF_DEBUG(CONFIG) {
-        NetpDbgPrint(PREFIX_NETLIB "NetpGetConfigBool: string for "
+        NetpKdPrint((PREFIX_NETLIB "NetpGetConfigBool: string for "
                 FORMAT_LPTSTR " is '" FORMAT_LPTSTR "',\n",
-                KeyWanted, ValueString);
+                KeyWanted, ValueString));
     }
 
     //
@@ -247,10 +247,10 @@ ParseString:
         ApiStatus = NO_ERROR;
     } else {
 
-        NetpDbgPrint( PREFIX_NETLIB
+        NetpKdPrint(( PREFIX_NETLIB
                 "NetpGetConfigBool: invalid string for keyword "
                 FORMAT_LPTSTR " is '" FORMAT_LPTSTR "'...\n",
-                KeyWanted, ValueString );
+                KeyWanted, ValueString ));
 
         ApiStatus = ERROR_INVALID_DATA;
     }
@@ -258,11 +258,11 @@ ParseString:
 GotValue:
 
     IF_DEBUG(CONFIG) {
-        NetpDbgPrint(PREFIX_NETLIB "NetpGetConfigBool: boolean value for "
+        NetpKdPrint((PREFIX_NETLIB "NetpGetConfigBool: boolean value for "
                 FORMAT_LPTSTR " is '" FORMAT_DWORD "',\n",
-                KeyWanted, (DWORD) TempBool);
-        NetpDbgPrint("  returning ApiStatus " FORMAT_API_STATUS ".\n",
-                ApiStatus );
+                KeyWanted, (DWORD) TempBool));
+        NetpKdPrint(("  returning ApiStatus " FORMAT_API_STATUS ".\n",
+                ApiStatus ));
     }
 
     (void) NetApiBufferFree( ValueString );

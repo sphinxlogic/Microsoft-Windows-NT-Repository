@@ -389,7 +389,7 @@ DumpOwfPasswordToString(
 
 VOID
 DumpLogonInfo(
-    IN  PNETLOGON_INTERACTIVE_INFO LogonInfo
+    IN  PNETLOGON_LOGON_IDENTITY_INFO LogonInfo
     );
 
 char*
@@ -545,8 +545,7 @@ Return Value:
 --*/
 
 {
-    return(STATUS_SUCCESS);
-
+    return RtlInitializeCriticalSection(&NlpLogonCacheCritSec);
 }
 
 
@@ -578,20 +577,19 @@ Return Value:
     }
 #endif
 
-    if (NlpInitializationNotYetPerformed) {
-        return(STATUS_SUCCESS);
-    }
-    NlpCloseCache();
-    NlpCloseSecret();
+    if (!NlpInitializationNotYetPerformed) {
+        NlpCloseCache();
+        NlpCloseSecret();
 
-    if (IS_VALID_HANDLE(NlpLsaHandle)) {
-        LsaClose( NlpLsaHandle );
-    }
-    if (IS_VALID_HANDLE(NlpCacheHandle)) {
-        NtClose( NlpCacheHandle );
-    }
+        if (IS_VALID_HANDLE(NlpLsaHandle)) {
+            LsaClose( NlpLsaHandle );
+        }
+        if (IS_VALID_HANDLE(NlpCacheHandle)) {
+            NtClose( NlpCacheHandle );
+        }
 
-    FreeToHeap( NlpCteTable );
+        FreeToHeap( NlpCteTable );
+    }
 
     return RtlDeleteCriticalSection(&NlpLogonCacheCritSec);
 
@@ -600,7 +598,7 @@ Return Value:
 
 NTSTATUS
 NlpGetCacheEntry(
-    IN  PNETLOGON_INTERACTIVE_INFO LogonInfo,
+    IN  PNETLOGON_LOGON_IDENTITY_INFO LogonInfo,
     OUT PNETLOGON_VALIDATION_SAM_INFO2* AccountInfo,
     OUT PCACHE_PASSWORDS Passwords
     )
@@ -615,8 +613,8 @@ Routine Description:
 
 Arguments:
 
-    LogonInfo   - pointer to NETLOGON_INTERACTIVE_INFO structure which contains
-                  the domain name, user name and password for this user
+    LogonInfo   - pointer to NETLOGON_IDENTITY_INFO structure which contains
+                  the domain name, user name for this user
 
     AccountInfo - pointer to NETLOGON_VALIDATION_SAM_INFO2 structure to
                   receive this user's specific interactive logon information
@@ -685,8 +683,8 @@ Return Value:
     // Find the cache entry and open its secret (if found)
     //
 
-    NtStatus = NlpReadCacheEntry(&LogonInfo->Identity.LogonDomainName,
-                                 &LogonInfo->Identity.UserName,
+    NtStatus = NlpReadCacheEntry(&LogonInfo->LogonDomainName,
+                                 &LogonInfo->UserName,
                                  &Index,
                                  &CacheEntry,
                                  &EntrySize);
@@ -787,7 +785,7 @@ Return Value:
 #if DBG
     if (DumpCacheInfo) {
         DbgPrint("NlpAddCacheEntry\n");
-        DumpLogonInfo(LogonInfo);
+        DumpLogonInfo(&LogonInfo->Identity);
         DumpAccountInfo(AccountInfo);
     }
 #endif
@@ -1210,8 +1208,6 @@ Return Value:
     // Upon return from this routine, if logon caching is enabled,
     // the following will be true:
     //
-    //      The cache lock critical section will be initialized.
-    //
     //      A handle to the LsaPolicy object will be open (NlpLsaHandle).
     //
     //      A handle to the registry key in which all cache entries
@@ -1231,11 +1227,13 @@ Return Value:
 
 
 
-    NtStatus = RtlInitializeCriticalSection(&NlpLogonCacheCritSec);
-
     ENTER_CACHE();
 
-    if (NT_SUCCESS(NtStatus)) {
+    //
+    // Check again if the cache is initialized now that the crit sect is locked.
+    //
+
+    if (NlpInitializationNotYetPerformed) {
 
         //
         // Open the local system's policy object
@@ -1307,17 +1305,19 @@ Return Value:
                 LsaClose( NlpLsaHandle );
             }
         }
+
+        //
+        // If we had an error, then set our entry count to zero
+        // to prevent using any cache information.
+        //
+
+        if (!NT_SUCCESS(NtStatus)) {
+            NlpCacheControl.Entries = 0;
+        }
+
+    } else {
+        NtStatus = STATUS_SUCCESS;
     }
-
-    //
-    // If we had an error, then set our entry count to zero
-    // to prevent using any cache information.
-    //
-
-    if (!NT_SUCCESS(NtStatus)) {
-        NlpCacheControl.Entries = 0;
-    }
-
 
     LEAVE_CACHE();
 
@@ -4054,7 +4054,7 @@ Return Value:
 
     while (Next != (PNLP_CTE)&NlpActiveCtes) {
 
-        if (RtlLargeIntegerLessThan(NlpCteTable[Index].Time, Next->Time)) {
+        if ( NlpCteTable[Index].Time.QuadPart < Next->Time.QuadPart ) {
 
             //
             // More recent than this entry - add it here
@@ -4208,7 +4208,7 @@ DumpOwfPasswordToString(
 
 VOID
 DumpLogonInfo(
-    IN  PNETLOGON_INTERACTIVE_INFO LogonInfo
+    IN  PNETLOGON_LOGON_IDENTITY_INFO LogonInfo
     )
 {
     CHAR ntOwfBuffer[64];
@@ -4218,28 +4218,24 @@ DumpLogonInfo(
                 "NETLOGON_INTERACTIVE_INFO:\n"
                 "DomainName  : \"%*.*ws\"\n"
                 "UserName    : \"%*.*ws\"\n"
-                "LmPassword  : %s\n"
-                "NtPassword  : %s\n"
                 "Parm Ctrl   : %u (%x)\n"
                 "LogonId     : %u.%u (%x.%x)\n"
                 "Workstation : \"%*.*ws\"\n",
-                LogonInfo->Identity.LogonDomainName.Length/sizeof(WCHAR),
-                LogonInfo->Identity.LogonDomainName.Length/sizeof(WCHAR),
-                LogonInfo->Identity.LogonDomainName.Buffer,
-                LogonInfo->Identity.UserName.Length/sizeof(WCHAR),
-                LogonInfo->Identity.UserName.Length/sizeof(WCHAR),
-                LogonInfo->Identity.UserName.Buffer,
-                DumpOwfPasswordToString(lmOwfBuffer, &LogonInfo->LmOwfPassword),
-                DumpOwfPasswordToString(ntOwfBuffer, &LogonInfo->NtOwfPassword),
-                LogonInfo->Identity.ParameterControl,
-                LogonInfo->Identity.ParameterControl,
-                LogonInfo->Identity.LogonId.HighPart,
-                LogonInfo->Identity.LogonId.LowPart,
-                LogonInfo->Identity.LogonId.HighPart,
-                LogonInfo->Identity.LogonId.LowPart,
-                LogonInfo->Identity.Workstation.Length/sizeof(WCHAR),
-                LogonInfo->Identity.Workstation.Length/sizeof(WCHAR),
-                LogonInfo->Identity.Workstation.Buffer
+                LogonInfo->LogonDomainName.Length/sizeof(WCHAR),
+                LogonInfo->LogonDomainName.Length/sizeof(WCHAR),
+                LogonInfo->LogonDomainName.Buffer,
+                LogonInfo->UserName.Length/sizeof(WCHAR),
+                LogonInfo->UserName.Length/sizeof(WCHAR),
+                LogonInfo->UserName.Buffer,
+                LogonInfo->ParameterControl,
+                LogonInfo->ParameterControl,
+                LogonInfo->LogonId.HighPart,
+                LogonInfo->LogonId.LowPart,
+                LogonInfo->LogonId.HighPart,
+                LogonInfo->LogonId.LowPart,
+                LogonInfo->Workstation.Length/sizeof(WCHAR),
+                LogonInfo->Workstation.Length/sizeof(WCHAR),
+                LogonInfo->Workstation.Buffer
                 );
 }
 

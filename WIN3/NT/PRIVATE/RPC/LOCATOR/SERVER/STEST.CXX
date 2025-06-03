@@ -847,5 +847,4 @@ SZ *paSZargs
 
     return(result);
 }
-
-
+

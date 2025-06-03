@@ -34,20 +34,26 @@ Revision History:
 #pragma warning ( 3 : 4219 ) // enable "trailing ',' used for variable argument list"
 #endif
 
-#include <nt.h>
-#include <ntrtl.h>
-#include <nturtl.h>
-#include <ntsam.h>
+#define WIN32_NO_STATUS
+#include <windef.h>
+#undef WIN32_NO_STATUS
 #include <windows.h>
-
-#include <crypt.h>
 #include <lmcons.h>
-#include <logonmsv.h>
-#include <ntmsv1_0.h>
-#include <samrpc.h>         // built to \nt\private\inc
-#include <lsarpc.h>         // built to \nt\private\inc
-#include <lsaisrv.h>
-#include <samisrv.h>
+#include <lmaccess.h>
+#include <lmapibuf.h>
+#include <subauth.h>
+
+
+BOOLEAN
+EqualComputerName(
+    IN PUNICODE_STRING String1,
+    IN PUNICODE_STRING String2
+    );
+
+NTSTATUS
+QuerySystemTime (
+    OUT PLARGE_INTEGER SystemTime
+    );
 
 
 BOOL
@@ -57,22 +63,32 @@ GetPasswordExpired(
     );
 
 NTSTATUS
-OpenDomainHandle (
-    VOID
+AccountRestrictions(
+    IN ULONG UserRid,
+    IN PUNICODE_STRING LogonWorkStation,
+    IN PUNICODE_STRING WorkStations,
+    IN PLOGON_HOURS LogonHours,
+    OUT PLARGE_INTEGER LogoffTime,
+    OUT PLARGE_INTEGER KickoffTime
     );
 
-#define MSV1_0_PASSTHRU     0x01
-#define MSV1_0_GUEST_LOGON  0x02
+LARGE_INTEGER
+NetpSecondsToDeltaTime(
+    IN ULONG Seconds
+    );
 
-//
-//  These are never closed once they're opened.  This is similar to how
-//  msv1_0 does it.  Since there's no callback at shutdown time, we have no
-//  way of knowing when to close them.
-//
+VOID
+InitUnicodeString(
+    OUT PUNICODE_STRING DestinationString,
+    IN PCWSTR SourceString OPTIONAL
+    );
 
-HANDLE SamDomainHandle = NULL;
-SAMPR_HANDLE SamConnectHandle = NULL;
-LSA_HANDLE LsaPolicyHandle = NULL;
+VOID
+CopyUnicodeString(
+    OUT PUNICODE_STRING DestinationString,
+    IN PUNICODE_STRING SourceString OPTIONAL
+    );
+
 
 
 NTSTATUS
@@ -171,10 +187,9 @@ Return Value:
 {
     NTSTATUS Status;
     ULONG UserAccountControl;
-    SAMPR_HANDLE UserHandle;
     LARGE_INTEGER LogonTime;
     LARGE_INTEGER PasswordDateSet;
-    PSAMPR_DOMAIN_INFO_BUFFER DomainInfo;
+    UNICODE_STRING LocalWorkstation;
 
     PNETLOGON_NETWORK_INFO LogonNetworkInfo;
 
@@ -187,7 +202,8 @@ Return Value:
     *Authoritative = TRUE;
     *UserFlags = 0;
     *WhichFields = 0;
-    (VOID) NtQuerySystemTime( &LogonTime );
+
+    (VOID) QuerySystemTime( &LogonTime );
 
     switch ( LogonLevel ) {
     case NetlogonInteractiveInformation:
@@ -275,8 +291,6 @@ Return Value:
     }
 
 
-
-
     //
     // Check the password.
     //
@@ -338,16 +352,14 @@ Return Value:
         // Check if the account has expired.
         //
 
-        if ( !RtlLargeIntegerEqualToZero(UserAll->AccountExpires) &&
-             RtlLargeIntegerGreaterThanOrEqualTo(
-                    LogonTime,
-                    UserAll->AccountExpires ) ) {
+        if ( UserAll->AccountExpires.QuadPart != 0 &&
+             LogonTime.QuadPart >= UserAll->AccountExpires.QuadPart ) {
             *Authoritative = TRUE;
             Status = STATUS_ACCOUNT_EXPIRED;
             goto Cleanup;
         }
 
-#if 0
+#if 1
 
     //
     //  If your using SAM's password expiration date, use this code, otherwise
@@ -363,11 +375,9 @@ Return Value:
         // want to consider not checking the SAM password expiration times here.
         //
 
-        if ( RtlLargeIntegerGreaterThanOrEqualTo(
-                LogonTime,
-                UserAll->PasswordMustChange ) ) {
+        if ( LogonTime.QuadPart >= UserAll->PasswordMustChange.QuadPart ) {
 
-            if ( RtlLargeIntegerEqualToZero(UserAll->PasswordLastSet) ) {
+            if ( UserAll->PasswordLastSet.QuadPart == 0 ) {
                 Status = STATUS_PASSWORD_MUST_CHANGE;
             } else {
                 Status = STATUS_PASSWORD_EXPIRED;
@@ -379,34 +389,13 @@ Return Value:
 #else
 
         //
-        //  Ensure that we have a valid handle to the domain.
-        //
-
-        Status = OpenDomainHandle( );
-
-        if ( !NT_SUCCESS(Status) ) {
-
-            goto Cleanup;
-        }
-
-        //
         // Response is correct. So, check if the password has expired or not
         //
 
         if (! (UserAll->UserAccountControl & USER_DONT_EXPIRE_PASSWORD)) {
-
-            //
-            //  Get the maximum password age for this domain.
-            //
-
-            Status = SamrQueryInformationDomain( SamDomainHandle,
-                                                 DomainPasswordInformation,
-                                                 &DomainInfo );
-            if ( !NT_SUCCESS(Status) ) {
-
-                KdPrint(( "SubAuth: Cannot SamrQueryInformationDomain %lX\n", Status));
-                goto Cleanup;
-            }
+            LARGE_INTEGER MaxPasswordAge;
+            MaxPasswordAge.HighPart = 0x7FFFFFFF;
+            MaxPasswordAge.LowPart = 0xFFFFFFFF;
 
             //
             // PasswordDateSet should be modified to hold the last date the
@@ -417,7 +406,7 @@ Return Value:
             PasswordDateSet.HighPart = 0;
 
             if ( GetPasswordExpired( PasswordDateSet,
-                        DomainInfo->Password.MaxPasswordAge )) {
+                        MaxPasswordAge )) {
 
                 Status = STATUS_PASSWORD_EXPIRED;
                 goto Cleanup;
@@ -430,44 +419,36 @@ Return Value:
 #if 1
 
     //
+    // Validate the workstation the user logged on from.
+    //
+    // Ditch leading \\ on workstation name before passing it to SAM.
+    //
+
+    LocalWorkstation = LogonNetworkInfo->Identity.Workstation;
+    if ( LocalWorkstation.Length > 0 &&
+         LocalWorkstation.Buffer[0] == L'\\' &&
+         LocalWorkstation.Buffer[1] == L'\\' ) {
+        LocalWorkstation.Buffer += 2;
+        LocalWorkstation.Length -= 2*sizeof(WCHAR);
+        LocalWorkstation.MaximumLength -= 2*sizeof(WCHAR);
+    }
+
+
+    //
     //  To validate the user's logon hours as SAM does it, use this code,
     //  otherwise, supply your own checks below this code.
     //
 
-        //
-        //  To validate the user's logon hours, we must have a handle to the user.
-        //  We'll open the user here.
-        //
+    Status = AccountRestrictions( UserAll->UserId,
+                                  &LocalWorkstation,
+                                  (PUNICODE_STRING) &UserAll->WorkStations,
+                                  &UserAll->LogonHours,
+                                  LogoffTime,
+                                  KickoffTime );
 
-        UserHandle = NULL;
-
-        Status = SamrOpenUser(  SamDomainHandle,
-                                USER_READ_ACCOUNT,
-                                UserAll->UserId,
-                                &UserHandle );
-
-        if ( !NT_SUCCESS(Status) ) {
-
-            KdPrint(( "SubAuth: Cannot SamrOpenUser %lX\n", Status));
-            goto Cleanup;
-        }
-
-        //
-        // Validate the user's logon hours.
-        //
-
-        Status = SamIAccountRestrictions(   UserHandle,
-                                            NULL,       // workstation id
-                                            NULL,       // workstation list
-                                            &UserAll->LogonHours,
-                                            LogoffTime,
-                                            KickoffTime
-                                            );
-        SamrCloseHandle( &UserHandle );
-
-        if ( ! NT_SUCCESS( Status )) {
-            goto Cleanup;
-        }
+    if ( !NT_SUCCESS( Status )) {
+        goto Cleanup;
+    }
 
 #else
 
@@ -526,120 +507,6 @@ Cleanup:
 }  // Msv1_0SubAuthenticationRoutine
 
 
-NTSTATUS
-OpenDomainHandle (
-    VOID
-    )
-/*++
-
-  This routine opens a handle to sam so that we can get the max password
-  age and query the user record.
-
---*/
-{
-    NTSTATUS Status = STATUS_SUCCESS;
-    OBJECT_ATTRIBUTES PolicyObjectAttributes;
-    PLSAPR_POLICY_INFORMATION PolicyAccountDomainInfo;
-
-    //
-    //  if we don't yet have a domain handle, open domain handle so that
-    //  we can query the domain's password expiration time.
-    //
-
-    if (SamDomainHandle != NULL) {
-
-        return(Status);
-    }
-
-    PolicyAccountDomainInfo = NULL;
-
-    //
-    // Determine the DomainName and DomainId of the Account Database
-    //
-
-    if (LsaPolicyHandle == NULL) {
-
-        InitializeObjectAttributes( &PolicyObjectAttributes,
-                                      NULL,             // Name
-                                      0,                // Attributes
-                                      NULL,             // Root
-                                      NULL );           // Security Descriptor
-
-        Status = LsaIOpenPolicyTrusted(&LsaPolicyHandle);
-
-        if ( !NT_SUCCESS(Status) ) {
-
-            LsaPolicyHandle = NULL;
-            KdPrint(( "SubAuth: Cannot LsaIOpenPolicyTrusted 0x%x\n", Status));
-            goto Cleanup;
-        }
-    }
-
-    Status = LsarQueryInformationPolicy( LsaPolicyHandle,
-                                         PolicyAccountDomainInformation,
-                                         &PolicyAccountDomainInfo );
-
-    if ( !NT_SUCCESS(Status) ) {
-
-        KdPrint(( "SubAuth: Cannot LsarQueryInformationPolicy 0x%x\n", Status));
-        goto Cleanup;
-    }
-
-    if ( PolicyAccountDomainInfo->PolicyAccountDomainInfo.DomainSid == NULL ) {
-
-        Status = STATUS_NO_SUCH_DOMAIN;
-
-        KdPrint(( "SubAuth: Domain Sid is null 0x%x\n", Status));
-        goto Cleanup;
-    }
-
-    //
-    // Open our connection with SAM
-    //
-
-    if (SamConnectHandle == NULL) {
-
-        Status = SamIConnect( NULL,     // No server name
-                              &SamConnectHandle,
-                              SAM_SERVER_CONNECT,
-                              (BOOLEAN) TRUE );   // Indicate we are privileged
-
-        if ( !NT_SUCCESS(Status) ) {
-
-            SamConnectHandle = NULL;
-
-            KdPrint(( "SubAuth: Cannot SamIConnect 0x%x\n", Status));
-            goto Cleanup;
-        }
-    }
-
-    //
-    // Open the domain.
-    //
-
-    Status = SamrOpenDomain( SamConnectHandle,
-                             DOMAIN_READ_OTHER_PARAMETERS,
-                             (RPC_SID *) PolicyAccountDomainInfo->PolicyAccountDomainInfo.DomainSid,
-                             &SamDomainHandle );
-
-    if ( !NT_SUCCESS(Status) ) {
-
-        SamDomainHandle = NULL;
-        KdPrint(( "SubAuth: Cannot SamrOpenDomain 0x%x\n", Status));
-        goto Cleanup;
-    }
-
-Cleanup:
-
-    if (PolicyAccountDomainInfo != NULL) {
-
-        LsaIFree_LSAPR_POLICY_INFORMATION( PolicyAccountDomainInformation,
-                                           PolicyAccountDomainInfo );
-    }
-
-    return(Status);
-
-} // OpenDomainHandle
 
 
 BOOL
@@ -676,32 +543,30 @@ Return Value:
     // last set plus the maximum age.
     //
 
-    if (RtlLargeIntegerLessThanZero(PasswordLastSet) ||
-        RtlLargeIntegerGreaterThanZero(MaxPasswordAge) ) {
+    if ( PasswordLastSet.QuadPart < 0 || MaxPasswordAge.QuadPart > 0 ) {
 
         rc = TRUE;      // default for invalid times is that it is expired.
 
     } else {
 
-        try {
+        __try {
 
-            PasswordMustChange = RtlLargeIntegerSubtract(PasswordLastSet,
-                                                         MaxPasswordAge);
+            PasswordMustChange.QuadPart =
+                PasswordLastSet.QuadPart - MaxPasswordAge.QuadPart;
             //
             // Limit the resultant time to the maximum valid absolute time
             //
 
-            if (RtlLargeIntegerLessThanZero(PasswordMustChange)) {
+            if ( PasswordMustChange.QuadPart < 0 ) {
 
                 rc = FALSE;
 
             } else {
 
-                Status = NtQuerySystemTime( &TimeNow );
+                Status = QuerySystemTime( &TimeNow );
                 if (NT_SUCCESS(Status)) {
 
-                    if ( RtlLargeIntegerGreaterThanOrEqualTo( TimeNow,
-                                                            PasswordMustChange ) ) {
+                    if ( TimeNow.QuadPart >= PasswordMustChange.QuadPart ) {
                         rc = TRUE;
 
                     } else {
@@ -709,11 +574,11 @@ Return Value:
                         rc = FALSE;
                     }
                 } else {
-                    rc = FALSE;     // won't fail if NtQuerySystemTime failed.
+                    rc = FALSE;     // won't fail if QuerySystemTime failed.
                 }
             }
 
-        } except(EXCEPTION_EXECUTE_HANDLER) {
+        } __except(EXCEPTION_EXECUTE_HANDLER) {
 
             rc = TRUE;
         }
@@ -723,5 +588,767 @@ Return Value:
 
 }  // GetPasswordExpired
 
+
+NTSTATUS
+QuerySystemTime (
+    OUT PLARGE_INTEGER SystemTime
+    )
+
+/*++
+
+Routine Description:
+
+    This function returns the absolute system time. The time is in units of
+    100nsec ticks since the base time which is midnight January 1, 1601.
+
+Arguments:
+
+    SystemTime - Supplies the address of a variable that will receive the
+        current system time.
+
+Return Value:
+
+    STATUS_SUCCESS is returned if the service is successfully executed.
+
+    STATUS_ACCESS_VIOLATION is returned if the output parameter for the
+        system time cannot be written.
+
+--*/
+
+{
+    SYSTEMTIME CurrentTime;
+
+    GetSystemTime( &CurrentTime );
+
+    if ( !SystemTimeToFileTime( &CurrentTime, (LPFILETIME) SystemTime ) ) {
+        return STATUS_ACCESS_VIOLATION;
+    }
+
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS
+SampMatchworkstation(
+    IN PUNICODE_STRING LogonWorkStation,
+    IN PUNICODE_STRING WorkStations
+    )
+
+/*++
+
+Routine Description:
+
+    Check if the given workstation is a member of the list of workstations
+    given.
+
+
+Arguments:
+
+    LogonWorkStations - UNICODE name of the workstation that the user is
+        trying to log into.
+
+    WorkStations - API list of workstations that the user is allowed to
+        log into.
+
+
+Return Value:
+
+
+    STATUS_SUCCESS - The user is allowed to log into the workstation.
+
+
+
+--*/
+{
+    PWCHAR          WorkStationName;
+    UNICODE_STRING  Unicode;
+    NTSTATUS        NtStatus;
+    WCHAR           Buffer[256];
+    USHORT          LocalBufferLength = 256;
+    UNICODE_STRING  WorkStationsListCopy;
+    BOOLEAN         BufferAllocated = FALSE;
+    PWCHAR          TmpBuffer;
+
+    //
+    // Local workstation is always allowed
+    // If WorkStations field is 0 everybody is allowed
+    //
+
+    if ( ( LogonWorkStation == NULL ) ||
+        ( LogonWorkStation->Length == 0 ) ||
+        ( WorkStations->Length == 0 ) ) {
+
+        return( STATUS_SUCCESS );
+    }
+
+    //
+    // Assume failure; change status only if we find the string.
+    //
+
+    NtStatus = STATUS_INVALID_WORKSTATION;
+
+    //
+    // WorkStationApiList points to our current location in the list of
+    // WorkStations.
+    //
+
+    if ( WorkStations->Length > LocalBufferLength ) {
+
+        WorkStationsListCopy.Buffer = LocalAlloc( 0, WorkStations->Length );
+        BufferAllocated = TRUE;
+
+        if ( WorkStationsListCopy.Buffer == NULL ) {
+            NtStatus = STATUS_INSUFFICIENT_RESOURCES;
+            return( NtStatus );
+        }
+
+        WorkStationsListCopy.MaximumLength = WorkStations->Length;
+
+    } else {
+
+        WorkStationsListCopy.Buffer = Buffer;
+        WorkStationsListCopy.MaximumLength = LocalBufferLength;
+    }
+
+    CopyUnicodeString( &WorkStationsListCopy, WorkStations );
+
+    //
+    // wcstok requires a string the first time it's called, and NULL
+    // for all subsequent calls.  Use a temporary variable so we
+    // can do this.
+    //
+
+    TmpBuffer = WorkStationsListCopy.Buffer;
+
+    while( WorkStationName = wcstok(TmpBuffer, L",") ) {
+
+        TmpBuffer = NULL;
+        InitUnicodeString( &Unicode, WorkStationName );
+        if (EqualComputerName( &Unicode, LogonWorkStation )) {
+            NtStatus = STATUS_SUCCESS;
+            break;
+        }
+    }
+
+    if ( BufferAllocated ) {
+        LocalFree( WorkStationsListCopy.Buffer );
+    }
+
+    return( NtStatus );
+}
+
+NTSTATUS
+AccountRestrictions(
+    IN ULONG UserRid,
+    IN PUNICODE_STRING LogonWorkStation,
+    IN PUNICODE_STRING WorkStations,
+    IN PLOGON_HOURS LogonHours,
+    OUT PLARGE_INTEGER LogoffTime,
+    OUT PLARGE_INTEGER KickoffTime
+    )
+
+/*++
+
+Routine Description:
+
+    Validate a user's ability to logon at this time and at the workstation
+    being logged onto.
+
+
+Arguments:
+
+    UserRid - The user id of the user to operate on.
+
+    LogonWorkStation - The name of the workstation the logon is being
+        attempted at.
+
+    WorkStations - The list of workstations the user may logon to.  This
+        information comes from the user's account information.  It must
+        be in API list format.
+
+    LogonHours - The times the user may logon.  This information comes
+        from the user's account information.
+
+    LogoffTime - Receives the time at which the user should logoff the
+        system.
+
+    KickoffTime - Receives the time at which the user should be kicked
+        off the system.
+
+
+Return Value:
+
+
+    STATUS_SUCCESS - Logon is permitted.
+
+    STATUS_INVALID_LOGON_HOURS - The user is not authorized to logon at
+        this time.
+
+    STATUS_INVALID_WORKSTATION - The user is not authorized to logon to
+        the specified workstation.
+
+
+--*/
+{
+
+    static BOOLEAN GetForceLogoff = TRUE;
+    static LARGE_INTEGER ForceLogoff = { 0x7fffffff, 0xFFFFFFF};
+
+#define MILLISECONDS_PER_WEEK 7 * 24 * 60 * 60 * 1000
+
+    SYSTEMTIME              CurrentTimeFields;
+    LARGE_INTEGER           CurrentTime, CurrentUTCTime;
+    LARGE_INTEGER           MillisecondsIntoWeekXUnitsPerWeek;
+    LARGE_INTEGER           LargeUnitsIntoWeek;
+    LARGE_INTEGER           Delta100Ns;
+    NTSTATUS                NtStatus = STATUS_SUCCESS;
+    ULONG                   CurrentMsIntoWeek;
+    ULONG                   LogoffMsIntoWeek;
+    ULONG                   DeltaMs;
+    ULONG                   MillisecondsPerUnit;
+    ULONG                   CurrentUnitsIntoWeek;
+    ULONG                   LogoffUnitsIntoWeek;
+    USHORT                  i;
+    TIME_ZONE_INFORMATION   TimeZoneInformation;
+    DWORD TimeZoneId;
+    LARGE_INTEGER           BiasIn100NsUnits;
+    LONG                    BiasInMinutes;
+
+
+
+    //
+    // Only check for users other than the builtin ADMIN
+    //
+
+    if ( UserRid != DOMAIN_USER_RID_ADMIN) {
+
+        //
+        // Scan to make sure the workstation being logged into is in the
+        // list of valid workstations - or if the list of valid workstations
+        // is null, which means that all are valid.
+        //
+
+        NtStatus = SampMatchworkstation( LogonWorkStation, WorkStations );
+
+        if ( NT_SUCCESS( NtStatus ) ) {
+
+            //
+            // Check to make sure that the current time is a valid time to logon
+            // in the LogonHours.
+            //
+            // We need to validate the time taking into account whether we are
+            // in daylight savings time or standard time.  Thus, if the logon
+            // hours specify that we are able to logon between 9am and 5pm,
+            // this means 9am to 5pm standard time during the standard time
+            // period, and 9am to 5pm daylight savings time when in the
+            // daylight savings time.  Since the logon hours stored by SAM are
+            // independent of daylight savings time, we need to add in the
+            // difference between standard time and daylight savings time to
+            // the current time before checking whether this time is a valid
+            // time to logon.  Since this difference (or bias as it is called)
+            // is actually held in the form
+            //
+            // Standard time = Daylight savings time + Bias
+            //
+            // the Bias is a negative number.  Thus we actually subtract the
+            // signed Bias from the Current Time.
+
+            //
+            // First, get the Time Zone Information.
+            //
+
+            TimeZoneId = GetTimeZoneInformation(
+                             (LPTIME_ZONE_INFORMATION) &TimeZoneInformation
+                             );
+
+            //
+            // Next, get the appropriate bias (signed integer in minutes) to subtract from
+            // the Universal Time Convention (UTC) time returned by NtQuerySystemTime
+            // to get the local time.  The bias to be used depends whether we're
+            // in Daylight Savings time or Standard Time as indicated by the
+            // TimeZoneId parameter.
+            //
+            // local time  = UTC time - bias in 100Ns units
+            //
+
+            switch (TimeZoneId) {
+
+            case TIME_ZONE_ID_UNKNOWN:
+
+                //
+                // There is no differentiation between standard and
+                // daylight savings time.  Proceed as for Standard Time
+                //
+
+                BiasInMinutes = TimeZoneInformation.StandardBias;
+                break;
+
+            case TIME_ZONE_ID_STANDARD:
+
+                BiasInMinutes = TimeZoneInformation.StandardBias;
+                break;
+
+            case TIME_ZONE_ID_DAYLIGHT:
+
+                BiasInMinutes = TimeZoneInformation.DaylightBias;
+                break;
+
+            default:
+
+                //
+                // Something is wrong with the time zone information.  Fail
+                // the logon request.
+                //
+
+                NtStatus = STATUS_INVALID_LOGON_HOURS;
+                break;
+            }
+
+            if (NT_SUCCESS(NtStatus)) {
+
+                //
+                // Convert the Bias from minutes to 100ns units
+                //
+
+                BiasIn100NsUnits.QuadPart = ((LONGLONG)BiasInMinutes)
+                                            * 60 * 10000000;
+
+                //
+                // Get the UTC time in 100Ns units used by Windows Nt.  This
+                // time is GMT.
+                //
+
+                NtStatus = QuerySystemTime( &CurrentUTCTime );
+            }
+
+            if ( NT_SUCCESS( NtStatus ) ) {
+
+                CurrentTime.QuadPart = CurrentUTCTime.QuadPart -
+                              BiasIn100NsUnits.QuadPart;
+
+                FileTimeToSystemTime( (PFILETIME)&CurrentTime, &CurrentTimeFields );
+
+                CurrentMsIntoWeek = (((( CurrentTimeFields.wDayOfWeek * 24 ) +
+                                       CurrentTimeFields.wHour ) * 60 +
+                                       CurrentTimeFields.wMinute ) * 60 +
+                                       CurrentTimeFields.wSecond ) * 1000 +
+                                       CurrentTimeFields.wMilliseconds;
+
+                MillisecondsIntoWeekXUnitsPerWeek.QuadPart =
+                    ((LONGLONG)CurrentMsIntoWeek) *
+                    ((LONGLONG)LogonHours->UnitsPerWeek);
+
+                LargeUnitsIntoWeek.QuadPart =
+                    MillisecondsIntoWeekXUnitsPerWeek.QuadPart / ((ULONG) MILLISECONDS_PER_WEEK);
+
+                CurrentUnitsIntoWeek = LargeUnitsIntoWeek.LowPart;
+
+                if ( !( LogonHours->LogonHours[ CurrentUnitsIntoWeek / 8] &
+                    ( 0x01 << ( CurrentUnitsIntoWeek % 8 ) ) ) ) {
+
+                    NtStatus = STATUS_INVALID_LOGON_HOURS;
+
+                } else {
+
+                    //
+                    // Determine the next time that the user is NOT supposed to be logged
+                    // in, and return that as LogoffTime.
+                    //
+
+                    i = 0;
+                    LogoffUnitsIntoWeek = CurrentUnitsIntoWeek;
+
+                    do {
+
+                        i++;
+
+                        LogoffUnitsIntoWeek = ( LogoffUnitsIntoWeek + 1 ) % LogonHours->UnitsPerWeek;
+
+                    } while ( ( i <= LogonHours->UnitsPerWeek ) &&
+                        ( LogonHours->LogonHours[ LogoffUnitsIntoWeek / 8 ] &
+                        ( 0x01 << ( LogoffUnitsIntoWeek % 8 ) ) ) );
+
+                    if ( i > LogonHours->UnitsPerWeek ) {
+
+                        //
+                        // All times are allowed, so there's no logoff
+                        // time.  Return forever for both logofftime and
+                        // kickofftime.
+                        //
+
+                        LogoffTime->HighPart = 0x7FFFFFFF;
+                        LogoffTime->LowPart = 0xFFFFFFFF;
+
+                        KickoffTime->HighPart = 0x7FFFFFFF;
+                        KickoffTime->LowPart = 0xFFFFFFFF;
+
+                    } else {
+
+                        //
+                        // LogoffUnitsIntoWeek points at which time unit the
+                        // user is to log off.  Calculate actual time from
+                        // the unit, and return it.
+                        //
+                        // CurrentTimeFields already holds the current
+                        // time for some time during this week; just adjust
+                        // to the logoff time during this week and convert
+                        // to time format.
+                        //
+
+                        MillisecondsPerUnit = MILLISECONDS_PER_WEEK / LogonHours->UnitsPerWeek;
+
+                        LogoffMsIntoWeek = MillisecondsPerUnit * LogoffUnitsIntoWeek;
+
+                        if ( LogoffMsIntoWeek < CurrentMsIntoWeek ) {
+
+                            DeltaMs = MILLISECONDS_PER_WEEK - ( CurrentMsIntoWeek - LogoffMsIntoWeek );
+
+                        } else {
+
+                            DeltaMs = LogoffMsIntoWeek - CurrentMsIntoWeek;
+                        }
+
+                        Delta100Ns.QuadPart = (LONGLONG) DeltaMs * 10000;
+
+                        LogoffTime->QuadPart = CurrentUTCTime.QuadPart +
+                                      Delta100Ns.QuadPart;
+
+                        //
+                        // Grab the domain's ForceLogoff time.
+                        //
+
+                        if ( GetForceLogoff ) {
+                            NET_API_STATUS NetStatus;
+                            LPUSER_MODALS_INFO_0 UserModals0;
+
+                            NetStatus = NetUserModalsGet( NULL,
+                                                          0,
+                                                          (LPBYTE *)&UserModals0 );
+
+                            if ( NetStatus == 0 ) {
+                                GetForceLogoff = FALSE;
+
+                                ForceLogoff = NetpSecondsToDeltaTime( UserModals0->usrmod0_force_logoff );
+
+                                NetApiBufferFree( UserModals0 );
+                            }
+                        }
+                        //
+                        // Subtract Domain->ForceLogoff from LogoffTime, and return
+                        // that as KickoffTime.  Note that Domain->ForceLogoff is a
+                        // negative delta.  If its magnitude is sufficiently large
+                        // (in fact, larger than the difference between LogoffTime
+                        // and the largest positive large integer), we'll get overflow
+                        // resulting in a KickOffTime that is negative.  In this
+                        // case, reset the KickOffTime to this largest positive
+                        // large integer (i.e. "never") value.
+                        //
+
+
+                        KickoffTime->QuadPart = LogoffTime->QuadPart - ForceLogoff.QuadPart;
+
+                        if (KickoffTime->QuadPart < 0) {
+
+                            KickoffTime->HighPart = 0x7FFFFFFF;
+                            KickoffTime->LowPart = 0xFFFFFFFF;
+                        }
+                    }
+                }
+            }
+        }
+
+    } else {
+
+        //
+        // Never kick administrators off
+        //
+
+        LogoffTime->HighPart  = 0x7FFFFFFF;
+        LogoffTime->LowPart   = 0xFFFFFFFF;
+        KickoffTime->HighPart = 0x7FFFFFFF;
+        KickoffTime->LowPart  = 0xFFFFFFFF;
+    }
+
+
+    return( NtStatus );
+}
+
+LARGE_INTEGER
+NetpSecondsToDeltaTime(
+    IN ULONG Seconds
+    )
+
+/*++
+
+Routine Description:
+
+    Convert a number of seconds to an NT delta time specification
+
+Arguments:
+
+    Seconds - a positive number of seconds
+
+Return Value:
+
+    Returns the NT Delta time.  NT delta time is a negative number
+        of 100ns units.
+
+--*/
+
+{
+    LARGE_INTEGER DeltaTime;
+    LARGE_INTEGER LargeSeconds;
+    LARGE_INTEGER Answer;
+
+    //
+    // Special case TIMEQ_FOREVER (return a full scale negative)
+    //
+
+    if ( Seconds == TIMEQ_FOREVER ) {
+        DeltaTime.LowPart = 0;
+        DeltaTime.HighPart = (LONG) 0x80000000;
+
+    //
+    // Convert seconds to 100ns units simply by multiplying by 10000000.
+    //
+    // Convert to delta time by negating.
+    //
+
+    } else {
+
+        LargeSeconds.LowPart = Seconds;
+        LargeSeconds.HighPart = 0;
+
+        Answer.QuadPart = LargeSeconds.QuadPart * 10000000;
+
+          if ( Answer.QuadPart < 0 ) {
+            DeltaTime.LowPart = 0;
+            DeltaTime.HighPart = (LONG) 0x80000000;
+        } else {
+            DeltaTime.QuadPart = -Answer.QuadPart;
+        }
+
+    }
+
+    return DeltaTime;
+
+} // NetpSecondsToDeltaTime
+
+
+BOOLEAN
+EqualComputerName(
+    IN PUNICODE_STRING String1,
+    IN PUNICODE_STRING String2
+    )
+/*++
+
+Routine Description:
+
+    Compare two computer names for equality.
+
+Arguments:
+
+    String1 - Name of first computer.
+    String2 - Name of second computer.
+
+Return Value:
+
+    TRUE if the names, converted to OEM, compare case-insensitively,
+    FALSE if they don't compare or can't be converted to OEM.
+
+--*/
+{
+    WCHAR Computer1[CNLEN+1];
+    WCHAR Computer2[CNLEN+1];
+    CHAR OemComputer1[CNLEN+1];
+    CHAR OemComputer2[CNLEN+1];
+
+    //
+    // Make sure the names are not too long
+    //
+
+    if ((String1->Length > CNLEN*sizeof(WCHAR)) ||
+        (String2->Length > CNLEN*sizeof(WCHAR))) {
+        return(FALSE);
+
+    }
+
+    //
+    // Copy them to null terminated strings
+    //
+
+    CopyMemory(
+        Computer1,
+        String1->Buffer,
+        String1->Length
+        );
+    Computer1[String1->Length/sizeof(WCHAR)] = L'\0';
+
+    CopyMemory(
+        Computer2,
+        String2->Buffer,
+        String2->Length
+        );
+    Computer2[String2->Length/sizeof(WCHAR)] = L'\0';
+
+    //
+    // Convert the computer names to OEM
+    //
+
+    if (!CharToOemW(
+            Computer1,
+            OemComputer1
+            )) {
+        return(FALSE);
+    }
+
+    if (!CharToOemW(
+            Computer2,
+            OemComputer2
+            )) {
+        return(FALSE);
+    }
+
+    //
+    // Do a case insensitive comparison of the oem computer names.
+    //
+
+    if (lstrcmpiA(OemComputer1, OemComputer2) == 0)
+    {
+        return(TRUE);
+    }
+    else
+    {
+        return(FALSE);
+    }
+}
+
+VOID
+InitUnicodeString(
+    OUT PUNICODE_STRING DestinationString,
+    IN PCWSTR SourceString OPTIONAL
+    )
+
+/*++
+
+Routine Description:
+
+    The InitUnicodeString function initializes an NT counted
+    unicode string.  The DestinationString is initialized to point to
+    the SourceString and the Length and MaximumLength fields of
+    DestinationString are initialized to the length of the SourceString,
+    which is zero if SourceString is not specified.
+
+Arguments:
+
+    DestinationString - Pointer to the counted string to initialize
+
+    SourceString - Optional pointer to a null terminated unicode string that
+        the counted string is to point to.
+
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    ULONG Length;
+
+    DestinationString->Buffer = (PWSTR)SourceString;
+    if (SourceString != NULL) {
+        Length = wcslen( SourceString ) * sizeof( WCHAR );
+        DestinationString->Length = (USHORT)Length;
+        DestinationString->MaximumLength = (USHORT)(Length + sizeof(UNICODE_NULL));
+        }
+    else {
+        DestinationString->MaximumLength = 0;
+        DestinationString->Length = 0;
+        }
+}
+
+VOID
+CopyUnicodeString(
+    OUT PUNICODE_STRING DestinationString,
+    IN PUNICODE_STRING SourceString OPTIONAL
+    )
+
+/*++
+
+Routine Description:
+
+    The CopyString function copies the SourceString to the
+    DestinationString.  If SourceString is not specified, then
+    the Length field of DestinationString is set to zero.  The
+    MaximumLength and Buffer fields of DestinationString are not
+    modified by this function.
+
+    The number of bytes copied from the SourceString is either the
+    Length of SourceString or the MaximumLength of DestinationString,
+    whichever is smaller.
+
+Arguments:
+
+    DestinationString - Pointer to the destination string.
+
+    SourceString - Optional pointer to the source string.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    UNALIGNED WCHAR *src, *dst;
+    ULONG n;
+
+    if (SourceString != NULL) {
+        dst = DestinationString->Buffer;
+        src = SourceString->Buffer;
+        n = SourceString->Length;
+        if ((USHORT)n > DestinationString->MaximumLength) {
+            n = DestinationString->MaximumLength;
+        }
+
+        DestinationString->Length = (USHORT)n;
+        CopyMemory(dst, src, n);
+        if (DestinationString->Length < DestinationString->MaximumLength) {
+            dst[n / sizeof(WCHAR)] = UNICODE_NULL;
+        }
+
+    } else {
+        DestinationString->Length = 0;
+    }
+
+    return;
+}
+
+
+NTSTATUS
+Msv1_0SubAuthenticationFilter (
+    IN NETLOGON_LOGON_INFO_CLASS LogonLevel,
+    IN PVOID LogonInformation,
+    IN ULONG Flags,
+    IN PUSER_ALL_INFORMATION UserAll,
+    OUT PULONG WhichFields,
+    OUT PULONG UserFlags,
+    OUT PBOOLEAN Authoritative,
+    OUT PLARGE_INTEGER LogoffTime,
+    OUT PLARGE_INTEGER KickoffTime
+)
+{
+    return( Msv1_0SubAuthenticationRoutine(
+                LogonLevel,
+                LogonInformation,
+                Flags,
+                UserAll,
+                WhichFields,
+                UserFlags,
+                Authoritative,
+                LogoffTime,
+                KickoffTime
+                ) );
+}
 // subauth.c eof
 

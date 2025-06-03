@@ -116,12 +116,14 @@ Return Value:
 {
     PMMVAD_SHORT Vad;
     PMMVAD_SHORT NewVad;
+    PMMVAD PreviousVad;
+    PMMVAD NextVad;
     PEPROCESS Process;
     KPROCESSOR_MODE PreviousMode;
     PVOID StartingAddress;
     PVOID EndingAddress;
     NTSTATUS Status;
-    BOOLEAN Attached = FALSE;
+    ULONG Attached = FALSE;
     ULONG CapturedRegionSize;
     PVOID CapturedBase;
     PMMPTE StartingPte;
@@ -190,7 +192,7 @@ Return Value:
     }
 
 #if DBG
-    if (MmDebug & 0x10000000) {
+    if (MmDebug & MM_DBG_SHOW_NT_CALLS) {
         if ( !MmWatchProcess ) {
             DbgPrint("freevm processhandle %lx base %lx size %lx type %lx\n",
                     ProcessHandle, CapturedBase, CapturedRegionSize, FreeType);
@@ -228,19 +230,23 @@ Return Value:
 
     StartingAddress = (PVOID)PAGE_ALIGN(CapturedBase);
 
-    //
-    // Reference the specified process handle for VM_OPERATION access.
-    //
+    if ( ProcessHandle == NtCurrentProcess() ) {
+        Process = PsGetCurrentProcess();
+    } else {
+        //
+        // Reference the specified process handle for VM_OPERATION access.
+        //
 
-    Status = ObReferenceObjectByHandle ( ProcessHandle,
-                                         PROCESS_VM_OPERATION,
-                                         PsProcessType,
-                                         PreviousMode,
-                                         (PVOID *)&Process,
-                                         NULL );
+        Status = ObReferenceObjectByHandle ( ProcessHandle,
+                                             PROCESS_VM_OPERATION,
+                                             PsProcessType,
+                                             PreviousMode,
+                                             (PVOID *)&Process,
+                                             NULL );
 
-    if (!NT_SUCCESS(Status)) {
-        return Status;
+        if (!NT_SUCCESS(Status)) {
+            return Status;
+        }
     }
 
     //
@@ -310,6 +316,39 @@ Return Value:
         goto ErrorReturn;
     }
 
+    if (Vad->u.VadFlags.NoChange == 1) {
+
+        //
+        // An attempt is being made to delete a secured VAD, check
+        // to see if this deletion is allowed.
+        //
+
+        if (FreeType & MEM_RELEASE) {
+
+            //
+            // Specifiy the whole range, this solves the problem with
+            // splitting the VAD and trying to decide where the various
+            // secure ranges need to go.
+            //
+
+            Status = MiCheckSecuredVad ((PMMVAD)Vad,
+                                        Vad->StartingVa,
+                                (PCHAR)Vad->EndingVa - (PCHAR)Vad->StartingVa,
+                                        MM_SECURE_DELETE_CHECK);
+
+        } else {
+            Status = MiCheckSecuredVad ((PMMVAD)Vad,
+                                        CapturedBase,
+                                        CapturedRegionSize,
+                                        MM_SECURE_DELETE_CHECK);
+        }
+        if (!NT_SUCCESS (Status)) {
+            goto ErrorReturn;
+        }
+    }
+
+    PreviousVad = MiGetPreviousVad (Vad);
+    NextVad = MiGetNextVad (Vad);
     if (FreeType & MEM_RELEASE) {
 
         //
@@ -384,6 +423,7 @@ Return Value:
                     MiReturnPageFileQuota (CommitReduction, Process);
                     MiReturnCommitment (CommitReduction);
                     Process->CommitCharge -= CommitReduction;
+                    PreviousVad = (PMMVAD)Vad;
                 }
 
             } else {
@@ -410,6 +450,7 @@ Return Value:
                     Process->CommitCharge -= CommitReduction;
 
                     Vad->EndingVa = (PVOID)((ULONG)StartingAddress - 1L);
+                    PreviousVad = (PMMVAD)Vad;
 
                 } else {
 
@@ -499,6 +540,8 @@ Return Value:
                     //
 
                     NewVad->u.VadFlags.CommitCharge = OldQuota - QuotaCharge;
+                    PreviousVad = (PMMVAD)Vad;
+                    NextVad = (PMMVAD)NewVad;
                 }
             }
         }
@@ -509,7 +552,9 @@ Return Value:
 
         MiReturnPageTablePageCommitment (StartingAddress,
                                          EndingAddress,
-                                         Process);
+                                         Process,
+                                         PreviousVad,
+                                         NextVad);
 
         //
         // Get the PFN mutex so the MiDeleteVirtualAddresses can be called.
@@ -532,8 +577,9 @@ Return Value:
             KeDetachProcess();
         }
 
-        ObDereferenceObject (Process);
-
+        if ( ProcessHandle != NtCurrentProcess() ) {
+            ObDereferenceObject (Process);
+        }
         //
         // Establish an exception handler and write the size and base
         // address.
@@ -553,13 +599,7 @@ Return Value:
         }
 
 #if DBG
-    if (NtGlobalFlag & FLG_TRACE_PAGING_INFO) {
-        DbgPrint("$$$VM DELETION: %lx Start %lx Size %lx\n",
-            Process, StartingAddress, CapturedRegionSize);
-    }
-#endif
-#if DBG
-    if (MmDebug & 0x10000000) {
+    if (MmDebug & MM_DBG_SHOW_NT_CALLS) {
         if ( MmWatchProcess ) {
             if ( MmWatchProcess == PsGetCurrentProcess() ) {
                 DbgPrint("\n--- FREE Type 0x%lx Base %lx Size %lx\n",
@@ -665,7 +705,9 @@ Return Value:
     if (Attached) {
         KeDetachProcess();
     }
-    ObDereferenceObject (Process);
+    if ( ProcessHandle != NtCurrentProcess() ) {
+        ObDereferenceObject (Process);
+    }
 
     //
     // Establish an exception handler and write the size and base
@@ -695,7 +737,6 @@ Return Value:
 
     return STATUS_SUCCESS;
 
-    {
 ErrorReturn:
        UNLOCK_WS (Process);
        UNLOCK_ADDRESS_SPACE (Process);
@@ -704,13 +745,13 @@ ErrorReturn:
            KeDetachProcess();
        }
 
-       ObDereferenceObject (Process);
+       if ( ProcessHandle != NtCurrentProcess() ) {
+           ObDereferenceObject (Process);
+       }
        return Status;
-    }
-
 }
 
-BOOLEAN
+ULONG
 MiIsEntireRangeCommitted (
     IN PVOID StartingAddress,
     IN PVOID EndingAddress,
@@ -915,11 +956,11 @@ Environment:
     KIRQL OldIrql;
     PMMPTE ValidPteList[MM_VALID_PTE_SIZE];
     ULONG count = 0;
-    USHORT WorkingSetIndex;
+    ULONG WorkingSetIndex;
     PMMPFN Pfn1;
     PMMPFN Pfn2;
     PVOID SwapVa;
-    USHORT Entry;
+    ULONG Entry;
     MMWSLENTRY Locked;
     MMPTE PteContents;
 
@@ -992,69 +1033,104 @@ Environment:
                 if (PteContents.u.Hard.Valid == 1) {
 
                     //
-                    // Pte is valid, process later when PFN lock is held.
-                    //
-                    if (count == MM_VALID_PTE_SIZE) {
-                        MiProcessValidPteList (&ValidPteList[0], count);
-                        count = 0;
-                    }
-                    ValidPteList[count] = PointerPte;
-                    count += 1;
-
-                    //
-                    // Remove address from working set list.
+                    // Make sure this is not a forked PTE.
                     //
 
                     Pfn1 = MI_PFN_ELEMENT (PteContents.u.Hard.PageFrameNumber);
 
-                    WorkingSetIndex = (USHORT)Pfn1->u1.WsIndex;
+                    if (Pfn1->u3.e1.PrototypePte) {
 
-                    ASSERT (PAGE_ALIGN(MmWsle[WorkingSetIndex].u1.Long) ==
-                                                                       Va);
-                    //
-                    // Check to see if this entry is locked in the working set
-                    // or locked in memory.
-                    //
-
-                    Locked = MmWsle[WorkingSetIndex].u1.e1;
-
-                    MiRemoveWsle (WorkingSetIndex, MmWorkingSetList);
-
-                    //
-                    // Add this entry to the list of free working set entries
-                    // and adjust the working set count.
-                    //
-
-                    MiReleaseWsle (WorkingSetIndex, &Process->Vm);
-
-                    if ((Locked.LockedInWs == 1) || (Locked.LockedInMemory == 1)) {
+                        LOCK_PFN (OldIrql);
+                        MiDeletePte (PointerPte,
+                                     Va,
+                                     FALSE,
+                                     Process,
+                                     NULL,
+                                     NULL);
+                        UNLOCK_PFN (OldIrql);
+                        Process->NumberOfPrivatePages += 1;
+                        *PointerPte = MmDecommittedPte;
+                    } else {
 
                         //
-                        // This entry is locked.
+                        // Pte is valid, process later when PFN lock is held.
                         //
 
-                        MmWorkingSetList->FirstDynamic -= 1;
+                        if (count == MM_VALID_PTE_SIZE) {
+                            MiProcessValidPteList (&ValidPteList[0], count);
+                            count = 0;
+                        }
+                        ValidPteList[count] = PointerPte;
+                        count += 1;
 
-                        if (WorkingSetIndex != (USHORT)MmWorkingSetList->FirstDynamic) {
+                        //
+                        // Remove address from working set list.
+                        //
 
-                            SwapVa = MmWsle[MmWorkingSetList->FirstDynamic].u1.VirtualAddress;
-                            SwapVa = PAGE_ALIGN (SwapVa);
-                            Pfn2 = MI_PFN_ELEMENT (
-                                      MiGetPteAddress (SwapVa)->u.Hard.PageFrameNumber);
 
-                            Entry = MiLocateWsle (SwapVa,
-                                                  MmWorkingSetList,
-                                                  Pfn2->u1.WsIndex);
+                        WorkingSetIndex = Pfn1->u1.WsIndex;
 
-                            MiSwapWslEntries (Entry,
-                                              WorkingSetIndex,
-                                              &Process->Vm);
+                        ASSERT (PAGE_ALIGN(MmWsle[WorkingSetIndex].u1.Long) ==
+                                                                           Va);
+                        //
+                        // Check to see if this entry is locked in the working set
+                        // or locked in memory.
+                        //
+
+                        Locked = MmWsle[WorkingSetIndex].u1.e1;
+
+                        MiRemoveWsle (WorkingSetIndex, MmWorkingSetList);
+
+                        //
+                        // Add this entry to the list of free working set entries
+                        // and adjust the working set count.
+                        //
+
+                        MiReleaseWsle (WorkingSetIndex, &Process->Vm);
+
+                        if ((Locked.LockedInWs == 1) || (Locked.LockedInMemory == 1)) {
+
+                            //
+                            // This entry is locked.
+                            //
+
+                            MmWorkingSetList->FirstDynamic -= 1;
+
+                            if (WorkingSetIndex != MmWorkingSetList->FirstDynamic) {
+
+                                SwapVa = MmWsle[MmWorkingSetList->FirstDynamic].u1.VirtualAddress;
+                                SwapVa = PAGE_ALIGN (SwapVa);
+                                Pfn2 = MI_PFN_ELEMENT (
+                                          MiGetPteAddress (SwapVa)->u.Hard.PageFrameNumber);
+
+                                Entry = MiLocateWsle (SwapVa,
+                                                      MmWorkingSetList,
+                                                      Pfn2->u1.WsIndex);
+
+                                MiSwapWslEntries (Entry,
+                                                  WorkingSetIndex,
+                                                  &Process->Vm);
+                            }
                         }
                     }
+                } else if (PteContents.u.Soft.Prototype) {
+
+                    //
+                    // This is a forked PTE, just delete it.
+                    //
+
+                    LOCK_PFN (OldIrql);
+                    MiDeletePte (PointerPte,
+                                 Va,
+                                 FALSE,
+                                 Process,
+                                 NULL,
+                                 NULL);
+                    UNLOCK_PFN (OldIrql);
+                    Process->NumberOfPrivatePages += 1;
+                    *PointerPte = MmDecommittedPte;
 
                 } else if (PteContents.u.Soft.Transition == 1) {
-
-                    ASSERT (PteContents.u.Soft.Prototype == 0);
 
                     //
                     // Transition PTE, get the PFN database lock
@@ -1072,11 +1148,9 @@ Environment:
 
                         Pfn1 = MI_PFN_ELEMENT (PteContents.u.Trans.PageFrameNumber);
 
-                        ASSERT (Pfn1->ValidPteCount == 0);
-
                         MI_SET_PFN_DELETED (Pfn1);
 
-                        MiDecrementShareCount (Pfn1->u3.e1.PteFrame);
+                        MiDecrementShareCount (Pfn1->PteFrame);
 
                         //
                         // Check the reference count for the page, if the
@@ -1086,7 +1160,7 @@ Environment:
                         // goes to zero, it will be placed on the free list.
                         //
 
-                        if (Pfn1->ReferenceCount == 0) {
+                        if (Pfn1->u3.e2.ReferenceCount == 0) {
                             MiUnlinkPageFromList (Pfn1);
                             MiReleasePageFileSpace (Pfn1->OriginalPte);
                             MiInsertPageInList (MmPageLocationList[FreePageList],
@@ -1118,6 +1192,14 @@ Environment:
                         LOCK_PFN (OldIrql);
                         MiReleasePageFileSpace (PteContents);
                         UNLOCK_PFN (OldIrql);
+                    } else {
+
+                        //
+                        // Don't subtract out the private page count for
+                        // a demand zero page.
+                        //
+
+                        Process->NumberOfPrivatePages += 1;
                     }
 
                     *PointerPte = MmDecommittedPte;
@@ -1209,9 +1291,7 @@ Environment:
         // page which maps this PTE.
         //
 
-        MiDecrementShareAndValidCount (Pfn1->u3.e1.PteFrame);
-
-        ASSERT (Pfn1->ValidPteCount == 0);
+        MiDecrementShareAndValidCount (Pfn1->PteFrame);
 
         MI_SET_PFN_DELETED (Pfn1);
 

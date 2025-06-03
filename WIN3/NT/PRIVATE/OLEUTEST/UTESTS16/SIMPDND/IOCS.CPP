@@ -42,7 +42,7 @@
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      CSimpleSite::QueryInterface SITE.CPP
 //
 // Comments:
@@ -51,7 +51,7 @@
 
 STDMETHODIMP COleClientSite::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 {
-	OutputDebugString("In IOCS::QueryInterface\r\n");
+	TestDebugOut("In IOCS::QueryInterface\r\n");
 
 	// delegate to the container Site
 	return m_pSite->QueryInterface(riid, ppvObj);
@@ -76,7 +76,7 @@ STDMETHODIMP COleClientSite::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -84,7 +84,7 @@ STDMETHODIMP COleClientSite::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 
 STDMETHODIMP_(ULONG) COleClientSite::AddRef()
 {
-	OutputDebugString("In IOCS::AddRef\r\n");
+	TestDebugOut("In IOCS::AddRef\r\n");
 
 	// increment the interface reference count (for debugging only)
 	++m_nCount;
@@ -113,7 +113,7 @@ STDMETHODIMP_(ULONG) COleClientSite::AddRef()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -121,7 +121,7 @@ STDMETHODIMP_(ULONG) COleClientSite::AddRef()
 
 STDMETHODIMP_(ULONG) COleClientSite::Release()
 {
-	OutputDebugString("In IOCS::Release\r\n");
+	TestDebugOut("In IOCS::Release\r\n");
 
 	// decrement the interface reference count (for debugging only)
 	--m_nCount;
@@ -150,7 +150,7 @@ STDMETHODIMP_(ULONG) COleClientSite::Release()
 // Function Calls:
 //      Function                            Location
 //
-//      OutputDebugString                   Windows API
+//      TestDebugOut                   Windows API
 //      IOleObject::QueryInterface          Object
 //      IPersistStorage::SaveCompleted      Object
 //      IPersistStorage::Release            Object
@@ -166,7 +166,7 @@ STDMETHODIMP COleClientSite::SaveObject()
 	LPPERSISTSTORAGE lpPS;
 	SCODE sc = E_FAIL;
 
-	OutputDebugString("In IOCS::SaveObject\r\n");
+	TestDebugOut("In IOCS::SaveObject\r\n");
 
 	// get a pointer to IPersistStorage
 	HRESULT hErr = m_pSite->m_lpOleObject->QueryInterface(IID_IPersistStorage, (LPVOID FAR *)&lpPS);
@@ -199,7 +199,7 @@ STDMETHODIMP COleClientSite::SaveObject()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -210,7 +210,7 @@ STDMETHODIMP COleClientSite::SaveObject()
 
 STDMETHODIMP COleClientSite::GetMoniker(DWORD dwAssign, DWORD dwWhichMoniker, LPMONIKER FAR* ppmk)
 {
-	OutputDebugString("In IOCS::GetMoniker\r\n");
+	TestDebugOut("In IOCS::GetMoniker\r\n");
 
 	// need to null the out pointer
 	*ppmk = NULL;
@@ -237,7 +237,7 @@ STDMETHODIMP COleClientSite::GetMoniker(DWORD dwAssign, DWORD dwWhichMoniker, LP
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -247,7 +247,7 @@ STDMETHODIMP COleClientSite::GetMoniker(DWORD dwAssign, DWORD dwWhichMoniker, LP
 
 STDMETHODIMP COleClientSite::GetContainer(LPOLECONTAINER FAR* ppContainer)
 {
-	OutputDebugString("In IOCS::GetContainer\r\n");
+	TestDebugOut("In IOCS::GetContainer\r\n");
 
 	// NULL the out pointer
 	*ppContainer = NULL;
@@ -274,7 +274,7 @@ STDMETHODIMP COleClientSite::GetContainer(LPOLECONTAINER FAR* ppContainer)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -285,7 +285,7 @@ STDMETHODIMP COleClientSite::GetContainer(LPOLECONTAINER FAR* ppContainer)
 
 STDMETHODIMP COleClientSite::ShowObject()
 {
-	OutputDebugString("In IOCS::ShowObject\r\n");
+	TestDebugOut("In IOCS::ShowObject\r\n");
 	return NOERROR;
 }
 
@@ -309,7 +309,7 @@ STDMETHODIMP COleClientSite::ShowObject()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      InvalidateRect              Windows API
 //      ResultFromScode             OLE API
 //
@@ -319,7 +319,7 @@ STDMETHODIMP COleClientSite::ShowObject()
 
 STDMETHODIMP COleClientSite::OnShowWindow(BOOL fShow)
 {
-	OutputDebugString("In IOCS::OnShowWindow\r\n");
+	TestDebugOut("In IOCS::OnShowWindow\r\n");
 	m_pSite->m_fObjectOpen = fShow;
 	InvalidateRect(m_pSite->m_lpDoc->m_hDocWnd, NULL, TRUE);
 
@@ -350,7 +350,7 @@ STDMETHODIMP COleClientSite::OnShowWindow(BOOL fShow)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -360,6 +360,6 @@ STDMETHODIMP COleClientSite::OnShowWindow(BOOL fShow)
 
 STDMETHODIMP COleClientSite::RequestNewObjectLayout()
 {
-	OutputDebugString("In IOCS::RequestNewObjectLayout\r\n");
+	TestDebugOut("In IOCS::RequestNewObjectLayout\r\n");
 	return ResultFromScode(E_NOTIMPL);
 }

@@ -157,20 +157,22 @@ FatDefragDirectory (
     );
 
 #ifdef ALLOC_PRAGMA
+#pragma alloc_text(PAGE, FatComputeLfnChecksum)
 #pragma alloc_text(PAGE, FatConstructDirent)
 #pragma alloc_text(PAGE, FatConstructLabelDirent)
 #pragma alloc_text(PAGE, FatCreateNewDirent)
+#pragma alloc_text(PAGE, FatDefragDirectory)
 #pragma alloc_text(PAGE, FatDeleteDirent)
 #pragma alloc_text(PAGE, FatGetDirentFromFcbOrDcb)
 #pragma alloc_text(PAGE, FatInitializeDirectoryDirent)
 #pragma alloc_text(PAGE, FatIsDirectoryEmpty)
+#pragma alloc_text(PAGE, FatLfnDirentExists)
 #pragma alloc_text(PAGE, FatLocateDirent)
 #pragma alloc_text(PAGE, FatLocateSimpleOemDirent)
 #pragma alloc_text(PAGE, FatLocateVolumeLabel)
-#pragma alloc_text(PAGE, FatSetFileSizeInDirent)
-#pragma alloc_text(PAGE, FatComputeLfnChecksum)
 #pragma alloc_text(PAGE, FatRescanDirectory)
-#pragma alloc_text(PSGE, FatDefragDirectory)
+#pragma alloc_text(PAGE, FatSetFileSizeInDirent)
+#pragma alloc_text(PAGE, FatTunnelFcbOrDcb)
 #endif
 
 
@@ -351,35 +353,33 @@ Return Value:
 
             //
             //  Take the last dirent(s) in this cluster.  We will allocate
-            //  another below.
+            //  more clusters below.
             //
 
             ByteOffset = UnusedVbo;
-
             UnusedVbo += DirentsNeeded * sizeof(DIRENT);
 
             //
-            //  OK, touch the dirent now to cause the space to get allocated.
+            //  Touch the directory file to cause space for the new dirents
+            //  to be allocated.
             //
 
             Bcb = NULL;
 
             try {
 
-                ULONG Offset;
                 ULONG ClusterSize;
+                PVOID Buffer;
 
                 ClusterSize =
                     1 << ParentDirectory->Vcb->AllocationSupport.LogOfBytesPerCluster;
 
-                Offset = UnusedVbo & ~(ClusterSize - 1);
-
                 FatPrepareWriteDirectoryFile( IrpContext,
                                               ParentDirectory,
-                                              Offset,
-                                              sizeof(DIRENT),
+                                              UnusedVbo,
+                                              1,
                                               &Bcb,
-                                              &Dirent,
+                                              &Buffer,
                                               FALSE,
                                               &Status );
 
@@ -479,7 +479,6 @@ Return Value:
                  (Dirent->FileName[0] != FAT_DIRENT_DELETED))) {
 
                 FatPopUpFileCorrupt( IrpContext, ParentDirectory );
-
                 FatRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR );
             }
         }
@@ -593,17 +592,151 @@ Return Value:
     //  Add the . and .. entries
     //
 
-    FatConstructDot( IrpContext, Dcb, ParentDirent, (PDIRENT)Buffer + 0);
+    try {
 
-    FatConstructDotDot( IrpContext, Dcb, ParentDirent, (PDIRENT)Buffer + 1);
+        FatConstructDot( IrpContext, Dcb, ParentDirent, (PDIRENT)Buffer + 0);
+
+        FatConstructDotDot( IrpContext, Dcb, ParentDirent, (PDIRENT)Buffer + 1);
 
     //
     //  Unpin the buffer and return to the caller.
     //
 
-    FatUnpinBcb( IrpContext, Bcb );
+    } finally {
+
+        FatUnpinBcb( IrpContext, Bcb );
+    }
 
     DebugTrace(-1, Dbg, "FatInitializeDirectoryDirent -> (VOID)\n", 0);
+    return;
+}
+
+
+VOID
+FatTunnelFcbOrDcb (
+    IN PFCB FcbOrDcb,
+    IN PCCB Ccb OPTIONAL
+    )
+/*++
+
+Routine Description:
+
+    This routine handles tunneling of an Fcb or Dcb associated with
+    an object whose name is disappearing from a directory.
+
+Arguments:
+
+    FcbOrDcb - Supplies the Fcb/Dcb whose name will be going away
+
+    Ccb - Supplies the Ccb for the Fcb (not reqired for a Dcb) so
+        that we know which name the Fcb was opened by
+
+Return Value:
+
+    None.
+
+--*/
+{
+    UNICODE_STRING ShortNameWithCase;
+    UNICODE_STRING DownCaseSeg;
+    WCHAR ShortNameBuffer[8+1+3];
+    NTSTATUS Status;
+    USHORT i;
+
+    PAGED_CODE();
+
+    DebugTrace(+1, Dbg, "FatTunnelFcbOrDcb\n", 0);
+
+    if (FcbOrDcb->Header.NodeTypeCode == FAT_NTC_DCB) {
+
+        //
+        //  Directory deletion. Flush all entries from this directory in
+        //  the cache for this volume
+        //
+
+        FsRtlDeleteKeyFromTunnelCache( &FcbOrDcb->Vcb->Tunnel,
+                                       FatDirectoryKey(FcbOrDcb) );
+
+    } else {
+
+        //
+        //  Was a file, so throw it into the tunnel cache
+        //
+
+        //
+        //  Get the short name into UNICODE
+        //
+
+        ShortNameWithCase.Length = 0;
+        ShortNameWithCase.MaximumLength = sizeof(ShortNameBuffer);
+        ShortNameWithCase.Buffer = ShortNameBuffer;
+
+        Status = RtlOemStringToCountedUnicodeString( &ShortNameWithCase,
+                                                     &FcbOrDcb->ShortName.Name.Oem,
+                                                     FALSE);
+
+        ASSERT(ShortNameWithCase.Length != 0);
+
+        ASSERT(NT_SUCCESS(Status));
+
+        if (FlagOn(FcbOrDcb->FcbState, FCB_STATE_8_LOWER_CASE | FCB_STATE_3_LOWER_CASE)) {
+
+            //
+            //  Have to repair the case of the short name
+            //
+
+            for (i = 0; i < (ShortNameWithCase.Length/sizeof(WCHAR)) &&
+                        ShortNameWithCase.Buffer[i] != L'.'; i++);
+
+            //
+            //  Now pointing at the '.', or otherwise the end of name component
+            //
+
+            if (FlagOn(FcbOrDcb->FcbState, FCB_STATE_8_LOWER_CASE)) {
+
+                DownCaseSeg.Buffer = ShortNameWithCase.Buffer;
+                DownCaseSeg.MaximumLength = DownCaseSeg.Length = i*sizeof(WCHAR);
+
+                FatDowncaseUnicodeString(&DownCaseSeg, &DownCaseSeg, FALSE);
+            }
+
+            i++;
+
+            //
+            //  Now pointing at first wchar of the extension.
+            //
+
+            if (FlagOn(FcbOrDcb->FcbState, FCB_STATE_3_LOWER_CASE)) {
+
+                //
+                //  It is not neccesarily the case that we can rely on the flag
+                //  indicating that we really have an extension.
+                //
+
+                if ((i*sizeof(WCHAR)) < ShortNameWithCase.Length) {
+                    DownCaseSeg.Buffer = &ShortNameWithCase.Buffer[i];
+                    DownCaseSeg.MaximumLength = DownCaseSeg.Length = ShortNameWithCase.Length - i*sizeof(WCHAR);
+    
+                    FatDowncaseUnicodeString(&DownCaseSeg, &DownCaseSeg, FALSE);
+                }
+            }
+        }
+
+        //
+        //  ... and add it in
+        //
+
+        FsRtlAddToTunnelCache( &FcbOrDcb->Vcb->Tunnel,
+                               FatDirectoryKey(FcbOrDcb->ParentDcb),
+                               &ShortNameWithCase,
+                               &FcbOrDcb->ExactCaseLongName,
+                               BooleanFlagOn(Ccb->Flags, CCB_FLAG_OPENED_BY_SHORTNAME),
+                               sizeof(LARGE_INTEGER),
+                               &FcbOrDcb->CreationTime );
+    }
+
+    DebugTrace(-1, Dbg, "FatTunnelFcbOrDcb -> (VOID)\n", 0);
+
     return;
 }
 
@@ -676,6 +809,7 @@ Return Value:
         FatBugCheck( 0, 0, 0 );
     }
 
+
     //
     //  Now, mark the dirents deleted, unpin the Bcb, and return to the caller.
     //  Assert that there isn't any allocation associated with this dirent.
@@ -683,108 +817,175 @@ Return Value:
     //  Note that this loop will end with Dirent pointing to the short name.
     //
 
-    for ( Offset = FcbOrDcb->LfnOffsetWithinDirectory;
-          Offset <= FcbOrDcb->DirentOffsetWithinDirectory;
-          Offset += sizeof(DIRENT), Dirent += 1 ) {
+    try {
 
-        //
-        //  If we stepped onto a new page, or this is the first itteration,
-        //  unpin the old page, and pin the new one.
-        //
-
-        if ((Offset == FcbOrDcb->LfnOffsetWithinDirectory) ||
-            ((Offset & (PAGE_SIZE - 1)) == 0)) {
-
-            FatUnpinBcb( IrpContext, Bcb );
-
-            FatPrepareWriteDirectoryFile( IrpContext,
-                                          FcbOrDcb->ParentDcb,
-                                          Offset,
-                                          sizeof(DIRENT),
-                                          &Bcb,
-                                          (PVOID *)&Dirent,
-                                          FALSE,
-                                          &DontCare );
-        }
-
-        ASSERT( (Dirent->FirstClusterOfFile == 0) || !DeleteEa );
-        Dirent->FileName[0] = FAT_DIRENT_DELETED;
-    }
-
-    //
-    //  Back Dirent off by one to point back to the short dirent.
-    //
-
-    Dirent -= 1;
-
-    //
-    //  If there are extended attributes for this dirent, we will attempt
-    //  to remove them.  We ignore any errors in removing Eas.
-    //
-
-    if (DeleteEa && (Dirent->ExtendedAttributes != 0)) {
-
-        try {
-
-            FatDeleteEa( IrpContext,
-                         FcbOrDcb->Vcb,
-                         Dirent->ExtendedAttributes,
-                         &FcbOrDcb->ShortName.Name.Oem );
-
-        } except(FatExceptionFilter( IrpContext, GetExceptionInformation() )) {
+        for ( Offset = FcbOrDcb->LfnOffsetWithinDirectory;
+              Offset <= FcbOrDcb->DirentOffsetWithinDirectory;
+              Offset += sizeof(DIRENT), Dirent += 1 ) {
 
             //
-            //  We catch all exceptions that Fat catches, but don't do
-            //  anything with them.
+            //  If we stepped onto a new page, or this is the first itteration,
+            //  unpin the old page, and pin the new one.
             //
+
+            if ((Offset == FcbOrDcb->LfnOffsetWithinDirectory) ||
+                ((Offset & (PAGE_SIZE - 1)) == 0)) {
+
+                FatUnpinBcb( IrpContext, Bcb );
+
+                FatPrepareWriteDirectoryFile( IrpContext,
+                                              FcbOrDcb->ParentDcb,
+                                              Offset,
+                                              sizeof(DIRENT),
+                                              &Bcb,
+                                              (PVOID *)&Dirent,
+                                              FALSE,
+                                              &DontCare );
+            }
+
+            ASSERT( (Dirent->FirstClusterOfFile == 0) || !DeleteEa );
+            Dirent->FileName[0] = FAT_DIRENT_DELETED;
         }
+
+        //
+        //  Back Dirent off by one to point back to the short dirent.
+        //
+
+        Dirent -= 1;
+
+        //
+        //  If there are extended attributes for this dirent, we will attempt
+        //  to remove them.  We ignore any errors in removing Eas.
+        //
+
+        if (DeleteEa && (Dirent->ExtendedAttributes != 0)) {
+
+            try {
+
+                FatDeleteEa( IrpContext,
+                             FcbOrDcb->Vcb,
+                             Dirent->ExtendedAttributes,
+                             &FcbOrDcb->ShortName.Name.Oem );
+
+            } except(FatExceptionFilter( IrpContext, GetExceptionInformation() )) {
+
+                //
+                //  We catch all exceptions that Fat catches, but don't do
+                //  anything with them.
+                //
+            }
+        }
+
+        //
+        //  Now clear the bits in the free dirent mask.
+        //
+
+        DirentsToDelete = (FcbOrDcb->DirentOffsetWithinDirectory -
+                           FcbOrDcb->LfnOffsetWithinDirectory) / sizeof(DIRENT) + 1;
+
+
+        ASSERT( (FcbOrDcb->ParentDcb->Specific.Dcb.UnusedDirentVbo == 0xffffffff) ||
+                RtlAreBitsSet( &FcbOrDcb->ParentDcb->Specific.Dcb.FreeDirentBitmap,
+                               FcbOrDcb->LfnOffsetWithinDirectory / sizeof(DIRENT),
+                               DirentsToDelete ) );
+
+        RtlClearBits( &FcbOrDcb->ParentDcb->Specific.Dcb.FreeDirentBitmap,
+                      FcbOrDcb->LfnOffsetWithinDirectory / sizeof(DIRENT),
+                      DirentsToDelete );
+
+        //
+        //  Now, if the caller specified a DeleteContext, use it.
+        //
+
+        if ( ARGUMENT_PRESENT( DeleteContext ) ) {
+
+            Dirent->FileSize = DeleteContext->FileSize;
+            Dirent->FirstClusterOfFile = (FAT_ENTRY)DeleteContext->FirstClusterOfFile;
+        }
+
+        //
+        //  If this newly deleted dirent is before the DeletedDirentHint, change
+        //  the DeletedDirentHint to point here.
+        //
+
+        if (FcbOrDcb->DirentOffsetWithinDirectory <
+                            FcbOrDcb->ParentDcb->Specific.Dcb.DeletedDirentHint) {
+
+            FcbOrDcb->ParentDcb->Specific.Dcb.DeletedDirentHint =
+                                            FcbOrDcb->LfnOffsetWithinDirectory;
+        }
+
+    } finally {
+
+        FatUnpinBcb( IrpContext, Bcb );
     }
-
-    //
-    //  Now clear the bits in the free dirent mask.
-    //
-
-    DirentsToDelete = (FcbOrDcb->DirentOffsetWithinDirectory -
-                       FcbOrDcb->LfnOffsetWithinDirectory) / sizeof(DIRENT) + 1;
-
-
-    ASSERT( (FcbOrDcb->ParentDcb->Specific.Dcb.UnusedDirentVbo == 0xffffffff) ||
-            RtlAreBitsSet( &FcbOrDcb->ParentDcb->Specific.Dcb.FreeDirentBitmap,
-                           FcbOrDcb->LfnOffsetWithinDirectory / sizeof(DIRENT),
-                           DirentsToDelete ) );
-
-    RtlClearBits( &FcbOrDcb->ParentDcb->Specific.Dcb.FreeDirentBitmap,
-                  FcbOrDcb->LfnOffsetWithinDirectory / sizeof(DIRENT),
-                  DirentsToDelete );
-
-    //
-    //  Now, if the caller specified a DeleteContext, use it.
-    //
-
-    if ( ARGUMENT_PRESENT( DeleteContext ) ) {
-
-        Dirent->FileSize = DeleteContext->FileSize;
-        Dirent->FirstClusterOfFile = (FAT_ENTRY)DeleteContext->FirstClusterOfFile;
-    }
-
-    //
-    //  If this newly deleted dirent is before the DeletedDirentHint, change
-    //  the DeletedDirentHint to point here.
-    //
-
-    if (FcbOrDcb->DirentOffsetWithinDirectory <
-                        FcbOrDcb->ParentDcb->Specific.Dcb.DeletedDirentHint) {
-
-        FcbOrDcb->ParentDcb->Specific.Dcb.DeletedDirentHint =
-                                        FcbOrDcb->LfnOffsetWithinDirectory;
-    }
-
-    FatUnpinBcb( IrpContext, Bcb );
 
     DebugTrace(-1, Dbg, "FatDeleteDirent -> (VOID)\n", 0);
     return;
 }
 
+BOOLEAN
+FatLfnDirentExists (
+    IN PIRP_CONTEXT IrpContext,
+    IN PDCB Dcb,
+    IN PUNICODE_STRING Lfn,
+    IN PUNICODE_STRING LfnTmp
+    )
+/*++
+
+Routine Description:
+
+    This routine looks for a given Lfn in a directory
+
+Arguments:
+
+    Dcb - The directory to search
+
+    Lfn - The Lfn to look for
+
+    Lfn - Temporary buffer to use to search for Lfn with (must be MAX_LFN)
+
+Retrn Value:
+
+    BOOLEAN TRUE if it exists, FALSE if not
+
+--*/
+{
+    CCB Ccb;
+    PDIRENT Dirent;
+    PBCB DirentBcb;
+    VBO DirentByteOffset;
+
+    //
+    //  Pay performance penalty by forcing the compares to be case insensitive as
+    //  opposed to grabbing more pool for a monocased copy of the Lfn. This is slight.
+    //
+
+    Ccb.UnicodeQueryTemplate =  *Lfn;
+    Ccb.ContainsWildCards = FALSE;
+    Ccb.Flags = CCB_FLAG_SKIP_SHORT_NAME_COMPARE | CCB_FLAG_QUERY_TEMPLATE_MIXED;
+
+    DirentBcb = NULL;
+
+    FatLocateDirent( IrpContext,
+                     Dcb,
+                     &Ccb,
+                     0,
+                     &Dirent,
+                     &DirentBcb,
+                     &DirentByteOffset,
+                     NULL,
+                     LfnTmp );
+
+    if (DirentBcb) {
+
+        FatUnpinBcb(IrpContext, DirentBcb);
+
+        return TRUE;
+    }
+
+    return FALSE;
+}
 
 VOID
 FatLocateDirent (
@@ -795,19 +996,19 @@ FatLocateDirent (
     OUT PDIRENT *Dirent,
     OUT PBCB *Bcb,
     OUT PVBO ByteOffset,
-    OUT PUNICODE_STRING LongFileName OPTIONAL
+    OUT PBOOLEAN FileNameDos OPTIONAL,
+    IN OUT PUNICODE_STRING LongFileName OPTIONAL
     )
 
 /*++
 
 Routine Description:
 
-    This routine locates on the disk an undelted dirent matching a given name.
+    This routine locates on the disk an undeleted dirent matching a given name.
 
 Arguments:
 
-    ParentDirectory - Supplies the DCB for the directory in which
-        to search
+    ParentDirectory - Supplies the DCB for the directory to search
 
     Ccb - Contains a context control block with all matching information.
 
@@ -822,6 +1023,9 @@ Arguments:
 
     ByteOffset - Receives the VBO within the Parent directory for
         the located dirent if one was found, or 0 otherwise.
+
+    FileNameDos - Receives TRUE if the element of the dirent we hit on
+        was the short (non LFN) side
 
     LongFileName - If specified, this parameter returns the long file name
         associated with the returned dirent.  Note that it is the caller's
@@ -861,13 +1065,10 @@ Return Value:
     DebugTrace(+1, Dbg, "FatLocateDirent\n", 0);
 
     DebugTrace( 0, Dbg, "  ParentDirectory         = %08lx\n", ParentDirectory);
-    DebugTrace( 0, Dbg, "  FileName                = %08lx\n", FileName);
     DebugTrace( 0, Dbg, "  OffsetToStartSearchFrom = %08lx\n", OffsetToStartSearchFrom);
     DebugTrace( 0, Dbg, "  Dirent                  = %08lx\n", Dirent);
     DebugTrace( 0, Dbg, "  Bcb                     = %08lx\n", Bcb);
     DebugTrace( 0, Dbg, "  ByteOffset              = %08lx\n", ByteOffset);
-
-    DebugTrace( 0, Dbg, "We are looking for the dirent %Z.\n", FileName);
 
     //
     //  The algorithm here is pretty simple.  We just walk through the
@@ -920,6 +1121,15 @@ Return Value:
     if (ARGUMENT_PRESENT(LongFileName)) {
 
         LongFileName->Length = 0;
+    }
+
+    //
+    //  Init the FileNameDos flag
+    //
+
+    if (FileNameDos) {
+
+        *FileNameDos = FALSE;
     }
 
     //
@@ -987,18 +1197,17 @@ Return Value:
                 if (LfnInProgress) {
 
                     //
-                    //  Check for a propper continuation of the Lfn in progress.
+                    //  Check for a proper continuation of the Lfn in progress.
                     //
 
                     if ((Lfn->Ordinal & FAT_LAST_LONG_ENTRY) ||
                         (Lfn->Ordinal == 0) ||
                         (Lfn->Ordinal != Ordinal - 1) ||
-                        (Lfn->Type != FAT_LONG_NAME_COMP) ||
                         (Lfn->Checksum != LfnChecksum) ||
                         (Lfn->MustBeZero != 0)) {
 
                         //
-                        //  The Lfn is not propper, stop constructing it.
+                        //  The Lfn is not proper, stop constructing it.
                         //
 
                         LfnInProgress = FALSE;
@@ -1027,14 +1236,13 @@ Return Value:
                 }
 
                 //
-                //  Now check (maybe again) if should analyse this entry
+                //  Now check (maybe again) if we should analyze this entry
                 //  for a possible last entry.
                 //
 
                 if ((!LfnInProgress) &&
                     (Lfn->Ordinal & FAT_LAST_LONG_ENTRY) &&
                     ((Lfn->Ordinal & ~FAT_LAST_LONG_ENTRY) <= MAX_LFN_DIRENTS) &&
-                    (Lfn->Type == FAT_LONG_NAME_COMP) &&
                     (Lfn->MustBeZero == 0)) {
 
                     BOOLEAN CheckTail = FALSE;
@@ -1191,6 +1399,11 @@ Return Value:
                         DebugTrace( 0, Dbg, "Entry found: Name = \"%Z\"\n", &Name);
                         DebugTrace( 0, Dbg, "             VBO  = %08lx\n", *ByteOffset);
 
+                        if (FileNameDos) {
+
+                            *FileNameDos = TRUE;
+                        }
+
                         break;
                     }
 
@@ -1207,6 +1420,11 @@ Return Value:
                         (*(PUCHAR)&(Ccb->OemQueryTemplate.Constant[10]) == *(PUCHAR)&((*Dirent)->FileName[10]))) {
 
                         DebugTrace( 0, Dbg, "Entry found.\n", 0);
+
+                        if (FileNameDos) {
+
+                            *FileNameDos = TRUE;
+                        }
 
                         break;
                     }
@@ -1272,7 +1490,7 @@ Return Value:
                     UpcasedLfn = &PoolUpcasedLfn;
                 }
 
-                Status = RtlUpcaseUnicodeString( UpcasedLfn,
+                Status = FatUpcaseUnicodeString( UpcasedLfn,
                                                  LongFileName,
                                                  FALSE );
 
@@ -1282,8 +1500,7 @@ Return Value:
                 }
 
                 //
-                //  OK, We are going to assume that the passed in UnicodeFileName
-                //  has already been upcased.
+                //  Do the compare
                 //
 
                 if (Ccb->ContainsWildCards) {
@@ -1292,6 +1509,7 @@ Return Value:
                                                  UpcasedLfn,
                                                  TRUE,
                                                  NULL )) {
+
                         break;
                     }
 
@@ -1299,12 +1517,12 @@ Return Value:
 
                     if (FsRtlAreNamesEqual( &Ccb->UnicodeQueryTemplate,
                                             UpcasedLfn,
-                                            FALSE,
+                                            BooleanFlagOn( Ccb->Flags, CCB_FLAG_QUERY_TEMPLATE_MIXED ),
                                             NULL )) {
+
                         break;
                     }
                 }
-
             }
 
             //
@@ -1411,6 +1629,7 @@ Return Value:
                      Dirent,
                      Bcb,
                      ByteOffset,
+                     NULL,
                      NULL );
 
     return;
@@ -1688,60 +1907,65 @@ Return Value:
 
     Bcb = NULL;
 
-    while ( TRUE ) {
+    try {
 
-        //
-        //  Try to read in the dirent
-        //
+        while ( TRUE ) {
 
-        FatReadDirent( IrpContext,
-                       Dcb,
-                       ByteOffset,
-                       &Bcb,
-                       &Dirent,
-                       &Status );
+            //
+            //  Try to read in the dirent
+            //
 
-        //
-        //  If End Directory dirent or EOF, set IsDirectoryEmpty to TRUE and,
-        //  like, bail.
-        //
-        //  Note that the order of evaluation here is important since we cannot
-        //  check the first character of the dirent until after we know we
-        //  are not beyond EOF
-        //
+            FatReadDirent( IrpContext,
+                           Dcb,
+                           ByteOffset,
+                           &Bcb,
+                           &Dirent,
+                           &Status );
 
-        if ((Status == STATUS_END_OF_FILE) ||
-            (Dirent->FileName[0] == FAT_DIRENT_NEVER_USED)) {
+            //
+            //  If End Directory dirent or EOF, set IsDirectoryEmpty to TRUE and,
+            //  like, bail.
+            //
+            //  Note that the order of evaluation here is important since we cannot
+            //  check the first character of the dirent until after we know we
+            //  are not beyond EOF
+            //
 
-            DebugTrace( 0, Dbg, "Empty.  Last exempt entry at VBO = %08lx\n", ByteOffset);
+            if ((Status == STATUS_END_OF_FILE) ||
+                (Dirent->FileName[0] == FAT_DIRENT_NEVER_USED)) {
 
-            IsDirectoryEmpty = TRUE;
-            break;
+                DebugTrace( 0, Dbg, "Empty.  Last exempt entry at VBO = %08lx\n", ByteOffset);
+
+                IsDirectoryEmpty = TRUE;
+                break;
+            }
+
+            //
+            //  If this dirent is NOT deleted or an LFN set IsDirectoryEmpty to
+            //  FALSE and, like, bail.
+            //
+
+            if ((Dirent->FileName[0] != FAT_DIRENT_DELETED) &&
+                (Dirent->Attributes != FAT_DIRENT_ATTR_LFN)) {
+
+                DebugTrace( 0, Dbg, "Not Empty.  First entry at VBO = %08lx\n", ByteOffset);
+
+                IsDirectoryEmpty = FALSE;
+                break;
+            }
+
+            //
+            //  Move on to the next dirent.
+            //
+
+            ByteOffset += sizeof(DIRENT);
+            Dirent += 1;
         }
 
-        //
-        //  If this dirent is NOT deleted or an LFN set IsDirectoryEmpty to
-        //  FALSE and, like, bail.
-        //
+    } finally {
 
-        if ((Dirent->FileName[0] != FAT_DIRENT_DELETED) &&
-            (Dirent->Attributes != FAT_DIRENT_ATTR_LFN)) {
-
-            DebugTrace( 0, Dbg, "Not Empty.  First entry at VBO = %08lx\n", ByteOffset);
-
-            IsDirectoryEmpty = FALSE;
-            break;
-        }
-
-        //
-        //  Move on to the next dirent.
-        //
-
-        ByteOffset += sizeof(DIRENT);
-        Dirent += 1;
+        FatUnpinBcb( IrpContext, Bcb );
     }
-
-    FatUnpinBcb( IrpContext, Bcb );
 
     DebugTrace(-1, Dbg, "FatIsDirectoryEmpty -> %ld\n", IsDirectoryEmpty);
 
@@ -1758,7 +1982,8 @@ FatConstructDirent (
     IN BOOLEAN ExtensionReallyLowercase,
     IN PUNICODE_STRING Lfn OPTIONAL,
     IN UCHAR Attributes,
-    IN BOOLEAN ZeroAndSetTimeFields
+    IN BOOLEAN ZeroAndSetTimeFields,
+    IN PLARGE_INTEGER SetCreationTime OPTIONAL
     )
 
 /*++
@@ -1787,6 +2012,9 @@ Arguments:
     ZeroAndSetTimeFields - Tells whether or not to initially zero the dirent
         and update the time fields.
 
+    SetCreationTime - If specified, contains a timestamp to use as the creation
+        time of this dirent
+
 Return Value:
 
     None.
@@ -1813,31 +2041,67 @@ Return Value:
 
     FatStringTo8dot3( IrpContext, *FileName, (PFAT8DOT3)&Dirent->FileName[0] );
 
-    //
-    //  Use the current time for all time fields.
-    //
+    if (ZeroAndSetTimeFields || SetCreationTime) {
 
-    if (ZeroAndSetTimeFields) {
-
-        LARGE_INTEGER Time;
+        LARGE_INTEGER Time, SaveTime;
 
         KeQuerySystemTime( &Time );
 
-        if (!FatNtTimeToFatTime( IrpContext, Time, &Dirent->LastWriteTime )) {
-
-            DebugTrace( 0, Dbg, "Current time invalid.\n", 0);
-
-            RtlZeroMemory( &Dirent->LastWriteTime, sizeof(FAT_TIME_STAMP) );
-            Time.LowPart = 0;
-        }
-
         if (FatData.ChicagoMode) {
 
-            Dirent->CreationTime = Dirent->LastWriteTime;
-            Dirent->CreationMSec =
-                (UCHAR)(((Time.LowPart + AlmostTenMSec) % TwoSeconds) / TenMSec);
+            if (!SetCreationTime || !FatNtTimeToFatTime( IrpContext,
+                                                         SetCreationTime,
+                                                         FALSE,
+                                                         &Dirent->CreationTime,
+                                                         &Dirent->CreationMSec )) {
+        
+                //
+                //  No tunneled time or the tunneled time was bogus. Since we aren't
+                //  responsible for initializing the to-be-created Fcb with creation
+                //  time, we can't do the usual thing and let NtTimeToFatTime perform
+                //  rounding on the timestamp - this would mess up converting to the
+                //  LastWriteTime below.
+                //
 
-            Dirent->LastAccessDate = Dirent->LastWriteTime.Date;
+                SaveTime = Time;
+
+                if (!FatNtTimeToFatTime( IrpContext,
+                                         &SaveTime,
+                                         FALSE,
+                                         &Dirent->CreationTime,
+                                         &Dirent->CreationMSec )) {
+
+                    //
+                    //  Failed again. Wow.
+                    //
+
+                    RtlZeroMemory( &Dirent->CreationTime, sizeof(FAT_TIME_STAMP));
+                    Dirent->CreationMSec = 0;
+                }
+            }
+        }
+
+        if (ZeroAndSetTimeFields) {
+
+            //
+            //  We only touch the other timestamps if we are initializing the dirent
+            //
+
+            if (!FatNtTimeToFatTime( IrpContext,
+                                     &Time,
+                                     TRUE,
+                                     &Dirent->LastWriteTime,
+                                     NULL )) {
+
+                DebugTrace( 0, Dbg, "Current time invalid.\n", 0);
+
+                RtlZeroMemory( &Dirent->LastWriteTime, sizeof(FAT_TIME_STAMP) );
+            }
+
+            if (FatData.ChicagoMode) {
+
+                Dirent->LastAccessDate = Dirent->LastWriteTime.Date;
+            }
         }
     }
 
@@ -2133,6 +2397,171 @@ Return Value:
 }
 
 
+
+#if 0 // It turns out Win95 is still creating short names without a ~
+
+//
+//  Internal support routine
+//
+
+BOOLEAN
+FatIsLfnPairValid (
+    PWCHAR Lfn,
+    ULONG LfnSize,
+    PDIRENT Dirent
+    )
+
+/*++
+
+Routine Description:
+
+    This routine does a few more checks to make sure that a LFN/short
+    name pairing is legitimate.  Basically this is the test:
+
+        Pairing is valid if:
+
+        DIRENT has a ~ character ||
+        (LFN is 8.3 compliant &&
+         (LFN has extended character(s) ? TRUE :
+          LFN upcases to DIRENT))
+
+    When checking for the presence of a tilda character in the short
+    name, note that we purposely do a single byte search instead of
+    converting the name to UNICODE and looking there for the tilda.
+    This protects us from accidently missing the tilda if the
+    preceding byte is a lead byte in the current Oem code page,
+    but wasn't in the Oem code page that created the file.
+
+    Also note that if the LFN is longer than 12 characters, then the
+    second clause of the OR must be false.
+
+Arguments:
+
+    Lfn - Points to a buffer of UNICODE chars.
+
+    LfnSize - This is the size of the LFN in characters.
+
+    Dirent - Specifies the dirent we are to consider.
+
+Return Value:
+
+    TRUE if the Lfn/DIRENT form a legitimate pair, FALSE otherwise.
+
+--*/
+
+{
+    ULONG i;
+    BOOLEAN ExtendedChars;
+    ULONG DirentBuffer[3];
+    PUCHAR DirentName;
+    ULONG DirentIndex;
+    BOOLEAN DotEncountered;
+
+    //
+    //  First, look for a tilda
+    //
+
+    for (i=0; i<11; i++) {
+        if (Dirent->FileName[i] == '~') {
+            return TRUE;
+        }
+    }
+
+    //
+    //  No tilda.  If the LFN is longer than 12 characters, then it can
+    //  neither upcase to the DIRENT nor be 8.3 complient.
+    //
+
+    if (LfnSize > 12) {
+        return FALSE;
+    }
+
+    //
+    //  Now see if the name is 8.3, and build an upcased DIRENT as well.
+    //
+
+    DirentBuffer[0] = 0x20202020;
+    DirentBuffer[1] = 0x20202020;
+    DirentBuffer[2] = 0x20202020;
+
+    DirentName = (PUCHAR)DirentBuffer;
+
+    ExtendedChars = FALSE;
+    DirentIndex = 0;
+    DotEncountered = FALSE;
+
+    for (i=0; i < LfnSize; i++) {
+
+        //
+        //  Do dot transition work
+        //
+
+        if (Lfn[i] == L'.') {
+            if (DotEncountered ||
+                (i > 8) ||
+                ((LfnSize - i) > 4) ||
+                (i && Lfn[i-1] == L' ')) {
+                return FALSE;
+            }
+            DotEncountered = TRUE;
+            DirentIndex = 8;
+            continue;
+        }
+
+        //
+        //  The character must be legal in order to be 8.3
+        //
+
+        if ((Lfn[i] < 0x80) &&
+            !FsRtlIsAnsiCharacterLegalFat((UCHAR)Lfn[i], FALSE)) {
+            return FALSE;
+        }
+
+        //
+        //  If the name contains no extended chars, continue building DIRENT
+        //
+
+        if (!ExtendedChars) {
+            if (Lfn[i] > 0x7f) {
+                ExtendedChars = TRUE;
+            } else {
+                DirentName[DirentIndex++] = (UCHAR) (
+                Lfn[i] < 'a' ? Lfn[i] : Lfn[i] <= 'z' ? Lfn[i] - ('a' - 'A') : Lfn[i]);
+            }
+        }
+    }
+
+    //
+    //  If the LFN ended in a space, or there was no dot and the name
+    //  has more than 8 characters, then it is not 8.3 compliant.
+    //
+
+    if ((Lfn[LfnSize - 1] == L' ') ||
+        (!DotEncountered && (LfnSize > 8))) {
+        return FALSE;
+    }
+
+    //
+    //  OK, now if we got this far then the LFN is 8dot3.  If there are
+    //  no extended characters, then we can also check to make sure that
+    //  the LFN is only a case varient of the DIRENT.
+    //
+
+    if (!ExtendedChars &&
+        !RtlEqualMemory(Dirent->FileName, DirentName, 11)) {
+
+        return FALSE;
+    }
+
+    //
+    //  We have now verified this pairing the very best we can without
+    //  knowledge of the code page that the file was created under.
+    //
+
+    return TRUE;
+}
+#endif //0
+
 //
 //  Internal support routine
 //
@@ -2193,138 +2622,145 @@ Return Value:
     DirentIndex =
     StartIndexOfThisRun = 0;
 
-    while ( TRUE ) {
+    try {
 
-        BOOLEAN DirentDeleted;
+        while ( TRUE ) {
 
-        //
-        //  Read a dirent
-        //
+            BOOLEAN DirentDeleted;
 
-        FatReadDirent( IrpContext,
-                       Dcb,
-                       UnusedVbo,
-                       &Bcb,
-                       &Dirent,
-                       &Status );
+            //
+            //  Read a dirent
+            //
 
-        //
-        //  If EOF, or we found a NEVER_USED entry, we exit the loop
-        //
+            FatReadDirent( IrpContext,
+                           Dcb,
+                           UnusedVbo,
+                           &Bcb,
+                           &Dirent,
+                           &Status );
 
-        if ( (Status == STATUS_END_OF_FILE ) ||
-             (Dirent->FileName[0] == FAT_DIRENT_NEVER_USED)) {
+            //
+            //  If EOF, or we found a NEVER_USED entry, we exit the loop
+            //
 
-            break;
+            if ( (Status == STATUS_END_OF_FILE ) ||
+                 (Dirent->FileName[0] == FAT_DIRENT_NEVER_USED)) {
+
+                break;
+            }
+
+            //
+            //  If the dirent is DELETED, and it is the first one we found, set
+            //  it in the deleted hint.
+            //
+
+            if (Dirent->FileName[0] == FAT_DIRENT_DELETED) {
+
+                DirentDeleted = TRUE;
+
+                if (DeletedHint == 0xffffffff) {
+
+                    DeletedHint = UnusedVbo;
+                }
+
+            } else {
+
+                DirentDeleted = FALSE;
+            }
+
+            //
+            //  Check for the first time through the loop, and determine
+            //  the current run type.
+            //
+
+            if (CurrentRun == InitialRun) {
+
+                CurrentRun = DirentDeleted ?
+                             FreeDirents : AllocatedDirents;
+
+            } else {
+
+                //
+                //  Are we switching from a free run to an allocated run?
+                //
+
+                if ((CurrentRun == FreeDirents) && !DirentDeleted) {
+
+                    DirentsThisRun = DirentIndex - StartIndexOfThisRun;
+
+                    RtlClearBits( &Dcb->Specific.Dcb.FreeDirentBitmap,
+                                  StartIndexOfThisRun,
+                                  DirentsThisRun );
+
+                    CurrentRun = AllocatedDirents;
+                    StartIndexOfThisRun = DirentIndex;
+                }
+
+                //
+                //  Are we switching from an allocated run to a free run?
+                //
+
+                if ((CurrentRun == AllocatedDirents) && DirentDeleted) {
+
+                    DirentsThisRun = DirentIndex - StartIndexOfThisRun;
+
+                    RtlSetBits( &Dcb->Specific.Dcb.FreeDirentBitmap,
+                                StartIndexOfThisRun,
+                                DirentsThisRun );
+
+                    CurrentRun = FreeDirents;
+                    StartIndexOfThisRun = DirentIndex;
+                }
+            }
+
+            //
+            //  Move on to the next dirent.
+            //
+
+            UnusedVbo += sizeof(DIRENT);
+            Dirent += 1;
+            DirentIndex += 1;
         }
 
         //
-        //  If the dirent is DELETED, and it is the first one we found, set
-        //  it in the deleted hint.
+        //  Now we have to record the final run we encoutered
         //
 
-        if (Dirent->FileName[0] == FAT_DIRENT_DELETED) {
+        DirentsThisRun = DirentIndex - StartIndexOfThisRun;
 
-            DirentDeleted = TRUE;
+        if ((CurrentRun == FreeDirents) || (CurrentRun == InitialRun)) {
 
-            if (DeletedHint == 0xffffffff) {
-
-                DeletedHint = UnusedVbo;
-            }
+            RtlClearBits( &Dcb->Specific.Dcb.FreeDirentBitmap,
+                          StartIndexOfThisRun,
+                          DirentsThisRun );
 
         } else {
 
-            DirentDeleted = FALSE;
+            RtlSetBits( &Dcb->Specific.Dcb.FreeDirentBitmap,
+                        StartIndexOfThisRun,
+                        DirentsThisRun );
         }
 
         //
-        //  Check for the first time through the loop, and determine
-        //  the current run type.
+        //  Now if there we bailed prematurely out of the loop because
+        //  we hit an unused entry, set all the rest as free.
         //
 
-        if (CurrentRun == InitialRun) {
+        if (UnusedVbo < Dcb->Header.AllocationSize.LowPart) {
 
-            CurrentRun = DirentDeleted ?
-                         FreeDirents : AllocatedDirents;
+            StartIndexOfThisRun = UnusedVbo / sizeof(DIRENT);
 
-        } else {
+            DirentsThisRun = (Dcb->Header.AllocationSize.LowPart -
+                              UnusedVbo) / sizeof(DIRENT);
 
-            //
-            //  Are we switching from a free run to an allocated run?
-            //
-
-            if ((CurrentRun == FreeDirents) && !DirentDeleted) {
-
-                DirentsThisRun = DirentIndex - StartIndexOfThisRun;
-
-                RtlClearBits( &Dcb->Specific.Dcb.FreeDirentBitmap,
-                              StartIndexOfThisRun,
-                              DirentsThisRun );
-
-                CurrentRun = AllocatedDirents;
-                StartIndexOfThisRun = DirentIndex;
-            }
-
-            //
-            //  Are we switching from an allocated run to a free run?
-            //
-
-            if ((CurrentRun == AllocatedDirents) && DirentDeleted) {
-
-                DirentsThisRun = DirentIndex - StartIndexOfThisRun;
-
-                RtlSetBits( &Dcb->Specific.Dcb.FreeDirentBitmap,
-                            StartIndexOfThisRun,
-                            DirentsThisRun );
-
-                CurrentRun = FreeDirents;
-                StartIndexOfThisRun = DirentIndex;
-            }
+            RtlClearBits( &Dcb->Specific.Dcb.FreeDirentBitmap,
+                          StartIndexOfThisRun,
+                          DirentsThisRun);
         }
 
-        //
-        //  Move on to the next dirent.
-        //
+    } finally {
 
-        UnusedVbo += sizeof(DIRENT);
-        Dirent += 1;
-        DirentIndex += 1;
-    }
-
-    //
-    //  Now we have to record the final run we encoutered
-    //
-
-    DirentsThisRun = DirentIndex - StartIndexOfThisRun;
-
-    if ((CurrentRun == FreeDirents) || (CurrentRun == InitialRun)) {
-
-        RtlClearBits( &Dcb->Specific.Dcb.FreeDirentBitmap,
-                      StartIndexOfThisRun,
-                      DirentsThisRun );
-
-    } else {
-
-        RtlSetBits( &Dcb->Specific.Dcb.FreeDirentBitmap,
-                    StartIndexOfThisRun,
-                    DirentsThisRun );
-    }
-
-    //
-    //  Now if there we bailed prematurely out of the loop because
-    //  we hit an unused entry, set all the rest as free.
-    //
-
-    if (UnusedVbo < Dcb->Header.AllocationSize.LowPart) {
-
-        StartIndexOfThisRun = UnusedVbo / sizeof(DIRENT);
-
-        DirentsThisRun = (Dcb->Header.AllocationSize.LowPart -
-                          UnusedVbo) / sizeof(DIRENT);
-
-        RtlClearBits( &Dcb->Specific.Dcb.FreeDirentBitmap,
-                      StartIndexOfThisRun,
-                      DirentsThisRun);
+        FatUnpinBcb( IrpContext, Bcb );
     }
 
     //
@@ -2333,8 +2769,6 @@ Return Value:
     //
 
     if (DeletedHint == 0xffffffff) { DeletedHint = UnusedVbo; }
-
-    FatUnpinBcb( IrpContext, Bcb );
 
     Dcb->Specific.Dcb.UnusedDirentVbo = UnusedVbo;
     Dcb->Specific.Dcb.DeletedDirentHint = DeletedHint;
@@ -2494,6 +2928,7 @@ Return Value:
                              &Dirent,
                              &Bcb,
                              &FoundOffset,
+                             NULL,
                              &Lfn );
 
             if (Dirent != NULL) {
@@ -2767,6 +3202,10 @@ Return Value:
                 FatUnpinBcb( IrpContext, Bcbs[Page] );
             }
             ExFreePool(Bcbs);
+        }
+
+        if (Bcb) {
+            FatUnpinBcb( IrpContext, Bcb );
         }
 
         for (Links = Dcb->Specific.Dcb.ParentDcbQueue.Flink;

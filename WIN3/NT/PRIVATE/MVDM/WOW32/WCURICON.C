@@ -18,6 +18,7 @@
 MODNAME(wcuricon.c);
 
 
+extern void FreeAccelAliasEntry(LPACCELALIAS lpT);
 
 LPCURSORICONALIAS lpCIAlias = NULL;
 UINT              cPendingCursorIconUpdates = 0;
@@ -329,6 +330,7 @@ LPCURSORICONALIAS AllocCursorIconAlias()
 
         lpT->flType = HANDLE_TYPE_UNKNOWN;
         lpT->hInst16 = (HAND16)0;
+        lpT->hMod16  = (HAND16)0;
         lpT->hTask16 = (HTASK16)0;
         lpT->hRes16 = 0;
     }
@@ -442,19 +444,27 @@ BOOL DeleteCursorIconAlias(ULONG hCI, UINT flHandleSize)
 //*****************************************************************************
 
 
-BOOL FreeCursorIconAlias(HTASK16 hTask16)
+BOOL FreeCursorIconAlias(HAND16 hand16, ULONG ulFlags)
 {
     LPCURSORICONALIAS  lpT;
 
     for (lpT = lpCIAlias; lpT != NULL; lpT = lpT->lpNext) {
-         if (lpT->fInUse && lpT->hTask16 == hTask16) {
+         if (lpT->fInUse &&
+            (((ulFlags & CIALIAS_HMOD)  && (lpT->hMod16  == hand16)) ||
+             ((ulFlags & CIALIAS_HTASK) && (lpT->hTask16 == hand16)))) {
 
-             // this function is called after the task cleanup on the
-             // 16bit side... so we really can't callback. So set appropriate
-             // fields to NULL to avoid callbacks.
-
-             lpT->h16 = (HAND16)NULL;
-             lpT->hRes16 = (HAND16)NULL;
+             if (ulFlags & CIALIAS_TASKISGONE) {
+                 // We're here if this function is called after the task
+                 // cleanup on the 16bit side... then we really can't
+                 // callback. Setting appropriate fields to NULL will
+                 // avoid callbacks, but will leak the corresponding
+                 // memory. The asserts will catch this on a checked
+                 // build.
+                 WOW32ASSERT(lpT->h16==(HAND16)NULL);
+                 WOW32ASSERT(lpT->hRes16==(HAND16)NULL);
+                 lpT->h16 = (HAND16)NULL;
+                 lpT->hRes16 = (HAND16)NULL;
+             }
              InvalidateCursorIconAlias(lpT);
          }
     }
@@ -489,6 +499,7 @@ HAND16 SetupCursorIconAlias(HAND16 hInst16, HAND32 h32, HAND16 h16, UINT flType,
     lpT->flType = flType;
     if (!(flType & HANDLE_TYPE_WOWGLOBAL)) {
         lpT->hInst16 = hInst16;
+        lpT->hMod16  = GETHMOD16(HMODINST32(hInst16));
         lpT->hTask16 = CURRENTPTD()->htask16;
         lpT->hRes16 = hRes16;
 
@@ -515,7 +526,7 @@ HAND16 SetupCursorIconAlias(HAND16 hInst16, HAND32 h32, HAND16 h16, UINT flType,
                 }
             }
         }
-        
+
 
     }
     // the alias has been setup. Now turn on the GAH_CURSORICON flag.
@@ -652,7 +663,7 @@ VOID UpdateCursorIcon()
                  cbData    = lpT->cbData    - sizeof(CURSORSHAPE16);
              }
 
-             if (memcmp(lpBitsNew, lpBitsOld, cbData))
+             if (! RtlEqualMemory(lpBitsNew, lpBitsOld, cbData))
                  ReplaceCursorIcon(lpT);
 
              if (cPendingCursorIconUpdates == ++i)
@@ -733,6 +744,7 @@ BOOL FASTCALL WK32WowCursorIconOp(PVDMFRAME pFrame)
     h16 = (HAND16)FETCHWORD(prci16->h16);
 
     lpT = FindCursorIconAlias((ULONG)h16, HANDLE_16BIT);
+    // This is a Cursor or Icon
     if (lpT != NULL) {
 
         if (wFuncId == FUN_GLOBALLOCK || wFuncId == FUN_GLOBALUNLOCK) {
@@ -797,6 +809,20 @@ BOOL FASTCALL WK32WowCursorIconOp(PVDMFRAME pFrame)
         }
         else {
             LOGDEBUG(0, ("WK32WowCursorIconOp: Unknown Func Id\n"));
+        }
+    }
+
+    // else if this is a GlobalFree call
+    else if (wFuncId == FUN_GLOBALFREE) {
+
+        // and if this is a handle to an accelerator
+        if(lpT = (LPCURSORICONALIAS)FindAccelAlias((HANDLE)h16, HANDLE_16BIT)) {
+
+            // free it from the accelerator alias list
+            FreeAccelAliasEntry((LPACCELALIAS) lpT);
+
+            // cause this hMem16 to really be free'd in 16-bit GlobalFree
+            return TRUE;
         }
     }
 
@@ -867,6 +893,11 @@ HAND16 W32Create16BitCursorIconFrom32BitHandle(HANDLE h32, HAND16 hInst16,
                 free_w(lpBitsAND);
 
             }
+
+        }
+        DeleteObject(iinfo.hbmMask);
+        if (iinfo.hbmColor) {
+            DeleteObject(iinfo.hbmColor);
         }
     }
 
@@ -1021,7 +1052,7 @@ BOOL InitStdCursorIconAlias()
          WOW32ASSERT(h32);
 
          if (h32) {
-             SetupResCursorIconAlias((HAND16)NULL, (HAND32)h32, NULL, (WORD)NULL, 
+             SetupResCursorIconAlias((HAND16)NULL, (HAND32)h32, NULL, (WORD)NULL,
                                                           HANDLE_TYPE_CURSOR);
          }
 
@@ -1048,7 +1079,7 @@ HAND16 W32CheckIfAlreadyLoaded(VPVOID pData, WORD ResType)
     LPCURSORICONALIAS  lpT;
     PICONCUR16 parg16;
     PSZ psz;
-    
+
 
     GETMISCPTR(pData, parg16);
     GETPSZIDPTR(parg16->lpStr, psz);
@@ -1057,11 +1088,11 @@ HAND16 W32CheckIfAlreadyLoaded(VPVOID pData, WORD ResType)
     for (lpT = lpCIAlias; lpT != NULL; lpT = lpT->lpNext) {
          if (lpT->fInUse) {
              LPBYTE lpszNameT = lpT->lpszName;
-             if (lpszNameT &&  (lpT->flType & ResType) && 
+             if (lpszNameT &&  (lpT->flType & ResType) &&
                                             lpT->hInst16 == parg16->hInst) {
                  WOW32ASSERT(!(lpT->flType & HANDLE_TYPE_WOWGLOBAL));
                  if (HIWORD(lpszNameT) && HIWORD(psz)) {
-                     if (!(stricmp(psz, (LPSTR)lpszNameT)))
+                     if (!(_stricmp(psz, (LPSTR)lpszNameT)))
                          break;
                  }
                  else if (lpszNameT == psz) {

@@ -1,30 +1,33 @@
 #include <pch.cxx>
 
+#define _UFAT_MEMBER_
+#include "ufat.hxx"
+
 #include "error.hxx"
 
 
-DEFINE_CONSTRUCTOR( EA_SET, CLUSTER_CHAIN );
+DEFINE_EXPORTED_CONSTRUCTOR( EA_SET, CLUSTER_CHAIN, UFAT_EXPORT );
 
 VOID
 EA_SET::Construct (
-	)
+        )
 /*++
 
 Routine Description:
 
-	Constructor for EA_SET.  Sets private data to default values.
+        Constructor for EA_SET.  Sets private data to default values.
 
 Arguments:
 
-	None.
+        None.
 
 Return Value:
 
-	None.
+        None.
 
 --*/
 {
-	memset(&_eahdr, 0, sizeof(_eahdr));
+        memset(&_eahdr, 0, sizeof(_eahdr));
     _size = 0;
     _size_imposed = FALSE;
     _current_ea = NULL;
@@ -32,6 +35,7 @@ Return Value:
 }
 
 
+UFAT_EXPORT
 EA_SET::~EA_SET(
     )
 /*++
@@ -54,6 +58,7 @@ Return Value:
 }
 
 
+UFAT_EXPORT
 BOOLEAN
 EA_SET::Initialize(
     IN OUT  PMEM                Mem,
@@ -94,7 +99,7 @@ Return Value:
     Destroy();
 
     if (!FatSuperArea || !Drive || !(sector_size = Drive->QuerySectorSize())) {
-		perrstk->push(ERR_NOT_INIT, QueryClassId());
+                perrstk->push(ERR_NOT_INIT, QueryClassId());
         Destroy();
         return FALSE;
     }
@@ -106,7 +111,7 @@ Return Value:
             !CLUSTER_CHAIN::Initialize(&hmem, Drive, FatSuperArea, Fat,
                                        ClusterNumber, 1) ||
             !Read()) {
-			perrstk->push(ERR_NOT_INIT, QueryClassId());
+                        perrstk->push(ERR_NOT_INIT, QueryClassId());
             Destroy();
             return FALSE;
         }
@@ -127,7 +132,7 @@ Return Value:
 
     if (!CLUSTER_CHAIN::Initialize(Mem, Drive, FatSuperArea, Fat,
                                    ClusterNumber, LengthOfChain)) {
-		perrstk->push(ERR_NOT_INIT, QueryClassId());
+                perrstk->push(ERR_NOT_INIT, QueryClassId());
         Destroy();
         return FALSE;
     }
@@ -136,6 +141,7 @@ Return Value:
 }
 
 
+UFAT_EXPORT
 BOOLEAN
 EA_SET::Read(
     )
@@ -173,6 +179,7 @@ Return Value:
 }
 
 
+UFAT_EXPORT
 PEA
 EA_SET::GetEa(
     IN  ULONG       Index,
@@ -218,7 +225,7 @@ Return Value:
     }
 
     if (!(b = (PCHAR) GetBuf())) {
- 		perrstk->push(ERR_NOT_INIT, QueryClassId());
+                perrstk->push(ERR_NOT_INIT, QueryClassId());
         return NULL;
     }
 
@@ -232,7 +239,7 @@ Return Value:
         offset = sizeof(EA) + r->NameSize + r->ValueSize[0] +
                  (r->ValueSize[1]<<8);
 
-        if (p - b + offset > _size) {
+        if (p - b + offset > (ULONG)_size) {
             if (PossiblyMore && !_size_imposed) {
                 *PossiblyMore = TRUE;
             }
@@ -255,7 +262,7 @@ Return Value:
     for (i = _current_index; i < Index; i++) {
         r = (PEA) (p += offset);
 
-        if (p - b + sizeof(EA) > _size) {
+        if (p - b + sizeof(EA) > (ULONG)_size) {
             if (PossiblyMore && !_size_imposed) {
                 *PossiblyMore = TRUE;
             }
@@ -270,7 +277,7 @@ Return Value:
         offset = sizeof(EA) + r->NameSize + r->ValueSize[0] +
                 (r->ValueSize[1]<<8);
 
-        if (p - b + offset > _size) {
+        if (p - b + offset > (ULONG)_size) {
             if (PossiblyMore && !_size_imposed) {
                 *PossiblyMore = TRUE;
             }
@@ -344,7 +351,7 @@ Return Value:
     PPACKED_EA_HDR  peahdr;
 
     if (!(peahdr = (PPACKED_EA_HDR) GetBuf())) {
- 		perrstk->push(ERR_NOT_INIT, QueryClassId());
+                perrstk->push(ERR_NOT_INIT, QueryClassId());
         return FALSE;
     }
 
@@ -382,7 +389,7 @@ Return Value:
     PPACKED_EA_HDR  peahdr;
 
     if (!(peahdr = (PPACKED_EA_HDR) GetBuf())) {
- 		perrstk->push(ERR_NOT_INIT, QueryClassId());
+                perrstk->push(ERR_NOT_INIT, QueryClassId());
         return FALSE;
     }
 

@@ -50,22 +50,19 @@ Return Value:
 
     PIMAGE_NT_HEADERS NtHeaders;
 
-    if (Base != NULL &&
-        Base != (PVOID)-1
-       ) {
+    if (Base != NULL && Base != (PVOID)-1) {
         try {
             if (((PIMAGE_DOS_HEADER)Base)->e_magic == IMAGE_DOS_SIGNATURE) {
                 NtHeaders = (PIMAGE_NT_HEADERS)((PCHAR)Base + ((PIMAGE_DOS_HEADER)Base)->e_lfanew);
                 if (NtHeaders->Signature == IMAGE_NT_SIGNATURE) {
                     return NtHeaders;
+                    }
                 }
             }
-
-        } except(EXCEPTION_EXECUTE_HANDLER) {
+        except(EXCEPTION_EXECUTE_HANDLER) {
             return NULL;
+            }
         }
-
-    }
 
     return NULL;
 }
@@ -106,20 +103,17 @@ Return Value:
     ULONG i;
     PIMAGE_SECTION_HEADER NtSection;
 
-    NtSection = (PIMAGE_SECTION_HEADER)((ULONG)NtHeaders +
-                        sizeof(ULONG) +
-                        sizeof(IMAGE_FILE_HEADER) +
-                        NtHeaders->FileHeader.SizeOfOptionalHeader
-                        );
-
+    NtSection = IMAGE_FIRST_SECTION( NtHeaders );
     for (i=0; i<NtHeaders->FileHeader.NumberOfSections; i++) {
-        if (Address >= NtSection->VirtualAddress &&
-           Address < NtSection->VirtualAddress + NtSection->SizeOfRawData) {
-            return( NtSection );
-        }
+        if ((ULONG)Address >= NtSection->VirtualAddress &&
+            (ULONG)Address < NtSection->VirtualAddress + NtSection->SizeOfRawData
+           ) {
+            return NtSection;
+            }
         ++NtSection;
-    }
-    return( NULL );
+        }
+
+    return NULL;
 }
 
 
@@ -157,14 +151,16 @@ Return Value:
 {
     PIMAGE_SECTION_HEADER NtSection;
 
-    if ( (NtSection = RtlSectionTableFromVirtualAddress(
-							NtHeaders,
-							Base,
-							Address
-						       )) == NULL )
-	return( NULL );
-    else
-	return( (PVOID)((ULONG)Base + ((ULONG)Address - NtSection->VirtualAddress) + NtSection->PointerToRawData) );
+    NtSection = RtlSectionTableFromVirtualAddress( NtHeaders,
+                                                   Base,
+                                                   Address
+                                                 );
+    if (NtSection != NULL) {
+        return( (PVOID)((ULONG)Base + ((ULONG)Address - NtSection->VirtualAddress) + NtSection->PointerToRawData) );
+        }
+    else {
+        return( NULL );
+        }
 }
 
 
@@ -215,7 +211,8 @@ Return Value:
 
     NtHeaders = RtlImageNtHeader(Base);
 
-    if (DirectoryEntry >= NtHeaders->OptionalHeader.NumberOfRvaAndSizes) {
+    if ((!NtHeaders) ||
+        (DirectoryEntry >= NtHeaders->OptionalHeader.NumberOfRvaAndSizes)) {
         return( NULL );
     }
 
@@ -227,5 +224,129 @@ Return Value:
         return( (PVOID)((ULONG)Base + DirectoryAddress) );
     }
 
-    return( RtlAddressInSectionTable(NtHeaders, Base, DirectoryAddress ));
+    return( RtlAddressInSectionTable(NtHeaders, Base, (PVOID)DirectoryAddress ));
 }
+
+
+#if !defined(NTOS_KERNEL_RUNTIME) && !defined(BLDR_KERNEL_RUNTIME)
+
+PIMAGE_SECTION_HEADER
+RtlImageRvaToSection(
+    IN PIMAGE_NT_HEADERS NtHeaders,
+    IN PVOID Base,
+    IN ULONG Rva
+    )
+
+/*++
+
+Routine Description:
+
+    This function locates an RVA within the image header of a file
+    that is mapped as a file and returns a pointer to the section
+    table entry for that virtual address
+
+Arguments:
+
+    NtHeaders - Supplies the pointer to the image or data file.
+
+    Base - Supplies the base of the image or data file.  The image
+        was mapped as a data file.
+
+    Rva - Supplies the relative virtual address (RVA) to locate.
+
+Return Value:
+
+    NULL - The RVA was not found within any of the sections of the image.
+
+    NON-NULL - Returns the pointer to the image section that contains
+               the RVA
+
+--*/
+
+{
+    ULONG i;
+    PIMAGE_SECTION_HEADER NtSection;
+
+    NtSection = IMAGE_FIRST_SECTION( NtHeaders );
+    for (i=0; i<NtHeaders->FileHeader.NumberOfSections; i++) {
+        if (Rva >= NtSection->VirtualAddress &&
+            Rva < NtSection->VirtualAddress + NtSection->SizeOfRawData
+           ) {
+            return NtSection;
+            }
+        ++NtSection;
+        }
+
+    return NULL;
+}
+
+
+
+PVOID
+RtlImageRvaToVa(
+    IN PIMAGE_NT_HEADERS NtHeaders,
+    IN PVOID Base,
+    IN ULONG Rva,
+    IN OUT PIMAGE_SECTION_HEADER *LastRvaSection OPTIONAL
+    )
+
+/*++
+
+Routine Description:
+
+    This function locates an RVA within the image header of a file that
+    is mapped as a file and returns the virtual addrees of the
+    corresponding byte in the file.
+
+
+Arguments:
+
+    NtHeaders - Supplies the pointer to the image or data file.
+
+    Base - Supplies the base of the image or data file.  The image
+        was mapped as a data file.
+
+    Rva - Supplies the relative virtual address (RVA) to locate.
+
+    LastRvaSection - Optional parameter that if specified, points
+        to a variable that contains the last section value used for
+        the specified image to translate and RVA to a VA.
+
+Return Value:
+
+    NULL - The file does not contain the specified RVA
+
+    NON-NULL - Returns the virtual addrees in the mapped file.
+
+--*/
+
+{
+    PIMAGE_SECTION_HEADER NtSection;
+
+    if (!ARGUMENT_PRESENT( LastRvaSection ) ||
+        (NtSection = *LastRvaSection) == NULL ||
+        Rva < NtSection->VirtualAddress ||
+        Rva >= NtSection->VirtualAddress + NtSection->SizeOfRawData
+       ) {
+        NtSection = RtlImageRvaToSection( NtHeaders,
+                                          Base,
+                                          Rva
+                                        );
+        }
+
+    if (NtSection != NULL) {
+        if (LastRvaSection != NULL) {
+            *LastRvaSection = NtSection;
+            }
+
+        return (PVOID)((ULONG)Base +
+                       (Rva - NtSection->VirtualAddress) +
+                       NtSection->PointerToRawData
+                      );
+        }
+    else {
+        return NULL;
+        }
+}
+
+#endif

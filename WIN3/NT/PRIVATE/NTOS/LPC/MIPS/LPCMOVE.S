@@ -43,6 +43,8 @@
 //    This function moves an LPC message block and optionally sets the message
 //    type and client id to the specified values.
 //
+//    N.B. The messages are assumed to be quadword aligned.
+//
 // Arguments:
 //
 //    DstMsg (a0) - Supplies a pointer to the destination message.
@@ -77,21 +79,21 @@
         or      t1,t1,a3                // set message type to specified value
 10:     sw      t0,0(a0)                // store first longword of destination
         sw      t1,4(a0)                // store second longword of destination
-        ldc1    f0,8(a1)                // get client id from source
+        ld      t3,8(a1)                // get client id from source
         beq     zero,v0,20f             // if eq, client id not specified
-        lwc1    f0,0(v0)                // get specified client id
-        lwc1    f1,4(v0)                //
-20:     sdc1    f0,8(a0)                // store client id
-        ldc1    f0,16(a1)               // move message id and view size
-        sdc1    f0,16(a0)               //
+        ldr     t3,0(v0)                // get specified client id
+        ldl     t3,7(v0)                //
+20:     ld      t4,16(a1)               // move message id and view size
+        sd      t3,8(a0)                // store client id
         and     t3,t2,0xfff8            // isolate quadword move count
+        sd      t4,16(a0)               //
         beq     zero,t3,40f             // if eq, no quadwords to move
         addu    t3,t3,a2                // compute ending address of move
-30:     lwc1    f0,0(a2)                // get next quadword of source data
-        lwc1    f1,4(a2)                //
+30:     ldr     t0,0(a2)                // get next quadword of source data
+        ldl     t0,7(a2)                //
         addu    a2,a2,8                 // advance source address
         addu    a0,a0,8                 // advance message pointers
-        sdc1    f0,24 - 8(a0)           // store next longword of destination
+        sd      t0,24 - 8(a0)           // store next longword of destination
         bne     t3,a2,30b               // if ne, more longwords to move
 40:     and     t2,t2,0x4               // check if final longword to move
         beq     zero,t2,50f             // if eq, no data part of message

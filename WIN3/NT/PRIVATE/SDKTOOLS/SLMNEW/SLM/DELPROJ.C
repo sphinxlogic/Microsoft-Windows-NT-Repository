@@ -1,16 +1,8 @@
 /* delproj - deletes the named project from the system */
 
-#include "slm.h"
-#include "sys.h"
-#include "util.h"
-#include "stfile.h"
-#include "ad.h"
-#include "script.h"
-#include "slmproto.h"
-#include "proto.h"
-
+#include "precomp.h"
+#pragma hdrstop
 EnableAssert
-
 
 F FDelPInit(pad)
 AD *pad;

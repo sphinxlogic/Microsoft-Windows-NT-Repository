@@ -30,8 +30,6 @@ Revision History:
 #include <nbtioctl.h>
 #pragma hdrstop
 
-extern POBJECT_TYPE *IoFileObjectType;
-
 typedef struct _ENUM_TRANSPORTS_CONTEXT {
     PVOID OutputBuffer;
     PVOID OutputBufferEnd;
@@ -90,6 +88,11 @@ BowserpTdiRemoveAddresses(
 
 VOID
 BowserpFreeTransport(
+    IN PTRANSPORT Transport
+    );
+
+VOID
+BowserDeleteTransport(
     IN PTRANSPORT Transport
     );
 
@@ -193,6 +196,7 @@ BowserIssueTdiQuery(
 #pragma alloc_text(PAGE, BowserpTdiRemoveAddresses)
 #pragma alloc_text(PAGE, BowserFindTransportName)
 #pragma alloc_text(PAGE, BowserFreeTransportName)
+#pragma alloc_text(PAGE, BowserDeleteTransport)
 #pragma alloc_text(PAGE, BowserpFreeTransport)
 #pragma alloc_text(PAGE, BowserpTdiSetEventHandler)
 #pragma alloc_text(PAGE, BowserBuildTransportAddress)
@@ -225,23 +229,6 @@ BowserIssueTdiQuery(
 // Flag to indicate that a network isn't an IP network
 //
 #define BOWSER_NON_IP_SUBNET 0xFFFFFFFF
-
-VOID
-BowserResetMaxDatagramSize(
-    IN ULONG DatagramSize
-    )
-{
-    KIRQL OldIrql;
-
-    ACQUIRE_SPIN_LOCK(&BowserMailslotSpinLock, &OldIrql);
-
-    if (BowserMaxDatagramSize < DatagramSize) {
-        BowserMaxDatagramSize = DatagramSize;
-    }
-
-    RELEASE_SPIN_LOCK(&BowserMailslotSpinLock, OldIrql);
-
-}
 
 
 NTSTATUS
@@ -295,6 +282,8 @@ Return Value:
             goto ReturnStatus;
         }
 
+        RtlZeroMemory( NewTransport, sizeof(TRANSPORT) );
+
         PagedTransport = NewTransport->PagedTransport = ALLOCATE_POOL(PagedPool,
                                          sizeof(PAGED_TRANSPORT) +
                                             max(sizeof(TA_IPX_ADDRESS),
@@ -305,6 +294,10 @@ Return Value:
 
             goto ReturnStatus;
         }
+
+        RtlZeroMemory( PagedTransport, sizeof(PAGED_TRANSPORT) +
+                                            max(sizeof(TA_IPX_ADDRESS),
+                                                sizeof(TA_NETBIOS_ADDRESS)) );
 
         PagedTransport->NonPagedTransport = NewTransport;
         PagedTransport->NumberOfServersInTable = 0;
@@ -487,8 +480,16 @@ Return Value:
              NameEntry = NameEntry->Flink) {
             PBOWSER_NAME Name = CONTAINING_RECORD(NameEntry, BOWSER_NAME, GlobalNext);
 
-            if (!NT_SUCCESS(Status = BowserCreateTransportName(NewTransport, Name))) {
-                goto ReturnStatus;
+            //
+            // If the name was added on all transports,
+            //  add it on this transport, too.
+            //
+
+            if ( Name->AddedOnAllTransports ) {
+
+                if (!NT_SUCCESS(Status = BowserCreateTransportName(NewTransport, Name))) {
+                    goto ReturnStatus;
+                }
             }
 
         }
@@ -509,19 +510,21 @@ Return Value:
 
 ReturnStatus:
 
+    ExReleaseResource(&BowserTransportDatabaseResource);
+
     if (!NT_SUCCESS(Status)) {
 
         //
-        //  Dereference the transport.
+        //  Delete the transport.
         //
-        //  The reference count is 1,
-        //      so the storage associated with the transport will be deleted.
 
-        BowserDereferenceTransport (NewTransport);
+        if ( NewTransport != NULL ) {
+            BowserReferenceTransport( NewTransport );
+            BowserDeleteTransport (NewTransport);
+            BowserDereferenceTransport( NewTransport );
+        }
 
     }
-
-    ExReleaseResource(&BowserTransportDatabaseResource);
 
     return Status;
 }
@@ -572,7 +575,7 @@ Return Value:
     //  Dereference the reference caused by the transport bind.
     //
 
-    BowserDereferenceTransport(Transport);
+    BowserDeleteTransport(Transport);
 
     //
     //  Return success.  We're done.
@@ -621,13 +624,13 @@ Return Value:
     }
 
     //
-    //  Remove the reference from the FindTransport.
-    //
-
-    BowserDereferenceTransport(Transport);
-
-    //
     //  Remove the reference from the binding.
+    //
+
+    BowserDeleteTransport(Transport);
+
+    //
+    //  Remove the reference from the FindTransport.
     //
 
     BowserDereferenceTransport(Transport);
@@ -796,7 +799,7 @@ BowserReferenceTransport(
     )
 {
 
-    ExInterlockedIncrementLong(&Transport->ReferenceCount, NULL);
+    InterlockedIncrement(&Transport->ReferenceCount);
     dprintf(DPRT_TDI, ("Reference transport %lx.  Count now %lx\n", Transport, Transport->ReferenceCount));
 
 }
@@ -806,7 +809,7 @@ BowserDereferenceTransport(
     IN PTRANSPORT Transport
     )
 {
-    INTERLOCKED_RESULT Result;
+    LONG Result;
     PAGED_CODE();
 
     ExAcquireResourceExclusive(&BowserTransportDatabaseResource, TRUE);
@@ -816,12 +819,12 @@ BowserDereferenceTransport(
         InternalError(("Transport Reference Count mismatch\n"));
     }
 
-    Result = ExInterlockedDecrementLong(&Transport->ReferenceCount, NULL);
+    Result = InterlockedDecrement(&Transport->ReferenceCount);
 
 
     dprintf(DPRT_TDI, ("Dereference transport %lx.  Count now %lx\n", Transport, Transport->ReferenceCount));
 
-    if (Result == ResultZero) {
+    if (Result == 0) {
         //
         //  And free up the transport itself.
         //
@@ -1343,7 +1346,7 @@ BowserEnableIpxDatagramSocket(
     action.OptionType = TRUE;
     action.BufferLength = sizeof(action.Option);
     action.Option = MIPX_SETSENDPTYPE;
-    action.Data[0] = 0x14;
+    action.Data[0] = IPX_BROADCAST_PACKET;
 
     status = BowserIssueTdiAction(
                 Transport->IpxSocketDeviceObject,
@@ -1509,7 +1512,7 @@ BowserReferenceTransportName(
     IN PTRANSPORT_NAME TransportName
     )
 {
-    ExInterlockedIncrementLong(&TransportName->ReferenceCount, NULL);
+    InterlockedIncrement(&TransportName->ReferenceCount);
 }
 
 NTSTATUS
@@ -1518,7 +1521,7 @@ BowserDereferenceTransportName(
     )
 {
     NTSTATUS Status;
-    INTERLOCKED_RESULT Result;
+    LONG Result;
     PAGED_CODE();
 
     ExAcquireResourceExclusive(&BowserTransportDatabaseResource, TRUE);
@@ -1528,9 +1531,9 @@ BowserDereferenceTransportName(
         InternalError(("Transport Name Reference Count mismatch\n"));
     }
 
-    Result = ExInterlockedDecrementLong(&TransportName->ReferenceCount, NULL);
+    Result = InterlockedDecrement(&TransportName->ReferenceCount);
 
-    if (Result == ResultZero) {
+    if (Result == 0) {
         Status = BowserFreeTransportName(TransportName);
     } else {
         Status = STATUS_SUCCESS;
@@ -1759,19 +1762,49 @@ BowserFreeTransportName(
     return(STATUS_SUCCESS);
 }
 
-
-
 VOID
-BowserpFreeTransport(
+BowserDeleteTransport(
     IN PTRANSPORT Transport
     )
+/*++
+
+Routine Description:
+
+    Delete a transport.
+
+    The caller should have a single reference to the transport.  The actual
+    transport structure will be deleted when that reference goes away.
+    This routine will decrement the global reference made in
+    BowserTdiAllocateTransport
+
+Arguments:
+
+    IN Transport - Supplies a transport structure to be deleted.
+
+Return Value:
+
+    None.
+
+--*/
+
 {
+    LARGE_INTEGER Interval;
     PAGED_CODE();
+
     ExAcquireResourceExclusive(&BowserTransportDatabaseResource, TRUE);
 
     //
+    // Prevent BowserFindTransport from adding any new references to the transport
+    //
+
+    if ( Transport->PagedTransport != NULL &&
+         Transport->PagedTransport->GlobalNext.Flink != NULL ) {
+        RemoveEntryList(&Transport->PagedTransport->GlobalNext);
+    }
+
+    //
     // Close all handles to the TDI driver so we won't get any indications after
-    //  we start cleaning up the Transport structure below.
+    //  we start cleaning up the Transport structure in BowserpFreeTransport.
     //
 
     BowserCloseAllNetbiosAddresses( Transport );
@@ -1799,42 +1832,85 @@ BowserpFreeTransport(
     }
 
     //
-    // If we received a message which re-referenced this transport,
-    //  just return now.  We'll be back when the reference count gets
-    //  re-dereferenced to zero.
-    //
-
-    if ( Transport->ReferenceCount != 0 ) {
-        ExReleaseResource(&BowserTransportDatabaseResource);
-        return;
-    }
-
-    //
-    // Uninitialize the timers before the addresses are removed to ensure a
-    // timer routine doesn't reference the PrimaryDomain and ComputerName fields.
+    // Uninitialize the timers to ensure we aren't in a timer routine while
+    // we are cleaning up.
     //
 
     BowserUninitializeTimer(&Transport->ElectionTimer);
 
     BowserUninitializeTimer(&Transport->FindMasterTimer);
 
-
     //
-    // Remove the Adresses.
-    //
-    //  Do this in a separate step from the Close above to ensure the PrimaryDomain
-    //  and ComputerName fields don't get cleared until all possible references
-    //  are removed.
+    // Remove the global reference to the transport.
     //
 
-    if (!IsListEmpty(&Transport->PagedTransport->NameChain)) {
-        BowserpTdiRemoveAddresses(Transport);
+    BowserDereferenceTransport( Transport );
+
+    ExReleaseResource(&BowserTransportDatabaseResource);
+
+    //
+    // Delete any mailslot messages queued to the netlogon service.
+    //
+
+    BowserNetlogonDeleteTransportFromMessageQueue ( Transport );
+
+
+    //
+    // Loop until our caller has the last outstanding reference.
+    //  This is the only thing preventing the driver from unloading while there
+    //  are still references outstanding.
+    //
+
+    while ( Transport->ReferenceCount != 1) {
+        Interval.QuadPart = -1*10*1000*10; // .01 second
+        KeDelayExecutionThread( KernelMode, FALSE, &Interval );
     }
 
+}
 
-    if ( Transport->PagedTransport->GlobalNext.Flink != NULL ) {
-        RemoveEntryList(&Transport->PagedTransport->GlobalNext);
+
+VOID
+BowserpFreeTransport(
+    IN PTRANSPORT Transport
+    )
+{
+    PAGED_CODE();
+    ExAcquireResourceExclusive(&BowserTransportDatabaseResource, TRUE);
+
+    //
+    // Free the Paged transport, if necessary.
+    //
+
+    if (Transport->PagedTransport != NULL) {
+        PPAGED_TRANSPORT PagedTransport = Transport->PagedTransport;
+
+        //
+        // Remove the Adresses.
+        //
+        //  Do this in a separate step from the Close in BowserDeleteTransport
+        //  above to ensure the PrimaryDomain and ComputerName fields don't
+        //  get cleared until all possible references are removed.
+        //
+
+        if (!IsListEmpty( &PagedTransport->NameChain)) {
+            BowserpTdiRemoveAddresses(Transport);
+        }
+
+        BowserDeleteGenericTable(&PagedTransport->AnnouncementTable);
+
+        BowserDeleteGenericTable(&PagedTransport->DomainTable);
+
+        if (PagedTransport->MasterName.Buffer != NULL) {
+            FREE_POOL(PagedTransport->MasterName.Buffer);
+        }
+
+        if (PagedTransport->TransportName.Buffer != NULL) {
+            FREE_POOL(PagedTransport->TransportName.Buffer);
+        }
+
+        FREE_POOL(PagedTransport);
     }
+
 
     ExDeleteResource(&Transport->BrowserServerListResource);
 
@@ -1852,24 +1928,6 @@ BowserpFreeTransport(
 
     if ( Transport->IpxSocketFileObject != NULL ) {
         ObDereferenceObject( Transport->IpxSocketFileObject );
-    }
-
-    if (Transport->PagedTransport != NULL) {
-        PPAGED_TRANSPORT PagedTransport = Transport->PagedTransport;
-
-        BowserDeleteGenericTable(&PagedTransport->AnnouncementTable);
-
-        BowserDeleteGenericTable(&PagedTransport->DomainTable);
-
-        if (PagedTransport->MasterName.Buffer != NULL) {
-            FREE_POOL(PagedTransport->MasterName.Buffer);
-        }
-
-        if (PagedTransport->TransportName.Buffer != NULL) {
-            FREE_POOL(PagedTransport->TransportName.Buffer);
-        }
-
-        FREE_POOL(PagedTransport);
     }
 
     FREE_POOL(Transport);
@@ -2086,6 +2144,7 @@ Return Value:
         break;
 
     case ComputerName:
+    case AlternateComputerName:
         NetbiosAddress->NetbiosName[NETBIOS_NAME_LEN-1] = WORKSTATION_SIGNATURE;
         NetbiosAddress->NetbiosNameType = TDI_ADDRESS_NETBIOS_TYPE_UNIQUE;
         break;
@@ -2128,6 +2187,8 @@ Return Value:
         }
         NetbiosAddress->NetbiosNameType = TDI_ADDRESS_NETBIOS_TYPE_GROUP;
         break;
+    default:
+        return STATUS_INVALID_PARAMETER;
 
     }
 
@@ -2195,7 +2256,6 @@ Return Value:
     }
 
     PagedTransport->NonPagedTransport->DatagramSize = ProviderInfo.MaxDatagramSize;
-    BowserResetMaxDatagramSize(PagedTransport->NonPagedTransport->DatagramSize);
 
 
     //
@@ -2989,12 +3049,39 @@ Return Value:
     PPAGED_TRANSPORT PagedTransport = Transport->PagedTransport;
 //    PTRANSPORT_NAME TComputerName;
     ANSI_STRING AnsiString;
+    UCHAR IpxPacketType;
+    PFILE_OBJECT    FileObject;
+    PDEVICE_OBJECT  DeviceObject;
 
     PAGED_CODE();
 
+    //
+    // Ensure the computername has been registered for this transport
+    //
     if ( Transport->ComputerName == NULL ) {
         return STATUS_BAD_NETWORK_PATH;
     }
+
+    //
+    // Ensure the Device and File object are known.
+    //
+
+    if (!FlagOn(Transport->PagedTransport->Flags, DIRECT_HOST_IPX)) {
+        DeviceObject = Transport->ComputerName->DeviceObject;
+        FileObject = Transport->ComputerName->FileObject;
+    } else {
+        DeviceObject = Transport->IpxSocketDeviceObject;
+        FileObject = Transport->IpxSocketFileObject;
+    }
+
+    if ( DeviceObject == NULL || FileObject == NULL ) {
+        return STATUS_BAD_NETWORK_PATH;
+    }
+
+
+    //
+    // Allocate a context describing this datagram send.
+    //
 
     context = ALLOCATE_POOL(NonPagedPool, sizeof(SEND_DATAGRAM_CONTEXT), POOL_SENDDATAGRAM);
 
@@ -3016,6 +3103,11 @@ Return Value:
 
         context->Header = ALLOCATE_POOL(NonPagedPool, BufferLength + sizeof(SMB_IPX_NAME_PACKET), POOL_SENDDATAGRAM);
 
+        if ( context->Header == NULL ) {
+            FREE_POOL(context);
+            return STATUS_INSUFFICIENT_RESOURCES;
+        }
+
         NamePacket = context->Header;
 
         RtlZeroMemory(NamePacket->Route, sizeof(NamePacket->Route));
@@ -3028,7 +3120,7 @@ Return Value:
             } else {
                 NamePacket->NameType = SMB_IPX_NAME_TYPE_WORKKGROUP;
             }
-        } else if (NameType == ComputerName) {
+        } else if (NameType == ComputerName || NameType == AlternateComputerName ) {
             NamePacket->NameType = SMB_IPX_NAME_TYPE_MACHINE;
         } else {
             NamePacket->NameType = SMB_IPX_NAME_TYPE_WORKKGROUP;
@@ -3078,6 +3170,8 @@ Return Value:
                                 );
 
     if ( context->ConnectionInformation == NULL ) {
+        FREE_POOL(context->Header);
+        FREE_POOL(context);
         return STATUS_INSUFFICIENT_RESOURCES;
     }
 
@@ -3103,7 +3197,7 @@ Return Value:
         //  master browser if we know it.
         //
 
-        if ((RtlCompareMemory(Domain->Buffer, ((PTA_NETBIOS_ADDRESS)(Transport->ComputerName->TransportAddress.Buffer))->Address[0].Address->NetbiosName, SMB_IPX_NAME_LENGTH) == SMB_IPX_NAME_LENGTH) &&
+        if (RtlEqualMemory(Domain->Buffer, ((PTA_NETBIOS_ADDRESS)(Transport->ComputerName->TransportAddress.Buffer))->Address[0].Address->NetbiosName, SMB_IPX_NAME_LENGTH) &&
             ( NameType == MasterBrowser ) &&
             (Transport->PagedTransport->MasterBrowserAddress.Length != 0) ) {
 
@@ -3118,6 +3212,13 @@ Return Value:
             RtlCopyMemory(context->ConnectionInformation->RemoteAddress,
                             Transport->PagedTransport->MasterBrowserAddress.Buffer,
                             Transport->PagedTransport->MasterBrowserAddress.Length);
+
+            //
+            // This is a directed packet, don't broadcast it.
+            //
+            IpxPacketType = IPX_DIRECTED_PACKET;
+            context->ConnectionInformation->OptionsLength = sizeof(IpxPacketType);
+            context->ConnectionInformation->Options = &IpxPacketType;
 
         } else if (FlagOn(Transport->PagedTransport->Flags, DIRECT_HOST_IPX)) {
 
@@ -3162,13 +3263,16 @@ Return Value:
         RtlCopyMemory(context->ConnectionInformation->RemoteAddress, DestinationAddress->Buffer, DestinationAddress->Length);
         context->ConnectionInformation->RemoteAddressLength = DestinationAddress->Length;
 
+        //
+        // This is a directed packet, don't broadcast it.
+        //
+        IpxPacketType = IPX_DIRECTED_PACKET;
+        context->ConnectionInformation->OptionsLength = sizeof(IpxPacketType);
+        context->ConnectionInformation->Options = &IpxPacketType;
+
     }
 
-    if (!FlagOn(Transport->PagedTransport->Flags, DIRECT_HOST_IPX)) {
-        irp = IoAllocateIrp(Transport->ComputerName->DeviceObject->StackSize, TRUE);
-    } else {
-        irp = IoAllocateIrp(Transport->IpxSocketDeviceObject->StackSize, TRUE);
-    }
+    irp = IoAllocateIrp( DeviceObject->StackSize, TRUE);
 
     if (irp == NULL) {
         FREE_POOL(context->ConnectionInformation);
@@ -3195,26 +3299,17 @@ Return Value:
 
     ASSERT (KeGetCurrentIrql() == 0);
 
-    if (FlagOn(Transport->PagedTransport->Flags, DIRECT_HOST_IPX)) {
+    TdiBuildSendDatagram( irp,
+                          DeviceObject,
+                          FileObject,
+                          CompleteSendDatagram,
+                          context,
+                          mdlAddress,
+                          BufferLength,
+                          context->ConnectionInformation);
 
-        TdiBuildSendDatagram(irp, Transport->IpxSocketDeviceObject,
-                    Transport->IpxSocketFileObject, CompleteSendDatagram, context, mdlAddress, BufferLength,
-                    context->ConnectionInformation);
 
-
-        status = IoCallDriver(Transport->IpxSocketDeviceObject, irp);
-
-        ASSERT (KeGetCurrentIrql() == 0);
-    } else {
-
-        TdiBuildSendDatagram(irp, Transport->ComputerName->DeviceObject,
-                    Transport->ComputerName->FileObject, CompleteSendDatagram, context, mdlAddress, BufferLength,
-                    context->ConnectionInformation);
-
-        status = IoCallDriver(Transport->ComputerName->DeviceObject, irp);
-
-        ASSERT (KeGetCurrentIrql() == 0);
-    }
+    status = IoCallDriver(DeviceObject, irp);
 
     ASSERT (KeGetCurrentIrql() == 0);
 
@@ -3230,12 +3325,6 @@ Return Value:
 
         }
 
-        FREE_POOL(context->ConnectionInformation);
-
-        FREE_POOL(context->Header);
-
-        FREE_POOL(context);
-
         IoFreeMdl(irp->MdlAddress);
 
         //
@@ -3245,6 +3334,12 @@ Return Value:
         status = irp->IoStatus.Status;
 
         IoFreeIrp(irp);
+
+        FREE_POOL(context->ConnectionInformation);
+
+        FREE_POOL(context->Header);
+
+        FREE_POOL(context);
     }
 
     ASSERT (KeGetCurrentIrql() == 0);

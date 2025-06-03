@@ -106,8 +106,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetGetDCName: NetGetDCName failed: %X\n",
-                          status );
+            NetpKdPrint(( "XsNetGetDCName: NetGetDCName failed: %X\n",
+                          status ));
         }
         goto cleanup;
     }
@@ -116,19 +116,19 @@ Return Value:
     // Put string into buffer. Convert from Unicode if necessary.
     //
 
-    if ( (DWORD)SmbGetUshort( &parameters->BufLen ) <= STRLEN( dcName )) {
+    if ( (DWORD)SmbGetUshort( &parameters->BufLen ) <= NetpUnicodeToDBCSLen( dcName )) {
 
         status = NERR_BufTooSmall;
 
     } else {
 
-        NetpCopyTStrToStr( (LPSTR)SmbGetUlong( &parameters->Buffer ), dcName );
+        NetpCopyWStrToStrDBCS( (LPSTR)SmbGetUlong( &parameters->Buffer ), dcName );
 
     }
 
 
     IF_DEBUG(LOGON) {
-        NetpDbgPrint( "Name is %ws\n", dcName );
+        NetpKdPrint(( "Name is %ws\n", dcName ));
     }
 
 cleanup:
@@ -190,10 +190,10 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;
 
     IF_DEBUG(LOGON) {
-        NetpDbgPrint( "XsNetLogonEnum: header at %lx, params at %lx, "
+        NetpKdPrint(( "XsNetLogonEnum: header at %lx, params at %lx, "
                       "level %ld, buf size %ld\n",
                       Header, parameters, SmbGetUshort( &parameters->Level ),
-                      SmbGetUshort( &parameters->BufLen ));
+                      SmbGetUshort( &parameters->BufLen )));
     }
 
     //
@@ -227,16 +227,16 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetLogonEnum: NetLogonEnum failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetLogonEnum: NetLogonEnum failed: "
+                          "%X\n", status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
     }
 
     IF_DEBUG(LOGON) {
-        NetpDbgPrint( "XsNetLogonEnum: received %ld entries at %lx\n",
-                      entriesRead, outBuffer );
+        NetpKdPrint(( "XsNetLogonEnum: received %ld entries at %lx\n",
+                      entriesRead, outBuffer ));
     }
 
     //
@@ -279,10 +279,10 @@ Return Value:
         );
 
     IF_DEBUG(LOGON) {
-        NetpDbgPrint( "32-bit data at %lx, 16-bit data at %lx, %ld BR,"
+        NetpKdPrint(( "32-bit data at %lx, 16-bit data at %lx, %ld BR,"
                       " Entries %ld of %ld\n",
                       outBuffer, SmbGetUlong( &parameters->Buffer ),
-                      bytesRequired, entriesFilled, totalEntries );
+                      bytesRequired, entriesFilled, totalEntries ));
     }
 
     //
@@ -362,7 +362,7 @@ Return Value:
     LPTSTR nativeRequestor = NULL;
     NETLOGON_CREDENTIAL inCredential;
     NETLOGON_CREDENTIAL outCredential;
-    WCHAR AccountName[SSI_ACCOUNT_NAME_LENGTH+1];
+    WCHAR AccountName[MAX_PATH+1];
 
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
@@ -413,8 +413,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetServerAuthenticate: I_NetServerAuthenticate "
-                          "failed: %X\n", status );
+            NetpKdPrint(( "XsNetServerAuthenticate: I_NetServerAuthenticate "
+                          "failed: %X\n", status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
@@ -468,7 +468,7 @@ Return Value:
     NETLOGON_AUTHENTICATOR authIn;
     NETLOGON_AUTHENTICATOR authOut;
     ENCRYPTED_LM_OWF_PASSWORD password;
-    WCHAR AccountName[SSI_ACCOUNT_NAME_LENGTH+1];
+    WCHAR AccountName[MAX_PATH];
 
     LPBYTE structure = NULL;                // Conversion variables
 
@@ -532,9 +532,9 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetServerPasswordSet: "
+            NetpKdPrint(( "XsNetServerPasswordSet: "
                           "I_NetServerPasswordSet failed: %X\n",
-                          status );
+                          status ));
         }
 
         //
@@ -648,9 +648,9 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetServerReqChallenge: "
+            NetpKdPrint(( "XsNetServerReqChallenge: "
                           "I_NetServerReqChallenge failed: %X\n",
-                          status );
+                          status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
@@ -756,8 +756,8 @@ Return Value:
 
     if ( !XsApiSuccess(status)) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetWkstaUserLogoff: I_NetLogonUasLogoff "
-                          "failed: %X\n", status );
+            NetpKdPrint(( "XsNetWkstaUserLogoff: I_NetLogonUasLogoff "
+                          "failed: %X\n", status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
@@ -788,8 +788,8 @@ Return Value:
 
     if ( status != NERR_Success ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetWkstaUserLogoff: RapConvertSingleEntry "
-                          "failed: %X\n", status );
+            NetpKdPrint(( "XsNetWkstaUserLogoff: RapConvertSingleEntry "
+                          "failed: %X\n", status ));
         }
 
         Header->Status = NERR_InternalError;
@@ -797,9 +797,9 @@ Return Value:
     }
 
     IF_DEBUG(LOGON) {
-        NetpDbgPrint( "32-bit data at %lx, 16-bit data at %lx, %ld BR\n",
+        NetpKdPrint(( "32-bit data at %lx, 16-bit data at %lx, %ld BR\n",
                       &buffer, SmbGetUlong( &parameters->OutBuf ),
-                      bytesRequired );
+                      bytesRequired ));
     }
 
     //
@@ -815,14 +815,14 @@ Return Value:
              )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetWkstaUserLogoff: Buffer too small.\n" );
+            NetpKdPrint(( "XsNetWkstaUserLogoff: Buffer too small.\n" ));
         }
         Header->Status = NERR_BufTooSmall;
 
     } else if ( bytesRequired > (DWORD)SmbGetUshort( &parameters->OutBufLen )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetWkstaUserLogoff: More data available.\n" );
+            NetpKdPrint(( "XsNetWkstaUserLogoff: More data available.\n" ));
         }
         Header->Status = ERROR_MORE_DATA;
     }
@@ -944,8 +944,8 @@ Return Value:
     if ( !XsApiSuccess ( status )) {
 
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetWkstaUserLogon: I_NetLogonUasLogon failed: "
-                          "%X\n", status);
+            NetpKdPrint(( "XsNetWkstaUserLogon: I_NetLogonUasLogon failed: "
+                          "%X\n", status));
         }
         Header->Status = (WORD) status;
         goto cleanup;
@@ -976,8 +976,8 @@ Return Value:
 
     if ( status != NERR_Success ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetWkstaUserLogon: RapConvertSingleEntry "
-                          "failed: %X\n", status );
+            NetpKdPrint(( "XsNetWkstaUserLogon: RapConvertSingleEntry "
+                          "failed: %X\n", status ));
         }
 
         Header->Status = NERR_InternalError;
@@ -985,9 +985,9 @@ Return Value:
     }
 
     IF_DEBUG(LOGON) {
-        NetpDbgPrint( "32-bit data at %lx, 16-bit data at %lx, %ld BR\n",
+        NetpKdPrint(( "32-bit data at %lx, 16-bit data at %lx, %ld BR\n",
                       buffer, SmbGetUlong( &parameters->OutBuf ),
-                      bytesRequired );
+                      bytesRequired ));
     }
 
     //
@@ -1003,14 +1003,14 @@ Return Value:
              )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetWkstaUserLogon: Buffer too small.\n" );
+            NetpKdPrint(( "XsNetWkstaUserLogon: Buffer too small.\n" ));
         }
         Header->Status = NERR_BufTooSmall;
 
     } else if ( bytesRequired > (DWORD)SmbGetUshort( &parameters->OutBufLen )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetWkstaUserLogoff: More data available.\n" );
+            NetpKdPrint(( "XsNetWkstaUserLogoff: More data available.\n" ));
         }
         Header->Status = ERROR_MORE_DATA;
 

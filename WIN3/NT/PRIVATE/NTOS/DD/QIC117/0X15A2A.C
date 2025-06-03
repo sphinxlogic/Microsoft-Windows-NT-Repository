@@ -9,11 +9,11 @@
 *
 * FUNCTION: kdi_QIC117ClearIRQ
 *
-* PURPOSE: 
+* PURPOSE:
 *
 * HISTORY:
 *		$Log:   J:\se.vcs\driver\q117kdi\nt\src\0x15a2a.c  $
-*	
+*
 *	   Rev 1.0   26 Apr 1994 16:09:44   KEVINKES
 *	Initial revision.
 *
@@ -31,7 +31,7 @@ dVoid kdi_QIC117ClearIRQ
 (
 /* INPUT PARAMETERS:  */
 
-	dVoidPtr kdi_context
+    dVoidPtr context
 
 /* UPDATE PARAMETERS: */
 
@@ -48,7 +48,14 @@ dVoid kdi_QIC117ClearIRQ
 
 /* CODE: ********************************************************************/
 
-   UNREFERENCED_PARAMETER( kdi_context );
+    KdiContextPtr   kdi_context = (KdiContextPtr)context;
+
+    if (kdi_context->controller_data.floppyEnablerApiSupported) {
+        //
+        //  If we want to add irq support to enabler :
+        //
+        //kdi_FloppyEnabler(kdi_context->controller_data.apiDeviceObject, FDC_CLEAR_IRQ, NULL);
+    }
 
 	return;
 }

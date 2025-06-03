@@ -71,6 +71,7 @@ UCHAR   pszBnel[]     = "bnel";
 UCHAR   pszBreak[]    = "break";
 UCHAR   pszCache[]    = "cache";
 UCHAR   pszCeil_w_s[] = "ceil.w.s";
+UCHAR   pszCeil_l_s[] = "ceil.l.s";
 UCHAR   pszCfc0[]     = "cfc0";
 UCHAR   pszCfc1[]     = "cfc1";
 UCHAR   pszCfc2[]     = "cfc2";
@@ -104,9 +105,30 @@ UCHAR   pszC_ueq_s[]  = "c.ueq.s";
 UCHAR   pszC_ule_s[]  = "c.ule.s";
 UCHAR   pszC_ult_s[]  = "c.ult.s";
 UCHAR   pszC_un_s[]   = "c.un.s";
+UCHAR   pszDadd[]     = "dadd";
+UCHAR   pszDaddi[]    = "daddi";
+UCHAR   pszDaddiu[]   = "daddiu";
+UCHAR   pszDaddu[]    = "daddu";
+UCHAR   pszDdiv[]     = "ddiv";
+UCHAR   pszDdivu[]    = "ddivu";
 UCHAR   pszDiv[]      = "div";
 UCHAR   pszDivu[]     = "divu";
 UCHAR   pszDiv_s[]    = "div.s";
+UCHAR   pszDmfc0[]    = "dmfc0";
+UCHAR   pszDmtc0[]    = "dmtc0";
+UCHAR   pszDmult[]    = "dmult";
+UCHAR   pszDmultu[]   = "dmultu";
+UCHAR   pszDsll[]     = "dsll";
+UCHAR   pszDsllv[]    = "dsllv";
+UCHAR   pszDsll32[]   = "dsll32";
+UCHAR   pszDsra[]     = "dsra";
+UCHAR   pszDsrav[]    = "dsrav";
+UCHAR   pszDsra32[]   = "dsra32";
+UCHAR   pszDsrl[]     = "dsrl";
+UCHAR   pszDsrlv[]    = "dsrlv";
+UCHAR   pszDsrl32[]   = "dsrl32";
+UCHAR   pszDsub[]     = "dsub";
+UCHAR   pszDsubu[]    = "dsubu";
 UCHAR   pszEret[]     = "eret";
 UCHAR   pszFloor_w_s[] = "floor.w.s";
 UCHAR   pszJ[]        = "j";
@@ -118,8 +140,12 @@ UCHAR   pszLbu[]      = "lbu";
 UCHAR   pszLdc1[]     = "ldc1";
 UCHAR   pszLdc2[]     = "ldc2";
 UCHAR   pszLdc3[]     = "ldc3";
+UCHAR   pszLd[]       = "ld";
+UCHAR   pszLdl[]      = "ldl";
+UCHAR   pszLdr[]      = "ldr";
 UCHAR   pszLh[]       = "lh";
 UCHAR   pszLhu[]      = "lhu";
+UCHAR   pszLld[]      = "lld";
 UCHAR   pszLui[]      = "lui";
 UCHAR   pszLw[]       = "lw";
 UCHAR   pszLwc0[]     = "lwc0";
@@ -152,9 +178,13 @@ UCHAR   pszOri[]      = "ori";
 UCHAR   pszRfe[]      = "rfe";
 UCHAR   pszRound_w_s[] = "round.w.s";
 UCHAR   pszSb[]       = "sb";
+UCHAR   pszScd[]      = "scd";
+UCHAR   pszSd[]       = "sd";
 UCHAR   pszSdc1[]     = "sdc1";
 UCHAR   pszSdc2[]     = "sdc2";
 UCHAR   pszSdc3[]     = "sdc3";
+UCHAR   pszSdl[]      = "sdl";
+UCHAR   pszSdr[]      = "sdr";
 UCHAR   pszSh[]       = "sh";
 UCHAR   pszSll[]      = "sll";
 UCHAR   pszSllv[]     = "sllv";
@@ -224,10 +254,10 @@ OPTABENTRY opTable[] = {
     { pszBnel, opnRsRtRel16 + opnR4000 },       //  15
     { pszBlezl, opnRsRel16 + opnR4000 },        //  16
     { pszBgtzl, opnRsRel16 + opnR4000 },        //  17
-    { pszUndef, 0 },                            //  18
-    { pszUndef, 0 },                            //  19
-    { pszUndef, 0 },                            //  1a
-    { pszUndef, 0 },                            //  1b
+    { pszDaddi, opnRtRsImm16 },                 //  18
+    { pszDaddiu, opnRtRsImm16 },                //  19
+    { pszLdl, opnRtDwordIndex },                //  1a
+    { pszLdr, opnRtDwordIndex },                //  1b
     { pszUndef, 0 },                            //  1c
     { pszUndef, 0 },                            //  1d
     { pszUndef, 0 },                            //  1e
@@ -244,26 +274,26 @@ OPTABENTRY opTable[] = {
     { pszSh, opnRtWordIndex },                  //  29
     { pszSwl, opnRtLeftIndex },                 //  2a
     { pszSw, opnRtDwordIndex },                 //  2b
-    { pszUndef, 0 },                            //  2c
-    { pszUndef, 0 },                            //  2d
+    { pszSdl, opnRtDwordIndex },                //  2c
+    { pszSdr, opnRtDwordIndex },                //  2d
     { pszSwr, opnRtRightIndex },                //  2e
     { pszCache, opnCacheRightIndex + opnR4000 }, //  2f
     { pszLwc0, opnRtDwordIndex },               //  30
     { pszLwc1, opnFtDwordIndex },               //  31
     { pszLwc2, opnRtDwordIndex },               //  32
     { pszLwc3, opnRtDwordIndex },               //  33
-    { pszUndef, 0 },                            //  34
+    { pszLld, opnRtDwordIndex },                //  34
     { pszLdc1, opnFtDwordIndex + opnR4000 },    //  35  Qword?
     { pszLdc2, opnRtDwordIndex + opnR4000 },    //  36  Qword?
-    { pszLdc3, opnRtDwordIndex + opnR4000 },    //  37  Qword?
+    { pszLd,   opnRtDwordIndex + opnR4000 },    //  37  Qword?
     { pszSwc0, opnRtDwordIndex },               //  38
     { pszSwc1, opnFtDwordIndex },               //  39
     { pszSwc2, opnRtDwordIndex },               //  3a
     { pszSwc3, opnRtDwordIndex },               //  3b
-    { pszUndef, 0 },                            //  3c
+    { pszScd, opnRtDwordIndex },                //  3c
     { pszSdc1, opnFtDwordIndex + opnR4000 },    //  3d  Qword?
     { pszSdc2, opnRtDwordIndex + opnR4000 },    //  3e  Qword?
-    { pszSdc3, opnRtDwordIndex + opnR4000 },    //  3f  Qword?
+    { pszSd, opnRtDwordIndex + opnR4000 },      //  3f  Qword?
     };
 
 OPTABENTRY opSpecialTable[] = {
@@ -287,18 +317,18 @@ OPTABENTRY opSpecialTable[] = {
     { pszMthi, opnRs },                         //  11
     { pszMflo, opnRd },                         //  12
     { pszMtlo, opnRs },                         //  13
-    { pszUndef, 0 },                            //  14
+    { pszDsllv,    opnRdRtRs    },              //  14
     { pszUndef, 0 },                            //  15
-    { pszUndef, 0 },                            //  16
-    { pszUndef, 0 },                            //  17
+    { pszDsrlv,    opnRdRtRs    },              //  16
+    { pszDsrav,    opnRdRtRs    },              //  17
     { pszMult, opnRsRt },                       //  18
     { pszMultu, opnRsRt },                      //  19
     { pszDiv, opnRsRt },                        //  1a
     { pszDivu, opnRsRt },                       //  1b
-    { pszUndef, 0 },                            //  1c
-    { pszUndef, 0 },                            //  1d
-    { pszUndef, 0 },                            //  1e
-    { pszUndef, 0 },                            //  1f
+    { pszDmult,    opnRsRt      },              //  1c
+    { pszDmultu,   opnRsRt      },              //  1d
+    { pszDdiv, opnRsRt },                       //  1e
+    { pszDdivu, opnRsRt },                      //  1f
     { pszAdd, opnRdRsRt },                      //  20
     { pszAddu, opnRdRsRt },                     //  21
     { pszSub, opnRdRsRt },                      //  22
@@ -311,10 +341,10 @@ OPTABENTRY opSpecialTable[] = {
     { pszUndef, 0 },                            //  29
     { pszSlt, opnRdRsRt },                      //  2a
     { pszSltu, opnRdRsRt },                     //  2b
-    { pszUndef, 0 },                            //  2c
-    { pszUndef, 0 },                            //  2d
-    { pszUndef, 0 },                            //  2e
-    { pszUndef, 0 },                            //  2f
+    { pszDadd, opnRdRsRt },                     //  2c
+    { pszDaddu, opnRdRsRt },                    //  2d
+    { pszDsub,     opnRdRtRs    },              //  2e
+    { pszDsubu,    opnRdRtRs    },              //  2f
     { pszTge, opnRsRtImm10 + opnR4000 },        //  30
     { pszTgeu, opnRsRtImm10 + opnR4000 },       //  31
     { pszTlt, opnRsRtImm10 + opnR4000 },        //  32
@@ -323,14 +353,14 @@ OPTABENTRY opSpecialTable[] = {
     { pszUndef, 0 },                            //  35
     { pszTne, opnRsRtImm10 + opnR4000 },        //  36
     { pszUndef, 0 },                            //  37
-    { pszUndef, 0 },                            //  38
+    { pszDsll,     opnRdRtShift },              //  38
     { pszUndef, 0 },                            //  39
-    { pszUndef, 0 },                            //  3a
-    { pszUndef, 0 },                            //  3b
-    { pszUndef, 0 },                            //  3c
+    { pszDsrl,     opnRdRtShift },              //  3a
+    { pszDsra,     opnRdRtShift },              //  3b
+    { pszDsll32,   opnRdRtShift },              //  3c
     { pszUndef, 0 },                            //  3d
-    { pszUndef, 0 },                            //  3e
-    { pszUndef, 0 }                             //  3f
+    { pszDsrl32,   opnRdRtShift },              //  3e
+    { pszDsra32,   opnRdRtShift }               //  3f
     };
 
 OPTABENTRY opBcondTable[] = {
@@ -402,7 +432,7 @@ OPTABENTRY opFloatTable[] = {
     { pszNeg_s, opnFdFs },                      //  07
     { pszUndef, 0 },                            //  08
     { pszUndef, 0 },                            //  09
-    { pszUndef, 0 },                            //  0a
+    { pszCeil_l_s, opnFdFs + opnR4000 },        //  0a
     { pszUndef, 0 },                            //  0b
     { pszRound_w_s, opnFdFs + opnR4000 },       //  0c
     { pszTrunc_w_s, opnFdFs + opnR4000 },       //  0d
@@ -547,6 +577,8 @@ BOOLEAN disasm (PADDR poffset, PUCHAR bufptr, BOOLEAN fEAout)
                     }
                 else if (temp == 0x14)
                     chSuffix = 'w';
+                else if (temp == 0x15)
+                    chSuffix = 'l';
                 else if (temp != 0x10)
                     pEntry = &UndefEntry;
                 }
@@ -661,11 +693,8 @@ BOOLEAN disasm (PADDR poffset, PUCHAR bufptr, BOOLEAN fEAout)
 
         //  if instruction is for R4000 only, output " (4) "
 
-        if (ProcessorType == 0 && (pEntry->fInstruction & opnR4000))
-            OutputString(" (R4000!) ");
-
         if (fEAout) {
-            EAaddr = GetRegValue(disinstr.immed_instr.RS + REGBASE)
+            EAaddr = (ULONG)GetRegValue(disinstr.immed_instr.RS + REGBASE)
                                 + (long)(short)disinstr.immed_instr.Value;
             if (pEntry->fInstruction & opnByteIndex)
                 EAsize = 1;
@@ -788,7 +817,7 @@ void OutputDisSymbol (ULONG offset)
     PUCHAR  pszTemp;
     UCHAR   ch;
 
-    GetSymbol(offset, chAddrBuffer, &displacement);
+    GetSymbolStdCall(offset, chAddrBuffer, &displacement, NULL);
 
     if (chAddrBuffer[0]) {
         pszTemp = chAddrBuffer;
@@ -859,7 +888,7 @@ void GetNextOffset (PADDR result, BOOLEAN fStep)
     ULONG   firaddr;
     ADDR    fir;
 
-    firaddr = GetRegValue(REGFIR);
+    firaddr = (ULONG)GetRegValue(REGFIR);
     ADDR32( &fir, firaddr );
     GetMemDword(&fir, &(disinstr.instruction));
     opcode = disinstr.jump_instr.Opcode;
@@ -868,14 +897,14 @@ void GetNextOffset (PADDR result, BOOLEAN fStep)
     if (disinstr.instruction == 0x0000000c) {
         // stepping over a syscall instruction must set the breakpoint
         // at the caller's return address, not the inst after the syscall
-        returnvalue = GetRegValue(REGRA);
+        returnvalue = (ULONG)GetRegValue(REGRA);
     }
     else
     if (opcode == 0x00L                                    //  SPECIAL
                 && (disinstr.special_instr.Funct & ~0x01L) == 0x08L) {
                                                            //  jr/jalr only
         if (disinstr.special_instr.Funct == 0x08L || !fStep)  //  jr or trace
-            returnvalue = GetRegValue(disinstr.special_instr.RS + REGBASE);
+            returnvalue = (ULONG)GetRegValue(disinstr.special_instr.RS + REGBASE);
         }
     else if (opcode == 0x01L) {
         //  For BCOND opcode, RT values 0x00 - 0x03, 0x10 - 0x13
@@ -980,7 +1009,7 @@ BOOLEAN fDelayInstruction (void)
 {
     BOOLEAN returnvalue;
     ULONG   opcode;
-    ULONG   firaddr = GetRegValue(REGFIR);
+    ULONG firaddr = (ULONG)GetRegValue(REGFIR);
     ADDR    fir;
 
     ADDR32( &fir, firaddr );

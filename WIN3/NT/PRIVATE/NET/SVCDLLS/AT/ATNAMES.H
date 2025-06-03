@@ -22,4 +22,3 @@ Revision History:
 --*/
 
 #define AT_INTERFACE_NAME    TEXT("atsvc")
-

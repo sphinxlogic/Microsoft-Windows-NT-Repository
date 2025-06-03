@@ -164,247 +164,247 @@ Return Value:
      };
 
 
-            //
-            // Open the root key where the BIOS information resides.
-            //
+    //
+    // Open the root key where the BIOS information resides.
+    //
 
-            hRegKey = OpenRegistryKey( &BiosKey );
-            DbgHandleAssert( hRegKey );
-            if( hRegKey == NULL ) {
-                return FALSE;
+    hRegKey = OpenRegistryKey( &BiosKey );
+    DbgHandleAssert( hRegKey );
+    if( hRegKey == NULL ) {
+        return FALSE;
+    }
+
+    //
+    // For each BIOS value, query the Registry, and display it value(s)
+    // in the appropriate control.
+    //
+
+    for( i = 0; i < NumberOfEntries( BiosControlIds ); i++ ) {
+
+        //
+        // Get the next value of interest. It may fail if the value
+        // isn't available (i.e. i.e. running on a MIPS box).
+        //
+
+        Success = QueryNextValue( hRegKey );
+        if( Success == FALSE ) {
+            continue;
+        }
+
+        //
+        // Put the data in the appropriate control.
+        //
+
+        switch( BiosControlIds[ i ]) {
+
+        case IDC_EDIT_SYSTEM_BIOS_DATE:
+        case IDC_EDIT_VIDEO_BIOS_DATE:
+            {
+                //
+                // Display the BIOS date in the appropriate edit field.
+                //
+
+
+                PrintToFile((LPCTSTR)hRegKey->Data,BiosControlIds[i],TRUE);
+
+                break;
             }
 
-            //
-            // For each BIOS value, query the Registry, and display it value(s)
-            // in the appropriate control.
-            //
+        case IDC_DROP_DOWN_SYSTEM_BIOS_VERSION:
+        case IDC_DROP_DOWN_VIDEO_BIOS_VERSION:
+            {
 
-            for( i = 0; i < NumberOfEntries( BiosControlIds ); i++ ) {
+                LONG    RetVal;
+                LPTSTR  BiosVersion;
+                POINT   Point;
+
 
                 //
-                // Get the next value of interest. It may fail if the value
-                // isn't available (i.e. i.e. running on a MIPS box).
+                // Walk the list of BIOS version strings and display
+                // all of them in their appropriate list box.
                 //
 
-                Success = QueryNextValue( hRegKey );
-                if( Success == FALSE ) {
-                    continue;
+                BiosVersion = ( LPTSTR ) hRegKey->Data;
+                while(( BiosVersion != NULL ) && ( BiosVersion[ 0 ] != TEXT( '\0' ))) {
+
+                    PrintToFile((LPCTSTR)BiosVersion,BiosControlIds[i],TRUE);
+
+                    BiosVersion += _tcslen( BiosVersion ) + 1;
                 }
 
-                //
-                // Put the data in the appropriate control.
-                //
+                break;
+            }//end case IDC_DROP_DOWN_VIDEO_BIOS_VERSION:
+        }//end switch
+    }//end for
 
-                switch( BiosControlIds[ i ]) {
+    //
+    // Close the BIOS information key.
+    //
 
-                case IDC_EDIT_SYSTEM_BIOS_DATE:
-                case IDC_EDIT_VIDEO_BIOS_DATE:
-                    {
-                        //
-                        // Display the BIOS date in the appropriate edit field.
-                        //
+    Success = CloseRegistryKey( hRegKey );
+    DbgAssert( Success );
 
+    // Begin GreggA addition
 
-			PrintToFile((LPCTSTR)hRegKey->Data,BiosControlIds[i],TRUE);
+    //
+    //  Get the hDC for calling GetDeviceCaps
+    //
 
-                        break;
-                    }
+    hDC = GetDC( NULL );
+    DbgAssert( hDC );
 
-                case IDC_DROP_DOWN_SYSTEM_BIOS_VERSION:
-                case IDC_DROP_DOWN_VIDEO_BIOS_VERSION:
-                    {
+    //
+    //  Get the Horiz Resolution
+    //
 
-                        LONG    RetVal;
-                        LPTSTR  BiosVersion;
-                        POINT   Point;
+    iHorzRes = GetDeviceCaps( hDC, HORZRES );
 
+    //
+    // Get the Vertical Resolution
+    //
 
-                        //
-                        // Walk the list of BIOS version strings and display
-                        // all of them in their appropriate list box.
-                        //
+    iVertRes = GetDeviceCaps( hDC, VERTRES );
 
-                        BiosVersion = ( LPTSTR ) hRegKey->Data;
-                        while(( BiosVersion != NULL ) && ( BiosVersion[ 0 ] != TEXT( '\0' ))) {
+    //
+    // Get the number of colors
+    //
 
-			    PrintToFile((LPCTSTR)BiosVersion,BiosControlIds[i],TRUE);
+    iColors = 1 << (GetDeviceCaps( hDC, PLANES ) * GetDeviceCaps( hDC, BITSPIXEL ));
 
-                            BiosVersion += _tcslen( BiosVersion ) + 1;
-                        }
+    //
+    // Return the DC
+    //
 
-                        break;
-                    }//end case IDC_DROP_DOWN_VIDEO_BIOS_VERSION:
-                }//end switch
-            }//end for
+    DbgAssert( ReleaseDC( NULL, hDC ) );
 
-            //
-            // Close the BIOS information key.
-            //
+    //
+    // Format the resolution data and put it into the control
+    //
 
-            Success = CloseRegistryKey( hRegKey );
-            DbgAssert( Success );
+    wsprintfW( Buffer, L"%d x %d x %d",iHorzRes, iVertRes, iColors ) ;
 
-//GreggA addition
-
-            //
-            //  Get the hDC for calling GetDeviceCaps
-            //
-
-            hDC = GetDC( NULL );
-            DbgAssert( hDC );
-
-            //
-            //  Get the Horiz Resolution
-            //
-
-            iHorzRes = GetDeviceCaps( hDC, HORZRES );
-
-            //
-            // Get the Vertical Resolution
-            //
-
-            iVertRes = GetDeviceCaps( hDC, VERTRES );
-
-            //
-            // Get the number of colors
-            //
-
-            iColors = 1 << (GetDeviceCaps( hDC, PLANES ) * GetDeviceCaps( hDC, BITSPIXEL ));
-
-            //
-            // Return the DC
-            //
-
-            DbgAssert( ReleaseDC( NULL, hDC ) );
-
-            //
-            // Format the resolution data and put it into the control
-            //
-
-            wsprintfW( Buffer, L"%d x %d x %d",iHorzRes, iVertRes, iColors ) ;
-
-            PrintToFile((LPCTSTR)Buffer,IDC_EDIT_CURR_VIDEO_RES,TRUE);
+    PrintToFile((LPCTSTR)Buffer,IDC_EDIT_CURR_VIDEO_RES,TRUE);
 
 
-//end GreggA code
+    // End GreggA code
 
 
 
-            //
-            // Retrieve the basic information about the system.
-            //
+    //
+    // Retrieve the basic information about the system.
+    //
 
-            GetSystemInfo( &SystemInfo );
+    GetSystemInfo( &SystemInfo );
 
-            //
-            // Display the OEM id, page size minimum and maximum application
-            // address and processor type.
-            //
-
-
-	    PrintDwordToFile(SystemInfo.dwOemId,IDC_EDIT_OEM_ID);
-
-            _tcscpy(
-                Buffer,
-                FormatBigInteger(
-                    SystemInfo.dwPageSize >> 10,
-                    FALSE
-                    )
-                );
+    //
+    // Display the OEM id, page size minimum and maximum application
+    // address and processor type.
+    //
 
 
-		PrintToFile((LPCTSTR)Buffer,IDC_EDIT_PAGE_SIZE,TRUE);
+    PrintDwordToFile(0,IDC_EDIT_OEM_ID);        // obsolete
 
-                //changed per Gregga from Dword to hex
-		PrintHexToFile(( UINT ) SystemInfo.lpMinimumApplicationAddress,IDC_EDIT_MIN_APP_ADDRESS);
-                //changed per Gregga from Dword to hex
-		PrintHexToFile(( UINT ) SystemInfo.lpMaximumApplicationAddress,IDC_EDIT_MAX_APP_ADDRESS);
+    _tcscpy(
+        Buffer,
+        FormatBigInteger(
+            SystemInfo.dwPageSize >> 10,
+            FALSE
+            )
+        );
 
-		PrintDwordToFile(SystemInfo.dwNumberOfProcessors,IDC_EDIT_NUMBER_OF_PROCESSORS);
 
-		PrintDwordToFile(SystemInfo.dwProcessorType,IDC_EDIT_PROCESSOR_TYPE);
+        PrintToFile((LPCTSTR)Buffer,IDC_EDIT_PAGE_SIZE,TRUE);
+
+        //changed per Gregga from Dword to hex
+        PrintHexToFile(( UINT ) SystemInfo.lpMinimumApplicationAddress,IDC_EDIT_MIN_APP_ADDRESS);
+        //changed per Gregga from Dword to hex
+        PrintHexToFile(( UINT ) SystemInfo.lpMaximumApplicationAddress,IDC_EDIT_MAX_APP_ADDRESS);
+
+        PrintDwordToFile(SystemInfo.dwNumberOfProcessors,IDC_EDIT_NUMBER_OF_PROCESSORS);
+
+        PrintDwordToFile(SystemInfo.wProcessorArchitecture,IDC_EDIT_PROCESSOR_TYPE);
 
 
-            //
-            // Open the root key where the CPU stepping information resides.
-            //
+    //
+    // Open the root key where the CPU stepping information resides.
+    //
 
-            hRegKey = OpenRegistryKey( &CpuKey );
-            DbgHandleAssert( hRegKey );
-            if( hRegKey == NULL ) {
-                return TRUE;
+    hRegKey = OpenRegistryKey( &CpuKey );
+    DbgHandleAssert( hRegKey );
+    if( hRegKey == NULL ) {
+        return TRUE;
+    }
+
+    //
+    // For each processor in the system, display its stepping value.
+    // Further, if the processor is not active, disable the display.
+    //
+
+    for(    i = 0;
+            i < SystemInfo.dwNumberOfProcessors;
+            SystemInfo.dwActiveProcessorMask >>= 1, i++ ) {
+
+        BOOL    RegSuccess;
+        HREGKEY hRegSubkey;
+
+        //
+        // Open the processor key.
+        //
+
+        hRegSubkey = QueryNextSubkey( hRegKey );
+        DbgHandleAssert( hRegSubkey );
+        if( hRegKey == NULL ) {
+            continue;
+        }
+
+        //
+        // Retreive the CPU stepping value.
+        //
+
+        Success = QueryNextValue( hRegSubkey );
+        DbgAssert( Success );
+
+        //
+        // If the CPU identifier was available, display just the
+        // stepping value and enable the edit control.
+        //
+
+        if( Success == TRUE ) {
+
+            LPCTSTR     Stepping;
+
+            Stepping = _tcschr(
+                            ( LPCTSTR ) hRegSubkey->Data,
+                            TEXT( '-' )
+                            );
+            if( Stepping == NULL ) {
+                Stepping = ( LPCTSTR ) hRegSubkey->Data;
+            } else {
+                Stepping++;
             }
 
-            //
-            // For each processor in the system, display its stepping value.
-            // Further, if the processor is not active, disable the display.
-            //
-
-            for(    i = 0;
-                    i < SystemInfo.dwNumberOfProcessors;
-                    SystemInfo.dwActiveProcessorMask >>= 1, i++ ) {
-
-                BOOL    RegSuccess;
-                HREGKEY hRegSubkey;
-
-                //
-                // Open the processor key.
-                //
-
-                hRegSubkey = QueryNextSubkey( hRegKey );
-                DbgHandleAssert( hRegSubkey );
-                if( hRegKey == NULL ) {
-                    continue;
-                }
-
-                //
-                // Retreive the CPU stepping value.
-                //
-
-                Success = QueryNextValue( hRegSubkey );
-                DbgAssert( Success );
-
-                //
-                // Close the processor key.
-                //
-
-                RegSuccess = CloseRegistryKey( hRegSubkey );
-                DbgAssert( RegSuccess );
-
-                //
-                // If the CPU identifier was available, display just the
-                // stepping value and enable the edit control.
-                //
-
-                if( Success == TRUE ) {
-
-                    LPCTSTR     Stepping;
-
-                    Stepping = _tcschr(
-                                    ( LPCTSTR ) hRegSubkey->Data,
-                                    TEXT( '-' )
-                                    );
-                    if( Stepping == NULL ) {
-                        Stepping = ( LPCTSTR ) hRegSubkey->Data;
-                    } else {
-                        Stepping++;
-                    }
-
-		    PrintToFile((LPCTSTR)Stepping,ProcessorId[i],TRUE);
-
-                }//end for
+            PrintToFile((LPCTSTR)Stepping,ProcessorId[i],TRUE);
 
 
-            //
-            // Close the root key.
-            //
 
-            Success = CloseRegistryKey( hRegKey );
-            DbgAssert( Success );
-	}
+        }
 
+        //
+        // Close the processor key.
+        //
+
+        RegSuccess = CloseRegistryKey( hRegSubkey );
+        DbgAssert( RegSuccess );
+
+
+        //
+        // Close the root key.
+        //
+
+        Success = CloseRegistryKey( hRegKey );
+        DbgAssert( Success );
+
+    }//end for
 
     return TRUE;
 }
-
-

@@ -48,6 +48,9 @@ ULONG CmRegistrySizeLimitType = { 0 };
 // based on pool and explicit registry values.
 //
 ULONG   CmpGlobalQuotaAllowed = CM_WRAP_LIMIT;
+ULONG   CmpGlobalQuota = CM_WRAP_LIMIT;
+ULONG   CmpGlobalQuotaWarning = CM_WRAP_LIMIT;
+BOOLEAN CmpQuotaWarningPopupDisplayed = FALSE;
 
 //
 // GQ actually in use

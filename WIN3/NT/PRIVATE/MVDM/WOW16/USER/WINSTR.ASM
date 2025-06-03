@@ -28,13 +28,11 @@ ifdef WOW
 NOEXTERNS equ 1
 endif
 NOTEXT = 1
+.xlist
 include user.inc
+.list
 
 sBegin	DATA
-
-ExternW	hLangDrv
-ExternD	fpLangProc
-
 sEnd
 
 createSeg _TEXT, CODE, WORD, PUBLIC, CODE

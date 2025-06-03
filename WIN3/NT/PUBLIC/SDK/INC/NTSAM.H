@@ -54,6 +54,13 @@ typedef PULONG *PPULONG;
 
 #define SAM_MAXIMUM_LOOKUP_LENGTH   (32000)
 
+//
+// An attempt to set a password longer than this number of characters
+// will fail.
+//
+
+#define SAM_MAX_PASSWORD_LENGTH     (256)
+
 
 
 
@@ -272,7 +279,6 @@ typedef struct _DOMAIN_GENERAL_INFORMATION2 {
     // New fields added for this structure (NT1.0A).
     //
 
-    LARGE_INTEGER               ModifiedCountAtLastPromotion;
     LARGE_INTEGER               LockoutDuration;          //Must be a Delta time
     LARGE_INTEGER               LockoutObservationWindow; //Must be a Delta time
     USHORT                      LockoutThreshold;
@@ -302,6 +308,8 @@ typedef struct _DOMAIN_PASSWORD_INFORMATION {
 
 #define DOMAIN_PASSWORD_COMPLEX             0x00000001L
 #define DOMAIN_PASSWORD_NO_ANON_CHANGE      0x00000002L
+#define DOMAIN_PASSWORD_NO_CLEAR_CHANGE     0x00000004L
+#define DOMAIN_LOCKOUT_ADMINS               0x00000008L
 
 typedef enum _DOMAIN_PASSWORD_CONSTRUCTION {
     DomainPasswordSimple = 1,
@@ -619,6 +627,8 @@ typedef struct _ALIAS_ADM_COMMENT_INFORMATION {
 // User object types
 //
 
+// begin_ntsubauth
+
 //
 // User account control flags...
 //
@@ -645,6 +655,7 @@ typedef struct _ALIAS_ADM_COMMENT_INFORMATION {
             ( USER_TEMP_DUPLICATE_ACCOUNT |\
               USER_NORMAL_ACCOUNT |\
               USER_MACHINE_ACCOUNT_MASK )
+
 
 //
 // Logon times may be expressed in day, hour, or minute granularity.
@@ -685,6 +696,8 @@ typedef struct _SR_SECURITY_DESCRIPTOR {
     PUCHAR SecurityDescriptor;
 } SR_SECURITY_DESCRIPTOR, *PSR_SECURITY_DESCRIPTOR;
 
+// end_ntsubauth
+
 typedef enum _USER_INFORMATION_CLASS {
     UserGeneralInformation = 1,
     UserPreferencesInformation,
@@ -707,9 +720,12 @@ typedef enum _USER_INFORMATION_CLASS {
     UserInternal2Information,
     UserParametersInformation,
     UserAllInformation,
-    UserInternal3Information
+    UserInternal3Information,
+    UserInternal4Information,
+    UserInternal5Information
 } USER_INFORMATION_CLASS, *PUSER_INFORMATION_CLASS;
 
+// begin_ntsubauth
 #include "pshpack4.h"
 typedef struct _USER_ALL_INFORMATION {
     LARGE_INTEGER LastLogon;
@@ -747,6 +763,7 @@ typedef struct _USER_ALL_INFORMATION {
     BOOLEAN PrivateDataSensitive;
 } USER_ALL_INFORMATION,  *PUSER_ALL_INFORMATION;
 #include "poppack.h"
+// end_ntsubauth
 
 //
 // Bits to be used in UserAllInformation's WhichFields field (to indicate
@@ -774,7 +791,7 @@ typedef struct _USER_ALL_INFORMATION {
 #define USER_ALL_PASSWORDLASTSET    0x00040000
 #define USER_ALL_ACCOUNTEXPIRES     0x00080000
 #define USER_ALL_USERACCOUNTCONTROL 0x00100000
-#define USER_ALL_PARAMETERS         0x00200000
+#define USER_ALL_PARAMETERS         0x00200000 // ntsubauth
 #define USER_ALL_COUNTRYCODE        0x00400000
 #define USER_ALL_CODEPAGE           0x00800000
 #define USER_ALL_NTPASSWORDPRESENT  0x01000000  // field AND boolean
@@ -1040,8 +1057,115 @@ typedef struct _USER_LOGON_HOURS_INFORMATION {
 } USER_LOGON_HOURS_INFORMATION, *PUSER_LOGON_HOURS_INFORMATION;
 
 
+
+/////////////////////////////////////////////////////////////////////////////
+//                                                                         //
+// Data types used by SAM and Netlogon for database replication            //
+//                                                                         //
+/////////////////////////////////////////////////////////////////////////////
 
 
+typedef enum _SECURITY_DB_DELTA_TYPE {
+    SecurityDbNew = 1,
+    SecurityDbRename,
+    SecurityDbDelete,
+    SecurityDbChangeMemberAdd,
+    SecurityDbChangeMemberSet,
+    SecurityDbChangeMemberDel,
+    SecurityDbChange,
+    SecurityDbChangePassword
+} SECURITY_DB_DELTA_TYPE, *PSECURITY_DB_DELTA_TYPE;
+
+typedef enum _SECURITY_DB_OBJECT_TYPE {
+    SecurityDbObjectSamDomain = 1,
+    SecurityDbObjectSamUser,
+    SecurityDbObjectSamGroup,
+    SecurityDbObjectSamAlias,
+    SecurityDbObjectLsaPolicy,
+    SecurityDbObjectLsaTDomain,
+    SecurityDbObjectLsaAccount,
+    SecurityDbObjectLsaSecret
+} SECURITY_DB_OBJECT_TYPE, *PSECURITY_DB_OBJECT_TYPE;
+
+//
+// Account types
+//
+//  Both enumerated types and flag definitions are provided.
+//  The flag definitions are used in places where more than
+//  one type of account may be specified together.
+//
+
+typedef enum _SAM_ACCOUNT_TYPE {
+    SamObjectUser = 1,
+    SamObjectGroup ,
+    SamObjectAlias
+} SAM_ACCOUNT_TYPE, *PSAM_ACCOUNT_TYPE;
+
+
+#define SAM_USER_ACCOUNT                (0x00000001)
+#define SAM_GLOBAL_GROUP_ACCOUNT        (0x00000002)
+#define SAM_LOCAL_GROUP_ACCOUNT         (0x00000004)
+
+
+
+//
+// Define the data type used to pass netlogon information on the account
+// that was added or deleted from a group.
+//
+
+typedef struct _SAM_GROUP_MEMBER_ID {
+    ULONG   MemberRid;
+} SAM_GROUP_MEMBER_ID, *PSAM_GROUP_MEMBER_ID;
+
+
+//
+// Define the data type used to pass netlogon information on the account
+// that was added or deleted from an alias.
+//
+
+typedef struct _SAM_ALIAS_MEMBER_ID {
+    PSID    MemberSid;
+} SAM_ALIAS_MEMBER_ID, *PSAM_ALIAS_MEMBER_ID;
+
+
+
+
+//
+// Define the data type used to pass netlogon information on a delta
+//
+
+typedef union _SAM_DELTA_DATA {
+
+    //
+    // Delta type ChangeMember{Add/Del/Set} and account type group
+    //
+
+    SAM_GROUP_MEMBER_ID GroupMemberId;
+
+    //
+    // Delta type ChangeMember{Add/Del/Set} and account type alias
+    //
+
+    SAM_ALIAS_MEMBER_ID AliasMemberId;
+
+} SAM_DELTA_DATA, *PSAM_DELTA_DATA;
+
+
+//
+// Prototype for delta notification routine.
+//
+
+typedef NTSTATUS (*PSAM_DELTA_NOTIFICATION_ROUTINE) (
+    IN PSID DomainSid,
+    IN SECURITY_DB_DELTA_TYPE DeltaType,
+    IN SECURITY_DB_OBJECT_TYPE ObjectType,
+    IN ULONG ObjectRid,
+    IN OPTIONAL PUNICODE_STRING ObjectName,
+    IN PLARGE_INTEGER ModifiedCount,
+    IN PSAM_DELTA_DATA DeltaData OPTIONAL
+    );
+
+#define SAM_DELTA_NOTIFY_ROUTINE "DeltaNotify"
 
 
 
@@ -1311,9 +1435,23 @@ SamAddMemberToAlias(
     );
 
 NTSTATUS
+SamAddMultipleMembersToAlias(
+    IN SAM_HANDLE   AliasHandle,
+    IN PSID         *MemberIds,
+    IN ULONG        MemberCount
+    );
+
+NTSTATUS
 SamRemoveMemberFromAlias(
     IN SAM_HANDLE AliasHandle,
     IN PSID MemberId
+    );
+
+NTSTATUS
+SamRemoveMultipleMembersFromAlias(
+    IN SAM_HANDLE   AliasHandle,
+    IN PSID         *MemberIds,
+    IN ULONG        MemberCount
     );
 
 NTSTATUS
@@ -1364,6 +1502,17 @@ SamChangePasswordUser(
     );
 
 NTSTATUS
+SamChangePasswordUser2(
+    IN PUNICODE_STRING ServerName,
+    IN PUNICODE_STRING UserName,
+    IN PUNICODE_STRING OldPassword,
+    IN PUNICODE_STRING NewPassword
+    );
+
+
+
+
+NTSTATUS
 SamGetGroupsForUser(
     IN SAM_HANDLE UserHandle,
     OUT PGROUP_MEMBERSHIP * Groups,
@@ -1400,12 +1549,6 @@ SamGetDisplayEnumerationIndex (
 ////////////////////////////////////////////////////////////////////////////
 
 
-        //
-        //          NOT YET SUPPORTED
-        //
-        //  NEED TO MAKE OWF DATA TYPES AND FUNCTIONS AVAILABLE
-        //  TO PUBLIC.
-        //
 
 
 //
@@ -1415,28 +1558,39 @@ SamGetDisplayEnumerationIndex (
 // so that their addresses can be retrieved when the DLL is loaded.
 //
 
-#define SAM_PF_NAME_INITIALIZE         "SamPfInitialize\0"
-#define SAM_PF_NAME_PASSWORD_FILTER    "SamPfPasswordFilter\0"
 
 //
 // routine templates
 //
 
 
-typedef NTSTATUS
-    (*PSAM_PF_INITIALIZE) (VOID);
-
-//typedef NTSTATUS
-//    (*PSAM_PF_PASSWORD_FILTER) (
-//    IN PUNICODE_STRING  AccountName,
-//    IN PUNICODE_STRING  FullName,
-//    IN PLM_OWF_PASSWORD LmOwfPassword,
-//    IN BOOLEAN LmPasswordPresent,
-//    IN PNT_OWF_PASSWORD NtOwfPassword,
-//    IN BOOLEAN NtPasswordPresent
-//    );
 
 
+// begin_ntsecapi
 
+typedef NTSTATUS (*PSAM_PASSWORD_NOTIFICATION_ROUTINE) (
+    PUNICODE_STRING UserName,
+    ULONG RelativeId,
+    PUNICODE_STRING NewPassword
+);
+
+#define SAM_PASSWORD_CHANGE_NOTIFY_ROUTINE  "PasswordChangeNotify"
+
+typedef BOOLEAN (*PSAM_INIT_NOTIFICATION_ROUTINE) (
+);
+
+#define SAM_INIT_NOTIFICATION_ROUTINE  "InitializeChangeNotify"
+
+
+#define SAM_PASSWORD_FILTER_ROUTINE  "PasswordFilter"
+
+typedef BOOLEAN (*PSAM_PASSWORD_FILTER_ROUTINE) (
+    IN PUNICODE_STRING  AccountName,
+    IN PUNICODE_STRING  FullName,
+    IN PUNICODE_STRING Password,
+    IN BOOLEAN SetOperation
+    );
+
+// end_ntsecapi
 
 #endif // _NTSAM_

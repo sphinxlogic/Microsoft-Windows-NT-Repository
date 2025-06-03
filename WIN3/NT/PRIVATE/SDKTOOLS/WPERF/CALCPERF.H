@@ -29,7 +29,7 @@ Revision History:
 // display const
 //
 
-#define SAVE_SUBJECTS  MAX_PROCESSOR+12+3
+#define SAVE_SUBJECTS  (MAX_PROCESSOR+12+3+1)
 #define BORDER_WIDTH   2
 #define INDENT_WIDTH   8
 #define GRAPH_WIDTH    130

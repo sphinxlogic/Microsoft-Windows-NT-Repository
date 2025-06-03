@@ -509,7 +509,7 @@ Return Value:
 --*/
 
 {
-    DbgPtrAssert( Node );
+    DebugPtrAssert( Node );
     return( Node->AreChildrenInMemory() );
 }
 
@@ -542,7 +542,7 @@ Return Value:
 --*/
 
 {
-    DbgPtrAssert( Node );
+    DebugPtrAssert( Node );
     return( Node->AreValuesInMemory() );
 }
 
@@ -576,7 +576,7 @@ Return Value:
 --*/
 
 {
-    DbgPtrAssert( _Registry );
+    DebugPtrAssert( _Registry );
     return( _Registry->GetMachineName() );
 }
 
@@ -607,7 +607,7 @@ Return Value:
 --*/
 
 {
-    DbgPtrAssert( _Registry );
+    DebugPtrAssert( _Registry );
     return( _Registry->IsRemoteRegistry() );
 }
 
@@ -641,7 +641,7 @@ Return Value:
 --*/
 
 {
-    DbgPtrAssert( Node );
+    DebugPtrAssert( Node );
     return( Node->GetKeyInfo()->GetClass() );
 }
 
@@ -674,7 +674,7 @@ Return Value:
 --*/
 
 {
-    DbgPtrAssert( Node );
+    DebugPtrAssert( Node );
     return( Node->GetKeyInfo() );
 }
 
@@ -707,7 +707,7 @@ Return Value:
 --*/
 
 {
-    DbgPtrAssert( Node );
+    DebugPtrAssert( Node );
     return( Node->GetKeyInfo()->GetLastWriteTime() );
 }
 
@@ -740,7 +740,7 @@ Return Value:
 --*/
 
 {
-    DbgPtrAssert( Node );
+    DebugPtrAssert( Node );
     return( Node->GetLevel() );
 }
 
@@ -772,7 +772,7 @@ Return Value:
 --*/
 
 {
-    DbgPtrAssert( Node );
+    DebugPtrAssert( Node );
     return( Node->GetKeyInfo()->GetName() );
 }
 
@@ -804,7 +804,7 @@ Return Value:
 --*/
 
 {
-    DbgPtrAssert( Node );
+    DebugPtrAssert( Node );
     return( Node->GetKeyInfo()->GetTitleIndex() );
 }
 
@@ -837,7 +837,7 @@ Return Value:
 --*/
 
 {
-    DbgPtrAssert( Node );
+    DebugPtrAssert( Node );
     return( Node->GetNumberOfChildren() );
 }
 
@@ -869,7 +869,7 @@ Return Value:
 --*/
 
 {
-    DbgPtrAssert( Node );
+    DebugPtrAssert( Node );
     return( Node->GetNumberOfValues() );
 }
 
@@ -902,7 +902,7 @@ Return Value:
 --*/
 
 {
-    DbgPtrAssert( Node );
+    DebugPtrAssert( Node );
     return( Node->GetParentNode() );
 }
 
@@ -934,7 +934,7 @@ Return Value:
 --*/
 
 {
-    DbgPtrAssert( Node );
+    DebugPtrAssert( Node );
     return( Node->GetParentName() );
 }
 
@@ -1059,7 +1059,7 @@ Return Value:
 --*/
 
 {
-    DbgPtrAssert( Node );
+    DebugPtrAssert( Node );
     return( Node->IsFirstChild() );
 }
 
@@ -1093,7 +1093,7 @@ Return Value:
 --*/
 
 {
-    DbgPtrAssert( Node );
+    DebugPtrAssert( Node );
     return( Node->IsLastChild() );
 }
 
@@ -1126,7 +1126,7 @@ Return Value:
 --*/
 
 {
-    DbgPtrAssert( Node );
+    DebugPtrAssert( Node );
     return( Node->IsNodeExpanded() );
 }
 
@@ -1159,7 +1159,7 @@ Return Value:
 --*/
 
 {
-    DbgPtrAssert( Node );
+    DebugPtrAssert( Node );
     return( Node->IsNodeViewable() );
 }
 
@@ -1197,8 +1197,8 @@ Return Value:
 --*/
 
 {
-    DbgPtrAssert( Node );
-    DbgPtrAssert( CompleteName );
+    DebugPtrAssert( Node );
+    DebugPtrAssert( CompleteName );
 
     return( Node->QueryCompleteName( CompleteName ) );
 }
@@ -1239,7 +1239,7 @@ Return Value:
 --*/
 
 {
-    DbgPtrAssert( Node );
+    DebugPtrAssert( Node );
     ( ( PREGEDIT_NODE )Node )->SetNodeExpansionState( NewExpansionState );
 }
 
@@ -1272,7 +1272,7 @@ Return Value:
 --*/
 
 {
-    DbgPtrAssert( Node );
+    DebugPtrAssert( Node );
     return( ( ( PREGEDIT_NODE )Node )->DeleteListOfChildren() );
 }
 
@@ -1306,7 +1306,7 @@ Return Value:
 --*/
 
 {
-    DbgPtrAssert( Node );
+    DebugPtrAssert( Node );
     return( ( ( PREGEDIT_NODE )Node )->DeleteListOfValues() );
 }
 

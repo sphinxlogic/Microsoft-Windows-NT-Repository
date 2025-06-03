@@ -300,4 +300,3 @@ FlatPtr2FarPtr(
 
     return(NO_ERROR);
 }
-

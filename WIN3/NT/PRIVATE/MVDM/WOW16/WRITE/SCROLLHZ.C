@@ -383,4 +383,3 @@ register RECT *prc;
 
     return TRUE;
 }
-

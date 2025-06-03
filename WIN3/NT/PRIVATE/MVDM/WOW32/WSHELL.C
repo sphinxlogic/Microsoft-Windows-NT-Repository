@@ -100,7 +100,7 @@ ULONG FASTCALL WS32DoEnvironmentSubst(PVDMFRAME pFrame)
         WOW32ASSERT((cchExpanded - 1) == strlen(psz));
         LOGDEBUG(0,("WS32DoEnvironmentSubst output: '%s'\n", psz));
 
-        FLUSHVDMPTR(parg16->vpsz, cchExpanded, psz);
+        FLUSHVDMPTR(parg16->vpsz, (USHORT)cchExpanded, psz);
         ul = MAKELONG((WORD)(cchExpanded - 1), TRUE);
 
     } else {
@@ -279,7 +279,7 @@ ULONG FASTCALL WS32RegDeleteKey(PVDMFRAME pFrame)
     // with ERROR_BADKEY as Win3.1 does.
     //
 
-    if (!psz) {
+    if ((!psz) || (*psz == '\0')) {
         ul = ERROR_BADKEY;
     } else {
 
@@ -448,23 +448,40 @@ Return Value:
 }
 
 
+
+
 ULONG FASTCALL WS32RegSetValue(PVDMFRAME pFrame)
 {
-    ULONG ul;
     register PREGSETVALUE16 parg16;
-    HKEY    hkey;
-    PSZ     psz2;
-    PSZ     psz1 = NULL;
-    LPBYTE lpszData;
+    ULONG    ul;
+    CHAR     szZero[] = { '0', '\0' };
+    HKEY     hkey;
+    PSZ      psz2;
+    PSZ      psz1 = NULL;
+    LPBYTE   lpszData;
 
     GETARGPTR(pFrame, sizeof(REGSETVALUE16), parg16);
+
+    // Do what Win 3.1 does
+    if(parg16->f3 != REG_SZ) {
+        FREEARGPTR(parg16);
+        return(WIN16_ERROR_INVALID_PARAMETER);
+    }
+
     GETOPTPTR(parg16->f2, 0, psz2);
 
-// Windows 3.1 API reference says that cb (f5) is ignored.
-// Ergo, remove it from this call and use 1 in its place
-// (1 being the smallest size of a sz string
+    // Windows 3.1 API reference says that cb (f5) is ignored.
+    // Ergo, remove it from this call and use 1 in its place
+    // (1 being the smallest size of a sz string)
+    if(parg16->f4) {
+        GETOPTPTR(parg16->f4, 1, lpszData);
+    }
 
-    GETOPTPTR(parg16->f4, 1, lpszData);
+    // Quattro Pro 6.0 Install passes lpszData == NULL
+    // In Win3.1, if(!lpszData || *lpszData == '\0') the value is set to 0
+    else {
+        lpszData = szZero;
+    }
 
     hkey = (HKEY)FETCHDWORD(parg16->f1);
     if ((DWORD)hkey == WIN16_HKEY_CLASSES_ROOT) {
@@ -477,26 +494,23 @@ ULONG FASTCALL WS32RegSetValue(PVDMFRAME pFrame)
            psz1 =  Remove_Classes (psz2);
         }
 
-        ul = RegSetValue (
-            HKEY_CLASSES_ROOT,
-            psz1,
-            parg16->f3,
-            lpszData,
-            lstrlen(lpszData)
-            );
+        ul = RegSetValue (HKEY_CLASSES_ROOT, 
+                          psz1, 
+                          REG_SZ, 
+                          lpszData,
+                          lstrlen(lpszData));
 
         if ((psz1) && (psz1 != psz2)) {
             free_w (psz1);
         }
     }
     else {
-       ul = RegSetValue (
-            hkey,
-            psz2,
-            parg16->f3,
-            lpszData,
-            lstrlen(lpszData)
-            );
+
+       ul = RegSetValue (hkey,
+                         psz2,
+                         REG_SZ,
+                         lpszData,
+                         lstrlen(lpszData)); 
     }
 
     ul = ConvertToWin31Error(ul);
@@ -514,7 +528,6 @@ ULONG FASTCALL WS32RegQueryValue(PVDMFRAME pFrame)
     ULONG ul;
     register PREGQUERYVALUE16 parg16;
     HKEY     hkey;
-    HKEY     hkeyTemp;
     PSZ      psz1 = NULL;
     PSZ      psz2;
     LPBYTE   lpszData;
@@ -636,7 +649,7 @@ ULONG FASTCALL WS32RegQueryValue(PVDMFRAME pFrame)
     FLUSHVDMPTR(parg16->f4, 4, lpcbValue);
 
     if ( lpszData != NULL ) {
-        FLUSHVDMPTR(parg16->f3, cbValue, lpszData);
+        FLUSHVDMPTR(parg16->f3, (USHORT)cbValue, lpszData);
     }
 
     ul = ConvertToWin31Error(ul);
@@ -673,7 +686,7 @@ ULONG FASTCALL WS32RegEnumKey(PVDMFRAME pFrame)
              parg16->f4
              );
 
-    FLUSHVDMPTR(parg16->f3, parg16->f4, lpszName);
+    FLUSHVDMPTR(parg16->f3, (USHORT)parg16->f4, lpszName);
 
     ul = ConvertToWin31Error(ul);
 
@@ -848,7 +861,7 @@ ULONG FASTCALL WS32FindExecutable (PVDMFRAME pFrame)
     GETARGPTR(pFrame, sizeof(FINDEXECUTABLE16), parg16);
     GETPSZPTR(parg16->f1, psz1);
     GETPSZPTR(parg16->f2, psz2);
-    GETPSZPTR(parg16->f3, psz3);
+    GETPSZPTRNOLOG(parg16->f3, psz3);
 
     ul = (ULONG) FindExecutable (
             psz1,
@@ -856,6 +869,7 @@ ULONG FASTCALL WS32FindExecutable (PVDMFRAME pFrame)
             psz3
             );
 
+    LOGDEBUG(11,("       returns @%08lx: \"%.80s\"\n", FETCHDWORD(parg16->f3), psz3));
     FLUSHVDMPTR(parg16->f3, strlen(psz3)+1, psz3);
 
     // This is for success condition.
@@ -935,7 +949,7 @@ LPSZ Remove_Classes (LPSZ psz)
     LPSZ lpsz;
     LPSZ lpsz1;
 
-    if (!stricmp (".classes", psz)) {
+    if (!_stricmp (".classes", psz)) {
         if (lpsz = malloc_w (1)) {
             *lpsz = '\0';
             return (lpsz);
@@ -946,7 +960,7 @@ LPSZ Remove_Classes (LPSZ psz)
             lpsz = strchr (psz, '\\');
             if (lpsz) {
                 *lpsz = '\0';
-                if (!stricmp (".classes", lpsz)) {
+                if (!_stricmp (".classes", lpsz)) {
                     *lpsz = '\\';
                     if (lpsz1 = malloc_w (strlen(lpsz+1)+1)) {
                         strcpy (lpsz1, (lpsz+1));
@@ -1132,7 +1146,6 @@ HANDLE CopyDropFilesFrom16(HAND16 h16)
     if (vp = GlobalLock16(h16, &cbSize16)) {
         LPDROPFILESTRUCT lpdfs32;
         PDROPFILESTRUCT16 lpdfs16;
-        ULONG uIgnore;
 
         GETMISCPTR(vp, lpdfs16);
                                 

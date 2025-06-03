@@ -1,15 +1,21 @@
-linklist.obj linklist.lst: ../linklist.cxx $(PUBLIC)/inc/crt/excpt.h \
-	$(PUBLIC)/inc/crt/stdio.h $(PUBLIC)/inc/crt/string.h \
-	$(PUBLIC)/inc/rpcdce.h $(PUBLIC)/inc/rpcdcep.h $(PUBLIC)/inc/rpcnsi.h \
-	$(PUBLIC)/inc/rpcnterr.h $(PUBLIC)/inc/winerror.h \
-	$(RPC)/runtime/mtrt/linklist.hxx $(RPC)/runtime/mtrt/win32c/rpc.h \
-	$(RPC)/runtime/mtrt/win32c/sysinc.h $(RPC)/runtime/mtrt/win32c/util.hxx
+linklist.obj linklist.lst: ../linklist.cxx $(CHICODEV)/sdk/inc/winerror.h \
+	$(CHICODEV)/tools/c1032/inc/excpt.h $(CHICODEV)/tools/c1032/inc/rpc.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdce.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdcep.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsi.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnterr.h \
+	$(CHICODEV)/tools/c1032/inc/stdlib.h $(RPC)/runtime/mtrt/linklist.hxx \
+	$(RPC)/runtime/mtrt/sysinc.h $(RPC)/runtime/mtrt/win32c/util.hxx
 
-ndrmem.obj ndrmem.lst: ../ndrmem.cxx $(PUBLIC)/inc/crt/excpt.h \
-	$(PUBLIC)/inc/crt/stdio.h $(PUBLIC)/inc/crt/string.h \
-	$(PUBLIC)/inc/poppack.h $(PUBLIC)/inc/pshpack4.h \
-	$(PUBLIC)/inc/rpcdce.h $(PUBLIC)/inc/rpcdcep.h $(PUBLIC)/inc/rpcndr.h \
-	$(PUBLIC)/inc/rpcnsi.h $(PUBLIC)/inc/rpcnsip.h \
-	$(PUBLIC)/inc/rpcnterr.h $(PUBLIC)/inc/winerror.h \
-	$(RPC)/runtime/mtrt/win32c/rpc.h $(RPC)/runtime/mtrt/win32c/sysinc.h
+ndrmem.obj ndrmem.lst: ../ndrmem.cxx $(CHICODEV)/sdk/inc/poppack.h \
+	$(CHICODEV)/sdk/inc/pshpack4.h $(CHICODEV)/sdk/inc/winerror.h \
+	$(CHICODEV)/tools/c1032/inc/excpt.h $(CHICODEV)/tools/c1032/inc/rpc.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdce.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdcep.h \
+	$(CHICODEV)/tools/c1032/inc/rpcndr.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsi.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsip.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnterr.h \
+	$(CHICODEV)/tools/c1032/inc/stdlib.h \
+	$(CHICODEV)/tools/c1032/inc/string.h $(RPC)/runtime/mtrt/sysinc.h
 

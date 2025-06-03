@@ -3,7 +3,7 @@
  */
 
 #include	<ndis.h>
-#include    <ndismini.h>
+//#include    <ndismini.h>
 #include	<ndiswan.h>
 #include	<mytypes.h>
 #include	<mydefs.h>

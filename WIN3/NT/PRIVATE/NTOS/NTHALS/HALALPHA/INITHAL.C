@@ -42,6 +42,14 @@ Revision History:
 --*/
 
 #include "halp.h"
+#include "eisa.h"
+
+
+// 
+// Declare the extern variable UncorrectableError declared in 
+// inithal.c.
+//
+PERROR_FRAME PUncorrectableError;
 
 //
 // external
@@ -71,7 +79,33 @@ ULONG HalpLogicalToPhysicalProcessor[HAL_MAXIMUM_PROCESSOR+1];
 
 ULONG AlreadySet = 0;
 
-
+//
+// HalpClockFrequency is the processor cycle counter frequency in units
+// of cycles per second (Hertz). It is a large number (e.g., 125,000,000)
+// but will still fit in a ULONG.
+//
+// HalpClockMegaHertz is the processor cycle counter frequency in units
+// of megahertz. It is a small number (e.g., 125) and is also the number
+// of cycles per microsecond. The assumption here is that clock rates will
+// always be an integral number of megahertz.
+//
+// Having the frequency available in both units avoids multiplications, or
+// especially divisions in time critical code.
+//
+
+ULONG HalpClockFrequency;
+ULONG HalpClockMegaHertz = DEFAULT_PROCESSOR_FREQUENCY_MHZ;
+
+ULONGLONG HalpContiguousPhysicalMemorySize;
+//
+// Use the square wave mode of the PIT to measure the processor
+// speed.  The timer has a frequency of 1.193MHz.  We want a
+// square wave with a period of 50ms so we must initialize the
+// pit with a count of:
+//       50ms*1.193MHz = 59650 cycles
+//
+
+#define TIMER_REF_VALUE     59650
 
 VOID
 HalpVerifyPrcbVersion(
@@ -81,6 +115,16 @@ HalpVerifyPrcbVersion(
 VOID
 HalpRecurseLoaderBlock(
     IN PCONFIGURATION_COMPONENT_DATA CurrentEntry
+    );
+
+ULONG
+HalpQuerySystemFrequency(
+    ULONG SampleTime
+    );
+
+VOID
+HalpAllocateUncorrectableFrame(
+    VOID
     );
 
 
@@ -115,7 +159,7 @@ Return Value:
     ULONG  BuildType = 0;
 
     Prcb = PCR->Prcb;
-    
+
     //
     // Perform initialization for the primary processor.
     //
@@ -131,6 +175,36 @@ Return Value:
             HalpDumpMemoryDescriptors( LoaderBlock );
 
 #endif //HALDBG
+            //
+            // Get the memory Size.
+            //
+            HalpContiguousPhysicalMemorySize = 
+                        HalpGetContiguousMemorySize( LoaderBlock );
+
+            //
+            // Set second level cache size 
+            // NOTE: Although we set the PCR with the right cache size this 
+            // could be overridden by setting the Registry key 
+            // HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet
+            //                  \Control\Session Manager
+            //                  \Memory Management\SecondLevelDataCache.
+            //
+            // If the secondlevel cache size is 0 or 512KB then it is 
+            // possible that the firmware is an old one.  In which case
+            // we determine the cache size here. If the value is anything 
+            // other than these then it is a new firmware and probably 
+            // reporting the correct cache size hence use this value.
+            //
+
+            if(LoaderBlock->u.Alpha.SecondLevelDcacheSize == 0 || 
+                LoaderBlock->u.Alpha.SecondLevelDcacheSize == 512*__1K){
+                PCR->SecondLevelCacheSize = HalpGetBCacheSize(
+                                        HalpContiguousPhysicalMemorySize
+                                        );
+            } else {
+                PCR->SecondLevelCacheSize = 
+                                LoaderBlock->u.Alpha.SecondLevelDcacheSize;
+            }
 
             //
             // Initialize HAL spinlocks.
@@ -141,17 +215,24 @@ Return Value:
             KeInitializeSpinLock(&HalpSystemInterruptLock);
 
             //
+            // Fill in handlers for APIs which this HAL supports
+            //
+
+            HalQuerySystemInformation = HaliQuerySystemInformation;
+            HalSetSystemInformation = HaliSetSystemInformation;
+
+            //
             // Phase 0 initialization.
             //
 
             HalpSetTimeIncrement();
             HalpMapIoSpace();
-            HalpCreateDmaStructures(LoaderBlock);
             HalpEstablishErrorHandler();
             HalpInitializeDisplay(LoaderBlock);
-	        HalpInitializeMachineDependent( Phase, LoaderBlock );
+            HalpInitializeMachineDependent( Phase, LoaderBlock );
+            HalpCreateDmaStructures(LoaderBlock);
             HalpInitializeInterrupts();
-	        HalpVerifyPrcbVersion();
+            HalpVerifyPrcbVersion();
 
             //
             // Set the processor active in the HAL active processor mask.
@@ -181,7 +262,19 @@ Return Value:
             //
 
             HalpInitializeClockInterrupts();
-	        HalpInitializeMachineDependent( Phase );
+            HalpInitializeMachineDependent( Phase, LoaderBlock );
+
+            //
+            // Allocate memory for the uncorrectable frame
+            // 
+
+            HalpAllocateUncorrectableFrame();
+
+            //
+            // Initialize the Buffer for Uncorrectable Error.
+            //
+    
+            HalpInitializeUncorrectableErrorFrame();
 
             return TRUE;
 
@@ -196,7 +289,7 @@ Return Value:
 
     HalpMapIoSpace();
     HalpInitializeInterrupts();
-    HalpInitializeMachineDependent( Phase );
+    HalpInitializeMachineDependent( Phase, LoaderBlock );
 
     //
     // Set the processor active in the HAL active processor mask.
@@ -212,6 +305,134 @@ Return Value:
 
     return TRUE;
 }
+
+VOID
+HalpAllocateUncorrectableFrame(
+    VOID
+    )
+/*++
+
+Routine Description:
+
+    This function is called after the Phase1 Machine Dependent initialization.
+    It must be called only after Phase1 machine-dependent initialization.
+    This function allocates the necessary amountof memory for storing the
+    uncorrectable error frame.  This function makes a call to a machine-
+    dependent function 'HalpGetMachineDependentErrorFrameSizes' for 
+    getting the size of the Processor Specific and System Specific error 
+    frame size.  The machine-dependent code will know the size of these 
+    frames after the machine-dependent Phase1 initialization. 
+
+Arguments:
+
+    None.
+
+Return Value:
+
+    None.
+
+--*/
+{
+    ULONG       RawProcessorFrameSize;
+    ULONG       RawSystemFrameSize;
+    ULONG       EntireErrorFrameSize;
+
+    //
+    // First get the machine-dependent error frame sizes.
+    //
+    HalpGetMachineDependentErrorFrameSizes(
+                        &RawProcessorFrameSize,
+                        &RawSystemFrameSize);
+
+    //
+    // Compute the total size of the error frame
+    //
+    EntireErrorFrameSize = sizeof(ERROR_FRAME) + RawProcessorFrameSize + 
+                            RawSystemFrameSize;
+
+    //
+    // Allocate space to store the error frame.
+    // Not sure if it is OK to use ExAllocatePool at this instant.
+    // We will give this a try if it doesn't work What do we do??!!
+    //
+    
+    PUncorrectableError = ExAllocatePool(NonPagedPool, 
+                            EntireErrorFrameSize);
+    if(PUncorrectableError == NULL) {
+        return;
+    }
+
+    PUncorrectableError->LengthOfEntireErrorFrame = EntireErrorFrameSize;
+
+    //
+    // if the size is not equal to zero then set the RawInformation pointers
+    // to point to the right place.  If not set the pointer to NULL and set
+    // size to 0.
+    //
+
+    // 
+    // make Raw processor info to point right after the error frame.
+    //
+    if(RawProcessorFrameSize) {
+        PUncorrectableError->UncorrectableFrame.RawProcessorInformation = 
+            (PVOID)((PUCHAR)PUncorrectableError + sizeof(ERROR_FRAME) );
+        PUncorrectableError->UncorrectableFrame.RawProcessorInformationLength = 
+            RawProcessorFrameSize;
+    }
+    else{
+        PUncorrectableError->UncorrectableFrame.RawProcessorInformation = 
+                NULL;
+        PUncorrectableError->UncorrectableFrame.RawProcessorInformationLength = 
+                0;
+    }
+    if(RawSystemFrameSize){
+        PUncorrectableError->UncorrectableFrame.RawSystemInformation = 
+            (PVOID)((PUCHAR)PUncorrectableError->UncorrectableFrame.
+                        RawProcessorInformation +  RawProcessorFrameSize);
+        PUncorrectableError->UncorrectableFrame.RawSystemInformationLength = 
+            RawSystemFrameSize;
+    }
+    else{
+        PUncorrectableError->UncorrectableFrame.RawSystemInformation = 
+                NULL;
+        PUncorrectableError->UncorrectableFrame.RawSystemInformationLength = 
+                0;
+    }
+}
+
+VOID
+HalpGetProcessorInfo(
+    PPROCESSOR_INFO  pProcessorInfo
+)
+/*++
+
+Routine Description:
+
+    Collects the Processor Information and fills in the buffer.
+
+Arguments:
+
+    pProcessorInfo  - Pointer to the PROCESSOR_INFO structure into which 
+                      the processor information will be filled in.
+
+Return Value:
+
+    None.
+
+--*/
+{
+    PKPRCB Prcb;
+
+    pProcessorInfo->ProcessorType = PCR->ProcessorType;
+    pProcessorInfo->ProcessorRevision = PCR->ProcessorRevision;
+
+    Prcb = PCR->Prcb;
+    pProcessorInfo->LogicalProcessorNumber =  Prcb->Number;
+    pProcessorInfo->PhysicalProcessorNumber =
+                                HalpLogicalToPhysicalProcessor[Prcb->Number];
+    return;
+}
+
 
 
 VOID
@@ -327,14 +548,14 @@ Return Value:
 
             if( NextRestartBlock->BootStatus.ProcessorStart == FALSE ){
 
-                RtlZeroMemory( &NextRestartBlock->u.Alpha, 
+                RtlZeroMemory( &NextRestartBlock->u.Alpha,
                                sizeof(ALPHA_RESTART_STATE));
-                NextRestartBlock->u.Alpha.IntA0 = 
+                NextRestartBlock->u.Alpha.IntA0 =
                                ProcessorState->ContextFrame.IntA0;
-                NextRestartBlock->u.Alpha.IntSp = 
+                NextRestartBlock->u.Alpha.IntSp =
                                ProcessorState->ContextFrame.IntSp;
-                NextRestartBlock->u.Alpha.ReiRestartAddress = 
-                               ProcessorState->ContextFrame.Fir;
+                NextRestartBlock->u.Alpha.ReiRestartAddress =
+                               (ULONG)ProcessorState->ContextFrame.Fir;
                 Prcb = (PKPRCB)(LoaderBlock->Prcb);
                 Prcb->Number = (CCHAR)LogicalNumber;
                 Prcb->RestartBlock = NextRestartBlock;
@@ -426,7 +647,7 @@ Return Value:
 
 
 VOID
-HalpParseLoaderBlock( 
+HalpParseLoaderBlock(
     IN PLOADER_PARAMETER_BLOCK LoaderBlock
     )
 {
@@ -507,3 +728,325 @@ Return Value:
 
     }
 }
+
+
+ULONG
+HalpQuerySystemFrequency(
+    ULONG SampleTime
+    )
+/*++
+
+Routine Description:
+
+    This routine returns the speed at which the system is running in hertz.
+    The system frequency is calculated by counting the number of processor
+    cycles that occur during 500ms, using the Programmable Interval Timer
+    (PIT) as the reference time.  The PIT is used to generate a square
+    wave with a 50ms Period.  We use the Speaker counter since we can
+    enable and disable the count from software.  The output of the
+    speaker is obtained from the SIO NmiStatus register.
+
+Arguments:
+
+    None.
+    
+Return Value:
+
+    The system frequency in Hertz.
+
+--*/
+{
+    TIMER_CONTROL TimerControlSetup;
+    TIMER_CONTROL TimerControlReadStatus;
+    TIMER_STATUS TimerStatus;
+    NMI_STATUS NmiStatus;
+    PEISA_CONTROL controlBase;
+    ULONGLONG Count1;
+    ULONGLONG Count2;
+    ULONG NumberOfIntervals;
+    ULONG SquareWaveState = 0;
+
+// mdbfix - move this into eisa.h one day
+#define SB_READ_STATUS_ONLY 2
+
+    controlBase = HalpEisaControlBase;
+
+    //
+    // Disable the speaker counter.
+    //
+
+    *((PUCHAR) &NmiStatus) = READ_PORT_UCHAR(&controlBase->NmiStatus);
+
+    NmiStatus.SpeakerGate = 0;
+    NmiStatus.SpeakerData = 0;
+
+    // these are MBZ when writing to NMIMISC
+    NmiStatus.RefreshToggle = 0;
+    NmiStatus.SpeakerTimer = 0;
+    NmiStatus.IochkNmi = 0;
+
+    WRITE_PORT_UCHAR(&controlBase->NmiStatus, *((PUCHAR) &NmiStatus));
+
+    //
+    // Number of Square Wave transitions to count.
+    // at 50ms period, count the number of 25ms
+    // square wave transitions for a sample reference
+    // time to against which we measure processor cycle count.
+    //
+    
+    NumberOfIntervals = (SampleTime/50) * 2;
+    
+    //
+    // Set the timer for counter 0 in binary mode, square wave output
+    //
+
+    TimerControlSetup.BcdMode = 0;
+    TimerControlSetup.Mode = TM_SQUARE_WAVE;
+    TimerControlSetup.SelectByte = SB_LSB_THEN_MSB;
+    TimerControlSetup.SelectCounter = SELECT_COUNTER_2;
+
+    //
+    // Set the counter for a latched read of the status.
+    // We will poll the PIT for the state of the square
+    // wave output.
+    //
+
+    TimerControlReadStatus.BcdMode = 0;
+    TimerControlReadStatus.Mode = (1 << SELECT_COUNTER_2);
+    TimerControlReadStatus.SelectByte = SB_READ_STATUS_ONLY;
+    TimerControlReadStatus.SelectCounter = SELECT_READ_BACK;
+
+
+    //
+    // Write the count value LSB and MSB for a 50ms clock period
+    //
+    
+    WRITE_PORT_UCHAR( &controlBase->CommandMode1,
+                      *(PUCHAR)&TimerControlSetup );
+
+    WRITE_PORT_UCHAR( &controlBase->SpeakerTone,
+                      TIMER_REF_VALUE & 0xff );
+
+    WRITE_PORT_UCHAR( &controlBase->SpeakerTone,
+                      (TIMER_REF_VALUE >> 8) & 0xff );
+
+    //
+    // Enable the speaker counter but disable the SPKR output signal.
+    //
+
+    *((PUCHAR) &NmiStatus) = READ_PORT_UCHAR(&controlBase->NmiStatus);
+
+    NmiStatus.SpeakerGate = 1;
+    NmiStatus.SpeakerData = 0;
+
+    // these are MBZ when writing to NMIMISC
+    NmiStatus.RefreshToggle = 0;
+    NmiStatus.SpeakerTimer = 0;
+    NmiStatus.IochkNmi = 0;
+
+    WRITE_PORT_UCHAR(&controlBase->NmiStatus, *((PUCHAR) &NmiStatus));
+
+    //
+    // Synchronize with the counter before taking the first
+    // sample of the Processor Cycle Count (PCC).  Since we
+    // are using the Square Wave Mode, wait until the next
+    // state change and then observe half a cycle before
+    // sampling.
+    //
+    
+    //
+    // observe the low transition of the square wave output.
+    //
+    do {
+
+        *((PUCHAR) &NmiStatus) = READ_PORT_UCHAR(&controlBase->NmiStatus);
+
+    } while (NmiStatus.SpeakerTimer != SquareWaveState);
+
+    SquareWaveState ^= 1;
+
+    //
+    // observe the next transition of the square wave output and then
+    // take the first cycle counter sample.
+    //
+    do {
+
+        *((PUCHAR) &NmiStatus) = READ_PORT_UCHAR(&controlBase->NmiStatus);
+
+    } while (NmiStatus.SpeakerTimer != SquareWaveState);
+
+    Count1 = __RCC();
+
+    //
+    // Wait for the 500ms time period to pass and then take the
+    // second sample of the PCC.  For a 50ms period, we have to
+    // observe eight wave transitions (25ms each).
+    // 
+    
+    do {
+
+        SquareWaveState ^= 1;
+        
+        //
+        // wait for wave transition
+        //
+        do {
+
+            *((PUCHAR) &NmiStatus) = READ_PORT_UCHAR(&controlBase->NmiStatus);
+
+        } while (NmiStatus.SpeakerTimer != SquareWaveState);
+    
+    } while (--NumberOfIntervals);
+
+    Count2 = __RCC();
+
+    //
+    // Disable the speaker counter.
+    //
+
+    *((PUCHAR) &NmiStatus) = READ_PORT_UCHAR(&controlBase->NmiStatus);
+
+    NmiStatus.SpeakerGate = 0;
+    NmiStatus.SpeakerData = 0;
+
+    WRITE_PORT_UCHAR(&controlBase->NmiStatus, *((PUCHAR) &NmiStatus));
+
+    //
+    // Calculate the Hz by the number of processor cycles
+    // elapsed during 1s.
+    //
+    // Hz = PCC/SampleTime * 1000ms/s
+    //    = PCC * (1000/SampleTime)
+    //
+
+    // did the counter wrap? if so add 2^32
+    if (Count1 > Count2) {
+
+        Count2 += (ULONGLONG)(1 << 32);
+
+    }
+
+    return (ULONG) ((Count2 - Count1)*(((ULONG)1000)/SampleTime));
+}
+
+
+VOID
+HalpInitializeProcessorParameters(
+    VOID
+    )
+/*++
+
+Routine Description:
+
+    This routine initalize the processor counter parameters
+    HalpClockFrequency and HalpClockMegaHertz based on the
+    estimated CPU speed.  A 1s reference time is used for
+    the estimation.
+    
+Arguments:
+
+    None.
+    
+Return Value:
+
+    None.
+
+--*/
+{
+
+    HalpClockFrequency = HalpQuerySystemFrequency(1000);
+    HalpClockMegaHertz = (HalpClockFrequency + 500000)/ 1000000;
+
+#if DBG
+    DbgPrint(
+        "Frequency = %d\nMegaHertz = %d\n",
+        HalpClockFrequency,
+        HalpClockMegaHertz
+    );
+#endif
+
+
+}
+
+
+
+
+#if 0
+VOID
+HalpGatherPerformanceParameterStats(
+    VOID
+    )
+
+/*++
+
+Routine Description:
+
+    This routine gathers statistics on the method for
+    estimating the system frequency.
+    
+Arguments:
+
+    None.
+    
+Return Value:
+
+    None.
+
+--*/
+
+{    
+    ULONG Index;
+    ULONG Hertz[32];
+    ULONGLONG Mean = 0;
+    ULONGLONG Variance = 0;
+    ULONGLONG TempHertz;
+
+    //
+    // take 32 samples of estimated CPU speed,
+    // calculating the mean in the process.
+    //
+    DbgPrint("Sample\tFrequency\tMegaHertz\n\n");
+    
+    for (Index = 0; Index < 32; Index++) {    
+        Hertz[Index] = HalpQuerySystemFrequency(500);
+        Mean += Hertz[Index];
+
+        DbgPrint(
+            "%d\t%d\t%d\n",
+            Index,
+            Hertz[Index],
+            (ULONG)((Hertz[Index] + 500000)/1000000)
+        );
+
+    }
+
+    //
+    // calculate the mean
+    //
+
+    Mean /= 32;
+
+    //
+    // calculate the variance
+    //
+    for (Index = 0; Index < 32; Index++) {
+        TempHertz = (Mean > Hertz[Index])?
+                        (Mean - Hertz[Index]) : (Hertz[Index] - Mean);
+        TempHertz = TempHertz*TempHertz;
+        Variance += TempHertz;                        
+    }
+
+    Variance /= 32;
+
+    DbgPrint("\nResults\n\n");
+    DbgPrint(
+        "Mean = %d\nVariance = %d\nMegaHertz (derived) = %d\n",
+        Mean,
+        Variance,
+        (Mean + 500000)/ 1000000
+    );
+
+}
+#endif
+
+

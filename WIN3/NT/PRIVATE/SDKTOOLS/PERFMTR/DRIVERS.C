@@ -186,22 +186,22 @@ GetModuleData(
 
         Size = (Size + SectionAlignment - 1) & ~(SectionAlignment - 1);
 
-        if (!strnicmp(Section->Name,"PAGE", 4 )) {
+        if (!_strnicmp(Section->Name,"PAGE", 4 )) {
             Mod->PagedSize += Size;
             }
-        else if (!stricmp(Section->Name,"INIT" )) {
+        else if (!_stricmp(Section->Name,"INIT" )) {
             Mod->InitSize += Size;
             }
-        else if (!stricmp(Section->Name,".bss" )) {
+        else if (!_stricmp(Section->Name,".bss" )) {
             Mod->BssSize = Size;
             }
-        else if (!stricmp(Section->Name,".edata" )) {
+        else if (!_stricmp(Section->Name,".edata" )) {
             Mod->ExportDataSize = Size;
             }
-        else if (!stricmp(Section->Name,".idata" )) {
+        else if (!_stricmp(Section->Name,".idata" )) {
             Mod->ImportDataSize = Size;
             }
-        else if (!stricmp(Section->Name,".rsrc" )) {
+        else if (!_stricmp(Section->Name,".rsrc" )) {
             Mod->ResourceDataSize = Size;
             }
         else if (Section->Characteristics & IMAGE_SCN_MEM_EXECUTE) {

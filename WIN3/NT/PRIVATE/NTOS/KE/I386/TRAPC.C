@@ -19,7 +19,7 @@ Revision History:
 
 --*/
 
-#include    "ntos.h"
+#include    "ki.h"
 
 NTSTATUS
 Ki386CheckDivideByZeroTrap (
@@ -256,6 +256,35 @@ try_exit: ;
     return status;
 }
 
+UCHAR
+KiNextIStreamByte (
+    IN  PKTRAP_FRAME UserFrame,
+    IN  PUCHAR  *istream
+    )
+/*++
+
+Routine Description:
+
+    Reads the next byte from the istream pointed to by the UserFrame, and
+    advances the EIP.
+
+
+    Note: this function works for 32 bit code only
+
+--*/
+{
+    UCHAR   ibyte;
+
+    if (UserFrame->SegCs == KGDT_R0_CODE) {
+        ibyte = **istream;
+    } else {
+        ibyte = ProbeAndReadUchar (*istream);
+    }
+
+    *istream += 1;
+    return ibyte;
+}
+
 
 
 
@@ -314,8 +343,7 @@ Return Value:
         fPrefix = TRUE;
         istream = (PUCHAR) UserFrame->Eip;
         while (fPrefix) {
-            ibyte1 = ProbeAndReadUchar(istream);
-            istream++;
+            ibyte1 = KiNextIStreamByte (UserFrame, &istream);
             switch (ibyte1) {
                 case 0x2e:  // cs override
                 case 0x36:  // ss override
@@ -335,9 +363,8 @@ Return Value:
         // Check for coprocessor NoWait NPX instruction
         //
 
-        ibyte2 = ProbeAndReadUchar(istream);
+        ibyte2 = KiNextIStreamByte (UserFrame, &istream);
         inmodrm = (ibyte2 >> 3) & 0x7;
-        istream++;
 
         for (i=0; NoWaitNpxInstructions[i].Opcode1; i++) {
             if (NoWaitNpxInstructions[i].Opcode1 == ibyte1) {
@@ -420,7 +447,7 @@ Return Value:
         // Emulate FNSTSW AX
         //
 
-        UserFrame->Eip = istream;
+        UserFrame->Eip = (ULONG)istream;
         UserFrame->Eax = (UserFrame->Eax & 0xFFFF0000) | StatusWord;
         return TRUE;
     }
@@ -434,7 +461,7 @@ Return Value:
     try {
 
         //
-        // (bugbug: the operand decode code should really share code with
+        // (PERFNOTE: the operand decode code should really share code with
         // KiCheckDivideByZeroTrap, but this is a late change therefore the
         // code was copied to keep the impact of the change localized)
         //
@@ -454,8 +481,7 @@ Return Value:
         if (rm != Mod->RmDisplaceOnly) {
             if (rm == Mod->RmSib) {
                 // get SIB
-                ibyte1 = ProbeAndReadUchar(istream);
-                istream++;
+                ibyte1 = KiNextIStreamByte (UserFrame, &istream);
                 i = (ibyte1 >> 3) & 7;
                 if (i != 4) {
                     accum = GETREG(UserFrame, RM32[i]);
@@ -475,22 +501,27 @@ Return Value:
 
         if (Mod->RmDisplace & (1 << rm)) {
             if (Mod->Disp == 4) {
-                i = ProbeAndReadUlong ((PULONG) istream);
-                istream += 4;
+                i =  KiNextIStreamByte (UserFrame, &istream);
+                    (KiNextIStreamByte (UserFrame, &istream) << 8) |
+                    (KiNextIStreamByte (UserFrame, &istream) << 16) |
+                    (KiNextIStreamByte (UserFrame, &istream) << 24);
             } else {
-                ibyte1 = ProbeAndReadChar (istream);
+                ibyte1 = KiNextIStreamByte (UserFrame, &istream);
                 i = (signed long) ((signed char) ibyte1);    // sign extend
-                istream += 1;
             }
             accum += i;
         }
 
         //
-        // Set the word pointer, and bump eip to the next instruction
+        // Set the word pointer
         //
 
-        ProbeAndWriteUshort ((PUSHORT) accum, UsersWord);
-        UserFrame->Eip = istream;
+        if (UserFrame->SegCs == KGDT_R0_CODE) {
+            *((PUSHORT) accum) = UsersWord;
+        } else {
+            ProbeAndWriteUshort ((PUSHORT) accum, UsersWord);
+        }
+        UserFrame->Eip = (ULONG)istream;
 
     } except (KiCopyInformation(&ExceptionRecord,
                 (GetExceptionInformation())->ExceptionRecord)) {
@@ -500,7 +531,7 @@ Return Value:
         // and raise the exception by calling the exception dispatcher.
         //
 
-        ExceptionRecord.ExceptionAddress = UserFrame->Eip;
+        ExceptionRecord.ExceptionAddress = (PVOID)(UserFrame->Eip);
         KiDispatchException(
             &ExceptionRecord,
             NULL,                // ExceptionFrame

@@ -548,7 +548,19 @@ INT16 BSD_GetNextLBA( BSD_PTR bsd, LBA_ELEM_PTR lba )  ;
 #define BSD_GetCatStatus( bsd )    \
      ( (bsd)->cat_status )
 
+#define BSD_GetOsId( bsd ) \
+     ( (bsd)->set_os_id )     
+
+#define BSD_GetOsVer( bsd ) \
+     ( (bsd)->set_os_ver )     
+
+#define BSD_SetOsId( bsd, v ) \
+     ( (bsd)->set_os_id = v )     
+
+#define BSD_SetOsVer( bsd, v ) \
+     ( (bsd)->set_os_ver = v )     
+
 #endif
-
-
-
+
+
+

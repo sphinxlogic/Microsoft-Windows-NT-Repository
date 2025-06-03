@@ -1,6 +1,6 @@
 /*++
 
-  Copyright (c) 1992, 1993 Digital Equipment Corporation
+  Copyright (c) 1992-1996 Digital Equipment Corporation
 
 
   Module:
@@ -1472,93 +1472,6 @@ Name:;
 #define SWAP_PROCESS_CONTEXT  call_pal  swpprocess
 
 //
-// Define access to DPC Active flag
-//
-
-//++
-//
-// GET_DPC_ACTIVE_FLAG
-//
-// Macro Description:
-//
-//     Return the DPC Active Flag for the current processor.
-//
-// Mode:
-//
-//     Kernel only.
-//
-// Arguments:
-//
-//     None.
-//
-// Return Value:
-//
-//     v0 = DPC Active Flag
-//
-// Registers Used:
-//
-//     AT.
-//
-//--
-
-#ifdef NT_UP
-
-//
-// The DPC Active flag can be safely acquired from the PCR (there is only one).
-//
-
-#define GET_DPC_ACTIVE_FLAG \
-        GET_PROCESSOR_CONTROL_REGION_BASE; \
-        ldl     v0, PcDpcRoutineActive(v0)
-
-#else
-
-//
-// Ensure that the DPC flag fetch is atomic.
-//
-
-#define GET_DPC_ACTIVE_FLAG \
-        DISABLE_INTERRUPTS;                 \
-        GET_PROCESSOR_CONTROL_REGION_BASE;  \
-        ldl     v0, PcDpcRoutineActive(v0); \
-        ENABLE_INTERRUPTS;
-
-#endif //NT_UP
-
-//++
-//
-// SET_DPC_ACTIVE_FLAG
-//
-// Macro Description:
-//
-//     Set the DPC Active Flag for the current processor.
-//
-// Mode:
-//
-//     Kernel only.
-//
-// Arguments:
-//
-//     a0 = Supplies the DPC Active Flag Value to set.
-//
-// Return Value:
-//
-//     None.
-//
-// Registers Used:
-//
-//     AT.
-//
-//--
-
-#define SET_DPC_ACTIVE_FLAG                     \
-        .set    noat;                           \
-        GET_PROCESSOR_CONTROL_REGION_BASE;      \
-        stl     a0, PcDpcRoutineActive(v0);     \
-        .set    at
-
-
-//
 // Define interfaces for generate trap
 //
 
@@ -1796,6 +1709,42 @@ Name:;
 
 #define WRITE_MACHINE_CHECK_ERROR_SUMMARY  call_pal wrmces
 
+
+//++
+//
+// LoadByte(
+//     Register Value,
+//     Offset(Register) Base
+//     )
+//
+// Macro Description:
+//
+//     Loades the byte at the base address defined by the
+//     offset + register expression Base into the register Value
+//
+// Arguments:
+//
+//     Value - Supplies the string name of the destination register
+//
+//     Base - Supplies the base address (as an offset(register) string) of
+//            the source of the byte.
+//
+// Return Value:
+//
+//     None.
+//
+// Registers Used:
+//
+//     AT
+//
+//--
+
+#define LoadByte( Value, Base )        \
+        .set    noat;                  \
+        lda     AT, Base;              \
+        ldq_u   Value, Base;           \
+        extbl   Value, AT, Value;      \
+        .set    at;
 
 
 //++
@@ -1881,89 +1830,6 @@ Name:;
         extll   t12, AT, t12;           \
         stl     t12, (AT);              \
         .set    at;
-
-//++
-//
-// StoreByteAligned(
-//     Register Value,
-//     Offset(Register) Base
-//     )
-//
-// Macro Description:
-//
-//     Store the low byte of the register Value at the base address
-//     defined by the offset + register expression Base.  This macro
-//     is functionally equivalent to StoreByte, but it assumes that
-//     Base is dword aligned and optimizes the generated code
-//     based on the alignment of Offset.
-//
-//     N.B. - This macro preserves longword granularity of accesses.
-//
-// Arguments:
-//
-//     Value - Supplies the string name of the register containing the store
-//             data.
-//
-//     Base - Supplies the base address (as an offset(register) string) of
-//            the destination of the store.
-//
-// Return Value:
-//
-//     None.
-//
-// Registers Used:
-//
-//     AT, t12.
-//
-//--
-
-#define StoreByteAligned( Value, Offset, Base )         \
-    .set    noat;                                       \
-    ldl     AT, Offset(Base);                           \
-    mskbl   AT, 0, t12;                                 \
-    bis     t12, Value, AT;                             \
-    stl     AT, Offset(Base);                           \
-    .set    at;
-
-
-//++
-//
-// ClearByteAligned(
-//     Offset,
-//     Base
-//     )
-//
-// Macro Description:
-//
-//     Clears the byte at the location defined by the offset + register
-//     expression Base.  It assumes that Base is dword aligned and optimizes
-//     the generated code based on the alignment of Offset.
-//
-//     N.B. - This macro preserves longword granularity of accesses.
-//
-// Arguments:
-//
-//     Offset - Supplies the offset of the destination of the store.
-//
-//     Base - Supplies the base address of the destination of the store.
-//
-// Return Value:
-//
-//     None.
-//
-// Registers Used:
-//
-//     AT, t12.
-//
-//--
-
-#define ZeroByteAligned( Offset, Base )          \
-    .set    noat;                                       \
-    ldl     AT, Offset(Base);                           \
-    mskbl   AT, 0, t12;                                 \
-    stl     t12, Offset(Base);                          \
-    .set    at;
-
 
 
 //++

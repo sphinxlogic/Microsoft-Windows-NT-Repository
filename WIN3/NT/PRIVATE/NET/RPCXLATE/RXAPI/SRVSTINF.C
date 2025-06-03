@@ -176,8 +176,8 @@ Return Value:
                     TRUE,                   // want output in native format
                     NULL);                  // use default string area
             if (Status != NERR_Success) {
-                NetpDbgPrint( "RxNetServerSetInfo: convert failed, stat="
-                        FORMAT_API_STATUS ".\n", Status);
+                NetpKdPrint(( "RxNetServerSetInfo: convert failed, stat="
+                        FORMAT_API_STATUS ".\n", Status));
                 (void) NetApiBufferFree( EquivInfo );
                 return (Status);
             }
@@ -209,8 +209,8 @@ Return Value:
                     EquivMaxNativeSize,         // size of OldApiBuffer
                     & TotalAvail);              // total available (set)
             if (Status != NERR_Success) {
-                NetpDbgPrint( "RxNetServerSetInfo: get info failed, stat="
-                        FORMAT_API_STATUS ".\n", Status);
+                NetpKdPrint(( "RxNetServerSetInfo: get info failed, stat="
+                        FORMAT_API_STATUS ".\n", Status));
                 (void) NetApiBufferFree( EquivInfo );
                 return (Status);
             }
@@ -292,8 +292,8 @@ Return Value:
                 Both,                       // transmission mode
                 NativeToNative);            // conversion mode
         IF_DEBUG(SERVER) {
-            NetpDbgPrint( "RxNetServerSetInfo(all): equiv actual size (32) is "
-                    FORMAT_DWORD ".\n", EquivActualSize32 );
+            NetpKdPrint(( "RxNetServerSetInfo(all): equiv actual size (32) is "
+                    FORMAT_DWORD ".\n", EquivActualSize32 ));
         }
         NetpAssert( EquivActualSize32 <= EquivMaxNativeSize );
 

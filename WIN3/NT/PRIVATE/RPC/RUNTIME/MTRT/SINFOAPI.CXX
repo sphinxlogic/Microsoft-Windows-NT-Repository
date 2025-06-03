@@ -10,20 +10,7 @@ File : sinfoapi.cxx
 
 -------------------------------------------------------------------- */
 
-#include <sysinc.h>
-#include <rpc.h>
-#include <rpcdcep.h>
-#include <rpcssp.h>
-#include <util.hxx>
-#include <rpcuuid.hxx>
-#include <mutex.hxx>
-#include <threads.hxx>
-#include <binding.hxx>
-#include <linklist.hxx>
-#include <handle.hxx>
-#include <sdict.hxx>
-#include <interlck.hxx>
-#include <secclnt.hxx>
+#include <precomp.hxx>
 #include <hndlsvr.hxx>
 #include <thrdctx.hxx>
 
@@ -117,4 +104,46 @@ I_RpcStopMonitorAssociation (
 
     return(((SCONNECTION *) Handle)->StopMonitorAssociation());
 }
-
+
+
+RPC_STATUS RPC_ENTRY
+I_RpcServerInqTransportType(
+    OUT unsigned int __RPC_FAR * Type
+    )
+/*++
+
+Routine Description:
+
+    Determines what kind of transport on the current thread
+
+Arguments:
+
+    Type - Points to the type of binding if the functions succeeds.
+           One of:
+           TRANSPORT_TYPE_CN
+           TRANSPORT_TYPE_DG
+           TRANSPORT_TYPE_LPC
+           TRANSPORT_TYPE_WMSG
+
+Return Value:
+
+    RPC_S_OK - The operation completed successfully.
+
+    RPC_S_INVALID_BINDING - When the argument is not a binding handle.
+
+--*/
+{
+    SCONNECTION *SConnection ;
+
+    AssertRpcInitialized();
+
+    ASSERT(!RpcpCheckHeap());
+
+    SConnection = (SCONNECTION *) RpcpGetThreadContext() ;
+    if (!SConnection)
+        {
+        return (RPC_S_NO_CALL_ACTIVE) ;
+        }
+
+    return (SConnection->InqTransportType(Type)) ;
+}

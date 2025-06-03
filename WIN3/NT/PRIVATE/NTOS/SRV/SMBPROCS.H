@@ -40,7 +40,8 @@ Revision History:
 #define SMB_PROCESSOR_ARGUMENTS         \
     WorkContext
 
-#define SMB_PROCESSOR_RETURN_TYPE SMB_STATUS
+#define SMB_PROCESSOR_RETURN_TYPE SMB_STATUS SRVFASTCALL
+#define SMB_PROCESSOR_RETURN_LOCAL SMB_STATUS
 
 //
 // SMB processor return status.
@@ -66,8 +67,8 @@ typedef enum _SMB_TRANS_STATUS {
 
 
 typedef
-SMB_PROCESSOR_RETURN_TYPE
-(*PSMB_PROCESSOR) (
+SMB_STATUS
+(SRVFASTCALL *PSMB_PROCESSOR) (
     SMB_PROCESSOR_PARAMETERS
     );
 
@@ -415,6 +416,35 @@ SrvSmbWriteAndX (
     );
 
 SMB_PROCESSOR_RETURN_TYPE
+SrvSmbReadBulk (
+    SMB_PROCESSOR_PARAMETERS
+    );
+
+SMB_PROCESSOR_RETURN_TYPE
+SrvSmbWriteBulk (
+    SMB_PROCESSOR_PARAMETERS
+    );
+
+SMB_PROCESSOR_RETURN_TYPE
+SrvSmbWriteBulkData (
+    SMB_PROCESSOR_PARAMETERS
+    );
+
+NTSTATUS
+RestartWriteBulkData (
+    IN PCONNECTION Connection,
+    IN ULONG ReceiveFlags,
+    IN ULONG BytesIndicated,
+    IN ULONG BytesAvailable,
+    IN PVOID Tsdu,
+    OUT PWORK_CONTEXT *WorkContext,
+    OUT PMDL *Mdl,
+    OUT PULONG ReceiveLength,
+    OUT PULONG BytesTaken,
+    OUT PIRP *Irp
+    );
+
+SMB_PROCESSOR_RETURN_TYPE
 SrvSmbCloseAndTreeDisc (
     SMB_PROCESSOR_PARAMETERS
     );
@@ -449,12 +479,10 @@ SrvSmbSessionSetupAndX (
     SMB_PROCESSOR_PARAMETERS
     );
 
-#ifdef _CAIRO_
 SMB_TRANS_STATUS
 SrvSmbSessionSetup (
     IN OUT PWORK_CONTEXT WorkContext
     );
-#endif // _CAIRO_
 
 SMB_PROCESSOR_RETURN_TYPE
 SrvSmbLogoffAndX (
@@ -599,6 +627,40 @@ SMB_TRANS_STATUS
 SrvTransactionNotImplemented (
     IN OUT PWORK_CONTEXT WorkContext
     );
+
+//
+// Dfs transactions and support routines
+//
+VOID
+SrvInitializeDfs();
+
+VOID
+SrvTerminateDfs();
+
+SMB_TRANS_STATUS
+SrvSmbGetDfsReferral (
+    IN OUT PWORK_CONTEXT WorkContext
+    );
+
+SMB_TRANS_STATUS
+SrvSmbReportDfsInconsistency (
+    IN OUT PWORK_CONTEXT WorkContext
+    );
+
+NTSTATUS SRVFASTCALL
+DfsNormalizeName(
+    IN PSHARE Share,
+    IN PUNICODE_STRING RelatedPath OPTIONAL,
+    IN BOOLEAN StripLastComponent,
+    IN OUT PUNICODE_STRING String
+    );
+
+VOID SRVFASTCALL
+SrvIsShareInDfs(
+    IN PSHARE Share,
+    OUT BOOLEAN *IsDfs,
+    OUT BOOLEAN *IsDfsRoot
+);
 
 #endif // def _SMBPROCS_
 

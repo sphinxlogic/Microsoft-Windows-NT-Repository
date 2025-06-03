@@ -19,18 +19,11 @@ Revision History:
 
 
 --*/
-#include <nt.h>
-#include <ntrtl.h>
-#include <nturtl.h>
-
-#include <windows.h>
-#include <winioctl.h>
-
+#include "diskmon.h"
+#include "gauge.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include "diskmon.h"
-#include "gauge.h"
 
 PCHAR
 *GetAttachedDrives(
@@ -65,7 +58,7 @@ DISK      TotalDrives;
 PDISK     DriveList = NULL,
           SelectedDrive = NULL;
 HINSTANCE hInst;
-HWND	  hDataDlg,
+HWND      hDataDlg,
           hMainWnd;
 HMENU     MenuHandle,Popup = NULL;
 UINT      ActiveDrives = 0;
@@ -144,16 +137,16 @@ BOOL InitApplication(HINSTANCE hInstance)
 
     WNDCLASS  wc;
 
-	wc.style	        = CS_HREDRAW | CS_VREDRAW;
-	wc.lpfnWndProc	  = (WNDPROC)WndProc;
-	wc.cbClsExtra	  = 0;
-	wc.cbWndExtra	  = 0;
-	wc.hInstance	  = hInstance;
-	wc.hIcon	        = LoadIcon (hInstance, AppName);
-	wc.hCursor	     = LoadCursor(NULL, IDC_ARROW);
-	wc.hbrBackground = (HBRUSH)GetStockObject(DKGRAY_BRUSH);
-	wc.lpszMenuName  = "DiskmonMenu";
-	wc.lpszClassName = AppName;
+    wc.style            = CS_HREDRAW | CS_VREDRAW;
+    wc.lpfnWndProc    = (WNDPROC)WndProc;
+    wc.cbClsExtra     = 0;
+    wc.cbWndExtra     = 0;
+    wc.hInstance      = hInstance;
+    wc.hIcon            = LoadIcon (hInstance, AppName);
+    wc.hCursor       = LoadCursor(NULL, IDC_ARROW);
+    wc.hbrBackground = (HBRUSH)GetStockObject(DKGRAY_BRUSH);
+    wc.lpszMenuName  = "DiskmonMenu";
+    wc.lpszClassName = AppName;
 
     if (!RegisterClass(&wc))
         return FALSE;
@@ -176,11 +169,11 @@ BOOL InitInstance(
     DISK_PERFORMANCE perfbuf;
     DWORD            BytesReturned;
     HANDLE           handle;
-	 HWND		         hWnd;
+     HWND                hWnd;
     INT              height,
                      width;
 
-	hInst = hInstance;
+    hInst = hInstance;
 
     cx     = 70;
     cy     = 70;
@@ -206,14 +199,14 @@ BOOL InitInstance(
 
     if (!hWnd) {
         return (FALSE);
-	}
+    }
 
     //
     // If the IOCTL GET_DISK_PERF returns ERROR_INVALID_FUNCTION, let the user
     // know that Diskperf.sys is not started.
     //
 
- 	handle = CreateFile("\\\\.\\PhysicalDrive0",
+    handle = CreateFile("\\\\.\\PhysicalDrive0",
                         GENERIC_READ,
                         FILE_SHARE_READ
                             | FILE_SHARE_WRITE,
@@ -229,14 +222,14 @@ BOOL InitInstance(
     }
 
     if (!DeviceIoControl (handle,
-   	                	  IOCTL_DISK_PERFORMANCE,
-   		                  NULL,
-   		                  0,
-   		                  &perfbuf,
-   		                  sizeof(DISK_PERFORMANCE),
-   		                  &BytesReturned,
-   		                  NULL
-   		                  )) {
+                          IOCTL_DISK_PERFORMANCE,
+                          NULL,
+                          0,
+                          &perfbuf,
+                          sizeof(DISK_PERFORMANCE),
+                          &BytesReturned,
+                          NULL
+                          )) {
         if (GetLastError() == ERROR_INVALID_FUNCTION) {
 
             sprintf(buffer,"Diskperf.sys is not started on your system.\n Start the driver and reboot.");
@@ -248,8 +241,8 @@ BOOL InitInstance(
     CloseHandle(handle);
 
     ShowWindow(hWnd, CmdShow);
-	UpdateWindow(hWnd);
-	hMainWnd = hWnd;
+    UpdateWindow(hWnd);
+    hMainWnd = hWnd;
 
     return TRUE;
 
@@ -486,7 +479,7 @@ LRESULT CALLBACK WndProc(
         UpdateGauge(totalDrvHandle,(INT)(TotalDrives.AveBPS / (1000)));
         WriteStatText();
 
-	    break;
+        break;
 
         case WM_COMMAND:
             wmId    = LOWORD(uParam);
@@ -523,7 +516,7 @@ LRESULT CALLBACK WndProc(
                 break;
             }
 
-	        switch (wmId) {
+            switch (wmId) {
 
             case IDM_VIEW:
 
@@ -560,9 +553,9 @@ LRESULT CALLBACK WndProc(
 
 
                 DialogBox(hInst,
-	    	              "DISKDLG",
+                          "DISKDLG",
                           hWnd,
-	    	              (DLGPROC)ConfigMonitor
+                          (DLGPROC)ConfigMonitor
                           );
                 //
                 //If any drives were selected, set up the remaining
@@ -593,7 +586,7 @@ LRESULT CALLBACK WndProc(
                         sprintf (buffer,"\\\\.\\");
                         strcat (buffer,current->DrvString);
 
-                     	current->handle = CreateFile(buffer,
+                        current->handle = CreateFile(buffer,
                                               GENERIC_READ,
                                               FILE_SHARE_READ
                                                   | FILE_SHARE_WRITE,
@@ -682,7 +675,7 @@ LRESULT CALLBACK WndProc(
                     DrawMenuBar (hWnd);
 
                 }
-	            break;
+                break;
 
             case IDM_START:
                 SetTimer(hWnd,ID_TIMER,1000,(TIMERPROC)NULL);
@@ -789,17 +782,17 @@ static INT   NumberCurrentDrives = 0;
 
         free (drvs);
 
-	    break;
+        break;
 
-	case WM_COMMAND:
-	    switch (LOWORD(wParam)) {
-	    case ID_LB:
+    case WM_COMMAND:
+        switch (LOWORD(wParam)) {
+        case ID_LB:
 
             //
             // Message for the drive list box.
             //
 
-	        if ( HIWORD(wParam) == LBN_DBLCLK || HIWORD(wParam) == LBN_SELCHANGE ) {
+            if ( HIWORD(wParam) == LBN_DBLCLK || HIWORD(wParam) == LBN_SELCHANGE ) {
                 if (!IsWindowEnabled(GetDlgItem(hDlg,IDOK))) {
                      EnableWindow(GetDlgItem(hDlg,IDOK),TRUE);
                 }  else {
@@ -807,9 +800,9 @@ static INT   NumberCurrentDrives = 0;
                         EnableWindow(GetDlgItem(hDlg,IDOK),FALSE);
                     }
                 }
-	        }
+            }
 
-	        break;
+            break;
 
         case IDOK:
 
@@ -915,13 +908,13 @@ static INT   NumberCurrentDrives = 0;
 
         case IDCANCEL:
 
-	       	EndDialog(hDlg, wParam);
-	       	break;
+            EndDialog(hDlg, wParam);
+            break;
 
-	    default:
-	        Processed = FALSE;
-	        break;
-	    }
+        default:
+            Processed = FALSE;
+            break;
+        }
     default:
        Processed = FALSE;
        break;
@@ -952,9 +945,9 @@ PCHAR
 
         ValidDrive = FALSE;
 
-    	sprintf(buffer,"\\\\.\\PhysicalDrive%d",i);
+        sprintf(buffer,"\\\\.\\PhysicalDrive%d",i);
 
-    	handle = CreateFile(buffer,
+        handle = CreateFile(buffer,
                             GENERIC_READ,FILE_SHARE_READ | FILE_SHARE_WRITE,
                             NULL,
                             OPEN_EXISTING,
@@ -1007,17 +1000,13 @@ CalcStats(
 
 
 
-    BytesRead.LowPart     = 0;
-    BytesRead.HighPart    = 0;
-    BytesWritten.LowPart  = 0;
-    BytesWritten.HighPart = 0;
+    BytesRead.QuadPart    = 0;
+    BytesWritten.QuadPart = 0;
     TotalDrives.current->QueueDepth = 0;
     TotalDrives.current->ReadCount = 0;
     TotalDrives.current->WriteCount = 0;
-    TotalDrives.current->BytesRead.LowPart = 0;
-    TotalDrives.current->BytesRead.HighPart = 0;
-    TotalDrives.current->BytesWritten.LowPart = 0;
-    TotalDrives.current->BytesWritten.HighPart = 0;
+    TotalDrives.current->BytesRead.QuadPart = 0;
+    TotalDrives.current->BytesWritten.QuadPart = 0;
 
 
     //
@@ -1025,26 +1014,25 @@ CalcStats(
     //
 
     while (curdisk) {
-        curBytesRead.LowPart = 0;
-        curBytesWritten.LowPart = 0;
+        curBytesRead.QuadPart = 0;
 
         *(curdisk->previous) = *(curdisk->current);
 
 
         retval = DeviceIoControl (curdisk->handle,
-   		                	      IOCTL_DISK_PERFORMANCE,
-   			                      NULL,
-   			                      0,
-   			                      curdisk->current,
-   			                      sizeof(DISK_PERFORMANCE),
-   			                      &BytesReturned,
-   			                      NULL
-   			                      );
+                                  IOCTL_DISK_PERFORMANCE,
+                                  NULL,
+                                  0,
+                                  curdisk->current,
+                                  sizeof(DISK_PERFORMANCE),
+                                  &BytesReturned,
+                                  NULL
+                                  );
 
         if (!retval) {
-   	        sprintf(errorbuf,"IOCTL returned error %x",GetLastError());
-   	        MessageBox(NULL,errorbuf,"Error",MB_ICONEXCLAMATION | MB_OK);
-   	        break;
+            sprintf(errorbuf,"IOCTL returned error %x",GetLastError());
+            MessageBox(NULL,errorbuf,"Error",MB_ICONEXCLAMATION | MB_OK);
+            break;
         }
         if (initial) {
             *(curdisk->start) = *(curdisk->current);
@@ -1057,19 +1045,19 @@ CalcStats(
             //Calc the averages and per disk totals
             //
 
-            curBytesRead = LiSub (curdisk->current->BytesRead,
-                                  curdisk->previous->BytesRead);
-            curBytesWritten =  LiSub (curdisk->current->BytesWritten,
-                                      curdisk->previous->BytesWritten);
+            curBytesRead.QuadPart = curdisk->current->BytesRead.QuadPart -
+                                    curdisk->previous->BytesRead.QuadPart;
+            curBytesWritten.QuadPart = curdisk->current->BytesWritten.QuadPart -
+                                       curdisk->previous->BytesWritten.QuadPart;
 
-            BytesRead = LiAdd(BytesRead,curBytesRead);
-            BytesWritten = LiAdd(BytesWritten,curBytesWritten);
+            BytesRead.QuadPart = BytesRead.QuadPart + curBytesRead.QuadPart;
+            BytesWritten.QuadPart = BytesWritten.QuadPart + curBytesWritten.QuadPart;
 
-            liVal = LiAdd (curBytesRead,curBytesWritten);
-            curdisk->AveBPS = liVal.LowPart;
+            liVal.QuadPart = curBytesRead.QuadPart + curBytesWritten.QuadPart;
+            curdisk->AveBPS = (ULONG)liVal.QuadPart;
 
-            curdisk->BytesRead += curBytesRead.LowPart;
-            curdisk->BytesWritten += curBytesWritten.LowPart;
+            curdisk->BytesRead += (ULONG)curBytesRead.QuadPart;
+            curdisk->BytesWritten += (ULONG)curBytesWritten.QuadPart;
             curdisk->QDepth += curdisk->current->QueueDepth;
 
             curdisk->MaxQDepth = (curdisk->current->QueueDepth >
@@ -1081,8 +1069,11 @@ CalcStats(
             tmpQDepth += curdisk->current->QueueDepth;
             TotalDrives.current->ReadCount += curdisk->current->ReadCount-curdisk->previous->ReadCount;
             TotalDrives.current->WriteCount += curdisk->current->WriteCount - curdisk->previous->WriteCount;
-            TotalDrives.current->BytesRead = LiAdd(TotalDrives.current->BytesRead, curBytesRead);
-            TotalDrives.current->BytesWritten = LiAdd(TotalDrives.current->BytesWritten, curBytesWritten);
+
+            TotalDrives.current->BytesRead.QuadPart = TotalDrives.current->BytesRead.QuadPart +
+                                                      curBytesRead.QuadPart;
+            TotalDrives.current->BytesWritten.QuadPart = TotalDrives.current->BytesWritten.QuadPart +
+                                                         curBytesWritten.QuadPart;
 
         }
         curdisk = curdisk->next;
@@ -1092,12 +1083,12 @@ CalcStats(
     // Calculate total active drive stats.
     //
 
-    TotalDrives.AveBPS = (LiAdd(BytesRead,BytesWritten)).LowPart;
+    TotalDrives.AveBPS = (ULONG)(BytesRead.QuadPart + BytesWritten.QuadPart);
 
-    TotalDrives.previous->BytesRead = LiAdd (TotalDrives.previous->BytesRead,
-                                             BytesRead);
-    TotalDrives.previous->BytesWritten =
-        LiAdd (TotalDrives.previous->BytesWritten,BytesWritten);
+    TotalDrives.previous->BytesRead.QuadPart = TotalDrives.previous->BytesRead.QuadPart +
+                                               BytesRead.QuadPart;
+    TotalDrives.previous->BytesWritten.QuadPart =
+        TotalDrives.previous->BytesWritten.QuadPart + BytesWritten.QuadPart;
 
     TotalDrives.MaxQDepth = (TotalDrives.MaxQDepth > tmpQDepth) ?
                              TotalDrives.MaxQDepth : tmpQDepth;
@@ -1112,18 +1103,18 @@ FormatTime(ULONG Time)
 
     ++Seconds;
     if (Seconds % 60  == 0) {
-	    ++Minutes;
-	    Seconds = 0;
+        ++Minutes;
+        Seconds = 0;
 
-	    if(Minutes % 60 == 0) {
-	        ++Hours;
-	        Minutes = 0;
+        if(Minutes % 60 == 0) {
+            ++Hours;
+            Minutes = 0;
 
-	        if(Hours % 24 == 0) {
-		        ++Days;
-		        Hours = 0;
-	        }
-	    }
+            if(Hours % 24 == 0) {
+                ++Days;
+                Hours = 0;
+            }
+        }
     }
 
     sprintf(TimerText,"%02d:%02d:%02d:%02d",Days,Hours,Minutes,Seconds);
@@ -1187,7 +1178,8 @@ WriteStatText(
         // BPS Read
         //
 
-        BytesRead= LiSub(SelectedDrive->current->BytesRead,SelectedDrive->previous->BytesRead);
+        BytesRead.QuadPart = SelectedDrive->current->BytesRead.QuadPart -
+                             SelectedDrive->previous->BytesRead.QuadPart;
         sprintf(buffer,"%.0Lu%Lu",BytesRead.HighPart,BytesRead.LowPart);
         SetWindowText(staticHandle[0],buffer);
 
@@ -1195,7 +1187,8 @@ WriteStatText(
         // BPS Write
         //
 
-        BytesWritten= LiSub(SelectedDrive->current->BytesWritten,SelectedDrive->previous->BytesWritten);
+        BytesWritten.QuadPart = SelectedDrive->current->BytesWritten.QuadPart -
+                                SelectedDrive->previous->BytesWritten.QuadPart;
         sprintf(buffer,"%.0Lu%Lu",BytesWritten.HighPart,BytesWritten.LowPart);
         SetWindowText(staticHandle[1],buffer);
 
@@ -1203,8 +1196,9 @@ WriteStatText(
         // Ave. BPS Read
         //
 
-        BytesRead = LiSub(SelectedDrive->current->BytesRead,SelectedDrive->start->BytesRead);            //  0  9 BPS Read",
-        Val = LiDiv(BytesRead,LiFromUlong(ElapsedTime));                                                 //  1 10 BPS Write",
+        BytesRead.QuadPart = SelectedDrive->current->BytesRead.QuadPart +
+                             SelectedDrive->start->BytesRead.QuadPart;
+        Val.QuadPart = BytesRead.QuadPart / ElapsedTime;                                                 //  1 10 BPS Write",
         sprintf (buffer,"%.0Lu%Lu",Val.HighPart,Val.LowPart);                                            //  2 11 Ave. BPS Read",
         SetWindowText(staticHandle[2],buffer);                                                           //  3 12 Ave. BPS Write",
                                                                                                          //  4 13 Ave. BPS Xfer",
@@ -1212,8 +1206,9 @@ WriteStatText(
         // Ave. BPS Write                                                                                //  6 15 Ave Queue",
         //                                                                                               //  7 16 Max Queue",
                                                                                                          //  8 17 Requests / Sec"
-        BytesWritten = LiSub(SelectedDrive->current->BytesWritten,SelectedDrive->start->BytesWritten);
-        Val = LiDiv(BytesWritten,LiFromUlong(ElapsedTime));
+        BytesWritten.QuadPart = SelectedDrive->current->BytesWritten.QuadPart +
+                                SelectedDrive->start->BytesWritten.QuadPart;
+        Val.QuadPart = BytesWritten.QuadPart / ElapsedTime;
         sprintf (buffer,"%.0Lu%Lu",Val.HighPart,Val.LowPart);
         SetWindowText(staticHandle[3],buffer);
 
@@ -1221,7 +1216,7 @@ WriteStatText(
         // Ave. BPS Total
         //
 
-        Val = LiDiv(LiAdd(BytesRead,BytesWritten),LiFromUlong(ElapsedTime));
+        Val.QuadPart = (BytesRead.QuadPart + BytesWritten.QuadPart) / ElapsedTime;
         sprintf (buffer,"%.0Lu%Lu",Val.HighPart,Val.LowPart);
         SetWindowText (staticHandle[4],buffer);
 
@@ -1274,16 +1269,16 @@ WriteStatText(
                                   TotalDrives.current->BytesWritten.LowPart);
         SetWindowText(staticHandle[10],buffer);
 
-        Val = LiDiv(TotalDrives.previous->BytesRead, LiFromUlong(ElapsedTime));
+        Val.QuadPart = TotalDrives.previous->BytesRead.QuadPart / ElapsedTime;
         sprintf (buffer,"%.0Lu%Lu",Val.HighPart,Val.LowPart);
         SetWindowText(staticHandle[11],buffer);
 
-        Val = LiDiv(TotalDrives.previous->BytesWritten, LiFromUlong(ElapsedTime));
+        Val.QuadPart = TotalDrives.previous->BytesWritten.QuadPart / ElapsedTime;
         sprintf (buffer,"%.0Lu%Lu",Val.HighPart,Val.LowPart);
         SetWindowText(staticHandle[12],buffer);
 
-        Val = LiDiv (LiAdd (TotalDrives.previous->BytesWritten,TotalDrives.previous->BytesRead),
-                     LiFromUlong(ElapsedTime));
+        Val.QuadPart = (TotalDrives.previous->BytesWritten.QuadPart +
+                        TotalDrives.previous->BytesRead.QuadPart) /  ElapsedTime;
         sprintf (buffer,"%.0Lu%Lu",Val.HighPart,Val.LowPart);
         SetWindowText (staticHandle[13],buffer);
 
@@ -1301,4 +1296,3 @@ WriteStatText(
 
 
 }
-

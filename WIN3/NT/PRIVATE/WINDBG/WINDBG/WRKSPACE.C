@@ -64,6 +64,8 @@ Environment:
 #define WS_STR_EXITGO               "Go on Thread Exit"
 #define WS_STR_EPSTEP               "Entry Point is First Step"
 #define WS_STR_COMMANDREPEAT        "Command Repeat"
+#define WS_STR_NOVERSION            "NoVersion"
+#define WS_STR_EXTENSION_NAMES      "Extension Names"
 #define WS_STR_MASMEVAL             "Masm Evaluation"
 #define WS_STR_BACKGROUND           "Background Symbol Loads"
 #define WS_STR_ALTSS                "Alternate SS"
@@ -139,6 +141,7 @@ Environment:
 #define WS_STR_SRCHPATH             "PATH search"
 #define WS_STR_REDOSIZE             "Undo-Redo buffer size"
 #define WS_STR_SRCPATH              "Source search path"
+#define WS_STR_ROOTPATH             "Root Mapping Pairs"
 #define WS_STR_USERDLL              "User DLLs"
 #define WS_STR_USERDLLNAME          "Name"
 #define WS_STR_USERDLL_TEMPLATE     "UserDll_%.4d"
@@ -233,6 +236,7 @@ char                CurrentWorkSpaceName[ MAX_PATH ];
 char                CurrentProgramName[ MAX_PATH ];
 char                UntitledProgramName[]           = UNTITLED;
 VS_FIXEDFILEINFO   *FixedFileInfo   = NULL;
+DWORD               WorkspaceOverride;
 
 char SrcFileDirectory[ MAX_PATH ];
 char ExeFileDirectory[ MAX_PATH ];
@@ -293,6 +297,8 @@ BOOLEAN SetProgramPath( HKEY, LPSTR );
 int _CRTAPI1 CompareViewOrder(const void *, const void *);
 SHE         LoadTimeToShe ( LOADTIME );
 LOADTIME    SheToLoadTime( SHE );
+LPSTR       GetExtensionDllNames(LPDWORD);
+VOID        SetExtensionDllNames(LPSTR);
 
 
 
@@ -616,7 +622,7 @@ Return Value:
                     if ( RegEnumKey( PgmKey, i, Buffer, sizeof( Buffer ) ) ) {
                         break;
                     } else {
-                        if ( !strnicmp( Buffer, WORKSPACE_PREFIX, strlen( WORKSPACE_PREFIX ) ) ) {
+                        if ( !_strnicmp( Buffer, WORKSPACE_PREFIX, strlen( WORKSPACE_PREFIX ) ) ) {
                             AddToMultiString( &List, ListLength, Buffer + strlen( WORKSPACE_PREFIX ) );
                         }
                     }
@@ -862,7 +868,7 @@ Return Value:
                     //strcpy(Buffer, w);
                     //Dbg(GlobalUnlock (hFileKept[PROJECT_FILE][0]) == FALSE);
                     //
-                    //if ( stricmp( ProgramName, Buffer ) ) {
+                    //if ( _stricmp( ProgramName, Buffer ) ) {
                     //    InsertKeptFileNames( PROJECT_FILE, PROJECTMENU,
                     //                         IDM_PROGRAM_LAST, (LPSTR)ProgramName );
                     //}
@@ -918,12 +924,12 @@ Return Value:
         char ext[_MAX_EXT];
         char pname[MAX_PATH];
         _splitpath( ProgramName, NULL, NULL, fname, ext );
-        if (stricmp(ext,"exe") != 0) {
+        if (_stricmp(ext,"exe") != 0) {
             strcpy(ext, "exe" );
         }
         _makepath( pname, NULL, NULL, fname, ext );
-        if (stricmp(pname,KD_PGM_NAME1)==0 ||
-            stricmp(pname,KD_PGM_NAME2)==0) {
+        if (_stricmp(pname,KD_PGM_NAME1)==0 ||
+            _stricmp(pname,KD_PGM_NAME2)==0) {
 
             runDebugParams.fKernelDebugger = TRUE;
 
@@ -1025,13 +1031,16 @@ Return Value:
 
                 strcpy( Buffer, PROGRAMS );
                 strcat( Buffer, "\\" );
-                if ( PgmKey = OpenRegistryKey( DbgKey, Buffer, FALSE ) ) {
-                    SetProgramPath( PgmKey, ProgramName );
-                    RegCloseKey( PgmKey );
+
+                if (ProgramName && *ProgramName) {
+                    if ( PgmKey = OpenRegistryKey( DbgKey, Buffer, FALSE ) ) {
+                        SetProgramPath( PgmKey, ProgramName );
+                        RegCloseKey( PgmKey );
+                    }
                 }
 
                 if ( WorkSpaceName && (*WorkSpaceName != '\0') ) {
-                    if ( !stricmp( WorkSpaceName, GetCurrentWorkSpace() ) ) {
+                    if ( !_stricmp( WorkSpaceName, GetCurrentWorkSpace() ) ) {
                         StateCurrent = TRUE;
                     }
                 }
@@ -1079,6 +1088,7 @@ Routine Description:
 Arguments:
 
     ProgramName -   Supplies name of program. NULL for debugger default
+
     WorkSpace   -   Supplies name of workspace. NULL ONLY for the
                     debugger default (NOT for program default)
 
@@ -1129,7 +1139,9 @@ Routine Description:
 Arguments:
 
     Key     -   Supplies Key handle
+
     KeyName -   Supplies Name of subkey to open/create (relative to Key)
+
     Create  -   Supplies flag which if TRUE causes the function to
                 create the key if if does not already exist.
 
@@ -1261,11 +1273,15 @@ Routine Description:
 Arguments:
 
     DebuggerKey     -   Supplies the registry key for the debugger
+
     ProgramName     -   Supplies the program name
+
     WorkSpaceName   -   Supplies the workspace name
+
     Create          -   Supplies flag which if TRUE means that the
                         workspace must be created if it does not
                         exist.
+
     WorkSpaceUsed   -   Supplies an optional pointer to the name of
                         the workspace that was actually used.
 
@@ -1348,7 +1364,9 @@ Routine Description:
 Arguments:
 
     DbgKey          -   Supplies the registry key for the debugger
+
     ProgramName     -   Supplies the program name
+
     WorkSpaceName   -   Supplies the name of the default workspace
 
 Return Value:
@@ -1407,6 +1425,7 @@ Routine Description:
 Arguments:
 
     ProgramName     -   Supplies the program name
+
     WorkSpaceName   -   Supplies the name of the  workspace
 
 Return Value:
@@ -1472,15 +1491,17 @@ Return Value:
     //
     //  Get registry key for the debugger.
     //
-    if ( DbgKey = GetDebuggerKey() ) {
+    if (ProgramName && *ProgramName) {
+        if ( DbgKey = GetDebuggerKey() ) {
 
-        strcpy( Buffer, PROGRAMS );
-        strcat( Buffer, "\\" );
-        GetBaseName( ProgramName, Buffer + strlen(Buffer) );
+            strcpy( Buffer, PROGRAMS );
+            strcat( Buffer, "\\" );
+            GetBaseName( ProgramName, Buffer + strlen(Buffer) );
 
-        Ok = DeleteKeyRecursive( DbgKey, Buffer );
+            Ok = DeleteKeyRecursive( DbgKey, Buffer );
 
-        RegCloseKey( DbgKey );
+            RegCloseKey( DbgKey );
+        }
     }
 
     return Ok;
@@ -1722,6 +1743,9 @@ Return Value:
 
             case WSI_WINDOW:
 
+                if (WorkspaceOverride & WSO_WINDOW) {
+                    break;
+                }
                 if ( Ok = LoadWindowData( Key, WS_STR_FRAME_WINDOW, &WindowData ) ) {
                     if ( IsZoomed( hwndFrame ) ) {
                         ShowWindow( hwndFrame, SW_NORMAL );
@@ -1829,7 +1853,11 @@ Return Value:
                                 Disabled = TRUE;
                                 break;
                             }
+#ifdef DBCS
+                            String = CharNext(String);
+#else
                             String++;
+#endif
                         }
 
                         bpstatus = BPParse( &hBpt, Brkpt, NULL, NULL,
@@ -1989,7 +2017,7 @@ Return Value:
                     //
                     hBpt = 0;
                     Dbg(BPNextHbpt(&hBpt, bptNext) == BPNOERROR);
-                    while (Ok && (hBpt != hbptNull) ) {
+                    while (Ok && (hBpt != NULL) ) {
                         Dbg(BPFormatHbpt( hBpt, Buffer, sizeof(Buffer), BPFCF_WNDPROC | BPFCF_WRKSPACE ) == BPNOERROR);
                         //String = strchr( Buffer, '{' );
                         //Ok = AddToMultiString( &List, &ListLength, String );
@@ -2209,6 +2237,17 @@ Return Value:
 
                 DataSize = sizeof( Dword );
                 if ( Ok = ( RegQueryValueEx( Key,
+                                             WS_STR_NOVERSION,
+                                             NULL,
+                                             NULL,
+                                             (LPBYTE)&Dword,
+                                             &DataSize ) == NO_ERROR ) ) {
+
+                    runDebugParams.fNoVersion = Dword;
+                }
+
+                DataSize = sizeof( Dword );
+                if ( Ok = ( RegQueryValueEx( Key,
                                              WS_STR_MASMEVAL,
                                              NULL,
                                              NULL,
@@ -2343,7 +2382,9 @@ Return Value:
                                              (LPBYTE)&Dword,
                                              &DataSize ) == NO_ERROR ) ) {
 
-                    runDebugParams.fInheritHandles = Dword;
+                    if (!(WorkspaceOverride & WSO_INHERITHANDLES)) {
+                        runDebugParams.fInheritHandles = Dword;
+                    }
                 }
 
                 DataSize = sizeof( Dword );
@@ -2365,9 +2406,9 @@ Return Value:
                                               (LPBYTE)Buffer,
                                               &DataSize ) == NO_ERROR ) ) {
 
-                    if ( !stricmp( Buffer, WS_STR_REGULAR ) ) {
+                    if ( !_stricmp( Buffer, WS_STR_REGULAR ) ) {
                         runDebugParams.RegModeExt = FALSE;
-                    } else if ( !stricmp( Buffer, WS_STR_EXTENDED ) ) {
+                    } else if ( !_stricmp( Buffer, WS_STR_EXTENDED ) ) {
                         runDebugParams.RegModeExt = TRUE;
                     } else {
                         Ok = FALSE;
@@ -2407,6 +2448,12 @@ Return Value:
                     fCaseSensitive = !Dword;
                 }
 
+                if ( List = LoadMultiString( Key, WS_STR_ROOTPATH, &DataSize ) ) {
+                   SetRootNameMappings(List, DataSize);
+                   DeallocateMultiString( List );
+                } else
+                   SetRootNameMappings(NULL, 0);
+
                 DataSize = MAX_PATH;
                 if ( Ok &= ( RegQueryValueEx( Key,
                                               WS_STR_SRCPATH,
@@ -2415,6 +2462,19 @@ Return Value:
                                               (LPBYTE) Buffer,
                                               &DataSize ) == NO_ERROR ) ) {
                     SetDllName( DLL_SOURCE_PATH, Buffer);
+                }
+
+
+
+                DataSize = MAX_PATH;
+                ZeroMemory( Buffer, sizeof(Buffer) );
+                if ( Ok &= ( RegQueryValueEx( Key,
+                                              WS_STR_EXTENSION_NAMES,
+                                              NULL,
+                                              NULL,
+                                              (LPBYTE) Buffer,
+                                              &DataSize ) == NO_ERROR ) ) {
+                    SetExtensionDllNames( Buffer );
                 }
 
                 DataSize = MAX_PATH;
@@ -3114,6 +3174,15 @@ Return Value:
                                        sizeof(DWORD)
                                        ) == NO_ERROR );
 
+                Dword = runDebugParams.fNoVersion;
+                Ok =  ( RegSetValueEx( Key,
+                                       WS_STR_NOVERSION,
+                                       0,
+                                       REG_DWORD,
+                                       (LPBYTE)&Dword,
+                                       sizeof(DWORD)
+                                       ) == NO_ERROR );
+
                 Dword = runDebugParams.fMasmEval;
                 Ok =  ( RegSetValueEx( Key,
                                        WS_STR_MASMEVAL,
@@ -3271,6 +3340,33 @@ Return Value:
                                        String ? String : "",
                                        (String ? strlen( String ) : strlen( "")) + 1
                                        ) == NO_ERROR );
+
+                ListLength = 0;
+                List = NULL;
+                if (GetRootNameMappings(&List, &ListLength)) {
+                    Ok &= ( RegSetValueEx( Key,
+                                           WS_STR_ROOTPATH,
+                                           0,
+                                           REG_MULTI_SZ,
+                                           List,
+                                           ListLength
+                                           ) == ERROR_SUCCESS );
+
+                }
+                if (List)
+                  DeallocateMultiString(List);
+
+                String = GetExtensionDllNames(&i);
+                if (String) {
+                    Ok &= ( RegSetValueEx( Key,
+                                           WS_STR_EXTENSION_NAMES,
+                                           0,
+                                           REG_MULTI_SZ,
+                                           String,
+                                           i
+                                           ) == NO_ERROR );
+                    free( String );
+                }
 
                 Buffer[0] = SuffixToAppend;
                 Buffer[1] = '\0';
@@ -4824,11 +4920,11 @@ Return Value:
                                  (LPBYTE)Buffer,
                                  &DataSize ) == NO_ERROR );
 
-        if ( !stricmp( Buffer, WS_STR_ICONIC ) ) {
+        if ( !_stricmp( Buffer, WS_STR_ICONIC ) ) {
             WindowData->State = WSTATE_ICONIC;
-        } else if ( !stricmp( Buffer, WS_STR_NORMAL ) ) {
+        } else if ( !_stricmp( Buffer, WS_STR_NORMAL ) ) {
             WindowData->State = WSTATE_NORMAL;
-        } else if ( !stricmp( Buffer, WS_STR_MAXIMIZED ) ) {
+        } else if ( !_stricmp( Buffer, WS_STR_MAXIMIZED ) ) {
             WindowData->State = WSTATE_MAXIMIZED;
         } else {
             Ok = FALSE;
@@ -5314,6 +5410,7 @@ Return Value:
     RECT            Rect;
 
 
+    WindowPlacement.length = sizeof(WINDOWPLACEMENT);
 
     if ( Client ) {
 
@@ -5444,7 +5541,9 @@ Routine Description:
 Arguments:
 
     PgmKey      -   Supplies key to PROGRAMS
+
     ProgramName -   Supplies program name
+
     Buffer      -   Supplies buffer where path is placed
 
 Return Value:
@@ -5457,17 +5556,19 @@ Return Value:
     DWORD   DataSize;
     BOOLEAN Ok = FALSE;
 
-    if ( Key = OpenRegistryKey( PgmKey, ProgramName, FALSE ) ) {
+    if (ProgramName && *ProgramName) {
+        if ( Key = OpenRegistryKey( PgmKey, ProgramName, FALSE ) ) {
 
-        DataSize = MAX_PATH;
-        Ok = ( RegQueryValueEx( Key,
-                                WS_STR_PATH,
-                                NULL,
-                                NULL,
-                                Buffer,
-                                &DataSize ) == NO_ERROR );
+            DataSize = MAX_PATH;
+            Ok = ( RegQueryValueEx( Key,
+                                    WS_STR_PATH,
+                                    NULL,
+                                    NULL,
+                                    Buffer,
+                                    &DataSize ) == NO_ERROR );
 
-        RegCloseKey( Key );
+            RegCloseKey( Key );
+        }
     }
 
     return Ok;
@@ -5489,7 +5590,9 @@ Routine Description:
 Arguments:
 
     PgmKey      -   Supplies key to PROGRAMS
+
     ProgramName -   Supplies program name
+
     Buffer      -   Supplies buffer where path is placed
 
 Return Value:

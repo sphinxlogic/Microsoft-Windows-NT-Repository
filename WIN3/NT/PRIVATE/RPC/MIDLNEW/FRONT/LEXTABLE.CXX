@@ -195,4 +195,3 @@ LexTable::LexSearch(
 	else
 		return (char *)0;
 }
-

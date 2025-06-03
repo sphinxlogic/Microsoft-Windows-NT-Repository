@@ -149,6 +149,15 @@ LimitRaised1:
         ExReleaseSpinLock(&QuotaBlock->QuotaLock,OldIrql);
         }
     else {
+
+        //
+        // Don't do ANY quota operations on the initial system process
+        //
+
+        if ( Process == PsInitialSystemProcess ) {
+            return (PEPROCESS_QUOTA_BLOCK)1;
+            }
+
         ExAcquireSpinLock(&PspDefaultQuotaBlock.QuotaLock,&OldIrql);
         if ( (QuotaBlock = Process->QuotaBlock) != &PspDefaultQuotaBlock ) {
             ExReleaseSpinLock(&PspDefaultQuotaBlock.QuotaLock,OldIrql);
@@ -192,6 +201,14 @@ Return Value:
 {
 
     KIRQL OldIrql;
+
+    //
+    // if we bypassed the quota charge, don't do anything here either
+    //
+
+    if ( QuotaBlock == (PEPROCESS_QUOTA_BLOCK)1 ) {
+        return;
+        }
 
     ExAcquireSpinLock(&QuotaBlock->QuotaLock,&OldIrql);
 
@@ -320,6 +337,10 @@ LimitRaised2:
         ExReleaseSpinLock(&QuotaBlock->QuotaLock,OldIrql);
         }
     else {
+        if ( Process == PsInitialSystemProcess ) {
+            return;
+            }
+
         ExAcquireSpinLock(&PspDefaultQuotaBlock.QuotaLock,&OldIrql);
         if ( (QuotaBlock = Process->QuotaBlock) != &PspDefaultQuotaBlock ) {
             ExReleaseSpinLock(&PspDefaultQuotaBlock.QuotaLock,OldIrql);
@@ -426,6 +447,11 @@ do_return:
         ExReleaseSpinLock(&QuotaBlock->QuotaLock,OldIrql);
         }
     else {
+
+        if ( Process == PsInitialSystemProcess ) {
+            return;
+            }
+
         ExAcquireSpinLock(&PspDefaultQuotaBlock.QuotaLock,&OldIrql);
         if ( (QuotaBlock = Process->QuotaBlock) != &PspDefaultQuotaBlock) {
             ExReleaseSpinLock(&PspDefaultQuotaBlock.QuotaLock,OldIrql);

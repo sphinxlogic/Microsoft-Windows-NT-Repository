@@ -53,7 +53,7 @@ extern CMD_ARG					*	pCommand;
 
 node_implicit::node_implicit(
 	node_skl	*	pType,
-	node_id		*	pID ) : acf_complex_attr( ATTR_IMPLICIT )
+	node_id		*	pID ) : acf_attr( ATTR_IMPLICIT )
 	{
 	pHandleID	= pID;
 	pID->SetEdgeType( EDGE_USE );
@@ -78,28 +78,125 @@ node_implicit::IsHandleTypeDefined()
 	}
 
 
-void
-node_optimize::ParseOptimizationFlags()
+OPT_LEVEL_ENUM
+ParseAcfOptimizationAttr(
+    char *              pOptString,
+    unsigned short *    pOptFlags )
+/*
+    Before the /target switch was introduced, we had the following
+    optimization switches (up to beta2 for NT40):
+        -Os   size                        from NT 3.5 (always available)
+        -Oi   old interpreter             from NT 3.5 (always available)
+        -Oi1  -Oi w/stubless obj client   from NT 3.51
+        -O12  new interpreter             from NT 4.0
+*/
 {
-// gaj - tbd
-	if ( strlen( pList ) > 1 )
-		printf("warning... long [optimize(\"...\")] strings not supported\n");
+    unsigned short  OptFlags = pCommand->GetOptimizationFlags(); 
+    OPT_LEVEL_ENUM  OptLevel = pCommand->GetOptimizationLevel();
+    TARGET_ENUM     TargetSystem = pCommand->GetTargetSystem();
 
-	if ( *pList == 't' )
-		{
-#ifdef MIDL_INTERNAL
-		OptimizationFlags = OPTIMIZE_SPEED;
-#else
-		printf(" optimize(\"t\") not supported \n" );
-		OptimizationFlags = OPTIMIZE_SIZE;
-#endif // MIDL_INTERNAL
-		}
-	else if ( *pList == 's' )
-		OptimizationFlags = OPTIMIZE_SIZE;
-	else if ( *pList == 'i' )
-		OptimizationFlags = OPTIMIZE_INTERPRETER;
-	else
-		OptimizationFlags = OPTIMIZE_SIZE;
+    if ( strcmp( pOptString, "i" ) == 0 )
+        {
+        OptLevel = OPT_LEVEL_I0;
+        }
+    else if ( strcmp( pOptString, "ic" ) == 0 )
+        {
+        OptLevel = OPT_LEVEL_I1;
+        }
+    else if ( strcmp( pOptString, "i1" ) == 0 )
+        {
+        ParseError( OI1_PHASED_OUT, "i1");
+        OptLevel = OPT_LEVEL_I1;
+        }
+    else if ( strcmp( pOptString, "icf" ) == 0  ||
+              strcmp( pOptString, "if" ) == 0  )
+        {
+        OptLevel = OPT_LEVEL_I2;
+        }
+    else if ( strcmp( pOptString, "i2" ) == 0 )
+        {
+        ParseError( OI2_OBSOLETE, "i2");
+        OptLevel = OPT_LEVEL_I2;
+        }
+#if defined(TARGET_RKK)
+    else if ( strcmp( pOptString, "x" ) == 0 )
+        {
+        switch ( TargetSystem )
+            {
+            case NT35:
+                OptLevel = OPT_LEVEL_I0;
+                break;
+       
+            case NT351:
+                OptLevel = OPT_LEVEL_I1;
+                break;
+       
+            case NT40:
+                OptLevel = OPT_LEVEL_I2;
+                break;
+            }
+        }
+#endif
+    else if ( strcmp( pOptString, "s" ) == 0 )
+        {
+        OptLevel = OPT_LEVEL_OS_DEFAULT;
+
+
+#if defined(TARGET_RKK)
+        switch ( TargetSystem )
+            {
+            case NT35:
+                OptLevel = OPT_LEVEL_S0;
+                break;
+    
+            case NT351:
+                OptLevel = OPT_LEVEL_S1;
+                break;
+    
+            case NT40:
+                OptLevel = OPT_LEVEL_S2;
+                break;
+            }
+#endif
+
+        }
+    else
+        ParseError( ILLEGAL_ARG_VALUE, pOptString );
+
+    switch ( OptLevel )
+        {
+        case OPT_LEVEL_S0:
+        case OPT_LEVEL_S1:
+        case OPT_LEVEL_S2:
+            OptFlags = OPTIMIZE_SIZE;
+            break;
+
+        case OPT_LEVEL_I0:
+            OptFlags = OPTIMIZE_INTERPRETER;
+            break;
+
+        case OPT_LEVEL_I1:
+            OptFlags = OPTIMIZE_ALL_I1_FLAGS;
+
+#if defined(TARGET_RKK)
+            if ( TargetSystem < NT351 )
+                ParseError( REQUIRES_NT351, "Oi1" );
+#endif
+            break;
+
+        case OPT_LEVEL_I2:
+            OptFlags = OPTIMIZE_ALL_I2_FLAGS;
+
+#if defined(TARGET_RKK)
+            if ( TargetSystem < NT40 )
+                ParseError( REQUIRES_NT40, "Oi2" );
+#endif
+            break;
+        }
+
+    *pOptFlags = OptFlags;
+
+    return OptLevel;
 }
 
 /*****************************************************************************
@@ -176,98 +273,20 @@ node_byte_count::Clone()
 	return pNew;
 	}
 
-node_notify::node_notify( node_notify * pOld )
-	{
-	*this = *pOld;
-	}
-							
-node_base_attr *	
-node_notify::Clone()
-	{
-	node_notify	*	pNew = new node_notify( this );
-	return pNew;
-	}
-
-node_code::node_code( node_code * pOld )
-	{
-	*this = *pOld;
-	}
-							
-node_base_attr *	
-node_code::Clone()
-	{
-	node_code	*	pNew = new node_code( this );
-	return pNew;
-	}
-
-node_base_attr *	node_nocode::Clone()
-							{
-							node_nocode	*	pNew = new node_nocode( this );
-							return pNew;
-							}
-
 node_base_attr *	node_optimize::Clone()
 							{
 							node_optimize	*	pNew = new node_optimize( this );
 							return pNew;
 							}
-node_base_attr *	node_inline::Clone()
-							{
-							node_inline	*	pNew = new node_inline( this );
-							return pNew;
-							}
-
-node_base_attr *	node_outofline::Clone()
-							{
-							node_outofline	*	pNew = new node_outofline( this );
-							return pNew;
-							}
-
 node_base_attr *	node_ptr_size::Clone()
 							{
 							node_ptr_size	*	pNew = new node_ptr_size( this );
 							return pNew;
 							}
 
-node_base_attr *	node_enable_allocate::Clone()
-							{
-							node_enable_allocate	*	pNew = new node_enable_allocate( this );
-							return pNew;
-							}
-
-node_base_attr *	node_usr_marshall::Clone()
-							{
-							node_usr_marshall	*	pNew = new node_usr_marshall( this );
-							return pNew;
-							}
-
-node_base_attr *	node_explicit::Clone()
-							{
-							node_explicit	*	pNew = new node_explicit( this );
-							return pNew;
-							}
-
 node_base_attr *	node_implicit::Clone()
 							{
 							node_implicit	*	pNew = new node_implicit( this );
-							return pNew;
-							}
-
-node_base_attr *	node_auto::Clone()
-							{
-							node_auto	*	pNew = new node_auto( this );
-							return pNew;
-							}
-
-node_base_attr *	node_heap::Clone()
-							{
-							node_heap	*	pNew = new node_heap( this );
-							return pNew;
-							}
-
-node_base_attr *	node_manual::Clone()
-							{
-							node_manual	*	pNew = new node_manual( this );
 							return pNew;
 							}
 
@@ -279,24 +298,6 @@ node_allocate::node_allocate( node_allocate * pOld )
 node_base_attr *	node_allocate::Clone()
 							{
 							node_allocate	*	pNew = new node_allocate( this );
-							return pNew;
-							}
-
-node_base_attr *	node_offline::Clone()
-							{
-							node_offline	*	pNew = new node_offline( this );
-							return pNew;
-							}
-
-node_base_attr *	node_commstat::Clone()
-							{
-							node_commstat	*	pNew = new node_commstat( this );
-							return pNew;
-							}
-
-node_base_attr *	node_faultstat::Clone()
-							{
-							node_faultstat	*	pNew = new node_faultstat( this );
 							return pNew;
 							}
 

@@ -1,87 +1,26 @@
-//-------------------------- MODULE DESCRIPTION ----------------------------
-//
-//  srvr_lm.c
-//
-//  Copyright 1992 Technology Dynamics, Inc.
-//
-//  All Rights Reserved!!!
-//
-//	This source code is CONFIDENTIAL and PROPRIETARY to Technology
-//	Dynamics. Unauthorized distribution, adaptation or use may be
-//	subject to civil and criminal penalties.
-//
-//  All Rights Reserved!!!
-//
-//---------------------------------------------------------------------------
-//
-//  This file contains the routines which actually call Lan Manager and
-//  retrieve the contents of the domain server table, including cacheing.
-//
-//  Project:  Implementation of an SNMP Agent for Microsoft's NT Kernel
-//
-//  $Revision:   1.10  $
-//  $Date:   03 Jul 1992 13:20:32  $
-//  $Author:   ChipS  $
-//
-//  $Log:   N:/lmmib2/vcs/srvr_lm.c_v  $
-//
-//     Rev 1.10   03 Jul 1992 13:20:32   ChipS
-//  Final Unicode Changes
-//
-//     Rev 1.9   03 Jul 1992 12:18:42   ChipS
-//  Enable Unicode
-//
-//     Rev 1.8   15 Jun 1992 17:33:10   ChipS
-//  Initialize resumehandle
-//
-//     Rev 1.7   13 Jun 1992 11:05:50   ChipS
-//  Fix a problem with Enum resumehandles.
-//
-//     Rev 1.6   07 Jun 1992 17:16:18   ChipS
-//  Turn off unicode.
-//
-//     Rev 1.5   07 Jun 1992 16:11:52   ChipS
-//  Fix cast problem
-//
-//     Rev 1.4   07 Jun 1992 15:53:28   ChipS
-//  Fix include file order
-//
-//     Rev 1.3   07 Jun 1992 15:21:58   ChipS
-//  Initial unicode changes
-//
-//     Rev 1.2   01 Jun 1992 12:35:26   todd
-//  Added 'dynamic' field to octet string
-//
-//     Rev 1.1   21 May 1992 15:44:28   todd
-//  Added return codes to lmget
-//
-//     Rev 1.0   20 May 1992 15:11:00   mlk
-//  Initial revision.
-//
-//     Rev 1.5   03 May 1992 16:56:26   Chip
-//  No change.
-//
-//     Rev 1.4   02 May 1992 19:10:16   todd
-//  code cleanup
-//
-//     Rev 1.3   01 May 1992 15:40:48   Chip
-//  Get rid of warnings.
-//
-//     Rev 1.2   30 Apr 1992 23:55:38   Chip
-//  Added code to free complex structures.
-//
-//     Rev 1.1   30 Apr 1992  9:57:30   Chip
-//  Added cacheing.
-//
-//     Rev 1.0   29 Apr 1992 11:18:38   Chip
-//  Initial revision.
-//
-//
-//---------------------------------------------------------------------------
+/*++
 
-//--------------------------- VERSION INFO ----------------------------------
+Copyright (c) 1992-1996  Microsoft Corporation
 
-static char *vcsid = "@(#) $Logfile:   N:/lmmib2/vcs/srvr_lm.c_v  $ $Revision:   1.10  $";
+Module Name:
+
+    srvr_lm.c
+
+Abstract:
+
+    This file contains the routines which actually call Lan Manager and
+    retrieve the contents of the domain server table, including cacheing.
+
+Environment:
+
+    User Mode - Win32
+
+Revision History:
+
+    10-May-1996 DonRyan
+        Removed banner from Technology Dynamics, Inc.
+
+--*/
 
 //--------------------------- WINDOWS DEPENDENCIES --------------------------
 
@@ -96,12 +35,10 @@ static char *vcsid = "@(#) $Logfile:   N:/lmmib2/vcs/srvr_lm.c_v  $ $Revision:  
 #include <lm.h>
 #endif
 
-#include <malloc.h>
 #include <string.h>
 #include <search.h>
 #include <stdlib.h>
 #include <time.h>
-#include <uniconv.h>
 
 //--------------------------- MODULE DEPENDENCIES -- #include"xxxxx.h" ------
 
@@ -118,7 +55,7 @@ static char *vcsid = "@(#) $Logfile:   N:/lmmib2/vcs/srvr_lm.c_v  $ $Revision:  
 //--------------------------- PRIVATE CONSTANTS -----------------------------
 
 #define SafeBufferFree(x)	if(NULL != x) NetApiBufferFree( x )
-#define SafeFree(x)		if(NULL != x) free( x )
+#define SafeFree(x)             if(NULL != x) SnmpUtilMemFree( x )
 
 //--------------------------- PRIVATE STRUCTS -------------------------------
 
@@ -131,14 +68,14 @@ static char *vcsid = "@(#) $Logfile:   N:/lmmib2/vcs/srvr_lm.c_v  $ $Revision:  
 
 
 #ifdef UNICODE
-#define Tstrlen strlen_W
+#define Tstrlen SnmpUtilStrlenW
 #else
 #define Tstrlen strlen
 #endif
 
 int _CRTAPI1 srvr_entry_cmp(
-       IN DOM_SERVER_ENTRY *A,
-       IN DOM_SERVER_ENTRY *B
+       IN const DOM_SERVER_ENTRY *A,
+       IN const DOM_SERVER_ENTRY *B
        ) ;
 
 void build_srvr_entry_oids( );
@@ -214,7 +151,7 @@ DWORD resumehandle=0;
      for(i=0; i<MIB_DomServerTable.Len ;i++)
      {
      	// free any alloc'ed elements of the structure
-     	SNMP_oidfree(&(MIB_DomServerTableElement->Oid));
+     	SnmpUtilOidFree(&(MIB_DomServerTableElement->Oid));
      	SafeFree(MIB_DomServerTableElement->domServerName.stream);
      	
 	MIB_DomServerTableElement ++ ;  // increment table entry
@@ -238,7 +175,7 @@ DWORD resumehandle=0;
 	NetServerEnum( 	NULL,			// local server NT_PROBLEM
 			100,			// level 100
 			&bufptr,			// data structure to return
-			4096,			// always returns 87 or 124
+			MAX_PREFERRED_LENGTH,  
 			&entriesread,
 			&totalentries,
 			SV_TYPE_SERVER,
@@ -254,7 +191,7 @@ DWORD resumehandle=0;
    	
    	if(0 == MIB_DomServerTable.Len) {  // 1st time, alloc the whole table
    		// alloc the table space
-   		MIB_DomServerTable.Table = malloc(totalentries *
+                MIB_DomServerTable.Table = SnmpUtilMemAlloc(totalentries *
    						sizeof(DOM_SERVER_ENTRY) );
    	}
 	
@@ -270,13 +207,13 @@ DWORD resumehandle=0;
    		// Stuff the data into each item in the table
    		
    		// client name
-   		MIB_DomServerTableElement->domServerName.stream = malloc (
+                MIB_DomServerTableElement->domServerName.stream = SnmpUtilMemAlloc (
    				Tstrlen( DataTable->sv100_name ) + 1 ) ;
    		MIB_DomServerTableElement->domServerName.length =
    				Tstrlen( DataTable->sv100_name ) ;
    		MIB_DomServerTableElement->domServerName.dynamic = TRUE;
 		#ifdef UNICODE
-		convert_uni_to_ansi(
+		SnmpUtilUnicodeToAnsi(
 			&MIB_DomServerTableElement->domServerName.stream,
    			DataTable->sv100_name,
 			FALSE);
@@ -354,13 +291,14 @@ Exit:
 //    None.
 //
 int _CRTAPI1 srvr_entry_cmp(
-       IN DOM_SERVER_ENTRY *A,
-       IN DOM_SERVER_ENTRY *B
+       IN const DOM_SERVER_ENTRY *A,
+       IN const DOM_SERVER_ENTRY *B
        )
 
 {
    // Compare the OID's
-   return SNMP_oidcmp( &A->Oid, &B->Oid );
+   return SnmpUtilOidCmp( (AsnObjectIdentifier *)&A->Oid,
+                       (AsnObjectIdentifier *)&B->Oid );
 } // MIB_srvr_cmp
 
 
@@ -382,7 +320,7 @@ DomServerEntry = MIB_DomServerTable.Table ;
 for( i=0; i<MIB_DomServerTable.Len ; i++)  {
    // for each entry in the session table
 
-   OSA.stream = &DomServerEntry->domServerName.stream ;
+   OSA.stream = DomServerEntry->domServerName.stream ;
    OSA.length =  DomServerEntry->domServerName.length ;
    OSA.dynamic = FALSE;
 

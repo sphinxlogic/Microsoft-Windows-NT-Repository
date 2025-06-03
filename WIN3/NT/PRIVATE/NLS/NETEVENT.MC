@@ -1,6 +1,6 @@
 ;/*++ BUILD Version: 0001    // Increment this if a change has global effects
 ;
-;Copyright (c) 1992  Microsoft Corporation
+;Copyright (c) 1992-1996  Microsoft Corporation
 ;
 ;Module Name:
 ;
@@ -847,7 +847,7 @@ will continue to try to reinsert back into the ring.
 .
 MessageId=5029 Severity=Warning  SymbolicName=EVENT_NDIS_REMOVE_RECEIVED_ERROR
 Language=English
-%2 : The adapter has received a request to deinsert from the 
+%2 : The adapter has received a request to deinsert from the
 ring.  The adapter will continue to try to reinsert back into the ring.
 .
 MessageId=5030 Severity=Informational  SymbolicName=EVENT_NDIS_TOKEN_RING_CORRECTION
@@ -856,7 +856,7 @@ Language=English
 .
 MessageId=5031 Severity=Error  SymbolicName=EVENT_NDIS_ADAPTER_CHECK_ERROR
 Language=English
-%2 : The adapter has detected an Adapter Check as a result of some 
+%2 : The adapter has detected an Adapter Check as a result of some
 unrecoverable hardware of software error.  Please contact your service provider.
 .
 MessageId=5032 Severity=Warning  SymbolicName=EVENT_NDIS_RESET_FAILURE_ERROR
@@ -1593,6 +1593,87 @@ Language=English
 MessageId=9507 Severity=Error SymbolicName=EVENT_IPX_NO_ADAPTERS
 Language=English
 %2 could not bind to any adapters. The transport could not start.
+.
+
+
+;
+;/////////////////////////////////////////////////////////////////////////
+;//
+;// DCOM Events (10000-10999)
+;//
+;//
+;/////////////////////////////////////////////////////////////////////////
+;
+;
+
+MessageId=10000 Severity=Error SymbolicName=EVENT_RPCSS_CREATEPROCESS_FAILURE
+Language=English
+Unable to start a DCOM Server: %3.
+The error:%n"%%%2"%nHappened while starting this command:%n%1
+.
+
+MessageId=10001 Severity=Error SymbolicName=EVENT_RPCSS_RUNAS_CREATEPROCESS_FAILURE
+Language=English
+Unable to start a DCOM Server: %3 as %4/%5.
+The error:%n"%%%2"%nHappened while starting this command:%n%1
+.
+
+MessageId=10002 Severity=Error SymbolicName=EVENT_RPCSS_LAUNCH_ACCESS_DENIED
+Language=English
+Access denied attempting to launch a DCOM Server.
+The server is:%n%1
+.
+
+MessageId=10003 Severity=Error SymbolicName=EVENT_RPCSS_DEFAULT_LAUNCH_ACCESS_DENIED
+Language=English
+Access denied attempting to launch a DCOM Server using DefaultLaunchPermssion.
+The server is:%n%1
+.
+
+MessageId=10004 Severity=Error SymbolicName=EVENT_RPCSS_RUNAS_CANT_LOGIN
+Language=English
+DCOM got error "%%%1" and was unable to logon %2\%3
+in order to run the server:%n%4
+.
+
+MessageId=10005 Severity=Error SymbolicName=EVENT_RPCSS_START_SERVICE_FAILURE
+Language=English
+DCOM got error "%%%1" attempting to start the service %2 with arguments "%3"
+in order to run the server:%n%4
+.
+
+MessageId=10006 Severity=Error SymbolicName=EVENT_RPCSS_REMOTE_SIDE_ERROR
+Language=English
+DCOM got error "%%%1" from the computer %2 when attempting to
+activate the server:%n%3
+.
+
+MessageId=10007 Severity=Error SymbolicName=EVENT_RPCSS_ACTIVATION_ERROR
+Language=English
+DCOM got error "%%%1" when attempting to
+activate the server:%n%2
+.
+
+MessageId=10008 Severity=Error SymbolicName=EVENT_RPCSS_REMOTE_SIDE_ERROR_WITH_FILE
+Language=English
+DCOM got error "%%%1" from the computer %2 when attempting to
+the server:%n%3 with file %4.
+.
+
+MessageId=10009 Severity=Error SymbolicName=EVENT_RPCSS_REMOTE_SIDE_UNAVAILABLE
+Language=English
+DCOM was unable to communicate with the computer %1 using any of the configured
+protocols.
+.
+
+MessageId=10010 Severity=Error SymbolicName=EVENT_RPCSS_SERVER_START_TIMEOUT
+Language=English
+The server %1 did not register with DCOM within the required timeout.
+.
+
+MessageId=10011 Severity=Error SymbolicName=EVENT_RPCSS_SERVER_NOT_RESPONDING
+Language=English
+The server %1 could not be contacted to establish the connection to the client
 .
 
 ;

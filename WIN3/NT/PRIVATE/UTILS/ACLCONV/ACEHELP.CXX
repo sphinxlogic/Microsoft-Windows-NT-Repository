@@ -265,7 +265,7 @@ Return Value:
     NewAce = (PACCESS_ALLOWED_ACE)Buffer;
 
     NewAce->Header.AceType = ACCESS_ALLOWED_ACE_TYPE;
-    NewAce->Header.AceSize = *AceLength;
+    NewAce->Header.AceSize = (USHORT)*AceLength;
     NewAce->Header.AceFlags = InheritFlags;
 
     NewAce->Mask = Access;
@@ -332,7 +332,7 @@ Return Value:
     NewAce = (PACCESS_DENIED_ACE)Buffer;
 
     NewAce->Header.AceType = ACCESS_DENIED_ACE_TYPE;
-    NewAce->Header.AceSize = *AceLength;
+    NewAce->Header.AceSize = (USHORT)*AceLength;
     NewAce->Header.AceFlags = InheritFlags;
 
     NewAce->Mask = GENERIC_ALL;
@@ -413,7 +413,7 @@ Notes:
     NewAce = (PSYSTEM_AUDIT_ACE)Buffer;
 
     NewAce->Header.AceType = SYSTEM_AUDIT_ACE_TYPE;
-    NewAce->Header.AceSize = NewAceLength;
+    NewAce->Header.AceSize = (USHORT)NewAceLength;
     NewAce->Header.AceFlags = InheritFlags;
     NewAce->Header.AceFlags |= AuditFailures ? SUCCESSFUL_ACCESS_ACE_FLAG :
                                               FAILED_ACCESS_ACE_FLAG;

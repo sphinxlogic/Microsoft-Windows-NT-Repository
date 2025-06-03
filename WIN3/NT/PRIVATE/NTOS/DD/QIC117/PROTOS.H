@@ -202,7 +202,8 @@ q117SetQueueIndex(
 dStatus
 q117LoadTape (
    IN OUT PTAPE_HEADER*HeaderPointer,
-   IN OUT PQ117_CONTEXT Context
+   IN OUT PQ117_CONTEXT Context,
+   IN dUByte *driver_format_code
    );
 
 dStatus
@@ -636,6 +637,12 @@ q117IoCtlWriteAbs (
    IN PIRP Irp
    );
 
+NTSTATUS
+q117IoCtlDetect (
+    IN PDEVICE_OBJECT DeviceObject,
+    IN PIRP Irp
+    );
+
 dStatus
 q117UpdateBadMap(
     IN OUT PQ117_CONTEXT Context,
@@ -643,7 +650,7 @@ q117UpdateBadMap(
     IN ULONG BadSectors
     );
 
-VOID
+int
 q117BadMapToBadList(
     IN SEGMENT Segment,
     IN ULONG BadSectors,
@@ -652,8 +659,10 @@ q117BadMapToBadList(
 
 ULONG
 q117BadListEntryToSector(
-    IN UCHAR *ListEntry
+    IN UCHAR *ListEntry,
+    OUT BOOLEAN *hiBitSet
     );
+
 dStatus
 q117AllocateBuffers (
     PQ117_CONTEXT Context
@@ -692,10 +701,9 @@ q117Close (
 
 
 NTSTATUS
-q117CreateNumericKey(
+q117CreateKey(
     IN HANDLE Root,
-    IN ULONG Name,
-    IN PWSTR Prefix,
+    IN PSTR key,
     OUT PHANDLE NewKey
     );
 
@@ -716,11 +724,28 @@ q117DoRewind(
     PQ117_CONTEXT       Context
     );
 
+NTSTATUS q117MakeMarkArrayBigger(
+    PQ117_CONTEXT       Context,
+    int MinimumToAdd
+    );
+
+int
+q117SelectBSMLocation(
+    IN OUT PQ117_CONTEXT Context
+    );
+
+NTSTATUS kdi_WriteRegString(
+    HANDLE          unit_key,
+    PSTR            name,
+    PSTR            value
+    );
+
+
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(INIT,q117Initialize)
 #pragma alloc_text(INIT,q117CreateRegistryInfo)
-#pragma alloc_text(INIT,q117CreateNumericKey)
+#pragma alloc_text(INIT,q117CreateKey)
 #pragma alloc_text(INIT,q117AllocatePermanentMemory)
 #endif
 

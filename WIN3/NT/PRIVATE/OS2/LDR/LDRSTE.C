@@ -534,7 +534,12 @@ ulong_t                 iseg;           /* Segment number (1-based) */
         // DosGetResource() does the mapping job for resources.
         //
         if (iseg <= psmte->smte_objcnt - psmte->smte_rsrccnt) {
-            ViewSize = 0;
+            if (Protect == PAGE_EXECUTE_WRITECOPY) {
+                ViewSize = RegionSize;
+            }
+            else {
+                ViewSize = 0;
+            }
             Status = NtMapViewOfSection(SectionHandle,
                                         CurrentThread->Process->ProcessHandle,
                                         &MemoryAddress,

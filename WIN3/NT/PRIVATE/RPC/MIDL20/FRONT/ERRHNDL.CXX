@@ -9,10 +9,6 @@
  *			include files
  ***************************************************************************/
 
-#ifdef DOS_OS2_BUILD
-#pragma data_seg( "errdb", "data" )
-#endif
-
 #include "nulldefs.h"
 extern	"C"	
 	{
@@ -40,19 +36,17 @@ typedef struct errdb
 	unsigned	short	TestValue;
 #endif // RPCDEBUG
 
-	E_MASK				ErrMask;
-	char		*		pError;
+	E_MASK					ErrMask;
+	const char	*			pError;
 
 	} ERRDB;
 
 #include "errdb.h"
 
-ERRDB	UnknownError = 
+const ERRDB	UnknownError = 
 {
 CHECK_ERR(I_ERR_UNKNOWN_ERROR)
-// (CPE + MSE + OSE + CPWL( NOWARN ) + MSWL( NOWARN ) + OSWL ( NOWARN ) )
-
- MAKE_E_MASK(ZZZ, C_MSG, CLASS_ERROR, NOWARN )
+ MAKE_E_MASK(ERR_ALWAYS, C_MSG, CLASS_ERROR, NOWARN )
 ,"unknown internal error"
 };
 
@@ -65,8 +59,10 @@ extern CMD_ARG	*	pCommand;
  ***************************************************************************/
 #define INDEX_D_ERROR()		(0)
 #define INDEX_C_ERROR()		(D_ERR_MAX - D_ERR_START)
-#define INDEX_H_ERROR()		(C_ERR_MAX - C_ERR_START) + (D_ERR_MAX - D_ERR_START)
-#define INDEX_I_ERROR()		(H_ERR_MAX - H_ERR_START) + (C_ERR_MAX - C_ERR_START) + (D_ERR_MAX - D_ERR_START);
+#define INDEX_A_ERROR()		(C_ERR_MAX - C_ERR_START) + (D_ERR_MAX - D_ERR_START)
+#define INDEX_I_ERROR()		(A_ERR_MAX - A_ERR_START) + (C_ERR_MAX - C_ERR_START) + (D_ERR_MAX - D_ERR_START);
+
+
 
 /****************************************************************************
  *			local procedure prototypes
@@ -80,7 +76,60 @@ extern CMD_ARG	*	pCommand;
 /****************************************************************************
  *			external procedures/prototypes/etc
  ***************************************************************************/
-extern	BOOL			IsTempName( char * );
+
+/*** IsErrorRelevant ******************************************************
+ * Purpose	: To decide whether the error is going to be ignored anyhow, and
+ *          : cut out further processing
+ * Input	: error value
+ * Output	: nothing
+ * Notes	: The error number itself is an indicator of the location of
+ *			: the error, (user/compile-time,run-time) , and severity.
+ ****************************************************************************/
+ErrorInfo::ErrorInfo( STATUS_T ErrValue )
+{
+	ErrVal = ErrValue;
+
+	// cast away the constness
+	pErrorRecord	 = (ERRDB *) ErrorDataBase;
+
+	if( ErrVal < D_ERR_MAX )
+		{
+		pErrorRecord += ( ErrVal - D_ERR_START ) + INDEX_D_ERROR();
+		}
+	else if( ErrVal < C_ERR_MAX )
+		{
+		pErrorRecord += ( ErrVal - C_ERR_START ) + INDEX_C_ERROR();
+		}
+	else if( ErrVal < A_ERR_MAX )
+		{
+		pErrorRecord += ( ErrVal - A_ERR_START ) + INDEX_A_ERROR();
+		}
+	else
+		{
+		pErrorRecord = NULL;
+		}
+}
+
+int
+ErrorInfo::IsRelevant()
+{
+	unsigned short	ErrorClass	= GET_ECLASS( pErrorRecord->ErrMask );
+	unsigned short	ErrorWL		= GET_WL( pErrorRecord->ErrMask );
+	unsigned short	ModeSwitchConfigI	= pCommand->GetModeSwitchConfigMask();
+	unsigned short	CurWL		= pCommand->GetWarningLevel();
+
+	// if this is not relevant to this mode, return FALSE
+	if( GET_SC(pErrorRecord->ErrMask) & ModeSwitchConfigI )
+		return FALSE;
+
+	// does this qualify to be a warning in this mode ? If not return.
+	if ( ErrorClass == CLASS_WARN )
+		{
+		if( CurWL < ErrorWL ) 
+			return FALSE;
+		}
+	return TRUE;
+}
 
 /*** RpcError ***************************************************************
  * Purpose	: To report an error in a formatted fashion
@@ -102,35 +151,44 @@ RpcError(
 	short				Line,					// line number
 	STATUS_T 			ErrVal,					// error value
 	char			*	pSuffix)				// error message suffix string
+{
+	ErrorInfo			ErrDescription( ErrVal );
+
+	// does this qualify to be an error in this mode ? If not return.
+	if ( !ErrDescription.IsRelevant() )
+		return;
+	
+	// report the error
+	ErrDescription.ReportError( pFile, Line, pSuffix );
+
+}
+
+
+/*** RpcReportError ***************************************************************
+ * Purpose	: To report an error in a formatted fashion
+ * Input	: filename where the error occured, line number, error value
+ *			: error mesage suffix string if any
+ *			: input filename ptr could be NULL if no filename
+ *			: suffix string ptr could be null if no suffix string
+ * Output	: nothing
+ * Notes	: The error number itself is an indicator of the location of
+ *			: the error, (user/compile-time,run-time) , and severity.
+ *			: Filename and line number depend upon where the error occurs. If
+ *			: the error is a user-error(command line), file and line number
+ *			: does not make sense. The input can be a NULL for filename, and
+ *			: 0 for line number in case of the command line errors
+ ****************************************************************************/
+void
+ErrorInfo::ReportError(
+	char			*	pFile,					// filename where error occured
+	short				Line,					// line number
+	char			*	pSuffix)				// error message suffix string
 	{
-	char	*		pError				= (char *)NULL,
-			*		pSeverity;
-	ERRDB	*		pErrDB;
-	unsigned short	CurWL,
-					ErrorClass,
-					ErrorWL;
-	char			ErrorRangeChar;
-	unsigned short	ModeSwitchConfigI;
+	char	*		pSeverity	= "error";
+	char	*		pPrefix;
+	unsigned short	ErrorClass	= GET_ECLASS( pErrorRecord->ErrMask );
 
-	// cast away the constness
-	pErrDB	 = (ERRDB *) ErrorDataBase;
-
-	if( ErrVal < D_ERR_MAX )
-		{
-		pErrDB += ( ErrVal - D_ERR_START ) + INDEX_D_ERROR();
-		ErrorRangeChar	= 'D';
-		}
-	else if( ErrVal < C_ERR_MAX )
-		{
-		pErrDB += ( ErrVal - C_ERR_START ) + INDEX_C_ERROR();
-		ErrorRangeChar	= 'C';
-		}
-	else if( (ErrVal < H_ERR_MAX ) && pCommand->IsSwitchDefined( SWITCH_HPP ))
-		{
-		pErrDB += ( ErrVal - H_ERR_START ) + INDEX_H_ERROR();
-		ErrorRangeChar	= 'H';
-		}
-	else
+	if (!pErrorRecord)
 		{
 		fprintf( stdout
 				, "%s %c%.4d\n"
@@ -138,33 +196,13 @@ RpcError(
 				, 'I'
 				, ErrVal
 			   );
+		return;
 		}
-
-
-	// get the current operating mode and the warning level, and the
-	// error interpretation and warning level
-
-
-	ModeSwitchConfigI	= (1 << pCommand->GetModeSwitchConfigIndex());
-	CurWL				= pCommand->GetWarningLevel();
-
-	ErrorClass	= GET_ECLASS( pErrDB->ErrMask );
-	ErrorWL		= GET_WL( pErrDB->ErrMask );
-
-	pSeverity = "error";
 
 	switch( ErrorClass )
 		{
 		case CLASS_WARN:
-
-			// does this qualify to be a warning in this mode ? If not return.
-
-			if( CurWL < ErrorWL ) return;
-			if( GET_SC(pErrDB->ErrMask) & ModeSwitchConfigI )
-				return;
-
 			// check if all warnings emitted are to be treated as error
-
 			if( !pCommand->IsSwitchDefined( SWITCH_WX ) )
 				{
 				pSeverity = "warning";
@@ -174,80 +212,45 @@ RpcError(
 				// treat as error.
 				ErrorClass = CLASS_ERROR;
 				}
+			break;
 
+		case CLASS_ADVICE:
+			// we report these as warnings, because we want tools like VC++ to understand
+			// our error messages for "jump to line" actions.
+			pSeverity = "warning";
 			break;
 
 		case CLASS_ERROR:
-
-			// if it is not an error in this mode return. This will be true
-			// if the bit corresponding to the switch configurations is set
-			// to 1.
-
-			if( GET_SC(pErrDB->ErrMask) & ModeSwitchConfigI )
-				return;
-
-			pSeverity = "error";
+		default:
 			break;
-
 		}
 
 	// now report the error
+	if ( !pSuffix )
+		pSuffix = "";
 
-	if( ErrorRangeChar == 'D' )
-		{
-		if( pFile )
-			{
-			fprintf(  stdout
-					, "%s(%d) : command line %s %s%.4d : %s %s\n"
-					, pFile
-					, Line 
-					, pSeverity
-					, ERROR_PREFIX
-					, ErrVal
-					, pErrDB->pError
-					, pSuffix ? pSuffix : "" );
-			}
-		else
-			{
-			fprintf(  stdout
-					, "command line %s %s%.4d : %s %s\n"
-					, pSeverity
-					, ERROR_PREFIX
-					, ErrVal
-					, pErrDB->pError
-					, pSuffix ? pSuffix : "" );
-			}
-		}
+	// mark command line errors specially
+	if( GET_MT(pErrorRecord->ErrMask)  == 'D' )
+		pPrefix = "command line ";
 	else
-		{
+		pPrefix = "";
+		
+	// if it a warning , dont increment error count
 
-		// if it a warning , dont increment error count
+	if( ErrorClass == CLASS_ERROR )
+		pCompiler->IncrementErrorCount();
 
-		if( ErrorClass != CLASS_WARN )
-			pCompiler->IncrementErrorCount();
+	// print the file and line number
+	if( pFile )
+		fprintf(  stdout, "%s(%d) : ", pFile, Line );
 
-		if( pFile )
-			{
-			fprintf(  stdout
-					, "%s(%d) : %s %s%.4d : %s %s\n"
-					, pFile ? pFile : ""
-					, Line
-					, pSeverity
-					, ERROR_PREFIX
-					, ErrVal
-					, pErrDB->pError
-					, pSuffix ? pSuffix : "" );
-			}
-		else
-			{
-			fprintf( stdout
-					, "%s %s%.4d : %s %s\n"
-					, pSeverity
-					, ERROR_PREFIX
-					, ErrVal
-					, pErrDB->pError
-					, pSuffix ? pSuffix : "" );
-			}
-		}
+	// print the error message
+	fprintf( stdout
+			, "%s%s " ERROR_PREFIX "%.4d : %s %s\n"
+			, pPrefix
+			, pSeverity
+			, ErrVal
+			, pErrorRecord->pError
+			, pSuffix );
 
 	}

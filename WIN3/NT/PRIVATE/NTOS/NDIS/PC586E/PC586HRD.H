@@ -27,7 +27,6 @@ Revision History:
 
 --*/
 
-// bugbug - REMOVE THE NEXT LINE AFTER DEBUG
 #define static                                  
 
 // the below #defines were transformed into static USHORTS to workaround

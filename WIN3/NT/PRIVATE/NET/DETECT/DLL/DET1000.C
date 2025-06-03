@@ -49,7 +49,8 @@ BOOLEAN
 Ne1000CardAt(
     IN INTERFACE_TYPE InterfaceType,
     IN ULONG BusNumber,
-    IN ULONG IoBaseAddress
+    IN ULONG IoBaseAddress,
+	OUT PUCHAR Interrupt
     );
 
 VOID
@@ -111,7 +112,7 @@ static ADAPTER_INFO Adapters[] = {
         L"NE1000",
         L"IRQ 1 80 IRQTYPE 2 100 IOADDR 1 100 IOADDRLENGTH 2 100 ",
         NULL,
-        500
+        502
 
     }
 
@@ -133,12 +134,21 @@ static ADAPTER_INFO Adapters[] = {
     {
         1000,
         L"NE1000",
-        L"IRQ\0001\00080\0IRQTYPE\0002\000100\0IOADDR\x001\x00100\0IOADDRLENGTH\x002\x00100\0",
+        L"IRQ\0"
+        L"1\0"
+        L"80\0"
+        L"IRQTYPE\0"
+        L"2\0"
+        L"100\0"
+        L"IOADDR\0"
+        L"1\0"
+        L"100\0"
+        L"IOADDRLENGTH\0"
+        L"2\0"
+        L"100\0",
         NULL,
-        500
-
+        502
     }
-
 };
 
 #endif
@@ -147,12 +157,14 @@ static ADAPTER_INFO Adapters[] = {
 // Structure for holding state of a search
 //
 
-typedef struct _SEARCH_STATE {
-
+typedef struct _SEARCH_STATE
+{
     ULONG IoBaseAddress;
-
-} SEARCH_STATE, *PSEARCH_STATE;
-
+	UCHAR Interrupt;
+}
+	SEARCH_STATE,
+	*PSEARCH_STATE;
+	
 
 //
 // This is an array of search states.  We need one state for each type
@@ -165,14 +177,16 @@ static SEARCH_STATE SearchStates[sizeof(Adapters) / sizeof(ADAPTER_INFO)] = {0};
 //
 // Structure for holding a particular adapter's complete information
 //
-typedef struct _NE1000_ADAPTER {
-
-    LONG CardType;
-    INTERFACE_TYPE InterfaceType;
-    ULONG BusNumber;
-    ULONG IoBaseAddress;
-
-} NE1000_ADAPTER, *PNE1000_ADAPTER;
+typedef struct _NE1000_ADAPTER
+{
+    LONG 			CardType;
+    INTERFACE_TYPE	InterfaceType;
+    ULONG 			BusNumber;
+    ULONG 			IoBaseAddress;
+	UCHAR			Interrupt;
+}
+	NE1000_ADAPTER,
+	*PNE1000_ADAPTER;
 
 
 extern
@@ -348,53 +362,49 @@ Return Value:
 --*/
 
 {
-
-    if ((InterfaceType != Isa) &&
-        (InterfaceType != Eisa)) {
-
+    if ((InterfaceType != Isa) && (InterfaceType != Eisa))
+	{
         *lConfidence = 0;
 
         return(0);
-
     }
 
-    if (lNetcardId != 1000) {
-
+    if (lNetcardId != 1000)
+	{
         *lConfidence = 0;
         return(ERROR_INVALID_PARAMETER);
-
     }
 
     //
     // If fFirst, reset search state
     //
-
-    if (fFirst) {
-
+    if (fFirst)
+	{
         SearchStates[0].IoBaseAddress = 0x300;
-
-    } else if (SearchStates[0].IoBaseAddress < 0x400) {
-
+    }
+	else if (SearchStates[0].IoBaseAddress < 0x400)
+	{
         SearchStates[0].IoBaseAddress = Ne1000NextIoAddr(SearchStates[0].IoBaseAddress);
     }
 
-    while (SearchStates[0].IoBaseAddress < 0x400) {
-
-        if (Ne1000CardAt(InterfaceType, BusNumber, SearchStates[0].IoBaseAddress)) {
-
+    while (SearchStates[0].IoBaseAddress < 0x400)
+	{
+        if (Ne1000CardAt(
+				InterfaceType,
+				BusNumber,
+				SearchStates[0].IoBaseAddress,
+				&SearchStates[0].Interrupt))
+		{
             break;
-
         }
 
         SearchStates[0].IoBaseAddress = Ne1000NextIoAddr(SearchStates[0].IoBaseAddress);
-
     }
 
-    if (SearchStates[0].IoBaseAddress == 0x400) {
-
+    if (SearchStates[0].IoBaseAddress == 0x400)
+	{
         *lConfidence = 0;
         return(0);
-
     }
 
     //
@@ -409,13 +419,12 @@ Return Value:
     // NOTE: This presumes that there are < 129 buses in the
     // system. Is this reasonable?
     //
-
-    if (InterfaceType == Isa) {
-
+    if (InterfaceType == Isa)
+	{
         *ppvToken = (PVOID)0x8000;
-
-    } else {
-
+    }
+	else
+	{
         *ppvToken = (PVOID)0x0;
     }
 
@@ -463,15 +472,13 @@ Return Value:
     //
     // Get info from the token
     //
-
-    if (((ULONG)pvToken) & 0x8000) {
-
+    if (((ULONG)pvToken) & 0x8000)
+	{
         InterfaceType = Isa;
-
-    } else {
-
+    }
+	else
+	{
         InterfaceType = Eisa;
-
     }
 
     BusNumber = (ULONG)(((ULONG)pvToken >> 8) & 0x7F);
@@ -481,22 +488,17 @@ Return Value:
     //
     // Store information
     //
-
-    Handle = (PNE1000_ADAPTER)DetectAllocateHeap(
-                                 sizeof(NE1000_ADAPTER)
-                                 );
-
-    if (Handle == NULL) {
-
+    Handle = (PNE1000_ADAPTER)DetectAllocateHeap(sizeof(NE1000_ADAPTER));
+    if (Handle == NULL)
+	{
         return(ERROR_NOT_ENOUGH_MEMORY);
-
     }
 
     //
     // Copy across address
     //
-
     Handle->IoBaseAddress = SearchStates[(ULONG)AdapterNumber].IoBaseAddress;
+    Handle->Interrupt = SearchStates[(ULONG)AdapterNumber].Interrupt;
     Handle->CardType = Adapters[AdapterNumber].Index;
     Handle->InterfaceType = InterfaceType;
     Handle->BusNumber = BusNumber;
@@ -542,49 +544,58 @@ Return Value:
     PNE1000_ADAPTER Handle;
     LONG NumberOfAdapters;
     LONG i;
+	NETDTECT_RESOURCE	Resource;
 
-    if ((InterfaceType != Isa) &&
-        (InterfaceType != Eisa)) {
-
+    if ((InterfaceType != Isa) && (InterfaceType != Eisa))
+	{
         return(ERROR_INVALID_PARAMETER);
-
     }
 
     NumberOfAdapters = sizeof(Adapters) / sizeof(ADAPTER_INFO);
 
-    for (i=0; i < NumberOfAdapters; i++) {
-
-        if (Adapters[i].Index == lNetcardId) {
-
+    for (i = 0; i < NumberOfAdapters; i++)
+	{
+        if (Adapters[i].Index == lNetcardId)
+		{
             //
             // Store information
             //
-
-            Handle = (PNE1000_ADAPTER)DetectAllocateHeap(
-                                         sizeof(NE1000_ADAPTER)
-                                         );
-
-            if (Handle == NULL) {
-
+            Handle = (PNE1000_ADAPTER)DetectAllocateHeap(sizeof(NE1000_ADAPTER));
+            if (Handle == NULL)
+			{
                 return(ERROR_NOT_ENOUGH_MEMORY);
-
             }
 
             //
             // Copy across memory address
             //
-
             Handle->IoBaseAddress = 0x300;
             Handle->CardType = lNetcardId;
             Handle->InterfaceType = InterfaceType;
             Handle->BusNumber = BusNumber;
+			Handle->Interrupt = 3;
+
+			//
+			//	We need to claim this port so no one else uses it....
+			//
+			Resource.InterfaceType = InterfaceType;
+			Resource.BusNumber = BusNumber;
+			Resource.Type = NETDTECT_PORT_RESOURCE;
+			Resource.Value = 0x300;
+			Resource.Length = 0x20;
+
+			DetectTemporaryClaimResource(&Resource);
+
+			Resource.Type = NETDTECT_IRQ_RESOURCE;
+			Resource.Value = 3;
+			Resource.Length = 0;
+
+			DetectTemporaryClaimResource(&Resource);
 
             *ppvHandle = (PVOID)Handle;
 
             return(0);
-
         }
-
     }
 
     return(ERROR_INVALID_PARAMETER);
@@ -647,230 +658,28 @@ Return Value:
 --*/
 
 {
-    PNE1000_ADAPTER Adapter = (PNE1000_ADAPTER)(pvHandle);
-    NTSTATUS NtStatus;
-    UCHAR Interrupt = 0;
-    ULONG RamAddr = 0;
-    HANDLE TrapHandle;
-    UCHAR InterruptList[13];
-    UCHAR ResultList[13] = {0};
-    LONG OutputLengthLeft = cwchBuffSize;
-    LONG CopyLength;
-    UCHAR Value;
-    UCHAR i;
+    PNE1000_ADAPTER	Adapter = (PNE1000_ADAPTER)(pvHandle);
+    LONG 			OutputLengthLeft = cwchBuffSize;
+    LONG 			CopyLength;
+    ULONG			StartPointer = (ULONG)pwchBuffer;
 
-    ULONG StartPointer = (ULONG)pwchBuffer;
-
-    if ((Adapter->InterfaceType != Isa) &&
-        (Adapter->InterfaceType != Eisa)) {
-
+    if ((Adapter->InterfaceType != Isa) && (Adapter->InterfaceType != Eisa))
+	{
         return(ERROR_INVALID_PARAMETER);
-
     }
 
-    //
-    // Verify the IoBaseAddress
-    //
-
-    if (!Ne1000CardAt(Adapter->InterfaceType,
-                  Adapter->BusNumber,
-                  Adapter->IoBaseAddress
-                 )) {
-
-        if (Adapter->IoBaseAddress < 0x400) {
-
-            Adapter->IoBaseAddress = Ne1000NextIoAddr(Adapter->IoBaseAddress);
-
-        }
-
-        while (Adapter->IoBaseAddress < 0x400) {
-
-            if (Ne1000CardAt(Adapter->InterfaceType,
-                         Adapter->BusNumber,
-                         Adapter->IoBaseAddress
-                        )) {
-
-                //
-                // Found one!
-                //
-
-                break;
-
-            }
-
-            Adapter->IoBaseAddress = Ne1000NextIoAddr(Adapter->IoBaseAddress);
-
-        }
-
-        if (Adapter->IoBaseAddress == 0x400) {
-
-            //
-            // No card
-            //
-
-            if (cwchBuffSize < 2) {
-
-                return(ERROR_INSUFFICIENT_BUFFER);
-
-            }
-
-            wsprintf(pwchBuffer, L"\0");
-
-            return(0);
-
-        }
-
-    }
-
-
-    //
-    // Find the interrupt
-    //
-
-
-    InterruptList[0] = 2;
-    InterruptList[1] = 3;
-    InterruptList[2] = 4;
-    InterruptList[3] = 5;
-    InterruptList[4] = 6;
-    InterruptList[5] = 7;
-    InterruptList[6] = 8;
-    InterruptList[7] = 10;
-    InterruptList[8] = 11;
-    InterruptList[9] = 12;
-    InterruptList[10] = 13;
-    InterruptList[11] = 14;
-    InterruptList[12] = 15;
-
-    //
-    // Set the interrupt trap -- we are checking the interrupt number now
-    //
-
-    NtStatus = DetectSetInterruptTrap(
-                       Adapter->InterfaceType,
-                       Adapter->BusNumber,
-                       &TrapHandle,
-                       InterruptList,
-                       13
-                       );
-
-    if (NtStatus == STATUS_SUCCESS) {
-
-        Ne1000CardSlotTest(
-               Adapter->InterfaceType,
-               Adapter->BusNumber,
-               Adapter->IoBaseAddress,
-               &Value
-               );
-
-        //
-        // CardSetup
-        //
-
-        Ne1000CardSetup(
-                Adapter->InterfaceType,
-                Adapter->BusNumber,
-                Adapter->IoBaseAddress,
-                &RamAddr,
-                Value
-                );
-
-        //
-        // Check for interrupt
-        //
-
-        DetectQueryInterruptTrap(
-                           TrapHandle,
-                           ResultList,
-                           13
-                           );
-
-        //
-        // Stop the chip
-        //
-
-        DetectReadPortUchar(
-                      Adapter->InterfaceType,
-                      Adapter->BusNumber,
-                      Adapter->IoBaseAddress + 0x1F, // RESET
-                      &Value
-                      );
-
-        DetectWritePortUchar(
-                      Adapter->InterfaceType,
-                      Adapter->BusNumber,
-                      Adapter->IoBaseAddress + 0x1F, // RESET
-                      0xFF
-                      );
-
-
-        DetectWritePortUchar(
-                      Adapter->InterfaceType,
-                      Adapter->BusNumber,
-                      Adapter->IoBaseAddress, // COMMAND
-                      0x21
-                      );
-
-
-        //
-        // Remove interrupt trap
-        //
-
-        DetectRemoveInterruptTrap(
-                           TrapHandle
-                           );
-
-        //
-        // Search resulting buffer to find the right interrupt
-        //
-
-        for (i = 0; i < 13; i++) {
-
-            if ((ResultList[i] == 1) || (ResultList[i] == 2)) {
-
-                if (Interrupt != 0) {
-
-                    //
-                    // Uh-oh, looks like interrupts on two different IRQs.
-                    //
-
-                    Interrupt = 0;
-                    goto BuildBuffer;
-
-                }
-
-                Interrupt = InterruptList[i];
-
-            }
-
-        }
-
-    }
-
-BuildBuffer:
-
-    //
-    // Build resulting buffer
-    //
-
-    //
-    // Copy in the title string (IRQ)
-    //
-
-    if (Interrupt != 0) {
-
+	if (Adapter->Interrupt != 0)
+	{
         CopyLength = UnicodeStrLen(IrqString) + 1;
 
-        if (OutputLengthLeft < CopyLength) {
-
+        if (OutputLengthLeft < CopyLength)
+		{
             return(ERROR_INSUFFICIENT_BUFFER);
-
         }
 
         RtlMoveMemory((PVOID)pwchBuffer,
                       (PVOID)IrqString,
-                      (CopyLength * sizeof(WCHAR))
-                     );
+                      (CopyLength * sizeof(WCHAR)));
 
         pwchBuffer = &(pwchBuffer[CopyLength]);
         OutputLengthLeft -= CopyLength;
@@ -878,19 +687,16 @@ BuildBuffer:
         //
         // Copy in the value
         //
-
-        if (OutputLengthLeft < 3) {
-
+        if (OutputLengthLeft < 3)
+		{
             return(ERROR_INSUFFICIENT_BUFFER);
-
         }
 
-        CopyLength = wsprintf(pwchBuffer,L"%d",Interrupt);
+        CopyLength = wsprintf(pwchBuffer,L"%d",Adapter->Interrupt);
 
-        if (CopyLength < 0) {
-
+        if (CopyLength < 0)
+		{
             return(ERROR_INSUFFICIENT_BUFFER);
-
         }
 
         CopyLength++;  // Add in the \0
@@ -901,19 +707,16 @@ BuildBuffer:
         //
         // Copy in IRQTYPE
         //
-
         CopyLength = UnicodeStrLen(IrqTypeString) + 1;
 
-        if (OutputLengthLeft < CopyLength) {
-
+        if (OutputLengthLeft < CopyLength)
+		{
             return(ERROR_INSUFFICIENT_BUFFER);
-
         }
 
         RtlMoveMemory((PVOID)pwchBuffer,
                       (PVOID)IrqTypeString,
-                      (CopyLength * sizeof(WCHAR))
-                     );
+                      (CopyLength * sizeof(WCHAR)));
 
         pwchBuffer = &(pwchBuffer[CopyLength]);
         OutputLengthLeft -= CopyLength;
@@ -921,11 +724,9 @@ BuildBuffer:
         //
         // Copy in the value
         //
-
-        if (OutputLengthLeft < 2) {
-
+        if (OutputLengthLeft < 2)
+		{
             return(ERROR_INSUFFICIENT_BUFFER);
-
         }
 
         //
@@ -933,17 +734,15 @@ BuildBuffer:
         //
         CopyLength = wsprintf(pwchBuffer,L"0");
 
-        if (CopyLength < 0) {
-
+        if (CopyLength < 0)
+		{
             return(ERROR_INSUFFICIENT_BUFFER);
-
         }
 
         CopyLength++;  // Add in the \0
 
         pwchBuffer = &(pwchBuffer[CopyLength]);
         OutputLengthLeft -= CopyLength;
-
     }
 
     //
@@ -953,19 +752,16 @@ BuildBuffer:
     //
     // Copy in the title string
     //
-
     CopyLength = UnicodeStrLen(IoAddrString) + 1;
 
-    if (OutputLengthLeft < CopyLength) {
-
+    if (OutputLengthLeft < CopyLength)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     RtlMoveMemory((PVOID)pwchBuffer,
                   (PVOID)IoAddrString,
-                  (CopyLength * sizeof(WCHAR))
-                 );
+                  (CopyLength * sizeof(WCHAR)));
 
     pwchBuffer = &(pwchBuffer[CopyLength]);
     OutputLengthLeft -= CopyLength;
@@ -973,19 +769,16 @@ BuildBuffer:
     //
     // Copy in the value
     //
-
-    if (OutputLengthLeft < 6) {
-
+    if (OutputLengthLeft < 6)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength = wsprintf(pwchBuffer,L"0x%x",Adapter->IoBaseAddress);
 
-    if (CopyLength < 0) {
-
+    if (CopyLength < 0)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength++;  // Add in the \0
@@ -996,19 +789,16 @@ BuildBuffer:
     //
     // Copy in the title string
     //
-
     CopyLength = UnicodeStrLen(IoLengthString) + 1;
 
-    if (OutputLengthLeft < CopyLength) {
-
+    if (OutputLengthLeft < CopyLength)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     RtlMoveMemory((PVOID)pwchBuffer,
                   (PVOID)IoLengthString,
-                  (CopyLength * sizeof(WCHAR))
-                 );
+                  (CopyLength * sizeof(WCHAR)));
 
     pwchBuffer = &(pwchBuffer[CopyLength]);
     OutputLengthLeft -= CopyLength;
@@ -1016,19 +806,16 @@ BuildBuffer:
     //
     // Copy in the value
     //
-
-    if (OutputLengthLeft < 5) {
-
+    if (OutputLengthLeft < 5)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength = wsprintf(pwchBuffer,L"0x20");
 
-    if (CopyLength < 0) {
-
+    if (CopyLength < 0)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength++;  // Add in the \0
@@ -1036,15 +823,12 @@ BuildBuffer:
     pwchBuffer = &(pwchBuffer[CopyLength]);
     OutputLengthLeft -= CopyLength;
 
-
     //
     // Copy in final \0
     //
-
-    if (OutputLengthLeft < 1) {
-
+    if (OutputLengthLeft < 1)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength = (ULONG)pwchBuffer - StartPointer;
@@ -1080,27 +864,20 @@ Return Value:
 --*/
 
 {
-    PNE1000_ADAPTER Adapter = (PNE1000_ADAPTER)(pvHandle);
-    ULONG IoBaseAddress;
-    ULONG InterruptLong;
-    ULONG RamAddr;
-    WCHAR *Place;
-    UCHAR Result;
-    UCHAR PortValue;
-    UCHAR Interrupt;
-    HANDLE TrapHandle;
-    NTSTATUS NtStatus;
-    BOOLEAN Found;
+    PNE1000_ADAPTER 	Adapter = (PNE1000_ADAPTER)(pvHandle);
+    ULONG 				IoBaseAddress;
+    WCHAR 				*Place;
+    ULONG				Interrupt;
+    BOOLEAN 			Found;
+	NETDTECT_RESOURCE	Resource;
 
-    if ((Adapter->InterfaceType != Isa) &&
-        (Adapter->InterfaceType != Eisa)) {
-
+    if ((Adapter->InterfaceType != Isa) && (Adapter->InterfaceType != Eisa))
+	{
         return(ERROR_INVALID_DATA);
-
     }
 
-    if (Adapter->CardType == 1000) {
-
+    if (Adapter->CardType == 1000)
+	{
         //
         // Parse out the parameter.
         //
@@ -1108,13 +885,11 @@ Return Value:
         //
         // Get the IoBaseAddress
         //
-
         Place = FindParameterString(pwchBuffer, IoAddrString);
 
-        if (Place == NULL) {
-
+        if (Place == NULL)
+		{
             return(ERROR_INVALID_DATA);
-
         }
 
         Place += UnicodeStrLen(IoAddrString) + 1;
@@ -1122,26 +897,21 @@ Return Value:
         //
         // Now parse the thing.
         //
-
         ScanForNumber(Place, &IoBaseAddress, &Found);
 
-        if (Found == FALSE) {
-
+        if (Found == FALSE)
+		{
             return(ERROR_INVALID_DATA);
-
         }
-
 
         //
         // Get Interrupt number
         //
-
         Place = FindParameterString(pwchBuffer, IrqString);
 
-        if (Place == NULL) {
-
+        if (Place == NULL)
+		{
             return(ERROR_INVALID_DATA);
-
         }
 
         Place += UnicodeStrLen(IrqString) + 1;
@@ -1149,154 +919,92 @@ Return Value:
         //
         // Now parse the thing.
         //
+        ScanForNumber(Place, &Interrupt, &Found);
 
-        ScanForNumber(Place, &InterruptLong, &Found);
-
-        Interrupt = (UCHAR)InterruptLong;
-
-        if (Found == FALSE) {
-
+        if (Found == FALSE)
+		{
             return(ERROR_INVALID_DATA);
-
         }
-
-    } else {
-
+    }
+	else
+	{
         //
         // Error!
         //
-
         return(ERROR_INVALID_DATA);
-
     }
 
     //
     // Verify IoAddress
     //
+	if ((IoBaseAddress != Adapter->IoBaseAddress) ||
+		(Interrupt != Adapter->Interrupt))
+	{
+		UCHAR	TempInterrupt = 0;
 
-    if (!Ne1000CardAt(Adapter->InterfaceType,
-                  Adapter->BusNumber,
-                  IoBaseAddress)) {
+		//
+		//	See if we can find a nic at their resources...
+		//
+		if (!Ne1000CardAt(Adapter->InterfaceType,
+				Adapter->BusNumber,
+				IoBaseAddress,
+				&TempInterrupt))
+		{
+			return(ERROR_INVALID_DATA);
+		}
 
-        return(ERROR_INVALID_DATA);
+		//
+		//	Did we find their interrupt?
+		//
+		if (Interrupt != TempInterrupt)
+		{
+			return(ERROR_INVALID_DATA);
+		}
 
-    }
+		//
+		//	Looks like there is a nic their. Free up the
+		//	resources that we acquired and acquire the new ones.
+		//
+		Resource.InterfaceType = Adapter->InterfaceType;
+		Resource.BusNumber = Adapter->BusNumber;
 
-    //
-    // Set the interrupt trap -- we are checking the interrupt number now
-    //
+		//
+		//	Free up the detected port.
+		//
+		Resource.Type = NETDTECT_PORT_RESOURCE;
+		Resource.Value = Adapter->IoBaseAddress;
+		Resource.Length = 0x20;
+		Resource.Flags = 0;
+		DetectFreeSpecificTemporaryResource(&Resource);
 
-    NtStatus = DetectSetInterruptTrap(
-                       Adapter->InterfaceType,
-                       Adapter->BusNumber,
-                       &TrapHandle,
-                       &Interrupt,
-                       1
-                       );
+		//
+		//	Acquire the new port.
+		//
+		Resource.Value = IoBaseAddress;
+		DetectTemporaryClaimResource(&Resource);
 
-    if (NtStatus == STATUS_SUCCESS) {
+		//
+		//	Free up the detected interrupt.
+		//
+		Resource.Type = NETDTECT_IRQ_RESOURCE;
+		Resource.Value = Adapter->Interrupt;
+		Resource.Length = 0;
+		DetectFreeSpecificTemporaryResource(&Resource);
 
-        //
-        // Check that it was available
-        //
+		//
+		//	Acquire the new interrupt.
+		//	
+		Resource.Value = Interrupt;
+		DetectTemporaryClaimResource(&Resource);
 
-        DetectQueryInterruptTrap(
-                           TrapHandle,
-                           &Result,
-                           1
-                           );
-
-        if (Result == 3) {
-
-            //
-            // Remove interrupt trap
-            //
-
-            DetectRemoveInterruptTrap(
-                           TrapHandle
-                           );
-
-            return(ERROR_INVALID_DATA);
-
-        }
-
-
-        Ne1000CardSlotTest(
-               Adapter->InterfaceType,
-               Adapter->BusNumber,
-               IoBaseAddress,
-               &Result
-               );
-
-        //
-        // CardSetup
-        //
-
-        Ne1000CardSetup(
-                Adapter->InterfaceType,
-                Adapter->BusNumber,
-                IoBaseAddress,
-                &RamAddr,
-                Result
-                );
-
-        //
-        // Check for interrupt
-        //
-
-        DetectQueryInterruptTrap(
-                           TrapHandle,
-                           &Result,
-                           1
-                           );
-
-        //
-        // Stop the chip
-        //
-
-        DetectReadPortUchar(
-                      Adapter->InterfaceType,
-                      Adapter->BusNumber,
-                      Adapter->IoBaseAddress + 0x1F, // RESET
-                      &PortValue
-                      );
-
-        DetectWritePortUchar(
-                      Adapter->InterfaceType,
-                      Adapter->BusNumber,
-                      Adapter->IoBaseAddress + 0x1F, // RESET
-                      0xFF
-                      );
-
-        DetectWritePortUchar(
-                      Adapter->InterfaceType,
-                      Adapter->BusNumber,
-                      IoBaseAddress, // COMMAND
-                      0x21
-                      );
-
-        //
-        // Remove interrupt trap
-        //
-
-        DetectRemoveInterruptTrap(
-                           TrapHandle
-                           );
-
-        if ((Result != 1) && (Result != 2)) {
-
-            return(ERROR_INVALID_DATA);
-
-        }
-
-    } else {
-
-        return(ERROR_INVALID_DATA);
-
-    }
+		//
+		//	Save the new resources.
+		//
+		Adapter->IoBaseAddress = IoBaseAddress;
+		Adapter->Interrupt = (UCHAR)Interrupt;
+	}
 
     return(0);
-
 }
 
 extern
@@ -1458,20 +1166,18 @@ Return Value:
 
         }
 
-        plValues[0] = 3;
-        plValues[1] = 2;
+        plValues[0] = 2;
+        plValues[1] = 3;
         plValues[2] = 4;
         plValues[3] = 5;
-        plValues[4] = 6;
-        plValues[5] = 7;
-        plValues[6] = 8;
-        plValues[7] = 10;
-        plValues[8] = 11;
-        plValues[9] = 12;
-        plValues[10] = 13;
-        plValues[11] = 14;
-        plValues[12] = 15;
-        *plBuffSize = 13;
+        plValues[4] = 7;
+        plValues[5] = 10;
+        plValues[6] = 11;
+        plValues[7] = 13;
+        plValues[8] = 14;
+        plValues[9] = 15;
+
+        *plBuffSize = 10;
         return(0);
 
     }
@@ -1518,7 +1224,8 @@ BOOLEAN
 Ne1000CardAt(
     IN INTERFACE_TYPE InterfaceType,
     IN ULONG BusNumber,
-    IN ULONG IoBaseAddress
+    IN ULONG IoBaseAddress,
+	OUT PUCHAR Interrupt
     )
 
 /*++
@@ -1543,79 +1250,193 @@ Return Value:
 --*/
 
 {
-    UCHAR Value;
+	NETDTECT_RESOURCE	Resource;
+    UCHAR 				Value;
+	UCHAR				TempInterrupt = 0;
+    ULONG 				RamAddr = 0;
+    HANDLE				TrapHandle;
+    UCHAR 				InterruptList[13];
+    UCHAR 				ResultList[13] = {0};
+    NTSTATUS 			NtStatus;
+	UINT				i;
 
     if (DetectCheckPortUsage(InterfaceType,
                              BusNumber,
                              IoBaseAddress,
-                             0x20
-                            ) != STATUS_SUCCESS) {
-
+                             0x20) != STATUS_SUCCESS)
+	{
         return(FALSE);
-
     }
 
-    if (!CheckFor8390(InterfaceType, BusNumber, IoBaseAddress)) {
-
+    if (!CheckFor8390(InterfaceType, BusNumber, IoBaseAddress))
+	{
         return(FALSE);
-
     }
 
-    if (!Ne1000CheckForNovellAddress(InterfaceType, BusNumber, IoBaseAddress)) {
-
+    if (!Ne1000CheckForNovellAddress(InterfaceType, BusNumber, IoBaseAddress))
+	{
         //
         // Stop the 8390
         //
-
         DetectReadPortUchar(
-                      InterfaceType,
-                      BusNumber,
-                      IoBaseAddress + 0x1F, // RESET
-                      &Value
-                      );
+			InterfaceType,
+			BusNumber,
+			IoBaseAddress + 0x1F, // RESET
+			&Value);
 
         DetectWritePortUchar(
-                      InterfaceType,
-                      BusNumber,
-                      IoBaseAddress + 0x1F, // RESET
-                      0xFF
-                      );
+			InterfaceType,
+			BusNumber,
+			IoBaseAddress + 0x1F, // RESET
+			0xFF);
 
         DetectWritePortUchar(
-                      InterfaceType,
-                      BusNumber,
-                      IoBaseAddress, // COMMAND
-                      0x21
-                      );
+			InterfaceType,
+			BusNumber,
+			IoBaseAddress, // COMMAND
+			0x21);
 
         return(FALSE);
 
     }
 
     DetectReadPortUchar(
-                      InterfaceType,
-                      BusNumber,
-                      IoBaseAddress + 0x1F, // RESET
-                      &Value
-                      );
+		InterfaceType,
+		BusNumber,
+		IoBaseAddress + 0x1F, // RESET
+		&Value);
 
     DetectWritePortUchar(
-                      InterfaceType,
-                      BusNumber,
-                      IoBaseAddress + 0x1F, // RESET
-                      0xFF
-                      );
+		InterfaceType,
+		BusNumber,
+		IoBaseAddress + 0x1F, // RESET
+		0xFF);
 
     DetectWritePortUchar(
-                      InterfaceType,
-                      BusNumber,
-                      IoBaseAddress, // COMMAND
-                      0x21
-                      );
+		InterfaceType,
+		BusNumber,
+		IoBaseAddress, // COMMAND
+		0x21);
+
+	//
+	//	Acquire the resource
+	//
+	Resource.InterfaceType = InterfaceType;
+	Resource.BusNumber = BusNumber;
+	Resource.Type = NETDTECT_PORT_RESOURCE;
+	Resource.Value = SearchStates[0].IoBaseAddress;
+	Resource.Length = 0x20;
+
+	DetectTemporaryClaimResource(&Resource);
+
+    //
+    // Find the interrupt
+    //
+    InterruptList[0] = 2;
+    InterruptList[1] = 3;
+    InterruptList[2] = 4;
+    InterruptList[3] = 5;
+    InterruptList[4] = 7;
+    InterruptList[5] = 10;
+    InterruptList[6] = 11;
+    InterruptList[7] = 13;
+    InterruptList[8] = 14;
+    InterruptList[9] = 15;
+
+    //
+    // Set the interrupt trap -- we are checking the interrupt number now
+    //
+    NtStatus = DetectSetInterruptTrap(
+                       InterfaceType,
+                       BusNumber,
+                       &TrapHandle,
+                       InterruptList,
+                       10);
+
+    if (NtStatus == STATUS_SUCCESS)
+	{
+        Ne1000CardSlotTest(
+			InterfaceType,
+			BusNumber,
+			IoBaseAddress,
+			&Value);
+
+        //
+        // CardSetup
+        //
+        Ne1000CardSetup(
+			InterfaceType,
+			BusNumber,
+			IoBaseAddress,
+			&RamAddr,
+			Value);
+
+        //
+        // Check for interrupt
+        //
+        DetectQueryInterruptTrap(TrapHandle, ResultList, 13);
+
+        //
+        // Stop the chip
+        //
+        DetectReadPortUchar(
+			InterfaceType,
+			BusNumber,
+			IoBaseAddress + 0x1F, // RESET
+			&Value);
+
+        DetectWritePortUchar(
+			InterfaceType,
+			BusNumber,
+			IoBaseAddress + 0x1F, // RESET
+			0xFF);
+
+        DetectWritePortUchar(
+			InterfaceType,
+			BusNumber,
+			IoBaseAddress, // COMMAND
+			0x21);
+
+        //
+        // Remove interrupt trap
+        //
+        DetectRemoveInterruptTrap(TrapHandle);
+
+        //
+        // Search resulting buffer to find the right interrupt
+        //
+        for (i = 0; i < 10; i++)
+		{
+            if ((ResultList[i] == 1) || (ResultList[i] == 2))
+			{
+                if (TempInterrupt != 0)
+				{
+                    //
+                    // Uh-oh, looks like interrupts on two different IRQs.
+                    //
+                    TempInterrupt = 0;
+					break;
+                }
+
+                TempInterrupt = InterruptList[i];
+            }
+        }
+    }
+
+	if (TempInterrupt != 0)
+	{
+		Resource.Type = NETDTECT_IRQ_RESOURCE;
+		Resource.Value = TempInterrupt;
+		Resource.Length = 0;
+
+		DetectTemporaryClaimResource(&Resource);
+
+		*Interrupt = TempInterrupt;
+	}
 
     return(TRUE);
-
 }
+
 
 BOOLEAN
 Ne1000CheckForNovellAddress(
@@ -1640,7 +1461,7 @@ Arguments:
 
 Return:
 
-    TRUE if it is an SMC/WD identification, else FALSE.
+    TRUE if it is an NE1000 identification, else FALSE.
 
 --*/
 
@@ -1650,151 +1471,123 @@ Return:
     ULONG RamAddr;
     BOOLEAN Result;
 
-    if (!Ne1000CardSlotTest(
-               InterfaceType,
-               BusNumber,
-               IoBaseAddress,
-               &Result
-               )) {
-
+    if (!Ne1000CardSlotTest(InterfaceType, BusNumber, IoBaseAddress, &Result))
+	{
         return(FALSE);
-
     }
 
     Ne1000CardSetup(
-                InterfaceType,
-                BusNumber,
-                IoBaseAddress,
-                &RamAddr,
-                Result
-                );
-
+		InterfaceType,
+		BusNumber,
+		IoBaseAddress,
+		&RamAddr,
+		Result);
 
     Result = TRUE;
 
     //
     // Read in the station address. (We have to read words -- 2 * 3 -- bytes)
     //
-
     NtStatus = DetectWritePortUchar(
                       InterfaceType,
                       BusNumber,
                       IoBaseAddress + 0xA, // RBC0
-                      6
-                      );
+                      6);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         return(FALSE);
-
     }
 
     NtStatus = DetectWritePortUchar(
                       InterfaceType,
                       BusNumber,
                       IoBaseAddress + 0xB, // RBC1
-                      0
-                      );
+                      0);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         return(FALSE);
-
     }
 
     NtStatus = DetectWritePortUchar(
                       InterfaceType,
                       BusNumber,
                       IoBaseAddress + 0x8, // RADDR0
-                      0
-                      );
+                      0);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         return(FALSE);
-
     }
 
     NtStatus = DetectWritePortUchar(
                       InterfaceType,
                       BusNumber,
                       IoBaseAddress + 0x9, // RADDR1
-                      0
-                      );
+                      0);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         return(FALSE);
-
     }
 
     NtStatus = DetectWritePortUchar(
                       InterfaceType,
                       BusNumber,
                       IoBaseAddress, // START | DMA_READ
-                      0xA
-                      );
+                      0xA);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         return(FALSE);
-
-    }
-
-
-    NtStatus = DetectReadPortUchar(
-                      InterfaceType,
-                      BusNumber,
-                      IoBaseAddress + 0x10, // RACK_NIC
-                      &Value
-                      );
-
-    if (NtStatus != STATUS_SUCCESS) {
-
-        Result = FALSE;
-
-    }
-
-    if (Value != 0x00) {
-
-        Result = FALSE;
-
     }
 
     NtStatus = DetectReadPortUchar(
                       InterfaceType,
                       BusNumber,
                       IoBaseAddress + 0x10, // RACK_NIC
-                      &Value
-                      );
+                      &Value);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         Result = FALSE;
-
     }
 
-    if (Value != 0x00) {
-
+    if (Value != 0x00)
+	{
         Result = FALSE;
-
     }
 
     NtStatus = DetectReadPortUchar(
                       InterfaceType,
                       BusNumber,
                       IoBaseAddress + 0x10, // RACK_NIC
-                      &Value
-                      );
+                      &Value);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         Result = FALSE;
-
     }
 
-    if (Value == 0x1D) {
+    if (Value != 0x00)
+	{
+        Result = FALSE;
+    }
 
+    NtStatus = DetectReadPortUchar(
+                      InterfaceType,
+                      BusNumber,
+                      IoBaseAddress + 0x10, // RACK_NIC
+                      &Value);
+
+    if (NtStatus != STATUS_SUCCESS)
+	{
+        Result = FALSE;
+    }
+
+    if (Value == 0x1D)
+	{
         //
         // Here we are checking for the IEEE address of Cabletron.  Turns out
         // that there are many many companies that make Ne1000 compatible
@@ -1802,9 +1595,7 @@ Return:
         // the market.   The only known card that detects just like an Ne1000
         // but is not an Ne1000 compatible card is the Cabletron card.
         //
-
         Result = FALSE;
-
     }
 
     return(Result);

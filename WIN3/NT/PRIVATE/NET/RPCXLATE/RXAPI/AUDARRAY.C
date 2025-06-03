@@ -60,7 +60,7 @@ Revision History:
 #include <align.h>      // ALIGN_ and ROUND_ equates.
 #include <lmapibuf.h>           // NetApiBufferAllocate().
 #include <lmerr.h>              // ERROR_ and NERR_ equates.
-#include <netdebug.h>           // NetpDbgPrint(), FORMAT_ equates.
+#include <netdebug.h>           // NetpKdPrint(()), FORMAT_ equates.
 #include <prefix.h>     // PREFIX_ equates.
 #include <rxaudit.h>            // RxpAudit routine prototypes.
 #include <rxp.h>        // RxpEstimateLogSize().
@@ -80,7 +80,7 @@ Revision History:
 #define MIN_DOWNLEVEL_ENTRY_SIZE \
         ( DOWNLEVEL_AUDIT_FIXED_ENTRY_SIZE \
         + 2                    /* min variable data size */ \
-        + 2 )                  /* ae_len2 */       
+        + 2 )                  /* ae_len2 */
 
 
 NET_API_STATUS
@@ -171,10 +171,10 @@ RxpConvertAuditArray(
         NetpAssert( POINTER_IS_ALIGNED( OutputFixedPtr, ALIGN_WORST ) );
 
         IF_DEBUG(AUDIT) {
-            NetpDbgPrint( PREFIX_NETLIB
+            NetpKdPrint(( PREFIX_NETLIB
                     "RxpConvertAuditArray: doing input entry at "
                     FORMAT_LPVOID ", out entry at " FORMAT_LPVOID ".\n",
-                    (LPVOID) InputFixedPtr, (LPVOID) OutputFixedPtr );
+                    (LPVOID) InputFixedPtr, (LPVOID) OutputFixedPtr ));
         }
 
         //
@@ -182,24 +182,24 @@ RxpConvertAuditArray(
         //
 
         InputTotalEntrySize = (DWORD) SmbGetUshort( (LPWORD) InputBytePtr );
-        if (InputTotalEntrySize < MIN_DOWNLEVEL_ENTRY_SIZE) {      
-            goto FileCorrupt;                                      
-        }                                                          
+        if (InputTotalEntrySize < MIN_DOWNLEVEL_ENTRY_SIZE) {
+            goto FileCorrupt;
+        }
 
-        {                                                                    
-            LPBYTE EndPos = InputBytePtr + InputTotalEntrySize;              
-            if (EndPos > InputArrayEndPtr) {                                 
-                goto FileCorrupt;                                            
-            }                                                                
+        {
+            LPBYTE EndPos = InputBytePtr + InputTotalEntrySize;
+            if (EndPos > InputArrayEndPtr) {
+                goto FileCorrupt;
+            }
             EndPos -= sizeof(WORD);     // the last ae_len2
-            if (SmbGetUshort( (LPWORD) EndPos ) != InputTotalEntrySize) {    
-                goto FileCorrupt;                                            
-            }                                                                
-        }                                                                    
+            if (SmbGetUshort( (LPWORD) EndPos ) != InputTotalEntrySize) {
+                goto FileCorrupt;
+            }
+        }
         InputBytePtr += sizeof(WORD);    // skip ae_len.
 
-        OutputFixedPtr->ae_reserved = 
-                (DWORD) SmbGetUshort( (LPWORD) InputBytePtr ); 
+        OutputFixedPtr->ae_reserved =
+                (DWORD) SmbGetUshort( (LPWORD) InputBytePtr );
         InputBytePtr += sizeof(WORD);   //  skip ae_reserved
 
         {
@@ -301,20 +301,20 @@ RxpConvertAuditArray(
 
     return (NERR_Success);
 
-FileCorrupt:                                                            
-                                                                        
-    NetpDbgPrint( PREFIX_NETAPI                                         
-            "RxpConvertAuditArray: corrupt audit log!\n" );          
-                                                                        
-    if (OutputArray != NULL) {                                          
-        (VOID) NetApiBufferFree( OutputArray );                         
-    }                                                                   
-    if (OutputArrayPtr != NULL) {                                       
-        *OutputArrayPtr = NULL;                                         
-    }                                                                   
-    if (OutputByteCountPtr != NULL) {                                   
-        *OutputByteCountPtr = 0;                                        
-    }                                                                   
-    return (NERR_LogFileCorrupt);                                       
+FileCorrupt:
+
+    NetpKdPrint(( PREFIX_NETAPI
+            "RxpConvertAuditArray: corrupt audit log!\n" ));
+
+    if (OutputArray != NULL) {
+        (VOID) NetApiBufferFree( OutputArray );
+    }
+    if (OutputArrayPtr != NULL) {
+        *OutputArrayPtr = NULL;
+    }
+    if (OutputByteCountPtr != NULL) {
+        *OutputByteCountPtr = 0;
+    }
+    return (NERR_LogFileCorrupt);
 
 }

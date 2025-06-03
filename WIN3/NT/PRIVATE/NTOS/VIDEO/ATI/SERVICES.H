@@ -7,10 +7,31 @@
 
 /**********************       PolyTron RCS Utilities
    
-  $Revision:   1.2  $
-      $Date:   12 May 1994 11:05:06  $
-	$Author:   RWOLFF  $
-	   $Log:   S:/source/wnt/ms11/miniport/vcs/services.h  $
+  $Revision:   1.9  $
+      $Date:   02 Feb 1996 17:22:20  $
+	$Author:   RWolff  $
+	   $Log:   S:/source/wnt/ms11/miniport/archive/services.h_v  $
+ * 
+ *    Rev 1.9   02 Feb 1996 17:22:20   RWolff
+ * Added prototype for new routine GetVgaBuffer().
+ * 
+ *    Rev 1.8   11 Jan 1996 19:45:02   RWolff
+ * SetFixedModes() now restricts modes based on pixel clock frequency.
+ * 
+ *    Rev 1.7   20 Jul 1995 18:01:16   mgrubac
+ * Added support for VDIF files.
+ * 
+ *    Rev 1.6   02 Jun 1995 14:34:06   RWOLFF
+ * Added prototype for UpperCase().
+ * 
+ *    Rev 1.5   23 Dec 1994 10:48:14   ASHANMUG
+ * ALPHA/Chrontel-DAC
+ * 
+ *    Rev 1.4   19 Aug 1994 17:14:34   RWOLFF
+ * Added support for non-standard pixel clock generators.
+ * 
+ *    Rev 1.3   20 Jul 1994 13:01:36   RWOLFF
+ * Added prototype for new routine FillInRegistry().
  * 
  *    Rev 1.2   12 May 1994 11:05:06   RWOLFF
  * Prototype and definitions for new function SetFixedModes()
@@ -43,6 +64,11 @@ SERVICES.H - Header file for SERVICES.C
 #endif
 
 /*
+ * Global definitions used in detecting card capabilities.
+ */
+#define VIDEO_ROM_ID    0x0AA55     /* Found at start of any BIOS block */
+
+/*
  * Permitted values for clock multiplication at high pixel depths.
  */
 enum {
@@ -62,18 +88,24 @@ extern UCHAR DoubleClock(UCHAR ClockSelector);
 extern UCHAR ThreeHalvesClock(UCHAR ClockSelector);
 extern UCHAR TripleClock(UCHAR ClockSelector);
 extern ULONG GetFrequency(UCHAR ClockSelector);
+extern UCHAR GetSelector(ULONG *Frequency);
+extern UCHAR GetShiftedSelector(ULONG Frequency);
 extern void ISAPitchAdjust(struct query_structure *QueryPtr);
 extern WORD SetFixedModes(WORD StartIndex,
                           WORD EndIndex,
                           WORD Multiplier,
                           WORD PixelDepth,
                           WORD Pitch,
+                          short FreeTables,
+                          ULONG MaxDotClock,
                           struct st_mode_table **ppmode);
 extern void FillInRegistry(struct query_structure *QueryPtr);
 
-#ifndef MSDOS
-
 extern PVOID MapFramebuffer(ULONG StartAddress, long Size);
+
+extern unsigned short far *Get_BIOS_Seg(void);
+extern void UpperCase(PUCHAR TxtString);
+extern PUCHAR GetVgaBuffer(ULONG Size, ULONG Offset, PULONG Segment, PUCHAR SaveBuffer);
 
 extern UCHAR LioInp(int Port, int Offset);
 extern USHORT LioInpw(int Port, int Offset);
@@ -82,12 +114,35 @@ extern VOID LioOutp(int Port, UCHAR Data, int Offset);
 extern VOID LioOutpw(int Port, USHORT Data, int Offset);
 extern VOID LioOutpd(int Port, ULONG Data);
 
-#endif  /* not defined MSDOS */
-
 #ifdef INCLUDE_SERVICES
 /*
  * Definitions and variables used in SERVICES.C
  */
+
+/*
+ * The following definitions are used in finding the video BIOS segment.
+ */
+#define ISA_ROM_BASE        0xC0000 /* Lowest address where BIOS can be found */
+#define ROM_LOOK_SIZE       0x40000 /* Size of block where BIOS can be found */
+#define ROM_GRANULARITY     0x00800 /* BIOS starts on a 2k boundary */
+/*
+ * Offset from ISA_ROM_BASE of highest possible start of video BIOS segment
+ */
+#define MAX_BIOS_START      ROM_LOOK_SIZE - ROM_GRANULARITY
+/*
+ * The ATI signature string will start at an offset into the video BIOS
+ * segment no less than SIG_AREA_START and no greater than SIG_AREA_END.
+ */
+#define SIG_AREA_START      0x30
+#define SIG_AREA_END        0x80
+
+/*
+ * ROM block containing ATI Graphics product signature,
+ * extended base address, and ASIC chip revision
+ */
+VIDEO_ACCESS_RANGE RawRomBaseRange = {
+    ISA_ROM_BASE, 0, ROM_LOOK_SIZE, FALSE, FALSE, FALSE
+    };
 
 /*
  * Clock selector and divisor as used by DoubleClock(). These do not
@@ -121,6 +176,13 @@ ULONG ClockGenerator[16] =
      75000000L,
      65000000L
 };
+
+/*
+ * Frequency tolerance (in hertz) used by GetSelector().
+ * Any selector/divisor pair which produces a frequency
+ * within FREQ_TOLERANCE of the input is considered a match.
+ */
+#define FREQ_TOLERANCE  100000L
 
 #else   /* Not defined INCLUDE_SERVICES */
 

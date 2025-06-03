@@ -13,7 +13,25 @@
 *
 * HISTORY:
 *		$Log:   J:\se.vcs\driver\q117cd\src\0x11042.c  $
-*	
+*
+*	   Rev 1.8   15 May 1995 10:47:58   GaryKiwi
+*	Phoenix merge from CBW95s
+*
+*	   Rev 1.7.1.0   11 Apr 1995 18:04:34   garykiwi
+*	PHOENIX pass #1
+*
+*	   Rev 1.9   30 Jan 1995 14:23:36   BOBLEHMA
+*	Changed vendors to VENDOR_ARCHIVE_CONNER, VENDOR_WANGTEK_REXON and
+*	VENDOR_MOUNTAIN_SUMMIT.
+*
+*	   Rev 1.8   26 Jan 1995 14:59:52   BOBLEHMA
+*	Added support for the Phoenix drive QIC_80W.
+*
+*	   Rev 1.7   16 Dec 1994 14:50:50   BOBLEHMA
+*	Added a dma parameter to the cqd_SenseSpeed function call.  This is used
+*	to decide if a slower speed is needed for 8 bit dma channels.  If an 8 bit
+*	channel is used, force 2 Mbps off.
+*
 *	   Rev 1.6   21 Jan 1994 18:23:16   KEVINKES
 *	Fixed compiler warnings.
 *
@@ -43,6 +61,7 @@
 #define FCT_ID 0x11042
 #include "include\public\adi_api.h"
 #include "include\public\frb_api.h"
+#include "include\public\vendor.h"
 #include "include\private\kdi_pub.h"
 #include "include\private\cqd_pub.h"
 #include "q117cd\include\cqd_defs.h"
@@ -54,7 +73,8 @@ dStatus cqd_SenseSpeed
 (
 /* INPUT PARAMETERS:  */
 
-   CqdContextPtr cqd_context
+   CqdContextPtr cqd_context,
+   dUByte        dma
 
 /* UPDATE PARAMETERS: */
 
@@ -68,33 +88,37 @@ dStatus cqd_SenseSpeed
 
 /* DATA: ********************************************************************/
 
-	dStatus status=DONT_PANIC;	/* dStatus or error condition.*/
-   dUByte  fdc_rates;                         /* flag to indicate an 82077 FDC */
-	dUByte  rate;
-   dUByte drive_config;
-	dUWord drive_rates;
-	SaveResult save_result;
-	SaveCmd save_cmd;
+    dStatus     status=DONT_PANIC;
+    dUByte      fdc_rates;          // FDC data transfer rates
+    dUByte      rate;
+    dUByte      drive_config;
+    dUWord      drive_rates;
+    SaveResult  save_result;
+    SaveCmd     save_cmd;
 	dBoolean	qic80_drive = dFALSE;
 
 /* CODE: ********************************************************************/
 
 
-   if ((status = cqd_Report(
-                  cqd_context,
-                  FW_CMD_REPORT_CONFG,
-                  (dUWord *)&drive_config,
-                  READ_BYTE,
-                  dNULL_PTR)) != DONT_PANIC) {
+    // Get the supported tape speed from the drive
+    if ((status = cqd_Report(
+                    cqd_context,
+                    FW_CMD_REPORT_CONFG,
+                    (dUWord *)&drive_config,
+                    READ_BYTE,
+                    dNULL_PTR)) != DONT_PANIC) {
 
-      return status;
+        return status;
 
-   }
+    }
 
-   drive_config &= XFER_RATE_MASK;
-	drive_config >>= XFER_RATE_SHIFT;
+    // Mask off any unused bits and make bit 0 based
+    drive_config &= XFER_RATE_MASK;
+    drive_config >>= XFER_RATE_SHIFT;
 
-	switch (cqd_context->device_descriptor.drive_class) {
+
+    // Get the suppored drive rates
+    switch (cqd_context->device_descriptor.drive_class) {
 
 	case QIC40_DRIVE:
 
@@ -102,6 +126,7 @@ dStatus cqd_SenseSpeed
 		break;
 
 	case QIC80_DRIVE:
+	case QIC80W_DRIVE:
 
 		drive_rates	= XFER_500Kbps | XFER_1Mbps;
 		break;
@@ -117,6 +142,8 @@ dStatus cqd_SenseSpeed
 		break;
 	}
 
+
+    // Get the supported FDC rates
 	switch (cqd_context->device_descriptor.fdc_type) {
 
 	case FDC_82077:
@@ -129,20 +156,24 @@ dStatus cqd_SenseSpeed
 
 	case FDC_82078_64:
 
+        //
+        // If this is a 82078,  check to see if the clock rate is set at
+        // 48MHz.  If so,  then we are able to run at 2Mbps.
+        //
 		save_result.clk48 = 0;
 		save_cmd.command = FDC_CMD_SAVE;
 
-      if ((status = cqd_ProgramFDC(cqd_context,
-                                    (dUByte *)&save_cmd,
-                                    sizeof(save_cmd),
-                                    dFALSE))
-                                    == DONT_PANIC) {
+        if ((status = cqd_ProgramFDC(cqd_context,
+                                        (dUByte *)&save_cmd,
+                                        sizeof(save_cmd),
+                                        dFALSE))
+                                        == DONT_PANIC) {
 
-         status = cqd_ReadFDC(cqd_context,
-                  				(dUByte *)&save_result,
-                  				sizeof(save_result));
+            status = cqd_ReadFDC(cqd_context,
+                                    (dUByte *)&save_result,
+                                    sizeof(save_result));
 
-      }
+        }
 
 		if (status != DONT_PANIC) {
 
@@ -168,106 +199,86 @@ dStatus cqd_SenseSpeed
 
 	}
 
-
 	cqd_context->device_cfg.supported_rates = (dUByte)(drive_rates & fdc_rates);
+    kdi_CheckedDump(
+        QIC117INFO,
+        "Q117i: FDC Transfer Rates: %x\n", fdc_rates);
 
-   switch (cqd_context->device_descriptor.vendor) {
+    kdi_CheckedDump(
+        QIC117INFO,
+        "Q117i: Drive Transfer Rates: %x\n", drive_rates);
 
-   case VENDOR_CMS:
-   case VENDOR_IOMEGA:
-   case VENDOR_SUMMIT:
-   case VENDOR_WANGTEK:
+    kdi_CheckedDump(
+        QIC117INFO,
+        "Q117i: Drive Config Rate: %x\n", drive_config);
 
-      break;
 
-   case VENDOR_CONNER:
+    //
+    // Adjust supported drive rates based on the drive vendor
+    //
+    switch (cqd_context->device_descriptor.vendor) {
 
-      if (cqd_context->drive_parms.conner_native_mode) {
+    case VENDOR_CMS:
+    case VENDOR_IOMEGA:
+    case VENDOR_MOUNTAIN_SUMMIT:
+    case VENDOR_WANGTEK_REXON:
 
-         if (cqd_context->device_descriptor.drive_class == QIC80_DRIVE) {
+        break;
 
-            if ((cqd_context->drive_parms.conner_native_mode &
-               CONNER_1MB_XFER) == 0) {
+    case VENDOR_ARCHIVE_CONNER:
 
-					cqd_context->device_cfg.supported_rates &= XFER_500Kbps;
+        //
+        // If this is an Archive QIC-40 or QIC-80 Hornet (5240, 55540, or 5580)
+        // (old single speed drive with 8-bit vendor id of
+        // CONNER_VEND_NO_OLD (0x05)),
+        // then cqd_ReportConnerVendorInfo(0x1101b.c) has set
+        // conner_native_mode, and we need to treat it special.
+        //
+        if (cqd_context->drive_parms.conner_native_mode) {
 
-				}
+            ASSERT(cqd_context->device_descriptor.drive_class == QIC40_DRIVE
+                || cqd_context->device_descriptor.drive_class == QIC80_DRIVE);
 
-         }
+            if (cqd_context->drive_parms.conner_native_mode & CONNER_500KB_XFER)
+                drive_rates = XFER_500Kbps;
+            else
+                drive_rates = XFER_250Kbps;
 
-      } else {
+            cqd_context->device_cfg.supported_rates = (dUByte)(drive_rates & fdc_rates);
 
-         switch (drive_config) {
+        }
 
-         case TAPE_2Mbps:
+        break;
 
-				cqd_context->device_cfg.supported_rates &= XFER_2Mbps;
+    default:
+
+        switch (drive_config) {
+
+        case TAPE_2Mbps:
+            cqd_context->device_cfg.supported_rates &= XFER_2Mbps;
             break;
 
-         case TAPE_1Mbps:
-
-				cqd_context->device_cfg.supported_rates &= XFER_1Mbps;
+        case TAPE_1Mbps:
+            cqd_context->device_cfg.supported_rates &= XFER_1Mbps;
             break;
 
-         case TAPE_500Kbps:
-
-				cqd_context->device_cfg.supported_rates &= XFER_500Kbps;
+        case TAPE_500Kbps:
+            cqd_context->device_cfg.supported_rates &= XFER_500Kbps;
             break;
 
-         case TAPE_250Kbps:
-
-				cqd_context->device_cfg.supported_rates &= XFER_250Kbps;
+        case TAPE_250Kbps:
+            cqd_context->device_cfg.supported_rates &= XFER_250Kbps;
             break;
 
-         default:
+        default:
+            kdi_CheckedDump(
+                QIC117DBGP,
+                "Q117i: Tape Transfer Rate = UNSUPPORTED_RATE\n", 0l);
+            return kdi_Error(ERR_UNSUPPORTED_RATE, FCT_ID, ERR_SEQ_2);
 
-				kdi_CheckedDump(
-					QIC117INFO,
-					"Q117i: Transfer Rate = UNSUPPORTED_RATE\n", 0l);
+        }
 
-            return kdi_Error(ERR_UNSUPPORTED_RATE, FCT_ID, ERR_SEQ_1);
-
-         }
-
-      }
-
-      break;
-
-   default:
-
-      switch (drive_config) {
-
-      case TAPE_2Mbps:
-
-			cqd_context->device_cfg.supported_rates &= XFER_2Mbps;
-         break;
-
-      case TAPE_1Mbps:
-
-			cqd_context->device_cfg.supported_rates &= XFER_1Mbps;
-         break;
-
-      case TAPE_500Kbps:
-
-			cqd_context->device_cfg.supported_rates &= XFER_500Kbps;
-         break;
-
-      case TAPE_250Kbps:
-
-			cqd_context->device_cfg.supported_rates &= XFER_250Kbps;
-         break;
-
-      default:
-
-			kdi_CheckedDump(
-				QIC117INFO,
-				"Q117i: Transfer Rate = UNSUPPORTED_RATE\n", 0l);
-
-         return kdi_Error(ERR_UNSUPPORTED_RATE, FCT_ID, ERR_SEQ_2);
-
-      }
-
-   }
+    }
 
 	/* if this is a Trakker, adjust the supported rates according
 	 * to the parallel port mode select.  Specifically, disallow
@@ -279,21 +290,29 @@ dStatus cqd_SenseSpeed
 		cqd_context->device_cfg.supported_rates &= ~(XFER_1Mbps | XFER_2Mbps);
 	}
 
+
+    if  ((kdi_GetFDCSpeed(cqd_context->kdi_context,dma) & XFER_2Mbps) == 0)  {
+		cqd_context->device_cfg.supported_rates &= ~XFER_2Mbps;
+	}
+
 	if (cqd_context->device_cfg.supported_rates == 0) {
 
 		kdi_CheckedDump(
-			QIC117INFO,
-			"Q117i: Transfer Rate = UNSUPPORTED_RATE\n", 0);
+            QIC117DBGP,
+            "Q117i: No Transfer Rate available, UNSUPPORTED_RATE\n", 0);
 
-      return kdi_Error(ERR_UNSUPPORTED_RATE, FCT_ID, ERR_SEQ_3);
+        return kdi_Error(ERR_UNSUPPORTED_RATE, FCT_ID, ERR_SEQ_3);
 
 	} else {
 
+        // Initialize for the HIGHEST rate (most significant bit)
 		rate = XFER_2Mbps;
 		do {
 			if ((rate & cqd_context->device_cfg.supported_rates) != 0) {
 
 				cqd_InitializeRate(cqd_context, rate);
+
+                // break out of loop
 				rate = 0;
 
 			} else {
@@ -331,8 +350,8 @@ dStatus cqd_SenseSpeed
       break;
    default:
 		kdi_CheckedDump(
-			QIC117INFO,
-			"Q117i: Transfer Rate = UNSUPPORTED_RATE\n", 0l);
+            QIC117DBGP,
+            "Q117i: xfer_rate incorrect - %x\n", cqd_context->operation_status.xfer_rate);
    }
 
 #endif

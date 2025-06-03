@@ -747,10 +747,8 @@ Return Value:
     extension->TimerStart = PAR_WRITE_TIMEOUT_VALUE;
     InitializeListHead(&extension->WorkQueue);
 
-    extension->AbsoluteOneSecond = RtlConvertUlongToLargeInteger(10*1000*1000);
-    extension->OneSecond = RtlLargeIntegerNegate(
-                               RtlConvertUlongToLargeInteger(10*1000*1000)
-                               );
+    extension->AbsoluteOneSecond.QuadPart = 10*1000*1000;
+    extension->OneSecond.QuadPart = -(10*1000*1000);
 
     KeInitializeSemaphore(
         &extension->RequestSemaphore,
@@ -3045,19 +3043,13 @@ Return Value:
     b.LowPart = B.LowPart;
     b.HighPart = B.HighPart;
 
-    if (RtlLargeIntegerEqualTo(
-            a,
-            b
-            )) {
+    if (a.QuadPart == b.QuadPart) {
 
         return AddressesAreEqual;
 
     }
 
-    if (RtlLargeIntegerGreaterThan(
-            a,
-            b
-            )) {
+    if (a.QuadPart > b.QuadPart) {
 
         higher = a;
         lower = b;
@@ -3071,13 +3063,7 @@ Return Value:
 
     }
 
-    if (RtlLargeIntegerGreaterThanOrEqualTo(
-            RtlLargeIntegerSubtract(
-                higher,
-                lower
-                ),
-            RtlConvertUlongToLargeInteger(lowerSpan)
-            )) {
+    if (higher.QuadPart - lower.QuadPart >= lowerSpan) {
 
         return AddressesAreDisjoint;
 

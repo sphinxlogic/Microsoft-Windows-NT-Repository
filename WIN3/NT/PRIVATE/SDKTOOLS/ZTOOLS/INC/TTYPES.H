@@ -25,9 +25,9 @@ int getl (char *, int);
 
 
 /* c routines */
-#define lower(x)    (strlwr(x))
-#define upper(x)    (strupr(x))
-#define MakeStr(x)  (strdup(x))
+#define lower(x)    (_strlwr(x))
+#define upper(x)    (_strupr(x))
+#define MakeStr(x)  (_strdup(x))
 #define strend(x)   ((x)+strlen(x))
 
 char  *error(void);

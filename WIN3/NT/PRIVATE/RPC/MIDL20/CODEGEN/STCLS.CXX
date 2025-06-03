@@ -49,8 +49,7 @@ Arguments :
 			 pConf->GetCGID() == ID_CG_CONF_STRING_ARRAY )
 			break;
 
-        if ( pConf->GetCGID() == ID_CG_TRANSMIT_AS ||
-             pConf->GetCGID() == ID_CG_REPRESENT_AS )
+        if ( pConf->IsXmitRepOrUserMarshal() )
             {
             pConf = (CG_NDR *)pConf->GetChild();
             continue;
@@ -65,11 +64,12 @@ Arguments :
 	return (CG_ARRAY *) pConf;
 }
 
-BOOL
-CG_STRUCT::IsPackedStruct()
+CG_FIELD *
+CG_STRUCT::GetFinalField()
 {
-	ITERATOR	Iterator;
+	CG_ITERATOR	Iterator;
 	CG_FIELD *	pField;
+    CG_NDR *    pNdr;
 
 	GetMembers( Iterator );
 
@@ -79,24 +79,247 @@ CG_STRUCT::IsPackedStruct()
 	while ( ITERATOR_GETNEXT( Iterator, pField ) )
 		;
 
+    pNdr = (CG_NDR *) pField->GetChild();
+
+    if ( pNdr->IsStruct() )
+        pField = ((CG_STRUCT *)pNdr)->GetFinalField();
+
+    return pField;
+}
+
+CG_FIELD *
+CG_STRUCT::GetArrayField( CG_ARRAY * pArray )
+{
+      CG_ITERATOR        Iterator;
+      CG_FIELD *      pField;
+    CG_NDR *    pNdr;
+
+      GetMembers( Iterator );
+
+      while ( ITERATOR_GETNEXT( Iterator, pField ) )
+        {
+        pNdr = (CG_NDR *) pField->GetChild();
+
+        if ( pNdr == pArray )
+            return pField;
+
+        //
+        // Search inside of other structs only.
+        //
+        if ( pNdr->IsStruct() )
+            {
+            if ( (pField = ((CG_STRUCT *)pNdr)->GetArrayField(pArray)) != 0 )
+                return pField;
+            }
+        }
+
+    // Didn't find it.
+    return 0;
+}
+
+BOOL
+CG_STRUCT::IsHardStruct()
+{
+    // Always return FALSE until after PPC Update.
+    return FALSE;
+}
+
+BOOL
+CG_STRUCT::IsHardStructOld()
+{
+	CG_ITERATOR	Iterator;
+	CG_FIELD *	pField;
+	CG_FIELD *	pPrevField;
+
+    //
+    // Cannot have a conformant array of any kind.
+    //
+    if ( (GetCGID() == ID_CG_CONF_STRUCT) ||
+         (GetCGID() == ID_CG_CONF_VAR_STRUCT) )
+        return FALSE;
+
+    // 
+    // Cannot have pointers.
+    //
+    if ( HasPointer() ) 
+        return FALSE;
+
+    //
+    // Can't have more than one enum16.
+    //
+    if ( GetNumberOfEnum16s() > 1 )
+        return FALSE;
+
+    //
+    // Can't have padding in the middle of the struct that differs in 
+    // memory and on the wire.
+    //
+	GetMembers( Iterator );
+
+    pPrevField = 0;
+
 	//
+	// Get the last field.
+	//
+	while ( ITERATOR_GETNEXT( Iterator, pField ) )
+        {
+        if ( pField->GetSibling() )
+		    pPrevField = pField;
+        }
+
+    //
+    // Check if the last field in the struct has a different memory and wire
+    // offset.  However, if there is a single union as the last field then 
+    // we have to check the second to last fields's mem and wire offsets 
+    // instead since a union's field's wire offsets are not accurate.
+    //
+    if ( pField->GetChild()->IsUnion() && pPrevField )
+        pField = pPrevField;
+
+    // This is complex.
+	if ( pField->GetMemOffset() != pField->GetWireOffset() )
+        return FALSE;
+
+    //
+    // Can have at most one union as the last field only.
+    //
+    switch ( GetNumberOfUnions() ) 
+        {
+        case 0 :
+            break;
+        case 1 : 
+            //
+            // The last field must be the union.
+            //
+            if ( ! GetFinalField()->GetChild()->IsUnion() )
+                return FALSE;
+            else
+                return TRUE;
+            break;
+        default :
+            return FALSE;
+        }
+
+    //
+    // Now check again if we have just one enum16.
+    //
+    if ( GetNumberOfEnum16s() == 1 )
+        return TRUE;
+
+    // 
+    // Check for end padding, which is ok for a hard struct.
+    //
+    if ( GetMemorySize() > GetWireSize() )
+        return TRUE;
+
+    //
+    // It must be a nice struct.
+    //
+    return FALSE;
+}
+
+BOOL
+CG_STRUCT::HasAFixedBufferSize()
+{
+    CG_ITERATOR	Iterator;
+	CG_FIELD *	pField;
+	
+	GetMembers( Iterator );
+    
+    while ( ITERATOR_GETNEXT( Iterator, pField ) )
+        {
+        if ( !pField->HasAFixedBufferSize() )
+		    return FALSE;
+        }
+    return TRUE;
+}
+
+BOOL
+CG_STRUCT::IsComplexStruct()
+{
+    CG_ITERATOR	Iterator;
+	CG_FIELD *	pField;
+	CG_FIELD *	pPrevField;
+    CG_NDR *    pNdr;
+    BOOL        IsConformant;
+
+    IsConformant = (GetCGID() == ID_CG_CONF_STRUCT) ||
+                   (GetCGID() == ID_CG_CONF_VAR_STRUCT);
+
+    switch ( GetNumberOfEnum16s() ) 
+        {
+        case 0 :
+            break;
+        case 1 : 
+            if ( HasPointer() || IsConformant ) 
+                return TRUE;
+            break;
+        default :
+            return TRUE;
+        }
+
+    switch ( GetNumberOfUnions() ) 
+        {
+        case 0 : 
+            break;
+        case 1 : 
+            if ( ! GetFinalField()->GetChild()->IsUnion() || 
+                 HasPointer() ||
+                 IsConformant )
+                return TRUE;
+            break;
+        default :
+            return TRUE;
+        }
+
+    if ( (GetMemorySize() > GetWireSize()) && (HasPointer() || IsConformant) )
+        return TRUE;
+
+    GetMembers( Iterator );
+
+    pPrevField = 0;
+
+    //
+    // Check if there are any embedded structs or arrays which are 
+    // complex.
+    //
+	while ( ITERATOR_GETNEXT( Iterator, pField ) )
+        {
+        pNdr = (CG_NDR *) pField->GetChild();
+
+        if ( pNdr->IsArray() && ((CG_ARRAY *)pNdr)->IsComplex() ) 
+            return TRUE;
+            
+        if ( pNdr->IsStruct() && ((CG_STRUCT *)pNdr)->IsComplexStruct() ) 
+            return TRUE;
+
+        if ( pField->GetSibling() )
+            pPrevField = pField;
+        }
+
+    //
 	// If the last field in the structure has a memory offset not equal
 	// to the buffer offset then the struct's memory alignment is different
 	// then the natural buffer alignment and we must make it complex.
+    //
+    // However, if there is a single union as the last field then we have to 
+    // check the second to last fields's mem and wire offsets instead since
+    // a union's field's wire offsets are not accurate.
+    //
+    // Otherwise, if that is not true at this point then the structure is 
+    // not complex.
 	//
-	// If the structure's memory size and buffer size are not equal then
-	// we also label the structure as "packed".  This is to prevent copying
-	// too many bytes into the buffer and thus screwing up where the next 
-	// piece of data is (un)marshalled.
-	//
-	return	(pField->GetMemOffset() != pField->GetWireOffset()) ||
-			(GetMemorySize() != GetWireSize());
+    if ( pField->GetChild()->IsUnion() && pPrevField )
+        pField = pPrevField;
+
+    return (pField->GetMemOffset() != pField->GetWireOffset()) || 
+           IsHardStructOld();
 }
 
 long
 CG_STRUCT::GetNumberOfPointers()
 {
-    ITERATOR        Iterator;
+    CG_ITERATOR		Iterator;
     CG_FIELD *      pField;
     CG_NDR *        pMember;
 	long			Count;
@@ -119,6 +342,204 @@ CG_STRUCT::GetNumberOfPointers()
 
 	return Count;
 }
+
+long
+CG_STRUCT::GetNumberOfEnum16s()
+{
+    CG_ITERATOR		Iterator;
+    CG_FIELD *      pField;
+    CG_NDR *        pNdr;
+	long			Count;
+    long            Weight;
+
+	Count = 0;
+
+	GetMembers(Iterator);
+
+    while ( ITERATOR_GETNEXT( Iterator, pField ) )
+    	{
+        pNdr = (CG_NDR *) pField->GetChild();
+
+        //
+        // If an array contains a enum16 we count it as 100 enum16s, since
+        // this routine is only interested in small enum16 counts.
+        //
+        if ( pNdr->IsArray() )
+            {
+            pNdr = (CG_NDR *) pNdr->GetChild();
+
+            while ( pNdr->IsArray() )
+                pNdr = (CG_NDR *) pNdr->GetChild();
+
+            Weight = 100;
+            }
+        else
+            Weight = 1;
+
+        if ( pNdr->IsSimpleType() && 
+             (((CG_BASETYPE *)pNdr)->GetFormatChar() == FC_ENUM16) )
+            Count += Weight;
+
+		if ( pNdr->IsStruct() )
+			Count += Weight * ((CG_STRUCT *)pNdr)->GetNumberOfEnum16s();
+		}
+
+	return Count;
+}
+
+long
+CG_STRUCT::GetNumberOfUnions()
+{
+    CG_ITERATOR		Iterator;
+    CG_FIELD *      pField;
+    CG_NDR *        pNdr;
+	long			Count;
+    long            Weight;
+
+	Count = 0;
+
+	GetMembers(Iterator);
+
+    while ( ITERATOR_GETNEXT( Iterator, pField ) )
+    	{
+        pNdr = (CG_NDR *) pField->GetChild();
+
+        //
+        // If an array contains a union we count it as 100 unions, since
+        // this routine is only interested in small union counts.
+        //
+        if ( pNdr->IsArray() )
+            {
+            pNdr = (CG_NDR *) pNdr->GetChild();
+
+            while ( pNdr->IsArray() )
+                pNdr = (CG_NDR *) pNdr->GetChild();
+
+            Weight = 100;
+            }
+        else
+            Weight = 1;
+
+        if ( (pNdr->GetCGID() == ID_CG_UNION) ||
+             (pNdr->GetCGID() == ID_CG_ENCAP_STRUCT) ) 
+            Count += Weight;
+
+		if ( pNdr->IsStruct() )
+			Count += Weight * ((CG_STRUCT *)pNdr)->GetNumberOfUnions();
+		}
+
+	return Count;
+}
+
+long
+CG_STRUCT::GetEnum16Offset()
+{
+    CG_ITERATOR	Iterator;
+    CG_FIELD *  pField;
+    CG_NDR *    pNdr;
+
+    assert( GetNumberOfEnum16s() == 1 );
+
+    GetMembers( Iterator );
+
+    //
+    // Search for the enum.  
+    //
+    while ( ITERATOR_GETNEXT( Iterator, pField ) )
+        {
+        pNdr = (CG_NDR *) pField->GetChild();
+
+        if ( pNdr->IsSimpleType() && 
+             (((CG_BASETYPE *)pNdr)->GetFormatChar() == FC_ENUM16) )
+            return pField->GetMemOffset();
+
+        if ( pNdr->IsStruct() && 
+             (((CG_STRUCT *)pNdr)->GetNumberOfEnum16s() == 1) )
+            return pField->GetMemOffset() + 
+                   ((CG_STRUCT *)pNdr)->GetEnum16Offset();
+        }
+
+    // Never get here.
+    return 0;
+}
+
+void
+CloneForUnrolling(
+    CG_NDR * pParent,
+    CG_NDR * pNdr )
+/*
+    This routine will clone pNdr and overwrite the original child at
+    the parent if needed.
+    It is assumed the parent has been cloned, too.
+*/
+{
+    CG_POINTER *    pNewPointer;
+    
+    pNewPointer = 0;
+
+    if ( pNdr->IsPointer() )
+        {
+        switch ( pNdr->GetCGID() ) 
+            {
+            case ID_CG_PTR :
+                pNewPointer = new CG_POINTER( 
+                                   (CG_POINTER *) pNdr );
+                break;
+            case ID_CG_BC_PTR :
+                pNewPointer = new CG_BYTE_COUNT_POINTER( 
+                                   (CG_BYTE_COUNT_POINTER *) pNdr );
+                break;
+            case ID_CG_STRING_PTR :
+            case ID_CG_STRUCT_STRING_PTR :
+                pNewPointer = new CG_STRING_POINTER( 
+                                   (CG_STRING_POINTER *) pNdr );
+                break;
+            case ID_CG_SIZE_PTR :
+                pNewPointer = new CG_SIZE_POINTER( 
+                                   (CG_SIZE_POINTER *) pNdr );
+                break;
+            case ID_CG_LENGTH_PTR :
+                pNewPointer = new CG_LENGTH_POINTER( 
+                                (CG_LENGTH_POINTER *) pNdr );
+                break;
+            case ID_CG_SIZE_LENGTH_PTR :
+                pNewPointer = new CG_SIZE_LENGTH_POINTER( 
+                                (CG_SIZE_LENGTH_POINTER *) pNdr );
+                break;
+            case ID_CG_SIZE_STRING_PTR :
+                pNewPointer = new CG_SIZE_STRING_POINTER( 
+                                (CG_SIZE_STRING_POINTER *) pNdr );
+                break;
+            case ID_CG_INTERFACE_PTR :
+                pNewPointer = new CG_INTERFACE_POINTER( 
+                                   (CG_INTERFACE_POINTER *) pNdr );
+                break;
+            default :
+                break;
+            }
+
+        if ( pNewPointer )
+            {
+            //
+            // We have to re-set the new pointer's format string offset and 
+            // pointee format string offset to -1 so that we get a new 
+            // description!!!
+            //
+    
+            if ( pNewPointer )
+    
+            pNewPointer->SetFormatStringOffset( -1 );
+            pNewPointer->SetPointeeFormatStringOffset( -1 );
+        
+            pParent->SetChild( pNewPointer );
+    
+            if ( pNdr->GetChild() )
+                CloneForUnrolling( pNewPointer, (CG_NDR*) pNdr->GetChild() );
+            }
+        }
+
+}
+
 
 void
 CG_STRUCT::Unroll()
@@ -174,79 +595,42 @@ CG_STRUCT::Unroll()
 		// To be safe.
 		pField->SetSibling( 0 );
 
-		while ( ITERATOR_GETNEXT(IteratorEmbeded,pFieldEmbeded) )
-			{
-			CG_POINTER * 	pNewPointer;
+        while ( ITERATOR_GETNEXT(IteratorEmbeded,pFieldEmbeded) )
+            {
+            pFieldNew = pFieldEmbeded->Clone();
 
-			pFieldNew = pFieldEmbeded->Clone();
+            pNdr = (CG_NDR *) pFieldEmbeded->GetChild();
 
-			pNdr = (CG_NDR *) pFieldEmbeded->GetChild();
+            CloneForUnrolling( pFieldNew, pNdr );
 
-			pNewPointer = 0;
+            //
+            // Set the new field's memory and wire offset.
+            //
+            pFieldNew->SetMemOffset( pFieldEmbeded->GetMemOffset() + 
+                                       MemOffsetStart );
+            pFieldNew->SetWireOffset( pFieldEmbeded->GetWireOffset() + 
+                                        WireOffsetStart );
 
-			//
-			// We also must now duplicate any sized pointer we find, otherwise
-			// we'll get only one description.
-			//
-			switch ( pNdr->GetCGID() ) 
-				{
-				case ID_CG_SIZE_PTR :
-					pNewPointer = new CG_SIZE_POINTER( 
-									(CG_SIZE_POINTER *) pNdr );
-					break;
-				case ID_CG_SIZE_LENGTH_PTR :
-					pNewPointer = new CG_SIZE_LENGTH_POINTER( 
-									(CG_SIZE_LENGTH_POINTER *) pNdr );
-					break;
-				case ID_CG_SIZE_STRING_PTR :
-					pNewPointer = new CG_SIZE_STRING_POINTER( 
-									(CG_SIZE_STRING_POINTER *) pNdr );
-					break;
-				default :
-					break;
-				}
+            //    
+            // Now add the imbeded struct's field name to the PrintPrefix of 
+            // the new unrolled field.  We ask the imbeded struct's field 
+            // for it's name.
+            //
+            pFieldNew->AddPrintPrefix( pField->GetType()->GetSymName() );
 
-			if ( pNewPointer )
-				{
-				//
-				// We have to re-set the new pointer's format string offset and 
-				// pointee format string offset to -1 so that we get a new 
-				// description!!!
-				//
-				pNewPointer->SetFormatStringOffset( -1 );
-				pNewPointer->SetPointeeFormatStringOffset( -1 );
-			
-				pFieldNew->SetChild( pNewPointer );
-				}
+            if ( pFieldList )
+                {
+                pFieldNew->SetSibling( pFieldList->GetSibling() );
+                pFieldList->SetSibling( pFieldNew );
+                }
+            else
+                {
+                pFieldNew->SetSibling( this->GetChild() );
+                this->SetChild( pFieldNew );
+                }
 
-			//
-			// Set the new field's memory and wire offset.
-			//
-			pFieldNew->SetMemOffset( pFieldEmbeded->GetMemOffset() + 
-								  	 MemOffsetStart );
-			pFieldNew->SetWireOffset( pFieldEmbeded->GetWireOffset() + 
-								  	  WireOffsetStart );
-
-			//	
-			// Now add the imbeded struct's field name to the PrintPrefix of 
-			// the new unrolled field.  We ask the imbeded struct's field 
-			// for it's name.
-			//
-			pFieldNew->AddPrintPrefix( pField->GetType()->GetSymName() );
-
-			if ( pFieldList )
-				{
-				pFieldNew->SetSibling( pFieldList->GetSibling() );
-				pFieldList->SetSibling( pFieldNew );
-				}
-			else
-				{
-				pFieldNew->SetSibling( this->GetChild() );
-				this->SetChild( pFieldNew );
-				}
-
-			pFieldList = pFieldNew;
-			}
+            pFieldList = pFieldNew;
+            }
 
 		//
 		// Set pPrevField equal to the last field node that we entered into
@@ -262,7 +646,7 @@ CG_STRUCT::Unroll()
 BOOL
 CG_STRUCT::HasSizedPointer()
 {
-	ITERATOR	Iterator;
+	CG_ITERATOR	Iterator;
 	CG_FIELD *	pField;
 	CG_NDR *	pNdr;
 	
@@ -283,3 +667,14 @@ CG_STRUCT::HasSizedPointer()
 
 	return FALSE;
 }
+
+BOOL                    
+CG_ENCAPSULATED_STRUCT::ShouldFreeOffline()
+{
+    CG_UNION * pUnion;
+
+    pUnion = (CG_UNION *) GetChild()->GetSibling()->GetChild();
+
+    return pUnion->HasPointer();
+}
+

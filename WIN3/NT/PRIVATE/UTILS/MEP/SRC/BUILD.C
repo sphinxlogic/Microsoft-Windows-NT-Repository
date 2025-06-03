@@ -135,7 +135,7 @@ fGetMake (
          pBuildCmdCur = pBuildCmdCur->pNext) {
 
         if (pBuildCmdCur->flags == GetType) {
-	    if (!stricmp((char *)pBuildCmdCur->pRule,fpszExt)) {
+	    if (!_stricmp((char *)pBuildCmdCur->pRule,fpszExt)) {
 		strcpy (fpszCmdDst,(char *)pBuildCmdCur->pCmd);
                 return pBuildCmdCur->flags;
             }
@@ -285,7 +285,7 @@ SetExt (
      *
      *      In all cases: contains ",d" --> DEBUG rule.
      */
-    strlwr (pExt);
+    _strlwr (pExt);
     strcpy (extbuf, pExt);
 
     if (pT = strstr (extbuf,",d")) {
@@ -307,7 +307,7 @@ SetExt (
     } else if (extbuf[0] == '$') {
         strcpy (extbuf, extbuf+1);
         maketype |= MAKE_BLDMACRO;
-    } else if (!stricmp (extbuf, "text")) {
+    } else if (!_stricmp (extbuf, "text")) {
         maketype |= MAKE_TOOL;
     } else if (strlen(extbuf) <= 3) {
         ((unsigned short *)extbuf)[0] = (unsigned short)'.';

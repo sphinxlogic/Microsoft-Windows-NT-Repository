@@ -4,7 +4,7 @@ Copyright (c) 1989  Microsoft Corporation
 
 Module Name:
 
-    fdapi.c
+    srvhandl.c
 
 Abstract:
 
@@ -28,14 +28,14 @@ Revision History:
 
 void
 FindOwnerModeFile(
-	IN HANDLE FileHandle,
-	OUT struct stat *StatBuf
-	);
+    IN HANDLE FileHandle,
+    OUT struct stat *StatBuf
+    );
 
 PSID
 GetLoginGroupSid(
-	IN PPSX_PROCESS p
-	);
+    IN PPSX_PROCESS p
+    );
 
 static PVOID pvInitSDMem[10];
 
@@ -51,44 +51,27 @@ ULONG OflagToDesiredAccess[8] = {
 };
 
 PSID MakeSid();
-static BOOLEAN IsUserInGroup(PPSX_PROCESS p, PSID Group);
+static BOOLEAN IsUserInGroup(
+    PPSX_PROCESS p,
+    PSID Group
+    );
 
-BOOLEAN Open(PPSX_PROCESS p, PPSX_API_MSG m, PUNICODE_STRING Path, ULONG,
-	mode_t, PULONG pRetVal, PULONG Error);
-
-dev_t
-GetFileDeviceNumber(
-	PUNICODE_STRING Path
-	)
-/*++
-
-Routine Description:
-
-	Takes a path, like \DosDevices\X:\foo\bar, and returns
-	the device number, which in this case is 'X'.
-
-Arguments:
-
-	Path - the path.
-
-Return Value:
-
-	The device number.
---*/
-{
-	wchar_t ch;
-
-	ch = Path->Buffer[12];
-	return (dev_t)ch;
-}
-
+BOOLEAN Open(
+    PPSX_PROCESS p,
+    PPSX_API_MSG m,
+    PUNICODE_STRING Path,
+    ULONG,
+    mode_t,
+    PULONG pRetVal,
+    PULONG Error
+    );
 
 
 BOOLEAN
 PsxOpen(
-	IN PPSX_PROCESS p,
-	IN OUT PPSX_API_MSG m
-	)
+    IN PPSX_PROCESS p,
+    IN OUT PPSX_API_MSG m
+    )
 
 /*++
 
@@ -109,296 +92,330 @@ Return Value:
 --*/
 
 {
-	PPSX_OPEN_MSG args;
-	NTSTATUS Status;
-	BOOLEAN r;
+    PPSX_OPEN_MSG args;
+    NTSTATUS Status;
+    BOOLEAN r;
 
-	args = &m->u.Open;
+    args = &m->u.Open;
 
-	//
-	// Check validity of pathname pointer
-	//
+    //
+    // Check validity of pathname pointer
+    //
 
-	if (!ISPOINTERVALID_CLIENT(p, args->Path_U.Buffer,
-	    args->Path_U.Length)) {
-	        KdPrint(("Invalid pointer to open: 0x%x\n",
-			args->Path_U.Buffer));
-	        m->Error = EINVAL;
-		return TRUE;
-	}
+    if (!ISPOINTERVALID_CLIENT(p, args->Path_U.Buffer,
+        args->Path_U.Length)) {
+
+        KdPrint(("Invalid pointer to open: 0x%x\n",
+        args->Path_U.Buffer));
+        m->Error = EINVAL;
+        return TRUE;
+    }
 
 
-	Status = NtImpersonateClientOfPort(p->ClientPort, (PPORT_MESSAGE)m);
-	ASSERT(NT_SUCCESS(Status));
+    Status = NtImpersonateClientOfPort(p->ClientPort, (PPORT_MESSAGE)m);
+    ASSERT(NT_SUCCESS(Status));
 
-	r = Open(p, m, &args->Path_U, args->Flags, args->Mode, &m->ReturnValue,
-		&m->Error);
+    r = Open(p, m, &args->Path_U, args->Flags, args->Mode, &m->ReturnValue,
+        &m->Error);
 
-	EndImpersonation();
+    EndImpersonation();
 
-	return r;
+    return r;
 }
 
+//
+// Internal support routine
+//
 
 BOOLEAN
 Open(
-	IN PPSX_PROCESS p,
-	IN PPSX_API_MSG m,
-	IN PUNICODE_STRING Path,
-	IN ULONG Flags,
-	IN mode_t Mode,
-	OUT PULONG pRetVal,
-	OUT PULONG pError
-	)
+    IN PPSX_PROCESS p,
+    IN PPSX_API_MSG m,
+    IN PUNICODE_STRING Path,
+    IN ULONG Flags,
+    IN mode_t Mode,
+    OUT PULONG pRetVal,
+    OUT PULONG pError
+    )
 {
-	HANDLE FileHandle;
-	NTSTATUS Status;
-	PFILEDESCRIPTOR Fd;
-	ULONG FdIndex;
-	ULONG DesiredAccess;
-	IO_STATUS_BLOCK Iosb;
-	ULONG Options;
-	FILE_INTERNAL_INFORMATION SerialNumber;
-	OBJECT_ATTRIBUTES ObjA;
-	ULONG FileClass;
-	FILE_ALLOCATION_INFORMATION AllocationInfo;
-	FILE_BASIC_INFORMATION BasicInfo;
+    HANDLE FileHandle;
+    NTSTATUS Status;
+    PFILEDESCRIPTOR Fd;
+    ULONG FdIndex;
+    ULONG DesiredAccess;
+    IO_STATUS_BLOCK Iosb;
+    ULONG Options;
+    FILE_INTERNAL_INFORMATION SerialNumber;
+    OBJECT_ATTRIBUTES ObjA;
+    ULONG FileClass;
+    FILE_ALLOCATION_INFORMATION AllocationInfo;
+    FILE_BASIC_INFORMATION BasicInfo;
         struct stat StatBuf;
-	ULONG PosixTime;
+    ULONG PosixTime;
 
-	Fd = AllocateFd(p, 0, &FdIndex);
-	if (NULL == Fd) {
-		// No file descriptors are available.
+    Fd = AllocateFd(p, 0, &FdIndex);
+    if (NULL == Fd) {
+        // No file descriptors are available.
 
-		*pError = EMFILE;
-		return TRUE;
-	}
+        *pError = EMFILE;
+        return TRUE;
+    }
 
-	DesiredAccess = OflagToDesiredAccess[Flags & O_ACCMODE];
+    DesiredAccess = OflagToDesiredAccess[Flags & O_ACCMODE];
 
-	//
-	// Whenever a file is opened, its ownership, protection, file type
-	// information is available. This implies that to view a file from
-	// posix, the following access rights are required:
-	//
-	//  READ_CONTROL - to derive owner and mode
-	//  FILE_READ_ATTRIBUTES - to read control bit to see if what we
-	//		 got was a pipe
-	//  FILE_READ_EA - to read EA's that determine object type
-	//  SYNCHRONIZE - to do syncronous IO
-	//
+    //
+    // Whenever a file is opened, its ownership, protection, file type
+    // information is available. This implies that to view a file from
+    // posix, the following access rights are required:
+    //
+    //  READ_CONTROL - to derive owner and mode
+    //  FILE_READ_ATTRIBUTES - to read control bit to see if what we
+    //       got was a pipe
+    //  FILE_READ_EA - to read EA's that determine object type
+    //  SYNCHRONIZE - to do syncronous IO
+    //
 
-	DesiredAccess |= (SYNCHRONIZE | READ_CONTROL | FILE_READ_ATTRIBUTES |
-		FILE_READ_EA);
+    DesiredAccess |= (SYNCHRONIZE | READ_CONTROL | FILE_READ_ATTRIBUTES |
+        FILE_READ_EA);
 
-	Options = FILE_SYNCHRONOUS_IO_NONALERT;
+    Options = FILE_SYNCHRONOUS_IO_NONALERT;
 
-	//
-	// If the pathname is /dev/tty, make the fd be open
-	// on the process console.
-	//
+    //
+    // If the pathname is /dev/tty, make the fd be open
+    // on the process console.
+    //
 
-	{
-		UNICODE_STRING U;
-	
-		RtlInitUnicodeString(&U, L"\\DosDevices\\X:\\dev\\tty");
-	
-		if (Path->Length == U.Length &&
-			0 == memcmp(&Path->Buffer[14], &U.Buffer[14], 16)) {
+    {
+        UNICODE_STRING U;
 
-			*pRetVal = FdIndex;
-			*pError = OpenTty(p, Fd, DesiredAccess, Flags, TRUE);
-			return TRUE;
-		}
-	}
+        RtlInitUnicodeString(&U, L"\\DosDevices\\X:\\dev\\tty");
 
-	//
-	// We ask for delete access when we open the file, and if we
-	// can't get it we try without.  If the file is unlinked while
-	// it's open, it gets moved to the junkyard, and when the last
-	// close occurs we use the delete access to remove it.
-	//
+        if (Path->Length == U.Length &&
+            0 == wcsncmp(&Path->Buffer[14], &U.Buffer[14], 8)) {
 
-	DesiredAccess |= DELETE;
+            *pRetVal = FdIndex;
+            *pError = OpenTty(p, Fd, DesiredAccess, Flags, TRUE);
+            return TRUE;
+        }
+    }
 
-	if (Flags & O_CREAT) {
-		CHAR buf[SECURITY_DESCRIPTOR_MIN_LENGTH];
-		PSECURITY_DESCRIPTOR pSD = (PVOID)buf;
+    //
+    // If the pathname is /dev/null, make the fd be open
+    // on the corresponding special device.
+    //
 
-		Status = InitSecurityDescriptor(pSD, Path, p->Process,
-			(Mode & _S_PROT) & ~p->FileModeCreationMask,
-			pvInitSDMem);
-		if (!NT_SUCCESS(Status)) {
-			*pError = PsxStatusToErrno(Status);
-			return TRUE;
-		}
+    {
+        UNICODE_STRING U;
 
-		InitializeObjectAttributes(&ObjA, Path, 0, NULL, pSD);
+        RtlInitUnicodeString(&U, L"\\DosDevices\\X:\\dev\\null");
 
-		Status = NtCreateFile(&FileHandle, DesiredAccess, &ObjA, &Iosb,
-			NULL, FILE_ATTRIBUTE_NORMAL, SHARE_ALL,
-			(Flags & O_EXCL) ? FILE_CREATE : FILE_OPEN_IF,
-			Options, NULL, 0);
+        if (Path->Length == U.Length &&
+            0 == wcsncmp(&Path->Buffer[14], &U.Buffer[14], 8)) {
 
-		if (STATUS_ACCESS_DENIED == Status ||
-		    STATUS_SHARING_VIOLATION == Status) {
-			DesiredAccess &= ~DELETE;
+            *pRetVal = FdIndex;
+            *pError = OpenDevNull(p, Fd, DesiredAccess, Flags);
+            return TRUE;
+        }
+    }
 
-			Status = NtCreateFile(&FileHandle, DesiredAccess,
-				&ObjA, &Iosb,
-				NULL, FILE_ATTRIBUTE_NORMAL, SHARE_ALL,
-				(Flags & O_EXCL) ? FILE_CREATE : FILE_OPEN_IF,
-				Options, NULL, 0);
-		}
+    //
+    // We ask for delete access when we open the file, and if we
+    // can't get it we try without.  If the file is unlinked while
+    // it's open, it gets moved to the junkyard, and when the last
+    // close occurs we use the delete access to remove it.
+    //
 
-		DeInitSecurityDescriptor(pSD, pvInitSDMem);
+    DesiredAccess |= DELETE;
 
-	} else {
-		InitializeObjectAttributes(&ObjA, Path, 0, NULL, NULL);
+    if (Flags & O_CREAT) {
+        CHAR buf[SECURITY_DESCRIPTOR_MIN_LENGTH];
+        PSECURITY_DESCRIPTOR pSD = (PVOID)buf;
 
-		Status = NtOpenFile(&FileHandle, DesiredAccess, &ObjA, &Iosb,
-                	SHARE_ALL, Options);
+        Status = InitSecurityDescriptor(pSD, Path, p->Process,
+            (Mode & _S_PROT) & ~p->FileModeCreationMask,
+            pvInitSDMem);
+        if (!NT_SUCCESS(Status)) {
+            *pError = PsxStatusToErrno(Status);
+            return TRUE;
+        }
 
-		if (STATUS_ACCESS_DENIED == Status ||
-		    STATUS_SHARING_VIOLATION == Status) {
-			DesiredAccess &= ~DELETE;
+        InitializeObjectAttributes(&ObjA, Path, 0, NULL, pSD);
 
-			Status = NtOpenFile(&FileHandle, DesiredAccess,
-				&ObjA, &Iosb,
-	                	SHARE_ALL, Options);
-		}
-	}
-	
-	if (!NT_SUCCESS(Status)) {
-		if (Status == STATUS_OBJECT_PATH_NOT_FOUND) {
-			*pError = PsxStatusToErrnoPath(Path);
-			return TRUE;
-		}
-		*pError = PsxStatusToErrno(Status);
-		return TRUE;
-	}
+        Status = NtCreateFile(&FileHandle, DesiredAccess, &ObjA, &Iosb,
+            NULL, FILE_ATTRIBUTE_NORMAL, SHARE_ALL,
+            (Flags & O_EXCL) ? FILE_CREATE : FILE_OPEN_IF,
+            Options, NULL, 0);
 
-	//
-	// Determine what type of file we have here.
-	//
+        if (STATUS_ACCESS_DENIED == Status ||
+            STATUS_SHARING_VIOLATION == Status) {
+            DesiredAccess &= ~DELETE;
 
-	FileClass = PsxDetermineFileClass(FileHandle);
+            Status = NtCreateFile(&FileHandle, DesiredAccess,
+                &ObjA, &Iosb,
+                NULL, FILE_ATTRIBUTE_NORMAL, SHARE_ALL,
+                (Flags & O_EXCL) ? FILE_CREATE : FILE_OPEN_IF,
+                Options, NULL, 0);
+        }
 
-	if (S_IFDIR == FileClass &&
-		(DesiredAccess & FILE_WRITE_DATA)) {
-		//
-		// 1003.1-90 (5.3.1.4): the open() function shall return
-		// -1 and set errno...
-		// 	[EISDIR]	The named file is a directory, and
-		//			the oflag argument specifies write
-		//			or read/write access.
-		NtClose(FileHandle);
-		*pError = EISDIR;
-		return TRUE;
-	}
+        DeInitSecurityDescriptor(pSD, pvInitSDMem);
 
-	if ((Flags & O_TRUNC) && FileClass != S_IFIFO &&
-		(DesiredAccess & (FILE_WRITE_DATA | FILE_APPEND_DATA))) {
-		AllocationInfo.AllocationSize = RtlConvertLongToLargeInteger(0);
-		Status = NtSetInformationFile(FileHandle, &Iosb,
-		&AllocationInfo, sizeof(AllocationInfo),
-                	FileAllocationInformation);
-		if (!NT_SUCCESS(Status)) {
-			NtClose(FileHandle);
-			*pError = PsxStatusToErrno(Status);
-			return TRUE;
-		}
-	}
+    } else {
+        InitializeObjectAttributes(&ObjA, Path, 0, NULL, NULL);
 
-	Fd->SystemOpenFileDesc = AllocateSystemOpenFile();
-	Fd->SystemOpenFileDesc->NtIoHandle = FileHandle;
+        Status = NtOpenFile(&FileHandle, DesiredAccess, &ObjA, &Iosb,
+                    SHARE_ALL, Options);
 
-	if (DesiredAccess & FILE_READ_DATA) {
-		Fd->SystemOpenFileDesc->Flags |= PSX_FD_READ;
-	}
-	if (DesiredAccess & (FILE_WRITE_DATA | FILE_APPEND_DATA)) {
-		Fd->SystemOpenFileDesc->Flags |= PSX_FD_WRITE;
-	}
-	if (Flags & O_NONBLOCK) {
-		Fd->SystemOpenFileDesc->Flags |= PSX_FD_NOBLOCK;
-	}
-	if (Flags & O_APPEND) {
-		Fd->SystemOpenFileDesc->Flags |= PSX_FD_APPEND;
-	}
+        if (STATUS_ACCESS_DENIED == Status ||
+            STATUS_SHARING_VIOLATION == Status) {
+            DesiredAccess &= ~DELETE;
 
-	//
-	// Get serial numbers.
-	//
+            Status = NtOpenFile(&FileHandle, DesiredAccess, &ObjA, &Iosb,
+                SHARE_ALL, Options);
+        }
+    }
 
-	Status = NtQueryInformationFile(FileHandle, &Iosb, &SerialNumber,
-		sizeof(SerialNumber), FileInternalInformation);
-	ASSERT(NT_SUCCESS(Status));
+    if (!NT_SUCCESS(Status)) {
+        if (Status == STATUS_OBJECT_PATH_NOT_FOUND) {
+            *pError = PsxStatusToErrnoPath(Path);
+            return TRUE;
+        }
+        *pError = PsxStatusToErrno(Status);
+        return TRUE;
+    }
 
-	if (ReferenceOrCreateIoNode(GetFileDeviceNumber(Path),
-		(ino_t)SerialNumber.IndexNumber.LowPart,
-		FALSE, &Fd->SystemOpenFileDesc->IoNode)) {
+    //
+    // Determine what type of file we have here.
+    //
 
-		//
-		// Existing Node Minimal Init
-		//
+    FileClass = PsxDetermineFileClass(FileHandle);
 
-		RtlLeaveCriticalSection(
-			&Fd->SystemOpenFileDesc->IoNode->IoNodeLock);
-		*pRetVal = FdIndex;
-		return IoOpenNewHandle(p, Fd, m);
-	}
+    if (S_IFDIR == FileClass &&
+        (DesiredAccess & FILE_WRITE_DATA)) {
+        //
+        // 1003.1-90 (5.3.1.4): the open() function shall return
+        // -1 and set errno...
+        //  [EISDIR]    The named file is a directory, and
+        //          the oflag argument specifies write
+        //          or read/write access.
+        NtClose(FileHandle);
+        *pError = EISDIR;
+        return TRUE;
+    }
 
-	//
-	// New IoNode; lots of initialization
-	//
+    if ((Flags & O_TRUNC) && FileClass != S_IFIFO &&
+        (DesiredAccess & (FILE_WRITE_DATA | FILE_APPEND_DATA))) {
 
-	if (FileClass == S_IFIFO) {
-		Fd->SystemOpenFileDesc->IoNode->IoVectors = &NamedPipeVectors;
-		Fd->SystemOpenFileDesc->IoNode->Context =
-			RtlAllocateHeap(PsxHeap, 0, sizeof(LOCAL_PIPE));
-		InitializeLocalPipe(
-			(PLOCAL_PIPE)Fd->SystemOpenFileDesc->IoNode->Context);
-	} else {
-		Fd->SystemOpenFileDesc->IoNode->IoVectors = &FileVectors;
-	}
+        AllocationInfo.AllocationSize = RtlConvertLongToLargeInteger(0);
+        Status = NtSetInformationFile(FileHandle, &Iosb,
+            &AllocationInfo, sizeof(AllocationInfo), FileAllocationInformation);
+        if (!NT_SUCCESS(Status)) {
+            NtClose(FileHandle);
+            *pError = PsxStatusToErrno(Status);
+            return TRUE;
+        }
+    }
 
-	Fd->SystemOpenFileDesc->IoNode->PathLength = Path->Length/2 -
-		strlen("/DosDevices/X:");
+    Fd->SystemOpenFileDesc = AllocateSystemOpenFile();
+    Fd->SystemOpenFileDesc->NtIoHandle = FileHandle;
 
-        StatBuf.st_mode = FileClass;
-        FindOwnerModeFile(FileHandle, &StatBuf);
-        Fd->SystemOpenFileDesc->IoNode->Mode =
-                StatBuf.st_mode & ~(p->FileModeCreationMask);
+    if (DesiredAccess & FILE_READ_DATA) {
+        Fd->SystemOpenFileDesc->Flags |= PSX_FD_READ;
+    }
+    if (DesiredAccess & (FILE_WRITE_DATA | FILE_APPEND_DATA)) {
+        Fd->SystemOpenFileDesc->Flags |= PSX_FD_WRITE;
+    }
+    if (Flags & O_NONBLOCK) {
+        Fd->SystemOpenFileDesc->Flags |= PSX_FD_NOBLOCK;
+    }
+    if (Flags & O_APPEND) {
+        Fd->SystemOpenFileDesc->Flags |= PSX_FD_APPEND;
+    }
 
-	Fd->SystemOpenFileDesc->IoNode->OwnerId = StatBuf.st_uid;
-	Fd->SystemOpenFileDesc->IoNode->GroupId = StatBuf.st_gid;
+    //
+    // Get serial numbers.
+    //
 
-	//
-	// Get the file timestamps, convert to Posix format, and stash
-	// them away in the IoNode.
-	//
+    Status = NtQueryInformationFile(FileHandle, &Iosb, &SerialNumber,
+        sizeof(SerialNumber), FileInternalInformation);
 
-	Status = NtQueryInformationFile(FileHandle, &Iosb, (PVOID)&BasicInfo,
-		sizeof(BasicInfo), FileBasicInformation);
-	ASSERT(NT_SUCCESS(Status));
+    if (!NT_SUCCESS(Status)) {
+        NtClose(FileHandle);
+        *pError = PsxStatusToErrno(Status);
+        return TRUE;
+    }
 
-	if (!RtlTimeToSecondsSince1970(&BasicInfo.LastAccessTime, &PosixTime))
-		PosixTime = 0;
-	Fd->SystemOpenFileDesc->IoNode->AccessDataTime = PosixTime;
+    if (ReferenceOrCreateIoNode(GetFileDeviceNumber(Path),
+        (ino_t)SerialNumber.IndexNumber.LowPart,
+        FALSE, &Fd->SystemOpenFileDesc->IoNode)) {
 
-	if (!RtlTimeToSecondsSince1970(&BasicInfo.LastWriteTime, &PosixTime))
-		PosixTime = 0;
-	Fd->SystemOpenFileDesc->IoNode->ModifyDataTime = PosixTime;
+        //
+        // Existing Node Minimal Init
+        //
 
-	if (!RtlTimeToSecondsSince1970(&BasicInfo.ChangeTime, &PosixTime))
-		PosixTime = 0;
-	Fd->SystemOpenFileDesc->IoNode->ModifyIoNodeTime = PosixTime;
+        RtlLeaveCriticalSection(
+            &Fd->SystemOpenFileDesc->IoNode->IoNodeLock);
+        *pRetVal = FdIndex;
+        return IoOpenNewHandle(p, Fd, m);
+    }
 
-	RtlLeaveCriticalSection(&Fd->SystemOpenFileDesc->IoNode->IoNodeLock);
+    //
+    // New IoNode; lots of initialization
+    //
 
-	*pRetVal = FdIndex;
+    if (FileClass == S_IFIFO) {
+        Fd->SystemOpenFileDesc->IoNode->IoVectors = &NamedPipeVectors;
+        Fd->SystemOpenFileDesc->IoNode->Context =
+            RtlAllocateHeap(PsxHeap, 0, sizeof(LOCAL_PIPE));
+        InitializeLocalPipe(
+            (PLOCAL_PIPE)Fd->SystemOpenFileDesc->IoNode->Context);
+    } else {
+        Fd->SystemOpenFileDesc->IoNode->IoVectors = &FileVectors;
+    }
 
-	return IoOpenNewHandle(p, Fd, m);
+    Fd->SystemOpenFileDesc->IoNode->PathLength = Path->Length/2 -
+        strlen("/DosDevices/X:");
+
+    StatBuf.st_mode = FileClass;
+    FindOwnerModeFile(FileHandle, &StatBuf);
+    Fd->SystemOpenFileDesc->IoNode->Mode =
+        StatBuf.st_mode & ~(p->FileModeCreationMask);
+
+    Fd->SystemOpenFileDesc->IoNode->OwnerId = StatBuf.st_uid;
+    Fd->SystemOpenFileDesc->IoNode->GroupId = StatBuf.st_gid;
+
+    //
+    // Get the file timestamps, convert to Posix format, and stash
+    // them away in the IoNode.
+    //
+
+    Status = NtQueryInformationFile(FileHandle, &Iosb, (PVOID)&BasicInfo,
+        sizeof(BasicInfo), FileBasicInformation);
+
+    if (!NT_SUCCESS(Status)) {
+        *pError = PsxStatusToErrno(Status);
+        return TRUE;
+    }
+
+    if (!RtlTimeToSecondsSince1970(&BasicInfo.LastAccessTime, &PosixTime)) {
+        PosixTime = 0;
+    }
+    Fd->SystemOpenFileDesc->IoNode->AccessDataTime = PosixTime;
+
+    if (!RtlTimeToSecondsSince1970(&BasicInfo.LastWriteTime, &PosixTime)) {
+        PosixTime = 0;
+    }
+    Fd->SystemOpenFileDesc->IoNode->ModifyDataTime = PosixTime;
+
+    if (!RtlTimeToSecondsSince1970(&BasicInfo.ChangeTime, &PosixTime)) {
+        PosixTime = 0;
+    }
+    Fd->SystemOpenFileDesc->IoNode->ModifyIoNodeTime = PosixTime;
+
+    RtlLeaveCriticalSection(&Fd->SystemOpenFileDesc->IoNode->IoNodeLock);
+
+    *pRetVal = FdIndex;
+
+    return IoOpenNewHandle(p, Fd, m);
 }
 
 
@@ -504,7 +521,6 @@ Return Value:
 
         m->Error = EMFILE;
         return TRUE;
-
     }
 
     //
@@ -527,9 +543,9 @@ Return Value:
 
     Pipe = RtlAllocateHeap(PsxHeap, 0, sizeof(LOCAL_PIPE));
     if (NULL == Pipe) {
-	// XXX.mjb: deallocate fd's.
-	m->Error = ENOMEM;
-	return TRUE;
+        // XXX.mjb: deallocate fd's.
+        m->Error = ENOMEM;
+        return TRUE;
     }
 
     ReadFd->SystemOpenFileDesc = AllocateSystemOpenFile();
@@ -541,11 +557,11 @@ Return Value:
     WriteFd->SystemOpenFileDesc->NtIoHandle = (HANDLE)NULL;
 
     if (ReferenceOrCreateIoNode((dev_t)PSX_LOCAL_PIPE, (ino_t)Pipe,
-	    FALSE, &ReadFd->SystemOpenFileDesc->IoNode)) {
+        FALSE, &ReadFd->SystemOpenFileDesc->IoNode)) {
         Panic("PsxPipe: Existing IONODE ?\n");
     }
     ReferenceOrCreateIoNode((dev_t)PSX_LOCAL_PIPE, (ino_t)Pipe,
-	    FALSE, &WriteFd->SystemOpenFileDesc->IoNode);
+        FALSE, &WriteFd->SystemOpenFileDesc->IoNode);
 
     IoNode = ReadFd->SystemOpenFileDesc->IoNode;
     IoNode->Context = (PVOID)Pipe;
@@ -563,11 +579,11 @@ Return Value:
 
     NtQuerySystemTime(&Time);
     if (!RtlTimeToSecondsSince1970(&Time, &PosixTime)) {
-	PosixTime = 0L;		// Time not within range of 1970 - 2105
+        PosixTime = 0L;     // Time not within range of 1970 - 2105
     }
 
     IoNode->AccessDataTime = IoNode->ModifyDataTime = IoNode->ModifyIoNodeTime =
-	PosixTime;
+        PosixTime;
     InitializeLocalPipe(Pipe);
 
     RtlLeaveCriticalSection(&IoNode->IoNodeLock);
@@ -630,8 +646,8 @@ Return Value:
         return TRUE;
     }
     if (0 == args->Nbytes) {
-	m->ReturnValue = 0;
-	return TRUE;
+        m->ReturnValue = 0;
+        return TRUE;
     }
 
     args->Scratch1 = args->Scratch2 = 0;
@@ -681,8 +697,8 @@ Return Value:
         return TRUE;
     }
     if (0 == args->Nbytes) {
-	m->ReturnValue = 0;
-	return TRUE;
+        m->ReturnValue = 0;
+        return TRUE;
     }
 
     args->Scratch1 = args->Scratch2 = 0;
@@ -731,8 +747,8 @@ Return Value:
         return TRUE;
     }
     if (0 == args->Nbytes) {
-	m->ReturnValue = 0;
-	return TRUE;
+        m->ReturnValue = 0;
+        return TRUE;
     }
 
     return (Fd->SystemOpenFileDesc->IoNode->IoVectors->ReadRoutine)(p, m, Fd);
@@ -789,7 +805,7 @@ Return Value:
 
     }
     RetVal = (Fd->SystemOpenFileDesc->IoNode->IoVectors->DupRoutine)
-		(p, m, Fd, FdDup);
+        (p, m, Fd, FdDup);
     m->ReturnValue = FdIndex;
     return RetVal;
 }
@@ -836,7 +852,7 @@ Return Value:
     FdIndex = args->FileDes;
     FdIndex2 = args->FileDes2;
 
-    if ( !Fd || !ISFILEDESINRANGE(FdIndex2) ) {
+    if (!Fd || !ISFILEDESINRANGE(FdIndex2)) {
 
         m->Error = EBADF;
         return TRUE;
@@ -846,9 +862,9 @@ Return Value:
     // If FileDes is valid and == FileDes2, just return FileDes2
     //
 
-    if ( FdIndex == FdIndex2) {
+    if (FdIndex == FdIndex2) {
 
-	m->ReturnValue = FdIndex2;
+        m->ReturnValue = FdIndex2;
         return TRUE;
     }
 
@@ -866,10 +882,8 @@ Return Value:
 
     // Call Dup Routine to do the work
 
-    RetVal = (Fd->SystemOpenFileDesc->IoNode->IoVectors->DupRoutine)(p,
-								     m,
-								     Fd,
-								     Fd2);
+    RetVal = (Fd->SystemOpenFileDesc->IoNode->IoVectors->DupRoutine)
+                (p, m, Fd, Fd2);
     m->ReturnValue = FdIndex2;
     return RetVal;
 }
@@ -903,7 +917,6 @@ Return Value:
     PPSX_LSEEK_MSG args;
     PFILEDESCRIPTOR Fd;
 
-
     args = &m->u.Lseek;
 
     Fd = FdIndexToFd(p, args->FileDes);
@@ -913,21 +926,24 @@ Return Value:
         return TRUE;
     }
 
+    //
     // Lseek is not allowed on FIFOs or local pipes
-    if (S_ISFIFO(Fd->SystemOpenFileDesc->IoNode->Mode) |
-    	Fd->SystemOpenFileDesc->IoNode->DeviceSerialNumber == PSX_LOCAL_PIPE) {
+    //
+
+    if (S_ISFIFO(Fd->SystemOpenFileDesc->IoNode->Mode) ||
+        Fd->SystemOpenFileDesc->IoNode->DeviceSerialNumber == PSX_LOCAL_PIPE) {
         m->Error = ESPIPE;
         return TRUE;
     }
 
     switch (args->Whence) {
-        case SEEK_SET:
-        case SEEK_CUR:
-        case SEEK_END:
-            break;
-        default:
-            m->Error = EINVAL;
-            return TRUE;
+    case SEEK_SET:
+    case SEEK_CUR:
+    case SEEK_END:
+        break;
+    default:
+        m->Error = EINVAL;
+        return TRUE;
     }
 
     return (Fd->SystemOpenFileDesc->IoNode->IoVectors->LseekRoutine)(p, m, Fd);
@@ -980,9 +996,9 @@ Return Value:
 
 BOOLEAN
 PsxMkDir(
-	IN PPSX_PROCESS p,
-	IN OUT PPSX_API_MSG m
-	)
+    IN PPSX_PROCESS p,
+    IN OUT PPSX_API_MSG m
+    )
 
 /*++
 
@@ -1003,76 +1019,80 @@ Return Value:
 --*/
 
 {
-	PPSX_MKDIR_MSG args;
-	HANDLE FileHandle;
-	NTSTATUS Status;
-	IO_STATUS_BLOCK Iosb;
-	OBJECT_ATTRIBUTES ObjA;
-	UNICODE_STRING Path_U;
-	ULONG DesiredAccess;
-	CHAR buf[SECURITY_DESCRIPTOR_MIN_LENGTH];
-	PSECURITY_DESCRIPTOR pSD = (PVOID)buf;
+    PPSX_MKDIR_MSG args;
+    HANDLE FileHandle;
+    NTSTATUS Status;
+    IO_STATUS_BLOCK Iosb;
+    OBJECT_ATTRIBUTES ObjA;
+    UNICODE_STRING Path_U;
+    ULONG DesiredAccess;
+    CHAR buf[SECURITY_DESCRIPTOR_MIN_LENGTH];
+    PSECURITY_DESCRIPTOR pSD = (PVOID)buf;
 
-	args = &m->u.MkDir;
+    args = &m->u.MkDir;
 
-	//
-	// Check validity of pathname pointer
-	//
+    //
+    // Check validity of pathname pointer
+    //
 
-	if (!ISPOINTERVALID_CLIENT(p,args->Path_U.Buffer,args->Path_U.Length)) {
-		KdPrint(("Invalid pointer to mkdir %lx \n",
-			args->Path_U.Buffer));
-		m->Error = EINVAL;
-		return TRUE;
-	}
+    if (!ISPOINTERVALID_CLIENT(p,args->Path_U.Buffer,args->Path_U.Length)) {
+        KdPrint(("Invalid pointer to mkdir %lx \n",
+            args->Path_U.Buffer));
+        m->Error = EINVAL;
+        return TRUE;
+    }
 
-	Path_U = args->Path_U;
+    Path_U = args->Path_U;
 
-	Status = InitSecurityDescriptor(pSD, &args->Path_U, p->Process,
-		(args->Mode & _S_PROT) & ~p->FileModeCreationMask,
-		pvInitSDMem);
-	if (!NT_SUCCESS(Status)) {
-		m->Error = PsxStatusToErrno(Status);
-		return TRUE;
-	}
+    Status = NtImpersonateClientOfPort(p->ClientPort, (PPORT_MESSAGE)m);
+    ASSERT(NT_SUCCESS(Status));
 
-	InitializeObjectAttributes(&ObjA, &Path_U, 0, NULL, pSD);
+    Status = InitSecurityDescriptor(pSD, &args->Path_U, p->Process,
+        (args->Mode & _S_PROT) & ~p->FileModeCreationMask,
+        pvInitSDMem);
 
-	DesiredAccess = WRITE_OWNER | WRITE_DAC;
+    if (!NT_SUCCESS(Status)) {
 
-	Status = NtImpersonateClientOfPort(p->ClientPort, (PPORT_MESSAGE)m);
-	ASSERT(NT_SUCCESS(Status));
+        EndImpersonation();
 
-	Status = NtCreateFile(&FileHandle, DesiredAccess, &ObjA, &Iosb, NULL,
-            		  FILE_ATTRIBUTE_NORMAL, 0, FILE_CREATE,
-            		  FILE_DIRECTORY_FILE, NULL, 0);
+        m->Error = PsxStatusToErrno(Status);
+        return TRUE;
+    }
 
-	EndImpersonation();
+    InitializeObjectAttributes(&ObjA, &Path_U, 0, NULL, pSD);
 
-	DeInitSecurityDescriptor(pSD, pvInitSDMem);
+    DesiredAccess = WRITE_OWNER | WRITE_DAC;
 
-	if (!NT_SUCCESS(Status)) {
-		(void)NtClose(FileHandle);
-		if (STATUS_OBJECT_PATH_NOT_FOUND == Status) {
-			m->Error = PsxStatusToErrnoPath(&Path_U);
-			return TRUE;
-		}
-		m->Error = PsxStatusToErrno(Status);
-		return TRUE;
-	}
+    Status = NtCreateFile(&FileHandle, DesiredAccess, &ObjA, &Iosb, NULL,
+                      FILE_ATTRIBUTE_NORMAL, 0, FILE_CREATE,
+                      FILE_DIRECTORY_FILE, NULL, 0);
 
-	Status = NtClose(FileHandle);
-	ASSERT(NT_SUCCESS(Status));
+    EndImpersonation();
 
-	return TRUE;
+    DeInitSecurityDescriptor(pSD, pvInitSDMem);
+
+    if (!NT_SUCCESS(Status)) {
+        (void)NtClose(FileHandle);
+        if (STATUS_OBJECT_PATH_NOT_FOUND == Status) {
+            m->Error = PsxStatusToErrnoPath(&Path_U);
+            return TRUE;
+        }
+        m->Error = PsxStatusToErrno(Status);
+        return TRUE;
+    }
+
+    Status = NtClose(FileHandle);
+    ASSERT(NT_SUCCESS(Status));
+
+    return TRUE;
 }
 
 
 BOOLEAN
 PsxMkFifo(
-	IN PPSX_PROCESS p,
-	IN OUT PPSX_API_MSG m
-	)
+    IN PPSX_PROCESS p,
+    IN OUT PPSX_API_MSG m
+    )
 
 /*++
 
@@ -1093,68 +1113,71 @@ Return Value:
 --*/
 
 {
-	PPSX_MKFIFO_MSG args;
-	HANDLE FileHandle;
-	NTSTATUS Status;
-	IO_STATUS_BLOCK Iosb;
-	OBJECT_ATTRIBUTES ObjA;
-	UNICODE_STRING Path_U;
-	ULONG DesiredAccess;
-	CHAR buf[SECURITY_DESCRIPTOR_MIN_LENGTH];
-	PSECURITY_DESCRIPTOR pSD = (PVOID)buf;
-	
-	args = &m->u.MkFifo;
-	
-	//
-	// Check validity of pathname pointer
-	//
-	
-	if (!ISPOINTERVALID_CLIENT(p,args->Path_U.Buffer,args->Path_U.Length)) {
-		KdPrint(("Invalid pointer to mkfifo %lx\n",
-			args->Path_U.Buffer));
-		m->Error = EINVAL;
-		return TRUE;
-	}
+    PPSX_MKFIFO_MSG args;
+    HANDLE FileHandle;
+    NTSTATUS Status;
+    IO_STATUS_BLOCK Iosb;
+    OBJECT_ATTRIBUTES ObjA;
+    UNICODE_STRING Path_U;
+    ULONG DesiredAccess;
+    CHAR buf[SECURITY_DESCRIPTOR_MIN_LENGTH];
+    PSECURITY_DESCRIPTOR pSD = (PVOID)buf;
 
-	Path_U = args->Path_U;
-	
-	Status = InitSecurityDescriptor(pSD, &args->Path_U, p->Process,
-		(args->Mode & _S_PROT) & ~p->FileModeCreationMask,
-		pvInitSDMem);
-	if (!NT_SUCCESS(Status)) {
-		m->Error = PsxStatusToErrno(Status);
-		return TRUE;
-	}
+    args = &m->u.MkFifo;
 
-	InitializeObjectAttributes(&ObjA, &Path_U, 0, NULL, pSD);
+    //
+    // Check validity of pathname pointer
+    //
 
-	DesiredAccess = FILE_READ_DATA | WRITE_DAC | WRITE_OWNER;
+    if (!ISPOINTERVALID_CLIENT(p,args->Path_U.Buffer,args->Path_U.Length)) {
+        KdPrint(("Invalid pointer to mkfifo %lx\n",
+            args->Path_U.Buffer));
+        m->Error = EINVAL;
+        return TRUE;
+    }
 
-	Status = NtImpersonateClientOfPort(p->ClientPort, (PPORT_MESSAGE)m);
-	ASSERT(NT_SUCCESS(Status));
+    Path_U = args->Path_U;
 
-	Status = NtCreateFile(&FileHandle, DesiredAccess, &ObjA, &Iosb,
-		NULL, FILE_ATTRIBUTE_SYSTEM, 0, FILE_CREATE, 0L,
-            	NULL,           // Need EA's that id this as a fifo
-            	0);
+    Status = NtImpersonateClientOfPort(p->ClientPort, (PPORT_MESSAGE)m);
+    ASSERT(NT_SUCCESS(Status));
 
-	EndImpersonation();
+    Status = InitSecurityDescriptor(pSD, &args->Path_U, p->Process,
+        (args->Mode & _S_PROT) & ~p->FileModeCreationMask,
+        pvInitSDMem);
+    if (!NT_SUCCESS(Status)) {
 
-	DeInitSecurityDescriptor(pSD, pvInitSDMem);
+        EndImpersonation();
 
-	if (!NT_SUCCESS(Status)) {
-		if (STATUS_OBJECT_PATH_NOT_FOUND == Status) {
-			m->Error = PsxStatusToErrnoPath(&Path_U);
-			return TRUE;
-		}
-		m->Error = PsxStatusToErrno(Status);
-		return TRUE;
-	}
+        m->Error = PsxStatusToErrno(Status);
+        return TRUE;
+    }
 
-	Status = NtClose(FileHandle);
-	ASSERT(NT_SUCCESS(Status));
-	
-	return TRUE;
+    InitializeObjectAttributes(&ObjA, &Path_U, 0, NULL, pSD);
+
+    DesiredAccess = FILE_READ_DATA | WRITE_DAC | WRITE_OWNER;
+
+    Status = NtCreateFile(&FileHandle, DesiredAccess, &ObjA, &Iosb,
+                NULL, FILE_ATTRIBUTE_SYSTEM, 0, FILE_CREATE, 0L,
+                NULL,
+                0);
+
+    EndImpersonation();
+
+    DeInitSecurityDescriptor(pSD, pvInitSDMem);
+
+    if (!NT_SUCCESS(Status)) {
+        if (STATUS_OBJECT_PATH_NOT_FOUND == Status) {
+            m->Error = PsxStatusToErrnoPath(&Path_U);
+            return TRUE;
+        }
+        m->Error = PsxStatusToErrno(Status);
+        return TRUE;
+    }
+
+    Status = NtClose(FileHandle);
+    ASSERT(NT_SUCCESS(Status));
+
+    return TRUE;
 }
 
 
@@ -1203,6 +1226,10 @@ Return Value:
         m->Error = EINVAL;
         return TRUE;
     }
+    if (!ISPOINTERVALID_CLIENT(p, args->StatBuf, sizeof(struct stat))) {
+        m->Error = EINVAL;
+        return TRUE;
+    }
 
     Path_U = args->Path_U;
     InitializeObjectAttributes(&ObjA, &Path_U, 0, NULL, NULL);
@@ -1210,68 +1237,69 @@ Return Value:
     Status = NtImpersonateClientOfPort(p->ClientPort, (PPORT_MESSAGE)m);
     ASSERT(NT_SUCCESS(Status));
 
-	// Open the file to obtain file handle.
+    // Open the file to obtain file handle.
 
-	Status = NtOpenFile(&FileHandle,
-		SYNCHRONIZE | READ_CONTROL | FILE_READ_ATTRIBUTES |
-		FILE_READ_EA, &ObjA, &Iosb,
-		SHARE_ALL,
-		FILE_SYNCHRONOUS_IO_NONALERT);
-	//
-	// Convert error code if open was not successful
-	//
-	
-	EndImpersonation();
-	if (!NT_SUCCESS(Status)) {
-		if (STATUS_OBJECT_PATH_NOT_FOUND == Status) {
-			m->Error = PsxStatusToErrnoPath(&Path_U);
-			return TRUE;
-		}
-		m->Error = PsxStatusToErrno(Status);
-		return TRUE;
-	}
+    Status = NtOpenFile(&FileHandle,
+        SYNCHRONIZE | READ_CONTROL | FILE_READ_ATTRIBUTES |
+        FILE_READ_EA, &ObjA, &Iosb,
+        SHARE_ALL,
+        FILE_SYNCHRONOUS_IO_NONALERT);
 
-	//
-	// Get file serial numbers...
-	//
-	
-	Status = NtQueryInformationFile(FileHandle, &Iosb, &SerialNumber,
-            			    sizeof(SerialNumber),
-            			    FileInternalInformation);
-	if (!NT_SUCCESS(Status)) {
-		KdPrint(("PSXSS: NtQueryInfoFile failed: 0x%x\n", Status));
-	}
-	ASSERT(NT_SUCCESS(Status));
+    //
+    // Convert error code if open was not successful
+    //
 
-	//
-	// Find the Ionode associated with this file.
-	//
+    EndImpersonation();
+    if (!NT_SUCCESS(Status)) {
+        if (STATUS_OBJECT_PATH_NOT_FOUND == Status) {
+            m->Error = PsxStatusToErrnoPath(&Path_U);
+            return TRUE;
+        }
+        m->Error = PsxStatusToErrno(Status);
+        return TRUE;
+    }
 
-	if (ReferenceOrCreateIoNode(GetFileDeviceNumber(&Path_U),
-		(ino_t)SerialNumber.IndexNumber.LowPart, TRUE, &IoNode)) {
+    //
+    // Get file serial numbers...
+    //
 
-		RetVal = (IoNode->IoVectors->StatRoutine)(IoNode,
-			FileHandle, args->StatBuf, &Status);
-		RtlLeaveCriticalSection(&IoNode->IoNodeLock);
-	} else {
-		//
-		// Ionode doesn't exist. Not currently open or NonPosix file.
-		//
+    Status = NtQueryInformationFile(FileHandle, &Iosb, &SerialNumber,
+                            sizeof(SerialNumber),
+                            FileInternalInformation);
+    if (!NT_SUCCESS(Status)) {
+        KdPrint(("PSXSS: NtQueryInfoFile failed: 0x%x\n", Status));
+    }
+    ASSERT(NT_SUCCESS(Status));
 
-		RetVal = (FileVectors.StatRoutine)(NULL, FileHandle,
-			args->StatBuf, &Status);
-		args->StatBuf->st_dev = GetFileDeviceNumber(&Path_U);
-	}
+    //
+    // Find the Ionode associated with this file.
+    //
 
-	EndImpersonation();
-	NtClose(FileHandle);
+    if (ReferenceOrCreateIoNode(GetFileDeviceNumber(&Path_U),
+        (ino_t)SerialNumber.IndexNumber.LowPart, TRUE, &IoNode)) {
 
-	if (!NT_SUCCESS(Status)) {
-		m->Error = PsxStatusToErrno(Status);
-		return TRUE;
-	}
+        RetVal = (IoNode->IoVectors->StatRoutine)(IoNode,
+            FileHandle, args->StatBuf, &Status);
+        RtlLeaveCriticalSection(&IoNode->IoNodeLock);
+    } else {
+        //
+        // Ionode doesn't exist. Not currently open or NonPosix file.
+        //
 
-	return RetVal;
+        RetVal = (FileVectors.StatRoutine)(NULL, FileHandle,
+            args->StatBuf, &Status);
+        args->StatBuf->st_dev = GetFileDeviceNumber(&Path_U);
+    }
+
+    EndImpersonation();
+    NtClose(FileHandle);
+
+    if (!NT_SUCCESS(Status)) {
+        m->Error = PsxStatusToErrno(Status);
+        return TRUE;
+    }
+
+    return RetVal;
 }
 
 
@@ -1305,6 +1333,11 @@ Return Value:
 
     args = &m->u.FStat;
 
+    if (!ISPOINTERVALID_CLIENT(p, args->StatBuf, sizeof(struct stat))) {
+        m->Error = EINVAL;
+        return TRUE;
+    }
+
     Fd = FdIndexToFd(p, args->FileDes);
     if (!Fd) {
         m->Error = EBADF;
@@ -1313,14 +1346,14 @@ Return Value:
 
     RtlEnterCriticalSection(&Fd->SystemOpenFileDesc->IoNode->IoNodeLock);
     RetVal = (Fd->SystemOpenFileDesc->IoNode->IoVectors->StatRoutine)
-					(Fd->SystemOpenFileDesc->IoNode,
-					 Fd->SystemOpenFileDesc->NtIoHandle,
-					 args->StatBuf, &Status);
+                    (Fd->SystemOpenFileDesc->IoNode,
+                     Fd->SystemOpenFileDesc->NtIoHandle,
+                     args->StatBuf, &Status);
 
     RtlLeaveCriticalSection(&Fd->SystemOpenFileDesc->IoNode->IoNodeLock);
 
     if (!NT_SUCCESS(Status)) {
-	m->Error = PsxStatusToErrno(Status);
+        m->Error = PsxStatusToErrno(Status);
     }
 
     return RetVal;
@@ -1352,42 +1385,41 @@ Return Value:
 
 --*/
 {
-	PPSX_PATHCONF_MSG               args;
-	HANDLE                          FileHandle;
-	NTSTATUS                        Status;
-	IO_STATUS_BLOCK                 IoStatusBlock;
-	OBJECT_ATTRIBUTES               ObjA;
-	UNICODE_STRING                  Path;
-	ULONG                           Length;
-	PFILE_FS_ATTRIBUTE_INFORMATION  pFSInfo;
-	unsigned char                   buf[sizeof(FILE_FS_ATTRIBUTE_INFORMATION)+
+    PPSX_PATHCONF_MSG               args;
+    HANDLE                          FileHandle;
+    NTSTATUS                        Status;
+    IO_STATUS_BLOCK                 IoStatusBlock;
+    OBJECT_ATTRIBUTES               ObjA;
+    UNICODE_STRING                  Path;
+    ULONG                           Length;
+    PFILE_FS_ATTRIBUTE_INFORMATION  pFSInfo;
+    unsigned char                   buf[sizeof(FILE_FS_ATTRIBUTE_INFORMATION)+
                                         128*sizeof(WCHAR)];
 
-	args    = &m->u.PathConf;
-	pFSInfo = (PFILE_FS_ATTRIBUTE_INFORMATION)buf;
+    args    = &m->u.PathConf;
+    pFSInfo = (PFILE_FS_ATTRIBUTE_INFORMATION)buf;
 
-	//
-	// Check validity of pathname
-	//
+    //
+    // Check validity of pathname
+    //
 
-	if (!ISPOINTERVALID_CLIENT(p, args->Path.Buffer, args->Path.Length)) {
-        	KdPrint(("Invalid pointer to pathconf: %lx \n",
-			args->Path.Buffer));
-		m->Error = EINVAL;
-		return TRUE;
-	}
+    if (!ISPOINTERVALID_CLIENT(p, args->Path.Buffer, args->Path.Length)) {
+        KdPrint(("Invalid pointer to pathconf: %lx \n", args->Path.Buffer));
+        m->Error = EINVAL;
+        return TRUE;
+    }
 
-	Path = args->Path;
-	InitializeObjectAttributes(&ObjA, &Path, 0, NULL, NULL);
+    Path = args->Path;
+    InitializeObjectAttributes(&ObjA, &Path, 0, NULL, NULL);
 
-	Status = NtImpersonateClientOfPort(p->ClientPort, (PPORT_MESSAGE)m);
-	ASSERT(NT_SUCCESS(Status));
+    Status = NtImpersonateClientOfPort(p->ClientPort, (PPORT_MESSAGE)m);
+    ASSERT(NT_SUCCESS(Status));
 
-	//
-	// Open the file to obtain file handle.
-	//
+    //
+    // Open the file to obtain file handle.
+    //
 
-	Status = NtOpenFile(&FileHandle,
+    Status = NtOpenFile(&FileHandle,
                         SYNCHRONIZE | READ_CONTROL |
                         FILE_READ_ATTRIBUTES | FILE_READ_EA,
                         &ObjA,
@@ -1395,87 +1427,88 @@ Return Value:
                         SHARE_ALL,
                         FILE_SYNCHRONOUS_IO_NONALERT);
 
-	EndImpersonation();
-	//
-	// Convert error code if open was not successful
-	//
-	
-	if (!NT_SUCCESS(Status)) {
-		if (STATUS_OBJECT_PATH_NOT_FOUND == Status) {
-			m->Error = PsxStatusToErrnoPath(&Path);
-			return TRUE;
-		}
-		m->Error = PsxStatusToErrno(Status);
-		return TRUE;
-	}
+    EndImpersonation();
+    //
+    // Convert error code if open was not successful
+    //
 
-	//
-	// Figure out pathconf return value.
-	//
+    if (!NT_SUCCESS(Status)) {
+        if (STATUS_OBJECT_PATH_NOT_FOUND == Status) {
+            m->Error = PsxStatusToErrnoPath(&Path);
+            return TRUE;
+        }
+        m->Error = PsxStatusToErrno(Status);
+        return TRUE;
+    }
 
-	switch(args->Name) {
-	case _PC_LINK_MAX:
-		Status = NtQueryVolumeInformationFile(FileHandle,
+    //
+    // Figure out pathconf return value.
+    //
+
+    switch(args->Name) {
+    case _PC_LINK_MAX:
+        Status = NtQueryVolumeInformationFile(FileHandle,
                                               &IoStatusBlock,
                                               buf,
                                               sizeof(buf),
                                               FileFsAttributeInformation);
-        	ASSERT(NT_SUCCESS(Status));
-        	if (pFSInfo->FileSystemNameLength > (sizeof(buf)-sizeof(WCHAR))) {
-            		KdPrint(("PSXSS: File System Name too long in PsxPathConf\n"));
-            		m->Error = EINVAL;
-            		return TRUE;
-        	}
-        	pFSInfo->FileSystemName[pFSInfo->FileSystemNameLength/2] = L'\0';
-        	if (0 == wcscmp(L"NTFS", pFSInfo->FileSystemName)) {
-            		m->ReturnValue = (ULONG)(-1); //
-        	} else {
-            		m->ReturnValue = 1;
-        	}
-        	break;
+        ASSERT(NT_SUCCESS(Status));
+        if (pFSInfo->FileSystemNameLength > (sizeof(buf)-sizeof(WCHAR))) {
+            KdPrint(("PSXSS: File System Name too long in PsxPathConf\n"));
+            m->Error = EINVAL;
+            return TRUE;
+        }
+        pFSInfo->FileSystemName[pFSInfo->FileSystemNameLength/2] = L'\0';
+        if (0 == wcscmp(L"NTFS", pFSInfo->FileSystemName) ||
+            0 == wcscmp(L"OFS", pFSInfo->FileSystemName)) {
+            m->ReturnValue = (ULONG)LINK_MAX;
+        } else {
+            m->ReturnValue = 1;
+        }
+        break;
 
-	case _PC_NAME_MAX:
-        	Status = NtQueryVolumeInformationFile(FileHandle,
+    case _PC_NAME_MAX:
+        Status = NtQueryVolumeInformationFile(FileHandle,
                                               &IoStatusBlock,
                                               buf,
                                               sizeof(buf),
                                               FileFsAttributeInformation);
-        	ASSERT(NT_SUCCESS(Status));
+        ASSERT(NT_SUCCESS(Status));
 
-       		m->ReturnValue = pFSInfo->MaximumComponentNameLength;
-        	break;
+        m->ReturnValue = pFSInfo->MaximumComponentNameLength;
+        break;
 
-    	case _PC_PIPE_BUF:
-        	m->ReturnValue = _POSIX_PIPE_BUF;
-        	break;
+    case _PC_PIPE_BUF:
+        m->ReturnValue = _POSIX_PIPE_BUF;
+        break;
 
-	case _PC_CHOWN_RESTRICTED:
-        	m->ReturnValue = _POSIX_CHOWN_RESTRICTED;
-        	break;
+    case _PC_CHOWN_RESTRICTED:
+        m->ReturnValue = _POSIX_CHOWN_RESTRICTED;
+        break;
 
-	case _PC_NO_TRUNC:
-        	m->ReturnValue = _POSIX_NO_TRUNC;
-        	break;
+    case _PC_NO_TRUNC:
+        m->ReturnValue = _POSIX_NO_TRUNC;
+        break;
 
-	case _PC_PATH_MAX:
-		m->ReturnValue = PATH_MAX;
-		break;
+    case _PC_PATH_MAX:
+        m->ReturnValue = PATH_MAX;
+        break;
 
-	case _PC_MAX_CANON:
-	case _PC_MAX_INPUT:
-	case _PC_VDISABLE:
-	        //
-	        // No limit associated with file descriptor for these variables
-	        //
-	        m->Error = EINVAL;
-	        break;
+    case _PC_MAX_CANON:
+    case _PC_MAX_INPUT:
+    case _PC_VDISABLE:
+        //
+        // No limit associated with file descriptor for these variables
+        //
+        m->Error = EINVAL;
+        break;
 
-	default:
-        	m->Error = EINVAL;
+    default:
+        m->Error = EINVAL;
+    }
 
-    	}
-	Status = NtClose(FileHandle);
-	return TRUE;
+    Status = NtClose(FileHandle);
+    return TRUE;
 }
 
 
@@ -1523,17 +1556,16 @@ Return Value:
     }
 
     switch(args->Name) {
-
     case _PC_LINK_MAX:
 
-	if (&FileVectors != Fd->SystemOpenFileDesc->IoNode->IoVectors) {
-		//
-		// The file descriptor is not open on a file.
-		//
+        if (&FileVectors != Fd->SystemOpenFileDesc->IoNode->IoVectors) {
+            //
+            // The file descriptor is not open on a file.
+            //
 
-		m->Error = EINVAL;
-		return TRUE;
-	}
+            m->Error = EINVAL;
+            return TRUE;
+        }
 
         Status = NtQueryVolumeInformationFile(
                                          Fd->SystemOpenFileDesc->NtIoHandle,
@@ -1548,22 +1580,23 @@ Return Value:
             return TRUE;
         }
         pFSInfo->FileSystemName[pFSInfo->FileSystemNameLength/2] = L'\0';
-        if (0 == wcscmp(L"NTFS", pFSInfo->FileSystemName)) {
-            m->ReturnValue = (ULONG)(-1); //
+        if (0 == wcscmp(L"NTFS", pFSInfo->FileSystemName) ||
+            0 == wcscmp(L"OFS", pFSInfo->FileSystemName)) {
+            m->ReturnValue = (ULONG)(LINK_MAX); //
         } else {
             m->ReturnValue = 1;
         }
         break;
 
     case _PC_NAME_MAX:
-	if (&FileVectors != Fd->SystemOpenFileDesc->IoNode->IoVectors) {
-		//
-		// The file descriptor is not open on a file.
-		//
+        if (&FileVectors != Fd->SystemOpenFileDesc->IoNode->IoVectors) {
+            //
+            // The file descriptor is not open on a file.
+            //
 
-		m->Error = EINVAL;
-		return TRUE;
-	}
+            m->Error = EINVAL;
+            return TRUE;
+        }
 
         Status = NtQueryVolumeInformationFile(
                                          Fd->SystemOpenFileDesc->NtIoHandle,
@@ -1573,7 +1606,7 @@ Return Value:
                                          FileFsAttributeInformation);
         ASSERT(NT_SUCCESS(Status));
 
-       	m->ReturnValue = pFSInfo->MaximumComponentNameLength;
+        m->ReturnValue = pFSInfo->MaximumComponentNameLength;
         break;
 
     case _PC_PIPE_BUF:
@@ -1589,8 +1622,8 @@ Return Value:
         break;
 
     case _PC_PATH_MAX:
-	m->ReturnValue = PATH_MAX;
-	break;
+        m->ReturnValue = PATH_MAX;
+    break;
 
     case _PC_MAX_CANON:
     case _PC_MAX_INPUT:
@@ -1603,17 +1636,17 @@ Return Value:
 
     default:
         m->Error = EINVAL;
-
     }
+
     return TRUE;
 }
 
 
 BOOLEAN
 PsxChmod(
-	IN PPSX_PROCESS p,
-	IN PPSX_API_MSG m
-	)
+    IN PPSX_PROCESS p,
+    IN PPSX_API_MSG m
+    )
 /*++
 
 Routine Description:
@@ -1632,245 +1665,244 @@ Return Value:
 
 --*/
 {
-	PPSX_CHMOD_MSG args;
-	HANDLE	FileHandle;
-	NTSTATUS Status;
-	IO_STATUS_BLOCK
-		Iosb;
-	OBJECT_ATTRIBUTES
-		ObjA;
-	UNICODE_STRING
-		Path_U;
-	SECURITY_INFORMATION
-		SecurityInformation;
-	PSECURITY_DESCRIPTOR
-		SecurityDescriptor = NULL;
-	PACL	pDacl = NULL;
-	ULONG	DaclSize;			// the size of the Dacl
-	PSID	NtOwner, NtGroup;
-	BOOLEAN OwnerDefaulted, GroupDefaulted;
-	BOOLEAN DaclPresent, DaclDefaulted;
-	ACCESS_MASK
-		UserAccess, GroupAccess, OtherAccess;
-	ULONG	LengthNeeded,
-		Revision,			// Security Desc revision
-		SdSize;				// Size for Security Desc
-	SECURITY_DESCRIPTOR_CONTROL
-		Control;
+    PPSX_CHMOD_MSG args;
+    HANDLE  FileHandle;
+    NTSTATUS Status;
+    IO_STATUS_BLOCK
+            Iosb;
+    OBJECT_ATTRIBUTES
+            ObjA;
+    UNICODE_STRING
+            Path_U;
+    SECURITY_INFORMATION
+            SecurityInformation;
+    PSECURITY_DESCRIPTOR
+            SecurityDescriptor = NULL;
+    PACL    pDacl = NULL;
+    ULONG   DaclSize;           // the size of the Dacl
+    PSID    NtOwner, NtGroup;
+    BOOLEAN OwnerDefaulted, GroupDefaulted;
+    BOOLEAN DaclPresent, DaclDefaulted;
+    ACCESS_MASK
+            UserAccess, GroupAccess, OtherAccess;
+    ULONG   LengthNeeded,
+            Revision,           // Security Desc revision
+            SdSize;             // Size for Security Desc
+    SECURITY_DESCRIPTOR_CONTROL
+            Control;
 
-	// Pointers for a manufactured absolute-format security descriptor.
+    // Pointers for a manufactured absolute-format security descriptor.
 
-	PACL	pAbsDacl = NULL,
-		pAbsSacl = NULL;
-	PSID	pAbsOwner = NULL,
-		pAbsGroup = NULL;
-	
-	args = &m->u.Chmod;
+    PACL    pAbsDacl = NULL,
+            pAbsSacl = NULL;
+    PSID    pAbsOwner = NULL,
+            pAbsGroup = NULL;
 
-	if (!ISPOINTERVALID_CLIENT(p, args->Path_U.Buffer,
-	    args->Path_U.Length)) {
-		KdPrint(("Invalid pointer to chmod: %lx\n",
-			args->Path_U.Buffer));
-		m->Error = EINVAL;
-		return TRUE;
-	}
+    args = &m->u.Chmod;
 
-	Path_U = args->Path_U;
-	InitializeObjectAttributes(&ObjA, &Path_U, 0, NULL, NULL);
+    if (!ISPOINTERVALID_CLIENT(p, args->Path_U.Buffer,
+        args->Path_U.Length)) {
+        KdPrint(("Invalid pointer to chmod: %lx\n", args->Path_U.Buffer));
+        m->Error = EINVAL;
+        return TRUE;
+    }
 
-	Status = NtImpersonateClientOfPort(p->ClientPort, (PPORT_MESSAGE)m);
-	ASSERT(NT_SUCCESS(Status));
-	
-	Status = NtOpenFile(&FileHandle, SYNCHRONIZE | WRITE_DAC | READ_CONTROL,
-		&ObjA, &Iosb,
-		SHARE_ALL,
-		FILE_SYNCHRONOUS_IO_NONALERT);
+    Path_U = args->Path_U;
+    InitializeObjectAttributes(&ObjA, &Path_U, 0, NULL, NULL);
 
-	if (!NT_SUCCESS(Status)) {
-		NTSTATUS st;
+    Status = NtImpersonateClientOfPort(p->ClientPort, (PPORT_MESSAGE)m);
+    ASSERT(NT_SUCCESS(Status));
 
-		//
-		// 1003.1-90:  EPERM when the euid does not match the
-		// owner of the file.  We try to open the file with null
-		// access, if we can't do that then search permission is
-		// denied or somesuch.  Otherwise, we give EPERM.
-		//
+    Status = NtOpenFile(&FileHandle, SYNCHRONIZE | WRITE_DAC | READ_CONTROL,
+        &ObjA, &Iosb,
+        SHARE_ALL,
+        FILE_SYNCHRONOUS_IO_NONALERT);
 
-		st = NtOpenFile(&FileHandle, SYNCHRONIZE | READ_CONTROL,
-			&ObjA, &Iosb,
-			SHARE_ALL,
-			FILE_SYNCHRONOUS_IO_NONALERT);
-		EndImpersonation();
-		if (STATUS_OBJECT_PATH_NOT_FOUND == Status) {
-			m->Error = PsxStatusToErrnoPath(&Path_U);
-			return TRUE;
-		}
-		if (!NT_SUCCESS(st)) {
-			m->Error = PsxStatusToErrno(st);
-			return TRUE;
-		}
+    if (!NT_SUCCESS(Status)) {
+        NTSTATUS st;
 
-		NtClose(FileHandle);
-		m->Error = EPERM;
-		return TRUE;
-	}
-	EndImpersonation();
+        //
+        // 1003.1-90:  EPERM when the euid does not match the
+        // owner of the file.  We try to open the file with null
+        // access, if we can't do that then search permission is
+        // denied or somesuch.  Otherwise, we give EPERM.
+        //
+
+        st = NtOpenFile(&FileHandle, SYNCHRONIZE | READ_CONTROL,
+            &ObjA, &Iosb,
+            SHARE_ALL,
+            FILE_SYNCHRONOUS_IO_NONALERT);
+        EndImpersonation();
+        if (STATUS_OBJECT_PATH_NOT_FOUND == Status) {
+            m->Error = PsxStatusToErrnoPath(&Path_U);
+            return TRUE;
+        }
+        if (!NT_SUCCESS(st)) {
+            m->Error = PsxStatusToErrno(st);
+            return TRUE;
+        }
+
+        NtClose(FileHandle);
+        m->Error = EPERM;
+        return TRUE;
+    }
+    EndImpersonation();
 
 
-	//
-	// Get the security descriptor for the file.
-	//
+    //
+    // Get the security descriptor for the file.
+    //
 
-	SecurityInformation = OWNER_SECURITY_INFORMATION |
-		GROUP_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION;
+    SecurityInformation = OWNER_SECURITY_INFORMATION |
+        GROUP_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION;
 
-	Status = NtQuerySecurityObject(FileHandle, SecurityInformation,
-		NULL, 0, &SdSize);
-	ASSERT(STATUS_BUFFER_TOO_SMALL == Status);
+    Status = NtQuerySecurityObject(FileHandle, SecurityInformation,
+        NULL, 0, &SdSize);
+    ASSERT(STATUS_BUFFER_TOO_SMALL == Status);
 
-	SecurityDescriptor = RtlAllocateHeap(PsxHeap, 0, SdSize);
-	if (NULL == SecurityDescriptor) {
-		m->Error = ENOMEM;
-		goto out;
-	}
+    SecurityDescriptor = RtlAllocateHeap(PsxHeap, 0, SdSize);
+    if (NULL == SecurityDescriptor) {
+        m->Error = ENOMEM;
+        goto out;
+    }
 
-	Status = NtQuerySecurityObject(FileHandle, SecurityInformation,
-		SecurityDescriptor, SdSize, &SdSize);
-	ASSERT(NT_SUCCESS(Status));
+    Status = NtQuerySecurityObject(FileHandle, SecurityInformation,
+        SecurityDescriptor, SdSize, &SdSize);
+    ASSERT(NT_SUCCESS(Status));
 
-	Status = RtlGetControlSecurityDescriptor(SecurityDescriptor,
-		&Control, &Revision);
-	ASSERT(NT_SUCCESS(Status));
-	ASSERT(SECURITY_DESCRIPTOR_REVISION == Revision);
+    Status = RtlGetControlSecurityDescriptor(SecurityDescriptor,
+        &Control, &Revision);
+    ASSERT(NT_SUCCESS(Status));
+    ASSERT(SECURITY_DESCRIPTOR_REVISION == Revision);
 
-	if (Control & SE_SELF_RELATIVE) {
-		PSECURITY_DESCRIPTOR
-			AbsSD;		// SD in absolute format.
+    if (Control & SE_SELF_RELATIVE) {
+        PSECURITY_DESCRIPTOR
+            AbsSD;      // SD in absolute format.
 
-		ULONG	AbsSdSize = 0,
-			DaclSize = 0,
-			SaclSize = 0,
-			OwnerSize = 0,
-			GroupSize = 0;
+        ULONG   AbsSdSize = 0,
+            DaclSize = 0,
+            SaclSize = 0,
+            OwnerSize = 0,
+            GroupSize = 0;
 
-		//
-		// This security descriptor needs to be converted to absolute
-		// format.
-		//
+        //
+        // This security descriptor needs to be converted to absolute
+        // format.
+        //
 
-		Status = RtlSelfRelativeToAbsoluteSD(SecurityDescriptor,
-			NULL, &AbsSdSize, NULL, &DaclSize, NULL, &SaclSize,
-			NULL, &OwnerSize, NULL, &GroupSize);
-		ASSERT(STATUS_BUFFER_TOO_SMALL == Status);
+        Status = RtlSelfRelativeToAbsoluteSD(SecurityDescriptor,
+            NULL, &AbsSdSize, NULL, &DaclSize, NULL, &SaclSize,
+            NULL, &OwnerSize, NULL, &GroupSize);
+        ASSERT(STATUS_BUFFER_TOO_SMALL == Status);
 
-		AbsSD = RtlAllocateHeap(PsxHeap, 0, AbsSdSize);
-		pAbsDacl = RtlAllocateHeap(PsxHeap, 0, DaclSize);
-		pAbsSacl = RtlAllocateHeap(PsxHeap, 0, SaclSize);
-		pAbsOwner = RtlAllocateHeap(PsxHeap, 0, OwnerSize);
-		pAbsGroup = RtlAllocateHeap(PsxHeap, 0, GroupSize);
+        AbsSD = RtlAllocateHeap(PsxHeap, 0, AbsSdSize);
+        pAbsDacl = RtlAllocateHeap(PsxHeap, 0, DaclSize);
+        pAbsSacl = RtlAllocateHeap(PsxHeap, 0, SaclSize);
+        pAbsOwner = RtlAllocateHeap(PsxHeap, 0, OwnerSize);
+        pAbsGroup = RtlAllocateHeap(PsxHeap, 0, GroupSize);
 
-		if (NULL == AbsSD || NULL == pAbsDacl || NULL == pAbsSacl
-		    || NULL == pAbsOwner || NULL == pAbsGroup) {
-			m->Error = ENOMEM;
-			goto out;
-		}
+        if (NULL == AbsSD || NULL == pAbsDacl || NULL == pAbsSacl
+            || NULL == pAbsOwner || NULL == pAbsGroup) {
+            m->Error = ENOMEM;
+            goto out;
+        }
 
-		Status = RtlSelfRelativeToAbsoluteSD(SecurityDescriptor,
-			AbsSD, &AbsSdSize, pAbsDacl, &DaclSize, pAbsSacl,
-			&SaclSize, pAbsOwner, &OwnerSize, pAbsGroup,
-			&GroupSize);
-		ASSERT(NT_SUCCESS(Status));
+        Status = RtlSelfRelativeToAbsoluteSD(SecurityDescriptor,
+            AbsSD, &AbsSdSize, pAbsDacl, &DaclSize, pAbsSacl,
+            &SaclSize, pAbsOwner, &OwnerSize, pAbsGroup,
+            &GroupSize);
+        ASSERT(NT_SUCCESS(Status));
 
-		// RtlFreeHeap(PsxHeap, 0, SecurityDescriptor);
-		SecurityDescriptor = AbsSD;
-		AbsSD = NULL;			// so it won't be freed later
-	}
+        // RtlFreeHeap(PsxHeap, 0, SecurityDescriptor);
+        SecurityDescriptor = AbsSD;
+        AbsSD = NULL;           // so it won't be freed later
+    }
 
-	//
-	// Get the owner and group from the security descriptor
-	//
+    //
+    // Get the owner and group from the security descriptor
+    //
 
-	Status = RtlGetOwnerSecurityDescriptor(SecurityDescriptor,
-		 &NtOwner, &OwnerDefaulted);
-	ASSERT(NT_SUCCESS(Status));
-    	
-	Status = RtlGetGroupSecurityDescriptor(SecurityDescriptor,
-		 &NtGroup, &GroupDefaulted);
-	ASSERT(NT_SUCCESS(Status));
+    Status = RtlGetOwnerSecurityDescriptor(SecurityDescriptor,
+         &NtOwner, &OwnerDefaulted);
+    ASSERT(NT_SUCCESS(Status));
 
-	if (NULL == NtOwner || NULL == NtGroup) {
-		//
-		// We need an owner and group to change the modes; fail.
-		//
-		KdPrint(("PsxChmod: No owner or no group\n"));
-		m->Error = EPERM;
-		goto out;
-	}
+    Status = RtlGetGroupSecurityDescriptor(SecurityDescriptor,
+         &NtGroup, &GroupDefaulted);
+    ASSERT(NT_SUCCESS(Status));
 
-	Status = RtlGetDaclSecurityDescriptor(SecurityDescriptor,
-		&DaclPresent, &pDacl, &DaclDefaulted);
-	ASSERT(NT_SUCCESS(Status));
+    if (NULL == NtOwner || NULL == NtGroup) {
+        //
+        // We need an owner and group to change the modes; fail.
+        //
+        KdPrint(("PsxChmod: No owner or no group\n"));
+        m->Error = EPERM;
+        goto out;
+    }
 
-	ModeToAccessMask(args->Mode, &UserAccess, &GroupAccess, &OtherAccess);
+    Status = RtlGetDaclSecurityDescriptor(SecurityDescriptor,
+        &DaclPresent, &pDacl, &DaclDefaulted);
+    ASSERT(NT_SUCCESS(Status));
 
-	Status = RtlMakePosixAcl(ACL_REVISION2, NtOwner, NtGroup, UserAccess,
-		GroupAccess, OtherAccess, 0, NULL, &LengthNeeded);
-	ASSERT(STATUS_BUFFER_TOO_SMALL == Status);
+    ModeToAccessMask(args->Mode, &UserAccess, &GroupAccess, &OtherAccess);
 
-	pDacl = RtlAllocateHeap(PsxHeap, 0, LengthNeeded);
-	if (NULL == pDacl) {
-		m->Error = ENOMEM;
-		return TRUE;
-	}
+    Status = RtlMakePosixAcl(ACL_REVISION2, NtOwner, NtGroup, UserAccess,
+        GroupAccess, OtherAccess, 0, NULL, &LengthNeeded);
+    ASSERT(STATUS_BUFFER_TOO_SMALL == Status);
 
-	Status = RtlMakePosixAcl(ACL_REVISION2, NtOwner, NtGroup, UserAccess,
-		GroupAccess, OtherAccess, LengthNeeded, pDacl, &DaclSize);
-	ASSERT(NT_SUCCESS(Status));
+    pDacl = RtlAllocateHeap(PsxHeap, 0, LengthNeeded);
+    if (NULL == pDacl) {
+        m->Error = ENOMEM;
+        return TRUE;
+    }
 
-	Status = RtlSetDaclSecurityDescriptor(SecurityDescriptor, TRUE,
-		pDacl, FALSE);
-	if (!NT_SUCCESS(Status)) {
-		KdPrint(("PSXSS: RtlSetDacl: 0x%x\n", Status));
-		m->Error = EPERM;
-		return TRUE;
-	}
+    Status = RtlMakePosixAcl(ACL_REVISION2, NtOwner, NtGroup, UserAccess,
+        GroupAccess, OtherAccess, LengthNeeded, pDacl, &DaclSize);
+    ASSERT(NT_SUCCESS(Status));
 
-	SecurityInformation = DACL_SECURITY_INFORMATION;
+    Status = RtlSetDaclSecurityDescriptor(SecurityDescriptor, TRUE,
+        pDacl, FALSE);
+    if (!NT_SUCCESS(Status)) {
+        KdPrint(("PSXSS: RtlSetDacl: 0x%x\n", Status));
+        m->Error = EPERM;
+        return TRUE;
+    }
 
-	Status = NtImpersonateClientOfPort(p->ClientPort, (PPORT_MESSAGE)m);
-	ASSERT(NT_SUCCESS(Status));
-	{
-		Status = NtSetSecurityObject(FileHandle, SecurityInformation,
-			SecurityDescriptor);
-	} EndImpersonation();
+    SecurityInformation = DACL_SECURITY_INFORMATION;
 
-	if (!NT_SUCCESS(Status)) {
-		m->Error = PsxStatusToErrno(Status);
-	}
+    Status = NtImpersonateClientOfPort(p->ClientPort, (PPORT_MESSAGE)m);
+    ASSERT(NT_SUCCESS(Status));
+    {
+        Status = NtSetSecurityObject(FileHandle, SecurityInformation,
+            SecurityDescriptor);
+    } EndImpersonation();
+
+    if (!NT_SUCCESS(Status)) {
+        m->Error = PsxStatusToErrno(Status);
+    }
 
 out:
-	NtClose(FileHandle);
+    NtClose(FileHandle);
 
-	if (NULL != pAbsDacl) {
-		RtlFreeHeap(PsxHeap, 0, pAbsDacl);
-	}
-	if (NULL != pAbsSacl) {
-		RtlFreeHeap(PsxHeap, 0, pAbsSacl);
-	}
-	if (NULL != pAbsOwner) {
-		RtlFreeHeap(PsxHeap, 0, pAbsOwner);
-	}
-	if (NULL != pAbsGroup) {
-		RtlFreeHeap(PsxHeap, 0, pAbsGroup);
-	}
-	if (NULL != SecurityDescriptor) {
-		RtlFreeHeap(PsxHeap, 0, SecurityDescriptor);
-	}
-	if (NULL != pDacl) {
-		RtlFreeHeap(PsxHeap, 0, pDacl);
-	}
+    if (NULL != pAbsDacl) {
+        RtlFreeHeap(PsxHeap, 0, pAbsDacl);
+    }
+    if (NULL != pAbsSacl) {
+        RtlFreeHeap(PsxHeap, 0, pAbsSacl);
+    }
+    if (NULL != pAbsOwner) {
+        RtlFreeHeap(PsxHeap, 0, pAbsOwner);
+    }
+    if (NULL != pAbsGroup) {
+        RtlFreeHeap(PsxHeap, 0, pAbsGroup);
+    }
+    if (NULL != SecurityDescriptor) {
+        RtlFreeHeap(PsxHeap, 0, SecurityDescriptor);
+    }
+    if (NULL != pDacl) {
+        RtlFreeHeap(PsxHeap, 0, pDacl);
+    }
 
-	return TRUE;
+    return TRUE;
 }
 
 
@@ -1897,354 +1929,351 @@ Return Value:
 
 --*/
 {
-	PPSX_CHOWN_MSG args;
-	HANDLE FileHandle;
-	NTSTATUS Status;
-	IO_STATUS_BLOCK Iosb;
-	OBJECT_ATTRIBUTES ObjA;
-	UNICODE_STRING Path_U;
-	PIONODE IoNode;
-	SECURITY_INFORMATION SecurityInformation;
-	PSECURITY_DESCRIPTOR
-		SecurityDescriptor = NULL,
-		pFreeSD = NULL;
-	ACCESS_MASK UserAccess, GroupAccess, OtherAccess;
-	ULONG LengthNeeded;
-	PSID	NtOwner,		// owner from existing SD
-		NtGroup,		// group from existing SD
-		DomainSid,		// domain goes with new gid
-		NewGroup = NULL,	// new group from DomainSid+gid
-		NewUser = NULL;		// new user
-	BOOLEAN OwnerDefaulted, GroupDefaulted, DaclPresent, DaclDefaulted;
-	PACL	pDacl = NULL, pDacl2 = NULL;
-	ULONG	Revision;		// Security Desc revision
-	SECURITY_DESCRIPTOR_CONTROL
-		Control;
-	FILE_INTERNAL_INFORMATION
-		SerialNumber;
+    PPSX_CHOWN_MSG args;
+    HANDLE FileHandle;
+    NTSTATUS Status;
+    IO_STATUS_BLOCK Iosb;
+    OBJECT_ATTRIBUTES ObjA;
+    UNICODE_STRING Path_U;
+    PIONODE IoNode;
+    SECURITY_INFORMATION SecurityInformation;
+    PSECURITY_DESCRIPTOR
+            SecurityDescriptor = NULL,
+            pFreeSD = NULL;
+    ACCESS_MASK UserAccess, GroupAccess, OtherAccess;
+    ULONG   LengthNeeded;
+    PSID    NtOwner,        // owner from existing SD
+            NtGroup,        // group from existing SD
+            DomainSid,      // domain goes with new gid
+            NewGroup = NULL,    // new group from DomainSid+gid
+            NewUser = NULL;     // new user
+    BOOLEAN OwnerDefaulted, GroupDefaulted, DaclPresent, DaclDefaulted;
+    PACL    pDacl = NULL, pDacl2 = NULL;
+    ULONG   Revision;       // Security Desc revision
+    SECURITY_DESCRIPTOR_CONTROL
+            Control;
+    FILE_INTERNAL_INFORMATION
+            SerialNumber;
 
-	// Pointers for a manufactured absolute-format security descriptor.
+    // Pointers for a manufactured absolute-format security descriptor.
 
-	PACL	pAbsDacl = NULL,
-		pAbsSacl = NULL;
-	PSID	pAbsOwner = NULL,
-		pAbsGroup = NULL;
+    PACL    pAbsDacl = NULL,
+            pAbsSacl = NULL;
+    PSID    pAbsOwner = NULL,
+            pAbsGroup = NULL;
 
-	args = &m->u.Chown;
+    args = &m->u.Chown;
 
-	if (!ISPOINTERVALID_CLIENT(p, args->Path_U.Buffer,
-		args->Path_U.Length)) {
-		KdPrint(("Invalid pointer to chown: %lx\n",
-			args->Path_U.Buffer));
-		m->Error = EINVAL;
-		return TRUE;
-	}
+    if (!ISPOINTERVALID_CLIENT(p, args->Path_U.Buffer,
+        args->Path_U.Length)) {
+        KdPrint(("Invalid pointer to chown: %lx\n",
+            args->Path_U.Buffer));
+        m->Error = EINVAL;
+        return TRUE;
+    }
 
-	Path_U = args->Path_U;
-	InitializeObjectAttributes(&ObjA, &Path_U, 0, NULL, NULL);
+    Path_U = args->Path_U;
+    InitializeObjectAttributes(&ObjA, &Path_U, 0, NULL, NULL);
 
-	Status = NtImpersonateClientOfPort(p->ClientPort, (PPORT_MESSAGE)m);
-	ASSERT(NT_SUCCESS(Status));
+    Status = NtImpersonateClientOfPort(p->ClientPort, (PPORT_MESSAGE)m);
+    ASSERT(NT_SUCCESS(Status));
 
-	Status = NtOpenFile(&FileHandle,
-		SYNCHRONIZE | READ_CONTROL | WRITE_OWNER | WRITE_DAC,
-  	    	&ObjA, &Iosb,
-  	    	SHARE_ALL,
-  	    	FILE_SYNCHRONOUS_IO_NONALERT);
+    Status = NtOpenFile(&FileHandle,
+            SYNCHRONIZE | READ_CONTROL | WRITE_OWNER | WRITE_DAC,
+            &ObjA, &Iosb,
+            SHARE_ALL,
+            FILE_SYNCHRONOUS_IO_NONALERT);
 
-	EndImpersonation();
-	
-	if (!NT_SUCCESS(Status)) {
-		//
-		// 1003.1-90 (5.6.5.4): EPERM when the caller does not have
-		// permission to change the owner.  We check this by opening
-		// the file with the same mode, except without WRITE_OWNER.
-		//
+    EndImpersonation();
 
-		if (STATUS_OBJECT_PATH_NOT_FOUND == Status) {
-			m->Error = PsxStatusToErrnoPath(&Path_U);
-		} else {
-			m->Error = PsxStatusToErrno(Status);
-		}
+    if (!NT_SUCCESS(Status)) {
+        //
+        // 1003.1-90 (5.6.5.4): EPERM when the caller does not have
+        // permission to change the owner.  We check this by opening
+        // the file with the same mode, except without WRITE_OWNER.
+        //
 
-		Status = NtImpersonateClientOfPort(p->ClientPort,
-			 (PPORT_MESSAGE)m);
-		ASSERT(NT_SUCCESS(Status));
+        if (STATUS_OBJECT_PATH_NOT_FOUND == Status) {
+            m->Error = PsxStatusToErrnoPath(&Path_U);
+        } else {
+            m->Error = PsxStatusToErrno(Status);
+        }
 
-		Status = NtOpenFile(&FileHandle,
-			SYNCHRONIZE | READ_CONTROL,
-			&ObjA, &Iosb,
-			SHARE_ALL,
-			FILE_SYNCHRONOUS_IO_NONALERT);
+        Status = NtImpersonateClientOfPort(p->ClientPort,
+             (PPORT_MESSAGE)m);
+        ASSERT(NT_SUCCESS(Status));
 
-		EndImpersonation();
-		if (NT_SUCCESS(Status)) {
-			m->Error = EPERM;
-			NtClose(FileHandle);
-		}
-		return TRUE;
-	}
+        Status = NtOpenFile(&FileHandle,
+            SYNCHRONIZE | READ_CONTROL,
+            &ObjA, &Iosb,
+            SHARE_ALL,
+            FILE_SYNCHRONOUS_IO_NONALERT);
 
-	//
-	// Get serial numbers.
-	//
+        EndImpersonation();
+        if (NT_SUCCESS(Status)) {
+            m->Error = EPERM;
+            NtClose(FileHandle);
+        }
+        return TRUE;
+    }
 
-	Status = NtQueryInformationFile(FileHandle, &Iosb, &SerialNumber,
-		sizeof(SerialNumber), FileInternalInformation);
-	ASSERT(NT_SUCCESS(Status));
+    //
+    // Get serial numbers.
+    //
 
-	if (ReferenceOrCreateIoNode(GetFileDeviceNumber(&Path_U),
-		(ino_t)SerialNumber.IndexNumber.LowPart, TRUE, &IoNode)) {
-		// File already is open.
-	} else {
-		IoNode = NULL;
-	}
+    Status = NtQueryInformationFile(FileHandle, &Iosb, &SerialNumber,
+        sizeof(SerialNumber), FileInternalInformation);
+    ASSERT(NT_SUCCESS(Status));
 
-	//
-	// Get SecurityInformation for the file.
-	//
+    if (ReferenceOrCreateIoNode(GetFileDeviceNumber(&Path_U),
+        (ino_t)SerialNumber.IndexNumber.LowPart, TRUE, &IoNode)) {
+        // File already is open.
+    } else {
+        IoNode = NULL;
+    }
 
-	SecurityInformation = OWNER_SECURITY_INFORMATION |
-		GROUP_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION;
+    //
+    // Get SecurityInformation for the file.
+    //
 
-	Status = NtQuerySecurityObject(FileHandle, SecurityInformation,
-		NULL, 0, &LengthNeeded);
-	ASSERT(STATUS_BUFFER_TOO_SMALL == Status);
+    SecurityInformation = OWNER_SECURITY_INFORMATION |
+        GROUP_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION;
 
-	SecurityDescriptor = RtlAllocateHeap(PsxHeap, 0, LengthNeeded);
-	if (NULL == SecurityDescriptor) {
-		m->Error = ENOMEM;
-		goto out;
-	}
+    Status = NtQuerySecurityObject(FileHandle, SecurityInformation,
+        NULL, 0, &LengthNeeded);
+    ASSERT(STATUS_BUFFER_TOO_SMALL == Status);
 
-	Status = NtQuerySecurityObject(FileHandle, SecurityInformation,
-		SecurityDescriptor, LengthNeeded, &LengthNeeded);
-	ASSERT(NT_SUCCESS(Status));
+    SecurityDescriptor = RtlAllocateHeap(PsxHeap, 0, LengthNeeded);
+    if (NULL == SecurityDescriptor) {
+        m->Error = ENOMEM;
+        goto out;
+    }
 
-	Status = RtlGetControlSecurityDescriptor(SecurityDescriptor,
-		&Control, &Revision);
-	ASSERT(NT_SUCCESS(Status));
-	ASSERT(SECURITY_DESCRIPTOR_REVISION == Revision);
+    Status = NtQuerySecurityObject(FileHandle, SecurityInformation,
+        SecurityDescriptor, LengthNeeded, &LengthNeeded);
+    ASSERT(NT_SUCCESS(Status));
 
-	if (Control & SE_SELF_RELATIVE) {
-		PSECURITY_DESCRIPTOR
-			AbsSD;		// SD in absolute format.
+    Status = RtlGetControlSecurityDescriptor(SecurityDescriptor,
+        &Control, &Revision);
+    ASSERT(NT_SUCCESS(Status));
+    ASSERT(SECURITY_DESCRIPTOR_REVISION == Revision);
 
-		ULONG	AbsSdSize = 0,
-			DaclSize = 0, SaclSize = 0,
-			OwnerSize = 0, GroupSize = 0;
-			
-		//
-		// This security descriptor needs to be converted to absolute
-		// format.
-		//
+    if (Control & SE_SELF_RELATIVE) {
+        PSECURITY_DESCRIPTOR
+            AbsSD;      // SD in absolute format.
 
-		Status = RtlSelfRelativeToAbsoluteSD(SecurityDescriptor,
-			NULL, &AbsSdSize, NULL, &DaclSize, NULL, &SaclSize,
-			NULL, &OwnerSize, NULL, &GroupSize);
-		ASSERT(STATUS_BUFFER_TOO_SMALL == Status);
+        ULONG   AbsSdSize = 0,
+            DaclSize = 0, SaclSize = 0,
+            OwnerSize = 0, GroupSize = 0;
 
-		AbsSD = RtlAllocateHeap(PsxHeap, 0, AbsSdSize);
-		pAbsSacl = RtlAllocateHeap(PsxHeap, 0, SaclSize);
-		pAbsOwner = RtlAllocateHeap(PsxHeap, 0, OwnerSize);
-		pAbsGroup = RtlAllocateHeap(PsxHeap, 0, GroupSize);
-		pAbsDacl = RtlAllocateHeap(PsxHeap, 0, DaclSize);
+        //
+        // This security descriptor needs to be converted to absolute
+        // format.
+        //
 
-		if (NULL == AbsSD || NULL == pAbsDacl || NULL == pAbsSacl
-		    || NULL == pAbsOwner || NULL == pAbsGroup) {
-			m->Error = ENOMEM;
-			goto out;
-		}
+        Status = RtlSelfRelativeToAbsoluteSD(SecurityDescriptor,
+            NULL, &AbsSdSize, NULL, &DaclSize, NULL, &SaclSize,
+            NULL, &OwnerSize, NULL, &GroupSize);
+        ASSERT(STATUS_BUFFER_TOO_SMALL == Status);
 
-		Status = RtlSelfRelativeToAbsoluteSD(SecurityDescriptor,
-			AbsSD, &AbsSdSize, pAbsDacl, &DaclSize, pAbsSacl,
-			&SaclSize, pAbsOwner, &OwnerSize, pAbsGroup,
-			&GroupSize);
-		ASSERT(NT_SUCCESS(Status));
+        AbsSD = RtlAllocateHeap(PsxHeap, 0, AbsSdSize);
+        pAbsSacl = RtlAllocateHeap(PsxHeap, 0, SaclSize);
+        pAbsOwner = RtlAllocateHeap(PsxHeap, 0, OwnerSize);
+        pAbsGroup = RtlAllocateHeap(PsxHeap, 0, GroupSize);
+        pAbsDacl = RtlAllocateHeap(PsxHeap, 0, DaclSize);
 
-		pFreeSD = SecurityDescriptor;
-		SecurityDescriptor = AbsSD;
-	}
+        if (NULL == AbsSD || NULL == pAbsDacl || NULL == pAbsSacl
+            || NULL == pAbsOwner || NULL == pAbsGroup) {
+            m->Error = ENOMEM;
+            goto out;
+        }
 
-	//
-	// Get the owner and group from the security descriptor
-	//
+        Status = RtlSelfRelativeToAbsoluteSD(SecurityDescriptor,
+            AbsSD, &AbsSdSize, pAbsDacl, &DaclSize, pAbsSacl,
+            &SaclSize, pAbsOwner, &OwnerSize, pAbsGroup,
+            &GroupSize);
+        ASSERT(NT_SUCCESS(Status));
 
-	Status = RtlGetOwnerSecurityDescriptor(SecurityDescriptor,
-		 &NtOwner, &OwnerDefaulted);
-	ASSERT(NT_SUCCESS(Status));
+        pFreeSD = SecurityDescriptor;
+        SecurityDescriptor = AbsSD;
+    }
 
-	Status = RtlGetGroupSecurityDescriptor(SecurityDescriptor,
-		 &NtGroup, &GroupDefaulted);
-	ASSERT(NT_SUCCESS(Status));
+    //
+    // Get the owner and group from the security descriptor
+    //
 
-	if (NULL == NtOwner || NULL == NtGroup) {
-		//
-		// Seems like this file doesn't have an owner or a
-		// group, which means that we can't change it's group.
-		//
-		// XXX.mjb: ideally, would make the file owned by us if
-		// possible.
-		//
-		KdPrint(("PSXSS: PsxChown: no owner or no group\n"));
-		m->Error = EPERM;
-		goto out;
-	}
+    Status = RtlGetOwnerSecurityDescriptor(SecurityDescriptor,
+         &NtOwner, &OwnerDefaulted);
+    ASSERT(NT_SUCCESS(Status));
 
-	Status = RtlGetDaclSecurityDescriptor(SecurityDescriptor,
-		&DaclPresent, &pDacl, &DaclDefaulted);
-	ASSERT(NT_SUCCESS(Status));
+    Status = RtlGetGroupSecurityDescriptor(SecurityDescriptor,
+         &NtGroup, &GroupDefaulted);
+    ASSERT(NT_SUCCESS(Status));
 
-	if (!DaclPresent || (DaclPresent && NULL == pDacl)) {
+    if (NULL == NtOwner || NULL == NtGroup) {
+        //
+        // Seems like this file doesn't have an owner or a
+        // group, which means that we can't change it's group.
+        //
+        // XXX.mjb: ideally, would make the file owned by us if
+        // possible.
+        //
+        KdPrint(("PSXSS: PsxChown: no owner or no group\n"));
+        m->Error = EPERM;
+        goto out;
+    }
 
-		//
-		// All access is allowed to this file.  We attach a Posix-
-		// type acl that allows all access.
-		//
+    Status = RtlGetDaclSecurityDescriptor(SecurityDescriptor,
+        &DaclPresent, &pDacl, &DaclDefaulted);
+    ASSERT(NT_SUCCESS(Status));
 
-		ModeToAccessMask(0777, &UserAccess, &GroupAccess, &OtherAccess);
+    if (!DaclPresent || (DaclPresent && NULL == pDacl)) {
 
-	} else {
-		Status = RtlInterpretPosixAcl(ACL_REVISION2, NtOwner, NtGroup,
-			pDacl, &UserAccess, &GroupAccess, &OtherAccess);
-		if (STATUS_COULD_NOT_INTERPRET == Status) {
-			//
-			// There is an acl, but it is not in the Posix form.
-			// Ideally, we'd like to leave the resulting file
-			// with an ACL approximating the one we've foud there,
-			// but that's hard so we'll just do the easy thing.
-			//
+        //
+        // All access is allowed to this file.  We attach a Posix-
+        // type acl that allows all access.
+        //
 
-			ModeToAccessMask(0777, &UserAccess, &GroupAccess,
-				&OtherAccess);
-		} else if (!NT_SUCCESS(Status)) {
-			KdPrint(("PSXSS: RtlInterpretPosixAcl: 0x%x\n",
-				Status));
-			m->Error = EPERM;
-			goto out;
-		}
-	}
+        ModeToAccessMask(0777, &UserAccess, &GroupAccess, &OtherAccess);
 
-	if (0xFFF == args->Group) {
-		//
-		// The login group is treated specially here.
-		//
+    } else {
+        Status = RtlInterpretPosixAcl(ACL_REVISION2, NtOwner, NtGroup,
+            pDacl, &UserAccess, &GroupAccess, &OtherAccess);
+        if (STATUS_COULD_NOT_INTERPRET == Status) {
+            //
+            // There is an acl, but it is not in the Posix form.
+            // Ideally, we'd like to leave the resulting file
+            // with an ACL approximating the one we've foud there,
+            // but that's hard so we'll just do the easy thing.
+            //
 
-		NewGroup = GetLoginGroupSid(p);
-		if (NULL == NewGroup) {
-			m->Error = ENOMEM;
-			goto out;
-		}
-	} else {
+            ModeToAccessMask(0777, &UserAccess, &GroupAccess,
+                &OtherAccess);
+        } else if (!NT_SUCCESS(Status)) {
+            KdPrint(("PSXSS: RtlInterpretPosixAcl: 0x%x\n", Status));
+            m->Error = EPERM;
+            goto out;
+        }
+    }
 
-		DomainSid = GetSidByOffset(args->Group & 0xFFFF0000);
-		if (NULL == DomainSid) {
+    if (0xFFF == args->Group) {
+        //
+        // The login group is treated specially here.
+        //
 
-			//
-			// Either we can't get to the domain, or the user
-			// specified an invalid group.  Bad.
-			//
-			m->Error = EINVAL;
-			goto out;
-		}
+        NewGroup = GetLoginGroupSid(p);
+        if (NULL == NewGroup) {
+            m->Error = ENOMEM;
+            goto out;
+        }
+    } else {
 
-		NewGroup = MakeSid(DomainSid, args->Group & 0xFFFF);
-		if (NULL == NewGroup) {
-			m->Error = ENOMEM;
-			goto out;
-		}
-	}
+        DomainSid = GetSidByOffset(args->Group & 0xFFFF0000);
+        if (NULL == DomainSid) {
 
-	DomainSid = GetSidByOffset(args->Owner & 0xFFFF0000);
-	if (NULL == DomainSid) {
-		m->Error = EINVAL;
-		goto out;
-	}
+            //
+            // Either we can't get to the domain, or the user
+            // specified an invalid group.  Bad.
+            //
+            m->Error = EINVAL;
+            goto out;
+        }
 
-	NewUser = MakeSid(DomainSid, args->Owner & 0xFFFF);
-	if (NULL == NewUser) {
-		m->Error = ENOMEM;
-		goto out;
-	}
+        NewGroup = MakeSid(DomainSid, args->Group & 0xFFFF);
+        if (NULL == NewGroup) {
+            m->Error = ENOMEM;
+            goto out;
+        }
+    }
 
-	Status = RtlMakePosixAcl(ACL_REVISION2, NewUser, NewGroup,
-		UserAccess, GroupAccess, OtherAccess, 0, NULL, &LengthNeeded);
-	ASSERT(STATUS_BUFFER_TOO_SMALL == Status);
-	
-	pDacl2 = RtlAllocateHeap(PsxHeap, 0, LengthNeeded);
-	if (NULL == pDacl2) {
-		m->Error = ENOMEM;
-		goto out;
-	}
+    DomainSid = GetSidByOffset(args->Owner & 0xFFFF0000);
+    if (NULL == DomainSid) {
+        m->Error = EINVAL;
+        goto out;
+    }
 
-	Status = RtlMakePosixAcl(ACL_REVISION2, NewUser, NewGroup,
-		UserAccess, GroupAccess, OtherAccess, LengthNeeded, pDacl2,
-		&LengthNeeded);
-	ASSERT(NT_SUCCESS(Status));
+    NewUser = MakeSid(DomainSid, args->Owner & 0xFFFF);
+    if (NULL == NewUser) {
+        m->Error = ENOMEM;
+        goto out;
+    }
 
-	Status = RtlSetDaclSecurityDescriptor(SecurityDescriptor, TRUE,
-		pDacl2, FALSE);
-	if (!NT_SUCCESS(Status)) {
-		KdPrint(("PSXSS: PsxChown: RtlSetDacl: 0x%x\n", Status));
-		m->Error = EPERM;
-		goto out;
-	}
+    Status = RtlMakePosixAcl(ACL_REVISION2, NewUser, NewGroup,
+        UserAccess, GroupAccess, OtherAccess, 0, NULL, &LengthNeeded);
+    ASSERT(STATUS_BUFFER_TOO_SMALL == Status);
 
-	Status = RtlSetGroupSecurityDescriptor(SecurityDescriptor, NewGroup,
-		FALSE);
-	ASSERT(NT_SUCCESS(Status));
+    pDacl2 = RtlAllocateHeap(PsxHeap, 0, LengthNeeded);
+    if (NULL == pDacl2) {
+        m->Error = ENOMEM;
+        goto out;
+    }
 
-	Status = RtlSetOwnerSecurityDescriptor(SecurityDescriptor, NewUser,
-		FALSE);
+    Status = RtlMakePosixAcl(ACL_REVISION2, NewUser, NewGroup,
+        UserAccess, GroupAccess, OtherAccess, LengthNeeded, pDacl2,
+        &LengthNeeded);
+    ASSERT(NT_SUCCESS(Status));
 
-	Status = NtImpersonateClientOfPort(p->ClientPort, (PPORT_MESSAGE)m);
-	ASSERT(NT_SUCCESS(Status));
-	{
-		Status = NtSetSecurityObject(FileHandle, SecurityInformation,
-			SecurityDescriptor);
-	} EndImpersonation();
+    Status = RtlSetDaclSecurityDescriptor(SecurityDescriptor, TRUE,
+        pDacl2, FALSE);
+    if (!NT_SUCCESS(Status)) {
+        KdPrint(("PSXSS: PsxChown: RtlSetDacl: 0x%x\n", Status));
+        m->Error = EPERM;
+        goto out;
+    }
 
-	if (!NT_SUCCESS(Status)) {
-		m->Error = PsxStatusToErrno(Status);
-		goto out;
-	}
+    Status = RtlSetGroupSecurityDescriptor(SecurityDescriptor, NewGroup, FALSE);
+    ASSERT(NT_SUCCESS(Status));
 
-	if (NULL != IoNode) {
-		IoNode->GroupId = args->Group;
-	}
+    Status = RtlSetOwnerSecurityDescriptor(SecurityDescriptor, NewUser, FALSE);
+
+    Status = NtImpersonateClientOfPort(p->ClientPort, (PPORT_MESSAGE)m);
+    ASSERT(NT_SUCCESS(Status));
+    {
+        Status = NtSetSecurityObject(FileHandle, SecurityInformation,
+            SecurityDescriptor);
+    } EndImpersonation();
+
+    if (!NT_SUCCESS(Status)) {
+        m->Error = PsxStatusToErrno(Status);
+        goto out;
+    }
+
+    if (NULL != IoNode) {
+        IoNode->GroupId = args->Group;
+    }
 
 out:
-	NtClose(FileHandle);
+    NtClose(FileHandle);
 
-	if (NULL != SecurityDescriptor) {
-		RtlFreeHeap(PsxHeap, 0, SecurityDescriptor);
-	}
-	if (NULL != NewGroup) {
-		RtlFreeHeap(PsxHeap, 0, NewGroup);
-	}
-	if (NULL != NewUser) {
-		RtlFreeHeap(PsxHeap, 0, NewUser);
-	}
-	if (NULL != pDacl2) {
-		RtlFreeHeap(PsxHeap, 0, pDacl2);
-	}
-	if (NULL != pAbsDacl) {
-		RtlFreeHeap(PsxHeap, 0, pAbsDacl);
-	}
-	if (NULL != pAbsSacl) {
-		RtlFreeHeap(PsxHeap, 0, pAbsSacl);
-	}
-	if (NULL != pAbsOwner) {
-		RtlFreeHeap(PsxHeap, 0, pAbsOwner);
-	}
-	if (NULL != pAbsGroup) {
-		RtlFreeHeap(PsxHeap, 0, pAbsGroup);
-	}
-	if (NULL != pFreeSD) {
-		RtlFreeHeap(PsxHeap, 0, pFreeSD);
-	}
+    if (NULL != SecurityDescriptor) {
+        RtlFreeHeap(PsxHeap, 0, SecurityDescriptor);
+    }
+    if (NULL != NewGroup) {
+        RtlFreeHeap(PsxHeap, 0, NewGroup);
+    }
+    if (NULL != NewUser) {
+        RtlFreeHeap(PsxHeap, 0, NewUser);
+    }
+    if (NULL != pDacl2) {
+        RtlFreeHeap(PsxHeap, 0, pDacl2);
+    }
+    if (NULL != pAbsDacl) {
+        RtlFreeHeap(PsxHeap, 0, pAbsDacl);
+    }
+    if (NULL != pAbsSacl) {
+        RtlFreeHeap(PsxHeap, 0, pAbsSacl);
+    }
+    if (NULL != pAbsOwner) {
+        RtlFreeHeap(PsxHeap, 0, pAbsOwner);
+    }
+    if (NULL != pAbsGroup) {
+        RtlFreeHeap(PsxHeap, 0, pAbsGroup);
+    }
+    if (NULL != pFreeSD) {
+        RtlFreeHeap(PsxHeap, 0, pFreeSD);
+    }
 
-	return TRUE;
+    return TRUE;
 }
 
 
@@ -2271,780 +2300,1004 @@ Return Value:
 
 --*/
 {
-	PPSX_UTIME_MSG args;
-	HANDLE FileHandle;
-	NTSTATUS Status;
-	IO_STATUS_BLOCK Iosb;
-	OBJECT_ATTRIBUTES ObjA;
-	UNICODE_STRING Path_U;
-	FILE_BASIC_INFORMATION BasicInfo;
-	LARGE_INTEGER Time;
+    PPSX_UTIME_MSG args;
+    HANDLE FileHandle;
+    NTSTATUS Status;
+    IO_STATUS_BLOCK Iosb;
+    OBJECT_ATTRIBUTES ObjA;
+    UNICODE_STRING Path_U;
+    FILE_BASIC_INFORMATION BasicInfo;
+    LARGE_INTEGER Time;
 
-	args = &m->u.Utime;
+    args = &m->u.Utime;
 
-	if (!ISPOINTERVALID_CLIENT(p,args->Path_U.Buffer,args->Path_U.Length)) {
-		KdPrint(("Invalid pointer to utime %lx\n",
-			args->Path_U.Buffer));
-		m->Error = EINVAL;
-		return TRUE;
-	}
+    if (!ISPOINTERVALID_CLIENT(p,args->Path_U.Buffer,args->Path_U.Length)) {
+        KdPrint(("Invalid pointer to utime %lx\n",
+            args->Path_U.Buffer));
+        m->Error = EINVAL;
+        return TRUE;
+    }
 
-	Path_U = args->Path_U;
+    Path_U = args->Path_U;
 
-	InitializeObjectAttributes(&ObjA, &Path_U, 0, NULL, NULL);
-	
-	Status = NtImpersonateClientOfPort(p->ClientPort, (PPORT_MESSAGE)m);
-	ASSERT(NT_SUCCESS(Status));
+    InitializeObjectAttributes(&ObjA, &Path_U, 0, NULL, NULL);
 
-	Status = NtOpenFile(&FileHandle,
-  		SYNCHRONIZE | READ_CONTROL | FILE_WRITE_ATTRIBUTES,
-  	    	&ObjA, &Iosb, SHARE_ALL, FILE_SYNCHRONOUS_IO_NONALERT);
+    Status = NtImpersonateClientOfPort(p->ClientPort, (PPORT_MESSAGE)m);
+    ASSERT(NT_SUCCESS(Status));
 
-	if (!NT_SUCCESS(Status)) {
-		EndImpersonation();
-		if (STATUS_OBJECT_PATH_NOT_FOUND == Status) {
-			m->Error = PsxStatusToErrnoPath(&Path_U);
-			return TRUE;
-		}
-		m->Error = PsxStatusToErrno(Status);
-		return TRUE;
-	}
+    Status = NtOpenFile(&FileHandle,
+            SYNCHRONIZE | READ_CONTROL | FILE_WRITE_ATTRIBUTES,
+            &ObjA, &Iosb, SHARE_ALL, FILE_SYNCHRONOUS_IO_NONALERT);
 
-	//
-	// 1003.1-1990: EPERM when the /times/ argument is not
-	// NULL, the calling process has write access to the file,
-	// but is not the owner of the file.  Here we're denying
-	// access to the file that NT would grant.
-	//
+    if (!NT_SUCCESS(Status)) {
+        EndImpersonation();
+        if (STATUS_OBJECT_PATH_NOT_FOUND == Status) {
+            m->Error = PsxStatusToErrnoPath(&Path_U);
+            return TRUE;
+        }
+        m->Error = PsxStatusToErrno(Status);
+        return TRUE;
+    }
 
-	if (NULL != args->TimesSpecified) {
-		struct stat StatBuf;
+    //
+    // 1003.1-1990: EPERM when the /times/ argument is not
+    // NULL, the calling process has write access to the file,
+    // but is not the owner of the file.  Here we're denying
+    // access to the file that NT would grant.
+    //
 
-		FindOwnerModeFile(FileHandle, &StatBuf);
+    if (NULL != args->TimesSpecified) {
+        struct stat StatBuf;
 
-		if (StatBuf.st_uid != p->EffectiveUid) {
-			UCHAR buf[sizeof(FILE_FS_ATTRIBUTE_INFORMATION) +
-				128 * sizeof(WCHAR)];
-			PFILE_FS_ATTRIBUTE_INFORMATION pFSInfo = (PVOID)buf;
+        FindOwnerModeFile(FileHandle, &StatBuf);
 
-			// We ignore this test for all but NTFS
+        if (StatBuf.st_uid != p->EffectiveUid) {
+            UCHAR buf[sizeof(FILE_FS_ATTRIBUTE_INFORMATION) +
+                128 * sizeof(WCHAR)];
+            PFILE_FS_ATTRIBUTE_INFORMATION pFSInfo = (PVOID)buf;
 
-			Status = NtQueryVolumeInformationFile(FileHandle,
-				&Iosb, buf, sizeof(buf),
-				FileFsAttributeInformation);
-			ASSERT(NT_SUCCESS(Status));
+            // We ignore this test for all but NTFS
 
-			pFSInfo->FileSystemName[pFSInfo->FileSystemNameLength/2] = 0;
-			if (0 == wcscmp(L"NTFS", pFSInfo->FileSystemName)) {
+            Status = NtQueryVolumeInformationFile(FileHandle,
+                &Iosb, buf, sizeof(buf),
+                FileFsAttributeInformation);
+            ASSERT(NT_SUCCESS(Status));
 
-				NtClose(FileHandle);
-				m->Error = EPERM;
-				EndImpersonation();
-				return TRUE;
-			}
-		}
-	}
+            pFSInfo->FileSystemName[pFSInfo->FileSystemNameLength/2] = 0;
+            if (0 == wcscmp(L"NTFS", pFSInfo->FileSystemName) ||
+                0 == wcscmp(L"OFS", pFSInfo->FileSystemName)) {
 
-	EndImpersonation();
+                NtClose(FileHandle);
+                m->Error = EPERM;
+                EndImpersonation();
+                return TRUE;
+            }
+        }
+    }
 
-	RtlZeroMemory(&Time, sizeof(Time));
-	BasicInfo.CreationTime = Time;
-	BasicInfo.ChangeTime = Time;
-	BasicInfo.FileAttributes = 0;
+    EndImpersonation();
 
-	//
-	// If the utimbuf is NULL, we're to set the file times to the current
-	// time.  The owner and anyone else with write permission on the file
-	// should be able to perform this operation.  If times are specified
-	// via a utimbuf, only the owner should be able to perform the
-	// operation.
-	//
+    RtlZeroMemory(&Time, sizeof(Time));
+    BasicInfo.CreationTime = Time;
+    BasicInfo.ChangeTime = Time;
+    BasicInfo.FileAttributes = 0;
 
-	if (args->TimesSpecified == NULL) {
-		NtQuerySystemTime(&Time);
+    //
+    // If the utimbuf is NULL, we're to set the file times to the current
+    // time.  The owner and anyone else with write permission on the file
+    // should be able to perform this operation.  If times are specified
+    // via a utimbuf, only the owner should be able to perform the
+    // operation.
+    //
 
-		BasicInfo.LastAccessTime = Time;
-		BasicInfo.LastWriteTime = Time;
-	} else {
-		RtlSecondsSince1970ToTime((ULONG)(args->Times.actime), &Time);
-		BasicInfo.LastAccessTime = Time;
+    if (args->TimesSpecified == NULL) {
+        NtQuerySystemTime(&Time);
 
-		RtlSecondsSince1970ToTime((ULONG)(args->Times.modtime), &Time);
-		BasicInfo.LastWriteTime = Time;
-	}
+        BasicInfo.LastAccessTime = Time;
+        BasicInfo.LastWriteTime = Time;
+    } else {
+        RtlSecondsSince1970ToTime((ULONG)(args->Times.actime), &Time);
+        BasicInfo.LastAccessTime = Time;
 
-	Status = NtImpersonateClientOfPort(p->ClientPort, (PPORT_MESSAGE)m);
-	ASSERT(NT_SUCCESS(Status));
+        RtlSecondsSince1970ToTime((ULONG)(args->Times.modtime), &Time);
+        BasicInfo.LastWriteTime = Time;
+    }
 
-	Status = NtSetInformationFile(FileHandle, &Iosb, &BasicInfo,
-		sizeof(BasicInfo), FileBasicInformation);
+    Status = NtImpersonateClientOfPort(p->ClientPort, (PPORT_MESSAGE)m);
+    ASSERT(NT_SUCCESS(Status));
 
-	if (!NT_SUCCESS(Status)) {
-		m->Error = PsxStatusToErrno(Status);
-		//FALL OUT
-	}
-	EndImpersonation();
+    Status = NtSetInformationFile(FileHandle, &Iosb, &BasicInfo,
+        sizeof(BasicInfo), FileBasicInformation);
 
-	NtClose(FileHandle);
+    if (!NT_SUCCESS(Status)) {
+        m->Error = PsxStatusToErrno(Status);
+        //FALL OUT
+    }
+    EndImpersonation();
 
-	return TRUE;
+    NtClose(FileHandle);
+
+    return TRUE;
 }
 
 BOOLEAN
 PsxFcntl(
-	IN PPSX_PROCESS p,
-	IN PPSX_API_MSG m
-	)
+    IN PPSX_PROCESS p,
+    IN PPSX_API_MSG m
+    )
 
 /*++
 
 Routine Description:
 
-	This procedure implements POSIX fcntl().
+    This procedure implements POSIX fcntl().
 
 Arguments:
 
-	p - Supplies the address of the process making the call.
+    p - Supplies the address of the process making the call.
 
-	m - Supplies the address of the message associated with the request.
+    m - Supplies the address of the message associated with the request.
 
 Return Value:
 
-	TRUE - The contents of *m should be used to generate a reply.
-	FALSE - No reply should be sent, for the case in which the process
-		was blocked (as in F_SETLKW).
+    TRUE - The contents of *m should be used to generate a reply.
+    FALSE - No reply should be sent, for the case in which the process
+        was blocked (as in F_SETLKW).
 
 --*/
 
 {
-	PPSX_FCNTL_MSG args;
-	PFILEDESCRIPTOR pFd, pFdDup;
-	NTSTATUS Status;
-	BOOLEAN b;
-	int error;
+    PPSX_FCNTL_MSG args;
+    PFILEDESCRIPTOR pFd, pFdDup;
+    NTSTATUS Status;
+    BOOLEAN b;
+    int error;
 
-	args = &m->u.Fcntl;
+    args = &m->u.Fcntl;
 
-	pFd = FdIndexToFd(p, args->FileDes);
-	if (NULL == pFd) {
-		m->Error = EBADF;
-		return TRUE;
-	}	
+    pFd = FdIndexToFd(p, args->FileDes);
+    if (NULL == pFd) {
+        m->Error = EBADF;
+        return TRUE;
+    }
 
-	switch (args->Command) {
-	case F_DUPFD:
-		if (!ISFILEDESINRANGE(args->u.i)) {
-			m->Error = EINVAL;
-			return TRUE;
-		}
-		pFdDup = AllocateFd(p, args->u.i, &m->ReturnValue);
-		if (NULL == pFdDup) {
-			// no descriptors are available
-			m->Error = EMFILE;
-			return TRUE;
-		}
-		ASSERT(NULL !=
-			pFd->SystemOpenFileDesc->IoNode->IoVectors->DupRoutine);
-		return (pFd->SystemOpenFileDesc->IoNode->IoVectors->DupRoutine)
-			(p, m, pFd, pFdDup);
-	case F_GETFD:
-		//
-		// File descriptor flags
-		//
+    switch (args->Command) {
+    case F_DUPFD:
+        if (!ISFILEDESINRANGE(args->u.i)) {
+            m->Error = EINVAL;
+            return TRUE;
+        }
+        pFdDup = AllocateFd(p, args->u.i, &m->ReturnValue);
+        if (NULL == pFdDup) {
+            // no descriptors are available
+            m->Error = EMFILE;
+            return TRUE;
+        }
+        ASSERT(NULL != pFd->SystemOpenFileDesc->IoNode->IoVectors->DupRoutine);
+        return (pFd->SystemOpenFileDesc->IoNode->IoVectors->DupRoutine)
+            (p, m, pFd, pFdDup);
+    case F_GETFD:
+        //
+        // File descriptor flags
+        //
 
         m->ReturnValue = 0;
-		if (pFd->Flags & PSX_FD_CLOSE_ON_EXEC) {
-			m->ReturnValue |= FD_CLOEXEC;
-		}
-		return TRUE;
-	case F_SETFD:
-		pFd->Flags = 0;
-		if (args->u.i & FD_CLOEXEC) {
-			pFd->Flags |= PSX_FD_CLOSE_ON_EXEC;
-		}
-		m->ReturnValue = 0;
-		return TRUE;
+        if (pFd->Flags & PSX_FD_CLOSE_ON_EXEC) {
+            m->ReturnValue |= FD_CLOEXEC;
+        }
+        return TRUE;
+    case F_SETFD:
+        pFd->Flags = 0;
+        if (args->u.i & FD_CLOEXEC) {
+            pFd->Flags |= PSX_FD_CLOSE_ON_EXEC;
+        }
+        m->ReturnValue = 0;
+        return TRUE;
 
-	case F_GETFL:
-		//
-		// Get file description flags
-		//
-		if ((pFd->SystemOpenFileDesc->Flags &
-			(PSX_FD_READ | PSX_FD_WRITE))
-			== (PSX_FD_READ | PSX_FD_WRITE)) {
-			m->ReturnValue |= O_RDWR;
-		} else if (pFd->SystemOpenFileDesc->Flags & PSX_FD_READ) {
-			m->ReturnValue |= O_RDONLY;
-		} else if (pFd->SystemOpenFileDesc->Flags & PSX_FD_WRITE) {
-			m->ReturnValue |= O_WRONLY;
-		}
-		if (pFd->SystemOpenFileDesc->Flags & PSX_FD_NOBLOCK) {
-			m->ReturnValue |= O_NONBLOCK;
-		}
-		if (pFd->SystemOpenFileDesc->Flags & PSX_FD_APPEND) {
-			m->ReturnValue |= O_APPEND;
-		}
-		return TRUE;
-	case F_SETFL:
-		pFd->SystemOpenFileDesc->Flags &= ~(PSX_FD_APPEND | PSX_FD_NOBLOCK);
-		if (args->u.i & O_APPEND) {
-			pFd->SystemOpenFileDesc->Flags |= PSX_FD_APPEND;
-		}
-		if (args->u.i & O_NONBLOCK) {
-			pFd->SystemOpenFileDesc->Flags |= PSX_FD_NOBLOCK;
-		}
-		m->ReturnValue = 0;
-		return TRUE;
+    case F_GETFL:
+        //
+        // Get file description flags
+        //
+        if ((pFd->SystemOpenFileDesc->Flags &
+            (PSX_FD_READ | PSX_FD_WRITE))
+            == (PSX_FD_READ | PSX_FD_WRITE)) {
+            m->ReturnValue |= O_RDWR;
+        } else if (pFd->SystemOpenFileDesc->Flags & PSX_FD_READ) {
+            m->ReturnValue |= O_RDONLY;
+        } else if (pFd->SystemOpenFileDesc->Flags & PSX_FD_WRITE) {
+            m->ReturnValue |= O_WRONLY;
+        }
+        if (pFd->SystemOpenFileDesc->Flags & PSX_FD_NOBLOCK) {
+            m->ReturnValue |= O_NONBLOCK;
+        }
+        if (pFd->SystemOpenFileDesc->Flags & PSX_FD_APPEND) {
+            m->ReturnValue |= O_APPEND;
+        }
+        return TRUE;
+    case F_SETFL:
+        pFd->SystemOpenFileDesc->Flags &= ~(PSX_FD_APPEND | PSX_FD_NOBLOCK);
+        if (args->u.i & O_APPEND) {
+            pFd->SystemOpenFileDesc->Flags |= PSX_FD_APPEND;
+        }
+        if (args->u.i & O_NONBLOCK) {
+            pFd->SystemOpenFileDesc->Flags |= PSX_FD_NOBLOCK;
+        }
+        m->ReturnValue = 0;
+        return TRUE;
 
-	case F_SETLK:
-	case F_SETLKW:
-		//
-		// 1003.1-90 (6.5.2.4): EBADF if F_SETLK or F_SETLKW and
-		// l_type is F_RDLCK and fildes is not ... open for reading.
-		//
+    case F_SETLK:
+    case F_SETLKW:
+        //
+        // 1003.1-90 (6.5.2.4): EBADF if F_SETLK or F_SETLKW and
+        // l_type is F_RDLCK and fildes is not ... open for reading.
+        //
 
-		if (F_RDLCK == args->u.pf->l_type &&
-			!(pFd->SystemOpenFileDesc->Flags & PSX_FD_READ)) {
-			m->Error = EBADF;
-			m->ReturnValue = (ULONG)(-1);
-			return TRUE;
-		}
+        if (F_RDLCK == args->u.pf->l_type &&
+            !(pFd->SystemOpenFileDesc->Flags & PSX_FD_READ)) {
+            m->Error = EBADF;
+            m->ReturnValue = (ULONG)(-1);
+            return TRUE;
+        }
 
-		//
-		// ... EBADF if F_SETLK or F_SETLKW and l_type is F_WRLCK
-		// and fildes is not ... open for writing.
-		//
+        //
+        // ... EBADF if F_SETLK or F_SETLKW and l_type is F_WRLCK
+        // and fildes is not ... open for writing.
+        //
 
-		if (F_WRLCK == args->u.pf->l_type &&
-			!(pFd->SystemOpenFileDesc->Flags & PSX_FD_WRITE)) {
-			m->Error = EBADF;
-			m->ReturnValue = (ULONG)(-1);
-			return TRUE;
-		}
+        if (F_WRLCK == args->u.pf->l_type &&
+            !(pFd->SystemOpenFileDesc->Flags & PSX_FD_WRITE)) {
+            m->Error = EBADF;
+            m->ReturnValue = (ULONG)(-1);
+            return TRUE;
+        }
 
-		//FALLTHROUGH
+        //FALLTHROUGH
 
-	case F_GETLK:
+    case F_GETLK:
 
-		if (!(pFd->SystemOpenFileDesc->IoNode->Mode & S_IFREG)) {
-			//
-			// flocks only work on regular files
-			//
-			
-			m->Error = EINVAL;
-			m->ReturnValue = (ULONG)(-1);
-		}
+        if (!(pFd->SystemOpenFileDesc->IoNode->Mode & S_IFREG)) {
+            //
+            // flocks only work on regular files
+            //
 
-		RtlEnterCriticalSection(&pFd->SystemOpenFileDesc->IoNode->IoNodeLock);
+            m->Error = EINVAL;
+            m->ReturnValue = (ULONG)(-1);
+        }
 
-		b = DoFlockStuff(p, m, args->Command, pFd,
-			args->u.pf, &error);
+        RtlEnterCriticalSection(&pFd->SystemOpenFileDesc->IoNode->IoNodeLock);
 
-		if (b) {
-			RtlLeaveCriticalSection(
-			    &pFd->SystemOpenFileDesc->IoNode->IoNodeLock);
-		}
+        b = DoFlockStuff(p, m, args->Command, pFd,
+            args->u.pf, &error);
 
-		m->Error = error;
-		if (error == 0) {
-			m->ReturnValue = 0;
-		} else {
-			m->ReturnValue = (ULONG)(-1);
-		}
-		//
-		// DoFlockStuff returns FALSE if the process was
-		// blocked and no reply should be sent.
-		//
-		return b;
+        if (b) {
+            RtlLeaveCriticalSection(&pFd->SystemOpenFileDesc->IoNode->IoNodeLock);
+        }
+
+        m->Error = error;
+        if (error == 0) {
+            m->ReturnValue = 0;
+        } else {
+            m->ReturnValue = (ULONG)(-1);
+        }
+        //
+        // DoFlockStuff returns FALSE if the process was
+        // blocked and no reply should be sent.
+        //
+        return b;
 #if DBG
-	case 99:
-		DumpFlockList(pFd->SystemOpenFileDesc->IoNode);
-		break;
+    case 99:
+        DumpFlockList(pFd->SystemOpenFileDesc->IoNode);
+        break;
 #endif
-	default:
-		// This shouldn't happen; the client checks for valid
-		// command arguments.
+    default:
+        // This shouldn't happen; the client checks for valid
+        // command arguments.
 
-		ASSERT(0);
-	}
-	return TRUE;
+        ASSERT(0);
+    }
+    return TRUE;
+}
+
+BOOLEAN
+PsxIsatty(
+    IN PPSX_PROCESS p,
+    IN OUT PPSX_API_MSG m
+    )
+{
+    PPSX_ISATTY_MSG args;
+    NTSTATUS Status;
+    PFILEDESCRIPTOR Fd;
+
+    args = &m->u.Isatty;
+
+    Fd = FdIndexToFd(p, args->FileDes);
+    if (!Fd) {
+        m->Error = EBADF;
+        return TRUE;
+    }
+
+    if (&ConVectors == Fd->SystemOpenFileDesc->IoNode->IoVectors) {
+        //
+        // If the fd is open on the console, it's not
+        // necessarily a tty, since the console session manager
+        // could have redirected the output.  The dll will send
+        // a message to posix.exe, asking whether it's redirected
+        // or not.
+        //
+        args->Command = IO_COMMAND_DO_CONSIO;
+        args->FileDes = (int)Fd->SystemOpenFileDesc->NtIoHandle;
+        return TRUE;
+    }
+    args->Command = IO_COMMAND_DONE;
+
+    m->ReturnValue = FALSE;     // not a tty
+    return TRUE;
+}
+
+BOOLEAN
+PsxFtruncate(
+    IN PPSX_PROCESS p,
+    IN PPSX_API_MSG m
+    )
+
+/*++
+
+Routine Description:
+
+    This procedure implements POSIX ftruncate().
+
+Arguments:
+
+    p - Supplies the address of the process making the call.
+
+    m - Supplies the address of the message associated with the request.
+
+Return Value:
+
+    TRUE - The contents of *m should be used to generate a reply.
+
+--*/
+
+{
+    PPSX_FTRUNCATE_MSG args;
+    PFILEDESCRIPTOR Fd;
+    FILE_END_OF_FILE_INFORMATION EofInfo;
+    NTSTATUS Status;
+    IO_STATUS_BLOCK iosb;
+
+    args = &m->u.Ftruncate;
+
+    Fd = FdIndexToFd(p, args->FileDes);
+
+    if (!Fd) {
+        m->Error = EBADF;
+        return TRUE;
+    }
+
+    //
+    // Ftruncate is only allowed on regular files.
+    //
+
+    if (S_ISFIFO(Fd->SystemOpenFileDesc->IoNode->Mode) ||
+        Fd->SystemOpenFileDesc->IoNode->DeviceSerialNumber == PSX_LOCAL_PIPE) {
+        m->Error = ESPIPE;
+        return TRUE;
+    }
+
+    if (&FileVectors != Fd->SystemOpenFileDesc->IoNode->IoVectors) {
+        m->Error = EBADF;
+        return TRUE;
+    }
+
+    EofInfo.EndOfFile.QuadPart = args->Length;
+
+    Status = NtSetInformationFile(
+                Fd->SystemOpenFileDesc->NtIoHandle,
+                &iosb,
+                (PVOID)&EofInfo,
+                sizeof(EofInfo),
+                FileEndOfFileInformation
+                );
+
+    if (!NT_SUCCESS(Status)) {
+        m->Error = PsxStatusToErrno(Status);
+    }
+
+    return TRUE;
 }
 
 
-/*
- * InitSecurityDescriptor -- to be called when a new file is created.  Sets
- *	up the security descriptor appropriately.
- *
- * The filename is used only to get the name of the parent direcotory,
- * which we use to set the group in the security descriptor.
- *
- */
+//
+// Internal support routine
+//
+// InitSecurityDescriptor -- to be called when a new file is created.  Sets
+// up the security descriptor appropriately.
+//
+// The filename is used only to get the name of the parent direcotory,
+// which we use to set the group in the security descriptor.
+//
+
 NTSTATUS
 InitSecurityDescriptor(
-	PSECURITY_DESCRIPTOR pSD,
-	PUNICODE_STRING pFileName,
-	IN HANDLE Process,
-	IN mode_t Mode,
-	OUT PVOID *pvMem
-	)
+    PSECURITY_DESCRIPTOR pSD,
+    PUNICODE_STRING pFileName,
+    IN HANDLE Process,
+    IN mode_t Mode,
+    OUT PVOID *pvMem
+    )
 {
-	PSID_AND_ATTRIBUTES
-		 pSA;
-	HANDLE	TokenHandle;
-	ULONG	Length, LengthNeeded;
-	NTSTATUS
-		 Status;
-	PACL	pDacl;
-	ACCESS_MASK
-		UserAccess,
-		GroupAccess,
-		OtherAccess;
-	ANSI_STRING File_A;
-	UNICODE_STRING ParentDir_U;
-	OBJECT_ATTRIBUTES Obj;
-	HANDLE DirHandle;
-	PSID DirGroup;
-	PCHAR pch;
-	IO_STATUS_BLOCK Iosb;
-	SECURITY_INFORMATION SecurityInformation;
-	PSECURITY_DESCRIPTOR pDirSD = NULL;
-	PTOKEN_PRIMARY_GROUP pGroup = NULL;
-	BOOLEAN Defaulted;
-	int i;
+    PSID_AND_ATTRIBUTES
+         pSA;
+    HANDLE  TokenHandle;
+    ULONG   Length, LengthNeeded;
+    NTSTATUS
+            Status;
+    PACL    pDacl;
+    ACCESS_MASK
+            UserAccess,
+            GroupAccess,
+            OtherAccess;
+    ANSI_STRING File_A;
+    UNICODE_STRING ParentDir_U;
+    OBJECT_ATTRIBUTES Obj;
+    HANDLE DirHandle;
+    PSID DirGroup;
+    PCHAR pch;
+    IO_STATUS_BLOCK Iosb;
+    SECURITY_INFORMATION SecurityInformation;
+    PSECURITY_DESCRIPTOR pDirSD = NULL;
+    PTOKEN_PRIMARY_GROUP pGroup = NULL;
+    BOOLEAN Defaulted;
+    int i;
 
-	Status = RtlUnicodeStringToAnsiString(&File_A, pFileName, TRUE);
-	if (!NT_SUCCESS(Status)) {
-		return STATUS_NO_MEMORY;
-	}
+    Status = RtlUnicodeStringToAnsiString(&File_A, pFileName, TRUE);
+    if (!NT_SUCCESS(Status)) {
+        return STATUS_NO_MEMORY;
+    }
 
-	//
-	// Open the parent directory and get its group owner.
-	//
+    //
+    // Open the parent directory and get its group owner.
+    //
 
-	pch = strrchr(File_A.Buffer, '\\') + 1;
-	*pch = '\0';
-	File_A.Length = strlen(File_A.Buffer);
-	
-	Status = RtlAnsiStringToUnicodeString(&ParentDir_U, &File_A, TRUE);
-	RtlFreeAnsiString(&File_A);
-	if (!NT_SUCCESS(Status)) {
-		return STATUS_NO_MEMORY;
-	}
+    pch = strrchr(File_A.Buffer, '\\') + 1;
+    if (pch == NULL)
+        return STATUS_OBJECT_PATH_SYNTAX_BAD;
+    *pch = '\0';
+    File_A.Length = strlen(File_A.Buffer);
 
-	InitializeObjectAttributes(&Obj, &ParentDir_U, 0, NULL, NULL);
-	Status = NtOpenFile(&DirHandle,
-		SYNCHRONIZE | READ_CONTROL | FILE_READ_ATTRIBUTES |
-		FILE_READ_EA, &Obj, &Iosb,
-		SHARE_ALL,
-		FILE_SYNCHRONOUS_IO_NONALERT | FILE_DIRECTORY_FILE);
-	RtlFreeUnicodeString(&ParentDir_U);
-	if (!NT_SUCCESS(Status)) {
-		return Status;
-	}
+    Status = RtlAnsiStringToUnicodeString(&ParentDir_U, &File_A, TRUE);
+    RtlFreeAnsiString(&File_A);
+    if (!NT_SUCCESS(Status)) {
+        return STATUS_NO_MEMORY;
+    }
 
-	Status = NtOpenProcessToken(Process, GENERIC_READ, &TokenHandle);
-	if (!NT_SUCCESS(Status)) {
-		NtClose(DirHandle);
-		return Status;
-	}
+    InitializeObjectAttributes(&Obj, &ParentDir_U, 0, NULL, NULL);
+    Status = NtOpenFile(&DirHandle,
+        SYNCHRONIZE | READ_CONTROL | FILE_READ_ATTRIBUTES |
+        FILE_READ_EA, &Obj, &Iosb,
+        SHARE_ALL,
+        FILE_SYNCHRONOUS_IO_NONALERT | FILE_DIRECTORY_FILE);
 
-	SecurityInformation = GROUP_SECURITY_INFORMATION;
+    RtlFreeUnicodeString(&ParentDir_U);
+    if (!NT_SUCCESS(Status)) {
+        return Status;
+    }
 
-	Status = NtQuerySecurityObject(DirHandle, SecurityInformation,
-		NULL, 0, &LengthNeeded);
-	if (STATUS_INVALID_PARAMETER == Status) {
-		//
-		// Can't get the group from parent dir, use primary group
-		// instead.
-		//
-		Status = NtQueryInformationToken(TokenHandle, TokenPrimaryGroup,
-			NULL, 0, &LengthNeeded);
-		ASSERT(STATUS_BUFFER_TOO_SMALL == Status);
-	
-		pGroup = RtlAllocateHeap(PsxHeap, 0, LengthNeeded);
-		if (NULL == pGroup) {
-			NtClose(TokenHandle);
-			return STATUS_NO_MEMORY;
-		}
-	
-		Status = NtQueryInformationToken(TokenHandle, TokenPrimaryGroup,
-			pGroup, LengthNeeded, &LengthNeeded);
-		ASSERT(NT_SUCCESS(Status));
+    Status = NtOpenProcessToken(Process, GENERIC_READ, &TokenHandle);
+    if (!NT_SUCCESS(Status)) {
+        NtClose(DirHandle);
+        return Status;
+    }
 
-		DirGroup = pGroup->PrimaryGroup;
-	
-	} else {
-		ASSERT(STATUS_BUFFER_TOO_SMALL == Status);
+    SecurityInformation = GROUP_SECURITY_INFORMATION;
 
-		pDirSD = RtlAllocateHeap(PsxHeap, 0, LengthNeeded);
-		if (NULL == pDirSD) {
-			NtClose(DirHandle);
-			return STATUS_NO_MEMORY;
-		}
+    Status = NtQuerySecurityObject(DirHandle, SecurityInformation,
+        NULL, 0, &LengthNeeded);
 
-		Status = NtQuerySecurityObject(DirHandle, SecurityInformation,
-			pDirSD, LengthNeeded, &Length);
-		if (!NT_SUCCESS(Status)) {
-			KdPrint(("PSXSS: NtQSD: 0x%x\n", Status));
-			KdPrint(("PSXSS: NtQSD: %d vs. %d\n", LengthNeeded,
-				Length));
-		}
-		ASSERT(NT_SUCCESS(Status));
+    if (STATUS_INVALID_PARAMETER == Status) {
+        //
+        // Can't get the group from parent dir, use primary group
+        // instead.
+        //
+        Status = NtQueryInformationToken(TokenHandle, TokenPrimaryGroup,
+            NULL, 0, &LengthNeeded);
+        ASSERT(STATUS_BUFFER_TOO_SMALL == Status);
 
-		NtClose(DirHandle);
+        pGroup = RtlAllocateHeap(PsxHeap, 0, LengthNeeded);
+        if (NULL == pGroup) {
+            NtClose(TokenHandle);
+            return STATUS_NO_MEMORY;
+        }
 
-		Status = RtlGetGroupSecurityDescriptor(pDirSD, &DirGroup,
-			&Defaulted);
-		ASSERT(NT_SUCCESS(Status));
-	}
+        Status = NtQueryInformationToken(TokenHandle, TokenPrimaryGroup,
+            pGroup, LengthNeeded, &LengthNeeded);
+        ASSERT(NT_SUCCESS(Status));
 
-	Status = RtlCreateSecurityDescriptor(pSD, SECURITY_DESCRIPTOR_REVISION);
-	ASSERT(NT_SUCCESS(Status));
+        DirGroup = pGroup->PrimaryGroup;
 
-	Status = NtQueryInformationToken(TokenHandle, TokenUser, NULL,
-		0, &LengthNeeded);
-	ASSERT(STATUS_BUFFER_TOO_SMALL == Status);
+    } else if (!NT_SUCCESS(Status)) {
 
-	pSA = RtlAllocateHeap(PsxHeap, 0, LengthNeeded);
-	if (NULL == pSA) {
-		NtClose(TokenHandle);
-		return STATUS_NO_MEMORY;
-	}
+        static int _status;
 
-	Status = NtQueryInformationToken(TokenHandle, TokenUser, pSA,
-				LengthNeeded, &LengthNeeded);
-	if (!NT_SUCCESS(Status)) {
-		KdPrint(("PSXSS: NtQueryInfoToken: 0x%x\n", Status));
-	}
-	ASSERT(NT_SUCCESS(Status));
+        _status = Status;
 
-	Status = RtlSetOwnerSecurityDescriptor(pSD, pSA->Sid, FALSE);
-	ASSERT(NT_SUCCESS(Status));
+        if (STATUS_BUFFER_TOO_SMALL != _status || 0 == LengthNeeded) {
+            KdPrint(("PSXSS: NtQSObject returned unexpected %x, %x\n",
+                 _status, LengthNeeded));
+            return _status;
+        }
+
+        ASSERT(STATUS_BUFFER_TOO_SMALL == _status);
+
+        pDirSD = RtlAllocateHeap(PsxHeap, 0, LengthNeeded);
+        if (NULL == pDirSD) {
+            NtClose(DirHandle);
+            return STATUS_NO_MEMORY;
+        }
+
+        Status = NtQuerySecurityObject(DirHandle, SecurityInformation,
+            pDirSD, LengthNeeded, &Length);
+        if (!NT_SUCCESS(Status)) {
+            KdPrint(("PSXSS: NtQSD: 0x%x\n", Status));
+            KdPrint(("PSXSS: NtQSD: %d vs. %d\n", LengthNeeded, Length));
+            return Status;
+        }
+
+        NtClose(DirHandle);
+
+        Status = RtlGetGroupSecurityDescriptor(pDirSD, &DirGroup,
+            &Defaulted);
+        ASSERT(NT_SUCCESS(Status));
+    }
+
+    Status = RtlCreateSecurityDescriptor(pSD, SECURITY_DESCRIPTOR_REVISION);
+    ASSERT(NT_SUCCESS(Status));
+
+    Status = NtQueryInformationToken(TokenHandle, TokenUser, NULL,
+        0, &LengthNeeded);
+    ASSERT(STATUS_BUFFER_TOO_SMALL == Status);
+
+    pSA = RtlAllocateHeap(PsxHeap, 0, LengthNeeded);
+    if (NULL == pSA) {
+        NtClose(TokenHandle);
+        return STATUS_NO_MEMORY;
+    }
+
+    Status = NtQueryInformationToken(TokenHandle, TokenUser, pSA,
+                LengthNeeded, &LengthNeeded);
+    if (!NT_SUCCESS(Status)) {
+        KdPrint(("PSXSS: NtQueryInfoToken: 0x%x\n", Status));
+    }
+    ASSERT(NT_SUCCESS(Status));
+
+    Status = RtlSetOwnerSecurityDescriptor(pSD, pSA->Sid, FALSE);
+    ASSERT(NT_SUCCESS(Status));
 
 
-	Status = RtlSetGroupSecurityDescriptor(pSD, DirGroup, FALSE);
-	ASSERT(NT_SUCCESS(Status));
+    Status = RtlSetGroupSecurityDescriptor(pSD, DirGroup, FALSE);
+    ASSERT(NT_SUCCESS(Status));
 
-	ModeToAccessMask(Mode, &UserAccess, &GroupAccess, &OtherAccess);
+    ModeToAccessMask(Mode, &UserAccess, &GroupAccess, &OtherAccess);
 
-	Status = RtlMakePosixAcl(ACL_REVISION2, pSA->Sid, DirGroup,
-		UserAccess, GroupAccess, OtherAccess, 0, NULL, &LengthNeeded);
-	ASSERT(STATUS_BUFFER_TOO_SMALL == Status);
+    Status = RtlMakePosixAcl(ACL_REVISION2, pSA->Sid, DirGroup,
+        UserAccess, GroupAccess, OtherAccess, 0, NULL, &LengthNeeded);
+    ASSERT(STATUS_BUFFER_TOO_SMALL == Status);
 
-	pDacl = RtlAllocateHeap(PsxHeap, 0, LengthNeeded);
-	if (NULL == pDacl) {
-		// XXX.mjb: better cleanup needed
-		NtClose(TokenHandle);
-		return STATUS_NO_MEMORY;
-	}
+    pDacl = RtlAllocateHeap(PsxHeap, 0, LengthNeeded);
+    if (NULL == pDacl) {
+        // XXX.mjb: better cleanup needed
+        NtClose(TokenHandle);
+        return STATUS_NO_MEMORY;
+    }
 
-	Status = RtlMakePosixAcl(ACL_REVISION2, pSA->Sid, DirGroup,
-		UserAccess, GroupAccess, OtherAccess, LengthNeeded, pDacl,
-		&LengthNeeded);
-	ASSERT(NT_SUCCESS(Status));
+    Status = RtlMakePosixAcl(ACL_REVISION2, pSA->Sid, DirGroup,
+        UserAccess, GroupAccess, OtherAccess, LengthNeeded, pDacl,
+        &LengthNeeded);
+    ASSERT(NT_SUCCESS(Status));
 
-	Status = RtlSetDaclSecurityDescriptor(pSD,
-		 TRUE, pDacl, FALSE);
-	ASSERT(NT_SUCCESS(Status));
+    Status = RtlSetDaclSecurityDescriptor(pSD,
+         TRUE, pDacl, FALSE);
+    ASSERT(NT_SUCCESS(Status));
 
-	//
-	// The pointers we stick into pvMem will be freed in DeInitSD.
-	//
+    //
+    // The pointers we stick into pvMem will be freed in DeInitSD.
+    //
 
-	i = 0;
+    i = 0;
 
-	pvMem[i++] = pDacl;
-	pvMem[i++] = pSA;
-	if (NULL != pDirSD) {
-		pvMem[i++] = pDirSD;
-	}
-	if (NULL != pGroup) {
-		pvMem[i++] = pGroup;
-	}
-	pvMem[i++] = NULL;
+    pvMem[i++] = pDacl;
+    pvMem[i++] = pSA;
+    if (NULL != pDirSD) {
+        pvMem[i++] = pDirSD;
+    }
+    if (NULL != pGroup) {
+        pvMem[i++] = pGroup;
+    }
+    pvMem[i++] = NULL;
 
-	NtClose(TokenHandle);
+    NtClose(TokenHandle);
 
-	ASSERT(RtlValidSecurityDescriptor(pSD));
+    ASSERT(RtlValidSecurityDescriptor(pSD));
 
-	return STATUS_SUCCESS;
+    return STATUS_SUCCESS;
 }
 
+//
+// Internal support routine
 //
 // This routine should only be called on SD's initialized with
 // InitSecurityDescriptor().  It frees memory that was allocated
 // there.
 //
+
 VOID
 DeInitSecurityDescriptor(
-	PSECURITY_DESCRIPTOR pSD,
-	PVOID *pvMem
-	)
+    PSECURITY_DESCRIPTOR pSD,
+    PVOID *pvMem
+    )
 {
-	PACL pDacl;
-	NTSTATUS Status;
-	BOOLEAN b;
-	int i;
+    PACL pDacl;
+    NTSTATUS Status;
+    BOOLEAN b;
+    int i;
 
-	for (i = 0; NULL != pvMem[i]; ++i)
-		RtlFreeHeap(PsxHeap, 0, pvMem[i]);
+    for (i = 0; NULL != pvMem[i]; ++i)
+        RtlFreeHeap(PsxHeap, 0, pvMem[i]);
 
 #if 0
-	Status = RtlGetDaclSecurityDescriptor(pSD, &b, &pDacl, &b);
-	ASSERT(NT_SUCCESS(Status));
-	ASSERT(NULL != pDacl);
+    Status = RtlGetDaclSecurityDescriptor(pSD, &b, &pDacl, &b);
+    ASSERT(NT_SUCCESS(Status));
+    ASSERT(NULL != pDacl);
 
-	RtlFreeHeap(PsxHeap, 0, pDacl);
+    RtlFreeHeap(PsxHeap, 0, pDacl);
 #endif
 }
 
 //
+// Internal support routine
+//
 // See if the given group is one that the owner of this process belongs
 // to.
 //
+
 static BOOLEAN
 IsUserInGroup(
-	PPSX_PROCESS p,
-	PSID Group
-	)
+    PPSX_PROCESS p,
+    PSID Group
+    )
 {
-	HANDLE TokenHandle;
-	TOKEN_GROUPS *pGroups;
-	ULONG LengthNeeded;
-	NTSTATUS Status;
-	BOOLEAN RetVal = FALSE;
-	ULONG i;
+    HANDLE TokenHandle;
+    TOKEN_GROUPS *pGroups;
+    ULONG LengthNeeded;
+    NTSTATUS Status;
+    BOOLEAN RetVal = FALSE;
+    ULONG i;
 
-	Status = NtOpenProcessToken(p->Process, GENERIC_READ, &TokenHandle);
-	ASSERT(NT_SUCCESS(Status));
+    Status = NtOpenProcessToken(p->Process, GENERIC_READ, &TokenHandle);
+    ASSERT(NT_SUCCESS(Status));
 
-	Status = NtQueryInformationToken(TokenHandle, TokenGroups, NULL,
-		0, &LengthNeeded);
-	ASSERT(STATUS_BUFFER_TOO_SMALL == Status);
+    Status = NtQueryInformationToken(TokenHandle, TokenGroups, NULL,
+        0, &LengthNeeded);
+    ASSERT(STATUS_BUFFER_TOO_SMALL == Status);
 
-	pGroups = RtlAllocateHeap(PsxHeap, 0, LengthNeeded);
-	if (NULL == pGroups) {
-		NtClose(TokenHandle);
-		return FALSE;
-	}
+    pGroups = RtlAllocateHeap(PsxHeap, 0, LengthNeeded);
+    if (NULL == pGroups) {
+        NtClose(TokenHandle);
+        return FALSE;
+    }
 
-	Status = NtQueryInformationToken(TokenHandle, TokenGroups, pGroups,
-		LengthNeeded, &LengthNeeded);
-	ASSERT(NT_SUCCESS(Status));
+    Status = NtQueryInformationToken(TokenHandle, TokenGroups, pGroups,
+        LengthNeeded, &LengthNeeded);
+    ASSERT(NT_SUCCESS(Status));
 
-	for (i = 0; i < pGroups->GroupCount; ++i) {
-		if (RtlEqualSid(pGroups->Groups[i].Sid, Group)) {
-			RetVal = TRUE;
-			break;
-		}
-	}
+    for (i = 0; i < pGroups->GroupCount; ++i) {
+        if (RtlEqualSid(pGroups->Groups[i].Sid, Group)) {
+            RetVal = TRUE;
+            break;
+        }
+    }
 
-	RtlFreeHeap(PsxHeap, 0, pGroups);
-	NtClose(TokenHandle);
-	return RetVal;
+    RtlFreeHeap(PsxHeap, 0, pGroups);
+    NtClose(TokenHandle);
+    return RetVal;
 }
 
+
+//
+// Internal support routine
+//
+
 PSID
 GetLoginGroupSid(
-	IN PPSX_PROCESS p
-	)
+    IN PPSX_PROCESS p
+    )
 /*++
 
-	Get the logon group Sid from the supplementary group list.  The
-	returned Sid is allocated from PsxHeap, and should be freed by
-	the caller when he's done with it.
+    Get the logon group Sid from the supplementary group list.  The
+    returned Sid is allocated from PsxHeap, and should be freed by
+    the caller when he's done with it.
 
-	Returns NULL upon failure.
+    Returns NULL upon failure.
 
 --*/
 {
-	HANDLE TokenHandle;
-	NTSTATUS Status;
-	PSID NewSid;
-	ULONG outlen, i;
-	TOKEN_GROUPS *pGroups;
+    HANDLE TokenHandle;
+    NTSTATUS Status;
+    PSID NewSid;
+    ULONG outlen, i;
+    TOKEN_GROUPS *pGroups;
 
-	Status = NtOpenProcessToken(p->Process, GENERIC_READ,
-		&TokenHandle);
-	if (!NT_SUCCESS(Status)) { 
-		return NULL;
-	}
+    Status = NtOpenProcessToken(p->Process, GENERIC_READ,
+        &TokenHandle);
+    if (!NT_SUCCESS(Status)) {
+        return NULL;
+    }
 
-	Status = NtQueryInformationToken(TokenHandle, TokenGroups,
-		NULL, 0, &outlen);
-	ASSERT(STATUS_BUFFER_TOO_SMALL == Status);
+    Status = NtQueryInformationToken(TokenHandle, TokenGroups,
+        NULL, 0, &outlen);
+    ASSERT(STATUS_BUFFER_TOO_SMALL == Status);
 
-	pGroups = RtlAllocateHeap(PsxHeap, 0, outlen);
-	if (NULL == pGroups) {
-		NtClose(TokenHandle);
-		return NULL;
-	}
+    pGroups = RtlAllocateHeap(PsxHeap, 0, outlen);
+    if (NULL == pGroups) {
+        NtClose(TokenHandle);
+        return NULL;
+    }
 
-	Status = NtQueryInformationToken(TokenHandle, TokenGroups,
-		pGroups, outlen, &outlen);
-	if (!NT_SUCCESS(Status)) {
-		RtlFreeHeap(PsxHeap, 0, pGroups);
-		NtClose(TokenHandle);
-		return NULL;
-	}
+    Status = NtQueryInformationToken(TokenHandle, TokenGroups,
+        pGroups, outlen, &outlen);
+    if (!NT_SUCCESS(Status)) {
+        RtlFreeHeap(PsxHeap, 0, pGroups);
+        NtClose(TokenHandle);
+        return NULL;
+    }
 
-	for (i = 0; i < pGroups->GroupCount; ++i) {
-		PSID Sid = pGroups->Groups[i].Sid;
+    for (i = 0; i < pGroups->GroupCount; ++i) {
+        PSID Sid = pGroups->Groups[i].Sid;
 
-		if (0xFFF == MakePosixId(Sid)) {
-			// This is the login group sid, copy it and return.
-			
-			NewSid = RtlAllocateHeap(PsxHeap, 0,
-				RtlLengthSid(Sid));
-			if (NULL == NewSid)
-				return NULL;
+        if (0xFFF == MakePosixId(Sid)) {
+            // This is the login group sid, copy it and return.
 
-			Status = RtlCopySid(RtlLengthSid(Sid), NewSid, Sid);
-			ASSERT(NT_SUCCESS(Status));
+            NewSid = RtlAllocateHeap(PsxHeap, 0,
+                RtlLengthSid(Sid));
+            if (NULL == NewSid)
+                return NULL;
 
-			RtlFreeHeap(PsxHeap, 0, pGroups);
-			NtClose(TokenHandle);
-			return NewSid;
-		}
-	}
-	RtlFreeHeap(PsxHeap, 0, pGroups);
-	NtClose(TokenHandle);
-	return NULL;
+            Status = RtlCopySid(RtlLengthSid(Sid), NewSid, Sid);
+            ASSERT(NT_SUCCESS(Status));
+
+            RtlFreeHeap(PsxHeap, 0, pGroups);
+            NtClose(TokenHandle);
+            return NewSid;
+        }
+    }
+    RtlFreeHeap(PsxHeap, 0, pGroups);
+    NtClose(TokenHandle);
+    return NULL;
 }
+
+//
+// Internal support routine
+//
 
 ULONG
 OpenTty(
-	PPSX_PROCESS p,
-	PFILEDESCRIPTOR Fd,
-	ULONG DesiredAccess,
-	ULONG Flags,
-	BOOLEAN NewOpen			// file already open in posix.exe?
-	)
+    PPSX_PROCESS p,
+    PFILEDESCRIPTOR Fd,
+    ULONG DesiredAccess,
+    ULONG Flags,
+    BOOLEAN NewOpen
+    )
+/*++
+
+Routine Description:
+
+    This routine is called to implement an open on the file /dev/tty.
+
+Arguments:
+
+    p               - The process on whose behalf the open is performed.
+    Fd              - The file descriptor to receive the handle.
+    DesiredAccess   - The access requested on the file.
+    Flags           -
+    NewOpen         - FALSE if the file is already open in the console session
+                      manager.  This will be the case for stdin, stdout, and
+                      stderr.  If NewOepn is TRUE, we're opening /dev/tty an
+                      additional time, and we want the console sess mgr to open
+                      con: again, to go along.
+
+Return Value:
+
+    A posix error status, or 0 if successful.
+
+--*/
 {
-	SCREQUESTMSG Request;
-	NTSTATUS Status;
+    SCREQUESTMSG Request;
+    NTSTATUS Status;
 
-	//
-	// NewOpen will be FALSE if the file is already open in the
-	// console session manager.  This will be the case for stdin,
-	// stdout, and stderr.  If NewOpen is TRUE, we're opening
-	// /dev/tty an additional time, and we want the console sess
-	// mgr to open con: again, to go along.
-	//
+    Fd->SystemOpenFileDesc = AllocateSystemOpenFile();
+    if (NULL == Fd->SystemOpenFileDesc) {
+        return ENOMEM;
+    }
 
-	Fd->SystemOpenFileDesc = AllocateSystemOpenFile();
-	if (NULL == Fd->SystemOpenFileDesc) {
-		return ENOMEM;
-	}
+    if (DesiredAccess & FILE_READ_DATA) {
+        Fd->SystemOpenFileDesc->Flags |= PSX_FD_READ;
+    }
+    if (DesiredAccess & (FILE_WRITE_DATA | FILE_APPEND_DATA)) {
+        Fd->SystemOpenFileDesc->Flags |= PSX_FD_WRITE;
+    }
 
-	if (DesiredAccess & FILE_READ_DATA) {
-		Fd->SystemOpenFileDesc->Flags |= PSX_FD_READ;
-	}
-	if (DesiredAccess & (FILE_WRITE_DATA | FILE_APPEND_DATA)) {
-		Fd->SystemOpenFileDesc->Flags |= PSX_FD_WRITE;
-	}
+    if (Flags & O_NONBLOCK) {
+        Fd->SystemOpenFileDesc->Flags |= PSX_FD_NOBLOCK;
+    }
+    if (Flags & O_APPEND) {
+        Fd->SystemOpenFileDesc->Flags |= PSX_FD_APPEND;
+    }
 
-	if (Flags & O_NONBLOCK) {
-		Fd->SystemOpenFileDesc->Flags |= PSX_FD_NOBLOCK;
-	}
-	if (Flags & O_APPEND) {
-		Fd->SystemOpenFileDesc->Flags |= PSX_FD_APPEND;
-	}
+    if (ReferenceOrCreateIoNode(PSX_CONSOLE_DEV,
+        (ino_t)p->PsxSession->Terminal->ConsolePort, FALSE,
+        &Fd->SystemOpenFileDesc->IoNode)) {
+        // null
+    } else {
+        Fd->SystemOpenFileDesc->IoNode->IoVectors = &ConVectors;
+        Fd->SystemOpenFileDesc->IoNode->Mode = S_IFCHR | 0700;
+        Fd->SystemOpenFileDesc->IoNode->OwnerId = p->EffectiveUid;
+        Fd->SystemOpenFileDesc->IoNode->GroupId = p->EffectiveGid;
+    }
+    RtlLeaveCriticalSection(&Fd->SystemOpenFileDesc->IoNode->IoNodeLock);
 
-	if (ReferenceOrCreateIoNode(PSX_CONSOLE_DEV,
-		(ino_t)p->PsxSession->Terminal->ConsolePort, FALSE,
-		&Fd->SystemOpenFileDesc->IoNode)) {
-		// null
-	} else {
-		Fd->SystemOpenFileDesc->IoNode->IoVectors = &ConVectors;
-		Fd->SystemOpenFileDesc->IoNode->Mode = S_IFCHR | 0700;
-		Fd->SystemOpenFileDesc->IoNode->OwnerId = p->EffectiveUid;
-		Fd->SystemOpenFileDesc->IoNode->GroupId = p->EffectiveGid;
-	}
-	RtlLeaveCriticalSection(&Fd->SystemOpenFileDesc->IoNode->IoNodeLock);
+    (void)IoOpenNewHandle(p, Fd, NULL);
 
-	(void)IoOpenNewHandle(p, Fd, NULL);
+    Fd->SystemOpenFileDesc->Terminal = p->PsxSession->Terminal;
 
-	Fd->SystemOpenFileDesc->Terminal = p->PsxSession->Terminal;
+    //
+    // Add a reference to the terminal (there is an additional
+    // file descriptor open on it).
+    //
 
-	//
-	// Add a reference to the terminal (there is an additional
-	// file descriptor open on it).
-	//
+    ++Fd->SystemOpenFileDesc->Terminal->ReferenceCount;
 
-	++Fd->SystemOpenFileDesc->Terminal->ReferenceCount;
+    if (!NewOpen) {
+        return 0;
+    }
 
-	if (!NewOpen) {
-		return 0;
-	}
+    //
+    // Send a message to posix.exe, asking him to open the
+    // console again.
+    //
 
-	//
-	// Send a message to posix.exe, asking him to open the
-	// console again.
-	//
+    Request.Request = ConRequest;
+    Request.d.Con.Request = ScOpenFile;
 
-	Request.Request = ConRequest;
-	Request.d.Con.Request = ScOpenFile;
+    if (DesiredAccess & FILE_WRITE_DATA) {
+        Request.d.Con.d.IoBuf.Flags = O_WRONLY;
+    } else {
+        Request.d.Con.d.IoBuf.Flags = O_RDONLY;
+    }
 
-	if (DesiredAccess & FILE_WRITE_DATA) {
-		Request.d.Con.d.IoBuf.Flags = O_WRONLY;
-	} else {
-		Request.d.Con.d.IoBuf.Flags = O_RDONLY;
-	}
+    PORT_MSG_TOTAL_LENGTH(Request) = sizeof(SCREQUESTMSG);
+    PORT_MSG_DATA_LENGTH(Request) = sizeof(SCREQUESTMSG) -
+        sizeof(PORT_MESSAGE);
+    PORT_MSG_ZERO_INIT(Request) = 0;
 
-	PORT_MSG_TOTAL_LENGTH(Request) = sizeof(SCREQUESTMSG);
-	PORT_MSG_DATA_LENGTH(Request) = sizeof(SCREQUESTMSG) -
-		sizeof(PORT_MESSAGE);
-	PORT_MSG_ZERO_INIT(Request) = 0;
+    // XXX.mjb: hold session mgr lock
 
-	// XXX.mjb: hold session mgr lock
+    Status = NtRequestWaitReplyPort(p->PsxSession->Terminal->ConsolePort,
+        (PPORT_MESSAGE)&Request, (PPORT_MESSAGE)&Request);
+    if (!NT_SUCCESS(Status)) {
+        KdPrint(("PSXSS: NtRequest: 0x%x\n", Status));
+    }
+    ASSERT(NT_SUCCESS(Status));
 
-	Status = NtRequestWaitReplyPort(p->PsxSession->Terminal->ConsolePort,
-		(PPORT_MESSAGE)&Request, (PPORT_MESSAGE)&Request);
-	if (!NT_SUCCESS(Status)) {
-		KdPrint(("PSXSS: NtRequest: 0x%x\n", Status));
-	}
-	ASSERT(NT_SUCCESS(Status));
+    // XXX.mjb: release session mgr lock
 
-	// XXX.mjb: release session mgr lock
+    Fd->SystemOpenFileDesc->NtIoHandle = Request.d.Con.d.IoBuf.Handle;
 
-	Fd->SystemOpenFileDesc->NtIoHandle = Request.d.Con.d.IoBuf.Handle;
-
-	return 0;
+    return 0;
 }
 
-BOOLEAN
-PsxIsatty(
-	IN PPSX_PROCESS p,
-	IN OUT PPSX_API_MSG m
-	)
+
+//
+// Internal support routine
+//
+
+ULONG
+OpenDevNull(
+    PPSX_PROCESS p,
+    PFILEDESCRIPTOR Fd,
+    ULONG DesiredAccess,
+    ULONG Flags
+    )
+/*++
+
+Routine Description:
+
+    This routine is called to implement an open on the file /dev/null.
+
+Arguments:
+
+    p               - The process on whose behalf the open is performed.
+    Fd              - The file descriptor to receive the handle.
+    DesiredAccess   - The access requested on the file.
+    Flags           -
+    NewOpen         - FALSE if the file is already open in the console session
+                      manager.  This will be the case for stdin, stdout, and
+                      stderr.  If NewOepn is TRUE, we're opening /dev/tty an
+                      additional time, and we want the console sess mgr to open
+                      con: again, to go along.
+
+
+Return Value:
+
+    A posix error status, or 0 if successful.
+
+--*/
 {
-	PPSX_ISATTY_MSG args;
-	NTSTATUS Status;
-	PFILEDESCRIPTOR Fd;
+    NTSTATUS Status;
 
-	args = &m->u.Isatty;
+    Fd->SystemOpenFileDesc = AllocateSystemOpenFile();
+    if (NULL == Fd->SystemOpenFileDesc) {
+        return ENOMEM;
+    }
 
-	Fd = FdIndexToFd(p, args->FileDes);
-	if (!Fd) {
-		m->Error = EBADF;
-	        return TRUE;
-	}
+    if (DesiredAccess & FILE_READ_DATA) {
+        Fd->SystemOpenFileDesc->Flags |= PSX_FD_READ;
+    }
+    if (DesiredAccess & (FILE_WRITE_DATA | FILE_APPEND_DATA)) {
+        Fd->SystemOpenFileDesc->Flags |= PSX_FD_WRITE;
+    }
 
-	if (&ConVectors == Fd->SystemOpenFileDesc->IoNode->IoVectors) {
-		//
-		// If the fd is open on the console, it's not
-		// necessarily a tty, since the console session manager
-		// could have redirected the output.  The dll will send
-		// a message to posix.exe, asking whether it's redirected
-		// or not.
-		//
-		args->Command = IO_COMMAND_DO_CONSIO;
-		args->FileDes = (int)Fd->SystemOpenFileDesc->NtIoHandle;
-		return TRUE;
-	}
-	args->Command = IO_COMMAND_DONE;
+    if (Flags & O_NONBLOCK) {
+        Fd->SystemOpenFileDesc->Flags |= PSX_FD_NOBLOCK;
+    }
+    if (Flags & O_APPEND) {
+        Fd->SystemOpenFileDesc->Flags |= PSX_FD_APPEND;
+    }
 
-	m->ReturnValue = FALSE;		// not a tty
-	return TRUE;
+    if (ReferenceOrCreateIoNode(PSX_NULL_DEV,
+        (ino_t)0, FALSE, &Fd->SystemOpenFileDesc->IoNode)) {
+        // null
+    } else {
+        Fd->SystemOpenFileDesc->IoNode->IoVectors = &NullVectors;
+        Fd->SystemOpenFileDesc->IoNode->Mode = S_IFCHR | 0666;
+        Fd->SystemOpenFileDesc->IoNode->OwnerId = p->EffectiveUid;
+        Fd->SystemOpenFileDesc->IoNode->GroupId = p->EffectiveGid;
+    }
+    RtlLeaveCriticalSection(&Fd->SystemOpenFileDesc->IoNode->IoNodeLock);
+
+    (void)IoOpenNewHandle(p, Fd, NULL);
+
+    Fd->SystemOpenFileDesc->Terminal = NULL;
+
+    return 0;
 }
+
+//
+// Internal support routine
+//
+
+dev_t
+GetFileDeviceNumber(
+    PUNICODE_STRING Path
+    )
+/*++
+
+Routine Description:
+
+    Takes a path, like \DosDevices\X:\foo\bar, and returns
+    the device number, which in this case is 'X'.
+
+Arguments:
+
+    Path - the path.
+
+Return Value:
+
+    The device number.
+--*/
+{
+    wchar_t ch;
+
+    ch = Path->Buffer[12];
+    return (dev_t)ch;
+}
+

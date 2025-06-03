@@ -1,6 +1,6 @@
 /*++ BUILD Version: 0001    // Increment this if a change has global effects
 
-Copyright (c) 1991  Microsoft Corporation
+Copyright (c) 1992-1996  Microsoft Corporation
 
 Module Name:
 
@@ -15,18 +15,9 @@ Abstract:
     the SNMP Extendible Agent for Windows NT.
 
     Extensive comments have been included to describe its structure and
-    operation.  See also "Microsoft Windows/NT SNMP Programmer's Reference".
-
-Created:
-
-    28-Jun-1991
-
-Revision History:
+    operation.  See also "Microsoft Windows NT SNMP Programmer's Reference".
 
 --*/
-
-
-static char *vcsid = "@(#) $Logfile:   N:/xtest/vcs/testdll.c_v  $ $Revision:   1.6  $";
 
 
 // General notes:
@@ -44,7 +35,6 @@ static char *vcsid = "@(#) $Logfile:   N:/xtest/vcs/testdll.c_v  $ $Revision:   
 // Necessary includes.
 
 #include <windows.h>
-#include <malloc.h>
 
 #include <snmp.h>
 
@@ -77,7 +67,7 @@ HANDLE hSimulateTrap = NULL;
 // information on its arguments and their meanings.  This example DLL does 
 // not perform any special actions using this mechanism.
 
-BOOL WINAPI DllMain(
+BOOL WINAPI DLLEntry(
     HANDLE hDll,
     DWORD  dwReason,
     LPVOID lpReserved)
@@ -188,8 +178,7 @@ BOOL WINAPI SnmpExtensionTrap(
         // Communicate the trap data to the Extendible Agent.
 
         enterprise->idLength = OidListLen;
-        enterprise->ids = (UINT *)malloc(sizeof(UINT) * OidListLen);
-        memcpy(enterprise->ids, OidList, sizeof(UINT) * OidListLen);
+        enterprise->ids = OidList;
 
         *genericTrap      = SNMP_GENERICTRAP_ENTERSPECIFIC;
 
@@ -258,8 +247,8 @@ BOOL WINAPI SnmpExtensionQuery(
            // The Extendible Agent tests for this, and takes appropriate
            // action.
 
-           SNMP_oidfree( &variableBindings->list[I].name );
-           SNMP_oidcpy( &variableBindings->list[I].name, &MIB_OidPrefix );
+           SnmpUtilOidFree( &variableBindings->list[I].name );
+           SnmpUtilOidCpy( &variableBindings->list[I].name, &MIB_OidPrefix );
            variableBindings->list[I].name.ids[MIB_PREFIX_LEN-1] ++;
            }
 
@@ -293,4 +282,3 @@ Exit:
 
 
 //-------------------------------- END --------------------------------------
-

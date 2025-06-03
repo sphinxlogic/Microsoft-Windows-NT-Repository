@@ -25,6 +25,24 @@ Revision History:
 #include "os2dll.h"
 #include "os2dll16.h"
 
+APIRET
+Od2SuspendAllThreads( VOID );
+
+APIRET
+Od2ResumeAllThreads( VOID );
+
+VOID
+DosExit(
+    IN ULONG ExitAction,
+    IN ULONG ExitResult
+    );
+
+APIRET
+DosHoldSignal(
+        ULONG fDisable,
+        ULONG pstack
+        );
+
 #if DBG
 // Set the values as appropriate (with NTSD or at compile-time) to see all
 // APIs which allocate/free memory and affect this selector.
@@ -74,6 +92,13 @@ BOOLEAN
 ldtCreateSelBitmap(
     )
 {
+
+    ldtBMHeap = RtlAllocateHeap(Od2Heap, 0, (LDT_NUMBER_OF_PRIVATE_SEGMENTS + 7) / 8);
+    if (ldtBMHeap == NULL) {
+        return(FALSE);
+    }
+
+/*
     ldtBMHeap = RtlCreateHeap( HEAP_GROWABLE,
                                NULL,
                                (LDT_NUMBER_OF_PRIVATE_SEGMENTS + 7) / 8, // 8 bits per byte
@@ -84,7 +109,7 @@ ldtCreateSelBitmap(
     if (ldtBMHeap == NULL) {
         return(FALSE);
     }
-
+*/
     RtlInitializeBitMap(&ldtBitMapHeader ,ldtBMHeap, LDT_NUMBER_OF_PRIVATE_SEGMENTS);
     RtlClearAllBits(&ldtBitMapHeader);
     RtlSetBits (&ldtBitMapHeader,0,1);  // selector 0 never freed.
@@ -509,10 +534,12 @@ DosAllocSeg(
 #if DBG
     if ((Os2DebugSel != 0) && (*pSel == Os2DebugSel))
     {
-        DbgPrint("[%x,%x] DosAllocSeg returning sel=%x\n",
+        DbgPrint("[%x,%x] DosAllocSeg returning sel=%x (size=%x, fsAlloc=%x)\n",
                     Od2Process->Pib.ProcessId,
                     Od2CurrentThreadId(),
-                    *pSel);
+                    *pSel,
+                    cbSize,
+                    fsAlloc);
     }
 #endif
     return (NO_ERROR);
@@ -1073,8 +1100,168 @@ APIRET ResizeSharedMemory(
         if (NT_SUCCESS(Status) || (Status == STATUS_ALREADY_COMMITTED)) {
             rc = NO_ERROR;
         }
-        else
+        else if (Status == STATUS_CONFLICTING_ADDRESSES) {
+
+            MEMORY_BASIC_INFORMATION MemoryInformation;
+            PVOID AllocationBase = (PVOID) ((ULONG)AllocFreeBaseAddress & 0xffff0000);
+            PBYTE pSegmentCopy;
+
+            Status = NtQueryVirtualMemory(
+                            ProcessHandle,
+                            (PVOID)((ULONG)AllocationBase + NewRegionSize - 1),
+                            MemoryBasicInformation,
+                            &MemoryInformation,
+                            sizeof( MemoryInformation ),
+                            NULL
+                            );
+            if (!NT_SUCCESS(Status) || MemoryInformation.State != MEM_FREE) {
+#if DBG
+                DbgPrint("[%d,%d] DosReallocSeg fail with STATUS_CONFLICTING_ADDRESSES, State=%x\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId(),
+                    MemoryInformation.State
+                    );
+#endif // DBG
+                return (ERROR_ACCESS_DENIED);
+            }
+
+            pSegmentCopy = RtlAllocateHeap(Od2Heap, 0, CurrentSize);
+            if (pSegmentCopy == NULL) {
+#if DBG
+                DbgPrint("[%d,%d] DosReallocSeg fail to allocate from local heap\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId()
+                    );
+#endif // DBG
+                return (ERROR_NOT_ENOUGH_MEMORY);
+            }
+
+            DosHoldSignal(HLDSIG_DISABLE, 0);
+            Od2SuspendAllThreads();
+
+            RtlCopyMemory(pSegmentCopy, (PBYTE)AllocationBase, CurrentSize);
+
+            Status = NtUnmapViewOfSection(
+                            ProcessHandle,
+                            AllocationBase
+                            );
+            if (!NT_SUCCESS(Status)) {
+#if DBG
+                DbgPrint("[%d,%d] DosReallocSeg fail on NtUnmapViewOfSection, Status=%x\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId(),
+                    Status
+                    );
+                ASSERT(FALSE);
+#endif // DBG
+                Od2ResumeAllThreads();
+                DosHoldSignal(HLDSIG_ENABLE, 0);
+                RtlFreeHeap(Od2Heap, 0, pSegmentCopy);
+                return (ERROR_NOT_ENOUGH_MEMORY);
+            }
+
+            RegionSize = _64K;
+
+            Status = NtAllocateVirtualMemory(
+                            ProcessHandle,
+                            &AllocationBase,
+                            1,
+                            &RegionSize,
+                            MEM_RESERVE,
+                            PAGE_EXECUTE_READWRITE
+                            );
+
+            if (!NT_SUCCESS(Status)) {
+#if DBG
+                DbgPrint("[%d,%d] DosReallocSeg fail on NtAllocateVirtualMemory (RESERVE), Status=%x\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId(),
+                    Status
+                    );
+                ASSERT(FALSE);
+#endif // DBG
+                DosExit(EXIT_PROCESS, ERROR_NOT_ENOUGH_MEMORY);
+            }
+
+            RegionSize = NewRegionSize;
+
+            Status = NtAllocateVirtualMemory(
+                            ProcessHandle,
+                            &AllocationBase,
+                            1,
+                            &RegionSize,
+                            MEM_COMMIT,
+                            PAGE_EXECUTE_READWRITE
+                            );
+            if (NT_SUCCESS(Status)) {
+                RtlCopyMemory(AllocationBase, pSegmentCopy, CurrentSize);
+                rc = NO_ERROR;
+            }
+            else {
+#if DBG
+                DbgPrint("[%d,%d] DosReallocSeg fail on NtAllocateVirtualMemory (COMMIT), Status=%x\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId(),
+                    Status
+                    );
+#endif // DBG
+                DosExit(EXIT_PROCESS, ERROR_NOT_ENOUGH_MEMORY);
+            }
+
+            Od2ResumeAllThreads();
+            DosHoldSignal(HLDSIG_ENABLE, 0);
+            RtlFreeHeap(Od2Heap, 0, pSegmentCopy);
+#if DBG
+            IF_OD2_DEBUG( MEMORY ) {
+                Status = NtQueryVirtualMemory(
+                                ProcessHandle,
+                                AllocationBase,
+                                MemoryBasicInformation,
+                                &MemoryInformation,
+                                sizeof( MemoryInformation ),
+                                NULL
+                                );
+                DbgPrint("[%d,%d]Reallocation of the private data segment:\n\tBaseAddress=%x\n\tAllocationBase=%x\n\tAllocationProtect=%x\n\tRegionSize=%x\n\tState=%x\n\tProtect=%x\n\tType=%x\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId(),
+                    MemoryInformation.BaseAddress,
+                    MemoryInformation.AllocationBase,
+                    MemoryInformation.AllocationProtect,
+                    MemoryInformation.RegionSize,
+                    MemoryInformation.State,
+                    MemoryInformation.Protect,
+                    MemoryInformation.Type
+                    );
+                Status = NtQueryVirtualMemory(
+                                ProcessHandle,
+                                (PVOID)((ULONG)AllocationBase+RegionSize),
+                                MemoryBasicInformation,
+                                &MemoryInformation,
+                                sizeof( MemoryInformation ),
+                                NULL
+                                );
+                DbgPrint("\n\tBaseAddress=%x\n\tAllocationBase=%x\n\tAllocationProtect=%x\n\tRegionSize=%x\n\tState=%x\n\tProtect=%x\n\tType=%x\n",
+                    MemoryInformation.BaseAddress,
+                    MemoryInformation.AllocationBase,
+                    MemoryInformation.AllocationProtect,
+                    MemoryInformation.RegionSize,
+                    MemoryInformation.State,
+                    MemoryInformation.Protect,
+                    MemoryInformation.Type
+                    );
+            }
+#endif
+        }
+        else {
+#if DBG
+            DbgPrint("[%d,%d] DosReallocSeg fail on NtAllocateVirtualMemory with Status=%x\n",
+                Od2Process->Pib.ProcessId,
+                Od2CurrentThreadId(),
+                Status
+                );
+#endif // DBG
             rc = ERROR_ACCESS_DENIED;
+        }
     }
     else
     {

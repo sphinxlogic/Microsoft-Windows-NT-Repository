@@ -52,7 +52,7 @@ Revision History:
 #include <lmerr.h>      // NERR_ and ERROR_ equates.
 #include <lmsname.h>    // Service names
 #include <rpcutil.h>    // NetpInitRpcServer()
-#include <netdebug.h>   // NetpDbgPrint(), FORMAT_ equates, etc.
+#include <netdebug.h>   // NetpKdPrint(()), FORMAT_ equates, etc.
 #include <prefix.h>     // PREFIX_ equates.
 #include <repldefs.h>   // IF_DEBUG(), ReplMain().
 #include <secobj.h>     // NetpCreateWellKnownSids()
@@ -113,9 +113,9 @@ Return Value:
     //
     ntstatus = NetpCreateWellKnownSids(NULL);
     if (! NT_SUCCESS(ntstatus) ) {
-        NetpDbgPrint( PREFIX_REPL
+        NetpKdPrint(( PREFIX_REPL
                 "Failed to create well-known SIDs, status " FORMAT_NTSTATUS
-                ",\n", ntstatus);
+                ",\n", ntstatus));
         return;
     }
 
@@ -139,9 +139,9 @@ Return Value:
         //
         // BUGBUG: Log an event for failing to start control dispatcher
         //
-        NetpDbgPrint( PREFIX_REPL
+        NetpKdPrint(( PREFIX_REPL
                 "Failed to start control dispatcher " FORMAT_API_STATUS "\n",
-                (NET_API_STATUS) GetLastError());
+                (NET_API_STATUS) GetLastError()));
     }
 
 
@@ -150,8 +150,8 @@ Return Value:
     //
 
     IF_DEBUG( SVCCTRL ) {
-        NetpDbgPrint( PREFIX_REPL
-                "Freeing well known SIDs...\n" );
+        NetpKdPrint(( PREFIX_REPL
+                "Freeing well known SIDs...\n" ));
     }
 
     NetpFreeWellKnownSids();

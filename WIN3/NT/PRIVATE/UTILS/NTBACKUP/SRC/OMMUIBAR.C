@@ -63,9 +63,9 @@ Initial revision.
 
 
 // MODULE WIDE DEFINITIONS
-#define OEM_BUTTONBAR_HEIGHT       26
+#define OEM_BUTTONBAR_HEIGHT       (IS_JAPAN()?33:26)
 #define OEM_BUTTON_WIDTH           23
-#define OEM_BUTTON_HEIGHT          21
+#define OEM_BUTTON_HEIGHT          (IS_JAPAN()?28:21)
 #define OEM_BUTTONWITHTEXT_WIDTH   86
 #define OEM_BORDER_WIDTH           ( RIB_ITEM_BORDER_WIDTH - 1 )
 #define OEM_BETWEEN_BUTTON_SPACE   7
@@ -159,7 +159,7 @@ HRIBBON MUI_MakeMainRibbon ( VOID )
 
 
      nButtonWithTextWidth = ( 2 * OEM_BORDER_WIDTH ) + OEM_BUTTON_WIDTH +
-                            OEM_BITMAP_TEXT_SPACE + nTextWidth + 4 ;
+                            OEM_BITMAP_TEXT_SPACE + nTextWidth + (IS_JAPAN()?6:4) ;
 
      // Now, stuff each item.
 
@@ -444,7 +444,7 @@ INT  nOldStringWidth )
           }
      }
 
-     nMaxStringWidth = RSM_GetFontStringWidth ( ghFontRibbon, szString, nStringLen );
+     nMaxStringWidth = RSM_GetFontStringWidth ( ghFontRibbon, szString, nStringLen ) +(IS_JAPAN()?OEM_BITMAP_TEXT_SPACE:0);
      nMaxStringWidth = ( nOldStringWidth > nMaxStringWidth ) ? nOldStringWidth : nMaxStringWidth;
 
      return nMaxStringWidth;

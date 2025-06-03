@@ -103,25 +103,22 @@ Revision History:
     StDerefConnectionSpecial (Connection)
 
 #define StReferenceRequest(Reason, Request)\
-    (VOID)ExInterlockedIncrementLong( \
-        &(Request)->ReferenceCount, \
-        (Request)->ProviderInterlock)
+    (VOID)InterlockedIncrement( \
+        &(Request)->ReferenceCount)
 
 #define StDereferenceRequest(Reason, Request)\
     StDerefRequest (Request)
 
 #define StReferenceSendIrp(Reason, IrpSp)\
-    (VOID)ExInterlockedIncrementLong( \
-        &IRP_REFCOUNT(IrpSp), \
-        &(IRP_DEVICE_CONTEXT(IrpSp)->Interlock))
+    (VOID)InterlockedIncrement( \
+        &IRP_REFCOUNT(IrpSp))
 
 #define StDereferenceSendIrp(Reason, IrpSp)\
     StDerefSendIrp (IrpSp)
 
 #define StReferenceAddress(Reason, Address)\
-    (VOID)ExInterlockedIncrementLong( \
-        &(Address)->ReferenceCount, \
-        &(Address)->Provider->Interlock)
+    (VOID)InterlockedIncrement( \
+        &(Address)->ReferenceCount)
 
 #define StDereferenceAddress(Reason, Address)\
     StDerefAddress (Address)
@@ -133,10 +130,8 @@ Revision History:
     StDerefDeviceContext (DeviceContext)
 
 #define StReferencePacket(Packet) \
-    (VOID)ExInterlockedIncrementLong( \
-        &(Packet)->ReferenceCount, \
-        (Packet)->ProviderInterlock)
-
+    (VOID)InterlockedIncrement( \
+        &(Packet)->ReferenceCount)
 
 //
 // These macros are used to create and destroy packets, due

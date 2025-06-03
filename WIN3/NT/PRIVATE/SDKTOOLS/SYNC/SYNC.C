@@ -26,112 +26,125 @@ _CRTAPI1 main( argc, argv )
 int argc;
 char *argv[];
 {
-
+    BOOLEAN fEject;
     char *p;
     int i;
     char c;
+    char DrivePath[ 4 ];
+
+    if (argc > 1 &&
+        (!_stricmp( argv[1], "-e" ) || !_stricmp( argv[1], "/e" ))
+       ) {
+        argc -= 1;
+        argv += 1;
+        fEject = TRUE;
+        }
+    else {
+        fEject = FALSE;
+        }
 
     if ( argc > 1 ) {
         while (--argc) {
             p = *++argv;
             if ( isalpha(*p) ) {
-                SyncVolume(*p);
+                sprintf( DrivePath, "%c:", *p );
+                SyncVolume( DrivePath, fEject );
                 }
             }
         }
     else {
-        for(i=2;i<26;i++){
+        for(i=0;i<26;i++){
             c = (CHAR)i + (CHAR)'a';
-            SyncVolume(c);
+            sprintf( DrivePath, "%c:", i+'A' );
+            switch (GetDriveType( DrivePath )) {
+            case DRIVE_REMOVABLE:
+                if (i <2) {
+                    break;
+                    }
+
+            case DRIVE_FIXED:
+                SyncVolume( DrivePath, fEject );
+                break;
             }
         }
+    }
 
     return( 0 );
 }
 
 void
 SyncVolume(
-    CHAR c
+    PCHAR DrivePath,
+    BOOLEAN EjectMedia
     )
 {
-    WCHAR VolumeNameW[4];
-    CHAR VolumeName[4];
-    NTSTATUS Status;
-    OBJECT_ATTRIBUTES Obja;
-    HANDLE Handle;
-    UNICODE_STRING FileName;
-    IO_STATUS_BLOCK IoStatusBlock;
-    BOOLEAN TranslationStatus;
-    PVOID FreeBuffer;
-    LPWSTR FilePart;
+    UCHAR VolumePath[16];
+    HANDLE VolumeHandle;
+    DWORD ReturnedByteCount;
 
-    VolumeName[0] = c;
-    VolumeName[1] = ':';
-    VolumeName[2] = '\\';
-    VolumeName[3] = '\0';
-    VolumeNameW[0] = (WCHAR)c;
-    VolumeNameW[1] = (WCHAR)':';
-    VolumeNameW[2] = (WCHAR)'\\';
-    VolumeNameW[3] = UNICODE_NULL;
 
-    TranslationStatus = RtlDosPathNameToNtPathName_U(
-                            VolumeNameW,
-                            &FileName,
-                            &FilePart,
-                            NULL
-                            );
-
-    if ( !TranslationStatus ) {
+    _strupr( DrivePath );
+    sprintf( VolumePath, "\\\\.\\%s", DrivePath );
+    VolumeHandle = CreateFile( VolumePath,
+                               GENERIC_READ | GENERIC_WRITE,
+                               FILE_SHARE_READ | FILE_SHARE_WRITE,
+                               NULL,
+                               OPEN_EXISTING,
+                               0,
+                               NULL
+                             );
+    if (VolumeHandle == INVALID_HANDLE_VALUE ) {
+        fprintf( stderr, "SYNC: Unable to open %s volume (%u)\n", DrivePath, GetLastError() );
         return;
         }
 
-    FreeBuffer = FileName.Buffer;
-
-    InitializeObjectAttributes(
-        &Obja,
-        &FileName,
-        OBJ_CASE_INSENSITIVE,
-        NULL,
-        NULL
-        );
-
-    {
-        ULONG i;
-        for (i = 0; i < (ULONG)FileName.Length/2; i += 1) {
-            if (FileName.Buffer[i] == ':') {
-                FileName.Buffer[i+1] = UNICODE_NULL;
-                FileName.Length = (i+1)*2;
-                break;
-            }
+    printf( "Syncing %s:...", DrivePath );
+    if (!FlushFileBuffers( VolumeHandle )) {
+        printf( "flush failed (%u)\n", GetLastError() );
         }
-    }
-
-    //
-    // Open the file
-    //
-
-    Status = NtOpenFile(
-                &Handle,
-                (ACCESS_MASK)FILE_WRITE_DATA | SYNCHRONIZE,
-                &Obja,
-                &IoStatusBlock,
-                FILE_SHARE_READ | FILE_SHARE_WRITE,
-                FILE_SYNCHRONOUS_IO_NONALERT
-                );
-    RtlFreeHeap(RtlProcessHeap(),0,FreeBuffer);
-    if (Status == STATUS_ACCESS_DENIED) {
-        printf("Can't sync %s; Access Denied.",VolumeName);
-    }
-    if ( !NT_SUCCESS(Status) ) {
-        return;
+    else
+    if (!DeviceIoControl( VolumeHandle,
+                          FSCTL_LOCK_VOLUME,
+                          NULL,
+                          0,
+                          NULL,
+                          0,
+                          &ReturnedByteCount,
+                          NULL
+                        )
+       ) {
+        printf( "lock volume failed (%u)\n", GetLastError() );
         }
-    printf("Syncing %s ",VolumeName);
-    if ( !FlushFileBuffers(Handle) ) {
-        printf("Failed %d\n",GetLastError());
+    else
+    if (!DeviceIoControl( VolumeHandle,
+                          FSCTL_DISMOUNT_VOLUME,
+                          NULL,
+                          0,
+                          NULL,
+                          0,
+                          &ReturnedByteCount,
+                          NULL
+                        )
+       ) {
+        printf( "dismount volume failed (%u)\n", GetLastError() );
+        }
+    else
+    if (EjectMedia && !DeviceIoControl( VolumeHandle,
+                                        IOCTL_DISK_EJECT_MEDIA,
+                                        NULL,
+                                        0,
+                                        NULL,
+                                        0,
+                                        &ReturnedByteCount,
+                                        NULL
+                                      )
+       ) {
+        printf( "eject media failed (%u)\n", GetLastError() );
         }
     else {
-        printf("\n");
+        printf( "done.  Okay to remove drive.\n" );
         }
-    CloseHandle(Handle);
+
+    CloseHandle( VolumeHandle );
+    return;
 }
-

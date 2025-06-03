@@ -19,9 +19,9 @@
 #define VER(x,y,z)  VER2(x,y,z)
 #define VER2(x,y,z)  "Version "###x##"."###y"."###z" "szVerName
 
-char *Name      = "Microsoft (R) Editor";
-char *Version   = VER(rmj,rmm,rup);
-char *CopyRight = "Copyright (C) Microsoft Corp 1987-1990.  All rights reserved";
+char Name[]      = "Microsoft (R) Editor";
+char Version[]   = VER(rmj,rmm,rup);
+char CopyRight[] = "Copyright (C) Microsoft Corp 1987-1990.  All rights reserved";
 
 
 /*** main - program entry
@@ -192,7 +192,7 @@ main (
      */
     if (NameToFunc ("autostart")) {
         fExecute ("autostart");
-	Display ();
+        Display ();
     }
 
     /*
@@ -348,10 +348,10 @@ IdleThread (
     ) {
     while (TRUE) {
 
-	WaitForSingleObject( semIdle, INFINITE);
-	Idle();
-	SetEvent( semIdle );
-	Sleep(100L);
+        WaitForSingleObject( semIdle, INFINITE);
+        Idle();
+        SetEvent( semIdle );
+        Sleep(100L);
     }
 }
 
@@ -363,13 +363,13 @@ Idle (
     ) {
 
     if (TESTFLAG (fDisplay, (RTEXT | RCURSOR | RSTATUS))) {
-	DoDisplay ();
+        DoDisplay ();
     }
 
     if (!DeclareEvent (EVT_IDLE, NULL)) {
-	if (!fIdleUndo (FALSE)) {
-		return FALSE;
-	}
+        if (!fIdleUndo (FALSE)) {
+                return FALSE;
+        }
     }
 
     /*

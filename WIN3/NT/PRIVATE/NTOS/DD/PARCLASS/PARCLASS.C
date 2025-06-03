@@ -29,6 +29,13 @@ Revision History :
 #include "parclass.h"
 #include "parlog.h"
 
+#ifdef POOL_TAGGING
+#ifdef ExAllocatePool
+#undef ExAllocatePool
+#endif
+#define ExAllocatePool(a,b) ExAllocatePoolWithTag(a,b,'CraP')
+#endif
+
 //
 // This is the actual definition of ParDebugLevel.
 // Note that it is only defined if this is a "debug"
@@ -58,6 +65,67 @@ static const PHYSICAL_ADDRESS PhysicalZero = {0};
 #define PAR_PAPER_EMPTY( Status ) ( \
             (Status & PAR_STATUS_PE) )
 
+#ifdef JAPAN // IBM-J printers
+
+//
+// Support for IBM-J printers.
+//
+// When the printer operates in Japanese (PS55) mode, it redefines
+// the meaning of parallel lines so that extended error status can
+// be reported.  It is roughly compatible with PC/AT, but we have to
+// take care of a few cases where the status looks like PC/AT error
+// condition.
+//
+// Status      Busy /AutoFdXT Paper Empty Select /Fault
+// ------      ---- --------- ----------- ------ ------
+// Not RMR      1    1         1           1      1
+// Head Alarm   1    1         1           1      0
+// ASF Jam      1    1         1           0      0
+// Paper Empty  1    0         1           0      0
+// No Error     0    0         0           1      1
+// Can Req      1    0         0           0      1
+// Deselect     1    0         0           0      0
+//
+// The printer keeps "Not RMR" during the parallel port
+// initialization, then it takes "Paper Empty", "No Error"
+// or "Deselect".  Other status can be thought as an
+// H/W error condition.
+//
+// Namely, "Not RMR" conflicts with PAR_NO_CABLE and "Deselect"
+// should also be regarded as another PAR_OFF_LINE.  When the
+// status is PAR_PAPER_EMPTY, the initialization is finished
+// (we should not send init purlse again.)
+//
+// See ParInitializeDevice() for more information.
+//
+// [takashim]
+
+#define PAR_OFF_LINE_COMMON( Status ) ( \
+            (Status & PAR_STATUS_NOT_ERROR) && \
+            ((Status & PAR_STATUS_NOT_BUSY) ^ PAR_STATUS_NOT_BUSY) && \
+            !(Status & PAR_STATUS_SLCT) )
+
+#define PAR_OFF_LINE_IBM55( Status ) ( \
+            ((Status & PAR_STATUS_NOT_BUSY) ^ PAR_STATUS_NOT_BUSY) && \
+            ((Status & PAR_STATUS_PE) ^ PAR_STATUS_PE) && \
+            ((Status & PAR_STATUS_SLCT) ^ PAR_STATUS_SLCT) && \
+            ((Status & PAR_STATUS_NOT_ERROR) ^ PAR_STATUS_NOT_ERROR))
+
+#define PAR_PAPER_EMPTY2( Status ) ( \
+            ((Status & PAR_STATUS_NOT_BUSY) ^ PAR_STATUS_NOT_BUSY) && \
+            (Status & PAR_STATUS_PE) && \
+            ((Status & PAR_STATUS_SLCT) ^ PAR_STATUS_SLCT) && \
+            ((Status & PAR_STATUS_NOT_ERROR) ^ PAR_STATUS_NOT_ERROR))
+
+//
+// Redefine this for Japan.
+//
+
+#define PAR_OFF_LINE( Status ) ( \
+            PAR_OFF_LINE_COMMON( Status ) || \
+            PAR_OFF_LINE_IBM55( Status ))
+
+#else // JAPAN
 //
 // Busy, not select, not error
 //
@@ -66,6 +134,8 @@ static const PHYSICAL_ADDRESS PhysicalZero = {0};
             (Status & PAR_STATUS_NOT_ERROR) && \
             ((Status & PAR_STATUS_NOT_BUSY) ^ PAR_STATUS_NOT_BUSY) && \
             !(Status & PAR_STATUS_SLCT) )
+
+#endif // JAPAN
 
 //
 // error, ack, not busy
@@ -170,14 +240,24 @@ ParGetPortInfoFromPortDevice(
     );
 
 VOID
-ParInitializePrinter(
-    IN OUT  PDEVICE_EXTENSION   Extension
+ParDeferDeviceInitialization(
+    IN OUT PDEVICE_EXTENSION    Extension
+    );
+
+VOID
+ParDeferredInitCallback(
+    IN OUT  PVOID   Context
     );
 
 VOID
 ParCheckParameters(
     IN      PUNICODE_STRING     RegistryPath,
     IN OUT  PDEVICE_EXTENSION   Extension
+    );
+
+UCHAR
+ParReinitializeDevice(
+    IN  PDEVICE_EXTENSION   Extension
     );
 
 UCHAR
@@ -194,6 +274,13 @@ ParNotInitError(
 VOID
 ParFreePort(
     IN  PDEVICE_EXTENSION   Extension
+    );
+
+ULONG
+ParCheckBusyDelay(
+    IN  PDEVICE_EXTENSION   Extension,
+    IN  PUCHAR              WriteBuffer,
+    IN  ULONG               NumBytesToWrite
     );
 
 VOID
@@ -241,35 +328,38 @@ ParAllocPort(
     IN  PDEVICE_EXTENSION   Extension
     );
 
+VOID
+ParReleasePortInfoToPortDevice(
+    IN  PDEVICE_EXTENSION   Extension
+    );
+
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(INIT,DriverEntry)
 #pragma alloc_text(INIT,ParMakeNames)
 #pragma alloc_text(INIT,ParInitializeClassDevice)
-#pragma alloc_text(INIT,ParGetPortInfoFromPortDevice)
-#pragma alloc_text(INIT,ParInitializePrinter)
 #pragma alloc_text(INIT,ParCheckParameters)
-#pragma alloc_text(PAGELK,ParLogError)
-#pragma alloc_text(PAGELK,ParNotInitError)
-#pragma alloc_text(PAGELK,ParFreePort)
-#pragma alloc_text(PAGELK,ParWriteLoop)
-#pragma alloc_text(PAGELK,ParWriteLoopPI)
-#pragma alloc_text(PAGELK,ParWriteOutData)
-#pragma alloc_text(PAGELK,ParManageIoDevice)
-#pragma alloc_text(PAGELK,ParStartIo)
-#pragma alloc_text(PAGELK,ParallelThread)
-#pragma alloc_text(PAGELK,ParCreateSystemThread)
-#pragma alloc_text(PAGELK,ParCreateOpen)
-#pragma alloc_text(PAGELK,ParClose)
-#pragma alloc_text(PAGELK,ParCleanup)
-#pragma alloc_text(PAGELK,ParCancelRequest)
-#pragma alloc_text(PAGELK,ParAllocPortCompletionRoutine)
-#pragma alloc_text(PAGELK,ParAllocPort)
-#pragma alloc_text(PAGELK,ParWrite)
-#pragma alloc_text(PAGELK,ParDeviceControl)
-#pragma alloc_text(PAGELK,ParQueryInformationFile)
-#pragma alloc_text(PAGELK,ParSetInformationFile)
-#pragma alloc_text(PAGELK,ParUnload)
 #endif
+
+//
+// Keep track of OPEN and CLOSE.
+//
+ULONG OpenCloseReferenceCount = 1;
+PFAST_MUTEX OpenCloseMutex = NULL;
+
+#define ParClaimDriver()                        \
+    ExAcquireFastMutex(OpenCloseMutex);         \
+    if(++OpenCloseReferenceCount == 1) {        \
+        MmResetDriverPaging(DriverEntry);       \
+    }                                           \
+    ExReleaseFastMutex(OpenCloseMutex);         \
+
+#define ParReleaseDriver()                      \
+    ExAcquireFastMutex(OpenCloseMutex);         \
+    if(--OpenCloseReferenceCount == 0) {        \
+        MmPageEntireDriver(DriverEntry);        \
+    }                                           \
+    ExReleaseFastMutex(OpenCloseMutex);         \
+
 
 NTSTATUS
 DriverEntry(
@@ -300,6 +390,25 @@ Return Value:
 {
     ULONG       i;
 
+    //
+    // allocate the mutex to protect driver reference count
+    //
+
+    OpenCloseMutex = ExAllocatePool(NonPagedPool, sizeof(FAST_MUTEX));
+    if (!OpenCloseMutex) {
+
+        //
+        // NOTE - we could probably do without bailing here and just 
+        // leave a note for ourselves to never page out, but since we
+        // don't have enough memory to allocate a mutex we should probably
+        // avoid leaving the driver paged in at all times
+        //
+
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    ExInitializeFastMutex(OpenCloseMutex);
+
     for (i = 0; i < IoGetConfigurationInformation()->ParallelCount; i++) {
         ParInitializeClassDevice(DriverObject, RegistryPath, i);
     }
@@ -315,13 +424,20 @@ Return Value:
     DriverObject->MajorFunction[IRP_MJ_CREATE] = ParCreateOpen;
     DriverObject->MajorFunction[IRP_MJ_CLOSE] = ParClose;
     DriverObject->MajorFunction[IRP_MJ_CLEANUP] = ParCleanup;
-    DriverObject->MajorFunction[IRP_MJ_WRITE] = ParWrite;
+    DriverObject->MajorFunction[IRP_MJ_READ] = ParReadWrite;
+    DriverObject->MajorFunction[IRP_MJ_WRITE] = ParReadWrite;
     DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = ParDeviceControl;
     DriverObject->MajorFunction[IRP_MJ_QUERY_INFORMATION] =
             ParQueryInformationFile;
     DriverObject->MajorFunction[IRP_MJ_SET_INFORMATION] =
             ParSetInformationFile;
     DriverObject->DriverUnload = ParUnload;
+
+    //
+    // page out the driver if we can
+    //
+
+    ParReleaseDriver();
 
     return STATUS_SUCCESS;
 }
@@ -663,7 +779,10 @@ Return Value:
     KeInitializeSemaphore(&extension->RequestSemaphore, 0, MAXLONG);
 
     extension->TimerStart = PAR_WRITE_TIMEOUT_VALUE;
+
     extension->Initialized = FALSE;
+    extension->Initializing = FALSE;
+    extension->DeferredWorkItem = NULL;
 
     status = ParGetPortInfoFromPortDevice(extension);
 
@@ -685,6 +804,9 @@ Return Value:
         goto Cleanup;
     }
 
+    extension->BusyDelay = 0;
+    extension->BusyDelayDetermined = FALSE;
+
     if (extension->OriginalController.HighPart == 0 &&
         extension->OriginalController.LowPart == (ULONG) extension->Controller) {
 
@@ -696,15 +818,17 @@ Return Value:
 
     // Set up some constants.
 
-    extension->AbsoluteOneSecond = RtlConvertUlongToLargeInteger(10*1000*1000);
-    extension->OneSecond = RtlLargeIntegerNegate(extension->AbsoluteOneSecond);
-
+    extension->AbsoluteOneSecond.QuadPart = 10*1000*1000;
+    extension->OneSecond.QuadPart = -(extension->AbsoluteOneSecond.QuadPart);
 
     // Try to initialize the printer here.  This is done here so that printers that
     // change modes upon reset can be set to the desired mode before the first print.
 
-    ParInitializePrinter(extension);
+    //
+    // Queue up a workitem to initialize the device (so we don't take forever loading).
+    // 
 
+    ParDeferDeviceInitialization(extension);
 
     // Now setup the symbolic link for windows.
 
@@ -714,10 +838,18 @@ Return Value:
 
         // We were able to create the symbolic link, so record this
         // value in the extension for cleanup at unload time.
-    
+
         extension->CreatedSymbolicLink = TRUE;
         extension->SymbolicLinkName = linkName;
 
+        // Write out the result of the symbolic link to the registry.
+
+        status = RtlWriteRegistryValue(RTL_REGISTRY_DEVICEMAP,
+                                       L"PARALLEL PORTS",
+                                       className.Buffer,
+                                       REG_SZ,
+                                       linkName.Buffer,
+                                       linkName.Length + sizeof(WCHAR));
     } else {
 
         //
@@ -736,15 +868,9 @@ Return Value:
         ParLogError(DriverObject, deviceObject, extension->OriginalController,
                     PhysicalZero, 0, 0, 0, 5, status, PAR_NO_SYMLINK_CREATED);
 
-        ExFreePool(linkName.Buffer);
     }
 
-
-    // Write out the result of the symbolic link to the registry.
-
-    status = RtlWriteRegistryValue(RTL_REGISTRY_DEVICEMAP, L"PARALLEL PORTS",
-                                   className.Buffer, REG_SZ, linkName.Buffer,
-                                   linkName.Length + sizeof(WCHAR));
+    ExFreePool(linkName.Buffer);
 
     if (!NT_SUCCESS(status)) {
 
@@ -773,6 +899,53 @@ Return Value:
 Cleanup:
     ExFreePool(portName.Buffer);
     ExFreePool(className.Buffer);
+}
+
+VOID
+ParReleasePortInfoToPortDevice(
+    IN  PDEVICE_EXTENSION   Extension
+    )
+
+/*++
+
+Routine Description:
+
+    This routine will release the port information back to the port driver.
+
+Arguments:
+
+    Extension   - Supplies the device extension.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    KEVENT          event;
+    PIRP            irp;
+    IO_STATUS_BLOCK ioStatus;
+    NTSTATUS        status;
+
+    KeInitializeEvent(&event, NotificationEvent, FALSE);
+
+    irp = IoBuildDeviceIoControlRequest(IOCTL_INTERNAL_RELEASE_PARALLEL_PORT_INFO,
+                                        Extension->PortDeviceObject,
+                                        NULL, 0, NULL, 0,
+                                        TRUE, &event, &ioStatus);
+
+    if (!irp) {
+        return;
+    }
+
+    status = IoCallDriver(Extension->PortDeviceObject, irp);
+
+    if (!NT_SUCCESS(status)) {
+        return;
+    }
+
+    KeWaitForSingleObject(&event, Executive, KernelMode, FALSE, NULL);
 }
 
 NTSTATUS
@@ -850,16 +1023,18 @@ Return Value:
 }
 
 VOID
-ParInitializePrinter(
-    IN OUT  PDEVICE_EXTENSION   Extension
+ParDeferredInitCallback(
+    IN OUT  PVOID   Context
     )
 
 /*++
 
 Routine Description:
 
-    This routine initializes the printer during DriverEntry by allocating the parallel port,
+    This routine initializes the printer by allocating the parallel port,
     calling 'ParInitializeDevice', and deallocating the parallel port.
+
+    It also clears the Initializing flag upon completion and frees the workitem.
 
 Arguments:
 
@@ -868,7 +1043,7 @@ Arguments:
 Return Value:
 
     None.
- 
+
 --*/
 
 {
@@ -878,6 +1053,19 @@ Return Value:
     NTSTATUS                    status;
     LARGE_INTEGER               timeout;
     KIRQL                       oldIrql;
+    PDEVICE_EXTENSION           Extension = (PDEVICE_EXTENSION) Context;
+    BOOLEAN                     gotPort = FALSE;
+
+
+    //
+    // Page the entire driver in until we've completed our initialization
+    //
+
+    ParClaimDriver();
+
+    //
+    // Try to allocate the port
+    //
 
     KeInitializeEvent(&event, NotificationEvent, FALSE);
 
@@ -896,8 +1084,7 @@ Return Value:
     // We're willing to wait at most 5 seconds for the port.  Otherwise,
     // we'll just initialize the printer later.
 
-    timeout = RtlLargeIntegerNegate(
-              RtlConvertUlongToLargeInteger(50*1000*1000));
+    timeout.QuadPart = -(50*1000*1000);
 
     status = KeWaitForSingleObject(&event, Executive, KernelMode, FALSE, &timeout);
 
@@ -915,19 +1102,36 @@ Return Value:
     }
 
     if (!NT_SUCCESS(ioStatus.Status)) {
-        // We didn't get the port, so just exit.
-        return;
+        // We didn't get the port, so jump to the end
+        goto DeferredInitCleanup;
     }
 
+    gotPort = TRUE;
 
-    // The port was successfully allocate.  Initialize the printer.
+    //
+    // The port was successfully allocated.  Intialize the device
+    //
 
     ParInitializeDevice(Extension);
 
 
-    // Free the port.
+DeferredInitCleanup:
 
-    ParFreePort(Extension);
+    //
+    // set the initializing flag to false, release the port driver and the port driver
+    // info (so it unlocks it's memory) and free the workitem
+    //
+
+    Extension->Initializing = FALSE;
+
+    if(gotPort) ParFreePort(Extension);
+
+    ParReleasePortInfoToPortDevice(Extension);
+
+    if(Extension->DeferredWorkItem) ExFreePool(Extension->DeferredWorkItem);
+
+    ParReleaseDriver();
+    return;
 }
 
 VOID
@@ -958,15 +1162,19 @@ Return Value:
 {
     UNICODE_STRING parameters;
     UNICODE_STRING path;
-    RTL_QUERY_REGISTRY_TABLE paramTable[2];
+    RTL_QUERY_REGISTRY_TABLE paramTable[4];
     ULONG usePIWriteLoop;
     ULONG zero = 0;
+    ULONG useNT35Priority;
     NTSTATUS status;
 
     RtlInitUnicodeString(&parameters, L"\\Parameters");
     path.Length = 0;
-    path.MaximumLength = RegistryPath->Length + parameters.Length + sizeof(WCHAR);
+    path.MaximumLength = RegistryPath->Length +
+                         parameters.Length +
+                         sizeof(WCHAR);
     path.Buffer = ExAllocatePool(PagedPool, path.MaximumLength);
+
     if (!path.Buffer) {
         return;
     }
@@ -983,15 +1191,90 @@ Return Value:
     paramTable[0].DefaultData = &zero;
     paramTable[0].DefaultLength = sizeof(ULONG);
 
+    paramTable[1].Flags = RTL_QUERY_REGISTRY_DIRECT;
+    paramTable[1].Name = L"UseNT35Priority";
+    paramTable[1].EntryContext = &useNT35Priority;
+    paramTable[1].DefaultType = REG_DWORD;
+    paramTable[1].DefaultData = &zero;
+    paramTable[1].DefaultLength = sizeof(ULONG);
+
+    paramTable[2].Flags = RTL_QUERY_REGISTRY_DIRECT;
+    paramTable[2].Name = L"InitializationTimeout";
+    paramTable[2].EntryContext = &(Extension->InitializationTimeout);
+    paramTable[2].DefaultType = REG_DWORD;
+    paramTable[2].DefaultData = &zero;
+    paramTable[2].DefaultLength = sizeof(ULONG);
+
     status = RtlQueryRegistryValues(RTL_REGISTRY_ABSOLUTE | RTL_REGISTRY_OPTIONAL,
                                     path.Buffer, paramTable, NULL, NULL);
 
-    if (NT_SUCCESS(status) && usePIWriteLoop) {
-        Extension->UsePIWriteLoop = TRUE;
+    if (NT_SUCCESS(status)) {
+
+        if(usePIWriteLoop) {
+            Extension->UsePIWriteLoop = TRUE;
+        }
+
+        if(useNT35Priority) {
+            Extension->UseNT35Priority = TRUE;
+        }
+
+        if(Extension->InitializationTimeout == 0) {
+            Extension->InitializationTimeout = 15;
+        }
+    } else {
+
+        Extension->InitializationTimeout = 15;
+
     }
 
     ExFreePool(path.Buffer);
 }
+
+UCHAR
+ParReinitializeDevice(
+    IN PDEVICE_EXTENSION    Extension
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is invoked to reinitialize the parallel port device.  If the
+    Initializing flag in the device extension is set, it will wait for it to
+    complete then return.  If the flag is not set, it will call ParInitializeDevice.
+
+Arguments:
+
+    Extension - the device extension
+
+Return Value:
+
+    the last value that we got from the status register.
+
+--*/
+
+{
+    if(!Extension->Initializing) {
+
+        return ParInitializeDevice(Extension);
+
+    } else {
+
+        //
+        // wait for the current initialization attempt to finish
+        //
+
+        do {
+
+            KeDelayExecutionThread(KernelMode, FALSE, &Extension->OneSecond);
+            
+        } while (Extension->Initializing);
+
+        return GetStatus(Extension->Controller);
+    }
+}
+
+
 
 UCHAR
 ParInitializeDevice(
@@ -1071,11 +1354,10 @@ Return Value:
             );
 
         //
-        // Spin for up to 15 seconds waiting for the device
-        // to initialize.
+        // Spin waiting for the device to initialize.
         //
 
-        countDown = 15;
+        countDown = Extension->InitializationTimeout;
         doDelays = FALSE;
         KeQueryTickCount(&startOfSpin);
         ParDump(
@@ -1085,46 +1367,20 @@ Return Value:
         do {
 
             //
-            // After about a second of spinning, let the rest of
-            // the machine have time for one second.
+            // first spin in a tight loop for one second waiting for the
+            // device to initialize.  Once that fails, check every second
+            // until our countdown runs out.
             //
 
-            if (doDelays) {
-
-                if (PAR_OFF_LINE(deviceStatus) ||
-                    PAR_POWERED_OFF(deviceStatus) ||
-                    PAR_NOT_CONNECTED(deviceStatus) ||
-                    PAR_NO_CABLE(deviceStatus)) {
-
-                    break;
-                }
-
-                KeDelayExecutionThread(KernelMode, FALSE, &Extension->OneSecond);
-
-                ParDump(
-                    PARINITDEV,
-                    ("PARALLEL: Did delay thread of one second\n")
-                    );
-
-                countDown--;
-
-            } else {
+            if (!doDelays)  {
 
                 KeQueryTickCount(&nextQuery);
 
-                difference = RtlLargeIntegerSubtract(
-                                 nextQuery,
-                                 startOfSpin
-                                 );
+                difference.QuadPart = nextQuery.QuadPart - startOfSpin.QuadPart;
 
                 ASSERT(KeQueryTimeIncrement() <= MAXLONG);
-                if (RtlLargeIntegerGreaterThanOrEqualTo(
-                        RtlExtendedIntegerMultiply(
-                            difference,
-                            (LONG)KeQueryTimeIncrement()
-                            ),
-                        Extension->AbsoluteOneSecond
-                        )) {
+                if (difference.QuadPart*KeQueryTimeIncrement() >=
+                    Extension->AbsoluteOneSecond.QuadPart) {
 
                     ParDump(
                         PARINITDEV,
@@ -1140,6 +1396,43 @@ Return Value:
                     doDelays = TRUE;
 
                 }
+
+            } else {
+
+#ifdef JAPAN // ParInitializeDevice()
+                //
+                // IBM PS/55 Printer support.
+                //
+                // The printer is keeping PAR_NO_CABLE status
+                // during initialization.  we won't break at the status.
+                // We suceed in initialization when the status is PE.
+                // Some of the printers always tell this status when the
+                // init pulse is sent (the printer will eject paper if it
+                // is there, and you never suceed in initialization
+                // unless you are satisfied with PE.)
+                //
+
+                if (PAR_OFF_LINE(deviceStatus) ||
+                    PAR_POWERED_OFF(deviceStatus) ||
+                    PAR_NOT_CONNECTED(deviceStatus) ||
+                    PAR_PAPER_EMPTY2(deviceStatus)) 
+#else                    
+                if (PAR_OFF_LINE(deviceStatus) ||
+                    PAR_POWERED_OFF(deviceStatus) ||
+                    PAR_NOT_CONNECTED(deviceStatus))
+#endif // JAPAN
+                {
+                    break;
+                }
+
+                KeDelayExecutionThread(KernelMode, FALSE, &Extension->OneSecond);
+
+                ParDump(
+                    PARINITDEV,
+                    ("PARALLEL: Did delay thread of one second\n")
+                    );
+
+                countDown--;
 
             }
 
@@ -1159,8 +1452,13 @@ Return Value:
 
         } while (!PAR_OK(deviceStatus));
 
-        if (PAR_OK(deviceStatus) || PAR_OFF_LINE(deviceStatus)) {
-
+#if defined(JAPAN)
+        if(PAR_OK(deviceStatus) || PAR_OFF_LINE(deviceStatus) ||
+           PAR_PAPER_EMPTY2(deviceStatus))
+#else // JAPAN
+        if (PAR_OK(deviceStatus) || PAR_OFF_LINE(deviceStatus))
+#endif // JAPAN
+        {
             ParDump(
                 PARINITDEV,
                 ("PARALLEL: device is set to initialized\n")
@@ -1279,7 +1577,8 @@ ULONG
 ParWriteLoopPI(
     IN  PUCHAR  Controller,
     IN  PUCHAR  WriteBuffer,
-    IN  ULONG   NumBytesToWrite
+    IN  ULONG   NumBytesToWrite,
+    IN  ULONG   BusyDelay
     )
 
 /*++
@@ -1297,6 +1596,9 @@ Arguments:
 
     NumBytesToWrite - Supplies the number of bytes to write out to the port.
 
+    BusyDelay   - Supplies the number of microseconds to delay before
+                    checking the busy bit.
+
 Return Value:
 
     The number of bytes successfully written out to the parallel port.
@@ -1310,6 +1612,10 @@ Notes:
 {
     ULONG   i;
     UCHAR   deviceStatus;
+
+    if (!BusyDelay) {
+        BusyDelay = 1;
+    }
 
     for (i = 0; i < NumBytesToWrite; i++) {
 
@@ -1337,7 +1643,7 @@ Notes:
                                       PAR_CONTROL_SLIN |
                                       PAR_CONTROL_NOT_INIT));
 
-            KeStallExecutionProcessor(1);
+            KeStallExecutionProcessor(BusyDelay);
 
         } else {
 
@@ -1353,6 +1659,155 @@ Notes:
     }
 
     return i;
+}
+
+ULONG
+ParCheckBusyDelay(
+    IN  PDEVICE_EXTENSION   Extension,
+    IN  PUCHAR              WriteBuffer,
+    IN  ULONG               NumBytesToWrite
+    )
+
+/*++
+
+Routine Description:
+
+    This routine determines if the current busy delay setting is
+    adequate for this printer.
+
+Arguments:
+
+    Extension       - Supplies the device extension.
+
+    WriteBuffer     - Supplies the write buffer.
+
+    NumBytesToWrite - Supplies the size of the write buffer.
+
+Return Value:
+
+    The number of bytes strobed out to the printer.
+
+--*/
+
+{
+    PUCHAR          controller = Extension->Controller;
+    ULONG           busyDelay = Extension->BusyDelay;
+    LARGE_INTEGER   start, perfFreq, end, getStatusTime, callOverhead;
+    UCHAR           deviceStatus;
+    ULONG           numberOfCalls, i;
+    KIRQL           oldIrql;
+
+    // If the current busy delay value is 10 or greater then something
+    // is weird and settle for 10.
+
+    if (Extension->BusyDelay >= 10) {
+        Extension->BusyDelayDetermined = TRUE;
+        return 0;
+    }
+
+    // Take some performance measurements.
+
+    KeRaiseIrql(HIGH_LEVEL, &oldIrql);
+    start = KeQueryPerformanceCounter(&perfFreq);
+    deviceStatus = GetStatus(controller);
+    end = KeQueryPerformanceCounter(&perfFreq);
+    getStatusTime.QuadPart = end.QuadPart - start.QuadPart;
+
+    start = KeQueryPerformanceCounter(&perfFreq);
+    end = KeQueryPerformanceCounter(&perfFreq);
+    KeLowerIrql(oldIrql);
+    callOverhead.QuadPart = end.QuadPart - start.QuadPart;
+    getStatusTime.QuadPart -= callOverhead.QuadPart;
+    if (getStatusTime.QuadPart <= 0) {
+        getStatusTime.QuadPart = 1;
+    }
+
+//    if (!PAR_ONLINE(deviceStatus)) {
+//        return 0;
+//    }
+
+    // Figure out how many calls to 'GetStatus' can be made in 20 us.
+
+    numberOfCalls = (ULONG) (perfFreq.QuadPart*20/getStatusTime.QuadPart/1000000) + 1;
+
+    // The printer is ready to accept the a byte.  Strobe one out
+    // and check out the reaction time for BUSY.
+
+    if (busyDelay) {
+
+        KeRaiseIrql(HIGH_LEVEL, &oldIrql);
+
+        WRITE_PORT_UCHAR(controller + PARALLEL_DATA_OFFSET, *WriteBuffer++);
+        KeStallExecutionProcessor(1);
+        StoreControl(controller, (PAR_CONTROL_WR_CONTROL |
+                                  PAR_CONTROL_SLIN |
+                                  PAR_CONTROL_NOT_INIT |
+                                  PAR_CONTROL_STROBE));
+        KeStallExecutionProcessor(1);
+        StoreControl(controller, (PAR_CONTROL_WR_CONTROL |
+                                  PAR_CONTROL_SLIN |
+                                  PAR_CONTROL_NOT_INIT));
+        KeStallExecutionProcessor(busyDelay);
+
+        for (i = 0; i < numberOfCalls; i++) {
+            deviceStatus = GetStatus(controller);
+            if (!(deviceStatus&PAR_STATUS_NOT_BUSY)) {
+                break;
+            }
+        }
+
+        KeLowerIrql(oldIrql);
+
+    } else {
+
+        KeRaiseIrql(HIGH_LEVEL, &oldIrql);
+
+        WRITE_PORT_UCHAR(controller + PARALLEL_DATA_OFFSET, *WriteBuffer++);
+        KeStallExecutionProcessor(1);
+        StoreControl(controller, (PAR_CONTROL_WR_CONTROL |
+                                  PAR_CONTROL_SLIN |
+                                  PAR_CONTROL_NOT_INIT |
+                                  PAR_CONTROL_STROBE));
+        KeStallExecutionProcessor(1);
+        StoreControl(controller, (PAR_CONTROL_WR_CONTROL |
+                                  PAR_CONTROL_SLIN |
+                                  PAR_CONTROL_NOT_INIT));
+
+        for (i = 0; i < numberOfCalls; i++) {
+            deviceStatus = GetStatus(controller);
+            if (!(deviceStatus&PAR_STATUS_NOT_BUSY)) {
+                break;
+            }
+        }
+
+        KeLowerIrql(oldIrql);
+    }
+
+    if (i == 0) {
+
+        // In this case the BUSY was set as soon as we checked it.
+        // Use this busyDelay with the PI code.
+
+        Extension->UsePIWriteLoop = TRUE;
+        Extension->BusyDelayDetermined = TRUE;
+
+    } else if (i == numberOfCalls) {
+
+        // In this case the BUSY was never seen.  This is a very fast
+        // printer so use the fastest code possible.
+
+        Extension->BusyDelayDetermined = TRUE;
+
+    } else {
+
+        // The test failed.  The lines showed not BUSY and then BUSY
+        // without strobing a byte in between.
+
+        Extension->UsePIWriteLoop = TRUE;
+        Extension->BusyDelay++;
+    }
+
+    return 1;
 }
 
 VOID
@@ -1376,6 +1831,8 @@ ParWriteOutData(
     LARGE_INTEGER difference;
     BOOLEAN doDelays, portFree;
     ULONG numBytesWritten, loopNumber;
+    ULONG numberOfBusyChecks = 9;
+    ULONG maxBusyDelay = 0;
 
     ParDump(
         PARTHREAD,
@@ -1412,9 +1869,23 @@ PushSomeBytes:;
 
     KeRaiseIrql(DISPATCH_LEVEL, &oldIrql);
 
-    if (Extension->UsePIWriteLoop) {
+    if (!Extension->BusyDelayDetermined) {
+        numBytesWritten = ParCheckBusyDelay(Extension, irpBuffer, loopNumber);
+        if (Extension->BusyDelayDetermined) {
+            if (Extension->BusyDelay > maxBusyDelay) {
+                maxBusyDelay = Extension->BusyDelay;
+                numberOfBusyChecks = 10;
+            }
+            if (numberOfBusyChecks) {
+                numberOfBusyChecks--;
+                Extension->BusyDelayDetermined = FALSE;
+            } else {
+                Extension->BusyDelay = maxBusyDelay + 1;
+            }
+        }
+    } else if (Extension->UsePIWriteLoop) {
         numBytesWritten = ParWriteLoopPI(Extension->Controller, irpBuffer,
-                                         loopNumber);
+                                         loopNumber, Extension->BusyDelay);
     } else {
         numBytesWritten = ParWriteLoop(Extension->Controller, irpBuffer,
                                        loopNumber);
@@ -1714,15 +2185,10 @@ PushSomeBytes:;
 
                 KeQueryTickCount(&nextQuery);
 
-                difference = RtlLargeIntegerSubtract(nextQuery, startOfSpin);
+                difference.QuadPart = nextQuery.QuadPart - startOfSpin.QuadPart;
 
-                if (RtlLargeIntegerGreaterThanOrEqualTo(
-                        RtlExtendedIntegerMultiply(
-                            difference,
-                            (LONG)KeQueryTimeIncrement()
-                            ),
-                        Extension->AbsoluteOneSecond
-                        )) {
+                if (difference.QuadPart*KeQueryTimeIncrement() >=
+                    Extension->AbsoluteOneSecond.QuadPart) {
 
                     ParDump(
                         PARTHREAD,
@@ -1839,7 +2305,7 @@ Return Value :
             Extension->CurrentOpIrp->AssociatedIrp.SystemBuffer;
 
         Extension->Initialized = FALSE;
-        *Status = ParInitializeDevice(Extension);
+        *Status = ParReinitializeDevice(Extension);
 
     } else if (irpSp->Parameters.DeviceIoControl.IoControlCode ==
                IOCTL_PAR_QUERY_INFORMATION) {
@@ -1851,6 +2317,453 @@ Return Value :
 
     return *Status;
 
+}
+
+VOID
+ParTerminateNibbleMode(
+    IN  PUCHAR  Controller
+    )
+
+/*++
+
+Routine Description:
+
+    This routine terminates the interface back to compatibility mode.
+
+Arguments:
+
+    Controller  - Supplies the parallel port's controller address.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    LARGE_INTEGER   wait35ms, start, end;
+    UCHAR           dcr, dsr;
+
+    wait35ms.QuadPart = (35*10*1000) + KeQueryTimeIncrement();
+
+    dcr = DCR_NEUTRAL;
+    WRITE_PORT_UCHAR(Controller + DCR_OFFSET, dcr);
+    KeQueryTickCount(&start);
+    for (;;) {
+
+        KeQueryTickCount(&end);
+
+        dsr = READ_PORT_UCHAR(Controller + DSR_OFFSET);
+        if (!(dsr&DSR_PTR_CLK)) {
+            break;
+        }
+
+        if ((end.QuadPart - start.QuadPart)*KeQueryTimeIncrement() >
+            wait35ms.QuadPart) {
+
+            // We couldn't negotiate back to compatibility mode.
+            // just terminate.
+            return;
+        }
+    }
+
+    dcr |= DCR_NOT_HOST_BUSY;
+    WRITE_PORT_UCHAR(Controller + DCR_OFFSET, dcr);
+
+    KeQueryTickCount(&start);
+    for (;;) {
+
+        KeQueryTickCount(&end);
+
+        dsr = READ_PORT_UCHAR(Controller + DSR_OFFSET);
+        if (dsr&DSR_PTR_CLK) {
+            break;
+        }
+
+        if ((end.QuadPart - start.QuadPart)*KeQueryTimeIncrement() >
+            wait35ms.QuadPart) {
+
+            // The required response is not there.  Continue anyway.
+            break;
+        }
+    }
+
+    dcr &= ~DCR_NOT_HOST_BUSY;
+    WRITE_PORT_UCHAR(Controller + DCR_OFFSET, dcr);
+}
+
+NTSTATUS
+ParEnterNibbleMode(
+    IN  PUCHAR  Controller,
+    IN  BOOLEAN DeviceIdRequest
+    )
+
+/*++
+
+Routine Description:
+
+    This routine performs 1284 negotiation with the peripheral to the
+    nibble mode protocol.
+
+Arguments:
+
+    Controller      - Supplies the port address.
+
+    DeviceIdRequest - Supplies whether or not this is a request for a device
+                        id.
+
+Return Value:
+
+    STATUS_SUCCESS  - Successful negotiation.
+
+    otherwise       - Unsuccessful negotiation.
+
+--*/
+
+{
+    UCHAR           extensibility;
+    UCHAR           dsr, dcr;
+    LARGE_INTEGER   wait35ms, start, end;
+    BOOLEAN         xFlag;
+
+    extensibility = 0x00;
+
+    if (DeviceIdRequest) {
+        extensibility |= 0x04;
+    }
+
+    dcr = DCR_NEUTRAL;
+    WRITE_PORT_UCHAR(Controller + DCR_OFFSET, dcr);
+    KeStallExecutionProcessor(1);
+
+    WRITE_PORT_UCHAR(Controller + DATA_OFFSET, extensibility);
+    KeStallExecutionProcessor(1);
+
+    dcr &= ~DCR_NOT_1284_ACTIVE;
+    dcr |= DCR_NOT_HOST_BUSY;
+    WRITE_PORT_UCHAR(Controller + DCR_OFFSET, dcr);
+
+    wait35ms.QuadPart = (35*10*1000) + KeQueryTimeIncrement();
+    KeQueryTickCount(&start);
+    for (;;) {
+
+        KeQueryTickCount(&end);
+
+        dsr = READ_PORT_UCHAR(Controller + DSR_OFFSET);
+        if ((dsr&DSR_ACK_DATA_REQ) &&
+            (dsr&DSR_XFLAG) &&
+            (dsr&DSR_NOT_DATA_AVAIL) &&
+            !(dsr&DSR_PTR_CLK)) {
+
+            break;
+        }
+
+        if ((end.QuadPart - start.QuadPart)*KeQueryTimeIncrement() >
+            wait35ms.QuadPart) {
+
+            dcr |= DCR_NOT_1284_ACTIVE;
+            dcr &= ~DCR_NOT_HOST_BUSY;
+            WRITE_PORT_UCHAR(Controller + DCR_OFFSET, dcr);
+            return STATUS_INVALID_DEVICE_REQUEST;
+        }
+    }
+
+    dcr |= DCR_NOT_HOST_CLK;
+    WRITE_PORT_UCHAR(Controller + DCR_OFFSET, dcr);
+
+    KeStallExecutionProcessor(1);
+
+    dcr &= ~DCR_NOT_HOST_CLK;
+    dcr &= ~DCR_NOT_HOST_BUSY;
+    WRITE_PORT_UCHAR(Controller + DCR_OFFSET, dcr);
+
+    KeQueryTickCount(&start);
+    for (;;) {
+
+        KeQueryTickCount(&end);
+
+        dsr = READ_PORT_UCHAR(Controller + DSR_OFFSET);
+        if (dsr&DSR_PTR_CLK) {
+            break;
+        }
+
+        if ((end.QuadPart - start.QuadPart)*KeQueryTimeIncrement() >
+            wait35ms.QuadPart) {
+
+            dcr |= DCR_NOT_1284_ACTIVE;
+            WRITE_PORT_UCHAR(Controller + DCR_OFFSET, dcr);
+            return STATUS_INVALID_DEVICE_REQUEST;
+        }
+    }
+
+    xFlag = dsr&DSR_XFLAG ? TRUE : FALSE;
+    if (extensibility && !xFlag) {
+
+        // The requested mode is not supported so
+        // terminate into compatibility mode.
+
+        ParTerminateNibbleMode(Controller);
+
+        return STATUS_INVALID_DEVICE_REQUEST;
+    }
+
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS
+ParNibbleModeRead(
+    IN  PDEVICE_EXTENSION   Extension,
+    IN  PVOID               Buffer,
+    IN  ULONG               BufferSize,
+    OUT PULONG              BytesTransfered
+    )
+
+/*++
+
+Routine Description:
+
+    This routine performs a 1284 nibble mode read into the given
+    buffer for no more than 'BufferSize' bytes.
+
+Arguments:
+
+    Extension           - Supplies the device extension.
+
+    Buffer              - Supplies the buffer to read into.
+
+    BufferSize          - Supplies the number of bytes in the buffer.
+
+    BytesTransfered     - Returns the number of bytes transferred.
+
+--*/
+
+{
+    PUCHAR          controller = Extension->Controller;
+    NTSTATUS        status;
+    PUCHAR          p = Buffer;
+    LARGE_INTEGER   wait35ms, start, end;
+    UCHAR           dsr, dcr, nibble[2];
+    ULONG           i, j;
+
+    // Read nibbles according to 1284 spec.
+
+    wait35ms.QuadPart = (35*10*1000) + KeQueryTimeIncrement();
+    dcr = DCR_RESERVED | DCR_NOT_INIT;
+    for (i = 0; i < BufferSize; i++) {
+
+        dsr = READ_PORT_UCHAR(controller + DSR_OFFSET);
+
+        if (dsr&DSR_NOT_DATA_AVAIL) {
+            break;
+        }
+
+        for (j = 0; j < 2; j++) {
+
+            dcr |= DCR_NOT_HOST_BUSY;
+            WRITE_PORT_UCHAR(controller + DCR_OFFSET, dcr);
+
+            KeQueryTickCount(&start);
+            for (;;) {
+
+                KeQueryTickCount(&end);
+
+                dsr = READ_PORT_UCHAR(controller + DSR_OFFSET);
+                if (!(dsr&DSR_PTR_CLK)) {
+                    break;
+                }
+
+                if ((end.QuadPart - start.QuadPart)*KeQueryTimeIncrement() >
+                    wait35ms.QuadPart) {
+
+                    dcr &= ~DCR_NOT_HOST_BUSY;
+                    WRITE_PORT_UCHAR(controller + DCR_OFFSET, dcr);
+                    return STATUS_IO_DEVICE_ERROR;
+                }
+            }
+
+            nibble[j] = READ_PORT_UCHAR(controller + DSR_OFFSET);
+
+            dcr &= ~DCR_NOT_HOST_BUSY;
+            WRITE_PORT_UCHAR(controller + DCR_OFFSET, dcr);
+
+            KeQueryTickCount(&start);
+            for (;;) {
+
+                KeQueryTickCount(&end);
+
+                dsr = READ_PORT_UCHAR(controller + DSR_OFFSET);
+                if (dsr&DSR_PTR_CLK) {
+                    break;
+                }
+
+                if ((end.QuadPart - start.QuadPart)*KeQueryTimeIncrement() >
+                    wait35ms.QuadPart) {
+
+                    return STATUS_IO_DEVICE_ERROR;
+                }
+            }
+        }
+
+        p[i] = (((nibble[0]&0x38)>>3)&0x07) |
+               ((nibble[0]&0x80) ? 0x00 : 0x08);
+        p[i] |= (((nibble[1]&0x38)<<1)&0x70) |
+                ((nibble[1]&0x80) ? 0x00 : 0x80);
+    }
+
+    *BytesTransfered = i;
+
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS
+ParQueryDeviceId(
+    IN  PDEVICE_EXTENSION   Extension,
+    OUT PUCHAR              DeviceIdBuffer,
+    IN  ULONG               BufferSize,
+    OUT PULONG              DeviceIdSize
+    )
+
+/*++
+
+Routine Description:
+
+    This routine queries the 1284 device id from the device.
+
+Arguments:
+
+    Extension       - Supplies the device extension.
+
+    DeviceIdBuffer  - Supplies a buffer to receive the device id string.
+
+    BufferSize      - Supplies the number of bytes in the buffer.
+
+    DeviceIdSize    - Returns the number of bytes in the device id string.
+
+Return Value:
+
+    STATUS_SUCCESS          - Success.
+
+    STATUS_BUFFER_TOO_SMALL - The device id was not returned because the buffer
+                                was too small.  'DeviceIdSize' will return the
+                                required size of the buffer.
+
+    otherwise               - Failure.
+
+--*/
+
+{
+    PUCHAR              controller = Extension->Controller;
+    NTSTATUS            status;
+    UCHAR               sizeBuf[2];
+    ULONG               numBytes;
+    USHORT              size;
+
+    *DeviceIdSize = 0;
+
+    // Try to negotiate the peripheral into nibble mode device id request.
+
+    status = ParEnterNibbleMode(controller, TRUE);
+    if (!NT_SUCCESS(status)) {
+        return status;
+    }
+
+    // Try to read the Device id from nibble mode.
+
+    status = ParNibbleModeRead(Extension, sizeBuf, 2, &numBytes);
+    if (NT_SUCCESS(status) && numBytes != 2) {
+        status = STATUS_IO_DEVICE_ERROR;
+    }
+
+    if (NT_SUCCESS(status)) {
+
+        size = sizeBuf[0]*0x100 + sizeBuf[1];
+        *DeviceIdSize = size - sizeof(USHORT);
+        if (*DeviceIdSize > BufferSize) {
+            status = STATUS_BUFFER_TOO_SMALL;
+        }
+
+        if (NT_SUCCESS(status)) {
+            status = ParNibbleModeRead(Extension, DeviceIdBuffer,
+                                       *DeviceIdSize, &numBytes);
+
+            if (NT_SUCCESS(status) && numBytes != *DeviceIdSize) {
+                status = STATUS_IO_DEVICE_ERROR;
+            }
+        }
+    }
+
+    ParTerminateNibbleMode(controller);
+
+    WRITE_PORT_UCHAR(controller + DCR_OFFSET, DCR_NEUTRAL);
+
+    return status;
+}
+
+VOID
+ParReadIo(
+    IN  PDEVICE_EXTENSION   Extension
+    )
+
+/*++
+
+Routine Description:
+
+    This routine implements a READ request with the extension's current irp.
+
+Arguments:
+
+    Extension   - Supplies the device extension.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    PIRP irp = Extension->CurrentOpIrp;
+    PIO_STACK_LOCATION irpSp = IoGetCurrentIrpStackLocation(irp);
+    KIRQL cancelIrql;
+    UCHAR deviceStatus;
+    NTSTATUS status;
+    ULONG bytes;
+
+    if (!Extension->Initialized) {
+        deviceStatus = ParReinitializeDevice(Extension);
+    }
+
+    if (!Extension->Initialized) {
+
+        // The device didn't initialize, so complete with error.
+
+        ParNotInitError(Extension, deviceStatus);
+        IoAcquireCancelSpinLock(&cancelIrql);
+        Extension->CurrentOpIrp = NULL;
+        IoReleaseCancelSpinLock(cancelIrql);
+        IoCompleteRequest(irp, IO_NO_INCREMENT);
+        ParFreePort(Extension);
+        return;
+    }
+
+    bytes = 0;
+    status = ParEnterNibbleMode(Extension->Controller, FALSE);
+    if (NT_SUCCESS(status)) {
+        status = ParNibbleModeRead(Extension,
+                                   irp->AssociatedIrp.SystemBuffer,
+                                   irpSp->Parameters.Read.Length,
+                                   &bytes);
+        if (NT_SUCCESS(status)) {
+            ParTerminateNibbleMode(Extension->Controller);
+        }
+    }
+
+    irp->IoStatus.Status = status;
+    irp->IoStatus.Information = bytes;
+    IoAcquireCancelSpinLock(&cancelIrql);
+    Extension->CurrentOpIrp = NULL;
+    IoReleaseCancelSpinLock(cancelIrql);
+    IoCompleteRequest(irp, IO_PARALLEL_INCREMENT);
+    ParFreePort(Extension);
 }
 
 VOID
@@ -1879,6 +2792,9 @@ Return Value:
     PIRP irp = Extension->CurrentOpIrp;
     PIO_STACK_LOCATION irpSp = IoGetCurrentIrpStackLocation(irp);
     KIRQL cancelIrql;
+    UCHAR deviceStatus;
+    ULONG idLength;
+    NTSTATUS ntStatus;
 
     // Allocate the port.
 
@@ -1905,7 +2821,7 @@ Return Value:
         UCHAR deviceStatus;
         if (!Extension->Initialized) {
 
-            deviceStatus = ParInitializeDevice(Extension);
+            deviceStatus = ParReinitializeDevice(Extension);
 
         }
 
@@ -1925,7 +2841,12 @@ Return Value:
 
         }
 
-    } else if (irpSp->MajorFunction == IRP_MJ_DEVICE_CONTROL) {
+    } else if (irpSp->MajorFunction == IRP_MJ_READ) {
+
+        ParReadIo(Extension);
+        return;
+
+    } else {
 
         UCHAR status;
         UCHAR control;
@@ -2005,6 +2926,55 @@ Return Value:
             irp->IoStatus.Information =
                 sizeof( PAR_QUERY_INFORMATION );
 
+        } else if (irpSp->Parameters.DeviceIoControl.IoControlCode ==
+                   IOCTL_PAR_QUERY_DEVICE_ID) {
+
+            if (!Extension->Initialized) {
+                deviceStatus = ParReinitializeDevice(Extension);
+            }
+
+            if (!Extension->Initialized) {
+                ParNotInitError(Extension, deviceStatus);
+            } else {
+
+                ntStatus = ParQueryDeviceId(Extension,
+                                            irp->AssociatedIrp.SystemBuffer,
+                                            irpSp->Parameters.DeviceIoControl.OutputBufferLength,
+                                            &idLength);
+
+                irp->IoStatus.Status = ntStatus;
+                if (NT_SUCCESS(ntStatus)) {
+                    irp->IoStatus.Information = idLength;
+                } else {
+                    irp->IoStatus.Information = 0;
+                }
+            }
+
+        } else if (irpSp->Parameters.DeviceIoControl.IoControlCode ==
+                   IOCTL_PAR_QUERY_DEVICE_ID_SIZE) {
+
+            if (!Extension->Initialized) {
+                deviceStatus = ParReinitializeDevice(Extension);
+            }
+
+            if (!Extension->Initialized) {
+                ParNotInitError(Extension, deviceStatus);
+            } else {
+
+                ntStatus = ParQueryDeviceId(Extension, NULL, 0, &idLength);
+                if (ntStatus == STATUS_BUFFER_TOO_SMALL) {
+                    irp->IoStatus.Status = STATUS_SUCCESS;
+                    irp->IoStatus.Information =
+                            sizeof(PAR_DEVICE_ID_SIZE_INFORMATION);
+                    ((PPAR_DEVICE_ID_SIZE_INFORMATION)
+                     irp->AssociatedIrp.SystemBuffer)->DeviceIdSize = idLength;
+
+                } else {
+                    irp->IoStatus.Status = ntStatus;
+                    irp->IoStatus.Information = 0;
+                }
+            }
+
         } else {
 
             PSERIAL_TIMEOUTS new = irp->AssociatedIrp.SystemBuffer;
@@ -2052,16 +3022,23 @@ ParallelThread(
 {
 
     PDEVICE_EXTENSION extension = Context;
+    LONG threadPriority = -2;
     KIRQL oldIrql;
 
     //
     // Lower ourselves down just at tad so that we compete a
     // little less.
+    // If the registry indicates we should be running at the old
+    // priority, don't lower our priority as much.
     //
+
+    if(extension->UseNT35Priority) {
+        threadPriority = -1;
+    }
 
     KeSetBasePriorityThread(
         KeGetCurrentThread(),
-        -1
+        threadPriority 
         );
 
     do {
@@ -2265,13 +3242,11 @@ Return Value:
 
     // Lock in code.
 
-    extension->ImageSectionHandle =
-            MmLockPagableImageSection((PVOID) ParCreateOpen);
-    if (!extension->ImageSectionHandle) {
-        Irp->IoStatus.Status = STATUS_INSUFFICIENT_RESOURCES;
-        IoCompleteRequest(Irp, IO_NO_INCREMENT);
-        return STATUS_INSUFFICIENT_RESOURCES;
-    }
+    ParClaimDriver();
+
+    // Lock in the port driver.
+
+    ParGetPortInfoFromPortDevice(extension);
 
     extension->TimeToTerminateThread = FALSE;
     extension->ThreadObjectPointer = NULL;
@@ -2391,11 +3366,16 @@ Return Value:
          Irp->IoStatus.Information)
         );
 
+    // Allow the port driver to be paged.
+
+    ParReleasePortInfoToPortDevice(extension);
+
     IoCompleteRequest(Irp, IO_NO_INCREMENT);
+
 
     // Unlock the code that was locked during the open.
 
-    MmUnlockPagableImageSection(extension->ImageSectionHandle);
+    ParReleaseDriver();
 
     return STATUS_SUCCESS;
 }
@@ -2618,8 +3598,7 @@ Return Value:
 
     IoCallDriver(Extension->PortDeviceObject, irp);
 
-    timeout = RtlLargeIntegerNegate(
-              RtlConvertUlongToLargeInteger(Extension->TimerStart*10*1000*1000));
+    timeout.QuadPart = -((LONGLONG) Extension->TimerStart*10*1000*1000);
 
     status = KeWaitForSingleObject(&event, Executive, KernelMode, FALSE, &timeout);
 
@@ -2637,7 +3616,7 @@ Return Value:
 }
 
 NTSTATUS
-ParWrite(
+ParReadWrite(
     IN  PDEVICE_OBJECT  DeviceObject,
     IN  PIRP            Irp
     )
@@ -2646,7 +3625,7 @@ ParWrite(
 
 Routine Description:
 
-    This routine is the dispatch for a write requests.
+    This routine is the dispatch for read and write requests.
 
 Arguments:
 
@@ -2808,6 +3787,24 @@ Return Value:
             }
             break;
 
+        case IOCTL_PAR_QUERY_DEVICE_ID:
+            if (irpSp->Parameters.DeviceIoControl.OutputBufferLength == 0) {
+                status = STATUS_BUFFER_TOO_SMALL;
+            } else {
+                status = STATUS_PENDING;
+            }
+            break;
+
+        case IOCTL_PAR_QUERY_DEVICE_ID_SIZE:
+            if (irpSp->Parameters.DeviceIoControl.OutputBufferLength <
+                sizeof(PAR_DEVICE_ID_SIZE_INFORMATION)) {
+
+                status = STATUS_BUFFER_TOO_SMALL;
+            } else {
+                status = STATUS_PENDING;
+            }
+            break;
+
         default :
             status = STATUS_INVALID_PARAMETER;
             break;
@@ -2895,7 +3892,7 @@ Return Value:
             } else {
 
                 stdInfo = Irp->AssociatedIrp.SystemBuffer;
-                stdInfo->AllocationSize = RtlConvertUlongToLargeInteger(0);
+                stdInfo->AllocationSize.QuadPart = 0;
                 stdInfo->EndOfFile = stdInfo->AllocationSize;
                 stdInfo->NumberOfLinks = 0;
                 stdInfo->DeletePending = FALSE;
@@ -2914,7 +3911,7 @@ Return Value:
             } else {
 
                 posInfo = Irp->AssociatedIrp.SystemBuffer;
-                posInfo->CurrentByteOffset = RtlConvertUlongToLargeInteger(0);
+                posInfo->CurrentByteOffset.QuadPart = 0;
 
                 Irp->IoStatus.Information = sizeof(FILE_POSITION_INFORMATION);
                 status = STATUS_SUCCESS;
@@ -3056,4 +4053,65 @@ Return Value:
 
         IoDeleteDevice(currentDevice);
     }
+
+    ExFreePool(OpenCloseMutex);
+}
+
+VOID 
+ParDeferDeviceInitialization(
+    IN OUT PDEVICE_EXTENSION    Extension
+    )
+
+/*++
+
+Routine Description:
+
+    This routine trys to queue a work item to initialize the printer which may
+    be attached to the parallel port.  If there are not enough resources to
+    defer the work item it will try to initialize the port directly.
+
+Arguments:
+
+    Extension - the device extension
+
+Return Value:
+
+    None
+
+--*/
+
+{
+    ParDump(PARINITDEV, ("ParDeferDeviceInitialization(%lx)\n", Extension));
+
+    Extension->DeferredWorkItem = ExAllocatePool(NonPagedPool, sizeof(WORK_QUEUE_ITEM));
+
+    if(Extension->DeferredWorkItem != NULL) {
+
+        ParDump(PARINITDEV,
+                ("ParDeferDeviceInitialization - work item allocated (%lx)\n",
+                 Extension->DeferredWorkItem
+                ));
+
+        ExInitializeWorkItem(Extension->DeferredWorkItem,
+                             ParDeferredInitCallback,
+                             Extension);
+
+        ExQueueWorkItem(Extension->DeferredWorkItem,
+                        DelayedWorkQueue);
+        return;
+    }
+                               
+    ParDump(PARERRORS,
+            ("ParDeferDeviceInitialization - work item not allocated."
+             "Directly initializing\n",
+             Extension->DeferredWorkItem
+            ));
+    //
+    // Not enough resources to create the work item so we'll just do this the
+    // old fashioned way and chew up boot time
+    //
+
+    ParDeferredInitCallback((PVOID) Extension);
+
+    return;
 }

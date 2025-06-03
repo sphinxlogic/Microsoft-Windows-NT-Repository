@@ -232,6 +232,7 @@ typedef struct _PMNT_IOCTL_DD_IOCTL_PARAMS
 /* IOCTL codes for the PMNT.DLL PMNTIOCTL service */
 #define PMNT_IOCTL_DD_IOCTL 2   /* PMNTDD.SYS IOCTL services */
 #define PMNT_IOCTL_DUMP_SEGMENT_TABLE 3 /* Debug service - dump segment table */
+#define PMNT_IOCTL_HIDE_WIN32_WINDOW 4  /* Hide WIN32 Console window - for CBA */
 
 #ifdef INCL_16BIT
 #pragma pack ()    /* Restore default */
@@ -248,7 +249,6 @@ extern USHORT   APIENTRY PMNTSetFocus(ULONG Win32Hwnd);
 extern USHORT   APIENTRY PMNTCloseWindow(VOID);
 extern USHORT   APIENTRY PMNTGetNextEvent(PMNT_INPUT_RECORD far *ppm_input_rec);
 extern USHORT   APIENTRY PMNTGetPgmName(char far *Buffer, short BufferLength);
-extern USHORT   APIENTRY PMNTGetConsoleTitle(PSZ Buffer, USHORT BufferLength);
 extern USHORT   APIENTRY PMNTSetConsoleTitle(PSZ Buffer);
 extern USHORT   APIENTRY PMNTGetFullScreen(ULONG Operation);
 extern USHORT   APIENTRY PMNTIOCTL(USHORT req, PVOID pin, PVOID pout);

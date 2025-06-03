@@ -17,7 +17,7 @@
 *
 * HISTORY:
 *		$Log:   J:\se.vcs\driver\q117cd\src\0x11038.c  $
-*	
+*
 *	   Rev 1.19   03 Jun 1994 15:39:50   KEVINKES
 *	Changed drive_parm.drive_select to device_cfg.drive_select.
 *
@@ -185,7 +185,7 @@ dStatus cqd_CmdReadWrite
 
          dma_dir = DMA_READ;
 
-      if (cqd_context->tape_cfg.tape_format_code == QIC3020_FMT) {
+		if (cqd_context->device_descriptor.drive_class == QIC3020_DRIVE) {
 
          /* Enable Perpendicular Mode */
 			status = cqd_EnablePerpendicularMode(cqd_context, dTRUE);
@@ -196,7 +196,7 @@ dStatus cqd_CmdReadWrite
 
       dma_dir = DMA_WRITE;
 
-      if (cqd_context->tape_cfg.tape_format_code == QIC3020_FMT) {
+		if (cqd_context->device_descriptor.drive_class == QIC3020_DRIVE) {
 
          /* Disable Perpendicular Mode */
 			status = cqd_EnablePerpendicularMode(cqd_context, dFALSE);

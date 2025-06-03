@@ -393,4 +393,4 @@ LPSTR pString )
      strncpy ( gszStatusLine, pString, MAX_STATUS_LINE_LEN );
 
 } /* end STM_SetStatusLineText() */
-
+

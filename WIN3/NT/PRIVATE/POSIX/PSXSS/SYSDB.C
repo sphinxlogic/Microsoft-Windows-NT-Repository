@@ -538,7 +538,7 @@ PutUserInfo(
 	pch = DataDest + sizeof(struct passwd);
 	pwd->pw_name = pch - (ULONG)DataDest;
 	A.Buffer = pch;
-	A.MaximumLength = SpaceLeft;
+	A.MaximumLength = (USHORT)SpaceLeft;
 	Status = RtlUnicodeStringToAnsiString(&A, &AccountInfo->UserName,
 			 FALSE);
 	if (!NT_SUCCESS(Status)) {
@@ -549,7 +549,7 @@ PutUserInfo(
 	pch = pch + A.Length + 1;
 	pwd->pw_dir = pch - (ULONG)DataDest;
 	A.Buffer = pch;
-	A.MaximumLength = SpaceLeft;
+	A.MaximumLength = (USHORT)SpaceLeft;
 
 	Status = RtlUnicodeStringToAnsiString(&A, &AccountInfo->HomeDirectory,
 			FALSE);
@@ -1046,7 +1046,7 @@ PutGroupInfo(
 		 (ULONG)(pch - (ULONG)DataDest);
 	grp->gr_name = pch - (ULONG)DataDest;
 	A.Buffer = pch;
-	A.MaximumLength = SpaceLeft;
+	A.MaximumLength = (USHORT)SpaceLeft;
 	Status = RtlUnicodeStringToAnsiString(&A, &NameInfo->Name, FALSE);
 	if (!NT_SUCCESS(Status)) {
 		goto out;
@@ -1061,7 +1061,7 @@ PutGroupInfo(
 
 		ppchMem[i] = pch - (ULONG)DataDest;
 		A.Buffer = pch;
-		A.MaximumLength = SpaceLeft;
+		A.MaximumLength = (USHORT)SpaceLeft;
 
 		if (Type == SidTypeGroup) {
 			Status = SamOpenUser(DomainHandle,
@@ -1248,7 +1248,7 @@ GetSpecialSid(
 	Status = RtlInitializeSid(Sid, &Auth, 1);
 	ASSERT(NT_SUCCESS(Status));
 
-	uc = (Uid & 0xFFF) >> 8;
+	uc = (UCHAR)((Uid & 0xFFF) >> 8);
 	RtlIdentifierAuthoritySid(Sid)->Value[5] = uc;
 
 	ul = Uid & 0xF;

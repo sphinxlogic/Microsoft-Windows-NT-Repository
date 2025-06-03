@@ -20,6 +20,8 @@ Revision History:
 --*/
 
 #include "exp.h"
+#pragma hdrstop
+
 #include "arccodes.h"
 
 #if defined(ALLOC_PRAGMA)
@@ -34,10 +36,10 @@ Revision History:
 #define MAXIMUM_ENVIRONMENT_VALUE 1024
 
 //
-// Define external references.
+// Define query/set environment variable synchronization fast mutex.
 //
 
-extern KSPIN_LOCK ExpEnvironmentLock;
+FAST_MUTEX ExpEnvironmentLock;
 
 NTSTATUS
 NtQuerySystemEnvironmentValue (
@@ -94,10 +96,8 @@ Return Value:
     ULONG AnsiLength;
     ANSI_STRING AnsiString;
     ARC_STATUS ArcStatus;
-    PVOID Handle;
     BOOLEAN HasPrivilege;
     NTSTATUS NtStatus;
-    KIRQL OldIrql;
     KPROCESSOR_MODE PreviousMode;
     UNICODE_STRING UnicodeString;
     PCHAR ValueBuffer;
@@ -227,14 +227,14 @@ Return Value:
     // lock, and unlock pageable code.
     //
 
-    Handle = MmLockPagableImageSection((PVOID)NtQuerySystemEnvironmentValue);
-    ExAcquireSpinLock(&ExpEnvironmentLock, &OldIrql);
+    MmLockPagableSectionByHandle (ExPageLockHandle);
+    ExAcquireFastMutex(&ExpEnvironmentLock);
     ArcStatus = HalGetEnvironmentVariable(AnsiString.Buffer,
                                           MAXIMUM_ENVIRONMENT_VALUE,
                                           ValueBuffer);
 
-    ExReleaseSpinLock(&ExpEnvironmentLock, OldIrql);
-    MmUnlockPagableImageSection(Handle);
+    ExReleaseFastMutex(&ExpEnvironmentLock);
+    MmUnlockPagableImageSection(ExPageLockHandle);
 
     //
     // Free the ANSI string buffer used to hold the variable name.
@@ -346,10 +346,8 @@ Return Value:
     ANSI_STRING AnsiString1;
     ANSI_STRING AnsiString2;
     ARC_STATUS ArcStatus;
-    PVOID Handle;
     BOOLEAN HasPrivilege;
     KPROCESSOR_MODE PreviousMode;
-    KIRQL OldIrql;
     NTSTATUS NtStatus;
     UNICODE_STRING UnicodeString1;
     UNICODE_STRING UnicodeString2;
@@ -504,13 +502,13 @@ Return Value:
     // lock, and unlock pageable code.
     //
 
-    Handle = MmLockPagableImageSection((PVOID)NtSetSystemEnvironmentValue);
-    ExAcquireSpinLock(&ExpEnvironmentLock, &OldIrql);
+    MmLockPagableSectionByHandle (ExPageLockHandle);
+    ExAcquireFastMutex(&ExpEnvironmentLock);
     ArcStatus = HalSetEnvironmentVariable(AnsiString1.Buffer,
                                           AnsiString2.Buffer);
 
-    ExReleaseSpinLock(&ExpEnvironmentLock, OldIrql);
-    MmUnlockPagableImageSection(Handle);
+    ExReleaseFastMutex(&ExpEnvironmentLock);
+    MmUnlockPagableImageSection(ExPageLockHandle);
 
     //
     // Free the ANSI string buffers used to hold the variable name and value.

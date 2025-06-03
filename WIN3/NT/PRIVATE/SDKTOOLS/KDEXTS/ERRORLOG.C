@@ -23,6 +23,8 @@ Revision History:
 --*/
 
 
+#include "precomp.h"
+#pragma hdrstop
 
 VOID
 DumpDriver(
@@ -120,7 +122,7 @@ Return Value:
 
         entryAddress = (PCH)entryAddress + sizeof(ERROR_LOG_ENTRY);
 
-        packet = malloc(sizeof(IO_ERROR_LOG_PACKET));
+        packet = LocalAlloc(LPTR, sizeof(IO_ERROR_LOG_PACKET));
         if (packet == NULL) {
             dprintf("Cannot allocate memory\n");
             goto exit;
@@ -140,27 +142,6 @@ Return Value:
         // behind the DbgKdReadxx routine for performance.
         //
 
-        if (packet->DumpDataSize) {
-            PVOID newbuffer;
-
-            newbuffer = malloc(sizeof(IO_ERROR_LOG_PACKET) + packet->DumpDataSize);
-            if (newbuffer == NULL) {
-                free(packet);
-                dprintf("Cannot allocate memory\n");
-                goto exit;
-            }
-
-            free(packet);
-            packet = (PIO_ERROR_LOG_PACKET) newbuffer;
-            if ((!ReadMemory((DWORD)entryAddress,
-                             newbuffer,
-                             sizeof(IO_ERROR_LOG_PACKET) + packet->DumpDataSize,
-                             &result)) || (result < sizeof(IO_ERROR_LOG_PACKET))) {
-                dprintf("%08lx: Cannot read packet and dump data\n", entryAddress);
-                goto exit;
-            }
-        }
-
         dprintf("%08lx   %08lx   %08lx   %2x        %08lx   %08lx   %08lx\n",
                 entryAddress,
                 entry.DeviceObject,
@@ -172,17 +153,36 @@ Return Value:
 
         dprintf("\t\t     ");
         DumpDriver(entry.DriverObject, FALSE);
-        dprintf("\n\t\t      DumpData:  ");
-        for (i = 0; (i * sizeof(ULONG)) < packet->DumpDataSize; i++) {
+        if (packet->DumpDataSize) {
+            PULONG dumpData;
 
-            dprintf("%08lx ", packet->DumpData[i]);
-            if ((i & 0x03) == 0x03) {
-                dprintf("\n\t\t                 ");
-            }
-            if (CheckControlC()) {
+            dumpData = LocalAlloc(LPTR, packet->DumpDataSize);
+            if (dumpData == NULL) {
+                dprintf("%08lx: Cannot allocate memory for dumpData (%u)\n", packet->DumpDataSize);
                 goto exit;
             }
+
+            if ((!ReadMemory((DWORD)(&((PIO_ERROR_LOG_PACKET)entryAddress)->DumpData[0]),
+                             dumpData,
+                             packet->DumpDataSize,
+                             &result)) || (result != packet->DumpDataSize)) {
+                LocalFree(dumpData);
+                dprintf("%08lx: Cannot read packet and dump data\n", entryAddress);
+                goto exit;
+            }
+            dprintf("\n\t\t      DumpData:  ");
+            for (i = 0; (i * sizeof(ULONG)) < packet->DumpDataSize; i++) {
+                dprintf("%08lx ", dumpData[i]);
+                if ((i & 0x03) == 0x03) {
+                    dprintf("\n\t\t                 ");
+                }
+                if (CheckControlC()) {
+                    break;
+                }
+            }
+            LocalFree(dumpData);
         }
+
         dprintf("\n");
         next = entry.ListEntry.Flink;
 
@@ -193,7 +193,7 @@ Return Value:
 
 exit:
     if (packet) {
-        free( packet );
+        LocalFree( packet );
     }
 
     return;

@@ -178,6 +178,6 @@
 @goto done
 
 :bogus
-@echo Usage: GHOSTCRT (NT, ST, MT, DLL, or POSIX) (386 or MIPS or ALPHA)
+@echo Usage: GHOSTCRT (NT, ST, MT, DLL, or POSIX) (386 or MIPS or ALPHA or PPC)
 :done
 @set CRTDIRSUFFIX=

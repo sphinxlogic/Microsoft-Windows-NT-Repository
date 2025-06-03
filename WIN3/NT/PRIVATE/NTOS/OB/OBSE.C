@@ -19,8 +19,6 @@ Revision History:
 --*/
 
 #include "obp.h"
-#include "seopaque.h"
-
 
 #if defined(ALLOC_PRAGMA) && defined(NTOS_KERNEL_RUNTIME)
 
@@ -28,16 +26,14 @@ Revision History:
 #pragma alloc_text(PAGE,NtQuerySecurityObject)
 #pragma alloc_text(PAGE,ObAssignObjectSecurityDescriptor)
 #pragma alloc_text(PAGE,ObAssignSecurity)
-#pragma alloc_text(PAGE,ObCheckCreateInstanceAccess)
 #pragma alloc_text(PAGE,ObCheckCreateObjectAccess)
 #pragma alloc_text(PAGE,ObCheckObjectAccess)
 #pragma alloc_text(PAGE,ObCheckObjectReference)
-#pragma alloc_text(PAGE,ObCheckTraverseAccess)
+#pragma alloc_text(PAGE,ObpCheckTraverseAccess)
 #pragma alloc_text(PAGE,ObGetObjectSecurity)
-#pragma alloc_text(PAGE,ObLockSecurityDescriptor)
+#pragma alloc_text(PAGE,ObSetSecurityDescriptorInfo)
 #pragma alloc_text(PAGE,ObReleaseObjectSecurity)
 #pragma alloc_text(PAGE,ObSetSecurityQuotaCharged)
-#pragma alloc_text(PAGE,ObUnlockSecurityDescriptor)
 #pragma alloc_text(PAGE,ObValidateSecurityQuota)
 #pragma alloc_text(PAGE,ObpValidateAccessMask)
 
@@ -57,7 +53,6 @@ NtSetSecurityObject(
     OBJECT_HANDLE_INFORMATION HandleInformation;
     KPROCESSOR_MODE RequestorMode;
     SECURITY_DESCRIPTOR *CapturedDescriptor;
-    PNONPAGED_OBJECT_HEADER NonPagedObjectHeader;
     POBJECT_HEADER ObjectHeader;
     POBJECT_TYPE ObjectType;
 
@@ -82,9 +77,8 @@ NtSetSecurityObject(
         return( Status );
         }
 
-    NonPagedObjectHeader = OBJECT_TO_NONPAGED_OBJECT_HEADER( Object );
-    ObjectType = NonPagedObjectHeader->Type;
     ObjectHeader = OBJECT_TO_OBJECT_HEADER( Object );
+    ObjectType = ObjectHeader->Type;
 
 
     //
@@ -141,7 +135,6 @@ NtSetSecurityObject(
         &ObjectType->TypeInfo.GenericMapping
         );
 
-
     ObDereferenceObject( Object );
     SeReleaseSecurityDescriptor( (PSECURITY_DESCRIPTOR)CapturedDescriptor,
                               RequestorMode,
@@ -166,7 +159,6 @@ NtQuerySecurityObject(
     ACCESS_MASK DesiredAccess;
     OBJECT_HANDLE_INFORMATION HandleInformation;
     KPROCESSOR_MODE RequestorMode;
-    PNONPAGED_OBJECT_HEADER NonPagedObjectHeader;
     POBJECT_HEADER ObjectHeader;
     POBJECT_TYPE ObjectType;
 
@@ -210,9 +202,8 @@ NtQuerySecurityObject(
         return( Status );
         }
 
-    NonPagedObjectHeader = OBJECT_TO_NONPAGED_OBJECT_HEADER( Object );
-    ObjectType = NonPagedObjectHeader->Type;
     ObjectHeader = OBJECT_TO_OBJECT_HEADER( Object );
+    ObjectType = ObjectHeader->Type;
 
     Status = (ObjectType->TypeInfo.SecurityProcedure)(
         Object,
@@ -293,16 +284,14 @@ Return Value:
     BOOLEAN MemoryAllocated;
     NTSTATUS Status;
     PSECURITY_DESCRIPTOR SecurityDescriptor = NULL;
-    PNONPAGED_OBJECT_HEADER NonPagedObjectHeader;
     POBJECT_HEADER ObjectHeader;
     POBJECT_TYPE ObjectType;
     PPRIVILEGE_SET Privileges = NULL;
 
     PAGED_CODE();
 
-    NonPagedObjectHeader = OBJECT_TO_NONPAGED_OBJECT_HEADER( Object );
-    ObjectType = NonPagedObjectHeader->Type;
     ObjectHeader = OBJECT_TO_OBJECT_HEADER( Object );
+    ObjectType = ObjectHeader->Type;
 
     if (!TypeMutexLocked) {
         ObpEnterObjectTypeMutex( ObjectType );
@@ -369,7 +358,7 @@ Return Value:
         AccessState->PreviouslyGrantedAccess |= GrantedAccess;
         AccessState->RemainingDesiredAccess &= ~(GrantedAccess | MAXIMUM_ALLOWED);
 
-    } 
+    }
 
     //
     // Audit the attempt to open the object, audit
@@ -414,164 +403,9 @@ Return Value:
 }
 
 
-//
-//BOOLEAN
-//ObCheckImplicitObjectAccess(
-//    IN PVOID Object,
-//    IN OUT PACCESS_STATE AccessState,
-//    IN BOOLEAN TypeMutexLocked,
-//    IN KPROCESSOR_MODE AccessMode,
-//    OUT PNTSTATUS AccessStatus
-//    )
-///*++
-//
-//Routine Description:
-//
-//    This routine is used to perform access validation for reasons
-//    other than opening or creating an object.  For example, a file
-//    system may want to determine of a subject has FILE_LIST_DIRECTORY
-//    access to a directory as part of some other access validation.
-//    For access operations on objects that are being opened or created,
-//    use ObpCheckObjectAccess.
-//
-//    The routine performs access validation on the passed object.  The
-//    remaining desired access mask is extracted from the AccessState
-//    parameter and passes to the appropriate security routine to
-//    perform the access check.
-//
-//    Note that the RemainingDesiredAccess field in the AccessState
-//    parameter is not modified.
-//
-//Arguments:
-//
-//    Object - The object being examined.
-//
-//    AccessState - The ACCESS_STATE structure containing accumulated
-//        information about the current access attempt.
-//
-//    TypeMutexLocked - Indicates whether the type mutex for this object's
-//        type is locked.  The type mutex is used to protect the object's
-//        security descriptor from being modified while it is being accessed.
-//
-//    AccessMode - The previous processor mode.
-//
-//    AccessStatus - Pointer to a variable to return the status code of the
-//        access attempt.  In the case of failure this status code must be
-//        propagated back to the user.
-//
-//
-//Return Value:
-//
-//    BOOLEAN - TRUE if access is allowed and FALSE otherwise
-//
-//
-//--*/
-//
-//{
-//    BOOLEAN AccessAllowed;
-//    ACCESS_MASK GrantedAccess = 0;
-//    BOOLEAN MemoryAllocated;
-//    PSECURITY_DESCRIPTOR SecurityDescriptor;
-//    NTSTATUS Status;
-//    PNONPAGED_OBJECT_HEADER NonPagedObjectHeader;
-//    POBJECT_TYPE ObjectType;
-//    PPRIVILEGE_SET Privileges = NULL;
-//
-//    NonPagedObjectHeader = OBJECT_TO_NONPAGED_OBJECT_HEADER( Object );
-//    ObjectType = NonPagedObjectHeader->Type;
-//
-//    if (!TypeMutexLocked) {
-//        ObpEnterObjectTypeMutex( ObjectType );
-//        }
-//
-//    //
-//    // Obtain the object's security descriptor
-//    //
-//
-//    Status = ObGetObjectSecurity(
-//                 Object,
-//                 &SecurityDescriptor,
-//                 &MemoryAllocated
-//                 );
-//
-//    if (!NT_SUCCESS( Status )) {
-//        if (!TypeMutexLocked) {
-//             ObpLeaveObjectTypeMutex( ObjectType );
-//        }
-//        *AccessStatus = Status;
-//        return( FALSE );
-//    }
-//
-//    //
-//    // Lock the caller's tokens until after auditing has been
-//    // performed.
-//    //
-//
-//    SeLockSubjectContext( &AccessState->SubjectSecurityContext );
-//
-//    if (SecurityDescriptor != NULL) {
-//
-//        AccessAllowed = SeAccessCheck (
-//                            SecurityDescriptor,
-//                            &AccessState->SubjectSecurityContext,
-//                            TRUE,                       // Tokens are locked
-//                            AccessState->RemainingDesiredAccess,
-//                            AccessState->PreviouslyGrantedAccess,
-//                            &Privileges,
-//                            &ObjectType->TypeInfo.GenericMapping,
-//                            AccessMode,
-//                            &GrantedAccess,
-//                            AccessStatus
-//                            );
-//
-//        if (Privileges != NULL) {
-//
-//            Status = SeAppendPrivileges(
-//                         AccessState,
-//                         Privileges
-//                         );
-//
-//            SeFreePrivileges( Privileges );
-//        }
-//
-//        if ( AccessAllowed ) {
-//            AccessState->PreviouslyGrantedAccess |= GrantedAccess;
-//            AccessState->RemainingDesiredAccess &= ~GrantedAccess;
-//        }
-//
-//    } else {
-//
-//        AccessAllowed = TRUE;
-//    }
-//
-//    SeImplicitObjectAuditAlarm(
-//        &AccessState->OperationID,
-//        Object,
-//        SecurityDescriptor,
-//        &AccessState->SubjectSecurityContext,
-//        AccessState->RemainingDesiredAccess,
-//        AccessState->PrivilegesUsed,
-//        AccessAllowed,
-//        AccessMode
-//        );
-//
-//    SeUnlockSubjectContext( &AccessState->SubjectSecurityContext );
-//
-//    if (!TypeMutexLocked) {
-//        ObpLeaveObjectTypeMutex( ObjectType );
-//    }
-//
-//    ObReleaseObjectSecurity(
-//        SecurityDescriptor,
-//        MemoryAllocated
-//        );
-//
-//    return( AccessAllowed );
-//}
-
 
 BOOLEAN
-ObCheckObjectReference(
+ObpCheckObjectReference(
     IN PVOID Object,
     IN OUT PACCESS_STATE AccessState,
     IN BOOLEAN TypeMutexLocked,
@@ -626,14 +460,14 @@ Return Value:
     BOOLEAN MemoryAllocated;
     PSECURITY_DESCRIPTOR SecurityDescriptor;
     NTSTATUS Status;
-    PNONPAGED_OBJECT_HEADER NonPagedObjectHeader;
+    POBJECT_HEADER ObjectHeader;
     POBJECT_TYPE ObjectType;
     PPRIVILEGE_SET Privileges = NULL;
 
     PAGED_CODE();
 
-    NonPagedObjectHeader = OBJECT_TO_NONPAGED_OBJECT_HEADER( Object );
-    ObjectType = NonPagedObjectHeader->Type;
+    ObjectHeader = OBJECT_TO_OBJECT_HEADER( Object );
+    ObjectType = ObjectHeader->Type;
 
     if (!TypeMutexLocked) {
         ObpEnterObjectTypeMutex( ObjectType );
@@ -690,7 +524,7 @@ Return Value:
             SecurityDescriptor,
             &AccessState->SubjectSecurityContext,
             AccessState->RemainingDesiredAccess | AccessState->PreviouslyGrantedAccess,
-            AccessState->PrivilegesUsed,
+            ((PAUX_ACCESS_DATA)(AccessState->AuxData))->PrivilegesUsed,
             AccessAllowed,
             AccessMode
             );
@@ -715,10 +549,10 @@ Return Value:
 
 
 BOOLEAN
-ObCheckTraverseAccess(
+ObpCheckTraverseAccess(
     IN PVOID DirectoryObject,
     IN ACCESS_MASK TraverseAccess,
-    IN PACCESS_STATE AccessState,
+    IN PACCESS_STATE AccessState OPTIONAL,
     IN BOOLEAN TypeMutexLocked,
     IN KPROCESSOR_MODE PreviousMode,
     OUT PNTSTATUS AccessStatus
@@ -741,6 +575,9 @@ Arguments:
         to some other access attempt.  Information on the current state of
         that access attempt is required so that the constituent access
         attempts may be associated with each other in the audit log.
+        This is an OPTIONAL parameter, in which case the call will
+        success ONLY if the Directory Object grants World traverse
+        access rights.
 
     TypeMutexLocked - Indicates whether the type mutex for this object's
         type is locked.  The type mutex is used to protect the object's
@@ -769,24 +606,15 @@ Return Value:
     PSECURITY_DESCRIPTOR SecurityDescriptor;
     BOOLEAN MemoryAllocated;
     NTSTATUS Status;
-    PNONPAGED_OBJECT_HEADER NonPagedObjectHeader;
+    POBJECT_HEADER ObjectHeader;
     POBJECT_TYPE ObjectType;
     BOOLEAN SubjectContextLocked = FALSE;
     PPRIVILEGE_SET Privileges = NULL;
 
     PAGED_CODE();
 
-    //
-    // Check to see if we have the privilege not to do traverse checking,
-    // and if so, return immediately
-    //
-
-    if ( AccessState->Flags & TOKEN_HAS_TRAVERSE_PRIVILEGE ) {
-        return( TRUE );
-    }
-
-    NonPagedObjectHeader = OBJECT_TO_NONPAGED_OBJECT_HEADER( DirectoryObject );
-    ObjectType = NonPagedObjectHeader->Type;
+    ObjectHeader = OBJECT_TO_OBJECT_HEADER( DirectoryObject );
+    ObjectType = ObjectHeader->Type;
 
     if (!TypeMutexLocked) {
         ObpEnterObjectTypeMutex( ObjectType );
@@ -828,56 +656,37 @@ Return Value:
         // all that much about making it blindingly fast.
         //
 
-        SeLockSubjectContext( &AccessState->SubjectSecurityContext );
-        SubjectContextLocked = TRUE;
+        if (ARGUMENT_PRESENT( AccessState )) {
+            SeLockSubjectContext( &AccessState->SubjectSecurityContext );
+            SubjectContextLocked = TRUE;
 
-        AccessAllowed = SeAccessCheck(
-                            SecurityDescriptor,
-                            &AccessState->SubjectSecurityContext,
-                            TRUE,             // Tokens are locked
-                            TraverseAccess,
-                            0,
-                            &Privileges,
-                            &ObjectType->TypeInfo.GenericMapping,
-                            PreviousMode,
-                            &GrantedAccess,
-                            AccessStatus
-                            );
+            AccessAllowed = SeAccessCheck(
+                                SecurityDescriptor,
+                                &AccessState->SubjectSecurityContext,
+                                TRUE,             // Tokens are locked
+                                TraverseAccess,
+                                0,
+                                &Privileges,
+                                &ObjectType->TypeInfo.GenericMapping,
+                                PreviousMode,
+                                &GrantedAccess,
+                                AccessStatus
+                                );
 
-        if (Privileges != NULL) {
+            if (Privileges != NULL) {
 
-            Status = SeAppendPrivileges(
-                         AccessState,
-                         Privileges
-                         );
+                Status = SeAppendPrivileges(
+                             AccessState,
+                             Privileges
+                             );
 
-            SeFreePrivileges( Privileges );
+                SeFreePrivileges( Privileges );
+            }
         }
 
-        if (AccessAllowed) {
-            AccessState->PreviouslyGrantedAccess |= GrantedAccess;
-            AccessState->RemainingDesiredAccess &= ~GrantedAccess;
-        }
     } else {
         AccessAllowed = TRUE;
     }
-
-//        //
-//        // Do not do anything here that can block or wait
-//        //
-//
-//        SeTraverseAuditAlarm(
-//            &AccessState->OperationID,
-//            DirectoryObject,
-//            SecurityDescriptor,
-//            &AccessState->SubjectSecurityContext,
-//            SubjectContextLocked,
-//            TraverseAccess,
-//            AccessState->PrivilegesUsed,
-//            AccessAllowed,
-//            PreviousMode
-//            );
-//
 
     if ( SubjectContextLocked ) {
         SeUnlockSubjectContext( &AccessState->SubjectSecurityContext );
@@ -899,205 +708,6 @@ Return Value:
 
     return( AccessAllowed );
 }
-
-
-#if 0
-
-
-BOOLEAN
-ObCheckCreateInstanceAccess(
-    IN PVOID Object,
-    IN ACCESS_MASK CreateInstanceAccess,
-    IN PACCESS_STATE AccessState,
-    IN BOOLEAN TypeMutexLocked,
-    IN KPROCESSOR_MODE PreviousMode,
-    OUT PNTSTATUS AccessStatus
-    )
-/*++
-
-Routine Description:
-
-    This routine checks for Create Instance access to the given
-    object.  This is required to create an instance of an object.
-
-    Note that checking for the ability to create an object of a given
-    type is different from creating the object itself.  This attempt
-    may be audited, even if the attempt to create the object ultimately
-    fails.
-
-    Note that there are three audits performed when creating a new
-    instance of an object:
-
-    1) Audit the fact that we are creating a new instance of the
-    object
-
-    2) Audit the creation of the new instance of the object
-
-    3) Audit the creation of the handle to the new instance of
-    the object.
-
-    Each is dependent on the success of the previous.
-
-Arguments:
-
-    Object - The object being examined.
-
-    CreateInstanceAccess - The access mask corresponding to create access
-        for this object type.
-
-    AccessState - Checks for create access will typically be incidental
-        to some other access attempt.  Information on the current state of
-        that access attempt is required so that the constituent access
-        attempts may be associated with each other in the audit log.
-
-    TypeMutexLocked - Indicates whether the type mutex for this object's
-        type is locked.  The type mutex is used to protect the object's
-        security descriptor from being modified while it is being accessed.
-
-    AccessMode - The previous processor mode.
-
-    AccessStatus - Pointer to a variable to return the status code of the
-        access attempt.  In the case of failure this status code must be
-        propagated back to the user.
-
-
-Return Value:
-
-    BOOLEAN - TRUE if access is allowed and FALSE otherwise.  AccessStatus
-    contains the status code to be passed back to the caller.  It is not
-    correct to simply pass back STATUS_ACCESS_DENIED, since this will have
-    to change with the advent of mandatory access control.
-
-
---*/
-{
-    BOOLEAN AccessAllowed;
-    ACCESS_MASK GrantedAccess = 0;
-    PSECURITY_DESCRIPTOR SecurityDescriptor;
-    NTSTATUS Status;
-    BOOLEAN MemoryAllocated;
-    PNONPAGED_OBJECT_HEADER NonPagedObjectHeader;
-    POBJECT_TYPE ObjectType;
-    PPRIVILEGE_SET Privileges = NULL;
-
-    PAGED_CODE();
-
-    NonPagedObjectHeader = OBJECT_TO_NONPAGED_OBJECT_HEADER( Object );
-    ObjectType = NonPagedObjectHeader->Type;
-
-    if (!TypeMutexLocked) {
-        ObpEnterObjectTypeMutex( ObjectType );
-        }
-
-    Status = ObGetObjectSecurity(
-                 Object,
-                 &SecurityDescriptor,
-                 &MemoryAllocated
-                 );
-
-    if (!NT_SUCCESS( Status )) {
-        if (!TypeMutexLocked) {
-             ObpLeaveObjectTypeMutex( ObjectType );
-        }
-        *AccessStatus = Status;
-        return( FALSE );
-    }
-
-    SeLockSubjectContext( &AccessState->SubjectSecurityContext );
-
-    if (SecurityDescriptor != NULL) {
-
-        AccessAllowed = SeAccessCheck (
-                            SecurityDescriptor,
-                            &AccessState->SubjectSecurityContext,
-                            TRUE,               // Tokens are locked
-                            CreateInstanceAccess,
-                            0,
-                            &Privileges,
-                            &ObjectType->TypeInfo.GenericMapping,
-                            PreviousMode,
-                            &GrantedAccess,
-                            AccessStatus
-                            );
-
-        if (Privileges != NULL) {
-
-            Status = SeAppendPrivileges(
-                         AccessState,
-                         Privileges
-                         );
-
-            SeFreePrivileges( Privileges );
-        }
-
-        if (AccessAllowed) {
-            AccessState->PreviouslyGrantedAccess |= GrantedAccess;
-            AccessState->RemainingDesiredAccess &= ~GrantedAccess;
-        }
-
-        //
-        // Audit the CreateInstance access check
-        //
-
-        SeCreateInstanceAuditAlarm(
-            &AccessState->OperationID,
-            Object,
-            SecurityDescriptor,
-            &AccessState->SubjectSecurityContext,
-            CreateInstanceAccess,
-            AccessState->PrivilegesUsed,
-            AccessAllowed,
-            PreviousMode
-            );
-
-
-        //
-        // We have passed all the hurdles necessary to create a new
-        // instance of the object.  All that remains is to allocate
-        // a handle, which will happen later.  Meanwhile, audit the
-        // fact that a new object has been created.
-        //
-        // The handle creation will be audited immediately after it
-        // occurs.
-        //
-
-
-        SeOpenObjectAuditAlarm(
-            &ObjectType->Name,
-            Object,
-            NULL,                   // AbsoluteObjectName
-            SecurityDescriptor,
-            AccessState,
-            TRUE,                   // ObjectCreated (as opposed to opened)
-            AccessAllowed,
-            PreviousMode,
-            &AccessState->GenerateOnClose
-            );
-
-    }
-
-    else {
-
-         AccessAllowed = TRUE;
-    }
-
-    SeUnlockSubjectContext( &AccessState->SubjectSecurityContext );
-
-    if (!TypeMutexLocked) {
-
-         ObpLeaveObjectTypeMutex( ObjectType );
-    }
-
-    ObReleaseObjectSecurity(
-        SecurityDescriptor,
-        MemoryAllocated
-        );
-
-    return( AccessAllowed );
-}
-
-#endif
-
 
 
 BOOLEAN
@@ -1159,15 +769,15 @@ Return Value:
     PSECURITY_DESCRIPTOR SecurityDescriptor;
     BOOLEAN MemoryAllocated;
     NTSTATUS Status;
-    PNONPAGED_OBJECT_HEADER NonPagedObjectHeader;
+    POBJECT_HEADER ObjectHeader;
     POBJECT_TYPE ObjectType;
     PPRIVILEGE_SET Privileges = NULL;
     BOOLEAN AuditPerformed = FALSE;
 
     PAGED_CODE();
 
-    NonPagedObjectHeader = OBJECT_TO_NONPAGED_OBJECT_HEADER( DirectoryObject );
-    ObjectType = NonPagedObjectHeader->Type;
+    ObjectHeader = OBJECT_TO_OBJECT_HEADER( DirectoryObject );
+    ObjectType = ObjectHeader->Type;
 
     if (!TypeMutexLocked) {
         ObpEnterObjectTypeMutex( ObjectType );
@@ -1214,10 +824,14 @@ Return Value:
             SeFreePrivileges( Privileges );
         }
 
-        if (AccessAllowed) {
-            AccessState->PreviouslyGrantedAccess |= GrantedAccess;
-            AccessState->RemainingDesiredAccess &= ~GrantedAccess;
-        }
+        //
+        // This is wrong, but leave for reference.
+        //
+
+//        if (AccessAllowed) {
+//            AccessState->PreviouslyGrantedAccess |= GrantedAccess;
+//            AccessState->RemainingDesiredAccess &= ~GrantedAccess;
+//        }
 
 #if 0
 
@@ -1235,7 +849,7 @@ Return Value:
             );
 
         if ( AuditPerformed ) {
-    
+
             AccessState->AuditHandleCreation = TRUE;
         }
 
@@ -1300,34 +914,23 @@ Return Value:
     NTSTATUS Status;
     PSECURITY_DESCRIPTOR OutputSecurityDescriptor;
 
-    PAGED_CODE(); 
+    PAGED_CODE();
 
     if (!ARGUMENT_PRESENT(SecurityDescriptor)) {
 
         OBJECT_TO_OBJECT_HEADER( Object )->SecurityDescriptor = NULL;
         return( STATUS_SUCCESS );
     }
-    
+
     Status = ObpLogSecurityDescriptor( SecurityDescriptor, &OutputSecurityDescriptor );
 
     if (NT_SUCCESS(Status)) {
-//        DbgPrint("Assigning sd %x to object %x\n",OutputSecurityDescriptor,Object);
         OBJECT_TO_OBJECT_HEADER( Object )->SecurityDescriptor = OutputSecurityDescriptor;
     }
 
     return( Status );
 }
 
-
-PSECURITY_DESCRIPTOR
-ObQueryObjectSecurityDescriptor(
-    IN PVOID Object
-    )
-{
-    PAGED_CODE(); 
-
-    return OBJECT_TO_OBJECT_HEADER( Object )->SecurityDescriptor;
-}
 
 
 NTSTATUS
@@ -1377,16 +980,14 @@ Return Value:
     SECURITY_INFORMATION SecurityInformation;
     ULONG Length = 0;
     NTSTATUS Status;
-    PNONPAGED_OBJECT_HEADER NonPagedObjectHeader;
     POBJECT_TYPE ObjectType;
     POBJECT_HEADER ObjectHeader;
     KIRQL SaveIrql;
 
     PAGED_CODE();
 
-    NonPagedObjectHeader = OBJECT_TO_NONPAGED_OBJECT_HEADER( Object );
-    ObjectType = NonPagedObjectHeader->Type;
     ObjectHeader = OBJECT_TO_OBJECT_HEADER( Object );
+    ObjectType = ObjectHeader->Type;
 
     //
     // If the object is one that uses the default object method,
@@ -1516,70 +1117,6 @@ Return Value:
             ObpDereferenceSecurityDescriptor( SecurityDescriptor );
         }
     }
-}
-
-
-
-
-VOID
-ObLockSecurityDescriptor(
-    IN PVOID Object
-    )
-
-/*++
-
-Routine Description:
-
-    This function acquires the object type mutex for the passed object,
-    which will protect the object's security descriptor from modification
-    by another thread.
-
-Arguments:
-
-    Object - supplies a pointer to the object whose security descriptor
-        is being examined.
-
-Return Value:
-
-    None.
-
---*/
-
-{
-    PAGED_CODE();
-
-    ObpEnterObjectTypeMutex( OBJECT_TO_NONPAGED_OBJECT_HEADER( Object )->Type );
-}
-
-
-VOID
-ObUnlockSecurityDescriptor(
-    IN PVOID Object
-    )
-
-/*++
-
-Routine Description:
-
-   This function releases the object type mutex for the passed object,
-   which has been protecting the object's security descriptor from
-   modification by another thread.
-
-Arguments:
-
-    Object - supplies a pointer to the object whose security descriptor
-        is being examined.
-
-Return Value:
-
-    None.
-
---*/
-
-{
-    PAGED_CODE();
-
-    ObpLeaveObjectTypeMutex( OBJECT_TO_NONPAGED_OBJECT_HEADER( Object )->Type );
 }
 
 
@@ -1757,23 +1294,23 @@ Return Value:
 
 
 NTSTATUS
-ObSetSecurityDescriptorInfo(                            
-    IN PVOID Object,                                             
-    IN PSECURITY_INFORMATION SecurityInformation,                                
-    IN OUT PSECURITY_DESCRIPTOR SecurityDescriptor,                                 
-    IN OUT PSECURITY_DESCRIPTOR *ObjectsSecurityDescriptor,                          
+ObSetSecurityDescriptorInfo(
+    IN PVOID Object,
+    IN PSECURITY_INFORMATION SecurityInformation,
+    IN OUT PSECURITY_DESCRIPTOR SecurityDescriptor,
+    IN OUT PSECURITY_DESCRIPTOR *ObjectsSecurityDescriptor,
     IN POOL_TYPE PoolType,
     IN PGENERIC_MAPPING GenericMapping
     )
-    
+
 /*++
-    
+
 Routine Description:
-    
+
     Sets the security descriptor on an already secure object.
-    
+
 Arguments:
-    
+
     Object - Pointer to the object being modified.
 
     SecurityInformation - Describes which information in the SecurityDescriptor parameter
@@ -1784,14 +1321,14 @@ Arguments:
     ObjectsSecurityDescriptor - Provides/returns the object's security descriptor.
 
     PoolType - The pool the ObjectSecurityDescriptor is allocated from.
-    
+
 Return Value:
-    
+
     return-value - Description of conditions needed to return value. - or -
     None.
-    
+
 --*/
-    
+
 
 {
 
@@ -1808,68 +1345,88 @@ Return Value:
     //
 
     ObpAcquireDescriptorCacheReadLock();
-    
+
     Status = SeSetSecurityDescriptorInfo( Object,
                                           SecurityInformation,
                                           SecurityDescriptor,
                                           &NewDescriptor,
                                           PoolType,
-                                          GenericMapping 
+                                          GenericMapping
                                           );
 
     ObpReleaseDescriptorCacheLock();
-    
+
     if ( NT_SUCCESS( Status )) {
-    
+
         Status = ObpLogSecurityDescriptor(
                      NewDescriptor,
                      ObjectsSecurityDescriptor
                      );
-    
+
+        //
+        // Now if the object is an object directory object that
+        // participated in snapped symbolic links.  If so and the
+        // new security on the object does NOT allow world traverse
+        // access, then return an error, as it is too late to change
+        // the security on the object directory at this point.
+        //
+
+        if (NT_SUCCESS( Status ) &&
+            OBJECT_TO_OBJECT_HEADER( Object )->Type == ObpDirectoryObjectType &&
+            ((POBJECT_DIRECTORY)Object)->SymbolicLinkUsageCount != 0 &&
+            !SeFastTraverseCheck( *ObjectsSecurityDescriptor,
+                                  DIRECTORY_TRAVERSE,
+                                  UserMode
+                                )
+           ) {
+            KdPrint(( "OB: Failing attempt the remove world traverse access from object directory\n" ));
+            Status = STATUS_INVALID_PARAMETER;
+        }
+
         if ( NT_SUCCESS( Status )) {
-    
+
             //
             // Dereference old SecurityDescriptor and insert new one
             //
-    
+
             ObpDereferenceSecurityDescriptor( OldDescriptor );
-    
+
         } else {
-    
+
             //
             // We failed logging the new security descriptor.
             // Clean up and fail the entire operation.
             //
-    
+
             ExFreePool( NewDescriptor );
         }
     }
-    
+
     return( Status );
 }
 
 
 NTSTATUS
-ObpValidateAccessMask( 
-    PACCESS_STATE AccessState 
+ObpValidateAccessMask(
+    PACCESS_STATE AccessState
     )
-    
+
 /*++
-    
+
 Routine Description:
-    
+
     Checks the desired access mask of a passed object against the
     passed security descriptor.
-    
+
 Arguments:
 
     AccessState - A pointer to the AccessState for the pending operation.
-    
-    
+
+
 Return Value:
 
     STATUS_SUCCESS
-    
+
 --*/
 
 {

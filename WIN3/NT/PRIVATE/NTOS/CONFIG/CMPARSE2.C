@@ -140,7 +140,7 @@ Return Value:
         return STATUS_ACCESS_DENIED;
     }
 
-    AdditionalAccess = (Context->CreateOptions & REG_OPTION_CREATE_LINK);
+    AdditionalAccess = (Context->CreateOptions & REG_OPTION_CREATE_LINK) ? KEY_CREATE_LINK : 0;
 
     FullName.MaximumLength = BaseName->Length + KeyName->Length + sizeof(WCHAR);
 
@@ -290,6 +290,7 @@ Return Value:
     NTSTATUS Status;
     PCM_KEY_BODY KeyBody;
     HCELL_INDEX ClassCell=HCELL_NIL;
+    PCM_KEY_NODE KeyNode;
     PCELL_DATA CellData;
     PCM_KEY_CONTROL_BLOCK kcb;
     PCM_KEY_CONTROL_BLOCK fkcb;
@@ -323,6 +324,7 @@ Return Value:
             return STATUS_INSUFFICIENT_RESOURCES;
         }
         alloc = 1;
+        KeyNode = (PCM_KEY_NODE)HvGetCell(Hive, *KeyCell);
 
         //
         // Allocate cell for class name
@@ -338,7 +340,7 @@ Return Value:
         //
         // Allocate a key control block
         //
-        kcb = CmpCreateKeyControlBlock(Hive, *KeyCell, BaseName, KeyName);
+        kcb = CmpCreateKeyControlBlock(Hive, *KeyCell, KeyNode, BaseName, KeyName);
         if (kcb == NULL) {
             return STATUS_INSUFFICIENT_RESOURCES;
         }
@@ -419,40 +421,39 @@ Return Value:
             //
             // Fill in the new key itself
             //
-            CellData = HvGetCell(Hive, *KeyCell);
-            CellData->u.KeyNode.Signature = CM_KEY_NODE_SIGNATURE;
-            CellData->u.KeyNode.Flags = Flags;
+            KeyNode->Signature = CM_KEY_NODE_SIGNATURE;
+            KeyNode->Flags = Flags;
 
             KeQuerySystemTime(&systemtime);
-            CellData->u.KeyNode.LastWriteTime = systemtime;
+            KeyNode->LastWriteTime = systemtime;
 
-            CellData->u.KeyNode.Spare = 0;
-            CellData->u.KeyNode.Parent = ParentCell;
-            CellData->u.KeyNode.SubKeyCounts[Stable] = 0;
-            CellData->u.KeyNode.SubKeyCounts[Volatile] = 0;
-            CellData->u.KeyNode.SubKeyLists[Stable] = HCELL_NIL;
-            CellData->u.KeyNode.SubKeyLists[Volatile] = HCELL_NIL;
-            CellData->u.KeyNode.ValueList.Count = 0;
-            CellData->u.KeyNode.ValueList.List = HCELL_NIL;
-            CellData->u.KeyNode.u1.s1.Security = HCELL_NIL;
-            CellData->u.KeyNode.u1.s1.Class = ClassCell;
-            CellData->u.KeyNode.ClassLength = Context->Class.Length;
+            KeyNode->Spare = 0;
+            KeyNode->Parent = ParentCell;
+            KeyNode->SubKeyCounts[Stable] = 0;
+            KeyNode->SubKeyCounts[Volatile] = 0;
+            KeyNode->SubKeyLists[Stable] = HCELL_NIL;
+            KeyNode->SubKeyLists[Volatile] = HCELL_NIL;
+            KeyNode->ValueList.Count = 0;
+            KeyNode->ValueList.List = HCELL_NIL;
+            KeyNode->u1.s1.Security = HCELL_NIL;
+            KeyNode->u1.s1.Class = ClassCell;
+            KeyNode->ClassLength = Context->Class.Length;
 
-            CellData->u.KeyNode.MaxValueDataLen = 0;
-            CellData->u.KeyNode.MaxNameLen = 0;
-            CellData->u.KeyNode.MaxValueNameLen = 0;
-            CellData->u.KeyNode.MaxClassLen = 0;
+            KeyNode->MaxValueDataLen = 0;
+            KeyNode->MaxNameLen = 0;
+            KeyNode->MaxValueNameLen = 0;
+            KeyNode->MaxClassLen = 0;
 
-            CellData->u.KeyNode.NameLength = CmpCopyName(Hive,
-                                                         CellData->u.KeyNode.Name,
-                                                         Name);
-            if (CellData->u.KeyNode.NameLength < Name->Length) {
-                CellData->u.KeyNode.Flags |= KEY_COMP_NAME;
+            KeyNode->NameLength = CmpCopyName(Hive,
+                                              KeyNode->Name,
+                                              Name);
+            if (KeyNode->NameLength < Name->Length) {
+                KeyNode->Flags |= KEY_COMP_NAME;
             }
 
             if (Context->CreateOptions & REG_OPTION_PREDEF_HANDLE) {
-                CellData->u.KeyNode.ValueList.Count = (ULONG)Context->PredefinedHandle;
-                CellData->u.KeyNode.Flags |= KEY_PREDEF_HANDLE;
+                KeyNode->ValueList.Count = (ULONG)Context->PredefinedHandle;
+                KeyNode->Flags |= KEY_PREDEF_HANDLE;
             }
 
             //
@@ -539,5 +540,3 @@ Return Value:
     }
     return(Status);
 }
-
-

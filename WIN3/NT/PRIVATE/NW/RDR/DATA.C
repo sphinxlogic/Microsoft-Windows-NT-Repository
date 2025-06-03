@@ -52,10 +52,7 @@ LIST_ENTRY ScbQueue;
 
 NONPAGED_SCB NwPermanentNpScb;
 
-LARGE_INTEGER NwLargeZero = {0,0};
-LARGE_INTEGER NwLargeOne  = {1,0};
 LARGE_INTEGER NwMaxLarge  = {MAXULONG,MAXLONG};
-LARGE_INTEGER NwOneSecond = {10000000,0};
 ULONG NwAbsoluteTotalWaitTime = 0;
 
 TDI_ADDRESS_IPX OurAddress = {0,0,0,0,0,0,0,0};
@@ -135,6 +132,34 @@ ULONG NwMaxReceiveSize = 0;
 ULONG NwPrintOptions = 0x98; // BUGBUG
 UNICODE_STRING NwProviderName = { 0, 0, NULL };
 
+LONG MaxSendDelay = 50000;
+LONG MaxReceiveDelay = 50000;
+LONG MinSendDelay = 0;
+LONG MinReceiveDelay = 0;
+LONG BurstSuccessCount = 1;
+LONG BurstSuccessCount2 = 3;
+LONG AllowGrowth = 0;
+LONG DontShrink = 0;
+LONG SendExtraNcp = 1;
+LONG DefaultMaxPacketSize = 0;
+LONG PacketThreshold = 1500;        // Size to use Large vs Small PacketAdjustment
+LONG LargePacketAdjustment = 38;
+LONG LipPacketAdjustment = 0;
+LONG LipAccuracy = BURST_PACKET_SIZE_TOLERANCE;
+LONG Japan = 0;     //  Controls special DBCS translation
+LONG DisableReadCache = 0;           // disable file i/o read cache
+LONG DisableWriteCache = 0;          // disable file i/o write cache
+LONG FavourLongNames = 0 ;           // use LFN where possible
+LARGE_INTEGER TimeOutEventInterval = {0, 0};
+LONG MaxWriteTimeout  = 50 ;         // tick counts (see write.c)
+LONG MaxReadTimeout   = 50 ;         // tick counts (see read.c)
+LONG WriteTimeoutMultiplier = 100;   // expressed as percentage (see write.c)
+LONG ReadTimeoutMultiplier = 100;    // expressed as percentage (see read.c)
+
+ULONG EnableMultipleConnects = 0;
+
+ULONG ReadExecOnlyFiles = 0;
+
 //
 //  Static storage area for perfmon statistics
 //
@@ -148,6 +173,40 @@ ULONG ContextCount = 0;
 
 SECTION_DESCRIPTOR NwSectionDescriptor;
 ERESOURCE NwUnlockableCodeResource;
+
+//
+//  The lock timeout value.
+//
+
+ULONG LockTimeoutThreshold = 1;
+
+#ifdef _PNP_POWER
+
+//
+// The TDI PNP Bind handle.
+//
+
+HANDLE TdiBindingHandle = NULL;
+UNICODE_STRING TdiIpxDeviceName;
+WCHAR IpxDevice[] = L"\\Device\\NwlnkIpx";
+
+#endif
+
+//
+// We can't have the scavenger and a line change request running
+// at the same time since they both run on worker threads and
+// walk across all the SCBs.  Therefore, when either is running,
+// we set the WorkerRunning value used by the scavenger to TRUE.
+// If a scavenger run tries to happen while a line change request
+// is running, it gets skipped.  If a line change request comes in
+// while the scavenger is running, we set DelayedProcessLineChange
+// to TRUE and run it when the scavenger finishes.
+//
+// These values are protected by the existing scavenger spin lock.
+//
+
+BOOLEAN DelayedProcessLineChange = FALSE;
+PIRP DelayedLineChangeIrp = NULL;
 
 #ifdef NWDBG
 
@@ -222,6 +281,12 @@ NwInitializeData(
 
     RtlInitUnicodeString( &IpxTransportName, NULL );
 
+#ifdef _PNP_POWER
+
+    RtlInitUnicodeString( &TdiIpxDeviceName, IpxDevice );
+
+#endif
+
     //
     //  Allocate a permanent Non-paged SCB.  This SCB is used to
     //  synchronize access to finding the nearest server.
@@ -252,6 +317,7 @@ NwInitializeData(
     RtlInitUnicodeString( &Guest.PassWord, NULL );
     RtlInitUnicodeString( &Guest.UserName, L"GUEST" );
     Guest.UserUid = DefaultLuid;
+    InitializeListHead( &Guest.NdsCredentialList );
     InsertTailList( &LogonList, &Guest.Next );
 
     //

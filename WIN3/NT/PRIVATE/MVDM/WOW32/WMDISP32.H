@@ -50,19 +50,13 @@ typedef struct _WM32MSGPARAMEX {
 typedef struct _M32 {   /* w32 */
     LPFNM32 lpfnM32;    // function address
 #ifdef DEBUG_OR_WOWPROFILE
-    LPSZ    lpszW32;    // function name (DEBUG version only)
-    INT     cbArgs;     // # of bytes of arguments (DEBUG version only)
-                     // for MSG profiling only (debugger extension)
+    LPSZ    lpszW32;    // message name (DEBUG version only)
     DWORD   cCalls;     // # times the message has been passed
     DWORD   cTics;      // sum total of thunk tics
 #endif
 } M32, *PM32;
 
-extern  BOOL fFreeDDElParam;
-
-#ifndef WS_EX_MDICHILD
-#define WS_EX_MDICHILD  0x00000040L
-#endif
+extern  BOOL fThunkDDEmsg;
 
 #define WIN31_MM_CALCSCROLL  0x10AC   // WM_USER+0xCAC
 
@@ -129,7 +123,8 @@ LPFNM32PROTO WM32CopyData;
 LPFNM32PROTO WM32MMCalcScroll;
 LPFNM32PROTO WM32Thunk16To32;
 LPFNM32PROTO WM32WinHelp;
+LPFNM32PROTO WM32NotifyWow;
 
 #endif  // #ifndef _DEF_WMDISP32_ THIS SHOULD BE THE LAST LINE IN THIS FILE
 
-
+

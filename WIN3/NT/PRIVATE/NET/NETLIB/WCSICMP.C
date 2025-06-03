@@ -4,7 +4,7 @@ Copyright (c) 1991-92  Microsoft Corporation
 
 Module Name:
 
-    wcsicmp.c
+    _wcsicmp.c
 
 Abstract:
 
@@ -25,7 +25,7 @@ Revision History:
     17-Apr-1991 (cliffv)
         Incorporated review comments.
     27-Sep-1991 JohnRo
-        Swiped wcsicmp() from Cliff and put it in NetLib.  Added wcscmpi().
+        Swiped _wcsicmp() from Cliff and put it in NetLib.  Added _wcsicmp().
     09-Apr-1992 JohnRo
         Prepare for WCHAR.H (_wcsicmp vs _wcscmpi, etc).
 
@@ -53,4 +53,3 @@ _wcscmpi(
 
 } // _wcscmpi
 #endif
-

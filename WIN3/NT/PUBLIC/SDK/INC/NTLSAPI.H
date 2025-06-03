@@ -9,7 +9,7 @@
 #ifndef LSAPI_H
 #define LSAPI_H
 
-#if defined(WINVER)  /* Windows for NT or DOS */
+#if defined(WINVER)  // Windows for NT or DOS
 #if defined(WINAPIV)
 #define LS_API_ENTRY WINAPIV
 #else
@@ -19,13 +19,91 @@
 #define LS_API_ENTRY
 #endif
 
+typedef unsigned long    LS_STATUS_CODE;
+typedef unsigned long    LS_HANDLE;
+
+// **************************************************
+// Standard LSAPI C status codes
+//***************************************************
+#define LS_SUCCESS                           ((LS_STATUS_CODE) 0x0)
+#define LS_BAD_HANDLE                        ((LS_STATUS_CODE) 0xC0001001)
+#define LS_INSUFFICIENT_UNITS                ((LS_STATUS_CODE) 0xC0001002)
+#define LS_SYSTEM_UNAVAILABLE                ((LS_STATUS_CODE) 0xC0001003)
+#define LS_LICENSE_TERMINATED                ((LS_STATUS_CODE) 0xC0001004)
+#define LS_AUTHORIZATION_UNAVAILABLE         ((LS_STATUS_CODE) 0xC0001005)
+#define LS_LICENSE_UNAVAILABLE               ((LS_STATUS_CODE) 0xC0001006)
+#define LS_RESOURCES_UNAVAILABLE             ((LS_STATUS_CODE) 0xC0001007)
+#define LS_NETWORK_UNAVAILABLE               ((LS_STATUS_CODE) 0xC0001008)
+#define LS_TEXT_UNAVAILABLE                  ((LS_STATUS_CODE) 0x80001009)
+#define LS_UNKNOWN_STATUS                    ((LS_STATUS_CODE) 0xC000100A)
+#define LS_BAD_INDEX                         ((LS_STATUS_CODE) 0xC000100B)
+#define LS_LICENSE_EXPIRED                   ((LS_STATUS_CODE) 0x8000100C)
+#define LS_BUFFER_TOO_SMALL                  ((LS_STATUS_CODE) 0xC000100D)
+#define LS_BAD_ARG                           ((LS_STATUS_CODE) 0xC000100E)
+
+//***************************************************
+//* Nt LS API data structure and constant
+//***************************************************
+
+#define NT_LS_USER_NAME               ((ULONG) 0)  // username only
+#define NT_LS_USER_SID                ((ULONG) 1)  // SID only
+
+typedef struct {
+   ULONG    DataType;                 // Type of the following data, ie. user name, sid...
+   VOID     *Data;                    // Actual data. username, sid, etc...
+                                      // if call the unicode API character data
+                                      // must be in unicode as well
+   BOOL     IsAdmin;
+} NT_LS_DATA;
+
+
+//
+// Prototypes for License Request routines
+//
+
+typedef LS_STATUS_CODE
+    (LS_API_ENTRY * PNT_LICENSE_REQUEST_W)(
+    LPWSTR      ProductName,
+    LPWSTR      Version,
+    LS_HANDLE   *LicenseHandle,
+    NT_LS_DATA  *NtData);
+
+typedef LS_STATUS_CODE
+    (LS_API_ENTRY * PNT_LS_FREE_HANDLE)(
+    LS_HANDLE   LicenseHandle );
+
+
+#ifdef UNICODE
+#define NtLicenseRequest  NtLicenseRequestW
+#else
+#define NtLicenseRequest  NtLicenseRequestA
+#endif // !UNICODE
+
+LS_STATUS_CODE LS_API_ENTRY NtLicenseRequestA(
+                  LPSTR       ProductName,
+                  LPSTR       Version,
+                  LS_HANDLE   FAR *LicenseHandle,
+                  NT_LS_DATA  *NtData);
+
+LS_STATUS_CODE LS_API_ENTRY NtLicenseRequestW(
+                  LPWSTR      ProductName,
+                  LPWSTR      Version,
+                  LS_HANDLE   FAR *LicenseHandle,
+                  NT_LS_DATA  *NtData);
+
+
+LS_STATUS_CODE LS_API_ENTRY NtLSFreeHandle(
+                  LS_HANDLE   LicenseHandle );
+
+// *************************************************************************
+//    OLD API After this point - Don't use
+// *************************************************************************
+
 
 /***************************************************/
 /* standard LS API c datatype definitions          */
 /***************************************************/
 
-typedef unsigned long    LS_STATUS_CODE;
-typedef unsigned long    LS_HANDLE;
 typedef char             LS_STR;
 typedef unsigned long    LS_ULONG;
 typedef long             LS_LONG;
@@ -49,18 +127,6 @@ typedef struct {
 
 
 /***************************************************/
-/* Nt LS API data structure and constant           */
-/***************************************************/
-
-#define NT_LS_USER_NAME				((LS_ULONG) 0)
-#define NT_LS_USER_SID				((LS_ULONG) 1)
-
-typedef struct {
-   LS_ULONG	DataType;				 /* Type of the following data, ie. user name, sid... */
-   LS_VOID	*Data;					 /* Actual data. username, sid ... */
-} NT_LS_DATA;
-
-/***************************************************/
 /* Standard LSAPI C constant definitions           */
 /***************************************************/
 
@@ -79,25 +145,6 @@ typedef struct {
 
 
 /***************************************************/
-/* Standard LSAPI C status codes                   */
-/***************************************************/
-#define LS_SUCCESS                           ((LS_STATUS_CODE) 0x0)
-#define LS_BAD_HANDLE                        ((LS_STATUS_CODE) 0xC0001001)
-#define LS_INSUFFICIENT_UNITS                ((LS_STATUS_CODE) 0xC0001002)
-#define LS_SYSTEM_UNAVAILABLE                ((LS_STATUS_CODE) 0xC0001003)
-#define LS_LICENSE_TERMINATED                ((LS_STATUS_CODE) 0xC0001004)
-#define LS_AUTHORIZATION_UNAVAILABLE         ((LS_STATUS_CODE) 0xC0001005)
-#define LS_LICENSE_UNAVAILABLE               ((LS_STATUS_CODE) 0xC0001006)
-#define LS_RESOURCES_UNAVAILABLE             ((LS_STATUS_CODE) 0xC0001007)
-#define LS_NETWORK_UNAVAILABLE               ((LS_STATUS_CODE) 0xC0001008)
-#define LS_TEXT_UNAVAILABLE                  ((LS_STATUS_CODE) 0x80001009)
-#define LS_UNKNOWN_STATUS                    ((LS_STATUS_CODE) 0xC000100A)
-#define LS_BAD_INDEX                         ((LS_STATUS_CODE) 0xC000100B)
-#define LS_LICENSE_EXPIRED                   ((LS_STATUS_CODE) 0x8000100C)
-#define LS_BUFFER_TOO_SMALL                  ((LS_STATUS_CODE) 0xC000100D)
-#define LS_BAD_ARG                           ((LS_STATUS_CODE) 0xC000100E)
-
-/***************************************************/
 /* Standard LSAPI C function definitions           */
 /***************************************************/
 
@@ -112,15 +159,12 @@ LS_STATUS_CODE LS_API_ENTRY NtLSRequest(
                   LS_CHALLENGE       FAR *Challenge,
                   LS_ULONG           FAR *TotUnitsGranted,
                   LS_HANDLE          FAR *LicenseHandle,
-				  NT_LS_DATA		 FAR *NtData);
+                  NT_LS_DATA         FAR *NtData);
 
 LS_STATUS_CODE LS_API_ENTRY NtLSRelease(
                   LS_HANDLE          LicenseHandle,
                   LS_ULONG           TotUnitsConsumed,
                   LS_STR             FAR *LogComment);
-
-LS_STATUS_CODE LS_API_ENTRY NtLSFreeHandle(
-                  LS_HANDLE          LicenseHandle );
 
 LS_STATUS_CODE LS_API_ENTRY NtLSUpdate(
                   LS_HANDLE          LicenseHandle,
@@ -148,5 +192,3 @@ LS_STATUS_CODE LS_API_ENTRY NtLSEnumProviders(
                   LS_STR             FAR *Buffer);
 
 #endif /* LSAPI_H */
-
-

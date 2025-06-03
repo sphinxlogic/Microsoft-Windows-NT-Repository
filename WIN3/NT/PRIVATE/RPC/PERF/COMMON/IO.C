@@ -19,6 +19,7 @@ Revision History:
 --*/
 
 #include <rpcperf.h>
+#include <stdarg.h>
 
 void PauseForUser(char *string)
 {
@@ -29,4 +30,72 @@ void PauseForUser(char *string)
     gets(buffer);
     return;
 }
+
+static FILE *LogFile = 0;
+static char buffer[1024];
+
+void DumpCommon(char *Format, va_list Marker)
+{
+    // Are we logging to a file?
+    if (LogFileName)
+        {
+
+        // Have we opened to log file yet?
+        if (!LogFile)
+            {
+            LogFile = fopen(LogFileName, "w");
+            if (!LogFile)
+
+
+                {
+                fprintf(stderr, "Unable to open log file: %s\n", LogFileName);
+                exit(-1);
+                }
+            }
+
+        vfprintf(LogFile, Format, Marker);
+        fflush(LogFile);
+        }
+
+#ifndef WIN
+    vfprintf(stdout, Format, Marker);
+#else
+    {
+    // Hack for Windows STDIO emulator
+    char buffer[256];
+
+    vsprintf(buffer, Format, Marker);
+
+    #undef printf
+    printf(buffer);
+    }
+#endif
+}
+
+void Dump(char *Format, ...)
+{
+    va_list Marker;
+
+    va_start(Marker, Format);
+
+    DumpCommon(Format, Marker);
+
+    va_end(Marker);
+}
+
+void DebugDump(char *Format, ...)
+{
+    if (OutputLevel >1)
+        {
+        va_list Marker;
+
+        va_start(Marker, Format);
+
+        DumpCommon(Format, Marker);
+
+        va_end(Marker);
+        }
+
+}
+
 

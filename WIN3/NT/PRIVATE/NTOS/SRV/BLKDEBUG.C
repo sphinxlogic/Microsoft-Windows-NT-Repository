@@ -61,7 +61,7 @@ SrvInitializeReferenceHistory (
     //
 
     if ( Block->History.HistoryTable == NULL ) {
-        Block->History.NextEntry == -1;
+        Block->History.NextEntry = -1;
     } else {
         Block->History.NextEntry = 0;
         RtlZeroMemory( Block->History.HistoryTable, historyTableSize );

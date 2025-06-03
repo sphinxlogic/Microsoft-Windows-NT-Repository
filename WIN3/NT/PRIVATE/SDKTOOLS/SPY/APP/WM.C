@@ -12,13 +12,12 @@
 #include <dde.h>
 
 
-PRIVATE CHAR szFormatName[] = "%08X\t%s\t%08X\t%08X";
-PRIVATE CHAR szFormatUSER[] = "%08X\tWM_USER+%d\t%08X\t%08X";
-PRIVATE CHAR szFormatUnknown[] = "%08X\tWM_%04X\t%08X\t%08X";
+PRIVATE CHAR szFormatName[] = "%08X\t%s\t%08X\t%08X\r\n";
+PRIVATE CHAR szFormatUSER[] = "%08X\tWM_USER+%d\t%08X\t%08X\r\n";
+PRIVATE CHAR szFormatUnknown[] = "%08X\tWM_%04X\t%08X\t%08X\r\n";
 
 
 VOID DecodeGeneric(HWND hwnd, UINT msg, PSPYMSGDATA psmd) {} //BUGBUG placeholder for now...
-
 
 //
 // Message description table.  Describes each message that can be spied on.
@@ -34,6 +33,8 @@ MSGDESC gaMsgs[] =
         0, DecodeGeneric },
     { "WM_MOVE", WM_MOVE,                                   // 0x0003
         0, DecodeGeneric },
+    { "IMN_CLOSECANDIDATE", IMN_CLOSECANDIDATE,             /* 0x0004 */
+        0, DecodeGeneric },
     { "WM_SIZE", WM_SIZE,                                   // 0x0005
         0, DecodeGeneric },
     { "WM_ACTIVATE", WM_ACTIVATE,                           // 0x0006
@@ -41,6 +42,8 @@ MSGDESC gaMsgs[] =
     { "WM_SETFOCUS", WM_SETFOCUS,                           // 0x0007
         0, DecodeGeneric },
     { "WM_KILLFOCUS", WM_KILLFOCUS,                         // 0x0008
+        0, DecodeGeneric },
+    { "IMC_GETCOMPOSITIONFONT", IMC_GETCOMPOSITIONFONT,     /* 0x0009 */
         0, DecodeGeneric },
     { "WM_ENABLE", WM_ENABLE,                               // 0x000A
         0, DecodeGeneric },
@@ -142,6 +145,26 @@ MSGDESC gaMsgs[] =
         0, DecodeGeneric },
     { "WM_CANCELJOURNAL", WM_CANCELJOURNAL,                 // 0x004B
         0, DecodeGeneric },
+    { "WM_NOTIFY", WM_NOTIFY,                               /* 0x004E */
+        0, DecodeGeneric },
+    { "WM_INPUTLANGCHANGEREQUEST", WM_INPUTLANGCHANGEREQUEST, /* 0x0050 */
+        0, DecodeGeneric },
+    { "WM_INPUTLANGCHANGE",        WM_INPUTLANGCHANGE,        /* 0x0051 */
+        0, DecodeGeneric },
+    { "WM_TCARD",                  WM_TCARD,                  /* 0x0052 */
+        0, DecodeGeneric },
+    { "WM_HELP",                   WM_HELP,                   /* 0x0053 */
+        0, DecodeGeneric },
+    { "WM_USERCHANGED",            WM_USERCHANGED,            /* 0x0054 */
+        0, DecodeGeneric },
+    { "WM_NOTIFYFORMAT",           WM_NOTIFYFORMAT,           /* 0x0055 */
+        0, DecodeGeneric },
+    { "WM_CONTEXTMENU",   WM_CONTEXTMENU,                   /* 0x007B */ 0, DecodeGeneric },
+    { "WM_STYLECHANGING", WM_STYLECHANGING,                 /* 0x007C */ 0, DecodeGeneric },
+    { "WM_STYLECHANGED",  WM_STYLECHANGED,                  /* 0x007D */ 0, DecodeGeneric },
+    { "WM_DISPLAYCHANGE", WM_DISPLAYCHANGE,                 /* 0x007E */ 0, DecodeGeneric },
+    { "WM_GETICON",       WM_GETICON,                       /* 0x007F */ 0, DecodeGeneric },
+    { "WM_SETICON",       WM_SETICON,                       /* 0x0080 */ 0, DecodeGeneric },
     { "WM_NCCREATE", WM_NCCREATE,                           // 0x0081
         MTF_TYPE_NC, DecodeGeneric },
     { "WM_NCDESTROY", WM_NCDESTROY,                         // 0x0082
@@ -242,6 +265,11 @@ MSGDESC gaMsgs[] =
         MTF_TYPE_EM, DecodeGeneric },
     { "EM_GETPASSWORDCHAR", EM_GETPASSWORDCHAR,             // 0x00D2
         MTF_TYPE_EM, DecodeGeneric },
+    { "EM_SETMARGINS",               EM_SETMARGINS,               /* 0x00D3 */ MTF_TYPE_EM, DecodeGeneric },
+    { "EM_GETMARGINS",               EM_GETMARGINS,               /* 0x00D4 */ MTF_TYPE_EM, DecodeGeneric },
+    { "EM_GETLIMITTEXT",             EM_GETLIMITTEXT,             /* 0x00D5 */ MTF_TYPE_EM, DecodeGeneric },
+    { "EM_POSFROMCHAR",              EM_POSFROMCHAR,              /* 0x00D6 */ MTF_TYPE_EM, DecodeGeneric },
+    { "EM_CHARFROMPOS",              EM_CHARFROMPOS,              /* 0x00D7 */ MTF_TYPE_EM, DecodeGeneric },
     { "SBM_SETPOS", SBM_SETPOS,                             // 0x00E0
         0, DecodeGeneric },
     { "SBM_GETPOS", SBM_GETPOS,                             // 0x00E1
@@ -254,6 +282,8 @@ MSGDESC gaMsgs[] =
         0, DecodeGeneric },
     { "SBM_SETRANGEREDRAW", SBM_SETRANGEREDRAW,             // 0x00E6
         0, DecodeGeneric },
+    { "SBM_SETSCROLLINFO",           SBM_SETSCROLLINFO,           /* 0x00E9 */ 0, DecodeGeneric },
+    { "SBM_GETSCROLLINFO",           SBM_GETSCROLLINFO,           /* 0x00EA */ 0, DecodeGeneric },
     { "BM_GETCHECK", BM_GETCHECK,                           // 0x00F0
         MTF_TYPE_BM, DecodeGeneric },
     { "BM_SETCHECK", BM_SETCHECK,                           // 0x00F1
@@ -264,6 +294,9 @@ MSGDESC gaMsgs[] =
         MTF_TYPE_BM, DecodeGeneric },
     { "BM_SETSTYLE", BM_SETSTYLE,                           // 0x00F4
         MTF_TYPE_BM, DecodeGeneric },
+    { "BM_CLICK",    BM_CLICK,                              /* 0x00F5 */ MTF_TYPE_BM, DecodeGeneric },
+    { "BM_GETIMAGE", BM_GETIMAGE,                           /* 0x00F6 */ MTF_TYPE_BM, DecodeGeneric },
+    { "BM_SETIMAGE", BM_SETIMAGE,                           /* 0x00F7 */ MTF_TYPE_BM, DecodeGeneric },
     { "WM_KEYDOWN", WM_KEYDOWN,                             // 0x0100
         MTF_TYPE_KEYBD, DecodeGeneric },
     { "WM_KEYUP", WM_KEYUP,                                 // 0x0101
@@ -280,6 +313,25 @@ MSGDESC gaMsgs[] =
         MTF_TYPE_KEYBD, DecodeGeneric },
     { "WM_SYSDEADCHAR", WM_SYSDEADCHAR,                     // 0x0107
         MTF_TYPE_KEYBD, DecodeGeneric },
+    { "WM_KEYLAST", WM_KEYLAST,                             /* 0x0108 */
+        MTF_TYPE_KEYBD, DecodeGeneric },
+#ifdef  FE_IME
+    { "WM_CONVERTREQUESTEX", WM_CONVERTREQUESTEX,           // 0x0109
+        MTF_TYPE_IME, DecodeGeneric },
+    { "WM_CONVERTREQUEST", WM_CONVERTREQUEST,               // 0x010A
+        MTF_TYPE_IME, DecodeGeneric },
+    { "WM_CONVERTRESULT", WM_CONVERTRESULT,                 // 0x010B
+        MTF_TYPE_IME, DecodeGeneric },
+    { "WM_INTERIM", WM_INTERIM,                             // 0x010C
+        MTF_TYPE_IME, DecodeGeneric },
+
+#   define TMP_MTF_TYPE_IME     MTF_TYPE_IME
+#else // not FE_IME
+#   define TMP_MTF_TYPE_IME     0
+#endif
+    { "WM_IME_STARTCOMPOSITION", WM_IME_STARTCOMPOSITION,   /* 0x010D */ TMP_MTF_TYPE_IME, DecodeGeneric },
+    { "WM_IME_ENDCOMPOSITION",   WM_IME_ENDCOMPOSITION,     /* 0x010E */ TMP_MTF_TYPE_IME, DecodeGeneric },
+    { "WM_IME_COMPOSITION",      WM_IME_COMPOSITION,        /* 0x010F */ TMP_MTF_TYPE_IME, DecodeGeneric },
     { "WM_INITDIALOG", WM_INITDIALOG,                       // 0x0110
         0, DecodeGeneric },
     { "WM_COMMAND", WM_COMMAND,                             // 0x0111
@@ -370,9 +422,17 @@ MSGDESC gaMsgs[] =
         MTF_TYPE_CB, DecodeGeneric },
     { "CB_GETLOCALE", CB_GETLOCALE,                         // 0x015A
         MTF_TYPE_CB, DecodeGeneric },
+    { "CB_SETDROPPEDWIDTH", CB_SETDROPPEDWIDTH,             /* 0x0160 */
+        MTF_TYPE_CB, DecodeGeneric },
+    { "CB_INITSTORAGE",     CB_INITSTORAGE,                 /* 0x0161 */
+        MTF_TYPE_CB, DecodeGeneric },
     { "STM_SETICON", STM_SETICON,                           // 0x0170
         MTF_TYPE_STM, DecodeGeneric },
     { "STM_GETICON", STM_GETICON,                           // 0x0171
+        MTF_TYPE_STM, DecodeGeneric },
+    { "STM_SETIMAGE", STM_SETIMAGE,                         /* 0x0172 */
+        MTF_TYPE_STM, DecodeGeneric },
+    { "STM_GETIMAGE", STM_GETIMAGE,                         /* 0x0173 */
         MTF_TYPE_STM, DecodeGeneric },
     { "LB_ADDSTRING", LB_ADDSTRING,                         // 0x0180
         MTF_TYPE_LB, DecodeGeneric },
@@ -456,6 +516,10 @@ MSGDESC gaMsgs[] =
         MTF_TYPE_LB, DecodeGeneric },
     { "LB_SETCOUNT", LB_SETCOUNT,                           // 0x01A7
         MTF_TYPE_LB, DecodeGeneric },
+    { "LB_INITSTORAGE", LB_INITSTORAGE,                     /* 0x01A8 */
+        MTF_TYPE_LB, DecodeGeneric },
+    { "LB_ITEMFROMPOINT", LB_ITEMFROMPOINT,                 /* 0x01A9 */
+        MTF_TYPE_LB, DecodeGeneric },
     { "WM_MOUSEMOVE", WM_MOUSEMOVE,                         // 0x0200
         MTF_TYPE_MOUSE, DecodeGeneric },
     { "WM_LBUTTONDOWN", WM_LBUTTONDOWN,                     // 0x0201
@@ -476,12 +540,20 @@ MSGDESC gaMsgs[] =
         MTF_TYPE_MOUSE, DecodeGeneric },
     { "WM_MBUTTONDBLCLK", WM_MBUTTONDBLCLK,                 // 0x0209
         MTF_TYPE_MOUSE, DecodeGeneric },
+    { "WM_MOUSEWHEEL", WM_MOUSEWHEEL,                       // 0x020a
+        MTF_TYPE_MOUSE, DecodeGeneric },
     { "WM_PARENTNOTIFY", WM_PARENTNOTIFY,                   // 0x0210
         MTF_TYPE_MOUSE, DecodeGeneric },
     { "WM_ENTERMENULOOP", WM_ENTERMENULOOP,                 // 0x0211
         0, DecodeGeneric },
     { "WM_EXITMENULOOP", WM_EXITMENULOOP,                   // 0x0212
         0, DecodeGeneric },
+    { "WM_NEXTMENU",       WM_NEXTMENU,                     /* 0x0213 */ 0, DecodeGeneric },
+    { "WM_SIZING",         WM_SIZING,                       /* 0x0214 */ 0, DecodeGeneric },
+    { "WM_CAPTURECHANGED", WM_CAPTURECHANGED,               /* 0x0215 */ 0, DecodeGeneric },
+    { "WM_MOVING",         WM_MOVING,                       /* 0x0216 */ 0, DecodeGeneric },
+    { "WM_POWERBROADCAST", WM_POWERBROADCAST,               /* 0x0218 */ 0, DecodeGeneric },
+    { "WM_DEVICECHANGE",   WM_DEVICECHANGE,                 /* 0x0219 */ 0, DecodeGeneric },
     { "WM_MDICREATE", WM_MDICREATE,                         // 0x0220
         0, DecodeGeneric },
     { "WM_MDIDESTROY", WM_MDIDESTROY,                       // 0x0221
@@ -504,10 +576,30 @@ MSGDESC gaMsgs[] =
         0, DecodeGeneric },
     { "WM_MDISETMENU", WM_MDISETMENU,                       // 0x0230
         0, DecodeGeneric },
+    { "WM_ENTERSIZEMOVE", WM_ENTERSIZEMOVE,                 // 0x0231
+        0, DecodeGeneric },
+    { "WM_EXITSIZEMOVE", WM_EXITSIZEMOVE,                   // 0x0232
+        0, DecodeGeneric },
     { "WM_DROPFILES", WM_DROPFILES,                         // 0x0233
         0, DecodeGeneric },
     { "WM_MDIREFRESHMENU", WM_MDIREFRESHMENU,               // 0x0234
         0, DecodeGeneric },
+#ifdef  FE_IME
+    { "WM_IME_REPORT", WM_IME_REPORT,                       // 0x0280
+        MTF_TYPE_IME, DecodeGeneric },
+#endif
+    { "WM_IME_SETCONTEXT",      WM_IME_SETCONTEXT,          /* 0x0281 */ TMP_MTF_TYPE_IME, DecodeGeneric },
+    { "WM_IME_NOTIFY",          WM_IME_NOTIFY,              /* 0x0282 */ TMP_MTF_TYPE_IME, DecodeGeneric },
+    { "WM_IME_CONTROL",         WM_IME_CONTROL,             /* 0x0283 */ TMP_MTF_TYPE_IME, DecodeGeneric },
+    { "WM_IME_COMPOSITIONFULL", WM_IME_COMPOSITIONFULL,     /* 0x0284 */ TMP_MTF_TYPE_IME, DecodeGeneric },
+    { "WM_IME_SELECT",          WM_IME_SELECT,              /* 0x0285 */ TMP_MTF_TYPE_IME, DecodeGeneric },
+    { "WM_IME_CHAR",            WM_IME_CHAR,                /* 0x0286 */ TMP_MTF_TYPE_IME, DecodeGeneric },
+#ifdef  FE_IME
+    { "WM_IMEKEYDOWN", WM_IMEKEYDOWN,                       // 0x0290
+        TMP_MTF_TYPE_IME, DecodeGeneric },
+    { "WM_IMEKEYUP", WM_IMEKEYUP,                           // 0x0291
+        TMP_MTF_TYPE_IME, DecodeGeneric },
+#endif
     { "WM_CUT", WM_CUT,                                     // 0x0300
         MTF_TYPE_CLIP, DecodeGeneric },
     { "WM_COPY", WM_COPY,                                   // 0x0301
@@ -546,6 +638,12 @@ MSGDESC gaMsgs[] =
         0, DecodeGeneric },
     { "WM_HOTKEY", WM_HOTKEY,                               // 0x0312
         MTF_TYPE_KEYBD, DecodeGeneric },
+    { "WM_PRINT",       WM_PRINT,                           /* 0x0317 */ 0, DecodeGeneric },
+    { "WM_PRINTCLIENT", WM_PRINTCLIENT,                     /* 0x0318 */ 0, DecodeGeneric },
+    { "WM_HANDHELDFIRST", WM_HANDHELDFIRST,                 /* 0x0358 */ 0, DecodeGeneric },
+    { "WM_HANDHELDLAST", WM_HANDHELDLAST,                   /* 0x035F */ 0, DecodeGeneric },
+    { "WM_AFXFIRST", WM_AFXFIRST,                           /* 0x0360 */ 0, DecodeGeneric },
+    { "WM_AFXLAST",  WM_AFXLAST,                            /* 0x037F */ 0, DecodeGeneric },
     { "WM_DDE_INITIATE", WM_DDE_INITIATE,                   // 0x03E0
         MTF_TYPE_DDE, DecodeGeneric },
     { "WM_DDE_TERMINATE", WM_DDE_TERMINATE,                 // 0x03E1
@@ -583,6 +681,9 @@ MSGGROUP gaMsgGroup[] =
     { DID_MSGSMOUSE,    MTF_TYPE_MOUSE, 0,  0 },
     { DID_MSGSNC,       MTF_TYPE_NC,    0,  0 },
     { DID_MSGSKEYBD,    MTF_TYPE_KEYBD, 0,  0 },
+#ifdef FE_IME
+    { DID_MSGSIME,      MTF_TYPE_IME,   0,  0 },
+#endif
     { DID_MSGSBM,       MTF_TYPE_BM,    0,  0 },
     { DID_MSGSCB,       MTF_TYPE_CB,    0,  0 },
     { DID_MSGSEM,       MTF_TYPE_EM,    0,  0 },
@@ -766,6 +867,24 @@ PrintMsg(
 *
 *
 \*****************************************************************************/
+PUBLIC INT FAR cdecl
+ITvwprintf(
+HWND  hwnd,
+LPSTR format,
+va_list marker
+)
+{
+    LPSTR p;
+    TCHAR szBuffer[512];
+    for( p = format; *p != '\0'; p++ ) {
+        if (*p == '\r')
+            *p = ' ';
+    }
+
+    wvsprintf(szBuffer, format, marker );
+    return SendMessage( hwnd, WM_VWPRINTF, (WPARAM)szBuffer, (LPARAM)0 );
+}
+
 
 PRIVATE VOID
 mprintf(
@@ -781,8 +900,7 @@ mprintf(
 
     if (gfOutputWin)
     {
-        vwprintf(ghwndPrintf, format, marker);
-        vwprintf(ghwndPrintf, "\n", marker);
+        ITvwprintf(ghwndPrintf, format, marker);
     }
 
 #if 0
@@ -790,22 +908,26 @@ mprintf(
     {
         iLen = wvsprintf(szTemp, format, marker);
         M_lwrite(INT2HFILE(FH_COM1), szTemp, iLen);
-        M_lwrite(INT2HFILE(FH_COM1), "\r\n", 2);
     }
 #endif //BUGBUG this doesn't work under NT.  The com device needs to be explicitly opened.
 
+#ifdef JAPAN    // DBCS_FIX
+    if (gfOutputCom1 && gfhCom1 != INVALID_HANDLE_VALUE)
+    {
+        DWORD   dwBytesWritten;
+
+        iLen = wvsprintf(szTemp, format, marker);
+        WriteFile(gfhCom1, szTemp, iLen, &dwBytesWritten, NULL);
+        WriteFile(gfhCom1, "\r\n", 2,    &dwBytesWritten, NULL);
+    }
+#endif
     if (gfOutputFile && gfhFile)
+
     {
         iLen = wvsprintf(szTemp, format, marker);
         _lwrite(gfhFile, szTemp, iLen);
-        _lwrite(gfhFile, "\r\n", 2);
 //BUGBUG        _lclose(DUPHFILE(gfhFile));    /* flush the file buffer */
     }
 
     va_end(marker);
 }
-
-
-
-
-

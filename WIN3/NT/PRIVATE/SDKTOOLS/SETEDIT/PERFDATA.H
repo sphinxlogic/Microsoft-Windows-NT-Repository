@@ -3,6 +3,16 @@
 
 #define AllocatePerfData()      (MemoryAllocate (STARTING_SYSINFO_SIZE))
 
+// Messages for the perf data collection thread
+#define WM_GET_PERF_DATA (WM_USER + 102)
+#define WM_FREE_SYSTEM   (WM_USER + 103)
+
+// State for perf data collection
+#define WAIT_FOR_PERF_DATA    0x0010
+#define PERF_DATA_READY       0x0011
+#define PERF_DATA_FAIL        0x0012
+#define IDLE_STATE            0x0013
+
 
 //==========================================================================//
 //                                   Macros                                 //
@@ -44,8 +54,11 @@ NextCounter(
    ((PERF_COUNTER_DEFINITION *) ((PCHAR)pCounterDef + pCounterDef->ByteLength))
 
 void
-GetInstanceName (PPERFINSTANCEDEF pInstance,
-                 LPTSTR lpszInstance) ;
+GetInstanceNameStr (PPERFINSTANCEDEF pInstance,
+                    LPTSTR lpszInstance);
+
+LPTSTR   
+GetInstanceName (PPERFINSTANCEDEF pInstance) ;
 
 void
 GetPerfComputerName(PPERFDATA pPerfData,
@@ -53,14 +66,17 @@ GetPerfComputerName(PPERFDATA pPerfData,
 
 PERF_INSTANCE_DEFINITION *GetInstanceByName(
     PERF_DATA_BLOCK *pDataBlock,
-    PERF_OBJECT_TYPE *pObjectDef,
+    PERF_OBJECT_TYPE UNALIGNED *pObjectDef,
     LPTSTR pInstanceName,
-    LPTSTR pParentName) ;
+    LPTSTR pParentName,
+    DWORD   dwIndex) ;
 
 
 PERF_INSTANCE_DEFINITION *GetInstanceByUniqueID(
-    PERF_OBJECT_TYPE *pObjectDef,
-    LONG UniqueID) ;
+    PERF_OBJECT_TYPE UNALIGNED *pObjectDef,
+    LONG UniqueID,
+    DWORD   dwIndex) ;
+
 
 
 HKEY OpenSystemPerfData (IN LPCTSTR lpszSystem) ;
@@ -100,9 +116,10 @@ BOOL UpdateSystemData (PPERFSYSTEM pSystem,
 
 BOOL UpdateLinesForSystem (LPTSTR lpszSystem, 
                            PPERFDATA pPerfData, 
-                           PLINE pLineFirst) ;
+                           PLINE pLineFirst,
+                           PPERFSYSTEM pSystem) ;
 
-void FailedLinesForSystem (LPTSTR lpszSystem, 
+BOOL FailedLinesForSystem (LPTSTR lpszSystem, 
                            PPERFDATA pPerfData, 
                            PLINE pLineFirst) ;
 
@@ -126,7 +143,7 @@ QueryPerformanceName(
 
 PERF_INSTANCE_DEFINITION *
 FirstInstance(
-    PERF_OBJECT_TYPE *pObjectDef) ;
+    PERF_OBJECT_TYPE UNALIGNED *pObjectDef) ;
 
 
 
@@ -137,7 +154,7 @@ NextInstance(
 
 
 int CounterIndex (PPERFCOUNTERDEF pCounterToFind,
-                  PPERFOBJECT pObject) ;
+                  PERF_OBJECT_TYPE UNALIGNED *pObject) ;
 
 
 DWORD GetSystemNames(PPERFSYSTEM pSysInfo) ;
@@ -154,10 +171,16 @@ PERF_OBJECT_TYPE *GetObjectDefByName(
     PERF_DATA_BLOCK *pDataBlock,
     LPTSTR pObjectName) ;
 
+DWORD GetObjectIdByName(
+    PPERFSYSTEM pSystem,
+    PERF_DATA_BLOCK *pDataBlock,
+    LPTSTR pObjectName) ;
 
 LPTSTR
 InstanceName(
 PERF_INSTANCE_DEFINITION *pInstDef) ;
 
-
-
+void PerfDataThread (PPERFSYSTEM pSystem) ;
+
+
+

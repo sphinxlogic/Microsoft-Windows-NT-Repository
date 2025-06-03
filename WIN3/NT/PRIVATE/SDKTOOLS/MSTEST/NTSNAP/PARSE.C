@@ -88,7 +88,7 @@ LPSTR lpCurPath,lpCurSpec;
                     GetCurrentDirectory (LEN_EDITBOX, lpCurPath);
                     FindClose (hFind);
 #else
-                    getcwd(lpCurPath, LEN_EDITBOX);
+                    _getcwd(lpCurPath, LEN_EDITBOX);
 #endif
                     return (VALID_FILESPEC);
                 }
@@ -133,7 +133,7 @@ LPSTR lpCurPath,lpCurSpec;
 #ifdef WIN32
                 GetCurrentDirectory (LEN_EDITBOX, lpCurPath);
 #else
-                getcwd (lpCurPath, LEN_EDITBOX);
+                _getcwd (lpCurPath, LEN_EDITBOX);
 #endif
                 return (INVALID_FILESPEC);
             }
@@ -150,7 +150,7 @@ LPSTR lpCurPath,lpCurSpec;
 #ifdef WIN32
                 GetCurrentDirectory (LEN_EDITBOX, lpCurPath);
 #else
-                getcwd(lpCurPath,LEN_EDITBOX);
+                _getcwd(lpCurPath,LEN_EDITBOX);
 #endif
                 return (VALID_FILENAME);
             }
@@ -169,7 +169,7 @@ LPSTR lpCurPath,lpCurSpec;
             if (c_file.attrib & _A_SUBDIR)
             {
                 DlgDirList(hDlg,EditStr,NULL,NULL,0x0000);
-                getcwd(lpCurPath,LEN_EDITBOX);
+                _getcwd(lpCurPath,LEN_EDITBOX);
                 return (VALID_FILESPEC);
             }
 #endif
@@ -208,7 +208,7 @@ LPSTR lpCurPath,lpCurSpec;
 #ifdef WIN32
                 GetCurrentDirectory (LEN_EDITBOX, lpCurPath);
 #else
-                getcwd(lpCurPath,LEN_EDITBOX);
+                _getcwd(lpCurPath,LEN_EDITBOX);
 #endif
                 return (EXIST_FILESPEC);
             }
@@ -230,7 +230,7 @@ LPSTR lpCurPath,lpCurSpec;
     if (strcmp(PathName,"\\") == 0)
     {
         DlgDirList(hDlg,PathName,0,0,0x0000);
-        getcwd(lpCurPath,LEN_EDITBOX);
+        _getcwd(lpCurPath,LEN_EDITBOX);
 	if (FileName[0] != 0)
 	    lstrcpy(lpCurSpec,FileName);
 	return (VALID_FILESPEC);
@@ -238,7 +238,7 @@ LPSTR lpCurPath,lpCurSpec;
 
     if ((PathName[0] == 0) && (FileName[0] != 0))
     {
-        getcwd(lpCurPath,LEN_EDITBOX);
+        _getcwd(lpCurPath,LEN_EDITBOX);
 	lstrcpy(lpCurSpec,FileName);
 	return (VALID_FILESPEC);
     }
@@ -265,7 +265,7 @@ LPSTR lpCurPath,lpCurSpec;
             GetCurrentDirectory (LEN_EDITBOX, lpCurPath);
             FindClose (hFind);
 #else
-            getcwd(lpCurPath, LEN_EDITBOX);
+            _getcwd(lpCurPath, LEN_EDITBOX);
 #endif
             if (FileName[0] != 0)
                 lstrcpy(lpCurSpec,FileName);
@@ -348,7 +348,7 @@ LPSTR lpPathSpec,lpCurSpec;
                            EM_SETSEL,
                            GET_EM_SETSEL_MPS (0, 0x7fff));
         SetFocus(GetDlgItem(hDlg, FLNAME));
-        getcwd(lpPathSpec,LEN_EDITBOX);
+        _getcwd(lpPathSpec,LEN_EDITBOX);
      }
 }
 

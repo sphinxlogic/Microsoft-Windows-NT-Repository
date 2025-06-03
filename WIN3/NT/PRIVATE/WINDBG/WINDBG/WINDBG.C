@@ -25,6 +25,11 @@ Environment:
 #pragma hdrstop
 
 
+#ifdef FE_IME
+#include <ime.h>
+#include <winnls32.h>
+#endif
+
 extern HWND GetLocalHWND(void);
 extern HWND GetFloatHWND(void);
 extern HWND GetWatchHWND(void);
@@ -165,12 +170,12 @@ Return Value:
 
     PostMessage((HWND) -1, RegisterWindowMessage("XXXYYY"), 0, 0);
 
-    try {
+    __try {
         //Enter main message loop
         while (GetMessage (&msg, NULL, 0, 0)) {
             ProcessQCQPMessage(&msg);
         }
-    } except(MainExceptionFilter(GetExceptionInformation())) {
+    } __except(MainExceptionFilter(GetExceptionInformation())) {
         DAssert(FALSE);
     }
 
@@ -296,7 +301,9 @@ MainWndProc(HWND  hwnd, UINT message, WPARAM wParam, LONG lParam)
 {
     NPVIEWREC v;
     static    UINT                menuID;
-
+#ifdef FE_IME
+    static  BOOL    bOldImeStatus;
+#endif
 
     switch (message) {
 
@@ -304,6 +311,10 @@ MainWndProc(HWND  hwnd, UINT message, WPARAM wParam, LONG lParam)
     {
         CLIENTCREATESTRUCT ccs;
         char class[MAX_MSG_TXT];
+
+#ifdef FE_IME
+        ImeInit();
+#endif
 
         //Find window menu where children will be listed
         ccs.hWindowMenu = GetSubMenu(GetMenu(hwnd), WINDOWMENU);
@@ -405,7 +416,7 @@ MainWndProc(HWND  hwnd, UINT message, WPARAM wParam, LONG lParam)
             DWORD dwFlags;
             char CurrentDirectory[ MAX_PATH ];
 
-            dwFlags = OFN_SHOWHELP ;
+            dwFlags = OFN_SHOWHELP | OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
             GetCurrentDirectory( sizeof( CurrentDirectory ), CurrentDirectory );
             if ( *DocFileDirectory ) {
                 SetCurrentDirectory( DocFileDirectory );
@@ -453,9 +464,10 @@ MainWndProc(HWND  hwnd, UINT message, WPARAM wParam, LONG lParam)
             int i;
             int curDoc = Views[curView].Doc; //curView may change during loop
             BOOL closeIt = TRUE;
-            struct stat fileStat;
+            struct _stat fileStat;
 
-            if (Docs[curDoc].docType == DOC_WIN && Docs[curDoc].ismodified) {
+            if (curDoc >= 0 &&
+                Docs[curDoc].docType == DOC_WIN && Docs[curDoc].ismodified) {
 
                 //Ask user whether to save / not save / cancel
                 switch (QuestionBox(SYS_Save_Changes_To,
@@ -466,7 +478,7 @@ MainWndProc(HWND  hwnd, UINT message, WPARAM wParam, LONG lParam)
                     //User wants file saved
                     if (SaveFile(curDoc)) {
                         //Reset file creation/load/save time
-                        stat(Docs[curDoc].FileName, &fileStat);
+                        _stat(Docs[curDoc].FileName, &fileStat);
                         Docs[curDoc].time = fileStat.st_mtime;
                         Docs[curDoc].ismodified = FALSE;
                     } else {
@@ -511,25 +523,25 @@ MainWndProc(HWND  hwnd, UINT message, WPARAM wParam, LONG lParam)
 
           case IDM_FILE_SAVE:
              {
-              struct stat fileStat;
+              struct _stat fileStat;
 
                SaveFile(Views[curView].Doc);
                //Reset file creation/load/save time
-               stat(Docs[Views[curView].Doc].FileName, &fileStat);
+               _stat(Docs[Views[curView].Doc].FileName, &fileStat);
                Docs[Views[curView].Doc].time = fileStat.st_mtime;
              }
              break;
 
           case IDM_FILE_SAVEAS:
              {
-              struct stat fileStat;
+              struct _stat fileStat;
 
                if (!CheckDocument(v->Doc)) {
                  ErrorBox(ERR_Modified_Document_Corrupted);
                }
                SaveAsFile(Views[curView].Doc);
                //Reset file creation/load/save time
-               stat(Docs[Views[curView].Doc].FileName, &fileStat);
+               _stat(Docs[Views[curView].Doc].FileName, &fileStat);
                Docs[Views[curView].Doc].time = fileStat.st_mtime;
              }
              break;
@@ -537,7 +549,7 @@ MainWndProc(HWND  hwnd, UINT message, WPARAM wParam, LONG lParam)
           case IDM_FILE_SAVEALL:
             {
             int d;
-            struct stat fileStat;
+            struct _stat fileStat;
 
             for (d = 0; d < MAX_DOCUMENTS; d++)
                {
@@ -548,14 +560,14 @@ MainWndProc(HWND  hwnd, UINT message, WPARAM wParam, LONG lParam)
                      {
                      SaveAsFile (d);
                      //Reset file creation/load/save time
-                     stat(Docs[d].FileName, &fileStat);
+                     _stat(Docs[d].FileName, &fileStat);
                      Docs[d].time = fileStat.st_mtime;
                      }
                   else if (Docs[d].ismodified)
                      {
                      SaveFile(d);
                      //Reset file creation/load/save time
-                     stat(Docs[d].FileName, &fileStat);
+                     _stat(Docs[d].FileName, &fileStat);
                      Docs[d].time = fileStat.st_mtime;
                      }
                   }
@@ -786,7 +798,9 @@ MainWndProc(HWND  hwnd, UINT message, WPARAM wParam, LONG lParam)
             return TRUE;
 
           case IDM_RUN_ATTACH:
-            StartDialog(DLG_TASKLIST, DlgTaskList);
+            if (OsVersionInfo.dwPlatformId == VER_PLATFORM_WIN32_NT) {
+                StartDialog(DLG_TASKLIST, DlgTaskList);
+            }
             return TRUE;
 
           case IDM_RUN_GO:
@@ -993,18 +1007,22 @@ MainWndProc(HWND  hwnd, UINT message, WPARAM wParam, LONG lParam)
 
           case IDM_WINDOW_TILE:
                 SendMessage(hwndMDIClient, WM_MDITILE, MDITILE_HORIZONTAL, 0L);
+                // It does not seem like the updating is necessary either.
                 if (DebuggeeActive()) {
-                    UpdateDebuggerState (UPDATE_MEMORY);
+                   UpdateDebuggerState (UPDATE_MEMORY);
                 }
-                InvalidateAllWindows();
+                // commented out the line below for ntbug #27745
+                // InvalidateAllWindows();
                 break;
 
           case IDM_WINDOW_CASCADE:
                 SendMessage(hwndMDIClient, WM_MDICASCADE, 0, 0L);
+                // It does not seem like the updating is necessary either.
                 if (DebuggeeActive()) {
                     UpdateDebuggerState (UPDATE_MEMORY);
                 }
-                InvalidateAllWindows();
+                // commented out the line below for ntbug #27745
+                // InvalidateAllWindows();
                 break;
 
           case IDM_WINDOW_ARRANGE_ICONS:
@@ -1261,7 +1279,7 @@ MainWndProc(HWND  hwnd, UINT message, WPARAM wParam, LONG lParam)
         Dbg(hDC = GetDC(hwndFrame));
         Dbg(SelectObject(hDC, font));
         GetTextFace(hDC, LF_FACESIZE, faceName);
-        if (strcmpi(faceName, (char FAR *) defaultFont.lfFaceName) != 0) {
+        if (_strcmpi(faceName, (char FAR *) defaultFont.lfFaceName) != 0) {
 
         TEXTMETRIC tm;
 
@@ -1295,7 +1313,7 @@ MainWndProc(HWND  hwnd, UINT message, WPARAM wParam, LONG lParam)
             //See if this font still exist
 
             for (j = 0; j < fontsNb; j++)
-              if (strcmpi((LPSTR) fonts[j].lfFaceName, (LPSTR) faceName) == 0)
+              if (_strcmpi((LPSTR) fonts[j].lfFaceName, (LPSTR) faceName) == 0)
               k++;
 
             //Substitute with default font if not found
@@ -1311,6 +1329,12 @@ MainWndProc(HWND  hwnd, UINT message, WPARAM wParam, LONG lParam)
         }
 
         }
+#ifdef FE_IME
+        // This is to let the edit window set new font
+        if (IsWindow(hwndActiveEdit)) {
+            SendMessage(hwndActiveEdit, message, wParam, lParam);
+        }
+#endif
         if (fontPb > 0)
         ErrorBox2(hwndFrame, MB_TASKMODAL, ERR_Lost_Font);
     }
@@ -1393,8 +1417,8 @@ MainWndProc(HWND  hwnd, UINT message, WPARAM wParam, LONG lParam)
 
         //Is it one of our dialog boxes
 
-        if (GetDlgItem((HANDLE) lParam, IDHELP)) {
-            Dbg(PostMessage((HANDLE) lParam, WM_COMMAND, IDHELP, 0L));
+        if (GetDlgItem((HANDLE) lParam, IDWINDBGHELP)) {
+            Dbg(PostMessage((HANDLE) lParam, WM_COMMAND, IDWINDBGHELP, 0L));
         } else {
 
             // The only dialog boxes having special help id
@@ -1436,9 +1460,35 @@ MainWndProc(HWND  hwnd, UINT message, WPARAM wParam, LONG lParam)
         }
 
       case WM_DESTROY:
+#ifdef FE_IME
+        ImeTerm();
+#endif
         PostQuitMessage(0);
         QuitTheSystem = TRUE;
         break;
+
+#ifdef FE_IME
+      case WM_SETFOCUS:
+        if (!hwndActive) {
+            ImeSendVkey(hwnd, VK_DBE_FLUSHSTRING);
+            bOldImeStatus = ImeWINNLSEnableIME(NULL, FALSE);
+        }
+        goto DefProcessing;
+
+      case WM_KILLFOCUS:
+        if (!hwndActive) {
+            ImeWINNLSEnableIME(NULL, bOldImeStatus);
+        }
+        goto DefProcessing;
+
+      case WM_MOVE:
+        // This is to let the edit window
+        // set a position of IME conversion window
+        if (hwndActive) {
+            SendMessage(hwndActive, WM_MOVE, 0, 0);
+        }
+        break;
+#endif
 
       case WM_SIZE:
     {
@@ -1494,6 +1544,13 @@ MainWndProc(HWND  hwnd, UINT message, WPARAM wParam, LONG lParam)
             TRUE);
 
         SendMessage (hwndMDIClient, WM_MDIICONARRANGE, 0, 0L);
+#ifdef FE_IME
+        // This is to let the edit window
+        // set a position of IME conversion window
+        if (hwndActive) {
+            SendMessage(hwndActive, WM_MOVE, 0, 0);
+        }
+#endif
     }
     ChangeDebuggerState();
     return TRUE;
@@ -1559,7 +1616,7 @@ MainWndProc(HWND  hwnd, UINT message, WPARAM wParam, LONG lParam)
 
             } else {
                 int k, fst;
-                struct stat fileStat;
+                struct _stat fileStat;
 
                 // Check the opened files to see if files has been changed
                 // by another App
@@ -1569,7 +1626,7 @@ MainWndProc(HWND  hwnd, UINT message, WPARAM wParam, LONG lParam)
                     if ((Docs[k].FirstView != -1) &&
                              (Docs[k].docType == DOC_WIN)) {
 
-                        if ((fst=stat(Docs[k].FileName, &fileStat)) == 0) {
+                        if ((fst=_stat(Docs[k].FileName, &fileStat)) == 0) {
 
                             //
                             // Compare our internal date and file's date,
@@ -1676,11 +1733,11 @@ MainWndProc(HWND  hwnd, UINT message, WPARAM wParam, LONG lParam)
                     editorIsCritical = FALSE;
                 }
             } else {
-                struct stat sfileStat;
+                struct _stat sfileStat;
 
                 //Set the opened doc file struct timewise
 
-                stat(docs->FileName, &sfileStat);
+                _stat(docs->FileName, &sfileStat);
                 docs->time = sfileStat.st_mtime;
             }
 
@@ -1769,6 +1826,9 @@ LONG FAR PASCAL EXPORT MDIChildWndProc(HWND hwnd, UINT message, WPARAM wParam, L
 
         SetWindowHandle(hwnd, GWW_EDIT, (WPARAM)hwndEdit);
         v->hwndClient = hwndEdit;
+#ifdef DBCS
+        v->bDBCSOverWrite = TRUE;
+#endif
 
         //Remember the window view
 
@@ -1794,6 +1854,9 @@ LONG FAR PASCAL EXPORT MDIChildWndProc(HWND hwnd, UINT message, WPARAM wParam, L
         v->aveCharWidth =tm.tmAveCharWidth;
         v->charSet = tm.tmCharSet;
         GetCharWidth(hDC, 0, MAX_CHARS_IN_FONT - 1, (LPINT)v->charWidth);
+#ifdef DBCS
+        GetDBCSCharWidth(hDC, &tm, v);
+#endif
         ReleaseDC(hwndEdit, hDC);
 
 
@@ -1958,9 +2021,10 @@ LONG FAR PASCAL EXPORT MDIChildWndProc(HWND hwnd, UINT message, WPARAM wParam, L
             int i;
             int curDoc = Views[curView].Doc; //curView may change during loop
             BOOL closeIt = TRUE;
-            struct stat fileStat;
+            struct _stat fileStat;
 
-            if (Docs[curDoc].docType == DOC_WIN && Docs[curDoc].ismodified) {
+            if (curDoc >= 0 &&
+                Docs[curDoc].docType == DOC_WIN && Docs[curDoc].ismodified) {
 
                 //Ask user whether to save / not save / cancel
                 switch (QuestionBox(SYS_Save_Changes_To,
@@ -1971,7 +2035,7 @@ LONG FAR PASCAL EXPORT MDIChildWndProc(HWND hwnd, UINT message, WPARAM wParam, L
                     //User wants file saved
                     if (SaveFile(curDoc)) {
                         //Reset file creation/load/save time
-                        stat(Docs[curDoc].FileName, &fileStat);
+                        _stat(Docs[curDoc].FileName, &fileStat);
                         Docs[curDoc].time = fileStat.st_mtime;
                         Docs[curDoc].ismodified = FALSE;
                     } else {
@@ -2039,6 +2103,14 @@ LONG FAR PASCAL EXPORT MDIChildWndProc(HWND hwnd, UINT message, WPARAM wParam, L
         if (!IsIconic(hwnd) && !IsZoomed(hwnd))
           GetWindowRect(hwnd, (LPRECT)&Views[view].rFrame);
         ChangeDebuggerState();
+#ifdef FE_IME
+        // This is to let the edit window
+        // set a position of IME conversion window
+        if (GetWindowHandle(hwnd, GWW_EDIT)) {
+            SendMessage(GetWindowHandle(hwnd, GWW_EDIT), WM_MOVE, 0, 0);
+        }
+        break;
+#endif
         goto CallDCP;
     }
 
@@ -2134,6 +2206,9 @@ ChildWndProc(
     )
 {
     PAINTSTRUCT ps;
+#ifdef FE_IME
+    static  BOOL    bOldImeStatus;
+#endif
 
 
     switch (message) {
@@ -2188,16 +2263,35 @@ ChildWndProc(
                 SetCaret(view, v->X, v->Y, -1);
                 ShowCaret(hwnd);
                 StatusLineColumn(v->Y + 1, v->X + 1);
+#ifdef FE_IME
+                d = &Docs[Views[view].Doc];
+
+                if (d->docType == DOC_WIN
+                ||  d->docType == MEMORY_WIN
+                ||  d->docType == COMMAND_WIN) {
+                    bOldImeStatus = ImeWINNLSEnableIME(NULL, TRUE);
+                    ImeSetFont(hwnd, v->font);
+                    if (!IsWindowVisible(hwnd)) {
+                        ImeMoveConvertWin(hwnd, -1, -1);
+                    }
+                } else {
+                    ImeSendVkey(hwnd, VK_DBE_FLUSHSTRING);
+                    bOldImeStatus = ImeWINNLSEnableIME(NULL, FALSE);
+                }
+#endif
 
                 if (Views[curView].Doc > -1) {
                     d = &Docs[Views[curView].Doc];
 
                     if (d->docType == MEMORY_WIN) {
-                        int memcurView = GetWindowWord(
-                                    (HWND)GetWindowHandle(hwnd, GWW_EDIT),
-                                    GWW_VIEW);
+                        int     memcurView, curDoc;
+                        HWND    hwndEdit = (HWND)GetWindowHandle(hwnd, GWW_EDIT);
+                        if (hwndEdit != NULL)
+                           memcurView = GetWindowWord(hwndEdit, GWW_VIEW);
+                        else
+                           memcurView = 0;
                         //memcurView may change during loop
-                        int curDoc = Views[memcurView].Doc;
+                        curDoc = Views[memcurView].Doc;
 
                         if (Docs[curDoc].docType == MEMORY_WIN) {
                             memView = memcurView;
@@ -2221,9 +2315,51 @@ ChildWndProc(
 
               SetWindowWord(hwnd, GWW_VIEW, (WORD)view);
               HideCaret(hwnd);
+#ifdef FE_IME
+              {
+                  NPDOCREC d;
+                  d = &Docs[Views[view].Doc];
+
+                  if (d->docType == DOC_WIN
+                  ||  d->docType == MEMORY_WIN
+                  ||  d->docType == COMMAND_WIN) {
+                      ImeSetFont(hwnd, NULL);
+                      ImeMoveConvertWin(hwnd, -1, -1);
+                  }
+                  ImeWINNLSEnableIME(NULL, bOldImeStatus);
+              }
+#endif
               DestroyCaret();
             }
             break;
+
+#ifdef FE_IME
+        case WM_MOVE:
+        case WM_SIZE:
+            if (GetFocus() == hwnd
+            &&  !emergency && !editorIsCritical) {
+                int view = GetWindowWord(hwnd, GWW_VIEW);
+                NPVIEWREC v = &Views[view];
+
+                // This is to set the position of IME conversion window
+                SetCaret(view, v->X, v->Y, -1);
+            }
+            return DefWindowProc(hwnd, message, wParam, lParam);
+            break;
+#endif
+
+#ifdef FE_IME
+        case WM_FONTCHANGE:
+            // This message is sent only from MainWndProc
+            // (not from system)
+            if (!emergency && !editorIsCritical) {
+                int view = GetWindowWord(hwnd, GWW_VIEW);
+                NPVIEWREC v = &Views[view];
+
+                ImeSetFont(hwnd, v->font);
+            }
+            break;
+#endif
 
       case WM_LBUTTONDBLCLK:
        {
@@ -2292,6 +2428,15 @@ ChildWndProc(
         }
         break;
 
+#ifdef FE_IME
+      case WM_IME_REPORT:
+        if (IR_STRING == wParam) {
+            return(ProccessIMEString(hwnd, lParam));
+        }
+        return DefWindowProc(hwnd, message, wParam, lParam);
+        break;
+#endif
+
       case WM_ERASEBKGND:
 
         //Let WM_PAINT do the job
@@ -2336,6 +2481,13 @@ ChildWndProc(
                            pos = y;
                           }
                     while (size && *p1) {
+#ifdef DBCS
+                        if (IsDBCSLeadByte(*p1) && size > 1) {
+                            size -= 2;
+                            p1 += 2;
+                            continue;
+                        } else
+#endif
                         if (*p1 == '\n') {
                             ++nLines;
                             cCol = 0;

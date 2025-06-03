@@ -441,6 +441,8 @@ VOID VLM_TapeChanged( INT16 msg, DBLK_PTR vcb, FSYS_HAND fsh )
               VLM_ClearCurrentTape( 0L, TRUE );
               VLM_AddFakeTape( current_status );
 
+              WM_ShowWaitCursor( FALSE ) ;
+
               WM_MsgBox( ID( IDS_VLMFOREIGNTITLE ),
                          ID( IDS_VLMFOREIGNTEXT ),
                          WMMB_IDOK,

@@ -8,22 +8,24 @@
 #define ICGRP	0x0040	/* Informational commands group */
 #define DILVL	0x0001	/* Directory level		*/
 
-#define FULLPATHSWITCH		1
-#define NEWFORMATSWITCH		2
-#define WIDEFORMATSWITCH	4
-#define PAGEDOUTPUTSWITCH	8
-#define RECURSESWITCH		16
-#define HELPSWITCH		32
-#define BAREFORMATSWITCH	64
-#define LOWERCASEFORMATSWITCH   128
-#define FATFORMAT               256
-#define SORTDOWNFORMATSWITCH    512
-#define SHORTFORMATSWITCH       1024
-#define PROMPTUSERSWITCH        2048
-#define FORCEDELSWITCH          4096
-#define QUITESWITCH             8192
-#define SORTSWITCH		16384
-#define THOUSANDSEPSWITCH       32768
+#define FULLPATHSWITCH          0x00000001
+#define NEWFORMATSWITCH         0x00000002
+#define WIDEFORMATSWITCH        0x00000004
+#define PAGEDOUTPUTSWITCH       0x00000008
+#define RECURSESWITCH           0x00000010
+#define HELPSWITCH              0x00000020
+#define BAREFORMATSWITCH        0x00000040
+#define LOWERCASEFORMATSWITCH   0x00000080
+#define FATFORMAT               0x00000100
+#define SORTDOWNFORMATSWITCH    0x00000200
+#define SHORTFORMATSWITCH       0x00000400
+#define PROMPTUSERSWITCH        0x00000800
+#define FORCEDELSWITCH          0x00001000
+#define QUITESWITCH             0x00002000
+#define SORTSWITCH              0x00004000
+#define THOUSANDSEPSWITCH       0x00008000
+#define DELPROCESSEARLY         0x00010000
+#define OLDFORMATSWITCH         0x00020000
 
 #define HIDDENATTRIB		1
 #define SYSTEMATTRIB		2
@@ -62,8 +64,8 @@
 #define ASCENDING	0
 #define ESUCCESS 0
 
-int CmpName( const void *, const void *);
-int CmpExt ( const void *, const void *);
-int CmpTime( const void *, const void *);
-int CmpSize( const void *, const void *);
-int CmpType( const void *, const void *);
+int _cdecl CmpName( const void *, const void *);
+int _cdecl CmpExt ( const void *, const void *);
+int _cdecl CmpTime( const void *, const void *);
+int _cdecl CmpSize( const void *, const void *);
+int _cdecl CmpType( const void *, const void *);

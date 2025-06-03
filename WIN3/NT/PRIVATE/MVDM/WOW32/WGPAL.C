@@ -56,7 +56,7 @@ ULONG FASTCALL WG32CreatePalette(PVDMFRAME pFrame)
 
     if( t1 ) {
         ul = GETHPALETTE16(CreatePalette(t1));
-        WOW32ASSERTWARN(ul, "CreatePalette");
+        WOW32APIWARN(ul, "CreatePalette");
         FREELOGPALETTE16(t1);
     }
 

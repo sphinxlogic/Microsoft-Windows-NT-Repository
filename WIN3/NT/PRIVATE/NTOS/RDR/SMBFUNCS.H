@@ -104,6 +104,7 @@ NTSTATUS
 RdrDeleteFile (
     IN PIRP Irp OPTIONAL,
     IN PUNICODE_STRING FileName,
+    IN BOOLEAN DfsFile,
     IN PCONNECTLISTENTRY Connection,
     IN PSECURITY_ENTRY Se
     );
@@ -114,6 +115,7 @@ RdrDoesFileExist (
     IN PUNICODE_STRING FileName,
     IN PCONNECTLISTENTRY Connection,
     IN PSECURITY_ENTRY Se,
+    IN BOOLEAN DfsFile,
     OUT PULONG FileAttributes,
     OUT PBOOLEAN FileIsDirectory,
     OUT PLARGE_INTEGER LastWriteTime
@@ -123,6 +125,7 @@ NTSTATUS
 RdrGenericPathSmb(
     IN  PIRP Irp,
     IN  UCHAR Command,
+    IN  BOOLEAN DfsFile,
     IN  PUNICODE_STRING RemotePathName,
     IN  PCONNECTLISTENTRY Connection,
     IN  PSECURITY_ENTRY Se
@@ -147,6 +150,21 @@ RdrQueryDiskAttributes (
     OUT PLARGE_INTEGER AvailableAllocationUnits,
     OUT PULONG SectorsPerAllocationUnit,
     OUT PULONG BytesPerSector
+    );
+
+NTSTATUS
+RdrQueryDiskQuota(
+    PIRP Irp,
+    PICB Icb,
+    PFILE_QUOTA_INFORMATION UsersBuffer,
+    PULONG BufferSize
+    );
+
+NTSTATUS
+RdrQueryDiskControl(
+    PIRP Irp,
+    PICB Icb,
+    PFILE_FS_CONTROL_INFORMATION UsersBuffer
     );
 
 NTSTATUS
@@ -176,7 +194,9 @@ RdrRenameFile (
     IN PIRP Irp OPTIONAL,
     IN PICB Icb,
     IN PUNICODE_STRING OriginalFileName,
-    IN PUNICODE_STRING NewFileName
+    IN PUNICODE_STRING NewFileName,
+    IN USHORT NtInformationLevel,
+    IN ULONG ClusterCount
     );
 
 NTSTATUS
@@ -191,6 +211,15 @@ RdrSetFileAttributes (
     IN PIRP Irp,
     IN PICB Icb,
     IN PFILE_BASIC_INFORMATION Attributes
+    );
+
+NTSTATUS
+RdrSetGeneric(
+    IN PIRP Irp,
+    IN PICB Icb,
+    USHORT NtInformationLevel,
+    ULONG cbBuffer,
+    IN VOID *pvBuffer
     );
 
 NTSTATUS

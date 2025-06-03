@@ -29,7 +29,7 @@ Revision History
 #include <windows.h>
 #include <string.h>
 #include <winperf.h>
-#include "p5ctrs.h" // error message definition
+#include "p5ctrmsg.h" // error message definition
 #include "p5ctrnam.h"
 #include "p5msg.h"
 #include "perfutil.h"
@@ -283,7 +283,7 @@ Return Value:
 
         // open shared memory used by device driver to pass performance values
 
-        NumberOfProcessors = InitPerfInfo();
+        NumberOfProcessors = (UCHAR)InitPerfInfo();
 
         // log error if unsuccessful
 
@@ -334,7 +334,7 @@ OpenExitPoint:
 
 
 
-UpdateInternalStats()
+void UpdateInternalStats()
 {
     IO_STATUS_BLOCK             IOSB;
 
@@ -350,7 +350,6 @@ UpdateInternalStats()
         NULL,                    // output buffer
         0
     );
-
 
 }
 
@@ -534,10 +533,10 @@ Return Value:
                                    CurProc,
                                    &ProcessorName);
 
-        TotalLen += (PBYTE) pPerfCounterBlock -
+/*        TotalLen += (PBYTE) pPerfCounterBlock -
                     (PBYTE) pPerfInstanceDefinition +
                     SIZE_OF_P5_PERFORMANCE_DATA;
-
+*/
         pPerfCounterBlock->ByteLength = SIZE_OF_P5_PERFORMANCE_DATA;
 
         pliCounters = (PLARGE_INTEGER) (&pPerfCounterBlock[1]);
@@ -548,11 +547,16 @@ Return Value:
                0,
                SIZE_OF_P5_PERFORMANCE_DATA - sizeof(PERF_COUNTER_BLOCK));
 
+        // get the index of the two counters returned by the p5 driver
+
         cReg0 = pP5Stats->CESR & 0x3f;
         cReg1 = (pP5Stats->CESR >> 16) & 0x3f;
 
-        pliCounters[cReg0] = pP5Stats->P5Counters[0];
-        pliCounters[cReg1] = pP5Stats->P5Counters[1];
+        // load the 64bit values in the appropriate counter fields
+        // all other values will remain zeroed
+
+        pliCounters[cReg0].QuadPart = pP5Stats->P5Counters[0].QuadPart;
+        pliCounters[cReg1].QuadPart = pP5Stats->P5Counters[1].QuadPart;
 
         // Derived counters which end up as percentages use only the DWORD
         // values: hopefully these do not wrap twice between recorded/displayed
@@ -614,14 +618,24 @@ Return Value:
         UpdateDerivedCounters(INSTRUCTIONS_EXECUTED_IN_VPIPE,
                               INSTRUCTIONS_EXECUTED,
                               PCT_VPIPE_INST_OFFSET)
+
+	    // update pointers for next instance
+
+	    pPerfInstanceDefinition = (PERF_INSTANCE_DEFINITION *)
+                                   ((PBYTE) pPerfCounterBlock +
+                                    SIZE_OF_P5_PERFORMANCE_DATA);
+
     }
     // update arguments for return
 
-    *lpcbTotalBytes = TotalLen;
+    *lpcbTotalBytes = (DWORD)((PBYTE)pPerfInstanceDefinition -
+            (PBYTE)pP5DataDefinition);
 
-    *lppData = ((PBYTE) pP5DataDefinition) + TotalLen;
+    pP5DataDefinition->P5PerfObject.TotalByteLength = *lpcbTotalBytes;
 
-    *lpNumObjectTypes = 1;
+    *lppData = (PBYTE) pPerfInstanceDefinition;
+
+    *lpNumObjectTypes = P5_NUM_PERF_OBJECT_TYPES;
 
     return ERROR_SUCCESS;
 }
@@ -659,3 +673,4 @@ Return Value:
     return ERROR_SUCCESS;
 
 }
+

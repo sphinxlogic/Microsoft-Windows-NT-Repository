@@ -43,8 +43,6 @@ Routine Description:
     This function allocates an I/O error log record, fills it in and writes it
     to the I/O error log.
 
-    BUGBUG: IoErrorCode is not needed any more!
-
 Arguments:
 
 
@@ -71,6 +69,8 @@ Return Value:
     }
 #endif
     DISCARDABLE_CODE(RdrVCDiscardableSection);
+
+    IoErrorCode;
 
     if ( ARGUMENT_PRESENT( Sle ) ) {
         //  Include NULL in length
@@ -142,7 +142,7 @@ Return Value:
             Length = MIN(ExtraInformationLength, (USHORT)RawDataLength);
             RtlCopyMemory(
                 DumpData,
-                ExtraInformationBuffer,
+                (PVOID)ExtraInformationBuffer,
                 Length);
             ErrorLogEntry->DumpDataSize = Length;
         } else {

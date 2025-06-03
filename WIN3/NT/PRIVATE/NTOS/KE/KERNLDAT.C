@@ -21,6 +21,67 @@ Revision History:
 #include "ki.h"
 
 //
+// The following data is read/write data that is grouped together for
+// performance. The layout of this data is important and must not be
+// changed.
+//
+// KiDispatcherReadyListHead - This is an array of type list entry. The
+//      elements of the array are indexed by priority. Each element is a list
+//      head for a set of threads that are in a ready state for the respective
+//      priority. This array is used by the find next thread code to speed up
+//      search for a ready thread when a thread becomes unrunnable. See also
+//      KiReadySummary.
+//
+
+LIST_ENTRY KiDispatcherReadyListHead[MAXIMUM_PRIORITY];
+
+//
+// KiIdleSummary - This is the set of processors that are idle. It is used by
+//      the ready thread code to speed up the search for a thread to preempt
+//      when a thread becomes runnable.
+//
+
+KAFFINITY KiIdleSummary = 0;
+
+//
+// KiReadySummary - This is the set of dispatcher ready queues that are not
+//      empty. A member is set in this set for each priority that has one or
+//      more entries in its respective dispatcher ready queues.
+//
+
+ULONG KiReadySummary = 0;
+
+//
+// KiTimerTableListHead - This is a array of list heads that anchor the
+//      individual timer lists.
+//
+
+LIST_ENTRY KiTimerTableListHead[TIMER_TABLE_SIZE];
+
+//
+// KiSwapContextNotifyRoutine - This is the address of a callout routine
+//      which is called at each context switch if the address is not NULL.
+//
+
+PSWAP_CONTEXT_NOTIFY_ROUTINE KiSwapContextNotifyRoutine;
+
+//
+// KiThreadSelectNotifyRoutine - This is the address of a callout routine
+//      which is called when a thread is being selected for execution if
+//      the address is not NULL.
+//
+
+PTHREAD_SELECT_NOTIFY_ROUTINE KiThreadSelectNotifyRoutine;
+
+//
+// KiTimeUpdateNotifyRoutine - This is the address of a callout routine
+//      which is called when the runtime for a thread is updated if the
+//      address is not NULL.
+//
+
+PTIME_UPDATE_NOTIFY_ROUTINE KiTimeUpdateNotifyRoutine;
+
+//
 // Public kernel data declaration and allocation.
 //
 // KeActiveProcessors - This is the set of processors that active in the
@@ -64,18 +125,18 @@ ULONG KeDcacheFlushCount = 0;
 ULONG KeIcacheFlushCount = 0;
 
 //
+// KeGdiFlushUserBatch - This is the address of the GDI user batch flush
+//      routine which is initialized when the win32k subsystem is loaded.
+//
+
+PGDI_BATCHFLUSH_ROUTINE KeGdiFlushUserBatch;
+
+//
 // KeLoaderBlock - This is a pointer to the loader parameter block which is
 //      constructed by the OS Loader.
 //
 
 PLOADER_PARAMETER_BLOCK KeLoaderBlock = NULL;
-
-//
-// KeMaximumIncrement - This is the maximum time between clock interrupts
-//      in 100ns units that is supported by the host HAL.
-//
-
-ULONG KeMaximumIncrement;
 
 //
 // KeMinimumIncrement - This is the minimum time between clock interrupts
@@ -125,35 +186,52 @@ ULONG KeNumberTbEntries;
 #if DBG
 
 ULONG KeRegisteredProcessors = 4;
+ULONG KeLicensedProcessors;
 
 #else
 
 ULONG KeRegisteredProcessors = 2;
+ULONG KeLicensedProcessors;
 
 #endif
 
 #endif
 
 //
-// KeProcessorType - This is the type of the processors in the configuration.
-//      The possible types are: INTEL 80x86, MIPS RC3000, MIPS RC4000
+// KeProcessorArchitecture - Architecture of all processors present in system.
+//      See PROCESSOR_ARCHITECTURE_ defines in ntexapi.h
 //
 
-USHORT KeProcessorType = 0;
+USHORT KeProcessorArchitecture = PROCESSOR_ARCHITECTURE_UNKNOWN;
+
+//
+// KeProcessorLevel - Architectural specific processor level of all processors
+//      present in system.
+
+USHORT KeProcessorLevel = 0;
+
+//
+// KeProcessorRevision - Architectural specific processor revision number that is
+//      the least common denominator of all processors present in system.
+//
+
+USHORT KeProcessorRevision = 0;
 
 //
 // KeFeatureBits - Architectural specific processor features present
 // on all processors.
 //
 
-ULONG  KeFeatureBits = 0;
+ULONG KeFeatureBits = 0;
 
 //
-// KeServiceCountTable - This is a pointer to an array of system service call
-//      counts. The array is dynamically allocated at system initialization.
+// KeServiceDescriptorTable - This is a table of descriptors for system
+//      service providers. Each entry in the table describes the base
+//      address of the dispatch table and the number of services provided.
 //
 
-PULONG KeServiceCountTable;
+KSERVICE_TABLE_DESCRIPTOR KeServiceDescriptorTable[NUMBER_SERVICE_TABLES];
+KSERVICE_TABLE_DESCRIPTOR KeServiceDescriptorTableShadow[NUMBER_SERVICE_TABLES];
 
 //
 // KeThreadSwitchCounters - These counters record the number of times a
@@ -162,24 +240,6 @@ PULONG KeServiceCountTable;
 //
 
 KTHREAD_SWITCH_COUNTERS KeThreadSwitchCounters;
-
-//
-// KeTickCount - This is the number of clock ticks that have occurred since
-//      the system was booted. This count is used to compute a millisecond
-//      tick counter.
-//
-
-volatile KSYSTEM_TIME KeTickCount;
-
-//
-// KeTimeAdjustment - This is the actual number of 100ns units that are to
-//      be added to the system time at each interval timer interupt. This
-//      value is copied from KeTimeIncrement at system start up and can be
-//      later modified via the set system information service.
-//      timer table entries.
-//
-
-ULONG KeTimeAdjustment;
 
 //
 // KeTimeIncrement - This is the nominal number of 100ns units that are to
@@ -204,9 +264,15 @@ BOOLEAN KeTimeSynchronization = TRUE;
 //      of the system.
 //
 
-#if defined(_MIPS_) || defined(_ALPHA_) || defined(_PPC_)
-
 ULONG KeUserApcDispatcher;
+
+//
+// KeUserCallbackDispatcher - This is the address of the user mode callback
+//      dispatch code. This address is looked up in NTDLL.DLL during
+//      initialization of the system.
+//
+
+ULONG KeUserCallbackDispatcher;
 
 //
 // KeUserExceptionDispatcher - This is the address of the user mode exception
@@ -216,56 +282,32 @@ ULONG KeUserApcDispatcher;
 
 ULONG KeUserExceptionDispatcher;
 
-#endif
-
 //
-// KeWaitReason - This is an array of counters that records the number of
-//      threads that are waiting for each of the respective reasons.
+// KeRaiseUserExceptionDispatcher - This is the address of the raise user
+//      mode exception dispatch code. This address is looked up in NTDLL.DLL
+//      during system initialization.
 //
 
-ULONG KeWaitReason[MaximumWaitReason];
+ULONG KeRaiseUserExceptionDispatcher;
 
 //
 // Private kernel data declaration and allocation.
-//
-// KiActiveMatrix - This is an array of type affinity. The elements of the
-//      array are indexed by priority. Each element is a set of processors
-//      that are executing or about to execute a thread at that priority.
-//      If the host configuration contains multiple processors, then this
-//      matrix is kept up to date as threads are selected for execution on
-//      processors. It is used by the ready thread code to speed up the
-//      the search for a thread that can be preempted. See also KiActiveSummary.
-//
-
-KAFFINITY KiActiveMatrix[MAXIMUM_PRIORITY];
-
-//
-// KiActiveSummary - This is the set of priorities that have a nonzero processor
-//      set in the active matrix. It the host configuration contains multiple
-//      processors, then this set is kept up to date as threads are selected
-//      for execution on processors. It is used by the ready thread code to
-//      speed up the search for a thread that can be preempted. See also
-//      KiActiveMatrix.
-//
-
-ULONG KiActiveSummary = 0;
-
 //
 // KiBugCodeMessages - Address of where the BugCode messages can be found.
 //
 
 #if DEVL
 
-PMESSAGE_RESOURCE_DATA  KiBugCodeMessages = NULL;
+PMESSAGE_RESOURCE_DATA KiBugCodeMessages = NULL;
 
 #endif
 
 //
-// KiCurrentTimerCount - This is the current number of timers that are active
-//      in the timer tree.
+// KiDmaIoCoherency - This determines whether the host platform supports
+//      coherent DMA I/O.
 //
 
-ULONG KiCurrentTimerCount = 0;
+ULONG KiDmaIoCoherency;
 
 //
 // KiMaximumSearchCount - this is the maximum number of timers entries that
@@ -273,13 +315,6 @@ ULONG KiCurrentTimerCount = 0;
 //
 
 ULONG KiMaximumSearchCount = 0;
-
-//
-// KiMaximumTimerCount - This is the maximum number of timers that have been
-//      inserted in the timer tree at one time.
-//
-
-ULONG KiMaximumTimerCount = 0;
 
 //
 // KiDebugRoutine - This is the address of the kernel debugger. Initially
@@ -297,27 +332,6 @@ PKDEBUG_ROUTINE KiDebugRoutine;
 //
 
 PKDEBUG_SWITCH_ROUTINE KiDebugSwitchRoutine;
-
-//
-// KiDecrementCount - This is the number of times that an attempted boost
-//      can occcur between a client and server before the equivalent of a
-//      quantum end is forced. This prevents a client/server interaction
-//      that takes less than a clock tick to continue at a high priority
-//      indefinitely.
-//
-
-SCHAR KiDecrementCount = 8;
-
-//
-// KiDispatcherReadyListHead - This is an array of type list entry. The
-//      elements of the array are indexed by priority. Each element is a list
-//      head for a set of threads that are in a ready state for the respective
-//      priority. This array is used by the find next thread code to speed up
-//      search for a ready thread when a thread becomes unrunnable. See also
-//      KiReadySummary.
-//
-
-LIST_ENTRY KiDispatcherReadyListHead[MAXIMUM_PRIORITY];
 
 //
 // KiDispatcherLock - This is the spin lock that guards the dispatcher
@@ -383,14 +397,19 @@ extern KSPIN_LOCK KiFreezeLockBackup;
 
 ULONG KiFreezeFlag;
 
-
 //
-// KiIdleSummary - This is the set of processors that are idle. It is used by
-//      the ready thread code to speed up the search for a thread to preempt
-//      when a thread becomes runnable.
+// KiSuspenState - Flag to track suspend/resume state of processors
 //
 
-KAFFINITY KiIdleSummary = 0;
+volatile ULONG KiSuspendState;
+
+//
+// KiFindLeftNibbleBitTable - This a table that is used to find the left most bit in
+//      a 4-bit nibble.
+//
+
+UCHAR KiFindLeftNibbleBitTable[] = {0, 0, 1, 1, 2, 2, 2, 2,
+                                    3, 3, 3, 3, 3, 3, 3, 3};
 
 //
 // KiProcessorBlock - This is an array of pointers to processor control blocks.
@@ -434,12 +453,32 @@ LIST_ENTRY KiProcessOutSwapListHead;
 LIST_ENTRY KiStackInSwapListHead;
 
 //
-// KiProfileCount - The number of profile objects that are currently
-//      active. This count is incremented when a profile object is
-//      started and decremented when a profile object is stopped.
+// KiProfileSourceListHead - The list of profile sources that are currently
+//      active.
 //
 
-ULONG KiProfileCount = 0;
+LIST_ENTRY KiProfileSourceListHead;
+
+//
+// KiProfileAlignmentFixup - Indicates whether alignment fixup profiling
+//      is active.
+//
+
+BOOLEAN KiProfileAlignmentFixup;
+
+//
+// KiProfileAlignmentFixupInterval - Indicates the current alignment fixup
+//      profiling interval.
+//
+
+ULONG KiProfileAlignmentFixupInterval;
+
+//
+// KiProfileAlignmentFixupCount - Indicates the current alignment fixup
+//      count.
+//
+
+ULONG KiProfileAlignmentFixupCount;
 
 //
 // KiProfileInterval - The profile interval in 100ns units.
@@ -458,21 +497,6 @@ LIST_ENTRY KiProfileListHead;
 //
 
 extern KSPIN_LOCK KiProfileLock;
-
-//
-// KiReadySummary - This is the set of dispatcher ready queues that are not
-//      empty. A member is set in this set for each priority that has one or
-//      more entries in its respective dispatcher ready queues.
-//
-
-ULONG KiReadySummary = 0;
-
-//
-// KiTickOffset - This is the number of 100ns units remaining before a tick
-//      is added to the tick count and the system time is updated.
-//
-
-ULONG KiTickOffset;
 
 //
 // KiTimerExpireDpc - This is the Deferred Procedure Call (DPC) object that
@@ -497,13 +521,6 @@ LARGE_INTEGER KiTimeIncrementReciprocal;
 CCHAR KiTimeIncrementShiftCount;
 
 //
-// KiTimerTableListHead - This is a array of list heads that anchor the
-//      individual timer lists.
-//
-
-LIST_ENTRY KiTimerTableListHead[TIMER_TABLE_SIZE];
-
-//
 // KiWaitInListHead - This is a list of threads that are waiting with a
 //      resident kernel stack.
 //
@@ -521,27 +538,6 @@ LIST_ENTRY KiWaitOutListHead;
 //
 // Private kernel data declaration and allocation.
 //
-// KiThreadQuantum - This is the number of clock ticks until quantum end.
-//      When quantum end occurs, a respective thread's quantum is set to
-//      this value.
-//
-
-ULONG KiThreadQuantum = THREAD_QUANTUM;
-
-//
-// KiClockQuantumDecrement - This is the thread quantum decrement value
-//      that is applied when a clock tick occurs while a thread is running.
-//
-
-UCHAR KiClockQuantumDecrement = CLOCK_QUANTUM_DECREMENT;
-
-//
-// KiWaitQuantumDecrement - This is the thread quantum decrement value
-//      that is applied when a thread executes a wait operation.
-//
-
-ULONG KiWaitQuantumDecrement = WAIT_QUANTUM_DECREMENT;
-
 //
 // KiIpiCounts - Instrumentation counters for IPI requests.
 //      Each processor has it's own set.  Intstrumentation build only.
@@ -554,33 +550,11 @@ KIPI_COUNTS KiIpiCounts[MAXIMUM_PROCESSORS];
 #endif  // NT_INST
 
 //
-// KiIpiPacket - Paramters for target processors are sent through this
-//      structure.  (KiIpiSendPacket)
-//
-
-#if !defined(_MIPS_)
-
-KIPI_PACKET KiIpiPacket;
-
-#endif
-
-//
-// KiIpiStallFlags - Used with KiIpiPacket.  Target processors signal the
-//  requesting processor by setting their corresponding flag.
-//
-
-#if !defined(_MIPS_)
-
-volatile BOOLEAN KiIpiStallFlags[MAXIMUM_PROCESSORS];
-
-#endif
-
-//
 // KiMasterPid - This is the master PID that is used to assign PID's to
 //      processes.
 //
 
-#if defined(_MIPS_) || defined(_ALPHA_) || defined(_PPC_)
+#if defined(_PPC_)
 
 ULONG KiMasterPid;
 
@@ -599,11 +573,15 @@ ULONG KiMasterSequence = 1;
 
 KSPIN_LOCK KiProcessIdWrapLock = 0;
 
+#endif
+
 //
 // KxUnexpectedInterrupt - This is the interrupt object that is used to
 //      populate the interrupt vector table for interrupt that are not
 //      connected to any interrupt.
 //
+
+#if defined(_MIPS_) || defined(_ALPHA_) || defined(_PPC_)
 
 KINTERRUPT KxUnexpectedInterrupt;
 

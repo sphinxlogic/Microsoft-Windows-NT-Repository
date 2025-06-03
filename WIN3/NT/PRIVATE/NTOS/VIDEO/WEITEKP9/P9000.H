@@ -19,35 +19,26 @@ Revision History may be found at the end of this file.
 --*/
 
 //
-// Define P9000 register/frame buffer offsets from the base address.
-// base address.
-//
-
-#define COPROC_OFFSET   0x00100000
-#define COPROC_LEN      0x00100000
-#define FRAME_OFFSET    COPROC_OFFSET + COPROC_LEN
-
-//
 // Offsets of the P9000 registers from the base memory address.
 //
 
-#define  SYSCONFIG    0x4				// W8720 system configuration register
-#define  SRCTL	      0x0138L			// Screen repaint timing register
-#define  MEMCONF      0x0184L			// Memory configuration regester
-#define  WMIN	      0x80220			// Clipping window minimum register
-#define  WMAX	      0x80224			// Clipping window maximum register
-#define  FOREGROUND   0x80200			// Foreground color register
-#define  METACORD     0x81218			// Meta-coordinate loading register
-#define  RASTER       0x80218			// Raster Op register
+#define  SYSCONFIG    0x4               // W8720 system configuration register
+#define  SRCTL        0x0138L           // Screen repaint timing register
+#define  MEMCONF      0x0184L           // Memory configuration regester
+#define  WMIN         0x80220           // Clipping window minimum register
+#define  WMAX         0x80224           // Clipping window maximum register
+#define  FOREGROUND   0x80200           // Foreground color register
+#define  METACORD     0x81218           // Meta-coordinate loading register
+#define  RASTER       0x80218           // Raster Op register
 #define  VRTC         0x011CL           // Vertical scan counter
 
 //
 // Defines for P9000 specific drawing operations.
 //
 
-#define  REC	      0x100				// Or with METACORD when entering rectangles
-#define  QUAD	      0x80008			// Draw a quadrilateral
-#define  FORE	      0xFF00			// Foreground color only write mode
+#define  REC          0x100             // Or with METACORD when entering rectangles
+#define  QUAD         0x80008           // Draw a quadrilateral
+#define  FORE         0xFF00            // Foreground color only write mode
 
 //
 // Enumerate the various P9000 memory configuration values.
@@ -75,12 +66,6 @@ typedef enum
 #define QSF_SELECT      0x0007L
 
 //
-// Size of the P9000 address space.
-//
-
-#define P9000_ADDR_SPACE    0x00400000
-
-//
 // Masks for P9000 registers.
 //
 
@@ -90,20 +75,14 @@ typedef enum
 // Macro used to wait for P9000 vertical retrace.
 //
 
-#define WAIT_FOR_RETRACE() \
-    ulStrtScan = P9_RD_REG(VRTC); \
-    while ((ulCurScan = P9_RD_REG(VRTC)) >= ulStrtScan) \
-    { \
-        ulStrtScan = ulCurScan; \
+
+#if 0
+#define WAIT_FOR_RETRACE()                                  \
+    ulStrtScan = P9_RD_REG(P91_VRTC);                       \
+    while ((ulCurScan = P9_RD_REG(P91_VRTC)) >= ulStrtScan) \
+    {                                                       \
+        ulStrtScan = ulCurScan;                             \
     }
+#endif
 
-/*++
-
-Revision History:
-
-    $Log:   N:/ntdrv.vcs/miniport.new/p9000.h_v  $
- *
- *    Rev 1.0   14 Jan 1994 22:42:16   robk
- * Initial revision.
-
---*/
+#define WAIT_FOR_RETRACE() /* The above loses sync on p9100... */

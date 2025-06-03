@@ -23,6 +23,13 @@ Revision History:
 #include <stdlib.h>   // rand
 
 //
+// The number of bytes in the ipx host address, not
+// including the socket.
+//
+
+#define IPX_HOST_ADDR_LEN 10
+
+//
 //  The debug trace level
 //
 
@@ -42,14 +49,6 @@ ExtractPathAndFileName(
     OUT PUNICODE_STRING FileName
     );
 
-BOOLEAN
-NwFindScb(
-    OUT PSCB *ppScb,
-    IN PIRP_CONTEXT pIrpContext,
-    IN PUNICODE_STRING UidServerName,
-    IN PUNICODE_STRING ServerName
-    );
-
 NTSTATUS
 DoBinderyLogon(
     IN PIRP_CONTEXT pIrpContext,
@@ -59,16 +58,17 @@ DoBinderyLogon(
 
 NTSTATUS
 ConnectToServer(
-    IN PIRP_CONTEXT pIrpContext
+    IN PIRP_CONTEXT pIrpContext,
+    OUT PSCB *pScbCollision
     );
 
-NTSTATUS
-FspProcessFindNearest(
+BOOLEAN
+ProcessFindNearestEntry(
     PIRP_CONTEXT IrpContext,
     PSAP_FIND_NEAREST_RESPONSE FindNearestResponse
     );
 
-VOID
+NTSTATUS
 GetMaxPacketSize(
     PIRP_CONTEXT pIrpContext,
     PNONPAGED_SCB pNpScb
@@ -81,14 +81,21 @@ FindServer(
     PUNICODE_STRING ServerName
     );
 
+NTSTATUS
+NwAllocateAndInitScb(
+    IN PIRP_CONTEXT pIrpContext,
+    IN PUNICODE_STRING UidServerName OPTIONAL,
+    IN PUNICODE_STRING ServerName OPTIONAL,
+    OUT PSCB *ppScb
+);
+
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text( PAGE, ExtractNextComponentName )
 #pragma alloc_text( PAGE, ExtractPathAndFileName )
 #pragma alloc_text( PAGE, CrackPath )
 #pragma alloc_text( PAGE, CreateScb )
 #pragma alloc_text( PAGE, FindServer )
-#pragma alloc_text( PAGE, FspProcessFindNearest )
-#pragma alloc_text( PAGE, ConnectToServer )
+#pragma alloc_text( PAGE, ProcessFindNearestEntry )
 #pragma alloc_text( PAGE, NegotiateBurstMode )
 #pragma alloc_text( PAGE, GetMaxPacketSize )
 #pragma alloc_text( PAGE, NwDeleteScb )
@@ -106,6 +113,7 @@ FindServer(
 #pragma alloc_text( PAGE1, DestroyAllScb )
 #pragma alloc_text( PAGE1, SelectConnection )
 #pragma alloc_text( PAGE1, NwFindScb )
+#pragma alloc_text( PAGE1, ConnectToServer )
 #endif
 
 #endif
@@ -380,7 +388,7 @@ Return Value:
     BaseCopy.MaximumLength -= ServerName->MaximumLength + sizeof(WCHAR);
 
     if ((ServerName->Length == sizeof(L"X:") - sizeof(WCHAR) ) &&
-        (ServerName->Buffer[(ServerName->Length / sizeof(WCHAR)) - 1] == L':')) 
+        (ServerName->Buffer[(ServerName->Length / sizeof(WCHAR)) - 1] == L':'))
     {
 
         //
@@ -405,8 +413,8 @@ Return Value:
         }
     }
     else if ( ( ServerName->Length == sizeof(L"LPTx") - sizeof(WCHAR) ) &&
-         ( wcsnicmp( ServerName->Buffer, L"LPT", 3 ) == 0) &&
-         ( ServerName->Buffer[3] >= '0' && ServerName->Buffer[3] <= '9' ) ) 
+         ( _wcsnicmp( ServerName->Buffer, L"LPT", 3 ) == 0) &&
+         ( ServerName->Buffer[3] >= '0' && ServerName->Buffer[3] <= '9' ) )
     {
 
         //
@@ -517,152 +525,529 @@ Return Value:
     return( Status );
 }
 
-
 NTSTATUS
-CreateScb(
+GetServerByAddress(
+    IN PIRP_CONTEXT pIrpContext,
+    OUT PSCB *Scb,
+    IN IPXaddress *pServerAddress
+)
+/*+++
+
+Description:
+
+    This routine looks up a server by address.  If it finds a server that
+    has been connected, it returns it referenced.  Otherwise, it returns no
+    server.
+
+---*/
+{
+
+    NTSTATUS Status;
+    PLIST_ENTRY ScbQueueEntry;
+    KIRQL OldIrql;
+    PNONPAGED_SCB pFirstNpScb, pNextNpScb;
+    PNONPAGED_SCB pFoundNpScb = NULL;
+    UNICODE_STRING CredentialName;
+
+    //
+    // Start at the head of the SCB list.
+    //
+
+    KeAcquireSpinLock( &ScbSpinLock, &OldIrql );
+
+    if ( ScbQueue.Flink == &ScbQueue ) {
+        KeReleaseSpinLock( &ScbSpinLock, OldIrql);
+        return STATUS_UNSUCCESSFUL;
+    }
+
+    ScbQueueEntry = ScbQueue.Flink;
+    pFirstNpScb = CONTAINING_RECORD( ScbQueueEntry,
+                                     NONPAGED_SCB,
+                                     ScbLinks );
+    pNextNpScb = pFirstNpScb;
+
+    //
+    // Leave the first SCB referenced since we need it to
+    // be there for when we walk all the way around the list.
+    //
+
+    NwReferenceScb( pFirstNpScb );
+    NwReferenceScb( pNextNpScb );
+
+    KeReleaseSpinLock( &ScbSpinLock, OldIrql);
+
+    while ( TRUE ) {
+
+        //
+        // Check to see if the SCB address matches the address we have
+        // and if the user uid matches the uid for this request.  Skip
+        // matches that are abandoned anonymous creates.
+        //
+
+        if ( pNextNpScb->pScb ) {
+
+            if ( ( RtlCompareMemory( (BYTE *) pServerAddress,
+                                   (BYTE *) &pNextNpScb->ServerAddress,
+                                   IPX_HOST_ADDR_LEN ) == IPX_HOST_ADDR_LEN ) &&
+                 ( pIrpContext->Specific.Create.UserUid.QuadPart ==
+                       pNextNpScb->pScb->UserUid.QuadPart ) &&
+                 ( pNextNpScb->State != SCB_STATE_FLAG_SHUTDOWN ) ) {
+
+                if ( pIrpContext->Specific.Create.fExCredentialCreate ) {
+
+                    //
+                    // On a credential create, the credential supplied has
+                    // to match the extended credential for the server.
+                    //
+
+                    Status = GetCredentialFromServerName( &pNextNpScb->ServerName,
+                                                          &CredentialName );
+                    if ( !NT_SUCCESS( Status ) ) {
+                        goto ContinueLoop;
+                    }
+
+                    if ( RtlCompareUnicodeString( &CredentialName,
+                                                  pIrpContext->Specific.Create.puCredentialName,
+                                                  TRUE ) ) {
+                        goto ContinueLoop;
+                    }
+
+                }
+
+                pFoundNpScb = pNextNpScb;
+                DebugTrace( 0, Dbg, "GetServerByAddress: %wZ\n", &pFoundNpScb->ServerName );
+                break;
+
+            }
+        }
+
+ContinueLoop:
+
+        //
+        // Otherwise, get the next one in the list.  Don't
+        // forget to skip the list head.
+        //
+
+        KeAcquireSpinLock( &ScbSpinLock, &OldIrql );
+
+        ScbQueueEntry = pNextNpScb->ScbLinks.Flink;
+
+        if ( ScbQueueEntry == &ScbQueue ) {
+            ScbQueueEntry = ScbQueue.Flink;
+        }
+
+        NwDereferenceScb( pNextNpScb );
+        pNextNpScb = CONTAINING_RECORD( ScbQueueEntry, NONPAGED_SCB, ScbLinks );
+
+        if ( pNextNpScb == pFirstNpScb ) {
+            KeReleaseSpinLock( &ScbSpinLock, OldIrql );
+            break;
+        }
+
+        //
+        // Otherwise, reference this SCB and continue.
+        //
+
+        NwReferenceScb( pNextNpScb );
+        KeReleaseSpinLock( &ScbSpinLock, OldIrql );
+
+    }
+
+    NwDereferenceScb( pFirstNpScb );
+
+    if ( pFoundNpScb ) {
+        *Scb = pFoundNpScb->pScb;
+        return STATUS_SUCCESS;
+    }
+
+    return STATUS_UNSUCCESSFUL;
+
+}
+
+NTSTATUS
+CheckScbSecurity(
+    IN PIRP_CONTEXT pIrpContext,
+    IN PSCB pScb,
+    IN PUNICODE_STRING puUserName,
+    IN PUNICODE_STRING puPassword,
+    IN BOOLEAN fDeferLogon
+)
+/*+++
+
+    You must be at the head of the queue to call this function.
+    This function makes sure that the Scb is valid for the user
+    that requested it.
+
+---*/
+{
+
+    NTSTATUS Status;
+    BOOLEAN SecurityConflict = FALSE;
+
+    ASSERT( pScb->pNpScb->State == SCB_STATE_IN_USE );
+
+    //
+    // If there's no user name or password, there's no conflict.
+    //
+
+    if ( ( puUserName == NULL ) &&
+         ( puPassword == NULL ) ) {
+
+        return STATUS_SUCCESS;
+    }
+
+    if ( pScb->UserName.Length &&
+         pScb->UserName.Buffer ) {
+
+        //
+        // Do a bindery security check if we were bindery
+        // authenticated to this server.
+        //
+
+        if ( !fDeferLogon &&
+             puUserName != NULL &&
+             puUserName->Buffer != NULL ) {
+
+            ASSERT( pScb->Password.Buffer != NULL );
+
+            if ( !RtlEqualUnicodeString( &pScb->UserName, puUserName, TRUE ) ||
+                 ( puPassword &&
+                   puPassword->Buffer &&
+                   puPassword->Length &&
+                   !RtlEqualUnicodeString( &pScb->Password, puPassword, TRUE ) )) {
+
+                SecurityConflict = TRUE;
+
+            }
+        }
+
+    } else {
+
+        //
+        // Do an nds security check.
+        //
+
+        Status = NdsCheckCredentials( pIrpContext,
+                                      puUserName,
+                                      puPassword );
+
+        if ( !NT_SUCCESS( Status )) {
+
+            SecurityConflict = TRUE;
+        }
+
+    }
+
+    //
+    // If there was a security conflict, see if we can just
+    // take this connection over (i.e. there are no open
+    // files or open handles to the server).
+    //
+
+    if ( SecurityConflict ) {
+
+        if ( ( pScb->OpenFileCount == 0 ) &&
+             ( pScb->IcbCount == 0 ) ) {
+
+            if ( pScb->UserName.Buffer ) {
+                FREE_POOL( pScb->UserName.Buffer );
+            }
+
+            RtlInitUnicodeString( &pScb->UserName, NULL );
+            RtlInitUnicodeString( &pScb->Password, NULL );
+            pScb->pNpScb->State = SCB_STATE_LOGIN_REQUIRED;
+
+        } else {
+
+            DebugTrace( 0, Dbg, "SCB security conflict.\n", 0 );
+            return STATUS_NETWORK_CREDENTIAL_CONFLICT;
+
+        }
+
+    }
+
+    DebugTrace( 0, Dbg, "SCB security check succeeded.\n", 0 );
+    return STATUS_SUCCESS;
+
+}
+
+NTSTATUS
+GetScb(
     OUT PSCB *Scb,
     IN PIRP_CONTEXT pIrpContext,
     IN PUNICODE_STRING Server,
+    IN IPXaddress *pServerAddress,
     IN PUNICODE_STRING UserName,
     IN PUNICODE_STRING Password,
     IN BOOLEAN DeferLogon,
-    IN BOOLEAN DeleteConnection
-    )
+    OUT PBOOLEAN Existing
+)
+/*+++
 
-/*++
+Description:
 
-Routine Description:
+    This routine locates an existing SCB or creates a new SCB.
+    This is the first half of the original CreateScb routine.
 
-    This routine connects to the requested server.
+Locks:
 
-    If a SCB is found pIrpContext->pNpScb and ->pScb are set.
+    See the anonymous create information in CreateScb().
 
-Arguments:
-
-    pIrpContext - Supplies all the information
-
-    NpScb - Returns a pointer to the newly created nonpaged SCB.
-
-    Server - The name of the server to create.
-
-    UserName - For new connections, the name of the user to use to login
-        to the server.
-
-    Password
-
-    DeferLogon - Used when accessing the nearest server and for 16 bit support where
-        the application is going to build the login packet
-
-    DeleteConnection - Used when we are deleting a volume and the server may not be
-        accessible. We want to allow the createfile to work so the net use /del works.
-
-Return Value:
-
-    NTSTATUS - Status of operation
-
-
---*/
+---*/
 {
-    PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation(pIrpContext->pOriginalIrp);
-    NTSTATUS Status = STATUS_SUCCESS;
-    BOOLEAN InPrefixTable = FALSE;
-    BOOLEAN ScbResourceHeld = FALSE;
-    BOOLEAN InList = FALSE;
 
+    NTSTATUS Status;
     PSCB pScb = NULL;
     PNONPAGED_SCB pNpScb = NULL;
-
-    BOOLEAN ProcessAttached = FALSE;
-
+    BOOLEAN ExistingScb = TRUE;
     UNICODE_STRING UidServer;
+    UNICODE_STRING ExCredName;
+    PUNICODE_STRING puConnectName;
+    KIRQL OldIrql;
 
-#if 0
-    UNICODE_STRING VolumeName;
-    WCHAR VolumeNameBuffer[80];  // Should use manifest constant.
-    PVCB pVcb;
-#endif
+    DebugTrace( 0, Dbg, "GetScb... %wZ\n", Server );
 
-    BOOLEAN ExistingScb;
-    BOOLEAN ReopenVcbs = FALSE;
+    if ( pServerAddress != NULL ) {
+        DebugTrace( 0, Dbg, " ->Server Address         = (provided)\n", 0 );
+    } else {
+        DebugTrace( 0, Dbg, " ->Server Address         = NULL\n", 0 );
+    }
 
-    PAGED_CODE();
+    RtlInitUnicodeString( &UidServer, NULL );
 
-    DebugTrace(+1, Dbg, "CreateScb....\n", 0);
-
-    UidServer.Buffer = NULL;
-
-    try {
-
-        DebugTrace( 0, Dbg, " ->Server                 = %wZ\n", Server   );
+    if ( ( Server == NULL ) ||
+         ( Server->Length == 0 ) ) {
 
         //
-        //  Do not allow any SCB opens unless the redirector is running.
+        // No server name was provided.  Either this is a connect by address,
+        // or a connect to a nearby bindery server (defaulting to the preferred
+        // server).
         //
 
-        if ( NwRcb.State != RCB_STATE_RUNNING ) {
-            *Scb = NULL;
-            DebugTrace(-1, Dbg, "CreateScb -> %08lx\n", STATUS_INVALID_HANDLE);
-            ExRaiseStatus( STATUS_REDIRECTOR_NOT_STARTED );
-        }
-
-        if ( UserName != NULL ) {
-            DebugTrace( 0, Dbg, " ->UserName               = %wZ\n", UserName );
-        } else {
-            DebugTrace( 0, Dbg, " ->UserName               = NULL\n", 0 );
-        }
-
-        if ( Password != NULL ) {
-            DebugTrace( 0, Dbg, " ->Password               = %wZ\n", Password );
-        } else {
-            DebugTrace( 0, Dbg, " ->Password               = NULL\n", 0 );
-        }
-
-        //
-        //  Either acquire a referenced to an existing SCB or allocate
-        //  a new SCB.
-        //
-
-        pNpScb = NULL;
-        ExistingScb = TRUE;
-
-        if (( Server == NULL ) ||
-            ( Server->Length == 0 )) {
+        if ( pServerAddress == NULL ) {
 
             //
-            //  Attempt to open preferred server, but none specified.
-            //  Simply open the nearest server.
+            // No server address was provided, so this is an attempt to open
+            // a nearby bindery server.
             //
 
-            pNpScb = SelectConnection( NULL );
-            if ( pNpScb != NULL) {
-                pScb = pNpScb->pScb;
+            while (TRUE) {
 
                 //
-                //  Queue ourselves to the SCB, and wait to get to the front to
-                //  protect access to server State.
+                // The loop checks that after we get to the front, the SCB
+                // is still in the state we wanted.  If not, we need to
+                // reselect another.
                 //
 
-                pIrpContext->pNpScb = pNpScb;
+                pNpScb = SelectConnection( NULL );
+
+                //
+                // Note: We'd like to call SelectConnection with the pNpScb
+                // that we last tried, but if the scavenger runs before
+                // this loop gets back to the select connection, we could
+                // pass a bum pointer to SelectConnection, which is bad.
+                //
+
+                if ( pNpScb != NULL) {
+
+                    pScb = pNpScb->pScb;
+
+                    //
+                    //  Queue ourselves to the SCB, wait to get to the front to
+                    //  protect access to server State.
+                    //
+
+                    pIrpContext->pNpScb = pNpScb;
+                    pIrpContext->pScb = pScb;
+
+                    NwAppendToQueueAndWait( pIrpContext );
+
+                    //
+                    // These states have to match the conditions of the
+                    // SelectConnection to prevent an infinite loop.
+                    //
+
+                    if (!((pNpScb->State == SCB_STATE_RECONNECT_REQUIRED ) ||
+                          (pNpScb->State == SCB_STATE_LOGIN_REQUIRED ) ||
+                          (pNpScb->State == SCB_STATE_IN_USE ))) {
+
+                        //
+                        // No good any more as default server, select another.
+                        //
+
+                        pScb = NULL ;
+                        NwDereferenceScb( pNpScb );
+                        NwDequeueIrpContext( pIrpContext, FALSE );
+                        continue ;
+
+                    }
+                }
+
+                //
+                // otherwise, we're done
+                //
+
+                break ;
+
+            }
+
+        } else {
+
+            //
+            // An address was provided, so we are attempting to do a lookup
+            // based on address.  The server that we are looking for might
+            // exist but not yet have its address recorded, so if we do an
+            // anonymous create, we have to check at the end whether or not
+            // someone else came in and successfully created while we were
+            // looking up the name.
+            //
+            // We don't have to hold the RCB anymore since colliding creates
+            // have to be handled gracefully anyway.
+            //
+
+            Status = GetServerByAddress( pIrpContext, &pScb, pServerAddress );
+
+            if ( !NT_SUCCESS( Status ) ) {
+
+                //
+                // No anonymous creates are allowed if we are not allowed
+                // to send packets to the net (because it's not possible for
+                // us to resolve the address to a name).
+                //
+
+                if ( BooleanFlagOn( pIrpContext->Flags, IRP_FLAG_NOCONNECT ) ) {
+                    return STATUS_BAD_NETWORK_PATH;
+                }
+
+                //
+                // There's no connection to this server, so we'll
+                // have to create one.  Let's start with an anonymous
+                // Scb.
+                //
+
+                Status = NwAllocateAndInitScb( pIrpContext,
+                                               NULL,
+                                               NULL,
+                                               &pScb );
+
+                if ( !NT_SUCCESS( Status )) {
+                    return Status;
+                }
+
+                //
+                // We've made the anonymous create, so put it on the scb
+                // list and get to the head of the queue.
+                //
+
+                SetFlag( pIrpContext->Flags, IRP_FLAG_ON_SCB_QUEUE );
+
+                pIrpContext->pScb = pScb;
+                pIrpContext->pNpScb = pScb->pNpScb;
+
+                ExInterlockedInsertHeadList( &pScb->pNpScb->Requests,
+                                             &pIrpContext->NextRequest,
+                                             &pScb->pNpScb->NpScbSpinLock );
+
+                KeAcquireSpinLock(&ScbSpinLock, &OldIrql);
+                InsertTailList(&ScbQueue, &pScb->pNpScb->ScbLinks);
+                KeReleaseSpinLock(&ScbSpinLock, OldIrql);
+
+                DebugTrace( 0, Dbg, "GetScb started an anonymous create.\n", 0 );
+                ExistingScb = FALSE;
+
+            } else {
+
+                //
+                // Get to the head of the queue and see if this was
+                // an abandoned anonymous create.  If so, get the
+                // right server and continue.
+                //
+
+                pIrpContext->pScb = pScb;
+                pIrpContext->pNpScb = pScb->pNpScb;
                 NwAppendToQueueAndWait( pIrpContext );
+
+                if ( pScb->pNpScb->State == SCB_STATE_FLAG_SHUTDOWN ) {
+
+                    //
+                    // The create abandoned this scb, redoing a
+                    // GetServerByAddress() is guaranteed to get
+                    // us a good server if there is a server out
+                    // there.
+                    //
+
+                    NwDequeueIrpContext( pIrpContext, FALSE );
+                    NwDereferenceScb( pScb->pNpScb );
+
+                    Status = GetServerByAddress( pIrpContext, &pScb, pServerAddress );
+
+                    if ( NT_SUCCESS( Status ) ) {
+                        ASSERT( pScb != NULL );
+                        ASSERT( !IS_ANONYMOUS_SCB( pScb ) );
+                    }
+
+                } else {
+
+                    ASSERT( !IS_ANONYMOUS_SCB( pScb ) );
+                }
             }
+
+            ASSERT( pScb != NULL );
+        }
+
+    } else {
+
+        //
+        // A server name was provided, so we are doing a straight
+        // lookup or create by name.  Do we need to munge the name
+        // for a supplemental credential connect?
+        //
+
+        RtlInitUnicodeString( &ExCredName, NULL );
+
+        if ( ( pIrpContext->Specific.Create.fExCredentialCreate ) &&
+             ( !IsCredentialName( Server ) ) ) {
+
+            Status = BuildExCredentialServerName( Server,
+                                                  pIrpContext->Specific.Create.puCredentialName,
+                                                  &ExCredName );
+
+            if ( !NT_SUCCESS( Status ) ) {
+                return Status;
+            }
+
+            puConnectName = &ExCredName;
 
         } else {
 
-            Status = MakeUidServer(
-                            &UidServer,
-                            &pIrpContext->Specific.Create.UserUid,
-                            Server );
+            puConnectName = Server;
+        }
 
-            if (!NT_SUCCESS(Status)) {
-                *Scb = NULL;
-                ExRaiseStatus( Status );
-            }
+        Status = MakeUidServer( &UidServer,
+                                &pIrpContext->Specific.Create.UserUid,
+                                puConnectName );
 
-            DebugTrace( 0, Dbg, " ->UidServer              = %wZ\n", &UidServer   );
 
-            ExistingScb = NwFindScb( &pScb, pIrpContext, &UidServer, Server );
-            ASSERT( pScb != NULL );
-            pNpScb = pScb->pNpScb;
+        if ( ExCredName.Buffer ) {
+            FREE_POOL( ExCredName.Buffer );
+        }
+
+        if (!NT_SUCCESS(Status)) {
+            return Status;
+        }
+
+        DebugTrace( 0, Dbg, " ->UidServer              = %wZ\n", &UidServer );
+
+        ExistingScb = NwFindScb( &pScb, pIrpContext, &UidServer, Server );
+
+        ASSERT( pScb != NULL );
+        pNpScb = pScb->pNpScb;
+
+        pIrpContext->pNpScb = pNpScb;
+        pIrpContext->pScb = pScb;
+        NwAppendToQueueAndWait(pIrpContext);
+
+        if ( ExistingScb ) {
 
             //
             //  We found an existing SCB.  If we are logged into this
@@ -670,249 +1055,775 @@ Return Value:
             //  the username and password that we logged in with.
             //
 
-            pIrpContext->pNpScb = pNpScb;
-            NwAppendToQueueAndWait(pIrpContext);    // Needed for State & Name checks
+            if ( pNpScb->State == SCB_STATE_IN_USE ) {
 
-            if ( !DeferLogon &&
-                 pNpScb->State == SCB_STATE_IN_USE &&
-                 UserName != NULL &&
-                 UserName->Buffer != NULL ) {
+                Status = CheckScbSecurity( pIrpContext,
+                                           pScb,
+                                           UserName,
+                                           Password,
+                                           DeferLogon );
 
-                ASSERT( pScb->UserName.Buffer != NULL );
-                ASSERT( pScb->Password.Buffer != NULL );
-
-                if (!RtlEqualUnicodeString( &pScb->UserName, UserName, TRUE ) ||
-                    (Password &&
-                     Password->Buffer &&
-                     Password->Length &&
-                     !RtlEqualUnicodeString( &pScb->Password,
-                                             Password,
-                                             TRUE ) ))
-                {
-
-                    //
-                    //  User name and password do not match.  If this SCB
-                    //  has no open files, simply set it to the login
-                    //  required state, otherwise fail this connect.
-                    //
-
-                    if ( pScb->OpenFileCount == 0 ) {
-
-                        FREE_POOL( pScb->UserName.Buffer );
-                        pScb->UserName.Buffer = NULL;
-                        pNpScb->State = SCB_STATE_LOGIN_REQUIRED;
-
-                    } else {
-                        ExRaiseStatus( STATUS_NETWORK_CREDENTIAL_CONFLICT );
-                    }
+                if ( !NT_SUCCESS( Status ) ) {
+                    FREE_POOL( UidServer.Buffer );
+                    UidServer.Buffer = NULL;
+                    NwDereferenceScb( pNpScb );
+                    return Status;
                 }
             }
         }
 
-        if ( pNpScb != NULL ) {
+    }
 
-            if ( ExistingScb ) {
+    //
+    // 1) We may or may not have a server (evidenced by pScb).
+    //
+    // 2) If we have a server and ExistingScb is TRUE, we have
+    //        an existing server, possibly already connected.
+    //        Otherwise, we have a newly created server that
+    //        may or may not be anonymous.
+    //
 
-                //
-                //  We found and referenced an existing SCB.
-                //
+    *Scb = pScb;
+    *Existing = ExistingScb;
 
-                pIrpContext->pNpScb = pNpScb = pScb->pNpScb;
+#ifdef NWDBG
 
-                if (DeleteConnection) {
+    if ( pScb != NULL ) {
 
-                    //
-                    //  No need to reconnect to the server for a net use /del
-                    //  if we are not already connected and logged in.
-                    //
+        //
+        // If we have a server, the SCB is referenced and we will
+        // be at the head of the queue.
+        //
 
-                    Status = STATUS_SUCCESS;
-                    goto InUse;
-                }
+        ASSERT( pIrpContext->pNpScb->Requests.Flink == &pIrpContext->NextRequest );
 
-                if ( pNpScb->State == SCB_STATE_ATTACHING ) {
-                    goto GetAddress;
-                } else if ( pNpScb->State == SCB_STATE_RECONNECT_REQUIRED ) {
-                    goto Connect;
-                } else if ( pNpScb->State == SCB_STATE_LOGIN_REQUIRED ) {
-                    goto Login;
-                } else if ( pNpScb->State == SCB_STATE_IN_USE ) {
-                    goto InUse;
+    }
+
+#endif
+
+    if ( UidServer.Buffer != NULL ) {
+        FREE_POOL( UidServer.Buffer );
+    }
+
+    DebugTrace( 0, Dbg, "GetScb returned %08lx\n", pScb );
+    return STATUS_SUCCESS;
+
+}
+
+NTSTATUS
+ConnectScb(
+    IN PSCB *Scb,
+    IN PIRP_CONTEXT pIrpContext,
+    IN PUNICODE_STRING Server,
+    IN IPXaddress *pServerAddress,
+    IN PUNICODE_STRING UserName,
+    IN PUNICODE_STRING Password,
+    IN BOOLEAN DeferLogon,
+    IN BOOLEAN DeleteConnection,
+    IN BOOLEAN ExistingScb
+)
+/*+++
+
+Description:
+
+    This routine puts the provided scb in the connected state.
+    This is the second half of the original CreateScb routine.
+
+Arguments:
+
+    Scb              - The scb for the server we want to connect.
+    pIrpContext      - The context for this request.
+    Server           - The name of the server, or NULL.
+    pServerAddress   - The address of the server, or NULL,
+    UserName         - The name of the user to connect as, or NULL.
+    Password         - The password for the user, or NULL.
+    DeferLogon       - Should we defer the logon?
+    DeleteConnection - Should we succeed even without the net so that
+                       the delete request will succeed?
+    ExistingScb      - Is this an existing SCB?
+
+    If the SCB is anonymous, we need to safely check for colliding
+    creates when we find out who the server is.
+
+    If this is a reconnect attempt, this routine will not dequeue the
+    irp context, which could cause a deadlock in the reconnect logic.
+
+---*/
+{
+
+    NTSTATUS Status = STATUS_SUCCESS;
+
+    PSCB pScb = *Scb;
+    PNONPAGED_SCB pNpScb = NULL;
+
+    BOOLEAN AnonymousScb = FALSE;
+    PSCB pCollisionScb = NULL;
+
+    NTSTATUS LoginStatus;
+    BOOLEAN TriedNdsLogin;
+
+    PLOGON pLogon;
+    BOOLEAN DeferredLogon = DeferLogon;
+    PNDS_SECURITY_CONTEXT pNdsContext;
+    NTSTATUS CredStatus;
+
+    DebugTrace( 0, Dbg, "ConnectScb... %08lx\n", pScb );
+
+    //
+    // If we already have an SCB, find out where in the
+    // connect chain we need to start off.
+    //
+
+    if ( pScb ) {
+
+        pNpScb = pScb->pNpScb;
+        AnonymousScb = IS_ANONYMOUS_SCB( pScb );
+
+        if ( ExistingScb ) {
+
+            ASSERT( !AnonymousScb );
+
+            //
+            //  If this SCB is in STATE_ATTACHING, we need to check
+            //  the address in the SCB to make sure that it was at one
+            //  point a valid server.  If it wasn't, then we shouldn't
+            //  honor this create because it's probably a tree create.
+            //
+
+            if ( DeleteConnection ) {
+
+                ASSERT( !BooleanFlagOn( pIrpContext->Flags, IRP_FLAG_RECONNECT_ATTEMPT ) );
+
+                if ( ( pNpScb->State == SCB_STATE_ATTACHING ) &&
+                     ( (pNpScb->ServerAddress).Socket == 0 ) ) {
+
+                    Status = STATUS_BAD_NETWORK_PATH;
+                    goto CleanupAndExit;
+
                 } else {
-                    ExRaiseStatus( STATUS_UNSUCCESSFUL );
-                }
 
-            } else {
-                pNpScb->State = SCB_STATE_ATTACHING;
+                    NwDequeueIrpContext( pIrpContext, FALSE );
+                    return STATUS_SUCCESS;
+                }
             }
+
+RedoConnect:
+
+            if ( pNpScb->State == SCB_STATE_ATTACHING ) {
+                goto GetAddress;
+            } else if ( pNpScb->State == SCB_STATE_RECONNECT_REQUIRED ) {
+                goto Connect;
+            } else if ( pNpScb->State == SCB_STATE_LOGIN_REQUIRED ) {
+                goto Login;
+            } else if ( pNpScb->State == SCB_STATE_IN_USE ) {
+                goto InUse;
+            } else {
+
+                DebugTrace( 0, Dbg, "ConnectScb: Unknown Scb State %08lx\n", pNpScb->State );
+                Status = STATUS_INVALID_PARAMETER;
+                goto CleanupAndExit;
+            }
+
+        } else {
+
+            //
+            // This is a new SCB, we have to run through the whole routine.
+            //
+
+            pNpScb->State = SCB_STATE_ATTACHING;
         }
 
-        //
-        //  If we have a connection to any server then we will query the
-        //  bindery on that server to get the address of the server. If
-        //  we have no server connections yet then:
-        //
-        //      1) Find the nearest server
-        //      2) Query its bindery
-        //      3) Disconnect from it
-        //      4) Logout from it
-        //      5) Connect to the requested server if found in bindery
-        //      6) Login to required server
-        //
-
-        //
-        //  Loop through the list of nearest servers and see if
-        //  anyone knows about the server we are trying to find.
-        //
+    }
 
 GetAddress:
 
+    //
+    //  Set the reroute attempted bit so that we don't try
+    //  to reconnect during the connect.
+    //
+
+    SetFlag( pIrpContext->Flags, IRP_FLAG_REROUTE_ATTEMPTED );
+
+    if ( !pServerAddress ) {
+
         //
-        //  Set the reroute attempted bit so that we don't try
-        //  to reconnect during the connect.
+        // If we don't have an address, this SCB cannot be anonymous!!
         //
 
-        SetFlag( pIrpContext->Flags, IRP_FLAG_REROUTE_ATTEMPTED );
-        pNpScb = FindServer( pIrpContext, pNpScb, Server );
-        pScb = pNpScb->pScb;
-        pIrpContext->pNpScb = pNpScb;
+        ASSERT( !AnonymousScb );
+
+        //
+        // We have to cast an exception frame for this legacy routine
+        // that still uses structured exceptions.
+        //
+
+        try {
+
+            pNpScb = FindServer( pIrpContext, pNpScb, Server );
+
+            ASSERT( pNpScb != NULL );
+
+            //
+            // This is redundant unless the starting server was NULL.
+            // FindServer returns the same SCB we provided to it
+            // unless we called it with NULL.
+            //
+
+            pScb = pNpScb->pScb;
+            pIrpContext->pNpScb = pNpScb;
+            pIrpContext->pScb = pScb;
+            NwAppendToQueueAndWait( pIrpContext );
+
+        } except ( EXCEPTION_EXECUTE_HANDLER ) {
+
+            Status = GetExceptionCode();
+            goto CleanupAndExit;
+        }
+
+    } else {
+
+        //
+        // Build the address into the NpScb since we already know it.
+        //
+
+        RtlCopyMemory( &pNpScb->ServerAddress,
+                       pServerAddress,
+                       sizeof( TDI_ADDRESS_IPX ) );
+
+        BuildIpxAddress( pNpScb->ServerAddress.Net,
+                         pNpScb->ServerAddress.Node,
+                         NCP_SOCKET,
+                         &pNpScb->RemoteAddress );
+
+        pNpScb->State = SCB_STATE_RECONNECT_REQUIRED;
+
+    }
 
 Connect:
-        if ( pNpScb->State == SCB_STATE_RECONNECT_REQUIRED ) {
 
-            //
-            //  Setup to talk to the server we just created.
-            //
+    //
+    // FindServer may have connected us to the server already,
+    // so we may be able to skip the reconnect here.
+    //
 
-            Status = ConnectToServer( pIrpContext );
+    if ( pNpScb->State == SCB_STATE_RECONNECT_REQUIRED ) {
 
-            if (!NT_SUCCESS(Status)) {
-                ExRaiseStatus(Status);
-            }
+        //
+        // If this is an anonymous scb, we have to be prepared
+        // for ConnectToServer() to find that we've already connected
+        // this server by name.  In this case, we cancel the
+        // anonymous create and use the server that was created
+        // while we were looking up the name.
+        //
 
-            DebugTrace( +0, Dbg, " Logout from server - just in case\n", 0);
+        Status = ConnectToServer( pIrpContext, &pCollisionScb );
 
-            Status = ExchangeWithWait (
-                         pIrpContext,
-                         SynchronousResponseCallback,
-                         "F",
-                         NCP_LOGOUT );
-
-            DebugTrace( +0, Dbg, "                 %X\n", Status);
-
-            if ( !NT_SUCCESS( Status ) ) {
-                ExRaiseStatus( Status );
-            }
-
-            DebugTrace( +0, Dbg, " Connect to real server = %X\n", Status);
-
-            pNpScb->State = SCB_STATE_LOGIN_REQUIRED;
+        if (!NT_SUCCESS(Status)) {
+            goto CleanupAndExit;
         }
 
         //
-        //  Do the login to the server.
+        // We succeeded.  If there's a collision scb, then we need to
+        // abandon the anonymous scb and use the scb that we collided
+        // with.  Otherwise, we successfully completed an anonymous
+        // connect and can go on with the create normally.
         //
-        //  NOTE:   DoBinderyLogon() may return a warning status.
-        //          If it does, we must return the warning status
-        //          to the caller.
-        //
+
+        if ( pCollisionScb ) {
+
+            ASSERT( AnonymousScb );
+
+            //
+            // Deref and dequeue from the abandoned server.
+            //
+
+            NwDequeueIrpContext( pIrpContext, FALSE );
+            NwDereferenceScb( pIrpContext->pNpScb );
+
+            //
+            // Queue to the appropriate server.
+            //
+
+            pIrpContext->pScb = pCollisionScb;
+            pIrpContext->pNpScb = pCollisionScb->pNpScb;
+            NwAppendToQueueAndWait( pIrpContext );
+
+            pScb = pCollisionScb;
+            pNpScb = pCollisionScb->pNpScb;
+            *Scb = pCollisionScb;
+
+            //
+            // Re-start connecting the scb.
+            //
+
+            AnonymousScb = FALSE;
+            ExistingScb = TRUE;
+
+            pCollisionScb = NULL;
+
+            DebugTrace( 0, Dbg, "Re-doing connect on anonymous collision.\n", 0 );
+            goto RedoConnect;
+
+        }
+
+        DebugTrace( +0, Dbg, " Logout from server - just in case\n", 0);
+
+        Status = ExchangeWithWait (
+                     pIrpContext,
+                     SynchronousResponseCallback,
+                     "F",
+                     NCP_LOGOUT );
+
+        DebugTrace( +0, Dbg, "                 %X\n", Status);
+
+        if ( !NT_SUCCESS( Status ) ) {
+            goto CleanupAndExit;
+        }
+
+        DebugTrace( +0, Dbg, " Connect to real server = %X\n", Status);
+
+        pNpScb->State = SCB_STATE_LOGIN_REQUIRED;
+    }
 
 Login:
-        if (pNpScb->State == SCB_STATE_LOGIN_REQUIRED && !DeferLogon ) {
 
-            Status = DoBinderyLogon( pIrpContext, UserName, Password );
+    //
+    // If we have credentials for the tree and this server was named
+    // explicitly, we shouldn't defer the login or else the browse
+    // view of the tree may be wrong.  For this reason, NdsServerAuthenticate
+    // has to be a straight shot call and can't remove us from the head
+    // of the queue.
+    //
 
-            if ( !NT_SUCCESS( Status ) ) {
+    if ( ( ( Server != NULL ) || ( pServerAddress != NULL ) ) &&
+         ( DeferredLogon ) &&
+         ( pScb->MajorVersion > 3 ) &&
+         ( pScb->UserName.Length == 0 ) ) {
 
-                //
-                //  Couldn't log on, be good boys and disconnect.
-                //
+        NwAcquireExclusiveRcb( &NwRcb, TRUE );
+        pLogon = FindUser( &pScb->UserUid, FALSE );
+        NwReleaseRcb( &NwRcb );
 
-                ExchangeWithWait (
-                    pIrpContext,
-                    SynchronousResponseCallback,
-                    "D-" );          // Disconnect
+        if ( pLogon ) {
 
-                Stats.Sessions--;
+            CredStatus = NdsLookupCredentials( &pScb->NdsTreeName,
+                                               pLogon,
+                                               &pNdsContext,
+                                               CREDENTIAL_READ,
+                                               FALSE );
 
-                if ( pScb->MajorVersion == 2 ) {
-                    Stats.NW2xConnects--;
-                } else if ( pScb->MajorVersion == 3 ) {
-                    Stats.NW3xConnects--;
-                } else if ( pScb->MajorVersion == 4 ) {
-                    Stats.NW4xConnects--;
+            if ( NT_SUCCESS( CredStatus ) ) {
+
+                if ( ( pNdsContext->Credential != NULL ) &&
+                     ( pNdsContext->CredentialLocked == FALSE ) ) {
+
+                    DebugTrace( 0, Dbg, "Forcing authentication to %wZ.\n",
+                                &pScb->UidServerName );
+                    DeferredLogon = FALSE;
                 }
 
-                pNpScb->State = SCB_STATE_RECONNECT_REQUIRED;
-
-                ExRaiseStatus( Status );
+                NwReleaseCredList( pLogon );
             }
-
-            pNpScb->State = SCB_STATE_IN_USE;
-        }
-
-#if 0
-        if ( pScb->VcbCount == 0 ) {
-
-            //
-            //  We get a free connect to SYS:LOGIN, handle = 1.
-            //  Create and initialize the VCB
-            //
-            //  Generate Volume name string  \Server\SYS\LOGIN
-            //
-
-            VolumeName.Buffer = VolumeNameBuffer;
-            VolumeName.Length = sizeof(WCHAR) + pNpScb->ServerName->Length;
-            VolumeName.MaximumLength = 80;
-
-            VolumeName.Buffer[0] = L'\\';
-            RtlCopyMemory( &VolumeName.Buffer[1], pNpScb->ServerName->Buffer, pNpScb->ServerName->Length );
-
-            RtlAppendUnicodeToString( &VolumeName, L"\\SYS\\LOGIN" );
-
-            //
-            //  Create the VCB, then immediately dereference it.
-            //
-
-            pVcb = NwCreateVcb( NULL, pScb, &VolumeName, RESOURCETYPE_DISK, 0, FALSE );
-            NwDereferenceVcb( pVcb, NULL );
-
-            if ( !NT_SUCCESS( Status )) {
-                ExRaiseStatus( Status );
-            }
-        }
-#endif
-
-        ReconnectScb( pIrpContext, pScb );
-
-InUse:
-        if (UidServer.Buffer != NULL) {
-            FREE_POOL(UidServer.Buffer);
-        }
-
-        pIrpContext->pNpScb = pNpScb;
-        pIrpContext->pScb = pScb;
-
-        *Scb = pScb;
-
-    } except( NwExceptionFilter( pIrpContext->pOriginalIrp, GetExceptionInformation() ) ) {
-
-        Status = NwProcessException( pIrpContext, GetExceptionCode() );
-
-        NwDequeueIrpContext( pIrpContext, FALSE );
-
-        if ( pNpScb != NULL ) {
-            NwDereferenceScb( pNpScb );
-        }
-
-        *Scb = NULL;
-
-        if (UidServer.Buffer != NULL) {
-            FREE_POOL(UidServer.Buffer);
         }
     }
 
-    DebugTrace(-1, Dbg, "CreateScb -> %08lx\n", Status);
+    if (pNpScb->State == SCB_STATE_LOGIN_REQUIRED && !DeferredLogon ) {
+
+        //
+        //  NOTE:   DoBinderyLogon() and DoNdsLogon() may return a
+        //          warning status. If they do, we must return the
+        //          warning status to the caller.
+        //
+
+        Status = STATUS_UNSUCCESSFUL;
+        TriedNdsLogin = FALSE;
+
+        //
+        // We force a bindery login for a non 4.x server.  Otherwise, we
+        // allow a fall-back from NDS style authentication to bindery style
+        // authentication.
+        //
+
+        if ( pScb->MajorVersion >= 4 ) {
+
+            ASSERT( pScb->NdsTreeName.Length != 0 );
+
+            Status = DoNdsLogon( pIrpContext, UserName, Password );
+
+            if ( NT_SUCCESS( Status ) ) {
+
+                //
+                // Do we need to re-license the connection?
+                //
+
+                if ( ( pScb->VcbCount > 0 ) || ( pScb->OpenNdsStreams > 0 ) ) {
+
+                    Status = NdsLicenseConnection( pIrpContext );
+
+                    if ( !NT_SUCCESS( Status ) ) {
+                        Status = STATUS_REMOTE_SESSION_LIMIT;
+                    }
+                }
+
+            }
+
+            TriedNdsLogin = TRUE;
+            LoginStatus = Status;
+
+        }
+
+        if ( !NT_SUCCESS( Status ) ) {
+
+            Status = DoBinderyLogon( pIrpContext, UserName, Password );
+
+        }
+
+        if ( !NT_SUCCESS( Status ) ) {
+
+            if ( TriedNdsLogin ) {
+
+                //
+                // Both login attempts have failed.  We usually prefer
+                // the NDS status, but not always.
+                //
+
+               if ( ( Status != STATUS_WRONG_PASSWORD ) &&
+                    ( Status != STATUS_ACCOUNT_DISABLED ) ) {
+                   Status = LoginStatus;
+               }
+            }
+
+            //
+            //  Couldn't log on, be good boys and disconnect.
+            //
+
+            ExchangeWithWait (
+                pIrpContext,
+                SynchronousResponseCallback,
+                "D-" );          // Disconnect
+
+            Stats.Sessions--;
+
+            if ( pScb->MajorVersion == 2 ) {
+                Stats.NW2xConnects--;
+            } else if ( pScb->MajorVersion == 3 ) {
+                Stats.NW3xConnects--;
+            } else if ( pScb->MajorVersion == 4 ) {
+                Stats.NW4xConnects--;
+            }
+
+            //
+            // Demote this scb to reconnect required and exit.
+            //
+
+            pNpScb->State = SCB_STATE_RECONNECT_REQUIRED;
+            goto CleanupAndExit;
+        }
+
+        pNpScb->State = SCB_STATE_IN_USE;
+    }
+
+    //
+    // We have to be at the head of the queue to do the reconnect.
+    //
+
+    if ( BooleanFlagOn( pIrpContext->Flags, IRP_FLAG_RECONNECT_ATTEMPT ) ) {
+        ASSERT( pIrpContext->pNpScb->Requests.Flink == &pIrpContext->NextRequest );
+    } else {
+        NwAppendToQueueAndWait( pIrpContext );
+    }
+
+    ReconnectScb( pIrpContext, pScb );
+
+InUse:
+
+    //
+    // Ok, we've completed the connect routine.  Return this good server.
+    //
+
+    *Scb = pScb;
+
+CleanupAndExit:
+
+    //
+    // The reconnect path must not do anything to remove the irp context from
+    // the head of the queue since it also owns the irp context in the second
+    // position on the queue and that irp context is running.
+    //
+
+    if ( !BooleanFlagOn( pIrpContext->Flags, IRP_FLAG_RECONNECT_ATTEMPT ) ) {
+        NwDequeueIrpContext( pIrpContext, FALSE );
+    }
+
+    DebugTrace( 0, Dbg, "ConnectScb: Connected %08lx\n", pScb );
+    DebugTrace( 0, Dbg, "ConnectScb: Status was %08lx\n", Status );
+    return Status;
+
+}
+
+NTSTATUS
+CreateScb(
+    OUT PSCB *Scb,
+    IN PIRP_CONTEXT pIrpContext,
+    IN PUNICODE_STRING Server,
+    IN IPXaddress *pServerAddress,
+    IN PUNICODE_STRING UserName,
+    IN PUNICODE_STRING Password,
+    IN BOOLEAN DeferLogon,
+    IN BOOLEAN DeleteConnection
+)
+/*++
+
+Routine Description:
+
+    This routine connects to the requested server.
+
+    The following mix of parameters are valid:
+
+       Server Name, No Net Address - The routine will look up
+           up the SCB or create a new one if necessary, getting
+           the server address from a nearby bindery.
+
+       No Server Name, Valid Net Address - The routine will
+           look up the SCB by address or create a new one if
+           necessary.  The name of the server will be set in
+           the SCB upon return.
+
+       Server Name, Valid Net Address - The routine will look
+           up the SCB by name or will create a new one if
+           necessary.  The supplied server address will be used,
+           sparing a bindery query.
+
+       No Server Name, No Net Address - A connection to the
+           preferred server or a nearby server will be returned.
+
+Arguments:
+
+    Scb              - The pointer to the scb in question.
+    pIrpContext      - The information for this request.
+    Server           - The name of the server, or NULL.
+    pServerAddress   - The address of the server, or NULL.
+    UserName         - The username for the connect, or NULL.
+    Password         - The password for the connect, or NULL.
+    DeferLogon       - Should we defer the logon until later?
+    DeleteConnection - Should we allow this even when there's no
+                       net response so that the connection can
+                       be deleted?
+
+Return Value:
+
+    NTSTATUS - Status of operation.  If the return status is STATUS_SUCCESS,
+    then Scb must point to a valid Scb.  The irp context pointers will also
+    be set, but the irp context will not be on the scb queue.
+
+--*/
+{
+
+    NTSTATUS Status = STATUS_UNSUCCESSFUL;
+    PSCB pScb = NULL;
+    PNONPAGED_SCB pOriginalNpScb = pIrpContext->pNpScb;
+    PSCB pOriginalScb = pIrpContext->pScb;
+    BOOLEAN ExistingScb = FALSE;
+    BOOLEAN AnonymousScb = FALSE;
+    PLOGON pLogon;
+    PNDS_SECURITY_CONTEXT pNdsContext;
+
+    PAGED_CODE();
+
+    DebugTrace(+1, Dbg, "CreateScb....\n", 0);
+
+    //
+    // Do not allow any SCB opens unless the redirector is running
+    // unless they are no connect creates and we are waiting to bind.
+    //
+
+    if ( NwRcb.State != RCB_STATE_RUNNING ) {
+
+        if ( ( !BooleanFlagOn( pIrpContext->Flags, IRP_FLAG_NOCONNECT ) ||
+             ( NwRcb.State != RCB_STATE_NEED_BIND ) ) ) {
+
+            *Scb = NULL;
+            DebugTrace( -1, Dbg, "CreateScb -> %08lx\n", STATUS_REDIRECTOR_NOT_STARTED );
+            return STATUS_REDIRECTOR_NOT_STARTED;
+        }
+    }
+
+    if ( UserName != NULL ) {
+        DebugTrace( 0, Dbg, " ->UserName               = %wZ\n", UserName );
+    } else {
+        DebugTrace( 0, Dbg, " ->UserName               = NULL\n", 0 );
+    }
+
+    if ( Password != NULL ) {
+        DebugTrace( 0, Dbg, " ->Password               = %wZ\n", Password );
+    } else {
+        DebugTrace( 0, Dbg, " ->Password               = NULL\n", 0 );
+    }
+
+    //
+    // Get the SCB for this server.
+    //
+
+    Status = GetScb( &pScb,
+                     pIrpContext,
+                     Server,
+                     pServerAddress,
+                     UserName,
+                     Password,
+                     DeferLogon,
+                     &ExistingScb );
+
+    if ( !NT_SUCCESS( Status ) ) {
+        return Status;
+    }
+
+    //
+    // At this point, we may or may not have an SCB.
+    //
+    // If we have an SCB, we know:
+    //
+    //     1. The scb is referenced.
+    //     2. We are at the head of the queue.
+    //
+    // IMPORTANT POINT: The SCB may be anonymous.  If it is,
+    // we do not hold the RCB, but rather we have to re-check
+    // whether or not the server has shown up via a different
+    // create when we find out who the anonymous server is.
+    // We do this because there is a window where we have a
+    // servers name but not its address and so our lookup by
+    // address might be inaccurate.
+    //
+
+    if ( ( pScb ) && IS_ANONYMOUS_SCB( pScb ) ) {
+        AnonymousScb = TRUE;
+    }
+
+    //
+    // If we have a fully connected SCB, we need to go no further.
+    //
+
+    if ( ( pScb ) && ( pScb->pNpScb->State == SCB_STATE_IN_USE ) ) {
+
+        ASSERT( !AnonymousScb );
+
+        if ( ( pScb->MajorVersion >= 4 ) &&
+             ( pScb->UserName.Buffer == NULL ) ) {
+
+            //
+            // This is an NDS authenticated server and we have
+            // to make sure the credentials aren't locked for
+            // logout.
+            //
+
+            NwAcquireExclusiveRcb( &NwRcb, TRUE );
+            pLogon = FindUser( &pScb->UserUid, FALSE );
+            NwReleaseRcb( &NwRcb );
+
+            if ( pLogon ) {
+
+                Status = NdsLookupCredentials( &pScb->NdsTreeName,
+                                               pLogon,
+                                               &pNdsContext,
+                                               CREDENTIAL_READ,
+                                               FALSE );
+
+                if ( NT_SUCCESS( Status ) ) {
+
+                    if ( ( pNdsContext->Credential != NULL ) &&
+                         ( pNdsContext->CredentialLocked == TRUE ) ) {
+
+                        DebugTrace( 0, Dbg, "Denying create... we're logging out.\n", 0 );
+                        Status = STATUS_DEVICE_BUSY;
+                    }
+
+                    NwReleaseCredList( pLogon );
+                }
+            }
+        }
+
+        NwDequeueIrpContext( pIrpContext, FALSE );
+
+        //
+        // We must not change the irp context pointers if we're going
+        // to fail this call or we may screw up ref counts and what not.
+        //
+
+        if ( NT_SUCCESS( Status ) ) {
+
+           *Scb = pScb;
+
+        } else {
+
+           *Scb = NULL;
+           NwDereferenceScb( pScb->pNpScb );
+
+           pIrpContext->pNpScb = pOriginalNpScb;
+           pIrpContext->pScb = pOriginalScb;
+
+        }
+
+
+        DebugTrace( -1, Dbg, "CreateScb: pScb = %08lx\n", pScb );
+        return Status;
+    }
+
+    //
+    // Run through the connect routines for this scb.  The scb may
+    // be NULL if we're still looking for a nearby server.
+    //
+
+    Status = ConnectScb( &pScb,
+                         pIrpContext,
+                         Server,
+                         pServerAddress,
+                         UserName,
+                         Password,
+                         DeferLogon,
+                         DeleteConnection,
+                         ExistingScb );
+
+    //
+    // If ConnectScb fails, remove the extra ref count so
+    // the scavenger will clean it up.  Anonymous failures
+    // are also cleaned up by the scavenger.
+    //
+
+    if ( !NT_SUCCESS( Status ) ) {
+
+        if ( pScb ) {
+            NwDereferenceScb( pScb->pNpScb );
+        }
+
+        //
+        // We must not change the irp context pointers if we're going
+        // to fail this call or we may screw up ref counts and what not.
+        //
+
+        pIrpContext->pNpScb = pOriginalNpScb;
+        pIrpContext->pScb = pOriginalScb;
+        *Scb = NULL;
+
+        DebugTrace( -1, Dbg, "CreateScb: Status = %08lx\n", Status );
+        return Status;
+    }
+
+    //
+    // If ConnectScb succeeds, then we must have an scb, the scb must
+    // be in the IN_USE state (or LOGIN_REQUIRED if DeferLogon was
+    // specified), it must be referenced, and we should not be on the
+    // queue.
+    //
+
+    ASSERT( pScb );
+    ASSERT( !BooleanFlagOn( pIrpContext->Flags, IRP_FLAG_ON_SCB_QUEUE ) );
+    ASSERT( pIrpContext->pNpScb == pScb->pNpScb );
+    ASSERT( pIrpContext->pScb == pScb );
+    ASSERT( pScb->pNpScb->Reference > 0 );
+
+    *Scb = pScb;
+    DebugTrace(-1, Dbg, "CreateScb -> pScb = %08lx\n", pScb );
+    ASSERT( NT_SUCCESS( Status ) );
+
     return Status;
 }
 
@@ -948,10 +1859,12 @@ Return Value:
 {
     NTSTATUS Status;
     ULONG Attempts;
-    BOOLEAN FoundServer;
-    PNONPAGED_SCB pNearestNpScb;
+    BOOLEAN FoundServer = FALSE;
+    PNONPAGED_SCB pNearestNpScb = NULL;
+    PNONPAGED_SCB pLastNpScb = NULL;
 
-    BOOLEAN SentFindNearest;
+    BOOLEAN SentFindNearest = FALSE;
+    BOOLEAN SentGeneral = FALSE;
     PMDL ReceiveMdl = NULL;
     PUCHAR ReceiveBuffer = NULL;
     IPXaddress  ServerAddress;
@@ -960,15 +1873,12 @@ Return Value:
     BOOLEAN AllocatedIrpContext = FALSE;
     PIRP_CONTEXT pNewIrpContext;
     int ResponseCount;
+    int NewServers;
 
     static LARGE_INTEGER TimeoutWait = {0,0};
     LARGE_INTEGER Now;
 
     PAGED_CODE();
-
-    FoundServer = FALSE;
-    SentFindNearest = FALSE;
-    pNearestNpScb = NULL;
 
     //
     //  If we had a SAP timeout less than 10 seconds ago, just fail this
@@ -976,7 +1886,7 @@ Return Value:
     //
 
     KeQuerySystemTime( &Now );
-    if ( LiLtr( Now, TimeoutWait ) ) {
+    if ( Now.QuadPart < TimeoutWait.QuadPart ) {
         ExRaiseStatus( STATUS_BAD_NETWORK_PATH );
     }
 
@@ -993,7 +1903,6 @@ Return Value:
                  pNpScb->State == SCB_STATE_RECONNECT_REQUIRED ) {
 
                 return pNpScb;
-
             }
 
             //
@@ -1001,7 +1910,26 @@ Return Value:
             //  we are really interested in.
             //
 
-            pNearestNpScb = SelectConnection( pNearestNpScb );
+            if (pLastNpScb) {
+
+                //
+                //  For some reason we couldn't use pNearestScb. Scan from this
+                //  server onwards.
+                //
+
+                pNearestNpScb = SelectConnection( pLastNpScb );
+
+                //  Allow pLastNpScb to be deleted.
+
+                NwDereferenceScb( pLastNpScb );
+
+                pLastNpScb = NULL;
+
+            } else {
+
+                pNearestNpScb = SelectConnection( NULL );
+
+            }
 
             if ( pNearestNpScb == NULL ) {
 
@@ -1012,7 +1940,8 @@ Return Value:
                 //  entry in the server list, it's time to give up.
                 //
 
-                if ( SentFindNearest ) {
+                if (( SentFindNearest) &&
+                    ( SentGeneral )) {
 
                     Error(
                         EVENT_NWRDR_NO_SERVER_ON_NETWORK,
@@ -1052,6 +1981,9 @@ Return Value:
                 //
 
                 pNewIrpContext->Specific.Create.FindNearestResponseCount = 0;
+                NewServers = 0;
+
+
                 ReceiveBuffer = ALLOCATE_POOL_EX(
                                     NonPagedPool,
                                     MAX_SAP_RESPONSE_SIZE );
@@ -1071,34 +2003,63 @@ Return Value:
                 (VOID)GetTickCount( pNewIrpContext, &NwPermanentNpScb.TickCount );
                 NwPermanentNpScb.SendTimeout = NwPermanentNpScb.TickCount + 10;
 
-                //
-                //  Send a find nearest SAP, and wait for up to several
-                //  responses. This allows us to handle a busy server
-                //  that responds quickly to SAPs but will not accept
-                //  connections.
-                //
-
-                Status = ExchangeWithWait (
-                            pNewIrpContext,
-                            ProcessFindNearest,
-                            "Aww",
-                            SAP_FIND_NEAREST,
-                            SAP_SERVICE_TYPE_SERVER );
-
-                //
-                //  Process the set of find nearest responses.
-                //
-
-                for (i = 0; i < (int)pNewIrpContext->Specific.Create.FindNearestResponseCount; i++ ) {
-                    FspProcessFindNearest(
-                        pNewIrpContext,
-                        (PSAP_FIND_NEAREST_RESPONSE)pNewIrpContext->Specific.Create.FindNearestResponse[i] );
-                }
-
-                if ( pNewIrpContext->Specific.Create.FindNearestResponseCount == 0 ) {
+                if (!SentFindNearest) {
 
                     //
-                    //  No SAP responses.  Try a general SAP.
+                    //  Send a find nearest SAP, and wait for up to several
+                    //  responses. This allows us to handle a busy server
+                    //  that responds quickly to SAPs but will not accept
+                    //  connections.
+                    //
+
+                    Status = ExchangeWithWait (
+                                pNewIrpContext,
+                                ProcessFindNearest,
+                                "Aww",
+                                SAP_FIND_NEAREST,
+                                SAP_SERVICE_TYPE_SERVER );
+
+                    if ( Status == STATUS_NETWORK_UNREACHABLE ) {
+                       
+                        //
+                        // IPX is not bound to anything that is currently
+                        // up (which means it's probably bound only to the
+                        // RAS WAN wrapper).  Don't waste 20 seconds trying
+                        // to find a server.
+                        //
+                        
+                        DebugTrace( 0, Dbg, "Aborting FindNearest.  No Net.\n", 0 );
+                        NwDequeueIrpContext( pNewIrpContext, FALSE );
+                        ExRaiseStatus( STATUS_NETWORK_UNREACHABLE );
+                    }
+
+                    //
+                    //  Process the set of find nearest responses.
+                    //
+
+                    for (i = 0; i < (int)pNewIrpContext->Specific.Create.FindNearestResponseCount; i++ ) {
+                        if (ProcessFindNearestEntry(
+                                pNewIrpContext,
+                                (PSAP_FIND_NEAREST_RESPONSE)pNewIrpContext->Specific.Create.FindNearestResponse[i] )
+                            ) {
+
+                            //
+                            //  We found a server that was previously unknown.
+                            //
+
+                            NewServers++;
+                        }
+                    }
+                }
+
+                if (( !NewServers ) &&
+                    ( !SentGeneral)){
+
+                    SentGeneral = TRUE;
+
+                    //
+                    //  Either no SAP responses or can't connect to nearest servers.
+                    //  Try a general SAP.
                     //
 
                     ReceiveMdl = ALLOCATE_MDL(
@@ -1135,7 +2096,7 @@ Return Value:
                         }
 
                         for ( i = 0; i < ResponseCount; i++ ) {
-                            FspProcessFindNearest(
+                            ProcessFindNearestEntry(
                                 pNewIrpContext,
                                 (PSAP_FIND_NEAREST_RESPONSE)(pNewIrpContext->rsp + SAP_RECORD_SIZE * i)  );
                         }
@@ -1171,7 +2132,7 @@ Return Value:
                     //
 
                     KeQuerySystemTime( &TimeoutWait );
-                    TimeoutWait = LiAdd( TimeoutWait, LiXMul( NwOneSecond, 10 ) );
+                    TimeoutWait.QuadPart += NwOneSecond * 10;
 
                     ExRaiseStatus( Status );
                     return NULL;
@@ -1202,10 +2163,12 @@ Return Value:
 
                     //
                     //  We have no connection to this server, try to
-                    //  connect now.
+                    //  connect now.  This is not a valid path for an
+                    //  anonymous create, so there's no chance that
+                    //  there will be a name collision.
                     //
 
-                    Status = ConnectToServer( pNewIrpContext );
+                    Status = ConnectToServer( pNewIrpContext, NULL );
                     if ( !NT_SUCCESS( Status ) ) {
 
                         //
@@ -1214,7 +2177,12 @@ Return Value:
                         //
 
                         NwDequeueIrpContext( pNewIrpContext, FALSE );
-                        NwDereferenceScb( pNearestNpScb );
+
+                        //  Keep pNearestScb referenced
+                        //  so it doesn't disappear.
+
+                        pLastNpScb = pNearestNpScb;
+
                         continue;
 
                     } else {
@@ -1224,6 +2192,12 @@ Return Value:
 
                     }
                 }
+
+                //
+                // update the last used time for this SCB.
+                //
+
+                KeQuerySystemTime( &pNearestNpScb->LastUsedTime );
 
                 if (( pNpScb == NULL ) ||
                     ( ServerName == NULL )) {
@@ -1253,7 +2227,7 @@ Return Value:
                     //  bindery, disconnect now.
                     //
 
-                    if ( ConnectedToNearest ) {
+                    if ( ConnectedToNearest && NT_SUCCESS(Status) ) {
                         ExchangeWithWait (
                             pNewIrpContext,
                             SynchronousResponseCallback,
@@ -1294,18 +2268,22 @@ Return Value:
                     } else {
 
                         NwDequeueIrpContext( pNewIrpContext, FALSE );
-                        NwDereferenceScb( pNearestNpScb );
 
                         if ( Status == STATUS_REMOTE_NOT_LISTENING ) {
 
                             //
                             //  This server is no longer talking to us.
-                            //  Try again.
+                            //  Try again. Keep pNearestScb referenced
+                            //  so it doesn't disappear.
                             //
+
+                            pLastNpScb = pNearestNpScb;
 
                             continue;
 
                         } else {
+
+                            NwDereferenceScb( pNearestNpScb );
 
                             //
                             //  This nearest server doesn't know about
@@ -1323,6 +2301,7 @@ Return Value:
         } // for
 
     } finally {
+
         if ( ReceiveBuffer != NULL ) {
             FREE_POOL( ReceiveBuffer );
         }
@@ -1331,9 +2310,14 @@ Return Value:
             FREE_MDL( ReceiveMdl );
         }
 
-        if ( AllocateIrpContext ) {
+        if ( AllocatedIrpContext ) {
             NwFreeExtraIrpContext( pNewIrpContext );
         }
+
+        if (pLastNpScb) {
+            NwDereferenceScb( pLastNpScb );
+        }
+
     }
 
     if ( !FoundServer ) {
@@ -1386,7 +2370,7 @@ Return Value:
 #if NWDBG
         pIrpContext->DebugValue = 0x101;
 #endif
-        KeSetEvent( &pIrpContext->Event, 0, FALSE );
+        NwSetIrpContextEvent( pIrpContext );
         DebugTrace(-1, Dbg, "ProcessFindNearest -> %08lx\n", STATUS_REMOTE_NOT_LISTENING);
         KeReleaseSpinLock( &ScbSpinLock, OldIrql );
         return STATUS_REMOTE_NOT_LISTENING;
@@ -1425,7 +2409,7 @@ Return Value:
             pIrpContext->DebugValue = 0x102;
 #endif
             pIrpContext->ResponseParameters.Error = 0;
-            KeSetEvent( &pIrpContext->Event, 0, FALSE );
+            NwSetIrpContextEvent( pIrpContext );
 
         } else {
             pIrpContext->pNpScb->OkToReceive = TRUE;
@@ -1446,8 +2430,8 @@ Return Value:
     return( STATUS_SUCCESS );
 }
 
-NTSTATUS
-FspProcessFindNearest(
+BOOLEAN
+ProcessFindNearestEntry(
     PIRP_CONTEXT IrpContext,
     PSAP_FIND_NEAREST_RESPONSE FindNearestResponse
     )
@@ -1458,11 +2442,11 @@ FspProcessFindNearest(
     NTSTATUS Status;
     PSCB pScb;
     PNONPAGED_SCB pNpScb = NULL;
-    BOOLEAN ExistingScb;
+    BOOLEAN ExistingScb = TRUE;
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "FspProcessFindNearest\n", 0);
+    DebugTrace(+1, Dbg, "ProcessFindNearestEntry\n", 0);
 
     ServerName.Buffer = NULL;
     UidServerName.Buffer = NULL;
@@ -1542,23 +2526,38 @@ try_exit: NOTHING;
     }
 
     //
-    //  Return PENDING so that the FSP dispatch routine
+    //  Tell the caller if we created a new Scb
     //
 
-    DebugTrace(-1, Dbg, "FspProcessFindNearest ->%08lx\n", STATUS_PENDING );
-    return STATUS_PENDING;
+
+    if (ExistingScb) {
+        DebugTrace(-1, Dbg, "ProcessFindNearestEntry ->%08lx\n", FALSE );
+        return FALSE;
+    } else {
+        DebugTrace(-1, Dbg, "ProcessFindNearestEntry ->%08lx\n", TRUE );
+        return TRUE;
+    }
 }
 
 
 NTSTATUS
 ConnectToServer(
-    IN struct _IRP_CONTEXT* pIrpContext
+    IN struct _IRP_CONTEXT* pIrpContext,
+    OUT PSCB *pScbCollision
     )
 /*++
 
 Routine Description:
 
-    This routine transfers connect and negotiate buffer NCPs to the server
+    This routine transfers connect and negotiate buffer NCPs to the server.
+
+    This routine may be called upon to connect an anonymous scb.  Upon
+    learning the name of the anonymous scb, it will determine if another
+    create has completed while the name lookup was in progress.  If it has,
+    then the routine will refer the called to that new scb.  Otherwise, the
+    scb will be entered onto the scb list and used normally.  The RCB
+    protects the scb list by name only.  For more info, see the comment
+    in CreateScb().
 
 Arguments:
 
@@ -1570,9 +2569,25 @@ Return Value:
 
 --*/
 {
-    NTSTATUS Status;
+    NTSTATUS Status, BurstStatus;
     PNONPAGED_SCB pNpScb = pIrpContext->pNpScb;
     PSCB pScb = pNpScb->pScb;
+    BOOLEAN AnonymousScb = IS_ANONYMOUS_SCB( pScb );
+    ULONG MaxSafeSize ;
+    BOOLEAN LIPNegotiated ;
+    PLOGON Logon;
+
+    OEM_STRING OemServerName;
+    UNICODE_STRING ServerName;
+    UNICODE_STRING CredentialName;
+    PUNICODE_STRING puConnectName;
+    BYTE OemName[MAX_SERVER_NAME_LENGTH];
+    WCHAR Server[MAX_SERVER_NAME_LENGTH];
+    KIRQL OldIrql;
+    UNICODE_STRING UidServerName;
+    BOOLEAN Success;
+    PLIST_ENTRY ScbQueueEntry;
+    PUNICODE_PREFIX_TABLE_ENTRY PrefixEntry;
 
     PAGED_CODE();
 
@@ -1597,7 +2612,7 @@ Return Value:
     pNpScb->NwLoopTime = pNpScb->NwSingleBurstPacketTime = pNpScb->SendTimeout;
     pNpScb->NwReceiveDelay = pNpScb->NwSendDelay = 0;
 
-    pNpScb->NtSendDelay = LiFromLong( 0 );
+    pNpScb->NtSendDelay.QuadPart = 0;
 
     //
     //  Request connection
@@ -1617,6 +2632,8 @@ Return Value:
 #else
             Status = STATUS_REMOTE_SESSION_LIMIT;
 #endif
+            pNpScb->State = SCB_STATE_ATTACHING;
+
         } else if ( Status == STATUS_REMOTE_NOT_LISTENING ) {
 
             //
@@ -1649,14 +2666,218 @@ Return Value:
         Status = ParseResponse( pIrpContext,
                                 pIrpContext->rsp,
                                 pIrpContext->ResponseLength,
-                                "N_bb",
-                                MAX_SERVER_NAME_LENGTH,   // Server name
+                                "Nrbb",
+                                OemName,
+                                MAX_SERVER_NAME_LENGTH,
                                 &pScb->MajorVersion,
                                 &pScb->MinorVersion );
     }
 
     if (!NT_SUCCESS(Status)) {
         return(Status);
+    }
+
+    //
+    // If this was an anonymous SCB, we need to check the name
+    // for a create collision before we do anything else.
+    //
+
+    if ( AnonymousScb ) {
+
+        //
+        // Grab the RCB to protect the server prefix table.  We've
+        // spent the time sending the packet to look up the server
+        // name so we are a little greedy with the RCB to help
+        // minimize the chance of a collision.
+        //
+
+        NwAcquireExclusiveRcb( &NwRcb, TRUE );
+
+        //
+        // Make the uid server name.
+        //
+
+        OemServerName.Buffer = OemName;
+        OemServerName.Length = 0;
+        OemServerName.MaximumLength = sizeof( OemName );
+
+        while ( ( OemServerName.Length < MAX_SERVER_NAME_LENGTH ) &&
+                ( OemName[OemServerName.Length] != '\0' ) ) {
+            OemServerName.Length++;
+        }
+
+        ServerName.Buffer = Server;
+        ServerName.MaximumLength = sizeof( Server );
+        ServerName.Length = 0;
+
+        RtlOemStringToUnicodeString( &ServerName,
+                                     &OemServerName,
+                                     FALSE );
+
+        //
+        // If this is an extended credential create, munge the server name.
+        //
+
+        RtlInitUnicodeString( &CredentialName, NULL );
+
+        if ( pIrpContext->Specific.Create.fExCredentialCreate ) {
+
+            Status = BuildExCredentialServerName( &ServerName,
+                                                  pIrpContext->Specific.Create.puCredentialName,
+                                                  &CredentialName );
+
+            if ( !NT_SUCCESS( Status ) ) {
+                NwReleaseRcb( &NwRcb );
+                return Status;
+            }
+
+            puConnectName = &CredentialName;
+
+        } else {
+
+            puConnectName = &ServerName;
+        }
+
+        //
+        // Tack on the uid.
+        //
+
+        Status = MakeUidServer( &UidServerName,
+                                &pScb->UserUid,
+                                puConnectName );
+
+        if ( CredentialName.Buffer ) {
+            FREE_POOL( CredentialName.Buffer );
+        }
+
+        if ( !NT_SUCCESS( Status ) ) {
+            NwReleaseRcb( &NwRcb );
+            return Status;
+        }
+
+        //
+        // Actually do the look up in the prefix table.
+        //
+
+        PrefixEntry = RtlFindUnicodePrefix( &NwRcb.ServerNameTable, &UidServerName, 0 );
+
+        if ( PrefixEntry != NULL ) {
+
+            //
+            // There was a collision with this anonymous create.  Dump
+            // the anonymous scb and pick up the new one.
+            //
+
+            NwReleaseRcb( &NwRcb );
+            DebugTrace( 0, DEBUG_TRACE_ALWAYS, "Anonymous create collided for %wZ.\n", &UidServerName );
+
+            //
+            // Disconnect this connection so we don't clutter the server.
+            //
+
+            ExchangeWithWait ( pIrpContext,
+                               SynchronousResponseCallback,
+                               "D-" );
+
+            FREE_POOL( UidServerName.Buffer );
+
+            //
+            // Since there was a collision, we know for a fact that there's another
+            // good SCB for this server somewhere.  We set the state on this anonymous
+            // SCB to SCB_STATE_FLAG_SHUTDOWN so that no one ever plays with the
+            // anonymous SCB again.  The scavenger will clean it up soon.
+            //
+
+            pNpScb->State = SCB_STATE_FLAG_SHUTDOWN;
+
+            if ( pScbCollision ) {
+                *pScbCollision = CONTAINING_RECORD( PrefixEntry, SCB, PrefixEntry );
+                NwReferenceScb( (*pScbCollision)->pNpScb );
+                return STATUS_SUCCESS;
+            } else {
+                 DebugTrace( 0, Dbg, "Invalid path for an anonymous create.\n", 0 );
+                 return STATUS_INVALID_PARAMETER;
+            }
+
+        }
+
+        //
+        // This anonymous create didn't collide - cool!  Fill in the server
+        // name, check the preferred, server setting, and put the SCB on the
+        // SCB queue in the correct location.  This code is similar to pieces
+        // of code in NwAllocateAndInitScb() and NwFindScb().
+        //
+
+        DebugTrace( 0, Dbg, "Completing anonymous create for %wZ!\n", &UidServerName );
+
+        RtlCopyUnicodeString ( &pScb->UidServerName, &UidServerName );
+        pScb->UidServerName.Buffer[ UidServerName.Length / sizeof( WCHAR ) ] = L'\0';
+
+        pScb->UnicodeUid = pScb->UidServerName;
+        pScb->UnicodeUid.Length = UidServerName.Length -
+                                  puConnectName->Length -
+                                  sizeof(WCHAR);
+
+        //
+        //  Make ServerName point partway down the buffer for UidServerName
+        //
+
+        pNpScb->ServerName.Buffer = (PWSTR)((PUCHAR)pScb->UidServerName.Buffer +
+                                    UidServerName.Length - puConnectName->Length);
+
+        pNpScb->ServerName.MaximumLength = puConnectName->Length;
+        pNpScb->ServerName.Length = puConnectName->Length;
+
+        //
+        // Determine if this is our preferred server.
+        //
+
+        Logon = FindUser( &pScb->UserUid, FALSE );
+
+        if (( Logon != NULL) &&
+            (RtlCompareUnicodeString( puConnectName, &Logon->ServerName, TRUE ) == 0 )) {
+           pScb->PreferredServer = TRUE;
+           NwReferenceScb( pNpScb );
+        }
+
+        FREE_POOL( UidServerName.Buffer );
+
+        //
+        //  Insert the name of this server into the prefix table.
+        //
+
+        Success = RtlInsertUnicodePrefix( &NwRcb.ServerNameTable,
+                                          &pScb->UidServerName,
+                                          &pScb->PrefixEntry );
+
+#ifdef NWDBG
+        if ( !Success ) {
+            DebugTrace( 0, DEBUG_TRACE_ALWAYS, "Entering duplicate SCB %wZ.\n", &pScb->UidServerName );
+            DbgBreakPoint();
+        }
+#endif
+
+        //
+        // This create is complete, release the RCB.
+        //
+
+        NwReleaseRcb( &NwRcb );
+
+        //
+        // If this is our preferred server, we have to move this guy
+        // to the head of the scb list.  We do this after the create
+        // because we can't acquire the ScbSpinLock while holding the
+        // RCB.
+        //
+
+        if ( pScb->PreferredServer ) {
+
+            KeAcquireSpinLock(&ScbSpinLock, &OldIrql);
+            RemoveEntryList( &pNpScb->ScbLinks );
+            InsertHeadList( &ScbQueue, &pNpScb->ScbLinks );
+            KeReleaseSpinLock( &ScbSpinLock, OldIrql );
+        }
+
     }
 
     if ( pScb->MajorVersion == 2 ) {
@@ -1679,6 +2900,8 @@ Return Value:
         Stats.NW4xConnects++;
         pNpScb->PageAlign = FALSE;
 
+        NdsPing( pIrpContext, pScb );
+
     }
 
     //
@@ -1689,28 +2912,29 @@ Return Value:
     Status = GetMaximumPacketSize( pIrpContext, &pNpScb->Server, &pNpScb->MaxPacketSize );
 
     //
-    //  If the tranport won't tell us, pick the largest size that
+    //  If the transport won't tell us, pick the largest size that
     //  is guaranteed to work.
     //
-
     if ( !NT_SUCCESS( Status ) ) {
         pNpScb->BufferSize = DEFAULT_PACKET_SIZE;
         pNpScb->MaxPacketSize = DEFAULT_PACKET_SIZE;
     } else {
         pNpScb->BufferSize = (USHORT)pNpScb->MaxPacketSize;
-        pNpScb->MaxPacketSize -= sizeof( NCP_BURST_WRITE_REQUEST );
     }
+    MaxSafeSize = pNpScb->MaxPacketSize ;
 
     //
-    //  Negotiate a burst mode connection
+    //  Negotiate a burst mode connection. Keep track of that status.
     //
 
-    Status = NegotiateBurstMode( pIrpContext, pNpScb );
+    Status = NegotiateBurstMode( pIrpContext, pNpScb, &LIPNegotiated );
+    BurstStatus = Status ;
 
-    if (!NT_SUCCESS(Status)) {
+    if (!NT_SUCCESS(Status) || !LIPNegotiated) {
 
         //
-        //  Negotiate buffer size with server
+        //  Negotiate buffer size with server if we didnt do burst
+        //  sucessfully or if burst succeeded but we didnt do LIP.
         //
 
         DebugTrace( +0, Dbg, "Negotiate Buffer Size\n", 0);
@@ -1731,6 +2955,67 @@ Return Value:
                                     "Nw",
                                     &pNpScb->BufferSize );
 
+            //
+            // Dont allow the server to fool us into using a
+            // packet size bigger than what the media can support.
+            // We have at least one case of server returning 4K while
+            // on ethernet.
+            //
+            // Use PacketThreshold so that the PacketAdjustment can be
+            // avoided on small packet sizes such as those on ethernet.
+            //
+
+            if (MaxSafeSize > (ULONG)PacketThreshold) {
+                MaxSafeSize -= (ULONG)LargePacketAdjustment;
+            }
+
+            //
+            // If larger than number we got from transport, taking in account
+            // IPX header (30) & NCP header (BURST_RESPONSE is a good worst
+            // case), we adjust accordingly.
+            //
+            if (pNpScb->BufferSize >
+                    (MaxSafeSize - (30 + sizeof(NCP_BURST_READ_RESPONSE))))
+            {
+                pNpScb->BufferSize = (USHORT)
+                    (MaxSafeSize - (30 + sizeof(NCP_BURST_READ_RESPONSE))) ;
+            }
+
+            //
+            //  An SFT III server responded with a BufferSize of 0!
+            //
+
+            pNpScb->BufferSize = MAX(pNpScb->BufferSize,DEFAULT_PACKET_SIZE);
+
+            //
+            // If an explicit registry default was set, we honour that.
+            // Note that this only applies in the 'default' case, ie. we
+            // didnt negotiate LIP successfully. Typically, we dont
+            // expect to use this, because the server will drop to 512 if
+            // it finds routers in between. But if for some reason the server
+            // came back with a number that was higher than what some router
+            // in between can take, we have this as manual override.
+            //
+
+            if (DefaultMaxPacketSize != 0)
+            {
+                pNpScb->BufferSize = MIN (pNpScb->BufferSize,
+                                          (USHORT)DefaultMaxPacketSize) ;
+            }
+        }
+
+        if (NT_SUCCESS(BurstStatus)) {
+            //
+            // We negotiated burst but not LIP. Save the packet size we
+            // have from above and renegotiate the burst so that the
+            // server knows how much it can send to us. And then take
+            // the minimum of the two to make sure we are safe.
+            //
+            USHORT SavedPacketSize =  pNpScb->BufferSize ;
+
+            Status = NegotiateBurstMode( pIrpContext, pNpScb, &LIPNegotiated );
+
+            pNpScb->BufferSize = MIN(pNpScb->BufferSize,SavedPacketSize) ;
         }
     }
 
@@ -1741,7 +3026,8 @@ Return Value:
 NTSTATUS
 NegotiateBurstMode(
     PIRP_CONTEXT pIrpContext,
-    PNONPAGED_SCB pNpScb
+    PNONPAGED_SCB pNpScb,
+    BOOLEAN *LIPNegotiated
     )
 /*++
 
@@ -1766,6 +3052,12 @@ Return Value:
     NTSTATUS Status;
 
     PAGED_CODE();
+
+    *LIPNegotiated = FALSE ;
+
+    if (pNpScb->MaxPacketSize == DEFAULT_PACKET_SIZE) {
+        return STATUS_NOT_SUPPORTED;
+    }
 
     if ( NwBurstModeEnabled ) {
 
@@ -1796,13 +3088,20 @@ Return Value:
                          "Ned",
                          &pNpScb->DestinationConnectionId,
                          &pNpScb->MaxPacketSize );
+
+            if (pNpScb->MaxPacketSize <= DEFAULT_PACKET_SIZE) {
+                pNpScb->MaxPacketSize = DEFAULT_PACKET_SIZE;
+            }
         }
 
         if ( NT_SUCCESS( Status )) {
 
-            GetMaxPacketSize( pIrpContext, pNpScb );
+            if (NT_SUCCESS(GetMaxPacketSize( pIrpContext, pNpScb ))) {
+                *LIPNegotiated = TRUE ;
+            }
 
-            pNpScb->BurstModeEnabled = TRUE;
+            pNpScb->SendBurstModeEnabled = TRUE;
+            pNpScb->ReceiveBurstModeEnabled = TRUE;
 
             //
             //  Use this size as the max read and write size instead of
@@ -1851,6 +3150,8 @@ Return Value:
 
     PAGED_CODE();
 
+    DebugTrace( 0, DEBUG_TRACE_LIP, "Re-negotiating burst mode.\n", 0);
+
     pNpScb->SourceConnectionId = rand();
     pNpScb->MaxSendSize = NwMaxSendSize;
     pNpScb->MaxReceiveSize = NwMaxReceiveSize;
@@ -1883,13 +3184,15 @@ Return Value:
         //
 
         pNpScb->MaxPacketSize -= 66;
+
     }
 
-    if ( !NT_SUCCESS( Status )) {
+    if ( !NT_SUCCESS( Status ) ||
+         (pNpScb->MaxPacketSize <= DEFAULT_PACKET_SIZE)) {
 
-        //  Never seen this happen but just in-case
-
-        pNpScb->BurstModeEnabled = FALSE;
+        pNpScb->MaxPacketSize = DEFAULT_PACKET_SIZE;
+        pNpScb->SendBurstModeEnabled = FALSE;
+        pNpScb->ReceiveBurstModeEnabled = FALSE;
 
     } else {
 
@@ -1905,7 +3208,7 @@ Return Value:
 }
 
 
-VOID
+NTSTATUS
 GetMaxPacketSize(
     PIRP_CONTEXT pIrpContext,
     PNONPAGED_SCB pNpScb
@@ -1931,10 +3234,11 @@ Return Value:
 --*/
 {
     PUSHORT Buffer = NULL;
+    int index, value;
     PMDL PartialMdl = NULL, FullMdl = NULL;
     PMDL ReceiveMdl;
     NTSTATUS Status;
-    USHORT EchoSocket;
+    USHORT EchoSocket, LipPacketSize = 0;
     int MinPacketSize, MaxPacketSize, CurrentPacketSize;
     ULONG RxMdlLength = MdlLength(pIrpContext->RxMdl);  //  Save so we can restore it on exit.
 
@@ -1964,20 +3268,39 @@ Return Value:
                      pIrpContext->rsp,
                      pIrpContext->ResponseLength,
                      "Nwx",
-                     &pNpScb->MaxPacketSize,
+                     &LipPacketSize,
                      &EchoSocket );
     }
 
-    if ( !NT_SUCCESS( Status ) ) {
+      //
+      //  Speedup RAS
+      //
+
+      MaxPacketSize = (int) LipPacketSize - LipPacketAdjustment ;
+
+    if (( !NT_SUCCESS( Status )) ||
+        ( MaxPacketSize <= DEFAULT_PACKET_SIZE ) ||
+        ( EchoSocket == 0 )) {
 
         //
         //  The server does not support LIP.
+        //  Portable NW gives no error but socket 0.
+        //  We have a report of a 3.11 server returning MaxPacketSize 0
         //
 
-        return;
+        return STATUS_NOT_SUPPORTED;
     }
 
-    MaxPacketSize = pNpScb->MaxPacketSize;
+    //
+    // Account for the IPX header, which is not counted in
+    // the reported packet size.  This causes problems for
+    // servers with poorly written net card drivers that
+    // abend when they get an oversize packet.
+    //
+    // This was reported by Richard Florance (richfl).
+    //
+
+    MaxPacketSize -= 30;
 
     pNpScb->EchoCounter = MaxPacketSize;
 
@@ -1993,8 +3316,6 @@ Return Value:
 
     try {
 
-        int index;
-
         Buffer = ALLOCATE_POOL_EX( NonPagedPool, MaxPacketSize );
 
         //
@@ -2003,8 +3324,8 @@ Return Value:
         //  transmission times.
         //
 
-        for (index = 0; index < MaxPacketSize/2; index++) {
-            Buffer[index] = index;
+        for (index = 0, value = 0; index < MaxPacketSize/2; index++, value++) {
+            Buffer[index] = value;
         }
 
         FullMdl = ALLOCATE_MDL( Buffer, MaxPacketSize, TRUE, FALSE, NULL );
@@ -2036,7 +3357,7 @@ Return Value:
             FREE_MDL( FullMdl );
         }
 
-        return;
+        return STATUS_NOT_SUPPORTED;
     }
 
     MmBuildMdlForNonPagedPool( FullMdl );
@@ -2048,10 +3369,6 @@ Return Value:
     pIrpContext->RxMdl->ByteCount = sizeof( NCP_RESPONSE ) + sizeof(ULONG);
     MmBuildMdlForNonPagedPool( ReceiveMdl );
     pIrpContext->RxMdl->Next = ReceiveMdl;
-
-    if ( MaxPacketSize == 1470 ) {
-        MaxPacketSize = 1463;
-    }
 
     CurrentPacketSize = MaxPacketSize;
     MinPacketSize = DEFAULT_PACKET_SIZE;
@@ -2085,6 +3402,14 @@ Return Value:
 
         pIrpContext->pTdiStruct = &pIrpContext->pNpScb->Echo;
 
+        //
+        // Short-circuit the even better RAS compression.
+        //
+
+        for ( index = 0; index < MaxPacketSize/2; index++, value++) {
+            Buffer[index] = value;
+        }
+
         KeQuerySystemTime( &StartTime );
 
         Status = ExchangeWithWait(
@@ -2098,11 +3423,13 @@ Return Value:
         if (( Status != STATUS_REMOTE_NOT_LISTENING ) ||
             ( SecondTime )) {
 
-            DebugTrace( 0, DEBUG_TRACE_LIP, "Response received %08lx\n", Status);
-            MinPacketSize = CurrentPacketSize;
             KeQuerySystemTime( &Now );
+            DebugTrace( 0, DEBUG_TRACE_LIP, "Response received %08lx\n", Status);
+
             if (!SecondTime) {
-                FirstPing = LiSub( Now, StartTime );
+
+                MinPacketSize = CurrentPacketSize;
+                FirstPing.QuadPart = Now.QuadPart - StartTime.QuadPart;
             }
 
         } else {
@@ -2115,7 +3442,7 @@ Return Value:
         MmPrepareMdlForReuse( PartialMdl );
 
 
-        if ((  MaxPacketSize - MinPacketSize <= BURST_PACKET_SIZE_TOLERANCE ) ||
+        if ((  MaxPacketSize - MinPacketSize <= LipAccuracy ) ||
             (  SecondTime )) {
 
             //
@@ -2128,14 +3455,13 @@ Return Value:
 
             if ( SecondTime) {
 
-                SecondPing = LiSub( Now, StartTime );
+                SecondPing.QuadPart = Now.QuadPart - StartTime.QuadPart;
                 break;
 
             } else {
                 SecondTime = TRUE;
-                //  MaxPacketSize is now the size we will use.
-                MaxPacketSize = CurrentPacketSize;
-                CurrentPacketSize = sizeof(NCP_RESPONSE) + sizeof(ULONG) * 2; //  Use a small packet size
+                //  Use a small packet size to verify that the server is still up.
+                CurrentPacketSize = sizeof(NCP_RESPONSE) + sizeof(ULONG) * 2;
             }
 
         } else {
@@ -2167,91 +3493,152 @@ Return Value:
         }
     }
 
-    DebugTrace( 0, DEBUG_TRACE_LIP, "Set maximum burst packet size to %d\n", MaxPacketSize );
+    DebugTrace( 0, DEBUG_TRACE_LIP, "Set maximum burst packet size to %d\n", MinPacketSize );
     DebugTrace( 0, DEBUG_TRACE_LIP, "FirstPing  H = %08lx\n", FirstPing.HighPart );
     DebugTrace( 0, DEBUG_TRACE_LIP, "FirstPing  L = %08lx\n", FirstPing.LowPart );
     DebugTrace( 0, DEBUG_TRACE_LIP, "SecondPing H = %08lx\n", SecondPing.HighPart );
     DebugTrace( 0, DEBUG_TRACE_LIP, "SecondPing L = %08lx\n", SecondPing.LowPart );
 
-    temp = LiSub( FirstPing, SecondPing );
+    //
+    // Avoid a divide by zero error if something bad happened.
+    //
 
-    if (LiGtrZero(temp)) {
+    if ( FirstPing.QuadPart != 0 ) {
+        pNpScb->LipDataSpeed = (ULONG) ( ( (LONGLONG)MinPacketSize * (LONGLONG)1600000 )
+                                         / FirstPing.QuadPart );
+    } else {
+        pNpScb->LipDataSpeed = 0;
+    }
+
+    DebugTrace( 0, DEBUG_TRACE_LIP, "LipDataSpeed: %d\n", pNpScb->LipDataSpeed );
+
+    if ((NT_SUCCESS(Status)) &&
+        ( MinPacketSize > DEFAULT_PACKET_SIZE )) {
+
+        temp.QuadPart = FirstPing.QuadPart - SecondPing.QuadPart;
+
+        if (temp.QuadPart > 0) {
+
+            //
+            //  Convert to single trip instead of both ways.
+            //
+
+            temp.QuadPart = temp.QuadPart / (2 * 1000);
+
+        } else {
+
+            //
+            //  Small packet ping is slower or the same speed as the big ping.
+            //  We can't time a small enough interval so go for no delay at all.
+            //
+
+            temp.QuadPart = 0;
+
+        }
+
+
+        ASSERT(temp.HighPart == 0);
+
+        pNpScb->NwGoodSendDelay = pNpScb->NwBadSendDelay = pNpScb->NwSendDelay =
+            MAX(temp.LowPart, (ULONG)MinSendDelay);
+
+        pNpScb->NwGoodReceiveDelay = pNpScb->NwBadReceiveDelay = pNpScb->NwReceiveDelay =
+            MAX(temp.LowPart, (ULONG)MinReceiveDelay);
 
         //
-        //  Convert to single trip instead of both ways.
+        //  Time for a big packet to go one way.
         //
 
-        temp = LiShr(temp, 1);
+        pNpScb->NwSingleBurstPacketTime = pNpScb->NwReceiveDelay;
+
+        pNpScb->NtSendDelay.QuadPart = pNpScb->NwReceiveDelay * -1000;
+
+
+        //
+        //  Maximum that SendDelay is allowed to reach
+        //
+
+        pNpScb->NwMaxSendDelay = MAX( 52, MIN( pNpScb->NwSendDelay, MaxSendDelay ));
+        pNpScb->NwMaxReceiveDelay = MAX( 52, MIN( pNpScb->NwReceiveDelay, MaxReceiveDelay ));
+
+        //
+        //  Time for a small packet to get to the server and back.
+        //
+
+        temp.QuadPart = SecondPing.QuadPart / 1000;
+        pNpScb->NwLoopTime = temp.LowPart;
+
+        DebugTrace( 0, DEBUG_TRACE_LIP, "Using TickCount            = %08lx\n", pNpScb->TickCount * pNpScb->MaxPacketSize);
+        DebugTrace( 0, DEBUG_TRACE_LIP, "pNpScb->NwSendDelay        = %08lx\n", pNpScb->NwSendDelay );
+        DebugTrace( 0, DEBUG_TRACE_LIP, "pNpScb->NwMaxSendDelay     = %08lx\n", pNpScb->NwMaxSendDelay );
+        DebugTrace( 0, DEBUG_TRACE_LIP, "pNpScb->NwMaxReceiveDelay  = %08lx\n", pNpScb->NwMaxReceiveDelay );
+        DebugTrace( 0, DEBUG_TRACE_LIP, "pNpScb->NwLoopTime         = %08lx\n", pNpScb->NwLoopTime );
+        DebugTrace( 0, DEBUG_TRACE_LIP, "pNpScb->NtSendDelay H      = %08lx\n", pNpScb->NtSendDelay.HighPart );
+        DebugTrace( 0, DEBUG_TRACE_LIP, "pNpScb->NtSendDelay L      = %08lx\n", pNpScb->NtSendDelay.LowPart );
+
+        //
+        //  Reset Tdi struct so that we send future NCPs from the server socket.
+        //
+
+        pIrpContext->pTdiStruct = NULL;
+
+        //
+        //  Now decouple the MDL
+        //
+
+        pIrpContext->TxMdl->Next = NULL;
+        pIrpContext->RxMdl->Next = NULL;
+        pIrpContext->RxMdl->ByteCount = RxMdlLength;
+
+        //
+        //  Calculate the maximum amount of data we can send in a burst write
+        //  packet after all the header info is stripped.
+        //
+        //  BUGBUG - This is what Novell does, but real header isn't that big
+        //           can we do better?
+        //
+
+        pNpScb->MaxPacketSize = MinPacketSize - sizeof( NCP_BURST_WRITE_REQUEST );
+
+        FREE_MDL( PartialMdl );
+        FREE_MDL( ReceiveMdl );
+        FREE_MDL( FullMdl );
+        FREE_POOL( Buffer );
+
+
+        DebugTrace( -1, DEBUG_TRACE_LIP, "GetMaxPacketSize -> VOID\n", 0);
+        return STATUS_SUCCESS;
 
     } else {
 
         //
-        //  Small packet ping is slower or the same speed as the big ping.
-        //  We can't time a small enough interval so go for no delay at all.
+        //  If the small packet couldn't echo then assume the worst.
         //
 
-        temp.HighPart = temp.LowPart = 0;
+        //
+        //  Reset Tdi struct so that we send future NCPs from the server socket.
+        //
 
+        pIrpContext->pTdiStruct = NULL;
+
+        //
+        //  Now decouple the MDL
+        //
+
+        pIrpContext->TxMdl->Next = NULL;
+        pIrpContext->RxMdl->Next = NULL;
+        pIrpContext->RxMdl->ByteCount = RxMdlLength;
+
+        FREE_MDL( PartialMdl );
+        FREE_MDL( ReceiveMdl );
+        FREE_MDL( FullMdl );
+        FREE_POOL( Buffer );
+
+
+        DebugTrace( -1, DEBUG_TRACE_LIP, "GetMaxPacketSize -> VOID\n", 0);
+        return STATUS_NOT_SUPPORTED;
     }
 
-
-    temp = LiXDiv( temp, 1000 );
-    ASSERT(temp.HighPart == 0);
-    pNpScb->NwReceiveDelay = pNpScb->NwSendDelay = temp.LowPart;
-
-    //
-    //  Time for a big packet to go one way.
-    //
-
-    pNpScb->NwSingleBurstPacketTime = pNpScb->NwReceiveDelay;
-
-    pNpScb->NtSendDelay = LiFromLong( (LONG)pNpScb->NwReceiveDelay * -1000 );
-
-
-    //
-    //  Time for a small packet to get to the server and back.
-    //
-
-    temp = LiXDiv( SecondPing, 1000 );
-    pNpScb->NwLoopTime = temp.LowPart;
-
-    DebugTrace( 0, DEBUG_TRACE_LIP, "Using TickCount       = %08lx\n", pNpScb->TickCount * pNpScb->MaxPacketSize);
-    DebugTrace( 0, DEBUG_TRACE_LIP, "pNpScb->NwSendDelay   = %08lx\n", pNpScb->NwSendDelay );
-    DebugTrace( 0, DEBUG_TRACE_LIP, "pNpScb->NwLoopTime    = %08lx\n", pNpScb->NwLoopTime );
-    DebugTrace( 0, DEBUG_TRACE_LIP, "pNpScb->NtSendDelay H = %08lx\n", pNpScb->NtSendDelay.HighPart );
-    DebugTrace( 0, DEBUG_TRACE_LIP, "pNpScb->NtSendDelay L = %08lx\n", pNpScb->NtSendDelay.LowPart );
-
-    //
-    //  Reset Tdi struct so that we send future NCPs from the server socket.
-    //
-
-    pIrpContext->pTdiStruct = NULL;
-
-    //
-    //  Now decouple the MDL
-    //
-
-    pIrpContext->TxMdl->Next = NULL;
-    pIrpContext->RxMdl->Next = NULL;
-    pIrpContext->RxMdl->ByteCount = RxMdlLength;
-
-    FREE_MDL( PartialMdl );
-    FREE_MDL( ReceiveMdl );
-    FREE_MDL( FullMdl );
-    FREE_POOL( Buffer );
-
-    //
-    //  Calculate the maximum amount of data we can send in a burst write
-    //  packet after all the header info is stripped.
-    //
-    //  BUGBUG - This is what Novell does, but real header isn't that big
-    //           can we do better?
-    //
-
-    pNpScb->MaxPacketSize = MaxPacketSize - sizeof( NCP_BURST_WRITE_REQUEST );
-
-    DebugTrace( -1, DEBUG_TRACE_LIP, "GetMaxPacketSize -> VOID\n", 0);
-    return;
 }
 
 
@@ -2333,16 +3720,21 @@ Return Value:
 --*/
 {
     PNONPAGED_SCB pNpScb;
+    BOOLEAN AnonymousScb = IS_ANONYMOUS_SCB( pScb );
 
     PAGED_CODE();
 
     DebugTrace(+1, Dbg, "NwDeleteScb...\n", 0);
 
-    DebugTrace(0, Dbg, "Cleaning up SCB %08lx\n", pScb);
-    DebugTrace(0, Dbg, "SCB is %wZ\n", &pScb->pNpScb->ServerName );
-
     pNpScb = pScb->pNpScb;
 
+    //
+    // Make sure we are not deleting a logged in connection
+    // or we will hang up the license until the server times
+    // it out.
+    //
+
+    ASSERT( pNpScb->State != SCB_STATE_IN_USE );
     ASSERT( pNpScb->Reference == 0 );
     ASSERT( !pNpScb->Sending );
     ASSERT( !pNpScb->Receiving );
@@ -2350,10 +3742,23 @@ Return Value:
     ASSERT( IsListEmpty( &pNpScb->Requests ) );
     ASSERT( IsListEmpty( &pScb->IcbList ) );
     ASSERT( pScb->IcbCount == 0 );
-    ASSERT( IsListEmpty( &pScb->ScbSpecificVcbQueue ) );
     ASSERT( pScb->VcbCount == 0 );
 
-    RtlRemoveUnicodePrefix ( &NwRcb.ServerNameTable, &pScb->PrefixEntry );
+
+    DebugTrace(0, Dbg, "Cleaning up SCB %08lx\n", pScb);
+
+    if ( AnonymousScb ) {
+        DebugTrace(0, Dbg, "SCB is anonymous\n", &pNpScb->ServerName );
+    } else {
+        ASSERT( IsListEmpty( &pScb->ScbSpecificVcbQueue ) );
+        DebugTrace(0, Dbg, "SCB is %wZ\n", &pNpScb->ServerName );
+    }
+
+    DebugTrace(0, Dbg, "SCB state is %d\n", &pNpScb->State );
+
+    if ( !AnonymousScb ) {
+        RtlRemoveUnicodePrefix ( &NwRcb.ServerNameTable, &pScb->PrefixEntry );
+    }
 
     IPX_Close_Socket( &pNpScb->Server );
     IPX_Close_Socket( &pNpScb->WatchDog );
@@ -2468,6 +3873,8 @@ Return Value:
     PLIST_ENTRY NextScbQueueEntry;
     PNONPAGED_SCB pNpScb;
 
+    DebugTrace( 0, Dbg, "NwLogoffAllServers\n", 0 );
+
     KeAcquireSpinLock( &ScbSpinLock, &OldIrql );
 
     for (ScbQueueEntry = ScbQueue.Flink ;
@@ -2497,7 +3904,7 @@ Return Value:
 
         if (( pNpScb->pScb != NULL ) &&
             (( Uid == NULL ) ||
-             ( LiEql( pNpScb->pScb->UserUid, *Uid)))) {
+             ( pNpScb->pScb->UserUid.QuadPart == (*Uid).QuadPart))) {
 
             NwLogoffAndDisconnect( pIrpContext, pNpScb );
         }
@@ -2543,6 +3950,14 @@ Return Value:
     PAGED_CODE();
 
     pIrpContext->pNpScb = pNpScb;
+    pIrpContext->pScb = pScb;
+
+    //
+    //  Queue ourselves to the SCB, and wait to get to the front to
+    //  protect access to server State.
+    //
+
+    NwAppendToQueueAndWait( pIrpContext );
 
     //
     //  If we are logging out from the preferred server, free the preferred
@@ -2559,23 +3974,19 @@ Return Value:
     //  Nothing to do if we are not connected.
     //
 
-    //
-    //  Queue ourselves to the SCB, and wait to get to the front to
-    //  protect access to server State.
-    //
-
-    NwAppendToQueueAndWait( pIrpContext );
-
-    if ( pNpScb->State == SCB_STATE_ATTACHING ||
-         pNpScb->State == SCB_STATE_DISCONNECTING ||
-         pNpScb->State == SCB_STATE_RECONNECT_REQUIRED ||
-         pNpScb->State == SCB_STATE_FLAG_SHUTDOWN ) {
+    if ( pNpScb->State != SCB_STATE_IN_USE &&
+         pNpScb->State != SCB_STATE_LOGIN_REQUIRED ) {
 
         NwDequeueIrpContext( pIrpContext, FALSE );
-
         return;
-
     }
+
+    //
+    //  If we timeout then we don't want to go to the bother of
+    //  reconnecting.
+    //
+
+    ClearFlag( pIrpContext->Flags, IRP_FLAG_RECONNECTABLE );
 
     //
     //  Logout and disconnect.
@@ -2588,7 +3999,6 @@ Return Value:
             SynchronousResponseCallback,
             "F",
             NCP_LOGOUT );
-
     }
 
     ExchangeWithWait (
@@ -2612,8 +4022,8 @@ Return Value:
 
     if ( pScb != NULL && pScb->UserName.Buffer != NULL ) {
         FREE_POOL( pScb->UserName.Buffer );
-        pScb->UserName.Buffer = NULL;
-        pScb->Password.Buffer = NULL;
+        RtlInitUnicodeString( &pScb->UserName, NULL );
+        RtlInitUnicodeString( &pScb->Password, NULL );
     }
 
     pNpScb->State = SCB_STATE_RECONNECT_REQUIRED;
@@ -2826,7 +4236,7 @@ Return Value:
 
     } else {
 
-        Logon = FindUser( &pScb->UserUid, FALSE);
+        Logon = FindUser( &pScb->UserUid, FALSE );
 
         if (Logon != NULL ) {
             Name = Logon->UserName;
@@ -2847,7 +4257,7 @@ Return Value:
     } else {
 
         if ( Logon == NULL ) {
-            Logon = FindUser( &pScb->UserUid, FALSE);
+            Logon = FindUser( &pScb->UserUid, FALSE );
         }
 
         if ( Logon != NULL ) {
@@ -2991,7 +4401,8 @@ Return Value:
             //  Special case error mappings.
             //
 
-            if ( Status == STATUS_UNSUCCESSFUL ) {
+            if (( Status == STATUS_UNSUCCESSFUL ) ||
+                ( Status == STATUS_UNEXPECTED_NETWORK_ERROR /* 2.2 servers */  )) {
                 Status = STATUS_WRONG_PASSWORD;
             }
 
@@ -3011,6 +4422,22 @@ Return Value:
                 Status = STATUS_SHARING_PAUSED;
             }
 
+            if ( Status == STATUS_NO_MORE_ENTRIES ) {
+                Status = STATUS_NO_SUCH_USER;    // No such object on "Login Object Encrypted" NCP.
+            }
+
+            //
+            // Stupid Netware 4.x servers return a different NCP error for
+            // a disabled account (from intruder lockout) on bindery login,
+            // and nwconvert maps this to a dos error.  In this special case,
+            // we'll catch it and map it back.
+            //
+
+            if ( ( IrpContext->pNpScb->pScb->MajorVersion >= 4 ) &&
+                 ( Status == 0xC001003B ) ) {
+                Status = STATUS_ACCOUNT_DISABLED;
+            }
+
             return( Status );
         }
 
@@ -3025,7 +4452,7 @@ Return Value:
     //  in the NtGateway group on the server.
     //
 
-    if (LiEql( IrpContext->Specific.Create.UserUid, DefaultLuid)) {
+    if ( IrpContext->Specific.Create.UserUid.QuadPart == DefaultLuid.QuadPart) {
 
         NTSTATUS Status1 ;
 
@@ -3080,6 +4507,273 @@ Return Value:
     return( Status );
 }
 
+NTSTATUS
+NwAllocateAndInitScb(
+    IN PIRP_CONTEXT pIrpContext,
+    IN PUNICODE_STRING UidServerName OPTIONAL,
+    IN PUNICODE_STRING ServerName OPTIONAL,
+    OUT PSCB *ppScb
+)
+/*++
+
+Routine Description:
+
+    This routine returns a pointer to a newly created SCB.  If
+    the UidServerName and ServerName are supplied, the SCB name
+    fields are initialized to this name.  Otherwise, the name
+    fields are left blank to be filled in later.
+
+    If UidServerName is provided, ServerName MUST also be provided!!
+
+    The returned SCB is NOT filed in the server prefix table since
+    it might not yet have a name.
+
+Return Value:
+
+    The created SCB or NULL.
+
+--*/
+{
+
+    NTSTATUS Status;
+    PSCB pScb = NULL;
+    PNONPAGED_SCB pNpScb = NULL;
+    USHORT ServerNameLength;
+    PLOGON Logon;
+
+    //
+    // Allocate enough space for a credential munged tree name.
+    //
+
+    pScb = ALLOCATE_POOL ( PagedPool,
+               sizeof( SCB ) +
+               ( ( NDS_TREE_NAME_LEN + MAX_NDS_NAME_CHARS + 2 ) * sizeof( WCHAR ) ) );
+
+    if ( !pScb ) {
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    RtlZeroMemory( pScb, sizeof( SCB ) );
+    RtlInitializeBitMap( &pScb->DriveMapHeader, pScb->DriveMap, MAX_DRIVES );
+
+    //
+    //  Initialize pointers to ensure cleanup on error case operates
+    //  correctly.
+    //
+
+    if ( UidServerName &&
+         UidServerName->Length ) {
+
+        ServerNameLength = UidServerName->Length + sizeof( WCHAR );
+
+    } else {
+
+        ServerNameLength = ( MAX_SERVER_NAME_LENGTH * sizeof( WCHAR ) ) +
+                           ( MAX_UNICODE_UID_LENGTH * sizeof( WCHAR ) ) +
+                           ( 2 * sizeof( WCHAR ) );
+
+    }
+
+    pScb->pNpScb = ALLOCATE_POOL ( NonPagedPool,
+                       sizeof( NONPAGED_SCB ) + ServerNameLength );
+
+    if ( !pScb->pNpScb ) {
+        Status = STATUS_INSUFFICIENT_RESOURCES;
+        goto ExitWithCleanup;
+    }
+
+    RtlZeroMemory( pScb->pNpScb, sizeof( NONPAGED_SCB ) );
+
+    pNpScb = pScb->pNpScb;
+    pNpScb->pScb = pScb;
+
+    //
+    //  If we know the server name, copy it to the allocated buffer.
+    //  Append a NULL so that we can use the name a nul-terminated string.
+    //
+
+    pScb->UidServerName.Buffer = (PWCHAR)( pScb->pNpScb + 1 );
+    pScb->UidServerName.MaximumLength = ServerNameLength;
+    pScb->UidServerName.Length = 0;
+
+    RtlInitUnicodeString( &(pNpScb->ServerName), NULL );
+
+    if ( UidServerName &&
+         UidServerName->Length ) {
+
+        RtlCopyUnicodeString ( &pScb->UidServerName, UidServerName );
+        pScb->UidServerName.Buffer[ UidServerName->Length / sizeof( WCHAR ) ] = L'\0';
+
+        pScb->UnicodeUid = pScb->UidServerName;
+        pScb->UnicodeUid.Length = UidServerName->Length -
+                                  ServerName->Length -
+                                  sizeof(WCHAR);
+
+        //
+        //  Make ServerName point partway down the buffer for UidServerName
+        //
+
+        pNpScb->ServerName.Buffer = (PWSTR)((PUCHAR)pScb->UidServerName.Buffer +
+                                    UidServerName->Length - ServerName->Length);
+
+        pNpScb->ServerName.MaximumLength = ServerName->Length;
+        pNpScb->ServerName.Length = ServerName->Length;
+
+    }
+
+    pScb->NdsTreeName.MaximumLength = NDS_TREE_NAME_LEN * sizeof( WCHAR );
+    pScb->NdsTreeName.Buffer = (PWCHAR)(pScb + 1);
+
+    pScb->NodeTypeCode = NW_NTC_SCB;
+    pScb->NodeByteSize = sizeof(SCB);
+    InitializeListHead( &pScb->ScbSpecificVcbQueue );
+    InitializeListHead( &pScb->IcbList );
+
+    //
+    // Remember UID of the file creator so we can find the username and
+    // password to use for this Scb when we need it.
+    //
+
+    pScb->UserUid = pIrpContext->Specific.Create.UserUid;
+
+    //
+    //  Initialize the non-paged part of the SCB.
+    //
+
+    pNpScb->NodeTypeCode = NW_NTC_SCBNP;
+    pNpScb->NodeByteSize = sizeof(NONPAGED_SCB);
+
+    //
+    //  Set the initial SCB reference count.
+    //
+
+    if ( UidServerName &&
+         UidServerName->Length ) {
+
+        Logon = FindUser( &pScb->UserUid, FALSE );
+
+        if (( Logon != NULL) &&
+            (RtlCompareUnicodeString( ServerName, &Logon->ServerName, TRUE ) == 0 )) {
+            pScb->PreferredServer = TRUE;
+        }
+    }
+
+    if ( pScb->PreferredServer ) {
+        pNpScb->Reference = 2;
+    } else {
+        pNpScb->Reference = 1;
+    }
+
+    //
+    //  Finish linking the two parts of the Scb together.
+    //
+
+    pNpScb->pScb = pScb;
+
+    KeInitializeSpinLock( &pNpScb->NpScbSpinLock );
+    KeInitializeSpinLock( &pNpScb->NpScbInterLock );
+    InitializeListHead( &pNpScb->Requests );
+
+    RtlFillMemory( &pNpScb->LocalAddress, sizeof(IPXaddress), 0xff);
+
+    pNpScb->State = SCB_STATE_ATTACHING;
+    pNpScb->SequenceNo = 1;
+
+    Status = OpenScbSockets( pIrpContext, pNpScb );
+    if ( !NT_SUCCESS(Status) ) {
+        goto ExitWithCleanup;
+    }
+
+    Status = SetEventHandler (
+                 pIrpContext,
+                 &pNpScb->Server,
+                 TDI_EVENT_RECEIVE_DATAGRAM,
+                 &ServerDatagramHandler,
+                 pNpScb );
+
+    if ( !NT_SUCCESS(Status) ) {
+        goto ExitWithCleanup;
+    }
+
+    Status = SetEventHandler (
+                 pIrpContext,
+                 &pNpScb->WatchDog,
+                 TDI_EVENT_RECEIVE_DATAGRAM,
+                 &WatchDogDatagramHandler,
+                 pNpScb );
+
+    if ( !NT_SUCCESS( Status ) ) {
+        goto ExitWithCleanup;
+    }
+
+    Status = SetEventHandler (
+                 pIrpContext,
+                 &pNpScb->Send,
+                 TDI_EVENT_RECEIVE_DATAGRAM,
+                 &SendDatagramHandler,
+                 pNpScb );
+
+    if ( !NT_SUCCESS( Status ) ) {
+        goto ExitWithCleanup;
+    }
+
+    Status = SetEventHandler (
+                 pIrpContext,
+                 &pNpScb->Echo,
+                 TDI_EVENT_RECEIVE_DATAGRAM,
+                 &ServerDatagramHandler,
+                 pNpScb );
+
+    pNpScb->EchoCounter = 2;
+
+    if ( !NT_SUCCESS( Status ) ) {
+        goto ExitWithCleanup;
+    }
+
+    Status = SetEventHandler (
+                 pIrpContext,
+                 &pNpScb->Burst,
+                 TDI_EVENT_RECEIVE_DATAGRAM,
+                 &ServerDatagramHandler,
+                 pNpScb );
+
+    if ( !NT_SUCCESS( Status ) ) {
+        goto ExitWithCleanup;
+    }
+
+    KeQuerySystemTime( &pNpScb->LastUsedTime );
+
+    //
+    //  Set burst mode data.
+    //
+
+    pNpScb->BurstRequestNo = 0;
+    pNpScb->BurstSequenceNo = 0;
+
+    if ( ppScb ) {
+        *ppScb = pScb;
+    }
+
+    return STATUS_SUCCESS;
+
+ExitWithCleanup:
+
+    if ( pNpScb != NULL ) {
+
+        IPX_Close_Socket( &pNpScb->Server );
+        IPX_Close_Socket( &pNpScb->WatchDog );
+        IPX_Close_Socket( &pNpScb->Send );
+        IPX_Close_Socket( &pNpScb->Echo );
+        IPX_Close_Socket( &pNpScb->Burst );
+
+        FREE_POOL( pNpScb );
+    }
+
+    FREE_POOL(pScb);
+    return Status;
+
+}
+
 
 BOOLEAN
 NwFindScb(
@@ -3097,7 +4791,7 @@ Routine Description:
     pointer to the SCB is returned.  If none is found an SCB is
     created and initialized.
 
-    This routine returns with the SCB referernced and the SCB
+    This routine returns with the SCB referenced and the SCB
     resources held.
 
 Arguments:
@@ -3122,10 +4816,7 @@ Return Value:
     PSCB pScb = NULL;
     PNONPAGED_SCB pNpScb = NULL;
     KIRQL OldIrql;
-    BOOLEAN InList = FALSE;
     BOOLEAN Success;
-    BOOLEAN InPrefixTable = FALSE;
-    BOOLEAN PreferredServer = FALSE;
 
     //
     //  Acquire the RCB exclusive to protect the prefix table.
@@ -3162,183 +4853,30 @@ Return Value:
         return( TRUE );
     }
 
+    //
+    //  We do not have a connection to this server so create the new Scb if requested.
+    //
 
-    //
-    //  We do not have a connection to this server so create the new Scb.
-    //
+    if ( BooleanFlagOn( IrpContext->Flags, IRP_FLAG_NOCONNECT ) ) {
+        NwReleaseRcb( &NwRcb );
+        *Scb = NULL;
+        return(FALSE);
+    }
 
     try {
-        PLOGON Logon;
 
-        pScb = ALLOCATE_POOL_EX ( PagedPool, sizeof(SCB) );
-        RtlZeroMemory( pScb, sizeof( SCB ) );
+        Status = NwAllocateAndInitScb( IrpContext,
+                                       UidServerName,
+                                       ServerName,
+                                       &pScb );
 
-        //
-        //  Initialize pointers to ensure cleanup on error case operates
-        //  correctly.
-        //
+        if ( !NT_SUCCESS( Status )) {
+            ExRaiseStatus( Status );
+        }
 
-        pScb->pNpScb = ALLOCATE_POOL_EX (NonPagedPool,
-                            sizeof(NONPAGED_SCB) + UidServerName->Length + 2 );
-
-        RtlZeroMemory( pScb->pNpScb, sizeof( NONPAGED_SCB ) );
+        ASSERT( pScb != NULL );
 
         pNpScb = pScb->pNpScb;
-        pNpScb->pScb = pScb;
-
-        //
-        //  Copy the server name to the alloated buffer.   Append a NUL
-        //  so that we can use the name a nul-terminated string.
-        //
-
-        pScb->UidServerName.Buffer = (PWCHAR)(pScb->pNpScb+1);
-        pScb->UidServerName.MaximumLength = UidServerName->Length;
-
-        RtlCopyUnicodeString ( &pScb->UidServerName, UidServerName );
-        pScb->UidServerName.Buffer[ UidServerName->Length / 2 ] = L'\0';
-
-        pScb->UnicodeUid = pScb->UidServerName;
-        pScb->UnicodeUid.Length = UidServerName->Length -
-                                  ServerName->Length -
-                                  sizeof(WCHAR);
-
-        //
-        //  Make ServerName point partway down the buffer for UidServerName
-        //
-
-        pNpScb->ServerName.Buffer =
-            (PWSTR)((PUCHAR)pScb->UidServerName.Buffer +
-                    UidServerName->Length - ServerName->Length);
-
-        pNpScb->ServerName.MaximumLength = ServerName->Length;
-        pNpScb->ServerName.Length = ServerName->Length;
-
-
-        DebugTrace(+1, Dbg, "NwFindScb\n", 0);
-        DebugTrace( 0, Dbg, " ->UidServerName            = ""%wZ""\n", &pScb->UidServerName);
-        DebugTrace(-1, Dbg, "  ->ServerName               = ""%wZ""\n", &pNpScb->ServerName);
-
-        pScb->NodeTypeCode = NW_NTC_SCB;
-        pScb->NodeByteSize = sizeof(SCB);
-        InitializeListHead( &pScb->ScbSpecificVcbQueue );
-        InitializeListHead( &pScb->IcbList );
-
-        //
-        // Remember UID of the file creator so we can find the username and
-        // password to use for this Scb when we need it.
-        //
-
-        pScb->UserUid = IrpContext->Specific.Create.UserUid;
-
-        //
-        //  Initialize the non-paged part of the SCB.
-        //
-
-        pNpScb->NodeTypeCode = NW_NTC_SCBNP;
-        pNpScb->NodeByteSize = sizeof(NONPAGED_SCB);
-
-        //
-        //  Set the initial SCB reference count.
-        //
-
-        Logon = FindUser(&pScb->UserUid, FALSE );
-
-        if (( Logon != NULL) &&
-            (RtlCompareUnicodeString( ServerName, &Logon->ServerName, TRUE ) == 0 )) {
-            PreferredServer = TRUE;
-            pScb->PreferredServer = TRUE;
-        }
-
-        if ( pScb->PreferredServer ) {
-            pNpScb->Reference = 2;
-        } else {
-            pNpScb->Reference = 1;
-        }
-
-        //
-        //  Finish linking the two parts of the Scb together.
-        //
-
-        pNpScb->pScb = pScb;
-
-        KeInitializeSpinLock( &pNpScb->NpScbSpinLock );
-        KeInitializeSpinLock( &pNpScb->NpScbInterLock );
-        InitializeListHead( &pNpScb->Requests );
-
-        RtlFillMemory( &pNpScb->LocalAddress, sizeof(IPXaddress), 0xff);
-
-        pNpScb->State = SCB_STATE_ATTACHING;
-
-        Status = OpenScbSockets( IrpContext, pNpScb );
-        if ( !NT_SUCCESS(Status) ) {
-            ExRaiseStatus( Status );
-        }
-
-        Status = SetEventHandler (
-                     IrpContext,
-                     &pNpScb->Server,
-                     TDI_EVENT_RECEIVE_DATAGRAM,
-                     &ServerDatagramHandler,
-                     pNpScb );
-
-        if ( !NT_SUCCESS(Status) ) {
-            ExRaiseStatus( Status );
-        }
-
-        Status = SetEventHandler (
-                     IrpContext,
-                     &pNpScb->WatchDog,
-                     TDI_EVENT_RECEIVE_DATAGRAM,
-                     &WatchDogDatagramHandler,
-                     pNpScb );
-
-        if ( !NT_SUCCESS( Status ) ) {
-            ExRaiseStatus( Status );
-        }
-
-        Status = SetEventHandler (
-                     IrpContext,
-                     &pNpScb->Send,
-                     TDI_EVENT_RECEIVE_DATAGRAM,
-                     &SendDatagramHandler,
-                     pNpScb );
-
-        if ( !NT_SUCCESS( Status ) ) {
-            ExRaiseStatus( Status );
-        }
-
-        Status = SetEventHandler (
-                     IrpContext,
-                     &pNpScb->Echo,
-                     TDI_EVENT_RECEIVE_DATAGRAM,
-                     &ServerDatagramHandler,
-                     pNpScb );
-
-        pNpScb->EchoCounter = 2;
-
-        if ( !NT_SUCCESS( Status ) ) {
-            ExRaiseStatus( Status );
-        }
-
-        Status = SetEventHandler (
-                     IrpContext,
-                     &pNpScb->Burst,
-                     TDI_EVENT_RECEIVE_DATAGRAM,
-                     &ServerDatagramHandler,
-                     pNpScb );
-
-        if ( !NT_SUCCESS( Status ) ) {
-            ExRaiseStatus( Status );
-        }
-
-        KeQuerySystemTime( &pNpScb->LastUsedTime );
-
-        //
-        //  Set burst mode data.
-        //
-
-        pNpScb->BurstRequestNo = 0;
-        pNpScb->BurstSequenceNo = 0;
 
         //
         //*******************************************************************
@@ -3359,14 +4897,13 @@ Return Value:
 
         KeAcquireSpinLock(&ScbSpinLock, &OldIrql);
 
-        if ( PreferredServer ) {
+        if ( pScb->PreferredServer ) {
             InsertHeadList(&ScbQueue, &pNpScb->ScbLinks);
         } else {
             InsertTailList(&ScbQueue, &pNpScb->ScbLinks);
         }
 
         KeReleaseSpinLock(&ScbSpinLock, OldIrql);
-        InList = TRUE;
 
         //
         //  Insert the name of this server into the prefix table.
@@ -3377,9 +4914,12 @@ Return Value:
                       &pScb->UidServerName,
                       &pScb->PrefixEntry );
 
-        ASSERT( Success );  //  Should not be in table already.
-
-        InPrefixTable = TRUE;
+#ifdef NWDBG
+        if ( !Success ) {
+            DebugTrace( 0, DEBUG_TRACE_ALWAYS, "Entering duplicate SCB %wZ.\n", &pScb->UidServerName );
+            DbgBreakPoint();
+        }
+#endif
 
         //
         //  The Scb is now in the prefix table. Any new requests for this
@@ -3399,36 +4939,8 @@ Return Value:
     } finally {
 
         if ( !NT_SUCCESS( Status ) || AbnormalTermination() ) {
-
-            if (pScb != NULL) {
-
-                ASSERT( !InPrefixTable );
-
-                ASSERT( !InList );
-
-                if ( pNpScb != NULL ) {
-
-                    IPX_Close_Socket( &pNpScb->Server );
-                    IPX_Close_Socket( &pNpScb->WatchDog );
-                    IPX_Close_Socket( &pNpScb->Send );
-                    IPX_Close_Socket( &pNpScb->Echo );
-                    IPX_Close_Socket( &pNpScb->Burst );
-
-                    FREE_POOL( pNpScb );
-
-                }
-
-                if ( pScb->UserName.Buffer != NULL ) {
-                    FREE_POOL( pScb->UserName.Buffer );
-                }
-
-                FREE_POOL(pScb);
-            }
-
             *Scb = NULL;
-
         } else {
-
             *Scb = pScb;
         }
 
@@ -3450,8 +4962,33 @@ QueryServersAddress(
     )
 {
     NTSTATUS Status;
+    UNICODE_STRING NewServer;
+    USHORT CurrChar = 0;
 
     PAGED_CODE();
+
+    //
+    //  Unmunge the server name in case this is a
+    //  supplemental credential connect.
+    //
+
+    UnmungeCredentialName( pServerName, &NewServer );
+
+    //
+    //  Strip server name trailer, if it exists.  If there
+    //  was no trailer, the length will end up being exactly
+    //  the same as when we started.
+    //
+
+    if (EnableMultipleConnects) {
+
+        while ( (CurrChar < (NewServer.Length / sizeof(WCHAR))) &&
+            NewServer.Buffer[CurrChar] != ((WCHAR)L'#') ) {
+            CurrChar++;
+        }
+        NewServer.Length = CurrChar * sizeof(WCHAR);
+
+    }
 
     //
     //  Query the bindery of the nearest server looking for
@@ -3466,7 +5003,7 @@ QueryServersAddress(
                  "SwUbp",
                  NCP_ADMIN_FUNCTION, NCP_QUERY_PROPERTY_VALUE,
                  OT_FILESERVER,
-                 pServerName,
+                 &NewServer,
                  1,     //  Segment number
                  NET_ADDRESS_PROPERTY );
 
@@ -3568,7 +5105,7 @@ Return Value:
 
             //
             //  Logoff and disconnect from the server now.
-            //  Hold unto the SCB lock.
+            //  Hold on to the SCB lock.
             //  This prevents another thread from trying to access
             //  SCB will this thread is logging off.
             //
@@ -3576,6 +5113,7 @@ Return Value:
             NwLogoffAndDisconnect( IrpContext, Scb->pNpScb );
         }
     } else {
+        // FIXFIX just return success since we are disconnected?
         Status = STATUS_INVALID_HANDLE;
     }
 

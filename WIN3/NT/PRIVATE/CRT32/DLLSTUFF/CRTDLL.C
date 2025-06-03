@@ -1,6 +1,6 @@
 #ifdef  CRTDLL
 /***
-*crtdll.c - CRT initialization for a DLL using the CRTDLL model of C run-time 
+*crtdll.c - CRT initialization for a DLL using the CRTDLL model of C run-time
 *
 *	Copyright (c) 1991-1994, Microsoft Corporation. All rights reserved.
 *
@@ -79,7 +79,7 @@ static int __proc_attached = 0;
  * Pointers to beginning and end of the table of function pointers manipulated
  * by _onexit()/atexit().  The atexit/_onexit code is shared for both EXE's and
  * DLL's but different behavior is required.  These values are initialized to
- * 0 by default and will be set to point to a malloc-ed memory block to mark 
+ * 0 by default and will be set to point to a malloc-ed memory block to mark
  * this module as an DLL.
  */
 
@@ -245,6 +245,8 @@ BOOL WINAPI _CRT_INIT(
 				 */
 				if ( __win32sflag > 0 )
 					GlobalFree( (HGLOBAL)__onexitbegin );
+                else
+                    free(__onexitbegin);
 			}
 		}
 	}

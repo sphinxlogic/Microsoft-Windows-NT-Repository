@@ -70,11 +70,14 @@ Revision History:
 #include <ntlpcapi.h>
 #include <ntioapi.h>
 #include <ntiolog.h>
+#include <ntpoapi.h>
 #include <ntexapi.h>
+#include <ntkxapi.h>
 #include <ntmmapi.h>
 #include <ntregapi.h>
 #include <ntelfapi.h>
 #include <ntconfig.h>
 #include <ntnls.h>
+#include <ntpnpapi.h>
 
 #endif // NT_INCLUDED

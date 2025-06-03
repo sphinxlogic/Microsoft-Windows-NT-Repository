@@ -22,6 +22,8 @@ Environment:
 Revision History:
 
     Richard Ward     (RichardW)  14-April-92
+    Robert Reichel   (RobertRe)  28-February-95
+        Added Compound ACEs
 
 --*/
 
@@ -63,10 +65,13 @@ SepInheritAcl (
     IN BOOLEAN IsDirectoryObject,
     IN PSID OwnerSid,
     IN PSID GroupSid,
+    IN PSID ServerSid OPTIONAL,
+    IN PSID ClientSid OPTIONAL,
     IN PGENERIC_MAPPING GenericMapping,
     IN POOL_TYPE PoolType,
     OUT PACL *NewAcl
     );
+
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE,SeAssignSecurity)
@@ -236,17 +241,26 @@ Return Value:
     BOOLEAN NewDaclPresent = FALSE;
     BOOLEAN NewDaclInherited = FALSE;
 
+    PACL ServerDacl = NULL;
+    BOOLEAN ServerDaclAllocated = FALSE;
+
     PSID NewOwner = NULL;
     PSID NewGroup = NULL;
 
     BOOLEAN CleanUp = FALSE;
     BOOLEAN SaclExplicitlyAssigned = FALSE;
+    BOOLEAN DaclExplicitlyAssigned = FALSE;
     BOOLEAN OwnerExplicitlyAssigned = FALSE;
+
+    BOOLEAN ServerObject;
+    BOOLEAN DaclUntrusted;
 
     BOOLEAN HasPrivilege;
 
     PSID SubjectContextOwner;
     PSID SubjectContextGroup;
+    PSID SubjectContextServerOwner;
+    PSID SubjectContextServerGroup;
     PACL SubjectContextDacl;
 
     ULONG AllocationSize;
@@ -332,8 +346,23 @@ Return Value:
         SubjectContext,
         &SubjectContextOwner,
         &SubjectContextGroup,
+        &SubjectContextServerOwner,
+        &SubjectContextServerGroup,
         &SubjectContextDacl
         );
+
+
+    if ( CapturedDescriptor->Control & SE_SERVER_SECURITY ) {
+        ServerObject = TRUE;
+    } else {
+        ServerObject = FALSE;
+    }
+
+    if ( CapturedDescriptor->Control & SE_DACL_UNTRUSTED ) {
+        DaclUntrusted = TRUE;
+    } else {
+        DaclUntrusted = FALSE;
+    }
 
 
     if (!CleanUp) {
@@ -370,6 +399,8 @@ Return Value:
                                         IsDirectoryObject,
                                         SubjectContextOwner,
                                         SubjectContextGroup,
+                                        SubjectContextServerOwner,
+                                        SubjectContextServerGroup,
                                         GenericMapping,
                                         PoolType,
                                         &NewSacl )
@@ -438,6 +469,7 @@ Return Value:
 
             NewDacl = SepDaclAddrSecurityDescriptor(CapturedDescriptor);
             NewDaclPresent = TRUE;
+            DaclExplicitlyAssigned = TRUE;
 
         } else {
 
@@ -456,6 +488,8 @@ Return Value:
                                         IsDirectoryObject,
                                         SubjectContextOwner,
                                         SubjectContextGroup,
+                                        SubjectContextServerOwner,
+                                        SubjectContextServerGroup,
                                         GenericMapping,
                                         PoolType,
                                         &NewDacl )
@@ -486,6 +520,13 @@ Return Value:
 
                     NewDacl = SepDaclAddrSecurityDescriptor(CapturedDescriptor);
                     NewDaclPresent = TRUE;
+
+                    //
+                    // This counts as an explicit assignment.
+                    //
+
+                    DaclExplicitlyAssigned = TRUE;
+
                 } else {
 
                     if (ARGUMENT_PRESENT(SubjectContextDacl)) {
@@ -533,7 +574,14 @@ Return Value:
             // can assign it as an owner.
             //
 
-            NewOwner = SubjectContextOwner;
+            //
+            // If we've been asked to create a ServerObject, we need to
+            // make sure to pick up the new owner from the Primary token,
+            // not the client token.  If we're not impersonating, they will
+            // end up being the same.
+            //
+
+            NewOwner = ServerObject ? SubjectContextServerOwner : SubjectContextOwner;
         }
     }
 
@@ -555,10 +603,13 @@ Return Value:
         } else {
 
             //
-            // Pick up the primary group from the subject's security context
+            // Pick up the primary group from the subject's security context.
+            //
+            // If we're creating a Server object, use the group from the server
+            // context.
             //
 
-            NewGroup = SubjectContextGroup;
+            NewGroup = ServerObject ? SubjectContextServerGroup : SubjectContextGroup;
         }
     }
 
@@ -611,13 +662,47 @@ Return Value:
             if (OwnerExplicitlyAssigned) {
 
 
-                if (!SepValidOwnerSubjectContext(SubjectContext,NewOwner) ) {
+                if (!SepValidOwnerSubjectContext(
+                        SubjectContext,
+                        NewOwner,
+                        ServerObject)
+                        ) {
 
                     RequestorCanAssignDescriptor = FALSE;
                     Status = STATUS_INVALID_OWNER;
-
                 }
+            }
 
+            if (DaclExplicitlyAssigned) {
+
+                //
+                // Perform analysis of compound ACEs to make sure they're all
+                // legitimate.
+                //
+
+                if (ServerObject) {
+
+                    //
+                    // Pass in the Server Owner as the default server SID.
+                    //
+
+                    Status = SepCreateServerAcl(
+                                 NewDacl,
+                                 DaclUntrusted,
+                                 SubjectContextServerOwner,
+                                 &ServerDacl,
+                                 &ServerDaclAllocated
+                                 );
+
+                    if (!NT_SUCCESS( Status )) {
+
+                        RequestorCanAssignDescriptor = FALSE;
+
+                    } else {
+
+                        NewDacl = ServerDacl;
+                    }
+                }
             }
         }
 
@@ -663,10 +748,7 @@ Return Value:
             // self-relative form.
             //
 
-            *NewDescriptor = (PSECURITY_DESCRIPTOR)ExAllocatePoolWithTag(
-                                 PoolType,
-                                 AllocationSize,
-                                 'dSeS');
+            *NewDescriptor = (PSECURITY_DESCRIPTOR)ExAllocatePoolWithTag( PoolType, AllocationSize, 'dSeS');
 
             if ((*NewDescriptor) == NULL) {
 
@@ -724,6 +806,11 @@ Return Value:
                     }
                 }
 
+
+                //
+                // Assign the owner
+                //
+
                 RtlMoveMemory( Field, NewOwner, SeLengthSid(NewOwner) );
                 ((SECURITY_DESCRIPTOR *)(*NewDescriptor))->Owner = (PSID)RtlPointerToOffset(Base,Field);
                 Field += NewOwnerSize;
@@ -739,6 +826,13 @@ Return Value:
         }
     }
 
+    //
+    // If we allocated memory for a Server DACL, free it now.
+    //
+
+    if (ServerDaclAllocated) {
+        ExFreePool( ServerDacl );
+    }
 
     //
     // Either an error was encountered or the requestor the assignment has
@@ -873,9 +967,9 @@ Return Value:
          i < Acl->AceCount;
          i += 1, Ace = NextAce(Ace)) {
 
-        if (IsKnownAceType( Ace )) {
+        if (IsMSAceType( Ace )) {
 
-            SepApplyAceToObject( Ace, GenericMapping );
+            RtlApplyAceToObject( Ace, GenericMapping );
         }
 
     }
@@ -888,8 +982,10 @@ NTSTATUS
 SepInheritAcl (
     IN PACL Acl,
     IN BOOLEAN IsDirectoryObject,
-    IN PSID OwnerSid,
-    IN PSID GroupSid,
+    IN PSID ClientOwnerSid,
+    IN PSID ClientGroupSid,
+    IN PSID ServerOwnerSid OPTIONAL,
+    IN PSID ServerGroupSid OPTIONAL,
     IN PGENERIC_MAPPING GenericMapping,
     IN POOL_TYPE PoolType,
     OUT PACL *NewAcl
@@ -911,6 +1007,10 @@ Arguments:
     OwnerSid - Specifies the owner Sid to use.
 
     GroupSid - Specifies the group SID to use.
+
+    ServerSid - Specifies the Server SID to use.
+
+    ClientSid - Specifies the Client SID to use.
 
     GenericMapping - Specifies the generic mapping to use.
 
@@ -957,13 +1057,11 @@ Return Value:
     if (Acl == NULL) {
 
         return STATUS_NO_INHERITANCE;
-
     }
 
-    if (Acl->AclRevision != ACL_REVISION2) {
+    if (Acl->AclRevision != ACL_REVISION2 && Acl->AclRevision != ACL_REVISION3) {
         return STATUS_UNKNOWN_REVISION;
     }
-
 
     //
     // Generating an inheritable ACL is a two-pass operation.
@@ -975,8 +1073,10 @@ Return Value:
     Status = RtlpLengthInheritAcl(
                  Acl,
                  IsDirectoryObject,
-                 OwnerSid,
-                 GroupSid,
+                 ClientOwnerSid,
+                 ClientGroupSid,
+                 ServerOwnerSid,
+                 ServerGroupSid,
                  GenericMapping,
                  &NewAclLength
                  );
@@ -993,14 +1093,15 @@ Return Value:
         return STATUS_INSUFFICIENT_RESOURCES;
     }
 
+    RtlCreateAcl( (*NewAcl), NewAclLength, Acl->AclRevision );
 
-
-    RtlCreateAcl( (*NewAcl), NewAclLength, ACL_REVISION2 );
     Status = RtlpGenerateInheritAcl(
                  Acl,
                  IsDirectoryObject,
-                 OwnerSid,
-                 GroupSid,
+                 ClientOwnerSid,
+                 ClientGroupSid,
+                 ServerOwnerSid,
+                 ServerGroupSid,
                  GenericMapping,
                  (*NewAcl)
                  );
@@ -1121,9 +1222,215 @@ Return Value:
 }
 
 
+
+NTSTATUS
+SepCreateServerAcl(
+    IN PACL Acl,
+    IN BOOLEAN AclUntrusted,
+    IN PSID ServerSid,
+    OUT PACL *ServerAcl,
+    OUT BOOLEAN *ServerAclAllocated
+    )
+
+/*++
+
+Routine Description:
+
+    This routine takes an ACL and converts it into a server ACL.
+    Currently, that means converting all of the GRANT ACEs into
+    Compount Grants, and if necessary sanitizing any Compound
+    Grants that are encountered.
+
+Arguments:
+
+
+
+Return Value:
+
+
+--*/
+
+{
+    USHORT RequiredSize = sizeof(ACL);
+    USHORT AceSizeAdjustment;
+    USHORT ServerSidSize;
+    PACE_HEADER Ace;
+    ULONG i;
+    PVOID Target;
+    PVOID AcePosition;
+    PSID UntrustedSid;
+    PSID ClientSid;
+    NTSTATUS Status;
+
+    if (Acl == NULL) {
+        *ServerAclAllocated = FALSE;
+        *ServerAcl = NULL;
+        return( STATUS_SUCCESS );
+    }
+
+    AceSizeAdjustment = sizeof( KNOWN_COMPOUND_ACE ) - sizeof( KNOWN_ACE );
+    ASSERT( sizeof( KNOWN_COMPOUND_ACE ) >= sizeof( KNOWN_ACE ) );
+
+    ServerSidSize = (USHORT)SeLengthSid( ServerSid );
+
+    //
+    // Do this in two passes.  First, determine how big the final
+    // result is going to be, and then allocate the space and make
+    // the changes.
+    //
+
+    for (i = 0, Ace = FirstAce(Acl);
+         i < Acl->AceCount;
+         i += 1, Ace = NextAce(Ace)) {
+
+        //
+        // If it's an ACCESS_ALLOWED_ACE_TYPE, we'll need to add in the
+        // size of the Server SID.
+        //
+
+        if (Ace->AceType == ACCESS_ALLOWED_ACE_TYPE) {
+
+            //
+            // Simply add the size of the new Server SID plus whatever
+            // adjustment needs to be made to increase the size of the ACE.
+            //
+
+            RequiredSize += ( ServerSidSize + AceSizeAdjustment );
+
+        } else {
+
+            if (AclUntrusted && Ace->AceType == ACCESS_ALLOWED_COMPOUND_ACE_TYPE ) {
+
+                //
+                // Since the Acl is untrusted, we don't care what is in the
+                // server SID, we're going to replace it.
+                //
+
+                UntrustedSid = RtlCompoundAceServerSid( Ace );
+                if ((USHORT)SeLengthSid(UntrustedSid) > ServerSidSize) {
+                    RequiredSize += ((USHORT)SeLengthSid(UntrustedSid) - ServerSidSize);
+                } else {
+                    RequiredSize += (ServerSidSize - (USHORT)SeLengthSid(UntrustedSid));
+
+                }
+            }
+        }
+
+        RequiredSize += Ace->AceSize;
+    }
+
+    (*ServerAcl) = (PACL)ExAllocatePoolWithTag( PagedPool, RequiredSize, 'cAeS' );
+
+    if ((*ServerAcl) == NULL) {
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+    
+    //
+    // Mark as allocated so caller knows to free it.
+    //
+
+    *ServerAclAllocated = TRUE;
+
+    Status = RtlCreateAcl( (*ServerAcl), RequiredSize, ACL_REVISION3 );
+    ASSERT( NT_SUCCESS( Status ));
+
+    for (i = 0, Ace = FirstAce(Acl), Target=FirstAce( *ServerAcl );
+         i < Acl->AceCount;
+         i += 1, Ace = NextAce(Ace)) {
+
+        //
+        // If it's an ACCESS_ALLOWED_ACE_TYPE, convert to a Server ACE.
+        //
+
+        if (Ace->AceType == ACCESS_ALLOWED_ACE_TYPE ||
+           (AclUntrusted && Ace->AceType == ACCESS_ALLOWED_COMPOUND_ACE_TYPE )) {
+
+            AcePosition = Target;
+
+            if (Ace->AceType == ACCESS_ALLOWED_ACE_TYPE) {
+                ClientSid =  &((PKNOWN_ACE)Ace)->SidStart;
+            } else {
+                ClientSid = RtlCompoundAceClientSid( Ace );
+            }
+
+            //
+            // Copy up to the access mask.
+            //
+
+            RtlMoveMemory(
+                Target,
+                Ace,
+                FIELD_OFFSET(KNOWN_ACE, SidStart)
+                );
+                
+            //
+            // Now copy the correct Server SID
+            //
+
+            Target = (PVOID)((ULONG)Target + (UCHAR)(FIELD_OFFSET(KNOWN_COMPOUND_ACE, SidStart)));
+
+            RtlMoveMemory(
+                Target,
+                ServerSid,
+                SeLengthSid(ServerSid)
+                );
+
+            Target = (PVOID)((ULONG)Target + (UCHAR)SeLengthSid(ServerSid));
+
+            //
+            // Now copy in the correct client SID.  We can copy this right out of
+            // the original ACE.
+            //
+
+            RtlMoveMemory(
+                Target,
+                ClientSid,
+                SeLengthSid(ClientSid)
+                );
+
+            Target = (PVOID)((ULONG)Target + SeLengthSid(ClientSid));
+
+            //
+            // Set the size of the ACE accordingly
+            //
+
+            ((PKNOWN_COMPOUND_ACE)AcePosition)->Header.AceSize =
+                (USHORT)FIELD_OFFSET(KNOWN_COMPOUND_ACE, SidStart) +
+                (USHORT)SeLengthSid(ServerSid) +
+                (USHORT)SeLengthSid(ClientSid);
+                
+            //                
+            // Set the type
+            //
+            
+            ((PKNOWN_COMPOUND_ACE)AcePosition)->Header.AceType = ACCESS_ALLOWED_COMPOUND_ACE_TYPE;
+            ((PKNOWN_COMPOUND_ACE)AcePosition)->CompoundAceType = COMPOUND_ACE_IMPERSONATION;
+
+        } else {
+
+            //
+            // Just copy the ACE as is.
+            //
+
+            RtlMoveMemory( Target, Ace, Ace->AceSize );
+
+            Target = (PVOID)((ULONG)Target + Ace->AceSize);
+        }
+    }
+    
+    (*ServerAcl)->AceCount = Acl->AceCount;
+
+    return( STATUS_SUCCESS );
+}
+
+
+
+
+
+
 
 //
-//  BUGBUG The following routines should be in a debug only kernel, since
+//  BUGWARNING The following routines should be in a debug only kernel, since
 //  all they do is dump stuff to a debug terminal as appropriate.  The same
 //  goes for the declarations of the variables SepDumpSD and SepDumpToken
 //
@@ -1219,6 +1526,12 @@ Return Value:
     if (Control & SE_SELF_RELATIVE) {
         DbgPrint("Self relative\n");
     }
+    if (Control & SE_DACL_UNTRUSTED) {
+        DbgPrint("Dacl untrusted\n");
+    }
+    if (Control & SE_SERVER_SECURITY) {
+        DbgPrint("Server security\n");
+    }
 
     DbgPrint("Owner ");
     SepPrintSid( Owner );
@@ -1264,13 +1577,8 @@ Return Value:
     ULONG i;
     PKNOWN_ACE Ace;
     BOOLEAN KnownType;
-    PCHAR AceTypes[] = { "Access Allowed",
-                         "Access Denied ",
-                         "System Audit  ",
-                         "System Alarm  "
-                       };
 
-    PAGED_CODE();                     
+    PAGED_CODE();
 
     DbgPrint("@ %8lx\n", Acl);
 
@@ -1313,7 +1621,8 @@ Return Value:
         if ((Ace->Header.AceType == ACCESS_ALLOWED_ACE_TYPE) ||
             (Ace->Header.AceType == ACCESS_DENIED_ACE_TYPE) ||
             (Ace->Header.AceType == SYSTEM_AUDIT_ACE_TYPE) ||
-            (Ace->Header.AceType == SYSTEM_ALARM_ACE_TYPE)) {
+            (Ace->Header.AceType == SYSTEM_ALARM_ACE_TYPE) ||
+            (Ace->Header.AceType == ACCESS_ALLOWED_COMPOUND_ACE_TYPE)) {
 
             //
             //  The following array is indexed by ace types and must
@@ -1323,7 +1632,8 @@ Return Value:
             PCHAR AceTypes[] = { "Access Allowed",
                                  "Access Denied ",
                                  "System Audit  ",
-                                 "System Alarm  "
+                                 "System Alarm  ",
+                                 "Compound Grant",
                                };
 
             DbgPrint(AceTypes[Ace->Header.AceType]);
@@ -1332,9 +1642,8 @@ Return Value:
 
         } else {
 
-            KnownType = FALSE;
             DbgPrint(" Unknown Ace Type\n");
-
+            KnownType = FALSE;
         }
 
         DbgPrint("\n");
@@ -1374,9 +1683,20 @@ Return Value:
         }
 
         DbgPrint("\n");
-
-        DbgPrint(" Sid = ");
-        SepPrintSid(&Ace->SidStart);
+        
+        if (KnownType != TRUE) {
+            continue;
+        }
+        
+        if (Ace->Header.AceType != ACCESS_ALLOWED_COMPOUND_ACE_TYPE) {
+            DbgPrint(" Sid = ");
+            SepPrintSid(&Ace->SidStart);
+        } else {
+            DbgPrint(" Server Sid = ");
+            SepPrintSid(RtlCompoundAceServerSid(Ace));
+            DbgPrint("\n Client Sid = ");
+            SepPrintSid(RtlCompoundAceClientSid( Ace ));
+        }
     }
 #endif
 }
@@ -1576,7 +1896,25 @@ Return Value:
         return(TRUE);
     }
 
+    if (RtlEqualSid(Sid, SeCreatorOwnerSid)) {
+        RtlInitString( AccountName, "CREATOR_OWNER ");
+        return(TRUE);
+    }
 
+    if (RtlEqualSid(Sid, SeCreatorGroupSid)) {
+        RtlInitString( AccountName, "CREATOR_GROUP ");
+        return(TRUE);
+    }
+
+    if (RtlEqualSid(Sid, SeCreatorOwnerServerSid)) {
+        RtlInitString( AccountName, "CREATOR_OWNER_SERVER ");
+        return(TRUE);
+    }
+
+    if (RtlEqualSid(Sid, SeCreatorGroupServerSid)) {
+        RtlInitString( AccountName, "CREATOR_GROUP_SERVER ");
+        return(TRUE);
+    }
 
     return(FALSE);
 }

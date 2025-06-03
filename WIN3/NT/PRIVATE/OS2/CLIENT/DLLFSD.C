@@ -304,7 +304,7 @@ Return Value:
 --*/
 
 {
-    PCHAR DiskName;
+    CHAR DiskName[] = "\\OS2SS\\DRIVES\\D:\\";
     STRING DiskNameString;
     UNICODE_STRING DiskNameString_U;
     NTSTATUS Status;
@@ -312,7 +312,6 @@ Return Value:
     IO_STATUS_BLOCK IoStatus;
     APIRET   RetCode;
 
-    DiskName = "\\OS2SS\\DRIVES\\D:\\";
 
     if (DiskNumber == 0)    // default drive
         DiskNumber = Od2CurrentDisk;
@@ -786,7 +785,7 @@ Return Value:
     }
 
     if (FsName == NULL ||
-        stricmp(FsName, "LAN") != 0) {
+        _stricmp(FsName, "LAN") != 0) {
 #if DBG
         IF_OD2_DEBUG( FSD ) {
             KdPrint(("DosFSAttach: Invalid FSD name\n"));
@@ -939,6 +938,27 @@ Return Value:
         }
 #endif
 
+        //
+        // In the case that the disk that will be deattached is the current disk
+        // (from Win32 point of view), change the current disk according to
+        // OS2 ss (Od2CurrentDisk).
+        //
+		{
+			PSZ pBuffer;
+            DWORD length;
+
+			length = GetCurrentDirectoryA(0, NULL);
+			pBuffer = RtlAllocateHeap(Od2Heap, 0, length);
+			GetCurrentDirectoryA(length, pBuffer);
+			if (toupper(pBuffer[0]) == toupper(DeviceName[0])) {
+				DriveBuf[0] = (UCHAR) Od2CurrentDisk + 'A';
+				DriveBuf[1] = ':';
+				DriveBuf[2] = '\0';
+				SetCurrentDirectoryA(DriveBuf);
+			}
+			RtlFreeHeap(Od2Heap, 0, pBuffer);
+		}
+
         rc = WNetCancelConnection2A(DeviceName,
                                     0,
                                     TRUE);
@@ -1065,8 +1085,8 @@ Return Value:
 
                 /* If not a drive letter, then must be \DEV\xxx or
                    /DEV/xxx */
-                if ((strnicmp(DeviceName,"\\DEV\\",5)) &&
-                    (strnicmp(DeviceName,"/DEV/",5)))
+                if ((_strnicmp(DeviceName,"\\DEV\\",5)) &&
+                    (_strnicmp(DeviceName,"/DEV/",5)))
                 {
                     return ERROR_INVALID_PATH;
                 }
@@ -1145,7 +1165,7 @@ Return Value:
                 BufPtr->cbFSAData = 0;
                 StrPtr = BufPtr->szName;
                 strncpy(StrPtr,DeviceName,NameLength+1);
-                strupr(StrPtr); /* Convert string to uppercase, just like under OS/2 1.x */
+                _strupr(StrPtr); /* Convert string to uppercase, just like under OS/2 1.x */
                 StrPtr += NameLength+1;
                 StrPtr[0] = '\0'; /* "" - no file-system name for \\dev\xxx */
                 *FsAttributesLength = (ULONG)(StrPtr
@@ -1299,7 +1319,7 @@ Return Value:
             StrPtr = BufPtr->szName;
             strcpy(StrPtr,DeviceName);
             BufPtr->cbName = (USHORT)strlen(StrPtr);
-            strupr(StrPtr); /* Convert string to uppercase, just like under OS/2 1.x */
+            _strupr(StrPtr); /* Convert string to uppercase, just like under OS/2 1.x */
             StrPtr += BufPtr->cbName + 1;
 
             Od2nCopyWstrToStr(StrPtr, pFileFsInfo->FileSystemName,

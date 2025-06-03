@@ -127,7 +127,7 @@ Return Value:
         // if it's the system msg file -- skip ram search
         //
 
-        if (stricmp(MsgPathName, OD2_MESSAGE_RESOURCE_FILENAME) == 0) {
+        if (_stricmp(MsgPathName, OD2_MESSAGE_RESOURCE_FILENAME) == 0) {
             return(FALSE);
         }
 
@@ -175,7 +175,7 @@ Return Value:
     for (i = 0;  i < FileCount; i++) {
         FileNamePtr = (PSZ) (pMsgSeg + WordPtr[i]);
         try {
-            if (stricmp(MsgFileName, FileNamePtr) == 0) {
+            if (_stricmp(MsgFileName, FileNamePtr) == 0) {
                 break;
             }
         } except( EXCEPTION_EXECUTE_HANDLER ) {
@@ -261,7 +261,7 @@ Od2FindMessageFile(
     //
 
     try {
-        if (!stricmp( MessageFileName, OD2_MESSAGE_RESOURCE_FILENAME ))
+        if (!_stricmp( MessageFileName, OD2_MESSAGE_RESOURCE_FILENAME ))
         {
             if (Od2MsgFile != NULL)
             {
@@ -1422,4 +1422,3 @@ Od2InitializeMessageFile( VOID )
     Od2MsgFile = NULL;
     return( STATUS_SUCCESS );
 }
-

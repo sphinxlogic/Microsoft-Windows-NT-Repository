@@ -30,20 +30,8 @@
 // Define local symbols.
 //
 
-#if defined(R3000)
-
-#define UserPsr (1 << PSR_CU1) | (0xff << PSR_INTMASK) | (1 << PSR_IEC) | \
-                (1 << PSR_KUC) | (1 << PSR_IEP) | (1 << PSR_KUP) | \
-                (1 << PSR_IEO) | (1 << PSR_KUO) // constant user PSR value
-
-#endif
-
-#if defined(R4000)
-
-#define UserPsr (1 << PSR_CU1) | (0xff << PSR_INTMASK) | \
-                (0x2 << PSR_KSU) | (1 << PSR_IE) // constant user PSR value
-
-#endif
+#define UserPsr (1 << PSR_CU1) | (0xff << PSR_INTMASK) | (1 << PSR_UX) | \
+                (2 << PSR_KSU) | (1 << PSR_IE) // constant user PSR value
 
         SBTTL("Capture Context")
 //++
@@ -57,10 +45,6 @@
 //
 //    This function captures the context of the caller in the specified
 //    context record.
-//
-//    N.B. The context record is not guaranteed to be quadword aligned
-//       and, therefore, no double floating store instructions can be
-//       used.
 //
 // Arguments:
 //
@@ -80,78 +64,64 @@
 
         .set    noreorder
         .set    noat
-        sw      zero,CxIntZero(a0)      // store integer register zero
-        sw      AT,CxIntAt(a0)          // store integer registers at - t9
-        sw      v0,CxIntV0(a0)          //
+        sd      zero,CxXIntZero(a0)     //
+        sd      AT,CxXIntAt(a0)         //
+        sd      v0,CxXIntV0(a0)         //
         mflo    v0                      //
-        sw      v1,CxIntV1(a0)          //
+        sd      v1,CxXIntV1(a0)         //
         mfhi    v1                      //
-        sw      v0,CxIntLo(a0)          //
-        sw      v1,CxIntHi(a0)          //
-        sw      a0,CxIntA0(a0)          //
-        sw      a1,CxIntA1(a0)          //
-        sw      a2,CxIntA2(a0)          //
-        sw      a3,CxIntA3(a0)          //
-        sw      t0,CxIntT0(a0)          //
-        sw      t1,CxIntT1(a0)          //
-        sw      t2,CxIntT2(a0)          //
-        sw      t3,CxIntT3(a0)          //
-        sw      t4,CxIntT4(a0)          //
-        sw      t5,CxIntT5(a0)          //
-        sw      t6,CxIntT6(a0)          //
-        sw      t7,CxIntT7(a0)          //
-        sw      s0,CxIntS0(a0)          //
-        sw      s1,CxIntS1(a0)          //
-        sw      s2,CxIntS2(a0)          //
-        sw      s3,CxIntS3(a0)          //
-        sw      s4,CxIntS4(a0)          //
-        sw      s5,CxIntS5(a0)          //
-        sw      s6,CxIntS6(a0)          //
-        sw      s7,CxIntS7(a0)          //
-        sw      t8,CxIntT8(a0)          //
-        sw      t9,CxIntT9(a0)          //
-        sw      s8,CxIntS8(a0)          //
-        sw      gp,CxIntGp(a0)          // save integer registers gp, sp, and ra
-        sw      sp,CxIntSp(a0)          //
-        sw      ra,CxIntRa(a0)          //
+        sd      v0,CxXIntLo(a0)         //
+        sd      v1,CxXIntHi(a0)         //
+        sd      a0,CxXIntA0(a0)         //
+        sd      a1,CxXIntA1(a0)         //
+        sd      a2,CxXIntA2(a0)         //
+        sd      a3,CxXIntA3(a0)         //
+        sd      t0,CxXIntT0(a0)         //
+        sd      t1,CxXIntT1(a0)         //
+        sd      t2,CxXIntT2(a0)         //
+        sd      t3,CxXIntT3(a0)         //
+        sd      t4,CxXIntT4(a0)         //
+        sd      t5,CxXIntT5(a0)         //
+        sd      t6,CxXIntT6(a0)         //
+        sd      t7,CxXIntT7(a0)         //
+        sd      s0,CxXIntS0(a0)         //
+        sd      s1,CxXIntS1(a0)         //
+        sd      s2,CxXIntS2(a0)         //
+        sd      s3,CxXIntS3(a0)         //
+        sd      s4,CxXIntS4(a0)         //
+        sd      s5,CxXIntS5(a0)         //
+        sd      s6,CxXIntS6(a0)         //
+        sd      s7,CxXIntS7(a0)         //
+        sd      t8,CxXIntT8(a0)         //
+        sd      t9,CxXIntT9(a0)         //
+        sd      zero,CxXIntK0(a0)       //
+        sd      zero,CxXIntK1(a0)       //
+        sd      s8,CxXIntS8(a0)         //
+        sd      gp,CxXIntGp(a0)         //
+        sd      sp,CxXIntSp(a0)         //
+        sd      ra,CxXIntRa(a0)         //
 
 //
 // Save floating status and floating registers f0 - f31.
 //
 
-        cfc1    v0,fsr                  // get floating status
-        swc1    f0,CxFltF0(a0)          // save floating registers f0 - f31
-        swc1    f1,CxFltF1(a0)          //
-        swc1    f2,CxFltF2(a0)          //
-        swc1    f3,CxFltF3(a0)          //
-        swc1    f4,CxFltF4(a0)          //
-        swc1    f5,CxFltF5(a0)          //
-        swc1    f6,CxFltF6(a0)          //
-        swc1    f7,CxFltF7(a0)          //
-        swc1    f8,CxFltF8(a0)          //
-        swc1    f9,CxFltF9(a0)          //
-        swc1    f10,CxFltF10(a0)        //
-        swc1    f11,CxFltF11(a0)        //
-        swc1    f12,CxFltF12(a0)        //
-        swc1    f13,CxFltF13(a0)        //
-        swc1    f14,CxFltF14(a0)        //
-        swc1    f15,CxFltF15(a0)        //
-        swc1    f16,CxFltF16(a0)        //
-        swc1    f17,CxFltF17(a0)        //
-        swc1    f18,CxFltF18(a0)        //
-        swc1    f19,CxFltF19(a0)        //
-        swc1    f20,CxFltF20(a0)        //
-        swc1    f21,CxFltF21(a0)        //
-        swc1    f22,CxFltF22(a0)        //
-        swc1    f23,CxFltF23(a0)        //
-        swc1    f24,CxFltF24(a0)        //
-        swc1    f25,CxFltF25(a0)        //
-        swc1    f26,CxFltF26(a0)        //
-        swc1    f27,CxFltF27(a0)        //
-        swc1    f28,CxFltF28(a0)        //
-        swc1    f29,CxFltF29(a0)        //
-        swc1    f30,CxFltF30(a0)        //
-        swc1    f31,CxFltF31(a0)        //
+        cfc1    v0,fsr                  //
+        sdc1    f0,CxFltF0(a0)          //
+        sdc1    f2,CxFltF2(a0)          //
+        sdc1    f4,CxFltF4(a0)          //
+        sdc1    f6,CxFltF6(a0)          //
+        sdc1    f8,CxFltF8(a0)          //
+        sdc1    f10,CxFltF10(a0)        //
+        sdc1    f12,CxFltF12(a0)        //
+        sdc1    f14,CxFltF14(a0)        //
+        sdc1    f16,CxFltF16(a0)        //
+        sdc1    f18,CxFltF18(a0)        //
+        sdc1    f20,CxFltF20(a0)        //
+        sdc1    f22,CxFltF22(a0)        //
+        sdc1    f24,CxFltF24(a0)        //
+        sdc1    f26,CxFltF26(a0)        //
+        sdc1    f28,CxFltF28(a0)        //
+        sdc1    f30,CxFltF30(a0)        //
         .set    at
         .set    reorder
 
@@ -159,7 +129,7 @@
 // Save control information and set context flags.
 //
 
-        sw      v0,CxFsr(a0)            //
+        sw      v0,CxFsr(a0)            // save floating status
         sw      ra,CxFir(a0)            // set continuation address
         li      v0,UserPsr              // set constant user processor status
         bgez    sp,10f                  // if gez, called from user mode
@@ -170,16 +140,6 @@
         nop                             //
         .set    at
         .set    reorder
-
-#if defined(R3000)
-
-        li      v1,~((1 << PSR_KUP) | (1 << PSR_IEP)) // clear previous fields
-        and     v0,v0,v1                //
-        and     v1,v0,(1 << PSR_KUC) | (1 << PSR_IEC) // isolate current fields
-        sll     v1,v1,PSR_KUP - PSR_KUC // shift into previous field position
-        or      v0,v0,v1                // set previous mode and enable
-
-#endif
 
 10:     sw      v0,CxPsr(a0)            // set processor status
         li      t0,CONTEXT_FULL         // set context control flags
@@ -201,10 +161,6 @@
 //
 //    This function restores the context of the caller to the specified
 //    context.
-//
-//    N.B. The context record is not guaranteed to be quadword aligned
-//       and, therefore, no double floating store instructions can be
-//       used.
 //
 //    N.B. This is a special routine that is used by RtlUnwind to restore
 //       context in the current mode. PSR, t0, and t1 are not restored.
@@ -243,18 +199,12 @@
         ldc1    f26,JbFltF26(a2)        //
         ldc1    f28,JbFltF28(a2)        //
         ldc1    f30,JbFltF30(a2)        //
-        swc1    f20,CxFltF20(a0)        //
-        swc1    f21,CxFltF21(a0)        //
-        swc1    f22,CxFltF22(a0)        //
-        swc1    f23,CxFltF23(a0)        //
-        swc1    f24,CxFltF24(a0)        //
-        swc1    f25,CxFltF25(a0)        //
-        swc1    f26,CxFltF26(a0)        //
-        swc1    f27,CxFltF27(a0)        //
-        swc1    f28,CxFltF28(a0)        //
-        swc1    f29,CxFltF29(a0)        //
-        swc1    f30,CxFltF30(a0)        //
-        swc1    f31,CxFltF31(a0)        //
+        sdc1    f20,CxFltF20(a0)        //
+        sdc1    f22,CxFltF22(a0)        //
+        sdc1    f24,CxFltF24(a0)        //
+        sdc1    f26,CxFltF26(a0)        //
+        sdc1    f28,CxFltF28(a0)        //
+        sdc1    f30,CxFltF30(a0)        //
         lw      s0,JbIntS0(a2)          // move integer registers s0 - s8
         lw      s1,JbIntS1(a2)          //
         lw      s2,JbIntS2(a2)          //
@@ -264,20 +214,20 @@
         lw      s6,JbIntS6(a2)          //
         lw      s7,JbIntS7(a2)          //
         lw      s8,JbIntS8(a2)          //
-        sw      s0,CxIntS0(a0)          //
-        sw      s1,CxIntS1(a0)          //
-        sw      s2,CxIntS2(a0)          //
-        sw      s3,CxIntS3(a0)          //
-        sw      s4,CxIntS4(a0)          //
-        sw      s5,CxIntS5(a0)          //
-        sw      s6,CxIntS6(a0)          //
-        sw      s7,CxIntS7(a0)          //
-        sw      s8,CxIntS8(a0)          //
+        sd      s0,CxXIntS0(a0)         //
+        sd      s1,CxXIntS1(a0)         //
+        sd      s2,CxXIntS2(a0)         //
+        sd      s3,CxXIntS3(a0)         //
+        sd      s4,CxXIntS4(a0)         //
+        sd      s5,CxXIntS5(a0)         //
+        sd      s6,CxXIntS6(a0)         //
+        sd      s7,CxXIntS7(a0)         //
+        sd      s8,CxXIntS8(a0)         //
         lw      v0,JbFir(a2)            // move fir and sp
         lw      v1,JbIntSp(a2)          //
         sw      v0,CxFir(a0)            //
-        sw      v0,CxIntRa(a0)          //
-        sw      v1,CxIntSp(a0)          //
+        sd      v0,CxXIntRa(a0)         //
+        sd      v1,CxXIntSp(a0)         //
 
 //
 // If the call is from user mode, then use the continue system service to
@@ -304,77 +254,60 @@
         .set    noreorder
         .set    noat
         lw      v0,CxFsr(t0)            // restore floating status
-        nop                             // fill
         ctc1    v0,fsr                  //
-        lwc1    f0,CxFltF0(t0)          // restore floating registers f0 - f31
-        lwc1    f1,CxFltF1(t0)          //
-        lwc1    f2,CxFltF2(t0)          //
-        lwc1    f3,CxFltF3(t0)          //
-        lwc1    f4,CxFltF4(t0)          //
-        lwc1    f5,CxFltF5(t0)          //
-        lwc1    f6,CxFltF6(t0)          //
-        lwc1    f7,CxFltF7(t0)          //
-        lwc1    f8,CxFltF8(t0)          //
-        lwc1    f9,CxFltF9(t0)          //
-        lwc1    f10,CxFltF10(t0)        //
-        lwc1    f11,CxFltF11(t0)        //
-        lwc1    f12,CxFltF12(t0)        //
-        lwc1    f13,CxFltF13(t0)        //
-        lwc1    f14,CxFltF14(t0)        //
-        lwc1    f15,CxFltF15(t0)        //
-        lwc1    f16,CxFltF16(t0)        //
-        lwc1    f17,CxFltF17(t0)        //
-        lwc1    f18,CxFltF18(t0)        //
-        lwc1    f19,CxFltF19(t0)        //
-        lwc1    f20,CxFltF20(t0)        //
-        lwc1    f21,CxFltF21(t0)        //
-        lwc1    f22,CxFltF22(t0)        //
-        lwc1    f23,CxFltF23(t0)        //
-        lwc1    f24,CxFltF24(t0)        //
-        lwc1    f25,CxFltF25(t0)        //
-        lwc1    f26,CxFltF26(t0)        //
-        lwc1    f27,CxFltF27(t0)        //
-        lwc1    f28,CxFltF28(t0)        //
-        lwc1    f29,CxFltF29(t0)        //
-        lwc1    f30,CxFltF30(t0)        //
-        lwc1    f31,CxFltF31(t0)        //
+        ldc1    f0,CxFltF0(t0)          // restore floating registers f0 - f31
+        ldc1    f2,CxFltF2(t0)          //
+        ldc1    f4,CxFltF4(t0)          //
+        ldc1    f6,CxFltF6(t0)          //
+        ldc1    f8,CxFltF8(t0)          //
+        ldc1    f10,CxFltF10(t0)        //
+        ldc1    f12,CxFltF12(t0)        //
+        ldc1    f14,CxFltF14(t0)        //
+        ldc1    f16,CxFltF16(t0)        //
+        ldc1    f18,CxFltF18(t0)        //
+        ldc1    f20,CxFltF20(t0)        //
+        ldc1    f22,CxFltF22(t0)        //
+        ldc1    f24,CxFltF24(t0)        //
+        ldc1    f26,CxFltF26(t0)        //
+        ldc1    f28,CxFltF28(t0)        //
+        ldc1    f30,CxFltF30(t0)        //
 
 //
 // Restore integer registers and continue execution.
 //
 
-        lw      v0,CxIntLo(t0)          // restore multiply/divide registers
-        lw      v1,CxIntHi(t0)          //
+        ld      v0,CxXIntLo(t0)         // restore multiply/divide registers
+        ld      v1,CxXIntHi(t0)         //
         mtlo    v0                      //
         mthi    v1                      //
-        lw      AT,CxIntAt(t0)          // restore integer registers at - a3
-        lw      v0,CxIntV0(t0)          //
-        lw      v1,CxIntV1(t0)          //
-        lw      a0,CxIntA0(t0)          //
-        lw      a1,CxIntA1(t0)          //
-        lw      a2,CxIntA2(t0)          //
-        lw      a3,CxIntA3(t0)          //
-        lw      t2,CxIntT2(t0)          // restore integer registers t2 - t7
-        lw      t3,CxIntT3(t0)          //
-        lw      t4,CxIntT4(t0)          //
-        lw      t5,CxIntT5(t0)          //
-        lw      t6,CxIntT6(t0)          //
-        lw      t7,CxIntT7(t0)          //
-        lw      s0,CxIntS0(t0)          // restore integer registers s0 - s7
-        lw      s1,CxIntS1(t0)          //
-        lw      s2,CxIntS2(t0)          //
-        lw      s3,CxIntS3(t0)          //
-        lw      s4,CxIntS4(t0)          //
-        lw      s5,CxIntS5(t0)          //
-        lw      s6,CxIntS6(t0)          //
-        lw      s7,CxIntS7(t0)          //
-        lw      t8,CxIntT8(t0)          // restore integer registers t8 and t9
-        lw      t9,CxIntT9(t0)          //
-        lw      s8,CxIntS8(t0)          // restore integer register s8
-        lw      gp,CxIntGp(t0)          // restore integer register gp
-        lw      sp,CxIntSp(t0)          //
-        lw      ra,CxIntRa(t0)          //
+        ld      AT,CxXIntAt(t0)         // restore integer registers at - a3
+        ld      v0,CxXIntV0(t0)         //
+        ld      v1,CxXIntV1(t0)         //
+        ld      a0,CxXIntA0(t0)         //
+        ld      a1,CxXIntA1(t0)         //
+        ld      a2,CxXIntA2(t0)         //
+        ld      a3,CxXIntA3(t0)         //
+        ld      t2,CxXIntT2(t0)         // restore integer registers t2 - t7
+        ld      t3,CxXIntT3(t0)         //
+        ld      t4,CxXIntT4(t0)         //
+        ld      t5,CxXIntT5(t0)         //
+        ld      t6,CxXIntT6(t0)         //
+        ld      t7,CxXIntT7(t0)         //
+        ld      s0,CxXIntS0(t0)         // restore integer registers s0 - s7
+        ld      s1,CxXIntS1(t0)         //
+        ld      s2,CxXIntS2(t0)         //
+        ld      s3,CxXIntS3(t0)         //
+        ld      s4,CxXIntS4(t0)         //
+        ld      s5,CxXIntS5(t0)         //
+        ld      s6,CxXIntS6(t0)         //
+        ld      s7,CxXIntS7(t0)         //
+        ld      t8,CxXIntT8(t0)         // restore integer registers t8 and t9
+        ld      t9,CxXIntT9(t0)         //
+        ld      s8,CxXIntS8(t0)         // restore integer register s8
+        ld      gp,CxXIntGp(t0)         // restore integer register gp
+        ld      sp,CxXIntSp(t0)         //
         j       t1                      // continue execution
+        ld      ra,CxXIntRa(t0)         //
         .set    at
         .set    reorder
 

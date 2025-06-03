@@ -32,20 +32,13 @@ Environment:
 PUCHAR  UserRegs[10] = {0};
 
 
-ULONG GetRegFlagValue (PDEBUGPACKET dp, ULONG regnum);
-ULONG GetRegValue (PDEBUGPACKET dp, ULONG regnum);
 ULONG GetRegName (void);
 ULONG GetRegString (PUCHAR pszString);
-void  GetRegPCValue (PDEBUGPACKET dp, PULONG Address);
-PULONG GetRegFPValue (PDEBUGPACKET dp);
-void OutputAllRegs(PDEBUGPACKET dp);
-void OutputOneReg (PDEBUGPACKET dp, ULONG regnum);
 PUCHAR RegNameFromIndex (ULONG index);
 
 
 
 
-static ULONG   ProcessorType = 0;
 ULONG   cbBrkptLength = 4;
 ULONG   trapInstr = 0x0016000dL;  //  break 0x16 for brkpts
 ULONG   ContextType = CONTEXT_CONTROL | CONTEXT_INTEGER;
@@ -314,10 +307,10 @@ UserRegTest (ULONG index)
 
 *************************************************************************/
 
-ULONG
+DWORDLONG
 GetRegFlagValue (PDEBUGPACKET dp, ULONG regnum)
 {
-    ULONG value;
+    DWORDLONG value;
 
     if (regnum < FLAGBASE || regnum >= PREGBASE)
         value = GetRegValue(dp,regnum);
@@ -343,10 +336,14 @@ GetRegFlagValue (PDEBUGPACKET dp, ULONG regnum)
 *
 *************************************************************************/
 
-ULONG
+DWORDLONG
 GetRegValue (PDEBUGPACKET dp, ULONG regnum)
 {
-    return *(&dp->tctx->context.FltF0 + regnum);
+    if (regnum >= REGBASE) {
+        return *(&dp->tctx->context.XIntZero + regnum - REGBASE);
+    } else {
+        return *(&dp->tctx->context.FltF0 + regnum);
+    }
 }
 
 
@@ -362,19 +359,33 @@ GetRegString (PUCHAR pszString)
 }
 
 void
-GetRegPCValue (PDEBUGPACKET dp, PULONG Address)
+GetRegPCValue (PDEBUGPACKET dp, PDWORDLONG Address)
 {
     *Address = GetRegValue(dp,REGFIR);
     return;
 }
 
-PULONG
+PDWORDLONG
 GetRegFPValue (PDEBUGPACKET dp)
 {
-    static ULONG addrFP;
+    static DWORDLONG addrFP;
 
     addrFP = GetRegValue(dp,REGGP);
     return &addrFP;
+}
+
+BOOL
+NeedUpper(
+    DWORDLONG value
+    )
+{
+    //
+    // if the high bit of the low part is set, then the
+    // high part must be all ones, else it must be zero.
+    //
+
+    return ( ((value & 0xffffffff80000000L) != 0xffffffff80000000L) &&
+         (((value & 0x80000000L) != 0) || ((value & 0xffffffff00000000L) != 0)) );
 }
 
 /*** OutputAllRegs - output all registers and present instruction
@@ -395,53 +406,74 @@ GetRegFPValue (PDEBUGPACKET dp)
 *
 *************************************************************************/
 
-void
-OutputAllRegs(PDEBUGPACKET dp)
+VOID
+OutputAllRegs(
+    PDEBUGPACKET dp,
+    BOOL Show64
+    )
 {
     int     regindex;
+    DWORDLONG regvalue;
 
-    for (regindex = 1; regindex < 37; regindex++) {
-        if (regindex == 34)
-            lprintfs("          ");
-        else {
-            lprintfs("%s=%08lx", pszReg[regindex + REGBASE],
-                               GetRegValue(dp,regindex + REGBASE));
-            if (regindex % 6 == 0)
+    regindex = 1;
+    if (Show64) {
+        for (; regindex < 34; regindex++) {
+            regvalue = GetRegValue(dp, regindex + REGBASE);
+            lprintfs("%s=%08lx %08lx", pszReg[regindex + REGBASE],
+                                      (ULONG)(regvalue >> 32),
+                                      (ULONG)(regvalue & 0xffffffff));
+            if (regindex % 3 == 0) {
                 lprintfs("\r\n");
-            else
+            } else {
                 lprintfs(" ");
             }
         }
+    }
+
+    for (; regindex < 35; regindex++) {
+        if (regindex == 34) {
+            if (!Show64) {
+                lprintfs("          ");
+             }
+        } else {
+            regvalue = GetRegValue(dp, regindex + REGBASE);
+            lprintfs("%s=%08lx%c", pszReg[regindex + REGBASE],
+                               (ULONG)regvalue,
+                               NeedUpper(regvalue) ? '*' : ' '
+                               );
+            if (regindex % 6 == 0) {
+                lprintfs("\r\n");
+            } else {
+                lprintfs(" ");
+            }
+        }
+    }
+
+    //
+    // we do not expose the high bits of FIR and PSR
+    //
+    lprintfs("%s=%08lx  ", pszReg[REGFIR], (ULONG)GetRegValue(dp, REGFIR));  // 35
+    lprintfs("%s=%08lx\r\n", pszReg[REGPSR], (ULONG)GetRegValue(dp, REGPSR));  // 36
+
     lprintfs("cu=%1lx%1lx%1lx%1lx intr(5:0)=%1lx%1lx%1lx%1lx%1lx%1lx ",
-                GetRegFlagValue(dp,FLAGCU3),
-                GetRegFlagValue(dp,FLAGCU2),
-                GetRegFlagValue(dp,FLAGCU1),
-                GetRegFlagValue(dp,FLAGCU0),
-                GetRegFlagValue(dp,FLAGINT5),
-                GetRegFlagValue(dp,FLAGINT4),
-                GetRegFlagValue(dp,FLAGINT3),
-                GetRegFlagValue(dp,FLAGINT2),
-                GetRegFlagValue(dp,FLAGINT1),
-                GetRegFlagValue(dp,FLAGINT0));
+                (ULONG)GetRegFlagValue(dp, FLAGCU3),
+                (ULONG)GetRegFlagValue(dp, FLAGCU2),
+                (ULONG)GetRegFlagValue(dp, FLAGCU1),
+                (ULONG)GetRegFlagValue(dp, FLAGCU0),
+                (ULONG)GetRegFlagValue(dp, FLAGINT5),
+                (ULONG)GetRegFlagValue(dp, FLAGINT4),
+                (ULONG)GetRegFlagValue(dp, FLAGINT3),
+                (ULONG)GetRegFlagValue(dp, FLAGINT2),
+                (ULONG)GetRegFlagValue(dp, FLAGINT1),
+                (ULONG)GetRegFlagValue(dp, FLAGINT0));
     lprintfs("sw(1:0)=%1lx%1lx ",
-                GetRegFlagValue(dp,FLAGSW1),
-                GetRegFlagValue(dp,FLAGSW0));
-    if (ProcessorType == 0)
-        lprintfs("kuo=%01lx ieo=%01lx kup=%01lx "
-                "iep=%01lx kuc=%01lx iec=%01lx\r\n",
-                GetRegFlagValue(dp,FLAGKUO),
-                GetRegFlagValue(dp,FLAGIEO),
-                GetRegFlagValue(dp,FLAGKUP),
-                GetRegFlagValue(dp,FLAGIEP),
-                GetRegFlagValue(dp,FLAGKUC),
-                GetRegFlagValue(dp,FLAGIEC));
-    else
-        lprintfs("ksu=%01lx erl=%01lx exl=%01lx ie=%01lx\r\n",
-                GetRegFlagValue(dp,FLAGKSU),
-                GetRegFlagValue(dp,FLAGERL),
-                GetRegFlagValue(dp,FLAGEXL),
-                GetRegFlagValue(dp,FLAGIE));
-    lprintfs("\r\n\r\n");
+                (ULONG)GetRegFlagValue(dp, FLAGSW1),
+                (ULONG)GetRegFlagValue(dp, FLAGSW0));
+    lprintfs("ksu=%01lx erl=%01lx exl=%01lx ie=%01lx\r\n",
+                (ULONG)GetRegFlagValue(dp, FLAGKSU),
+                (ULONG)GetRegFlagValue(dp, FLAGERL),
+                (ULONG)GetRegFlagValue(dp, FLAGEXL),
+                (ULONG)GetRegFlagValue(dp, FLAGIE));
 }
 
 /*** OutputOneReg - output one register value
@@ -460,15 +492,24 @@ OutputAllRegs(PDEBUGPACKET dp)
 *************************************************************************/
 
 void
-OutputOneReg (PDEBUGPACKET dp, ULONG regnum)
+OutputOneReg (
+    PDEBUGPACKET dp,
+    ULONG regnum,
+    BOOL Show64
+    )
 {
-    ULONG value;
+    DWORDLONG value;
 
-    value = GetRegFlagValue(dp,regnum);
-    if (regnum < FLAGBASE)
-        lprintfs("%08lx\r\n", value);
-    else
-        lprintfs("%lx\r\n", value);
+    value = GetRegFlagValue(dp, regnum);
+    if (regnum >= FLAGBASE) {
+        lprintfs("%lx\r\n", (ULONG)value);
+    } else if (Show64) {
+        lprintfs("%08lx %08lx\r\n", (ULONG)(value >> 32), (ULONG)(value & 0xffffffff));
+    } else if (regnum != REGFIR && regnum != REGPSR) {
+        lprintfs("%08lx%s\r\n", (ULONG)value, NeedUpper(value)?"*":"");
+    } else {
+        lprintfs("%08lx\r\n", (ULONG)value);
+    }
 }
 
 PUCHAR
@@ -476,4 +517,4 @@ RegNameFromIndex (ULONG index)
 {
     return pszReg[index];
 }
-
+

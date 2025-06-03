@@ -23,8 +23,8 @@
 #define  MEMSIZE	 		64*1024*1024	// 64 MB virtual memory for data -
 											// initially RESERVED - will be
 											// COMITTED as needed.
-#define  MAX_PATCHES	    25		 		// Limit on num of patchable dlls
-#define  MAX_IMAGES 	    50		 	    // Limit on num of modules in proc
+#define  MAX_PATCHES	    200		 		// Limit on num of patchable dlls
+#define  MAX_IMAGES 	    200		 	    // Limit on num of modules in proc
 #define  PAGE_SIZE	    	4096	 		// 4K pages
 #define  PATCHFILESZ	    PAGE_SIZE	 	// DLL patch file maximum size
 #define  COMMIT_SIZE	    96*PAGE_SIZE 	// Mem chunck to be commited
@@ -51,7 +51,7 @@
 #define  CLEAREVENTNAME     "\\BaseNamedObjects\\WSTClearEvent"
 #define  PAUSEEVENTNAME	    "\\BaseNamedObjects\\WSTPauseEvent"
 #define  SHAREDNAME		    "\\BaseNamedObjects\\WSTSHARED"
-#define  WSTUSAGE(x)		((ULONG)(x->SystemReserved2[213]))
+#define  WSTUSAGE(x)		((ULONG)(x->Instrumentation[3]))
 
 
 
@@ -109,6 +109,10 @@ typedef struct _patchcode {
     DWORD     Jmp_t12;             // Jmp  zero, (t12)           (C)    + B
     DWORD     Bis_0;               // Bis  zero, zero, zero      (D)    + C
     DWORD     OurSignature;        // FEFE55AA                   (E)    + D
+#endif
+
+#if defined(_PPC_)
+    DWORD     OurSignature;        // FEFE55AA until dynamic stubs implemented
 #endif
 } PATCHCODE;
 
@@ -180,4 +184,3 @@ extern void RestoreAllRegs (void);
 #define STUB_SIGNATURE     0xfefe55aa   // Mips Patch Stub signature
 #define  CAIROCRT           "CAIROCRT.DLL"
 
-

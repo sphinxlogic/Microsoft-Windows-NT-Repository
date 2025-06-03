@@ -326,11 +326,7 @@ LPSTR pString )               // O - pointer to log file name to be printed.
      do {
           if ( pLogItem && ((LOGITEM_PTR)pLogItem)->bTag ) {
 
-#ifndef UNICODE
                wsprintf ( pString, TEXT("%s%s"),
-#else //UNICODE
-               wsprintf ( pString, TEXT("%ws%ws"),
-#endif //UNICODE
                           CDS_GetUserDataPath (),
                           (((LOGITEM_PTR)pLogItem)->szFileName ) );
 
@@ -481,11 +477,7 @@ Q_HEADER_PTR pLogQueue )   // I - pointer to the header of the log item list.
      strcpy ( szPrefix , CDS_GetLogFileRoot ( pCDS ) );
      RSM_StringCopy( IDS_LOGEXTENSION,   szExtension, MAX_UI_RESOURCE_LEN ) ;
 
-#ifndef UNICODE
      wsprintf ( (LPSTR)szPath, TEXT("%s%s%s%s"), pMaynPath, szPrefix, TEXT("??"), szExtension );
-#else //UNICODE
-     wsprintf ( (LPSTR)szPath, TEXT("%ws%ws%ws%ws"), pMaynPath, szPrefix, TEXT("??"), szExtension );
-#endif //UNICODE
 
      // Get all log file directory entries.
 
@@ -610,11 +602,7 @@ BOOL         fRefresh )       // I - specifies whether to refresh the log window
 
                // Delete the file after building the full file path name.
 
-#ifndef UNICODE
                wsprintf ( (LPSTR)szPath, TEXT("%s%s"), CDS_GetUserDataPath(),pLogItem->szFileName );
-#else //UNICODE
-               wsprintf ( (LPSTR)szPath, TEXT("%ws%ws"), CDS_GetUserDataPath(),pLogItem->szFileName );
-#endif //UNICODE
 
                // delete the file
                
@@ -674,11 +662,7 @@ LPSTR pDest )            // I - destination string pointer
      do {
           // Add the file specifier, the number, and extension.
 
-#ifndef UNICODE
           wsprintf ( (LPSTR)szPath, TEXT("%s%s%.2u%s"), pMaynPath, szPrefix, unNum, szExtension );
-#else //UNICODE
-          wsprintf ( (LPSTR)szPath, TEXT("%ws%ws%.2u%ws"), pMaynPath, szPrefix, unNum, szExtension );
-#endif //UNICODE
 
           // See if the file exists.
 
@@ -691,11 +675,7 @@ LPSTR pDest )            // I - destination string pointer
 
      } while ( ! fFound && unNum < (UINT16) CDS_GetNumLogSessions( pCDS ) );
 
-#ifndef UNICODE
      wsprintf ( pDest, TEXT("%s%.2u%s"), szPrefix, unNum, szExtension );
-#else //UNICODE
-     wsprintf ( pDest, TEXT("%ws%.2u%ws"), szPrefix, unNum, szExtension );
-#endif //UNICODE
 
      return ! fFound;
 
@@ -1457,11 +1437,7 @@ LOGITEM_PTR pLogItem )        // I - pointer to a log item.
 
      // Build the full path name for log file.
 
-#ifndef UNICODE
      wsprintf ( L_GetFileName( pDlm ) , TEXT("%s%s"), CDS_GetUserDataPath (),
-#else //UNICODE
-     wsprintf ( L_GetFileName( pDlm ) , TEXT("%ws%ws"), CDS_GetUserDataPath (),
-#endif //UNICODE
                           (((LOGITEM_PTR)pLogItem)->szFileName ) );
 
      strcpy( (LPSTR)mwszCurrentViewLogFile, L_GetFileName( pDlm ) ) ;
@@ -1577,11 +1553,7 @@ LOGITEM_PTR pLogItem )        // I - pointer to a log item.
      UI_IntToTime( szTime, LOG_GetItemTime ( pLogItem ) ) ;
 
      wsprintf( (LPSTR)pLogItem->szDateTime,
-#ifndef UNICODE
           TEXT("%s%11s  %s %-15s"),
-#else //UNICODE
-          TEXT("%ws%11ws  %ws %-15ws"),
-#endif //UNICODE
           szLoggedOn ,
           szDate ,
           szAt ,
@@ -1632,7 +1604,7 @@ DLM_LOGITEM_PTR  pDlm )       // I - Item in the list.
 
      // Open a file.
 
-     L_SetFilePtr( pDlm, fopen ( L_GetFileName( pDlm ), TEXT("rb") ) ) ;
+     L_SetFilePtr( pDlm, UNI_fopen ( L_GetFileName( pDlm ), _O_RDONLY ) ) ;
 
      if ( L_GetFilePtr( pDlm ) ) {
 

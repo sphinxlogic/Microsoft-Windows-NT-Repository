@@ -1,4 +1,14 @@
-"/*\n\
+"\t  case DLL_PROCESS_DETACH:\n\
+\t\t FreeStack() ;\n\
+\t\t TlsFree(dwTlsIndex) ;\n\
+\t\t FreeLibrary( hMod ) ;\n\
+\t\t hMod = NULL ;\n\
+\t\t break;\n\
+\t}\n\
+\treturn WrapperInit( hInst, dwReason, lpRes ) ;\n\
+}\n\
+\n\
+/*\n\
 ** _prelude\n\
 **\tThis routine handles saving the API call state and calling APIPrelude\n\
 **\tThe return value is the API to call.\n\
@@ -12,7 +22,7 @@ FARPROC _prelude( DWORD dwId, PCALLSTACK pStack ) {\n\
 \tapidata.dwID\t\t = dwId ;\n\
 \tapidata.dwCallLevel  = GetStackDepth() + 1 ;\n\
 \tapidata.dwUserData\t= 0 ;\n\
-\tapidata.dwRet\t\t= 0 ;\n\
+\tapidata.Ret\t\t= 0 ;\n\
 \tapidata.dwReturnAddress = pStack->dwReturnAddress ;\n\
 \tapidata.pArgStack\t= (BYTE *)&(pStack->abArgs) ;\n\
 \n\
@@ -36,9 +46,9 @@ FARPROC _prelude( DWORD dwId, PCALLSTACK pStack ) {\n\
 ** _postlude\n\
 **\tPop a call state off the stack and pass information to APIPostlude\n\
 */\n\
-DWORD\t\t_postlude( DWORD dwRet, PDWORD pdwReturnAddress ) {\n\
+RETVAL\t\t_postlude( RETVAL Ret, PDWORD pdwReturnAddress ) {\n\
 \tAPICALLDATA apidata ;\n\
-\tDWORD dwUserRet ;\n\
+\tRETVAL UserRet ;\n\
 \tDWORD dwError = GetLastError() ;\n\
 \n\
 \tPopStack( &apidata ) ;\n\
@@ -46,13 +56,13 @@ DWORD\t\t_postlude( DWORD dwRet, PDWORD pdwReturnAddress ) {\n\
 \t/* patch up return address */\n\
 \t*pdwReturnAddress = apidata.dwReturnAddress ;\n\
 \n\
-\tapidata.dwRet = dwRet ;\n\
+\tapidata.Ret = Ret ;\n\
 \n\
-\tdwUserRet = APIPostlude( &apidata ) ;\n\
+\tUserRet = APIPostlude( &apidata ) ;\n\
 \n\
 \tSetLastError(dwError) ;\n\
 \n\
-\treturn dwUserRet ;\n\
+\treturn UserRet ;\n\
 }\n\
 \n\
 /*\n\
@@ -77,18 +87,5 @@ BOOL InitStack() {\n\
 \tpAPIDataStack->wTop = 0 ;\n\
 \n\
 \treturn fRet ;\n\
-}\n\
-\n\
-/*\n\
-** FreeStack\n\
-**\tFrees per thread stack\n\
-*/\n\
-void FreeStack()\n\
-{\n\
-\tPAPIDATASTACK pAPIDataStack ;\n\
-\n\
-\tpAPIDataStack = (PAPIDATASTACK)TlsGetValue(dwTlsIndex);\n\
-\tif (pAPIDataStack != NULL)\n\
-\t\tLocalFree((HLOCAL) pAPIDataStack );\n\
 }\n\
 \n"

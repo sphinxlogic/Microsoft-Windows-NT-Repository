@@ -69,7 +69,8 @@ MGetDateTime(
 
 WORD
 MSetDateTime(
-    PDATETIME pDateTime
+    PDATETIME pDateTime,
+    BOOL      LocalTime
     );
 
 WORD

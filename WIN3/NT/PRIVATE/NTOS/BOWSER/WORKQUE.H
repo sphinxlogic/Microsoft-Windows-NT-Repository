@@ -48,6 +48,11 @@ struct _IRP_CONTEXT {
     struct _BOWSER_FS_DEVICE_OBJECT *DeviceObject;
 } IRP_CONTEXT, *PIRP_CONTEXT;
 
+VOID
+BowserQueueCriticalWorkItem (
+    IN PWORK_QUEUE_ITEM WorkItem
+    );
+
 PIRP_CONTEXT
 BowserAllocateIrpContext(
     VOID

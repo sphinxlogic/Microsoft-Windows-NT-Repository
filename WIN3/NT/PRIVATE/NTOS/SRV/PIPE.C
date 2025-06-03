@@ -34,30 +34,30 @@ Revision History:
 #define BugCheckFileId SRV_FILE_PIPE
 
 STATIC
-VOID
+VOID SRVFASTCALL
 RestartCallNamedPipe (
     IN OUT PWORK_CONTEXT WorkContext
     );
 
 STATIC
-VOID
+VOID SRVFASTCALL
 RestartWaitNamedPipe (
     IN OUT PWORK_CONTEXT WorkContext
     );
 
 STATIC
-VOID
+VOID SRVFASTCALL
 RestartPeekNamedPipe (
     IN OUT PWORK_CONTEXT WorkContext
     );
 
-VOID
+VOID SRVFASTCALL
 RestartRawWriteNamedPipe (
     IN OUT PWORK_CONTEXT WorkContext
     );
 
 STATIC
-VOID
+VOID SRVFASTCALL
 RestartTransactNamedPipe (
     IN OUT PWORK_CONTEXT WorkContext
     );
@@ -69,17 +69,17 @@ RestartFastTransactNamedPipe (
     IN OUT PWORK_CONTEXT WorkContext
     );
 
-VOID
+VOID SRVFASTCALL
 RestartFastTransactNamedPipe2 (
     IN OUT PWORK_CONTEXT WorkContext
     );
 
-VOID
+VOID SRVFASTCALL
 RestartReadNamedPipe (
     IN OUT PWORK_CONTEXT WorkContext
     );
 
-VOID
+VOID SRVFASTCALL
 RestartWriteNamedPipe (
     IN OUT PWORK_CONTEXT WorkContext
     );
@@ -399,6 +399,7 @@ Return Value:
     PFILE_PIPE_WAIT_FOR_BUFFER pipeWaitBuffer;
     PREQ_TRANSACTION request;
     PTRANSACTION transaction;
+    UNICODE_STRING pipePath;
     CLONG nameLength;
 
     PAGED_CODE( );
@@ -407,27 +408,26 @@ Return Value:
     transaction = WorkContext->Parameters.Transaction;
 
     //
-    // Allocate and fill in FILE_PIPE_WAIT_FOR_BUFFER structure
-    //
-    // At this point ExecuteTransaction has already guaranteed that the
-    // name is prefixed with \PIPE (but it has not guaranteed \PIPE\).
+    // Allocate and fill in FILE_PIPE_WAIT_FOR_BUFFER structure.
     //
 
-    nameLength = transaction->TransactionName.Length -
-                    (UNICODE_SMB_PIPE_PREFIX_LENGTH + sizeof(WCHAR)) +
-                    sizeof(WCHAR);
+    pipePath = transaction->TransactionName;
 
-    if ( nameLength <= sizeof(WCHAR) ) {
+    if ( pipePath.Length <= (UNICODE_SMB_PIPE_PREFIX_LENGTH + sizeof(WCHAR)) ) {
 
         //
         // The transaction name does not include a pipe name.  It's
-        // either \PIPE or \PIPE\.
+        // either \PIPE or \PIPE\, or it doesn't even have \PIPE.
         //
 
         SrvSetSmbError( WorkContext, STATUS_INVALID_SMB );
         return SmbTransStatusErrorWithoutData;
 
     }
+
+    nameLength = pipePath.Length -
+                    (UNICODE_SMB_PIPE_PREFIX_LENGTH + sizeof(WCHAR)) +
+                    sizeof(WCHAR);
 
     pipeWaitBuffer = ALLOCATE_NONPAGED_POOL(
                         sizeof(FILE_PIPE_WAIT_FOR_BUFFER) + nameLength,
@@ -456,8 +456,7 @@ Return Value:
 
     RtlCopyMemory(
         pipeWaitBuffer->Name,
-        (PUCHAR)transaction->TransactionName.Buffer +
-                        UNICODE_SMB_PIPE_PREFIX_LENGTH + sizeof(WCHAR),
+        (PUCHAR)pipePath.Buffer + UNICODE_SMB_PIPE_PREFIX_LENGTH + sizeof(WCHAR),
         nameLength
         );
 
@@ -799,7 +798,8 @@ Return Value:
         return SmbTransStatusErrorWithoutData;
     }
 
-    if (transaction->MaxDataCount < actualDataSize || smbPathLength >= 256) {
+    if ( (transaction->MaxDataCount < actualDataSize) ||
+         (smbPathLength >= MAXIMUM_FILENAME_LENGTH) ) {
 
         //
         // Do not return the pipe name.  It won't fit in the return buffer.
@@ -1337,7 +1337,7 @@ Return Value:
         irpSp->FileObject = rfcb->Lfcb->FileObject;
 
         irp->Tail.Overlay.OriginalFileObject = irpSp->FileObject;
-        irp->Tail.Overlay.Thread = SrvIrpThread;
+        irp->Tail.Overlay.Thread = WorkContext->CurrentWorkQueue->IrpThread;
         DEBUG irp->RequestorMode = KernelMode;
 
         irp->MdlAddress = NULL;
@@ -1592,7 +1592,7 @@ Return Value:
         irpSp->FileObject = rfcb->Lfcb->FileObject;
 
         irp->Tail.Overlay.OriginalFileObject = irpSp->FileObject;
-        irp->Tail.Overlay.Thread = SrvIrpThread;
+        irp->Tail.Overlay.Thread = WorkContext->CurrentWorkQueue->IrpThread;
         DEBUG irp->RequestorMode = KernelMode;
 
         irp->MdlAddress = NULL;
@@ -1765,7 +1765,7 @@ Return Value:
 } // SrvRawWriteNamedPipe
 
 
-VOID
+VOID SRVFASTCALL
 RestartCallNamedPipe (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -1806,7 +1806,7 @@ Return Value:
         // Down level clients, expect us to return STATUS_SUCCESS.
         //
 
-        if ( WorkContext->Connection->SmbDialect > SmbDialectNtLanMan ) {
+        if ( !IS_NT_DIALECT( WorkContext->Connection->SmbDialect ) ) {
             status = STATUS_SUCCESS;
 
         } else {
@@ -1872,7 +1872,7 @@ Return Value:
 } // RestartCallNamedPipe
 
 
-VOID
+VOID SRVFASTCALL
 RestartWaitNamedPipe (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -1944,7 +1944,7 @@ Return Value:
 } // RestartWaitNamedPipe
 
 
-VOID
+VOID SRVFASTCALL
 RestartPeekNamedPipe (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -1987,7 +1987,7 @@ Return Value:
         // Down level clients, expect us to return STATUS_SUCCESS.
         //
 
-        if ( WorkContext->Connection->SmbDialect > SmbDialectNtLanMan ) {
+        if ( !IS_NT_DIALECT( WorkContext->Connection->SmbDialect ) ) {
             status = STATUS_SUCCESS;
 
         } else {
@@ -2076,7 +2076,7 @@ Return Value:
 } // RestartPeekNamedPipe
 
 
-VOID
+VOID SRVFASTCALL
 RestartTransactNamedPipe (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -2117,7 +2117,7 @@ Return Value:
         // Down level clients, expect us to return STATUS_SUCCESS.
         //
 
-        if ( WorkContext->Connection->SmbDialect > SmbDialectNtLanMan ) {
+        if ( !IS_NT_DIALECT( WorkContext->Connection->SmbDialect ) ) {
             status = STATUS_SUCCESS;
 
         } else {
@@ -2372,7 +2372,7 @@ error_no_data:
 } // RestartFastTransactNamedPipe
 
 
-VOID
+VOID SRVFASTCALL
 RestartFastTransactNamedPipe2 (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -2431,7 +2431,7 @@ Return Value:
 } // RestartFastTransactNamedPipe2
 
 
-VOID
+VOID SRVFASTCALL
 RestartRawWriteNamedPipe (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -2671,7 +2671,7 @@ Return Value:
 
 } // SrvWriteNamedPipe
 
-VOID
+VOID SRVFASTCALL
 RestartWriteNamedPipe (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -2915,7 +2915,7 @@ Return Value:
 } // SrvReadNamedPipe
 
 
-VOID
+VOID SRVFASTCALL
 RestartReadNamedPipe (
     IN OUT PWORK_CONTEXT WorkContext
     )

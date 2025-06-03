@@ -1,4 +1,4 @@
-@echo off
+@if "%_echo%"=="" echo off
 setlocal
 %_NTDRIVE%
 cd \nt\public

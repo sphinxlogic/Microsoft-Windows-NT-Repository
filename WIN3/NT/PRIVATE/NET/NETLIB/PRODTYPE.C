@@ -105,7 +105,7 @@ Return Value:
 
     } else {
 
-        TCHAR CanonServerName[UNCLEN+1];
+        TCHAR CanonServerName[MAX_PATH];
         DWORD LocalOrRemote;    // Will be set to ISLOCAL or ISREMOTE.
 
         //
@@ -117,11 +117,11 @@ Return Value:
                 CanonServerName,    // output: canon name
                 0);                 // flags: normal
         IF_DEBUG( SUPPORTS ) {
-            NetpDbgPrint( PREFIX_NETAPI
+            NetpKdPrint(( PREFIX_NETAPI
                     "NetpGetProductType: canon status is "
                     FORMAT_API_STATUS ", Lcl/rmt=" FORMAT_HEX_DWORD
                     ", canon buf is '" FORMAT_LPTSTR "'.\n",
-                    ApiStatus, LocalOrRemote, CanonServerName);
+                    ApiStatus, LocalOrRemote, CanonServerName));
         }
         if (ApiStatus != NO_ERROR) {
             goto Cleanup;
@@ -145,17 +145,17 @@ Return Value:
         //
         if ( !RtlGetNtProductType( &ProductType ) ) {
             ApiStatus = NERR_InternalError;
-            NetpDbgPrint( PREFIX_NETLIB
+            NetpKdPrint(( PREFIX_NETLIB
                     "NetpGetProductType: Unexpected return value from "
-                    "RtlGetNtProductType!\n" );
+                    "RtlGetNtProductType!\n" ));
             goto Cleanup;
         }
 
         if ( !NetpIsProductTypeValid( ProductType ) ) {
 
-            NetpDbgPrint( PREFIX_NETLIB
+            NetpKdPrint(( PREFIX_NETLIB
                     "NetpGetProductType: Unexpected local product type "
-                    FORMAT_DWORD ".\n", (DWORD) ProductType );
+                    FORMAT_DWORD ".\n", (DWORD) ProductType ));
             ApiStatus = ERROR_INVALID_DATA;
             goto Cleanup;
         }
@@ -229,12 +229,12 @@ Cleanup:
     }
 
     IF_DEBUG( SUPPORTS ) {
-        NetpDbgPrint( PREFIX_NETLIB
+        NetpKdPrint(( PREFIX_NETLIB
                 "NetpGetProductType: Product type is " FORMAT_DWORD " for '"
                 FORMAT_LPTSTR "', returning status " FORMAT_API_STATUS ".\n",
                 (DWORD) ProductType,
                 (UncServerName!=NULL) ? UncServerName : TEXT("(local)"),
-                ApiStatus );
+                ApiStatus ));
     }
 
     if (ApiStatus == NO_ERROR) {

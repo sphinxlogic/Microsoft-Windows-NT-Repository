@@ -1,4 +1,4 @@
-TITLE	LDINT - Loader interrupt procedure
+TITLE   LDINT - Loader interrupt procedure
 
 .xlist
 include kernel.inc
@@ -121,7 +121,7 @@ DataEnd
 sBegin	DATA
 externW gmove_stack
 externW TraceOff
-sEnd	DATA
+sEnd    DATA
 
 sBegin	CODE
 assumes CS,CODE
@@ -452,7 +452,9 @@ KillApp endp
 
 	public	FaultFilter
 FaultFilter	proc	near
-	mov	al,byte ptr [bp].fsf_faulting_CS
+
+
+    mov al,byte ptr [bp].fsf_faulting_CS
 	and	al, SEG_RING_MASK		; Check it was Ring 3, LDT
 	cmp	al, SEG_RING
 
@@ -468,7 +470,38 @@ FaultFilter	proc	near
 	cCall	TextMode
 	ret					; Hypocrite!
 @@:
-	pop	ax				; toss chain return
+;
+; Check for faults on POP FS and POP GS. If found, fix them up. We need to
+; fix up faults in the register restoration of both KRNL386 (WOW16Return) and
+; MMSYSTEM (MULTI_MEDIA_ISR386). Monty Pythons Complete Waste of Time is an app
+; which frees selectors in FS across message boundries.
+;
+ifdef WOW
+        push    ds
+        mov     ax, word ptr [bp].fsf_faulting_CS
+        mov     ds, ax
+        mov     si, word ptr [bp].fsf_faulting_IP
+        cmp     word ptr [si], 0A10Fh  ; pop  fs
+        je      HandFSGSflt
+        cmp     word ptr [si], 0A90Fh  ; pop  gs
+        je      HandFSGSflt
+        jmp short NoFSGSflt
+HandFSGSflt:
+if KDEBUG
+    Trace_Out "POP GS/FS fault fixed up!"
+endif
+        mov     ds, [bp].fsf_SS
+        mov     si, [bp].fsf_SP
+        mov     word ptr [si], 0
+        pop     ds                      ; restore kernel DS
+        pop     ax                      ; don't do EH_Chain
+        push    codeOffset EH_ret       ; use "handled it" return instead
+        ret
+NoFSGSflt:
+        pop     ds
+endif
+
+    pop ax              ; toss chain return
 	push	codeOffset EH_ret		; use "handled it" return
 
 	mov	si,word ptr FaultHandler	; SI = Handler

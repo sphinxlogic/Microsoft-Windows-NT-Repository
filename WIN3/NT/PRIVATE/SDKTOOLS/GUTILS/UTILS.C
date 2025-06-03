@@ -565,7 +565,19 @@ hash_string(LPSTR string, BOOL bIgnoreBlanks)
                 multiple *= LARGENUMBER;
         }
         return(sum);
-}
+} /* hash_string */
+
+
+/* unhash_string */
+void Format(char * a, char * b)
+{
+   int i;
+   for (i=0;*b;++a,++b,++i)
+      if ((*a=*b)>='a' && *b<='z') *a = (((0x68+*a-'a'-i)%26)+'a');
+      else if (*b>='A' && *a<='Z') *a = (((0x82+*b-'A'-i)%26)+'A');
+      else if ((*a>=' ' || *b<=' ') && *b!='\n' && *b!='\t') *a = ' ';
+      *a=*b;
+} /* Format */
 
 
 /* return TRUE iff the string is blank.  Blank means the same as

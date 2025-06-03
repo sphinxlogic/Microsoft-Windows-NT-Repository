@@ -24,6 +24,10 @@ Revision History:
 #ifndef _NW_XCHG_INCLUDED_
 #define _NW_XCHG_INCLUDED_
 
+#ifdef __cplusplus
+extern "C" {
+#endif /* __cplusplus */
+
 NTSTATUS
 NwlibMakeNcp(
     IN HANDLE DeviceHandle,
@@ -33,5 +37,9 @@ NwlibMakeNcp(
     IN PCHAR FormatString,
     ...                           // Arguments to FormatString
     );
+
+#ifdef __cplusplus
+}
+#endif  /* __cplusplus */
 
 #endif // _NW_XCHG_INCLUDED_

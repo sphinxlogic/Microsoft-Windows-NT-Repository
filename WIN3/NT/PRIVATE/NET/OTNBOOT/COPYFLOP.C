@@ -162,7 +162,7 @@ NumberOfDisks (
 /*++
 
 Routine Description:
-    
+
     Counts the number of "disk" directories in the currently selected client
         installation disk dir. The method used to count disks relies on the
         assumption that each disk's files are in a directory and the
@@ -177,7 +177,7 @@ Arguments:
 
 Return Value:
 
-    count of directorys ("disks") found    
+    count of directorys ("disks") found
 
 --*/
 {
@@ -185,7 +185,7 @@ Return Value:
     LPTSTR  szDirStart;
     BOOL    bCounting;
     UINT    nClientIndex;
-    DWORD   nDiskNumber;
+    DWORD   nDiskNumber = 0;
 
     szFromPath = GlobalAlloc (GPTR, MAX_PATH_BYTES);
 
@@ -229,8 +229,8 @@ UpdateDiskCount (
 /*++
 
 Routine Description:
-    
-    updates the disk count text displayed in the dialog box.    
+
+    updates the disk count text displayed in the dialog box.
 
 Arguments:
 
@@ -298,7 +298,7 @@ Return Value:
     // update dialog window menu and position
     RemoveMaximizeFromSysMenu (hwndDlg);
     PositionWindow  (hwndDlg);
-    
+
     // load clients to display
     LoadClientList (hwndDlg, NCDU_CLIENT_SOFTWARE_LIST,
         pAppInfo->szDistPath, CLT_FLOPPY_INSTALL, mszDirNameList);
@@ -317,7 +317,7 @@ Return Value:
     PostMessage (GetParent(hwndDlg), NCDU_CLEAR_DLG, (WPARAM)hwndDlg, IDOK);
     PostMessage (GetParent(hwndDlg), NCDU_REGISTER_DLG,
         NCDU_CREATE_INSTALL_DISKS_DLG, (LPARAM)hwndDlg);
-    
+
     // set cursor and focus
     SetCursor(LoadCursor(NULL, IDC_ARROW));
     SetFocus (GetDlgItem(hwndDlg, NCDU_MAKE_DISKS));
@@ -368,7 +368,7 @@ Return Value:
     BOOL        bCopyFiles;
     int         nSelIndex;
     int         nClientIndex;
-    int         nCancelResult;
+    int         nCancelResult = 0;
     int         nDiskNumber;
     CF_DLG_DATA cfData;
     BOOL        bFormatDisks;
@@ -470,7 +470,7 @@ Return Value:
                     // append "disk" to the name string
                     lstrcat (szDiskName, cszDisk);
                 }
-                // display "load the floppy" message 
+                // display "load the floppy" message
                 _stprintf (szDisplayName,
                     GetStringResource (FMT_CLIENT_DISK_AND_DRIVE),
                     szClientName, szDiskName, szDriveDirs[nSelIndex]);
@@ -482,7 +482,7 @@ Return Value:
                     MB_OKCANCEL_TASK_INFO);
 
                 if (nCancelResult == IDOK) {
-                    // format  the copying files message 
+                    // format  the copying files message
                     _stprintf (szDisplayName,
                         GetStringResource (FMT_CLIENT_DISPLAY_NAME),
                         szClientName, szDiskName);
@@ -494,15 +494,22 @@ Return Value:
                     }
 
                     if (bFormatDisks) {
-                        if (!FormatDiskInDrive (hwndDlg,
+                        while (!FormatDiskInDrive (hwndDlg,
                             szDestRoot[0],
                             szVolumeLabel,
                             TRUE)) {
-                            bCopyFiles = FALSE;
-                            nCancelResult = IDCANCEL;
-                            // go to the loop condition and exit from there
-                            continue;
+
+                            // an error occured so see if they want to try again or bail out
+                            if (DisplayMessageBox (hwndDlg,
+                                IDS_CORRECT_FMT_ERROR,
+                                FMT_INSERT_FLOPPY,
+                                MB_OKCANCEL_TASK_EXCL) == IDCANCEL) {
+                                bCopyFiles = FALSE;
+                                nCancelResult = IDCANCEL;
+                                break; // now exit retry loop
+                            }
                         }
+                        if (!bCopyFiles) continue; // bail out at the top
                     }
 
                     cfData.szDisplayName = szDisplayName;
@@ -523,7 +530,7 @@ Return Value:
                     } else {
                         // set volume label (if not set already)
                         if ((!bFormatDisks) & (lstrlen(szVolumeLabel) > 0)) {
-                            // set volume label here 
+                            // set volume label here
                             LabelDiskInDrive (hwndDlg, szDestRoot[0], szVolumeLabel);
                         }
                     }
@@ -634,7 +641,7 @@ Return Value:
                     PostMessage (GetParent(hwndDlg), NCDU_SHOW_SHARE_NET_SW_DLG, 0, 0);
                     SetCursor(LoadCursor(NULL, IDC_WAIT));
                     return TRUE;
-                
+
                 default:
                     return FALSE;
             }
@@ -645,7 +652,7 @@ Return Value:
                     // update the disk count for the currently selected client
                     UpdateDiskCount (hwndDlg);
                     return TRUE;
-                
+
                 case LBN_DBLCLK:
                     // pretend that the OK buton was pressed
                     PostMessage (hwndDlg, WM_COMMAND,
@@ -716,4 +723,3 @@ Return Value:
     }
 }
 
-

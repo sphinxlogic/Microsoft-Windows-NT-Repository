@@ -27,6 +27,11 @@
 //
 // Revision History:
 //
+//    Monty VanderBilt 14-Feb-1996 Avoid memory loads and branch takens between 
+//                                 load lock and store conditional instructions
+//                                 to conform with all alpha architecture rules.
+//    Monty VanderBilt 27-Feb-1996 Added RtlZeroBytes and RtlFillBytes to support
+//                                 byte granularity access when necessary.
 //--
 
 #include "ksalpha.h"
@@ -506,7 +511,7 @@ CompareUnaligned:
 
         LEAF_ENTRY(RtlMoveMemory)
 
-
+        beq     a2, 80f                 // if eq, no bytes to move
 //
 // If the source address is less than the destination address and source
 // address plus the length of the move is greater than the destination
@@ -1420,42 +1425,39 @@ RtlpFillMemory:                         //
 //
 
         xor     a0, a1, t0              // compare alignment bits
-        and     t0, 0x7, t0             // isloate alignment comparison
+        and     t0, 0x7, t0             // isolate alignment comparison
         bne     t0, CopyForwardUnaligned // if ne, incompatible alignment
 
 //
-// Move memory forward aligned.
-//
-
-CopyForwardAligned:                     //
-
-//
-// Move bytes until source and destination are quadword aligned
+// Source and Destination buffers have the same alignment. Move
+// bytes until done or source and destination are quadword aligned
 //
 
         and     a0, 0x7, t0             // t0 = unaligned bits
         bne     t0, 5f                  // if ne, not quad aligned
         br      zero, 20f               // predicted taken
-
 5:
-        bic     a0, 0x7, a3             // a3 = quadword base of destination
-        mov     a2, a4                  // save byte count for retry
-retry1:
-        ldq_l   t2, 0(a3)               // get first destination quadword locked
-        ldq_u   t1, 0(a1)               // get unaligned quadword from source
+        bis     zero, zero, t1          // t4 = destination byte zap mask
+        bis     zero, 1, t2
+        sll     t2, t0, t2              // t2 = next bit to set in zap mask
 10:
-        beq     a2, 15f                 // if eq, all bytes moved
-        extbl   t1, t0, t3              // t3 = byte from source
-        insbl   t3, t0, t3              // t3 = byte from source, in position
-        mskbl   t2, t0, t2              // clear position in dest. quad
-        bis     t2, t3, t2              // merge in byte from source
+        beq     a2, 15f                 // if eq, all bits set
+        bis     t1, t2, t1              // set bit in zap mask
+        sll     t2, 1, t2               // set next higher bit for zap mask
         subq    a2, 1, a2               // decrement bytes to move
         addq    t0, 1, t0               // increment byte within quad
         cmpeq   t0, 8, t3               // finished the quadword?
         beq     t3, 10b                 // if eq [false], do next byte
 15:
-        stq_c   t2, 0(a3)               // store merged quadword conditional
-        beq     t2, retry1f             // if eq, retry failed interlock
+        ldq_u   t2, 0(a1)               // get unaligned quadword from source
+        zapnot  t2, t1, t2              // clear source bytes
+        bic     a0, 7, a3               // a3 = quadword base of destination
+retry1:
+        ldq_l   t0, 0(a3)               // load destination quadword
+        zap     t0, t1, t0              // clear destination bytes
+        or      t0, t2, t0              // merge in bytes from source
+        stq_c   t0, 0(a3)               // store merged quadword conditional
+        beq     t0, retry1f             // if eq, retry failed interlock
 
         addq    a0, 7, a0               // move to next quadword
         bic     a0, 7, a0               // aligned quadword
@@ -1517,21 +1519,18 @@ retry1:
 
 60:
         beq     a2, 80f                 // if eq, no more bytes to move
-        mov     a2, a4                  // save byte count for retry
-retry2:
-        ldq_l   t2, 0(a0)               // get last destinaion quadword locked
+        mov     a2, t0                  // t0 = number of bytes to move
+        mov     -1, t1                  // t1 = bit mask
+        sll     t0, 3, t0               // # of bytes to # of bits
+        srl     t1, t0, t1              // clear t0 bits
+        sll     t1, t0, t0              // move it back
         ldq     t1, 0(a1)               // get last source quadword
-        bis     zero, zero, t0          // t0 = next byte number to move
-
-70:
-        extbl   t1, t0, t3              // extract byte from source
-        insbl   t3, t0, t3              // t3 = source byte, in position
-        mskbl   t2, t0, t2              // clear byte position for dest.
-        bis     t2, t3, t2              // merge in source byte
-        addq    t0, 1, t0               // increment byte position
-        subq    a2, 1, a2               // decrement bytes to move
-        bne     a2, 70b                 // if ne => more bytes to move
-
+        bic     t1, t0, t1              // clear bytes not copied
+        not     t0, t0                  // complement to clear destination
+retry2:
+        ldq_l   t2, 0(a0)               // get last destination quadword locked
+        bic     t2, t0, t2              // clear bytes to be copied
+        bis     t2, t1, t2              // move bytes from source
         stq_c   t2, 0(a0)               // store merged quadword conditional
         beq     t2, retry2f             // if eq, retry failed interlock
 
@@ -1542,13 +1541,11 @@ retry2:
 80:
         ret     zero, (ra)              // return
 
-
 //
 // Move memory forward unaligned.
 //
 
 CopyForwardUnaligned:                   //
-
 
 //
 // Move bytes until the destination is aligned
@@ -1556,28 +1553,32 @@ CopyForwardUnaligned:                   //
 
         and     a0, 0x7, t0             // t0 = unaligned bits
         beq     t0, 100f                // if eq, destination quad aligned
-
-        bic     a0, 0x7, a3             // a3 = quadword base of destination
-        mov     a1, a5                  // save source pointer for retry
-        mov     a2, a4                  // save byte count for retry
-retry3:
-        ldq_l   t2, 0(a3)               // get first destination quadword locked
-
+        bis     zero, zero, t1          // t4 = destination byte zap mask
+        bis     zero, 1, t2
+        sll     t2, t0, t2              // t2 = next bit to set in zap mask
+        mov     zero, t4                // assemble destination bytes here
 90:
         beq     a2, 95f                 // if eq no more bytes to move
-        ldq_u   t1, 0(a1)               // get unaligned quad from source
-        extbl   t1, a1, t1              // extract source byte
-        insbl   t1, t0, t1              // t1 = source byte, in position
-        mskbl   t2, t0, t2              // clear byte position in dest.
-        bis     t2, t1, t2              // merge in source byte
+        bis     t1, t2, t1              // set bit in zap mask
+        sll     t2, 1, t2               // set next higher bit for zap mask
+        ldq_u   t5, 0(a1)               // get unaligned quad from source
+        extbl   t5, a1, t5              // extract source byte
+        insbl   t5, t0, t5              // t5 = source byte, in position
+        or      t4, t5, t4              // merge in source byte
         addq    t0, 1, t0               // increment byte position
         addq    a1, 1, a1               // increment source pointer
         subq    a2, 1, a2               // decrement bytes to move
         cmpeq   t0, 8, t3               // t0 = 8? => quad finished
         beq     t3, 90b                 // if eq [false], more bytes to move
 95:
-        stq_c   t2, 0(a3)               // store merged quadword conditional
-        beq     t2, retry3f             // if eq, retry failed interlock
+        bic     a0, 0x7, a3             // a3 = quadword base of destination
+retry3:
+        ldq_l   t0, 0(a3)               // load destination quadword
+        zap     t0, t1, t0              // clear destination bytes
+        or      t0, t4, t0              // merge in bytes from source
+        stq_c   t0, 0(a3)               // store merged quadword conditional
+        beq     t0, retry3f             // if eq, retry failed interlock
+
         addq    a0, 7, a0               // increment to next quad
         bic     a0, 7, a0               // align next quadword
 
@@ -1590,9 +1591,7 @@ retry3:
         beq     t0, 120f                // if eq no blocks to move
         and     a2, 64-1, a2            // a2 = residual bytes to move
 
-
         ldq_u   t1, 0(a1)               // t1 = first unaligned quad
-
 110:
                                         // get source data and merge it
                                         //  as we go
@@ -1668,30 +1667,33 @@ retry3:
 // Move remaining bytes to final quadword
 //
 
-
-140:
+140:    
         beq     a2, 160f                // if eq no more bytes to move
 
-        mov     a1, a5                  // save source pointer for retry
-        mov     a2, a4                  // save byte count for retry
-retry4:
-        ldq_l   t2, 0(a0)               // t2 = destination quadword
-        bis     zero, zero, t3          // t3 = position for next insertion
-
+        mov     zero, t3                // t3 = position for next insertion
+        mov     zero, t4                // assemble destination bytes here
+        mov     a2, t0                  // t0 = number of bytes to move
+        mov     -1, t1                  // t1 = bit mask
+        sll     t0, 3, t0               // # of bytes to # of bits
+        srl     t1, t0, t1              // clear t0 bits
+        sll     t1, t0, t0              // move it back
+        not     t0, t0                  // complement for destination clear mask
 150:
         ldq_u   t1, 0(a1)               // get unaligned source quad
         extbl   t1, a1, t1              // t1 = source byte
         insbl   t1, t3, t1              // t1 = source byte, in position
-        mskbl   t2, t3, t2              // clear byte in destination
-        bis     t2, t1, t2              // merge in source byte
+        bis     t4, t1, t4              // merge in source byte
         addq    a1, 1, a1               // increment source pointer
         subq    a2, 1, a2               // decrement bytes to move
         addq    t3, 1, t3               // increment destination position
         bne     a2, 150b                // more bytes to move
-
+retry4:
+        ldq_l   t2, 0(a0)               // get last destination quadword locked
+        bic     t2, t0, t2              // clear bytes to be copied
+        bis     t2, t4, t2              // move bytes from source
         stq_c   t2, 0(a0)               // store merged quadword conditional
         beq     t2, retry4f             // if eq, retry failed interlock
-
+           
 //
 // Finish unaligned MoveForward
 //
@@ -1701,42 +1703,218 @@ retry4:
 
 //
 // Out of line branches for failed store conditional.
-//
-
-//
-// Need to restore t0, a2 and try load again.
+// Don't need to restore anything, just try again.
 //
 
 retry1f:
-        mov     a4, a2                  // restore byte count
-        and     a0, 0x7, t0             // t0 = unaligned bits
         br      retry1
-
-//
-// Need to restore a2 and try load again.
-//
-
 retry2f:
-        mov     a4, a2                  // restore byte count
         br      retry2
-
-//
-// Need to restore t0, a1, a2 and try load again.
-//
-
 retry3f:
-        mov     a4, a2                  // restore byte count
-        mov     a5, a1                  // restore source pointer
-        and     a0, 0x7, t0             // t0 = unaligned bits
         br      retry3
-
-//
-// Need to restore a1, a2 and try load again.
-//
-
 retry4f:
-        mov     a4, a2                  // restore byte count
-        mov     a5, a1                  // restore source pointer
         br      retry4
 
         .end    RtlCopyBytes
+
+        SBTTL("Zero Bytes")
+//++
+//
+// VOID
+// RtlZeroBytes (
+//    IN PVOID Destination,
+//    IN ULONG Length
+//    )
+//
+// Routine Description:
+//
+//    This function zeros memory by first aligning the destination address to
+//    a quadword boundary, and then zeroing 64-byte blocks, followed by 8-byte
+//    blocks, followed by any remaining bytes. Unlike RtlZeroMemory the copy is
+//    done such that byte granularity is assured for all platforms.
+//
+// Arguments:
+//
+//    Destination (a0) - Supplies a pointer to the memory to zero.
+//
+//    Length (a1) - Supplies the length, in bytes, of the memory to be zeroed.
+//
+// Return Value:
+//
+//    None.
+//
+//--
+
+        LEAF_ENTRY(RtlZeroBytes)
+
+        bis     zero, zero, a2          // set fill pattern
+        br      zero, RtlpFillBytes     //
+
+
+        SBTTL("Fill Bytes")
+//++
+//
+// VOID
+// RtlFillBytes (
+//    IN PVOID Destination,
+//    IN ULONG Length,
+//    IN UCHAR Fill
+//    )
+//
+// Routine Description:
+//
+//    This function fills memory by first aligning the destination address to
+//    a longword boundary, and then filling 32-byte blocks, followed by 4-byte
+//    blocks, followed by any remaining bytes. Unlike RtlFillMemory the copy is
+//    done such that byte granularity is assured for all platforms.
+//
+// Arguments:
+//
+//    Destination (a0) - Supplies a pointer to the memory to fill.
+//
+//    Length (a1) - Supplies the length, in bytes, of the memory to be filled.
+//
+//    Fill (a2) - Supplies the fill byte.
+//
+//    N.B. The alternate entry memset expects the length and fill arguments
+//         to be reversed.  It also returns the Destination pointer
+//
+// Return Value:
+//
+//    None.
+//
+//--
+
+        ALTERNATE_ENTRY(RtlFillBytes)
+
+        and     a2, 0xff, a2            // clear excess bits
+        sll     a2, 8, t0               // duplicate fill byte
+        bis     a2, t0, a2              // generate fill word
+        sll     a2, 16, t0              // duplicate fill word
+        bis     a2, t0, a2              // generate fill longword
+        sll     a2, 32, t0              // duplicate fill longword
+        bis     a2, t0, a2              // generate fill quadword
+
+.align 3                                // ensure quadword aligned target
+//
+// Fill memory with the pattern specified in register a2.
+//
+
+RtlpFillBytes:                          //
+
+//
+// Align destination to quadword
+//
+
+        beq     a1, 80f                 // anything to fill? (paranoia)
+        and     a0, 8-1, t0             // t0 = unaligned bits
+        bne     t0, 5f                  // if ne, then not quad aligned
+        br      zero, 20f               // if eq, then quad aligned
+
+5:
+        bis     zero, zero, t1          // t4 = destination byte zap mask
+        bis     zero, 1, t2
+        sll     t2, t0, t2              // t2 = next bit to set in zap mask
+10:
+        beq     a1, 15f                 // if eq, all bits set
+        bis     t1, t2, t1              // set bit in zap mask
+        sll     t2, 1, t2               // set next higher bit for zap mask
+        subq    a1, 1, a1               // decrement bytes to fill
+        addq    t0, 1, t0               // increment byte within quad
+        cmpeq   t0, 8, t3               // finished the quadword?
+        beq     t3, 10b                 // if eq [false], do next byte
+15:
+        zapnot  a2, t1, t2              // clear fill bytes
+        bic     a0, 7, a3               // a3 = quadword base of destination
+retry5:
+        ldq_l   t0, 0(a3)               // load destination quadword
+        zap     t0, t1, t0              // clear destination bytes
+        or      t0, t2, t0              // merge in fill bytes
+        stq_c   t0, 0(a3)               // store merged quadword conditional
+        beq     t0, retry5f            // if eq, retry failed interlock
+
+        addq    a0, 7, a0               // move a0 to next quadword
+        bic     a0, 7, a0               // align a0 to quadword
+
+//
+// Check for 64-byte blocks
+//
+
+20:
+        srl     a1, 6, t0               // t0 = number of 64 byte blocks
+        beq     t0, 40f                 // if eq then no 64 byte blocks
+        and     a1, 64-1, a1            // a1 = residual bytes to fill
+
+30:
+        stq     a2, 0(a0)               // store 64 bytes
+        stq     a2, 8(a0)               //
+        stq     a2, 16(a0)              //
+        stq     a2, 24(a0)              //
+        stq     a2, 32(a0)              //
+        stq     a2, 40(a0)              //
+        stq     a2, 48(a0)              //
+        stq     a2, 56(a0)              //
+
+        subq    t0, 1, t0               // decrement blocks remaining
+        addq    a0, 64, a0              // increment destination pointer
+        bne     t0, 30b                 // more blocks to write
+
+
+
+//
+// Fill aligned quadwords
+//
+
+40:
+        srl     a1, 3, t0               // t0 = number of quadwords
+        bne     t0, 55f                 // if ne quadwords left to fill
+        br      zero, 60f               // if eq no quadwords left
+
+55:
+        and     a1, 8-1, a1             // a1 = residual bytes to fill
+
+50:
+        stq     a2, 0(a0)               // store quadword
+        subq    t0, 1, t0               // decrement quadwords remaining
+        addq    a0, 8, a0               // next quadword
+        bne     t0, 50b                 // more quadwords to write
+
+//
+// Fill bytes for last quadword
+//
+
+60:
+        beq     a1, 80f                 // if eq no more bytes to fill
+
+        mov     a1, t0                  // t0 = number of bytes to move
+        mov     -1, t1                  // t1 = bit mask
+        sll     t0, 3, t0               // # of bytes to # of bits
+        srl     t1, t0, t1              // clear t0 bits
+        sll     t1, t0, t0              // move it back
+        bic     a2, t0, t1              // clear fill bytes not copied
+        not     t0, t0                  // complement to clear destination
+retry6:
+        ldq_l   t2, 0(a0)               // get last destination quadword locked
+        bic     t2, t0, t2              // clear bytes to be copied
+        bis     t2, t1, t2              // move bytes from source
+        stq_c   t2, 0(a0)               // store merged quadword conditional
+        beq     t2, retry6f             // if eq, retry failed interlock
+
+//
+// Finish up
+//
+
+80:
+        ret     zero, (ra)              // return
+
+//
+// Out of line branches for failed store conditional.
+// Don't need to restore anything, just try again.
+//
+
+retry5f:
+        br      retry5
+retry6f:
+        br      retry6
+
+        .end    RtlZeroBytes

@@ -6,12 +6,12 @@
 *    Filename:  CONTENTS.C
 *    Author:    T.K. Backman ( v-tkback )
 *    Date:      May 2nd, 1993
-*    Classes:   
-*    Functions: WinMain        - Loads the HDXDLL.DLL and creates a 
+*    Classes:
+*    Functions: WinMain        - Loads the HDXDLL.DLL and creates a
 *                                  help index control.
 *               MainWndProc    - generic window procedure.
 *    Purpose:   Provides a help index display.
-*    Notes:     
+*    Notes:
 *
 \******************************************************************************/
 #endif
@@ -92,7 +92,7 @@ const TCHAR * szStringName[] = {
 #define IDW_GETREMOTEHELPDIR	1500
 #define IDW_JUMPIDHANDLE		1600
 
-#define EXISTS(f)               (access((f),0x04)==0)
+#define EXISTS(f)               (_access((f),0x04)==0)
 
 // definitions for command line options
 #define OPTIONS_Usage			0x00000001

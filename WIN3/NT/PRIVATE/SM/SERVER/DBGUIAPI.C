@@ -18,7 +18,7 @@ Revision History:
 
 --*/
 
-#include "dbgsrvp.h"
+#include "smsrvp.h"
 
 //
 // Forward declarations.
@@ -220,15 +220,20 @@ Return Value:
     //
 
     if ( AppThread->HandleToThread ) {
-        st = NtDuplicateObject(
-                NtCurrentProcess(),
-                AppThread->HandleToThread,
-                UserInterface->DebugUiProcess,
-                &CreateThread->HandleToThread,
-                DBGP_DUP_APP_THREAD_ACCESS,
-                0L,
-                DUPLICATE_CLOSE_SOURCE
-                );
+        try {
+            st = NtDuplicateObject(
+                    NtCurrentProcess(),
+                    AppThread->HandleToThread,
+                    UserInterface->DebugUiProcess,
+                    &CreateThread->HandleToThread,
+                    DBGP_DUP_APP_THREAD_ACCESS,
+                    0L,
+                    DUPLICATE_CLOSE_SOURCE
+                    );
+            }
+        except ( GetExceptionCode() == STATUS_INVALID_HANDLE ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH ) {
+            st = STATUS_INVALID_HANDLE;
+            }
 
         if (!NT_SUCCESS(st)){
             st = DBG_UNABLE_TO_PROVIDE_HANDLE;
@@ -298,15 +303,20 @@ Return Value:
     //
 
     if ( AppThread->HandleToThread ) {
-        st = NtDuplicateObject(
-                NtCurrentProcess(),
-                AppThread->HandleToThread,
-                UserInterface->DebugUiProcess,
-                &CreateProcessInfo->HandleToThread,
-                DBGP_DUP_APP_THREAD_ACCESS,
-                0L,
-                DUPLICATE_CLOSE_SOURCE
-                );
+        try {
+            st = NtDuplicateObject(
+                    NtCurrentProcess(),
+                    AppThread->HandleToThread,
+                    UserInterface->DebugUiProcess,
+                    &CreateProcessInfo->HandleToThread,
+                    DBGP_DUP_APP_THREAD_ACCESS,
+                    0L,
+                    DUPLICATE_CLOSE_SOURCE
+                    );
+            }
+        except ( GetExceptionCode() == STATUS_INVALID_HANDLE ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH ) {
+            st = STATUS_INVALID_HANDLE;
+            }
 
         if (!NT_SUCCESS(st)){
             ReturnStatus = DBG_UNABLE_TO_PROVIDE_HANDLE;
@@ -542,15 +552,20 @@ Return Value:
         //
 
         if ( AppThread->HandleToThread ) {
-            NtDuplicateObject(
-                AppThread->UserInterface->DebugUiProcess,
-                AppThread->HandleToThread,
-                NULL,
-                NULL,
-                0L,
-                0L,
-                DUPLICATE_CLOSE_SOURCE
-                );
+            try {
+                NtDuplicateObject(
+                    AppThread->UserInterface->DebugUiProcess,
+                    AppThread->HandleToThread,
+                    NULL,
+                    NULL,
+                    0L,
+                    0L,
+                    DUPLICATE_CLOSE_SOURCE
+                    );
+                }
+            except ( GetExceptionCode() == STATUS_INVALID_HANDLE ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH ) {
+                ;
+                }
         }
         AppThread->HandleToThread = NULL;
 
@@ -578,15 +593,20 @@ Return Value:
         //
 
         if ( AppThread->HandleToThread ) {
-            st = NtDuplicateObject(
-                    AppThread->UserInterface->DebugUiProcess,
-                    AppThread->HandleToThread,
-                    NULL,
-                    NULL,
-                    0L,
-                    0L,
-                    DUPLICATE_CLOSE_SOURCE
-                    );
+            try {
+                st = NtDuplicateObject(
+                        AppThread->UserInterface->DebugUiProcess,
+                        AppThread->HandleToThread,
+                        NULL,
+                        NULL,
+                        0L,
+                        0L,
+                        DUPLICATE_CLOSE_SOURCE
+                        );
+                }
+            except ( GetExceptionCode() == STATUS_INVALID_HANDLE ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH ) {
+                ;
+                }
         }
         AppThread->HandleToThread = NULL;
 
@@ -596,15 +616,20 @@ Return Value:
         //
 
         if ( AppThread->AppProcess->DbgSrvHandleToProcess ) {
-            st = NtDuplicateObject(
-                    AppThread->UserInterface->DebugUiProcess,
-                    AppThread->AppProcess->HandleToProcess,
-                    NULL,
-                    NULL,
-                    0L,
-                    0L,
-                    DUPLICATE_CLOSE_SOURCE
-                    );
+            try {
+                st = NtDuplicateObject(
+                        AppThread->UserInterface->DebugUiProcess,
+                        AppThread->AppProcess->HandleToProcess,
+                        NULL,
+                        NULL,
+                        0L,
+                        0L,
+                        DUPLICATE_CLOSE_SOURCE
+                        );
+                }
+            except ( GetExceptionCode() == STATUS_INVALID_HANDLE ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH ) {
+                ;
+                }
             NtClose(AppThread->AppProcess->DbgSrvHandleToProcess);
         }
 

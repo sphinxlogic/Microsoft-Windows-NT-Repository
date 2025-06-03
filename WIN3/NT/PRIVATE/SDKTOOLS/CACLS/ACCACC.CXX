@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------
 //
-// Copyright (C) 1993, Microsoft Corporation.
+// Copyright (C) 1995, Microsoft Corporation.
 //
 // File:        accacc.cxx
 //

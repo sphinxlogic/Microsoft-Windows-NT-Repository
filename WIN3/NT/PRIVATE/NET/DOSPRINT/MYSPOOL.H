@@ -21,7 +21,7 @@ Notes:
 
 Revision History:
 
-    25-Jan-1993     congpay	Created
+    25-Jan-1993     congpay Created
 
 --*/
 
@@ -92,7 +92,7 @@ MyOpenPrinterW(
 );
 
 BOOL
-MySetJob(
+MySetJobA(
     HANDLE  hPrinter,
     DWORD   JobId,
     DWORD   Level,
@@ -100,4 +100,26 @@ MySetJob(
     DWORD   Command
 );
 
+BOOL
+MySetPrinterW(
+    HANDLE hPrinter,
+    DWORD  Level,
+    LPBYTE pPrinter,
+    DWORD  Command
+);
+
+BOOL
+MyGetPrinterDriver(
+    HANDLE      hPrinter,
+    LPSTR       pEnvironment,
+    DWORD       Level,
+    LPBYTE      pDriver,
+    DWORD       cbBuf,
+    LPDWORD     pcbNeeded
+    );
+
+LPSTR
+GetFileNameA(
+    LPSTR   pPathName
+    );
 

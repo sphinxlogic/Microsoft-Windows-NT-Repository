@@ -122,6 +122,7 @@ typedef enum { FALSE = 0, TRUE = !0 } BOOL;
 typedef struct status {
         char *txt;
         char *h;
+        char *rc;
         char *x;
         char *inc;
         char *msg;
@@ -200,11 +201,11 @@ char n4[] = "EPAD segment byte common \'MSG\'\nEPAD ends\n";
 char n5[] = "DGROUP group HDR,MSG,PAD,EPAD\n\n";
 char usage[] = "\nMicrosoft (R) Message Creation Utility         Version %s"
         "\nCopyright (c) Microsoft Corp %s. All rights reserved.\n"
-        "\nusage: MKMSG [-h cfile] [-x xcfile] [-msg cfile]\n"
+        "\nusage: MKMSG [-h cfile] [-rc rcfile] [-x xcfile] [-msg cfile]\n"
         "\t[-c cfile] [-err errfile] [-inc afile]\n"
         "\t[-asm srcfile [-def str] [-min|-max]] [-386] [-hex] txtfile\n";
-char szVersionNo[] = "1.00.009";
-char szCopyRightYrs[] = "1986-94";
+char szVersionNo[] = "1.00.0010";
+char szCopyRightYrs[] = "1986-1995";
 
 
 // Local VARIABLEs
@@ -229,6 +230,7 @@ main(int argc, char **argv)
 {
         FILE *f;                        // the input file
         FILE *fh = NULL;            // -h stream
+        FILE *frc = NULL;              // -rc stream
         FILE *fx = NULL;            // -x stream
         FILE *fc = NULL;            // -c stream
         FILE *finc = NULL;          // -inc stream
@@ -277,6 +279,16 @@ main(int argc, char **argv)
 
         if (fh && opt.c) {
                 fprintf (fh, "char * __NMSG_TEXT (unsigned);\n\n");
+        }
+
+        if (opt.rc && !(frc = fopen(opt.rc, "w")))
+        {
+                Error("Can't open -rc file %s for writing\n", opt.rc);
+                return -1;
+        }
+
+        if (opt.rc) {
+                fprintf(frc, "STRINGTABLE\nBEGIN\n");
         }
 
         if (opt.x && !(fx = fopen( opt.x, "w" ))) {
@@ -481,6 +493,25 @@ main(int argc, char **argv)
                         if (pSymbol && opt.h)
                         {
                                 fprintf( fh, "#define\t%s\t%s\n", pSymbol, pNumber );
+                        }
+
+                        if (opt.rc)
+                        {
+                                const char *pch;
+
+                                fprintf(frc, "\t%s, \"", pNumber);
+
+                                for (pch = pMessage; *pch; pch++)
+                                {
+                                        fputc(*pch, frc);
+
+                                        if ((*pch == '\\') || (*pch == '\"'))
+                                        {
+                                                fputc(*pch, frc);
+                                        }
+                                }
+
+                                fprintf(frc, "\"\n");
                         }
 
                         if (pSymbol && opt.x)
@@ -740,6 +771,11 @@ main(int argc, char **argv)
                 fclose( fh );
         }
 
+        if (frc) {
+                fprintf(frc, "END\n");
+                fclose( frc );
+        }
+
         if (fx)         fclose( fx );
         if (finc)       fclose( finc );
         if (fmsg)       fclose( fmsg );
@@ -787,6 +823,18 @@ STATUS *opt
                         else    {  // remember -h file
                         opt->h = *argv;
                         argc--; argv++;
+                        }
+                }
+                else if  (!strcmp("-rc", *argv)) { // Create .rc file
+                        argc--; argv++;
+                        if (!argc)
+                            Error("no -rc file given\n");
+                        else if (opt->rc)
+                            Error("extra -rc for %s ignored\n", *argv);
+                        else
+                        {
+                            opt->rc = *argv;
+                            argc--; argv++;
                         }
                 }
                 else if (!strcmp( "-x", *argv )) {  // create .h file
@@ -1192,7 +1240,7 @@ HandleDirectives(void)
         for ( ; *pBuf && isspace(*pBuf); pBuf++)        // Skip leading spaces
                 ;
 
-        if (!strnicmp("!codepage", pBuf, 9))            // Change the codepage
+        if (!_strnicmp("!codepage", pBuf, 9))           // Change the codepage
         {
                 for (pBuf += 9; *pBuf && isspace(*pBuf); pBuf++)        // Skip spaces
                         ;

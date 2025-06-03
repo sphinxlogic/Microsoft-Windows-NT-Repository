@@ -48,7 +48,7 @@ SetDialogState (
 /*++
 
 Routine Description:
-    
+
     Enables/Disables the target workstation configuration items based
         on the target configuration. If target is a remote boot client
         then the protocol/card, etc items are not necessary, if the
@@ -62,7 +62,7 @@ Arguments:
 
 Return Value:
 
-    None    
+    None
 
 --*/
 {
@@ -80,7 +80,7 @@ GetNameFromEntry (
 /*++
 
 Routine Description:
-    
+
     Used to parse entries from the INF the format. returns the
         unquoted version of the first quoted string in the szEntry
         buffer
@@ -92,7 +92,7 @@ Arguments:
 
 Return Value:
 
-    pointer to entry or empty string if no matching items are found    
+    pointer to entry or empty string if no matching items are found
 
 --*/
 {
@@ -125,7 +125,7 @@ LoadNetCardAdapterList (
 /*++
 
 Routine Description:
-    
+
     Loads the Network adapter card combo box using entries found in the
         inf file.
 
@@ -233,7 +233,7 @@ TargetWsDlg_WM_INITDIALOG (
 /*++
 
 Routine Description:
-    
+
     processes the WM_INITDIALOG windows message. Initializes the dialog
         box to the current values in the app data structure
 
@@ -250,13 +250,13 @@ Arguments:
 
 Return Value:
 
-    FALSE    
+    FALSE
 
 --*/
 {
     LONG    lClientId;
 
-    RemoveMaximizeFromSysMenu (hwndDlg);    
+    RemoveMaximizeFromSysMenu (hwndDlg);
     PositionWindow  (hwndDlg);
 
     if (pAppInfo->mtBootDriveType == F3_1Pt44_512) {
@@ -303,7 +303,7 @@ TargetWsDlg_IDOK (
 /*++
 
 Routine Description:
-    
+
     Processes the OK button press. validates the data in the dialog and
         updates the application data structure with the information.
         If all data is valid, then the dialog box is closed, otherwise
@@ -321,14 +321,23 @@ Return Value:
 
 --*/
 {
-    int nCancelResult;
-    int nCbSelIndex;
-    int nClientIndex;
+    int     nCancelResult;
+    int     nCbSelIndex;
+    int     nClientIndex;
+    int     nWarningIndex;
     LPTSTR  szClientDir;
     LPTSTR  szWfwMessage;
     DWORD   dwKeyIndex;
     LPTSTR  szFromPath;
+    LPTSTR  szClientDirKey;
+    TCHAR   szClientDirName[MAX_PATH];
+    TCHAR   szWarningText[MAX_PATH];
+    TCHAR   szWarningCaption[MAX_PATH];
+    LPTSTR  szNextMessage;
+
     TCHAR   szWfwDirName[32];
+    TCHAR   szWin95DirName[32];
+    TCHAR   szWinNtDirName[32];
 
     // save settings
 
@@ -349,47 +358,65 @@ Return Value:
     // MS Network client selected so save values
     //  configure server settings
     //
-    // see if Windows for Workgroups has been selected.
+    // see if a client that needs a "guilt" message displayed
     //
 
     // get client to install
     nClientIndex = SendDlgItemMessage (hwndDlg, NCDU_CLIENT_SOFTWARE_LIST,
         LB_GETCURSEL, 0, 0);
-    
+
     // save setup command for OTN setup
     lstrcpy (szFromPath, pAppInfo->szDistPath);
     if (szFromPath[lstrlen(szFromPath)-1] != cBackslash) lstrcat (szFromPath, cszBackslash);
-        lstrcat (szFromPath, cszAppInfName);
-    QuietGetPrivateProfileString (cszOtnInstall,
-        GetStringResource (CSZ_WINDOWS_FOR_WORKGROUPS),
-        cszWfwDir, szWfwDirName, 32, szFromPath);
+    lstrcat (szFromPath, cszAppInfName);
 
-    if (lstrcmpi((LPTSTR)GetEntryInMultiSz (mszDirNameList, nClientIndex+1), szWfwDirName) == 0) {
-        // display license warning
+    // copy the client key from the list box name list
+    lstrcpy (szClientDirName, (LPTSTR)GetEntryInMultiSz (mszDirNameList, nClientIndex+1));
+    lstrcat (szClientDirName, TEXT("_"));
+    szClientDirKey = szClientDirName + lstrlen(szClientDirName);
+
+    // see if a guilt message for this client should be displayed.
+    lstrcpy (szClientDirKey, cszCaption);
+    if (QuietGetPrivateProfileString (cszWarningClients,
+        szClientDirName,
+        cszEmptyString, szWarningCaption,
+        sizeof(szWarningCaption), szFromPath) > 0) {
+
+        // then a caption was found indicating a warning message should be
+        // displayed.
+
         szWfwMessage = GlobalAlloc (GPTR, SMALL_BUFFER_SIZE * sizeof(TCHAR));
-        if (szWfwMessage != NULL)  {
-            lstrcpy (szWfwMessage, GetStringResource (NCDU_WFW_MESSAGE1));
-            lstrcat (szWfwMessage, GetStringResource (NCDU_WFW_MESSAGE2));
+        if (szWfwMessage != NULL) {
+            *szWfwMessage = 0;
+            // so now get all the strings from the file and build
+            // the display string
+
+            for (nWarningIndex = 1, szNextMessage = szWfwMessage;
+                _stprintf (szClientDirKey, TEXT("%d"), nWarningIndex),
+                (QuietGetPrivateProfileString (cszWarningClients,
+                    szClientDirName,
+                    cszEmptyString, szWarningText,
+                    sizeof(szWarningText), szFromPath) > 0);
+                nWarningIndex++) {
+
+                szNextMessage += TranslateEscapeChars(szNextMessage, szWarningText);
+            }
+
             nCancelResult = MessageBox (
                 hwndDlg,
                 szWfwMessage,
-                GetStringResource (NCDU_WFW_CAPTION),
+                szWarningCaption,
                 MB_OKCANCEL_TASK_EXCL_DEF2);
-            FREE_IF_ALLOC (szWfwMessage);
-        } else {
-            nCancelResult = DisplayMessageBox (
-                hwndDlg,
-                NCDU_WFW_MESSAGE1,
-                NCDU_WFW_CAPTION,
-                MB_OKCANCEL_TASK_EXCL_DEF2);
-        }
 
-        if (nCancelResult == IDCANCEL)  {
-            // they don't really want to do this
-            SetFocus (GetDlgItem (hwndDlg, NCDU_CLIENT_SOFTWARE_LIST));
-            return FALSE;
-        } // else continue
-    }
+            if (nCancelResult == IDCANCEL)  {
+                // they don't really want to do this
+                SetFocus (GetDlgItem (hwndDlg, NCDU_CLIENT_SOFTWARE_LIST));
+                return FALSE;
+            } // else continue
+
+            GlobalFree (szWfwMessage);
+        } // else unable to allocate string buffer so continue
+    } // else no warning message is necessary
 
     pAppInfo->bRemoteBootReqd = FALSE;
     // get netcard name and other information
@@ -413,6 +440,11 @@ Return Value:
 
     lstrcpy (pAppInfo->niNetCard.szDeviceKey, GetItemFromEntry (szFromPath, 6));
     lstrcpy (pAppInfo->niNetCard.szNifKey, GetItemFromEntry (szFromPath, 7));
+    if (_tcsnicmp(GetItemFromEntry(szFromPath,4), cszTokenRing, lstrlen(cszTokenRing)) == 0) {
+        pAppInfo->niNetCard.bTokenRing = TRUE;
+    } else {
+        pAppInfo->niNetCard.bTokenRing = FALSE;
+    }
 
     SendDlgItemMessage (hwndDlg, NCDU_CLIENT_SOFTWARE_LIST,
         LB_GETTEXT, (WPARAM)nClientIndex, (LPARAM)&(pAppInfo->piTargetProtocol.szName[0]));
@@ -443,7 +475,7 @@ Return Value:
     PostMessage (GetParent(hwndDlg), NCDU_SHOW_SERVER_CFG_DLG, 0, 0);
     SetCursor(LoadCursor(NULL, IDC_WAIT));
     FREE_IF_ALLOC (szFromPath);
-    
+
     return TRUE;
 }
 
@@ -457,7 +489,7 @@ TargetWsDlg_WM_COMMAND (
 /*++
 
 Routine Description:
-    
+
     Processes WM_COMMAND windows message and dispatches the appropriate
         routine.
 
@@ -511,7 +543,7 @@ TargetWsDlgProc (
 /*++
 
 Routine Description:
-    
+
     Processes windows messages to this dialog box. The following messages
         are processed by this module:
 
@@ -523,7 +555,7 @@ Routine Description:
 Arguments:
 
     Standard WNDPROC args
-    
+
 Return Value:
 
     FALSE if message is not processed by this module, otherwise the
@@ -540,4 +572,3 @@ Return Value:
         default:            return FALSE;
     }
 }
-

@@ -77,6 +77,11 @@ GLOBAL   HANDLE         hAccelerators ;
 
 GLOBAL   HANDLE         hEventLog ;
 
+GLOBAL   LPTSTR         szMessageArray[8]; // used for reporting events
+GLOBAL   WORD           wMessageIndex;
+GLOBAL   DWORD          dwMessageData[8]; // used to report data in event msg
+GLOBAL   DWORD          dwMessageDataBytes;
+
 GLOBAL   HMENU          hMenuChart ;
 GLOBAL   HMENU          hMenuAlert ;
 GLOBAL   HMENU          hMenuLog ;
@@ -193,6 +198,13 @@ GLOBAL   BOOL           bCloseLocalMachine ;
 // Timeout for data collection thread in msec
 GLOBAL   DWORD          DataTimeOut ;
 
+// flag to indicate duplicate instance names should be allowed
+GLOBAL  BOOL            bMonitorDuplicateInstances;
+
+// flag to indicate that events should be reported to the event log
+GLOBAL  BOOL            bReportEvents;
+
+
 // 20 sec for the data thread timeout
 #define  DEFAULT_DATA_TIMEOUT    20000L
 
@@ -207,4 +219,4 @@ GLOBAL   ALERT          Alert ;
 GLOBAL   LOG            Log ;
 
 
-
+

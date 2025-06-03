@@ -1,27 +1,36 @@
 /*++
 
-Copyright (c) 1991	Microsoft Corporation
+Copyright (c) 1991      Microsoft Corporation
 
 Module Name:
 
-	ifssys.hxx
+        ifssys.hxx
 
 Abstract:
 
-	This module contains the definition for the IFS_SYSTEM class.
+        This module contains the definition for the IFS_SYSTEM class.
     The IFS_SYSTEM class is an abstract class which offers an
     interface for communicating with the underlying operating system
     on specific IFS issues.
 
 Author:
 
-	Norbert P. Kusters (norbertk) 03-Sep-1991
+        Norbert P. Kusters (norbertk) 03-Sep-1991
 
 --*/
 
 #if ! defined( _IFS_SYSTEM_ )
 
 #define _IFS_SYSTEM_
+
+#if defined ( _AUTOCHECK_ )
+#define IFSUTIL_EXPORT
+#elif defined ( _IFSUTIL_MEMBER_ )
+#define IFSUTIL_EXPORT    __declspec(dllexport)
+#else
+#define IFSUTIL_EXPORT    __declspec(dllimport)
+#endif
+
 
 DECLARE_CLASS( CANNED_SECURITY );
 DECLARE_CLASS( WSTRING );
@@ -34,6 +43,7 @@ class IFS_SYSTEM {
     public:
 
         STATIC
+        IFSUTIL_EXPORT
         BOOLEAN
         QueryFileSystemName(
             IN  PCWSTRING    NtDriveName,
@@ -42,6 +52,7 @@ class IFS_SYSTEM {
             );
 
         STATIC
+        IFSUTIL_EXPORT
         BOOLEAN
         DosDriveNameToNtDriveName(
             IN  PCWSTRING    DosDriveName,
@@ -49,6 +60,7 @@ class IFS_SYSTEM {
             );
 
         STATIC
+        IFSUTIL_EXPORT
         BOOLEAN
         QueryFreeDiskSpace(
             IN  PCWSTRING   DosDriveName,
@@ -56,12 +68,14 @@ class IFS_SYSTEM {
             );
 
         STATIC
+        IFSUTIL_EXPORT
         VOID
         QueryHpfsTime(
             OUT PULONG HpfsTime
             );
 
         STATIC
+        IFSUTIL_EXPORT
         VOID
         QueryNtfsTime(
             OUT PLARGE_INTEGER NtfsTime
@@ -75,6 +89,7 @@ class IFS_SYSTEM {
             );
 
         STATIC
+        IFSUTIL_EXPORT
         VOID
         ConvertHpfsTimeToNtfsTime(
             IN  ULONG HpfsTime,
@@ -84,20 +99,24 @@ class IFS_SYSTEM {
         STATIC
         VOID
         Reboot(
+            IN  BOOLEAN PowerOff DEFAULT FALSE
             );
 
         STATIC
+        IFSUTIL_EXPORT
         PCANNED_SECURITY
         GetCannedSecurity(
             );
 
         STATIC
+        IFSUTIL_EXPORT
         BOOLEAN
         EnableFileSystem(
             IN  PCWSTRING    FileSystemName
             );
 
         STATIC
+        IFSUTIL_EXPORT
         BOOLEAN
         IsFileSystemEnabled(
             IN  PCWSTRING    FileSystemName,
@@ -105,11 +124,13 @@ class IFS_SYSTEM {
             );
 
         STATIC
+        IFSUTIL_EXPORT
         ULONG
         QueryPageSize(
             );
 
         STATIC
+        IFSUTIL_EXPORT
         BOOLEAN
         QueryCanonicalNtDriveName(
             IN  PCWSTRING   NtDriveName,
@@ -132,6 +153,7 @@ class IFS_SYSTEM {
             );
 
         STATIC
+        IFSUTIL_EXPORT
         BOOLEAN
         IsArcSystemPartition(
             IN  PCWSTRING   NtDriveName,
@@ -155,6 +177,7 @@ class IFS_SYSTEM {
             );
 
         STATIC
+        IFSUTIL_EXPORT
         BOOLEAN
         IsThisNtfs(
             IN  BIG_INT Sectors,
@@ -163,6 +186,7 @@ class IFS_SYSTEM {
             );
 
         STATIC
+        IFSUTIL_EXPORT
         BOOLEAN
         FileSetAttributes(
             IN  PCWSTRING FileName,
@@ -179,6 +203,7 @@ class IFS_SYSTEM {
             );
 
         STATIC
+        IFSUTIL_EXPORT
         BOOLEAN
         WriteToFile(
             IN  PCWSTRING   QualifiedFileName,
@@ -187,13 +212,28 @@ class IFS_SYSTEM {
             IN  BOOLEAN     Append
             );
 
-#if defined( _NTFS_COMPRESSION_ENABLED_ )
         STATIC
+        IFSUTIL_EXPORT
         BOOLEAN
         EnableVolumeCompression(
-        	IN	PCWSTRING	NtDriveName
-        	);
-#endif
+                IN      PCWSTRING       NtDriveName
+                );
+
+        STATIC
+        IFSUTIL_EXPORT
+        BOOLEAN
+        CheckValidSecurityDescriptor(
+            IN ULONG Length,
+            IN PSECURITY_DESCRIPTOR SecurityDescriptor
+            );
+
+        STATIC
+        IFSUTIL_EXPORT
+        BOOLEAN
+        IsVolumeDirty(
+            IN  PWSTRING NtDriveName,
+            OUT PBOOLEAN Result
+            );
 
     private:
 

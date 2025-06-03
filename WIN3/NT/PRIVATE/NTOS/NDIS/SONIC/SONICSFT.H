@@ -924,42 +924,6 @@ SonicCheckForHang(
     );
 
 //
-// packet.c
-//
-
-extern
-VOID
-SonicCopyFromPacketToBuffer(
-    IN PNDIS_PACKET Packet,
-    IN UINT Offset,
-    IN UINT BytesToCopy,
-    OUT PCHAR Buffer,
-    OUT PUINT BytesCopied
-    );
-
-extern
-VOID
-SonicCopyFromBufferToPacket(
-    IN PCHAR Buffer,
-    IN UINT BytesToCopy,
-    IN PNDIS_PACKET Packet,
-    IN UINT Offset,
-    OUT PUINT BytesCopied
-    );
-
-extern
-VOID
-SonicCopyFromPacketToPacket(
-    IN PNDIS_PACKET Destination,
-    IN UINT DestinationOffset,
-    IN UINT BytesToCopy,
-    IN PNDIS_PACKET Source,
-    IN UINT SourceOffset,
-    OUT PUINT BytesCopied
-    );
-
-
-//
 // request.c
 //
 

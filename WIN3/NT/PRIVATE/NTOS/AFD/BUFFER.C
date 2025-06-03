@@ -26,285 +26,95 @@ VOID
 AfdInitializeBuffer (
     IN PAFD_BUFFER AfdBuffer,
     IN CLONG BufferDataSize,
-    IN CLONG AddressSize,
-    IN PLIST_ENTRY ListHead
+    IN CLONG AddressSize
     );
 
 #ifdef ALLOC_PRAGMA
-#pragma alloc_text( PAGE, AfdAllocateInitialBuffers )
-#pragma alloc_text( PAGE, AfdDeallocateInitialBuffers )
+#pragma alloc_text( PAGEAFD, AfdAllocateBuffer )
 #pragma alloc_text( PAGEAFD, AfdCalculateBufferSize )
 #pragma alloc_text( PAGEAFD, AfdInitializeBuffer )
 #pragma alloc_text( PAGEAFD, AfdGetBuffer )
+#pragma alloc_text( PAGEAFD, AfdGetBufferChain )
 #pragma alloc_text( PAGEAFD, AfdReturnBuffer )
+#pragma alloc_text( PAGEAFD, AfdReturnBufferChain )
+#if DBG
+#pragma alloc_text( PAGEAFD, AfdFreeBufferPool )
+#endif
 #endif
 
 
-BOOLEAN
-AfdAllocateInitialBuffers (
-   VOID
-   )
+PVOID
+AfdAllocateBuffer (
+    IN POOL_TYPE PoolType,
+    IN ULONG NumberOfBytes,
+    IN ULONG Tag
+    )
 
 /*++
 
 Routine Description:
 
-    Allocates an initial pool of data buffers to use for AFD internal
-    bufferring.  First allocates a large chunk of nonpaged pool
-    and carves it up into individual buffer structures.
+    Used by the lookaside list allocation function to allocate a new
+    AFD buffer structure.  The returned structure will be fully
+    initialized.
 
 Arguments:
 
-    None.
+    PoolType - passed to ExAllocatePoolWithTag.
+
+    NumberOfBytes - the number of bytes required for the data buffer
+        portion of the AFD buffer.
+
+    Tag - passed to ExAllocatePoolWithTag.
 
 Return Value:
 
-    BOOLEAN - TRUE if the operation succeeds, FALSE if it fails.
+    PVOID - a fully initialized PAFD_BUFFER, or NULL if the allocation
+        attempt fails.
 
 --*/
 
 {
-    CLONG totalSize;
-    CLONG largeBufferSize;
-    CLONG mediumBufferSize;
-    CLONG smallBufferSize;
-    CLONG i;
     PAFD_BUFFER afdBuffer;
-
-    ASSERT( AfdBufferPool == NULL );
-
-    //
-    // Determine the maximum amount of memory needed for large, medium,
-    // and small buffers.
-    //
-
-    largeBufferSize = AfdCalculateBufferSize(
-                          AfdLargeBufferSize,
-                          AfdStandardAddressLength
-                          );
-
-    mediumBufferSize = AfdCalculateBufferSize(
-                           AfdMediumBufferSize,
-                           AfdStandardAddressLength
-                           );
-
-    smallBufferSize = AfdCalculateBufferSize(
-                          AfdSmallBufferSize,
-                          AfdStandardAddressLength
-                          );
+    ULONG bytesRequired;
 
     //
-    // Now determine the total amount of memory we need for buffers
-    // and allocate it.  Note that we round up the allocation size
-    // to the next page size so that we don't have any wasted space
-    // at the end of the allocation.  We'll use this space to create
-    // additional small buffers, if possible.
-    //
-    // !!! If this memory is > 64K, should we drop back and attempt to
-    //     allocate something smaller?
+    // The requested length must be the same as one of the standard
+    // AFD buffer sizes.
     //
 
-    totalSize =
-        ROUND_TO_PAGES( largeBufferSize * AfdInitialLargeBufferCount +
-                        mediumBufferSize * AfdInitialMediumBufferCount +
-                        smallBufferSize * AfdInitialSmallBufferCount );
+    ASSERT( NumberOfBytes == AfdSmallBufferSize ||
+            NumberOfBytes == AfdMediumBufferSize ||
+            NumberOfBytes == AfdLargeBufferSize );
 
-    AfdBufferPool = AFD_ALLOCATE_POOL( NonPagedPool, totalSize );
-    if ( AfdBufferPool == NULL ) {
-        KdPrint(( "AFD: could not allocate initial buffer pool!\n" ));
-        return FALSE;
+    //
+    // Determine how much data we'll actually need for the buffer.
+    //
+
+    bytesRequired = AfdCalculateBufferSize(
+                        NumberOfBytes,
+                        AfdStandardAddressLength
+                        );
+
+    //
+    // Get nonpaged pool for the buffer.
+    //
+
+    afdBuffer = AFD_ALLOCATE_POOL( PoolType, bytesRequired, Tag );
+    if ( afdBuffer == NULL ) {
+        return NULL;
     }
 
     //
-    // Now initialize each of the buffer structures, starting with the
-    // large buffers.
+    // Initialize the buffer and return a pointer to it.
     //
 
-    afdBuffer = AfdBufferPool;
+    AfdInitializeBuffer( afdBuffer, NumberOfBytes, AfdStandardAddressLength );
 
-    for ( i = 0; i < AfdInitialLargeBufferCount; i++ ) {
+    return afdBuffer;
 
-        AfdInitializeBuffer(
-            afdBuffer,
-            AfdLargeBufferSize,
-            AfdStandardAddressLength,
-            &AfdLargeBufferListHead
-            );
 
-        InsertTailList( &AfdLargeBufferListHead, &afdBuffer->BufferListEntry );
-
-#if DBG
-        InsertTailList( &AfdGlobalBufferListHead, &afdBuffer->DebugListEntry );
-#endif
-
-        afdBuffer = (PAFD_BUFFER)( (PCHAR)afdBuffer + largeBufferSize );
-    }
-
-    AfdActualLargeBufferCount = AfdInitialLargeBufferCount;
-
-    for ( i = 0; i < AfdInitialMediumBufferCount; i++ ) {
-
-        AfdInitializeBuffer(
-            afdBuffer,
-            AfdMediumBufferSize,
-            AfdStandardAddressLength,
-            &AfdMediumBufferListHead
-            );
-
-        InsertTailList( &AfdMediumBufferListHead, &afdBuffer->BufferListEntry );
-
-#if DBG
-        InsertTailList( &AfdGlobalBufferListHead, &afdBuffer->DebugListEntry );
-#endif
-
-        afdBuffer = (PAFD_BUFFER)( (PCHAR)afdBuffer + mediumBufferSize );
-    }
-
-    AfdActualMediumBufferCount = AfdInitialMediumBufferCount;
-
-    //
-    // Now initialize the small buffers.  Note that we set up as many
-    // small buffers as we have space for, which may exceed the original
-    // number of small buffers.
-    //
-
-    while ( ( (ULONG)afdBuffer + smallBufferSize ) <
-                ( (ULONG)AfdBufferPool + (ULONG)totalSize ) ) {
-
-        AfdInitializeBuffer(
-            afdBuffer,
-            AfdSmallBufferSize,
-            AfdStandardAddressLength,
-            &AfdSmallBufferListHead
-            );
-
-        InsertTailList( &AfdSmallBufferListHead, &afdBuffer->BufferListEntry );
-
-#if DBG
-        InsertTailList( &AfdGlobalBufferListHead, &afdBuffer->DebugListEntry );
-#endif
-
-        AfdActualSmallBufferCount++;
-        afdBuffer = (PAFD_BUFFER)( (PCHAR)afdBuffer + smallBufferSize );
-    }
-
-    ASSERT( AfdActualSmallBufferCount >= AfdInitialSmallBufferCount );
-
-    //
-    // All done!
-    //
-
-    return TRUE;
-
-} // AfdAllocateInitialBuffers
-
-
-VOID
-AfdDeallocateInitialBuffers (
-   VOID
-   )
-
-/*++
-
-Routine Description:
-
-    Frees the buffers used by AFD for data bufferring.  It is the
-    responsibility of the caller to ensure that buffers will not be used
-    when AFD is in this state.
-
-Arguments:
-
-    BufferDataSize - data length of the buffer.
-
-    AddressSize - length of address structure for the buffer.
-
-Return Value:
-
-    Number of bytes needed for an AFD_BUFFER structure for data of
-    this size.
-
---*/
-
-{
-    PLIST_ENTRY listEntry;
-    PAFD_BUFFER afdBuffer;
-
-    //
-    // AfdBufferPool will be NULL if the initial allocation of buffers
-    // failed.
-    //
-
-    if ( AfdBufferPool == NULL ) {
-        ASSERT( AfdActualLargeBufferCount == 0 );
-        ASSERT( IsListEmpty( &AfdLargeBufferListHead ) );
-        ASSERT( AfdActualMediumBufferCount == 0 );
-        ASSERT( IsListEmpty( &AfdMediumBufferListHead ) );
-        ASSERT( AfdActualSmallBufferCount == 0 );
-        ASSERT( IsListEmpty( &AfdSmallBufferListHead ) );
-        return;
-    }
-
-    //
-    // Walk each list of buffers, removing them from the list and
-    // updating the appropriate count.
-    //
-
-    while ( !IsListEmpty( &AfdLargeBufferListHead ) ) {
-
-        listEntry = AfdLargeBufferListHead.Flink;
-        afdBuffer = CONTAINING_RECORD( listEntry, AFD_BUFFER, BufferListEntry );
-
-        RemoveEntryList( &afdBuffer->BufferListEntry );
-#if DBG
-        RemoveEntryList( &afdBuffer->DebugListEntry );
-#endif
-
-        AfdActualLargeBufferCount--;
-    }
-
-    ASSERT( AfdActualLargeBufferCount == 0 );
-
-    while ( !IsListEmpty( &AfdMediumBufferListHead ) ) {
-
-        listEntry = AfdMediumBufferListHead.Flink;
-        afdBuffer = CONTAINING_RECORD( listEntry, AFD_BUFFER, BufferListEntry );
-
-        RemoveEntryList( &afdBuffer->BufferListEntry );
-#if DBG
-        RemoveEntryList( &afdBuffer->DebugListEntry );
-#endif
-
-        AfdActualMediumBufferCount--;
-    }
-
-    ASSERT( AfdActualMediumBufferCount == 0 );
-
-    while ( !IsListEmpty( &AfdSmallBufferListHead ) ) {
-
-        listEntry = AfdSmallBufferListHead.Flink;
-        afdBuffer = CONTAINING_RECORD( listEntry, AFD_BUFFER, BufferListEntry );
-
-        RemoveEntryList( &afdBuffer->BufferListEntry );
-#if DBG
-        RemoveEntryList( &afdBuffer->DebugListEntry );
-#endif
-
-        AfdActualSmallBufferCount--;
-    }
-
-    ASSERT( AfdActualSmallBufferCount == 0 );
-    ASSERT( IsListEmpty( &AfdGlobalBufferListHead ) );
-
-    //
-    // Free the chunk of memory allocated for this.
-    //
-
-    AFD_FREE_POOL( AfdBufferPool );
-    AfdBufferPool = NULL;
-
-    return;
-
-} // AfdDeallocateInitialBuffers
+} // AfdAllocateBuffer
 
 
 CLONG
@@ -339,6 +149,7 @@ Return Value:
     CLONG bufferSize;
 
     ASSERT( BufferDataSize != 0 );
+    ASSERT( AfdCacheLineSize < 100 );
 
     //
     // Determine the sizes of the various components of an AFD_BUFFER
@@ -388,89 +199,44 @@ Return Value:
     PAFD_BUFFER afdBuffer;
     CLONG bufferSize;
     PLIST_ENTRY listEntry;
+    PNPAGED_LOOKASIDE_LIST lookasideList;
 
     //
-    // Attempt to find a suitable buffer by looking in the global lists
-    // of initial buffer allocations.  Both the data buffer and address
-    // buffers must be sufficiently large.
+    // If possible, allocate the buffer from one of the lookaside lists.
     //
 
-    if ( AddressSize <= AfdStandardAddressLength ) {
+    if ( AddressSize <= AfdStandardAddressLength &&
+             BufferDataSize <= AfdLargeBufferSize ) {
 
         if ( BufferDataSize <= AfdSmallBufferSize ) {
 
-            listEntry = ExInterlockedRemoveHeadList(
-                            &AfdSmallBufferListHead,
-                            &AfdBufferSpinLock
-                            );
-            if ( listEntry != NULL ) {
+            lookasideList = &AfdLookasideLists->SmallBufferList;
+            BufferDataSize = AfdSmallBufferSize;
 
-                afdBuffer = CONTAINING_RECORD(
-                                listEntry,
-                                AFD_BUFFER,
-                                BufferListEntry
-                                );
+        } else if ( BufferDataSize <= AfdMediumBufferSize ) {
 
-#if DBG
-                RtlGetCallersAddress(
-                    &afdBuffer->Caller,
-                    &afdBuffer->CallersCaller
-                    );
-#endif
+            lookasideList = &AfdLookasideLists->MediumBufferList;
+            BufferDataSize = AfdMediumBufferSize;
 
-                return afdBuffer;
-            }
+        } else {
+
+            lookasideList = &AfdLookasideLists->LargeBufferList;
+            BufferDataSize = AfdLargeBufferSize;
         }
 
-        if ( BufferDataSize <= AfdMediumBufferSize ) {
-
-            listEntry = ExInterlockedRemoveHeadList(
-                            &AfdMediumBufferListHead,
-                            &AfdBufferSpinLock
-                            );
-            if ( listEntry != NULL ) {
-
-                afdBuffer = CONTAINING_RECORD(
-                                listEntry,
-                                AFD_BUFFER,
-                                BufferListEntry
-                                );
-
+        afdBuffer = ExAllocateFromNPagedLookasideList( lookasideList );
 #if DBG
-                RtlGetCallersAddress(
-                    &afdBuffer->Caller,
-                    &afdBuffer->CallersCaller
-                    );
+        if ( afdBuffer != NULL ) {
+
+            RtlGetCallersAddress(
+                &afdBuffer->Caller,
+                &afdBuffer->CallersCaller
+                );
+        }
 #endif
 
-                return afdBuffer;
-            }
-        }
+        return afdBuffer;
 
-        if ( BufferDataSize <= AfdLargeBufferSize ) {
-
-            listEntry = ExInterlockedRemoveHeadList(
-                            &AfdLargeBufferListHead,
-                            &AfdBufferSpinLock
-                            );
-            if ( listEntry != NULL ) {
-
-                afdBuffer = CONTAINING_RECORD(
-                                listEntry,
-                                AFD_BUFFER,
-                                BufferListEntry
-                                );
-
-#if DBG
-                RtlGetCallersAddress(
-                    &afdBuffer->Caller,
-                    &afdBuffer->CallersCaller
-                    );
-#endif
-
-                return afdBuffer;
-            }
-        }
     }
 
     //
@@ -483,9 +249,6 @@ Return Value:
     // !!! It would be good to ROUND_TO_PAGES for this allocation
     //     if appropriate, then use entire buffer size.
     //
-    // !!! Should keep a pool of realloacted buffers and check that
-    //     pool here.
-    //
 
     if ( BufferDataSize == 0 ) {
         BufferDataSize = sizeof(ULONG);
@@ -493,7 +256,12 @@ Return Value:
 
     bufferSize = AfdCalculateBufferSize( BufferDataSize, AddressSize );
 
-    afdBuffer = AFD_ALLOCATE_POOL( NonPagedPool, bufferSize );
+    afdBuffer = AFD_ALLOCATE_POOL(
+                    NonPagedPool,
+                    bufferSize,
+                    AFD_DATA_BUFFER_POOL_TAG
+                    );
+
     if ( afdBuffer == NULL ) {
         return NULL;
     }
@@ -502,16 +270,115 @@ Return Value:
     // Initialize the AFD buffer structure and return it.
     //
 
-    AfdInitializeBuffer(
-        afdBuffer,
-        BufferDataSize,
-        AddressSize,
-        NULL
-        );
+    AfdInitializeBuffer( afdBuffer, BufferDataSize, AddressSize );
 
     return afdBuffer;
 
 } // AfdGetBuffer
+
+
+PAFD_BUFFER
+AfdGetBufferChain (
+    IN CLONG BufferDataSize
+    )
+{
+    PAFD_BUFFER afdBuffer;
+    PAFD_BUFFER bufferChain;
+    PAFD_BUFFER *bufferChainTarget;
+    PMDL mdlChain;
+    PMDL *mdlChainTarget;
+    CLONG currentBufferSize;
+#if DBG
+    CLONG totalChainLength = BufferDataSize;
+#endif
+
+    //
+    // Sanity check.
+    //
+
+    ASSERT( BufferDataSize > AfdBufferLengthForOnePage );
+
+    //
+    // Setup so we know how to cleanup.
+    //
+
+    bufferChain = NULL;
+    mdlChain = NULL;
+    bufferChainTarget = &bufferChain;
+    mdlChainTarget = &mdlChain;
+
+    //
+    // Loop, acquiring & chaining the buffers.
+    //
+
+    while ( BufferDataSize > 0 ) {
+
+        //
+        // Acquire a new buffer.  If this fails, we're toast.
+        //
+
+        currentBufferSize = max( BufferDataSize, AfdBufferLengthForOnePage );
+
+        afdBuffer = AfdGetBuffer( currentBufferSize, 0 );
+
+        if ( afdBuffer == NULL ) {
+
+            break;
+
+        }
+
+        //
+        // Chain it on.
+        //
+
+        *bufferChainTarget = afdBuffer;
+        bufferChainTarget = &afdBuffer->NextBuffer;
+
+        *mdlChainTarget = afdBuffer->Mdl;
+        mdlChainTarget = &afdBuffer->Mdl->Next;
+
+        BufferDataSize -= currentBufferSize;
+
+    }
+
+    if ( BufferDataSize == 0 ) {
+
+        ASSERT( bufferChain != NULL );
+        ASSERT( afdBuffer != NULL );
+        ASSERT( currentBufferSize > 0 );
+        ASSERT( currentBufferSize <= AfdBufferLengthForOnePage );
+
+        //
+        // Set the byte count in the final MDL in the chain.
+        //
+
+        afdBuffer->Mdl->ByteCount = currentBufferSize;
+        SET_CHAIN_LENGTH( afdBuffer, totalChainLength );
+
+        return bufferChain;
+
+    }
+
+    //
+    //  Error, time to cleanup.
+    //
+
+    while( bufferChain != NULL ) {
+
+        afdBuffer = bufferChain->NextBuffer;
+
+        bufferChain->Mdl->Next = NULL;
+        bufferChain->NextBuffer = NULL;
+        RESET_CHAIN_LENGTH( bufferChain );
+        AfdReturnBuffer( bufferChain );
+
+        bufferChain = afdBuffer;
+
+    }
+
+    return NULL;
+
+} // AfdGetBufferChain
 
 
 VOID
@@ -537,6 +404,8 @@ Return Value:
 --*/
 
 {
+    PNPAGED_LOOKASIDE_LIST lookasideList;
+
     //
     // Most of the AFD buffer must be zeroed when returning the buffer.
     //
@@ -558,67 +427,103 @@ Return Value:
 
     ASSERT( AfdBuffer->Mdl->ByteCount == AfdBuffer->BufferLength );
     ASSERT( AfdBuffer->Mdl->Next == NULL );
-
-    //
-    // Make sure that the buffer has been removed from any list that it
-    // was on.
-    //
+    ASSERT( AfdBuffer->FileObject == NULL );
+    ASSERT( AfdBuffer->NextBuffer == NULL );
+    ASSERT( AfdBuffer->TotalChainLength == AfdBuffer->BufferLength );
 
 #if DBG
-    if ( ((ULONG)AfdBuffer->BufferListEntry.Blink & 0xF0000000) == 0xF0000000 ) {
-        ASSERT( AfdBuffer->BufferListEntry.Blink->Flink != &AfdBuffer->BufferListEntry );
-        ASSERT( AfdBuffer->BufferListEntry.Flink->Blink != &AfdBuffer->BufferListEntry );
-    }
-
     AfdBuffer->Caller = NULL;
     AfdBuffer->CallersCaller = NULL;
 #endif
 
     //
-    // If the buffer was part of the initial allocation, return it to
-    // the appropriate list.  Put it on the head of the list in case
-    // we can take advantage of CPU data caching.
+    // If appropriate, return the buffer to one of the AFD buffer
+    // lookaside lists.
     //
 
-    if ( AfdBuffer->BufferListHead != NULL ) {
+    if ( AfdBuffer->AllocatedAddressLength == AfdStandardAddressLength &&
+             AfdBuffer->BufferLength <= AfdLargeBufferSize ) {
 
-#if AFD_PERF_DBG
-        AfdFastBufferAllocations++;
-#endif
+        if ( AfdBuffer->BufferLength == AfdSmallBufferSize ) {
 
-        ExInterlockedInsertHeadList(
-            AfdBuffer->BufferListHead,
-            &AfdBuffer->BufferListEntry,
-            &AfdBufferSpinLock
-            );
+            lookasideList = &AfdLookasideLists->SmallBufferList;
+
+        } else if ( AfdBuffer->BufferLength == AfdMediumBufferSize ) {
+
+            lookasideList = &AfdLookasideLists->MediumBufferList;
+
+        } else {
+
+            ASSERT( AfdBuffer->BufferLength == AfdLargeBufferSize );
+            lookasideList = &AfdLookasideLists->LargeBufferList;
+        }
+
+        ExFreeToNPagedLookasideList( lookasideList, AfdBuffer );
 
         return;
     }
 
     //
-    // The buffer was not from the initial allocation, so just free
+    // The buffer was not from a lookaside list allocation, so just free
     // the pool we used for it.
     //
-    // !!! It might be nice to have a pool of these buffers.
-    //
 
-    AFD_FREE_POOL( AfdBuffer );
-
-#if AFD_PERF_DBG
-    AfdSlowBufferAllocations++;
-#endif
+    AFD_FREE_POOL(
+        AfdBuffer,
+        AFD_DATA_BUFFER_POOL_TAG
+        );
 
     return;
 
 } // AfdReturnBuffer
+
+VOID
+AfdReturnBufferChain (
+    IN PAFD_BUFFER AfdBuffer
+    )
+
+/*++
+
+Routine Description:
+
+    Returns an AFD buffer chain to the appropriate global list, or frees
+    it if necessary.
+
+Arguments:
+
+    AfdBuffer - points to the AFD_BUFFER structure to return or free.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    PAFD_BUFFER nextBuffer;
+
+    while ( AfdBuffer != NULL ) {
+
+        nextBuffer = AfdBuffer->NextBuffer;
+
+        AfdBuffer->NextBuffer = NULL;
+        AfdBuffer->Mdl->Next = NULL;
+        AfdBuffer->Mdl->ByteCount = AfdBuffer->BufferLength;
+        RESET_CHAIN_LENGTH( AfdBuffer );
+        AfdReturnBuffer( AfdBuffer );
+
+        AfdBuffer = nextBuffer;
+
+    }
+
+} // AfdReturnBufferChain
 
 
 VOID
 AfdInitializeBuffer (
     IN PAFD_BUFFER AfdBuffer,
     IN CLONG BufferDataSize,
-    IN CLONG AddressSize,
-    IN PLIST_ENTRY ListHead
+    IN CLONG AddressSize
     )
 
 /*++
@@ -696,6 +601,7 @@ Return Value:
                 AfdCacheLineSize - 1 ) & ~(AfdCacheLineSize - 1) );
 
     AfdBuffer->BufferLength = BufferDataSize;
+    RESET_CHAIN_LENGTH( AfdBuffer );
 
     //
     // Now build the MDL and set up a pointer to the MDL in the IRP.
@@ -708,13 +614,14 @@ Return Value:
     AfdBuffer->DataOffset = 0;
     AfdBuffer->ExpeditedData = FALSE;
     AfdBuffer->PartialMessage = FALSE;
+    AfdBuffer->FileObject = NULL;
 
     //
-    // Remember whether this buffer was allocated at initialization time
-    // or dynamically allocated later.
+    // By default, buffers are not part of a chain.
     //
 
-    AfdBuffer->BufferListHead = ListHead;
+    AfdBuffer->NextBuffer = NULL;
+
 
 #if DBG
     AfdBuffer->BufferListEntry.Flink = (PVOID)0xE0E1E2E3;
@@ -724,4 +631,21 @@ Return Value:
 #endif
 
 } // AfdInitializeBuffer
+
+
+#if DBG
+VOID
+NTAPI
+AfdFreeBufferPool(
+    IN PVOID Block
+    )
+{
+
+    AFD_FREE_POOL(
+        Block,
+        AFD_DATA_BUFFER_POOL_TAG
+        );
+
+} // AfdFreeBufferPool
+#endif
 

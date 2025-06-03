@@ -27,32 +27,14 @@
  *
  */
 
-#if !defined(_WIN32)
-#error WIN32 only!
-#endif
-
-#include <ctype.h>
-#include <stdio.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <stdlib.h>
-
-#include <windows.h>
-
-#include <malloc.h>
-#include "slm.h"
-#include "sys.h"
-#include "util.h"
-#include "stfile.h"
-#include "ad.h"
-#include "dir.h"
-#include "de.h"
-#include "proto.h"
-
+#include "precomp.h"
+#pragma hdrstop
 EnableAssert
 
+BOOL (WINAPI * DebuggerPresent)(VOID) = NULL;
 BOOL (WINAPI * TestForUnicode)(PVOID, ULONG, PULONG) = NULL;
 BOOL WINAPI SlmIsTextUnicode( PVOID Buffer, ULONG Size, PULONG Result );
+BOOL WINAPI SlmIsDebuggerPresent( VOID );
 static void InitIsText(void)
 {
     //  Since this it the first NT specific function to be called, initialize
@@ -68,9 +50,14 @@ static void InitIsText(void)
         if (TestForUnicode == NULL)
             TestForUnicode = SlmIsTextUnicode;
     }
+
+    DebuggerPresent = (BOOL (WINAPI *)(VOID))
+                        GetProcAddress(LoadLibrary("KERNEL32"), "IsDebuggerPresent");
+    if (DebuggerPresent == NULL)
+        DebuggerPresent = SlmIsDebuggerPresent;
 }
 
-#pragma data_seg(".CRT$XIU")
+#pragma data_seg(".CRT$XCU")
 static void (*pInitIsText)(void) = InitIsText;
 #pragma data_seg()
 
@@ -97,7 +84,7 @@ mkredir(
     DWORD       rc;
     NETRESOURCE nr;
 
-    nr.lpRemoteName = strdup(pthNet);  // Connect to this share
+    nr.lpRemoteName = _strdup(pthNet);  // Connect to this share
     nr.lpLocalName = szDev;            //         with this drive letter
     nr.lpProvider = NULL;              //         using whatever provider is appropriate
     nr.dwType = RESOURCETYPE_DISK;     //         and make sure it's a disk
@@ -710,6 +697,8 @@ Append_Date(
 }
 
 
+DWORD dwPageSize;       // Saved for stfile.c (PshCommit)
+
 /* retrieves the network path mappings and machine name.  For Novell, we also
    get the preferred server.
 */
@@ -728,6 +717,10 @@ InitPath(
     BOOL            endOfList;
     NETRESOURCE     netResource[8192/sizeof(NETRESOURCE)];
     DWORD           bufferSize = sizeof(netResource);
+    SYSTEM_INFO     SystemInfo;
+
+    GetSystemInfo(&SystemInfo);
+    dwPageSize = SystemInfo.dwPageSize;
 
     dnCur = DnGetCur();
 
@@ -752,6 +745,10 @@ InitPath(
         ExtMach(pth, (PTH *)szNet, szCurMach);
         strcpy(szCurMach, szCurMach+2); /* get rid of drive id */
     }
+
+    //
+    // First enumerate all the CONNECTED network drives.
+    //
 
     Status = WNetOpenEnum(
                  RESOURCE_CONNECTED,
@@ -816,12 +813,93 @@ InitPath(
                 ConvToSlash( Local  );
 
                 if ( FDriveId( Local, &dn ) ) {
-
                     Remote = netResource[i].lpRemoteName;
                     ConvToSlash( Remote );
 
-                    mpdnpth[dn] = strdup( Remote );
+                    mpdnpth[dn] = _strdup( Remote );
                     mpdndt[dn]  = dtUserNet;
+                }
+            }
+        }
+
+    } while ( !endOfList );
+
+    WNetCloseEnum( enumHandle );
+
+    //
+    // Now enumerate all the persistant drives.  For each one, find it in the
+    // drive array from the CONNECTED drives enumeration.  If not found than
+    // unavailable.  Otherwise update the drive type to dtPermNet
+    //
+    Status = WNetOpenEnum(
+                 RESOURCE_REMEMBERED,
+                 RESOURCETYPE_DISK,
+                 RESOURCEUSAGE_CONNECTABLE,
+                 NULL,
+                 &enumHandle );
+
+    if ( Status != NO_ERROR ) {
+        FatalError("Cannot enumerate network connections (%d)\n", Status );
+        return;
+    }
+
+    endOfList = FALSE;
+
+    do {
+        numEntries = 0xFFFFFFFF;
+        Status = WNetEnumResource( enumHandle, &numEntries, netResource, &bufferSize );
+
+        switch( Status ) {
+
+            case NO_ERROR:
+                break;
+
+            case ERROR_NO_NETWORK:
+                //
+                //  If the network has not started we'll continue
+                //  (so users can work in local projects).
+                //
+            case ERROR_NO_MORE_ITEMS:
+                endOfList = TRUE;
+                numEntries = 0;
+                break;
+
+            case ERROR_EXTENDED_ERROR:
+                {
+                    CHAR ErrorString [256];
+                    CHAR Network[256];
+                    DWORD dwError;
+                    WNetGetLastError(&dwError, ErrorString, 256, Network, 256);
+                    FatalError("Cannot enumerate network connections (%d)\n"
+                               "Net: %s\n"
+                               "Error: (%d) %s\n",
+                               Status,
+                               Network,
+                               dwError,
+                               ErrorString );
+                }
+                break;
+
+            default:
+                FatalError("Cannot enumerate network connections (%d)\n", Status );
+                return;
+        }
+
+        for (i = 0; i < numEntries; i++) {
+
+            Local = netResource[i].lpLocalName;
+
+            if ( Local != NULL) {
+
+                ConvToSlash( Local  );
+
+                if ( FDriveId( Local, &dn ) ) {
+                    if (mpdndt[dn] == dtUserNet) {
+                        mpdndt[dn] = dtPermNet;
+                        Remote = netResource[i].lpRemoteName;
+                        ConvToSlash( Remote );
+                        mpdnpth[dn] = _strdup( Remote );
+                    }
                 }
             }
         }
@@ -1010,7 +1088,7 @@ int WriteLpbCb (int fh, void far *lpb, unsigned int cb)
         cbWritten *= sizeof(WCHAR);
     }
     else
-        cbWritten = write (fh, lpb, cb);
+        cbWritten = _write (fh, lpb, cb);
 
     return (cbWritten);
 }
@@ -1352,4 +1430,287 @@ Return Value:
 
     return FALSE;
 }
+BOOL WINAPI SlmIsDebuggerPresent( VOID )
+{
+    return FALSE;
+}
 
+F
+OpenMappedFile(
+    PTH *pth,
+    BOOL fWriteAccess,
+    unsigned cbInitial,
+    PHANDLE hf,
+    void **pBase
+    )
+{
+    F fOk;
+    char sz[cchPthMax];
+    HANDLE hm;
+    DWORD dwAttributes;
+
+    SzPhysPath(sz, pth);
+
+    dwAttributes = GetFileAttributes(sz);
+    if (dwAttributes != -1 && (dwAttributes & FILE_ATTRIBUTE_READONLY))
+        SetFileAttributes(sz, dwAttributes & ~FILE_ATTRIBUTE_READONLY);
+
+    fOk = fFalse;
+    *pBase = NULL;
+    *hf = CreateFile(sz,
+                     fWriteAccess ? (GENERIC_READ | GENERIC_WRITE) : GENERIC_READ,
+                     FILE_SHARE_READ,
+                     NULL,
+                     OPEN_ALWAYS,
+                     0,
+                     NULL);
+    if (*hf != INVALID_HANDLE_VALUE)
+    {
+        hm = CreateFileMapping(*hf,
+                               NULL,
+                               fWriteAccess ? PAGE_READWRITE | SEC_COMMIT : PAGE_READONLY,
+                               0,
+                               0,
+                               NULL);
+        if (hm != NULL)
+        {
+            *pBase = MapViewOfFile(hm, fWriteAccess ? FILE_MAP_WRITE : FILE_MAP_READ, 0, 0, 0);
+            if (*pBase != NULL)
+            {
+                fOk = fTrue;
+            }
+            CloseHandle(hm);
+        }
+        else
+        if (GetLastError() == ERROR_FILE_INVALID)
+        {
+            return GrowMappedFile(*hf, pBase, cbInitial);
+        }
+    }
+
+    return fOk;
+}
+
+
+F
+GrowMappedFile(
+    HANDLE hf,
+    void **pBase,
+    unsigned cbNewSize
+    )
+{
+    F fOk;
+    HANDLE hm;
+    DWORD dwSize, dwOldSize;
+
+    if (*pBase != NULL)
+    {
+        FlushViewOfFile(*pBase, 0);
+        UnmapViewOfFile(*pBase);
+        *pBase = NULL;
+    }
+
+    dwOldSize = GetFileSize(hf, NULL);
+
+    dwSize = cbNewSize;
+    if (SetFilePointer(hf, dwSize, NULL, FILE_BEGIN) == dwSize &&
+        SetEndOfFile(hf)
+       )
+    {
+        hm = CreateFileMapping(hf,
+                               NULL,
+                               PAGE_READWRITE | SEC_COMMIT,
+                               0,
+                               0,
+                               NULL);
+        if (hm != NULL)
+        {
+            *pBase = MapViewOfFile(hm, FILE_MAP_WRITE, 0, 0, dwSize);
+            if (*pBase != NULL)
+            {
+                fOk = fTrue;
+                // Safe, since cbNewSize is > dwOldSize
+                memset(((char *) *pBase) + dwOldSize, 0, dwSize-dwOldSize);
+            }
+            CloseHandle(hm);
+        }
+    }
+
+    return fOk;
+}
+
+
+void
+CloseMappedFile(
+    PTH *pth,
+    HANDLE *hf,
+    void **pBase
+    )
+{
+    char sz[cchPthMax];
+
+    if (pth[0] != '\0') {
+        SzPhysPath(sz, pth);
+        pth[0] = '\0';
+    }
+
+    if (*pBase != NULL)
+    {
+        FlushViewOfFile(*pBase, 0);
+        UnmapViewOfFile(*pBase);
+        *pBase = NULL;
+    }
+
+    if (*hf != NULL) {
+        CloseHandle(*hf);
+        *hf = NULL;
+    }
+
+    if (sz[0] != '\0')
+        SetFileAttributes(sz, FILE_ATTRIBUTE_READONLY|FILE_ATTRIBUTE_HIDDEN|FILE_ATTRIBUTE_ARCHIVE);
+
+    return;
+}
+
+extern F fDisplayStatusFilePath;
+static HANDLE hTerminatePeekThreadEvent;
+static HANDLE hInputHandle;
+static F fInputIsConsole;
+
+DWORD
+WINAPI
+SlmPeekThread(
+    LPVOID Parameter
+    )
+{
+    AD *pad = (AD *)Parameter;
+    DWORD dwWaitIndex;
+    HANDLE hWaitHandles[3];
+    DWORD dwNumberOfWaitHandles;
+
+    INPUT_RECORD ConsoleBuffer;
+    DWORD NumberOfEventsRead;
+
+    char InputBuffer[ 1 ];
+    DWORD NumberOfBytesAvailable;
+    DWORD NumberOfBytesRead;
+
+    dwNumberOfWaitHandles = 2;
+    hWaitHandles[0] = hTerminatePeekThreadEvent;
+    hWaitHandles[1] = hInputHandle;
+    hWaitHandles[2] = OpenEvent( EVENT_ALL_ACCESS, FALSE, "TerminateSLM" );
+    if (hWaitHandles[2] != NULL) {
+        dwNumberOfWaitHandles = 3;
+        }
+
+    while (TRUE) {
+        dwWaitIndex = WaitForMultipleObjects( dwNumberOfWaitHandles,
+                                              hWaitHandles,
+                                              FALSE,
+                                              INFINITE
+                                            );
+        if (dwWaitIndex == 0)
+            break;
+
+        if (dwWaitIndex == 2) {
+            while (TRUE) {
+                FakeCtrlBreak();
+                Sleep( 1000 );
+                }
+            }
+        else
+        if (fInputIsConsole) {
+            if (PeekConsoleInput( hInputHandle,
+                                  &ConsoleBuffer,
+                                  1,
+                                  &NumberOfEventsRead
+                                ) &&
+                NumberOfEventsRead == 1
+               ) {
+                if (ReadConsoleInput( hInputHandle,
+                                      &ConsoleBuffer,
+                                      1,
+                                      &NumberOfEventsRead
+                                    ) &&
+                    NumberOfEventsRead == 1 &&
+                    ConsoleBuffer.EventType == KEY_EVENT &&
+                    ConsoleBuffer.Event.KeyEvent.bKeyDown) {
+                    FlushConsoleInputBuffer( hInputHandle );
+                    fDisplayStatusFilePath = fTrue;
+                }
+            }
+        }
+        else {
+            if (PeekNamedPipe( hInputHandle,
+                               NULL,
+                               0,
+                               NULL,
+                               &NumberOfBytesAvailable,
+                               NULL
+                             ) &&
+                NumberOfBytesAvailable > 0
+               ) {
+                while (NumberOfBytesAvailable > 0) {
+                    NumberOfBytesRead = sizeof( InputBuffer );
+                    if (NumberOfBytesRead > NumberOfBytesAvailable) {
+                        NumberOfBytesRead = NumberOfBytesAvailable;
+                    }
+
+                    if (ReadFile( hInputHandle,
+                                  InputBuffer,
+                                  NumberOfBytesRead,
+                                  &NumberOfBytesRead,
+                                  NULL
+                                ) &&
+                        NumberOfBytesRead > 0
+                       )
+                        NumberOfBytesAvailable -= NumberOfBytesRead;
+                }
+
+                fDisplayStatusFilePath = fTrue;
+            }
+        }
+    }
+
+    ExitThread( NO_ERROR );
+    return NO_ERROR;
+}
+
+void
+CreatePeekThread(
+    AD *pad
+    )
+{
+    HANDLE hThread;
+    DWORD dwThreadId;
+    DWORD dwConsoleMode;
+
+    hTerminatePeekThreadEvent = CreateEvent( NULL, FALSE, FALSE, NULL );
+    if (hTerminatePeekThreadEvent == NULL)
+        return;
+
+    hInputHandle = GetStdHandle( STD_INPUT_HANDLE );
+    if (GetConsoleMode(hInputHandle, &dwConsoleMode))
+        fInputIsConsole = fTrue;
+    else
+        fInputIsConsole = fFalse;
+
+    hThread = CreateThread( NULL, 0, SlmPeekThread, pad, 0, &dwThreadId );
+    if (hThread != NULL)
+        CloseHandle( hThread );
+
+    return;
+}
+
+
+void
+DestroyPeekThread( void )
+{
+    if (hTerminatePeekThreadEvent == NULL)
+        return;
+
+    SetEvent(hTerminatePeekThreadEvent);
+    CloseHandle(hTerminatePeekThreadEvent);
+
+    return;
+}

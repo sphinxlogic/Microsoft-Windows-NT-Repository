@@ -20,9 +20,8 @@ Author:
 #include "core.hxx"
 #include "nsicom.h"
 #include "locclass.hxx"
-defModule
 
-ENTRY_BASE_NODEDict *EntryDict; 	// Dictionary of EntryItem's
+ENTRY_BASE_NODEDict *EntryDict;     // Dictionary of EntryItem's
 extern NATIVE_CLASS_LOCATOR * Locator;
 
 NS_SYNTAX_ID NilSyntaxID;
@@ -136,7 +135,7 @@ Routine Description:
     // the message to update itself
 
     for (REPLY_BASE_ITEM *pRP = RPRoot.First(); pRP; pRP = pRP->Next() )
-	pRP->Discard(this);
+    pRP->Discard(this);
 
     if (!pEntry)
         return;
@@ -149,10 +148,10 @@ Routine Description:
 
     if (!pEntry->TheItemList().First()) {
 
-	DLIST(4, "Entry Removed: " << pEntry->TheEntry() << nl);
+    DLIST(4, "Entry Removed: " << pEntry->TheEntry() << nl);
 
-	EntryDict->Remove(&pEntry->TheEntry());
-	delete pEntry;
+    EntryDict->Remove(&pEntry->TheEntry());
+    delete pEntry;
     }
     */
 
@@ -253,8 +252,8 @@ Returns:
         if (ServerItem == NULL)
            return (NSI_S_NOTHING_TO_EXPORT);
 
-	pEntry = new ENTRY_SERVER_NODE(Entry, &Status);
-	fNewDictNode = TRUE;
+    pEntry = new ENTRY_SERVER_NODE(Entry, &Status);
+    fNewDictNode = TRUE;
 
         if (!pEntry)
             Status = NSI_S_OUT_OF_MEMORY;
@@ -323,17 +322,17 @@ Returns:
     if (ServerItem->IsType(CacheItemType)) {      // installing one from the net
 
         pEntry->TheItemList().Append(ServerItem);// appending finds these last
-	perf.cCached++;
+    perf.cCached++;
     }
-    else {				// adding finds these first
-	pEntry->TheItemList().Add(ServerItem);
+    else {              // adding finds these first
+    pEntry->TheItemList().Add(ServerItem);
     }
 
     DLIST(4, *ServerItem);
 
     if (fNewDictNode)
 
-	if (EntryDict->Insert(pEntry,&pEntry->TheEntry()) == OUT_OF_MEMORY) {
+    if (EntryDict->Insert(pEntry,&pEntry->TheEntry()) == OUT_OF_MEMORY) {
             delete ServerItem;
             return(NSI_S_OUT_OF_MEMORY);
         }
@@ -383,8 +382,8 @@ Returns:
     pEntry = (ENTRY_GROUP_NODE *)EntryDict->Find(Entry);
 
     if (!pEntry) {
-	pEntry = new ENTRY_GROUP_NODE(Entry, &Status);
-	fNewDictNode = TRUE;
+    pEntry = new ENTRY_GROUP_NODE(Entry, &Status);
+    fNewDictNode = TRUE;
 
         if (!pEntry)
             Status = NSI_S_OUT_OF_MEMORY;
@@ -413,7 +412,7 @@ Returns:
     GroupItem->TheEntryNode() = pEntry;
 
     if (GroupItem->IsType(CacheItemType))
-	perf.cCached++;
+    perf.cCached++;
 
     pEntry->TheItemList().Append(GroupItem);
 
@@ -421,7 +420,7 @@ Returns:
 
     if (fNewDictNode)
 
-	if (EntryDict->Insert(pEntry,&pEntry->TheEntry()) == OUT_OF_MEMORY) {
+    if (EntryDict->Insert(pEntry,&pEntry->TheEntry()) == OUT_OF_MEMORY) {
             delete GroupItem;
             Status = NSI_S_OUT_OF_MEMORY;
         }
@@ -476,7 +475,7 @@ Routine Description:
 Arguments:
 
     pSB - Stream buffer to write to
-    ServerItem	- and object to format.
+    ServerItem  - and object to format.
 
 Returns:
 
@@ -504,12 +503,12 @@ Returns:
             pSB << "Object Vector (" << Object->cCur() << ")\n";
 
             for (UUID_ARRAY_ITER ODi(*Object); ODi; ++ODi)
-            	pSB << "    " << *ODi << nl;
+                pSB << "    " << *ODi << nl;
         }
     }
 
     if (ServerItem.StringBinding.cCur())
-	pSB << "Binding(" << ServerItem.StringBinding.pCur() << ")\n";
+    pSB << "Binding(" << ServerItem.StringBinding.pCur() << ")\n";
 
   return(pSB);
 }
@@ -529,7 +528,7 @@ Routine Description:
 Arguments:
 
     pSB - Stream buffer to write to
-    GroupItem	- and object to format.
+    GroupItem   - and object to format.
 
 Returns:
 
@@ -542,7 +541,7 @@ Returns:
     pSB << *(ENTRY_BASE_ITEM *) &GroupItem;
 
     if (GroupItem.Member.cCur())
-	pSB << " Member(" << GroupItem.Member.pCur() << ")\n";
+    pSB << " Member(" << GroupItem.Member.pCur() << ")\n";
 
   return(pSB);
 }
@@ -626,7 +625,7 @@ Routine Description:
 Arguments:
 
     pSB - Stream buffer to write to
-    ServerItem	- and object to format.
+    ServerItem  - and object to format.
 
 Returns:
 
@@ -642,7 +641,7 @@ Returns:
 }
 
 
-#ifdef LDEBUG
+#if DBG
 
 void
 ENTRY_SERVER_ITEM::Assert(
@@ -700,9 +699,9 @@ Routine Description:
     // just walking the LinkList, gets the Items asserted
 
     for (ENTRY_BASE_NODE *pEntry = EntryDict->Next(NIL); pEntry;
-	 pEntry = EntryDict->Next(&EntryDict->Item()->TheEntry()))
+     pEntry = EntryDict->Next(&EntryDict->Item()->TheEntry()))
 
-	for (ENTRY_BASE_ITEM *ServerItem = pEntry->TheItemList().First(); ServerItem;
+    for (ENTRY_BASE_ITEM *ServerItem = pEntry->TheItemList().First(); ServerItem;
             ServerItem = ServerItem->Next()) ;
 
     // do the open handles too
@@ -742,10 +741,10 @@ Returns:
     // check each field for equality, returning there relation ship if not
 
     if ((result = Interface - ServerItem->Interface) != 0)
-	return (result);
+    return (result);
 
     if ((result = TransferSyntax - ServerItem->TransferSyntax) != 0)
-	return (result);
+    return (result);
 
     if (StringBinding.cCur()) {
 
@@ -759,7 +758,7 @@ Returns:
     else if (ServerItem->StringBinding.cCur())
         return(-1);
 
-    return(0);	// there is an exact match !
+    return(0);  // there is an exact match !
 }
 
 
@@ -902,7 +901,7 @@ Returns:
             if (! Entry.IsNil())
                 break;
 
-	    pEntry = EntryDict->Next(&pEntry->TheEntry());
+        pEntry = EntryDict->Next(&pEntry->TheEntry());
         }
 
         if (Status == NSI_S_OK)
@@ -1088,14 +1087,14 @@ Returns:
     // check each field for equality, stop  if not equal
 
     if (! Interface.CompatibleInterface(aQuery->Interface))
-	return (NoMatch);
+    return (NoMatch);
 
     if (! TransferSyntax.CompatibleInterface(aQuery->TransferSyntax))
-	return (NoMatch);
+    return (NoMatch);
 
     if (! aQuery->Object.IsNil()) {
 
-	// See if one of the objects in the the conidate match the search spec.
+    // See if one of the objects in the the conidate match the search spec.
 
         UUID_ARRAY_ITER ODi(TheObjectDA());
 
@@ -1191,7 +1190,9 @@ Returns:
 
 void ENTRY_SERVER_NODE::DeleteAllObjects()
 {
-    UUID_ARRAY X = ObjectDA.Dup();
+    UUID_ARRAY X;
+
+    X = ObjectDA.Dup();
 
     for (UUID_ARRAY_ITER ODi(X);  ODi; ++ODi)
                    this->DeleteObject(ODi);
@@ -1310,7 +1311,7 @@ Returns:
     // Update the currencey for any referenced objects.
 
     for (REPLY_BASE_ITEM *pRP = RPRoot.First(); pRP; pRP = pRP->Next() )
-	pRP->UpdateObject(this, NilIndex);
+    pRP->UpdateObject(this, NilIndex);
 
     return(NSI_S_OK);
 }
@@ -1355,7 +1356,7 @@ Returns:
     // Update the currencey for any referenced objects.
 
     for (REPLY_BASE_ITEM *pRP = RPRoot.First(); pRP; pRP = pRP->Next() )
-	pRP->UpdateObject(this, Index);
+    pRP->UpdateObject(this, Index);
 
     return(TRUE);
 }
@@ -1746,7 +1747,7 @@ Returns:
     // check each field for equality, returning their relationship if not
 
     if ((result = syntaxGID - pSID.syntaxGID) != 0)
-	return (result);
+    return (result);
 
     result = versionRV - pSID.versionRV;
 
@@ -1778,11 +1779,11 @@ Returns:
     pSID.Assert();
 
     return (pSB << "Version " << pSID.versionRV <<
-	    ", " << pSID.syntaxGID);
+        ", " << pSID.syntaxGID);
 }
 
 
-#ifdef LDEBUG
+#if DBG
 
 void
 NS_SYNTAX_ID::Assert(
@@ -1833,7 +1834,7 @@ Returns:
 }
 
 
-#ifdef LDEBUG
+#if DBG
 
 void
 SYNTAX_VERSION::Assert(
@@ -1850,4 +1851,3 @@ Routine Description:
 }
 
 #endif
-

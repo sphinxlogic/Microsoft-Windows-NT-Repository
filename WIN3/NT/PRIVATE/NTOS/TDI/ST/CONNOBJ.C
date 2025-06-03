@@ -689,13 +689,11 @@ Return Value:
 --*/
 
 {
-    INTERLOCKED_RESULT result;
+    LONG result;
 
-    result = ExInterlockedIncrementLong (
-                 &TransportConnection->ReferenceCount,
-                 TransportConnection->ProviderInterlock);
+    result = InterlockedIncrement (&TransportConnection->ReferenceCount);
 
-    if (result == ResultZero) {
+    if (result == 0) {
 
         //
         // The first increment causes us to increment the
@@ -709,7 +707,7 @@ Return Value:
 
     }
 
-    ASSERT (result != ResultNegative);
+    ASSERT (result >= 0);
 
 } /* StRefConnection */
 
@@ -739,11 +737,9 @@ Return Value:
 --*/
 
 {
-    INTERLOCKED_RESULT result;
+    LONG result;
 
-    result = ExInterlockedDecrementLong (
-                &TransportConnection->ReferenceCount,
-                TransportConnection->ProviderInterlock);
+    result = InterlockedDecrement (&TransportConnection->ReferenceCount);
 
     //
     // If all the normal references to this connection are gone, then
@@ -751,7 +747,7 @@ Return Value:
     // "the regular ref count is non-zero".
     //
 
-    if (result == ResultNegative) {
+    if (result < 0) {
 
         //
         // If the refcount is -1, then we need to indicate

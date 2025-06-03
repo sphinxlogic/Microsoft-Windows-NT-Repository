@@ -51,6 +51,9 @@ typedef struct {
         BOOL    selvisible;     /* used during mouse-down: T if sel drawn */
         TableSelection select;
 
+        // tab expansion
+        int     tabchars;
+
 } Table, FAR * lpTable;
 
 /* trackmode constants */
@@ -104,6 +107,7 @@ void gtab_select(HWND hwnd, lpTable ptab, long row, long col, long nrows,
 void gtab_enter(HWND hwnd, lpTable ptab, long row, long col, long nrows,
         long ncells);
 void gtab_press(HWND hwnd, lpTable ptab, int x, int y);
+void gtab_rightclick(HWND hwnd, lpTable ptab, int x, int y);
 void gtab_release(HWND hwnd, lpTable ptab, int x, int y);
 void gtab_move(HWND hwnd, lpTable ptab, int x, int y);
 void gtab_dblclick(HWND hwnd, lpTable ptab, int x, int y);
@@ -114,6 +118,7 @@ int gtab_key(HWND hwnd, lpTable ptab, int vkey);
 /* in tprint.c */
 BOOL gtab_print(HWND hwnd, lpTable ptab, HANDLE heap, lpPrintContext pcontext);
 void gtab_boxcell(HWND hwnd, HDC hdc, LPRECT rcp, LPRECT pclip, UINT boxmode);
+
 
 
 

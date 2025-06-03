@@ -88,7 +88,7 @@ Return Value:
 #endif
 
 
-    CheckedDump(QIC117INFO,("ReqIO called (%x)\n", IoRequest->x.adi_hdr.driver_cmd));
+    CheckedDump(QIC117SHOWKDI,("ReqIO called (%x)\n", IoRequest->x.adi_hdr.driver_cmd));
     IoRequest->BufferInfo = BufferInfo;
 
 #ifdef BUFFER_SPLIT
@@ -167,7 +167,7 @@ Return Value:
         subRequest = ExAllocatePool(NonPagedPool,
                          sizeof(*IoRequest)*maxSplits);
 
-        CheckedDump(QIC117INFO,("q117ReqIO: Allocating %d subreqs\n", maxSplits));
+        CheckedDump(QIC117SHOWKDI,("q117ReqIO: Allocating %d subreqs\n", maxSplits));
 
         IoRequest->Next = subRequest;
         IoRequest->x.adi_hdr.status = ERROR_ENCODE(ERR_SPLIT_REQUESTS, FCT_ID, 1);
@@ -322,7 +322,7 @@ Return Value:
             }
             (VOID)IoCallDriver(Context->q117iDeviceObject, irp);
 
-            CheckedDump(QIC117INFO,("q117ReqIO: Sending subreq\n"));
+            CheckedDump(QIC117SHOWKDI,("q117ReqIO: Sending subreq\n"));
 
             //
             // point to the next sub-request to make
@@ -448,7 +448,7 @@ Return Value:
 --*/
 
 {
-    CheckedDump(QIC117INFO,("WaitIO(%x,%x,%x) ... ", IoRequest->x.adi_hdr.driver_cmd,IoRequest->x.ioDeviceIO.starting_sector,IoRequest->x.adi_hdr.status));
+    CheckedDump(QIC117SHOWKDI,("WaitIO(%x,%x,%x) ... ", IoRequest->x.adi_hdr.driver_cmd,IoRequest->x.ioDeviceIO.starting_sector,IoRequest->x.adi_hdr.status));
 
     if (Wait) {
         KeWaitForSingleObject(
@@ -465,7 +465,7 @@ Return Value:
         PIO_REQUEST subRequest;
         ULONG blocksLeft,mask,slot;
 
-        CheckedDump(QIC117INFO,("Got split request\n"));
+        CheckedDump(QIC117SHOWKDI,("Got split request\n"));
 
         subRequest = IoRequest->Next;
         blocksLeft = IoRequest->x.ioDeviceIO.number;
@@ -516,7 +516,7 @@ Return Value:
                 // Saw new cart,  so set need loaded flag
                 //
                 Context->CurrentTape.State = NeedInfoLoaded;
-                CheckedDump(QIC117SHOWTD,("New Cart Detected\n"));
+                CheckedDump(QIC117INFO,("mtaccess: New Cart Detected\n"));
 
             }
 
@@ -589,9 +589,12 @@ Return Value:
         case CMD_WRITE_DELETED_MARK:
 
             if ((IoRequest->x.ioDeviceIO.crc || IoRequest->x.ioDeviceIO.bsm) && IoRequest->x.adi_hdr.driver_cmd) {
-                CheckedDump(QIC117INFO,("  bbm: %x crc: %x  ", IoRequest->x.ioDeviceIO.bsm, IoRequest->x.ioDeviceIO.crc));
+
+                CheckedDump(QIC117SHOWKDI|QIC117SHOWBSM,("sect:%x  bbm: %x crc: %x\n",IoRequest->x.ioDeviceIO.starting_sector ,IoRequest->x.ioDeviceIO.bsm, IoRequest->x.ioDeviceIO.crc));
+
             }
             break;
+
     }
 #endif
     if ((
@@ -608,7 +611,7 @@ Return Value:
 
         str = q117GetErrorString(IoRequest->x.adi_hdr.status);
 
-        CheckedDump(QIC117INFO,("  >>>> waitio status %x:%s\n", IoRequest->x.adi_hdr.status, str));
+        CheckedDump(QIC117SHOWKDI,("  >>>> waitio status %x:%s\n", IoRequest->x.adi_hdr.status, str));
     }
 #endif
 
@@ -644,7 +647,7 @@ Return Value:
 {
     dStatus ret;
 
-    CheckedDump(QIC117INFO,("DoIO called (%x)\n", IoRequest->x.adi_hdr.driver_cmd));
+    CheckedDump(QIC117SHOWKDI,("DoIO called (%x)\n", IoRequest->x.adi_hdr.driver_cmd));
 
     ret = q117ReqIO(IoRequest, BufferInfo, NULL, NULL, Context);
     if (!ret) {
@@ -681,7 +684,7 @@ Return Value:
     PIRP irp;
 
 
-    CheckedDump(QIC117INFO,("ClearIO Called\n"));
+    CheckedDump(QIC117SHOWKDI,("ClearIO Called\n"));
 
     KeInitializeEvent(
         DoneEvent,

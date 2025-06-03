@@ -47,7 +47,7 @@ Revision history:
 #include <rpcdcep.h>
 #include <rpcndr.h>
 START_C_EXTERN
-#include <cvt.h>
+#include <..\ndr20\cvt.h>
 END_C_EXTERN
 
 //

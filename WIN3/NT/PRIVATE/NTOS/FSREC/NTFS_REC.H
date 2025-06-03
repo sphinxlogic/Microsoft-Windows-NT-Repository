@@ -110,8 +110,10 @@ typedef struct _PACKED_BOOT_SECTOR {
     LARGE_INTEGER NumberSectors;                                    //  offset = 0x028
     LCN MftStartLcn;                                                //  offset = 0x030
     LCN Mft2StartLcn;                                               //  offset = 0x038
-    ULONG ClustersPerFileRecordSegment;                             //  offset = 0x040
-    ULONG DefaultClustersPerIndexAllocationBuffer;                  //  offset = 0x044
+    CHAR ClustersPerFileRecordSegment;                              //  offset = 0x040
+    UCHAR Reserved0[3];
+    CHAR DefaultClustersPerIndexAllocationBuffer;                   //  offset = 0x044
+    UCHAR Reserved1[3];
     LARGE_INTEGER SerialNumber;                                     //  offset = 0x048
     ULONG Checksum;                                                 //  offset = 0x050
     UCHAR BootStrap[0x200-0x044];                                   //  offset = 0x054

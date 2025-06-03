@@ -115,9 +115,7 @@ Return Value:
 
     session->NonpagedHeader = header;
 
-    SET_BLOCK_TYPE( session, BlockTypeSession );
-    SET_BLOCK_STATE( session, BlockStateActive );
-    SET_BLOCK_SIZE( session, blockLength );
+    SET_BLOCK_TYPE_STATE_SIZE( session, BlockTypeSession, BlockStateActive, blockLength );
     header->ReferenceCount = 2; // allow for Active status and caller's pointer
 
     //
@@ -125,7 +123,7 @@ Return Value:
     //
 
     KeQuerySystemTime( &session->StartTime );
-    KeQuerySystemTime( &session->LastUseTime );
+    session->LastUseTime.QuadPart = session->StartTime.QuadPart;
 
     //
     // Initialize the user name.
@@ -170,7 +168,7 @@ Return Value:
 } // SrvAllocateSession
 
 
-BOOLEAN
+BOOLEAN SRVFASTCALL
 SrvCheckAndReferenceSession (
     PSESSION Session
     )
@@ -305,6 +303,11 @@ Return Value:
                 );
 
         //
+        // Close all cached directories on this session.
+        //
+        SrvCloseCachedDirectoryEntries( connection );
+
+        //
         // Dereference the session (to indicate that it's no longer
         // open).
         //
@@ -403,7 +406,7 @@ Return Value:
 } // SrvCloseSessionsOnConnection
 
 
-VOID
+VOID SRVFASTCALL
 SrvDereferenceSession (
     IN PSESSION Session
     )
@@ -431,7 +434,7 @@ Return Value:
 
 {
     PCONNECTION connection;
-    INTERLOCKED_RESULT result;
+    LONG result;
 
     PAGED_CODE( );
 
@@ -451,12 +454,11 @@ Return Value:
     ASSERT( Session->NonpagedHeader->ReferenceCount > 0 );
     UPDATE_REFERENCE_HISTORY( Session, TRUE );
 
-    result = ExInterlockedDecrementLong(
-                &Session->NonpagedHeader->ReferenceCount,
-                &connection->Interlock
+    result = InterlockedDecrement(
+                &Session->NonpagedHeader->ReferenceCount
                 );
 
-    if ( result == RESULT_ZERO ) {
+    if ( result == 0 ) {
 
         //
         // The new reference count is 0, meaning that it's time to
@@ -511,36 +513,24 @@ Return Value:
 {
     PAGED_CODE( );
 
-    DEBUG SET_BLOCK_TYPE( Session, BlockTypeGarbage );
-    DEBUG SET_BLOCK_STATE( Session, BlockStateDead );
-    DEBUG SET_BLOCK_SIZE( Session, -1 );
+    DEBUG SET_BLOCK_TYPE_STATE_SIZE( Session, BlockTypeGarbage, BlockStateDead, -1 );
     DEBUG Session->NonpagedHeader->ReferenceCount = -1;
     TERMINATE_REFERENCE_HISTORY( Session );
+
+    //
+    // Tell the License Server
+    //
+    SrvXsLSOperation( Session, XACTSRV_MESSAGE_LSRELEASE );
 
     //
     // Close the logon token (if any).
     //
 
-#ifdef _CAIRO_
-    if ( Session->HaveHandle ) {
-        ASSERT( Session->HaveCairo );
+    if ( Session->HaveHandle ){
         if ( !NT_SUCCESS( SrvFreeSecurityContexts(Session) ) ) {
             ASSERTMSG( "Error freeing security context!!\n", FALSE );
         }
     }
-#else // _CAIRO_
-    if ( (Session->UserToken != NULL) &&
-         (Session->UserToken != SrvNullSessionToken) ) {
-        SRVDBG_RELEASE_HANDLE( Session->UserToken, "TOK", 4, Session );
-        ExInterlockedAddUlong(
-            &SrvStatistics.CurrentNumberOfSessions,
-            (ULONG)-1,
-            &GLOBAL_SPIN_LOCK(Statistics)
-            );
-        SrvNtClose( Session->UserToken, FALSE );
-        DEBUG Session->UserToken = NULL;
-    }
-#endif // _CAIRO_
 
     //
     // Deallocate the session's memory.

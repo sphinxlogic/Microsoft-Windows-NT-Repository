@@ -389,276 +389,275 @@ LocalEditProc(
 
     hFoc = GetFocus();
 
-    try {
+    __try {
 
-    switch (msg) {
+        switch (msg) {
 
-        case WU_INITDEBUGWIN:
-            Dbg(InitLocalsVits());
-            hWndLocal = hwnd;
-            PostMessage(hwnd, WU_UPDATE, 0, 0L);
-            break;
-
-        case WM_DESTROY:
-            hWndLocal = NULL;   //  Lose the Local Window Handle
-            //
-            // fall thru...
-            //
-
-        case WU_DBG_UNLOADEE:
-        case WU_DBG_UNLOADEM:
-            if ( pvitLocal) {
-                FreeLocalsVits();      // Lose the Local Trees
-                SendMessage(p->hWndLeft, LB_SETCOUNT, 1, 0);
-                SendMessage(p->hWndButton, LB_SETCOUNT, 1, 0);
-                SendMessage(p->hWndRight, LB_SETCOUNT, 1, 0);
-                p->MaxIdx = (WORD)1;
-                PostMessage(hwnd, WU_UPDATE, 0, 0L);
-                LocalFrameNumber = 0;
-            }
-            break;
-
-        case WU_DBG_LOADEM:
-        case WU_DBG_LOADEE:
-            if (!pvitLocal) {
+            case WU_INITDEBUGWIN:
                 Dbg(InitLocalsVits());
                 hWndLocal = hwnd;
                 PostMessage(hwnd, WU_UPDATE, 0, 0L);
-            }
-            break;
+                break;
 
-        case WU_OPTIONS:
-            pVib = FTvibGetAtLine( pvitLocal, pInfo->ItemId);
-            if ( pVib == NULL) {
-                return FALSE;
-            }
+            case WM_DESTROY:
+                hWndLocal = NULL;   //  Lose the Local Window Handle
+                //
+                // fall thru...
+                //
 
-            pvtext = &pVib->pvtext[pVib->vibIndex];
-
-            if ( pInfo->pFormat &&  (*(pvtext->pszValueC) != '{')) {
-                FTEnsureTextExists(pVib);
-
-                if ( pvtext->pszFormat) {
-                    free(pvtext->pszFormat);
+            case WU_DBG_UNLOADEE:
+            case WU_DBG_UNLOADEM:
+                if ( pvitLocal) {
+                    FreeLocalsVits();      // Lose the Local Trees
+                    SendMessage(p->hWndLeft, LB_SETCOUNT, 1, 0);
+                    SendMessage(p->hWndButton, LB_SETCOUNT, 1, 0);
+                    SendMessage(p->hWndRight, LB_SETCOUNT, 1, 0);
+                    p->MaxIdx = (WORD)1;
+                    PostMessage(hwnd, WU_UPDATE, 0, 0L);
+                    LocalFrameNumber = 0;
                 }
-                pvtext->pszFormat = strdup(pInfo->pFormat);
+                break;
 
-                if ( pvtext->pszValueC) {
-                    free(pvtext->pszValueC);
+            case WU_DBG_LOADEM:
+            case WU_DBG_LOADEE:
+                if (!pvitLocal) {
+                    Dbg(InitLocalsVits());
+                    hWndLocal = hwnd;
+                    PostMessage(hwnd, WU_UPDATE, 0, 0L);
                 }
-                pvtext->pszValueC = NULL;
+                break;
 
-                PaneInvalidateRow(p);
-
-            } else {
-
-                FTEnsureTextExists(pVib);
-
-                if ( pvtext->pszFormat) {
-                    free(pvtext->pszFormat);
+            case WU_OPTIONS:
+                pVib = FTvibGetAtLine( pvitLocal, pInfo->ItemId);
+                if ( pVib == NULL) {
+                    return FALSE;
                 }
-                pvtext->pszFormat = '\0';
 
-                if ( pvtext->pszValueC) {
-                    free(pvtext->pszValueC);
+                pvtext = &pVib->pvtext[pVib->vibIndex];
+
+                if ( pInfo->pFormat &&  (*(pvtext->pszValueC) != '{')) {
+                    FTEnsureTextExists(pVib);
+
+                    if ( pvtext->pszFormat) {
+                        free(pvtext->pszFormat);
+                    }
+                    pvtext->pszFormat = _strdup(pInfo->pFormat);
+
+                    if ( pvtext->pszValueC) {
+                        free(pvtext->pszValueC);
+                    }
+                    pvtext->pszValueC = NULL;
+
+                    PaneInvalidateRow(p);
+
+                } else {
+
+                    FTEnsureTextExists(pVib);
+
+                    if ( pvtext->pszFormat) {
+                        free(pvtext->pszFormat);
+                    }
+                    pvtext->pszFormat = '\0';
+
+                    if ( pvtext->pszValueC) {
+                        free(pvtext->pszValueC);
+                    }
+                    pvtext->pszValueC = NULL;
+
+                    PaneInvalidateRow(p);
                 }
-                pvtext->pszValueC = NULL;
+                return TRUE;
 
-                PaneInvalidateRow(p);
-            }
-            return TRUE;
-
-        case WU_INFO:
-            //
-            // Default to a reasonable baseline
-            //
-            pInfo->pBuffer  = pInfo->pFormat = NULL;
-            pInfo->NewText  = FALSE;
-            pInfo->ReadOnly = TRUE;
-
-            pVib = FTvibGetAtLine( pvitLocal, pInfo->ItemId);
-            if ( pVib == NULL) {
-                return(FALSE);
-            }
-
-            FTEnsureTextExists(pVib);
-            pvtext = &pVib->pvtext[pVib->vibIndex];
-
-            pInfo->pFormat = pvtext->pszFormat;
-            pInfo->pBuffer  = FTGetPanelString( pvitLocal, pVib, pInfo->CtrlId);
-
-            if ( pInfo->CtrlId == ID_PANE_RIGHT) {
-                pInfo->ReadOnly = FALSE;
-                pInfo->NewText  = FTGetPanelStatus( pVib, pInfo->CtrlId);
-            } else {
-                pInfo->ReadOnly = TRUE;
+            case WU_INFO:
+                //
+                // Default to a reasonable baseline
+                //
+                pInfo->pBuffer  = pInfo->pFormat = NULL;
                 pInfo->NewText  = FALSE;
-            }
-            return TRUE;
+                pInfo->ReadOnly = TRUE;
 
-        case WU_SETWATCH:
-            if ( pvitLocal == NULL) {
-                return(FALSE);
-            }
-            if ( p->nCtrlId == ID_PANE_RIGHT) {
-                BOOL retval;
+                pVib = FTvibGetAtLine( pvitLocal, pInfo->ItemId);
+                if ( pVib == NULL) {
+                    return(FALSE);
+                }
+
+                FTEnsureTextExists(pVib);
+                pvtext = &pVib->pvtext[pVib->vibIndex];
+
+                pInfo->pFormat = pvtext->pszFormat;
+                pInfo->pBuffer  = FTGetPanelString( pvitLocal, pVib, pInfo->CtrlId);
+
+                if ( pInfo->CtrlId == ID_PANE_RIGHT) {
+                    pInfo->ReadOnly = FALSE;
+                    pInfo->NewText  = FTGetPanelStatus( pVib, pInfo->CtrlId);
+                } else {
+                    pInfo->ReadOnly = TRUE;
+                    pInfo->NewText  = FALSE;
+                }
+                return TRUE;
+
+            case WU_SETWATCH:
+                if ( pvitLocal == NULL) {
+                    return(FALSE);
+                }
+                if ( p->nCtrlId == ID_PANE_RIGHT) {
+                    BOOL retval;
+                    fUseFrameContext = TRUE;
+                    retval = (AcceptValueUpdate( pvitLocal, p));
+                    if (retval == TRUE) {
+                         UpdateDebuggerState(UPDATE_DATAWINS);
+                    }
+                    fUseFrameContext = FALSE;
+                    return retval;
+                }
+                break;
+
+
+            case WU_INVALIDATE:
+                if (p == (PPANE)NULL) {
+                    p = (PPANE)GetWindowLong(GetLocalHWND(), GWW_EDIT);
+                }
+
+                SendMessage(p->hWndLeft, LB_SETCOUNT, 0, 0);
+                SendMessage(p->hWndButton, LB_SETCOUNT, 0, 0);
+                SendMessage(p->hWndRight, LB_SETCOUNT, 0, 0);
+                p->MaxIdx = 0;
+                PostMessage(hwnd, WU_UPDATE, 0, 0L);
+                LocalFrameNumber = 0;
+
+                InvalidateRect(p->hWndButton, NULL, TRUE);
+                InvalidateRect(p->hWndLeft, NULL, TRUE);
+                InvalidateRect(p->hWndRight, NULL, TRUE);
+                UpdateWindow (p->hWndButton);
+                UpdateWindow (p->hWndLeft);
+                UpdateWindow (p->hWndRight);
+                break;
+
+            case WU_EXPANDWATCH:
+                if ( pvitLocal == NULL) {
+                    return(FALSE);
+                }
+                if ( FTExpand(pvitLocal, (ULONG)(wParam)) != OK) {
+                    return(FALSE);
+                }
+
+                p->LeftOk = p->RightOk = FALSE;
+                pCxf = &pvitLocal->cxf;            // Update in vit context
+                //
+                // fall thru...
+                //
+
+            case WU_UPDATE:
+
+                //
+                // Globally indicate usage of Frame CONTEXT registers
+                // for the local window.  Disable at end of case.
+                //
                 fUseFrameContext = TRUE;
-                retval = (AcceptValueUpdate( pvitLocal, p));
-                if (retval == TRUE) {
-                     UpdateDebuggerState(UPDATE_DATAWINS);
+
+                if ( pvitLocal == NULL) {
+                    return(FALSE);
                 }
-                fUseFrameContext = FALSE;
-                return retval;
-            }
+
+                if (LocalFrameNumber) {
+                    CxfLocal = *ChangeFrame( LocalFrameNumber );
+                    pCxf = &CxfLocal;
+                }
+
+                //
+                //  Has the Context Changed?
+                //
+                if ( UpdateLocalsVit(pCxf, p->bFlags.Expand1st) || p->LeftOk == FALSE ) {
+
+                    hWaitCursor = LoadCursor ((HANDLE)NULL, IDC_WAIT);
+                    hOldCursor = SetCursor (hWaitCursor);
+
+                    //
+                    // Do we need to expand first level?
+                    //
+                    if ( p->bFlags.Expand1st) {
+                        FTExpandOne(pvitLocal->pvibChild);
+                    }
+
+                    Len = (LONG)pvitLocal->cln;
+                    p->MaxIdx = (WORD)Len;
+                    lLen = SendMessage(p->hWndLeft, LB_GETCOUNT, 0, 0L);
+                    lLen = (lLen < Len || lLen == 0) ? Len : lLen;
+
+                    SendMessage( p->hWndLeft,   LB_SETCOUNT, lLen, 0L );
+                    SendMessage( p->hWndButton, LB_SETCOUNT, lLen, 0L );
+                    SendMessage( p->hWndRight,  LB_SETCOUNT, lLen, 0L );
+
+                    //
+                    //  Resetting the count, lost where we were so put us back
+                    //
+                    if (p->MaxIdx > 0) {
+                        PaneResetIdx(p, p->CurIdx);
+                    }
+
+                    p->LeftOk = TRUE;
+
+                } else {
+
+                    // Set hourglass cursor
+                    hWaitCursor = LoadCursor ((HANDLE)NULL, IDC_WAIT);
+                    hOldCursor = SetCursor (hWaitCursor);
+
+                }
+
+                //  Reset the right pane
+
+                FTAgeVibValues(pvitLocal->pvibChild);
+
+                for ( i= (ULONG)p->TopIdx;
+                           i < (ULONG)(p->TopIdx + p->PaneLines) ; i++) {
+                    if (FTVerifyNew(pvitLocal,i) ) {
+                        PaneInvalidateItem( p->hWndRight, (PPANE)p, (SHORT)i);
+                    }
+                }
+
+                p->RightOk = TRUE;
+
+                PaneCaretNum(p);
+
+                if ((hFoc == p->hWndButton) ||
+                         (hFoc == p->hWndLeft) || (hFoc == p->hWndRight)) {
+                    SendMessage(p->hWndButton ,
+                                LB_GETITEMRECT,
+                                (WPARAM)p->CurIdx,
+                                (LPARAM)&Rect);
+                    GetClientRect (p->hWndButton, &tRect);
+                    tRect.top = Rect.top;
+                    InvalidateRect(p->hWndButton, &tRect, TRUE);
+
+                    SendMessage(p->hWndLeft ,
+                                LB_GETITEMRECT,
+                                (WPARAM)p->CurIdx,
+                                (LPARAM)&Rect);
+                    GetClientRect (p->hWndLeft, &tRect);
+                    tRect.top = Rect.top;
+                    InvalidateRect(p->hWndLeft, &tRect, TRUE);
+
+                    SendMessage(p->hWndRight ,
+                                LB_GETITEMRECT,
+                                (WPARAM)p->CurIdx,
+                                (LPARAM)&Rect);
+                    GetClientRect (p->hWndRight, &tRect);
+                    tRect.top = Rect.top;
+                    InvalidateRect(p->hWndRight, &tRect, TRUE);
+                }
+
+
+            CheckPaneScrollBar( p, (WORD)Len);
+
+            // Set original cursor
+            hOldCursor = SetCursor (hOldCursor);
+
+            fUseFrameContext = FALSE;
+
             break;
-
-
-        case WU_INVALIDATE:
-            if (p == (PPANE)NULL) {
-                p = (PPANE)GetWindowLong(GetLocalHWND(), GWW_EDIT);
-            }
-
-            SendMessage(p->hWndLeft, LB_SETCOUNT, 0, 0);
-            SendMessage(p->hWndButton, LB_SETCOUNT, 0, 0);
-            SendMessage(p->hWndRight, LB_SETCOUNT, 0, 0);
-            p->MaxIdx = 0;
-            PostMessage(hwnd, WU_UPDATE, 0, 0L);
-            LocalFrameNumber = 0;
-
-            InvalidateRect(p->hWndButton, NULL, TRUE);
-            InvalidateRect(p->hWndLeft, NULL, TRUE);
-            InvalidateRect(p->hWndRight, NULL, TRUE);
-            UpdateWindow (p->hWndButton);
-            UpdateWindow (p->hWndLeft);
-            UpdateWindow (p->hWndRight);
-            break;
-
-        case WU_EXPANDWATCH:
-            if ( pvitLocal == NULL) {
-                return(FALSE);
-            }
-            if ( FTExpand(pvitLocal, (ULONG)(wParam)) != OK) {
-                return(FALSE);
-            }
-
-            p->LeftOk = p->RightOk = FALSE;
-            pCxf = &pvitLocal->cxf;            // Update in vit context
-            //
-            // fall thru...
-            //
-
-        case WU_UPDATE:
-
-            //
-            // Globally indicate usage of Frame CONTEXT registers
-            // for the local window.  Disable at end of case.
-            //
-            fUseFrameContext = TRUE;
-
-            if ( pvitLocal == NULL) {
-                return(FALSE);
-            }
-
-            if (LocalFrameNumber) {
-                CxfLocal = *ChangeFrame( LocalFrameNumber );
-                pCxf = &CxfLocal;
-            }
-
-            //
-            //  Has the Context Changed?
-            //
-            if ( UpdateLocalsVit(pCxf, p->bFlags.Expand1st) || p->LeftOk == FALSE ) {
-
-                hWaitCursor = LoadCursor ((HANDLE)NULL, IDC_WAIT);
-                hOldCursor = SetCursor (hWaitCursor);
-
-                //
-                // Do we need to expand first level?
-                //
-                if ( p->bFlags.Expand1st) {
-                    FTExpandOne(pvitLocal->pvibChild);
-                }
-
-                Len = (LONG)pvitLocal->cln;
-                p->MaxIdx = (WORD)Len;
-                lLen = SendMessage(p->hWndLeft, LB_GETCOUNT, 0, 0L);
-                lLen = (lLen < Len || lLen == 0) ? Len : lLen;
-
-                SendMessage( p->hWndLeft,   LB_SETCOUNT, lLen, 0L );
-                SendMessage( p->hWndButton, LB_SETCOUNT, lLen, 0L );
-                SendMessage( p->hWndRight,  LB_SETCOUNT, lLen, 0L );
-
-                //
-                //  Resetting the count, lost where we were so put us back
-                //
-                if (p->MaxIdx > 0) {
-                    PaneResetIdx(p, p->CurIdx);
-                }
-
-                p->LeftOk = TRUE;
-
-            } else {
-
-                // Set hourglass cursor
-                hWaitCursor = LoadCursor ((HANDLE)NULL, IDC_WAIT);
-                hOldCursor = SetCursor (hWaitCursor);
-
-            }
-
-            //  Reset the right pane
-
-            FTAgeVibValues(pvitLocal->pvibChild);
-
-            for ( i= (ULONG)p->TopIdx;
-                       i < (ULONG)(p->TopIdx + p->PaneLines) ; i++) {
-                if (FTVerifyNew(pvitLocal,i) ) {
-                    PaneInvalidateItem( p->hWndRight, (PPANE)p, (SHORT)i);
-                }
-            }
-
-            p->RightOk = TRUE;
-
-            PaneCaretNum(p);
-
-            if ((hFoc == p->hWndButton) ||
-                     (hFoc == p->hWndLeft) || (hFoc == p->hWndRight)) {
-                SendMessage(p->hWndButton ,
-                            LB_GETITEMRECT,
-                            (WPARAM)p->CurIdx,
-                            (LPARAM)&Rect);
-                GetClientRect (p->hWndButton, &tRect);
-                tRect.top = Rect.top;
-                InvalidateRect(p->hWndButton, &tRect, TRUE);
-
-                SendMessage(p->hWndLeft ,
-                            LB_GETITEMRECT,
-                            (WPARAM)p->CurIdx,
-                            (LPARAM)&Rect);
-                GetClientRect (p->hWndLeft, &tRect);
-                tRect.top = Rect.top;
-                InvalidateRect(p->hWndLeft, &tRect, TRUE);
-
-                SendMessage(p->hWndRight ,
-                            LB_GETITEMRECT,
-                            (WPARAM)p->CurIdx,
-                            (LPARAM)&Rect);
-                GetClientRect (p->hWndRight, &tRect);
-                tRect.top = Rect.top;
-                InvalidateRect(p->hWndRight, &tRect, TRUE);
-            }
-
-
-        CheckPaneScrollBar( p, (WORD)Len);
-
-        // Set original cursor
-        hOldCursor = SetCursor (hOldCursor);
-
-        fUseFrameContext = FALSE;
-
-        break;
-    }
-
-    } except(EXCEPTION_EXECUTE_HANDLER) {
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
 
         return FALSE;
 

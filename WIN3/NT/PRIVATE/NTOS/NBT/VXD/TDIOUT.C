@@ -118,6 +118,10 @@ Return Value:
 
 ErrorExit:
 
+    DbgPrint("TdiSendDatagram ErrorExit: tdistatus= ") ;
+    DbgPrintNum( tdistatus ) ;
+    DbgPrint("\n\r") ;
+
     //
     //  Call *our* completion routine which frees memory etc.
     //
@@ -127,11 +131,10 @@ ErrorExit:
                     psendCont,
                     tdistatus,
                     0 ) ;
+
+        return( STATUS_PENDING );
     }
 
-    DbgPrint("TdiSendDatagram: returning ") ;
-    DbgPrintNum( tdistatus ) ;
-    DbgPrint("\n\r") ;
     return tdistatus ;
 }
 
@@ -333,7 +336,14 @@ Return Value:
     if ( !GetSendContext( &psendCont ))
     {
         tdistatus = STATUS_INSUFFICIENT_RESOURCES ;
-        goto ErrorExit ;
+        if ( pRequest->RequestNotifyObject )
+        {
+            ((NBT_COMPLETION)pRequest->RequestNotifyObject)(
+                        pRequest->RequestContext,
+                        tdistatus,
+                        0 ) ;
+        }
+        return tdistatus ;
     }
 
     //
@@ -408,93 +418,6 @@ ErrorExit:
     return tdistatus ;
 }
 
-
-/*******************************************************************
-
-    NAME:       VxdDisconnectWait
-
-    SYNOPSIS:   Schedules a disconnect to occur at some later time
-
-    ENTRY:      pLowerConn - Connection to disconnect
-                pDeviceContext - Which device this is on
-                Flags - TDI disconnect flags
-                Timeout - TDI timeout
-
-    NOTES:      TCP may delay the disconnect call because we might
-                be in a receive indication (if a receive indication
-                contains a disconnect SMB, the server immediately sends
-                a hangup, which is how we may have gotten here) so don't
-                cleanup until the completion routine is called.
-
-    HISTORY:
-        Johnl   1-Sep-1993      Created
-
-********************************************************************/
-
-#if 0
-Shouldn't be needed anymore (used to be called by DisconnectLower, it now
-calls TcpSendDisconnect.
-
-NTSTATUS VxdDisconnectWait( tLOWERCONNECTION * pLowerConn,
-                            tDEVICECONTEXT   * pDeviceContext,
-                            ULONG              Flags,
-                            PVOID              Timeout)
-{
-    TDI_REQUEST   Request ;
-    TDI_STATUS    tdistatus ;
-
-    Request.RequestNotifyObject = DisconnectWaitComplete ;
-    Request.RequestContext      = pLowerConn ;
-
-    Request.Handle.ConnectionContext = pLowerConn->pFileObject ;
-    tdistatus = TdiDisconnect( &Request, Timeout, Flags, NULL, NULL ) ;
-
-#ifdef DEBUG
-    //if ( !NT_SUCCESS(tdistatus))
-    {
-        DbgPrint("VxdDisconnectWait: TdiDisconnect returning: 0x") ;
-        DbgPrintNum( tdistatus ) ; DbgPrint("\r\n") ;
-    }
-#endif
-
-    //
-    //  Return pending if the status is success (continues through the
-    //  completion routine).
-    //
-    return tdistatus ;
-}
-
-VOID DisconnectWaitComplete( PVOID      pContext,
-                             TDI_STATUS status,
-                             ULONG      Extra )
-{
-    tLOWERCONNECTION * pLowerConn = (tLOWERCONNECTION*) pContext ;
-
-    //
-    //  Only cleanup if our disconnect handler has already been called
-    //
-    if ( pLowerConn->State == NBT_DISCONNECTING )
-    {
-        DbgPrint("DisconnectWaitComplete: Going to disconnected state\r\n") ;
-        pLowerConn->State = NBT_DISCONNECTED ;
-    }
-    else
-    {
-        DbgPrint("DisconnectWaitComplete: Calling CleanupAfterDisconnect\r\n") ;
-        CleanupAfterDisconnect( pContext ) ;
-    }
-}
-#endif
-
-typedef void (*DCCallback)( PVOID pContext ) ;
-
-typedef struct
-{
-    NBT_WORK_ITEM_CONTEXT  dc_WIC ;         // Must be first item in structure
-    CTEEvent               dc_event ;
-    DCCallback             dc_Callback ;
-} DELAYED_CALL_CONTEXT, *PDELAYED_CALL_CONTEXT ;
-
 /*******************************************************************
 
     NAME:       VxdScheduleDelayedCall
@@ -518,32 +441,161 @@ typedef struct
 NTSTATUS VxdScheduleDelayedCall( tDGRAM_SEND_TRACKING * pTracker,
                                  PVOID                  pClientContext,
                                  PVOID                  ClientCompletion,
-                                 PVOID                  CallBackRoutine )
+                                 PVOID                  CallBackRoutine,
+                                 tDEVICECONTEXT        *pDeviceContext )
 {
+    CTELockHandle         OldIrq;
     PDELAYED_CALL_CONTEXT pDCC = CTEAllocMem( sizeof( DELAYED_CALL_CONTEXT )) ;
 
     if ( !pDCC )
         return STATUS_INSUFFICIENT_RESOURCES ;
 
     ASSERT( CallBackRoutine != NULL ) ;
-    CTEInitEvent( &pDCC->dc_event, VxdDelayedCallHandler ) ;
+
     pDCC->dc_WIC.pTracker         = pTracker ;
     pDCC->dc_WIC.pClientContext   = pClientContext ;
     pDCC->dc_WIC.ClientCompletion = ClientCompletion ;
     pDCC->dc_Callback             = CallBackRoutine ;
+    pDCC->pDeviceContext          = pDeviceContext;
+
+    //
+    // put this event on the deviceContext queue if we know the devicecontext
+    // otherwise, on the nbtconfig queue.  This allows us to cancel the event
+    // later if we wish to (e.g. adapter goes away in pnp, or lease expires)
+    // if the adapter is marked as going down, don't schedule an event but
+    // execute it synchronously.
+    //
+    if (pDeviceContext)
+    {
+        ASSERT( pDeviceContext->Verify == NBT_VERIFY_DEVCONTEXT );
+
+        if (!pDeviceContext->fDeviceUp)
+        {
+            pDCC->dc_Callback( pDCC ) ;
+
+            DbgPrint("VxdScheduleDelayedCall: device going down,executing now\r\n") ;
+            return( STATUS_SUCCESS );
+        }
+        else
+        {
+            CTESpinLock(pDeviceContext,OldIrq);
+            InsertTailList(&pDeviceContext->DelayedEvents,&pDCC->Linkage);
+            CTESpinFree(pDeviceContext,OldIrq);
+        }
+    }
+    else
+    {
+        CTESpinLock(&NbtConfig,OldIrq);
+        InsertTailList(&NbtConfig.DelayedEvents,&pDCC->Linkage);
+        CTESpinFree(&NbtConfig,OldIrq);
+    }
+
+    CTEInitEvent( &pDCC->dc_event, VxdDelayedCallHandler ) ;
 
     CTEScheduleEvent( &pDCC->dc_event, pDCC) ;
 
     return STATUS_PENDING ;
 }
 
+
 void VxdDelayedCallHandler( struct CTEEvent *pEvent, void * pContext )
 {
     PDELAYED_CALL_CONTEXT pDCC = pContext ;
+    CTELockHandle         OldIrq;
+    tDEVICECONTEXT       *pDeviceContext;
 
 
     ASSERT( pDCC != NULL && pDCC->dc_Callback != NULL ) ;
 
+    pDeviceContext = pDCC->pDeviceContext;
+
+    if (pDeviceContext)
+    {
+        ASSERT( pDeviceContext->Verify == NBT_VERIFY_DEVCONTEXT );
+        CTESpinLock(pDeviceContext,OldIrq);
+        RemoveEntryList(&pDCC->Linkage);
+        CTESpinFree(pDeviceContext,OldIrq);
+    }
+    else
+    {
+        CTESpinLock(&NbtConfig.JointLock,OldIrq);
+        RemoveEntryList(&pDCC->Linkage);
+        CTESpinFree(&NbtConfig.JointLock,OldIrq);
+    }
+
     pDCC->dc_Callback( pDCC ) ;
 }
-
+
+
+/*******************************************************************
+
+    NAME:       CancelAllDelayedEvents
+
+    SYNOPSIS:   Since the device (or the entire vxd!) is going away,
+                cancel all the events that were queued to be scheduled
+                later.  If a particular device context is going away (but
+                not the entire system) then execute all those events
+                synchronously.
+
+    ENTRY:      pDeviceContext - the device context that's going away
+                                 NULL if the vxd is getting unloaded
+
+    RETURNS:    TRUE  if at least one event present and was cancelled
+                FALSE if there were no events queued.
+
+    HISTORY:
+        Koti    Jan. 9, 95
+
+********************************************************************/
+
+BOOL
+CancelAllDelayedEvents( tDEVICECONTEXT *pDeviceContext )
+{
+
+    LIST_ENTRY            *pHead;
+    LIST_ENTRY            *pEntry;
+    PDELAYED_CALL_CONTEXT  pDCC;
+    CTELockHandle          OldIrq;
+    BOOL                   fAtLeastOne=FALSE;
+
+
+    CTESpinLock(&NbtConfig.JointLock,OldIrq);
+
+    if (pDeviceContext)
+        pHead = &pDeviceContext->DelayedEvents;
+    else
+        pHead = &NbtConfig.DelayedEvents;
+
+    pEntry = pHead->Flink;
+
+    while (pEntry != pHead)
+    {
+        pDCC = CONTAINING_RECORD(pEntry,DELAYED_CALL_CONTEXT,Linkage);
+        pEntry = pEntry->Flink;
+
+        RemoveEntryList(&pDCC->Linkage);
+
+        CTESpinFree(&NbtConfig.JointLock,OldIrq);
+
+        CTECancelEvent( &pDCC->dc_event );
+
+        //
+        // if only one device context is going away, execute the event now
+        //
+        if (pDeviceContext)
+        {
+            pDCC->dc_Callback( pDCC ) ;
+        }
+        CTESpinLock(&NbtConfig.JointLock,OldIrq);
+
+        fAtLeastOne = TRUE;
+    }
+
+    CTESpinFree(&NbtConfig.JointLock,OldIrq);
+
+    ASSERT( IsListEmpty( pHead ) );
+
+    return( fAtLeastOne );
+}
+
+

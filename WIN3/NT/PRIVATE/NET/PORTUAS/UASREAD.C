@@ -8,7 +8,7 @@ Module Name:
 
 Abstract:
 
-    Routines to read UAS database entries.
+    Routines to _read UAS database entries.
 
 Author:
 

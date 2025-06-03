@@ -7,10 +7,91 @@
 
 /**********************       PolyTron RCS Utilities
    
-  $Revision:   1.1  $
-      $Date:   03 Mar 1994 12:37:10  $
-   $Author:   ASHANMUG  $
-      $Log:   S:/source/wnt/ms11/miniport/vcs/atimp.h  $
+  $Revision:   1.22  $
+      $Date:   01 Mar 1996 12:10:48  $
+   $Author:   RWolff  $
+      $Log:   S:/source/wnt/ms11/miniport/archive/atimp.h_v  $
+ * 
+ *    Rev 1.22   01 Mar 1996 12:10:48   RWolff
+ * Allocated more space for mapped registers, since VGA Graphics Index
+ * and Graphics Data are now handled as separate registers rather than
+ * as offsets into the block of VGA registers.
+ * 
+ *    Rev 1.21   02 Feb 1996 17:14:52   RWolff
+ * Moved DDC/VDIF merge source information into hardware device extension
+ * so each card can be considered independently in a multihead setup.
+ * 
+ *    Rev 1.20   29 Jan 1996 16:53:58   RWolff
+ * Now uses VideoPortInt10() rather than no-BIOS code on PPC, removed
+ * dead code.
+ * 
+ *    Rev 1.19   22 Dec 1995 14:52:32   RWolff
+ * Added support for Mach 64 GT internal DAC.
+ * 
+ *    Rev 1.18   19 Dec 1995 14:00:26   RWolff
+ * Increased size of buffer used to store query structure and mode tables
+ * to allow for increase in the number of "canned" tables due to support
+ * for higher refresh rates.
+ * 
+ *    Rev 1.17   28 Nov 1995 18:07:58   RWolff
+ * Added "Card Initialized" field to hardware device extension. This
+ * is part of multiheaded support, to prevent multiple initializations
+ * of a single card.
+ * 
+ *    Rev 1.16   27 Oct 1995 14:21:26   RWolff
+ * Removed mapped LFB from hardware device extension.
+ * 
+ *    Rev 1.15   08 Sep 1995 16:36:12   RWolff
+ * Added support for AT&T 408 DAC (STG1703 equivalent).
+ * 
+ *    Rev 1.14   24 Aug 1995 15:38:38   RWolff
+ * Changed detection of block I/O cards to match Microsoft's
+ * standard for plug-and-play.
+ * 
+ *    Rev 1.13   28 Jul 1995 14:39:50   RWolff
+ * Added support for the Mach 64 VT (CT equivalent with video overlay).
+ * 
+ *    Rev 1.12   31 Mar 1995 11:57:44   RWOLFF
+ * Changed debug thresholds to avoid being swamped by level 3 statements
+ * in VIDEOPRT.SYS, removed DEBUG_SWITCH since it's no longer used.
+ * 
+ *    Rev 1.11   30 Mar 1995 12:01:54   RWOLFF
+ * Added definitions for debug level thresholds.
+ * 
+ *    Rev 1.10   07 Feb 1995 18:19:54   RWOLFF
+ * Updated colour depth table for STG1702/1703. Entries for DACs
+ * that are supposedly equivalent to these are unchanged, since
+ * I did not have cards with these DACs and more than 2M of
+ * video memory to test with.
+ * 
+ *    Rev 1.9   30 Jan 1995 11:56:42   RWOLFF
+ * Added support for CT internal DAC.
+ * 
+ *    Rev 1.8   18 Jan 1995 15:39:32   RWOLFF
+ * Added support for Chrontel DAC.
+ * 
+ *    Rev 1.7   23 Dec 1994 10:48:32   ASHANMUG
+ * ALPHA/Chrontel-DAC
+ * 
+ *    Rev 1.6   18 Nov 1994 11:53:28   RWOLFF
+ * Added support for split rasters, Power PC, and new DAC type DAC_STG1703.
+ * 
+ *    Rev 1.5   06 Sep 1994 10:46:52   ASHANMUG
+ * Disable 1600x1200 on all cards except with TVM DAC
+ * 
+ *    Rev 1.4   31 Aug 1994 16:16:10   RWOLFF
+ * Added support for TVP3026 DAC and 1152x864, doubled QUERYSIZE to
+ * allow additional mode tables (needed because we now support 1152x864
+ * and 1600x1200, we have more refresh rates at 1280x1024, and TVP DAC
+ * supports high-res high depth modes AND 4BPP).
+ * 
+ *    Rev 1.3   19 Aug 1994 17:06:22   RWOLFF
+ * Added support for the SC15026 DAC.
+ * 
+ *    Rev 1.2   12 May 1994 11:09:00   RWOLFF
+ * Expanded CardInfo field of hardware device extension structure to allow
+ * more mode tables (needed when setting up "canned" refresh rates"), added
+ * defined value for hardware default refresh rate.
  * 
  *    Rev 1.1   03 Mar 1994 12:37:10   ASHANMUG
  * Make pageable
@@ -109,7 +190,7 @@ End of PolyTron RCS section                             *****************/
 #ifdef DOC
 
 DESCRIPTION
-     ATI Windows NT Miniport driver for the Mach32, Mach8 and VGA Wonder 
+     ATI Windows NT Miniport driver for the Mach64, Mach32, and Mach8 
      families.
      This file will select the appropriate functions depending on the 
      computer configuration.
@@ -120,15 +201,34 @@ Environment:
 
 #endif
 
-#ifdef MSDOS
-#include "stdtyp.h"
-#endif
 
 /*
- * Switch for VideoDebugPrint() calls. It should be zero to print,
- * and nonzero to stop printing.
+ * SPLIT_RASTERS is defined in order to work with a display driver which
+ * may break a scan line across the boundary between 64k pages when using
+ * the VGA aperture, and undefined when working with a display driver
+ * which requires that every scan line be contained within a single page
+ * (modes with a screen width of less than 1024 pixels are padded to a
+ * pitch of 1024, modes with a width greater than 1024 but less than
+ * 2048 are padded to a pitch of 2048).
  */
-#define DEBUG_SWITCH 0
+#define SPLIT_RASTERS   1
+
+/*
+ * Values used to indicate priority of VideoDebugPrint() calls.
+ *
+ * To set the debug threshold, set the ati\Device0\VideoDebugLevel
+ * registry field to the lowest-priority debug statments you want
+ * to see. For example, a value of 2 will display DEBUG_ERROR and
+ * DEBUG_IMPORTANT in addition to DEBUG_TRACE, but will not display
+ * DEBUG_DETAIL.
+ */
+#define DEBUG_ERROR         0   /* Statements with this level should never happen */
+#define DEBUG_NORMAL        1   /* Entry/exit points of major functions and other important information */
+#define DEBUG_DETAIL        2   /* Detailed debug information */
+#define DEBUG_RIDICULOUS    3   /* This level will trigger MASSIVE numbers of statments from VIDEOPRT.SYS */
+/*
+ * Uncomment to allow building using free version of VIDEOPRT.LIB
+ */
 //#undef VideoDebugPrint
 //#define VideoDebugPrint(x)
 
@@ -171,8 +271,18 @@ Environment:
 #define RES_640     0
 #define RES_800     1
 #define RES_1024    2
-#define RES_1280    3
-#define RES_1600    4
+#define RES_1152    3
+#define RES_1280    4
+#define RES_1600    5
+
+/*
+ * "Card found" status variables. We support a single card that does
+ * not use block relocatable I/O, or up to 16 cards (INT 10 AH=A0 through
+ * AH=AF) that use block relocatable I/O, but never a mix of block and
+ * non-block cards.
+ */
+extern BOOL FoundNonBlockCard;
+extern USHORT NumBlockCardsFound;
 
 /*
  * List of greatest pixel depths available for each supported
@@ -184,28 +294,18 @@ Environment:
  * resolution. Since we don't report any modes with a colour depth
  * less than 4BPP, both will be seen as the resolution not being
  * supported.
- *
- * Since the DAC type field in CONFIG_STATUS_1 is 3 bits, there are
- * 2 legal DAC type values which are not yet assigned. To avoid
- * erroneous reporting of colour depth capabilities if this driver
- * is run with an as-yet-undesigned version of the Mach 32 which
- * has assigned one of these values to a new DAC type, assume that
- * these 3 DAC types are capable of a maximum of 8 BPP. Since all
- * the DAC types we support are backward-compatible with the BT47x
- * for 8 BPP and lower, but each high-colour DAC requires different
- * initialization for 16 BPP and higher, this is the safest assumption.
  */
 #ifdef INCLUDE_ATIMP
-short MaxDepth[MAX_OLD_DAC][RES_1600-RES_640+1] =
+short MaxDepth[HOW_MANY_DACs][RES_1600-RES_640+1] =
     {
-    16, 16, 16, 8,  1,  /* DAC_ATI_68830 */
-    24, 16, 8,  8,  1,  /* DAC_SIERRA */
-    32, 32, 16, 8,  8,  /* DAC_TI34075 */
-    8,  8,  8,  8,  1,  /* DAC_BT47x */
-    24, 16, 8,  8,  1,  /* DAC_BT48x */
-    32, 32, 32, 24, 24, /* DAC_ATI_68860 */
-    32, 32, 16, 8,  8,  /* DAC_STG1700 */
-    24, 24, 24, 16, 1,  /* DAC_SC15021 NOTE: Should be able to handle 32BPP. */
+    16, 16, 16, 16, 8,  1,  /* DAC_ATI_68830 */
+    24, 16, 8,  8,  8,  1,  /* DAC_SIERRA */
+    32, 32, 16, 16, 8,  1,  /* DAC_TI34075 */
+    8,  8,  8,  8,  8,  1,  /* DAC_BT47x */
+    24, 16, 8,  8,  8,  1,  /* DAC_BT48x */
+    32, 32, 32, 32, 24, 1,  /* DAC_ATI_68860 */
+    32, 32, 16, 16, 8,  1,  /* DAC_STG1700 */
+    24, 24, 24, 24, 16, 1,  /* DAC_SC15021 NOTE: Should be able to handle 32BPP. */
     /*
      * DAC types below are for cases where incompatible DAC types
      * report the same code in CONFIG_STATUS_1. Since the DAC type
@@ -214,11 +314,21 @@ short MaxDepth[MAX_OLD_DAC][RES_1600-RES_640+1] =
      * not conflict with reported DAC types but are still legal
      * in the query structure's DAC type field (8 bit unsigned integer).
      */
-    24, 16, 8,  8,  1,  /* DAC_ATT491 */
-    32, 32, 16, 8,  1   /* DAC_ATT498 */
+    24, 16, 8,  8,  8,  1,  /* DAC_ATT491 */
+    32, 32, 16, 16, 8,  1,  /* DAC_ATT498 */
+    24, 16, 8,  8,  8,  1,  /* DAC_SC15026 */
+    32, 32, 32, 32, 24, 24, /* DAC_TVP3026 */
+    32, 32, 32, 32, 24, 24, /* DAC_IBM514 */
+    32, 32, 24, 16, 16, 1,  /* DAC_STG1702 */
+    32, 32, 24, 16, 16, 1,  /* DAC_STG1703 */
+    32, 32, 16, 16, 8,  1,  /* DAC_CH8398 */
+    32, 32, 16, 16, 8,  1,  /* DAC_ATT408 */
+    32, 32, 16, 16, 8,  1,  /* DAC_INTERNAL_CT */
+    32, 32, 16, 16, 8,  1,  /* DAC_INTERNAL_GT */
+    32, 32, 16, 16, 8,  1   /* DAC_INTERNAL_VT */
     };
 #else
-extern short MaxDepth[MAX_OLD_DAC][RES_1600-RES_640+1];
+extern short MaxDepth[HOW_MANY_DACs][RES_1600-RES_640+1];
 #endif
 
 //-----------------------------------------------------------------------
@@ -231,7 +341,7 @@ typedef struct tagVDATA {
 //------------------------------------------
 
 #ifndef QUERYSIZE
-#define QUERYSIZE       4096
+#define QUERYSIZE       12288
 #endif
 
 /*
@@ -247,7 +357,7 @@ typedef struct tagVDATA {
  * arrays with this size contain checks on this value. If the array
  * would be overfilled, these checks will cause compile-time errors.
  */
-#define NUM_ADDRESS_RANGES_ALLOWED  106
+#define NUM_ADDRESS_RANGES_ALLOWED  108
 
 /*
  * Define device extension structure. This is device dependant/private
@@ -269,10 +379,9 @@ typedef struct _HW_DEVICE_EXTENSION {
 
     PVOID RomBaseRange;     /* ROM address range used */
 
-    PVOID FrameAddress;                     /* Length of display memory and */
-    PHYSICAL_ADDRESS PhysicalFrameAddress;  /* physical memory address for */
-                                            /* the current mode. */
-    ULONG VideoRamSize;
+    PHYSICAL_ADDRESS PhysicalFrameAddress;  /* Physical address of the LFB */
+
+    ULONG VideoRamSize;         /* Amount of installed video memory */
 
 
     ULONG FrameLength;          /* Aperture size. */
@@ -283,6 +392,8 @@ typedef struct _HW_DEVICE_EXTENSION {
 
     ULONG HardwareCursorAddr;   /* Storage of cursor bitmap for 68800 hardware cursor */
     ULONG ModelNumber;			/* ATI Adapter Card Type */
+    USHORT BiosPrefix;          /* Card sequence for accelerator INT 10 calls */
+    ULONG BaseIOAddress;        /* Used in matching BIOS prefix to I/O base on relocatable cards */
     char CardInfo[QUERYSIZE];   /* Storage for query information */
 
     struct st_eeprom_data *ee;  /* Information used to access EEPROM */
@@ -299,6 +410,20 @@ typedef struct _HW_DEVICE_EXTENSION {
     USHORT FirstEntry;
     USHORT NumEntries;
 
+    /*
+     * Used to ensure that ATIMPInitialize() is only called once for
+     * any given card.
+     */
+    BOOL CardInitialized;
+
+    /*
+     * Shows whether to merge "canned" mode tables with tables from
+     * VDIF file, or with tables from EDID structure returned by DDC.
+     */
+    ULONG MergeSource;
+
+    ULONG EdidChecksum;         /* Checksum of EDID structure */
+
 } HW_DEVICE_EXTENSION, *PHW_DEVICE_EXTENSION;
 
 #if defined INCLUDE_ATIMP
@@ -308,12 +433,6 @@ typedef struct _HW_DEVICE_EXTENSION {
 #endif
 
 
-/*
- * Routine to compare 2 strings
- */
-extern LONG  AtiStrcmp (PUCHAR String1, PUCHAR String2);
-
-#ifndef MSDOS
 /*
  * Registry callback routine and buffers to allow data to be retrieved
  * by other routines.
@@ -326,7 +445,6 @@ RegistryParameterCallback(
     PVOID Data,
     ULONG Length
     );
-#endif
 
 #define REGISTRY_BUFFER_SIZE 200    /* Size of buffer used in registry reads */
 extern UCHAR RegistryBuffer[];      /* Last value retrieved from the registry */
@@ -341,6 +459,11 @@ extern ULONG RegistryBufferLength;  /* Size of last retrieved value */
 #define INT	_asm int 3;
 #else
 #define INT DbgBreakPoint();
+/*
+ * Function prototype has vanished from headers we include, so
+ * we must supply it on our own.
+ */
+extern void DbgBreakPoint(void);
 #endif
 #else
 #define INT

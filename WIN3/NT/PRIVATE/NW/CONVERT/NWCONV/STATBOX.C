@@ -36,7 +36,7 @@ static BOOL DoCancel = FALSE;
   +-------------------------------------------------------------------------+*/
 
 /*+-------------------------------------------------------------------------+
-  | DrainPump()                                                             |
+  | DrainPump()
   +-------------------------------------------------------------------------+*/
 void DrainPump() {
    MSG msg;
@@ -53,7 +53,7 @@ void DrainPump() {
 
 
 /*+-------------------------------------------------------------------------+
-  | Status_CurConv()                                                        |
+  | Status_CurConv()
   +-------------------------------------------------------------------------+*/
 // Current server pair being converted
 void Status_CurConv(UINT Num) {
@@ -65,7 +65,7 @@ void Status_CurConv(UINT Num) {
 
 
 /*+-------------------------------------------------------------------------+
-  | Status_TotConv()                                                        |
+  | Status_TotConv()
   +-------------------------------------------------------------------------+*/
 // Total number of server pairs to convert
 void Status_TotConv(UINT Num) {
@@ -77,7 +77,7 @@ void Status_TotConv(UINT Num) {
 
 
 /*+-------------------------------------------------------------------------+
-  | Status_SrcServ()                                                        |
+  | Status_SrcServ()
   +-------------------------------------------------------------------------+*/
 // Current source server of server pair being converted
 void Status_SrcServ(LPTSTR Server) {
@@ -89,7 +89,7 @@ void Status_SrcServ(LPTSTR Server) {
 
 
 /*+-------------------------------------------------------------------------+
-  | Status_DestServ()                                                       |
+  | Status_DestServ()
   +-------------------------------------------------------------------------+*/
 // Current destination server of server pair being converted
 void Status_DestServ(LPTSTR Server) {
@@ -101,7 +101,7 @@ void Status_DestServ(LPTSTR Server) {
 
 
 /*+-------------------------------------------------------------------------+
-  | Status_ConvTxt()                                                        |
+  | Status_ConvTxt()
   +-------------------------------------------------------------------------+*/
 // Text describing what is being converted (Groups, Users Files)
 void Status_ConvTxt(LPTSTR Text) {
@@ -113,7 +113,7 @@ void Status_ConvTxt(LPTSTR Text) {
 
 
 /*+-------------------------------------------------------------------------+
-  | Status_CurNum()                                                         |
+  | Status_CurNum()
   +-------------------------------------------------------------------------+*/
 // Current item number being converted (current group # or User # or file #)...
 void Status_CurNum(UINT Num) {
@@ -125,7 +125,7 @@ void Status_CurNum(UINT Num) {
 
 
 /*+-------------------------------------------------------------------------+
-  | Status_CurTot()                                                         |
+  | Status_CurTot()
   +-------------------------------------------------------------------------+*/
 // Total items in set being converted (user, group, files...)
 void Status_CurTot(UINT Num) {
@@ -137,7 +137,7 @@ void Status_CurTot(UINT Num) {
 
 
 /*+-------------------------------------------------------------------------+
-  | Status_ItemLabel()                                                      |
+  | Status_ItemLabel()
   +-------------------------------------------------------------------------+*/
 // Label for set being converted ("Group:", "User:")
 void Status_ItemLabel(LPTSTR Text, ...) {
@@ -156,7 +156,7 @@ void Status_ItemLabel(LPTSTR Text, ...) {
 
 
 /*+-------------------------------------------------------------------------+
-  | Status_Item()                                                           |
+  | Status_Item()
   +-------------------------------------------------------------------------+*/
 // Name of current thing being converted (actual user or group name)
 void Status_Item(LPTSTR Text) {
@@ -168,7 +168,7 @@ void Status_Item(LPTSTR Text) {
 
 
 /*+-------------------------------------------------------------------------+
-  | Status_TotComplete()                                                    |
+  | Status_TotComplete()
   +-------------------------------------------------------------------------+*/
 // Total #server pairs converted so far
 void Status_TotComplete(UINT Num) {
@@ -180,7 +180,7 @@ void Status_TotComplete(UINT Num) {
 
 
 /*+-------------------------------------------------------------------------+
-  | Status_TotGroups()                                                      |
+  | Status_TotGroups()
   +-------------------------------------------------------------------------+*/
 void Status_TotGroups(UINT Num) {
    wsprintf(tmpStr, TEXT("%7s"), lToStr(Num));
@@ -191,7 +191,7 @@ void Status_TotGroups(UINT Num) {
 
 
 /*+-------------------------------------------------------------------------+
-  | Status_TotUsers()                                                       |
+  | Status_TotUsers()
   +-------------------------------------------------------------------------+*/
 void Status_TotUsers(UINT Num) {
    wsprintf(tmpStr, TEXT("%7s"), lToStr(Num));
@@ -202,7 +202,7 @@ void Status_TotUsers(UINT Num) {
 
 
 /*+-------------------------------------------------------------------------+
-  | Status_TotFiles()                                                       |
+  | Status_TotFiles()
   +-------------------------------------------------------------------------+*/
 void Status_TotFiles(UINT Num) {
    wsprintf(tmpStr, TEXT("%7s"), lToStr(Num));
@@ -213,7 +213,7 @@ void Status_TotFiles(UINT Num) {
 
 
 /*+-------------------------------------------------------------------------+
-  | Status_TotErrors()                                                      |
+  | Status_TotErrors()
   +-------------------------------------------------------------------------+*/
 void Status_TotErrors(UINT Num) {
    wsprintf(tmpStr, TEXT("%7s"), lToStr(Num));
@@ -224,7 +224,7 @@ void Status_TotErrors(UINT Num) {
 
 
 /*+-------------------------------------------------------------------------+
-  | Status_BytesTxt()                                                       |
+  | Status_BytesTxt()
   +-------------------------------------------------------------------------+*/
 void Status_BytesTxt(LPTSTR Text) {
    wsprintf(tmpStr, TEXT("%-15s"), Text);
@@ -235,7 +235,7 @@ void Status_BytesTxt(LPTSTR Text) {
 
 
 /*+-------------------------------------------------------------------------+
-  | Status_Bytes()                                                          |
+  | Status_Bytes()
   +-------------------------------------------------------------------------+*/
 void Status_Bytes(LPTSTR Text) {
    wsprintf(tmpStr, TEXT("%s"), Text);
@@ -246,7 +246,7 @@ void Status_Bytes(LPTSTR Text) {
 
 
 /*+-------------------------------------------------------------------------+
-  | Status_TotBytes()                                                       |
+  | Status_TotBytes()
   +-------------------------------------------------------------------------+*/
 void Status_TotBytes(LPTSTR Text) {
    wsprintf(tmpStr, TEXT("%s"), Text);
@@ -257,7 +257,7 @@ void Status_TotBytes(LPTSTR Text) {
 
 
 /*+-------------------------------------------------------------------------+
-  | Status_BytesSep()                                                       |
+  | Status_BytesSep()
   +-------------------------------------------------------------------------+*/
 void Status_BytesSep(LPTSTR Text) {
    wsprintf(tmpStr, TEXT("%s"), Text);
@@ -268,7 +268,7 @@ void Status_BytesSep(LPTSTR Text) {
 
 
 /*+-------------------------------------------------------------------------+
-  | DlgStatus()                                                             |
+  | DlgStatus()
   +-------------------------------------------------------------------------+*/
 LRESULT CALLBACK DlgStatus(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam) {
    RECT rc;
@@ -278,12 +278,6 @@ LRESULT CALLBACK DlgStatus(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam
          // Center the dialog over the application window
          CenterWindow (hDlg, GetWindow (hDlg, GW_OWNER));
          return (TRUE);
-
-#ifdef Ctl3d
-      case WM_SYSCOLORCHANGE:
-         Ctl3dColorChange();
-         break;
-#endif
 
       case WM_SETFOCUS:
          GetWindowRect(hDlg, &rc);
@@ -300,7 +294,7 @@ LRESULT CALLBACK DlgStatus(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam
 
 
 /*+-------------------------------------------------------------------------+
-  | DoStatusDlg()                                                           |
+  | DoStatusDlg()
   +-------------------------------------------------------------------------+*/
 void DoStatusDlg(HWND hDlg) {
    DLGPROC lpfnDlg;
@@ -313,7 +307,7 @@ void DoStatusDlg(HWND hDlg) {
 
 
 /*+-------------------------------------------------------------------------+
-  | StatusDlgKill()                                                         |
+  | StatusDlgKill()
   +-------------------------------------------------------------------------+*/
 void StatusDlgKill() {
    DestroyWindow(hStatus);
@@ -328,7 +322,7 @@ void StatusDlgKill() {
   +-------------------------------------------------------------------------+*/
 
 /*+-------------------------------------------------------------------------+
-  | Panel_Line()                                                            |
+  | Panel_Line()
   +-------------------------------------------------------------------------+*/
 void Panel_Line(int Line, LPTSTR szFormat, ...) {
    va_list marker;
@@ -350,7 +344,7 @@ void Panel_Line(int Line, LPTSTR szFormat, ...) {
 
 
 /*+-------------------------------------------------------------------------+
-  | Panel_Cancel()                                                          |
+  | Panel_Cancel()
   +-------------------------------------------------------------------------+*/
 BOOL Panel_Cancel() {
 
@@ -363,7 +357,7 @@ BOOL Panel_Cancel() {
 
 
 /*+-------------------------------------------------------------------------+
-  | DlgPanel()                                                              |
+  | DlgPanel()
   +-------------------------------------------------------------------------+*/
 LRESULT CALLBACK DlgPanel(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam) {
    int wmId, wmEvent;
@@ -376,12 +370,6 @@ LRESULT CALLBACK DlgPanel(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
          CenterWindow (hDlg, GetWindow (hDlg, GW_OWNER));
          SendMessage(hDlg, WM_SETTEXT, (WPARAM) 0, (LPARAM) PanelTitle);
          return (TRUE);
-
-#ifdef Ctl3d
-      case WM_SYSCOLORCHANGE:
-         Ctl3dColorChange();
-         break;
-#endif
 
       case WM_SETFOCUS:
          GetWindowRect(hDlg, &rc);
@@ -411,7 +399,7 @@ LRESULT CALLBACK DlgPanel(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 
 
 /*+-------------------------------------------------------------------------+
-  | PanelDlg_Do()                                                           |
+  | PanelDlg_Do()
   +-------------------------------------------------------------------------+*/
 void PanelDlg_Do(HWND hDlg, LPTSTR Title) {
    DLGPROC lpfnDlg;
@@ -425,7 +413,7 @@ void PanelDlg_Do(HWND hDlg, LPTSTR Title) {
 
 
 /*+-------------------------------------------------------------------------+
-  | PanelDlgKill()                                                          |
+  | PanelDlgKill()
   +-------------------------------------------------------------------------+*/
 void PanelDlgKill() {
 
@@ -450,8 +438,8 @@ static LPTSTR NameErrorProblem;
 static ULONG RetType;
 static ULONG MaxNameLen;
 /*+-------------------------------------------------------------------------+
-  | NameErrorDlg()                                                          |
-  |                                                                         |
+  | NameErrorDlg()
+  |
   +-------------------------------------------------------------------------+*/
 LRESULT CALLBACK NameErrorDlg(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam) {
    int wmId, wmEvent;
@@ -470,12 +458,6 @@ LRESULT CALLBACK NameErrorDlg(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPa
          // limit the name length
          PostMessage(GetDlgItem(hDlg, IDC_NEWNAME), EM_LIMITTEXT, (WPARAM) MaxNameLen, 0);
          return (TRUE);
-
-#ifdef Ctl3d
-      case WM_SYSCOLORCHANGE:
-         Ctl3dColorChange();
-         break;
-#endif
 
       case WM_COMMAND:
          wmId    = LOWORD(wParam);
@@ -519,15 +501,15 @@ LRESULT CALLBACK NameErrorDlg(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPa
 
 
 /*+-------------------------------------------------------------------------+
-  | UserNameErrorDlg_Do()                                                   |
-  |                                                                         |
+  | UserNameErrorDlg_Do()
+  |
   +-------------------------------------------------------------------------+*/
-ULONG UserNameErrorDlg_Do(LPTSTR Title, LPTSTR Problem, USER_LIST *User) {
+ULONG UserNameErrorDlg_Do(LPTSTR Title, LPTSTR Problem, USER_BUFFER *User) {
    DLGPROC lpfnDlg;
 
    lstrcpy(OldName, User->Name);
    lstrcpy(NewName, User->NewName);
-   MaxNameLen = MAX_NT_USER_NAME_LEN;
+   MaxNameLen = MAX_USER_NAME_LEN;
 
    DlgTitle = Title;
    NameErrorProblem = Problem;
@@ -552,10 +534,10 @@ ULONG UserNameErrorDlg_Do(LPTSTR Title, LPTSTR Problem, USER_LIST *User) {
 
 
 /*+-------------------------------------------------------------------------+
-  | GroupNameErrorDlg_Do()                                                  |
-  |                                                                         |
+  | GroupNameErrorDlg_Do()
+  |
   +-------------------------------------------------------------------------+*/
-ULONG GroupNameErrorDlg_Do(LPTSTR Title, LPTSTR Problem, GROUP_LIST *Group) {
+ULONG GroupNameErrorDlg_Do(LPTSTR Title, LPTSTR Problem, GROUP_BUFFER *Group) {
    DLGPROC lpfnDlg;
 
    lstrcpy(OldName, Group->Name);

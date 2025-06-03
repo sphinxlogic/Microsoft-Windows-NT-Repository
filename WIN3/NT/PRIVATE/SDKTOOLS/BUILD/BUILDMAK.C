@@ -1,36 +1,25 @@
-/*++
-
-Copyright (c) 1989  Microsoft Corporation
-
-Module Name:
-
-    buildmak.c
-
-Abstract:
-
-    This is the Make module for the NT Build Tool (BUILD.EXE)
-
-    The Make module scans directories for file names and edits the
-    data base appropriately.
-
-Author:
-
-    Steve Wood (stevewo) 16-May-1989
-
-Revision History:
-
---*/
+//+---------------------------------------------------------------------------
+//
+//  Microsoft Windows
+//  Copyright (C) Microsoft Corporation, 1989 - 1994.
+//
+//  File:       buildmak.c
+//
+//  Contents:   This is the Make module for the NT Build Tool (BUILD.EXE)
+//
+//              The Make module scans directories for file names and edits the
+//              data base appropriately.
+//
+//  Functions:
+//
+//  History:    16-May-89     SteveWo      Created
+//                  ... See SLM log
+//              26-Jul-94     LyleC        Cleanup/Add Pass0 support
+//
+//----------------------------------------------------------------------------
 
 #include "build.h"
 
-#define INCLDIR_OAK     "public\\oak\\inc"
-#define INCLDIR_SDK     "public\\sdk\\inc"
-#define INCLDIR_CRT     "public\\sdk\\inc\\crt"
-#define INCLDIR_OS2     "public\\sdk\\inc\\os2"
-#define INCLDIR_POSIX   "public\\sdk\\inc\\posix"
-#define INCLDIR_CAIRO   "public\\sdk\\inc\\cairo"
-#define INCLDIR_CINC    "private\\cinc"
-#define INCLDIR_CHICAGO "public\\sdk\\inc\\chicago"
 
 #define SCANFLAGS_CAIRO         0x00000001
 #define SCANFLAGS_CHICAGO       0x00000002
@@ -41,31 +30,27 @@ Revision History:
 ULONG ScanFlagsLast;
 ULONG ScanFlagsCurrent;
 
-
-#define LPAREN  '('
-#define RPAREN  ')'
-
-#define CMACROMAX       100     // maximum unique macros per sources/dirs file
-
-typedef struct _MACRO {
-    LPSTR  pszValue;
-    UCHAR  szName[1];
-} MACRO;
-
-
-MACRO *apMacro[CMACROMAX];
-UINT cMacro = 0;
-LPSTR *ppCurrentDirsFileName;
 USHORT GlobalSequence;
 USHORT LocalSequence;
-DWORD StartTime = 0;
 ULONG idFileToCompile = 1;
 BOOL fLineCleared = TRUE;
 
 char szRecurse[] = " . . . . . . . . .";
 char szAsterisks[] = " ********************";
-char szOakInc[] = INCLDIR_OAK;
-char szSdkInc[] = INCLDIR_SDK;
+
+char *pszIncOak;
+char *pszIncSdk;
+char *pszIncCrt;
+char *pszIncMfc;
+
+char szIncOs2[_MAX_PATH]    = "%s\\public\\sdk\\inc\\os2";
+char szIncPosix[_MAX_PATH]  = "%s\\public\\sdk\\inc\\posix";
+char szIncCairo[_MAX_PATH]  = "%s\\public\\sdk\\inc\\cairo";
+char szIncCinc[_MAX_PATH]   = "%s\\private\\cinc";
+char szIncChicago[_MAX_PATH]= "%s\\public\\sdk\\inc\\chicago";
+
+char szCheckedAltDir[] = " CHECKED_ALT_DIR=1";
+
 
 char *apszConditionalCairoIncludes[] = {
     "ole2.h",
@@ -73,60 +58,258 @@ char *apszConditionalCairoIncludes[] = {
     NULL
 };
 
-VOID
-StartElapsedTime(VOID);
+#ifndef ARRAY_SIZE
+#define ARRAY_SIZE(array, type) (sizeof(array)/sizeof(type))
+#endif
 
-VOID
-PrintElapsedTime(VOID);
+//
+// The following definitions are for the ObjectDirFlag entry in the TARGETDATA
+// struct.
+//
 
+//
+// TD_OBJECTDIR   maps to ObjectDirectory[iObjectDir]\foobar.tar
+// TD_PASS0HDRDIR maps to $(PASS0_HEADERDIR)\foobar.tar
+// TD_PASS0DIR1   maps to $(PASS0_SOURCEDIR)\foobar.tar or $(PASS0_CLIENTDIR)\foobar.tar
+// TD_PASS0DIR2   maps to $(MIDL_UUIDDIR)\foobar.tar or $(PASS0_SERVERDIR)\foobar.tar
+//
+// where .tar is the given target extension, ObjectDirectory[iObjectDir] is the
+// appropriate object directory for that platform, and the macros are expanded
+// to the values given in the sources file.
+//
+#define TD_OBJECTDIR           1
+#define TD_PASS0HDRDIR         2
+#define TD_PASS0DIR1           3
+#define TD_PASS0DIR2           4
+
+typedef struct _tagTARGETDATA
+{
+    UCHAR ObjectDirFlag;    // Indicates what object dir should be used.
+    LPSTR pszTargetExt;     // Extension of target. (Including '.')
+} TARGETDATA, *LPTARGETDATA;
+
+typedef struct _tagOBJECTTARGETINFO
+{
+    LPSTR        pszSourceExt;  // Extension of source file (including '.').
+    UCHAR        NumData;       // Number of entries in [Data].
+    LPTARGETDATA Data;          // Pointer to array of TARGETDATAs.
+} OBJECTTARGETINFO, *LPOBJECTTARGETINFO;
+
+typedef struct _tagOBJECTTARGETARRAY
+{
+    int                cTargetInfo;
+    OBJECTTARGETINFO **aTargetInfo;
+} OBJECTTARGETARRAY;
+
+
+//
+// TARGETDATA information is used by both BuildCompileTarget() and
+// WriteObjectsDefinition() via the GetTargetData() function.  Do not put
+// extensions in this table whose TARGETDATA consists entirely of
+// { TD_OBJECTDIR, ".obj" } because that is the default.  Instead you must
+// modify the switch statement in WriteObjectsDefinition.
+//
+// The first target in each TARGETDATA array is considered the 'rule target'
+// because that is the target for which the inference rule in makefile.def is
+// written.  The 'rule target' will always be deleted in addition to the
+// out-of-date target if *any* of the targets are out of date.
+//
+
+
+//
+// The following data defines the *PASS0* mappings of source extensions
+// to target files:
+//
+//              .idl -> $(PASS0_HEADERDIR)\.h,
+//                      $(PASS0_SOURCEDIR)\_p.c,
+//                      $(MIDL_UUIDDIR)\_i.c
+//              .asn -> $(PASS0_HEADERDIR)\.h,
+//                      $(PASS0_HEADERDIR)\.c
+//              .mc  -> $(PASS0_HEADERDIR)\.h, $(PASS0_SOURCEDIR)\.rc
+//              .odl -> obj\*\.tlb
+//              .tdl -> obj\*\.tlb
+//
+
+//              .mc  -> $(PASS0_HEADERDIR)\.h, $(PASS0_HEADERDIR)\.rc
+TARGETDATA MCData0[] = {
+                        { TD_PASS0HDRDIR, ".h" },
+                        { TD_PASS0DIR1, ".rc" }
+                      };
+OBJECTTARGETINFO MCInfo0 = { ".mc", ARRAY_SIZE(MCData0, TARGETDATA), MCData0 };
+
+//              .asn  -> $(PASS0_HEADERDIR)\.h, $(PASS0_SOURCEDIR)\.c
+TARGETDATA AsnData0[] = {
+                        { TD_PASS0HDRDIR, ".h" },
+                        { TD_PASS0DIR1, ".c" },
+                      };
+OBJECTTARGETINFO AsnInfo0 =
+    { ".asn", ARRAY_SIZE(AsnData0, TARGETDATA), AsnData0 };
+
+
+//         .odl/.tdl -> obj\*\.tlb
+TARGETDATA TLBData0 = { TD_OBJECTDIR, ".tlb" };
+
+OBJECTTARGETINFO TLBInfo0 =
+    { ".tdl", ARRAY_SIZE(TLBData0, TARGETDATA), &TLBData0 };
+
+OBJECTTARGETINFO TLB2Info0 =
+    { ".odl", ARRAY_SIZE(TLBData0, TARGETDATA), &TLBData0 };
+
+//         .thk -> obj\*\.asm
+TARGETDATA THKData0 = { TD_OBJECTDIR, ".asm" };
+
+OBJECTTARGETINFO THKInfo0 =
+    { ".thk", ARRAY_SIZE(THKData0, TARGETDATA), &THKData0 };
+
+//          ------
+LPOBJECTTARGETINFO aTargetInfo0[] = {
+                                   &MCInfo0,
+                                   &AsnInfo0,
+                                   &TLBInfo0,
+                                   &TLB2Info0,
+                                   &THKInfo0,
+                                   };
+#define CTARGETINFO0    ARRAY_SIZE(aTargetInfo0, LPOBJECTTARGETINFO)
+
+
+//
+// The following data defines the *PASS1* mappings of source extensions
+// to target files:
+//
+//              .rc  -> obj\*\.res
+//              .asn -> obj\*\.obj
+//              .thk -> obj\*\.asm,
+//                      obj\*\.obj,
+//
+
+//              .rc  -> obj\*\.res
+TARGETDATA RCData1 = { TD_OBJECTDIR, ".res" };
+OBJECTTARGETINFO RCInfo1 = { ".rc", ARRAY_SIZE(RCData1, TARGETDATA), &RCData1 };
+
+//              .thk -> .asm -> .obj
+TARGETDATA THKData1[] = {
+/*                         {TD_OBJECTDIR, ".asm" }, */
+                        {TD_OBJECTDIR, ".obj" }
+                       };
+OBJECTTARGETINFO THKInfo1 =
+    { ".thk", ARRAY_SIZE(THKData1, TARGETDATA), THKData1 };
+
+//          ------
+LPOBJECTTARGETINFO aTargetInfo1[] = {
+                                   &RCInfo1,
+                                   &THKInfo1,
+                                   };
+#define CTARGETINFO1    ARRAY_SIZE(aTargetInfo1, LPOBJECTTARGETINFO)
+
+
+OBJECTTARGETARRAY aTargetArray[] = {
+    { CTARGETINFO0, aTargetInfo0 },
+    { CTARGETINFO1, aTargetInfo1 },
+};
+
+
+//          ------
+//   MIDL stuff -- IDL files have two potential sets of targets, depending
+//   on if the IDL_TYPE flag was set to 'ole' in the sources file or not.
+//
+//         IDL_TYPE = ole
+//              .idl -> $(PASS0_HEADERDIR)\.h,
+//                      $(PASS0_SOURCEDIR)\_p.c,
+//                      $(MIDL_UUIDDIR)\_i.c
+TARGETDATA IDLDataOle0[] = {
+                         { TD_PASS0HDRDIR, ".h" },   // Header File
+//                         { TD_PASS0DIR1,   "_p.c" }, // Proxy Stub File
+//                         { TD_PASS0DIR2,   "_i.c" }, // UUID file
+                       };
+OBJECTTARGETINFO IDLInfoOle0 =
+    { ".idl", ARRAY_SIZE(IDLDataOle0, TARGETDATA), IDLDataOle0 };
+
+//         IDL_TYPE = rpc
+//              .idl -> $(PASS0_HEADERDIR)\.h,
+//                      $(PASS0_CLIENTDIR)\_c.c,
+//                      $(PASS0_SERVERDIR)\_s.c,
+TARGETDATA IDLDataRpc0[] = {
+                         { TD_PASS0HDRDIR, ".h" },   // Header File
+//                         { TD_PASS0DIR1,   "_c.c" }, // Client Stub File
+//                         { TD_PASS0DIR2,   "_s.c" }, // Server Stub File
+                       };
+OBJECTTARGETINFO IDLInfoRpc0 =
+    { ".idl", ARRAY_SIZE(IDLDataRpc0, TARGETDATA), IDLDataRpc0 };
+
+//          ------
+LPOBJECTTARGETINFO aMidlTargetInfo0[] = {
+                                        &IDLInfoOle0,
+                                        &IDLInfoRpc0,
+                                       };
+UCHAR cMidlTargetInfo0 = ARRAY_SIZE(aMidlTargetInfo0, LPOBJECTTARGETINFO);
+
+//          ------
+//
+// Any extension not given in the above table is assumed to have a target in
+// the ObjectDirectory[iObjectDir] (obj\*) & have a target extension of .obj.
+//
+
+TARGETDATA DefaultData = { TD_OBJECTDIR, ".obj" };
+
+
+//*******
 
 TARGET *
 BuildCompileTarget(
     FILEREC *pfr,
-    LPSTR pszfile,
-    LPSTR pszConditionalIncludes,
-    DIRREC *pdrBuild,
-    LPSTR pszObjectDir,
-    LPSTR pszSourceDir);
-
-BOOL
-ReadDirsFile(DIRREC *DirDB);
-
-
-VOID
-ProcessLinkTargets(PDIRREC DirDB, LPSTR CurrentDirectory);
-
-BOOL
-SplitToken(LPSTR pbuf, char chsep, LPSTR *ppstr);
+    LPSTR    pszfile,
+    USHORT   TargetIndex,
+    LPSTR    pszConditionalIncludes,
+    DIRREC  *pdrBuild,
+    DIRSUP  *pdsBuild,
+    LONG     iPass,
+    LPSTR    *ppszObjectDir,
+    LPSTR    pszSourceDir);
 
 
-BOOL
-CheckDependencies(
-    PTARGET Target,
-    FILEREC *FileDB,
-    BOOL CheckDate,
-    FILEREC **ppFileDBRoot);
-
-VOID
-PrintDirSupData(DIRSUP *pds);
-
-
-
+//+---------------------------------------------------------------------------
+//
+//  Function:   ExpandObjAsterisk
+//
+//  Synopsis:   Expand an asterisk in a filename to a platform name
+//
+//  Arguments:  [pbuf]               -- Output buffer for new filename
+//              [pszpath]            -- Input filename w/ asterisk
+//              [ppszObjectDirectory] -- String[2] to replace asterisk with
+//
+//----------------------------------------------------------------------------
 
 VOID
 ExpandObjAsterisk(
     LPSTR pbuf,
     LPSTR pszpath,
-    LPSTR pszObjectDirectory)
+    LPSTR *ppszObjectDirectory)
 {
     SplitToken(pbuf, '*', &pszpath);
     if (*pszpath == '*') {
-        assert(strncmp("obj\\", pszObjectDirectory, 4) == 0);
-        strcat(pbuf, pszObjectDirectory + 4);
+        assert(strncmp(
+                    pszObjDirSlash,
+                    ppszObjectDirectory[iObjectDir],
+                    strlen(pszObjDirSlash)) == 0);
+        strcat(pbuf, ppszObjectDirectory[iObjectDir] + strlen(pszObjDirSlash));
         strcat(pbuf, pszpath + 1);
     }
 }
 
+
+//+---------------------------------------------------------------------------
+//
+//  Function:   CountSourceLines
+//
+//  Synopsis:   Counts the source lines in a given file, including headers if
+//              the '-S' option was given.
+//
+//  Arguments:  [idScan] -- Used to catch multiple inclusions
+//              [pfr]    -- File to scan
+//
+//  Returns:    Number of lines
+//
+//----------------------------------------------------------------------------
 
 LONG
 CountSourceLines(USHORT idScan, FILEREC *pfr)
@@ -149,7 +332,10 @@ CountSourceLines(USHORT idScan, FILEREC *pfr)
 
     if (fStatusTree) {
 
-        // Walk include tree, accruing nested include file line counts
+        //
+        // If the user asked for include file line counts, then walk include
+        // tree, accruing nested include file line counts .
+        //
 
         for (pir = pfr->IncludeFilesTree; pir != NULL; pir = pir->NextTree) {
             AssertInclude(pir);
@@ -163,12 +349,71 @@ CountSourceLines(USHORT idScan, FILEREC *pfr)
     return(pfr->TotalSourceLines);
 }
 
+//+---------------------------------------------------------------------------
+//
+//  Function:   CleanNTTargetFile0
+//
+//  Synopsis:   Parses pzFiles and deletes all files listed.
+//               pzFile must have been allocated by MakeMacroString.
+//               No asterisk expansion performed.
+//
+//              This is used when fClean is TRUE and SOURCES_OPTIONS
+//               includes -c0. See ReadSourcesFile. Note that
+//               SOURCES_OPTIONS must be defined before NTTARGETFILE0.
+//              This is a mechanism to delete target files not
+//               included in _objects.mac.
+//
+//  Arguments:  [pzFiles] -- List of files
+//
+//----------------------------------------------------------------------------
+VOID
+CleanNTTargetFile0 (char * pzFiles)
+{
+    BOOL fRestoreSep;
+    char * pzDelete;
+
+    while (*pzFiles != '\0') {
+        pzDelete = pzFiles;
+
+        // Find end of the next file name and NULL terminate it (if needed)
+        fRestoreSep = FALSE;
+        while (*pzFiles != '\0') {
+            if (*pzFiles == ' ') {
+                fRestoreSep = TRUE;
+                *pzFiles = '\0';
+                break;
+            } else {
+                pzFiles++;
+            }
+        }
+
+        DeleteSingleFile (NULL, pzDelete, FALSE);
+
+        if (fRestoreSep) {
+            *pzFiles++ = ' ';
+        }
+    }
+}
+
+//+---------------------------------------------------------------------------
+//
+//  Function:   ProcessSourceDependencies
+//
+//  Synopsis:   Scan all source files in a given directory tree to determine
+//              which files are out of date and need to be compiled and/or
+//              linked.
+//
+//  Arguments:  [DirDB]           -- Directory to process
+//              [pds]             -- Supplementary directory information
+//              [DateTimeSources] -- Timestamp of 'sources' file
+//
+//----------------------------------------------------------------------------
 
 VOID
 ProcessSourceDependencies(DIRREC *DirDB, DIRSUP *pds, ULONG DateTimeSources)
 {
     TARGET *Target;
-    ULONG DateTimePch = 0;
+    ULONG DateTimePch = 0;    // Actual timestamp of pch preserved here.
     UINT i;
     SOURCEREC *apsr[3];
     SOURCEREC **ppsr;
@@ -177,28 +422,131 @@ ProcessSourceDependencies(DIRREC *DirDB, DIRSUP *pds, ULONG DateTimeSources)
 
     AssertDir(DirDB);
 
-    if (fClean && !fKeep) {
-	DeleteMultipleFiles("obj", "*.*");    // _objects.mac
-	for (i = 0; i < CountTargetMachines; i++) {
-	    DeleteMultipleFiles(TargetMachines[i]->ObjectDirectory, "*.*");
-	}
-	DirDB->Flags |= DIRDB_COMPILENEEDED;
+    apsr[0] = pds->psrSourcesList[0];
+    apsr[2] = NULL;
+
+    //
+    // For a clean build, just delete all targets
+    //
+    if (fFirstScan && fClean && !fKeep) {
+        DeleteMultipleFiles("obj", "*.*");    // _objects.mac
+        for (i = 0; i < CountTargetMachines; i++) {
+            assert(strncmp(
+                        pszObjDirSlash,
+                        TargetMachines[i]->ObjectDirectory[iObjectDir],
+                        strlen(pszObjDirSlash)) == 0);
+            DeleteMultipleFiles(TargetMachines[i]->ObjectDirectory[iObjectDir], "*.*");
+
+            apsr[1] = pds->psrSourcesList[TargetToPossibleTarget[i] + 1];
+
+            //
+            // Delete the pch file if we have one.
+            //
+            if (pds->PchTarget != NULL)
+            {
+                char TargetDir[DB_MAX_PATH_LENGTH];
+                ExpandObjAsterisk(TargetDir,
+                                  pds->PchTargetDir,
+                                  TargetMachines[i]->ObjectDirectory);
+
+                //
+                // Kind of a cludgy way to do this, but we must ensure that
+                // we don't delete a pch file that was built earlier on during
+                // this same build.  We do this by comparing the timestamp of
+                // the pch file against the time we started the build.
+                //
+                if ((*pDateTimeFile)(TargetDir, pds->PchTarget) <= BuildStartTime)
+                {
+                    DeleteSingleFile(TargetDir, pds->PchTarget, FALSE);
+                    if (DirDB->PchObj != NULL) {
+                        ExpandObjAsterisk(path,
+                                          DirDB->PchObj,
+                                          TargetMachines[i]->ObjectDirectory);
+                        DeleteSingleFile(NULL, path, FALSE);
+                    } else {
+                        char *p;
+                        strcpy(path, pds->PchTarget);
+                        p = strrchr(path, '.');
+                        if (p != NULL && strcmp(p, ".pch") == 0) {
+                            strcpy(p, ".obj");
+                            DeleteSingleFile(TargetDir, path, FALSE);
+                        }
+                    }
+                }
+            }
+
+            if (DirDB->DirFlags & DIRDB_PASS0) {
+                for (ppsr = apsr; *ppsr != NULL; ppsr++) {
+                    SOURCEREC *psr;
+
+                    for (psr = *ppsr; psr != NULL; psr = psr->psrNext) {
+                        FILEREC *pfr;
+
+                        AssertSource(psr);
+
+                        pfr = psr->pfrSource;
+
+                        //
+                        // Pass Zero files have different target directories.
+                        //
+                        if (pfr->FileFlags & FILEDB_PASS0)
+                        {
+                            USHORT j;
+                            //
+                            // If the file has multiple targets, (e.g. .mc,
+                            // .idl or .asn), then loop through all targets.
+                            //
+                            j = 0;
+                            while (Target = BuildCompileTarget(
+                                                pfr,
+                                                pfr->Name,
+                                                j,
+                                                pds->ConditionalIncludes,
+                                                DirDB,
+                                                pds,
+                                                0,        // pass 0
+                                                TargetMachines[i]->ObjectDirectory,
+                                                TargetMachines[i]->SourceDirectory)) {
+
+                                DeleteSingleFile(NULL, Target->Name, FALSE);
+
+                                FreeMem(&Target, MT_TARGET);
+
+                                j++;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if ((DirDB->DirFlags & DIRDB_TARGETFILE0) && (DirDB->NTTargetFile0 != NULL)) {
+                CleanNTTargetFile0 (DirDB->NTTargetFile0);
+            }
+        }
     }
-    else
-    if (DirDB->Flags & DIRDB_TARGETFILE0) {
-	DirDB->Flags |= DIRDB_COMPILENEEDED;
+
+    if (fFirstScan && (DirDB->DirFlags & DIRDB_TARGETFILE0)) {
+        DirDB->DirFlags |= DIRDB_PASS0NEEDED;
     }
+
     GenerateObjectsDotMac(DirDB, pds, DateTimeSources);
 
     if (fQuicky) {
-	DirDB->Flags |= DIRDB_COMPILENEEDED;
-	return;
+        if (fSemiQuicky)
+            DirDB->DirFlags |= DIRDB_COMPILENEEDED;
+        else
+            DirDB->DirFlags |= DIRDB_PASS0NEEDED;
+
+        return;
     }
 
+    //
+    // For a DLL or LIB target, ensure that it will be rebuilt
+    //
     if (DirDB->TargetPath != NULL &&
-	DirDB->TargetName != NULL &&
-	((DirDB->Flags & DIRDB_DLLTARGET) ||
-	 (DirDB->TargetExt != NULL && strcmp(DirDB->TargetExt, ".lib") == 0))) {
+        DirDB->TargetName != NULL &&
+        ((DirDB->DirFlags & DIRDB_DLLTARGET) ||
+         (DirDB->TargetExt != NULL && strcmp(DirDB->TargetExt, ".lib") == 0))) {
 
         for (i = 0; i < CountTargetMachines; i++) {
             FormatLinkTarget(
@@ -208,16 +556,24 @@ ProcessSourceDependencies(DIRREC *DirDB, DIRSUP *pds, ULONG DateTimeSources)
                 DirDB->TargetName,
                 ".lib");
 
-	    if (ProbeFile(NULL, path) == -1) {
-		DirDB->Flags |= DIRDB_COMPILENEEDED;
-	    }
-	    else
-	    if (fCleanLibs || (fClean && !fKeep)) {
-		DeleteSingleFile(NULL, path, FALSE);
-		DirDB->Flags |= DIRDB_COMPILENEEDED;
-	    }
-	}
+            if (ProbeFile(NULL, path) == -1) {
+                DirDB->DirFlags |= DIRDB_COMPILENEEDED;
+            }
+            else
+            if (fFirstScan && (fCleanLibs || (fClean && !fKeep))) {
+                DeleteSingleFile(NULL, path, FALSE);
+                DirDB->DirFlags |= DIRDB_COMPILENEEDED;
+            }
+        }
     }
+
+    //
+    // If the scan flags have changed (or haven't been set), then indicate
+    // that we should look for the actual location of global included files
+    // instead of assuming it's in the same location as we last knew.  This is
+    // because different directories my include the same file from different
+    // places.
+    //
     if (GlobalSequence == 0 ||
         ScanFlagsLast == 0 ||
         ScanFlagsLast != ScanFlagsCurrent) {
@@ -229,26 +585,28 @@ ProcessSourceDependencies(DIRREC *DirDB, DIRSUP *pds, ULONG DateTimeSources)
         ScanFlagsLast = ScanFlagsCurrent;
     }
 
+    //
+    // Do the same as above for locally included files.
+    //
     LocalSequence++;                    // don't reuse snapped local includes
     if (LocalSequence == 0) {
         LocalSequence++;
     }
 
-    apsr[0] = pds->psrSourcesList[0];
     for (i = 0; i < CountTargetMachines; i++) {
 
         //
         // Ensure that precompiled headers are rebuilt as necessary.
         //
 
-        if (pds->PchInclude != NULL || pds->PchTarget != NULL) {
+        if (!fPassZero && (pds->PchInclude != NULL || pds->PchTarget != NULL)) {
             LPSTR p;
 
             ExpandObjAsterisk(
-                path,
-                pds->PchTargetDir != NULL?
-                    pds->PchTargetDir : "obj\\*",
-                TargetMachines[i]->ObjectDirectory);
+                        path,
+                        pds->PchTargetDir != NULL?
+                            pds->PchTargetDir : pszObjDirSlashStar,
+                        TargetMachines[i]->ObjectDirectory);
 
             if (!CanonicalizePathName(path, CANONICALIZE_DIR, path)) {
                 DateTimePch = ULONG_MAX;        // always out of date
@@ -256,81 +614,163 @@ ProcessSourceDependencies(DIRREC *DirDB, DIRSUP *pds, ULONG DateTimeSources)
             }
             strcat(path, "\\");
 
+            //
+            // If they gave a target directory for the pch file, then use it,
+            // otherwise assume it's in the same directory as the .h file.
+            //
             if (pds->PchTarget != NULL) {
                 strcat(path, pds->PchTarget);
             }
             else {
                 assert(pds->PchInclude != NULL);
                 p = path + strlen(path);
-                strcpy(p, pds->PchInclude);
-                if ((p = strrchr(p, '.')) != NULL) {
-                    *p = '\0';
+                if ( DirDB->Pch ) {
+                    strcpy(p, DirDB->Pch);
+                } else {
+                    strcpy(p, pds->PchInclude);
+                    if ((p = strrchr(p, '.')) != NULL) {
+                        *p = '\0';
+                    }
+                    strcat(path, ".pch");
                 }
-                strcat(path, ".pch");
             }
 
+            //
+            // 'path' now contains the (possibly relative) path name of
+            // the PCH target: "..\path\foobar.pch"
+            //
             Target = BuildCompileTarget(
                         NULL,
                         path,
+                        0,
                         pds->ConditionalIncludes,
                         DirDB,
+                        NULL,
+                        1,        // pass 1
                         TargetMachines[i]->ObjectDirectory,
                         TargetMachines[i]->SourceDirectory);
+
             DateTimePch = Target->DateTime;
-            if (DateTimePch == 0) {
-                DateTimePch = ULONG_MAX;        // always out of date
+
+            if (DateTimePch == 0) {             // Target doesn't exist
+                DateTimePch = ULONG_MAX;        // Always out of date
             }
 
-            if (fClean && !fKeep) {
-                // delete target if exists
+            if (fClean && !fKeep && fFirstScan) {
+                // Target will be deleted later if it exists.
             }
             else if (pds->PchInclude == NULL) {
 
+                //
                 // The SOURCES file didn't indicate where the source file
                 // for the .pch is, so assume the .pch binary is up to date
                 // with respect to the source includes and with respect to
                 // the pch source file itself.
+                //
+                // char szFullPath[DB_MAX_PATH_LENGTH];
 
-                Target->DateTime = 0;           // don't delete pch target
+                // CanonicalizePathName(DirDB->Name, CANONICALIZE_DIR, szFullPath);
+
+                //BuildMsg("SOURCES file in %s gives PRECOMPILED_TARGET but not "
+                //         "PRECOMPILED_INCLUDE.\n", szFullPath);
+                Target->DateTime = 0;           // Don't delete pch target
             }
             else {
-                FILEREC *pfrPch;
+                FILEREC *pfrPch = NULL;
 
                 path[0] = '\0';
+
                 if (pds->PchIncludeDir != NULL) {
                     strcpy(path, pds->PchIncludeDir);
                     strcat(path, "\\");
                 }
                 strcat(path, pds->PchInclude);
 
-                pfrPch = FindSourceFileDB(DirDB, path, NULL);
+                if ((pds->PchIncludeDir != NULL) &&
+                    (IsFullPath(pds->PchIncludeDir))) {
+                    DIRREC *DirDBPch;
+
+                    DirDBPch = FindSourceDirDB(pds->PchIncludeDir,
+                                               pds->PchInclude, TRUE);
+
+                    if (DirDBPch) {
+                        pfrPch = FindSourceFileDB(DirDBPch,
+                                                  pds->PchInclude,
+                                                  NULL);
+                    }
+                }
+                else {
+                    pfrPch = FindSourceFileDB(DirDB, path, NULL);
+                }
+
 
                 if (pfrPch != NULL) {
                     FILEREC *pfrRoot;
                     SOURCEREC *psr = NULL;
+
+                    BOOL fCase1;
+                    BOOL fCase2;
+                    BOOL fCase3;
+                    BOOL fNeedCompile;
 
                     // Remote directory PCH files can't be found here
 
                     if (pfrPch->Dir == DirDB) {
                         psr = FindSourceDB(pds->psrSourcesList[0], pfrPch);
                         assert(psr != NULL);
-                        psr->Flags |= SOURCEDB_PCH;
+                        psr->SrcFlags |= SOURCEDB_PCH;
                     }
 
                     Target->pfrCompiland = pfrPch;
                     assert((pfrRoot = NULL) == NULL);   // assign NULL
 
-                    if ((fStatusTree &&
-                         CheckDependencies(Target, pfrPch, TRUE, &pfrRoot)) ||
-                        Target->DateTime == 0 ||
-                        (!fStatusTree &&
-                         CheckDependencies(Target, pfrPch, TRUE, &pfrRoot))) {
+                    fNeedCompile = FALSE;
+
+                    switch(0) {
+                      default:
+                        fCase1 = (fStatusTree && CheckDependencies(Target, pfrPch, TRUE, &pfrRoot));
+                        if ( fCase1 ) {
+                            fNeedCompile = TRUE;
+                            break;
+                        }
+                        fCase2 = (Target->DateTime == 0);
+                        if ( fCase2 ) {
+                            fNeedCompile = TRUE;
+                            break;
+                        }
+                        fCase3 = (!fStatusTree && CheckDependencies(Target, pfrPch, TRUE, &pfrRoot));
+                        if ( fCase3 ) {
+                            fNeedCompile = TRUE;
+                            break;
+                        }
+                        break;
+                    }
+
+                    if (fNeedCompile) {
 
                         if (psr != NULL) {
-                            psr->Flags |= SOURCEDB_COMPILE_NEEDED;
+                            if (fWhyBuild) {
+                                BuildMsgRaw("\n");
+                                if (fCase1) {
+                                    BuildMsgRaw("Compiling %s because (Case 1) *1\n", psr->pfrSource->Name);
+                                } else
+                                if (fCase2) {
+                                    BuildMsgRaw("Compiling %s because Target date == 0 (Target->Compiland=%s) *1\n", psr->pfrSource->Name, Target->pfrCompiland->Name);
+                                } else
+                                if (fCase3) {
+                                    BuildMsgRaw("Compiling %s because (Case 3) *1\n", psr->pfrSource->Name);
+                                }
+                            }
+
+                            psr->SrcFlags |= SOURCEDB_COMPILE_NEEDED;
+                        } else {
+                            if (fWhyBuild) {
+                                BuildMsgRaw("\n");
+                                BuildMsgRaw("Compiling %s because Target date == 0 (Target->Compiland=%s) *1\n", Target->Name, Target->pfrCompiland->Name);
+                            }
                         }
 
-			pfrPch->Dir->Flags |= DIRDB_COMPILENEEDED;
+                        pfrPch->Dir->DirFlags |= DIRDB_COMPILENEEDED;
                         DateTimePch = ULONG_MAX; // always out of date
                         if (fKeep) {
                             Target->DateTime = 0;  // don't delete pch target
@@ -343,11 +783,26 @@ ProcessSourceDependencies(DIRREC *DirDB, DIRSUP *pds, ULONG DateTimeSources)
                     // No cycle possible at the root of the tree.
                     assert(pfrRoot == NULL);
                 }
+                else if (DEBUG_1) {
+                    BuildError("Cannot locate precompiled header file: %s.\n",
+                                path);
+                }
             }
+
+            //
+            // Target->DateTime will be zero if the file is up to date (or we
+            // don't want to delete it).  If Target->DateTime is non-zero,
+            // delete the .pch and corresponding .obj file so they will be
+            // rebuilt.
+            //
             if (Target->DateTime != 0) {
                 DeleteSingleFile(NULL, Target->Name, FALSE);
                 if (DirDB->PchObj != NULL) {
-                    DeleteSingleFile(NULL, DirDB->PchObj, FALSE);
+                    ExpandObjAsterisk(
+                                path,
+                                DirDB->PchObj,
+                                TargetMachines[i]->ObjectDirectory);
+                    DeleteSingleFile(NULL, path, FALSE);
                 } else {
                     p = strrchr(Target->Name, '.');
                     if (p != NULL && strcmp(p, ".pch") == 0) {
@@ -360,69 +815,247 @@ ProcessSourceDependencies(DIRREC *DirDB, DIRSUP *pds, ULONG DateTimeSources)
         }
 
         //
-        // Ensure that other object files headers are rebuilt as necessary.
+        // Check to see which files given in the SOURCES macro need to be
+        // rebuilt, and delete their targets (.obj) if they're out of date.
         //
 
 ProcessSourceList:
+
         apsr[1] = pds->psrSourcesList[TargetToPossibleTarget[i] + 1];
-        apsr[2] = NULL;
-        for (ppsr = apsr; *ppsr != NULL; ppsr++) {
+
+        for (ppsr = apsr; ppsr < apsr + (sizeof(apsr)/sizeof(*apsr)); ppsr++) {
             SOURCEREC *psr;
+
+            if (*ppsr == NULL) {
+                continue;
+            }
+
 
             for (psr = *ppsr; psr != NULL; psr = psr->psrNext) {
                 FILEREC *pfr, *pfrRoot;
 
                 AssertSource(psr);
-                if ((psr->Flags & SOURCEDB_PCH) == 0) {
-                    pfr = psr->pfrSource;
-                    Target = BuildCompileTarget(
-                                pfr,
-                                pfr->Name,
-                                pds->ConditionalIncludes,
-                                DirDB,
-                                TargetMachines[i]->ObjectDirectory,
-                                TargetMachines[i]->SourceDirectory);
-                    if (DEBUG_4) {
-                        BuildMsgRaw(szNewLine);
+
+                pfr = psr->pfrSource;
+
+                AssertFile(pfr);
+
+                if ((psr->SrcFlags & SOURCEDB_PCH) == 0) {
+
+                    USHORT j;
+                    LONG iPass, iPassEnd;
+
+                    iPass = 1;
+                    iPassEnd = 0;
+
+                    if (pfr->FileFlags & FILEDB_PASS0)
+                        iPass = 0;
+
+                    if ((pfr->FileFlags & FILEDB_MULTIPLEPASS) ||
+                        !(pfr->FileFlags & FILEDB_PASS0))
+                        iPassEnd = 1;
+
+                    assert(iPass <= iPassEnd);
+
+                    //
+                    // If we're doing a pass zero scan and the file is
+                    // not a pass zero file, then continue because we
+                    // don't care about it right now.
+                    //
+                    if (fFirstScan && fPassZero && iPass == 1) {
+                        continue;
                     }
-                    assert((pfrRoot = NULL) == NULL);   // assign NULL
 
-                    //  Decide whether the target needs to be compiled
-                    //  Forcibly examine dependencies to get line count
+                    //
+                    // Don't check dependencies of pass zero files on the
+                    // second scan, because they're all supposed to be built
+                    // by now.
+                    //
+                    if (!fFirstScan && iPassEnd == 0) {
+                        continue;
+                    }
 
-                    if ((psr->Flags & SOURCEDB_FILE_MISSING) ||
+                    //
+                    // If the file was created during pass zero, then make sure
+                    // we don't think it's still missing.
+                    //
+                    if (!fFirstScan &&
+                        (psr->SrcFlags & SOURCEDB_FILE_MISSING) &&
+                        !(pfr->FileFlags & FILEDB_FILE_MISSING))
+                    {
+                        psr->SrcFlags &= ~SOURCEDB_FILE_MISSING;
+                    }
 
-                        (fStatusTree &&
-                         CheckDependencies(Target, pfr, TRUE, &pfrRoot)) ||
+                    // If the file is a multiple pass file (e.g. .asn), loop
+                    // through both passes.
 
-                        Target->DateTime == 0 ||
+                    for ( ; iPass <= iPassEnd; iPass++) {
 
-                        ((pfr->Flags & FILEDB_C) &&
-                         Target->DateTime < DateTimePch) ||
+                        //
+                        // If the file has multiple targets (e.g. .mc, .idl or
+                        // .asn), then loop through all the targets.
+                        //
+                        for (j = 0;
+                            Target = BuildCompileTarget(
+                                            pfr,
+                                            pfr->Name,
+                                            j,
+                                            pds->ConditionalIncludes,
+                                            DirDB,
+                                            pds,
+                                            iPass,
+                                            TargetMachines[i]->ObjectDirectory,
+                                            TargetMachines[i]->SourceDirectory);
+                            j++) {
 
-                        (!fStatusTree &&
-                         CheckDependencies(Target, pfr, TRUE, &pfrRoot))) {
+                            BOOL fCase1;
+                            BOOL fCase2;
+                            BOOL fCase3;
+                            BOOL fCase4;
+                            BOOL fCase5;
+                            BOOL fNeedCompile;
 
-			psr->Flags |= SOURCEDB_COMPILE_NEEDED;
-			DirDB->Flags |= DIRDB_COMPILENEEDED;
-			if (Target->DateTime != 0 && !fKeep) {
-			    DeleteSingleFile(NULL, Target->Name, FALSE);
-			}
-		    }
+                            if (DEBUG_4) {
+                                BuildMsgRaw(szNewLine);
+                            }
+                            assert((pfrRoot = NULL) == NULL);   // assign NULL
 
-                    // No cycle possible at the root of the tree.
+                            //  Decide whether the target needs to be compiled.
+                            //  Forcibly examine dependencies to get line count.
 
-                    assert(pfrRoot == NULL);
-                    FreeMem(&Target, MT_TARGET);
+                            fNeedCompile = FALSE;
+
+                            switch(0) {
+                              default:
+                                fCase1 = (psr->SrcFlags & SOURCEDB_FILE_MISSING);
+                                if ( fCase1 ) {
+                                    fNeedCompile = TRUE;
+                                    break;
+                                }
+                                fCase2 = (fStatusTree && CheckDependencies(Target, pfr, TRUE, &pfrRoot));
+                                if ( fCase2 ) {
+                                    fNeedCompile = TRUE;
+                                    break;
+                                }
+                                fCase3 = (Target->DateTime == 0);
+                                if ( fCase3 ) {
+                                    fNeedCompile = TRUE;
+                                    break;
+                                }
+                                fCase4 = ((pfr->FileFlags & FILEDB_C) && Target->DateTime < DateTimePch);
+                                if ( fCase4 ) {
+                                    fNeedCompile = TRUE;
+                                    break;
+                                }
+                                fCase5 = (!fStatusTree && CheckDependencies(Target, pfr, TRUE, &pfrRoot));
+                                if ( fCase5 ) {
+                                    fNeedCompile = TRUE;
+                                    break;
+                                }
+                                break;
+                            }
+
+                            if ( fNeedCompile )
+                            {
+                                if (fWhyBuild) {
+                                    BuildMsgRaw("\n");
+                                    if (fCase1) {
+                                        BuildMsgRaw("Compiling %s because filename is missing from build database *2\n", psr->pfrSource->Name);
+                                    } else
+                                    if (fCase2) {
+                                        BuildMsgRaw("Compiling %s because (Case 2) *2\n", psr->pfrSource->Name);
+                                    } else
+                                    if (fCase3) {
+                                        BuildMsgRaw("Compiling %s because Target date == 0 *2\n", psr->pfrSource->Name);
+                                    } else
+                                    if (fCase4) {
+                                        BuildMsgRaw("Compiling %s because C file is later earlier than pch *2\n", psr->pfrSource->Name);
+                                    } else
+                                    if (fCase5) {
+                                        BuildMsgRaw("Compiling %s because (Case 5) *2\n", psr->pfrSource->Name);
+                                    }
+                                }
+
+                                psr->SrcFlags |= SOURCEDB_COMPILE_NEEDED;
+
+                                if (pfr->FileFlags & FILEDB_PASS0)
+                                    DirDB->DirFlags |= DIRDB_PASS0NEEDED;
+                                else
+                                    DirDB->DirFlags |= DIRDB_COMPILENEEDED;
+
+                                if (Target->DateTime != 0 && !fKeep)
+                                {
+                                    DeleteSingleFile(NULL, Target->Name, FALSE);
+                                }
+
+                                FreeMem(&Target, MT_TARGET);
+
+                                if (j != 0) {
+                                    //
+                                    // Delete the 'rule target' so nmake
+                                    // doesn't complain about "don't know how
+                                    // to make ..."
+                                    //
+                                    Target = BuildCompileTarget(
+                                                 pfr,
+                                                 pfr->Name,
+                                                 0,
+                                                 pds->ConditionalIncludes,
+                                                 DirDB,
+                                                 pds,
+                                                 iPass,
+                                                 TargetMachines[i]->ObjectDirectory,
+                                                 TargetMachines[i]->SourceDirectory);
+                                    if (Target) {
+                                        DeleteSingleFile(
+                                                NULL,
+                                                Target->Name,
+                                                FALSE);
+
+                                        FreeMem(&Target, MT_TARGET);
+                                    }
+                                }
+
+                                // No need to check other targets,
+                                // we know they all will be rebuilt.
+                                break;
+                            }
+
+                            // No cycle possible at the root of the tree.
+
+                            assert(pfrRoot == NULL);
+                            FreeMem(&Target, MT_TARGET);
+                        }
+                    }
                 }
+                if (fClean || (psr->SrcFlags & SOURCEDB_COMPILE_NEEDED)) {
+                    ULONG cline;
 
-                if (fClean || (psr->Flags & SOURCEDB_COMPILE_NEEDED)) {
                     if (++idScan == 0) {
                         ++idScan;               // skip zero
                     }
-                    DirDB->SourceLinesToCompile +=
-                            CountSourceLines(idScan, psr->pfrSource);
-                    DirDB->CountOfFilesToCompile++;
+
+                    if (fFirstScan && (pfr->FileFlags & FILEDB_PASS0))
+                    {
+                        cline = CountSourceLines(idScan, pfr);
+                        DirDB->PassZeroLines += cline;
+                        DirDB->CountOfPassZeroFiles++;
+                    }
+
+                    // For a multiple pass file, we really need to count the
+                    // lines in the file compiled duing pass1 (and generated
+                    // during pass 0).  Instead, we just count the pass 0
+                    // source file all over again.  It's cheap, but the line
+                    // count is inaccurate.
+
+                    if (!fPassZero &&
+                        ((pfr->FileFlags & FILEDB_MULTIPLEPASS) ||
+                         !(pfr->FileFlags & FILEDB_PASS0)))
+                    {
+                        cline = CountSourceLines(idScan, pfr);
+                        DirDB->SourceLinesToCompile += cline;
+                        DirDB->CountOfFilesToCompile++;
+                    }
                 }
             }
         }
@@ -430,12 +1063,24 @@ ProcessSourceList:
 }
 
 
+//+---------------------------------------------------------------------------
+//
+//  Function:   ScanSourceDirectories
+//
+//  Synopsis:   Scan a source directory to determine what files it
+//              contains, whether it should be compiled or linked, and
+//              whether it has subdirectories that we should process.
+//
+//  Arguments:  [DirName] -- Directory to scan
+//
+//----------------------------------------------------------------------------
+
 VOID
 ScanSourceDirectories(LPSTR DirName)
 {
     char path[DB_MAX_PATH_LENGTH];
     PDIRREC DirDB;
-    DIRSUP DirSup;
+    DIRSUP *pds = NULL;
     LPSTR SavedCurrentDirectory;
     BOOL DirsPresent;
     ULONG DateTimeSources = 0;
@@ -447,8 +1092,13 @@ ScanSourceDirectories(LPSTR DirName)
             DirName,
             RecurseLevel);
     }
+
+    // Change to the given directory
     SavedCurrentDirectory = PushCurrentDirectory(DirName);
+
+    // Process all the files in this directory
     DirDB = ScanDirectory(DirName);
+
     AssertOptionalDir(DirDB);
     if (fCleanRestart && DirDB != NULL && !strcmp(DirDB->Name, RestartDir)) {
         fCleanRestart = FALSE;
@@ -456,57 +1106,123 @@ ScanSourceDirectories(LPSTR DirName)
         fCleanLibs = fRestartCleanLibs;
     }
 
-    if (!DirDB || !(DirDB->Flags & (DIRDB_DIRS | DIRDB_SOURCES))) {
+    if (!DirDB || !(DirDB->DirFlags & (DIRDB_DIRS | DIRDB_SOURCES))) {
         PopCurrentDirectory(SavedCurrentDirectory);
         return;
     }
 
-    if (fShowTree && !(DirDB->Flags & DIRDB_SHOWN)) {
+    if (fShowTree && !(DirDB->DirFlags & DIRDB_SHOWN)) {
         AddShowDir(DirDB);
     }
 
-    if ((DirDB->Flags & DIRDB_SOURCES) &&
-        ReadSourcesFile(DirDB, &DirSup, &DateTimeSources)) {
+    if (DirDB->DirFlags & DIRDB_SOURCES) {
+        BOOL fSourcesRead = TRUE;
+
+        SetObjDir((DirDB->DirFlags & DIRDB_CHECKED_ALT_DIR) != 0);
+
+        //
+        // This directory contains a SOURCES file
+        //
+
+        if (fFirstScan)
+        {
+            AllocMem(sizeof(DIRSUP), &pds, MT_DIRSUP);
+            memset(pds, 0, sizeof(*pds));
+            fSourcesRead = ReadSourcesFile(DirDB, pds, &DateTimeSources);
+
+            DirDB->pds = pds;
+        }
+        else
+        {
+            pds = DirDB->pds;
+
+            assert(pds);
+
+            DateTimeSources = pds->DateTimeSources;
+
+            //
+            // We need to rebuild the sources list because
+            // the previous scan was probably not complete.
+            //
+            if (pds)
+                PostProcessSources(DirDB, pds);
+
+        }
+
+        assert(pds);
 
         if (DEBUG_4) {
             BuildMsgRaw("ScanSourceDirectories(%s) SOURCES\n", DirName);
         }
+
         ScanFlagsCurrent = 0;
         CountIncludeDirs = CountSystemIncludeDirs;
-        if (DirSup.LocalIncludePath) {
-            ScanIncludeEnv(DirSup.LocalIncludePath);
-        }
 
-        if (DirDB->Flags & DIRDB_CAIRO_INCLUDES) {
-            ScanIncludeDir(INCLDIR_CAIRO);
-            ScanIncludeDir(INCLDIR_CINC);
-            ScanFlagsCurrent |= SCANFLAGS_CAIRO;
-        }
+        //  Scan the include environments in the order that MAKEFILE.DEF
+        //  processes them.  This order is:
+        //
+        //  1) Sources variable INCLUDE
+        //  2) Cairo/Chicago directories
+        //  3) System includes
+        //  4) UMTYPE-derived includes
+        //
+        //  The subtlety is that we must do this in the reverse order
+        //  since each of the processing routines pushes search directories
+        //  onto the HEAD of the include search list.
+        //
+        //  BUGBUG - we come in here with the system includes already set.
+        //  There's no way to stick the UMTYPE-derived ones ahead of the
+        //  system includes
 
-        if (DirDB->Flags & DIRDB_CHICAGO_INCLUDES) {
-            ScanIncludeDir(INCLDIR_CHICAGO);
-            ScanFlagsCurrent |= SCANFLAGS_CHICAGO;
-        }
-
-        if (DirSup.TestType != NULL && !strcmp(DirSup.TestType, "os2")) {
-            ScanIncludeDir(INCLDIR_CRT);
-            ScanIncludeDir(INCLDIR_OS2);
+        //  4) UMTYPE-derived includes
+        if (pds->TestType != NULL && !strcmp(pds->TestType, "os2")) {
+            ScanIncludeDir(pszIncCrt);
+            ScanIncludeDir(szIncOs2);
             ScanFlagsCurrent |= SCANFLAGS_OS2;
         }
         else
-        if (DirSup.TestType != NULL && !strcmp(DirSup.TestType, "posix")) {
-            ScanIncludeDir(INCLDIR_POSIX);
+        if (pds->TestType != NULL && !strcmp(pds->TestType, "posix")) {
+            ScanIncludeDir(szIncPosix);
             ScanFlagsCurrent |= SCANFLAGS_POSIX;
         }
         else {
-            ScanIncludeDir(INCLDIR_CRT);
+            ScanIncludeDir(pszIncCrt);
             ScanFlagsCurrent |= SCANFLAGS_CRT;
         }
+
+        //  2) Cairo/Chicago directories
+        if (DirDB->DirFlags & DIRDB_CAIRO_INCLUDES) {
+            ScanIncludeDir(szIncCairo);
+            ScanIncludeDir(szIncCinc);
+            ScanFlagsCurrent |= SCANFLAGS_CAIRO;
+        }
+        else
+        if (DirDB->DirFlags & DIRDB_CHICAGO_INCLUDES) {
+            ScanIncludeDir(szIncChicago);
+            ScanFlagsCurrent |= SCANFLAGS_CHICAGO;
+        }
+
+        // Enable this code if we want to allow MFC/SDK/CRT/OAK_INC overrides in the sources file
+#if 0
+        if (pszIncMfc) {
+            ScanIncludeDir(pszIncMfc);
+        }
+#endif
+
+        //  1) Sources variable INCLUDE
+        if (pds->LocalIncludePath) {
+            ScanIncludeEnv(pds->LocalIncludePath);
+        }
+
         DirsPresent = FALSE;
     }
     else
-    if (DirDB->Flags & DIRDB_DIRS) {
+    if (DirDB->DirFlags & DIRDB_DIRS) {
+        //
+        // This directory contains a DIRS or MYDIRS file
+        //
         DirsPresent = ReadDirsFile(DirDB);
+
         if (DEBUG_4) {
             BuildMsgRaw("ScanSourceDirectories(%s) DIRS\n", DirName);
         }
@@ -515,39 +1231,95 @@ ScanSourceDirectories(LPSTR DirName)
     if (!fQuicky) {
         if (!RecurseLevel) {
             BuildError(
-                "Examining %s directory%s for %s.\n",
+                "Examining %s directory%s for %s.%s\n",
                 DirDB->Name,
                 DirsPresent? " tree" : "",
-                fLinkOnly? "targets to link" : "files to compile");
+                fLinkOnly? "targets to link" : "files to compile",
+                fFirstScan ? "" : " (2nd Pass)"
+                );
         }
         ClearLine();
         BuildMsgRaw("    %s ", DirDB->Name);
         fLineCleared = FALSE;
-        if (fDebug || !(BOOL) isatty(fileno(stderr))) {
+        if (fDebug || !(BOOL) _isatty(_fileno(stderr))) {
             BuildMsgRaw(szNewLine);
             fLineCleared = TRUE;
         }
     }
 
     if (!fLinkOnly) {
-        if (DirDB->Flags & DIRDB_SOURCESREAD) {
-            ProcessSourceDependencies(DirDB, &DirSup, DateTimeSources);
+        if (DirDB->DirFlags & DIRDB_SOURCESREAD) {
+            //
+            // Determine what files need to be compiled
+            //
+            ProcessSourceDependencies(DirDB, pds, DateTimeSources);
         }
         else
-        if (DirsPresent && (DirDB->Flags & DIRDB_MAKEFIL0)) {
-            DirDB->Flags |= DIRDB_COMPILENEEDED;
+        if (fFirstScan && DirsPresent && (DirDB->DirFlags & DIRDB_MAKEFIL0)) {
+            DirDB->DirFlags |= ((fSemiQuicky) ? DIRDB_COMPILENEEDED :
+                                                DIRDB_PASS0NEEDED);
+        }
+        else
+        if (DirsPresent && (DirDB->DirFlags & DIRDB_MAKEFIL1)) {
+            DirDB->DirFlags |= DIRDB_COMPILENEEDED;
         }
 
-        if (DirDB->Flags & DIRDB_COMPILENEEDED) {
-            if (CountCompileDirs >= MAX_BUILD_DIRECTORIES) {
+        if (fFirstScan && (DirDB->DirFlags & DIRDB_PASS0NEEDED))
+        {
+            if (CountPassZeroDirs >= MAX_BUILD_DIRECTORIES) {
                 BuildError(
-                    "%s: Ignoring Compile Directory table overflow, %u entries allowed\n",
+                    "%s: Ignoring PassZero Directory table overflow, %u "
+                    "entries allowed\n",
                     DirDB->Name,
                     MAX_BUILD_DIRECTORIES);
             }
             else {
+                //
+                // This directory needs to be compiled in pass zero.  Add it
+                // to the list.
+                //
+                PassZeroDirs[CountPassZeroDirs++] = DirDB;
+            }
+
+            if (fQuicky) {
+                if (!fSemiQuicky)  // For -Z let CompileSourceDirectories do it.
+                    CompilePassZeroDirectories();
+                CountPassZeroDirs = 0;
+            }
+            else {
+                if (fFirstScan) {
+                    fPassZero = TRUE;     // Limits scanning during pass zero.
+                }
+
+                if (DirDB->CountOfPassZeroFiles) {
+                    if (fLineCleared) {
+                        BuildMsgRaw("    %s ", DirDB->Name);
+                    }
+                    BuildMsgRaw(
+                        "- %d Pass Zero files (%s lines)\n",
+                        DirDB->CountOfPassZeroFiles,
+                        FormatNumber(DirDB->PassZeroLines));
+                }
+            }
+        }
+
+        if ((DirDB->DirFlags & DIRDB_COMPILENEEDED) &&
+            (!fFirstScan || !fPassZero)) {
+
+            if (CountCompileDirs >= MAX_BUILD_DIRECTORIES) {
+                BuildError(
+                    "%s: Ignoring Compile Directory table overflow, %u "
+                    "entries allowed\n",
+                    DirDB->Name,
+                    MAX_BUILD_DIRECTORIES);
+            }
+            else {
+                //
+                // This directory needs to be compiled.  Add it to the list.
+                //
                 CompileDirs[CountCompileDirs++] = DirDB;
             }
+
             if (fQuicky) {
                 CompileSourceDirectories();
                 CountCompileDirs = 0;
@@ -565,15 +1337,15 @@ ScanSourceDirectories(LPSTR DirName)
         }
     }
 
-    if (DirsPresent && (DirDB->Flags & DIRDB_MAKEFILE)) {
-        DirDB->Flags |= DIRDB_LINKNEEDED | DIRDB_FORCELINK;
+    if (DirsPresent && (DirDB->DirFlags & DIRDB_MAKEFILE)) {
+        DirDB->DirFlags |= DIRDB_LINKNEEDED | DIRDB_FORCELINK;
     }
     else
-    if (DirDB->Flags & DIRDB_TARGETFILES) {
-        DirDB->Flags |= DIRDB_LINKNEEDED | DIRDB_FORCELINK;
+    if (DirDB->DirFlags & DIRDB_TARGETFILES) {
+        DirDB->DirFlags |= DIRDB_LINKNEEDED | DIRDB_FORCELINK;
     }
 
-    if ((DirDB->Flags & DIRDB_LINKNEEDED) && (!fQuicky || fSemiQuicky)) {
+    if ((DirDB->DirFlags & DIRDB_LINKNEEDED) && (!fQuicky || fSemiQuicky)) {
         if (CountLinkDirs >= MAX_BUILD_DIRECTORIES) {
             BuildError(
                 "%s: Ignoring Link Directory table overflow, %u entries allowed\n",
@@ -584,10 +1356,15 @@ ScanSourceDirectories(LPSTR DirName)
             LinkDirs[CountLinkDirs++] = DirDB;
         }
     }
-    if (DirDB->Flags & DIRDB_SOURCESREAD) {
-        FreeDirSupData(&DirSup);        // free data that are no longer needed
+    if ((DirDB->DirFlags & DIRDB_SOURCESREAD) && !fFirstScan) {
+        FreeDirSupData(pds);        // free data that are no longer needed
+        FreeMem(&pds, MT_DIRSUP);
+        DirDB->pds = NULL;
     }
 
+    //
+    // Recurse into subdirectories
+    //
     if (DirsPresent) {
         for (i = 1; i <= DirDB->CountSubDirs; i++) {
             FILEREC *FileDB, **FileDBNext;
@@ -607,12 +1384,158 @@ ScanSourceDirectories(LPSTR DirName)
             }
         }
     }
+
     if (!fQuicky && !RecurseLevel) {
         ClearLine();
     }
+
     PopCurrentDirectory(SavedCurrentDirectory);
 }
 
+
+//+---------------------------------------------------------------------------
+//
+//  Function:   CompilePassZeroDirectories
+//
+//  Synopsis:   Spawns the compiler on the directories in the PassZeroDirs
+//              array.
+//
+//  Arguments:  (none)
+//
+//----------------------------------------------------------------------------
+
+VOID
+CompilePassZeroDirectories(
+    VOID
+    )
+{
+    PDIRREC DirDB;
+    LPSTR SavedCurrentDirectory;
+    UINT i;
+    PCHAR s;
+
+    StartElapsedTime();
+    for (i = 0; i < CountPassZeroDirs; i++) {
+
+        DirDB = PassZeroDirs[ i ];
+        AssertDir(DirDB);
+
+        if (fQuicky && !fSemiQuicky)
+            s = "Compiling and linking";
+        else
+            s = "Building generated files in";
+
+        BuildMsg("%s %s\n", s, DirDB->Name);
+        LogMsg("%s %s%s\n", s, DirDB->Name, szAsterisks);
+
+        if (!fQuicky) {
+            SavedCurrentDirectory = PushCurrentDirectory( DirDB->Name );
+        }
+
+        if (DirDB->DirFlags & DIRDB_DIRS) {
+            if (DirDB->DirFlags & DIRDB_MAKEFIL0) {
+                strcpy( MakeParametersTail, " -f makefil0." );
+                strcat( MakeParametersTail, " NOLINK=1" );
+                if (fClean) {
+                    strcat( MakeParametersTail, " clean" );
+                }
+
+                if (fQuery) {
+                    BuildErrorRaw("'%s %s'\n", MakeProgram, MakeParameters);
+                }
+                else {
+                    if (DEBUG_1) {
+                        BuildMsg(
+                            "Executing: %s %s\n",
+                            MakeProgram,
+                            MakeParameters);
+                    }
+
+                    CurrentCompileDirDB = NULL;
+                    RecurseLevel = DirDB->RecurseLevel;
+                    ExecuteProgram(MakeProgram, MakeParameters, MakeTargets, TRUE);
+                }
+            }
+        }
+        else {
+            strcpy(MakeParametersTail, " NTTEST=");
+            if (DirDB->KernelTest) {
+                strcat(MakeParametersTail, DirDB->KernelTest);
+            }
+
+            strcat(MakeParametersTail, " UMTEST=");
+            if (DirDB->UserTests) {
+                strcat(MakeParametersTail, DirDB->UserTests);
+            }
+
+            if (DirDB->DirFlags & DIRDB_FULL_DEBUG) {
+                strcat( MakeParametersTail, " NTDEBUG=cvp" );
+            }
+            if (DirDB->DirFlags & DIRDB_CHECKED_ALT_DIR) {
+                strcat(MakeParametersTail, szCheckedAltDir);
+            }
+            if (fQuicky && !fSemiQuicky) {
+                if (DirDB->DirFlags & DIRDB_DLLTARGET) {
+                    strcat(MakeParametersTail, " MAKEDLL=1");
+                }
+                ProcessLinkTargets(DirDB, NULL);
+            }
+            else {
+                strcat( MakeParametersTail, " NOLINK=1 PASS0ONLY=1");
+            }
+
+            if (fQuery) {
+                BuildErrorRaw(
+                         "'%s %s%s'\n",
+                         MakeProgram,
+                         MakeParameters,
+                         MakeTargets);
+            }
+            else {
+                if ((DirDB->DirFlags & DIRDB_SYNCHRONIZE_DRAIN) &&
+                    (fParallel)) {
+                    //
+                    // Wait for all threads to complete before
+                    // trying to compile this directory.
+                    //
+                    WaitForParallelThreads();
+                }
+                if (DEBUG_1) {
+                    BuildMsg("Executing: %s %s%s\n",
+                             MakeProgram,
+                             MakeParameters,
+                             MakeTargets);
+                }
+                CurrentCompileDirDB = DirDB;
+                RecurseLevel = DirDB->RecurseLevel;
+                ExecuteProgram(
+                            MakeProgram,
+                            MakeParameters,
+                            MakeTargets,
+                            (DirDB->DirFlags & DIRDB_SYNCHRONIZE_BLOCK) != 0);
+            }
+        }
+        PrintElapsedTime();
+        if (!fQuicky) {
+            PopCurrentDirectory(SavedCurrentDirectory);
+        }
+
+        DirDB->DirFlags &= ~DIRDB_PASS0NEEDED;
+        DirDB->CountOfPassZeroFiles = 0;
+        DirDB->PassZeroLines = 0;
+    }
+}
+
+//+---------------------------------------------------------------------------
+//
+//  Function:   CompileSourceDirectories
+//
+//  Synopsis:   Spawns the compiler on the directories in the CompileDirs
+//              array.
+//
+//  Arguments:  (none)
+//
+//----------------------------------------------------------------------------
 
 VOID
 CompileSourceDirectories(
@@ -644,8 +1567,16 @@ CompileSourceDirectories(
             SavedCurrentDirectory = PushCurrentDirectory( DirDB->Name );
         }
 
-        if (DirDB->Flags & DIRDB_DIRS) {
-            if (DirDB->Flags & DIRDB_MAKEFIL0) {
+        if (DirDB->DirFlags & DIRDB_DIRS) {
+            if ((DirDB->DirFlags & DIRDB_SYNCHRONIZE_DRAIN) &&
+                (fParallel)) {
+                //
+                // Wait for all threads to complete before
+                // trying to compile this directory.
+                //
+                WaitForParallelThreads();
+            }
+            if (fSemiQuicky && (DirDB->DirFlags & DIRDB_MAKEFIL0)) {
                 strcpy( MakeParametersTail, " -f makefil0." );
                 strcat( MakeParametersTail, " NOLINK=1" );
                 if (fClean) {
@@ -665,7 +1596,31 @@ CompileSourceDirectories(
 
                     CurrentCompileDirDB = NULL;
                     RecurseLevel = DirDB->RecurseLevel;
-                    ExecuteProgram(MakeProgram, MakeParameters, "", TRUE);
+                    ExecuteProgram(MakeProgram, MakeParameters, MakeTargets, TRUE);
+                }
+            }
+
+            if (DirDB->DirFlags & DIRDB_MAKEFIL1) {
+                strcpy( MakeParametersTail, " -f makefil1." );
+                strcat( MakeParametersTail, " NOLINK=1 NOPASS0=1" );
+                if (fClean) {
+                    strcat( MakeParametersTail, " clean" );
+                }
+
+                if (fQuery) {
+                    BuildErrorRaw("'%s %s'\n", MakeProgram, MakeParameters);
+                }
+                else {
+                    if (DEBUG_1) {
+                        BuildMsg(
+                            "Executing: %s %s\n",
+                            MakeProgram,
+                            MakeParameters);
+                    }
+
+                    CurrentCompileDirDB = NULL;
+                    RecurseLevel = DirDB->RecurseLevel;
+                    ExecuteProgram(MakeProgram, MakeParameters, MakeTargets, TRUE);
                 }
             }
         }
@@ -700,18 +1655,24 @@ CompileSourceDirectories(
                 }
             }
 
-            if (DirDB->Flags & DIRDB_FULL_DEBUG) {
+            if (DirDB->DirFlags & DIRDB_FULL_DEBUG) {
                 strcat( MakeParametersTail, " NTDEBUG=cvp" );
             }
-
+            if (DirDB->DirFlags & DIRDB_CHECKED_ALT_DIR) {
+                strcat(MakeParametersTail, szCheckedAltDir);
+            }
             if (fQuicky && !fSemiQuicky) {
-		if (DirDB->Flags & DIRDB_DLLTARGET) {
+                if (DirDB->DirFlags & DIRDB_DLLTARGET) {
                     strcat(MakeParametersTail, " MAKEDLL=1");
                 }
                 ProcessLinkTargets(DirDB, NULL);
-	    }
-            else {
+            }
+            else
+            if (fQuicky && fSemiQuicky) {
                 strcat(MakeParametersTail, " NOLINK=1");
+            }
+            else {
+                strcat(MakeParametersTail, " NOLINK=1 NOPASS0=1");
             }
 
             if (fQuery) {
@@ -722,7 +1683,7 @@ CompileSourceDirectories(
                          MakeTargets);
             }
             else {
-                if ((DirDB->Flags & DIRDB_SYNCHRONIZE_DRAIN) &&
+                if ((DirDB->DirFlags & DIRDB_SYNCHRONIZE_DRAIN) &&
                     (fParallel)) {
                     //
                     // Wait for all threads to complete before
@@ -738,11 +1699,11 @@ CompileSourceDirectories(
                 }
                 CurrentCompileDirDB = DirDB;
                 RecurseLevel = DirDB->RecurseLevel;
-                if (DirDB->Flags & DIRDB_SYNCHRONIZE_BLOCK) {
-                    ExecuteProgram(MakeProgram, MakeParameters, MakeTargets, TRUE);
-                } else {
-                    ExecuteProgram(MakeProgram, MakeParameters, MakeTargets, FALSE);
-                }
+                ExecuteProgram(
+                            MakeProgram,
+                            MakeParameters,
+                            MakeTargets,
+                            (DirDB->DirFlags & DIRDB_SYNCHRONIZE_BLOCK) != 0);
             }
         }
         PrintElapsedTime();
@@ -753,6 +1714,17 @@ CompileSourceDirectories(
 }
 
 static CountLinkTargets;
+
+//+---------------------------------------------------------------------------
+//
+//  Function:   LinkSourceDirectories
+//
+//  Synopsis:   Link the directories given in the LinkDirs array.  This is
+//              done by passing LINKONLY=1 to nmake.
+//
+//  Arguments:  (none)
+//
+//----------------------------------------------------------------------------
 
 VOID
 LinkSourceDirectories(VOID)
@@ -768,6 +1740,9 @@ LinkSourceDirectories(VOID)
         AssertDir(DirDB);
         SavedCurrentDirectory = PushCurrentDirectory(DirDB->Name);
 
+        //
+        // Deletes link targets as necessary
+        //
         ProcessLinkTargets(DirDB, SavedCurrentDirectory);
 
         PopCurrentDirectory(SavedCurrentDirectory);
@@ -783,23 +1758,23 @@ LinkSourceDirectories(VOID)
     for (i = 0; i < CountLinkDirs; i++) {
         DirDB = LinkDirs[i];
 
-	if ((DirDB->Flags & DIRDB_COMPILEERRORS) &&
-	    (DirDB->Flags & DIRDB_FORCELINK) == 0) {
+        if ((DirDB->DirFlags & DIRDB_COMPILEERRORS) &&
+            (DirDB->DirFlags & DIRDB_FORCELINK) == 0) {
 
             BuildMsg("Compile errors: not linking %s directory\n", DirDB->Name);
             LogMsg(
-		"Compile errors: not linking %s directory%s\n",
-		DirDB->Name,
-		szAsterisks);
-	    continue;
-	}
+                "Compile errors: not linking %s directory%s\n",
+                DirDB->Name,
+                szAsterisks);
+            continue;
+        }
 
         SavedCurrentDirectory = PushCurrentDirectory(DirDB->Name);
 
         BuildMsg("Linking %s directory\n", DirDB->Name);
         LogMsg  ("Linking %s directory%s\n", DirDB->Name, szAsterisks);
 
-        strcpy(MakeParametersTail, " LINKONLY=1");
+        strcpy(MakeParametersTail, " LINKONLY=1 NOPASS0=1");
         strcat(MakeParametersTail, " NTTEST=");
         if (DirDB->KernelTest) {
             strcat(MakeParametersTail, DirDB->KernelTest);
@@ -810,16 +1785,19 @@ LinkSourceDirectories(VOID)
             strcat(MakeParametersTail, DirDB->UserTests);
         }
 
-        if (DirDB->Flags & DIRDB_FULL_DEBUG) {
+        if (DirDB->DirFlags & DIRDB_FULL_DEBUG) {
             strcat(MakeParametersTail, " NTDEBUG=cvp");
         }
+        if (DirDB->DirFlags & DIRDB_CHECKED_ALT_DIR) {
+            strcat(MakeParametersTail, szCheckedAltDir);
+        }
 
-	if (DirDB->Flags & DIRDB_DLLTARGET) {
+        if (DirDB->DirFlags & DIRDB_DLLTARGET) {
             strcat(MakeParametersTail, " MAKEDLL=1");
         }
 
-        if ((DirDB->Flags & DIRDB_DIRS) &&
-            (DirDB->Flags & DIRDB_MAKEFILE) &&
+        if ((DirDB->DirFlags & DIRDB_DIRS) &&
+            (DirDB->DirFlags & DIRDB_MAKEFILE) &&
             fClean) {
             strcat(MakeParametersTail, " clean");
         }
@@ -848,19 +1826,123 @@ LinkSourceDirectories(VOID)
     }
 }
 
+//+---------------------------------------------------------------------------
+//
+//  Function:   GetTargetData
+//
+//  Synopsis:   Searches aTargetInfo for an entry corresponding to the given
+//              extension.
+//
+//  Arguments:  [ext]        -- Extension to look up (including '.').
+//              [iPass]      -- 0 for pass zero; 1 for pass 1
+//              [index]      -- Index used to differentiate multiple targets
+//              [usMidlFlag] -- Indicates which set of MIDL targets should
+//                              be used for MIDL source files.
+//
+//  Returns:    A TARGETDATA for the given extension and index. NULL if
+//              Index is invalid.
+//
+//  History:    29-Jul-94     LyleC    Created
+//
+//  Notes:      If ext is not found in the aTargetInfo array, then a default
+//              TARGETINFO is used which maps the extension to obj\*\.obj.
+//
+//----------------------------------------------------------------------------
+
+LPTARGETDATA
+GetTargetData(LPSTR ext, LONG iPass, USHORT index, ULONG usMidlIndex)
+{
+    int i;
+    OBJECTTARGETINFO **aTargetInfo;
+    int cTargetInfo;
+
+    if (!ext || (ext[0] == '\0') || (ext[1] == '\0'))
+        return &DefaultData;
+
+    if ((ext[1] == aMidlTargetInfo0[usMidlIndex]->pszSourceExt[1]) &&
+        (strcmp(ext, aMidlTargetInfo0[usMidlIndex]->pszSourceExt) == 0))
+    {
+        if (index >= aMidlTargetInfo0[usMidlIndex]->NumData)
+            return NULL;
+
+        return &(aMidlTargetInfo0[usMidlIndex]->Data[index]);
+    }
+
+    assert(iPass == 0 || iPass == 1);
+    cTargetInfo = aTargetArray[iPass].cTargetInfo;
+    aTargetInfo = aTargetArray[iPass].aTargetInfo;
+
+    for (i = 0; i < cTargetInfo; i++)
+    {
+        if ((ext[1] == aTargetInfo[i]->pszSourceExt[1]) &&
+            (strcmp(ext, aTargetInfo[i]->pszSourceExt) == 0))
+        {
+            if (index >= aTargetInfo[i]->NumData)
+                return NULL;
+
+            return(&aTargetInfo[i]->Data[index]);
+        }
+    }
+
+    if (index)
+        return NULL;
+
+    return &DefaultData;
+}
+
+//+---------------------------------------------------------------------------
+//
+//  Function:   BuildCompileTarget
+//
+//  Synopsis:   Fills a TARGET struct with data about the target of a given
+//              source file.
+//
+//  Arguments:  [pfr]                    -- FileRec of source file
+//              [pszfile]                -- Path of source file (compiland)
+//              [TargetIndex]            -- Which target for a source file
+//                                          with multiple targets.
+//              [pszConditionalIncludes] -- List of conditional includes
+//              [pdrBuild]               -- Build directory (with source file)
+//              [iPass]                  -- 0 for pass zero; 1 for pass 1
+//              [ppszObjectDir]          -- Names of target object directories
+//              [pszSourceDir]           -- Name of machine specific source dir
+//
+//  Returns:    A filled TARGET struct.  NULL if TargetIndex is an invalid
+//              value for the given file type.
+//
+//  Notes:      If [pfr] is NULL, then [pszfile] is not modified and is
+//              used as the full pathname of the target file.
+//              [pszObjectDir] is ignored in this case.  if [pfr] is not
+//              NULL, the filename component of [pszfile] is taken, its
+//              extension is modified, and it is appended to [pszObjectDir]
+//              to obtain the pathname of the target.  The other data is
+//              used to fill in the rest of the TARGET struct in all cases.
+//
+//              For source files with multiple targets, use the TargetIndex
+//              parameter to indicate which target you want the path of.  For
+//              instance, .idl files have two targets, so a TargetIndex of 0
+//              will return the .h target and TargetIndex=1 will return the
+//              .c target.  A TargetIndex of 2 or above in this case will
+//              return NULL. TargetIndex is ignored if [pfr] is NULL.
+//
+//----------------------------------------------------------------------------
 
 TARGET *
 BuildCompileTarget(
     FILEREC *pfr,
-    LPSTR pszfile,
-    LPSTR pszConditionalIncludes,
-    DIRREC *pdrBuild,
-    LPSTR pszObjectDir,
-    LPSTR pszSourceDir)
+    LPSTR    pszfile,
+    USHORT   TargetIndex,
+    LPSTR    pszConditionalIncludes,
+    DIRREC  *pdrBuild,
+    DIRSUP  *pdsBuild,
+    LONG     iPass,
+    LPSTR   *ppszObjectDir,
+    LPSTR    pszSourceDir)
 {
     LPSTR p, p1;
     PTARGET Target;
     char path[DB_MAX_PATH_LENGTH];
+    LPTARGETDATA pData;
 
     p = pszfile;
     if (pfr != NULL) {
@@ -870,37 +1952,77 @@ BuildCompileTarget(
                 p1 = p;         // point to last component of pathname
             }
         }
-        sprintf(path, "%s\\%s", pszObjectDir, p1);
 
-        p = path;
-        while (*p) {
-            if (*p == '.') {
-                break;
+        sprintf(path, "%s", p1);
+
+        p = strrchr(path, '.');
+
+        pData = GetTargetData(p, iPass, TargetIndex, pdsBuild->IdlType);
+
+        if (!pData) {
+            if (DEBUG_1) {
+                BuildMsg(
+                    "BuildCompileTarget(\"%s\"[%u][%u], \"%s\") -> NULL\n",
+                    pszfile,
+                    iPass,
+                    TargetIndex,
+                    ppszObjectDir[iObjectDir]);
             }
-            p++;
+            return NULL;
         }
-        if (strcmp(p, ".rc") == 0) {
-            strcpy(p, ".res");
+
+        assert(pdsBuild);
+
+        switch (pData->ObjectDirFlag)
+        {
+        case TD_OBJECTDIR:
+            p = ppszObjectDir[iObjectDir];
+            break;
+
+        case TD_PASS0HDRDIR:
+            p = pdsBuild->PassZeroHdrDir;
+            break;
+
+        case TD_PASS0DIR1:
+            p = pdsBuild->PassZeroSrcDir1;
+            break;
+
+        case TD_PASS0DIR2:
+            p = pdsBuild->PassZeroSrcDir2;
+            break;
+
+        default:
+            assert(0 && "Invalid ObjectDirFlag");
+            break;
+        }
+        if (p[0] == '.' && p[1] == '\0') {
+            strcpy(path, p1);
         }
         else {
-            strcpy(p, ".obj");
+            sprintf(path, "%s\\%s", p, p1);
         }
+
+        p = strrchr(path, '.');
+
+        strcpy(p, pData->pszTargetExt);
         p = path;
     }
 
     AllocMem(sizeof(TARGET) + strlen(p), &Target, MT_TARGET);
     strcpy(Target->Name, p);
     Target->pdrBuild = pdrBuild;
-    Target->DateTime = DateTimeFile(NULL, p);
+    Target->DateTime = (*pDateTimeFile)(NULL, p);
     Target->pfrCompiland = pfr;
     Target->pszSourceDirectory = pszSourceDir;
     Target->ConditionalIncludes = pszConditionalIncludes;
-    Target->DirFlags = pdrBuild->Flags;
+    Target->DirFlags = pdrBuild->DirFlags;
     if (DEBUG_1) {
         BuildMsg(
-            "BuildCompileTarget(\"%s\", \"%s\") -> \"%s\"\n",
+            "BuildCompileTarget(\"%s\"[%u][%u], \"%s\") -> \"%s\"\n",
             pszfile,
-            pszObjectDir,
+            iPass,
+            TargetIndex,
+            ppszObjectDir[iObjectDir],
             Target->Name);
     }
     if (Target->DateTime == 0) {
@@ -912,17 +2034,36 @@ BuildCompileTarget(
 }
 
 
+//+---------------------------------------------------------------------------
+//
+//  Function:   FormatLinkTarget
+//
+//  Synopsis:   Builds a link target path name.
+//
+//  Arguments:  [path]            -- Place to put constructed name
+//              [ObjectDirectory] -- e.g. "obj\mips"
+//              [TargetPath]      -- Path (w/o platfrom spec. name) for target
+//              [TargetName]      -- Base name of target
+//              [TargetExt]       -- Extension of target
+//
+//  Notes:      Sample input: (path, "obj\mips", "..\obj", "foobar", ".dll")
+//
+//                    output: path = "..\obj\mips\foobar.dll"
+//
+//----------------------------------------------------------------------------
+
 VOID
 FormatLinkTarget(
     LPSTR path,
-    LPSTR ObjectDirectory,
+    LPSTR *ObjectDirectory,
     LPSTR TargetPath,
     LPSTR TargetName,
     LPSTR TargetExt)
 {
     LPSTR p, p1;
 
-    p = ObjectDirectory;
+    p = ObjectDirectory[iObjectDir];
+    assert(strncmp(pszObjDirSlash, p, strlen(pszObjDirSlash)) == 0);
     p1 = p + strlen(p);
     while (p1 > p) {
         if (*--p1 == '\\') {
@@ -934,6 +2075,17 @@ FormatLinkTarget(
 }
 
 
+//+---------------------------------------------------------------------------
+//
+//  Function:   ProcessLinkTargets
+//
+//  Synopsis:   Deletes link targets for the given directory (.lib & .dll)
+//
+//  Arguments:  [DirDB]            -- Directory to process
+//              [CurrentDirectory] -- Current directory
+//
+//----------------------------------------------------------------------------
+
 VOID
 ProcessLinkTargets(PDIRREC DirDB, LPSTR CurrentDirectory)
 {
@@ -942,39 +2094,42 @@ ProcessLinkTargets(PDIRREC DirDB, LPSTR CurrentDirectory)
 
     AssertDir(DirDB);
     for (i = 0; i < CountTargetMachines; i++) {
+        //
+        // Delete 'special' link targets
+        //
         if (DirDB->KernelTest) {
             FormatLinkTarget(
                 path,
                 TargetMachines[i]->ObjectDirectory,
-                "obj",
+                pszObjDir,
                 DirDB->KernelTest,
                 ".exe");
-            if (fClean && !fKeep) {
+            if (fClean && !fKeep && fFirstScan) {
                 DeleteSingleFile(NULL, path, FALSE);
             }
-	}
+        }
         else {
-	    UINT j;
+            UINT j;
 
-	    for (j = 0; j < 2; j++) {
-		LPSTR pNextName;
+            for (j = 0; j < 2; j++) {
+                LPSTR pNextName;
 
-		pNextName = j == 0? DirDB->UserAppls : DirDB->UserTests;
-		if (pNextName != NULL) {
-		    char name[64];
+                pNextName = j == 0? DirDB->UserAppls : DirDB->UserTests;
+                if (pNextName != NULL) {
+                    char name[64];
 
-		    while (SplitToken(name, '*', &pNextName)) {
-			FormatLinkTarget(
-			    path,
-			    TargetMachines[i]->ObjectDirectory,
-			    "obj",
-			    name,
-			    ".exe");
+                    while (SplitToken(name, '*', &pNextName)) {
+                        FormatLinkTarget(
+                            path,
+                            TargetMachines[i]->ObjectDirectory,
+                            pszObjDir,
+                            name,
+                            ".exe");
 
-			if (fClean && !fKeep) {
-			    DeleteSingleFile(NULL, path, FALSE);
-			}
-		    }
+                        if (fClean && !fKeep && fFirstScan) {
+                            DeleteSingleFile(NULL, path, FALSE);
+                        }
+                    }
                 }
             }
         }
@@ -991,25 +2146,45 @@ ProcessLinkTargets(PDIRREC DirDB, LPSTR CurrentDirectory)
                 DirDB->TargetName,
                 DirDB->TargetExt);
 
-            if (fClean && !fKeep) {
+            if (fClean && !fKeep && fFirstScan) {
                 DeleteSingleFile(NULL, path, FALSE);
             }
         }
-        if (DirDB->Flags & DIRDB_DIRS) {
-            if (fDebug && (DirDB->Flags & DIRDB_MAKEFILE)) {
+        if (DirDB->DirFlags & DIRDB_DIRS) {
+            if (fDebug && (DirDB->DirFlags & DIRDB_MAKEFILE)) {
                 BuildError(
                     "%s\\makefile. unexpected in directory with DIRS file\n",
                     DirDB->Name);
             }
-            if ((DirDB->Flags & DIRDB_SOURCES)) {
+            if ((DirDB->DirFlags & DIRDB_SOURCES)) {
                 BuildError(
                     "%s\\sources. unexpected in directory with DIRS file\n",
                     DirDB->Name);
+                BuildError("Ignoring %s\\sources.\n", DirDB->Name);
+                DirDB->DirFlags &= ~DIRDB_SOURCES;
             }
         }
     }
 }
 
+
+//+---------------------------------------------------------------------------
+//
+//  Function:   IncludeError
+//
+//  Synopsis:   Print out the name of an include file and an error message
+//              to the screen.
+//
+//  Arguments:  [pt]       -- Target of the file which includes the include
+//                             file or [pfr].
+//              [pfr]      -- File which includes the include file
+//              [pir]      -- Include file at issue
+//              [pszError] -- Error string
+//
+//  Notes:      If [pt]->pfrCompiland and [pfr] are different, then the names
+//              of both are printed.
+//
+//----------------------------------------------------------------------------
 
 VOID
 IncludeError(TARGET *pt, FILEREC *pfr, INCLUDEREC *pir, LPSTR pszError)
@@ -1018,7 +2193,7 @@ IncludeError(TARGET *pt, FILEREC *pfr, INCLUDEREC *pir, LPSTR pszError)
 
     AssertFile(pfr);
     AssertInclude(pir);
-    if (pir->Flags & INCLUDEDB_LOCAL) {
+    if (pir->IncFlags & INCLUDEDB_LOCAL) {
         c1 = c2 = '"';
     }
     else {
@@ -1035,6 +2210,21 @@ IncludeError(TARGET *pt, FILEREC *pfr, INCLUDEREC *pir, LPSTR pszError)
     BuildErrorRaw("%s %c%s%c\n", pszError, c1, pir->Name, c2);
 }
 
+
+//+---------------------------------------------------------------------------
+//
+//  Function:   IsConditionalInc
+//
+//  Synopsis:   Returns TRUE if the given filename is a conditional include
+//              for this directory.  (As given by the CONDITIONAL_INCLUDES
+//              macro).
+//
+//  Arguments:  [pszFile] -- Name of file to check
+//              [pt]      -- Target struct giving list of conditional includes
+//
+//  Returns:    TRUE if it's a conditional include
+//
+//----------------------------------------------------------------------------
 
 BOOL
 IsConditionalInc(LPSTR pszFile, TARGET *pt)
@@ -1065,6 +2255,17 @@ IsConditionalInc(LPSTR pszFile, TARGET *pt)
 }
 
 
+//+---------------------------------------------------------------------------
+//
+//  Function:   IsExcludedInc
+//
+//  Synopsis:   Returns TRUE if the given file is listed in the ExcludeIncs
+//              array.
+//
+//  Arguments:  [pszFile] -- File to check
+//
+//----------------------------------------------------------------------------
+
 BOOL
 IsExcludedInc(LPSTR pszFile)
 {
@@ -1080,9 +2281,21 @@ IsExcludedInc(LPSTR pszFile)
 }
 
 
+//+---------------------------------------------------------------------------
 //
-// CheckDependencies - process dependencies to see if target is out of date.
+//  Function:   CheckDependencies
 //
+//  Synopsis:   Process dependencies to see if a target is out of date
+//
+//  Arguments:  [Target]    -- Target to check date on
+//              [FileDB]    -- File which makes [Target]
+//              [CheckDate] -- If FALSE, then the date check is bypassed.
+//              [ppfrRoot]  -- Returns a cycle root if a cycle is encountered.
+//                               Used only during recursion.
+//
+//  Returns:    TRUE if [Target] is out of date w/r/t [FileDB]
+//
+//----------------------------------------------------------------------------
 
 BOOL
 CheckDependencies(
@@ -1172,7 +2385,7 @@ CheckDependencies(
             }
             UnsnapIncludeFiles(
                 FileDB,
-                (FileDB->Dir->Flags & DIRDB_GLOBAL_INCLUDES) == 0 ||
+                (FileDB->Dir->DirFlags & DIRDB_GLOBAL_INCLUDES) == 0 ||
                     FileDB->GlobalSequence != GlobalSequence);
         }
         FileDB->GlobalSequence = GlobalSequence;
@@ -1189,7 +2402,7 @@ CheckDependencies(
     }
 
     if (CheckDate &&
-        (FileDB->Flags & FILEDB_HEADER) &&
+        (FileDB->FileFlags & FILEDB_HEADER) &&
         FileDB->DateTimeTree == 0 &&
         IsExcludedInc(FileDB->Name)) {
 
@@ -1223,8 +2436,9 @@ CheckDependencies(
          Target->DateTime < FileDB->DateTimeTree)) {
         if (Target->DateTime != 0) {
             if (DEBUG_1 || fShowOutOfDateFiles) {
-                BuildMsg("%s is out of date with respect to %s.\n",
+                BuildMsg("%s is out of date with respect to %s\\%s.\n",
                          Target->Name,
+                         FileDB->NewestDependency->Dir->Name,
                          FileDB->NewestDependency->Name);
             }
         }
@@ -1252,8 +2466,8 @@ CheckDependencies(
             IncludeDBNext = &IncludeDB->Next) {
 
             AssertInclude(IncludeDB);
-            AssertCleanTree(IncludeDB);
-            IncludeDB->Flags |= INCLUDEDB_SNAPPED;
+            AssertCleanTree(IncludeDB, FileDB);
+            IncludeDB->IncFlags |= INCLUDEDB_SNAPPED;
             if (IncludeDB->pfrInclude == NULL) {
                 IncludeDB->pfrInclude =
                     FindIncludeFileDB(
@@ -1264,21 +2478,21 @@ CheckDependencies(
                         IncludeDB);
                 AssertOptionalFile(IncludeDB->pfrInclude);
                 if (IncludeDB->pfrInclude != NULL &&
-                    (IncludeDB->pfrInclude->Dir->Flags & DIRDB_GLOBAL_INCLUDES))
+                    (IncludeDB->pfrInclude->Dir->DirFlags & DIRDB_GLOBAL_INCLUDES))
                 {
-                    IncludeDB->Flags |= INCLUDEDB_GLOBAL;
+                    IncludeDB->IncFlags |= INCLUDEDB_GLOBAL;
                 }
 
             }
             if (IncludeDB->pfrInclude == NULL) {
                 if (!IsConditionalInc(IncludeDB->Name, Target)) {
-                    if (DEBUG_1 || !(IncludeDB->Flags & INCLUDEDB_MISSING)) {
+                    if (DEBUG_1 || !(IncludeDB->IncFlags & INCLUDEDB_MISSING)) {
                         IncludeError(
                             Target,
                             FileDB,
                             IncludeDB,
                             "cannot find include file");
-                        IncludeDB->Flags |= INCLUDEDB_MISSING;
+                        IncludeDB->IncFlags |= INCLUDEDB_MISSING;
                     }
                 } else
                 if (DEBUG_1) {
@@ -1307,7 +2521,7 @@ rescan:
             AssertInclude(IncludeDB);
             if (DEBUG_2) {
                 BuildMsgRaw(
-                    "  %lu - %hu/%hu %s  %*s%-10s %*s%s\n",
+                    "%lu-%hu/%hu %s  %*s%-10s %*s%s\n",
                     ChkRecursLevel,
                     LocalSequence,
                     GlobalSequence,
@@ -1320,7 +2534,7 @@ rescan:
                     IncludeDB->pfrInclude != NULL?
                         IncludeDB->pfrInclude->Dir->Name : "not found");
             }
-            assert(IncludeDB->Flags & INCLUDEDB_SNAPPED);
+            assert(IncludeDB->IncFlags & INCLUDEDB_SNAPPED);
             if (IncludeDB->pfrInclude != NULL) {
                 if (fEnableVersionCheck) {
                     CheckDate = (IncludeDB->pfrInclude->Version == 0);
@@ -1331,12 +2545,13 @@ rescan:
                         if (DEBUG_1 || fShowOutOfDateFiles) {
                             BuildError(
                                  "%s (v%d) is out of date with "
-                                         "respect to %s (v%d).\n",
+                                         "respect to %s\\%s (v%d).\n",
                                  FileDB->Name,
                                  IncludeDB->Version,
+                                 IncludeDB->pfrInclude->Dir->Name,
                                  IncludeDB->pfrInclude->Name,
                                  IncludeDB->pfrInclude->Version);
-                        }
+                         }
                         FileDB->DateTimeTree = ULONG_MAX; // always out of date
                         fOutOfDate = TRUE;
                     }
@@ -1356,13 +2571,6 @@ rescan:
                                       IncludeDB->pfrInclude,
                                       CheckDate,
                                       ppfrRoot)) {
-
-                    if (DEBUG_1 || fShowOutOfDateFiles) {
-                        BuildError(
-                                 "%s is out of date with respect to %s\n",
-                                 Target->Name,
-                                 IncludeDB->pfrInclude->NewestDependency->Name);
-                    }
                     fOutOfDate = TRUE;
 
                     // No cycle possible if recursive call returned TRUE.
@@ -1386,11 +2594,11 @@ rescan:
                     // because it participates in the cycle.
 
                     *IncludeDBNext = IncludeDB->NextTree;
-                    if (IncludeDB->Flags & INCLUDEDB_CYCLEROOT) {
-			RemoveFromCycleRoot(IncludeDB, FileDB);
-		    }
+                    if (IncludeDB->IncFlags & INCLUDEDB_CYCLEROOT) {
+                        RemoveFromCycleRoot(IncludeDB, FileDB);
+                    }
                     IncludeDB->NextTree = NULL;
-                    IncludeDB->Flags |= INCLUDEDB_CYCLEORPHAN;
+                    IncludeDB->IncFlags |= INCLUDEDB_CYCLEORPHAN;
 
                     // If the included file is not the cycle root, add the
                     // cycle root to the included file's include file list.
@@ -1406,20 +2614,20 @@ rescan:
 
                         *ppfrRoot = NULL;
                         if (DEBUG_4) {
-			    BuildMsgRaw(
-				"%lu-%hu/%hu: ChkDepend(%s %x, %4s%.*s%s, %u) %x %s\n",
-				ChkRecursLevel,
-				LocalSequence,
-				GlobalSequence,
-				Target->Name,
-				Target->DateTime,
-				"^^",
-				ChkRecursLevel,
-				szRecurse,
-				FileDB->Name,
-				CheckDate,
-				FileDB->DateTime,
-				"ReScan");
+                            BuildMsgRaw(
+                                "%lu-%hu/%hu: ChkDepend(%s %x, %4s%.*s%s, %u) %x %s\n",
+                                ChkRecursLevel,
+                                LocalSequence,
+                                GlobalSequence,
+                                Target->Name,
+                                Target->DateTime,
+                                "^^",
+                                ChkRecursLevel,
+                                szRecurse,
+                                FileDB->Name,
+                                CheckDate,
+                                FileDB->DateTime,
+                                "ReScan");
                             BuildMsgRaw("^^\n");
                         }
                         goto rescan;
@@ -1429,9 +2637,9 @@ rescan:
                     // cycle into the root file's include list.
 
                     MergeIncludeFiles(
-			*ppfrRoot,
-			FileDB->IncludeFilesTree,
-			FileDB);
+                        *ppfrRoot,
+                        FileDB->IncludeFilesTree,
+                        FileDB);
                     FileDB->IncludeFilesTree = NULL;
 
                     // Return immediately and reprocess the flattened
@@ -1496,6 +2704,52 @@ rescan:
                     }
                 }
             }
+            else
+            {
+                //
+                // Couldn't find the FILEDB for the include file, but this
+                // could be because the file is 'rcinclude'd, or 'importlib'd
+                // and isn't considered a source file.  In this case, just get
+                // the timestamp on the file if possible.
+                //
+                // Time will be zero if the file is not found.
+                //
+                ULONG Time = (*pDateTimeFile)(NULL, IncludeDB->Name);
+                if (FileDB->DateTimeTree < Time)
+                {
+                    FileDB->DateTimeTree = Time;
+                    //
+                    // Since we don't have a FILEDB for this dependency, just
+                    // set the pointer to itself and print a message.
+                    //
+                    FileDB->NewestDependency = FileDB;
+
+                    if (DEBUG_1 || fShowOutOfDateFiles) {
+                        BuildError(
+                             "%s (v%d) is out of date with respect to %s.\n",
+                             FileDB->Name,
+                             IncludeDB->Version,
+                             IncludeDB->Name);
+                    }
+
+                    if (DEBUG_4) {
+                        BuildMsgRaw(
+                            "%lu-%hu/%hu: ChkDepend(%s %x, %4s%.*s%s, %u) %x\n",
+                            ChkRecursLevel,
+                            LocalSequence,
+                            GlobalSequence,
+                            Target->Name,
+                            Target->DateTime,
+                            "t<-s",
+                            ChkRecursLevel,
+                            szRecurse,
+                            FileDB->Name,
+                            CheckDate,
+                            FileDB->DateTimeTree);
+                    }
+
+                }
+            }
         }
     }
     if (DEBUG_4) {
@@ -1522,17 +2776,34 @@ rescan:
 }
 
 
-// PickFirst - effectively, a merge sort of two SOURCEREC lists.
-//      InsertSourceDB maintains a sort order for PickFirst() based first
-//      on the filename extension, then on the subdirectory mask.
-// Two exceptions to the alphabetic sort are:
-//      - No extension sorts last.
-//      - .rc extension sorts first.
 
+//+---------------------------------------------------------------------------
+//
+//  Function:   PickFirst
+//
+//  Synopsis:   When called iteratively, the set of returned values is
+//              effectively a merge sort of the two source lists.
+//
+//  Effects:    The pointers given in [ppsr1] and [ppsr2] are modified to point
+//              to the next appropriate item in the list.
+//
+//  Arguments:  [ppsr1] -- First SOURCEREC list
+//              [ppsr2] -- Second SOURCEREC list
+//
+//  Returns:    The appropriate next item from either [ppsr1] or [ppsr2]
+//
+//  Notes:      [ppsr1] and [ppsr2] should each be appropriately sorted.
+//
+// InsertSourceDB maintains a sort order for PickFirst() based first on the
+// filename extension, then on the subdirectory mask.  Two exceptions to the
+// alphabetic sort are:
+//             - No extension sorts last.
+//             - .rc extension sorts first.
+//
+//----------------------------------------------------------------------------
 
 #define PF_FIRST        -1
 #define PF_SECOND       1
-
 
 SOURCEREC *
 PickFirst(SOURCEREC **ppsr1, SOURCEREC **ppsr2)
@@ -1592,71 +2863,243 @@ PickFirst(SOURCEREC **ppsr1, SOURCEREC **ppsr2)
 }
 
 
+//+---------------------------------------------------------------------------
+//
+//  Function:   WriteObjectsDefinition
+//
+//  Synopsis:   Writes out a single platform-specific section of the
+//              _objects.mac file.
+//
+//  Arguments:  [OutFileHandle]   -- File handle to write to
+//              [psrCommon]       -- List of common source files
+//              [psrMachine]      -- List of machine-specific source files
+//              [DirDB]           -- directory record
+//              [ObjectVariable]  -- e.g.  386_SOURCES
+//              [ObjectDirectory] -- name of machine obj dir (e.g. obj\mips)
+//
+//  Returns:
+//
+//  History:    26-Jul-94     LyleC    Created
+//
+//  Notes:
+//
+//----------------------------------------------------------------------------
+
 VOID
 WriteObjectsDefinition(
     FILE *OutFileHandle,
-    SOURCEREC *psrCommon,
     SOURCEREC *psrMachine,
+    DIRSUP *pds,
     LPSTR ObjectVariable,
     LPSTR ObjectDirectory,
-    LPSTR DirName)
+    LPSTR DirName
+    )
 {
-    LPSTR pbuf, pszextobj, pszextsrc;
+    LPSTR        pbuf;
+    LPSTR        pszextsrc;
+    LPSTR        pszextdir;
+    LPTARGETDATA pData;
+    SOURCEREC   *psrComCopy;
+    SOURCEREC   *psrMachCopy;
+    SOURCEREC *psrCommon = pds->psrSourcesList[0];
+
     SOURCEREC *psr;
+    USHORT  i;
+    LONG iPass;
 
-    pbuf = BigBuf;
-    strcpy(pbuf, ObjectVariable);
-    strcat(pbuf, "=");
-    pbuf += strlen(pbuf);
+    //
+    // We loop twice - the first time writing out the non-pass-zero files
+    // to the ObjectVariable, the second time writing out pass zero
+    // files to the PASS0_ObjectVariable.
+    //
+    for (iPass = 1; iPass >= 0; iPass--)
+    {
+        pbuf = BigBuf;
 
-    while ((psr = PickFirst(&psrCommon, &psrMachine)) != NULL) {
-        AssertSource(psr);
-        if ((psr->Flags & SOURCEDB_SOURCES_LIST) == 0) {
-            continue;
+        pbuf[0] = '\0';
+        if (iPass == 0) {
+            strcpy(pbuf, "PASS0_");
         }
-        pszextsrc = strrchr(psr->pfrSource->Name, '.');
-        pszextobj = NULL;
-        if (*pszextsrc == '.') {
-            switch (pszextsrc[1]) {
-            case 'f':
-            case 'h':
-            case 'p':
-                BuildError(
-                    "%s: Interesting sources extension: %s\n",
-                    DirName,
-                    psr->pfrSource->Name);
-                // FALL THROUGH
+        strcat(pbuf, ObjectVariable);
+        strcat(pbuf, "=");
+        pbuf += strlen(pbuf);
 
-            case 'a':
-            case 'c':
-            case 's':
-                pszextobj = ".obj";
-                break;
+        psrComCopy = psrCommon;
+        psrMachCopy = psrMachine;
 
-            case 'r':
-                pszextobj = ".res";
-                break;
+        while ((psr = PickFirst(&psrComCopy, &psrMachCopy)) != NULL) {
+
+            AssertSource(psr);
+            if ((psr->SrcFlags & SOURCEDB_SOURCES_LIST) == 0) {
+                continue;
+            }
+
+            // if pass 0 macro and not a pass 0 file, skip it.
+
+            if (iPass == 0 && !(psr->pfrSource->FileFlags & FILEDB_PASS0))
+                continue;
+
+            // if pass 1 macro and not a pass 1 file, skip it.
+
+            if (iPass == 1 &&
+                (psr->pfrSource->FileFlags & FILEDB_PASS0) &&
+                !(psr->pfrSource->FileFlags & FILEDB_MULTIPLEPASS))
+                continue;
+
+            pszextsrc = strrchr(psr->pfrSource->Name, '.');
+
+            i = 0;
+            while (pData = GetTargetData(pszextsrc, iPass, i, pds->IdlType))
+            {
+                BOOL fCurrentDir;
+
+                if (pData == &DefaultData)
+                {
+                    //
+                    // Check for implicitly 'known' extensions...
+                    //
+                    switch (pszextsrc[1]) {
+                    case 'f':      // Fortran
+                    case 'h':      // Header file ?
+                    case 'p':      // Pascal
+                        BuildError(
+                            "%s: Interesting sources extension: %s\n",
+                            DirName,
+                            psr->pfrSource->Name);
+                        // FALL THROUGH
+
+                    case 'a':    // Assembly file (.asm)
+                    case 'c':    // C file (.c or .cxx)
+                    case 's':    // Assembly file (.s)
+                        break;
+
+                    default:
+                        BuildError("Bad sources extension: %s\n",
+                                   psr->pfrSource->Name);
+                    }
+                }
+
+                switch (pData->ObjectDirFlag)
+                {
+                case TD_OBJECTDIR:
+                    pszextdir = ObjectDirectory;
+                    break;
+
+                case TD_PASS0HDRDIR:
+                    pszextdir = pds->PassZeroHdrDir;
+                    break;
+
+                case TD_PASS0DIR1:
+                    pszextdir = pds->PassZeroSrcDir1;
+                    break;
+
+                case TD_PASS0DIR2:
+                    pszextdir = pds->PassZeroSrcDir2;
+                    break;
+
+                default:
+                    assert(0 && "Invalid ObjectDirFlag");
+                    break;
+                }
+                assert(pszextdir);
+                assert(pData->pszTargetExt);
+
+                sprintf(
+                    pbuf,
+                    " \\\r\n    %s\\%.*s%s",
+                    pszextdir,
+                    pszextsrc - psr->pfrSource->Name,
+                    psr->pfrSource->Name,
+                    pData->pszTargetExt);
+                pbuf += strlen(pbuf);
+
+                i++;
             }
         }
-        if (pszextobj == NULL) {
-            BuildError("Bad sources extension: %s\n", psr->pfrSource->Name);
-        } else {
-            sprintf(
-                pbuf,
-                " \\\r\n%s\\%.*s%s",
-                ObjectDirectory,
-                pszextsrc - psr->pfrSource->Name,
-                psr->pfrSource->Name,
-                pszextobj);
-            pbuf += strlen(pbuf);
-        }
-    }
-    strcpy(pbuf, "\r\n\r\n");
-    pbuf += 4;
+        strcpy(pbuf, "\r\n\r\n");
+        pbuf += 4;
 
-    fwrite(BigBuf, 1, (UINT) (pbuf - BigBuf), OutFileHandle);
+        fwrite(BigBuf, 1, (UINT) (pbuf - BigBuf), OutFileHandle);
+    }
 }
 
+
+//+---------------------------------------------------------------------------
+//
+//  Function:   CreateBuildDirectory
+//
+//  Synopsis:   Creates a directory to hold generate object files.  SET the
+//              FILE_ATTRIBUTE_ARCHIVE bit for the directory, since there is nothing
+//              to backup.  We use SET since the default setting for a new directory
+//              is clear.  Go figure.  DOS was such a well planned product.
+//
+//  Arguments:  [Name]            -- Directory to create
+//
+//  Returns:    TRUE if directory already exists or was created successfully.
+//              FALSE otherwise.
+//----------------------------------------------------------------------------
+
+BOOL
+CreateBuildDirectory(LPSTR Name)
+{
+    DWORD Attributes;
+
+    Attributes = GetFileAttributes(Name);
+    if (Attributes == -1) {
+        CreateDirectory(Name, NULL);
+        Attributes = GetFileAttributes(Name);
+    }
+
+    if (Attributes != -1 && ((Attributes & FILE_ATTRIBUTE_ARCHIVE) == 0)) {
+        SetFileAttributes(Name, Attributes | FILE_ATTRIBUTE_ARCHIVE);
+    }
+
+    return((BOOL)(Attributes != -1));
+}
+
+//+---------------------------------------------------------------------------
+//
+//  Function:   CreatedBuildFile
+//
+//  Synopsis:   Called whenever BUILD creates a file.  Clears the FILE_ATTRIBUTE_ARCHIVE
+//              bit for the file, since there is nothing to backup with a generated file.
+//
+//  Arguments:  [DirName]         -- DIRDB for directory
+//              [FileName]        -- file name path relative to DirName
+//
+//----------------------------------------------------------------------------
+
+VOID
+CreatedBuildFile(LPSTR DirName, LPSTR FileName)
+{
+    char Name[ DB_MAX_PATH_LENGTH ];
+    DWORD Attributes;
+
+    strcpy(Name, DirName);
+    if (Name[0] != '\0') {
+        strcat(Name, "\\");
+    }
+    strcat(Name, FileName);
+
+    Attributes = GetFileAttributes(Name);
+    if (Attributes != -1 && (Attributes & FILE_ATTRIBUTE_ARCHIVE)) {
+        SetFileAttributes(Name, Attributes & ~FILE_ATTRIBUTE_ARCHIVE);
+    }
+
+    return;
+}
+
+//+---------------------------------------------------------------------------
+//
+//  Function:   GenerateObjectsDotMac
+//
+//  Synopsis:   Creates the _objects.mac file containing info for all platforms
+//
+//  Arguments:  [DirDB]           -- Directory to create file for
+//              [pds]             -- Supplementary information on [DirDB]
+//              [DateTimeSources] -- Timestamp of the SOURCES file
+//
+//----------------------------------------------------------------------------
 
 VOID
 GenerateObjectsDotMac(DIRREC *DirDB, DIRSUP *pds, ULONG DateTimeSources)
@@ -1664,1223 +3107,96 @@ GenerateObjectsDotMac(DIRREC *DirDB, DIRSUP *pds, ULONG DateTimeSources)
     FILE *OutFileHandle;
     UINT i;
     ULONG ObjectsDateTime;
-    BOOL fObjCreated = FALSE;
 
-    if (ProbeFile(".", "obj") == -1) {
-        CreateDirectory("obj", NULL);
-        fObjCreated = TRUE;
-    }
-    for (i = 0; i < CountTargetMachines; i++) {
-        if (fObjCreated ||
-            ProbeFile(".", TargetMachines[i]->ObjectDirectory) == -1) {
-            CreateDirectory(TargetMachines[i]->ObjectDirectory, NULL);
+    CreateBuildDirectory("obj");
+    if (strcmp(pszObjDir, "obj") != 0) {
+        if (ProbeFile(".", pszObjDir) == -1) {
+            CreateDirectory(pszObjDir, NULL);
         }
     }
+    for (i = 0; i < CountTargetMachines; i++) {
+        assert(strncmp(
+                    pszObjDirSlash,
+                    TargetMachines[i]->ObjectDirectory[iObjectDir],
+                    strlen(pszObjDirSlash)) == 0);
+        CreateBuildDirectory(TargetMachines[i]->ObjectDirectory[iObjectDir]);
+    }
 
-    if (ObjectsDateTime = DateTimeFile(DirDB->Name, "obj\\_objects.mac")) {
+    if (ObjectsDateTime = (*pDateTimeFile)(DirDB->Name, "obj\\_objects.mac")) {
+
         if (DateTimeSources == 0) {
             BuildError("%s: no sources timestamp\n", DirDB->Name);
         }
+
         if (ObjectsDateTime >= DateTimeSources) {
             if (!fForce) {
                 return;
             }
         }
     }
-    if (!MyOpenFile(DirDB->Name, "obj\\_objects.mac", "wb", &OutFileHandle)) {
+    if (!MyOpenFile(DirDB->Name, "obj\\_objects.mac", "wb", &OutFileHandle, TRUE)) {
         return;
     }
-    if ((DirDB->Flags & DIRDB_SOURCES_SET) == 0) {
+
+    if ((DirDB->DirFlags & DIRDB_SOURCES_SET) == 0) {
         BuildError("Missing SOURCES= definition in %s\n", DirDB->Name);
     } else {
         for (i = 0; i < MAX_TARGET_MACHINES; i++) {
             WriteObjectsDefinition(
                 OutFileHandle,
-                pds->psrSourcesList[0],
                 pds->psrSourcesList[i + 1],
+                pds,
                 PossibleTargetMachines[i]->ObjectVariable,
-                PossibleTargetMachines[i]->ObjectDirectory,
+                PossibleTargetMachines[i]->ObjectMacro,
                 DirDB->Name);
         }
     }
     fclose(OutFileHandle);
-}
+    CreatedBuildFile(DirDB->Name, "obj\\_objects.mac");
 
+    //
+    // If the _objects.mac file was generated during the first pass, then we
+    // want to regenerate it during the second scan because the first scan
+    // wasn't complete and _objects.mac may not be correct for non-pass-zero
+    // files.  We do this by setting the timestamp back to the old time.
+    //
+    if (fFirstScan && fPassZero)
+    {
+        HANDLE hf;
+        FILETIME ft;
 
-VOID
-SaveUserTests(
-    PDIRREC DirDB,
-    LPSTR TextLine)
-{
-    UINT i;
-    BOOL fSave = FALSE;
-    char name[64];
-    char buf[512];
+        hf = CreateFile("obj\\_objects.mac", GENERIC_WRITE, 0,
+                (LPSECURITY_ATTRIBUTES)NULL, OPEN_EXISTING,
+                FILE_ATTRIBUTE_NORMAL | FILE_FLAG_NO_BUFFERING,
+                (HANDLE)NULL);
 
-    buf[0] = '\0';
-    if (DirDB->UserTests != NULL) {
-        strcpy(buf, DirDB->UserTests);
-    }
-    CopyString(TextLine, TextLine, TRUE);
-    while (SplitToken(name, '*', &TextLine)) {
-        for (i = 0; i < CountOptionalDirs; i++) {
-            if (!strcmp(name, OptionalDirs[i])) {
-                if (buf[0] != '\0') {
-                    strcat(buf, "*");
-		    DirDB->Flags |= DIRDB_FORCELINK; // multiple targets
-		}
-		strcat(buf, name);
-                fSave = TRUE;
-                break;
+        if (hf != INVALID_HANDLE_VALUE) {
+            ULONG time;
+
+            if (ObjectsDateTime) {
+                time = ObjectsDateTime;
             }
-        }
-    }
-    if (fSave) {
-        MakeMacroString(&DirDB->UserTests, buf);
-	DirDB->Flags |= DIRDB_LINKNEEDED;
-    }
-}
-
-
-#define SOURCES_TARGETNAME              0
-#define SOURCES_TARGETPATH              1
-#define SOURCES_TARGETTYPE              2
-#define SOURCES_TARGETEXT               3
-#define SOURCES_INCLUDES                4
-#define SOURCES_NTTEST                  5
-#define SOURCES_UMTYPE                  6
-#define SOURCES_UMTEST                  7
-#define SOURCES_OPTIONAL_UMTEST         8
-#define SOURCES_UMAPPL                  9
-#define SOURCES_UMAPPLEXT               10
-#define SOURCES_NTTARGETFILE0           11
-#define SOURCES_NTTARGETFILES           12
-#define SOURCES_PRECOMPILED_INCLUDE     13
-#define SOURCES_PRECOMPILED_OBJ         14
-#define SOURCES_PRECOMPILED_TARGET      15
-#define SOURCES_CAIRO_PRODUCT           16
-#define SOURCES_CHICAGO_PRODUCT         17
-#define SOURCES_CONDITIONAL_INCLUDES    18
-#define SOURCES_SYNCHRONIZE_BLOCK       19
-#define SOURCES_SYNCHRONIZE_DRAIN       20
-
-LPSTR RelevantSourcesMacros[] = {
-    "TARGETNAME",
-    "TARGETPATH",
-    "TARGETTYPE",
-    "TARGETEXT",
-    "INCLUDES",
-    "NTTEST",
-    "UMTYPE",
-    "UMTEST",
-    "OPTIONAL_UMTEST",
-    "UMAPPL",
-    "UMAPPLEXT",
-    "NTTARGETFILE0",
-    "NTTARGETFILES",
-    "PRECOMPILED_INCLUDE",
-    "PRECOMPILED_OBJ",
-    "PRECOMPILED_TARGET",
-    "CAIRO_PRODUCT",
-    "CHICAGO_PRODUCT",
-    "CONDITIONAL_INCLUDES",
-    "SYNCHRONIZE_BLOCK",
-    "SYNCHRONIZE_DRAIN",
-    NULL
-};
-
-#define SOURCES_MAX     \
-        (sizeof(RelevantSourcesMacros)/sizeof(RelevantSourcesMacros[0]) - 1)
-
-
-// Compress multiple blank characters out of macro value, in place.  Note
-// that tabs, CRs, continuation lines (and their line breaks) have already
-// been replaced with blanks.
-
-VOID
-CompressBlanks(LPSTR psrc)
-{
-    LPSTR pdst = psrc;
-
-    while (*psrc == ' ') {
-        psrc++;                 // skip leading macro value blanks
-    }
-    while (*psrc != '\0') {
-        if (*psrc == '#') {             // stop at comment
-            break;
-        }
-        if ((*pdst++ = *psrc++) == ' ') {
-            while (*psrc == ' ') {
-                psrc++;         // skip multiple blanks
-            }
-        }
-    }
-    *pdst = '\0';                       // terminate the compressed copy
-    if (*--pdst == ' ') {
-        *pdst = '\0';           // trim trailing macro value blanks
-    }
-}
-
-
-LPSTR
-GetBaseDir(LPSTR pname)
-{
-    if (stricmp("BASEDIR", pname) == 0) {
-        return(NtRoot);
-    }
-    return(NULL);
-}
-
-
-LPSTR
-FindMacro(LPSTR pszName)
-{
-    MACRO **ppm;
-
-    for (ppm = apMacro; ppm < &apMacro[cMacro]; ppm++) {
-        if (stricmp(pszName, (*ppm)->szName) == 0) {
-            return((*ppm)->pszValue);
-        }
-    }
-    return(NULL);
-}
-
-
-// New string must be allocated and initialized prior to freeing old string.
-
-VOID
-SaveMacro(LPSTR pszName, LPSTR pszValue)
-{
-    MACRO **ppm;
-
-    for (ppm = apMacro; ppm < &apMacro[cMacro]; ppm++) {
-        if (stricmp(pszName, (*ppm)->szName) == 0) {
-            break;
-        }
-    }
-    if (ppm == &apMacro[CMACROMAX]) {
-        BuildError("Macro table full, ignoring: %s = %s\n", pszName, pszValue);
-        return;
-    }
-    if (ppm == &apMacro[cMacro]) {
-        cMacro++;
-        AllocMem(sizeof(MACRO) + strlen(pszName), ppm, MT_MACRO);
-        strcpy((*ppm)->szName, pszName);
-        (*ppm)->pszValue = NULL;
-    }
-    MakeMacroString(&(*ppm)->pszValue, pszValue);
-    if (DEBUG_1) {
-        BuildMsg(
-            "SaveMacro(%s = %s)\n",
-            (*ppm)->szName,
-            (*ppm)->pszValue == NULL? "NULL" : (*ppm)->pszValue);
-    }
-    if ((*ppm)->pszValue == NULL) {
-        FreeMem(ppm, MT_MACRO);
-        *ppm = apMacro[--cMacro];
-    }
-}
-
-
-VOID
-FreeMacros(VOID)
-{
-    MACRO **ppm;
-
-    for (ppm = apMacro; ppm < &apMacro[cMacro]; ppm++) {
-        FreeString(&(*ppm)->pszValue, MT_DIRSTRING);
-        FreeMem(ppm, MT_MACRO);
-        assert(*ppm == NULL);
-    }
-    cMacro = 0;
-}
-
-
-LPSTR
-SplitMacro(LPSTR pline)
-{
-    LPSTR pvalue, p;
-
-    pvalue = NULL;
-
-    if ((p = strchr(pline, '=')) != NULL) {
-        pvalue = p + 1;                 // point past old '='
-        while (p > pline && p[-1] == ' ') {
-            p--;                        // point to start of trailing blanks
-        }
-
-        for ( ; pline < p; pline++) {
-            if (!iscsym(*pline)) {
-                return(NULL);           // not a valid macro name
-            }
-        }
-        *p = '\0';                      // trim trailing blanks & '='
-        CompressBlanks(pvalue);
-    }
-    return(pvalue);
-}
-
-
-// New string must be allocated and initialized prior to freeing old string.
-
-BOOL
-MakeMacroString(LPSTR *pp, LPSTR psrc)
-{
-    LPSTR pname, p2, pdst;
-    int cb;
-    char Buffer[4096];
-
-    pdst = Buffer;
-    cb = strlen(psrc);
-    if (cb > sizeof(Buffer) - 1) {
-        BuildError(
-            "(Fatal Error) Buffer overflow: MakeMacroString(%s)\n",
-            psrc);
-        exit(16);
-    }
-    while ((pname = strchr(psrc, '$')) != NULL &&
-           pname[1] == LPAREN &&
-           (p2 = strchr(pname, RPAREN)) != NULL) {
-
-        LPSTR pszvalue;
-
-        *pname = *p2 = '\0';
-        strcpy(pdst, psrc);             // copy up to macro name
-        pdst += strlen(pdst);
-        *pname = '$';
-        pname += 2;
-
-        if ((pszvalue = FindMacro(pname)) == NULL &&
-            (pszvalue = getenv(pname)) == NULL &&
-            (pszvalue = GetBaseDir(pname)) == NULL) {
-
-            pszvalue = "";              // can't find macro name -- ignore it
-        }
-        cb += strlen(pszvalue) - 3 - strlen(pname);
-        assert(cb >= 0);
-        if (cb > sizeof(Buffer) - 1) {
-            BuildError(
-                "(Fatal Error) Internal buffer overflow: MakeMacroString(%s[%s = %s]%s)\n",
-                Buffer,
-                pname,
-                pszvalue,
-                p2 + 1);
-            exit(16);
-        }
-        strcpy(pdst, pszvalue);         // copy expanded value
-        pdst += strlen(pdst);
-        *p2 = RPAREN;
-        psrc = p2 + 1;
-    }
-    strcpy(pdst, psrc);                 // copy rest of string
-    if (pdst != Buffer) {
-        CompressBlanks(Buffer);
-    }
-    p2 = *pp;
-    *pp = NULL;
-    if (Buffer[0] != '\0') {
-        MakeString(pp, Buffer, TRUE, MT_DIRSTRING);
-    }
-    if (p2 != NULL) {
-        FreeMem(&p2, MT_DIRSTRING);
-    }
-    return(Buffer[0] != '\0');
-}
-
-
-BOOL
-SetMacroString(LPSTR pMacro1, LPSTR pMacro2, LPSTR pValue, LPSTR *ppValue)
-{
-    if (stricmp(pMacro1, pMacro2) == 0) {
-        MakeMacroString(ppValue, pValue);
-        return(TRUE);   // return TRUE even if MakeMacroString stored a NULL
-    }
-    return(FALSE);
-}
-
-
-BOOL
-SplitToken(LPSTR pbuf, char chsep, LPSTR *ppstr)
-{
-    LPSTR psrc, pdst;
-
-    psrc = *ppstr;
-    pdst = pbuf;
-    //BuildError("SplitToken('%c', '%s') ==> ", chsep, psrc);
-    while (*psrc == chsep || *psrc == ' ') {
-        psrc++;
-    }
-    while (*psrc != '\0' && *psrc != chsep && *psrc != ' ') {
-        *pdst = *psrc++;
-        if (*pdst == '/') {
-            *pdst = '\\';
-        }
-        pdst++;
-    }
-    *pdst = '\0';
-    *ppstr = psrc;
-    //BuildErrorRaw("('%s', '%s')\n", psrc, pbuf);
-    return(pdst != pbuf);
-}
-
-
-VOID
-CrackSources(DIRREC *pdr, DIRSUP *pds, int i)
-{
-    LPSTR pszsubdir, plist;
-    LPSTR pszfile, pszpath;
-    FILEREC *pfr;
-    DIRREC *pdrParent;
-    DIRREC *pdrMachine;
-    DIRREC *pdrParentMachine;
-    DIRREC **ppdr;
-    LPSTR pszSources;
-    char path[DB_MAX_PATH_LENGTH];
-
-    pszSources = (i == 0)?
-        "SOURCES" : PossibleTargetMachines[i - 1]->SourceVariable;
-
-    pdrParent = pdrMachine = pdrParentMachine = NULL;
-    plist = pds->SourcesVariables[i];
-    while (SplitToken(path, ' ', &plist)) {
-        UCHAR SubDirMask, Flags;
-
-        SubDirMask = 0;
-        ppdr = &pdr;                    // assume current directory
-        pszsubdir = path;
-        if (pszsubdir[0] == '.' && pszsubdir[1] == '\\') {
-            BuildError(
-                "%s: Ignoring current directory prefix in %s= entry: %s\n",
-                pdr->Name,
-                pszSources,
-                path);
-            pszsubdir += 2;
-        }
-        if (pszsubdir[0] == '.' &&
-            pszsubdir[1] == '.' &&
-            pszsubdir[2] == '\\') {
-
-            SubDirMask = TMIDIR_PARENT;
-            ppdr = &pdrParent;          // assume parent directory
-            pszsubdir += 3;
-        }
-        pszpath = path;
-        pszfile = strchr(pszsubdir, '\\');
-        if (pszfile == NULL) {
-            pszfile = pszsubdir;
-        } else {
-            *pszfile = '\0';
-            if (i == 0 ||
-                stricmp(
-                    pszsubdir,
-                    PossibleTargetMachines[i - 1]->SourceDirectory) != 0 ||
-                strchr(pszfile + 1, '\\') != NULL) {
-
-                *pszfile = '\\';
-                BuildError(
-                    "%s: Ignoring invalid directory prefix in %s= entry: %s\n",
-                    pdr->Name,
-                    pszSources,
-                    path);
-
+            else if (DateTimeSources) {
                 //
-
-                pszpath = strrchr(path, '\\');
-                assert(pszpath != NULL);
-                pszpath++;
-                SubDirMask = 0;
-                ppdr = &pdr;            // default to current direcory
-            }
-            else {
-                SubDirMask |= PossibleTargetMachines[i - 1]->SourceSubDirMask;
-                *pszfile++ = '\\';
-                if (SubDirMask & TMIDIR_PARENT) {
-                    ppdr = &pdrParentMachine;   // parent's machine sub dir
-                } else {
-                    ppdr = &pdrMachine;         // machine sub dir
-                }
-            }
-        }
-NewDirectory:
-        if (*ppdr == NULL) {
-            pfr = FindSourceFileDB(pdr, pszpath, ppdr);
-        } else {
-            pfr = LookupFileDB(*ppdr, pszfile);
-        }
-        Flags = SOURCEDB_SOURCES_LIST;
-        if (pfr == NULL) {
-            if (fDebug) {
-                BuildError("%s: Missing source file: %s\n", pdr->Name, path);
-            }
-            if (*ppdr == NULL) {
-                if (fDebug || pszpath == path) {
-                    BuildError(
-                        "%s: Directory does not exist: %s\n",
-                        pdr->Name,
-                        path);
-                }
-
-                // Probably an error in the subordinate sources file.
-                // since old versions of build managed to get these entries
-                // into the objects lists, we have to do the same...
+                // All we care about is that time time stamp on _objects.mac
+                // is less than that of the sources file so it will get
+                // regenerated during the second scan.
                 //
-                // If ..\ prefix exists, strip it off and try again.
-                // Else try again with the current directory.
-
-                if (SubDirMask & TMIDIR_PARENT) {
-                    SubDirMask &= ~TMIDIR_PARENT;       // strip off "..\\"
-                }
-                else {
-                    SubDirMask = 0;             // use current direcory
-                }
-                if (SubDirMask == 0) {
-                    ppdr = &pdr;                // current direcory
-                    pszpath = pszfile;
-                }
-                else {
-                    ppdr = &pdrMachine;         // machine sub dir
-                    pszpath = pszsubdir;
-                }
-                goto NewDirectory;
-            }
-            pfr = InsertFileDB(*ppdr, pszfile, 0, 0, FILEDB_FILE_MISSING);
-            if (pfr == NULL) {
-                BuildError(
-                    "%s: Ignoring invalid %s= entry: %s\n",
-                    pdr->Name,
-                    pszSources,
-                    path);
-            }
-        }
-        if (pfr != NULL) {
-            AssertFile(pfr);
-            if (SubDirMask == 0) {
-                pfr->Flags |= FILEDB_OBJECTS_LIST;
-            }
-            if (pfr->Flags & FILEDB_FILE_MISSING) {
-                Flags |= SOURCEDB_FILE_MISSING;
-            }
-            InsertSourceDB(&pds->psrSourcesList[i], pfr, SubDirMask, Flags);
-        }
-    }
-}
-
-
-BOOL
-ReadSourcesFile(DIRREC *DirDB, DIRSUP *pds, ULONG *pDateTimeSources)
-{
-    FILE *InFileHandle;
-    PFILEREC FileDB, *FileDBNext;
-    LPSTR p, p1, TextLine;
-    LPSTR MacroName;
-    UINT i, iMacro;
-    int iTarget;
-    ULONG DateTime;
-    char path[DB_MAX_PATH_LENGTH];
-
-    memset(pds, 0, sizeof(*pds));
-    assert(DirDB->TargetPath == NULL);
-    assert(DirDB->TargetName == NULL);
-    assert(DirDB->TargetExt == NULL);
-    assert(DirDB->KernelTest == NULL);
-    assert(DirDB->UserAppls == NULL);
-    assert(DirDB->UserTests == NULL);
-    assert(DirDB->PchObj == NULL);
-    assert(cMacro == 0);
-    *pDateTimeSources = 0;
-
-    //
-    // Read the information in each of the target specific directories
-    // and simulate concatenation of all of the sources files.
-    //
-    // Possible sources files are read from DirDB->Name | target-source
-    // and DirDb->Name | ..\target-source.
-    //
-    // iTarget values, and the corresponding files processed are:
-    //  -1      sources.
-    //   0      PossibleTargetMachines[0]\sources.
-    //   1      ..\PossibleTargetMachines[0]\sources.
-    //   2      PossibleTargetMachines[1]\sources.
-    //   3      ..\PossibleTargetMachines[1]\sources.
-    //   4      PossibleTargetMachines[2]\sources.
-    //   5      ..\PossibleTargetMachines[2]\sources.
-
-    for (iTarget = -1; iTarget < 2*MAX_TARGET_MACHINES; iTarget++) {
-        path[0] = '\0';
-        if (iTarget >= 0) {
-            if (iTarget & 1) {
-                strcat(path, "..\\");
-            }
-            strcat(path, PossibleTargetMachines[iTarget/2]->SourceDirectory);
-            strcat(path, "\\");
-        }
-        strcat(path, "sources.");
-        if (!SetupReadFile(DirDB->Name, path, "#", &InFileHandle)) {
-            if (iTarget == -1) {
-                return(FALSE);
-            }
-            continue;           // skip non-existent subordinate sources files
-        }
-        if (DEBUG_1) {
-            BuildMsg(
-                "    Scanning%s file %s\n",
-                iTarget >= 0? " subordinate" : "",
-                FormatPathName(DirDB->Name, path));
-        }
-        DirDB->Flags |= DIRDB_SOURCESREAD;
-
-        while ((TextLine = ReadLine(InFileHandle)) != NULL) {
-            LPSTR pValue;
-
-            pValue = SplitMacro(TextLine);
-            if (pValue == NULL) {
-                continue;
-            }
-            iMacro = 0;
-            if (SetMacroString(
-                    "SOURCES",
-                    TextLine,
-                    pValue,
-                    &pds->SourcesVariables[0])) {
-
-                iMacro = SOURCES_MAX;
-                DirDB->Flags |= DIRDB_SOURCES_SET;
+                time = DateTimeSources;
+                if (LOWORD(time) != 0)
+                    time &= 0xFFFF0000;  // 00:00:00 on the same date
+                else
+                    time = 0x1421A000;       // 12:00:00 1/1/1990
             }
             else {
-                for (i = 0; i < MAX_TARGET_MACHINES; i++) {
-                    if (SetMacroString(
-                            PossibleTargetMachines[i]->SourceVariable,
-                            TextLine,
-                            pValue,
-                            &pds->SourcesVariables[i + 1])) {
-
-                        iMacro = SOURCES_MAX;
-                        DirDB->Flags |= DIRDB_SOURCES_SET;
-                        break;
-                    }
-                }
-            }
-            while ((MacroName = RelevantSourcesMacros[iMacro]) != NULL) {
-                if (stricmp(TextLine, MacroName) == 0) {
-                    break;
-                }
-                iMacro++;
-            }
-            if (MacroName != NULL) {    // if macro name found in list
-                switch (iMacro) {
-                    LPSTR *ppszPath;
-                    LPSTR *ppszFile;
-                    BOOL fCreated;
-
-                    case SOURCES_TARGETNAME:
-                        MakeMacroString(&DirDB->TargetName, pValue);
-                        break;
-
-                    case SOURCES_TARGETPATH:
-                        MakeMacroString(&DirDB->TargetPath, pValue);
-                        fCreated = FALSE;
-                        if (ProbeFile(NULL, DirDB->TargetPath) == -1) {
-                            CreateDirectory(DirDB->TargetPath, NULL);
-                            fCreated = TRUE;
-                        }
-                        for (i = 0; i < CountTargetMachines; i++) {
-                            p1 = TargetMachines[i]->ObjectDirectory,
-                            assert(strncmp("obj\\", p1, 4) == 0);
-                            p1 += 4;
-                            if (fCreated ||
-                                ProbeFile(DirDB->TargetPath, p1) == -1) {
-                                sprintf(path, "%s\\%s", DirDB->TargetPath, p1);
-                                CreateDirectory(path, NULL);
-                            }
-                        }
-                        break;
-
-                    case SOURCES_TARGETTYPE:
-                        if (!stricmp(pValue, "PROGRAM")) {
-                            DirDB->TargetExt = ".exe";
-			    DirDB->Flags |= DIRDB_LINKNEEDED;
-                            }
-                        else
-                        if (!stricmp(pValue, "DRIVER")) {
-                            DirDB->TargetExt = ".sys";
-			    DirDB->Flags |= DIRDB_LINKNEEDED;
-                            }
-                        else
-                        if (!stricmp(pValue, "MINIPORT")) {
-                            DirDB->TargetExt = ".sys";
-			    DirDB->Flags |= DIRDB_LINKNEEDED;
-                            }
-                        else
-                        if (!stricmp(pValue, "EXPORT_DRIVER")) {
-                            DirDB->TargetExt = ".sys";
-			    DirDB->Flags |= DIRDB_LINKNEEDED;
-			    DirDB->Flags |= DIRDB_DLLTARGET;
-                            }
-                        else
-                        if (!stricmp(pValue, "DYNLINK")) {
-                            DirDB->TargetExt = ".dll";
-			    DirDB->Flags |= DIRDB_LINKNEEDED;
-			    DirDB->Flags |= DIRDB_DLLTARGET;
-                            }
-                        else
-                        if (!stricmp(pValue, "HAL")) {
-                            DirDB->TargetExt = ".dll";
-			    DirDB->Flags |= DIRDB_LINKNEEDED;
-			    DirDB->Flags |= DIRDB_DLLTARGET;
-                            }
-                        else
-                        if (!stricmp(pValue, "LIBRARY")) {
-                            DirDB->TargetExt = ".lib";
-			    DirDB->Flags &= ~DIRDB_LINKNEEDED;
-                            }
-                        else
-                        if (!stricmp(pValue, "PROGLIB")) {
-                            DirDB->TargetExt = ".exe";
-			    DirDB->Flags |= DIRDB_LINKNEEDED;
-                            }
-                        else
-                        if (!stricmp(pValue, "UMAPPL_NOLIB")) {
-			    DirDB->Flags &= ~DIRDB_LINKNEEDED;
-                            }
-                        else {
-                            BuildError(
-                                "Unsupported TARGETTYPE value - %s\n",
-                                pValue);
-                            }
-                        break;
-
-                    case SOURCES_TARGETEXT:
-                        if (!stricmp(pValue, "fon")) {
-                            DirDB->TargetExt = ".fon";
-                            }
-                        else
-                        if (!stricmp(pValue, "cpl")) {
-                            DirDB->TargetExt = ".cpl";
-                            }
-                        else
-                        if (!stricmp(pValue, "drv")) {
-                            DirDB->TargetExt = ".drv";
-                            }
-                        else {
-                            BuildError(
-                                "Unsupported TARGETEXT value - %s\n",
-                                pValue);
-                            }
-                        break;
-
-                    case SOURCES_INCLUDES:
-                        MakeMacroString(&pds->LocalIncludePath, pValue);
-                        if (DEBUG_1) {
-                            BuildMsg(
-                                "        Found local INCLUDES=%s\n",
-                                pds->LocalIncludePath);
-                        }
-                        break;
-
-                    case SOURCES_PRECOMPILED_OBJ:
-                        MakeMacroString(&DirDB->PchObj, pValue);
-                        break;
-
-                    case SOURCES_PRECOMPILED_INCLUDE:
-                    case SOURCES_PRECOMPILED_TARGET:
-                        if (iMacro == SOURCES_PRECOMPILED_INCLUDE) {
-                            ppszPath = &pds->PchIncludeDir;
-                            ppszFile = &pds->PchInclude;
-                        } else {
-                            ppszPath = &pds->PchTargetDir;
-                            ppszFile = &pds->PchTarget;
-                        }
-
-                        MakeMacroString(ppszPath, "");  // free old string
-                        if (!MakeMacroString(ppszFile, pValue)) {
-                            break;
-                        }
-                        p = *ppszFile + strlen(*ppszFile);
-                        while (p > *ppszFile && *--p != '\\')
-                            ;
-
-                        if (p > *ppszFile) {
-                            *p = '\0';
-                            MakeMacroString(ppszPath, *ppszFile);
-                            MakeMacroString(ppszFile, p + 1);
-                        }
-
-                        if (DEBUG_1) {
-                            BuildMsg(
-                                "Precompiled header%s is %s in directory %s\n",
-                                iMacro == SOURCES_PRECOMPILED_INCLUDE?
-                                    "" : " target",
-                                *ppszFile,
-                                *ppszPath != NULL?
-                                    *ppszPath : "'.'");
-                        }
-
-                        if (iMacro == SOURCES_PRECOMPILED_INCLUDE ||
-                            pds->PchTargetDir == NULL) {
-
-                            break;
-                        }
-
-                        //
-                        // Ensure the directories exist
-                        //
-
-                        for (i = 0; i < CountTargetMachines; i++) {
-
-                            // Replace '*' with appropriate name
-
-                            ExpandObjAsterisk(
-                                path,
-                                pds->PchTargetDir,
-                                TargetMachines[i]->ObjectDirectory);
-
-                            if (ProbeFile(NULL, path) != -1) {
-                                continue;
-                            }
-
-                            p = path;
-                            while (TRUE) {
-                                p = strchr(p, '\\');
-                                if (p != NULL) {
-                                    *p = '\0';
-                                }
-                                if (ProbeFile(NULL, path) == -1) {
-                                    CreateDirectory(path, NULL);
-                                }
-                                if (p == NULL) {
-                                    break;
-                                }
-                                *p++ = '\\';
-                            }
-                        }
-                        break;
-
-                    case SOURCES_NTTEST:
-                        for (i = 0; i < CountOptionalDirs; i++) {
-                            if (!stricmp(pValue, OptionalDirs[i])) {
-                                if (MakeMacroString(&DirDB->KernelTest, pValue)) {
-				    DirDB->Flags |= DIRDB_LINKNEEDED;
-				}
-                                break;
-                            }
-                        }
-                        break;
-
-                    case SOURCES_UMTYPE:
-                        MakeMacroString(&pds->TestType, pValue);
-                        if (DEBUG_1) {
-                            BuildMsg(
-                                "        Found UMTYPE=%s\n",
-                                pds->TestType);
-                            }
-                        break;
-
-                    case SOURCES_UMTEST:
-                    case SOURCES_OPTIONAL_UMTEST:
-                        SaveUserTests(DirDB, pValue);
-                        break;
-
-                    case SOURCES_UMAPPL:
-                        if (MakeMacroString(&DirDB->UserAppls, pValue)) {
-			    DirDB->Flags |= DIRDB_LINKNEEDED;
-			}
-                        break;
-
-                    case SOURCES_UMAPPLEXT:
-                        if (!stricmp(pValue, ".exe")) {
-                            DirDB->TargetExt = ".exe";
-                            }
-                        else
-                        if (!stricmp(pValue, ".com")) {
-                            DirDB->TargetExt = ".com";
-                            }
-                        else
-                        if (!stricmp(pValue, ".scr")) {
-                            DirDB->TargetExt = ".scr";
-                            }
-                        else {
-                            BuildError(
-                                "Unsupported UMAPPLEXT value - %s\n",
-                                pValue);
-                        }
-                        break;
-
-                    case SOURCES_NTTARGETFILE0:
-                        DirDB->Flags |= DIRDB_TARGETFILE0;
-                        break;
-
-                    case SOURCES_NTTARGETFILES:
-                        DirDB->Flags |= DIRDB_TARGETFILES;
-                        break;
-
-                    case SOURCES_CAIRO_PRODUCT:
-                        DirDB->Flags |= DIRDB_CAIRO_INCLUDES;
-                        break;
-
-                    case SOURCES_CHICAGO_PRODUCT:
-                        DirDB->Flags |= DIRDB_CHICAGO_INCLUDES;
-                        break;
-
-                    case SOURCES_CONDITIONAL_INCLUDES:
-                        MakeMacroString(&pds->ConditionalIncludes, pValue);
-                        break;
-
-                    case SOURCES_SYNCHRONIZE_BLOCK:
-                        DirDB->Flags |= DIRDB_SYNCHRONIZE_BLOCK;
-                        break;
-
-                    case SOURCES_SYNCHRONIZE_DRAIN:
-                        DirDB->Flags |= DIRDB_SYNCHRONIZE_DRAIN;
-                        break;
-                }
-            }
-            SaveMacro(TextLine, pValue);
-        }
-        DateTime = CloseReadFile(NULL);
-        if (*pDateTimeSources < DateTime) {
-            *pDateTimeSources = DateTime;       // keep newest timestamp
-        }
-    }
-    FreeMacros();
-
-    if (fCairoProduct) {
-        DirDB->Flags |= DIRDB_CAIRO_INCLUDES;
-    }
-    else
-    if (fChicagoProduct) {
-        DirDB->Flags |= DIRDB_CHICAGO_INCLUDES;
-    }
-
-    if (DirDB->UserTests != NULL) {
-        strlwr(DirDB->UserTests);
-    }
-    if (DirDB->UserAppls != NULL) {
-	if (DirDB->UserTests != NULL || strchr(DirDB->UserAppls, '*') != NULL) {
-	    DirDB->Flags |= DIRDB_FORCELINK; // multiple targets
-	}
-    }
-    for (i = 0; i < MAX_TARGET_MACHINES + 1; i++) {
-        if (pds->SourcesVariables[i] != NULL) {
-            CrackSources(DirDB, pds, i);
-        }
-    }
-
-    FileDBNext = &DirDB->Files;
-    while (FileDB = *FileDBNext) {
-
-        if (pds->PchInclude && strcmp(FileDB->Name, pds->PchInclude) == 0) {
-            InsertSourceDB(&pds->psrSourcesList[0], FileDB, 0, SOURCEDB_PCH);
-        }
-
-        if ((FileDB->Flags & (FILEDB_SOURCE | FILEDB_OBJECTS_LIST)) ==
-            FILEDB_SOURCE) {
-
-            p = FileDB->Name;
-            p1 = path;
-            while (*p != '\0' && *p != '.') {
-                *p1++ = *p++;
-            }
-            *p1 = '\0';
-            strlwr(path);
-            if (DirDB->KernelTest != NULL &&
-                !strcmp(path, DirDB->KernelTest)) {
-
-                FileDB->Flags |= FILEDB_OBJECTS_LIST;
-            }
-            else
-            if (DirDB->UserAppls != NULL &&
-                (p = strstr(DirDB->UserAppls, path)) &&
-                (p == DirDB->UserAppls || p[-1] == '*' || p[-1] == ' ')) {
-                FileDB->Flags |= FILEDB_OBJECTS_LIST;
-            }
-            else
-            if (DirDB->UserTests != NULL &&
-                (p = strstr(DirDB->UserTests, path)) &&
-                (p == DirDB->UserTests || p[-1] == '*' || p[-1] == ' ')) {
-
-                FileDB->Flags |= FILEDB_OBJECTS_LIST;
-            }
-            if (FileDB->Flags & FILEDB_OBJECTS_LIST) {
-                InsertSourceDB(&pds->psrSourcesList[0], FileDB, 0, 0);
-            }
-        }
-        FileDBNext = &FileDB->Next;
-    }
-
-    if (DEBUG_1) {
-        PrintDirDB(DirDB, 1|2);
-        PrintDirSupData(pds);
-        PrintDirDB(DirDB, 4);
-    }
-    return(TRUE);
-}
-
-
-VOID
-PrintDirSupData(DIRSUP *pds)
-{
-    int i;
-
-    if (pds->LocalIncludePath != NULL) {
-        BuildMsgRaw("  LocalIncludePath: %s\n", pds->LocalIncludePath);
-    }
-    if (pds->TestType != NULL) {
-        BuildMsgRaw("  TestType: %s\n", pds->TestType);
-    }
-    if (pds->PchIncludeDir != NULL) {
-        BuildMsgRaw("  PchIncludeDir: %s\n", pds->PchIncludeDir);
-    }
-    if (pds->PchInclude != NULL) {
-        BuildMsgRaw("  PchInclude: %s\n", pds->PchInclude);
-    }
-    if (pds->PchTargetDir != NULL) {
-        BuildMsgRaw("  PchTargetDir: %s\n", pds->PchTargetDir);
-    }
-    if (pds->PchTarget != NULL) {
-        BuildMsgRaw("  PchTarget: %s\n", pds->PchTarget);
-    }
-    if (pds->ConditionalIncludes != NULL) {
-        BuildMsgRaw("  ConditionalIncludes: %s\n", pds->ConditionalIncludes);
-    }
-    for (i = 0; i < MAX_TARGET_MACHINES + 1; i++) {
-        if (pds->SourcesVariables[i] != NULL) {
-            BuildMsgRaw(
-                "  SourcesVariables[%d]: %s\n",
-                i,
-                pds->SourcesVariables[i]);
-        }
-        if (pds->psrSourcesList[i] != NULL) {
-            BuildMsgRaw("  SourcesList[%d]:\n", i);
-            PrintSourceDBList(pds->psrSourcesList[i], i - 1);
-        }
-    }
-}
-
-
-VOID
-FreeDirSupData(DIRSUP *pds)
-{
-    int i;
-
-    if (pds->LocalIncludePath != NULL) {
-        FreeMem(&pds->LocalIncludePath, MT_DIRSTRING);
-    }
-    if (pds->TestType != NULL) {
-        FreeMem(&pds->TestType, MT_DIRSTRING);
-    }
-    if (pds->PchInclude != NULL) {
-        FreeMem(&pds->PchInclude, MT_DIRSTRING);
-    }
-    if (pds->PchIncludeDir != NULL) {
-        FreeMem(&pds->PchIncludeDir, MT_DIRSTRING);
-    }
-    if (pds->PchTargetDir != NULL) {
-        FreeMem(&pds->PchTargetDir, MT_DIRSTRING);
-    }
-    if (pds->PchTarget != NULL) {
-        FreeMem(&pds->PchTarget, MT_DIRSTRING);
-    }
-    if (pds->ConditionalIncludes != NULL) {
-        FreeMem(&pds->ConditionalIncludes, MT_DIRSTRING);
-    }
-    for (i = 0; i < MAX_TARGET_MACHINES + 1; i++) {
-        if (pds->SourcesVariables[i] != NULL) {
-            FreeMem(&pds->SourcesVariables[i], MT_DIRSTRING);
-        }
-        while (pds->psrSourcesList[i] != NULL) {
-            FreeSourceDB(&pds->psrSourcesList[i]);
-        }
-    }
-}
-
-
-VOID
-FreeDirData(DIRREC *pdr)
-{
-    if (pdr->TargetPath != NULL) {
-        FreeMem(&pdr->TargetPath, MT_DIRSTRING);
-    }
-    if (pdr->TargetName != NULL) {
-        FreeMem(&pdr->TargetName, MT_DIRSTRING);
-    }
-    if (pdr->KernelTest != NULL) {
-        FreeMem(&pdr->KernelTest, MT_DIRSTRING);
-    }
-    if (pdr->UserAppls != NULL) {
-        FreeMem(&pdr->UserAppls, MT_DIRSTRING);
-    }
-    if (pdr->UserTests != NULL) {
-        FreeMem(&pdr->UserTests, MT_DIRSTRING);
-    }
-    if (pdr->PchObj != NULL) {
-        FreeMem(&pdr->PchObj, MT_DIRSTRING);
-    }
-}
-
-
-VOID
-MarkDirNames(
-    PDIRREC DirDB,
-    LPSTR TextLine,
-    BOOL Required
-    )
-{
-    UINT i;
-    LPSTR p;
-    PFILEREC FileDB, *FileDBNext;
-    char dirbuf[64];
-
-    AssertPathString(TextLine);
-    while (SplitToken(dirbuf, '*', &TextLine)) {
-        for (p = dirbuf; *p != '\0'; p++) {
-            if (!iscsym(*p) && *p != '.') {
-                BuildError(
-                    "%s: ignoring bad subdirectory: %s\n",
-                    DirDB->Name,
-                    dirbuf);
-                p = NULL;
-                break;
-            }
-        }
-        if (p != NULL) {
-            if (!Required) {
-                for (i = 0; i < CountOptionalDirs; i++) {
-                    if (!strcmp(dirbuf, OptionalDirs[i])) {
-                        break;
-                    }
-                }
-                if (i >= CountOptionalDirs) {
-                    p = NULL;
-                }
-            }
-            else {
-                for (i = 0; i < CountExcludeDirs; i++) {
-                    if (!strcmp(dirbuf, ExcludeDirs[i])) {
-                        p = NULL;
-                        break;
-                    }
-                }
-            }
-        }
-        if (p != NULL) {
-            if (fQuicky || fSemiQuicky) {
-                FileDB = InsertFileDB(
-                            DirDB,
-                            dirbuf,
-                            0,
-                            FILE_ATTRIBUTE_DIRECTORY,
-                            0);
-                if (FileDB != NULL) {
-                    FileDB->SubDirIndex = ++DirDB->CountSubDirs;
-                }
-            }
-            else {
-                FileDBNext = &DirDB->Files;
-                while (FileDB = *FileDBNext) {
-                    if (FileDB->Flags & FILEDB_DIR) {
-                        if (!strcmp(dirbuf, FileDB->Name)) {
-                            FileDB->SubDirIndex = ++DirDB->CountSubDirs;
-                            break;
-                        }
-                    }
-                    FileDBNext = &FileDB->Next;
-                }
-                if (FileDB == NULL) {
-                    BuildError(
-                        "%s found in %s, is not a subdirectory of %s\n",
-                        dirbuf,
-                        FormatPathName(DirDB->Name, *ppCurrentDirsFileName),
-                        DirDB->Name);
-                }
+                time = 0x1421A000;       // 12:00:00 1/1/1990
             }
 
+            DosDateTimeToFileTime(HIWORD(time), LOWORD(time), &ft);
+
+            SetFileTime(hf, (LPFILETIME)NULL, (LPFILETIME)NULL, &ft);
+
+            CloseHandle(hf);
         }
-    }
-}
-
-
-BOOL
-ReadDirsFile(
-    PDIRREC DirDB
-    )
-{
-    FILE *InFileHandle;
-    LPSTR TextLine, pValue;
-    LPSTR apszDirs[] = { "mydirs.", "dirs.", NULL };
-
-    for (ppCurrentDirsFileName = apszDirs;
-         *ppCurrentDirsFileName != NULL;
-         ppCurrentDirsFileName++) {
-        if (SetupReadFile(DirDB->Name, *ppCurrentDirsFileName, "#", &InFileHandle)) {
-            break;
-        }
-    }
-    if (*ppCurrentDirsFileName == NULL) {
-        return(FALSE);
-    }
-
-    if (DEBUG_1) {
-        BuildMsg(
-            "    Scanning file %s\n",
-            FormatPathName(DirDB->Name, *ppCurrentDirsFileName));
-    }
-
-    assert(cMacro == 0);
-    while ((TextLine = ReadLine(InFileHandle)) != NULL) {
-        if ((pValue = SplitMacro(TextLine)) != NULL) {
-            SaveMacro(TextLine, pValue);
-        }
-    }
-    CloseReadFile(NULL);
-    if ((pValue = FindMacro("DIRS")) != NULL) {
-        MarkDirNames(DirDB, pValue, TRUE);
-    }
-    if ((pValue = FindMacro("OPTIONAL_DIRS")) != NULL) {
-        MarkDirNames(DirDB, pValue, FALSE);
-    }
-    FreeMacros();
-    return( TRUE );
-}
-
-
-VOID
-StartElapsedTime(VOID)
-{
-    if (fPrintElapsed && StartTime == 0) {
-        StartTime = GetTickCount();
-    }
-}
-
-
-VOID
-PrintElapsedTime(VOID)
-{
-    DWORD ElapsedTime;
-    DWORD ElapsedHours;
-    DWORD ElapsedMinutes;
-    DWORD ElapsedSeconds;
-    DWORD ElapsedMilliseconds;
-
-    if (fPrintElapsed) {
-        ElapsedTime = GetTickCount() - StartTime;
-        ElapsedHours = ElapsedTime/(1000 * 60 * 60);
-        ElapsedTime = ElapsedTime % (1000 * 60 * 60);
-        ElapsedMinutes = ElapsedTime/(1000 * 60);
-        ElapsedTime = ElapsedTime % (1000 * 60);
-        ElapsedSeconds = ElapsedTime/1000;
-        ElapsedMilliseconds = ElapsedTime % 1000;
-        BuildMsg(
-            "Elapsed time [%d:%02d:%02d.%03d]\n",
-            ElapsedHours,
-            ElapsedMinutes,
-            ElapsedSeconds,
-            ElapsedMilliseconds);
-        LogMsg(
-            "Elapsed time [%d:%02d:%02d.%03d]%s\n",
-            ElapsedHours,
-            ElapsedMinutes,
-            ElapsedSeconds,
-            ElapsedMilliseconds,
-            szAsterisks);
     }
 }

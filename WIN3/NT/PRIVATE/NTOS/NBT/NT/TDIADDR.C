@@ -27,7 +27,6 @@ Revision History:
 #pragma CTEMakePageable(PAGE, NbtTdiOpenAddress)
 #pragma CTEMakePageable(PAGE, NbtTdiOpenControl)
 #pragma CTEMakePageable(PAGE, SetEventHandler)
-#pragma CTEMakePageable(PAGE, QueryProviderInfo)
 #pragma CTEMakePageable(PAGE, SubmitTdiRequest)
 #endif
 //*******************  Pageable Routine Declarations ****************
@@ -119,11 +118,11 @@ Return Value:
     {
         return(status);
     }
-    EaBuffer = CTEAllocMem(
+    EaBuffer = NbtAllocMem(
                     sizeof(FILE_FULL_EA_INFORMATION) - 1 +
                     TDI_TRANSPORT_ADDRESS_LENGTH + 1 +
                     sizeof(TRANSPORT_ADDRESS) +
-                    sizeof(TDI_ADDRESS_IP));
+                    sizeof(TDI_ADDRESS_IP),NBT_TAG('j'));
 
     if (EaBuffer == NULL)
     {
@@ -158,8 +157,8 @@ Return Value:
 
     // allocate Memory for the transport address
     //
-    pTransAddr = CTEAllocMem(
-            sizeof(TDI_ADDRESS_IP)+sizeof(TRANSPORT_ADDRESS));
+    pTransAddr = NbtAllocMem(
+            sizeof(TDI_ADDRESS_IP)+sizeof(TRANSPORT_ADDRESS),NBT_TAG('k'));
 
     pTransAddr->TAAddressCount = 1;
     pTransAddr->Address[0].AddressLength = sizeof(TDI_ADDRESS_IP);
@@ -253,8 +252,7 @@ Return Value:
             //
             *ppFileObject = pFileObject;
 
-            //ppDeviceObject = IoGetRelatedDeviceObject(*ppFileObject);
-            *ppDeviceObject = (*ppFileObject)->DeviceObject;
+	    *ppDeviceObject = IoGetRelatedDeviceObject(*ppFileObject);
 
             status = SetEventHandler(
                             *ppDeviceObject,
@@ -473,7 +471,7 @@ Return Value:
             }
             else
                 pDeviceContext->pControlDeviceObject =
-                               pDeviceContext->pControlFileObject->DeviceObject;
+			       IoGetRelatedDeviceObject(pDeviceContext->pControlFileObject);
         }
 
     }
@@ -593,80 +591,6 @@ Return Value:
 
 //----------------------------------------------------------------------------
 NTSTATUS
-QueryProviderInfo (
-    IN PDEVICE_OBJECT       DeviceObject,
-    IN PFILE_OBJECT         FileObject,
-    IN ULONG                QueryType,
-    OUT PVOID               pProviderInfo
-    )
-
-/*++
-
-Routine Description:
-
-    This routine contacts the transport to get the provider info.
-    *TODO* check if this routine is used or not!!
-
-Arguments:
-
-    IN PDEVICE_OBJECT DeviceObject - Supplies the device object of the transport provider.
-    IN PFILE_OBJECT FileObject - Supplies the address object's file object.
-
-Return Value:
-
-    NTSTATUS - Final status of the set event operation
-
---*/
-
-{
-    NTSTATUS    Status;
-    PIRP        Irp;
-    PMDL        pMdl;
-    ULONG       size;
-
-    CTEPagedCode();
-    Irp = IoAllocateIrp(IoGetRelatedDeviceObject(FileObject)->StackSize, FALSE);
-
-    if (Irp == NULL)
-    {
-        return(STATUS_INSUFFICIENT_RESOURCES);
-    }
-
-    if (QueryType == TDI_QUERY_PROVIDER_INFO)
-    {
-        size = sizeof(TDI_PROVIDER_INFO);
-    }
-    else
-        size = sizeof(ADAPTER_STATUS);
-
-    pMdl = IoAllocateMdl(pProviderInfo,
-                         size,
-                         FALSE,
-                         FALSE,
-                         NULL);
-    if (!pMdl)
-    {
-        return(STATUS_INSUFFICIENT_RESOURCES);
-    }
-
-    TdiBuildQueryInformation(Irp, DeviceObject, FileObject,
-                            NULL, NULL,
-                            QueryType,
-                            pMdl);
-
-    MmBuildMdlForNonPagedPool(pMdl);
-
-    Status = SubmitTdiRequest(FileObject, Irp);
-
-    IoFreeIrp(Irp);
-    IoFreeMdl(pMdl);
-
-    return Status;
-}
-
-
-//----------------------------------------------------------------------------
-NTSTATUS
 SubmitTdiRequest (
     IN PFILE_OBJECT FileObject,
     IN PIRP Irp
@@ -706,6 +630,7 @@ Return Value:
                 (PVOID)&Event,
                 TRUE, TRUE, TRUE);
 
+    CHECK_COMPLETION(Irp);
     Status = IoCallDriver(IoGetRelatedDeviceObject(FileObject), Irp);
 
     //
@@ -744,4 +669,4 @@ Return Value:
 }
 
 
-
+

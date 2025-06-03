@@ -21,12 +21,6 @@ Revision History:
 
 #include "mi.h"
 
-VOID
-KiFlushSingleTb (
-    IN BOOLEAN Invalid,
-    IN PVOID VirtualAddress
-    );
-
 PVOID
 MmDbgReadCheck (
     IN PVOID VirtualAddress
@@ -104,9 +98,13 @@ Environment:
         return NULL;
     }
 
-    PointerPte = MiGetPteAddress (VirtualAddress);
+    PointerPte = MiGetPdeAddress (VirtualAddress);
+    if (PointerPte->u.Hard.LargePage == 0) {
+        PointerPte = MiGetPteAddress (VirtualAddress);
+    }
 
-    if (PointerPte->u.Hard.Write == 0) {
+    if ((PointerPte->u.Hard.Write == 0) &&
+        ((PointerPte->u.Long & HARDWARE_PTE_DIRTY_MASK) == 0)) {
 
         //
         // PTE is not writable, return NULL.
@@ -117,7 +115,6 @@ Environment:
 
     return VirtualAddress;
 }
-
 
 PVOID
 MmDbgTranslatePhysicalAddress (

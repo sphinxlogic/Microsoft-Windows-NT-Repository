@@ -281,6 +281,7 @@ void TaskStack::Pop( TaskItem *pti )
 //
 //  History:    dd-mmm-yy Author    Comment
 //	 	06-Feb-94 alexgo    author
+//              09-Dec-94 MikeW     Added exception handling
 //
 //  Notes:
 //
@@ -307,7 +308,21 @@ void TaskStack::PopAndExecute( TaskItem *pti )
 			OutputString("Starting: %s\r\n", pti->szName);
 		}
 		//call the function
-		(*pti->fnCall)(pti->pvArg);
+
+        __try
+        {            
+		    (*pti->fnCall)(pti->pvArg);
+        }
+        __except ((GetExceptionCode() == E_ABORT) 
+                ? EXCEPTION_EXECUTE_HANDLER 
+                : EXCEPTION_CONTINUE_SEARCH)
+        {
+            //
+            // there was an assertion and the user hit abort
+            //
+
+            PostMessage(vApp.m_hwndMain, WM_TESTEND, TEST_FAILURE, 0);
+        }
 	}
 
 	return;

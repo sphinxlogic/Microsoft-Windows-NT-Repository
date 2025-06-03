@@ -37,11 +37,12 @@ Revision History:
 // Protocol handler state constants.
 //
 
-#define STATE0    0
-#define STATE1    1
-#define STATE2    2
-#define STATE3    3
-#define STATE_MAX 4
+#define STATE0    0     // Sync bit, buttons and high x & y bits
+#define STATE1    1     // lower x bits
+#define STATE2    2     // lower y bits
+#define STATE3    3     // Switch 2, extended packet bit & low z data
+#define STATE4    4     // high z data
+#define STATE_MAX 5
 
 //
 // Useful constants.
@@ -50,6 +51,10 @@ Revision History:
 #define MOUSE_BUTTON_1  0x01
 #define MOUSE_BUTTON_2  0x02
 #define MOUSE_BUTTON_3  0x04
+
+#define MOUSE_BUTTON_LEFT   0x01
+#define MOUSE_BUTTON_RIGHT  0x02
+#define MOUSE_BUTTON_MIDDLE 0x04
 
 //
 // Conversion factor for milliseconds to microseconds.
@@ -82,9 +87,12 @@ typedef BOOLEAN
 
 //
 // Defines for DeviceExtension->HardwarePresent.
+// These should match the values in i8042prt
 //
 
-#define MOUSE_HARDWARE_PRESENT     1
+#define MOUSE_HARDWARE_PRESENT      0x02
+#define BALLPOINT_HARDWARE_PRESENT  0x04
+#define WHEELMOUSE_HARDWARE_PRESENT 0x08
 
 //
 // Serial mouse configuration information.
@@ -177,7 +185,7 @@ typedef struct _DEVICE_EXTENSION {
     // (BALLPOINT_HARDWARE_PRESENT).
     //
 
-    BOOLEAN HardwarePresent;
+    ULONG HardwarePresent;
 
     //
     // Port configuration information.

@@ -78,7 +78,7 @@ Return Value:
     //
 
     if (args[0] != '\0') {
-        ComponentName = &args[0];
+        ComponentName = (PUCHAR)&args[0];
 
     } else {
         ComponentName = NULL;
@@ -171,7 +171,7 @@ Return Value:
                 //
 
                 if (ComponentName != NULL) {
-                    if (stricmp(ComponentName, &NameBuffer[0]) != 0) {
+                    if (_stricmp(ComponentName, &NameBuffer[0]) != 0) {
                         continue;
                     }
                 }

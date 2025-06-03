@@ -2840,7 +2840,7 @@ Return Value:
         // is [Pp][Ii][Pp][Ee][\\/]
         //
 
-        if (!strnicmp(Name, "PIPE", 4)) {
+        if (!_strnicmp(Name, "PIPE", 4)) {
             Name += 4;
             if (IS_ASCII_PATH_SEPARATOR(*Name)) {
 
@@ -2968,7 +2968,7 @@ Return Value:
         pipeLength = strlen(pipeName);
         prefixLength = (DWORD)pipeName - (DWORD)Name;
         if (ThisComputerNameLength && (prefixLength - 2 == ThisComputerNameLength)) {
-            if (!strnicmp(ThisComputerName, &Name[2], ThisComputerNameLength)) {
+            if (!_strnicmp(ThisComputerName, &Name[2], ThisComputerNameLength)) {
                 strcpy(Buffer, LOCAL_DEVICE_PREFIX);
                 mapped = TRUE;
             }

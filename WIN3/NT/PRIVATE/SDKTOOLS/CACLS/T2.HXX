@@ -1,5 +1,7 @@
 //+-------------------------------------------------------------------
 //
+// Copyright (C) 1995, Microsoft Corporation.
+//
 //  File:        t2.hxx
 //
 //  Contents:    general include things for the Control ACLS program
@@ -9,12 +11,6 @@
 //  History:     Dec-93        Created         DaveMont
 //
 //--------------------------------------------------------------------
-extern "C"
-{
-#include <nt.h>
-#include <ntrtl.h>
-#include <nturtl.h>
-}
 #include <stdio.h>
 #include <stdlib.h>
 #include <windows.h>

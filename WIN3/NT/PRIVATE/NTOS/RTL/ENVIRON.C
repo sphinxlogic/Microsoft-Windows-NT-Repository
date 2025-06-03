@@ -469,7 +469,7 @@ RtlSetEnvironmentVariable(
     PWSTR p, pStart, pEnd;
 
     RtlpEnvironCacheValid = FALSE;
-    Status = STATUS_UNSUCCESSFUL;
+    Status = STATUS_VARIABLE_NOT_FOUND;
     if (ARGUMENT_PRESENT( Environment )) {
         pOld = *Environment;
         }
@@ -684,7 +684,7 @@ RtlSetEnvironmentVariable(
                 // Request name is less than current name, then look no
                 // further as we will not find it in our sorted list.
                 // The insertion point for the new variable is before the
-                // variable just examine,
+                // variable just examined.
                 //
 
                 p = CurrentName.Buffer;

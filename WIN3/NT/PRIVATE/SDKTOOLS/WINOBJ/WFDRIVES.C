@@ -12,6 +12,7 @@
 #include "lfn.h"
 #include "wfcopy.h"
 #include "winnet.h"
+#include <winnetp.h>
 
 
 VOID NEAR PASCAL InvalidateDrive(HWND hwnd, INT nDrive);

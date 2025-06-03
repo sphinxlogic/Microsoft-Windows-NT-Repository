@@ -20,15 +20,47 @@ Revision History:
 
 #include "afdp.h"
 
+
+#if ENABLE_ABORT_TIMER_HACK
+//
+// Hack-O-Rama. TDI has a fundamental flaw in that it is often impossible
+// to determine exactly when a TDI protocol is "done" with a connection
+// object. The biggest problem here is that AFD may get a suprious TDI
+// indication *after* an abort request has completed. As a temporary work-
+// around, whenever an abort request completes, we'll start a timer. AFD
+// will defer further processing on the connection until that timer fires.
+//
+
+typedef struct _AFD_ABORT_TIMER_INFO {
+
+    KDPC Dpc;
+    KTIMER Timer;
+
+} AFD_ABORT_TIMER_INFO, *PAFD_ABORT_TIMER_INFO;
+
+VOID
+AfdAbortTimerHack(
+    IN PKDPC Dpc,
+    IN PVOID DeferredContext,
+    IN PVOID SystemArgument1,
+    IN PVOID SystemArgument2
+    );
+#endif  // ENABLE_ABORT_TIMER_HACK
+
 NTSTATUS
-AfdRestartAbort (
+AfdRestartAbort(
     IN PDEVICE_OBJECT DeviceObject,
     IN PIRP Irp,
     IN PVOID Context
     );
 
+VOID
+AfdRestartAbortHelper(
+    IN PAFD_CONNECTION Connection
+    );
+
 NTSTATUS
-AfdRestartDisconnect (
+AfdRestartDisconnect(
     IN PDEVICE_OBJECT DeviceObject,
     IN PIRP Irp,
     IN PVOID Context
@@ -36,31 +68,24 @@ AfdRestartDisconnect (
 
 typedef struct _AFD_ABORT_CONTEXT {
     PAFD_CONNECTION Connection;
-    WORK_QUEUE_ITEM WorkItem;
 } AFD_ABORT_CONTEXT, *PAFD_ABORT_CONTEXT;
-
-typedef struct _AFD_DISCONNECT_CONTEXT {
-    LIST_ENTRY DisconnectListEntry;
-    PAFD_ENDPOINT Endpoint;
-    PTDI_CONNECTION_INFORMATION TdiConnectionInformation;
-    LARGE_INTEGER Timeout;
-    WORK_QUEUE_ITEM WorkItem;
-    PAFD_CONNECTION Connection;
-    PIRP Irp;
-} AFD_DISCONNECT_CONTEXT, *PAFD_DISCONNECT_CONTEXT;
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text( PAGEAFD, AfdPartialDisconnect )
 #pragma alloc_text( PAGEAFD, AfdDisconnectEventHandler )
 #pragma alloc_text( PAGEAFD, AfdBeginAbort )
 #pragma alloc_text( PAGEAFD, AfdRestartAbort )
+#pragma alloc_text( PAGEAFD, AfdRestartAbortHelper )
 #pragma alloc_text( PAGEAFD, AfdBeginDisconnect )
 #pragma alloc_text( PAGEAFD, AfdRestartDisconnect )
+#if ENABLE_ABORT_TIMER_HACK
+#pragma alloc_text( PAGEAFD, AfdAbortTimerHack )
+#endif  // ENABLE_ABORT_TIMER_HACK
 #endif
 
 
 NTSTATUS
-AfdPartialDisconnect (
+AfdPartialDisconnect(
     IN PIRP Irp,
     IN PIO_STACK_LOCATION IrpSp
     )
@@ -91,9 +116,9 @@ AfdPartialDisconnect (
     // test that the socket must be connected is after this case.
     //
 
-    if ( endpoint->EndpointType == AfdEndpointTypeDatagram ) {
+    if ( IS_DGRAM_ENDPOINT(endpoint) ) {
 
-        KeAcquireSpinLock( &AfdSpinLock, &oldIrql );
+        AfdAcquireSpinLock( &AfdSpinLock, &oldIrql );
 
         if ( (disconnectInfo->DisconnectMode & AFD_ABORTIVE_DISCONNECT) != 0 ) {
             endpoint->DisconnectMode |= AFD_PARTIAL_DISCONNECT_RECEIVE;
@@ -110,15 +135,19 @@ AfdPartialDisconnect (
         }
 
         if ( (disconnectInfo->DisconnectMode & AFD_UNCONNECT_DATAGRAM) != 0 ) {
-            ASSERT( endpoint->Common.Datagram.RemoteAddress != NULL );
-            AFD_FREE_POOL( endpoint->Common.Datagram.RemoteAddress );
+            if( endpoint->Common.Datagram.RemoteAddress != NULL ) {
+                AFD_FREE_POOL(
+                    endpoint->Common.Datagram.RemoteAddress,
+                    AFD_REMOTE_ADDRESS_POOL_TAG
+                    );
+            }
             endpoint->Common.Datagram.RemoteAddress = NULL;
             endpoint->Common.Datagram.RemoteAddressLength = 0;
             endpoint->State = AfdEndpointStateBound;
         }
 
-        KeReleaseSpinLock( &AfdSpinLock, oldIrql );
-        
+        AfdReleaseSpinLock( &AfdSpinLock, oldIrql );
+
         status = STATUS_SUCCESS;
         goto complete;
     }
@@ -167,7 +196,7 @@ AfdPartialDisconnect (
     if ( (disconnectInfo->DisconnectMode & AFD_PARTIAL_DISCONNECT_RECEIVE) != 0 &&
          (endpoint->DisconnectMode & AFD_PARTIAL_DISCONNECT_RECEIVE) == 0 ) {
 
-        KeAcquireSpinLock( &AfdSpinLock, &oldIrql );
+        AfdAcquireSpinLock( &AfdSpinLock, &oldIrql );
 
         //
         // Determine whether there is pending data.
@@ -186,7 +215,7 @@ AfdPartialDisconnect (
                               endpoint, connection ));
             }
 
-            KeReleaseSpinLock( &AfdSpinLock, oldIrql );
+            AfdReleaseSpinLock( &AfdSpinLock, oldIrql );
 
             (VOID)AfdBeginAbort( connection );
 
@@ -211,8 +240,8 @@ AfdPartialDisconnect (
             //
 
             endpoint->DisconnectMode |= AFD_PARTIAL_DISCONNECT_RECEIVE;
-    
-            KeReleaseSpinLock( &AfdSpinLock, oldIrql );
+
+            AfdReleaseSpinLock( &AfdSpinLock, oldIrql );
         }
     }
 
@@ -225,7 +254,7 @@ AfdPartialDisconnect (
     if ( (disconnectInfo->DisconnectMode & AFD_PARTIAL_DISCONNECT_SEND) != 0 &&
          (endpoint->DisconnectMode & AFD_PARTIAL_DISCONNECT_SEND) == 0 ) {
 
-        status = AfdBeginDisconnect( endpoint, &disconnectInfo->Timeout );
+        status = AfdBeginDisconnect( endpoint, &disconnectInfo->Timeout, NULL );
         if ( !NT_SUCCESS(status) ) {
             goto complete;
         }
@@ -247,7 +276,7 @@ complete:
 
 
 NTSTATUS
-AfdDisconnectEventHandler (
+AfdDisconnectEventHandler(
     IN PVOID TdiEventContext,
     IN CONNECTION_CONTEXT ConnectionContext,
     IN int DisconnectDataLength,
@@ -275,6 +304,20 @@ AfdDisconnectEventHandler (
                       connection->Endpoint, connection ));
     }
 
+    UPDATE_CONN( connection, DisconnectFlags );
+
+    //
+    // Reference the connection object so that it does not go away while
+    // we're processing it inside this function.  Without this
+    // reference, the user application could close the endpoint object,
+    // the connection reference count could go to zero, and the
+    // AfdDeleteConnectedReference call at the end of this function
+    // could cause a crash if the AFD connection object has been
+    // completely cleaned up.
+    //
+
+    REFERENCE_CONNECTION( connection );
+
     //
     // Set up in the connection the fact that the remote side has
     // disconnected or aborted.
@@ -283,18 +326,12 @@ AfdDisconnectEventHandler (
     if ( (DisconnectFlags & TDI_DISCONNECT_ABORT) != 0 ) {
         connection->AbortIndicated = TRUE;
         status = STATUS_REMOTE_DISCONNECT;
+        AfdRecordAbortiveDisconnectIndications();
     } else {
         connection->DisconnectIndicated = TRUE;
         status = STATUS_SUCCESS;
+        AfdRecordGracefulDisconnectIndications();
     }
-
-    //
-    // Remove the connected reference on the connection object.  We must
-    // do this AFTER setting up the flag which remembers the disconnect
-    // type that occurred.
-    //
-
-    AfdDeleteConnectedReference( connection );
 
     //
     // If this is a nonbufferring transport, complete any pended receives.
@@ -305,7 +342,8 @@ AfdDisconnectEventHandler (
         AfdCompleteIrpList(
             &connection->VcReceiveIrpListHead,
             &endpoint->SpinLock,
-            status
+            status,
+            NULL
             );
 
         //
@@ -318,10 +356,11 @@ AfdDisconnectEventHandler (
             AfdCompleteIrpList(
                 &connection->VcSendIrpListHead,
                 &endpoint->SpinLock,
-                status
+                status,
+                NULL
                 );
 
-            KeAcquireSpinLock( &endpoint->SpinLock, &oldIrql );
+            AfdAcquireSpinLock( &endpoint->SpinLock, &oldIrql );
 
             connection->VcBufferredReceiveBytes = 0;
             connection->VcBufferredReceiveCount = 0;
@@ -344,60 +383,70 @@ AfdDisconnectEventHandler (
                 AfdReturnBuffer( afdBuffer );
             }
 
-            KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+            AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
         }
     }
 
     //
-    // If this connection has buffers for disconnect data and there
-    // was disconnect data in this indication, remember the data.
+    // If we got disconnect data or options, save it.
     //
 
-    KeAcquireSpinLock( &AfdSpinLock, &oldIrql );
+    if( ( DisconnectData != NULL && DisconnectDataLength > 0 ) ||
+        ( DisconnectInformation != NULL && DisconnectInformationLength > 0 ) ) {
 
-    if ( connection->ConnectDataBuffers != NULL ) {
+        AfdAcquireSpinLock( &AfdSpinLock, &oldIrql );
 
-        if ( connection->ConnectDataBuffers->ReceiveDisconnectData.Buffer != NULL &&
-                 DisconnectData != NULL ) {
+        if( DisconnectData != NULL & DisconnectDataLength > 0 ) {
 
-            if ( connection->ConnectDataBuffers->ReceiveDisconnectData.BufferLength <
-                     (ULONG)DisconnectDataLength ) {
+            status = AfdSaveReceivedConnectData(
+                         &connection->ConnectDataBuffers,
+                         IOCTL_AFD_SET_DISCONNECT_DATA,
+                         DisconnectData,
+                         DisconnectDataLength
+                         );
 
-                connection->ConnectDataBuffers->ReceiveDisconnectData.BufferLength =
-                    DisconnectDataLength;
+            if( !NT_SUCCESS(status) ) {
+
+                //
+                // We hit an allocation failure, but press on regardless.
+                //
+
+                KdPrint((
+                    "AfdSaveReceivedConnectData failed: %08lx\n",
+                    status
+                    ));
+
             }
 
-            RtlCopyMemory(
-                connection->ConnectDataBuffers->ReceiveDisconnectData.Buffer,
-                DisconnectData,
-                connection->ConnectDataBuffers->ReceiveDisconnectData.BufferLength
-                );
-
-        } else {
-            connection->ConnectDataBuffers->ReceiveDisconnectData.BufferLength = 0;
         }
 
-        if ( connection->ConnectDataBuffers->ReceiveDisconnectOptions.Buffer != NULL &&
-                 DisconnectInformation != NULL ) {
+        if( DisconnectInformation != NULL & DisconnectInformationLength > 0 ) {
 
-            if ( connection->ConnectDataBuffers->ReceiveDisconnectOptions.BufferLength <
-                     (ULONG)DisconnectInformationLength ) {
+            status = AfdSaveReceivedConnectData(
+                         &connection->ConnectDataBuffers,
+                         IOCTL_AFD_SET_DISCONNECT_DATA,
+                         DisconnectInformation,
+                         DisconnectInformationLength
+                         );
 
-                connection->ConnectDataBuffers->ReceiveDisconnectOptions.BufferLength =
-                    DisconnectInformationLength;
+            if( !NT_SUCCESS(status) ) {
+
+                //
+                // We hit an allocation failure, but press on regardless.
+                //
+
+                KdPrint((
+                    "AfdSaveReceivedConnectData failed: %08lx\n",
+                    status
+                    ));
+
             }
 
-            RtlCopyMemory(
-                connection->ConnectDataBuffers->ReceiveDisconnectOptions.Buffer,
-                DisconnectInformation,
-                connection->ConnectDataBuffers->ReceiveDisconnectOptions.BufferLength
-                );
-        } else {
-            connection->ConnectDataBuffers->ReceiveDisconnectOptions.BufferLength = 0;
         }
+
+        AfdReleaseSpinLock( &AfdSpinLock, oldIrql );
+
     }
-
-    KeReleaseSpinLock( &AfdSpinLock, oldIrql );
 
     //
     // Call AfdIndicatePollEvent in case anyone is polling on this
@@ -405,18 +454,39 @@ AfdDisconnectEventHandler (
     //
 
     if ( (DisconnectFlags & TDI_DISCONNECT_ABORT) != 0 ) {
+
         AfdIndicatePollEvent(
-            connection->Endpoint,
-            AFD_POLL_ABORT | AFD_POLL_SEND,
+            endpoint,
+            AFD_POLL_ABORT_BIT,
             STATUS_SUCCESS
             );
+
     } else {
+
         AfdIndicatePollEvent(
-            connection->Endpoint,
-            AFD_POLL_DISCONNECT,
+            endpoint,
+            AFD_POLL_DISCONNECT_BIT,
             STATUS_SUCCESS
             );
+
     }
+
+    //
+    // Remove the connected reference on the connection object.  We must
+    // do this AFTER setting up the flag which remembers the disconnect
+    // type that occurred.  We must also do this AFTER we have finished
+    // handling everything in the endpoint, since the endpoint structure
+    // may no longer have any information about the connection object if
+    // a transmit request with AFD_TF_REUSE_SOCKET happenned on it.
+    //
+
+    AfdDeleteConnectedReference( connection, FALSE );
+
+    //
+    // Dereference the connection from the reference added above.
+    //
+
+    DEREFERENCE_CONNECTION( connection );
 
     return STATUS_SUCCESS;
 
@@ -424,7 +494,7 @@ AfdDisconnectEventHandler (
 
 
 NTSTATUS
-AfdBeginAbort (
+AfdBeginAbort(
     IN PAFD_CONNECTION Connection
     )
 {
@@ -438,9 +508,15 @@ AfdBeginAbort (
         KdPrint(( "AfdBeginAbort: aborting on endpoint %lx\n", endpoint ));
     }
 
+    // Yet another hack to keep it from crashing
+    // Reduce the timing window were this connection can be removed
+    // from under us. (VadimE)
+    
+    REFERENCE_CONNECTION( Connection );
+
     //
-    // Build an IRP to reset the connection.  First get the address 
-    // of the target device object.  
+    // Build an IRP to reset the connection.  First get the address
+    // of the target device object.
     //
 
     ASSERT( Connection->Type == AfdBlockTypeConnection );
@@ -448,18 +524,51 @@ AfdBeginAbort (
     ASSERT( fileObject != NULL );
     deviceObject = IoGetRelatedDeviceObject( fileObject );
 
-    KeAcquireSpinLock( &AfdSpinLock, &oldIrql );
+    AfdAcquireSpinLock( &AfdSpinLock, &oldIrql );
 
     //
     // If the endpoint has already been abortively disconnected,
-    // just succeed this request.
+    // or if has been gracefully disconnected and the transport
+    // does not support orderly (i.e. two-phase) release, then just
+    // succeed this request.
+    //
+    // Note that, since the abort completion routine (AfdRestartAbort)
+    // will not be called, we must delete the connected reference
+    // ourselves.
     //
 
     if ( (endpoint->DisconnectMode & AFD_ABORTIVE_DISCONNECT) != 0 ||
-             Connection->AbortIndicated ) {
-        KeReleaseSpinLock( &AfdSpinLock, oldIrql );
+         Connection->AbortIndicated ||
+         (Connection->DisconnectIndicated &&
+             (endpoint->TransportInfo->ProviderInfo.ServiceFlags &
+                  TDI_SERVICE_ORDERLY_RELEASE) == 0) ) {
+        AfdReleaseSpinLock( &AfdSpinLock, oldIrql );
+        AfdDeleteConnectedReference( Connection, FALSE );
+   
+            // Accounts for the reference hack above (VadimE)
+        DEREFERENCE_CONNECTION( Connection );
         return STATUS_SUCCESS;
     }
+
+#if ENABLE_ABORT_TIMER_HACK
+
+    //
+    // Allocate a new abort timer if necessary.
+    //
+
+    if( Connection->AbortTimerInfo == NULL ) {
+
+        Connection->AbortTimerInfo = AFD_ALLOCATE_POOL(
+                                         NonPagedPoolMustSucceed,
+                                         sizeof(AFD_ABORT_TIMER_INFO),
+                                         AFD_ABORT_TIMER_HACK_POOL_TAG
+                                         );
+
+    }
+
+    ASSERT( Connection->AbortTimerInfo != NULL );
+
+#endif  // ENABLE_ABORT_TIMER_HACK
 
     //
     // Remember that the connection has been aborted.
@@ -471,10 +580,12 @@ AfdBeginAbort (
         endpoint->DisconnectMode |= AFD_ABORTIVE_DISCONNECT;
     }
 
+    Connection->AbortIndicated = TRUE;
+
     //
-    // Set the BytesTaken fields equal to the BytesIndicated fields so 
-    // that no more AFD_POLL_RECEIVE or AFD_POLL_RECEIVE_EXPEDITED 
-    // events get completed.  
+    // Set the BytesTaken fields equal to the BytesIndicated fields so
+    // that no more AFD_POLL_RECEIVE or AFD_POLL_RECEIVE_EXPEDITED
+    // events get completed.
     //
 
     if ( endpoint->TdiBufferring ) {
@@ -484,11 +595,11 @@ AfdBeginAbort (
         Connection->Common.Bufferring.ReceiveExpeditedBytesTaken =
             Connection->Common.Bufferring.ReceiveExpeditedBytesIndicated;
 
-        KeReleaseSpinLock( &AfdSpinLock, oldIrql );
-    
+        AfdReleaseSpinLock( &AfdSpinLock, oldIrql );
+
     } else if ( endpoint->Type != AfdBlockTypeVcListening ) {
 
-        KeReleaseSpinLock( &AfdSpinLock, oldIrql );
+        AfdReleaseSpinLock( &AfdSpinLock, oldIrql );
 
         //
         // Complete all of the connection's pended sends and receives.
@@ -497,19 +608,25 @@ AfdBeginAbort (
         AfdCompleteIrpList(
             &Connection->VcReceiveIrpListHead,
             &endpoint->SpinLock,
-            STATUS_LOCAL_DISCONNECT
+            STATUS_LOCAL_DISCONNECT,
+            NULL
             );
-            
+
         AfdCompleteIrpList(
             &Connection->VcSendIrpListHead,
             &endpoint->SpinLock,
-            STATUS_LOCAL_DISCONNECT
+            STATUS_LOCAL_DISCONNECT,
+            NULL
             );
+
+    } else {
+
+        AfdReleaseSpinLock( &AfdSpinLock, oldIrql );
     }
 
     //
-    // Allocate an IRP.  The stack size is one higher than that of the 
-    // target device, to allow for the caller's completion routine.  
+    // Allocate an IRP.  The stack size is one higher than that of the
+    // target device, to allow for the caller's completion routine.
     //
 
     irp = IoAllocateIrp( (CCHAR)(deviceObject->StackSize), FALSE );
@@ -553,11 +670,13 @@ AfdBeginAbort (
         );
 
     //
-    // Reference the connection object so that it does not go away 
+    // Reference the connection object so that it does not go away
     // until the abort completes.
     //
 
-    AfdReferenceConnection( Connection, FALSE );
+    // REFERENCE_CONNECTION( Connection ); Done above (VadimE)
+
+    AfdRecordAbortiveDisconnectsInitiated();
 
     //
     // Pass the request to the transport provider.
@@ -568,68 +687,57 @@ AfdBeginAbort (
 } // AfdBeginAbort
 
 
+#if ENABLE_ABORT_TIMER_HACK
 NTSTATUS
-AfdRestartAbort (
+AfdRestartAbort(
     IN PDEVICE_OBJECT DeviceObject,
     IN PIRP Irp,
     IN PVOID Context
     )
 {
-    PAFD_ENDPOINT endpoint;
+
     PAFD_CONNECTION connection;
+    PAFD_ABORT_TIMER_INFO timerInfo;
 
     connection = Context;
     ASSERT( connection != NULL );
     ASSERT( connection->Type == AfdBlockTypeConnection );
-    //ASSERT( connection->TdiBufferring || connection->VcBufferredSendCount == 0 );
 
-    endpoint = connection->Endpoint;
+    UPDATE_CONN( connection, Irp->IoStatus.Status );
+
+    timerInfo = connection->AbortTimerInfo;
+    ASSERT( timerInfo != NULL );
 
     IF_DEBUG(CONNECT) {
-        KdPrint(( "AfdRestartAbort: abort completed, status = %X, "
-                  "endpoint = %lx\n", Irp->IoStatus.Status, endpoint ));
+
+        KdPrint((
+            "AfdRestartAbort: abort completed, status = %X, endpoint = %lx\n",
+            Irp->IoStatus.Status,
+            connection->Endpoint
+            ));
+
     }
 
     //
-    // Remember that the connection has been aborted, and indicate if 
-    // necessary.  
+    // Setup a timer so we know it's safe to free the connection.
     //
 
-    connection->AbortIndicated = TRUE;
+    KeInitializeDpc(
+        &timerInfo->Dpc,
+        AfdAbortTimerHack,
+        connection
+        );
 
-    if ( endpoint->Type != AfdBlockTypeVcListening ) {
-        AfdIndicatePollEvent(
-            endpoint,
-            AFD_POLL_ABORT | AFD_POLL_SEND,
-            STATUS_SUCCESS
-            );
-    }
+    KeInitializeTimer(
+        &timerInfo->Timer
+        );
 
-    if ( !connection->TdiBufferring ) {
+    KeSetTimer(
+        &timerInfo->Timer,
+        AfdAbortTimerTimeout,
+        &timerInfo->Dpc
+        );
 
-        //
-        // Complete all of the connection's pended sends and receives.
-        //
-
-        AfdCompleteIrpList(
-            &connection->VcReceiveIrpListHead,
-            &endpoint->SpinLock,
-            STATUS_LOCAL_DISCONNECT
-            );
-            
-        AfdCompleteIrpList(
-            &connection->VcSendIrpListHead,
-            &endpoint->SpinLock,
-            STATUS_LOCAL_DISCONNECT
-            );
-    }
-    //
-    // Remove the connected reference from the connection, since we
-    // know that the connection will not be active any longer.
-    //
-
-    AfdDeleteConnectedReference( connection );
- 
     //
     // Free the IRP now since it is no longer needed.
     //
@@ -637,10 +745,75 @@ AfdRestartAbort (
     IoFreeIrp( Irp );
 
     //
-    // Dereference the AFD connection object.
+    // Return STATUS_MORE_PROCESSING_REQUIRED so that IoCompleteRequest
+    // will stop working on the IRP.
     //
 
-    AfdDereferenceConnection( connection );
+    return STATUS_MORE_PROCESSING_REQUIRED;
+
+}   // AfdRestartAbort
+
+VOID
+AfdAbortTimerHack(
+    IN PKDPC Dpc,
+    IN PVOID DeferredContext,
+    IN PVOID SystemArgument1,
+    IN PVOID SystemArgument2
+    )
+{
+
+    PAFD_CONNECTION connection;
+
+    connection = DeferredContext;
+    ASSERT( connection != NULL );
+    ASSERT( connection->Type == AfdBlockTypeConnection );
+
+    //
+    // Let the helper do the dirty work.
+    //
+
+    AfdRestartAbortHelper( connection );
+
+}   // AfdAbortTimerHack
+
+#else   // !ENABLE_ABORT_TIMER_HACK
+
+
+NTSTATUS
+AfdRestartAbort(
+    IN PDEVICE_OBJECT DeviceObject,
+    IN PIRP Irp,
+    IN PVOID Context
+    )
+{
+
+    PAFD_CONNECTION connection;
+
+    connection = Context;
+    ASSERT( connection != NULL );
+    ASSERT( connection->Type == AfdBlockTypeConnection );
+
+    IF_DEBUG(CONNECT) {
+
+        KdPrint((
+            "AfdRestartAbort: abort completed, status = %X, endpoint = %lx\n",
+            Irp->IoStatus.Status,
+            connection->Endpoint
+            ));
+
+    }
+
+    //
+    // Let the helper do the dirty work.
+    //
+
+    AfdRestartAbortHelper( connection );
+
+    //
+    // Free the IRP now since it is no longer needed.
+    //
+
+    IoFreeIrp( Irp );
 
     //
     // Return STATUS_MORE_PROCESSING_REQUIRED so that IoCompleteRequest
@@ -651,11 +824,83 @@ AfdRestartAbort (
 
 } // AfdRestartAbort
 
+#endif  // ENABLE_ABORT_TIMER_HACK
+
+
+VOID
+AfdRestartAbortHelper(
+    IN PAFD_CONNECTION Connection
+    )
+{
+
+    PAFD_ENDPOINT endpoint;
+
+    ASSERT( Connection != NULL );
+    ASSERT( Connection->Type == AfdBlockTypeConnection );
+
+    endpoint = Connection->Endpoint;
+
+    UPDATE_CONN( Connection, 0 );
+    AfdRecordAbortiveDisconnectsCompleted();
+
+    //
+    // Remember that the connection has been aborted, and indicate if
+    // necessary.
+    //
+
+    if( endpoint->Type != AfdBlockTypeVcListening ) {
+
+        AfdIndicatePollEvent(
+            endpoint,
+            AFD_POLL_ABORT_BIT,
+            STATUS_SUCCESS
+            );
+
+    }
+
+    if( !Connection->TdiBufferring ) {
+
+        //
+        // Complete all of the connection's pended sends and receives.
+        //
+
+        AfdCompleteIrpList(
+            &Connection->VcReceiveIrpListHead,
+            &endpoint->SpinLock,
+            STATUS_LOCAL_DISCONNECT,
+            NULL
+            );
+
+        AfdCompleteIrpList(
+            &Connection->VcSendIrpListHead,
+            &endpoint->SpinLock,
+            STATUS_LOCAL_DISCONNECT,
+            NULL
+            );
+
+    }
+
+    //
+    // Remove the connected reference from the connection, since we
+    // know that the connection will not be active any longer.
+    //
+
+    AfdDeleteConnectedReference( Connection, FALSE );
+
+    //
+    // Dereference the AFD connection object.
+    //
+
+    DEREFERENCE_CONNECTION( Connection );
+
+}   // AfdRestartAbortHelper
+
 
 NTSTATUS
-AfdBeginDisconnect (
+AfdBeginDisconnect(
     IN PAFD_ENDPOINT Endpoint,
-    IN PLARGE_INTEGER Timeout OPTIONAL
+    IN PLARGE_INTEGER Timeout OPTIONAL,
+    OUT PIRP *DisconnectIrp OPTIONAL
     )
 {
     PTDI_CONNECTION_INFORMATION requestConnectionInformation = NULL;
@@ -676,6 +921,12 @@ AfdBeginDisconnect (
     fileObject = connection->FileObject;
     ASSERT( fileObject != NULL );
     deviceObject = IoGetRelatedDeviceObject( fileObject );
+
+    UPDATE_CONN( connection, 0 );
+
+    if ( DisconnectIrp != NULL ) {
+        *DisconnectIrp = NULL;
+    }
 
     //
     // Allocate and initialize a disconnect IRP.
@@ -713,11 +964,11 @@ AfdBeginDisconnect (
     // just succeed this request.
     //
 
-    KeAcquireSpinLock( &AfdSpinLock, &oldIrql );
+    AfdAcquireSpinLock( &AfdSpinLock, &oldIrql );
 
     if ( (Endpoint->DisconnectMode & AFD_ABORTIVE_DISCONNECT) != 0 ||
              connection->AbortIndicated ) {
-        KeReleaseSpinLock( &AfdSpinLock, oldIrql );
+        AfdReleaseSpinLock( &AfdSpinLock, oldIrql );
         IoFreeIrp( irp );
         return STATUS_SUCCESS;
     }
@@ -727,24 +978,16 @@ AfdBeginDisconnect (
     //
 
     if ( (Endpoint->DisconnectMode & AFD_PARTIAL_DISCONNECT_SEND) != 0 ) {
-        KeReleaseSpinLock( &AfdSpinLock, oldIrql );
+        AfdReleaseSpinLock( &AfdSpinLock, oldIrql );
         IoFreeIrp( irp );
         return STATUS_SUCCESS;
     }
 
     //
-    // Allocate disconnect context for the request.
+    // Use the disconnect context space in the connection structure.
     //
 
-    disconnectContext = AFD_ALLOCATE_POOL(
-                            NonPagedPool,
-                            sizeof(*disconnectContext)
-                            );
-    if ( disconnectContext == NULL ) {
-        KeReleaseSpinLock( &AfdSpinLock, oldIrql );
-        IoFreeIrp( irp );
-        return STATUS_NO_MEMORY;
-    }
+    disconnectContext = &connection->DisconnectContext;
 
     disconnectContext->Endpoint = Endpoint;
     disconnectContext->Connection = connection;
@@ -774,14 +1017,15 @@ AfdBeginDisconnect (
             AFD_ALLOCATE_POOL(
                 NonPagedPool,
                 sizeof(*requestConnectionInformation) +
-                    sizeof(*returnConnectionInformation)
+                    sizeof(*returnConnectionInformation),
+                AFD_CONNECT_DATA_POOL_TAG
                 );
 
         if ( requestConnectionInformation != NULL ) {
 
             returnConnectionInformation =
                 requestConnectionInformation + 1;
-            
+
             requestConnectionInformation->UserData =
                 connection->ConnectDataBuffers->SendDisconnectData.Buffer;
             requestConnectionInformation->UserDataLength =
@@ -816,7 +1060,7 @@ AfdBeginDisconnect (
 
     TdiBuildDisconnect(
         irp,
-        connection->FileObject->DeviceObject,
+        connection->DeviceObject,
         connection->FileObject,
         AfdRestartDisconnect,
         disconnectContext,
@@ -832,44 +1076,51 @@ AfdBeginDisconnect (
     }
 
     //
-    // Reference the endpoint and connection so the space stays 
-    // allocated until the disconnect completes.  We must do this BEFORE 
-    // releasing the spin lock so that the refcnt doesn't go to zero 
-    // while we have the disconnect IRP pending on the connection.  
+    // Reference the endpoint and connection so the space stays
+    // allocated until the disconnect completes.
     //
 
-    AfdReferenceEndpoint( Endpoint, TRUE );
-    AfdReferenceConnection( connection, TRUE );
+    REFERENCE_ENDPOINT( Endpoint );
+    REFERENCE_CONNECTION( connection );
 
     //
-    // If there are still outstanding sends, pend the IRP until all the
-    // sends have completed.
+    // If there are still outstanding sends and this is a nonbufferring
+    // TDI transport which does not support orderly release, pend the
+    // IRP until all the sends have completed.
     //
 
-    if ( !Endpoint->TdiBufferring && connection->VcBufferredSendCount != 0 ) {
+    if ( (Endpoint->TransportInfo->ProviderInfo.ServiceFlags &
+             TDI_SERVICE_ORDERLY_RELEASE) == 0 &&
+         !Endpoint->TdiBufferring && connection->VcBufferredSendCount != 0 ) {
 
         ASSERT( connection->VcDisconnectIrp == NULL );
 
         connection->VcDisconnectIrp = irp;
         connection->SpecialCondition = TRUE;
-        KeReleaseSpinLock( &AfdSpinLock, oldIrql );
+        AfdReleaseSpinLock( &AfdSpinLock, oldIrql );
 
         return STATUS_PENDING;
     }
 
-    KeReleaseSpinLock( &AfdSpinLock, oldIrql );
+    AfdRecordGracefulDisconnectsInitiated();
+    AfdReleaseSpinLock( &AfdSpinLock, oldIrql );
 
     //
-    // Pass the disconnect request on to the TDI provider.  
+    // Pass the disconnect request on to the TDI provider.
     //
 
-    return IoCallDriver( connection->FileObject->DeviceObject, irp );
+    if ( DisconnectIrp == NULL ) {
+        return IoCallDriver( connection->DeviceObject, irp );
+    } else {
+        *DisconnectIrp = irp;
+        return STATUS_SUCCESS;
+    }
 
 } // AfdBeginDisconnect
 
 
 NTSTATUS
-AfdRestartDisconnect (
+AfdRestartDisconnect(
     IN PDEVICE_OBJECT DeviceObject,
     IN PIRP Irp,
     IN PVOID Context
@@ -881,12 +1132,13 @@ AfdRestartDisconnect (
     KIRQL oldIrql;
 
     endpoint = disconnectContext->Endpoint;
-    ASSERT( endpoint->Type == AfdBlockTypeVcConnecting );
+    connection = disconnectContext->Connection;
 
-    connection = endpoint->Common.VcConnecting.Connection;
+    UPDATE_CONN( connection, 0 );
+    AfdRecordGracefulDisconnectsCompleted();
+
     ASSERT( connection != NULL );
     ASSERT( connection->Type == AfdBlockTypeConnection );
-    //ASSERT( connection->TdiBufferring || connection->VcBufferredSendCount == 0 );
 
     IF_DEBUG(CONNECT) {
         KdPrint(( "AfdRestartDisconnect: disconnect completed, status = %X, "
@@ -898,30 +1150,30 @@ AfdRestartDisconnect (
     //
 
     if ( disconnectContext->TdiConnectionInformation != NULL ) {
-        AFD_FREE_POOL( disconnectContext->TdiConnectionInformation );
+        AFD_FREE_POOL(
+            disconnectContext->TdiConnectionInformation,
+            AFD_CONNECT_DATA_POOL_TAG
+            );
     }
 
     //
-    // Dereference the connection and endpoint and remove the request
-    // from the list of disconnect requests.
+    // Remove the request from the list of disconnect requests and
+    // Dereference the connection and endpoint.  We must remove it from
+    // the list before dereferencing the endpoint because when we do the
+    // dereference AFD might get unloaded, and we cannot acquire a spin
+    // lock after AFD gets unloaded.
     //
 
-    AfdDereferenceEndpoint( endpoint );
-    AfdDereferenceConnection( connection );
-
-    KeAcquireSpinLock( &AfdSpinLock, &oldIrql );
+    AfdAcquireSpinLock( &AfdSpinLock, &oldIrql );
     RemoveEntryList( &disconnectContext->DisconnectListEntry );
-    KeReleaseSpinLock( &AfdSpinLock, oldIrql );
+    AfdReleaseSpinLock( &AfdSpinLock, oldIrql );
+
+    DEREFERENCE_ENDPOINT( endpoint );
+    DEREFERENCE_CONNECTION( connection );
 
     //
-    // Free the disconnect context structure.
-    //
-
-    AFD_FREE_POOL( disconnectContext );
-
-    //
-    // Free the IRP and return a status code so that the IO system will 
-    // stop working on the IRP.  
+    // Free the IRP and return a status code so that the IO system will
+    // stop working on the IRP.
     //
 
     IoFreeIrp( Irp );

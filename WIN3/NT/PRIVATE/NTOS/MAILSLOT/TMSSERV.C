@@ -185,7 +185,7 @@ CreateMailslot(
     LARGE_INTEGER readTimeout = { -1, -1 };  // Infinite read timeout
 
     RtlInitString(&ansiString, Name );
-    RtlOemStringToCountedUnicodeString(&nameString, &ansiString, TRUE);
+    RtlOemStringToUnicodeString(&nameString, &ansiString, TRUE);
 
     InitializeObjectAttributes(
         &objectAttributes,
@@ -295,7 +295,6 @@ QueryDirectoryTest(
         printf ("File attributes  = %x\n",  dirInfo->FileAttributes );
         printf ("File name length = %x\n", dirInfo->FileNameLength );
         printf ("EA size          = %x\n", dirInfo->EaSize );
-        printf ("Is directory     = %x\n", dirInfo->Directory );
         printf ("File Name        = ");
         DisplayUnicode( dirInfo->FileName, dirInfo->FileNameLength );
         printf ("\n\n");
@@ -474,4 +473,3 @@ DisplayUnicode(
 
     return 0;
 }
-

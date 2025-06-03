@@ -1021,6 +1021,18 @@ P_GHANDLE0  macro   h,opts
     endif
 endm
 
+P_GHANDLE32  macro   h,opts
+    _GenParm   <h>,2,<opts>
+    if VLgen
+       mov ax,_P_&h
+       test al, 0100b    ;let zero & BOGUSGDT hInst's through
+       jz   @F
+       lcall   GHANDLE
+        _gensub GHANDLE
+       @@:
+    endif
+endm
+
 P_HANDLE    equ <P_H>
 P_HANDLE0   equ <P_H0>
 
@@ -1028,6 +1040,7 @@ P_ATOM	    equ <P_H>
 
 P_HINSTANCE equ <P_GHANDLE>
 P_HINSTANCE0 equ <P_GHANDLE0>
+P_HINSTANCE32 equ <P_GHANDLE32>
 
 P_HMODULE   equ <P_GHANDLE>
 P_HMODULE0  equ <P_GHANDLE0>

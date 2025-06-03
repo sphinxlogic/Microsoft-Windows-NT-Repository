@@ -60,7 +60,7 @@ Return Value:
 {
     INT Compare;
 
-    Compare = wcsicmp( String1, String2 );
+    Compare = _wcsicmp( String1, String2 );
 
     if( Compare < 0 ) {
         return -1;
@@ -198,6 +198,9 @@ Return Value:
     static
     CHAR pIntegerChars[] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9'};
 
+    static
+    WCHAR   Buffer[ MAX_PATH ];
+
     WCHAR   SThousand[ MAX_PATH ];
     DWORD   SThousandChars;
     int     Index;
@@ -206,7 +209,6 @@ Return Value:
     CHAR    aString[ MAX_PATH ];
     LONG    OutputLength = 95;
 
-    WCHAR   Buffer[ MAX_PATH ];
     CHAR   Result[ 100 ], *s;
     ULONG Shift, Digit;
     LONG  Length;
@@ -493,7 +495,7 @@ Return Value:
                 FORMAT_MESSAGE_FROM_HMODULE,
                 NULL,
                 FormatId,
-                LOWORD(GetThreadLocale()),
+                0,
                 Buffer,
                 BufferSize,
                 &Args
@@ -550,7 +552,7 @@ Return Value:
                 FORMAT_MESSAGE_FROM_HMODULE,
                 NULL,
                 FormatId,
-                LOWORD(GetThreadLocale()),
+                0,
                 Buffer,
                 BufferSize,
                 &Args
@@ -654,14 +656,13 @@ Return Value:
     // Do the search.
     //
 
-    Id = lfind(
+    Id = _lfind(
             &TableEntry,
             StringTable,
             &Count,
             sizeof( STRING_TABLE_ENTRY ),
             CompareTableEntries
             );
-    DbgPointerAssert( Id );
 
     //
     // Return a pointer to the found entry.
@@ -711,7 +712,15 @@ Return Value:
                 Class,
                 Value
                 );
-    DbgPointerAssert( Id );
 
-    return Id->Id;
+    if (Id) {
+
+       return( Id->Id);
+
+    }
+
+    else
+
+       return 0;
+
 }

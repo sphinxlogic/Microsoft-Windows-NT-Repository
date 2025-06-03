@@ -118,4 +118,3 @@ BOOL    DDEIsTargetMSDraw(HAND16 To_hwnd);
 HAND16  Copyh32Toh16 (int cb, LPBYTE lpMem32);
 HANDLE  Copyh16Toh32 (int cb, LPBYTE lpMem16);
 VOID    FixMetafile32To16 (LPMETAFILEPICT lpMemMeta32, LPMETAFILEPICT16 lpMemMeta16);
-

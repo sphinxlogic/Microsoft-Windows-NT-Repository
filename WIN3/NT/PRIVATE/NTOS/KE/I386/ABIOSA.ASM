@@ -274,8 +274,342 @@ Kac60:
 
 stdENDP _KiI386CallAbios
 
+
+;; ********************************************************
+;;
+;; BEGIN - power_management
+;;
+;;
+
+;++
+; VOID
+; KeI386Call16BitFunction (
+;     IN OUT PCONTEXT Regs
+;     )
+;
+; Routine Description:
+;
+;     This function calls the 16 bit function specified in the Regs.
+;
+; Parameters:
+;
+;     Regs - supplies a pointer to register context to call 16 function.
+;
+;   NOTE: Caller must be at DPC_LEVEL
+;
+;--
+
+cPublicProc _KeI386Call16BitFunction,1
+
+    ;  verify CurrentIrql
+    ;  verify context flags
+
+        push    ebp                             ; save nonvolatile registers
+        push    ebx
+        push    esi
+        push    edi
+
+        mov     ebx, dword ptr [esp + 20]       ; (ebx)-> Context
+
+;
+; We're using a 32bit CS:EIP - go to a 16bit CS:IP
+; Note the base of KiAbiosCallSelector is the flat address of _KiI386AbiosCall
+; routine.
+;
+
+;
+; Remap current stack to 16:16 stack.  The base of the 16bit stack selector is
+; the base of current kernel stack.
+;
+
+        STACK32_TO_STACK16                      ; Switch to 16bit stack
+    ;
+    ; Push return address from 16 bit function call to kernel
+    ;
+
+        push    word ptr KGDT_CODE16
+        push    word ptr (offset FLAT:Kbf40 - offset FLAT:_KiI386CallAbios@16)
+
+        ;
+        ; Load context to call with
+        ;
+
+        push    word ptr [ebx].CsEFlags
+        push    word ptr [ebx].CsSegCs
+        push    word ptr [ebx].CsEip
+
+        mov     eax, [ebx].CsEax
+        mov     ecx, [ebx].CsEcx
+        mov     edx, [ebx].CsEdx
+        mov     edi, [ebx].CsEdi
+        mov     esi, [ebx].CsEsi
+        mov     ebp, [ebx].CsEbp
+        push    [ebx].CsSegGs
+        push    [ebx].CsSegFs
+        push    [ebx].CsSegEs
+        push    [ebx].CsSegDs
+        mov     ebx, [ebx].CsEbx
+        pop     ds
+        pop     es
+        pop     fs
+        pop     gs
+
+    ;
+    ; Switch to 16bit CS
+    ;
+        push    KGDT_CODE16
+        push    offset FLAT:Kbf30 - offset FLAT:_KiI386CallAbios@16
+        retf
+
+Kbf30:
+    ;
+    ; "call" to 16 bit function
+    ;
+        iretd
+
+Kbf40:
+    ;
+    ; Push some of the returned context which will be needed to
+    ; switch back to the 32 bit SS & CS.
+    ;
+        db      OPERAND_OVERRIDE
+        push    ds
+
+        db      OPERAND_OVERRIDE
+        push    es
+
+        db      OPERAND_OVERRIDE
+        push    fs
+
+        db      OPERAND_OVERRIDE
+        push    gs
+
+        db      OPERAND_OVERRIDE
+        push    eax
+
+        db      OPERAND_OVERRIDE
+        pushfd
+
+        db      OPERAND_OVERRIDE
+        mov     eax, KGDT_R0_PCR
+        mov     fs, ax
+
+        db      OPERAND_OVERRIDE
+        mov     eax, KGDT_R3_DATA OR RPL_MASK
+        mov     ds, ax
+        mov     es, ax
+
+        xor     eax, eax
+
+    ;
+    ; Switch back to 32 bit stack
+    ;
+
+        STACK16_TO_STACK32
+
+;
+; Push the flat code selector followed by the return offset, then
+; execute a far return and we'll be back in the 32-bit code space.
+;
+
+
+        db      OPERAND_OVERRIDE
+        push    KGDT_R0_CODE
+        db      OPERAND_OVERRIDE
+        push    offset FLAT:Kbf50
+        db      OPERAND_OVERRIDE
+        retf
+
+Kbf50:
+    ;
+    ; Return resulting context
+    ;
+
+        mov     eax, dword ptr [esp+44]     ; (eax) = Context Record
+        pop     [eax].CsEflags
+        pop     [eax].CsEax
+        pop     [eax].CsSegGs
+        pop     [eax].CsSegFs
+        pop     [eax].CsSegEs
+        pop     [eax].CsSegDs
+
+        mov     [eax].CsEbx, ebx
+        mov     [eax].CsEcx, ecx
+        mov     [eax].CsEdx, edx
+        mov     [eax].CsEdi, edi
+        mov     [eax].CsEsi, esi
+        mov     [eax].CsEbp, ebp
+
+;
+; Restore regs & return
+;
+
+        pop     edi
+        pop     esi
+        pop     ebx
+        pop     ebp
+        stdRET    _KeI386Call16BitFunction
+
+stdENDP _KeI386Call16BitFunction
+
+;++
+; USHORT
+; KeI386Call16BitCStyleFunction (
+;     IN ULONG EntryOffset,
+;     IN ULONG EntrySelector,
+;     IN PUCHAR Parameters,
+;     IN ULONG Size
+;     )
+;
+; Routine Description:
+;
+;     This function calls the 16 bit function which supports C style calling convension.
+;
+; Parameters:
+;
+;     EntryOffset and EntrySelector - specifies the entry point of the 16 bit function.
+;
+;     Parameters - supplies a pointer to a parameter block which will be
+;         passed to 16 bit function as parameters.
+;
+;     Size - supplies the size of the parameter block.
+;
+;   NOTE: Caller must be at DPC_LEVEL
+;
+; Returned Value:
+;
+;     AX returned by 16 bit function.
+;
+;--
+
+cPublicProc _KeI386Call16BitCStyleFunction,4
+
+;
+;  verify CurrentIrql
+;  verify context flags
+;
+
+        push    ebp                             ; save nonvolatile registers
+        push    ebx
+        push    esi
+        push    edi
+
+        mov     edi, esp
+        mov     esi, dword ptr [esp + 28]       ; (esi)->BiosParameters
+        or      esi, esi
+        jz      short @f
+
+        mov     ecx, [esp + 32]                 ; (ecx) = parameter size
+        sub     esp, ecx                        ; allocate space on TOS to copy parameters
+        mov     edi, esp
+        rep     movsb                           ; (edi)-> Top of nonvolatile reg save area
+
+@@:
+
+;
+; We're using a 32bit CS:EIP - go to a 16bit CS:IP
+; Note the base of KiAbiosCallSelector is the flat address of _KiI386AbiosCall
+; routine.
+;
+
+;
+; Remap current stack to 16:16 stack.  The base of the 16bit stack selector is
+; the base of current kernel stack.
+;
+
+        STACK32_TO_STACK16                      ; Switch to 16bit stack
+
+;
+; Push return address from 16 bit function call to kernel
+;
+
+        push    word ptr KGDT_CODE16
+        push    word ptr (offset FLAT:Kbfex40 - offset FLAT:_KiI386CallAbios@16)
+
+        push    word ptr 0200h                  ; flags
+        push    word ptr [edi + 24]             ; entry selector
+        push    word ptr [edi + 20]             ; entry offset
+
+;
+; Switch to 16bit CS
+;
+        push    KGDT_CODE16
+        push    offset FLAT:Kbfex30 - offset FLAT:_KiI386CallAbios@16
+        retf
+
+Kbfex30:
+;
+; "call" to 16 bit function
+;
+        iretd
+
+Kbfex40:
+;
+; Save return value.
+;
+
+        db      OPERAND_OVERRIDE
+        push    eax
+
+;
+; Restore Flat mode segment registers.
+;
+
+        db      OPERAND_OVERRIDE
+        mov     eax, KGDT_R0_PCR
+        mov     fs, ax
+
+        db      OPERAND_OVERRIDE
+        mov     eax, KGDT_R3_DATA OR RPL_MASK
+        mov     ds, ax
+        mov     es, ax
+
+        xor     eax, eax
+
+;
+; Switch back to 32 bit stack
+;
+
+        STACK16_TO_STACK32
+
+;
+; Push the flat code selector followed by the return offset, then
+; execute a far return and we'll be back in the 32-bit code space.
+;
+
+
+        db      OPERAND_OVERRIDE
+        push    KGDT_R0_CODE
+        db      OPERAND_OVERRIDE
+        push    offset FLAT:Kbfex50
+        db      OPERAND_OVERRIDE
+        retf
+
+Kbfex50:
+        pop     eax
+
+;
+; Restore regs & return
+;
+        mov     esp, edi
+        pop     edi
+        pop     esi
+        pop     ebx
+        pop     ebp
+        stdRET    _KeI386Call16BitCStyleFunction
+
+stdENDP _KeI386Call16BitCStyleFunction
+
+;;
+;; END - power_management
+;;
+;; ********************************************************
+
+
         public  _KiEndOfCode16
 _KiEndOfCode16  equ     $
+
+
 
 _TEXT   ends
         end

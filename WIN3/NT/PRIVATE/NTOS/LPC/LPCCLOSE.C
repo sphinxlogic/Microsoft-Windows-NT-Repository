@@ -21,7 +21,34 @@ Revision History:
 --*/
 
 #include "lpcp.h"
+#ifdef ALLOC_PRAGMA
+#pragma alloc_text(PAGE,LpcpDeletePort)
+#pragma alloc_text(PAGE,LpcExitThread)
+#endif
 
+
+VOID
+LpcpClosePort(
+    IN PEPROCESS Process OPTIONAL,
+    IN PVOID Object,
+    IN ACCESS_MASK GrantedAccess,
+    IN ULONG ProcessHandleCount,
+    IN ULONG SystemHandleCount
+    )
+{
+    PLPCP_PORT_OBJECT Port = Object;
+
+    if ( (Port->Flags & PORT_TYPE) == SERVER_CONNECTION_PORT ) {
+        if ( SystemHandleCount == 0 ) {
+            LpcpDestroyPortQueue( Port, TRUE );
+            }
+        else if ( SystemHandleCount == 1 ) {
+            LpcpDestroyPortQueue( Port, FALSE );
+            }
+        }
+
+    return;
+}
 
 VOID
 LpcpDeletePort(
@@ -31,11 +58,11 @@ LpcpDeletePort(
     PLPCP_PORT_OBJECT Port = Object;
     PLPCP_PORT_OBJECT ConnectionPort;
     LPC_CLIENT_DIED_MSG ClientPortClosedDatagram;
-    KIRQL OldIrql;
     PLPCP_MESSAGE Msg;
     PLIST_ENTRY Head, Next;
     HANDLE CurrentProcessId;
 
+    PAGED_CODE();
     //
     // Send an LPC_PORT_CLOSED datagram to whoever is connected
     // to this port so they know they are no longer connected.
@@ -55,7 +82,7 @@ LpcpDeletePort(
     // for this port and dereference any messages in the queue.
     //
 
-    LpcpDestroyPortQueue( Port );
+    LpcpDestroyPortQueue( Port, TRUE );
 
     //
     // If the client has a port memory view, then unmap it
@@ -84,24 +111,25 @@ LpcpDeletePort(
 
     if (ConnectionPort = Port->ConnectionPort) {
         CurrentProcessId = PsGetCurrentThread()->Cid.UniqueProcess;
-        ExAcquireSpinLock( &LpcpLock, &OldIrql );
+        ExAcquireFastMutex( &LpcpLock );
         Head = &ConnectionPort->LpcDataInfoChainHead;
         Next = Head->Flink;
         while (Next != Head) {
             Msg = CONTAINING_RECORD( Next, LPCP_MESSAGE, Entry );
             Next = Next->Flink;
             if (Msg->Request.ClientId.UniqueProcess == CurrentProcessId) {
-                LpcpPrint(( "%s Recovering DataInfo Message %lx (%u)  Port: %lx\n",
+                LpcpTrace(( "%s Freeing DataInfo Message %lx (%u.%u)  Port: %lx\n",
                             PsGetCurrentProcess()->ImageFileName,
                             Msg,
                             Msg->Request.MessageId,
+                            Msg->Request.CallbackId,
                             ConnectionPort
                          ));
                 RemoveEntryList( &Msg->Entry );
                 LpcpFreeToPortZone( Msg, TRUE );
                 }
             }
-        ExReleaseSpinLock( &LpcpLock, OldIrql );
+        ExReleaseFastMutex( &LpcpLock );
 
         if (ConnectionPort != Port) {
             ObDereferenceObject( ConnectionPort );
@@ -121,16 +149,15 @@ LpcExitThread(
     PETHREAD Thread
     )
 {
-    KIRQL OldIrql;
     PLPCP_MESSAGE Msg;
 
     //
-    // Acquire the spinlock that protects the LpcReplyMessage field of
+    // Acquire the mutex that protects the LpcReplyMessage field of
     // the thread.  Zero the field so nobody else tries to process it
     // when we release the lock.
     //
 
-    ExAcquireSpinLock( &LpcpLock, &OldIrql );
+    ExAcquireFastMutex( &LpcpLock );
 
     if (!IsListEmpty( &Thread->LpcReplyChain )) {
         RemoveEntryList( &Thread->LpcReplyChain );
@@ -152,5 +179,5 @@ LpcExitThread(
         LpcpFreeToPortZone( Msg, TRUE );
         }
 
-    ExReleaseSpinLock( &LpcpLock, OldIrql );
+    ExReleaseFastMutex( &LpcpLock );
 }

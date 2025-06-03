@@ -29,4 +29,3 @@ LONG CALLBACK EXPORT IconBoxWndProc(HWND, UINT, WPARAM, LPARAM);
 
 
 #endif //_ICONBOX_H_
-

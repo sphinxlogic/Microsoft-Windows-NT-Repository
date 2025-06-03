@@ -27,4 +27,3 @@ Revision History:
 #include "aup.h"        // Common AUTHENTICATION related definitions
 
 #endif // _LSADLLP_
-

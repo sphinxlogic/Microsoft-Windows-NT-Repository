@@ -66,6 +66,7 @@ ResidentCodeStart
         extrn   for_dos_proper:byte
         extrn   chain_previous_int21:byte
         extrn   ConnectionIdTable:byte
+        extrn   not_exclusive:byte
 
 ResidentCodeEnd
 
@@ -182,9 +183,23 @@ start   proc    near
         call    PullInDll
         jc      already_here            ; failed to load
 
-@@:     call    InstallInterruptHandlers
+        call    InstallInterruptHandlers
 
         assume  es:nothing
+
+        push    es
+        pop     ds
+        call    is_c_on_command_line
+        jz      @f
+
+        mov     dx,ResidentCode
+        mov     ds,dx
+
+        assume  ds:ResidentCode
+        mov     not_exclusive, 1
+
+        assume  ds:nothing
+@@:
 
 ;
 ; free the environment segment
@@ -444,6 +459,59 @@ PullInDll proc near
         popa                            ; dispatch code
         ret
 PullInDll endp
+
+;*******************************************************************************
+;*
+;*  is_c_on_command_line
+;*
+;*     -C or /C means we should open compatiblity mode createfiles as shared
+;*      instead of exclusive
+;*
+;*  ENTRY       ds points to PDB
+;*
+;*  EXIT        nothing
+;*
+;*  RETURNS     zero if not found.
+;*
+;*  ASSUMES     ds points at PSP
+;*
+;******************************************************************************/
+
+is_c_on_command_line proc near
+        mov     si,80h
+        lodsb
+        cbw
+        mov     cx,ax
+next:   jcxz    quit
+        dec     cx
+        lodsb
+check_next:
+        cmp     al,'-'
+        je      check_c
+        cmp     al,'/'
+        je      check_c
+        cmp     al,' '
+        je      next
+        cmp     al,9
+        je      next
+find_ws:jcxz    quit
+        dec     cx
+        lodsb
+        cmp     al,' '
+        je      next
+        cmp     al,9
+        je      next
+        jmp     short find_ws
+check_c:jcxz    quit
+        dec     cx
+        lodsb
+        or      al,20h
+        cmp     al,'c'
+        jne     find_ws
+        or      cx,ax
+quit:   or      cx,cx
+        ret
+is_c_on_command_line endp
 
 InitCodeEnd
 end     start

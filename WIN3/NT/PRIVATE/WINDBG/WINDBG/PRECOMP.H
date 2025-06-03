@@ -28,12 +28,11 @@ Environment:
 #include "util.h"
 #include "userdll.h"
 #include "dbugdll.h"
-#include "shapi.h"
+#include "cvinfo.h"
+#include "shapi.hxx"
 #include "eeapi.h"
 #include "types.h"
-#include "cvtypes.h"
-#include "ll.h"
-#include "cvinfo.h"
+#include "cvtypes.hxx"
 #include "cp.h"
 #include "menu.h"
 #include "breakpts.h"
@@ -84,3 +83,8 @@ Environment:
 #include "remote.h"
 #include "callswin.h"
 #include "heap.h"
+
+#ifdef DBCS
+#include    <mbstring.h>
+#define     strchr _mbschr
+#endif

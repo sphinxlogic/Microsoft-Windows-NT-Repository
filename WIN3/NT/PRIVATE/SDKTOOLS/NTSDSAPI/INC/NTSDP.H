@@ -496,7 +496,6 @@ extern USHORT  GetSrcExpression(PPSYMFILE, PPLINENO);
 
 //  defined in ntsdk.c (kernel)
 
-extern USHORT ProcessorType;
 #ifdef	KERNEL
 extern USHORT CurrentProcessor;
 #endif

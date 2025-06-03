@@ -18,13 +18,6 @@ Revision History may be found at the end of this file.
 
 --*/
 
-#include "dderror.h"
-#include "devioctl.h"
-
-#include "miniport.h"
-#include "ntddvdeo.h"
-#include "video.h"
-#include "dac.h"
 #include "p9.h"
 #include "p9gbl.h"
 #include "p9000.h"
@@ -32,20 +25,6 @@ Revision History may be found at the end of this file.
 //
 // Static data for the P9000 specific support routines.
 //
-
-//
-// Coprocessor info structure for the Weitek P9000.
-//
-
-P9_COPROC   P9000Info =
-{
-    P9000_ID,
-    P9000_ADDR_SPACE,       // Size of memory address space.
-    COPROC_OFFSET,          // Offset to coproc regs.
-    COPROC_LEN,             // Size of coproc register block.
-    FRAME_OFFSET,           // Offset to frame buffer.
-    P9000SizeMem            // Memory sizing function.
-};
 
 //
 // This table is used to compute the qsfselect value for the P9000 Srctl
@@ -176,67 +155,72 @@ Return Value:
 --*/
 
 {
-    int i,j;                                                    // loop counters
-    long  sysval = 0x3000L;                                 // swap bytes and words for little endian PC
-    int  xtem = HwDeviceExtension->VideoData.XSize * (HwDeviceExtension->usBitsPixel / 8);                                      //save a copy for clearing bits in
-    long  ClipMax;                                              // clipping register value for NotBusy to restore
+    int i,j;                            // loop counters
+    long  sysval = 0x3000L;             // swap bytes and words for little endian PC
 
-    if (xtem & 0xf80)                                       // each field in the sysconreg can only set
-    {                                                               // a limited range of bits in the size
-        j = 7;                                                  // each field is 3 bits wide
-        for (i = 2048; i >= 128;i >>= 1)        // look at all the bits field 3 can effect
+    int  xtem = HwDeviceExtension->VideoData.XSize * (HwDeviceExtension->usBitsPixel / 8);  //save a copy for clearing bits in
+    long  ClipMax;                          // clipping register value for NotBusy to restore
+
+    if (xtem & 0xf80)                       // each field in the sysconreg can only set
+    {                                       // a limited range of bits in the size
+        j = 7;                              // each field is 3 bits wide
+        for (i = 2048; i >= 128;i >>= 1)    // look at all the bits field 3 can effect
         {
-                if (i & xtem)                                   // if this bit is on,
-                {
-                    sysval |= ((long) j) << 20; // use this field to set it
-                    xtem &= ~i;                                 // and remove the bit from the size
-                    break;                                          // each field can only set one bit
-                }
-                j -=  1;
+            if (i & xtem)                   // if this bit is on,
+            {
+                sysval |= ((long) j) << 20; // use this field to set it
+                xtem &= ~i;                 // and remove the bit from the size
+                break;                      // each field can only set one bit
+            }
+            j -=  1;
         }
     }
 
-    if (xtem & 0x7C0)                                       // do the same thing for field 2
+    if (xtem & 0x7C0)                       // do the same thing for field 2
     {
-        j = 6;                                                  // each field is 3 bits wide
+        j = 6;                              // each field is 3 bits wide
         for (i = 1024; i >= 64; i >>= 1)    // look at all the bits field 2 can effect
         {
-                if (i & xtem)                                   // if this bit is on,
-                {
-                    sysval |= ((long)j)<<17;    // use this field to set it
-                    xtem &= ~i;                                 // and remove the bit from the size
-                    break;                                          // each field can only set one bit
-                }
-                j -= 1;
+            if (i & xtem)                   // if this bit is on,
+            {
+                sysval |= ((long)j)<<17;    // use this field to set it
+                xtem &= ~i;                 // and remove the bit from the size
+                break;                      // each field can only set one bit
+            }
+            j -= 1;
         }
     }
 
-    if (xtem & 0x3E0)                                       // do the same thing for field 1
+    if (xtem & 0x3E0)                       // do the same thing for field 1
     {
-        j = 5;                                                  // each field is 3 bits wide
+        j = 5;                              // each field is 3 bits wide
         for (i = 512; i >= 32;i >>= 1)      // look at all the bits field 1 can effect
         {
-                if (i & xtem)                                   // if this bit is on,
-                {
-                    sysval |= ((long) j) << 14; // use this field to set it
-                    xtem &= ~i;                                 // and remove the bit from the size
-                    break;                                          // each field can only set one bit
-                }
-                j -= 1;
+            if (i & xtem)                   // if this bit is on,
+            {
+                sysval |= ((long) j) << 14; // use this field to set it
+                xtem &= ~i;                 // and remove the bit from the size
+                break;                      // each field can only set one bit
+            }
+            j -= 1;
         }
     }
 
-    if (xtem != 0)                                              // if there are bits left, it is an
-        return;                                                 // illegal x size.
+    if (xtem != 0)                          // if there are bits left, it is an
+        return;                             // illegal x size.
 
-   P9_WR_REG(SYSCONFIG, sysval);                       // send data to the register
-   P9_WR_REG(WMIN, 0);                                     // minimum clipping register
-   ClipMax=((long) HwDeviceExtension->VideoData.XSize - 1) << 16 |
-   (div32(HwDeviceExtension->FrameLength, HwDeviceExtension->VideoData.XSize) - 1);   // calc and set max
+    P9_WR_REG(SYSCONFIG, sysval);           // send data to the register
+    P9_WR_REG(WMIN, 0);                     // minimum clipping register
 
-   // clipping to allow access to all of the extra memory.
-   P9_WR_REG(WMAX, ClipMax);
-   return;
+    // calc and set max
+
+    ClipMax=((long) HwDeviceExtension->VideoData.XSize - 1) << 16 |
+            (div32(HwDeviceExtension->FrameLength, (SHORT) HwDeviceExtension->VideoData.XSize) - 1);   
+
+    // clipping to allow access to all of the extra memory.
+
+    P9_WR_REG(WMAX, ClipMax);
+    return;
 }
 
 
@@ -262,6 +246,9 @@ Return Value:
 
 --*/
 {
+    PULONG pulFrameBufAddr = (PULONG) HwDeviceExtension->FrameAddress;
+    ULONG  i;
+
     //
     // Assume 2 M of VRAM is installed.
     //
@@ -277,31 +264,28 @@ Return Value:
     P9_WR_REG(MEMCONF, P90_MEM_CFG_3);
 
     //
-    // Test memory to determine if this is the correct configuration.
+    // Write a series of test values to the frame buffer.
     //
 
-    if (!P9TestMem(HwDeviceExtension))
+    for (i = 0; i < 32; i++)
     {
-        //
-        // The test failed, must have 1M VRAM.
-        //
+        pulFrameBufAddr[i] = i;
+    }
 
+    //
+    // Read back the test values. If any errors occur, this is not a valid
+    // memory configuration.
+    //
 
-        HwDeviceExtension->AdapterDesc.ulMemConfVal = P90_MEM_CFG_1;
-        HwDeviceExtension->FrameLength = 0x100000;
+    for (i = 0; i < 32; i++)
+    {
+        if (pulFrameBufAddr[i] != i)
+        {
+            HwDeviceExtension->AdapterDesc.ulMemConfVal = P90_MEM_CFG_1;
+            HwDeviceExtension->FrameLength = 0x100000;
+            break;
+        }
     }
 
     return;
 }
-
-
-/*++
-
-Revision History:
-
-    $Log:   N:/ntdrv.vcs/miniport.new/p9000.c_v  $
- *
- *    Rev 1.0   14 Jan 1994 22:40:48   robk
- * Initial revision.
-
---*/

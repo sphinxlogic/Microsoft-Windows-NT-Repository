@@ -23,8 +23,67 @@ Revision History:
 #include <ntdskreg.h>
 #include <ntddft.h>
 
-extern POBJECT_TYPE IoFileObjectType;
+#ifdef SYSCACHE
+//
+//  Tom's nifty Scsi Analyzer for syscache
+//
 
+#define ScsiLines (4096)
+ULONG NextLine = 0;
+ULONG ScsiAnal[ScsiLines][4];
+
+VOID
+CallDisk (
+    PIRP_CONTEXT IrpContext,
+    PDEVICE_OBJECT DeviceObject,
+    PIRP Irp,
+    IN ULONG Single
+    )
+
+{
+    PIO_STACK_LOCATION IrpSp;
+    PSCB Scb;
+    ULONG i;
+
+    IrpSp = IoGetCurrentIrpStackLocation(Irp);
+
+    Scb = (PSCB)IrpContext->OriginatingIrp->Tail.Overlay.OriginalFileObject->FsContext;
+
+    if (!FlagOn(Scb->ScbState, SCB_STATE_SYSCACHE_FILE) ||
+        (IrpSp->MajorFunction != IRP_MJ_WRITE)) {
+        IoCallDriver( DeviceObject, Irp );
+        return;
+    }
+
+    i = NextLine++;
+    if (i >= ScsiLines) {
+        i = 0;
+        NextLine = 1;
+    }
+
+    ScsiAnal[i][0] = IrpSp->Parameters.Write.ByteOffset.LowPart;
+    ScsiAnal[i][2] = IrpSp->Parameters.Write.Length;
+    ScsiAnal[i][3] = *(PULONG)NtfsMapUserBuffer(Irp);
+    IrpSp = IoGetNextIrpStackLocation(Irp);
+    ScsiAnal[i][1] = IrpSp->Parameters.Write.ByteOffset.LowPart;
+
+    IoCallDriver( DeviceObject, Irp );
+
+    if (Single) {
+
+        KeWaitForSingleObject( &IrpContext->Union.NtfsIoContext->Wait.SyncEvent,
+                               Executive,
+                               KernelMode,
+                               FALSE,
+                               NULL );
+
+        ScsiAnal[i][2] += Irp->IoStatus.Status << 16;
+    }
+
+
+}
+
+#endif SYSCACHE
 //
 //  The Bug check file id for this module
 //
@@ -36,6 +95,13 @@ extern POBJECT_TYPE IoFileObjectType;
 //
 
 #define Dbg                              (DEBUG_TRACE_DEVIOSUP)
+
+//
+//  Define a tag for general pool allocations from this module
+//
+
+#undef MODULE_POOL_TAG
+#define MODULE_POOL_TAG                  ('DFtN')
 
 //
 //  We need a special test for success, whenever we are seeing if we should
@@ -51,10 +117,35 @@ extern POBJECT_TYPE IoFileObjectType;
 #if DBG || defined(NTFS_ALLOW_COMPRESSED)
 BOOLEAN NtfsHotFixTrace = FALSE;
 #define HotFixTrace(X) {if (NtfsHotFixTrace) KdPrint(X);}
-BOOLEAN NtfsStopOnDecompressError = FALSE;
 #else
 #define HotFixTrace(X) {NOTHING;}
 #endif
+
+#ifdef SYSCACHE
+BOOLEAN NtfsStopOnDecompressError = TRUE;
+#else
+BOOLEAN NtfsStopOnDecompressError = FALSE;
+#endif
+
+
+#define CollectDiskIoStats(VCB,SCB,FUNCTION,COUNT) {                                    \
+    PFILESYSTEM_STATISTICS FsStats = &(VCB)->Statistics[KeGetCurrentProcessorNumber()]; \
+    ASSERT((SCB)->Fcb != NULL);                                                         \
+    if (NtfsIsTypeCodeUserData( (SCB)->AttributeTypeCode ) &&                           \
+        !FlagOn( (SCB)->Fcb->FcbState, FCB_STATE_SYSTEM_FILE )) {                       \
+        if ((FUNCTION) == IRP_MJ_WRITE) {                                               \
+            FsStats->UserDiskWrites += (COUNT);                                         \
+        } else {                                                                        \
+            FsStats->UserDiskReads += (COUNT);                                          \
+        }                                                                               \
+    } else if ((SCB) != (VCB)->LogFileScb) {                                            \
+        if ((FUNCTION) == IRP_MJ_WRITE) {                                               \
+            FsStats->MetaDataDiskWrites += (COUNT);                                     \
+        } else {                                                                        \
+            FsStats->MetaDataDiskReads += (COUNT);                                      \
+        }                                                                               \
+    }                                                                                   \
+}
 
 //
 //  Define a context for holding the context the compression state
@@ -98,6 +189,12 @@ typedef struct COMPRESSION_CONTEXT {
 
     PVOID WorkSpace;
 
+    //
+    //  Write acquires the Scb.
+    //
+
+    BOOLEAN ScbAcquired;
+
 } COMPRESSION_CONTEXT, *PCOMPRESSION_CONTEXT;
 
 //
@@ -107,6 +204,7 @@ typedef struct COMPRESSION_CONTEXT {
 VOID
 NtfsAllocateCompressionBuffer (
     IN PIRP_CONTEXT IrpContext,
+    IN PSCB ThisScb,
     IN PIRP Irp,
     IN PCOMPRESSION_CONTEXT CompressionContext,
     IN OUT PULONG CompressionBufferLength
@@ -114,14 +212,13 @@ NtfsAllocateCompressionBuffer (
 
 VOID
 NtfsDeallocateCompressionBuffer (
-    IN PIRP_CONTEXT IrpContext,
     IN PIRP Irp,
     IN PCOMPRESSION_CONTEXT CompressionContext
     );
 
 LONG
 NtfsCompressionFilter (
-    IN PIRP_CONTEXT IrpContext OPTIONAL,
+    IN PIRP_CONTEXT IrpContext,
     IN PEXCEPTION_POINTERS ExceptionPointer
     );
 
@@ -133,7 +230,8 @@ NtfsPrepareBuffers (
     IN PVBO StartingVbo,
     IN ULONG ByteCount,
     OUT PULONG NumberRuns,
-    OUT PCOMPRESSION_CONTEXT CompressionContext
+    OUT PCOMPRESSION_CONTEXT CompressionContext,
+    IN ULONG CompressedStream
     );
 
 NTSTATUS
@@ -143,7 +241,8 @@ NtfsFinishBuffers (
     IN PSCB Scb,
     IN PVBO StartingVbo,
     IN ULONG ByteCount,
-    IN PCOMPRESSION_CONTEXT CompressionContext
+    IN PCOMPRESSION_CONTEXT CompressionContext,
+    IN ULONG CompressedStream
     );
 
 VOID
@@ -204,13 +303,6 @@ NtfsPagingFileCompletionRoutine (
     IN PVOID MasterIrp
     );
 
-VOID
-NtfsRaiseIfRecordAllocated (
-    IN PIRP_CONTEXT IrpContext,
-    IN PSCB Scb,
-    IN LONGLONG FileOffset
-    );
-
 BOOLEAN
 NtfsVerifyAndRevertUsaBlock (
     IN PIRP_CONTEXT IrpContext,
@@ -250,7 +342,7 @@ VOID
 NtfsPostHotFix(
     IN PIRP Irp,
     IN PLONGLONG BadVbo,
-    IN PLONGLONG BadLbo,
+    IN LONGLONG BadLbo,
     IN ULONG ByteLength,
     IN BOOLEAN DelayIrpCompletion
     );
@@ -260,15 +352,29 @@ NtfsPerformHotFix (
     IN PIRP_CONTEXT IrpContext
     );
 
+BOOLEAN
+NtfsGetReservedBuffer (
+    IN PFCB ThisFcb,
+    OUT PVOID *Buffer,
+    OUT PULONG Length,
+    IN UCHAR Need2
+    );
+
+BOOLEAN
+NtfsFreeReservedBuffer (
+    IN PVOID Buffer
+    );
+
 //****#ifdef ALLOC_PRAGMA
-//****#pragma alloc_text(PAGE, NtfsCreateBufferAndMdl)
+//****#pragma alloc_text(PAGE, NtfsCreateMdlAndBuffer)
 //****#pragma alloc_text(PAGE, NtfsFixDataError)
 //****#pragma alloc_text(PAGE, NtfsMapUserBuffer)
 //****#pragma alloc_text(PAGE, NtfsMultipleAsync)
 //****#pragma alloc_text(PAGE, NtfsNonCachedIo)
+//****#pragma alloc_text(PAGE, NtfsPrepareBuffers)
+//****#pragma alloc_text(PAGE, NtfsFinishBuffers)
 //****#pragma alloc_text(PAGE, NtfsNonCachedNonAlignedIo)
 //****#pragma alloc_text(PAGE, NtfsPerformHotFix)
-//****#pragma alloc_text(PAGE, NtfsRaiseIfRecordAllocated)
 //****#pragma alloc_text(PAGE, NtfsSingleAsync)
 //****#pragma alloc_text(PAGE, NtfsSingleNonAlignedSync)
 //****#pragma alloc_text(PAGE, NtfsTransformUsaBlock)
@@ -365,7 +471,6 @@ Return Value:
 
 PVOID
 NtfsMapUserBuffer (
-    IN PIRP_CONTEXT IrpContext,
     IN OUT PIRP Irp
     )
 
@@ -388,8 +493,7 @@ Return Value:
 --*/
 
 {
-    UNREFERENCED_PARAMETER( IrpContext );
-
+    PVOID SystemBuffer;
     PAGED_CODE();
 
     //
@@ -400,9 +504,19 @@ Return Value:
     if (Irp->MdlAddress == NULL) {
 
         return Irp->UserBuffer;
-    }
-    else {
-        return MmGetSystemAddressForMdl( Irp->MdlAddress );
+
+    } else {
+
+        //
+        //  MM can return NULL if there are no system ptes.
+        //
+
+        if ((SystemBuffer = MmGetSystemAddressForMdl( Irp->MdlAddress )) == NULL) {
+
+            ExRaiseStatus( STATUS_INSUFFICIENT_RESOURCES );
+        }
+
+        return SystemBuffer;
     }
 }
 
@@ -445,12 +559,12 @@ Return Value:
 {
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsVolumeDasdIo\n", 0);
-    DebugTrace( 0, Dbg, "Irp           = %08lx\n", Irp );
-    DebugTrace( 0, Dbg, "MajorFunction = %08lx\n", IrpContext->MajorFunction );
-    DebugTrace( 0, Dbg, "Vcb           = %08lx\n", Vcb );
-    DebugTrace2(0, Dbg, "StartingVbo   = %08lx %08lx\n", StartingVbo.LowPart, StartingVbo.HighPart );
-    DebugTrace( 0, Dbg, "ByteCount     = %08lx\n", ByteCount );
+    DebugTrace( +1, Dbg, ("NtfsVolumeDasdIo\n") );
+    DebugTrace( 0, Dbg, ("Irp           = %08lx\n", Irp) );
+    DebugTrace( 0, Dbg, ("MajorFunction = %08lx\n", IrpContext->MajorFunction) );
+    DebugTrace( 0, Dbg, ("Vcb           = %08lx\n", Vcb) );
+    DebugTrace( 0, Dbg, ("StartingVbo   = %016I64x\n", StartingVbo) );
+    DebugTrace( 0, Dbg, ("ByteCount     = %08lx\n", ByteCount) );
 
     //
     // For nonbuffered I/O, we need the buffer locked in all
@@ -487,13 +601,13 @@ Return Value:
         IrpContext->Union.NtfsIoContext = NULL;
         NtfsDeleteIrpContext( &IrpContext );
 
-        DebugTrace(-1, Dbg, "NtfsVolumeDasdIo -> STATUS_PENDING\n", 0);
+        DebugTrace( -1, Dbg, ("NtfsVolumeDasdIo -> STATUS_PENDING\n") );
         return STATUS_PENDING;
     }
 
     NtfsWaitSync( IrpContext );
 
-    DebugTrace(-1, Dbg, "NtfsVolumeDasdIo -> %08lx\n", Irp->IoStatus.Status);
+    DebugTrace( -1, Dbg, ("NtfsVolumeDasdIo -> %08lx\n", Irp->IoStatus.Status) );
 
     return Irp->IoStatus.Status;
 }
@@ -540,14 +654,13 @@ Return Value:
     // runs of the file.
     //
 
-    LONGLONG NextClusterCount;
-    ULONG NextByteCount;
+    LONGLONG ThisClusterCount;
+    ULONG ThisByteCount;
 
-    LCN NextLcn;
-    LBO NextLbo;
+    LCN ThisLcn;
+    LBO ThisLbo;
 
-    VCN StartingVcn;
-    BOOLEAN NextIsAllocated;
+    VCN ThisVcn;
 
     PIRP AssocIrp;
     PIRP ContextIrp;
@@ -558,10 +671,12 @@ Return Value:
     PDEVICE_OBJECT OurDeviceObject;
 
     PVCB Vcb = Scb->Vcb;
-    ULONG RemainingClusters;
 
     LIST_ENTRY AssociatedIrps;
     ULONG AssociatedIrpCount;
+
+    ULONG ClusterOffset;
+    VCN BeyondLastCluster;
 
     ClearFlag( Vcb->Vpb->RealDevice->Flags, DO_VERIFY_VOLUME ); //****ignore verify for now
 
@@ -578,59 +693,49 @@ Return Value:
     }
 
     //
-    //  Clear the values in the local variables.
-    //
-
-    NextLcn = 0;
-    NextLbo = 0;
-    StartingVcn = 0;
-
-    //
     //  Check that we are sector aligned.
     //
 
-    ASSERT( (((ULONG)StartingVbo) & Vcb->ClusterMask) == 0 );
+    ASSERT( (((ULONG)StartingVbo) & (Vcb->BytesPerSector - 1)) == 0 );
 
     //
     //  Initialize some locals.
     //
 
     BufferOffset = 0;
+    ClusterOffset = (ULONG) StartingVbo & Vcb->ClusterMask;
     DeviceObject = Vcb->TargetDeviceObject;
+    BeyondLastCluster = LlClustersFromBytes( Vcb, StartingVbo + ByteCount );
 
     //
     // Try to lookup the first run.  If there is just a single run,
     // we may just be able to pass it on.
     //
 
-    StartingVcn = StartingVbo >> (CCHAR)Vcb->ClusterShift;
-
-    NextIsAllocated = NtfsLookupAllocation( IrpContext,
-                                            Scb,
-                                            StartingVcn,
-                                            &NextLcn,
-                                            &NextClusterCount,
-                                            NULL );
+    ThisVcn = LlClustersFromBytesTruncate( Vcb, StartingVbo );
 
     //
     //  Paging files reads/ writes should always be correct.  If we didn't
     //  find the allocation, something bad has happened.
     //
 
-    if (!NextIsAllocated) {
+    if (!NtfsLookupNtfsMcbEntry( &Scb->Mcb,
+                                 ThisVcn,
+                                 &ThisLcn,
+                                 &ThisClusterCount,
+                                 NULL,
+                                 NULL,
+                                 NULL,
+                                 NULL )) {
 
         NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, Scb->Fcb );
     }
 
     //
-    //  Adjust from Lcn to Lbo.  NextByteCount may overflow out of 32 bits
-    //  but we will catch that below when we compare clusters.
+    //  Adjust from Lcn to Lbo.
     //
 
-    NextByteCount = BytesFromClusters( Vcb, (ULONG)NextClusterCount );
-    RemainingClusters = ClustersFromBytes( Vcb, ByteCount );
-
-    NextLbo = LlBytesFromClusters( Vcb, NextLcn );
+    ThisLbo = LlBytesFromClusters( Vcb, ThisLcn ) + ClusterOffset;
 
     //
     //  Now set up the Irp->IoStatus.  It will be modified by the
@@ -653,9 +758,9 @@ Return Value:
     // it on.
     //
 
-    if ((ULONG)NextClusterCount >= RemainingClusters) {
+    if (ThisVcn + ThisClusterCount >= BeyondLastCluster) {
 
-        DebugTrace( 0, Dbg, "Passing Irp on to Disk Driver\n", 0 );
+        DebugTrace( 0, Dbg, ("Passing Irp on to Disk Driver\n") );
 
         //
         //  We use our stack location to store request information in a
@@ -663,7 +768,7 @@ Return Value:
         //  hot fix on error.  It's ok, because it is our stack location!
         //
 
-        IrpSp->Parameters.Read.ByteOffset.QuadPart = NextLbo;
+        IrpSp->Parameters.Read.ByteOffset.QuadPart = ThisLbo;
         IrpSp->Parameters.Read.Key = ((ULONG)StartingVbo);
 
         //
@@ -691,7 +796,7 @@ Return Value:
 
         IrpSp->MajorFunction = IrpContext->MajorFunction;
         IrpSp->Parameters.Read.Length = ByteCount;
-        IrpSp->Parameters.Read.ByteOffset.QuadPart = NextLbo;
+        IrpSp->Parameters.Read.ByteOffset.QuadPart = ThisLbo;
 
         //
         //  Issue the read/write request
@@ -702,7 +807,7 @@ Return Value:
 
         (VOID)IoCallDriver( DeviceObject, Irp );
 
-        DebugTrace(-1, Dbg, "NtfsPagingFileIo -> VOID\n", 0);
+        DebugTrace( -1, Dbg, ("NtfsPagingFileIo -> VOID\n") );
         return;
     }
 
@@ -723,7 +828,7 @@ Return Value:
         InitializeListHead( &AssociatedIrps );
         AssociatedIrpCount = 0;
 
-        while (ByteCount != 0) {
+        while (TRUE) {
 
             //
             //  Reset this for unwinding purposes
@@ -733,13 +838,12 @@ Return Value:
 
             //
             // If next run is larger than we need, "ya get what you need".
-            // Note that if NextByteCount is incorrect because we overflowed
-            // 32 bits, then we will fix it here.
             //
 
-            if ((ULONG)NextClusterCount >= RemainingClusters) {
+            ThisByteCount = BytesFromClusters( Vcb, (ULONG) ThisClusterCount ) - ClusterOffset;
+            if (ThisVcn + ThisClusterCount >= BeyondLastCluster) {
 
-                NextByteCount = ByteCount;
+                ThisByteCount = ByteCount;
             }
 
             //
@@ -775,7 +879,7 @@ Return Value:
                 PMDL Mdl;
 
                 Mdl = IoAllocateMdl( (PCHAR)Irp->UserBuffer + BufferOffset,
-                                     NextByteCount,
+                                     ThisByteCount,
                                      FALSE,
                                      FALSE,
                                      AssocIrp );
@@ -790,7 +894,7 @@ Return Value:
                 IoBuildPartialMdl( Irp->MdlAddress,
                                    Mdl,
                                    (PCHAR)Irp->UserBuffer + BufferOffset,
-                                   NextByteCount );
+                                   ThisByteCount );
             }
 
             AssociatedIrpCount += 1;
@@ -809,8 +913,8 @@ Return Value:
             //
 
             IrpSp->MajorFunction = IrpContext->MajorFunction;
-            IrpSp->Parameters.Read.Length = NextByteCount;
-            IrpSp->Parameters.Read.ByteOffset.QuadPart = NextLbo;
+            IrpSp->Parameters.Read.Length = ThisByteCount;
+            IrpSp->Parameters.Read.ByteOffset.QuadPart = ThisLbo;
             IrpSp->Parameters.Read.Key = ((ULONG)StartingVbo);
             IrpSp->FileObject = FileObject;
             IrpSp->DeviceObject = OurDeviceObject;
@@ -840,51 +944,44 @@ Return Value:
             //
 
             IrpSp->MajorFunction = IrpContext->MajorFunction;
-            IrpSp->Parameters.Read.Length = NextByteCount;
-            IrpSp->Parameters.Read.ByteOffset.QuadPart = NextLbo;
+            IrpSp->Parameters.Read.Length = ThisByteCount;
+            IrpSp->Parameters.Read.ByteOffset.QuadPart = ThisLbo;
 
             //
-            // Now adjust everything for the next pass through the loop.
+            //  Now adjust everything for the next pass through the loop but
+            //  break out now if all the irps have been created for the io.
             //
 
-            StartingVbo = StartingVbo + NextByteCount;
-            BufferOffset += NextByteCount;
-            ByteCount -= NextByteCount;
+            if (ByteCount == ThisByteCount) {
 
-            //
-            // Try to lookup the next run (if we are not done).
-            //
-
-            if (ByteCount != 0) {
-
-                StartingVcn = StartingVbo >> Vcb->ClusterShift;
-
-                NextIsAllocated = NtfsLookupAllocation( IrpContext,
-                                                        Scb,
-                                                        StartingVcn,
-                                                        &NextLcn,
-                                                        &NextClusterCount,
-                                                        NULL );
-
-                //
-                //  Paging files reads/ writes should always be correct.  If
-                //  we didn't find the allocation, something bad has happened.
-                //
-
-                if (!NextIsAllocated) {
-
-                    NtfsBugCheck( 0, 0, 0 );
-                }
-
-                //
-                //  Adjust from Lcn to Lbo.
-                //
-
-                NextByteCount = BytesFromClusters( Vcb, (ULONG)NextClusterCount );
-
-                NextLbo = LlBytesFromClusters( Vcb, NextLcn );
-                RemainingClusters = ClustersFromBytes( Vcb, ByteCount );
+                break;
             }
+
+            StartingVbo += ThisByteCount;
+            BufferOffset += ThisByteCount;
+            ByteCount -= ThisByteCount;
+            ClusterOffset = 0;
+            ThisVcn += ThisClusterCount;
+
+            //
+            //  Try to lookup the next run (if we are not done).
+            //  Paging files reads/ writes should always be correct.  If
+            //  we didn't find the allocation, something bad has happened.
+            //
+
+            if (!NtfsLookupNtfsMcbEntry( &Scb->Mcb,
+                                         ThisVcn,
+                                         &ThisLcn,
+                                         &ThisClusterCount,
+                                         NULL,
+                                         NULL,
+                                         NULL,
+                                         NULL )) {;
+
+                NtfsBugCheck( 0, 0, 0 );
+            }
+
+            ThisLbo = LlBytesFromClusters( Vcb, ThisLcn );
 
         } // while (ByteCount != 0)
 
@@ -934,7 +1031,7 @@ Return Value:
         }
     }
 
-    DebugTrace(-1, Dbg, "NtfsPagingFileIo -> VOID\n", 0);
+    DebugTrace( -1, Dbg, ("NtfsPagingFileIo -> VOID\n") );
     return;
 }
 
@@ -946,6 +1043,7 @@ Return Value:
 VOID
 NtfsAllocateCompressionBuffer (
     IN PIRP_CONTEXT IrpContext,
+    IN PSCB ThisScb,
     IN PIRP Irp,
     IN PCOMPRESSION_CONTEXT CompressionContext,
     IN OUT PULONG CompressionBufferLength
@@ -960,6 +1058,8 @@ Routine Description:
     Note that whoever allocates the CompressionContext must initially zero it.
 
 Arguments:
+
+    ThisScb - The stream where the IO is taking place.
 
     Irp - Irp for the current request
 
@@ -976,8 +1076,6 @@ Return Value:
 
 {
     PMDL Mdl;
-
-    UNREFERENCED_PARAMETER(IrpContext);
 
     //
     //  If no compression buffer is allocated, or it is too small, then we must
@@ -999,7 +1097,9 @@ Return Value:
             //
 
             Irp->MdlAddress->ByteCount = CompressionContext->CompressionBufferLength;
-            IoFreeMdl( Irp->MdlAddress );
+
+            NtfsDeleteMdlAndBuffer( Irp->MdlAddress,
+                                    CompressionContext->CompressionBuffer );
 
             //
             //  Restore the Mdl and UserBuffer fields in the Irp.
@@ -1008,42 +1108,21 @@ Return Value:
             Irp->MdlAddress = CompressionContext->SavedMdl;
             Irp->UserBuffer = CompressionContext->SavedUserBuffer;
             CompressionContext->SavedMdl = NULL;
-
-            //
-            //  And free the compression buffer.
-            //
-
-            ExFreePool( CompressionContext->CompressionBuffer );
             CompressionContext->CompressionBuffer = NULL;
         }
-
-        //
-        //  Allocate the compression buffer or raise
-        //
-        //  *** Lou says have one off to the side for serial access, so we do
-        //      not deadlock if we cannot get one.
-        //
-
-        CompressionContext->CompressionBuffer = FsRtlAllocatePool( NonPagedPool,
-                                                                   *CompressionBufferLength );
 
         CompressionContext->CompressionBufferLength = *CompressionBufferLength;
 
         //
-        //  Allocate the Mdl or raise, then build it up.
+        //  Allocate the compression buffer or raise
         //
 
-        Mdl = IoAllocateMdl( CompressionContext->CompressionBuffer,
-                             *CompressionBufferLength,
-                             FALSE,
-                             FALSE,
-                             NULL );
-
-        if (Mdl == NULL) {
-            NtfsRaiseStatus( IrpContext, STATUS_INSUFFICIENT_RESOURCES, NULL, NULL );
-        }
-
-        MmBuildMdlForNonPagedPool( Mdl );
+        NtfsCreateMdlAndBuffer( IrpContext,
+                                ThisScb,
+                                (UCHAR) ((IrpContext->MajorFunction == IRP_MJ_WRITE) ? 1 : 0),
+                                &CompressionContext->CompressionBufferLength,
+                                &Mdl,
+                                &CompressionContext->CompressionBuffer );
 
         //
         //  Finally save the Mdl and Buffer fields from the Irp, and replace
@@ -1054,18 +1133,13 @@ Return Value:
         CompressionContext->SavedUserBuffer = Irp->UserBuffer;
         Irp->MdlAddress = Mdl;
         Irp->UserBuffer = CompressionContext->CompressionBuffer;
-
-        //
-        //  In case the new compression buffer length is smaller than the one
-        //  we have allocated, make the byte count correct.  Note that we come
-        //  through this path in the CompressionBufferLength == 0 case because
-        //  of the test above, therefore, make sure to noop that case.
-        //
-
-    } else {
-
-        *CompressionBufferLength = CompressionContext->CompressionBufferLength;
     }
+
+    //
+    //  Update the caller's length field in all cases.
+    //
+
+    *CompressionBufferLength = CompressionContext->CompressionBufferLength;
 }
 
 
@@ -1075,7 +1149,6 @@ Return Value:
 
 VOID
 NtfsDeallocateCompressionBuffer (
-    IN PIRP_CONTEXT IrpContext,
     IN PIRP Irp,
     IN PCOMPRESSION_CONTEXT CompressionContext
     )
@@ -1100,8 +1173,6 @@ Return Value:
 --*/
 
 {
-    UNREFERENCED_PARAMETER(IrpContext);
-
     //
     //  If there is a saved mdl, then we have to restore the original
     //  byte count it was allocated with and free it.  Then restore the
@@ -1111,18 +1182,25 @@ Return Value:
     if (CompressionContext->SavedMdl != NULL) {
 
         Irp->MdlAddress->ByteCount = CompressionContext->CompressionBufferLength;
-        IoFreeMdl( Irp->MdlAddress );
 
-        Irp->MdlAddress = CompressionContext->SavedMdl;
-        Irp->UserBuffer = CompressionContext->SavedUserBuffer;
+        NtfsDeleteMdlAndBuffer( Irp->MdlAddress,
+                                CompressionContext->CompressionBuffer );
+    } else {
+
+        NtfsDeleteMdlAndBuffer( NULL,
+                                CompressionContext->CompressionBuffer );
     }
 
     //
-    //  If there is a compression buffer allocated, free it.
+    //  If there is a saved mdl, then we have to restore the original
+    //  byte count it was allocated with and free it.  Then restore the
+    //  Irp fields we modified.
     //
 
-    if (CompressionContext->CompressionBuffer != NULL) {
-        ExFreePool( CompressionContext->CompressionBuffer );
+    if (CompressionContext->SavedMdl != NULL) {
+
+        Irp->MdlAddress = CompressionContext->SavedMdl;
+        Irp->UserBuffer = CompressionContext->SavedUserBuffer;
     }
 
     //
@@ -1130,7 +1208,7 @@ Return Value:
     //
 
     if (CompressionContext->AllocatedRuns != NTFS_MAX_PARALLEL_IOS) {
-        ExFreePool( CompressionContext->IoRuns );
+        NtfsFreePool( CompressionContext->IoRuns );
     }
 
     //
@@ -1138,7 +1216,7 @@ Return Value:
     //
 
     if (CompressionContext->WorkSpace != NULL) {
-        ExFreePool( CompressionContext->WorkSpace );
+        NtfsDeleteMdlAndBuffer( NULL, CompressionContext->WorkSpace );
     }
 }
 
@@ -1149,11 +1227,14 @@ Return Value:
 
 LONG
 NtfsCompressionFilter (
-    IN PIRP_CONTEXT IrpContext OPTIONAL,
+    IN PIRP_CONTEXT IrpContext,
     IN PEXCEPTION_POINTERS ExceptionPointer
     )
 
 {
+    UNREFERENCED_PARAMETER( IrpContext );
+    UNREFERENCED_PARAMETER( ExceptionPointer );
+
     ASSERT(NT_SUCCESS(STATUS_INVALID_USER_BUFFER));
     return EXCEPTION_EXECUTE_HANDLER;
 }
@@ -1171,7 +1252,8 @@ NtfsPrepareBuffers (
     IN PVBO StartingVbo,
     IN ULONG ByteCount,
     OUT PULONG NumberRuns,
-    OUT PCOMPRESSION_CONTEXT CompressionContext
+    OUT PCOMPRESSION_CONTEXT CompressionContext,
+    IN ULONG CompressedStream
     )
 
 /*++
@@ -1207,6 +1289,8 @@ Arguments:
     CompressionContext - Returns information related to the compression
                          to be cleaned up after the transfer.
 
+    CompressedStream - Supplies nonzero if I/O is to compressed stream
+
 Return Value:
 
     Returns uncompressed bytes remaining to be processed, or 0 if all buffers
@@ -1215,6 +1299,7 @@ Return Value:
 --*/
 
 {
+    PVOID RangePtr;
     ULONG Index;
 
     LBO NextLbo;
@@ -1243,6 +1328,7 @@ Return Value:
     ULONG UncompressedOffset, CompressedOffset, CompressionUnitOffset;
     ULONG CompressedSize, FinalCompressedSize;
     LONGLONG FinalCompressedClusters;
+    ULONG LastStartUsaIoRun;
 
     PIO_RUN IoRuns;
 
@@ -1250,6 +1336,8 @@ Return Value:
 
     VBO StartVbo = *StartingVbo;
     PVCB Vcb = Scb->Vcb;
+
+    PAGED_CODE();
 
     //
     //  Initialize some locals.
@@ -1268,18 +1356,25 @@ Return Value:
     // Irp->MdlAddress field.
     //
 
+    ASSERT( FIELD_OFFSET(IO_STACK_LOCATION, Parameters.Read.Length) ==
+            FIELD_OFFSET(IO_STACK_LOCATION, Parameters.Write.Length) );
+
     NtfsLockUserBuffer( IrpContext,
                         Irp,
                         (IrpContext->MajorFunction == IRP_MJ_READ) ?
                           IoWriteAccess : IoReadAccess,
-                        ByteCount );
+                        IoGetCurrentIrpStackLocation(Irp)->Parameters.Read.Length );
 
     //
-    //  First handle read/write case where compression not enabled
+    //  First handle read/write case where compression not enabled or we want
+    //  to read the raw compressed data or we are defragging and want to read
+    //  the data as it is on disk.
     //
 
-    if ((Scb->CompressionUnit == 0) || ((IrpContext->MajorFunction == IRP_MJ_WRITE) &&
-                                        !FlagOn(Scb->ScbState, SCB_STATE_COMPRESSED))) {
+    if ((Scb->CompressionUnit == 0) ||
+        ((IrpContext->MajorFunction == IRP_MJ_READ) &&
+         (CompressedStream ||
+          ((Scb->Union.MoveData != NULL) && !FlagOn( Scb->ScbState, SCB_STATE_COMPRESSED ))))) {
 
         //
         //  If this is a Usa-protected structure and we are reading, figure out
@@ -1310,6 +1405,22 @@ Return Value:
 
                 StructureSize = Scb->ScbType.Index.BytesPerIndexBuffer;
             }
+
+            //
+            //  Remember the last index in the IO runs array which will allow us to
+            //  read in a full USA structure in the worst case.
+            //
+
+            LastStartUsaIoRun = ClustersFromBytes( Vcb, StructureSize );
+
+            if (LastStartUsaIoRun > NTFS_MAX_PARALLEL_IOS) {
+
+                LastStartUsaIoRun = 0;
+
+            } else {
+
+                LastStartUsaIoRun = NTFS_MAX_PARALLEL_IOS - LastStartUsaIoRun;
+            }
         }
 
         BytesInIoRuns = 0;
@@ -1322,18 +1433,20 @@ Return Value:
             //  Lookup next run
             //
 
-            StartingVcn = StartVbo >> Vcb->ClusterShift;
+            StartingVcn = Int64ShraMod32(StartVbo, Vcb->ClusterShift);
 
             NextIsAllocated = NtfsLookupAllocation( IrpContext,
                                                     Scb,
                                                     StartingVcn,
                                                     &NextLcn,
                                                     &NextClusterCount,
+                                                    &RangePtr,
                                                     &Index );
 
             ASSERT( NextIsAllocated
                     || FlagOn(Vcb->VcbState, VCB_STATE_RESTART_IN_PROGRESS)
-                    || Scb == Vcb->MftScb );
+                    || (Scb == Vcb->MftScb)
+                    || CompressedStream );
 
             //
             //  Adjust from NextLcn to Lbo.  NextByteCount may overflow out of 32 bits
@@ -1387,11 +1500,12 @@ Return Value:
             if (FlagOn(Scb->ScbState, SCB_STATE_USA_PRESENT)) {
 
                 //
-                //  So long as we have not filled in a run yet (on Restart
-                //  there can be holes), just maintain the current Usa Offset.
+                //  So long as we know there are more IO runs left than the maximum
+                //  number needed for the USA structure just maintain the current
+                //  Usa offset.
                 //
 
-                if (*NumberRuns == 0) {
+                if (*NumberRuns < LastStartUsaIoRun) {
 
                     UsaOffset = (UsaOffset + NextByteCount) & (StructureSize - 1);
 
@@ -1437,8 +1551,8 @@ Return Value:
                 *NumberRuns += 1;
             } else {
 
-                if (IrpContext->MajorFunction == IRP_MJ_READ) {
-                    SystemBuffer = NtfsMapUserBuffer( IrpContext, Irp );
+                if ((IrpContext->MajorFunction == IRP_MJ_READ) && !CompressedStream) {
+                    SystemBuffer = NtfsMapUserBuffer( Irp );
                     RtlZeroMemory( Add2Ptr(SystemBuffer, BufferOffset), NextByteCount );
                 }
             }
@@ -1476,18 +1590,18 @@ Return Value:
     }
 
     //
-    //  If we have not already mapped the user buffer, then do it.
-    //
-
-    if (CompressionContext->SystemBuffer == NULL) {
-        CompressionContext->SystemBuffer = NtfsMapUserBuffer( IrpContext, Irp );
-    }
-
-    //
     //  Handle the compressed read case.
     //
 
     if (IrpContext->MajorFunction == IRP_MJ_READ) {
+
+        //
+        //  If we have not already mapped the user buffer, then do it.
+        //
+
+        if (CompressionContext->SystemBuffer == NULL) {
+            CompressionContext->SystemBuffer = NtfsMapUserBuffer( Irp );
+        }
 
         BytesInIoRuns = 0;
 
@@ -1513,6 +1627,21 @@ Return Value:
         ByteCount += CompressionUnit - 1;
         ByteCount &= ~(CompressionUnit - 1);
 
+        //
+        //  Make sure we never try to handle more than a LARGE_BUFFER_SIZE
+        //  at once, forcing our caller to call back.
+        //
+
+        if (ByteCount > LARGE_BUFFER_SIZE) {
+            ByteCount = LARGE_BUFFER_SIZE;
+        }
+
+        //
+        //  In case we find no allocation....
+        //
+
+        IoRuns[0].ByteCount = 0;
+
         while (ByteCount != 0) {
 
             //
@@ -1527,6 +1656,7 @@ Return Value:
                                                     StartingVcn,
                                                     &NextLcn,
                                                     &NextClusterCount,
+                                                    &RangePtr,
                                                     &Index );
 
             //
@@ -1570,19 +1700,19 @@ Return Value:
 
                     //
                     //  Stop on the first compression unit boundary after the
-                    //  fourth run.
+                    //  the penultimate run in the default io array.
                     //
 
-                    if (*NumberRuns >= 4) {
+                    if (*NumberRuns >= NTFS_MAX_PARALLEL_IOS - 1) {
 
                         //
-                        //  First, if we are beyond run index 4 and we are starting
+                        //  First, if we are beyond the penultimate run and we are starting
                         //  a run in a different compression unit than the previous
                         //  run, then we can just break out and not use the current
                         //  run.  (*NumberRuns has not yet been incremented.)
                         //
 
-                        if ((*NumberRuns > 4) &&
+                        if ((*NumberRuns > NTFS_MAX_PARALLEL_IOS - 1) &&
                             ((((ULONG)StartVbo) & ~(CompressionUnit - 1)) !=
                              ((((ULONG)IoRuns[*NumberRuns - 1].StartingVbo) +
                                IoRuns[*NumberRuns - 1].ByteCount - 1) &
@@ -1627,12 +1757,13 @@ Return Value:
                     //  If we have filled up the current I/O runs array, then we
                     //  will grow it once to a size which would allow the worst
                     //  case compression unit (all noncontiguous clusters) to
-                    //  start a index 4.  The following if statement enforces
+                    //  start at index NTFS_MAX_PARALLEL_IOS - 1.
+                    //  The following if statement enforces
                     //  this case as the worst case.  With 16 clusters per compression
                     //  unit, the theoretical maximum number of parallel I/Os
-                    //  would be 20, since we stop on the first compression unit
-                    //  boundary after the fourth run.  Normally, of course we
-                    //  will do much fewer.
+                    //  would be 16 + NTFS_MAX_PARALLEL_IOS - 1, since we stop on the
+                    //  first compression unit boundary after the penultimate run.
+                    //  Normally, of course we will do much fewer.
                     //
 
                     if ((*NumberRuns == NTFS_MAX_PARALLEL_IOS) &&
@@ -1640,15 +1771,15 @@ Return Value:
 
                         PIO_RUN NewIoRuns;
 
-                        NewIoRuns = FsRtlAllocatePool( NonPagedPool,
-                                                       (CompressionUnitInClusters + 4) * sizeof(IO_RUN) );
+                        NewIoRuns = NtfsAllocatePool( NonPagedPool,
+                                                       (CompressionUnitInClusters + NTFS_MAX_PARALLEL_IOS - 1) * sizeof(IO_RUN) );
 
                         RtlCopyMemory( NewIoRuns,
                                        CompressionContext->IoRuns,
                                        NTFS_MAX_PARALLEL_IOS * sizeof(IO_RUN) );
 
                         IoRuns = CompressionContext->IoRuns = NewIoRuns;
-                        CompressionContext->AllocatedRuns = CompressionUnitInClusters + 4;
+                        CompressionContext->AllocatedRuns = CompressionUnitInClusters + NTFS_MAX_PARALLEL_IOS - 1;
                     }
 
                     //
@@ -1663,22 +1794,25 @@ Return Value:
                     IoRuns[*NumberRuns].StartingLbo = NextLbo;
                     IoRuns[*NumberRuns].BufferOffset = BufferOffset;
                     IoRuns[*NumberRuns].ByteCount = NextByteCount;
+                    if ((*NumberRuns + 1) < CompressionContext->AllocatedRuns) {
+                        IoRuns[*NumberRuns + 1].ByteCount = 0;
+                    }
 
                     //
                     //  Stop on the first compression unit boundary after the
-                    //  fourth run.
+                    //  penultimate run in the default array.
                     //
 
-                    if (*NumberRuns >= 4) {
+                    if (*NumberRuns >= NTFS_MAX_PARALLEL_IOS - 1) {
 
                         //
-                        //  First, if we are beyond run index 4 and we are starting
+                        //  First, if we are beyond penultimate run and we are starting
                         //  a run in a different compression unit than the previous
                         //  run, then we can just break out and not use the current
                         //  run.  (*NumberRuns has not yet been incremented.)
                         //
 
-                        if ((*NumberRuns > 4) &&
+                        if ((*NumberRuns > NTFS_MAX_PARALLEL_IOS - 1) &&
                             ((((ULONG)StartVbo) & ~(CompressionUnit - 1)) !=
                              ((((ULONG)IoRuns[*NumberRuns - 1].StartingVbo) +
                                IoRuns[*NumberRuns - 1].ByteCount - 1) &
@@ -1738,7 +1872,7 @@ Return Value:
         if (BytesInIoRuns < CompressionUnit) {
             BytesInIoRuns = CompressionUnit;
         }
-        NtfsAllocateCompressionBuffer( IrpContext, Irp, CompressionContext, &BytesInIoRuns );
+        NtfsAllocateCompressionBuffer( IrpContext, Scb, Irp, CompressionContext, &BytesInIoRuns );
 
         return ReturnByteCount;
 
@@ -1748,13 +1882,17 @@ Return Value:
 
     } else {
 
-        PVOID UncompressedBuffer;
+        LONGLONG SavedValidDataToDisk;
+        PUCHAR UncompressedBuffer;
         PBCB Bcb;
 
         ASSERT(IrpContext->MajorFunction == IRP_MJ_WRITE);
 
-        SystemBuffer = (PVOID)((PCHAR)CompressionContext->SystemBuffer +
-                                      CompressionContext->SystemBufferOffset);
+        //
+        //  Do not adjust offset and counts for the compressed stream.
+        //
+
+        ASSERT((CompressionUnitOffset == 0) || !CompressedStream);
 
         //
         //  Adjust StartVbo and ByteCount by the offset.
@@ -1764,35 +1902,50 @@ Return Value:
         ByteCount += CompressionUnitOffset;
 
         //
-        //  To reduce pool consumption, make an educated/optimistic guess on
-        //  how much pool we need to store the compressed data.  If we are wrong
-        //  we will just have to do some more I/O.
+        //  Maintain additional bytes to be returned in ReturnByteCount,
+        //  and adjust this if we are larger than a LARGE_BUFFER_SIZE.
         //
 
-        CompressedSize = ByteCount;
-        CompressedSize = (CompressedSize + CompressionUnit - 1) & ~(CompressionUnit - 1);
-        CompressedSize += Vcb->BytesPerCluster;
+        ReturnByteCount = 0;
+        if (ByteCount > LARGE_BUFFER_SIZE) {
+            ReturnByteCount = ByteCount - LARGE_BUFFER_SIZE;
+            ByteCount = LARGE_BUFFER_SIZE;
+        }
 
-        if (CompressedSize > (PAGE_SIZE * 3)) {
+        if (!CompressedStream) {
 
-            if (CompressedSize > MM_MAXIMUM_DISK_IO_SIZE) {
-                CompressedSize = MM_MAXIMUM_DISK_IO_SIZE;
+            //
+            //  To reduce pool consumption, make an educated/optimistic guess on
+            //  how much pool we need to store the compressed data.  If we are wrong
+            //  we will just have to do some more I/O.
+            //
+
+            CompressedSize = ByteCount;
+            CompressedSize = (CompressedSize + CompressionUnit - 1) & ~(CompressionUnit - 1);
+            CompressedSize += Vcb->BytesPerCluster;
+
+            if (CompressedSize > (PAGE_SIZE * 3)) {
+
+                if (CompressedSize > LARGE_BUFFER_SIZE) {
+                    CompressedSize = LARGE_BUFFER_SIZE;
+                }
+
+                //
+                //  Assume we may get compression to 5/8 original size, but we also
+                //  need some extra to make the last call to compress the buffers
+                //  for the last chunk.  *** FOR NOW DEPEND ON Reserved Buffers...
+                //
+
+                //  CompressedSize = ((CompressedSize / 8) * 5) + (CompressionUnit / 2);
             }
 
             //
-            //  Assume we may get compression to 5/8 original size, but we also
-            //  need some extra to make the last call to compress the buffers
-            //  for the last chunk.
+            //  Allocate the compressed buffer if it is not already allocated, and this
+            //  isn't the compressed stream.
             //
 
-            CompressedSize = ((CompressedSize / 8) * 5) + (CompressionUnit / 2);
+            NtfsAllocateCompressionBuffer( IrpContext, Scb, Irp, CompressionContext, &CompressedSize );
         }
-
-        //
-        //  Allocate the compressed buffer if it is not already allocated.
-        //
-
-        NtfsAllocateCompressionBuffer( IrpContext, Irp, CompressionContext, &CompressedSize );
 
         //
         //  Loop to compress the user's buffer.
@@ -1801,26 +1954,11 @@ Return Value:
         CompressedOffset = 0;
         BufferOffset = 0;
 
-        //
-        //  If we have not already allocated the workspace, then do it.
-        //
-
-        if (CompressionContext->WorkSpace == NULL) {
-            ULONG CompressWorkSpaceSize;
-            ULONG FragmentWorkSpaceSize;
-
-            ASSERT((Scb->AttributeFlags & ATTRIBUTE_FLAG_COMPRESSION_MASK) != 0);
-
-            (VOID) RtlGetCompressionWorkSpaceSize( (USHORT)((Scb->AttributeFlags & ATTRIBUTE_FLAG_COMPRESSION_MASK) + 1),
-                                                   &CompressWorkSpaceSize,
-                                                   &FragmentWorkSpaceSize );
-
-            CompressionContext->WorkSpace = FsRtlAllocatePool( NonPagedPool, CompressWorkSpaceSize );
-        }
-
         Bcb = NULL;
 
         try {
+
+            BOOLEAN ChangeAllocation;
 
             //
             //  Loop as long as we will not overflow our compressed buffer, and we
@@ -1828,8 +1966,8 @@ Return Value:
             //  in the worst case (and as long as we have more write to satisfy!).
             //
 
-            while ((ByteCount != 0) && (*NumberRuns <= 4) &&
-                   ((CompressedOffset + CompressionUnit) <= CompressedSize)) {
+            while ((ByteCount != 0) && (*NumberRuns <= NTFS_MAX_PARALLEL_IOS - 1) &&
+                   (((CompressedOffset + CompressionUnit) <= CompressedSize) || CompressedStream)) {
 
                 LONGLONG SizeToCompress;
 
@@ -1839,83 +1977,205 @@ Return Value:
                 //  we can accept is saving at least one cluster.
                 //
 
+                ExAcquireFastMutex( Scb->Header.FastMutex );
+
                 SizeToCompress = Scb->Header.FileSize.QuadPart - StartVbo;
+
+                ExReleaseFastMutex( Scb->Header.FastMutex );
+
+                //
+                //  It is possible that if this is the lazy writer that the file
+                //  size was rolled back from a cached write which is aborting.
+                //  In that case we either truncate the write or can exit this
+                //  loop if there is nothing left to write.
+                //
+
+                if (SizeToCompress <= 0) {
+
+                    ByteCount = 0;
+                    break;
+                }
+
                 if (SizeToCompress > CompressionUnit) {
                     SizeToCompress = (LONGLONG)CompressionUnit;
                 }
 
                 //
-                //  If not all of the data we need to see may be visible, then
-                //  we will map a compression unit.
+                //  For the normal uncompressed stream, map the data and compress it
+                //  into the allocated buffer.
                 //
 
-                if ((CompressionUnitOffset != 0) || (ByteCount < (ULONG)SizeToCompress)) {
-
-                    //
-                    //  This better be paging I/O, because we ignore the caller's buffer
-                    //  and write the entire compression unit out of the section.
-                    //
-
-                    ASSERT(FlagOn(Irp->Flags, IRP_PAGING_IO));
-
-                    if (Scb->FileObject == NULL) {
-                        NtfsCreateInternalAttributeStream( IrpContext, Scb, FALSE );
-                    }
+                if (!CompressedStream) {
 
                     //
                     //  Map the aligned range, set it dirty, and flush.  We have to
                     //  loop, because the Cache Manager limits how much and over what
-                    //  boundaries we can map.
+                    //  boundaries we can map.  Only do this if there a file
+                    //  object.  Otherwise we will assume we are writing the
+                    //  clusters directly to disk (via NtfsWriteClusters).
                     //
 
-                    CcMapData( Scb->FileObject, (PLARGE_INTEGER)&StartVbo, CompressionUnit, TRUE, &Bcb, &UncompressedBuffer );
+                    if (Scb->FileObject != NULL) {
+
+                        CcMapData( Scb->FileObject,
+                                   (PLARGE_INTEGER)&StartVbo,
+                                   (ULONG)SizeToCompress,
+                                   TRUE,
+                                   &Bcb,
+                                   &UncompressedBuffer );
+
+                    //
+                    //  This is the NtfsWriteClusters path.  We can get a pointer to
+                    //  the data for the file from the Mdl stored away in the
+                    //  compression context.
+                    //
+
+                    } else {
+
+                        UncompressedBuffer = MmGetSystemAddressForMdl( CompressionContext->SavedMdl );
+                    }
+
+                    //
+                    //  If we have not already allocated the workspace, then do it.
+                    //
+
+                    if (CompressionContext->WorkSpace == NULL) {
+                        ULONG CompressWorkSpaceSize;
+                        ULONG FragmentWorkSpaceSize;
+
+                        ASSERT((Scb->AttributeFlags & ATTRIBUTE_FLAG_COMPRESSION_MASK) != 0);
+
+                        (VOID) RtlGetCompressionWorkSpaceSize( (USHORT)((Scb->AttributeFlags & ATTRIBUTE_FLAG_COMPRESSION_MASK) + 1),
+                                                               &CompressWorkSpaceSize,
+                                                               &FragmentWorkSpaceSize );
+
+                        NtfsCreateMdlAndBuffer( IrpContext,
+                                                Scb,
+                                                2,
+                                                &CompressWorkSpaceSize,
+                                                NULL,
+                                                &CompressionContext->WorkSpace );
+                    }
+
+                    try {
+
+                        //
+                        //  If we are writing compressed, compress it now.
+                        //
+
+                        if (!FlagOn(Scb->ScbState, SCB_STATE_COMPRESSED) ||
+                            ((Status =
+                              RtlCompressBuffer( (USHORT)((Scb->AttributeFlags & ATTRIBUTE_FLAG_COMPRESSION_MASK) + 1),
+                                                 UncompressedBuffer,
+                                                 (ULONG)SizeToCompress,
+                                                 CompressionContext->CompressionBuffer + CompressedOffset,
+                                                 (CompressionUnit - Vcb->BytesPerCluster),
+                                                 NTFS_CHUNK_SIZE,
+                                                 &FinalCompressedSize,
+                                                 CompressionContext->WorkSpace )) ==
+
+                                                STATUS_BUFFER_TOO_SMALL)) {
+
+                            //
+                            //  If it did not compress, just copy it over, sigh.  This looks bad,
+                            //  but it should virtually never occur assuming compression is working
+                            //  ok.  In the case where FileSize is in this unit, make sure we
+                            //  at least copy to a sector boundary.
+                            //
+
+                            FinalCompressedSize = CompressionUnit;
+
+                            RtlCopyMemory( CompressionContext->CompressionBuffer + CompressedOffset,
+                                           UncompressedBuffer,
+                                           ((ULONG)SizeToCompress + Vcb->BytesPerSector - 1) &
+                                             ~(Vcb->BytesPerSector - 1));
+
+                            Status = STATUS_SUCCESS;
+                        }
+
+                        ASSERT(NT_SUCCESS(Status));
+                        ASSERT(FinalCompressedSize <= (CompressedSize - CompressedOffset));
+
+                    //
+                    //  Probably Gary's compression routine faulted, but blaim it on
+                    //  the user buffer!
+                    //
+
+                    } except(NtfsCompressionFilter(IrpContext, GetExceptionInformation())) {
+                        NtfsRaiseStatus( IrpContext, STATUS_INVALID_USER_BUFFER, NULL, NULL );
+                    }
+
+                //
+                //  For the compressed stream, we need to scan the compressed data
+                //  to see how much we actually have to write.
+                //
 
                 } else {
 
-                    UncompressedBuffer = (PCHAR)SystemBuffer + UncompressedOffset;
-                }
+                    //
+                    //  Don't walk off the end of the data being written, because that
+                    //  would cause bogus faults in the compressed stream.
+                    //
 
-                try {
-
-                    if ((Status =
-                         RtlCompressBuffer( (USHORT)((Scb->AttributeFlags & ATTRIBUTE_FLAG_COMPRESSION_MASK) + 1),
-                                            UncompressedBuffer,
-                                            (ULONG)SizeToCompress,
-                                            CompressionContext->CompressionBuffer + CompressedOffset,
-                                            (CompressionUnit - Vcb->BytesPerCluster),
-                                            NTFS_CHUNK_SIZE,
-                                            &FinalCompressedSize,
-                                            CompressionContext->WorkSpace )) ==
-
-                                            STATUS_BUFFER_TOO_SMALL) {
-
-                        //
-                        //  If it did not compress, just copy it over, sigh.  This looks bad,
-                        //  but it should virtually never occur assuming compression is working
-                        //  ok.
-                        //
-
-                        FinalCompressedSize = CompressionUnit;
-                        RtlCopyMemory( CompressionContext->CompressionBuffer + CompressedOffset,
-                                       UncompressedBuffer,
-                                       (ULONG)SizeToCompress );
-
-                        Status = STATUS_SUCCESS;
+                    if (SizeToCompress > ByteCount) {
+                        SizeToCompress = ByteCount;
                     }
 
-                    ASSERT(NT_SUCCESS(Status));
-                    ASSERT(FinalCompressedSize <= (CompressedSize - CompressedOffset));
+                    //
+                    //  Map the compressed data.
+                    //
 
-                //
-                //  Probably Gary's compression routine faulted, but blaim it on
-                //  the user buffer!
-                //
+                    CcMapData( Scb->Header.FileObjectC,
+                               (PLARGE_INTEGER)&StartVbo,
+                               (ULONG)SizeToCompress,
+                               TRUE,
+                               &Bcb,
+                               &UncompressedBuffer );
 
-                } except(NtfsCompressionFilter(IrpContext, GetExceptionInformation())) {
-                    NtfsRaiseStatus( IrpContext, STATUS_INVALID_USER_BUFFER, NULL, NULL );
+                    FinalCompressedSize = 0;
+
+                    //
+                    //  Loop until we get an error or stop advancing.
+                    //
+
+                    RangePtr = UncompressedBuffer + SizeToCompress;
+                    do {
+                        Status = RtlDescribeChunk( (USHORT)((Scb->AttributeFlags & ATTRIBUTE_FLAG_COMPRESSION_MASK) + 1),
+                                                   &UncompressedBuffer,
+                                                   (PUCHAR)RangePtr,
+                                                   (PUCHAR *)&SystemBuffer,
+                                                   &CompressedSize );
+
+                        //
+                        //  Remember if we see any nonzero chunks
+                        //
+
+                        FinalCompressedSize |= CompressedSize;
+
+                    } while (NT_SUCCESS(Status));
+
+                    //
+                    //  If we terminated on anything but STATUS_NO_MORE_ENTRIES, we
+                    //  somehow picked up some bad data.
+                    //
+
+                    if (Status != STATUS_NO_MORE_ENTRIES) {
+                        ASSERT(Status == STATUS_NO_MORE_ENTRIES);
+                        NtfsRaiseStatus( IrpContext, Status, NULL, NULL );
+                    }
+                    Status = STATUS_SUCCESS;
+
+                    //
+                    //  If we got any nonzero chunks, then calculate size of buffer to write.
+                    //  (Size does not include terminating Ushort of 0.)
+                    //
+
+                    if (FinalCompressedSize != 0) {
+                        FinalCompressedSize = (ULONG)UncompressedBuffer & (CompressionUnit - 1);
+                    }
                 }
 
-                NtfsUnpinBcb( IrpContext, &Bcb );
+                NtfsUnpinBcb( &Bcb );
 
                 //
                 //  Round the FinalCompressedSize up to a cluster boundary now.
@@ -1948,13 +2208,24 @@ Return Value:
                     }
                 }
 
-                StartingVcn = StartVbo >> Vcb->ClusterShift;
+                StartingVcn = Int64ShraMod32(StartVbo, Vcb->ClusterShift);
+
+                //
+                //  Time to get the Scb if we do not have it already.  We
+                //  need to serialize our changes of the Mcb.
+                //
+
+                if (!CompressionContext->ScbAcquired) {
+                    NtfsAcquireExclusiveScb( IrpContext, Scb );
+                    CompressionContext->ScbAcquired = TRUE;
+                }
 
                 NextIsAllocated = NtfsLookupAllocation( IrpContext,
                                                         Scb,
                                                         StartingVcn,
                                                         &NextLcn,
                                                         &NextClusterCount,
+                                                        &RangePtr,
                                                         &Index );
 
                 //
@@ -1965,7 +2236,12 @@ Return Value:
 
                 FinalCompressedClusters = ClustersFromBytes( Vcb, FinalCompressedSize );
 
-                if (NextIsAllocated || (NextClusterCount < CompressionUnitInClusters)) {
+                ChangeAllocation = FALSE;
+
+                if (NextIsAllocated || (NextClusterCount < CompressionUnitInClusters) ||
+                   (Scb->Union.MoveData != NULL)){
+
+                    VCN TempClusterCount;
 
                     //
                     //  If we need fewer clusters than allocated, then just allocate them.
@@ -1974,20 +2250,72 @@ Return Value:
                     //  after actually having written the sectors.  (For example, we could
                     //  extend from 5 to 6 clusters and write 6 clusters of compressed data.
                     //  If we have to back that out we will have a 6-cluster pattern of
-                    //  compressed data with one sector deallocated!)
+                    //  compressed data with one sector deallocated!).
                     //
 
                     NextIsAllocated = NextIsAllocated &&
                                       (NextClusterCount >= FinalCompressedClusters);
 
                     //
+                    //  If we are cleaning up a hole, or the next run is unuseable,
+                    //  then make sure we just delete it rather than sliding the
+                    //  tiny run up with SplitMcb.  Note that we have the Scb exclusive,
+                    //  and that since all compressed files go through the cache, we
+                    //  know that the dirty pages can't go away even if we spin out
+                    //  of here with ValidDataToDisk bumped up too high.
+                    //
+
+                    SavedValidDataToDisk = Scb->ValidDataToDisk;
+                    if (!NextIsAllocated && ((StartVbo + CompressionUnit) > Scb->ValidDataToDisk)) {
+                        Scb->ValidDataToDisk = StartVbo + CompressionUnit;
+                    }
+
+                    //
+                    //  Also, we need to handle the case where a range within
+                    //  ValidDataToDisk is fully allocated.  If we are going to compress
+                    //  now, then we have the same problem with failing after writing
+                    //  the compressed data out, i.e., because we are fully allocated
+                    //  we would see the data as uncompressed after an abort, yet we
+                    //  have written compressed data. We do not implement the entire
+                    //  loop necessary to really see if the compression unit is fully
+                    //  allocated - we just verify that NextClusterCount is less than
+                    //  a compression unit and that the next run is not allocated.  Just
+                    //  because the next contiguous run is also allocated does not guarantee
+                    //  that the compression unit is fully allocated, but maybe we will
+                    //  get some small defrag gain by reallocating what we need in a
+                    //  single run.
+                    //
+
+                    NextIsAllocated = NextIsAllocated &&
+                                      ((StartVbo >= Scb->ValidDataToDisk) ||
+                                       (FinalCompressedClusters == CompressionUnitInClusters) ||
+                                       ((NextClusterCount < CompressionUnitInClusters) &&
+                                        (!NtfsLookupAllocation( IrpContext,
+                                                                Scb,
+                                                                StartingVcn + NextClusterCount,
+                                                                &NextLbo,
+                                                                &TempClusterCount,
+                                                                &RangePtr,
+                                                                &Index ) ||
+                                         (NextLbo != UNUSED_LCN))));
+
+                    //
+                    //  If we are defragmenting make sure we delete the allocation
+                    //
+
+                    if(Scb->Union.MoveData != NULL) {
+
+                        NextIsAllocated = FALSE;
+                    }
+
+                    //
                     //  If we are not keeping any allocation, or we need less
                     //  than a compression unit, then call NtfsDeleteAllocation.
                     //
 
+
                     if (!NextIsAllocated ||
                         (FinalCompressedClusters < CompressionUnitInClusters)) {
-
 
                         NtfsDeleteAllocation( IrpContext,
                                               IoGetCurrentIrpStackLocation(Irp)->FileObject,
@@ -1996,11 +2324,15 @@ Return Value:
                                               StartingVcn + ClustersFromBytes(Vcb, CompressionUnit) - 1,
                                               TRUE,
                                               FALSE );
+
+                        ChangeAllocation = TRUE;
                     }
+
+                    Scb->ValidDataToDisk = SavedValidDataToDisk;
                 }
 
                 //
-                //  Now make deal with the case where we do need to allocate space.
+                //  Now deal with the case where we do need to allocate space.
                 //
 
                 if (FinalCompressedSize != 0) {
@@ -2019,16 +2351,22 @@ Return Value:
                                            FinalCompressedClusters,
                                            FALSE );
 
-                        //
-                        //  If we added space, something may have moved, so we must
-                        //  look up our position and get a new index.
-                        //
+                        ChangeAllocation = TRUE;
+                    }
+
+                    //
+                    //  If we added space, something may have moved, so we must
+                    //  look up our position and get a new index.
+                    //
+
+                    if (ChangeAllocation) {
 
                         NtfsLookupAllocation( IrpContext,
                                               Scb,
                                               StartingVcn,
                                               &NextLcn,
                                               &NextClusterCount,
+                                              &RangePtr,
                                               &Index );
                     }
 
@@ -2048,11 +2386,14 @@ Return Value:
                         //  for greater speed.
                         //
 
-                        NextIsAllocated = FsRtlGetNextLargeMcbEntry( &Scb->Mcb,
-                                                                     Index++,
+                        NextIsAllocated = NtfsGetSequentialMcbEntry( &Scb->Mcb,
+                                                                     &RangePtr,
+                                                                     Index,
                                                                      &StartingVcn,
                                                                      &NextLcn,
                                                                      &NextClusterCount );
+
+                        Index += 1;
 
                         ASSERT(NextIsAllocated);
                         ASSERT(NextLcn != UNUSED_LCN);
@@ -2062,7 +2403,7 @@ Return Value:
                         //  some adjustments.
                         //
 
-                        RunOffset = (TempVbo >> Vcb->ClusterShift)-StartingVcn;
+                        RunOffset = Int64ShraMod32(TempVbo, Vcb->ClusterShift) - StartingVcn;
 
                         ASSERT( ((PLARGE_INTEGER)&RunOffset)->HighPart >= 0 );
                         ASSERT( NextClusterCount > RunOffset );
@@ -2110,11 +2451,12 @@ Return Value:
                             //  If we have filled up the current I/O runs array, then we
                             //  will grow it once to a size which would allow the worst
                             //  case compression unit (all noncontiguous clusters) to
-                            //  start a index 4.  The following if statement enforces
-                            //  this case as the worst case.  With 16 clusters per compression
-                            //  unit, the theoretical maximum number of parallel I/Os
-                            //  would be 20, since we stop on the first compression unit
-                            //  boundary after the fourth run.  Normally, of course we
+                            //  start at the penultimate index.  The following if
+                            //  statement enforces this case as the worst case.  With 16
+                            //  clusters per compression unit, the theoretical maximum
+                            //  number of parallel I/Os would be 16 + NTFS_MAX_PARALLEL_IOS - 1,
+                            //  since we stop on the first compression unit
+                            //  boundary after the penultimate run.  Normally, of course we
                             //  will do much fewer.
                             //
 
@@ -2123,15 +2465,15 @@ Return Value:
 
                                 PIO_RUN NewIoRuns;
 
-                                NewIoRuns = FsRtlAllocatePool( NonPagedPool,
-                                                               (CompressionUnitInClusters + 4) * sizeof(IO_RUN) );
+                                NewIoRuns = NtfsAllocatePool( NonPagedPool,
+                                                               (CompressionUnitInClusters + NTFS_MAX_PARALLEL_IOS - 1) * sizeof(IO_RUN) );
 
                                 RtlCopyMemory( NewIoRuns,
                                                CompressionContext->IoRuns,
                                                NTFS_MAX_PARALLEL_IOS * sizeof(IO_RUN) );
 
                                 IoRuns = CompressionContext->IoRuns = NewIoRuns;
-                                CompressionContext->AllocatedRuns = CompressionUnitInClusters + 4;
+                                CompressionContext->AllocatedRuns = CompressionUnitInClusters + NTFS_MAX_PARALLEL_IOS - 1;
                             }
 
                             //
@@ -2158,7 +2500,17 @@ Return Value:
                     }
                 }
 
-                StartVbo = StartVbo + CompressionUnit;
+                //
+                //  If this is the unnamed data stream then we need to update
+                //  the total allocated size.
+                //
+
+                if (ChangeAllocation && FlagOn( Scb->ScbState, SCB_STATE_UNNAMED_DATA )) {
+
+                    Scb->Fcb->Info.AllocatedLength = Scb->TotalAllocated;
+                    SetFlag( Scb->Fcb->InfoFlags, FCB_INFO_CHANGED_ALLOC_SIZE );
+                }
+
                 UncompressedOffset += CompressionUnit - CompressionUnitOffset;
 
                 //
@@ -2166,8 +2518,10 @@ Return Value:
                 //  transferred.
 
                 if (ByteCount > CompressionUnit) {
+                    StartVbo += CompressionUnit;
                     ByteCount -= CompressionUnit;
                 } else {
+                    StartVbo += ByteCount;
                     ByteCount = 0;
                 }
 
@@ -2176,20 +2530,18 @@ Return Value:
 
         } finally {
 
-            NtfsUnpinBcb( IrpContext, &Bcb );
+            NtfsUnpinBcb( &Bcb );
         }
 
         //
-        //  See if we need to advance HighestVcnToDisk.
+        //  See if we need to advance ValidDataToDisk.
         //
 
-        StartingVcn = LlClustersFromBytes( Vcb, StartVbo ) - 1;
-
-        if (StartingVcn > Scb->HighestVcnToDisk) {
-            Scb->HighestVcnToDisk = StartingVcn;
+        if (StartVbo > Scb->ValidDataToDisk) {
+            Scb->ValidDataToDisk = StartVbo;
         }
 
-        return ByteCount;
+        return ByteCount + ReturnByteCount;
     }
 }
 
@@ -2205,7 +2557,8 @@ NtfsFinishBuffers (
     IN PSCB Scb,
     IN PVBO StartingVbo,
     IN ULONG ByteCount,
-    IN PCOMPRESSION_CONTEXT CompressionContext
+    IN PCOMPRESSION_CONTEXT CompressionContext,
+    IN ULONG CompressedStream
     )
 
 /*++
@@ -2232,6 +2585,8 @@ Arguments:
     CompressionContext - Supplies information related to the compression
                          filled in by NtfsPrepareBuffers.
 
+    CompressedStream - Supplies nonzero if I/O is to compressed stream
+
 Return Value:
 
     Status from the operation
@@ -2239,8 +2594,6 @@ Return Value:
 --*/
 
 {
-    ULONG Index;
-
     VCN CurrentVcn, NextVcn;
     LCN NextLcn;
 
@@ -2257,11 +2610,13 @@ Return Value:
     ULONG CompressedSize;
     LONGLONG UncompressedSize;
 
-    LONGLONG CurrentClusterCount;
+    LONGLONG CurrentAllocatedClusterCount;
 
     NTSTATUS Status = STATUS_SUCCESS;
 
     PVCB Vcb = Scb->Vcb;
+
+    PAGED_CODE();
 
     //
     //  If this is a normal termination of a read, then let's give him the
@@ -2270,336 +2625,474 @@ Return Value:
 
     ASSERT(Scb->CompressionUnit != 0);
 
+    //
+    //  If we are defragmenting we don't need to do this so then just return
+    //
+
+    if(Scb->Union.MoveData != NULL && !FlagOn(Scb->ScbState, SCB_STATE_COMPRESSED)) {
+        return Status;
+    }
+
     if (IrpContext->MajorFunction == IRP_MJ_READ) {
 
-        //
-        //  Initialize remaining context for the loop.
-        //
-
-        CompressionUnit = Scb->CompressionUnit;
-        CompressionUnitInClusters = ClustersFromBytes(Vcb, CompressionUnit);
-        CompressedOffset = 0;
-        UncompressedOffset = 0;
-        Status = STATUS_SUCCESS;
-
-        //
-        //  Map the user buffer.
-        //
-
-        SystemBuffer = (PVOID)((PCHAR)CompressionContext->SystemBuffer +
-                                      CompressionContext->SystemBufferOffset);
-
-
-        //
-        //  Calculate the first Vcn and offset within the compression
-        //  unit of the start of the transfer, and lookup the first
-        //  run.
-        //
-
-        StartingOffset = *((PULONG)StartingVbo) & (CompressionUnit - 1);
-        CurrentVcn = LlClustersFromBytes(Vcb, *StartingVbo - StartingOffset);
-
-        NextIsAllocated =
-        FsRtlLookupLargeMcbEntry ( &Scb->Mcb,
-                                   CurrentVcn,
-                                   &NextLcn,
-                                   &CurrentClusterCount,
-                                   NULL,
-                                   NULL,
-                                   &Index );
-
-        if (!NextIsAllocated) {
-            CurrentClusterCount = 0;
-        }
-
-        //
-        //  Prepare for the initial Mcb scan below by pretending that the
-        //  next run has been looked up, and is a contiguous run of 0 clusters!
-        //
-
-        Index += 1;
-        NextVcn = CurrentVcn + CurrentClusterCount;
-        NextClusterCount = 0;
-
-        //
-        //  If this is actually a hole, now set CurrentClusterCount to zero.
-        //
-
-        if (NextLcn == UNUSED_LCN) {
-            CurrentClusterCount = 0;
-        }
-
-        //
-        //  Loop to return the data.
-        //
-
-        //
-        //  If we have not already allocated the workspace, then do it.
-        //
-
-        if (CompressionContext->WorkSpace == NULL) {
-            ULONG CompressWorkSpaceSize;
-            ULONG FragmentWorkSpaceSize;
-
-            ASSERT((Scb->AttributeFlags & ATTRIBUTE_FLAG_COMPRESSION_MASK) != 0);
-
-            (VOID) RtlGetCompressionWorkSpaceSize( (USHORT)((Scb->AttributeFlags & ATTRIBUTE_FLAG_COMPRESSION_MASK) + 1),
-                                                   &CompressWorkSpaceSize,
-                                                   &FragmentWorkSpaceSize );
-
-            CompressionContext->WorkSpace = FsRtlAllocatePool( NonPagedPool, FragmentWorkSpaceSize );
-        }
-
-        while (ByteCount != 0) {
+        if (!CompressedStream) {
 
             //
-            //  Loop to determine the compressed size of the next compression
-            //  unit.  I.e., loop until we either find the end of the current
-            //  range of contiguous Vcns, or until we find that the current
-            //  compression unit is fully allocated.
+            //  Initialize remaining context for the loop.
             //
 
-            while (NextIsAllocated &&
-                   (CurrentClusterCount < CompressionUnitInClusters) &&
-                   ((CurrentVcn + CurrentClusterCount) == NextVcn)) {
+            CompressionUnit = Scb->CompressionUnit;
+            CompressionUnitInClusters = ClustersFromBytes(Vcb, CompressionUnit);
+            CompressedOffset = 0;
+            UncompressedOffset = 0;
+            Status = STATUS_SUCCESS;
 
-                if ((CurrentVcn + CurrentClusterCount) > NextVcn) {
+            //
+            //  Map the user buffer.
+            //
 
-                    NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, Scb->Fcb );
-                }
+            SystemBuffer = (PVOID)((PCHAR)CompressionContext->SystemBuffer +
+                                          CompressionContext->SystemBufferOffset);
 
-                CurrentClusterCount = CurrentClusterCount + NextClusterCount;
 
-                //
-                //  Loop to find the next allocated Vcn, or the end of the Mcb.
-                //
+            //
+            //  Calculate the first Vcn and offset within the compression
+            //  unit of the start of the transfer, and lookup the first
+            //  run.
+            //
 
-                while ((NextIsAllocated =
-                        FsRtlGetNextLargeMcbEntry( &Scb->Mcb,
-                                                   Index++,
-                                                   &NextVcn,
-                                                   &NextLcn,
-                                                   &NextClusterCount ))
+            StartingOffset = *((PULONG)StartingVbo) & (CompressionUnit - 1);
+            CurrentVcn = LlClustersFromBytes(Vcb, *StartingVbo - StartingOffset);
 
-                         &&
+            NextIsAllocated =
+            NtfsLookupAllocation( IrpContext,
+                                  Scb,
+                                  CurrentVcn,
+                                  &NextLcn,
+                                  &CurrentAllocatedClusterCount,
+                                  NULL,
+                                  NULL );
 
-                       (NextLcn == UNUSED_LCN)) {
+            //
+            //  Set NextIsAllocated and NextLcn as the Mcb package would, to show if
+            //  we are off the end.
+            //
 
-                    NOTHING;
-                }
+            if (!NextIsAllocated) {
+                NextLcn = UNUSED_LCN;
+            }
+
+            NextIsAllocated = (BOOLEAN)(CurrentAllocatedClusterCount < (MAXLONGLONG - CurrentVcn));
+
+            //
+            //  If this is actually a hole or there was no entry in the Mcb, then
+            //  set CurrentAllocatedClusterCount to zero so we will always make the first
+            //  pass in the embedded while loop below.
+            //
+
+            if (!NextIsAllocated || (NextLcn == UNUSED_LCN)) {
+                CurrentAllocatedClusterCount = 0;
             }
 
             //
-            //  The compression unit is fully allocated.
+            //  Prepare for the initial Mcb scan below by pretending that the
+            //  next run has been looked up, and is a contiguous run of 0 clusters!
             //
 
-            if (CurrentClusterCount >= CompressionUnitInClusters) {
-
-                CompressedSize = CompressionUnit;
-                CurrentClusterCount = CurrentClusterCount - CompressionUnitInClusters;
+            NextVcn = CurrentVcn + CurrentAllocatedClusterCount;
+            NextClusterCount = 0;
 
             //
-            //  Otherwise calculate how much is allocated at the current Vcn
-            //  (if any).
+            //  Loop to return the data.
             //
 
-            } else {
-
-                CompressedSize = BytesFromClusters(Vcb, (ULONG)CurrentClusterCount);
-                CurrentClusterCount = 0;
-            }
-
-            //
-            //  The next time through this loop, we will be working on the next
-            //  compression unit.
-            //
-
-            CurrentVcn = CurrentVcn + CompressionUnitInClusters;
-
-            //
-            //  Calculate uncompressed size of the desired fragment, or
-            //  entire compression unit.
-            //
-
-            UncompressedSize = Scb->Header.FileSize.QuadPart -
-                               (*StartingVbo + UncompressedOffset);
-
-            if (UncompressedSize > CompressionUnit) {
-                (ULONG)UncompressedSize = CompressionUnit;
-            }
-
-            //
-            //  Calculate how much we want now, based on StartingOffset and
-            //  ByteCount.
-            //
-
-            NextByteCount = CompressionUnit - StartingOffset;
-            if (NextByteCount > ByteCount) {
-                NextByteCount = ByteCount;
-            }
-
-            //
-            //  Practice safe access
-            //
-
-            try {
+            while (ByteCount != 0) {
 
                 //
-                //  There were no clusters allocated, return 0's.
+                //  Loop to determine the compressed size of the next compression
+                //  unit.  I.e., loop until we either find the end of the current
+                //  range of contiguous Vcns, or until we find that the current
+                //  compression unit is fully allocated.
                 //
 
-                AlreadyFilled = FALSE;
-                if (CompressedSize == 0) {
+                while (NextIsAllocated &&
+                       (CurrentAllocatedClusterCount < CompressionUnitInClusters) &&
+                       ((CurrentVcn + CurrentAllocatedClusterCount) == NextVcn)) {
 
-                    RtlZeroMemory( (PUCHAR)SystemBuffer + UncompressedOffset,
-                                   NextByteCount );
+                    if ((CurrentVcn + CurrentAllocatedClusterCount) > NextVcn) {
 
-                //
-                //  The compression unit was fully allocated, just copy.
-                //
+                        NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, Scb->Fcb );
+                    }
 
-                } else if (CompressedSize == CompressionUnit) {
+                    CurrentAllocatedClusterCount = CurrentAllocatedClusterCount + NextClusterCount;
 
-                    RtlCopyMemory( (PUCHAR)SystemBuffer + UncompressedOffset,
-                                   CompressionContext->CompressionBuffer +
-                                     CompressedOffset + StartingOffset,
-                                   NextByteCount );
-
-                //
-                //  Caller does not want the entire compression unit, decompress
-                //  a fragment.
-                //
-
-                } else if (NextByteCount < CompressionUnit) {
+                    //
+                    //  Loop to find the next allocated Vcn, or the end of the Mcb.
+                    //  None of the interfaces using RangePtr and Index as inputs
+                    //  can be used here, such as NtfsGetSequentialMcbEntry, because
+                    //  we do not have the Scb main resource acquired, and writers can
+                    //  be moving stuff around in parallel.
+                    //
 
                     while (TRUE) {
 
-                        Status =
-                        RtlDecompressFragment( (USHORT)((Scb->AttributeFlags & ATTRIBUTE_FLAG_COMPRESSION_MASK) + 1),
-                                               (PUCHAR)SystemBuffer + UncompressedOffset,
-                                               NextByteCount,
-                                               CompressionContext->CompressionBuffer + CompressedOffset,
-                                               CompressedSize,
-                                               StartingOffset,
-                                               (PULONG)&UncompressedSize,
-                                               CompressionContext->WorkSpace );
+                        //
+                        //  Set up NextVcn for next call
+                        //
 
-                        ASSERT(NT_SUCCESS(Status || !NtfsStopOnDecompressError));
+                        NextVcn += NextClusterCount;
 
-                        if (NT_SUCCESS(Status)) {
+                        NextIsAllocated = NtfsLookupAllocation( IrpContext,
+                                                                Scb,
+                                                                NextVcn,
+                                                                &NextLcn,
+                                                                &NextClusterCount,
+                                                                NULL,
+                                                                NULL );
 
-                            RtlZeroMemory( (PUCHAR)SystemBuffer + UncompressedOffset + (ULONG)UncompressedSize,
-                                           NextByteCount - (ULONG)UncompressedSize );
+                        //
+                        //  Set NextIsAllocated and NextLcn as the Mcb package would, to show if
+                        //  we are off the end.
+                        //
+
+                        if (!NextIsAllocated) {
+                            NextLcn = UNUSED_LCN;
+                        }
+
+                        NextIsAllocated = (BOOLEAN)(NextClusterCount < (MAXLONGLONG - NextVcn));
+
+                        //
+                        //  Get out if we hit the end or see something allocated.
+                        //
+
+                        if (!NextIsAllocated || (NextLcn != UNUSED_LCN)) {
                             break;
-
-                        } else {
-
-                            //
-                            //  The compressed buffer could have been bad.  We need to fill
-                            //  it with a pattern and get on with life.  Someone could be
-                            //  faulting it in just to overwrite it, or it could be a rare
-                            //  case of corruption.  We fill the data with a pattern, but
-                            //  we must return success so a pagefault will succeed.  We
-                            //  do this once, then loop back to decompress what we can.
-                            //
-
-                            Status = STATUS_SUCCESS;
-
-                            if (!AlreadyFilled) {
-
-                                RtlFillMemory( (PUCHAR)SystemBuffer + UncompressedOffset,
-                                               NextByteCount,
-                                               0xFE );
-                                AlreadyFilled = TRUE;
-
-                            } else {
-                                break;
-                            }
                         }
                     }
+                }
 
                 //
-                //  Decompress the entire compression unit.
+                //  The compression unit is fully allocated.
+                //
+
+                if (CurrentAllocatedClusterCount >= CompressionUnitInClusters) {
+
+                    CompressedSize = CompressionUnit;
+                    CurrentAllocatedClusterCount = CurrentAllocatedClusterCount - CompressionUnitInClusters;
+
+                //
+                //  Otherwise calculate how much is allocated at the current Vcn
+                //  (if any).
                 //
 
                 } else {
 
-                    ASSERT(StartingOffset == 0);
+                    CompressedSize = BytesFromClusters(Vcb, (ULONG)CurrentAllocatedClusterCount);
+                    CurrentAllocatedClusterCount = 0;
+                }
 
-                    while (TRUE) {
+                //
+                //  The next time through this loop, we will be working on the next
+                //  compression unit.
+                //
 
-                        Status =
-                        RtlDecompressBuffer ( (USHORT)((Scb->AttributeFlags & ATTRIBUTE_FLAG_COMPRESSION_MASK) + 1),
-                                              (PUCHAR)SystemBuffer + UncompressedOffset,
-                                              NextByteCount,
-                                              CompressionContext->CompressionBuffer + CompressedOffset,
-                                              CompressedSize,
-                                              (PULONG)&UncompressedSize );
+                CurrentVcn = CurrentVcn + CompressionUnitInClusters;
 
-                        ASSERT(NT_SUCCESS(Status || !NtfsStopOnDecompressError));
+                //
+                //  Calculate uncompressed size of the desired fragment, or
+                //  entire compression unit.
+                //
 
-                        if (NT_SUCCESS(Status)) {
+                ExAcquireFastMutex( Scb->Header.FastMutex );
+                UncompressedSize = Scb->Header.FileSize.QuadPart -
+                                   (*StartingVbo + UncompressedOffset);
+                ExReleaseFastMutex( Scb->Header.FastMutex );
 
-                            RtlZeroMemory( (PUCHAR)SystemBuffer + UncompressedOffset + (ULONG)UncompressedSize,
-                                           NextByteCount - (ULONG)UncompressedSize );
-                            break;
+                if (UncompressedSize > CompressionUnit) {
+                    (ULONG)UncompressedSize = CompressionUnit;
+                }
 
-                        } else {
+                //
+                //  Calculate how much we want now, based on StartingOffset and
+                //  ByteCount.
+                //
+
+                NextByteCount = CompressionUnit - StartingOffset;
+                if (NextByteCount > ByteCount) {
+                    NextByteCount = ByteCount;
+                }
+
+                //
+                //  Practice safe access
+                //
+
+                try {
+
+                    //
+                    //  There were no clusters allocated, return 0's.
+                    //
+
+                    AlreadyFilled = FALSE;
+                    if (CompressedSize == 0) {
+
+                        RtlZeroMemory( (PUCHAR)SystemBuffer + UncompressedOffset,
+                                       NextByteCount );
+
+                    //
+                    //  The compression unit was fully allocated, just copy.
+                    //
+
+                    } else if (CompressedSize == CompressionUnit) {
+
+                        RtlCopyMemory( (PUCHAR)SystemBuffer + UncompressedOffset,
+                                       CompressionContext->CompressionBuffer +
+                                         CompressedOffset + StartingOffset,
+                                       NextByteCount );
+
+#ifdef SYSCACHE
+                        if (FlagOn(Scb->ScbState, SCB_STATE_SYSCACHE_FILE)) {
+
+                            FsRtlVerifySyscacheData( IoGetCurrentIrpStackLocation( IrpContext->OriginatingIrp )->FileObject,
+                                                     Add2Ptr( SystemBuffer, UncompressedOffset ),
+                                                     NextByteCount,
+                                                     (ULONG)*StartingVbo + UncompressedOffset );
+                        }
+#endif
+
+                    //
+                    //  Caller does not want the entire compression unit, decompress
+                    //  a fragment.
+                    //
+
+                    } else if (NextByteCount < CompressionUnit) {
+
+                        //
+                        //  If we have not already allocated the workspace, then do it.
+                        //
+
+                        if (CompressionContext->WorkSpace == NULL) {
+                            ULONG CompressWorkSpaceSize;
+                            ULONG FragmentWorkSpaceSize;
+
+                            ASSERT((Scb->AttributeFlags & ATTRIBUTE_FLAG_COMPRESSION_MASK) != 0);
+
+                            (VOID) RtlGetCompressionWorkSpaceSize( (USHORT)((Scb->AttributeFlags & ATTRIBUTE_FLAG_COMPRESSION_MASK) + 1),
+                                                                   &CompressWorkSpaceSize,
+                                                                   &FragmentWorkSpaceSize );
 
                             //
-                            //  The compressed buffer could have been bad.  We need to fill
-                            //  it with a pattern and get on with life.  Someone could be
-                            //  faulting it in just to overwrite it, or it could be a rare
-                            //  case of corruption.  We fill the data with a pattern, but
-                            //  we must return success so a pagefault will succeed.  We
-                            //  do this once, then loop back to decompress what we can.
+                            //  Allocate first from non-paged, then paged.  The typical
+                            //  size of this workspace is just over a single page so
+                            //  if both allocations fail then the system is running
+                            //  a reduced capacity.  Return an error to the user
+                            //  and let him retry.
                             //
 
-                            Status = STATUS_SUCCESS;
+                            CompressionContext->WorkSpace = ExAllocatePool( NonPagedPool, FragmentWorkSpaceSize );
 
-                            if (!AlreadyFilled) {
+                            if (CompressionContext->WorkSpace == NULL) {
 
-                                RtlFillMemory( (PUCHAR)SystemBuffer + UncompressedOffset,
-                                               NextByteCount,
-                                               0xFE );
-                                AlreadyFilled = TRUE;
+                                CompressionContext->WorkSpace =
+                                    NtfsAllocatePool( PagedPool, FragmentWorkSpaceSize );
+                            }
+                        }
+
+                        while (TRUE) {
+
+                            Status =
+                            RtlDecompressFragment( (USHORT)((Scb->AttributeFlags & ATTRIBUTE_FLAG_COMPRESSION_MASK) + 1),
+                                                   (PUCHAR)SystemBuffer + UncompressedOffset,
+                                                   NextByteCount,
+                                                   CompressionContext->CompressionBuffer + CompressedOffset,
+                                                   CompressedSize,
+                                                   StartingOffset,
+                                                   (PULONG)&UncompressedSize,
+                                                   CompressionContext->WorkSpace );
+
+                            ASSERT(NT_SUCCESS( Status ) || !NtfsStopOnDecompressError);
+
+                            if (NT_SUCCESS(Status)) {
+
+                                RtlZeroMemory( (PUCHAR)SystemBuffer + UncompressedOffset + (ULONG)UncompressedSize,
+                                               NextByteCount - (ULONG)UncompressedSize );
+
+#ifdef SYSCACHE
+                                if (FlagOn(Scb->ScbState, SCB_STATE_SYSCACHE_FILE)) {
+
+                                    FsRtlVerifySyscacheData( IoGetCurrentIrpStackLocation( IrpContext->OriginatingIrp )->FileObject,
+                                                             Add2Ptr( SystemBuffer, UncompressedOffset ),
+                                                             NextByteCount,
+                                                             (ULONG)*StartingVbo + UncompressedOffset );
+                                }
+#endif
+                                break;
 
                             } else {
+
+                                //
+                                //  The compressed buffer could have been bad.  We need to fill
+                                //  it with a pattern and get on with life.  Someone could be
+                                //  faulting it in just to overwrite it, or it could be a rare
+                                //  case of corruption.  We fill the data with a pattern, but
+                                //  we must return success so a pagefault will succeed.  We
+                                //  do this once, then loop back to decompress what we can.
+                                //
+
+                                Status = STATUS_SUCCESS;
+
+                                if (!AlreadyFilled) {
+
+                                    RtlFillMemory( (PUCHAR)SystemBuffer + UncompressedOffset,
+                                                   NextByteCount,
+                                                   0xDF );
+                                    AlreadyFilled = TRUE;
+
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
+
+                    //
+                    //  Decompress the entire compression unit.
+                    //
+
+                    } else {
+
+                        ASSERT(StartingOffset == 0);
+
+                        while (TRUE) {
+
+                            Status =
+                            RtlDecompressBuffer( (USHORT)((Scb->AttributeFlags & ATTRIBUTE_FLAG_COMPRESSION_MASK) + 1),
+                                                 (PUCHAR)SystemBuffer + UncompressedOffset,
+                                                 NextByteCount,
+                                                 CompressionContext->CompressionBuffer + CompressedOffset,
+                                                 CompressedSize,
+                                                 (PULONG)&UncompressedSize );
+
+                            ASSERT(NT_SUCCESS( Status ) || !NtfsStopOnDecompressError);
+
+                            if (NT_SUCCESS(Status)) {
+
+                                RtlZeroMemory( (PUCHAR)SystemBuffer + UncompressedOffset + (ULONG)UncompressedSize,
+                                               NextByteCount - (ULONG)UncompressedSize );
+#ifdef SYSCACHE
+                                if (FlagOn(Scb->ScbState, SCB_STATE_SYSCACHE_FILE)) {
+
+                                    FsRtlVerifySyscacheData( IoGetCurrentIrpStackLocation( IrpContext->OriginatingIrp )->FileObject,
+                                                             Add2Ptr( SystemBuffer, UncompressedOffset ),
+                                                             NextByteCount,
+                                                             (ULONG)*StartingVbo + UncompressedOffset );
+                                }
+#endif
                                 break;
+
+                            } else {
+
+                                //
+                                //  The compressed buffer could have been bad.  We need to fill
+                                //  it with a pattern and get on with life.  Someone could be
+                                //  faulting it in just to overwrite it, or it could be a rare
+                                //  case of corruption.  We fill the data with a pattern, but
+                                //  we must return success so a pagefault will succeed.  We
+                                //  do this once, then loop back to decompress what we can.
+                                //
+
+                                Status = STATUS_SUCCESS;
+
+                                if (!AlreadyFilled) {
+
+                                    RtlFillMemory( (PUCHAR)SystemBuffer + UncompressedOffset,
+                                                   NextByteCount,
+                                                   0xDB );
+                                    AlreadyFilled = TRUE;
+
+                                } else {
+                                    break;
+                                }
                             }
                         }
                     }
+
+                //
+                //  Probably Gary's decompression routine faulted, but blaim it on
+                //  the user buffer!
+                //
+
+                } except(NtfsCompressionFilter(IrpContext, GetExceptionInformation())) {
+                    Status = STATUS_INVALID_USER_BUFFER;
                 }
 
-            //
-            //  Probably Gary's decompression routine faulted, but blaim it on
-            //  the user buffer!
-            //
+                if (!NT_SUCCESS(Status)) {
+                    break;
+                }
 
-            } except(NtfsCompressionFilter(IrpContext, GetExceptionInformation())) {
-                Status = STATUS_INVALID_USER_BUFFER;
+                //
+                //  Advance these fields for the next pass through.
+                //
+
+                StartingOffset = 0;
+                UncompressedOffset += NextByteCount;
+                CompressedOffset += CompressedSize;
+                ByteCount -= NextByteCount;
             }
 
-            if (!NT_SUCCESS(Status)) {
-                break;
-            }
-
             //
-            //  Advance these fields for the next pass through.
+            //  We now flush the user's buffer to memory.
             //
 
-            StartingOffset = 0;
-            UncompressedOffset += NextByteCount;
-            CompressedOffset += CompressedSize;
-            ByteCount -= NextByteCount;
+            KeFlushIoBuffers( CompressionContext->SavedMdl, TRUE, FALSE );
         }
 
-        //
-        //  We now flush the user's buffer to memory.
-        //
 
-        KeFlushIoBuffers( Irp->MdlAddress, TRUE, TRUE );
+    //
+    //  For compressed writes we just checkpoint the transaction and
+    //  free all snapshots and resources, then get the Scb back.  Only do this if the
+    //  request is for the same Irp as the original Irp.  We don't want to checkpoint
+    //  if called from NtfsWriteClusters.
+    //
+
+    } else if (Irp == IrpContext->OriginatingIrp) {
+
+        if (CompressionContext->ScbAcquired) {
+
+            BOOLEAN Reinsert = FALSE;
+
+            NtfsCheckpointCurrentTransaction( IrpContext );
+
+            //
+            //  We want to empty the exclusive Fcb list but still hold
+            //  the current file.  Go ahead and remove it from the exclusive
+            //  list and reinsert it after freeing the other entries.
+            //
+
+            while (!IsListEmpty(&IrpContext->ExclusiveFcbList)) {
+
+                if ((PFCB)CONTAINING_RECORD( IrpContext->ExclusiveFcbList.Flink,
+                                             FCB,
+                                             ExclusiveFcbLinks ) == Scb->Fcb) {
+
+                    RemoveEntryList( &Scb->Fcb->ExclusiveFcbLinks );
+                    Reinsert = TRUE;
+
+                } else {
+
+                    NtfsReleaseFcb( IrpContext,
+                                    (PFCB)CONTAINING_RECORD(IrpContext->ExclusiveFcbList.Flink,
+                                                            FCB,
+                                                            ExclusiveFcbLinks ));
+                }
+            }
+
+            if (Reinsert) {
+
+                InsertTailList( &IrpContext->ExclusiveFcbList,
+                                &Scb->Fcb->ExclusiveFcbLinks );
+            }
+        }
     }
+
     return Status;
 }
 
@@ -2610,7 +3103,8 @@ NtfsNonCachedIo (
     IN PIRP Irp,
     IN PSCB Scb,
     IN VBO StartingVbo,
-    IN ULONG ByteCount
+    IN ULONG ByteCount,
+    IN ULONG CompressedStream
     )
 
 /*++
@@ -2638,6 +3132,8 @@ Arguments:
 
     ByteCount - The lengh of the operation.
 
+    CompressedStream - Supplies nonzero if I/O is to compressed stream
+
 Return Value:
 
     None.
@@ -2650,6 +3146,7 @@ Return Value:
     IO_RUN IoRuns[NTFS_MAX_PARALLEL_IOS];
     COMPRESSION_CONTEXT CompressionContext;
     NTSTATUS Status = STATUS_SUCCESS;
+    PMDL Mdl1, Mdl2;
 
     PVCB Vcb = Scb->Vcb;
 
@@ -2657,12 +3154,12 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsNonCachedIo\n", 0);
-    DebugTrace( 0, Dbg, "Irp           = %08lx\n", Irp );
-    DebugTrace( 0, Dbg, "MajorFunction = %08lx\n", IrpContext->MajorFunction );
-    DebugTrace( 0, Dbg, "Scb           = %08lx\n", Scb );
-    DebugTrace2(0, Dbg, "StartingVbo   = %08lx %08lx\n", StartingVbo.LowPart, StartingVbo.HighPart );
-    DebugTrace( 0, Dbg, "ByteCount     = %08lx\n", ByteCount );
+    DebugTrace( +1, Dbg, ("NtfsNonCachedIo\n") );
+    DebugTrace( 0, Dbg, ("Irp           = %08lx\n", Irp) );
+    DebugTrace( 0, Dbg, ("MajorFunction = %08lx\n", IrpContext->MajorFunction) );
+    DebugTrace( 0, Dbg, ("Scb           = %08lx\n", Scb) );
+    DebugTrace( 0, Dbg, ("StartingVbo   = %016I64x\n", StartingVbo) );
+    DebugTrace( 0, Dbg, ("ByteCount     = %08lx\n", ByteCount) );
 
     //
     //  Initialize some locals.
@@ -2690,7 +3187,182 @@ Return Value:
     CompressionContext.IoRuns = IoRuns;
     CompressionContext.AllocatedRuns = NTFS_MAX_PARALLEL_IOS;
 
+    Mdl1 = Mdl2 = NULL;
+
     try {
+
+        //
+        //  If this is a write to a compressed file, we want to make sure here
+        //  that any fragments of compression units get locked in memory, so
+        //  no one will be reading them into the cache while we are mucking with
+        //  the Mcb, etc.  We do this right here at the top so that we have
+        //  more stack(!), and we get this over with before we have to acquire
+        //  the Scb exclusive.
+        //
+
+        if ((IrpContext->MajorFunction == IRP_MJ_WRITE) && (Scb->CompressionUnit != 0) && !CompressedStream) {
+
+            PVOID UncompressedBuffer;
+            LONGLONG TempOffset;
+            PBCB Bcb;
+            ULONG CompressionUnit = Scb->CompressionUnit;
+            PMDL *MdlPtr = NULL;
+
+            //
+            //  This better be paging I/O, because we ignore the caller's buffer
+            //  and write the entire compression unit out of the section.
+            //
+            //  We don't want to map in the data in the case where we are called
+            //  from write clusters because MM is creating the section for the
+            //  file.  Otherwise we will deadlock when Cc tries to create the
+            //  section.
+            //
+
+            if ((Irp == IrpContext->OriginatingIrp) ||
+                (Scb->NonpagedScb->SegmentObject.SharedCacheMap != NULL)) {
+
+                if (Scb->FileObject == NULL) {
+                    NtfsCreateInternalAttributeStream( IrpContext, Scb, FALSE );
+
+                    //
+                    //  If there is no one who will cause this stream to
+                    //  be dereferenced then add an entry on the delayed
+                    //  close queue for this.  We can do this test without
+                    //  worrying about synchronization since it is OK to have
+                    //  an extra entry in the delayed queue.
+                    //
+
+                    if ((Scb->CleanupCount == 0) &&
+                        (Scb->Fcb->DelayedCloseCount == 0)) {
+
+                        NtfsAddScbToFspClose( IrpContext, Scb, TRUE );
+                    }
+                }
+
+                //
+                //  Loop to optionally lock first start then end of buffer.
+                //
+
+                while (MdlPtr != &Mdl2) {
+
+                    //
+                    //  First look at the start of the buffer.
+                    //
+
+                    if (MdlPtr == NULL) {
+
+                        MdlPtr = &Mdl1;
+
+                        //
+                        //  If we are starting on a compression unit boundary,
+                        //  no work at the start of the buffer.
+                        //
+
+                        if ((StartingVbo & (CompressionUnit - 1)) == 0) {
+                            continue;
+                        }
+
+                        //
+                        //  Show which compression unit to lock.
+                        //
+
+                        TempOffset = StartingVbo;
+
+                    //
+                    //  Now look at the tail of the buffer.
+                    //
+
+                    } else {
+
+                        MdlPtr = &Mdl2;
+
+                        //
+                        //  Get offset at end of transfer.
+                        //
+
+                        TempOffset = (StartingVbo + ByteCount);
+
+                        //
+                        //  If we end on a compression unit boundary, or we end in
+                        //  the same compression unit as the first Mdl, and we created
+                        //  it, then we are done with this nonsense and can get out.
+                        //
+
+                        if (((TempOffset & (CompressionUnit - 1)) == 0) ||
+                            ((TempOffset & ~(CompressionUnit - 1)) == (StartingVbo & ~(CompressionUnit - 1)) &&
+                             (Mdl1 != NULL))) {
+                            break;
+                        }
+                    }
+
+                    //
+                    //  Calculate start of this compression unit and how
+                    //  much to lock.
+                    //
+
+                    TempOffset &= ~(CompressionUnit - 1);
+
+                    //
+                    //  Map the aligned range.
+                    //
+
+                    CcMapData( Scb->FileObject, (PLARGE_INTEGER)&TempOffset, CompressionUnit, TRUE, &Bcb, &UncompressedBuffer );
+
+                    //
+                    //  Lock the data into memory so that we can safely reallocate the
+                    //  space.  Don't tell Mm here that we plan to write it, as he sets
+                    //  dirty now and at the unlock below if we do.
+                    //
+
+                    try {
+
+                        //
+                        //  Now attempt to allocate an Mdl to describe the mapped data.
+                        //
+
+                        *MdlPtr = IoAllocateMdl( UncompressedBuffer, CompressionUnit, FALSE, FALSE, NULL );
+
+                        if (*MdlPtr == NULL) {
+                            NtfsRaiseStatus( IrpContext, STATUS_INSUFFICIENT_RESOURCES, NULL, NULL );
+                        }
+
+                        MmProbeAndLockPages( *MdlPtr, KernelMode, IoReadAccess );
+
+                    //
+                    //  Catch any raises here and clean up appropriately.
+                    //
+
+                    } except(EXCEPTION_EXECUTE_HANDLER) {
+
+                        Status = GetExceptionCode();
+
+                        CcUnpinData(Bcb);
+
+                        if (*MdlPtr != NULL) {
+
+                            IoFreeMdl( *MdlPtr );
+                            *MdlPtr = NULL;
+                        }
+
+                        NtfsRaiseStatus( IrpContext,
+                                         FsRtlIsNtstatusExpected(Status) ? Status : STATUS_UNEXPECTED_IO_ERROR,
+                                         NULL,
+                                         NULL );
+                    }
+
+                    CcUnpinData(Bcb);
+                }
+
+            } else {
+
+                //
+                //  This had better be a convert to non-resident.
+                //
+
+                ASSERT( StartingVbo == 0 );
+                ASSERT( ByteCount <= Scb->CompressionUnit );
+            }
+        }
 
         RemainingByteCount = NtfsPrepareBuffers( IrpContext,
                                                  Irp,
@@ -2698,9 +3370,14 @@ Return Value:
                                                  &StartingVbo,
                                                  ByteCount,
                                                  &NumberRuns,
-                                                 &CompressionContext );
+                                                 &CompressionContext,
+                                                 CompressedStream );
 
         ASSERT( RemainingByteCount < ByteCount );
+
+        if (FlagOn(Irp->Flags, IRP_PAGING_IO)) {
+            CollectDiskIoStats(Vcb, Scb, IrpContext->MajorFunction, NumberRuns);
+        }
 
         //
         //  See if the write covers a single valid run, and if so pass
@@ -2709,15 +3386,15 @@ Return Value:
         //  allocate an associated Irp for this.
         //
 
-        if (((NumberRuns == 1)
-             && (RemainingByteCount == 0)
+        if ((RemainingByteCount == 0) &&
+            (((NumberRuns == 1)
              && (CompressionContext.IoRuns[0].BufferOffset == 0))
 
               ||
 
-            (NumberRuns == 0)) {
+            (NumberRuns == 0))) {
 
-            DebugTrace( 0, Dbg, "Passing Irp on to Disk Driver\n", 0 );
+            DebugTrace( 0, Dbg, ("Passing Irp on to Disk Driver\n") );
 
             //
             //  See if there is an allocated run
@@ -2748,7 +3425,7 @@ Return Value:
 
                     if (!Wait) {
 
-                        DebugTrace(-1, Dbg, "NtfsNonCachedIo -> STATUS_PENDING\n", 0);
+                        DebugTrace( -1, Dbg, ("NtfsNonCachedIo -> STATUS_PENDING\n") );
                         try_return(Status = STATUS_PENDING);
 
                     } else {
@@ -2794,7 +3471,7 @@ Return Value:
                      (IrpContext->MajorFunction == IRP_MJ_READ) &&
                      !NtfsVerifyAndRevertUsaBlock( IrpContext,
                                                    Scb,
-                                                   NtfsMapUserBuffer( IrpContext, Irp ),
+                                                   NtfsMapUserBuffer( Irp ),
                                                    OriginalByteCount,
                                                    StartingVbo ))) {
 
@@ -2811,7 +3488,7 @@ Return Value:
                 }
             }
 
-            DebugTrace(-1, Dbg, "NtfsNonCachedIo -> %08lx\n", Irp->IoStatus.Status);
+            DebugTrace( -1, Dbg, ("NtfsNonCachedIo -> %08lx\n", Irp->IoStatus.Status) );
             try_return( Status = Irp->IoStatus.Status );
         }
 
@@ -2884,7 +3561,7 @@ Return Value:
 
                     if (!Wait) {
 
-                        DebugTrace(-1, Dbg, "NtfsNonCachedIo -> STATUS_PENDING\n", 0);
+                        DebugTrace( -1, Dbg, ("NtfsNonCachedIo -> STATUS_PENDING\n") );
                         try_return( Status = STATUS_PENDING );
                     }
 
@@ -2928,7 +3605,7 @@ Return Value:
                      (IrpContext->MajorFunction == IRP_MJ_READ) &&
                      !NtfsVerifyAndRevertUsaBlock( IrpContext,
                                                    Scb,
-                                                   (PCHAR)NtfsMapUserBuffer( IrpContext, Irp ) +
+                                                   (PCHAR)NtfsMapUserBuffer( Irp ) +
                                                      CompressionContext.IoRuns[0].BufferOffset,
                                                    OriginalByteCount -
                                                    CompressionContext.IoRuns[0].BufferOffset -
@@ -2958,7 +3635,8 @@ Return Value:
                                    Scb,
                                    &StartingVbo,
                                    ByteCount - RemainingByteCount,
-                                   &CompressionContext );
+                                   &CompressionContext,
+                                   CompressedStream );
 
                 if (!NT_SUCCESS(Irp->IoStatus.Status)) { break; }
             }
@@ -2974,9 +3652,14 @@ Return Value:
                                                      &StartingVbo,
                                                      ByteCount,
                                                      &NumberRuns,
-                                                     &CompressionContext );
+                                                     &CompressionContext,
+                                                     CompressedStream );
 
             ASSERT( RemainingByteCount < ByteCount );
+
+            if (FlagOn(Irp->Flags, IRP_PAGING_IO)) {
+                CollectDiskIoStats(Vcb, Scb, IrpContext->MajorFunction, NumberRuns);
+            }
         }
 
         Status = Irp->IoStatus.Status;
@@ -2985,7 +3668,12 @@ Return Value:
 
     } finally {
 
-        if (Wait && (Scb->CompressionUnit != 0) && NT_SUCCESS(Status) && !AbnormalTermination()) {
+        //
+        //  If this is a compressed file and we got success, go do our normal
+        //  post processing.
+        //
+
+        if ((Scb->CompressionUnit != 0) && NT_SUCCESS(Status) && !AbnormalTermination()) {
 
             Irp->IoStatus.Status =
             Status =
@@ -2994,14 +3682,29 @@ Return Value:
                                Scb,
                                &StartingVbo,
                                ByteCount - RemainingByteCount,
-                               &CompressionContext );
+                               &CompressionContext,
+                               CompressedStream );
+        }
+
+        //
+        //  For writes, free any Mdls which may have been used.
+        //
+
+        if (Mdl1 != NULL) {
+            MmUnlockPages( Mdl1 );
+            IoFreeMdl( Mdl1 );
+        }
+
+        if (Mdl2 != NULL) {
+            MmUnlockPages( Mdl2 );
+            IoFreeMdl( Mdl2 );
         }
 
         //
         //  Cleanup the compression context.
         //
 
-        NtfsDeallocateCompressionBuffer( IrpContext, Irp, &CompressionContext );
+        NtfsDeallocateCompressionBuffer( Irp, &CompressionContext );
     }
 
     //
@@ -3013,7 +3716,7 @@ Return Value:
         Irp->IoStatus.Information = OriginalByteCount;
     }
 
-    DebugTrace(-1, Dbg, "NtfsNonCachedIo -> %08lx\n", Status);
+    DebugTrace( -1, Dbg, ("NtfsNonCachedIo -> %08lx\n", Status) );
     return Status;
 }
 
@@ -3081,18 +3784,18 @@ Return Value:
 
     PMDL Mdl;
     PMDL SavedMdl;
+    PVOID SavedUserBuffer;
 
     PVCB Vcb = Scb->Vcb;
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsNonCachedNonAlignedRead\n", 0);
-    DebugTrace( 0, Dbg, "Irp                 = %08lx\n", Irp );
-    DebugTrace( 0, Dbg, "MajorFunction       = %08lx\n", IrpContext->MajorFunction );
-    DebugTrace( 0, Dbg, "Scb                 = %08lx\n", Scb );
-    DebugTrace( 0, Dbg, "StartingVbo  (Low)  = %08lx\n", StartingVbo.LowPart );
-    DebugTrace( 0, Dbg, "StartingVbo  (High) = %08lx\n", StartingVbo.HighPart );
-    DebugTrace( 0, Dbg, "ByteCount           = %08lx\n", ByteCount );
+    DebugTrace( +1, Dbg, ("NtfsNonCachedNonAlignedRead\n") );
+    DebugTrace( 0, Dbg, ("Irp                 = %08lx\n", Irp) );
+    DebugTrace( 0, Dbg, ("MajorFunction       = %08lx\n", IrpContext->MajorFunction) );
+    DebugTrace( 0, Dbg, ("Scb                 = %08lx\n", Scb) );
+    DebugTrace( 0, Dbg, ("StartingVbo         = %016I64x\n", StartingVbo) );
+    DebugTrace( 0, Dbg, ("ByteCount           = %08lx\n", ByteCount) );
 
     //
     //  ***Temp***
@@ -3121,16 +3824,16 @@ Return Value:
     NtfsLockUserBuffer( IrpContext,
                         Irp,
                         IoWriteAccess,
-                        ByteCount );
+                        IoGetCurrentIrpStackLocation(Irp)->Parameters.Read.Length );
 
-    UserBuffer = NtfsMapUserBuffer( IrpContext, Irp );
+    UserBuffer = NtfsMapUserBuffer( Irp );
 
     //
     //  Allocate the local buffer.  Round to pages to avoid any device alignment
     //  problems.
     //
 
-    DiskBuffer = FsRtlAllocatePool( NonPagedPool,
+    DiskBuffer = NtfsAllocatePool( NonPagedPool,
                                     ROUND_TO_PAGES( SectorSize ));
 
     //
@@ -3153,13 +3856,14 @@ Return Value:
             // Try to lookup the first run.
             //
 
-            StartingVcn = StartingVbo >> Vcb->ClusterShift;
+            StartingVcn = Int64ShraMod32(StartingVbo, Vcb->ClusterShift);
 
             NextIsAllocated = NtfsLookupAllocation( IrpContext,
                                                     Scb,
                                                     StartingVcn,
                                                     &NextLcn,
                                                     &NextClusterCount,
+                                                    NULL,
                                                     NULL );
 
             //
@@ -3180,7 +3884,7 @@ Return Value:
 
             NextLcnOffset = ((ULONG)StartingVbo) & ~(SectorSize - 1);
             NextLcnOffset &= Vcb->ClusterMask;
-            NextLbo = NextLcn << Vcb->ClusterShift;
+            NextLbo = Int64ShllMod32(NextLcn, Vcb->ClusterShift);
             NextLbo = NextLbo + NextLcnOffset;
 
             NtfsSingleNonAlignedSync( IrpContext,
@@ -3238,13 +3942,14 @@ Return Value:
             // Try to lookup the last part of the requested range.
             //
 
-            StartingVcn = LastSectorVbo >> Vcb->ClusterShift;
+            StartingVcn = Int64ShraMod32(LastSectorVbo, Vcb->ClusterShift);
 
             NextIsAllocated = NtfsLookupAllocation( IrpContext,
                                                     Scb,
                                                     StartingVcn,
                                                     &NextLcn,
                                                     &NextClusterCount,
+                                                    NULL,
                                                     NULL );
 
             //
@@ -3264,7 +3969,7 @@ Return Value:
             //
 
             NextLcnOffset = ((ULONG)LastSectorVbo) & Vcb->ClusterMask;
-            NextLbo = NextLcn << Vcb->ClusterShift;
+            NextLbo = Int64ShllMod32(NextLcn, Vcb->ClusterShift);
             NextLbo = NextLbo + NextLcnOffset;
 
             NtfsSingleNonAlignedSync( IrpContext,
@@ -3309,9 +4014,13 @@ Return Value:
         SavedMdl = Irp->MdlAddress;
         Irp->MdlAddress = NULL;
 
-        UserBuffer = MmGetMdlVirtualAddress( SavedMdl );
+        SavedUserBuffer = Irp->UserBuffer;
 
-        Mdl = IoAllocateMdl(UserBuffer+(ULONG)(StartingVbo - OriginalStartingVbo),
+        Irp->UserBuffer = (PUCHAR)MmGetMdlVirtualAddress( SavedMdl ) +
+                          (ULONG)(StartingVbo - OriginalStartingVbo);
+
+
+        Mdl = IoAllocateMdl(Irp->UserBuffer,
                             ByteCount,
                             FALSE,
                             FALSE,
@@ -3320,12 +4029,13 @@ Return Value:
         if (Mdl == NULL) {
 
             Irp->MdlAddress = SavedMdl;
+            Irp->UserBuffer = SavedUserBuffer;
             NtfsRaiseStatus( IrpContext, STATUS_INSUFFICIENT_RESOURCES, NULL, NULL );
         }
 
         IoBuildPartialMdl(SavedMdl,
                           Mdl,
-                          UserBuffer + (ULONG)(StartingVbo - OriginalStartingVbo),
+                          Irp->UserBuffer,
                           ByteCount);
 
         //
@@ -3338,20 +4048,22 @@ Return Value:
                              Irp,
                              Scb,
                              StartingVbo,
-                             ByteCount );
+                             ByteCount,
+                             FALSE );
 
         } finally {
 
             IoFreeMdl( Irp->MdlAddress );
 
             Irp->MdlAddress = SavedMdl;
+            Irp->UserBuffer = SavedUserBuffer;
         }
 
     try_exit: NOTHING;
 
     } finally {
 
-        ExFreePool( DiskBuffer );
+        NtfsFreePool( DiskBuffer );
 
         if ( !AbnormalTermination() && NT_SUCCESS(Irp->IoStatus.Status) ) {
 
@@ -3365,114 +4077,8 @@ Return Value:
         }
     }
 
-    DebugTrace(-1, Dbg, "NtfsNonCachedNonAlignedRead -> VOID\n", 0);
+    DebugTrace( -1, Dbg, ("NtfsNonCachedNonAlignedRead -> VOID\n") );
     return;
-}
-
-
-VOID
-NtfsRaiseIfRecordAllocated (
-    IN PIRP_CONTEXT IrpContext,
-    IN PSCB Scb,
-    IN LONGLONG FileOffset
-    )
-
-/*++
-
-Routine Description:
-
-    This routine is called if a USA block fails to verify correctly.  If
-    the record is allocated, then we raise.
-
-    This routine should only execute infrequently, as it generally only
-    is executed when the Mft or an index is extended.
-
-Arguments:
-
-    Scb - Stream to which the record belongs
-
-    FileOffset - File offset within the stream to this record
-
-Return Value:
-
-    None
-
---*/
-
-{
-    PVCB Vcb = Scb->Vcb;
-
-    PAGED_CODE();
-
-    if ((Scb != Vcb->LogFileScb) && (Scb != Vcb->Mft2Scb)) {
-
-        ATTRIBUTE_ENUMERATION_CONTEXT Context;
-        BOOLEAN Found;
-        LONGLONG Index;
-        PRECORD_ALLOCATION_CONTEXT RecordContext;
-        PFCB Fcb = Scb->Fcb;
-
-        NtfsInitializeAttributeContext( &Context );
-
-        Found = NtfsLookupAttributeByName( IrpContext,
-                                           Fcb,
-                                           &Fcb->FileReference,
-                                           $BITMAP,
-                                           &Scb->AttributeName,
-                                           FALSE,
-                                           &Context );
-
-        try {
-
-            //
-            //  If the Scb is for the Mft, then so calculate the Index and
-            //  RecordContext pointer accordingly.
-            //
-
-            if (Scb == Vcb->MftScb) {
-
-                Index = FileOffset >> Vcb->MftShift;
-                RecordContext = &Vcb->MftBitmapAllocationContext;
-
-            //
-            //  Otherwise this must be an index, so calculate the Index and
-            //  RecordContext pointer accordingly.
-            //
-
-            } else {
-
-                //
-                //  Calculate the record index for this buffer.
-                //
-
-                Index = FileOffset / Scb->ScbType.Index.BytesPerIndexBuffer;
-
-                if (((PLARGE_INTEGER)&Index)->HighPart != 0) {
-                    ASSERT( ((PLARGE_INTEGER)&Index)->HighPart == 0 );
-
-                    NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, Scb->Fcb );
-                }
-
-                RecordContext = &Scb->ScbType.Index.RecordAllocationContext;
-            }
-
-            if (!Found || NtfsIsRecordAllocated( IrpContext,
-                                                 RecordContext,
-                                                 (ULONG)Index,
-                                                 &Context )) {
-
-                NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, Scb->Fcb );
-            }
-
-        } finally {
-
-            NtfsCleanupAttributeContext( IrpContext, &Context );
-        }
-
-    } else {
-
-        NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, Scb->Fcb );
-    }
 }
 
 
@@ -3518,11 +4124,9 @@ Return Value:
     PVCB Vcb = Scb->Vcb;
     ULONG BytesLeft = Length;
 
-    UNREFERENCED_PARAMETER(IrpContext);
-
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsVerifyAndRevertUsaBlock:  Entered\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsVerifyAndRevertUsaBlock:  Entered\n") );
 
     //
     //  Cast the buffer pointer to a Multi-Sector-Header and verify that this
@@ -3552,7 +4156,7 @@ Return Value:
         //
 
         if (*(PULONG)&MultiSectorHeader->Signature == MAXULONG) {
-            DebugTrace(-1, Dbg, "NtfsVerifyAndRevertUsaBlock: (Virgin Log)\n", 0);
+            DebugTrace( -1, Dbg, ("NtfsVerifyAndRevertUsaBlock: (Virgin Log)\n") );
             return TRUE;
         }
 
@@ -3575,6 +4179,9 @@ Return Value:
     } else {
 
         StructureSize = Scb->ScbType.Index.BytesPerIndexBuffer;
+
+        ASSERT((StructureSize == 0x800) || (StructureSize == 0x1000) || (StructureSize == 0x400));
+        ASSERT((Length & (StructureSize - 1)) == 0);
     }
 
     CountBlocks = (USHORT)(StructureSize / SEQUENCE_NUMBER_STRIDE);
@@ -3649,8 +4256,8 @@ Return Value:
                     //  the signature is the chkdsk signature.
                     //
 
-                    if (Scb != Vcb->LogFileScb
-                        || *(PULONG)MultiSectorHeader->Signature != *(PULONG)ChkdskSignature) {
+                    if ((Scb != Vcb->LogFileScb) ||
+                        (*(PULONG)MultiSectorHeader->Signature != *(PULONG)ChkdskSignature)) {
 
                         *(PULONG)MultiSectorHeader->Signature = *(PULONG)BaadSignature;
                         Result = FALSE;
@@ -3689,13 +4296,14 @@ Return Value:
             LONGLONG ClusterCount;
             BOOLEAN IsAllocated;
 
-            Vcn = LlClustersFromBytes( Vcb, FileOffset );
+            Vcn = LlClustersFromBytesTruncate( Vcb, FileOffset );
 
             IsAllocated = NtfsLookupAllocation( IrpContext,
                                                 Scb,
                                                 Vcn,
                                                 &Lcn,
                                                 &ClusterCount,
+                                                NULL,
                                                 NULL );
 
             if (!IsAllocated &&
@@ -3724,14 +4332,13 @@ Return Value:
 
     } while (BytesLeft != 0);
 
-    DebugTrace(-1, Dbg, "NtfsVerifyAndRevertUsaBlock:  Exit\n", 0);
+    DebugTrace( -1, Dbg, ("NtfsVerifyAndRevertUsaBlock:  Exit\n") );
     return Result;
 }
 
 
 VOID
 NtfsTransformUsaBlock (
-    IN PIRP_CONTEXT IrpContext,
     IN PSCB Scb,
     IN OUT PVOID SystemBuffer,
     IN OUT PVOID Buffer,
@@ -3771,11 +4378,9 @@ Return Value:
     PVCB Vcb = Scb->Vcb;
     ULONG BytesLeft = Length;
 
-    UNREFERENCED_PARAMETER(IrpContext);
-
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsTransformUsaBlock:  Entered\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsTransformUsaBlock:  Entered\n") );
 
     //
     //  Cast the buffer pointer to a Multi-Sector-Header and verify that this
@@ -3813,6 +4418,9 @@ Return Value:
     } else {
 
         StructureSize = Scb->ScbType.Index.BytesPerIndexBuffer;
+
+        ASSERT((StructureSize == 0x800) || (StructureSize == 0x1000) || (StructureSize == 0x400));
+        ASSERT((Length & (StructureSize - 1)) == 0);
     }
 
     CountBlocks = (USHORT)(StructureSize / SEQUENCE_NUMBER_STRIDE);
@@ -3896,16 +4504,18 @@ Return Value:
 
     } while (BytesLeft != 0);
 
-    DebugTrace(-1, Dbg, "NtfsTransformUsaBlock:  Exit -> %08lx\n", StructureSize);
+    DebugTrace( -1, Dbg, ("NtfsTransformUsaBlock:  Exit -> %08lx\n", StructureSize) );
     return;
 }
 
 
 VOID
-NtfsCreateBufferAndMdl (
+NtfsCreateMdlAndBuffer (
     IN PIRP_CONTEXT IrpContext,
-    IN ULONG Length,
-    OUT PMDL *Mdl,
+    IN PSCB ThisScb,
+    IN UCHAR NeedTwoBuffers,
+    IN OUT PULONG Length,
+    OUT PMDL *Mdl OPTIONAL,
     OUT PVOID *Buffer
     )
 
@@ -3917,9 +4527,34 @@ Routine Description:
     it.  This buffer and Mdl can then be used for an I/O operation, the
     pages will be locked in memory.
 
+    This routine is intended to be used for cases where large I/Os are
+    required.  It attempts to avoid allocations errors and bugchecks by
+    using a reserved buffer scheme.  In order for this scheme to work without
+    deadlocks, the calling thread must have all resources acquired that it
+    will need prior to doing the I/O.  I.e., this routine itself may acquire
+    a resource which must work as an end resource.
+
+    Examples of callers to this routine are noncached writes to USA streams,
+    and noncached reads and writes to compressed streams.  One case to be
+    aware of is the case where a noncached compressed write needs to fault
+    in the rest of a compression unit, in order to write the entire unit.
+    In an extreme case the noncached writer will allocated one reserved buffer,
+    and the noncached read of the rest of the compression unit may need to
+    recursively acquire the resource in this routine and allocate the other
+    reserved buffer.
+
 Arguments:
 
-    Length - This is the length needed for this buffer.
+    ThisScb - Scb for the file where the IO is occurring.
+
+    NeedTwoBuffers - Indicates that this is the request for the a buffer for
+                     a transaction which may need two buffers.  A value of
+                     0 means only 1 buffer is needed.  A value of 1 or 2 indicates
+                     that we need two buffers and either buffer 1 or buffer 2
+                     should be acquired.
+
+    Length - This is the length needed for this buffer, returns (possibly larger)
+             length allocated.
 
     Mdl - This is the address to store the address of the Mdl created.
 
@@ -3935,14 +4570,154 @@ Return Value:
     PVOID TempBuffer;
     PMDL TempMdl;
 
-    UNREFERENCED_PARAMETER(IrpContext);
-
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsCreateBufferAndMdl:  Entered\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsCreateMdlAndBuffer:  Entered\n") );
+
+    ASSERT(*Length <= LARGE_BUFFER_SIZE);
 
     TempBuffer = NULL;
     TempMdl = NULL;
+
+    //
+    //  If this thread already owns a buffer then call to get the second.
+    //
+    //  If there have been no allocation failures recently, and
+    //  we can use at least half of a big buffer, then go for
+    //  one of our preallocated buffers first.
+    //
+
+    if ((NtfsReservedBufferThread == (PVOID) PsGetCurrentThread()) ||
+        ((*Length >= LARGE_BUFFER_SIZE / 2) && !NtfsBufferAllocationFailure)) {
+
+        //
+        //  If we didn't get one then try from pool.
+        //
+
+        if (!NtfsGetReservedBuffer( ThisScb->Fcb, &TempBuffer, Length, NeedTwoBuffers )) {
+
+            TempBuffer = ExAllocatePoolWithTag( NonPagedPoolCacheAligned, *Length, '9ftN' );
+        }
+
+    //
+    //  Otherwise try to allocate from pool and then get a reserved buffer if
+    //  there have been no allocation errors recently.
+    //
+
+    } else {
+
+        TempBuffer = ExAllocatePoolWithTag( NonPagedPoolCacheAligned, *Length, '9ftN' );
+
+        if ((TempBuffer == NULL) && !NtfsBufferAllocationFailure) {
+
+            NtfsGetReservedBuffer( ThisScb->Fcb, &TempBuffer, Length, NeedTwoBuffers );
+        }
+    }
+
+    //
+    //  If we could not allocate a buffer from pool, then
+    //  we must stake our claim to a reserved buffer.
+    //
+    //  We would like to queue the requests which need a single buffer because
+    //  they won't be completely blocked by the owner of multiple buffers.
+    //  But if this thread wants multiple buffers and there is already a
+    //  thread with multiple buffers then fail this request with LOCK_CONFLICT
+    //  in case the current thread is holding some resource needed by the
+    //  existing owner.
+    //
+
+    if (TempBuffer == NULL) {
+
+        ExAcquireResourceExclusive( &NtfsReservedBufferResource, TRUE );
+
+        //
+        //  Show that we have gotten an allocation failure
+        //
+
+        NtfsBufferAllocationFailure = TRUE;
+
+        //
+        //  Loop here until we get a buffer or abort the current request.
+        //
+
+        while (TRUE) {
+
+            KeDelayExecutionThread( KernelMode, FALSE, &NtfsShortDelay );
+
+            if (NtfsGetReservedBuffer( ThisScb->Fcb, &TempBuffer, Length, NeedTwoBuffers )) {
+
+                if (ExGetExclusiveWaiterCount( &NtfsReservedBufferResource ) == 0) {
+
+                    NtfsBufferAllocationFailure = FALSE;
+                }
+
+                ExReleaseResource( &NtfsReservedBufferResource );
+                break;
+            }
+
+            //
+            //  We will perform some deadlock detection here and raise
+            //  STATUS_FILE_LOCK conflict in order to retry this request if
+            //  anyone is queued behind the resource.  Deadlocks can occur
+            //  under the following circumstances when another thread is
+            //  blocked behind this resource:
+            //
+            //      - Current thread needs two buffers.  We can't block the
+            //          Needs1 guy which may need to complete before the
+            //          current Needs2 guy can proceed.  Exception is case
+            //          where current thread already has a buffer and we
+            //          have a recursive 2 buffer case.  In this case we
+            //          are only waiting for the third buffer to become
+            //          available.
+            //
+            //      - Current thread is the lazy writer.  Lazy writer will
+            //          need buffer for USA transform.  He also can own
+            //          the BCB resource that might be needed by the current
+            //          owner of a buffer.
+            //
+            //      - Current thread is operating on the same Fcb as the owner
+            //          of any of the buffers.
+            //
+
+            //
+            //  If the current thread already owns one of the two buffers then
+            //  always allow him to loop.  Otherwise perform deadlock detection
+            //  if we need 2 buffers or this this is the lazy writer or we
+            //  are trying to get the same Fcb already owned by the 2 buffer guy.
+            //
+
+            if ((PsGetCurrentThread() != NtfsReservedBufferThread) &&
+
+                (NeedTwoBuffers ||
+
+                (ThisScb->LazyWriteThread[0] == PsGetCurrentThread()) ||
+                (ThisScb->Fcb == NtfsReserved12Fcb))) {
+
+                //
+                //  If no one is waiting then see if we can continue waiting.
+                //
+
+                if (ExGetExclusiveWaiterCount( &NtfsReservedBufferResource ) == 0) {
+
+                    //
+                    //  If there is no one waiting behind us and there is no current
+                    //  multi-buffer owner, then try again here.
+                    //
+
+                    if (NtfsReservedBufferThread == NULL) {
+
+                        continue;
+                    }
+
+                    NtfsBufferAllocationFailure = FALSE;
+                }
+
+                ExReleaseResource( &NtfsReservedBufferResource );
+
+                NtfsRaiseStatus( IrpContext, STATUS_FILE_LOCK_CONFLICT, NULL, NULL );
+            }
+        }
+    }
 
     //
     //  Use a try-finally to facilitate cleanup.
@@ -3950,37 +4725,34 @@ Return Value:
 
     try {
 
-        //
-        //  Allocate a cache aligned buffer.
-        //
+        if (ARGUMENT_PRESENT(Mdl)) {
 
-        TempBuffer = FsRtlAllocatePool( NonPagedPool,
-                                        ROUND_TO_PAGES( Length ));
+            //
+            //  Allocate an Mdl for this buffer.
+            //
 
-        //
-        //  Allocate an Mdl for this buffer.
-        //
+            TempMdl = IoAllocateMdl( TempBuffer,
+                                     *Length,
+                                     FALSE,
+                                     FALSE,
+                                     NULL );
 
-        TempMdl = IoAllocateMdl( TempBuffer,
-                                 Length,
-                                 FALSE,
-                                 FALSE,
-                                 NULL );
+            if (TempMdl == NULL) {
 
-        if (TempMdl == NULL) {
+                NtfsRaiseStatus( IrpContext, STATUS_INSUFFICIENT_RESOURCES, NULL, NULL );
+            }
 
-            NtfsRaiseStatus( IrpContext, STATUS_INSUFFICIENT_RESOURCES, NULL, NULL );
+            //
+            //  Lock the new Mdl in memory.
+            //
+
+            MmBuildMdlForNonPagedPool( TempMdl );
+            *Mdl = TempMdl;
         }
-
-        //
-        //  Lock the new Mdl in memory.
-        //
-
-        MmBuildMdlForNonPagedPool( TempMdl );
 
     } finally {
 
-        DebugUnwind( NtfsCreateBufferAndMdl );
+        DebugUnwind( NtfsCreateMdlAndBuffer );
 
         //
         //  If abnormal termination, back out anything we've done.
@@ -3988,15 +4760,7 @@ Return Value:
 
         if (AbnormalTermination()) {
 
-            if (TempMdl != NULL) {
-
-                IoFreeMdl( TempMdl );
-            }
-
-            if (TempBuffer != NULL) {
-
-                ExFreePool( TempBuffer );
-            }
+            NtfsDeleteMdlAndBuffer( TempMdl, TempBuffer );
 
         //
         //  Otherwise, give the Mdl and buffer to the caller.
@@ -4005,13 +4769,61 @@ Return Value:
         } else {
 
             *Buffer = TempBuffer;
-            *Mdl = TempMdl;
         }
 
-        DebugTrace(-1, Dbg, "NtfsCreateBufferAndMdl:  Exit\n", 0);
+        DebugTrace( -1, Dbg, ("NtfsCreateMdlAndBuffer:  Exit\n") );
     }
 
     return;
+}
+
+
+VOID
+NtfsDeleteMdlAndBuffer (
+    IN PMDL Mdl OPTIONAL,
+    IN PVOID Buffer OPTIONAL
+    )
+
+/*++
+
+Routine Description:
+
+    This routine will allocate a buffer and create an Mdl which describes
+    it.  This buffer and Mdl can then be used for an I/O operation, the
+    pages will be locked in memory.
+
+Arguments:
+
+    Mdl - Address of Mdl to free
+
+    Buffer - This is the address to store the address of the buffer allocated.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    //
+    //  Free Mdl if there is one
+    //
+
+    if (Mdl != NULL) {
+        IoFreeMdl( Mdl );
+    }
+
+    //
+    //  Free reserved buffer or pool
+    //
+
+    if (Buffer != NULL) {
+
+        if (!NtfsFreeReservedBuffer( Buffer )) {
+
+            NtfsFreePool( Buffer );
+        }
+    }
 }
 
 
@@ -4057,16 +4869,16 @@ Return Value:
     UCHAR MajorFunction;
     BOOLEAN LockedUserBuffer;
     PNTFS_IO_CONTEXT PreviousContext;
+    ULONG Flags;
 
     NTFS_IO_CONTEXT LocalContext;
 
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsWriteClusters:  Entered\n", 0 );
-    DebugTrace2( 0, Dbg, "StartingVbo   -> %08lx %08lx\n", StartingVbo.LowPart,
-                                                           StartingVbo.HighPart );
-    DebugTrace(  0, Dbg, "Buffer        -> %08lx\n", Buffer );
-    DebugTrace(  0, Dbg, "ClusterCount  -> %08lx\n", ClusterCount );
+    DebugTrace( +1, Dbg, ("NtfsWriteClusters:  Entered\n") );
+    DebugTrace( 0, Dbg, ("StartingVbo   -> %016I64x\n", StartingVbo) );
+    DebugTrace( 0, Dbg, ("Buffer        -> %08lx\n", Buffer) );
+    DebugTrace( 0, Dbg, ("ClusterCount  -> %08lx\n", ClusterCount) );
 
     //
     //  Initialize the local variables.
@@ -4091,6 +4903,7 @@ Return Value:
     PreviousContext = IrpContext->Union.NtfsIoContext;
 
     IrpContext->Union.NtfsIoContext = &LocalContext;
+    Flags = IrpContext->Flags;
     ClearFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_ALLOC_CONTEXT );
 
     //
@@ -4159,7 +4972,8 @@ Return Value:
                          NewIrp,
                          Scb,
                          StartingVbo,
-                         BytesFromClusters( Vcb, ClusterCount ));
+                         BytesFromClusters(Vcb, ClusterCount),
+                         FALSE );
 
         //
         //  If we encountered an error or didn't write all the bytes, then
@@ -4169,13 +4983,13 @@ Return Value:
 
         if (!NT_SUCCESS( NewIrp->IoStatus.Status )) {
 
-            DebugTrace( 0, Dbg, "Couldn't write clusters to disk -> %08lx\n", NewIrp->IoStatus.Status );
+            DebugTrace( 0, Dbg, ("Couldn't write clusters to disk -> %08lx\n", NewIrp->IoStatus.Status) );
 
             NtfsRaiseStatus( IrpContext, NewIrp->IoStatus.Status, NULL, NULL );
 
         } else if (NewIrp->IoStatus.Information != BytesFromClusters( Vcb, ClusterCount )) {
 
-            DebugTrace( 0, Dbg, "Couldn't write all byes to disk\n", 0 );
+            DebugTrace( 0, Dbg, ("Couldn't write all byes to disk\n") );
             NtfsRaiseStatus( IrpContext, STATUS_UNEXPECTED_IO_ERROR, NULL, NULL );
         }
 
@@ -4189,11 +5003,9 @@ Return Value:
 
         IrpContext->Union.NtfsIoContext = PreviousContext;
 
-        if (PreviousContext != NULL
-            && PreviousContext->AllocatedContext) {
+        SetFlag( IrpContext->Flags, FlagOn( Flags, IRP_CONTEXT_FLAG_ALLOC_CONTEXT ));
 
-            SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_ALLOC_CONTEXT );
-        }
+        IrpContext->MajorFunction = MajorFunction;
 
         //
         //  If we allocated an Irp, we need to deallocate it.  We also
@@ -4219,7 +5031,7 @@ Return Value:
             IoFreeIrp( NewIrp );
         }
 
-        DebugTrace( -1, Dbg, "NtfsWriteClusters:  Exit\n", 0 );
+        DebugTrace( -1, Dbg, ("NtfsWriteClusters:  Exit\n") );
     }
 
     return;
@@ -4300,12 +5112,12 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsMultipleAsync\n", 0);
-    DebugTrace( 0, Dbg, "MajorFunction    = %08lx\n", IrpContext->MajorFunction );
-    DebugTrace( 0, Dbg, "DeviceObject     = %08lx\n", DeviceObject );
-    DebugTrace( 0, Dbg, "MasterIrp        = %08lx\n", MasterIrp );
-    DebugTrace( 0, Dbg, "MultipleIrpCount = %08lx\n", MultipleIrpCount );
-    DebugTrace( 0, Dbg, "IoRuns           = %08lx\n", IoRuns );
+    DebugTrace( +1, Dbg, ("NtfsMultipleAsync\n") );
+    DebugTrace( 0, Dbg, ("MajorFunction    = %08lx\n", IrpContext->MajorFunction) );
+    DebugTrace( 0, Dbg, ("DeviceObject     = %08lx\n", DeviceObject) );
+    DebugTrace( 0, Dbg, ("MasterIrp        = %08lx\n", MasterIrp) );
+    DebugTrace( 0, Dbg, ("MultipleIrpCount = %08lx\n", MultipleIrpCount) );
+    DebugTrace( 0, Dbg, ("IoRuns           = %08lx\n", IoRuns) );
 
     //
     //  Set up things according to whether this is truely async.
@@ -4499,7 +5311,7 @@ Return Value:
         //  And return to our caller
         //
 
-        DebugTrace(-1, Dbg, "NtfsMultipleAsync -> VOID\n", 0);
+        DebugTrace( -1, Dbg, ("NtfsMultipleAsync -> VOID\n") );
     }
 
     return;
@@ -4553,12 +5365,12 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsSingleAsync\n", 0);
-    DebugTrace( 0, Dbg, "MajorFunction = %08lx\n", IrpContext->MajorFunction );
-    DebugTrace( 0, Dbg, "DeviceObject  = %08lx\n", DeviceObject );
-    DebugTrace2(0, Dbg, "Lbo           = %08lx %08lx\n", Lbo.LowPart, Lbo.HighPart );
-    DebugTrace( 0, Dbg, "ByteCount     = %08lx\n", ByteCount);
-    DebugTrace( 0, Dbg, "Irp           = %08lx\n", Irp );
+    DebugTrace( +1, Dbg, ("NtfsSingleAsync\n") );
+    DebugTrace( 0, Dbg, ("MajorFunction = %08lx\n", IrpContext->MajorFunction) );
+    DebugTrace( 0, Dbg, ("DeviceObject  = %08lx\n", DeviceObject) );
+    DebugTrace( 0, Dbg, ("Lbo           = %016I64x\n", Lbo) );
+    DebugTrace( 0, Dbg, ("ByteCount     = %08lx\n", ByteCount) );
+    DebugTrace( 0, Dbg, ("Irp           = %08lx\n", Irp) );
 
     //
     // Set up the completion routine address in our stack frame.
@@ -4615,7 +5427,7 @@ Return Value:
     //  And return to our caller
     //
 
-    DebugTrace(-1, Dbg, "NtfsSingleAsync -> VOID\n", 0);
+    DebugTrace( -1, Dbg, ("NtfsSingleAsync -> VOID\n") );
 
     return;
 }
@@ -4648,11 +5460,9 @@ Return Value:
 --*/
 
 {
-    UNREFERENCED_PARAMETER(IrpContext);
-
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsWaitSync:  Entered\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsWaitSync:  Entered\n") );
 
     KeWaitForSingleObject( &IrpContext->Union.NtfsIoContext->Wait.SyncEvent,
                            Executive,
@@ -4660,9 +5470,9 @@ Return Value:
                            FALSE,
                            NULL );
 
-    KeResetEvent( &IrpContext->Union.NtfsIoContext->Wait.SyncEvent );
+    KeClearEvent( &IrpContext->Union.NtfsIoContext->Wait.SyncEvent );
 
-    DebugTrace(-1, Dbg, "NtfsWaitSync -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsWaitSync -> VOID\n") );
 }
 
 
@@ -4720,7 +5530,9 @@ Return Value:
     PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation( Irp );
     BOOLEAN CompleteRequest = TRUE;
 
-    DebugTrace(+1, Dbg, "NtfsMultiAsyncCompletionRoutine, Context = %08lx\n", Context );
+    UNREFERENCED_PARAMETER( DeviceObject );
+
+    DebugTrace( +1, Dbg, ("NtfsMultiAsyncCompletionRoutine, Context = %08lx\n", Context) );
 
     //
     //  If we got an error (or verify required), remember it in the Irp
@@ -4737,8 +5549,7 @@ Return Value:
     //  Decrement IrpCount and see if it goes to zero.
     //
 
-    if (ExInterlockedDecrementLong( &Context->IrpCount,
-                                    &NtfsData.StrucSupSpinLock) == RESULT_ZERO) {
+    if (InterlockedDecrement( &Context->IrpCount ) == 0) {
 
         PERESOURCE Resource;
         ERESOURCE_THREAD ResourceThreadId;
@@ -4769,10 +5580,11 @@ Return Value:
 
             //
             //  Go ahead an mark the File object to indicate that we performed
-            //  either a read or write.
+            //  either a read or write if this is not a paging io operation.
             //
 
-            if (IrpSp->FileObject != NULL) {
+            if (!Context->PagingIo &&
+                (IrpSp->FileObject != NULL)) {
 
                 if (IrpSp->MajorFunction == IRP_MJ_READ) {
 
@@ -4844,13 +5656,11 @@ Return Value:
             //  and finally, free the context record.
             //
 
-            NtfsFreeIoContext( Context );
+            ExFreeToNPagedLookasideList( &NtfsIoContextLookasideList, Context );
         }
     }
 
-    DebugTrace(-1, Dbg, "NtfsMultiAsyncCompletionRoutine\n", 0 );
-
-    UNREFERENCED_PARAMETER( DeviceObject );
+    DebugTrace( -1, Dbg, ("NtfsMultiAsyncCompletionRoutine\n") );
 
     //
     //  Return more processing required if we don't want the Irp to go away.
@@ -4929,7 +5739,9 @@ Return Value:
     PNTFS_IO_CONTEXT Context = Contxt;
     PIRP MasterIrp = Context->MasterIrp;
 
-    DebugTrace(+1, Dbg, "NtfsMultiSyncCompletionRoutine, Context = %08lx\n", Context );
+    UNREFERENCED_PARAMETER( DeviceObject );
+
+    DebugTrace( +1, Dbg, ("NtfsMultiSyncCompletionRoutine, Context = %08lx\n", Context) );
 
     //
     //  If we got an error (or verify required), remember it in the Irp
@@ -4950,19 +5762,12 @@ Return Value:
     IoFreeMdl( Irp->MdlAddress );
     IoFreeIrp( Irp );
 
-    //
-    //  Use a spin lock to synchronize access to Context->IrpCount.
-    //
-
-    if (ExInterlockedDecrementLong(&Context->IrpCount,
-                                   &NtfsData.StrucSupSpinLock) == RESULT_ZERO) {
+    if (InterlockedDecrement(&Context->IrpCount) == 0) {
 
         KeSetEvent( &Context->Wait.SyncEvent, 0, FALSE );
     }
 
-    DebugTrace(-1, Dbg, "NtfsMultiSyncCompletionRoutine -> STATUS_MORE_PROCESSING_REQUIRED\n", 0 );
-
-    UNREFERENCED_PARAMETER( DeviceObject );
+    DebugTrace( -1, Dbg, ("NtfsMultiSyncCompletionRoutine -> STATUS_MORE_PROCESSING_REQUIRED\n") );
 
     return STATUS_MORE_PROCESSING_REQUIRED;
 }
@@ -5018,7 +5823,9 @@ Return Value:
     PERESOURCE Resource;
     ERESOURCE_THREAD ResourceThreadId;
 
-    DebugTrace( +1, Dbg, "NtfsSingleAsyncCompletionRoutine, Context = %08lx\n", Context );
+    UNREFERENCED_PARAMETER( DeviceObject );
+
+    DebugTrace( +1, Dbg, ("NtfsSingleAsyncCompletionRoutine, Context = %08lx\n", Context) );
 
     //
     //  Capture the resource values out of the context to prevent
@@ -5047,7 +5854,8 @@ Return Value:
         //  either a read or write.
         //
 
-        if (IrpSp->FileObject != NULL) {
+        if (!Context->PagingIo &&
+            (IrpSp->FileObject != NULL)) {
 
             if (IrpSp->MajorFunction == IRP_MJ_READ) {
 
@@ -5117,11 +5925,11 @@ Return Value:
     //  and finally, free the context record.
     //
 
-    DebugTrace(-1, Dbg, "NtfsSingleAsyncCompletionRoutine -> STATUS_SUCCESS\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsSingleAsyncCompletionRoutine -> STATUS_SUCCESS\n") );
 
     if (CompleteRequest) {
 
-        NtfsFreeIoContext( Context );
+        ExFreeToNPagedLookasideList( &NtfsIoContextLookasideList, Context );
         return STATUS_SUCCESS;
 
     } else {
@@ -5129,7 +5937,6 @@ Return Value:
         return STATUS_MORE_PROCESSING_REQUIRED;
     }
 
-    UNREFERENCED_PARAMETER( DeviceObject );
 }
 
 
@@ -5182,13 +5989,13 @@ Return Value:
     PNTFS_IO_CONTEXT Context = Contxt;
     PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation( Irp );
 
-    DebugTrace( +1, Dbg, "NtfsSingleCompletionRoutine, Context = %08lx\n", Context );
+    UNREFERENCED_PARAMETER( DeviceObject );
+
+    DebugTrace( +1, Dbg, ("NtfsSingleCompletionRoutine, Context = %08lx\n", Context) );
 
     KeSetEvent( &Context->Wait.SyncEvent, 0, FALSE );
 
-    DebugTrace(-1, Dbg, "NtfsSingleCompletionRoutine -> STATUS_MORE_PROCESSING_REQUIRED\n", 0 );
-
-    UNREFERENCED_PARAMETER( DeviceObject );
+    DebugTrace( -1, Dbg, ("NtfsSingleCompletionRoutine -> STATUS_MORE_PROCESSING_REQUIRED\n") );
 
     return STATUS_MORE_PROCESSING_REQUIRED;
 }
@@ -5234,7 +6041,9 @@ Return Value:
 --*/
 
 {
-    DebugTrace( +1, Dbg, "NtfsPagingFileCompletionRoutine, MasterIrp = %08lx\n", MasterIrp );
+    UNREFERENCED_PARAMETER( DeviceObject );
+
+    DebugTrace( +1, Dbg, ("NtfsPagingFileCompletionRoutine, MasterIrp = %08lx\n", MasterIrp) );
 
     if (!FT_SUCCESS(Irp->IoStatus.Status)) {
 
@@ -5252,7 +6061,7 @@ Return Value:
 
                 NtfsPostHotFix( Irp,
                                 &BadVbo,
-                                &IrpSp->Parameters.Read.ByteOffset.QuadPart,
+                                IrpSp->Parameters.Read.ByteOffset.QuadPart,
                                 IrpSp->Parameters.Read.Length,
                                 FALSE );
 
@@ -5260,7 +6069,7 @@ Return Value:
 
                 NtfsPostHotFix( Irp,
                                 &BadVbo,
-                                &IrpSp->Parameters.Read.ByteOffset.QuadPart,
+                                IrpSp->Parameters.Read.ByteOffset.QuadPart,
                                 IrpSp->Parameters.Read.Length,
                                 TRUE );
 
@@ -5286,9 +6095,7 @@ Return Value:
         ((PIRP)MasterIrp)->IoStatus = Irp->IoStatus;
     }
 
-    DebugTrace( -1, Dbg, "NtfsPagingFileCompletionRoutine => (STATUS_SUCCESS)\n", 0 );
-
-    UNREFERENCED_PARAMETER( DeviceObject );
+    DebugTrace( -1, Dbg, ("NtfsPagingFileCompletionRoutine => (STATUS_SUCCESS)\n") );
 
     return STATUS_SUCCESS;
 }
@@ -5358,14 +6165,13 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsSingleNonAlignedSync\n", 0);
-    DebugTrace( 0, Dbg, "MajorFunction = %08lx\n", IrpContext->MajorFunction );
-    DebugTrace( 0, Dbg, "Vcb           = %08lx\n", Vcb );
-    DebugTrace( 0, Dbg, "Buffer        = %08lx\n", Buffer );
-    DebugTrace( 0, Dbg, "Lbo (Low)     = %08lx\n", Lbo.LowPart);
-    DebugTrace( 0, Dbg, "Lbo (High)    = %08lx\n", Lbo.HighPart);
-    DebugTrace( 0, Dbg, "ByteCount     = %08lx\n", ByteCount);
-    DebugTrace( 0, Dbg, "Irp           = %08lx\n", Irp );
+    DebugTrace( +1, Dbg, ("NtfsSingleNonAlignedSync\n") );
+    DebugTrace( 0, Dbg, ("MajorFunction = %08lx\n", IrpContext->MajorFunction) );
+    DebugTrace( 0, Dbg, ("Vcb           = %08lx\n", Vcb) );
+    DebugTrace( 0, Dbg, ("Buffer        = %08lx\n", Buffer) );
+    DebugTrace( 0, Dbg, ("Lbo           = %016I64x\n", Lbo) );
+    DebugTrace( 0, Dbg, ("ByteCount     = %08lx\n", ByteCount) );
+    DebugTrace( 0, Dbg, ("Irp           = %08lx\n", Irp) );
 
     //
     //  Create a new Mdl describing the buffer, saving the current one in the
@@ -5493,7 +6299,7 @@ Return Value:
     //  And return to our caller
     //
 
-    DebugTrace(-1, Dbg, "NtfsSingleNonAlignedSync -> VOID\n", 0);
+    DebugTrace( -1, Dbg, ("NtfsSingleNonAlignedSync -> VOID\n") );
 
     return;
 }
@@ -5605,6 +6411,7 @@ Return Value:
     ULONG ClusterMask;
     ULONG ClustersToRecover;
     ULONG UsaBlockSize;
+    PIO_STACK_LOCATION IrpSp;
     PVCB Vcb = Scb->Vcb;
     ULONG BytesPerCluster = Vcb->BytesPerCluster;
     NTSTATUS FinalStatus = STATUS_SUCCESS;
@@ -5685,7 +6492,7 @@ Return Value:
     //  so map it here.
     //
 
-    SystemBuffer = NtfsMapUserBuffer( IrpContext, MasterIrp );
+    SystemBuffer = NtfsMapUserBuffer( MasterIrp );
 
     //
     //  If this is a Usa-protected structure, get the block size now.
@@ -5736,6 +6543,27 @@ Return Value:
             UsaBlockSize = Scb->ScbType.Index.BytesPerIndexBuffer;
         }
     }
+
+    //
+    //  Verify the maximum of UsaBlockSize and cluster size.
+    //
+
+    if (BytesPerCluster > UsaBlockSize) {
+
+        //
+        //  Determine which is smaller the cluster size or the
+        //  size of the buffer being read.
+        //
+
+        IrpSp = IoGetCurrentIrpStackLocation( MasterIrp );
+
+        UsaBlockSize = IrpSp->Parameters.Read.Length;
+        if (UsaBlockSize > BytesPerCluster) {
+
+            UsaBlockSize = BytesPerCluster;
+        }
+    }
+
 
     //
     //  We know we got a failure in the given transfer, which could be any size.
@@ -5816,10 +6644,10 @@ Return Value:
 
                     LONGLONG StartingVbo, StartingLbo;
                     PIRP Irp;
-                    PIO_STACK_LOCATION IrpSp;
                     PMDL Mdl;
                     BOOLEAN LowFileRecord;
                     FT_SPECIAL_READ SpecialRead;
+                    ULONG Length;
 
                     HotFixTrace(("Doing ByteOffset: %08lx for FtCase: %02lx\n",
                                 (((ULONG)IoRuns[RunNumber].StartingVbo) + ByteOffset),
@@ -5856,7 +6684,7 @@ Return Value:
                     //  the current Lcn.
                     //
 
-                    if (FlagOn(Scb->ScbState, SCB_STATE_COMPRESSED)) {
+                    if (Scb->CompressionUnit != 0) {
 
                         VCN TempVcn;
                         LCN TempLcn, LcnOut;
@@ -5870,13 +6698,14 @@ Return Value:
                         //  Lcn we currently want to read.
                         //
 
-                        while (FsRtlLookupLargeMcbEntry( &Scb->Mcb,
-                                                         TempVcn,
-                                                         &LcnOut,
-                                                         NULL,
-                                                         NULL,
-                                                         NULL,
-                                                         NULL )
+                        while (NtfsLookupNtfsMcbEntry( &Scb->Mcb,
+                                                       TempVcn,
+                                                       &LcnOut,
+                                                       NULL,
+                                                       NULL,
+                                                       NULL,
+                                                       NULL,
+                                                       NULL )
 
                                  &&
 
@@ -5891,6 +6720,18 @@ Return Value:
                     }
 
                     LowFileRecord = (Scb == Vcb->MftScb) && (((PLARGE_INTEGER)&StartingVbo)->HighPart == 0);
+
+                    //
+                    //  Calculate the amount to actually read.
+                    //
+
+
+                    Length = IoRuns[RunNumber].ByteCount - ByteOffset;
+
+                    if (Length > BytesPerCluster) {
+
+                        Length = BytesPerCluster;
+                    }
 
                     //
                     //  Loop while verify required, or we find we really
@@ -5923,7 +6764,7 @@ Return Value:
 
                         Mdl = IoAllocateMdl( (PCHAR)MasterIrp->UserBuffer +
                                                IoRuns[RunNumber].BufferOffset + ByteOffset,
-                                             BytesPerCluster,
+                                             Length,
                                              FALSE,
                                              FALSE,
                                              Irp );
@@ -5951,7 +6792,7 @@ Return Value:
                                            Mdl,
                                            (PCHAR)MasterIrp->UserBuffer +
                                              IoRuns[RunNumber].BufferOffset + ByteOffset,
-                                           BytesPerCluster );
+                                           Length );
 
                         //
                         //  Get the first IRP stack location in the associated Irp
@@ -5965,7 +6806,7 @@ Return Value:
                         //
 
                         IrpSp->MajorFunction = IrpContext->MajorFunction;
-                        IrpSp->Parameters.Read.Length = BytesPerCluster;
+                        IrpSp->Parameters.Read.Length = Length;
                         IrpSp->Parameters.Read.ByteOffset.QuadPart = StartingVbo;
 
                         //
@@ -5995,7 +6836,7 @@ Return Value:
                             IrpSp->MajorFunction = IrpContext->MajorFunction;
                             IrpSp->Flags = Context->IrpSpFlags;
                             IrpSp->Parameters.Read.ByteOffset.QuadPart = StartingLbo;
-                            IrpSp->Parameters.Read.Length = BytesPerCluster;
+                            IrpSp->Parameters.Read.Length = Length;
 
                         //
                         //  Otherwise we are supposed to read from the primary or secondary
@@ -6014,7 +6855,7 @@ Return Value:
 
                             Irp->AssociatedIrp.SystemBuffer = &SpecialRead;
                             SpecialRead.ByteOffset.QuadPart = StartingLbo;
-                            SpecialRead.Length = BytesPerCluster;
+                            SpecialRead.Length = Length;
                         }
 
                         //
@@ -6042,7 +6883,7 @@ Return Value:
 
                         HotFixTrace(("Calling driver with Irp: %08lx\n", Irp));
 
-                        KeResetEvent( &Context->Wait.SyncEvent );
+                        KeClearEvent( &Context->Wait.SyncEvent );
 
                         (VOID)IoCallDriver( DeviceObject, Irp );
 
@@ -6156,7 +6997,7 @@ Return Value:
 
                             RtlFillMemory( (PCHAR)SystemBuffer +
                                              IoRuns[RunNumber].BufferOffset + ByteOffset,
-                                           BytesPerCluster,
+                                           Length,
                                            0xFF );
 
                             //
@@ -6169,7 +7010,7 @@ Return Value:
                                 (!LowFileRecord || (((ULONG)StartingVbo >= PAGE_SIZE) &&
                                                     ((ULONG)StartingVbo >= (ULONG)((VOLUME_DASD_NUMBER + 1) << Vcb->MftShift))))) {
 
-                                NtfsPostVcbIsCorrupt( IrpContext, Vcb, 0, NULL, NULL );
+                                NtfsPostVcbIsCorrupt( IrpContext, 0, NULL, NULL );
                             }
 
                             //
@@ -6210,7 +7051,7 @@ Return Value:
 
                                 NtfsPostHotFix( MasterIrp,
                                                 &StartingVbo,
-                                                &StartingLbo,
+                                                StartingLbo,
                                                 BytesPerCluster,
                                                 FALSE );
                             }
@@ -6253,7 +7094,7 @@ Return Value:
 
                     if (FlagOn(Scb->ScbState, SCB_STATE_USA_PRESENT)) {
 
-                        ULONG NextOffset = IoRuns[RunNumber].BufferOffset + ByteOffset + BytesPerCluster;
+                        ULONG NextOffset = IoRuns[RunNumber].BufferOffset + ByteOffset + Length;
 
                         //
                         //  If we are not at the end of a Usa block, there is no work
@@ -6275,7 +7116,7 @@ Return Value:
                                                               (PCHAR)SystemBuffer + NextOffset -
                                                                 UsaBlockSize,
                                                               UsaBlockSize,
-                                                              StartingVbo + (NextOffset - UsaBlockSize) )) {
+                                                              StartingVbo - (UsaBlockSize - Length) )) {
 
                                 //
                                 //  If we are only fixing a Usa error anyway, or this is
@@ -6354,7 +7195,7 @@ VOID
 NtfsPostHotFix (
     IN PIRP Irp,
     IN PLONGLONG BadVbo,
-    IN PLONGLONG BadLbo,
+    IN LONGLONG BadLbo,
     IN ULONG ByteLength,
     IN BOOLEAN DelayIrpCompletion
     )
@@ -6406,17 +7247,11 @@ Return Value:
     //  in the Scb, since we are not properly synchronized.)
     //
 
-    if (!NT_SUCCESS(ObReferenceObjectByPointer ( FileObject,
-                                                 0,
-                                                 IoFileObjectType,
-                                                 KernelMode))) {
-
-        NtfsBugCheck( 0, 0, 0 );
-    }
+    ObReferenceObject( FileObject );
 
     HotFixIrpContext->OriginatingIrp = (PIRP)FileObject;
     HotFixIrpContext->ScbSnapshot.AllocationSize = *BadVbo;
-    HotFixIrpContext->ScbSnapshot.FileSize = *BadLbo;
+    HotFixIrpContext->ScbSnapshot.FileSize = BadLbo;
     ((ULONG)HotFixIrpContext->ScbSnapshot.ValidDataLength) = ByteLength;
     if (DelayIrpCompletion) {
         ((PLARGE_INTEGER)&HotFixIrpContext->ScbSnapshot.ValidDataLength)->HighPart = (ULONG)Irp;
@@ -6488,6 +7323,7 @@ Return Value:
     VCN BadVcn;
     LCN LcnTemp, BadLcn;
     LONGLONG ClusterCount;
+    NTSTATUS Status;
     PVOID Buffer;
     PIRP IrpToComplete;
     ULONG ClustersToFix;
@@ -6514,8 +7350,8 @@ Return Value:
 
     TypeOfOpen = NtfsDecodeFileObject( IrpContext, FileObject, &Vcb, &Fcb, &Scb, &Ccb, FALSE );
     BadClusterScb = Vcb->BadClusterFileScb;
-    BadVcn = LlClustersFromBytes( Vcb, BadVbo );
-    BadLcn = LlClustersFromBytes( Vcb, IrpContext->ScbSnapshot.FileSize );
+    BadVcn = LlClustersFromBytesTruncate( Vcb, BadVbo );
+    BadLcn = LlClustersFromBytesTruncate( Vcb, IrpContext->ScbSnapshot.FileSize );
     ClustersToFix = ClustersFromBytes( Vcb, ((ULONG)IrpContext->ScbSnapshot.ValidDataLength) );
     IrpToComplete = (PIRP)(((PLARGE_INTEGER)&IrpContext->ScbSnapshot.ValidDataLength)->HighPart);
 
@@ -6538,6 +7374,21 @@ Return Value:
     TopLevelContext.ScbBeingHotFixed = Scb;
 
     //
+    //  Acquire the Vcb before acquiring the paging Io resource.
+    //
+
+    NtfsAcquireExclusiveVcb( IrpContext, Vcb, TRUE );
+
+    //
+    //  Acquire the paging io resource for this Fcb if it exists.
+    //
+
+    if (Scb->Header.PagingIoResource != NULL) {
+
+        NtfsAcquireExclusivePagingIo( IrpContext, Fcb );
+    }
+
+    //
     //  Just because we are hot fixing one file, it is possible that someone
     //  will log to another file and try to lookup Lcns.  So we will acquire
     //  all files.  Example:  Hot fix is in Mft, and SetFileInfo has only the
@@ -6545,7 +7396,7 @@ Return Value:
     //  looked up.
     //
 
-    NtfsAcquireAllFiles( IrpContext, Vcb, TRUE );
+    NtfsAcquireAllFiles( IrpContext, Vcb, TRUE, FALSE );
 
     //
     //  Catch all exceptions.  Note, we should not get any I/O error exceptions
@@ -6566,6 +7417,7 @@ Return Value:
                                        BadLcn,
                                        &LcnTemp,
                                        &ClusterCount,
+                                       NULL,
                                        NULL ) &&
 
                 NtfsLookupAllocation( IrpContext,
@@ -6573,6 +7425,7 @@ Return Value:
                                       BadVcn,
                                       &LcnTemp,
                                       &ClusterCount,
+                                      NULL,
                                       NULL ) &&
 
                 (LcnTemp == BadLcn)) {
@@ -6589,7 +7442,6 @@ Return Value:
                 if (IrpToComplete == NULL) {
 
                     ULONG Count = 100;
-                    NTSTATUS PinStatus;
 
                     NtfsCreateInternalAttributeStream( IrpContext, Scb, FALSE );
 
@@ -6605,25 +7457,25 @@ Return Value:
 
                     do {
 
-                        PinStatus = STATUS_SUCCESS;
+                        Status = STATUS_SUCCESS;
 
                         try {
 
-                            NtfsPinStream( IrpContext, Scb, BadVbo, 1, &Bcb, &Buffer );
+                            NtfsPinStream( IrpContext, Scb, BadVbo, Vcb->BytesPerCluster, &Bcb, &Buffer );
 
-                        } except ((!FsRtlIsNtstatusExpected( PinStatus = GetExceptionCode())
-                                   || FsRtlIsTotalDeviceFailure( PinStatus ))
+                        } except ((!FsRtlIsNtstatusExpected( Status = GetExceptionCode())
+                                   || FsRtlIsTotalDeviceFailure( Status ))
                                   ? EXCEPTION_CONTINUE_SEARCH
                                   : EXCEPTION_EXECUTE_HANDLER) {
 
                             NOTHING;
                         }
 
-                    } while (Count-- && (PinStatus != STATUS_SUCCESS));
+                    } while (Count-- && (Status != STATUS_SUCCESS));
 
-                    if (PinStatus != STATUS_SUCCESS) {
+                    if (Status != STATUS_SUCCESS) {
 
-                        NtfsRaiseStatus( IrpContext, PinStatus, NULL, NULL );
+                        NtfsRaiseStatus( IrpContext, Status, NULL, NULL );
                     }
                 }
 
@@ -6637,13 +7489,19 @@ Return Value:
                 KdPrint(("NTFS:     Freeing Bad Vcn: %08lx, %08lx\n", ((ULONG)BadVcn), ((PLARGE_INTEGER)&BadVcn)->HighPart));
 #endif
 
-                NtfsDeallocateClusters( IrpContext, Vcb, &Scb->Mcb, BadVcn, BadVcn );
+                NtfsDeallocateClusters( IrpContext,
+                                        Vcb,
+                                        &Scb->Mcb,
+                                        BadVcn,
+                                        BadVcn,
+                                        &Scb->TotalAllocated );
+
 
                 //
                 //  Look up the bad cluster attribute.
                 //
 
-                NtfsLookupAttributeForScb( IrpContext, BadClusterScb, &Context );
+                NtfsLookupAttributeForScb( IrpContext, BadClusterScb, NULL, &Context );
 
                 //
                 //  Now append this cluster to the bad cluster file
@@ -6680,11 +7538,16 @@ Return Value:
 
                 if (IrpToComplete == NULL) {
 
-                    NtfsSetDirtyBcb( IrpContext, Bcb, NULL, NULL );
+                    CcSetDirtyPinnedData( Bcb, NULL );
 
-                    NtfsUnpinBcb( IrpContext, &Bcb );
+                    NtfsUnpinBcb( &Bcb );
 
-                    CcFlushCache( &Scb->NonpagedScb->SegmentObject, (PLARGE_INTEGER)&BadVbo, 1, NULL );
+                    //
+                    //  Flush the stream.  Ignore the status - if we get something like
+                    //  a log file full, the Lazy Writer will eventually write the page.
+                    //
+
+                    (VOID)NtfsFlushUserStream( IrpContext, Scb, &BadVbo, 1 );
                 }
 
                 //
@@ -6713,8 +7576,19 @@ Return Value:
 
                 } else {
 
-                    (VOID)
-                    NtfsWriteLog( IrpContext, Scb, NULL, HotFix, NULL, 0, Noop, NULL, 0, BadVcn, 0, 0, 1 );
+                    (VOID) NtfsWriteLog( IrpContext,
+                                         Scb,
+                                         NULL,
+                                         HotFix,
+                                         NULL,
+                                         0,
+                                         Noop,
+                                         NULL,
+                                         0,
+                                         LlBytesFromClusters( Vcb, BadVcn ),
+                                         0,
+                                         0,
+                                         Vcb->BytesPerCluster );
 
                     //
                     //  And we have to commit that one, too.
@@ -6739,8 +7613,8 @@ Return Value:
 
             BadVcn = BadVcn + 1;
             BadLcn = BadLcn + 1;
-            NtfsCleanupAttributeContext( IrpContext, &Context );
-            NtfsUnpinBcb( IrpContext, &Bcb );
+            NtfsCleanupAttributeContext( &Context );
+            NtfsUnpinBcb( &Bcb );
         }
 
     } except(NtfsExceptionFilter( IrpContext, GetExceptionInformation() )) {
@@ -6775,9 +7649,9 @@ Return Value:
 
         NtfsRestoreTopLevelIrp( ThreadTopLevelContext );
 
-        NtfsCleanupAttributeContext( IrpContext, &Context );
+        NtfsCleanupAttributeContext( &Context );
 
-        NtfsUnpinBcb( IrpContext, &Bcb );
+        NtfsUnpinBcb( &Bcb );
 
         //
         //  If we aborted this operation then all of the file resources have
@@ -6786,7 +7660,9 @@ Return Value:
 
         if (PerformFullCleanup) {
 
-            NtfsReleaseAllFiles( IrpContext, Vcb );
+            NtfsReleaseAllFiles( IrpContext, Vcb, FALSE );
+
+            NtfsReleaseVcb( IrpContext, Vcb );
 
         //
         //  The files have been released but not the Vcb or the volume bitmap.
@@ -6800,7 +7676,13 @@ Return Value:
                 ExReleaseResource( Vcb->BitmapScb->Header.Resource );
             }
 
-            NtfsReleaseVcb( IrpContext, Vcb, NULL );
+            //
+            //  We need to release the Vcb twice since we specifically acquire
+            //  it once and then again with all the files.
+            //
+
+            NtfsReleaseVcb( IrpContext, Vcb );
+            NtfsReleaseVcb( IrpContext, Vcb );
         }
 
         ObDereferenceObject( FileObject );
@@ -6820,4 +7702,233 @@ Return Value:
     }
 }
 
-
+
+BOOLEAN
+NtfsGetReservedBuffer (
+    IN PFCB ThisFcb,
+    OUT PVOID *Buffer,
+    OUT PULONG Length,
+    IN UCHAR Need2
+    )
+
+/*++
+
+Routine Description:
+
+    This routine allocates the reserved buffers depending on the needs of
+    the caller.  If the caller might require two buffers then we will allocate
+    buffers 1 or 2.  Otherwise we can allocate any of the three.
+
+Arguments:
+
+    ThisFcb - This is the Fcb where the io is occurring.
+
+    Buffer - Address to store the address of the allocated buffer.
+
+    Length - Address to store the length of the returned buffer.
+
+    Need2 - Zero if only one buffer needed.  Either 1 or 2 if two buffers
+        might be needed.  Buffer 2 can be acquired recursively.  If buffer
+        1 is needed and the current thread already owns buffer 1 then
+        grant buffer three instead.
+
+Return Value:
+
+    BOOLEAN - Indicates whether the buffer was acquired.
+
+--*/
+
+{
+    BOOLEAN Allocated = FALSE;
+    PVOID CurrentThread;
+
+    //
+    //  Capture the current thread and the Fcb for the file we are acquiring
+    //  the buffer for.
+    //
+
+    CurrentThread = (PVOID) PsGetCurrentThread();
+
+    ExAcquireFastMutexUnsafe(&NtfsReservedBufferMutex);
+
+    //
+    //  If we need two buffers then allocate either buffer 1 or buffer 2.
+    //  We allow this caller to get a buffer if
+    //
+    //      - He already owns one of these buffers   (or)
+    //
+    //      - Neither of the 2 buffers are allocated (and)
+    //      - No other thread has a buffer on behalf of this file
+    //
+
+    if (Need2) {
+
+        if ((NtfsReservedBufferThread == CurrentThread) ||
+
+            (!FlagOn( NtfsReservedInUse, 3 ) &&
+             ((NtfsReserved3Fcb != ThisFcb) ||
+              (NtfsReserved3Thread == CurrentThread)))) {
+
+            NtfsReservedBufferThread = CurrentThread;
+            NtfsReserved12Fcb = ThisFcb;
+
+            //
+            //  Check whether the caller wants buffer 1 or buffer 2.
+            //
+
+            if (Need2 == 1) {
+
+                //
+                //  If we don't own buffer 1 then reserve it now.
+                //
+
+                if (!FlagOn( NtfsReservedInUse, 1 )) {
+
+                    NtfsReserved1Thread = CurrentThread;
+                    SetFlag( NtfsReservedInUse, 1 );
+                    *Buffer = NtfsReserved1;
+                    *Length = LARGE_BUFFER_SIZE;
+                    Allocated = TRUE;
+
+                } else if (!FlagOn( NtfsReservedInUse, 4 )) {
+
+                    NtfsReserved3Fcb = ThisFcb;
+
+                    NtfsReserved3Thread = CurrentThread;
+                    SetFlag( NtfsReservedInUse, 4 );
+                    *Buffer = NtfsReserved3;
+                    *Length = LARGE_BUFFER_SIZE;
+                    Allocated = TRUE;
+                }
+
+            } else {
+
+                ASSERT( Need2 == 2 );
+
+                NtfsReserved2Thread = CurrentThread;
+                SetFlag( NtfsReservedInUse, 2 );
+                *Buffer = NtfsReserved2;
+                *Length = LARGE_BUFFER_SIZE;
+                NtfsReserved2Count += 1;
+                Allocated = TRUE;
+            }
+        }
+
+    //
+    //  We only need 1 buffer.  If this thread is the exclusive owner then
+    //  we know it is safe to use buffer 2.  The data in this buffer doesn't
+    //  need to be preserved across a recursive call.
+    //
+
+    } else if (NtfsReservedBufferThread == CurrentThread) {
+
+        NtfsReserved2Thread = CurrentThread;
+        SetFlag( NtfsReservedInUse, 2 );
+        *Buffer = NtfsReserved2;
+        *Length = LARGE_BUFFER_SIZE;
+        NtfsReserved2Count += 1;
+        Allocated = TRUE;
+
+    //
+    //  We only need 1 buffer.  Try for buffer 3 first.
+    //
+
+    } else if (!FlagOn( NtfsReservedInUse, 4)) {
+
+        //
+        //  Check if the owner of the first two buffers is operating in the
+        //  same file but is a different thread.  We can't grant another buffer
+        //  for a different stream in the same file.
+        //
+
+        if (ThisFcb != NtfsReserved12Fcb) {
+
+            NtfsReserved3Fcb = ThisFcb;
+
+            NtfsReserved3Thread = CurrentThread;
+            SetFlag( NtfsReservedInUse, 4 );
+            *Buffer = NtfsReserved3;
+            *Length = LARGE_BUFFER_SIZE;
+            Allocated = TRUE;
+        }
+
+    //
+    //  If there is no exclusive owner then we can use either of the first
+    //  two buffers.  Note that getting one of the first two buffers will
+    //  lock out the guy who needs two buffers.
+    //
+
+    } else if (NtfsReservedBufferThread == NULL) {
+
+        if (!FlagOn( NtfsReservedInUse, 2 )) {
+
+            NtfsReserved2Thread = CurrentThread;
+            SetFlag( NtfsReservedInUse, 2 );
+            *Buffer = NtfsReserved2;
+            *Length = LARGE_BUFFER_SIZE;
+            NtfsReserved2Count += 1;
+            Allocated = TRUE;
+
+        } else if (!FlagOn( NtfsReservedInUse, 1 )) {
+
+            NtfsReserved1Thread = CurrentThread;
+            SetFlag( NtfsReservedInUse, 1 );
+            *Buffer = NtfsReserved1;
+            *Length = LARGE_BUFFER_SIZE;
+            Allocated = TRUE;
+        }
+    }
+
+    ExReleaseFastMutexUnsafe(&NtfsReservedBufferMutex);
+    return Allocated;
+}
+
+BOOLEAN
+NtfsFreeReservedBuffer (
+    IN PVOID Buffer
+    )
+{
+    BOOLEAN Deallocated = FALSE;
+
+    ExAcquireFastMutexUnsafe(&NtfsReservedBufferMutex);
+
+    if (Buffer == NtfsReserved1) {
+        ASSERT( FlagOn( NtfsReservedInUse, 1 ));
+
+        ClearFlag( NtfsReservedInUse, 1 );
+        NtfsReserved1Thread = NULL;
+        if (!FlagOn( NtfsReservedInUse, 2)) {
+            NtfsReservedBufferThread = NULL;
+            NtfsReserved12Fcb = NULL;
+        }
+
+        Deallocated = TRUE;
+
+    } else if (Buffer == NtfsReserved2) {
+        ASSERT( FlagOn( NtfsReservedInUse, 2 ));
+
+        NtfsReserved2Count -= 1;
+
+        if (NtfsReserved2Count == 0) {
+
+            ClearFlag( NtfsReservedInUse, 2 );
+            NtfsReserved2Thread = NULL;
+            if (!FlagOn( NtfsReservedInUse, 1)) {
+                NtfsReservedBufferThread = NULL;
+                NtfsReserved12Fcb = NULL;
+            }
+        }
+
+        Deallocated = TRUE;
+
+    } else if (Buffer == NtfsReserved3) {
+        ASSERT( FlagOn( NtfsReservedInUse, 4 ));
+        ClearFlag( NtfsReservedInUse, 4 );
+        Deallocated = TRUE;
+        NtfsReserved3Thread = NULL;
+        NtfsReserved3Fcb = NULL;
+    }
+
+    ExReleaseFastMutexUnsafe(&NtfsReservedBufferMutex);
+    return Deallocated;
+}

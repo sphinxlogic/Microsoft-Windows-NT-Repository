@@ -44,24 +44,8 @@
 /*
  * declaration for console handle
  */
-#ifdef	_CRUISER_
-
-extern int _confh;
-
-#else	/* ndef _CRUISER_ */
-
-#ifdef	_WIN32_
 
 extern int _coninpfh;
-
-#else	/* ndef _WIN32_ */
-
-#error ERROR - ONLY CRUISER OR WIN32 TARGET SUPPORTED!
-
-#endif	/* _WIN32_ */
-
-#endif	/* _CRUISER_ */
-
 
 /***
 *char *_cgets(string) - read string from console
@@ -86,7 +70,7 @@ extern int _coninpfh;
 *
 *******************************************************************************/
 
-char * _CALLTYPE1 _cgets (
+char * __cdecl _cgets (
 	char *string
 	)
 {
@@ -99,22 +83,6 @@ char * _CALLTYPE1 _cgets (
 	string[1] = 0;			/* no chars read yet */
         result = &string[2];
 
-#ifdef  _CRUISER_
-
-	/* put console into cooked mode */
-	DOSQUERYFHSTATE(_confh, &oldstate);
-	oldstate &= FHSTATEMASK;
-	DOSSETFHSTATE(_confh, (oldstate & ~OPEN_FLAGS_RAWMODE));
-
-	/* read the string starting at string[2] */
-	if ( DOSREAD(_confh, result, string[0], &num_read) ) {
-		result = NULL;
-	}
-
-#else	/* ndef _CRUISER_ */
-
-#ifdef	_WIN32_
-
 	if ( _coninpfh == -1 ) {
 		_munlock(_CONIO_LOCK);		/* unlock the console */
 		return(NULL);			/* return failure */
@@ -126,19 +94,11 @@ char * _CALLTYPE1 _cgets (
 
 	if ( !ReadConsole( (HANDLE)_coninpfh,
 			   (LPVOID)result,
-			   string[0],
+                           (unsigned char)string[0],
 			   &num_read,
 			   NULL )
 	   )
 		result = NULL;
-
-#else	/* ndef _WIN32_ */
-
-#error ERROR - ONLY CRUISER OR WIN32 TARGET SUPPORTED!
-
-#endif	/* _WIN32_ */
-
-#endif	/* _CRUISER_ */
 
 	if ( result != NULL ) {
 
@@ -147,8 +107,8 @@ char * _CALLTYPE1 _cgets (
 	    if (string[num_read] == '\r') {
 	    	string[1] = (char)(num_read - 2);
 	    	string[num_read] = '\0';
-	    } else if ( (num_read == (ULONG)string[0]) && (string[num_read + 1] ==
-	    '\r') ) {
+            } else if ( (num_read == (ULONG)(unsigned char)string[0]) &&
+                    (string[num_read + 1] == '\r') ) {
 	    	/* special case 1 - \r\n straddles the boundary */
 	    	string[1] = (char)(num_read -1);
 	    	string[1 + num_read] = '\0';
@@ -159,26 +119,9 @@ char * _CALLTYPE1 _cgets (
 	    	string[1] = (char)num_read;
 	    	string[2 + num_read] = '\0';
 	    }
-        }
+    }
 
-#ifdef  _CRUISER_
-
-	/* restore the console to original state - RAW */
-	DOSSETFHSTATE(_confh, oldstate);
-
-#else	/* ndef _CRUISER_ */
-
-#ifdef	_WIN32_
-
-        SetConsoleMode( (HANDLE)_coninpfh, oldstate );
-
-#else	/* ndef _WIN32_ */
-
-#error ERROR - ONLY CRUISER OR WIN32 TARGET SUPPORTED!
-
-#endif	/* _WIN32_ */
-
-#endif	/* _CRUISER_ */
+    SetConsoleMode( (HANDLE)_coninpfh, oldstate );
 
 	_munlock(_CONIO_LOCK);			/* unlock the console */
 

@@ -3,7 +3,7 @@
  */
 
 #include	<ndis.h>
-#include    <ndismini.h>
+//#include	<ndismini.h>
 #include	<ndiswan.h>
 #include	<mydefs.h>
 #include	<mytypes.h>
@@ -15,6 +15,8 @@
 #include	<cm.h>
 #include	<trc.h>
 #include	<io.h>
+
+extern DRIVER_BLOCK	Pcimac;
 
 /* store location for prev. ioctl handler */
 extern NTSTATUS	(*PrevIoctl)(DEVICE_OBJECT* DeviceObject, IRP* Irp);
@@ -31,6 +33,7 @@ PcimacIoctl(DEVICE_OBJECT *DeviceObject, IRP *Irp)
 	if ( irpSp->MajorFunction != IRP_MJ_DEVICE_CONTROL )
 	{
 		pass:
+		NdisReleaseSpinLock(&Pcimac.lock);
 
 		return(PrevIoctl(DeviceObject, Irp));
 	}
@@ -177,6 +180,136 @@ io_execute(IO_CMD *cmd, VOID *Irp_1)
 
 		case IO_CMD_DBG_LEVEL :
 			SetDebugLevel(cmd);
+			break;
+
+		case IO_CMD_DO_IDP_CMD:
+			DbgPrint("DoIdpCmd: Cmd: 0x%x\n", cmd->arg[0]);
+			if (cmd->idd && ((IDD*)cmd->idd)->btype != IDD_BT_DATAFIREU)
+			{
+				switch (cmd->arg[0])
+				{
+					case GET_IDP_IO_VALUE:
+						cmd->val.IdpRaw.uc = IdpGetUByteIO(cmd->idd,
+						                     cmd->val.IdpRaw.us);
+						cmd->status = IO_E_SUCC;
+						break;
+
+
+					case GET_IDP_BUFFER:
+						IdpGetBuffer(cmd->idd,
+				                     cmd->val.IdpRaw.Bank,
+									 cmd->val.IdpRaw.Page,
+									 cmd->val.IdpRaw.Address,
+									 cmd->val.IdpRaw.Length,
+									 cmd->val.IdpRaw.Buffer);
+			
+						cmd->status = IO_E_SUCC;
+						break;
+			
+					case SET_IDP_IO_VALUE:
+						IdpPutUByteIO(cmd->idd,
+						              (USHORT)cmd->val.IdpRaw.Address,
+						              cmd->val.IdpRaw.uc);
+						cmd->status = IO_E_SUCC;
+						break;
+
+					case SET_IDP_BUFFER:
+						IdpPutBuffer(cmd->idd,
+				                     cmd->val.IdpRaw.Bank,
+									 cmd->val.IdpRaw.Page,
+									 cmd->val.IdpRaw.Address,
+									 cmd->val.IdpRaw.Length,
+									 cmd->val.IdpRaw.Buffer);
+			
+						cmd->status = IO_E_SUCC;
+						break;
+
+					default:
+						cmd->status = IO_E_BADCMD;
+						break;
+				}
+			}
+			else
+				cmd->status = IO_E_BADIDD;
+			break;
+
+		case IO_CMD_DO_ADP_CMD:
+			if (cmd->idd && ((IDD*)cmd->idd)->btype == IDD_BT_DATAFIREU)
+			{
+				switch (cmd->arg[0])
+				{
+					case GET_ADP_UCHAR:
+						cmd->val.AdpRaw.uc = AdpGetUByte(cmd->idd,
+											 cmd->val.AdpRaw.Address);
+			
+						cmd->status = IO_E_SUCC;
+						break;
+			
+					case GET_ADP_USHORT:
+						cmd->val.AdpRaw.us = AdpGetUShort(cmd->idd,
+											 cmd->val.AdpRaw.Address);
+			
+						cmd->status = IO_E_SUCC;
+						break;
+			
+					case GET_ADP_ULONG:
+						cmd->val.AdpRaw.ul = AdpGetULong(cmd->idd,
+											 cmd->val.AdpRaw.Address);
+			
+						cmd->status = IO_E_SUCC;
+						break;
+			
+					case GET_ADP_BUFFER:
+						AdpGetBuffer(cmd->idd,
+									 cmd->val.AdpRaw.Buffer,
+									 cmd->val.AdpRaw.Address,
+									 cmd->val.AdpRaw.Length
+									 );
+			
+						cmd->status = IO_E_SUCC;
+						break;
+			
+					case SET_ADP_UCHAR:
+						AdpPutUByte(cmd->idd,
+									cmd->val.AdpRaw.Address,
+									cmd->val.AdpRaw.uc);
+			
+						cmd->status = IO_E_SUCC;
+						break;
+			
+					case SET_ADP_USHORT:
+						AdpPutUShort(cmd->idd,
+									 cmd->val.AdpRaw.Address,
+									 cmd->val.AdpRaw.us);
+			
+						cmd->status = IO_E_SUCC;
+						break;
+			
+					case SET_ADP_ULONG:
+						AdpPutULong(cmd->idd,
+									cmd->val.AdpRaw.Address,
+									cmd->val.AdpRaw.ul);
+			
+						cmd->status = IO_E_SUCC;
+						break;
+			
+					case SET_ADP_BUFFER:
+						AdpPutBuffer(cmd->idd,
+									 cmd->val.AdpRaw.Address,
+									 cmd->val.AdpRaw.Buffer,
+									 cmd->val.AdpRaw.Length);
+			
+						cmd->status = IO_E_SUCC;
+						break;
+
+					default:
+						cmd->status = IO_E_BADCMD;
+						break;
+				}
+			}
+			else
+				cmd->status = IO_E_BADIDD;
+
 			break;
 
         default :

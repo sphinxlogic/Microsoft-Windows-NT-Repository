@@ -849,4 +849,4 @@ STDAPI_(DWORD) OleStdGetDropEffect ( DWORD grfKeyState );
 
 
 #endif // _OLESTD_H_
-
+

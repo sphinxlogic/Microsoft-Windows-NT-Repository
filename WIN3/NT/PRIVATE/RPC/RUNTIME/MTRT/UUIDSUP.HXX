@@ -23,6 +23,11 @@ Revision History:
 #ifndef __UUIDSUP_HXX__
 #define __UUIDSUP_HXX__
 
+#if !defined(DOSWIN32RPC) && !defined(WINNT35_UUIDS)
+// On NT systems (post 3.5) use kernel supplied uuid time allocator.
+#define KERNEL_UUIDS
+#endif
+
 // This is the "true" OSF DCE format for Uuids.  We use this
 // when generating Uuids.  The NodeId is faked on systems w/o
 // a netcard.
@@ -55,7 +60,7 @@ typedef ULARGE_INTEGER UUIDTIME;
 #define COMPARE_TIMES(t1,t2) ((t1).QuadPart == (t2).QuadPart)
 #define ADD_TIME(t,v) (t).QuadPart += (v);
 
-#elif defined(DOS)
+#elif defined(DOS) || defined(MAC)
 
 //
 // Definitions for DOS and Win16
@@ -91,6 +96,11 @@ UuidGlobalMutexRequest(void);
 
 void __RPC_API
 UuidGlobalMutexClear(void);
+
+#ifdef KERNEL_UUIDS
+#define UuidGlobalMutexRequest() RPC_S_OK
+#define UuidGlobalMutexClear()
+#endif
 
 RPC_STATUS __RPC_API
 GetNodeId(unsigned char __RPC_FAR *NodeId);

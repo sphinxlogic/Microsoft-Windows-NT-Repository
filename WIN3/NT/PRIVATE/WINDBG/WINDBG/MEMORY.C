@@ -265,7 +265,7 @@ BOOL FAR PASCAL EXPORT DlgMemory(HWND hDlg, UINT message, WPARAM wParam, LONG lP
                         }
                         else
                            {
-                            if (wParam == IDHELP)
+                            if (wParam == IDWINDBGHELP)
                               {
                                Dbg(WinHelp(hDlg, szHelpFileName, (DWORD) HELP_CONTEXT,(DWORD)ID_MEMORY_HELP));
                               }
@@ -280,4 +280,3 @@ BOOL FAR PASCAL EXPORT DlgMemory(HWND hDlg, UINT message, WPARAM wParam, LONG lP
 
 
 /*==========================================================================*/
-

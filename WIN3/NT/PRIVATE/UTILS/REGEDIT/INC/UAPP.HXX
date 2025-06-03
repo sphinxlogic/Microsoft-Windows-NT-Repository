@@ -130,9 +130,7 @@ SetObjectPointer (
 
 #if DBG==1
 
-extern "C" {
-	#include <stdlib.h>
-}
+#include <stdlib.h>
 
 #define DbgWinAssert( exp )										\
 	DebugWinAssert( exp, #exp, __FILE__, __LINE__ )

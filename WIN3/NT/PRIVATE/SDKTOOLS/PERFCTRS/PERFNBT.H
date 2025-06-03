@@ -67,4 +67,4 @@ extern DWORD CollectNbtPerformanceData (LPWSTR, LPVOID *, LPDWORD, LPDWORD);
 extern DWORD CloseNbtPerformanceData ();
 
 #endif //_PERFNBT_H_
-
+

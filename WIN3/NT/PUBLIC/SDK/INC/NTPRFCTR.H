@@ -39,20 +39,22 @@ Revision History:
 #define OBJECT_OBJECT_TITLE_INDEX           260
 #define REDIRECTOR_OBJECT_TITLE_INDEX       262
 #define SERVER_OBJECT_TITLE_INDEX           330
+#define SERVER_QUEUE_OBJECT_TITLE_INDEX    1300
 #define PAGEFILE_OBJECT_TITLE_INDEX         700
 #define BROWSER_OBJECT_TITLE_INDEX           52
 //
 //  The number of "standard" object types
 //
-#define NT_NUM_PERF_OBJECT_TYPES             13
+#define NT_NUM_PERF_OBJECT_TYPES             14
 //
 //  Costly Items
 //
 #define EXPROCESS_OBJECT_TITLE_INDEX        786
 #define IMAGE_OBJECT_TITLE_INDEX            740
 #define THREAD_DETAILS_OBJECT_TITLE_INDEX   816
+#define LONG_IMAGE_OBJECT_TITLE_INDEX      1408 
 
-#define NT_NUM_COSTLY_OBJECT_TYPES            3
+#define NT_NUM_COSTLY_OBJECT_TYPES            4
 
 #define EXTENSIBLE_OBJECT_INDEX      0xFFFFFFFF
 
@@ -104,8 +106,13 @@ Revision History:
 
 #define BH_FIRST_COUNTER_INDEX             1110
 #define BH_FIRST_HELP_INDEX                1111
-#define BH_LAST_COUNTER_INDEX              1118
-#define BH_LAST_HELP_INDEX                 1119
+#define BH_LAST_COUNTER_INDEX              1126
+#define BH_LAST_HELP_INDEX                 1127
+
+#define TAPI_FIRST_COUNTER_INDEX           1150
+#define TAPI_FIRST_HELP_INDEX              1151
+#define TAPI_LAST_COUNTER_INDEX            1178 
+#define TAPI_LAST_HELP_INDEX               1179
 
 // NetWare counters have different Object indexes depending
 // on whether the system is a Workstation or a Server.  
@@ -119,10 +126,5 @@ Revision History:
 #define NWCS_LAST_COUNTER_INDEX            1246
 #define NWCS_LAST_HELP_INDEX               1247
 
-
-
-
-
-
 #endif  //_NTPRFCTR_H_
-
+

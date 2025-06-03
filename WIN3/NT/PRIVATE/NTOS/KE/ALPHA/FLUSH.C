@@ -84,26 +84,24 @@ Return Value:
 {
 
     KIRQL OldIrql;
-    PKPRCB Prcb;
     KAFFINITY TargetProcessors;
 
-    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
+    ASSERT(KeGetCurrentIrql() <= KiSynchIrql);
 
     //
-    // Raise IRQL to dispatch level to prevent a context switch.
+    // Raise IRQL to synchronization level to prevent a context switch.
     //
 
 #if !defined(NT_UP)
 
-    KeRaiseIrql(DISPATCH_LEVEL, &OldIrql);
+    OldIrql = KeRaiseIrqlToSynchLevel();
 
     //
     // Compute the set of target processors and send the sweep parameters
     // to the target processors, if any, for execution.
     //
 
-    Prcb = KeGetCurrentPrcb();
-    TargetProcessors = KeActiveProcessors & ~Prcb->SetMember;
+    TargetProcessors = KeActiveProcessors & PCR->NotMember;
     if (TargetProcessors != 0) {
         KiIpiSendPacket(TargetProcessors,
                         KiSweepDcacheTarget,
@@ -112,7 +110,7 @@ Return Value:
                         NULL);
     }
 
-    IPI_INSTRUMENT_COUNT(Prcb->Number, SweepDcache);
+    IPI_INSTRUMENT_COUNT(KeGetCurrentPrcb()->Number, SweepDcache);
 
 #endif
 
@@ -130,7 +128,7 @@ Return Value:
 #if !defined(NT_UP)
 
     if (TargetProcessors != 0) {
-        KiIpiStallOnPacketTargets(TargetProcessors);
+        KiIpiStallOnPacketTargets();
     }
 
     //
@@ -182,7 +180,7 @@ Return Value:
 #if !defined(NT_UP)
 
     HalSweepDcache();
-    *SignalDone = 0;
+    KiIpiSignalPacketDone(SignalDone);
     IPI_INSTRUMENT_COUNT(KeGetCurrentPrcb()->Number, SweepDcache);
 
 #endif
@@ -217,26 +215,24 @@ Return Value:
 {
 
     KIRQL OldIrql;
-    PKPRCB Prcb;
     KAFFINITY TargetProcessors;
 
-    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
+    ASSERT(KeGetCurrentIrql() <= KiSynchIrql);
 
     //
-    // Raise IRQL to dispatch level to prevent a context switch.
+    // Raise IRQL to synchronization level to prevent a context switch.
     //
 
 #if !defined(NT_UP)
 
-    KeRaiseIrql(DISPATCH_LEVEL, &OldIrql);
+    OldIrql = KeRaiseIrqlToSynchLevel();
 
     //
     // Compute the set of target processors and send the sweep parameters
     // to the target processors, if any, for execution.
     //
 
-    Prcb = KeGetCurrentPrcb();
-    TargetProcessors = KeActiveProcessors & ~Prcb->SetMember;
+    TargetProcessors = KeActiveProcessors & PCR->NotMember;
     if (TargetProcessors != 0) {
         KiIpiSendPacket(TargetProcessors,
                         KiSweepIcacheTarget,
@@ -245,7 +241,7 @@ Return Value:
                         NULL);
     }
 
-    IPI_INSTRUMENT_COUNT(Prcb->Number, SweepIcache);
+    IPI_INSTRUMENT_COUNT(KeGetCurrentPrcb()->Number, SweepIcache);
 
 #endif
 
@@ -263,7 +259,7 @@ Return Value:
 #if !defined(NT_UP)
 
     if (TargetProcessors != 0) {
-        KiIpiStallOnPacketTargets(TargetProcessors);
+        KiIpiStallOnPacketTargets();
     }
 
     //
@@ -308,8 +304,6 @@ Return Value:
 
 {
 
-    PKPRCB Prcb;
-
     //
     // Sweep the instruction cache on the current processor and clear
     // the sweep instruction cache packet address to signal the source
@@ -319,7 +313,7 @@ Return Value:
 #if !defined(NT_UP)
 
     KiImb();
-    *SignalDone = NULL;
+    KiIpiSignalPacketDone(SignalDone);
     IPI_INSTRUMENT_COUNT(KeGetCurrentPrcb()->Number, SweepIcache);
 
 #endif
@@ -381,6 +375,14 @@ Routine Description:
     This function flushes the I/O buffer specified by the memory descriptor
     list from the data cache on all processors.
 
+    Alpha requires that caches be coherent with respect to I/O. All that
+    this routine needs to do is execute a memory barrier on the current
+    processor. However, in order to maintain i-stream coherency, all
+    processors must execute the IMB PAL call in the case of page reads.
+    Thus, all processors are IPI'd to perform the IMB for any flush
+    that is a DmaOperation, a ReadOperation, and an MDL_IO_PAGE_READ.
+
+
 Arguments:
 
     Mdl - Supplies a pointer to a memory descriptor list that describes the
@@ -400,16 +402,50 @@ Return Value:
 
 {
     KIRQL OldIrql;
-    PKPRCB Prcb;
     KAFFINITY TargetProcessors;
 
-    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
+    ASSERT(KeGetCurrentIrql() <= KiSynchIrql);
+
+    KiMb();
 
     //
-    // Raise IRQL to dispatch level to prevent a context switch.
+    // If the operation is a DMA operation, then check if the flush
+    // can be avoided because the host system supports the right set
+    // of cache coherency attributes. Otherwise, the flush can also
+    // be avoided if the operation is a programmed I/O and not a page
+    // read.
     //
 
-    KeRaiseIrql(DISPATCH_LEVEL, &OldIrql);
+    if (DmaOperation != FALSE) {
+        if (ReadOperation != FALSE) {
+            if ((KiDmaIoCoherency & DMA_READ_ICACHE_INVALIDATE) != 0) {
+
+                ASSERT((KiDmaIoCoherency & DMA_READ_DCACHE_INVALIDATE) != 0);
+
+                return;
+
+            } else if (((Mdl->MdlFlags & MDL_IO_PAGE_READ) == 0) &&
+                ((KiDmaIoCoherency & DMA_READ_DCACHE_INVALIDATE) != 0)) {
+                return;
+            }
+
+        } else if ((KiDmaIoCoherency & DMA_WRITE_DCACHE_SNOOP) != 0) {
+            return;
+        }
+
+    } else if ((Mdl->MdlFlags & MDL_IO_PAGE_READ) == 0) {
+        return;
+    }
+
+    //
+    // Either the operation is a DMA operation and the right coherency
+    // atributes are not supported by the host system, or the operation
+    // is programmed I/O and a page read.
+    //
+    // Raise IRQL to synchronization level to prevent a context switch.
+    //
+
+    OldIrql = KeRaiseIrqlToSynchLevel();
 
     //
     // Compute the set of target processors, and send the flush I/O
@@ -418,8 +454,7 @@ Return Value:
 
 #if !defined(NT_UP)
 
-    Prcb = KeGetCurrentPrcb();
-    TargetProcessors = KeActiveProcessors & ~Prcb->SetMember;
+    TargetProcessors = KeActiveProcessors & PCR->NotMember;
     if (TargetProcessors != 0) {
         KiIpiSendPacket(TargetProcessors,
                         KiFlushIoBuffersTarget,
@@ -427,8 +462,6 @@ Return Value:
                         (PVOID)((ULONG)ReadOperation),
                         (PVOID)((ULONG)DmaOperation));
     }
-
-    IPI_INSTRUMENT_COUNT(Prcb->Number, FlushIoBuffers);
 
 #endif
 
@@ -439,14 +472,14 @@ Return Value:
     HalFlushIoBuffers(Mdl, ReadOperation, DmaOperation);
 
     //
-    // Wait until all target processors have finished flushing the specified
-    // I/O buffer.
+    // Wait until all target processors have finished flushing the
+    // specified I/O buffer.
     //
 
 #if !defined(NT_UP)
 
     if (TargetProcessors != 0) {
-        KiIpiStallOnPacketTargets(TargetProcessors);
+        KiIpiStallOnPacketTargets();
     }
 
 #endif
@@ -456,8 +489,11 @@ Return Value:
     //
 
     KeLowerIrql(OldIrql);
+
     return;
 }
+
+#if !defined(NT_UP)
 
 VOID
 KiFlushIoBuffersTarget (
@@ -500,16 +536,13 @@ Return Value:
     // Flush the specified I/O buffer on the current processor.
     //
 
-#if !defined(NT_UP)
-
     HalFlushIoBuffers((PMDL)Mdl,
                       (BOOLEAN)((ULONG)ReadOperation),
                       (BOOLEAN)((ULONG)DmaOperation));
 
-    *SignalDone = 0;
+    KiIpiSignalPacketDone(SignalDone);
     IPI_INSTRUMENT_COUNT(KeGetCurrentPrcb()->Number, FlushIoBuffers);
-
-#endif
 
     return;
 }
+#endif

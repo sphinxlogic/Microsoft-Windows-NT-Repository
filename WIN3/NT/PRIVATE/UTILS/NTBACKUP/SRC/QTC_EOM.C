@@ -319,19 +319,28 @@ Q_HEADER_PTR zombie_list )
    QTC_RECORD temp_record;
    UINT32 temp_record_num;
    BOOLEAN done;
+   INT nSize;
 
 
    if ( szFile == NULL && szPath == NULL ) {
       return( SUCCESS );
    }
 
+   buffer = (BYTE_PTR)calloc( QTC_BUF_SIZE, 1 );
 
-   buffer = calloc( QTC_BUF_SIZE, 1 );
+   if ( szFile && ((INT)strsize( szFile ) > nPathLength) ) {
+      nSize = strsize( szFile );
+   }
+   else {
+      nSize = nPathLength;
+   }
 
-   item_path = calloc( nPathLength * sizeof(CHAR), 1 );
-   item_buffer = calloc( nPathLength * sizeof(CHAR), 1 );
+   nSize *= 2;  // << safety feature, i'm insecure about my math abilities
 
-   xtra_bytes = calloc( QTC_MAX_XTRA_BYTES, 1 );
+   item_path = (CHAR_PTR)calloc( nSize, 1 );
+   item_buffer = (CHAR_PTR)calloc( nSize, 1 );
+
+   xtra_bytes = (BYTE_PTR)calloc( QTC_MAX_XTRA_BYTES, 1 );
 
    name_ptr = (QTC_NAME_PTR)buffer;
    filename = (CHAR_PTR)&buffer[ sizeof( QTC_NAME ) ];
@@ -675,6 +684,12 @@ Q_HEADER_PTR zombie_list )
    }
 
    memcpy( header, old_header, (INT)old_header->header_size );
+
+   // Adjust all the string pointers to point to this
+   // headers strings, rather than the old_headers memory
+   // locations.
+
+   QTC_SetUpStrings( header );
 
    header->tape_seq_num = (UINT16)(old_header->tape_seq_num + 1);
 

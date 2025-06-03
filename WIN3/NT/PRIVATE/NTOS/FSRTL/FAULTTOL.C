@@ -20,7 +20,6 @@ Revision History:
 --*/
 
 #include "FsRtlP.h"
-#include <NtDdFt.h>
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE, FsRtlBalanceReads)

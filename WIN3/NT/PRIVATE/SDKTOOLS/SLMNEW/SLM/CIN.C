@@ -1,27 +1,8 @@
 // CIN.C - mainline routines for cookie functionality
 
-#if defined(DOS) || defined(OS2)
-#define INCL_DOS
-#define INCL_DOSERRORS
-#include <os2.h>
-#endif
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-
-#include "slm.h"
-#include "sys.h"
-#include "util.h"
-#include "stfile.h"
-#include "ad.h"
-#include "cookie.h"
-#include "proto.h"
+#include "precomp.h"
+#pragma hdrstop
 #include "messages.h"
-
 EnableAssert
 
 char    szLockName[cchUserMax+1];
@@ -91,9 +72,9 @@ InitCookie(
 
     if ((pmf = PmfOpen(pszCookieCnf, omReadOnly, fxNil)) == (MF *)NULL)
     {
-        if ((hf = creat(szPhys, permRW)) == -1)
+        if ((hf = _creat(szPhys, permRW)) == -1)
             FatalError(szNoOpenCnf, pszCookieCnf, SzForEn(_doserrno));
-        close(hf);
+        _close(hf);
 
         if ((pmf = PmfOpen(pszCookieCnf, omReadOnly, fxNil)) == (MF *)NULL)
             FatalError(szNoOpenCnf, pszCookieCnf, SzForEn(_doserrno));
@@ -132,8 +113,8 @@ InitCookie(
             continue;   // ignore line if no '=' char
 
         *value++ = '\0';
-        strlwr(pbLine);
-        strlwr(value);
+        _strlwr(pbLine);
+        _strlwr(value);
 
         if (strcmp(pbLine, "lock_control_level") == 0)
         {
@@ -178,7 +159,7 @@ InitCookie(
                 char *newval;
                 char **fword = read_ops;
 
-                if ((newval = strdup(value)) == NULL)
+                if ((newval = _strdup(value)) == NULL)
                 {
                     CloseMf(pmf);
                     FatalError(szOutOfMem);
@@ -211,7 +192,7 @@ InitCookie(
                 char *newval;
                 char **fword = write_ops;
 
-                if ((newval = strdup(value)) == NULL)
+                if ((newval = _strdup(value)) == NULL)
                 {
                     CloseMf(pmf);
                     FatalError(szOutOfMem);
@@ -322,7 +303,7 @@ InitCookie(
     fLockControl = fTrue;
 
     SzPrint(szLockName, "%&I", pad);
-    strlwr(szLockName);
+    _strlwr(szLockName);
 }
 
 
@@ -330,7 +311,7 @@ void
 TermCookie(
     void)
 {
-    struct stat st;
+    struct _stat st;
 
     if (szOp != (char *)NULL &&
             strcmp(szOp, "delproj") == 0 &&
@@ -584,7 +565,7 @@ Cookie_Read_OK(
     if ((hfCookieFile = open_cookie()) == -1)
         FatalError(szCookieOpen, pszCookieFile, SzForEn(_doserrno));
 
-    while ((bufbytes=read(hfCookieFile, LFreadbuf, (LINE_LEN/2)-1)) > 0)
+    while ((bufbytes=_read(hfCookieFile, LFreadbuf, (LINE_LEN/2)-1)) > 0)
     {
         char *cp, c;
 
@@ -601,14 +582,14 @@ Cookie_Read_OK(
                         || ((strncmp(LFlock, "READ",4) != 0) &&
                             (strncmp(LFlock, "WRITE",5) != 0)))
                 {
-                    close_cookie(hfCookieFile);
+                    _close(hfCookieFile);
                     FatalError(szCookieCorrupt, pszCookieFile);
                 }
                 else
                 {
-                    if (stricmp(szLockName, LFname) == 0)
+                    if (_stricmp(szLockName, LFname) == 0)
                     {
-                        close_cookie(hfCookieFile);
+                        _close(hfCookieFile);
                         return (0); //  found a match, we have ACCESS
                     }
                 }
@@ -617,7 +598,7 @@ Cookie_Read_OK(
         }
     }
 
-    close_cookie(hfCookieFile);
+    _close(hfCookieFile);
     return (-1);
 }
 
@@ -652,7 +633,7 @@ Cookie_Read_Block(
     if ((hfCookieFile = open_cookie()) == -1)
         FatalError(szCookieOpen, pszCookieFile, SzForEn(_doserrno));
 
-    while ((bufbytes=read(hfCookieFile, LFreadbuf, (LINE_LEN/2)-1)) > 0)
+    while ((bufbytes=_read(hfCookieFile, LFreadbuf, (LINE_LEN/2)-1)) > 0)
     {
         char *cp, c;
 
@@ -669,16 +650,16 @@ Cookie_Read_Block(
                         || ((strncmp(LFlock, "READ",4) != 0) &&
                             (strncmp(LFlock, "WRITE",5) != 0)))
                 {
-                    close_cookie(hfCookieFile);
+                    _close(hfCookieFile);
                     FatalError(szCookieCorrupt, pszCookieFile);
                 }
                 else
                 {
-                    if ((stricmp(szLockName, LFname) != 0) &&
+                    if ((_stricmp(szLockName, LFname) != 0) &&
                             ((strcmp(LFlock, "WRITE") == 0) ||
                              (strcmp(LFlock, "READ-BLOCK") == 0)))
                     {
-                        close_cookie(hfCookieFile);
+                        _close(hfCookieFile);
                         Error(szBlocked, pad, "read", tbuf);
                         return (0); //  found a match, we have a BLOCK
                     }
@@ -687,7 +668,7 @@ Cookie_Read_Block(
             }
         }
     }
-    close_cookie(hfCookieFile);
+    _close(hfCookieFile);
     return (-1);
 }
 
@@ -724,7 +705,7 @@ Cookie_Write_OK(
     if ((hfCookieFile = open_cookie()) == -1)
         FatalError(szCookieOpen, pszCookieFile, SzForEn(_doserrno));
 
-    while ((bufbytes=read(hfCookieFile, LFreadbuf, (LINE_LEN/2)-1)) > 0)
+    while ((bufbytes=_read(hfCookieFile, LFreadbuf, (LINE_LEN/2)-1)) > 0)
     {
         char *cp, c;
 
@@ -741,15 +722,15 @@ Cookie_Write_OK(
                         || ((strncmp(LFlock, "READ",4) != 0) &&
                             (strncmp(LFlock, "WRITE",5) != 0)))
                 {
-                    close_cookie(hfCookieFile);
+                    _close(hfCookieFile);
                     FatalError(szCookieCorrupt, pszCookieFile);
                 }
                 else
                 {
-                    if ((stricmp(szLockName, LFname) == 0) &&
+                    if ((_stricmp(szLockName, LFname) == 0) &&
                             (strcmp(LFlock, "WRITE") == 0))
                     {
-                        close_cookie(hfCookieFile);
+                        _close(hfCookieFile);
                         return (0); //  found a match, we have ACCESS
                     }
                 }
@@ -757,7 +738,7 @@ Cookie_Write_OK(
             }
         }
     }
-    close_cookie(hfCookieFile);
+    _close(hfCookieFile);
     return (-1);
 }
 
@@ -791,7 +772,7 @@ Cookie_Write_Block(
     if ((hfCookieFile = open_cookie()) == -1)
         FatalError(szCookieOpen, pszCookieFile, SzForEn(_doserrno));
 
-    while ((bufbytes=read(hfCookieFile, LFreadbuf, (LINE_LEN/2)-1)) > 0)
+    while ((bufbytes=_read(hfCookieFile, LFreadbuf, (LINE_LEN/2)-1)) > 0)
     {
         char *cp, c;
 
@@ -808,14 +789,14 @@ Cookie_Write_Block(
                     || ((strncmp(LFlock, "READ",4) != 0) &&
                         (strncmp(LFlock, "WRITE",5) != 0)))
                 {
-                    close_cookie(hfCookieFile);
+                    _close(hfCookieFile);
                     FatalError(szCookieCorrupt, pszCookieFile);
                 }
                 else
                 {
-                    if (stricmp(szLockName, LFname) != 0)
+                    if (_stricmp(szLockName, LFname) != 0)
                     {   // any other lock
-                        close_cookie(hfCookieFile);
+                        _close(hfCookieFile);
                         Error(szBlocked, pad, "write", tbuf);
                         return (0); //  found a lock, we have a BLOCK
                     }
@@ -824,6 +805,6 @@ Cookie_Write_Block(
             }
         }
     }
-    close_cookie(hfCookieFile);
+    _close(hfCookieFile);
     return (-1);
 }

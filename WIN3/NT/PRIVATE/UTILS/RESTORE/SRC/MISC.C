@@ -70,11 +70,15 @@ Return Value:
 
     strcpy(FullPath,Drive);
     strcat(FullPath, Path);
+#ifdef DBCS
+    (VOID)AppendBackSlashIfNeeded(FullPath, strlen( FullPath ) );
+#else
     p = FullPath + strlen(FullPath);
     p--;
     if (*p != '\\') {
         strcat(FullPath, "\\");
     }
+#endif
     strcat(FullPath, FileName);
 }
 

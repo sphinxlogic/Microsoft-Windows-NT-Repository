@@ -75,34 +75,34 @@ Return Value:
     OBJECT_ATTRIBUTES   oa;
     IO_STATUS_BLOCK     status_block;
 
-        if (!IFS_SYSTEM::DosDriveNameToNtDriveName(Drive, &ntdrive)) {
+    if (!IFS_SYSTEM::DosDriveNameToNtDriveName(Drive, &ntdrive)) {
 
-                *Status = STATUS_NO_MEMORY;
+        *Status = STATUS_NO_MEMORY;
         return FALSE;
     }
 
-        if (!(string.Buffer = ntdrive.QueryWSTR())) {
+    if (!(string.Buffer = ntdrive.QueryWSTR())) {
 
-                *Status = STATUS_NO_MEMORY;
+        *Status = STATUS_NO_MEMORY;
         return FALSE;
     }
 
     string.Length = (USHORT) (ntdrive.QueryChCount()*sizeof(WCHAR));
     string.MaximumLength = string.Length;
 
-        InitializeObjectAttributes( &oa,
-                                                                  &string,
-                                                                  OBJ_CASE_INSENSITIVE,
-                                                                  0,
-                                                                  0 );
+    InitializeObjectAttributes( &oa,
+                                &string,
+                                OBJ_CASE_INSENSITIVE,
+                                0,
+                                0 );
 
-        *Status = NtOpenFile(Handle,
-                                                 SYNCHRONIZE | FILE_READ_DATA | FILE_WRITE_DATA,
-                                                 &oa, &status_block,
-                                                 FILE_SHARE_READ | FILE_SHARE_WRITE,
-                                                 FILE_SYNCHRONOUS_IO_ALERT | FILE_WRITE_THROUGH);
+    *Status = NtOpenFile(Handle,
+                         SYNCHRONIZE | FILE_READ_DATA | FILE_WRITE_DATA,
+                         &oa, &status_block,
+                         FILE_SHARE_READ | FILE_SHARE_WRITE,
+                         FILE_SYNCHRONOUS_IO_ALERT | FILE_WRITE_THROUGH);
 
-        return (BOOLEAN) NT_SUCCESS(*Status);
+    return (BOOLEAN) NT_SUCCESS(*Status);
 }
 
 
@@ -137,14 +137,14 @@ Return Value:
     NTSTATUS            Status;
 
 
-        if (!IFS_SYSTEM::DosDriveNameToNtDriveName(Drive, &ntdrive) ||
+    if (!IFS_SYSTEM::DosDriveNameToNtDriveName(Drive, &ntdrive) ||
         !backslash.Initialize("\\") ||
         !ntdrive.Strcat(&backslash)) {
 
         return FALSE;
     }
 
-        if (!(string.Buffer = ntdrive.QueryWSTR())) {
+    if (!(string.Buffer = ntdrive.QueryWSTR())) {
 
         return FALSE;
     }
@@ -152,19 +152,19 @@ Return Value:
     string.Length = (USHORT) (ntdrive.QueryChCount()*sizeof(WCHAR));
     string.MaximumLength = string.Length;
 
-        InitializeObjectAttributes( &oa,
-                                                                  &string,
-                                                                  OBJ_CASE_INSENSITIVE,
-                                                                  0,
-                                                                  0 );
+    InitializeObjectAttributes( &oa,
+                                &string,
+                                OBJ_CASE_INSENSITIVE,
+                                0,
+                                0 );
 
-        Status = NtOpenFile(Handle,
-                                                SYNCHRONIZE | FILE_READ_DATA,
-                                                &oa, &status_block,
-                                                FILE_SHARE_READ | FILE_SHARE_WRITE,
-                                                FILE_SYNCHRONOUS_IO_ALERT);
+    Status = NtOpenFile(Handle,
+                        SYNCHRONIZE | FILE_READ_DATA,
+                        &oa, &status_block,
+                        FILE_SHARE_READ | FILE_SHARE_WRITE,
+                        FILE_SYNCHRONOUS_IO_ALERT);
 
-        return (BOOLEAN) NT_SUCCESS(Status);
+    return (BOOLEAN) NT_SUCCESS(Status);
 }
 
 
@@ -200,8 +200,11 @@ Return Value:
     CONST   length = sizeof(FILE_FS_VOLUME_INFORMATION) + MaxLabelLength;
     CONST   max_fsname = 40;
 
-    STR                             info_buf[length];
+    // The buffer for FileFsVolumeInformation must be quadword-aligned.
+
+    LONGLONG                        info_buf[length/sizeof(LONGLONG) + 1];
     PFILE_FS_VOLUME_INFORMATION     info;
+
     IO_STATUS_BLOCK                 status_block;
     PUSHORT                         p;
     DSTRING                         driveletter;
@@ -217,9 +220,9 @@ Return Value:
 
     if (!OpenReadOnlyDrive(Drive, &Handle)) {
 
-                Message->Set(MSG_INCOMPATIBLE_PARAMETERS);
-                Message->Display();
-                return FALSE;
+        Message->Set(MSG_INCOMPATIBLE_PARAMETERS);
+        Message->Display();
+        return FALSE;
     }
 
 
@@ -331,20 +334,20 @@ Return Value:
     NTSTATUS                    status;
 
 
-        if (!OpenDrive(Drive, &Handle, &status)) {
+    if (!OpenDrive(Drive, &Handle, &status)) {
 
-                if( status == STATUS_ACCESS_DENIED ) {
+        if( status == STATUS_ACCESS_DENIED ) {
 
-                        Message->Set(MSG_DASD_ACCESS_DENIED);
-                        Message->Display("");
+            Message->Set(MSG_DASD_ACCESS_DENIED);
+            Message->Display("");
 
-                } else {
+        } else {
 
-                        Message->Set(MSG_INCOMPATIBLE_PARAMETERS);
-                        Message->Display("");
-                }
+            Message->Set(MSG_INCOMPATIBLE_PARAMETERS);
+            Message->Display("");
+        }
 
-                return 1;
+        return 1;
     }
 
 
@@ -379,11 +382,21 @@ Return Value:
             Message->Set(MSG_INVALID_LABEL);
             Message->Display();
 
+        } else if ( nts == STATUS_NOT_SUPPORTED ||
+                    nts == STATUS_INVALID_DEVICE_REQUEST ) {
+
+            Message->Set(MSG_LBL_NOT_SUPPORTED);
+            Message->Display();
+
+        } else if ( nts == STATUS_DISK_FULL ) {
+
+            Message->Set(MSG_INSUFFICIENT_DISK_SPACE);
+            Message->Display();
+
         } else {
 
             Message->Set(MSG_INCOMPATIBLE_PARAMETERS);
             Message->Display();
-
         }
 
         return FALSE;

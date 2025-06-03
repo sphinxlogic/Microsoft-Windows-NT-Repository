@@ -461,6 +461,7 @@ char c;
     yy_ch_buf[yy_c_buf_p--] = c;
 
     YY_DO_BEFORE_ACTION; /* set up yytext again */
+    return 0;
     }
 
 

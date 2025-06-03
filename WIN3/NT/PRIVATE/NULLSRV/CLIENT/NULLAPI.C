@@ -30,8 +30,8 @@ Null1 (
     if ( NT_SUCCESS(st) ) {
         st = ApiMsg.ReturnedStatus;
     } else {
-        DbgPrint("NULL1: NtRequestWaitReply Failed %lx\n",st);
-        ASSERT(NT_SUCCESS(st));
+        printf("NULL1: NtRequestWaitReply Failed %lx\n",st);
+        ExitProcess(1);
     }
     return st;
 }
@@ -62,8 +62,8 @@ Null4 (
     if ( NT_SUCCESS(st) ) {
         st = ApiMsg.ReturnedStatus;
     } else {
-        DbgPrint("NULL4: NtRequestWaitReply Failed %lx\n",st);
-        ASSERT(NT_SUCCESS(st));
+        printf("NULL4: NtRequestWaitReply Failed %lx\n",st);
+        ExitProcess(1);
     }
     return st;
 }
@@ -93,8 +93,8 @@ Null8 (
     if ( NT_SUCCESS(st) ) {
         st = ApiMsg.ReturnedStatus;
     } else {
-        DbgPrint("NULL8: NtRequestWaitReply Failed %lx\n",st);
-        ASSERT(NT_SUCCESS(st));
+        printf("NULL8: NtRequestWaitReply Failed %lx\n",st);
+        ExitProcess(1);
     }
     return st;
 }
@@ -124,8 +124,8 @@ Null16 (
     if ( NT_SUCCESS(st) ) {
         st = ApiMsg.ReturnedStatus;
     } else {
-        DbgPrint("NULL16: NtRequestWaitReply Failed %lx\n",st);
-        ASSERT(NT_SUCCESS(st));
+        printf("NULL16: NtRequestWaitReply Failed %lx\n",st);
+        ExitProcess(1);
     }
     return st;
 }
@@ -137,7 +137,6 @@ NullConnect (
 {
     NTSTATUS st;
     UNICODE_STRING PortName;
-    CONNECTION_REQUEST ConnectionRequest;
     HANDLE CommunicationPort;
     SECURITY_QUALITY_OF_SERVICE DynamicQos;
 
@@ -157,7 +156,6 @@ NullConnect (
             &NullApiPort,
             &PortName,
             &DynamicQos,
-            0L,
             NULL,
             NULL,
             NULL,
@@ -166,7 +164,7 @@ NullConnect (
             );
 
     if ( !NT_SUCCESS(st) ) {
-        DbgPrint("NULL: Connect Failed %lx\n",st);
+        printf("NULL: Connect Failed %lx\n",st);
         return st;
     }
 

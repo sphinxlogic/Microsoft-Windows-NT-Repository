@@ -100,7 +100,7 @@ BOOL IsWowAppRunnable(LPSTR lpAppName)
     // Force the string to lowercase for the convenience of sscanf.
     //
 
-    strlwr(szHexAsciiFlags);
+    _strlwr(szHexAsciiFlags);
 
     //
     // sscanf() returns the number of fields converted.
@@ -255,11 +255,11 @@ VOID cmdCheckBinary (VOID)
     usTemp = (USHORT)((ULONG)lpTemp & 0x0f);
     setDX((usTemp));
 
-    // Form the command tail, first "3" is for "\/z\ "
+    // Form the command tail, first "3" is for "/z "
     pSCSInfo->SCS_CmdTail [0] = (UCHAR)(3 +
                                         AppNameLen +
                                         CommandTailLen);
-    RtlCopyMemory ((PCHAR)&pSCSInfo->SCS_CmdTail[1],"\/z\ ",3);
+    RtlCopyMemory ((PCHAR)&pSCSInfo->SCS_CmdTail[1],"/z ",3);
     strcpy ((PCHAR)&pSCSInfo->SCS_CmdTail[4],lpAppName);
     if (CommandTailLen) {
         pSCSInfo->SCS_CmdTail[4+AppNameLen] = ' ';
@@ -314,12 +314,13 @@ VOID cmdCreateProcess ( VOID )
     CHAR Buffer [MAX_DIR];
     CHAR *CurDir = Buffer;
     DWORD dwRet;
-    BOOL  Status,fEnvBlockAllocated;
+    BOOL  Status;
     NTSTATUS NtStatus;
     UNICODE_STRING Unicode;
     OEM_STRING	   OemString;
     LPVOID lpNewEnv=NULL;
     PSTD_HANDLES pStdHandles;
+    ANSI_STRING Env_A;
 
     // we have one more 32 executable active
     Exe32ActiveCount++;
@@ -357,6 +358,8 @@ VOID cmdCreateProcess ( VOID )
      *  16-Jan-1993 Jonle
      */
 
+    Env_A.Buffer = NULL;
+
     RtlInitString((PSTRING)&OemString, pCommand32);
     NtStatus = RtlOemStringToUnicodeString(&Unicode,&OemString,TRUE);
     if (NT_SUCCESS(NtStatus)) {
@@ -368,16 +371,12 @@ VOID cmdCreateProcess ( VOID )
         Status = FALSE;
         }
     else {
-        if(pEnv32 != NULL &&
-#if 0
-	    ((lpNewEnv = cmdFixComspecTo32Bit (pEnv32)) == NULL)) {
-#else
-	    ((lpNewEnv = cmdXformEnvironment (pEnv32)) == NULL)){
-#endif
+	if (pEnv32 != NULL && !cmdXformEnvironment (pEnv32, &Env_A)) {
 	    SetLastError(ERROR_NOT_ENOUGH_MEMORY);
 	    Status = FALSE;
 	}
 	else {
+
 	    Status = CreateProcess (
                            NULL,
                            (LPTSTR)pCommand32,
@@ -385,7 +384,7 @@ VOID cmdCreateProcess ( VOID )
                            NULL,
                            TRUE,
                            CREATE_SUSPENDED | CREATE_DEFAULT_ERROR_MODE,
-			   lpNewEnv,
+			   Env_A.Buffer,
                            (LPTSTR)CurDir,
                            &StartupInfo,
 			   &ProcessInformation);
@@ -394,11 +393,6 @@ VOID cmdCreateProcess ( VOID )
 
     if (Status == FALSE)
         dwExitCode32 = GetLastError ();
-
-    if (lpNewEnv != pEnv32)
-        fEnvBlockAllocated = TRUE;
-    else
-        fEnvBlockAllocated = FALSE;
 
     if (hStd16In != (HANDLE)-1)
         SetStdHandle (STD_INPUT_HANDLE, SCS_hStdIn);
@@ -417,8 +411,8 @@ VOID cmdCreateProcess ( VOID )
         CloseHandle (ProcessInformation.hThread);
     }
 
-    if (fEnvBlockAllocated)
-	RtlDestroyEnvironment(lpNewEnv);
+    if (Env_A.Buffer)
+	RtlFreeAnsiString(&Env_A);
 
     // Decrement the Re-enterancy count for the VDM
     VDMInfoForCount.VDMState = DECREMENT_REENTER_COUNT;

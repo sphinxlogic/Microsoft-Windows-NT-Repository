@@ -117,54 +117,6 @@ main(
                         CloseRtfFile();
                     if (OutputQuickHelp)
                         ;
-
-                    if (result) {
-                        fprintf( stderr, "Writing %s\n", DocFileName );
-                        sprintf( Arguments, "%s /o /s %s %s \\nt\\private\\spec\\SPEC.STY\0",
-                                            RTF2DOC_PROGRAM,
-                                            RtfFileName,
-                                            DocFileName );
-                        memset( &StartupInfo, 0, sizeof( StartupInfo ) );
-                        StartupInfo.cb = sizeof( StartupInfo );
-                        if (!CreateProcess( NULL,
-                                            Arguments,
-                                            NULL,
-                                            NULL,
-                                            TRUE,
-                                            0,
-                                            NULL,
-                                            NULL,
-                                            &StartupInfo,
-                                            &ProcessInformation
-                                          )
-                           ) {
-                            fprintf( stderr, "unable to run %s (%u)\n", RTF2DOC_PROGRAM, GetLastError() );
-                            }
-                        else {
-                            if (WaitForSingleObject( ProcessInformation.hProcess, INFINITE )) {
-                                fprintf( stderr, "wait failed for %s (%u)\n", RTF2DOC_PROGRAM, GetLastError() );
-                                }
-                            else
-                            if (!GetExitCodeProcess( ProcessInformation.hProcess, &DoctorReturnCode )) {
-                                fprintf( stderr, "unable to get exit code for %s (%u)\n", RTF2DOC_PROGRAM, GetLastError() );
-                                }
-                            else
-                            if (DoctorReturnCode != 0) {
-                                fprintf( stderr,
-                                         ".RTF to .DOC file conversion failed - RC=%u\n",
-                                         DoctorReturnCode
-                                       );
-                                }
-                            CloseHandle( ProcessInformation.hThread );
-                            CloseHandle( ProcessInformation.hProcess );
-                            }
-
-                        if (!DoctorReturnCode) {
-                            if (!KeepIntermediateFile) {
-                                DeleteFile( RtfFileName );
-                                }
-                            }
-                        }
                     }
 
                 TermTxtFileReader();

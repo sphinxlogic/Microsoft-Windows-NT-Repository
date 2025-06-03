@@ -61,7 +61,7 @@ char *v[];
     for (i=1; i<c; i++) {
         findpath (v[i], src, FALSE);
         pname (src);
-        v[i] = strdup (src);
+        v[i] = _strdup (src);
         }
 
     if (rootpath (v[c-1], dst) == -1) {
@@ -109,7 +109,7 @@ char *v[];
             printf( "%s", src );
             fflush( stdout );
 
-            if (access( src, 0 ) == -1) {
+            if (_access( src, 0 ) == -1) {
                 printf( " - file not found\n" );
                 iRtn = 1;
                 continue;
@@ -133,7 +133,7 @@ char *v[];
             continue;
             }
 
-        if (access( src, 0 ) == -1) {
+        if (_access( src, 0 ) == -1) {
             printf( "%s - file not found\n", src );
             iRtn = 1;
             continue;
@@ -149,7 +149,7 @@ char *v[];
 
             printf( "%s (delete?)", name );
             fflush( stdout );
-            t = getch();
+            t = _getch();
             t = tolower(t);
             if (t != 'y')
                 if (t == 'p')

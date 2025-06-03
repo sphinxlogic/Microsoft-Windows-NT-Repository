@@ -798,4 +798,3 @@ typeCP CpEdge()
 	    CpMax( CpFirstSty( selCur.cpLim - 1, styChar ), selCur.cpFirst ) :
 	    selCur.cpFirst;
 }
-

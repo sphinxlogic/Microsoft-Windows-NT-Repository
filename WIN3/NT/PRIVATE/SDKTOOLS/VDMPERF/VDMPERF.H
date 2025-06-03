@@ -306,4 +306,4 @@ DrawCpuBarGraph(
     );
 
 #endif /* _WINPERFH_INCLUDED_ */
-
+

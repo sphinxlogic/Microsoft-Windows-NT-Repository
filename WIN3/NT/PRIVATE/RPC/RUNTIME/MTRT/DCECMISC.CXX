@@ -11,7 +11,7 @@ Abstract:
 
     This module contains the code implementing miscellaneous DCE RPC
     runtime APIs.  In particular, this includes the following APIs:
-    RpcIfInqId, RpcNetworkIsProtseqValid, RpcMgmtInqComTimeout, 
+    RpcIfInqId, RpcNetworkIsProtseqValid, RpcMgmtInqComTimeout,
     RpcMgmtSetComTimeout, RpcMgmtSetCancelTimeout, and DceErrorInqText.
 
 Author:
@@ -22,18 +22,15 @@ Revision History:
 
 --*/
 
-#include <string.h>
+#include <precomp.hxx>
+#include <rpctran.h>
 
-#include <sysinc.h>
-#include <rpc.h>
-#include <rpcdcep.h>
-#include <util.hxx>
-#include <rpcuuid.hxx>
-#include <binding.hxx>
-#include <linklist.hxx>
-#include <threads.hxx>
-#include <mutex.hxx>
-#include <handle.hxx>
+
+
+#ifdef NTENV
+unsigned long RecvWindow = 0;
+unsigned long SendWindow = 0;
+#endif
 
 
 RPC_STATUS RPC_ENTRY
@@ -196,46 +193,6 @@ Return Value:
     return(BindingHandle->SetComTimeout(Timeout));
 }
 
-RPC_STATUS RPC_ENTRY
-RpcMgmtSetCancelTimeout(
-    long Timeout
-    )
-/*++
-
-Routine Description:
-
-    An application will use this routine to set the cancel
-    timeout for a thread.
-
-Arguments:
-
-    Timeout - Supplies the cancel timeout value to set in the thread.
-    0 = No cancel timeout
-    n = seconds
-    RPC_C_CANCEL_INFINITE_TIMEOUT = Infinite
-
-Return Value:
-
-    RPC_S_OK - The operation completed successfully.
-
-    RPC_S_INVALID_TIMEOUT - The specified timeout value is invalid.
-
---*/
-{
-#ifdef NTENV
-    THREAD * Thread;
-
-    Thread = ThreadSelf();
-
-    Thread->CancelTimeout = Timeout;
-
-    return (RPC_S_OK);
-#else
-    return (RPC_S_CANNOT_SUPPORT);
-#endif
-}
-
-
 
 RPC_STATUS RPC_ENTRY
 I_RpcIfInqTransferSyntaxes (
@@ -329,7 +286,7 @@ Return Value:
 }
 
 
-#ifndef DOS
+#if !defined(DOS) && !defined(MAC)
 
 RPC_STATUS RPC_ENTRY
 DceErrorInqTextA (
@@ -407,7 +364,7 @@ Return Value:
             DCE_C_ERROR_STRING_LEN * sizeof(RPC_CHAR), 0) == 0 )
         {
           if ( FormatMessageW( FORMAT_MESSAGE_IGNORE_INSERTS |
-                FORMAT_MESSAGE_FROM_SYSTEM, 0, RPC_S_NOT_RPC_ERROR, 0, 
+                FORMAT_MESSAGE_FROM_SYSTEM, 0, RPC_S_NOT_RPC_ERROR, 0,
                 ErrorText, DCE_C_ERROR_STRING_LEN * sizeof(RPC_CHAR),0 ) == 0 )
               {
               *ErrorText = 0;
@@ -419,4 +376,238 @@ Return Value:
 }
 
 #endif // !DOS
+
+#if defined(NTENV) || defined(WIN96)
+#define CANCEL_TIMEOUT_SHIFT (16)
+
+long
+ThreadGetRpcCancelTimeout(
+    )
+{
+
+ THREAD * ThreadInfo = RpcpGetThreadPointer();
+
+ if ( (long)ThreadInfo == 0 )
+     {
+     //
+     // ASSERT(Client Side Thread && SetCancelTO not called)
+     //
+     return (RPC_C_CANCEL_INFINITE_TIMEOUT);
+     }
+
+ if ( (long)ThreadInfo & HIGHBITSET )
+     {
+     //
+     // ASSERT(CLIENT Side Thread && ! ServerSideThread && SetCancelTO called)
+     //
+     return (((long)ThreadInfo & ~HIGHBITSET) >> CANCEL_TIMEOUT_SHIFT );
+     }
+
+ //
+ // ASSERT(Server Side Thread .. );
+ //
+ return (ThreadInfo->CancelTimeout);
+}
+
+#endif // NTDEV || WIN96
+
+#ifdef NTENV
+
+
+RPC_STATUS RPC_ENTRY
+I_RpcConnectionInqSockBuffSize(
+  OUT unsigned long __RPC_FAR * RecvBuffSize,
+  OUT unsigned long __RPC_FAR * SendBuffSize
+  )
+{
+    RequestGlobalMutex();
+
+    *RecvBuffSize = RecvWindow;
+    *SendBuffSize = SendWindow;
+
+    ClearGlobalMutex();
+    return (RPC_S_OK);
+}
+
+
+RPC_STATUS RPC_ENTRY
+I_RpcConnectionSetSockBuffSize(
+   IN unsigned long RecvBuffSize,
+   IN unsigned long SendBuffSize
+   )
+{
+    if (RecvBuffSize > 0xFFFF)
+        {
+        RecvBuffSize = 0xFFFF;
+        }
+    if (SendBuffSize > 0xFFFF)
+        {
+        SendBuffSize = 0xFFFF;
+        }
+    RequestGlobalMutex();
+    RecvWindow =  RecvBuffSize;
+    SendWindow = SendBuffSize;
+    ClearGlobalMutex();
+
+    return (RPC_S_OK);
+}
+
+
+void RPC_ENTRY
+I_RpcConnectionInqSockBuffSize2(
+    OUT unsigned long __RPC_FAR * RecvWindowSize
+    )
+{
+    *RecvWindowSize = RecvWindow;
+}
+
+
+
+
+#endif // NTENV
+
+
+
+RPC_STATUS RPC_ENTRY
+RpcMgmtBindingSetParameter (
+    IN RPC_BINDING_HANDLE Binding,
+    IN unsigned Parameter,
+    IN unsigned long Value
+    )
+{
+    BINDING_HANDLE * BindingHandle;
+
+    InitializeIfNecessary();
+
+    BindingHandle = (BINDING_HANDLE *) Binding;
+    if (BindingHandle->InvalidHandle(BINDING_HANDLE_TYPE))
+        return(RPC_S_INVALID_BINDING);
+
+    return(BindingHandle->SetConnectionParameter(Parameter, Value));
+}
+
+
+RPC_STATUS RPC_ENTRY
+RpcMgmtBindingInqParameter (
+    IN RPC_BINDING_HANDLE Binding,
+    IN unsigned Parameter,
+    IN unsigned long __RPC_FAR * Value
+    )
+{
+    BINDING_HANDLE * BindingHandle;
+
+    InitializeIfNecessary();
+
+    BindingHandle = (BINDING_HANDLE *) Binding;
+    if (BindingHandle->InvalidHandle(BINDING_HANDLE_TYPE))
+        return(RPC_S_INVALID_BINDING);
+
+    return(BindingHandle->InqConnectionParameter(Parameter, Value));
+}
+
+
+RPC_STATUS RPC_ENTRY
+RpcMgmtSetParameter (
+    IN unsigned Parameter,
+    IN unsigned long Value
+    )
+/*++
+
+Routine Description:
+
+    This fn changes connection parameters for the whole process.
+    Unrecognized parameter constants are ignored.
+
+Arguments:
+
+    Parameter - a constant representing the parameter to change
+    Value     - new value for the parameter
+
+Return Value:
+
+    RPC_S_OK - all is well
+
+--*/
+
+{
+    switch (Parameter)
+        {
+        case RPC_C_PARM_BUFFER_LENGTH:
+            {
+            if (Value)
+                {
+                ::DefaultConnectionBufferLength = (unsigned) Value;
+                }
+            else
+                {
+                ::DefaultConnectionBufferLength = DEFAULT_CONNECTION_BUFFER_LENGTH;
+                }
+
+            break;
+            }
+
+        case RPC_C_PARM_MAX_PACKET_LENGTH:
+            {
+            if (Value)
+                {
+                ::DefaultMaxDatagramLength = (unsigned) Value;
+                }
+            else
+                {
+                ::DefaultMaxDatagramLength = DEFAULT_MAX_DATAGRAM_LENGTH;
+                }
+
+            break;
+            }
+        }
+
+    return RPC_S_OK;
+}
+
+
+RPC_STATUS RPC_ENTRY
+RpcMgmtInqParameter (
+    IN unsigned Parameter,
+    IN unsigned long __RPC_FAR * Value
+    )
+/*++
+
+Routine Description:
+
+    This fn examines connection parameters for the process.
+
+Arguments:
+
+    Parameter - a constant representing the parameter to see
+    Value     - pointer where the value is copied
+
+Return Value:
+
+    RPC_S_OK - all is well
+    RPC_S_INVALID_ARG - unknown or inapplicable parm constant
+
+--*/
+{
+    switch (Parameter)
+        {
+        case RPC_C_PARM_BUFFER_LENGTH:
+            {
+            *Value = ::DefaultConnectionBufferLength;
+
+            return RPC_S_OK;
+            }
+
+        case RPC_C_PARM_MAX_PACKET_LENGTH:
+            {
+            *Value = ::DefaultMaxDatagramLength;
+
+            return RPC_S_OK;
+            }
+
+        default:
+            {
+            return RPC_S_INVALID_ARG;
+            }
+        }
+}
 

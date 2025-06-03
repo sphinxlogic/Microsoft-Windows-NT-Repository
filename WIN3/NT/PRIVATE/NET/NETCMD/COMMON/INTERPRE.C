@@ -4,7 +4,9 @@
 /********************************************************************/
 
 #ifndef DEBUG
+#ifndef NDEBUG		// for assert()
 #define NDEBUG		// for assert()
+#endif
 #endif
 
 

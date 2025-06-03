@@ -129,6 +129,15 @@ Return Value:
 
     dprintf(DPRT_INIT, ("Device created at %08lx\n", DeviceObject));
 
+#ifdef _PNP_POWER_
+    //
+    // This driver doesn't talk directly to a device, and isn't (at
+    // least right now) otherwise concerned about power management.
+    //
+
+    DeviceObject->DeviceObjectExtension->PowerControlNeeded = FALSE;
+#endif
+
     ExInitializeResource( &RdrDataResource );
 
     //
@@ -235,12 +244,6 @@ Return Value:
 
     RdrpInitializeSmbBuffer();
 
-    //
-    //  Initialize the Smb tracing package
-    //
-
-    SmbTraceInitialize(SMBTRACE_REDIRECTOR);
-
     if (!NT_SUCCESS(Status = RdrpInitializeFsp())) {
         return Status;
     }
@@ -292,9 +295,15 @@ Return Value:
         RtlFreeUnicodeString(&RdrLanmanType);
     }
 
+    //
+    // Scavenge the server entries
+    //
+
+    RdrScavengeServerEntries();
+
     RdrpUninitializeConnectPackage();
 
-//    RdrpUninitializeDir();
+    RdrpUninitializeDir();
 
     RdrpUninitializeNp();
 
@@ -302,7 +311,7 @@ Return Value:
 
     RdrpUninitializeTdi();
 
-//    RdrpUninitializeBackPack();
+    RdrpUninitializeBackPack();
 
     RdrpUninitializeLockHead();
 
@@ -324,6 +333,13 @@ Return Value:
 
     IoDeleteDevice((PDEVICE_OBJECT)RdrDeviceObject);
 
+#ifdef RDR_PNP_POWER
+    if( RdrTransportBindingList != NULL ) {
+        FREE_POOL( RdrTransportBindingList );
+        RdrTransportBindingList = NULL;
+    }
+#endif
+
 #if  RDRPOOLDBG
     //
     //  If we're tracing pool, make sure we've gotten rid of everything.
@@ -333,6 +349,29 @@ Return Value:
 
     ASSERT (CurrentAllocationSize == 0);
 #endif
+
+    //
+    // July 16, 1996 (3 days before NT 4.0 code freeze)
+    //
+    // Stopping and unloading the redir is a two part process. Stopping
+    // happens in StopRedirector, and involves sending disconnect SMBs to
+    // any connected servers. It might happen that the last disconnect we
+    // send completes, which unblocks the StopRedirector thread, which
+    // then calls RdrUnload, all *before* the final ret instruction in the
+    // RdrCompleteSend that unblocked the StopRedirector thread executes.
+    // In that case, the system bugchecks.
+    //
+    // This was seen during setup, when someone tries to join a domain, fails
+    // and hits the back key twice (which shuts down all networking).
+    //
+
+    {
+        LARGE_INTEGER delay;
+        delay.QuadPart = -10*1000*100; // 100 millisecond
+
+        KeDelayExecutionThread( KernelMode, FALSE, &delay );
+    }
+
 }
 
 
@@ -634,7 +673,109 @@ RdrReadRedirectorConfiguration(
 
     }
 
-#ifndef  BUGBUG
+#ifdef RDR_PNP_POWER
+#define RDR_BINDING_PATH    L"\\REGISTRY\\Machine\\System\\CurrentControlSet\\Services\\LanmanWorkstation\\Linkage"
+
+    //
+    // Read the binding list out of the registry, and store it away.  This
+    //  list is later used when PNP binding notifications arrive from TDI to
+    //  see if it's a device we're interested in
+    //
+    RtlInitUnicodeString( &UnicodeString, RDR_BINDING_PATH );
+
+    InitializeObjectAttributes(
+        &ObjectAttributes,
+        &UnicodeString,             // name
+        OBJ_CASE_INSENSITIVE,       // attributes
+        NULL,                       // root
+        NULL                        // security descriptor
+        );
+
+
+    //
+    // This is written as do{}while(0) to allow 'break' to take us all of
+    //  the way out.  Avoids gotos and deep nesting.
+    //
+    do {
+
+        ULONG lengthNeeded;
+        PKEY_VALUE_FULL_INFORMATION infoBuffer = NULL;
+        HANDLE BindingHandle;
+
+        Status = ZwOpenKey( &BindingHandle, KEY_READ, &ObjectAttributes );
+
+        if( !NT_SUCCESS( Status ) ) {
+            break;
+        }
+
+        RtlInitUnicodeString( &UnicodeString, L"Bind" );
+
+        Status = ZwQueryValueKey( BindingHandle,
+                                  &UnicodeString,
+                                  KeyValueFullInformation,
+                                  NULL,
+                                  0,
+                                  &lengthNeeded );
+
+        if( Status != STATUS_BUFFER_TOO_SMALL || lengthNeeded == 0 ) {
+            ZwClose( BindingHandle );
+            break;
+        }
+
+        infoBuffer = ALLOCATE_POOL( PagedPool, lengthNeeded, POOL_PNP_DATA );
+
+        if( infoBuffer == NULL ) {
+            ZwClose( BindingHandle );
+            Status = STATUS_INSUFFICIENT_RESOURCES;
+            break;
+        }
+
+        Status = ZwQueryValueKey( BindingHandle,
+                                  &UnicodeString,
+                                  KeyValueFullInformation,
+                                  infoBuffer,
+                                  lengthNeeded,
+                                  &BytesRead );
+
+        ZwClose( BindingHandle );
+
+        if( !NT_SUCCESS( Status ) || infoBuffer->DataLength == 0 || infoBuffer->Type != REG_MULTI_SZ ) {
+            FREE_POOL( infoBuffer );
+            break;
+        }
+
+        RdrTransportBindingList = ALLOCATE_POOL( PagedPool, infoBuffer->DataLength, POOL_PNP_DATA );
+
+        if( RdrTransportBindingList == NULL ) {
+            Status = STATUS_INSUFFICIENT_RESOURCES;
+            FREE_POOL( infoBuffer );
+            break;
+        }
+
+        RtlCopyMemory(  RdrTransportBindingList,
+                        ((PCHAR)infoBuffer) + infoBuffer->DataOffset,
+                        infoBuffer->DataLength
+                     );
+
+        FREE_POOL( infoBuffer );
+
+    } while( 0 );
+
+    if( RdrTransportBindingList == NULL ) {
+
+        RdrWriteErrorLogEntry ( NULL,
+                                IO_ERR_CONFIGURATION_ERROR,
+                                EVENT_RDR_CANT_READ_REGISTRY,
+                                Status,
+                                UnicodeString.Buffer,
+                                UnicodeString.Length
+                                );
+    }
+
+#endif //def RDR_PNP_POWER
+
+
+#if !defined(DISABLE_POPUP_ON_PRIMARY_TRANSPORT_FAILURE)
     //
     //
 
@@ -652,49 +793,52 @@ RdrReadRedirectorConfiguration(
 
     Status = ZwOpenKey (&VersionHandle, KEY_READ, &ObjectAttributes);
 
-    RtlInitUnicodeString(&UnicodeString, L"ServersWithAllTransports");
-
-    Status = ZwQueryValueKey(VersionHandle,
-                            &UnicodeString,
-                            KeyValueFullInformation,
-                            Value,
-                            sizeof(Storage),
-                            &BytesRead);
-
-
     if (NT_SUCCESS(Status)) {
+        RtlInitUnicodeString(&UnicodeString, L"ServersWithAllTransports");
 
-        if (Value->DataLength != 0) {
-            if (Value->Type == REG_MULTI_SZ) {
-                RdrServersWithAllTransports = ALLOCATE_POOL(PagedPool, Value->DataLength, POOL_PRIMARYTRANSPORTSERVER);
+        Status = ZwQueryValueKey(VersionHandle,
+                                &UnicodeString,
+                                KeyValueFullInformation,
+                                Value,
+                                sizeof(Storage),
+                                &BytesRead);
 
-                if (RdrServersWithAllTransports == NULL) {
-                    RdrWriteErrorLogEntry (
-                        NULL,
-                        IO_ERR_CONFIGURATION_ERROR,
-                        EVENT_RDR_CANT_READ_REGISTRY,
-                        STATUS_INSUFFICIENT_RESOURCES,
-                        NULL,
-                        0
-                        );
 
+        if (NT_SUCCESS(Status)) {
+
+            if (Value->DataLength != 0) {
+                if (Value->Type == REG_MULTI_SZ) {
+                    RdrServersWithAllTransports = ALLOCATE_POOL(PagedPool, Value->DataLength, POOL_PRIMARYTRANSPORTSERVER);
+
+                    if (RdrServersWithAllTransports == NULL) {
+                        RdrWriteErrorLogEntry (
+                            NULL,
+                            IO_ERR_CONFIGURATION_ERROR,
+                            EVENT_RDR_CANT_READ_REGISTRY,
+                            STATUS_INSUFFICIENT_RESOURCES,
+                            NULL,
+                            0
+                            );
+
+                    } else {
+                        RtlCopyMemory(RdrServersWithAllTransports, ((PCHAR)Value)+Value->DataOffset, Value->DataLength);
+                    }
                 } else {
-                    RtlCopyMemory(RdrServersWithAllTransports, ((PCHAR)Value)+Value->DataOffset, Value->DataLength);
+                    RdrWriteErrorLogEntry (
+                            NULL,
+                            IO_ERR_CONFIGURATION_ERROR,
+                            EVENT_RDR_CANT_READ_REGISTRY,
+                            STATUS_INVALID_PARAMETER,
+                            ConfigEntry->ConfigParameterName,
+                            (USHORT)(wcslen(ConfigEntry->ConfigParameterName)*sizeof(WCHAR))
+                            );
                 }
-            } else {
-                RdrWriteErrorLogEntry (
-                        NULL,
-                        IO_ERR_CONFIGURATION_ERROR,
-                        EVENT_RDR_CANT_READ_REGISTRY,
-                        STATUS_INVALID_PARAMETER,
-                        ConfigEntry->ConfigParameterName,
-                        (USHORT)(wcslen(ConfigEntry->ConfigParameterName)*sizeof(WCHAR))
-                        );
             }
         }
+
+        ZwClose(VersionHandle);
     }
 
-    ZwClose(VersionHandle);
 
 #endif
 

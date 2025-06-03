@@ -52,7 +52,7 @@ ushort PASCAL GetErrorText (PHTM phTM, EESTATUS Status, PEEHSTR phError)
                 //DASSERT (message[err_num].num == err_num);
                 len = _fstrlen (message[err_num]);
                 len = (UINT) min (len, (UINT)buflen);
-                itoa (err_num, Tempbuf, 10);
+                _itoa (err_num, Tempbuf, 10);
                 cnt = 7 - (short)_fstrlen (Tempbuf);
 #if defined(C_ONLY)
                 _fmemcpy (pBuf, "CAN000", cnt);

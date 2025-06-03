@@ -163,15 +163,6 @@ APIENTRY About(
    );
 
 
-
-
-BOOL    APIENTRY MoveToEx(IN HDC, IN int, IN int, OUT LPPOINT);
-BOOL    APIENTRY SetViewportExtEx(IN HDC, IN int, IN int, OUT LPSIZE);
-BOOL    APIENTRY SetViewportOrgEx(IN HDC, IN int, IN int, OUT LPPOINT);
-BOOL    APIENTRY SetWindowExtEx(IN HDC, IN int, IN int, OUT LPSIZE);
-BOOL    APIENTRY SetWindowOrgEx(IN HDC, IN int, IN int, OUT LPPOINT);
-BOOL    APIENTRY GetWindowExtEx(IN HDC, OUT LPSIZE);
-BOOL    APIENTRY GetCurrentPositionEx(IN HDC, OUT LPPOINT);
 BOOL    APIENTRY MGetWindowExt(HDC hdc, INT * pcx, INT * pcy);
 BOOL    APIENTRY MGetCurrentPosition(HDC hdc, INT * px, INT * py);
 HANDLE  APIENTRY MGetInstHandle(VOID);
@@ -271,6 +262,11 @@ FitPerfWindows(
     IN  PDISPLAY_ITEM   DisplayItems
     );
 
+VOID
+RefitWindows (
+    IN  HWND hWnd,
+    IN  HDC CurhDC
+);
 
 BOOLEAN
 InitPerfWindowDisplay(
@@ -295,6 +291,11 @@ DrawFrame(
     HDC             hDC,
     PDISPLAY_ITEM   DisplayItem
     );
+
+BOOL
+CalcPerf(
+   PDISPLAY_ITEM    pPerf1
+   );
 
 VOID
 CalcDrawFrame(
@@ -335,5 +336,51 @@ ShiftPerfGraph(
 
 PDISPLAY_ITEM AllocateDisplayItem(VOID);
 
+VOID
+SetDefaultDisplayMode (
+    IN  HWND hWnd,
+    IN  ULONG mode
+);
+
+VOID
+DoCSTest(
+    IN  HWND hWnd
+);
+
+VOID
+FreeDisplayItem(
+    PDISPLAY_ITEM pPerf
+);
+
+VOID
+SetP5Perf (
+    HWND hDlg,
+    ULONG IdCombo,
+    ULONG p5counter
+);
+
+VOID
+ClearGraph (
+    PDISPLAY_ITEM   pPerf
+);
+
+VOID
+SetP5CounterEncodings (
+    PVOID encoding
+);
+
+VOID
+SetDisplayToTrue (
+    PDISPLAY_ITEM   pPerf,
+    ULONG           sort
+);
+
+PDISPLAY_ITEM
+SetDisplayToFalse (
+    PDISPLAY_ITEM pPerf
+);
+
+
 #endif /* _WINPERFH_INCLUDED_ */
-
+
+

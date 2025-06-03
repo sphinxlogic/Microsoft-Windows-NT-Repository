@@ -89,7 +89,6 @@ Return Value:
     *QueueDpc=TRUE;
 
 
-
     InterruptReason=ELNK3_READ_PORT_USHORT(pAdapter,PORT_CmdStatus);
 
     if ((InterruptReason & 0x01)==0) {
@@ -100,7 +99,7 @@ Return Value:
         //  muliple processors for a given interrupt
         //
 
-        IF_LOUD(DbgPrint("Elnk3: IsrDpc bit 0 clear %04x adapter=%08lx\n",InterruptReason,pAdapter);)
+        IF_LOUD(DbgPrint("Elnk3: Isr bit 0 clear %04x adapter=%08lx\n",InterruptReason,pAdapter);)
 
         *InterruptRecognized=FALSE;
         *QueueDpc=FALSE;
@@ -108,7 +107,7 @@ Return Value:
     }
 
     if (pAdapter->AdapterInitializing)  {
-        IF_INIT_LOUD (DbgPrint("Elnk3: ISR called durring init\n");)
+        IF_INIT_LOUD (DbgPrint("Elnk3: ISR called during init\n");)
         pAdapter->InitInterrupt=TRUE;
 
         ELNK3_COMMAND(pAdapter,EC_ACKNOWLEDGE_INTERRUPT,EC_INT_INTERRUPT_REQUESTED | 1);
@@ -154,7 +153,6 @@ Return Value:
     USHORT            TimerValue;
     ULONG             Latency;
     UINT              LoopLimit=10;
-
 
 
 
@@ -216,7 +214,6 @@ Return Value:
             //  Get the reinit code to run
             //
             pAdapter->AdapterStatus |= STATUS_REINIT_REQUESTED;
-
         }
 
         //
@@ -245,7 +242,6 @@ Return Value:
                     //  Rx complete will be clear when we handle the interrupt
                     //
                     DEBUG_STAT(pAdapter->Stats.RxCompIntCount);
-
 
                     (*pAdapter->ReceiveCompleteHandler)(pAdapter);
 
@@ -336,7 +332,7 @@ Return Value:
 
 
     //
-    //  See if the damn thing needs to restarted
+    //  See if the card needs to restarted
     //
     if (pAdapter->AdapterStatus & STATUS_REINIT_REQUESTED )  {
         IF_LOUD(DbgPrint("Elnk3: Handling pending request\n");)
@@ -364,11 +360,6 @@ Return Value:
 
     IF_LOG(0x11,0x33,InterruptReason);
 #endif
-
-
-
-
-    return;
 }
 
 #if 0
@@ -392,7 +383,7 @@ Return Value:
 {
    PELNK3_ADAPTER  pAdapter=Context;
 
-//   IF_INIT_LOUD(DbgPrint("Elnk3: EnableInterrupts\n");)
+// IF_INIT_LOUD(DbgPrint("Elnk3: EnableInterrupts\n");)
 
    ELNK3_COMMAND(pAdapter,EC_SET_INTERRUPT_MASK,pAdapter->CurrentInterruptMask);
 
@@ -418,7 +409,7 @@ Return Value:
 {
    PELNK3_ADAPTER  pAdapter=Context;
 
-//   IF_INIT_LOUD(DbgPrint("Elnk3: DisableInterrupts\n");)
+// IF_INIT_LOUD(DbgPrint("Elnk3: DisableInterrupts\n");)
 
    ELNK3_COMMAND(pAdapter,EC_SET_INTERRUPT_MASK, 0x00);
 

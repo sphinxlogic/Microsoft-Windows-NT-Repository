@@ -41,67 +41,14 @@ extern  BOOLEAN KdVerbose;                      //  from ntsym.c
 #define DPRINT(str) if (fVerboseOutput) dprintf str
 
 PFPO_DATA
-SearchFpoData (DWORD key, PFPO_DATA base, DWORD num)
-/*++
-
-Routine Description:
-
-    Given the KEY parameter, which is a DWORD containg a EIP value, find the
-    fpo data record in the fpo data base as BASE. (a binary search is used)
-
-Arguments:
-
-    key             - address contained in the program counter
-    base            - the address of the first fpo record
-    num             - number of fpo records starting at base
-
-Return Value:
-
-    null            - could not locate the entry
-    valid address   - the address of the fpo record
-
---*/
-
-
-{
-        PFPO_DATA  lo = base;
-        PFPO_DATA  hi = base + (num - 1);
-        PFPO_DATA  mid;
-        DWORD      half;
-
-        while (lo <= hi) {
-                if (half = num / 2) {
-                        mid = lo + (num & 1 ? half : (half - 1));
-                        if ((key >= mid->ulOffStart)&&(key < (mid->ulOffStart+mid->cbProcSize))) {
-                            return mid;
-                        }
-                        if (key < mid->ulOffStart) {
-                                hi = mid - 1;
-                                num = num & 1 ? half : half-1;
-                        }
-                        else {
-                                lo = mid + 1;
-                                num = half;
-                        }
-                }
-                else
-                if (num) {
-                    if ((key >= lo->ulOffStart)&&(key < (lo->ulOffStart+lo->cbProcSize))) {
-                        return lo;
-                    }
-                    else {
-                        break;
-                    }
-                }
-                else {
-                        break;
-                }
-        }
-        return(NULL);
-}
+SynthesizeFpoDataForModule(
+    DWORD dwPCAddr
+    );
 
 PFPO_DATA
-FindFpoDataForModule(DWORD dwPCAddr)
+FindFpoDataForModule(
+    DWORD dwPCAddr
+    )
 /*++
 
 Routine Description:
@@ -132,35 +79,13 @@ Return Value:
     pFpoData = 0;
     while (pImage) {
         if ((dwPCAddr >= (DWORD)pImage->lpBaseOfImage)&&(dwPCAddr < (DWORD)pImage->lpBaseOfImage+pImage->dwSizeOfImage)) {
-            if (!pImage->fSymbolsLoaded) {
-                LoadSymbols(pImage);
-            }
 
-            if (pImage->rgomapToSource != NULL) {
-                DWORD dwSaveAddr = dwPCAddr;
-
-                Bias = 0;
-
-                dwPCAddr = ConvertOmapToSrc (dwPCAddr, pImage, &Bias);
-
-                if ((dwPCAddr == 0) || (dwPCAddr == ORG_ADDR_NOT_AVAIL)) {
-                    dwPCAddr = dwSaveAddr - (DWORD)pImage->lpBaseOfImage;
-                } else {
-                    dwPCAddr += Bias;
-                }
-            } else {
-                dwPCAddr -= (DWORD)pImage->lpBaseOfImage;
-            }
-
-            pFpoData = SearchFpoData( dwPCAddr, pImage->pFpoData, pImage->dwFpoEntries );
+            pFpoData = SymFunctionTableAccess( pProcessCurrent->hProcess, dwPCAddr );
             if (!pFpoData) {
-                // the function was not in the list of fpo functions
-                return 0;
-            } else {
-                return pFpoData;
+                pFpoData = SynthesizeFpoDataForModule( dwPCAddr );
             }
+            return pFpoData;
         }
-
         pImage = pImage->pImageNext;
     }
     // the function is not part of any known loaded image
@@ -281,4 +206,39 @@ Return Value:
         return FALSE;
     }
     return TRUE;
+}
+
+PFPO_DATA
+SynthesizeFpoDataForModule(
+    DWORD dwPCAddr
+    )
+{
+    DWORD       Offset;
+    USHORT      StdCallArgs;
+    CHAR        symbuf[512];
+
+    static FPO_DATA FpoData;
+
+    GetSymbolStdCall( dwPCAddr,
+                      symbuf,
+                      &Offset,
+                      &StdCallArgs
+                      );
+
+    if (Offset == dwPCAddr || StdCallArgs == 0xffff) {
+        return NULL;
+    }
+
+    FpoData.ulOffStart  = dwPCAddr - Offset;
+    FpoData.cbProcSize  = Offset + 10;
+    FpoData.cdwLocals   = 0;
+    FpoData.cdwParams   = StdCallArgs;
+    FpoData.cbProlog    = 0;
+    FpoData.cbRegs      = 0;
+    FpoData.fHasSEH     = 0;
+    FpoData.fUseBP      = 0;
+    FpoData.reserved    = 0;
+    FpoData.cbFrame     = FRAME_NONFPO;
+
+    return &FpoData;
 }

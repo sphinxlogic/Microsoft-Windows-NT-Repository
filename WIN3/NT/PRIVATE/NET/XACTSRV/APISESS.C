@@ -67,10 +67,10 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;        // Avoid warnings
 
     IF_DEBUG(SESSION) {
-        NetpDbgPrint( "XsNetSessionDel: header at %lx, params at %lx, "
+        NetpKdPrint(( "XsNetSessionDel: header at %lx, params at %lx, "
                       "device %s\n",
                       Header, parameters,
-                      SmbGetUlong( &parameters->ClientName ));
+                      SmbGetUlong( &parameters->ClientName )));
     }
 
     //
@@ -94,8 +94,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetSessionDel: NetSessionDel failed: %X\n",
-                          status );
+            NetpKdPrint(( "XsNetSessionDel: NetSessionDel failed: %X\n",
+                          status ));
         }
     }
 
@@ -155,10 +155,10 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(SESSION) {
-        NetpDbgPrint( "XsNetSessionEnum: header at %lx, params at %lx, "
+        NetpKdPrint(( "XsNetSessionEnum: header at %lx, params at %lx, "
                       "level %ld, buf size %ld\n",
                       Header, parameters, SmbGetUshort( &parameters->Level ),
-                      SmbGetUshort( &parameters->BufLen ));
+                      SmbGetUshort( &parameters->BufLen )));
     }
 
     //
@@ -190,16 +190,16 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetSessionEnum: NetSessionEnum failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetSessionEnum: NetSessionEnum failed: "
+                          "%X\n", status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
     }
 
     IF_DEBUG(SESSION) {
-        NetpDbgPrint( "XsNetSessionEnum: received %ld entries at %lx\n",
-                      entriesRead, outBuffer );
+        NetpKdPrint(( "XsNetSessionEnum: received %ld entries at %lx\n",
+                      entriesRead, outBuffer ));
     }
 
     //
@@ -255,10 +255,10 @@ Return Value:
         );
 
     IF_DEBUG(SESSION) {
-        NetpDbgPrint( "32-bit data at %lx, 16-bit data at %lx, %ld BR,"
+        NetpKdPrint(( "32-bit data at %lx, 16-bit data at %lx, %ld BR,"
                       " Entries %ld of %ld\n",
                       outBuffer, SmbGetUlong( &parameters->Buffer ),
-                      bytesRequired, entriesFilled, totalEntries );
+                      bytesRequired, entriesFilled, totalEntries ));
     }
 
     //
@@ -384,9 +384,9 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(SESSION) {
-        NetpDbgPrint( "XsNetSessionGetInfo: header at %lx, "
+        NetpKdPrint(( "XsNetSessionGetInfo: header at %lx, "
                       "params at %lx, level %ld\n",
-                      Header, parameters, SmbGetUshort( &parameters->Level ) );
+                      Header, parameters, SmbGetUshort( &parameters->Level ) ));
     }
 
     //
@@ -434,8 +434,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetSessionGetInfo: NetSessionEnum failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetSessionGetInfo: NetSessionEnum failed: "
+                          "%X\n", status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
@@ -443,8 +443,8 @@ Return Value:
     }
 
     IF_DEBUG(SESSION) {
-        NetpDbgPrint( "XsNetSessionGetInfo: Received %ld entries\n",
-                      entriesRead );
+        NetpKdPrint(( "XsNetSessionGetInfo: Received %ld entries\n",
+                      entriesRead ));
     }
 
     //
@@ -508,8 +508,8 @@ Return Value:
 
     if ( status != NERR_Success ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "NetSessionGetInfo: RapConvertSingleEntry failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "NetSessionGetInfo: RapConvertSingleEntry failed: "
+                          "%X\n", status ));
         }
 
         Header->Status = NERR_InternalError;
@@ -517,9 +517,9 @@ Return Value:
     }
 
     IF_DEBUG(SESSION) {
-        NetpDbgPrint( "32-bit data at %lx, 16-bit data at %lx, %ld BR\n",
+        NetpKdPrint(( "32-bit data at %lx, 16-bit data at %lx, %ld BR\n",
                       outBuffer, SmbGetUlong( &parameters->Buffer ),
-                      bytesRequired );
+                      bytesRequired ));
     }
 
     //
@@ -533,7 +533,7 @@ Return Value:
              )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetSessionGetInfo: Buffer too small.\n" );
+            NetpKdPrint(( "XsNetSessionGetInfo: Buffer too small.\n" ));
         }
         Header->Status = NERR_BufTooSmall;
 
@@ -556,7 +556,7 @@ Return Value:
         if ( bytesRequired > (DWORD)SmbGetUshort( &parameters-> BufLen )) {
 
             IF_DEBUG(ERRORS) {
-                NetpDbgPrint( "NetSessionGetInfo: More data available.\n" );
+                NetpKdPrint(( "NetSessionGetInfo: More data available.\n" ));
             }
             Header->Status = ERROR_MORE_DATA;
 

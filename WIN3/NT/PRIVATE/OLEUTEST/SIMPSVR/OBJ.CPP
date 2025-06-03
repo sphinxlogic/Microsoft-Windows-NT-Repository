@@ -45,7 +45,7 @@
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      ResultFromScode             OLE API
 //      IUnknown::AddRef            OBJ.CPP, IOO.CPP, IDO.CPP, IPS.CPP
 //                                  IOIPO.CPP, IOIPAO.CPP
@@ -55,7 +55,7 @@
 
 STDMETHODIMP CSimpSvrObj::QueryInterface ( REFIID riid, LPVOID FAR* ppvObj)
 {
-    OutputDebugString(TEXT("In CSimpSvrObj::QueryInterface\r\n"));
+    TestDebugOut(TEXT("In CSimpSvrObj::QueryInterface\r\n"));
 
     SCODE sc = S_OK;
 
@@ -106,7 +106,7 @@ STDMETHODIMP CSimpSvrObj::QueryInterface ( REFIID riid, LPVOID FAR* ppvObj)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      CSimpSvrDoc::AddRef         DOC.CPP
 //
 // Comments:
@@ -121,7 +121,7 @@ STDMETHODIMP CSimpSvrObj::QueryInterface ( REFIID riid, LPVOID FAR* ppvObj)
 
 STDMETHODIMP_(ULONG) CSimpSvrObj::AddRef ()
 {
-    OutputDebugString(TEXT("In CSimpSvrObj::AddRef\r\n"));
+    TestDebugOut(TEXT("In CSimpSvrObj::AddRef\r\n"));
 
     m_lpDoc->AddRef();
 
@@ -147,7 +147,7 @@ STDMETHODIMP_(ULONG) CSimpSvrObj::AddRef ()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      CSimpSvrDoc::Release        DOC.CPP
 //      CSimpSvrDoc::ClearObj       DOC.H
 //
@@ -163,7 +163,7 @@ STDMETHODIMP_(ULONG) CSimpSvrObj::AddRef ()
 
 STDMETHODIMP_(ULONG) CSimpSvrObj::Release ()
 {
-    OutputDebugString(TEXT("In CSimpSvrObj::Release\r\n"));
+    TestDebugOut(TEXT("In CSimpSvrObj::Release\r\n"));
 
     /* The SimpSvrObj destructor needs to access SimpSvrDoc. We want to
      * hold on to the SimpSvrDoc object until we have deleted our own.
@@ -281,7 +281,7 @@ CSimpSvrObj::CSimpSvrObj(CSimpSvrDoc FAR * lpSimpSvrDoc) :
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      PostMessage                 Windows API
 //      CSimpSvrDoc::GetApp         DOC.H
 //      CSimpSvrDoc::GethAppWnd     DOC.H
@@ -299,7 +299,7 @@ CSimpSvrObj::CSimpSvrObj(CSimpSvrDoc FAR * lpSimpSvrDoc) :
 
 CSimpSvrObj::~CSimpSvrObj()
 {
-    OutputDebugString(TEXT("In CSimpSvrObj's Destructor \r\n"));
+    TestDebugOut(TEXT("In CSimpSvrObj's Destructor \r\n"));
 
     // if we were started by ole, post ourselves a close message
     if (m_lpDoc->GetApp()->IsStartedByOle())
@@ -343,7 +343,7 @@ CSimpSvrObj::~CSimpSvrObj()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      CreateBrushIndirect         Windows API
 //      SelectObject                Windows API
 //      Rectangle                   Windows API
@@ -356,13 +356,13 @@ void CSimpSvrObj::Draw (HDC hDC, BOOL m_fMeta)
 {
     LOGBRUSH lb;
 
-    OutputDebugString(TEXT("In CSimpSvrObj::Draw\r\n"));
+    TestDebugOut(TEXT("In CSimpSvrObj::Draw\r\n"));
 
     TCHAR szBuffer[255];
 
     wsprintf(szBuffer, TEXT("Drawing Scale %3d\r\n"),m_scale);
 
-    OutputDebugString(szBuffer);
+    TestDebugOut(szBuffer);
 
     if (!m_fMeta)
     {
@@ -421,7 +421,7 @@ void CSimpSvrObj::Draw (HDC hDC, BOOL m_fMeta)
 // Function Calls:
 //      Function                        Location
 //
-//      OutputDebugString               Windows API
+//      TestDebugOut               Windows API
 //      GlobalAlloc                     Windows API
 //      GlobalLock                      Windows API
 //      SetWindowOrg                    Windows API
@@ -442,7 +442,7 @@ HANDLE CSimpSvrObj::GetMetaFilePict()
     METAFILEPICT FAR * lpMFP;
     POINT pt;
 
-    OutputDebugString(TEXT("In CSimpSvrObj::GetMetaFilePict\r\n"));
+    TestDebugOut(TEXT("In CSimpSvrObj::GetMetaFilePict\r\n"));
 
     // allocate the memory for the METAFILEPICT structure
     hMFP = GlobalAlloc (GMEM_SHARE | GHND, sizeof (METAFILEPICT) );
@@ -509,7 +509,7 @@ HANDLE CSimpSvrObj::GetMetaFilePict()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      IStorage::CreateStream      OLE
 //      IStream::Write              OLE
 //      IStream::Release            OLE
@@ -522,7 +522,7 @@ HANDLE CSimpSvrObj::GetMetaFilePict()
 
 void CSimpSvrObj::SaveToStorage (LPSTORAGE lpStg, BOOL fSameAsLoad)
 {
-    OutputDebugString(TEXT("In CSimpSvrObj::SaveToStorage\r\n"));
+    TestDebugOut(TEXT("In CSimpSvrObj::SaveToStorage\r\n"));
 
     LPSTREAM lpTempColor, lpTempSize;
 
@@ -568,7 +568,7 @@ void CSimpSvrObj::SaveToStorage (LPSTORAGE lpStg, BOOL fSameAsLoad)
     if ( lpTempSize->Write(&m_size, sizeof(m_size), NULL) != S_OK )
        goto EXIT;
 
-    OutputDebugString(TEXT("SaveToStorage exits normally\n"));
+    TestDebugOut(TEXT("SaveToStorage exits normally\n"));
 
 EXIT:
     lpTempColor->Release();
@@ -594,7 +594,7 @@ EXIT:
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      IStorage::OpenStream        OLE
 //      IStream::Read               OLE
 //      IStream::Release            OLE
@@ -604,7 +604,7 @@ EXIT:
 
 void CSimpSvrObj::LoadFromStorage ()
 {
-    OutputDebugString(TEXT("In CSimpSvrObj::LoadFromStorage\r\n"));
+    TestDebugOut(TEXT("In CSimpSvrObj::LoadFromStorage\r\n"));
 
     // Read the colors
     if ( m_lpColorStm->Read(&m_red, sizeof(m_red), NULL) != S_OK )
@@ -618,7 +618,7 @@ void CSimpSvrObj::LoadFromStorage ()
     if ( m_lpSizeStm->Read(&m_size, sizeof(m_size), NULL) != S_OK )
        return;
 
-    OutputDebugString(TEXT("LoadFromStorage exits normally\n"));
+    TestDebugOut(TEXT("LoadFromStorage exits normally\n"));
 
 }
 
@@ -652,7 +652,7 @@ void CSimpSvrObj::LoadFromStorage ()
 //      IOleInPlaceSite::Release                Container
 //      IOleInPlaceFrame::SetActiveObject       Container
 //      IOleInPlaceUIWindow::SetActiveObject    Container
-//      OutputDebugString                       Windows API
+//      TestDebugOut                       Windows API
 //      ShowWindow                              Windows API
 //      SetParent                               Windows API
 //      IntersectRect                           Windows API
@@ -678,7 +678,7 @@ BOOL CSimpSvrObj::DoInPlaceActivate (LONG lVerb)
     RECT posRect, clipRect;
 
 
-    OutputDebugString(TEXT("In CSimpSvrObj::DoInPlaceActivate\r\n"));
+    TestDebugOut(TEXT("In CSimpSvrObj::DoInPlaceActivate\r\n"));
 
     // if not currently in place active
     if (!m_fInPlaceActive)
@@ -695,13 +695,13 @@ BOOL CSimpSvrObj::DoInPlaceActivate (LONG lVerb)
         {
             if (m_lpIPSite)
                 m_lpIPSite->Release();
-            m_lpIPSite == NULL;
+            m_lpIPSite = NULL;
             goto error;
         }
 
         // tell the site that we are activating.
         if (m_lpIPSite->OnInPlaceActivate() != S_OK)
-           OutputDebugString(TEXT("OnInPlaceActivate fails\n"));
+           TestDebugOut(TEXT("OnInPlaceActivate fails\n"));
 
         m_fInPlaceActive = TRUE;
     }
@@ -713,15 +713,23 @@ BOOL CSimpSvrObj::DoInPlaceActivate (LONG lVerb)
 
         // get the window handle of the site
         if (m_lpIPSite->GetWindow(&m_hWndParent) != S_OK)
-           OutputDebugString(TEXT("GetWindow fails\n"));
+           TestDebugOut(TEXT("GetWindow fails\n"));
 
         // get window context from the container
+        m_FrameInfo.cb = sizeof(OLEINPLACEFRAMEINFO);
         if (m_lpIPSite->GetWindowContext ( &m_lpFrame,
                                      &m_lpCntrDoc,
                                      &posRect,
                                      &clipRect,
                                      &m_FrameInfo) != S_OK)
-           OutputDebugString(TEXT("GetWindowContext fails\n"));
+           TestDebugOut(TEXT("GetWindowContext fails\n"));
+
+        if (sizeof(OLEINPLACEFRAMEINFO) != m_FrameInfo.cb)
+        {
+           TestDebugOut(TEXT("WARNING! GetWindowContext call "
+                                  "modified FrameInfo.cb!\n"));
+        }
+
 
         // show the hatch window
         m_lpDoc->ShowHatchWnd();
@@ -732,7 +740,7 @@ BOOL CSimpSvrObj::DoInPlaceActivate (LONG lVerb)
 
         // tell the client site to show the object
         if (m_lpOleClientSite->ShowObject() != S_OK)
-           OutputDebugString(TEXT("ShowObject fails\n"));
+           TestDebugOut(TEXT("ShowObject fails\n"));
 
         RECT resRect;
 
@@ -777,13 +785,13 @@ BOOL CSimpSvrObj::DoInPlaceActivate (LONG lVerb)
         // set the active object on the frame
         if (m_lpFrame->SetActiveObject(&m_OleInPlaceActiveObject,
             OLESTR("Simple OLE 2.0 Server")) != S_OK)
-           OutputDebugString(TEXT("SetActiveObject fails\n"));
+           TestDebugOut(TEXT("SetActiveObject fails\n"));
 
         // set the active object on the Doc, if available.
         if (m_lpCntrDoc)
            if (m_lpCntrDoc->SetActiveObject(&m_OleInPlaceActiveObject,
                OLESTR("Simple OLE 2.0 Server")) != S_OK)
-               OutputDebugString(TEXT("SetActiveObjet fails\n"));
+               TestDebugOut(TEXT("SetActiveObjet fails\n"));
 
         // add the frame level UI.
         AddFrameLevelUI();
@@ -813,7 +821,7 @@ error:
 // Function Calls:
 //      Function                        Location
 //
-//      OutputDebugString               Windows API
+//      TestDebugOut               Windows API
 //      CreateMenu                      Windows API
 //      IOleInPlaceFrame::InsertMenus   Container
 //      InsertMenu                      Windows API
@@ -825,7 +833,7 @@ error:
 
 void CSimpSvrObj::AssembleMenus()
 {
-    OutputDebugString(TEXT("In CSimpSvrObj::AssembleMenus\r\n"));
+    TestDebugOut(TEXT("In CSimpSvrObj::AssembleMenus\r\n"));
     OLEMENUGROUPWIDTHS menugroupwidths;
 
     m_hmenuShared = NULL;
@@ -855,7 +863,7 @@ void CSimpSvrObj::AssembleMenus()
     // tell OLE to create the menu descriptor
     m_hOleMenu = OleCreateMenuDescriptor(m_hmenuShared, &menugroupwidths);
     if (!m_hOleMenu)
-       OutputDebugString(TEXT("OleCreateMenuDescriptor fails\n"));
+       TestDebugOut(TEXT("OleCreateMenuDescriptor fails\n"));
 }
 
 //**********************************************************************
@@ -877,7 +885,7 @@ void CSimpSvrObj::AssembleMenus()
 // Function Calls:
 //      Function                            Location
 //
-//      OutputDebugString                   Windows API
+//      TestDebugOut                   Windows API
 //      IOleInPlaceFrame::SetMenu           Container
 //      IOleInPlaceFrame::SetBorderSpace    Container
 //      IOleInPlaceUIWindow::SetBorderSpace Container
@@ -888,7 +896,7 @@ void CSimpSvrObj::AssembleMenus()
 
 void CSimpSvrObj::AddFrameLevelUI()
 {
-    OutputDebugString(TEXT("In CSimpSvrObj::AddFrameLevelUI\r\n"));
+    TestDebugOut(TEXT("In CSimpSvrObj::AddFrameLevelUI\r\n"));
 
     // add the combined menu
     if ( m_lpFrame->SetMenu(m_hmenuShared, m_hOleMenu,
@@ -910,7 +918,7 @@ void CSimpSvrObj::AddFrameLevelUI()
        if (m_lpCntrDoc->SetBorderSpace(NULL) != S_OK)
           return;
 
-    OutputDebugString(TEXT("AddFrameLevelUI exits\n"));
+    TestDebugOut(TEXT("AddFrameLevelUI exits\n"));
 
 }
 
@@ -933,7 +941,7 @@ void CSimpSvrObj::AddFrameLevelUI()
 // Function Calls:
 //      Function                        Location
 //
-//      OutputDebugString               Windows API
+//      TestDebugOut               Windows API
 //      SetParent                       Windows API
 //      CSimpSvrDoc::GethDocWnd         DOC.H
 //      CSimpSvrDoc::GethAppWnd         DOC.H
@@ -952,7 +960,7 @@ void CSimpSvrObj::AddFrameLevelUI()
 
 void CSimpSvrObj::DoInPlaceHide()
 {
-    OutputDebugString(TEXT("In CSimpSvrObj::DoInPlaceHide\r\n"));
+    TestDebugOut(TEXT("In CSimpSvrObj::DoInPlaceHide\r\n"));
 
     // if we aren't inplace visible, then this routine is a NOP,
     if (!m_fInPlaceVisible)
@@ -999,7 +1007,7 @@ void CSimpSvrObj::DoInPlaceHide()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString               Windows API
+//      TestDebugOut               Windows API
 //      OleDestroyMenuDescriptor        OLE API
 //      RemoveMenu                      Windows API
 //      IOleInPlaceFrame::RemoveMenus   Container
@@ -1024,7 +1032,7 @@ void CSimpSvrObj::DisassembleMenus()
 
         // have the container remove its menus
         if (m_lpFrame->RemoveMenus(m_hmenuShared) != S_OK)
-           OutputDebugString(TEXT("RemoveMenus fails\n"));
+           TestDebugOut(TEXT("RemoveMenus fails\n"));
 
         // Destroy the menu resource
         DestroyMenu(m_hmenuShared);
@@ -1066,7 +1074,7 @@ void CSimpSvrObj::SendOnDataChange()
     if (m_lpDataAdviseHolder)
         if (m_lpDataAdviseHolder->SendOnDataChange( (LPDATAOBJECT)
                                                    &m_DataObject, 0, 0))
-           OutputDebugString(TEXT("SendOnDataChange fails\n"));
+           TestDebugOut(TEXT("SendOnDataChange fails\n"));
 
     LPRUNNINGOBJECTTABLE lpRot;
 
@@ -1129,15 +1137,15 @@ void CSimpSvrObj::DeactivateUI()
         // if in an MDI container, call SetActiveObject on the DOC.
         if (m_lpCntrDoc)
             if (m_lpCntrDoc->SetActiveObject(NULL, NULL) != S_OK)
-               OutputDebugString(TEXT("Fail in SetActiveObject\n"));
+               TestDebugOut(TEXT("Fail in SetActiveObject\n"));
 
         if (m_lpFrame->SetActiveObject(NULL, NULL) != S_OK)
-           OutputDebugString(TEXT("Fail in SetActiveObject\n"));
+           TestDebugOut(TEXT("Fail in SetActiveObject\n"));
 
         // tell the container that our UI is going away.
         if (m_lpIPSite)
             if (m_lpIPSite->OnUIDeactivate(FALSE) != S_OK)
-               OutputDebugString(TEXT("Fail in OnUIDeactivate\n"));
+               TestDebugOut(TEXT("Fail in OnUIDeactivate\n"));
     }
 }
-
+

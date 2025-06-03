@@ -99,4 +99,3 @@ typedef struct _NWSAP_REPLY_MESSAGE {
 
 #endif
 
-

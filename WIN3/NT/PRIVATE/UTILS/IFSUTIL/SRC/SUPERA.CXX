@@ -8,17 +8,20 @@
 #endif
 
 #define _NTAPI_ULIB_
+#define _IFSUTIL_MEMBER_
 
 #include "ulib.hxx"
+#include "ifsutil.hxx"
+
 #include "supera.hxx"
 #include "message.hxx"
 #include "rtmsg.h"
 #include "ifssys.hxx"
 
 
-DEFINE_CONSTRUCTOR( SUPERAREA, SECRUN );
+DEFINE_EXPORTED_CONSTRUCTOR( SUPERAREA, SECRUN, IFSUTIL_EXPORT );
 
-
+IFSUTIL_EXPORT
 SUPERAREA::~SUPERAREA(
     )
 /*++
@@ -43,20 +46,20 @@ Return Value:
 
 VOID
 SUPERAREA::Construct(
-	)
+        )
 /*++
 
 Routine Description:
 
-	Constructor for SUPERAREA.
+        Constructor for SUPERAREA.
 
 Arguments:
 
-	None.
+        None.
 
 Return Value:
 
-	None.
+        None.
 
 --*/
 {
@@ -88,6 +91,7 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 SUPERAREA::Initialize(
     IN OUT  PMEM                Mem,
@@ -117,9 +121,9 @@ Return Value:
 {
     Destroy();
 
-    DbgAssert(Mem);
-    DbgAssert(Drive);
-    DbgAssert(NumberOfSectors);
+    DebugAssert(Mem);
+    DebugAssert(Drive);
+    DebugAssert(NumberOfSectors);
 
     if (!SECRUN::Initialize(Mem, Drive, 0, NumberOfSectors)) {
         Message->Set(MSG_FMT_NO_MEMORY);
@@ -133,6 +137,7 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 VOLID
 SUPERAREA::ComputeVolId(
     IN  VOLID   Seed

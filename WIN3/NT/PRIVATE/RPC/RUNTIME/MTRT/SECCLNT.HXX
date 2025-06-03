@@ -59,7 +59,7 @@ extern PSecurityFunctionTable RpcSecurityInterface;
 extern SecPkgInfo PAPI * SecurityPackages;
 extern unsigned long NumberOfSecurityPackages;
 
-extern int
+extern RPC_STATUS
 InsureSecuritySupportLoaded (
     );
 
@@ -92,11 +92,23 @@ private:
     unsigned int ProviderIndex;
     unsigned int PackageIndex;
     CredHandle Credentials;
+    unsigned int ReferenceCount;
+    MUTEX     CredentialsMutex;
+#ifdef DOSWIN32RPC
+    SEC_CHAR __SEC_FAR * DefaultPrincName;
+#endif
+    BOOL fCredentialsValid;
 
 public:
 
     SECURITY_CREDENTIALS (
+        IN OUT RPC_STATUS PAPI * Status
         );
+
+#ifdef DOSWIN32RPC
+    ~SECURITY_CREDENTIALS (
+        );
+#endif
 
     RPC_STATUS
     AcquireCredentialsForServer (
@@ -114,6 +126,12 @@ public:
         IN unsigned long AuthenticationLevel
         );
 
+#ifdef DOSWIN32RPC
+    SEC_CHAR __SEC_FAR *
+    InquireDefaultPrincName (
+        );
+#endif
+
     void
     FreeCredentials (
         );
@@ -126,31 +144,99 @@ public:
     InquireCredentials (
         );
 
+    void
+    ReferenceCredentials(
+        );
+
+    void
+    DereferenceCredentials(
+        );
+
 #ifdef NTENV
     PSecurityFunctionTableW
     InquireProviderFunctionTable (
        );
+
+    int
+    CompareCredentials(
+        SECURITY_CREDENTIALS PAPI * Creds
+        );
+
+    CredHandle *
+    InqCredHandleCookie(
+        );
 #else // NTENV
     PSecurityFunctionTableA
     InquireProviderFunctionTable (
        );
 #endif // NTENV
+
+
 };
+
+#ifdef NTENV
+
+inline
+CredHandle *
+SECURITY_CREDENTIALS::InqCredHandleCookie(
+    )
+{
+    return (&Credentials);
+}
 
 
 inline
-SECURITY_CREDENTIALS::SECURITY_CREDENTIALS (
+int
+SECURITY_CREDENTIALS::CompareCredentials(
+    SECURITY_CREDENTIALS PAPI * Creds
     )
-/*++
+{
+  CredHandle * Cookie = Creds->InqCredHandleCookie();
 
-Routine Description:
+  if ( (Credentials.dwLower == Cookie->dwLower)
+     &&(Credentials.dwUpper == Cookie->dwUpper) )
+      {
+      return 0;
+      }
+  return 1;
+}
+#endif
 
-    We need this here to keep the compiler happy.
 
---*/
+
+inline
+void
+SECURITY_CREDENTIALS::ReferenceCredentials(
+    )
 {
 
+ CredentialsMutex.Request();
+ ReferenceCount++;
+ CredentialsMutex.Clear();
+
 }
+
+
+inline
+void
+SECURITY_CREDENTIALS::DereferenceCredentials(
+    )
+{
+    CredentialsMutex.Request();
+    ReferenceCount--;
+
+    if (ReferenceCount == 0)
+        {
+        CredentialsMutex.Clear();
+        FreeCredentials();
+        delete this;
+        }
+     else
+        {
+        CredentialsMutex.Clear();
+        }
+}
+
 
 
 inline unsigned int
@@ -212,7 +298,8 @@ Return Value:
 }
 
 
-class SECURITY_CONTEXT
+class SECURITY_CONTEXT : public CLIENT_AUTH_INFO
+
 /*++
 
 Class Description:
@@ -238,29 +325,15 @@ Fields:
 
 --*/
 {
-// These two classes are friends of this class, because the private data
-// members should actually be protected, but since this stuff still have
-// to compile under C++ 1.2, we can not do that.
-
-friend class CSECURITY_CONTEXT;
-friend class SSECURITY_CONTEXT;
-
-private:
-
-    int DontForgetToDelete;
-    CtxtHandle SecurityContext;
-    unsigned int MaxHeaderLength;
-    unsigned int MaxSignatureLength;
-#ifdef NTENV
-    PSecurityFunctionTableW RpcSecurityInterface;
-#else // NTENV
-    PSecurityFunctionTableA RpcSecurityInterface;
-#endif
-    int FailedContext;
-
 public:
 
+    unsigned AuthContextId;
+
     SECURITY_CONTEXT (
+        CLIENT_AUTH_INFO *myAuthInfo,
+        unsigned myAuthContextId,
+        BOOL fUseDatagram,
+        RPC_STATUS __RPC_FAR * pStatus
         );
 
     ~SECURITY_CONTEXT (
@@ -278,39 +351,75 @@ public:
     MaximumSignatureLength (
         );
 
-    void
+    unsigned int
+    BlockSize (
+        );
+
+    RPC_STATUS
     CompleteSecurityToken (
         IN OUT SECURITY_BUFFER_DESCRIPTOR PAPI * BufferDescriptor
         );
 
     RPC_STATUS
     SignOrSeal (
+        IN unsigned long Sequence,
         IN unsigned int SignNotSealFlag,
         IN OUT SECURITY_BUFFER_DESCRIPTOR PAPI * BufferDescriptor
         );
 
     RPC_STATUS
     VerifyOrUnseal (
+        IN unsigned long Sequence,
         IN unsigned int VerifyNotUnsealFlag,
         IN OUT  SECURITY_BUFFER_DESCRIPTOR PAPI * BufferDescriptor
         );
+
+protected:
+
+    unsigned char DontForgetToDelete;
+    unsigned char UseDatagram;
+    CtxtHandle SecurityContext;
+    unsigned int MaxHeaderLength;
+    unsigned int MaxSignatureLength;
+    unsigned int cbBlockSize;
+
+#ifdef NTENV
+    PSecurityFunctionTableW RpcSecurityInterface;
+#else // NTENV
+    PSecurityFunctionTableA RpcSecurityInterface;
+#endif
+    int FailedContext;
+
 };
+
+typedef SECURITY_CONTEXT * PSECURITY_CONTEXT;
 
 
 inline
-SECURITY_CONTEXT::SECURITY_CONTEXT (
+SECURITY_CONTEXT::~SECURITY_CONTEXT (
     )
 /*++
 
 Routine Description:
 
-    We need to set the flag indicating that there is no security context
-    to be deleted.
+    If there is a valid security context, we need to delete it.
 
 --*/
 {
-    DontForgetToDelete = 0;
-    FailedContext = 0;
+    SECURITY_STATUS SecurityStatus;
+
+    if ( DontForgetToDelete != 0 )
+        {
+        SecurityStatus = (*RpcSecurityInterface->DeleteSecurityContext)(
+                &SecurityContext );
+#if DBG
+        if (SecurityStatus != SEC_E_OK)
+           {
+           PrintToDebugger("DeleteSecContext Returned [%lx]\n", SecurityStatus);
+           }
+#endif
+        ASSERT( SecurityStatus == SEC_E_OK );
+        }
 }
 
 
@@ -327,6 +436,22 @@ Return Value:
 --*/
 {
     return(MaxHeaderLength);
+}
+
+
+inline unsigned int
+SECURITY_CONTEXT::BlockSize (
+    )
+/*++
+
+Return Value:
+
+    For best effect, buffers to be signed or sealed should be a multiple
+    of this length.
+
+--*/
+{
+    return(cbBlockSize);
 }
 
 
@@ -359,6 +484,11 @@ private:
 
 public:
 
+    CSECURITY_CONTEXT (
+        CLIENT_AUTH_INFO * myAuthInfo,
+        RPC_STATUS __RPC_FAR * pStatus
+        );
+
     RPC_STATUS
     InitializeFirstTime (
         IN SECURITY_CREDENTIALS * Credentials,
@@ -375,6 +505,16 @@ public:
         );
 
 };
+
+
+inline
+CSECURITY_CONTEXT::CSECURITY_CONTEXT (
+    CLIENT_AUTH_INFO *  myAuthInfo,
+    RPC_STATUS __RPC_FAR * pStatus
+    )
+    : SECURITY_CONTEXT(myAuthInfo, 0, FALSE, pStatus)
+{
+}
 
 #endif // __SECCLNT_HXX__
 

@@ -13,7 +13,7 @@
 *
 * HISTORY:
 *		$Log:   J:\se.vcs\driver\q117cd\src\0x1100f.c  $
-*	
+*
 *	   Rev 1.11   03 Jun 1994 15:40:08   KEVINKES
 *	Changed drive_parm.drive_select to device_cfg.drive_select.
 *
@@ -170,9 +170,9 @@ dStatus cqd_CmdFormat
 
                if ((status = cqd_SetDeviceMode(
                               cqd_context,
-                              PRIMARY_MODE)) == DONT_PANIC); {
+                              PRIMARY_MODE)) == DONT_PANIC) {
 
-                  if ((status = cqd_LogicalBOT(cqd_context, trk)) == DONT_PANIC); {
+                  if ((status = cqd_LogicalBOT(cqd_context, trk)) == DONT_PANIC) {
 
                      status = cqd_SetDeviceMode(cqd_context, FORMAT_MODE);
 

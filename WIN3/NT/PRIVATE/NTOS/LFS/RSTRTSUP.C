@@ -96,7 +96,7 @@ Return Value:
         //  reflect this restart area.
         //
 
-        LfsAllocateLbcb( &NewLbcb );
+        LfsAllocateLbcb( Lfcb, &NewLbcb );
         SetFlag( NewLbcb->LbcbFlags, LBCB_RESTART_LBCB );
 
         //
@@ -105,7 +105,7 @@ Return Value:
 
         if (!Lfcb->InitialRestartArea) {
 
-            NewLbcb->FileOffset = Lfcb->SystemPageSize + NewLbcb->FileOffset;                                          //**** xxAdd( Lfcb->SystemPageSize, NewLbcb->FileOffset );
+            NewLbcb->FileOffset = Lfcb->SystemPageSize + NewLbcb->FileOffset;
         }
 
         (ULONG)NewLbcb->Length = ThisRestartSize;
@@ -117,7 +117,7 @@ Return Value:
         //
 
         NewLbcb->LastEndLsn = NewLbcb->LastLsn = Lfcb->NextRestartLsn;
-        Lfcb->NextRestartLsn.QuadPart = 1 + Lfcb->NextRestartLsn.QuadPart;                                             //**** xxAdd( LfsLi1, Lfcb->NextRestartLsn );
+        Lfcb->NextRestartLsn.QuadPart = 1 + Lfcb->NextRestartLsn.QuadPart;
 
         //
         //  Copy the existing restart area into the new area.
@@ -246,8 +246,8 @@ Return Value:
         //  We ignore this block if it's oldest Lsn is 0.
         //
 
-        if (( ClientBlock->OldestLsn.QuadPart != 0 )                                                                   //**** xxNeqZero( ClientBlock->OldestLsn )
-            && ( ClientBlock->OldestLsn.QuadPart < OldestLsn->QuadPart )) {                                            //**** xxLtr( ClientBlock->OldestLsn, *OldestLsn )
+        if (( ClientBlock->OldestLsn.QuadPart != 0 )
+            && ( ClientBlock->OldestLsn.QuadPart < OldestLsn->QuadPart )) {
 
             *OldestLsn = ClientBlock->OldestLsn;
         }

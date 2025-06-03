@@ -28,6 +28,7 @@ Revision History:
 #if defined (i386)
 #include <vdm.h>
 #endif
+#include <vdmdbg.h>
 //
 // Macro for setting up pointers to WinDbg routines
 //
@@ -36,8 +37,6 @@ Revision History:
     Print           = p->lpOutputRoutine;                           \
     GetExpression   = p->lpGetExpressionRoutine;                    \
     GetSymbol       = p->lpGetSymbolRoutine;                        \
-    Disassemble     = p->lpDisasmRoutine;                           \
-    CheckCtrlC      = p->lpCheckControlCRoutine;                    \
                                                                     \
     if ( p->nSize >= sizeof(WINDBG_EXTENSION_APIS) ) {              \
         fWinDbg = TRUE;                                             \
@@ -50,6 +49,7 @@ Revision History:
     }                                                               \
 }
 
+#define PRINTF (*Print)
 
 //
 // Pointers to WINDBG api
@@ -58,8 +58,6 @@ Revision History:
 extern PNTSD_OUTPUT_ROUTINE Print;
 extern PNTSD_GET_EXPRESSION GetExpression;
 extern PNTSD_GET_SYMBOL GetSymbol;
-extern PNTSD_DISASM Disassemble;
-extern PNTSD_CHECK_CONTROL_C CheckCtrlC;
 
 extern PWINDBG_READ_PROCESS_MEMORY_ROUTINE  ReadProcessMemWinDbg;
 extern PWINDBG_WRITE_PROCESS_MEMORY_ROUTINE WriteProcessMemWinDbg;
@@ -73,63 +71,70 @@ extern  fWinDbg;
 //
 
 extern HANDLE hModBase;
-//extern FARPROC ReadProcessMemoryRoutine;
 
 //
 // Function prototypes
 //
 
+BOOL
+WINAPI
+ReadProcessMem(
+    HANDLE hProcess,
+    LPVOID lpBaseAddress,
+    LPVOID lpBuffer,
+    DWORD nSize,
+    LPDWORD lpNumberOfBytesRead
+    );
+
+BOOL
+WINAPI
+WriteProcessMem(
+    HANDLE hProcess,
+    LPVOID lpBaseAddress,
+    LPVOID lpBuffer,
+    DWORD nSize,
+    LPDWORD lpNumberOfBytesWritten
+    );
+
+
+
+
+BOOL
+WINAPI
+ReadProcessMem(
+    HANDLE hProcess,
+    LPVOID lpBaseAddress,
+    LPVOID lpBuffer,
+    DWORD nSize,
+    LPDWORD lpNumberOfBytesRead
+    );
+
+BOOL
+WINAPI
+WriteProcessMem(
+    HANDLE hProcess,
+    LPVOID lpBaseAddress,
+    LPVOID lpBuffer,
+    DWORD nSize,
+    LPDWORD lpNumberOfBytesWritten
+    );
+
+//
+// Common prototypes
+//
+
 VOID
-dr(
+DumpTrace(
     IN HANDLE CurrentProcess,
     IN HANDLE CurrentThread,
-    IN DWORD CurrentPc,
-    IN PWINDBG_EXTENSION_APIS ExtensionApis,
-    IN LPSTR ArgumentString
+    IN LPSTR ArgumentString,
+    IN ULONG Verbosity
     );
 
 VOID
-er(
+DumpICA(
     IN HANDLE CurrentProcess,
     IN HANDLE CurrentThread,
-    IN DWORD CurrentPc,
-    IN PWINDBG_EXTENSION_APIS ExtensionApis,
-    IN LPSTR ArgumentString
-    );
-
-VOID
-eventinfo(
-    IN HANDLE CurrentProcess,
-    IN HANDLE CurrentThread,
-    IN DWORD CurrentPc,
-    IN PWINDBG_EXTENSION_APIS ExtensionApis,
-    IN LPSTR ArgumentString
-    );
-
-VOID
-ireg(
-    IN HANDLE CurrentProcess,
-    IN HANDLE CurrentThread,
-    IN DWORD CurrentPc,
-    IN PWINDBG_EXTENSION_APIS ExtensionApis,
-    IN LPSTR ArgumentString
-    );
-
-VOID
-sel(
-    IN HANDLE CurrentProcess,
-    IN HANDLE CurrentThread,
-    IN DWORD CurrentPc,
-    IN PWINDBG_EXTENSION_APIS ExtensionApis,
-    IN LPSTR ArgumentString
-    );
-
-VOID
-vdmtib(
-    IN HANDLE CurrentProcess,
-    IN HANDLE CurrentThread,
-    IN DWORD CurrentPc,
-    IN PWINDBG_EXTENSION_APIS ExtensionApis,
     IN LPSTR ArgumentString
     );
 
@@ -138,51 +143,34 @@ helpp(
     VOID
     );
 
-BOOL
-WINAPI
-ReadProcessMem(
-    HANDLE hProcess,
-    LPVOID lpBaseAddress,
-    LPVOID lpBuffer,
-    DWORD nSize,
-    LPDWORD lpNumberOfBytesRead
+VOID
+Selp(
+    IN HANDLE CurrentProcess,
+    IN HANDLE CurrentThread,
+    IN LPSTR ArgumentString
     );
 
-BOOL
-WINAPI
-WriteProcessMem(
-    HANDLE hProcess,
-    LPVOID lpBaseAddress,
-    LPVOID lpBuffer,
-    DWORD nSize,
-    LPDWORD lpNumberOfBytesWritten
+
+VOID
+TraceControl(
+    IN HANDLE CurrentProcess,
+    IN HANDLE CurrentThread,
+    IN LPSTR ArgumentString
     );
 
 
 
-
-BOOL
-WINAPI
-ReadProcessMem(
-    HANDLE hProcess,
-    LPVOID lpBaseAddress,
-    LPVOID lpBuffer,
-    DWORD nSize,
-    LPDWORD lpNumberOfBytesRead
+VOID
+PrintDescriptor(
+    IN HANDLE CurrentProcess,
+    IN LPVDMLDT_ENTRY Descriptor,
+    IN ULONG Selector
     );
 
-BOOL
-WINAPI
-WriteProcessMem(
-    HANDLE hProcess,
-    LPVOID lpBaseAddress,
-    LPVOID lpBuffer,
-    DWORD nSize,
-    LPDWORD lpNumberOfBytesWritten
+ULONG
+GetIntelBase(
+    HANDLE hCurrentProcess
     );
-
-
-
 
 //
 // 386 function prototypes
@@ -245,13 +233,6 @@ ProfStopp(
     );
 
 VOID
-Selp(
-    IN HANDLE CurrentProcess,
-    IN HANDLE CurrentThread,
-    IN LPSTR ArgumentString
-    );
-
-VOID
 VdmTibp(
     IN HANDLE CurrentProcess,
     IN HANDLE CurrentThread,
@@ -267,17 +248,17 @@ VOID
 PrintEventInfo(
     IN PVDMEVENTINFO EventInfo
     );
-
-VOID
-PrintDescriptor(
-    IN PLDT_ENTRY Descriptor,
-    IN ULONG Selector
-    );
 #endif
 
 //
-// Mips function prototypes
+// defines
 //
-#ifndef i386
 
-#endif
+#define FLAG_OVERFLOW       0x0800
+#define FLAG_DIRECTION      0x0400
+#define FLAG_INTERRUPT      0x0200
+#define FLAG_SIGN           0x0080
+#define FLAG_ZERO           0x0040
+#define FLAG_AUXILLIARY     0x0010
+#define FLAG_PARITY         0x0004
+#define FLAG_CARRY          0x0001

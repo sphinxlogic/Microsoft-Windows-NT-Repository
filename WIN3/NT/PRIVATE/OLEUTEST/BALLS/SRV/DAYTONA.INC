@@ -29,15 +29,16 @@ Author:
 
 !include      ..\..\..\daytona.inc
 
-INCLUDES=     ..\;..\..\..\oleprx32\daytona;..\..\..\common;..\..\..\..\..\cinc;
+INCLUDES=     ;..;$(OLEBALLSDIR)\common;
+INCLUDES=     $(INCLUDES);$(OLEUTESTDIR)\balls\oleprx32\daytona
 
 UMTYPE=       windows
 UMENTRY=      winmain
 UMAPPL=
 UMTEST=
-UMLIBS=	      ..\..\..\oleprx32\daytona\obj\*\uuid.lib	   \
+UMLIBS=	      ..\..\..\oleprx32\uuid\daytona\obj\*\uuid.lib	   \
 	      ..\..\..\common\daytona\obj\*\servers.lib	   \
-	      $(BASEDIR)\private\cairole\com\port\daytona\obj\*\port.lib   \
+	      $(OLEDIR)\common\daytona\obj\*\common.lib	   \
 	      $(BASEDIR)\public\sdk\lib\*\uuid.lib	   \
 	      $(BASEDIR)\public\sdk\lib\*\ole32.lib	   \
               $(BASEDIR)\public\sdk\lib\*\rpcndr.lib       \

@@ -39,7 +39,7 @@ Revision History:
 
 
 #include "nticanon.h"
-
+#include "winnls.h"
 
 
 #define TEXT_LENGTH(s)  ((sizeof(s)/sizeof(TCHAR)) - 1)
@@ -94,7 +94,7 @@ STATIC STRING_TOKEN StringTokenTable[] = {
 
 
 
-STATIC DWORD    TrailingDotsAndSpaces(LPTSTR pszToken, DWORD cbTokenLen);
+STATIC DWORD    TrailingDotsAndSpaces(LPTSTR pszToken, DWORD cbTokenLen );
 STATIC BOOL     IsIllegalCharacter(LPTSTR pszString);
 
 
@@ -148,6 +148,10 @@ Return Value:
                 DWORD   cbTrailingDotSpace;
                 DWORD   iLow, iHigh, iMid;
                 LONG    iCmpVal;
+                LCID    lcid  = GetThreadLocale();
+                BOOL    bDBCS = (PRIMARYLANGID( LANGIDFROMLCID(lcid)) == LANG_JAPANESE) ||
+                                (PRIMARYLANGID(LANGIDFROMLCID(lcid)) == LANG_KOREAN) ||
+                                (PRIMARYLANGID(LANGIDFROMLCID(lcid)) == LANG_CHINESE);
 
     extern      DWORD   cbMaxPathCompLen;
 
@@ -261,7 +265,7 @@ Return Value:
     //       is set to <cbTokenLen>.
     //
 
-    cbTrailingDotSpace = TrailingDotsAndSpaces(pszBegin, cbTokenLen);
+    cbTrailingDotSpace = TrailingDotsAndSpaces(pszBegin, cbTokenLen );
 
     //
     // See if the token has only trailing dots and spaces
@@ -353,7 +357,47 @@ Return Value:
             || (! fNoDot && STRCSPN(pszBegin + cbFirstDot + 1, _text_SingleDot)
                             < cbTokenLen - (cbFirstDot + 1))) {
             SET_COMPUTERNAMEONLY(ERROR_INVALID_NAME);
-        }
+	    }
+
+        if( bDBCS ) {
+            //
+            // In case of MBCS, We also need to check the string is valid in MBCS
+            // because Unicode character count is not eqaul MBCS byte count
+
+            CHAR szCharToken[13]; // 8 + 3 + dot + null
+            int  cbConverted = 0;
+            BOOL bDefaultUsed = FALSE;
+
+            // Convert Unicode string to Mbcs.
+            cbConverted = WideCharToMultiByte( CP_OEMCP,  0,
+                                               pszBegin, -1,
+                                               szCharToken, sizeof(szCharToken),
+                                               NULL, &bDefaultUsed );
+
+            // If the converted langth is larger than the buffer, or the WideChar string
+            // contains some character that is can not be repesented by MultiByte code page,
+            // set error.
+
+            if( cbConverted == FALSE || bDefaultUsed == TRUE ) {
+                SET_COMPUTERNAMEONLY(ERROR_INVALID_NAME);
+            } else {
+                cbConverted -= 1; // Remove NULL;
+
+                cbFirstDot = strcspn(szCharToken, ".");
+
+                if (fNoDot = cbFirstDot >= (DWORD)cbConverted) {
+                    cbFirstDot = cbConverted;
+                }
+
+                if (cbFirstDot == 0
+                    || cbFirstDot > 8
+                    || cbConverted - cbFirstDot > 4
+                    || (! fNoDot && strcspn(szCharToken + cbFirstDot + 1, ".")
+                                    < cbConverted - (cbFirstDot + 1))) {
+                    SET_COMPUTERNAMEONLY(ERROR_INVALID_NAME);
+                }
+            }
+	    }
     }
 
     //
@@ -376,7 +420,7 @@ Return Value:
             *pflTokenType |= TOKEN_TYPE_WILDONE;
         }
     } else {
-        if (cbTokenLen <= CNLEN) {
+        if( cbTokenLen <= MAX_PATH ) {
             *pflTokenType |= TOKEN_TYPE_COMPUTERNAME;
         }
     }
@@ -429,7 +473,7 @@ Return Value:
         // log N (where N is the number of strings).
         //
 
-        iLow = -1;
+        iLow = (ULONG)-1;
         iHigh = NUM_STRING_TOKENS;
 
         while (iHigh - iLow > 1) {
@@ -479,70 +523,8 @@ Return Value:
     return 0;
 }
 
-
-
-STATIC DWORD TrailingDotsAndSpaces(LPTSTR pszToken, DWORD cbTokenLen)
+STATIC DWORD TrailingDotsAndSpaces(LPTSTR pszToken, DWORD cbTokenLen )
 {
-    //
-    // We have two completely different versions, a DBCS version and a
-    // non-DBCS version.  The latter is much more efficient.
-    //
-
-#ifdef DBCS
-#pragma message("*** DBCS version of TrailingDotsAndSpaces: Ensure its correct ***")
-
-    static const TCHAR  szDotSpace[] = ". ";
-    USHORT              iDotSpace;
-    USHORT              iNotDotSpace;
-
-    //
-    // Find the first dot or space in the token */
-    //
-
-    iDotSpace = strcspnf(pszToken, szDotSpace);
-
-    //
-    // Loop until when we've passed the end of the token */
-    //
-
-    while (iDotSpace < cbTokenLen) {
-
-        //
-        // Find the first non-dot/space following the current dot or
-        // space.
-        //
-
-        iNotDotSpace = iDotSpace + STRSPN(pszToken + iDotSpace, szDotSpace);
-
-        //
-        // If the next non-dot/space character is beyond the end of the
-        // token, then we've found the beginning of the trailing dots and
-        // spaces.  Otherwise, we look for the first dot or space following
-        // this character and try again.
-        //
-
-        if (iNotDotSpace >= cbTokenLen) {
-            return iDotSpace;
-        } else {
-            iDotSpace = iNotDotSpace
-                            + STRCSPN(pszToken + iNotDotSpace, szDotSpace);
-        }
-    }
-
-    //
-    // If we get here, there are no trailing dots or spaces, so we
-    // return the length of the token.
-    //
-
-    return cbTokenLen;
-
-#else
-
-    //
-    // This is the non-DBCS version.  Therefore, we can scan the token
-    // from right to left.
-    //
-
     LPTSTR pszDotSpace = pszToken + cbTokenLen - 1;
 
     //
@@ -569,8 +551,6 @@ STATIC DWORD TrailingDotsAndSpaces(LPTSTR pszToken, DWORD cbTokenLen)
     //
 
     return pszDotSpace - pszToken;
-
-#endif /* DBCS */
 }
 
 

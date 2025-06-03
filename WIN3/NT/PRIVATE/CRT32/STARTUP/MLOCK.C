@@ -303,8 +303,8 @@ void _CRTAPI1 _lock (
 		_mlock(_LOCKTAB_LOCK);	/*** WARNING: Recursive lock call ***/
 
 		if ( _locktable[locknum] == NULL ) {
-			_locktable[locknum] = pcs;
 			InitializeCriticalSection(pcs);
+			_locktable[locknum] = pcs;
 		}
 		else {
 #ifdef	DEBUG

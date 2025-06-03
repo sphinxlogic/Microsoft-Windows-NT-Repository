@@ -15,6 +15,7 @@
 /* Types
  */
 typedef struct _TMR {       /* tmr */
+    LIST_ENTRY TmrList;     // TMRs are stored in a list
     HWND16  hwnd16;	    // 16-bit handle of owning window, if any
     HTASK16 htask16;        // 16-bit handle of owning task
     HWND    hwnd32;         // 32-bit handle of owning window, if any
@@ -67,4 +68,5 @@ ULONG FASTCALL  WU32KillTimer(PVDMFRAME pFrame);
 ULONG FASTCALL  WU32SetTimer(PVDMFRAME pFrame);
 
 PTMR	FindTimer32(HWND16 hwnd, DWORD dwEventID);
+PTMR    FindTimer16(HWND16 hwnd, HTASK16 htask16, WORD wEventID);
 PTMR    IsDuplicateTimer16(HWND16 hwnd16, HTASK16 htask16, WORD wEventID);

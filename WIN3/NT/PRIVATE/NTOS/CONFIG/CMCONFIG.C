@@ -39,7 +39,6 @@ extern ULONG CmpTypeCount[];
 
 #define EISA_ADAPTER_INDEX EisaAdapter
 #define TURBOCHANNEL_ADAPTER_INDEX TcAdapter
-#define CONTROLLER_START_INDEX DiskController
 
 //
 // The following variables are used to cross-reference multifunction
@@ -76,15 +75,6 @@ CmpSetupConfigurationTree(
      IN INTERFACE_TYPE InterfaceType,
      IN ULONG BusNumber
      );
-
-NTSTATUS
-CmpInitializeRegistryNode(
-    IN PCONFIGURATION_COMPONENT_DATA CurrentEntry,
-    IN HANDLE ParentHandle,
-    OUT PHANDLE NewHandle,
-    IN INTERFACE_TYPE InterfaceType,
-    IN ULONG BusNumber
-    );
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(INIT,CmpInitializeHardwareConfiguration)
@@ -125,36 +115,81 @@ Returns:
     ConfigurationRoot = (PCONFIGURATION_COMPONENT_DATA)LoaderBlock->ConfigurationRoot;
     if (ConfigurationRoot) {
 
-#if 0
+#ifdef _X86_
 
         //
-        // Open \\Registry\Machine\Hardware to make sure that
-        // Hardware hive has been created.
+        //  The following strings found in the registry identify obscure,
+        //  yet market dominant, non PC/AT compatible i386 machine in Japan.
         //
 
-        InitializeObjectAttributes(
-            &ObjectAttributes,
-            &CmRegistryMachineHardwareName,
-            0,
-            (HANDLE)NULL,
-            NULL
-            );
+#define MACHINE_TYPE_FUJITSU_FMR_NAME_A    "FUJITSU FMR-"
+#define MACHINE_TYPE_NEC_PC98_NAME_A       "NEC PC-98"
 
-        ObjectAttributes.Attributes |= OBJ_CASE_INSENSITIVE;
+        {
+            PCONFIGURATION_COMPONENT_DATA SystemNode;
+            ULONG JapanMachineId;
 
-        Status = NtOpenKey(
-                    &BaseHandle,
-                    KEY_CREATE_SUB_KEY | KEY_READ,
-                    &ObjectAttributes
-                    );
+            //
+            // For Japan, we have to special case some non PC/AT machines, so
+            // determine at this time what kind of platform we are on:
+            //
+            // NEC PC9800 Compatibles/Fujitsu FM-R Compatibles/IBM PC/AT Compatibles
+            //
+            // Default is PC/AT compatible.
+            //
 
-        if (!NT_SUCCESS(Status)) {
-            return(Status);
+            JapanMachineId = MACHINE_TYPE_PC_AT_COMPATIBLE;
+
+            //
+            // Find the hardware description node
+            //
+
+            SystemNode = KeFindConfigurationEntry(ConfigurationRoot,
+                                                  SystemClass,
+                                                  MaximumType,
+                                                  NULL);
+
+            //
+            // Did we find something?
+            //
+
+            if (SystemNode) {
+
+                //
+                // Check platform from identifier string
+                //
+
+                if (RtlCompareMemory(SystemNode->ComponentEntry.Identifier,
+                                     MACHINE_TYPE_NEC_PC98_NAME_A,
+                                     sizeof(MACHINE_TYPE_NEC_PC98_NAME_A) - 1) ==
+                    sizeof(MACHINE_TYPE_NEC_PC98_NAME_A) - 1) {
+
+                    //
+                    // we are running on NEC PC-9800 comaptibles.
+                    //
+
+                    JapanMachineId = MACHINE_TYPE_PC_9800_COMPATIBLE;
+
+                } else if (RtlCompareMemory(SystemNode->ComponentEntry.Identifier,
+                                            MACHINE_TYPE_FUJITSU_FMR_NAME_A,
+                                            sizeof(MACHINE_TYPE_FUJITSU_FMR_NAME_A) - 1) ==
+                           sizeof(MACHINE_TYPE_FUJITSU_FMR_NAME_A) - 1) {
+
+                    //
+                    // we are running on Fujitsu FMR comaptibles.
+                    //
+
+                    JapanMachineId = MACHINE_TYPE_FMR_COMPATIBLE;
+                }
+            }
+
+            //
+            //  Now 'or' this value into the kernel global.
+            //
+
+            KeI386MachineType |= JapanMachineId;
         }
-
-        NtClose(BaseHandle);
-
-#endif
+#endif //_X86_
 
         //
         // Create \\Registry\Machine\Hardware\DeviceMap
@@ -268,6 +303,10 @@ Routine Description:
     This routine traverses loader configuration tree and register
     the hardware information to the registry data base.
 
+    Note to reduce the stack usage on machines with large number of PCI buses,
+    we do not recursively process the sibling nodes.  We only recursively
+    process the child trees.
+
 Arguments:
 
     CurrentEntry - Supplies a pointer to a loader configuration
@@ -294,12 +333,22 @@ Returns:
     PCONFIGURATION_COMPONENT Component;
     INTERFACE_TYPE LocalInterfaceType = InterfaceType;
     ULONG LocalBusNumber = BusNumber;
+    UCHAR DeviceIndexTable[NUMBER_TYPES];
+
+    for (i = 0; i < NUMBER_TYPES; i++) {
+        DeviceIndexTable[i] = 0;
+    }
 
     //
-    // Process current entry first
+    // Process current entry and its siblings
     //
 
-    if (CurrentEntry) {
+    while (CurrentEntry) {
+
+        //
+        // Register current entry first before going down to its children
+        //
+
         Component = &CurrentEntry->ComponentEntry;
 
         //
@@ -315,11 +364,11 @@ Returns:
 
             case EisaAdapter:
                 LocalInterfaceType = Eisa;
-                LocalBusNumber = CmpTypeCount[EISA_ADAPTER_INDEX];
+                LocalBusNumber = CmpTypeCount[EISA_ADAPTER_INDEX]++;
                 break;
             case TcAdapter:
                 LocalInterfaceType = TurboChannel;
-                LocalBusNumber = CmpTypeCount[TURBOCHANNEL_ADAPTER_INDEX];
+                LocalBusNumber = CmpTypeCount[TURBOCHANNEL_ADAPTER_INDEX]++;
                 break;
             case MultiFunctionAdapter:
 
@@ -331,7 +380,7 @@ Returns:
 
                 if (Component->Identifier) {
                     for (i=0; CmpMultifunctionTypes[i].AscString; i++) {
-                        if (stricmp(CmpMultifunctionTypes[i].AscString,
+                        if (_stricmp(CmpMultifunctionTypes[i].AscString,
                                     Component->Identifier) == 0) {
                                         break;
                         }
@@ -349,7 +398,7 @@ Returns:
                 //
 
                 LocalInterfaceType = Internal;
-                LocalBusNumber = CmpTypeCount[ScsiAdapter];
+                LocalBusNumber = CmpTypeCount[ScsiAdapter]++;
                 break;
 
             default:
@@ -368,7 +417,8 @@ Returns:
                      ParentHandle,
                      &NewHandle,
                      LocalInterfaceType,
-                     LocalBusNumber
+                     LocalBusNumber,
+                     DeviceIndexTable
                      );
 
         if (!NT_SUCCESS(Status)) {
@@ -376,44 +426,30 @@ Returns:
         }
 
         //
-        // Process all the Siblings of current entry
-        //
-
-        Status = CmpSetupConfigurationTree(CurrentEntry->Sibling,
-                                           ParentHandle,
-                                           LocalInterfaceType,
-                                           LocalBusNumber
-                                           );
-        if (!NT_SUCCESS(Status)) {
-            NtClose(NewHandle);
-            return(Status);
-        }
-
-        //
         // Once we are going one level down, we need to clear the TypeCount
-        // table for everything after Adapter..
+        // table for everything under the current component class ...
         //
 
         if (CurrentEntry->Child) {
-            for (i = CONTROLLER_START_INDEX; i < NUMBER_TYPES ; i++) {
-                CmpTypeCount[i] = 0;
+
+            //
+            // Process the child entry of current entry
+            //
+
+            Status = CmpSetupConfigurationTree(CurrentEntry->Child,
+                                               NewHandle,
+                                               LocalInterfaceType,
+                                               LocalBusNumber
+                                               );
+            if (!NT_SUCCESS(Status)) {
+                NtClose(NewHandle);
+                return(Status);
             }
         }
-
-        //
-        // Process the child entry of current entry
-        //
-
-        Status = CmpSetupConfigurationTree(CurrentEntry->Child,
-                                           NewHandle,
-                                           LocalInterfaceType,
-                                           LocalBusNumber
-                                           );
         NtClose(NewHandle);
-        return(Status);
-    } else {
-        return(STATUS_SUCCESS);
+        CurrentEntry = CurrentEntry->Sibling;
     }
+    return(STATUS_SUCCESS);
 }
 
 
@@ -423,7 +459,8 @@ CmpInitializeRegistryNode(
     IN HANDLE ParentHandle,
     OUT PHANDLE NewHandle,
     IN INTERFACE_TYPE InterfaceType,
-    IN ULONG BusNumber
+    IN ULONG BusNumber,
+    IN PUCHAR DeviceIndexTable
     )
 
 /*++
@@ -523,7 +560,7 @@ Returns:
     if (Component->Class != SystemClass) {
 
         RtlIntegerToChar(
-            CmpTypeCount[Component->Type]++,
+            DeviceIndexTable[Component->Type]++,
             10,
             12,
             Buffer
@@ -595,6 +632,7 @@ Returns:
                 );
 
     if (!NT_SUCCESS(Status)) {
+        NtClose(Handle);
         return(Status);
     }
 
@@ -632,6 +670,7 @@ Returns:
         RtlFreeUnicodeString(&ValueData);
 
         if (!NT_SUCCESS(Status)) {
+            NtClose(Handle);
             return(Status);
         }
     }
@@ -744,6 +783,7 @@ Returns:
                 );
 
     if (!NT_SUCCESS(Status)) {
+        NtClose(Handle);
         return(Status);
     }
 

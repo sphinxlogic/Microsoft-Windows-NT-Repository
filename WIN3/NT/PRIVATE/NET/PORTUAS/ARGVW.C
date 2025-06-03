@@ -244,7 +244,7 @@ LPWSTR* CommandLineToArgvW (LPCWSTR lpCmdLine, int*pNumArgs)
     /* if there's no command line at all (won't happen from cmd.exe, but
        possibly another program), then we use pgmname as the command line
        to parse, so that argv[0] is initialized to the program name */
-    cmdstart = (*lpCmdLine == TEXT('\0')) ? pgmname : lpCmdLine;
+    cmdstart = (LPWSTR)((*lpCmdLine == TEXT('\0')) ? (LPCWSTR)pgmname : lpCmdLine);
 
     /* first find out how much space is needed to store args */
     Parse_Cmdline (cmdstart, NULL, NULL, pNumArgs, &numbytes);

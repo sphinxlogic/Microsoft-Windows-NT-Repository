@@ -462,7 +462,6 @@ Return Value:
     LLC_DOS_PARMS UNALIGNED * pDosParms;
     DOS_ADDRESS dpOriginalCcbAddress;
     BOOLEAN parmsCopied;
-    PVOID originalParameterTable;
     WORD paramSize;
     LLC_STATUS status;
     UCHAR command;
@@ -689,7 +688,7 @@ Return Value:
                     // CompleteCcbProcessing
                     //
 
-                    if ((functionFlags & POINTERS_IN_TABLE) || ((DWORD)originalParameterTable & 0x3)) {
+                    if ((functionFlags & POINTERS_IN_TABLE)) {
                         RtlCopyMemory(&parms, pDosParms, paramSize);
                         ccb.u.pParameterTable = &parms;
                         parmsCopied = TRUE;
@@ -1565,8 +1564,8 @@ Return Value:
         // (in DLCAPI.DLL/DLC.SYS) writes the current (0) values to the table
         //
 
-        groupAddress = *(LPDWORD)adapterParms.auchGroupAddress;
-        functionalAddress = *(LPDWORD)adapterParms.auchFunctionalAddress;
+        groupAddress = *(UNALIGNED DWORD *)adapterParms.auchGroupAddress;
+        functionalAddress = *(UNALIGNED DWORD *)adapterParms.auchFunctionalAddress;
 
         //
         // the DLC_PARMS table doesn't HAVE to be supplied - if we just want to
@@ -2329,6 +2328,7 @@ TransmitHandling:
         break;
 
     case LLC_DLC_CLOSE_SAP:
+    case LLC_DLC_CLOSE_STATION:
 
         //
         // Delete the buffer pools of the closed or closing station.

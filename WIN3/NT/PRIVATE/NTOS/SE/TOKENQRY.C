@@ -27,6 +27,7 @@ Revision History:
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE,NtQueryInformationToken)
 #pragma alloc_text(PAGE,SeQueryAuthenticationIdToken)
+#pragma alloc_text(PAGE,SeQueryInformationToken)
 #endif
 
 
@@ -1032,4 +1033,580 @@ Return Value:
     (*AuthenticationId) = ((PTOKEN)Token)->AuthenticationId;
     SepReleaseTokenReadLock( ((PTOKEN)Token) );
     return(STATUS_SUCCESS);
+}
+
+
+
+NTSTATUS
+SeQueryInformationToken (
+    IN PACCESS_TOKEN AccessToken,
+    IN TOKEN_INFORMATION_CLASS TokenInformationClass,
+    OUT PVOID *TokenInformation
+    )
+
+/*++
+
+
+Routine Description:
+
+    Retrieve information about a specified token.
+
+Arguments:
+
+    TokenHandle - Provides a handle to the token to operate on.
+
+    TokenInformationClass - The token information class about which
+        to retrieve information.
+
+    TokenInformation - Receives a pointer to the requested information.
+        The actual structures returned are dependent upon the information 
+        class requested, as defined in the TokenInformationClass parameter
+        description.                                                      
+
+        TokenInformation Format By Information Class:
+
+           TokenUser => TOKEN_USER data structure.  TOKEN_QUERY
+           access is needed to retrieve this information about a
+           token.
+
+           TokenGroups => TOKEN_GROUPS data structure.  TOKEN_QUERY
+           access is needed to retrieve this information about a
+           token.
+
+           TokenPrivileges => TOKEN_PRIVILEGES data structure.
+           TOKEN_QUERY access is needed to retrieve this information
+           about a token.
+
+           TokenOwner => TOKEN_OWNER data structure.  TOKEN_QUERY
+           access is needed to retrieve this information about a
+           token.
+
+           TokenPrimaryGroup => TOKEN_PRIMARY_GROUP data structure.
+           TOKEN_QUERY access is needed to retrieve this information
+           about a token.
+
+           TokenDefaultDacl => TOKEN_DEFAULT_DACL data structure.
+           TOKEN_QUERY access is needed to retrieve this information
+           about a token.
+
+           TokenSource => TOKEN_SOURCE data structure.
+           TOKEN_QUERY_SOURCE access is needed to retrieve this
+           information about a token.
+
+           TokenType => TOKEN_TYPE data structure.
+           TOKEN_QUERY access is needed to retrieve this information
+           about a token.
+
+           TokenStatistics => TOKEN_STATISTICS data structure.
+           TOKEN_QUERY access is needed to retrieve this
+           information about a token.
+
+Return Value:
+
+    STATUS_SUCCESS - Indicates the operation was successful.
+
+--*/
+{
+
+    NTSTATUS Status;
+
+    ULONG RequiredLength;
+    ULONG Index;
+
+    PSID PSid;
+    PACL PAcl;
+
+    PVOID Ignore;
+    PTOKEN Token = (PTOKEN)AccessToken;
+
+    PAGED_CODE();
+
+    //
+    // Case on information class.
+    //
+
+    switch ( TokenInformationClass ) {
+
+        case TokenUser:
+            {
+                PTOKEN_USER LocalUser;
+
+                LocalUser = (PTOKEN_USER)(*TokenInformation);
+        
+                //
+                //  Gain exclusive access to the token.
+                //
+        
+                SepAcquireTokenReadLock( Token );
+        
+                //
+                // Return the length required now in case not enough buffer
+                // was provided by the caller and we have to return an error.
+                //
+        
+                RequiredLength = SeLengthSid( Token->UserAndGroups[0].Sid) +
+                                 (ULONG)sizeof( TOKEN_USER );
+        
+                LocalUser = ExAllocatePool( PagedPool, RequiredLength );
+        
+                if (LocalUser == NULL) {
+                    SepReleaseTokenReadLock( Token );
+                    return( STATUS_INSUFFICIENT_RESOURCES );
+                }
+        
+                //
+                // Return the user SID
+                //
+                //  Put SID immediately following TOKEN_USER data structure
+                //
+        
+                PSid = (PSID)( (ULONG)LocalUser + (ULONG)sizeof(TOKEN_USER) );
+        
+                RtlCopySidAndAttributesArray(
+                    1,
+                    Token->UserAndGroups,
+                    RequiredLength,
+                    &(LocalUser->User),
+                    PSid,
+                    ((PSID *)&Ignore),
+                    ((PULONG)&Ignore)
+                    );
+        
+                SepReleaseTokenReadLock( Token );
+                return STATUS_SUCCESS;
+            }
+
+
+        case TokenGroups:
+            {
+                PTOKEN_GROUPS LocalGroups;
+
+                LocalGroups = (PTOKEN_GROUPS)(*TokenInformation);
+
+                //
+                //  Gain exclusive access to the token.
+                //
+        
+                SepAcquireTokenReadLock( Token );
+        
+                //
+                // Figure out how much space is needed to return the group SIDs.
+                // That's the size of TOKEN_GROUPS (without any array entries)
+                // plus the size of an SID_AND_ATTRIBUTES times the number of groups.
+                // The number of groups is Token->UserAndGroups-1 (since the count
+                // includes the user ID).  Then the lengths of each individual group
+                // must be added.
+                //
+        
+                RequiredLength = (ULONG)sizeof(TOKEN_GROUPS) +
+                                 ((Token->UserAndGroupCount - ANYSIZE_ARRAY - 1) *
+                                 ((ULONG)sizeof(SID_AND_ATTRIBUTES)) );
+        
+                Index = 1;
+                while (Index < Token->UserAndGroupCount) {
+        
+                    RequiredLength += SeLengthSid( Token->UserAndGroups[Index].Sid );
+        
+                    Index += 1;
+        
+                } // endwhile
+        
+                LocalGroups = ExAllocatePool( PagedPool, RequiredLength );
+        
+                if (LocalGroups == NULL) {
+                    SepReleaseTokenReadLock( Token );
+                    return( STATUS_INSUFFICIENT_RESOURCES );
+                }
+        
+                //
+                // Now copy the groups.
+                //
+        
+                LocalGroups->GroupCount = Token->UserAndGroupCount - 1;
+        
+                PSid = (PSID)( (ULONG)LocalGroups +
+                               (ULONG)sizeof(TOKEN_GROUPS) +
+                               (   (Token->UserAndGroupCount - ANYSIZE_ARRAY - 1) *
+                                   (ULONG)sizeof(SID_AND_ATTRIBUTES) )
+                             );
+        
+                RtlCopySidAndAttributesArray(
+                    (ULONG)(Token->UserAndGroupCount - 1),
+                    &(Token->UserAndGroups[1]),
+                    RequiredLength,
+                    LocalGroups->Groups,
+                    PSid,
+                    ((PSID *)&Ignore),
+                    ((PULONG)&Ignore)
+                    );
+        
+                SepReleaseTokenReadLock( Token );
+                return STATUS_SUCCESS;
+            }
+
+
+        case TokenPrivileges:
+            {
+                PTOKEN_PRIVILEGES LocalPrivileges;
+
+                LocalPrivileges = (PTOKEN_PRIVILEGES)(*TokenInformation);
+        
+                //
+                //  Gain exclusive access to the token to prevent changes
+                //  from occuring to the privileges.
+                //
+        
+                SepAcquireTokenReadLock( Token );
+        
+                //
+                // Return the length required now in case not enough buffer
+                // was provided by the caller and we have to return an error.
+                //
+        
+                RequiredLength = (ULONG)sizeof(TOKEN_PRIVILEGES) +
+                                 ((Token->PrivilegeCount - ANYSIZE_ARRAY) *
+                                 ((ULONG)sizeof(LUID_AND_ATTRIBUTES)) );
+        
+                LocalPrivileges = ExAllocatePool( PagedPool, RequiredLength );
+           
+                if (LocalPrivileges == NULL) {
+                    SepReleaseTokenReadLock( Token );
+                    return( STATUS_INSUFFICIENT_RESOURCES );
+                }
+        
+                //
+                // Return the token privileges.
+                //
+        
+                LocalPrivileges->PrivilegeCount = Token->PrivilegeCount;
+        
+                RtlCopyLuidAndAttributesArray(
+                    Token->PrivilegeCount,
+                    Token->Privileges,
+                    LocalPrivileges->Privileges
+                    );
+        
+                SepReleaseTokenReadLock( Token );
+                return STATUS_SUCCESS;
+            }
+
+
+        case TokenOwner:
+            {
+                PTOKEN_OWNER LocalOwner;
+
+                LocalOwner = (PTOKEN_OWNER)(*TokenInformation);
+        
+                //
+                //  Gain exclusive access to the token to prevent changes
+                //  from occuring to the owner.
+                //
+        
+                SepAcquireTokenReadLock( Token );
+        
+                //
+                // Return the length required now in case not enough buffer
+                // was provided by the caller and we have to return an error.
+                //
+        
+                PSid = Token->UserAndGroups[Token->DefaultOwnerIndex].Sid;
+                RequiredLength = (ULONG)sizeof(TOKEN_OWNER) +
+                                 SeLengthSid( PSid );
+        
+                LocalOwner = ExAllocatePool( PagedPool, RequiredLength );
+           
+                if (LocalOwner == NULL) {
+                    SepReleaseTokenReadLock( Token );
+                    return( STATUS_INSUFFICIENT_RESOURCES );
+                }
+        
+                //
+                // Return the owner SID
+                //
+        
+                PSid = (PSID)((ULONG)LocalOwner +
+                              (ULONG)sizeof(TOKEN_OWNER));
+        
+                LocalOwner->Owner = PSid;
+        
+                Status = RtlCopySid(
+                             (RequiredLength - (ULONG)sizeof(TOKEN_OWNER)),
+                             PSid,
+                             Token->UserAndGroups[Token->DefaultOwnerIndex].Sid
+                             );
+        
+                ASSERT( NT_SUCCESS(Status) );
+        
+                SepReleaseTokenReadLock( Token );
+                return STATUS_SUCCESS;
+            }
+
+
+        case TokenPrimaryGroup:
+            {
+                PTOKEN_PRIMARY_GROUP LocalPrimaryGroup;
+
+                LocalPrimaryGroup = (PTOKEN_PRIMARY_GROUP)(*TokenInformation);
+        
+                //
+                //  Gain exclusive access to the token to prevent changes
+                //  from occuring to the owner.
+                //
+        
+                SepAcquireTokenReadLock( Token );
+        
+                //
+                // Return the length required now in case not enough buffer
+                // was provided by the caller and we have to return an error.
+                //
+        
+                RequiredLength = (ULONG)sizeof(TOKEN_PRIMARY_GROUP) +
+                                 SeLengthSid( Token->PrimaryGroup );
+        
+                LocalPrimaryGroup = ExAllocatePool( PagedPool, RequiredLength );
+           
+                if (LocalPrimaryGroup == NULL) {
+                    SepReleaseTokenReadLock( Token );
+                    return( STATUS_INSUFFICIENT_RESOURCES );
+                }
+        
+                //
+                // Return the primary group SID
+                //
+        
+                PSid = (PSID)((ULONG)LocalPrimaryGroup +
+                              (ULONG)sizeof(TOKEN_PRIMARY_GROUP));
+        
+                LocalPrimaryGroup->PrimaryGroup = PSid;
+        
+                Status = RtlCopySid( (RequiredLength - (ULONG)sizeof(TOKEN_PRIMARY_GROUP)),
+                                     PSid,
+                                     Token->PrimaryGroup
+                                     );
+        
+                ASSERT( NT_SUCCESS(Status) );
+        
+                SepReleaseTokenReadLock( Token );
+                return STATUS_SUCCESS;
+            }
+
+
+        case TokenDefaultDacl:
+            {
+                PTOKEN_DEFAULT_DACL LocalDefaultDacl;
+
+                LocalDefaultDacl = (PTOKEN_DEFAULT_DACL)(*TokenInformation);
+        
+                //
+                //  Gain exclusive access to the token to prevent changes
+                //  from occuring to the owner.
+                //
+        
+                SepAcquireTokenReadLock( Token );
+        
+                //
+                // Return the length required now in case not enough buffer
+                // was provided by the caller and we have to return an error.
+                //
+        
+                RequiredLength = (ULONG)sizeof(TOKEN_DEFAULT_DACL);
+        
+                if (ARGUMENT_PRESENT(Token->DefaultDacl)) {
+        
+                    RequiredLength += Token->DefaultDacl->AclSize;
+                }
+        
+                LocalDefaultDacl = ExAllocatePool( PagedPool, RequiredLength );
+           
+                if (LocalDefaultDacl == NULL) {
+                    SepReleaseTokenReadLock( Token );
+                    return( STATUS_INSUFFICIENT_RESOURCES );
+                }
+        
+                //
+                // Return the default Dacl
+                //
+        
+                PAcl = (PACL)((ULONG)LocalDefaultDacl +
+                              (ULONG)sizeof(TOKEN_DEFAULT_DACL));
+        
+                if (ARGUMENT_PRESENT(Token->DefaultDacl)) {
+        
+                    LocalDefaultDacl->DefaultDacl = PAcl;
+        
+                    RtlMoveMemory( (PVOID)PAcl,
+                                   (PVOID)Token->DefaultDacl,
+                                   Token->DefaultDacl->AclSize
+                                   );
+                } else {
+        
+                    LocalDefaultDacl->DefaultDacl = NULL;
+                }
+        
+                SepReleaseTokenReadLock( Token );
+                return STATUS_SUCCESS;
+            }
+
+
+        case TokenSource:
+            {
+                PTOKEN_SOURCE LocalSource;
+
+                LocalSource = (PTOKEN_SOURCE)(*TokenInformation);
+        
+                //
+                // The type of a token can not be changed, so
+                // exclusive access to the token is not necessary.
+                //
+        
+                //
+                // Return the length required now in case not enough buffer
+                // was provided by the caller and we have to return an error.
+                //
+        
+                RequiredLength = (ULONG) sizeof(TOKEN_SOURCE);
+
+                LocalSource = ExAllocatePool( PagedPool, RequiredLength );
+           
+                if (LocalSource == NULL) {
+                    return( STATUS_INSUFFICIENT_RESOURCES );
+                }
+        
+                //
+                // Return the token source
+                //
+        
+                (*LocalSource) = Token->TokenSource;
+        
+                return STATUS_SUCCESS;
+            }
+
+
+        case TokenType:
+            {
+                PTOKEN_TYPE LocalType;
+
+                LocalType = (PTOKEN_TYPE)(*TokenInformation);
+        
+                //
+                // The type of a token can not be changed, so
+                // exclusive access to the token is not necessary.
+                //
+        
+                //
+                // Return the length required now in case not enough buffer
+                // was provided by the caller and we have to return an error.
+                //
+        
+                RequiredLength = (ULONG) sizeof(TOKEN_TYPE);
+
+                LocalType = ExAllocatePool( PagedPool, RequiredLength );
+           
+                if (LocalType == NULL) {
+                    return( STATUS_INSUFFICIENT_RESOURCES );
+                }
+        
+                //
+                // Return the token type
+                //
+        
+                (*LocalType) = Token->TokenType;
+        
+                return STATUS_SUCCESS;
+            }
+
+
+        case TokenImpersonationLevel:
+            {
+                PSECURITY_IMPERSONATION_LEVEL LocalImpersonationLevel;
+
+                LocalImpersonationLevel = (PSECURITY_IMPERSONATION_LEVEL)(*TokenInformation);
+        
+                //
+                // The impersonation level of a token can not be changed, so
+                // exclusive access to the token is not necessary.
+                //
+        
+                //
+                //  Make sure the token is an appropriate type to be retrieving
+                //  the impersonation level from.
+                //
+        
+                if (Token->TokenType != TokenImpersonation) {
+        
+                    return STATUS_INVALID_INFO_CLASS;
+                }
+        
+                //
+                // Return the length required now in case not enough buffer
+                // was provided by the caller and we have to return an error.
+                //
+        
+                RequiredLength = (ULONG) sizeof(SECURITY_IMPERSONATION_LEVEL);
+
+                LocalImpersonationLevel = ExAllocatePool( PagedPool, RequiredLength );
+           
+                if (LocalImpersonationLevel == NULL) {
+                    return( STATUS_INSUFFICIENT_RESOURCES );
+                }
+        
+                //
+                // Return the impersonation level
+                //
+        
+                (*LocalImpersonationLevel) = Token->ImpersonationLevel;
+        
+                return STATUS_SUCCESS;
+            }
+
+
+        case TokenStatistics:
+            {
+                PTOKEN_STATISTICS LocalStatistics;
+
+                LocalStatistics = (PTOKEN_STATISTICS)(*TokenInformation);
+        
+                //
+                //  Gain exclusive access to the token.
+                //
+        
+                SepAcquireTokenReadLock( Token );
+        
+                //
+                // Return the length required now in case not enough buffer
+                // was provided by the caller and we have to return an error.
+                //
+        
+                RequiredLength = (ULONG)sizeof( TOKEN_STATISTICS );
+
+                LocalStatistics = ExAllocatePool( PagedPool, RequiredLength );
+           
+                if (LocalStatistics == NULL) {
+                    SepReleaseTokenReadLock( Token );
+                    return( STATUS_INSUFFICIENT_RESOURCES );
+                }
+        
+                //
+                // Return the statistics
+                //
+        
+                LocalStatistics->TokenId            = Token->TokenId;
+                LocalStatistics->AuthenticationId   = Token->AuthenticationId;
+                LocalStatistics->ExpirationTime     = Token->ExpirationTime;
+                LocalStatistics->TokenType          = Token->TokenType;
+                LocalStatistics->ImpersonationLevel = Token->ImpersonationLevel;
+                LocalStatistics->DynamicCharged     = Token->DynamicCharged;
+                LocalStatistics->DynamicAvailable   = Token->DynamicAvailable;
+                LocalStatistics->GroupCount         = Token->UserAndGroupCount-1;
+                LocalStatistics->PrivilegeCount     = Token->PrivilegeCount;
+                LocalStatistics->ModifiedId         = Token->ModifiedId;
+        
+                SepReleaseTokenReadLock( Token );
+                return STATUS_SUCCESS;
+            }
+
+    default:
+
+        return STATUS_INVALID_INFO_CLASS;
+    }
 }

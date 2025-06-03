@@ -237,7 +237,7 @@ LPARAM lParam;
                     switch (GET_WM_COMMAND_CMD (wParam, lParam)) {
                        case LBN_DBLCLK:
 			  if (MDlgDirSelect(hDlg, FileSpRight, sizeof (FileSpRight), CFR_DIRLB)) {
-			      chdir(CFR_Path);
+			      _chdir(CFR_Path);
 			      lstrcpy(CFR_Path,FileSpRight);
 			      UpdateListBoxes(hDlg,CFR_FILELB,CFR_DIRLB,CFR_DIRNAME,CFR_FLNAME,CFR_Path,CFR_Spec);
 			  };
@@ -272,7 +272,7 @@ LPARAM lParam;
                     switch (GET_WM_COMMAND_CMD (wParam, lParam)) {
                        case LBN_DBLCLK:
 			  if (MDlgDirSelect(hDlg, FileSpLeft, sizeof (FileSpLeft), CFL_DIRLB)) {
-			      chdir(CFL_Path);
+			      _chdir(CFL_Path);
 			      lstrcpy(CFL_Path,FileSpLeft);
 			      UpdateListBoxes(hDlg,CFL_FILELB,CFL_DIRLB,CFL_DIRNAME,CFL_FLNAME,CFL_Path,CFL_Spec);
 			  };

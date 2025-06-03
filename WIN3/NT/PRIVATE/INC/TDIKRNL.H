@@ -213,6 +213,9 @@ typedef struct _TDI_REQUEST_KERNEL_SET_INFO {
 #define TDI_EVENT_RECEIVE_DATAGRAM  ((USHORT)4) // TDI_IND_RECEIVE_DATAGRAM event handler.
 #define TDI_EVENT_RECEIVE_EXPEDITED ((USHORT)5) // TDI_IND_RECEIVE_EXPEDITED event handler.
 #define TDI_EVENT_SEND_POSSIBLE     ((USHORT)6) // TDI_IND_SEND_POSSIBLE event handler
+#define TDI_EVENT_CHAINED_RECEIVE   ((USHORT)7) // TDI_IND_CHAINED_RECEIVE event handler.
+#define TDI_EVENT_CHAINED_RECEIVE_DATAGRAM  ((USHORT)8) // TDI_IND_CHAINED_RECEIVE_DATAGRAM event handler.
+#define TDI_EVENT_CHAINED_RECEIVE_EXPEDITED ((USHORT)9) // TDI_IND_CHAINED_RECEIVE_EXPEDITED event handler.
 
 //
 // indicate connection event prototype. This is invoked when a request for
@@ -397,6 +400,104 @@ TdiDefaultRcvExpeditedHandler (
     OUT ULONG *BytesTaken,          // number of bytes used by indication routine
     IN PVOID Tsdu,                  // pointer describing this TSDU, typically a lump of bytes
     OUT PIRP *IoRequestPacket        // TdiReceive IRP if MORE_PROCESSING_REQUIRED.
+    );
+
+//
+// TDI_IND_CHAINED_RECEIVE indication handler definition.  This client routine
+// is called by the transport provider when a connection-oriented TSDU is
+// received that should be presented to the client. The TSDU is stored in an
+// MDL chain. The client may take ownership of the TSDU and return it at a
+// later time.
+//
+
+typedef
+NTSTATUS
+(*PTDI_IND_CHAINED_RECEIVE)(
+    IN PVOID TdiEventContext,
+    IN CONNECTION_CONTEXT ConnectionContext,
+    IN ULONG ReceiveFlags,
+    IN ULONG ReceiveLength,        // length of client data in TSDU
+    IN ULONG StartingOffset,       // offset of start of client data in TSDU
+    IN PMDL  Tsdu,                 // TSDU data chain
+    IN PVOID TsduDescriptor        // for call to TdiReturnChainedReceives
+    );
+
+NTSTATUS
+TdiDefaultChainedReceiveHandler (
+    IN PVOID TdiEventContext,
+    IN CONNECTION_CONTEXT ConnectionContext,
+    IN ULONG ReceiveFlags,
+    IN ULONG ReceiveLength,        // length of client data in TSDU
+    IN ULONG StartingOffset,       // offset of start of client data in TSDU
+    IN PMDL  Tsdu,                 // TSDU data chain
+    IN PVOID TsduDescriptor        // for call to TdiReturnChainedReceives
+    );
+
+//
+// TDI_IND_CHAINED_RECEIVE_DATAGRAM indication handler definition.  This client
+// routine is called by the transport provider when a connectionless TSDU is
+// received that should be presented to the client. The TSDU is stored in an
+// MDL chain. The client may take ownership of the TSDU and return it at a
+// later time.
+//
+
+typedef
+NTSTATUS
+(*PTDI_IND_CHAINED_RECEIVE_DATAGRAM)(
+    IN PVOID TdiEventContext,       // the event context
+    IN LONG SourceAddressLength,    // length of the originator of the datagram
+    IN PVOID SourceAddress,         // string describing the originator of the datagram
+    IN LONG OptionsLength,          // options for the receive
+    IN PVOID Options,               //
+    IN ULONG ReceiveDatagramFlags,  //
+    IN ULONG ReceiveDatagramLength, // length of client data in TSDU
+    IN ULONG StartingOffset,        // offset of start of client data in TSDU
+    IN PMDL  Tsdu,                  // TSDU data chain
+    IN PVOID TsduDescriptor         // for call to TdiReturnChainedReceives
+    );
+
+NTSTATUS
+TdiDefaultChainedRcvDatagramHandler (
+    IN PVOID TdiEventContext,       // the event context
+    IN LONG SourceAddressLength,    // length of the originator of the datagram
+    IN PVOID SourceAddress,         // string describing the originator of the datagram
+    IN LONG OptionsLength,          // options for the receive
+    IN PVOID Options,               //
+    IN ULONG ReceiveDatagramFlags,  //
+    IN ULONG ReceiveDatagramLength, // length of client data in TSDU
+    IN ULONG StartingOffset,        // offset of start of client data in TSDU
+    IN PMDL  Tsdu,                  // TSDU data chain
+    IN PVOID TsduDescriptor         // for call to TdiReturnChainedReceives
+    );
+
+//
+// This indication is delivered if expedited data is received on the connection.
+// This will only occur in providers that support expedited data. The TSDU is
+// stored in an MDL chain. The client may take ownership of the TSDU and
+// return it at a later time.
+//
+
+typedef
+NTSTATUS
+(*PTDI_IND_CHAINED_RECEIVE_EXPEDITED)(
+    IN PVOID TdiEventContext,
+    IN CONNECTION_CONTEXT ConnectionContext,
+    IN ULONG ReceiveFlags,
+    IN ULONG ReceiveLength,      // length of client data in TSDU
+    IN ULONG StartingOffset,     // offset of start of client data in TSDU
+    IN PMDL  Tsdu,               // TSDU data chain
+    IN PVOID TsduDescriptor      // for call to TdiReturnChainedReceives
+    );
+
+NTSTATUS
+TdiDefaultChainedRcvExpeditedHandler (
+    IN PVOID TdiEventContext,
+    IN CONNECTION_CONTEXT ConnectionContext,
+    IN ULONG ReceiveFlags,
+    IN ULONG ReceiveLength,      // length of client data in TSDU
+    IN ULONG StartingOffset,     // offset of start of client data in TSDU
+    IN PMDL  Tsdu,               // TSDU data chain
+    IN PVOID TsduDescriptor      // for call to TdiReturnChainedReceives
     );
 
 //
@@ -833,5 +934,90 @@ TdiBuildNetbiosAddressEa (
     (IRP)->IoStatus.Status = (STATUS);                \
     IoCompleteRequest( (IRP), IO_NETWORK_INCREMENT ); \
 }
+
+
+VOID
+TdiReturnChainedReceives(
+    IN PVOID *TsduDescriptors,
+    IN ULONG  NumberOfTsdus
+    );
+
+
+// The type definition for a TDI Bind handler callout. This callout is
+// called when a new transport device arrives.
+
+typedef VOID
+(*TDI_BIND_HANDLER)(
+	IN	PUNICODE_STRING	DeviceName
+	);
+
+typedef VOID
+(*TDI_UNBIND_HANDLER)(
+	IN	PUNICODE_STRING	DeviceName
+	);
+
+// The type definition for a TDI address handler callout. This callout is
+// called when a new net address arrives
+
+typedef VOID
+(*TDI_ADD_ADDRESS_HANDLER)(
+	IN	PTA_ADDRESS		Address
+	);
+
+typedef VOID
+(*TDI_DEL_ADDRESS_HANDLER)(
+	IN	PTA_ADDRESS		Address
+	);
+
+NTSTATUS
+TdiRegisterNotificationHandler(
+	IN TDI_BIND_HANDLER		BindHandler,
+	IN TDI_UNBIND_HANDLER	UnbindHandler,
+    OUT HANDLE				*BindingHandle
+);
+
+NTSTATUS
+TdiDeregisterNotificationHandler(
+	IN HANDLE				BindingHandle
+);
+
+NTSTATUS
+TdiRegisterDeviceObject(
+	IN PUNICODE_STRING		DeviceName,
+    OUT HANDLE				*RegistrationHandle
+);
+
+NTSTATUS
+TdiDeregisterDeviceObject(
+	IN HANDLE				RegistrationHandle
+);
+
+NTSTATUS
+TdiRegisterAddressChangeHandler(
+	IN TDI_ADD_ADDRESS_HANDLER		AddHandler,
+	IN TDI_DEL_ADDRESS_HANDLER		DeleteHandler,
+    OUT HANDLE						*BindingHandle
+);
+
+NTSTATUS
+TdiDeregisterAddressChangeHandler(
+	IN HANDLE				BindingHandle
+);
+
+NTSTATUS
+TdiRegisterNetAddress(
+	IN PTA_ADDRESS		Address,
+    OUT HANDLE			*RegistrationHandle
+);
+
+NTSTATUS
+TdiDeregisterNetAddress(
+	IN HANDLE				RegistrationHandle
+);
+
+VOID
+TdiInitialize(
+	VOID
+);
 
 #endif // _TDI_KRNL_

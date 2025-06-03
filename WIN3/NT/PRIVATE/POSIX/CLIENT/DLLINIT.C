@@ -22,7 +22,7 @@ Environment:
 Revision History:
 
     Ellen Aycock-Wright (ellena) 03-Jan-1991
-	Converted to DLL initialization routine.
+    Converted to DLL initialization routine.
 
 --*/
 
@@ -34,13 +34,6 @@ extern void ClientOpen(int);
 
 ULONG PsxPortMemoryRemoteDelta;
 PVOID PsxPortMemoryBase;
-
-BOOLEAN
-NlsDllInitialize(
-    IN PVOID DllHandle,
-    IN ULONG Reason,
-    IN PCONTEXT Context OPTIONAL
-    );
 
 BOOLEAN
 PsxDllInitialize(
@@ -76,7 +69,7 @@ Return Value:
     NTSTATUS Status;
 
     if (Reason != DLL_PROCESS_ATTACH) {
-	return TRUE;
+        return TRUE;
     }
 
     //
@@ -93,20 +86,18 @@ Return Value:
                              NULL
                            );
 
-    ASSERT(PdxHeap != NULL);
     if (PdxHeap == NULL) {
         return FALSE;
     }
     
     Status = PsxInitDirectories();
-    ASSERT (NT_SUCCESS(Status));
     if ( !NT_SUCCESS( Status )) { 
-	return FALSE;
+        return FALSE;
     }
 
     Status = PsxConnectToServer();
     if (!NT_SUCCESS(Status)) {
-	return FALSE;
+        return FALSE;
     }
 
     Peb = NtCurrentPeb();
@@ -120,13 +111,9 @@ Return Value:
 
     PsxAnsiCommandLine = *(PANSI_STRING)&(Peb->ProcessParameters->CommandLine);
     if (ARGUMENT_PRESENT(Context)) {
-    	PebPsxData = (PPEB_PSX_DATA)Peb->SubSystemData;
-	PebPsxData->ClientStartAddress = (PVOID)CONTEXT_TO_PROGRAM_COUNTER(Context);
-	(PVOID)CONTEXT_TO_PROGRAM_COUNTER(Context) = (PVOID)PdxProcessStartup;
-    }
-
-    if (!NlsDllInitialize(DllHandle, Reason, Context)) {
-	return FALSE;
+        PebPsxData = (PPEB_PSX_DATA)Peb->SubSystemData;
+        PebPsxData->ClientStartAddress = (PVOID)CONTEXT_TO_PROGRAM_COUNTER(Context);
+        (PVOID)CONTEXT_TO_PROGRAM_COUNTER(Context) = (PVOID)PdxProcessStartup;
     }
 
     return TRUE;
@@ -137,12 +124,12 @@ PsxInitDirectories()
 {
 
     PdxDirectoryPrefix.NtCurrentWorkingDirectory.Buffer = 
-					RtlAllocateHeap(PdxHeap, 0,2*PATH_MAX);
+                    RtlAllocateHeap(PdxHeap, 0,2*PATH_MAX);
     PdxDirectoryPrefix.NtCurrentWorkingDirectory.Length = 0;
     PdxDirectoryPrefix.NtCurrentWorkingDirectory.MaximumLength = 2*PATH_MAX;
     
     PdxDirectoryPrefix.PsxCurrentWorkingDirectory.Buffer = 
-					RtlAllocateHeap(PdxHeap, 0,PATH_MAX+1);
+                    RtlAllocateHeap(PdxHeap, 0,PATH_MAX+1);
     PdxDirectoryPrefix.PsxCurrentWorkingDirectory.Length = 0;
     PdxDirectoryPrefix.PsxCurrentWorkingDirectory.MaximumLength = PATH_MAX+1;
     
@@ -159,10 +146,10 @@ PsxInitDirectories()
     ASSERT(PdxDirectoryPrefix.PsxRoot.Buffer);
 
     if ( PdxDirectoryPrefix.NtCurrentWorkingDirectory.Buffer == NULL |
-    	 PdxDirectoryPrefix.PsxCurrentWorkingDirectory.Buffer== NULL |
-    	 PdxDirectoryPrefix.PsxRoot.Buffer == NULL ) {
+         PdxDirectoryPrefix.PsxCurrentWorkingDirectory.Buffer== NULL |
+         PdxDirectoryPrefix.PsxRoot.Buffer == NULL ) {
 
-	return ( STATUS_NO_MEMORY );
+        return ( STATUS_NO_MEMORY );
     }
     return ( STATUS_SUCCESS );
 }
@@ -198,10 +185,10 @@ PsxConnectToServer(VOID)
     // SEC_RESERVE
     
     Status = NtCreateSection(&PortSection, SECTION_ALL_ACCESS, NULL,
-            		     &SectionSize, PAGE_READWRITE, SEC_COMMIT, NULL);
+                         &SectionSize, PAGE_READWRITE, SEC_COMMIT, NULL);
     if (!NT_SUCCESS(Status)) {
-	KdPrint(("PSXDLL: NtCreateSection: 0x%x\n", Status));
-	return Status;
+        KdPrint(("PSXDLL: NtCreateSection: 0x%x\n", Status));
+        return Status;
     }
 
     //
@@ -212,7 +199,7 @@ PsxConnectToServer(VOID)
 
     Peb = NtCurrentPeb();
     Peb->SubSystemData = RtlAllocateHeap(Peb->ProcessHeap, 0,
-		sizeof(PEB_PSX_DATA));
+        sizeof(PEB_PSX_DATA));
     ASSERT(NULL != Peb->SubSystemData);
 
     PebPsxData = (PPEB_PSX_DATA)Peb->SubSystemData;
@@ -253,29 +240,29 @@ PsxConnectToServer(VOID)
 
     RtlInitUnicodeString(&PsxPortName, PSX_SS_API_PORT_NAME);
 
-        Status = NtConnectPort(&PsxPortHandle, &PsxPortName, &DynamicQos,
-            		   &ClientView, &ServerView, NULL,
-            		   (PVOID)&ConnectionInformation,
-            		   (PULONG)&ConnectionInformationLength);
+    Status = NtConnectPort(&PsxPortHandle, &PsxPortName, &DynamicQos,
+               &ClientView, &ServerView, NULL,
+               (PVOID)&ConnectionInformation,
+               (PULONG)&ConnectionInformationLength);
 
-	NtClose(PortSection);
+    NtClose(PortSection);
 
-	if (!NT_SUCCESS(Status)) {
-		KdPrint(("PSXDLL: Unable to connect to Posix server: %lx\n", 
-			Status));
-		return Status;
-	}
+    if (!NT_SUCCESS(Status)) {
+        KdPrint(("PSXDLL: Unable to connect to Posix server: %lx\n", 
+            Status));
+        return Status;
+    }
 
-	Status = NtRegisterThreadTerminatePort(PsxPortHandle);
-	ASSERT(NT_SUCCESS(Status));
+    Status = NtRegisterThreadTerminatePort(PsxPortHandle);
+    ASSERT(NT_SUCCESS(Status));
     
-	PsxPortMemoryBase = ClientView.ViewBase;
-	PsxPortMemoryRemoteDelta = (ULONG)ClientView.ViewRemoteBase - 
-			       (ULONG)ClientView.ViewBase;
+    PsxPortMemoryBase = ClientView.ViewBase;
+    PsxPortMemoryRemoteDelta = (ULONG)ClientView.ViewRemoteBase - 
+                   (ULONG)ClientView.ViewBase;
 
-	RtlMoveMemory((PVOID)PebPsxData,
-		   (PVOID)&ConnectionInformation.InitialPebPsxData,
-    		   PebPsxData->Length);
+    RtlMoveMemory((PVOID)PebPsxData,
+           (PVOID)&ConnectionInformation.InitialPebPsxData,
+               PebPsxData->Length);
 
     PdxPortHeap = RtlCreateHeap( HEAP_NO_SERIALIZE,
                                  ClientView.ViewBase, 
@@ -286,8 +273,8 @@ PsxConnectToServer(VOID)
                                );
 
     if (PdxPortHeap == NULL) {
-	KdPrint(("PsxConnectToServer: RtlCreateHeap failed\n"));
-	return STATUS_NO_MEMORY;
+        KdPrint(("PsxConnectToServer: RtlCreateHeap failed\n"));
+        return STATUS_NO_MEMORY;
     }
 
     //
@@ -297,8 +284,8 @@ PsxConnectToServer(VOID)
 
     Status = PsxInitializeSessionPort((ULONG) PebPsxData->SessionPortHandle);
     if (!NT_SUCCESS(Status)) {
-	KdPrint(("PsxConnectToServer: PsxInitSessionPort failed\n"));
-	return Status;
+        KdPrint(("PsxConnectToServer: PsxInitSessionPort failed\n"));
+        return Status;
     }
     return STATUS_SUCCESS;
 }
@@ -322,7 +309,7 @@ PdxProcessStartup(
     StartAddress = (PFNPROCESS)(PebPsxData->ClientStartAddress);
 
     ReturnCodeFromMain = (*StartAddress) (0, NULL);
-	
+    
     _exit(ReturnCodeFromMain);
 
     NtTerminateProcess(NtCurrentProcess(),STATUS_ACCESS_DENIED);
@@ -336,6 +323,9 @@ PdxNullApiCaller(
     )
 {
     PdxNullPosixApi();
+#ifdef _X86_
+    Context->Eax = 0;
+#endif
     NtContinue(Context,FALSE);
     //NOTREACHED
 }
@@ -349,10 +339,15 @@ PdxSignalDeliverer (
     IN _handler Handler
     )
 {
-	(Handler)(Signal);
-	sigprocmask(SIG_SETMASK, &PreviousBlockMask, NULL);
-	NtContinue(Context, FALSE);
-	//NOTREACHED
+    (Handler)(Signal);
+    sigprocmask(SIG_SETMASK, &PreviousBlockMask, NULL);
+
+    
+#ifdef _X86_
+    Context->Eax = 0;
+#endif
+    NtContinue(Context, FALSE);
+    //NOTREACHED
 }
 
 VOID
@@ -377,6 +372,6 @@ Return Value:
 
 --*/
 {
-	Errno = perrno;
-	Environ = penviron;
+    Errno = perrno;
+    Environ = penviron;
 }

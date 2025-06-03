@@ -56,7 +56,7 @@
 
 /* optional */
 #define TQ_SCROLL	8	/* lParam: the new top row nr */
-
+#define TQ_TABS         9       /* lParam: LONG *, write tab here */
 
 /* messages to Table class */
 
@@ -95,6 +95,11 @@
  * in case this has changed.
  */
 #define TM_APPEND	(WM_USER+7)
+
+/*
+ * return the current selection - lParam is a lpTableSelection
+ */
+#define TM_GETSELECTION (WM_USER+8)
 
 /*-----display properties -------------------------------------------------*/
 
@@ -291,5 +296,6 @@ typedef struct {
 	lpMargin margin;
 	PRINTDLG FAR * pd;
 } PrintContext, FAR * lpPrintContext;
+
 
 

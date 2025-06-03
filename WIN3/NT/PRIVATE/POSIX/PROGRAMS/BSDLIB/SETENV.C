@@ -65,7 +65,7 @@ setenv(name, value, rewrite)
 	if ((C = _findenv(name, &offset))) {	/* find if already exists */
 		if (!rewrite)
 			return (0);
-		if (strlen(C) >= l_value) {	/* old larger; copy over */
+		if (strlen(C) >= (unsigned)l_value) {	/* old larger; copy over */
 			while (*C++ = *value++);
 			return (0);
 		}
@@ -86,7 +86,7 @@ setenv(name, value, rewrite)
 			    (cnt + 2)));
 			if (!P)
 				return (-1);
-			bcopy(environ, P, cnt * sizeof(char *));
+			bcopy((void *)environ, (void *)P, cnt * sizeof(char *));
 			environ = P;
 		}
 		environ[cnt + 1] = NULL;

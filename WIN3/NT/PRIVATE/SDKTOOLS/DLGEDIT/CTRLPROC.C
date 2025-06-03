@@ -395,9 +395,16 @@ BOOL DrawOwnerDrawButton(
     if (gcd.hFont)
         SelectObject(lpdis->hDC, gcd.hFont);
 
+#ifdef JAPAN
+    {
+        TCHAR   szTmp[CCHTEXTMAX];
+
+        KDExpandCopy(szTmp, szText, CCHTEXTMAX);
+        lstrcpy(szText, szTmp);
+    }
+#endif
     DrawText(lpdis->hDC, szText, -1, &lpdis->rcItem,
             DT_CENTER | DT_NOCLIP | DT_VCENTER | DT_SINGLELINE);
 
     return TRUE;
 }
-

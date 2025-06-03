@@ -148,6 +148,7 @@ typedef struct _ICB {
     LIST_ENTRY InstanceNext;            // Next instance of ICB block.
     PSECURITY_ENTRY Se;                 // Security entry associated with file
     PNONPAGED_SECURITY_ENTRY NonPagedSe;// Security entry associated with file
+    ULONG   DeletePending;              // Is a delete pending on this file?
     ACCESS_MASK GrantedAccess;          // Access granted on file create.
     USHORT FileId;                      // Network File IDentifier (FID)
     FCB_TYPE Type;                      // Type of ICB (used for union below)
@@ -156,6 +157,7 @@ typedef struct _ICB {
     union {
 
         struct _FILE {
+            struct _SCB *Scb;               // Search Control Block of this handle
             PFILE_OBJECT FileObject;        // Used when file is cached.
             LARGE_INTEGER NextReadOffset;   //  Used for statistics gathering
             LARGE_INTEGER NextWriteOffset;  //  Used for statistics gathering
@@ -174,6 +176,11 @@ typedef struct _ICB {
         struct _DIR {
             struct _SCB *Scb;               // Search Control Block if this handle
             AND_X_BEHIND DirCtrlOutstanding;//  Set when directory control is outstanding.
+            ULONG OpenOptions;
+            USHORT ShareAccess;
+            ULONG FileAttributes;
+            ACCESS_MASK DesiredAccess;
+            ULONG Disposition;
         } d;
 
         struct _SPOOL {
@@ -252,7 +259,9 @@ typedef struct _ICB {
                                         //  to set the file's times
 #define ICB_SETATTRONCLOSE  0x00004000  // Update attributes after close.
 #define ICB_DELETEONCLOSE   0x00008000  // Delete the file on close.
-#define ICB_BACKUP_INTENT   0x00010000  // File opened for backup intent.
+#define ICB_STORAGE_TYPE    0x000f0000  // Storage type mask
+#define ICB_BACKUP_INTENT   0x01000000  // File opened for backup intent.
+#define ICB_STORAGE_TYPE_SHIFT 16
 
 //
 //      Flags that are relevant only to handle based disk files.
@@ -315,6 +324,8 @@ typedef struct _NONPAGED_FCB {
     FCB_TYPE Type;                      // Type of file
     FILE_TYPE FileType;                 // Type of file.
 
+    struct _FCB *SharingCheckFcb;       // Optional Fcb for sharing checks (used for data streams over net).
+
     //
     //  Memory management (and the cache manager) refer to the section
     //  object pointers with a spinlock held, so these cannot be pagable.
@@ -354,7 +365,6 @@ typedef struct _FCB {
     UNICODE_STRING FileName;            // Fully qualified name of file.
     UNICODE_STRING LastFileName;        // Last component in file name.
 
-    struct _FCB *SharingCheckFcb;       // Optional Fcb for sharing checks (used for data streams over net).
     SHARE_ACCESS ShareAccess;           // Share access for file.
 
     LARGE_INTEGER CreationTime;         // Time that the file was created
@@ -375,7 +385,6 @@ typedef struct _FCB {
                                         // that it should be purged from the
                                         // cache
     PETHREAD LazyWritingThread;         // Lazy writer thread if present.
-    PETHREAD ReadAheadThread;           // Read ahead thread if present.
     ULONG ServerFileId;                 // Server unique file id.
 
     ACQUIRE_FCB_SIZE_ROUTINE AcquireSizeRoutine;
@@ -383,6 +392,12 @@ typedef struct _FCB {
     ACCESS_MASK GrantedAccess;          // Granted access of oplocked file.
     USHORT GrantedShareAccess;          // Granted share access of oplocked file.
     USHORT AccessGranted;               // Access actually granted
+
+    ULONG UpdatedFile;                  // Have we performed any operations which update
+                                        //  file data or attributes?
+
+    ULONG HaveSetCacheReadAhead;        // Have we detected a trend and told the cache
+                                        //  manager to read ahead?
 } FCB, *PFCB;
 
 //
@@ -400,6 +415,7 @@ typedef struct _FCB {
 #define FCB_WRITE_THROUGH     0x00000400// Set if a write through handle is open on the file
 #define FCB_PAGING_FILE       0x00000800// Set if this is a paging file.
 #define FCB_DELETEONCLOSE     0x00001000// Delete the file on close.
+#define FCB_DFSFILE           0x00002000// File opened by Dfs
 
 //
 //      FID values that should not be transmitted. Icb->FileId should have a

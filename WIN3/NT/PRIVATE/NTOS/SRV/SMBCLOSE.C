@@ -142,6 +142,17 @@ Return Value:
 
         return SmbStatusInProgress;
 
+    } else if( rfcb->ShareType == ShareTypePrint &&
+        WorkContext->UsingBlockingThread == 0 ) {
+
+        //
+        // Closing this file will result in the scheduling of a print
+        //  job.  This means we will have to talk with srvsvc, a lengthy
+        //  operation.  Shift this close over to a blocking thread.
+        //
+        SrvQueueWorkToBlockingThread( WorkContext );
+        return SmbStatusInProgress;
+
     } else if ( !NT_SUCCESS( rfcb->SavedError ) ) {
 
         //
@@ -172,11 +183,14 @@ Return Value:
     //
     // !!! should we do anything with the return code from this routine?
 
-    (VOID)SrvSetLastWriteTime(
-              rfcb,
-              SmbGetUlong( &request->LastWriteTimeInSeconds ),
-              rfcb->GrantedAccess
-              );
+    if( rfcb->WriteAccessGranted ) {
+
+        (VOID)SrvSetLastWriteTime(
+                  rfcb,
+                  SmbGetUlong( &request->LastWriteTimeInSeconds ),
+                  rfcb->GrantedAccess
+                  );
+    }
 
     //
     // Now proceed to do the actual close file, even if there was

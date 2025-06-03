@@ -152,9 +152,5 @@ Return Value:
 --*/
 
 {
-	switch ( ErrorCode ) {
-
-	default:
-		Fatal(	EXIT_PATH_NOT_FOUND, REPLACE_ERROR_EXTENDED, "%d", ErrorCode );
-	}
+	Fatal(	EXIT_PATH_NOT_FOUND, REPLACE_ERROR_EXTENDED, "%d", ErrorCode );
 }

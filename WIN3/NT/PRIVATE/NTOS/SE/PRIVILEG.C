@@ -112,10 +112,9 @@ Return Value:
                j++, CurrentTokenPrivilege++ ) {
 
               if ((CurrentTokenPrivilege->Attributes & SE_PRIVILEGE_ENABLED) &&
-                   RtlLargeIntegerEqualTo(
-                        CurrentTokenPrivilege->Luid,
-                        CurrentRequiredPrivilege->Luid
-              ) ) {
+                   (RtlEqualLuid(&CurrentTokenPrivilege->Luid,
+                                 &CurrentRequiredPrivilege->Luid))
+                 ) {
 
                        CurrentRequiredPrivilege->Attributes |=
                                                 SE_PRIVILEGE_USED_FOR_ACCESS;
@@ -196,7 +195,7 @@ Return Value:
 
 {
     BOOLEAN Status;
-    
+
     PAGED_CODE();
 
     //
@@ -479,7 +478,7 @@ Return Value:
     if ( PreviousMode != KernelMode ) {
 
         SePrivilegedServiceAuditAlarm (
-            NULL,                              // BUGBUG need service name
+            NULL,                              // BUGWARNING need service name
             &SubjectSecurityContext,
             &RequiredPrivileges,
             AccessGranted

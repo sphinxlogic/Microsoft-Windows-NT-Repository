@@ -25,16 +25,24 @@ Revision History:
 #include <nturtl.h>
 #include <zwapi.h>
 #include <stktrace.h>
+#include <heap.h>
+#include <heappriv.h>
 
-#ifdef i386
+BOOLEAN
+NtdllOkayToLockRoutine(
+    IN PVOID Lock
+    );
+
+#ifndef RtlGetCallersAddress
+
 VOID
 RtlGetCallersAddress(
     OUT PVOID *CallersAddress,
     OUT PVOID *CallersCaller
     )
 {
-
     PVOID BackTrace[ 2 ];
+#if i386 && !NTOS_KERNEL_RUNTIME
     ULONG Hash;
 
     RtlCaptureStackBackTrace( 2,
@@ -42,6 +50,10 @@ RtlGetCallersAddress(
                               BackTrace,
                               &Hash
                             );
+#else
+    BackTrace[ 0 ] = NULL;
+    BackTrace[ 1 ] = NULL;
+#endif // i386 && !NTOS_KERNEL_RUNTIME
 
     if (ARGUMENT_PRESENT( CallersAddress )) {
         *CallersAddress = BackTrace[ 0 ];
@@ -53,15 +65,10 @@ RtlGetCallersAddress(
 
     return;
 }
-#endif
+#endif // ndef RtlGetCallersAddress
 
+#if i386 && (!NTOS_KERNEL_RUNTIME || !FPO)
 PSTACK_TRACE_DATABASE RtlpStackTraceDataBase;
-
-PSTACK_TRACE_DATABASE
-RtlpAcquireStackTraceDataBase( VOID );
-
-VOID
-RtlpReleaseStackTraceDataBase( VOID );
 
 PRTL_STACK_TRACE_ENTRY
 RtlpExtendStackTraceDataBase(
@@ -134,9 +141,9 @@ RtlInitStackTraceDataBaseEx(
         DataBase->CurrentUpperCommitLimit = (PCHAR)CommitBase + ReserveSize;
         }
     else {
-        RtlZeroMemory( &DataBase->Buckets[ 0 ], 
+        RtlZeroMemory( &DataBase->Buckets[ 0 ],
                        DataBase->NumberOfBuckets * sizeof( DataBase->Buckets[ 0 ] )
-                     ); 
+                     );
         }
 
     DataBase->EntryIndexArray = (PRTL_STACK_TRACE_ENTRY *)DataBase->NextFreeUpperMemory;
@@ -164,15 +171,33 @@ RtlInitializeStackTraceDataBase(
     IN ULONG ReserveSize
     )
 {
+#ifdef NTOS_KERNEL_RUNTIME
+
+BOOLEAN
+ExOkayToLockRoutine(
+    IN PVOID Lock
+    );
+
     return RtlInitStackTraceDataBaseEx(
                 CommitBase,
                 CommitSize,
                 ReserveSize,
-                RtlInitializeLockRoutine,
-                RtlAcquireLockRoutine,
-                RtlReleaseLockRoutine,
-                RtlOkayToLockRoutine
+                ExInitializeResource,
+                ExAcquireResourceExclusive,
+                (PRTL_RELEASE_LOCK_ROUTINE)ExReleaseResourceLite,
+                ExOkayToLockRoutine
                 );
+#else
+    return RtlInitStackTraceDataBaseEx(
+                CommitBase,
+                CommitSize,
+                ReserveSize,
+                RtlInitializeCriticalSection,
+                RtlEnterCriticalSection,
+                RtlLeaveCriticalSection,
+                NtdllOkayToLockRoutine
+                );
+#endif
 }
 
 
@@ -289,7 +314,6 @@ RtlpExtendStackTraceDataBase(
 USHORT
 RtlLogStackBackTrace( VOID )
 {
-#ifdef i386
     PSTACK_TRACE_DATABASE DataBase;
     RTL_STACK_TRACE_ENTRY StackTrace;
     PRTL_STACK_TRACE_ENTRY p, *pp;
@@ -362,74 +386,9 @@ RtlLogStackBackTrace( VOID )
     else {
         return( 0 );
         }
-#else
+
     return 0;
-#endif
 }
 
 
-NTSTATUS
-RtlQueryProcessBackTraceInformation(
-    OUT PRTL_PROCESS_BACKTRACES BackTraceInformation,
-    IN ULONG BackTraceInformationLength,
-    OUT PULONG ReturnLength OPTIONAL
-    )
-{
-    NTSTATUS Status;
-    PRTL_PROCESS_BACKTRACE_INFORMATION BackTraceInfo;
-    PSTACK_TRACE_DATABASE DataBase;
-    PRTL_STACK_TRACE_ENTRY p, *pp;
-    ULONG RequiredLength, n;
-
-    RequiredLength = FIELD_OFFSET( RTL_PROCESS_BACKTRACES, BackTraces );
-    if (BackTraceInformationLength < RequiredLength) {
-        return( STATUS_INFO_LENGTH_MISMATCH );
-        }
-
-    DataBase = RtlpAcquireStackTraceDataBase();
-    if (DataBase == NULL) {
-        return( STATUS_UNSUCCESSFUL );
-        }
-
-    DataBase->DumpInProgress = TRUE;
-    RtlpReleaseStackTraceDataBase();
-    Status = STATUS_SUCCESS;
-    try {
-        BackTraceInformation->CommittedMemory =
-            (ULONG)DataBase->CurrentUpperCommitLimit - (ULONG)DataBase->CommitBase;
-        BackTraceInformation->ReservedMemory =
-            (ULONG)DataBase->EntryIndexArray - (ULONG)DataBase->CommitBase;
-        BackTraceInformation->NumberOfBackTraceLookups = DataBase->NumberOfEntriesLookedUp;
-        BackTraceInformation->NumberOfBackTraces = DataBase->NumberOfEntriesAdded;
-        RequiredLength += (sizeof( *BackTraceInfo ) * BackTraceInformation->NumberOfBackTraces);
-        if (BackTraceInformationLength < RequiredLength) {
-            Status = STATUS_INFO_LENGTH_MISMATCH;
-            }
-        else {
-            BackTraceInfo = &BackTraceInformation->BackTraces[ 0 ];
-            n = DataBase->NumberOfEntriesAdded;
-            pp = DataBase->EntryIndexArray;
-            while (n--) {
-                p = *--pp;
-                BackTraceInfo->SymbolicBackTrace = NULL;
-                BackTraceInfo->TraceCount = p->TraceCount;
-                BackTraceInfo->Index = p->Index;
-                BackTraceInfo->Depth = p->Depth;
-                RtlMoveMemory( BackTraceInfo->BackTrace,
-                               p->BackTrace,
-                               p->Depth * sizeof( PVOID )
-                             );
-                BackTraceInfo++;
-                }
-            }
-        }
-    finally {
-        DataBase->DumpInProgress = FALSE;
-        }
-
-    if (ARGUMENT_PRESENT( ReturnLength )) {
-        *ReturnLength = RequiredLength;
-        }
-
-    return( Status );
-}
+#endif // i386 && !NTOS_KERNEL_RUNTIME

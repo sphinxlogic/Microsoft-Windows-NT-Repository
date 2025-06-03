@@ -94,7 +94,7 @@ NdrpEmbeddedRepeatPointerUnmarshall(
                 pStubMsg->FullPtrRefId = 0; \
 				}
 
-typedef char *	(RPC_ENTRY * PUNMARSHALL_ROUTINE)( 
+typedef uchar * (RPC_ENTRY * PUNMARSHALL_ROUTINE)( 
 					PMIDL_STUB_MESSAGE, 
 					uchar **, 
 					PFORMAT_STRING,
@@ -108,8 +108,9 @@ typedef void  	(* PPRIVATE_UNMARSHALL_ROUTINE)(
 					uchar 
 				);
 
-// function table defined in unmrshl.c
-PUNMARSHALL_ROUTINE			pfnUnmarshallRoutines[];
-
+//
+// Function table defined in unmrshl.c.
+//
+extern const PUNMARSHALL_ROUTINE * pfnUnmarshallRoutines;
 
 #endif

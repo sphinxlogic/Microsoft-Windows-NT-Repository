@@ -57,7 +57,6 @@ Revision History:
 #include <stdio.h>
 #include <stdlib.h>     // EXIT_FAILURE, EXIT_SUCCESS, _CRTAPI1.
 #include <tstring.h>
-#include <wcstr.h>
 
 
 int _CRTAPI1

@@ -51,8 +51,8 @@ BOOL MapShare(SHARE_BUFFER *Share, DEST_SERVER_BUFFER *DServ);
 
 
 /*+-------------------------------------------------------------------------+
-  | FileOptionsDefaultsSet()                                                |
-  |                                                                         |
+  | FileOptionsDefaultsSet()
+  |
   +-------------------------------------------------------------------------+*/
 void FileOptionsDefaultsSet(void *tfo) {
    FILE_OPTIONS *fo = tfo;
@@ -66,8 +66,8 @@ void FileOptionsDefaultsSet(void *tfo) {
 
 
 /*+-------------------------------------------------------------------------+
-  | FileOptionsDefaultsReset()                                              |
-  |                                                                         |
+  | FileOptionsDefaultsReset()
+  |
   +-------------------------------------------------------------------------+*/
 void FileOptionsDefaultsReset() {
    ConvertFiles = TRUE;
@@ -76,8 +76,8 @@ void FileOptionsDefaultsReset() {
 
 
 /*+-------------------------------------------------------------------------+
-  | FileOptionsInit()                                                       |
-  |                                                                         |
+  | FileOptionsInit()
+  |
   +-------------------------------------------------------------------------+*/
 void FileOptionsInit(void **lpfo) {
    FILE_OPTIONS *fo;
@@ -100,8 +100,8 @@ void FileOptionsInit(void **lpfo) {
 
 
 /*+-------------------------------------------------------------------------+
-  | FileOptionsLoad()                                                       |
-  |                                                                         |
+  | FileOptionsLoad()
+  |
   +-------------------------------------------------------------------------+*/
 void FileOptionsLoad(HANDLE hFile, void **lpfo) {
    FILE_OPTIONS *fo;
@@ -124,8 +124,8 @@ void FileOptionsLoad(HANDLE hFile, void **lpfo) {
 
 
 /*+-------------------------------------------------------------------------+
-  | FileOptionsSave()                                                       |
-  |                                                                         |
+  | FileOptionsSave()
+  |
   +-------------------------------------------------------------------------+*/
 void FileOptionsSave(HANDLE hFile, void *fo) {
    DWORD wrote;
@@ -140,8 +140,8 @@ void FileOptionsSave(HANDLE hFile, void *fo) {
   +-------------------------------------------------------------------------+*/
 
 /*+-------------------------------------------------------------------------+
-  | ShareNewPathValidate()                                                  |
-  |                                                                         |
+  | ShareNewPathValidate()
+  |
   +-------------------------------------------------------------------------+*/
 BOOL ShareNewPathValidate(HWND hWnd, LPTSTR Path, DRIVE_BUFFER **pDrive) {
    VIRTUAL_SHARE_BUFFER *VShare;
@@ -191,8 +191,8 @@ ShareNewValidateFail:
 
 
 /*+-------------------------------------------------------------------------+
-  | ShareNewShareValidate()                                                 |
-  |                                                                         |
+  | ShareNewShareValidate()
+  |
   +-------------------------------------------------------------------------+*/
 BOOL ShareNewShareValidate(HWND hWnd, LPTSTR ShareName) {
    ULONG i;
@@ -229,8 +229,8 @@ ShareNewShareVFail:
 
 
 /*+-------------------------------------------------------------------------+
-  | NWShareNew()                                                            |
-  |                                                                         |
+  | NWShareNew()
+  |
   +-------------------------------------------------------------------------+*/
 LRESULT CALLBACK NWShareNew(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam) {
    HWND hCtrl;
@@ -276,12 +276,6 @@ LRESULT CALLBACK NWShareNew(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPara
 
          PostMessage(hDlg, WM_COMMAND, ID_INIT, 0L);
          return (TRUE);
-
-#ifdef Ctl3d
-      case WM_SYSCOLORCHANGE:
-         Ctl3dColorChange();
-         break;
-#endif
 
       case WM_COMMAND:
          wmId    = LOWORD(wParam);
@@ -348,7 +342,7 @@ LRESULT CALLBACK NWShareNew(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPara
                EndDialog(hDlg, 0);
                break;
 
-            case IDC_HELP:
+            case IDHELP:
                if (NewShareType == SELECT_TYPE_MODIFY)
                   WinHelp(hDlg, HELP_FILE, HELP_CONTEXT, (DWORD) IDC_HELP_SHAREPROP);
                else
@@ -398,8 +392,8 @@ LRESULT CALLBACK NWShareNew(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPara
 
 
 /*+-------------------------------------------------------------------------+
-  | NWShareNew_Do()                                                         |
-  |                                                                         |
+  | NWShareNew_Do()
+  |
   +-------------------------------------------------------------------------+*/
 void NWShareNew_Do(HWND hDlg) {
    DLGPROC lpfnDlg;
@@ -416,8 +410,8 @@ void NWShareNew_Do(HWND hDlg) {
   +-------------------------------------------------------------------------+*/
 
 /*+-------------------------------------------------------------------------+
-  | FixShare()                                                              |
-  |                                                                         |
+  | FixShare()
+  |
   +-------------------------------------------------------------------------+*/
 void FixShare(LPTSTR OrigShare, LPTSTR ServName, LPTSTR DestShare) {
    LPTSTR pShare = OrigShare;
@@ -444,8 +438,8 @@ void FixShare(LPTSTR OrigShare, LPTSTR ServName, LPTSTR DestShare) {
 
 
 /*+-------------------------------------------------------------------------+
-  | NTShareListFill()                                                       |
-  |                                                                         |
+  | NTShareListFill()
+  |
   +-------------------------------------------------------------------------+*/
 void NTShareListFill(HWND hDlg) {
    HWND hCtrl;
@@ -491,11 +485,11 @@ void NTShareListFill(HWND hDlg) {
 
 
 /*+-------------------------------------------------------------------------+
-  | NWShareSelect()                                                         |
-  |                                                                         |
+  | NWShareSelect()
+  |
   +-------------------------------------------------------------------------+*/
 LRESULT CALLBACK NWShareSelect(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam) {
-   static TCHAR ServName[50];
+   static TCHAR ServName[MAX_UNC_PATH+1];
    VIRTUAL_SHARE_BUFFER *VShare;
    SHARE_BUFFER *OrigShare = NULL;
    SHARE_BUFFER *NewShare;
@@ -537,12 +531,6 @@ LRESULT CALLBACK NWShareSelect(HWND hDlg, UINT message, WPARAM wParam, LPARAM lP
             SendMessage(hCtrl, WM_SETTEXT, (WPARAM) 0, (LPARAM) CurrentShare->SubDir);
 
          return (TRUE);
-
-#ifdef Ctl3d
-      case WM_SYSCOLORCHANGE:
-         Ctl3dColorChange();
-         break;
-#endif
 
       case WM_COMMAND:
          wmId    = LOWORD(wParam);
@@ -593,7 +581,7 @@ LRESULT CALLBACK NWShareSelect(HWND hDlg, UINT message, WPARAM wParam, LPARAM lP
                EndDialog(hDlg, 0);
                break;
 
-            case IDC_HELP:
+            case IDHELP:
                if (SelectType == SELECT_TYPE_MODIFY)
                   WinHelp(hDlg, HELP_FILE, HELP_CONTEXT, (DWORD) IDC_HELP_SHAREMOD);
                else
@@ -728,8 +716,8 @@ LRESULT CALLBACK NWShareSelect(HWND hDlg, UINT message, WPARAM wParam, LPARAM lP
 
 
 /*+-------------------------------------------------------------------------+
-  | ShareSelect_Do()                                                        |
-  |                                                                         |
+  | ShareSelect_Do()
+  |
   +-------------------------------------------------------------------------+*/
 void NWShareSelect_Do(HWND hDlg) {
    DLGPROC lpfnDlg;
@@ -746,8 +734,8 @@ void NWShareSelect_Do(HWND hDlg) {
   +-------------------------------------------------------------------------+*/
 
 /*+-------------------------------------------------------------------------+
-  | FileOptionsToggleControls()                                             |
-  |                                                                         |
+  | FileOptionsToggleControls()
+  |
   +-------------------------------------------------------------------------+*/
 void FileOptionsToggleControls(HWND hDlg, BOOL Toggle) {
    HWND hCtrl;
@@ -763,8 +751,8 @@ void FileOptionsToggleControls(HWND hDlg, BOOL Toggle) {
 
 
 /*+-------------------------------------------------------------------------+
-  | FileDialogToggle()                                                      |
-  |                                                                         |
+  | FileDialogToggle()
+  |
   +-------------------------------------------------------------------------+*/
 void FileDialogToggle(HWND hDlg, BOOL Toggle) {
    HWND hCtrl;
@@ -777,7 +765,7 @@ void FileDialogToggle(HWND hDlg, BOOL Toggle) {
    if (Toggle == FALSE)
       EnableWindow(hCtrl, FALSE);
    else
-      if (ShareList->Count != ShareList->ConvertCount)
+      if (ShareList && ShareList->Count != ShareList->ConvertCount)
          EnableWindow(hCtrl, TRUE);
       else
          EnableWindow(hCtrl, FALSE);
@@ -786,8 +774,8 @@ void FileDialogToggle(HWND hDlg, BOOL Toggle) {
 
 
 /*+-------------------------------------------------------------------------+
-  | DlgFileOptions_Save()                                                   |
-  |                                                                         |
+  | DlgFileOptions_Save()
+  |
   +-------------------------------------------------------------------------+*/
 void DlgFileOptions_Save(HWND hDlg) {
    HWND hCtrl;
@@ -802,8 +790,8 @@ void DlgFileOptions_Save(HWND hDlg) {
 
 
 /*+-------------------------------------------------------------------------+
-  | DlgFileOptions_Setup()                                                  |
-  |                                                                         |
+  | DlgFileOptions_Setup()
+  |
   +-------------------------------------------------------------------------+*/
 void DlgFileOptions_Setup(HWND hDlg) {
    HWND hCtrl;
@@ -821,8 +809,8 @@ void DlgFileOptions_Setup(HWND hDlg) {
 
 
 /*+-------------------------------------------------------------------------+
-  | DlgFileOptions_ListboxAdd()                                             |
-  |                                                                         |
+  | DlgFileOptions_ListboxAdd()
+  |
   +-------------------------------------------------------------------------+*/
 void DlgFileOptions_ListboxAdd(HWND hDlg, SHARE_BUFFER *CurrentShare, DWORD *wItem, BOOL Insert ) {
    HWND hCtrl;
@@ -850,8 +838,8 @@ void DlgFileOptions_ListboxAdd(HWND hDlg, SHARE_BUFFER *CurrentShare, DWORD *wIt
 
 
 /*+-------------------------------------------------------------------------+
-  | DlgFileOptions()                                                        |
-  |                                                                         |
+  | DlgFileOptions()
+  |
   +-------------------------------------------------------------------------+*/
 LRESULT CALLBACK DlgFileOptions(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam) {
    HWND hCtrl;
@@ -889,12 +877,6 @@ LRESULT CALLBACK DlgFileOptions(HWND hDlg, UINT message, WPARAM wParam, LPARAM l
          PostMessage(hDlg, WM_COMMAND, ID_INIT, 0L);
          return (TRUE);
 
-#ifdef Ctl3d
-      case WM_SYSCOLORCHANGE:
-         Ctl3dColorChange();
-         break;
-#endif
-
       case WM_COMMAND:
          wmId    = LOWORD(wParam);
          wmEvent = HIWORD(wParam);
@@ -910,7 +892,7 @@ LRESULT CALLBACK DlgFileOptions(HWND hDlg, UINT message, WPARAM wParam, LPARAM l
                EndDialog(hDlg, 0);
                return (TRUE);
 
-            case IDC_HELP:
+            case IDHELP:
                WinHelp(hDlg, HELP_FILE, HELP_CONTEXT, (DWORD) IDC_HELP_FILE);
                return (TRUE);
 
@@ -1051,7 +1033,7 @@ LRESULT CALLBACK DlgFileOptions(HWND hDlg, UINT message, WPARAM wParam, LPARAM l
                      break;
 
                   case LBN_SELCHANGE:
-                     if (!ShareList->ConvertCount)
+                     if (!ShareList || !ShareList->ConvertCount)
                         FileOptionsToggleControls(hDlg, TRUE);
 
                      break;
@@ -1070,8 +1052,8 @@ LRESULT CALLBACK DlgFileOptions(HWND hDlg, UINT message, WPARAM wParam, LPARAM l
 
 
 /*+-------------------------------------------------------------------------+
-  | FileOptions_Do()                                                        |
-  |                                                                         |
+  | FileOptions_Do()
+  |
   +-------------------------------------------------------------------------+*/
 void FileOptions_Do(HWND hDlg, void *ConvOptions, SOURCE_SERVER_BUFFER *SourceServer, DEST_SERVER_BUFFER *DestServer) {
    DLGPROC lpfnDlg;
@@ -1090,5 +1072,3 @@ void FileOptions_Do(HWND hDlg, void *ConvOptions, SOURCE_SERVER_BUFFER *SourceSe
 
    FreeProcInstance(lpfnDlg);
 } // FileOptions_Do
-
-

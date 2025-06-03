@@ -15,7 +15,7 @@
  */
 
 #include	<ndis.h>
-#include    <ndismini.h>
+//#include    <ndismini.h>
 #include	<ndiswan.h>
 #include	<mydefs.h>
 #include	<mytypes.h>
@@ -31,8 +31,8 @@
 #define		MAX_RES		128
 
 /* assists */
-#define		LOCK		NdisAcquireSpinLock(&res__lock)
-#define		UNLOCK		NdisReleaseSpinLock(&res__lock)
+//#define		LOCK		NdisAcquireSpinLock(&res__lock)
+//#define		UNLOCK		NdisReleaseSpinLock(&res__lock)
 
 /* global variables */
 NDIS_SPIN_LOCK	res__lock;			/* management lock */
@@ -54,7 +54,7 @@ res_init(VOID)
     D_LOG(D_ALWAYS, ("res_init: res__tbl: 0x%p", res__tbl));
 
   	NdisZeroMemory (res__tbl, sizeof(RES) * MAX_RES);
-	NdisAllocateSpinLock(&res__lock);
+//	NdisAllocateSpinLock(&res__lock);
 	return(RES_E_SUCC);
 }
 
@@ -63,7 +63,7 @@ VOID
 res_term(VOID)
 {
 //	DbgPrint ("Resource Term: Entry\n");
-	NdisFreeSpinLock(&res__lock);
+//	NdisFreeSpinLock(&res__lock);
     /* free memory */
     NdisFreeMemory(res__tbl, (sizeof(RES) * MAX_RES), 0);
 }
@@ -75,7 +75,7 @@ res_create(ULONG class, ULONG id)
 	RES		*res;
 	INT		n;
 
-	LOCK;
+//	LOCK;
 
 //	DbgPrint ("Resource Create: class: 0x%x, id: 0x%x\n",class, id);
 //	DbgPrint ("IRQL: 0x%x\n",KeGetCurrentIrql());
@@ -115,7 +115,7 @@ res_create(ULONG class, ULONG id)
 			}
 		}
 
-	UNLOCK;
+//	UNLOCK;
 //	DbgPrint ("Resource Create exit: res: 0x%p refcount: %d\n",res, res->cre_ref);
 //	DbgPrint (": IRQL: 0x%x\n",KeGetCurrentIrql());
 	return(res);
@@ -128,7 +128,7 @@ res_destroy(VOID *res_1)
 	RES		*res = (RES*)res_1;
 	INT		really = 0;
 
-	LOCK;
+//	LOCK;
 
 //	DbgPrint ("Resource Destroy: Entry res: 0x%p, refcount: %d\n",res, res->cre_ref);
 //	DbgPrint (": IRQL: 0x%x\n",KeGetCurrentIrql());
@@ -141,7 +141,7 @@ res_destroy(VOID *res_1)
 		really = 1;
  	}
 
-	UNLOCK;
+//	UNLOCK;
 //	DbgPrint ("Resource Destroy: Exit\n");
 //	DbgPrint (": IRQL: 0x%x\n",KeGetCurrentIrql());
 	return(really);
@@ -152,7 +152,7 @@ VOID
 res_own(VOID *res_1, VOID *owner)
 {
 	RES		*res = (RES*)res_1;
-	LOCK;
+//	LOCK;
 
 //	DbgPrint("res_own: enter, res: 0x%p, owner: 0x%p, owner ref: %d\n", res, res->owner, res->own_ref);
 //	DbgPrint (": IRQL: 0x%x\n",KeGetCurrentIrql());
@@ -171,16 +171,16 @@ res_own(VOID *res_1, VOID *owner)
 		goto bye;
 
 	/* else we have to wait for it */
-	UNLOCK;
+//	UNLOCK;
 	NdisAcquireSpinLock(&res->lock);
-	LOCK;
+//	LOCK;
 
 	/* no I have it, fill */
 	res->own_ref++;
 	res->owner = owner;
 
 	bye:
-	UNLOCK;
+//	UNLOCK;
 //	DbgPrint("res_own: exit,  res: 0x%p, owner: 0x%p, owner ref: %d\n", res, res->owner, res->own_ref);
 //	DbgPrint (": IRQL: 0x%x\n",KeGetCurrentIrql());
 	return;
@@ -191,7 +191,7 @@ VOID
 res_unown(VOID *res_1, VOID *owner)
 {
 	RES		*res = (RES*)res_1;
-	LOCK;
+//	LOCK;
 
 //	DbgPrint("res_unown: entry, res: 0x%p, owner: 0x%p owner ref: %d\n", res, owner, res->own_ref);
 //	DbgPrint (": IRQL: 0x%x\n",KeGetCurrentIrql());
@@ -199,21 +199,25 @@ res_unown(VOID *res_1, VOID *owner)
 	if (!res->own_ref)
 	{
 		/* if free, onwership released */
-		UNLOCK;
+//		UNLOCK;
 		return;
 	}
+
 	/* decrement ownership count, if not down to zero - still owned */
 	res->own_ref--;
+
 	if ( res->own_ref )
 	{
-		UNLOCK;
+//		UNLOCK;
 		return;
 	}
+
+	res->owner = NULL;
 
 	NdisReleaseSpinLock(&res->lock);
 
 	/* if free, onwership released */
-	UNLOCK;
+//	UNLOCK;
 
 //	DbgPrint("res_unown: exit,  res: 0x%p, owner ref: %d\n", res, res->own_ref);
 //	DbgPrint (": IRQL: 0x%x\n",KeGetCurrentIrql());

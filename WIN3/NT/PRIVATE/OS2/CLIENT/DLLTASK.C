@@ -352,7 +352,9 @@ Od2InitializeTask( VOID )
 // Od2RegisterThread.
 
 VOID
-Od2AbortThread(VOID)
+Od2AbortThread(
+    IN POD2_THREAD Thread
+    )
 {
     NTSTATUS Status;
 
@@ -363,10 +365,12 @@ Od2AbortThread(VOID)
                 Status);
         }
 #endif //DBG
-        ExitThread(0);
+    NtClose(Thread->ThreadHandle);
+    RtlFreeHeap(Od2Heap, 0, Thread);
+    ExitThread(0);
 }
 
-// Call subsitem to register the new thread. But don't do anything in the case
+// Call subsystem to register the new thread. But don't do anything in the case
 // that the process is going to terminate. For this reasone use the mutant
 // Od2NewThreadSync to syncronize with exit list processing. Before exit list
 // processing the flag Od2NewThreadDisabled will be set indicating that new thread
@@ -397,7 +401,7 @@ Od2RegisterThread(
             DbgPrint("Od2RegisterThread: No new threads\n");
         }
 #endif //DBG
-        Od2AbortThread();
+        Od2AbortThread(Thread);
     }
 
     a->Flags = Thread->Flags;
@@ -414,7 +418,7 @@ Od2RegisterThread(
                    )){
         ASSERT(FALSE);
         Thread->rc = ERROR_ACCESS_DENIED;
-        Od2AbortThread();
+        Od2AbortThread(Thread);
     }
 
     Status = NtQueryInformationThread(GetCurrentThread(),
@@ -429,7 +433,7 @@ Od2RegisterThread(
 #endif
         Thread->rc = Or2MapNtStatusToOs2Error(Status, ERROR_ACCESS_DENIED);
         Od2CloseSrvHandle(1, a->ThreadHandle, NULL, NULL);
-        Od2AbortThread();
+        Od2AbortThread(Thread);
     }
 
     a->ClientId = ThreadInfo.ClientId;
@@ -446,7 +450,7 @@ Od2RegisterThread(
 #endif // DBG
             Od2CloseSrvHandle(1, a->ThreadHandle, NULL, NULL);
         }
-        Od2AbortThread();
+        Od2AbortThread(Thread);
     }
 
     Status = NtReleaseMutant(Od2NewThreadSync, NULL);
@@ -462,6 +466,30 @@ Od2RegisterThread(
     AcquireTaskLock();
     InsertTailList( &Od2Process->ThreadList, &Thread->Link );
     ReleaseTaskLock();
+
+#if PMNT
+    // Force all PM threads to run on processor#1. Otherwise, PM Desktop
+    // locks-up
+    if (ProcessIsPMProcess())
+    {
+        DWORD Ret;
+
+        Ret = SetThreadAffinityMask(
+            GetCurrentThread(),
+            0x1);
+#if DBG
+        if (Ret == 0)
+        {
+            DbgPrint("Od2RegisterThread: failed to SetThreadAffinityMask\n");
+        }
+        else if (Ret != 1)
+        {
+            DbgPrint("Od2RegisterThread: SetThreadAffinityMask returned %x (now set to 1)\n",
+                Ret);
+        }
+#endif // DBG
+    }
+#endif //PMNT
 
     // Tell the thread that created us, that we are all right. Thread that called
     // DosCreateThread will continue execution.
@@ -587,6 +615,36 @@ Od2UserThreadStartup(
 #endif
 }
 
+POD2_THREAD
+Od2FindOd2Thread(
+            POD2_THREAD refThread
+            )
+{
+    PLIST_ENTRY ListHead, ListNext;
+    POD2_THREAD Thread;
+
+    ListHead = &Od2Process->ThreadList;
+    ListNext = ListHead->Flink;
+    while (ListNext != ListHead) {
+        Thread = CONTAINING_RECORD( ListNext, OD2_THREAD, Link );
+        if (Thread == refThread)
+            break;
+        ListNext = ListNext->Flink;
+    }
+    if (Thread != refThread) {
+#if DBG
+        IF_OD2_DEBUG( TASKING ) {
+            DbgPrint("[%d,%d] Od2FindOd2Thread(#%x) - invalid thread\n",
+                Od2Process->Pib.ProcessId,
+                Od2CurrentThreadId(),
+                refThread);
+        }
+#endif // DBG
+        return NULL;
+    }
+    return Thread;
+}
+
 
 APIRET
 DosCreateThread(
@@ -669,7 +727,7 @@ DosCreateThread(
                             StackSize,
                             (PFNTHREAD)Od2UserThreadStartup,
                             (PVOID)Thread,
-                            0,          // Create thead not suspended
+                            0,          // Create thread not suspended
                             &Tid);
     if (!(Thread->ThreadHandle)){
 #if DBG
@@ -688,25 +746,58 @@ DosCreateThread(
     }
 #endif // DBG
 
-    rc = Thread->rc;
-    if (rc) {
-        NtClose(Thread->ThreadHandle);
-        RtlFreeHeap(Od2Heap, 0, Thread);
-    }
+        //
+        // The thread is now running, need to acquire the lock so we
+        // can safely return the results
+        //
+    AcquireTaskLock();
+    if (Od2FindOd2Thread(Thread)) {
+
+        rc = Thread->rc;
 
 #if DBG
-    IF_OD2_DEBUG( TASKING ) {
-        KdPrint(("leaving DosCreateThread with rc %ld\n",rc));
-    }
+        IF_OD2_DEBUG( TASKING ) {
+            KdPrint(("leaving DosCreateThread with rc %ld\n",rc));
+        }
 #endif
 
-    if (rc == ERROR_INVALID_FUNCTION) {
-        // The process is  going to die. Wait for death.
-        Od2InfiniteSleep();
+        if (rc == ERROR_INVALID_FUNCTION) {
+            // The process is  going to die. Wait for death.
+            ReleaseTaskLock();
+            Od2InfiniteSleep();
+        }
+
+        //
+        // This is the application address, so write only 16 bit
+        //
+        if (rc == NO_ERROR) {
+            *(PUSHORT)ThreadId = (USHORT) Thread->Os2Tib.ThreadId;
+        }
     }
+    else
+    {
+        //
+        // The thread exited already, can't use the thread structure:
+        // set status to OK
+        //
+        rc = NO_ERROR;
 
-    *(PUSHORT)ThreadId = (USHORT) Thread->Os2Tib.ThreadId;
+        // PatrickQ 1-9-96:
+        // Set ThreadID anyhow - _beginthread() uses thread ID for its
+        // return value and some applications might fail if they get an invalid
+        // thread ID (example: CBA application)
 
+        *(PUSHORT)ThreadId = 1; // dummy value but valid thread ID
+
+#if DBG
+        // Add debug message at this exit-point as well
+        IF_OD2_DEBUG( TASKING )
+        {
+            KdPrint(("leaving DosCreateThread with rc %ld (thread already exited)\n",rc));
+        }
+#endif
+    }
+    ReleaseTaskLock();
     return(rc);
 }
 
@@ -1073,6 +1164,102 @@ DosWaitThread(
 
     *ThreadId = a->ThreadId;
     return( m.ReturnedErrorValue );
+}
+
+APIRET
+Od2SuspendAllThreads( VOID )
+{
+    NTSTATUS Status;
+    PLIST_ENTRY ListHead, ListNext;
+    POD2_THREAD Thread;
+    ULONG CurrentTid = Od2CurrentThreadId();
+    ULONG SuspendCount;
+    APIRET rc = NO_ERROR;
+
+    AcquireTaskLock();
+    //
+    // Walk through the list of threads and suspend all but not the current
+    //
+    ListHead = &Od2Process->ThreadList;
+    ListNext = ListHead->Flink;
+    while (ListNext != ListHead) {
+        Thread = CONTAINING_RECORD( ListNext, OD2_THREAD, Link );
+        if (Thread->Os2Tib.ThreadId != CurrentTid) {
+
+            Status = NtSuspendThread (Thread->ThreadHandle, &SuspendCount);
+#if DBG
+            IF_OD2_DEBUG( TASKING ) {
+                DbgPrint("[%d,%d]Od2SuspendAllThreads Suspend Thread #%d, SuspendCount %d\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId(),
+                    Thread->Os2Tib.ThreadId,
+                    SuspendCount);
+            }
+#endif // DBG
+            if (!NT_SUCCESS(Status) && Status != STATUS_THREAD_IS_TERMINATING) {
+#if DBG
+                DbgPrint("[%d,%d]Od2SuspendAllThreads: Fail to suspend shread #%d\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId(),
+                    Thread->Os2Tib.ThreadId
+                );
+#endif // DBG
+                rc = ERROR_INVALID_PARAMETER;
+            }
+        }
+        ListNext = ListNext->Flink;
+    }
+    ReleaseTaskLock();
+
+    return(rc);
+}
+
+APIRET
+Od2ResumeAllThreads( VOID )
+{
+    NTSTATUS Status;
+    PLIST_ENTRY ListHead, ListNext;
+    POD2_THREAD Thread;
+    ULONG CurrentTid = Od2CurrentThreadId();
+    ULONG SuspendCount;
+    APIRET rc = NO_ERROR;
+
+    AcquireTaskLock();
+    //
+    // Walk through the list of threads and resume all but not the current
+    //
+    ListHead = &Od2Process->ThreadList;
+    ListNext = ListHead->Flink;
+    while (ListNext != ListHead) {
+        Thread = CONTAINING_RECORD( ListNext, OD2_THREAD, Link );
+        if (Thread->Os2Tib.ThreadId != CurrentTid) {
+
+            Status = NtResumeThread (Thread->ThreadHandle, &SuspendCount);
+#if DBG
+            IF_OD2_DEBUG( TASKING ) {
+                DbgPrint("[%d,%d]Od2ResumeAllThreads Suspend Thread #%d, SuspendCount %d\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId(),
+                    Thread->Os2Tib.ThreadId,
+                    SuspendCount);
+            }
+#endif // DBG
+            if (!NT_SUCCESS(Status) && Status != STATUS_THREAD_IS_TERMINATING) {
+#if DBG
+                DbgPrint("[%d,%d]Od2ResumeAllThreads: Fail to resume shread #%d\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId(),
+                    Thread->Os2Tib.ThreadId
+                );
+#endif // DBG
+                rc = ERROR_INVALID_PARAMETER;
+            }
+        }
+        ListNext = ListNext->Flink;
+    }
+    ReleaseTaskLock();
+
+    return(rc);
 }
 
 POD2_THREAD
@@ -2475,6 +2662,10 @@ Od2CleanupStdHandleRedirection(
 NTSTATUS
 Od2IsFileConsoleType(
     PSTRING NtImagePathName
+#if PMNT
+    ,
+    PULONG  IsPMApp
+#endif // PMNT
     )
 
 {
@@ -2495,6 +2686,9 @@ Od2IsFileConsoleType(
     PUCHAR pb;
     NTSTATUS Status;
 
+#if PMNT
+    *IsPMApp = 0;
+#endif // PMNT
     Status = Or2MBStringToUnicodeString(&Unicode,
                           (PANSI_STRING)NtImagePathName,
                           (BOOLEAN)TRUE);
@@ -2708,6 +2902,14 @@ Od2IsFileConsoleType(
                 goto firstreturn;
             }
 
+#if PMNT
+            if ((((PIMAGE_OS2_HEADER)pPeHeader)->ne_flags & 0x0300) == 0x0300) {
+                //
+                // Presentation manager application
+                //
+                *IsPMApp = 1;
+            }
+#endif //PMNT
 
             Status = STATUS_INVALID_IMAGE_NE_FORMAT;
             goto firstreturn;
@@ -3487,6 +3689,9 @@ Od2FormatExecPgmMessage(
     OUT POS2_DOSEXECPGM_MSG a,
     OUT POS2_CAPTURE_HEADER *CaptureBuffer,
     OUT PNTSTATUS   Od2IsConsoleTypeReturnStatus,
+#if PMNT
+    OUT PULONG      IsPMApp,
+#endif // PMNT
     OUT PSZ     ErrorText OPTIONAL,
     IN  LONG    MaximumErrorTextLength,
     IN  ULONG   Flags,
@@ -3841,7 +4046,11 @@ Od2FormatExecPgmMessage(
                      );
     }
 
-    *Od2IsConsoleTypeReturnStatus = Od2IsFileConsoleType(&ImageFileString);
+    *Od2IsConsoleTypeReturnStatus = Od2IsFileConsoleType(&ImageFileString
+#if PMNT
+                                    , IsPMApp
+#endif // PMNT
+                                    );
 
     RtlFreeHeap( Od2Heap, 0, ImageFileString.Buffer );
 
@@ -4034,7 +4243,9 @@ DosExecPgm(
     ULONG   dwProcessId;
     ULONG   i;
     NTSTATUS Status;
-
+#if PMNT
+    ULONG   IsPMApp;
+#endif // PMNT
 
 #if DBG
     PSZ RoutineName;
@@ -4093,6 +4304,9 @@ DosExecPgm(
     rc = Od2FormatExecPgmMessage( a,
                                   &CaptureBuffer,
                                   &Status,
+#if PMNT
+                                  &IsPMApp,
+#endif // PMNT
                                   ErrorText,
                                   MaximumErrorTextLength,
                                   Flags,
@@ -4140,6 +4354,9 @@ DosExecPgm(
                ArgumentsBuffer,
                VariablesBuffer,
                ExecFileName,
+#if PMNT
+               IsPMApp,
+#endif // PMNT
                NULL,
                NULL,
                &hProcess,
@@ -4394,6 +4611,9 @@ DosExecPgm(
                             ArgumentsBuffer,
                             VariablesBuffer,
                             ExecFileName,
+#if PMNT
+                            0,                  // Not PM app
+#endif // PMNT
                             NULL,
                             &StdStruc,
                             &hProcess,
@@ -4500,11 +4720,21 @@ DosExecPgm(
                     //
                     // Wait for Completion and set Os/2 app parameters
                     //
-                    Status = NtWaitForSingleObject (
+                    do {
+                        Status = NtWaitForSingleObject (
                                     hProcess,
                                     TRUE,   // Alertable
                                     NULL    // Forever
                                     );
+#if DBG
+                        if (Status == STATUS_USER_APC) {
+                            DbgPrint("[%d,%d] WARNING !!! DosExecPgm wait was broken by APC\n",
+                                Od2Process->Pib.ProcessId,
+                                Od2CurrentThreadId()
+                            );
+                        }
+#endif
+                    } while (Status == STATUS_USER_APC);
                     Od2AsyncProc[i].hProcess = 0;
                     if (!NT_SUCCESS(Status)){
 #if DBG

@@ -38,8 +38,6 @@ extern ULONG MmAllocatedPagedPool;
 extern ULONG MmAllocatedNonPagedPool;
 
 
-WORK_QUEUE_ITEM MiOverCommitItem;
-BOOLEAN MiOverCommitPending = FALSE;
 ULONG MiOverCommitCallCount;
 extern EPROCESS_QUOTA_BLOCK PspDefaultQuotaBlock;
 
@@ -51,7 +49,7 @@ MiCauseOverCommitPopup(
     );
 
 
-BOOLEAN
+ULONG
 FASTCALL
 MiChargePageFileQuota (
     IN ULONG QuotaCharge,
@@ -378,7 +376,7 @@ VOID
 FASTCALL
 MiChargeCommitmentCantExpand (
     IN ULONG QuotaCharge,
-    IN BOOLEAN MustSucceed
+    IN ULONG MustSucceed
     )
 
 /*++
@@ -418,15 +416,16 @@ Environment:
     // If the overcommitment is bigger than 512 pages, don't extend.
     //
 
+    NewCommitValue = MmTotalCommittedPages + QuotaCharge;
+
     if (!MustSucceed) {
-        if (((LONG)((LONG)MmTotalCommittedPages - (LONG)MmTotalCommitLimit)) >
+        if (((LONG)((LONG)NewCommitValue - (LONG)MmTotalCommitLimit)) >
                                                          MM_DONT_EXTEND_SIZE) {
             ExReleaseFastLock (&MmChargeCommitmentLock, OldIrql);
             ExRaiseStatus (STATUS_COMMITMENT_LIMIT);
         }
     }
 
-    NewCommitValue = MmTotalCommittedPages + QuotaCharge;
     ExtendAmount = NewCommitValue - MmTotalCommitLimit;
     MmTotalCommittedPages = NewCommitValue;
 
@@ -734,7 +733,9 @@ VOID
 MiReturnPageTablePageCommitment (
     IN PVOID StartingAddress,
     IN PVOID EndingAddress,
-    IN PEPROCESS CurrentProcess
+    IN PEPROCESS CurrentProcess,
+    IN PMMVAD PreviousVad,
+    IN PMMVAD NextVad
     )
 
 /*++
@@ -754,6 +755,12 @@ Arguments:
 
     EndingAddress - Supplies the ending address of the range.
 
+    CurrentProcess - Supplies a pointer to the current process.
+
+    PreviousVad - Supplies a pointer to the previous VAD, NULL if none.
+
+    NextVad - Supplies a pointer to the next VAD, NULL if none.
+
 Return Value:
 
     None.
@@ -767,8 +774,10 @@ Environment:
 
 {
     ULONG NumberToClear;
-    ULONG FirstPage;
-    ULONG LastPage;
+    LONG FirstPage;
+    LONG LastPage;
+    LONG PreviousPage;
+    LONG NextPage;
 
     //
     // Check to see if any page table pages would be freed.
@@ -776,46 +785,60 @@ Environment:
 
     ASSERT (StartingAddress != EndingAddress);
 
-    if (((ULONG)EndingAddress - (ULONG)StartingAddress) <
-                                            (MM_VA_MAPPED_BY_PDE - 1)) {
-
-        //
-        // Doesn't span a page.
-        //
-
-        return;
-    }
-
-    if (StartingAddress == NULL) {
-        FirstPage = MiGetPdeOffset (NULL);
+    if (PreviousVad == NULL) {
+        PreviousPage = -1;
     } else {
-
-        //
-        // Start at the PDE which maps the page before this page.
-        //
-
-        FirstPage = MiGetPdeOffset ((PVOID)((PCHAR)StartingAddress - 1)) + 1;
+        PreviousPage = MiGetPdeOffset (PreviousVad->EndingVa);
     }
 
-    LastPage = MiGetPdeOffset((PVOID)((PCHAR)EndingAddress + 1));
-    NumberToClear = LastPage - FirstPage;
+    if (NextVad == NULL) {
+        NextPage = MiGetPdeOffset (MM_HIGHEST_USER_ADDRESS) + 1;
+    } else {
+        NextPage = MiGetPdeOffset (NextVad->StartingVa);
+    }
 
-    if (NumberToClear == 0) {
-        return;
+    ASSERT (PreviousPage <= NextPage);
+
+    FirstPage = MiGetPdeOffset (StartingAddress);
+
+    LastPage = MiGetPdeOffset(EndingAddress);
+
+    if (PreviousPage == FirstPage) {
+
+        //
+        // A VAD is within the starting page table page.
+        //
+
+        FirstPage += 1;
+    }
+
+    if (NextPage == LastPage) {
+
+        //
+        // A VAD is within the ending page table page.
+        //
+
+        LastPage -= 1;
     }
 
     //
     // Indicate that the page table page is not in use.
     //
 
-    while (FirstPage < LastPage) {
+    if (FirstPage > LastPage) {
+        return;
+    }
+
+    NumberToClear = 1 + LastPage - FirstPage;
+
+    while (FirstPage <= LastPage) {
         ASSERT (MI_CHECK_BIT (MmWorkingSetList->CommittedPageTables,
                               FirstPage));
         MI_CLEAR_BIT (MmWorkingSetList->CommittedPageTables, FirstPage);
         FirstPage += 1;
     }
-    MmWorkingSetList->NumberOfCommittedPageTables -= NumberToClear;
 
+    MmWorkingSetList->NumberOfCommittedPageTables -= NumberToClear;
     MiReturnCommitment (NumberToClear);
     MiReturnPageFileQuota (NumberToClear, CurrentProcess);
     CurrentProcess->CommitCharge -= NumberToClear;
@@ -853,12 +876,15 @@ Return Value:
 
 {
     KIRQL OldIrql;
-    BOOLEAN PreviousState;
+    ULONG MiOverCommitPending;
 
     if (NumberOfPages > MM_COMMIT_POPUP_MAX) {
         ExRaiseStatus (STATUS_COMMITMENT_LIMIT);
         return;
     }
+
+    MiOverCommitPending =
+        !IoRaiseInformationalHardError(STATUS_COMMITMENT_LIMIT, NULL, NULL);
 
     ExAcquireFastLock (&MmChargeCommitmentLock, &OldIrql);
 
@@ -884,58 +910,12 @@ Return Value:
         MmPeakCommitment = MmTotalCommittedPages;
     }
 
-    PreviousState = MiOverCommitPending;
-    MiOverCommitPending = TRUE;
     ExReleaseFastLock (&MmChargeCommitmentLock, OldIrql);
 
-    if (PreviousState == FALSE) {
-        ExQueueWorkItem(&MiOverCommitItem, DelayedWorkQueue);
-    }
     return;
 }
 
-
 
-VOID
-MiOverCommitWorker(
-    IN PVOID Context
-    )
-
-/*++
-
-Routine Description:
-
-    This function is called in the context of a delayed worker thread. Its function
-    is to cause a hard error popup informing the user that his system is running low
-    on virtual memory and that some applications should be shutdown.
-
-Arguments:
-
-    Context - Not used
-
-Return Value:
-
-    None.
-
---*/
-
-{
-    NTSTATUS Status;
-    ULONG Response;
-
-    Status = ExRaiseHardError(
-                STATUS_COMMITMENT_LIMIT,
-                0,
-                0,
-                NULL,
-                OptionOk,
-                &Response
-                );
-
-    MiOverCommitPending = FALSE;
-}
-
-
 ULONG MmTotalPagedPoolQuota;
 ULONG MmTotalNonPagedPoolQuota;
 

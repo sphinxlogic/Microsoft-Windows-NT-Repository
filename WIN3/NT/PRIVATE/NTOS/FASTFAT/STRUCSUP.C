@@ -61,6 +61,9 @@ Revision History:
 #pragma alloc_text(PAGE, FatGetNextFcb)
 #pragma alloc_text(PAGE, FatConstructNamesInFcb)
 #pragma alloc_text(PAGE, FatCheckFreeDirentBitmap)
+#pragma alloc_text(PAGE, FatCreateIrpContext)
+#pragma alloc_text(PAGE, FatDeleteIrpContext_Real)
+#pragma alloc_text(PAGE, FatIsHandleCountZero)
 #endif
 
 
@@ -101,6 +104,7 @@ Return Value:
 {
     CC_FILE_SIZES FileSizes;
     PDEVICE_OBJECT RealDevice;
+    LONG i;
 
     //
     //  The following variables are used for abnormal unwind
@@ -111,7 +115,9 @@ Return Value:
     PERESOURCE UnwindVolFileResource = NULL;
     PFILE_OBJECT UnwindFileObject = NULL;
     PFILE_OBJECT UnwindCacheMap = NULL;
+    BOOLEAN UnwindWeAllocated0x24Bytes = FALSE;
     BOOLEAN UnwindWeAllocatedMcb = FALSE;
+    PFILESYSTEM_STATISTICS UnwindStatistics = NULL;
 
     DebugTrace(+1, Dbg, "FatInitializeVcb, Vcb = %08lx\n", Vcb);
 
@@ -128,8 +134,14 @@ Return Value:
         //  Set the proper node type code and node byte size
         //
 
-        Vcb->NodeTypeCode = FAT_NTC_VCB;
-        Vcb->NodeByteSize = sizeof(VCB);
+        Vcb->VolumeFileHeader.NodeTypeCode = FAT_NTC_VCB;
+        Vcb->VolumeFileHeader.NodeByteSize = sizeof(VCB);
+
+        //
+        //  Initialize the tunneling cache
+        //
+
+        FsRtlInitializeTunnelCache(&Vcb->Tunnel);
 
         //
         //  Insert this Vcb record on the FatData.VcbQueue
@@ -181,12 +193,10 @@ Return Value:
         UnwindResource = &Vcb->Resource;
 
         //
-        //  Initialize the free cluster bitmap event.
+        //  Initialize the free cluster bitmap mutex.
         //
 
-        KeInitializeEvent( &Vcb->FreeClusterBitMapEvent,
-                           SynchronizationEvent,
-                           TRUE );
+        ExInitializeFastMutex( &Vcb->FreeClusterBitMapMutex );
 
         //
         //  Now, put the Dscb parameter in the Vcb.  If NULL, this is a normal
@@ -239,8 +249,8 @@ Return Value:
         //  when we know how big the Fat is.
         //
 
-        FileSizes.AllocationSize =
-        FileSizes.FileSize = LiFromUlong(sizeof(PACKED_BOOT_SECTOR));
+        FileSizes.AllocationSize.QuadPart =
+        FileSizes.FileSize.QuadPart = sizeof(PACKED_BOOT_SECTOR);
         FileSizes.ValidDataLength = FatMaxLarge;
 
         CcInitializeCacheMap( Vcb->VirtualVolumeFile,
@@ -267,13 +277,20 @@ Return Value:
         Vcb->ClusterHint = 2;
 
         //
+        //  Allocate space for the stashed Bpb.
+        //
+
+        Vcb->First0x24BytesOfBootSector =
+            FsRtlAllocatePool( PagedPool, 0x24 );
+
+        UnwindWeAllocated0x24Bytes = TRUE;
+
+        //
         //  Initialize the directory stream file object creation event.
         //  This event is also "borrowed" for async non-cached writes.
         //
 
-        KeInitializeEvent( &Vcb->DirectoryFileCreationEvent,
-                           SynchronizationEvent,
-                           TRUE );
+        ExInitializeFastMutex( &Vcb->DirectoryFileCreationMutex );
 
         //
         //  Initialize the clean volume callback Timer and DPC.
@@ -282,6 +299,22 @@ Return Value:
         KeInitializeTimer( &Vcb->CleanVolumeTimer );
 
         KeInitializeDpc( &Vcb->CleanVolumeDpc, FatCleanVolumeDpc, Vcb );
+
+        //
+        //  Initialize the performance counters.
+        //
+
+        Vcb->Statistics = FsRtlAllocatePool( NonPagedPool,
+                                             sizeof(FILESYSTEM_STATISTICS) * *KeNumberProcessors );
+        UnwindStatistics = Vcb->Statistics;
+
+        RtlZeroMemory( Vcb->Statistics, sizeof(FILESYSTEM_STATISTICS) * *KeNumberProcessors );
+
+        for (i = 0; i < *KeNumberProcessors; i += 1) {
+            Vcb->Statistics[i].FileSystemType = FILESYSTEM_STATISTICS_TYPE_FAT;
+            Vcb->Statistics[i].Version = 1;
+        }
+
 
     } finally {
 
@@ -298,11 +331,13 @@ Return Value:
             if (UnwindVolFileResource != NULL) { FatDeleteResource( UnwindVolFileResource ); }
             if (UnwindResource != NULL) { FatDeleteResource( UnwindResource ); }
             if (UnwindWeAllocatedMcb) { FsRtlUninitializeMcb( &Vcb->DirtyFatMcb ); }
+            if (UnwindWeAllocated0x24Bytes) { ExFreePool(Vcb->First0x24BytesOfBootSector); }
             if (UnwindEntryList != NULL) {
                 (VOID)FatAcquireExclusiveGlobal( IrpContext );
                 RemoveEntryList( UnwindEntryList );
                 FatReleaseGlobal( IrpContext );
             }
+            if (UnwindStatistics != NULL) { ExFreePool( UnwindStatistics ); }
         }
 
         DebugTrace(-1, Dbg, "FatInitializeVcb -> VOID\n", 0);
@@ -431,7 +466,7 @@ Return Value:
     //  Uninitialize the notify sychronization object.
     //
 
-    FsRtlNotifyInitializeSync( &Vcb->NotifySync );
+    FsRtlNotifyUninitializeSync( &Vcb->NotifySync );
 
     //
     //  Uninitialize the resource variable for the Vcb
@@ -455,12 +490,24 @@ Return Value:
     FsRtlUninitializeMcb( &Vcb->DirtyFatMcb );
 
     //
+    //  Free the pool for the stached copy of the boot sector
+    //
+
+    ExFreePool( Vcb->First0x24BytesOfBootSector );
+
+    //
     //  Cancel the CleanVolume Timer and Dpc
     //
 
     (VOID)KeCancelTimer( &Vcb->CleanVolumeTimer );
 
     (VOID)KeRemoveQueueDpc( &Vcb->CleanVolumeDpc );
+
+    //
+    //  Free the performance counters memory
+    //
+
+    ExFreePool( Vcb->Statistics );
 
 #ifdef WE_WON_ON_APPEAL
     //
@@ -472,6 +519,12 @@ Return Value:
         FatDblsDismount( IrpContext, &Vcb->Dscb );
     }
 #endif // WE_WON_ON_APPEAL
+
+    //
+    //  Clean out the tunneling cache
+    //
+
+    FsRtlDeleteTunnelCache(&Vcb->Tunnel);
 
     //
     //  And zero out the Vcb, this will help ensure that any stale data is
@@ -612,8 +665,8 @@ Return Value:
         //  set the allocation size to real size of the root directory
         //
 
-        Dcb->Header.FileSize =
-        Dcb->Header.AllocationSize = LiFromUlong(FatRootDirectorySize( &Vcb->Bpb ));
+        Dcb->Header.FileSize.QuadPart =
+        Dcb->Header.AllocationSize.QuadPart = FatRootDirectorySize( &Vcb->Bpb );
 
         //
         //  initialize the notify queues, and the parent dcb queue.
@@ -701,7 +754,7 @@ FatCreateFcb (
 Routine Description:
 
     This routine allocates, initializes, and inserts a new Fcb record into
-    the in memory data structures.
+    the in-memory data structures.
 
 Arguments:
 
@@ -762,10 +815,11 @@ Return Value:
 
             PoolType = PagedPool;
             Fcb = UnwindStorage[0] = FatAllocateFcb();
+
         }
 
         //
-        //  Allocate a new FCB, and zero it out
+        //  ... and zero it out
         //
 
         RtlZeroMemory( Fcb, sizeof(FCB) );
@@ -918,15 +972,17 @@ Return Value:
 
         Fcb->Header.ValidDataLength.LowPart = Dirent->FileSize;
 
+        Fcb->ValidDataToDisk = Dirent->FileSize;
+
         Fcb->FirstClusterOfFile = (ULONG)Dirent->FirstClusterOfFile;
 
         if ( Fcb->FirstClusterOfFile == 0 ) {
 
-            Fcb->Header.AllocationSize = FatLargeZero;
+            Fcb->Header.AllocationSize.QuadPart = 0;
 
         } else {
 
-            Fcb->Header.AllocationSize = LiFromLong(-1);
+            Fcb->Header.AllocationSize.QuadPart = (LONG)-1;
         }
 
         //
@@ -957,6 +1013,13 @@ Return Value:
                                 Fcb,
                                 Dirent,
                                 Lfn );
+
+        //
+        //  Drop the shortname hint so prefix searches can figure out
+        //  what they found
+        //
+
+        Fcb->ShortName.FileNameDos = TRUE;
 
     } finally {
 
@@ -1205,11 +1268,11 @@ Return Value:
 
         if ( Dcb->FirstClusterOfFile == 0 ) {
 
-            Dcb->Header.AllocationSize = LiFromLong(0);
+            Dcb->Header.AllocationSize.QuadPart = 0;
 
         } else {
 
-            Dcb->Header.AllocationSize = LiFromLong(-1);
+            Dcb->Header.AllocationSize.QuadPart = (LONG)-1;
         }
 
         //  initialize the notify queues, and the parent dcb queue.
@@ -1390,6 +1453,11 @@ Return Value:
         }
     }
 
+    if (Fcb->ExactCaseLongName.Buffer) {
+
+        ExFreePool(Fcb->ExactCaseLongName.Buffer);
+    }
+
     //
     //  Free up the resource variable.  If we are below FatForceCacheMiss(),
     //  release the resource here.
@@ -1508,7 +1576,7 @@ Return Value:
     if (FlagOn(Ccb->Flags, CCB_FLAG_FREE_OEM_BEST_FIT)) {
 
         ASSERT( Ccb->OemQueryTemplate.Wild.Buffer );
-        RtlFreeOemString( &Ccb->OemQueryTemplate.Wild );
+        FatFreeOemString( &Ccb->OemQueryTemplate.Wild );
     }
 
     //
@@ -1554,7 +1622,6 @@ Return Value:
 --*/
 
 {
-    KIRQL SavedIrql;
     PIRP_CONTEXT IrpContext;
     PIO_STACK_LOCATION IrpSp;
 
@@ -1574,23 +1641,21 @@ Return Value:
     }
 
     //
-    //  Take out a spin lock and check if the zone is full.  If it is full
-    //  then we release the spinlock and allocate an irp context from
-    //  nonpaged pool.
+    //  Attemtp to allocate from the region first and failing that allocate
+    //  from pool.
     //
 
-    KeAcquireSpinLock( &FatData.StrucSupSpinLock, &SavedIrql );
     DebugDoit( FatFsdEntryCount += 1);
 
-    if (ExIsFullZone( &FatData.IrpContextZone )) {
+    IrpContext = ExAllocateFromNPagedLookasideList( &FatIrpContextLookasideList );
 
-        KeReleaseSpinLock( &FatData.StrucSupSpinLock, SavedIrql );
+    if (IrpContext == NULL) {
 
         IrpContext = FsRtlAllocatePool( NonPagedPool, sizeof(IRP_CONTEXT) );
 
         //
         //  Zero out the irp context and indicate that it is from pool and
-        //  not zone allocated
+        //  not region allocated
         //
 
         RtlZeroMemory( IrpContext, sizeof(IRP_CONTEXT) );
@@ -1598,16 +1663,6 @@ Return Value:
         SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_FROM_POOL );
 
     } else {
-
-        //
-        //  At this point we now know that the zone has at least one more
-        //  IRP context record available.  So allocate from the zone and
-        //  then release the spin lock
-        //
-
-        IrpContext = ExAllocateFromZone( &FatData.IrpContextZone );
-
-        KeReleaseSpinLock( &FatData.StrucSupSpinLock, SavedIrql );
 
         //
         //  Zero out the irp context and indicate that it is from zone and
@@ -1728,8 +1783,6 @@ Return Value:
 --*/
 
 {
-    KIRQL SavedIrql;
-
     DebugTrace(+1, Dbg, "FatDeleteIrpContext, IrpContext = %08lx\n", IrpContext);
 
     ASSERT( IrpContext->NodeTypeCode == FAT_NTC_IRP_CONTEXT );
@@ -1747,7 +1800,8 @@ Return Value:
     }
 
     //
-    //  Return the Irp context record to the zone or to pool depending on its flag
+    //  Return the Irp context record to the region or to pool depending on
+    //  its flag
     //
 
     if (FlagOn(IrpContext->Flags, IRP_CONTEXT_FLAG_FROM_POOL)) {
@@ -1756,11 +1810,7 @@ Return Value:
 
     } else {
 
-        KeAcquireSpinLock( &FatData.StrucSupSpinLock, &SavedIrql );
-
-        ExFreeToZone( &FatData.IrpContextZone, IrpContext );
-
-        KeReleaseSpinLock( &FatData.StrucSupSpinLock, SavedIrql );
+        ExFreeToNPagedLookasideList( &FatIrpContextLookasideList, IrpContext );
     }
 
     //
@@ -2074,8 +2124,6 @@ Return Value:
 
 {
     NTSTATUS Status;
-    NTSTATUS StatusA;
-    NTSTATUS StatusB;
     ULONG i;
 
     OEM_STRING OemA;
@@ -2093,6 +2141,28 @@ Return Value:
         //  First do the short name.
         //
 
+        //
+        //  Copy over the case flags for the short name of the file
+        //
+
+        if (FlagOn(Dirent->NtByte, FAT_DIRENT_NT_BYTE_8_LOWER_CASE)) {
+
+            SetFlag(Fcb->FcbState, FCB_STATE_8_LOWER_CASE);
+
+        } else {
+
+            ClearFlag(Fcb->FcbState, FCB_STATE_8_LOWER_CASE);
+        }
+
+        if (FlagOn(Dirent->NtByte, FAT_DIRENT_NT_BYTE_3_LOWER_CASE)) {
+
+            SetFlag(Fcb->FcbState, FCB_STATE_3_LOWER_CASE);
+
+        } else {
+
+            ClearFlag(Fcb->FcbState, FCB_STATE_3_LOWER_CASE);
+        }
+
         ShortName->MaximumLength = 16;
         ShortName->Buffer = FsRtlAllocatePool( PagedPool, 16);
 
@@ -2108,11 +2178,24 @@ Return Value:
             Fcb->FinalNameLength = (USHORT)
                 RtlOemStringToCountedUnicodeSize( ShortName );
 
+            Fcb->ExactCaseLongName.Length = 0;
+
             try_return( NOTHING );
 
         } else {
 
             Fcb->FinalNameLength = Lfn->Length;
+        }
+
+        //
+        //  Save away a copy of the real Lfn
+        //
+
+        if (Lfn && Lfn->Length) {
+
+            Fcb->ExactCaseLongName.Length = Fcb->ExactCaseLongName.MaximumLength = Lfn->Length;
+            Fcb->ExactCaseLongName.Buffer = FsRtlAllocatePool( PagedPool, Lfn->Length );
+            RtlCopyMemory(Fcb->ExactCaseLongName.Buffer, Lfn->Buffer, Lfn->Length);
         }
 
         //
@@ -2162,7 +2245,8 @@ Return Value:
             if (FatAreNamesEqual(IrpContext, *ShortName, *LongOemName) ||
                 (FatFindFcb( IrpContext,
                              &Fcb->ParentDcb->Specific.Dcb.RootOemNode,
-                             LongOemName) != NULL)) {
+                             LongOemName,
+                             NULL) != NULL)) {
 
                 ExFreePool( LongOemName->Buffer );
 
@@ -2195,41 +2279,21 @@ Return Value:
         Status = STATUS_SUCCESS;
 
         //
-        //  Downcase and convert to upcased Oem.  Record any error.
+        //  Downcase and convert to upcased Oem.  Only continue if we can
+        //  convert without error.  Any error other than UNMAPPABLE_CHAR
+        //  is a fatal error and we raise.
+        //
+        //  Note that even if the conversion fails, we must leave Unicode
+        //  in an upcased state.
         //
         //  NB: The Rtl doesn't NULL .Buffer on error.
         //
 
-        (VOID)RtlDowncaseUnicodeString( &Unicode, &Unicode, FALSE );
-        StatusA = RtlUpcaseUnicodeStringToCountedOemString( &OemA, &Unicode, TRUE );
-        if (!NT_SUCCESS(StatusA)) {
-            OemA.Buffer = NULL;
-            Status = StatusA;
-        }
-
-        //
-        //  The same as above except upcase.  For the final status we want the
-        //  worst of the two.
-        //
-
-        (VOID)RtlUpcaseUnicodeString( &Unicode, &Unicode, FALSE );
-        StatusB = RtlUpcaseUnicodeStringToCountedOemString( &OemB, &Unicode, TRUE );
-        if (!NT_SUCCESS(StatusB)) {
-            OemB.Buffer = NULL;
-            if (NT_SUCCESS(StatusA) || (StatusB != STATUS_UNMAPPABLE_CHARACTER)) {
-                Status = StatusB;
-            }
-        }
-
-        //
-        //  If this request was not successfull, we will either be raising
-        //  out of here, or returning via the OEM path.
-        //
+        (VOID)FatDowncaseUnicodeString( &Unicode, &Unicode, FALSE );
+        Status = FatUpcaseUnicodeStringToCountedOemString( &OemA, &Unicode, TRUE );
+        (VOID)FatUpcaseUnicodeString( &Unicode, &Unicode, FALSE );
 
         if (!NT_SUCCESS(Status)) {
-
-            if (OemA.Buffer) {RtlFreeOemString( &OemA );}
-            if (OemB.Buffer) {RtlFreeOemString( &OemB );}
 
             if (Status != STATUS_UNMAPPABLE_CHARACTER) {
 
@@ -2237,16 +2301,36 @@ Return Value:
                 ExFreePool(Unicode.Buffer);
                 FatNormalizeAndRaiseStatus( IrpContext, Status );
             }
+
+        } else {
+
+            //
+            //  The same as above except upcase.
+            //
+
+            Status = FatUpcaseUnicodeStringToCountedOemString( &OemB, &Unicode, TRUE );
+
+            if (!NT_SUCCESS(Status)) {
+
+                FatFreeOemString( &OemA );
+
+                if (Status != STATUS_UNMAPPABLE_CHARACTER) {
+
+                    ASSERT( Status == STATUS_NO_MEMORY );
+                    ExFreePool(Unicode.Buffer);
+                    FatNormalizeAndRaiseStatus( IrpContext, Status );
+                }
+            }
         }
 
         //
         //  If the final OemNames are equal, I can use save only the Oem
-        //  name.  If the name did not map, then an Oem short name was chosen
-        //  that by definition does not conflict.
+        //  name.  If the name did not map, then I have to go with the UNICODE
+        //  name because I could get a case varient that didn't convert
+        //  in create, but did match the LFN.
         //
 
-        if ((Status == STATUS_UNMAPPABLE_CHARACTER) ||
-            FatAreNamesEqual( IrpContext, OemA, OemB )) {
+        if (NT_SUCCESS(Status) && FatAreNamesEqual( IrpContext, OemA, OemB )) {
 
             //
             //  Cool, I can go with the Oem.  If we didn't convert correctly,
@@ -2255,19 +2339,8 @@ Return Value:
 
             ExFreePool(Unicode.Buffer);
 
-            if (Status == STATUS_UNMAPPABLE_CHARACTER) {
 
-                Status = RtlUpcaseUnicodeStringToCountedOemString( &OemA, Lfn, TRUE );
-
-                if (!NT_SUCCESS(Status)) {
-                    ASSERT( Status == STATUS_NO_MEMORY );
-                    FatNormalizeAndRaiseStatus( IrpContext, Status );
-                }
-
-            } else {
-
-                RtlFreeOemString( &OemB );
-            }
+            FatFreeOemString( &OemB );
 
             Fcb->LongName.Oem.Name.Oem = OemA;
 
@@ -2281,9 +2354,10 @@ Return Value:
             if (FatAreNamesEqual(IrpContext, *ShortName, OemA) ||
                 (FatFindFcb( IrpContext,
                              &Fcb->ParentDcb->Specific.Dcb.RootOemNode,
-                             &OemA) != NULL)) {
+                             &OemA,
+                             NULL) != NULL)) {
 
-                RtlFreeOemString( &OemA );
+                FatFreeOemString( &OemA );
 
             } else {
 
@@ -2294,11 +2368,15 @@ Return Value:
         }
 
         //
-        //  The long name must be left in UNICODE.  Free the two Oem strings.
+        //  The long name must be left in UNICODE.  Free the two Oem strings
+        //  if we got here just because they weren't equal.
         //
 
-        RtlFreeOemString( &OemA );
-        RtlFreeOemString( &OemB );
+        if (NT_SUCCESS(Status)) {
+
+            FatFreeOemString( &OemA );
+            FatFreeOemString( &OemB );
+        }
 
         LongUniName = &Fcb->LongName.Unicode.Name.Unicode;
 

@@ -33,9 +33,23 @@ extern  LPSHF   Lpshf;
 extern  BOOL    AutoTest;
 #define Lpei    (&Ei)
 
+BOOL
+WINAPI
+DlgBpResolve(
+    HWND hDlg,
+    UINT msg,
+    WPARAM wParam,
+    LPARAM lParam
+    );
 
-BOOL FAR PASCAL EXPORT DlgBpResolve(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam);
-BOOL FAR PASCAL EXPORT DlgBpCanIUseThunk(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam);
+BOOL
+WINAPI
+DlgBpCanIUseThunk(
+    HWND hDlg,
+    UINT msg,
+    WPARAM wParam,
+    LPARAM lParam
+    );
 
 LPSTR    BpString;
 TML     *TmlBpResolve;
@@ -64,7 +78,12 @@ BOOL     RetCanIUseThunk;
 **
 */
 
-BOOL PASCAL CheckExpression(LPSTR Expr, int Radix, int Case)
+BOOL
+CheckExpression(
+    LPSTR Expr,
+    int Radix,
+    int Case
+    )
 {
     HTM hTM = (HTM)NULL;
     USHORT status;
@@ -153,7 +172,7 @@ DlgUnresolved(
             EndDialog(hDlg, TRUE);
             return TRUE;
 
-          case IDHELP:
+          case IDWINDBGHELP:
             Dbg(WinHelp(hDlg,szHelpFileName,HELP_CONTEXT,ID_UNRESOLVED_HELP));
             return TRUE;
         }
@@ -203,7 +222,7 @@ Return Value:
         hBpt = 0;
         Dbg(BPNextHbpt( &hBpt, bptNext) == BPNOERROR);
 
-        while (hBpt != hbptNull) {
+        while (hBpt != NULL) {
 
             //
             //  If unresolved breakpoint, try to resolve it
@@ -220,7 +239,7 @@ Return Value:
                         bpstat = BPBindHbpt( hBpt, &cxf );
 
                         if ( bpstat == BPCancel ) {
-                            hBpt = hbptNull;
+                            hBpt = NULL;
                             continue;
                         }
 
@@ -286,7 +305,7 @@ BPTIsUnresolvedCount(
         hBpt = 0;
         Dbg(BPNextHbpt( &hBpt, bptNext) == BPNOERROR);
 
-        while (hBpt != hbptNull) {
+        while (hBpt != NULL) {
 
             if ( !BPIsInstantiated( hBpt ) &&
                  !BPIsDisabled( hBpt ) ) {
@@ -317,7 +336,10 @@ BPTIsUnresolvedCount(
 **  Description:
 **
 */
-void PASCAL BPTUnResolve( HEXE hexe)
+VOID
+BPTUnResolve(
+    HEXE hexe
+    )
 {
     HBPT        hBpt = 0;
     ADDR        Addr;
@@ -328,7 +350,7 @@ void PASCAL BPTUnResolve( HEXE hexe)
     //
     //  Unresolve all breakpoints in this module.
     //
-    while (hBpt != hbptNull) {
+    while (hBpt != NULL) {
 
         if ( BPIsInstantiated( hBpt ) ) {
 
@@ -345,7 +367,11 @@ void PASCAL BPTUnResolve( HEXE hexe)
     return;
 }
 
-void PASCAL BPTUnResolvePidTid( HPID hpid, HTID htid)
+VOID
+BPTUnResolvePidTid(
+    HPID hpid,
+    HTID htid
+    )
 {
     HBPT    hBpt = 0;
     HPID    hPidB;
@@ -356,7 +382,7 @@ void PASCAL BPTUnResolvePidTid( HPID hpid, HTID htid)
     //
     //  Unresolve all breakpoints.
     //
-    while (hBpt != hbptNull) {
+    while (hBpt != NULL) {
 
         BPGetHpid(hBpt, &hPidB);
         BPGetHtid(hBpt, &hTidB);
@@ -385,7 +411,10 @@ void PASCAL BPTUnResolvePidTid( HPID hpid, HTID htid)
 **  Description:
 **
 */
-void PASCAL BPTUnResolveAll(HPID hpid)
+VOID
+BPTUnResolveAll(
+    HPID hpid
+    )
 {
     HBPT    hBpt = 0;
     HPID    hPidB;
@@ -395,7 +424,7 @@ void PASCAL BPTUnResolveAll(HPID hpid)
     //
     //  Unresolve all breakpoints.
     //
-    while (hBpt != hbptNull) {
+    while (hBpt != NULL) {
 
         if (!hpid || (BPGetHpid(hBpt, &hPidB), hPidB) == hpid) {
             BPUninstantiate( hBpt );
@@ -410,15 +439,13 @@ void PASCAL BPTUnResolveAll(HPID hpid)
 
 
 
-BOOL PASCAL BPCBBindHbpt( HBPT hbpt )
+BOOL
+BPCBBindHbpt(
+    HBPT hbpt
+    )
 {
     Unreferenced( hbpt);
-#ifdef WIN32
     DebugBreak();
-#else
-    _asm { int 3 };
-#endif
-
     return FALSE;
 }                                       /* BPCBBindHbpt() */
 
@@ -455,7 +482,7 @@ BPCBSetHighlight(
     if ( !fAsmOnly ) {
         Assert( sizeof(rgch)-1 > _fstrlen(szFile) );
         _fstrcpy(rgch, szFile);
-        GotNext = SrcMapSourceFilename(rgch, sizeof(rgch), SRC_MAP_ONLY);
+        GotNext = SrcMapSourceFilename(rgch, sizeof(rgch), SRC_MAP_ONLY, NULL);
 
         if ((GotNext == 1) && FindDoc( rgch, &doc, TRUE) ) {
             LineStatus( doc, line, state,
@@ -497,7 +524,14 @@ BPTResolve(
 }
 
 
-BOOL FAR PASCAL EXPORT DlgBpResolve(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
+BOOL
+WINAPI
+DlgBpResolve(
+    HWND hDlg,
+    UINT msg,
+    WPARAM wParam,
+    LPARAM lParam
+    )
 {
 
     HDC         hdc;
@@ -533,18 +567,13 @@ BOOL FAR PASCAL EXPORT DlgBpResolve(HWND hDlg, UINT msg, WPARAM wParam, LPARAM l
 
             *Buffer = '\0';
 
-            if ( *BpString == '{' ) {
-                if (p  = strchr( BpString+1, '}' ) ) {
-                    p++;
-                    c  = *p;
-                    *p = '\0';
-                    BPShortenContext( BpString, Buffer );
-                    *p = c;
-                } else {
-                    p = BpString;
-                }
-            } else {
+            if ( *BpString != '{' || !(p = strchr( BpString+1, '}' )) ) {
                 p = BpString;
+            } else {
+                c = *++p;
+                *p = '\0';
+                BPShortenContext( BpString, Buffer );
+                *p = c;
             }
 
             strcat(Buffer, p );
@@ -714,7 +743,7 @@ BOOL FAR PASCAL EXPORT DlgBpResolve(HWND hDlg, UINT msg, WPARAM wParam, LPARAM l
             return TRUE;
 
 
-          case IDHELP:
+          case IDWINDBGHELP:
             Dbg( WinHelp( hDlg, szHelpFileName, HELP_CONTEXT, ID_BPRESOLVE_HELP) );
             return TRUE;
         }
@@ -725,7 +754,6 @@ BOOL FAR PASCAL EXPORT DlgBpResolve(HWND hDlg, UINT msg, WPARAM wParam, LPARAM l
 
 
 BOOL
-PASCAL
 BPTCanIUseThunk(
     LPSTR BpBuf
     )
@@ -740,7 +768,14 @@ BPTCanIUseThunk(
 }
 
 
-BOOL FAR PASCAL EXPORT DlgBpCanIUseThunk(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
+BOOL
+WINAPI
+DlgBpCanIUseThunk(
+    HWND hDlg,
+    UINT msg,
+    WPARAM wParam,
+    LPARAM lParam
+    )
 {
     char Buffer[256];
     char *p;

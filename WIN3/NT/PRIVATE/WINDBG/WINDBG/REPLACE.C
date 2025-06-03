@@ -162,7 +162,7 @@ BOOL FAR PASCAL EXPORT DlgReplace(HWND hDlg, UINT message, WPARAM wParam, LONG l
                                         EndDialog(hDlg, FALSE);
                                         return TRUE;
 
-                                case IDHELP :
+                                case IDWINDBGHELP :
                                         Dbg(WinHelp(hDlg,szHelpFileName,HELP_CONTEXT,ID_REPLACE_HELP));
                                         return TRUE;
                         }
@@ -172,4 +172,4 @@ BOOL FAR PASCAL EXPORT DlgReplace(HWND hDlg, UINT message, WPARAM wParam, LONG l
 
         return FALSE;
 }
-
+

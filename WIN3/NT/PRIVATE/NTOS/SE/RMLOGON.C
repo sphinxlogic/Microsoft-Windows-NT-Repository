@@ -34,8 +34,8 @@ Revision History:
 #include <bugcodes.h>
 
 
-
-
+SEP_LOGON_SESSION_TERMINATED_NOTIFICATION
+SeFileSystemNotifyRoutinesHead = {0};
 
 
 ////////////////////////////////////////////////////////////////////////////
@@ -44,6 +44,10 @@ Revision History:
 //                                                                        //
 ////////////////////////////////////////////////////////////////////////////
 
+typedef struct _SEP_FILE_SYSTEM_NOTIFY_CONTEXT {
+    WORK_QUEUE_ITEM WorkItem;
+    LUID LogonId;
+} SEP_FILE_SYSTEM_NOTIFY_CONTEXT, *PSEP_FILE_SYSTEM_NOTIFY_CONTEXT;
 
 
 ////////////////////////////////////////////////////////////////////////////
@@ -63,7 +67,20 @@ SepInformLsaOfDeletedLogon(
     IN PLUID LogonId
     );
 
+VOID
+SepInformFileSystemsOfDeletedLogon(
+    IN PLUID LogonId
+    );
+
+VOID
+SepNotifyFileSystems(
+    IN PVOID Context
+    );
+
 #ifdef ALLOC_PRAGMA
+#pragma alloc_text(PAGE,SeRegisterLogonSessionTerminatedRoutine)
+#pragma alloc_text(PAGE,SeUnregisterLogonSessionTerminatedRoutine)
+#pragma alloc_text(PAGE,SeMarkLogonSessionForTerminationNotification)
 #pragma alloc_text(PAGE,SepRmCreateLogonSessionWrkr)
 #pragma alloc_text(PAGE,SepRmDeleteLogonSessionWrkr)
 #pragma alloc_text(PAGE,SepReferenceLogonSession)
@@ -71,6 +88,8 @@ SepInformLsaOfDeletedLogon(
 #pragma alloc_text(PAGE,SepCreateLogonSessionTrack)
 #pragma alloc_text(PAGE,SepDeleteLogonSessionTrack)
 #pragma alloc_text(PAGE,SepInformLsaOfDeletedLogon)
+#pragma alloc_text(PAGE,SepInformFileSystemsOfDeletedLogon)
+#pragma alloc_text(PAGE,SepNotifyFileSystems)
 #endif
 
 
@@ -443,6 +462,15 @@ Return Value:
 
                 SepRmReleaseDbWriteLock();
 
+                //
+                // Asynchronoously inform file systems that this logon session
+                // is going away, if atleast one FS expressed interest in this
+                // logon session.
+                //
+
+                if (Current->Flags & SEP_TERMINATION_NOTIFY) {
+                    SepInformFileSystemsOfDeletedLogon( LogonId );
+                }
 
                 //
                 // Deallocate the logon session track record.
@@ -815,3 +843,295 @@ Return Value:
     return;
 
 }
+
+
+NTSTATUS
+SeRegisterLogonSessionTerminatedRoutine(
+    IN PSE_LOGON_SESSION_TERMINATED_ROUTINE CallbackRoutine
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called by file systems that are interested in being
+    notified when a logon session is being deleted.
+
+Arguments:
+
+    CallbackRoutine - Address of routine to call back when a logon session
+        is being deleted.
+
+Return Value:
+
+    STATUS_SUCCESS - Successfully registered routine
+
+    STATUS_INVALID_PARAMETER - CallbackRoutine is NULL
+
+    STATUS_INSUFFICIENT_RESOURCE - Unable to allocate list entry.
+
+--*/
+
+{
+    PSEP_LOGON_SESSION_TERMINATED_NOTIFICATION NewCallback;
+
+    PAGED_CODE();
+
+    if (CallbackRoutine == NULL) {
+        return( STATUS_INVALID_PARAMETER );
+    }
+
+    NewCallback = ExAllocatePoolWithTag(
+                        PagedPool,
+                        sizeof(SEP_LOGON_SESSION_TERMINATED_NOTIFICATION),
+                        'SFeS');
+
+    if (NewCallback == NULL) {
+        return( STATUS_INSUFFICIENT_RESOURCES );
+    }
+
+    SepRmAcquireDbWriteLock();
+
+    NewCallback->Next = SeFileSystemNotifyRoutinesHead.Next;
+
+    NewCallback->CallbackRoutine = CallbackRoutine;
+
+    SeFileSystemNotifyRoutinesHead.Next = NewCallback;
+
+    SepRmReleaseDbWriteLock();
+
+    return( STATUS_SUCCESS );
+}
+
+
+NTSTATUS
+SeUnregisterLogonSessionTerminatedRoutine(
+    IN PSE_LOGON_SESSION_TERMINATED_ROUTINE CallbackRoutine
+    )
+
+/*++
+
+Routine Description:
+
+    This is the dual of SeRegisterLogonSessionTerminatedRoutine. A File System
+    *MUST* call this before it is unloaded.
+
+Arguments:
+
+    CallbackRoutine - Address of routine that was originally passed in to
+        SeRegisterLogonSessionTerminatedRoutine.
+
+Return Value:
+
+    STATUS_SUCCESS - Successfully removed callback routine
+
+    STATUS_INVALID_PARAMETER - CallbackRoutine is NULL
+
+    STATUS_NOT_FOUND - Didn't find and entry for CallbackRoutine
+
+--*/
+{
+    NTSTATUS Status;
+    PSEP_LOGON_SESSION_TERMINATED_NOTIFICATION PreviousEntry;
+    PSEP_LOGON_SESSION_TERMINATED_NOTIFICATION NotifyEntry;
+
+    PAGED_CODE();
+
+    if (CallbackRoutine == NULL) {
+        return( STATUS_INVALID_PARAMETER );
+    }
+
+    SepRmAcquireDbWriteLock();
+
+    for (PreviousEntry = &SeFileSystemNotifyRoutinesHead,
+            NotifyEntry = SeFileSystemNotifyRoutinesHead.Next;
+                NotifyEntry != NULL;
+                    PreviousEntry = NotifyEntry,
+                        NotifyEntry = NotifyEntry->Next) {
+
+         if (NotifyEntry->CallbackRoutine == CallbackRoutine)
+             break;
+
+    }
+
+    if (NotifyEntry != NULL) {
+
+        PreviousEntry->Next = NotifyEntry->Next;
+
+        ExFreePool( NotifyEntry );
+
+        Status = STATUS_SUCCESS;
+
+    } else {
+
+        Status = STATUS_NOT_FOUND;
+
+    }
+
+    SepRmReleaseDbWriteLock();
+
+    return( Status );
+
+}
+
+
+NTSTATUS
+SeMarkLogonSessionForTerminationNotification(
+    IN PLUID LogonId
+    )
+
+/*++
+
+Routine Description:
+
+    File systems that have registered for logon-termination notification
+    can mark logon sessions they are interested in for callback by calling
+    this routine.
+
+Arguments:
+
+    LogonId - The logon id for which the file system should be notified
+        when the logon session is terminated.
+
+Returns:
+
+    Nothing.
+
+--*/
+
+{
+
+    ULONG SessionArrayIndex;
+    PSEP_LOGON_SESSION_REFERENCES Previous, Current;
+
+    PAGED_CODE();
+
+    SessionArrayIndex = SepLogonSessionIndex( LogonId );
+
+    //
+    // Protect modification of reference monitor database
+    //
+
+    SepRmAcquireDbWriteLock();
+
+
+    //
+    // Now walk the list for our logon session array hash index.
+    //
+
+    Previous = (PSEP_LOGON_SESSION_REFERENCES)
+               ((PVOID)&SepLogonSessions[ SessionArrayIndex ]);
+    Current = Previous->Next;
+
+    while (Current != NULL) {
+
+        //
+        // If we found it, decrement the reference count and return
+        //
+
+        if (RtlEqualLuid( LogonId, &Current->LogonId) ) {
+            Current->Flags |= SEP_TERMINATION_NOTIFY;
+            break;
+        }
+
+        Previous = Current;
+        Current = Current->Next;
+    }
+
+    SepRmReleaseDbWriteLock();
+
+    return( (Current != NULL) ? STATUS_SUCCESS : STATUS_NOT_FOUND );
+
+}
+
+
+VOID
+SepInformFileSystemsOfDeletedLogon(
+    IN PLUID LogonId
+    )
+
+/*++
+
+Routine Description:
+
+    This routine informs interested file systems of a deleted logon.
+
+    Note that we can not be guaranteed that we are in a whole (or wholesome)
+    thread, since we may be in the middle of process deletion and object
+    rundown.  Therefore, we must queue the work off to a worker thread.
+
+
+Arguments:
+
+    LogonId - Pointer to the logon session ID which has been deleted.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    PSEP_FILE_SYSTEM_NOTIFY_CONTEXT FSNotifyContext;
+
+    PAGED_CODE();
+
+    FSNotifyContext = ExAllocatePoolWithTag(
+                            NonPagedPool,
+                            sizeof(SEP_FILE_SYSTEM_NOTIFY_CONTEXT),
+                            'SFeS');
+
+    if (FSNotifyContext == NULL) {
+
+        //
+        // I don't know what to do here... file systems will loose track of a
+        // logon session, but the system isn't really harmed in any way.
+        //
+
+        return;
+
+    }
+
+    FSNotifyContext->LogonId = *LogonId;
+
+    ExInitializeWorkItem( &FSNotifyContext->WorkItem,
+                          (PWORKER_THREAD_ROUTINE) SepNotifyFileSystems,
+                          (PVOID) FSNotifyContext);
+
+    ExQueueWorkItem( &FSNotifyContext->WorkItem, DelayedWorkQueue );
+
+}
+
+
+VOID
+SepNotifyFileSystems(
+    IN PVOID Context
+    )
+{
+    PSEP_FILE_SYSTEM_NOTIFY_CONTEXT FSNotifyContext =
+        (PSEP_FILE_SYSTEM_NOTIFY_CONTEXT) Context;
+
+    PSEP_LOGON_SESSION_TERMINATED_NOTIFICATION NextCallback;
+
+    PAGED_CODE();
+
+    //
+    // Protect modification of the list of FS callbacks.
+    //
+
+    SepRmAcquireDbReadLock();
+
+    NextCallback = SeFileSystemNotifyRoutinesHead.Next;
+
+    while (NextCallback != NULL) {
+
+        NextCallback->CallbackRoutine( &FSNotifyContext->LogonId );
+
+        NextCallback = NextCallback->Next;
+    }
+
+    SepRmReleaseDbReadLock();
+
+    ExFreePool( FSNotifyContext );
+}
+

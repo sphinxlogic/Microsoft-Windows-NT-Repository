@@ -66,13 +66,13 @@ ProcessOplockBreakResponse(
     );
 
 STATIC
-VOID
+VOID SRVFASTCALL
 RestartLockByteRange (
     IN OUT PWORK_CONTEXT WorkContext
     );
 
 STATIC
-VOID
+VOID SRVFASTCALL
 RestartLockingAndX (
     IN OUT PWORK_CONTEXT WorkContext
     );
@@ -99,15 +99,6 @@ TimeoutLockRequest (
 #pragma alloc_text( PAGE8FIL, CancelLockRequest )
 #pragma alloc_text( PAGE8FIL, TimeoutLockRequest )
 #endif
-
-//
-// Functions imported from smbrdwrt.c
-//
-
-VOID
-RestartChainedClose (
-    IN OUT PWORK_CONTEXT WorkContext
-    );
 
 
 SMB_PROCESSOR_RETURN_TYPE
@@ -271,7 +262,7 @@ Return Value:
                     lfcb->FileObject,
                     &offset,
                     &length,
-                    SRV_CURRENT_PROCESS,
+                    IoGetCurrentProcess(),
                     key,
                     failImmediately,
                     TRUE,
@@ -330,7 +321,7 @@ Return Value:
         if ( timer != NULL ) {
             SrvSetTimer(
                 timer,
-                SrvLockViolationDelay,
+                &SrvLockViolationDelayRelative,
                 TimeoutLockRequest,
                 WorkContext
                 );
@@ -593,7 +584,7 @@ start_lockingAndX:
                                         lfcb->FileObject,
                                         &offset,
                                         &length,
-                                        SRV_CURRENT_PROCESS,
+                                        IoGetCurrentProcess(),
                                         key,
                                         &iosb,
                                         lfcb->DeviceObject
@@ -640,7 +631,7 @@ start_lockingAndX:
                 // Update the count of locks on the RFCB.
                 //
 
-                pagedRfcb->NumberOfLocks--;
+                InterlockedDecrement( &rfcb->NumberOfLocks );
 
                 //
                 // Update both range pointers, only one is meaningful - the
@@ -796,7 +787,7 @@ start_lockingAndX:
                                     lfcb->FileObject,
                                     &offset,
                                     &length,
-                                    SRV_CURRENT_PROCESS,
+                                    IoGetCurrentProcess(),
                                     key,
                                     failImmediately,
                                     exclusiveLock,
@@ -813,7 +804,7 @@ start_lockingAndX:
                             // of locks on the RFCB.
                             //
 
-                            pagedRfcb->NumberOfLocks++;
+                            InterlockedIncrement( &rfcb->NumberOfLocks );
                             goto try_next_andx;
 
                         } else {
@@ -1061,14 +1052,14 @@ try_next_andx:
     case SMB_COM_CLOSE:
 
         //
-        // Call RestartChainedClose to get the file time set and the
+        // Call SrvRestartChainedClose to get the file time set and the
         // file closed.
         //
 
         closeRequest = (PREQ_CLOSE)((PUCHAR)WorkContext->RequestHeader + reqAndXOffset);
         WorkContext->Parameters.LastWriteTime = closeRequest->LastWriteTimeInSeconds;
 
-        RestartChainedClose( WorkContext );
+        SrvRestartChainedClose( WorkContext );
 
         return SmbStatusInProgress;
 
@@ -1295,7 +1286,7 @@ Return Value:
         response->WordCount = 0;
         SmbPutUshort( &response->ByteCount, 0 );
 
-        rfcb->PagedRfcb->NumberOfLocks--;
+        InterlockedDecrement( &rfcb->NumberOfLocks );
 
         WorkContext->ResponseParameters = NEXT_LOCATION(
                                             response,
@@ -1651,7 +1642,7 @@ Return Value:
                             lfcb->FileObject,
                             &offset,
                             &length,
-                            SRV_CURRENT_PROCESS,
+                            IoGetCurrentProcess(),
                             key,
                             failImmediately,
                             exclusiveLock,
@@ -1670,6 +1661,12 @@ Return Value:
                     RestartLockingAndX( WorkContext );
                     return;
                 }
+
+                //
+                // Increment the count of locks on the file.
+                //
+
+                InterlockedIncrement( &rfcb->NumberOfLocks );
 
                 //
                 // If this isn't the last lock, update context
@@ -1760,10 +1757,14 @@ Return Value:
         //
 
         if ( timer != NULL ) {
+            LARGE_INTEGER TimeOut;
+
             ASSERT( lockTimeout != 0 );
             ASSERT( !failImmediately );
             WorkContext->Parameters.Lock.Timer = timer;
-            SrvSetTimer( timer, lockTimeout, TimeoutLockRequest, WorkContext );
+            TimeOut.QuadPart = Int32x32To64( lockTimeout, -1*10*1000);
+
+            SrvSetTimer( timer, &TimeOut, TimeoutLockRequest, WorkContext );
         }
 
         //
@@ -1863,7 +1864,7 @@ Return Value:
 } // ProcessOplockBreakResponse
 
 
-VOID
+VOID SRVFASTCALL
 RestartLockByteRange (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -1891,7 +1892,6 @@ Return Value:
 
     LARGE_INTEGER offset;
     NTSTATUS status;
-    PPAGED_RFCB pagedRfcb = WorkContext->Rfcb->PagedRfcb;
     PSRV_TIMER timer;
 
     PAGED_CODE( );
@@ -1921,7 +1921,9 @@ Return Value:
         response->WordCount = 0;
         SmbPutUshort( &response->ByteCount, 0 );
 
-        pagedRfcb->NumberOfLocks++;
+        InterlockedIncrement(
+            &WorkContext->Rfcb->NumberOfLocks
+            );
 
         WorkContext->ResponseParameters = NEXT_LOCATION(
                                             response,
@@ -1948,7 +1950,7 @@ Return Value:
         request = (PREQ_LOCK_BYTE_RANGE)WorkContext->RequestParameters;
         offset.QuadPart = SmbGetUlong( &request->Offset );
 
-        pagedRfcb->LastFailingLockOffset = offset;
+        WorkContext->Rfcb->PagedRfcb->LastFailingLockOffset = offset;
 
         //
         // Send error message back
@@ -1974,7 +1976,7 @@ Return Value:
 } // RestartLockByteRange
 
 
-VOID
+VOID SRVFASTCALL
 RestartLockingAndX (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -2169,12 +2171,10 @@ Return Value:
                         key                         // lock key
                         );
 
-            //
-            // Ignore the status, except to print an error message.
-            //
-
-            IF_DEBUG(ERRORS) {
-                if ( !NT_SUCCESS(status) ) {
+            if ( NT_SUCCESS(status) ) {
+                InterlockedDecrement( &rfcb->NumberOfLocks );
+            } else {
+                IF_DEBUG(ERRORS) {
                     KdPrint(( "RestartLockingAndX: Unlock failed: %X\n",
                                 status ));
                 }
@@ -2198,6 +2198,8 @@ Return Value:
     // The lock request succeeded.  Update the count of locks on the
     // RFCB and start the next one, if any.
     //
+
+    InterlockedIncrement( &rfcb->NumberOfLocks );
 
     count++;                          // another lock obtained
     smallRange++, largeRange++;       // point to next lock range
@@ -2233,13 +2235,6 @@ Return Value:
         return;
 
     }
-
-    //
-    // All lock requests succeeded.  Update the count of locks on the
-    // RFCB.
-    //
-
-    pagedRfcb->NumberOfLocks += lockCount;
 
     //
     // There are no more lock requests in the SMB.  Check for the Oplock
@@ -2321,14 +2316,14 @@ Return Value:
         case SMB_COM_CLOSE:
 
             //
-            // Call RestartChainedClose to get the file time set and the
+            // Call SrvRestartChainedClose to get the file time set and the
             // file closed.
             //
 
             closeRequest = (PREQ_CLOSE)((PUCHAR)WorkContext->RequestHeader + reqAndXOffset);
             WorkContext->Parameters.LastWriteTime = closeRequest->LastWriteTimeInSeconds;
 
-            RestartChainedClose( WorkContext );
+            SrvRestartChainedClose( WorkContext );
 
             return;
 

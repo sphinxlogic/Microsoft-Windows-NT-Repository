@@ -61,10 +61,13 @@ BOOL SLM_GetVersion(SLMOBJECT hslm, LPSTR version, LPSTR tempfile);
  * Once we have seen a slm.ini, we log this in the profile and will permit
  * slm operations from then on. This function is called by the UI portions
  * of windiff: it returns TRUE if it is ok to offer SLM options.
+ * Return 0 - This user hasn't touched SLM,
+ *        1 - They have used SLM at some point (show SLM options)
+ *        2 - They're one of us, so tell them everything
+ *        3 - (1 + 2).
  */
-BOOL IsSLMOK(void);
+int IsSLMOK(void);
 
 
 
 
-

@@ -765,12 +765,7 @@ Return Value:
         try {
 
             PsChargePoolQuota(Process,BasePoolTypeTable[PoolType],(1 << Entry->LogAllocationSize));
-            ObReferenceObjectByPointer(
-                Process,
-                PROCESS_ALL_ACCESS,
-                PsProcessType,
-                KernelMode
-                );
+            ObReferenceObject(Process);
             Entry->ProcessBilled = Process;
 
         } except ( ExpAllocatePoolWithQuotaHandler(GetExceptionCode(),p)) {

@@ -39,13 +39,13 @@ Revision History:
 
     01-Dec-1992 JohnRo
         RAID 4371: probable device canon bug.
-        Use NetpDbgPrint instead of NT-specific version.
+        Use NetpKdPrint instead of NT-specific version.
 
 --*/
 
 #include "nticanon.h"
 
-#define PATHLEN1_1 128      // Lanman 1.0 path len (ie OS2 1.1/FAT)
+#define PATHLEN1_1 128      // Lanman 1.0 path len ((ie OS2 1.1/FAT))
 
 //
 // PARSER_PARMS - A structure containing the parameters passed to each
@@ -183,15 +183,9 @@ Return Value:
     NET_API_STATUS RetVal;
     DWORD   Len;
     PARSER_PARMS parms;
-// Added 05/14/91 RLF
-    TCHAR   fudgebuf[11];
-    BOOL    fudged = FALSE;
-    LPTSTR  pathptr = PathName;
-// Added 05/14/91 RLF
-
 
 #ifdef CANONDBG
-    NetpDbgPrint("NetpwPathType\n");
+    NetpKdPrint(("NetpwPathType\n"));
 #endif
 
     *PathType = 0;
@@ -209,58 +203,6 @@ Return Value:
         return ERROR_INVALID_NAME;
     }
 
-// Added 05/14/91 RLF
-    //
-    // if the name starts with the Nt local device name prefix (\\.\) then
-    // fudge it into the form of device name prefix that this code understands,
-    // perform the parse operation on the fudged device, then unfudge it
-    //
-
-    if (IS_PATH_SEPARATOR(PathName[0]) && IS_PATH_SEPARATOR(PathName[1])
-        && (PathName[2] == TCHAR_DOT) && IS_PATH_SEPARATOR(PathName[3])) {
-
-        //
-        // Device names which can take the form <device_name>{1-9}[:]
-        //
-
-        if (!STRNICMP(&PathName[4], TEXT("LPT"), 3)
-            || !STRNICMP(&PathName[4], TEXT("COM"), 3)) {
-            if ((PathName[7] >= '1' && PathName[7] <= '9')
-                && (((PathName[8] == TCHAR_COLON) && !PathName[9]) || !PathName[8])) {
-                fudged = TRUE;
-            }
-        }
-
-        //
-        // Device names which can take the form <device_name>[:]
-        //
-
-        else if (!STRNICMP(&PathName[4], TEXT("PRN"), 3)
-            || !STRNICMP(&PathName[4], TEXT("AUX"), 3)
-            || !STRNICMP(&PathName[4], TEXT("NUL"), 3)) {
-            if (((PathName[7] == TCHAR_COLON) && !PathName[8]) || !PathName[7]) {
-                fudged = TRUE;
-            }
-        }
-        if (fudged) {
-            STRCPY(fudgebuf, TEXT("\\DEV\\"));
-            STRCAT(fudgebuf, &PathName[4]);
-            pathptr = fudgebuf;
-
-            //
-            // If the name meets the above criteria and it ends with ':' then
-            // strip the trailing ':'. Why? Because the system namespace does
-            // not recognise <device name>: where it recognises <device name>
-            // We don't want the call to fail just because a ':' was appended
-            //
-
-            if (fudgebuf[STRLEN(fudgebuf)-1] == TCHAR_COLON) {
-                fudgebuf[STRLEN(fudgebuf)-1] = TCHAR_EOS;
-            }
-        }
-    }
-// Added 05/14/91 RLF
-
     //
     // Initialize parser parameter structure
     //
@@ -271,10 +213,7 @@ Return Value:
         parms.Flags |= PPF_8_DOT_3;
     }
 
-// Moded 05/14/91 RLF
-    parms.Token = pathptr;
-//    parms.Token = PathName;
-// Moded 05/14/91 RLF
+    parms.Token = PathName;
 
     RetVal = GetToken(
         parms.Token,
@@ -450,6 +389,37 @@ STATIC DWORD TypeParseLeadSlashName(PPARSER_PARMS parms)
 STATIC DWORD TypeParseUNCName(PPARSER_PARMS parms)
 {
     DWORD   RetVal = NERR_CantType;
+
+    if( parms->TokenType & TOKEN_TYPE_DOT ) {
+
+        //
+        // Take care of paths like //./stuff\stuff\..
+        //
+
+        ADVANCE_TOKEN();
+
+        if( parms->TokenType & TOKEN_TYPE_SLASH ) {
+
+            //
+            // If it starts with //./, then let anything else through
+            //
+
+            *parms->PathType |= ITYPE_PATH | ITYPE_ABSOLUTE | ITYPE_DPATH;
+
+            //
+            // Chew up the rest of the input.
+            //
+            while( TokenAdvance(parms) == 0 ) {
+                if( parms->TokenType & TOKEN_TYPE_EOS ) {
+                    break;
+                }
+            }
+            
+            return 0;
+        }
+
+        return ERROR_INVALID_NAME;
+    }
 
     //
     // Set the UNC type bit

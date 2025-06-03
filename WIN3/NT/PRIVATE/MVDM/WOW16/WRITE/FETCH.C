@@ -488,4 +488,3 @@ while (ibte--)
 
 return pfkpd->pn;       /* On current page. */
 } /* end of  P n F k p F r o m F c S c r  */
-

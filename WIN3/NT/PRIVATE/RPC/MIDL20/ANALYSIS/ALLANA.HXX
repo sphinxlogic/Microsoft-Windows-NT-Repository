@@ -37,3 +37,5 @@
 #include "PTRCLS.HXX"
 #include "FRMTREG.HXX"
 #include "pickle.hxx"
+#include "comcls.hxx"
+

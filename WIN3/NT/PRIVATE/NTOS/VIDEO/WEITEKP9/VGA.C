@@ -19,13 +19,6 @@ Revision History may be found at the end of this file.
 
 --*/
 
-#include "dderror.h"
-#include "devioctl.h"
-
-#include "miniport.h"
-#include "ntddvdeo.h"
-#include "video.h"
-#include "dac.h"
 #include "p9.h"
 #include "p9gbl.h"
 #include "vga.h"
@@ -100,14 +93,3 @@ Return Value:
 
    return;
 }
-
-/*++
-
-Revision History:
-
-    $Log:   N:/ntdrv.vcs/miniport.new/vga.c_v  $
- *
- *    Rev 1.0   14 Jan 1994 22:41:14   robk
- * Initial revision.
-
---*/

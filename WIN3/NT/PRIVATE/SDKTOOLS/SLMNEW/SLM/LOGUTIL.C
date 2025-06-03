@@ -1,21 +1,12 @@
-#include "slm.h"
-#include "sys.h"
-#include "util.h"
-#include "stfile.h"
-#include "ad.h"
-#include "log.h"
-#include "dir.h"
-#include "proto.h"
+#include "precomp.h"
+#pragma hdrstop
+EnableAssert
 
 private void ScanTimeRange(P4(AD *, NE *, PFNL, SM));
 private void ScanCountRange(P4(AD *, NE *, PFNL, SM));
 private F FMoreNe(P1(NE *));
 private F FUseLe(P5(AD *, NE *, F, LE *, NE **));
 private char *SzComPne(P3(NE *pneFiles, char *sz, unsigned ichMax));
-
-
-EnableAssert
-
 
 MF *pmfNewLog = 0;      /* mf of new copy of log file */
 

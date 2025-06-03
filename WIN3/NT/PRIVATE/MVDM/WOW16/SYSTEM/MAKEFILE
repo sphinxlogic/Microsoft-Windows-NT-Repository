@@ -35,31 +35,21 @@ AOBJ    = -R -t $(DEFINES) $(INCS)
 CW16    = -AS -G2sw -Os -W3 -Zp $(DEFINES) $(INCS)
 CW16B   = $(CW16) -B1 c1l.exe -B2 c2l.exe -B3 c3l.exe
 
-LPATH   = ..\..\tools.os2
 LINK    = /map /align:16
 
-!ifdef LIB
-W16LIBS = sdllcew
-!else
 W16LIBS = ..\lib\sdllcew.lib
-!endif
 
-# work around stupid bug in RC 3.1 that doesn't allow rcpp.err to be
+########## Path definition so we find 16 bit tools ##########
+# Also works around stupid bug in RC 3.1 that doesn't allow rcpp.err to be
 # in a directory that is greater than 128 chars down the path, even if
 # rc 3.1 is running as an OS/2 app.
 
-PATH    = ..\..\tools16;$(PATH)
+PATH    = $(_NTBINDIR)\private\mvdm\tools16;$(PATH)
 
-!if "$(NTDEBUG)"!="" && "$(NTDEBUG)"!="retail"
-!if "$(NTDEBUGTYPE)"=="windbg"
-AOBJ    = $(AOBJ) -Zi
-CW16    = $(CW16) /Od /Oi /Zi
-LINK    = $(LINK) /CO
-!else
+!if "$(NTDEBUG)"!="" && "$(NTDEBUG)"!="retail" && "$(NTDEBUG)" != "ntsdnodbg"
 AOBJ    = $(AOBJ) -Zd
 CW16    = $(CW16) /Od /Oi /Zd
 LINK    = $(LINK) /LI
-!endif
 !endif
 
 .asm.obj:
@@ -83,18 +73,15 @@ LINK    = $(LINK) /LI
     mapsym $*
 
 .rc.res:
-!IFDEF NTVDM_BASED_BUILD
     rc16 -r -fo $@ $(INCS) $*.rc
-!ELSE
-    $(LPATH)\rc -r -fo $@ $(INCS) $*.rc
-!ENDIF
 
 
 all: system.drv system.sym
-    -binplace system.drv
-    -binplace system.sym
+    -binplace system.drv system.map system.sym
 
-clean:
+clean: cleanup all
+
+cleanup:
     if exist *.lrf del *.lrf
     if exist *.obj del *.obj
     if exist *.drv del *.drv
@@ -119,17 +106,10 @@ timer.obj: timer.asm ..\..\inc\wow.inc
 system.res: system.rc ..\inc\common.ver
 
 system.drv: system.obj timer.obj system.lrf system.res
-!IFDEF NTVDM_BASED_BUILD
     link16 @system.lrf;
     rc16 -t system.res system.exe
     if exist *.drv del *.drv
     ren system.exe system.drv
-!ELSE
-    $(LPATH)\link @system.lrf;
-    $(LPATH)\rc -t system.res system.exe
-    if exist *.drv del *.drv
-    ren system.exe system.drv
-!ENDIF
 
 system.sym: system.map
 

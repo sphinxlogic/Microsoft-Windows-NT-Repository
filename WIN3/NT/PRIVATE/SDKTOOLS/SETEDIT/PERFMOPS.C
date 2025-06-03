@@ -42,10 +42,14 @@ int   iTime ;           // = 0 for 12-hour format,  <> 0 for 24-hour format
 int   YearCharCount ;   // = 4 for 1990, = 2 for 90
 
 TCHAR szDateFormat[ResourceStringLen] ;
-TCHAR szTimeFormat[ResourceStringLen] ;
+TCHAR szTimeFormat[ResourceStringLen] ;   // time format including msec
+TCHAR szTimeFormat1[ResourceStringLen] ;  // time format without msec
 
 TCHAR LeadingZeroStr [] = TEXT("%02d") ;
 TCHAR NoLeadingZeroStr [] = TEXT("%d") ;
+
+TCHAR szDecimal [2] ;
+TCHAR szCurrentDecimal [2] ;
 
 #define EvalThisChar(c,d) ( \
      (c == d) ? DELIMITER : \
@@ -115,7 +119,7 @@ BOOL ChooseComputer (HWND hWndParent, LPTSTR lpszComputer)
 
    // bring up the select network computer dialog
    hLibrary = LoadLibrary (szChooseComputerLibrary) ;
-   if (!hLibrary)
+   if (!hLibrary || hLibrary == INVALID_HANDLE_VALUE)
       {
       return (FALSE) ;
       }
@@ -124,6 +128,7 @@ BOOL ChooseComputer (HWND hWndParent, LPTSTR lpszComputer)
       GetProcAddress (hLibrary, szChooseComputerFunction) ;
    if (!lpfnChooseComputer)
       {
+      FreeLibrary (hLibrary) ;
       return (FALSE) ;
       }
 
@@ -140,6 +145,7 @@ BOOL ChooseComputer (HWND hWndParent, LPTSTR lpszComputer)
       lstrcpy (lpszComputer, wszWideComputer) ;
       }
 
+   FreeLibrary (hLibrary) ;
    return (bSuccess) ;
    }  // ChooseComputer
    
@@ -177,7 +183,8 @@ void SystemTimeDateString (SYSTEMTIME *pSystemTime,
 
 
 void SystemTimeTimeString (SYSTEMTIME *pSystemTime,
-                           LPTSTR lpszTime)
+                           LPTSTR lpszTime,
+                           BOOL   bOutputMsec)
    {
    int            iHour ;
    BOOL           bPM ;
@@ -185,12 +192,22 @@ void SystemTimeTimeString (SYSTEMTIME *pSystemTime,
    if (iTime)
       {
       // 24 hor format
-      TSPRINTF (lpszTime, szTimeFormat,
+      if (bOutputMsec)
+         {
+         TSPRINTF (lpszTime, szTimeFormat,
                 pSystemTime->wHour,
                 pSystemTime->wMinute,
                 (FLOAT)pSystemTime->wSecond +
                 (FLOAT)pSystemTime->wMilliseconds / (FLOAT) 1000.0) ;
+         }
+      else
+         {
+         TSPRINTF (lpszTime, szTimeFormat1,
+                pSystemTime->wHour,
+                pSystemTime->wMinute,
+                pSystemTime->wSecond) ;
 
+         }
       }
    else
       {
@@ -203,11 +220,21 @@ void SystemTimeTimeString (SYSTEMTIME *pSystemTime,
       else if (!iHour)
          iHour = 12 ;
 
-      TSPRINTF (lpszTime, szTimeFormat,
+      if (bOutputMsec)
+         {
+         TSPRINTF (lpszTime, szTimeFormat,
                 iHour, pSystemTime->wMinute,
                 (FLOAT)pSystemTime->wSecond + 
                 (FLOAT)pSystemTime->wMilliseconds / (FLOAT) 1000.0 ,
                 bPM ? sz2359 : sz1159) ;
+         }
+      else
+         {
+         TSPRINTF (lpszTime, szTimeFormat1,
+                iHour, pSystemTime->wMinute,
+                pSystemTime->wSecond,
+                bPM ? sz2359 : sz1159) ;
+         }
       }
    }
             
@@ -245,9 +272,9 @@ void SmallFileSizeString (int iFileSize,
                           LPTSTR lpszFileText)
    {  // SmallFileSizeString
    if (iFileSize < 1000000)
-      TSPRINTF (lpszFileText, TEXT(" %1.1fK "), ((FLOAT) iFileSize) / 1000.0) ;
+      TSPRINTF (lpszFileText, TEXT(" %1.1fK "), ((FLOAT) iFileSize) / 1000.0f) ;
    else
-      TSPRINTF (lpszFileText, TEXT(" %1.1fM "), ((FLOAT) iFileSize) / 1000000.0) ;
+      TSPRINTF (lpszFileText, TEXT(" %1.1fM "), ((FLOAT) iFileSize) / 1000000.0f) ;
    }  // SmallFileSizeString   
 
 
@@ -281,19 +308,62 @@ int SystemTimeDifference (SYSTEMTIME *pst1, SYSTEMTIME *pst2)
    LARGE_INTEGER  li1, li2 ;
    LARGE_INTEGER  liDifference, liDifferenceSeconds ;
    DWORD          uRemainder ;
+   int            RetInteger;
+   BOOL           bNegative;
 
+   li1.HighPart = li1.LowPart = 0 ;
+   li2.HighPart = li2.LowPart = 0 ;
 
    SystemTimeToFileTime (pst1, (FILETIME *) &li1) ;
    SystemTimeToFileTime (pst2, (FILETIME *) &li2) ;
 
-   liDifference = RtlLargeIntegerSubtract (li2, li1) ;
-   liDifference.LowPart += (FILETIMES_PER_SECOND / 2) ;
+   // check for special cases when the time can be 0
+   if (li2.HighPart == 0 && li2.LowPart == 0)
+      {
+      if (li1.HighPart == 0 && li1.LowPart == 0)
+         {
+         return 0 ;
+         }
+      else
+         {
+         return -INT_MAX ;
+         }
+      }
+   else if (li1.HighPart == 0 && li1.LowPart == 0)
+      {
+      return INT_MAX ;
+      }
 
-   liDifferenceSeconds =
-     RtlExtendedLargeIntegerDivide (liDifference, FILETIMES_PER_SECOND, 
-                                    &uRemainder) ;
+   liDifference.QuadPart = li2.QuadPart - li1.QuadPart ;
+   bNegative = liDifference.QuadPart < 0 ;
 
-   return (liDifferenceSeconds.LowPart) ;
+   // add the round-off factor before doing the division
+   if (bNegative)
+      {
+      liDifferenceSeconds.QuadPart = (LONGLONG)(- FILETIMES_PER_SECOND / 2) ;
+      }
+   else
+      {
+      liDifferenceSeconds.QuadPart = (LONGLONG)(FILETIMES_PER_SECOND / 2) ;
+      }
+
+
+   liDifferenceSeconds.QuadPart = liDifferenceSeconds.QuadPart +
+      liDifference.QuadPart ;
+
+   liDifferenceSeconds.QuadPart = liDifferenceSeconds.QuadPart /
+      FILETIMES_PER_SECOND;
+
+   RetInteger = liDifferenceSeconds.LowPart;
+
+   if (bNegative)
+      {
+      return (-RetInteger) ;
+      }
+   else
+      {
+      return (RetInteger) ;
+      }
    }
  
 
@@ -705,4 +775,41 @@ void GetDateTimeFormats ()
 
 }  // GetDateTimeFormats
 
-
+void ConvertDecimalPoint (LPTSTR lpFloatPointStr)
+{
+   if (szCurrentDecimal[0] == szDecimal[0])
+      {
+      // no need to convert anything
+      return ;
+      }
+
+   while (*lpFloatPointStr)
+      {
+      if (*lpFloatPointStr == szCurrentDecimal[0])
+         {
+         *lpFloatPointStr = szDecimal[0] ;
+         break ;
+         }
+      ++lpFloatPointStr ;
+      }
+}  // ConvertDecimalPoint
+
+void ReconvertDecimalPoint (LPTSTR lpFloatPointStr)
+{
+   if (szCurrentDecimal[0] == szDecimal[0])
+      {
+      // no need to convert anything
+      return ;
+      }
+
+   while (*lpFloatPointStr)
+      {
+      if (*lpFloatPointStr == szDecimal[0])
+         {
+         *lpFloatPointStr = szCurrentDecimal[0] ;
+         break ;
+         }
+      ++lpFloatPointStr ;
+      }
+}  // ReconvertDecimalPoint
+

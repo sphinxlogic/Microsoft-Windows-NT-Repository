@@ -18,7 +18,6 @@ Revision History:
 
 --*/
 
-#include <assert.h>
 #include "mc.h"
 
 typedef BOOL (*PISTEXTUNICODE_ROUTINE)(
@@ -51,22 +50,21 @@ McAddName(
     int n;
 
     while (p = *NameListHead) {
-        if (!(n = wcsicmp( p->Name, Name ))) {
+        if (!(n = _wcsicmp( p->Name, Name ))) {
             if (p->Id != Id) {
                 McInputErrorW( L"Redefining value of %s", FALSE, Name );
-                }
+            }
 
             p->Id = Id;
             p->Value = Value;
             p->Used = FALSE;
             return( p );
-            }
-        else if (n < 0) {
+        } else if (n < 0) {
             break;
-            }
+        }
 
         NameListHead = &p->Next;
-        }
+    }
 
     p = malloc( sizeof( *p ) + ( wcslen( Name ) + 1 ) * sizeof( WCHAR ) );
     p->LastId = 0;
@@ -91,13 +89,13 @@ McFindName(
 
     p = NameListHead;
     while (p) {
-        if (!wcsicmp( p->Name, Name )) {
+        if (!_wcsicmp( p->Name, Name )) {
             p->Used = TRUE;
             break;
-            }
+        }
 
         p = p->Next;
-        }
+    }
 
     return( p );
 }
@@ -122,64 +120,54 @@ McCharToInteger(
             if (c == L'x') {
                 Base = 16;
                 Shift = 4;
-                }
-            else
-            if (c == L'o') {
+            } else if (c == L'o') {
                 Base = 8;
                 Shift = 3;
-                }
-            else
-            if (c == L'b') {
+            } else if (c == L'b') {
                 Base = 2;
                 Shift = 1;
-                }
-            else {
+            } else {
                 String--;
-                }
+            }
 
             c = *String++;
-            }
         }
-    else {
+    } else {
         switch( Base ) {
             case 16:    Shift = 4;  break;
             case  8:    Shift = 3;  break;
             case  2:    Shift = 1;  break;
             case 10:    Shift = 0;  break;
             default:    return( FALSE );
-            }
         }
+    }
 
     Result = 0;
     while (c) {
         if (c >= L'0' && c <= L'9') {
             Digit = c - L'0';
-            }
-        else
-        if (c >= L'A' && c <= L'F') {
+        }
+        else if (c >= L'A' && c <= L'F') {
             Digit = c - L'A' + 10;
-            }
-        else
-        if (c >= L'a' && c <= L'f') {
+        }
+        else if (c >= L'a' && c <= L'f') {
             Digit = c - L'a' + 10;
-            }
-        else {
+        } else {
             break;
-            }
+        }
 
         if ((int)Digit >= Base) {
             break;
-            }
+        }
 
         if (Shift == 0) {
             Result = (Base * Result) + Digit;
-            }
-        else {
+        } else {
             Result = (Result << Shift) | Digit;
-            }
+        }
 
         c = *String++;
-        }
+    }
 
     *Value = Result;
     return( TRUE );
@@ -213,8 +201,8 @@ IsFileUnicode (char * fName)
         OptionalIsTextUnicode = (PISTEXTUNICODE_ROUTINE)GetProcAddress( LoadLibrary( "ADVAPI32.DLL" ), "IsTextUnicode" );
         if (OptionalIsTextUnicode == NULL) {
             OptionalIsTextUnicode = DefaultIsTextUnicode;
-            }
         }
+    }
 
     if ( ( fp = fopen( fName, "rb" ) ) == NULL )
         return (FALSE);
@@ -240,16 +228,24 @@ MyIsDBCSLeadByte(UCHAR c)
     int i;
     CPINFO* PCPInfo = &CPInfo;
 
-    if (PCPInfo == NULL)
-	return FALSE;
-    if (PCPInfo->MaxCharSize == 1)
-	return FALSE;
+    if (PCPInfo == NULL) {
+        return FALSE;
+    }
+
+    if (!PCPInfo->MaxCharSize) {
+        return(IsDBCSLeadByte(c));
+    }
+
+    if (PCPInfo->MaxCharSize == 1) {
+        return FALSE;
+    }
+
     for (i=0 ; i<MAX_LEADBYTES ; i+=2) {
-	if (PCPInfo->LeadByte[i] == 0 && PCPInfo->LeadByte[i+1] == 0)
-	    return FALSE;
-	if (c >= PCPInfo->LeadByte[i] && c <= PCPInfo->LeadByte[i+1])
-	    return TRUE;
-	}
+        if (PCPInfo->LeadByte[i] == 0 && PCPInfo->LeadByte[i+1] == 0)
+            return FALSE;
+        if (c >= PCPInfo->LeadByte[i] && c <= PCPInfo->LeadByte[i+1])
+            return TRUE;
+    }
     return FALSE;
 }
 
@@ -266,38 +262,37 @@ fgetsW (WCHAR * string, long count, FILE * fp)
     if (count <= 0)
         return (NULL);
 
-    while (--count)
-    {
-        if (UnicodeInput)
+    while (--count) {
+        if (UnicodeInput) {
             nBytesRead = fread (ch, 1, sizeof(WCHAR), fp);
-        else {
+        } else {
             nBytesRead = fread (ch, 1, 1, fp);
-	    ch[1] = '\0';
-	}
+            ch[1] = '\0';
+        }
 
         //
         //  if there are no more characters, end the line
         //
 
-        if (feof (fp))
-        {
+        if (feof (fp)) {
             if (pch == string)
                 return (NULL);
             break;
         }
 
-	if (ch[0] < 128 || UnicodeInput)
-	    *pch = *(WCHAR*)&ch[0];
-	else if (MyIsDBCSLeadByte(ch[0])) {
+        if (ch[0] < 128 || UnicodeInput) {
+            *pch = *(WCHAR*)&ch[0];
+        } else if (MyIsDBCSLeadByte(ch[0])) {
             nBytesRead = fread (&ch[1], 1, 1, fp);
-	    MultiByteToWideChar(CurrentLanguageName->CodePage, 0, ch, 2, pch, 1);
-	}
-	else {
-	    MultiByteToWideChar(CurrentLanguageName->CodePage, 0, ch, 1, pch, 1);
-	}
+            MultiByteToWideChar(CurrentLanguageName->CodePage, 0, ch, 2, pch, 1);
+        } else {
+            MultiByteToWideChar(CurrentLanguageName->CodePage, 0, ch, 1, pch, 1);
+        }
+
         pch++;
-        if (*(pch-1) == L'\n')
+        if (*(pch-1) == L'\n') {
             break;
+        }
     }
 
     *pch = L'\0';

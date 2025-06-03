@@ -42,8 +42,12 @@ typedef struct _LOCKCONTEXT {
     PSMB_BUFFER         ReceiveSmb;     // Smb Buffer for receive of Lock&Read.
     PIRP                ReceiveIrp;     // I/O request packet for receive.
     BOOLEAN             FailImmediately;// TRUE if request is to fail immediatly
+    BOOLEAN             LockFailed;     // True if lock failed
     BOOLEAN             ReadFailed;     // True if &X operation failed on Locking&X
     BOOLEAN             CoreLock;       // True if this was a core lock req.
+#if RDRDBG_LOCK
+    BOOLEAN             FailLockAndRead;
+#endif
 } LOCKCONTEXT, *PLOCKCONTEXT;
 
 typedef struct _UNLOCKCONTEXT {
@@ -109,8 +113,6 @@ CompleteUnlockAllIrp (
     );
 
 #ifdef  ALLOC_PRAGMA
-#pragma alloc_text(INIT, RdrpInitializeLockHead)
-
 #pragma alloc_text(PAGE, RdrFsdLockOperation)
 #pragma alloc_text(PAGE, RdrFspLockOperation)
 #pragma alloc_text(PAGE, RdrFscLockOperation)
@@ -122,10 +124,8 @@ CompleteUnlockAllIrp (
 #pragma alloc_text(PAGE, RdrUnlockRange)
 #pragma alloc_text(PAGE, CompleteLockOperation)
 #pragma alloc_text(PAGE, FailLockOperation)
-#pragma alloc_text(PAGE, RdrInitializeLockHead)
 #pragma alloc_text(PAGE, RdrTruncateLockHeadForFcb)
 #pragma alloc_text(PAGE, RdrTruncateLockHeadForIcb)
-#pragma alloc_text(PAGE, RdrpUninitializeLockHead)
 #pragma alloc_text(PAGE, RdrInitializeAndXBehind)
 
 #pragma alloc_text(PAGE3FILE, CompleteUnlockAllIrp)
@@ -311,6 +311,13 @@ Return Value:
 {
     NTSTATUS Status;
     PIO_STACK_LOCATION IrpSp;
+#if 0 && RDRDBG_LOG
+    PVOID fileObject;
+    ULONG offset;
+    ULONG length;
+    ULONG key;
+    CCHAR operation;
+#endif
 
     PFCB Fcb;
 
@@ -365,7 +372,35 @@ Return Value:
         //  Now call the fsrtl routine do actually process the file lock
         //
 
+#if 0 && RDRDBG_LOG
+        fileObject = IrpSp->FileObject;
+        offset = IrpSp->Parameters.LockControl.ByteOffset.LowPart;
+        length = IrpSp->Parameters.LockControl.Length->LowPart;
+        key = IrpSp->Parameters.LockControl.Key;
+        operation = IrpSp->MinorFunction;
+        switch (operation) {
+        case IRP_MN_LOCK:
+            //RdrLog(( "lock", &Fcb->FileName, 4, IoGetRequestorProcess(Irp), fileObject, offset, length ));
+            break;
+        case IRP_MN_UNLOCK_SINGLE:
+            //RdrLog(( "unlock", &Fcb->FileName, 4, IoGetRequestorProcess(Irp), fileObject, offset, length ));
+            break;
+        case IRP_MN_UNLOCK_ALL:
+            //RdrLog(( "unlckall", &Fcb->FileName, 2, IoGetRequestorProcess(Irp), fileObject ));
+            break;
+        case IRP_MN_UNLOCK_ALL_BY_KEY:
+            //RdrLog(( "unlckkey", &Fcb->FileName, 3, IoGetRequestorProcess(Irp), fileObject, key ));
+            break;
+        }
+#endif
+
         Status = FsRtlProcessFileLock( &Fcb->FileLock, Irp, ICB_OF(IrpSp));
+
+#if 0 && RDRDBG_LOG
+        if ( (Status == STATUS_FILE_LOCK_CONFLICT) && (operation == IRP_MN_LOCK) ) {
+            //RdrLog(( "lockCONF", &Fcb->FileName, 4, IoGetRequestorProcess(Irp), fileObject, offset, length ));
+        }
+#endif
 
 //    try_exit: NOTHING;
     } finally {
@@ -627,7 +662,7 @@ Return Value:
     //  for this operation.
     //
 
-    UnlockAllIrp = RdrAllocateIrp( FileObject, &DeviceObject->DeviceObject );
+    UnlockAllIrp = ALLOCATE_IRP( FileObject, &DeviceObject->DeviceObject, 4, NULL );
 
     if (UnlockAllIrp == NULL) {
         return(STATUS_INSUFFICIENT_RESOURCES);
@@ -700,17 +735,17 @@ Return Value:
 --*/
 
 {
+    DeviceObject, Ctx;
+
     DISCARDABLE_CODE(RdrFileDiscardableSection);
 
     dprintf(DPRT_FILELOCK, ("CompleteUnlockAllOperation, Irp: %lx\n", Irp));
 
 //    ASSERT (NT_SUCCESS(Irp->IoStatus.Status));
 
-    IoFreeIrp(Irp);
+    FREE_IRP( Irp, 5, NULL );
 
     return STATUS_MORE_PROCESSING_REQUIRED;
-
-    if (DeviceObject||Ctx);
 
 }
 
@@ -768,13 +803,13 @@ Return Value:
                         FileLock->Length,
                         FileLock->Key,
                         (BOOLEAN)!RdrData.UseUnlockBehind);
-        }
-        if (!NT_SUCCESS(Status)) {
-            return Status;
+            if (!NT_SUCCESS(Status)) {
+                return Status;
+            }
         }
     }
 
-    return Status;
+    return STATUS_SUCCESS;
 
 }
 
@@ -894,7 +929,8 @@ Note:
         ExInitializeWorkItem(&Context->WorkHeader, FailLockOperation, Context);
 
         Context->FailImmediately = FailImmediately;
-
+        Context->LockFailed = FALSE;
+        Context->ReadFailed = FALSE;
         Context->CoreLock = FALSE;      // Assume this is not a core lock.
 
         Context->ReceiveSmb = NULL;
@@ -942,6 +978,13 @@ Note:
 
         if (Lcb != NULL) {
 
+#if RDRDBG_LOCK
+            if ((StartingByte.QuadPart == 29) && (Length.QuadPart == 968)) {
+                Context->FailLockAndRead = TRUE;
+            } else
+                Context->FailLockAndRead = FALSE;
+#endif
+
             //
             //  If we are going to try a Lock&Read, we need to pre-allocate
             //  a number of things related to the request.
@@ -960,7 +1003,6 @@ Note:
                                              Lcb->Length, FALSE, FALSE, NULL);
 
                 if (Context->LcbMdl == NULL) {
-                    RdrFreeLcb(&Icb->u.f.LockHead, Lcb);
 
                     RdrFreeSMBBuffer(Context->ReceiveSmb);
 
@@ -983,8 +1025,6 @@ Note:
                     } except(EXCEPTION_EXECUTE_HANDLER) {
 
                         InternalError(("ProbeAndLock of LCB buffer failed"));
-
-                        RdrFreeLcb(&Icb->u.f.LockHead, Lcb);
 
                         IoFreeMdl(Context->LcbMdl);
 
@@ -1009,13 +1049,18 @@ Note:
 
                     Context->ReceiveSmb->Mdl->Next = Context->LcbMdl;
 
-                    Context->ReceiveIrp = RdrAllocateIrp(Icb->Fcb->Connection->Server->ConnectionContext->ConnectionObject, NULL);
+                    Context->ReceiveIrp = ALLOCATE_IRP(
+                                            Server->ConnectionContext->ConnectionObject,
+                                            NULL,
+                                            5,
+                                            Context
+                                            );
 
                     if (Context->ReceiveIrp == NULL) {
                         try_return(Status = STATUS_INSUFFICIENT_RESOURCES);
                     }
 
-                    RdrBuildReceive(Context->ReceiveIrp, Icb->Fcb->Connection->Server,
+                    RdrBuildReceive(Context->ReceiveIrp, Server,
                                     LockAndReadComplete, Context,
                                     Context->ReceiveSmb->Mdl, RdrMdlLength(Context->ReceiveSmb->Mdl));
 
@@ -1133,8 +1178,6 @@ Note:
 
                 NtLockRange = (PNTLOCKING_ANDX_RANGE )LockRequest->Buffer;
 
-//  BUGBUG: Need to determine PID of lock operation!
-
                 //
                 //  Fill in the lock range in the SMB.
                 //
@@ -1152,8 +1195,6 @@ Note:
                 SmbPutUshort(&LockRequest->ByteCount, sizeof(LOCKING_ANDX_RANGE));
 
                 LockRange = (PLOCKING_ANDX_RANGE )LockRequest->Buffer;
-
-//  BUGBUG: Need to determine PID of lock operation!
 
                 //
                 //  Fill in the lock range in the SMB.
@@ -1317,6 +1358,10 @@ Return Value:
     PRESP_LOCK_BYTE_RANGE LockResponse = (PRESP_LOCK_BYTE_RANGE )(Smb+1);
     PRESP_READ LockAndReadResponse = (PRESP_READ )(Smb+1);
 
+    UNREFERENCED_PARAMETER(MpxEntry);
+    UNREFERENCED_PARAMETER(Irp);
+    UNREFERENCED_PARAMETER(Server);
+
     DISCARDABLE_CODE(RdrFileDiscardableSection);
 
     ASSERT(Context->Header.Type == CONTEXT_LOCK);
@@ -1392,7 +1437,7 @@ Return Value:
                 //  The lock failed, indicate that to the completion routine.
                 //
 
-                Context->ReadFailed = FALSE;
+                Context->LockFailed = TRUE;
 
                 ExInitializeWorkItem(&Context->WorkHeader, FailLockOperation, Context);
 
@@ -1573,10 +1618,6 @@ try_exit:NOTHING;
     }
 
     return Status;
-
-    UNREFERENCED_PARAMETER(MpxEntry);
-    UNREFERENCED_PARAMETER(Irp);
-    UNREFERENCED_PARAMETER(Server);
 }
 
 DBGSTATIC
@@ -1613,6 +1654,8 @@ Return Value:
     PLOCKCONTEXT Context = Ctx;
     NTSTATUS Status;
 
+    DeviceObject;
+
     DISCARDABLE_CODE(RdrFileDiscardableSection);
 
     dprintf(DPRT_FILELOCK, ("LockAndReadComplete: %lx\n", Context));
@@ -1621,9 +1664,32 @@ Return Value:
 
     RdrCompleteReceiveForMpxEntry (Context->Header.MpxTableEntry, Irp);
 
-    if (NT_SUCCESS(Irp->IoStatus.Status)) {
+    if (NT_SUCCESS(Irp->IoStatus.Status)
+#if RDRDBG_LOCK
+        &&
+        !Context->FailLockAndRead
+#endif
+        ) {
 
-        ExInitializeWorkItem(&Context->WorkHeader, CompleteLockOperation, Context);
+        ExInterlockedAddLargeStatistic(
+            &RdrStatistics.BytesReceived,
+            Irp->IoStatus.Information );
+
+        //
+        //  Stick the LCB into the Icb's lock chain - it's valid now.
+        //
+
+        RdrInsertLock (&Context->Icb->u.f.LockHead, Context->Lcb);
+
+        //
+        //  It's now safe to complete the lock IRP since we have finished
+        //  linking in the read ahead portion of the data.  If we attempted to
+        //  do a Lock&Read and read in the data, we know the lock succeeded.
+        //
+
+        dprintf(DPRT_FILELOCK, ("Complete lock Irp %lx with STATUS_SUCCESS\n", Context->Irp));
+
+        RdrCompleteRequest(Context->Irp, STATUS_SUCCESS);
 
         //
         //  We have to queue this to an executive worker thread (as opposed
@@ -1636,20 +1702,14 @@ Return Value:
         //  to exceed the maximum # of requests to the server (it actually
         //  happened once).
         //
-
-        //
         //  It is safe to use executive worker threads for this operation,
         //  since CompleteLockOperation won't interact (and thus starve)
         //  the cache manager.
         //
 
+        ExInitializeWorkItem(&Context->WorkHeader, CompleteLockOperation, Context);
+
         ExQueueWorkItem (&Context->WorkHeader, DelayedWorkQueue);
-
-        //
-        //  Stick the LCB into the Icb's lock chain - it's valid now.
-        //
-
-        RdrInsertLock (&Context->Icb->u.f.LockHead, Context->Lcb);
 
         SMBTRACE_RDR( Irp->MdlAddress );
 
@@ -1670,20 +1730,6 @@ Return Value:
 
     }
 
-    ExInterlockedAddLargeStatistic(
-        &RdrStatistics.BytesReceived,
-        Irp->IoStatus.Information );
-
-    //
-    //  It's now safe to complete the lock IRP since we have finished
-    //  linking in the read ahead portion of the data.  If we attempted to
-    //  do a Lock&Read and read in the data, we know the lock succeeded.
-    //
-
-    dprintf(DPRT_FILELOCK, ("Complete lock Irp %lx with STATUS_SUCCESS\n", Context->Irp));
-
-    RdrCompleteRequest(Context->Irp, STATUS_SUCCESS);
-
     //
     //  You cannot touch the context block at DPC level from this point
     //  on.
@@ -1700,8 +1746,6 @@ Return Value:
     dprintf(DPRT_FILELOCK, ("Returning: %X\n", Status));
 
     return Status;
-
-    if (DeviceObject);
 }
 
 
@@ -1749,43 +1793,42 @@ Return Value:
     if (Context->Header.ErrorType == SMBError &&
         Context->CoreLock &&
         !Context->FailImmediately) {
-//  BUGBUG: We Need to use pseudo polling here BIGTIME!
-//            DbgBreakPoint();
+//  NOTE: We Need to use pseudo polling here BIGTIME!
 
-            RdrLockRange(Irp,
-                     Context->Icb,
+        PICB Icb = Context->Icb;
+
+        FREE_POOL(Context->SmbBuffer);
+        FREE_POOL(Context);
+
+        RdrLockRange(Irp,
+                     Icb,
                      LockIrpSp->Parameters.LockControl.ByteOffset,
                      *LockIrpSp->Parameters.LockControl.Length,
                      LockIrpSp->Parameters.LockControl.Key,
                      TRUE, FALSE);
+        return;
     }
 
     if (Context->ReadFailed) {
 
+        //
+        // The lock succeeded, but the read failed.  CompleteLockOperation
+        // will clean up the LCB.
+        //
 
         dprintf(DPRT_FILELOCK, ("LockAndRead, read operation failed\n"));
 
         ASSERT(Context->Lcb);
 
-        ASSERT(Context->ReadFailed);
-
         RdrCompleteRequest(Irp, STATUS_SUCCESS);
 
-        //
-        //  If the lock failed, and there was a Lock&Read associated with
-        //  the request, then undo the lock operation.
-        //
-        //  If FailLockOperation is called, then we know the read could not have
-        //  succeeded, so we can always free the LCB if one was allocated.
-        //
-
-        //
-        //  Free up the LCB.
-        //
-
-        RdrFreeLcb(&Context->Icb->u.f.LockHead, Context->Lcb);
-
     } else {
+
+        //
+        // The lock failed, so the read part (if any), is moot.  If there
+        // was trailing read, CompleteLockOperation will clean it up.
+        //
+
         PIO_STACK_LOCATION IrpSp;
         NTSTATUS Status;
         LARGE_INTEGER LockRange;
@@ -1967,9 +2010,18 @@ Return Value:
 
             IoFreeMdl(LContext->LcbMdl);
 
-            IoFreeIrp(LContext->ReceiveIrp);
+            FREE_IRP( LContext->ReceiveIrp, 6, LContext );
 
             RdrFreeSMBBuffer(LContext->ReceiveSmb);
+
+            //
+            // If either the lock failed or the trailing read failed,
+            // we need to free up the LCB here.
+            //
+
+            if ( LContext->LockFailed || LContext->ReadFailed ) {
+                RdrFreeLcb(&Icb->u.f.LockHead, LContext->Lcb);
+            }
         }
 
         FREE_POOL(LContext);
@@ -1994,6 +2046,11 @@ Return Value:
             if (UContext->FileObject != NULL) {
                 ObDereferenceObject(UContext->FileObject);
                 UContext->FileObject = NULL;
+            }
+
+            if (UContext->RequestorsRThread != 0) {
+                RdrReleaseFcbLockForThread(Icb->Fcb, UContext->RequestorsRThread);
+                UContext->RequestorsRThread = 0;
             }
 
             if (UContext->ThreadReferenced) {
@@ -2049,6 +2106,8 @@ Return Value:
 {
     PKEVENT Event = Ctx;
 
+    DeviceObject, Ctx;
+
     DISCARDABLE_CODE(RdrFileDiscardableSection);
 
     dprintf(DPRT_FILELOCK, ("CompletFailedLockIrp.  Irp:%lx, IrpSp: %lx, Cnt: %lx\n", Irp, IoGetCurrentIrpStackLocation(Irp), Irp->CurrentLocation));
@@ -2063,8 +2122,6 @@ Return Value:
     KeSetEvent(Event, IO_NETWORK_INCREMENT, FALSE);
 
     return STATUS_MORE_PROCESSING_REQUIRED;
-
-    if (DeviceObject||Ctx);
 
 }
 
@@ -2205,8 +2262,6 @@ Return Value:
 
         if (Context->Lcb) {
 
-//  BUGBUG: If we locked&read with lock&read on, should we write&unlock if lock&read was turned off?
-
             ASSERT (RdrData.UseLockAndReadWriteAndUnlock);
 
             //
@@ -2216,33 +2271,14 @@ Return Value:
 
             Context->RequestorsThread = PsGetCurrentThread();
 
-            Status = ObReferenceObjectByPointer(Context->RequestorsThread,
-                                        THREAD_ALL_ACCESS,
-                                        NULL, // *(POBJECT_TYPE *)PsThreadType,
-                                        KernelMode);
-
-            if (NT_SUCCESS(Status)) {
-
-                Context->ThreadReferenced = TRUE;
-
-            } else {
-
-                //
-                //  Wait for this to complete - we couldn't reference the
-                //  thread.
-                //
-
-                WaitForCompletion = TRUE;
-            }
+            ObReferenceObject(Context->RequestorsThread);
+            Context->ThreadReferenced = TRUE;
 
             if (FileObject != NULL) {
 
-                ObReferenceObjectByPointer(FileObject,
-                                    FILE_ALL_ACCESS,
-                                    *IoFileObjectType,
-                                    KernelMode);
-
+                ObReferenceObject(FileObject);
                 Context->FileObject = FileObject;
+
             } else {
 
                 ASSERT(WaitForCompletion);
@@ -2279,9 +2315,11 @@ Return Value:
 
                     if (Irp != NULL) {
 #if MAGIC_BULLET
-                        RdrSendMagicBullet(NULL);
-                        DbgPrint( "RDR: About to raise unlock behind hard error for IRP %x\n", Irp );
-                        DbgBreakPoint();
+                        if ( RdrEnableMagic ) {
+                            RdrSendMagicBullet(NULL);
+                            DbgPrint( "RDR: About to raise unlock behind hard error for IRP %x\n", Irp );
+                            DbgBreakPoint();
+                        }
 #endif
                         IoRaiseInformationalHardError(Status, NULL, Irp->Tail.Overlay.Thread);
                     }
@@ -2329,9 +2367,11 @@ Return Value:
 
                         if (Irp != NULL) {
 #if MAGIC_BULLET
-                            RdrSendMagicBullet(NULL);
-                            DbgPrint( "RDR: About to raise unlock behind hard error for IRP %x\n", Irp );
-                            DbgBreakPoint();
+                            if ( RdrEnableMagic ) {
+                                RdrSendMagicBullet(NULL);
+                                DbgPrint( "RDR: About to raise unlock behind hard error for IRP %x\n", Irp );
+                                DbgBreakPoint();
+                            }
 #endif
                             IoRaiseInformationalHardError(Status, NULL, Irp->Tail.Overlay.Thread);
                         }
@@ -2484,8 +2524,6 @@ Return Value:
 
                 NtLockRange = (PNTLOCKING_ANDX_RANGE )LockRequest->Buffer;
 
-//  BUGBUG: Need to determine PID of lock operation!
-
                 //
                 //  Fill in the lock range in the SMB.
                 //
@@ -2504,8 +2542,6 @@ Return Value:
                 SmbPutUshort(&LockRequest->ByteCount, sizeof(LOCKING_ANDX_RANGE));
 
                 LockRange = (PLOCKING_ANDX_RANGE )LockRequest->Buffer;
-
-//  BUGBUG: Need to determine PID of lock operation!
 
                 //
                 //  Fill in the lock range in the SMB.
@@ -2591,29 +2627,33 @@ try_exit:NOTHING;
 
             ASSERT (!NT_SUCCESS(Status));
 
-            if (Context->Lcb != NULL) {
-                if (Context->RequestorsRThread != 0) {
-                    RdrReleaseFcbLockForThread(Icb->Fcb, Context->RequestorsRThread);
+            if (Context != NULL) {
 
-                    Context->RequestorsRThread = 0;
+                if (Context->Lcb != NULL) {
+                    if (Context->RequestorsRThread != 0) {
+                        RdrReleaseFcbLockForThread(Icb->Fcb, Context->RequestorsRThread);
+
+                        Context->RequestorsRThread = 0;
+                    }
+
+                    if (Context->LcbMdl != NULL) {
+
+                        MmUnlockPages(Context->LcbMdl);
+
+                        IoFreeMdl(Context->LcbMdl);
+                    }
+
+                    RdrFreeLcb(&Icb->u.f.LockHead, Context->Lcb);
                 }
 
-                if (Context->LcbMdl != NULL) {
-
-                    MmUnlockPages(Context->LcbMdl);
-
-                    IoFreeMdl(Context->LcbMdl);
+                if (Context->ThreadReferenced) {
+                    ObDereferenceObject(Context->RequestorsThread);
                 }
 
-                RdrFreeLcb(&Icb->u.f.LockHead, Context->Lcb);
-            }
+                if (Context->FileObject != NULL) {
+                    ObDereferenceObject(Context->FileObject);
+                }
 
-            if (Context->ThreadReferenced) {
-                ObDereferenceObject(Context->RequestorsThread);
-            }
-
-            if (Context->FileObject != NULL) {
-                ObDereferenceObject(Context->FileObject);
             }
 
             if (AndXBehindStarted) {
@@ -2680,6 +2720,12 @@ Return Value:
 {
     PUNLOCKCONTEXT Context = Ctx;
     NTSTATUS Status;
+
+    UNREFERENCED_PARAMETER(MpxEntry);
+    UNREFERENCED_PARAMETER(Irp);
+    UNREFERENCED_PARAMETER(SmbLength);
+    UNREFERENCED_PARAMETER(Server);
+
     ASSERT(Context->Header.Type == CONTEXT_UNLOCK);
 
     DISCARDABLE_CODE(RdrFileDiscardableSection);
@@ -2699,9 +2745,16 @@ Return Value:
     }
 
     if (!NT_SUCCESS(Status = RdrMapSmbError(Smb, Server))) {
+        RdrWriteErrorLogEntry(
+            Server,
+            IO_ERR_LAYERED_FAILURE,
+            EVENT_RDR_FAILED_UNLOCK,
+            Status,
+            Smb,
+            (USHORT)*SmbLength
+            );
         Context->Header.ErrorType = SMBError;
         Context->Header.ErrorCode = Status;
-        goto ReturnStatus;
     }
 
     if (Status == STATUS_INVALID_HANDLE) {
@@ -2715,26 +2768,10 @@ Return Value:
     //
 
 ReturnStatus:
-    if ( !NT_SUCCESS(Status) && !ErrorIndicator ) {
-        RdrWriteErrorLogEntry(
-            Server,
-            IO_ERR_LAYERED_FAILURE,
-            EVENT_RDR_FAILED_UNLOCK,
-            Status,
-            Smb,
-            (USHORT)*SmbLength
-            );
-    }
 
     //
     //  If this was an async operation, indicate it is now done.
     //
-
-    if (Context->Lcb != NULL) {
-
-        RdrReleaseFcbLockForThread(Context->Icb->Fcb, Context->RequestorsRThread);
-
-    }
 
     if (!Context->WaitForCompletion) {
 
@@ -2751,11 +2788,6 @@ ReturnStatus:
     KeSetEvent(&Context->Header.KernelEvent, IO_NETWORK_INCREMENT, FALSE);
 
     return STATUS_SUCCESS;
-
-    UNREFERENCED_PARAMETER(MpxEntry);
-    UNREFERENCED_PARAMETER(Irp);
-    UNREFERENCED_PARAMETER(SmbLength);
-    UNREFERENCED_PARAMETER(Server);
 
 }
 
@@ -3105,42 +3137,6 @@ Return Value:
 }
 
 VOID
-RdrInitializeLockHead (
-    IN PLOCKHEAD LockHead
-    )
-
-/*++
-
-Routine Description:
-
-    This routine initializes a redirector lock head.
-
-
-Arguments:
-
-    IN PLOCKHEAD LockHead - Supplies the lock head to initialize
-    IN PEPROCESS Process - Supplies the process that will own the locks.
-
-Return Value:
-
-    None.
-
---*/
-
-{
-    PAGED_CODE();
-
-    dprintf(DPRT_FILELOCK, ("RdrInitializeLockHead %lx\n", LockHead));
-
-    InitializeListHead(&LockHead->LockList);
-
-    LockHead->Signature = STRUCTURE_SIGNATURE_LOCKHEAD;
-
-    LockHead->QuotaAvailable = RdrData.LockAndReadQuota;
-
-}
-
-VOID
 RdrUninitializeLockHead (
     IN PLOCKHEAD LockHead
     )
@@ -3399,64 +3395,6 @@ Return Value:
 }
 
 VOID
-RdrpInitializeLockHead (
-    VOID
-    )
-
-/*++
-
-Routine Description:
-
-    This routine initializes the redirector lock head package.
-
-Arguments:
-
-    None
-
-Return Value:
-
-    None.
-
---*/
-
-{
-
-    //
-    //  Initialize the SpinLock used to protect all the fields entries in
-    //  the LOCK_HEAD structures from being accessed simultaneously.
-    //
-
-    KeInitializeSpinLock(&RdrLockHeadSpinLock);
-
-}
-VOID
-RdrpUninitializeLockHead (
-    VOID
-    )
-
-/*++
-
-Routine Description:
-
-    This routine initializes the redirector lock head package.
-
-Arguments:
-
-    None
-
-Return Value:
-
-    None.
-
---*/
-
-{
-    PAGED_CODE();
-
-    return;
-}
-
-VOID
 RdrInitializeAndXBehind(
     IN PAND_X_BEHIND AndXBehind
     )
@@ -3655,8 +3593,8 @@ Return Value:
     //
 
     KeWaitForSingleObject(&AndXBehind->BehindOperationCompleted,
-                            KernelMode,
                             Executive,
+                            KernelMode,
                             FALSE,
                             NULL);
 

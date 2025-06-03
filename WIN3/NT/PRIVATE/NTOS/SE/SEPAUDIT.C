@@ -33,10 +33,11 @@ Revision History:
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE,SeAuditHandleDuplication)
-#pragma alloc_text(PAGE,SepAdtAuditThisEvent)
+// #pragma alloc_text(PAGE,SepAdtAuditThisEvent)
 #pragma alloc_text(PAGE,SepAdtPrivilegeObjectAuditAlarm)
 #pragma alloc_text(PAGE,SepAdtPrivilegedServiceAuditAlarm)
 #pragma alloc_text(PAGE,SepAdtOpenObjectAuditAlarm)
+#pragma alloc_text(PAGE,SepAdtOpenObjectForDeleteAuditAlarm)
 #pragma alloc_text(PAGE,SepAdtHandleAuditAlarm)
 #pragma alloc_text(PAGE,SepAdtObjectReferenceAuditAlarm)
 #pragma alloc_text(PAGE,SepQueryNameString)
@@ -44,7 +45,7 @@ Revision History:
 #pragma alloc_text(PAGE,SeAuditProcessCreation)
 #pragma alloc_text(PAGE,SeAuditProcessExit)
 #pragma alloc_text(PAGE,SepAdtGenerateDiscardAudit)
-#endif 
+#endif
 
 
 #define SepSetParmTypeSid( AuditParameters, Index, Sid )                       \
@@ -54,7 +55,7 @@ Revision History:
         (AuditParameters).Parameters[(Index)].Address = (Sid);                 \
     }
 
-    
+
 #define SepSetParmTypeString( AuditParameters, Index, String )                 \
     {                                                                          \
         (AuditParameters).Parameters[(Index)].Type = SeAdtParmTypeString;      \
@@ -71,7 +72,7 @@ Revision History:
                 sizeof(UNICODE_STRING)+(String)->Length;                       \
         (AuditParameters).Parameters[(Index)].Address = (String);              \
     }
-     
+
 #define SepSetParmTypeUlong( AuditParameters, Index, Ulong )                   \
     {                                                                          \
         (AuditParameters).Parameters[(Index)].Type = SeAdtParmTypeUlong;       \
@@ -83,14 +84,14 @@ Revision History:
     {                                                                          \
         (AuditParameters).Parameters[(Index)].Type = SeAdtParmTypeNoLogonId;   \
     }
-                                                                               
+
 #define SepSetParmTypeLogonId( AuditParameters, Index, LogonId )                   \
     {                                                                          \
-        PLUID TmpLuid;                                                           \
+        LUID UNALIGNED * TmpLuid;                                                           \
                                                                                  \
         (AuditParameters).Parameters[(Index)].Type = SeAdtParmTypeLogonId;       \
         (AuditParameters).Parameters[(Index)].Length =  sizeof( (LogonId) );     \
-        TmpLuid = (PLUID)(&(AuditParameters).Parameters[(Index)].Data[0]);                  \
+        TmpLuid = (LUID UNALIGNED *)(&(AuditParameters).Parameters[(Index)].Data[0]);                  \
         *TmpLuid = (LogonId);                                                     \
     }
 
@@ -109,10 +110,10 @@ Revision History:
         (AuditParameters).Parameters[(Index)].Address = (Privileges);                       \
     }
 
-                                                                               
-                                                                              
+
+
 BOOLEAN
-SepAdtPrivilegeObjectAuditAlarm (                                              
+SepAdtPrivilegeObjectAuditAlarm (
     IN PUNICODE_STRING CapturedSubsystemName OPTIONAL,
     IN PVOID HandleId,
     IN PTOKEN ClientToken OPTIONAL,
@@ -145,7 +146,7 @@ Routine Description:
     call with no ill effects.
 
     This routine will create an SE_ADT_PARAMETERS array organized as follows:
-    
+
     Parameter[0] - User Sid
 
     Parameter[1] - Subsystem name (if available)
@@ -194,7 +195,7 @@ Return value:
     LUID ClientAuthenticationId;
     LUID PrimaryAuthenticationId;
 
-    PAGED_CODE(); 
+    PAGED_CODE();
 
     //
     // Determine if we are auditing the use of privileges
@@ -227,39 +228,39 @@ Return value:
         // Initializing the entire array up front will allow
         // us to avoid filling in each not supplied entry.
         //
-    
+
         RtlZeroMemory (
            (PVOID) &AuditParameters,
            sizeof( AuditParameters )
            );
-    
+
         ASSERT( SeAdtParmTypeNone == 0 );
-    
+
         AuditParameters.CategoryId = SE_CATEGID_PRIVILEGE_USE;
         AuditParameters.AuditId = SE_AUDITID_PRIVILEGED_OBJECT;
         AuditParameters.ParameterCount = 0;
-    
+
         if ( AccessGranted ) {
-    
+
             AuditParameters.Type = EVENTLOG_AUDIT_SUCCESS;
-    
+
         } else {
-    
+
             AuditParameters.Type = EVENTLOG_AUDIT_FAILURE;
         }
-    
+
         //
         //    Parameter[0] - User Sid
         //
-    
+
         SepSetParmTypeSid( AuditParameters, AuditParameters.ParameterCount, CapturedUserSid );
 
         AuditParameters.ParameterCount++;
-        
+
         //
         //    Parameter[1] - Subsystem name (if available)
         //
-    
+
         SepSetParmTypeString( AuditParameters, AuditParameters.ParameterCount, CapturedSubsystemName );
 
         AuditParameters.ParameterCount++;
@@ -267,35 +268,35 @@ Return value:
         //
         //    Parameter[1] - Subsystem name (if available)
         //
-    
+
         SepSetParmTypeString( AuditParameters, AuditParameters.ParameterCount, CapturedSubsystemName );
 
         AuditParameters.ParameterCount++;
-    
+
         //
         //    Parameter[2] - New handle ID
         //
-    
+
         SepSetParmTypeUlong( AuditParameters, AuditParameters.ParameterCount, HandleId );
 
         AuditParameters.ParameterCount++;
-    
+
         //
         //    Parameter[3] - Subject's process id
         //
-    
+
         SepSetParmTypeUlong( AuditParameters, AuditParameters.ParameterCount, ProcessId );
 
         AuditParameters.ParameterCount++;
-    
+
         //
         //    Parameter[4] - Subject's primary authentication ID
         //
-    
+
         SepSetParmTypeLogonId( AuditParameters, AuditParameters.ParameterCount, PrimaryAuthenticationId );
 
         AuditParameters.ParameterCount++;
-        
+
         //
         //    Parameter[5] - Subject's client authentication ID
         //
@@ -310,18 +311,18 @@ Return value:
         }
 
         AuditParameters.ParameterCount++;
-        
+
         //
         //    Parameter[6] - Privileges used for open
         //
-    
+
         if ( (CapturedPrivileges != NULL) && (CapturedPrivileges->PrivilegeCount > 0) ) {
-    
+
             SepSetParmTypePrivileges( AuditParameters, AuditParameters.ParameterCount, CapturedPrivileges );
         }
 
         AuditParameters.ParameterCount++;
-    
+
         SepAdtLogAuditRecord( &AuditParameters );
 
         return( TRUE );
@@ -363,7 +364,7 @@ Routine Description:
     have occurred at a higher level.
 
     This routine will create an SE_ADT_PARAMETERS array organized as follows:
-    
+
     Parameter[0] - User Sid
 
     Parameter[1] - Subsystem name (if available)
@@ -412,7 +413,7 @@ Return value:
     LUID PrimaryAuthenticationId;
     PUNICODE_STRING SubsystemName;
 
-    PAGED_CODE(); 
+    PAGED_CODE();
 
     //
     // Determine if we are auditing privileged services
@@ -448,32 +449,32 @@ Return value:
         // Initializing the entire array up front will allow
         // us to avoid filling in each not supplied entry.
         //
-    
+
         RtlZeroMemory (
            (PVOID) &AuditParameters,
            sizeof( AuditParameters )
            );
-    
+
         ASSERT( SeAdtParmTypeNone == 0 );
-    
+
         AuditParameters.CategoryId = SE_CATEGID_PRIVILEGE_USE;
         AuditParameters.AuditId = SE_AUDITID_PRIVILEGED_SERVICE;
         AuditParameters.ParameterCount = 0;
-    
+
         if ( AccessGranted ) {
-    
+
             AuditParameters.Type = EVENTLOG_AUDIT_SUCCESS;
-    
+
         } else {
-    
+
             AuditParameters.Type = EVENTLOG_AUDIT_FAILURE;
         }
-    
-    
+
+
     //
     //    Parameter[0] - User Sid
     //
-    
+
         SepSetParmTypeSid( AuditParameters, AuditParameters.ParameterCount, CapturedUserSid );
 
         AuditParameters.ParameterCount++;
@@ -529,14 +530,14 @@ Return value:
 
         SepSetParmTypeNoLogon( AuditParameters, AuditParameters.ParameterCount );
     }
-    
+
     AuditParameters.ParameterCount++;
 
 
     //
     //    Parameter[5] - Privileges used for open
     //
-    
+
 
     if ( (CapturedPrivileges != NULL) && (CapturedPrivileges->PrivilegeCount > 0) ) {
 
@@ -596,7 +597,7 @@ SepAdtOpenObjectAuditAlarm (
 
 
     This routine will create an SE_ADT_PARAMETERS array organized as follows:
-    
+
     Parameter[0] - User Sid
 
     Parameter[1] - Subsystem name (if available)
@@ -682,7 +683,7 @@ Return Value:
     LUID PrimaryAuthenticationId;
     LUID ClientAuthenticationId;
 
-    PAGED_CODE(); 
+    PAGED_CODE();
 
     if ( ARGUMENT_PRESENT( ClientToken )) {
 
@@ -713,6 +714,313 @@ Return Value:
 
     AuditParameters.CategoryId = SE_CATEGID_OBJECT_ACCESS;
     AuditParameters.AuditId = SE_AUDITID_OPEN_HANDLE;
+    AuditParameters.ParameterCount = 0;
+
+    if ( AccessGranted ) {
+
+        AuditParameters.Type = EVENTLOG_AUDIT_SUCCESS;
+
+    } else {
+
+        AuditParameters.Type = EVENTLOG_AUDIT_FAILURE;
+    }
+
+    //
+    //  Parameter[0] - User Sid
+    //
+
+    SepSetParmTypeSid( AuditParameters, AuditParameters.ParameterCount, CapturedUserSid );
+
+    AuditParameters.ParameterCount++;
+
+    //
+    //  Parameter[1] - Subsystem name (if available)
+    //
+
+    SepSetParmTypeString( AuditParameters, AuditParameters.ParameterCount, CapturedSubsystemName );
+
+    AuditParameters.ParameterCount++;
+
+    //
+    //  Parameter[2] - Object Server (if available)
+    //
+
+    if ( ARGUMENT_PRESENT( CapturedSubsystemName )) {
+
+        SepSetParmTypeString( AuditParameters, AuditParameters.ParameterCount, CapturedSubsystemName );
+    }
+
+    AuditParameters.ParameterCount++;
+
+    //
+    //  Parameter[3] - Object Type Name
+    //
+
+    if ( ARGUMENT_PRESENT( CapturedObjectTypeName )) {
+
+        SepSetParmTypeString( AuditParameters, AuditParameters.ParameterCount, CapturedObjectTypeName );
+        ObjectTypeIndex = AuditParameters.ParameterCount;
+    }
+
+    AuditParameters.ParameterCount++;
+
+    //
+    //  Parameter[4] - Object Name
+    //
+
+    if ( ARGUMENT_PRESENT( CapturedObjectName )) {
+
+        SepSetParmTypeFileSpec( AuditParameters, AuditParameters.ParameterCount, CapturedObjectName );
+    }
+
+    AuditParameters.ParameterCount++;
+
+    //
+    //  Parameter[5] - New handle ID
+    //
+
+    if ( ARGUMENT_PRESENT( HandleId )) {
+
+        SepSetParmTypeUlong( AuditParameters, AuditParameters.ParameterCount, *HandleId );
+    }
+
+    AuditParameters.ParameterCount++;
+
+    if ( ARGUMENT_PRESENT( OperationId )) {
+
+        SepSetParmTypeUlong( AuditParameters, AuditParameters.ParameterCount, (*OperationId).HighPart );
+
+        AuditParameters.ParameterCount++;
+
+        SepSetParmTypeUlong( AuditParameters, AuditParameters.ParameterCount, (*OperationId).LowPart );
+
+        AuditParameters.ParameterCount++;
+
+    } else {
+
+        AuditParameters.ParameterCount += 2;
+    }
+
+    //
+    //  Parameter[6] - Subject's process id
+    //
+
+    SepSetParmTypeUlong( AuditParameters, AuditParameters.ParameterCount, ProcessID );
+
+    AuditParameters.ParameterCount++;
+
+    //
+    //  Parameter[7] - Subject's primary authentication ID
+    //
+
+    SepSetParmTypeLogonId( AuditParameters, AuditParameters.ParameterCount, PrimaryAuthenticationId );
+
+    AuditParameters.ParameterCount++;
+
+    //
+    //  Parameter[8] - Subject's client authentication ID
+    //
+
+    if ( ARGUMENT_PRESENT( ClientToken )) {
+
+        SepSetParmTypeLogonId( AuditParameters, AuditParameters.ParameterCount, ClientAuthenticationId );
+
+    } else {
+
+        SepSetParmTypeNoLogon( AuditParameters, AuditParameters.ParameterCount  );
+    }
+
+    AuditParameters.ParameterCount++;
+
+    //
+    //  Parameter[9] - DesiredAccess mask
+    //
+
+    if ( AccessGranted ) {
+
+        SepSetParmTypeAccessMask( AuditParameters, AuditParameters.ParameterCount, GrantedAccess, ObjectTypeIndex );
+
+    } else {
+
+        SepSetParmTypeAccessMask( AuditParameters, AuditParameters.ParameterCount, DesiredAccess, ObjectTypeIndex );
+    }
+
+    AuditParameters.ParameterCount++;
+
+    //
+    //    Parameter[10] - Privileges used for open
+    //
+
+    if ( (CapturedPrivileges != NULL) && (CapturedPrivileges->PrivilegeCount > 0) ) {
+
+        SepSetParmTypePrivileges( AuditParameters, AuditParameters.ParameterCount, CapturedPrivileges );
+    }
+
+    AuditParameters.ParameterCount++;
+
+    SepAdtLogAuditRecord( &AuditParameters );
+
+    return( TRUE );
+}
+
+
+BOOLEAN
+SepAdtOpenObjectForDeleteAuditAlarm (
+    IN PUNICODE_STRING CapturedSubsystemName,
+    IN PVOID *HandleId OPTIONAL,
+    IN PUNICODE_STRING CapturedObjectTypeName,
+    IN PVOID Object OPTIONAL,
+    IN PUNICODE_STRING CapturedObjectName OPTIONAL,
+    IN PTOKEN ClientToken OPTIONAL,
+    IN PTOKEN PrimaryToken,
+    IN ACCESS_MASK DesiredAccess,
+    IN ACCESS_MASK GrantedAccess,
+    IN PLUID OperationId,
+    IN PPRIVILEGE_SET CapturedPrivileges OPTIONAL,
+    IN BOOLEAN ObjectCreated,
+    IN BOOLEAN AccessGranted,
+    IN BOOLEAN GenerateAudit,
+    IN BOOLEAN GenerateAlarm,
+    IN HANDLE ProcessID
+    )
+
+/*++
+
+    Routine Description:
+
+    Implements SeOpenObjectForDeleteAuditAlarm after parameters have been
+    captured.
+
+    This routine is used to generate audit and alarm messages when an
+    attempt is made to access an existing protected subsystem object or
+    create a new one.  This routine may result in several messages being
+    generated and sent to Port objects.  This may result in a significant
+    latency before returning.  Design of routines that must call this
+    routine must take this potential latency into account.  This may have
+    an impact on the approach taken for data structure mutex locking, for
+    example.  This API requires the caller have SeTcbPrivilege privilege.
+    The test for this privilege is always against the primary token of the
+    calling process, not the impersonation token of the thread.
+
+
+    This routine will create an SE_ADT_PARAMETERS array organized as follows:
+
+    Parameter[0] - User Sid
+
+    Parameter[1] - Subsystem name (if available)
+
+    Parameter[2] - Server name (if available)
+
+    Parameter[3] - Object Type Name
+
+    Parameter[4] - Object Name
+
+    Parameter[5] - New handle ID
+
+    Parameter[6] - Subject's process id
+
+    Parameter[7] - Subject's primary authentication ID
+
+    Parameter[8] - Subject's client authentication ID
+
+    Parameter[9] - DesiredAccess mask
+
+    Parameter[10] - Privileges used for open
+
+Arguments:
+
+    CapturedSubsystemName - Supplies a name string identifying the
+        subsystem calling the routine.
+
+    HandleId - A unique value representing the client's handle to the
+        object.  If the access attempt was not successful (AccessGranted is
+        FALSE), then this parameter is ignored.
+
+    CapturedObjectTypeName - Supplies the name of the type of object being
+        accessed.
+
+    CapturedObjectName - Supplies the name of the object the client
+        accessed or attempted to access.
+
+    CapturedSecurityDescriptor - A pointer to the security descriptor of
+        the object being accessed.
+
+    ClientToken - Optionally provides a pointer to the client token
+        (only if the caller is currently impersonating)
+
+    PrimaryToken - Provides a pointer to the caller's primary token.
+
+    DesiredAccess - The desired access mask.  This mask must have been
+        previously mapped to contain no generic accesses.
+
+    GrantedAccess - The mask of accesses that were actually granted.
+
+    CapturedPrivileges - Optionally points to a set of privileges that were
+        required for the access attempt.  Those privileges that were held
+        by the subject are marked using the UsedForAccess flag of the
+        attributes associated with each privilege.
+
+    ObjectCreation - A boolean flag indicating whether the access will
+        result in a new object being created if granted.  A value of TRUE
+        indicates an object will be created, FALSE indicates an existing
+        object will be opened.
+
+    AccessGranted - Indicates whether the requested access was granted or
+        not.  A value of TRUE indicates the access was granted.  A value of
+        FALSE indicates the access was not granted.
+
+    GenerateOnClose - Points to a boolean that is set by the audit
+        generation routine and must be passed to NtCloseObjectAuditAlarm()
+        when the object handle is closed.
+
+    GenerateAudit - Indicates if we should generate an audit for this operation.
+
+    GenerateAlarm - Indicates if we should generate an alarm for this operation.
+
+Return Value:
+
+    Returns TRUE if audit is generated, FALSE otherwise.
+
+--*/
+
+{
+    SE_ADT_PARAMETER_ARRAY AuditParameters;
+    ULONG ObjectTypeIndex;
+    PSID CapturedUserSid;
+    LUID PrimaryAuthenticationId;
+    LUID ClientAuthenticationId;
+
+    PAGED_CODE();
+
+    if ( ARGUMENT_PRESENT( ClientToken )) {
+
+        CapturedUserSid = SepTokenUserSid( ClientToken );
+        ClientAuthenticationId =  SepTokenAuthenticationId( ClientToken );
+
+    } else {
+
+        CapturedUserSid = SepTokenUserSid( PrimaryToken );
+    }
+
+    PrimaryAuthenticationId = SepTokenAuthenticationId( PrimaryToken );
+
+    //
+    // A completely zero'd entry will be interpreted
+    // as a "null string" or not supplied parameter.
+    //
+    // Initializing the entire array up front will allow
+    // us to avoid filling in each not supplied entry.
+    //
+
+    RtlZeroMemory (
+       (PVOID) &AuditParameters,
+       sizeof( AuditParameters )
+       );
+
+    ASSERT( SeAdtParmTypeNone == 0 );
+
+    AuditParameters.CategoryId = SE_CATEGID_OBJECT_ACCESS;
+    AuditParameters.AuditId = SE_AUDITID_OPEN_OBJECT_FOR_DELETE;
     AuditParameters.ParameterCount = 0;
 
     if ( AccessGranted ) {
@@ -896,7 +1204,7 @@ Routine Description:
     tested at a higher level.
 
     This routine will create an SE_ADT_PARAMETERS array organized as follows:
-    
+
     Parameter[0] - User Sid
 
     Parameter[1] - Subsystem name (if available)
@@ -932,17 +1240,9 @@ Return value:
     BOOLEAN AccessGranted = TRUE;
     HANDLE ProcessId;
 
-    PAGED_CODE(); 
+    PAGED_CODE();
 
     if ( SepAdtAuditThisEvent( AuditCategoryObjectAccess, &AccessGranted ) ) {
-
-        //
-        // The application may have modified the least significant bits
-        // of the handle value.  Clear them here so that the close audit
-        // can be easily matched with the open audit.
-        //
-
-        HandleId = (PVOID)((ULONG)HandleId & ~OBJ_HANDLE_TAGBITS);
 
         //
         // A completely zero'd entry will be interpreted
@@ -951,35 +1251,35 @@ Return value:
         // Initializing the entire array up front will allow
         // us to avoid filling in each not supplied entry.
         //
-    
+
         RtlZeroMemory (
            (PVOID) &AuditParameters,
            sizeof( AuditParameters )
            );
-    
+
         ASSERT( SeAdtParmTypeNone == 0 );
-    
+
         AuditParameters.CategoryId = SE_CATEGID_OBJECT_ACCESS;
         AuditParameters.AuditId = SE_AUDITID_CLOSE_HANDLE;
         AuditParameters.ParameterCount = 0;
         AuditParameters.Type = EVENTLOG_AUDIT_SUCCESS;
-    
-    
+
+
         //
         //  Parameter[0] - User Sid
         //
-    
+
         SepSetParmTypeSid( AuditParameters, AuditParameters.ParameterCount, UserSid );
 
         AuditParameters.ParameterCount++;
-    
-    
+
+
         //
         //  Parameter[1] - Subsystem name (if available)
         //
-    
+
         if ( ARGUMENT_PRESENT( CapturedSubsystemName )) {
-    
+
             SepSetParmTypeString( AuditParameters, AuditParameters.ParameterCount, CapturedSubsystemName );
         }
 
@@ -988,14 +1288,14 @@ Return value:
         //
         //  Parameter[2] - Subsystem name (if available)
         //
-    
+
         if ( ARGUMENT_PRESENT( CapturedSubsystemName )) {
-    
+
             SepSetParmTypeString( AuditParameters, AuditParameters.ParameterCount, CapturedSubsystemName );
         }
 
         AuditParameters.ParameterCount++;
-    
+
         //
         //    Parameter[3] - New handle ID
         //
@@ -1003,15 +1303,163 @@ Return value:
         SepSetParmTypeUlong( AuditParameters, AuditParameters.ParameterCount, HandleId );
 
         AuditParameters.ParameterCount++;
-    
+
         //
         //    Parameter[4] - Subject's process id
         //
 
         ProcessId =  PsProcessAuditId( PsGetCurrentProcess() );
-    
+
         SepSetParmTypeUlong( AuditParameters, AuditParameters.ParameterCount, ProcessId );
-    
+
+        AuditParameters.ParameterCount++;
+
+        SepAdtLogAuditRecord( &AuditParameters );
+
+    }
+}
+
+
+
+VOID
+SepAdtDeleteObjectAuditAlarm (
+    IN PUNICODE_STRING CapturedSubsystemName,
+    IN PVOID HandleId,
+    IN PVOID Object,
+    IN PSID UserSid,
+    IN LUID AuthenticationId
+    )
+
+/*++
+
+Routine Description:
+
+    This routine implements NtDeleteObjectAuditAlarm after parameters have
+    been captured.
+
+    This routine is used to generate audit and alarm messages when an object
+    in a protected subsystem object is deleted.  This routine may result in
+    several messages being generated and sent to Port objects.  This may
+    result in a significant latency before returning.  Design of routines
+    that must call this routine must take this potential latency into
+    account.  This may have an impact on the approach taken for data
+    structure mutex locking, for example.
+
+    This API requires the caller have SeTcbPrivilege privilege.  The test
+    for this privilege is always against the primary token of the calling
+    process, allowing the caller to be impersonating a client during the
+    call with no ill effects.  It is assumed that this privilege has been
+    tested at a higher level.
+
+    This routine will create an SE_ADT_PARAMETERS array organized as follows:
+
+    Parameter[0] - User Sid
+
+    Parameter[1] - Subsystem name (if available)
+
+    Parameter[2] - Handle ID
+
+    Parameter[3] - Subject's process id
+
+Arguments:
+
+    CapturedSubsystemName - Supplies a name string identifying the
+        subsystem calling the routine.
+
+    HandleId - A unique value representing the client's handle to the
+        object.
+
+    Object - The address of the object being closed
+
+    UserSid - The Sid identifying the current caller.
+
+
+
+Return value:
+
+    None.
+
+
+--*/
+
+{
+
+    SE_ADT_PARAMETER_ARRAY AuditParameters;
+    BOOLEAN AccessGranted = TRUE;
+    HANDLE ProcessId;
+
+    PAGED_CODE();
+
+    if ( SepAdtAuditThisEvent( AuditCategoryObjectAccess, &AccessGranted ) ) {
+
+        //
+        // A completely zero'd entry will be interpreted
+        // as a "null string" or not supplied parameter.
+        //
+        // Initializing the entire array up front will allow
+        // us to avoid filling in each not supplied entry.
+        //
+
+        RtlZeroMemory (
+           (PVOID) &AuditParameters,
+           sizeof( AuditParameters )
+           );
+
+        ASSERT( SeAdtParmTypeNone == 0 );
+
+        AuditParameters.CategoryId = SE_CATEGID_OBJECT_ACCESS;
+        AuditParameters.AuditId = SE_AUDITID_DELETE_OBJECT;
+        AuditParameters.ParameterCount = 0;
+        AuditParameters.Type = EVENTLOG_AUDIT_SUCCESS;
+
+
+        //
+        //  Parameter[0] - User Sid
+        //
+
+        SepSetParmTypeSid( AuditParameters, AuditParameters.ParameterCount, UserSid );
+
+        AuditParameters.ParameterCount++;
+
+
+        //
+        //  Parameter[1] - Subsystem name (if available)
+        //
+
+        if ( ARGUMENT_PRESENT( CapturedSubsystemName )) {
+
+            SepSetParmTypeString( AuditParameters, AuditParameters.ParameterCount, CapturedSubsystemName );
+        }
+
+        AuditParameters.ParameterCount++;
+
+        //
+        //  Parameter[2] - Subsystem name (if available)
+        //
+
+        if ( ARGUMENT_PRESENT( CapturedSubsystemName )) {
+
+            SepSetParmTypeString( AuditParameters, AuditParameters.ParameterCount, CapturedSubsystemName );
+        }
+
+        AuditParameters.ParameterCount++;
+
+        //
+        //    Parameter[3] - New handle ID
+        //
+
+        SepSetParmTypeUlong( AuditParameters, AuditParameters.ParameterCount, HandleId );
+
+        AuditParameters.ParameterCount++;
+
+        //
+        //    Parameter[4] - Subject's process id
+        //
+
+        ProcessId =  PsProcessAuditId( PsGetCurrentProcess() );
+
+        SepSetParmTypeUlong( AuditParameters, AuditParameters.ParameterCount, ProcessId );
+
         AuditParameters.ParameterCount++;
 
         SepAdtLogAuditRecord( &AuditParameters );
@@ -1076,7 +1524,7 @@ Return value:
 //    UNREFERENCED_PARAMETER( DesiredAccess );
 //
 //    //
-//    // BUGBUG need a way to get the directory name from
+//    // BUGWARNING need a way to get the directory name from
 //    // the directory object
 //    //
 //
@@ -1185,7 +1633,7 @@ Return value:
 //
 //
 //    //
-//    // BUGBUG need a way to obtain the object type
+//    // BUGWARNING need a way to obtain the object type
 //    //
 //
 //    AuditImplicitAccess.AccessGranted = AccessGranted;
@@ -1230,7 +1678,7 @@ Return Value:
     SE_ADT_PARAMETER_ARRAY AuditParameters;
     HANDLE ProcessID;
 
-    PAGED_CODE(); 
+    PAGED_CODE();
 
     if ( SepAdtAuditThisEvent( AuditCategoryObjectAccess, &AccessGranted )) {
 
@@ -1241,35 +1689,35 @@ Return Value:
         // Initializing the entire array up front will allow
         // us to avoid filling in each not supplied entry.
         //
-    
+
         RtlZeroMemory (
            (PVOID) &AuditParameters,
            sizeof( AuditParameters )
            );
-    
+
         ASSERT( SeAdtParmTypeNone == 0 );
-    
+
         AuditParameters.CategoryId = SE_CATEGID_OBJECT_ACCESS;
         AuditParameters.AuditId = SE_AUDITID_CREATE_HANDLE;
         AuditParameters.ParameterCount = 0;
         AuditParameters.Type = EVENTLOG_AUDIT_SUCCESS;
-    
-    
+
+
         //
         //  Parameter[0] - User Sid
         //
-    
+
         SepSetParmTypeSid( AuditParameters, AuditParameters.ParameterCount, UserSid );
 
         AuditParameters.ParameterCount++;
-    
-    
+
+
         //
         //  Parameter[1] - Subsystem name (if available)
         //
-    
+
         if ( ARGUMENT_PRESENT( Source )) {
-    
+
             SepSetParmTypeString( AuditParameters, AuditParameters.ParameterCount, Source );
         }
 
@@ -1287,7 +1735,7 @@ Return Value:
         //    Parameters 3,4 - Operation ID
         //
 
-    
+
         SepSetParmTypeUlong( AuditParameters, AuditParameters.ParameterCount, OperationId.HighPart );
 
         AuditParameters.ParameterCount++;
@@ -1295,16 +1743,16 @@ Return Value:
         SepSetParmTypeUlong( AuditParameters, AuditParameters.ParameterCount, OperationId.LowPart );
 
         AuditParameters.ParameterCount++;
-    
-    
+
+
         //
         //    Parameter[5] - Subject's process id
         //
 
         ProcessID =  PsProcessAuditId( PsGetCurrentProcess() );
-    
+
         SepSetParmTypeUlong( AuditParameters, AuditParameters.ParameterCount, ProcessID );
-    
+
         AuditParameters.ParameterCount++;
 
         SepAdtLogAuditRecord( &AuditParameters );
@@ -1334,7 +1782,7 @@ Routine Description:
     description-of-function.
 
     This routine will create an SE_ADT_PARAMETERS array organized as follows:
-    
+
     Parameter[0] - User Sid
 
     Parameter[1] - Subsystem name (if available)
@@ -1377,7 +1825,7 @@ Return Value:
     PTOKEN ClientToken = (PTOKEN)SubjectSecurityContext->ClientToken;
     PTOKEN PrimaryToken = (PTOKEN)SubjectSecurityContext->PrimaryToken;
 
-    PAGED_CODE(); 
+    PAGED_CODE();
 
 
     if ( ARGUMENT_PRESENT( ClientToken )) {
@@ -1426,10 +1874,10 @@ Return Value:
     //
 
     ObjectNameInformation = SepQueryNameString( Object );
-                        
+
 
     ObjectTypeInformation = SepQueryTypeString( Object );
-                        
+
 
 
 
@@ -1476,7 +1924,7 @@ Return Value:
     //
 
     //
-    // BUGBUG: The process Id is currently unavailable.
+    // BUGWARNING: The process Id is currently unavailable.
     //
 
     SepSetParmTypeUlong( AuditParameters, 4, SubjectSecurityContext->ProcessAuditId );
@@ -1569,7 +2017,7 @@ Return Value:
 //    UNREFERENCED_PARAMETER( GenerateAlarm );
 //
 //    //
-//    // BUGBUG Must obtain the object type object from the passed
+//    // BUGWARNING Must obtain the object type object from the passed
 //    // object
 //    //
 //
@@ -1602,7 +2050,7 @@ Return Value:
 //    that the generated audit record actually makes it to disk.
 //
 //Arguments:
-//        
+//
 //    None
 //
 //Return Value:
@@ -1625,7 +2073,7 @@ Return Value:
 //
 //        SeCaptureSubjectContext( &SubjectSecurityContext );
 //
-//        
+//
 //        //
 //        // A completely zero'd entry will be interpreted
 //        // as a "null string" or not supplied parameter.
@@ -1633,38 +2081,38 @@ Return Value:
 //        // Initializing the entire array up front will allow
 //        // us to avoid filling in each not supplied entry.
 //        //
-//    
+//
 //        RtlZeroMemory (
 //           (PVOID) &AuditParameters,
 //           sizeof( AuditParameters )
 //           );
-//    
+//
 //        ASSERT( SeAdtParmTypeNone == 0 );
-//    
+//
 //        AuditParameters.CategoryId = SE_CATEGID_SYSTEM;
 //        AuditParameters.AuditId = SE_AUDITID_SYSTEM_SHUTDOWN;
 //        AuditParameters.ParameterCount = 2;
-//    
+//
 //        UserSid = SepTokenUserSid(EffectiveToken( &SubjectSecurityContext ));
 //
 //
 //        RtlInitUnicodeString( &SubsystemName, L"Security" );
-//    
-//    
+//
+//
 //        //
 //        //  Parameter[0] - User Sid
 //        //
-//    
+//
 //        SepSetParmTypeSid( AuditParameters, 0, UserSid );
-//    
-//    
+//
+//
 //        //
 //        //  Parameter[1] - Subsystem name (if available)
 //        //
-//    
+//
 //        SepSetParmTypeString( AuditParameters, 1, &SubsystemName );
-//    
-//    
+//
+//
 //        SepAdtLogAuditRecord( &AuditParameters );
 //
 //        SeReleaseSubjectContext( &SubjectSecurityContext );
@@ -1677,56 +2125,56 @@ Return Value:
 
 
 
-
-BOOLEAN
-SepAdtAuditThisEvent(
-    IN POLICY_AUDIT_EVENT_TYPE AuditType,
-    IN PBOOLEAN AccessGranted OPTIONAL
-    )
-
-/*++
-
-Routine Description:
-
-    This routine will return whether or not to generate an audit log
-    record for the passed event type.
-
-Arguments:
-
-    AuditType - The type of event to be audited.
-
-    AccessGranted - An optional flag indicating whether or not
-        the operation was successful.  This does not all apply to all
-        types of audit events.
-
-        Note that a pointer to the flag is passed rather than the
-        flag itself, so that we may tell whether or not the argument
-        is present.
-
-Return Value:
-
-    Flag indicating whether or not to proceed with the audit.
-
---*/
-
-{
-    PAGED_CODE(); 
-
-    if (SepAdtAuditingEnabled) {
-
-        if ( ARGUMENT_PRESENT( AccessGranted )) {
-
-            if ((SeAuditingState[AuditType].AuditOnSuccess && *AccessGranted) ||
-                 SeAuditingState[AuditType].AuditOnFailure && !(*AccessGranted)) {
-
-                return( TRUE );
-
-            }
-        } 
-    }
-
-    return( FALSE );
-}
+// 
+// BOOLEAN
+// SepAdtAuditThisEvent(
+//     IN POLICY_AUDIT_EVENT_TYPE AuditType,
+//     IN PBOOLEAN AccessGranted OPTIONAL
+//     )
+// 
+// /*++
+// 
+// Routine Description:
+// 
+//     This routine will return whether or not to generate an audit log
+//     record for the passed event type.
+// 
+// Arguments:
+// 
+//     AuditType - The type of event to be audited.
+// 
+//     AccessGranted - An optional flag indicating whether or not
+//         the operation was successful.  This does not all apply to all
+//         types of audit events.
+// 
+//         Note that a pointer to the flag is passed rather than the
+//         flag itself, so that we may tell whether or not the argument
+//         is present.
+// 
+// Return Value:
+// 
+//     Flag indicating whether or not to proceed with the audit.
+// 
+// --*/
+// 
+// {
+//     PAGED_CODE();
+// 
+//     if (SepAdtAuditingEnabled) {
+// 
+//         if ( ARGUMENT_PRESENT( AccessGranted )) {
+// 
+//             if ((SeAuditingState[AuditType].AuditOnSuccess && *AccessGranted) ||
+//                  SeAuditingState[AuditType].AuditOnFailure && !(*AccessGranted)) {
+// 
+//                 return( TRUE );
+// 
+//             }
+//         }
+//     }
+// 
+//     return( FALSE );
+// }
 
 
 
@@ -1765,7 +2213,7 @@ Return Value:
     POBJECT_NAME_INFORMATION ObjectNameInfo = NULL;
     PUNICODE_STRING ObjectName = NULL;
 
-    PAGED_CODE(); 
+    PAGED_CODE();
 
     Status = ObQueryNameString(
                  Object,
@@ -1789,11 +2237,18 @@ Return Value:
 
             if ( NT_SUCCESS( Status )) {
 
-                return( ObjectNameInfo );
+                if (ObjectNameInfo->Name.Length != 0) {
+
+                    return( ObjectNameInfo );
+
+                } else {
+
+                    ExFreePool( ObjectNameInfo );
+                    return( NULL );
+                }
             }
         }
     }
-
 
     return( NULL );
 }
@@ -1833,7 +2288,7 @@ Return Value:
     PUNICODE_STRING TypeName = NULL;
     ULONG ReturnLength;
 
-    PAGED_CODE(); 
+    PAGED_CODE();
 
     Status = ObQueryTypeName(
                  Object,
@@ -1900,12 +2355,12 @@ Return Value:
     SECURITY_SUBJECT_CONTEXT SubjectSecurityContext;
     SE_ADT_PARAMETER_ARRAY AuditParameters;
     UNICODE_STRING ImageFileName;
-    
-    PAGED_CODE(); 
+
+    PAGED_CODE();
 
     RtlInitAnsiString( &Ansi, Process->ImageFileName );
 
-    Status = RtlAnsiStringToUnicodeString(              
+    Status = RtlAnsiStringToUnicodeString(
                  &ImageFileName,
                  &Ansi,
                  TRUE
@@ -2010,7 +2465,7 @@ Return Value:
     SECURITY_SUBJECT_CONTEXT SubjectSecurityContext;
     PSID UserSid;
 
-    PAGED_CODE(); 
+    PAGED_CODE();
 
     SeCaptureSubjectContext( &SubjectSecurityContext );
 
@@ -2081,7 +2536,7 @@ Return Value:
     PSID UserSid;
     LUID LogonId;
 
-    PAGED_CODE(); 
+    PAGED_CODE();
 
     Token = (PTOKEN)Process->Token;
 
@@ -2122,29 +2577,29 @@ VOID
 SepAdtGenerateDiscardAudit(
     VOID
     )
-    
+
 /*++
-    
+
 Routine Description:
-    
+
     Generates an 'audits discarded' audit.
-    
+
 Arguments:
-    
+
     none
-    
+
 Return Value:
-    
+
     None.
-    
+
 --*/
-    
+
 {
 
     SE_ADT_PARAMETER_ARRAY AuditParameters;
     PSID UserSid;
 
-    PAGED_CODE(); 
+    PAGED_CODE();
 
     UserSid = SeLocalSystemSid;
 

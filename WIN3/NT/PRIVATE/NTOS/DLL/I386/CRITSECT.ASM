@@ -30,7 +30,7 @@
 ;
 ;--
 
-.386p
+.486p
         .xlist
 include ks386.inc
 include callconv.inc                    ; calling convention macros
@@ -42,6 +42,8 @@ _LdrpLockPrefixTable    label dword
         dd offset FLAT:Lock1
         dd offset FLAT:Lock2
         dd offset FLAT:Lock3
+        dd offset FLAT:Lock4
+        dd offset FLAT:Lock5
         dd 0
 _DATA   ENDS
 
@@ -52,7 +54,6 @@ _TEXT   SEGMENT PARA PUBLIC 'CODE'
         EXTRNP  _RtlpUnWaitCriticalSection,1
 if DEVL
         EXTRNP  _RtlpNotOwnerCriticalSection,1
-        EXTRNP  _DbgBreakPoint,0
 endif
 
 CriticalSection equ     [esp + 4]
@@ -92,7 +93,7 @@ cPublicFpo 1,0
 if DBG
         cmp     dword ptr TbSpare1[ecx],0
         jz      @f
-        stdCall _DbgBreakPoint
+        int     3
 @@:
 endif ; DBG
 Lock1:
@@ -119,10 +120,10 @@ endif ; DBG
         cmp     CsOwningThread[edx],eax
         jne     @F
         inc     dword ptr CsRecursionCount[edx]
-if DEVL
+if DBG
         mov     eax,CsDebugInfo[edx]
         inc     dword ptr CsEntryCount[eax]
-endif
+endif ; DBG
         xor     eax,eax
         stdRET  _RtlEnterCriticalSection
 
@@ -163,7 +164,7 @@ cPublicProc _RtlLeaveCriticalSection,1
 cPublicFpo 1,0
 
         mov     edx,CriticalSection
-if DEVL
+if DBG
         mov     ecx,fs:PcTeb                ; (ecx) == NtCurrentTeb()
         mov     eax,TbClientId+4[ecx]       ; (eax) == NtCurrentTeb()->ClientId.UniqueThread
         cmp     eax,CsOwningThread[edx]
@@ -172,7 +173,7 @@ if DEVL
         mov     eax,STATUS_INVALID_OWNER
         stdRET  _RtlLeaveCriticalSection
 @@:
-endif
+endif ; DBG
         xor     eax,eax                     ; Assume STATUS_SUCCESS
         dec     dword ptr CsRecursionCount[edx]
         jnz     leave_recurs                ; skip if only leaving recursion
@@ -180,8 +181,6 @@ endif
         mov     CsOwningThread[edx],eax     ; clear owning thread id
 
 if DBG
-        mov     ecx,CsDebugInfo[edx]
-        mov     CsDepth[ecx],eax            ; clear
         mov     ecx,fs:PcTeb                ; (ecx) == NtCurrentTeb()
         dec     dword ptr TbCountOfOwnedCriticalSections[ecx]
 endif ; DBG
@@ -205,5 +204,82 @@ Lock3:
         stdRET  _RtlLeaveCriticalSection
 
 _RtlLeaveCriticalSection    endp
+
+        page    ,132
+        subttl  "RtlTryEnterCriticalSection"
+;++
+;
+; BOOL
+; RtlTryEnterCriticalSection(
+;    IN PRTL_CRITICAL_SECTION CriticalSection
+;    )
+;
+; Routine Description:
+;
+;    This function attempts to enter a critical section without blocking.
+;
+; Arguments:
+;
+;    CriticalSection (a0) - Supplies a pointer to a critical section.
+;
+; Return Value:
+;
+;    If the critical section was successfully entered, then a value of TRUE
+;    is returned as the function value. Otherwise, a value of FALSE is returned.
+;
+;--
+
+CriticalSection equ     [esp + 4]
+
+cPublicProc _RtlTryEnterCriticalSection,1
+cPublicFpo 1,0
+
+        mov     ecx,CriticalSection         ; interlocked inc of
+        mov     eax, -1                     ; set value to compare against
+        mov     edx, 0                      ; set value to set
+Lock4:
+   lock cmpxchg dword ptr CsLockCount[ecx],edx  ; Attempt to acquire critsect
+        jnz     short tec10                 ; if nz, critsect already owned
+
+        mov     eax,fs:TbClientId+4         ; (eax) == NtCurrentTeb()->ClientId.UniqueThread
+        mov     CsOwningThread[ecx],eax
+        mov     dword ptr CsRecursionCount[ecx],1
+
+if DBG
+        mov     eax,fs:PcTeb                ; (ecx) == NtCurrentTeb()
+        inc     dword ptr TbCountOfOwnedCriticalSections[eax]
+endif ; DBG
+
+        mov     eax, 1                      ; set successful status
+
+        stdRET  _RtlTryEnterCriticalSection
+
+tec10:
+;
+; The critical section is already owned. If it is owned by another thread,
+; return FALSE immediately. If it is owned by this thread, we must increment
+; the lock count here.
+;
+        mov     eax, fs:TbClientId+4        ; (eax) == NtCurrentTeb()->ClientId.UniqueThread
+        cmp     CsOwningThread[ecx], eax
+        jz      tec20                       ; if eq, this thread is already the owner
+        xor     eax, eax                    ; set failure status
+        stdRET  _RtlTryEnterCriticalSection
+
+tec20:
+;
+; This thread is already the owner of the critical section. Perform an atomic
+; increment of the LockCount and a normal increment of the RecursionCount and
+; return success.
+;
+Lock5:
+   lock inc     dword ptr CsLockCount[ecx]
+        inc     dword ptr CsRecursionCount[ecx]
+        mov     eax, 1
+        stdRET  _RtlTryEnterCriticalSection
+
+stdENDP _RtlTryEnterCriticalSection
+
+
 _TEXT   ends
         end

@@ -26,6 +26,7 @@ Revision History:
 
 --*/
 #include <windows.h>
+#include <netdebug.h>           // NetpAssert()
 #include "dosspool.h"
 
 /*
@@ -43,19 +44,54 @@ Revision History:
 
 HINSTANCE                  vhWinspoolDll = NULL ;
 
-PF_ClosePrinter      pfClosePrinter  = NULL ;
-PF_EnumJobsA         pfEnumJobsA     = NULL ;
-PF_EnumPrintersA     pfEnumPrintersA = NULL ;
-PF_GetJobA           pfGetJobA       = NULL ;
-PF_GetPrinterA       pfGetPrinterA   = NULL ;
-PF_OpenPrinterA      pfOpenPrinterA  = NULL ;
-PF_OpenPrinterW      pfOpenPrinterW  = NULL ;
-PF_SetJobA           pfSetJobA       = NULL ;
+PF_ClosePrinter                 pfClosePrinter                  = NULL ;
+PF_EnumJobsA                    pfEnumJobsA                     = NULL ;
+PF_EnumPrintersA                pfEnumPrintersA                 = NULL ;
+PF_GetJobA                      pfGetJobA                       = NULL ;
+PF_GetPrinterA                  pfGetPrinterA                   = NULL ;
+PF_OpenPrinterA                 pfOpenPrinterA                  = NULL ;
+PF_OpenPrinterW                 pfOpenPrinterW                  = NULL ;
+PF_SetJobA                      pfSetJobA                       = NULL ;
+PF_SetPrinterW                  pfSetPrinterW                   = NULL ;
+PF_GetPrinterDriverA            pfGetPrinterDriverA             = NULL;
 
 /*
  * global functions
  */
 BOOL MakeSureDllIsLoaded(void) ;
+
+/*******************************************************************
+
+    NAME:   GetFileNameA
+
+    SYNOPSIS:   Gets the filename part from a fully qualified path
+
+
+    HISTORY:
+    MuhuntS  06-Feb-1996    Created
+
+********************************************************************/
+LPSTR
+GetFileNameA(
+    LPSTR   pPathName
+    )
+{
+    LPSTR   pSlash = pPathName, pTemp;
+
+    if ( pSlash ) {
+
+        while ( pTemp = strchr(pSlash, '\\') )
+            pSlash = pTemp+1;
+
+        if ( !*pSlash )
+            pSlash = NULL;
+
+        NetpAssert(pSlash != NULL);
+    }
+
+    return pSlash;
+}
+
 
 /*******************************************************************
 
@@ -256,7 +292,7 @@ BOOL MyGetJob (HANDLE hPrinter,
                          Level,
                          pJob,
                          cbBuf,
-                          pcbNeeded));
+                         pcbNeeded));
 }
 
 /*******************************************************************
@@ -397,20 +433,21 @@ BOOL MyOpenPrinterW (LPWSTR              pPrinterName,
 }
 /*******************************************************************
 
-    NAME:   MySetJob
+    NAME:   MySetJobA
 
     SYNOPSIS:   calls thru to the superset function
 
     HISTORY:
     CongpaY  22-Jan-1993    Created
+    AlbertT  24-Mar-1995    AddedLevel and pJob
 
 ********************************************************************/
 
-BOOL MySetJob (HANDLE hPrinter,
-                     DWORD  JobId,
-                     DWORD  Level,
-                     LPBYTE pJob,
-                     DWORD  Command)
+BOOL MySetJobA (HANDLE hPrinter,
+                DWORD  JobId,
+                DWORD  Level,
+                LPBYTE pJob,
+                DWORD  Command)
 
 {
     PF_SetJobA pfTemp;
@@ -441,6 +478,101 @@ BOOL MySetJob (HANDLE hPrinter,
                          Level,
                          pJob,
                          Command));
+}
+
+/*******************************************************************
+
+    NAME:   MySetPrinterW
+
+    SYNOPSIS:   calls thru to the superset function
+
+    HISTORY:
+    AlbertT  23-Mar-1995    Created
+
+********************************************************************/
+
+BOOL MySetPrinterW(HANDLE hPrinter,
+                   DWORD  Level,
+                   LPBYTE pPrinter,
+                   DWORD  Command)
+
+{
+    PF_SetPrinterW pfTemp;
+
+    // if function has not been used before, get its address.
+    if (pfSetPrinterW == NULL)
+    {
+        // make sure DLL Is loaded
+        if (!MakeSureDllIsLoaded())
+        {
+            return(FALSE) ;
+        }
+
+        pfTemp = (PF_SetPrinterW)
+                          GetProcAddress(vhWinspoolDll,
+                                         "SetPrinterW") ;
+
+        if (pfTemp == NULL)
+        {
+            return(FALSE);
+        }
+        else
+            pfSetPrinterW = pfTemp;
+    }
+
+    return ((*pfSetPrinterW)(hPrinter,
+                            Level,
+                            pPrinter,
+                            Command));
+}
+
+/*******************************************************************
+
+    NAME:   MyGetPrinterDriver
+
+    SYNOPSIS:   calls thru to the superset function
+
+    HISTORY:
+    MuhuntS  06-Feb-1996    Created
+
+********************************************************************/
+
+BOOL
+MyGetPrinterDriver(
+    HANDLE      hPrinter,
+    LPSTR       pEnvironment,
+    DWORD       Level,
+    LPBYTE      pDriver,
+    DWORD       cbBuf,
+    LPDWORD     pcbNeeded
+    )
+{
+    //
+    // if function has not been used before, get its address.
+    //
+    if ( !pfGetPrinterDriverA ) {
+
+        //
+        // If dll is not loaded yet load it
+        //
+        if ( !MakeSureDllIsLoaded() ) {
+
+            return FALSE;
+        }
+
+        (FARPROC) pfGetPrinterDriverA = GetProcAddress(vhWinspoolDll,
+                                                       "GetPrinterDriverA");
+
+        if ( !pfGetPrinterDriverA )
+            return FALSE;
+    }
+
+    return ((*pfGetPrinterDriverA)(hPrinter,
+                                   pEnvironment,
+                                   Level,
+                                   pDriver,
+                                   cbBuf,
+                                   pcbNeeded));
 }
 
 /*******************************************************************

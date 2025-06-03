@@ -13,7 +13,7 @@
 *
 * HISTORY:
 *		$Log:   J:\se.vcs\driver\q117kdi\nt\src\0x15a02.c  $
-*	
+*
 *	   Rev 1.2   26 Apr 1994 16:10:42   KEVINKES
 *	Added status to clear interrupt.
 *
@@ -70,7 +70,7 @@ dBoolean kdi_Hardware
 
 /* DATA: ********************************************************************/
 
-	 dBoolean no_chain = dFALSE;
+    dBoolean no_chain = dFALSE;
     KdiContextPtr kdi_context;
 
 /* CODE: ********************************************************************/
@@ -79,24 +79,43 @@ dBoolean kdi_Hardware
 
     kdi_context = context;
 
-	if  (kdi_context->current_interrupt)  {
+    if  (kdi_context->current_interrupt && kdi_context->interrupt_pending)  {
 
-		kdi_context->interrupt_status = cqd_ClearInterrupt( 
-						kdi_context->cqd_context, 
+        //
+        // Check to see if the interrupt is ours
+        //
+		kdi_context->interrupt_status = cqd_ClearInterrupt(
+						kdi_context->cqd_context,
 						kdi_context->interrupt_pending );
 
-		if (kdi_context->interrupt_pending) {
 
-			kdi_context->interrupt_pending = dFALSE;
+        if (kdi_context->interrupt_status == DONT_PANIC) {
 
-			IoRequestDpc(
+            //
+            // We found a valid interrupt from the floppy,  so
+            // Reset interrupt pending flag and schedule a DPC to process
+            // the interrupt
+            //
+
+            kdi_context->interrupt_pending = dFALSE;
+
+            IoRequestDpc(
 				kdi_context->device_object,
 				kdi_context->device_object->CurrentIrp,
 				(dVoidPtr) dNULL_PTR );
 
-		}
 
-		no_chain = dTRUE;
+            no_chain = dTRUE;
+
+        } else {
+
+            kdi_CheckedDump(
+                QIC117INFO,
+                "Q117i: Unexpected IRQ processed\n", 0l);
+
+
+        }
+
 	}
 
 	return no_chain;

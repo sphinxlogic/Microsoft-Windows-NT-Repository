@@ -39,7 +39,6 @@ Revision History:
 #define IBMTOK_NDIS_MAJOR_VERSION 3
 #define IBMTOK_NDIS_MINOR_VERSION 0
 
-
 #if DBG
 #define LOG 1
 #else
@@ -347,8 +346,14 @@ typedef struct _IBMTOK_ADAPTER {
 
     PVOID WakeUpDpc;
     NDIS_TIMER WakeUpTimer;
-    BOOLEAN WakeUpTimeout;
+	BOOLEAN	SendTimeout;
+	BOOLEAN RequestTimeout;
     UCHAR WakeUpErrorCount;
+
+    //
+    //  Defines whether the adapter is an ISA or PCMCIA adapter.
+    //
+    UINT    CardType;
 
     //
     // Boolean to turn on/off early token release
@@ -828,6 +833,18 @@ typedef struct _IBMTOK_ADAPTER {
     // it is so big).
     //
     PNDIS_PACKET CorrelatorArray[MAX_COMMAND_CORRELATOR];
+
+    //
+    // IBM_TOKEN_RING_16_4_CREDIT_CARD_ADAPTER specific
+    // keywords
+    //
+    UINT RingSpeed;
+    ULONG Ram;
+    UINT RamSize;
+    ULONG MmioAddress;
+    BOOLEAN InvalidValue;
+    BOOLEAN RingSpeedListen;
+    ULONG RingSpeedRetries;
 
 } IBMTOK_ADAPTER,*PIBMTOK_ADAPTER;
 

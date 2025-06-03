@@ -457,4 +457,6 @@
 #define RES_LDR_NO_SELECTION             RES_MESSAGE +    434
 // LOADER
 
+#define RES_RESTOREWRITEERROR            RES_MESSAGE +    435
+
 #endif

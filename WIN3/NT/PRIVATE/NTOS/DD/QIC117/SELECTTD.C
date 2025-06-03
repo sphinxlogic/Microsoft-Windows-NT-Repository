@@ -92,6 +92,7 @@ Return Value:
 
         Context->CurrentOperation.SegmentPointer = Context->tapedir->x.adi_hdr.cmd_buffer_ptr;
         Context->CurrentOperation.SegmentBytesRemaining = q117GoodDataBytes(temp.StartSegment, Context);
+        Context->CurrentOperation.SegmentStatus = ret;
     }
 
     return(ret);

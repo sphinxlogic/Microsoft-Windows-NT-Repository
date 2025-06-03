@@ -395,7 +395,7 @@ VOID PASCAL INTERNAL GetCrntMsgHdr( PHDRINFO phdrInfo )
         pTmpFN2 = mktmpnam ( );
         if ( IdocToFile ( mpInoteIdoc [ inoteBold ], pTmpFN2, 0 ) != ERROR ) {
             GetHdrInfo ( phdrInfo, pTmpFN2, NULL );
-            unlink ( pTmpFN2 );
+            _unlink ( pTmpFN2 );
             }
         ZMfree ( pTmpFN2 );
         }
@@ -553,13 +553,13 @@ FLAG PASCAL INTERNAL AppendBody ( PSTR pFileDest, PSTR pFileSrc, LONG lStart, LO
     if ( lStart < 0 || lStart == lStop )
         return OK;
     fhDest = open ( pFileDest, O_APPEND | O_RDWR | O_BINARY );
-    lseek ( fhDest, 0L, SEEK_END );
+    _lseek ( fhDest, 0L, SEEK_END );
     fhSrc = open ( pFileSrc, O_RDONLY | O_BINARY );
     if ( lStop == -1 ) {
-        lseek ( fhSrc, 0L, SEEK_END );
+        _lseek ( fhSrc, 0L, SEEK_END );
         lStop = tell ( fhSrc ) + 1;
     }
-    lseek ( fhSrc, lStart, SEEK_SET );
+    _lseek ( fhSrc, lStart, SEEK_SET );
     l2Read = lStop - lStart;
     while ( l2Read ) {
         cnt = ( ( l2Read > ( LONG ) MAXLINELEN ) ? ( INT ) MAXLINELEN :
@@ -800,7 +800,7 @@ INT PASCAL INTERNAL SendIdoc ( IDOC idoc )
         else if ( !MailFile ( pTmpFN, TRUE ) ) {
             ChangeHeaderFlag ( idoc, F_DELETED, FALSE );
             rtn = 0;
-            unlink ( pTmpFN );
+            _unlink ( pTmpFN );
         }
         FreeHdrInfo ( &hdrInfo, HDRALL );
 

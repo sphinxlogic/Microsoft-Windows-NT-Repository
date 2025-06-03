@@ -348,7 +348,7 @@ Return Value:
         // Set count of locks on the RFCB.
         //
 
-        fi3->fi3_num_locks = rfcb->PagedRfcb->NumberOfLocks;
+        fi3->fi3_num_locks = rfcb->NumberOfLocks;
 
         //
         // Set up the pathname and username of the RFCB.  Note that we

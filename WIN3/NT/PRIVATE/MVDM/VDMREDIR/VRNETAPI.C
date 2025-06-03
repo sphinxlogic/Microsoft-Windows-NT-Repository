@@ -235,7 +235,7 @@ Return Value:
                 status = RtlUnicodeStringToAnsiString(&ansiString, &unicodeString, FALSE);
                 if (NT_SUCCESS(status)) {
                     RtlCopyMemory(stringPointer, ansiBuf, len+1);
-                    strupr(stringPointer);
+                    _strupr(stringPointer);
                 }
             }
 
@@ -253,7 +253,7 @@ Return Value:
                 status = RtlUnicodeStringToAnsiString(&ansiString, &unicodeString, FALSE);
                 if (NT_SUCCESS(status)) {
                     RtlCopyMemory(stringPointer, ansiBuf, len+1);
-                    strupr(stringPointer);
+                    _strupr(stringPointer);
                 }
             }
         }
@@ -270,7 +270,7 @@ Return Value:
                 status = RtlUnicodeStringToAnsiString(&ansiString, &unicodeString, FALSE);
                 if (NT_SUCCESS(status)) {
                     RtlCopyMemory(stringPointer, ansiBuf, len+1);
-                    strupr(stringPointer);
+                    _strupr(stringPointer);
                 }
             }
 
@@ -1035,7 +1035,7 @@ Return Value:
                 // BUGBUG, this isn't necessarily the correct upper-case function
                 //
 
-                strupr(aPassword);
+                _strupr(aPassword);
 
                 //
                 // convert the ANSI server name to UNICODE for GetLanmanSessionKey
@@ -1202,7 +1202,7 @@ Return Value:
     // BUGBUG - this is not necessarily the correct upper-case function
     //
 
-    strupr(scratchpad);
+    _strupr(scratchpad);
     ntStatus = RtlOemToUnicodeN(UnicodeStringPointer,
                                 MaxLength * sizeof(*UnicodeStringPointer),
                                 &length,
@@ -1558,7 +1558,7 @@ Return Value:
     // it sticks Load=WinPopUp in WIN.INI. We don't want it to do this
     //
 
-    if (!stricmp(serviceName, NETPOPUP_SERVICE)) {
+    if (!_stricmp(serviceName, NETPOPUP_SERVICE)) {
 
         //
         // roll our own service_info_2 structure
@@ -3319,7 +3319,11 @@ Return Value:
                 wstatus = VrpTranslateDosNetPath(&remoteName, &dosPointer);
 
 #if DBG
-                ASSERT(wstatus == 0);
+                IF_DEBUG(NETAPI) {
+                    if (wstatus != 0) {
+                        DbgPrint("VrGetAssignListEntry: wstatus == %d\n", wstatus);
+                    }
+                }
 #endif
 
                 setBL((BYTE)(infoPtr->ui1_asg_type == 0 ? 4 : 3));
@@ -3474,7 +3478,7 @@ Return Value:
         // BUGBUG - Code Page, Kanji, DBCS, Locale?
         //
 
-        strupr(((struct use_info_1*)useBuffer)->ui1_local);
+        _strupr(((struct use_info_1*)useBuffer)->ui1_local);
     } else {
         ((struct use_info_1*)useBuffer)->ui1_local[0] = 0;
     }
@@ -4071,7 +4075,7 @@ Return Value:
     LM_OWF_PASSWORD lmOwfPassword;
     LM_SESSION_KEY lanmanKey;
 
-    strupr(Password);
+    _strupr(Password);
     ntStatus = RtlCalculateLmOwfPassword(Password, &lmOwfPassword);
     if (NT_SUCCESS(ntStatus)) {
         ntStatus = GetLanmanSessionKey(ServerName, (LPBYTE)&lanmanKey);

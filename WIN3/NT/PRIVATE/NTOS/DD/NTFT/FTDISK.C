@@ -460,9 +460,8 @@ Return Value:
                 LARGE_INTEGER     ioEnd;
 
                 ioStart = currentIrpStack->Parameters.Write.ByteOffset;
-                ioEnd   = LiAdd(LiFromUlong(
-                                 currentIrpStack->Parameters.Write.Length),
-                                 currentIrpStack->Parameters.Write.ByteOffset);
+                ioEnd.QuadPart = currentIrpStack->Parameters.Write.Length +
+                                 currentIrpStack->Parameters.Write.ByteOffset.QuadPart;
 
                 //
                 // Walk through the protect list.
@@ -486,14 +485,14 @@ Return Value:
                     // partition, then this I/O starts within the member.
                     //
 
-                    if ((LiLtr(partitionStart, ioStart)) &&
-                        (LiGtr(partitionEnd, ioStart))) {
+                    if (partitionStart.QuadPart < ioStart.QuadPart &&
+                        partitionEnd.QuadPart > ioStart.QuadPart) {
 
-                    //
-                    // I/O starts in this partition.
-                    //
+                        //
+                        // I/O starts in this partition.
+                        //
 
-                        if (LiGtr(ioEnd, partitionEnd)) {
+                        if (ioEnd.QuadPart > partitionEnd.QuadPart) {
 
                             //
                             // this I/O starts within the member, but extends
@@ -515,7 +514,7 @@ Return Value:
                         // The complete I/O is within this member.  Allow the
                         // member handling routines to perform the I/O.
                         //
-                        // BUGBUG:  Either the IRP Must be adjusted or the
+                        // NOTE:  Either the IRP Must be adjusted or the
                         // WholeDisk extension passed with the expectation
                         // the mirror/stripe code will handle the I/O.  For
                         // now the WholeDisk extension is passed.
@@ -544,8 +543,8 @@ Return Value:
                     // member, then this I/O ends within the member.
                     //
 
-                    if ((LiGtr(ioEnd, partitionStart)) &&
-                        (LiLtr(ioEnd, partitionEnd))) {
+                    if (ioEnd.QuadPart > partitionStart.QuadPart &&
+                        ioEnd.QuadPart < partitionEnd.QuadPart) {
 
                         //
                         // This I/O operation does not start within the member,
@@ -569,8 +568,8 @@ Return Value:
                     // then this I/O spans the member.
                     //
 
-                    if ((LiLtr(ioStart, partitionStart)) &&
-                        (LiGtr(ioEnd, partitionEnd))) {
+                    if (ioStart.QuadPart < partitionStart.QuadPart &&
+                        ioEnd.QuadPart > partitionEnd.QuadPart) {
 
                         //
                         // This I/O spans the member and is not allowed.
@@ -629,7 +628,63 @@ Return Value:
     return IoCallDriver(deviceExtension->TargetObject, Irp);
 
 } // end FtDiskReadWrite()
+
+VOID
+FtpSectorSize(
+    IN PDEVICE_EXTENSION DeviceExtension,
+    IN PULONG            ResultSectorSize
+    )
 
+/*++
+
+Routine Description:
+
+    Given the beginning of a device extension, take the greatest
+    sector size from all of the components as the sector size.
+
+Arguments:
+
+    DeviceExtension - Base of the FT volume.
+    ResultSectorSize - The resulting sector size.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    PDEVICE_EXTENSION currentExtension;
+
+    *ResultSectorSize = 0;
+
+    currentExtension = DeviceExtension;
+    while (currentExtension != NULL) {
+
+        if (currentExtension->FtUnion.Identity.DiskGeometry.BytesPerSector >
+            *ResultSectorSize) {
+
+            *ResultSectorSize =
+            currentExtension->FtUnion.Identity.DiskGeometry.BytesPerSector;
+        }
+
+        currentExtension = currentExtension->NextMember;
+    }
+
+    // Let's be a bit careful here, just in case.
+
+    switch (*ResultSectorSize) {
+        case 512:
+        case 1024:
+        case 2048:
+        case 4096:
+            break;
+
+        default:
+            *ResultSectorSize = 512;
+            break;
+    }
+}
 
 NTSTATUS
 FtDiskDeviceControl(
@@ -933,7 +988,7 @@ Return Value:
                 // member size.
                 //
 
-                if (LiGtrZero(deviceExtension->FtUnion.Identity.OriginalLength)) {
+                if (deviceExtension->FtUnion.Identity.OriginalLength.QuadPart > 0) {
                     outputBuffer =
                         (PPARTITION_INFORMATION)Irp->AssociatedIrp.SystemBuffer;
                     outputBuffer->PartitionType =
@@ -986,6 +1041,7 @@ Return Value:
 
                     PDISK_GEOMETRY diskGeometry = Irp->AssociatedIrp.SystemBuffer;
                     LARGE_INTEGER volumeLength;
+                    ULONG sectorSize;
 
                     //
                     // Calculate length of the volume.
@@ -994,6 +1050,8 @@ Return Value:
                     FtpVolumeLength(deviceExtension,
                                     &volumeLength);
 
+                    FtpSectorSize(deviceExtension, &sectorSize);
+
                     //
                     // Fill in geometry structure.
                     // Calculate cylinders as volume length in bytes
@@ -1001,11 +1059,10 @@ Return Value:
                     //
 
                     diskGeometry->MediaType = FixedMedia;
-                    diskGeometry->Cylinders =
-                        LiShr(volumeLength, 13);
+                    diskGeometry->Cylinders.QuadPart = volumeLength.QuadPart >> 20;
                     diskGeometry->TracksPerCylinder = 32;
-                    diskGeometry->SectorsPerTrack = 64;
-                    diskGeometry->BytesPerSector = 512;
+                    diskGeometry->BytesPerSector = sectorSize;
+                    diskGeometry->SectorsPerTrack = 32768/diskGeometry->BytesPerSector;
 
                     //
                     // Return bytes transferred and status.
@@ -1290,6 +1347,10 @@ Return Value:
                                   Irp);
     }
 
+    if (status == STATUS_PENDING) {
+        return status;
+    }
+
     Irp->IoStatus.Status = status;
 
     if (!NT_SUCCESS(status) && IoIsErrorUserInduced(status)) {
@@ -1300,214 +1361,6 @@ Return Value:
     return status;
 
 } // end FtDiskDeviceControl()
-
-
-PIRP
-FtDuplicateFlushOrShut(
-    IN OUT PDEVICE_EXTENSION *DeviceExtensionPtr,
-    IN     PIRP               Irp
-    )
-
-/*++
-
-Routine Description:
-
-    This routine will set up either the Irp passed in or create a new Irp
-    to be issued to the lower level driver for the Flush or Shutdown call.
-    This routine will also skip any device extensions that are orphaned and
-    update the input parameter DeviceExtension with the deviceExtension for
-    the Irp.
-
-Arguments:
-
-    DeviceExtensionPtr - A pointer to the device extension for the call.
-    Irp                - The original Irp to clone.
-
-Return Value:
-
-    A pointer to the irp to issue to the lower level driver.
-
---*/
-
-{
-    PDEVICE_EXTENSION  deviceExtension = *DeviceExtensionPtr;
-    PDEVICE_EXTENSION  zeroExtension;
-    PIO_STACK_LOCATION currentIrpStack;
-    PIO_STACK_LOCATION nextIrpStack;
-    PIRP               newIrp;
-
-    //
-    // For all other FT members issue the shutdown or flush to every
-    // member of the set.  Be sure to check for orphans since no device
-    // exists below for orphans.
-    //
-
-    if (deviceExtension->VolumeState == FtDisabled) {
-        return NULL;
-    }
-
-    //
-    // Get zero member.
-    //
-
-    zeroExtension = deviceExtension->ZeroMember;
-
-    while (TRUE) {
-
-        if (deviceExtension == NULL) {
-            return NULL;
-        }
-
-        if (IsMemberAnOrphan(deviceExtension)) {
-
-            //
-            // Skip this member.
-            //
-
-            deviceExtension = deviceExtension->NextMember;
-            continue;
-        }
-
-        //
-        // Assume original request came in with zero extension
-        // and check that if it requested enough stacks.
-        //
-
-        if (zeroExtension->DeviceObject->StackSize <
-            deviceExtension->DeviceObject->StackSize) {
-
-            //
-            // Must allocate a new Irp.
-            //
-
-            newIrp = IoAllocateIrp((CCHAR)deviceExtension->DeviceObject->StackSize,
-                                   (BOOLEAN) FALSE);
-            if (newIrp == NULL) {
-
-                //
-                // If no more Irps are available skip this member and see
-                // if any other members can be notified with the original Irp.
-                //
-
-                deviceExtension = deviceExtension->NextMember;
-                continue;
-            }
-            nextIrpStack = IoGetNextIrpStackLocation(newIrp);
-            break;
-
-        } else {
-
-            //
-            // Use the original Irp.
-            //
-
-            newIrp = Irp;
-            nextIrpStack = IoGetNextIrpStackLocation(newIrp);
-            break;
-        }
-    }
-
-    //
-    // The above loop will only exit here if newIrp is setup for the
-    // appropriate deviceExtension.
-    //
-
-    currentIrpStack = IoGetCurrentIrpStackLocation(Irp);
-
-    *nextIrpStack = *currentIrpStack;
-
-    IoSetCompletionRoutine(newIrp,
-                           FtFlushOrShutCompletion,
-                           Irp,
-                           TRUE,
-                           TRUE,
-                           TRUE);
-
-    //
-    // This is important.  The original IRP's device object location is used
-    // to maintain the location in the process of sending the flush.  This
-    // is due to the fact the I/O subsystem will not give the device object
-    // to the completion routine for an IRP that was created by this driver.
-    //
-
-    currentIrpStack->DeviceObject = deviceExtension->DeviceObject;
-    *DeviceExtensionPtr = deviceExtension;
-    return newIrp;
-} // FtDuplicateFlushOrShut()
-
-
-NTSTATUS
-FtFlushOrShutCompletion(
-    IN PDEVICE_OBJECT DeviceObject,
-    IN PIRP           Irp,
-    IN PVOID          Context
-    )
-
-/*++
-
-Routine Description:
-
-    This routine is the completion routine for flush and shutdown Irps issued
-    to FT sets.  Its purpose is to forward the flush or shutdown to the next
-    set member until all set members have been informed at which point the
-    original Irp is completed.
-
-Arguments:
-
-    DeviceObject - Pointer to device object to being shutdown by system.
-    Irp          - IRP involved.
-    Context      - The original Irp for the flush or shutdown.
-
-Return Value:
-
-    NTSTATUS
-
---*/
-
-{
-    PIRP               originalIrp = (PIRP) Context;
-    PDEVICE_EXTENSION  deviceExtension;
-    PIO_STACK_LOCATION irpStack;
-
-    if (DeviceObject == NULL) {
-        irpStack = IoGetCurrentIrpStackLocation(originalIrp);
-        deviceExtension = irpStack->DeviceObject->DeviceExtension;
-    } else {
-        deviceExtension = DeviceObject->DeviceExtension;
-    }
-
-    if (originalIrp != Irp) {
-        IoFreeIrp(Irp);
-    }
-
-    if ((deviceExtension = deviceExtension->NextMember) == NULL) {
-
-        //
-        // All done with the original Irp.
-        //
-
-        FtpCompleteRequest(originalIrp, IO_DISK_INCREMENT);
-
-    } else {
-
-        Irp = FtDuplicateFlushOrShut(&deviceExtension, originalIrp);
-
-        if (Irp == NULL) {
-
-            //
-            // All done.  Either the remaining members were orphaned or there
-            // were not enough Irps to complete this operation.
-            //
-
-            FtpCompleteRequest(originalIrp, IO_DISK_INCREMENT);
-        } else {
-            (PVOID) IoCallDriver(deviceExtension->TargetObject, Irp);
-        }
-    }
-
-    return STATUS_MORE_PROCESSING_REQUIRED;
-} // FtFlushOrShutCompletion()
-
 
 NTSTATUS
 FtDiskShutdownFlush(
@@ -1541,6 +1394,7 @@ Return Value:
     PVOID               freePoolAddress;
     PDISK_CONFIG_HEADER registry;
     NTSTATUS            status;
+    PKEVENT             eventPtr;
 
     //
     // Determine if this is the FtRootExtension.
@@ -1599,16 +1453,75 @@ Return Value:
     }
 
     //
-    // The deviceExtension pointer may change in this call.
+    // Because we may have write cache enabled drives below, we need to
+    // send each request (to the separate drives) synchronously.  We need
+    // to do this since the lower levels expect this to happen synchronously.
+    //
+    // First get an event.  If we can do that then loop over all the device
+    // extensions in the chain, allocating an appropriately sized irp (since
+    // not all drives may be using the same sized stack).  Send the request
+    // down, and wait for it to complete (we don't really care about the request
+    // completion status since there is no recovery this late in the game).
+    //
+    // Allocate the event.
     //
 
-    irpToSend = FtDuplicateFlushOrShut(&deviceExtension, Irp);
+    eventPtr = ExAllocatePool(NonPagedPool,sizeof(KEVENT));
 
-    if (irpToSend != NULL) {
+    if (eventPtr) {
 
-        IoMarkIrpPending(Irp);
-        IoCallDriver(deviceExtension->TargetObject, Irp);
-        return STATUS_PENDING;
+        PIO_STACK_LOCATION irpSp = IoGetCurrentIrpStackLocation(Irp);
+        PDEVICE_EXTENSION currentExtension = deviceExtension->ZeroMember;
+
+
+        //
+        // Control while loop by device extensions
+        //
+
+        while (currentExtension) {
+
+            PIRP currentSyncIrp;
+            IO_STATUS_BLOCK ioStatus;
+
+            if (IsMemberAnOrphan(currentExtension)) {
+
+                currentExtension = currentExtension->NextMember;
+                continue;
+
+            }
+
+            KeInitializeEvent(eventPtr,NotificationEvent,FALSE);
+            currentSyncIrp = IoBuildSynchronousFsdRequest( irpSp->MajorFunction,
+                                            currentExtension->TargetObject,
+                                            NULL,
+                                            0,
+                                            NULL,
+                                            eventPtr,
+                                            &ioStatus );
+
+            if (currentSyncIrp) {
+
+                if (IoCallDriver(currentExtension->TargetObject,currentSyncIrp)
+                    == STATUS_PENDING) {
+                    (VOID) KeWaitForSingleObject( eventPtr,
+                                              Executive,
+                                              KernelMode,
+                                              FALSE,
+                                              (PLARGE_INTEGER) NULL);
+                }
+
+            }
+
+            //
+            // All done with this disk stack.  On to the next.
+            //
+
+            currentExtension = currentExtension->NextMember;
+
+        }
+
+        ExFreePool(eventPtr);
+
     }
 
     //
@@ -1739,13 +1652,14 @@ Return Value:
                                           &fileObject,
                                           &deviceObject);
 
+        RtlFreeUnicodeString(&ntUnicodeString);
+
         if (!NT_SUCCESS(status)) {
 
             DebugPrint((1,
                         "FtpPrepareDisk: Can't get target object %s\n",
                         ntDeviceName));
 
-            RtlFreeUnicodeString(&ntUnicodeString);
             continue;
         }
 
@@ -1766,7 +1680,6 @@ Return Value:
                         "FtpPrepareDisk: %s already mounted\n",
                         ntDeviceName));
 
-            RtlFreeUnicodeString(&ntUnicodeString);
             continue;
         }
 
@@ -1832,10 +1745,9 @@ Return Value:
                                       partitionInformation->HiddenSectors;
             deviceExtension->FtUnion.Identity.PartitionLength =
                                       partitionInformation->PartitionLength;
-            deviceExtension->FtUnion.Identity.PartitionEnd =
-                                     LiAdd(
-                                      deviceExtension->FtUnion.Identity.PartitionOffset,
-                                      partitionInformation->PartitionLength);
+            deviceExtension->FtUnion.Identity.PartitionEnd.QuadPart =
+                                      deviceExtension->FtUnion.Identity.PartitionOffset.QuadPart +
+                                      partitionInformation->PartitionLength.QuadPart;
 
             //
             // Point back to whole disk.
@@ -1934,7 +1846,7 @@ Return Value:
 
         //
         // Get first/next partition.  Assume we are already attached
-        // to the first disk.  BUGBUG: If new disks arrive this isn't true.
+        // to the first disk.  NOTE: If new disks arrive this isn't true.
         //
 
         partitionNumber++;
@@ -1968,6 +1880,8 @@ Return Value:
                                           &fileObject,
                                           &targetObject);
 
+        RtlFreeUnicodeString(&ntUnicodeString);
+
         //
         // If this fails then it is because there is no such device
         // which signals completion.
@@ -1997,7 +1911,6 @@ Return Value:
                        "FtpDiskSetDriveLayout: %s is mounted\n",
                        ntDeviceName));
 
-            RtlFreeUnicodeString(&ntUnicodeString);
             continue;
         }
 
@@ -2136,8 +2049,8 @@ Return Value:
             newOffset = partitionInformation.StartingOffset;
             newSize   = partitionInformation.PartitionLength;
 
-            if ((LiNeq(partitionOffset, newOffset)) ||
-                (LiNeq(partitionSize, newSize))) {
+            if (partitionOffset.QuadPart != newOffset.QuadPart ||
+                partitionSize.QuadPart != newSize.QuadPart) {
 
                 //
                 // This partition was modified by the IOCTL.
@@ -2154,8 +2067,8 @@ Return Value:
                 deviceExtension->FtUnion.Identity.HiddenSectors =
                                       partitionInformation.HiddenSectors;
                 deviceExtension->FtUnion.Identity.PartitionLength = newSize;
-                deviceExtension->FtUnion.Identity.PartitionEnd =
-                                                    LiAdd(newOffset, newSize);
+                deviceExtension->FtUnion.Identity.PartitionEnd.QuadPart =
+                                      newOffset.QuadPart + newSize.QuadPart;
                 deviceExtension->Flags |= FTF_CONFIGURATION_CHANGED;
             }
         }
@@ -2365,4 +2278,4 @@ Return Value:
 
     return Irp->IoStatus.Status;
 }
-
+

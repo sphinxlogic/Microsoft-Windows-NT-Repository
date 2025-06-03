@@ -93,6 +93,7 @@ Revision History:
 
 // These may be included in any order:
 
+#include <align.h>              // ALIGN_WORST
 #include <apinums.h>            // API_ equates.
 #include <limits.h>             // CHAR_BIT.
 #include <lmapibuf.h>           // NetapipBufferAllocate, NetApiBufferFree
@@ -520,9 +521,25 @@ Return Value:
     //
     // If the caller of RxRemoteApi requested that we allocate the final data
     // buffer on their behalf, then allocate it here. We use as the size
-    // criterion RAP_CONVERSION_FACTOR * SmbRcvByteLen since this has the size
-    // of 16-bit data actually received. RAP_CONVERSION_FACTOR converts that
-    // value to the equivalent Native data mode size (ie multiply by 2)
+    // criterion
+    //
+    // (RAP_CONVERSION_FACTOR + 1/RAP_CONVERSION_FRACTION) * SmbRcvByteLen
+    //
+    // since this has the size of 16-bit data actually received.
+    //
+    // RAP_CONVERSION_FACTOR is 2 since that's the ratio for the size of
+    // WCHAR to CHAR and of DWORD to WORD.  However, Lanman data structures
+    // typically represents text as zero terminated array of CHAR within the
+    // returned structure.  The array itself is of maximum size.  However,
+    // the typical native representation has a 4-byte pointer to a zero
+    // terminated WCHAR.  A factor of 2 wouldn't account for the 4-byte pointer.
+    // Assuming the smallest lanman array size is 13 bytes (e.g., NNLEN+1), an
+    // additional factor of 4/13 (about 1/3) is needed.  So,
+    // RAP_CONVERSION_FRACTION is 3.
+    //
+    // Round the size to a multiple of the alignment for the system to allow
+    // data to be packed at the trailing end of the buffer.
+    //
     // NOTE: Since the original API caller expects to use NetApiBufferFree to
     // get rid of this buffer, we must use NetapipBufferAllocate
     //
@@ -534,6 +551,10 @@ Return Value:
         NetpAssert(SmbRcvByteLen);  // size of the data received
 
         RcvDataLength = SmbRcvByteLen * RAP_CONVERSION_FACTOR;
+        RcvDataLength += (SmbRcvByteLen + RAP_CONVERSION_FRACTION - 1) /
+                         RAP_CONVERSION_FRACTION;
+        RcvDataLength = ROUND_UP_COUNT( RcvDataLength, ALIGN_WORST );
+
         if (ConvertStatus = NetapipBufferAllocate(RcvDataLength,
                                                   (PVOID *) &pDataBuffer)) {
             NetpKdPrint(( PREFIX_NETAPI

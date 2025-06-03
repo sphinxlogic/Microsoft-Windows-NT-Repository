@@ -28,6 +28,7 @@ ConvertFATVolume(
     IN      PCWSTRING           TargetFileSystem,
 	IN OUT  PMESSAGE            Message,
 	IN		BOOLEAN 			Verbose,
+	IN      BOOLEAN             Pause,
 	OUT 	PCONVERT_STATUS 	Status
     );
 
@@ -38,5 +39,6 @@ ConvertFAT(
     IN      PCWSTRING       TargetFileSystem,
     IN OUT  PMESSAGE        Message,
     IN      BOOLEAN         Verbose,
+    IN      BOOLEAN         Pause,
     OUT     PCONVERT_STATUS Status
     );

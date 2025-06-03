@@ -35,17 +35,20 @@ SrvLogError (
     );
 
 VOID
-SrvLogInvalidSmb (
-    IN PWORK_CONTEXT WorkContext
+SrvLogInvalidSmbDirect (
+    IN PWORK_CONTEXT WorkContext,
+    IN ULONG LineNumber
     );
 
 VOID
-SrvLogServiceFailure (
-    IN ULONG Service,
+SrvLogServiceFailureDirect (
+    IN ULONG LineAndService,
     IN NTSTATUS Status
     );
 
 #define SrvLogSimpleEvent( _event, _status ) SrvLogError( SrvDeviceObject, (_event), (_status), NULL, 0, NULL, 0 )
+#define SrvLogServiceFailure( _Service, _Status ) SrvLogServiceFailureDirect( (__LINE__<<16) | _Service, _Status )
+#define SrvLogInvalidSmb( _Context ) SrvLogInvalidSmbDirect( _Context, __LINE__ )
 
 VOID
 SrvLogTableFullError (
@@ -54,12 +57,15 @@ SrvLogTableFullError (
 
 VOID
 SrvCheckSendCompletionStatus(
-    IN NTSTATUS status
+    IN NTSTATUS status,
+    IN ULONG LineNumber
     );
 
 //
 // Error log raw data constants.  Used to describe allocation type or
-// service call that failed.
+// service call that failed.  These codes are encoded in the lower word
+// by the 'SrvLogServiceFailure' macro above, therefore the value must
+// fit into 2 bytes.
 //
 
 #define SRV_TABLE_FILE                      0x3e9   // 1001
@@ -95,4 +101,7 @@ SrvCheckSendCompletionStatus(
 #define SRV_SVC_LSA_LOOKUP_PACKAGE          0xbcd   // 3021
 #define SRV_SVC_LSA_REGISTER_LOGON_PROCESS  0xbce   // 3022
 #define SRV_SVC_IO_CREATE_FILE_NPFS         0xbcf   // 3023
-
+#define SRV_SVC_PNP_TDI_NOTIFICATION        0xbd0   // 3024
+#define SRV_SVC_IO_FAST_QUERY_NW_ATTRS      0xbd1   // 3025
+#define SRV_SVC_PS_TERMINATE_SYSTEM_THREAD  0xbd2   // 3026
+#define SRV_SVC_MDL_COMPLETE                0xbd3   // 3027

@@ -220,8 +220,6 @@ Notes:
                     DisplayMessage( MSG_KEYB_INVALID_CODE, ERROR_MESSAGE );
                     ExitProgram( EXIT_SYNTAXERROR );
                 }
-
-                CloseHandle( (HANDLE)Hkl );
             }
 
             if ( _SetCodePage ) {
@@ -365,7 +363,7 @@ Return Value:
          i++, DataLength = REG_DATA_LEN, ValueLength = REG_VALUE_LEN ) {
 
         if( DataType == REG_SZ &&
-                wcsicmp( KeyboardString, (PCWSTR)Data ) == 0 ) {
+                _wcsicmp( KeyboardString, (PCWSTR)Data ) == 0 ) {
 
             // It's a match.  The value name is a string which
             // represents the Language ID as a hexadecimal number.
@@ -456,7 +454,7 @@ Notes:
 
     if ( !GetKeyboardLayoutName( Buffer ) ) {
 
-        DbgAssert( FALSE );
+        DebugAssert( FALSE );
 
     } else {
 

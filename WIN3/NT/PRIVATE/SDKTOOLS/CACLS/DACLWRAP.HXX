@@ -1,5 +1,7 @@
 //+-------------------------------------------------------------------
 //
+// Copyright (C) 1995, Microsoft Corporation.
+//
 //  File:        daclwrap.hxx
 //
 //  Contents:    class encapsulating file security.

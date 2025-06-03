@@ -53,7 +53,7 @@ struct {
     {130, STATUS_ACCESS_DENIED },
     {131, STATUS_DATA_ERROR },
     {132, STATUS_ACCESS_DENIED },
-    {133, STATUS_ACCESS_DENIED },
+    {133, STATUS_OBJECT_NAME_COLLISION },
     {134, STATUS_OBJECT_NAME_COLLISION },
     {135, STATUS_OBJECT_NAME_INVALID },
     {136, STATUS_INVALID_HANDLE },
@@ -83,7 +83,7 @@ struct {
     {160, STATUS_DIRECTORY_NOT_EMPTY },
     {161, STATUS_DATA_ERROR },
     {162, STATUS_FILE_LOCK_CONFLICT },
-    {165, STATUS_OBJECT_NAME_INVALID },
+    {165, STATUS_OBJECT_NAME_NOT_FOUND },
     {191, STATUS_OBJECT_NAME_INVALID },    // Name space not loaded
     {192, STATUS_ACCESS_DENIED},
     {193, STATUS_ACCOUNT_RESTRICTION },
@@ -288,33 +288,39 @@ struct {
 #define Dbg                              (DEBUG_TRACE_CONVERT)
 
 #ifdef ALLOC_PRAGMA
-#pragma alloc_text( PAGE, NtShareAccessToNwShareFlags )
-#pragma alloc_text( PAGE, NtDesiredAccessToNwShareFlags )
+#pragma alloc_text( PAGE, NtToNwShareFlags )
 #pragma alloc_text( PAGE, NtAttributesToNwAttributes )
 
+#ifndef QFE_BUILD
 #pragma alloc_text( PAGE1, pNwErrorToNtStatus )
 #pragma alloc_text( PAGE1, NwBurstResultToNtStatus )
 #pragma alloc_text( PAGE1, NwConnectionStatusToNtStatus )
 #pragma alloc_text( PAGE1, NwDateTimeToNtTime )
 #pragma alloc_text( PAGE1, NwNtTimeToNwDateTime )
+#endif
 
 #endif
 
 #if 0  // Not pageable
+
+// see ifndef QFE_BUILD above
+
 #endif
 
 UCHAR
-NtShareAccessToNwShareFlags(
+NtToNwShareFlags(
+    ULONG DesiredAccess,
     ULONG NtShareFlags
     )
 /*++
 
 Routine Description:
 
-    This routine maps a NT sharing modes to Netware share modes.
+    This routine maps a NT desired/share access to Netware share flag bits.
 
 Arguments:
 
+    DesiredAccess - Desired access for open as specified in the read IRP.
     NtShareFlags - The NT share flags from the create IRP.
 
 Return Value:
@@ -324,6 +330,7 @@ Return Value:
 --*/
 {
     UCHAR NwShareFlags = 0;
+    ULONG lDesiredAccess;
 
     PAGED_CODE();
 
@@ -331,9 +338,7 @@ Return Value:
     //  Ignore share delete, since we can't do anything with it.
     //
 
-    NtShareFlags &= FILE_SHARE_READ | FILE_SHARE_WRITE;
-
-    switch ( NtShareFlags ) {
+    switch ( NtShareFlags & (FILE_SHARE_READ | FILE_SHARE_WRITE) ) {
 
     case 0:
         NwShareFlags = NW_OPEN_EXCLUSIVE;
@@ -352,55 +357,53 @@ Return Value:
 
     }
 
-    return( NwShareFlags );
-}
-
-
-UCHAR
-NtDesiredAccessToNwShareFlags(
-    ULONG DesiredAccess
-    )
-/*++
-
-Routine Description:
-
-    This routine maps a NT desired access to Netware share flag bits.
-
-Arguments:
-
-    DesiredAccess - Desired access for open as specified in the read IRP.
-
-Return Value:
-
-    Netware share mode.
-
---*/
-{
-    UCHAR NwShareFlags = 0;
-
-    PAGED_CODE();
-
     //
-    //  Do a best guess error mapping.   Do not map read/write ea, or
-    //  read/write attibutes.
+    // Treat append the same as write.
     //
 
-    if ( DesiredAccess & (FILE_READ_DATA | FILE_EXECUTE ) ) {
-        NwShareFlags |= NW_OPEN_FOR_READ;
+    if ( DesiredAccess & FILE_APPEND_DATA) {
+
+        lDesiredAccess = DesiredAccess | FILE_WRITE_DATA;
+
+    } else {
+
+        lDesiredAccess = DesiredAccess;
+
     }
 
-    if ( DesiredAccess & (FILE_WRITE_DATA | FILE_APPEND_DATA) ) {
+    switch ( lDesiredAccess & (FILE_EXECUTE | FILE_WRITE_DATA | FILE_READ_DATA) ) {
+
+    case (FILE_EXECUTE | FILE_WRITE_DATA | FILE_READ_DATA):
+    case (FILE_EXECUTE | FILE_WRITE_DATA):
+        NwShareFlags |= NW_OPEN_EXCLUSIVE | NW_OPEN_FOR_WRITE | NW_OPEN_FOR_READ;
+        break;
+
+    case (FILE_EXECUTE | FILE_READ_DATA):
+    case (FILE_EXECUTE):
+        NwShareFlags |= NW_OPEN_EXCLUSIVE | NW_OPEN_FOR_READ;
+        break;
+
+    case (FILE_WRITE_DATA | FILE_READ_DATA):
+        NwShareFlags |= NW_OPEN_FOR_WRITE | NW_OPEN_FOR_READ;
+        break;
+
+    case (FILE_WRITE_DATA):
         NwShareFlags |= NW_OPEN_FOR_WRITE;
+        break;
+
+    default:
+        NwShareFlags |= NW_OPEN_FOR_READ;
+        break;
     }
 
-    //
-    //  2.2 Netware servers don't like no us asking for no access.   They
-    //  return access denied.   To work around this problem, map no access
-    //  to read access.
-    //
+    if (NwShareFlags & NW_OPEN_EXCLUSIVE) {
 
-    if ( NwShareFlags == 0 ) {
-        NwShareFlags = NW_OPEN_FOR_READ;
+        //
+        //  Remove the NW_DENY_* flags if exclusive is already specified since
+        //  this interferes with the shareable flag.
+        //
+
+        return( NwShareFlags & ~(NW_DENY_READ | NW_DENY_WRITE) );
     }
 
     return( NwShareFlags );
@@ -475,7 +478,9 @@ Return Value:
 
     DebugTrace( 0, 0, "No error mapping for error %d\n", NwError );
 
+#ifdef NWDBG
     Error( EVENT_NWRDR_NETWORK_ERROR, (NTSTATUS)0xC0010000 | NwError, NULL, 0, 0 );
+#endif
 
     return( (NTSTATUS)0xC0010000 | NwError );
 }
@@ -502,6 +507,13 @@ Return Value:
 
 {
     NTSTATUS Status;
+
+    //
+    // the 3 high order bits should not be set. but if they are,
+    // we return an error.
+    //
+    if (Result & 0xFFFFFF00)
+        return( STATUS_UNEXPECTED_NETWORK_ERROR );
 
     switch ( Result ) {
 
@@ -590,14 +602,12 @@ Return Value:
         //  The file time stamp is zero.   Do not return a file time of
         //  zero, since this will be biased to a negative time (due to
         //  time zone fixup), and no one will be able to display it
-        //  correctly.  Instead, we "randomly" pick Jan 01, 1901 @ 12:00am
+        //  correctly.  Instead, we "randomly" pick Jan 01, 1980 @ 12:00am
         //  as the file time.
         //
+        // We assume that the netware server is in our time zone.
 
-        OutputTime.LowPart = 0x76A70000;
-        OutputTime.HighPart = 0x150560D;
-
-        ExLocalTimeToSystemTime(&OutputTime, &OutputTime);
+        RtlSecondsSince1980ToTime(0, &OutputTime);
 
     } else {
 
@@ -636,15 +646,15 @@ Return Value:
         }
 
         if (!RtlTimeFieldsToTime(&TimeFields, &OutputTime)) {
-            OutputTime.HighPart = 0;
-            OutputTime.LowPart = 0;
 
+            OutputTime.QuadPart = 0;
             return OutputTime;
         }
 
-        ExLocalTimeToSystemTime(&OutputTime, &OutputTime);
     }
 
+    // Convert to UTC for the system.
+    ExLocalTimeToSystemTime(&OutputTime, &OutputTime);
     return OutputTime;
 
 }
@@ -681,17 +691,15 @@ Return Value:
     NCP_DATE Date;
     NCP_TIME Time;
 
-    if (NtTime.LowPart == 0 && NtTime.HighPart == 0) {
+    if (NtTime.QuadPart == 0) {
+
         Time.Ushort = Date.Ushort = 0;
+
     } else {
+
         LARGE_INTEGER LocalTime;
 
-        //
-        //  Add in 1 second - 100 ns to the local time. This will
-        //  avoid 59 seconds being rounded up to 60!
-        //
-
-        LocalTime = LiAdd( LocalTime, LiFromUlong((1000*1000) - 1));
+        // We assume that the netware server is in our time zone.
 
         ExSystemTimeToLocalTime( &NtTime, &LocalTime );
         RtlTimeToTimeFields( &LocalTime, &TimeFields );

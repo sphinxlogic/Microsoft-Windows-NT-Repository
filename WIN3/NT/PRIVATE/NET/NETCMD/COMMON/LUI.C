@@ -216,7 +216,7 @@ LUI_PrintLine(
     }
 
     string[SCREEN_WIDTH] = NULLC;
-    WriteToCon(TEXT("%s\n"), &string);
+    WriteToCon(TEXT("%s\r\n"), &string);
 
     return(0);
 

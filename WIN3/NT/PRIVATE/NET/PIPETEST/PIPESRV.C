@@ -155,7 +155,7 @@ Initialize(
     //
 
 
-    Timeout = RtlEnlargedIntegerMultiply( -10 * 1000 * 1000, 60 );
+    Timeout.QuadPart = Int32x32To64( -10 * 1000 * 1000, 60 );
 
     status = NtCreateNamedPipeFile (
         Handle,

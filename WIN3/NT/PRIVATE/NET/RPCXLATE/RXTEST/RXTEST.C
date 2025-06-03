@@ -140,7 +140,6 @@ Revision History:
 #include <stdlib.h>     // atoi(), EXIT_FAILURE, EXIT_SUCCESS, _CRTAPI1.
 #include <string.h>     // _stricmp().
 #include <tstring.h>    // STRCPY(), STRCMP(), STRLEN(), STRSIZE().
-#include <version.h>    // rmj, rmm, etc. (revision numbers).
 #include <winerror.h>   // NO_ERROR and ERROR_ values.
 
 
@@ -211,8 +210,8 @@ Fail (
     TestAssert( sizeof(NET_API_STATUS) == sizeof(DWORD) );
     (void) printf("RxTest/Fail: FAIL, API status is " FORMAT_API_STATUS
             " (" FORMAT_HEX_DWORD ").\n", Status, (DWORD) Status );
-    NetpDbgPrint("RxTest/Fail: API status is " FORMAT_API_STATUS
-            " (" FORMAT_HEX_DWORD ").\n", Status, (DWORD) Status );
+    NetpKdPrint(("RxTest/Fail: API status is " FORMAT_API_STATUS
+            " (" FORMAT_HEX_DWORD ").\n", Status, (DWORD) Status ));
     if (RxTestExitOnFirstError) {
         exit (EXIT_FAILURE);
     }
@@ -226,7 +225,7 @@ FailApi (
     )
 {
     (void) printf( "RxTest/Fail: " FORMAT_LPDEBUG_STRING " FAIL...\n", Header );
-    NetpDbgPrint(  "RxTest/Fail: " FORMAT_LPDEBUG_STRING " FAIL...\n", Header );
+    NetpKdPrint((  "RxTest/Fail: " FORMAT_LPDEBUG_STRING " FAIL...\n", Header ));
     if (RxTestExitOnFirstError) {
         exit (EXIT_FAILURE);
     }
@@ -242,14 +241,14 @@ FailGotWrongStatus(
 {
     TestAssert( sizeof(NET_API_STATUS) == sizeof(DWORD) );
     (void) printf( "RxTest/Fail: " FORMAT_LPDEBUG_STRING " FAIL...\n", Header );
-    NetpDbgPrint(  "RxTest/Fail: " FORMAT_LPDEBUG_STRING " FAIL...\n", Header );
+    NetpKdPrint((  "RxTest/Fail: " FORMAT_LPDEBUG_STRING " FAIL...\n", Header ));
 
     (void) printf( "  expected " FORMAT_API_STATUS " but got " FORMAT_API_STATUS
             " (" FORMAT_HEX_DWORD ").\n",
             ExpectStatus, Status, (DWORD) Status );
-    NetpDbgPrint(  "  expected " FORMAT_API_STATUS " but got " FORMAT_API_STATUS
+    NetpKdPrint((  "  expected " FORMAT_API_STATUS " but got " FORMAT_API_STATUS
             " (" FORMAT_HEX_DWORD ").\n",
-            ExpectStatus, Status, (DWORD) Status );
+            ExpectStatus, Status, (DWORD) Status ));
     if (RxTestExitOnFirstError) {
         exit (EXIT_FAILURE);
     }
@@ -306,8 +305,8 @@ DisplayTestHeader(
 {
     (void) printf( "\n>>> RxTest: beginning " FORMAT_LPDEBUG_STRING
             " tests <<<\n", TestName );
-    NetpDbgPrint( "\n>>> RxTest: beginning " FORMAT_LPDEBUG_STRING
-            " tests <<<\n", TestName );
+    NetpKdPrint(( "\n>>> RxTest: beginning " FORMAT_LPDEBUG_STRING
+            " tests <<<\n", TestName ));
 }
 
 int MAINTYPE
@@ -331,17 +330,12 @@ main (
     LPSTR          TestName = NULL;   // Used by IF_TEST1(), etc.
     LPTSTR UncServerName = NULL;
 
-    NetpDbgPrint("RxTest version "
-            FORMAT_DWORD "." FORMAT_DWORD ";" FORMAT_DWORD
-            ", built by " FORMAT_LPSTR ".\n\n",
-            (DWORD) rmj, (DWORD) rmm, (DWORD) rup, (LPSTR) szVerUser);
-
-    NetpDbgPrint( "RxTest argc is " FORMAT_DWORD ".\n", (DWORD) argc );
+    NetpKdPrint(( "RxTest argc is " FORMAT_DWORD ".\n", (DWORD) argc ));
     {
         for (ArgNumber=0; ArgNumber < argc; ++ArgNumber) {
             TestAssert( argv[ArgNumber] != NULL );
-            NetpDbgPrint( "RxTest argv[" FORMAT_DWORD "] is '" FORMAT_LPSTR
-                    "'.\n", (DWORD) ArgNumber, (LPSTR) argv[ArgNumber] );
+            NetpKdPrint(( "RxTest argv[" FORMAT_DWORD "] is '" FORMAT_LPSTR
+                    "'.\n", (DWORD) ArgNumber, (LPSTR) argv[ArgNumber] ));
         }
     }
 
@@ -550,7 +544,7 @@ main (
         case NO_ERROR :
             break;
         default :
-            NetpDbgPrint( "RxTest: TestSupports FAILED.\n" );
+            NetpKdPrint(( "RxTest: TestSupports FAILED.\n" ));
             Fail( Status );
             /* NOTREACHED */
         }
@@ -591,7 +585,7 @@ main (
         TestWksta( UncServerName, OrdinaryUserOnly );
     }
 
-    NetpDbgPrint("\nRxTest: test ending...\n");
+    NetpKdPrint(("\nRxTest: test ending...\n"));
     (void) printf("\nRxTest: PASS\n");
     return (EXIT_SUCCESS);
 

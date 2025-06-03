@@ -1,21 +1,9 @@
-#include "slm.h"
-#include "sys.h"
-#include "util.h"
-#include "stfile.h"
-#include "ad.h"
-#include "log.h"
-#include "dir.h"
-#include "slmck.h"
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include "proto.h"
+#include "precomp.h"
+#pragma hdrstop
 #include "messages.h"
-#include "ckproto.h"
+EnableAssert
 
 private void CkDirExist(P1(AD *));
-
-EnableAssert
 
 /* This section of code deals with the verification of that section of the
  * SLM project directly pertaining to the person invoking SLMCK.
@@ -63,7 +51,6 @@ CkDirExist(
 {
     register FS far *pfs;
     register FI far *pfi;
-    struct stat st;
     FI far *pfiMac;
     F fCanStat;
     PTH pthUser[cchPthMax];
@@ -82,7 +69,7 @@ CkDirExist(
         pfs = PfsForPfi(pad, pad->iedCur, pfi);
 
         PthForUFile(pad, pfi, pthUser);
-        fCanStat = FStatPth(pthUser, &st);
+        fCanStat = FPthExists(pthUser, (pfi->fk==fkDir));
 
         switch(pfs->fm)
         {
@@ -264,7 +251,8 @@ FCkEdUser(
 
         for (ied = 0; ied < pad->psh->iedMac; ied++)
         {
-            if (NmCmp(pad->rged[ied].nmOwner, pad->nmInvoker, cchUserMax) == 0)
+            if ((!FIsFreeEdValid(pad->psh) || !pad->rged[ied].fFreeEd) &&
+                NmCmp(pad->rged[ied].nmOwner, pad->nmInvoker, cchUserMax) == 0)
             {
                 if (pad->flags & flagCkIgnDrive)
                 {
@@ -306,7 +294,7 @@ CkFsUser(
     register FS far *pfs;
     register FI far *pfi;
     FI far *pfiMac;
-    struct stat st;
+    struct _stat st;
     F fReadOnly;
     F fSameFile;
     F fCanStat;
@@ -416,7 +404,7 @@ CkFsUser(
                     break;
                 }
 
-                PthForSFile(pad, pfi, pthSFile);
+                PthForCachedSFile(pad, pfi, pthSFile);
                 fSameFile = FSameFile(pthUser, pthSFile) || (pfi->fk == fkVersion);
 
                 if (fReadOnly && fSameFile)
@@ -464,7 +452,7 @@ CkFsUser(
                     break;  /* mode looks right */
 
                 /* file is readonly */
-                fSameFile = FSameFile(pthUser, PthForSFile(pad, pfi, pthSFile));
+                fSameFile = FSameFile(pthUser, PthForCachedSFile(pad, pfi, pthSFile));
                 if (fSameFile &&
                     FQueryFix("is checked out, identical to src file",
                               "change to checked in", pad, pfi))
@@ -488,7 +476,7 @@ CkFsUser(
 
                 else    /* fCanStat */
                 {
-                    fSameFile = FSameFile(pthUser, PthForSFile(pad, pfi, pthSFile));
+                    fSameFile = FSameFile(pthUser, PthForCachedSFile(pad, pfi, pthSFile));
                     if (fReadOnly)
                     {
                         if (fSameFile &&
@@ -496,7 +484,7 @@ CkFsUser(
                                 /* File should be checked in. */
                             pfs->fm = fmIn;
                         else if (!fSameFile)
-                            Warn("%&C/F is ghosted, but is readonly and differs from src file", pad, pfi);
+                            Warn("%&C/F is ghosted, but is readonly and differs from src file\n", pad, pfi);
                     }
 
                     else
@@ -508,7 +496,7 @@ CkFsUser(
                             pfs->fm = fmIn;
                         }
                         else if (!fSameFile)
-                            Warn("%&C/F is ghosted, but is writable and differs from src file", pad, pfi);
+                            Warn("%&C/F is ghosted, but is writable and differs from src file\n", pad, pfi);
                         else
                             Error("run ssync to get new file\n");
                     }
@@ -531,7 +519,7 @@ CkFsUser(
                 if (!fCanStat)
                     break;
 
-                fSameFile = FSameFile(pthUser, PthForSFile(pad, pfi, pthSFile));
+                fSameFile = FSameFile(pthUser, PthForCachedSFile(pad, pfi, pthSFile));
                 if (fReadOnly)
                 {
                     if (fSameFile &&
@@ -621,7 +609,7 @@ CkFsUser(
                 if (FQueryFix("is to be updated and is writeable", "change to checked out", pad, pfi))
                 {
                     pfs->fm = fmOut;
-                    Warn("relationship of %&C/F to source pool is unknown", pad, pfi);
+                    Warn("relationship of %&C/F to source pool is unknown\n", pad, pfi);
                 }
 
                 break;
@@ -643,7 +631,7 @@ CkFsUser(
                     break;  /* mode looks right */
 
                 /* file is readonly */
-                fSameFile = FSameFile(pthUser, PthForSFile(pad, pfi, pthSFile));
+                fSameFile = FSameFile(pthUser, PthForCachedSFile(pad, pfi, pthSFile));
 
                 if (fSameFile &&
                     FQueryFix("is to be merged, is readonly and is identical to src file", "change to checked in", pad, pfi))

@@ -31,12 +31,6 @@ extern	"C"	{
  externs 
  ****************************************************************************/
 
-extern node_error			*	pErrorTypeNode;
-extern short					CompileMode;
-extern ATTR_SUMMARY			*	pPreAttrParam;
-extern ATTR_SUMMARY			*	pPreAttrProc;
-extern SymTable				*	pBaseSymTbl,
-							*	pCurSymTbl;
 extern CMD_ARG				*	pCommand;
 
 extern node_e_status_t		*	pError_status_t;
@@ -44,10 +38,6 @@ extern node_e_status_t		*	pError_status_t;
 /****************************************************************************
  extern  procedures
  ****************************************************************************/
-
-extern void						ParseError( STATUS_T, char * );
-extern BOOL						IsIntegralType( node_skl * );
-extern BOOL						IsTempName( char * );
 
 
 /****************************************************************************/
@@ -85,22 +75,51 @@ node_proc::AddStatusParam(
 
 }
 
-// force a proc to not be interpret; for now, just change bits
-void
+// force a proc to use -Os 
+BOOL
 node_proc::ForceNonInterpret()
 {
-	unsigned short 		NewOpt	= GetOptimizationFlags();
+   	unsigned short 		NewOpt	= GetOptimizationFlags();
+    unsigned short      OldOpt = NewOpt;
 
 	// remove interpret, set size
-	NewOpt	&= ~OPTIMIZE_INTERPRETER;
-	NewOpt	|=	OPTIMIZE_SIZE;   
-	SetOptimizationFlags( NewOpt );
+    // zero all the possible interpreter flags
 
+	NewOpt	&= ~OPTIMIZE_ALL_I2_FLAGS;
+	NewOpt	|=	OPTIMIZE_SIZE;   
+
+    // did anything change?
+    BOOL fChanged = OldOpt != NewOpt;
+    if (fChanged)
+	    SetOptimizationFlags( NewOpt );
+
+    fForcedS = TRUE;
+    return fChanged;
+}
+
+// force a proc to use -Oi2
+BOOL
+node_proc::ForceInterpret2()
+{
+    unsigned short 		NewOpt	= GetOptimizationFlags();
+    unsigned short      OldOpt = NewOpt;
+
+	// remove interpret, set size
+	NewOpt	&= ~OPTIMIZE_SIZE;   
+    NewOpt  |= OPTIMIZE_ALL_I2_FLAGS;
+    
+    // did anything change?
+    BOOL fChanged = OldOpt != NewOpt;
+    if (fChanged)
+	    SetOptimizationFlags( NewOpt );
+
+    fForcedI2 = TRUE;
+    return fChanged;
 }
 
 BOOL
 node_proc::HasAtLeastOneShipped()
-	{
+{
 	MEM_ITER		MemIter( this );
 	node_skl	*	pNode;
 	BOOL			f = FALSE;
@@ -122,7 +141,7 @@ node_proc::HasAtLeastOneShipped()
 			}
 		}
 	return f;
-	}
+}
 
 // returns ATTR_NONE if none explicitly specified
 
@@ -157,37 +176,3 @@ node_proc::GetCallingConvention( ATTR_T & Attr )
 
 	return TRUE;
 }
-
-
-#ifdef obsolete
-BOOL
-node_proc::HasAtLeastOneOut()
-	{
-	type_node_list	TNList;
-	node_skl	*	pNode;
-	BOOL			f = FALSE;
-
-	GetMembers( &TNList );
-
-	while( TNList.GetPeer( &pNode ) == STATUS_OK )
-		{
-		if( pNode->FInSummary( ATTR_OUT ) )
-			{
-			f = TRUE;
-			break;
-			}
-		}
-	return f;
-	}
-BOOL
-node_proc::HasReturn()
-	{
-	BOOL			f = FALSE;
-	node_skl	*	pNode = GetReturnType();
-
-	if(  pNode && (pNode->NodeKind() != NODE_VOID ) )
-		f = TRUE;
-
-	return f;
-	}
-#endif // obsolete

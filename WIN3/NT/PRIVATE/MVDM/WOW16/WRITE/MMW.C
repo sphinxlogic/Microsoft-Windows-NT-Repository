@@ -657,5 +657,5 @@ static void DrawResizeHole(HWND hWnd, HDC hDC)
     DeleteObject(hbr);
 }
 
-
-
+
+

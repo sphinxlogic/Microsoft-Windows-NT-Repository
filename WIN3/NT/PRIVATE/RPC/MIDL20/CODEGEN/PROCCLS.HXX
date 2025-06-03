@@ -35,6 +35,7 @@ class CG_PARAM;
 class CG_RETURN;
 class CG_ENCODE_PROC;
 class CG_TYPE_ENCODE_PROC;
+class CG_INTERFACE;
 
 /////////////////////////////////////////////////////////////////////////////
 // the procedure code generation class.
@@ -50,7 +51,7 @@ typedef struct
 	{
 
 	//
-	// This field indicates the rpc buffer size property. 
+	// This field indicates the rpc buffer size property.
 	//
 
 	RPC_BUF_SIZE_PROPERTY		fRpcBufSize		: 3;
@@ -68,6 +69,15 @@ typedef struct
 
 
 	} PROC_OP_INFO;
+
+
+enum PROCKIND {
+    PROC_VIRTUAL,
+    PROC_PUREVIRTUAL,
+    PROC_NONVIRTUAL,
+    PROC_STATIC,
+    PROC_DISPATCH,
+    };
 
 //
 // This class corresponds to a procedure specified for remoting. This class
@@ -92,23 +102,32 @@ private:
 	// server stub.
 	//
 
-	unsigned long				fHasIn			: 1;
-	unsigned long				fHasOut			: 1;
-	unsigned long				fHasShippedParam: 1;
-	unsigned long				fHasStatuses	: 1;
-	unsigned long				fNoCode			: 1;
-	unsigned long				fOutLocalAnalysisDone : 1;
-	unsigned long				fHasFullPtr		: 1;
- 	unsigned long				fHasNotify		: 1;
- 	unsigned long				fRpcSSSpecified	: 1;
- 	unsigned long				fMustRpcSSAllocate : 1;
-	unsigned long				fReturnsHRESULT	: 1;
+    unsigned long               fHasIn                : 1;
+    unsigned long               fHasOut               : 1;
+    unsigned long               fHasShippedParam      : 1;
+    unsigned long               fHasStatuses          : 1;
+    unsigned long               fNoCode               : 1;
+    unsigned long               fOutLocalAnalysisDone : 1;
+    unsigned long               fHasFullPtr           : 1;
+    unsigned long               fHasNotify            : 1;
+    unsigned long               fHasNotifyFlag        : 1;
+    unsigned long               fRpcSSSpecified       : 1;
+    unsigned long               fMustRpcSSAllocate    : 1;
+    unsigned long               fReturnsHRESULT       : 1;
+    unsigned long               fHasPipes             : 1;
+    unsigned long               fHookOleLocal         : 1;
+    unsigned long               fSupressHeader   : 1;
 
-	//
-	// This field specifies the usage of the handle. This information really
-	// needs to be kept only with the cg_proc since the proc is entity 
-	// responsible for the binding.
-	//
+    //
+    // This is used by type info generation to determine what the FUNKIND should be
+    //
+    unsigned                    uProckind;
+
+    //
+    // This field specifies the usage of the handle. This information really
+    // needs to be kept only with the cg_proc since the proc is entity
+    // responsible for the binding.
+    //
 
 	HANDLE_USAGE			HandleUsage	: 1;
 
@@ -135,7 +154,7 @@ private:
 
 	//
 	// This field specifies the usage of the handle. This information really
-	// needs to be kept only with the cg_proc since the proc is entity 
+	// needs to be kept only with the cg_proc since the proc is entity
 	// responsible for the binding.
 	//
 
@@ -153,7 +172,7 @@ private:
 
 	//
 	// This field specifies the return type.
-	// This is NULL if there is no return type.  Otherwise, it points to a 
+	// This is NULL if there is no return type.  Otherwise, it points to a
 	// CG_RETURN node which in turn points to the CG nodes for the return
 	// type.
 	//
@@ -167,7 +186,7 @@ private:
 	// The generated size expression generated out of the sizing pass of the
 	// code generator.
 
-	_expr_node			*	pSizeExpr;
+	expr_node			*	pSizeExpr;
 
 	RESOURCE			*	pBindingResource;
 
@@ -185,6 +204,19 @@ private:
 
 	// the call_as name, if any
 	char				*	pCallAsName;
+
+	// pointer to MY interface node
+	CG_INTERFACE		*	pMyInterfaceCG;
+
+    short                   ContextHandleCount;
+
+    FORMAT_STRING       *   pSavedFormatString;
+
+    FORMAT_STRING       *   pSavedProcFormatString;
+
+    short               cRefSaved;
+
+    CG_PROC             *   pCallAsType;
 
 public:
 	
@@ -204,6 +236,33 @@ public:
 									 CG_RETURN 	* pReturn,
 									 OPTIM_OPTION OptimFlags,
 									 unsigned short OpBits );
+
+    virtual
+    unsigned                GetProckind()
+                                {
+                                return uProckind;
+                                }
+
+    virtual
+    unsigned                SetProckind(unsigned uKind)
+                                {
+                                return (uProckind = uKind);
+                                }
+
+    CG_PROC *               SetCallAsCG(CG_PROC * p)
+                                {
+                                return (pCallAsType = p);
+                                }
+
+    CG_PROC *               GetCallAsCG()
+                                {
+                                return (pCallAsType);
+                                }
+    //
+    // Generate typeinfo
+    //
+    virtual
+    CG_STATUS               GenTypeInfo( CCB * pCCB);
 
 	void					SetRpcSSSpecified( unsigned long f )
 								{
@@ -293,6 +352,10 @@ public:
 								return OperationBits;
 								}
 
+    void                    GetCommAndFaultOffset( CCB * pCCB,
+                                                   long  CommOffset[5],
+                                                   long  FaultOffset[5] );
+
 	void					SetNoCode()
 								{
 								fNoCode = TRUE;
@@ -303,15 +366,25 @@ public:
 								return fNoCode;
 								}
 
-	void					SetHasNotify()
-								{
-								fHasNotify = TRUE;
-								}
+    void                    SetHasNotify()
+                                {
+                                fHasNotify = TRUE;
+                                }
 
-	BOOL					HasNotify()
-								{
-								return fHasNotify;
-								}
+    void                    SetHasNotifyFlag()
+                                {
+                                fHasNotifyFlag = TRUE;
+                                }
+
+    BOOL                    HasNotify()
+                                {
+                                return fHasNotify;
+                                }
+
+    BOOL                    HasNotifyFlag()
+                                {
+                                return fHasNotifyFlag;
+                                }
 
 	void					SetReturnsHRESULT()
 								{
@@ -348,9 +421,14 @@ public:
 	                            return FALSE;
 	                            }
 
+	virtual
+	BOOL					IsDelegated()
+								{
+								return FALSE;
+								}
 
 	//
-	// Get and set methods. 
+	// Get and set methods.
 	//
 	
 	void					SetFormatStringParamStart( long Offset )
@@ -363,12 +441,12 @@ public:
 								return FormatStringParamStart;
 								}
 
-	_expr_node			*	SetSizeExpression( _expr_node * pE )
+	expr_node			*	SetSizeExpression( expr_node * pE )
 								{
 								return ( pSizeExpr = pE );
 								}
 
-	_expr_node			*	GetSizeExpression()
+	expr_node			*	GetSizeExpression()
 								{
 								return pSizeExpr;
 								}
@@ -382,6 +460,16 @@ public:
 	unsigned int			GetProcNum()
 								{
 								return ProcNum;
+								}
+
+    void                    SetContextHandleCount( short c )
+								{
+								ContextHandleCount = c;
+								}
+
+    short                   GetContextHandleCount()
+								{
+								return ContextHandleCount;
 								}
 
 	RPC_BUF_SIZE_PROPERTY	SetRpcBufSizeProperty(
@@ -444,6 +532,18 @@ public:
 								{
 								return pReturn;
 								}
+
+	CG_INTERFACE		*	SetInterfaceNode( CG_INTERFACE * pIntf )
+								{
+								return (pMyInterfaceCG = pIntf);
+								}
+
+	CG_INTERFACE		*	GetInterfaceNode()
+								{
+								return pMyInterfaceCG;
+								}
+
+	char				*	GetInterfaceName();
 
 	char				*	SetCallAsName( char * pName );
 
@@ -508,6 +608,33 @@ public:
 								return (BOOL)(fHasOut == 1);
 								}
 
+    BOOL                    HasPipes()
+                                {
+                                return (BOOL)(fHasPipes == 1);
+                                }
+
+    BOOL                    SetHasPipes(BOOL f);
+
+    BOOL                    IsHookOleLocal()
+                                {
+                                return (BOOL)(1 == fHookOleLocal);
+                                }
+
+    BOOL                    SupressHeader()
+                                {
+                                return (BOOL)(1 == fSupressHeader);
+                                }
+    
+    void                    SetHookOleLocal()
+                                {
+                                fHookOleLocal = TRUE;
+                                }
+
+    void                    SetSupressHeader()
+                                {
+                                fSupressHeader = TRUE;
+                                }
+
 	virtual
 	BOOL					HasStatuses()
 								{
@@ -533,6 +660,8 @@ public:
 								{
 								return (HasAtLeastOneOut() || HasReturn());
 								}
+
+    BOOL                    HasInterpreterDeferredFree();
 
 	BOOL					IsNullCall()	
 								{
@@ -664,27 +793,33 @@ public:
 	CG_STATUS				S_GenProlog( CCB * pCCB );
 
     //
-    // Format string routines for generating the format string and 
+    // Format string routines for generating the format string and
 	// the NDR calls.
     //
 
     virtual
     void                    GenNdrFormat( CCB * pCCB );
 
+    void                    GenNdrFormatV1( CCB * pCCB );
+
+    void                    SetupFormatStrings( CCB * pCCB );
+
+    void                    UnsetupFormatStrings( CCB * pCCB );
+
 	void					GenNdrFormatProcInfo( CCB * pCCB );
 
 	//
-	// This routine generates the code for the "one call" Ndr case on the 
+	// This routine generates the code for the "one call" Ndr case on the
 	// client side.
 	//
 	virtual
 	void					GenNdrSingleClientCall( CCB * pCCB );
 
-	_expr_node		*		GenCoreNdrSingleClientCall( CCB * pCCB,
-                                                        BOOL fForAlpha );
+	expr_node		*		GenCoreNdrSingleClientCall( CCB * pCCB,
+                                                        int   WhichRisc );
 
 	//
-	// This routine generates the code for the "one call" Ndr case on the 
+	// This routine generates the code for the "one call" Ndr case on the
 	// server side.  It's actually 3 calls, but who's counting.
 	//
 	virtual
@@ -709,7 +844,7 @@ public:
 	//
 	// Outputs the param struct for interpreted server stubs.
 	//
-	void					GenNdrInterpreterParamStruct( 
+	void					GenNdrInterpreterParamStruct(
                                     CCB * pCCB,
                                     BOOL  fForAlpha = FALSE );
 
@@ -753,6 +888,15 @@ public:
 	// miscellaneous methods.
 	//
 
+    // Oi stack size, includes the return type.
+
+    void                    GetTotalStackSize( CCB  * pCCB,
+                                               long * pSize,
+                                               long * pAlphaSize,
+                                               long * pMipsSize,
+                                               long * pPpcSize,
+                                               long * pMacSize );
+
 	//
 	// This method registers pre-allocated stub resources like the params,
 	// standard local variables etc, with the corresponding resource dictionary
@@ -765,7 +909,7 @@ public:
 	void					S_PreAllocateResources( ANALYSIS_INFO * );
 
 	virtual
-	_expr_node			*	GenBindOrUnBindExpression( CCB * pCCB, BOOL fBind );
+	expr_node			*	GenBindOrUnBindExpression( CCB * pCCB, BOOL fBind );
 
 
 	short					GetInParamList( ITERATOR& );
@@ -776,7 +920,7 @@ public:
 
 	CG_PARAM			*	SearchForBindingParam()
 								{
-								return (CG_PARAM *)GetHandleUsagePtr(); 
+								return (CG_PARAM *)GetHandleUsagePtr();
 								}
 
 
@@ -803,6 +947,8 @@ public:
 	virtual
 	CG_STATUS				S_OutLocalAnalysis( ANALYSIS_INFO * pAna );
 
+    void                    RpcSsPackageAnalysis( ANALYSIS_INFO * pAna );
+
 	CG_STATUS				C_GenMapCommAndFaultStatus( CCB * pCCB );
 
 	CG_STATUS				C_GenMapHRESULT( CCB * pCCB );
@@ -826,7 +972,7 @@ public:
                                 char **  pAllocRtnName,
                                 char **  pFreeRtnName );
 
-	CG_STATUS               GenNotify( CCB * pCCB );
+	CG_STATUS               GenNotify( CCB * pCCB, BOOL fHasFlag );
 
 	};
 
@@ -960,6 +1106,12 @@ public:
 								return TRUE;
 								}
 
+	virtual
+	BOOL					IsLocal()
+								{
+								return FALSE;
+								}
+
 	//
 	// miscellaneous methods.
 	//
@@ -1013,11 +1165,26 @@ public:
 												  ITERATOR&	LocalsList,
 												  ITERATOR&	TransientList );
 
-	void					Out_ProxyFunctionPrototype(CCB *pCCB, PRTFLAGS F ); 
+	void					Out_ProxyFunctionPrototype(CCB *pCCB, PRTFLAGS F );
 
 	void					Out_StubFunctionPrototype(CCB *pCCB);
 
 	CG_STATUS 				GenCMacro(CCB * pCCB );
+
+	CG_STATUS				GenComClassMemberFunction( CCB * pCCB );
+
+	CG_STATUS				ReGenComClassMemberFunction( CCB * pCCB );
+
+	virtual
+	BOOL					IsDelegated()
+								{
+								return FALSE;
+								}
+
+    void                    OutProxyRoutineName( ISTREAM * pStream,
+                                                 BOOL      fForcesDelegation );
+
+    void                    OutStubRoutineName( ISTREAM * pStream );
 
 	};
 
@@ -1025,6 +1192,7 @@ public:
 
 class CG_INHERITED_OBJECT_PROC:	public CG_OBJECT_PROC
 	{
+
 
 public:
 	
@@ -1075,6 +1243,13 @@ public:
 	                            {
 	                            return TRUE;
 	                            }
+
+
+	virtual
+	BOOL					IsDelegated()
+								{
+								return TRUE;
+								}
 
 
 	//
@@ -1137,7 +1312,7 @@ public:
 	virtual
 	CG_STATUS				GenClientStub( CCB * pCCB )
 								{
-								return CG_OK;
+                                return CG_OK;
 								}
 
 	virtual
@@ -1146,6 +1321,45 @@ public:
 								return CG_OK;
 								}
 
+	virtual
+	BOOL					IsDelegated()
+								{
+								return TRUE;
+								}
+
+  	virtual
+	BOOL					IsLocal()
+								{
+								return TRUE;
+								}
+
+
+	};
+
+class CG_IUNKNOWN_OBJECT_PROC : public CG_LOCAL_OBJECT_PROC
+	{
+
+public:
+	//
+	// The constructor.	Just call the proc constructor
+	//
+						CG_IUNKNOWN_OBJECT_PROC(
+										 unsigned int ProcNum,
+										 node_skl	* pProc,
+										 BOOL fInh,
+										 OPTIM_OPTION OptimFlags )
+								: CG_LOCAL_OBJECT_PROC( 	ProcNum,
+											pProc,
+											fInh,
+											OptimFlags )
+							{
+							}
+
+	virtual
+	BOOL					IsDelegated()
+								{
+								return FALSE;
+								}
 
 	};
 
@@ -1224,6 +1438,10 @@ public:
 
 	virtual
 	CG_STATUS               GenClientStub( CCB * pCCB );
+
+
+    CG_STATUS               GenMesProcEncodeDecodeCall( CCB *   pCCB,
+                                                        BOOL    fAlpha );
 
     virtual
     CG_STATUS               GenServerStub( CCB * pCCB )
@@ -1304,9 +1522,15 @@ typedef unsigned long	PARAM_DIR_FLAGS;
 #define OUT_PARAM		0x2
 #define IN_OUT_PARAM	(IN_PARAM | OUT_PARAM)
 
+#define I386_STACK_SIZING   0x0
+#define ALPHA_STACK_SIZING  0x1
+#define MIPS_STACK_SIZING   0x2
+#define PPC_STACK_SIZING    0x4
+#define MAC_STACK_SIZING    0x8
+
 //
 // This structure stores information derived as a result of the analysis
-// pass, for use by the code generator. This structure is specific to a 
+// pass, for use by the code generator. This structure is specific to a
 // parameter cg class.
 //
 
@@ -1331,7 +1555,7 @@ typedef struct
 	// code generator may find that it does not need to keep track of postion
 	// within the rpc buffer and hence can do away with the need to increment
 	// the rpc buffer pointer at all. On the server side, it can pick up the
-	// parameters from known locations in the rpc buffer itself instead of 
+	// parameters from known locations in the rpc buffer itself instead of
 	// explicitly unmarshalling into local variables and therefore needing to
 	// increment the rpc buffer pointer.
 	//
@@ -1339,7 +1563,7 @@ typedef struct
 	OFFSET_WRT_PTR_PROPERTY	fOffsetWRTPtr	: 1;
 
 	//
-	// This field specifies the offset w.r.t the last (param) property. 
+	// This field specifies the offset w.r.t the last (param) property.
 	// Useful for the code generator to determine if it needs to update the
 	// buffer pointer during marshalling / unmarshalling. The actual value
 	// of offset wrt the end is not useful since we always generate code
@@ -1392,6 +1616,11 @@ private:
 
     unsigned long           fDontCallFreeInst : 1;
 
+    //
+    // Does the interpreter have to size the param.
+    //
+    unsigned long           fInterpreterMustSize : 1;
+
 	// Specifies the Engine-Ability of the param.
 
 	ENGINE_PROPERTY			EngineProperty;
@@ -1406,11 +1635,11 @@ private:
 	// Final Expression to be passed to the server side stub procedure.
 	//
 
-	_expr_node			*	pFinalExpression;
+	expr_node			*	pFinalExpression;
 
 	// The sizing expression.
 
-	_expr_node			*	pSizeExpression;
+	expr_node			*	pSizeExpression;
 
 	// Resource for size / length if necessary.
 
@@ -1428,7 +1657,7 @@ private:
 
 	// the switch_is expression (if we have a non-encap union below)
 
-	_expr_node			*	pSwitchExpr;
+	expr_node			*	pSwitchExpr;
 
 	// For unions only.
 	long					UnionFormatStringOffset;
@@ -1437,6 +1666,8 @@ private:
 
 	unsigned short			Statuses;
 
+    short                   ParamNumber;
+
 public:
 	
 	//
@@ -1444,9 +1675,15 @@ public:
 	//
 							CG_PARAM( node_skl 			*	pParam,
 									  PARAM_DIR_FLAGS		Dir,
-									  unsigned short		WA,
+									  XLAT_SIZE_INFO 	& 	Info ,
 									  expr_node			*	pSw,
 									  unsigned short		Stat );
+
+    //
+    // TYPEDESC generation routine
+    //
+    virtual
+    CG_STATUS               GetTypeDesc(TYPEDESC * &ptd, CCB * pCCB);
 
 	//
 	// get and set methods.
@@ -1458,9 +1695,19 @@ public:
 								return ID_CG_PARAM;
 								}
 
+    void                    SetParamNumber( short pn )
+                                {
+                                ParamNumber = pn;
+                                }
+
+    short                   GetParamNumber()
+                                {
+                                assert( ParamNumber != -1 );
+                                return ParamNumber;
+                                }
+
 	long					GetStackOffset( CCB * pCCB,
-                                            BOOL  fForAlpha,
-                                            BOOL  fForMips = FALSE );
+                                            long  Platform );
 
 	long					GetStackSize();
 
@@ -1594,22 +1841,32 @@ public:
 							 !((EngineProperty & (ENGINE_PROPERTY) E_UNMARSHALL_NOT_POSSIBLE) == (ENGINE_PROPERTY) E_UNMARSHALL_NOT_POSSIBLE);
 								}
 
-	_expr_node			*	SetFinalExpression( _expr_node * pR )
+    BOOL                    IsOptional()
+                                {
+                                return(((node_param *)GetType())->IsOptional());
+                                }
+                                
+    BOOL                    IsRetval()
+                                {
+                                return(((node_param *)GetType())->IsRetval());
+                                }
+
+	expr_node			*	SetFinalExpression( expr_node * pR )
 								{
 								return (pFinalExpression = pR );
 								}
 
-	_expr_node			*	GetFinalExpression()
+	expr_node			*	GetFinalExpression()
 								{
 								return pFinalExpression;
 								}
 
-	_expr_node			*	SetSizeExpression( _expr_node * pR )
+	expr_node			*	SetSizeExpression( expr_node * pR )
 								{
 								return (pSizeExpression = pR );
 								}
 
-	_expr_node			*	GetSizeExpression()
+	expr_node			*	GetSizeExpression()
 								{
 								return pSizeExpression;
 								}
@@ -1620,7 +1877,7 @@ public:
 								return (fBufferReUse = R);
 								}
 
-	BUFFER_REUSE_PROPERTY	GetBufferReUseProperty() 
+	BUFFER_REUSE_PROPERTY	GetBufferReUseProperty()
 								{
 								return fBufferReUse;
 								}
@@ -1758,12 +2015,14 @@ public:
 	CG_STATUS				S_GenInitTopLevelStuff( CCB * pCCB );
 
     //
-    // Format string routines for generating the format string and 
+    // Format string routines for generating the format string and
 	// the NDR calls for a parameter.
     //
 
     virtual
     void                    GenNdrFormat( CCB * pCCB );
+
+    void                    GenNdrFormatOld( CCB * pCCB );
 
     void                    GenNdrMarshallCall( CCB * pCCB );
 
@@ -1773,7 +2032,9 @@ public:
 
     void                    GenNdrFreeCall( CCB * pCCB );
 
-	void					GenNdrTopLevelAttributeSupport( CCB * pCCB );
+	void					GenNdrTopLevelAttributeSupport(
+                                CCB *   pCCB,
+                                BOOL    fForClearOut = FALSE );
 
 	//
 	// Queries.
@@ -1810,7 +2071,7 @@ public:
 	ALIGNMENT_PROPERTY		GetExpectedAlignment();
 
 	virtual
-	_expr_node			*	GenBindOrUnBindExpression( CCB * pCCB, BOOL fBind );
+	expr_node			*	GenBindOrUnBindExpression( CCB * pCCB, BOOL fBind );
 
 ////////////////////////////////////////////////////////////////////////////
 
@@ -1837,6 +2098,8 @@ public:
 	virtual
 	CG_STATUS				S_OutLocalAnalysis( ANALYSIS_INFO * pAna );
 
+    void                    RpcSsPackageAnalysis( ANALYSIS_INFO * pAna );
+
 	void					InitParamMarshallAnalysis( ANALYSIS_INFO * pAna );
 
 	void					InitParamUnMarshallAnalysis( ANALYSIS_INFO * pAna );
@@ -1853,6 +2116,16 @@ public:
 
 	virtual
 	CG_STATUS				S_GenInitInLocals( CCB * pCCB );
+
+    void                    SetInterpreterMustSize( BOOL f )
+                                {
+                                fInterpreterMustSize = f ? 1 : 0;
+                                }
+
+    BOOL                    GetInterpreterMustSize()
+                                {
+                                return fInterpreterMustSize;
+                                }
 	};
 
 
@@ -1885,11 +2158,11 @@ public:
 	// The constructor.
 	//
 							CG_RETURN( node_skl	*	pRetType,
-									   unsigned short WA,
+									   XLAT_SIZE_INFO & Info,
 									   unsigned short Stat )
-									: CG_PARAM( pRetType, 
+									: CG_PARAM( pRetType,
 												OUT_PARAM,
-												WA,
+												Info,
 												NULL,
 												Stat )
 								{
@@ -1947,7 +2220,7 @@ public:
 	void					FinalizeEngineUsage( ANALYSIS_INFO * pAna,
 												 BOOL			 fMarshall );
 
-	_expr_node		*		GetFinalExpression();
+	expr_node		*		GetFinalExpression();
 	};
 
 #endif // __PROCCLS_HXX__

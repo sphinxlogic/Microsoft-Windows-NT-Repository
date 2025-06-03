@@ -229,7 +229,7 @@ INT16 process_switch(
                }
 
 
-               if( (fp=fopen( CDS_GetLogFilePath( *cfg ), "a" )) == NULL ) {
+               if( (fp=UNI_fopen( CDS_GetLogFilePath( *cfg ), _O_TEXT|_O_APPEND )) == NULL ) {
                     debug_error_no = 6;
                     return( SCR_BAD_LIST_DIR );
                } else {

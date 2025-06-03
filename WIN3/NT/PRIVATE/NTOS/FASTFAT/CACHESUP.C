@@ -107,7 +107,7 @@ Arguments:
     //  Call the Cache manager to attempt the transfer.
     //
 
-    Vbo = LiFromUlong( StartingVbo );
+    Vbo.QuadPart = StartingVbo;
 
     if (!CcMapData( Vcb->VirtualVolumeFile,
                     &Vbo,
@@ -197,7 +197,7 @@ Arguments:
     //  Call the Cache manager to attempt the transfer.
     //
 
-    Vbo = LiFromUlong( StartingVbo );
+    Vbo.QuadPart = StartingVbo;
 
     if (!CcPinRead( Vcb->VirtualVolumeFile,
                     &Vbo,
@@ -215,12 +215,6 @@ Arguments:
         FatRaiseStatus( IrpContext, STATUS_CANT_WAIT );
     }
 
-    if (Zero) {
-        RtlZeroMemory( *Buffer, ByteCount );
-    }
-
-    CcSetDirtyPinnedData( *Bcb, NULL );
-
     //
     //  This keeps the data pinned until we complete the request
     //  and writes the dirty bit through to the disk.
@@ -229,6 +223,12 @@ Arguments:
     DbgDoit( IrpContext->PinCount += 1 )
 
     try {
+
+        if (Zero) {
+            RtlZeroMemory( *Buffer, ByteCount );
+        }
+
+        CcSetDirtyPinnedData( *Bcb, NULL );
 
         FatSetDirtyBcb( IrpContext, *Bcb, Vcb );
 
@@ -343,7 +343,7 @@ Arguments:
     //  Call the Cache manager to attempt the transfer.
     //
 
-    Vbo = LiFromUlong( StartingVbo );
+    Vbo.QuadPart = StartingVbo;
 
     if (Pin ?
 
@@ -395,7 +395,7 @@ FatPrepareWriteDirectoryFile (
 
 Routine Description:
 
-    This routine first looks to see if the specified range of sectors,
+    This routine first looks to see if the specified range of sectors
     is already in the cache.  If so, it increments the BCB PinCount,
     sets the BCB dirty, and returns TRUE with the location of the sectors.
 
@@ -424,6 +424,7 @@ Arguments:
     LARGE_INTEGER Vbo;
     ULONG InitialAllocation;
     BOOLEAN UnwindWeAllocatedDiskSpace = FALSE;
+    ULONG ClusterSize;
 
     DebugTrace(+1, Dbg, "FatPrepareWriteDirectoryFile\n", 0);
     DebugTrace( 0, Dbg, "Dcb         = %08lx\n", Dcb);
@@ -441,12 +442,14 @@ Arguments:
     FatOpenDirectoryFile( IrpContext, Dcb );
 
     //
-    //  Now if the transfer is beyond the allocation size
-    //  then we need to try and extend the directories allocation.
-    //  The call to add file allocation will raise a condition if
+    //  If the transfer is beyond the allocation size we need to
+    //  extend the directory's allocation.  The call to
+    //  AddFileAllocation will raise a condition if
     //  it runs out of disk space.  Note that the root directory
     //  cannot be extended.
     //
+
+    Vbo.QuadPart = StartingVbo;
 
     try {
 
@@ -473,48 +476,75 @@ Arguments:
             //
 
             Dcb->Header.FileSize.LowPart =
-            Dcb->Header.AllocationSize.LowPart;
+                Dcb->Header.AllocationSize.LowPart;
 
             CcSetFileSizes( Dcb->Specific.Dcb.DirectoryFile,
                             (PCC_FILE_SIZES)&Dcb->Header.AllocationSize );
 
             //
-            //  Setup the Bitmap buffer if it is not big enough already
+            //  Set up the Bitmap buffer if it is not big enough already
             //
 
             FatCheckFreeDirentBitmap( IrpContext, Dcb );
 
             //
-            //  Zero out the newly allocated cluster, and return to the caller
+            //  The newly allocated clusters should be zeroed starting at
+            //  the previous allocation size
             //
 
             Zero = TRUE;
-
+            Vbo.QuadPart = InitialAllocation;
             ByteCount = Dcb->Header.AllocationSize.LowPart - InitialAllocation;
         }
 
         //
-        // Call the Cache manager to attempt the transfer.
+        // Call the Cache Manager to attempt the transfer, going one cluster
+        // at a time to avoid pinning across a page boundary.
         //
 
-        Vbo = LiFromUlong( StartingVbo );
+        ClusterSize =
+            1 << Dcb->Vcb->AllocationSupport.LogOfBytesPerCluster;
 
-        if (!CcPinRead( Dcb->Specific.Dcb.DirectoryFile,
-                        &Vbo,
-                        ByteCount,
-                        BooleanFlagOn(IrpContext->Flags, IRP_CONTEXT_FLAG_WAIT),
-                        Bcb,
-                        Buffer )) {
+        while (ByteCount > 0) {
 
-            //
-            // Could not read the data without waiting (cache miss).
-            //
+            ULONG BytesToPin;
 
-            FatRaiseStatus( IrpContext, STATUS_CANT_WAIT );
-        }
+            *Bcb = NULL;
 
-        if (Zero) {
-            RtlZeroMemory( *Buffer, ByteCount );
+            if (ByteCount > ClusterSize) {
+                BytesToPin = ClusterSize;
+            } else {
+                BytesToPin = ByteCount;
+            }
+
+            ASSERT( (Vbo.QuadPart / ClusterSize) ==
+                    (Vbo.QuadPart + BytesToPin - 1)/ClusterSize );
+
+            if (!CcPinRead( Dcb->Specific.Dcb.DirectoryFile,
+                            &Vbo,
+                            BytesToPin,
+                            BooleanFlagOn(IrpContext->Flags, IRP_CONTEXT_FLAG_WAIT),
+                            Bcb,
+                            Buffer )) {
+    
+                //
+                // Could not read the data without waiting (cache miss).
+                //
+
+                FatRaiseStatus( IrpContext, STATUS_CANT_WAIT );
+            }
+
+            if (Zero) {
+                RtlZeroMemory( *Buffer, BytesToPin );
+                CcSetDirtyPinnedData( *Bcb, NULL );
+            }
+
+            ByteCount -= BytesToPin;
+            Vbo.QuadPart += BytesToPin;
+
+            if (ByteCount > 0) {
+                FatUnpinBcb( IrpContext, *Bcb );
+            }
         }
 
         CcSetDirtyPinnedData( *Bcb, NULL );
@@ -529,6 +559,7 @@ Arguments:
         FatSetDirtyBcb( IrpContext, *Bcb, Dcb->Vcb );
 
         *Status = STATUS_SUCCESS;
+
 
     } finally {
 
@@ -606,14 +637,7 @@ Return Value:
 
     if (Dcb->Specific.Dcb.DirectoryFile == NULL) {
 
-        NTSTATUS Status;
-
-        Status = KeWaitForSingleObject( &Dcb->Vcb->DirectoryFileCreationEvent,
-                                        Executive,
-                                        KernelMode,
-                                        FALSE,
-                                        (PLARGE_INTEGER) NULL );
-        ASSERT( NT_SUCCESS( Status ) );
+        ExAcquireFastMutex( &Dcb->Vcb->DirectoryFileCreationMutex );
 
         try {
 
@@ -652,7 +676,7 @@ Return Value:
 
         } finally {
 
-            (VOID)KeSetEvent( &Dcb->Vcb->DirectoryFileCreationEvent, 0, FALSE );
+            ExReleaseFastMutex( &Dcb->Vcb->DirectoryFileCreationMutex );
         }
     }
 
@@ -666,6 +690,7 @@ Return Value:
     if ( Dcb->Specific.Dcb.DirectoryFile->PrivateCacheMap == NULL ) {
 
         Dcb->Header.ValidDataLength = FatMaxLarge;
+        Dcb->ValidDataToDisk = MAXULONG;
 
         CcInitializeCacheMap( Dcb->Specific.Dcb.DirectoryFile,
                               (PCC_FILE_SIZES)&Dcb->Header.AllocationSize,
@@ -846,7 +871,7 @@ Return Value:
 
             LARGE_INTEGER EightSecondsFromNow;
 
-            EightSecondsFromNow = LiFromLong(-8*1000*1000*10);
+            EightSecondsFromNow.QuadPart = (LONG)-8*1000*1000*10;
 
             (VOID)KeCancelTimer( &Vcb->CleanVolumeTimer );
             (VOID)KeRemoveQueueDpc( &Vcb->CleanVolumeDpc );
@@ -1355,7 +1380,7 @@ Arguments:
     //  Call the Cache manager to perform the operation.
     //
 
-    Vbo = LiFromUlong( StartingVbo );
+    Vbo.QuadPart = StartingVbo;
 
     if (!CcPinMappedData( Dcb->Specific.Dcb.DirectoryFile,
                           &Vbo,

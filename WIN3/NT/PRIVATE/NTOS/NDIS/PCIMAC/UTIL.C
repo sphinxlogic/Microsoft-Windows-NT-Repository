@@ -3,7 +3,7 @@
  */
 
 #include    <ndis.h>
-#include	<ntddk.h>
+//#include	<ntddk.h>
 #include	<mydefs.h>
 #include	<mytypes.h>
 #include    <util.h>
@@ -34,12 +34,10 @@ ut_time_now(VOID)
         first_call = FALSE;
     }
     /* make relative to base */
-    curr_time = RtlLargeIntegerSubtract(curr_time, base);
+    curr_time.QuadPart -= base.QuadPart;
     
     /* convert to seconds */
-    sec = RtlLargeIntegerDivide(curr_time,
-                                RtlConvertLongToLargeInteger(10000000L),
-                                &rem);
+    sec.QuadPart = curr_time.QuadPart/10000000L;
     
     /* return as a ULONG */
     return((ULONG)sec.LowPart);
@@ -117,4 +115,3 @@ sema_free(SEMA *s)
 	NdisReleaseSpinLock (&s->lock);
 }
 
-

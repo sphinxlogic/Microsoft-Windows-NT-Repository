@@ -24,6 +24,45 @@ Revision History:
 #define INT10_MODE_SET 1
 #endif
 
+
+//////////////////////////////////////////////////////////////////////////////
+// private IOCTL info - if you touch this, do the same to the display drivers
+//
+
+#define IOCTL_VIDEO_GET_VIDEO_CARD_INFO \
+        CTL_CODE (FILE_DEVICE_VIDEO, 2048, METHOD_BUFFERED, FILE_ANY_ACCESS)
+
+typedef struct _VIDEO_COPROCESSOR_INFORMATION {
+    ULONG ulChipID;         // ET3000, ET4000, W32, W32I, W32P, or ET6000
+    ULONG ulRevLevel;       // REV_A, REV_B, REV_C, REV_D, REV_UNDEF
+    ULONG ulVideoMemory;    // in bytes
+} VIDEO_COPROCESSOR_INFORMATION, *PVIDEO_COPROCESSOR_INFORMATION;
+
+typedef enum _CHIP_TYPE {
+    ET3000 = 1,
+    ET4000,
+    W32,
+    W32I,
+    W32P,
+    ET6000
+} CHIP_TYPE;
+
+typedef enum _REV_TYPE {
+    REV_UNDEF = 1,
+    REV_A,
+    REV_B,
+    REV_C,
+    REV_D,
+} REV_TYPE;
+
+//
+//  ET6000 PCI defines
+//
+#define ET6000_VENDOR_ID    0x100C
+#define ET6000_DEVICE_ID    0x3208
+
+//////////////////////////////////////////////////////////////////////////////
+
 //
 // Do full save and restore.
 //
@@ -50,7 +89,9 @@ typedef enum _BOARD_TYPE {
     PRODESIGNER2,
     TSENG3000,
     TSENG4000,
-    TSENG4000W32,    
+    TSENG4000W32,
+    STEALTH32,
+    TSENG6000,
     OTHER
 } BOARD_TYPE;
 
@@ -63,8 +104,59 @@ typedef enum _BOARD_TYPE {
 #define MEM_VGA      0xA0000
 #define MEM_VGA_SIZE 0x20000
 
+#define BANKED_FRAME_BUFFER 3
+#define LINEAR_FRAME_BUFFER 4
+
 //
-// Port definitions for filling the ACCSES_RANGES structure in the miniport
+// W32 MMU stuff
+//
+
+#define PORT_IO_ADDR                0
+#define PORT_IO_LEN                 0x10000
+
+// When we are banked
+
+#define BANKED_MMU_BUFFER_MEMORY_ADDR          0xB8000
+#define BANKED_MMU_BUFFER_MEMORY_LEN           (0xBE000 - 0xB8000)
+#define BANKED_MMU_MEMORY_MAPPED_REGS_ADDR     0xBFF00
+#define BANKED_MMU_MEMORY_MAPPED_REGS_LEN      (0xC0000 - 0xBFF00)
+#define BANKED_MMU_EXTERNAL_MAPPED_REGS_ADDR   0xBE000
+#define BANKED_MMU_EXTERNAL_MAPPED_REGS_LEN    (0xBF000 - 0xBE000)
+
+#define BANKED_APERTURE_0_OFFSET   0x0000
+#define BANKED_APERTURE_1_OFFSET   0x2000
+#define BANKED_APERTURE_2_OFFSET   0x4000
+
+// When we are linear
+
+#define MMU_BUFFER_MEMORY_ADDR          0x200000
+#define MMU_BUFFER_MEMORY_LEN           0x180000
+#define MMU_MEMORY_MAPPED_REGS_ADDR     0x3FFF00
+#define MMU_MEMORY_MAPPED_REGS_LEN      0x000100
+#define MMU_EXTERNAL_MAPPED_REGS_ADDR   0x3FE000
+#define MMU_EXTERNAL_MAPPED_REGS_LEN    0x001000
+
+typedef struct {
+    ULONG  ulOffset;
+    ULONG  ulLength;
+} RANGE_OFFSETS;
+
+#define APERTURE_0_OFFSET   0x000000
+#define APERTURE_1_OFFSET   0x080000
+#define APERTURE_2_OFFSET   0x100000
+
+#define MMU_APERTURE_2_ACL_BIT  0x04
+
+typedef struct {
+    ULONG   ulPhysicalAddress;
+    ULONG   ulLength;
+    ULONG   ulInIoSpace;
+    PVOID   pvVirtualAddress;
+} W32_ADDRESS_MAPPING_INFORMATION, *PW32_ADDRESS_MAPPING_INFORMATION;
+
+
+//
+// Port definitions for filling the ACCESS_RANGES structure in the miniport
 // information, defines the range of I/O ports the VGA spans.
 // There is a break in the IO ports - a few ports are used for the parallel
 // port. Those cannot be defined in the ACCESS_RANGE, but are still mapped
@@ -76,66 +168,77 @@ typedef enum _BOARD_TYPE {
 #define VGA_END_BREAK_PORT    0x000003C0
 #define VGA_MAX_IO_PORT       0x000003DF
 
+//
+// W32 CRTCB port addresses (used for ID)
+//
+
+#define CRTCB_IO_PORT_BASE    0x0000217A
+#define CRTCB_IO_PORT_LEN     0x00000002
+
+#define CRTCB_IO_PORT_INDEX   CRTCB_IO_PORT_BASE
+#define CRTCB_IO_PORT_DATA    (CRTCB_IO_PORT_INDEX+1)
+#define IND_CRTCB_CHIP_ID     0xEC
+
 
 //
 // VGA register definitions
 //
                                             // ports in monochrome mode
-#define CRTC_ADDRESS_PORT_MONO      0x0004  // CRT Controller Address and
-#define CRTC_DATA_PORT_MONO         0x0005  // Data registers in mono mode
-#define MODE_CONTROL_PORT_MONO      0x0008  // Tseng Mode Control port, used
+#define CRTC_ADDRESS_PORT_MONO      0x03B4  // CRT Controller Address and
+#define CRTC_DATA_PORT_MONO         0x03B5  // Data registers in mono mode
+#define MODE_CONTROL_PORT_MONO      0x03B8  // Tseng Mode Control port, used
                                             //  here only for unlocking the
                                             //  key so we can get at extended
                                             //  registers
-#define FEAT_CTRL_WRITE_PORT_MONO   0x000A  // Feature Control write port
+#define FEAT_CTRL_WRITE_PORT_MONO   0x03BA  // Feature Control write port
                                             // in mono mode
-#define INPUT_STATUS_1_MONO         0x000A  // Input Status 1 register read
+#define INPUT_STATUS_1_MONO         0x03BA  // Input Status 1 register read
                                             // port in mono mode
 #define ATT_INITIALIZE_PORT_MONO    INPUT_STATUS_1_MONO
                                             // Register to read to reset
                                             // Attribute Controller index/data
                                             // toggle in mono mode
-#define HERCULES_COMPATIBILITY_PORT 0x00F   // used to unlock Tseng key to
+#define HERCULES_COMPATIBILITY_PORT 0x03BF  // used to unlock Tseng key to
                                             //  get at extended ports
 
-#define ATT_ADDRESS_PORT            0x0010  // Attribute Controller Address and
-#define ATT_DATA_WRITE_PORT         0x0010  // Data registers share one port
+#define ATT_ADDRESS_PORT            0x03C0  // Attribute Controller Address and
+#define ATT_DATA_WRITE_PORT         0x03C0  // Data registers share one port
                                             // for writes, but only Address is
                                             // readable at 0x010
-#define ATT_DATA_READ_PORT          0x0011  // Attribute Controller Data reg is
+#define ATT_DATA_READ_PORT          0x03C1  // Attribute Controller Data reg is
                                             // readable here
-#define MISC_OUTPUT_REG_WRITE_PORT  0x0012  // Miscellaneous Output reg write
+#define MISC_OUTPUT_REG_WRITE_PORT  0x03C2  // Miscellaneous Output reg write
                                             // port
-#define INPUT_STATUS_0_PORT         0x0012  // Input Status 0 register read
+#define INPUT_STATUS_0_PORT         0x03C2  // Input Status 0 register read
                                             // port
-#define VIDEO_SUBSYSTEM_ENABLE_PORT 0x0013  // Bit 0 enables/disables the
+#define VIDEO_SUBSYSTEM_ENABLE_PORT 0x03C3  // Bit 0 enables/disables the
                                             // entire VGA subsystem
-#define SEQ_ADDRESS_PORT            0x0014  // Sequence Controller Address and
-#define SEQ_DATA_PORT               0x0015  // Data registers
-#define DAC_PIXEL_MASK_PORT         0x0016  // DAC pixel mask reg
-#define DAC_ADDRESS_READ_PORT       0x0017  // DAC register read index reg,
+#define SEQ_ADDRESS_PORT            0x03C4  // Sequence Controller Address and
+#define SEQ_DATA_PORT               0x03C5  // Data registers
+#define DAC_PIXEL_MASK_PORT         0x03C6  // DAC pixel mask reg
+#define DAC_ADDRESS_READ_PORT       0x03C7  // DAC register read index reg,
                                             // write-only
-#define DAC_STATE_PORT              0x0017  // DAC state (read/write),
+#define DAC_STATE_PORT              0x03C7  // DAC state (read/write),
                                             // read-only
-#define DAC_ADDRESS_WRITE_PORT      0x0018  // DAC register write index reg
-#define DAC_DATA_REG_PORT           0x0019  // DAC data transfer reg
-#define FEAT_CTRL_READ_PORT         0x001A  // Feature Control read port
-#define MISC_OUTPUT_REG_READ_PORT   0x001C  // Miscellaneous Output reg read
+#define DAC_ADDRESS_WRITE_PORT      0x03C8  // DAC register write index reg
+#define DAC_DATA_REG_PORT           0x03C9  // DAC data transfer reg
+#define FEAT_CTRL_READ_PORT         0x03CA  // Feature Control read port
+#define MISC_OUTPUT_REG_READ_PORT   0x03CC  // Miscellaneous Output reg read
                                             // port
-#define SEGMENT_SELECT_PORT         0x001D  // Tseng banking control register
-#define SEGMENT_SELECT_HIGH         0x001B  // Tseng W32 SegSel extension
-#define GRAPH_ADDRESS_PORT          0x001E  // Graphics Controller Address
-#define GRAPH_DATA_PORT             0x001F  // and Data registers
+#define SEGMENT_SELECT_PORT         0x03CD  // Tseng banking control register
+#define SEGMENT_SELECT_HIGH         0x03CB  // Tseng W32 SegSel extension
+#define GRAPH_ADDRESS_PORT          0x03CE  // Graphics Controller Address
+#define GRAPH_DATA_PORT             0x03CF  // and Data registers
 
                                             // ports in color mode
-#define CRTC_ADDRESS_PORT_COLOR     0x0024  // CRT Controller Address and
-#define CRTC_DATA_PORT_COLOR        0x0025  // Data registers in color mode
-#define MODE_CONTROL_PORT_COLOR     0x0028  // Tseng Mode Control port, used
+#define CRTC_ADDRESS_PORT_COLOR     0x03D4  // CRT Controller Address and
+#define CRTC_DATA_PORT_COLOR        0x03D5  // Data registers in color mode
+#define MODE_CONTROL_PORT_COLOR     0x03D8  // Tseng Mode Control port, used
                                             //  here only for unlocking the
                                             //  key so we can get at extended
                                             //  registers
-#define FEAT_CTRL_WRITE_PORT_COLOR  0x002A  // Feature Control write port
-#define INPUT_STATUS_1_COLOR        0x002A  // Input Status 1 register read
+#define FEAT_CTRL_WRITE_PORT_COLOR  0x03DA  // Feature Control write port
+#define INPUT_STATUS_1_COLOR        0x03DA  // Input Status 1 register read
                                             // port in color mode
 #define ATT_INITIALIZE_PORT_COLOR   INPUT_STATUS_1_COLOR
                                             // Register to read to reset
@@ -158,7 +261,7 @@ typedef enum _BOARD_TYPE {
 #define GRAPH_ADDRESS_OFFSET          0x1E
 #define CRTC_ADDRESS_COLOR_OFFSET     0x24
 #define FEAT_CTRL_WRITE_COLOR_OFFSET  0x2A
-                                                                                                                  // toggle in color mode
+
 //
 // VGA indexed register indexes.
 //
@@ -306,6 +409,7 @@ typedef struct {
 
 typedef enum _BANK_TYPE {
     NoBanking = 0,
+    MemMgrBanking,
     NormalBanking,
     PlanarHCBanking
 } BANK_TYPE, *PBANK_TYPE;
@@ -316,27 +420,25 @@ typedef enum _BANK_TYPE {
 //
 
 typedef struct {
-    USHORT  fbType; // color or monochrome, text or graphics, via
-                    //  VIDEO_MODE_COLOR and VIDEO_MODE_GRAPHICS
-    USHORT  numPlanes;    // # of video memory planes
-    USHORT  bitsPerPlane; // # of bits of color in each plane
-    SHORT   col;    // # of text columns across screen with default font
+    USHORT  fbType;             // color or monochrome, text or graphics, via
+                                //  VIDEO_MODE_COLOR and VIDEO_MODE_GRAPHICS
+    USHORT  numPlanes;          // # of video memory planes
+    USHORT  bitsPerPlane;       // # of bits of color in each plane
+    SHORT   col;                // # of text columns across screen with default font
 
-    SHORT   row;    // # of text rows down screen with default font
-    USHORT  hres;   // # of pixels across screen
-    USHORT  vres;   // # of scan lines down screen
-    USHORT  wbytes; // # of bytes from start of one scan line to start of next
-    ULONG   sbytes; // total size of addressable display memory in bytes
-    ULONG   Frequency;  // Vertical Frequency
-    ULONG   Interlaced; // Determines if the mode is interlaced or not
-    BANK_TYPE banktype; // NoBanking, NormalBanking, PlanarHCBanking
-    VIDEO_MEMORY_MAP   MemMap; // index from VIDEO_MEMORY_MAP of memory
-                               //  mapping used by this mode
-    BOOLEAN ValidMode;  // Determines which modes are valid.    
-#ifdef INT10_MODE_SET
-    ULONG   Int10ModeNumber;   // Mode number via Int 10
-#endif
-    PUSHORT CmdStrings;   // pointer to array of register-setting commands
+    SHORT   row;                // # of text rows down screen with default font
+    USHORT  hres;               // # of pixels across screen
+    USHORT  vres;               // # of scan lines down screen
+    USHORT  wbytes;             // # of bytes from start of one scan line to start of next
+    ULONG   sbytes;             // total size of addressable display memory in bytes
+    ULONG   Frequency;          // Vertical Frequency
+    ULONG   Interlaced;         // Determines if the mode is interlaced or not
+    BANK_TYPE banktype;         // NoBanking, NormalBanking, PlanarHCBanking
+    VIDEO_MEMORY_MAP MemMap;    // index from VIDEO_MEMORY_MAP of memory
+                                //  mapping used by this mode
+    BOOLEAN ValidMode;          // Determines which modes are valid.
+    ULONG   Int10ModeNumber;    // Mode number via Int 10
+    PUSHORT CmdStrings;         // pointer to array of register-setting commands
 } VIDEOMODE, *PVIDEOMODE;
 
 
@@ -404,7 +506,7 @@ typedef struct {
 #define EXT_NUM_ATTRIB_CONT_PORTS   ET4000_NUM_ATTRIB_EXT_PORTS
 #define EXT_NUM_DAC_ENTRIES         0
 
-#else 
+#else
 
 #define EXT_NUM_GRAPH_CONT_PORTS    0
 #define EXT_NUM_SEQUENCER_PORTS     0
@@ -412,7 +514,7 @@ typedef struct {
 #define EXT_NUM_ATTRIB_CONT_PORTS   0
 #define EXT_NUM_DAC_ENTRIES         0
 
-#endif        
+#endif
 
 
 #define VGA_MAX_VALIDATOR_DATA       100
@@ -504,12 +606,15 @@ typedef struct _HW_DEVICE_EXTENSION {
     PVIDEOMODE  CurrentMode;      // pointer to VIDEOMODE structure for
                                   // current mode.
 
+    CHIP_TYPE   ulChipID;
+    REV_TYPE    ulRevLevel;
+
     USHORT  FontPelColumns;       // Width of the font in pels
     USHORT  FontPelRows;          // height of the font in pels
 
     VIDEO_CURSOR_POSITION CursorPosition;  // current cursor position
 
-                                 
+
     UCHAR CursorEnable;           // whether cursor is enabled or not
     UCHAR CursorTopScanLine;      // Cursor Start register setting (top scan)
     UCHAR CursorBottomScanLine;   // Cursor End register setting (bottom scan)
@@ -523,7 +628,11 @@ typedef struct _HW_DEVICE_EXTENSION {
                                          // current mode.
 
     PUSHORT BiosArea;             // address of the BIOS area
-    USHORT OriginalBiosData;       // Orignal value in the Bios data area.
+    USHORT OriginalBiosData;      // Orignal value in the Bios data area.
+
+    BOOLEAN bLinearModeSupported; // Do we support linear modes?
+    BOOLEAN bInLinearMode;        // Are we currently in a linear mode?
+    ULONG ulSlot;                 // the slot that the card is in
 
     //
     // These 4 fields must be at the end of the device extension and must be
@@ -610,6 +719,7 @@ extern MEMORYMAPS MemoryMaps[];
 extern VIDEOMODE ModesVGA[];
 extern ULONG NumVideoModes;
 
+extern RANGE_OFFSETS RangeOffsets[2][2];
 
 #define NUM_VGA_ACCESS_RANGES  3
 extern VIDEO_ACCESS_RANGE VgaAccessRange[];

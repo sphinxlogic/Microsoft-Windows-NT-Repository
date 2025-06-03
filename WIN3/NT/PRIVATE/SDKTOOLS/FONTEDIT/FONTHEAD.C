@@ -117,6 +117,12 @@ HeaderProc(
             newCharSet = OEM_CHARSET;
             SetCharSet(hDial);          /* Set OEM/ANSI buttons */
             break;
+#ifdef JAPAN
+        case ID_SHIFTJIS:
+            newCharSet = SHIFTJIS_CHARSET;
+            SetCharSet(hDial);		/* Set OEM/ANSI buttons */
+            break;
+#endif
         case ID_UNKNOWN:
             newFamily = 0;
             SetFamily(hDial);
@@ -161,6 +167,9 @@ HeaderProc(
                 CheckDlgButton(hDial, ID_ANSI, (WORD) (i == ANSI_CHARSET));
                 CheckDlgButton(hDial, ID_SYMBOL, (WORD) (i == SYMBOL_CHARSET));
                 CheckDlgButton(hDial, ID_OEM, (WORD) (i == OEM_CHARSET));
+#ifdef JAPAN
+                CheckDlgButton(hDial, ID_SHIFTJIS,i == SHIFTJIS_CHARSET);
+#endif
                 }
             break;
 
@@ -259,7 +268,7 @@ HeaderProc(
 
             if (fOk)
                 {
-                if ((i >= font.FirstChar) && (i <= font.LastChar))
+                if (i <= (UINT)font.LastChar - (UINT)font.FirstChar)
                     lpFont->DefaultChar = (BYTE) i;
                 else{
                     ErrorBox(hDial, vszDefCharOutsideFont);
@@ -443,7 +452,14 @@ ReSizeProc(
         SetFixed(hDial, fFV);   /* Set Fixed or Variable width */
         SetDlgItemInt(hDial, ID_PIX_HEIGHT, lpFont->PixHeight, FALSE);
         SetDlgItemInt(hDial, ID_FIRST_CHAR, lpFont->FirstChar, FALSE);
+#ifdef JAPAN
+        if (!fFV)
+            SetDlgItemInt(hDial, ID_WIDTH, lpFont->AvgWidth, FALSE);
+        else
+            SetDlgItemInt(hDial, ID_WIDTH, lpFont->MaxWidth, FALSE);
+#else
         SetDlgItemInt(hDial, ID_WIDTH, lpFont->MaxWidth, FALSE);
+#endif
         SetDlgItemInt(hDial, ID_AVERAGE, lpFont->AvgWidth, FALSE);
         SetDlgItemInt(hDial, ID_LAST_CHAR, lpFont->LastChar, FALSE);
         SetWeight(hDial);
@@ -541,6 +557,24 @@ ReSizeProc(
             /* change width command */
             i = GetDlgItemInt(hDial, ID_WIDTH, (LPBOOL)&fOk, FALSE);
             if (fOk && i < wBoxLim && i > 0){
+#ifdef JAPAN
+                int kki;
+                kki = (newFV) ? font.MaxWidth : font.AvgWidth;
+                if (i != (UINT)kki){
+                    if (newFV){
+                        if (!SpreadWidths(i)){
+                            SetFocus(hDial);
+                            break;	  /* new variable widths */
+                        }
+                    }
+                    else{
+                        if (!ResizeWidths(i)){
+                            SetFocus(hDial);
+                            break;	  /* new fixed widths */
+                        }
+                    }
+                }
+#else
                 if (i != font.MaxWidth){
                     if (newFV){
                         if (!SpreadWidths(i)){
@@ -555,6 +589,7 @@ ReSizeProc(
                         }
                     }
                 }
+#endif
             }
             else{
                 ErrorBox(hDial, vszWidthOutOfBounds);
@@ -674,6 +709,9 @@ SetCharSet(
     CheckDlgButton(hDial, ID_ANSI, (WORD) (newCharSet == ANSI_CHARSET));
     CheckDlgButton(hDial, ID_SYMBOL, (WORD) (newCharSet == SYMBOL_CHARSET));
     CheckDlgButton(hDial, ID_OEM, (WORD) (newCharSet == OEM_CHARSET));
+#ifdef JAPAN
+    CheckDlgButton(hDial, ID_SHIFTJIS, newCharSet == SHIFTJIS_CHARSET);
+#endif
     SetDlgItemInt(hDial,  ID_CHAR_SET, newCharSet, FALSE);
 }
 

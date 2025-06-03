@@ -314,19 +314,20 @@ Return Value:
     UNREFERENCED_PARAMETER(Context);
 }
 
-ULONG
-UnexpectedEventTimer = {0};
+LONG
+UnexpectedEventTimer = UNEXPECTED_TIMER_GRANULARITY;
 
 VOID
 BowserLogUnexpectedEvents(
     VOID
     )
 {
+    LONG TimerSign;
     PAGED_CODE();
 
-    ExInterlockedAddUlong(&UnexpectedEventTimer, 0xffffffff, &BowserTimeSpinLock);
+    TimerSign = InterlockedDecrement( &UnexpectedEventTimer );
 
-    if (UnexpectedEventTimer == 0) {
+    if ( TimerSign == 0) {
 
         if (BowserNumberOfMissedMailslotDatagrams > BowserMailslotDatagramThreshold) {
             BowserWriteErrorLogEntry(EVENT_BOWSER_MAILSLOT_DATAGRAM_THRESHOLD_EXCEEDED, STATUS_INSUFFICIENT_RESOURCES, NULL, 0, 0);
@@ -338,7 +339,7 @@ BowserLogUnexpectedEvents(
             BowserNumberOfMissedGetBrowserServerListRequests = 0;
         }
 
-        ExInterlockedAddUlong(&UnexpectedEventTimer, UNEXPECTED_TIMER_GRANULARITY, &BowserTimeSpinLock);
+        InterlockedExchangeAdd(&UnexpectedEventTimer, UNEXPECTED_TIMER_GRANULARITY );
     }
 }
 

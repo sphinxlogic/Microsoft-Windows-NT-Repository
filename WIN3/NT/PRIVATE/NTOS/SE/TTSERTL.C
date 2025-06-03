@@ -73,4 +73,3 @@ SeRtlTest()
     DbgPrint("Se: End Kernel Mode RTL Test.\n");
     return Result;
 }
-

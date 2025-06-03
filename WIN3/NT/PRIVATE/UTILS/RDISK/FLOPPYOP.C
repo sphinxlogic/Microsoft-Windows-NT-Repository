@@ -19,14 +19,8 @@ Revision History:
 
 --*/
 
-#include "windows.h"
-#include "winioctl.h"
-#include "fmifs.h"
-#include "gauge.h"
-#include "dialogs.h"
-#include <stdarg.h>
-#include "rdisk.h"
-#include "resource.h"
+#include "precomp.h"
+#pragma hdrstop
 
 VOID
 FmifsThread(
@@ -176,7 +170,7 @@ ProgressDlgProc(
 BOOLEAN
 FmifsCallbackRoutine(
     IN FMIFS_PACKET_TYPE PacketType,
-    IN ULONG             PacketLength,
+    IN DWORD             PacketLength,
     IN PVOID             PacketAddress
     );
 
@@ -331,7 +325,7 @@ Return Value:
 {
     BOOL                    Flag;
     WCHAR                   WideName[3];
-    ULONG                   cMediaTypes;
+    DWORD                   cMediaTypes;
     PFMIFS_MEDIA_TYPE       MediaTypes;
     FMIFS_MEDIA_TYPE        MediaType;
     FLOPPY_OPERATION_PARAMS FloppyOp;
@@ -437,13 +431,13 @@ Return Value:
                                       &FileSystemFlags,
                                       FileSystemName,
                                       sizeof( FileSystemName ) / sizeof( WCHAR ) ) &&
-                ( wcsicmp( FileSystemName, (LPWSTR)L"RAW" ) != 0 )
+                ( _wcsicmp( FileSystemName, (LPWSTR)L"RAW" ) != 0 )
               ) {
 
                 //
                 //  The disk is formatted. Check if it is formatted as a 2.88 Mb disk
                 //
-                ULONG           BytesReturned;
+                DWORD           BytesReturned;
                 DISK_GEOMETRY   DiskGeometry;
                 HANDLE          hDevice;
 
@@ -477,11 +471,27 @@ Return Value:
         }
         break;
 
+    case FmMediaF3_120M_512:     // 3.5", 120M Floppy
+        //
+        // We get this back *only* if there is a 120MB floppy
+        // actually in the drive right now.
+        //
+        // For SUR disallow these.
+        //
+        DisplayMsgBox(hwndOwner,
+                      IDS_HUGEFLOPPYNOTSUPPORTED,
+                      MB_OK | MB_ICONEXCLAMATION,
+                      _szApplicationName);
+
+        LocalFree(MediaTypes);
+        *Fatal = FALSE; //allow retry
+        return(FALSE);
+
     case FmMediaF3_20Pt8_512:    // 3.5",  20.8MB, 512 bytes/sector
 
 #if i386
     {
-        ULONG i;
+        DWORD i;
 
         //
         // Look for a compatibility mode
@@ -528,6 +538,15 @@ Return Value:
                       IDS_BADFLOPPYTYPE,
                       MB_OK | MB_ICONEXCLAMATION);
         LocalFree(MediaTypes);
+
+        //
+        // Unknown can be returned in the case where the drive is an ATAPI floppy
+        // and there's no media in the drive. Allow retry.
+        //
+        if(*MediaTypes == FmMediaUnknown) {
+            *Fatal = FALSE;
+        }
+
         return(FALSE);
     }
 
@@ -642,13 +661,7 @@ ProgressDlgProc(
         //
         // set up range for percentage (0-100) display
         //
-
-        SendDlgItemMessage( hdlg,
-                            ID_BAR,
-                            BAR_SETRANGE,
-                            GAUGE_BAR_RANGE,
-                            0L
-                          );
+        SendDlgItemMessage(hdlg,ID_BAR,PBM_SETRANGE,0,MAKELPARAM(0,GAUGE_BAR_RANGE));
 
         //
         // Set the caption
@@ -680,7 +693,7 @@ ProgressDlgProc(
 
         SendDlgItemMessage( hdlg,
                             ID_BAR,
-                            BAR_SETPOS,
+                            PBM_SETPOS,
                             GAUGE_BAR_RANGE,
                             0L
                           );
@@ -717,7 +730,7 @@ ProgressDlgProc(
 
             SendDlgItemMessage( hdlg,
                                 ID_BAR,
-                                BAR_SETPOS,
+                                PBM_SETPOS,
                                 (GAUGE_BAR_RANGE * ((PFMIFS_PERCENT_COMPLETE_INFORMATION)PacketAddress)->PercentCompleted) / 100,
                                 0L
                               );
@@ -734,7 +747,7 @@ ProgressDlgProc(
 
                 SendDlgItemMessage( hdlg,
                                     ID_BAR,
-                                    BAR_SETPOS,
+                                    PBM_SETPOS,
                                     GAUGE_BAR_RANGE,
                                     0L
                                   );
@@ -798,6 +811,10 @@ ProgressDlgProc(
             OpSucceeded = FALSE;
             break;
 
+        case FmIfsHiddenStatus:     // ignore
+
+            break;
+
         default:
 
             DisplayMsgBox(hdlg,IDS_FLOPPYUNKERR,MB_OK | MB_ICONEXCLAMATION);
@@ -818,7 +835,7 @@ ProgressDlgProc(
 BOOLEAN
 FmifsCallbackRoutine(
     IN FMIFS_PACKET_TYPE PacketType,
-    IN ULONG             PacketLength,
+    IN DWORD             PacketLength,
     IN PVOID             PacketAddress
     )
 {
@@ -869,4 +886,3 @@ FmifsThread(
 
     ExitThread(0);
 }
-

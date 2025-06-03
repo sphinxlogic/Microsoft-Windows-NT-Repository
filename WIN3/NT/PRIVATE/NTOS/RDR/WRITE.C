@@ -265,9 +265,16 @@ Return Value:
 
     FsRtlEnterFileSystem();
 
-    RdrLog( "writeIRP", &Icb->Fcb->FileName,
-        IrpSp->Parameters.Write.ByteOffset.LowPart,
-        IrpSp->Parameters.Write.Length | (FlagOn(Irp->Flags,IRP_PAGING_IO) ? 0x80000000 : 0));
+#if 0 && RDRDBG_LOG
+    {
+        LARGE_INTEGER tick;
+        KeQueryTickCount(&tick);
+        //RdrLog(( "writeIRP", &Icb->Fcb->FileName, 2, tick.LowPart, tick.HighPart ));
+        //RdrLog(( "writeIRP", &Icb->Fcb->FileName, 4, IoGetRequestorProcess(Irp), IrpSp->FileObject,
+        //    IrpSp->Parameters.Write.ByteOffset.LowPart,
+        //    IrpSp->Parameters.Write.Length | (FlagOn(Irp->Flags,IRP_PAGING_IO) ? 0x80000000 : 0)));
+    }
+#endif
 
     dprintf(DPRT_DISPATCH, ("NtWriteFile..\n  File %wZ, Write %ld bytes at %lx%lx\n",
                                   &Icb->Fcb->FileName, IrpSp->Parameters.Write.Length,
@@ -402,7 +409,7 @@ Return Value:
     LARGE_INTEGER FileSize;
     ULONG TotalDataWritten = 0;
     LARGE_INTEGER IOOffset;
-    NTSTATUS Status;
+    NTSTATUS Status = STATUS_SUCCESS;
     PVOID BufferAddress;                // Mapped buffer address for writes.
     PLCB Lcb;
     BOOLEAN ContinueUsingRawProtocols;  // For raw write.
@@ -449,6 +456,12 @@ Return Value:
         RdrCompleteRequest(Irp, STATUS_INVALID_PARAMETER);
         return STATUS_INVALID_PARAMETER;
     }
+
+    //
+    // Mark that we have or will make changes to the state of the file
+    //
+    Icb->Fcb->UpdatedFile = TRUE;
+    InterlockedIncrement( &RdrServerStateUpdated );
 
     //
     //  See if we have to defer the write.
@@ -602,9 +615,9 @@ Return Value:
                 //  Flush any data from the cache for this range.
                 //
 
-                RdrLog( "ccflush5", &Icb->Fcb->FileName,
-                        WriteToEof ? Icb->Fcb->Header.FileSize.LowPart : ByteOffset.LowPart,
-                        Length );
+                //RdrLog(( "ccflush5", &Icb->Fcb->FileName, 2,
+                //        WriteToEof ? Icb->Fcb->Header.FileSize.LowPart : ByteOffset.LowPart,
+                //        Length ));
                 CcFlushCache( FileObject->SectionObjectPointer,
                               WriteToEof ? &Icb->Fcb->Header.FileSize : &ByteOffset,
                               Length,
@@ -617,12 +630,19 @@ Return Value:
                 }
 
                 //
+                // Serialize behind paging I/O to ensure flush is done.
+                //
+
+                ExAcquireResourceExclusive(Icb->Fcb->Header.PagingIoResource, TRUE);
+                ExReleaseResource(Icb->Fcb->Header.PagingIoResource);
+
+                //
                 //  Now remove any pages for this range from the cache.
                 //
 
-                RdrLog( "ccpurge2", &Icb->Fcb->FileName,
-                        WriteToEof ? Icb->Fcb->Header.FileSize.LowPart : ByteOffset.LowPart,
-                        Length );
+                //RdrLog(( "ccpurge2", &Icb->Fcb->FileName, 2,
+                //        WriteToEof ? Icb->Fcb->Header.FileSize.LowPart : ByteOffset.LowPart,
+                //        Length ));
                 CcPurgeCacheSection( FileObject->SectionObjectPointer,
                                      WriteToEof ? &Icb->Fcb->Header.FileSize : &ByteOffset,
                                      Length,
@@ -797,10 +817,10 @@ Return Value:
                 //  data before we pull it from the cache.
                 //
 
-                RdrLog( "rdflushe", &Icb->Fcb->FileName, 0, 0 );
+                //RdrLog(( "rdflushe", &Icb->Fcb->FileName, 0 ));
                 RdrFlushCacheFile(Icb->Fcb);
 
-                RdrLog( "rdpurgef", &Icb->Fcb->FileName, 0, 0 );
+                //RdrLog(( "rdpurgef", &Icb->Fcb->FileName, 0 ));
                 RdrPurgeCacheFile(Icb->Fcb);
             }
 
@@ -824,8 +844,10 @@ Return Value:
         //  Check to make sure that this operation is ok on this file.
         //
 
-        if (!NT_SUCCESS(Status = RdrIsOperationValid(Icb, IRP_MJ_WRITE, FileObject))) {
-            try_return(Status);
+        if ( !FlagOn(Irp->Flags, IRP_PAGING_IO) ) {
+            if (!NT_SUCCESS(Status = RdrIsOperationValid(Icb, IRP_MJ_WRITE, FileObject))) {
+                try_return(Status);
+            }
         }
 
         //
@@ -850,6 +872,9 @@ Return Value:
         if (!(Irp->Flags & IRP_PAGING_IO) &&
             (Icb->Type == DiskFile) &&
             !(FsRtlCheckLockForWriteAccess( &Icb->Fcb->FileLock, Irp))) {
+            //RdrLog(( "writCONF", &Icb->Fcb->FileName, 4, IoGetRequestorProcess(Irp), IrpSp->FileObject,
+            //    IrpSp->Parameters.Write.ByteOffset.LowPart,
+            //    IrpSp->Parameters.Write.Length | (FlagOn(Irp->Flags,IRP_PAGING_IO) ? 0x80000000 : 0)));
             try_return(Status = STATUS_FILE_LOCK_CONFLICT);
         }
 
@@ -910,6 +935,8 @@ Return Value:
 
                 try_return(Status = STATUS_PENDING);
             }
+
+            IOOffset.QuadPart = 0;
 
             Status = WriteAndX(Irp,
                 FileObject,
@@ -1169,6 +1196,8 @@ Return Value:
 
             try {
 
+                ULONG MatchedLength;
+
                 BufferMapped = RdrMapUsersBuffer(Irp, &BufferAddress, Length);
 
                 //
@@ -1176,17 +1205,23 @@ Return Value:
                 //  buffer before we decide it's dirty.
                 //
 
-                if (RtlCompareMemory(&Lcb->Buffer[WriteOffsetWithinBuffer.LowPart],
-                    BufferAddress,
-                    Length) != Length) {
+                MatchedLength = RtlCompareMemory(&Lcb->Buffer[WriteOffsetWithinBuffer.LowPart],
+                                                 BufferAddress,
+                                                 Length);
 
-                    RtlCopyMemory(&Lcb->Buffer[WriteOffsetWithinBuffer.LowPart],
-                        BufferAddress,
-                        Length);
+                if (MatchedLength != Length) {
+
+                    //
+                    // Only copy the part of the buffer that did not match.
+                    //
+
+                    RtlCopyMemory((PCHAR)&Lcb->Buffer[WriteOffsetWithinBuffer.LowPart] + MatchedLength,
+                                  (PCHAR)BufferAddress + MatchedLength,
+                                  Length - MatchedLength);
 
                     Lcb->Flags |= LCB_DIRTY;
-
                 }
+
             } except(EXCEPTION_EXECUTE_HANDLER) {
                 Status = GetExceptionCode();
                 if (BufferMapped) {
@@ -1388,7 +1423,7 @@ Return Value:
 
                 &&
 
-            ((FileObject->Flags & FO_WRITE_THROUGH) == 0)
+            !FlagOn(FileObject->Flags, FO_WRITE_THROUGH)
 
                 &&
 
@@ -1408,7 +1443,7 @@ Return Value:
 
                     &&
 
-                (Icb->GrantedAccess & FILE_READ_DATA)) {
+                FlagOn(Icb->GrantedAccess, FILE_READ_DATA)) {
 
                 //
                 //  If this is the first read/write operation to the file, we
@@ -1421,14 +1456,6 @@ Return Value:
                     CC_FILE_SIZES FileSizes;
 
                     dprintf(DPRT_READWRITE, ("Initialize cache for file.\n"));
-
-                    //
-                    //  Cache a back pointer to the file object in the ICB so we
-                    //  can flush the cache from the FCB in the case of an oplock
-                    //  break request.
-                    //
-
-                    Icb->u.f.FileObject = FileObject;
 
                     dprintf(DPRT_CACHE|DPRT_READWRITE, ("Adding file %wZ (%lx) to the cache\n", &Icb->Fcb->FileName, Icb->Fcb));
                     dprintf(DPRT_CACHE|DPRT_READWRITE, ("File Size: %lx%lx, ValidDataLength: %lx%lx\n", FileSize.HighPart,
@@ -1444,6 +1471,8 @@ Return Value:
                     FileSizes =
                         *((PCC_FILE_SIZES)&Icb->Fcb->Header.AllocationSize);
 
+                    ASSERT( !FlagOn(FileObject->Flags, FO_CLEANUP_COMPLETE) );
+
                     CcInitializeCacheMap( FileObject,
                                 &FileSizes,
                                 FALSE,      // We're not going to pin this data.
@@ -1452,6 +1481,19 @@ Return Value:
 
                     CcSetReadAheadGranularity( FileObject, 32*1024 );
 
+                }
+
+                if( FileObject->PrivateCacheMap != NULL &&
+                    Icb->Fcb->HaveSetCacheReadAhead == FALSE &&
+                    ByteOffset.QuadPart >= 4 * 1024 ) {
+
+                    //
+                    // We already have a cache map.  We haven't set readahead and we're
+                    // on the second page: set the readahead right now.
+                    //
+
+                    CcSetAdditionalCacheAttributes( FileObject, FALSE, FALSE );
+                    Icb->Fcb->HaveSetCacheReadAhead = TRUE;
                 }
 
                 //
@@ -1525,9 +1567,9 @@ Return Value:
 
                     if (TransferEnd.QuadPart > NextClusterInFile.QuadPart) {
 
-                        RdrLog( "set eof", &Icb->Fcb->FileName,
-                            TransferEnd.LowPart,
-                            (FlagOn(Irp->Flags,IRP_PAGING_IO) ? 0x80000000 : 0));
+                        //RdrLog(( "set eof", &Icb->Fcb->FileName, 2,
+                        //    TransferEnd.LowPart,
+                        //    (FlagOn(Irp->Flags,IRP_PAGING_IO) ? 0x80000000 : 0)));
                         Status = RdrSetEndOfFile(Irp, Icb, TransferEnd);
 
                         //
@@ -1547,9 +1589,9 @@ Return Value:
                     //  getting bigger, so it can grow its section.
                     //
 
-                    RdrLog( "setalloc", &Icb->Fcb->FileName,
-                        TransferEnd.LowPart,
-                        (FlagOn(Irp->Flags,IRP_PAGING_IO) ? 0x80000000 : 0));
+                    //RdrLog(( "setalloc", &Icb->Fcb->FileName, 2,
+                    //    TransferEnd.LowPart,
+                    //    (FlagOn(Irp->Flags,IRP_PAGING_IO) ? 0x80000000 : 0)));
                     FileSize = RdrSetAllocationAndFileSizeToFileSize(Icb->Fcb, TransferEnd);
 
                     {
@@ -1597,18 +1639,18 @@ Return Value:
                     &RdrStatistics.CacheWriteBytesRequested,
                     Length );
 
-                RdrLog( "copyrite", &Icb->Fcb->FileName,
-                        ByteOffset.LowPart,
-                        Length | (FlagOn(Irp->Flags,IRP_PAGING_IO) ? 0x80000000 : 0));
+                //RdrLog(( "copyrite", &Icb->Fcb->FileName, 2,
+                //        ByteOffset.LowPart,
+                //        Length | (FlagOn(Irp->Flags,IRP_PAGING_IO) ? 0x80000000 : 0)));
                 if (!CcCopyWrite(FileObject,
                             &ByteOffset,
                             Length,
                             Wait,
                             BufferAddress)) {
 
-                    RdrLog( "copyFAIL", &Icb->Fcb->FileName,
-                        ByteOffset.LowPart,
-                        Length | (FlagOn(Irp->Flags,IRP_PAGING_IO) ? 0x80000000 : 0));
+                    //RdrLog(( "copyFAIL", &Icb->Fcb->FileName, 2,
+                    //    ByteOffset.LowPart,
+                    //    Length | (FlagOn(Irp->Flags,IRP_PAGING_IO) ? 0x80000000 : 0)));
                     dprintf(DPRT_READWRITE, ("Failed\n"));
 
                     //
@@ -1727,11 +1769,9 @@ Return Value:
                     //  Indicate that we wrote all the data.
                     //
 
-                    if (NT_SUCCESS(Status)) {
-                        TotalDataWritten = Irp->IoStatus.Information = Length;
-                    }
+                    TotalDataWritten = Irp->IoStatus.Information = Length;
 
-                    try_return(Status);
+                    try_return(Status = STATUS_SUCCESS);
 
                 }
             }
@@ -1755,11 +1795,6 @@ Return Value:
                 (Icb->NonPagedFcb->FileType == FileTypeCommDevice) );
 
         IOOffset = ByteOffset ;
-
-        if (FlagOn(FileObject->Flags, FO_SYNCHRONOUS_IO) &&
-            !FlagOn(Irp->Flags, IRP_PAGING_IO)) {
-            FileObject->CurrentByteOffset = ByteOffset;
-        }
 
         //
         //  If we cannot tie up the current thread, and we cannot lock down
@@ -1828,21 +1863,13 @@ Return Value:
 
         //
         //  If this request won't fit into a single request, break it up
-        //  into some more reasonable amount.
-        //
-        //  To do this, we figure out how many packets it will take, and then
-        //  divide the entire amount by that quantity.
+        //  into some more reasonable amount.  Pick 0xE000 to ensure that
+        //  partial page writes don't cause the server to read in the
+        //  partial block before writing the data.
         //
 
         if (Length > 0xffff) {
-            ULONG NumberOfPackets;
-
-            NumberOfPackets = (Length + 0xfffe) / 0xffff;
-
-            RawWriteLength = Length / NumberOfPackets;
-
-            ASSERT (RawWriteLength <= 0xffff);
-
+            RawWriteLength = 0xe000;
         }
 
         while (Length > 0) {
@@ -2097,7 +2124,7 @@ try_exit:{
 
                 if (FlagOn(FileObject->Flags, FO_SYNCHRONOUS_IO) &&
                     !FlagOn(Irp->Flags, IRP_PAGING_IO)) {
-                    FileObject->CurrentByteOffset.QuadPart += TotalDataWritten;
+                    FileObject->CurrentByteOffset.QuadPart = ByteOffset.QuadPart + TotalDataWritten;
                 }
 
                 //
@@ -2698,6 +2725,9 @@ Return Value:
 
     ASSERT (Length <= 0xffff);
 
+    Icb->Fcb->UpdatedFile = TRUE;
+    InterlockedIncrement( &RdrServerStateUpdated );
+
     //
     //  If this is a non Lan Manager server, use core SMB protocols to write
     //  the data to the file.
@@ -2826,6 +2856,9 @@ Return Value:
     PAGED_CODE();
 #endif
 
+    Icb->Fcb->UpdatedFile = TRUE;
+    InterlockedIncrement( &RdrServerStateUpdated );
+
     WriteContext = ALLOCATE_POOL(NonPagedPool, sizeof(WRITE_CONTEXT), POOL_WRITECTX);
 
     if (WriteContext == NULL) {
@@ -2849,16 +2882,11 @@ Return Value:
     WriteContext->RequestorsThread = NULL;
 
     if (!WriteContext->WaitForCompletion) {
-        ObReferenceObjectByPointer(FileObject, FILE_ALL_ACCESS, *IoFileObjectType, KernelMode);
+        ObReferenceObject(FileObject);
 
         WriteContext->RequestorsThread = PsGetCurrentThread();
 
-        ObReferenceObjectByPointer(WriteContext->RequestorsThread,
-                                        THREAD_ALL_ACCESS,
-                                        NULL, // *(POBJECT_TYPE *)PsThreadType,
-                                        KernelMode);
-
-
+        ObReferenceObject(WriteContext->RequestorsThread);
     }
 
     KeInitializeEvent(&WriteContext->Header.KernelEvent, NotificationEvent, FALSE);
@@ -2878,7 +2906,14 @@ Return Value:
         goto ReturnError;
     }
 
-    RdrLog( "writeSMB", &Icb->Fcb->FileName, WriteOffset.LowPart, AmountRequestedToWrite );
+#if 0 && RDRDBG_LOG
+    {
+        //LARGE_INTEGER tick;
+        //KeQueryTickCount(&tick);
+        //RdrLog(( "writeSMc", &Icb->Fcb->FileName, 2, tick.LowPart, tick.HighPart ));
+        //RdrLog(( "writeSMc", &Icb->Fcb->FileName, 2, WriteOffset.LowPart, AmountRequestedToWrite));
+    }
+#endif
     Smb = (PSMB_HEADER )(WriteContext->SmbBuffer->Buffer);
 
     Smb->Command = SMB_COM_WRITE;
@@ -2992,7 +3027,7 @@ Return Value:
 
     if (ARGUMENT_PRESENT(Irp) &&
         (Icb->Type == DiskFile) &&
-        (WriteOffset.QuadPart > Icb->Fcb->Header.FileSize.QuadPart + Icb->Fcb->Connection->Server->ThirtySecondsOfData.QuadPart)) {
+        (WriteOffset.QuadPart > Icb->Fcb->Header.ValidDataLength.QuadPart + Icb->Fcb->Connection->Server->ThirtySecondsOfData.QuadPart)) {
         Flags |= NT_PREFER_LONGTERM;
     }
 
@@ -3040,86 +3075,82 @@ CompleteWriteOperation(
 
     ASSERT (WriteContext->Header.Type == CONTEXT_WRITE);
 
-    if (WriteContext != NULL) {
-
-        if (WriteContext->MpxTableEntry != NULL) {
-            //
-            //  Wait until the SMB exchange completes.
-            //
-
-            RdrWaitTranceive(WriteContext->MpxTableEntry);
-
-            //
-            //  Now that the exchange is complete, free up the MPX table entry.
-            //
-
-            RdrEndTranceive(WriteContext->MpxTableEntry);
-        }
-
-        if (WriteContext->Header.ErrorType != NoError) {
-            Status = WriteContext->Header.ErrorCode;
-        } else {
-            Status = STATUS_SUCCESS;
-        }
-
+    if (WriteContext->MpxTableEntry != NULL) {
         //
-        //  If there was no completion routine specified,
-        //  then fill in the amount actually written and whether or not all
-        //  the data was written now.
+        //  Wait until the SMB exchange completes.
         //
 
-        if (!ARGUMENT_PRESENT(WriteContext->CompletionRoutine) &&
-            NT_SUCCESS(Status)) {
-            if (ARGUMENT_PRESENT(WriteContext->AmountActuallyWritten)) {
-                *(WriteContext->AmountActuallyWritten) = WriteContext->WriteAmount;
-            }
+        RdrWaitTranceive(WriteContext->MpxTableEntry);
 
-            if (ARGUMENT_PRESENT(WriteContext->AllDataWritten)) {
-                *(WriteContext->AllDataWritten) = (BOOLEAN )(WriteContext->WriteAmount == WriteContext->AmountRequestedToWrite);
-            }
+        //
+        //  Now that the exchange is complete, free up the MPX table entry.
+        //
+
+        RdrEndTranceive(WriteContext->MpxTableEntry);
+    }
+
+    if (WriteContext->Header.ErrorType != NoError) {
+        Status = WriteContext->Header.ErrorCode;
+    } else {
+        Status = STATUS_SUCCESS;
+    }
+
+    //
+    //  If there was no completion routine specified,
+    //  then fill in the amount actually written and whether or not all
+    //  the data was written now.
+    //
+
+    if (!ARGUMENT_PRESENT(WriteContext->CompletionRoutine) &&
+        NT_SUCCESS(Status)) {
+        if (ARGUMENT_PRESENT(WriteContext->AmountActuallyWritten)) {
+            *(WriteContext->AmountActuallyWritten) = WriteContext->WriteAmount;
         }
 
-        if ( WriteContext->AmountRequestedToWrite != 0) {
+        if (ARGUMENT_PRESENT(WriteContext->AllDataWritten)) {
+            *(WriteContext->AllDataWritten) = (BOOLEAN )(WriteContext->WriteAmount == WriteContext->AmountRequestedToWrite);
+        }
+    }
+
+    if ( WriteContext->AmountRequestedToWrite != 0) {
 
 
-            if (!ARGUMENT_PRESENT(WriteContext->DataMdl)) {
-                if (WriteContext->PartialMdl != NULL) {
-                    MmUnlockPages(WriteContext->PartialMdl);
-                }
-            }
-
+        if (!ARGUMENT_PRESENT(WriteContext->DataMdl)) {
             if (WriteContext->PartialMdl != NULL) {
-                IoFreeMdl(WriteContext->PartialMdl);
+                MmUnlockPages(WriteContext->PartialMdl);
             }
         }
 
-        if (WriteContext->SmbBuffer!=NULL) {
-            RdrFreeSMBBuffer(WriteContext->SmbBuffer);
+        if (WriteContext->PartialMdl != NULL) {
+            IoFreeMdl(WriteContext->PartialMdl);
+        }
+    }
+
+    if (WriteContext->SmbBuffer!=NULL) {
+        RdrFreeSMBBuffer(WriteContext->SmbBuffer);
+    }
+
+    if (!WriteContext->WaitForCompletion) {
+        if (WriteContext->FileObject != NULL) {
+
+            ObDereferenceObject(WriteContext->FileObject);
         }
 
-        if (!WriteContext->WaitForCompletion) {
-            if (WriteContext->FileObject != NULL) {
-
-                ObDereferenceObject(WriteContext->FileObject);
-            }
-
-            if (WriteContext->RequestorsThread != NULL) {
-                ObDereferenceObject(WriteContext->RequestorsThread);
-            }
-
+        if (WriteContext->RequestorsThread != NULL) {
+            ObDereferenceObject(WriteContext->RequestorsThread);
         }
-
-        //
-        //  If there is a completion routine for this request, call it now.
-        //
-
-        if (WriteContext->CompletionRoutine) {
-            WriteContext->CompletionRoutine(WriteContext->Header.ErrorCode, WriteContext->CompletionContext);
-        }
-
-        FREE_POOL(WriteContext);
 
     }
+
+    //
+    //  If there is a completion routine for this request, call it now.
+    //
+
+    if (WriteContext->CompletionRoutine) {
+        WriteContext->CompletionRoutine(WriteContext->Header.ErrorCode, WriteContext->CompletionContext);
+    }
+
+    FREE_POOL(WriteContext);
 
     return Status;
 }
@@ -3162,6 +3193,11 @@ Return Value:
     PRESP_WRITE WriteResponse;
     PWRITE_CONTEXT Context = Ctx;
     NTSTATUS Status;
+
+    UNREFERENCED_PARAMETER(SmbLength);
+    UNREFERENCED_PARAMETER(MpxEntry);
+    UNREFERENCED_PARAMETER(Irp);
+    UNREFERENCED_PARAMETER(Server);
 
     DISCARDABLE_CODE(RdrFileDiscardableSection);
     ASSERT(Context->Header.Type == CONTEXT_WRITE);
@@ -3260,8 +3296,6 @@ ReturnStatus:
     KeSetEvent(&Context->Header.KernelEvent, IO_NETWORK_INCREMENT, FALSE);
 
     return STATUS_SUCCESS;
-
-    if (SmbLength || MpxEntry || Irp || Server);
 
 }
 
@@ -3371,17 +3405,21 @@ Return Value:
         goto ReturnError;
     }
 
-    RdrLog( "writeSMB", &Icb->Fcb->FileName, WriteOffset.LowPart, AmountRequestedToWrite );
+#if 0 && RDRDBG_LOG
+    {
+        //LARGE_INTEGER tick;
+        //KeQueryTickCount(&tick);
+        //RdrLog(( "writeSMx", &Icb->Fcb->FileName, 2, tick.LowPart, tick.HighPart ));
+        //RdrLog(( "writeSMx", &Icb->Fcb->FileName, 2, WriteOffset.LowPart, AmountRequestedToWrite));
+    }
+#endif
     if (!WriteContext->WaitForCompletion) {
 
-        ObReferenceObjectByPointer(FileObject, FILE_ALL_ACCESS, *IoFileObjectType, KernelMode);
+        ObReferenceObject(FileObject);
 
         WriteContext->RequestorsThread = PsGetCurrentThread();
 
-        ObReferenceObjectByPointer(WriteContext->RequestorsThread,
-                                        THREAD_ALL_ACCESS,
-                                        NULL, // *(POBJECT_TYPE *)PsThreadType,
-                                        KernelMode);
+        ObReferenceObject(WriteContext->RequestorsThread);
     }
 
     WriteContext->FileObject = FileObject;
@@ -3628,7 +3666,7 @@ Return Value:
 
     if (ARGUMENT_PRESENT(Irp) &&
         (Icb->Type == DiskFile) &&
-        (WriteOffset.QuadPart > Icb->Fcb->Header.FileSize.QuadPart + Icb->Fcb->Connection->Server->ThirtySecondsOfData.QuadPart)) {
+        (WriteOffset.QuadPart > Icb->Fcb->Header.ValidDataLength.QuadPart + Icb->Fcb->Connection->Server->ThirtySecondsOfData.QuadPart)) {
         Flags |= NT_PREFER_LONGTERM;
     }
 
@@ -3699,6 +3737,11 @@ Return Value:
     PRESP_WRITE_ANDX WriteResponse;
     PWRITE_CONTEXT Context = Ctx;
     NTSTATUS Status;
+
+    UNREFERENCED_PARAMETER(MpxEntry);
+    UNREFERENCED_PARAMETER(Irp);
+    UNREFERENCED_PARAMETER(SmbLength);
+    UNREFERENCED_PARAMETER(Server);
 
     DISCARDABLE_CODE(RdrFileDiscardableSection);
 
@@ -3788,11 +3831,6 @@ ReturnStatus:
 
     return STATUS_SUCCESS;
 
-    UNREFERENCED_PARAMETER(MpxEntry);
-    UNREFERENCED_PARAMETER(Irp);
-    UNREFERENCED_PARAMETER(SmbLength);
-    UNREFERENCED_PARAMETER(Server);
-
 }
 
 
@@ -3873,6 +3911,7 @@ Also note:
     BOOLEAN UseNtWriteRaw = FALSE;
     PREQ_NT_WRITE_RAW NtWriteRaw;
     RAW_WRITE_CONTEXT Context;
+    LARGE_INTEGER startTime;
     ULONG AmountToSendForRaw = Length;  // # of bytes to send using raw send
 
     ULONG SrvWriteSize = Icb->Fcb->Connection->Server->BufferSize -
@@ -3938,13 +3977,11 @@ Also note:
         }
 
         //
-        //  If this I/O won't complete within 5 seconds, don't use raw I/O.
+        //  If this I/O will take too long, don't use raw
         //
 
-        if (Server->Throughput != 0) {
-            if (Length / Server->Throughput > RdrRawTimeLimit) {
-                try_return(Status);
-            }
+        if( Length > Server->RawWriteMaximum ) {
+            try_return(Status);
         }
 
         //
@@ -3976,6 +4013,40 @@ Also note:
         if ((Icb->Type == DiskFile) &&
             (WriteOffset.QuadPart > Icb->Fcb->Header.FileSize.QuadPart + Server->ThirtySecondsOfData.QuadPart)) {
             try_return(Status);
+        }
+
+
+        //
+        //  If there is no MDL for this write, allocate a new MDL, and probe
+        //  and lock the users buffer to lock the pages for the I/O down.
+        //
+
+        ASSERT(Length <= 0xffff);
+
+        if (Irp->MdlAddress == NULL) {
+
+            ASSERT (WaitForCompletion);
+
+            DataMdl = IoAllocateMdl((PCHAR )Irp->UserBuffer + TotalDataWritten,
+                                                Length, // Length
+                                                FALSE, // Secondary Buffer
+                                                FALSE, // Charge Quota
+                                                NULL); // Associated IRP.
+            if (DataMdl == NULL) {
+                try_return(Status = STATUS_INSUFFICIENT_RESOURCES);
+            }
+
+            try {
+
+                MmProbeAndLockPages(DataMdl, Irp->RequestorMode, IoReadAccess);
+
+            } except (EXCEPTION_EXECUTE_HANDLER) {
+
+                try_return(Status = GetExceptionCode());
+
+            }
+
+            DataMdlLocked = TRUE;
         }
 
 
@@ -4014,39 +4085,6 @@ Also note:
         *ContinueUsingRawProtocols = TRUE;
 
         //
-        //  If there is no MDL for this write, allocate a new MDL, and probe
-        //  and lock the users buffer to lock the pages for the I/O down.
-        //
-
-        ASSERT(Length <= 0xffff);
-
-        if (Irp->MdlAddress == NULL) {
-
-            ASSERT (WaitForCompletion);
-
-            DataMdl = IoAllocateMdl((PCHAR )Irp->UserBuffer + TotalDataWritten,
-                                                Length, // Length
-                                                FALSE, // Secondary Buffer
-                                                FALSE, // Charge Quota
-                                                NULL); // Associated IRP.
-            if (DataMdl == NULL) {
-                try_return(Status = STATUS_INSUFFICIENT_RESOURCES);
-            }
-
-            try {
-
-                MmProbeAndLockPages(DataMdl, Irp->RequestorMode, IoReadAccess);
-
-            } except (EXCEPTION_EXECUTE_HANDLER) {
-
-                try_return(Status = GetExceptionCode());
-
-            }
-
-            DataMdlLocked = TRUE;
-        }
-
-        //
         //  Allocate an SMB buffer for the write operation.
         //
         //  Since write is a "little data" operation, we can use
@@ -4059,7 +4097,14 @@ Also note:
             try_return(Status = STATUS_INSUFFICIENT_RESOURCES);
         }
 
-        RdrLog( "writeSMB", &Icb->Fcb->FileName, WriteOffset.LowPart, Length );
+#if 0 && RDRDBG_LOG
+    {
+        //LARGE_INTEGER tick;
+        //KeQueryTickCount(&tick);
+        //RdrLog(( "writeSMr", &Icb->Fcb->FileName, 2, tick.LowPart, tick.HighPart ));
+        //RdrLog(( "writeSMr", &Icb->Fcb->FileName, 2, WriteOffset.LowPart, Length ));
+    }
+#endif
 
         Smb = (PSMB_HEADER )(SmbBuffer->Buffer);
 
@@ -4078,7 +4123,7 @@ Also note:
         SmbPutUlong(&WriteRaw->Offset, WriteOffset.LowPart);
 
         if ((Icb->NonPagedFcb->FileType == FileTypeDisk) &&
-//            (WriteOffset.HighPart != 0)) {
+//            (WriteOffset.HighPart != 0)) [
             (Icb->Fcb->Connection->Server->Capabilities & DF_NT_SMBS)) {
 
             NtWriteRaw->WordCount = 14;
@@ -4091,7 +4136,6 @@ Also note:
             WriteRaw->WordCount = 12;
         }
 
-//  BUGBUG: What should we specify for timeout on write raw?
         SmbPutUlong(&WriteRaw->Timeout, 0L);
 
         SmbPutUlong(&WriteRaw->Reserved2, 0L);
@@ -4364,7 +4408,7 @@ Also note:
 
             ConnectionObjectReferenced = TRUE;
 
-            SendIrp = RdrAllocateIrp(Server->ConnectionContext->ConnectionObject, NULL);
+            SendIrp = ALLOCATE_IRP(Server->ConnectionContext->ConnectionObject, NULL, 23, &Context);
 
             if (SendIrp == NULL) {
                 //
@@ -4382,6 +4426,8 @@ Also note:
                 RawWriteComplete, &Context, SendMdl, TDI_SEND_NO_RESPONSE_EXPECTED,
                 RdrMdlLength(SendMdl));
 
+
+            KeQuerySystemTime( &startTime );
 
             RdrSetCallbackTranceive(Context.MpxTableEntry, Context.MpxTableEntry->StartTime, RawWriteCallback);
 
@@ -4415,6 +4461,25 @@ Also note:
             //
 
             *AmountActuallyWritten = Context.WriteAmount;
+
+            if( Context.WriteAmount == AmountToSendForRaw ) {
+                LARGE_INTEGER endTime, transmissionTime;
+
+                KeQuerySystemTime( &endTime );
+
+                transmissionTime.QuadPart = endTime.QuadPart - startTime.QuadPart;
+
+                if( transmissionTime.LowPart > RdrRawTimeLimit * 10 * 1000 * 1000 ) {
+                    ULONG newMaximum;
+
+                    newMaximum = (AmountToSendForRaw * RdrRawTimeLimit * 10 * 1000 * 1000 )/
+                                    transmissionTime.LowPart;
+
+                    if( newMaximum ) {
+                        Server->RawWriteMaximum = newMaximum;
+                    }
+                }
+            }
 
         } else {
 
@@ -4462,7 +4527,7 @@ try_exit:NOTHING;
         }
 
         if (SendIrp != NULL) {
-            IoFreeIrp(SendIrp);
+            FREE_IRP( SendIrp, 30, &Context );
         }
 
         if (ConnectionObjectReferenced) {
@@ -4551,6 +4616,11 @@ Return Value:
     PRAW_WRITE_CONTEXT Context = Ctx;
     NTSTATUS Status;
 
+    UNREFERENCED_PARAMETER(MpxEntry);
+    UNREFERENCED_PARAMETER(Irp);
+    UNREFERENCED_PARAMETER(SmbLength);
+    UNREFERENCED_PARAMETER(Server);
+
     DISCARDABLE_CODE(RdrFileDiscardableSection);
     ASSERT(Context->Header.Type == CONTEXT_RAW_WRITE);
 
@@ -4587,6 +4657,7 @@ Return Value:
 
         if (((Status == STATUS_SMB_USE_MPX) ||
              (Status == STATUS_SMB_USE_STANDARD) ||
+             (Status == STATUS_REQUEST_NOT_ACCEPTED) ||
              (Status == STATUS_INSUFFICIENT_RESOURCES))) {
 
              //
@@ -4594,8 +4665,9 @@ Return Value:
              //
              Context->WriteAmount = SmbGetUshort(&WriteResponse->Count);
 
-             Context->RetryUsingRaw = (BOOLEAN )(
-                 SmbGetUshort(&Smb->Error) == SMB_ERR_NO_RESOURCE);
+             Context->RetryUsingRaw = (BOOLEAN)(
+                 (Status == STATUS_REQUEST_NOT_ACCEPTED) ||
+                 (Status == STATUS_INSUFFICIENT_RESOURCES));
 
              goto ReturnStatus;
 
@@ -4638,11 +4710,6 @@ ReturnStatus:
     KeSetEvent(&Context->Header.KernelEvent, IO_NETWORK_INCREMENT, FALSE);
     return STATUS_SUCCESS;
 
-    UNREFERENCED_PARAMETER(MpxEntry);
-    UNREFERENCED_PARAMETER(Irp);
-    UNREFERENCED_PARAMETER(SmbLength);
-    UNREFERENCED_PARAMETER(Server);
-
 }
 
 DBGSTATIC
@@ -4674,6 +4741,9 @@ Return Value:
 
 {
     PRAW_WRITE_CONTEXT Context = Ctx;
+
+    UNREFERENCED_PARAMETER(Irp);
+    UNREFERENCED_PARAMETER(DeviceObject);
 
     DISCARDABLE_CODE(RdrFileDiscardableSection);
     ASSERT(Context->Header.Type == CONTEXT_RAW_WRITE);
@@ -4723,8 +4793,6 @@ Return Value:
     KeSetEvent(&Context->MpxTableEntry->SendCompleteEvent, IO_NETWORK_INCREMENT, FALSE);
 
     return STATUS_MORE_PROCESSING_REQUIRED;
-
-    if (Irp || DeviceObject);
 
 }
 

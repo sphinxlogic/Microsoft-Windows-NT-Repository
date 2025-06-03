@@ -83,14 +83,14 @@ void * dummy;
                         if (ppat[0] == '%') {
                             if (ppat[1] == 'l') {
                                 strcpy (pdst, p);
-                                strlwr (pdst);
+                                _strlwr (pdst);
                                 pdst = strend (pdst);
                                 ppat += 2;
                                 }
                             else
                             if (ppat[1] == 'u') {
                                 strcpy (pdst, p);
-                                strupr (pdst);
+                                _strupr (pdst);
                                 pdst = strend (pdst);
                                 ppat += 2;
                                 }
@@ -173,10 +173,10 @@ char *v[];
                 SETFLAG (buf.fbuf.dwFileAttributes, FILE_ATTRIBUTE_DIRECTORY);
                 break;
             default:                /* ... it could be a root directory     */
-                getcwd (cdir, MAX_PATH);
-                if ( chdir(dir) == 0 ) {
+                _getcwd (cdir, MAX_PATH);
+                if ( _chdir(dir) == 0 ) {
                     SETFLAG (buf.fbuf.dwFileAttributes, FILE_ATTRIBUTE_DIRECTORY);
-                    chdir (cdir);
+                    _chdir (cdir);
                     }
             }
 
@@ -191,4 +191,3 @@ void usage ()
     printf ("usage: walk [/d] [/f] [/p] [/h] dir [cmd]\n");
     exit (1);
 }
-

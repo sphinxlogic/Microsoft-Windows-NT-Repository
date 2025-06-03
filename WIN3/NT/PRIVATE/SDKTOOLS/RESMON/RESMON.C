@@ -5,6 +5,7 @@
 #include <symhelp.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <wtypes.h>
 #include <ntstatus.dbg>
 #include <winerror.dbg>
 #include <netevent.h>
@@ -124,6 +125,25 @@ LoadSymbolsFilter(
     return TRUE;
 }
 
+VOID
+InitializeSymbolPathEnvVar( VOID )
+{
+    DWORD n;
+    char Buffer[ MAX_PATH ];
+
+    n = GetEnvironmentVariable( "_NT_SYMBOL_PATH", Buffer, sizeof( Buffer ) );
+    if (n == 0) {
+        n = GetEnvironmentVariable( "SystemRoot", Buffer, sizeof( Buffer ) );
+        if (n != 0) {
+            strcat( Buffer, "\\Symbols" );
+            SetEnvironmentVariable( "_NT_SYMBOL_PATH", Buffer );
+            fprintf( stderr, "RESMON: Default _NT_SYMBOL_PATH to %s\n", Buffer );
+            }
+        }
+
+    return;
+}
+
 int
 _cdecl
 main(
@@ -148,6 +168,7 @@ main(
     ULONG EventClassMask;
     ULONG ProcessCreateFlags;
 
+    InitializeSymbolPathEnvVar();
     VerboseFlag = FALSE;
     EventClassMask = 0xFFFFFFFF;
     CommandLine = NULL;
@@ -460,31 +481,31 @@ main(
                 }
 
             if (CreateProcessEventId == NULL &&
-                !stricmp( EventId->Name, "CreateProcess" )
+                !_stricmp( EventId->Name, "CreateProcess" )
                ) {
                 CreateProcessEventId = EventId;
                 }
             else
             if (ExitProcessEventId == NULL &&
-                !stricmp( EventId->Name, "ExitProcess" )
+                !_stricmp( EventId->Name, "ExitProcess" )
                ) {
                 ExitProcessEventId = EventId;
                 }
             else
             if (LoadModuleEventId == NULL &&
-                !stricmp( EventId->Name, "LoadModule" )
+                !_stricmp( EventId->Name, "LoadModule" )
                ) {
                 LoadModuleEventId = EventId;
                 }
             else
             if (UnloadModuleEventId == NULL &&
-                !stricmp( EventId->Name, "UnloadModule" )
+                !_stricmp( EventId->Name, "UnloadModule" )
                ) {
                 UnloadModuleEventId = EventId;
                 }
             else
             if (PageFaultEventId == NULL &&
-                !stricmp( EventId->Name, "PageFault" )
+                !_stricmp( EventId->Name, "PageFault" )
                ) {
                 PageFaultEventId = EventId;
                 }

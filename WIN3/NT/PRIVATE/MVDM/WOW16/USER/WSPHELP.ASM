@@ -30,7 +30,9 @@ ifdef WOW
 SEGNAME equ <TEXT>
 endif
 
+.xlist
 include cmacros.inc
+.list
 
 createSeg   _%SEGNAME,%SEGNAME,WORD,public,CODE
 

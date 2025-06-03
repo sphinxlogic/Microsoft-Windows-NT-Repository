@@ -1,6 +1,6 @@
 ;/*++ BUILD Version: 0001    // Increment this if a change has global effects
 ;
-;Copyright (c) 1992, 1993  Microsoft Corporation
+;Copyright (c) 1992-1995  Microsoft Corporation
 ;
 ;Module Name:
 ;
@@ -51,11 +51,13 @@ SeverityNames=(Success=0x0:STATUS_SEVERITY_SUCCESS
               )
 
 FacilityNames=(System=0x0
-               RpcRuntime=0x2:FACILITY_RPC_RUNTIME
-               RpcStubs=0x3:FACILITY_RPC_STUBS
-               Io=0x4:FACILITY_IO_ERROR_CODE
                Video=0x101:FACILITY_VIDEO_ERROR_CODE
               )
 
+MessageId=0x0001 Facility=Video Severity=Informational SymbolicName=S3_IBM_NO_BIOS
+Language=English
+An S3 adapter was detected but can not be used by the system due to a
+limitation in the driver: The S3 ROM could not be found.
+.
 
 ;#endif /* _S3LOGERR_ */

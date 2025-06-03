@@ -1,5 +1,7 @@
 //+-------------------------------------------------------------------
 //
+// Copyright (C) 1995, Microsoft Corporation.
+//
 //  File:        FILESEC.hxx
 //
 //  Contents:    class encapsulating file security.

@@ -43,6 +43,7 @@
 #include <lmerrlog.h>
 #include <ncberr.h>
 
+#define WINSHELLAPI
 #include <shellapi.h>
 
 
@@ -103,14 +104,50 @@ TCHAR *                      DefaultServerName = TEXT("");
  */
 
 VOID os2cmd(VOID);
+CPINFO CurrentCPInfo;
 
 VOID _CRTAPI1 main(int argc, CHAR **argv)
 {
     SHORT           sindex, aindex;
     SHORT           pos=0;
+    DWORD	    cp;
 
     SavedArgc = argc ;
     SavedArgv = argv ;
+
+
+    /*
+       Added for bilingual message support.  This is needed for FormatMessage
+       to work correctly.  (Called from DosGetMessage).
+       Get current CodePage Info.  We need this to decide whether
+       or not to use half-width characters.
+    */
+
+    GetCPInfo(cp=GetConsoleOutputCP(), &CurrentCPInfo);
+    switch ( cp ) {
+	case 932:
+	case 936:
+	case 949:
+	case 950:
+	    SetThreadLocale(
+		MAKELCID(
+		    MAKELANGID(
+			    PRIMARYLANGID(GetSystemDefaultLangID()),
+			    SUBLANG_ENGLISH_US ),
+		    SORT_DEFAULT
+		    )
+		);
+	    break;
+
+	default:
+	    SetThreadLocale(
+		MAKELCID(
+		    MAKELANGID( LANG_ENGLISH, SUBLANG_ENGLISH_US ),
+		    SORT_DEFAULT
+		    )
+		);
+	    break;
+	}
 
     MyArgv = CommandLineToArgvW(GetCommandLineW(), &argc);
     if (MyArgv == NULL)
@@ -178,7 +215,7 @@ VOID _CRTAPI1 main(int argc, CHAR **argv)
 
 static VOID NEAR init(VOID)
 {
-    setmode(fileno(stdin), O_TEXT);
+    _setmode(_fileno(stdin), O_TEXT);
 }
 
 /***
@@ -279,4 +316,3 @@ VOID ClearMemory(VOID)
     }
     MNetClearStringW(GetCommandLine());
 }
-

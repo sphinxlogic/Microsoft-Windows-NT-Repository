@@ -60,7 +60,7 @@ LocateModInfo(
     )
 {
     int i;
-    for (i=0;i<ModInfoNext;i++){
+    for (i=0;i<(int)ModInfoNext;i++){
         if ( Address >= ModInfo[i].BaseAddress &&
              Address <= (PVOID)((ULONG)ModInfo[i].BaseAddress+ModInfo[i].VirtualSize) ) {
             return &ModInfo[i];
@@ -92,7 +92,7 @@ ComputeModInfo(
     LPSTR p;
     PVOID MappedAddress;
 
-    for (i=0;i<ModInfoNext;i++){
+    for (i=0;i<(int)ModInfoNext;i++){
         if ( ModInfo[i].BaseAddress &&
              ModInfo[i].BaseAddress != (PVOID) 0xffffffff &&
              ModInfo[i].Name.Buffer

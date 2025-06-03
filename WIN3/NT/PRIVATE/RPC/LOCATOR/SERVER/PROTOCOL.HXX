@@ -47,10 +47,10 @@ typedef enum {
 // The following are the type of base member entry the object is.
 
 typedef enum  {
-    LocalItemType = 1,			// local item
-    CacheItemType,			// cached item, ie - remote
-    DeleteItemType,			// delayed delete due
-    LastItemType			// end marker
+    LocalItemType = 1,          // local item
+    CacheItemType,          // cached item, ie - remote
+    DeleteItemType,         // delayed delete due
+    LastItemType            // end marker
 
 } TYPE_ENTRY_ITEM;
 
@@ -264,7 +264,7 @@ Abstract:
 
 class QUERY {
 
-PROTECTED:
+protected:
     QUERY_REF_LIST ReplyList;     // List which gets the reply from the query.
     ENTRY_KEY  Entry;            // The entry, that we are searching on.
     TYPE_ENTRY_NODE Type;             // Type of entry we are interested in.
@@ -333,11 +333,11 @@ public:
     GetUpdatesFromMasterLocator(
         );
 
-    
+
     char * DetectMasterLocator(
     );
 
-}; 
+};
 
 
 
@@ -453,11 +453,11 @@ Abstract:
 
 NEW_LINK_LIST(ENTRY_BASE,
 
-PROTECTED:
+protected:
 
     TYPE_ENTRY_ITEM Type;               /* type of list item */
     ENTRY_BASE_NODE *EntryNode;         /* reference to which node I'm in */
-    ULONG Time;				/* time arrived for cached PS */
+    ULONG Time;             /* time arrived for cached PS */
     ULONG UseCount;                     /* number of references to object */
 
 public:
@@ -554,7 +554,7 @@ Abstract:
 
 class ENTRY_BASE_NODE {
 
-PROTECTED:
+protected:
     ENTRY_KEY  Entry;            // The entry name, must be first member.
     TYPE_ENTRY_NODE Type;             // Type of entry object.
     ENTRY_BASE_LIST ItemList;     // List of member objects of this node.
@@ -562,7 +562,7 @@ PROTECTED:
 public:
 
     unsigned long LastUpdateTime;
-   
+
     ENTRY_BASE_NODE(
         IN TYPE_ENTRY_NODE TypeNew,
         IN ENTRY_KEY *KeyNew,
@@ -570,7 +570,7 @@ public:
         ):
         Entry (KeyNew, Status)
     {
-	Type = TypeNew;
+    Type = TypeNew;
         LastUpdateTime = 0;
     }
 
@@ -675,9 +675,9 @@ class ENTRY_SERVER_ITEM: public ENTRY_BASE_ITEM {
 
 private:
 
-    NS_SYNTAX_ID  Interface;	// The interface of the member.
-    NS_SYNTAX_ID  TransferSyntax;	// The stub transfer syntax of the member.
-    UNICODE_ARRAY StringBinding;   	// DCE string binding.
+    NS_SYNTAX_ID  Interface;    // The interface of the member.
+    NS_SYNTAX_ID  TransferSyntax;   // The stub transfer syntax of the member.
+    UNICODE_ARRAY StringBinding;    // DCE string binding.
 
 public:
 
@@ -779,7 +779,7 @@ public:
     ENTRY_GROUP_NODE(
         IN ENTRY_KEY *KeyNew,
         OUT STATUS *Status
-        ): ENTRY_BASE_NODE (GroupEntryType, KeyNew, Status) 
+        ): ENTRY_BASE_NODE (GroupEntryType, KeyNew, Status)
 
     {
 
@@ -910,11 +910,11 @@ typedef enum {
 
 NEW_LINK_LIST(REPLY_BASE,
 
-PROTECTED:
+protected:
 
-    long pidOwner;			/* owner of the resource */
+    long pidOwner;          /* owner of the resource */
     QUERY * aQuery;                     /* QUERY for lookup */
-    REPLY_STATE QueryMade;             	/* QUERY has been made */
+    REPLY_STATE QueryMade;              /* QUERY has been made */
 
 public:
     REPLY_BASE_ITEM();

@@ -61,13 +61,6 @@ RdrNpAcquireExclusive (
     IN PKSEMAPHORE SynchronizationEvent
     );
 
-DBGSTATIC
-VOID
-RdrNpRelease (
-    IN PKSEMAPHORE Semaphore
-    );
-
-
 #if     RDRDBG
 VOID
 ndump_core(
@@ -78,8 +71,6 @@ ndump_core(
 
 
 #ifdef  ALLOC_PRAGMA
-#pragma alloc_text(INIT, RdrInitializeNp)
-#pragma alloc_text(PAGE, RdrpUninitializeNp)
 #pragma alloc_text(PAGE, RdrNpPeek)
 #pragma alloc_text(PAGE, RdrNpTransceive)
 #pragma alloc_text(PAGE, RdrQueryNpInfo)
@@ -94,62 +85,11 @@ ndump_core(
 #pragma alloc_text(PAGE, RdrNpCachedWrite)
 #pragma alloc_text(PAGE, RdrNpWriteFlush)
 #pragma alloc_text(PAGE, RdrNpAcquireExclusive)
-#pragma alloc_text(PAGE, RdrNpRelease)
 #pragma alloc_text(PAGE3FILE, NpStartTimer)
 #pragma alloc_text(PAGE3FILE, RdrNpCancelTimer)
 #pragma alloc_text(PAGE3FILE, RdrNpTimerDispatch)
 #pragma alloc_text(PAGE3FILE, RdrNpTimedOut)
 #endif
-
-VOID
-RdrInitializeNp (
-    VOID
-    )
-
-/*++
-
-Routine Description:
-
-    This routine initializes the redirector Named Pipe Control structures.
-
-Arguments:
-
-    None
-
-Return Value:
-
-    None.
-
---*/
-
-{
-}
-
-VOID
-RdrpUninitializeNp (
-    VOID
-    )
-
-/*++
-
-Routine Description:
-
-    This routine undoes the operations performed by RdrpInitializeNp
-
-Arguments:
-
-    None
-
-Return Value:
-
-    None.
-
---*/
-
-{
-    PAGED_CODE();
-
-}
 
 NTSTATUS
 RdrNpPeek (
@@ -203,6 +143,8 @@ Note:
     UNICODE_STRING Name;
 
     PAGED_CODE();
+
+    UNREFERENCED_PARAMETER(InFsd);
 
     dprintf(DPRT_NP, ("RdrNpPeek...\n"));
 
@@ -417,7 +359,6 @@ Note:
 
     return Status;
 
-    UNREFERENCED_PARAMETER(InFsd);
 }
 
 NTSTATUS
@@ -467,6 +408,8 @@ Return Value:
     UNICODE_STRING Name;
 
     PAGED_CODE();
+
+    UNREFERENCED_PARAMETER(InFsd);
 
     dprintf(DPRT_NP, ("RdrNpTransceive...\n"));
 
@@ -559,7 +502,6 @@ Return Value:
 
     return Status;
 
-    UNREFERENCED_PARAMETER(InFsd);
 }
 
 
@@ -676,12 +618,12 @@ Return Value:
             (PFILE_PIPE_LOCAL_INFORMATION)UsersBuffer;
 
         //  Make PipeInfo big enough to include the pipename
-        CHAR PipeBuffer[sizeof(NAMED_PIPE_INFORMATION_1) + CCHMAXPATHCOMP];
+        CHAR PipeBuffer[sizeof(NAMED_PIPE_INFORMATION_1) + MAXIMUM_FILENAME_LENGTH];
         PNAMED_PIPE_INFORMATION_1 PipeInfo = (PNAMED_PIPE_INFORMATION_1)PipeBuffer;
         USHORT Setup[2];
         USHORT Level = 1;
         CLONG OutParameterCount = 0;
-        CLONG OutDataCount = sizeof(NAMED_PIPE_INFORMATION_1) + CCHMAXPATHCOMP;
+        CLONG OutDataCount = sizeof(NAMED_PIPE_INFORMATION_1) + MAXIMUM_FILENAME_LENGTH;
         CLONG OutSetupCount = 0;
 
         UNICODE_STRING Name;
@@ -1079,7 +1021,7 @@ Return Value:
     PFCB Fcb = Icb->Fcb;
 
     //  Variables for the connection to the server
-    WCHAR NameBuffer[CCHMAXPATHCOMP];
+    WCHAR NameBuffer[MAXIMUM_FILENAME_LENGTH];
 
     //  Variables for the Transaction
     USHORT Setup[2];
@@ -1091,6 +1033,8 @@ Return Value:
     ULONG Timeout;
 
     PAGED_CODE();
+
+    UNREFERENCED_PARAMETER(InFsd);
 
     dprintf(DPRT_NP, ("RdrNpWait...\n"));
 
@@ -1122,7 +1066,7 @@ Return Value:
         (ULONG)FIELD_OFFSET(FILE_PIPE_WAIT_FOR_BUFFER, Name[0])) ||
         (InputBufferLength <
         (ULONG)FIELD_OFFSET(FILE_PIPE_WAIT_FOR_BUFFER, Name[0])+NpWaitBuffer->NameLength) ||
-        InputBufferLength > CCHMAXPATHCOMP + 1
+        InputBufferLength > MAXIMUM_FILENAME_LENGTH + 1
         ) {
 
         Status = STATUS_INVALID_PARAMETER;
@@ -1242,7 +1186,6 @@ Return Value:
     dprintf(DPRT_NP, ("RdrNpWait returning status6: %X\n", Status));
     return Status;
 
-    UNREFERENCED_PARAMETER(InFsd);
 }
 
 NTSTATUS
@@ -2080,7 +2023,6 @@ Note:
     //
 
     if ( RdrNpCancelTimer ( Icb ) == FALSE ) {
-        // BUGBUG: Do we want to log an error in this case?
         return STATUS_DRIVER_INTERNAL_ERROR;
     }
 
@@ -2101,7 +2043,7 @@ Note:
     try {
         MmProbeAndLockPages( DataMdl,
             KernelMode,
-            IoWriteAccess );
+            IoReadAccess );
     } except (EXCEPTION_EXECUTE_HANDLER) {
         return STATUS_INSUFFICIENT_RESOURCES;
     }
@@ -2219,10 +2161,7 @@ Return Value:
     //  Reference the file object during the duration of the timer.
     //
 
-    ObReferenceObjectByPointer(Icb->u.p.FileObject,
-                                    FILE_ALL_ACCESS,
-                                    *IoFileObjectType,
-                                    KernelMode);
+    ObReferenceObject(Icb->u.p.FileObject);
 
     (VOID)KeSetTimer( &Icb->u.p.Timer,
             Icb->u.p.CollectDataTime,
@@ -2331,6 +2270,10 @@ RdrNpTimerDispatch(
     )
 
 {
+    UNREFERENCED_PARAMETER(Dpc);
+    UNREFERENCED_PARAMETER(SystemArgument1);
+    UNREFERENCED_PARAMETER(SystemArgument2);
+
     DISCARDABLE_CODE(RdrFileDiscardableSection);
 
     dprintf(DPRT_NP, ("RdrNpTimerDispatch....\n"));
@@ -2343,7 +2286,6 @@ RdrNpTimerDispatch(
     //
 
     return;
-    Dpc;SystemArgument1;SystemArgument2;
 }
 
 VOID
@@ -2500,35 +2442,3 @@ Return Value:
     return TRUE;
 }
 
-DBGSTATIC
-VOID
-RdrNpRelease (
-    IN PKSEMAPHORE Semaphore
-    )
-
-/*++
-
-Routine Description:
-
-    This routine frees a named pipe that has been claimed exclusively with
-    RdrNpAcquireExclusive.
-
-Arguments:
-
-    Semaphore    - Semaphore to free
-
-
-Return Value:
-
-
---*/
-
-{
-    PAGED_CODE();
-
-    dprintf(DPRT_NP, ("RdrNpRelease: %lx\n", Semaphore));
-    KeReleaseSemaphore( Semaphore,      // Semaphore to release
-                            0,          // Priority increment
-                            1,          // Increment (to count)
-                            FALSE);     // We aren't going to block.
-}

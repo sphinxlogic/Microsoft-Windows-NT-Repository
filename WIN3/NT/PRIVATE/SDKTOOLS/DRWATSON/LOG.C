@@ -162,7 +162,7 @@ openagain:
                         FILE_SHARE_READ,
                         NULL,
                         fAppend ? OPEN_EXISTING : CREATE_ALWAYS,
-                        FILE_ATTRIBUTE_ATOMIC_WRITE,
+                        FILE_ATTRIBUTE_NORMAL,
                         NULL
                       );
 
@@ -176,7 +176,7 @@ openagain:
                                 FILE_SHARE_READ,
                                 NULL,
                                 CREATE_NEW,
-                                FILE_ATTRIBUTE_ATOMIC_WRITE,
+                                FILE_ATTRIBUTE_NORMAL,
                                 NULL
                               );
             if (hFile == INVALID_HANDLE_VALUE) {
@@ -323,4 +323,4 @@ Return Value:
 {
     strcat( szName, "\\drwtsn32.log" );
 }
-
+

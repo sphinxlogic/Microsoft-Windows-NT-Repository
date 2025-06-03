@@ -1,6 +1,6 @@
 #include <windows.h>
-
 #include <logerror.h>
+#include "str.h"
 
 #ifdef API
 #undef API
@@ -16,28 +16,19 @@ static WORD wErrorOpts = 0;
 static char rgch[80];
 
 char *LogErrorStr(WORD err, VOID FAR* lpInfo) {
-    static char rgchWarning[] = "\r\n\r\nWarning error #%04x";
-    static char rgchFatal[]   = "\r\n\r\nFatal error #%04x";
     void DebugLogError(WORD err, VOID FAR* lpInfo);
 
 	if (err & ERR_WARNING)
-	    wsprintf(rgch, rgchWarning, err);
+            wsprintf(rgch, STR(WarningError), err);
 	else
-	    wsprintf(rgch, rgchFatal, err);
+            wsprintf(rgch, STR(FatalError), err);
     return rgch;
 }
 
-char *GetProcName(void far *);
+LPSTR GetProcName(FARPROC fn);
 
 char *LogParamErrorStr(WORD err, FARPROC lpfn, VOID FAR* param) {
-    char *rgchProcName;
-
-    static char rgchParam[]	 = "Invalid parameter passed to %s: %ld";
-    static char rgchBadInt[]	 = "Invalid parameter passed to %s: %d";
-    static char rgchBadFlags[]	 = "Invalid flags passed to %s: %#04x";
-    static char rgchBadDWord[]	 = "Invalid flags passed to %s: %#08lx";
-    static char rgchBadHandle[]  = "Invalid handle passed to %s: %#04x";
-    static char rgchBadPtr[]	 = "Invalid pointer passed to %s: %#04x:%#04x";
+    LPSTR rgchProcName;
 
     rgchProcName = GetProcName(lpfn);
 
@@ -46,24 +37,24 @@ char *LogParamErrorStr(WORD err, FARPROC lpfn, VOID FAR* param) {
 	{
 	case ERR_BAD_VALUE:
 	case ERR_BAD_INDEX:
-	    wsprintf(rgch, rgchBadInt, (LPSTR)rgchProcName, (WORD)param);
+            wsprintf(rgch, STR(ParamErrorBadInt), rgchProcName, (WORD)(DWORD)param);
 	    break;
 
 	case ERR_BAD_FLAGS:
 	case ERR_BAD_SELECTOR:
-	    wsprintf(rgch, rgchBadFlags, (LPSTR)rgchProcName, (WORD)param);
+            wsprintf(rgch, STR(ParamErrorBadFlags), rgchProcName, (WORD)(DWORD)param);
 	    break;
 
 	case ERR_BAD_DFLAGS:
 	case ERR_BAD_DVALUE:
 	case ERR_BAD_DINDEX:
-	    wsprintf(rgch, rgchBadDWord, (LPSTR)rgchProcName, (DWORD)param);
+            wsprintf(rgch, STR(ParamErrorBadDWord), rgchProcName, (DWORD)param);
 	    break;
 
 	case ERR_BAD_PTR:
 	case ERR_BAD_FUNC_PTR:
 	case ERR_BAD_STRING_PTR:
-	    wsprintf(rgch, rgchBadPtr, (LPSTR)rgchProcName,
+            wsprintf(rgch, STR(ParamErrorBadPtr), rgchProcName,
 		    SELECTOROF(param), OFFSETOF(param));
 	    break;
 
@@ -85,11 +76,11 @@ char *LogParamErrorStr(WORD err, FARPROC lpfn, VOID FAR* param) {
 	case ERR_BAD_HRGN:
 	case ERR_BAD_HPALETTE:
 	case ERR_BAD_HANDLE:
-	    wsprintf(rgch, rgchBadHandle, (LPSTR)rgchProcName, (WORD)param);
+            wsprintf(rgch, STR(ParamErrorBadHandle), rgchProcName, (WORD)(DWORD)param);
 	    break;
 
 	default:
-	    wsprintf(rgch, rgchParam, (LPSTR)rgchProcName, (DWORD)param);
+            wsprintf(rgch, STR(ParamErrorParam), rgchProcName, (DWORD)param);
 	    break;
 	}
     return rgch;

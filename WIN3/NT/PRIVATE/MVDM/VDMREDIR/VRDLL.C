@@ -101,7 +101,7 @@ Return Value:
         //
 
         if (ptr = getenv("VR")) {
-            if (!strnicmp(ptr, "0x", 2)) {
+            if (!_strnicmp(ptr, "0x", 2)) {
                 ptr += 2;
             }
             for (VrDebugFlags = 0; isxdigit(*ptr); ++ptr) {

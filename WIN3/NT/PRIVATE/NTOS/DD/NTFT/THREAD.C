@@ -33,6 +33,14 @@ Revision History:
 
 #define COPY_BUFFER_SIZE      STRIPE_SIZE
 #define BAD_SECTOR_THRESHHOLD 256
+
+#ifdef POOL_TAGGING
+#ifdef ExAllocatePool
+#undef ExAllocatePool
+#endif
+#define ExAllocatePool(a,b) ExAllocatePoolWithTag(a,b,' TtF')
+#endif
+
 
 VOID
 FtpMatchInRegistry(
@@ -154,8 +162,8 @@ Return Value:
                 regOffset = registryPartition->StartingOffset;
                 regSize   = registryPartition->Length;
 
-                if ((LiEql(partitionOffset, regOffset)) &&
-                    (LiEql(partitionSize, regSize))) {
+                if (partitionOffset.QuadPart == regOffset.QuadPart &&
+                    partitionSize.QuadPart == regSize.QuadPart) {
 
                     //
                     // Found the partition.
@@ -486,8 +494,9 @@ Return Value:
     BOOLEAN               initSucceeded = TRUE;
     ULONG                 bufferSize = COPY_BUFFER_SIZE;
     ULONG                 nastySectors = 0;
-    LARGE_INTEGER         delayTime = RtlLargeIntegerNegate(
-                                  RtlConvertLongToLargeInteger((LONG)500000));
+    LARGE_INTEGER         delayTime;
+
+    delayTime.QuadPart = -500000;
 
     DebugPrint((1, "FtThreadCopy:\n"));
 
@@ -518,7 +527,7 @@ Return Value:
     //
 
     copyLength = readDE->FtUnion.Identity.PartitionLength;
-    offset = LiFromUlong(0);
+    offset.QuadPart = 0;
 
     //
     // Get starting offsets for each partition, then move
@@ -587,7 +596,7 @@ Return Value:
                 0,
                 NULL);
 
-    while (LiLtr(offset, copyLength)) {
+    while (offset.QuadPart < copyLength.QuadPart) {
 
         ULONG size = bufferSize;
 
@@ -603,18 +612,13 @@ Return Value:
         // less than the size remaining, then adjust size.
         //
 
-        if (LiGtr(
-              LiAdd(offset, LiFromUlong(size)),
-              copyLength)) {
-
-            LARGE_INTEGER diff;
+        if (offset.QuadPart + size > copyLength.QuadPart) {
 
             //
             // Less than buffer size remaining.
             //
 
-            diff = LiSub(copyLength, offset);
-            size = diff.LowPart;
+            size = (ULONG) (copyLength.QuadPart - offset.QuadPart);
         }
 
         DebugPrint((3,
@@ -627,8 +631,7 @@ Return Value:
         // Read the data from the source device.
         //
 
-        wholeDiskOffset = LiAdd(offset,
-                                readOffset);
+        wholeDiskOffset.QuadPart = offset.QuadPart + readOffset.QuadPart;
 
         DebugPrint((4,
                     "FtThreadCopy: Read offset == %x:%x\n",
@@ -739,8 +742,7 @@ readAgain:
         // Write the data to the mirror.
         //
 
-        wholeDiskOffset = LiAdd(offset,
-                                writeOffset);
+        wholeDiskOffset.QuadPart = offset.QuadPart + writeOffset.QuadPart;
 
         DebugPrint((4,
                     "FtThreadCopy: Write offset == %x:%x\n",
@@ -815,8 +817,8 @@ tryAgain:
                 // Calculate offset of nasty sector.
                 //
 
-                failingOffset = LiAdd(wholeDiskOffset,
-                                      LiFromUlong(requestOffset));
+                failingOffset.QuadPart = wholeDiskOffset.QuadPart +
+                                         requestOffset;
 
                 //
                 // Attempt to map out nasty sector.
@@ -874,8 +876,7 @@ tryAgain:
             }
         }
 
-        offset = LiAdd(offset,
-                       LiFromUlong(size));
+        offset.QuadPart += size;
         //
         // Move the lock region to the next row.
         // On the last pass this will move the lock past the end of the
@@ -1155,6 +1156,14 @@ Return Value:
     }
 
     //
+    // Complete the IRP if supplied.
+    //
+
+    if (Context->Irp) {
+        IoCompleteRequest(Context->Irp, IO_NO_INCREMENT);
+    }
+
+    //
     // Free context block.
     //
 
@@ -1195,7 +1204,7 @@ Return Value:
 {
     PFT_SYNC_CONTEXT syncContext;
     HANDLE threadHandle;
-    NTSTATUS status;
+    NTSTATUS status, fstatus;
 
     //
     // Allocate and copy sync information to memory. This is done
@@ -1208,6 +1217,20 @@ Return Value:
     if (syncContext == NULL) {
         return STATUS_INSUFFICIENT_RESOURCES;
     }
+
+    //
+    // Save IRP pointer if this a synchronous call.
+    //
+
+    if (IoctlCode == FT_CONFIGURE) {
+        IoMarkIrpPending(Irp);
+        syncContext->Irp = Irp;
+        fstatus = STATUS_PENDING;
+    } else {
+        syncContext->Irp = NULL;
+        fstatus = STATUS_SUCCESS;
+    }
+
 
     //
     // Store device extension in context block.
@@ -1244,7 +1267,7 @@ Return Value:
         // Request is for the complete volume size.
         //
 
-        syncContext->SyncInfo.ByteOffset = LiFromUlong(0);
+        syncContext->SyncInfo.ByteOffset.QuadPart = 0;
         FtpVolumeLength(DeviceExtension,
                         &syncContext->SyncInfo.ByteCount);
     }
@@ -1263,11 +1286,12 @@ Return Value:
 
     if (!NT_SUCCESS(status)) {
         ExFreePool(syncContext);
+        fstatus = status;
     } else {
         ZwClose(threadHandle);
     }
 
-    return status;
+    return fstatus;
 
 } // end FtThreadStartNewThread
 
@@ -1297,16 +1321,16 @@ Return Value:
 
 NOTE:
     Currently loops forever.
-    BUGBUG - Assumes page size is 4096 -- should use appropriate macros.
 
 --*/
 
 {
     ULONG         size      = *DesiredSize;
     PUCHAR        buffer    = NULL;
-    LARGE_INTEGER delayTime = RtlLargeIntegerNegate(
-                                  RtlConvertLongToLargeInteger((LONG)BUFFER_DELAY));
+    LARGE_INTEGER delayTime;
     BOOLEAN       sleepNow  = FALSE;
+
+    delayTime.QuadPart = -(BUFFER_DELAY);
 
     while (1) {
         buffer = (PUCHAR) ExAllocatePool(NonPagedPoolCacheAligned,
@@ -1319,7 +1343,7 @@ NOTE:
             sleepNow = TRUE;
         } else {
             size = size / 2;
-            if (size < 4096) {
+            if (size < PAGE_SIZE) {
                 sleepNow = TRUE;
                 size = *DesiredSize;
             }
@@ -1328,7 +1352,7 @@ NOTE:
         if (sleepNow == TRUE) {
             DebugPrint((2,
                        "FtThreadAllocateBuffer: NO PAGES FREE, asking for %d!",
-                       size / 4096));
+                       size / PAGE_SIZE));
             KeDelayExecutionThread(KernelMode,
                                    FALSE,
                                    &delayTime);
@@ -1430,7 +1454,7 @@ Return Value:
     //
 
     verifyLength = extensionFirst->FtUnion.Identity.PartitionLength;
-    offset = LiFromUlong(0);
+    offset.QuadPart = 0;
 
     //
     // Get starting offsets for each partition, then move
@@ -1457,7 +1481,7 @@ Return Value:
                 verifyLength.HighPart,
                 verifyLength.LowPart));
 
-    while (LiLtr(offset, verifyLength)) {
+    while (offset.QuadPart < verifyLength.QuadPart) {
 
         ULONG size = bufferSize;
         ULONG diffLocation;
@@ -1474,18 +1498,13 @@ Return Value:
         // less than the size remaining, then adjust size.
         //
 
-        if (LiGtr(
-              LiAdd(offset, LiFromUlong(size)),
-              verifyLength)) {
-
-            LARGE_INTEGER diff;
+        if (offset.QuadPart + size > verifyLength.QuadPart) {
 
             //
             // Less than buffer size remaining.
             //
 
-            diff = LiSub(verifyLength, offset);
-            size = diff.LowPart;
+            size = (ULONG) (verifyLength.QuadPart - offset.QuadPart);
         }
 
         DebugPrint((3,
@@ -1498,8 +1517,7 @@ Return Value:
         // Read the data from the source device.
         //
 
-        wholeDiskOffset = LiAdd(offset,
-                                offsetFirst);
+        wholeDiskOffset.QuadPart = offset.QuadPart + offsetFirst.QuadPart;
 
         DebugPrint((4,
                     "FtThreadVerifyMirror: Read offset 1 == %x:%x Device = 0x%x\n",
@@ -1541,8 +1559,7 @@ Return Value:
         // read second device.
         //
 
-        wholeDiskOffset = LiAdd(offset,
-                                offsetSecond);
+        wholeDiskOffset.QuadPart = offset.QuadPart + offsetSecond.QuadPart;
 
         DebugPrint((4,
                     "FtThreadVerifyMirror: Read offset 2 == %x:%x Device = 0x%x\n",
@@ -1635,8 +1652,7 @@ Return Value:
             DebugPrint((0, "FtThreadVerifyMirror: Maximum same == %d\n", maxSame));
         }
 
-        offset = LiAdd(offset,
-                       LiFromUlong(size));
+        offset.QuadPart += size;
     }
     DebugPrint((1, "FtThreadVerifyMirror: complete\n"));
 
@@ -1680,8 +1696,8 @@ NOTES: Caller must own the spin lock for this volume.
     ULONG  row;
 
     members = DeviceExtension->FtCount.NumberOfMembers - 1;
-    stripeLocation = LiShr(irpStack->Parameters.Read.ByteOffset,
-                           STRIPE_SHIFT).LowPart;
+    stripeLocation = (ULONG) (irpStack->Parameters.Read.ByteOffset.QuadPart >>
+                              STRIPE_SHIFT);
     row = stripeLocation / members;
 
     if (row == DeviceExtension->RegenerateRegionForGroup->RowNumber) {
@@ -1694,10 +1710,9 @@ NOTES: Caller must own the spin lock for this volume.
     // checked the start of the I/O, now check the end of the I/O
     //
 
-    stripeLocation = LiShr(LiAdd(
-               irpStack->Parameters.Read.ByteOffset,
-               LiFromUlong(irpStack->Parameters.Read.Length)),
-               STRIPE_SHIFT).LowPart;
+    stripeLocation = (ULONG)
+                     ((irpStack->Parameters.Read.ByteOffset.QuadPart +
+                       irpStack->Parameters.Read.Length) >> STRIPE_SHIFT);
 
     row = stripeLocation / members;
 
@@ -2170,10 +2185,9 @@ Return Value:
     ULONG              ioSize =
                   DeviceExtension->FtUnion.Identity.DiskGeometry.BytesPerSector;
     ULONG              bytesRemaining = ByteCount - *FailingOffset;
-    LARGE_INTEGER      offset =
-                           LiAdd(*ByteOffset,
-                                 LiFromUlong(*FailingOffset));
+    LARGE_INTEGER      offset;
 
+    offset.QuadPart = ByteOffset->QuadPart + *FailingOffset;
 
     while (bytesRemaining) {
 
@@ -2187,8 +2201,7 @@ Return Value:
 
         buffer += ioSize;
         bytesRemaining -= ioSize;
-        offset = LiAdd(offset,
-                       LiFromUlong(ioSize));
+        offset.QuadPart += ioSize;
     }
 
     //
@@ -2309,20 +2322,20 @@ Return Value:
     // The following calculation truncates a large integer into a long.
     //
 
-    blockAddress = LiXDiv(
+    blockAddress = (ULONG)
 
          //
          // Sum of the partition offset and the IO offset in the partition.
          //
 
-         LiAdd(DeviceExtension->FtUnion.Identity.PartitionOffset,
-               *ByteOffset),
+         ((DeviceExtension->FtUnion.Identity.PartitionOffset.QuadPart +
+               ByteOffset->QuadPart)/
 
          //
          // The number of bytes per sector for this device.
          //
 
-         DeviceExtension->FtUnion.Identity.DiskGeometry.BytesPerSector).LowPart;
+         DeviceExtension->FtUnion.Identity.DiskGeometry.BytesPerSector);
 
     //
     // Allocate bad block structure.
@@ -2452,10 +2465,8 @@ Return Value:
     // Verify number of bytes to verify doesn't spill out of partition.
     //
 
-    if (LiGtr(
-            LiAdd(verifyInfo->StartingOffset,
-                  LiFromUlong(verifyInfo->Length)),
-            DeviceExtension->FtUnion.Identity.PartitionLength)) {
+    if (verifyInfo->StartingOffset.QuadPart + verifyInfo->Length >
+        DeviceExtension->FtUnion.Identity.PartitionLength.QuadPart) {
 
         Irp->IoStatus.Status = STATUS_INVALID_PARAMETER;
         Irp->IoStatus.Information = 0;
@@ -2631,8 +2642,7 @@ Return Value:
         // Adjust byte offset for next stripe.
         //
 
-        byteOffset = LiAdd(byteOffset,
-                           LiFromUlong(length));
+        byteOffset.QuadPart += length;
 
     } // end while (bytesRemaining)
 
@@ -2807,5 +2817,3 @@ Return Value:
 
     return;
 }
-
-

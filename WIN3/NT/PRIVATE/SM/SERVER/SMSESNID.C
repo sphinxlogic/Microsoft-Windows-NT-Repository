@@ -92,7 +92,7 @@ Return Value:
 
     }
 
-    Session = RtlAllocateHeap(SmpHeap, 0, sizeof(SMPSESSION));
+    Session = RtlAllocateHeap(SmpHeap, MAKE_TAG( SM_TAG ), sizeof(SMPSESSION));
 
     Session->SessionId = SessionId;
     Session->OwningSubsystem = OwningSubsystem;

@@ -145,7 +145,7 @@ Return Value:
     while (ISSLASH(*name)) {  // eat any extra slashes
         name++;
     }
-    if (strnicmp(name,"pipe",4)) {
+    if (_strnicmp(name,"pipe",4)) {
         return FALSE;
     }
     if (!(ISSLASH(*(name+4)))) {
@@ -180,7 +180,7 @@ Return Value:
     while (ISSLASH(*name)) {  // eat any extra slashes
         name++;
     }
-    if (strnicmp(name,"mailslot",8)) {
+    if (_strnicmp(name,"mailslot",8)) {
         return FALSE;
     }
     if (!(ISSLASH(*(name+8)))) {
@@ -1390,13 +1390,13 @@ Routine Description:
                     }
                 }
 
-                if (strnicmp( Src, ExpectedPrefix+1, ExpectedPrefixLength-2 ) ||
+                if (_strnicmp( Src, ExpectedPrefix+1, ExpectedPrefixLength-2 ) ||
                     !SlashFlag) {
                     RetCode = ERROR_PATH_NOT_FOUND;
                 }
             }
 #else
-            if (strnicmp( Src, ExpectedPrefix+1 , ExpectedPrefixLength-2 ) ||
+            if (_strnicmp( Src, ExpectedPrefix+1 , ExpectedPrefixLength-2 ) ||
                 !(ISSLASH(*(Src+ExpectedPrefixLength-2)))) {
                 RetCode = ERROR_PATH_NOT_FOUND;
             }
@@ -1726,7 +1726,7 @@ Routine Description:
         // CANONICALIZE_FILE_OR_DEV is specified.  only DosMove sets this flag.
         //
 
-        else if ((!(strnicmp(NameBuffer+DRIVE_LETTER_SIZE+FILE_PREFIX_LENGTH,"PIPE",4))) &&
+        else if ((!(_strnicmp(NameBuffer+DRIVE_LETTER_SIZE+FILE_PREFIX_LENGTH,"PIPE",4))) &&
             (((*(NameBuffer+DRIVE_LETTER_SIZE+FILE_PREFIX_LENGTH+PIPE_DIR_SIZE-2)) == 0) ||
              ((*(NameBuffer+DRIVE_LETTER_SIZE+FILE_PREFIX_LENGTH+PIPE_DIR_SIZE-2)) == (CHAR)OBJ_NAME_PATH_SEPARATOR))) {
             if (ExpectedType != CANONICALIZE_FILE_OR_DEV) {
@@ -1744,7 +1744,7 @@ Routine Description:
 
         if ((ARGUMENT_PRESENT( DirectoryHandle )) &&
             (CurrentDirectoryHandle != NULL) &&
-            (!strnicmp(NameBuffer+DRIVE_LETTER_SIZE+FILE_PREFIX_LENGTH,
+            (!_strnicmp(NameBuffer+DRIVE_LETTER_SIZE+FILE_PREFIX_LENGTH,
                        CurrentDirectoryString->Buffer,
                        CurrentDirectoryString->Length)) &&
             (NameBuffer[DRIVE_LETTER_SIZE+FILE_PREFIX_LENGTH+

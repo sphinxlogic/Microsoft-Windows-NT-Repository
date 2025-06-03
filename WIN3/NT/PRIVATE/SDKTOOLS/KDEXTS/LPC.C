@@ -23,6 +23,16 @@ Revision History:
 --*/
 
 
+#include "precomp.h"
+#pragma hdrstop
+
+//
+// Nuke these definitions from kxmips.h as they conflict with
+// LPC_MESSAGE structure in ntlpcapi.h
+//
+
+#undef s1
+#undef s2
 
 typedef struct _LPCP_DUMP_PORT_INFO {
     struct _LPCP_DUMP_PORT_INFO *Next;
@@ -62,12 +72,14 @@ char *LpcpMessageTypeName[] = {
 
 VOID
 LpcpDumpClientPort(
+    ULONG                   dwProcessor,
     PLPCP_DUMP_INFO         PortsInfo,
     PLPCP_DUMP_PORT_INFO    PortInfo
     );
 
 VOID
 LpcpDumpConnectionPort(
+    ULONG                   dwProcessor,
     PLPCP_DUMP_INFO         PortsInfo,
     PLPCP_DUMP_PORT_INFO    PortInfo
     );
@@ -136,7 +148,7 @@ Return Value:
     PortInfo = PortsInfo.PortInfo;
     while (PortInfo) {
         if ((PortInfo->PortObject.Flags & PORT_TYPE) == SERVER_CONNECTION_PORT) {
-            LpcpDumpConnectionPort( &PortsInfo, PortInfo );
+            LpcpDumpConnectionPort( dwProcessor, &PortsInfo, PortInfo );
         }
 
         PortInfo = PortInfo->Next;
@@ -190,7 +202,7 @@ dumpMessages:
     PortInfo = PortsInfo.PortInfo;
     while (PortInfo) {
         p = PortInfo->Next;
-        free( PortInfo );
+        LocalFree( PortInfo );
         PortInfo = p;
     }
 
@@ -249,6 +261,7 @@ LpcpGetProcessImageName(
 
 VOID
 LpcpDumpClientPort(
+    ULONG                   dwProcessor,
     PLPCP_DUMP_INFO         PortsInfo,
     PLPCP_DUMP_PORT_INFO    PortInfo
     )
@@ -262,6 +275,8 @@ LpcpDumpClientPort(
     PETHREAD        pThread;
     ETHREAD         Thread;
     UCHAR           ImageFileName[ 32 ];
+    KSEMAPHORE              Semaphore;
+    ULONG                   SignalState;
 
     LpcpGetProcessImageName( PortInfo->PortObject.Creator.UniqueProcess, ImageFileName );
     dprintf( "    Client Port Object at %08x (connected to %08x) - created by %s\n",
@@ -275,9 +290,18 @@ LpcpDumpClientPort(
     Next        = ListEntry.Flink;
 
     if (Next != NULL && Next != Head) {
+        if (!ReadMemory( (DWORD) PortInfo->PortObject.MsgQueue.Semaphore,
+                         &Semaphore,
+                         sizeof( KSEMAPHORE ),
+                         &Result)) {
+            dprintf("Unable to read KSEMAPHORE at %08lx\n",PortInfo->PortObject.MsgQueue.Semaphore);
+            SignalState = 0;
+        } else {
+            SignalState = Semaphore.Header.SignalState;
+        }
         dprintf( "    Receive queue head: %08x . %08x  Semaphore Count: %x\n",
                  ListEntry.Flink, ListEntry.Blink,
-                 PortInfo->PortObject.MsgQueue.Semaphore.Header.SignalState
+                 SignalState
                );
         while (Next != Head) {
             if ( !ReadMemory( (DWORD)Next,
@@ -326,7 +350,7 @@ LpcpDumpClientPort(
                                   &Result) ) {
                     dprintf("%08lx: Unable to get thread contents\n", pThread );
                 } else {
-                    DumpThread ("        ", &Thread, pThread, 0x0f);
+                    DumpThread (dwProcessor,"        ", &Thread, pThread, 0x0f);
                 }
 
                 Next = ListEntry.Flink;
@@ -344,6 +368,7 @@ LpcpDumpClientPort(
 
 VOID
 LpcpDumpConnectionPort(
+    ULONG                   dwProcessor,
     PLPCP_DUMP_INFO         PortsInfo,
     PLPCP_DUMP_PORT_INFO    PortInfo
     )
@@ -355,6 +380,8 @@ LpcpDumpConnectionPort(
     ULONG                   Result;
     PLPCP_DUMP_PORT_INFO    p;
     UCHAR                   ImageFileName[ 32 ];
+    KSEMAPHORE              Semaphore;
+    ULONG                   SignalState;
 
     LpcpGetProcessImageName( PortInfo->PortObject.Creator.UniqueProcess, ImageFileName );
     dprintf( "Connection Port Object at %08x - Name='%ws' created by %s\n",
@@ -367,9 +394,18 @@ LpcpDumpConnectionPort(
     ListEntry = PortInfo->PortObject.MsgQueue.ReceiveHead;
     Next = ListEntry.Flink;
     if (Next != NULL && Next != Head) {
+        if (!ReadMemory( (DWORD) PortInfo->PortObject.MsgQueue.Semaphore,
+                         &Semaphore,
+                         sizeof( KSEMAPHORE ),
+                         &Result)) {
+            dprintf("Unable to read KSEMAPHORE at %08lx\n",PortInfo->PortObject.MsgQueue.Semaphore);
+            SignalState = 0;
+        } else {
+            SignalState = Semaphore.Header.SignalState;
+        }
         dprintf( "    Receive queue head: %08x . %08x  Semaphore Count: %x\n",
                  ListEntry.Flink, ListEntry.Blink,
-                 PortInfo->PortObject.MsgQueue.Semaphore.Header.SignalState
+                 SignalState
                );
         while (Next != Head) {
             if ( !ReadMemory( (DWORD)Next,
@@ -424,7 +460,7 @@ LpcpDumpConnectionPort(
             p->PortObject.ConnectionPort == PortInfo->pPortObject &&
             (p->PortObject.Flags & PORT_TYPE) == CLIENT_COMMUNICATION_PORT
            ) {
-            LpcpDumpClientPort( PortsInfo, p );
+            LpcpDumpClientPort( dwProcessor, PortsInfo, p );
         }
 
         p = p->Next;
@@ -451,7 +487,7 @@ CapturePorts(
     PLPCP_DUMP_INFO PortsInfo = (PLPCP_DUMP_INFO)Parameter;
     PLPCP_DUMP_PORT_INFO PortInfo;
 
-    PortInfo = malloc( sizeof( *PortInfo ) );
+    PortInfo = LocalAlloc(LPTR, sizeof( *PortInfo ) );
     if (PortInfo == NULL) {
         dprintf( "*** out of memory.\n" );
         return FALSE;
@@ -502,11 +538,12 @@ LpcpDumpMessage(
 
 
     LpcpGetProcessImageName( Msg.Request.ClientId.UniqueProcess, ImageFileName );
-    dprintf( "%s%04x %08x - %s  Id=%04u  From: %04x.%04x (%s)",
+    dprintf( "%s%04x %08x - %s  Id=%04x  From: %04x.%04x (%s)",
              Indent,
+
              Msg.ZoneIndex & ~LPCP_ZONE_MESSAGE_ALLOCATED,
              pMsg,
-             Msg.ZoneIndex & LPCP_ZONE_MESSAGE_ALLOCATED ? "Busy" : "Free",
+             Msg.Reserved0 != 0 ? "Busy" : "Free",
              Msg.Request.MessageId,
              Msg.Request.ClientId.UniqueProcess,
              Msg.Request.ClientId.UniqueThread,

@@ -26,7 +26,6 @@ Revision History:
 #include "halp.h"
 #include "pci.h"
 #include "pcip.h"
-#include "machdep.h"
 
 typedef ULONG (*FncConfigIO) (
     IN PVOID            State,
@@ -50,12 +49,53 @@ typedef enum _VALID_SLOT {
 } VALID_SLOT;
 
 //
-// Local prototypes for routines supporting HalpGet/SetPCIData
+// Local prototypes for routines supporting PCI bus handler routines
 //
+
+ULONG
+HalpGetPCIData (
+    IN PBUS_HANDLER BusHandler,
+    IN PBUS_HANDLER RootHandler,
+    IN ULONG Slot,
+    IN PUCHAR Buffer,
+    IN ULONG Offset,
+    IN ULONG Length
+    );
+
+ULONG
+HalpSetPCIData (
+    IN PBUS_HANDLER BusHandler,
+    IN PBUS_HANDLER RootHandler,
+    IN ULONG Slot,
+    IN PUCHAR Buffer,
+    IN ULONG Offset,
+    IN ULONG Length
+    );
+
+
+NTSTATUS
+HalpAdjustPCIResourceList (
+    IN PBUS_HANDLER BusHandler,
+    IN PBUS_HANDLER RootHandler,
+    IN OUT PIO_RESOURCE_REQUIREMENTS_LIST   *pResourceList
+    );
+
+
+NTSTATUS
+HalpAssignPCISlotResources (
+    IN PBUS_HANDLER              BusHandler,
+    IN PBUS_HANDLER              RootHandler,
+    IN PUNICODE_STRING          RegistryPath,
+    IN PUNICODE_STRING          DriverClassName       OPTIONAL,
+    IN PDRIVER_OBJECT           DriverObject,
+    IN PDEVICE_OBJECT           DeviceObject          OPTIONAL,
+    IN ULONG                    Slot,
+    IN OUT PCM_RESOURCE_LIST   *pAllocatedResources
+    );
 
 VOID
 HalpReadPCIConfig (
-    IN ULONG BusNumber,
+    IN PBUS_HANDLER BusHandler,
     IN PCI_SLOT_NUMBER Slot,
     IN PVOID Buffer,
     IN ULONG Offset,
@@ -64,28 +104,22 @@ HalpReadPCIConfig (
 
 VOID
 HalpWritePCIConfig (
-    IN ULONG BusNumber,
+    IN PBUS_HANDLER BusHandler,
     IN PCI_SLOT_NUMBER Slot,
     IN PVOID Buffer,
     IN ULONG Offset,
     IN ULONG Length
     );
 
-
-PCI_CONFIGURATION_TYPES
-HalpPCIConfigCycleType (
-    IN ULONG BusNumber
-    );
-
 VALID_SLOT
 HalpValidPCISlot (
-    IN ULONG BusNumber,
+    IN PBUS_HANDLER BusHandler,
     IN PCI_SLOT_NUMBER Slot
     );
 
 VOID
 HalpPCIConfig (
-    IN ULONG BusNumber,
+    IN PBUS_HANDLER     BusHandler,
     IN PCI_SLOT_NUMBER  Slot,
     IN PUCHAR           Buffer,
     IN ULONG            Offset,
@@ -130,17 +164,26 @@ ULONG HalpPCIWriteUshort (
     );
 
 VOID
-HalpPCILineToPin (
-    IN ULONG                BusNumber,
+HalpPCILine2PinNop (
+    IN PBUS_HANDLER         BusHandler,
+    IN PBUS_HANDLER         RootHandler,
     IN PCI_SLOT_NUMBER      SlotNumber,
     IN PPCI_COMMON_CONFIG   PciNewData,
     IN PPCI_COMMON_CONFIG   PciOldData
     );
 
+VOID
+HalpPCIPin2LineNop (
+    IN PBUS_HANDLER         BusHandler,
+    IN PBUS_HANDLER         RootHandler,
+    IN PCI_SLOT_NUMBER      SlotNumber,
+    IN PPCI_COMMON_CONFIG   PciData
+    );
+
 #if DBG
 BOOLEAN
 HalpValidPCIAddr(
-    IN ULONG BusNumber,
+    IN PBUS_HANDLER BusHandler,
     IN PHYSICAL_ADDRESS BAddr,
     IN ULONG Length,
     IN ULONG AddressSpace
@@ -153,7 +196,8 @@ HalpValidPCIAddr(
 
 NTSTATUS
 HalpAssignPCISlotResources (
-    IN ULONG                    BusNumber,
+    IN PBUS_HANDLER             BusHandler,
+    IN PBUS_HANDLER             RootHandler,
     IN PUNICODE_STRING          RegistryPath,
     IN PUNICODE_STRING          DriverClassName       OPTIONAL,
     IN PDRIVER_OBJECT           DriverObject,
@@ -176,6 +220,10 @@ HalpTestPci (
 #if !defined(AXP_FIRMWARE)
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(INIT,HalpInitializePCIBus)
+#pragma alloc_text(INIT,HalpAllocateAndInitPCIBusHandler)
+#pragma alloc_text(INIT,HalpRegisterPCIInstallHandler )
+#pragma alloc_text(INIT,HalpDefaultPCIInstallHandler )
+#pragma alloc_text(INIT,HalpDeterminePCIDevicesPresent )
 #pragma alloc_text(PAGE,HalpAssignPCISlotResources)
 #pragma alloc_text(PAGE,HalpAdjustPCIResourceList)
 #endif // ALLOC_PRAGMA
@@ -186,6 +234,10 @@ HalpTestPci (
 #define ExFreePool(PoolData)
 
 #pragma alloc_text(DISTEXT, HalpInitializePCIBus )
+#pragma alloc_text(DISTEXT, HalpAllocateAndInitPCIBusHandler)
+#pragma alloc_text(DISTEXT, HalpRegisterPCIInstallHandler )
+#pragma alloc_text(DISTEXT, HalpDefaultPCIInstallHandler )
+#pragma alloc_text(DISTEXT, HalpDeterminePCIDevicesPresent )
 #pragma alloc_text(DISTEXT, HalpGetPCIData )
 #pragma alloc_text(DISTEXT, HalpSetPCIData )
 #pragma alloc_text(DISTEXT, HalpReadPCIConfig )
@@ -201,7 +253,6 @@ HalpTestPci (
 #pragma alloc_text(DISTEXT, HalpPCIWriteUchar )
 #pragma alloc_text(DISTEXT, HalpPCIWriteUshort )
 #pragma alloc_text(DISTEXT, HalpPCIWriteUlong )
-#pragma alloc_text(DISTEXT, HalpPCILineToPin )
 #pragma alloc_text(DISTEXT, HalpAssignPCISlotResources)
 #pragma alloc_text(DISTEXT, HalpAdjustPCIResourceList)
 
@@ -217,6 +268,7 @@ BOOLEAN             PCIInitialized = FALSE;
 ULONG               PCIMaxLocalDevice;
 ULONG               PCIMaxDevice;
 ULONG               PCIMaxBus;
+PINSTALL_BUS_HANDLER PCIInstallHandler = HalpDefaultPCIInstallHandler;
 
 CONFIG_HANDLER      PCIConfigHandlers = {
     {
@@ -238,12 +290,336 @@ WCHAR rgzIdentifier[] = L"Identifier";
 WCHAR rgzPCIIndetifier[] = L"PCI";
 
 #define Is64BitBaseAddress(a)   \
-            ((a & PCI_ADDRESS_MEMORY_TYPE_MASK) == PCI_TYPE_64BIT)
+            (((a & PCI_ADDRESS_IO_SPACE) == 0)  &&  \
+             ((a & PCI_ADDRESS_MEMORY_TYPE_MASK) == PCI_TYPE_64BIT))
+
+#if !defined(AXP_FIRMWARE)
 
+VOID
+HalpRegisterPciBus(
+    IN PCONFIGURATION_COMPONENT Component,
+    IN PVOID ConfigurationData
+    )
+/*++
+
+Routine Description:
+
+    This function uses information obtained from the ARC configuration
+    tree to create PCI bus handlers.  If configuration data was passed
+    with the PCI component, then that information is used to create the
+    bus handler.  Otherwise, we use a priori knowledge (and bus scanning)
+    to generate the bus handler data.  This function supports firmware
+    that both provide and do not provide configuration data payloads.
+
+Arguments:
+
+    Component - The ARC configuration component for this bus.
+
+    ConfigurationData - The configuration data payload (or NULL).
+
+Return Value:
+
+    None.
+
+--*/
+{
+    BOOLEAN ConfigurationDataPresent;
+    ARC_PCI_CONFIGURATION ArcPciConfiguration;
+    ULONG BusNumber;
+    ULONG HwBusNumber;
+    BOOLEAN BusIsAcrossPPB;
+    PBUS_HANDLER BusHandler;
+    PPCIPBUSDATA BusData;
+    RTL_BITMAP DevicePresent;
+    PCI_SLOT_NUMBER SlotNumber;
+    ULONG DeviceNumber;
+    ULONG FunctionNumber;
+    PCI_COMMON_CONFIG CommonConfig;
+    PCI_SLOT_NUMBER Dummy;
+
+    memset(&Dummy, 0, sizeof(PCI_SLOT_NUMBER) );
+
+    //
+    // Ascertain whether the ARC firmware provided configuration data as part
+    // of the multi-function adapter component.
+    //
+
+    ConfigurationDataPresent = Component->ConfigurationDataLength != 0;
+
+    //
+    // If configuration data was provided use it to allocate and initialize
+    // the handler for this bus.  Otherwise, use a priori knowledge to
+    // generate reasonable values.
+    //
+
+    if (ConfigurationDataPresent) {
+
+        //
+        // Copy the configuration data from the component.
+        //
+
+        RtlCopyMemory(
+            &ArcPciConfiguration,
+            ConfigurationData,
+            sizeof (ARC_PCI_CONFIGURATION)
+        );
+
+        //
+        // Use the values provided.
+        //
+
+        BusNumber = ArcPciConfiguration.BusNumber;
+        HwBusNumber = ArcPciConfiguration.HwBusNumber;
+        BusIsAcrossPPB = ArcPciConfiguration.BusIsAcrossPPB;
+
+        //
+        // Despite its name, PCIMaxBus is really the number of busses present
+        // in the system.
+        //
+
+        if (PCIMaxBus < BusNumber + 1) {
+            PCIMaxBus = BusNumber + 1;
+        }
+
+    } else {
+
+        //
+        // PCIMaxBus keeps a running count of the number of busses seen up
+        // to this point.  Use the current value as the bus number and advance
+        // the counter.  Set HwBusNumber and BusIsAcrossPPB to reasonable
+        // values.
+        //
+
+        BusNumber = PCIMaxBus++;
+        HwBusNumber = 0;
+        BusIsAcrossPPB = BusNumber != 0;
+
+    }
+
+    //
+    // Allocate and initialize the handler for this bus.  N.B. device-present
+    // checking is disabled at this point.  We will enable it below.
+    //
+
+    BusHandler = HalpAllocateAndInitPCIBusHandler(
+                     BusNumber,
+                     HwBusNumber,
+                     BusIsAcrossPPB,
+                     0,                // MS here
+                     Dummy             // MS here
+                 );
+
+    //
+    // Get a pointer to the bus-specific data.
+    //
+
+    BusData = (PPCIPBUSDATA)BusHandler->BusData;
+
+    //
+    // Compute the device-present bitmap for this bus.  If configuration
+    // data is present then the bitmap has been pre-computed for us by the
+    // firmware.  In this case, use the bitmap provided.  otherwise, we
+    // have to do the work now of generating the bitmap.
+    //
+
+    if (ConfigurationDataPresent) {
+
+        //
+        // Initialize the device-present bitmap for this bus.
+        //
+
+        RtlInitializeBitMap(
+            &BusData->DevicePresent,
+            BusData->DevicePresentBits,
+            PCI_MAX_DEVICES * PCI_MAX_FUNCTION
+        );
+
+        //
+        // The firmware has already computed the device-present bitmap for
+        // us.  Copy the bitmap from the configuration data.
+        //
+
+        RtlCopyMemory(
+            BusData->DevicePresentBits,
+            ArcPciConfiguration.DevicePresentBits,
+            sizeof (BusData->DevicePresentBits)
+        );
+
+
+    } else {
+
+        //
+        // Initialize a bitmap which we will use to accumulate the results
+        // of the device-present scan.  N.B. Device-present checking is
+        // currently disabled.
+        //
+
+        RtlInitializeBitMap(
+            &DevicePresent,
+            BusData->DevicePresentBits,
+            PCI_MAX_DEVICES * PCI_MAX_FUNCTION
+        );
+
+        RtlClearBits(
+            &DevicePresent,
+            0,
+            PCI_MAX_DEVICES * PCI_MAX_FUNCTION
+        );
+
+        //
+        // Initialize the slot number.
+        //
+
+        SlotNumber.u.AsULONG = 0;
+
+        //
+        // Loop through each device number.
+        //
+
+        for (DeviceNumber = 0;
+             DeviceNumber < PCI_MAX_DEVICES;
+             DeviceNumber++) {
+
+            SlotNumber.u.bits.DeviceNumber = DeviceNumber;
+
+            //
+            // Loop through each function number.
+            //
+
+            for (FunctionNumber = 0;
+                 FunctionNumber < PCI_MAX_FUNCTION;
+                 FunctionNumber++) {
+
+                SlotNumber.u.bits.FunctionNumber = FunctionNumber;
+
+                //
+                // Read the common configuration header.
+                //
+
+                HalpReadPCIConfig(
+                    BusHandler,
+                    SlotNumber,
+                    &CommonConfig,
+                    0,
+                    PCI_COMMON_HDR_LENGTH
+                );
+
+                //
+                // If the Vendor ID is invalid, then no device is present
+                // at this device/function number.
+                //
+
+                if (CommonConfig.VendorID == PCI_INVALID_VENDORID) {
+                    if (FunctionNumber == 0) {
+                        break;
+                    }
+                    continue;
+                }
+
+                //
+                // Set a bit indicating a device is present.
+                //
+
+                RtlSetBits(
+                    &DevicePresent,
+                    PciBitIndex(DeviceNumber, FunctionNumber),
+                    1
+                );
+
+                //
+                // If this is not a multi-function device, then terminate
+                // the function number loop.
+                //
+
+                if ((CommonConfig.HeaderType & PCI_MULTIFUNCTION) == 0) {
+                    break;
+                }
+            }
+        }
+
+        //
+        // Enable device-present checking.
+        //
+
+        BusData->DevicePresent = DevicePresent;
+    }
+}
+
+#endif
+
+#if !defined(AXP_FIRMWARE)
+
+VOID
+HalpQueryPciBusConfiguration(
+    IN PCONFIGURATION_COMPONENT_DATA Root
+    )
+/*++
+
+Routine Description:
+
+    This function loops through each multi-function adapter component
+    in the ARC configuration tree and calls HalpRegisterPciBus() to create
+    a bus handler for it.
+
+Arguments:
+
+    Root - The root of the ARC configuration tree.
+
+Return Value:
+
+    None.
+
+--*/
+{
+    ULONG Key;
+    PCONFIGURATION_COMPONENT_DATA Adapter;
+
+    //
+    // Loop through each multi-function adapter component in the ARC
+    // configuration tree.
+    //
+
+    for (Key = 0; TRUE; Key++) {
+
+        //
+        // Get a pointer to the component data.
+        //
+
+        Adapter = KeFindConfigurationEntry(
+                      Root,
+                      AdapterClass,
+                      MultiFunctionAdapter,
+                      &Key
+                  );
+
+        //
+        // If there are no more multi-function adapters in the ARC
+        // configuration tree, then we're done.
+        //
+
+        if (Adapter == NULL) {
+            break;
+        }
+
+        //
+        // Ascertain whether this is a PCI multi-function adapter component.
+        // If so, register a bus handler for it.
+        //
+
+        if (_stricmp(Adapter->ComponentEntry.Identifier, "PCI") == 0) {
+            HalpRegisterPciBus(
+                &Adapter->ComponentEntry,
+                Adapter->ConfigurationData
+            );
+        }
+    }
+}
+
+#endif
 
 VOID
-HalpInitializePCIBus (
-    VOID
+HalpInitializePCIBus(
+    IN PLOADER_PARAMETER_BLOCK LoaderBlock
     )
 /*++
 
@@ -253,8 +629,7 @@ Routine Description:
     
     The Arc firmware is responsible for building configuration information
     about the number of PCI buses on the system and nature (local vs. secondary
-    - across  a PCI-PCI bridge) of the each bus.  This state is held in
-    PCIRegInfo.
+    - across  a PCI-PCI bridge) of the each bus.
 
     The maximum virtual slot number on the local (type 0 config cycle)
     PCI bus is registered here, based on the machine dependent define
@@ -272,157 +647,163 @@ Return Value:
 
     None.
 
+--*/
+{
+    //
+    // Only initialize the PCI subsystem once.
+    //
+
+    if (PCIInitialized) {
+        return;
+    }
+
+    //
+    // Initialize PCI subsystem variables.
+    //
+
+#ifdef AXP_FIRMWARE
+    PCIMaxBus = PCI_MAX_BUSSES;
+#else
+    PCIMaxBus = 0;
+#endif
+    PCIMaxLocalDevice = PCI_MAX_LOCAL_DEVICE;
+    PCIMaxDevice = PCI_MAX_DEVICES - 1;
+
+    //
+    // Initialize the PCI configuration spinlock.
+    //
+
+    KeInitializeSpinLock(&HalpPCIConfigLock);
+
+#if !AXP_FIRMWARE
+
+    //
+    // Consult the ARC configuration tree and register bus handlers for
+    // all PCI multi-function adapter nodes.
+    //
+
+    HalpQueryPciBusConfiguration(LoaderBlock->ConfigurationRoot);
+
+#endif
+
+    //
+    // The PCI subsystem has been initialized.
+    //
+
+    PCIInitialized = TRUE;
+}
+
+PBUS_HANDLER
+HalpAllocateAndInitPCIBusHandler (
+    IN ULONG        BusNo,
+    IN ULONG        HwBusNo,
+    IN BOOLEAN      BusIsAcrossPPB,
+    IN ULONG        PPBBusNumber,
+    IN PCI_SLOT_NUMBER PPBSlotNumber
+    )
+{
+    PBUS_HANDLER     Bus;
+    PPCIPBUSDATA    BusData;
+
+    HaliRegisterBusHandler (
+                PCIBus,                 // Interface type
+                PCIConfiguration,       // Has this configuration space
+                BusNo,                  // Bus Number
+                Internal,               // child of this bus
+                0,                      //      and number
+                sizeof (PCIPBUSDATA),   // sizeof bus specific buffer
+                PCIInstallHandler,      // PCI install handler
+                &Bus);                  // Bushandler return
+
+    BusData = (PPCIPBUSDATA) Bus->BusData;
+    BusData->HwBusNumber    = HwBusNo;
+    BusData->BusIsAcrossPPB = BusIsAcrossPPB;
+    BusData->PPBBusNumber   = PPBBusNumber;
+    BusData->PPBSlotNumber  = PPBSlotNumber;
+
+    return Bus;
+}
+
+NTSTATUS
+HalpDefaultPCIInstallHandler(
+      IN PBUS_HANDLER   Bus
+      )
+{
+    PPCIPBUSDATA    BusData;
+
+
+    //
+    // Fill in PCI handlers
+    //
+
+    Bus->GetBusData = (PGETSETBUSDATA) HalpGetPCIData;
+    Bus->SetBusData = (PGETSETBUSDATA) HalpSetPCIData;
+    Bus->AdjustResourceList  = (PADJUSTRESOURCELIST) HalpAdjustPCIResourceList;
+    Bus->AssignSlotResources = (PASSIGNSLOTRESOURCES) HalpAssignPCISlotResources;
+
+    BusData = (PPCIPBUSDATA) Bus->BusData;
+
+    //
+    // Fill in common PCI data
+    //
+
+    BusData->CommonData.Tag         = PCI_DATA_TAG;
+    BusData->CommonData.Version     = PCI_DATA_VERSION;
+    BusData->CommonData.ReadConfig  = (PciReadWriteConfig)HalpReadPCIConfig;
+    BusData->CommonData.WriteConfig = (PciReadWriteConfig)HalpWritePCIConfig;
+    BusData->CommonData.Pin2Line    = (PciPin2Line)HalpPCIPin2LineNop;
+    BusData->CommonData.Line2Pin    = (PciLine2Pin)HalpPCILine2PinNop;
+
+
+    // set defaults
+    // 
+    // ecrfix - if we knew more about the PCI bus at this
+    // point (e.g., local vs. across bridge, PCI config
+    // space base QVA, APECS vs. Sable T2/T4 vs. LCA4 vs. ??? config
+    // cycle type 0 mechanism), we could put this info into
+    // the "BusData" structure.   The nice thing about this is
+    // that we could eliminate the platform-dependent module
+    // PCIBUS.C.
+    //
+
+    BusData->MaxDevice   = PCI_MAX_DEVICES - 1;  // not currently used anywhere
+
+    return STATUS_SUCCESS;
+}
+
+VOID
+HalpRegisterPCIInstallHandler(
+    IN PINSTALL_BUS_HANDLER MachineSpecificPCIInstallHandler
+)
+/*++
+
+Routine Description:
+
+    The function register's a machine-specific PCI Install Handler.
+    This allows a specific platform to override the default PCI install
+    handler, DefaultPCIInstallHandler().
+
+Arguments:
+
+    MachineSpecificPCIInstallHandler - Function that provides machine
+        specific PCI Bus Handler setup.
+
+Return Value:
+
+    None.
+
 
 --*/
 {
+    PCIInstallHandler = MachineSpecificPCIInstallHandler;
 
-#if !defined(AXP_FIRMWARE)
-
-    //
-    // x86 Hal's can query the registry, while on Alpha pltforms we cannot.
-    // So we let the ARC firmware actually configure the bus/bridges.
-    // 
-
-    PCI_SLOT_NUMBER SlotNumber;
-    ULONG DeviceNumber;
-    ULONG FunctionNumber;
-    PCI_COMMON_CONFIG CommonConfig;
-    ULONG BusNumber;
-
-    //
-    //  Has the PCI bus already been initialized?
-    //
- 
-    if (PCIInitialized) {
-       return;
-    }
-
-    //
-    //  Intialize PCI configuration to the maximum configuration for starters.
-    //
-
-    PCIMaxLocalDevice = PCI_MAX_LOCAL_DEVICE;
-    PCIMaxDevice = PCI_MAX_DEVICES - 1;
-
-    //
-    // Unless there exists any PCI-to-PCI bridges, there will only be 1
-    // bus.
-    //
-
-    PCIMaxBus = 1;
-
-    //
-    // Initialize the slot number struct.
-    //
-
-    SlotNumber.u.AsULONG = 0;
-
-    //
-    // Loop through each device.
-    //
-
-    for (DeviceNumber = 0; DeviceNumber < PCI_MAX_DEVICES; DeviceNumber++) {
-
-        SlotNumber.u.bits.DeviceNumber = DeviceNumber;
-
-        //
-        // Loop through each function.
-        //
-
-        for (FunctionNumber = 0; FunctionNumber < PCI_MAX_FUNCTION; FunctionNumber++) {
-            SlotNumber.u.bits.FunctionNumber = FunctionNumber;
-
-            //
-            // Read the device's configuration space.
-            //
-
-            HalpReadPCIConfig(0,
-                              SlotNumber,
-                              &CommonConfig,
-                              0,
-                              PCI_COMMON_HDR_LENGTH);
-
-            //
-            // No device exists at this device/function number.
-            //
-
-            if (CommonConfig.VendorID == PCI_INVALID_VENDORID) {
-
-                //
-                // If this is the first function number, then break, because
-                // we know a priori there will not be any devices on the
-                // other function numbers.
-                //
-
-                if (FunctionNumber == 0) {
-                    break;
-                }
-
-                //
-                // Check the next function number.
-                //
-
-                continue;
-            }
-
-            //
-            // A PCI-to-PCI bridge has been discovered.
-            //
-
-            if (CommonConfig.BaseClass == 0x06 &&
-                CommonConfig.SubClass == 0x04 &&
-                CommonConfig.ProgIf == 0x00) {
-
-                //
-                // Get the subordinate bus number (which is the highest
-                // numbered bus this bridge will forward to) and add 1.
-                //
-
-                BusNumber = CommonConfig.u.type1.SubordinateBus + 1;
-
-                //
-                // The maximum subordinate across the local bus is the
-                // maximum number of busses.
-                //
-
-                if (PCIMaxBus < BusNumber) {
-                    PCIMaxBus = BusNumber;
-                }
-            }
-
-            //
-            // If this is not a multi-function device then break out now.
-            //
-
-            if ((CommonConfig.HeaderType & PCI_MULTIFUNCTION) == 0) {
-                break;
-            }
-        }
-    }
-
-    KeInitializeSpinLock (&HalpPCIConfigLock);
-    PCIInitialized = TRUE;
-
-#if HALDBG
-    HalpTestPci (0);
-#endif
-
-#else
-
-    PCIMaxLocalDevice = PCI_MAX_LOCAL_DEVICE;
-    PCIMaxDevice = PCI_MAX_DEVICES - 1;
-    PCIMaxBus = PCI_MAX_BUSSES;
-    PCIInitialized = TRUE;
-
-    KeInitializeSpinLock (&HalpPCIConfigLock);
-
-#endif // !AXP_FIRMWARE
-
+    return;
 }
 
 ULONG
 HalpGetPCIData (
-    IN ULONG BusNumber,
+    IN PBUS_HANDLER BusHandler,
+    IN PBUS_HANDLER RootHandler,
     IN ULONG Slot,
     IN PUCHAR Buffer,
     IN ULONG Offset,
@@ -436,7 +817,9 @@ Routine Description:
 
 Arguments:
 
-    BusNumber - Indicates which bus.
+    BusHandler - Registered BUS_HANDLER for the target configuration space
+
+    RootHandler - Register BUS_HANDLER for the orginating HalGetBusData request.
 
     VendorSpecificDevice - The VendorID (low Word) and DeviceID (High Word)
 
@@ -475,15 +858,7 @@ Return Value:
         // in the device specific area.
         //
 
-        HalpReadPCIConfig (BusNumber, PciSlot, PciData, 0, sizeof(ULONG));
-
-        //
-        // Check for non-existent bus  
-        //
-
-        if (PciData->VendorID == 0x00) {
-            return 0;       // Requested bus does not exist.  Return no data.
-        }
+        HalpReadPCIConfig (BusHandler, PciSlot, PciData, 0, sizeof(ULONG));
 
         //
         // Check for invalid slot
@@ -507,22 +882,13 @@ Return Value:
         //
 
         Len = PCI_COMMON_HDR_LENGTH;
-        HalpReadPCIConfig (BusNumber, PciSlot, PciData, 0, Len);
-
-        //
-        // Check for non-existent bus  
-        //
-
-        if (PciData->VendorID == 0x00) {
-            Len = 0;       // Requested bus does not exist.  Return no data.
-        }
+        HalpReadPCIConfig (BusHandler, PciSlot, PciData, 0, Len);
 
         //
         // Check for invalid slot
         //
 
-        if (PciData->VendorID == PCI_INVALID_VENDORID  ||
-            PCI_CONFIG_TYPE (PciData) != 0) {
+        if (PciData->VendorID == PCI_INVALID_VENDORID) {
             PciData->VendorID = PCI_INVALID_VENDORID;
             Len = 2;       // only return invalid id
         }
@@ -569,7 +935,7 @@ Return Value:
 	    //    a BYTE long.
 	    //
 
-	    HalpReadPCIConfig (BusNumber, PciSlot, Buffer, Offset, Length);
+	    HalpReadPCIConfig (BusHandler, PciSlot, Buffer, Offset, Length);
 	    Len += Length;
         }
     }
@@ -579,7 +945,8 @@ Return Value:
 
 ULONG
 HalpSetPCIData (
-    IN ULONG BusNumber,
+    IN PBUS_HANDLER BusHandler,
+    IN PBUS_HANDLER RootHandler,
     IN ULONG Slot,
     IN PUCHAR Buffer,
     IN ULONG Offset,
@@ -593,6 +960,9 @@ Routine Description:
 
 Arguments:
 
+    BusHandler - Registered BUS_HANDLER for the target configuration space
+
+    RootHandler - Register BUS_HANDLER for the orginating HalSetBusData request.
 
     VendorSpecificDevice - The VendorID (low Word) and DeviceID (High Word)
 
@@ -631,7 +1001,7 @@ Return Value:
         // the device specific area.
         //
 
-        HalpReadPCIConfig (BusNumber, PciSlot, PciData, 0, sizeof(ULONG));
+        HalpReadPCIConfig (BusHandler, PciSlot, PciData, 0, sizeof(ULONG));
 
         if (PciData->VendorID == PCI_INVALID_VENDORID ||  
             PciData->VendorID == 0x00) {
@@ -646,12 +1016,11 @@ Return Value:
         //
 
         Len = PCI_COMMON_HDR_LENGTH;
-        HalpReadPCIConfig (BusNumber, PciSlot, PciData, 0, Len);
+        HalpReadPCIConfig (BusHandler, PciSlot, PciData, 0, Len);
         if (PciData->VendorID == PCI_INVALID_VENDORID  ||
-            PciData->VendorID == 0x00                  ||  
-            PCI_CONFIG_TYPE (PciData) != 0) {
+            PciData->VendorID == 0x00) {
 
-            // no device, or header type unkown
+            // no device
             return 0;
         }
 
@@ -667,9 +1036,6 @@ Return Value:
         }
 
         RtlMoveMemory (iBuffer2+Offset, Buffer, Len);
-
-        // in case interrupt line or pin was editted
-        HalpPCILineToPin (BusNumber, PciSlot, PciData2, PciData);
 
 #if DBG
         //
@@ -693,7 +1059,7 @@ Return Value:
         // Set new PCI configuration
         //
 
-        HalpWritePCIConfig (BusNumber, PciSlot, iBuffer2+Offset, Offset, Len);
+        HalpWritePCIConfig (BusHandler, PciSlot, iBuffer2+Offset, Offset, Len);
 
         Offset += Len;
         Buffer += Len;
@@ -722,7 +1088,7 @@ Return Value:
 	    //    a BYTE long.
 	    //
 
-	    HalpWritePCIConfig (BusNumber, PciSlot, Buffer, Offset, Length);
+	    HalpWritePCIConfig (BusHandler, PciSlot, Buffer, Offset, Length);
 	    Len += Length;
         }
     }
@@ -731,8 +1097,33 @@ Return Value:
 }
 
 VOID
+HalpPCILine2PinNop (
+    IN PBUS_HANDLER         BusHandler,
+    IN PBUS_HANDLER         RootHandler,
+    IN PCI_SLOT_NUMBER      SlotNumber,
+    IN PPCI_COMMON_CONFIG   PciNewData,
+    IN PPCI_COMMON_CONFIG   PciOldData
+    )
+{
+    // line-pin mappings not needed on alpha machines
+    return ;
+}
+
+VOID
+HalpPCIPin2LineNop (
+    IN PBUS_HANDLER         BusHandler,
+    IN PBUS_HANDLER         RootHandler,
+    IN PCI_SLOT_NUMBER      SlotNumber,
+    IN PPCI_COMMON_CONFIG   PciData
+    )
+{
+    // line-pin mappings not needed on alpha machines
+    return ;
+}
+
+VOID
 HalpReadPCIConfig (
-    IN ULONG BusNumber,
+    IN PBUS_HANDLER BusHandler,
     IN PCI_SLOT_NUMBER Slot,
     IN PVOID Buffer,
     IN ULONG Offset,
@@ -740,7 +1131,7 @@ HalpReadPCIConfig (
     )
 {
 #if 0
-    if (!HalpValidPCISlot (BusNumber, Slot)) {
+    if (!HalpValidPCISlot (BusHandler, Slot)) {
         //
         // Invalid SlotID return no data
         //
@@ -749,7 +1140,7 @@ HalpReadPCIConfig (
         return ;
     }
 
-    HalpPCIConfig (BusNumber, Slot, (PUCHAR) Buffer, Offset, Length,
+    HalpPCIConfig (BusHandler, Slot, (PUCHAR) Buffer, Offset, Length,
                    PCIConfigHandlers.ConfigRead);
 #endif // 0
 
@@ -759,12 +1150,12 @@ HalpReadPCIConfig (
     // or a null (zero) buffer if we have a non-existant bus.
     //
 
-    switch (HalpValidPCISlot (BusNumber, Slot)) 
+    switch (HalpValidPCISlot (BusHandler, Slot)) 
     {
 
     case ValidSlot:
 
-        HalpPCIConfig (BusNumber, Slot, (PUCHAR) Buffer, Offset, Length,
+        HalpPCIConfig (BusHandler, Slot, (PUCHAR) Buffer, Offset, Length,
                        PCIConfigHandlers.ConfigRead);
 	break;
 
@@ -793,47 +1184,65 @@ HalpReadPCIConfig (
 
 VOID
 HalpWritePCIConfig (
-    IN ULONG BusNumber,
+    IN PBUS_HANDLER BusHandler,
     IN PCI_SLOT_NUMBER Slot,
     IN PVOID Buffer,
     IN ULONG Offset,
     IN ULONG Length
     )
 {
-// ecrix    if (!HalpValidPCISlot (BusNumber, Slot)) {
-   if (HalpValidPCISlot (BusNumber, Slot) != ValidSlot) {
+
+   if (HalpValidPCISlot (BusHandler, Slot) != ValidSlot) {
         //
         // Invalid SlotID do nothing
         //
         return ;
     }
 
-    HalpPCIConfig (BusNumber, Slot, (PUCHAR) Buffer, Offset, Length,
+    HalpPCIConfig (BusHandler, Slot, (PUCHAR) Buffer, Offset, Length,
                    PCIConfigHandlers.ConfigWrite);
 }
 
 VALID_SLOT
 HalpValidPCISlot (
-    IN ULONG BusNumber,
+    IN PBUS_HANDLER BusHandler,
     IN PCI_SLOT_NUMBER Slot
     )
 {
+    ULONG                           BusNumber;
+    PPCIPBUSDATA                    BusData;
     PCI_SLOT_NUMBER                 Slot2;
-    UCHAR                           HeaderType;
-    ULONG                           i;
-
     PCI_CONFIGURATION_TYPES         PciConfigType;
+    UCHAR                           HeaderType;
+    ULONG                           i, bit;
+
+    BusNumber = BusHandler->BusNumber;
+    BusData   = (PPCIPBUSDATA) BusHandler->BusData;
 
     if (Slot.u.bits.Reserved != 0) {
         return FALSE;
     }
 
     //
+    // If the initial device probe has been completed and no device
+    // is present for this slot then simply return invalid slot.
+    //
+
+    bit = PciBitIndex(Slot.u.bits.DeviceNumber, Slot.u.bits.FunctionNumber);
+   
+    if( ( (BusData->DevicePresent).Buffer != NULL) && 
+         !RtlCheckBit(&BusData->DevicePresent, bit) ) {
+
+        return InvalidSlot;
+    }
+        
+
+    //
     //  Get the config cycle type for the proposed bus.
     //  (PciConfigTypeInvalid indicates a non-existent bus.)
     //
 
-    PciConfigType = HalpPCIConfigCycleType(BusNumber);
+    PciConfigType = HalpPCIConfigCycleType(BusHandler);
 
     //
     // The number of devices allowed on a local PCI bus may be different 
@@ -844,7 +1253,7 @@ HalpValidPCISlot (
         case PciConfigType0:
 
             if (Slot.u.bits.DeviceNumber > PCIMaxLocalDevice) {
-#if DBG
+#if HALDBG
 	            DbgPrint("Invalid local PCI Slot %x\n", Slot.u.bits.DeviceNumber);
 #endif
                 return InvalidSlot;
@@ -854,7 +1263,7 @@ HalpValidPCISlot (
         case PciConfigType1:
 
             if (Slot.u.bits.DeviceNumber > PCIMaxDevice) {
-#if DBG
+#if HALDBG
 	            DbgPrint("Invalid remote PCI Slot %x\n", Slot.u.bits.DeviceNumber);
 #endif
                 return InvalidSlot;
@@ -863,7 +1272,7 @@ HalpValidPCISlot (
 
         case PciConfigTypeInvalid:
 
-#if DBG
+#if HALDBG
             DbgPrint("Invalid PCI Bus %x\n", BusNumber);
 #endif
             return InvalidBus;
@@ -895,7 +1304,7 @@ HalpValidPCISlot (
     Slot2.u.bits.FunctionNumber = 0;
 
     HalpReadPCIConfig (
-        BusNumber,
+        BusHandler,
         Slot2,
         &HeaderType,
         FIELD_OFFSET (PCI_COMMON_CONFIG, HeaderType),
@@ -912,7 +1321,7 @@ HalpValidPCISlot (
 
 VOID
 HalpPCIConfig (
-    IN ULONG            BusNumber,
+    IN PBUS_HANDLER     BusHandler,
     IN PCI_SLOT_NUMBER  Slot,
     IN PUCHAR           Buffer,
     IN ULONG            Offset,
@@ -923,12 +1332,13 @@ HalpPCIConfig (
     KIRQL               OldIrql;
     ULONG               i;
     PCI_CFG_CYCLE_BITS PciAddr;
+    ULONG BusNumber;
 
     //
     // Setup platform-dependent state for configuration space access
     //
     
-    HalpPCIConfigAddr(BusNumber, Slot, &PciAddr);
+    HalpPCIConfigAddr(BusHandler, Slot, &PciAddr);
     
     //
     // Synchronize with PCI config space
@@ -1111,7 +1521,7 @@ HalpPCIWriteUlong (
 
 BOOLEAN 
 HalpValidPCIAddr(
-    IN ULONG BusNumber,
+    IN PBUS_HANDLER BusHandler,
     IN PHYSICAL_ADDRESS BAddr, 
     IN ULONG Length, 
     IN ULONG AddressSpace)
@@ -1140,6 +1550,9 @@ Return Value:
     LARGE_INTEGER    LiILen;
     ULONG            inIoSpace, inIoSpace2;
     BOOLEAN          flag, flag2;
+    ULONG BusNumber;
+
+    BusNumber = BusHandler->BusNumber;
   
     //
     // Translated address to system global setting and verify
@@ -1149,8 +1562,8 @@ Return Value:
     // 64 bit PCI bus addresses.
     //
 
-    LiILen = LiFromUlong (Length - 1);     // Inclusive length
-    EAddr = LiAdd (BAddr, LiILen);
+    LiILen.QuadPart = (ULONG)(Length - 1);     // Inclusive length
+    EAddr.QuadPart = BAddr.QuadPart + LiILen.QuadPart;
 
     inIoSpace = inIoSpace2 = AddressSpace;
 
@@ -1188,41 +1601,10 @@ Return Value:
 #endif
 
 
-VOID
-HalpPCILineToPin (
-    IN ULONG                BusNumber,
-    IN PCI_SLOT_NUMBER      SlotNumber,
-    IN PPCI_COMMON_CONFIG   PciNewData,
-    IN PPCI_COMMON_CONFIG   PciOldData
-    )
-/*++
-
-    This functions maps the device's InterruptLine to it's
-    device specific InterruptPin value.
-
-    On the current PC implementations, this information is
-    fixed by the BIOS.  On current Alpha AXP implementations, this
-    information is fixed by HalPCIPinTOLine.  Just make sure the value isn't 
-    being editted since PCI doesn't tell us how to dynamically
-    connect the interrupt.
-
---*/
-{
-#if DBG
-    if (PciNewData->u.type0.InterruptLine != PciOldData->u.type0.InterruptLine ||
-        PciNewData->u.type0.InterruptPin  != PciOldData->u.type0.InterruptPin  ) {
-
-
-        DbgPrint ("HalpPCILineToPin: System does not support changing the PCI device interrupt routing\n");
-        DbgBreakPoint ();
-    }
-#endif // DBG
-}
-
-
 NTSTATUS
 HalpAssignPCISlotResources (
-    IN ULONG                    BusNumber,
+    IN PBUS_HANDLER             BusHandler,
+    IN PBUS_HANDLER             RootHandler,
     IN PUNICODE_STRING          RegistryPath,
     IN PUNICODE_STRING          DriverClassName       OPTIONAL,
     IN PDRIVER_OBJECT           DriverObject,
@@ -1260,6 +1642,9 @@ Return Value:
     BOOLEAN                         conflict;
     
     ULONG                           i, j, m, length, holdvalue;
+    ULONG                           BusNumber;
+
+    BusNumber = BusHandler->BusNumber;
 
     *pAllocatedResources = NULL;
     PciSlot = *((PPCI_SLOT_NUMBER) &Slot);
@@ -1292,7 +1677,7 @@ Return Value:
     // Read the PCI device configuration
     //
 
-    HalpReadPCIConfig (BusNumber, PciSlot, PciData, 0, PCI_COMMON_HDR_LENGTH);
+    HalpReadPCIConfig (BusHandler, PciSlot, PciData, 0, PCI_COMMON_HDR_LENGTH);
     if (PciData->VendorID == PCI_INVALID_VENDORID ||   // empty slot
         PciData->VendorID == 0x00) {                   // non-existant bus
         ExFreePool (WorkingPool);
@@ -1318,14 +1703,14 @@ Return Value:
 
     PciData->Command &= ~(PCI_ENABLE_IO_SPACE | PCI_ENABLE_MEMORY_SPACE);
     PciData->u.type0.ROMBaseAddress &= ~PCI_ROMADDRESS_ENABLED;
-    HalpWritePCIConfig (BusNumber, PciSlot, PciData, 0, PCI_COMMON_HDR_LENGTH);
-    HalpReadPCIConfig  (BusNumber, PciSlot, PciData, 0, PCI_COMMON_HDR_LENGTH);
+    HalpWritePCIConfig (BusHandler, PciSlot, PciData, 0, PCI_COMMON_HDR_LENGTH);
+    HalpReadPCIConfig  (BusHandler, PciSlot, PciData, 0, PCI_COMMON_HDR_LENGTH);
   
     //
     // Build an CM_RESOURCE_LIST for the PCI device to report resources
     // to IoReportResourceUsage.
     //
-    // This code does *not* use IoAssignResources, as the PCI
+    // This code does *not* use IoAssignoResources, as the PCI
     // address space resources have been previously assigned by the ARC firmware
     //
     
@@ -1410,7 +1795,7 @@ Return Value:
 		        BAddr.HighPart = 0;
 
 #if DBG
-                HalpValidPCIAddr(BusNumber, BAddr, length, 1);  // I/O space
+                HalpValidPCIAddr(BusHandler, BAddr, length, 1);  // I/O space
 #endif
 
                 CmDesc->u.Port.Start  = BAddr;
@@ -1432,6 +1817,14 @@ Return Value:
 
                 if (j == PCI_TYPE0_ADDRESSES) {
                     // this is a ROM address
+                    if ((PciOrigData->u.type0.ROMBaseAddress & PCI_ROMADDRESS_ENABLED) == 0) {
+                        //
+                        // Ignore expansion ROMs which are not enabled by
+                        // the firmware/ROM BIOS.
+                        //
+
+                        continue;
+                    }
                     CmDesc->Flags = CM_RESOURCE_MEMORY_READ_ONLY;
                     BAddr.LowPart = PciOrigData->u.type0.ROMBaseAddress &
                         ~PCI_ROMADDRESS_ENABLED;
@@ -1444,12 +1837,11 @@ Return Value:
                 }
 
 #if DBG
-                HalpValidPCIAddr(BusNumber, BAddr, length, 0);  // Memory space
+                HalpValidPCIAddr(BusHandler, BAddr, length, 0);  // Memory space
 #endif
 
                 CmDesc->u.Memory.Start = BAddr;
                 CmDesc->u.Memory.Length = length;
-                Command |= PCI_ENABLE_MEMORY_SPACE;
 #if DBG
                 DbgPrint ("    MEM Start %x:%08x, Len %x\n",
                     CmDesc->u.Memory.Start.HighPart, CmDesc->u.Memory.Start.LowPart,
@@ -1542,19 +1934,12 @@ Return Value:
     DbgPrint ("HalAssignSlotResources: IoReportResourseUsage succeeded\n");
 #endif
 
-    // enable ROM decode
-
-    if (PciData->u.type0.ROMBaseAddress) {
-        // a rom address was allocated, enable it
-        PciOrigData->u.type0.ROMBaseAddress |= PCI_ROMADDRESS_ENABLED;
-    }
-   
     // enable IO & Memory decodes
 
     PciOrigData->Command |= (USHORT) Command;
 
     HalpWritePCIConfig (
-	BusNumber,
+	BusHandler,
 	PciSlot,
 	PciOrigData,
         0,
@@ -1612,7 +1997,7 @@ CleanUp:
         //
 
         HalpWritePCIConfig (
-            BusNumber,
+            BusHandler,
             PciSlot,
             PciOrigData,
             FIELD_OFFSET (PCI_COMMON_CONFIG, Status),
@@ -1620,7 +2005,7 @@ CleanUp:
             ); 
 
         HalpWritePCIConfig (
-            BusNumber,
+            BusHandler,
             PciSlot,
             PciOrigData,
             0,
@@ -1634,116 +2019,211 @@ CleanUp:
 
 NTSTATUS
 HalpAdjustPCIResourceList (
-    IN ULONG BusNumber,
+    IN PBUS_HANDLER BusHandler,
+    IN PBUS_HANDLER RootHandler,
     IN OUT PIO_RESOURCE_REQUIREMENTS_LIST   *pResourceList
     )
+/*++
+
+Routine Description:
+
+    The function adjusts a PCI pResourceList and forces it to match the
+    pre-configured values in PCI configuration space for this device.
+
+Arguments:
+
+    BusHandler - Registered BUS_HANDLER for the target configuration space
+
+    RootHandler - Register BUS_HANDLER for the orginating HalAdjustResourceList request.
+
+    pResourceList - Supplies the PIO_RESOURCE_REQUIREMENTS_LIST to be checked.
+
+Return Value:
+
+    STATUS_SUCCESS
+
+--*/
 {
     UCHAR                           buffer[PCI_COMMON_HDR_LENGTH];
     PCI_SLOT_NUMBER                 PciSlot;
     PPCI_COMMON_CONFIG              PciData;
-    LARGE_INTEGER                   liIo, liMem;
     PIO_RESOURCE_REQUIREMENTS_LIST  CompleteList;
     PIO_RESOURCE_LIST               ResourceList;
     PIO_RESOURCE_DESCRIPTOR         Descriptor;
-    ULONG                           alt, cnt;
-
-    liIo  = RtlConvertUlongToLargeInteger (PCI_MAX_IO_ADDRESS);
-    liMem = RtlConvertUlongToLargeInteger (PCI_MAX_SPARSE_MEMORY_ADDRESS);
-
-    //
-    // First, shrink to limits
-    //
-
-    HalpAdjustResourceListUpperLimits (
-        pResourceList,
-        liIo,                       // IO Maximum Address
-        liMem,                      // Memory Maximum Address 
-        PCI_MAX_INTERRUPT_VECTOR,   // irq
-        0xffff                      // dma
-        );
+    ULONG                           alt, cnt, bcnt;
+    ULONG                           MemoryBaseAddress, RomIndex;
+    PULONG                          BaseAddress[PCI_TYPE0_ADDRESSES + 1];
 
     //
-    // Fix any requested IRQs for this device to be the
-    // support value for this device.
+    // Fix any requested resources for this device to be the
+    // value set in PCI configuration space for this device.
+    //
+
+    //
+    // Get PCI common configuration space for this slot
     //
 
     PciSlot = *((PPCI_SLOT_NUMBER) &(*pResourceList)->SlotNumber),
     PciData = (PPCI_COMMON_CONFIG) buffer;
+
     HalGetBusData (
         PCIConfiguration,
-        BusNumber,
+        BusHandler->BusNumber,
         PciSlot.u.AsULONG,
         PciData,
         PCI_COMMON_HDR_LENGTH
         );
 
-    if (PciData->VendorID == PCI_INVALID_VENDORID  ||
-        PCI_CONFIG_TYPE (PciData) != 0) {
+    if (PciData->VendorID == PCI_INVALID_VENDORID) {
         return STATUS_UNSUCCESSFUL;
     }
 
+    //
+    // Copy base addresses based on configuration data type
+    //
+
+    switch (PCI_CONFIG_TYPE(PciData)) {
+        case 0 :
+            for (bcnt=0; bcnt < PCI_TYPE0_ADDRESSES; bcnt++) {
+                BaseAddress[bcnt] = &PciData->u.type0.BaseAddresses[bcnt];
+            }
+            BaseAddress[bcnt] = &PciData->u.type0.ROMBaseAddress;
+            RomIndex = bcnt;
+            break;
+        case 1:
+            for (bcnt=0; bcnt < PCI_TYPE1_ADDRESSES; bcnt++) {
+                BaseAddress[bcnt] = &PciData->u.type1.BaseAddresses[bcnt];
+            }
+            BaseAddress[bcnt] = &PciData->u.type0.ROMBaseAddress;
+            RomIndex = bcnt;
+            break;
+
+        default:
+            return STATUS_NO_SUCH_DEVICE;
+    }
+
+    //
+    // Walk each ResourceList and confine resources 
+    // to preconfigured settings.
+    //
 
     CompleteList = *pResourceList;
     ResourceList = CompleteList->List;
+    ResourceList->Version  = 1;
+    ResourceList->Revision = 1;
 
     for (alt=0; alt < CompleteList->AlternativeLists; alt++) {
         Descriptor = ResourceList->Descriptors;
+
+        //
+        // For each alternative list, reset to review entire
+        // set of Base Address registers
+        //
+        // We assume that the order of resource descriptors for
+        // each alternative list matches the order of the
+        // PCI configuration space base address registers
+        //
+
+        bcnt = 0;
+
         for (cnt = ResourceList->Count; cnt; cnt--) {
+
+            //
+            // Limit desctiptor to to preconfigured setting
+            // held in the InterruptLine register.
+            //
 
             switch (Descriptor->Type) {
                 case CmResourceTypeInterrupt:
 
                     //
-                    // Interrupt lines on a PCI device can not move.
-                    // Make sure the request fits within the PCI device's
-                    // requirements.
+                    // Confine interrupt vector to preconfigured setting.
                     //
 
-                    if (Descriptor->u.Interrupt.MinimumVector > PciData->u.type0.InterruptLine  ||
-                        Descriptor->u.Interrupt.MaximumVector < PciData->u.type0.InterruptLine) {
-                        // descriptor doesn't fit requirements
-                        return STATUS_UNSUCCESSFUL;
-                    }
-
-                    // Fix the interrupt at the HAL programed routing
                     Descriptor->u.Interrupt.MinimumVector = PciData->u.type0.InterruptLine;
                     Descriptor->u.Interrupt.MaximumVector = PciData->u.type0.InterruptLine;
                     break;
 
                 case CmResourceTypePort:
+
+                    //
+                    // Assure that requested descriptor is valid
+                    //         
+
+                    if (bcnt > RomIndex) {
+		      return STATUS_INVALID_PARAMETER;
+                    }
+
+                    //
+                    // Confine to preconfigured setting.
+                    //
+
+		    Descriptor->u.Port.MinimumAddress.QuadPart = 
+		        *BaseAddress[bcnt++]  & ~0x3;
+
+		    Descriptor->u.Port.MaximumAddress.QuadPart = 
+			Descriptor->u.Port.MinimumAddress.QuadPart +
+			Descriptor->u.Port.Length - 1; 
+
+#if HALDBG
+		    DbgPrint("AdjustPCIResourceList\nPort: MinimumAddress set to %x\n",
+			 Descriptor->u.Port.MinimumAddress.QuadPart); 
+
+		    DbgPrint("      MaximumAddress set to %x\n",
+			 Descriptor->u.Port.MaximumAddress.QuadPart);
+#endif
+	
                     break;
 
                 case CmResourceTypeMemory:
 
                     //
-                    // Check for prefetchable memory
+                    // Assure that requested descriptor is valid
+                    //         
+
+                    if (bcnt > RomIndex) {
+		      return STATUS_INVALID_PARAMETER;
+		    }
+
+                    //
+                    // Confine to preconfigured setting.
                     //
 
-                    if ( Descriptor->Flags & CM_RESOURCE_MEMORY_PREFETCHABLE)
-		    {
-		        // Set upper limit to max dense space address
+		    MemoryBaseAddress = *BaseAddress[bcnt];
 
-			Descriptor->u.Memory.MinimumAddress.HighPart = 0;
-			Descriptor->u.Memory.MinimumAddress.LowPart = 
-                         PCI_MIN_DENSE_MEMORY_ADDRESS;
-
-			Descriptor->u.Memory.MaximumAddress.HighPart = 0;
-			Descriptor->u.Memory.MaximumAddress.LowPart = 
-                         PCI_MAX_DENSE_MEMORY_ADDRESS;
-#if HALDBG
-		        DbgPrint("Prefetchable memory: MinimumAddress set to %x:%x\n",
-			     Descriptor->u.Memory.MinimumAddress.HighPart, 
-			     Descriptor->u.Memory.MinimumAddress.LowPart);
-
-		        DbgPrint("                     MaximumAddress set to %x:%x\n",
-			     Descriptor->u.Memory.MaximumAddress.HighPart, 
-			     Descriptor->u.Memory.MaximumAddress.LowPart);
-#endif
+                    if (bcnt == RomIndex) {
+		       Descriptor->u.Memory.MinimumAddress.QuadPart = 
+			 *BaseAddress[bcnt++]  & ~PCI_ROMADDRESS_ENABLED;
+		    } else {
+		       Descriptor->u.Memory.MinimumAddress.QuadPart = 
+			 *BaseAddress[bcnt++]  & ~0xF;
 		    }
-                    break;
+
+		    Descriptor->u.Memory.MaximumAddress.QuadPart = 
+			Descriptor->u.Memory.MinimumAddress.QuadPart +
+			Descriptor->u.Memory.Length - 1; 
+
+		    if (Is64BitBaseAddress(MemoryBaseAddress)) {
+		       // skip upper half of 64 bit address since we
+		       // only supports 32 bits PCI addresses for now.
+		       bcnt++;
+		    } 
+
+
+#if HALDBG
+		    DbgPrint("AdjustPCIResourceList\nMemory: MinimumAddress set to %x\n",
+			 Descriptor->u.Memory.MinimumAddress.QuadPart); 
+
+		    DbgPrint("        MaximumAddress set to %x\n",
+			 Descriptor->u.Memory.MaximumAddress.QuadPart);
+#endif
+		    break;
+
+                case CmResourceTypeDma:
+                     break;
 
                 default:
-                    return STATUS_UNSUCCESSFUL;
+                    return STATUS_INVALID_PARAMETER;
             }
 
             //
@@ -1759,6 +2239,7 @@ HalpAdjustPCIResourceList (
     }
     return STATUS_SUCCESS;
 }
+
 
 #define TEST_PCI 1
 

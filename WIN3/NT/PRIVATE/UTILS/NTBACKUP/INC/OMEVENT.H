@@ -25,5 +25,15 @@ void OMEVENT_LogEndRetension (
 void OMEVENT_LogBeginVerify ( LPSTR );
 void OMEVENT_LogEndVerify ( LPSTR,
                   BOOL        bError );//Did an error occur?
+void OMEVENT_LogEMSError (
+                  CHAR_PTR             function_name,
+                  INT                  status,
+                  CHAR_PTR             additional_info ); //Did an error occur?
+void OMEVENT_LogEMSErrorText (
+                  CHAR_PTR             function_name,
+                  CHAR_PTR             status,
+                  CHAR_PTR             additional_info ); //Did an error occur?
+void OMEVENT_LogEMSToFewDbError (
+                  INT  num_found,
+                  INT  num_needed ) ;
 
-

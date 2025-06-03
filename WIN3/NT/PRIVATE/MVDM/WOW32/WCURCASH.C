@@ -63,7 +63,7 @@ HICON16 W32FindCursorIcon (WORD hInst, LPSTR psz, WORD ResType, HICON16 *phRes16
         if (pTemp->ResType == ResType) {
             if (pTemp->hInst == hInst) {
                 if ((HIWORD(psz) != 0) && (HIWORD(pTemp->lpszIcon) != 0))  {
-                    if (!(stricmp(psz, (LPSTR)pTemp->lpszIcon))) {
+                    if (!(_stricmp(psz, (LPSTR)pTemp->lpszIcon))) {
                         *phRes16 = pTemp->hRes16;
                         return (pTemp->hIcon16);
                     }

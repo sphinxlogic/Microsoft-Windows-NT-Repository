@@ -77,15 +77,18 @@ Environment:
     //
 
 #if DBG
-    if (MmDebug & 1) {
+    if (MmDebug & MM_DBG_WRITEFAULT) {
         DbgPrint("**copy on write Fault va %lx proc %lx thread %lx\n",
             (ULONG)FaultingAddress,
             (ULONG)PsGetCurrentProcess(), (ULONG)PsGetCurrentThread());
-        if (MmDebug & 2) {
-            MiFormatPte(PointerPte);
-        }
+    }
+
+    if (MmDebug & MM_DBG_PTE_UPDATE) {
+        MiFormatPte(PointerPte);
     }
 #endif //DBG
+
+    ASSERT (PsGetCurrentProcess()->ForkInProgress == NULL);
 
     //
     // Capture the PTE contents to TempPte.
@@ -196,7 +199,7 @@ Environment:
 // COMMENTED OUT ****************************************************
 // COMMENTED OUT ****************************************************
 // COMMENTED OUT ****************************************************
-    if ((Pfn1->u2.ShareCount == 1) && (Pfn1->ReferenceCount == 1)
+    if ((Pfn1->u2.ShareCount == 1) && (Pfn1->u3.e2.ReferenceCount == 1)
             && (Pfn1->u3.e1.Modified == 0)) {
 
         //
@@ -231,7 +234,7 @@ Environment:
 
         PointerPde = MiGetPteAddress(PointerPte);
         Pfn1->u3.e1.PrototypePte = 0;
-        Pfn1->u3.e1.PteFrame = PointerPde->u.Hard.PageFrameNumber;
+        Pfn1->PteFrame = PointerPde->u.Hard.PageFrameNumber;
 
         if (!FakeCopyOnWrite) {
 
@@ -242,7 +245,7 @@ Environment:
             // be flushed.
             //
 
-            TempPte.u.Hard.Dirty = MM_PTE_DIRTY;
+            MI_SET_PTE_DIRTY (TempPte);
             TempPte.u.Hard.Write = 1;
             MI_SET_ACCESSED_IN_PTE (&TempPte, 1);
             TempPte.u.Hard.CopyOnWrite = 0;
@@ -332,7 +335,7 @@ Environment:
         // bit in the PTE.
         //
 
-        TempPte.u.Hard.Dirty = MM_PTE_DIRTY;
+        MI_SET_PTE_DIRTY (TempPte);
         TempPte.u.Hard.Write = 1;
         MI_SET_ACCESSED_IN_PTE (&TempPte, 1);
         TempPte.u.Hard.CopyOnWrite = 0;
@@ -368,7 +371,7 @@ Environment:
                      TRUE,
                      FALSE,
                      (PHARDWARE_PTE)PointerPte,
-                     TempPte.u.Hard);
+                     TempPte.u.Flush);
 
     //
     // Decrement the share count for the page which was copied

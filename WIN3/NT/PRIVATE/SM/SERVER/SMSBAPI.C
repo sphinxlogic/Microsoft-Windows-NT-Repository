@@ -91,7 +91,7 @@ SmpSbCreateSession (
                 // in the hash list
                 //
 
-                Process = RtlAllocateHeap(SmpHeap, 0,sizeof(SMPPROCESS));
+                Process = RtlAllocateHeap(SmpHeap, MAKE_TAG( SM_TAG ), sizeof(SMPPROCESS));
 
                 Process->DebugUiClientId = args->DebugUiClientId;
                 Process->ConnectionKey = ProcessInformation->ClientId;

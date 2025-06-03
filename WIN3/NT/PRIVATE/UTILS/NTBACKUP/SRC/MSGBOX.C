@@ -183,6 +183,7 @@ Initial revision.
 ******************************************************************************/
 
 #include "all.h"
+#include "ctl3d.h"
 
 #ifdef SOME
 #include "some.h"
@@ -195,8 +196,8 @@ Initial revision.
 #define   WMMB_MAX_INSTRUCTION  60     /* maximum size of instruction */
 
 #define   WMMB_MAX_BUTTON       40     /* maximum size of button text */
-#define   WMMB_MAX_MSG_LINE     40     /* max line length (dlg base units) */
-#define   WMMB_MID_MSG_LINE     30     /* mid line length (dlg base units) */
+#define   WMMB_MAX_MSG_LINE     (IS_JAPAN()?60:40)     /* max line length (dlg base units) */
+#define   WMMB_MID_MSG_LINE     (IS_JAPAN()?40:30)     /* mid line length (dlg base units) */
 #define   WMMB_MIN_MSG_LINE     20     /* min line length (dlg base units) */
 
 #define   BUTTON_BORDERWIDTH    3
@@ -353,6 +354,8 @@ INT WM_MessageBox (
    CHAR_PTR   pResInstruction = (CHAR_PTR)NULL;
    /* If the ignore option is not set, check the YY flag to see if we
       should just return. */
+
+   WM_ShowWaitCursor( FALSE ) ;
 
    if ( !( wType & WMMB_NOYYCHECK ) &&
          ( CDS_GetYesFlag ( CDS_GetCopy() ) == YESYES_FLAG ) ) {
@@ -541,8 +544,22 @@ DLGRESULT APIENTRY WM_MessageDlg (
       {
          DS_MESSAGE_PTR pMessage;
          HICON          hIcon;
+         BYTE           csfont ;
+         if (IS_JAPAN() ) { 
+              CHARSETINFO csi;
+              DWORD dw = GetACP();
+
+              if (!TranslateCharsetInfo((DWORD*)dw, &csi, TCI_SRCCODEPAGE))
+                   csi.ciCharset = ANSI_CHARSET;
+              csfont = csi.ciCharset; 
+         } else {
+              csfont = ANSI_CHARSET ;
+         }
 
          WM_MultiTask ();
+
+         /* Let's go 3-D! */
+         Ctl3dSubclassDlgEx( hDlg, CTL3D_ALL );
 
          pMessage = (DS_MESSAGE_PTR) mp2;
 
@@ -593,17 +610,17 @@ DLGRESULT APIENTRY WM_MessageDlg (
 
          /* Create our logical font */
 
-#ifdef JAPAN
-         logfont.lfWeight = FW_NORMAL;
-         logfont.lfCharSet = SHIFTJIS_CHARSET;
-         logfont.lfPitchAndFamily = VARIABLE_PITCH | FF_SWISS;
-         strcpy( logfont.lfFaceName, TEXT("System") );
-#else
-         logfont.lfWeight = FW_BOLD;
-         logfont.lfCharSet = ANSI_CHARSET;
-         logfont.lfPitchAndFamily = VARIABLE_PITCH | FF_SWISS;
-         strcpy( logfont.lfFaceName, TEXT("Swiss") );
-#endif
+         if (IS_JAPAN() ) {
+            logfont.lfWeight = FW_NORMAL;
+            logfont.lfCharSet = csfont;
+            logfont.lfPitchAndFamily = VARIABLE_PITCH | FF_SWISS;
+            strcpy( logfont.lfFaceName, TEXT("MS Shell Dlg") );
+         } else {
+            logfont.lfWeight = FW_BOLD;
+            logfont.lfCharSet = ANSI_CHARSET;
+            logfont.lfPitchAndFamily = VARIABLE_PITCH | FF_SWISS;
+            strcpy( logfont.lfFaceName, TEXT("Swiss") );
+         }         
 
          if( pMessage->pTitle ) {
             SetWindowText ( hDlg, pMessage->pTitle );
@@ -1048,16 +1065,16 @@ DLGRESULT APIENTRY WM_MessageDlg (
 
          /* set the background and text colors and then draw the text */
 
-         SetBkColor( hDC, gColorBackGnd );
-         SetTextColor( hDC, gColorForeGnd );
+         SetBkColor( hDC, GetSysColor( COLOR_BTNFACE) );
+         SetTextColor( hDC, GetSysColor( COLOR_BTNTEXT ) ) ;
 
-#ifdef JAPAN /* #2338 1.Sep.93 v-katsuy */
-         DrawText( hDC, pMsgText, -1, &MsgRect,
+         if (IS_JAPAN()) {
+              DrawText( hDC, pMsgText, -1, &MsgRect,
                    DT_EXPANDTABS | DT_LEFT | DT_NOPREFIX | DT_WORDBREAK);
-#else
-         DrawText( hDC, pMsgText, -1, &MsgRect,
+         } else {
+              DrawText( hDC, pMsgText, -1, &MsgRect,
                    DT_EXPANDTABS | DT_LEFT | DT_NOPREFIX | DT_WORDBREAK | 0x0A00 );
-#endif
+         }
 
          if ( wType & ( WMMB_MSGBIG | WMMB_MSGBIGBOLD ) ) {
             DeleteObject( SelectObject( hDC, hFont ) );
@@ -1083,8 +1100,8 @@ DLGRESULT APIENTRY WM_MessageDlg (
 
             /* set the background and text colors and then draw the text */
 
-            SetBkColor( hDC, gColorBackGnd );
-            SetTextColor( hDC, gColorForeGnd );
+            SetBkColor( hDC, GetSysColor( COLOR_BTNFACE) );
+            SetTextColor( hDC, GetSysColor( COLOR_BTNTEXT ) ) ;
 
             DrawText( hDC, pInstText, -1, &InstRect,
                       DT_LEFT | DT_NOPREFIX | DT_SINGLELINE | DT_VCENTER  );
@@ -1092,7 +1109,7 @@ DLGRESULT APIENTRY WM_MessageDlg (
             /* if a bitmap was defined, draw the bitmap centered */
 
             if ( wInstBitMap != 0 ) {
-               RSM_BitmapDrawCentered ( wInstBitMap,
+               RSM_BitmapDrawCentered ( (WORD)(wInstBitMap + BTNFACE_BACKGND),
                                         nInstIconX,
                                         0,
                                         GetSystemMetrics( SM_CXICON ),

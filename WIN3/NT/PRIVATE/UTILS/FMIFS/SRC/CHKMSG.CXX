@@ -245,7 +245,7 @@ Return Value:
 
 --*/
 {
-    DbgPrintf(
+    DebugPrintf(
 			"FMIFS_CHKMSG::IsYesResponse: _lastyesnoquery == %d\n",
 			_lastyesnoquery);
 

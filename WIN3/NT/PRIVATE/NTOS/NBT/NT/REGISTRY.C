@@ -23,7 +23,7 @@ Notes:
 --*/
 
 #include "nbtprocs.h"
-//#include <wcstr.h>
+//#include <stdlib.h>
 
 
 //
@@ -157,6 +157,9 @@ Return Value:
 
     CTEPagedCode();
 
+	*ppExportDevices = *ppBindDevices = NULL;
+	*ppAddrArray = NULL;
+
     // this procedure can be called from the DHCP activated code.  In
     // that case we just want to read the registry and not Zero the
     // NbtConfig data structure.
@@ -175,7 +178,7 @@ Return Value:
         // save the registry path for later use when DHCP asks us
         // to re-read the registry.
         //
-        NbtConfig.pRegistry.Buffer = CTEAllocMem(RegistryPath->MaximumLength);
+        NbtConfig.pRegistry.Buffer = NbtAllocMem(RegistryPath->MaximumLength,NBT_TAG('i'));
         NbtConfig.pRegistry.MaximumLength = (USHORT)RegistryPath->MaximumLength;
         if (NbtConfig.pRegistry.Buffer)
         {
@@ -235,14 +238,19 @@ Return Value:
             // Read in the binding information (if none is present
             // the array will be filled with all known drivers).
             //
-            pBindDevices = CTEAllocMem(sizeof(tDEVICES));
+            pBindDevices = NbtAllocMem(sizeof(tDEVICES),NBT_TAG('i'));
 
             if (pBindDevices)
             {
-                pExportDevices = CTEAllocMem(sizeof(tDEVICES));
+                pExportDevices = NbtAllocMem(sizeof(tDEVICES),NBT_TAG('i'));
                 if (pExportDevices)
                 {
                     ULONG   NumDevices;
+
+                    //
+                    // Read various parameters from the registry
+                    //
+                    ReadParameters(pConfig,ParametersHandle);
 
                     Status = NbtReadLinkageInformation (
                                     BindName,
@@ -250,88 +258,93 @@ Return Value:
                                     pBindDevices,
                                     (PLONG)&pConfig->uNumDevices);
 
-                    if (!NT_SUCCESS(Status))
-                    {
-                        NbtLogEvent(EVENT_NBT_READ_BIND,Status);
-                        return(Status);
-                    }
-                    IF_DBG(NBT_DEBUG_NTUTIL)
-                    KdPrint(("Binddevice = %ws\n",pBindDevices->Names[0].Buffer));
+					if ( Status == STATUS_ILL_FORMED_SERVICE_ENTRY )
+					{
+						CTEMemFree(pBindDevices);
+						CTEMemFree(pExportDevices);
+						pBindDevices = pExportDevices = NULL;
+						pConfig->uNumDevices = 0;
+					}
+					else
+					{
+	                    if (!NT_SUCCESS(Status))
+	                    {
+	                        NbtLogEvent(EVENT_NBT_READ_BIND,Status);
+	                        return(Status);
+	                    }
+	                    IF_DBG(NBT_DEBUG_NTUTIL)
+	                    KdPrint(("Binddevice = %ws\n",pBindDevices->Names[0].Buffer));
 
-                    //  Read the EXPORT information as well.
-                    Status = NbtReadLinkageInformation (
-                                    ExportName,
-                                    LinkageHandle,
-                                    pExportDevices,
-                                    &NumDevices);
+	                    //  Read the EXPORT information as well.
+	                    Status = NbtReadLinkageInformation (
+	                                    ExportName,
+	                                    LinkageHandle,
+	                                    pExportDevices,
+	                                    &NumDevices);
 
-                    // we want the lowest number for num devices in case there
-                    // are more bindings than exports or viceversa
-                    //
-                    pConfig->uNumDevices = (USHORT)( pConfig->uNumDevices > NumDevices ?
-                                            NumDevices : pConfig->uNumDevices);
+	                    // we want the lowest number for num devices in case there
+	                    // are more bindings than exports or viceversa
+	                    //
+	                    pConfig->uNumDevices = (USHORT)( pConfig->uNumDevices > NumDevices ?
+	                                            NumDevices : pConfig->uNumDevices);
 
-                    if (!NT_SUCCESS(Status) || (pConfig->uNumDevices == 0))
-                    {
-                        NbtLogEvent(EVENT_NBT_READ_EXPORT,Status);
-                        if (NT_SUCCESS(Status))
-                        {
-                            Status = STATUS_UNSUCCESSFUL;
-                        }
-                        return(Status);
-                    }
+	                    if (!NT_SUCCESS(Status) || (pConfig->uNumDevices == 0))
+	                    {
+	                        NbtLogEvent(EVENT_NBT_READ_EXPORT,Status);
+	                        if (NT_SUCCESS(Status))
+	                        {
+	                            Status = STATUS_UNSUCCESSFUL;
+	                        }
+	                        return(Status);
+	                    }
 
-                    //
-                    // Read various parameters from the registry
-                    //
-                    ReadParameters(pConfig,ParametersHandle);
+	                    IF_DBG(NBT_DEBUG_NTUTIL)
+	                    KdPrint(("Exportdevice = %ws\n",pExportDevices->Names[0].Buffer));
 
-                    IF_DBG(NBT_DEBUG_NTUTIL)
-                    KdPrint(("Exportdevice = %ws\n",pExportDevices->Names[0].Buffer));
+	                    //
+	                    // read in the NameServer IP address now
+	                    //
+	                    Status = ReadNameServerAddresses(NbtConfigHandle,
+	                                                     pBindDevices,
+	                                                     pConfig->uNumDevices,
+	                                                     ppAddrArray);
 
-                    //
-                    // read in the NameServer IP address now
-                    //
-                    Status = ReadNameServerAddresses(NbtConfigHandle,
-                                                     pBindDevices,
-                                                     pConfig->uNumDevices,
-                                                     ppAddrArray);
-
-                    if (!NT_SUCCESS(Status))
-                    {
-                        if (!(NodeType & BNODE))
-                        {
-                            NbtLogEvent(EVENT_NBT_NAME_SERVER_ADDRS,Status);
-                            IF_DBG(NBT_DEBUG_NTUTIL)
-                            KdPrint(("Nbt: Failed to Read the name Server Addresses!!, status = %X\n",
-                                Status));
-                        }
-                        //
-                        // we don't fail startup if we can't read the name
-                        // server addresses
-                        //
-                        Status = STATUS_SUCCESS;
-                    }
-                    else
-                    {
-                        //
-                        // check if any WINS servers have been configured change
-                        // to Hnode
-                        //
-                        if (NodeType & (BNODE | DEFAULT_NODE_TYPE))
-                        {
-                            ULONG i;
-                            for (i=0;i<pConfig->uNumDevices ;i++ )
-                            {
-                                if (((*ppAddrArray)[i].NameServerAddress != LOOP_BACK) ||
-                                    ((*ppAddrArray)[i].BackupServer != LOOP_BACK))
-                                {
-                                    NodeType = MSNODE | (NodeType & PROXY);
-                                    break;
-                                }
-                            }
-                        }
-                    }
+	                    if (!NT_SUCCESS(Status))
+	                    {
+	                        if (!(NodeType & BNODE))
+	                        {
+	                            NbtLogEvent(EVENT_NBT_NAME_SERVER_ADDRS,Status);
+	                            IF_DBG(NBT_DEBUG_NTUTIL)
+	                            KdPrint(("Nbt: Failed to Read the name Server Addresses!!, status = %X\n",
+	                                Status));
+	                        }
+	                        //
+	                        // we don't fail startup if we can't read the name
+	                        // server addresses
+	                        //
+	                        Status = STATUS_SUCCESS;
+	                    }
+	                    else
+	                    {
+	                        //
+	                        // check if any WINS servers have been configured change
+	                        // to Hnode
+	                        //
+	                        if (NodeType & (BNODE | DEFAULT_NODE_TYPE))
+	                        {
+	                            ULONG i;
+	                            for (i=0;i<pConfig->uNumDevices ;i++ )
+	                            {
+	                                if (((*ppAddrArray)[i].NameServerAddress != LOOP_BACK) ||
+	                                    ((*ppAddrArray)[i].BackupServer != LOOP_BACK))
+	                                {
+	                                    NodeType = MSNODE | (NodeType & PROXY);
+	                                    break;
+	                                }
+	                            }
+	                        }
+	                    }
+					}
                     //
                     // we have done the check for default node so turn off
                     // the flag
@@ -478,7 +491,7 @@ Return Value:
 
 
     // this is large enough for 100 characters of adapter name.
-    ucString.Buffer = CTEAllocMem(ADAPTER_SIZE_MAX);
+    ucString.Buffer = NbtAllocMem(ADAPTER_SIZE_MAX,NBT_TAG('i'));
 
     *ppAddrArray = NULL;
     if (!ucString.Buffer)
@@ -486,7 +499,7 @@ Return Value:
         return(STATUS_INSUFFICIENT_RESOURCES);
     }
 
-    pAddrArray = CTEAllocMem(sizeof(tADDRARRAY)*NumberDevices);
+    pAddrArray = NbtAllocMem(sizeof(tADDRARRAY)*NumberDevices,NBT_TAG('i'));
     CTEZeroMemory(pAddrArray,sizeof(tADDRARRAY)*NumberDevices);
 
     if (!pAddrArray)
@@ -577,18 +590,9 @@ Return Value:
                                           pwsDhcpNameServer,
                                           &pAddrArray->NameServerAddress);
 
-//                if (!NT_SUCCESS(status))
-//               {
-//                    NbtLogEvent(EVENT_NBT_NO_WINS,0);
-//                }
-
                 status = GetServerAddress(Handle,
                                           pwsDhcpBackup,
                                           &pAddrArray->BackupServer);
-//                if (!NT_SUCCESS(status))
-//                {
-//                    NbtLogEvent(EVENT_NBT_NO_BACKUP_WINS,0);
-//                }
             }
             else
             {
@@ -596,24 +600,14 @@ Return Value:
                                           pwsBackup,
                                           &pAddrArray->BackupServer);
 
-//                if (!NT_SUCCESS(status))
-//                {
-//                    NbtLogEvent(EVENT_NBT_NO_BACKUP_WINS,0);
-//                }
             }
 
             // don't want to fail this routine just because the
             // name server address was not set
             status = STATUS_SUCCESS;
 
+            ZwClose(Handle);
         }
-//        else
-//        {
-//            NbtLogEvent(EVENT_NBT_OPEN_REG_NAMESERVER,status);
-//
-//       }
-
-        ZwClose(Handle);
         pAddrArray++;
 
     }
@@ -714,7 +708,7 @@ Return Value:
     CTEPagedCode();
 
     Length = (wcslen(FirstString) + wcslen(SecondString) + 1)*sizeof(WCHAR);
-    pDhcpKeyName = CTEAllocMem(Length);
+    pDhcpKeyName = NbtAllocMem(Length,NBT_TAG('i'));
     if (pDhcpKeyName)
     {
         pucString->Buffer = pDhcpKeyName;
@@ -820,7 +814,8 @@ Return Value:
         if ((ucString.Length > 0) &&
            (ucString.Length <= (255 - NETBIOS_NAME_SIZE)*sizeof(WCHAR)))
         {
-            pBuffer = CTEAllocMem(ucString.Length/sizeof(WCHAR));
+
+            pBuffer = NbtAllocMem(ucString.MaximumLength/sizeof(WCHAR),NBT_TAG('i'));
 
             if (pBuffer)
             {
@@ -828,7 +823,7 @@ Return Value:
                 // increment pBuffer to leave room for the length byte
                 //
                 String.Buffer = pBuffer;
-                String.MaximumLength = ucString.Length;
+                String.MaximumLength = ucString.MaximumLength/sizeof(WCHAR);
                 status  = RtlUnicodeStringToAnsiString(&String,
                                                       &ucString,
                                                       FALSE);
@@ -894,7 +889,8 @@ GetIPFromRegistry(
     IN  PUNICODE_STRING pucRegistryPath,
     IN  PUNICODE_STRING pucBindDevice,
     OUT PULONG          pulIpAddress,
-    OUT PULONG          pulSubnetMask
+    OUT PULONG          pulSubnetMask,
+    IN  BOOL            fWantDhcpAddresses
     )
 /*++
 
@@ -926,8 +922,8 @@ Return Value:
 
 --*/
 {
-    PWSTR           pwsIpAddressName  = L"IPAddress";    // value name to read
-    PWSTR           pwsSubnetMask     = L"SubnetMask";   // value name to read
+    PWSTR           pwsIpAddressName  = ( fWantDhcpAddresses ? L"DhcpIPAddress" : L"IPAddress" );    // value name to read
+    PWSTR           pwsSubnetMask     = ( fWantDhcpAddresses ? L"DhcpSubnetMask" : L"SubnetMask" );   // value name to read
     PWSTR           TcpParams         = L"\\Parameters\\Tcpip"; // key to open
     ULONG           Len;
     ULONG           iBindPathLength;
@@ -948,7 +944,7 @@ Return Value:
         // get the length of the adapter name (+1 for unicode null)
         //
         Len = (wcslen(pwsString) + wcslen(TcpParams) + 1) * sizeof(WCHAR);
-        pBuffer = CTEAllocMem(Len);
+        pBuffer = NbtAllocMem(Len,NBT_TAG('i'));
         if (!pBuffer)
         {
             return(STATUS_INSUFFICIENT_RESOURCES);
@@ -1158,7 +1154,7 @@ Return Value:
     Count = 1;
     while ((RegistryStatus == STATUS_BUFFER_OVERFLOW) && (Count < 20))
     {
-        pBuffer = CTEAllocMem(REGISTRY_BUFF_SIZE*Count);
+        pBuffer = NbtAllocMem(REGISTRY_BUFF_SIZE*Count,NBT_TAG('i'));
         if (!pBuffer)
         {
             return(STATUS_INSUFFICIENT_RESOURCES);
@@ -1199,7 +1195,7 @@ Return Value:
 
     // allocate memory for the unicode strings, currently in BindValue
     // on the stack
-    pDevices->RegistrySpace = (PVOID)CTEAllocMem((USHORT)BytesWritten);
+    pDevices->RegistrySpace = (PVOID)NbtAllocMem((USHORT)BytesWritten,NBT_TAG('i'));
 
     if ( pDevices->RegistrySpace == NULL )
     {
@@ -1454,28 +1450,49 @@ Return Value:
                          &BytesRead               // # of bytes returned
                          );
 
+    if ( Status == STATUS_BUFFER_OVERFLOW )
+    {
+        ReadValue = (PKEY_VALUE_FULL_INFORMATION) NbtAllocMem( BytesRead, NBT_TAG('i'));
+        if ( ReadValue == NULL )
+        {
+            IF_DBG(NBT_DEBUG_NTUTIL)
+                KdPrint(("ReadElement: failed to allocate %d bytes for element\n",BytesRead));
+            Status = STATUS_INSUFFICIENT_RESOURCES;
+            goto ReadElement_Return;
+        }
+        Status = ZwQueryValueKey(
+                             HandleToKey,
+                             pucString,               // string to retrieve
+                             KeyValueFullInformation,
+                             (PVOID)ReadValue,                 // returned info
+                             BytesRead,
+                             &BytesRead               // # of bytes returned
+                             );
+    }
     if (!NT_SUCCESS(Status))
     {
         IF_DBG(NBT_DEBUG_NTUTIL)
         KdPrint(("failed to Query Value Status = %X\n",Status));
-        return Status;
+        goto ReadElement_Return;
     }
 
     if ( BytesRead == 0 )
     {
-        return STATUS_ILL_FORMED_SERVICE_ENTRY;
+        Status = STATUS_ILL_FORMED_SERVICE_ENTRY;
+        goto ReadElement_Return;
     }
     else
     if (ReadValue->DataLength == 0)
     {
-        return(STATUS_UNSUCCESSFUL);
+        Status = STATUS_UNSUCCESSFUL;
+        goto ReadElement_Return;
     }
 
 
     // create the pucString and copy the data returned to it
     // assumes that the ReadValue string ends in a UNICODE_NULL
     //bStatus = RtlCreateUnicodeString(pucString,pwSrcString);
-    pwsSrcString = (PWSTR)CTEAllocMem((USHORT)ReadValue->DataLength);
+    pwsSrcString = (PWSTR)NbtAllocMem((USHORT)ReadValue->DataLength,NBT_TAG('i'));
     if (!pwsSrcString)
     {
         ASSERTMSG((PVOID)pwsSrcString,
@@ -1501,6 +1518,13 @@ Return Value:
  //       pucString->Buffer = pwsSrcString;
     }
 
+ReadElement_Return:
+
+    if ( ( ReadValue != (PKEY_VALUE_FULL_INFORMATION)ReadStorage )
+        && ( ReadValue != NULL ) )
+    {
+        CTEFreeMem(ReadValue);
+    }
     return(Status);
 
 }
@@ -1563,7 +1587,7 @@ Return Value:
 
 
     StringMax = ucDataBase.Length/sizeof(WCHAR) + strlen(ascLmhosts) + 1;
-    pBuffer = CTEAllocMem(StringMax);
+    pBuffer = NbtAllocMem(StringMax,NBT_TAG('i'));
     if (!pBuffer)
     {
         return(STATUS_INSUFFICIENT_RESOURCES);
@@ -1682,7 +1706,7 @@ Return Value:
     // allocate some memory for the registry path so that it is large enough
     // to append a string on to, for the relative key to be read
     //
-    pBuffer = CTEAllocMem(StringMax);
+    pBuffer = NbtAllocMem(StringMax,NBT_TAG('i'));
 
     if (!pBuffer)
     {
@@ -1785,4 +1809,3 @@ Return Value:
     *piLength = 0;
     return;
 }
-

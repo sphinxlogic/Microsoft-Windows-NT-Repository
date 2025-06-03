@@ -28,6 +28,12 @@ Revision History:
 #include "video.h"
 #include "et4000.h"
 
+extern VOID vInitDebugValidators(
+    PHW_DEVICE_EXTENSION    phwDeviceExtension,
+    EMULATOR_ACCESS_ENTRY   *pVgaEmulatorAccessEntries,
+    ULONG                   nEmulatorAccessEntries
+    );
+
 
 //
 // Function declarations
@@ -137,6 +143,12 @@ ET4000IsPresent(
     PHW_DEVICE_EXTENSION HwDeviceExtension
     );
 
+BOOLEAN
+ET6000IsPresent(
+    PHW_DEVICE_EXTENSION HwDeviceExtension,
+    PVIDEO_ACCESS_RANGE pAccessRange
+    );
+
 VOID
 VgaInterpretCmdStream(
     PVOID HwDeviceExtension,
@@ -200,6 +212,11 @@ ET4000GetMemorySize(
     PHW_DEVICE_EXTENSION HwDeviceExtension
     );
 
+BOOLEAN
+ET6000GetMemorySize(
+    PHW_DEVICE_EXTENSION HwDeviceExtension
+    );
+
 USHORT
 GetIndexedRegisterPacked(
     PUCHAR AddressPort,
@@ -216,6 +233,13 @@ VOID
 ET4000RestoreFromLinear(
     PHW_DEVICE_EXTENSION HwDeviceExtension,
     PUSHORT SaveArray
+    );
+
+VOID
+vBankMap(
+    LONG iBankRead,
+    LONG iBankWrite,
+    PVOID pvContext
     );
 
 BOOLEAN
@@ -246,6 +270,7 @@ VgaValidateModes(
 #pragma alloc_text(PAGE,VgaSetCursorAttributes)
 #pragma alloc_text(PAGE,VgaIsPresent)
 #pragma alloc_text(PAGE,ET4000IsPresent)
+#pragma alloc_text(PAGE,ET6000IsPresent)
 #pragma alloc_text(PAGE,VgaSetPaletteReg)
 #pragma alloc_text(PAGE,VgaSetColorLookup)
 #pragma alloc_text(PAGE,VgaRestoreHardwareState)
@@ -255,6 +280,7 @@ VgaValidateModes(
 #pragma alloc_text(PAGE,UnlockET4000ExtendedRegs)
 #pragma alloc_text(PAGE,ResetACToggle)
 #pragma alloc_text(PAGE,ET4000GetMemorySize)
+#pragma alloc_text(PAGE,ET6000GetMemorySize)
 #pragma alloc_text(PAGE,GetIndexedRegisterPacked)
 #pragma alloc_text(PAGE,ET4000SaveAndSetLinear)
 #pragma alloc_text(PAGE,ET4000RestoreFromLinear)
@@ -265,6 +291,7 @@ VgaValidateModes(
 #pragma alloc_text(PAGE,VgaValidatorUshortEntry)
 #pragma alloc_text(PAGE,VgaValidatorUlongEntry)
 #endif
+
 
 
 ULONG
@@ -299,6 +326,10 @@ Return Value:
     VIDEO_HW_INITIALIZATION_DATA hwInitData;
     ULONG status;
     ULONG initializationStatus;
+
+    INTERFACE_TYPE aBusType[] = {PCIBus, Isa, Eisa, MicroChannel,
+                                 InterfaceTypeUndefined};
+    INTERFACE_TYPE *pBusType = aBusType;
 
     //
     // Zero out structure.
@@ -343,38 +374,32 @@ Return Value:
     // We will return the minimum of all return values.
     //
 
-    hwInitData.AdapterInterfaceType = Isa;
+    while (*pBusType != InterfaceTypeUndefined)
+    {
+        hwInitData.AdapterInterfaceType = *pBusType;
 
-    initializationStatus = VideoPortInitialize(Context1,
-                                               Context2,
-                                               &hwInitData,
-                                               NULL);
+        initializationStatus = VideoPortInitialize(Context1,
+                                                   Context2,
+                                                   &hwInitData,
+                                                   NULL);
 
-    hwInitData.AdapterInterfaceType = Eisa;
+        if (initializationStatus == NO_ERROR)
+        {
+            return initializationStatus;
+        }
 
-    status = VideoPortInitialize(Context1,
-                                 Context2,
-                                 &hwInitData,
-                                 NULL);
-
-    if (initializationStatus > status) {
-        initializationStatus = status;
+        pBusType++;
     }
 
-    hwInitData.AdapterInterfaceType = MicroChannel;
-
-    status = VideoPortInitialize(Context1,
-                                 Context2,
-                                 &hwInitData,
-                                 NULL);
-
-    if (initializationStatus > status) {
-        initializationStatus = status;
-    }
+    //
+    // We didn't find the card on any bus type, so lets
+    // return the last error.
+    //
 
     return initializationStatus;
 
 } // end DriverEntry()
+
 
 VP_STATUS
 VgaFindAdapter(
@@ -435,6 +460,8 @@ Return Value:
 {
     PHW_DEVICE_EXTENSION hwDeviceExtension = HwDeviceExtension;
     VP_STATUS status;
+    ULONG numAccessRanges=NUM_VGA_ACCESS_RANGES;
+    int i;
 
     //
     // Make sure the size of the structure is at least as large as what we
@@ -452,11 +479,46 @@ Return Value:
     //
 
     //
+    // If we are on a PCI bus, lets check and see if an ET6000
+    // device is present.  If so, we'll adjust the access ranges.
+    //
+
+    if (ConfigInfo->AdapterInterfaceType == PCIBus)
+    {
+        if (ET6000IsPresent(hwDeviceExtension, VgaAccessRange))
+        {
+            //
+            // If we found an ET6000 we will use a linear frame buffer
+            //
+
+            hwDeviceExtension->bLinearModeSupported = TRUE;
+
+            //
+            // If we will map the frame buffer linearly, then we need
+            // to make sure to verify its access range.
+            //
+
+            numAccessRanges++;
+        }
+        else
+        {
+            //
+            // All other devices are currently NOT on the PCI bus.  They
+            // are just detected as ISA cards.
+            //
+            // So just fail for the PCI bus.
+            //
+
+            return ERROR_DEV_NOT_EXIST;
+        }
+    }
+
+    //
     // Check to see if there is a hardware resource conflict.
     //
 
     status = VideoPortVerifyAccessRanges(HwDeviceExtension,
-                                         NUM_VGA_ACCESS_RANGES,
+                                         numAccessRanges,
                                          VgaAccessRange);
 
     if (status != NO_ERROR) {
@@ -469,15 +531,55 @@ Return Value:
     // Get logical IO port addresses.
     //
 
-    if ( (hwDeviceExtension->IOAddress =
-              VideoPortGetDeviceBase(hwDeviceExtension,
-                                     VgaAccessRange->RangeStart,
-                                     VGA_MAX_IO_PORT - VGA_BASE_IO_PORT + 1,
-                                     TRUE)) == NULL) {
+    for (i = 0; i < 3; i++) {
 
-        VideoDebugPrint((2, "VgaFindAdapter - Fail to get io address\n"));
+        PUCHAR IOAddress;
 
-        return ERROR_INVALID_PARAMETER;
+        if ( (IOAddress =
+                  VideoPortGetDeviceBase(hwDeviceExtension,
+                                         VgaAccessRange[i].RangeStart,
+                                         VgaAccessRange[i].RangeLength,
+                                         VgaAccessRange[i].RangeInIoSpace)) == NULL) {
+
+            VideoDebugPrint((0, "VgaFindAdapter - *** Failed *** to get io address ndx(%d) start(%xh) len(%d)\n",
+                                 i,
+                                 VgaAccessRange[i].RangeStart.LowPart,
+                                 VgaAccessRange[i].RangeLength
+                                 ));
+
+            return ERROR_INVALID_PARAMETER;
+
+        } else {
+
+            VideoDebugPrint((1, "VgaFindAdapter - Succeeded to get io address ndx(%d) start(%xh) len(%d)\n",
+                                 i,
+                                 VgaAccessRange[i].RangeStart.LowPart,
+                                 VgaAccessRange[i].RangeLength
+                                 ));
+
+            if (i == 0) {
+
+                //
+                // The difference between the PORT address we asked for and the address we
+                // were given is the offset at which the system is mapping the port i/o
+                // space.  On x86 systems this should be 0 and on other systems it will
+                // probably not be 0.
+                //
+
+                hwDeviceExtension->IOAddress = IOAddress;
+
+                VideoDebugPrint((1, "VgaFindAdapter - port(%x) mapped at (%x)\n",
+                                     VgaAccessRange[i].RangeStart.LowPart,
+                                     hwDeviceExtension->IOAddress));
+
+                hwDeviceExtension->IOAddress -= VgaAccessRange[i].RangeStart.LowPart;
+
+                VideoDebugPrint((1, "VgaFindAdapter - ports are mapped at offset (%x)\n",
+                                     hwDeviceExtension->IOAddress));
+
+            }
+
+        }
 
     }
 
@@ -516,13 +618,21 @@ Return Value:
     }
 
     //
-    // Determine whether an ET4000 is present.
+    //  If an ET6000 is present, then we already found it above.  If we
+    //  have not located an ET6000, then see if we are running on an
+    //  ET4000.
     //
 
-    if (!ET4000IsPresent(hwDeviceExtension)) {
+    if (hwDeviceExtension->ulChipID != ET6000)
+    {
+        //
+        // Determine whether an ET4000 is present.
+        //
 
-        return ERROR_DEV_NOT_EXIST;
-
+        if (!ET4000IsPresent(hwDeviceExtension))
+        {
+            return ERROR_DEV_NOT_EXIST;
+        }
     }
 
     //
@@ -595,6 +705,19 @@ Return Value:
 
     hwDeviceExtension->BiosArea = (PUSHORT)NULL;
 
+    //
+    //  We use VideoPortInt10 to retrieve the ET6000's memory size
+    //  information.  We are doing only the ET6000 only so we can
+    //  minimize the impact to any other boards.  By using Int10, we
+    //  can save ourselves some possibly tedious work in recognizing
+    //  the board's memory configuration.
+    //
+
+    if (hwDeviceExtension->ulChipID == ET6000)
+    {
+        return(ET6000GetMemorySize(hwDeviceExtension));
+    }
+
     return TRUE;
 
 } // VgaInitialize()
@@ -635,12 +758,240 @@ Return Value:
     PVIDEO_MEMORY_INFORMATION memoryInformation;
     ULONG inIoSpace;
 
+    PVIDEO_SHARE_MEMORY pShareMemory;
+    PVIDEO_SHARE_MEMORY_INFORMATION pShareMemoryInformation;
+    PHYSICAL_ADDRESS shareAddress;
+    PVOID virtualAddress;
+    ULONG sharedViewSize;
+
     //
     // Switch on the IoContolCode in the RequestPacket. It indicates which
     // function must be performed by the driver.
     //
+    VideoDebugPrint((2, "W32StartIO Entry - %08.8x\n", RequestPacket->IoControlCode));
 
     switch (RequestPacket->IoControlCode) {
+
+    case IOCTL_VIDEO_SHARE_VIDEO_MEMORY:
+
+        VideoDebugPrint((2, "W32StartIO - ShareVideoMemory\n"));
+
+        if ( (RequestPacket->OutputBufferLength < sizeof(VIDEO_SHARE_MEMORY_INFORMATION)) ||
+             (RequestPacket->InputBufferLength < sizeof(VIDEO_MEMORY)) ) {
+
+            VideoDebugPrint((0, "IOCTL_VIDEO_SHARE_VIDEO_MEMORY - ERROR_INSUFFICIENT_BUFFER\n"));
+            status = ERROR_INSUFFICIENT_BUFFER;
+            break;
+        }
+
+        pShareMemory = RequestPacket->InputBuffer;
+
+        if ( (pShareMemory->ViewOffset > hwDeviceExtension->AdapterMemorySize) ||
+             ((pShareMemory->ViewOffset + pShareMemory->ViewSize) >
+                  hwDeviceExtension->AdapterMemorySize) ) {
+
+            VideoDebugPrint((0, "IOCTL_VIDEO_SHARE_VIDEO_MEMORY - ERROR_INVALID_PARAMETER\n"));
+            status = ERROR_INVALID_PARAMETER;
+            break;
+        }
+
+        RequestPacket->StatusBlock->Information =
+                                    sizeof(VIDEO_SHARE_MEMORY_INFORMATION);
+
+        //
+        // Beware: the input buffer and the output buffer are the same
+        // buffer, and therefore data should not be copied from one to the
+        // other
+        //
+
+        virtualAddress = pShareMemory->ProcessHandle;
+        sharedViewSize = pShareMemory->ViewSize;
+
+#if defined(ALPHA)
+        inIoSpace = 4;
+#else
+        inIoSpace = 0;
+#endif
+
+        //
+        // NOTE: we are ignoring ViewOffset
+        //
+
+        shareAddress.QuadPart = VgaAccessRange[4].RangeStart.QuadPart;
+            // hwDeviceExtension->PhysicalFrameBase.QuadPart;
+
+        status = VideoPortMapMemory(hwDeviceExtension,
+                                    shareAddress,
+                                    &sharedViewSize,
+                                    &inIoSpace,
+                                    &virtualAddress);
+
+        pShareMemoryInformation = RequestPacket->OutputBuffer;
+
+        pShareMemoryInformation->SharedViewOffset = pShareMemory->ViewOffset;
+        pShareMemoryInformation->VirtualAddress = virtualAddress;
+        pShareMemoryInformation->SharedViewSize = sharedViewSize;
+
+        break;
+
+
+    case IOCTL_VIDEO_UNSHARE_VIDEO_MEMORY:
+
+        VideoDebugPrint((2, "W32StartIO - UnshareVideoMemory\n"));
+
+        if (RequestPacket->InputBufferLength < sizeof(VIDEO_SHARE_MEMORY)) {
+
+            status = ERROR_INSUFFICIENT_BUFFER;
+            break;
+
+        }
+
+        pShareMemory = RequestPacket->InputBuffer;
+
+        status = VideoPortUnmapMemory(hwDeviceExtension,
+                                      pShareMemory->RequestedVirtualAddress,
+                                      pShareMemory->ProcessHandle);
+
+        break;
+
+    case IOCTL_VIDEO_QUERY_PUBLIC_ACCESS_RANGES:
+
+        VideoDebugPrint((1, "VgaStartIO - Map W32 MMU or ACL\n"));
+
+        if (RequestPacket->OutputBufferLength <
+            3 * sizeof(VIDEO_PUBLIC_ACCESS_RANGES))
+        {
+            status = ERROR_INSUFFICIENT_BUFFER;
+        }
+        else
+        {
+            PVIDEO_PUBLIC_ACCESS_RANGES portAccess;
+            PHYSICAL_ADDRESS            base, pa;
+            ULONG                       length;
+            ULONG                       ulIndex;
+
+            RequestPacket->StatusBlock->Information =
+                3 * sizeof(VIDEO_PUBLIC_ACCESS_RANGES);
+
+            portAccess = RequestPacket->OutputBuffer;
+
+            if (hwDeviceExtension->bInLinearMode)
+            {
+                base = VgaAccessRange[LINEAR_FRAME_BUFFER].RangeStart;
+                ulIndex = 1;
+            }
+            else
+            {
+                base = VgaAccessRange[BANKED_FRAME_BUFFER].RangeStart;
+                ulIndex = 0;
+            }
+
+            //
+            // Map the first range
+            //
+
+            portAccess->VirtualAddress  = (PVOID) NULL;
+            portAccess->InIoSpace       = FALSE;
+            portAccess->MappedInIoSpace = portAccess->InIoSpace;
+
+            //
+            // We don't map this range if we are linear!
+            //
+
+            if (!hwDeviceExtension->bInLinearMode)
+            {
+                pa = base;
+                pa.LowPart = RangeOffsets[ulIndex][0].ulOffset;
+                length     = RangeOffsets[ulIndex][0].ulLength;
+
+                status = VideoPortMapMemory(hwDeviceExtension,
+                                            pa,
+                                            &length,
+                                            &(portAccess->MappedInIoSpace),
+                                            &(portAccess->VirtualAddress));
+
+                if (status != NO_ERROR)
+                {
+                    break;
+                }
+            }
+
+            //
+            // Map the second range
+            //
+
+            portAccess++;
+            portAccess->VirtualAddress  = (PVOID) NULL;
+            portAccess->InIoSpace       = FALSE;
+            portAccess->MappedInIoSpace = portAccess->InIoSpace;
+
+            pa = base;
+            pa.LowPart = RangeOffsets[ulIndex][1].ulOffset;
+            length     = RangeOffsets[ulIndex][1].ulLength;
+
+            VideoDebugPrint((0, "\n\n**** pa = 0x%x\n", pa.LowPart));
+
+            status = VideoPortMapMemory(hwDeviceExtension,
+                                        pa,
+                                        &length,
+                                        &(portAccess->MappedInIoSpace),
+                                        &(portAccess->VirtualAddress));
+
+            if (status != NO_ERROR)
+            {
+                break;
+            }
+
+            //
+            // Map the third range
+            //
+
+            portAccess++;
+
+            portAccess->VirtualAddress  = (PVOID) NULL;
+            portAccess->InIoSpace       = TRUE;
+            portAccess->MappedInIoSpace = portAccess->InIoSpace;
+
+            pa.LowPart = PORT_IO_ADDR;
+            length = PORT_IO_LEN;
+
+            status = VideoPortMapMemory(hwDeviceExtension,
+                                        pa,
+                                        &length,
+                                        &(portAccess->MappedInIoSpace),
+                                        &(portAccess->VirtualAddress));
+
+        }
+
+        break;
+
+    case IOCTL_VIDEO_FREE_PUBLIC_ACCESS_RANGES:
+
+        VideoDebugPrint((2, "VgaStartIO - FreePublicAccessRanges\n"));
+
+        {
+            PVIDEO_MEMORY mappedMemory;
+
+            if (RequestPacket->InputBufferLength < 2 * sizeof(VIDEO_MEMORY)) {
+
+                status = ERROR_INSUFFICIENT_BUFFER;
+                break;
+            }
+
+            status = NO_ERROR;
+
+            mappedMemory = RequestPacket->InputBuffer;
+
+            if (mappedMemory->RequestedVirtualAddress != NULL) {
+
+                status = VideoPortUnmapMemory(hwDeviceExtension,
+                                              mappedMemory->
+                                                   RequestedVirtualAddress,
+                                              0);
+            }
+        }
+
+        break;
 
 
     case IOCTL_VIDEO_MAP_VIDEO_MEMORY:
@@ -660,24 +1011,51 @@ Return Value:
         memoryInformation->VideoRamBase = ((PVIDEO_MEMORY)
                 (RequestPacket->InputBuffer))->RequestedVirtualAddress;
 
-        memoryInformation->VideoRamLength =
-                hwDeviceExtension->PhysicalVideoMemoryLength;
-
+#if defined(ALPHA)
+        inIoSpace = 4;
+#else
         inIoSpace = 0;
+#endif
 
-        status = VideoPortMapMemory(hwDeviceExtension,
-                                    hwDeviceExtension->PhysicalVideoMemoryBase,
-                                    &(memoryInformation->VideoRamLength),
-                                    &inIoSpace,
-                                    &(memoryInformation->VideoRamBase));
+        if (hwDeviceExtension->bInLinearMode)
+        {
+            //
+            // Map in the linear frame buffer
+            //
 
-        memoryInformation->FrameBufferBase =
-        ((PUCHAR) (memoryInformation->VideoRamBase)) +
-            (hwDeviceExtension->PhysicalFrameBase.LowPart -
-            hwDeviceExtension->PhysicalVideoMemoryBase.LowPart);
+            memoryInformation->VideoRamLength = hwDeviceExtension->AdapterMemorySize;
 
-        memoryInformation->FrameBufferLength =
-            hwDeviceExtension->PhysicalFrameLength;
+            status = VideoPortMapMemory(hwDeviceExtension,
+                                        VgaAccessRange[4].RangeStart,
+                                        &(memoryInformation->VideoRamLength),
+                                        &(inIoSpace),
+                                        &(memoryInformation->VideoRamBase));
+
+            memoryInformation->FrameBufferLength = memoryInformation->VideoRamLength;
+            memoryInformation->FrameBufferBase = memoryInformation->VideoRamBase;
+
+        }
+        else
+        {
+            //
+            // Map in the banked frame buffer
+            //
+
+            memoryInformation->VideoRamLength = hwDeviceExtension->PhysicalVideoMemoryLength;
+
+            status = VideoPortMapMemory(hwDeviceExtension,
+                                        hwDeviceExtension->PhysicalVideoMemoryBase,
+                                        &(memoryInformation->VideoRamLength),
+                                        &inIoSpace,
+                                        &(memoryInformation->VideoRamBase));
+
+            memoryInformation->FrameBufferLength = hwDeviceExtension->PhysicalFrameLength;
+
+            memoryInformation->FrameBufferBase =
+            ((PUCHAR) (memoryInformation->VideoRamBase)) +
+                (hwDeviceExtension->PhysicalFrameBase.LowPart -
+                hwDeviceExtension->PhysicalVideoMemoryBase.LowPart);
+        }
 
         break;
 
@@ -741,6 +1119,10 @@ Return Value:
     case IOCTL_VIDEO_SET_CURRENT_MODE:
 
         VideoDebugPrint((2, "VgaStartIO - SetCurrentModes\n"));
+
+        status = VgaRestoreHardwareState(HwDeviceExtension,
+                                         (PVIDEO_HARDWARE_STATE) RequestPacket->InputBuffer,
+                                         RequestPacket->InputBufferLength);
 
         status = VgaSetMode(HwDeviceExtension,
                               (PVIDEO_MODE) RequestPacket->InputBuffer,
@@ -889,13 +1271,45 @@ Return Value:
 
         VideoDebugPrint((2, "VgaStartIO - GetBankSelectCode\n"));
 
+#if defined(i386)
         status = VgaGetBankSelectCode(HwDeviceExtension,
                                         (PVIDEO_BANK_SELECT) RequestPacket->OutputBuffer,
                                         RequestPacket->OutputBufferLength,
                                         &RequestPacket->StatusBlock->Information);
-
+#else
+        status = ERROR_INVALID_FUNCTION;
+#endif
         break;
 
+
+    //
+    // Private IOCTLs established with the driver
+    //
+
+    case IOCTL_VIDEO_GET_VIDEO_CARD_INFO:
+
+        VideoDebugPrint((2, "VgaStartIO - Get video card info\n"));
+
+        if (RequestPacket->OutputBufferLength <
+            (RequestPacket->StatusBlock->Information =
+            sizeof(VIDEO_COPROCESSOR_INFORMATION)) )
+        {
+
+            status = ERROR_INSUFFICIENT_BUFFER;
+            break;
+        }
+
+        // return the Coproc Base Address.
+
+        ((PVIDEO_COPROCESSOR_INFORMATION) RequestPacket->OutputBuffer)->ulChipID =
+            hwDeviceExtension->ulChipID;
+
+        ((PVIDEO_COPROCESSOR_INFORMATION) RequestPacket->OutputBuffer)->ulRevLevel =
+            hwDeviceExtension->ulRevLevel;
+
+        status = NO_ERROR;
+
+        break;
 
     //
     // if we get here, an invalid IoControlCode was specified.
@@ -912,6 +1326,10 @@ Return Value:
     }
 
     RequestPacket->StatusBlock->Status = status;
+
+#if DBG
+    VideoDebugPrint((2, "W32StartIO Exit  - %08.8x\n", RequestPacket->IoControlCode));
+#endif
 
     return TRUE;
 
@@ -1264,7 +1682,7 @@ Return Value:
 
     if (CursorPositionSize < sizeof(VIDEO_CURSOR_POSITION)) {
 
-            return ERROR_INSUFFICIENT_BUFFER;
+        return ERROR_INSUFFICIENT_BUFFER;
 
     }
 
@@ -1479,7 +1897,7 @@ Return Value:
 
     if (CursorAttributesSize < sizeof(VIDEO_CURSOR_ATTRIBUTES)) {
 
-            return ERROR_INSUFFICIENT_BUFFER;
+        return ERROR_INSUFFICIENT_BUFFER;
 
     }
 
@@ -2134,16 +2552,131 @@ Return Value:
 
     if (temp1 == temp2) {
 
-        HwDeviceExtension->BoardID = TSENG4000W32;
+        UCHAR   jID;
 
-        pwszChip = L"W32";
-        cbChip = sizeof(L"W32");
+        HwDeviceExtension->BoardID = TSENG4000W32;
+        pwszAdapterString = L"TSENG ET4000W32 Compatible";
+        cbAdapterString = sizeof(L"TSENG ET4000W32 Compatible");
+
+        VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
+                                CRTCB_IO_PORT_INDEX,
+                                IND_CRTCB_CHIP_ID);
+
+        {
+            UCHAR vfy;
+
+            vfy = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
+                                         CRTCB_IO_PORT_INDEX);
+            if (vfy != IND_CRTCB_CHIP_ID)
+            {
+                VideoDebugPrint((0,"Write to CRTCB_IO_PORT_INDEX didn't work\n"));
+                VideoDebugPrint((0,"Wrote 0x%x, read back 0x%x\n", IND_CRTCB_CHIP_ID, vfy));
+            }
+        }
+
+        jID = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
+                                CRTCB_IO_PORT_DATA);
+
+        jID = (jID >> 4) & 0xF;
+
+        switch (jID) {
+
+            case 0x00:  // W32 Rev Undefined
+
+                pwszChip = L"W32";
+                cbChip = sizeof(L"W32");
+                HwDeviceExtension->ulChipID   = W32;
+                HwDeviceExtension->ulRevLevel = REV_UNDEF;
+                break;
+
+            case 0x01:  // W32i Rev A
+
+                pwszChip = L"W32i, rev A";
+                cbChip = sizeof(L"W32i, rev A");
+                HwDeviceExtension->ulChipID   = W32I;
+                HwDeviceExtension->ulRevLevel = REV_A;
+                break;
+
+            case 0x02:  // W32p Rev A
+
+                pwszChip = L"W32p, rev A";
+                cbChip = sizeof(L"W32p, rev A");
+                HwDeviceExtension->ulChipID   = W32P;
+                HwDeviceExtension->ulRevLevel = REV_A;
+                break;
+
+            case 0x03:  // W32i Rev B
+
+                pwszChip = L"W32i, rev B";
+                cbChip = sizeof(L"W32i, rev B");
+                HwDeviceExtension->ulChipID   = W32I;
+                HwDeviceExtension->ulRevLevel = REV_B;
+                break;
+
+            case 0x05:  // W32p Rev B
+
+                pwszChip = L"W32p, rev B";
+                cbChip = sizeof(L"W32p, rev B");
+                HwDeviceExtension->ulChipID   = W32P;
+                HwDeviceExtension->ulRevLevel = REV_B;
+                break;
+
+            case 0x06:  // W32p Rev D
+
+                pwszChip = L"W32p, rev D";
+                cbChip = sizeof(L"W32p, rev D");
+                HwDeviceExtension->ulChipID   = W32P;
+                HwDeviceExtension->ulRevLevel = REV_D;
+                break;
+
+            case 0x07:  // W32p Rev C
+
+                pwszChip = L"W32p, rev C";
+                cbChip = sizeof(L"W32p, rev C");
+                HwDeviceExtension->ulChipID   = W32P;
+                HwDeviceExtension->ulRevLevel = REV_C;
+                break;
+
+            case 0x0b:  // W32i Rev C
+
+                //
+                // This puppy is rare (non production)
+                //
+                pwszChip = L"W32i, rev C";
+                cbChip = sizeof(L"W32i, rev C");
+                HwDeviceExtension->ulChipID   = W32I;
+                HwDeviceExtension->ulRevLevel = REV_C;
+                break;
+
+            default:
+
+                //
+                // it must be a new rev of one of the W32 chips
+                //
+                pwszChip = L"W32 family, ID unknown";
+                cbChip = sizeof(L"W32 family, ID unknown");
+
+                //
+                // NOTE: Assume any unidentified W32 must be a W32p or newer
+                //
+
+                HwDeviceExtension->ulChipID   = W32P;
+                HwDeviceExtension->ulRevLevel = REV_C;
+
+                VideoDebugPrint((0,"The video chip cannot be identified (0x%x)\n", jID));
+                break;
+
+        }
 
     } else {
 
         if ((temp1 & 0xf) == (temp2 & 0xf)) {
 
             HwDeviceExtension->BoardID = TSENG4000;
+            pwszAdapterString = L"TSENG ET4000 Compatible";
+            cbAdapterString = sizeof(L"TSENG ET4000 Compatible");
+            HwDeviceExtension->ulChipID   = ET4000;
+            HwDeviceExtension->ulRevLevel = REV_UNDEF;
 
             pwszChip = L"ET4000";
             cbChip = sizeof(L"ET4000");
@@ -2155,6 +2688,8 @@ Return Value:
             //
 
             HwDeviceExtension->BoardID = TSENG3000;
+            HwDeviceExtension->ulChipID   = ET3000;
+            HwDeviceExtension->ulRevLevel = REV_UNDEF;
 
             VideoDebugPrint((1, "ET4000 not found\n"));
 
@@ -2164,11 +2699,9 @@ Return Value:
     }
 
     //
-    // It *is* an ET4000!
+    // It *is* an ET4000 or a W32!
     //
 
-    pwszAdapterString = L"TSENG ET4000 Compatible";
-    cbAdapterString = sizeof(L"TSENG ET4000 Compatible");
 
     //
     // Map in the ROM address space at 0xc000:0
@@ -2190,9 +2723,22 @@ Return Value:
         // make sure we are looking at a bios!
         //
 
-        if (*((PUSHORT) pRomAddr) == 0xAA55) {
+        //if (*((PUSHORT) pRomAddr) == 0xAA55) {
+
+        if (VideoPortReadRegisterUshort((PUSHORT)pRomAddr) == 0xAA55) {
 
             if (VideoPortScanRom(HwDeviceExtension,
+                                 pRomAddr,
+                                 MAX_ROM_SCAN,
+                                 "Stealth 32 ")) {
+
+                HwDeviceExtension->BoardID = STEALTH32;
+
+                pwszAdapterString = L"Diamond Stealth 32";
+                cbAdapterString = sizeof(L"Diamond Stealth 32");
+
+
+            } else if (VideoPortScanRom(HwDeviceExtension,
                                  pRomAddr,
                                  MAX_ROM_SCAN,
                                  "SpeedSTAR 24 ")) {
@@ -2258,8 +2804,8 @@ Return Value:
                 cbAdapterString = sizeof(L"Orchid ProDesigner II");
 
             }
-        }
 
+        }
 
         VideoPortFreeDeviceBase(HwDeviceExtension, pRomAddr);
     }
@@ -2270,6 +2816,7 @@ Return Value:
 
     HwDeviceExtension->AdapterMemorySize =
         ET4000GetMemorySize(HwDeviceExtension);
+
 
     //
     // Finally, just validate the list of modes.
@@ -2297,7 +2844,6 @@ Return Value:
                                    L"HardwareInformation.AdapterString",
                                    pwszAdapterString,
                                    cbAdapterString);
-
 
     return TRUE;
 
@@ -2382,7 +2928,9 @@ Return Value:
     // determining memory size.
     //
 
-    if (HwDeviceExtension->BoardID == TSENG4000W32) {  // It's a W32
+    if (HwDeviceExtension->ulChipID >= W32) {
+
+         // It's a W32
 
          //
          // memory bus width determines whether to factor up by 2x
@@ -2407,7 +2955,6 @@ Return Value:
             // mem location 0 is the same as memory location 512K (16 bit mem)
             // or 1M (32 bit) (256K chips don't have ROW_ADR<9>)
 
-
             if (ET4000w32With256KDrams(HwDeviceExtension,(USHORT) (8 << Width32)))
 
                 factor = 1;
@@ -2426,6 +2973,7 @@ Return Value:
         // calculate size based on factor and bus width
 
         Size *= (factor << Width32);
+        VideoDebugPrint((1, "\nET4000GetMemorySize(w32): size(%08x),factor(%d),width32(%d)\n\n",Size,factor,Width32));
 
     } else {
 
@@ -2450,7 +2998,8 @@ Return Value:
                 else
                     Size = 0x80000;
             }
-         }
+        }
+        VideoDebugPrint((1, "ET4000GetMemorySize(non-w32): size(%08x)\n",Size));
 
     }  // ET4000
 
@@ -2474,6 +3023,184 @@ Return Value:
 
 
 } // Et4000GetMemorySize()
+
+BOOLEAN
+ET6000IsPresent(
+    PHW_DEVICE_EXTENSION HwDeviceExtension,
+    PVIDEO_ACCESS_RANGE pAccessRange
+    )
+
+/*++
+
+Routine Description:
+
+    This routine returns TRUE if an ET6000 is present. It assumes that it's
+    already been established that a VGA is present.  It will look at the PCI
+    vendor and chip ID registers to identify the board.
+
+Arguments:
+
+    Input:  hwDeviceExtension
+
+Return Value:
+
+    TRUE if an ET6000 is present, FALSE if not.
+
+--*/
+
+{
+    VP_STATUS status;
+    UCHAR   originalCRTCIndex;
+    UCHAR   videoEnable;
+    ULONG   CRTCAddressPort, CRTCDataPort;
+    UCHAR   temp;
+    PWSTR   pwszChip, pwszAdapterString;
+    ULONG   cbChip, cbAdapterString;
+
+    VIDEO_ACCESS_RANGE PCIAccessRanges[3];
+
+    ULONG   ulSlot     = 0;
+    USHORT  usDeviceId = ET6000_DEVICE_ID;
+    USHORT  usVendorId = ET6000_VENDOR_ID;
+    ULONG   Address;
+    UCHAR   bits;
+
+    if (VideoPortGetAccessRanges(HwDeviceExtension,
+                                 0,
+                                 NULL,
+                                 3,
+                                 PCIAccessRanges,
+                                 &usVendorId,
+                                 &usDeviceId,
+                                 &ulSlot) != NO_ERROR)
+    {
+        VideoDebugPrint((1, "Did not find an ET6000 in any pci slot\n"));
+        return FALSE;
+    }
+    else
+    {
+        VideoDebugPrint((1,"Found an ET6000 in pci slot %d\n", ulSlot));
+        HwDeviceExtension->ulSlot = ulSlot;
+    }
+
+    //
+    //  Store the location of the linear frame buffer in the
+    //  HwDeviceExtension.
+    //
+    //  The frame buffer is returned in location 0.  We do not
+    //  need to store any of the other access ranges which
+    //  may have been returned.
+    //
+
+    pAccessRange[LINEAR_FRAME_BUFFER].RangeStart = PCIAccessRanges[0].RangeStart;
+    pAccessRange[LINEAR_FRAME_BUFFER].RangeLength = PCIAccessRanges[0].RangeLength;
+
+    //
+    //  Modify the entries in the RangeOffset array.  This array
+    //  contains offsets within the frame buffer from which
+    //  to map access ranges.
+    //
+
+    RangeOffsets[1][0].ulOffset += PCIAccessRanges[0].RangeStart.LowPart;
+    RangeOffsets[1][1].ulOffset += PCIAccessRanges[0].RangeStart.LowPart;
+
+    //
+    //  Make sure the frame buffer access range is stored in the
+    //  pci configuration space.
+    //
+
+    VideoPortGetBusData(HwDeviceExtension,
+                        PCIConfiguration,
+                        ulSlot,
+                        (PVOID) &Address,
+                        FIELD_OFFSET(PCI_COMMON_CONFIG, u.type0.BaseAddresses),
+                        sizeof(ULONG));
+
+    if (Address != PCIAccessRanges[0].RangeStart.LowPart)
+    {
+        VideoDebugPrint((0, "I really wish they we're equal, but\n"
+                            "they're not, so make them equal!\n"));
+
+        VideoPortSetBusData(HwDeviceExtension,
+                            PCIConfiguration,
+                            ulSlot,
+                            (PVOID) &PCIAccessRanges[0].RangeStart.LowPart,
+                            FIELD_OFFSET(PCI_COMMON_CONFIG, u.type0.BaseAddresses),
+                            sizeof(ULONG));
+    }
+
+    //
+    //  At this point we have identified an ET6000 on the PCi bus by using the
+    //  vendor and device id.
+    //
+    pwszChip = L"ET6000";
+    cbChip = sizeof(L"ET6000");
+    pwszAdapterString = L"ET6000";
+    cbAdapterString = sizeof(L"ET6000");
+    HwDeviceExtension->ulChipID   = ET6000;
+    HwDeviceExtension->ulRevLevel = REV_UNDEF;
+    HwDeviceExtension->BoardID = TSENG6000;
+
+    //
+    // We now have a complete hardware description of the hardware.
+    // Save the information to the registry so it can be used by
+    // configuration programs - such as the display applet
+    //
+    VideoPortSetRegistryParameters(HwDeviceExtension,
+                                   L"HardwareInformation.ChipType",
+                                   pwszChip,
+                                   cbChip);
+
+    VideoPortSetRegistryParameters(HwDeviceExtension,
+                                   L"HardwareInformation.AdapterString",
+                                   pwszAdapterString,
+                                   cbAdapterString);
+
+    return TRUE;
+
+} // Et6000IsPresent()
+
+BOOLEAN
+ET6000GetMemorySize(
+    PHW_DEVICE_EXTENSION HwDeviceExtension
+    )
+{
+    VIDEO_X86_BIOS_ARGUMENTS biosArguments;
+    VP_STATUS status;
+
+    VideoDebugPrint((1,"ET6000GetMemorySize - enter\n"));
+
+    //
+    // Get the adapter memory size
+    //
+
+    VideoPortZeroMemory(&biosArguments, sizeof(VIDEO_X86_BIOS_ARGUMENTS));
+    biosArguments.Eax = 0x1203;
+    biosArguments.Ebx = 0x00F2;
+    status = VideoPortInt10(HwDeviceExtension, &biosArguments);
+    if (status != NO_ERROR)
+    {
+        VideoDebugPrint((1,"ET6000GetMemorySize - exit with error\n"));
+        return FALSE;
+    }
+
+    HwDeviceExtension->AdapterMemorySize = (biosArguments.Ebx & 0x0000FFFF) * 64 * 1024;
+
+    //
+    // Finally, just validate the list of modes.
+    //
+
+    VgaValidateModes(HwDeviceExtension);
+
+    VideoPortSetRegistryParameters(HwDeviceExtension,
+                                   L"HardwareInformation.MemorySize",
+                                   &HwDeviceExtension->AdapterMemorySize,
+                                   sizeof(ULONG));
+
+    VideoDebugPrint((1,"ET6000GetMemorySize - exit\n"));
+    return TRUE;
+}
+
 
 
 USHORT
@@ -2633,6 +3360,53 @@ ET4000RestoreFromLinear(
 } // ET4000RestoreFromLinear
 
 
+VOID
+vBankMap(
+    LONG iBankRead,
+    LONG iBankWrite,
+    PVOID pvContext
+    )
+{
+    PHW_DEVICE_EXTENSION HwDeviceExtension = pvContext;
+
+    //
+    // This function is not pageable because it is called by the memory manager
+    // during some page fault handling.
+    //
+
+    #define SEG_READ_SHIFT_LO   4
+    #define SEG_READ_SHIFT_HI   0
+    #define SEG_WRITE_SHIFT_LO  0
+    #define SEG_WRITE_SHIFT_HI  4
+
+    #define SEG_READ_MASK_LO    0x0F
+    #define SEG_READ_MASK_HI    0x30
+    #define SEG_WRITE_MASK_LO   0x0F
+    #define SEG_WRITE_MASK_HI   0x30
+
+    UCHAR jSegLo, jSegHi;
+
+    //
+    // map the read segement to iBankRead
+    // map the write segement to iBankWrite
+    //
+
+    jSegLo = ((iBankRead & SEG_READ_MASK_LO) << SEG_READ_SHIFT_LO) |
+             ((iBankWrite & SEG_WRITE_MASK_LO) << SEG_WRITE_SHIFT_LO);
+
+    jSegHi = ((iBankRead & SEG_READ_MASK_HI) >> SEG_READ_SHIFT_HI) |
+             ((iBankWrite & SEG_WRITE_MASK_HI) >> SEG_WRITE_SHIFT_HI);
+
+    VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
+            SEGMENT_SELECT_PORT, jSegLo);
+
+    VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
+            SEGMENT_SELECT_HIGH, jSegHi);
+
+    //VideoDebugPrint((1, "vBankMap(%d,%d)\n", iBankRead, iBankWrite));
+} // vBankMap
+
+
 BOOLEAN
 ET4000With1MegMemory(
     PHW_DEVICE_EXTENSION HwDeviceExtension
@@ -2736,7 +3510,7 @@ ET4000w32With256KDrams(
 
     UCHAR save1, save2;
     UCHAR temp1;
-    PUCHAR memory = HwDeviceExtension->VideoMemoryAddress;
+    PUCHAR flush, memory = HwDeviceExtension->VideoMemoryAddress;
     UCHAR SelectValLo, SelectValHi, CurSelLo, CurSelHi ;
     ULONG j;
     BOOLEAN ret = TRUE;       // assume we'll find 256K chips
@@ -2821,15 +3595,20 @@ ET4000w32With256KDrams(
                                   SEGMENT_SELECT_HIGH, CurSelHi);
 
         //
+        // Flush the W32 cache before reading
+        //
+
+        for (flush=memory; flush <= memory+256; flush+=32)
+           VideoPortReadRegisterUchar(flush);
+
+        //
         // Now read the value back
         // If not the same then not 256Kxn chips
         //
 
         if (VideoPortReadRegisterUchar(memory) != temp1) {
-
              ret = FALSE;
              break;
-
         }
 
         //
@@ -3123,7 +3902,7 @@ Return Value:
     if ((HardwareStateSize < sizeof(VIDEO_HARDWARE_STATE)) ||
             (HardwareState->StateLength < VGA_TOTAL_STATE_SIZE)) {
 
-            return ERROR_INSUFFICIENT_BUFFER;
+        return ERROR_INSUFFICIENT_BUFFER;
 
     }
 
@@ -3460,7 +4239,7 @@ Return Value:
 
     VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
             MISC_OUTPUT_REG_WRITE_PORT,
-            (UCHAR) (hardwareStateHeader->PortValue[MISC_OUTPUT_REG_WRITE_PORT] & 0xF7));
+            (UCHAR) (hardwareStateHeader->PortValue[MISC_OUTPUT_REG_WRITE_OFFSET] & 0xF7));
 
     //
     // Restore all Sequencer registers except the Sync Reset register, which
@@ -3526,7 +4305,7 @@ Return Value:
     // which is read from 3CC but written at 3C2.
     //
 
-    if (hardwareStateHeader->PortValue[MISC_OUTPUT_REG_WRITE_PORT] & 0x01) {
+    if (hardwareStateHeader->PortValue[MISC_OUTPUT_REG_WRITE_OFFSET] & 0x01) {
         bIsColor = TRUE;
     } else {
         bIsColor = FALSE;
@@ -3771,7 +4550,7 @@ Return Value:
 
     VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
             SEQ_ADDRESS_PORT,
-            hardwareStateHeader->PortValue[SEQ_ADDRESS_PORT]);
+            hardwareStateHeader->PortValue[SEQ_ADDRESS_OFFSET]);
 
     //
     // Restore the CRT Controller Index.
@@ -3798,7 +4577,7 @@ Return Value:
 
     VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
             GRAPH_ADDRESS_PORT,
-            hardwareStateHeader->PortValue[GRAPH_ADDRESS_PORT]);
+            hardwareStateHeader->PortValue[GRAPH_ADDRESS_OFFSET]);
 
 
     //
@@ -3815,7 +4594,7 @@ Return Value:
 
     VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
             ATT_ADDRESS_PORT,  // restore the AC Index
-            hardwareStateHeader->PortValue[ATT_ADDRESS_PORT]);
+            hardwareStateHeader->PortValue[ATT_ADDRESS_OFFSET]);
 
     //
     // If the toggle should be in Data state, we're all set. If it should be in
@@ -3846,7 +4625,7 @@ Return Value:
 
     VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
             DAC_PIXEL_MASK_PORT,
-            hardwareStateHeader->PortValue[DAC_PIXEL_MASK_PORT]);
+            hardwareStateHeader->PortValue[DAC_PIXEL_MASK_OFFSET]);
 
     //
     // Restore DAC register 0.
@@ -3870,7 +4649,7 @@ Return Value:
     // for the current index.)
     //
 
-    if ((hardwareStateHeader->PortValue[DAC_STATE_PORT] & 0x0F) == 3) {
+    if ((hardwareStateHeader->PortValue[DAC_STATE_OFFSET] & 0x0F) == 3) {
 
         //
         // The DAC Read Index was written to last. Restore the DAC by setting
@@ -3884,7 +4663,7 @@ Return Value:
         // register into a temporary buffer, then adds 1 to the index.
         //
 
-        if (hardwareStateHeader->PortValue[DAC_ADDRESS_WRITE_PORT] == 0) {
+        if (hardwareStateHeader->PortValue[DAC_ADDRESS_WRITE_OFFSET] == 0) {
 
             VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
                     DAC_ADDRESS_READ_PORT, 255);
@@ -3893,7 +4672,7 @@ Return Value:
 
             VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
                     DAC_ADDRESS_READ_PORT, (UCHAR)
-                    (hardwareStateHeader->PortValue[DAC_ADDRESS_WRITE_PORT] -
+                    (hardwareStateHeader->PortValue[DAC_ADDRESS_WRITE_OFFSET] -
                     1));
 
         }
@@ -3903,7 +4682,7 @@ Return Value:
         // the partial read state we saved.
         //
 
-        for (i = hardwareStateHeader->PortValue[DAC_STATE_PORT] >> 4;
+        for (i = hardwareStateHeader->PortValue[DAC_STATE_OFFSET] >> 4;
                 i > 0; i--) {
 
             dummy = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
@@ -3926,7 +4705,7 @@ Return Value:
 
         VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
                 DAC_ADDRESS_WRITE_PORT,
-                hardwareStateHeader->PortValue[DAC_ADDRESS_WRITE_PORT]);
+                hardwareStateHeader->PortValue[DAC_ADDRESS_WRITE_OFFSET]);
 
         //
         // Now write to the hardware however many times are required to get to
@@ -3939,9 +4718,9 @@ Return Value:
 
         portValueDAC = (PUCHAR) hardwareStateHeader +
                 hardwareStateHeader->BasicDacOffset +
-                (hardwareStateHeader->PortValue[DAC_ADDRESS_WRITE_PORT] * 3);
+                (hardwareStateHeader->PortValue[DAC_ADDRESS_WRITE_OFFSET] * 3);
 
-        for (i = hardwareStateHeader->PortValue[DAC_STATE_PORT] >> 4;
+        for (i = hardwareStateHeader->PortValue[DAC_STATE_OFFSET] >> 4;
                 i > 0; i--) {
 
             VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
@@ -4096,7 +4875,7 @@ Return Value:
     // which is read from 3CC but written at 3C2.
     //
 
-    if ((hardwareStateHeader->PortValue[MISC_OUTPUT_REG_WRITE_PORT] =
+    if ((hardwareStateHeader->PortValue[MISC_OUTPUT_REG_WRITE_OFFSET] =
             VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
                     MISC_OUTPUT_REG_READ_PORT))
             & 0x01) {
@@ -4119,7 +4898,7 @@ Return Value:
     // Save the DAC Mask register.
     //
 
-    hardwareStateHeader->PortValue[DAC_PIXEL_MASK_PORT] =
+    hardwareStateHeader->PortValue[DAC_PIXEL_MASK_OFFSET] =
             VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
                     DAC_PIXEL_MASK_PORT);
 
@@ -4129,7 +4908,7 @@ Return Value:
     // Index as needed.
     //
 
-    hardwareStateHeader->PortValue[DAC_ADDRESS_WRITE_PORT] =
+    hardwareStateHeader->PortValue[DAC_ADDRESS_WRITE_OFFSET] =
             VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
                     DAC_ADDRESS_WRITE_PORT);
 
@@ -4145,11 +4924,11 @@ Return Value:
     // we can do about it.
     //
 
-    hardwareStateHeader->PortValue[DAC_STATE_PORT] =
+    hardwareStateHeader->PortValue[DAC_STATE_OFFSET] =
              VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
                     DAC_STATE_PORT);
 
-    if (hardwareStateHeader->PortValue[DAC_STATE_PORT] == 3) {
+    if (hardwareStateHeader->PortValue[DAC_STATE_OFFSET] == 3) {
 
         //
         // The DAC Read Index was written to last. Figure out how many reads
@@ -4166,7 +4945,7 @@ Return Value:
 
         if (VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
                     DAC_ADDRESS_WRITE_PORT) !=
-                hardwareStateHeader->PortValue[DAC_ADDRESS_WRITE_PORT]) {
+                hardwareStateHeader->PortValue[DAC_ADDRESS_WRITE_OFFSET]) {
 
             //
             // The DAC Index changed, so two reads had already been done from
@@ -4174,7 +4953,7 @@ Return Value:
             // the read/write state field.
             //
 
-            hardwareStateHeader->PortValue[DAC_STATE_PORT] |= 0x20;
+            hardwareStateHeader->PortValue[DAC_STATE_OFFSET] |= 0x20;
 
         } else {
 
@@ -4187,7 +4966,7 @@ Return Value:
 
             if (VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
                         DAC_ADDRESS_WRITE_PORT) !=
-                    hardwareStateHeader->PortValue[DAC_ADDRESS_WRITE_PORT]) {
+                    hardwareStateHeader->PortValue[DAC_ADDRESS_WRITE_OFFSET]) {
 
                 //
                 // The DAC Index changed, so one read had already been done
@@ -4195,7 +4974,7 @@ Return Value:
                 // nibble of the read/write state field.
                 //
 
-                hardwareStateHeader->PortValue[DAC_STATE_PORT] |= 0x10;
+                hardwareStateHeader->PortValue[DAC_STATE_OFFSET] |= 0x10;
             }
 
             //
@@ -4227,7 +5006,7 @@ Return Value:
 
         if (VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
                     DAC_ADDRESS_WRITE_PORT) !=
-                hardwareStateHeader->PortValue[DAC_ADDRESS_WRITE_PORT]) {
+                hardwareStateHeader->PortValue[DAC_ADDRESS_WRITE_OFFSET]) {
 
             //
             // The DAC Index changed, so two writes had already been done to
@@ -4235,7 +5014,7 @@ Return Value:
             // the read/write state field.
             //
 
-            hardwareStateHeader->PortValue[DAC_STATE_PORT] |= 0x20;
+            hardwareStateHeader->PortValue[DAC_STATE_OFFSET] |= 0x20;
 
         } else {
 
@@ -4248,7 +5027,7 @@ Return Value:
 
             if (VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
                         DAC_ADDRESS_WRITE_PORT) !=
-                    hardwareStateHeader->PortValue[DAC_ADDRESS_WRITE_PORT]) {
+                    hardwareStateHeader->PortValue[DAC_ADDRESS_WRITE_OFFSET]) {
 
                 //
                 // The DAC Index changed, so one write had already been done
@@ -4256,7 +5035,7 @@ Return Value:
                 // nibble of the read/write state field.
                 //
 
-                hardwareStateHeader->PortValue[DAC_STATE_PORT] |= 0x10;
+                hardwareStateHeader->PortValue[DAC_STATE_OFFSET] |= 0x10;
             }
 
             //
@@ -4315,6 +5094,12 @@ Return Value:
             DAC_PIXEL_MASK_PORT, 0);
 
     //
+    // The next line is a bug fix for the w32p
+    //
+
+    ResetACToggle(HwDeviceExtension);    // set the AC toggle to the Index state
+
+    //
     // Read out the Attribute Controller Index state, and deduce the Index/Data
     // toggle state at the same time.
     //
@@ -4322,17 +5107,23 @@ Return Value:
     // so we can test in which state the toggle currently is.
     //
 
-    originalACIndex = hardwareStateHeader->PortValue[ATT_ADDRESS_PORT] =
+    originalACIndex = hardwareStateHeader->PortValue[ATT_ADDRESS_OFFSET] =
             VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
                     ATT_ADDRESS_PORT);
     originalACData = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
             ATT_DATA_READ_PORT);
 
     //
+    // The next line is a bug fix for the w32p
+    //
+
+    ResetACToggle(HwDeviceExtension);    // set the AC toggle to the Index state
+
+    //
     // Sequencer Index.
     //
 
-    hardwareStateHeader->PortValue[SEQ_ADDRESS_PORT] =
+    hardwareStateHeader->PortValue[SEQ_ADDRESS_OFFSET] =
             VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
                     SEQ_ADDRESS_PORT);
 
@@ -4472,7 +5263,7 @@ Return Value:
     // Graphics Controller Index.
     //
 
-    hardwareStateHeader->PortValue[GRAPH_ADDRESS_PORT] =
+    hardwareStateHeader->PortValue[GRAPH_ADDRESS_OFFSET] =
             VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
                     GRAPH_ADDRESS_PORT);
 
@@ -4727,7 +5518,7 @@ Return Value:
 
     VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
             MISC_OUTPUT_REG_WRITE_PORT, (UCHAR)(
-            hardwareStateHeader->PortValue[MISC_OUTPUT_REG_WRITE_PORT] |
+            hardwareStateHeader->PortValue[MISC_OUTPUT_REG_WRITE_OFFSET] |
             0x02));
 
     //
@@ -4930,6 +5721,9 @@ Return Value:
     return NO_ERROR;
 
 } // end VgaSaveHardwareState()
+
+
+#if defined(i386)
 
 VP_STATUS
 VgaGetBankSelectCode(
@@ -5024,6 +5818,7 @@ Return Value:
 
     switch(pMode->banktype) {
         case NoBanking:
+        case MemMgrBanking:
 
             BankSelect->BankingType = VideoNotBanked;
             BankSelect->PlanarHCBankingType = VideoNotBanked;
@@ -5109,6 +5904,8 @@ Return Value:
     return NO_ERROR;
 
 } // end VgaGetBankSelectCode()
+#endif
+
 
 VP_STATUS
 VgaValidatorUcharEntry(
@@ -5152,8 +5949,6 @@ Return Value:
     PHW_DEVICE_EXTENSION hwDeviceExtension = (PHW_DEVICE_EXTENSION) Context;
     ULONG endEmulation;
     UCHAR temp;
-
-    Port -= VGA_BASE_IO_PORT;
 
     if (hwDeviceExtension->TrappedValidatorCount) {
 
@@ -5438,8 +6233,6 @@ Return Value:
     ULONG endEmulation;
     UCHAR temp;
 
-    Port -= VGA_BASE_IO_PORT;
-
     if (hwDeviceExtension->TrappedValidatorCount) {
 
         //
@@ -5721,8 +6514,6 @@ Return Value:
     PHW_DEVICE_EXTENSION hwDeviceExtension = (PHW_DEVICE_EXTENSION) Context;
     ULONG endEmulation;
     UCHAR temp;
-
-    Port -= VGA_BASE_IO_PORT;
 
     if (hwDeviceExtension->TrappedValidatorCount) {
 
@@ -6172,4 +6963,3 @@ Return Value:
     }
 
 } // end ResetACToggle()
-

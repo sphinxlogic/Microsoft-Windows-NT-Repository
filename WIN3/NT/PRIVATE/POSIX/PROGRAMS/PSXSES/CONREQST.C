@@ -66,6 +66,7 @@ ServeConRequest(
 		fd = (int)pReq->d.IoBuf.Handle;
 
 		if (DoTrickyIO && _isatty(fd)) {
+
 			IoLengthDone = TermInput(hConsoleInput,
 				PsxSessionDataBase,
 				(unsigned int)pReq->d.IoBuf.Len,
@@ -73,6 +74,8 @@ ServeConRequest(
 				&error
 				);
 		} else {
+		    _setmode(fd, _O_BINARY);
+
 			IoLengthDone = _read(fd,
 	                        PsxSessionDataBase,
 	                        (unsigned int)pReq->d.IoBuf.Len);
@@ -91,12 +94,18 @@ ServeConRequest(
 	case ScWriteFile:
 		fd = (int)pReq->d.IoBuf.Handle;
 
+		if (fd > 2) {
+		    fd++;
+        }
+
 		if (DoTrickyIO && _isatty(fd)) {
 			IoLengthDone = TermOutput(hConsoleOutput,
 				(LPSTR)PsxSessionDataBase,
 				(DWORD)pReq->d.IoBuf.Len);
 		} else {
 			// not a tty.
+
+		    _setmode(fd, _O_BINARY);
 
 			IoLengthDone = _write(fd, PsxSessionDataBase,
                                 (unsigned int)pReq->d.IoBuf.Len);
@@ -120,12 +129,15 @@ ServeConRequest(
 		pReq->d.IoBuf.Len = (_isatty((int)pReq->d.IoBuf.Handle) != 0);
 		break;
 
+    case ScIsatty2:
+
+		pReq->d.IoBuf.Len = (_isatty((int)pReq->d.IoBuf.Handle) != 0);
+		break;
+
 	case ScOpenFile:
-		if (pReq->d.IoBuf.Flags == _O_RDONLY) {
-			fd = _open("CONIN$", _O_RDWR);
-		} else {
-			fd = _open("CONOUT$", _O_RDWR);
-		}
+        fd = _open("CONIN$", _O_RDWR);
+        _open("CONOUT$", _O_RDWR);
+
 		pReq->d.IoBuf.Handle = (HANDLE)fd;
 		break;
 

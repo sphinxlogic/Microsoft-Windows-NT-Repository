@@ -115,6 +115,24 @@ NetpNCopyWStrToStr(
     IN  DWORD  CharCount
     );
 
+VOID
+NetpCopyWStrToStrDBCS(
+    OUT LPSTR  Dest,            // string in default LAN codepage
+    IN  LPWSTR Src
+    );
+
+VOID
+NetpCopyWStrToStrDBCSN(
+    OUT LPSTR  Dest,            // string in default LAN codepage
+    IN  LPWSTR Src,
+    IN  DWORD MaxStringSize
+    );
+
+
+ULONG
+NetpUnicodeToDBCSLen(
+    IN  LPWSTR Src
+);
 #ifdef UNICODE
 
 #define NetpCopyStrToTStr(Dest,Src)  NetpCopyStrToWStr((Dest),(Src))

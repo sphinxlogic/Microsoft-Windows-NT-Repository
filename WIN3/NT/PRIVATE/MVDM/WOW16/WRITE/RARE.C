@@ -322,5 +322,4 @@ RedrawWindow:
         goto RedrawWindow;
         }   /* end switch */
     }
-
-
+

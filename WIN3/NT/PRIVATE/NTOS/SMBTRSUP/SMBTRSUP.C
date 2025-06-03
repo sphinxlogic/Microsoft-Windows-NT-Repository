@@ -90,7 +90,7 @@ ULONG ThisCodeCantBePaged;
 //
 #define LOCK_INC_ID(var)                                     \
      ExInterlockedAddUlong( (PULONG)&ID(var),                \
-                            1, &ID(var##Interlock) )         \
+                            1, &ID(var##Interlock) )
 
 //
 // Zero shared variable in instance data using appropriate interlock
@@ -245,8 +245,8 @@ typedef struct _INSTANCE_DATA {
     // to allow clean shutdown (StateInterlock)
     //
     KSPIN_LOCK  HeapReferenceCountLock;
-    ERESOURCE StateInterlock;
-    ERESOURCE HeapInterlock;
+    PERESOURCE StateInterlock;
+    PERESOURCE HeapInterlock;
     ULONG     HeapReferenceCount;
 
     //
@@ -434,7 +434,7 @@ SmbTraceDeferredDereferenceHeap(
 //
 
 
-VOID
+NTSTATUS
 SmbTraceInitialize (
     IN SMBTRACE_COMPONENT Component
     )
@@ -453,13 +453,11 @@ Arguments:
 
 Return Value:
 
-    None
+    NTSTATUS - Indicates failure if unable to allocate resources
 
 --*/
 
 {
-    static BOOLEAN Initialized = FALSE;
-
     PAGED_CODE();
 
     if ( ID(InstanceInitialized) == FALSE ) {
@@ -474,35 +472,35 @@ Return Value:
         KeInitializeEvent( &ID(NeedMemoryEvent), NotificationEvent, FALSE);
 
         KeInitializeSpinLock( &ID(SmbsLostInterlock) );
-
-        ExInitializeResource( &ID(StateInterlock) );
-        ExInitializeResource( &ID(HeapInterlock) );
         KeInitializeSpinLock( &ID(HeapReferenceCountLock) );
+
+        ID(StateInterlock) = ExAllocatePoolWithTag(
+                                NonPagedPool,
+                                sizeof(ERESOURCE),
+                                'tbmS'
+                                );
+        if ( ID(StateInterlock) == NULL ) {
+            return STATUS_INSUFFICIENT_RESOURCES;
+        }
+        ExInitializeResource( ID(StateInterlock) );
+
+        ID(HeapInterlock) = ExAllocatePoolWithTag(
+                                NonPagedPool,
+                                sizeof(ERESOURCE),
+                                'tbmS'
+                                );
+        if ( ID(HeapInterlock) == NULL ) {
+            ExDeleteResource( ID(StateInterlock) );
+            ExFreePool( ID(StateInterlock) );
+            ID(StateInterlock) = NULL;
+            return STATUS_INSUFFICIENT_RESOURCES;
+        }
+        ExInitializeResource( ID(HeapInterlock) );
 
         ID(InstanceInitialized) = TRUE;
     }
 
-
-#if 0
-
-    //
-    // Global intialization, only done once
-    //
-
-    if (Initialized) {
-        return;
-    }
-
-    Initialized = TRUE;
-
-    //
-    // Dereference Sids.  Must be done exactly once.
-    //
-
-    SeEnableAccessToExports();
-
-#endif
-    return;
+    return STATUS_SUCCESS;
 
 } // SmbTraceInitialize
 
@@ -535,8 +533,11 @@ Return Value:
 
     if ( ID(InstanceInitialized) ) {
 
-        ExDeleteResource( &ID(StateInterlock) );
-        ExDeleteResource( &ID(HeapInterlock) );
+        ExDeleteResource( ID(StateInterlock) );
+        ExFreePool( ID(StateInterlock) );
+
+        ExDeleteResource( ID(HeapInterlock) );
+        ExFreePool( ID(HeapInterlock) );
 
         ID(InstanceInitialized) = FALSE;
     }
@@ -610,6 +611,8 @@ Return Value:
 
     PAGED_CODE();
 
+    ASSERT( ID(InstanceInitialized) );
+
     //
     // Validate the buffer lengths passed in.
     //
@@ -625,10 +628,10 @@ Return Value:
 
     }
 
-    ExAcquireResourceExclusive( &ID(StateInterlock), TRUE );
+    ExAcquireResourceExclusive( ID(StateInterlock), TRUE );
 
     if ( ID(TraceState) != TraceStopped ) {
-        ExReleaseResource( &ID(StateInterlock) );
+        ExReleaseResource( ID(StateInterlock) );
         return STATUS_INVALID_DEVICE_STATE;
     }
 
@@ -638,9 +641,9 @@ Return Value:
 
     ASSERT (SmbTraceDiscardableCodeHandle == NULL);
 
-    SmbTraceDiscardableCodeHandle = MmLockPagableImageSection(SmbTraceReferenceHeap);
+    SmbTraceDiscardableCodeHandle = MmLockPagableCodeSection(SmbTraceReferenceHeap);
 
-    SmbTraceDiscardableDataHandle = MmLockPagableImageSection(SmbTraceData);
+    SmbTraceDiscardableDataHandle = MmLockPagableDataSection(SmbTraceData);
 
     ID(TraceState) = TraceStarting;
 
@@ -808,7 +811,7 @@ Return Value:
                               ID(PortMemoryBase),           // HeapBase
                               ID(PortMemorySize),           // ReserveSize
                               PAGE_SIZE,                    // CommitSize
-                              &ID(HeapInterlock),           // Lock
+                              ID(HeapInterlock),            // Lock
                               0                             // Reserved
                               );
 
@@ -999,7 +1002,7 @@ Return Value:
 
     TrPrint(( "%s!SmbTraceStart: SmbTrace started.\n", ID(ComponentName) ));
 
-    ExReleaseResource( &ID(StateInterlock) );
+    ExReleaseResource( ID(StateInterlock) );
 
     //
     // if someone wanted it shut down while it was starting, shut it down
@@ -1029,7 +1032,7 @@ errexit:
 
     ID(TraceState) = TraceStopped;
 
-    ExReleaseResource( &ID(StateInterlock) );
+    ExReleaseResource( ID(StateInterlock) );
 
     //
     // return original failure status code, not success of cleanup
@@ -1080,6 +1083,15 @@ Return Value:
     PAGED_CODE();
 
     //
+    // If we haven't been initialized, there's nothing to stop.  (And no
+    // resource to acquire!)
+    //
+
+    if ( !ID(InstanceInitialized) ) {
+        return STATUS_UNSUCCESSFUL;
+    }
+
+    //
     // If it's not the FileObject that started SmbTrace, we don't care.
     // From then on, if ARGUMENT_PRESENT(FileObject) it's the right one.
     //
@@ -1090,7 +1102,7 @@ Return Value:
        return STATUS_UNSUCCESSFUL;
     }
 
-    ExAcquireResourceExclusive( &ID(StateInterlock), TRUE );
+    ExAcquireResourceExclusive( ID(StateInterlock), TRUE );
 
     //
     // Depending on the current state of SmbTrace and whether this is
@@ -1109,7 +1121,7 @@ Return Value:
 
         // if we're not running or already in a mode where we know we'll
         // soon be shut down, ignore the request.
-        ExReleaseResource( &ID(StateInterlock) );
+        ExReleaseResource( ID(StateInterlock) );
         return STATUS_UNSUCCESSFUL;
         break;
 
@@ -1122,7 +1134,7 @@ Return Value:
         ID(TraceState) = ARGUMENT_PRESENT(FileObject)
                        ? TraceStartStopFile
                        : TraceStartStopNull;
-        ExReleaseResource( &ID(StateInterlock) );
+        ExReleaseResource( ID(StateInterlock) );
         return STATUS_SUCCESS;
         break;
 
@@ -1134,7 +1146,7 @@ Return Value:
         if ( ARGUMENT_PRESENT(FileObject) ) {
             break;  // thread kill code follows switch
         } else {
-            ExReleaseResource( &ID(StateInterlock) );
+            ExReleaseResource( ID(StateInterlock) );
             return STATUS_UNSUCCESSFUL;
         }
         break;
@@ -1151,7 +1163,7 @@ Return Value:
         } else {
             KeSetEvent( &ID(AppTerminationEvent), 2, FALSE );
             ID(TraceState) = TraceAppWaiting;
-            ExReleaseResource( &ID(StateInterlock) );
+            ExReleaseResource( ID(StateInterlock) );
             return STATUS_SUCCESS;
         }
 
@@ -1195,7 +1207,7 @@ Return Value:
     ID(TraceState) = TraceStopping;
     KeSetEvent( &ID(TerminationEvent), 2, FALSE );
 
-    ExReleaseResource( &ID(StateInterlock) );
+    ExReleaseResource( ID(StateInterlock) );
 
     KeWaitForSingleObject(
         &ID(TerminatedEvent),
@@ -1206,11 +1218,11 @@ Return Value:
         );
 
     TrPrint(( "%s!SmbTraceStop: Terminated Event is set.\n", ID(ComponentName) ));
-    ExAcquireResourceExclusive( &ID(StateInterlock), TRUE );
+    ExAcquireResourceExclusive( ID(StateInterlock), TRUE );
 
     ID(TraceState) = TraceStopped;
 
-    ExReleaseResource( &ID(StateInterlock) );
+    ExReleaseResource( ID(StateInterlock) );
 
     TrPrint(( "%s!SmbTraceStop: SmbTrace stopped.\n", ID(ComponentName) ));
 
@@ -1351,18 +1363,6 @@ Return Value:
     //
 
     buffer = RtlAllocateHeap( ID(PortMemoryHeap), 0, SmbLength );
-
-#if 0   // to illustrate heap code bug
-    if ( ((char*)(buffer)) > ((char*)ID(PortMemoryBase))+ID(PortMemorySize) ) {
-        TrPrint(( "SmbTraceCompleteSrv: "
-                  "RtlAllocateHeap returned pointer out of range: %x\n",
-                  buffer ));
-        TrPrint(( "SmbTraceCompleteSrv: "
-                  "Highest legal value is:                        %x\n",
-                  ((char*)ID(PortMemoryBase))+ID(PortMemorySize) ));
-    }
-#endif
-
 
     if ( buffer == NULL ) {
         // No free memory, this SMB is lost.  Record its loss.
@@ -2666,6 +2666,8 @@ Return Value:
 {
     PCHAR Dest = Destination;
 
+    UNREFERENCED_PARAMETER(Length);
+
     while (Mdl != NULL) {
 
         RtlCopyMemory(
@@ -2682,38 +2684,5 @@ Return Value:
 
     return;
 
-    UNREFERENCED_PARAMETER(Length);
-
 } // SmbTraceCopyMdlContiguous
 
-//
-//NTSTATUS
-//DriverEntry(
-//    IN PDRIVER_OBJECT DriverObject,
-//    IN PUNICODE_STRING RegistryPath
-//    )
-//
-///*++
-//
-//Routine Description:
-//
-//    Every driver needs an entry point.  This is ours.  It is never used.
-//
-//Arguments:
-//
-//    DriverObject - Pointer to the driver object created by the system.
-//
-//Return Value:
-//
-//    STATUS_SUCCESS
-//
-//--*/
-//
-//{
-//    PAGED_CODE();
-//
-//    return STATUS_SUCCESS;
-//
-//    UNREFERENCED_PARAMETER(DriverObject);
-//
-//} // DriverEntry

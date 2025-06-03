@@ -40,7 +40,14 @@ class REDIR {
 		IsRedirected (
             OUT PREDIR_STATUS   Status,
 			IN	PCPATH	        Device,
-			IN	PCPATH	        Destination DEFAULT NULL
+			IN	PCPATH	        Destination
+			);
+
+        STATIC
+		BOOLEAN
+		IsRedirected (
+            OUT PREDIR_STATUS   Status,
+			IN	PCPATH	        Device
 			);
 
 		STATIC

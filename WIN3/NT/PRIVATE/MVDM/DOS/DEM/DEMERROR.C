@@ -25,10 +25,10 @@ VOID SubstituteDeviceName( PUNICODE_STRING InputDeviceName,
 /* demSetHardErrorInfo - Store away harderr related address of DOSKRNL
  *
  * Entry
- *	Client (DS:DX) - VHE structure
+ *      Client (DS:DX) - VHE structure
  *
  * Exit
- *	None
+ *      None
  */
 
 VOID demSetHardErrorInfo (VOID)
@@ -41,10 +41,10 @@ VOID demSetHardErrorInfo (VOID)
 /* demRetry - Retry the operation which last resulted in hard error
  *
  * Entry
- *	None
+ *      None
  *
  * Exit
- *	None
+ *      None
  */
 
 VOID demRetry (VOID)
@@ -56,11 +56,11 @@ ULONG iSvc;
 
 #if DBG
     if(iSvc < SVC_DEMLASTSVC && (fShowSVCMsg & DEMSVCTRACE) &&
-	 apfnSVC[iSvc] != demNotYetImplemented){
-	sprintf(demDebugBuffer,"demRetry:Retrying %s\n\tAX=%.4x BX=%.4x CX=%.4x DX=%.4x DI=%.4x SI=%.4x\n",
-	       aSVCNames[iSvc],getAX(),getBX(),getCX(),getDX(),getDI(),getSI());
+         apfnSVC[iSvc] != demNotYetImplemented){
+        sprintf(demDebugBuffer,"demRetry:Retrying %s\n\tAX=%.4x BX=%.4x CX=%.4x DX=%.4x DI=%.4x SI=%.4x\n",
+               aSVCNames[iSvc],getAX(),getBX(),getCX(),getDX(),getDI(),getSI());
         OutputDebugStringOem(demDebugBuffer);
-	sprintf(demDebugBuffer,"\tCS=%.4x IP=%.4x DS=%.4x ES=%.4x SS=%.4x SP=%.4x BP=%.4x\n",
+        sprintf(demDebugBuffer,"\tCS=%.4x IP=%.4x DS=%.4x ES=%.4x SS=%.4x SP=%.4x BP=%.4x\n",
                 getCS(),getIP(), getDS(),getES(),getSS(),getSP(),getBP());
         OutputDebugStringOem(demDebugBuffer);
     }
@@ -68,7 +68,7 @@ ULONG iSvc;
     if (iSvc >= SVC_DEMLASTSVC || apfnSVC[iSvc] == demNotYetImplemented ){
         ASSERT(FALSE);
         setCF(1);
-	setAX(0xff);
+        setAX(0xff);
         return;
     }
 #endif // DBG
@@ -77,10 +77,10 @@ ULONG iSvc;
 
 #if DBG
     if((fShowSVCMsg & DEMSVCTRACE)){
-	sprintf(demDebugBuffer,"demRetry:After %s\n\tAX=%.4x BX=%.4x CX=%.4x DX=%.4x DI=%.4x SI=%.4x\n",
+        sprintf(demDebugBuffer,"demRetry:After %s\n\tAX=%.4x BX=%.4x CX=%.4x DX=%.4x DI=%.4x SI=%.4x\n",
                aSVCNames[iSvc],getAX(),getBX(),getCX(),getDX(),getDI(),getSI());
         OutputDebugStringOem(demDebugBuffer);
-	sprintf(demDebugBuffer,"\tCS=%.4x IP=%.4x DS=%.4x ES=%.4x SS=%.4x SP=%.4x BP=%.4x CF=%x\n",
+        sprintf(demDebugBuffer,"\tCS=%.4x IP=%.4x DS=%.4x ES=%.4x SS=%.4x SP=%.4x BP=%.4x CF=%x\n",
                getCS(),getIP(), getDS(),getES(),getSS(),getSP(),getBP(),getCF());
         OutputDebugStringOem(demDebugBuffer);
     }
@@ -95,26 +95,26 @@ ULONG iSvc;
  *       char chDrive; drive letter , if none == -1
  *
  * Exit
- *	Client (CF) = 1
- *	Client (AX) = Error Code
+ *      Client (CF) = 1
+ *      Client (AX) = Error Code
  *
  * Notes
  *      the following errors cause hard errors
  *      errors above ERROR_GEN_FAILURE are mapped to general fail by the DOS
  *
  *
- *	ERROR_WRITE_PROTECT		 19L
- *	ERROR_BAD_UNIT			 20L
- *	ERROR_NOT_READY			 21L
- *	ERROR_BAD_COMMAND		 22L
- *	ERROR_CRC			 23L
- *	ERROR_BAD_LENGTH		 24L
- *	ERROR_SEEK			 25L
- *	ERROR_NOT_DOS_DISK		 26L
- *	ERROR_SECTOR_NOT_FOUND		 27L
- *	ERROR_OUT_OF_PAPER		 28L
- *	ERROR_WRITE_FAULT		 29L
- *	ERROR_READ_FAULT		 30L
+ *      ERROR_WRITE_PROTECT              19L
+ *      ERROR_BAD_UNIT                   20L
+ *      ERROR_NOT_READY                  21L
+ *      ERROR_BAD_COMMAND                22L
+ *      ERROR_CRC                        23L
+ *      ERROR_BAD_LENGTH                 24L
+ *      ERROR_SEEK                       25L
+ *      ERROR_NOT_DOS_DISK               26L
+ *      ERROR_SECTOR_NOT_FOUND           27L
+ *      ERROR_OUT_OF_PAPER               28L
+ *      ERROR_WRITE_FAULT                29L
+ *      ERROR_READ_FAULT                 30L
  *      ERROR_GEN_FAILURE                31L
  *      ERROR_WRONG_DISK                 34l
  *      ERROR_NO_MEDIA_IN_DRIVE        1112l
@@ -131,7 +131,7 @@ ULONG demClientErrorEx (HANDLE hFile, CHAR chDrive, BOOL bSetRegs)
 ULONG ulErrCode;
 
     if(!(ulErrCode = GetLastError()))
-	ulErrCode = ERROR_ACCESS_DENIED;
+        ulErrCode = ERROR_ACCESS_DENIED;
 
     if ((ulErrCode < ERROR_WRITE_PROTECT || ulErrCode > ERROR_GEN_FAILURE)
         && ulErrCode != ERROR_WRONG_DISK )
@@ -236,6 +236,7 @@ CHAR GetDriveLetterByHandle(HANDLE hFile)
      return ch;
 }
 
+static WCHAR wszDosDevices[] = L"\\DosDevices\\?:";
 
 /*
  *  SubstituteDeviceName
@@ -262,7 +263,7 @@ VOID SubstituteDeviceName( PUNICODE_STRING InputDeviceName,
     if (InputDeviceName->Buffer[(InputDeviceName->Length >>1) - 1] != *pSlash)
         RtlAppendUnicodeToString(InputDeviceName, pSlash);
 
-    RtlInitUnicodeString(&LinkName,L"\\DosDevices\\?:");
+    RtlInitUnicodeString(&LinkName,wszDosDevices);
     p = (PWCHAR)LinkName.Buffer;
     p = p+12;
     for(i=0;i<26;i++){
@@ -333,10 +334,10 @@ VOID SubstituteDeviceName( PUNICODE_STRING InputDeviceName,
  * of code bytes in heavily used DOS macro "HrdSVC".
  *
  * Entry
- *	None
+ *      None
  *
  * Exit
- *	None
+ *      None
  *
  * Notes
  *
@@ -357,16 +358,16 @@ VOID SubstituteDeviceName( PUNICODE_STRING InputDeviceName,
 
 VOID demSaveHardErrInfo (VOID)
 {
-    RetryInfo.ax    =	getAX();
-    RetryInfo.bx    =	getBX();
-    RetryInfo.cx    =	getCX();
-    RetryInfo.dx    =	getDX();
-    RetryInfo.ds    =	getDS();
-    RetryInfo.es    =	getES();
-    RetryInfo.si    =	getSI();
-    RetryInfo.di    =	getDI();
-    RetryInfo.bp    =	getBP();
-    RetryInfo.iSVC  =	CurrentISVC;
+    RetryInfo.ax    =   getAX();
+    RetryInfo.bx    =   getBX();
+    RetryInfo.cx    =   getCX();
+    RetryInfo.dx    =   getDX();
+    RetryInfo.ds    =   getDS();
+    RetryInfo.es    =   getES();
+    RetryInfo.si    =   getSI();
+    RetryInfo.di    =   getDI();
+    RetryInfo.bp    =   getBP();
+    RetryInfo.iSVC  =   CurrentISVC;
     return;
 }
 

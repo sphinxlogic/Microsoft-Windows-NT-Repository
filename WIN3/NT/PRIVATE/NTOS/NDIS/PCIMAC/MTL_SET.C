@@ -3,7 +3,7 @@
  */
 
 #include	<ndis.h>
-#include    <ndismini.h>
+//#include    <ndismini.h>
 #include	<ndiswan.h>
 #include	<mytypes.h>
 #include	<mydefs.h>
@@ -64,16 +64,37 @@ mtl_set_idd_mtu(VOID *mtl_1, USHORT mtu)
 }
 
 /* set connection state */
-mtl_set_conn_state(VOID *mtl_1, BOOL is_conn)
+mtl_set_conn_state(
+	VOID *mtl_1,
+	USHORT NumberOfChannels,
+	BOOL is_conn)
 {
 	MTL	*mtl = (MTL*)mtl_1;
+	ADAPTER *Adapter = mtl->Adapter;
+    NDIS_PHYSICAL_ADDRESS   pa = NDIS_PHYSICAL_ADDRESS_CONST(0xffffffff, 0xffffffff);
 
     D_LOG(D_ENTRY, ("mtl_set_conn_state: entry, is_conn: %d", is_conn));
 
     /* get lock, set, release & return */
     NdisAcquireSpinLock(&mtl->lock);
+
     mtl->is_conn = is_conn;
+
+	//
+	// if we are being notified of a new connection we need to do some stuff
+	//
+	if (is_conn)
+	{
+		mtl->FramesXmitted = 0;
+		mtl->FramesReceived = 0;
+		mtl->BytesXmitted = 0;
+		mtl->BytesReceived = 0;
+		mtl->RecvFramingBits = 0;
+		mtl->tx_tbl.NextFree = 0;
+		mtl->rx_tbl.NextFree = 0;
+	}
     NdisReleaseSpinLock(&mtl->lock);
+
     return(MTL_E_SUCC);
 }
 
@@ -138,10 +159,9 @@ mtl_add_chan(VOID *mtl_1, VOID *idd, USHORT bchan, ULONG speed, ULONG Connection
         }
         else
         {
-			mtl->RecvFramingBits = 0;
-
             /* slot found, fill it */
             mtl->chan_tbl.num++;
+
 			if (ConnectionType == CM_DKF)
 			{
 				mtl->IddTxFrameType = IDD_FRAME_DKF;

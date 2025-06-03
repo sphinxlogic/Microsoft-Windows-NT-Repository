@@ -205,7 +205,7 @@ Return Value:
 
         if ((((PISID)Sid)->Revision == MatchSid->Revision) &&
             (SidLength == (8 + (4 * (ULONG)MatchSid->SubAuthorityCount)))) {
-            if (RtlCompareMemory(Sid, MatchSid, SidLength) == SidLength) {
+            if (RtlEqualMemory(Sid, MatchSid, SidLength)) {
 
                 //
                 // If this is the first one in the list, then it is the User,
@@ -236,8 +236,8 @@ Return Value:
 BOOLEAN
 SepAccessCheck (
     IN PSECURITY_DESCRIPTOR SecurityDescriptor,
-    IN PTOKEN Token,
-    IN BOOLEAN TokenLocked,
+    IN PTOKEN PrimaryToken,
+    IN PTOKEN ClientToken OPTIONAL,
     IN ACCESS_MASK DesiredAccess,
     IN PGENERIC_MAPPING GenericMapping,
     IN ACCESS_MASK PreviouslyGrantedAccess,
@@ -329,6 +329,7 @@ Return Value:
     BOOLEAN Success = FALSE;
     BOOLEAN SystemSecurity = FALSE;
     BOOLEAN WriteOwner = FALSE;
+    PTOKEN EToken;
 
     PAGED_CODE();
 
@@ -339,10 +340,16 @@ Return Value:
         "Input to SeAccessCheck\n"
         );
 
-    SepDumpTokenInfo( Token );
+    if (ARGUMENT_PRESENT( ClientToken )) {
+        SepDumpTokenInfo( ClientToken );
+    }
+
+    SepDumpTokenInfo( PrimaryToken );
 
 #endif
 
+
+    EToken = ARGUMENT_PRESENT( ClientToken ) ? ClientToken : PrimaryToken;
 
     //
     // Assert that there are no generic accesses in the DesiredAccess
@@ -351,15 +358,6 @@ Return Value:
     SeAssertMappedCanonicalAccess( DesiredAccess );
 
     Remaining = DesiredAccess;
-
-    //
-    // Lock the passed token for read access
-    //
-
-    if (!TokenLocked) {
-        SepAcquireTokenReadLock( Token );
-    }
-
 
     //
     // Check for ACCESS_SYSTEM_SECURITY here,
@@ -379,15 +377,11 @@ Return Value:
 
         Success = SepSinglePrivilegeCheck (
                     SeSecurityPrivilege,
-                    Token,
+                    EToken,
                     PreviousMode
                     );
 
         if (!Success) {
-
-            if (!TokenLocked){
-                SepReleaseTokenReadLock( Token );
-            }
 
             *AccessStatus = STATUS_PRIVILEGE_NOT_HELD;
             return( FALSE );
@@ -405,10 +399,6 @@ Return Value:
         SystemSecurity = TRUE;
 
         if ( Remaining == 0 ) {
-
-            if (!TokenLocked){
-                SepReleaseTokenReadLock( Token );
-            }
 
             SepAssemblePrivileges(
                 PrivilegeCount,
@@ -474,9 +464,6 @@ Return Value:
 
 
         *AccessStatus = STATUS_SUCCESS;
-        if (!TokenLocked){
-            SepReleaseTokenReadLock( Token );
-        }
         return(TRUE);
     }
 
@@ -490,7 +477,7 @@ Return Value:
 
         Success = SepSinglePrivilegeCheck (
                     SeTakeOwnershipPrivilege,
-                    Token,
+                    EToken,
                     PreviousMode
                     );
 
@@ -508,10 +495,6 @@ Return Value:
             WriteOwner = TRUE;
 
             if ( Remaining == 0 ) {
-
-                if (!TokenLocked){
-                    SepReleaseTokenReadLock( Token );
-                }
 
                 SepAssemblePrivileges(
                     PrivilegeCount,
@@ -535,10 +518,6 @@ Return Value:
     //
 
     if ((AceCount = Dacl->AceCount) == 0) {
-
-        if (!TokenLocked){
-            SepReleaseTokenReadLock( Token );
-        }
 
         //
         // We know that Remaining != 0 here, because we
@@ -581,10 +560,6 @@ Return Value:
             *GrantedAccess = (ACCESS_MASK)0L;
             return( FALSE );
         }
-
-
-
-
     }
 
     //
@@ -613,7 +588,7 @@ Return Value:
 
                 if ( (((PACE_HEADER)Ace)->AceType == ACCESS_ALLOWED_ACE_TYPE) ) {
 
-                    if ( SepSidInToken( Token, &((PACCESS_ALLOWED_ACE)Ace)->SidStart )) {
+                    if ( SepSidInToken( EToken, &((PACCESS_ALLOWED_ACE)Ace)->SidStart )) {
 
                          //
                          // Only grant access types from this mask that have
@@ -628,9 +603,32 @@ Return Value:
 
                 }
 
+                if ( (((PACE_HEADER)Ace)->AceType == ACCESS_ALLOWED_COMPOUND_ACE_TYPE) ) {
+
+                    //
+                    //  If we're impersonating, EToken is set to the Client, and if we're not,
+                    //  EToken is set to the Primary.  According to the DSA architecture, if
+                    //  we're asked to evaluate a compound ACE and we're not impersonating,
+                    //  pretend we are impersonating ourselves.  So we can just use the EToken
+                    //  for the client token, since it's already set to the right thing.
+                    //
+
+
+                    if ( SepSidInToken(EToken, RtlCompoundAceClientSid( Ace )) &&
+                         SepSidInToken(PrimaryToken, RtlCompoundAceServerSid( Ace ))
+                       ) {
+
+                        CurrentGranted |=
+                            (((PACCESS_ALLOWED_ACE)Ace)->Mask & ~CurrentDenied);
+                    }
+
+                    continue;
+
+                }
+
                 if ( (((PACE_HEADER)Ace)->AceType == ACCESS_DENIED_ACE_TYPE) ) {
 
-                    if ( SepSidInToken( Token, &((PACCESS_DENIED_ACE)Ace)->SidStart )) {
+                    if ( SepSidInToken( EToken, &((PACCESS_DENIED_ACE)Ace)->SidStart )) {
 
                          //
                          // Only deny access types from this mask that have
@@ -640,13 +638,11 @@ Return Value:
                         CurrentDenied |=
                             (((PACCESS_DENIED_ACE)Ace)->Mask & ~CurrentGranted);
                     }
+
+                    continue;
+
                 }
             }
-        }
-
-
-        if (!TokenLocked){
-            SepReleaseTokenReadLock( Token );
         }
 
         //
@@ -698,36 +694,44 @@ Return Value:
 
         if ( !(((PACE_HEADER)Ace)->AceFlags & INHERIT_ONLY_ACE)) {
 
-             if ( (((PACE_HEADER)Ace)->AceType == ACCESS_ALLOWED_ACE_TYPE) ) {
+            if ( (((PACE_HEADER)Ace)->AceType == ACCESS_ALLOWED_ACE_TYPE) ) {
 
-                if ( SepSidInToken( Token, &((PACCESS_ALLOWED_ACE)Ace)->SidStart ) ) {
+               if ( SepSidInToken( EToken, &((PACCESS_ALLOWED_ACE)Ace)->SidStart ) ) {
 
-                    Remaining &= ~((PACCESS_ALLOWED_ACE)Ace)->Mask;
+                   Remaining &= ~((PACCESS_ALLOWED_ACE)Ace)->Mask;
+
+               }
+
+                continue;
+            }
+
+            if ( (((PACE_HEADER)Ace)->AceType == ACCESS_ALLOWED_COMPOUND_ACE_TYPE) ) {
+
+                //
+                // See comment in MAXIMUM_ALLOWED case as to why we can use EToken here
+                // for the client.
+                //
+
+                if ( SepSidInToken(EToken, RtlCompoundAceClientSid( Ace )) && SepSidInToken(PrimaryToken, RtlCompoundAceServerSid( Ace )) ) {
+
+                        Remaining &= ~((PACCESS_ALLOWED_ACE)Ace)->Mask;
 
                 }
 
-                 continue;
-             }
+                continue;
+            }
 
-             if ( (((PACE_HEADER)Ace)->AceType == ACCESS_DENIED_ACE_TYPE) ) {
+            if ( (((PACE_HEADER)Ace)->AceType == ACCESS_DENIED_ACE_TYPE) ) {
 
-                if ( SepSidInToken( Token, &((PACCESS_DENIED_ACE)Ace)->SidStart ) ) {
+                if ( SepSidInToken( EToken, &((PACCESS_DENIED_ACE)Ace)->SidStart ) ) {
 
                     if (Remaining & ((PACCESS_DENIED_ACE)Ace)->Mask) {
 
                         break;
                     }
-
                 }
-
             }
-
         }
-
-    }
-
-    if (!TokenLocked){
-        SepReleaseTokenReadLock( Token );
     }
 
     if (Remaining != 0) {
@@ -838,6 +842,8 @@ Return Value:
     ACCESS_MASK PreviouslyGrantedAccess = 0;
     GENERIC_MAPPING LocalGenericMapping;
     PPRIVILEGE_SET Privileges = NULL;
+    SECURITY_SUBJECT_CONTEXT SubjectContext;
+    ULONG LocalPrivilegeSetLength;
 
     PAGED_CODE();
 
@@ -882,6 +888,8 @@ Return Value:
             );
 
         LocalGenericMapping = *GenericMapping;
+
+        LocalPrivilegeSetLength = *PrivilegeSetLength;
 
     } except (EXCEPTION_EXECUTE_HANDLER) {
         return( GetExceptionCode() );
@@ -967,9 +975,10 @@ Return Value:
 
     if (Privileges != NULL) {
 
-        if ( ((ULONG)SepPrivilegeSetSize( Privileges )) > *PrivilegeSetLength ) {
+        if ( ((ULONG)SepPrivilegeSetSize( Privileges )) > LocalPrivilegeSetLength ) {
 
             ObDereferenceObject( Token );
+            SeFreePrivileges( Privileges );
 
             try {
 
@@ -986,7 +995,7 @@ Return Value:
 
             try {
 
-                RtlMoveMemory(
+                RtlCopyMemory(
                     PrivilegeSet,
                     Privileges,
                     SepPrivilegeSetSize( Privileges )
@@ -995,10 +1004,12 @@ Return Value:
             } except ( EXCEPTION_EXECUTE_HANDLER ) {
 
                 ObDereferenceObject( Token );
+                SeFreePrivileges( Privileges );
                 return( GetExceptionCode() );
             }
 
         }
+        SeFreePrivileges( Privileges );
 
     } else {
 
@@ -1006,7 +1017,7 @@ Return Value:
         // No privileges were used, construct an empty privilege set
         //
 
-        if ( *PrivilegeSetLength < sizeof(PRIVILEGE_SET) ) {
+        if ( LocalPrivilegeSetLength < sizeof(PRIVILEGE_SET) ) {
 
             ObDereferenceObject( Token );
 
@@ -1072,24 +1083,14 @@ Return Value:
     if ( CapturedSecurityDescriptor == NULL ) {
 
         //
-        // If there's no security descriptor, then there's no
-        // security on the object.  Grant everything he asked for.
+        // If there's no security descriptor, then we've been
+        // called without all the parameters we need.
+        // Return invalid security descriptor.
         //
 
         ObDereferenceObject( Token );
 
-        try {
-
-            *AccessStatus = STATUS_SUCCESS;
-            *GrantedAccess = DesiredAccess | PreviouslyGrantedAccess;
-
-        } except (EXCEPTION_EXECUTE_HANDLER) {
-
-            return( GetExceptionCode() );
-
-        }
-
-        return(STATUS_SUCCESS);
+        return(STATUS_INVALID_SECURITY_DESCR);
 
     }
 
@@ -1104,11 +1105,19 @@ Return Value:
                 (PISECURITY_DESCRIPTOR)CapturedSecurityDescriptor
                 ) == NULL ) {
 
+        SeReleaseSecurityDescriptor (
+            CapturedSecurityDescriptor,
+            PreviousMode,
+            FALSE
+            );
+
+        ObDereferenceObject( Token );
+
         return( STATUS_INVALID_SECURITY_DESCR );
     }
 
 
-
+    SeCaptureSubjectContext( &SubjectContext );
 
     SepAcquireTokenReadLock( Token );
 
@@ -1148,8 +1157,8 @@ Return Value:
 
         SepAccessCheck (
             CapturedSecurityDescriptor,
+            SubjectContext.PrimaryToken,
             Token,
-            TRUE,
             DesiredAccess,
             &LocalGenericMapping,
             PreviouslyGrantedAccess,
@@ -1163,6 +1172,8 @@ Return Value:
     }
 
     SepReleaseTokenReadLock( Token );
+
+    SeReleaseSubjectContext( &SubjectContext );
 
     SeReleaseSecurityDescriptor (
         CapturedSecurityDescriptor,
@@ -1350,10 +1361,10 @@ Return Value:
             return( FALSE );
         }
 
-    *GrantedAccess = PreviouslyGrantedAccess;
-    *AccessStatus = STATUS_SUCCESS;
-    *Privileges = NULL;
-    return( TRUE );
+        *GrantedAccess = PreviouslyGrantedAccess;
+        *AccessStatus = STATUS_SUCCESS;
+        *Privileges = NULL;
+        return( TRUE );
 
     }
 
@@ -1413,8 +1424,8 @@ Return Value:
 
         Success =  SepAccessCheck(
                     SecurityDescriptor,
-                    EffectiveToken( SubjectSecurityContext ),
-                    TRUE,         // Token is locked
+                    SubjectSecurityContext->PrimaryToken,
+                    SubjectSecurityContext->ClientToken,
                     DesiredAccess,
                     GenericMapping,
                     PreviouslyGrantedAccess,
@@ -1451,6 +1462,93 @@ Return Value:
     }
 }
 
+
+BOOLEAN
+SeProxyAccessCheck (
+    IN PUNICODE_STRING Volume,
+    IN PUNICODE_STRING RelativePath,
+    IN BOOLEAN ContainerObject,
+    IN PSECURITY_DESCRIPTOR SecurityDescriptor,
+    IN PSECURITY_SUBJECT_CONTEXT SubjectSecurityContext,
+    IN BOOLEAN SubjectContextLocked,
+    IN ACCESS_MASK DesiredAccess,
+    IN ACCESS_MASK PreviouslyGrantedAccess,
+    OUT PPRIVILEGE_SET *Privileges OPTIONAL,
+    IN PGENERIC_MAPPING GenericMapping,
+    IN KPROCESSOR_MODE AccessMode,
+    OUT PACCESS_MASK GrantedAccess,
+    OUT PNTSTATUS AccessStatus
+    )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+    Volume - Supplies the volume information of the file being opened.
+
+    RelativePath - The volume-relative path of the file being opened.  The full path of the
+        file is the RelativePath appended to the Volume string.
+
+    ContainerObject - Indicates if the access is to a container object (TRUE), or a leaf object (FALSE).
+
+    SecurityDescriptor - Supplies the security descriptor protecting the
+         object being accessed
+
+    SubjectSecurityContext - A pointer to the subject's captured security
+         context
+
+    SubjectContextLocked - Supplies a flag indiciating whether or not
+        the user's subject context is locked, so that it does not have
+        to be locked again.
+
+    DesiredAccess - Supplies the access mask that the user is attempting to
+         acquire
+
+    PreviouslyGrantedAccess - Supplies any accesses that the user has
+        already been granted, for example, as a result of holding a
+        privilege.
+
+    Privileges - Supplies a pointer in which will be returned a privilege
+        set indicating any privileges that were used as part of the
+        access validation.
+
+    GenericMapping - Supplies the generic mapping associated with this
+        object type.
+
+    AccessMode - Supplies the access mode to be used in the check
+
+    GrantedAccess - Pointer to a returned access mask indicatating the
+         granted access
+
+    AccessStatus - Status value that may be returned indicating the
+         reason why access was denied.  Routines should avoid hardcoding a
+         return value of STATUS_ACCESS_DENIED so that a different value can
+         be returned when mandatory access control is implemented.
+
+
+Return Value:
+
+    BOOLEAN - TRUE if access is allowed and FALSE otherwise
+
+--*/
+
+{
+    return SeAccessCheck (
+                SecurityDescriptor,
+                SubjectSecurityContext,
+                SubjectContextLocked,
+                DesiredAccess,
+                PreviouslyGrantedAccess,
+                Privileges,
+                GenericMapping,
+                AccessMode,
+                GrantedAccess,
+                AccessStatus
+               );
+}
 
 
 NTSTATUS

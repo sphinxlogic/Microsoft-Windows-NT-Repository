@@ -115,4 +115,3 @@ public:
 #endif //  __PICKLE_HXX__
 
 
-

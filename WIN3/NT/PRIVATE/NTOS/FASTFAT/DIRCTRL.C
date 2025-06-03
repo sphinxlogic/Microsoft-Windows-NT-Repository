@@ -46,6 +46,13 @@ FatQueryDirectory (
     IN PIRP Irp
     );
 
+VOID
+FatGetDirTimes(
+    PIRP_CONTEXT IrpContext,
+    PDIRENT Dirent,
+    PFILE_DIRECTORY_INFORMATION DirInfo
+    );
+
 NTSTATUS
 FatNotifyChangeDirectory (
     IN PIRP_CONTEXT IrpContext,
@@ -57,6 +64,8 @@ FatNotifyChangeDirectory (
 #pragma alloc_text(PAGE, FatFsdDirectoryControl)
 #pragma alloc_text(PAGE, FatNotifyChangeDirectory)
 #pragma alloc_text(PAGE, FatQueryDirectory)
+#pragma alloc_text(PAGE, FatGetDirTimes)
+
 #endif
 
 
@@ -447,9 +456,9 @@ Return Value:
                 ((UniArgFileName->Length == sizeof(WCHAR)) &&
                  (UniArgFileName->Buffer[0] == L'*')) ||
                 ((UniArgFileName->Length == 12*sizeof(WCHAR)) &&
-                 (RtlCompareMemory( UniArgFileName->Buffer,
-                                    Fat8QMdot3QM,
-                                    12*sizeof(WCHAR) )) == 12*sizeof(WCHAR))) {
+                 (RtlEqualMemory( UniArgFileName->Buffer,
+                                  Fat8QMdot3QM,
+                                  12*sizeof(WCHAR) )))) {
 
                 Ccb->ContainsWildCards = TRUE;
 
@@ -487,7 +496,7 @@ Return Value:
 
                 if (ExtendedName) {
 
-                    Status = RtlUpcaseUnicodeString( &Ccb->UnicodeQueryTemplate,
+                    Status = FatUpcaseUnicodeString( &Ccb->UnicodeQueryTemplate,
                                                      UniArgFileName,
                                                      TRUE );
 
@@ -502,7 +511,7 @@ Return Value:
                     //  Upcase the name and convert it to the Oem code page.
                     //
 
-                    Status = RtlUpcaseUnicodeStringToCountedOemString( &LocalBestFit,
+                    Status = FatUpcaseUnicodeStringToCountedOemString( &LocalBestFit,
                                                                        UniArgFileName,
                                                                        TRUE );
 
@@ -580,7 +589,7 @@ Return Value:
 
                     if (ExtendedName) {
 
-                        RtlFreeOemString( &LocalBestFit );
+                        FatFreeOemString( &LocalBestFit );
                         ClearFlag( Ccb->Flags, CCB_FLAG_FREE_OEM_BEST_FIT );
                     }
 
@@ -609,7 +618,7 @@ Return Value:
 
                         if (FlagOn(Ccb->Flags, CCB_FLAG_FREE_OEM_BEST_FIT)) {
 
-                            RtlFreeOemString( &LocalBestFit );
+                            FatFreeOemString( &LocalBestFit );
                             ClearFlag( Ccb->Flags, CCB_FLAG_FREE_OEM_BEST_FIT );
                         }
                     }
@@ -696,6 +705,7 @@ Return Value:
                              &Dirent,
                              &Bcb,
                              &NextVbo,
+                             NULL,
                              &LongFileName );
 
             //
@@ -731,7 +741,7 @@ Return Value:
             //  If this dirent is for the ea file we skip over this.
             //
 
-            if (RtlCompareMemory( Dirent->FileName, "EA DATA  SF", 11 ) == 11) {
+            if (RtlEqualMemory( Dirent->FileName, "EA DATA  SF", 11 )) {
 
                 CurrentVbo = NextVbo + sizeof( DIRENT );
                 continue;
@@ -828,71 +838,15 @@ Return Value:
 
                     DirInfo = (PFILE_DIRECTORY_INFORMATION)&Buffer[NextEntry];
 
-                    DirInfo->LastWriteTime =
-                        FatFatTimeToNtTime( IrpContext,
-                                            Dirent->LastWriteTime,
-                                            0 );
+                    FatGetDirTimes( IrpContext, Dirent, DirInfo );
 
-                    //
-                    //  These fields are only non-zero when in Chicago mode.
-                    //
-
-                    if (FatData.ChicagoMode) {
-
-                        LARGE_INTEGER FatSystemJanOne1980;
-
-                        //
-                        //  If either date is possibly zero, get the system
-                        //  version of 1/1/80.
-                        //
-
-                        if ((((PUSHORT)Dirent)[9] & ((PUSHORT)Dirent)[8]) == 0) {
-
-                            ExLocalTimeToSystemTime( &FatJanOne1980,
-                                                     &FatSystemJanOne1980 );
-                        }
-
-                        //
-                        //  Only do the really hard work if this field is non-zero.
-                        //
-
-                        if (((PUSHORT)Dirent)[9] != 0) {
-
-                            DirInfo->LastAccessTime =
-                                FatFatDateToNtTime( IrpContext,
-                                                    Dirent->LastAccessDate );
-
-                        } else {
-
-                            DirInfo->LastAccessTime = FatSystemJanOne1980;
-                        }
-
-                        //
-                        //  Only do the really hard work if this field is non-zero.
-                        //
-
-                        if (((PUSHORT)Dirent)[8] != 0) {
-
-                            DirInfo->CreationTime =
-                                FatFatTimeToNtTime( IrpContext,
-                                                    Dirent->CreationTime,
-                                                    Dirent->CreationMSec );
-
-                        } else {
-
-                            DirInfo->CreationTime = FatSystemJanOne1980;
-                        }
-                    }
-
-                    DirInfo->EndOfFile = LiFromUlong( Dirent->FileSize );
+                    DirInfo->EndOfFile.QuadPart = Dirent->FileSize;
 
                     if (!FlagOn( Dirent->Attributes, FAT_DIRENT_ATTR_DIRECTORY )) {
 
-                        DirInfo->AllocationSize = LiFromUlong(
-                                                        (( Dirent->FileSize
-                                                           + DiskAllocSize - 1 )
-                                                         / DiskAllocSize )
-                                                        * DiskAllocSize );
+                        DirInfo->AllocationSize.QuadPart =
+                           (((Dirent->FileSize + DiskAllocSize - 1) / DiskAllocSize) *
+                            DiskAllocSize );
                     }
 
                     DirInfo->FileAttributes = Dirent->Attributes != 0 ?
@@ -927,12 +881,17 @@ Return Value:
                 }
 
                 //
-                //  If the "magic bit" was set, we can optimize here.
+                //  If both case optimization bits are set, or the base
+                //  bit is set and there is no extension, we can do the
+                //  OEM to UNICODE by hand (i.e., just truncate).
                 //
 
-                if (FlagOn(Dirent->NtByte,
-                           FAT_DIRENT_NT_BYTE_8_LOWER_CASE |
-                           FAT_DIRENT_NT_BYTE_3_LOWER_CASE)) {
+                if (((Dirent->NtByte &
+                      (FAT_DIRENT_NT_BYTE_8_LOWER_CASE | FAT_DIRENT_NT_BYTE_3_LOWER_CASE)) ==
+                      (FAT_DIRENT_NT_BYTE_8_LOWER_CASE | FAT_DIRENT_NT_BYTE_3_LOWER_CASE)) ||
+                    (FlagOn(Dirent->NtByte, FAT_DIRENT_NT_BYTE_8_LOWER_CASE) &&
+                     (*(PUSHORT)&(Dirent->FileName[8]) == 0x2020) &&
+                     (*(PUCHAR)&(Dirent->FileName[10]) == 0x20))) {
 
                     PWCHAR UniBuf;
 
@@ -960,6 +919,17 @@ Return Value:
                 }
 
                 //
+                //  Check for the case that a single entry doesn't fit.
+                //  This should only get this far on the first entry
+                //
+
+                if (BytesConverted < FileNameLength) {
+
+                    ASSERT( NextEntry == 0 );
+                    Status = STATUS_BUFFER_OVERFLOW;
+                }
+
+                //
                 //  Set up the previous next entry offset
                 //
 
@@ -971,7 +941,8 @@ Return Value:
                 //  ourselves for the next entry
                 //
 
-                Irp->IoStatus.Information += BaseLength + BytesConverted;
+                Irp->IoStatus.Information = QuadAlign( Irp->IoStatus.Information ) +
+                                            BaseLength + BytesConverted;
 
                 //
                 //  If something happened with the conversion, bail here.
@@ -1101,66 +1072,13 @@ Return Value:
 
                     DirInfo = (PFILE_DIRECTORY_INFORMATION)&Buffer[NextEntry];
 
-                    DirInfo->LastWriteTime = FatFatTimeToNtTime( IrpContext,
-                                                                 Dirent->LastWriteTime,
-                                                                 0 );
+                    FatGetDirTimes( IrpContext, Dirent, DirInfo );
 
-                    //
-                    //  These fields are only non-zero when in Chicago mode.
-                    //
-
-                    if (FatData.ChicagoMode) {
-
-                        LARGE_INTEGER FatSystemJanOne1980;
-
-                        //
-                        //  If either date is possibly zero, get the system
-                        //  version of 1/1/80.
-                        //
-
-                        if ((((PUSHORT)Dirent)[9] & ((PUSHORT)Dirent)[8]) == 0) {
-
-                            ExLocalTimeToSystemTime( &FatJanOne1980,
-                                                     &FatSystemJanOne1980 );
-                        }
-
-                        //
-                        //  Only do the really hard work if this field is non-zero.
-                        //
-
-                        if (((PUSHORT)Dirent)[9] != 0) {
-
-                            DirInfo->LastAccessTime =
-                                FatFatDateToNtTime( IrpContext,
-                                                    Dirent->LastAccessDate );
-
-                        } else {
-
-                            DirInfo->LastAccessTime = FatSystemJanOne1980;
-                        }
-
-                        //
-                        //  Only do the really hard work if this field is non-zero.
-                        //
-
-                        if (((PUSHORT)Dirent)[8] != 0) {
-
-                            DirInfo->CreationTime =
-                                FatFatTimeToNtTime( IrpContext,
-                                                    Dirent->CreationTime,
-                                                    Dirent->CreationMSec );
-
-                        } else {
-
-                            DirInfo->CreationTime = FatSystemJanOne1980;
-                        }
-                    }
-
-                    DirInfo->EndOfFile = LiFromUlong( Dirent->FileSize );
+                    DirInfo->EndOfFile.QuadPart = Dirent->FileSize;
 
                     if (!FlagOn( Dirent->Attributes, FAT_DIRENT_ATTR_DIRECTORY )) {
 
-                        DirInfo->AllocationSize = LiFromUlong(
+                        DirInfo->AllocationSize.QuadPart = (
                                                         (( Dirent->FileSize
                                                            + DiskAllocSize - 1 )
                                                          / DiskAllocSize )
@@ -1219,6 +1137,18 @@ Return Value:
                 //
 
                 Irp->IoStatus.Information += BaseLength + BytesConverted;
+
+                //
+                //  Check for the case that a single entry doesn't fit.
+                //  This should only get this far on the first entry.
+                //
+
+                if (BytesConverted < FileNameLength) {
+
+                    ASSERT( NextEntry == 0 );
+
+                    try_return( Status = STATUS_BUFFER_OVERFLOW );
+                }
             }
 
             //
@@ -1272,6 +1202,135 @@ Return Value:
     }
 
     return Status;
+}
+
+
+//
+//  Local Support Routine
+//
+
+VOID
+FatGetDirTimes(
+    PIRP_CONTEXT IrpContext,
+    PDIRENT Dirent,
+    PFILE_DIRECTORY_INFORMATION DirInfo
+    )
+
+/*++
+
+Routine Description:
+
+    This routine sucks the date/time information from a dirent and fills
+    in the DirInfo structure.
+
+Arguments:
+
+    Dirent - Supplies the dirent
+    DirInfo - Supplies the target structure
+
+Return Value:
+
+    VOID
+
+--*/
+
+
+{
+    //
+    //  Start with the Last Write Time.
+    //
+
+    DirInfo->LastWriteTime =
+        FatFatTimeToNtTime( IrpContext,
+                            Dirent->LastWriteTime,
+                            0 );
+
+    //
+    //  These fields are only non-zero when in Chicago mode.
+    //
+
+    if (FatData.ChicagoMode) {
+
+        BOOLEAN TimeAlreadySet = FALSE;
+
+        LARGE_INTEGER FatSystemJanOne1980;
+
+        //
+        //  Do a quick check here for Creation and LastAccess
+        //  times that are the same as the LastWriteTime.
+        //
+
+        if (*((UNALIGNED LONG *)&Dirent->CreationTime) ==
+            *((UNALIGNED LONG *)&Dirent->LastWriteTime)) {
+
+            DirInfo->CreationTime.QuadPart =
+
+                DirInfo->LastWriteTime.QuadPart +
+                Dirent->CreationMSec * 10 * 1000 * 10;
+
+        } else {
+
+            //
+            //  Only do the really hard work if this field is non-zero.
+            //
+
+            if (((PUSHORT)Dirent)[8] != 0) {
+
+                DirInfo->CreationTime =
+                    FatFatTimeToNtTime( IrpContext,
+                                        Dirent->CreationTime,
+                                        Dirent->CreationMSec );
+
+            } else {
+
+                ExLocalTimeToSystemTime( &FatJanOne1980,
+                                         &FatSystemJanOne1980 );
+
+                DirInfo->CreationTime = FatSystemJanOne1980;
+            }
+        }
+
+        //
+        //  Do a quick check for LastAccessDate.
+        //
+
+        if (*((PUSHORT)&Dirent->LastAccessDate) ==
+            *((PUSHORT)&Dirent->LastWriteTime.Date)) {
+
+            PFAT_TIME WriteTime;
+
+            WriteTime = &Dirent->LastWriteTime.Time;
+
+            DirInfo->LastAccessTime.QuadPart =
+                DirInfo->LastWriteTime.QuadPart -
+                UInt32x32To64(((WriteTime->DoubleSeconds * 2) +
+                               (WriteTime->Minute * 60) +
+                               (WriteTime->Hour * 60 * 60)),
+                              1000 * 1000 * 10);
+
+        } else {
+
+            //
+            //  Only do the really hard work if this field is non-zero.
+            //
+
+            if (((PUSHORT)Dirent)[9] != 0) {
+
+                DirInfo->LastAccessTime =
+                    FatFatDateToNtTime( IrpContext,
+                                        Dirent->LastAccessDate );
+
+            } else {
+
+                if (!TimeAlreadySet) {
+                    ExLocalTimeToSystemTime( &FatJanOne1980,
+                                             &FatSystemJanOne1980 );
+                }
+
+                DirInfo->LastAccessTime = FatSystemJanOne1980;
+            }
+        }
+    }
 }
 
 
@@ -1388,6 +1447,16 @@ Return Value:
         //
 
         FatSetFullFileNameInFcb( IrpContext, Dcb );
+
+        //
+        //  If the file is marked as DELETE_PENDING then complete this
+        //  request immediately.
+        //
+
+        if (FlagOn( Dcb->FcbState, FCB_STATE_DELETE_ON_CLOSE )) {
+
+            FatRaiseStatus( IrpContext, STATUS_DELETE_PENDING );
+        }
 
         //
         //  Call the Fsrtl package to process the request.

@@ -29,8 +29,13 @@ include ks386.inc
 include callconv.inc            ; calling convention macros
         .list
 
+ifndef WX86_i386
+        EXTRNP  _ZwCallbackReturn,3
+endif
+
         EXTRNP  _ZwContinue,2
         EXTRNP  _RtlDispatchException,2
+        EXTRNP  _RtlRaiseStatus,1
         EXTRNP  _ZwRaiseException,3
         EXTRNP  _RtlRaiseException,1
 ;
@@ -43,6 +48,7 @@ ExceptionRecordSize = (ErNumberParameters + 4 + 3) AND 0fffffffcH ;
 _TEXT   SEGMENT DWORD PUBLIC 'CODE'
         ASSUME  DS:FLAT, ES:FLAT, SS:NOTHING, FS:NOTHING, GS:NOTHING
 
+ifndef WX86_i386
         page
         subttl  "User APC Dispatcher"
 ;++
@@ -85,7 +91,7 @@ _TEXT   SEGMENT DWORD PUBLIC 'CODE'
 ;    None.
 ;
 ;--
-cPublicProc _KiUserApcDispatcher    ,5
+cPublicProc _KiUserApcDispatcher ,5
 
         lea     edi, [esp+16]           ; (edi)->context frame
         pop     eax                     ; (eax)->specified function
@@ -97,6 +103,65 @@ cPublicProc _KiUserApcDispatcher    ,5
         stdCall   _ZwContinue, <edi, 1>
 
 stdENDP _KiUserApcDispatcher
+
+
+        page
+        subttl  "User Callback Dispatcher"
+;++
+;
+; VOID
+; KiUserCallbackDispatcher (
+;    IN ULONG ApiNumber,
+;    IN PVOID InputBuffer,
+;    IN ULONG INputLength
+;    )
+;
+; Routine Description:
+;
+;    This routine is entered on a callout from kernel mode to execute a
+;    user mode callback function. All arguments for this function have
+;    been placed on the stack.
+;
+; Arguments:
+;
+;    ApiNumber - Supplies the API number of the callback function that is
+;        executed.
+;
+;    InputBuffer - Supplies a pointer to the input buffer.
+;
+;    InputLength - Supplies the input buffer length.
+;
+; Return Value:
+;
+;    This function returns to kernel mode.
+;
+;--
+cPublicProc _KiUserCallbackDispatcher, 3
+.FPO (0, 0, 0, 0, 0, 0)
+
+        add     esp,4                   ; skip over return address
+        pop     edx                     ; get address of callback function
+
+                                        ; get peb pointer from teb
+        mov     eax,fs:[PcTeb]
+        mov     eax,[eax].TebPeb
+        mov     eax,[eax].PebKernelCallbackTable    ; get address of callback table
+
+        call    [eax+edx*4]             ; call specified function
+
+;
+; If a return from the callback function occurs, then the output buffer
+; address and length are returned as NULL.
+;
+
+        xor     ecx,ecx                 ; clear output buffer address
+        xor     edx,edx                 ; clear output buffer length
+        int     02bH                    ; return from callback
+        int     3                       ; break if return occurs
+
+stdENDP _KiUserCallbackDispatcher
+
+endif  ;; ndef WX86_i386
 
         page
         subttl  "User Exception Dispatcher"
@@ -131,6 +196,7 @@ stdENDP _KiUserApcDispatcher
 ;--
 
 cPublicProc _KiUserExceptionDispatcher      ,2
+.FPO (0, 2, 0, 0, 0, 0)
 
         mov     ecx, [esp+4]            ; (ecx)->context record
         mov     ebx, [esp]              ; (ebx)->exception record
@@ -181,6 +247,8 @@ kued10: pop     ebx                     ; (ebx)->exception record
 ; and eventually this loop will end.
 ;
 
+.FPO(0, 0, 0, 0, 0, 0)
+
 kued20: add     esp, -ExceptionRecordSize ; allocate stack space
         mov     [esp]+ErExceptionCode, eax ; set exception code
         mov     dword ptr [esp]+ErExceptionFlags, EXCEPTION_NONCONTINUABLE
@@ -193,6 +261,62 @@ kued20: add     esp, -ExceptionRecordSize ; allocate stack space
         stdRET    _KiUserExceptionDispatcher
 
 stdENDP _KiUserExceptionDispatcher
+
+        page
+        subttl  "Raise User Exception Dispatcher"
+ifndef WX86_i386
+;++
+;
+; NTSTATUS
+; KiUserExceptionDispatcher (
+;    IN PVOID ReturnAddress
+;    IN NTSTATUS ExceptionCode
+;    )
+;
+; Routine Description:
+;
+;    This routine is entered on return from kernel mode to raise a user
+;    mode exception.
+;
+;    NOTE:  This procedure is not called, but rather dispatched to.
+;
+;    The address this routine must return to is passed in EAX.
+;    The exception code to be raised is passed in the TEB.
+;
+; Arguments:
+;
+;    ReturnAddress (eax) - Supplies the address to return to
+;
+;    ExceptionCode (TEB->ExceptionCode) - Supplies the exception code to be raised
+;
+; Return Value:
+;
+;    The exception code that was raised.
+;
+;--
+
+cPublicProc _KiRaiseUserExceptionDispatcher
+
+        push    eax                     ; push address to return to
+        push    ebp                     ; make the debugger happy
+        mov     ebp, esp
+        sub     esp, ExceptionRecordLength      ; allocate exception record
+        mov     [esp].ErExceptionAddress, eax   ; set exception address
+        mov     eax,fs:[PcTeb]                  ; get exception code to be raised
+        mov     eax,[eax].TbExceptionCode       ;
+        mov     [esp].ErExceptionCode, eax      ; store exception code
+        mov     [esp].ErExceptionFlags, 0       ; set exception flags
+        mov     [esp].ErExceptionRecord, 0      ; set exception record
+        mov     [esp].ErNumberParameters, 0     ; set number of parameters
+; raise the exception
+        stdCall   _RtlRaiseException, <esp>
+        mov     eax, [esp].ErExceptionCode
+        mov     esp,ebp
+        pop     ebp                     ; restore return code
+        ret
+
+stdENDP _KiRaiseUserExceptionDispatcher
+endif  ;; ndef WX86_i386
 
 
 _TEXT   ENDS

@@ -1657,8 +1657,8 @@ DumpDirOpenAdapterParms(
                 pAdapterParms->auchNodeAddress[3],
                 pAdapterParms->auchNodeAddress[4],
                 pAdapterParms->auchNodeAddress[5],
-                *(LPDWORD)&pAdapterParms->auchGroupAddress,
-                *(LPDWORD)&pAdapterParms->auchFunctionalAddress,
+                *(UNALIGNED DWORD *)&pAdapterParms->auchGroupAddress,
+                *(UNALIGNED DWORD *)&pAdapterParms->auchFunctionalAddress,
                 pAdapterParms->usReserved1,
                 pAdapterParms->usReserved2,
                 pAdapterParms->usMaxFrameSize,
@@ -3297,7 +3297,7 @@ DumpData(
             *bufptr++ = (i == 7) ? '-' : ' ';
         }
         if (Options & DD_UPPER_CASE) {
-            strupr(hexptr);
+            _strupr(hexptr);
         }
         if (!(Options & DD_NO_ASCII)) {
             if (n < 16) {

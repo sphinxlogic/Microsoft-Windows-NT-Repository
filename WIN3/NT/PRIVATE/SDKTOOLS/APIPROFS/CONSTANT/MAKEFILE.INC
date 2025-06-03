@@ -1,22 +1,17 @@
 #
-# If BUILDMSG is not defined, the define it as the empty string to make
-# the conditionals easier to write.
+# Invoke autowrap to generate wrapper sources
+# then generate wrapem.obj 
 #
 
-!INCLUDE $(NTMAKEENV)\makefile.plt
+MYDLL = $(BASEDIR)\public\sdk\lib\$(TARGET_DIRECTORY)\@@.dll
 
-clean: cleansrc all
+obj\$(TARGET_DIRECTORY)\wrapem.obj: $(TARGET_DIRECTORY)\wrapem.$(ASM_SUFFIX)
 
-MYTARGETS= $(TARGET_DIRECTORY)\wrapem.$(ASM_SUFFIX)
-MYDLLNAME= @@.dll
+# If dll has changed, force recompilation of sources
+$(TARGET_DIRECTORY)\wrapem.$(ASM_SUFFIX): $(MYDLL)
+	autowrap  $(MYDLL)
+	del /q obj\$(TARGET_DIRECTORY)\z@.obj
+ 
+clean:
+	del /q wrapper.c wrapper.h $(TARGET_DIRECTORY)\* obj\$(TARGET_DIRECTORY)\*
 
-all: $(MYTARGETS)
-!IF "$(BUILDMSG)" != ""
-    echo $(BUILDMSG)
-!ENDIF
-
-cleansrc:
-    -erase $(MYTARGETS)
-
-$(TARGET_DIRECTORY)\wrapem.$(ASM_SUFFIX): $(BASEDIR)\public\sdk\lib\$(TARGET_DIRECTORY)\$(MYDLLNAME)
-	autowrap $(BASEDIR)\public\sdk\lib\$(TARGET_DIRECTORY)\$(MYDLLNAME)

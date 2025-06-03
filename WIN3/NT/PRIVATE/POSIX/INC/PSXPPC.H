@@ -20,8 +20,8 @@ Revision History:
 
 --*/
 
-#define PSX_FORK_RETURN	0x7777
+#define PSX_FORK_RETURN 0x7777
 
 #define SetPsxForkReturn(c) \
-	(c.Gpr0 = PSX_FORK_RETURN)
+        (c.Gpr3 = PSX_FORK_RETURN)
 

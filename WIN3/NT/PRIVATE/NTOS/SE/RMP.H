@@ -128,12 +128,27 @@ typedef struct _SEP_LOGON_SESSION_REFERENCES {
     struct _SEP_LOGON_SESSION_REFERENCES *Next;
     LUID LogonId;
     ULONG ReferenceCount;
+    ULONG Flags;
 } SEP_LOGON_SESSION_REFERENCES, *PSEP_LOGON_SESSION_REFERENCES;
 
+#define SEP_TERMINATION_NOTIFY  0x1
 
+//
+// File systems interested in being notified when a logon session is being
+// terminated register a callback routine. The following data structure
+// describes the callback routines.
+//
+// The global list of callback routines is pointed to by SeFileSystemNotifyRoutines.
+// This list is protected by the RM database lock.
+//
 
+typedef struct _SEP_LOGON_SESSION_TERMINATED_NOTIFICATION {
+    struct _SEP_LOGON_SESSION_TERMINATED_NOTIFICATION *Next;
+    PSE_LOGON_SESSION_TERMINATED_ROUTINE CallbackRoutine;
+} SEP_LOGON_SESSION_TERMINATED_NOTIFICATION, *PSEP_LOGON_SESSION_TERMINATED_NOTIFICATION;
 
-
+extern SEP_LOGON_SESSION_TERMINATED_NOTIFICATION
+SeFileSystemNotifyRoutinesHead;
 
 
 ///////////////////////////////////////////////////////////////////////////////

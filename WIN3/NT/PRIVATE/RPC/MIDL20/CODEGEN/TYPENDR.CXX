@@ -16,9 +16,13 @@
 
     DKays     Jan-1994        Created.
     RyszardK  Jan-07-1994     Added transmit_as and represent as routines.
+    RyszardK  Jan-17-1995     Added support for user_marshal.
+
  ----------------------------------------------------------------------------*/
 
 #include "becls.hxx"
+
+extern CMD_ARG * pCommand;
 
 #pragma hdrstop
 
@@ -91,9 +95,21 @@ GenXmitOrRepAsNdrFormat(
     CG_NDR *        pChild;
     unsigned short  Index;
     long            ChildOffset;
-
     
     pFormatString = pCCB->GetFormatString();
+
+    if (pCCB->GetFileCG()->GetLocalFormatString()
+        == pFormatString)
+    {
+        // we're in a local proc
+        pXmitNode->SetFormatStringOffset( pFormatString->GetCurrentOffset() );
+        pFormatString->PushFormatChar(FC_BLKHOLE);
+        pFormatString->PushByte( BLKHOLE_XURTYPE ); // flags
+        pFormatString->PushShort( (short) -1 ); // Reserved
+    	pXmitNode->SetFormatStringEndOffset( pFormatString->GetCurrentOffset() );
+    	pXmitNode->SetFormatStringOffset( pFormatString->OptimizeFragment( pXmitNode ) );
+        return;
+    }
 
     pChild = (CG_NDR *) pXmitNode->GetChild();
 
@@ -114,7 +130,12 @@ GenXmitOrRepAsNdrFormat(
                                      (fXmit ? pPresentedType
                                             : pTransmittedType) );
 
-    pFormatString->PushFormatChar( FC_TRANSMIT_AS );
+    if ( pChild->IsPointer() )
+        pFormatString->PushFormatChar( fXmit ? FC_TRANSMIT_AS_PTR
+                                             : FC_REPRESENT_AS_PTR );
+    else
+        pFormatString->PushFormatChar( fXmit ? FC_TRANSMIT_AS
+                                             : FC_REPRESENT_AS );
 
     // Now the flag byte. Lower nibble keeps xmitted type alignment.
     // The upper one has the flag for -Oi when presented type is an array.
@@ -122,9 +143,18 @@ GenXmitOrRepAsNdrFormat(
     unsigned char
     FlagByte = CvtAlignPropertyToAlign( pChild->GetWireAlignment()) - 1;
 
-    if ( pPresentedType  &&
-         pPresentedType->GetBasicType()->NodeKind() == NODE_ARRAY )
-        FlagByte |= PRESENTED_TYPE_IS_ARRAY;
+    if ( pPresentedType )
+        {
+        if ( pPresentedType->GetBasicType()->NodeKind() == NODE_ARRAY )
+            FlagByte |= PRESENTED_TYPE_IS_ARRAY;
+        else
+            {
+            if ( pXmitNode->GetMemoryAlignment() == 4 )
+                FlagByte |= PRESENTED_TYPE_ALIGN_4;
+            if ( pXmitNode->GetMemoryAlignment() == 8 )
+                FlagByte |= PRESENTED_TYPE_ALIGN_8;
+            }
+        }
 
     pFormatString->PushByte( FlagByte );
     pFormatString->PushShort( (short) Index );
@@ -193,8 +223,12 @@ CG_TRANSMIT_AS::GetStackSize()
     if ( pPresentedType->GetBasicType()->NodeKind() == NODE_ARRAY )
         return sizeof( void * );
     else
-        return pPresentedType->GetSize( 0 );
+        return GetMemorySize();
 }
+
+//========================================================================
+//      Represent_as
+//========================================================================
 
 void
 CG_REPRESENT_AS::GenNdrFormat( CCB * pCCB )
@@ -234,17 +268,25 @@ CG_REPRESENT_AS::GetStackSize()
     if ( pRepresentationType->GetBasicType()->NodeKind() == NODE_ARRAY )
         return sizeof( void * );
     else
-        return pRepresentationType->GetSize( 0 );
+        return GetMemorySize();
 }
 
 void
 CG_REPRESENT_AS::GenNdrParamDescription( CCB * pCCB )
 {
+    CG_NDR::GenNdrParamDescription( pCCB );
+
+    // BUGBUG : Stack offsets of parameters after this guy are screwed.
+}
+
+void
+CG_REPRESENT_AS::GenNdrParamDescriptionOld( CCB * pCCB )
+{
     FORMAT_STRING * pProcFormatString;
 
     if ( GetRepAsType() )
         {
-        CG_NDR::GenNdrParamDescription( pCCB );
+        CG_NDR::GenNdrParamDescriptionOld( pCCB );
         return;
         }
 
@@ -254,4 +296,134 @@ CG_REPRESENT_AS::GenNdrParamDescription( CCB * pCCB )
 
     pProcFormatString->PushShortTypeOffset( (short) GetFormatStringOffset() );
 }
+
+void
+CG_USER_MARSHAL::GenNdrFormat( CCB * pCCB )
+/*++
+    The format string is now:
+
+        FC_USER_MARSHAL
+        flags/alignment<1>
+        quadruple index<2>
+        pres type mem size<2>
+        xmit type wire size<2>
+        Offset to wire desc<2>
+--*/
+{
+    if ( GetFormatStringOffset() != -1 ) 
+        return;
+
+    pCommand->GetNdrVersionControl().SetHasUserMarshal();
+
+    FORMAT_STRING * pFormatString;
+    CG_NDR *        pChild;
+    long            ChildOffset;
+
+    // Format offset
+
+    pFormatString = pCCB->GetFormatString();
+
+    if (pCCB->GetFileCG()->GetLocalFormatString()
+        == pFormatString)
+    {
+        // we're in a local proc
+        SetFormatStringOffset( pFormatString->GetCurrentOffset() );
+        pFormatString->PushFormatChar(FC_BLKHOLE);
+        pFormatString->PushByte( BLKHOLE_XURTYPE ); // flags
+        pFormatString->PushShort( (short) -1 ); // Reserved
+    	SetFormatStringEndOffset( pFormatString->GetCurrentOffset() );
+    	SetFormatStringOffset( pFormatString->OptimizeFragment( this ) );
+        return;        
+    }
+
+    pChild = (CG_NDR *) GetChild();
+
+    assert( pChild );
+
+    // Do this in case the child is a simple type.
+    ChildOffset = pFormatString->GetCurrentOffset();
+
+    pChild->GenNdrFormat( pCCB );
+
+    // Again, do this in case the child is a simple type.
+    pFormatString->Align();
+
+    SetFormatStringOffset( pFormatString->GetCurrentOffset() );
+
+    // Real stuff now
+
+    pFormatString->PushFormatChar( FC_USER_MARSHAL );
+
+    // Now the flag byte.
+    // Top 2 bits convey the pointer info:
+    //     0 - not a pointer
+    //     1 - a ref
+    //     2 - a unique
+
+    unsigned char
+    FlagByte = CvtAlignPropertyToAlign( pChild->GetWireAlignment()) - 1;
+
+    if ( pChild->IsPointer() )
+        {
+        CG_POINTER * pPtr = (CG_POINTER *)pChild;
+        assert( ! pPtr->IsFull() );
+
+        if ( pPtr->IsUnique() )
+            FlagByte |= USER_MARSHAL_UNIQUE;
+        else if ( pPtr->IsRef() )
+            FlagByte |= USER_MARSHAL_REF;
+        }
+
+    pFormatString->PushByte( FlagByte );
+
+    // Register the routine to be generated for future use.
+
+    USER_MARSHAL_CONTEXT * pUserMarshalContext = new USER_MARSHAL_CONTEXT;
+
+    pUserMarshalContext->pTypeName = GetRepAsTypeName();
+    pUserMarshalContext->pType     = GetRepAsType();
+
+    BOOL  Added = pCCB->GetQuadrupleDictionary()->Add( pUserMarshalContext );
+
+    unsigned short Index = pUserMarshalContext->Index;
+
+    pFormatString->PushShort( (short) Index );
+
+    if ( ! Added )
+        delete pUserMarshalContext;
+
+    // Now the presented type memory size and transmitted type bufsize.
+
+    if ( GetRepAsType() )
+        pFormatString->PushShort( (short) GetRepAsType()->GetSize( 0 ) );
+    else
+        {
+        // Unknown user_marshall type - will have to generate a sizing macro
+        // As represent_as and user_marshal are mutually exclusive,
+        // we can use rep_as size dictionary.
+
+        pCCB->GetRepAsSizeDict()->Register( pFormatString->GetCurrentOffset(),
+                                            GetRepAsTypeName() );
+        pFormatString->PushShortWithSizeMacro();
+        }
+
+    if ( pChild->HasAFixedBufferSize() )
+        pFormatString->PushShort( (short) pChild->GetWireSize() );
+    else
+        pFormatString->PushShort( (short) 0 );
+
+    if ( pChild->IsSimpleType() )
+        {
+        pFormatString->PushShortOffset( (short)
+                    (ChildOffset - pFormatString->GetCurrentOffset()) );
+        }
+    else
+        {
+        pFormatString->PushShortOffset( (short)
+                        ( pChild->GetFormatStringOffset() - 
+                          pFormatString->GetCurrentOffset() ) );
+        }
+
+}
+
 

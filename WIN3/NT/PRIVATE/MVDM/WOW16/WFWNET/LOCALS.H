@@ -66,9 +66,10 @@ Revision History:
 #define RESOURCETYPE_ERROR      0xFFFFFFFF
 
 //
-// an error unknown in 16bit world.  
+// errors unknown in 16bit world.
 //
 #define WIN32_EXTENDED_ERROR    1208L
+#define WIN32_WN_CANCEL         1223L
 
 //
 // misc convenient macros
@@ -150,4 +151,3 @@ WORD GetLanmanDrvEntryPoints(LPFN *lplpfn,
 
 #define NERR_BASE               2100
 #define NERR_UseNotFound        (NERR_BASE+150)
-

@@ -35,6 +35,7 @@ typedef struct _ETIMER {
     KDPC TimerDpc;
     LIST_ENTRY ActiveTimerListEntry;
     KSPIN_LOCK Lock;
+    LONG Period;
     BOOLEAN ApcAssociated;
 } ETIMER, *PETIMER;
 
@@ -120,26 +121,29 @@ Return Value:
 
     //
     // If the timer is still in the current thread's active timer list, then
-    // remove it and set APC associated FALSE. It is possible for the timer
-    // not to be in the current thread's active timer list since the APC could
-    // have been delivered, and then another thread could have set the timer
-    // again with another APC. This would have caused the timer to be removed
-    // from the current thread's active timer list.
+    // remove it if it is not a periodic timer and set APC associated FALSE.
+    // It is possible for the timer not to be in the current thread's active
+    // timer list since the APC could have been delivered, and then another
+    // thread could have set the timer again with another APC. This would
+    // have caused the timer to be removed from the current thread's active
+    // timer list.
     //
     // N. B. The spin locks for the timer and the active timer list must be
     //  acquired in the order: 1) timer lock, 2) thread list lock.
     //
 
+    Dereference = FALSE;
     ExAcquireSpinLock(&ExTimer->Lock, &OldIrql1);
     ExAcquireSpinLock(&ExThread->ActiveTimerListLock, &OldIrql2);
     if ((ExTimer->ApcAssociated) && (&ExThread->Tcb == ExTimer->TimerApc.Thread)) {
-        RemoveEntryList(&ExTimer->ActiveTimerListEntry);
-        ExTimer->ApcAssociated = FALSE;
-        Dereference = TRUE;
+        if (ExTimer->Period == 0) {
+            RemoveEntryList(&ExTimer->ActiveTimerListEntry);
+            ExTimer->ApcAssociated = FALSE;
+            Dereference = TRUE;
+        }
 
     } else {
         *NormalRoutine = (PKNORMAL_ROUTINE)NULL;
-        Dereference = FALSE;
     }
 
     ExReleaseSpinLock(&ExThread->ActiveTimerListLock, OldIrql2);
@@ -208,8 +212,8 @@ Return Value:
     ExAcquireSpinLock(&ExTimer->Lock, &OldIrql);
     if (ExTimer->ApcAssociated) {
         KeInsertQueueApc(&ExTimer->TimerApc,
-                         (PVOID)KeTimer->DueTime.LowPart,
-                         (PVOID)KeTimer->DueTime.HighPart,
+                         SystemArgument1,
+                         SystemArgument2,
                          TIMER_APC_INCREMENT);
     }
 
@@ -290,6 +294,7 @@ Return Value:
 
     RtlZeroMemory(&ObjectTypeInitializer, sizeof(ObjectTypeInitializer));
     ObjectTypeInitializer.Length = sizeof(ObjectTypeInitializer);
+    ObjectTypeInitializer.InvalidAttributes = OBJ_OPENLINK;
     ObjectTypeInitializer.GenericMapping = ExpTimerMapping;
     ObjectTypeInitializer.PoolType = NonPagedPool;
     ObjectTypeInitializer.DefaultNonPagedPoolCharge = sizeof(ETIMER);
@@ -357,11 +362,7 @@ Return Value:
         // N. B. The object reference cannot fail and will acquire no mutexes.
         //
 
-        ObReferenceObjectByPointer((PVOID)ExTimer,
-                                   0,
-                                   ExTimerObjectType,
-                                   KernelMode);
-
+        ObReferenceObject(ExTimer);
         ExReleaseSpinLock(&ExThread->ActiveTimerListLock, OldIrql1);
 
         //
@@ -415,7 +416,8 @@ NTSTATUS
 NtCreateTimer (
     OUT PHANDLE TimerHandle,
     IN ACCESS_MASK DesiredAccess,
-    IN POBJECT_ATTRIBUTES ObjectAttributes OPTIONAL
+    IN POBJECT_ATTRIBUTES ObjectAttributes OPTIONAL,
+    IN TIMER_TYPE TimerType
     )
 
 /*++
@@ -433,6 +435,8 @@ Arguments:
     DesiredAccess - Supplies the desired types of access for the timer object.
 
     ObjectAttributes - Supplies a pointer to an object attributes structure.
+
+    TimerType - Supplies the type of the timer (autoclearing or notification).
 
 Return Value:
 
@@ -467,6 +471,15 @@ Return Value:
         }
 
         //
+        // Check argument validity.
+        //
+
+        if ((TimerType != NotificationTimer) &&
+            (TimerType != SynchronizationTimer)) {
+            return STATUS_INVALID_PARAMETER_4;
+        }
+
+        //
         // Allocate timer object.
         //
 
@@ -491,7 +504,7 @@ Return Value:
                             ExpTimerDpcRoutine,
                             (PVOID)ExTimer);
 
-            KeInitializeTimer(&ExTimer->KeTimer);
+            KeInitializeTimerEx(&ExTimer->KeTimer, TimerType);
             KeInitializeSpinLock(&ExTimer->Lock);
             ExTimer->ApcAssociated = FALSE;
             Status = ObInsertObject((PVOID)ExTimer,
@@ -907,6 +920,8 @@ NtSetTimer (
     IN PLARGE_INTEGER DueTime,
     IN PTIMER_APC_ROUTINE TimerApcRoutine OPTIONAL,
     IN PVOID TimerContext OPTIONAL,
+    IN BOOLEAN ResumeTimer,
+    IN LONG Period OPTIONAL,
     OUT PBOOLEAN PreviousState OPTIONAL
     )
 
@@ -932,6 +947,11 @@ Arguments:
         that will be passed to the function specified by the TimerApcRoutine
         parameter. This parameter is ignored if the TimerApcRoutine parameter
         is not specified.
+
+    ResumeTimer - Supplies a boolean value that specifies whether the timer
+        resumes computer operation if suspended.
+
+    Period - Supplies an optional repetitive period for the timer.
 
     PreviousState - Supplies an optional pointer to a variable that will
         receive the previous state of the timer object.
@@ -980,6 +1000,14 @@ Return Value:
         }
 
         //
+        // Check argument validity.
+        //
+
+        if (Period < 0) {
+            return STATUS_INVALID_PARAMETER_6;
+        }
+
+        //
         // Capture the expiration time.
         //
 
@@ -995,6 +1023,15 @@ Return Value:
                                            PreviousMode,
                                            (PVOID *)&ExTimer,
                                            NULL);
+
+        //
+        // If this ResumeTimer flag is set, return the appropiate informational
+        // success status code.
+        //
+
+        if (NT_SUCCESS(Status) && ResumeTimer) {
+            Status = STATUS_TIMER_RESUME_IGNORED;
+        }
 
         //
         // If the reference was successful, then cancel the timer object, set
@@ -1036,6 +1073,7 @@ Return Value:
             // DPC, and set the associated APC flag FALSE.
             //
 
+            ExTimer->Period = Period;
             if (ARGUMENT_PRESENT(TimerApcRoutine)) {
                 ExThread = PsGetCurrentThread();
                 KeInitializeApc(&ExTimer->TimerApc,
@@ -1053,14 +1091,19 @@ Return Value:
 
                 ExTimer->ApcAssociated = TRUE;
                 ExReleaseSpinLock(&ExThread->ActiveTimerListLock, OldIrql2);
-                KeSetTimer(&ExTimer->KeTimer,
-                           ExpirationTime,
-                           &ExTimer->TimerDpc);
+                KeSetTimerEx(&ExTimer->KeTimer,
+                             ExpirationTime,
+                             Period,
+                             &ExTimer->TimerDpc);
 
                 AssociatedApc = TRUE;
 
             } else {
-                KeSetTimer(&ExTimer->KeTimer, ExpirationTime, (PKDPC)NULL);
+                KeSetTimerEx(&ExTimer->KeTimer,
+                             ExpirationTime,
+                             Period,
+                             NULL);
+
                 AssociatedApc = FALSE;
             }
 

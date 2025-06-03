@@ -76,10 +76,6 @@ RdrMpxTableEntryCallbackSpinLock = {0};
 KSPIN_LOCK
 RdrMpxTableSpinLock = {0};
 
-extern
-KSPIN_LOCK
-RdrMpxTableSendReferenceSpinLock = {0};
-
 KSPIN_LOCK
 RdrServerConnectionValidSpinLock = {0};
 
@@ -112,13 +108,43 @@ RdrZero = { 0, 0};
 ULONG
 RdrRequestTimeout = 0;
 
+#if     RDRDBG
+
+LONG RdrDebugTraceLevel = /* DPRT_ERROR | DPRT_DISPATCH */
+                /*DPRT_FSDDISP | DPRT_FSPDISP | DPRT_CREATE | DPRT_READWRITE |*/
+                /*DPRT_CLOSE | DPRT_FILEINFO | DPRT_VOLINFO | DPRT_DIRECTORY |*/
+                /*DPRT_FILELOCK | DPRT_CACHE | DPRT_EA | */
+                /*DPRT_ACLQUERY | DPRT_CLEANUP | DPRT_CONNECT | DPRT_FSCTL |*/
+                /*DPRT_TDI | DPRT_SMBBUF | DPRT_SMB | DPRT_SECURITY | */
+                /*DPRT_SCAVTHRD | DPRT_QUOTA | DPRT_FCB | DPRT_OPLOCK | */
+                /*DPRT_SMBTRACE | DPRT_INIT |*/0;
+
+ULONG RdrSMBTraceValue = 3;
+ULONG RdrMaxDump = 128;
+#endif
+
+#ifdef PAGED_DBG
+ULONG ThisCodeCantBePaged = 0;
+#endif
+
 //
-//  Paged redirector data
+//      Static structures protected by RdrStatisticsSpinLock.
 //
 
-#ifdef  ALLOC_DATA_PRAGMA
-#pragma data_seg("PAGE")
-#endif
+REDIR_STATISTICS
+RdrStatistics = {0};
+
+//
+//      A pointer to the redirectors device object
+//
+PFS_DEVICE_OBJECT RdrDeviceObject = {0};
+
+//
+//      list of server entries that need to be scavenged.
+//
+
+LIST_ENTRY
+RdrServerScavengerListHead = {0};
 
 //
 //      Redir static data protected by RdrDataResource.
@@ -128,9 +154,13 @@ REDIRDATA
 RdrData = {0};
 
 //
-//      A pointer to the redirectors device object
+//  Paged redirector data
 //
-PFS_DEVICE_OBJECT RdrDeviceObject = {0};
+
+#ifdef  ALLOC_DATA_PRAGMA
+#pragma data_seg("PAGE")
+#endif
+
 
 FAST_IO_DISPATCH RdrFastIoDispatch = {0};
 
@@ -240,6 +270,9 @@ RdrAuthenticationPackage = {0};
 ULONG
 RdrRawTimeLimit = RAW_IO_MAX_TIME;
 
+BOOLEAN
+RdrTurboMode = FALSE;
+
 DBGSTATIC
 ULONG
 RdrNumDormantConnections = {0};                  // Number of dormant connections.
@@ -321,13 +354,10 @@ RdrGlobalSecurityList = {0};
 LIST_ENTRY
 RdrTransportHead = {0};
 
-LIST_ENTRY
-RdrTransportEnumHead = {0};
-
 ULONG
 RdrTransportIndex = {0};
 
-#ifndef BUGBUG
+#if !defined(DISABLE_POPUP_ON_PRIMARY_TRANSPORT_FAILURE)
 PWSTR
 RdrServersWithAllTransports = NULL;
 #endif
@@ -349,8 +379,6 @@ RdrAll20Files = {sizeof(WILD20FILES)-1,sizeof(WILD20FILES),WILD20FILES};
 //
 //  ++++    Start of configurable parameters    ++++
 //
-
-//  BUGBUG: Need routine to invalidate searchbuffer
 
 //
 //  SEARCH_INVALIDATE_INTERVAL is the maximum time that a SearchBuffer
@@ -418,7 +446,7 @@ ULONG RdrLegalIrpFunctions[MaxFcbType] = {
     ALL_FILES | READ | WRITE | QUERY_INFORMATION | SET_INFORMATION | QUERY_EA |
                     SET_EA | FLUSH_BUFFERS | LOCK_CONTROL | DEVICE_CONTROL |
                     QUERY_VOLUME_INFORMATION | SET_SECURITY |
-                    QUERY_SECURITY, // DiskFile
+                    DIRECTORY_CONTROL | QUERY_SECURITY, // DiskFile
     ALL_FILES | WRITE | FLUSH_BUFFERS | QUERY_VOLUME_INFORMATION, // Printerfile
     ALL_FILES | SET_INFORMATION | QUERY_INFORMATION | QUERY_EA | SET_EA |
                     DIRECTORY_CONTROL | QUERY_VOLUME_INFORMATION |
@@ -453,6 +481,19 @@ WCHAR   RdrMailslotName[] = L"MAILSLOT";
 //  Name of the "DATA" alternate data stream.
 //
 WCHAR   RdrDataName[] = L"$DATA";
+
+#ifdef RDR_PNP_POWER
+//
+// Binding list of transports
+//
+LPWSTR RdrTransportBindingList;
+
+//
+// Handle used for TDI PNP notifications
+//
+HANDLE RdrTdiNotificationHandle = NULL;
+
+#endif
 
 PWSTR
 RdrBatchExtensionArray[] = {
@@ -489,6 +530,7 @@ RdrConfigEntries[] = {
 #if RDRDBG
     { L"RdrDebugTraceLevel", &RdrDebugTraceLevel, REG_DWORD, sizeof(DWORD) },
 #endif
+    { RDR_CONFIG_TURBO_MODE, &RdrTurboMode, REG_BOOLEAN, REG_BOOLEAN_SIZE },
     { NULL, NULL, REG_NONE, 0}
 };
 
@@ -496,28 +538,11 @@ RdrConfigEntries[] = {
 #pragma data_seg()
 #endif
 
-#if     RDRDBG
-
-LONG RdrDebugTraceLevel = /* DPRT_ERROR | DPRT_DISPATCH */
-                /*DPRT_FSDDISP | DPRT_FSPDISP | DPRT_CREATE | DPRT_READWRITE |*/
-                /*DPRT_CLOSE | DPRT_FILEINFO | DPRT_VOLINFO | DPRT_DIRECTORY |*/
-                /*DPRT_FILELOCK | DPRT_CACHE | DPRT_EA | */
-                /*DPRT_ACLQUERY | DPRT_CLEANUP | DPRT_CONNECT | DPRT_FSCTL |*/
-                /*DPRT_TDI | DPRT_SMBBUF | DPRT_SMB | DPRT_SECURITY | */
-                /*DPRT_SCAVTHRD | DPRT_QUOTA | DPRT_FCB | DPRT_OPLOCK | */
-                /*DPRT_SMBTRACE | DPRT_INIT |*/0;
-
-ULONG RdrSMBTraceValue = 3;
-ULONG RdrMaxDump = 128;
-#endif
-
-#ifdef PAGED_DBG
-ULONG ThisCodeCantBePaged = 0;
-#endif
-
 #ifdef  ALLOC_DATA_PRAGMA
 #pragma data_seg("PAGE2VC")
 #endif
+
+USHORT MaximumCommands = 0;
 
 STATUS_MAP
 RdrSmbErrorMap[] = {
@@ -644,8 +669,8 @@ RdrOs2ErrorMap[] = {
 //    { ERROR_EA_LIST_TOO_LONG, STATUS_EA_LIST_TO_LONG },
     { ERROR_EAS_DIDNT_FIT,      STATUS_EA_TOO_LARGE },
     { ERROR_EA_FILE_CORRUPT,    STATUS_EA_CORRUPT_ERROR },
-    { ERROR_EA_TABLE_FULL,      STATUS_EA_CORRUPT_ERROR }, // BUGBUG
-    { ERROR_INVALID_EA_HANDLE,  STATUS_EA_CORRUPT_ERROR }  // BUGBUG
+    { ERROR_EA_TABLE_FULL,      STATUS_EA_CORRUPT_ERROR },
+    { ERROR_INVALID_EA_HANDLE,  STATUS_EA_CORRUPT_ERROR }
 //    { ERROR_BAD_UNIT,           STATUS_UNSUCCESSFUL}, // ***
 //    { ERROR_BAD_COMMAND,        STATUS_UNSUCCESSFUL}, // ***
 //    { ERROR_SEEK,               STATUS_UNSUCCESSFUL },// ***
@@ -825,7 +850,7 @@ RdrSMBValidateTable[] = {
 /* 0xA2 NT Create   */ (CHAR)FIELD_OFFSET(RESP_NT_CREATE_ANDX, Buffer[0]), -1, 26, -1,
 /* 0xA3             */ -1, -1, -1, -1,
 /* 0xA4 NT Cancel   */ -1, -1, -1, -1,
-/* 0xA5             */ -1, -1, -1, -1,
+/* 0xA5 NT Rename   */ (CHAR)FIELD_OFFSET(RESP_RENAME, Buffer[0]), -1, 0, -1,
 /* 0xA6             */ -1, -1, -1, -1,
 /* 0xA7             */ -1, -1, -1, -1,
 /* 0xA8             */ -1, -1, -1, -1,
@@ -962,8 +987,7 @@ RdrNegotiateDialect[] = {
     { CAIROX,  DF_CORE | DF_NEWRAWIO | DF_LOCKREAD | DF_NTNEGOTIATE |
                     DF_MIXEDCASEPW | DF_LANMAN10 | DF_LANMAN20 |
                     DF_LANMAN21 | DF_MIXEDCASE | DF_LONGNAME |
-                    DF_SUPPORTEA | DF_TIME_IS_UTC | DF_KERBEROS |
-                    DF_DFS_TRANS2}
+                    DF_SUPPORTEA | DF_TIME_IS_UTC | DF_KERBEROS }
 #endif // _CAIRO_
 
 };
@@ -990,11 +1014,11 @@ RdrConnectTypes = &RdrConnectTypeList[1];
 
 
 //
-//      Static structures protected by RdrStatisticsSpinLock.
+// Whenever we update state on the server we increment the value
+//   of this variable.  This lets us handle a cache of items such
+//   as successful 'checkpath' operations
 //
-
-REDIR_STATISTICS
-RdrStatistics = {0};
+LONG RdrServerStateUpdated = 0;
 
 
 #ifdef  ALLOC_DATA_PRAGMA

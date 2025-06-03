@@ -133,6 +133,17 @@ Return Value:
     DriverObject->MajorFunction[IRP_MJ_QUERY_SECURITY]           = (PDRIVER_DISPATCH)NpFsdQuerySecurityInfo;
     DriverObject->MajorFunction[IRP_MJ_SET_SECURITY]             = (PDRIVER_DISPATCH)NpFsdSetSecurityInfo;
 
+#ifdef _PNP_POWER_
+    //
+    // Npfs doesn't need to handle SetPower requests.   Local named pipes
+    // won't lose any state.  Remote pipes will be lost, by a network driver
+    // will fail PowerQuery if there are open network connections.
+    //
+
+    DeviceObject->DeviceObjectExtension->PowerControlNeeded = FALSE;
+#endif
+
+
     DriverObject->FastIoDispatch = &NpFastIoDispatch;
 
     VcbInitialized = FALSE;
@@ -165,4 +176,3 @@ Return Value:
 
     return( STATUS_SUCCESS );
 }
-

@@ -14,12 +14,18 @@ Author:
 
     David J. Gilman  (davegi) 12-Jan-1993
     Gregg R. Acheson (GreggA)  7-May-1993
+	John Hazen		 (jhazen) 30-May-1996 - rewritten for 4.0
 
 Environment:
 
     User Mode
 
 --*/
+
+#include <nt.h>
+#include <ntrtl.h>
+#include <nturtl.h>
+#include <ntexapi.h>
 
 #include "dialogs.h"
 #include "mem.h"
@@ -34,45 +40,55 @@ Environment:
 #include <tchar.h>
 
 //
-// Name of Registry value that contains the paths for the paging files.
+// Object used to pass information around about memory.
 //
 
-VALUE
-MemValues[ ] = {
+typedef
+struct
+_MEMORY_INFO {
 
-    MakeValue( PagingFiles, MULTI_SZ )
+    DECLARE_SIGNATURE
 
-};
+	DWORD   m_cHandles;
+	DWORD   m_cThreads;
+	DWORD   m_cProcesses;
+	DWORD   m_dwPhysicalMemory;
+	DWORD   m_dwPhysAvail;
+	DWORD   m_dwFileCache;
+	DWORD   m_dwKernelPaged;
+	DWORD   m_dwKernelNP;
+	DWORD   m_dwKernelTotal;
+	DWORD   m_dwCommitTotal;
+	DWORD   m_dwCommitLimit;
+	DWORD   m_dwCommitPeak;
+	ULONG   m_uPagefileTotalSize;
+    ULONG   m_uPagefileTotalInUse;
+    ULONG   m_uPagefilePeakUsage;
+
+}   MEMORY_INFO, *LPMEMORY_INFO;
+
 
 //
-// Location of value that contains the paths for the paging files.
+// Internal function prototypes
 //
-
-MakeKey(
-    MemKey,
-    HKEY_LOCAL_MACHINE,
-    TEXT( "System\\CurrentControlSet\\Control\\Session Manager\\Memory Management" ),
-    NumberOfEntries( MemValues ),
-    MemValues
+BOOL
+InitializeMemoryTab(
+    IN HWND hWnd
     );
 
-//
-// String Id's and Control Id's Table
-//
-
-DIALOGTEXT MemoryData[ ] = {
-
-    DIALOG_TABLE_ENTRY( AVAILABLE_PHYSICAL_MEMORY   ),
-    DIALOG_TABLE_ENTRY( TOTAL_PHYSICAL_MEMORY       ),
-    DIALOG_TABLE_ENTRY( AVAILABLE_PAGING_FILE_SPACE ),
-    DIALOG_TABLE_ENTRY( TOTAL_PAGING_FILE_SPACE     ),
-    DIALOG_TABLE_ENTRY( MEMORY_LOAD                 ),
-    DIALOG_LAST__ENTRY( PAGING_FILES                )
-};
-
-
 BOOL
-MemoryDlgProc(
+DisplayPagefiles(
+    IN HWND hListView ,
+	UINT	fReport
+    );
+
+BOOL
+GetMemoryData(
+    IN LPMEMORY_INFO pMemoryInfo
+    );
+
+BOOL
+MemoryTabProc(
     IN HWND hWnd,
     IN UINT message,
     IN WPARAM wParam,
@@ -97,330 +113,274 @@ Return Value:
 --*/
 
 {
-    BOOL            Success;
-    static int      PercentUtilization;
-    UINT            i;
-    MEMORYSTATUS    MemoryStatus;
-    LPDIALOG_EXTRA   lpNext, lpNode;
 
     switch( message ) {
 
-    CASE_WM_CTLCOLOR_DIALOG;
-
     case WM_INITDIALOG:
         {
+            TCHAR		Buffer[64];
+            LV_COLUMN	lvc;
+            RECT        rect;
+
             //
-            // Call GetMemoryData and collect the data in the MemoryData struct
+            // initialize the pagefile list view
             //
 
-            Success = GetMemoryData ( MemoryData );
-            DbgAssert( Success );
+            lvc.mask = LVCF_FMT | LVCF_WIDTH | LVCF_TEXT;
+            lvc.cx = 100;
+            LoadString(_hModule, IDS_PAGEFILE, Buffer, cchSizeof(Buffer));
+            lvc.pszText = Buffer;
+            lvc.fmt = LVCFMT_LEFT;
+            ListView_InsertColumn(GetDlgItem(hWnd, IDC_LV_PAGEFILES), 0, &lvc);
 
-            for( i = 0; i < NumDlgEntries( MemoryData ); i++ ) {
+            lvc.cx = 75;
+            LoadString(_hModule, IDS_PAGEFILE_TOTAL, Buffer, cchSizeof(Buffer));
+            lvc.pszText = Buffer;
+            lvc.fmt = LVCFMT_RIGHT;
+            ListView_InsertColumn(GetDlgItem(hWnd, IDC_LV_PAGEFILES), 1, &lvc);
 
-                if( MemoryData[ i ].ControlDataId == IDC_EDIT_PAGING_FILES ) {
+            lvc.cx = 85;
+            LoadString(_hModule, IDS_PAGEFILE_INUSE, Buffer, cchSizeof(Buffer));
+            lvc.pszText = Buffer;
+            lvc.fmt = LVCFMT_RIGHT;
+            ListView_InsertColumn(GetDlgItem(hWnd, IDC_LV_PAGEFILES), 2, &lvc);
 
-                    //
-                    // Get the head pointer of the linked list
-                    //
+            lvc.cx = 95;
+            LoadString(_hModule, IDS_PAGEFILE_PEAKUSE, Buffer, cchSizeof(Buffer));
+            lvc.pszText = Buffer;
+            lvc.fmt = LVCFMT_RIGHT;
+            ListView_InsertColumn(GetDlgItem(hWnd, IDC_LV_PAGEFILES), 3, &lvc);
 
-                    lpNode = MemoryData[ i ].pNextExtra;
+            //adjust the column width to make it look good
+            GetClientRect( GetDlgItem(hWnd, IDC_LV_PAGEFILES), &rect );
+            ListView_SetColumnWidth( GetDlgItem(hWnd, IDC_LV_PAGEFILES), 0, rect.right - 255);
 
-                    //
-                    // Validate the head pointer.
-                    //
+            InitializeMemoryTab( hWnd );
 
-                    DbgPointerAssert( lpNode );
+            DisplayPagefiles( GetDlgItem( hWnd, IDC_LV_PAGEFILES ), FALSE );
 
-                    if( lpNode == NULL )
-                        return FALSE;
+            break;
 
-                    DbgAssert( CheckSignature( lpNode ));
-
-                    //
-                    // Walk the linked list
-                    //
-
-                    while( lpNode ) {
-
-                        LONG    Index;
-
-                        DbgAssert( CheckSignature( lpNode ));
-
-                        //
-                        // Send an add string message to the list box.
-                        //
-
-                        Index = SendDlgItemMessage(
-                                    hWnd,
-                                    MemoryData[ i ].ControlDataId,
-                                    LB_ADDSTRING,
-                                    0,
-                                    ( LPARAM ) lpNode->String
-                                    );
-                        DbgAssert( Index != LB_ERR );
-
-                        //
-                        // If this is the first time through
-                        //
-
-                        if ( lpNode == MemoryData[ i ].pNextExtra) {
-
-                            //
-                            // Label the control
-                            //
-
-                            Success = SetDlgItemText(
-                                        hWnd,
-                                        MemoryData[ i ].ControlLabelId,
-                                        MemoryData[ i ].ControlLabel
-                                        );
-
-                            DbgAssert( Success );
-                        }
-
-                        //
-                        // Get the Next node
-                        //
-
-                        lpNext = lpNode->pNextExtra;
-
-                        //
-                        // Free the node and data
-                        //
-
-                        FreeMemory( lpNode->String );
-                        FreeMemory( lpNode );
-
-                        //
-                        // Set node to the next node
-                        //
-
-                        lpNode = lpNext;
-                    }
-
-                } else {
-
-                    //
-                    // Don't do the Memory Load Control.  The timer will take care of this.
-                    //
-
-                    if( MemoryData[ i ].ControlDataId != IDC_EDIT_MEMORY_LOAD ) {
-
-                        //
-                        // Label the control
-                        //
-
-                        Success = SetDlgItemText(
-                                    hWnd,
-                                    MemoryData[ i ].ControlLabelId,
-                                    MemoryData[ i ].ControlLabel
-                                    );
-                        DbgAssert( Success );
-
-                        //
-                        // Put the data in the edit box.
-                        //
-
-                        Success = SetDlgItemText(
-                                    hWnd,
-                                    MemoryData[ i ].ControlDataId,
-                                    MemoryData[ i ].ControlData
-                                       );
-                        DbgAssert( Success );
-                    }
-                    //
-                    // Free the Data strings
-                    //
-
-                    FreeMemory( MemoryData[ i ].ControlData  );
-                    FreeMemory( MemoryData[ i ].ControlLabel );
-                }
-            }
-
-            Success = SetTimer ( hWnd, ITM_MEM_TIMER, 1000, NULL ) ;
-
-            DbgAssert( Success ) ;
-
-            return TRUE;
         }
 
-    case WM_DRAWITEM:
-        {
-            LPDRAWITEMSTRUCT    DrawItem;
-            COLORREF            BkColor;
-            COLORREF            ColorRef;
-            TCHAR               Buffer[ MAX_PATH ];
-            int                 CharCount;
-            RECT                PercentRect;
-            UINT                GdiValue;
-            SIZE                Size;
+	case WM_COMMAND:
+		{
+   
+			if ( LOWORD( wParam ) == IDC_PUSH_REFRESH) 
+			{
+				InitializeMemoryTab( hWnd );
+				DisplayPagefiles( GetDlgItem( hWnd, IDC_LV_PAGEFILES ), FALSE );	
+			}
+			break;
+		}
 
-            DbgAssert( wParam == IDC_PUSH_MEMORY_UTILIZATION );
-
-            DrawItem = ( LPDRAWITEMSTRUCT ) lParam;
-
-            DbgAssert( DrawItem->CtlType == ODT_BUTTON );
-            DbgAssert( DrawItem->CtlID == wParam );
-
-            CharCount = WFormatMessage(
-                            Buffer,
-                            sizeof( Buffer ),
-                            IDS_FORMAT_MEMORY_IN_USE,
-                            PercentUtilization
-                            );
-
-            //
-            // Set the text color to black and the
-            // background color according to PercentUtilization:
-            // Green if <= 50%, Yellow if 50-75%, Red if > 75%
-            //
-
-            if ( PercentUtilization <= 50 )  {
-
-                ColorRef = SetBkColor( DrawItem->hDC, RGB( 0, 255, 0 ));
-                DbgAssert( ColorRef != CLR_INVALID );
-            }
-            else if ( PercentUtilization > 50 && PercentUtilization <= 75 )  {
-
-                ColorRef = SetBkColor( DrawItem->hDC, RGB( 255, 255, 0 ));
-                DbgAssert( ColorRef != CLR_INVALID );
-            }
-            else if ( PercentUtilization > 75 )  {
-
-                ColorRef = SetBkColor( DrawItem->hDC, RGB( 255, 0, 0 ));
-                DbgAssert( ColorRef != CLR_INVALID );
-            }
-
-            ColorRef = SetTextColor( DrawItem->hDC, RGB( 0, 0, 0 ));
-            DbgAssert( ColorRef != CLR_INVALID );
-
-            //
-            // Compute the percentage of memory in use rectangle.
-            //
-
-            Success = SetRect(
-                        &PercentRect,
-                        0,
-                        0,
-                        DrawItem->rcItem.right * PercentUtilization / 100,
-                        DrawItem->rcItem.bottom
-                        );
-            DbgAssert( Success );
-
-            //
-            // Set the horizontal text alignment.
-            //
-
-            GdiValue = SetTextAlign( DrawItem->hDC, TA_CENTER | TA_TOP );
-            DbgAssert( GdiValue != GDI_ERROR );
-
-            //
-            // Get the height of the font so that the text can be
-            // vertically centered.
-            //
-
-            Success = GetTextExtentPoint(
-                        DrawItem->hDC,
-                        TEXT( "X" ),
-                        1,
-                        &Size
-                        );
-            DbgAssert( Success );
-
-            //
-            // Draw the percent in use rectangle and the necessary text.
-            //
-
-            Success = ExtTextOut(
-                        DrawItem->hDC,
-                        DrawItem->rcItem.right / 2,
-                        ( DrawItem->rcItem.bottom - Size.cy ) / 2,
-                        ETO_OPAQUE | ETO_CLIPPED,
-                        &PercentRect,
-                        Buffer,
-                        CharCount,
-                        NULL
-                        );
-            DbgAssert( Success );
-
-            //
-            // Set up the rectangle for the remaining part of the window.
-            //
-
-            PercentRect.left = PercentRect.right;
-            PercentRect.right = DrawItem->rcItem.right;
-
-            //
-            // Swap foreground and background colors.
-            //
-
-            BkColor = GetBkColor( DrawItem->hDC );
-            DbgAssert( BkColor != CLR_INVALID );
-            SetBkColor( DrawItem->hDC, SetTextColor( DrawItem->hDC, BkColor ));
-
-            //
-            // Draw the remainder of the window and the necessary text.
-            //
-
-            Success = ExtTextOut(
-                        DrawItem->hDC,
-                        DrawItem->rcItem.right / 2,
-                        ( DrawItem->rcItem.bottom - Size.cy ) / 2,
-                        ETO_OPAQUE | ETO_CLIPPED,
-                        &PercentRect,
-                        Buffer,
-                        CharCount,
-                        NULL
-                        );
-            DbgAssert( Success );
-
-            return TRUE;
-        }
-
-    case WM_TIMER:
-
-       if( wParam == ITM_MEM_TIMER ) {
-
-            MemoryStatus.dwLength = sizeof( MemoryStatus );
-            GlobalMemoryStatus( &MemoryStatus );
-            PercentUtilization = MemoryStatus.dwMemoryLoad;
-
-            RedrawWindow(  GetDlgItem ( hWnd, IDC_PUSH_MEMORY_UTILIZATION ) ,
-                           NULL,
-                           NULL,
-                           RDW_INVALIDATE |
-                           RDW_NOERASE |
-                           RDW_UPDATENOW ) ;
-            return TRUE;
-
-        } else {
-
-            return FALSE;
-        }
-
-    case WM_COMMAND:
-
-        switch( LOWORD( wParam )) {
-
-        case IDOK:
-        case IDCANCEL:
-
-            DbgAssert( KillTimer( hWnd, ITM_MEM_TIMER ));
-
-            EndDialog( hWnd, 1 );
-            return TRUE;
-        }
-        break;
     }
 
-    return FALSE;
+    return(FALSE);
+
 }
 
-
+BOOL
+DisplayPagefiles(
+    IN HWND hListView,
+	UINT	fReport
+    )
+/*++
+
+Routine Description:
+
+    Displays the pagefiles in the ListView box
+
+Arguments:
+
+    hListView - to the listview control
+
+Return Value:
+
+    BOOL - TRUE if successful
+
+--*/
+{
+
+	LV_ITEM      lvI;
+	TCHAR        Buffer[MAX_PATH];
+	NTSTATUS	 Status;
+    SYSTEM_BASIC_INFORMATION        BasicInfo;
+	PSYSTEM_PAGEFILE_INFORMATION	pPagefile;
+	LPVOID		 pvBuffer = NULL;
+	DWORD	     cbBuffer = 4096;
+	ULONG        cbOffset = 0;
+	int			 index = 0;
+	int			 i;
+
+
+	ListView_DeleteAllItems(hListView);
+
+    //
+    // Get basic info like page size, etc.
+    //
+
+    Status = NtQuerySystemInformation(
+                SystemBasicInformation,
+                &BasicInfo,
+                sizeof(BasicInfo),
+                NULL
+                );
+
+
+    //
+    // Get pagefile information
+    //
+
+	i = TRUE;
+
+	while(i)
+    {
+        if (pvBuffer)
+        {
+            Status = NtQuerySystemInformation(SystemPageFileInformation,
+                                              pvBuffer,
+                                              cbBuffer,
+                                              NULL);
+
+            //
+            // If we succeeded, great, get outta here.  If not, any error other
+            // than "buffer too small" is fatal, in which case we bail 
+            //
+                            
+            if (NT_SUCCESS(Status))
+            {
+                break;
+            }
+
+            if (Status != STATUS_INFO_LENGTH_MISMATCH)
+            {
+                i = FALSE;
+                break;
+            }
+        }
+
+        //
+        // Buffer wasn't large enough to hold the process info table, so resize it
+        // to be larger, then retry. 
+        //
+
+        if (pvBuffer)
+        {
+            LocalFree(pvBuffer);
+            pvBuffer = NULL;
+        }
+
+        cbBuffer += 4096;
+
+        pvBuffer = LocalAlloc (LPTR, cbBuffer);
+
+        if (pvBuffer == NULL) 
+        {
+            i = FALSE;
+            break;
+        }
+    }
+
+    //
+    // add the pagefiles to the list view  
+    //
+	lvI.mask = LVIF_TEXT | LVIF_STATE;
+	lvI.state = 0;
+	lvI.stateMask = 0;
+
+    cbOffset = 0;
+    do
+    {	        
+        pPagefile = (PSYSTEM_PAGEFILE_INFORMATION)&((LPBYTE)pvBuffer)[cbOffset];
+        ASSERT( FALSE == IsBadReadPtr((LPVOID)pPagefile, sizeof(PSYSTEM_PAGEFILE_INFORMATION)));
+
+		if ( fReport )
+		{
+
+			AddLineToReport( 1, RFO_SKIPLINE, NULL, NULL );
+
+			lvI.pszText = pPagefile->PageFileName.Buffer;
+
+			//
+			//  lvI.pszText is now in the form \DosDevices\C:PAGEFILE.SYS, or \??\C:\pagefile.sys
+			//  skip the preface to only show C:\PAGEFILE.SYS
+			//
+
+			lvI.pszText = wcschr( &lvI.pszText[1], L'\\') +1;
+
+			AddLineToReport( SINGLE_INDENT, RFO_SINGLELINE, lvI.pszText, NULL );
+			
+			wsprintf( Buffer, L"%s", FormatBigInteger( pPagefile->TotalSize * (BasicInfo.PageSize / 1024), FALSE ));
+			AddLineToReport( SINGLE_INDENT * 2,  RFO_RPTLINE,
+									(LPTSTR) GetString( IDS_TOTAL ),
+									Buffer );
+
+			wsprintf( Buffer, L"%s", FormatBigInteger( pPagefile->TotalInUse * (BasicInfo.PageSize / 1024), FALSE ));
+			AddLineToReport( SINGLE_INDENT * 2,  RFO_RPTLINE,
+									(LPTSTR) GetString( IDS_TOTAL_IN_USE ),
+									Buffer );
+
+			wsprintf( Buffer, L"%s", FormatBigInteger( pPagefile->PeakUsage * (BasicInfo.PageSize / 1024), FALSE ));
+			AddLineToReport( SINGLE_INDENT * 2,  RFO_RPTLINE,
+									(LPTSTR) GetString( IDS_PEAK ),
+									Buffer ); 
+
+		}
+		else
+		{
+
+			lvI.iItem = index;
+			lvI.iSubItem = 0;
+
+			lvI.pszText = pPagefile->PageFileName.Buffer;
+			lvI.cchTextMax = 100;
+
+			//
+			//  lvI.pszText is now in the form \DosDevices\C:PAGEFILE.SYS, or \??\C:\pagefile.sys
+			//  skip the preface to only show C:\PAGEFILE.SYS
+			//
+
+			lvI.pszText = wcschr( &lvI.pszText[1], L'\\') +1;
+
+			i = ListView_InsertItem( hListView, &lvI);
+			
+			wsprintf( Buffer, L"%s", FormatBigInteger( pPagefile->TotalSize * (BasicInfo.PageSize / 1024), FALSE ));
+			ListView_SetItemText( hListView, index, 1, Buffer);
+					
+			wsprintf( Buffer, L"%s", FormatBigInteger( pPagefile->TotalInUse * (BasicInfo.PageSize / 1024), FALSE ));
+			ListView_SetItemText( hListView, index, 2, Buffer);
+					
+			wsprintf( Buffer, L"%s", FormatBigInteger( pPagefile->PeakUsage * (BasicInfo.PageSize / 1024), FALSE ));
+			ListView_SetItemText( hListView, index, 3, Buffer);
+
+		}
+ 
+		index++;
+
+        cbOffset += pPagefile->NextEntryOffset;
+
+    } while (pPagefile->NextEntryOffset);
+
+	//
+	// free the pagefile buffer
+	//
+
+    if (pvBuffer)
+    {
+        LocalFree(pvBuffer);
+        pvBuffer = NULL;
+    }      
+
+
+    return TRUE;
+
+}
+
+
 BOOL
 GetMemoryData(
-    IN OUT LPDIALOGTEXT MemoryData
+    IN LPMEMORY_INFO pMemoryInfo
     )
 
 /*++
@@ -432,7 +392,7 @@ Routine Description:
 
 Arguments:
 
-    LPDIALOGTEXT MemoryData.
+	IN LPMEMORY_INFO pMemoryInfo - pointer to a MEMORY_INFO object
 
 Return Value:
 
@@ -446,273 +406,274 @@ Return Value:
     UINT         i;
     LPTSTR       PagingFile;
     TCHAR        Buffer [ MAX_PATH ];
-    TCHAR        Buffer2 [ MAX_PATH ];
-    MEMORYSTATUS MemoryStatus;
-    LPDIALOG_EXTRA    lpLast, lpExtra;
+	MEMORYSTATUS MemoryStatus;
+	NTSTATUS	 Status;
+	SYSTEM_PERFORMANCE_INFORMATION  PerfInfo;
+	SYSTEM_BASIC_INFORMATION        BasicInfo;
+	PSYSTEM_PROCESS_INFORMATION     pCurrent;
+	SYSTEM_FILECACHE_INFORMATION    FileCache;
+	PSYSTEM_PAGEFILE_INFORMATION	pPagefile;
+	LPVOID		 pvBuffer = NULL;
+	DWORD	     cbBuffer = 4096;
+	ULONG        cbOffset = 0;
 
-    //
-    // Fill in the Control Label in the MemoryData structure
-    //
 
-    for( i = 0; i < NumDlgEntries( MemoryData ); i++ )
-
-        MemoryData[ i ].ControlLabel =
-            (LPTSTR) _tcsdup ( GetString ( MemoryData[ i ].ControlLabelStringId ));
-
-    //
-    // Query the memory status from the system.
-    //
-
-    MemoryStatus.dwLength = sizeof( MemoryStatus );
-    GlobalMemoryStatus( &MemoryStatus );
-
-    //
-    // Format the memory utilization.
+	//
+    // Initialize buffers with empty strings.
     //
 
-    wsprintfW( Buffer, L"%u %%", MemoryStatus.dwMemoryLoad );
+    ZeroMemory( pMemoryInfo, sizeof(MEMORY_INFO) );
 
-    //
-    // Copy the Memory Utilization into the MemoryData structure
-    //
 
-    MemoryData[ GetDlgIndex( IDC_EDIT_MEMORY_LOAD, MemoryData ) ].ControlData =
-        (LPTSTR) _tcsdup ( Buffer );
-
-    //
-    // Display the total and available physical memory and paging file
-    // space in KB and in bytes.
-    //
-
-    //
-    // Format the Total Physical Memory
-    //
-
-    _tcscpy(
-        Buffer,
-        FormatBigInteger(
-            MemoryStatus.dwTotalPhys >> 10,
-            FALSE
-            )
-        );
-    StringPrintf(
-        Buffer2,
-        IDS_FORMAT_KB_LARGE,
-        Buffer,
-        FormatBigInteger(
-            MemoryStatus.dwTotalPhys,
-            FALSE
-            )
-        );
-
-    //
-    // Copy the Total Physical Memory into the MemoryData structure
-    //
-
-    MemoryData[ GetDlgIndex( IDC_EDIT_TOTAL_PHYSICAL_MEMORY, MemoryData ) ].ControlData =
-        (LPTSTR) _tcsdup ( Buffer2 );
-
-    //
-    // Format the Available Physical Memory
-    //
-
-     _tcscpy(
-       Buffer,
-        FormatBigInteger(
-            MemoryStatus.dwAvailPhys >> 10,
-            FALSE
-            )
-        );
-    StringPrintf(
-        Buffer2,
-        IDS_FORMAT_KB_LARGE,
-        Buffer,
-        FormatBigInteger(
-            MemoryStatus.dwAvailPhys,
-            FALSE
-            )
-        );
-
-    //
-    // Copy the Available Physical Memory into the MemoryData structure
-    //
-
-    MemoryData[ GetDlgIndex( IDC_EDIT_AVAILABLE_PHYSICAL_MEMORY, MemoryData ) ].ControlData =
-        (LPTSTR) _tcsdup ( Buffer2 );
-
-    //
-    // Format the Total Page File
-    //
-
-    _tcscpy(
-        Buffer,
-        FormatBigInteger(
-            MemoryStatus.dwTotalPageFile >> 10,
-            FALSE
-            )
-        );
-    StringPrintf(
-        Buffer2,
-        IDS_FORMAT_KB_LARGE,
-        Buffer,
-        FormatBigInteger(
-            MemoryStatus.dwTotalPageFile,
-            FALSE
-            )
-        );
-    //
-    // Copy the Total Page File into the MemoryData structure
-    //
-
-    MemoryData[ GetDlgIndex( IDC_EDIT_TOTAL_PAGING_FILE_SPACE, MemoryData ) ].ControlData =
-        (LPTSTR) _tcsdup ( Buffer2 );
-
-    //
-    // Format the Available Page File
-    //
-
-    _tcscpy(
-        Buffer,
-        FormatBigInteger(
-           MemoryStatus.dwAvailPageFile >> 10,
-            FALSE
-             )
-       );
-    StringPrintf(
-        Buffer2,
-        IDS_FORMAT_KB_LARGE,
-        Buffer,
-        FormatBigInteger(
-            MemoryStatus.dwAvailPageFile,
-            FALSE
-            )
-       );
-
-    //
-    // Copy the Total Page File into the MemoryData structure
-    //
-
-    MemoryData[ GetDlgIndex( IDC_EDIT_AVAILABLE_PAGING_FILE_SPACE, MemoryData ) ].ControlData =
-        (LPTSTR) _tcsdup ( Buffer2 );
-
-    //
-    // Open the registry key that contains the location of the paging
-    // files.
-    //
-
-    hRegKey = OpenRegistryKey( &MemKey );
-    DbgHandleAssert( hRegKey );
-    if( hRegKey == NULL ) {
-        return TRUE;
+    if (_fIsRemote) {
+		//BUGBUG: need to disable this for remote operations
+       lstrcpy( Buffer, GetString( IDS_NOT_AVAILABLE_REMOTE ) );
+       return(FALSE);
     }
 
+
     //
-    // Retrieve the location of the paging files.
+    // Get basic info like page size, etc.
     //
 
-    Success = QueryNextValue( hRegKey );
-    DbgAssert( Success );
-    if( Success == FALSE ) {
-        Success = CloseRegistryKey( hRegKey );
-        DbgAssert( Success );
-        return TRUE;
+    Status = NtQuerySystemInformation(
+                SystemBasicInformation,
+                &BasicInfo,
+                sizeof(BasicInfo),
+                NULL
+                );
+
+    if (!NT_SUCCESS(Status))
+    {
+        return FALSE;
     }
 
+    pMemoryInfo->m_dwPhysicalMemory = BasicInfo.NumberOfPhysicalPages * 
+                                          (BasicInfo.PageSize / 1024);
+
     //
-    // PagingFile points to a series of NUL terminated string terminated
-    // by an additional NUL (i.e. a MULTI_SZ string). Therefore walk
-    // this list of strings adding each to the list box.
+    // Get some non-process specific info, like memory status
     //
 
-    PagingFile = ( LPTSTR ) hRegKey->Data;
+    Status = NtQuerySystemInformation(
+                SystemPerformanceInformation,
+                &PerfInfo,
+                sizeof(PerfInfo),
+                NULL
+                );
 
-    if (( PagingFile != NULL ) && ( PagingFile[ 0 ] != TEXT( '\0' ))) {
+    if (!NT_SUCCESS(Status))
+    {
+        return FALSE;
+    }
+
+    pMemoryInfo->m_dwPhysAvail   = PerfInfo.AvailablePages    * (BasicInfo.PageSize / 1024);
+    pMemoryInfo->m_dwCommitTotal = PerfInfo.CommittedPages    * (BasicInfo.PageSize / 1024);
+    pMemoryInfo->m_dwCommitLimit = PerfInfo.CommitLimit       * (BasicInfo.PageSize / 1024);
+    pMemoryInfo->m_dwCommitPeak  = PerfInfo.PeakCommitment    * (BasicInfo.PageSize / 1024);
+    pMemoryInfo->m_dwKernelPaged = PerfInfo.PagedPoolPages    * (BasicInfo.PageSize / 1024);
+    pMemoryInfo->m_dwKernelNP    = PerfInfo.NonPagedPoolPages * (BasicInfo.PageSize / 1024);
+    pMemoryInfo->m_dwKernelTotal = pMemoryInfo->m_dwKernelNP + pMemoryInfo->m_dwKernelPaged; 
+
+	//
+	// Get FileCache info
+	//
+
+    Status = NtQuerySystemInformation(
+                SystemFileCacheInformation,
+                &FileCache,
+                sizeof(FileCache),
+                NULL
+                );
+
+    if (!NT_SUCCESS(Status))
+    {
+        return FALSE;
+    }
+
+    pMemoryInfo->m_dwFileCache = FileCache.CurrentSize / 1024;
+
+    //
+    // Get pagefile information
+    //
+
+	i = TRUE;
+
+	while(i)
+    {
+        if (pvBuffer)
+        {
+            Status = NtQuerySystemInformation(SystemPageFileInformation,
+                                              pvBuffer,
+                                              cbBuffer,
+                                              NULL);
+
+            //
+            // If we succeeded, great, get outta here.  If not, any error other
+            // than "buffer too small" is fatal, in which case we bail 
+            //
+                            
+            if (NT_SUCCESS(Status))
+            {
+                break;
+            }
+
+            if (Status != STATUS_INFO_LENGTH_MISMATCH)
+            {
+                i = FALSE;
+                break;
+            }
+        }
 
         //
-        // Remember the headpointer as lpLast
+        // Buffer wasn't large enough to hold the process info table, so resize it
+        // to be larger, then retry. 
         //
 
-        lpLast = AllocateObject ( DIALOG_EXTRA, 1 ) ;
-        DbgPointerAssert( lpLast );
+        if (pvBuffer)
+        {
+            LocalFree(pvBuffer);
+            pvBuffer = NULL;
+        }
 
-        SetSignature( lpLast );
+        cbBuffer += 4096;
+        
+        pvBuffer = LocalAlloc (LPTR, cbBuffer);
 
-        //
-        // Copy the First PageFile into the Extra structure
-        //
-
-        lpLast->String = (LPTSTR) _tcsdup ( PagingFile );
-
-        MemoryData[ GetDlgIndex( IDC_EDIT_PAGING_FILES, MemoryData ) ].pNextExtra = lpLast ;
-
-        //
-        // If there are more PagingFile entries, loop through them and
-        // build a linked list of DialogExtra nodes
-        //
-
-        PagingFile += _tcslen( PagingFile ) + 1;
-
-        //
-        //  While there are more PageFile entries...
-        //
-
-        while (( PagingFile != NULL ) && ( PagingFile[ 0 ] != TEXT( '\0' ))) {
-
-            //
-            // Allocate a new DialogExtra node
-            //
-
-            lpExtra = AllocateObject ( DIALOG_EXTRA, 1 ) ;
-            DbgPointerAssert( lpExtra );
-
-            SetSignature( lpExtra );
-
-            //
-            // Copy the PageFile into the MemoryData structure
-            //
-
-            lpExtra->String = (LPTSTR) _tcsdup ( PagingFile );
-
-            //
-            // Set the new nodes pointer to NULL
-            //
-
-            lpExtra->pNextExtra = NULL;
-
-            //
-            // Point the Last->Next pointer at the new node
-            //
-
-            lpLast->pNextExtra = lpExtra;
-
-            //
-            // Make the Extra Pointer the last pointer
-            //
-
-            lpLast = lpExtra;
-
-            //
-            // Increment the registry string
-            //
-
-            PagingFile += _tcslen( PagingFile ) + 1;
+        if (pvBuffer == NULL) 
+        {
+            i = FALSE;
+            break;
         }
     }
 
     //
-    // Close the registry key.
+    // count the pagefile totals  
     //
 
-    Success = CloseRegistryKey( hRegKey );
-    DbgAssert( Success );
+    cbOffset = 0;
+    do
+    {	        
+        pPagefile = (PSYSTEM_PAGEFILE_INFORMATION)&((LPBYTE)pvBuffer)[cbOffset];
+        ASSERT( FALSE == IsBadReadPtr((LPVOID)pPagefile, sizeof(PSYSTEM_PAGEFILE_INFORMATION)));
+
+		pMemoryInfo->m_uPagefileTotalSize += pPagefile->TotalSize * (BasicInfo.PageSize / 1024);
+		pMemoryInfo->m_uPagefileTotalInUse += pPagefile->TotalInUse * (BasicInfo.PageSize / 1024);
+		pMemoryInfo->m_uPagefilePeakUsage += pPagefile->PeakUsage * (BasicInfo.PageSize / 1024);
+
+        cbOffset += pPagefile->NextEntryOffset;
+
+
+    } while (pPagefile->NextEntryOffset);
+
+	//
+	// free the pagefile buffer
+	//
+
+    if (pvBuffer)
+    {
+
+        LocalFree(pvBuffer);
+        pvBuffer = NULL;
+    }
+
+    cbBuffer = 4096;
+
+	//
+	// Get Process infomation
+	//
+	i = TRUE;
+
+	while(i)
+    {
+        if (pvBuffer)
+        {
+            Status = NtQuerySystemInformation(SystemProcessInformation,
+                                              pvBuffer,
+                                              cbBuffer,
+                                              NULL);
+
+            //
+            // If we succeeded, great, get outta here.  If not, any error other
+            // than "buffer too small" is fatal, in which case we bail 
+            //
+                            
+            if (NT_SUCCESS(Status))
+            {
+                break;
+            }
+
+            if (Status != STATUS_INFO_LENGTH_MISMATCH)
+            {
+                i = FALSE;
+                break;
+            }
+        }
+
+        //
+        // Buffer wasn't large enough to hold the process info table, so resize it
+        // to be larger, then retry. 
+        //
+
+        if (pvBuffer)
+        {
+            LocalFree(pvBuffer);
+            pvBuffer = NULL;
+        }
+
+        cbBuffer += 4096;
+
+        pvBuffer = LocalAlloc (LPTR, cbBuffer);
+
+        if (pvBuffer == NULL) 
+        {
+            i = FALSE;
+            break;
+        }
+    }
+
+    //
+    // count the handles, threads, and processes  
+    //
+
+    cbOffset = 0;
+    do
+    {	        
+        pCurrent = (PSYSTEM_PROCESS_INFORMATION)&((LPBYTE)pvBuffer)[cbOffset];
+        ASSERT( FALSE == IsBadReadPtr((LPVOID)pCurrent, sizeof(PSYSTEM_PROCESS_INFORMATION)));  
+
+        if (pCurrent->UniqueProcessId != NULL && pCurrent->NumberOfThreads != 0)
+        {
+
+			pMemoryInfo->m_cHandles += pCurrent->HandleCount;
+			pMemoryInfo->m_cThreads += pCurrent->NumberOfThreads;
+			pMemoryInfo->m_cProcesses++;	 
+
+        }
+
+        cbOffset += pCurrent->NextEntryOffset;
+		
+    } while (pCurrent->NextEntryOffset);
+
+	//
+	// free the process buffer
+	//
+
+    if (pvBuffer)
+    {
+        LocalFree(pvBuffer);
+        pvBuffer = NULL;
+    }
+
+	return TRUE;
 }
 
 
 BOOL
 BuildMemoryReport(
-    IN HWND hWnd
+    IN HWND hWnd,
+    IN UINT iDetailLevel
     )
-
 
 /*++
 
@@ -722,8 +683,8 @@ Routine Description:
 
 Arguments:
 
-    ReportBuffer - Array of pointers to lines that make up the report.
-    NumReportLines - Running count of the number of lines in the report..
+    hWnd - Main window handle
+    iDetailLevel - summary or complete details?
 
 Return Value:
 
@@ -732,112 +693,248 @@ Return Value:
 --*/
 {
 
-    BOOL Success;
-    UINT i;
-    LPDIALOG_EXTRA   lpNext, lpNode;
+    TCHAR		Buffer[64];
+    MEMORY_INFO  MemoryInfo;
+
+    //
+    // Skip a line, set the title, and print a separator.
+    // 
 
     AddLineToReport( 1, RFO_SKIPLINE, NULL, NULL );
     AddLineToReport( 0, RFO_SINGLELINE, (LPTSTR) GetString( IDS_MEMORY_REPORT ), NULL );
     AddLineToReport( 0, RFO_SEPARATOR,  NULL, NULL );
 
-    Success = GetMemoryData ( MemoryData );
-    DbgAssert( Success );
+    //
+    // Display memory information
+    //
+    if (_fIsRemote) {
 
-    for( i = 0; i < NumDlgEntries( MemoryData ); i++ ) {
-
-        if( MemoryData[ i ].ControlDataId == IDC_EDIT_PAGING_FILES ) {
-
-            //
-            // Get the head pointer of the linked list
-            //
-
-            lpNode = MemoryData[ i ].pNextExtra;
-
-            //
-            // Walk the linked list
-            //
-
-            while( lpNode ) {
-
-                DbgAssert( CheckSignature( lpNode ));
-
-                //
-                // See if we're the first node
-                //
-
-                if( lpNode == MemoryData[ i ].pNextExtra ) {
-
-                    //
-                    // Add the label and the value to the report
-                    //
-
-                    AddLineToReport( 0,
-                                     RFO_RPTLINE,
-                                     MemoryData[
-                                     GetDlgIndex(
-                                         IDC_EDIT_PAGING_FILES,
-                                         MemoryData
-                                          )
-                                      ].ControlLabel,
-                                      lpNode->String
-                                    );
-
-                } else {
-
-                    //
-                    // Add only the value
-                    //
-
-                    AddLineToReport( 0,
-                                     RFO_RPTVALUE,
-                                     NULL,
-                                     lpNode->String
-                                    );
-                }
-
-                //
-                // Get the Next node
-                //
-
-                lpNext = lpNode->pNextExtra;
-
-                //
-                // Free the node and data
-                //
-
-                FreeMemory( lpNode->String );
-                FreeMemory( lpNode );
-
-                //
-                // Set node to the next node
-                //
-
-                lpNode = lpNext;
-            }
-
-        } else {
+      lstrcpy( Buffer, GetString( IDS_NOT_AVAILABLE_REMOTE ) );
 
 
-            //
-            // Set Label the control
-            //
+      return TRUE;
 
-            AddLineToReport( 0,
-                             RFO_RPTLINE,
-                             MemoryData[ i ].ControlLabel,
-                             MemoryData[ i ].ControlData );
+    } 
 
-            //
-            // Free the Data strings
-            //
+	if (GetMemoryData( &MemoryInfo )) 
+	{
 
-            FreeMemory( MemoryData[ i ].ControlData  );
-            FreeMemory( MemoryData[ i ].ControlLabel );
-        }
-    }
+        wsprintf( Buffer, L"%s", FormatBigInteger( MemoryInfo.m_cHandles, FALSE ));	
+        AddLineToReport( 0,  RFO_RPTLINE,
+                                (LPTSTR) GetString( IDS_HANDLES ),
+                                Buffer);
 
+        wsprintf( Buffer, L"%s", FormatBigInteger( MemoryInfo.m_cThreads, FALSE ));	
+        AddLineToReport( 0,  RFO_RPTLINE,
+                                (LPTSTR) GetString( IDS_THREADS ),
+                                Buffer );
+
+        wsprintf( Buffer, L"%s", FormatBigInteger( MemoryInfo.m_cProcesses, FALSE ));
+        AddLineToReport( 0,  RFO_RPTLINE,
+                                (LPTSTR) GetString( IDS_PROCESSES ),
+                                Buffer );
+
+        AddLineToReport( 1, RFO_SKIPLINE, NULL, NULL );
+        AddLineToReport( 0, RFO_SINGLELINE, (LPTSTR) GetString( IDS_PHYSICAL_MEMORY ), NULL );
+
+        wsprintf( Buffer, L"%s", FormatBigInteger( MemoryInfo.m_dwPhysicalMemory, FALSE ));	 
+        AddLineToReport( SINGLE_INDENT,  RFO_RPTLINE,
+                                (LPTSTR) GetString( IDS_TOTAL ),
+                                Buffer );
+
+        wsprintf( Buffer, L"%s", FormatBigInteger( MemoryInfo.m_dwPhysAvail, FALSE ));
+        AddLineToReport( SINGLE_INDENT,  RFO_RPTLINE,
+                                (LPTSTR) GetString( IDS_AVAILABLE ),
+                                Buffer );
+
+        wsprintf( Buffer, L"%s", FormatBigInteger( MemoryInfo.m_dwFileCache, FALSE ));
+        AddLineToReport( SINGLE_INDENT,  RFO_RPTLINE,
+                                (LPTSTR) GetString( IDS_FILECACHE ),
+                                Buffer );
+ 
+		if ( iDetailLevel == IDC_COMPLETE_REPORT )
+		{												
+			AddLineToReport( 1, RFO_SKIPLINE, NULL, NULL );
+			AddLineToReport( 0, RFO_SINGLELINE, (LPTSTR) GetString( IDS_KERNELMEMORY ), NULL );
+
+			wsprintf( Buffer, L"%s", FormatBigInteger( MemoryInfo.m_dwKernelTotal, FALSE ));
+			AddLineToReport( SINGLE_INDENT,  RFO_RPTLINE,
+									(LPTSTR) GetString( IDS_TOTAL ),
+									Buffer );
+
+			wsprintf( Buffer, L"%s", FormatBigInteger( MemoryInfo.m_dwKernelPaged, FALSE ));
+			AddLineToReport( SINGLE_INDENT,  RFO_RPTLINE,
+									(LPTSTR) GetString( IDS_PAGED ),
+									Buffer );
+
+			wsprintf( Buffer, L"%s", FormatBigInteger( MemoryInfo.m_dwKernelNP, FALSE ));
+			AddLineToReport( SINGLE_INDENT,  RFO_RPTLINE,
+									(LPTSTR) GetString( IDS_NONPAGED ),
+									Buffer );
+ 
+			AddLineToReport( 1, RFO_SKIPLINE, NULL, NULL );
+			AddLineToReport( 0, RFO_SINGLELINE, (LPTSTR) GetString( IDS_COMMITCHARGE ), NULL );
+
+			wsprintf( Buffer, L"%s", FormatBigInteger( MemoryInfo.m_dwCommitTotal, FALSE ));
+			AddLineToReport( SINGLE_INDENT,  RFO_RPTLINE,
+									(LPTSTR) GetString( IDS_TOTAL ),
+									Buffer );
+
+			wsprintf( Buffer, L"%s", FormatBigInteger( MemoryInfo.m_dwCommitLimit, FALSE ));
+			AddLineToReport( SINGLE_INDENT,  RFO_RPTLINE,
+									(LPTSTR) GetString( IDS_LIMIT ),
+									Buffer );
+
+			wsprintf( Buffer, L"%s", FormatBigInteger( MemoryInfo.m_dwCommitPeak, FALSE ));
+			AddLineToReport( SINGLE_INDENT,  RFO_RPTLINE,
+									(LPTSTR) GetString( IDS_PEAK ),
+									Buffer );
+
+			AddLineToReport( 1, RFO_SKIPLINE, NULL, NULL );
+			AddLineToReport( 0, RFO_SINGLELINE, (LPTSTR) GetString( IDS_PAGEFILESPACE ), NULL );
+
+			wsprintf( Buffer, L"%s", FormatBigInteger( MemoryInfo.m_uPagefileTotalSize, FALSE ));
+			AddLineToReport( SINGLE_INDENT,  RFO_RPTLINE,
+									(LPTSTR) GetString( IDS_TOTAL ),
+									Buffer );
+
+			wsprintf( Buffer, L"%s", FormatBigInteger( MemoryInfo.m_uPagefileTotalInUse, FALSE ));
+			AddLineToReport( SINGLE_INDENT,  RFO_RPTLINE,
+									(LPTSTR) GetString( IDS_TOTAL_IN_USE ),
+									Buffer );
+
+			wsprintf( Buffer, L"%s", FormatBigInteger( MemoryInfo.m_uPagefilePeakUsage, FALSE ));
+			AddLineToReport( SINGLE_INDENT,  RFO_RPTLINE,
+									(LPTSTR) GetString( IDS_PEAK ),
+									Buffer );
+
+            DisplayPagefiles( NULL, TRUE );
+
+		}
+	}
+         
     return TRUE;
 
 }
 
+
+
+BOOL
+InitializeMemoryTab(
+    HWND hWnd
+    )
+/*++
+
+Routine Description:
+
+    Adds the appropriate controls to the memory tab control and
+    initializes any needed structures.
+
+Arguments:
+
+    hWnd - to the main window
+
+Return Value:
+
+    BOOL - TRUE if successful
+
+--*/
+{
+	HCURSOR		hSaveCursor;
+	MEMORY_INFO	MemoryInfo;
+	DLGHDR		*pHdr = (DLGHDR *) GetWindowLong( GetParent(hWnd), GWL_USERDATA );
+	TCHAR		Buffer[64];
+
+	//
+	// Set the pointer to an hourglass
+	//
+
+	hSaveCursor = SetCursor ( LoadCursor ( NULL, IDC_WAIT ) ) ;
+	DbgHandleAssert( hSaveCursor ) ;
+
+	//
+	// set state of global buttons
+	//
+	EnableControl( GetParent(hWnd),
+				  IDC_PUSH_PROPERTIES,
+				  FALSE);
+
+	EnableControl( GetParent(hWnd),
+				  IDC_PUSH_REFRESH,
+				  TRUE);
+
+	//
+	// Size and position the child dialog
+	//
+	SetWindowPos(hWnd, HWND_TOP,
+		pHdr->rcDisplay.left,
+		pHdr->rcDisplay.top,
+		pHdr->rcDisplay.right - pHdr->rcDisplay.left,
+		pHdr->rcDisplay.bottom - pHdr->rcDisplay.top,
+		SWP_SHOWWINDOW);
+	//
+	// Get Memory data and fill out fields
+	//
+
+	if (GetMemoryData( &MemoryInfo )) 
+	{
+
+		wsprintf( Buffer, L"%s", FormatBigInteger( MemoryInfo.m_cHandles, FALSE ));	 
+		SetDlgItemText( hWnd, IDC_TOTAL_HANDLES, Buffer);
+
+		wsprintf( Buffer, L"%s", FormatBigInteger( MemoryInfo.m_cThreads, FALSE ));	 
+		SetDlgItemText( hWnd, IDC_TOTAL_THREADS, Buffer);
+
+		wsprintf( Buffer, L"%s", FormatBigInteger( MemoryInfo.m_cProcesses, FALSE ));	 
+		SetDlgItemText( hWnd, IDC_TOTAL_PROCESSES, Buffer);
+
+		wsprintf( Buffer, L"%s", FormatBigInteger( MemoryInfo.m_dwPhysicalMemory, FALSE ));	 
+		SetDlgItemText( hWnd, IDC_TOTAL_PHYSICAL, Buffer);
+
+		wsprintf( Buffer, L"%s", FormatBigInteger( MemoryInfo.m_dwPhysAvail, FALSE ));
+		SetDlgItemText( hWnd, IDC_AVAIL_PHYSICAL, Buffer);
+
+		wsprintf( Buffer, L"%s", FormatBigInteger( MemoryInfo.m_dwFileCache, FALSE ));
+		SetDlgItemText( hWnd, IDC_FILE_CACHE, Buffer);
+
+		wsprintf( Buffer, L"%s", FormatBigInteger( MemoryInfo.m_dwCommitTotal, FALSE ));
+		SetDlgItemText( hWnd, IDC_COMMIT_TOTAL, Buffer);
+
+		wsprintf( Buffer, L"%s", FormatBigInteger( MemoryInfo.m_dwCommitLimit, FALSE ));
+		SetDlgItemText( hWnd, IDC_COMMIT_LIMIT, Buffer);
+
+		wsprintf( Buffer, L"%s", FormatBigInteger( MemoryInfo.m_dwCommitPeak, FALSE ));
+		SetDlgItemText( hWnd, IDC_COMMIT_PEAK, Buffer);
+
+		wsprintf( Buffer, L"%s", FormatBigInteger( MemoryInfo.m_dwKernelPaged, FALSE ));
+		SetDlgItemText( hWnd, IDC_KERNEL_PAGED, Buffer);
+
+		wsprintf( Buffer, L"%s", FormatBigInteger( MemoryInfo.m_dwKernelNP, FALSE ));
+		SetDlgItemText( hWnd, IDC_KERNEL_NONPAGED, Buffer);
+
+		wsprintf( Buffer, L"%s", FormatBigInteger( MemoryInfo.m_dwKernelTotal, FALSE ));
+		SetDlgItemText( hWnd, IDC_KERNEL_TOTAL, Buffer); 
+		
+		wsprintf( Buffer, L"%s", FormatBigInteger( MemoryInfo.m_uPagefileTotalSize, FALSE ));
+		SetDlgItemText( hWnd, IDC_TOTAL_PAGEFILE_SPACE, Buffer);
+
+		wsprintf( Buffer, L"%s", FormatBigInteger( MemoryInfo.m_uPagefileTotalInUse, FALSE ));
+		SetDlgItemText( hWnd, IDC_PAGEFILE_INUSE, Buffer);
+
+		wsprintf( Buffer, L"%s", FormatBigInteger( MemoryInfo.m_uPagefilePeakUsage, FALSE ));
+		SetDlgItemText( hWnd, IDC_PAGEFILE_PEAKUSE, Buffer);
+
+	}
+
+   //
+   // Set the extended style to get full row selection
+   //
+   SendDlgItemMessage(hWnd, IDC_LV_PAGEFILES, LVM_SETEXTENDEDLISTVIEWSTYLE, 0, LVS_EX_FULLROWSELECT);
+
+	
+	SetCursor ( hSaveCursor ) ;
+
+	return( TRUE );
+
+}
 

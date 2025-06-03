@@ -66,6 +66,7 @@ COLORREF argbColors[] =
 
 TCHAR *apszScaleFmt[] =
    {
+   TEXT("%7.7f"),
    TEXT("%6.6f"),
    TEXT("%5.5f"),
    TEXT("%4.4f"),
@@ -95,10 +96,22 @@ PLINEVISUAL       pVisual ;
 BOOL              ComputerChange ;
 BOOL              InstanceNameChange ;
 DWORD             ParentObjectTitleIndex ;
+LPTSTR            pCurrentSystem;
 
 //==========================================================================//
 //                                   Macros                                 //
 //==========================================================================//
+
+
+#define InChartAdd()             \
+   (iLineType == LineTypeChart)
+
+
+#define InAlertAdd()             \
+   (iLineType == LineTypeAlert)
+
+#define InReportAdd()            \
+   (iLineType == LineTypeReport)
 
 
 
@@ -310,12 +323,12 @@ void SetInstanceNames (HDLG hDlg, HWND hWndInstances, int iInstanceIndex)
    else
       {
       // get the instance and parent names
-      GetInstanceName (pInstance, szInstance) ;
+      GetInstanceNameStr (pInstance, szInstance) ;
       pInstanceParent = ParentInstance (pInstance) ;
     
       if (pInstanceParent)
          {
-         GetInstanceName (pInstanceParent, szInstanceParent) ;
+         GetInstanceNameStr (pInstanceParent, szInstanceParent) ;
          }
       }   
 
@@ -329,8 +342,8 @@ BOOL /*static*/ LoadInstances (HDLG hDlg)
    PPERFOBJECT       pObject ;
    PPERFINSTANCEDEF  pInstance, pInstanceParent ;
    TCHAR             szInstance [256], szInstanceParent [256] ;
-   TCHAR             szCompositeName [256] ;
-   TCHAR             szInstCompositeName [256] ;
+   TCHAR             szCompositeName [256 * 2] ;
+   TCHAR             szInstCompositeName [256 * 2] ;
                            
    LONG              iInstance ;
    UINT              iIndex ;
@@ -403,12 +416,12 @@ BOOL /*static*/ LoadInstances (HDLG hDlg)
         iInstance < pObject->NumInstances; 
         iInstance++, pInstance = NextInstance (pInstance))
       {  // for
-      GetInstanceName (pInstance, szInstance) ;
+      GetInstanceNameStr (pInstance, szInstance) ;
       pInstanceParent = ParentInstance (pInstance) ;
     
       if (pInstanceParent)
          {
-         GetInstanceName (pInstanceParent, szInstanceParent) ;
+         GetInstanceNameStr (pInstanceParent, szInstanceParent) ;
          TSPRINTF (szCompositeName, TEXT("%s ==> %s"), 
                    szInstanceParent, szInstance) ;
          iIndex = LBAdd (hWndInstances, szCompositeName) ;
@@ -505,6 +518,8 @@ BOOL OnCounterChanged (HDLG hDlg)
 
    // Create initial string
    lpszText = MemoryAllocate (iInitialExplainLen * sizeof (TCHAR)) ;
+   if (!lpszText)
+      return (FALSE);
 
    while (TRUE)
       {
@@ -718,7 +733,7 @@ BOOL AddOneChartLine (HWND hDlg,
    {
    TCHAR             szComputer [MAX_SYSTEM_NAME_LENGTH] ;
 
-   PPERFOBJECT       pObject ;
+   PERF_OBJECT_TYPE  UNALIGNED *pObject ;
    TCHAR             szObject [PerfObjectLen] ;
 
    TCHAR             szInstance [256] ;
@@ -731,7 +746,7 @@ BOOL AddOneChartLine (HWND hDlg,
    PPERFINSTANCEDEF  pInstanceParent ;
    PERF_COUNTER_BLOCK *pCounterBlock ;
    TCHAR          szInstanceParent [256] ;
-   TCHAR          szObjectParent [PerfObjectLen+1] ;
+   TCHAR          szObjectParent [256] ;
    HWND           hWndColors = DialogControl (hDlg, IDD_ADDLINECOLOR) ;
    HWND           hWndWidths = DialogControl (hDlg, IDD_ADDLINEWIDTH) ;
    HWND           hWndStyles = DialogControl (hDlg, IDD_ADDLINESTYLE) ;
@@ -747,7 +762,7 @@ BOOL AddOneChartLine (HWND hDlg,
 
    DialogText (hDlg, IDD_ADDLINECOMPUTER, szComputer) ;
 
-   pObject = SelectedObject (hWndObjects, szObject) ;
+   pObject = (PERF_OBJECT_TYPE UNALIGNED *)SelectedObject (hWndObjects, szObject) ;
    if (!pObject)
       return (FALSE) ;
 
@@ -758,7 +773,7 @@ BOOL AddOneChartLine (HWND hDlg,
       DialogText (hDlg, IDD_ADDLINEPARENTNAME ,szInstanceParent) ;
       }
    else if (pInstance)
-      GetInstanceName (pInstance, szInstance) ;
+      GetInstanceNameStr (pInstance, szInstance) ;
 
    //=============================//
    // Allocate the line           //
@@ -808,6 +823,8 @@ BOOL AddOneChartLine (HWND hDlg,
 
       pLine->lnUniqueID = pInstance->UniqueID ;
 
+      pLine->dwInstanceIndex = 0;
+
       if (pInstance->ParentObjectTitleIndex)
          {
          szObjectParent[0] = (TCHAR)'\0';
@@ -820,7 +837,7 @@ BOOL AddOneChartLine (HWND hDlg,
       pInstanceParent = ParentInstance (pInstance) ;
       if (pInstanceParent)
          {
-         GetInstanceName (pInstanceParent, szInstanceParent) ;
+         GetInstanceNameStr (pInstanceParent, szInstanceParent) ;
          if (pInstance->ParentObjectTitleIndex)
             {
             pLine->lnPINName = StringAllocate (szInstanceParent) ;
@@ -875,7 +892,7 @@ BOOL AddOneChartLine (HWND hDlg,
    else
       {
       pLine->lnaOldCounterValue[0] =
-              * ( (LARGE_INTEGER *) ( (PBYTE)pCounterBlock +
+              * ( (LARGE_INTEGER UNALIGNED *) ( (PBYTE)pCounterBlock +
               pCounter[0].CounterOffset));
       }
 
@@ -883,7 +900,7 @@ BOOL AddOneChartLine (HWND hDlg,
    // the end of the counters; some computations
    // require a second counter
 
-   iCounterIndex = CounterIndex (pCounter, pObject) ;
+   iCounterIndex = CounterIndex (pCounter, (PPERFOBJECT)pObject) ;
    if ((UINT) iCounterIndex < pObject->NumCounters - 1 &&
        iCounterIndex != -1)
       {
@@ -893,7 +910,7 @@ BOOL AddOneChartLine (HWND hDlg,
                   pCounter[1].CounterOffset));
       else
          pLine->lnaOldCounterValue[1] =
-                 * ( (LARGE_INTEGER *) ( (PBYTE)pCounterBlock +
+                 * ( (LARGE_INTEGER UNALIGNED *) ( (PBYTE)pCounterBlock +
                  pCounter[1].CounterOffset));
       }
 
@@ -1038,6 +1055,7 @@ BOOL /*static*/ OnInitDialog (HWND hDlg)
    FLOAT          ScaleFactor ;
    TCHAR          tempBuff[ShortTextLen] ;
    TCHAR          szCaption [WindowCaptionLen] ;
+   TCHAR          szRemoteComputerName[MAX_COMPUTERNAME_LENGTH + 3] ;
    HWND           hWndComputer = DialogControl (hDlg, IDD_ADDLINECOMPUTER);
    HWND           hWndObjects = DialogControl (hDlg, IDD_ADDLINEOBJECT);
    HWND           hWndInstances = DialogControl (hDlg, IDD_ADDLINEINSTANCE);
@@ -1107,10 +1125,11 @@ BOOL /*static*/ OnInitDialog (HWND hDlg)
    // we are formatting the scale factors during run-time so
    // the c-runtime library will pick up the default locale
    // decimal "charatcer".
-   ScaleFactor = (FLOAT)0.000001 ;
+   ScaleFactor = (FLOAT)0.0000001 ;
    for (i = 0 ; i < NUMBER_OF_SCALE ; i++)
       {
       TSPRINTF(tempBuff, apszScaleFmt[i], ScaleFactor) ;
+      ConvertDecimalPoint (tempBuff);
       ScaleFactor *= (FLOAT) 10.0 ;
       CBAdd (hWndScales, tempBuff) ;
       }
@@ -1277,7 +1296,7 @@ BOOL LineModifyAttributes (HWND hDlg, PLINE pLineToModify)
       {
       hTempPen = pLineToModify->hPen ;
       pLineToModify->hPen = hLinePen ;
-      DeleteObject (hTempPen) ;
+      DeletePen (hTempPen) ;
       }
 
    pLineToModify->iScaleIndex = iScaleIndex ;
@@ -1831,6 +1850,7 @@ BOOL FAR PASCAL AddLineDlgProc (HWND hDlg,
 BOOL AddLine (HWND hWndParent, 
               PPERFSYSTEM *ppSystemFirstView,
               PLINEVISUAL pLineVisual,
+              LPTSTR pInCurrentSystem,
               int iLineTypeToAdd)
 /*
    Effect:        Display the add line dialog box, allowing the user
@@ -1845,7 +1865,7 @@ BOOL AddLine (HWND hWndParent,
    ppSystemFirst = ppSystemFirstView ;   
    iLineType = iLineTypeToAdd ;
    pVisual = pLineVisual ;
-
+   pCurrentSystem = pInCurrentSystem;
 
    return (DialogBox (hInstance, idDlgAddLine, 
                       hWndParent, (DLGPROC) AddLineDlgProc)) ;
@@ -1874,4 +1894,4 @@ BOOL EditLine (HWND hWndParent,
                       hWndParent, (DLGPROC) AddLineDlgProc)) ;
    }  // EditLine
 
-
+

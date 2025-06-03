@@ -19,7 +19,6 @@ Revision History:
 --*/
 
 #include "obp.h"
-#include "handle.h"
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE,NtMakeTemporaryObject)
@@ -37,15 +36,14 @@ NTSTATUS
 NtClose(
     IN HANDLE Handle
     )
+
 {
-    PHANDLETABLE ObjectTable;
+    PHANDLE_TABLE ObjectTable;
     POBJECT_TABLE_ENTRY ObjectTableEntry;
     PVOID Object;
-    PNONPAGED_OBJECT_HEADER NonPagedObjectHeader;
     ULONG CapturedGrantedAccess;
-    ULONG CapturedObjectAttributes;
+    ULONG CapturedAttributes;
     POBJECT_HEADER ObjectHeader;
-    BOOLEAN ProtectFromClose;
     NTSTATUS Status;
 #if DBG
     KIRQL SaveIrql;
@@ -56,56 +54,62 @@ NtClose(
 
     ObpBeginTypeSpecificCallOut( SaveIrql );
     ObjectTable = ObpGetObjectTable();
-    ObjectTableEntry = ExMapHandleToPointer(
+    ObjectTableEntry = (POBJECT_TABLE_ENTRY)ExMapHandleToPointer(
                    ObjectTable,
                    (HANDLE)OBJ_HANDLE_TO_HANDLE_INDEX( Handle ),
                    FALSE
                    );
 
-    if (ObjectTableEntry) {
-        NonPagedObjectHeader = (PNONPAGED_OBJECT_HEADER)
-            (ObjectTableEntry->NonPagedObjectHeader & ~OBJ_HANDLE_ATTRIBUTES);
+    if (ObjectTableEntry != NULL) {
+        ObjectHeader = (POBJECT_HEADER)(ObjectTableEntry->Attributes & ~OBJ_HANDLE_ATTRIBUTES);
+        CapturedAttributes = (ULONG)(ObjectTableEntry->Attributes);
 
-        CapturedObjectAttributes = (ULONG)
-            (ObjectTableEntry->NonPagedObjectHeader & OBJ_HANDLE_ATTRIBUTES);
+        //
+        // If the previous mode was used and the handle is protected from
+        // begin closed, then ...
+        //
 
-        if (KeGetPreviousMode() == UserMode) {
-            Status = ExQueryHandleExtraBit( ObjectTable,
-                                            FALSE,
-                                            (HANDLE)OBJ_HANDLE_TO_HANDLE_INDEX( Handle ),
-                                            &ProtectFromClose
-                                          );
-            if (!NT_SUCCESS( Status ) || ProtectFromClose) {
-                if (NT_SUCCESS( Status )) {
-                    if (KdDebuggerEnabled) {
-                        DbgPrint("OB: Attempting to close a protected handle (%x)\n", Handle);
-                        DbgBreakPoint();
-                        }
-
-                    Status = STATUS_HANDLE_NOT_CLOSABLE;
-                    }
-
-                ExUnlockHandleTable( ObjectTable );
-                return Status;
+        if ((CapturedAttributes & OBJ_PROTECT_CLOSE) != 0) {
+            if (KeGetPreviousMode() != KernelMode) {
+                ExUnlockHandleTableExclusive(ObjectTable);
+                if ((NtGlobalFlag & FLG_ENABLE_CLOSE_EXCEPTIONS) ||
+                    (PsGetCurrentProcess()->DebugPort != NULL)) {
+                    return(KeRaiseUserException(STATUS_HANDLE_NOT_CLOSABLE));
+                } else {
+                    return(STATUS_HANDLE_NOT_CLOSABLE);
+                }
+            } else {
+                if ( !PsIsThreadTerminating(PsGetCurrentThread()) ) {
+                    ExUnlockHandleTableExclusive(ObjectTable);
+#if DBG
+                    //
+                    // bugcheck here on checked builds if kernel mode code is
+                    // closing a protected handle and process is not exiting
+                    //
+                    KeBugCheckEx(INVALID_KERNEL_HANDLE, (ULONG)Handle, 0, 0, 0);
+#else
+                    return(STATUS_HANDLE_NOT_CLOSABLE);
+#endif // DBG
                 }
             }
+        }
 
+#if i386 && !FPO
+        if (NtGlobalFlag & FLG_KERNEL_STACK_TRACE_DB) {
+            CapturedGrantedAccess = ObpTranslateGrantedAccessIndex( ObjectTableEntry->GrantedAccessIndex );
+        } else
+#endif // i386 && !FPO
         CapturedGrantedAccess = ObjectTableEntry->GrantedAccess;
 
         ExDestroyHandle( ObjectTable,
                          (HANDLE)OBJ_HANDLE_TO_HANDLE_INDEX( Handle ),
-                         TRUE
-                       );
+                         TRUE );
 
-
-        ExUnlockHandleTable( ObjectTable );
-
-        Object = NonPagedObjectHeader->Object;
-
-        ObjectHeader = OBJECT_TO_OBJECT_HEADER( Object );
+        ExUnlockHandleTableExclusive(ObjectTable);
+        Object = &ObjectHeader->Body;
 
 #if DBG
-        ObjectType = NonPagedObjectHeader->Type;
+        ObjectType = ObjectHeader->Type;
 #endif // DBG
         //
         // perform any auditing required
@@ -117,23 +121,20 @@ NtClose(
         // was stored by a call to ObSetGenerateOnClosed.
         //
 
-        if (CapturedObjectAttributes & OBJ_AUDIT_OBJECT_CLOSE) {
+        if (CapturedAttributes & OBJ_AUDIT_OBJECT_CLOSE) {
 
 
             if ( SepAdtAuditingEnabled ) {
                 SeCloseObjectAuditAlarm(
                     Object,
-                    Handle,             // Uninterpreted 32-bit value
-                    TRUE
-                    );
-
-                }
+                    (HANDLE)((ULONG)Handle & ~OBJ_HANDLE_TAGBITS),  // Mask off the tagbits defined for OB objects.
+                    TRUE);
             }
+        }
 
         ObpDecrementHandleCount( PsGetCurrentProcess(),
-                                 NonPagedObjectHeader,
                                  ObjectHeader,
-                                 NonPagedObjectHeader->Type,
+                                 ObjectHeader->Type,
                                  CapturedGrantedAccess
                                );
 
@@ -141,19 +142,41 @@ NtClose(
 
 #if DBG
         if (ObjectType == IoFileObjectType &&
-            RtlAreLogging( RTL_EVENT_CLASS_IO )
-           ) {
+            RtlAreLogging( RTL_EVENT_CLASS_IO )) {
             RtlLogEvent( IopCloseFileEventId, RTL_EVENT_CLASS_IO, Handle, STATUS_SUCCESS );
-            }
+        }
 #endif // DBG
 
         ObpEndTypeSpecificCallOut( SaveIrql, "NtClose", ObjectType, Object );
+
         return STATUS_SUCCESS;
+    } else {
+        ObpEndTypeSpecificCallOut( SaveIrql, "NtClose", ObpTypeObjectType, Handle );
+        if ((Handle != NULL) &&
+            (Handle != NtCurrentThread()) &&
+            (Handle != NtCurrentProcess())) {
+            if (KeGetPreviousMode() != KernelMode) {
+                if ((NtGlobalFlag & FLG_ENABLE_CLOSE_EXCEPTIONS) ||
+                    (PsGetCurrentProcess()->DebugPort != NULL)) {
+                    return(KeRaiseUserException(STATUS_INVALID_HANDLE));
+                } else {
+                    return(STATUS_INVALID_HANDLE);
+                }
+            } else {
+#if DBG
+                //
+                // bugcheck here on checked builds if kernel mode code is
+                // closing a bogus handle and process is not exiting
+                //
+                if (!PsIsThreadTerminating(PsGetCurrentThread())) {
+                    KeBugCheckEx(INVALID_KERNEL_HANDLE, (ULONG)Handle, 1, 0, 0);
+                }
+#endif // DBG
+            }
         }
-    else {
-        ObpEndTypeSpecificCallOut( SaveIrql, "NtClose", ObjectType, Handle );
+
         return STATUS_INVALID_HANDLE;
-        }
+    }
 }
 
 NTSTATUS
@@ -164,6 +187,9 @@ NtMakeTemporaryObject(
     KPROCESSOR_MODE PreviousMode;
     NTSTATUS Status;
     PVOID Object;
+    OBJECT_HANDLE_INFORMATION HandleInformation;
+    BOOLEAN GenerateOnClose = FALSE;
+
 
     PAGED_CODE();
 
@@ -178,7 +204,7 @@ NtMakeTemporaryObject(
                                         (POBJECT_TYPE)NULL,
                                         PreviousMode,
                                         &Object,
-                                        NULL
+                                        &HandleInformation
                                       );
     if (!NT_SUCCESS( Status )) {
         return( Status );
@@ -186,6 +212,16 @@ NtMakeTemporaryObject(
 
 
     ObMakeTemporaryObject( Object );
+
+    if (HandleInformation.HandleAttributes & OBJ_AUDIT_OBJECT_CLOSE) {
+        GenerateOnClose = TRUE;
+    }
+
+    if (GenerateOnClose) {
+        SeDeleteObjectAuditAlarm( Object,
+                                  Handle
+                                );
+    }
 
     ObDereferenceObject( Object );
 
@@ -207,3 +243,4 @@ ObMakeTemporaryObject(
 
     ObpDeleteNameCheck( Object, FALSE );
 }
+

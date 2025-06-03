@@ -145,9 +145,9 @@ PsxApiHandleConnectionRequest(
         // Deallocate the local directory prefix
         //
 
-        RtlFreeHeap(PsxHeap, 0, Process->DirectoryPrefix->NtCurrentWorkingDirectory.Buffer);
-        RtlFreeHeap(PsxHeap, 0, Process->DirectoryPrefix->PsxRoot.Buffer);
-        RtlFreeHeap(PsxHeap, 0, Process->DirectoryPrefix);
+        RtlFreeHeap(PsxHeap, 0, Process->DirectoryPrefix->NtCurrentWorkingDirectory.Buffer);
+        RtlFreeHeap(PsxHeap, 0, Process->DirectoryPrefix->PsxRoot.Buffer);
+        RtlFreeHeap(PsxHeap, 0, Process->DirectoryPrefix);
 
         Process->DirectoryPrefix = MAKE_DIRECTORY_PREFIX_REMOTE(ConnectionInformation->DirectoryPrefix);
     }

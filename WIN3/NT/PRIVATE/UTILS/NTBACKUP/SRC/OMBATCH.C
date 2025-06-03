@@ -150,6 +150,20 @@ Initial revision.
 extern    WORD     RT_max_BSD_index;  //Why isn't this in a header file????
 
 static LPSTR OEM_StrDup ( LPSTR pszSrc );
+static void OEM_FixPathCase( LPSTR pszPath ) ;
+
+#if defined ( OEM_EMS )
+static VOID EMS_RecurseSearchDLE ( 
+     GENERIC_DLE_PTR     dle_tree, // I - DLE subtree root to search
+     GENERIC_DLE_PTR     *dle,     // O - pointer to matched DLE
+     LPSTR               pszName,  // I - name of server
+     UINT8               uType );  // I - type of dle to search for
+
+static VOID EMS_GetDleByEmsType( 
+     GENERIC_DLE_PTR     dle_tree, // I - Matching EMS server dle
+     GENERIC_DLE_PTR     *dle,     // O - pointer to matched dle
+     UINT8               uType );   // I - type of dle to search for
+#endif
 
 OEMOPTS_PTR OEM_DefaultBatchOptions ( VOID )
 {
@@ -181,6 +195,8 @@ VOID OEM_UpdateBatchBSDOptions ( BSD_HAND hbsdList, OEMOPTS_PTR pOpts )
    INT16       desc_str_size;    // chs:05-14-93
    LPSTR       pszTmp;
    CHAR        szLabel [MAX_UI_RESOURCE_SIZE];
+   CHAR        szLabel1 [MAX_UI_RESOURCE_SIZE];
+   CHAR        szLabel2 [MAX_UI_RESOURCE_SIZE];
 
    //Set the global backup configuration options...
    if ( pOpts->pszLogName )
@@ -217,11 +233,10 @@ VOID OEM_UpdateBatchBSDOptions ( BSD_HAND hbsdList, OEMOPTS_PTR pOpts )
 // chs:05-18-93   /* set default tape name */
 // chs:05-18-93
 
-   RSM_StringCopy( IDS_DEFAULT_TAPE_NAME, szLabel, MAX_TAPE_NAME_LEN );
-   pszTmp = szLabel;
-   while ( *pszTmp )
-         pszTmp++;
-   UI_CurrentDate( pszTmp );
+   RSM_StringCopy( IDS_DEFAULT_TAPE_NAME, szLabel1, MAX_TAPE_NAME_LEN );
+   UI_CurrentDate( szLabel2 );
+   wsprintf( szLabel, szLabel1, szLabel2 ) ;
+
    //Insert the options into each of the bsd's in the bsd list.
    // keeping a count of the number of BSD's
    for ( pbsd = BSD_GetFirst( hbsdList ), cBsds = 0;
@@ -234,7 +249,10 @@ VOID OEM_UpdateBatchBSDOptions ( BSD_HAND hbsdList, OEMOPTS_PTR pOpts )
          BSD_SetBackupDescript( pbsd, (INT8_PTR)pOpts->pszDescription,
                                 desc_str_size );                      // chs:05-14-93
 
-         pOpts->pszDescription[ desc_str_size > MAX_BSET_DESC_LEN ? MAX_BSET_DESC_LEN : desc_str_size ] = TEXT('\0') ;    // chs:05-14-93
+         if ( strlen(pOpts->pszDescription) > MAX_BSET_DESC_LEN ) {
+              pOpts->pszDescription[ MAX_BSET_DESC_LEN ] = TEXT('\0') ;    // chs:05-14-93
+         }
+
          BSD_SetBackupLabel( pbsd, (INT8_PTR)pOpts->pszDescription,
                                 (INT16)strsize( pOpts->pszDescription) );
       }
@@ -500,6 +518,7 @@ INT OEM_ProcessBatchCmdOption (
                }
                if ( pOpts->pszDescription )
                   free ( pOpts->pszDescription );
+                  pOpts->pszDescription = NULL ;
 
                if ( pszOption )
                   pOpts->pszDescription = OEM_StrDup ( pszOption );
@@ -517,7 +536,6 @@ INT OEM_ProcessBatchCmdOption (
 
                   //NTKLUG: error! unknown backup type specified. use normal
                   pOpts->eType = OEM_TYPE_NORMAL;
-
                }
             }
             break;
@@ -734,6 +752,8 @@ BOOL OEM_AddPathToBackupSets (
    INT16   nBufLen = (INT16)( MAX_UI_PATH_LEN + MAX_UI_FILENAME_LEN );
    CHAR_PTR pszTemp;
 
+   OEM_FixPathCase( pszPath ) ;
+
    pszTemp = calloc( strsize( pszPath ) + strsize( TEXT("\\*.* ") ), 1 ) ;
 
    if ( pszTemp == NULL ) {
@@ -793,6 +813,91 @@ BOOL OEM_AddPathToBackupSets (
    return FALSE;     //FAILED!
 }
 
+#ifdef OEM_EMS
+/*****************************************************************************
+
+     Name:         OEM_AddEMSServerToBackupSet
+
+     Description:  Given a name of an Exchange server, insert it into the proper
+                   backup set in the list of backup sets for the proper
+                   drive.  If no appropriate backup set exists, one will
+                   be created and added to the backup set list.
+
+                   The path must be of the form allowed for the target
+                   system and may include whatever wildcards are allowed
+                   by the file system.
+
+     Return(BOOL): TRUE if the server was added succesfully,
+                   FALSE otherwise.
+
+*****************************************************************************/
+
+BOOL OEM_AddEMSServerToBackupSets (
+                   BSD_HAND hbsd,      //IO - list of backup sets to update
+                   DLE_HAND hdle,      //I  - list of drives
+                   LPSTR pszServer,    //I  - Server name to insert into backup set
+                   UINT8 uType )       //I  - FS_EMS_MDB_ID (Monolithic) or 
+                                       //      FS_EMS_DSA_ID (DSA)
+{
+     GENERIC_DLE_PTR   pdle        = NULL;
+     BSET_OBJECT_PTR   pbset       = NULL;
+     BSD_PTR           pbsd        = NULL;
+     FSE_PTR           pfse        = NULL;
+     BE_CFG_PTR        pbeConfig   = NULL;
+     CHAR_PTR          pszTemp;
+
+     pszTemp = pszServer;
+     
+     // Extract off the leading '\'s from the server name.
+     while ( TEXT ('\\') == *pszTemp ) pszTemp++;
+
+     if ( ( !pszTemp ) || ( TEXT ( '\0' ) == *pszTemp ) )
+          return FALSE;
+      
+     // Things that have to happen in order. First, add name to EMS server list.
+     if ( SUCCESS == EMS_AddToServerList ( hdle, pszTemp ) ) {
+          if ( SUCCESS != FS_FindDrives( FS_EMS_DRV, hdle, pbeConfig = CDS_GetPermBEC(), 0 ) ) {
+               return FALSE;
+          }
+     }
+     
+     // Next, find the DLE for the server name and type.
+     if ( SUCCESS != DLE_FindByEMSServerName( hdle, pszTemp, uType, &pdle ) ) {
+          return FALSE;
+     }
+
+     if ( BSD_CreatFSE( &pfse, (INT16)INCLUDE,
+                      (CHAR_PTR) TEXT( "" ),
+                      (INT16)    sizeof( CHAR ),
+                      (CHAR_PTR) ALL_FILES,
+                      (INT16)    ALL_FILES_LENG,
+                      (BOOLEAN)  USE_WILD_CARD,
+                      (BOOLEAN)  TRUE )        != SUCCESS ) {
+
+          return FALSE;     // NTKLUG: need error handling here!
+
+     } else {
+     
+          pbsd = BSD_FindByDLE ( hbsd, pdle ); //look for the right BSD
+     }
+     if ( pbsd == NULL )
+     {
+          pbeConfig = BEC_CloneConfig( CDS_GetPermBEC() );
+          BEC_UnLockConfig( pbeConfig );
+
+          BSD_Add( hbsd, &pbsd, pbeConfig, NULL,
+                    pdle, (UINT32)-1L, (UINT16)-1, (INT16)-1, NULL, NULL );
+     }
+     if ( pbsd != NULL )
+     {
+          BSD_AddFSE( pbsd, pfse );
+
+          return TRUE;   //SUCCESS
+     }
+     return FALSE;     //FAILED!
+}
+#endif OEM_EMS
+
 /***************************************************************************
 
      Name:         CharInSet
@@ -848,3 +953,253 @@ static LPSTR OEM_StrDup ( LPSTR pszSrc )
    }
    return pszResult;
 }
+
+
+#ifdef OEM_EMS
+
+/*************************************************************************/
+/**
+
+	Name:		DLE_FindByEMSServerName()
+
+	Description:	This function scans through the DLE tree looking for the
+          DLE with the EMS server name and specified type.
+
+	Modified:		9/15/1994
+
+	Returns:		NOT_FOUND
+                    SUCCESS
+
+	Notes:		If no dle can be found then NULL is returned as the
+          DLE pointer.
+
+	See also:		$/SEE( )$
+
+	Declaration:   Ombatch.h
+/**/
+/* begin declaration */
+
+INT16 DLE_FindByEMSServerName ( 
+     DLE_HAND        hand,   /* I - DLE list handle           */
+     LPSTR           name,   /* I - name to search for        */
+     UINT8           uType,  /* I - type of dle to search for */
+     GENERIC_DLE_PTR *dle )  /* O - pointer to matched DLE    */
+
+{
+     GENERIC_DLE_PTR temp_dle ;
+     GENERIC_DLE_PTR found_dle ;
+     UINT8           uCurType;
+
+     *dle = NULL ;
+
+     if ( (name == NULL) || (hand == NULL) ) {
+          return FS_NOT_FOUND ;
+          
+     } else {
+
+          if ( NULL == (temp_dle = (GENERIC_DLE_PTR)QueueHead( &(hand->q_hdr) )) )
+               return FS_NOT_FOUND;
+
+          found_dle = NULL ;
+
+          // Recurse on each of the EMS device with the server name that we're looking for.
+          do {
+               
+               uCurType = DLE_GetDeviceType( temp_dle );
+               if( FS_EMS_DRV == uCurType ) {
+               
+                    EMS_RecurseSearchDLE ( temp_dle, &found_dle, name, uType ) ;
+                    
+               }
+               
+          } while ( (NULL == found_dle) && (SUCCESS == DLE_GetNext( &temp_dle )) ) ;
+
+          if ( found_dle != NULL ) {
+
+               *dle = found_dle ;
+
+          } else {
+          
+               return FS_NOT_FOUND ;
+          } 
+     }
+     return SUCCESS ;
+}
+
+/*************************************************************************/
+/**
+
+	Name:		EMS_RecurseSearchDLE()
+
+	Description:	Does a recursive scan on an EMS drive for the server matching the 
+	               the description and calls EMS_GetDleByEmsType to find the child DLE 
+	               corresponding to the type..
+
+	Modified:		9/15/1994
+
+	Returns:		Nothing.
+
+	Notes:		If no dle can be found then NULL is returned as the
+                    DLE pointer.
+
+	See also:		$/SEE( )$
+
+	Declaration:   Private
+
+**/
+/* begin declaration */
+static VOID EMS_RecurseSearchDLE ( 
+     GENERIC_DLE_PTR     dle_tree, // I - DLE subtree root to search
+     GENERIC_DLE_PTR     *dle,     // O - pointer to matched DLE
+     LPSTR               pszName,  // I - name of server
+     UINT8               uType )   // I - type of dle to search for
+{
+     GENERIC_DLE_PTR     dle_child;
+     
+     while ( (dle_tree != NULL) && (*dle == NULL) ) {
+
+          if ( EMS_SERVER == DLE_GetDeviceSubType( dle_tree ) ) {
+          
+               if ( 0 == strnicmp( pszName, DLE_GetDeviceName( dle_tree ), strsize( pszName ) )  ) {
+
+                    // Get the specified DSA or MDB DLE for the server.
+                    EMS_GetDleByEmsType( dle_tree, dle, uType );
+               }
+          } else {
+
+               // Not at server level - recurse through the children looking for the server name.
+               if ( (QueueCount( &(dle_tree->child_q) ) != 0) &&
+                    (SUCCESS == DLE_GetFirstChild( dle_tree, &dle_child )) ) {
+                    
+                    EMS_RecurseSearchDLE( dle_child, dle, pszName, uType );
+               }
+          }
+          if( SUCCESS != DLE_GetNext( &dle_tree ) )
+               return ;
+     }
+}
+
+
+/*************************************************************************/
+/**
+
+	Name:		EMS_GetDleByEmsType()
+
+	Description:	Iterates through child DLEs of an EMS server looking for 
+	               the DLE of the specified type.
+
+	Modified:		9/15/1994
+
+	Returns:		Nothing.
+
+	Notes:		If no dle can be found then NULL is returned as the
+                    DLE pointer.
+
+	See also:		$/SEE( )$
+
+	Declaration:   Private
+
+**/
+/* begin declaration */
+
+static VOID EMS_GetDleByEmsType( 
+     GENERIC_DLE_PTR     dle_tree, // I - Matching EMS server dle
+     GENERIC_DLE_PTR     *dle,     // O - pointer to matched dle
+     UINT8               uType )   // I - type of dle to search for
+{
+     GENERIC_DLE_PTR dle_child;
+
+     *dle = NULL;
+     
+     if ( SUCCESS == DLE_GetFirstChild( dle_tree, &dle_child ) )
+     {
+
+          /* Now that we've found the first child, let's try them all until
+               we find the one with the correct type. */
+          do {
+
+               if ( DLE_GetOsId( dle_child ) == uType ) {
+
+                    *dle = dle_child ;
+               }
+
+          } while ( (NULL == *dle) &&
+                    (SUCCESS == DLE_GetNext( &dle_child )) ) ;
+     
+     }
+}
+
+#endif //OEM_EMS
+
+void OEM_FixPathCase( LPSTR pszPath )
+{
+CHAR     CurDir[512] ;
+WIN32_FIND_DATA find_data;
+HANDLE          find_hand;
+CHAR_PTR        new_path_start ;
+CHAR_PTR        old_str ;
+CHAR_PTR        temp_str ;
+CHAR_PTR        temp_str_start ;
+INT             sub_dir_name_size ;
+
+     if (pszPath[1] != TEXT(':') ) {
+          return ;
+     }
+     CurDir[0] = pszPath[0] ;
+     CurDir[1] = TEXT(':') ;
+     CurDir[2] = TEXT('\\') ;
+     CurDir[3] = TEXT('\0') ;
+     temp_str = &(CurDir[3]) ;
+
+//     new_path_start must point to first char of path name 
+     if ( pszPath[2] == TEXT('\\') ) {
+          old_str = &pszPath[3] ;
+     } else {
+          old_str = &pszPath[2] ;
+     }
+
+     while ( *old_str != TEXT('\0')) {
+
+          temp_str_start = temp_str ;
+          new_path_start = old_str ;
+          sub_dir_name_size = 0 ;
+
+          while ( (*old_str != TEXT('\0')) && (*old_str != TEXT('\\')) ) {
+               *temp_str = *old_str ;
+               temp_str ++ ; old_str++ ;
+               sub_dir_name_size++ ;
+          }
+
+          *temp_str = TEXT('*') ;
+          *(temp_str+1) = TEXT('\0') ;
+          
+          find_hand = FindFirstFile( CurDir, &find_data ) ;
+
+          if (find_hand == INVALID_HANDLE_VALUE ) {
+               return ;
+          }
+          while( ( strlen(find_data.cFileName) != (unsigned short)sub_dir_name_size ) ||
+                 memicmp( find_data.cFileName, temp_str_start, sub_dir_name_size*sizeof(CHAR) ) ) {
+               
+               if ( !FindNextFile( find_hand, &find_data ) ) {
+                    FindClose( find_hand ) ;
+                    return ;
+               }
+          }
+
+          FindClose( find_hand ) ;
+
+          memcpy( new_path_start, find_data.cFileName, sub_dir_name_size * sizeof(CHAR) ) ;
+
+          *temp_str = *old_str ;
+
+          if ( *old_str == TEXT('\0')) {
+               break ;
+          }
+
+          temp_str ++ ; old_str++ ;
+
+     }
+
+}
+

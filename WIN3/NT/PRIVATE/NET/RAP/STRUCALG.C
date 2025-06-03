@@ -36,7 +36,7 @@ Revision History:
 // These may be included in any order:
 
 #include <align.h>              // ALIGN_ equates.
-#include <netdebug.h>           // NetpDbgPrint(), FORMAT_DWORD.
+#include <netdebug.h>           // NetpKdPrint(()), FORMAT_DWORD.
 #include <rap.h>                // My prototype, LPDESC, FORMAT_LPDESC.
 #include <rapdebug.h>           // IF_DEBUG().
 
@@ -106,8 +106,8 @@ Return Value:
                 );
 
     IF_DEBUG(STRUCALG) {
-        NetpDbgPrint( "RapStructureAlignment: alignment of " FORMAT_LPDESC
-                " is " FORMAT_DWORD ".\n", Descriptor, Alignment );
+        NetpKdPrint(( "RapStructureAlignment: alignment of " FORMAT_LPDESC
+                " is " FORMAT_DWORD ".\n", Descriptor, Alignment ));
     }
 
     //

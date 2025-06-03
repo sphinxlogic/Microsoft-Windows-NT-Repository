@@ -10,7 +10,7 @@
  *      oldName newName
  *
  * and the remaining parameters are the names of the files to munge.
- * Each file is read into memory, scanned once, where each occurence
+ * Each file is _read into memory, scanned once, where each occurence
  * of an oldName string is replaced by its corresponding newName.
  * If any changes are made to a file, the old version is RMed and
  * the new version written out under the same name.
@@ -19,16 +19,17 @@
 
 #include "munge.h"
 
-BOOL AtomsInserted = FALSE;
+BOOL SymbolsInserted = FALSE;
 BOOL InitTokenMappingTable( void );
 BOOL SaveTokenMapping( char *, char * );
 char *FindTokenMapping( char * );
 
-#define MAXFILESIZE 0x80000L
+#define MAXFILESIZE 0x1000000L
 char *InputFileBuf;
 char *OutputFileBuf;
 int fClean = FALSE;
 int fQuery = FALSE;
+int fFileOnly = FALSE;
 int fRecurse = FALSE;
 int fUseAttrib = FALSE;
 int fUseSLM = FALSE;
@@ -39,6 +40,11 @@ int fSummary = FALSE;
 int fRemoveDuplicateCR = FALSE;
 int fRemoveImbeddedNulls = FALSE;
 int fTruncateWithCtrlZ = FALSE;
+int fInsideQuotes = FALSE;
+int fInsideComments = FALSE;
+int fNeuter = FALSE;
+int fCaseSensitive = FALSE;
+int fEntireLine = FALSE;
 
 #define MAX_LITERAL_STRINGS 32
 
@@ -81,6 +87,29 @@ PopCurrentDirectory(
     char *OldCurrentDirectory
     );
 
+
+NTSTATUS
+CreateSymbolTable(
+    IN ULONG NumberOfBuckets,
+    IN ULONG MaxSymbolTableSize,
+    OUT PVOID *SymbolTableHandle
+    );
+
+NTSTATUS
+AddSymbolToSymbolTable(
+    IN PVOID SymbolTableHandle,
+    IN PUNICODE_STRING SymbolName,
+    IN PULONG SymbolValue OPTIONAL,
+    OUT PULONG Symbol OPTIONAL
+    );
+
+NTSTATUS
+LookupSymbolInSymbolTable(
+    IN PVOID SymbolTableHandle,
+    IN PUNICODE_STRING SymbolName,
+    OUT PULONG SymbolValue OPTIONAL,
+    OUT PULONG Symbol OPTIONAL
+    );
 
 BOOL
 myread( int fh, unsigned long cb )
@@ -178,15 +207,15 @@ char *s;
             *pEnd = '\0';
 
             if (*pOldName == '.') {
-                FileExtensions[ NumberOfFileExtensions++ ] = strlwr( MakeStr( ++pOldName ) );
+                FileExtensions[ NumberOfFileExtensions++ ] = _strlwr( MakeStr( ++pOldName ) );
                 }
             else
             if (pEnd > pOldName && pEnd[ -1 ] == '.') {
                 pEnd[ - 1 ] = '\0';
-                FileNames[ NumberOfFileNames++ ] = strlwr( MakeStr( pOldName ) );
+                FileNames[ NumberOfFileNames++ ] = _strlwr( MakeStr( pOldName ) );
                 }
             else {
-                FileNameAndExts[ NumberOfFileNameAndExts++ ] = strlwr( MakeStr( pOldName ) );
+                FileNameAndExts[ NumberOfFileNameAndExts++ ] = _strlwr( MakeStr( pOldName ) );
                 }
             }
         else
@@ -291,7 +320,7 @@ char *s;
                 result = FALSE;
                 }
             else {
-                AtomsInserted = TRUE;
+                SymbolsInserted = TRUE;
                 n++;
                 }
             }
@@ -311,6 +340,7 @@ char *s;
             FileExtensions[ NumberOfFileExtensions++ ] = "asm";
             FileExtensions[ NumberOfFileExtensions++ ] = "c";
             FileExtensions[ NumberOfFileExtensions++ ] = "cli";
+            FileExtensions[ NumberOfFileExtensions++ ] = "cpp";
             FileExtensions[ NumberOfFileExtensions++ ] = "cxx";
             FileExtensions[ NumberOfFileExtensions++ ] = "def";
             FileExtensions[ NumberOfFileExtensions++ ] = "h";
@@ -350,19 +380,43 @@ MungeFile(
     unsigned long NewSize = MaxNewSize;
     unsigned Changes = 0;
     unsigned LineNumber;
-    char c, *Identifier, *BegLine, *EndLine;
+    char c, *Identifier, *BegLine, *EndLine, *OrigOldBuf;
     char IdentifierBuffer[ 256 ];
     char *p, *p1;
     int i, j, k;
     BOOL TruncatedByCtrlZ;
     BOOL ImbeddedNullsStripped;
     BOOL DuplicateCRStripped;
+    BOOL InSingleQuotes;
+    BOOL InDoubleQuotes;
+    BOOL Escape;
+    BOOL Star;
+    BOOL Backslash;
+    BOOL Pound;
+    BOOL Semi;
+    BOOL LastEscape;
+    BOOL LastStar;
+    BOOL LastBackslash;
+    BOOL LastPound;
+    BOOL LastSemi;
+    BOOL SkipChar;
+    BOOL InLineComment;
+    BOOL InComment;
 
     *FinalNewSize = 0;
     LineNumber = 1;
     TruncatedByCtrlZ = FALSE;
     ImbeddedNullsStripped = FALSE;
     DuplicateCRStripped = FALSE;
+    InSingleQuotes = FALSE;
+    InDoubleQuotes = FALSE;
+    InLineComment = FALSE;
+    InComment = FALSE;
+    LastEscape = FALSE;
+    LastStar = FALSE;
+    LastBackslash = FALSE;
+    OrigOldBuf = OldBuf;
+
     while (OldSize--) {
         c = *OldBuf++;
         if (c == '\r') {
@@ -378,7 +432,107 @@ MungeFile(
             break;
             }
 
-        if (c != 0 && NumberOfLiteralStrings != 0) {
+        SkipChar = FALSE;
+
+        if ( !fInsideQuotes || !fInsideComments ) {
+            LastEscape    = Escape;
+            LastStar      = Star;
+            LastBackslash = Backslash;
+            LastPound     = Pound;
+            LastSemi      = Semi;
+
+            Escape    = (c == '\\');
+            Star      = (c == '*' );
+            Backslash = (c == '/' );
+            Pound     = (c == '#' );
+            Semi      = (c == ';' );
+
+            if ( Escape && LastEscape ) {   // two in a row don't mean escape
+                Escape = FALSE;
+                }
+
+            if ( c == '\r' || c == '\n' ) {
+                InLineComment = FALSE;
+                }
+
+
+            // Don't process Include or Pragma directives
+            if ( LastPound && OldSize > 6 ) {
+                if ( !strncmp(OldBuf-1,"include",7)
+                    || !strncmp(OldBuf-1,"pragma",6) ) {
+                    InLineComment = TRUE;
+                    }
+                }
+
+            if (c == '"' && !InSingleQuotes && !LastEscape
+                    && !InLineComment && !InComment ) {
+                InDoubleQuotes = !InDoubleQuotes;
+                if ( fNeuter ) {
+                    if ( InDoubleQuotes ) {
+                        if ( NewSize < 5 ) {
+                            return( -1 );
+                            }
+                        strcpy(NewBuf,"TEXT(");
+                        NewBuf+=5;
+                        NewSize -= 5;
+                       }
+                    else {
+                        if ( NewSize < 1 ) {
+                            return( -1 );
+                            }
+                        *NewBuf++ = '"';
+                        NewSize--;
+                        c = ')';
+                        }
+                    }
+                }
+
+            if (c == '\'' && !InDoubleQuotes && !LastEscape
+                    && !InLineComment && !InComment ) {
+                InSingleQuotes = !InSingleQuotes;
+                if ( fNeuter ) {
+                    if ( InSingleQuotes ) {
+                        if ( NewSize < 5 ) {
+                            return( -1 );
+                            }
+                        strcpy(NewBuf,"TEXT(");
+                        NewBuf+=5;
+                        NewSize -= 5;
+                       }
+                    else {
+                        if ( NewSize < 1 ) {
+                            return( -1 );
+                            }
+                        *NewBuf++ = '\'';
+                        NewSize--;
+                        c = ')';
+                        }
+                    }
+                }
+            if ( !InDoubleQuotes && !InSingleQuotes
+                    && !InLineComment && !InComment ) {
+                if ( LastBackslash ) {
+                    switch(c) {
+                        case '*':   InComment = TRUE;       break;
+                        case '/':   InLineComment = TRUE;   break;
+                        }
+                    }
+                }
+
+            if ( InComment && LastStar && Backslash ) {
+                InComment = FALSE;
+                }
+
+            if ( !fInsideQuotes && ( InSingleQuotes || InDoubleQuotes ) ) {
+                SkipChar = TRUE;
+                }
+            else
+            if ( !fInsideComments && ( InLineComment || InComment ) ) {
+                SkipChar = TRUE;
+                }
+            }
+
+        if (c != 0 && NumberOfLiteralStrings != 0 && !SkipChar ) {
             p = LeadingLiteralChars;
             while (p = strchr( p, c )) {
                 i = p - LeadingLiteralChars;
@@ -399,25 +553,40 @@ MungeFile(
                         p1 = NewLiteralStrings[ i ];
 
                         if (!fRepeatMunge && !fSummary) {
-                            printf( "%s(%d) : ",
-                                    FileName,
-                                    LineNumber
-                                  );
-                            if (fQuery) {
-                                EndLine = BegLine;
-                                while (*EndLine != '\0' && *EndLine != '\n') {
-                                    EndLine += 1;
+                            if (fFileOnly) {
+                                if (Changes == 0) { // Display just file name on first match
+                                    printf( "%s\n", FileName );
                                     }
-                                printf( "%.*s\n", EndLine - BegLine, BegLine );
                                 }
                             else {
-                                printf( "Matched \"%c%s\", replace with \"%s\"\n",
-                                        c,
-                                        LiteralStrings[ i ],
-                                        p1
+                                printf( "%s(%d) : ",
+                                        FileName,
+                                        LineNumber
                                       );
-                                }
+                                if (fQuery) {
+                                    EndLine = BegLine;
+                                    while (*EndLine != '\0' && *EndLine != '\n') {
+                                        EndLine += 1;
+                                        }
+                                    if (fEntireLine) {
+                                        while (BegLine > OrigOldBuf && *BegLine != '\n') {
+                                            BegLine -= 1;
+                                            }
+                                        if (*BegLine == '\n') {
+                                            BegLine += 1;
+                                            }
+                                        }
 
+                                    printf( "%.*s\n", EndLine - BegLine, BegLine );
+                                    }
+                                else {
+                                    printf( "Matched \"%c%s\", replace with \"%s\"\n",
+                                            c,
+                                            LiteralStrings[ i ],
+                                            p1
+                                          );
+                                    }
+                                }
                             fflush( stdout );
                             }
 
@@ -441,7 +610,7 @@ MungeFile(
             p = NULL;
             }
 
-        if (AtomsInserted && (p == NULL) && iscsymf( c )) {
+        if (SymbolsInserted && (p == NULL) && iscsymf( c )) {
             BegLine = OldBuf - 1;
             Identifier = IdentifierBuffer;
             k = sizeof( IdentifierBuffer ) - 1;
@@ -463,35 +632,58 @@ MungeFile(
                     }
                 }
 
+            c = '\0';       // No character to add to output stream
+
+            --OldBuf;       // Went a little too far
+            OldSize++;
+
             *Identifier++ = 0;
 
-            if (k == 0 || (Identifier = FindTokenMapping( IdentifierBuffer )) == NULL) {
+            if (k == 0 || (Identifier = FindTokenMapping( IdentifierBuffer )) == NULL || SkipChar ) {
                 Identifier = IdentifierBuffer;
                 }
             else {
                 if (!fRepeatMunge && !fSummary) {
-                    printf( "%s(%d) : ", FileName, LineNumber );
-                    if (fQuery) {
-                        EndLine = BegLine;
-                        while (*EndLine != '\0' && *EndLine != '\r' && *EndLine != '\n') {
-                            EndLine += 1;
+                    if (fFileOnly) {
+                        if (Changes == 0) { // Display just file name on first match
+                            printf( "%s\n", FileName );
                             }
-                        if (*EndLine == '\0') {
-                            EndLine -= 1;
-                            }
-                        if (*EndLine == '\n') {
-                            EndLine -= 1;
-                            }
-                        if (*EndLine == '\r') {
-                            EndLine -= 1;
-                            }
-
-                        printf( "%.*s", EndLine - BegLine + 1, BegLine );
                         }
                     else {
-                        printf( "Matched %s replace with %s", IdentifierBuffer, Identifier );
+                        printf( "%s(%d) : ", FileName, LineNumber );
+                        if (fQuery) {
+                            EndLine = BegLine;
+                            while (*EndLine != '\0' && *EndLine != '\r' && *EndLine != '\n') {
+                                EndLine += 1;
+                                }
+                            if (*EndLine == '\0') {
+                                EndLine -= 1;
+                                }
+                            if (*EndLine == '\n') {
+                                EndLine -= 1;
+                                }
+                            if (*EndLine == '\r') {
+                                EndLine -= 1;
+                                }
+
+                            if (fEntireLine) {
+                                while (BegLine > OrigOldBuf && *BegLine != '\n') {
+                                    BegLine -= 1;
+                                    }
+                                if (*BegLine == '\n') {
+                                    BegLine += 1;
+                                    }
+                                }
+
+                            printf( "%.*s", EndLine - BegLine + 1, BegLine );
+                            }
+                        else {
+                            printf( "Matched %s replace with %s", IdentifierBuffer, Identifier );
+                            }
+
+                        printf( "\n" );
                         }
-                    printf( "\n" );
+
                     fflush( stdout );
                     }
 
@@ -694,13 +886,13 @@ char *p;
     fRepeatMunge = FALSE;
 
 RepeatMunge:
-    if ( (fh = open( p, O_BINARY )) == -1) {
+    if ( (fh = _open( p, O_BINARY )) == -1) {
         fprintf( stderr, "%s - unable to open\n", p );
         return;
         }
 
-    oldSize = lseek( fh, 0L, 2 );
-    lseek( fh, 0L, 0 );
+    oldSize = _lseek( fh, 0L, 2 );
+    _lseek( fh, 0L, 0 );
     count = 0;
     if (oldSize > MAXFILESIZE)
         fprintf( stderr, "%s - file too large (%ld)\n", p, oldSize );
@@ -724,7 +916,7 @@ RepeatMunge:
 
         UnmapViewOfFile( InputFileBuf );
         }
-    close( fh );
+    _close( fh );
 
     if (count > 0) {
         if (fRepeatMunge) {
@@ -735,7 +927,7 @@ RepeatMunge:
             fprintf( stderr, "%s", p );
             }
 
-        if (!fQuery && access( p, 2 ) == -1) {
+        if (!fQuery && _access( p, 2 ) == -1) {
             if (!(fUseSLM || fUseAttrib)) {
                 fprintf( stderr, " - write protected, unable to apply changes\n", p );
                 return;
@@ -829,7 +1021,7 @@ RepeatMunge:
             goto RepeatMunge;
             }
         else
-        if (!fQuery && access( p, 2 ) != -1 && fUseSLM && !fRepeatMunge) {
+        if (!fQuery && _access( p, 2 ) != -1 && fUseSLM && !fRepeatMunge) {
             if (!fSummary) {
                 printf( "%s(1) : FILE ALREADY CHECKED OUT\n", p );
                 fflush( stdout );
@@ -841,23 +1033,23 @@ RepeatMunge:
             fprintf( stderr, " [%d potential changes]\n", count );
             }
         else {
-            if ( (fh = creat( newName, S_IWRITE | S_IREAD )) == -1 )
+            if ( (fh = _creat( newName, S_IWRITE | S_IREAD )) == -1 )
                 fprintf( stderr, " - unable to create new version (%s)\n",
                          newName );
             else
             if (mywrite( fh, OutputFileBuf, newSize ) != newSize) {
                 fprintf( stderr, " - error while writing\n" );
-                close( fh );
-                unlink( newName );
+                _close( fh );
+                _unlink( newName );
                 }
             else {
-                close( fh );
+                _close( fh );
                 if (fTrustMe) {
-                    unlink( p );
+                    _unlink( p );
                     }
                 else {
-                    if (access( bakName, 0 ) == 0) {
-                        unlink( bakName );
+                    if (_access( bakName, 0 ) == 0) {
+                        _unlink( bakName );
                         }
 
                     if (rename( p, bakName )) {
@@ -931,7 +1123,7 @@ DoFiles(
                 }
             }
         else {
-            s = strlwr( (char *)b->fbuf.cFileName );
+            s = _strlwr( (char *)b->fbuf.cFileName );
             while (*s != '.') {
                 if (*s == '\0') {
                     break;
@@ -996,37 +1188,44 @@ DoFiles(
 void
 Usage( void )
 {
-    fprintf( stderr, "usage: munge scriptFile [-q] [-r] [-c [-m] [-z] [-@]] [-s [-f]] [-u undoFileName] [-v] filesToMunge...\n" );
-    fprintf( stderr, "Where...\n" );
-    fprintf( stderr, "    -q\tQuery only - don't actually make changes.\n" );
-    fprintf( stderr, "    -r\tRecurse.\n" );
-    fprintf( stderr, "    -c\tIf no munge of file, then check for cleanlyness.\n" );
-    fprintf( stderr, "    -i\tJust output summary of files changed at end.\n" );
-    fprintf( stderr, "    -m\tCollapse multiple carriage returns into one.\n" );
-    fprintf( stderr, "    -z\tCtrl-Z will truncate file.\n" );
-    fprintf( stderr, "    -@\tRemove null characters.\n" );
-    fprintf( stderr, "    -s\tUse OUT command command for files that are readonly.\n" );
-    fprintf( stderr, "    -a\tUse ATTRIB -r command for files that are readonly.\n" );
-    fprintf( stderr, "    -f\tUse -z flag for SLM OUT command.\n" );
-    fprintf( stderr, "    -t\tTrust me and dont create .bak files.\n" );
-    fprintf( stderr, "    -v\tVerbose - show files being scanned.\n" );
-    fprintf( stderr, "    -u\tGenerate an undo script file for the changes made.\n" );
-    fprintf( stderr, "    -?\tGets you this.\n\n" );
-    fprintf( stderr, "and scriptFile lines take any of the following forms:\n\n" );
-    fprintf( stderr, "    oldName newName\n" );
-    fprintf( stderr, "    \"oldString\" \"newString\"\n" );
-    fprintf( stderr, "    -F .Ext  Name.  Name.Ext\n\n" );
-    fprintf( stderr, "Where...\n" );
-    fprintf( stderr, "    oldName and newName following C Identifier rules\n" );
-    fprintf( stderr, "    oldString and newString are arbitrary text strings\n" );
-    fprintf( stderr, "    -F limits the munge to files that match:\n" );
-    fprintf( stderr, "        a particular extension (.Ext)\n" );
-    fprintf( stderr, "        a particular name (Name.)\n" );
-    fprintf( stderr, "        a particular name and extension (Name.Ext)\n" );
-    fprintf( stderr, "    If no -F line is seen in the scriptFile, then\n" );
-    fprintf( stderr, "    the following is the default:\n" );
-    fprintf( stderr, "    -F .asm .c .cli .cxx .def .h .hxx .idl .inc .mak .rc .s .src .srv .tk\n" );
-    fprintf( stderr, "    -F makefil0 makefile sources\n" );
+    fputs("usage: munge scriptFile [-q [-e] [-o]] [-r] [-c [-m] [-z] [-l@] [-n] [-l | -L] [-s [-f]] [-u undoFileName] [-v] filesToMunge...\n"
+          "Where...\n"
+          "    -q\tQuery only - don't actually make changes.\n"
+          "    -e\tQuery only - display entire line for each match\n"
+          "    -o\tQuery only - just display filename once on first match\n"
+          "    -r\tRecurse.\n"
+          "    -c\tIf no munge of file, then check for cleanlyness\n"
+          "    -i\tJust output summary of files changed at end\n"
+          "    -m\tCollapse multiple carriage returns into one\n"
+          "    -z\tCtrl-Z will truncate file\n"
+          "    -@\tRemove null characters\n"
+          "    -s\tUse OUT command command for files that are readonly\n"
+          "    -a\tUse ATTRIB -r command for files that are readonly\n"
+          "    -f\tUse -z flag for SLM OUT command\n"
+          "    -t\tTrust me and dont create .bak files\n"
+          "    -v\tVerbose - show files being scanned\n"
+          "    -l\tLiterals - Dont process any quoted text (includes comments too)\n"
+          "    -L\tLiterals - Dont process any quoted text (excludes comments)\n"
+          "    -n\tNeuter - Surround all strings with TEXT()\n"
+          "    -k\tCase - Case sensitive scriptFile\n"
+          "    -u\tGenerate an undo script file for the changes made\n"
+          "    -?\tGets you this message\n\n"
+          "and scriptFile lines take any of the following forms:\n\n"
+          "    oldName newName\n"
+          "    \"oldString\" \"newString\"\n"
+          "    -F .Ext  Name.  Name.Ext\n\n"
+          "Where...\n"
+          "    oldName and newName following C Identifier rules\n"
+          "    oldString and newString are arbitrary text strings\n"
+          "    -F limits the munge to files that match:\n"
+          "        a particular extension (.Ext)\n"
+          "        a particular name (Name.)\n"
+          "        a particular name and extension (Name.Ext)\n"
+          "    If no -F line is seen in the scriptFile, then\n"
+          "    the following is the default:\n"
+          "    -F .asm .c .cli .cpp .cxx .def .h .hxx .idl .inc .mak .rc .s .src .srv .tk\n"
+          "    -F makefil0 makefile sources\n",
+          stderr);
 
     exit( 1 );
 }
@@ -1046,7 +1245,7 @@ char *argv[];
         }
 
     if ( !InitTokenMappingTable()) {
-        fprintf( stderr, "MUNGE: Unable to create atom table\n" );
+        fprintf( stderr, "MUNGE: Unable to create symbol table\n" );
         exit( 1 );
         }
 
@@ -1065,6 +1264,7 @@ char *argv[];
     fRemoveImbeddedNulls = FALSE;
     fTruncateWithCtrlZ = FALSE;
     fQuery = FALSE;
+    fFileOnly = FALSE;
     fRecurse = FALSE;
     fUseAttrib = FALSE;
     fUseSLM = FALSE;
@@ -1073,6 +1273,10 @@ char *argv[];
     fVerbose = FALSE;
     UndoScriptFile = NULL;
     fSummary = FALSE;
+    fInsideQuotes = FALSE;
+    fInsideComments = FALSE;
+    fNeuter = FALSE;
+    fEntireLine = FALSE;
 
     for (i=2; i<argc; i++) {
         s = argv[ i ];
@@ -1084,6 +1288,7 @@ char *argv[];
                     case 'z':   fTruncateWithCtrlZ = TRUE; break;
                     case 'c':   fClean = TRUE;  break;
                     case 'q':   fQuery = TRUE;  break;
+                    case 'o':   fFileOnly = TRUE;  break;
                     case 'r':   fRecurse = TRUE;  break;
                     case 'a':   fUseAttrib = TRUE;  break;
                     case 's':   fUseSLM = TRUE;  break;
@@ -1091,6 +1296,11 @@ char *argv[];
                     case 't':   fTrustMe = TRUE;  break;
                     case 'v':   fVerbose = TRUE;  break;
                     case 'i':   fSummary = TRUE;  break;
+                    case 'l':   if (*s != 'L') fInsideComments = TRUE;
+                                fInsideQuotes = TRUE; break;
+                    case 'n':   fNeuter = TRUE; fInsideQuotes = FALSE; break;
+                    case 'k':   fCaseSensitive = TRUE; break;
+                    case 'e':   fEntireLine = TRUE;  break;
                     case 'u':   UndoScriptFile = fopen( argv[ ++i ], "w" );
                                 if (UndoScriptFile == NULL) {
                                     fprintf( stderr, "Unable to open %s\n",
@@ -1105,6 +1315,24 @@ char *argv[];
                 }
             }
         else {
+            if ((fFileOnly | fEntireLine) && !fQuery) {
+                Usage();
+                }
+
+            if (fQuery && (fClean ||
+                           fRemoveDuplicateCR ||
+                           fRemoveImbeddedNulls ||
+                           fTruncateWithCtrlZ ||
+                           fUseSLM ||
+                           fForceSLM ||
+                           fTrustMe ||
+                           UndoScriptFile ||
+                           fNeuter
+                          )
+               ) {
+                Usage();
+                }
+
             if (fClean &&
                 !fRemoveDuplicateCR &&
                 !fRemoveImbeddedNulls &&
@@ -1246,7 +1474,7 @@ PopCurrentDirectory(
 }
 
 
-PVOID AtomTableHandle;
+PVOID SymbolTableHandle;
 
 
 BOOL
@@ -1254,7 +1482,7 @@ InitTokenMappingTable( void )
 {
     NTSTATUS Status;
 
-    Status = BaseRtlCreateAtomTable( 257, 0x20000, &AtomTableHandle );
+    Status = CreateSymbolTable( 257, 0x20000, &SymbolTableHandle );
     if (NT_SUCCESS( Status )) {
         return TRUE;
         }
@@ -1271,18 +1499,24 @@ SaveTokenMapping(
     )
 {
     NTSTATUS Status;
-    STRING AtomName;
-    ULONG AtomValue;
-    ULONG Atom;
+    ANSI_STRING AnsiString;
+    UNICODE_STRING SymbolName;
+    ULONG SymbolValue;
+    ULONG Symbol;
 
-    RtlInitString( &AtomName, String );
-    AtomValue = (ULONG)Value;
+    RtlInitString( &AnsiString, String );
+    Status = RtlAnsiStringToUnicodeString( &SymbolName, &AnsiString, TRUE );
+    if (!NT_SUCCESS( Status )) {
+        return FALSE;
+        }
 
-    Status = BaseRtlAddAtomToAtomTable( AtomTableHandle,
-                                        &AtomName,
-                                        &AtomValue,
-                                        &Atom
+    SymbolValue = (ULONG)Value;
+    Status = AddSymbolToSymbolTable( SymbolTableHandle,
+                                        &SymbolName,
+                                        &SymbolValue,
+                                        &Symbol
                                       );
+    RtlFreeUnicodeString( &SymbolName );
     if (NT_SUCCESS( Status )) {
         return TRUE;
         }
@@ -1298,21 +1532,219 @@ FindTokenMapping(
     )
 {
     NTSTATUS Status;
-    STRING AtomName;
-    ULONG AtomValue;
+    ANSI_STRING AnsiString;
+    UNICODE_STRING SymbolName;
+    ULONG SymbolValue;
 
-    RtlInitString( &AtomName, String );
+    RtlInitString( &AnsiString, String );
+    Status = RtlAnsiStringToUnicodeString( &SymbolName, &AnsiString, TRUE );
+    if (!NT_SUCCESS( Status )) {
+        return NULL;
+        }
 
-    Status = BaseRtlLookupAtomInAtomTable( AtomTableHandle,
-                                           &AtomName,
-                                           &AtomValue,
-                                           NULL
-                                         );
+    Status = LookupSymbolInSymbolTable( SymbolTableHandle,
+                                        &SymbolName,
+                                        &SymbolValue,
+                                        NULL
+                                      );
+    RtlFreeUnicodeString( &SymbolName );
     if (NT_SUCCESS( Status )) {
-        return (char *)AtomValue;
+        return (char *)SymbolValue;
         }
     else {
         return NULL;
         }
 }
-
+
+
+typedef struct _SYMBOL_TABLE_ENTRY {
+    struct _SYMBOL_TABLE_ENTRY *HashLink;
+    ULONG Value;
+    UNICODE_STRING Name;
+} SYMBOL_TABLE_ENTRY, *PSYMBOL_TABLE_ENTRY;
+
+typedef struct _SYMBOL_TABLE {
+    ULONG NumberOfBuckets;
+    PSYMBOL_TABLE_ENTRY Buckets[1];
+} SYMBOL_TABLE, *PSYMBOL_TABLE;
+
+NTSTATUS
+CreateSymbolTable(
+    IN ULONG NumberOfBuckets,
+    IN ULONG MaxSymbolTableSize,
+    OUT PVOID *SymbolTableHandle
+    )
+{
+    NTSTATUS Status;
+    PSYMBOL_TABLE p;
+    ULONG Size;
+
+    RtlLockHeap( GetProcessHeap() );
+
+    if (*SymbolTableHandle == NULL) {
+        Size = sizeof( SYMBOL_TABLE ) +
+               (sizeof( SYMBOL_TABLE_ENTRY ) * (NumberOfBuckets-1));
+
+        p = (PSYMBOL_TABLE)RtlAllocateHeap( GetProcessHeap(), 0, Size );
+        if (p == NULL) {
+            Status = STATUS_NO_MEMORY;
+            }
+        else {
+            RtlZeroMemory( p, Size );
+            p->NumberOfBuckets = NumberOfBuckets;
+            *SymbolTableHandle = p;
+            }
+        }
+    else {
+        Status = STATUS_SUCCESS;
+        }
+
+    RtlUnlockHeap( GetProcessHeap() );
+
+    return( Status );
+}
+
+
+PSYMBOL_TABLE_ENTRY
+BasepHashStringToSymbol(
+    IN PSYMBOL_TABLE p,
+    IN PUNICODE_STRING Name,
+    OUT PSYMBOL_TABLE_ENTRY **PreviousSymbol
+    )
+{
+    ULONG n, Hash;
+    WCHAR c;
+    PWCH s;
+    PSYMBOL_TABLE_ENTRY *pps, ps;
+
+    n = Name->Length / sizeof( c );
+    s = Name->Buffer;
+    if ( fCaseSensitive ) {
+        Hash = 0;
+        while (n--) {
+            c = *s++;
+            Hash = Hash + (c << 1) + (c >> 1) + c;
+            }
+    } else {
+        Hash = 0;
+        while (n--) {
+            c = RtlUpcaseUnicodeChar( *s++ );
+            Hash = Hash + (c << 1) + (c >> 1) + c;
+            }
+    }
+
+    pps = &p->Buckets[ Hash % p->NumberOfBuckets ];
+    while (ps = *pps) {
+        if (RtlEqualUnicodeString( &ps->Name, Name, (BOOLEAN)!fCaseSensitive )) {
+            break;
+            }
+        else {
+            pps = &ps->HashLink;
+            }
+        }
+
+    *PreviousSymbol = pps;
+    return( ps );
+}
+
+
+NTSTATUS
+AddSymbolToSymbolTable(
+    IN PVOID SymbolTableHandle,
+    IN PUNICODE_STRING SymbolName,
+    IN PULONG SymbolValue OPTIONAL,
+    OUT PULONG Symbol OPTIONAL
+    )
+{
+    NTSTATUS Status;
+    PSYMBOL_TABLE p = (PSYMBOL_TABLE)SymbolTableHandle;
+    PSYMBOL_TABLE_ENTRY ps, *pps;
+    ULONG Value;
+
+    if (ARGUMENT_PRESENT( SymbolValue )) {
+        Value = *SymbolValue;
+        }
+    else {
+        Value = 0;
+        }
+
+    Status = STATUS_SUCCESS;
+
+    RtlLockHeap( GetProcessHeap() );
+    try {
+        ps = BasepHashStringToSymbol( p, SymbolName, &pps );
+        if (ps == NULL) {
+            ps = RtlAllocateHeap( GetProcessHeap(), 0, (sizeof( *ps ) + SymbolName->Length) );
+            if (ps != NULL) {
+                ps->HashLink = NULL;
+                ps->Value = Value;
+                ps->Name.Buffer = (PWSTR)(ps + 1);
+                ps->Name.Length = SymbolName->Length;
+                ps->Name.MaximumLength = (USHORT)(SymbolName->Length + sizeof( UNICODE_NULL ));
+                RtlMoveMemory( ps->Name.Buffer, SymbolName->Buffer, SymbolName->Length );
+                *pps = ps;
+                }
+            else {
+                Status = STATUS_NO_MEMORY;
+                }
+            }
+
+        else {
+            Status = STATUS_OBJECT_NAME_EXISTS;
+            }
+        }
+    except (EXCEPTION_EXECUTE_HANDLER) {
+        Status = GetExceptionCode();
+        }
+
+    RtlUnlockHeap( GetProcessHeap() );
+
+    if (NT_SUCCESS( Status ) && ARGUMENT_PRESENT( Symbol )) {
+        *Symbol = (ULONG)ps;
+        }
+
+    return( Status );
+}
+
+NTSTATUS
+LookupSymbolInSymbolTable(
+    IN PVOID SymbolTableHandle,
+    IN PUNICODE_STRING SymbolName,
+    OUT PULONG SymbolValue OPTIONAL,
+    OUT PULONG Symbol OPTIONAL
+    )
+{
+    NTSTATUS Status;
+    PSYMBOL_TABLE p = (PSYMBOL_TABLE)SymbolTableHandle;
+    PSYMBOL_TABLE_ENTRY ps, *pps;
+    ULONG Value;
+
+    RtlLockHeap( GetProcessHeap() );
+    try {
+        ps = BasepHashStringToSymbol( p, SymbolName, &pps );
+        if (ps == NULL) {
+            Status = STATUS_OBJECT_NAME_NOT_FOUND;
+            Value = 0;
+            }
+        else {
+            Status = STATUS_SUCCESS;
+            Value = ps->Value;
+            }
+        }
+    except (EXCEPTION_EXECUTE_HANDLER) {
+        Status = GetExceptionCode();
+        }
+    RtlUnlockHeap( GetProcessHeap() );
+
+    if (NT_SUCCESS( Status )) {
+        if (ARGUMENT_PRESENT( Symbol )) {
+            *Symbol = (ULONG)ps;
+            }
+
+        if (ARGUMENT_PRESENT( SymbolValue )) {
+            *SymbolValue = Value;
+            }
+        }
+
+    return( Status );
+}

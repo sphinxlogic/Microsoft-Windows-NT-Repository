@@ -248,7 +248,7 @@ CV_typ_t _fastcall C6GetCompactedIndexRecur (CV_typ_t OldIndex)
 
 		case OLF_PARAMETER:
 		{
-			OldEntry->CompactedIndex = C6GetCompactedIndexRecur (*(CV_typ_t *)(OldEntry->TypeString + 5));
+			OldEntry->CompactedIndex = C6GetCompactedIndexRecur (*(CV_typ_t UNALIGNED *)(OldEntry->TypeString + 5));
 			OldEntry->flags.IsParameter = TRUE;
 			break;
 		}

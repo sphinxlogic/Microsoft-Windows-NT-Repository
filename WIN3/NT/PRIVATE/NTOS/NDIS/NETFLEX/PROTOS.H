@@ -26,6 +26,7 @@
 #ifndef _PROTOS_
 #define _PROTOS_
 
+
 NDIS_STATUS
 NetFlexBoardTest(
     PACB acb,
@@ -38,9 +39,10 @@ NetFlexBoardInitandReg(
     PNDIS_EISA_FUNCTION_INFORMATION EisaData
     );
 
-NDIS_STATUS
+
+VOID
 NetFlexSetupNetType(
-    PACB acb
+    PACB            acb
     );
 
 VOID
@@ -109,6 +111,11 @@ NetFlexDisableInterrupt(
 
 VOID
 NetFlexHalt(
+    IN NDIS_HANDLE MiniportAdapterContext
+    );
+
+VOID
+NetFlexShutdown(
     IN NDIS_HANDLE MiniportAdapterContext
     );
 
@@ -234,20 +241,6 @@ NetFlexInitializeAdapter(
     );
 
 NDIS_STATUS
-NetFlexDeleteMulticast(
-    PACB            acb,
-    PMULTI_TABLE    mt,
-    PBOOLEAN        RemovedOne
-    );
-
-NDIS_STATUS
-NetFlexAddMulticast(
-    PACB        acb,
-    PUCHAR      addr,
-    PBOOLEAN    AddedOne
-    );
-
-NDIS_STATUS
 NetFlexProcessRequest(
     PACB acb
     );
@@ -268,13 +261,6 @@ NetFlexAsciiToHex(
     PUCHAR dst,
     USHORT dst_length
     );
-
-NDIS_STATUS
-NetFlexValidate_Multicasts(
-    PUCHAR multiaddrs,
-    USHORT multinumber
-    );
-
 
 VOID
 FASTCALL
@@ -422,6 +408,8 @@ NetFlexDequeue_TwoPtrQ_Head(
 
 #if (DBG || DBGPRINT)
 extern ULONG DebugLevel;
+
+
 VOID
 _DebugPrint(
     PCCHAR DebugMessage,

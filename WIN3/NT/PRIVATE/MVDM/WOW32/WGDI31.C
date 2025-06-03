@@ -15,6 +15,7 @@
 #include "precomp.h"
 #pragma hdrstop
 #include <drivinit.h>
+#include "wowgdip.h"
 
 MODNAME(wgdi31.c);
 
@@ -25,6 +26,10 @@ MODNAME(wgdi31.c);
 #define NOFIRSTSAVE     0x7FFFFFFE
 #define ADD_MSTT        0x7FFFFFFD
 
+// located in wgdi.c
+extern void SendFormFeedHack(HDC hdc);
+extern void RemoveFormFeedHack(HDC hdc);
+
 
 ULONG FASTCALL WG32AbortDoc(PVDMFRAME pFrame)
 {
@@ -32,6 +37,11 @@ ULONG FASTCALL WG32AbortDoc(PVDMFRAME pFrame)
     register PABORTDOC16 parg16;
 
     GETARGPTR(pFrame, sizeof(ABORTDOC16), parg16);
+
+    // remove any buffered data streams.
+    if(CURRENTPTD()->dwWOWCompatFlagsEx & WOWCFEX_FORMFEEDHACK) {
+        RemoveFormFeedHack(HDC32(parg16->f1));
+    }
 
     ul = GETINT16(AbortDoc(HDC32(parg16->f1)));
 
@@ -81,6 +91,11 @@ ULONG FASTCALL WG32EndDoc(PVDMFRAME pFrame)
     register PENDDOC16 parg16;
 
     GETARGPTR(pFrame, sizeof(ENDDOC16), parg16);
+
+    // send any buffered data streams to the printer.
+    if(CURRENTPTD()->dwWOWCompatFlagsEx & WOWCFEX_FORMFEEDHACK) {
+        SendFormFeedHack(HDC32(parg16->f1));
+    }
 
     ul = GETINT16(EndDoc(HDC32(parg16->f1)));
 
@@ -285,7 +300,7 @@ ULONG FASTCALL WG32GetGlyphOutline(PVDMFRAME pFrame)
         }
     }
 
-    ul = GETDWORD16(GetGlyphOutline(HDC32(parg16->f1),
+    ul = GETDWORD16(GetGlyphOutlineWow(HDC32(parg16->f1),
                                     WORD32(parg16->f2),
                                     WORD32(parg16->f3),
                                     parg16->f4 ? &Metrics : (GLYPHMETRICS*)NULL,
@@ -399,21 +414,83 @@ ULONG FASTCALL WG32GetRasterizerCaps(PVDMFRAME pFrame)
 }
 
 
+
+
+#define PUTEXTSIZE16(vp, lp)		   \
+{					   \
+    PSIZE16 p16;                           \
+    GETVDMPTR(vp, sizeof(SIZE16), p16);    \
+    if (((lp)->cx|(lp)->cy) & ~SHRT_MAX)   \
+    {					   \
+      if ((lp)->cx > SHRT_MAX)		   \
+	STORESHORT(p16->cx, SHRT_MAX);	   \
+      else				   \
+	STORESHORT(p16->cx, (lp)->cx);	   \
+      if ((lp)->cy > SHRT_MAX)		   \
+	STORESHORT(p16->cy, SHRT_MAX);	   \
+      else				   \
+	STORESHORT(p16->cy, (lp)->cy);	   \
+    }					   \
+    else				   \
+    {					   \
+      STORESHORT(p16->cx, (lp)->cx);       \
+      STORESHORT(p16->cy, (lp)->cy);	   \
+    }					   \
+    FREEVDMPTR(p16);                       \
+}
+
+
 ULONG FASTCALL WG32GetTextExtentPoint(PVDMFRAME pFrame)
 {
     ULONG    ul;
     PSZ      lpString;
     SIZE     Size;
     register PGETTEXTEXTENTPOINT16 parg16;
+    HDC hDC32;
+    HDC hDCMenu = NULL;
+    HGDIOBJ hOldFont;
+    HGDIOBJ hFont = NULL;
+    NONCLIENTMETRICS ncm;
+    PTD ptd = CURRENTPTD();
 
     GETARGPTR(pFrame, sizeof(GETTEXTEXTENTPOINT16), parg16);
     GETPSZPTR(parg16->f2, lpString);
 
-    ul = GETBOOL16(GetTextExtentPoint(HDC32(parg16->f1),
+    hDC32 = HDC32(parg16->f1);
+    
+// WP tutorial assumes that the font selected in the hDC for desktop window
+// (ie, result of GetDC(NULL)) is the same font as the font selected for 
+// drawing the menu. Unfortunetly in SUR this is not true as the user can
+// select any font for the menu. So we remember the hDC returned for GetDC(0)
+// and check for it in GetTextExtentPoint. If the app does try to use it we
+// find the hDC for the current menu window and substitute that. When the app
+// does another GetDC or ReleaseDC we forget the hDC returned for the original
+// GetDC(0).
+    if ((ptd->dwWOWCompatFlagsEx & WOWCFEX_FIXDCFONT4MENUSIZE) &&
+        (parg16->f1 == ptd->ulLastDesktophDC) &&
+        ((hDCMenu = GetDC(NULL)) != NULL) &&
+        ((ncm.cbSize = sizeof(NONCLIENTMETRICS)) != 0) &&
+        (SystemParametersInfo(SPI_GETNONCLIENTMETRICS, 0, (PVOID)&ncm, 0)) &&
+        ((hFont = CreateFontIndirect(&(ncm.lfMenuFont))) != NULL)) {
+            hOldFont = SelectObject(hDCMenu, hFont);
+	    hDC32 = hDCMenu;
+    }
+    
+    ul = GETBOOL16(GetTextExtentPoint(hDC32,
                                       lpString,
                                       INT32(parg16->f3),
                                       &Size));
-    PUTSIZE16(parg16->f4, &Size);
+			      
+    if (hFont != NULL) {
+        SelectObject(hDCMenu, hOldFont);
+	DeleteObject(hFont);
+    }
+    
+    if (hDCMenu != NULL) {
+        ReleaseDC(NULL, hDCMenu);
+    }
+    
+    PUTEXTSIZE16(parg16->f4, &Size);
 
     FREEARGPTR(parg16);
 
@@ -602,7 +679,12 @@ ULONG FASTCALL WG32ResetDC(PVDMFRAME pFrame)
 
     GETARGPTR(pFrame, sizeof(RESETDC16), parg16);
 
-    if( lpInitData = GetDevMode32(parg16->f2) ) {
+    if( lpInitData = ThunkDevMode16to32(FETCHDWORD(parg16->f2)) ) {
+
+        // send any buffered data streams.
+        if(CURRENTPTD()->dwWOWCompatFlagsEx & WOWCFEX_FORMFEEDHACK) {
+            SendFormFeedHack(HDC32(parg16->f1));
+        }
 
         ul = GETHDC16(ResetDC(HDC32(parg16->f1), lpInitData));
 
@@ -881,6 +963,9 @@ ULONG FASTCALL WG32StartDoc(PVDMFRAME pFrame)
     GETPSZPTR(vpDocName, DocInfo.lpszDocName);
     GETPSZPTR(vpOutput, DocInfo.lpszOutput);
 
+    DocInfo.lpszDatatype = NULL;
+    DocInfo.fwType       = 0;
+
     FREEVDMPTR(pdi16);
 
     ul = GETINT16(StartDoc(HDC32(parg16->f1), &DocInfo));
@@ -891,17 +976,17 @@ ULONG FASTCALL WG32StartDoc(PVDMFRAME pFrame)
 
         if ((l = ExtEscape(HDC32(parg16->f1),
                                     GETTECHNOLOGY,
-                                    NULL,
+                                    0,
                                     NULL,
                                     sizeof(szBuf),
                                     szBuf)) > 0) {
 
-            if (!lstrcmpi(szBuf, "POSTSCRIPT")) {
+            if (!_stricmp(szBuf, szPostscript)) {
                 l = ExtEscape(HDC32(parg16->f1),
                         NOFIRSTSAVE,
+                        0,
                         NULL,
-                        NULL,
-                        NULL,
+                        0,
                         NULL);
 
                 // This HACK is for FH4.0 only. If you have any questions
@@ -911,9 +996,9 @@ ULONG FASTCALL WG32StartDoc(PVDMFRAME pFrame)
                 if (CURRENTPTD()->dwWOWCompatFlags & WOWCF_ADD_MSTT) {
                     l = ExtEscape(HDC32(parg16->f1),
                         ADD_MSTT,
+                        0,
                         NULL,
-                        NULL,
-                        NULL,
+                        0,
                         NULL);
                 }
             }
@@ -932,7 +1017,6 @@ ULONG FASTCALL WG32StartPage(PVDMFRAME pFrame)
 {
     ULONG    ul;
     register PSTARTPAGE16 parg16;
-    char szBuf[80];
 
     GETARGPTR(pFrame, sizeof(STARTPAGE16), parg16);
 

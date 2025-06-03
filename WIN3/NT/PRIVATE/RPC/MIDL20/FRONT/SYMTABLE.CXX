@@ -6,7 +6,7 @@
 /*
 
 symtable.cxx
-MIDL Compiler Symbol Table Implementation 
+MIDL Compiler Symbol Table Implementation
 
 This class centralizes access to the symbol table throughout the
 compiler.
@@ -31,8 +31,11 @@ extern "C" {
 #include "common.hxx"
 #include "errors.hxx"
 #include "symtable.hxx"
+#include "tlgen.hxx"
 
+BOOL gfCaseSensitive = TRUE; // initialize things under case sensitive mode
 
+CaseStack gCaseStack;
 
 class named_node;
 
@@ -101,17 +104,34 @@ public:
 		return pNextScope;
 		}
 
-	void	*	operator new ( size_t size )
-					{
-					return AllocateOnceNew( size );
-					}
-	void		operator delete( void * ptr )
-					{
-					AllocateOnceDelete( ptr );
-					}
+// here is the use of the private memory allocator
+private:
+
+	static
+	FreeListMgr				MyFreeList;
+	
+
+public:
+
+
+	void		*			operator new (size_t size)
+								{
+								return (MyFreeList.Get (size));
+								}
+
+	void 					operator delete (void * pX)
+								{
+								MyFreeList.Put (pX);
+								}
 
 
 } ;
+
+
+// initialize the memory allocator for SymEntry
+
+FreeListMgr
+SymEntry::MyFreeList( sizeof ( SymEntry ) );
 
 /**********************************************************************\
 
@@ -130,7 +150,7 @@ HISTORY:
 
 \**********************************************************************/
 
-void 
+void
 SymTable::Print(
 	void * sym
 	)
@@ -171,16 +191,16 @@ SymTable::Compare(
 
 #ifdef unique_lextable
 	// compare pointers into lex table
-	result = 	( (int)((SymKey *)sym1)->name ) 
+	result = 	( (int)((SymKey *)sym1)->name )
 			-	( (int)((SymKey *)sym2)->name );
 #else
 	// compare names from keys
-	result = strcmp(((SymKey *)sym1)->name, 
+	result = strcmp(((SymKey *)sym1)->name,
 					((SymKey *)sym2)->name);
 #endif // unique_lextable
 	if (!result)
 		{
-		return ( ( ((SymKey *)sym1)->kind & NAME_MASK )- 
+		return ( ( ((SymKey *)sym1)->kind & NAME_MASK )-
 				 ( ((SymKey *)sym2)->kind & NAME_MASK ) );
 		}
 	else
@@ -219,11 +239,31 @@ SymTable::SymInsert(
 	Dict_Status	Status;
 
 	NewSymbol = new SymEntry(NewKey, pNext, pNode);
-	Status = Dict_Insert(NewSymbol);
-	if (Status == SUCCESS )
+
+    CaselessEntry * NewEntry = new CaselessEntry(NewSymbol);
+
+    if (!gfCaseSensitive)
+    {
+        if (NULL != caseless_list.Find(NewEntry))
+        {
+            // it's allready entered into the caseless table
+            // and we're in case insensitive mode so we
+            // should fail here (duplicate identifier)
+            delete NewSymbol;
+            delete NewEntry;
+            return NULL;
+        }
+    }
+
+    Status = Dict_Insert(NewSymbol);
+	if (Status == SUCCESS)
+    {
+        caseless_list.Add(NewEntry);
 		return pNode;
+    }
 
 	delete NewSymbol;
+    delete NewEntry;
 	return (named_node *)0;
 }
 
@@ -249,12 +289,27 @@ SymTable::SymDelete(
 	SymKey	OldKey
 	)
 {
-	SymEntry	TempEntry( OldKey );
-	SymEntry *	OldSymbol = &TempEntry;
-	named_node *	pNode;
-	Dict_Status	Status;
+    SymEntry	TempEntry( OldKey );
 
-	Status = Dict_Delete((void ** )&OldSymbol);
+    CaselessEntry * OldEntry = new CaselessEntry(&TempEntry);
+    SymEntry * OldSymbol;
+
+    // make sure we delete the right symbol from both tables
+    if (!gfCaseSensitive)
+    {
+        OldSymbol = (caseless_list.Delete(OldEntry))->pSymEntry;
+    }
+    else
+    {
+        OldSymbol = &TempEntry;
+        caseless_list.DeleteExact(OldEntry);
+    }
+
+	named_node *	pNode;
+    Dict_Status	Status;
+
+    Status = Dict_Delete((void ** )&OldSymbol);
+
 	if (Status == SUCCESS)
 		{
 		pNode = OldSymbol->GetTypeGraph();
@@ -295,15 +350,32 @@ SymTable::SymSearch(
 {
 	Dict_Status	Status;
 
-	Status = Dict_Find(&OldKey);
-	if (Status == SUCCESS)
-		{
-		return ((SymEntry * )Dict_Curr_Item())->GetTypeGraph();
-		}
-	else
-		{
-		return (named_node *)0;
-		}
+    if (gfCaseSensitive)
+    {
+	    Status = Dict_Find(&OldKey);
+	    if (Status == SUCCESS)
+		    {
+    		return ((SymEntry * )Dict_Curr_Item())->GetTypeGraph();
+		    }
+	    else
+		    {						
+			return NULL;
+		    }
+    }
+    else
+    {
+        SymEntry TempEntry(OldKey);
+        CaselessEntry OldEntry(&TempEntry);
+        CaselessEntry * pFound = caseless_list.Find(&OldEntry);
+        if (pFound)
+        {
+            return pFound->pSymEntry->GetTypeGraph();
+        }
+        else
+        {
+			return NULL;
+        }
+    }
 }
 
 /**********************************************************************\
@@ -392,3 +464,334 @@ SymTable::ExitScope(
 		}
 }
 
+/**********************************************************************\
+
+NAME:		SymTable::DiscardScope
+
+SYNOPSIS:	Discard all entries in the current scope (if no fwds).
+
+ENTRY:
+
+EXIT:		.
+
+NOTES:
+
+HISTORY:
+
+\**********************************************************************/
+
+void
+SymTable::DiscardScope()
+{
+	// do nothing if there are forwards
+	if ( fHasFwds )
+		return;
+
+	SymEntry	*	pCurrent;
+
+	// delete all the SymEntry's in this scope
+	while ( pCurrent = (SymEntry *) Dict_Delete_One() )
+		{
+		delete pCurrent;
+		}
+
+}
+
+CaselessEntry::CaselessEntry(SymEntry * pItem)
+{
+    pSymEntry = pItem;
+    // compute the hash value
+    hash = 0;
+    char ch;
+    unsigned u = 0;
+    while (0 != (ch = pSymEntry->name[u++]))
+    {
+        hash += ch | 32; // makes sure the hash value is case insensitive
+    };
+}
+
+int CaselessEntry::Compare(CaselessEntry * pEntry2)
+{
+    int rval = hash - pEntry2->hash;
+    if (0 == rval)
+    {
+        rval = _stricmp(pSymEntry->name, pEntry2->pSymEntry->name);
+        if (0 == rval)
+        {
+            rval = pSymEntry->kind - pEntry2->pSymEntry->kind;
+        }
+    }
+    return rval;
+}
+
+CaselessEntry * CaselessList::Add(CaselessEntry * pEl)
+{
+    CaselessListElement * pNew = new CaselessListElement(pEl);
+    pNew->pNext = pHead;
+    pHead = pNew;
+    return pEl;
+}
+
+CaselessEntry * CaselessList::Find(CaselessEntry * pEntry)
+{
+    CaselessListElement * pThis = pHead;
+    while (pThis && 0 != pThis->pEntry->Compare(pEntry))
+    {
+        pThis = pThis->pNext;
+    }
+    if (pThis != NULL)
+        return pThis->pEntry;
+    else
+        return NULL;
+}
+
+CaselessEntry * CaselessList::Delete(CaselessEntry * pEntry)
+{
+    CaselessListElement ** ppThis = &pHead;
+    while (*ppThis)
+    {
+        if (0 == (*ppThis)->pEntry->Compare(pEntry))
+        {
+            CaselessListElement * pFound = *ppThis;
+            *ppThis = pFound->pNext;
+            CaselessEntry * pReturn = pFound->pEntry;
+            delete pFound;
+            return pReturn;
+        }
+        ppThis = &((*ppThis)->pNext);
+    }
+    return NULL;
+}
+
+CaselessList::~CaselessList()
+{
+    CaselessListElement * pNext;
+    while(pHead);
+    {
+        pNext = pHead->pNext;
+        delete pHead;
+        pHead = pNext;
+    }
+}
+
+CaselessEntry * CaselessList::DeleteExact(CaselessEntry * pEntry)
+{
+    CaselessListElement ** ppThis = &pHead;
+    while (*ppThis)
+    {
+        if ((*ppThis)->pEntry->hash == pEntry->hash)
+        {
+            if (0 == strcmp((*ppThis)->pEntry->pSymEntry->name, pEntry->pSymEntry->name))
+            {
+                if ((*ppThis)->pEntry->pSymEntry->kind == pEntry->pSymEntry->kind)
+                {
+                    CaselessListElement * pFound = *ppThis;
+                    *ppThis = pFound->pNext;
+                    CaselessEntry * pReturn = pFound->pEntry;
+                    delete pFound;
+                    return pReturn;
+                }
+            }
+        }
+        ppThis = &((*ppThis)->pNext);
+    }
+    return NULL;
+}
+
+int
+CaselessDictionary::Compare(void * p1, void *p2)
+{
+    return ((CaselessEntry *)p1)->Compare((CaselessEntry *) p2);
+}
+
+/**********************************************************************\
+
+NAME:		GlobalSymTable::SymInsert
+
+SYNOPSIS:	Inserts a symbol into the symbol table.
+
+ENTRY:		NewKey	- identifies the symbol table entry.
+			pNext	- points to the next scope.
+			pNode	- points to the type graph.
+
+EXIT:
+
+NOTES:
+
+HISTORY:
+	Donnali		08-06-1991		Move to LM/90 UI Coding Style
+
+\**********************************************************************/
+
+named_node *
+GlobalSymTable::SymInsert(
+	SymKey		NewKey,
+	SymTable *	pNext,
+	named_node *	pNode
+	)
+{
+	SymEntry *	NewSymbol;
+	Dict_Status	Status;
+
+	NewSymbol = new SymEntry(NewKey, pNext, pNode);
+
+    CaselessEntry * NewEntry = new CaselessEntry(NewSymbol);
+
+    if (!gfCaseSensitive)
+    {
+        Status = pCaselessDictionary->Dict_Find(NewEntry);
+
+        if (SUCCESS == Status)
+        {
+            // it's allready entered into the caseless table
+            // and we're in case insensitive mode so we
+            // should fail here (duplicate identifier)
+            delete NewSymbol;
+            delete NewEntry;
+            return NULL;
+        }
+    }
+
+    Status = Dict_Insert(NewSymbol);
+	if (Status == SUCCESS)
+    {
+        Status = pCaselessDictionary->Dict_Insert(NewEntry);
+        if (SUCCESS != Status)
+        {
+            // We must be in case sensitive mode otherwise the
+            // Dict_Find above would have succeeded and we would
+            // have already returned failure to the caller.
+            // Therefore, it doesn't really matter that this name
+            // won't have an entry in the caseless table.  Just
+            // clean up the new entry and move on.
+            delete NewEntry;
+
+        }
+		return pNode;
+    }
+
+	delete NewSymbol;
+    delete NewEntry;
+	return (named_node *)0;
+}
+
+/**********************************************************************\
+
+NAME:		GlobalSymTable::SymDelete
+
+SYNOPSIS:	Deletes a symbol from the symbol table.
+
+ENTRY:		OldKey	- identifies the symbol table entry.
+
+EXIT:		Returns the type graph associated with the entry.
+
+NOTES:      This operation could potentially screw up the case insensitive
+            table because there is no guarantee that the symbol removed
+            from the case insensitive table will match the symbol removed
+            from the case sensitive table.  However, since MIDL always
+            re-adds the symbol to the symbol table immediately after
+            deleting it (deletions only serve to replace forward references)
+            it will effectively correct any inconsistencies between the
+            two tables when it re-adds the symbol.
+
+HISTORY:
+	Donnali		08-06-1991		Move to LM/90 UI Coding Style
+
+\**********************************************************************/
+
+named_node *
+GlobalSymTable::SymDelete(
+	SymKey	OldKey
+	)
+{
+    SymEntry	TempEntry( OldKey );
+
+    CaselessEntry * OldEntry = new CaselessEntry(&TempEntry);
+    SymEntry * OldSymbol;
+
+    Dict_Status	Status;
+
+    Status = pCaselessDictionary->Dict_Delete((void **)&OldEntry);
+
+    if (!gfCaseSensitive && SUCCESS == Status)
+    {
+        // make sure we delete the same symbol from the case
+        // sensitive table
+        OldSymbol = OldEntry->pSymEntry;
+    }
+    else
+    {
+        OldSymbol = &TempEntry;
+    }
+
+	named_node *	pNode;
+
+    Status = Dict_Delete((void ** )&OldSymbol);
+
+	if (Status == SUCCESS)
+		{
+		pNode = OldSymbol->GetTypeGraph();
+		delete OldSymbol;
+#ifdef gajdebug3
+			printf("\t\t--- deleting name from symbol table: %d - %s\n",
+					OldKey.GetKind(), OldKey.GetString());
+#endif
+		return pNode;
+		}
+	else
+		{
+		return (named_node *)0;
+		}
+}
+
+/**********************************************************************\
+
+NAME:		GlobalSymTable::SymSearch
+
+SYNOPSIS:	Searches the symbol table for a symbol.
+
+ENTRY:		OldKey	- identifies the symbol table entry.
+
+EXIT:		Returns the type graph associated with the entry.
+
+NOTES:
+
+HISTORY:
+	Donnali		08-06-1991		Move to LM/90 UI Coding Style
+
+\**********************************************************************/
+
+named_node *
+GlobalSymTable::SymSearch(
+	SymKey	OldKey
+	)
+{
+	Dict_Status	Status;
+
+    if (gfCaseSensitive)
+    {
+	    Status = Dict_Find(&OldKey);
+	    if (Status == SUCCESS)
+		    {
+    		return ((SymEntry * )Dict_Curr_Item())->GetTypeGraph();
+		    }
+	    else
+		    {
+			return NULL;
+		    }
+        }
+        else
+    {
+        SymEntry TempEntry(OldKey);
+        CaselessEntry OldEntry(&TempEntry);
+        Status = pCaselessDictionary->Dict_Find(&OldEntry);
+        if (Status == SUCCESS)
+        {
+            return ((CaselessEntry *)(pCaselessDictionary->Dict_Curr_Item()))->pSymEntry->GetTypeGraph();
+        }
+        else
+        {
+			return NULL;
+        }
+    }
+}

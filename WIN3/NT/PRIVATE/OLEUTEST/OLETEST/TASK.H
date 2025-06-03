@@ -12,6 +12,7 @@
 //  Functions:
 //
 //  History:    dd-mmm-yy Author    Comment
+//              12-Jan-95 t-ScottH  added RunTestOnThread
 //		06-Feb-94 alexgo    author
 //
 //--------------------------------------------------------------------------
@@ -51,6 +52,9 @@ void RunTest(void *);
 // runs all the tests currently built into the driver program
 void RunAllTests(void *);
 
+// run the given test function as a new thread
+void    RunTestOnThread(void *pvArg);
+
 // handles the test completion message
 void HandleTestEnd(void);
 
@@ -59,4 +63,3 @@ void HandleTestsCompleted(void);
 
 #endif //!_TASK_H
 
-

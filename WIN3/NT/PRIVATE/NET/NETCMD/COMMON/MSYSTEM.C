@@ -87,7 +87,8 @@ MGetDateTime(
 
 WORD
 MSetDateTime(
-    PDATETIME pDateTime
+    PDATETIME pDateTime,
+    BOOL      LocalTime
     )
 {
     SYSTEMTIME                 Date_And_Time;
@@ -107,10 +108,18 @@ MSetDateTime(
     privileges[0] = SE_SYSTEMTIME_PRIVILEGE;
     status = NetpGetPrivilege(1,privileges);
     if (status != NO_ERROR) 
-	return(ERROR_ACCESS_DENIED) ; 	 // report as access denied
+	    return(ERROR_ACCESS_DENIED) ; 	 // report as access denied
 
-    if (!SetSystemTime(&Date_And_Time)) 
-        return(LOWORD(GetLastError()));
+    if (LocalTime)
+    {
+        if (!SetLocalTime(&Date_And_Time)) 
+            return(LOWORD(GetLastError()));
+    }
+    else 
+    {
+        if (!SetSystemTime(&Date_And_Time)) 
+            return(LOWORD(GetLastError()));
+    }
 
     (VOID)NetpReleasePrivilege();
     

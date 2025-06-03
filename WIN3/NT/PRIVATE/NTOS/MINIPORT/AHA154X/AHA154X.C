@@ -15,6 +15,7 @@ Author:
     Mike Glass
     Tuong Hoang (Adaptec)
     Renato Maranon (Adaptec)
+        Bill Williams (Adaptec)
 
 Environment:
 
@@ -116,11 +117,24 @@ typedef struct _HW_DEVICE_EXTENSION {
     UCHAR CcbInitiatorCommand;
 
     //
+    // Don't send CDB's longer than this to any device on the bus
+    // Ignored if the value is 0
+    //
+
+    UCHAR MaxCdbLength;
+
+    //
     // Real Mode adapter config info
     //
 
     RM_CFG RMSaveState;
 
+        #if defined(_SCAM_ENABLED)
+        //
+        // SCAM boolean, set to TRUE if miniport must control SCAM operation.
+        //
+        BOOLEAN PerformScam;
+        #endif
 
 } HW_DEVICE_EXTENSION, *PHW_DEVICE_EXTENSION;
 
@@ -150,7 +164,7 @@ ULONG
 A154xDetermineInstalled(
     IN PHW_DEVICE_EXTENSION HwDeviceExtension,
     IN OUT PPORT_CONFIGURATION_INFORMATION ConfigInfo,
-    IN OUT PULONG AdapterCount,
+    IN OUT PSCAN_CONTEXT Context,
     OUT PBOOLEAN Again
     );
 
@@ -158,14 +172,15 @@ A154xDetermineInstalled(
 VOID
 A154xClaimBIOSSpace(
     IN PHW_DEVICE_EXTENSION HwDeviceExtension,
-    PBASE_REGISTER baseIoAddress,
+    IN PBASE_REGISTER baseIoAddress,
+    IN PSCAN_CONTEXT Context,
     IN OUT PPORT_CONFIGURATION_INFORMATION ConfigInfo
     );
 
 ULONG
 A154xFindAdapter(
     IN PVOID HwDeviceExtension,
-    IN PVOID Context,
+    IN PSCAN_CONTEXT Context,
     IN PVOID BusInformation,
     IN PCHAR ArgumentString,
     IN OUT PPORT_CONFIGURATION_INFORMATION ConfigInfo,
@@ -185,6 +200,16 @@ BOOLEAN
 A154xHwInitialize(
     IN PVOID DeviceExtension
     );
+
+#if defined(_SCAM_ENABLED)
+//
+// Issues SCAM command to HA
+//
+BOOLEAN
+PerformScamProtocol(
+    IN PHW_DEVICE_EXTENSION DeviceExtension
+    );
+#endif
 
 BOOLEAN
 A154xStartIo(
@@ -330,7 +355,7 @@ Return Value:
 
 {
     HW_INITIALIZATION_DATA hwInitializationData;
-    ULONG adapterCount;
+    SCAN_CONTEXT context;
     ULONG isaStatus;
     ULONG mcaStatus;
     ULONG i;
@@ -393,9 +418,10 @@ Return Value:
     // which adapter addresses have been tested.
     //
 
-    adapterCount = 0;
+    context.adapterCount = 0;
+    context.biosScanStart = 0;
 
-    isaStatus = ScsiPortInitialize(DriverObject, Argument2, &hwInitializationData, &adapterCount);
+    isaStatus = ScsiPortInitialize(DriverObject, Argument2, &hwInitializationData, &context);
 
     //
     // Now try to configure for the Mca bus.
@@ -403,8 +429,9 @@ Return Value:
     //
 
     hwInitializationData.AdapterInterfaceType = MicroChannel;
-    adapterCount = 0;
-    mcaStatus = ScsiPortInitialize(DriverObject, Argument2, &hwInitializationData, &adapterCount);
+    context.adapterCount = 0;
+    context.biosScanStart = 0;
+    mcaStatus = ScsiPortInitialize(DriverObject, Argument2, &hwInitializationData, &context);
 
     //
     // Return the smaller status.
@@ -418,7 +445,7 @@ Return Value:
 ULONG
 A154xFindAdapter(
     IN PVOID HwDeviceExtension,
-    IN PVOID Context,
+    IN PSCAN_CONTEXT Context,
     IN PVOID BusInformation,
     IN PCHAR ArgumentString,
     IN OUT PPORT_CONFIGURATION_INFORMATION ConfigInfo,
@@ -453,6 +480,13 @@ Return Value:
     UCHAR dmaChannel;
     UCHAR irq;
     UCHAR bit;
+    UCHAR hostAdapterId[4];
+
+#if defined(_SCAM_ENABLED)
+    UCHAR temp, i;
+        UCHAR BoardID;
+        UCHAR EepromData;
+#endif
 
     //
     // Determine if there are any adapters installed.  Determine installed
@@ -575,8 +609,14 @@ Return Value:
     if ((ConfigInfo->MaximumTransferLength+1) == 0)
         ConfigInfo->MaximumTransferLength = MAX_TRANSFER_SIZE;
 
+        //
+        // NumberOfPhysicalBreaks incorrectly defined.
+        // Must be set to MAX_SG_DESCRIPTORS.
+        //
+
     if ((ConfigInfo->NumberOfPhysicalBreaks+1) == 0)
-        ConfigInfo->NumberOfPhysicalBreaks = MAX_SG_DESCRIPTORS - 1;
+        ConfigInfo->NumberOfPhysicalBreaks = MAX_SG_DESCRIPTORS;
+        //ConfigInfo->NumberOfPhysicalBreaks = MAX_SG_DESCRIPTORS - 1;
 
     if (!ConfigInfo->ScatterGather)
         ConfigInfo->ScatterGather = ScatterGatherSupported(HwDeviceExtension);
@@ -603,15 +643,13 @@ Return Value:
         // Log error.
         //
 
-        ScsiPortLogError(
-            deviceExtension,
-            NULL,
-            0,
-            0,
-            0,
-            SP_INTERNAL_ADAPTER_ERROR,
-            7 << 8
-            );
+        ScsiPortLogError(deviceExtension,
+                         NULL,
+                         0,
+                         0,
+                         0,
+                         SP_INTERNAL_ADAPTER_ERROR,
+                         7 << 8);
 
         return(SP_RETURN_ERROR);
     }
@@ -648,6 +686,126 @@ Return Value:
         }
     }
 
+    //
+    // Set maximum cdb length to zero unless the user has overridden the value
+    //
+
+    if( ArgumentString != NULL) {
+
+        length = AhaParseArgumentString(ArgumentString, "MAXCDBLENGTH");
+
+        //
+        // Validate the maximum cdb length before attempting to set it
+        //
+
+        if (length >= 6 && length <= 20) {
+
+            deviceExtension->MaxCdbLength = (UCHAR) length;
+            DebugPrint((1, "A154xFindAdapter: Setting maximum cdb length: %ld\n", length));
+        }
+
+    } else {
+
+        GetHostAdapterBoardId(HwDeviceExtension,&hostAdapterId[0]);
+
+        if(hostAdapterId[BOARD_ID] < 'E') {
+
+            deviceExtension->MaxCdbLength = 10;
+            DebugPrint((1, "A154xFindAdapter: Old firmware - Setting maximum cdb length: %ld\n", length));
+
+        } else {
+
+            length = deviceExtension->MaxCdbLength = 0;
+            DebugPrint((1, "A154xFindAdapter: Setting maximum cdb length: %ld\n", length));
+
+        }
+
+    }
+
+#if defined(_SCAM_ENABLED)
+        //
+        // Get info to determine if miniport must issues SCAM command.
+        //
+    DebugPrint((1,"A154x => Start SCAM enabled determination.", length));
+
+    deviceExtension->PerformScam = FALSE;
+
+    do {
+        //
+        // Fall through do loop if a command fails.
+        //
+        if (!WriteCommandRegister(deviceExtension,AC_ADAPTER_INQUIRY,FALSE)) {
+            break;
+        }
+
+        if ((ReadCommandRegister(deviceExtension,&BoardID,TRUE)) == FALSE) {
+            break;
+        }
+
+        //
+        // Don't care about three other bytes
+        //
+        for (i=0; i < 0x3; i++) {
+            if ((ReadCommandRegister(deviceExtension,&temp,TRUE)) == FALSE) {
+                            break;
+            }
+        }
+
+        SpinForInterrupt(HwDeviceExtension,FALSE);
+
+        //
+        // Check to see that three 'extra bytes' were read.
+        //
+        if (i != 0x3)
+            break;
+
+        if (BoardID >= 'F') {
+
+            if (!WriteCommandRegister(deviceExtension,AC_RETURN_EEPROM,FALSE)) {
+                break;
+            }
+
+            //
+            // Flag Byte => set returns configured options
+            //
+            if (!WriteCommandRegister(deviceExtension,0x01,FALSE)) {
+                break;
+            }
+            //
+            // Data length => reading one byte.
+            //
+            if (!WriteCommandRegister(deviceExtension,0x01,FALSE)) {
+                break;
+
+            }
+            //
+            // Data offset => read SCSI_BUS_CONTROL_FLAG
+            //
+            if (!WriteCommandRegister(deviceExtension,SCSI_BUS_CONTROL_FLAG,FALSE)) {
+                break;
+            }
+
+            //
+            // Read it!
+            //
+            if ((ReadCommandRegister(deviceExtension,&EepromData,TRUE)) == FALSE) {
+                break;
+            }
+
+            SpinForInterrupt(HwDeviceExtension,FALSE);
+
+            //
+            // SCAM only if it's enabled in SCSISelect.
+            //
+            if (EepromData | SCAM_ENABLED) {
+                DebugPrint((1,"A154x => SCAM Enabled\n"));
+                deviceExtension->PerformScam = TRUE;
+            }
+        }
+    } while (FALSE);
+
+#endif
+
     DebugPrint((3,"A154xFindAdapter: Configuration completed\n"));
     return SP_RETURN_FOUND;
 } // end A154xFindAdapter()
@@ -677,11 +835,11 @@ Arguments:
     HwDeviceExtension - HBA miniport driver's adapter data storage
     Context - Register base address
     SaveState - Flag to indicate whether to perform SAVE or RESTORE.
-				     TRUE == SAVE, FALSE == RESTORE.
+                                     TRUE == SAVE, FALSE == RESTORE.
 
 Return Value:
 
-    TRUE		SAVE/RESTORE operation was successful.
+    TRUE                SAVE/RESTORE operation was successful.
 
 --*/
 
@@ -939,7 +1097,7 @@ Return Values:
     // Wait for HACC interrupt.
     //
 
-    SpinForInterrupt(HwDeviceExtension,FALSE);	 // eddy
+    SpinForInterrupt(HwDeviceExtension,FALSE);   // eddy
 
 
     if ((specialOptions == 0x30) || (specialOptions == 0x42)) {
@@ -953,7 +1111,7 @@ ULONG
 A154xDetermineInstalled(
     IN PHW_DEVICE_EXTENSION HwDeviceExtension,
     IN OUT PPORT_CONFIGURATION_INFORMATION ConfigInfo,
-    IN OUT PULONG AdapterCount,
+    IN OUT PSCAN_CONTEXT Context,
     OUT PBOOLEAN Again
     )
 
@@ -963,7 +1121,7 @@ Routine Description:
 
     Determine if Adaptec 154X SCSI adapter is installed in system
     by reading the status register as each base I/O address
-    and looking for a pattern.	If an adapter is found, the BaseIoAddres is
+    and looking for a pattern.  If an adapter is found, the BaseIoAddres is
     initialized.
 
 Arguments:
@@ -1029,21 +1187,21 @@ Return Value:
         // Scan possible base addresses looking for adapters.
         //
 
-        while (AdapterAddresses[*AdapterCount] != 0) {
+        while (AdapterAddresses[Context->adapterCount] != 0) {
 
             //
             // Get next base address.
             //
 
-            baseIoAddress = (PBASE_REGISTER)(ioSpace + AdapterAddresses[*AdapterCount]);
+            baseIoAddress = (PBASE_REGISTER)(ioSpace + AdapterAddresses[Context->adapterCount]);
             HwDeviceExtension->BaseIoAddress = baseIoAddress;
-            ioPort = AdapterAddresses[*AdapterCount];
+            ioPort = AdapterAddresses[Context->adapterCount];
 
             //
             // Update the Adapter count
             //
 
-            (*AdapterCount)++;
+            (Context->adapterCount)++;
 
             //
             // Check to see if adapter present in system.
@@ -1059,7 +1217,7 @@ Return Value:
 
             if ((portValue & ~0x29) == IOP_SCSI_HBA_IDLE) {
 
-		if (!AdaptecAdapter(HwDeviceExtension, ioPort,
+                if (!AdaptecAdapter(HwDeviceExtension, ioPort,
                       (BOOLEAN)(ConfigInfo->AdapterInterfaceType == MicroChannel ? TRUE : FALSE))) {
 
                     DebugPrint((1,"A154xDetermineInstalled: Clone command completed successfully - \n not our board;"));
@@ -1071,7 +1229,7 @@ Return Value:
 
                 } else if (A4448IsAmi(HwDeviceExtension,
                                       ConfigInfo,
-                                      AdapterAddresses[(*AdapterCount) - 1])) {
+                                      AdapterAddresses[(Context->adapterCount) - 1])) {
 
                     DebugPrint ((1,
                                  "A154xDetermineInstalled: Detected AMI4448\n"));
@@ -1090,7 +1248,7 @@ Return Value:
 
                 (*ConfigInfo->AccessRanges)[0].RangeStart =
                     ScsiPortConvertUlongToPhysicalAddress(
-                        AdapterAddresses[*AdapterCount - 1]);
+                        AdapterAddresses[Context->adapterCount - 1]);
                 (*ConfigInfo->AccessRanges)[0].RangeLength = 4;
                 (*ConfigInfo->AccessRanges)[0].RangeInMemory = FALSE;
 
@@ -1099,7 +1257,9 @@ Return Value:
                 //
 
                 A154xClaimBIOSSpace(HwDeviceExtension,
-                                    baseIoAddress,ConfigInfo);
+                                    baseIoAddress,
+                                    Context,
+                                    ConfigInfo);
 
                 return (ULONG)SP_RETURN_FOUND;
             }
@@ -1113,7 +1273,8 @@ Return Value:
     //
 
     *Again = FALSE;
-    *(AdapterCount) = 0;
+    Context->adapterCount = 0;
+    Context->biosScanStart = 0;
 
     ScsiPortFreeDeviceBase(HwDeviceExtension,
                            ioSpace);
@@ -1125,7 +1286,8 @@ Return Value:
 VOID
 A154xClaimBIOSSpace(
     IN PHW_DEVICE_EXTENSION HwDeviceExtension,
-    PBASE_REGISTER  BaseIoAddress,
+    IN PBASE_REGISTER  BaseIoAddress,
+    IN OUT PSCAN_CONTEXT Context,
     IN OUT PPORT_CONFIGURATION_INFORMATION ConfigInfo
     )
 
@@ -1200,10 +1362,14 @@ Return Value:
 
     //
     // If the 1st bytethe adapter inquiry command is 0x41,
-    // then the adapter is an AHA154XB; if 0x44 it is an AHA154XC.
+    // then the adapter is an AHA154XB; if 0x44 or 0x45 then
+    // it is an AHA154XC or CF respectively
+    //
+    // if we've already checked all the possible locations for
+    // an AHA154XB bios don't waste time mapping the ports
     //
 
-    if (inboundData == 0x41) {
+    if ((inboundData == 0x41)&&(Context->biosScanStart < 6)) {
 
         //
         // Get the system physical address for this BIOS section.
@@ -1218,12 +1384,13 @@ Return Value:
                                   FALSE);
 
         //
-        // Loop through all BIOS base possibilities
+        // Loop through all BIOS base possibilities.  Use the context information
+        // to pick up where we left off the last time around.
         //
 
-        for (i = 0; i < 6; i ++) {
+        for (i = Context->biosScanStart; i < 6; i ++) {
 
-	    biosPtr = biosSpace + i * 0x4000 + 16;
+            biosPtr = biosSpace + i * 0x4000 + 16;
 
             //
             // Compare the second 16 bytes to BIOS header
@@ -1232,7 +1399,7 @@ Return Value:
 
                 if (aha154xBSignature[j] != ScsiPortReadRegisterUchar(biosPtr)) {
                     break;
-		}
+                }
 
                 biosPtr++;
             }
@@ -1245,7 +1412,7 @@ Return Value:
 
                 (*ConfigInfo->AccessRanges)[1].RangeStart =
                     ScsiPortConvertUlongToPhysicalAddress(0xC8000 + i * 0x4000);
-		(*ConfigInfo->AccessRanges)[1].RangeLength = 0x4000;
+                (*ConfigInfo->AccessRanges)[1].RangeLength = 0x4000;
                 (*ConfigInfo->AccessRanges)[1].RangeInMemory = TRUE;
 
                 DebugPrint((1,
@@ -1255,11 +1422,12 @@ Return Value:
             }
         }
 
+        Context->biosScanStart = i + 1;
         ScsiPortFreeDeviceBase(HwDeviceExtension, (PVOID)biosSpace);
 
     } else {
 
-        if (inboundData == 0x44) {
+        if ((inboundData == 0x44) || (inboundData == 0x45)) {
 
             //
             // Fill in BIOS address information
@@ -1305,11 +1473,11 @@ Return Value:
             if (inboundData != 0x07 && inboundData != 0x06) {
 
                 baseBIOSAddress +=
-		    (ULONG)((~inboundData & 0x07) - 2) * 0x4000;
+                    (ULONG)((~inboundData & 0x07) - 2) * 0x4000;
 
                 (*ConfigInfo->AccessRanges)[1].RangeStart =
                     ScsiPortConvertUlongToPhysicalAddress(baseBIOSAddress);
-		(*ConfigInfo->AccessRanges)[1].RangeLength = 0x4000;
+                (*ConfigInfo->AccessRanges)[1].RangeLength = 0x4000;
                 (*ConfigInfo->AccessRanges)[1].RangeInMemory = TRUE;
 
                 DebugPrint((1,
@@ -1552,10 +1720,57 @@ Return Value:
         return TRUE;
     }
 
+#if defined(_SCAM_ENABLED)
+    //
+    // SCAM because A154xHwInitialize reset's the SCSI bus.
+    //
+
+    PerformScamProtocol(deviceExtension);
+#endif
 
     return TRUE;
 
 } // end A154xHwInitialize()
+
+#if defined(_SCAM_ENABLED)
+
+BOOLEAN
+PerformScamProtocol(
+    IN PHW_DEVICE_EXTENSION deviceExtension
+        )
+
+{
+
+    if (deviceExtension->PerformScam) {
+
+        DebugPrint((1,"AHA154x => Starting SCAM operation.\n"));
+
+        if (!WriteCommandRegister(deviceExtension, AC_PERFORM_SCAM, TRUE)) {
+
+            DebugPrint((0,"AHA154x => Adapter time out, SCAM command failure.\n"));
+
+            ScsiPortLogError(deviceExtension,
+                             NULL,
+                             0,
+                             deviceExtension->HostTargetId,
+                             0,
+                             SP_INTERNAL_ADAPTER_ERROR,
+                             0xA << 8);
+            return FALSE;
+
+        } else {
+
+            DebugPrint((1,"AHA154x => SCAM Performed OK.\n"));
+            return TRUE;
+        }
+    } else {
+
+        DebugPrint((1,"AHA154x => SCAM not performed, non-SCAM adapter.\n"));
+        return FALSE;
+    }
+
+} //End PerformScamProtocol
+#endif
 
 
 BOOLEAN
@@ -1663,6 +1878,32 @@ Return Value:
     }
 
     //
+    // Make sure that this request isn't too long for the adapter.  If so
+    // bounce it back as an invalid request
+    //
+
+    if ((deviceExtension->MaxCdbLength) &&
+        (deviceExtension->MaxCdbLength < Srb->CdbLength)) {
+
+        DebugPrint((1,"A154xStartIo: Srb->CdbLength [%d] > MaxCdbLength [%d].  Invalid request\n",
+                    Srb->CdbLength,
+                    deviceExtension->MaxCdbLength
+                  ));
+
+        Srb->SrbStatus = SRB_STATUS_INVALID_REQUEST;
+
+        ScsiPortNotification(RequestComplete,
+            deviceExtension,
+            Srb);
+
+        ScsiPortNotification(NextRequest,
+            deviceExtension,
+            NULL);
+
+        return TRUE;
+    }
+
+    //
     // Get CCB physical address.
     //
 
@@ -1702,8 +1943,8 @@ Return Value:
             DebugPrint((1, "A154xStartIo: Abort request received\n"));
 
             //
-            // BUGBUG: Race condition (what if CCB to be aborted
-            //   completes after setting new SrbAddress?)
+            // Race condition (what if CCB to be aborted
+            // completes after setting new SrbAddress?)
             //
 
             mailboxOut->Command = MBO_ABORT;
@@ -1936,6 +2177,13 @@ Return Value:
                  deviceExtension,
                  NULL);
 
+#if defined(_SCAM_ENABLED)
+        //
+        // Interrupt handler where reset is detected
+        //
+        PerformScamProtocol(deviceExtension);
+#endif
+
         return TRUE;
 
     }
@@ -2038,9 +2286,9 @@ Return Value:
 
             luExtension =
                 ScsiPortGetLogicalUnit(deviceExtension,
-				       srb->PathId,
-				       srb->TargetId,
-				       srb->Lun);
+                                       srb->PathId,
+                                       srb->TargetId,
+                                       srb->Lun);
 
             //
             // Make sure the luExtension was found and it has a current request.
@@ -2099,6 +2347,8 @@ Return Value:
 
                         if (residualBytes != 0) {
 
+                            ULONG transferLength = srb->DataTransferLength;
+
                             DebugPrint((2,
                                        "A154xInterrupt: Underrun occured. Request length = %lx, Residual length = %lx\n",
                                        srb->DataTransferLength,
@@ -2111,6 +2361,44 @@ Return Value:
 
                             srb->DataTransferLength -= residualBytes;
                             srb->SrbStatus = SRB_STATUS_DATA_OVERRUN;
+
+                            if ((LONG)(srb->DataTransferLength) < 0) {
+
+                                DebugPrint((0,
+                                           "A154xInterrupt: Overrun occured. Request length = %lx, Residual length = %lx\n",
+                                           transferLength,
+                                           residualBytes));
+                                //
+                                // Seems to be a FW bug in some revs. where
+                                // residual comes back as a negative number, yet the
+                                // request is successful.
+                                //
+
+                                srb->DataTransferLength = 0;
+                                srb->SrbStatus = SRB_STATUS_PHASE_SEQUENCE_FAILURE;
+
+
+                                //
+                                // Log the event and then the residual byte count.
+                                //
+
+                                ScsiPortLogError(HwDeviceExtension,
+                                                 NULL,
+                                                 0,
+                                                 deviceExtension->HostTargetId,
+                                                 0,
+                                                 SP_PROTOCOL_ERROR,
+                                                 0xb);
+
+                                ScsiPortLogError(HwDeviceExtension,
+                                                 NULL,
+                                                 0,
+                                                 deviceExtension->HostTargetId,
+                                                 0,
+                                                 SP_PROTOCOL_ERROR,
+                                                 residualBytes);
+
+                            }
                         }
                     }
 
@@ -2206,8 +2494,8 @@ Return Value:
                                 luExtension->CurrentSrb->SrbStatus = SRB_STATUS_TIMEOUT;
 
                                 ScsiPortNotification(RequestComplete,
-                                     deviceExtension,
-                                     luExtension->CurrentSrb);
+                                                     deviceExtension,
+                                                     luExtension->CurrentSrb);
 
                             }
 
@@ -2263,12 +2551,12 @@ Return Value:
                 //
 
                 ScsiPortNotification(RequestComplete,
-                    (PVOID)deviceExtension,
-                    srb);
+                                     (PVOID)deviceExtension,
+                                     srb);
 
-	} else {
+        } else {
 
-	    break;
+            break;
 
         } // end if ((mailboxIn->Status == MBI_SUCCESS ...
 
@@ -2303,8 +2591,8 @@ Return Value:
             //
 
              ScsiPortNotification(NextRequest,
-                 deviceExtension,
-                 NULL);
+                                  deviceExtension,
+                                  NULL);
         }
     }
 
@@ -2365,7 +2653,7 @@ Return Value:
         //
 
         if (!(Srb->SrbFlags & SRB_FLAGS_DATA_IN)) {
-	    ccb->ControlByte |= CCB_DATA_XFER_OUT;
+            ccb->ControlByte |= CCB_DATA_XFER_OUT;
         }
 
     } else if (Srb->SrbFlags & SRB_FLAGS_DATA_IN) {
@@ -2542,26 +2830,59 @@ Return Value:
 
     } while (bytesLeft);
 
-    //
-    // Write SDL length to CCB.
-    //
+        //##BW
+        //
+        // For data transfers that have less than one scatter gather element, convert
+        // CCB to one transfer without using SG element. This will clear up the data
+        // overrun/underrun problem with small transfers that reak havoc with scanners
+        // and CD-ROM's etc. This is the method employed in ASPI4DOS to avoid similar
+        // problems.
+        //
+        if (i == 0x1) {
+                //
+                // Only one element, so convert...
+                //
 
-    four = i * sizeof(SGD);
-    three = &ccb->DataLength;
-    FOUR_TO_THREE(three, (PFOUR_BYTE)&four);
+                //
+                // The above Do..While loop performed all necessary conversions for the
+                // SRB buffer, so we copy over the length and address directly into the
+                // CCB
+                //
+                ccb->DataLength  = sdl->Sgd[0x0].Length;
+                ccb->DataPointer = sdl->Sgd[0x0].Address;
 
-    DebugPrint((3,"BuildSdl: SDL length is %d\n", four));
+                //
+                // Change the OpCode from SG command to initiator command and we're
+                // done. Easy, huh?
+                //
+                ccb->OperationCode = SCSI_INITIATOR_COMMAND; //##BW _OLD_ command?
 
-    //
-    // Write SDL address to CCB.
-    //
+        } else {
+                //
+                // Multiple SG elements, so continue as normal.
+                //
 
-    FOUR_TO_THREE(&ccb->DataPointer,
-        (PFOUR_BYTE)&physicalSdl);
+            //
+            // Write SDL length to CCB.
+            //
 
-    DebugPrint((3,"BuildSdl: SDL address is %lx\n", sdl));
+            four = i * sizeof(SGD);
+            three = &ccb->DataLength;
+            FOUR_TO_THREE(three, (PFOUR_BYTE)&four);
 
-    DebugPrint((3,"BuildSdl: CCB address is %lx\n", ccb));
+            DebugPrint((3,"BuildSdl: SDL length is %d\n", four));
+
+            //
+            // Write SDL address to CCB.
+            //
+
+            FOUR_TO_THREE(&ccb->DataPointer,
+                (PFOUR_BYTE)&physicalSdl);
+
+            DebugPrint((3,"BuildSdl: SDL address is %lx\n", sdl));
+
+            DebugPrint((3,"BuildSdl: CCB address is %lx\n", ccb));
+        }
 
     return;
 
@@ -2788,7 +3109,14 @@ Return Value:
         DebugPrint((1,"Timed out waiting for adapter command to complete\n"));
     }
 
+#if defined(_SCAM_ENABLED)
+        //
+        // SCAM because we're a154xResetBus
+        //
+    PerformScamProtocol(deviceExtension);
+#endif
     return TRUE;
+
 
 } // end A154xResetBus()
 
@@ -2864,13 +3192,17 @@ Return Value:
 
                 if (residualBytes) {
                     Srb->DataTransferLength -= residualBytes;
-                    return SRB_STATUS_DATA_OVERRUN;
+                    return SRB_STATUS_DATA_OVERRUN; //##BW this look good
                 } else {
                     logError = SP_PROTOCOL_ERROR;
                 }
             }
 
-            status = SRB_STATUS_DATA_OVERRUN;
+                        //
+                        //  Return instead of posting DU/DO to the log file.
+                        //
+            //status = SRB_STATUS_DATA_OVERRUN;
+            return SRB_STATUS_DATA_OVERRUN;
             break;
 
         case CCB_UNEXPECTED_BUS_FREE:
@@ -3226,7 +3558,7 @@ Return Value:
     // Wait for HACC interrupt.
     //
 
-    SpinForInterrupt(HwDeviceExtension,FALSE);	  // eddy
+    SpinForInterrupt(HwDeviceExtension,FALSE);    // eddy
 
 
     //
@@ -3565,7 +3897,7 @@ Routine Description:
     because the BIOS is now reporting 255/63 translation instead of 64/32.
     As such, if a user inadvertently enabled the >1Gb option (enabling
     255/63 translation) and still uses an old driver, hard disk data
-    will be corrupted.	Therefore, the firmware will not allow mailboxes
+    will be corrupted.  Therefore, the firmware will not allow mailboxes
     to be initialized unless the user knows what he is doing and updates
     his driver so that his disk won't be trashed.
 
@@ -3643,7 +3975,7 @@ Return Value:
     // Wait for HACC interrupt.
     //
 
-    SpinForInterrupt(HwDeviceExtension,FALSE);	// eddy
+    SpinForInterrupt(HwDeviceExtension,FALSE);  // eddy
 
 
     if ((locktype == TRANSLATION_LOCK) || (locktype == DYNAMIC_SCAN_LOCK)) {
@@ -3829,95 +4161,95 @@ ContinueSearch:
             while (*cptr) {
                 if (*cptr++ == ';') {
                     goto ContinueSearch;
-		}
-	    }
-	    return 0;
-	}
+                }
+            }
+            return 0;
+        }
 
-	//
-	// Skip the equals sign.
-	//
-	cptr++;
+        //
+        // Skip the equals sign.
+        //
+        cptr++;
 
-	//
-	// Skip white space.
-	//
-	while ((*cptr == ' ') || (*cptr == '\t')) {
-	    cptr++;
-	}
+        //
+        // Skip white space.
+        //
+        while ((*cptr == ' ') || (*cptr == '\t')) {
+            cptr++;
+        }
 
-	if (*cptr == '\0') {
+        if (*cptr == '\0') {
 
-	    //
-	    // Early end of string, return not found
-	    //
-	    return 0;
-	}
+            //
+            // Early end of string, return not found
+            //
+            return 0;
+        }
 
-	if (*cptr == ';') {
+        if (*cptr == ';') {
 
-	    //
-	    // This isn't it either.
-	    //
-	    cptr++;
-	    goto ContinueSearch;
-	}
+            //
+            // This isn't it either.
+            //
+            cptr++;
+            goto ContinueSearch;
+        }
 
-	value = 0;
-	if ((*cptr == '0') && (*(cptr + 1) == 'x')) {
+        value = 0;
+        if ((*cptr == '0') && (*(cptr + 1) == 'x')) {
 
-	    //
-	    // Value is in Hex.  Skip the "0x"
-	    //
-	    cptr += 2;
-	    for (index = 0; *(cptr + index); index++) {
+            //
+            // Value is in Hex.  Skip the "0x"
+            //
+            cptr += 2;
+            for (index = 0; *(cptr + index); index++) {
 
-		if (*(cptr + index) == ' ' ||
-		    *(cptr + index) == '\t' ||
-		    *(cptr + index) == ';') {
-		     break;
-		}
-
-		if ((*(cptr + index) >= '0') && (*(cptr + index) <= '9')) {
-		    value = (16 * value) + (*(cptr + index) - '0');
-		} else {
-		    if ((*(cptr + index) >= 'a') && (*(cptr + index) <= 'f')) {
-			value = (16 * value) + (*(cptr + index) - 'a' + 10);
-		    } else {
-
-			//
-			// Syntax error, return not found.
-			//
-			return 0;
-		    }
-		}
-	    }
-	} else {
-
-	    //
-	    // Value is in Decimal.
-	    //
-	    for (index = 0; *(cptr + index); index++) {
-
-		if (*(cptr + index) == ' ' ||
+                if (*(cptr + index) == ' ' ||
                     *(cptr + index) == '\t' ||
                     *(cptr + index) == ';') {
-		    break;
-		}
+                     break;
+                }
 
-		if ((*(cptr + index) >= '0') && (*(cptr + index) <= '9')) {
-		    value = (10 * value) + (*(cptr + index) - '0');
-		} else {
+                if ((*(cptr + index) >= '0') && (*(cptr + index) <= '9')) {
+                    value = (16 * value) + (*(cptr + index) - '0');
+                } else {
+                    if ((*(cptr + index) >= 'a') && (*(cptr + index) <= 'f')) {
+                        value = (16 * value) + (*(cptr + index) - 'a' + 10);
+                    } else {
 
-		    //
-		    // Syntax error return not found.
-		    //
-		    return 0;
-		}
-	    }
-	}
+                        //
+                        // Syntax error, return not found.
+                        //
+                        return 0;
+                    }
+                }
+            }
+        } else {
 
-	return value;
+            //
+            // Value is in Decimal.
+            //
+            for (index = 0; *(cptr + index); index++) {
+
+                if (*(cptr + index) == ' ' ||
+                    *(cptr + index) == '\t' ||
+                    *(cptr + index) == ';') {
+                    break;
+                }
+
+                if ((*(cptr + index) >= '0') && (*(cptr + index) <= '9')) {
+                    value = (10 * value) + (*(cptr + index) - '0');
+                } else {
+
+                    //
+                    // Syntax error return not found.
+                    //
+                    return 0;
+                }
+            }
+        }
+
+        return value;
     } else {
 
         //
@@ -4087,5 +4419,3 @@ Return Values:
 
     return FALSE;
 }
-
-

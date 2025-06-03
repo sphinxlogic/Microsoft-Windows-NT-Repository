@@ -55,6 +55,7 @@ Revision History:
 
 
 #define RAP_CONVERSION_FACTOR   2               // 16-bit data to 32-bit
+#define RAP_CONVERSION_FRACTION 3    // Actually the factor is 2 and 1/3
 
 
 #endif // ndef _RX_

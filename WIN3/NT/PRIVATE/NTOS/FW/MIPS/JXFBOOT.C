@@ -516,7 +516,7 @@ Return Value:
 
     //
     // If the floppy drive type has changed, update the configuration database
-    // with the correct drive type.  BUGBUG Doesn't do 2.88 MByte floppies.
+    // with the correct drive type.  NOTE Doesn't do 2.88 MByte floppies.
     //
 
     if (DriveType != ConfigDriveType) {

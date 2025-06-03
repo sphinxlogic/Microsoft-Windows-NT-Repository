@@ -95,15 +95,15 @@ Revision History:
 
 DBGSTATIC BOOL
 MachineSupportsNt(
-    IN LPTSTR UncServerName OPTIONAL
+    IN LPWSTR UncServerName OPTIONAL
     );
 
 
 
 NET_API_STATUS NET_API_FUNCTION
 NetServiceControl (
-    IN  LPTSTR  servername OPTIONAL,
-    IN  LPTSTR  service,
+    IN  LPCWSTR servername OPTIONAL,
+    IN  LPCWSTR service,
     IN  DWORD   opcode,
     IN  DWORD   arg,
     OUT LPBYTE  *bufptr
@@ -166,24 +166,24 @@ Return Value:
 --*/
 {
     NET_API_STATUS          apiStatus;
-    LPTSTR                  translatedServiceName;
+    LPWSTR                  translatedServiceName;
     LPBYTE                  untranslatedBuffer = NULL;
 
-    if ( !NetpIsServiceNameValid( service, FALSE /* no LM 2.x rules */ ) ) {
+    if ( !NetpIsServiceNameValid( (LPWSTR) service, FALSE /* no LM 2.x rules */ ) ) {
         return (NERR_BadServiceName);
     }
 
-    if (MachineSupportsNt( servername )) {
+    if (MachineSupportsNt( (LPWSTR) servername )) {
 
         apiStatus = NetpTranslateServiceName(
-                service,       // untranslated.
-                TRUE,          // yes, we want new style name
+                (LPWSTR) service,   // untranslated.
+                TRUE,               // yes, we want new style name
                 & translatedServiceName );
         NetpAssert( apiStatus == NO_ERROR );
 
         apiStatus = MapServiceControl (
-                servername,
-                service,
+                (LPWSTR) servername,
+                (LPWSTR) service,
                 opcode,
                 arg,
                 & untranslatedBuffer);
@@ -191,8 +191,8 @@ Return Value:
     } else {
 
         apiStatus = NetpTranslateServiceName(
-                service,       // untranslated.
-                FALSE,         // no, we don't want new style name
+                (LPWSTR) service,  // untranslated.
+                FALSE,             // no, we don't want new style name
                 & translatedServiceName );
         NetpAssert( apiStatus == NO_ERROR );
 
@@ -204,7 +204,7 @@ Return Value:
         // Call downlevel...
         //
         apiStatus = RxNetServiceControl(
-                servername,
+                (LPWSTR) servername,
                 translatedServiceName,
                 opcode,
                 arg,
@@ -237,7 +237,7 @@ Return Value:
 
 NET_API_STATUS NET_API_FUNCTION
 NetServiceEnum (
-    IN  LPTSTR      servername OPTIONAL,
+    IN  LPCWSTR     servername OPTIONAL,
     IN  DWORD       level,
     OUT LPBYTE      *bufptr,
     IN  DWORD       prefmaxlen,
@@ -291,10 +291,10 @@ Note:
     LPBYTE                  untranslatedBuffer = NULL;
 
 
-    if (MachineSupportsNt( servername )) {
+    if (MachineSupportsNt( (LPWSTR) servername )) {
 
         apiStatus = MapServiceEnum (
-                servername,
+                (LPWSTR) servername,
                 level,
                 & untranslatedBuffer,
                 prefmaxlen,
@@ -308,7 +308,7 @@ Note:
         // Call downlevel...
         //
         apiStatus = RxNetServiceEnum(
-                servername,
+                (LPWSTR) servername,
                 level,
                 & untranslatedBuffer,
                 prefmaxlen,
@@ -353,8 +353,8 @@ Note:
 
 NET_API_STATUS NET_API_FUNCTION
 NetServiceGetInfo (
-    IN  LPTSTR  servername OPTIONAL,
-    IN  LPTSTR  service,
+    IN  LPCWSTR servername OPTIONAL,
+    IN  LPCWSTR service,
     IN  DWORD   level,
     OUT LPBYTE  *bufptr
     )
@@ -402,32 +402,32 @@ Return Value:
 
 {
     NET_API_STATUS          apiStatus;
-    LPTSTR                  translatedServiceName;
+    LPWSTR                  translatedServiceName;
     LPBYTE                  untranslatedBuffer = NULL;
 
-    if ( !NetpIsServiceNameValid( service, FALSE /* no LM 2.x rules */ ) ) {
+    if ( !NetpIsServiceNameValid( (LPWSTR) service, FALSE /* no LM 2.x rules */ ) ) {
         return (NERR_BadServiceName);
     }
 
-    if (MachineSupportsNt( servername )) {
+    if (MachineSupportsNt( (LPWSTR) servername )) {
 
         apiStatus = NetpTranslateServiceName(
-                service,       // untranslated.
-                TRUE,          // yes, we want new style name
+                (LPWSTR) service,  // untranslated.
+                TRUE,              // yes, we want new style name
                 & translatedServiceName );
         NetpAssert( apiStatus == NO_ERROR );
 
         apiStatus = MapServiceGetInfo (
-                servername,
-                service,
+                (LPWSTR) servername,
+                (LPWSTR) service,
                 level,
                 & untranslatedBuffer);
 
     } else {
 
         apiStatus = NetpTranslateServiceName(
-                service,       // untranslated.
-                FALSE,         // no, we don't want new style name
+                (LPWSTR) service,  // untranslated.
+                FALSE,             // no, we don't want new style name
                 & translatedServiceName );
         NetpAssert( apiStatus == NO_ERROR );
 
@@ -439,7 +439,7 @@ Return Value:
         // Call downlevel...
         //
         apiStatus = RxNetServiceGetInfo(
-                servername,
+                (LPWSTR) servername,
                 translatedServiceName,
                 level,
                 & untranslatedBuffer);
@@ -471,10 +471,10 @@ Return Value:
 
 NET_API_STATUS NET_API_FUNCTION
 NetServiceInstall (
-    IN  LPTSTR  servername OPTIONAL,
-    IN  LPTSTR  service,
+    IN  LPCWSTR servername OPTIONAL,
+    IN  LPCWSTR service,
     IN  DWORD   argc,
-    IN  LPTSTR  argv[],
+    IN  LPCWSTR argv[],
     OUT LPBYTE  *bufptr
     )
 /*++
@@ -535,34 +535,34 @@ Return Value:
 --*/
 {
     NET_API_STATUS          apiStatus;
-    LPTSTR                  translatedServiceName;
+    LPWSTR                  translatedServiceName;
     LPBYTE                  untranslatedBuffer = NULL;
 
 
-    if ( !NetpIsServiceNameValid( service, FALSE /* no LM 2.x rules */ ) ) {
+    if ( !NetpIsServiceNameValid( (LPWSTR) service, FALSE /* no LM 2.x rules */ ) ) {
         return (NERR_BadServiceName);
     }
 
-    if (MachineSupportsNt( servername )) {
+    if (MachineSupportsNt( (LPWSTR) servername )) {
 
         apiStatus = NetpTranslateServiceName(
-                service,       // untranslated.
-                TRUE,          // yes, we want new style name
+                (LPWSTR) service,  // untranslated.
+                TRUE,              // yes, we want new style name
                 & translatedServiceName );
         NetpAssert( apiStatus == NO_ERROR );
 
         apiStatus = MapServiceInstall (
-                servername,
-                service,
+                (LPWSTR) servername,
+                (LPWSTR) service,
                 argc,
-                argv,
+                (LPWSTR *) argv,
                 & untranslatedBuffer);
 
     } else {
 
         apiStatus = NetpTranslateServiceName(
-                service,       // untranslated.
-                FALSE,         // no, we don't want new style name
+                (LPWSTR) service,  // untranslated.
+                FALSE,             // no, we don't want new style name
                 & translatedServiceName );
         NetpAssert( apiStatus == NO_ERROR );
 
@@ -574,10 +574,10 @@ Return Value:
         // Call downlevel....
         //
         apiStatus = RxNetServiceInstall(
-                servername,
+                (LPWSTR) servername,
                 translatedServiceName,
                 argc,
-                argv,
+                (LPWSTR *) argv,
                 & untranslatedBuffer);
 
     }
@@ -672,7 +672,7 @@ Return Value:
 
 DBGSTATIC BOOL
 MachineSupportsNt(
-    IN LPTSTR UncServerName OPTIONAL
+    IN LPWSTR UncServerName OPTIONAL
     )
 {
     NET_API_STATUS ApiStatus;

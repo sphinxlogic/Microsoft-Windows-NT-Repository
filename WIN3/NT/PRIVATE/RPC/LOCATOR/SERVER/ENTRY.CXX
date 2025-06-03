@@ -25,8 +25,6 @@ CDEF
 
 #define MINALLOWABLEAGE  (10)
 
-defModule
-
 
 void
 entry_delete(
@@ -368,7 +366,7 @@ Returns:
 {
     DLIST(3, "group_mbr_inq_begin\n");
 
-/* 
+/*
     removing group support from the locator
 
     *status = NSI_S_OK;
@@ -397,7 +395,7 @@ Returns:
     if (*status)
         return;
 
-    QUERY_GROUP * TheQuery = 
+    QUERY_GROUP * TheQuery =
               new QUERY_GROUP(&Entry, NS_PUBLIC_INTERFACE, status);
 
     if (!TheQuery)
@@ -463,9 +461,9 @@ Returns:
 {
     DLIST(3, "group_mbr_inq_next\n");
 
-/*  
+/*
     removing gtoup support from the locator
-    
+
     REPLY_GROUP_ITEM *ReplyGroup = (REPLY_GROUP_ITEM *) InqContext;
     ENTRY_GROUP_ITEM *GroupItem;
 
@@ -531,11 +529,11 @@ Returns:
 --*/
 {
     DLIST(3, "group_mbr_inq_done\n");
-/* removing group support from the locator 
+/* removing group support from the locator
 
     CloseContextHandle(InqContext, status);
 */
- 
+
     *status = NSI_S_UNIMPLEMENTED_API;
 }
 
@@ -990,7 +988,7 @@ Returns:
 {
     ENTRY_SERVER_NODE *pEntry;
     ENTRY_SERVER_ITEM *pServerItem;
-    int EntryCount;
+    unsigned int EntryCount;
 
     DLIST(3, "mgmt_entry_inq_if_ids\n");
 
@@ -1137,8 +1135,6 @@ Returns:
 
     /*
 
-       What a dickhead();
-
        pESaccess->Clear();
 
      */
@@ -1201,7 +1197,7 @@ Returns:
 
     *status = NSI_S_OK;
 
-    //The minimum we will allow the age to be reduced by 
+    //The minimum we will allow the age to be reduced by
     //is 10  secs. Otherwise, the entries may expire in the next next
     //Even 10 secs is probably too less! [10 == MINALLOWABLEAGE]
 

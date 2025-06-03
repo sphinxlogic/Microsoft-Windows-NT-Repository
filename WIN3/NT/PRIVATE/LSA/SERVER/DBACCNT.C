@@ -372,6 +372,14 @@ CreateAccountFinish:
         RtlFreeUnicodeString(&LogicalNameU);
     }
 
+#ifdef TRACK_HANDLE_CLOSE
+    if (*AccountHandle == LsapDbHandle)
+    {
+        DbgPrint("BUGBUG: Closing global policy handle\n");
+        DbgBreakPoint();
+    }
+#endif
+
     return( Status );
 
 CreateAccountError:
@@ -555,6 +563,14 @@ OpenAccountFinish:
         AcquiredLock = FALSE;
     }
 
+#ifdef TRACK_HANDLE_CLOSE
+    if (*AccountHandle == LsapDbHandle)
+    {
+        DbgPrint("BUGBUG: Closing global policy handle\n");
+        DbgBreakPoint();
+    }
+#endif
+
     return( Status );
 
 OpenAccountError:
@@ -695,7 +711,7 @@ Return Values:
         //
         // Call general Sid enumeration routine.
         //
-        
+
         Status = LsapDbEnumerateSids(
                      PolicyHandle,
                      AccountObject,
@@ -711,7 +727,7 @@ Return Values:
                      (SECURITY_DB_DELTA_TYPE) 0,
                      Status
                      );
-        
+
     }
 
     //
@@ -1857,17 +1873,17 @@ Return Value:
 
     if (NT_SUCCESS(Status)) {
 
-        
+
         if (LsapDbIsCacheValid(AccountObject)) {
-        
+
             Status = LsapDbQueryInformationAccount(
                          AccountHandle,
                          InformationClass,
                          AccountInformation
                          );
-        
+
         } else {
-        
+
             Status = LsapDbSlowQueryInformationAccount(
                          AccountHandle,
                          InformationClass,
@@ -2486,9 +2502,7 @@ Return Value:
             RunningQuotaLimits.PagefileLimit = NextQuotaLimits.PagefileLimit;
         }
 
-        if (RtlLargeIntegerLessThan(
-                (RunningQuotaLimits.TimeLimit),
-                (NextQuotaLimits.TimeLimit)) ) {
+        if (RunningQuotaLimits.TimeLimit.QuadPart < NextQuotaLimits.TimeLimit.QuadPart) {
 
             RunningQuotaLimits.TimeLimit = NextQuotaLimits.TimeLimit;
         }
@@ -2857,9 +2871,7 @@ Return Value:
             RunningQuotaLimits.PagefileLimit = NextQuotaLimits.PagefileLimit;
         }
 
-        if (RtlLargeIntegerLessThan(
-                (RunningQuotaLimits.TimeLimit),
-                (NextQuotaLimits.TimeLimit)) ) {
+        if (RunningQuotaLimits.TimeLimit.QuadPart < NextQuotaLimits.TimeLimit.QuadPart) {
 
             RunningQuotaLimits.TimeLimit = NextQuotaLimits.TimeLimit;
         }

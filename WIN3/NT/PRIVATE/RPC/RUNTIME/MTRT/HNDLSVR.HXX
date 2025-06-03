@@ -48,6 +48,7 @@ mikemon    10-15-90    Changed the shutdown functionality to PauseExecution
 mikemon    12-28-90    Updated the comments to match reality.
 davidst    ??          Add DG_SCALL as friend of RPC_SERVER
 connieh    8-2-93      Remove DG_SCALL as friend of RPC_SERVER
+tonychan   7-15-95     change RPC_ADDRESS class to have a list of NetAddr
 
 -------------------------------------------------------------------- */
 
@@ -65,8 +66,12 @@ connieh    8-2-93      Remove DG_SCALL as friend of RPC_SERVER
 //                       IN void * *        ppDestEndpoint);
 
 
+#define MAX_IF_CALLS 0xFFFFFFFF
 
 class RPC_SERVER;
+extern RPC_SERVER * GlobalRpcServer;
+
+class SCONNECTION;
 
 
 class RPC_INTERFACE_MANAGER
@@ -146,6 +151,7 @@ public:
     unsigned int
     InquireActiveCallCount (
         );
+
 };
 
 
@@ -380,6 +386,11 @@ private:
     unsigned int ManagerCount;
     RPC_SERVER * Server;
     INTERLOCKED_INTEGER NullManagerActiveCallCount;
+    INTERLOCKED_INTEGER AutoListenCallCount ;
+    unsigned int Flags ;
+    unsigned int MaxCalls ;
+    RPC_IF_CALLBACK_FN PAPI *CallbackFn ;
+    int PipeInterfaceFlag ; // if 1, the interface contains methods that use pipes
 
     RPC_STATUS
     DispatchToStubWorker (
@@ -389,10 +400,14 @@ private:
         );
 
 public:
+    unsigned long SequenceNumber ;
 
     RPC_INTERFACE (
         IN RPC_SERVER_INTERFACE PAPI * RpcInterfaceInformation,
-        IN RPC_SERVER * Server
+        IN RPC_SERVER * Server,
+        IN unsigned int Flags,
+        IN unsigned int MaxCalls,
+        IN RPC_IF_CALLBACK_FN PAPI *IfCallbackFn
         );
 
     int
@@ -452,13 +467,93 @@ public:
 
     void
     UpdateRpcInterfaceInformation (
-        IN RPC_SERVER_INTERFACE PAPI * RpcInterfaceInformation
+        IN RPC_SERVER_INTERFACE PAPI * RpcInterfaceInformation,
+        IN unsigned int Flags,
+        IN unsigned int MaxCalls
         );
 
     RPC_IF_ID __RPC_FAR *
     InquireInterfaceId (
         );
+
+    inline int
+    IsAutoListenInterface(
+        ) ;
+
+    void
+    BeginAutoListenCall (
+        ) ;
+
+    void
+    EndAutoListenCall (
+        ) ;
+
+    long
+    InqAutoListenCallCount(
+        );
+
+    RPC_STATUS
+    CheckSecurityIfNecessary(
+        IN SCONNECTION * Context
+        );
+
+    inline int
+    IsSecurityCallbackReqd(
+        );
+
+    inline int
+    IsPipeInterface(
+        ) ;
+
+    BOOL
+    IsObjectSupported (
+        IN RPC_UUID * ObjectUuid
+        );
 };
+
+// check if the interface has methods that use pipes
+inline int
+RPC_INTERFACE::IsPipeInterface (
+    )
+{
+    return (PipeInterfaceFlag) ;
+}
+
+inline int
+RPC_INTERFACE::IsSecurityCallbackReqd(
+       )
+{
+  return((int)CallbackFn);
+}
+
+inline void
+RPC_INTERFACE::BeginAutoListenCall (
+    )
+{
+    AutoListenCallCount.Increment() ;
+}
+
+inline void
+RPC_INTERFACE::EndAutoListenCall (
+    )
+{
+    AutoListenCallCount.Decrement() ;
+}
+
+inline long
+RPC_INTERFACE::InqAutoListenCallCount (
+    )
+{
+    return AutoListenCallCount.GetInteger() ;
+}
+
+
+inline int
+RPC_INTERFACE::IsAutoListenInterface (
+    )
+{
+    return (Flags & RPC_IF_AUTOLISTEN) ;
+}
 
 
 inline int
@@ -516,10 +611,13 @@ private:
 
     RPC_CHAR PAPI * Endpoint;
     RPC_CHAR PAPI * RpcProtocolSequence;
-    RPC_CHAR PAPI * NetworkAddress;
+    RPC_CHAR PAPI * lNetworkAddress;
     unsigned int StaticEndpointFlag;
+    unsigned int NumNetworkAddress;
 
 protected:
+    int ActiveCallCount;
+    INTERLOCKED_INTEGER AutoListenCallCount ;
 
     RPC_ADDRESS (
         IN OUT RPC_STATUS PAPI * RpcStatus
@@ -529,6 +627,11 @@ public:
 
     RPC_SERVER * Server;
     MUTEX AddressMutex;
+    int DictKey;
+
+#if defined(NTENV) || defined(WIN96)
+    int CreateThread ;
+#endif
 
     virtual ~RPC_ADDRESS (
         );
@@ -536,26 +639,40 @@ public:
     virtual RPC_STATUS
     SetupAddressWithEndpoint (
         IN RPC_CHAR PAPI * Endpoint,
-        OUT RPC_CHAR PAPI * PAPI * NetworkAddress,
+        OUT RPC_CHAR PAPI * PAPI * lNetworkAddress,
+        OUT unsigned int PAPI * NumNetworkAddress,
         IN void PAPI * SecurityDescriptor, OPTIONAL
         IN unsigned int PendingQueueSize,
-        IN RPC_CHAR PAPI * RpcProtocolSequence
+        IN RPC_CHAR PAPI * RpcProtocolSequence,
+        IN unsigned long EndpointFlags,
+        IN unsigned long NICFlags
         ) = 0;
 
     virtual RPC_STATUS
     SetupAddressUnknownEndpoint (
         OUT RPC_CHAR PAPI * PAPI * Endpoint,
-        OUT RPC_CHAR PAPI * PAPI * NetworkAddress,
+        OUT RPC_CHAR PAPI * PAPI * lNetworkAddress,
+        OUT unsigned int PAPI * NumNetworkAddress,
         IN void PAPI * SecurityDescriptor, OPTIONAL
         IN unsigned int PendingQueueSize,
-        IN RPC_CHAR PAPI * RpcProtocolSequence
+        IN RPC_CHAR PAPI * RpcProtocolSequence,
+        IN unsigned long EndpointFlags,
+        IN unsigned long NICFlags
         ) = 0;
+
+    RPC_CHAR *
+    GetListNetworkAddress (IN unsigned int Index
+                          );
+
+    unsigned int
+    InqNumNetworkAddress();
 
     void
     SetEndpointAndStuff (
         IN RPC_CHAR PAPI * Endpoint,
         IN RPC_CHAR PAPI * RpcProtocolSequence,
-        IN RPC_CHAR PAPI * NetworkAddress,
+        IN RPC_CHAR PAPI * lNetworkAddress,
+        IN unsigned int NumNetworkAddress,
         IN RPC_SERVER * Server,
         IN unsigned int StaticEndpointFlag
         );
@@ -574,14 +691,24 @@ public:
         OUT RPC_INTERFACE ** RpcInterface
         );
 
+#if defined(NTENV) || defined(WIN96)
+    virtual RPC_STATUS
+    StartListening (
+        ) ;
+
+    void ServerDontCreateThread(
+             );
+#endif
+
     BINDING_HANDLE *
-    InquireBinding (
+    InquireBinding (RPC_CHAR * LocalNetworkAddress = 0
         );
 
     virtual RPC_STATUS
     ServerStartingToListen (
         IN unsigned int MinimumCallThreads,
-        IN unsigned int MaximumConcurrentCalls
+        IN unsigned int MaximumConcurrentCalls,
+        IN int ServerThreadsStarted
         );
 
     virtual void
@@ -593,6 +720,13 @@ public:
         IN RPC_CHAR PAPI * RpcProtocolSequence,
         IN RPC_CHAR PAPI * Endpoint
         );
+
+#if defined(NTENV) || defined(WIN96)
+    int
+    SameProtocolSequence (
+        IN RPC_CHAR PAPI * RpcProtocolSequence
+        );
+#endif
 
     virtual unsigned int
     InqNumberOfActiveCalls (
@@ -608,7 +742,115 @@ public:
     RPC_CHAR *
     InqRpcProtocolSequence (
         );
+
+    virtual RPC_STATUS
+    DeleteSelf (
+        );
+
+    virtual void
+    WaitForCalls(
+        ) ;
+
+    virtual void
+    BeginCall (
+        ) ;
+
+    virtual void
+    EndCall (
+        ) ;
+
+    void
+    BeginAutoListenCall (
+        ) ;
+
+    void
+    EndAutoListenCall (
+        ) ;
 };
+
+inline void
+RPC_ADDRESS::BeginCall (
+    )
+{
+    AddressMutex.Request() ;
+    ActiveCallCount++ ;
+    AddressMutex.Clear() ;
+}
+
+inline void
+RPC_ADDRESS::EndCall (
+    )
+{
+    AddressMutex.Request() ;
+    ActiveCallCount-- ;
+    AddressMutex.Clear() ;
+}
+
+inline void
+RPC_ADDRESS::BeginAutoListenCall (
+    )
+{
+    AutoListenCallCount.Increment() ;
+}
+
+inline void
+RPC_ADDRESS::EndAutoListenCall (
+    )
+{
+    AutoListenCallCount.Decrement() ;
+}
+
+inline void
+RPC_ADDRESS::WaitForCalls(
+    )
+{
+    while (InqNumberOfActiveCalls() > AutoListenCallCount.GetInteger())
+        {
+        PauseExecution(200L);
+        }
+}
+
+#if defined(NTENV) || defined(WIN96)
+inline RPC_STATUS
+RPC_ADDRESS::StartListening (
+    )
+{
+    return RPC_S_OK ;
+}
+
+
+inline int
+RPC_ADDRESS::SameProtocolSequence (
+    IN RPC_CHAR PAPI * ProtocolSequence
+    )
+/*++
+
+Routine Description:
+
+    This routine is used to determine if the rpc address has the same
+    protocol sequence as the protocol sequence
+    supplied as the argument.
+
+Arguments:
+
+    ProtocolSequence - Supplies the protocol sequence to compare against
+        the protocol sequence of this address.
+
+Return Value:
+
+    Non-zero will be returned if this address and the supplied endpoint and
+    protocol sequence are the same, otherwise, zero will be returned.
+
+--*/
+{
+    if ( RpcpStringCompare(this->RpcProtocolSequence, ProtocolSequence) == 0)
+        {
+        return 1 ;
+        }
+
+    return 0 ;
+}
+#endif
 
 
 inline int
@@ -652,6 +894,15 @@ RPC_ADDRESS::InqRpcProtocolSequence (
 {
     return(RpcProtocolSequence);
 }
+
+
+inline unsigned int
+RPC_ADDRESS::InqNumNetworkAddress (
+    )
+{
+    return(NumNetworkAddress);
+}
+
 
 NEW_SDICT(RPC_INTERFACE);
 NEW_SDICT(RPC_ADDRESS);
@@ -869,6 +1120,7 @@ private:
     RPC_INTERFACE_DICT RpcInterfaceDictionary;
     MUTEX ServerMutex;
     INTERLOCKED_INTEGER AvailableCallCount;
+    INTERLOCKED_INTEGER AutoListenCallCount ;
     unsigned int ServerListeningFlag;
     RPC_ADDRESS_DICT RpcAddressDictionary;
     unsigned int ListeningThreadFlag;
@@ -884,11 +1136,13 @@ private:
     unsigned int WaitingThreadFlag;
     CACHED_THREAD * ThreadCache;
     MUTEX ThreadCacheMutex;
-
+    int ServerThreadsStarted ;
+    INTERLOCKED_INTEGER NumAutoListenInterfaces ;
 
 public:
 
     RPC_FORWARD_FUNCTION *    pRpcForwardFunction;
+    RPC_ADDRESS *CommonAddress ;
 
     RPC_SERVER (
         IN OUT RPC_STATUS PAPI * RpcStatus
@@ -908,6 +1162,9 @@ public:
     IsServerListening (
         );
 
+    long InqNumAutoListenInterfaces (
+        ) ;
+
     unsigned int
     CallBeginning (
         );
@@ -915,6 +1172,14 @@ public:
     void
     CallEnding (
         );
+
+    void
+    AutoListenCallBeginning (
+        ) ;
+
+    void
+    AutoListenCallEnding (
+        ) ;
 
     RPC_STATUS
     FindInterfaceTransfer (
@@ -958,10 +1223,17 @@ public:
     UseRpcProtocolSequence (
         IN RPC_CHAR PAPI * RpcProtocolSequence,
         IN unsigned int PendingQueueSize,
-        IN RPC_CHAR PAPI * Endpoint, OPTIONAL
-        IN void PAPI * SecurityDescriptor OPTIONAL
+        IN RPC_CHAR PAPI *Endpoint,
+        IN void PAPI * SecurityDescriptor,
+        IN unsigned long EndpointFlags,
+        IN unsigned long NICFlags
         );
 
+    RPC_STATUS
+    UnregisterEndpoint (
+        IN RPC_CHAR __RPC_FAR * RpcProtocolSequence,
+        IN RPC_CHAR __RPC_FAR * Endpoint
+        );
 
     int
     AddAddress (
@@ -1010,8 +1282,11 @@ public:
     RPC_STATUS
     RegisterInterface (
         IN RPC_SERVER_INTERFACE PAPI * RpcInterfaceInformation,
-        IN RPC_UUID PAPI * ManagerTypeUuid, OPTIONAL
-        IN RPC_MGR_EPV PAPI * ManagerEpv OPTIONAL
+        IN RPC_UUID PAPI * ManagerTypeUuid,
+        IN RPC_MGR_EPV PAPI * ManagerEpv,
+        IN unsigned int Flags,
+        IN unsigned int MaxCalls,
+        IN RPC_IF_CALLBACK_FN PAPI *IfCallbackFn
         );
 
     void
@@ -1051,8 +1326,35 @@ public:
     RegisterRpcForwardFunction(
         RPC_FORWARD_FUNCTION * pForwardFunction
                              );  //CLH 2/17/94
+    void
+    IncrementAutoListenInterfaceCount (
+        ) ;
 
+    void
+    DecrementAutoListenInterfaceCount (
+        ) ;
 };
+
+inline void
+RPC_SERVER::IncrementAutoListenInterfaceCount (
+    )
+{
+    NumAutoListenInterfaces.Increment() ;
+}
+
+inline void
+RPC_SERVER::DecrementAutoListenInterfaceCount (
+    )
+{
+    NumAutoListenInterfaces.Decrement() ;
+}
+
+inline long
+RPC_SERVER::InqNumAutoListenInterfaces (
+    )
+{
+    return (NumAutoListenInterfaces.GetInteger()) ;
+}
 
 
 inline unsigned int
@@ -1117,6 +1419,22 @@ Routine Description:
 --*/
 {
     AvailableCallCount.Increment();
+}
+
+
+inline void
+RPC_SERVER::AutoListenCallBeginning (
+    )
+{
+    AutoListenCallCount.Increment() ;
+}
+
+
+inline void
+RPC_SERVER::AutoListenCallEnding (
+    )
+{
+    AutoListenCallCount.Decrement() ;
 }
 
 
@@ -1186,20 +1504,10 @@ Routine Description:
     SentPacketCount += 1;
 }
 
-// Forward declarations for all of the classes in this file.  Some of
-// the classes refer to each other, and it is easier to just forward
-// declare them all.
-
-/* --------------------------------------------------------------------
-SCONNECTION:
-
-This class represents a call on the server side.  We just add a bit more
-protocol to the MESSAGE_OBJECT class; we dont even have any data members
-for this class.
--------------------------------------------------------------------- */
+NEW_NAMED_SDICT2(THREAD_CONTEXT, SSECURITY_CONTEXT, DWORD);
 
 
-class SCONNECTION : public MESSAGE_OBJECT
+class SCONNECTION : public CONNECTION
 /*++
 
 Class Description:
@@ -1212,10 +1520,34 @@ Class Description:
 
 --*/
 {
-private:
-
-
 public:
+    inline
+    SCONNECTION(
+        CLIENT_AUTH_INFO * myAuthInfo,
+        RPC_STATUS * pStatus
+        )
+        : CONNECTION(myAuthInfo, pStatus)
+    {
+        ImpersonationContextDict = 0;
+    }
+
+    inline
+    SCONNECTION(
+        )
+    {
+        ImpersonationContextDict = 0;
+    }
+
+    inline
+    ~SCONNECTION(
+        )
+    {
+        delete ImpersonationContextDict;
+    }
+
+    HANDLE_TYPE
+    Type (
+        );
 
     virtual RPC_STATUS // Value to be returned by the RpcMonitorAssociation
                        // API.
@@ -1279,27 +1611,38 @@ public:
         OUT RPC_BINDING_HANDLE __RPC_FAR * ServerBinding
         ) = 0;
 
-    virtual HANDLE_TYPE
-    Type (
+    virtual RPC_STATUS
+    InqTransportType(
+        OUT unsigned int __RPC_FAR * Type
+        ) = 0;
+
+protected:
+
+    // 1 if the buffer dispatched on this SCONNECTION is complete
+    // ie: contains the last fragment.
+    //
+    int BufferComplete ;
+
+    RPC_STATUS
+    SetThreadSecurityContext(
+        SSECURITY_CONTEXT * Context,
+        MUTEX * Mutex
         );
 
-    virtual RPC_STATUS // Value to be returned by SendReceive API.
-    SendReceive ( // Perform a send-receive operation in a handle specific
-                  // way.
-        IN OUT PRPC_MESSAGE Message
-        ) = 0;
+    SSECURITY_CONTEXT *
+    QueryThreadSecurityContext(
+        MUTEX * Mutex
+        );
 
-    virtual RPC_STATUS // Value to be returned by RpcGetBuffer API.
-    GetBuffer ( // Perform a buffer allocation operation in a handle specific
-                // way.
-        IN OUT PRPC_MESSAGE Message
-        ) = 0;
+    SSECURITY_CONTEXT *
+    ClearThreadSecurityContext(
+        MUTEX * Mutex
+        );
 
-    virtual void
-    FreeBuffer ( // Perform a buffer deallocation operation in a handle
-                 // specific way.
-        IN PRPC_MESSAGE Message
-        ) = 0;
+private:
+
+    THREAD_CONTEXT_DICT2 * ImpersonationContextDict;
+
 };
 
 /* ====================================================================
@@ -1348,7 +1691,7 @@ public:
                // API.
     StopMonitorAssociation ( // Monitor the association for this connection.
         ) {
-          Rundown = Nil;
+          Rundown = 0;
           return(RPC_S_OK);
         }
 
@@ -1381,6 +1724,10 @@ extern int
 InitializeRpcProtocolSPC (
     );
 
+extern int
+InitializeRpcProtocolWmsg (
+    );
+
 extern void PAPI *
 OsfServerMapRpcProtocolSequence (
     IN RPC_CHAR * RpcProtocolSequence,
@@ -1391,6 +1738,9 @@ extern RPC_ADDRESS *
 SpcCreateRpcAddress (
     );
 
+extern RPC_ADDRESS *
+WmsgCreateRpcAddress (
+    );
 
 extern RPC_ADDRESS *
 OsfCreateRpcAddress (

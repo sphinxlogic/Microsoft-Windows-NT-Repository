@@ -380,11 +380,7 @@ mygacf_exit:
 cEnd	nogen
 
 ifdef WOW
-; Simpler (faster) NEAR version for Kernel -- only works for current task!
-;
-; Preserves all regs except dx:ax
-;
-cProc	MyGetAppWOWCompatFlags,<PUBLIC,NEAR>
+cProc   MyGetAppWOWCompatFlags,<PUBLIC,NEAR>
 cBegin	nogen
 	push	ds
 	SetKernelDS
@@ -405,6 +401,34 @@ wow_mygacf_exit:
 	ret
 
 cEnd	nogen
+
+;
+; Returns WOW extended compatiblity flags
+;
+; Preserves all regs except dx:ax
+;
+cProc   MyGetAppWOWCompatFlagsEx,<PUBLIC,FAR>
+cBegin	nogen
+	push	ds
+	SetKernelDS
+
+	mov	ax, curTDB
+	cwd
+	or	ax, ax			; No current task while booting
+        jz      wow_mygacfex_exit
+
+	mov	ds, ax
+	UnSetKernelDS
+	mov	ax, ds:[TDB_WOWCompatFlagsEx]
+	mov	dx, ds:[TDB_WOWCompatFlagsEx2]
+
+wow_mygacfex_exit:
+	pop	ds
+	UnSetKernelDS
+        retf
+
+cEnd	nogen
+
 
 ;---------------------------------------------------------------------------
 ; This gets called from FreeProcInstance. If the proc being freed is an

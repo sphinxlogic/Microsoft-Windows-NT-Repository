@@ -51,20 +51,15 @@ ULONG FASTCALL WU32AnsiLower(PVDMFRAME pFrame)
     register PANSILOWER16 parg16;
 
     GETARGPTR(pFrame, sizeof(ANSILOWER16), parg16);
+    GETPSZIDPTR(parg16->f1, psz1);
 
-    psz1 = (PSZ) FETCHDWORD(parg16->f1);
+    ul = GETLPSTRBOGUS(AnsiLower(psz1));
 
-    if (HIWORD(psz1) != 0) {
-	GETPSZPTR(parg16->f1, psz1);
+    if (HIWORD(psz1)) {
+        ul = parg16->f1;
     }
 
-    ul = GETLPSTRBOGUS(AnsiLower(
-	psz1
-    ));
-
-    if (HIWORD(psz1) != 0) {
-	FREEPSZPTR(psz1);
-    }
+    FREEPSZIDPTR(psz1);
     FREEARGPTR(parg16);
     RETURN(ul);
 }
@@ -100,10 +95,7 @@ ULONG FASTCALL WU32AnsiLowerBuff(PVDMFRAME pFrame)
     GETARGPTR(pFrame, sizeof(ANSILOWERBUFF16), parg16);
     GETVDMPTR(parg16->f1, SIZETO64K(parg16->f2), pb1);
 
-    ul = GETWORD16(AnsiLowerBuff(
-	pb1,
-	SIZETO64K(parg16->f2)
-    ));
+    ul = GETWORD16(AnsiLowerBuff(pb1, SIZETO64K(parg16->f2)));
 
     FLUSHVDMPTR(parg16->f1, SIZETO64K(parg16->f2), pb1);
     FREEVDMPTR(pb1);
@@ -140,9 +132,7 @@ ULONG FASTCALL WU32AnsiNext(PVDMFRAME pFrame)
     GETARGPTR(pFrame, sizeof(ANSINEXT16), parg16);
     GETPSZPTR(parg16->f1, psz1);
 
-    ul = (ULONG) AnsiNext(
-	psz1
-	);
+    ul = (ULONG) AnsiNext(psz1);
 
     ul = ul - (ULONG) psz1;
 
@@ -190,10 +180,7 @@ ULONG FASTCALL WU32AnsiPrev(PVDMFRAME pFrame)
     GETPSZPTR(parg16->f1, psz1);
     GETPSZPTR(parg16->f2, psz2);
 
-    ul = (ULONG) AnsiPrev(
-	psz1,
-	psz2
-    );
+    ul = (ULONG) AnsiPrev(psz1, psz2);
 
     ul = (ULONG) psz2 - ul;
 
@@ -235,24 +222,15 @@ ULONG FASTCALL WU32AnsiUpper(PVDMFRAME pFrame)
     register PANSIUPPER16 parg16;
 
     GETARGPTR(pFrame, sizeof(ANSIUPPER16), parg16);
+    GETPSZIDPTR(parg16->f1, psz1);
 
-    psz1 = (PSZ) FETCHDWORD(parg16->f1);
+    ul = GETLPSTRBOGUS(AnsiUpper(psz1));
 
-    if (HIWORD(psz1) != 0) {
-	GETPSZPTR(parg16->f1, psz1);
+    if (HIWORD(psz1)) {
+        ul = parg16->f1;
     }
 
-    GETPSZPTR(parg16->f1, psz1);
-
-    ul = GETLPSTRBOGUS(AnsiUpper(
-	psz1
-    ));
-
-    if (HIWORD(psz1) != 0) {
-	FREEPSZPTR(psz1);
-    }
-
-    FREEPSZPTR(psz1);
+    FREEPSZIDPTR(psz1);
     FREEARGPTR(parg16);
     RETURN(ul);
 }
@@ -288,10 +266,7 @@ ULONG FASTCALL WU32AnsiUpperBuff(PVDMFRAME pFrame)
     GETARGPTR(pFrame, sizeof(ANSIUPPERBUFF16), parg16);
     GETVDMPTR(parg16->f1, SIZETO64K(parg16->f2), pb1);
 
-    ul = GETWORD16(AnsiUpperBuff(
-	pb1,
-	SIZETO64K(parg16->f2)
-    ));
+    ul = GETWORD16(AnsiUpperBuff(pb1, SIZETO64K(parg16->f2)));
 
     FLUSHVDMPTR(parg16->f1, SIZETO64K(parg16->f2), pb1);
     FREEVDMPTR(pb1);
@@ -347,9 +322,7 @@ ULONG FASTCALL WU32IsCharAlpha(PVDMFRAME pFrame)
 
     GETARGPTR(pFrame, sizeof(ISCHARALPHA16), parg16);
 
-    ul = GETBOOL16(IsCharAlpha(
-    CHAR32(parg16->f1)
-    ));
+    ul = GETBOOL16(IsCharAlpha(CHAR32(parg16->f1)));
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -363,9 +336,7 @@ ULONG FASTCALL WU32IsCharAlphaNumeric(PVDMFRAME pFrame)
 
     GETARGPTR(pFrame, sizeof(ISCHARALPHANUMERIC16), parg16);
 
-    ul = GETBOOL16(IsCharAlphaNumeric(
-    CHAR32(parg16->f1)
-    ));
+    ul = GETBOOL16(IsCharAlphaNumeric(CHAR32(parg16->f1)));
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -379,9 +350,7 @@ ULONG FASTCALL WU32IsCharLower(PVDMFRAME pFrame)
 
     GETARGPTR(pFrame, sizeof(ISCHARLOWER16), parg16);
 
-    ul = GETBOOL16(IsCharLower(
-    CHAR32(parg16->f1)
-    ));
+    ul = GETBOOL16(IsCharLower(CHAR32(parg16->f1)));
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -395,39 +364,8 @@ ULONG FASTCALL WU32IsCharUpper(PVDMFRAME pFrame)
 
     GETARGPTR(pFrame, sizeof(ISCHARUPPER16), parg16);
 
-    ul = GETBOOL16(IsCharUpper(
-    CHAR32(parg16->f1)
-    ));
+    ul = GETBOOL16(IsCharUpper(CHAR32(parg16->f1)));
 
     FREEARGPTR(parg16);
     RETURN(ul);
 }
-
-
-
-
-#ifndef LOCALAPI
-
-ULONG FASTCALL WU32LoadString(PVDMFRAME pFrame)
-{
-    ULONG ul;
-    PSZ psz3;
-    register PLOADSTRING16 parg16;
-
-    GETARGPTR(pFrame, sizeof(LOADSTRING16), parg16);
-    ALLOCVDMPTR(parg16->f3, parg16->f4, psz3);
-
-    ul = GETINT16(LoadString(
-    HMODINST32(parg16->f1),
-    WORD32(parg16->f2),
-    psz3,
-    INT32(parg16->f4)
-    ));
-
-    FLUSHVDMPTR(parg16->f3, strlen(psz3)+1, psz3);
-    FREEVDMPTR(psz3);
-    FREEARGPTR(parg16);
-    RETURN(ul);
-}
-
-#endif

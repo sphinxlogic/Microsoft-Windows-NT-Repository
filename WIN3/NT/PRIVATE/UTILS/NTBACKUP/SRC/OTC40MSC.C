@@ -7,7 +7,10 @@ Copyright(c) Maynard Electronics, Inc. 1984-92
         Description:    Contains misc code for processing On Tape Catalogs.
 
 
-  $Log:   T:\logfiles\otc40msc.c_v  $
+  $Log:   T:/LOGFILES/OTC40MSC.C_V  $
+
+   Rev 1.28.2.0   11 Jan 1995 21:04:54   GREGG
+Calculate OTC addrs from fmk instead of always asking (fixes Wangtek bug).
 
    Rev 1.28   17 Dec 1993 16:40:18   GREGG
 Extended error reporting.
@@ -132,6 +135,7 @@ Initial revision.
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
+#include <fcntl.h>
 
 #include "stdtypes.h"
 #include "channel.h"
@@ -205,20 +209,22 @@ INT16 OTC_OpenSM(
      }
 
      if( !appending ) {
-          if( ( cur_env->otc_sm_fptr = fopen( lw_cat_file_path, TEXT("wb+") ) ) == NULL ) {
+          if( ( cur_env->otc_sm_fptr = UNI_fopen( lw_cat_file_path, 0 ) ) == NULL ) {
                ret_val = TFLE_OTC_FAILURE ;
           }
 
      } else {
           if( access( lw_cat_file_path, 0 ) == -1 ) {
-               if( ( cur_env->otc_sm_fptr = fopen( lw_cat_file_path, TEXT("wb+") ) ) == NULL ) {
+               if( ( cur_env->otc_sm_fptr = UNI_fopen( lw_cat_file_path, 0 ) ) == NULL ) {
                     ret_val = TFLE_OTC_FAILURE ;
                }
                *sm_exists = FALSE ;
           } else {
-               if( ( cur_env->otc_sm_fptr = fopen( lw_cat_file_path, TEXT("rb+") ) ) == NULL ) {
+               if( ( cur_env->otc_sm_fptr = UNI_fopen( lw_cat_file_path, _O_APPEND ) ) == NULL ) {
                     ret_val = TFLE_OTC_FAILURE ;
                }
+
+//               fseek( cur_env->otc_sm_fptr, 0L, SEEK_SET ) ;
                *sm_exists = TRUE ;
           }
      }
@@ -258,7 +264,7 @@ INT16 OTC_OpenFDD(
           strcpy( lw_cat_file_path_end, cur_env->fdd_fname ) ;
      }
 
-     if( ( cur_env->otc_fdd_fptr = fopen( lw_cat_file_path, TEXT("wb+") ) ) == NULL ) {
+     if( ( cur_env->otc_fdd_fptr = UNI_fopen( lw_cat_file_path, 0 ) ) == NULL ) {
           ret_val = TFLE_OTC_FAILURE ;
      }
      return( ret_val ) ;
@@ -747,13 +753,8 @@ INT16 OTC_WriteCat(
 
           /* Set the PBA and sequence number of the FDD in the ESET */
           if( !cur_env->fdd_continuing ) {
-               DRIVER_CALL( drv_hdl, TpGetPosition( drv_hdl, FALSE ), myret,
-                            GEN_NO_ERR, GEN_NO_ERR,
-                            { BM_Put( tmpBUF ) ;
-                            OTC_Close( cur_env, OTC_CLOSE_ALL, TRUE ) ; } )
-
-               cur_env->fdd_pba              = myret.misc ;
-               cur_eset->fdd_phys_blk_adr    = U64_Init( myret.misc, 0L ) ;
+               cur_env->fdd_pba              = cur_env->eset_base_addr ;
+               cur_eset->fdd_phys_blk_adr    = U64_Init( cur_env->eset_base_addr, 0L ) ;
                cur_env->fdd_seq_num          = channel->ts_num ;
                cur_eset->fdd_tape_seq_number = channel->ts_num ;
           } else {
@@ -788,12 +789,7 @@ INT16 OTC_WriteCat(
              won't write the ESET and we will rewrite the whole SM on the
              continuation tape, so we do this no matter what.
           */
-          DRIVER_CALL( drv_hdl, TpGetPosition( drv_hdl, FALSE ), myret,
-                       GEN_NO_ERR, GEN_NO_ERR,
-                       { BM_Put( tmpBUF ) ;
-                         OTC_Close( cur_env, OTC_CLOSE_ALL, TRUE ) ; } )
-
-          cur_eset->set_map_phys_blk_adr = U64_Init( myret.misc, 0L ) ;
+          cur_eset->set_map_phys_blk_adr = U64_Init( cur_env->eset_base_addr, 0L ) ;
 
           BM_SetNextByteOffset( tmpBUF, 0U ) ;
           ret_val = OTC_WriteSM( channel, tmpBUF, rdwr_size ) ;
@@ -832,7 +828,7 @@ static INT16 _near OTC_WriteFDD(
      long           hdr_size  = sizeof( MTF_FDD_HDR ) ;
      UINT32         bsize     = ChannelBlkSize( channel ) ;
 
-     len = filelength( fileno( fptr ) ) + sizeof( MTF_STREAM ) ;
+     len = filelength( _fileno( fptr ) ) + sizeof( MTF_STREAM ) ;
 
      /* rewind the file */
      if( !cur_env->fdd_continuing ) {
@@ -846,6 +842,7 @@ static INT16 _near OTC_WriteFDD(
      }
 
      len = ( ( len + bsize - 1L ) / bsize ) * bsize ;
+     cur_env->eset_base_addr += len / bsize ;
      len -= sizeof( MTF_STREAM ) ;
 
      ret_val = OTC_WriteStream( channel, tmpBUF, rdwr_size, fptr,
@@ -928,8 +925,9 @@ static INT16 _near OTC_WriteSM(
           return( TFLE_NO_ERR ) ;
      }
 
-     len = filelength( fileno( fptr ) ) ;
-
+     len = filelength( _fileno( fptr ) ) ;
+     cur_env->eset_base_addr += ( len + sizeof( MTF_STREAM ) ) /
+                                                  ChannelBlkSize( channel ) ;
      ret_val = OTC_WriteStream( channel, tmpBUF, rdwr_size, fptr,
                                 STRM_OTC_SM, len, FALSE, &completed, FALSE ) ;
 
@@ -1093,17 +1091,20 @@ static INT16 _near OTC_WriteStream(
 
      Returns:
 
-     Notes:
+     Notes:         We need to make sure we are on a 1024 boundary to avoid
+                    a bug with the Wangtek 525 drives reporting the PBA
+                    wrong when in 512 mode.
 
 **/
 static INT16 _near OTC_WriteSMPadStream(
      CHANNEL_PTR    channel,
      BUF_PTR        tmpBUF )
 {
+     F40_ENV_PTR    cur_env   = (F40_ENV_PTR)(channel->fmt_env) ;
      INT16          drv_hdl   = channel->cur_drv->drv_hdl ;
-     UINT32         bsize     = MAX( ChannelBlkSize( channel ), F40_LB_SIZE ) ;
+     UINT32         bsize     = ChannelBlkSize( channel ) ;
      RET_BUF        myret ;
-     unsigned int   size ;
+     unsigned int   size = 0 ;
      unsigned int   part ;
      MTF_STREAM     str_hdr ;
      UINT8_PTR      p ;
@@ -1113,15 +1114,28 @@ static INT16 _near OTC_WriteSMPadStream(
 
      if( BM_BytesFree( tmpBUF ) % bsize != 0 ) {
 
-          /* Add pad stream to end of Set Map, to pad out to the
-             next logical (or physical if > 1024) block boundary.
-          */
+          cur_env->eset_base_addr++ ;
           size = (unsigned int)( BM_BytesFree( tmpBUF ) % bsize ) ;
+          /* If we're not on a 1024, get there. */
+          if( bsize == 512 && cur_env->eset_base_addr % 2 != 0 ) {
+               size += 512 ;
+               cur_env->eset_base_addr++ ;
+          }
+          /* If the pad is smaller than the header, pad anoth chunk. */
           if( size < sizeof( MTF_STREAM ) ) {
-               size += bsize ;
+               size += MAX( bsize, 1024 ) ;
+               cur_env->eset_base_addr += size / bsize ;
           }
           size -= sizeof( MTF_STREAM ) ;
+     } else {
+          /* If we're not on a 1024, get there. */
+          if( bsize == 512 && cur_env->eset_base_addr % 2 != 0 ) {
+               size = 512 - sizeof( MTF_STREAM ) ;
+               cur_env->eset_base_addr++ ;
+          }
+     }
 
+     if( size != 0 ) {
           str_hdr.id          = STRM_PAD ;
           str_hdr.fs_attribs  = 0L ;
           str_hdr.tf_attribs  = 0L ;
@@ -1129,10 +1143,13 @@ static INT16 _near OTC_WriteSMPadStream(
           str_hdr.comp_algor  = 0 ;
           str_hdr.data_length = U64_Init( size, 0L ) ;
           str_hdr.chksum      = CalcChecksum( (UINT16_PTR)&str_hdr, F40_STREAM_CHKSUM_LEN ) ;
+          size += sizeof( MTF_STREAM ) ;
 
           if( ( part = BM_BytesFree( tmpBUF ) ) < sizeof( MTF_STREAM ) ) {
-               memcpy( BM_NextBytePtr( tmpBUF ), &str_hdr, part ) ;
-               BM_UpdCnts( tmpBUF, (UINT16)part ) ;
+               if( part != 0 ) {
+                    memcpy( BM_NextBytePtr( tmpBUF ), &str_hdr, part ) ;
+                    BM_UpdCnts( tmpBUF, (UINT16)part ) ;
+               }
                DRIVER_CALL( drv_hdl, TpWrite( drv_hdl, BM_XferBase( tmpBUF ), BM_NextByteOffset( tmpBUF ) ),
                             myret, GEN_NO_ERR, GEN_ERR_EOM, (VOID)0 )
 
@@ -1142,23 +1159,33 @@ static INT16 _near OTC_WriteSMPadStream(
                }
                p = (UINT8_PTR)(void *)( &str_hdr ) ;
                p += part ;
-               memset( BM_XferBase( tmpBUF ), 0, (size_t)bsize ) ;
+               size -= part ;
+               memset( BM_XferBase( tmpBUF ), 0, (size_t)BM_XferSize( tmpBUF ) ) ;
                memcpy( BM_XferBase( tmpBUF ), p, sizeof( MTF_STREAM ) - part ) ;
-               size = (unsigned int)bsize ;
           } else {
                memset( BM_NextBytePtr( tmpBUF ), 0, (size_t)BM_BytesFree( tmpBUF ) ) ;
                memcpy( BM_NextBytePtr( tmpBUF ), &str_hdr, sizeof( MTF_STREAM ) ) ;
-               size += BM_NextByteOffset( tmpBUF ) + sizeof( MTF_STREAM ) ;
+               if( size > BM_BytesFree( tmpBUF ) ) {
+                    size -= BM_BytesFree( tmpBUF ) ;
+                    BM_UpdCnts( tmpBUF, BM_BytesFree( tmpBUF ) ) ;
+                    DRIVER_CALL( drv_hdl, TpWrite( drv_hdl, BM_XferBase( tmpBUF ), BM_NextByteOffset( tmpBUF ) ),
+                                 myret, GEN_NO_ERR, GEN_ERR_EOM, (VOID)0 )
+                    memset( BM_XferBase( tmpBUF ), 0, (size_t)size ) ;
+               } else {
+                    size += BM_NextByteOffset( tmpBUF ) ;
+               }
           }
      } else {
           size = BM_NextByteOffset( tmpBUF ) ;
      }
 
-     DRIVER_CALL( drv_hdl, TpWrite( drv_hdl, BM_XferBase( tmpBUF ), size ),
-                  myret, GEN_NO_ERR, GEN_ERR_EOM, (VOID)0 )
+     if( size != 0 ) {
+          DRIVER_CALL( drv_hdl, TpWrite( drv_hdl, BM_XferBase( tmpBUF ), size ),
+                       myret, GEN_NO_ERR, GEN_ERR_EOM, (VOID)0 )
 
-     if( myret.gen_error == GEN_ERR_EOM ) {
-          SetPosBit( channel->cur_drv, ( AT_EOM | TAPE_FULL ) ) ;
+          if( myret.gen_error == GEN_ERR_EOM ) {
+               SetPosBit( channel->cur_drv, ( AT_EOM | TAPE_FULL ) ) ;
+          }
      }
 
      return( TFLE_NO_ERR ) ;

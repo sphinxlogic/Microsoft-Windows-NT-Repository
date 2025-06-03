@@ -1237,4 +1237,3 @@ long_from_ndr_temp (
 }
 */
 
-

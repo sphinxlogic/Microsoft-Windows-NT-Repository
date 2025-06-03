@@ -65,7 +65,7 @@ Revision History:
     struct { ULONG bogus; } ThisCodeCantBePaged; \
     ThisCodeCantBePaged; \
     if (KeGetCurrentIrql() > APC_LEVEL) { \
-	KdPrint(( "EX: Pageable code called at IRQL %d\n", KeGetCurrentIrql() )); \
+        KdPrint(( "EX: Pageable code called at IRQL %d\n", KeGetCurrentIrql() )); \
         ASSERT(FALSE); \
         }
 #define PAGED_CODE_CHECK() if (ThisCodeCantBePaged) ;
@@ -83,7 +83,20 @@ extern ULONG ThisCodeCantBePaged;
 #include "Exchange.h"
 #include <NwEvent.h>
 
+//
+// NDS Additions.
+//
+
+#include <nds.h>
+#include "ndsprocs.h"
+
 //  Attach.c
+
+NTSTATUS
+ConnectToServer(
+    IN PIRP_CONTEXT pIrpContext,
+    OUT PSCB *pScbCollision
+);
 
 NTSTATUS
 ProcessFindNearest(
@@ -105,10 +118,36 @@ CrackPath (
     );
 
 NTSTATUS
+CheckScbSecurity(
+    IN PIRP_CONTEXT pIrpContext,
+    IN PSCB pScb,
+    IN PUNICODE_STRING puUserName,
+    IN PUNICODE_STRING puPassword,
+    IN BOOLEAN fDeferLogon
+);
+
+NTSTATUS
+ConnectScb(
+    IN PSCB *Scb,
+    IN PIRP_CONTEXT pIrpContext,
+    IN PUNICODE_STRING Server,
+    IN IPXaddress *pServerAddress,
+    IN PUNICODE_STRING UserName,
+    IN PUNICODE_STRING Password,
+    IN BOOLEAN DeferLogon,
+    IN BOOLEAN DeleteConnection,
+    IN BOOLEAN ExistingScb
+);
+
+#define IS_ANONYMOUS_SCB( pScb ) \
+        ( (pScb->UidServerName).Length == 0 )
+
+NTSTATUS
 CreateScb(
     OUT PSCB *Scb,
     IN PIRP_CONTEXT pIrpC,
     IN PUNICODE_STRING Server,
+    IN IPXaddress *pServerAddress,
     IN PUNICODE_STRING UserName,
     IN PUNICODE_STRING Password,
     IN BOOLEAN DeferLogon,
@@ -156,13 +195,22 @@ NwDeleteScb(
 NTSTATUS
 NegotiateBurstMode(
     PIRP_CONTEXT pIrpContext,
-    PNONPAGED_SCB pNpScb
+    PNONPAGED_SCB pNpScb,
+    BOOLEAN *LIPNegotiated
     );
 
 VOID
 RenegotiateBurstMode(
     PIRP_CONTEXT pIrpContext,
     PNONPAGED_SCB pNpScb
+    );
+
+BOOLEAN
+NwFindScb(
+    OUT PSCB *ppScb,
+    IN PIRP_CONTEXT pIrpContext,
+    IN PUNICODE_STRING UidServerName,
+    IN PUNICODE_STRING ServerName
     );
 
 NTSTATUS
@@ -227,6 +275,12 @@ FlushCache(
     PNONPAGED_FCB NpFcb
     );
 
+NTSTATUS
+AcquireFcbAndFlushCache(
+    PIRP_CONTEXT IrpContext,
+    PNONPAGED_FCB NpFcb
+    );
+
 //  Callback.c
 
 
@@ -277,6 +331,15 @@ NwFsdCreate (
     IN PIRP Irp
     );
 
+NTSTATUS
+ReadAttachEas(
+    IN PIRP Irp,
+    OUT PUNICODE_STRING UserName,
+    OUT PUNICODE_STRING Password,
+    OUT PULONG ShareType,
+    OUT PDWORD CredentialExtension
+    );
+
 //  Convert.c
 
 NTSTATUS
@@ -298,17 +361,13 @@ NwConnectionStatusToNtStatus(
     );
 
 UCHAR
-NtDesiredAccessToNwShareFlags(
-    ULONG DesiredAccess
-    );
-
-UCHAR
 NtAttributesToNwAttributes(
     ULONG FileAttributes
     );
 
 UCHAR
-NtShareAccessToNwShareFlags(
+NtToNwShareFlags(
+    ULONG DesiredAccess,
     ULONG NtShareFlags
     );
 
@@ -363,6 +422,12 @@ dumpMdl(
     IN PMDL Mdl
     );
 
+VOID
+DumpIcbs(
+    VOID
+    ) ;
+
+
 PVOID
 NwAllocatePool(
     ULONG Type,
@@ -392,7 +457,9 @@ NwAllocateMdl(
     ULONG Length,
     BOOLEAN Secondary,
     BOOLEAN ChargeQuota,
-    PIRP Irp
+    PIRP Irp,
+    PUCHAR FileName,
+    int Line
     );
 
 VOID
@@ -660,6 +727,20 @@ NwFsdDeviceIoControl (
     IN PIRP Irp
     );
 
+#ifdef _PNP_POWER
+
+VOID
+HandleTdiBindMessage(
+    IN PUNICODE_STRING DeviceName
+);
+
+VOID
+HandleTdiUnbindMessage(
+    IN PUNICODE_STRING DeviceName
+);
+
+#endif
+
 PLOGON
 FindUser(
     IN PLARGE_INTEGER Uid,
@@ -670,6 +751,18 @@ LARGE_INTEGER
 GetUid(
     IN PSECURITY_SUBJECT_CONTEXT SubjectSecurityContext
     );
+
+PLOGON
+FindUserByName(
+    IN PUNICODE_STRING UserName
+);
+
+VOID
+LazySetShareable(
+    PIRP_CONTEXT IrpContext,
+    PICB pIcb,
+    PFCB pFcb
+);
 
 //  FspDisp.c
 
@@ -782,6 +875,11 @@ SubmitLineChangeRequest(
 
 #endif
 
+VOID
+FspProcessLineChange(
+    IN PVOID Context
+    );
+
 //  Lock.c
 
 NTSTATUS
@@ -877,6 +975,11 @@ NwFastRead (
 //  Scavenger.c
 
 VOID
+DisconnectTimedOutScbs(
+    LARGE_INTEGER Now
+    );
+
+VOID
 NwScavengerRoutine(
     IN PWORK_QUEUE_ITEM WorkItem
     );
@@ -892,7 +995,18 @@ NwFreeExtraIrpContext(
     IN PIRP_CONTEXT pIrpContext
     );
 
+VOID
+CleanupScbs(
+    LARGE_INTEGER Now
+    );
+
 //  Security.c
+
+VOID
+CreateAnsiUid(
+    OUT PCHAR aUid,
+    IN PLARGE_INTEGER Uid
+    );
 
 NTSTATUS
 MakeUidServer(
@@ -1047,7 +1161,8 @@ NwCreateVcb (
 VOID
 NwDereferenceVcb (
     IN PVCB Vcb,
-    IN PIRP_CONTEXT IrpContext OPTIONAL
+    IN PIRP_CONTEXT IrpContext OPTIONAL,
+    IN BOOLEAN OwnRcb
     );
 
 VOID
@@ -1067,9 +1182,16 @@ NwReopenVcbHandlesForScb (
     IN PSCB Scb
     );
 
+VOID
+NwReopenVcbHandle(
+    IN PIRP_CONTEXT IrpContext,
+    IN PVCB Vcb
+    );
+
 ULONG
 NwInvalidateAllHandles (
-    PLARGE_INTEGER Uid
+    PLARGE_INTEGER Uid,
+    PIRP_CONTEXT IrpContext
     );
 
 ULONG
@@ -1101,6 +1223,30 @@ CopyBufferToMdl(
     PVOID SourceData,
     ULONG SourceByteCount
     );
+
+NTSTATUS
+GetCredentialFromServerName(
+    IN PUNICODE_STRING puServerName,
+    OUT PUNICODE_STRING puCredentialName
+);
+
+NTSTATUS
+BuildExCredentialServerName(
+    IN PUNICODE_STRING puServerName,
+    IN PUNICODE_STRING puUserName,
+    OUT PUNICODE_STRING puExCredServerName
+);
+
+NTSTATUS
+UnmungeCredentialName(
+    IN PUNICODE_STRING puCredName,
+    OUT PUNICODE_STRING puServerName
+);
+
+BOOLEAN
+IsCredentialName(
+    IN PUNICODE_STRING puObjectName
+);
 
 //  VolInfo.c
 
@@ -1237,7 +1383,6 @@ typedef BOOLEAN FINISHED;
 //  flags
 //
 
-#define FlagOn(Flags,SingleFlag)        ((Flags) & (SingleFlag))
 #define BooleanFlagOn(Flags,SingleFlag) ((BOOLEAN)((((Flags) & (SingleFlag)) != 0)))
 
 #define SetFlag(Flags,SingleFlag) { \
@@ -1423,19 +1568,82 @@ NwProcessException (
 //  Reference and dereference Macros.
 //
 
+VOID
+RefDbgTrace (
+    PVOID Resource,
+    DWORD Count,
+    BOOLEAN Reference,
+    PBYTE FileName,
+    UINT Line
+);
+
+#ifdef NWDBG
+
+VOID
+ChkNwReferenceScb(
+    PNONPAGED_SCB pNpScb,
+    PBYTE FileName,
+    UINT Line,
+    BOOLEAN Silent
+);
+
+VOID
+ChkNwDereferenceScb(
+    PNONPAGED_SCB pNpScb,
+    PBYTE FileName,
+    UINT Line,
+    BOOLEAN Silent
+);
+
 #define NwReferenceScb( pNpScb ) \
-        ASSERT( (pNpScb)->NodeTypeCode == NW_NTC_SCBNP ); \
+        ChkNwReferenceScb( pNpScb, __FILE__, __LINE__, FALSE )
+
+#define NwQuietReferenceScb( pNpScb ) \
+        ChkNwReferenceScb( pNpScb, __FILE__, __LINE__, TRUE )
+
+#define NwDereferenceScb( pNpScb ) \
+        ChkNwDereferenceScb( pNpScb, __FILE__, __LINE__, FALSE )
+
+#define NwQuietDereferenceScb( pNpScb ) \
+        ChkNwDereferenceScb( pNpScb, __FILE__, __LINE__, TRUE )
+
+#else
+
+#define NwReferenceScb( pNpScb ) \
+        ExInterlockedIncrementLong( &(pNpScb)->Reference, &(pNpScb)->NpScbInterLock )
+
+#define NwQuietReferenceScb( pNpScb ) \
         ExInterlockedIncrementLong( &(pNpScb)->Reference, &(pNpScb)->NpScbInterLock )
 
 #define NwDereferenceScb( pNpScb ) \
-        ASSERT( (pNpScb)->NodeTypeCode == NW_NTC_SCBNP ); \
         ExInterlockedDecrementLong( &(pNpScb)->Reference, &(pNpScb)->NpScbInterLock )
+
+#define NwQuietDereferenceScb( pNpScb ) \
+        ExInterlockedDecrementLong( &(pNpScb)->Reference, &(pNpScb)->NpScbInterLock )
+#endif
+
+//
+// Irpcontext event macro.
+//
+
+#define NwSetIrpContextEvent( pIrpContext ) \
+        DebugTrace( 0, DEBUG_TRACE_WORKQUE, "Set event for IrpC = %08lx\n", pIrpContext ); \
+        DebugTrace( 0, DEBUG_TRACE_WORKQUE, "IrpC->pNpScb = %08lx\n", pIrpContext->pNpScb ); \
+        KeSetEvent( &pIrpContext->Event, 0, FALSE )
 
 //
 //  VCB macros must be called with the RCB resource held.
 //
 
-#define NwReferenceVcb( pVcb )      ++(pVcb)->Reference; DebugTrace(0, Dbg, "Referencing VCB %X\n", pVcb )
+
+#if NWDBG
+VOID
+NwReferenceVcb (
+    IN PVCB Vcb
+    );
+#else
+#define NwReferenceVcb( pVcb )      ++(pVcb)->Reference;
+#endif
 
 //
 // Resource acquisition and release macros
@@ -1533,13 +1741,17 @@ NwReleaseOpenLock(
 #define FREE_IRP( Irp )                 NwFreeIrp( Irp )
 
 #define ALLOCATE_MDL( Va, Length, Secondary, ChargeQuota, Irp ) \
-                    NwAllocateMdl(Va, Length, Secondary, ChargeQuota, Irp )
+                    NwAllocateMdl(Va, Length, Secondary, ChargeQuota, Irp, __FILE__, __LINE__ )
 #define FREE_MDL( Mdl )                 NwFreeMdl( Mdl )
 
 #else
 
 #define ALLOCATE_POOL_EX( Type, Size )  FsRtlAllocatePool( Type, Size )
+#ifndef QFE_BUILD
 #define ALLOCATE_POOL( Type, Size )     ExAllocatePoolWithTag( Type, Size, 'scwn' )
+#else
+#define ALLOCATE_POOL( Type, Size )     ExAllocatePool( Type, Size )
+#endif
 #define FREE_POOL( Buffer )             ExFreePool( Buffer )
 
 #define ALLOCATE_IRP( Size, ChargeQuota ) \
@@ -1586,6 +1798,17 @@ NwReleaseOpenLock(
     c1[0] = c2[1];                 \
     c1[1] = c2[0];                 \
 }
+
+
+
+#define CanLogTimeOutEvent( LastTime, CurrentTime ) \
+     ( ( CurrentTime.QuadPart ) - ( LastTime.QuadPart ) >= 0 )
+
+#define UpdateNextEventTime( LastTime, CurrentTime, TimeOutEventInterval ) \
+    ( LastTime.QuadPart ) = ( CurrentTime.QuadPart ) + \
+                            ( TimeOutEventInterval.QuadPart )
+
+
 
 //
 //  Macros to isolate NT 3.1 and NT 3.5 differences.

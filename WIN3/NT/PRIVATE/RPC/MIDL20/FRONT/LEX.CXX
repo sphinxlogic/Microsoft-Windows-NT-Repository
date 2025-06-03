@@ -44,22 +44,33 @@ extern void ParseError( STATUS_T, char *);
 
 extern  NFA_INFO *pImportCntrl;
 
-#define MAX_STRING_SIZE	255
-
-#define NewCCGetch() (char) (pImportCntrl->GetChar())
-#define NewCCputbackc(c) (char )(pImportCntrl->UnGetChar(c))
-
 extern	lextype_t	yylval;
 
 extern token_t	toktyp_G;			/* token type */
 extern short	toklen_G;			/* len of token string */
 extern char		*tokptr_G;			/* pointer to token string */
 extern long		tokval_G;			/* value of constant token */
+extern short	curr_line_G;
 
 
 extern LexTable	*pMidlLexTable;
 extern short	CompileMode;
 extern CMD_ARG * pCommand;
+
+int chCached = 0;
+
+char NewCCputbackc( char ch )
+	{
+	if (chCached)
+	{
+		pImportCntrl->UnGetChar(chCached);
+	}
+	chCached = ch;
+
+	if ( ch == '\n' )
+		curr_line_G--;
+	return ch;
+	}
 
 
 /*****              definition of state table fields 			****/
@@ -125,16 +136,17 @@ extern CMD_ARG * pCommand;
 #define D0b	0x0b0c		/* | 0b */
 
 
-/*****				character table				*****/
+/*****             character table              *****/
+/*  MIDL supports the ANSI character set as input   */
 
-short ct[128]= {
+const extern short ct[256]= {
 
 /*     0   1   2   3   4   5   6   7   8   9   a   b   c   d   e   f    */
 	 O7e,ERR,ERR,ERR,ERR,  0,ERR,ERR,ERR,  0,O7d,ERR,  0,  0,ERR,ERR,
-/*	  10  11  12  13  14  15  16  17  18  11  1a  1b  1c  1d  1e  1f    */
+/*	  10  11  12  13  14  15  16  17  18  19  1a  1b  1c  1d  1e  1f    */
 	 ERR,ERR,ERR,ERR,ERR,ERR,ERR,ERR,ERR,ERR,O7e,ERR,ERR,ERR,ERR,ERR,
 /*	       !   "   #   $   %   &   '   (   )   *   +   ,   -   .   /    */
-	   0,D04,O64,OHS,  4,D05,D06,O65,O43,O44,D07,D08,O49,D00,O24,D01,
+	   0,D04,O64,OHS,ERR,D05,D06,O65,O43,O44,D07,D08,O49,D00,O24,D01,
 /*	   0   1   2   3   4   5   6   7   8   9   :   ;   <   =   >   ?    */
 	   7,  8,  8,  8,  8,  8,  8,  8,  9,  9,O14,O50,D02,D09,D03,O13,
 /*	   @   A   B   C   D   E   F   G   H   I   J   K   L   M   N   O    */ 
@@ -144,12 +156,28 @@ short ct[128]= {
 /*	   `   a   b   c   d   e   f   g   h   i   j   k   l   m   n   o    */ 
 	 ERR,  1,  1,  1,  1,  2,  3,  4,  4,  4,  4,  4,  5,  4,  4,  4,
 /*	   p   q   r   s   t   u   v   w   x   y   z   {   |   }   ~ DEL    */ 
-	   4,  4,  4,  4,  4,  4,  4,  4,  6,  4,  4,O45,D0b,O46,O23,ERR};
+	   4,  4,  4,  4,  4,  4,  4,  4,  6,  4,  4,O45,D0b,O46,O23,ERR,
+/*    80  81  82  83  84  85  86  87  88  89  8a  8b  8c  8d  8e  8f    */
+	   4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,
+/*	  90  91  92  93  94  95  96  97  98  99  9a  9b  9c  9d  9e  9f    */
+	   4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,
+/*	  a0  a1  a2  a3  a4  a5  a6  a7  a8  a9  aa  ab  ac  ad  ae  af    */
+	   4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,
+/*	  b0  b1  b2  b3  b4  b5  b6  b7  b8  b9  ba  bb  bc  bd  be  bf    */
+	   4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,
+/*	  c0  c1  c2  c3  c4  c5  c6  c7  c8  c9  ca  cb  cc  cd  ce  cf    */
+	   4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,
+/*	  d0  d1  d2  d3  d4  d5  d6  d7  d8  d9  da  db  dc  dd  de  df    */
+	   4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,
+/*	  e0  e1  e2  e3  e4  e5  e6  e7  e8  e9  ea  eb  ec  ed  ee  ef    */
+	   4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,
+/*	  f0  f1  f2  f3  f4  f5  f6  f7  f8  f9  fa  fb  fc  fd  fe  ff    */
+	   4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4};
 
 
 /*****			    state transition table			*****/
 
-short st[ 13 ][ 16 ] = {
+const extern short st[ 13 ][ 16 ] = {
 
 //               0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15 
 //             spc a-d   e   f g-z   l   x   0 1-7 8-9   . + -  op   '  "    L
@@ -173,7 +201,7 @@ short st[ 13 ][ 16 ] = {
 
 /*****		       multi character operator table			*****/
 
-token_t moptab[]     = {
+const token_t moptab[]     = {
 
 /*             0   1   2   3   4   5   6   7   8   9  10  11      */
 /*             -   /   <   >   !   %   &   *   +   =   ^   |      */
@@ -201,7 +229,7 @@ extern token_t ScanGuid( void );
 extern token_t ScanVersion( void );
 extern token_t ScanImplicitImports(void);
 
-static token_t (*action[])(void) = {
+const static token_t (*action[])(void) = {
 	0,				/* unused */
 	name,				/* handle name token */
 	cnv_int,			/* convert integer token */
@@ -272,11 +300,12 @@ token_t commentline()
 /*			    multi character operator			    */
 /*									    */ 
 
+const static token_t *snglop = &moptab[0];	/* adr of single character operator */
+const static token_t *assgop = &moptab[12];	/* adr of assignment operator */
+const static token_t *dblop  = &moptab[24];	/* adr of double character operator */
+
 token_t mulop()
     {
-    static token_t *snglop = &moptab[0];	/* adr of single character operator */
-    static token_t *assgop = &moptab[12];	/* adr of assignment operator */
-    static token_t *dblop  = &moptab[24];	/* adr of double character operator */
     REG unsigned short i;                   /* index into multi operator table */
     REG char lstch;
 //printf ("in mulop ch = %c\n", ch);
@@ -342,7 +371,7 @@ token_t mulop()
 			{
 			// potentially an error
 
-			ParseError( SINGLE_LINE_COMMENT, (char *)0 );
+//			ParseError( SINGLE_LINE_COMMENT, (char *)0 );
 			return(commentline());	/*   the next line is a comment */
 			}
 		ch = NewCCGetch();					/* get next character */
@@ -457,10 +486,6 @@ char convesc()
 				fConstantIsIllegal = TRUE;
 			}
 
-#if 0
-//		ch = NewCCGetch();
-//		if( fConstantIsIllegal || (ch != '\'') )
-#endif // 0
 
 		if( fConstantIsIllegal || (value > (unsigned short) 0x00ff) )
 			ParseError( ILLEGAL_CONSTANT, (char *)0 );
@@ -492,29 +517,6 @@ character()
 			}
 		tokptr_G[0] = ch;
 		tokptr_G[1] = '\0';
-#if 0
-		if ((ch = NewCCGetch()) == '\\')
-			{
-			ch = convesc();
-			if( ( ch == 10 ) || ( ch == 9 ) || (ch == 8 ) )
-				{
-				tokptr_G[0] = '\\';
-				if( ch == 10 )
-					ch = 'n';
-				else if( ch == 9 )
-					ch = 't';
-				else
-					ch = 'b';
-				tokptr_G[1] = ch;
-				tokptr_G[2] = '\0';
-				}
-			}
-		else
-			{
-			tokptr_G[0] = ch;
-			tokptr_G[1] = '\0';
-			}
-#endif // 0
 
 		yylval.yy_numeric.Val = tokval_G = ch;
 //printf ("character = %s\n", tokptr_G);
@@ -526,67 +528,6 @@ character()
          return (CHARACTERCONSTANT);
 	}
 
-#if 0
-token_t string()
-    {
-    REG int slen=0;				/* string length */
-	REG char *ptr = tokptr_G;
-	char fEscape;
-
-    do	{
-	fEscape = 0;
-	ch = NewCCGetch();			/* get next character */
-
-	if( ch == 0 ) {			/* if end of file ? */
-		ParseError(EOF_IN_STRING,(char *)NULL );
-		exit( EOF_IN_STRING );
-	    break; }
-
-	if( ch == '\n' )
-		ParseError( NEWLINE_IN_STRING, (char *)0 );
-/**
- ** we want the strings to appear as they are, so that we can pass them on
- ** to the c compiler as is
- **/
-
-	if( ch == '\\' )	/* if escape character ? */
-		{
-	    ch = convesc();		/* convert escape char. into char. */
-#if 0
-		if( ( ch == 10 ) || ( ch == 9 ) || (ch == 8 ) )
-			{
-			*(ptr++) = '\\'; toklen_G++;
-			if( ch == 10 )
-				ch = 'n';
-			else if( ch == 9 )
-				ch = 't';
-			else
-				ch = 'b';
-			}
-#endif // 0
-		fEscape = 1;
-		}
-
-	if( ch ) {			/* skip if new line */
-	     slen++;			/* adjust string length */
-	     if( slen >= 250 ) {		/* check if string too long */
-			ParseError(STRING_TOO_LONG, (char *)NULL );
-			exit( STRING_TOO_LONG );
-	    	break; }
-	     }
-	*(ptr++) = ch; toklen_G++;	/* add to token string */
-
-	// this is to prevent, the loop terminating if an escaped '"' was found.
-
-	if(fEscape) ch = 0;
-	} while( ch != '"' );		/* loop til end of string */
-
-	*(--ptr) = '\0'; toklen_G--;	/* remove trailing quote mark */
-
-	yylval.yy_string = pMidlLexTable->LexInsert(tokptr_G);
-    return ( STRING );
-    }
-#endif // 0
 
 // this rtn is called when the quote has been sensed.
 
@@ -620,18 +561,6 @@ string()
 				*ptr++ = '\\';
 				*ptr++ = NewCCGetch();
 				ch = 0;
-#if 0
-				if( (ch = NewCCGetch()) != '"' )
-					{
-					*ptr++	= '\\';
-					NewCCputbackc( ch );
-					}
-				else
-					{
-					*ptr++	= ch;
-					ch		= 0;
-					}
-#endif // 0
 				}
 			else
 				*ptr++	= ch;
@@ -648,13 +577,13 @@ string()
 	yylval.yy_string = pMidlLexTable->LexInsert(tokptr_G);
     return ( STRING );
 	}
-
 /****************************** external function ***************************/
 /*									    */ 
 /*				lexical analyzer			    */ 
 /*									    */ 
 
 static BOOL		fLastToken	= 0;
+static BOOL     fLineLengthError = 0;
 static token_t	LastToken;
 
 void
@@ -698,6 +627,8 @@ token_t yylex()
 				}
 			case LEX_BASE_IMPORT:
 			case LEX_BASE_IMPORT2:
+            case LEX_ODL_BASE_IMPORT:
+            case LEX_ODL_BASE_IMPORT2:
 				{
 				return ScanImplicitImports();
 				break;
@@ -714,21 +645,32 @@ again:
     toklen_G = 0;
     
         do      {
-                ci = ct[ ch=NewCCGetch() ];         /* character index out of char.tab. */
+                ci = ct[ (unsigned char) (ch=NewCCGetch()) ];         /* character index out of char.tab. */
                 state = st[ state ][ ci & 0x00ff ]; /* determine new state */
         } while ( state == 0 );                 /* skip white space */
         *(ptr++) = ch;  toklen_G++;             /* add chacter to token string */
     
 	while( state < 13 ) {			/* loop til end state */
-		ci = ct[ ch=NewCCGetch() ];		/* character index out of char.tab. */
+		ci = ct[ (unsigned char) (ch=NewCCGetch()) ];		/* character index out of char.tab. */
 		state = st[ state ][ ci & 0x00ff ];	/* determine new state */
 		if (state < 13)	{					/* if still going, */
-			*(ptr++) = ch;	toklen_G++;		/* add chacter to token string */
+            if (toklen_G + 1 != MAX_LINE_SIZE) /* and the token isn't too large */
+            {
+			    *(ptr++) = ch;	toklen_G++;		/* add chacter to token string */
+            }
+            else
+                fLineLengthError = 1;
 		}
 	};
 	
 	*ptr = '\0';
 	LastLexChar = ch;
+
+    if (fLineLengthError)
+    {
+        ParseError(IDENTIFIER_TOO_LONG, (char *)0 );	
+        fLineLengthError = 0;
+    }
 
     switch( state & 0x00ff )
 	{
@@ -763,6 +705,40 @@ LStr()
 	return WIDECHARACTERSTRING;
 	}
 
+// process line number tokens
+token_t
+ProcessLine()
+	{
+	char	*	ptr		= tokptr_G;
+
+	curr_line_G	= atoi( ptr ) - 1;
+	
+	// skip spaces before file name
+	while ( ( ch = NewCCGetch() ) == ' ' ) 
+		;
+
+	ptr = tokptr_G;
+	// see if we got a filename
+	if ( ch == '\"' )
+		{
+		while ( ( *ptr++ = NewCCGetch() ) != '\"' )
+			;
+		*(--ptr) = '\0';
+
+		StripSlashes( tokptr_G );
+
+		pImportCntrl->SetLineFilename( tokptr_G );
+
+		}
+	
+	// skip to end of line
+	while ( ( ch = NewCCGetch() ) != '\n' ) 
+		;
+
+	return NOTOKEN;
+	}
+
+// process # <something>
 token_t
 ProcessHash()
 	{
@@ -770,11 +746,12 @@ ProcessHash()
 			*	ptrsave = ptr;
 	token_t		PragmaToken;
 
-	do
+	do	// eat spaces
 		{
 		ch = NewCCGetch();
 		} while( isspace( ch ) );
 
+	// collect first token
 	while( !isspace( ch ) )
 		{
 		*ptr++ = ch;
@@ -787,12 +764,38 @@ ProcessHash()
 #define LEN_PRAGMA_STRING			(6)
 #define MIDL_PRAGMA_PREFIX			("midl_")
 #define LEN_MIDL_PRAGMA_PREFIX		(5)
-#define DEFINE_STRING				("define")
-#define LEN_DEFINE_STRING			(6)
+#define LINE_STRING					("line")
+#define LEN_LINE_STRING				(4)
 
 	// we handle #pragma and #line directives
 
-	if( strncmp( tokptr_G, PRAGMA_STRING, LEN_PRAGMA_STRING ) == 0 )
+	// #line found
+	if (strncmp( tokptr_G, LINE_STRING, LEN_LINE_STRING ) == 0 ) 
+		{
+		ptr = tokptr_G;
+		// get the next token (the number)
+		do	// eat spaces
+			{
+			ch = NewCCGetch();
+			} while( isspace( ch ) );
+
+		// collect first token
+		while( !isspace( ch ) )
+			{
+			*ptr++ = ch;
+			ch = NewCCGetch();
+			}
+		*ptr = '\0';
+		return ProcessLine();	// this needs to be called with tokptr_G pointing after
+								// the #line part
+		}
+	// # <number> found
+	else if ( isdigit(*tokptr_G) )
+		{
+		*ptr = '\0';
+		return ProcessLine();
+		}
+	else if( strncmp( tokptr_G, PRAGMA_STRING, LEN_PRAGMA_STRING ) == 0 )
 		{
 		short count = LEN_MIDL_PRAGMA_PREFIX;
 
@@ -893,7 +896,7 @@ ScanGuid( void )
 	while((c = NewCCGetch()) && isspace( c ) )
 		;
 
-	while( c && (c  != ')') && !isspace(c) )
+	while( c && (c  != ')') && (c != ',') && !isspace(c) )
 		{
 		*p++ = c;
 		c	 = NewCCGetch();
@@ -946,10 +949,25 @@ ScanImplicitImports( void )
 			}
 		case LEX_BASE_IMPORT2:
 			{
-			tokptr_G	= "idlbase.idl";
+			tokptr_G	= "\"idlbase.idl\"";
 			toktyp_G	= STRING;
 			yylval.yy_string = pMidlLexTable->LexInsert(tokptr_G);
 			// LexContext 	= LEX_BASE_IMPORT3;
+			LexContext	= LEX_NORMAL;
+			break;
+			}
+		case LEX_ODL_BASE_IMPORT:
+			{
+			tokptr_G	= "import";
+			toktyp_G	= KWIMPORTODLBASE;
+			LexContext	= LEX_ODL_BASE_IMPORT2;
+			break;
+			}
+		case LEX_ODL_BASE_IMPORT2:
+			{
+			tokptr_G	= "oaidl.idl";
+			toktyp_G	= STRING;
+			yylval.yy_string = pMidlLexTable->LexInsert(tokptr_G);
 			LexContext	= LEX_NORMAL;
 			break;
 			}

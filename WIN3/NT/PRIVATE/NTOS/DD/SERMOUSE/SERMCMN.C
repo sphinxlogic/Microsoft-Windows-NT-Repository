@@ -509,7 +509,6 @@ Return Value:
         //
 
         currentInput->UnitId = deviceExtension->UnitId;
-        currentInput->Buttons = 0;
 
         //
         // Do we have a button state change?
@@ -531,10 +530,10 @@ Return Value:
 
             if (buttonsDelta & MOUSE_BUTTON_1) {
                 if (currentInput->RawButtons & MOUSE_BUTTON_1) {
-                    currentInput->Buttons |= MOUSE_BUTTON_1_DOWN;
+                    currentInput->ButtonFlags |= MOUSE_BUTTON_1_DOWN;
                 }
                 else {
-                    currentInput->Buttons |= MOUSE_BUTTON_1_UP;
+                    currentInput->ButtonFlags |= MOUSE_BUTTON_1_UP;
                 }
             }
 
@@ -544,10 +543,10 @@ Return Value:
 
             if (buttonsDelta & MOUSE_BUTTON_2) {
                 if (currentInput->RawButtons & MOUSE_BUTTON_2) {
-                    currentInput->Buttons |= MOUSE_BUTTON_2_DOWN;
+                    currentInput->ButtonFlags |= MOUSE_BUTTON_2_DOWN;
                 }
                 else {
-                    currentInput->Buttons |= MOUSE_BUTTON_2_UP;
+                    currentInput->ButtonFlags |= MOUSE_BUTTON_2_UP;
                 }
             }
 
@@ -557,10 +556,10 @@ Return Value:
 
             if (buttonsDelta & MOUSE_BUTTON_3) {
                 if (currentInput->RawButtons & MOUSE_BUTTON_3) {
-                    currentInput->Buttons |= MOUSE_BUTTON_3_DOWN;
+                    currentInput->ButtonFlags |= MOUSE_BUTTON_3_DOWN;
                 }
                 else {
-                    currentInput->Buttons |= MOUSE_BUTTON_3_UP;
+                    currentInput->ButtonFlags |= MOUSE_BUTTON_3_UP;
                 }
             }
 
@@ -572,6 +571,12 @@ Return Value:
         SerMouPrint((1, "SERMOUSE-Buttons: %0lx\n", currentInput->Buttons));
 
         SerMouSendReport(deviceObject);
+
+        //
+        // Clear the button flags for the next packet
+        //
+
+        currentInput->Buttons = 0;
     }
 
     SerMouPrint((2, "SERMOUSE-SerialMouseInterruptService: exit\n"));

@@ -71,7 +71,7 @@ INLINE void SetIndexGlobal(TENTRY *Entry, ushort i) {
 INLINE char *ConvertLstring(char *lstring){
 	char *retval;
 
-	retval = Alloc(*lstring + 1);
+	retval = (char *) Alloc(*lstring + 1);
 	memcpy(retval, lstring + 1, *lstring);
 	*(retval + *lstring) = 0;
 	return(retval);
@@ -371,10 +371,9 @@ INLINE void HashFwdLocal (uchar *pName, CV_typ_t index) {
 		DASSERT (pHash->index >= CV_FIRST_NONPRIM);
 		if ((pHash->pName[0] == pName[0]) &&
 			(memcmp(pHash->pName+1, pName+1, pName[0]) == 0)) {
-#ifndef NO_TDB
 				if (pHash->index != index) {
 					NeedToClearTDB |= TDBStayedResident;
-#ifdef DEBUGVER // {
+#if DBG // {
 					if (DbArray[11] && TDBStayedResident) {
 						char buffer [256];
 					printf ("Detected different UDT's in PDB, name: ");
@@ -384,7 +383,6 @@ INLINE void HashFwdLocal (uchar *pName, CV_typ_t index) {
 					}
 #endif // }
 				}
-#endif
 				break;
 		}
 		pHash = pHash->Next;
@@ -399,7 +397,7 @@ INLINE void HashFwdLocal (uchar *pName, CV_typ_t index) {
 	}
 
 	pHash->pType = pType;
-	pHash->pName = memcpy (Alloc(pName[0]+1), pName, pName[0] + 1);
+	pHash->pName = (uchar *) memcpy(Alloc(pName[0]+1), pName, pName[0] + 1);
 	pHash->index = index;
 }
 

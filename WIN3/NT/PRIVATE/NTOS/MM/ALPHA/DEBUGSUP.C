@@ -38,7 +38,7 @@ Routine Description:
     This routine returns the virtual address which is valid (mapped)
     for read access.
 
-    If the address is valid and readable and not within KSEG0 
+    If the address is valid and readable and not within KSEG0
     the physical address within KSEG0 is returned.  If the adddress
     is within KSEG0 then the called address is returned.
 
@@ -84,7 +84,7 @@ Routine Description:
     This routine returns the phyiscal address for a virtual address
     which is valid (mapped) for write access.
 
-    If the address is valid and writable and not within KSEG0 
+    If the address is valid and writable and not within KSEG0
     the physical address within KSEG0 is returned.  If the adddress
     is within KSEG0 then the called address is returned.
 
@@ -121,8 +121,8 @@ Environment:
     }
 
     PointerPte = MiGetPteAddress (VirtualAddress);
-    if ( (VirtualAddress <= MM_HIGHEST_USER_ADDRESS) &&
-         (PointerPte->u.Hard.PageFrameNumber < (__1GB >> PAGE_SHIFT)) ) {
+    if ((VirtualAddress <= MM_HIGHEST_USER_ADDRESS) &&
+         (PointerPte->u.Hard.PageFrameNumber < MM_PAGES_IN_KSEG0)) {
 
         //
         // User mode - return the phyiscal address.  This prevents
@@ -179,15 +179,15 @@ Environment:
 
 {
     PVOID BaseAddress;
+    LARGE_INTEGER LiTmp;
 
     BaseAddress = MiGetVirtualAddressMappedByPte (MmDebugPte);
 
     KiFlushSingleTb (TRUE, BaseAddress);
 
     *MmDebugPte = ValidKernelPte;
-    MmDebugPte->u.Hard.PageFrameNumber = RtlLargeIntegerShiftRight(
-                                                PhysicalAddress,
-                                                PAGE_SHIFT).LowPart;
+    LiTmp.QuadPart = PhysicalAddress.QuadPart >> PAGE_SHIFT;
+    MmDebugPte->u.Hard.PageFrameNumber = LiTmp.LowPart;
 
     return (PVOID)((ULONG)BaseAddress + BYTE_OFFSET(PhysicalAddress.LowPart));
 }

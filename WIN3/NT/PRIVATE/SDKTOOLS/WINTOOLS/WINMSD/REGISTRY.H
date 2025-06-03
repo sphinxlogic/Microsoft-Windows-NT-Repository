@@ -28,6 +28,12 @@ Environment:
 
 #include "wintools.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define MAX_REG_VALUE 4096
+
 //
 // Pseudo handle type definition.
 //
@@ -178,5 +184,17 @@ HREGKEY
 QueryNextSubkey(
     IN HREGKEY Handle
     );
+
+LONG
+QueryValue(
+    IN HKEY Key,
+    IN LPWSTR pszKeyValue,
+    IN LPBYTE *lpValueBuffer
+    );
+
+#ifdef __cplusplus
+}       // extern C
+#endif
+
 
 #endif // _REGISTRY_

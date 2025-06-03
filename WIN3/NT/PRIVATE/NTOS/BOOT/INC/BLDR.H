@@ -321,6 +321,15 @@ BlLoadPal(
 
 #endif
 
+#if defined(_PPC_)
+
+ARC_STATUS
+BlPpcInitialize (
+    VOID
+    );
+
+#endif // defined(_PPC)
+
 //
 // Define configuration allocation prototypes.
 //
@@ -368,9 +377,27 @@ BlGetArcDiskInformation(
     VOID
     );
 
+BOOLEAN
+BlReadSignature(
+    IN PCHAR DiskName,
+    IN BOOLEAN IsCdRom
+    );
+
 //
 // Define memory allocation prototypes.
 //
+
+typedef enum _ALLOCATION_POLICY {
+    BlAllocateLowestFit,
+    BlAllocateBestFit,
+    BlAllocateHighestFit
+} ALLOCATION_POLICY, *PALLOCATION_POLICY;
+
+VOID
+BlSetAllocationPolicy (
+    IN ALLOCATION_POLICY MemoryAllocationPolicy,
+    IN ALLOCATION_POLICY HeapAllocationPolicy
+    );
 
 ARC_STATUS
 BlMemoryInitialize (
@@ -385,11 +412,19 @@ BlAllocateDataTableEntry (
     OUT PLDR_DATA_TABLE_ENTRY *Entry
     );
 
+#define BlAllocateDescriptor(_MemoryType, _BasePage, _PageCount, _ActualBase)   \
+            BlAllocateAlignedDescriptor((_MemoryType),                          \
+                                        (_BasePage),                            \
+                                        (_PageCount),                           \
+                                        1,                                      \
+                                        (_ActualBase))
+
 ARC_STATUS
-BlAllocateDescriptor (
+BlAllocateAlignedDescriptor (
     IN TYPE_OF_MEMORY MemoryType,
     IN ULONG BasePage,
     IN ULONG PageCount,
+    IN ULONG Alignment,
     OUT PULONG ActualBase
     );
 
@@ -403,8 +438,13 @@ BlAllocateHeap (
     IN ULONG Size
     );
 
+VOID
+BlStartConfigPrompt(
+    VOID
+    );
+
 BOOLEAN
-BlCheckBreakInKey(
+BlEndConfigPrompt(
     VOID
     );
 
@@ -436,6 +476,13 @@ BlGenerateDescriptor (
     IN ULONG BasePage,
     IN ULONG PageCount
     );
+
+VOID
+BlInsertDescriptor (
+    IN PMEMORY_ALLOCATION_DESCRIPTOR NewDescriptor
+    );
+
+#define BlRemoveDescriptor(_md_) RemoveEntryList(&(_md_)->ListEntry)
 
 ARC_STATUS
 BlGenerateDeviceNames (
@@ -502,11 +549,13 @@ IsNtfsFileStructure (
     IN PVOID StructureContext
     );
 
+#if defined(ELTORITO)
 PBL_DEVICE_ENTRY_TABLE
-IsOfsFileStructure (
+IsEtfsFileStructure (
     IN ULONG DeviceId,
     IN PVOID StructureContext
     );
+#endif
 
 //
 // Define registry prototypes
@@ -526,7 +575,6 @@ BlLoadAndScanSystemHive(
     IN PCHAR DeviceName,
     IN PCHAR DirectoryPath,
     IN PWSTR BootFileSystem,
-    IN BOOLEAN UseLastKnownGood,
     OUT PCHAR BadFileName
     );
 
@@ -536,7 +584,8 @@ BlLoadAndInitSystemHive(
     IN PCHAR DeviceName,
     IN PCHAR DirectoryPath,
     IN PCHAR HiveName,
-    IN BOOLEAN IsAlternate
+    IN BOOLEAN IsAlternate,
+    OUT PBOOLEAN RestartSetup
     );
 
 ARC_STATUS
@@ -550,7 +599,6 @@ BlLoadBootDrivers(
 
 PCHAR
 BlScanRegistry(
-    IN BOOLEAN UseLastKnownGood,
     IN PWSTR BootFileSystemPath,
     OUT PLIST_ENTRY BootDriverListHead,
     OUT PUNICODE_STRING AnsiCodepage,
@@ -572,7 +620,46 @@ extern ULONG BlDcacheFillSize;
 extern ULONG BlHeapFree;
 extern ULONG BlHeapLimit;
 extern PLOADER_PARAMETER_BLOCK BlLoaderBlock;
-extern VOID BlPrint(PCHAR String,...);
+
+extern ULONG DbcsLangId;
+extern BOOLEAN BlRebootSystem;
+//
+// Routine to get graphics characters
+//
+typedef enum {
+    GraphicsCharDoubleRightDoubleDown = 0,
+    GraphicsCharDoubleLeftDoubleDown,
+    GraphicsCharDoubleRightDoubleUp,
+    GraphicsCharDoubleLeftDoubleUp,
+    GraphicsCharDoubleVertical,
+    GraphicsCharDoubleHorizontal,
+    GraphicsCharMax
+} GraphicsChar;
+
+UCHAR
+GetGraphicsChar(
+    IN GraphicsChar WhichOne
+    );
+
+//
+// Control sequence introducer.
+// On x86 machines the loaders support dbcs and so using
+// 0x9b for output is no good (that value is a dbcs lead byte
+// in several codepages). Escape-leftbracket is a synonym for CSI
+// in the emulated ARC console on x86 (and on many ARC machines too
+// but since we can't be sure all the machines out there support
+// this we use the old-style csi on non-x86).
+//
+// We ignore this issue for characters read from the ARC console
+// since we don't ask for any text to be typed in, just arrow keys,
+// escape, F#, enter, etc.
+//
+#define ASCI_CSI_IN     0x9b
+#ifdef _X86_
+#define ASCI_CSI_OUT    "\033["     // escape-leftbracket
+#else
+#define ASCI_CSI_OUT    "\233"      // 0x9b
+#endif
 
 //
 // Define OS/2 executable resource information structure.
@@ -599,5 +686,62 @@ typedef struct _RESOURCE_NAME_INFORMATION {
     USHORT Handle;
     USHORT Usage;
 } RESOURCE_NAME_INFORMATION, *PRESOURCE_NAME_INFORMATION;
+
+//
+// Define debug logging macros and functions.
+//
+
+#if !DBG
+
+#define BlLogInitialize(_x_)
+#define BlLogTerminate()
+#define BlLog(_x_)
+#define BlLogArcDescriptors(_x_)
+#define BlLogMemoryDescriptors(_x_)
+#define BlLogWaitForKeystroke()
+
+#else
+
+VOID
+BlLogInitialize (
+    IN ULONG LogfileDeviceId
+    );
+
+VOID
+BlLogTerminate (
+    VOID
+    );
+
+#define BlLog(_x_) BlLogPrint _x_
+
+#define LOG_DISPLAY 0x0001
+#define LOG_LOGFILE 0x0002
+#define LOG_WAIT    0x8000
+#define LOG_ALL     (LOG_DISPLAY | LOG_LOGFILE)
+#define LOG_ALL_W   (LOG_ALL | LOG_WAIT)
+
+VOID
+BlLogPrint (
+    ULONG Targets,
+    PCHAR Format,
+    ...
+    );
+
+VOID
+BlLogArcDescriptors (
+    ULONG Targets
+    );
+
+VOID
+BlLogMemoryDescriptors (
+    ULONG Targets
+    );
+
+VOID
+BlLogWaitForKeystroke (
+    VOID
+    );
+
+#endif // DBG
 
 #endif // _BLDR_

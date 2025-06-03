@@ -21,12 +21,59 @@ Revision History:
 
 #include "kdp.h"
 
-extern PUCHAR KdpCopyDataToStack(PUCHAR, ULONG);
+//
+// globals
+//
+ULONG           KdpPageInAddress;
+WORK_QUEUE_ITEM KdpPageInWorkItem;
+
+//
+// externs
+//
+extern PUCHAR  KdpCopyDataToStack(PUCHAR, ULONG);
+extern BOOLEAN KdpControlCPressed;
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGEKD, KdpTrap)
 #pragma alloc_text(PAGEKD, KdIsThisAKdTrap)
 #endif
+
+
+
+
+#pragma optimize( "", off )
+VOID
+KdpPageInData (
+    IN PUCHAR volatile DataAddress
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called to page in data at the supplied address.
+    It is called either directly from KdpTrap() or from a worker
+    thread that is queued by KdpTrap().
+
+Arguments:
+
+    DataAddress - Supplies a pointer to the data to be paged in.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    if (MmIsSystemAddressAccessable(DataAddress)) {
+        UCHAR c = *DataAddress;
+        DataAddress = &c;
+    }
+    KdpControlCPending = TRUE;
+}
+#pragma optimize( "", on )
+
 
 
 BOOLEAN
@@ -96,6 +143,7 @@ Return Value:
     // cases of STATUS_BREAKPOINT
     //
 
+re_enter_debugger:
     if ((ExceptionRecord->ExceptionCode == STATUS_BREAKPOINT) &&
         (ExceptionRecord->ExceptionInformation[0] != BREAKPOINT_BREAK)) {
 
@@ -157,7 +205,7 @@ Return Value:
                 }
                 Enable = KdEnterDebugger(TrapFrame, ExceptionFrame);
                 if (KdpPrintString(&String)) {
-                    ContextRecord->Eax = STATUS_BREAKPOINT;
+                    ContextRecord->Eax = (ULONG)(STATUS_BREAKPOINT);
                 } else {
                     ContextRecord->Eax = STATUS_SUCCESS;
                 }
@@ -225,8 +273,7 @@ Return Value:
                     RetValue = KdpPromptString(&String, &ReplyString);
                 } while (RetValue == TRUE);
 
-                ContextRecord->Eax =
-                    ((PSTRING)ExceptionRecord->ExceptionInformation[2])->Length;
+                ContextRecord->Eax = ReplyString.Length;
                 ContextRecord->Eip++;
                 KdExitDebugger(Enable);
 
@@ -342,6 +389,50 @@ Return Value:
             KiRestoreProcessorControlState(&KeGetCurrentPrcb()->ProcessorState);
 
             KdExitDebugger(Enable);
+
+            //
+            // check to see if the user of the remote debugger
+            // requested memory to be paged in
+            //
+            if (KdpPageInAddress) {
+
+                if (KeGetCurrentIrql() <= APC_LEVEL) {
+
+                    //
+                    // if the IQRL is below DPC level then cause
+                    // the page fault to occur and then re-enter
+                    // the debugger.  this whole process is transparent
+                    // to the user.
+                    //
+                    KdpPageInData( (PUCHAR)KdpPageInAddress );
+                    KdpPageInAddress = 0;
+                    KdpControlCPending = FALSE;
+                    goto re_enter_debugger;
+
+                } else {
+
+                    //
+                    // we cannot take a page fault
+                    // here so a worker item is queued to take the
+                    // page fault.  after the worker item takes the
+                    // page fault it sets the contol-c flag so that
+                    // the user re-enters the debugger just as if
+                    // control-c was pressed.
+                    //
+                    if (KdpControlCPressed) {
+                        ExInitializeWorkItem(
+                            &KdpPageInWorkItem,
+                            (PWORKER_THREAD_ROUTINE) KdpPageInData,
+                            (PVOID) KdpPageInAddress
+                            );
+                        ExQueueWorkItem( &KdpPageInWorkItem, DelayedWorkQueue );
+                        KdpPageInAddress = 0;
+                    }
+
+                }
+            }
+
+            KdpControlCPressed = FALSE;
 
         } else {
 

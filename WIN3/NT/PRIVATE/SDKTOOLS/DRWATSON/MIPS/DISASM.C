@@ -39,7 +39,6 @@ typedef struct optabentry {
     } OPTABENTRY, *POPTABENTRY;
 
 
-static ULONG   ProcessorType = 0;
 INSTR   disinstr;
 ULONG   EAaddr = 0;
 DWORD   EA;
@@ -702,13 +701,8 @@ disasm (PDEBUGPACKET dp, PDWORD poffset, PUCHAR bufptr, BOOLEAN fEAout)
         OutputReg(disinstr.immed_instr.RS);
         *pBuf++ = ')';
 
-        //  if instruction is for R4000 only, output " (4) "
-
-        if (ProcessorType == 0 && (pEntry->fInstruction & opnR4000))
-            OutputString(" (R4000!) ");
-
         if (fEAout) {
-            EAaddr = GetRegValue(dp, disinstr.immed_instr.RS + REGBASE)
+            EAaddr = (DWORD)GetRegValue(dp, disinstr.immed_instr.RS + REGBASE)
                                 + (long)(short)disinstr.immed_instr.Value;
             if (pEntry->fInstruction & opnByteIndex)
                 EAsize = 1;
@@ -831,16 +825,15 @@ OutputHex (ULONG outvalue, ULONG length, BOOLEAN fSigned)
 void
 OutputDisSymbol (PDEBUGPACKET dp, ULONG offset)
 {
-    ULONG   displacement;
-    PUCHAR  pszTemp;
-    UCHAR   ch;
-    PSYMBOL sym;
+    ULONG               displacement;
+    PUCHAR              pszTemp;
+    UCHAR               ch;
 
-    sym = GetSymFromAddrAllContexts( offset, &displacement, dp );
-    if (sym) {
-        pszTemp = UnDName( sym );
+
+    if (SymGetSymFromAddr( dp->hProcess, offset, &displacement, sym )) {
+        pszTemp = sym->Name;
         if (!pszTemp) {
-            pszTemp = &sym->szName[1];
+            pszTemp = sym->Name;
         }
         while (ch = *pszTemp++) {
             *pBuf++ = ch;
@@ -915,7 +908,7 @@ GetNextOffset (PDEBUGPACKET dp, PULONG result, BOOLEAN fStep)
     ULONG   opcode;
     ULONG   firaddr;
 
-    firaddr = GetRegValue(dp,REGFIR);
+    firaddr = (DWORD)GetRegValue(dp,REGFIR);
 
     DoMemoryRead( dp,
                   (LPVOID)firaddr,
@@ -930,14 +923,14 @@ GetNextOffset (PDEBUGPACKET dp, PULONG result, BOOLEAN fStep)
     if (disinstr.instruction == 0x0000000c) {
         // stepping over a syscall instruction must set the breakpoint
         // at the caller's return address, not the inst after the syscall
-        returnvalue = GetRegValue(dp,REGRA);
+        returnvalue = (DWORD)GetRegValue(dp,REGRA);
     }
     else
     if (opcode == 0x00L                                    //  SPECIAL
                 && (disinstr.special_instr.Funct & ~0x01L) == 0x08L) {
                                                            //  jr/jalr only
         if (disinstr.special_instr.Funct == 0x08L || !fStep)  //  jr or trace
-            returnvalue = GetRegValue(dp,disinstr.special_instr.RS + REGBASE);
+            returnvalue = (DWORD)GetRegValue(dp,disinstr.special_instr.RS + REGBASE);
         }
     else if (opcode == 0x01L) {
         //  For BCOND opcode, RT values 0x00 - 0x03, 0x10 - 0x13
@@ -978,8 +971,8 @@ GetNextOffset (PDEBUGPACKET dp, PULONG result, BOOLEAN fStep)
         //  or (BNE or BNEL) and (RS) != (RT).
         //
         if ((BOOLEAN)(opcode & 0x01) ==
-                (BOOLEAN)(GetRegValue(dp,disinstr.immed_instr.RS + REGBASE)
-                        != GetRegValue(dp,disinstr.immed_instr.RT + REGBASE)))
+                (BOOLEAN)((DWORD)GetRegValue(dp,disinstr.immed_instr.RS + REGBASE)
+                        != (DWORD)GetRegValue(dp,disinstr.immed_instr.RT + REGBASE)))
             returnvalue = ((long)(short)disinstr.immed_instr.Value << 2)
                                                 + firaddr + sizeof(ULONG);
         }
@@ -1003,7 +996,7 @@ GetNextOffset (PDEBUGPACKET dp, PULONG result, BOOLEAN fStep)
         //  instructions.  Return target if (BC1F or BC1FL) and floating
         //  point condition is FALSE or if (BC1T or BC1TL) and condition TRUE.
         //
-        if ((disinstr.immed_instr.RT & 0x01) == GetRegFlagValue(dp,FLAGFPC))
+        if ((disinstr.immed_instr.RT & 0x01) == (DWORD)GetRegFlagValue(dp,FLAGFPC))
             returnvalue = ((long)(short)disinstr.immed_instr.Value << 2)
                                                 + firaddr + sizeof(ULONG);
         }
@@ -1043,7 +1036,7 @@ fDelayInstruction (PDEBUGPACKET dp)
 {
     BOOLEAN returnvalue;
     ULONG   opcode;
-    ULONG   firaddr = GetRegValue(dp,REGFIR);
+    ULONG   firaddr = (DWORD)GetRegValue(dp,REGFIR);
 
 
     DoMemoryRead( dp,

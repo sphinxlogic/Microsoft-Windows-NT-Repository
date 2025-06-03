@@ -73,7 +73,7 @@ Revision History:
 #include <lmapibuf.h>   // NetApiBufferFree().
 #include <lmerr.h>      // NO_ERROR, ERROR_ and NERR_ equates.
 #include <lmremutl.h>   // Real API prototypes and #defines.
-#include <netdebug.h>   // NetpDbgPrint(), FORMAT_ equates, etc.
+#include <netdebug.h>   // NetpKdPrint(()), FORMAT_ equates, etc.
 #include <prefix.h>     // PREFIX_ equates.
 #include <remdef.h>     // 16-bit and 32-bit descriptor strings.
 #include <rx.h>         // RxRemoteApi().
@@ -114,14 +114,26 @@ Return Value:
     PTIME_OF_DAY_INFO pGmtTod = NULL;   // TOD on remote sys, GMT timezone.
     LONG LocalTimeZoneOffsetSecs;       // offset (+ for West of GMT, etc).
     TIME_OF_DAY_INFO LocalTod;          // TOD on remote sys, local timezone.
+    LONG timezone;
 
     NetpAssert(UncServerName != NULL);
 
     IF_DEBUG(REMUTL) {
-        NetpDbgPrint( PREFIX_NETAPI
+        NetpKdPrint(( PREFIX_NETAPI
                 "RxNetRemoteTOD: starting, server='" FORMAT_LPTSTR "'.\n",
-                UncServerName);
+                UncServerName));
     }
+
+    //
+    // REM32_time_of_day_info, also used by XACTSRV, translates the
+    // 16-bit local time returned from the server to GMT.  Unfortunately
+    // it uses the timezone of the local machine rather than the timezone
+    // returned from the server.  So, we have our own define here, which
+    // uses 'J'instead of 'G' so that no translation takes place.  Then
+    // we do our own translation below.  This makes us work with
+    // Windows 95 servers.
+
+    #define REM32_time_of_day_info_2          "JDDDDDXDDDDD"
 
     //
     // Get TOD structure (with local time values) from other system.
@@ -129,12 +141,13 @@ Return Value:
     // timezone to GMT by RxRemoteApi.
     //
 
+
     ApiStatus = RxRemoteApi(
             API_NetRemoteTOD,           // API number
             (LPTSTR) UncServerName,
             REMSmb_NetRemoteTOD_P,      // parm desc
             REM16_time_of_day_info,     // DataDesc16
-            REM32_time_of_day_info,     // DataDesc32
+            REM32_time_of_day_info_2,     // DataDesc32
             REMSmb_time_of_day_info,    // DataDescSmb
             NULL,                       // no AuxDesc16
             NULL,                       // no AuxDesc32
@@ -143,11 +156,11 @@ Return Value:
             // rest of API's arguments, in 32-bit LM2.x format:
             (LPVOID) & LocalTod,        // pbBuffer
             sizeof(LocalTod) );         // cbBuffer
-    
+
     IF_DEBUG(REMUTL) {
-        NetpDbgPrint( PREFIX_NETAPI
+        NetpKdPrint(( PREFIX_NETAPI
                 "RxNetRemoteTOD: after RxRemoteApi, "
-                "ApiStatus=" FORMAT_API_STATUS ".\n", ApiStatus);
+                "ApiStatus=" FORMAT_API_STATUS ".\n", ApiStatus));
     }
 
     if (ApiStatus != NO_ERROR) {
@@ -155,14 +168,31 @@ Return Value:
     }
 
     //
+    // Get info on the timezone itself.  If target machine doesn't know, then
+    // we have to fall back on the age-old policy: assume it is running in
+    // same timezone that we are.
+    //
+    if (LocalTod.tod_timezone == -1) {
+	//
+	// First, get number of seconds from UTC.  (Positive values for
+	// west of Greenwich, negative values for east of Greenwich.)
+	// Then, convert to minutes.
+        LocalTimeZoneOffsetSecs = NetpLocalTimeZoneOffset();
+        timezone   = LocalTimeZoneOffsetSecs / 60;
+    }
+    else
+    {
+        timezone = LocalTod.tod_timezone;
+    }
+    //
     // Get GmtTime (time in seconds since 1970, GMT) for convenience.
     //
     NetpAssert( sizeof(DWORD) == sizeof(time_t) );
-    GmtTime = (time_t) LocalTod.tod_elapsedt;
+    GmtTime = (time_t) LocalTod.tod_elapsedt + timezone * 60;
 
     IF_DEBUG(REMUTL) {
-        NetpDbgPrint( PREFIX_NETAPI
-                "RxNetRemoteTOD: before convert, buffer:\n");
+        NetpKdPrint(( PREFIX_NETAPI
+                "RxNetRemoteTOD: before convert, buffer:\n"));
         NetpDbgDisplayTod( "before GMT conv", & LocalTod );
         NetpDbgDisplayTimestamp( "secs since 1970 (GMT)", (DWORD) GmtTime );
     }
@@ -186,11 +216,11 @@ Return Value:
     // Convert LocalTod fields to UTC timezone and set pGmtTod fields.
     // This depends on the POSIX semantics of gmtime().
     //
-    pGmtTm = gmtime( (time_t *) &(LocalTod.tod_elapsedt) );
+    pGmtTm = gmtime( (time_t *) &(GmtTime) );
     if (pGmtTm == NULL) {
         // BUGBUG: UTC not available?  How can this happen?
-        NetpDbgPrint( PREFIX_NETAPI
-                "RxNetRemoteTOD: gmtime() failed!.\n" );
+        NetpKdPrint(( PREFIX_NETAPI
+                "RxNetRemoteTOD: gmtime() failed!.\n" ));
         ApiStatus = NERR_InternalError;
         goto Cleanup;
     }
@@ -214,24 +244,11 @@ Return Value:
     pGmtTod->tod_month     = pGmtTm->tm_mon + 1;    // month (0..11) to (1..12)
     pGmtTod->tod_year      = pGmtTm->tm_year + 1900;
     pGmtTod->tod_weekday   = pGmtTm->tm_wday;
-
-    //
-    // Get info on the timezone itself.  If target machine doesn't know, then
-    // we have to fall back on the age-old policy: assume it is running in
-    // same timezone that we are.
-    //
-    if (LocalTod.tod_timezone == -1) {
-	//
-	// First, get number of seconds from UTC.  (Positive values for
-	// west of Greenwich, negative values for east of Greenwich.)
-	// Then, convert to minutes.
-        LocalTimeZoneOffsetSecs = NetpLocalTimeZoneOffset();
-        pGmtTod->tod_timezone   = LocalTimeZoneOffsetSecs / 60;
-    }
+    pGmtTod->tod_timezone  = timezone;
 
     IF_DEBUG(REMUTL) {
-        NetpDbgPrint( PREFIX_NETAPI
-                "RxNetRemoteTOD: after convert, buffer:\n");
+        NetpKdPrint(( PREFIX_NETAPI
+                "RxNetRemoteTOD: after convert, buffer:\n"));
         NetpDbgDisplayTod( "after GMT conv", pGmtTod );
     }
 

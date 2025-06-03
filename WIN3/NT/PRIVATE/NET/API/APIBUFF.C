@@ -56,7 +56,7 @@ Revision History:
 
 #include <align.h>      // POINTER_IS_ALIGNED(), ALIGN_WORST.
 #include <lmapibuf.h>   // My prototypes.
-#include <netdebug.h>   // NetpAssert(), NetpDbgPrint(), FORMAT_.
+#include <netdebug.h>   // NetpAssert(), NetpKdPrint(()), FORMAT_.
 #include <prefix.h>     // PREFIX_ equates.
 #include <rpcutil.h>    // MIDL_user_allocate(), etc.
 #include <winerror.h>   // NO_ERROR and ERROR_ equates.
@@ -151,8 +151,8 @@ Return Value:
     }
 
     if ( !POINTER_IS_ALIGNED( Buffer, ALIGN_WORST ) ) {
-        NetpDbgPrint( PREFIX_NETAPI "NetApiBufferFree: unaligned input ptr: "
-                FORMAT_LPVOID "!\n", (LPVOID) Buffer );
+        NetpKdPrint(( PREFIX_NETAPI "NetApiBufferFree: unaligned input ptr: "
+                FORMAT_LPVOID "!\n", (LPVOID) Buffer ));
         return (ERROR_INVALID_PARAMETER);
     }
 

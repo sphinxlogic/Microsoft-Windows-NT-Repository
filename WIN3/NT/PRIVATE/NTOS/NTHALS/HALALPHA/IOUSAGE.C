@@ -170,8 +170,7 @@ Return Value:
     switch (pRCurLoc->Type) {
         case CmResourceTypeInterrupt:
             *sortscale = 0;
-            *sortvalue = RtlConvertUlongToLargeInteger(
-                        pRCurLoc->u.Interrupt.Level );
+            sortvalue->QuadPart = pRCurLoc->u.Interrupt.Level;
             break;
 
         case CmResourceTypePort:
@@ -186,7 +185,7 @@ Return Value:
 
         default:
             *sortscale = 4;
-            *sortvalue = RtlConvertUlongToLargeInteger (0);
+            sortvalue->QuadPart = 0;
             break;
     }
 }
@@ -480,7 +479,7 @@ DbgPrint("TRANSLATED ADDRESS Start=0x%x Lenght=0x%x\n", TPartialDesc.u.Memory.St
 
                 if (sortscale < curscale ||
                     (sortscale == curscale &&
-                     RtlLargeIntegerLessThan (sortvalue, curvalue)) ) {
+                     (sortvalue.QuadPart < curvalue.QuadPart)) ) {
 
                     //
                     // Swap the elements..

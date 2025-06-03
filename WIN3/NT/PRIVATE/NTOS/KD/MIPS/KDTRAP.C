@@ -20,13 +20,58 @@ Revision History:
 --*/
 
 #include "kdp.h"
-
 //
 // Define breakpoint instruction masks.
 //
-
 #define BREAKPOINT_CODE_SHIFT 16
 #define BREAKPOINT_CODE_MASK (0xfffff << 6)
+
+//
+// globals
+//
+ULONG           KdpPageInAddress;
+WORK_QUEUE_ITEM KdpPageInWorkItem;
+
+//
+// externs
+//
+extern BOOLEAN KdpControlCPressed;
+
+
+
+#pragma optimize( "", off )
+VOID
+KdpPageInData (
+    IN PUCHAR volatile DataAddress
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called to page in data at the supplied address.
+    It is called either directly from KdpTrap() or from a worker
+    thread that is queued by KdpTrap().
+
+Arguments:
+
+    DataAddress - Supplies a pointer to the data to be paged in.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    if (MmIsSystemAddressAccessable(DataAddress)) {
+        UCHAR c = *DataAddress;
+        DataAddress = &c;
+    }
+    KdpControlCPending = TRUE;
+}
+#pragma optimize( "", on )
+
 
 BOOLEAN
 KdpTrap (
@@ -84,6 +129,7 @@ Return Value:
     // and flush the current TB.
     //
 
+re_enter_debugger:
     Enable = KdEnterDebugger(TrapFrame, ExceptionFrame);
     Prcb = KeGetCurrentPrcb();
     KiSaveProcessorState(TrapFrame, ExceptionFrame);
@@ -116,18 +162,18 @@ Return Value:
 
         case DEBUG_PRINT_BREAKPOINT:
             ContextRecord->Fir += 4;
-            Output.Buffer = (PCHAR)ContextRecord->IntA0;
-            Output.Length = (USHORT)ContextRecord->IntA1;
+            Output.Buffer = (PCHAR)((ULONG)ContextRecord->XIntA0);
+            Output.Length = (USHORT)ContextRecord->XIntA1;
             if (KdDebuggerNotPresent == FALSE) {
                 if (KdpPrintString(&Output)) {
-                    ContextRecord->IntV0 = (ULONG)STATUS_BREAKPOINT;
+                    ContextRecord->XIntV0 = (ULONGLONG)((LONG)STATUS_BREAKPOINT);
 
                 } else {
-                    ContextRecord->IntV0 = (ULONG)STATUS_SUCCESS;
+                    ContextRecord->XIntV0 = (ULONGLONG)((LONG)STATUS_SUCCESS);
                 }
 
             } else {
-                ContextRecord->IntV0 = (ULONG)STATUS_DEVICE_NOT_CONNECTED;
+                ContextRecord->XIntV0 = (ULONGLONG)((LONG)STATUS_DEVICE_NOT_CONNECTED);
             }
 
             KiRestoreProcessorState(TrapFrame, ExceptionFrame);
@@ -145,12 +191,12 @@ Return Value:
 
         case DEBUG_PROMPT_BREAKPOINT:
             ContextRecord->Fir += 4;
-            Output.Buffer = (PCHAR)ContextRecord->IntA0;
-            Output.Length = (USHORT)ContextRecord->IntA1;
-            Input.Buffer = (PCHAR)ContextRecord->IntA2;
-            Input.MaximumLength = (USHORT)ContextRecord->IntA3;
+            Output.Buffer = (PCHAR)((ULONG)ContextRecord->XIntA0);
+            Output.Length = (USHORT)ContextRecord->XIntA1;
+            Input.Buffer = (PCHAR)((ULONG)ContextRecord->XIntA2);
+            Input.MaximumLength = (USHORT)ContextRecord->XIntA3;
             KdpPromptString(&Output, &Input);
-            ContextRecord->IntV0 = Input.Length;
+            ContextRecord->XIntV0 = (LONG)Input.Length;
             KiRestoreProcessorState(TrapFrame, ExceptionFrame);
             KdExitDebugger(Enable);
             return TRUE;
@@ -174,8 +220,8 @@ Return Value:
         case DEBUG_LOAD_SYMBOLS_BREAKPOINT:
             ContextRecord->Fir += 4;
             if (KdDebuggerNotPresent == FALSE) {
-                KdpReportLoadSymbolsStateChange((PSTRING)ContextRecord->IntA0,
-                                                (PKD_SYMBOLS_INFO) ContextRecord->IntA1,
+                KdpReportLoadSymbolsStateChange((PSTRING)((ULONG)ContextRecord->XIntA0),
+                                                (PKD_SYMBOLS_INFO)((ULONG)ContextRecord->XIntA1),
                                                 UnloadSymbols,
                                                 ContextRecord);
 
@@ -209,6 +255,51 @@ Return Value:
 
     KiRestoreProcessorState(TrapFrame, ExceptionFrame);
     KdExitDebugger(Enable);
+
+    //
+    // check to see if the user of the remote debugger
+    // requested memory to be paged in
+    //
+    if (KdpPageInAddress) {
+
+        if (KeGetCurrentIrql() <= APC_LEVEL) {
+
+            //
+            // if the IQRL is below DPC level then cause
+            // the page fault to occur and then re-enter
+            // the debugger.  this whole process is transparent
+            // to the user.
+            //
+            KdpPageInData( (PUCHAR)KdpPageInAddress );
+            KdpPageInAddress = 0;
+            KdpControlCPending = FALSE;
+            goto re_enter_debugger;
+
+        } else {
+
+            //
+            // we cannot take a page fault
+            // here so a worker item is queued to take the
+            // page fault.  after the worker item takes the
+            // page fault it sets the contol-c flag so that
+            // the user re-enters the debugger just as if
+            // control-c was pressed.
+            //
+            if (KdpControlCPressed) {
+                ExInitializeWorkItem(
+                    &KdpPageInWorkItem,
+                    (PWORKER_THREAD_ROUTINE) KdpPageInData,
+                    (PVOID) KdpPageInAddress
+                    );
+                ExQueueWorkItem( &KdpPageInWorkItem, DelayedWorkQueue );
+                KdpPageInAddress = 0;
+            }
+
+        }
+    }
+
+    KdpControlCPressed = FALSE;
+
     return Completion;
 }
 

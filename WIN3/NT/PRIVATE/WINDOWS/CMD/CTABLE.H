@@ -22,7 +22,9 @@ struct ocentry {
         TCHAR *name ;
         int (*func)(struct cmdnode *) ;
         TCHAR flags ;
-        ULONG   msgno;  // # used in printing help message
+        ULONG   msgno;      // # used in printing help message
+        ULONG   extmsgno;   // # of additional help text when extensions enabled
+        ULONG   extmsgno1;  // # of additional help text when extensions enabled
 } ;
 
 
@@ -40,7 +42,7 @@ int eDirectory(), eRename(), eDelete(), eType(), eCopy(), ePause() ;
 int eTime(), eVersion(), eVolume(), eChdir(), eMkdir(), eRmdir() ;
 int eVerify(), eSet(), ePrompt(), ePath(), eExit(), eEcho() ;
 int eGoto(), eShift(), eIf(), eFor(), eCls(), eComSep(), eOr(), eAnd() ;
-int ePipe(), eParen(), eDate(), eDetach(), eErrorLevel() ;
+int ePipe(), eParen(), eDate(), eErrorLevel(), eCmdExtVer(), eDefined() ;
 int eExist(), eNot(), eStrCmp(), eSetlocal(), eEndlocal() ;     /* M000 */
 int eCall() ;                                   /* M001 - Added this one   */
 int eExtproc() ;                                /* M002 - Added this one   */
@@ -51,6 +53,7 @@ int eAppend() ;     /* APPEND @@ */
 int eKeys() ;       /* KEYS @@5 */
 int eMove() ;       /* MOVE @@5 */
 int eSpecialHelp();
+int eColor(struct cmdnode *);
 
 
 /*  The following external definitions are for the strings which contain the
@@ -68,8 +71,9 @@ extern TCHAR DirStr[], RenamStr[], RenStr[], EraStr[], DelStr[], TypStr[], RemSt
 extern TCHAR CopyStr[], PausStr[], TimStr[], VerStr[], VolStr[], CdStr[], ChdirStr[] ;
 extern TCHAR MdStr[], MkdirStr[], RdStr[], RmdirStr[], VeriStr[], SetStr[] ;
 extern TCHAR CPromptStr[], CPathStr[], ExitStr[], EchoStr[], GotoStr[] ;
-extern TCHAR ShiftStr[], IfStr[], ForStr[], ClsStr[], DatStr[], DetStr[] ;
+extern TCHAR ShiftStr[], IfStr[], ForStr[], ClsStr[], DatStr[] ;
 extern TCHAR ErrStr[], ExsStr[], NotStr[], SetlocalStr[], EndlocalStr[] ;   /* M000 */
+extern TCHAR CmdExtVerStr[], DefinedStr[] ;
 extern TCHAR CallStr[] ;                            /* M001 - Added    */
 extern TCHAR ExtprocStr[] ;                                 /* M002 - Added    */
 // extern TCHAR ChcpStr[] ;    /* CHCP @@*/
@@ -78,8 +82,9 @@ extern TCHAR StartStr[] ;    /* START @@*/
 extern TCHAR AppendStr[] ;   /* APPEND @@ */
 extern TCHAR KeysStr[] ;     /* KEYS @@5 */
 extern TCHAR MovStr[] ;      /* MOVE @@5 */
+extern TCHAR ColorStr[];
 
-extern TCHAR PushDirStr[], PopDirStr[];
+extern TCHAR PushDirStr[], PopDirStr[], AssocStr[], FTypeStr[];
 
 
 /*  JumpTable - operator and command jump table
@@ -91,65 +96,65 @@ extern TCHAR PushDirStr[], PopDirStr[];
  *  be kept in sync!!
  */
 
+typedef int (*PCN)(struct cmdnode *);
+
 struct ocentry JumpTable[] = {
-        {DirStr,    eDirectory,  NOFLAGS               , MSG_HELP_DIR},         // 0
-        {EraStr,    eDelete,     NOFLAGS               , MSG_HELP_DEL_ERASE},   // 1
-        {DelStr,    eDelete,     NOFLAGS               , MSG_HELP_DEL_ERASE},   // 2
-        {TypStr,    eType,       NOSWITCHES            , MSG_HELP_TYPE},        // 3
-        {CopyStr,   eCopy,       CHECKDRIVES           , MSG_HELP_COPY},        // 4
-        {CdStr,     eChdir,      CHECKDRIVES           , MSG_HELP_CHDIR},       // 5
-        {ChdirStr,  eChdir,      CHECKDRIVES           , MSG_HELP_CHDIR},       // 6
-        {RenamStr,  eRename,     CHECKDRIVES|NOSWITCHES, MSG_HELP_RENAME},      // 7
-        {RenStr,    eRename,     CHECKDRIVES|NOSWITCHES, MSG_HELP_RENAME},      // 8
-        {EchoStr,   eEcho,       NOFLAGS               , MSG_HELP_ECHO},        // 9
-        {SetStr,    eSet,        NOFLAGS               , MSG_HELP_SET},         // 10
-        {PausStr,   ePause,      NOFLAGS               , MSG_HELP_PAUSE},       // 11
-        {DatStr,    eDate,       NOFLAGS               , MSG_HELP_DATE},        // 12
-        {TimStr,    eTime,       NOSWITCHES            , MSG_HELP_TIME},        // 13
-        {CPromptStr,ePrompt,     NOFLAGS               , MSG_HELP_PROMPT},      // 14
-        {MdStr,     eMkdir,      NOSWITCHES            , MSG_HELP_MKDIR},       // 15
-        {MkdirStr,  eMkdir,      NOSWITCHES            , MSG_HELP_MKDIR},       // 16
-        {RdStr,     eRmdir,      NOFLAGS               , MSG_HELP_RMDIR},       // 17
-        {RmdirStr,  eRmdir,      NOFLAGS               , MSG_HELP_RMDIR},       // 18
-        {CPathStr,  ePath,       NOFLAGS               , MSG_HELP_PATH},        // 19
-        {GotoStr,   eGoto,       NOFLAGS               , MSG_HELP_GOTO},        // 20
-        {ShiftStr,  eShift,      NOFLAGS               , MSG_HELP_SHIFT},       // 21
-        {ClsStr,    eCls,        NOSWITCHES            , MSG_HELP_CLS},         // 22
-        {CallStr,   eCall,       NOFLAGS               , MSG_HELP_CALL},        // 23
-        {VeriStr,   eVerify,     NOSWITCHES            , MSG_HELP_VERIFY},      // 24
-        {VerStr,    eVersion,    NOSWITCHES            , MSG_HELP_VER},         // 25
-        {VolStr,    eVolume,     NOSWITCHES            , MSG_HELP_VOL},         // 26
-        {ExitStr,   eExit,       NOSWITCHES            , MSG_HELP_EXIT},        // 27
-        {SetlocalStr, eSetlocal, NOFLAGS               , MSG_HELP_SETLOCAL},    // 28
-        {EndlocalStr, eEndlocal, NOFLAGS               , MSG_HELP_ENDLOCAL},    // 29
-        {TitleStr,  eTitle,      NOFLAGS               , MSG_HELP_TITLE},       // 30
-        {StartStr,  eStart,      NOFLAGS               , MSG_HELP_START},       // 31
-        {AppendStr, eAppend,     NOFLAGS               , MSG_HELP_APPEND},      // 32
-        {KeysStr,   eKeys,       NOSWITCHES            , 0},                    // 33
-        {MovStr,    eMove,       CHECKDRIVES|NOSWITCHES, MSG_HELP_MOVE},        // 34
-        {PushDirStr,ePushDir,    CHECKDRIVES|NOSWITCHES, MSG_HELP_PUSHDIR},     // 35
-        {PopDirStr, ePopDir,     CHECKDRIVES|NOSWITCHES, MSG_HELP_POPDIR},      // 36
-
-        {BreakStr,  eBreak,      NOFLAGS               , MSG_HELP_BREAK},       // 37
-
-        {ForStr,    (int (*)(struct cmdnode *)) eFor,    NOFLAGS, MSG_HELP_FOR},// 38
-        {IfStr,     (int (*)(struct cmdnode *)) eIf,     NOFLAGS, MSG_HELP_IF}, // 39
-        {DetStr,    (int (*)(struct cmdnode *)) eDetach, NOFLAGS, 0},           // 40
-        {RemStr,    NULL,        NOFLAGS           , MSG_HELP_REM},             // 41
-        {NULL,      (int (*)(struct cmdnode *)) eComSep, NOFLAGS, 0},           // 42
-        {NULL,      (int (*)(struct cmdnode *)) eOr,     NOFLAGS, 0},           // 43
-        {NULL,      (int (*)(struct cmdnode *)) eAnd,    NOFLAGS, 0},           // 44
-        {NULL,      (int (*)(struct cmdnode *)) ePipe,   NOFLAGS, 0},           // 45
-        {NULL,      (int (*)(struct cmdnode *)) eParen,  NOFLAGS, 0},           // 46
-        {ErrStr,    eErrorLevel, NOFLAGS, 0        },                           // 47
-        {ExsStr,    eExist,      NOFLAGS, 0        },                           // 48
-        {NotStr,    eNot,        NOFLAGS, 0        },                           // 49
-        {NULL,      eStrCmp,     NOFLAGS, 0        },                           // 50
-/* M004 - Added SILENT operator.  No string is needed (Lex detects directly)
- *        and routine is same as that for paren (return(dispatch(n->lh)))
- */
-        {NULL,   (int (*)(struct cmdnode *))    eParen,  NOFLAGS, 0},           // 51
-        {NULL,   (int (*)(struct cmdnode *)) eSpecialHelp, NOFLAGS, 0 }         // 52
-
-
+{DirStr,        eDirectory,  NOFLAGS               , MSG_HELP_DIR, 0, 0},
+{EraStr,        eDelete,     NOFLAGS               , MSG_HELP_DEL_ERASE, MSG_HELP_DEL_ERASE_X, 0},
+{DelStr,        eDelete,     NOFLAGS               , MSG_HELP_DEL_ERASE, MSG_HELP_DEL_ERASE_X, 0},
+{TypStr,        eType,       NOSWITCHES            , MSG_HELP_TYPE, 0, 0},
+{CopyStr,       eCopy,       CHECKDRIVES           , MSG_HELP_COPY, 0, 0},
+{CdStr,         eChdir,      CHECKDRIVES           , MSG_HELP_CHDIR, MSG_HELP_CHDIR_X, 0},
+{ChdirStr,      eChdir,      CHECKDRIVES           , MSG_HELP_CHDIR, MSG_HELP_CHDIR_X, 0},
+{RenamStr,      eRename,     CHECKDRIVES|NOSWITCHES, MSG_HELP_RENAME, 0, 0},
+{RenStr,        eRename,     CHECKDRIVES|NOSWITCHES, MSG_HELP_RENAME, 0, 0},
+{EchoStr,       eEcho,       NOFLAGS               , MSG_HELP_ECHO, 0, 0},
+{SetStr,        eSet,        NOFLAGS               , MSG_HELP_SET, MSG_HELP_SET_X, 0},
+{PausStr,       ePause,      NOFLAGS               , MSG_HELP_PAUSE, 0, 0},
+{DatStr,        eDate,       NOFLAGS               , MSG_HELP_DATE, MSG_HELP_DATE_X, 0},
+{TimStr,        eTime,       NOFLAGS               , MSG_HELP_TIME, MSG_HELP_TIME_X, 0},
+{CPromptStr,    ePrompt,     NOFLAGS               , MSG_HELP_PROMPT, MSG_HELP_PROMPT_X, 0},
+{MdStr,         eMkdir,      NOSWITCHES            , MSG_HELP_MKDIR, MSG_HELP_MKDIR_X, 0},
+{MkdirStr,      eMkdir,      NOSWITCHES            , MSG_HELP_MKDIR, MSG_HELP_MKDIR_X, 0},
+{RdStr,         eRmdir,      NOFLAGS               , MSG_HELP_RMDIR, 0, 0},
+{RmdirStr,      eRmdir,      NOFLAGS               , MSG_HELP_RMDIR, 0, 0},
+{CPathStr,      ePath,       NOFLAGS               , MSG_HELP_PATH, 0, 0},
+{GotoStr,       eGoto,       NOFLAGS               , MSG_HELP_GOTO, MSG_HELP_GOTO_X, 0},
+{ShiftStr,      eShift,      NOFLAGS               , MSG_HELP_SHIFT, MSG_HELP_SHIFT_X, 0},
+{ClsStr,        eCls,        NOSWITCHES            , MSG_HELP_CLS, 0, 0},
+{CallStr,       eCall,       NOFLAGS               , MSG_HELP_CALL, MSG_HELP_CALL_X, 0},
+{VeriStr,       eVerify,     NOSWITCHES            , MSG_HELP_VERIFY, 0, 0},
+{VerStr,        eVersion,    NOSWITCHES            , MSG_HELP_VER, 0, 0},
+{VolStr,        eVolume,     NOSWITCHES            , MSG_HELP_VOL, 0, 0},
+{ExitStr,       eExit,       NOSWITCHES            , MSG_HELP_EXIT, 0, 0},
+{SetlocalStr,   eSetlocal,   NOFLAGS               , MSG_HELP_SETLOCAL, MSG_HELP_SETLOCAL_X, 0},
+{EndlocalStr,   eEndlocal,   NOFLAGS               , MSG_HELP_ENDLOCAL, MSG_HELP_ENDLOCAL_X, 0},
+{TitleStr,      eTitle,      NOFLAGS               , MSG_HELP_TITLE, 0, 0},
+{StartStr,      eStart,      NOFLAGS               , MSG_HELP_START, MSG_HELP_START_X, 0},
+{AppendStr,     eAppend,     NOFLAGS               , MSG_HELP_APPEND, 0, 0},
+{KeysStr,       eKeys,       NOSWITCHES            , MSG_HELP_KEYS, 0, 0},
+{MovStr,        eMove,       CHECKDRIVES|NOSWITCHES, MSG_HELP_MOVE, 0, 0},
+{PushDirStr,    ePushDir,    CHECKDRIVES|NOSWITCHES, MSG_HELP_PUSHDIR, MSG_HELP_PUSHDIR_X, 0},
+{PopDirStr,     ePopDir,     CHECKDRIVES|NOSWITCHES, MSG_HELP_POPDIR, MSG_HELP_POPDIR_X, 0},
+{AssocStr,      eAssoc,      EXTENSCMD             , 0, MSG_HELP_ASSOC, 0},
+{FTypeStr,      eFType,      EXTENSCMD             , 0, MSG_HELP_FTYPE, 0},
+{BreakStr,      eBreak,      NOFLAGS               , MSG_HELP_BREAK, MSG_HELP_BREAK_X, 0},
+{ColorStr,      eColor,      EXTENSCMD             , 0, MSG_HELP_COLOR, 0},
+{ForStr,        (PCN)eFor,   NOFLAGS               , MSG_HELP_FOR, MSG_HELP_FOR_X, MSG_HELP_FOR_X1},
+{IfStr,         (PCN)eIf,    NOFLAGS               , MSG_HELP_IF, MSG_HELP_IF_X, 0},
+{RemStr,        NULL,        NOFLAGS               , MSG_HELP_REM, 0, 0},
+{NULL,          (PCN)eComSep,NOFLAGS               , 0, 0, 0},
+{NULL,          (PCN)eOr,    NOFLAGS               , 0, 0, 0},
+{NULL,          (PCN)eAnd,   NOFLAGS               , 0, 0, 0},
+{NULL,          (PCN)ePipe,  NOFLAGS               , 0, 0, 0},
+{NULL,          (PCN)eParen, NOFLAGS               , 0, 0, 0},
+{CmdExtVerStr,  eCmdExtVer,  EXTENSCMD             , 0, 0, 0},
+{ErrStr,        eErrorLevel, NOFLAGS               , 0, 0, 0},
+{DefinedStr,    eDefined,    EXTENSCMD             , 0, 0, 0},
+{ExsStr,        eExist,      NOFLAGS               , 0, 0, 0},
+{NotStr,        eNot,        NOFLAGS               , 0, 0, 0},
+{NULL,          eStrCmp,     NOFLAGS               , 0, 0, 0},
+{NULL,          eGenCmp,     NOFLAGS               , 0, 0, 0},
+{NULL,          (PCN)eParen, NOFLAGS               , 0, 0, 0},
+{NULL,          (PCN)eSpecialHelp, NOFLAGS         , 0, 0, 0}
 } ;

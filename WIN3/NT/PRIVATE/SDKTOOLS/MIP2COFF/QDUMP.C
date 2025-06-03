@@ -109,10 +109,10 @@ char **argv;
     if (fd < 0)
         error("cannot open input file\n");
 
-    size = lseek(fd, 0, SEEK_END);
+    size = _lseek(fd, 0, SEEK_END);
     if (fd < 0)
         error("cannot seek input file\n");
-    lseek(fd, 0, SEEK_SET);
+    _lseek(fd, 0, SEEK_SET);
 
     /* allocate memory space for file contents */
     praw = (char *)malloc (size);
@@ -129,4 +129,3 @@ char **argv;
     dump_symbols();
     dump_types();
 } /* main */
-

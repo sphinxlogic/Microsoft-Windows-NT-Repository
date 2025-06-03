@@ -41,19 +41,9 @@ MdShutoffFloppy(
     VOID
     );
 
-VOID
-ClearDisplay(
-    VOID
-    );
-
-VOID
-FillAttribute(
-    IN UCHAR Attribute,
-    IN ULONG Length
-    );
-
 PCHAR
 BlSelectKernel(
+    IN ULONG DriveId,
     IN PCHAR BootFile,
     OUT PCHAR *LoadOptions,
     IN BOOLEAN UseTimeOut
@@ -66,12 +56,9 @@ BlDetectHardware(
     );
 
 VOID
-MoveCursorTo(
-    IN ULONG PositionX,
-    IN ULONG PositionY
+BlStartup(
+    IN PCHAR PartitionName
     );
-
-extern UCHAR CurrentAttribute;
 
 typedef struct {
     ULONG       ErrorFlag;
@@ -111,6 +98,10 @@ typedef struct _EXTERNAL_SERVICES_TABLE {
     ULONG (__cdecl * GetStallCount)(VOID);
     VOID (__cdecl * InitializeDisplayForNt)(VOID);
     VOID (__cdecl * GetMemoryDescriptor)(P820FRAME);
+#if defined(ELTORITO)
+    NTSTATUS (__cdecl * GetEddsSector)(ULONG,ULONG,ULONG,ULONG,PUCHAR);
+    NTSTATUS (__cdecl * GetElToritoStatus)(PUCHAR,ULONG);
+#endif
 } EXTERNAL_SERVICES_TABLE, *PEXTERNAL_SERVICES_TABLE;
 extern PEXTERNAL_SERVICES_TABLE ExternalServicesTable;
 
@@ -134,6 +125,10 @@ extern PEXTERNAL_SERVICES_TABLE ExternalServicesTable;
 #define GET_STALL_COUNT     (*ExternalServicesTable->GetStallCount)
 #define SETUP_DISPLAY_FOR_NT (*ExternalServicesTable->InitializeDisplayForNt)
 #define GET_MEMORY_DESCRIPTOR (*ExternalServicesTable->GetMemoryDescriptor)
+#if defined(ELTORITO)
+#define GET_EDDS_SECTOR     (*ExternalServicesTable->GetEddsSector)
+#define GET_ELTORITO_STATUS (*ExternalServicesTable->GetElToritoStatus)
+#endif
 
 //
 // Define special key input values
@@ -147,3 +142,93 @@ extern PEXTERNAL_SERVICES_TABLE ExternalServicesTable;
 #define F5_KEY 0x3F00
 #define F6_KEY 0x4000
 
+
+//
+// x86-specific video support
+//
+VOID
+TextGetCursorPosition(
+    OUT PULONG X,
+    OUT PULONG Y
+    );
+
+VOID
+TextSetCursorPosition(
+    IN ULONG X,
+    IN ULONG Y
+    );
+
+VOID
+TextSetCurrentAttribute(
+    IN UCHAR Attribute
+    );
+
+UCHAR
+TextGetCurrentAttribute(
+    VOID
+    );
+
+VOID
+TextClearDisplay(
+    VOID
+    );
+
+VOID
+TextClearToEndOfDisplay(
+    VOID
+    );
+
+VOID
+TextClearFromStartOfLine(
+    VOID
+    );
+
+VOID
+TextClearToEndOfLine(
+    VOID
+    );
+
+VOID
+TextStringOut(
+    IN PUCHAR String
+    );
+
+PUCHAR
+TextCharOut(
+    IN PUCHAR pc
+    );
+
+VOID
+TextFillAttribute(
+    IN UCHAR Attribute,
+    IN ULONG Length
+    );
+
+UCHAR
+TextGetGraphicsCharacter(
+    IN GraphicsChar WhichOne
+    );
+
+VOID
+TextGrInitialize(
+    IN ULONG DiskId
+    );
+
+VOID
+TextGrTerminate(
+    VOID
+    );
+
+//
+// Printf-style routine for x86 use only. This routine can be called
+// only in the x86-specific part of the library, for example in places
+// where arc emulation for video hasn't been initialized yet. All other
+// display should take place with ArcWrite.
+//
+VOID
+BlPrint(
+    PCHAR cp,
+    ...
+    );
+
+#define BlPuts(str) TextStringOut(str)

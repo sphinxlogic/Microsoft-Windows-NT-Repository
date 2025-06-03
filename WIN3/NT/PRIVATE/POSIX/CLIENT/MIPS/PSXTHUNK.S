@@ -35,40 +35,34 @@ Revision History:
 
 	.set	noreorder
 	.set	noat
-	sw	sp,CxIntSp(sp)		// save stack pointer
-	sw	ra,CxIntRa(sp)		// save return address
+	sd	sp,CxXIntSp(sp)		// save stack pointer
+	sd	ra,CxXIntRa(sp)		// save return address
 	sw	ra,CxFir(sp)		// save return address
-	sw	s8,CxIntS8(sp)		// save integer register s8
-	sw	gp,CxIntGp(sp)		// save integer register gp
-	sw	s0,CxIntS0(sp)		// save integer register s0-s7
-	sw	s1,CxIntS1(sp)		//
-	sw	s2,CxIntS2(sp)		//
-	sw	s3,CxIntS3(sp)		//
-	sw	s4,CxIntS4(sp)		//
-	sw	s5,CxIntS5(sp)		//
-	sw	s6,CxIntS6(sp)		//
-	sw	s7,CxIntS7(sp)		//
-	swc1	f20,CxFltF20(sp)	// store floating registers f20 - f31
-	swc1	f21,CxFltF21(sp)	//
-	swc1	f22,CxFltF22(sp)	//
-	swc1	f23,CxFltF23(sp)	//
-	swc1	f24,CxFltF24(sp)	//
-	swc1	f25,CxFltF25(sp)	//
-	swc1	f26,CxFltF26(sp)	//
-	swc1	f27,CxFltF27(sp)	//
-	swc1	f28,CxFltF28(sp)	//
-	swc1	f29,CxFltF29(sp)	//
-	swc1	f30,CxFltF30(sp)	//
-	swc1	f30,CxFltF31(sp)	//
+	sd	s8,CxXIntS8(sp)		// save integer register s8
+	sd	gp,CxXIntGp(sp)		// save integer register gp
+	sd	s0,CxXIntS0(sp)		// save integer register s0-s7
+	sd	s1,CxXIntS1(sp)		//
+	sd	s2,CxXIntS2(sp)		//
+	sd	s3,CxXIntS3(sp)		//
+	sd	s4,CxXIntS4(sp)		//
+	sd	s5,CxXIntS5(sp)		//
+	sd	s6,CxXIntS6(sp)		//
+	sd	s7,CxXIntS7(sp)		//
+	sdc1	f20,CxFltF20(sp)	// store floating registers f20 - f31
+	sdc1	f22,CxFltF22(sp)	//
+	sdc1	f24,CxFltF24(sp)	//
+	sdc1	f26,CxFltF26(sp)	//
+	sdc1	f28,CxFltF28(sp)	//
+	sdc1	f30,CxFltF30(sp)	//
 //	move	s8,sp			// set frame pointer
 	.set	at
 	.set	reorder
 
 	PROLOGUE_END
+
         ALTERNATE_ENTRY(_PdxNullApiCaller)
 
 	move	a0,sp			// set address of context record
-
         jal     PdxNullApiCaller   	// call null api caller
 
 	.end PdxNullApiCaller
@@ -86,31 +80,25 @@ Revision History:
 
 	.set	noreorder
 	.set	noat
-	sw	sp,CxIntSp(sp)		// save stack pointer
-	sw	ra,CxIntRa(sp)		// save return address
+	sd	sp,CxXIntSp(sp)		// save stack pointer
+	sd	ra,CxXIntRa(sp)		// save return address
 	sw	ra,CxFir(sp)		// save return address
-	sw	s8,CxIntS8(sp)		// save integer register s8
-	sw	gp,CxIntGp(sp)		// save integer register gp
-	sw	s0,CxIntS0(sp)		// save integer register s0-s7
-	sw	s1,CxIntS1(sp)		//
-	sw	s2,CxIntS2(sp)		//
-	sw	s3,CxIntS3(sp)		//
-	sw	s4,CxIntS4(sp)		//
-	sw	s5,CxIntS5(sp)		//
-	sw	s6,CxIntS6(sp)		//
-	sw	s7,CxIntS7(sp)		//
-	swc1	f20,CxFltF20(sp)	// store floating registers f20 - f31
-	swc1	f21,CxFltF21(sp)	//
-	swc1	f22,CxFltF22(sp)	//
-	swc1	f23,CxFltF23(sp)	//
-	swc1	f24,CxFltF24(sp)	//
-	swc1	f25,CxFltF25(sp)	//
-	swc1	f26,CxFltF26(sp)	//
-	swc1	f27,CxFltF27(sp)	//
-	swc1	f28,CxFltF28(sp)	//
-	swc1	f29,CxFltF29(sp)	//
-	swc1	f30,CxFltF30(sp)	//
-	swc1	f30,CxFltF31(sp)	//
+	sd	s8,CxXIntS8(sp)		// save integer register s8
+	sd	gp,CxXIntGp(sp)		// save integer register gp
+	sd	s0,CxXIntS0(sp)		// save integer register s0-s7
+	sd	s1,CxXIntS1(sp)		//
+	sd	s2,CxXIntS2(sp)		//
+	sd	s3,CxXIntS3(sp)		//
+	sd	s4,CxXIntS4(sp)		//
+	sd	s5,CxXIntS5(sp)		//
+	sd	s6,CxXIntS6(sp)		//
+	sd	s7,CxXIntS7(sp)		//
+	sdc1	f20,CxFltF20(sp)	// store floating registers f20 - f31
+	sdc1	f22,CxFltF22(sp)	//
+	sdc1	f24,CxFltF24(sp)	//
+	sdc1	f26,CxFltF26(sp)	//
+	sdc1	f28,CxFltF28(sp)	//
+	sdc1	f30,CxFltF30(sp)	//
 //	move	s8,sp			// set frame pointer
 	.set	at
 	.set	reorder

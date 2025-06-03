@@ -55,7 +55,7 @@ PCOUNTERGROUP GetNextCounter (PSYSTEMGROUP   pSystemGroup,
                               PCOUNTERGROUP  pCounterGroup) ;
 
 // CheckColumnGroupRemove is used to check if the given
-// column is empty.  If it is empty, it is removed from 
+// column is empty.  If it is empty, it is removed from
 // the column link list
 void CheckColumnGroupRemove (PREPORT      pReport,
                              POBJECTGROUP pObjectGroup,
@@ -177,7 +177,7 @@ PLINE LineRemoveItem (PREPORT pReport,
          {
          if (pNextLine->xReportPos > pLine->xReportPos)
             {
-            if (pReturnLine == NULL || 
+            if (pReturnLine == NULL ||
                 pReturnLine->xReportPos > pNextLine->xReportPos)
                {
                pReturnLine = pNextLine ;
@@ -195,7 +195,7 @@ PLINE LineRemoveItem (PREPORT pReport,
 
       if (!pReturnLine && pLeftLine)
          {
-         // the delete line is the last column, then use the line 
+         // the delete line is the last column, then use the line
          // to its left
          pReturnLine = pLeftLine ;
          }
@@ -227,7 +227,7 @@ PLINE LineRemoveItem (PREPORT pReport,
       // remove this counter group if there is no line
       CounterGroupRemove (&pObjectGroup->pCounterGroupFirst, pCounterGroup) ;
       }
-      
+
    // check if we need to remove any empty column
    CheckColumnGroupRemove (pReport, pObjectGroup, pLine->iReportColumn) ;
 
@@ -269,17 +269,19 @@ void ReportColumnRect (PREPORT pReport,
 
 BOOL ColumnSame (PCOLUMNGROUP pColumnGroup,
                  LPTSTR lpszParentName,
-                 LPTSTR lpszInstanceName)
+                 LPTSTR lpszInstanceName,
+                 DWORD  dwIndex)
    {  // ColumnSame
    BOOL           bParentSame ;
    BOOL           bInstanceSame ;
+   BOOL           bIndexSame;
 
    bParentSame = (!lpszParentName && !pColumnGroup->lpszParentName) ||
                  strsame (lpszParentName, pColumnGroup->lpszParentName) ;
    bInstanceSame = (!lpszInstanceName && !pColumnGroup->lpszInstanceName) ||
                  strsame (lpszInstanceName, pColumnGroup->lpszInstanceName) ;
-
-   return (bParentSame && bInstanceSame) ;                 
+   bIndexSame = (BOOL)(dwIndex == pColumnGroup->dwInstanceIndex);
+   return ((bParentSame && bInstanceSame) && bIndexSame ) ;
    }  // ColumnSame
 
 
@@ -288,7 +290,8 @@ PCOLUMNGROUP ColumnGroupCreate (PREPORT pReport,
                                 LPTSTR lpszParentName,
                                 LPTSTR lpszInstanceName,
                                 int PreviousColumnNumber,
-                                int yFirstLine)
+                                int yFirstLine,
+                                DWORD   dwIndex)
    {  // ColumnGroupCreate
    PCOLUMNGROUP   pColumnGroup ;
    HDC            hDC ;
@@ -309,11 +312,12 @@ PCOLUMNGROUP ColumnGroupCreate (PREPORT pReport,
       pColumnGroup->xWidth = max (max (pColumnGroup->ParentNameTextWidth,
                                        pColumnGroup->InstanceNameTextWidth),
                                   pReport->xValueWidth) ;
+      pColumnGroup->dwInstanceIndex = dwIndex;
 
       pReport->xWidth = max (pReport->xWidth,
                              RightHandMargin +
-                             ValueMargin (pReport) + 
-                             pColumnGroup->xPos + pColumnGroup->xWidth + 
+                             ValueMargin (pReport) +
+                             pColumnGroup->xPos + pColumnGroup->xWidth +
                              xColumnMargin) ;
       }  // if
 
@@ -341,24 +345,25 @@ PCOLUMNGROUP GetColumnGroup (PREPORT pReport,
    PCOLUMNGROUP   pColumnGroup ;
    LPTSTR         lpszParentName ;
    LPTSTR         lpszInstanceName ;
-
+   DWORD          dwIndex;
 
    if (!LineInstanceName (pLine))
       return (NULL) ;
 
-
    lpszParentName = LineParentName (pLine) ;
    lpszInstanceName = LineInstanceName (pLine) ;
-      
+   dwIndex = pLine->dwInstanceIndex;
+
    if (!pObjectGroup->pColumnGroupFirst)
       {
-      pObjectGroup->pColumnGroupFirst = 
+      pObjectGroup->pColumnGroupFirst =
          ColumnGroupCreate (pReport,
             0,
             lpszParentName,
             lpszInstanceName,
             -1,
-            pObjectGroup->yFirstLine) ;
+            pObjectGroup->yFirstLine,
+            dwIndex) ;
 
       if (pObjectGroup->pColumnGroupFirst)
          {
@@ -373,19 +378,20 @@ PCOLUMNGROUP GetColumnGroup (PREPORT pReport,
         pColumnGroup ;
         pColumnGroup = pColumnGroup->pColumnGroupNext)
       {  // for
-      if (ColumnSame (pColumnGroup, lpszParentName, lpszInstanceName))
+      if (ColumnSame (pColumnGroup, lpszParentName, lpszInstanceName, dwIndex))
          return (pColumnGroup) ;
 
       else if (!pColumnGroup->pColumnGroupNext)
          {  // if
-         pColumnGroup->pColumnGroupNext = 
+         pColumnGroup->pColumnGroupNext =
             ColumnGroupCreate (pReport,
                                pColumnGroup->xPos + pColumnGroup->xWidth +
                                xColumnMargin,
                                lpszParentName,
                                lpszInstanceName,
                                pColumnGroup->ColumnNumber,
-                               pObjectGroup->yFirstLine) ;
+                               pObjectGroup->yFirstLine,
+                               dwIndex) ;
 
          if (pColumnGroup->pColumnGroupNext)
             {
@@ -436,7 +442,7 @@ void ColumnRemoveOne (PREPORT pReport,
 
       return ;
       }
-   
+
    // go thru the double link list to look for the right column
    for (pColumnGroup = pObjectGroup->pColumnGroupFirst ;
         pColumnGroup ;
@@ -544,7 +550,7 @@ PCOLUMNGROUP ColumnRemoveItem (PREPORT      pReport,
          }
       }
 
-      
+
    // determine which column group to go after deleting this
    if (pColumnGroup->pColumnGroupNext)
       {
@@ -614,7 +620,7 @@ void ReportCounterRect (PREPORT        pReport,
 
 
 PCOUNTERGROUP CounterGroupCreate (DWORD  dwCounterIndex,
-                                  LPTSTR pCounterName) 
+                                  LPTSTR pCounterName)
    {  // CounterGroupCreate
    PCOUNTERGROUP  pCounterGroup ;
    HDC            hDC ;
@@ -645,7 +651,7 @@ PCOUNTERGROUP CounterGroupCreate (DWORD  dwCounterIndex,
 PCOUNTERGROUP GetCounterGroup (POBJECTGROUP pObjectGroup,
                             DWORD dwCounterIndex,
                             BOOL *pbCounterGroupCreated,
-                            LPTSTR pCounterName) 
+                            LPTSTR pCounterName)
    {  // GetCounterGroup
    PCOUNTERGROUP   pCounterGroup ;
 
@@ -684,7 +690,7 @@ PCOUNTERGROUP GetCounterGroup (POBJECTGROUP pObjectGroup,
          }
       else if (!pCounterGroup->pCounterGroupNext)
          {  // if
-         pCounterGroup->pCounterGroupNext = 
+         pCounterGroup->pCounterGroupNext =
             CounterGroupCreate (dwCounterIndex, pCounterName) ;
          if (pCounterGroup->pCounterGroupNext)
             {
@@ -744,7 +750,7 @@ BOOL CounterGroupRemove (PCOUNTERGROUP *ppCounterGroupFirst,
 
 
 // CounterRemoveItem is called when user wants to delete a
-// selected counter (row)                        
+// selected counter (row)
 PCOUNTERGROUP CounterRemoveItem (PREPORT        pReport,
                                  PCOUNTERGROUP  pCounterGroup,
                                  BOOL           bCleanUpLink,
@@ -818,11 +824,11 @@ PCOUNTERGROUP CounterRemoveItem (PREPORT        pReport,
 
 
 // GetNextCounter is used to get:
-// If the current system is not empty, then get the 
+// If the current system is not empty, then get the
 //    (next object first counter) or
 //    (previous object last counter. )
-// If the current system is empty, then get the 
-//    (next system first object first counter) or 
+// If the current system is empty, then get the
+//    (next system first object first counter) or
 //    (previous system last object last counter)
 // Note - Any of the input pointers could be NULL pointer.
 PCOUNTERGROUP GetNextCounter (PSYSTEMGROUP   pSystemGroup,
@@ -883,7 +889,7 @@ PCOUNTERGROUP GetNextCounter (PSYSTEMGROUP   pSystemGroup,
             ;
             }
          }
-      
+
       if (pObjectGrp)
          {
          pCounterGrp = pObjectGrp->pCounterGroupFirst ;
@@ -994,7 +1000,7 @@ POBJECTGROUP GetObjectGroup (PSYSTEMGROUP pSystemGroup,
          }
       else if (!pObjectGroup->pObjectGroupNext)
          {  // if
-         pObjectGroup->pObjectGroupNext = 
+         pObjectGroup->pObjectGroupNext =
             ObjectGroupCreate (lpszObjectName) ;
 
          if (pObjectGroup->pObjectGroupNext)
@@ -1008,6 +1014,9 @@ POBJECTGROUP GetObjectGroup (PSYSTEMGROUP pSystemGroup,
          return (pObjectGroup->pObjectGroupNext) ;
          }  // if
       }  // for
+      // if it falls through (which it shouldn't) at least return a
+      // reasonable value
+      return (pSystemGroup->pObjectGroupFirst) ;
    }  // GetObjectGroup
 
 // ObjectGroupRemove removes the specified Object group
@@ -1081,10 +1090,11 @@ PCOUNTERGROUP ObjectRemoveItem (PREPORT      pReport,
 
    // remove all column groups from this group
    ColumnGroupRemove (pObjectGroup->pColumnGroupFirst) ;
-   
+   pObjectGroup->pColumnGroupFirst = NULL;
+
    if (bCleanUpLink)
       {
-      
+
       // get next counter group to get the focus
       if (pNewItemType)
          {
@@ -1160,7 +1170,7 @@ PSYSTEMGROUP SystemGroupCreate (LPTSTR lpszSystemName)
 
    return (pSystemGroup) ;
    }  // SystemGroupCreate
- 
+
 PSYSTEMGROUP GetSystemGroup (PREPORT pReport,
                           LPTSTR lpszSystemName)
 /*
@@ -1185,7 +1195,7 @@ PSYSTEMGROUP GetSystemGroup (PREPORT pReport,
          return (pSystemGroup) ;
       else if (!pSystemGroup->pSystemGroupNext)
          {  // if
-         pSystemGroup->pSystemGroupNext = 
+         pSystemGroup->pSystemGroupNext =
             SystemGroupCreate (lpszSystemName) ;
          if (pSystemGroup->pSystemGroupNext)
             {
@@ -1195,6 +1205,9 @@ PSYSTEMGROUP GetSystemGroup (PREPORT pReport,
          return (pSystemGroup->pSystemGroupNext) ;
          }  // if
       }  // for
+    //if it falls through (which it shouldn't) at least return a 
+    // reasonable value
+    return (pReport->pSystemGroupFirst) ;
    }  // GetSystemGroup
 
 
@@ -1245,8 +1258,8 @@ PCOUNTERGROUP SystemRemoveItem (PREPORT      pReport,
    {
    POBJECTGROUP   pObjectGroup, pNextObjectGroup ;
    PCOUNTERGROUP  pRetCounterGroup = NULL ;
-   
-   // remove all object groups from this system      
+
+   // remove all object groups from this system
    for (pObjectGroup = pSystemGroup->pObjectGroupFirst ;
         pObjectGroup ;
         pObjectGroup = pNextObjectGroup )
@@ -1281,10 +1294,10 @@ PCOUNTERGROUP SystemRemoveItem (PREPORT      pReport,
       }
 
    return (pRetCounterGroup) ;
-   
+
    }  // SystemRemoveItem
 
-                      
+
 BOOL  ReportChangeFocus (HWND                   hWnd,
                          PREPORT                pReport,
                          REPORT_ITEM            SelectedItem,
@@ -1298,7 +1311,7 @@ BOOL  ReportChangeFocus (HWND                   hWnd,
    RECT        Rect ;
    REPORT_ITEM            PreviousItem ;
    enum REPORT_ITEM_TYPE  PreviousItemType ;
-   
+
    if (pReport->CurrentItem.pLine != SelectedItem.pLine)
       {
       // not the same item
@@ -1369,8 +1382,8 @@ BOOL  ReportChangeFocus (HWND                   hWnd,
    return (RetCode) ;
    }  // ReportChangeFocus
 
- 
-BOOL  OnReportLButtonDown (HWND hWnd, 
+
+BOOL  OnReportLButtonDown (HWND hWnd,
                            WORD xPos,
                            WORD yPos)
    {
@@ -1386,7 +1399,7 @@ BOOL  OnReportLButtonDown (HWND hWnd,
    POBJECTGROUP   pObjectGroup ;
    PCOUNTERGROUP  pCounterGroup ;
    PCOLUMNGROUP   pColumnGroup ;
-   
+
 
    pReport = ReportData (hWnd) ;
    if (!pReport)
@@ -1560,7 +1573,7 @@ BOOL ReportDeleteItem (HWND hWnd)
             TRUE,
             &NextItemType) ;
       }
-   
+
    if (NextItemType != REPORT_TYPE_NOTHING)
       {
       pReport->CurrentItem.pLine = NextItem.pLine ;
@@ -1597,7 +1610,7 @@ BOOL ReportDeleteItem (HWND hWnd)
    //=============================//
    // Calculate report positions  //
    //=============================//
-   
+
    hDC = GetDC (hWnd) ;
    SetReportPositions (hDC, pReport) ;
 
@@ -1613,4 +1626,4 @@ BOOL ReportDeleteItem (HWND hWnd)
    return (TRUE) ;
    }  // ReportDeleteItem
 
-
+

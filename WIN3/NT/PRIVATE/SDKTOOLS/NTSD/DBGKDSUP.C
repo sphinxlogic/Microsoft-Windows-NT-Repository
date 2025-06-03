@@ -22,6 +22,7 @@ Revision History:
 
 --*/
 
+#include "ntsdp.h"
 #include "dbgpnt.h"
 
 #define THREAD_STACK_SIZE   16000       /* Better safe than... */

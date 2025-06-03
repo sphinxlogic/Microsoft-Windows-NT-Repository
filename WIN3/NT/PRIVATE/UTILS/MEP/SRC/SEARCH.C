@@ -4,22 +4,22 @@
 *
 *   Searches funnel through these routines as follows:
 *
-*	  psearch     msearch	  searchall   mgrep
-*	       \ 	 |	   /	       /
-*		\ 	 |	  /	      /
-*		 \_______|_______/	     /
-*			 |		    /
-*			 v		   /
-*		      dosearch		  /
-*		       /___\_____________/
-*		      /     \
-*		     /	     \
-*		 search    REsearch   REsearchS   <=== all exported to extensions
+*         psearch     msearch     searchall   mgrep
+*              \         |         /           /
+*               \        |        /           /
+*                \_______|_______/           /
+*                        |                  /
+*                        v                 /
+*                     dosearch            /
+*                      /___\_____________/
+*                     /     \
+*                    /       \
+*                search    REsearch   REsearchS   <=== all exported to extensions
 *
 *   Global variables, and their meanings:
 *
 *   User set-able switches:
-*     fUnixRE	      unixre: switch. TRUE => Use UNIX Regular Expressions
+*     fUnixRE         unixre: switch. TRUE => Use UNIX Regular Expressions
 *     fSrchCaseSwit   case: switch.   TRUE => case is significant
 *     fSrchWrapSwit   wrap: switch.   TRUE => searches wrap
 *
@@ -30,10 +30,10 @@
 *     fSrchRePrev     TRUE => used a regular expressions
 *     fSrchWrapPrev   TRUE => wrapped around
 *
-*     srchbuf	      search string
+*     srchbuf         search string
 *
 *   Revision History:
-*	26-Nov-1991 mz	Strip off near/far
+*       26-Nov-1991 mz  Strip off near/far
 *
 *************************************************************************/
 
@@ -42,9 +42,9 @@
 #include "mep.h"
 
 
-static	int cAll;			/* count of ocurrances for all	*/
-static	int cGrepped;			/* count of ocurrances for mgrep*/
-static	struct patType *patBuf	= NULL; /* compiled pattern		*/
+static  int cAll;                       /* count of ocurrances for all  */
+static  int cGrepped;                   /* count of ocurrances for mgrep*/
+static  struct patType *patBuf  = NULL; /* compiled pattern             */
 
 
 /***************************************************************************\
@@ -53,23 +53,23 @@ MEMBER:     lsearch
 
 SYNOPSIS:   strstr based on supplied lengths rather than strlen()
 
-ALGORITHM:  
+ALGORITHM:
 
-ARGUMENTS:  
+ARGUMENTS:
 
-RETURNS:    
+RETURNS:
 
-NOTES:	    Supplied strings may not be zero terminated or may have embedded
-	    NULs
-	    This is a brute force algorithm which should be updated to 
-	    something reasonable if performance is a problem
+NOTES:      Supplied strings may not be zero terminated or may have embedded
+            NULs
+            This is a brute force algorithm which should be updated to
+            something reasonable if performance is a problem
 
 HISTORY:    14-Aug-90 davegi
-		Created
+                Created
 
-KEYWORDS:   
+KEYWORDS:
 
-SEEALSO:    
+SEEALSO:
 
 \***************************************************************************/
 char*
@@ -81,41 +81,42 @@ lsearch (
     )
 {
 
-    REGISTER ULONG	i;
-    REGISTER ULONG	j;
+    REGISTER ULONG      i;
+    REGISTER ULONG      j;
 
     assert( pchSrc );
     assert( pchSub );
-     
+
     //  If the sub-string is longer than the source string or,
     //  cbSrc > strlen( pchSrc) (hack for backwards search), return NULL
-    
+
     if(( cbSub > cbSrc ) || ( cbSrc > strlen( pchSrc ) + 1)) {
-	return NULL;
+        return NULL;
     }
 
     //  Short Circuit...
     //  If first character in pchSub does not exist in pchSrc
 
     if( ! memchr( pchSrc, *pchSub, cbSrc )) {
-	return NULL;
+        return NULL;
     }
 
     i = j = 0;
     do {
-	if( pchSrc[ i ] == pchSub[ j ] ) {
-	    i++;
-	    j++;
-	} else {
-	    i = i - j + 1;
-	    j = 0;
-	}
+        if( pchSrc[ i ] == pchSub[ j ] ) {
+            i++;
+            j++;
+        } else {
+            i = i - j + 1;
+            j = 0;
+        }
     } while(( j < cbSub ) && ( i < cbSrc ));
     return ( j >= cbSub ) ? &( pchSrc[ i - cbSub ]) : NULL;
-}    
+}
 
 
 
+static char szNullStr[] = "";
 
 
 /*** mgrep - multiple file search
@@ -125,10 +126,10 @@ lsearch (
 *
 *  Searches the file list specified by the greplist macro.
 *
-*   no arg:	    search for previous search string
+*   no arg:         search for previous search string
 *   Single arg:     search for string.
 *   Double arg:     search for regular expression.
-*   meta:	    toggle case from current switch setting
+*   meta:           toggle case from current switch setting
 *
 *  Files to be searched which are already in the file history are simply
 *  searched. Files which are NOT in the file history, are read in, and if
@@ -139,12 +140,12 @@ lsearch (
 *  Standard editting function
 *
 * Globals:
-*		    - grep file list
+*                   - grep file list
 *  fSrchCaseSwit    - users 'case' switch
-*  fSrchRePrev	    - previous RE search flag
-*  fUnixRE	    - users 'unixre' switch
-*  pasBuf	    - compiled RE pattern
-*  srchbuf	    - last searched for string.
+*  fSrchRePrev      - previous RE search flag
+*  fUnixRE          - users 'unixre' switch
+*  pasBuf           - compiled RE pattern
+*  srchbuf          - last searched for string.
 *
 * Output:
 *  Returns TRUE on found.
@@ -171,7 +172,7 @@ mgrep (
      * expression into patBuf. (Fall into NOARG code).
      */
     case TEXTARG:
-	strcpy ((char *) buf, pArg->arg.textarg.pText);
+        strcpy ((char *) buf, pArg->arg.textarg.pText);
         srchbuf[0] = 0;
         if (pArg->arg.textarg.cArg == 2) {
             if (patBuf != NULL) {
@@ -262,7 +263,7 @@ mgrep (
                     *p = 0;
 
                     if ((tmp = getenvOem (szGrepFile+1)) == NULL) {
-                        pathstr = "";
+                        pathstr = szNullStr;
                     } else {
                         pathstr = tmp;
                     }
@@ -271,7 +272,7 @@ mgrep (
                     szGrepFile = p;
                 }
             } else {
-                pathstr = "";
+                pathstr = szNullStr;
             }
 
             forsemi (pathstr, mgrep1env, szGrepFile);
@@ -306,8 +307,8 @@ mgrep (
 *  in the list.
 *
 * Input:
-*  pszEnv	= pointer to directory name
-*  pFileName	= pointer to filename
+*  pszEnv       = pointer to directory name
+*  pFileName    = pointer to filename
 *
 * Output:
 *  Returns nothing.
@@ -336,7 +337,7 @@ mgrep1env (
         if (*pszEnv && (*(strend(bufBuild)-1) != '\\')) {
             *(int *) strend (bufBuild) = '\\';
         }
-	strcat (bufBuild, pszFn);
+        strcat (bufBuild, pszFn);
         CanonFilename (bufBuild, bufFn);
     }
 
@@ -552,10 +553,10 @@ searchall (
 *  LINEARG, STREAMARG, BOXARG are illegal
 *
 * Input:
-*  fForard	= TRUE => Indicates that search is forward
-*  pArg 	= pointer to user specified args
-*  fMeta	= TRUE => if meta on
-*  fAll 	= TRUE => highlight all ocurrances
+*  fForard      = TRUE => Indicates that search is forward
+*  pArg         = pointer to user specified args
+*  fMeta        = TRUE => if meta on
+*  fAll         = TRUE => highlight all ocurrances
 *
 * Output:
 *  Returns TRUE if found
@@ -583,7 +584,7 @@ dosearch (
      * expression into patBuf. (Fall into NOARG code).
      */
     case TEXTARG:
-	strcpy ((char *) buf, pArg->arg.textarg.pText);
+        strcpy ((char *) buf, pArg->arg.textarg.pText);
         srchbuf[0] = 0;
         if (pArg->arg.textarg.cArg == 2) {
             if (patBuf != NULL) {
@@ -715,18 +716,18 @@ dosearch (
 *  character string matching. We return the length and location of the match.
 *
 * Input:
-*  pFile	= pointer to file structure to be searched
-*  fForward	= TRUE => search forward from the specified location
-*  fAll 	= TRUE => find and highlight all ocurrances
-*  fCase	= TRUE => case is significant in comparisons
-*  fWrap	= TRUE => search wraps around ends of file
-*  pat		= character pointer to the search string
-*  pflStart	= pointers to the location of the beginning of search. Updated
-*		  to reflect the actually found location (or the first found
-*		  for a searchall).
+*  pFile        = pointer to file structure to be searched
+*  fForward     = TRUE => search forward from the specified location
+*  fAll         = TRUE => find and highlight all ocurrances
+*  fCase        = TRUE => case is significant in comparisons
+*  fWrap        = TRUE => search wraps around ends of file
+*  pat          = character pointer to the search string
+*  pflStart     = pointers to the location of the beginning of search. Updated
+*                 to reflect the actually found location (or the first found
+*                 for a searchall).
 *
 * Output:
-*  Returns	length of match if found, -1 if not found
+*  Returns      length of match if found, -1 if not found
 *
 *************************************************************************/
 int
@@ -754,7 +755,7 @@ search (
     assert (pat && pflStart && pFile);
     strcpy (pbuf, pat);
     if (!fCase) {
-        strlwr (pbuf);
+        _strlwr (pbuf);
     }
     cAll = 0;
     flCur = *pflStart;
@@ -779,7 +780,7 @@ search (
              * first if case insensitive search.
              */
             if (!fCase) {
-                strlwr (sbuf);
+                _strlwr (sbuf);
             }
 
             pSearch = pLog (sbuf,flCur.col,TRUE);
@@ -842,7 +843,7 @@ search (
              * starting column (this is a backwards search)
              */
             if (!fCase) {
-                strlwr (sbuf);
+                _strlwr (sbuf);
             }
             pSearch  = pLog (sbuf, flCur.col, TRUE);
             *(pSearch+1) = 0;
@@ -892,15 +893,15 @@ search (
 *  match.
 *
 * Input:
-*  pFile	= pointer to file structure to be searched
-*  fForward	= TRUE => search forward from the specified location
-*  fAll 	= TRUE => find and highlight all ocurrances
-*  fCase	= TRUE => case is significant in comparisons
-*  fWrap	= TRUE => search wraps around ends of file
-*  pat		= pointer to compiled pattern
-*  pflStart	= pointers to the location of the beginning of search. Updated
-*		  to reflect the actually found location (or the first found
-*		  for a searchall).
+*  pFile        = pointer to file structure to be searched
+*  fForward     = TRUE => search forward from the specified location
+*  fAll         = TRUE => find and highlight all ocurrances
+*  fCase        = TRUE => case is significant in comparisons
+*  fWrap        = TRUE => search wraps around ends of file
+*  pat          = pointer to compiled pattern
+*  pflStart     = pointers to the location of the beginning of search. Updated
+*                 to reflect the actually found location (or the first found
+*                 for a searchall).
 *
 * Output:
 *  Returns length of (first) match if found, -1 if not found
@@ -1086,15 +1087,15 @@ REsearch (
 *  string.
 *
 * Input:
-*  pFile	= pointer to file structure to be searched
-*  fForward	= TRUE => search forward from the specified location
-*  fAll 	= TRUE => find and highlight all ocurrances
-*  fCase	= TRUE => case is significant in comparisons
-*  fWrap	= TRUE => search wraps around ends of file
-*  pat		= pointer to RE character string
-*  pflStart	= pointers to the location of the beginning of search. Updated
-*		  to reflect the actually found location (or the first found
-*		  for a searchall).
+*  pFile        = pointer to file structure to be searched
+*  fForward     = TRUE => search forward from the specified location
+*  fAll         = TRUE => find and highlight all ocurrances
+*  fCase        = TRUE => case is significant in comparisons
+*  fWrap        = TRUE => search wraps around ends of file
+*  pat          = pointer to RE character string
+*  pflStart     = pointers to the location of the beginning of search. Updated
+*                 to reflect the actually found location (or the first found
+*                 for a searchall).
 *
 * Output:
 *  Returns length of (first) match if found, -1 if not found

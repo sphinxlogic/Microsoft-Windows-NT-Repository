@@ -251,6 +251,7 @@ typedef enum _BANK_TYPE {
 typedef enum {
     NCR77C22 = 0,
     NCR77C22E,
+    NCR77C22EPLUS,
     NCR77C32BLT,
     NumTypes
 } ADAPTER_TYPE, *PADAPTER_TYPE;

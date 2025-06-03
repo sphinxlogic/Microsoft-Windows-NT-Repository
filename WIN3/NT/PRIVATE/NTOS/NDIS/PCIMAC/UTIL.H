@@ -25,4 +25,3 @@ VOID        ut_free_buf(CHAR* buf);
 /* macros */
 
 #endif	/* _UTIL_ */
-

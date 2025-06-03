@@ -131,15 +131,13 @@ typedef NAMED_PIPE_END *PNAMED_PIPE_END;
 
 //
 //  The following two types are used by the event table package.  The first
-//  is the event table itself which is just a generic table protected by
-//  a spinlock, and the second structure is an event table entry.
+//  is the event table itself which is just a generic table.  It is protected
+//  by the vcb resource, and the second structure is an event table entry.
 //
 
 typedef struct _EVENT_TABLE {
 
     RTL_GENERIC_TABLE Table;
-
-    KSPIN_LOCK SpinLock;
 
 } EVENT_TABLE;
 typedef EVENT_TABLE *PEVENT_TABLE;
@@ -273,6 +271,12 @@ typedef enum _FROM {
 typedef struct _DATA_ENTRY {
 
     //
+    //  The following field is how we connect into the queue of data entries
+    //
+
+    struct _DATA_ENTRY *Next;
+
+    //
     //  The following two fields describe the type of data entry and where
     //  we got its memory from.  If the type is buffered then the From field
     //  also denotes where we got the memory for the data buffer, otherwise
@@ -281,13 +285,6 @@ typedef struct _DATA_ENTRY {
 
     DATA_ENTRY_TYPE DataEntryType : 8;
     FROM From : 8;
-    USHORT Spare;
-
-    //
-    //  The following field is how we connect into the queue of data entries
-    //
-
-    struct _DATA_ENTRY *Next;
 
     //
     //  The following field indicates if we still have an IRP associated

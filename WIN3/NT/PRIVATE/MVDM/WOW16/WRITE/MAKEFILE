@@ -24,34 +24,29 @@ APP = write
 
 DEBUGDEF =
 
-# work around stupid bug in RC 3.1 that doesn't allow rcpp.err to be
+########## Path definition so we find 16 bit tools ##########
+# Also works around stupid bug in RC 3.1 that doesn't allow rcpp.err to be
 # in a directory that is greater than 128 chars down the path, even if
 # rc 3.1 is running as an OS/2 app.
 
-PATH   = ..\..\tools16;$(PATH)
+PATH    = $(_NTBINDIR)\private\mvdm\tools16;$(PATH)
 
-!if "$(NTDEBUG)"!="" && "$(NTDEBUG)"!="retail"
-!IF "$(NTDEBUGTYPE)"=="windbg"
-CDEBUG = /Odi /Zi
-ADEBUG = -Zi
-LDEBUG = /CO
-!ELSE
+!if "$(NTDEBUG)"!="" && "$(NTDEBUG)"!="retail" && "$(NTDEBUG)" != "ntsdnodbg"
 CDEBUG = /Zd
 ADEBUG = -Zd
 LDEBUG = /LI
-!ENDIF
 !ENDIF
 
 !ifdef OS2
 CFLAGS = /AM /G2sw /Os /Zpe /PLM /DOS2 $(INCLUDE)
 DFLAGS =
-LFLAGS = /CO /ALIGN:16 /Map /NOD
+LFLAGS = /ALIGN:16 /Map /NOD
 AFLAGS = -Mx $(INCLUDE)
 RCFLAGS = -DOS2 $(INCLUDE)
 !else
 !ifdef CVW
 CFLAGS = /AM /G2sw /Odi /Zipe /W3 /PLM  /DWIN31 $(INCLUDE)
-LFLAGS = /CO /ALIGN:16 /Map /NOD
+LFLAGS = /ALIGN:16 /Map /NOD
 AFLAGS = -Mx -Zi $(INCLUDE)
 !else
 CFLAGS = /AM /G2sw /Os /Zpe /PLM  /DWIN31 $(INCLUDE) $(CDEBUG)
@@ -130,10 +125,21 @@ OBJ_DBCS=help.obj
 
 #International mods
 !IFNDEF LANG
-target:  write.exe
+all:  write.exe
 !ELSE
-target:  write.$(LANG)
+all:  write.$(LANG)
 !ENDIF
+
+clean: cleanup all
+
+cleanup:
+        del *.res
+        del *.rc
+        del *.rcv
+        del *.dlg
+        del *.obj
+        del *.sym
+        del *.map
 
 !IFDEF  DBCS
 $(APP).exe: $(APP).res $(OBJ_DBCS) $(OBJ1) $(OBJ2) $(OBJ3) $(OBJ4) $(OBJ5) $(OBJ6) $(APP).def $(APP).lnk
@@ -146,7 +152,10 @@ $(APP).exe: $(APP).res $(OBJ1) $(OBJ2) $(OBJ3) $(OBJ4) $(OBJ5) $(OBJ6) $(APP).de
         rc16 $(RCFLAGS) $(APP).res $(APP).exe
 !ifndef CVW
         mapsym $(APP)
-        binplace write.exe
+        copy write.exe write16.exe
+        copy write.map write16.map
+        copy write.sym write16.sym
+        binplace write16.exe write16.map write16.sym
 !endif
 !   ifdef OS2
     exehdr /newfiles notepad.exe
@@ -381,12 +390,16 @@ $(APP).lnk: MAKEFILE $(APP).sed
         echo $(APP).def >> $(APP).lnk
 
 #International mods
-iclean:
+clean: cleanup all
+
+cleanup:
     del *.res
     del *.rc
     del *.dlg
 
-$(APP).$(LANG) : iclean $(APP).res ..\inc\common.ver ..\inc\version.h ..\inc\ver.h
+$(APP).$(LANG): $(APP).res ..\inc\common.ver ..\inc\version.h ..\inc\ver.h
     copy $(EXE_DIR)\$(APP).exe $(APP).$(LANG)
     rc16 -t $(RCFLAGS) $(APP).res $(APP).$(LANG)
-    -binplace write.exe write.sym
+    copy $(app).$(LANG) write16.exe
+    copy write.sym write16.sym
+    -binplace write16.exe write16.sym

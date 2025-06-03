@@ -113,7 +113,7 @@ Return Value:
     }
 
 
-    //  No packets queued, so we have a damn good chance
+    //  No packets queued, so we have a good chance
     //  being able to complete this send right now.
     //  After all the card has enough buffers for
     //  ~32 full size frames.

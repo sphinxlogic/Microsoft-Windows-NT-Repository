@@ -24,7 +24,7 @@
 #if FASTBOPPING
 extern BYTE fKernelCSIPFixed;
 // Used by the monitor to dispatch interupts. Updated for callbacks and bops
-extern PULONG CurrentMonitorTeb;
+extern DECLSPEC_IMPORT PVOID CurrentMonitorTeb;
 #endif
 
 #if FASTBOPPING

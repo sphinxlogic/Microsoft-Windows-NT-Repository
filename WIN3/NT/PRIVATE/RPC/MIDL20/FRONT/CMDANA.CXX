@@ -93,6 +93,7 @@ extern	"C"
 	#include <assert.h>
 	#include <direct.h>
 	#include <io.h>
+	#include <time.h>
 	}
 #include "midlvers.h"
 #include "idict.hxx"
@@ -135,41 +136,33 @@ extern	"C"
  *** reason to keep this sorted, is so that we can visually ensure this.
  ***/
 
-struct sw_desc
+const struct sw_desc
 	{
-	char			*	pSwitchName;		// switch string
-	unsigned short		flag;				// switch descriptor
-	enum _swenum 		SwitchValue;		// switch enum value
+	const char	*			pSwitchName;		// switch string
+	unsigned short			flag;				// switch descriptor
+	enum _swenum 			SwitchValue;		// switch enum value
 	} switch_desc[] = {
   		  { "", 			ARG_NONE				, SWITCH_NOTHING }
 		, { "?",			ARG_NONE				, SWITCH_HELP }
 		, { "D",			ARG_SPACE_OPTIONAL		, SWITCH_D }
 		, { "I",			ARG_SPACE_OPTIONAL 		, SWITCH_I }
 //		, { "MIDLDEBUG",	ARG_NONE 				, SWITCH_MIDLDEBUG }
-		, { "Oi",			ARG_NONE				, SWITCH_OI }
-		, { "Os",			ARG_NONE				, SWITCH_OS }
-#ifdef MIDL_INTERNAL
-		, { "Ot",			ARG_NONE				, SWITCH_OT }
-#endif	// MIDL_INTERNAL
+		, { "O",			ARG_SPACE_OPTIONAL		, SWITCH_O }
 		, { "U",			ARG_SPACE_OPTIONAL		, SWITCH_U }
 		, { "WX",           ARG_NONE				, SWITCH_WX }
 		, { "W",            ARG_SPACE_NONE			, SWITCH_W }
 		, { "Zp",			ARG_SPACE_NONE			, SWITCH_ZP }
 		, { "Zs",			ARG_NONE				, SWITCH_ZS }
 		, { "acf", 			ARG_SPACE_OPTIONAL 		, SWITCH_ACF }
-//		, { "aux",			ARG_SPACE_OPTIONAL 		, SWITCH_AUX }
-//		, { "bug",			ARG_SPACE_OPTIONAL 		, SWITCH_BUG }
 		, { "c_ext",		ARG_NONE 				, SWITCH_C_EXT }
-		, { "caux",			ARG_CC_ETC		 		, SWITCH_CAUX }
-//		, { "cc_cmd",		ARG_CC_ETC				, SWITCH_CC_CMD }
-//		, { "cc_opt",		ARG_CC_ETC				, SWITCH_CC_OPT }
-		, { "char"		   ,ARG_SPACED				, SWITCH_CHAR }
+		, { "char",         ARG_SPACED				, SWITCH_CHAR }
 		, { "client",		ARG_SPACED				, SWITCH_CLIENT }
 		, { "confirm",		ARG_NONE		 		, SWITCH_CONFIRM }
+		, { "nologo",		ARG_NONE		 		, SWITCH_NOLOGO }
 		, { "cpp_cmd",		ARG_CC_ETC		 		, SWITCH_CPP_CMD }
 		, { "cpp_opt",		ARG_CC_ETC				, SWITCH_CPP_OPT }
 		, { "cstub",		ARG_CC_ETC 				, SWITCH_CSTUB }
-//		, { "cswitch",		ARG_NONE 				, SWITCH_CSWITCH }
+		, { "nocstub",		ARG_NONE 				, SWITCH_NO_CLIENT }
 
 #ifdef MIDL_INTERNAL
 		, { "dump",			ARG_NONE				, SWITCH_DUMP }
@@ -179,18 +172,18 @@ struct sw_desc
 		, { "env",			ARG_SPACED 				, SWITCH_ENV }
 		, { "error",		ARG_SPACED	 			, SWITCH_ERROR }
 		, { "header",		ARG_CC_ETC		 		, SWITCH_HEADER }
-		, { "help"		   ,ARG_NONE				, SWITCH_HELP }
+		, { "help",         ARG_NONE				, SWITCH_HELP }
         , { "iid",   		ARG_CC_ETC              , SWITCH_IID }
-		, { "import",		ARG_SPACED				, SWITCH_IMPORT }
-		, { "mode",			ARG_SPACED				, SWITCH_TEMP_MODE }
+        , { "mktyplib203",  ARG_NONE                , SWITCH_MKTYPLIB }
+        , { "new",          ARG_NONE                , SWITCH_NEW_TLB }
 		, { "no_cpp",		ARG_NONE 				, SWITCH_NO_CPP }
 		, { "no_def_idir",	ARG_NONE 				, SWITCH_NO_DEF_IDIR }
-//		, { "no_enum_lit",	ARG_SPACE_OPTIONAL 		, SWITCH_NO_ENUM_LIT }
 		, { "no_warn",		ARG_NONE		 		, SWITCH_NO_WARN }
 		, { "use_epv",		ARG_NONE		 		, SWITCH_USE_EPV }
 		, { "no_default_epv",ARG_NONE		 		, SWITCH_NO_DEFAULT_EPV }
-//		, { "nonfatal_error",ARG_SPACED				, SWITCH_NONFATAL_ERROR }
-//		, { "option",		ARG_SPACED				, SWITCH_OPTION }
+		, { "oldnames",		ARG_NONE				, SWITCH_OLDNAMES }
+        , { "old",          ARG_NONE                , SWITCH_OLD_TLB }
+        , { "osf",          ARG_NONE                , SWITCH_OSF }
 		, { "out",			ARG_SPACE_OPTIONAL 		, SWITCH_OUT }
 
 #ifdef MIDL_INTERNAL
@@ -198,11 +191,30 @@ struct sw_desc
 #endif // MIDL_INTERNAL
 
 		, { "pack",         ARG_SPACED				, SWITCH_PACK }
-//		, { "port",			ARG_SPACE_OPTIONAL 		, SWITCH_PORT }
 		, { "prefix",		ARG_SPACED				, SWITCH_PREFIX }
 //		, { "suffix",		ARG_SPACED				, SWITCH_SUFFIX }
         , { "proxy",   		ARG_CC_ETC              , SWITCH_PROXY }
-		, { "saux",			ARG_CC_ETC		 		, SWITCH_SAUX }
+        , { "noproxy",   	ARG_NONE              	, SWITCH_NO_PROXY }
+        , { "proxydef",   	ARG_CC_ETC              , SWITCH_PROXY_DEF }
+        , { "noproxydef",   ARG_NONE              	, SWITCH_NO_PROXY_DEF }
+        , { "dlldef",   	ARG_CC_ETC              , SWITCH_DLL_SERVER_DEF }
+        , { "nodlldef",   	ARG_NONE              	, SWITCH_NO_DLL_SERVER_DEF }
+        , { "dllmain",   	ARG_CC_ETC              , SWITCH_DLL_SERVER_CLASS_GEN }
+        , { "nodllmain",   	ARG_NONE              	, SWITCH_NO_DLL_SERVER_CLASS_GEN }
+        , { "reg",   		ARG_CC_ETC              , SWITCH_SERVER_REG }
+        , { "noreg",   		ARG_NONE              	, SWITCH_NO_SERVER_REG }
+        , { "exesuppt",   	ARG_CC_ETC              , SWITCH_EXE_SERVER }
+        , { "noexesuppt",   ARG_NONE              	, SWITCH_NO_EXE_SERVER }
+        , { "exemain",   	ARG_CC_ETC              , SWITCH_EXE_SERVER_MAIN }
+        , { "noexemain",   	ARG_NONE              	, SWITCH_NO_EXE_SERVER_MAIN }
+        , { "testclient",   ARG_CC_ETC              , SWITCH_TESTCLIENT }
+        , { "notestclient", ARG_NONE              	, SWITCH_NO_TESTCLIENT }
+        , { "methods",   	ARG_CC_ETC              , SWITCH_CLASS_METHODS }
+        , { "nomethods",   	ARG_NONE              	, SWITCH_NO_CLASS_METHODS }
+        , { "iunknown",   	ARG_CC_ETC              , SWITCH_CLASS_IUNKNOWN }
+        , { "noiunknown",   ARG_NONE              	, SWITCH_NO_CLASS_IUNKNOWN }
+        , { "class_hdr",   	ARG_CC_ETC              , SWITCH_CLASS_HEADER }
+        , { "noclass_hdr",  ARG_NONE              	, SWITCH_NO_CLASS_HEADER }
 
 #ifdef MIDL_INTERNAL
 		, { "savepp",		ARG_NONE				, SWITCH_SAVEPP }
@@ -210,10 +222,11 @@ struct sw_desc
 
 		, { "server",		ARG_SPACED				, SWITCH_SERVER }
 		, { "sstub",		ARG_CC_ETC		 		, SWITCH_SSTUB }
-		, { "switch",		ARG_SPACE_OPTIONAL 		, SWITCH_SWITCH }
+		, { "nosstub",		ARG_NONE		 		, SWITCH_NO_SERVER }
 		, { "syntax_check",	ARG_NONE				, SWITCH_SYNTAX_CHECK }
-//		, { "transfer_syntax", ARG_SPACED			, SWITCH_TRANSFER_SYNTAX }
-//		, { "version",		ARG_NONE		 		, SWITCH_VERSION }
+#if defined(TARGET_RKK)
+		, { "target",       ARG_SPACED				, SWITCH_TARGET_SYSTEM }
+#endif
 		, { "warn",         ARG_SPACED				, SWITCH_W }
 
 #ifdef MIDL_INTERNAL
@@ -223,43 +236,25 @@ struct sw_desc
 		, { "ms_ext",      	ARG_NONE				, SWITCH_MS_EXT }
 		, { "ms_union",		ARG_NONE				, SWITCH_MS_UNION }
 		, { "idlbase",		ARG_NONE				, SWITCH_IDLBASE }
-#ifdef FORMAT_COMPRESSION_OFF
-		, { "format_opt",   ARG_NONE				, SWITCH_NO_FMT_OPT }
-#else
-		, { "no_format_opt",   ARG_NONE				, SWITCH_NO_FMT_OPT }
-#endif
-		, { "guard",		ARG_NONE				, SWITCH_GUARD_DEFS }
-		, { "oldnames",		ARG_NONE				, SWITCH_OLDNAMES }
+		, { "no_format_opt",ARG_NONE				, SWITCH_NO_FMT_OPT }
 		, { "app_config",  	ARG_NONE				, SWITCH_APP_CONFIG }
-		, { "rpcss",		ARG_SPACED				, SWITCH_RPCSS }
-//		, { "implicit_local",ARG_NONE				, SWITCH_IMP_LOCAL }
-//		, { "const_init"	,ARG_SPACED				, SWITCH_CONST_INIT }
-//		, { "internal"		,ARG_NONE				, SWITCH_INTERNAL }
-		
-	};
+		, { "ccg",  		ARG_NONE				, SWITCH_COM_CLASS }
+		, { "rpcss",		ARG_NONE				, SWITCH_RPCSS }
+		, { "hookole",		ARG_NONE				, SWITCH_HOOKOLE }
+// MKTYPLIB switches
+        , { "tlb",          ARG_SPACED              , SWITCH_TLIB }
+        , { "o",            ARG_SPACED              , SWITCH_REDIRECT_OUTPUT }
+		, { "h",            ARG_CC_ETC              , SWITCH_HEADER }
+        , { "align",        ARG_SPACE_OPTIONAL      , SWITCH_ZP }
+        , { "nocpp",		ARG_NONE 				, SWITCH_NO_CPP }
+        , { "wi",           ARG_SPACE_NONE          , SWITCH_ODL_ENV } // win16 or win32
+        , { "do",           ARG_SPACE_NONE          , SWITCH_ODL_ENV } // dos
+        , { "ma",           ARG_SPACE_NONE          , SWITCH_ODL_ENV } // mac
+        , { "po",           ARG_SPACE_NONE          , SWITCH_ODL_ENV } // powermac
+			};
 
 
-CHOICE	ImportChoice[] =
-	{
-		 { "defined_single"	, IMPORT_OSF }
-		,{ "used_single"	, IMPORT_MSFT }
-		,{ "used_multiple"	, IMPORT_NT }
-#ifdef MIDL_INTERNAL
-		,{ "osf"		, IMPORT_OSF }
-		,{ "ms_ext"		, IMPORT_MSFT }
-		,{ "ms_nt"		, IMPORT_NT }
-#endif // MIDL_INTERNAL
-		,{ 0			, 0 }
-	};
-
-CHOICE	IncludeChoice[] =
-	{
-		 { "std"		, INCLUDE_STD }
-		,{ "non_std"	, INCLUDE_NON_STD }
-		,{ 0			, 0 }
-	};
-
-CHOICE	CharChoice[] =
+const CHOICE	CharChoice[] =
 	{
 		 { "signed"		, CHAR_SIGNED }
 		,{ "unsigned"	, CHAR_UNSIGNED }
@@ -267,7 +262,7 @@ CHOICE	CharChoice[] =
 		,{ 0			, 0 }
 	};
 
-CHOICE	ErrorChoice[] =
+const CHOICE	ErrorChoice[] =
 	{
 		 { "all"                , ERROR_ALL }
 		,{ "allocation"			, ERROR_ALLOCATION }
@@ -279,72 +274,39 @@ CHOICE	ErrorChoice[] =
 		,{ 0					, 0 }
 	};
 
-CHOICE	EnvChoice[] =
+const CHOICE	EnvChoice[] =
 	{
 		 { "dos"			, ENV_DOS }
 		,{ "win16"			, ENV_WIN16 }
 		,{ "win32"			, ENV_WIN32 }
-		,{ "os2_1x"			, ENV_OS2_1X }
-		,{ 0			, 0 }
+		,{ "mac"			, ENV_MAC }
+		,{ "powermac"       , ENV_MPPC }
+		,{ 0			    , 0 }
 	};
 
-CHOICE	CEnvChoice[] =
-	{
-		 { "dos"		, CSENV_DOS }
-		,{ "windows"	, CSENV_WINDOWS }
-		,{ "nt"			, CSENV_NT }
-		,{ 0			, 0 }
-	};
+const CHOICE    TargetChoice[] =
+    {
+         { "NT35"            , NT35 }
+        ,{ "NT351"           , NT351 }
+        ,{ "NT40"            , NT40 }
+        ,{ 0                 , 0 }
+    };
 
-CHOICE	SEnvChoice[] =
-	{
-		{ "nt"			, CSENV_NT }
-		,{ 0			, 0 }
-	};
-
-CHOICE	AuxChoice[]		=
-	{
-		 { "none"		, AUX_NONE }
-		,{ "client"		, AUX_CLIENT }
-		,{ "server"		, AUX_SERVER }
-		,{ "both"		, AUX_BOTH }
-		,{ 0			, 0 }
-	};
-
-CHOICE	ClientChoice[]	=
+const CHOICE	ClientChoice[]	=
 	{
 		 { "stub"		, CLNT_STUB }
-		,{ "aux"		, CLNT_AUX }
 		,{ "none"		, CLNT_NONE }
-		,{ "all"		, CLNT_ALL }
 		,{ 0			, 0 }
 	};
 
-CHOICE	ServerChoice[]	=
+const CHOICE	ServerChoice[]	=
 	{
 		 { "stub"		, SRVR_STUB }
-		,{ "aux"		, SRVR_AUX }
 		,{ "none"		, SRVR_NONE }
-		,{ "all"		, SRVR_ALL }
 		,{ 0			, 0 }
 	};
 
-CHOICE	ConstInitChoice[]	=
-	{
-		 { "osf",	CONST_OSF }
-		,{ "ms_c",	CONST_MS_C }
-		,{ 0	   ,	0 }
-
-	};
-
-CHOICE	RpcSSChoice[] = 
-	{
-	 { "enabled",	RPC_SS_ALLOCATE_ENABLED }
-	,{ "disabled",	RPC_SS_ALLOCATE_DISABLED }
-	,{ 0	   ,	0 }
-	};
-
-CHOICE PrefixChoices[] =
+const CHOICE PrefixChoices[] =
 	{
 	 { "client",	PREFIX_CLIENT_STUB }
 	,{ "server",	PREFIX_SERVER_MGR }
@@ -352,14 +314,7 @@ CHOICE PrefixChoices[] =
 	,{ "cstub",		PREFIX_CLIENT_STUB }
 	,{ "sstub",		PREFIX_SERVER_MGR }
 	,{ "all",		PREFIX_ALL }
-	,{ 0	   ,	0 }
-	};
-
-CHOICE	ModeChoice[]	=
-	{
-		 { "c_port",	TEMP_MODE_C_PORT }
-		,{ 0	   ,	0 }
-
+	,{ 0    ,	    0 }
 	};
 
 #define IS_NUMERIC_1( pThisArg ) ((strlen( pThisArg) == 1 )	&&	\
@@ -369,7 +324,6 @@ CHOICE	ModeChoice[]	=
 #define C_COMPILER_NAME()			("cl.exe")
 #define C_PREPROCESSOR_NAME()		("cl.exe")
 #define ADDITIONAL_CPP_OPT()		(" -E -nologo")
-
 
 #define MIDL_HELP_FILE_NAME			("midl.hlp")
 
@@ -386,13 +340,38 @@ extern unsigned short			EnumSize;
 extern	void					ReportUnimplementedSwitch( short );
 extern	char	*				SwitchStringForValue( unsigned short );
 extern	_swenum					SearchForSwitch( char ** );
-extern	STATUS_T				SelectChoice( CHOICE *, char *, short *);
+extern	STATUS_T				SelectChoice( const CHOICE *, char *, short *);
 extern	CCONTROL			*	pCompiler;
 extern	short					CompileMode;
 extern	IDICT				*	PPCmdEngine( int argc, char *argv[], IDICT * );
 
 extern	void					PrintArg( enum _swenum, char *, char * );
 /****************************************************************************/
+
+char						*	pVersionStr	= NULL;
+char						*	pTimeStr	= NULL;
+
+void SetVersionStr()
+{
+	pVersionStr				= new char[ 12 ];
+	if ( rup == 0 )
+		sprintf( pVersionStr, "%d.%02d", rmj, rmm );
+	else if ( rup <= 99 )
+		sprintf( pVersionStr, "%d.%02d.%02d", rmj, rmm, rup );
+	else
+		sprintf( pVersionStr, "%d.%02d.%04d", rmj, rmm, rup );
+}
+
+void SetTimeStr()
+{
+	time_t		LocalTime;
+
+	// fetch the time
+	time( &LocalTime );
+	
+	// convert to a string
+	pTimeStr = _strdup( ctime( &LocalTime ) );
+}
 
 
 _cmd_arg::_cmd_arg()
@@ -414,64 +393,20 @@ _cmd_arg::_cmd_arg()
 
 ----------------------------------------------------------------------------*/
 {
-	switch_def_vector[0]	= switch_def_vector[1] = switch_def_vector[2] = 
+	switch_def_vector[0]	= switch_def_vector[1] = switch_def_vector[2] =
 							  switch_def_vector[3] = 0;
-	fAux					=
-	fPort					=
-	fClient					=
-	fServer					=
-	fKeep					= KEEP_BOTH;
-	ImportMode				= IMPORT_OSF;
-	IncludeMode				= 0;
+	fClient					= CLNT_STUB;
 
 	cArgs					= 0;
 	WLevel					= 1;
 	ErrorOption				= ERROR_NONE;
-	ServerEnv				= CSENV_NT;
-
-#ifdef	DOS_BUILD
-
-	Env						= ENV_DOS;
-	ZeePee					= 2;
-	CharOption				= CHAR_SIGNED;
-	ClientEnv				= CSENV_DOS;
-	NaturalAlignment		= 2;
-	fServer					= SRVR_NONE;
-
-#endif
-
-#ifdef OS2_BUILD
-
-	Env						= ENV_OS2_1X;
-	ZeePee					= 2;
-	CharOption				= CHAR_SIGNED;
-	ClientEnv				= CSENV_DOS;
-	NaturalAlignment		= 2;
-	fServer					= SRVR_ALL;
-
-#endif
-
-#ifdef I_386_BUILD
 
 	Env						= ENV_WIN32;
+	TargetSystem			= TARGET_DEFAULT;
+    OptimLevel              = OPT_LEVEL_OS_DEFAULT;
 	ZeePee					= 8;
 	CharOption				= CHAR_SIGNED;
-	ClientEnv				= CSENV_NT;
-	NaturalAlignment		= 4;
-	fServer					= SRVR_ALL;
-
-#endif
-
-#if defined(MIPS_BUILD) || defined(ALPHA_BUILD)
-
-	Env						= ENV_WIN32;
-	ZeePee					= 8;
-	CharOption				= CHAR_SIGNED;
-	ClientEnv				= CSENV_NT;
-	NaturalAlignment		= 4;
-	fServer					= SRVR_ALL;
-
-#endif
+	fServer					= SRVR_STUB;
 
 	pSwitchPrefix			= new pair_switch( &PrefixChoices[0] );
 	pSwitchSuffix			= (pair_switch *)0;
@@ -480,30 +415,23 @@ _cmd_arg::_cmd_arg()
 	pCStubSwitch			=
 	pSStubSwitch			=
 	pHeaderSwitch			=
-	pCauxSwitch				=
-	pSauxSwitch				=
 	pAcfSwitch				= (filename_switch *)NULL;
 
 	pDSwitch				=
 	pISwitch				=
 	pUSwitch				= (multiple_switch *)NULL;
 
-	pSwitchSwitch			=
 	pCppCmdSwitch			=
-	pCppOptSwitch			=
-	pCCCmdSwitch			=
-	pCCOptSwitch			= (onetime_switch *) NULL;
+	pCppOptSwitch			= (onetime_switch *) NULL;
 
 	MajorVersion			= rmj;
 	MinorVersion			= rmm;
 	UpdateNumber			= rup;
 
-	ConstInit				= CONST_OSF;
+	OptimFlags				= OPTIMIZE_NONE;
 
-	fOptimSpeed				= 0;
-	fOptimSize				= 1;
-	fOptimInterpreter		= 0;
-	fRpcSSAllocateEnabled	= 0;
+	ConfigMask				= 0;
+	fMintRun				= FALSE;
 
 }
 
@@ -729,23 +657,31 @@ _cmd_arg::ProcessArgs()
 
 		switch( SwitchValue )
 			{
-			case SWITCH_CAUX:
 			case SWITCH_CSTUB:
 			case SWITCH_HEADER:
-			case SWITCH_SAUX:
 			case SWITCH_ACF:
 			case SWITCH_SSTUB:
 			case SWITCH_OUT:
 			case SWITCH_IID:
 			case SWITCH_PROXY:
+			case SWITCH_TESTCLIENT:
+			case SWITCH_CLASS_METHODS:
+			case SWITCH_CLASS_HEADER:
+			case SWITCH_CLASS_IUNKNOWN:
+			case SWITCH_PROXY_DEF:
+			case SWITCH_DLL_SERVER_DEF:
+			case SWITCH_DLL_SERVER_CLASS_GEN:
+			case SWITCH_SERVER_REG:
+			case SWITCH_EXE_SERVER:
+			case SWITCH_EXE_SERVER_MAIN:
 			case SWITCH_DLLDATA:
+            case SWITCH_TLIB:
+            case SWITCH_REDIRECT_OUTPUT:
 				Status = ProcessFilenameSwitch( SwitchValue, pThisArg );
 				break;
 
 			case SWITCH_PACK:
 			case SWITCH_ZP:
-			case SWITCH_IMPORT:
-			case SWITCH_INCLUDE:
 			case SWITCH_NO_WARN:
 			case SWITCH_USE_EPV:
 			case SWITCH_NO_DEFAULT_EPV:
@@ -756,24 +692,24 @@ _cmd_arg::ProcessArgs()
 			case SWITCH_CLIENT:
 			case SWITCH_SERVER:
 			case SWITCH_ENV:
+#if defined(TARGET_RKK)
+			case SWITCH_TARGET_SYSTEM:
+#endif
 			case SWITCH_RPCSS:
-			case SWITCH_AUX:
+			case SWITCH_HOOKOLE:
 			case SWITCH_DUMP:
 			case SWITCH_OVERRIDE:
-			case SWITCH_HPP:
 			case SWITCH_SAVEPP:
 			case SWITCH_NO_DEF_IDIR:
 			case SWITCH_VERSION:
 			case SWITCH_CONFIRM:
+			case SWITCH_NOLOGO:
 			case SWITCH_CHAR:
 			case SWITCH_HELP:
 			case SWITCH_W:
 			case SWITCH_WX:
 			case SWITCH_X:
-			case SWITCH_OI:
-			case SWITCH_OS:
-			case SWITCH_OT:
-			case SWITCH_IMP_LOCAL:
+			case SWITCH_O:
 			case SWITCH_APP_CONFIG:
 			case SWITCH_MS_EXT:
 			case SWITCH_MS_UNION:
@@ -781,14 +717,19 @@ _cmd_arg::ProcessArgs()
 			case SWITCH_IDLBASE:
 			case SWITCH_NO_FMT_OPT:
 			case SWITCH_GUARD_DEFS:
-			case SWITCH_TEMP_MODE:
-//			case SWITCH_CONST_INIT:
 			case SWITCH_INTERNAL:
 			case SWITCH_C_EXT:
-//			case SWITCH_CSWITCH:
-
+            case SWITCH_OSF:
+            case SWITCH_MKTYPLIB:
+            case SWITCH_OLD_TLB:
+            case SWITCH_NEW_TLB:
 				Status = ProcessOrdinarySwitch( SwitchValue, pThisArg );
 				break;
+
+            case SWITCH_ODL_ENV:
+                Status = ProcessOrdinarySwitch( SwitchValue, pThisArg );
+                SwitchValue = SWITCH_ENV;
+                break;
 
 			case SWITCH_ERROR:
 				
@@ -807,11 +748,8 @@ _cmd_arg::ProcessArgs()
 				break;
 
 
-			case SWITCH_SWITCH:
 			case SWITCH_CPP_CMD:
 			case SWITCH_CPP_OPT:
-			case SWITCH_CC_OPT:
-			case SWITCH_CC_CMD:
 
 				Status = ProcessOnetimeSwitch( SwitchValue, pThisArg );
 				break;
@@ -836,6 +774,18 @@ _cmd_arg::ProcessArgs()
 		SwitchDefined( SwitchValue );
 
 		}
+
+    if (!IsSwitchDefined(SWITCH_OSF))
+        {
+            SwitchDefined(SWITCH_C_EXT);
+            SwitchDefined(SWITCH_MS_EXT);
+        }
+
+    // if the user has asked for output to be redirected, redirect stdout
+    if (IsSwitchDefined(SWITCH_REDIRECT_OUTPUT))
+        {
+            freopen(pRedirectOutputSwitch->GetFileName(), "w", stdout);
+        }
 
 	// if he has not specified the input filename, report
 	// error, but only if the confirm switch is not specified. If it is,
@@ -1045,11 +995,8 @@ _cmd_arg::ProcessOnetimeSwitch(
 
 	switch( SwitchNo )
 		{
-		case SWITCH_SWITCH: ppSSwitch	= &pSwitchSwitch; break;
 		case SWITCH_CPP_CMD:ppSSwitch	= &pCppCmdSwitch; break;
 		case SWITCH_CPP_OPT:ppSSwitch	= &pCppOptSwitch; break;
-		case SWITCH_CC_OPT:ppSSwitch	= &pCCOptSwitch; break;
-		case SWITCH_CC_CMD:ppSSwitch	= &pCCCmdSwitch; break;
 		default: return STATUS_OK;
 		}
 
@@ -1174,16 +1121,26 @@ _cmd_arg::ProcessFilenameSwitch(
 
 	switch( SwitchNo )
 		{
-		case SWITCH_CAUX:	ppFNSwitch	= &pCauxSwitch; break;
 		case SWITCH_CSTUB:	ppFNSwitch	= &pCStubSwitch; break;
 		case SWITCH_HEADER:	ppFNSwitch	= &pHeaderSwitch; break;
-		case SWITCH_SAUX:	ppFNSwitch	= &pSauxSwitch; break;
 		case SWITCH_ACF:	ppFNSwitch	= &pAcfSwitch ; break;
 		case SWITCH_SSTUB:	ppFNSwitch	= &pSStubSwitch; break;
 		case SWITCH_OUT:	ppFNSwitch	= &pOutputPathSwitch; fCheck=FALSE; break;
         case SWITCH_IID: 	ppFNSwitch  = &pIIDSwitch; break;
         case SWITCH_PROXY:	ppFNSwitch  = &pProxySwitch; break;
+        case SWITCH_CLASS_METHODS:	ppFNSwitch  = &pServerFileSwitch; break;
+        case SWITCH_CLASS_HEADER:	ppFNSwitch  = &pServerHeaderFileSwitch; break;
+        case SWITCH_CLASS_IUNKNOWN:	ppFNSwitch  = &pServerUnkFileSwitch; break;
+        case SWITCH_PROXY_DEF:		ppFNSwitch  = &pProxyDefSwitch; break;
+        case SWITCH_DLL_SERVER_DEF:	ppFNSwitch  = &pDllServerDefSwitch; break;
+        case SWITCH_DLL_SERVER_CLASS_GEN:	ppFNSwitch  = &pDllClassGenSwitch; break;
+        case SWITCH_SERVER_REG:		ppFNSwitch  = &pServerRegSwitch; break;
+        case SWITCH_EXE_SERVER:		ppFNSwitch  = &pExeServerMainSwitch; break;
+        case SWITCH_EXE_SERVER_MAIN:		ppFNSwitch  = &pTestFileSwitch; break;
+        case SWITCH_TESTCLIENT:	ppFNSwitch  = &pTestFileSwitch; break;
         case SWITCH_DLLDATA:	ppFNSwitch  = &pDllDataSwitch; break;
+        case SWITCH_TLIB:       ppFNSwitch  = &pTlibSwitch; break;
+        case SWITCH_REDIRECT_OUTPUT: ppFNSwitch = &pRedirectOutputSwitch; break;
 		default: return STATUS_OK;
 		}
 
@@ -1251,9 +1208,10 @@ CMD_ARG::ProcessOrdinarySwitch(
 ----------------------------------------------------------------------------*/
 {
 	short		Temp;
+	char		cThisCh;
 	STATUS_T	Status	= STATUS_OK;
 
-	if( IsSwitchDefined( SWValue ) )
+	if( IsSwitchDefined( SWValue ) && (SWValue != SWITCH_O) )
 		{
 		RpcError( (char *)NULL,
 				  	0,
@@ -1264,6 +1222,8 @@ CMD_ARG::ProcessOrdinarySwitch(
 	switch( SWValue )
 		{
 		case SWITCH_PACK:
+			SwitchDefined( SWITCH_ZP );
+			// fall through
 		case SWITCH_ZP:
 
 			// Zp can take only 1, 2 , 4, 8 as input.
@@ -1293,82 +1253,95 @@ CMD_ARG::ProcessOrdinarySwitch(
 
 			break;
 
-		case SWITCH_OI:
+        case SWITCH_O:
+            {    
+                if ( ! *pThisArg )
+                    goto illarg;
 
-				fOptimSpeed = 0;
-				fOptimSize	= 0;
-				fOptimInterpreter = 1;
-				break;
+                if ( OptimFlags & 
+                     (OPTIMIZE_SIZE | OPTIMIZE_ANY_INTERPRETER) )
+                    RpcError( (char *)NULL,
+                                  0,
+                                  SWITCH_REDEFINED,
+                                SwitchStringForValue( SWValue ) );
 
-		case SWITCH_OT:
+                if ( strcmp( pThisArg, "s" ) == 0 )
+                    {
+                    SetOptimizationFlags( OPTIMIZE_SIZE );
+                    OptimLevel = OPT_LEVEL_OS_DEFAULT;
+                    }
+                else if ( strcmp( pThisArg, "i" ) == 0 )
+                    {
+                    SetOptimizationFlags( OPTIMIZE_INTERPRETER );
+                    OptimLevel = OPT_LEVEL_I0;
+                    }
+                else if ( strcmp( pThisArg, "ic" ) == 0 )
+                    {
+                    SetOptimizationFlags( OPTIMIZE_ALL_I1_FLAGS );
+                    OptimLevel = OPT_LEVEL_I1;
+                    }
+                else if ( strcmp( pThisArg, "i1" ) == 0 )
+                    {
+                    SetOptimizationFlags( OPTIMIZE_ALL_I1_FLAGS );
+                    OptimLevel = OPT_LEVEL_I1;
+                    RpcError( NULL, 0, CMD_OI1_PHASED_OUT, "Oi1");
+                    }
+                else if ( strcmp( pThisArg, "icf" ) == 0  ||
+                          strcmp( pThisArg, "if" ) == 0  )
+                    {
+                    SetOptimizationFlags( OPTIMIZE_ALL_I2_FLAGS );
+                    OptimLevel = OPT_LEVEL_I2;
+                    }
+                else if ( strcmp( pThisArg, "i2" ) == 0 )
+                    {
+                    SetOptimizationFlags( OPTIMIZE_ALL_I2_FLAGS );
+                    OptimLevel = OPT_LEVEL_I2;
+                    RpcError( NULL, 0, CMD_OI2_OBSOLETE, "Oi2");
+                    }
+#if defined(TARGET_RKK)
+                else if ( strcmp( pThisArg, "x" ) == 0 )
+                    {
+                    SetOptimizationFlags( OPTIMIZE_INTERPRETER_IX );
+                    OptimLevel = OPT_LEVEL_IX;
+                    }
+#endif
+                else
+                    goto illarg;
+                    
+             }
+			 break;
 
-				fOptimSpeed = 1;
-				fOptimSize	= 0;
-				fOptimInterpreter = 0;
-				break;
-
-		case SWITCH_OS:
-
-				fOptimSpeed = 0;
-				fOptimSize	= 1;
-				fOptimInterpreter = 0;
-				break;
-	
-#if 0
-		case SWITCH_CONST_INIT:
-			
-			if( SelectChoice( ConstInitChoice, pThisArg, &Temp ) != STATUS_OK )
-				goto illarg;
-			ConstInit = Temp;
-			break;
-#endif // 0
-
-		case SWITCH_TEMP_MODE:
-			
-			if( SelectChoice( ModeChoice, pThisArg, &Temp ) != STATUS_OK )
-				goto illarg;
-			TempMode = Temp;
-			break;
-
-		case SWITCH_IMPORT:
-
-			if( SelectChoice( ImportChoice, pThisArg, &Temp ) != STATUS_OK )
-				goto illarg;
-			ImportMode = Temp;
-			break;
-
-		case SWITCH_INCLUDE:
-
-			if( SelectChoice( IncludeChoice,pThisArg, &Temp ) != STATUS_OK )
-				goto illarg;
-			IncludeMode = Temp;
-			break;
+        case SWITCH_ODL_ENV:
+            pThisArg -= 2; // back up past the first three characters of the switch "win", "dos" or "mac"
+            SWValue = SWITCH_ENV; // to ensure that the right thing gets reported if an error occurs
+            // fall through to SWITCH_ENV
 
 		case SWITCH_ENV:
 			
 			if( SelectChoice( EnvChoice,pThisArg, &Temp ) != STATUS_OK )
 				goto illarg;
-			Env = Temp;
+			Env = (unsigned char) Temp;
 			break;
 
-		case SWITCH_RPCSS:
-
-			if( SelectChoice( RpcSSChoice,pThisArg, &Temp ) != STATUS_OK )
+#if defined(TARGET_RKK)
+		case SWITCH_TARGET_SYSTEM:
+			
+			if( SelectChoice( TargetChoice, pThisArg, &Temp ) != STATUS_OK )
 				goto illarg;
-
-			fRpcSSAllocateEnabled = Temp;
+			TargetSystem = (TARGET_ENUM) Temp;
 			break;
+#endif
 
 		case SWITCH_NO_WARN:
 			
 			WLevel = 0; // was WARN_LEVEL_MAX
 			break;
-			
+
+        case SWITCH_HOOKOLE:
 		case SWITCH_MIDLDEBUG:
 		case SWITCH_SYNTAX_CHECK:
 		case SWITCH_ZS:
 		case SWITCH_NO_CPP:
-		case SWITCH_HPP:
 		case SWITCH_SAVEPP:
 		case SWITCH_DUMP:
 		case SWITCH_OVERRIDE:
@@ -1377,10 +1350,10 @@ CMD_ARG::ProcessOrdinarySwitch(
 		case SWITCH_NO_DEFAULT_EPV:
 		case SWITCH_VERSION:
 		case SWITCH_CONFIRM:
+		case SWITCH_NOLOGO:
 		case SWITCH_HELP:
 		case SWITCH_WX:
 		case SWITCH_X:
-		case SWITCH_IMP_LOCAL:
 		case SWITCH_APP_CONFIG:
 		case SWITCH_MS_EXT:
 		case SWITCH_MS_UNION:
@@ -1389,16 +1362,34 @@ CMD_ARG::ProcessOrdinarySwitch(
 		case SWITCH_NO_FMT_OPT:
 		case SWITCH_GUARD_DEFS:
 		case SWITCH_C_EXT:
+        case SWITCH_OSF:
+        case SWITCH_MKTYPLIB:
+        case SWITCH_OLD_TLB:
+        case SWITCH_NEW_TLB:
 		case SWITCH_INTERNAL:
+		case SWITCH_NO_SERVER:
+		case SWITCH_NO_CLIENT:
+		case SWITCH_NO_HEADER:
+		case SWITCH_NO_IID:
+		case SWITCH_NO_DLLDATA:
+		case SWITCH_NO_PROXY:
+		case SWITCH_NO_CLASS_METHODS:
+		case SWITCH_NO_CLASS_IUNKNOWN:
+		case SWITCH_NO_CLASS_HEADER:
+		case SWITCH_NO_PROXY_DEF:
+		case SWITCH_NO_DLL_SERVER_DEF:
+		case SWITCH_NO_DLL_SERVER_CLASS_GEN:
+		case SWITCH_NO_SERVER_REG:
+		case SWITCH_NO_EXE_SERVER:
+		case SWITCH_NO_EXE_SERVER_MAIN:
+		case SWITCH_NO_TESTCLIENT:
+		case SWITCH_RPCSS:
 			
 			SwitchDefined( SWValue );
 			break;
 
-		case SWITCH_SWITCH:
 		case SWITCH_CPP_CMD:
 		case SWITCH_CPP_OPT:
-		case SWITCH_CC_OPT:
-		case SWITCH_CC_CMD:
 
 			ProcessOnetimeSwitch( SWValue, pThisArg );
 			break;
@@ -1407,41 +1398,22 @@ CMD_ARG::ProcessOrdinarySwitch(
 
 			if( SelectChoice( ClientChoice, pThisArg ,&Temp ) != STATUS_OK )
 				goto illarg;
-			fClient	= Temp;
+			fClient	= (unsigned char) Temp;
 			break;
 
 		case SWITCH_SERVER:
 
 			if( SelectChoice( ServerChoice, pThisArg ,&Temp ) != STATUS_OK )
 				goto illarg;
-			fServer	= Temp;
-			break;
-
-		case SWITCH_AUX:
-
-			if( SelectChoice( AuxChoice, pThisArg ,&Temp ) != STATUS_OK )
-				goto illarg;
-			fAux	= Temp;
+			fServer	= (unsigned char) Temp;
 			break;
 
 		case SWITCH_CHAR:
 
 			if( SelectChoice( CharChoice, pThisArg ,&Temp ) != STATUS_OK )
 				goto illarg;
-			CharOption	= Temp;
+			CharOption	= (unsigned char) Temp;
 			break;
-
-#if 0
-		case SWITCH_ERROR:
-
-			if( pThisArg )
-				{
-				if( SelectChoice( ErrorChoice, pThisArg ,&Temp ) != STATUS_OK )
-					goto illarg;
-				}
-			ErrorOption = Temp;
-			break;
-#endif // 0
 
 		default:
 
@@ -1613,33 +1585,6 @@ CMD_ARG::SetPostDefaults()
 		pSStubSwitch->TransformFileNameForOut( agDrive, agPath );
 
 
-	// if the caux switch is not set, set the default
-
-	if(!IsSwitchDefined( SWITCH_CAUX ) )
-		{
-		pCauxSwitch = new filename_switch( agDrive,
-											agPath,
-											agBaseName,
-											".c",
-											"_x" );
-		}
-	else
-		pCauxSwitch->TransformFileNameForOut( agDrive, agPath );
-
-
-	// if the saux switch is not set, set it
-
-	if(!IsSwitchDefined( SWITCH_SAUX ) )
-		{
-		pSauxSwitch = new filename_switch( agDrive,
-											agPath,
-											agBaseName,
-											".c",
-											"_y" );
-		}
-	else
-		pSauxSwitch->TransformFileNameForOut( agDrive, agPath );
-
 	// if the IID switch is not set, set it
     if(!IsSwitchDefined( SWITCH_IID ) )
         {
@@ -1663,6 +1608,137 @@ CMD_ARG::SetPostDefaults()
         }
     else
         pProxySwitch->TransformFileNameForOut( agDrive, agPath );
+
+	// if the Proxy def switch is not set, set it
+    if(!IsSwitchDefined( SWITCH_PROXY_DEF ) )
+        {
+        pProxyDefSwitch = new filename_switch( agDrive,
+                                            agPath,
+                                            "proxydef",
+                                            ".def",
+                                            "" );
+        }
+    else
+        pProxyDefSwitch->TransformFileNameForOut( agDrive, agPath );
+
+	// if the dll server def switch is not set, set it
+    if(!IsSwitchDefined( SWITCH_DLL_SERVER_DEF ) )
+        {
+        pDllServerDefSwitch = new filename_switch( agDrive,
+                                            agPath,
+                                            "dllsrvr",
+                                            ".def",
+                                            "" );
+        }
+    else
+        pDllServerDefSwitch->TransformFileNameForOut( agDrive, agPath );
+
+	// if the dll server main switch is not set, set it
+    if(!IsSwitchDefined( SWITCH_DLL_SERVER_CLASS_GEN ) )
+        {
+        pDllClassGenSwitch = new filename_switch( agDrive,
+                                            agPath,
+                                            agBaseName,
+                                            ".cxx",
+                                            "_g" );
+        }
+    else
+        pDllClassGenSwitch->TransformFileNameForOut( agDrive, agPath );
+
+	// if the com server reg file switch is not set, set it
+    if(!IsSwitchDefined( SWITCH_SERVER_REG ) )
+        {
+        pServerRegSwitch = new filename_switch( agDrive,
+                                            agPath,
+                                            agBaseName,
+                                            ".reg",
+                                            "" );
+        }
+    else
+        pServerRegSwitch->TransformFileNameForOut( agDrive, agPath );
+
+	// if the com exe server support file switch is not set, set it
+    if(!IsSwitchDefined( SWITCH_EXE_SERVER ) )
+        {
+        pExeServerSwitch = new filename_switch( agDrive,
+                                            agPath,
+                                            agBaseName,
+                                            ".cxx",
+                                            "_e" );
+        }
+    else
+        pExeServerSwitch->TransformFileNameForOut( agDrive, agPath );
+
+	// if the com exe server main file switch is not set, set it
+    if(!IsSwitchDefined( SWITCH_EXE_SERVER_MAIN ) )
+        {
+        pExeServerMainSwitch = new filename_switch( agDrive,
+                                            agPath,
+                                            agBaseName,
+                                            ".cxx",
+                                            "" );
+        }
+    else
+        pExeServerMainSwitch->TransformFileNameForOut( agDrive, agPath );
+
+	// if the test client switch is not set, set it
+    if(!IsSwitchDefined( SWITCH_TESTCLIENT ) )
+        {
+        pTestFileSwitch = new filename_switch( agDrive,
+                                            agPath,
+                                            agBaseName,
+                                            ".cxx",
+                                            "_t" );
+        }
+    else
+        pTestFileSwitch->TransformFileNameForOut( agDrive, agPath );
+
+    if (!IsSwitchDefined( SWITCH_TLIB ) )
+        {
+        pTlibSwitch = new filename_switch( agDrive,
+                                            agPath,
+                                            agBaseName,
+                                            ".tlb",
+                                            "" );
+        }
+    else
+        pTlibSwitch->TransformFileNameForOut(agDrive, agPath);
+
+	// if the com class methods switch is not set, set it
+    if(!IsSwitchDefined( SWITCH_CLASS_METHODS ) )
+        {
+        pServerFileSwitch = new filename_switch( agDrive,
+                                            agPath,
+                                            agBaseName,
+                                            ".cxx",
+                                            "_m" );
+        }
+    else
+        pServerFileSwitch->TransformFileNameForOut( agDrive, agPath );
+
+	// if the com class IUnknown switch is not set, set it
+    if(!IsSwitchDefined( SWITCH_CLASS_IUNKNOWN ) )
+        {
+        pServerUnkFileSwitch = new filename_switch( agDrive,
+                                            agPath,
+                                            agBaseName,
+                                            ".cxx",
+                                            "_u" );
+        }
+    else
+        pServerUnkFileSwitch->TransformFileNameForOut( agDrive, agPath );
+
+	// if the com class header switch is not set, set it
+    if(!IsSwitchDefined( SWITCH_CLASS_HEADER ) )
+        {
+        pServerHeaderFileSwitch = new filename_switch( agDrive,
+                                            agPath,
+                                            agBaseName,
+                                            ".h",
+                                            "_d" );
+        }
+    else
+        pServerHeaderFileSwitch->TransformFileNameForOut( agDrive, agPath );
 
 	// if the DllData switch is not set, set it
     if(!IsSwitchDefined( SWITCH_DLLDATA ) )
@@ -1700,25 +1776,11 @@ CMD_ARG::SetPostDefaults()
 	else
 		pHeaderSwitch->TransformFileNameForOut( agDrive, agPath );
 
-
-	// if the switch prefix has not been defined, set switch
-	// prefix as _
-
-	if( !IsSwitchDefined( SWITCH_SWITCH ) )
-		pSwitchSwitch = new onetime_switch( "_" );
-
 	// set up the cpp options.
 
 	if( !IsSwitchDefined( SWITCH_CPP_CMD ) )
 		{
-		pCppCmdSwitch = new onetime_switch( C_COMPILER_NAME() );
-		}
-
-	// set up the cc_cmd option
-
-	if( !IsSwitchDefined( SWITCH_CC_CMD ) )
-		{
-		pCCCmdSwitch = new onetime_switch( C_PREPROCESSOR_NAME() );
+		pCppCmdSwitch = new onetime_switch( C_PREPROCESSOR_NAME() );
 		}
 
 	// set up the cpp_opt and cc_opt. If he did not specify a cpp_opt
@@ -1801,7 +1863,7 @@ CMD_ARG::SetPostDefaults()
 
 	if( !IsSwitchDefined( SWITCH_CLIENT ) )
 		{
-		fClient	= CLNT_ALL;
+		fClient	= CLNT_STUB;
 		}
 
 	//
@@ -1812,19 +1874,15 @@ CMD_ARG::SetPostDefaults()
 
 	if( !IsSwitchDefined( SWITCH_SERVER ) )
 		{
-		if( (GetEnv() == ENV_DOS ) || (GetEnv() == ENV_WIN16) )
+		if( (GetEnv() == ENV_DOS ) ||
+            (GetEnv() == ENV_WIN16) ||
+            (GetEnv() == ENV_MAC)   ||
+            (GetEnv() == ENV_MPPC) )
 			{
 			fServer	= SRVR_NONE;
 			}
 		}
 
-
-	// if the aux switch is not defined, define it
-
-	if( !IsSwitchDefined( SWITCH_AUX ) )
-		{
-		fAux	= AUX_BOTH;
-		}
 
 	// if warnlevel and no_warn is defined, then errors
 
@@ -1846,13 +1904,6 @@ CMD_ARG::SetPostDefaults()
 		WLevel = 0;
 		}
 
-	// if the import mode is not defined, set default to MSFT
-
-	if( !IsSwitchDefined( SWITCH_IMPORT ) )
-		{
-		ImportMode = IMPORT_OSF;
-		}
-
 	// if the error switch is not defined, define it.
 
 	if( !IsSwitchDefined( SWITCH_ERROR ) )
@@ -1860,22 +1911,6 @@ CMD_ARG::SetPostDefaults()
 		ErrorOption = ERROR_NONE;
 		}
 
-
-	//////////////////////////////////////////////////////////////////////
-	// temp temp
-	//////////////////////////////////////////////////////////////////////
-
-	if( (GetTempMode() == TEMP_MODE_C_PORT )	||
-		IsSwitchDefined( SWITCH_HPP ) )
-		{
-		SwitchDefined( SWITCH_MS_EXT );
-		SwitchDefined( SWITCH_C_EXT );
-
-		if( !IsSwitchDefined( SWITCH_IMPORT ) )
-			{
-			ImportMode = IMPORT_MSFT;
-			}
-		}
 
 	/////////////////////////////////////////////////////////////////////
 
@@ -1891,8 +1926,9 @@ CMD_ARG::SetPostDefaults()
 				{
 				case ENV_DOS: ZeePee = 2; break;
 				case ENV_WIN16: ZeePee = 2; break;
+				case ENV_MAC:   ZeePee = 2; break;
+				case ENV_MPPC:  ZeePee = 2; break;
 				case ENV_WIN32: ZeePee = 8; break;
-				case ENV_OS2_1X: ZeePee = 4; break;
 				default: ZeePee = 8; break;
 				}
 			}
@@ -1909,6 +1945,75 @@ CMD_ARG::SetPostDefaults()
 			}
 		}
 
+    if ( IsSwitchDefined(SWITCH_OSF) && IsSwitchDefined(SWITCH_C_EXT)  ||
+         IsSwitchDefined(SWITCH_OSF) && IsSwitchDefined(SWITCH_MS_EXT) )
+        {
+        RpcError( NULL, 0, CONTRADICTORY_SWITCHES, "-osf vs. -ms_ext or -c_ext" );
+        }
+
+    if ( !IsSwitchDefined( SWITCH_O ) )
+        {
+        OptimFlags = OPTIMIZE_SIZE;
+        OptimLevel = OPT_LEVEL_OS_DEFAULT;
+        }
+
+    if ( IsSwitchDefined( SWITCH_HOOKOLE )  &&  OptimLevel != OPT_LEVEL_I2 )
+        RpcError( NULL, 0, CMD_REQUIRES_I2, "hookole" );
+    
+
+    // Check if the target system is consistent with other switches.
+
+#if defined(TARGET_RKK)
+    if ( TargetSystem < NT40  &&  IsSwitchDefined( SWITCH_HOOKOLE ) )
+        RpcError( NULL, 0, CMD_REQUIRES_NT40, "hookole" );
+
+    if ( TargetSystem < NT40  &&  OptimLevel == OPT_LEVEL_I2 )
+        RpcError( NULL, 0, CMD_REQUIRES_NT40, "Oi2" );
+
+    if ( TargetSystem < NT351  &&  OptimLevel == OPT_LEVEL_I1 )
+        RpcError( NULL, 0, CMD_REQUIRES_NT351, "Oi1" );
+
+    if( OptimLevel == OPT_LEVEL_OS_DEFAULT )
+        {
+        switch ( TargetSystem )
+            {
+            case NT35:
+                OptimLevel = OPT_LEVEL_S0;
+                break;
+
+            case NT351:
+                OptimLevel = OPT_LEVEL_S1;
+                break;
+
+            case NT40:
+                OptimLevel = OPT_LEVEL_S2;
+                break;
+            }
+        
+        }
+    else if( OptimLevel == OPT_LEVEL_IX )
+        {
+        switch ( TargetSystem )
+            {
+            case NT35:
+                OptimLevel = OPT_LEVEL_I0;
+                AddOptimizationFlags( OPTIMIZE_INTERPRETER );
+                break;
+
+            case NT351:
+                OptimLevel = OPT_LEVEL_I1;
+                AddOptimizationFlags( OPTIMIZE_ALL_I1_FLAGS );
+                break;
+
+            case NT40:
+                OptimLevel = OPT_LEVEL_I2;
+                AddOptimizationFlags( OPTIMIZE_ALL_I2_FLAGS );
+                break;
+            }
+        }
+#endif // Target
+
+
 	// If the -no_default_epv switch is specified then -epv switch is auto
 	// enabled.
 
@@ -1918,7 +2023,7 @@ CMD_ARG::SetPostDefaults()
 	// if he specified all, set them all
 	if ( IsSwitchDefined( SWITCH_PREFIX ) )
 		{
-		char *	pAll	= pSwitchPrefix->GetUserDefinedEquivalent( PREFIX_ALL );
+		char *	pAll = pSwitchPrefix->GetUserDefinedEquivalent( PREFIX_ALL );
 		if ( pAll )
 			{
 			for ( short j = 0; j < PREFIX_ALL; j++ )
@@ -1928,6 +2033,8 @@ CMD_ARG::SetPostDefaults()
 				}
 			}
 		}
+
+    SetModeSwitchConfigMask();
 
 	return STATUS_OK;
 	}
@@ -1958,82 +2065,6 @@ CMD_ARG::SwitchDefined(
 	switch_def_vector[ sw / 32 ] |=
 			(ulong)( (ulong)0x1 << (ulong)( (ulong)sw % 32 ) );
 	}
-
-BOOL
-CMD_ARG::IsSwitchDefined(
-	short SWNo
-	)
-/*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
- Routine Description:
-
-	return the definition status of the switch in question.
-
- Arguments:
-
-	SWNo	-	switch number.
-
- Return Value:
-
-	TRUE	-	if switch is defined,
-	FALSE	-	if switch is not defined.
-
- Notes:
-
-----------------------------------------------------------------------------*/
-	{
-	unsigned	long	sw		= switch_def_vector[ SWNo / 32 ];
-	unsigned	long	temp	= SWNo % 32;
-
-	sw = sw & ( (unsigned long)1 << temp );
-	return sw ? (BOOL)1 : (BOOL)0;
-	}
-
-char *
-CMD_ARG::GetInputFileName()
-/*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
- Routine Description:
-	
-	Get input file name.
-
- Arguments:
-
-	None.
-
- Return Value:
-
-	pointer to the input filename.
-
- Notes:
-
-----------------------------------------------------------------------------*/
-{
-	return pInputFNSwitch->GetFileName();
-}
-
-char *
-CMD_ARG::GetAcfFileName()
-/*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
- Routine Description:
-	
-	Get the acf filename.
-
- Arguments:
-
-	None.
-
- Return Value:
-
-	pointer to the acf filename.
-
- Notes:
-
-----------------------------------------------------------------------------*/
-{
-	return pAcfSwitch->GetFileName();
-}
 
 char *
 CMD_ARG::GetOutputPath()
@@ -2076,271 +2107,6 @@ CMD_ARG::GetOutputPath()
 		pOutputPathSwitch->SetFileName( pOut );
 		}
 	return pOut;
-}
-
-char *
-CMD_ARG::GetCstubFName()
-/*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
- Routine Description:
-
-	get c stub filename.
-
-
- Arguments:
-
-	none.
-
- Return Value:
-
-	pointer to client stub filename.
-
- Notes:
-
-----------------------------------------------------------------------------*/
-{
-	short	fTemp = GetClientSwitchValue();
-
-	// if he specified the client switch with "stub" or "all" options
-	// then he gets the filename, else a null ( backend requirement ).
-
-	return	((fTemp == CLNT_ALL) || (fTemp == CLNT_STUB)) ?
-				pCStubSwitch->GetFileName()					  :
-				(char *)NULL;
-}
-
-char *
-CMD_ARG::GetSstubFName()
-/*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
- Routine Description:
-
-	get s stub filename.
-
- Arguments:
-
-	none.
-
- Return Value:
-
-	pointer to server stub filename.
-
- Notes:
-
-----------------------------------------------------------------------------*/
-{
-	short	fTemp = GetServerSwitchValue();
-
-	// if he specified the server switch with "stub" or "all" options
-	// then he gets the filename, else a null ( backend requirement ).
-
-	return	((fTemp == SRVR_ALL) || (fTemp == SRVR_STUB)) ?
-				pSStubSwitch->GetFileName()					  :
-				(char *)NULL;
-}
-
-char *
-CMD_ARG::GetHeader()
-/*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
- Routine Description:
-
-	get header file name.
-
-
- Arguments:
-
-	None.
-
- Return Value:
-
-	pointer to header file name.
-
- Notes:
-
-----------------------------------------------------------------------------*/
-{
-	return pHeaderSwitch->GetFileName();
-}
-
-char *
-CMD_ARG::GetCauxFName()
-/*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
- Routine Description:
-
-	get c aux filename.
-
- Arguments:
-
-	none.
-
- Return Value:
-
-	pointer to client aux filename.
-
- Notes:
-
-----------------------------------------------------------------------------*/
-{
-	short	fTemp = GetClientSwitchValue();
-
-	// if he specified the client switch with "stub" or "all" options
-	// then he gets the filename, else a null ( backend requirement ).
-
-	return	((fTemp == CLNT_ALL) || (fTemp == CLNT_AUX)) ?
-					pCauxSwitch->GetFileName()				 :
-					(char *)NULL;
-}
-
-
-char *
-CMD_ARG::GetSauxFName()
-/*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
- Routine Description:
-
-	get s aux filename.
-
-
- Arguments:
-
-	none.
-
- Return Value:
-
-	pointer to server aux filename.
-
- Notes:
-
-----------------------------------------------------------------------------*/
-{
-	short	fTemp = GetServerSwitchValue();
-
-	// if he specified the server switch with "stub" or "all" options
-	// then he gets the filename, else a null ( backend requirement ).
-
-	return	((fTemp == SRVR_ALL) || (fTemp == SRVR_AUX)) ?
-					pSauxSwitch->GetFileName()				 :
-					(char *)NULL;
-}
-
-char *
-CMD_ARG::GetIIDFName()
-/*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
- Routine Description:
-
-    get IID filename.
-
-
- Arguments:
-
-    none.
-
- Return Value:
-
-    pointer to IID filename.
-
- Notes:
-
-----------------------------------------------------------------------------*/
-{
-    return  pIIDSwitch->GetFileName();
-}
-
-char *
-CMD_ARG::GetProxyFName()
-/*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
- Routine Description:
-
-    get proxy filename.
-
-
- Arguments:
-
-    none.
-
- Return Value:
-
-    pointer to proxy filename.
-
- Notes:
-
-----------------------------------------------------------------------------*/
-{
-    return  pProxySwitch->GetFileName();
-}
-
-char *
-CMD_ARG::GetDllDataFName()
-/*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
- Routine Description:
-
-    get dlldata filename.
-
-
- Arguments:
-
-    none.
-
- Return Value:
-
-    pointer to dlldata filename.
-
- Notes:
-
-----------------------------------------------------------------------------*/
-{
-    return  pDllDataSwitch->GetFileName();
-}
-
-char *
-CMD_ARG::GetCCCmd()
-/*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
- Routine Description:
-
-	get cc command line.
-
- Arguments:
-
-	none.
-
- Return Value:
-
-	pointer to cc_cmd option.
-
- Notes:
-
-----------------------------------------------------------------------------*/
-{
-	return pCCCmdSwitch->GetOption();
-}
-
-char *
-CMD_ARG::GetCCOpt()
-/*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
- Routine Description:
-
-	get cc options.
-
- Arguments:
-
-	none.
-
- Return Value:
-
-	pointer to cc options.
-
- Notes:
-
-----------------------------------------------------------------------------*/
-{
-	return pCCOptSwitch->GetOption();
 }
 
 char *
@@ -2474,7 +2240,7 @@ ReportUnimplementedSwitch(
 
 STATUS_T
 SelectChoice(
-	CHOICE	*	pCh,
+	const CHOICE	*	pCh,
 	char	*	pUserInput,
 	short	*	pChoice)
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -2503,7 +2269,7 @@ SelectChoice(
 
 	char	*	pChStr;
 
-	while( pCh &&  (pChStr = pCh->pChoice) )
+	while( pCh &&  (pChStr = (char *) pCh->pChoice) )
 		{
 		if( strcmp( pChStr, pUserInput ) == 0 )
 			{
@@ -2547,13 +2313,13 @@ SearchForSwitch(
 	short				Len , LenArg,  iIndex = 0;
 	BOOL				fLengthIsOk;
 	char			*	pSrc;
-	struct sw_desc	*	pSwDesc	= &switch_desc[0];
+	struct sw_desc	*	pSwDesc	= (struct sw_desc*) &switch_desc[0];
 
 	LenArg	= strlen( *ppArg );
 
 	while( iIndex < (sizeof(switch_desc) / sizeof( struct sw_desc ) ) )
 		{
-		pSrc		= pSwDesc->pSwitchName;
+		pSrc		= (char *) pSwDesc->pSwitchName;
 		Len			= strlen( pSrc );
 		fLengthIsOk	=
 			((pSwDesc->flag & ARG_SPACE_OPTIONAL) || (Len==LenArg));
@@ -2594,13 +2360,13 @@ SwitchStringForValue(
 	{
 #define SWITCH_DESC_SIZE (sizeof(switch_desc) / sizeof(struct sw_desc))
 	short				cCount = 0;
-	struct sw_desc	*	pDesc = switch_desc,
-					*	pDescEnd =	&switch_desc[0] + SWITCH_DESC_SIZE;
+	struct sw_desc	*	pDesc = (struct sw_desc*) &switch_desc[0],
+					*	pDescEnd =	(struct sw_desc*) &switch_desc[0] + SWITCH_DESC_SIZE;
 
 	while( pDesc < pDescEnd )
 		{
 		if( pDesc->SwitchValue == (enum _swenum ) SWValue)
-			return pDesc->pSwitchName;
+			return (char *) pDesc->pSwitchName;
 		pDesc++;
 		}
 	return "";
@@ -3247,8 +3013,8 @@ onetime_switch::GetLength()
 	return (short)strlen( pOpt );
 }
 
-pair_switch::pair_switch( 
-	CHOICE * pValidChoices )
+pair_switch::pair_switch(
+	const CHOICE * pValidChoices )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
  Routine Description:
@@ -3269,17 +3035,19 @@ pair_switch::pair_switch(
 
 ----------------------------------------------------------------------------*/
 {
-	short	MaxIndex	= 0;
+	short		MaxIndex	= 0;
+	CHOICE *	pCurChoice	= (CHOICE *) pValidChoices;
 
 	typedef char	*	PSTR;
-	pArrayOfChoices = pValidChoices;
+
+	pArrayOfChoices = pCurChoice;
 
 	// find the size of the pair array
-	while ( pValidChoices->pChoice )
+	while ( pCurChoice->pChoice )
 		{
-		if ( pValidChoices->Choice > MaxIndex )
-			MaxIndex = pValidChoices->Choice;
-		pValidChoices++;
+		if ( pCurChoice->Choice > MaxIndex )
+			MaxIndex = pCurChoice->Choice;
+		pCurChoice++;
 		}
 
 	ArraySize = MaxIndex + 1;
@@ -3474,7 +3242,7 @@ pair_switch::GetIndex(
 	int			i;
 	char	*	p;
 
-	for( i = 0; p = pArrayOfChoices[ i ].pChoice; ++i )
+	for( i = 0; p = (char *)pArrayOfChoices[ i ].pChoice; ++i )
 		{
 		if( strcmp( p, pGivenString ) == 0 )
 			return pArrayOfChoices[ i ].Choice;
@@ -3482,7 +3250,7 @@ pair_switch::GetIndex(
 	return -1;
 }
 
-BOOL            
+BOOL
 CMD_ARG::IsPrefixDifferentForStubs()
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
@@ -3511,11 +3279,11 @@ CMD_ARG::IsPrefixDifferentForStubs()
 	pSPrefix = GetUserPrefix( PREFIX_SERVER_MGR );
 	pSwPrefix = GetUserPrefix( PREFIX_SWICH_PROTOTYPE );
 
-	if ( !pCPrefix ) 
+	if ( !pCPrefix )
 		pCPrefix = "";
-	if ( !pSPrefix ) 
+	if ( !pSPrefix )
 		pSPrefix = "";
-	if ( !pSwPrefix ) 
+	if ( !pSwPrefix )
 		pSwPrefix = "";
 
 	return (BOOL) strcmp( pCPrefix, pSPrefix ) ||
@@ -3560,11 +3328,35 @@ pair_switch::GetNext( char ** pSys, char ** pUser )
 		{
 		if ( pArrayOfChoices[i].Choice = Current )
 			{
-			*pSys = pArrayOfChoices[i].pChoice;
+			*pSys = (char *)pArrayOfChoices[i].pChoice;
 			return TRUE;
 			}
 		}
 	return FALSE;
+}
+
+inline
+char *
+YesOrNoString( BOOL Yes )
+/*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+ Routine Description:
+
+ return "Yes" for true, "No" for false
+
+ Arguments:
+
+	None.
+
+ Return Value:
+
+	None.
+
+ Notes:
+
+----------------------------------------------------------------------------*/
+{
+	return Yes ? "Yes" : "No";
 }
 
 void
@@ -3595,38 +3387,21 @@ _cmd_arg::Confirm()
 	if( IsSwitchDefined( SWITCH_ACF ) )
 		PrintArg( SWITCH_ACF , GetAcfFileName(), 0);
 
-#if 0
-	PrintArg( SWITCH_CONST_INIT, IsConstInitOsf() ? "osf" : "ms_c" , 0 );
-#endif // 0
-
 	PrintArg( SWITCH_APP_CONFIG,
-			  IsSwitchDefined( SWITCH_APP_CONFIG) ?	"Yes" : "No", 0);
+			  YesOrNoString(IsSwitchDefined( SWITCH_APP_CONFIG)), 0);
 
 	PrintArg( SWITCH_C_EXT,
-			  IsSwitchDefined( SWITCH_C_EXT) ?	"Yes" : "No", 0);
-
-	if( p = GetCauxFName() )
-		PrintArg( SWITCH_CAUX , p , 0);
-
-	if( IsSwitchDefined( SWITCH_CC_CMD ) )
-		PrintArg( SWITCH_CC_CMD, GetCCCmd() , 0);
-
-	if( IsSwitchDefined( SWITCH_CC_OPT ) )
-		PrintArg( SWITCH_CC_CMD, GetCCOpt(), 0 );
+			  YesOrNoString(IsSwitchDefined( SWITCH_C_EXT)), 0);
 
 	Option	= GetClientSwitchValue();
 	PrintArg( SWITCH_CLIENT,
-			  (Option == CLNT_STUB) ? "stub" :
-			  (Option == CLNT_AUX)  ? "aux"  :
-			  (Option == CLNT_NONE) ? "none"  : "all" , 0);
-
-	Option	= GetClientEnv();
+			  (Option == CLNT_STUB) ? "stub" : "none", 0);
 
 	Option = GetCharOption();
 
 	PrintArg( SWITCH_CHAR, (Option == CHAR_SIGNED ) ? "signed" :
 						   (Option == CHAR_UNSIGNED ) ? "unsigned" : "ascii7",0);
-						   
+						
 	if( IsSwitchDefined(SWITCH_CONFIRM) )
 		PrintArg( SWITCH_CONFIRM, "Yes" , 0);
 
@@ -3642,20 +3417,24 @@ _cmd_arg::Confirm()
 
 	Option	= GetEnv();
 	PrintArg( SWITCH_ENV,
-			  (Option == ENV_GENERIC)	? "generic" :
 			  (Option == ENV_DOS)		? "dos" :
 			  (Option == ENV_WIN16)		? "win16" :
-			  (Option == ENV_WIN32)		? "win32" : "os2_1x" , 0 );
+			  (Option == ENV_MAC)		? "mac" :
+			  (Option == ENV_MPPC)		? "powermac" : "win32", 0 );
 
 	Option	= GetErrorOption();
 
 	Option = IsRpcSSAllocateEnabled();
 
-	PrintArg( SWITCH_RPCSS, (Option == RPC_SS_ALLOCATE_ENABLED) ? "enabled" : "disabled", 0 );
+	PrintArg( SWITCH_RPCSS,
+			  YesOrNoString(IsSwitchDefined( SWITCH_RPCSS)), 0);
 
-	PrintArg( SWITCH_USE_EPV, IsSwitchDefined( SWITCH_USE_EPV ) ? "Yes" : "No", 0 );
+	PrintArg( SWITCH_HOOKOLE,
+			  YesOrNoString(IsSwitchDefined( SWITCH_HOOKOLE)), 0);
 
-	PrintArg( SWITCH_NO_DEFAULT_EPV, IsSwitchDefined( SWITCH_NO_DEFAULT_EPV ) ? "Yes" : "No", 0 );
+	PrintArg( SWITCH_USE_EPV, YesOrNoString(IsSwitchDefined( SWITCH_USE_EPV )), 0);
+
+	PrintArg( SWITCH_NO_DEFAULT_EPV, YesOrNoString(IsSwitchDefined( SWITCH_NO_DEFAULT_EPV )), 0);
 
 	//
 	// error options.
@@ -3674,6 +3453,8 @@ _cmd_arg::Confirm()
 			strcat( Buffer, "bounds_check ");
 		if( ErrorOption & ERROR_ENUM )
 			strcat( Buffer, "enum ");
+		if( ErrorOption & ERROR_STUB_DATA )
+			strcat( Buffer, "stub_data ");
 		}
 	else
 		strcat( Buffer, "none" );
@@ -3687,29 +3468,30 @@ _cmd_arg::Confirm()
 	if( IsSwitchDefined( SWITCH_I ) )
 		PrintArg( SWITCH_I, pISwitch->GetConsolidatedOptions(), 0 );
 
-	Option	= GetImportMode();
-	PrintArg( SWITCH_IMPORT,
-			  (Option == IMPORT_OSF) ? "defined_single" :
-			  (Option == IMPORT_MSFT)? "used_single": "used_multiple" , 0);
-
+	PrintArg( SWITCH_NOLOGO,
+			  YesOrNoString(IsSwitchDefined( SWITCH_NOLOGO)), 0);
 
 	PrintArg( SWITCH_MS_EXT,
-			  IsSwitchDefined( SWITCH_MS_EXT) ?	"Yes" : "No", 0);
+			  YesOrNoString(IsSwitchDefined( SWITCH_MS_EXT)), 0);
 
 	PrintArg( SWITCH_MS_UNION,
-			  IsSwitchDefined( SWITCH_MS_UNION) ?	"Yes" : "No", 0);
+			  YesOrNoString(IsSwitchDefined( SWITCH_MS_UNION)), 0);
 
+#ifdef MIDL_INTERNAL
 	PrintArg( SWITCH_IDLBASE,
-			  IsSwitchDefined( SWITCH_IDLBASE) ?	"Yes" : "No", 0);
+			  YesOrNoString(IsSwitchDefined( SWITCH_IDLBASE)), 0);
+#endif
 
 	PrintArg( SWITCH_NO_FMT_OPT,
-			  IsSwitchDefined( SWITCH_NO_FMT_OPT) ?	"Yes" : "No", 0);
+			  YesOrNoString(IsSwitchDefined( SWITCH_NO_FMT_OPT)), 0);
 
+#ifdef MIDL_INTERNAL
 	PrintArg( SWITCH_GUARD_DEFS,
-			  IsSwitchDefined( SWITCH_GUARD_DEFS) ?	"Yes" : "No", 0);
+			  YesOrNoString(IsSwitchDefined( SWITCH_GUARD_DEFS)), 0);
+#endif
 
 	PrintArg( SWITCH_OLDNAMES,
-			  IsSwitchDefined( SWITCH_OLDNAMES) ?	"Yes" : "No", 0);
+			  YesOrNoString(IsSwitchDefined( SWITCH_OLDNAMES)), 0);
 
 
 	if( IsSwitchDefined( SWITCH_NO_CPP ) )
@@ -3759,36 +3541,25 @@ _cmd_arg::Confirm()
 			}
 		}
 
-	if( p = GetSauxFName() )
-		PrintArg( SWITCH_SAUX , p, 0);
-
 	Option	= GetServerSwitchValue();
 
 	PrintArg( SWITCH_SERVER,
-			  (Option == SRVR_STUB) ? "stub" :
-			  (Option == SRVR_AUX)  ? "aux"  :
-			  (Option == SRVR_NONE) ? "none"  : "all", 0 );
+			  (Option == SRVR_STUB) ? "stub" : "none" , 0 );
 
 	if( p = GetSstubFName() )
 		PrintArg( SWITCH_SSTUB, p , 0);
 
-	if( IsSwitchDefined( SWITCH_SWITCH ) )
-		PrintArg( SWITCH_SWITCH, pSwitchSwitch->GetOption(), 0 );
-	
 	if( IsSwitchDefined( SWITCH_SYNTAX_CHECK ) )
 		PrintArg( SWITCH_SYNTAX_CHECK, "Yes", 0 );
 
 	if( IsSwitchDefined( SWITCH_U ) )
 		PrintArg( SWITCH_U, pUSwitch->GetConsolidatedOptions(), 0 );
 
-	if( IsSwitchDefined( SWITCH_OI ) )
-		PrintArg( SWITCH_OI, "interpreter", 0 );
-
-	if( IsSwitchDefined( SWITCH_OS ) )
-		PrintArg( SWITCH_OI, "size", 0 );
-
-	if( IsSwitchDefined( SWITCH_OT ) )
-		PrintArg( SWITCH_OI, "speed", 0 );
+    PrintArg( SWITCH_O,
+			  GetOptimizationFlags() == OPTIMIZE_SIZE
+                                     ?  "inline stubs"
+                                     :  "interpreted stubs",
+				  0 );
 
 	Option	= GetWarningLevel();
 	PrintArg( SWITCH_W,
@@ -3813,6 +3584,163 @@ _cmd_arg::Confirm()
 		PrintArg( SWITCH_ZS, "Yes", 0 );
 
 	fprintf(stdout, "\n" );
+}
+
+
+const char *
+GetOptimLevelName( _opt_level_enum Level )
+{
+
+const char * OptimLevelNames[] =
+	{
+	"s",  // s0
+	"s",  // s1
+	"s",  // s2
+	"i0",
+	"i1",
+	"i2",
+	"ix"
+	};
+
+    if ( OPT_LEVEL_S0 <= Level  &&
+                         Level < sizeof(OptimLevelNames)/sizeof(char*) )
+        return OptimLevelNames[ Level ];
+    else
+        return "??" ;
+}
+
+void
+_cmd_arg::EmitConfirm(
+    ISTREAM * pStream )
+/*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+ Routine Description:
+
+    Emit confirm the arguments by dumping onto a stream in a more concise
+    format.
+
+ Arguments:
+
+	pStream - the stream to dump it to.
+
+ Return Value:
+
+	None.
+
+----------------------------------------------------------------------------*/
+{
+	short			Option;
+	char		    *pEnvName, *pOptFlagName;
+	char			Buffer[100];
+
+    pStream->Write( "/* Compiler settings for " );
+	pStream->Write( GetInputFileName() );
+    if ( IsSwitchDefined( SWITCH_ACF ) )
+        {
+        pStream->Write( ", " );
+        pStream->Write( GetAcfFileName() );
+        }
+	pStream->Write( ":" );
+    pStream->NewLine();
+
+    pOptFlagName = "Os";
+    if( GetOptimizationFlags() & OPTIMIZE_INTERPRETER )
+        {
+        if( OptimFlags & OPTIMIZE_INTERPRETER_IX )
+            pOptFlagName= "Ox";
+        else if( GetOptimizationFlags() & OPTIMIZE_INTERPRETER_V2 )
+            pOptFlagName= "Oicf";
+        else if( GetOptimizationFlags() & OPTIMIZE_STUBLESS_CLIENT )
+            pOptFlagName= "Oic";
+        else
+            pOptFlagName= "Oi";
+        }
+
+    pEnvName = (GetEnv() == ENV_DOS)   ? "Dos"    :
+               (GetEnv() == ENV_WIN16) ? "Win16"  :
+               (GetEnv() == ENV_MAC)   ? "Mac"    :
+               (GetEnv() == ENV_MPPC)  ? "PowerMac"    : "Win32";
+
+    sprintf( Buffer, "    %s (OptLev=%s), W%d, Zp%d, env=%s",
+             pOptFlagName,
+             GetOptimLevelName( OptimLevel ),
+             GetWarningLevel(),
+             GetZeePee(),
+             pEnvName );
+    pStream->Write( Buffer );
+
+    if ( IsSwitchDefined( SWITCH_MS_EXT))
+        pStream->Write( ", ms_ext" );
+    if ( IsSwitchDefined( SWITCH_APP_CONFIG))
+        pStream->Write( ", app_config" );
+    if ( IsSwitchDefined( SWITCH_C_EXT))
+        pStream->Write( ", c_ext" );
+    if ( IsSwitchDefined( SWITCH_MS_UNION))
+        pStream->Write( ", ms_union" );
+    if ( IsSwitchDefined( SWITCH_OLDNAMES))
+        pStream->Write( ", oldnames" );
+
+    pStream->NewLine();
+
+    strcpy( Buffer, "    error checks: " );
+    Option = GetErrorOption();
+    if( Option != ERROR_NONE )
+        {
+        if( Option & ERROR_ALLOCATION )
+            strcat( Buffer, "allocation ");
+        if( Option & ERROR_REF )
+            strcat( Buffer, "ref ");
+        if( Option & ERROR_BOUNDS_CHECK )
+            strcat( Buffer, "bounds_check ");
+        if( Option & ERROR_ENUM )
+            strcat( Buffer, "enum ");
+        if( Option & ERROR_STUB_DATA )
+            strcat( Buffer, "stub_data ");
+        }
+    else
+        strcat( Buffer, "none" );
+    pStream->Write( Buffer );
+
+    if ( IsSwitchDefined( SWITCH_NO_FMT_OPT))
+        pStream->Write( ", no_format_optimization" );
+    if ( IsSwitchDefined( SWITCH_RPCSS))
+        pStream->Write( ", memory management on" );
+    if ( IsSwitchDefined( SWITCH_HOOKOLE))
+        pStream->Write( ", HookOle" );
+    if ( IsSwitchDefined( SWITCH_USE_EPV))
+        pStream->Write( ", use_epv" );
+    if ( IsSwitchDefined( SWITCH_NO_DEFAULT_EPV))
+        pStream->Write( ", no_default_epv" );
+
+    pStream->NewLine();
+
+#if defined(TARGET_RKK)
+    switch ( TargetSystem )
+        {
+        case NT35:
+            pTarget = "NT 3.5";
+            break;
+        case NT351:
+            pTarget = "NT 3.51 and Win95";
+            break;
+        case NT40:
+            pTarget = "NT 4.0";
+            break;
+        default:
+            pTarget = "NT ???";
+        }
+
+    pStream->Write( "    Release: this stub is compatible with " );
+    pStream->Write( pTarget );
+    pStream->Write( " release" );
+    pStream->NewLine();
+    pStream->Write( "             or a later version of MIDL and RPC" );
+    pStream->NewLine();
+#endif
+
+    pStream->Write( "*/" );
+    pStream->NewLine();
+
 }
 
 STATUS_T
@@ -3846,20 +3774,6 @@ _cmd_arg::Help()
 		}
 
 	return STATUS_OK;
-	}
-
-// This routine calculates an index into a bit array of combinations of the
-// ms_ext/imp_local/app_config switches.
-
-unsigned short
-_cmd_arg::GetModeSwitchConfigIndex()
-	{
-	unsigned short M = (unsigned short) IsSwitchDefined(SWITCH_MS_EXT)    ?1:0;
-	unsigned short C = (unsigned short) IsSwitchDefined(SWITCH_C_EXT)	  ?1:0;
-	unsigned short A = (unsigned short) IsSwitchDefined(SWITCH_APP_CONFIG)?1:0;
-
-	return A * 4 + C * 2 + M;
-
 	}
 
 void

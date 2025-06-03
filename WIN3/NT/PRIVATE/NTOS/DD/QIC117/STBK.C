@@ -317,6 +317,16 @@ Return Value:
     TheVolumeTable->DirectorySize =
         (ULONG)Context->CurrentOperation.CurrentSegment++;
 
+    //
+    // Calculate the maximum number of marks (based on (the number of
+    // actual bytes in the segment - count dword) / size of a mark entry)
+    // NOTE: This value is only useful, and valid, for a backup.
+    //
+    Context->MarkArray.MaxMarks = (q117GoodDataBytes(
+            (SEGMENT)Context->ActiveVolume.DirectorySize, Context ) - sizeof(ULONG))
+            / sizeof(struct _MARKLIST);
+
+
 #endif
 
     //

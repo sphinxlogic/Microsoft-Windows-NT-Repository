@@ -5,6 +5,10 @@
 #ifndef _HRESOURCE_
 #define _HRESOURCE_
 
+#ifdef __cplusplus
+extern "C"{
+#endif
+
 #include "helpid.h"
 
 // +------------------------------------------------------------------------+
@@ -28,10 +32,13 @@
 #define IDC_LIST1                       1011
 #define IDC_TRIAL                       1012
 #define IDC_USERINF                     1013
-#define IDC_HELP                        1014
-#define IDC_ADD                         1015
-#define IDC_DELETE                      1016
-#define IDC_FILEINF                     1017
+#define IDC_ADD                         1014
+#define IDC_DELETE                      1015
+#define IDC_FILEINF                     1016
+
+#ifndef IDHELP
+#define IDHELP                          1017
+#endif // IDHELP
 
 // Common Advanced>> button
 #define IDC_ADVANCED                    1018
@@ -64,6 +71,8 @@
 #define IDC_CHKMAPPING                  1039
 #define IDC_MAPPINGFILE                 1040
 #define IDC_BTNMAPPINGFILE              1041
+#define IDC_BTNMAPPINGEDIT              1042
+#define IDC_CHKFPNW                     1043
 
 // These must be contiguous...
 #define IDC_RADIO1                      1045
@@ -203,6 +212,11 @@
 
 // +------------------------------------------------------------------------+
 // +------------------------------------------------------------------------+
+#define IDC_USERS                       1390
+#define IDC_GROUPS                      1391
+
+// +------------------------------------------------------------------------+
+// +------------------------------------------------------------------------+
 #define IDC_DLGMAIN                     1999
 #define IDC_STATIC                      -1
 
@@ -223,5 +237,9 @@
 
 #define IDM_ADDSEL                      2000
 #define IDC_SIZEHORZ                    500
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

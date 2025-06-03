@@ -1069,17 +1069,17 @@ Return Value:
         } else {
 
             if ((Information->DataLength >= 10) &&
-                    (RtlCompareMemory (StrLarge, InformationData, 10) == 10)) {
+                    (RtlEqualMemory (StrLarge, InformationData, 10))) {
 
                 SizeToReturn = 3;
 
             } else if ((Information->DataLength >= 12) &&
-                    (RtlCompareMemory (StrMedium, InformationData, 12) == 12)) {
+                    (RtlEqualMemory (StrMedium, InformationData, 12))) {
 
                 SizeToReturn = 2;
 
             } else if ((Information->DataLength >= 10) &&
-                    (RtlCompareMemory (StrSmall, InformationData, 10) == 10)) {
+                    (RtlEqualMemory (StrSmall, InformationData, 10))) {
 
                 SizeToReturn = 1;
 

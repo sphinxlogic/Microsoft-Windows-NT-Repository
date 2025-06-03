@@ -47,6 +47,10 @@ Revision History:
 #ifndef _NPAPI_INCLUDED
 #define _NPAPI_INCLUDED
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 //
 //  CONNECTIONS
 //
@@ -69,8 +73,8 @@ DWORD APIENTRY
 NPAddConnection3 (
     HWND            hwndOwner,
     LPNETRESOURCEW  lpNetResource,
-    LPTSTR          lpPassword,
-    LPTSTR          lpUserName,
+    LPWSTR          lpPassword,
+    LPWSTR          lpUserName,
     DWORD           dwFlags
     );
 
@@ -93,6 +97,7 @@ typedef DWORD (*PF_NPCancelConnection) (
       BOOL    fForce
     );
 
+
 DWORD APIENTRY
 NPGetConnection (
        LPWSTR   lpLocalName,
@@ -106,19 +111,48 @@ typedef DWORD (*PF_NPGetConnection) (
     );
 
 
+#define WNGETCON_CONNECTED      0x00000000
+#define WNGETCON_DISCONNECTED   0x00000001
+
+DWORD APIENTRY
+NPGetConnection3 (
+       LPCWSTR  lpLocalName,
+       DWORD    dwLevel,
+       LPVOID   lpBuffer,
+       LPDWORD  lpBufferSize
+    );
+typedef DWORD (*PF_NPGetConnection3) (
+       LPCWSTR  lpLocalName,
+       DWORD    dwLevel,
+       LPVOID   lpBuffer,
+       LPDWORD  lpBufferSize
+    );
+
+
 DWORD APIENTRY
 NPGetUniversalName (
-       LPWSTR   lpLocalPath,
+       LPCWSTR  lpLocalPath,
        DWORD    dwInfoLevel,
        LPVOID   lpBuffer,
        LPDWORD  lpBufferSize
     );
 typedef DWORD (*PF_NPGetUniversalName) (
-       LPWSTR   lpLocalPath,
+       LPCWSTR  lpLocalPath,
        DWORD    dwInfoLevel,
        LPVOID   lpBuffer,
        LPDWORD  lpnBufferSize
     );
+
+DWORD APIENTRY
+NPGetConnectionPerformance (
+       LPCWSTR  lpRemoteName,
+       LPNETCONNECTINFOSTRUCT lpNetConnectInfo
+    );
+typedef DWORD (*PF_NPGetConnectionPerformance) (
+       LPCWSTR  lpRemoteName,
+       LPNETCONNECTINFOSTRUCT lpNetConnectInfo
+    );
+
 
 DWORD APIENTRY
 NPOpenEnum (
@@ -164,13 +198,10 @@ typedef DWORD (*PF_NPCloseEnum) (
 //
 
 #define WNNC_SPEC_VERSION   0x00000001
+#define  WNNC_SPEC_VERSION51    0x00050001
 
 #define WNNC_NET_TYPE       0x00000002
 #define  WNNC_NET_NONE          0x00000000
-#define  WNNC_NET_MSNET         0x00000100
-#define  WNNC_NET_LANMAN        0x00000200
-#define  WNNC_NET_NETWARE       0x00000300
-#define  WNNC_NET_VINES         0x00000400
 
 #define WNNC_DRIVER_VERSION 0x00000003
 
@@ -182,6 +213,8 @@ typedef DWORD (*PF_NPCloseEnum) (
 #define  WNNC_CON_CANCELCONNECTION  0x00000002
 #define  WNNC_CON_GETCONNECTIONS    0x00000004
 #define  WNNC_CON_ADDCONNECTION3    0x00000008
+#define  WNNC_CON_GETPERFORMANCE    0x00000040
+#define  WNNC_CON_DEFER             0x00000080
 
 #define WNNC_DIALOG     0x00000008
 #define  WNNC_DLG_DEVICEMODE        0x00000001
@@ -189,6 +222,8 @@ typedef DWORD (*PF_NPCloseEnum) (
 #define  WNNC_DLG_SEARCHDIALOG      0x00000040
 #define  WNNC_DLG_FORMATNETWORKNAME 0x00000080
 #define  WNNC_DLG_PERMISSIONEDITOR  0x00000100
+#define  WNNC_DLG_GETRESOURCEPARENT 0x00000200
+#define  WNNC_DLG_GETRESOURCEINFORMATION  0x00000800
 
 #define WNNC_ADMIN      0x00000009
 #define  WNNC_ADM_GETDIRECTORYTYPE  0x00000001
@@ -197,6 +232,7 @@ typedef DWORD (*PF_NPCloseEnum) (
 #define WNNC_ENUMERATION    0x0000000B
 #define  WNNC_ENUM_GLOBAL       0x00000001
 #define  WNNC_ENUM_LOCAL        0x00000002
+#define  WNNC_ENUM_CONTEXT      0x00000004
 
 #define WNNC_START      0x0000000C
 #define  WNNC_WAIT_FOR_START    0x00000001
@@ -263,10 +299,30 @@ typedef DWORD (*PF_NPSearchDialog) (
     LPDWORD lpnFlags
     );
 
-// flags for format network name
-#define WNFMT_MULTILINE           0x00000001
-#define WNFMT_ABBREVIATED         0x00000002
-#define WNFMT_INENUM              0x00000010
+DWORD APIENTRY
+NPGetResourceParent(
+    LPNETRESOURCEW lpNetResource,
+    LPVOID  lpBuffer,
+    LPDWORD lpBufferSize
+    );
+typedef DWORD (*PF_NPGetResourceParent) (
+    LPNETRESOURCEW lpNetResource,
+    LPVOID  lpBuffer,
+    LPDWORD lpBufferSize
+    );
+
+DWORD APIENTRY NPGetResourceInformation(
+    LPNETRESOURCEW lpNetResource,
+    LPVOID  lpBuffer,
+    LPDWORD lpBufferSize,
+    LPWSTR *lplpSystem
+    );
+typedef DWORD (*PF_NPGetResourceInformation) (
+    LPNETRESOURCEW lpNetResource,
+    LPVOID  lpBuffer,
+    LPDWORD lpBufferSize,
+    LPWSTR *lplpSystem
+    );
 
 DWORD APIENTRY
 NPFormatNetworkName(
@@ -393,8 +449,8 @@ NPLogonNotify (
     PLUID               lpLogonId,
     LPCWSTR             lpAuthentInfoType,
     LPVOID              lpAuthentInfo,
-    LPCWSTR             lpPreviousAuthentInfoType,  
-    LPVOID              lpPreviousAuthentInfo,      
+    LPCWSTR             lpPreviousAuthentInfoType,
+    LPVOID              lpPreviousAuthentInfo,
     LPWSTR              lpStationName,
     LPVOID              StationHandle,
     LPWSTR              *lpLogonScript
@@ -403,8 +459,8 @@ typedef DWORD (*PF_NPLogonNotify) (
     PLUID               lpLogonId,
     LPCWSTR             lpAuthentInfoType,
     LPVOID              lpAuthentInfo,
-    LPCWSTR             lpPreviousAuthentInfoType,  
-    LPVOID              lpPreviousAuthentInfo,      
+    LPCWSTR             lpPreviousAuthentInfoType,
+    LPVOID              lpPreviousAuthentInfo,
     LPWSTR              lpStationName,
     LPVOID              StationHandle,
     LPWSTR              *lpLogonScript
@@ -454,8 +510,8 @@ typedef struct _NOTIFYADD {
 } NOTIFYADD, *LPNOTIFYADD;
 
 typedef struct _NOTIFYCANCEL {
-    LPTSTR      lpName;
-    LPTSTR      lpProvider;
+    LPWSTR      lpName;
+    LPWSTR      lpProvider;
     DWORD       dwFlags;
     BOOL        fForce;
 } NOTIFYCANCEL, *LPNOTIFYCANCEL;
@@ -498,14 +554,14 @@ DWORD APIENTRY
 NPFMXGetPermCaps (
     LPWSTR lpDriveName
     );
-    
+
 typedef DWORD (*PF_NPFMXGetPermCaps) (
     LPWSTR lpDriveName
     );
 
 //
-// Type of security dialog 
-// 
+// Type of security dialog
+//
 #define WNPERM_DLG_PERM   0
 #define WNPERM_DLG_AUDIT  1
 #define WNPERM_DLG_OWNER  2
@@ -541,5 +597,9 @@ typedef DWORD (*PF_NPFMXGetPermHelp) (
     LPDWORD lpBufferSize,
     LPDWORD lpnHelpContext
     );
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif  // _NPAPI_INCLUDED

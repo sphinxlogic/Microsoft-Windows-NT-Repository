@@ -1,5 +1,0 @@
-char *tailrtf[]= 
-{ 
-"}\n",
- NULL  
-}; 

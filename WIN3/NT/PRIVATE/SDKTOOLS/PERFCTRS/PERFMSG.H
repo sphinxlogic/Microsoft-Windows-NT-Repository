@@ -103,4 +103,4 @@ extern DWORD  dwLogUsers;  // counter of event log using routines
 extern DWORD  MESSAGE_LEVEL; // event logging detail level
 
 #endif //_PERFMSG_H_
-
+

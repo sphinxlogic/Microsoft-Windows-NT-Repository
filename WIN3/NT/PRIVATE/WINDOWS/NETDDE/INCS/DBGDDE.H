@@ -1,2 +1,0 @@
-VOID	FAR PASCAL DebugDDEMessage( PSTR, HWND, UINT, UINT, LONG );
-extern BOOL	bDebugDDE;

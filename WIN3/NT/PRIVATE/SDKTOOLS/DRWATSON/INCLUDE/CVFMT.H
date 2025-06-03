@@ -157,4 +157,3 @@ static struct typestr nametype[] = {
     T_UINT8,     CV_TM_FPTR32, 0, "unsigned int far32 *",     "",
     T_RCHAR,     CV_TM_FPTR32, 0, "char far32 *",             "",
 };
-

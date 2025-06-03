@@ -264,6 +264,9 @@ BOOL ILGrabRect (IN PILINE pILine,
          return (FALSE) ;
          break ;
       }  // switch
+
+    // return FALSE if it falls through to here
+    return FALSE;
    }  // ILGrabRect
 
 
@@ -1064,4 +1067,4 @@ int ILineStop (HWND hWnd)
 
 
 
-
+

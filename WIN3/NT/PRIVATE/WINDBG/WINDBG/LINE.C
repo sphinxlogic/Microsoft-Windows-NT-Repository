@@ -59,7 +59,7 @@ DlgLine(
             EndDialog(hDlg, TRUE);
             return (TRUE);
 
-          case IDHELP :
+          case IDWINDBGHELP :
             Dbg(WinHelp(hDlg,szHelpFileName,HELP_CONTEXT,ID_LINE_HELP));
             return (TRUE);
         }

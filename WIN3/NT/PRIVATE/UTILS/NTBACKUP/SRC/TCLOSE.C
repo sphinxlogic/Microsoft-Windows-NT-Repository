@@ -267,10 +267,13 @@ FILE_HAND hand ;   /* I - handle to be closed */
                   &(ddblk->dta.modify_time) ) ;
 
      } else {
-          SetFileTime( nt_hand->fhand,
+          if ( fsh->attached_dle->feature_bits & DLE_FEAT_ACCESS_DATE ) {
+
+               SetFileTime( nt_hand->fhand,
                   NULL, 
                   &(ddblk->dta.access_time), 
                   NULL ) ;
+          }
      }
      if( !CloseHandle( nt_hand->fhand ) ) {
           ret_val = FS_OBJECT_NOT_OPENED ;
@@ -445,8 +448,11 @@ FILE_HAND hand ;   /* I - handle to be closed */
                     if ( hand->mode != FS_WRITE ) {
                          attrib = ddblk->dta.os_attr & (~FILE_ATTRIBUTE_ARCHIVE ) ;
                     }
-
-                    SetFileAttributes( path, attrib );
+                    if ( attrib == 0 ) {
+                         SetFileAttributes( path, FILE_ATTRIBUTE_NORMAL );
+                    } else {
+                         SetFileAttributes( path, attrib );
+                    }
 
                     NTFS_ReleaseWorkPath( fsh ) ;
                }
@@ -549,7 +555,11 @@ FILE_HAND hand ;   /* I - handle to be closed */
                {
                     attrib &= ~FILE_ATTRIBUTE_ARCHIVE;
                }
-               SetFileAttributes( path, attrib );
+               if ( attrib == 0 ) {
+                    SetFileAttributes( path, FILE_ATTRIBUTE_NORMAL );
+               } else {
+                    SetFileAttributes( path, attrib );
+               }
                NTFS_ReleaseWorkPath( fsh );
           }
      }

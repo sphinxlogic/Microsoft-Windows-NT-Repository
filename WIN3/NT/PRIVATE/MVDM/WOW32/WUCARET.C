@@ -72,15 +72,18 @@ MODNAME(wucaret.c);
 ULONG FASTCALL WU32CreateCaret(PVDMFRAME pFrame)
 {
     register PCREATECARET16 parg16;
+    HANDLE   h32;
 
     GETARGPTR(pFrame, sizeof(CREATECARET16), parg16);
 
-    CreateCaret(
-	HWND32(parg16->f1),
-	HBITMAP32(parg16->f2),
-	INT32(parg16->f3),
-	INT32(parg16->f4)
-    );
+    h32 = (HANDLE)parg16->f2;
+
+    // 0 -> caret is solid, 1 -> caret is gray, otherwise it's an hBitmap
+    if(((DWORD)h32) > 1) {
+    	h32 = HBITMAP32(h32);
+    }
+
+    CreateCaret(HWND32(parg16->f1), h32, INT32(parg16->f3), INT32(parg16->f4));
 
     FREEARGPTR(parg16);
     RETURN(0);

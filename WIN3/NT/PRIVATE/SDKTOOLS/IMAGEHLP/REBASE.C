@@ -20,18 +20,8 @@ Revision History:
 
 --*/
 
-#include <assert.h>
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-#include <time.h>
-#include <memory.h>
-#include <ctype.h>
-//#include <nt.h>
-//#include <ntrtl.h>
-//#include <nturtl.h>
-#include <windows.h>
-#include <imagehlp.h>
+#include <private.h>
+
 
 #define REBASE_ERR 99
 #define REBASE_OK  0
@@ -133,7 +123,7 @@ main(
 
     char chChar, *pchChar;
     envp;
-    tzset();
+    _tzset();
 
     pgnIgnoreListHdr = (PGROUPNODE) malloc( sizeof ( GROUPNODE ) );
     pgnIgnoreListHdr->chName = NULL;
@@ -432,10 +422,10 @@ ProcessGroupList(
         }
         else {
 
-            strlwr( Buffer );  // Lowercase for consistency when displayed.
+            _strlwr( Buffer );  // Lowercase for consistency when displayed.
 
             pgn = (PGROUPNODE) malloc( sizeof( GROUPNODE ) );
-            pgn->chName = strdup( Buffer );
+            pgn->chName = _strdup( Buffer );
             if ( NULL == pgn->chName ) {
                 fprintf( stderr, "REBASE: *** strdup failed (%s).\n", Buffer );
                 ExitProcess( REBASE_ERR );
@@ -498,7 +488,7 @@ FindInIgnoreList(
          pgn != NULL;
          pgn = pgn->pgnNext) {
 
-        if (!stricmp( Buffer, pgn->chName ) ) {
+        if (!_stricmp( Buffer, pgn->chName ) ) {
             return TRUE;
             }
 
@@ -536,11 +526,10 @@ ReBaseFile(
     if ( dw == 0 || dw > sizeof(Buffer) ) {
         FilePart = CurrentImageName;
     }
-    strlwr( FilePart );  // Lowercase for consistency when displayed.
+    _strlwr( FilePart );  // Lowercase for consistency when displayed.
 
-    if ( BaseAddrFile && !(NewImageBase = FindInBaseAddrFile( FilePart, &ThisImageExpectedSize )) ) {
+    if ( BaseAddrFile && !(ThisImageRequestedBase = FindInBaseAddrFile( FilePart, &ThisImageExpectedSize )) ) {
         fprintf( stdout, "REBASE: %-16s Not listed in %s\n", FilePart, BaseAddrFileName );
-
     }
 
     if (fSplitSymbols && !fSumOnly ) {
@@ -550,7 +539,7 @@ ReBaseFile(
                 fprintf( stdout, "REBASE: %16s symbols split into %s\n", FilePart, DebugFilePath );
             }
         }
-        else if (GetLastError() != ERROR_ALREADY_ASSIGNED) {
+        else if (GetLastError() != ERROR_ALREADY_ASSIGNED && GetLastError() != ERROR_BAD_EXE_FORMAT) {
             fprintf( stdout, "REBASE: %-16s - unable to split symbols (%u)\n", FilePart, GetLastError() );
         }
     }
@@ -561,7 +550,7 @@ ReBaseFile(
 
     if (!ReBaseImage( CurrentImageName,
                       (PCHAR) SymbolPath,
-                      fReBase,
+                      fReBase && !fSumOnly,
                       fRebaseSysfileOk,
                       fGoingDown,
                       ThisImageExpectedSize,
@@ -607,6 +596,11 @@ ReBaseFile(
 
         ReturnCode = REBASE_ERR;
         return;
+
+    } else {
+        if (GetLastError() == ERROR_INVALID_DATA) {
+            fprintf(stderr, "REBASE: Warning: DBG checksum did not match image.\n");
+        }
     }
 
     // Keep track of the lowest base address.
@@ -708,7 +702,7 @@ FindInBaseAddrFile(
 
     ateof = fscanf(BaseAddrFile,"%s %x %x",BAFileEntry.Name,&BAFileEntry.Base,&BAFileEntry.Size);
     while ( ateof && ateof != EOF ) {
-        if ( !stricmp(NameNoExt,BAFileEntry.Name) ) {
+        if ( !_stricmp(NameNoExt,BAFileEntry.Name) ) {
             *pulSize = BAFileEntry.Size;
             return BAFileEntry.Base;
             }

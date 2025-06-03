@@ -141,4 +141,4 @@ DAT(L_TYPENAME, L"typedef name", L_TYPENAME,     MAX_OPCODE,     ML_CTYPENAME)
 DAT(L_UPLUS,    L"unary plus",   L_UPLUS,        OPparen,        ML_NOTOKEN)
 DAT(L_WHILE,    L"while",        L_WHILE,        MAX_OPCODE,     ML_IDENT)
 DAT(0,          0,               0,              MAX_OPCODE,     ML_NOTOKEN)
-
+

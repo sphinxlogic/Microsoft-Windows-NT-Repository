@@ -44,7 +44,7 @@ Revision History:
 #include <dlwksta.h>            // NetpIsNewWkstaInfoLevel().
 #include <lmapibuf.h>           // NetApiBufferAllocate(), NetApiBufferFree().
 #include <lmerr.h>              // ERROR_ and NERR_ equates.
-#include <netdebug.h>           // DBGSTATIC, NetpDbgPrint(), FORMAT_ equates.
+#include <netdebug.h>           // DBGSTATIC, NetpKdPrint(()), FORMAT_ equates.
 #include <rxpdebug.h>           // IF_DEBUG().
 #include <rxwksta.h>            // My prototypes, RxpGetWkstaInfoLevelEquivalent
 #include <strucinf.h>           // NetpWkstaStructureInfo().
@@ -87,8 +87,8 @@ Return Value:
     NET_API_STATUS Status;
 
     IF_DEBUG(WKSTA) {
-        NetpDbgPrint("RxNetWkstaGetInfo: starting, server=" FORMAT_LPTSTR
-                ", lvl=" FORMAT_DWORD ".\n", UncServerName, Level);
+        NetpKdPrint(("RxNetWkstaGetInfo: starting, server=" FORMAT_LPTSTR
+                ", lvl=" FORMAT_DWORD ".\n", UncServerName, Level));
     }
 
     //
@@ -159,8 +159,8 @@ Return Value:
             return (Status);
         }
         IF_DEBUG(WKSTA) {
-            NetpDbgPrint( "RxNetWkstaGetInfo: allocated new buffer at "
-                    FORMAT_LPVOID "\n", (LPVOID) NewApiBuffer32 );
+            NetpKdPrint(( "RxNetWkstaGetInfo: allocated new buffer at "
+                    FORMAT_LPVOID "\n", (LPVOID) NewApiBuffer32 ));
         }
 
         //

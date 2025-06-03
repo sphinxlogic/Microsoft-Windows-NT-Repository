@@ -15,7 +15,7 @@ typedef struct
 {
     USHORT          opcode;			/* message opcode (type) */
     USHORT          buflen;			/* related buffer length */
-    CHAR            *bufptr;		/* related buffer pointer (0=none) */
+    UCHAR           *bufptr;		/* related buffer pointer (0=none) */
     ULONG           bufid;			/* related buffer id */
     ULONG           param;			/* parameter area */
 } IDD_MSG;
@@ -25,7 +25,7 @@ typedef struct
 {
     USHORT          opcode;			/* message opcode (type) */
     USHORT          buflen;			/* related buffer length */
-    CHAR            *bufptr;		/* related buffer pointer (0=none) */
+    UCHAR           *bufptr;		/* related buffer pointer (0=none) */
     ULONG           bufid;			/* related buffer id */
     ULONG           param;			/* parameter area */
 	USHORT			FragmentFlags;	/* fragmentation flags */
@@ -57,4 +57,3 @@ typedef struct
 
 #endif			/* _IDD_PUB_ */
 
-

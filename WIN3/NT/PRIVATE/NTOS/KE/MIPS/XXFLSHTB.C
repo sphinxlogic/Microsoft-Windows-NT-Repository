@@ -9,7 +9,7 @@ Module Name:
 Abstract:
 
     This module implements machine dependent functions to flush the
-    translation buffer and synchronize PIDs in an MP system.
+    translation buffer.
 
 Author:
 
@@ -53,14 +53,6 @@ KiFlushSingleTbTarget (
     IN PVOID Pid,
     IN PVOID Parameter3
     );
-
-VOID
-KiSynchronizeProcessIdsTarget (
-    IN PULONG SignalDone,
-    IN PVOID Parameter1,
-    IN PVOID Parameter2,
-    IN PVOID Parameter3
-    );
 
 VOID
 KeFlushEntireTb (
@@ -76,10 +68,6 @@ Routine Description:
     processors that are currently running threads which are children
     of the current process or flushes the entire translation buffer
     on all processors in the host configuration.
-
-    N.B. The entire translation buffer on all processors in the host
-         configuration is always flushed since the MIPS TB is tagged by
-         PID and translations are held across context switch boundaries.
 
 Arguments:
 
@@ -98,26 +86,36 @@ Return Value:
 {
 
     KIRQL OldIrql;
-    PKPRCB Prcb;
+    PKPROCESS Process;
     KAFFINITY TargetProcessors;
+    PKTHREAD Thread;
 
     ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
 
     //
-    // Raise IRQl to DISPATCH_LEVEL to avoid a possible context switch.
+    // Compute the target set of processors, disable context switching,
+    // and send the flush entire parameters to the target processors,
+    // if any, for execution.
     //
 
-#if !defined(NT_UP)
+#if defined(NT_UP)
 
-    KeRaiseIrql(DISPATCH_LEVEL, &OldIrql);
+    OldIrql = KeRaiseIrqlToSynchLevel();
 
-    //
-    // Compute the target set of processors, and send the flush entire
-    // parameters to the target processors, if any, for execution.
-    //
+#else
 
-    Prcb = KeGetCurrentPrcb();
-    TargetProcessors = KeActiveProcessors & ~Prcb->SetMember;
+    if (AllProcessors != FALSE) {
+        OldIrql = KeRaiseIrqlToSynchLevel();
+        TargetProcessors = KeActiveProcessors;
+
+    } else {
+        Thread = KeGetCurrentThread();
+        Process = Thread->ApcState.Process;
+        KiLockContextSwap(&OldIrql);
+        TargetProcessors = Process->ActiveProcessors;
+    }
+
+    TargetProcessors &= PCR->NotMember;
     if (TargetProcessors != 0) {
         KiIpiSendPacket(TargetProcessors,
                         KiFlushEntireTbTarget,
@@ -125,8 +123,6 @@ Return Value:
                         NULL,
                         NULL);
     }
-
-    IPI_INSTRUMENT_COUNT(Prcb->Number, FlushEntireTb);
 
 #endif
 
@@ -140,22 +136,30 @@ Return Value:
     // Wait until all target processors have finished.
     //
 
-#if !defined(NT_UP)
-
-    if (TargetProcessors != 0) {
-        KiIpiStallOnPacketTargets(TargetProcessors);
-    }
-
-    //
-    // Lower IRQL to previous level.
-    //
+#if defined(NT_UP)
 
     KeLowerIrql(OldIrql);
+
+#else
+
+    if (TargetProcessors != 0) {
+        KiIpiStallOnPacketTargets();
+    }
+
+    if (AllProcessors != FALSE) {
+        KeLowerIrql(OldIrql);
+
+    } else {
+        KiUnlockContextSwap(OldIrql);
+    }
 
 #endif
 
     return;
 }
+
+#if !defined(NT_UP)
+
 
 VOID
 KiFlushEntireTbTarget (
@@ -186,23 +190,17 @@ Return Value:
 
 {
 
-    PKPRCB Prcb;
-
     //
     // Flush the entire TB on the current processor.
     //
 
-#if !defined(NT_UP)
-
-    *SignalDone = 0;
+    KiIpiSignalPacketDone(SignalDone);
     KeFlushCurrentTb();
-    Prcb = KeGetCurrentPrcb();
-    IPI_INSTRUMENT_COUNT(Prcb->Number, FlushEntireTb);
+    return;
+}
 
 #endif
 
-    return;
-}
 
 VOID
 KeFlushMultipleTb (
@@ -222,14 +220,6 @@ Routine Description:
     on all processors that are currently running threads which are
     children of the current process or flushes a multiple entries from
     the translation buffer on all processors in the host configuration.
-
-    N.B. The specified translation entries on all processors in the host
-         configuration are always flushed since the MIPS TB is tagged by
-         PID and translations are held across context switch boundaries.
-
-    N.B. The process id wrap lock must be held during this request to
-         prevent the process PID from changing while the request is
-         being executed.
 
 Arguments:
 
@@ -261,18 +251,38 @@ Return Value:
 {
 
     ULONG Index;
-    PKPRCB Prcb;
+    KIRQL OldIrql;
     PKPROCESS Process;
     KAFFINITY TargetProcessors;
     PKTHREAD Thread;
 
     ASSERT(KeGetCurrentIrql() == DISPATCH_LEVEL);
+    ASSERT(Number <= FLUSH_MULTIPLE_MAXIMUM);
 
     //
-    // Raise IRQL to DISPATCH_LEVEL and acquire the process id wrap lock.
+    // Compute the target set of processors.
     //
 
-    KiAcquireSpinLock(&KiProcessIdWrapLock);
+#if defined(NT_UP)
+
+    OldIrql = KeRaiseIrqlToSynchLevel();
+
+#else
+
+    if (AllProcessors != FALSE) {
+        OldIrql = KeRaiseIrqlToSynchLevel();
+        TargetProcessors = KeActiveProcessors;
+
+    } else {
+        Thread = KeGetCurrentThread();
+        Process = Thread->ApcState.Process;
+        KiLockContextSwap(&OldIrql);
+        TargetProcessors = Process->ActiveProcessors;
+    }
+
+    TargetProcessors &= PCR->NotMember;
+
+#endif
 
     //
     // If a page table entry address array is specified, then set the
@@ -286,25 +296,19 @@ Return Value:
     }
 
     //
-    // Compute the target set of processors, and send the flush multiple
-    // parameters to the target processors, if any, for execution.
+    // If any target processors are specified, then send a flush multiple
+    // packet to the target set of processor.
     //
 
 #if !defined(NT_UP)
 
-    Prcb = KeGetCurrentPrcb();
-    TargetProcessors = KeActiveProcessors & ~Prcb->SetMember;
     if (TargetProcessors != 0) {
-        Thread = KeGetCurrentThread();
-        Process = Thread->ApcState.Process;
         KiIpiSendPacket(TargetProcessors,
                         KiFlushMultipleTbTarget,
                         (PVOID)Number,
                         (PVOID)Virtual,
-                        (PVOID)Process->ProcessPid);
+                        NULL);
     }
-
-    IPI_INSTRUMENT_COUNT(Prcb->Number, FlushSingleTb);
 
 #endif
 
@@ -318,21 +322,30 @@ Return Value:
     // Wait until all target processors have finished.
     //
 
-#if !defined(NT_UP)
+#if defined(NT_UP)
+
+    KeLowerIrql(OldIrql);
+
+#else
 
     if (TargetProcessors != 0) {
-        KiIpiStallOnPacketTargets(TargetProcessors);
+        KiIpiStallOnPacketTargets();
+    }
+
+    if (AllProcessors != FALSE) {
+        KeLowerIrql(OldIrql);
+
+    } else {
+        KiUnlockContextSwap(OldIrql);
     }
 
 #endif
 
-    //
-    // Release process id wrap lock and lower IRQL to previous level.
-    //
-
-    KiReleaseSpinLock(&KiProcessIdWrapLock);
     return;
 }
+
+#if !defined(NT_UP)
+
 
 VOID
 KiFlushMultipleTbTarget (
@@ -370,14 +383,9 @@ Return Value:
 {
 
     ULONG Index;
-    PKPRCB Prcb;
     PVOID Array[FLUSH_MULTIPLE_MAXIMUM];
 
-    //
-    // Flush multiple entries from the TB on the current processor.
-    //
-
-#if !defined(NT_UP)
+    ASSERT((ULONG)Number <= FLUSH_MULTIPLE_MAXIMUM);
 
     //
     // Capture the virtual addresses that are to be flushed from the TB
@@ -388,22 +396,19 @@ Return Value:
         Array[Index] = ((PVOID *)(Virtual))[Index];
     }
 
-    *SignalDone = 0;
+    KiIpiSignalPacketDone(SignalDone);
 
     //
     // Flush the specified virtual addresses from the TB on the current
     // processor.
     //
 
-    KiFlushMultipleTbByPid(TRUE, &Array[0], (ULONG)Number, (ULONG)Pid);
-
-    Prcb = KeGetCurrentPrcb();
-    IPI_INSTRUMENT_COUNT(Prcb->Number, FlushSingleTb);
+    KiFlushMultipleTb(TRUE, &Array[0], (ULONG)Number);
+    return;
+}
 
 #endif
 
-    return;
-}
 
 HARDWARE_PTE
 KeFlushSingleTb (
@@ -422,14 +427,6 @@ Routine Description:
     on all processors that are currently running threads which are
     children of the current process or flushes a single entry from
     the translation buffer on all processors in the host configuration.
-
-    N.B. The specified translation entry on all processors in the host
-         configuration is always flushed since the MIPS TB is tagged by
-         PID and translations are held across context switch boundaries.
-
-    N.B. The process id wrap lock must be held during this request to
-         prevent the process PID from changing while the request is
-         being executed.
 
 Arguments:
 
@@ -456,8 +453,8 @@ Return Value:
 
 {
 
+    KIRQL OldIrql;
     HARDWARE_PTE OldPte;
-    PKPRCB Prcb;
     PKPROCESS Process;
     KAFFINITY TargetProcessors;
     PKTHREAD Thread;
@@ -465,20 +462,29 @@ Return Value:
     ASSERT(KeGetCurrentIrql() == DISPATCH_LEVEL);
 
     //
-    // Collect call data.
+    // Compute the target set of processors.
     //
 
-#if defined(_COLLECT_FLUSH_SINGLE_CALLDATA_)
+#if defined(NT_UP)
 
-    RECORD_CALL_DATA(&KiFlushSingleCallData);
+    OldIrql = KeRaiseIrqlToSynchLevel();
+
+#else
+
+    if (AllProcessors != FALSE) {
+        OldIrql = KeRaiseIrqlToSynchLevel();
+        TargetProcessors = KeActiveProcessors;
+
+    } else {
+        Thread = KeGetCurrentThread();
+        Process = Thread->ApcState.Process;
+        KiLockContextSwap(&OldIrql);
+        TargetProcessors = Process->ActiveProcessors;
+    }
+
+    TargetProcessors &= PCR->NotMember;
 
 #endif
-
-    //
-    // Raise IRQL to DISPATCH_LEVEL and acquire the process id wrap lock.
-    //
-
-    KiAcquireSpinLock(&KiProcessIdWrapLock);
 
     //
     // Capture the previous contents of the page table entry and set the
@@ -489,25 +495,18 @@ Return Value:
     *PtePointer = PteValue;
 
     //
-    // Compute the target set of processors, and send the flush single
-    // parameters to the target processors, if any, for execution.
-    //
+    // If any target processors are specified, then send a flush single
+    // packet to the target set of processors.
 
 #if !defined(NT_UP)
 
-    Prcb = KeGetCurrentPrcb();
-    TargetProcessors = KeActiveProcessors & ~Prcb->SetMember;
     if (TargetProcessors != 0) {
-        Thread = KeGetCurrentThread();
-        Process = Thread->ApcState.Process;
         KiIpiSendPacket(TargetProcessors,
                         KiFlushSingleTbTarget,
                         (PVOID)Virtual,
-                        (PVOID)Process->ProcessPid,
+                        NULL,
                         NULL);
     }
-
-    IPI_INSTRUMENT_COUNT(Prcb->Number, FlushSingleTb);
 
 #endif
 
@@ -521,22 +520,30 @@ Return Value:
     // Wait until all target processors have finished.
     //
 
-#if !defined(NT_UP)
+#if defined(NT_UP)
+
+    KeLowerIrql(OldIrql);
+
+#else
 
     if (TargetProcessors != 0) {
-        KiIpiStallOnPacketTargets(TargetProcessors);
+        KiIpiStallOnPacketTargets();
+    }
+
+    if (AllProcessors != FALSE) {
+        KeLowerIrql(OldIrql);
+
+    } else {
+        KiUnlockContextSwap(OldIrql);
     }
 
 #endif
 
-    //
-    // Release process id wrap lock, lower IRQL to previous level, and
-    // return the previous page table entry value.
-    //
-
-    KiReleaseSpinLock(&KiProcessIdWrapLock);
     return OldPte;
 }
+
+#if !defined(NT_UP)
+
 
 VOID
 KiFlushSingleTbTarget (
@@ -562,7 +569,7 @@ Arguments:
 
     RequestPacket - Supplies a pointer to a flush single TB packet address.
 
-    Pid - Supplies the PID of the TB entries to flush.
+    Pid - Not used.
 
     Parameter3 - Not used.
 
@@ -574,84 +581,12 @@ Return Value:
 
 {
 
-    PKPRCB Prcb;
-
     //
     // Flush a single entry form the TB on the current processor.
     //
 
-#if !defined(NT_UP)
-
-    *SignalDone = 0;
-    KiFlushSingleTbByPid(TRUE, Virtual, (ULONG)Pid);
-    Prcb = KeGetCurrentPrcb();
-    IPI_INSTRUMENT_COUNT(Prcb->Number, FlushSingleTb);
-
-#endif
-
-    return;
-}
-
-
-#if !defined(NT_UP)
-
-VOID
-KiSynchronizeProcessIds (
-    VOID
-    )
-
-/*++
-
-Routine Description:
-
-    This function synchronizes the PIDs on all other processors in the host
-    configuration. This function is called when PID rollover is detected
-    during a process address space swap.
-
-    N.B. This function is called at DISPATCH_LEVEL with the dispatcher
-         database lock held.
-
-Arguments:
-
-    None.
-
-Return Value:
-
-    None.
-
---*/
-
-{
-
-    PKPRCB Prcb;
-    KAFFINITY TargetProcessors;
-
-    ASSERT(KeGetCurrentIrql() == DISPATCH_LEVEL);
-
-    //
-    // Compute the target set of processors, and send the synchronize
-    // process id parameters to the target processors, if any, for
-    // execution.
-    //
-
-    Prcb = KeGetCurrentPrcb();
-    TargetProcessors = KeActiveProcessors & ~Prcb->SetMember;
-    if (TargetProcessors != 0) {
-        KiIpiSendPacket(TargetProcessors,
-                        KiSynchronizeProcessIdsTarget,
-                        NULL,
-                        NULL,
-                        NULL);
-    }
-
-    //
-    // Wait until all target processors have finished.
-    //
-
-    if (TargetProcessors != 0) {
-        KiIpiStallOnPacketTargets(TargetProcessors);
-    }
-
+    KiIpiSignalPacketDone(SignalDone);
+    KiFlushSingleTb(TRUE, Virtual);
     return;
 }
 

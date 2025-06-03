@@ -67,14 +67,10 @@ SPINLOCK    _CcBcbSpinLock
 ; Static SpinLocks from ntos\ex
 ;
 
-SPINLOCK    _HandleTableListLock        ; handle.c
 SPINLOCK    _ExpLuidLock                ; luid.c
 SPINLOCK    _NonPagedPoolLock           ; pool.c
 SPINLOCK    _PoolTraceLock              ; pool.c
 SPINLOCK    _ExpResourceSpinLock        ; resource.c
-SPINLOCK    _ExpEnvironmentLock         ; sysenv.c
-;SPINLOCK   _ExpWorkerLock              ; worker.c      < BUGBUG
-
 
 
 ;
@@ -85,9 +81,6 @@ SPINLOCK    _IopCompletionLock
 SPINLOCK    _IopCancelSpinLock
 SPINLOCK    _IopVpbSpinLock
 SPINLOCK    _IopDatabaseLock
-SPINLOCK    _IopLargeIrpLock
-SPINLOCK    _IopSmallIrpLock
-SPINLOCK    _IopMdlLock
 SPINLOCK    _IopErrorLogLock
 SPINLOCK    _IopErrorLogAllocationLock
 SPINLOCK    _IopTimerLock
@@ -106,20 +99,12 @@ SPINLOCK    _KdpDebuggerLock
 ; Static SpinLocks from ntos\ke\kernldat.c
 ;
 
-SPINLOCK    _KiApcQueueLock
+SPINLOCK    _KiContextSwapLock
 SPINLOCK    _KiDispatcherLock
 SPINLOCK    _KiFreezeExecutionLock
 SPINLOCK    _KiFreezeLockBackup
 ULONG       _KiHardwareTrigger
-SPINLOCK    _KiPowerNotifyLock
-SPINLOCK    _KiPowerStatusLock
 SPINLOCK    _KiProfileLock
-
-;
-; Static SpinLocks from ntos\lpc\lpc.h
-;
-
-SPINLOCK    _LpcpLock
 
 ;
 ; Static SpinLocks from ntos\mm\miglobal.c
@@ -130,7 +115,6 @@ SPINLOCK    _MmSystemSpaceLock
 SPINLOCK    _MmChargeCommitmentLock
 SPINLOCK    _MmAllowWSExpansionLock
 
-
 ;
 ; Static SpinLocks from ntos\ps\psinit.c
 ;
@@ -138,15 +122,86 @@ SPINLOCK    _MmAllowWSExpansionLock
 SPINLOCK    _PspEventPairLock
 SPINLOCK    _PsLoadedModuleSpinLock
 
-
 ;
 ; Static SpinLocks from ntos\fsrtl\fsrtlp.c
 ;
 
 SPINLOCK    _FsRtlStrucSupSpinLock          ; fsrtlp.c
-SPINLOCK    _FsRtlStackOverflowSpinLock     ; stackovf.c
 
-            db      PADLOCKS dup (0)
+        db      PADLOCKS dup (0)
+
+;
+; KeTickCount - This is the number of clock ticks that have occurred since
+;      the system was booted. This count is used to compute a millisecond
+;      tick counter.
+;
+
+        public  _KeTickCount
+_KeTickCount                dd      0, 0, 0
+
+;
+; KeMaximumIncrement - This is the maximum time between clock interrupts
+;      in 100ns units that is supported by the host HAL.
+;
+
+        public  _KeMaximumIncrement
+_KeMaximumIncrement         dd      0
+
+;
+; KeTimeAdjustment - This is the actual number of 100ns units that are to
+;      be added to the system time at each interval timer interupt. This
+;      value is copied from KeTimeIncrement at system start up and can be
+;      later modified via the set system information service.
+;      timer table entries.
+;
+
+        public  _KeTimeAdjustment
+_KeTimeAdjustment           dd      0
+
+;
+; KiTickOffset - This is the number of 100ns units remaining before a tick
+;      is added to the tick count and the system time is updated.
+;
+
+        public  _KiTickOffset
+_KiTickOffset               dd      0
+
+;
+; KiMaximumDpcQueueDepth - This is used to control how many DPCs can be
+;      queued before a DPC of medium importance will trigger a dispatch
+;      interrupt.
+;
+
+        public  _KiMaximumDpcQueueDepth
+_KiMaximumDpcQueueDepth     dd      4
+
+;
+; KiMinimumDpcRate - This is the rate of DPC requests per clock tick that
+;      must be exceeded before DPC batching of medium importance DPCs
+;      will occur.
+;
+
+        public  _KiMinimumDpcRate
+_KiMinimumDpcRate           dd      3
+
+;
+; KiAdjustDpcThreshold - This is the threshold used by the clock interrupt
+;      routine to control the rate at which the processor's DPC queue depth
+;      is dynamically adjusted.
+;
+
+        public  _KiAdjustDpcThreshold
+_KiAdjustDpcThreshold       dd      20
+
+;
+; KiIdealDpcRate - This is used to control the aggressiveness of the DPC
+;      rate adjusting algorithm when decrementing the queue depth. As long
+;      as the DPC rate for the last tick is greater than this rate, the
+;      DPC queue depth will not be decremented.
+;
+
+        public  _KiIdealDpcRate
+_KiIdealDpcRate             dd      20
 
 _DATA   ends
 

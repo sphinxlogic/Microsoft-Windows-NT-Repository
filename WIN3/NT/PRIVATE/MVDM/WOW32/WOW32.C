@@ -30,22 +30,31 @@
 #include "wsocktbl.h"
 #include "wthtbl.h"
 #include <stdarg.h>
+#include <ntcsrdll.h>
+#define SHAREWOW_MAIN
+#include <sharewow.h>
 
 
 /* Function Prototypes */
 DWORD   W32SysErrorBoxThread2(PTDB pTDB);
-BOOL    IsDebuggerAttached(VOID);
 VOID    StartDebuggerForWow(VOID);
+BOOLEAN LoadCriticalStringResources(void);
 
+
+extern DECLSPEC_IMPORT ULONG *ExpLdt;
+#define LDT_DESC_PRESENT 0x8000
+#define STD_SELECTOR_BITS 0x7
 
 MODNAME(wow32.c);
 
-#define ISFUNCID(dwcallid)  (!((DWORD)(dwcallid) & 0xffff0000))
+#define REGISTRY_BUFFER_SIZE 512
+
 // for logging iloglevel to a file
 #ifdef DEBUG
 CHAR    szLogFile[128];
 int     fLog = 0;
 HANDLE  hfLog = NULL;
+UCHAR   gszAssert[256];
 #endif
 
 /*  iloglevel = 16 MAX the world (all 16 bit kernel internal calls
@@ -60,7 +69,7 @@ INT     iLogLevel = 0;           // logging level;  0 implies none
 INT     fDebugWait = 0 ;         // Single Step, 0 = No single step
 #endif
 
-BOOL    fDebugged = FALSE;       // TRUE if running under NTSD
+HANDLE  hmodWOW32;
 HANDLE  hHostInstance = 0;
 #ifdef DEBUG
 INT     fLogFilter = -1;            // Logging Code Fiters
@@ -86,7 +95,7 @@ WORD    iWOWTaskCur = 0;        // pTDB of currently running task ID
 UINT    nWOWTasks = 0 ;         // # of WOW tasks running
 BOOL    fBoot = TRUE;           // TRUE During the Boot Process
 HANDLE  ghevWaitCreatorThread = (HANDLE)-1; // Used to Syncronize creation of a new thread
-HANDLE  ghevWaitNewThread = (HANDLE)-1;     // Used to Syncronize creation of a new thread
+
 
 BOOL    fWowMode = FALSE;   // Flag used to determine wow mode.
                 // currently defaults to FALSE (real mode wow)
@@ -103,27 +112,72 @@ DWORD  dwSharedProcessOffset;
 HANDLE hWOWHeap;
 HANDLE ghProcess;       // WOW Process Handle
 PFNWOWHANDLERSOUT pfnOut;
-DWORD  fThunklstrcmp;   // used as a BOOL
+PTD *  pptdWOA = NULL;
+PTD    gptdShell = NULL;
+DWORD  fThunkStrRtns;           // used as a BOOL
+BOOL   gfDebugExceptions = FALSE;  // set to 1 in debugger to
+                                   // enable debugging of W32Exception
+BOOL   gfIgnoreInputAssertGiven = FALSE;
 
 #ifndef _X86_
 PUCHAR IntelMemoryBase;  // Start of emulated CPU's memory
 #endif
 
 
-INT     SecondTime = 0;
-USHORT  gDebugButton = 0;
 DWORD   gpsi = 0;
 
 #define TOOLONGLIMIT     _MAX_PATH
 #define WARNINGMSGLENGTH 255
-static char szCauseException[WARNINGMSGLENGTH];
-static char szChooseClose[WARNINGMSGLENGTH];
-static char szChooseCancel[WARNINGMSGLENGTH];
-static char szChooseIgnore[WARNINGMSGLENGTH];
-static char szApplicationError[WARNINGMSGLENGTH];
+
+PSZ aszCriticalStrings[CRITICAL_STRING_COUNT];
+
+char szEmbedding[] =        "embedding";
+char szDevices[] =          "devices";
+char szBoot[] =             "boot";
+char szShell[] =            "shell";
+char szServerKey[] =        "protocol\\StdFileEditing\\server";
+char szPicture[] =          "picture";
+char szPostscript[] =       "postscript";
+char szZapfDingbats[] =     "ZAPFDINGBATS";
+char szZapf_Dingbats[] =    "ZAPF DINGBATS";
+char szSymbol[] =           "SYMBOL";
+char szTmsRmn[] =           "TMS RMN";
+char szHelv[] =             "HELV";
+char szMavisCourier[]=      "MAVIS BEACON COURIER FP";
+char szWinDotIni[] =        "win.ini";
+char szSystemDotIni[] =     "system.ini";
+char szExplorerDotExe[] =   "Explorer.exe";
+char szDrWtsn32[] =         "drwtsn32";
+PSTR pszWinIniFullPath;
+PSTR pszWindowsDirectory;
+PSTR pszSystemDirectory;
 
 extern BOOL GdiReserveHandles(VOID);
 extern CRITICAL_SECTION VdmLoadCritSec;
+extern LIST_ENTRY TimerList;
+
+extern PVOID GdiQueryTable();
+extern PVOID gpGdiHandleInfo;
+
+#if defined (_X86_)
+
+extern PVOID WowpLockPrefixTable;
+
+IMAGE_LOAD_CONFIG_DIRECTORY _load_config_used = {
+    0,                          // Reserved
+    0,                          // Reserved
+    0,                          // Reserved
+    0,                          // Reserved
+    0,                          // GlobalFlagsClear
+    0,                          // GlobalFlagsSet
+    0,                          // CriticalSectionTimeout (milliseconds)
+    0,                          // DeCommitFreeBlockThreshold
+    0,                          // DeCommitTotalFreeThreshold
+    &WowpLockPrefixTable,       // LockPrefixTable, defined in FASTWOW.ASM
+    0, 0, 0, 0, 0, 0, 0         // Reserved
+};
+
+#endif
 
 BOOLEAN
 W32DllInitialize(
@@ -134,12 +188,12 @@ W32DllInitialize(
 
 /*++
 
-Routine Description:
-
+Routine Description:  DllMain function called during ntvdm's
+                      LoadLibrary("wow32")
 
 Arguments:
 
-    DllHandle - Not Used
+    DllHandle - set global hmodWOW32
 
     Reason - Attach or Detach
 
@@ -152,9 +206,9 @@ Return Value:
 --*/
 
 {
-    CHAR AeDebuggerCmdLine[256];
-
     UNREFERENCED_PARAMETER(Context);
+
+    hmodWOW32 = DllHandle;
 
     switch ( Reason ) {
 
@@ -171,7 +225,7 @@ Return Value:
 
         // initialize hook stubs data.
 
-        W32InitHookState((HANDLE)DllHandle);
+        W32InitHookState(hmodWOW32);
 
         // initialize the thunk table offsets.  do it here so the debug process
         // gets them.
@@ -188,48 +242,24 @@ Return Value:
         // Load Critical Error Strings
         //
 
-        LoadString(DllHandle, iszCauseException, (LPSTR)szCauseException , WARNINGMSGLENGTH);
-        LoadString(DllHandle,iszChooseClose , (LPSTR)szChooseClose , WARNINGMSGLENGTH);
-        LoadString(DllHandle,iszChooseCancel , (LPSTR)szChooseCancel , WARNINGMSGLENGTH);
-        LoadString(DllHandle,iszChooseIgnore , (LPSTR)szChooseIgnore , WARNINGMSGLENGTH);
-        LoadString(DllHandle,iszApplicationError , (LPSTR)szApplicationError , WARNINGMSGLENGTH);
-
-        // Figure Out Debugger Info
-
-        if ( GetProfileString(
-                    "AeDebug",
-                    "Debugger",
-                    NULL,
-                    AeDebuggerCmdLine,
-                    sizeof(AeDebuggerCmdLine)-1
-                    ) ) {
-                gDebugButton = SEB_CANCEL;
-        } else {
-                gDebugButton = 0;
+        if (!LoadCriticalStringResources()) {
+            MessageBox(NULL, "The Win16 subsystem could not load critical string resources from wow32.dll, terminating.",
+                       "Win16 subsystem load failure", MB_ICONEXCLAMATION | MB_OK);
         }
 
+        //
+        // setup the GDI table for handle conversion
+        //
+
+        gpGdiHandleInfo = GdiQueryTable();
+
+        W32EWExecer();
+
+        InitializeListHead(&TimerList);
         break;
 
     case DLL_THREAD_ATTACH:
-        {
-            // Are we being run under a debugger ?
-
-            fDebugged = IsDebuggerAttached();
-
-            if ( fDebugged && vpDebugWOW != 0 ) {
-                LPBYTE  lpDebugWOW;
-
-                // Set the debug bit in the 16-bit world
-
-                GETVDMPTR(vpDebugWOW, 1, lpDebugWOW);
-
-                *lpDebugWOW |= 1;
-
-                FREEVDMPTR(lpDebugWOW);
-
-                DBGNotifyDebugged( TRUE );
-            }
-        }
+        IsDebuggerAttached();   // Yes, this routine has side-effects.
         break;
 
     case DLL_THREAD_DETACH:
@@ -252,6 +282,170 @@ Return Value:
 }
 
 
+BOOLEAN
+LoadCriticalStringResources(
+    void
+    )
+
+/*++
+
+Routine Description:  Loads strings we want around even if we can't allocate
+                      memory.  Called during wow32 DLL load.
+
+Arguments:
+
+    none
+
+Return Value:
+
+    TRUE if all strings loaded and aszCriticalStrings initialized.
+
+--*/
+
+{
+    int n;
+    PSZ psz, pszStringBuffer;
+    DWORD cbTotal;
+    DWORD cbUsed;
+    DWORD cbStrLen;
+
+    //
+    // Allocate too much memory for strings (maximum possible) at first,
+    // reallocate to the real size when we're done loading strings.
+    //
+
+    cbTotal = CRITICAL_STRING_COUNT * CCH_MAX_STRING_RESOURCE;
+
+    psz = pszStringBuffer = malloc_w(cbTotal);
+
+    if ( ! psz ) {
+        return FALSE;
+    }
+
+    cbUsed = 0;
+
+    for ( n = 0; n < CRITICAL_STRING_COUNT; n++ ) {
+
+        //
+        // LoadString return value doesn't count null terminator.
+        //
+
+        cbStrLen = LoadString(hmodWOW32, n, psz, CCH_MAX_STRING_RESOURCE);
+
+        if ( ! cbStrLen ) {
+            return FALSE;
+        }
+
+        aszCriticalStrings[n] = psz;
+
+        psz += cbStrLen + 1;
+        cbUsed += cbStrLen + 1;
+
+    }
+
+    realloc_w(pszStringBuffer, cbUsed, HEAP_REALLOC_IN_PLACE_ONLY);
+
+    return TRUE;
+}
+
+
+//***************************************************************************
+// Continues ExitWindowsExec api call after logoff and subsequent logon
+// Uses Events to synchronize across all wow vdms
+//
+//***************************************************************************
+
+BOOL W32EWExecer(VOID)
+{
+    STARTUPINFO StartupInfo;
+    PROCESS_INFORMATION ProcessInformation;
+    BOOL CreateProcessStatus;
+    BYTE abT[REGISTRY_BUFFER_SIZE];
+
+    if (W32EWExecData(EWEXEC_QUERY, (LPSTR)abT, sizeof(abT))) {
+        HANDLE hevT;
+        if (hevT = CreateEvent(NULL, TRUE, FALSE, WOWSZ_EWEXECEVENT)) {
+            if (GetLastError() == 0) {
+                W32EWExecData(EWEXEC_DEL, (LPSTR)NULL, 0);
+
+                LOGDEBUG(0, ("WOW:Execing dos app -  %s\r\n", abT));
+                RtlZeroMemory((PVOID)&StartupInfo, (DWORD)sizeof(StartupInfo));
+                StartupInfo.cb = sizeof(StartupInfo);
+                StartupInfo.dwFlags = STARTF_USESHOWWINDOW;
+                StartupInfo.wShowWindow = SW_NORMAL;
+
+                CreateProcessStatus = CreateProcess(
+                                        NULL,
+                                        abT,
+                                        NULL,               // security
+                                        NULL,               // security
+                                        FALSE,              // inherit handles
+                                        CREATE_NEW_CONSOLE | CREATE_DEFAULT_ERROR_MODE,
+                                        NULL,               // environment strings
+                                        NULL,               // current directory
+                                        &StartupInfo,
+                                        &ProcessInformation
+                                        );
+
+                if (CreateProcessStatus) {
+                    WaitForSingleObject(ProcessInformation.hProcess, INFINITE);
+                    CloseHandle( ProcessInformation.hProcess );
+                    CloseHandle( ProcessInformation.hThread );
+                }
+
+                SetEvent(hevT);
+            }
+            else {
+                WaitForSingleObject(hevT, INFINITE);
+            }
+
+            CloseHandle(hevT);
+        }
+    }
+    return 0;
+}
+
+//***************************************************************************
+// W32EWExecData -
+//   sets/resets the 'commandline', ie input to ExitWindowssExec api in the
+//   registry - 'WOW' key 'EWExec' value
+//
+//***************************************************************************
+
+BOOL W32EWExecData(DWORD fnid, LPSTR lpData, DWORD cb)
+{
+    BOOL bRet = FALSE;
+    BYTE abT[REGISTRY_BUFFER_SIZE];
+
+
+    switch (fnid) {
+        case EWEXEC_SET:
+            bRet = WriteProfileString(WOWSZ_EWEXECVALUE,
+                                         WOWSZ_EWEXECVALUE,
+                                           lpData);
+            break;
+
+        case EWEXEC_DEL:
+            bRet = WriteProfileString(WOWSZ_EWEXECVALUE,
+                                          NULL, NULL);
+            break;
+
+        case EWEXEC_QUERY:
+            if (bRet = GetProfileString(WOWSZ_EWEXECVALUE,
+                                           WOWSZ_EWEXECVALUE,
+                                             "", abT, sizeof(abT))) {
+                strcpy(lpData, abT);
+            }
+
+            break;
+
+        default:
+            WOW32ASSERT(FALSE);
+            break;
+    }
+    return !!bRet;
+}
+
 
 
 /* W32Init - Initialize WOW support
@@ -261,8 +455,6 @@ Return Value:
  * EXIT
  *  TRUE if successful, FALSE if not
  */
-
-#define REGISTRY_BUFFER_SIZE 512
 
 
 BOOL W32Init(VOID)
@@ -277,13 +469,7 @@ BOOL W32Init(VOID)
     DWORD dwType;
     PTD ptd;
     PFNWOWHANDLERSIN pfnIn;
-    DWORD CodePageProtections;
-    SYSTEM_BASIC_INFORMATION SystemInformation;
-    NTSTATUS Status;
-    MEMORY_BASIC_INFORMATION mbi;
-    BOOL Success;
-
-
+    LPVOID lpSharedTaskMemory;
 #ifdef _X86_
     pIntelRegisters = getIntelRegistersPointer();  // X86 Only, get pointer to Register Context Block
 #endif                                             // UP.
@@ -306,6 +492,31 @@ BOOL W32Init(VOID)
 
     ShowStartGlass(10000);
 
+    //
+    // Set up a global WindowsDirectory to be used by other WOW functions.
+    //
+
+    {
+        char szBuf[ MAX_PATH ];
+        int cb;
+
+        GetSystemDirectory(szBuf, sizeof szBuf);
+        GetShortPathName(szBuf, szBuf, sizeof szBuf);
+        cb = strlen(szBuf) + 1;
+        pszSystemDirectory = malloc_w_or_die(cb);
+        RtlCopyMemory(pszSystemDirectory, szBuf, cb);
+
+        GetWindowsDirectory(szBuf, sizeof szBuf);
+        GetShortPathName(szBuf, szBuf, sizeof szBuf);
+        cb = strlen(szBuf) + 1;
+        pszWindowsDirectory = malloc_w_or_die(cb);
+        RtlCopyMemory(pszWindowsDirectory, szBuf, cb);
+
+        pszWinIniFullPath = malloc_w_or_die(cb + 8);   // "\win.ini"
+        RtlCopyMemory(pszWinIniFullPath, szBuf, cb);
+        pszWinIniFullPath[ cb - 1 ] = '\\';
+        RtlCopyMemory(pszWinIniFullPath + cb, szWinDotIni, 8);
+    }
 
     // Give USER32 our entry points
 
@@ -326,7 +537,7 @@ BOOL W32Init(VOID)
     pfnIn.pfnLockResource = W32LockResource;
     pfnIn.pfnUnlockResource = W32UnlockResource;
     pfnIn.pfnSizeofResource = W32SizeofResource;
-    pfnIn.pfnWowWndProcEx = W32Win16WndProcEx;
+    pfnIn.pfnWowWndProcEx = (PFNWOWWNDPROCEX)W32Win16WndProcEx;
     pfnIn.pfnWowEditNextWord = W32EditNextWord;
     pfnIn.pfnWowSetFakeDialogClass = SetFakeDialogClass;
     pfnIn.pfnWowCBStoreHandle = WU32ICBStoreHandle;
@@ -337,14 +548,12 @@ BOOL W32Init(VOID)
 
     // Prepare us to be in the shared memory process list
 
-    hSharedTaskMemory = ACCESSSHARE(WOWSHAREDMEMNAME);
+    lpSharedTaskMemory = LOCKSHAREWOW();
 
-    if ( hSharedTaskMemory == NULL ) {
-        hSharedTaskMemory = ALLOCSHARE( WOWSHAREDMEMNAME,
-            sizeof(SHAREDTASKMEM) + MAX_SHARED_OBJECTS * sizeof(SHAREDMEMOBJECT) );
-        if ( hSharedTaskMemory == NULL ) {
-            LOGDEBUG(0, ("WOW32: Could not create shared memory object\n"));
-        }
+    WOW32ASSERTMSG(lpSharedTaskMemory, "WOW32: Could not access shared memory object\n");
+
+    if ( lpSharedTaskMemory ) {
+        UNLOCKSHAREWOW();
     }
 
     CleanseSharedList();
@@ -352,21 +561,14 @@ BOOL W32Init(VOID)
 
     // Allocate a Temporary TD for the first thread
 
-    CURRENTPTD() = malloc_w_or_die(sizeof(TD));
+    ptd = CURRENTPTD() = malloc_w_or_die(sizeof(TD));
 
-    ptd = CURRENTPTD();
-    ptd->htask16 = 0;
-    ptd->gfIgnoreInput = FALSE;
+    RtlZeroMemory(ptd, sizeof(*ptd));
 
     // Create Global Wait Event - Used During Task Creation To Syncronize with New Thread
 
-    if (!(ghevWaitCreatorThread = CreateEvent(NULL, TRUE, FALSE, NULL))) {
-        LOGDEBUG(0,("    W32INIT ERROR: event allocation failure\n"));
-        return FALSE;
-    }
-
-    if (!(ghevWaitNewThread = CreateEvent(NULL, TRUE, FALSE, NULL))) {
-        LOGDEBUG(0,("    W32INIT ERROR: event allocation failure\n"));
+    if (!(ghevWaitCreatorThread = CreateEvent(NULL, FALSE, FALSE, NULL))) {
+        LOGDEBUG(0,("    W32INIT ERROR: event creation failure\n"));
         return FALSE;
     }
 
@@ -381,12 +583,16 @@ BOOL W32Init(VOID)
         return FALSE;
     }
 
-    cb = sizeof(fThunklstrcmp);
+    //
+    // If present (it usually isn't) read ThunkNLS value entry.
+    //
+
+    cb = sizeof(fThunkStrRtns);
     if (RegQueryValueEx(WowKey,
-            "fastlstrcmp",
+            "ThunkNLS",
             NULL,
             &dwType,
-            &fThunklstrcmp,
+            (LPBYTE) &fThunkStrRtns,
             &cb) || dwType != REG_DWORD) {
 
         //
@@ -395,22 +601,11 @@ BOOL W32Init(VOID)
         // US.
         //
 
-        fThunklstrcmp = GetSystemDefaultLCID() !=
+        fThunkStrRtns = GetSystemDefaultLCID() !=
                             MAKELCID(
                                 MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US),
                                 SORT_DEFAULT
                                 );
-    } else {
-
-         //
-         // We read the fastlstrcmp value, but the global fThunklstrcmp
-         // is the logical opposite, since it's faster to not thunk.
-         //
-
-         fThunklstrcmp = !fThunklstrcmp;
-
-         LOGDEBUG(0,("W32Init: will %sthunk lstrcmp & lstrcmpi.\n",
-                     fThunklstrcmp ? "" : "not "));
     }
 
 #ifdef DEBUG
@@ -485,6 +680,20 @@ BOOL W32Init(VOID)
 
     RegCloseKey (WowKey);
 
+    // 
+    // Initialize list of app names known to be setup applications
+    //
+    //
+
+    W32InitWOWSetupNames();
+
+    //
+    // Initialize param mapping cache
+    //
+    //
+
+    InitParamMap();
+
     //
     // Set our GDI batching limit from win.ini.  This is useful for SGA and
     // other performance measurements which require each API to do its own
@@ -512,82 +721,12 @@ BOOL W32Init(VOID)
                                         );
     }
 
-    //
-    // Put lock prefixes in appropriate places in fastwow in MP machine.
-    // N.B. --
-    //      fastwow will function incorrectly without lock prefixes on
-    //      an MP machine.  If we cannot get the number of processors,
-    //      we have to assume an MP machine.
-    //
-
-#if defined(i386)
-    Status = NtQuerySystemInformation(
-        SystemBasicInformation,
-        &SystemInformation,
-        sizeof(SystemInformation),
-        NULL
-        );
-
-    if (!NT_SUCCESS(Status) || (SystemInformation.NumberOfProcessors > 1)) {
-
-#if DBG
-        if (!NT_SUCCESS(Status)) {
-            LOGDEBUG(LOG_ALWAYS, ("W32INIT Error: Could not get number of processors. Assuming > 1\n"));
-        }
-#endif
-        LOGDEBUG(2,("W32INIT: Running on an MP system.  Installing lock prefixes\n"))
-        //
-        // Figure out how much memory to make readwrite
-        //
-        if (VirtualQuery(&FixLocks, &mbi, sizeof(mbi)) == 0) {
-            LOGDEBUG(0, ("W32INIT Error: Couldn't query page permissions\n"));
-            return FALSE;
-        }
-
-        //
-        // Change the page permissions
-        //
-        Success = VirtualProtect(
-            mbi.AllocationBase,
-            mbi.RegionSize + (ULONG)mbi.BaseAddress - (ULONG)mbi.AllocationBase,
-            PAGE_READWRITE,
-            &CodePageProtections
-            );
-
-        if (!Success) {
-            LOGDEBUG(0, ("W32INIT Error: Couldn't change page permissions\n"));
-            return FALSE;
-        }
-
-        //
-        // put in the lock prefixes
-        //
-        FixLocks();
-
-        Success = VirtualProtect(
-            mbi.AllocationBase,
-            mbi.RegionSize + (ULONG)mbi.BaseAddress - (ULONG)mbi.AllocationBase,
-            CodePageProtections,
-            &CodePageProtections
-            );
-
-        if (!Success) {
-            LOGDEBUG(0, ("W32INIT Error: Couldn't restore page permmisions\n"));
-        }
-
-    }
-#endif
-
     ghProcess = NtCurrentProcess();
-
-    // Are we being run under a debugger ?
-
-    fDebugged = IsDebuggerAttached();
 
 #ifdef DEBUG
 
 #ifdef i386
-    if (fDebugged) {
+    if (IsDebuggerAttached()) {
         if (GetProfileInt("WOWDebug", "debugbreaks", 0))
             *pNtVDMState |= VDM_BREAK_DEBUGGER;
 
@@ -597,7 +736,7 @@ BOOL W32Init(VOID)
 #endif
 
 
-    if ((fDebugged) && (flOptions & OPT_BREAKONNEWTASK)) {
+    if (IsDebuggerAttached() && (flOptions & OPT_BREAKONNEWTASK)) {
         OutputDebugString("\nW32Init - Initialization Complete, Set any Breakpoints Now, type g to continue\n\n");
         DbgBreakPoint();
     }
@@ -646,7 +785,9 @@ INT   iFuncId = 0;
 
 /* WOW32UnimplementedAPI - Error Thunk is Not Implemented
  *
- * All Function tables point here for unimplemented APIs
+ * Stub thunk table entry for all unimplemented APIs on
+ * the checked build, and on the free build NOPAPI and
+ * LOCALAPI entries point here as well.
  *
  * ENTRY
  *
@@ -657,20 +798,26 @@ INT   iFuncId = 0;
 ULONG FASTCALL WOW32UnimplementedAPI(PVDMFRAME pFrame)
 {
 #ifdef DEBUG
-    INT iFun;
+    INT  iFun;
 
-    iFun = GetFuncId(pFrame->wCallID);
-    LOGDEBUG(0,("Error - %s: Function %i %s not implemented\n",GetModName(iFun), GetOrdinal(iFun), aw32WOW[iFun].lpszW32));
-    if ((fDebugged) && (flOptions & OPT_DEBUG)) {
-        DbgBreakPoint();
-    }
+    iFun = pFrame->wCallID;
+
+    WOW32ASSERTMSGF (FALSE, ("WOW32 Error - %s: Function %i %s not implemented\n",
+        GetModName(iFun),
+        GetOrdinal(iFun),
+        aw32WOW[iFun].lpszW32
+        ));
+
 #else
     UNREFERENCED_PARAMETER(pFrame);
 #endif
     return FALSE;
 }
 
-/* WOW32NopAPI - Thunk to do nothing
+
+#ifdef DEBUG
+
+/* WOW32NopAPI - Thunk to do nothing - checked build only.
  *
  * All Function tables point here for APIs which should do nothing.
  *
@@ -680,23 +827,20 @@ ULONG FASTCALL WOW32UnimplementedAPI(PVDMFRAME pFrame)
  *
  */
 
-#ifdef DEBUG
-
 ULONG FASTCALL WOW32NopAPI(PVDMFRAME pFrame)
 {
-#ifdef DEBUG
     INT iFun;
 
-    iFun = GetFuncId(pFrame->wCallID);
-    LOGDEBUG(4,("%s: Function %i %s is nop'd\n", GetModName(iFun), GetOrdinal(iFun), aw32WOW[iFun].lpszW32));
-#else
-    UNREFERENCED_PARAMETER(pFrame);
-#endif
+    iFun = pFrame->wCallID;
+
+    LOGDEBUG(4,("%s: Function %i %s is NOP'd\n", GetModName(iFun), GetOrdinal(iFun), aw32WOW[iFun].lpszW32));
+
     return FALSE;
 }
 
 
 /* WOW32LocalAPI - ERROR Should Have Been Handled in 16 BIT
+ *                Checked build only
  *
  * All Function tables point here for Local API Error Messages
  *
@@ -710,21 +854,21 @@ ULONG FASTCALL WOW32NopAPI(PVDMFRAME pFrame)
 
 ULONG FASTCALL WOW32LocalAPI(PVDMFRAME pFrame)
 {
-#ifdef DEBUG
-    INT iFun;
+    INT  iFun;
 
-    iFun = GetFuncId(pFrame->wCallID);
-    LOGDEBUG(0,("Error - %s: Function %i %s should be thunked locally\n", GetModName(iFun), GetOrdinal(iFun), aw32WOW[iFun].lpszW32));
-    if ((fDebugged) && (flOptions & OPT_DEBUG)) {
-        DbgBreakPoint();
-    }
-#else
-    UNREFERENCED_PARAMETER(pFrame);
-#endif
+    iFun = pFrame->wCallID;
+
+    WOW32ASSERTMSGF (FALSE, ("Error - %s: Function %i %s should be handled by 16-bit code\n",
+        GetModName(iFun),
+        GetOrdinal(iFun),
+        aw32WOW[iFun].lpszW32
+        ));
+
     return FALSE;
 }
 
-#endif
+#endif // DEBUG
+
 
 LPFNW32 FASTCALL W32PatchCodeWithLpfnw32(PVDMFRAME pFrame , INT iFun )
 {
@@ -733,7 +877,18 @@ LPFNW32 FASTCALL W32PatchCodeWithLpfnw32(PVDMFRAME pFrame , INT iFun )
     LPBYTE lpCode;
 
 #ifdef DEBUG_OR_WOWPROFILE
-    if (flOptions & OPT_DONTPATCHCODE) {
+    //
+    // On checked builds do not patch calls to the three special
+    // thunks above, since many entries will point to each one,
+    // the routines could not easily distinguish which 16-bit
+    // entrypoint was called.
+    //
+
+    if (flOptions & OPT_DONTPATCHCODE ||
+        aw32WOW[iFun].lpfnW32 == WOW32UnimplementedAPI ||
+        aw32WOW[iFun].lpfnW32 == WOW32NopAPI ||
+        aw32WOW[iFun].lpfnW32 == WOW32LocalAPI ) {
+
         return aw32WOW[iFun].lpfnW32;
     }
 #endif
@@ -835,7 +990,7 @@ VOID W32Dispatch()
         ptd->vpStack = vpCurrentStack;              // Save 16 bit ss:sp
 
         WOW32ASSERT( FIELD_OFFSET(TD,vpStack) == 0 );
-        WOW32ASSERT( FIELD_OFFSET(TEB,UserReserved[0]) == 0x708 );
+        WOW32ASSERT( FIELD_OFFSET(TEB,WOW32Reserved) == 0xC0 );
 
         iFun = pFrame->wCallID;
 
@@ -848,7 +1003,7 @@ VOID W32Dispatch()
         if (ISFUNCID(iFun)) {
 #ifdef DEBUG
             if (cAPIThunks && iFunT >= cAPIThunks) {
-                LOGDEBUG(LOG_ALWAYS,("W32Dispatch: Task %4.4x thunked to function %d, cAPIThunks = %d.\n",
+                LOGDEBUG(LOG_ALWAYS,("W32Dispatch: Task %04x thunked to function %d, cAPIThunks = %d.\n",
                          iWOWTaskCur, iFunT, cAPIThunks));
                 WOW32ASSERT(FALSE);
             }
@@ -1011,30 +1166,138 @@ INT W32Exception(DWORD dwException, PEXCEPTION_POINTERS pexi)
     PVDMFRAME pFrame;
 
     DWORD   dwButtonPushed;
-    char    szModName[9];
+    char    szTask[9];
+    HMODULE hModule;
+    char    szModule[_MAX_PATH + 1];
+    PSZ     pszModuleFilePart;
+    PSZ     pszErrorFormatString;
     char    szErrorMessage[TOOLONGLIMIT + 4*WARNINGMSGLENGTH];
+    char    szDialogText[TOOLONGLIMIT + 4*WARNINGMSGLENGTH];
     PTDB    pTDB;
+    NTSTATUS Status;
+    HANDLE DebugPort;
+    PRTL_CRITICAL_SECTION PebLockPointer;
+    CHAR AeDebuggerCmdLine[256];
+    CHAR AeAutoDebugString[8];
+    BOOL AeAutoDebug;
+    WORD wDebugButton;
 
-#ifdef DEBUG
-    //
-    // If we hit a WOW32 assertion on a checked build and there's
-    // not already a debugger attached, attach ntsd to ourselves
-    // and then reflect the exception to it.
-    //
 
-    if (EXCEPTION_WOW32_ASSERTION == dwException) {
-        StartDebuggerForWow();
-        return EXCEPTION_CONTINUE_SEARCH;
-    }
-#endif
+    if (!gfDebugExceptions) {
 
-    SecondTime++;
+        //
+        // If the process is being debugged, just let the exception happen
+        // so that the debugger can see it. This way the debugger can ignore
+        // all first chance exceptions.
+        //
 
-    if ( SecondTime > 1) {
-        if (SecondTime == 3) {
-            SecondTime = 0;
+        DebugPort = (HANDLE)NULL;
+        Status = NtQueryInformationProcess(
+                    GetCurrentProcess(),
+                    ProcessDebugPort,
+                    (PVOID)&DebugPort,
+                    sizeof(DebugPort),
+                    NULL
+                    );
+
+        if ( NT_SUCCESS(Status) && DebugPort) {
+
+            //
+            // Process is being debugged.
+            // Return a code that specifies that the exception
+            // processing is to continue
+            //
+            return EXCEPTION_CONTINUE_SEARCH;
         }
-        return EXCEPTION_CONTINUE_SEARCH;
+    }
+
+
+    //
+    // NtClose can raise exceptions if NtGlobalFlag is set for it.
+    // We want to ignore these exceptions if we're not being debugged,
+    // since the errors will be returned from the APIs and we generally
+    // don't have control over what handles the app closes.  (Well, that's
+    // not true for file I/O, but it is true for RegCloseKey.)
+    //
+
+    if (STATUS_INVALID_HANDLE == dwException ||
+        STATUS_HANDLE_NOT_CLOSABLE == dwException) {
+
+        return EXCEPTION_CONTINUE_EXECUTION;
+    }
+
+    //
+    // See if a debugger has been programmed in. If so, use the
+    // debugger specified. If not then there is no AE Cancel support
+    // DEVL systems will default the debugger command line. Retail
+    // systems will not.
+    //
+    // The above paragraph was copied from the system exception
+    // popup in base.  It is no longer true.  On retail systems,
+    // AeDebug.Auto is set to 1 and AeDebug.Debugger is
+    // "drwtsn32 -p %ld -e %ld -g".
+    //
+    // This means if we support AeDebug for stress, customers don't see
+    // our exception popup and misalignment handling -- instead they get
+    // a nearly-useless drwtsn32.log and popup.
+    //
+    // SO, we check for this situation and act as if no debugger was
+    // enabled.
+    //
+
+    wDebugButton = 0;
+    AeAutoDebug = FALSE;
+
+    //
+    // If we are holding the PebLock, then the createprocess will fail
+    // because a new thread will also need this lock. Avoid this by peeking
+    // inside the PebLock and looking to see if we own it. If we do, then just allow
+    // a regular popup.
+    //
+
+    PebLockPointer = NtCurrentPeb()->FastPebLock;
+
+    if ( PebLockPointer->OwningThread != NtCurrentTeb()->ClientId.UniqueThread ) {
+
+        try {
+            if ( GetProfileString(
+                    "AeDebug",
+                    "Debugger",
+                    NULL,
+                    AeDebuggerCmdLine,
+                    sizeof(AeDebuggerCmdLine)-1
+                    ) ) {
+                wDebugButton = SEB_CANCEL;
+
+                if ( GetProfileString(
+                        "AeDebug",
+                        "Auto",
+                        "0",
+                        AeAutoDebugString,
+                        sizeof(AeAutoDebugString)-1
+                        ) ) {
+
+                    if ( !strcmp(AeAutoDebugString,"1") ) {
+                        AeAutoDebug = TRUE;
+                    }
+                }
+            }
+
+        } except (EXCEPTION_EXECUTE_HANDLER) {
+            wDebugButton = 0;
+            AeAutoDebug = FALSE;
+        }
+    }
+
+    //
+    // See comment above about drwtsn32
+    //
+
+    if (AeAutoDebug &&
+        !_strnicmp(AeDebuggerCmdLine, szDrWtsn32, (sizeof szDrWtsn32) - 1)) {
+
+        wDebugButton = 0;
+        AeAutoDebug = FALSE;
     }
 
     ptd = CURRENTPTD();
@@ -1043,56 +1306,196 @@ INT W32Exception(DWORD dwException, PEXCEPTION_POINTERS pexi)
     pTDB = (PVOID)SEGPTR(ptd->htask16,0);
 
     //
-    // BUGBUG  - can the app recover if the exception frame is
-    //           way up at W32Thread?
+    // Get a zero-terminated copy of the Win16 task name.
     //
 
-    RtlZeroMemory(szModName, sizeof(szModName));
-    RtlCopyMemory(szModName, pTDB->TDB_ModName, sizeof(szModName)-1);
+    RtlZeroMemory(szTask, sizeof(szTask));
+    RtlCopyMemory(szTask, pTDB->TDB_ModName, sizeof(szTask)-1);
 
-    if (gDebugButton == SEB_CANCEL) {
+    //
+    // Translate exception address to module name in szModule.
+    //
 
-        wsprintf(szErrorMessage,
-                 "%s %s\n%s\n%s\n%s\n",
-                 szModName,
-                 szCauseException,
-                 szChooseClose,
-                 szChooseCancel,
-                 szChooseIgnore
-                 );
+    strcpy(szModule, CRITSTR(TheWin16Subsystem));
+    RtlPcToFileHeader(pexi->ExceptionRecord->ExceptionAddress, (PVOID *)&hModule);
+    GetModuleFileName(hModule, szModule, sizeof(szModule));
+    pszModuleFilePart = strrchr(szModule, '\\');
+    if (pszModuleFilePart) {
+        pszModuleFilePart++;
+    } else {
+        pszModuleFilePart = szModule;
+    }
+
+
+    //
+    // Format error message into szErrorMessage
+    //
+
+    switch (dwException) {
+
+        case EXCEPTION_ACCESS_VIOLATION:
+            pszErrorFormatString = CRITSTR(CausedAV);
+            break;
+
+        case EXCEPTION_STACK_OVERFLOW:
+            pszErrorFormatString = CRITSTR(CausedStackOverflow);
+            break;
+
+        case EXCEPTION_DATATYPE_MISALIGNMENT:
+            pszErrorFormatString = CRITSTR(CausedAlignmentFault);
+            break;
+
+        case EXCEPTION_ILLEGAL_INSTRUCTION:
+        case EXCEPTION_PRIV_INSTRUCTION:
+            pszErrorFormatString = CRITSTR(CausedIllegalInstr);
+            break;
+
+        case EXCEPTION_IN_PAGE_ERROR:
+            pszErrorFormatString = CRITSTR(CausedInPageError);
+            break;
+
+        case EXCEPTION_INT_DIVIDE_BY_ZERO:
+            pszErrorFormatString = CRITSTR(CausedIntDivideZero);
+            break;
+
+        case EXCEPTION_FLT_DENORMAL_OPERAND:
+        case EXCEPTION_FLT_DIVIDE_BY_ZERO:
+        case EXCEPTION_FLT_INEXACT_RESULT:
+        case EXCEPTION_FLT_INVALID_OPERATION:
+        case EXCEPTION_FLT_OVERFLOW:
+        case EXCEPTION_FLT_STACK_CHECK:
+        case EXCEPTION_FLT_UNDERFLOW:
+            pszErrorFormatString = CRITSTR(CausedFloatException);
+
+        default:
+            pszErrorFormatString = CRITSTR(CausedException);
+    }
+
+    wsprintf(szErrorMessage,
+             pszErrorFormatString,
+             szTask,
+             pszModuleFilePart,
+             pexi->ExceptionRecord->ExceptionAddress,
+             dwException
+             );
+
+    LOGDEBUG(LOG_ALWAYS, ("W32Exception:\n%s\n",szErrorMessage));
+
+    //
+    // Format dialog text into szDialogText and display.
+    //
+
+    if (AeAutoDebug) {
+
+        dwButtonPushed = 2;
+
     } else {
 
-        wsprintf(szErrorMessage,
-                 "%s %s\n%s\n%s\n",
-                 szModName,
-                 szCauseException,
-                 szChooseClose,
-                 szChooseIgnore
-                 );
+        if (wDebugButton == SEB_CANCEL) {
+
+            wsprintf(szDialogText,
+                     "%s\n%s\n%s\n%s\n",
+                     szErrorMessage,
+                     CRITSTR(ChooseClose),
+                     CRITSTR(ChooseCancel),
+                     (dwException == EXCEPTION_DATATYPE_MISALIGNMENT)
+                         ? CRITSTR(ChooseIgnoreAlignment)
+                         : CRITSTR(ChooseIgnore)
+                     );
+        } else {
+
+            wsprintf(szDialogText,
+                     "%s\n%s\n%s\n",
+                     szErrorMessage,
+                     CRITSTR(ChooseClose),
+                     (dwException == EXCEPTION_DATATYPE_MISALIGNMENT)
+                         ? CRITSTR(ChooseIgnoreAlignment)
+                         : CRITSTR(ChooseIgnore)
+                     );
+
+        }
+
+        dwButtonPushed = WOWSysErrorBox(
+                CRITSTR(ApplicationError),
+                szDialogText,
+                SEB_CLOSE,
+                wDebugButton,
+                SEB_IGNORE | SEB_DEFBUTTON
+                );
+
     }
 
-    LOGDEBUG(0,("W32Exception:\n%s\n",szErrorMessage));
-
-    dwButtonPushed = WOWSysErrorBox(
-            szApplicationError,
-            szErrorMessage,
-            SEB_CLOSE,
-            gDebugButton,
-            SEB_IGNORE | SEB_DEFBUTTON
-            );
-
-    // If CANCEL is chosen Launch Debugger by continueing excpetion to BASE
-    // handler.
+    //
+    // If CANCEL is chosen Launch Debugger.
+    //
 
     if (dwButtonPushed == 2) {
-        return EXCEPTION_CONTINUE_SEARCH;
+
+        BOOL b;
+        STARTUPINFO StartupInfo;
+        PROCESS_INFORMATION ProcessInformation;
+        CHAR CmdLine[256];
+        NTSTATUS Status;
+        HANDLE EventHandle;
+        SECURITY_ATTRIBUTES sa;
+
+        sa.nLength = sizeof(sa);
+        sa.lpSecurityDescriptor = NULL;
+        sa.bInheritHandle = TRUE;
+        EventHandle = CreateEvent(&sa,TRUE,FALSE,NULL);
+        RtlZeroMemory(&StartupInfo,sizeof(StartupInfo));
+        sprintf(CmdLine,AeDebuggerCmdLine,GetCurrentProcessId(),EventHandle);
+        StartupInfo.cb = sizeof(StartupInfo);
+        StartupInfo.lpDesktop = "Winsta0\\Default";
+        CsrIdentifyAlertableThread();
+        b =  CreateProcess(
+                NULL,
+                CmdLine,
+                NULL,
+                NULL,
+                TRUE,
+                0,
+                NULL,
+                NULL,
+                &StartupInfo,
+                &ProcessInformation
+                );
+
+        if ( b && EventHandle) {
+
+            //
+            // Do an alertable wait on the event
+            //
+
+            Status = NtWaitForSingleObject(
+                        EventHandle,
+                        TRUE,
+                        NULL
+                        );
+            return EXCEPTION_CONTINUE_SEARCH;
+
+        } else {
+
+            LOGDEBUG(0, ("W32Exception unable to start debugger.\n"));
+            goto KillTask;
+        }
     }
 
-    SecondTime = 0;
-
-    // If IGNORE is chosen just fail the API and continue
+    //
+    // If IGNORE is chosen and it's an EXCEPTION_DATATYPE_MISALIGNMENT,
+    // turn on software emulation of misaligned access and restart the
+    // faulting instruction.  Otherwise,  just fail the API and continue.
+    //
 
     if (dwButtonPushed == 3) {
+
+        if (dwException == EXCEPTION_DATATYPE_MISALIGNMENT) {
+            SetErrorMode(SEM_NOALIGNMENTFAULTEXCEPT);
+            LOGDEBUG(0, ("W32Exception disabling alignment fault exceptions at user's request.\n"));
+            return EXCEPTION_CONTINUE_EXECUTION;
+        }
+
+        LOGDEBUG(0, ("W32Exception ignoring at user's request via EXCEPTION_EXECUTE_HANDLER\n"));
         return EXCEPTION_EXECUTE_HANDLER;
     }
 
@@ -1101,10 +1504,11 @@ INT W32Exception(DWORD dwException, PEXCEPTION_POINTERS pexi)
     // force just the task to die.
     //
 
+KillTask:
+    LOGDEBUG(0, ("W32Exception killing task via RET_FORCETASKEXIT\n"));
     GETFRAMEPTR(ptd->vpStack, pFrame);
     pFrame->wRetID = RET_FORCETASKEXIT;
     return EXCEPTION_EXECUTE_HANDLER;
-
 
 }
 
@@ -1173,7 +1577,7 @@ Return Value:
     } else {
 
         fKernelDebuggerEnabled = FALSE;
-        LOGDEBUG(0,("StartDebuggerForWow: NtQuerySystemInformation(kdinfo) returns 0x%8.8x, return length 0x%8.8x.\n",
+        LOGDEBUG(0,("StartDebuggerForWow: NtQuerySystemInformation(kdinfo) returns 0x%8.8x, return length 0x%08x.\n",
                     Status, ulReturnLength));
 
     }
@@ -1192,7 +1596,7 @@ Return Value:
     // Build debugger command line.
     //
 
-    sprintf(szCmdLine, "ntsd %s -p %lu -e %lu -g",
+    wsprintf(szCmdLine, "ntsd %s -p %lu -e %lu -g",
             fKernelDebuggerEnabled ? "-d" : "",
             GetCurrentProcessId(),
             hEvent
@@ -1240,7 +1644,9 @@ BOOL IsDebuggerAttached(VOID)
 
 Routine Description:
 
-    Checks to see if there's a debugger attached to WOW.
+    Checks to see if there's a debugger attached to WOW.  If there is,
+    this routine also turns on a bit in the 16-bit kernel's DS so it
+    can do its part to report debug events.
 
 Arguments:
 
@@ -1254,18 +1660,53 @@ Return Value:
 --*/
 
 {
-    NTSTATUS Status;
-    HANDLE   MyDebugPort;
+    NTSTATUS     Status;
+    HANDLE       MyDebugPort;
+    LPBYTE       lpDebugWOW;
+    static BOOL  fDebuggerAttached = FALSE;
+    static BOOL  fKernel16Notified = FALSE;
 
-    Status = NtQueryInformationProcess(
-                 NtCurrentProcess(),
-                 ProcessDebugPort,
-                 (PVOID)&MyDebugPort,
-                 sizeof(MyDebugPort),
-                 NULL
-                 );
+    //
+    // Don't bother checking if we already have been told that
+    // there is a debugger attached, since debuggers cannot detach.
+    //
 
-    return (NT_SUCCESS(Status) && MyDebugPort);
+    if (!fDebuggerAttached) {
+
+        //
+        // Query our ProcessDebugPort, if it is nonzero we have
+        // a debugger attached.
+        //
+
+        Status = NtQueryInformationProcess(
+                     NtCurrentProcess(),
+                     ProcessDebugPort,
+                     (PVOID)&MyDebugPort,
+                     sizeof(MyDebugPort),
+                     NULL
+                     );
+
+        fDebuggerAttached = NT_SUCCESS(Status) && MyDebugPort;
+
+    }
+
+    //
+    // If we have a debugger attached share that information
+    // with the 16-bit kernel.
+    //
+
+    if (!fKernel16Notified && fDebuggerAttached && vpDebugWOW != 0) {
+
+        GETVDMPTR(vpDebugWOW, 1, lpDebugWOW);
+        *lpDebugWOW |= 1;
+        FREEVDMPTR(lpDebugWOW);
+
+        DBGNotifyDebugged( TRUE );
+
+        fKernel16Notified = TRUE;
+    }
+
+    return fDebuggerAttached;
 }
 
 
@@ -1316,7 +1757,7 @@ GetPModeVDMPointerAssert(
 
 Routine Description:
 
-    This routine is used on checked builds only for GetPModeVDMPointer.
+    Convert a 16:16 protected mode address to the equivalent flat pointer.
 
 Arguments:
 
@@ -1329,30 +1770,78 @@ Return Value:
 --*/
 
 {
-#ifdef DEBUG         // GetPModeVDMPointerAssert function for checked builds only
+#ifdef DEBUG
     void *vp;
+#endif
 
+    //
+    // Check to see if the descriptor is marked present
+    // We assume here that ExpLdt is DWORD ALIGNED to avoid a slower
+    // unaligned access on risc.
+    //
+
+    if (!((ExpLdt)[(Address >> 18) | 1] & LDT_DESC_PRESENT)) {
+        PARM16 Parm16;
+        ULONG ul;
+
+        if ((HIWORD(Address) & STD_SELECTOR_BITS) == STD_SELECTOR_BITS) {
+            // We've determined that the selector is valid and not
+            // present. So we call over to kernel16 to have it load
+            // the selector into a segment register. This forces a
+            // segment fault, and the segment should be brought in.
+            // Note that CallBack16 also calls this routine, so we could
+            // theoretically get into an infinite recursion loop here.
+            // This could only happen if selectors like the 16-bit stack
+            // were not present, which would mean we are hosed anyway.
+            // Such a loop should terminate with a stack fault eventually.
+
+            Parm16.WndProc.lParam = (LONG) Address;
+            CallBack16(RET_FORCESEGMENTFAULT, &Parm16, 0, &ul);
+        } else {
+
+            // We come here if the address can't be resolved. A null
+            // selector is special-cased to allow for a null 16:16
+            // pointer to be passed.
+            if (HIWORD(Address)) {
+
+                LOGDEBUG(LOG_ALWAYS,("WOW::GetVDMPointer: *** Invalid 16:16 address %04x:%04x\n",
+                    HIWORD(Address), LOWORD(Address)));
+                // If we get here, then we are about to return a bogus
+                // flat pointer.
+                // I would prefer to eventually assert this, but it
+                // appears to be overactive for winfax lite.
+                //WOW32ASSERT(FALSE);
+
+            }
+
+        }
+    }
+
+
+#ifdef DEBUG
     if (vp = GetPModeVDMPointerMacro(Address, Count)) {
 
+#ifdef _X86_
         //
         // Check the selector limit on x86 only and return NULL if
         // the limit is too small.
         //
 
-// #ifdef _X86_
-#if 0
+        if (SelectorLimit &&
+            (Address & 0xFFFF) + Count > SelectorLimit[Address >> 19] + 1)
+        {
+            WOW32ASSERTMSGF (FALSE, ("WOW32 limit check assertion: %04x:%04x size %x is beyond limit %x.\n",
+                Address >> 16,
+                Address & 0xFFFF,
+                Count,
+                SelectorLimit[Address >> 19]
+                ));
 
-        if ((Address & 0xFFFF) + Count > SelectorLimit[Address >> 19] + 1) {
-            LOGDEBUG(LOG_ALWAYS,
-               ("GetPModeVDMPointer: %4.4x:%4.4x count %x is beyond limit %x.\n",
-                 Address >> 16, Address & 0xFFFF,
-                 Count, SelectorLimit[Address >> 19]));
-            WOW32ASSERT(FALSE);
-            return NULL;
+            return vp;
         }
 #endif
 
-#if 0  // this code is a paranoid check, only useful when debugging GetPModeVDMPointer.
+#if 0 // this code is a paranoid check, only useful when debugging GetPModeVDMPointer.
         if (vp != Sim32GetVDMPointer(Address, Count, TRUE)) {
             LOGDEBUG(LOG_ALWAYS,
                 ("GetPModeVDMPointer: GetPModeVDMPointerMacro(%x) returns %x, Sim32 returns %x!\n",
@@ -1365,21 +1854,11 @@ Return Value:
 
     } else {
 
-        vp = Sim32GetVDMPointer(Address, Count, TRUE);
-        if (vp) {
-            FlatAddress[Address >> 19] = (DWORD)vp - (Address & 0xFFFF);
-            LOGDEBUG(LOG_ALWAYS,("GetPModeVDMPointer for sel %4.4x using Sim32, FlatAddress[%x]=%x\n",
-                     HIWORD(Address), Address >> 19, FlatAddress[Address >> 19]));
-            return vp;
-        } else {
-            LOGDEBUG(LOG_TRACE,("GetPModeVDMPointer for sel %4.4x (base 0) returning NULL\n",
-                     HIWORD(Address)));
-            return NULL;
-        }
+        return NULL;
 
     }
 #else
-    return GetPModeVDMPointerMacro(Address, 0);
+    return GetPModeVDMPointerMacro(Address, 0);  // No limit check on free build.
 #endif // DEBUG
 }
 
@@ -1449,31 +1928,75 @@ ULONG FASTCALL W32GetFlatAddressArray( PVDMFRAME pFrame )
  *
  *
  */
-VOID DoAssert(PSZ szAssert, PSZ szModule, UINT line, UINT loglevel)
+int DoAssert(PSZ szAssert, PSZ szModule, UINT line, UINT loglevel)
 {
     INT savefloptions;
+
+    //
+    // Start a debugger for WOW if there isn't already one.
+    //
+    // Until now StartDebuggerForWow was started by
+    // the exception filter, which meant asserts on a
+    // checked build got the debugger but the user didn't see
+    // the assertion text on the debugger screen because
+    // logprintf was called before the debugger attached.
+    // -- DaveHart 31-Jan-95
+    //
+
+    StartDebuggerForWow();
 
     savefloptions = flOptions;
     flOptions |= OPT_DEBUG;         // *always* print the message
 
-    LOGDEBUG(loglevel, (szAssert, (LPSZ)szModule, line));
+    //
+    // szAssert is NULL for bare-bones WOW32ASSERT()
+    //
+
+    if (szAssert == NULL) {
+        LOGDEBUG(loglevel, ("WOW32 assertion failure: %s line %d\n", szModule, line));
+    } else {
+        LOGDEBUG(loglevel, ("%s", szAssert));
+    }
 
     flOptions = savefloptions;
 
+    if (IsDebuggerAttached()) {
 
-    if (fDebugged) {
-        DebugBreak();
+        DbgBreakPoint();
 
     } else {
-        DWORD dw;
 
-        dw = SetErrorMode(0);
-        RaiseException((DWORD)EXCEPTION_WOW32_ASSERTION, 0, 0, (LPDWORD)0);
+        DWORD dw = SetErrorMode(0);
+
+        RaiseException(EXCEPTION_WOW32_ASSERTION, 0, 0, NULL);
+
         SetErrorMode(dw);
 
+    }
+
+    return 0;
+}
 
 
-}   }
+
+/*
+ * sprintf_gszAssert
+ *
+ * Used by WOW32ASSERTMSGF to format the assertion text into
+ * a global buffer, gszAssert.  There is probably a better way.
+ *
+ * DaveHart 15-Jun-95.
+ *
+ */
+int _cdecl sprintf_gszAssert(PSZ pszFmt, ...)
+{
+    va_list VarArgs;
+
+    va_start(VarArgs, pszFmt);
+
+    return vsprintf(gszAssert, pszFmt, VarArgs);
+}
+
 
 
 /*
@@ -1655,11 +2178,11 @@ VOID logargs(INT iLog, register PVDMFRAME pFrame)
 {
     register PBYTE pbArgs;
     INT iFun;
-    INT cbArg;
+    INT cbArgs;
 
     if (checkloging(pFrame)) {
         iFun = GetFuncId(pFrame->wCallID);
-        cbArg = aw32WOW[iFun].cbArgs; // Get Number of Parameters
+        cbArgs = aw32WOW[iFun].cbArgs; // Get Number of Parameters
 
         if ((fLogFilter & FILTER_VERBOSE) == 0 ) {
           LOGDEBUG(iLog,("%s(", aw32WOW[iFun].lpszW32));
@@ -1667,19 +2190,34 @@ VOID logargs(INT iLog, register PVDMFRAME pFrame)
           LOGDEBUG(iLog,("%04X %08X %04X %s:%s(",pFrame->wTDB, pFrame->vpCSIP,pFrame->wAppDS, GetModName(iFun), aw32WOW[iFun].lpszW32));
         }
 
-        GETARGPTR(pFrame, cbArg, pbArgs);
-        pbArgs += cbArg;
+        GETARGPTR(pFrame, cbArgs, pbArgs);
+        pbArgs += cbArgs;
 
-        while (cbArg > 0) {
+        //
+        // Log the function arguments a word at a time.
+        // The first iteration of the while loop is unrolled so
+        // that the main loop doesn't have to figure out whether
+        // or not to print a comma.
+        //
+
+        if (cbArgs > 0) {
+
             pbArgs -= sizeof(WORD);
-            cbArg -= sizeof(WORD);
+            cbArgs -= sizeof(WORD);
             LOGDEBUG(iLog,("%04x", *(PWORD16)pbArgs));
-            if (cbArg > 0) {
-                LOGDEBUG(iLog,(","));
+
+            while (cbArgs > 0) {
+
+                pbArgs -= sizeof(WORD);
+                cbArgs -= sizeof(WORD);
+                LOGDEBUG(iLog,(",%04x", *(PWORD16)pbArgs));
+
             }
         }
+
         FREEARGPTR(pbArgs);
         LOGDEBUG(iLog,(")\n"));
+
         if (fDebugWait != 0) {
             DbgPrint("WOWSingle Step\n");
             DbgBreakPoint();
@@ -1711,25 +2249,32 @@ VOID logreturn(INT iLog, register PVDMFRAME pFrame, ULONG ulReturn)
 
 #endif // DEBUG
 
-// Please dont be tempted to convert malloc_w and free_w to macros. Leave
-// them in the 'function' form 'cause this saves codespace. Also malloc_w
-// and free_w are called infrequently and hence the 'call' overhead is
-// miniscule
-//                                                  - nanduri
-//
-
 PVOID FASTCALL malloc_w (ULONG size)
 {
     PVOID pv;
 
     pv = HeapAlloc(hWOWHeap, 0, size);
-    WOW32ASSERTWARN(pv, "WOW32: malloc_w failing, returning NULL\n");
+    WOW32ASSERTMSG(pv, "WOW32: malloc_w failing, returning NULL\n");
     return pv;
 }
 
-//
-// see comment above. - nanduri
-//
+PVOID FASTCALL malloc_w_zero (ULONG size)
+{
+    PVOID pv;
+
+    pv = HeapAlloc(hWOWHeap, HEAP_ZERO_MEMORY, size);
+    WOW32ASSERTMSG(pv, "WOW32: malloc_w_zero failing, returning NULL\n");
+    return pv;
+}
+
+PVOID FASTCALL realloc_w (PVOID p, ULONG size, DWORD dwFlags)
+{
+    PVOID pv;
+
+    pv = HeapReAlloc(hWOWHeap, dwFlags, p, size);
+    WOW32ASSERTMSG(pv, "WOW32: realloc_w failing, returning NULL\n");
+    return pv;
+}
 
 VOID FASTCALL free_w (PVOID p)
 {
@@ -1749,7 +2294,7 @@ PVOID FASTCALL malloc_w_or_die(ULONG size)
 {
     PVOID pv;
     if (!(pv = malloc_w(size))) {
-        WOW32ASSERTWARN(pv, "WOW32: malloc_w_or_die failing, terminating.\n");
+        WOW32ASSERTMSG(pv, "WOW32: malloc_w_or_die failing, terminating.\n");
         WOWStartupFailed();  // never returns.
     }
     return pv;
@@ -1764,8 +2309,8 @@ PVOID WOWStartupFailed(VOID)
     char szCaption[256];
     char szMsgBoxText[1024];
 
-    LoadString(HMODULEINSTANCE, iszStartupFailed, szMsgBoxText, sizeof szMsgBoxText);
-    LoadString(HMODULEINSTANCE, iszSystemError, szCaption, sizeof szCaption);
+    LoadString(hmodWOW32, iszStartupFailed, szMsgBoxText, sizeof szMsgBoxText);
+    LoadString(hmodWOW32, iszSystemError, szCaption, sizeof szCaption);
 
     MessageBox(GetDesktopWindow(),
         szMsgBoxText,
@@ -1829,4 +2374,3 @@ INT GetFuncId(DWORD iFun)
     return iFun;
 }
 #endif  // DEBUG_OR_WOWPROFILE
-

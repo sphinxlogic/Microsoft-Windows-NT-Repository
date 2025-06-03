@@ -33,17 +33,17 @@ Revision History:
 // Forward declarations
 //
 
-VOID
+VOID SRVFASTCALL
 BlockingDelete (
     IN OUT PWORK_CONTEXT WorkContext
     );
 
-VOID
+VOID SRVFASTCALL
 BlockingMove (
     IN OUT PWORK_CONTEXT WorkContext
     );
 
-VOID
+VOID SRVFASTCALL
 BlockingRename (
     IN OUT PWORK_CONTEXT WorkContext
     );
@@ -53,7 +53,8 @@ DoDelete (
     IN PUNICODE_STRING FullFileName,
     IN PUNICODE_STRING RelativeFileName,
     IN PWORK_CONTEXT WorkContext,
-    IN USHORT SmbSearchAttributes
+    IN USHORT SmbSearchAttributes,
+    IN PSHARE Share
     );
 
 NTSTATUS
@@ -61,7 +62,7 @@ FindAndFlushFile (
     IN PWORK_CONTEXT WorkContext
     );
 
-VOID
+VOID SRVFASTCALL
 RestartFlush (
     IN OUT PWORK_CONTEXT WorkContext
     );
@@ -379,7 +380,7 @@ FindAndFlushFile (
 } // FindAndFlushFile
 
 
-VOID
+VOID SRVFASTCALL
 RestartFlush (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -611,14 +612,19 @@ Return Value:
     // This SMB must be processed in a blocking thread.
     //
 
-    WorkContext->FspRestartRoutine = BlockingDelete;
-    SrvQueueWorkToBlockingThread( WorkContext );
+    if( !WorkContext->UsingBlockingThread ) {
+        WorkContext->FspRestartRoutine = BlockingDelete;
+        SrvQueueWorkToBlockingThread( WorkContext );
+    } else {
+        BlockingDelete( WorkContext );
+    }
+
     return SmbStatusInProgress;
 
 } // SrvSmbDelete
 
 
-VOID
+VOID SRVFASTCALL
 BlockingDelete (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -686,7 +692,8 @@ Return Value:
     status = SrvVerifyUidAndTid(
                 WorkContext,
                 &session,
-                &treeConnect
+                &treeConnect,
+                ShareTypeDisk
                 );
 
     if ( !NT_SUCCESS(status) ) {
@@ -711,21 +718,24 @@ Return Value:
 
     isUnicode = SMB_IS_UNICODE( WorkContext );
 
-    if ( !SrvCanonicalizePathName(
+    status = SrvCanonicalizePathName(
             WorkContext,
+            share,
+            NULL,
             (PVOID)(request->Buffer + 1),
             END_OF_REQUEST_SMB( WorkContext ),
             TRUE,
             isUnicode,
             &filePathName
-            ) ) {
+            );
+
+    if( !NT_SUCCESS( status ) ) {
 
         IF_DEBUG(SMB_ERRORS) {
             KdPrint(( "SrvSmbDelete: illegal path name: %s\n",
                         (PSZ)request->Buffer + 1 ));
         }
 
-        status = STATUS_OBJECT_PATH_SYNTAX_BAD;
         goto error_exit;
     }
 
@@ -778,7 +788,8 @@ start_retry1:
                      &fullPathName,
                      &filePathName,
                      WorkContext,
-                     SmbGetUshort( &request->SearchAttributes )
+                     SmbGetUshort( &request->SearchAttributes ),
+                     treeConnect->Share
                      );
 
         if ( (status == STATUS_SHARING_VIOLATION) &&
@@ -814,12 +825,12 @@ start_retry1:
         // A buffer of non-paged pool is required for
         // SrvQueryDirectoryFile.  Since this routine does not use any
         // of the SMB buffer after the pathname of the file to delete,
-        // we can use this.  The buffer should be longword-aligned.
+        // we can use this.  The buffer should be quadword-aligned.
         //
 
         directoryInformation =
             (PSRV_DIRECTORY_INFORMATION)( (ULONG)((PCHAR)request->Buffer +
-            SmbGetUshort( &request->ByteCount ) + 3) & ~3 );
+            SmbGetUshort( &request->ByteCount ) + 7) & ~7 );
 
         bufferLength = WorkContext->RequestBuffer->BufferLength -
                        ( (PCHAR)directoryInformation -
@@ -869,6 +880,7 @@ start_retry1:
                                filterLongNames,
                                FALSE,
                                FileBothDirectoryInformation,
+                               0,
                                &filePathName,
                                NULL,
                                SmbGetUshort( &request->SearchAttributes ),
@@ -985,7 +997,7 @@ start_retry1:
             //     the search attributes, so tell DoDelete that files
             //     with the system and hidden bits are OK.  This will
             //     prevent the call to NtQueryDirectoryFile performed
-            //     in SrvCheckSearchAttributes.
+            //     in SrvCheckSearchAttributesForHandle.
 
             deleteRetries = SrvSharingViolationRetryCount;
 
@@ -995,7 +1007,8 @@ start_retry2:
                          &fullPathName,
                          &relativeName,
                          WorkContext,
-                         (USHORT)(FILE_ATTRIBUTE_SYSTEM | FILE_ATTRIBUTE_HIDDEN)
+                         (USHORT)(FILE_ATTRIBUTE_SYSTEM | FILE_ATTRIBUTE_HIDDEN),
+                         treeConnect->Share
                          );
 
             if ( (status == STATUS_SHARING_VIOLATION) &&
@@ -1081,7 +1094,8 @@ DoDelete (
     IN PUNICODE_STRING FullFileName,
     IN PUNICODE_STRING RelativeFileName,
     IN PWORK_CONTEXT WorkContext,
-    IN USHORT SmbSearchAttributes
+    IN USHORT SmbSearchAttributes,
+    IN PSHARE Share
     )
 
 /*++
@@ -1116,9 +1130,9 @@ Return Value:
     PNONPAGED_MFCB nonpagedMfcb;
     FILE_DISPOSITION_INFORMATION fileDispositionInformation;
     HANDLE fileHandle = NULL;
-    IO_STATUS_BLOCK ioStatusBlock;
-    OBJECT_ATTRIBUTES objectAttributes;
     ULONG caseInsensitive;
+    IO_STATUS_BLOCK ioStatusBlock;
+    PSRV_LOCK mfcbLock;
 
     PAGED_CODE( );
 
@@ -1130,15 +1144,13 @@ Return Value:
     // *** SrvFindMfcb references the MFCB--remember to dereference it.
     //
 
-    ACQUIRE_LOCK( &SrvMfcbListLock );
-
     if ( (WorkContext->RequestHeader->Flags & SMB_FLAGS_CASE_INSENSITIVE) ||
          WorkContext->Session->UsingUppercasePaths ) {
         caseInsensitive = OBJ_CASE_INSENSITIVE;
-        mfcb = SrvFindMfcb( FullFileName, TRUE );
+        mfcb = SrvFindMfcb( FullFileName, TRUE, &mfcbLock );
     } else {
         caseInsensitive = 0;
-        mfcb = SrvFindMfcb( FullFileName, FALSE );
+        mfcb = SrvFindMfcb( FullFileName, FALSE, &mfcbLock );
     }
 
     if ( mfcb != NULL ) {
@@ -1146,13 +1158,12 @@ Return Value:
         ACQUIRE_LOCK( &nonpagedMfcb->Lock );
     }
 
-    RELEASE_LOCK( &SrvMfcbListLock );
-
-    ASSERT( mfcb == NULL ||
-            !mfcb->CompatibilityOpen ||
-            mfcb->LfcbList.Flink == mfcb->LfcbList.Blink );
+    RELEASE_LOCK( mfcbLock );
 
     if ( mfcb == NULL || !mfcb->CompatibilityOpen ) {
+
+        ACCESS_MASK deleteAccess = DELETE;
+        OBJECT_ATTRIBUTES objectAttributes;
 
         //
         // Either the file wasn't opened by the server or it was not
@@ -1255,7 +1266,7 @@ del_no_file_handle:
         // on the file.
         //
 
-        status = SrvCheckSearchAttributes( fileHandle, SmbSearchAttributes );
+        status = SrvCheckSearchAttributesForHandle( fileHandle, SmbSearchAttributes );
 
         if ( !NT_SUCCESS(status) ) {
             SRVDBG_RELEASE_HANDLE( fileHandle, "FIL", 42, 0 );
@@ -1298,7 +1309,9 @@ del_no_file_handle:
         }
 
         IF_SMB_DEBUG(FILE_CONTROL2) {
-            KdPrint(( "SrvSmbDelete: %wZ successfully deleted.\n", FullFileName ));
+            if( NT_SUCCESS( status ) ) {
+                KdPrint(( "SrvSmbDelete: %wZ successfully deleted.\n", FullFileName ));
+            }
         }
 
         //
@@ -1312,6 +1325,9 @@ del_no_file_handle:
 
     } else {
 
+        FILE_DISPOSITION_INFORMATION fileDispositionInformation;
+        HANDLE fileHandle = NULL;
+
         //
         // The file was opened by the server in compatibility mode
         // or as an FCB open.  Check the granted access to make sure
@@ -1319,8 +1335,7 @@ del_no_file_handle:
         //
 
         ACCESS_MASK deleteAccess = DELETE;
-        PLFCB lfcb =
-            CONTAINING_RECORD( mfcb->LfcbList.Flink, LFCB, MfcbListEntry );
+        PLFCB lfcb = CONTAINING_RECORD( mfcb->LfcbList.Blink, LFCB, MfcbListEntry );
 
         //
         // If this file has been closed.  Go back to no mfcb case.
@@ -1467,7 +1482,7 @@ Return Value:
 } // SrvSmbRename
 
 
-VOID
+VOID SRVFASTCALL
 BlockingRename (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -1490,6 +1505,8 @@ Return Value:
 
 {
     PREQ_RENAME request;
+    PREQ_NTRENAME ntrequest;
+    PUCHAR RenameBuffer;
     PRESP_RENAME response;
 
     NTSTATUS status;
@@ -1498,6 +1515,7 @@ Return Value:
     UNICODE_STRING targetName;
 
     USHORT smbFlags;
+    USHORT ByteCount;
     PCHAR target;
     PCHAR lastPositionInBuffer;
 
@@ -1505,6 +1523,8 @@ Return Value:
     PSESSION session;
     PSHARE share;
     BOOLEAN isUnicode;
+    BOOLEAN isNtRename;
+    BOOLEAN isDfs;
     PSRV_DIRECTORY_INFORMATION directoryInformation;
     ULONG renameRetries;
 
@@ -1521,8 +1541,20 @@ Return Value:
                     WorkContext->ResponseParameters ));
     }
 
-    request = (PREQ_RENAME)WorkContext->RequestParameters;
     response = (PRESP_RENAME)WorkContext->ResponseParameters;
+
+    request = (PREQ_RENAME)WorkContext->RequestParameters;
+    ntrequest = (PREQ_NTRENAME)WorkContext->RequestParameters;
+    isNtRename =
+        (BOOLEAN)(WorkContext->RequestHeader->Command == SMB_COM_NT_RENAME);
+
+    if (isNtRename) {
+        RenameBuffer = ntrequest->Buffer;
+        ByteCount = SmbGetUshort(&ntrequest->ByteCount);
+    } else {
+        RenameBuffer = request->Buffer;
+        ByteCount = SmbGetUshort(&request->ByteCount);
+    }
 
     //
     // If a session block has not already been assigned to the current
@@ -1538,7 +1570,8 @@ Return Value:
     status = SrvVerifyUidAndTid(
                 WorkContext,
                 &session,
-                &treeConnect
+                &treeConnect,
+                ShareTypeDisk
                 );
 
     if ( !NT_SUCCESS(status) ) {
@@ -1562,21 +1595,25 @@ Return Value:
     //
 
     isUnicode = SMB_IS_UNICODE( WorkContext );
-    if ( !SrvCanonicalizePathName(
+    isDfs = SMB_CONTAINS_DFS_NAME( WorkContext );
+    status = SrvCanonicalizePathName(
             WorkContext,
-            (PVOID)(request->Buffer + 1),
+            share,
+            NULL,
+            (PVOID)(RenameBuffer + 1),
             END_OF_REQUEST_SMB( WorkContext ),
             TRUE,
             isUnicode,
             &sourceName
-            ) ) {
+            );
+
+    if( !NT_SUCCESS( status ) ) {
 
         IF_DEBUG(SMB_ERRORS) {
             KdPrint(( "BlockingRename: illegal path name: %s\n",
-                        (PSZ)request->Buffer + 1 ));
+                        (PSZ)RenameBuffer + 1 ));
         }
 
-        status = STATUS_OBJECT_PATH_SYNTAX_BAD;
         goto error_exit;
     }
 
@@ -1590,20 +1627,52 @@ Return Value:
     // token.
     //
 
-    lastPositionInBuffer = (PCHAR)request->Buffer +
-                           SmbGetUshort( &request->ByteCount );
+    lastPositionInBuffer = (PCHAR)RenameBuffer + ByteCount;
 
-    for ( target = (PCHAR)request->Buffer + 1;
-          (target < lastPositionInBuffer) && (*target != SMB_FORMAT_ASCII);
-          target++ ) {
-        ;
+    if( !isUnicode ) {
+        for ( target = (PCHAR)RenameBuffer + 1;
+              (target < lastPositionInBuffer) && (*target != SMB_FORMAT_ASCII);
+              target++ ) {
+            ;
+        }
+    } else {
+        PWCHAR p = (PWCHAR)(RenameBuffer + 1);
+
+        //
+        // Skip the Original filename part. The name is null-terminated
+        // (see rdr\utils.c RdrCopyNetworkPath())
+        //
+
+        //
+        // Ensure p is suitably aligned
+        //
+        p = ALIGN_SMB_WSTR(p);
+
+        //
+        // Skip over the source filename
+        //
+        for( p = ALIGN_SMB_WSTR(p);
+             p < (PWCHAR)lastPositionInBuffer && *p != UNICODE_NULL;
+             p++ ) {
+            ;
+        }
+
+        //
+        // Search for SMB_FORMAT_ASCII which preceeds the target name
+        //
+        //
+        for ( target = (PUCHAR)(p + 1);
+              target < lastPositionInBuffer && *target != SMB_FORMAT_ASCII;
+              target++ ) {
+            ;
+        }
     }
 
     //
     // If there was no SMB_FORMAT_ASCII in the passed buffer, fail.
     //
 
-    if ( (target == lastPositionInBuffer) || (*target != SMB_FORMAT_ASCII) ) {
+    if ( (target >= lastPositionInBuffer) || (*target != SMB_FORMAT_ASCII) ) {
 
         if ( !isUnicode ) {
             RtlFreeUnicodeString( &sourceName );
@@ -1613,14 +1682,29 @@ Return Value:
         goto error_exit;
     }
 
-    if ( !SrvCanonicalizePathName(
+    //
+    // If the SMB was originally marked as containing Dfs names, then the
+    // call to SrvCanonicalizePathName for the source path has cleared that
+    // flag. So, re-mark the SMB as containing Dfs names before calling
+    // SrvCanonicalizePathName on the target path.
+    //
+
+    if (isDfs) {
+        SMB_MARK_AS_DFS_NAME( WorkContext );
+    }
+
+    status = SrvCanonicalizePathName(
             WorkContext,
+            share,
+            NULL,
             target + 1,
             END_OF_REQUEST_SMB( WorkContext ),
             TRUE,
             isUnicode,
             &targetName
-            ) ) {
+            );
+
+    if( !NT_SUCCESS( status ) ) {
 
         IF_DEBUG(SMB_ERRORS) {
             KdPrint(( "BlockingRename: illegal path name: %s\n", target + 1 ));
@@ -1630,11 +1714,24 @@ Return Value:
             RtlFreeUnicodeString( &sourceName );
         }
 
-        status = STATUS_OBJECT_PATH_SYNTAX_BAD;
         goto error_exit;
     }
 
+    //
+    // Ensure this client's RFCB cache is empty.  This covers the case
+    //  where a client has open files in a directory we are trying
+    //  to rename.
+    //
+    SrvCloseCachedRfcbsOnConnection( WorkContext->Connection );
+
     if ( !FsRtlDoesNameContainWildCards( &sourceName ) ) {
+        USHORT InformationLevel = SMB_NT_RENAME_RENAME_FILE;
+        ULONG ClusterCount = 0;
+
+        if (isNtRename) {
+             InformationLevel = SmbGetUshort(&ntrequest->InformationLevel);
+             ClusterCount = SmbGetUlong(&ntrequest->ClusterCount);
+        }
 
         smbFlags = 0;
 
@@ -1656,7 +1753,8 @@ start_retry1:
                      &smbFlags,
                      SmbGetUshort( &request->SearchAttributes ),
                      TRUE,
-                     TRUE,
+                     InformationLevel,
+                     ClusterCount,
                      &sourceName,
                      &targetName
                      );
@@ -1683,6 +1781,9 @@ start_retry1:
             goto error_exit;
         }
 
+    } else if (isNtRename) {             // Wild cards not allowed!
+        status = STATUS_OBJECT_PATH_SYNTAX_BAD;
+        goto error_exit;
     } else {
 
         BOOLEAN firstCall = TRUE;
@@ -1705,12 +1806,11 @@ start_retry1:
         // SrvQueryDirectoryFile requires a buffer from nonpaged pool.
         // Since this routine does not use the buffer field of the
         // request SMB after the pathname, use this.  The buffer must be
-        // longword-aligned.
+        // quadword-aligned.
         //
 
         directoryInformation =
-            (PSRV_DIRECTORY_INFORMATION)( (ULONG)((PCHAR)request->Buffer +
-            SmbGetUshort( &request->ByteCount ) + 3) & ~3 );
+            (PSRV_DIRECTORY_INFORMATION)((ULONG)((PCHAR)RenameBuffer + ByteCount + 7) & ~7);
 
         bufferLength = WorkContext->RequestBuffer->BufferLength -
                        ( (PCHAR)directoryInformation -
@@ -1746,6 +1846,7 @@ start_retry1:
                                filterLongNames,
                                FALSE,
                                FileBothDirectoryInformation,
+                               0,
                                &sourceName,
                                NULL,
                                SmbGetUshort( &request->SearchAttributes ),
@@ -1831,7 +1932,7 @@ start_retry1:
             //     the search attributes, so tell SrvMoveFile that files
             //     with the system and hidden bits are OK.  This will
             //     prevent the call to NtQueryDirectoryFile performed in
-            //     SrvCheckSearchAttributes.
+            //     SrvCheckSearchAttributesForHandle.
             //
 
             renameRetries = SrvSharingViolationRetryCount;
@@ -1845,7 +1946,8 @@ start_retry2:
                          &smbFlags,
                          (USHORT)(FILE_ATTRIBUTE_SYSTEM | FILE_ATTRIBUTE_HIDDEN),
                          TRUE,
-                         TRUE,
+                         SMB_NT_RENAME_RENAME_FILE,
+                         0,
                          &sourcePathName,
                          &targetName
                          );
@@ -1965,7 +2067,7 @@ Return Value:
 } // SrvSmbMove
 
 
-VOID
+VOID SRVFASTCALL
 BlockingMove (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -2005,6 +2107,7 @@ Return Value:
     PCHAR target;
     BOOLEAN isRenameOperation;
     BOOLEAN isUnicode;
+    BOOLEAN isDfs;
     USHORT smbOpenFunction;
     CSHORT errorPathNameLength = 0;
     USHORT count = 0;
@@ -2053,7 +2156,8 @@ Return Value:
     status = SrvVerifyUidAndTid(
                 WorkContext,
                 &session,
-                &sourceTreeConnect
+                &sourceTreeConnect,
+                ShareTypeDisk
                 );
 
     if ( !NT_SUCCESS(status) ) {
@@ -2160,36 +2264,55 @@ Return Value:
     target++;
 
     isUnicode = SMB_IS_UNICODE( WorkContext );
-    if ( !SrvCanonicalizePathName(
+    isDfs = SMB_CONTAINS_DFS_NAME( WorkContext );
+    status = SrvCanonicalizePathName(
             WorkContext,
+            share,
+            NULL,
             target,
             END_OF_REQUEST_SMB( WorkContext ),
             TRUE,
             isUnicode,
             &targetName
-            ) ) {
+            );
+
+    if( !NT_SUCCESS( status ) ) {
 
         IF_DEBUG(SMB_ERRORS) {
             KdPrint(( "BlockingMove: illegal path name (target): %wZ\n",
                         &targetName ));
         }
 
-        status = STATUS_OBJECT_PATH_SYNTAX_BAD;
         goto exit;
+    }
+
+    //
+    // If the SMB was originally marked as containing Dfs names, then the
+    // call to SrvCanonicalizePathName for the target path has cleared that
+    // flag. So, re-mark the SMB as containing Dfs names before calling
+    // SrvCanonicalizePathName on the source path.
+    //
+
+    if (isDfs) {
+        SMB_MARK_AS_DFS_NAME( WorkContext );
     }
 
     //
     // Set up the source name.
     //
 
-    if ( !SrvCanonicalizePathName(
+    status = SrvCanonicalizePathName(
             WorkContext,
+            share,
+            NULL,
             request->Buffer,
             END_OF_REQUEST_SMB( WorkContext ),
             TRUE,
             isUnicode,
             &sourceName
-            ) ) {
+            );
+
+    if( !NT_SUCCESS( status ) ) {
 
         IF_DEBUG(SMB_ERRORS) {
             KdPrint(( "BlockingMove: illegal path name (source): %s\n",
@@ -2250,7 +2373,9 @@ Return Value:
                      &smbFlags,
                      (USHORT)0,             // SmbSearchAttributes
                      FALSE,
-                     isRenameOperation,
+                     (USHORT)(isRenameOperation?
+                         SMB_NT_RENAME_RENAME_FILE : SMB_NT_RENAME_MOVE_FILE),
+                     0,
                      &sourceName,
                      &targetName
                      );
@@ -2287,12 +2412,12 @@ Return Value:
         // SrvQueryDirectoryFile requires a buffer from nonpaged pool.
         // Since this routine does not use the buffer field of the
         // request SMB after the pathname, use this.  The buffer must be
-        // longword-aligned.
+        // quadword-aligned.
         //
 
         directoryInformation =
             (PSRV_DIRECTORY_INFORMATION)( (ULONG)((PCHAR)request->Buffer +
-            SmbGetUshort( &request->ByteCount ) + 3) & ~3 );
+            SmbGetUshort( &request->ByteCount ) + 7) & ~7 );
 
         bufferLength = WorkContext->RequestBuffer->BufferLength -
                        ( (PCHAR)directoryInformation -
@@ -2341,6 +2466,7 @@ Return Value:
                                filterLongNames,
                                FALSE,
                                FileBothDirectoryInformation,
+                               0,
                                &sourceName,
                                NULL,
                                FILE_ATTRIBUTE_ARCHIVE, // SmbSearchAttributes
@@ -2419,7 +2545,9 @@ Return Value:
                          &smbFlags,
                          (USHORT)0,          // SmbSearchAttributes
                          FALSE,
-                         isRenameOperation,
+                         (USHORT)(isRenameOperation?
+                           SMB_NT_RENAME_RENAME_FILE : SMB_NT_RENAME_MOVE_FILE),
+                         0,
                          &sourcePathName,
                          &targetName
                          );

@@ -24,8 +24,9 @@ Environment:
 #include "computer.h"
 #include "winmsd.h"
 #include "strresid.h"
+#include "lmserver.h"
 
-
+
 BOOL
 SelectComputer(
     IN HWND  hWnd,
@@ -52,13 +53,12 @@ Return Value:
 
 {
     BOOL    bSuccess;
-    TCHAR   szBuffer [ MAX_PATH ] ;
-    DWORD   dwNumChars;
+    TCHAR   szBuffer[MAX_PATH] ;
+    TCHAR   szMessage[MAX_PATH];
+    DWORD   dwNumChars = MAX_PATH;
     LONG    lSuccess;
-    TCHAR   szBuffer2 [ MAX_COMPUTERNAME_LENGTH + 3 ];
-    HKEY    hRmtRegKey;
     HCURSOR hSaveCursor;
-
+    
     //
     // Validate _lpszSelectedComputer.
     //
@@ -69,17 +69,91 @@ Return Value:
     // Call the ChooseComputer - Base code lifted from regedt32.c
     //
 
-    bSuccess = ChooseComputer ( _hWndMain, _lpszSelectedComputer ) ;
+    bSuccess = ChooseComputer( _hWndMain, _lpszSelectedComputer );
 
     if( bSuccess == FALSE )
-
     	return FALSE;
+
+    bSuccess = VerifyComputer( _lpszSelectedComputer );
+
+    if( bSuccess == FALSE )
+    	return FALSE;
+
+
+    //
+    // Check for aliases
+    //
+    if ( GetServerPrimaryName(&_lpszSelectedComputer[2], szBuffer, dwNumChars ) )
+    {
+
+       wsprintf(szMessage, GetString(IDS_ALIAS_NAME), _lpszSelectedComputer, szBuffer);
+
+       MessageBox( hWnd, szMessage, GetString( IDS_APPLICATION_FULLNAME ), MB_OK | MB_ICONINFORMATION );
+
+       lstrcpy(&_lpszSelectedComputer[2], szBuffer);
+    }                                               
+    
+    
+    //
+    // Change the window title
+    //
+
+    wsprintf(szBuffer, L"Windows NT %s - %s",
+           GetString( IDS_APPLICATION_NAME ),
+           _lpszSelectedComputer);
+
+    bSuccess = SetWindowText(hWnd, szBuffer);
+
+    DbgAssert( bSuccess );
+
+    return TRUE;
+
+}
+
+BOOL
+VerifyComputer(
+    IN LPTSTR _lpszSelectedComputer
+    )
+
+/*++
+
+Routine Description:
+
+    VerifyComputer ensures we can connect to the remote machine
+
+Arguments:
+
+    _lpszSelectedComputer - selected computer
+
+Return Value:
+
+    BOOL - Returns TRUE if it was successful.
+
+--*/
+
+{
+    BOOL    bSuccess;
+    TCHAR   szBuffer [ 1024 ] ;
+    DWORD   dwNumChars;
+    LONG    lSuccess;
+    TCHAR   szBuffer2 [ COMPUTERNAME_LENGTH ];
+    HCURSOR hSaveCursor;
+    LPVOID  pBuffer;
+    LPSERVER_INFO_101 lpServerInfo;
+    NET_API_STATUS   err;
+
+
+    //
+    // Validate _lpszSelectedComputer.
+    //
+
+    DbgPointerAssert( _lpszSelectedComputer );
 
     //
     // Check to see if we selected our own name (i.e. we are local)
     //
 
-    dwNumChars = MAX_COMPUTERNAME_LENGTH + 1;
+    dwNumChars = MAX_PATH;
 
     bSuccess = GetComputerName ( szBuffer, &dwNumChars );
     DbgAssert( bSuccess );
@@ -105,12 +179,93 @@ Return Value:
         DbgHandleAssert( hSaveCursor ) ;
 
         //
-        // verify that we can connect to this machine
+        // Make sure the remote machine is an NT system
+        //   
+
+        err = NetServerGetInfo( _lpszSelectedComputer, 101L, (LPBYTE *) &pBuffer ); 
+        
+        switch( err ) {
+
+            case ERROR_SUCCESS:                     
+                lpServerInfo = pBuffer;
+                
+                //
+                // If server is not NT, display error
+                //
+
+                if (lpServerInfo->sv101_platform_id != SV_PLATFORM_ID_NT)
+                {
+                    wsprintf( szBuffer, GetString( IDS_REMOTE_NOT_NT ), _lpszSelectedComputer );
+                    MessageBox( _hWndMain, szBuffer, GetString( IDS_APPLICATION_FULLNAME ), MB_OK | MB_ICONSTOP );
+                    return FALSE;
+                }  
+
+                //
+                // If server is NTS, check to see that we have admin access
+                //
+
+                if (lpServerInfo->sv101_type & SV_TYPE_SERVER)
+                {
+                    // free the buffer, and try again with ADMIN level access
+                    if (pBuffer)
+                    {
+                        NetApiBufferFree( &pBuffer );
+                    }
+
+                    if(ERROR_SUCCESS != NetServerGetInfo( _lpszSelectedComputer, 102L, (LPBYTE *) &pBuffer ))
+                    {
+                        _fIsRemote = FALSE;
+
+                        lstrcpy( szBuffer, GetString( IDS_DENIED_ACCESS_REMOTE ) );
+
+                        MessageBox( _hWndMain,
+                                    szBuffer,
+                                    GetString( IDS_APPLICATION_FULLNAME ),
+                                    MB_OK | MB_ICONSTOP	
+                                  ) ;
+
+                        lstrcpy( _lpszSelectedComputer, szBuffer2 );
+
+                        return FALSE;
+
+                    }
+
+                    // free the buffer
+                    if (pBuffer)
+                    {
+                        NetApiBufferFree( &pBuffer );
+                    }
+
+
+                }  
+
+
+                break;
+                                           
+            case ERROR_BAD_NETPATH:
+                wsprintf( szBuffer, GetString( IDS_COMPUTER_NOT_FOUND ), _lpszSelectedComputer );
+                MessageBox( _hWndMain, szBuffer, GetString( IDS_APPLICATION_FULLNAME ), MB_OK | MB_ICONSTOP );
+                return FALSE; 
+
+            case ERROR_ACCESS_DENIED:
+                wsprintf( szBuffer, GetString( IDS_DENIED_ACCESS_REMOTE ), _lpszSelectedComputer );
+                MessageBox( _hWndMain, szBuffer, GetString( IDS_APPLICATION_FULLNAME ), MB_OK | MB_ICONSTOP );
+                return FALSE; 
+
+            default:
+                wsprintf( szBuffer, L"%s (NSGI - %u)", GetString( IDS_UNEXPECTED_NETWORK_FAILURE ), err );
+                MessageBox( _hWndMain, szBuffer, GetString( IDS_APPLICATION_FULLNAME ), MB_OK | MB_ICONSTOP );
+                return FALSE;
+        }           
+
+
+        //
+        // verify that we can connect to this machine's registry
         //
 
         lSuccess = RegConnectRegistry( _lpszSelectedComputer,
                                        HKEY_LOCAL_MACHINE,
-                                       &hRmtRegKey
+                                       &_hKeyLocalMachine
                                       );
 
         //
@@ -122,14 +277,19 @@ Return Value:
         switch ( lSuccess ) {
 
             case ERROR_SUCCESS: {
-
+                
                 //
-                // Connect succeded. Set the IsRemote flag and close the remote registry
+                // OK, we are good to go, set the IsRemote flag, and continue
                 //
 
                 _fIsRemote = TRUE;
 
-                RegCloseKey ( hRmtRegKey );
+                // Now connect to HKEY_USERS as well.
+                lSuccess = RegConnectRegistry( _lpszSelectedComputer,
+                                       HKEY_USERS,
+                                       &_hKeyUsers
+                                       );
+                //WORKITEM: test for success here
 
                 break;
             }
@@ -147,16 +307,40 @@ Return Value:
                           _lpszSelectedComputer
                               );
 
-                MessageBox( hWnd,
+                MessageBox( _hWndMain,
                             szBuffer,
-                            GetString( IDS_CANT_CONNECT ),
-                            MB_OK
+                            GetString( IDS_APPLICATION_FULLNAME ),
+                            MB_OK | MB_ICONSTOP	
                           ) ;
 
                 lstrcpy( _lpszSelectedComputer, szBuffer2 );
 
                 return FALSE;
             }
+
+            case ERROR_ACCESS_DENIED: 
+                { 
+
+                //
+                // If you are not an Admin on the remote 4.0 Server, the
+                // registry will deny access
+                //
+
+                _fIsRemote = FALSE;
+
+                lstrcpy( szBuffer, GetString( IDS_DENIED_ACCESS_REMOTE ) );
+
+                MessageBox( _hWndMain,
+                            szBuffer,
+                            GetString( IDS_APPLICATION_FULLNAME ),
+                            MB_OK | MB_ICONSTOP	
+                          ) ;
+
+                lstrcpy( _lpszSelectedComputer, szBuffer2 );
+
+                return FALSE;
+                }
+
             default: {
 
                 //
@@ -165,12 +349,17 @@ Return Value:
 
                 _fIsRemote = FALSE;
 
-                MessageBox( hWnd,
-                            GetString( IDS_REMOTE_CONNECT_ERROR ),
-                            GetString( IDS_CONNECTION_ERROR ),
-                            MB_OK
-                          ) ;
+                wsprintf( szBuffer,
+                          GetString( IDS_REMOTE_CONNECT_ERROR ),
+                          _lpszSelectedComputer
+                          );
 
+                MessageBox( _hWndMain,
+                            szBuffer,
+                            GetString( IDS_APPLICATION_FULLNAME ),
+                            MB_OK | MB_ICONSTOP	
+                            ) ;
+                                  
                 lstrcpy( _lpszSelectedComputer, szBuffer2 );
 
                 return FALSE;
@@ -178,27 +367,10 @@ Return Value:
         }
     }
 
-    //
-    // Add button label prefix
-    //
-
-    lstrcpy ( szBuffer, GetString( IDS_COMPUTER_BUTTON_LABEL ) );
-    lstrcat ( szBuffer, _lpszSelectedComputer ) ;
-
-    //
-    // Label the Computer dialog button
-    //
-
-    bSuccess = SetDlgItemText( hWnd,
-                              IDC_PUSH_COMPUTER,
-                              szBuffer
-                             );
-
-    DbgAssert( bSuccess );
-
     return TRUE;
 
 }
+
 
 
 BOOL
@@ -245,7 +417,7 @@ Return Value:
 --*/
 {
 
-    TCHAR                   wszWideComputer [ MAX_COMPUTERNAME_LENGTH + 3 ];
+    TCHAR                    wszWideComputer [ COMPUTERNAME_LENGTH ];
     HANDLE                   hLibrary;
     LPFNI_SYSTEMFOCUSDIALOG  lpfnChooseComputer;
     LONG                     lError;
@@ -284,7 +456,7 @@ Return Value:
 
     lError = (*lpfnChooseComputer)(
          hWndParent,
-         FOCUSDLG_SERVERS_ONLY,
+         FOCUSDLG_SERVERS_ONLY | FOCUSDLG_BROWSE_ALL_DOMAINS,
          wszWideComputer,
          sizeof(wszWideComputer) / sizeof(TCHAR),
          &bSuccess,
@@ -302,3 +474,89 @@ Return Value:
 }
 
 
+
+BOOL
+GetServerPrimaryName(
+    IN LPTSTR  lpszAliasName,
+    OUT LPTSTR lpszServerPrimaryName,
+    IN OUT UINT ccharPrimaryName  
+    )
+/*++
+
+Routine Description:
+
+    GetServerPrimaryName determines the Server's true name from an alias
+
+Arguments:
+
+    IN LPTSTR  lpszAliasName          - possible alias name
+    OUT LPTSTR lpszServerPrimaryName  - return buffer for true name if found
+    IN OUT UINT ccharPrimaryName      - IN size of output buffer in chars, 
+                                        OUT number of chars written to buffer
+
+Return Value:
+
+    BOOL - Returns TRUE if lpszAliasName != lpszServerPrimaryName, and we sucessfully
+           filled out lpszServerPrimaryName.  Returns FALSE if the AliasName = PrimaryName.
+
+--*/
+{
+    
+    DWORD   cb;
+    TCHAR   szAliasNameBuffer[MAX_PATH];
+    UINT    pos = 0;
+    UINT    Success = FALSE;
+    HKEY    hkey, hkey2;
+
+    // get all the alias names
+
+    if (!RegOpenKeyEx(_hKeyLocalMachine, SZ_ALIASNAMEKEY, 0, KEY_READ, &hkey)) 
+    {
+
+        cb = MAX_PATH * sizeof(TCHAR);
+
+
+        //
+        // Get the Optional Name List
+        //
+
+        if (RegQueryValueEx(hkey, L"OptionalNames", NULL, NULL, (LPBYTE) szAliasNameBuffer, &cb) == ERROR_SUCCESS) 
+        {                                                                                   
+
+            //
+            // Check to see if lpszAliasName is contained in szAliasNameBuffer
+            //
+        
+            while ((szAliasNameBuffer[pos] != UNICODE_NULL))
+            {      
+
+                if (lstrcmpi(lpszAliasName, &szAliasNameBuffer[pos]) == 0)
+                {
+           
+                    // we found a match, get the realname
+
+                    if (!RegOpenKeyEx(_hKeyLocalMachine, SZ_COMPUTERNAMEKEY, 0, KEY_READ, &hkey2)) 
+                    {
+
+                        if (RegQueryValueEx(hkey2, L"ComputerName", NULL, NULL, (LPBYTE) lpszServerPrimaryName, &ccharPrimaryName) == ERROR_SUCCESS) 
+                        {                                                                                   
+                            Success = TRUE;                            
+                        }
+
+                        RegCloseKey(hkey2);
+                    }   
+
+                }
+
+                pos += lstrlen( &szAliasNameBuffer[pos] ) + 1;
+
+            }
+
+        }
+
+        RegCloseKey(hkey);
+    }       
+
+    return Success;
+
+}

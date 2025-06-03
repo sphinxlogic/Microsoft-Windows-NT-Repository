@@ -210,11 +210,11 @@ BOOL CpuVerifyNew( PREGINFO pReg, UINT oln, UINT count)
 
         // Do we have both strings?
         if ( pReg[oln].pszValueP && pReg[oln].pszValueC) {
-            if ((!strcmpi(pReg[oln].pszValueC, pReg[oln].pszValueP))
+            if ((!_strcmpi(pReg[oln].pszValueC, pReg[oln].pszValueP))
                  && (pReg[oln].fChanged == FALSE)) {
 
                 return(FALSE);
-            } else if ((!strcmpi(pReg[oln].pszValueC, pReg[oln].pszValueP))
+            } else if ((!_strcmpi(pReg[oln].pszValueC, pReg[oln].pszValueP))
                          && (pReg[oln].fChanged == TRUE)) {
                 pReg[oln].fChanged = FALSE;
                 return(TRUE);
@@ -633,7 +633,7 @@ PSTR GetCpuString( PREGINFO pInfo, UINT nMax, UINT PanelNumber, UINT nCnt)
         case ID_PANE_RIGHT:
             if ( nCnt < nMax) {
                 if ( pInfo[nCnt].pszValueC == NULL)
-                    pInfo[nCnt].pszValueC = strdup(GetCpuValue(pInfo,nCnt));
+                    pInfo[nCnt].pszValueC = _strdup(GetCpuValue(pInfo,nCnt));
                 return(pInfo[nCnt].pszValueC);
             }
 

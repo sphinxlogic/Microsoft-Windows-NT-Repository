@@ -23,6 +23,13 @@ Revision History:
 
     02-Aug-1991 (chads)     Made driver work on MIPS as well as ix86.
 
+#if defined(DBCS) && defined(_MIPS_)
+    N001        1994.07.29      N.Johno
+
+        - Modify for R96(MIPS/R4400)
+
+#endif // defined(DBCS) && defined(_MIPS_)
+
 Notes:
 
     The NEC PD765 is the controller standard used on almost all ISA PCs
@@ -102,10 +109,6 @@ Notes:
         "transfers" because of limitations in the amount of data that
         can be read or written at one time.
 
-        At the end of any operation, the motor timer (MotorTimer in the
-        controller object) should be started.  If the timer runs for a
-        couple of seconds without getting cancelled, it should turn the
-        motor off.
 
     Background on hardware operation:
 
@@ -642,13 +645,7 @@ Notes:
             RequestSemaphore - the semaphore that the floppy thread waits
             on.  It should be released by the dispatch routines whenever
             they add a request to the list.  Note that it can also be
-            released when the thread is supposed to terminate; see
-            "UnloadingDriver".
-
-            TimerSpinLock - a spinlock that is used to protect access to
-            "MotorTimer" and the DriveControl register, since they are
-            accessed by FloppyMotorOffDpc() as well as by routines in
-            the floppy thread.
+            released when the thread is supposed to terminate
 
             ListSpinLock - a spinlock that is allocated and used when
             manipulating the list of requests for the floppy thread in
@@ -697,15 +694,6 @@ Notes:
             IsrReentered - This is counter that is used to determine
             if we are in a hang condition from the controller on a
             level sensitive machine.
-
-            MotorTimer - used to count how long the drive motor has been
-            on, to determine when to turn it off.  At the end of every
-            operation, it's set to 3; MotorOffDpc() is called every
-            second to decrement it.  When it reaches 0, the motor is
-            turned off.  Whenever the motor doesn't need to be turned
-            off (ie the drive is in use, or already off) the value is
-            -1.  Note that "3" is an upper boundary; the motor will be
-            turned off between 2 and 3 seconds after the last operation.
 
             SpanOfControllerAddress - Indicates the number of bytes
             used by the controllers register set.  This is only useful
@@ -766,10 +754,6 @@ Notes:
             decide how to dismiss the interrupt.  Note that the BUSY bit
             in the STATUS register should give us this information, but
             it's sometimes set when it shouldn't be.
-
-            UnloadingDriver - set to TRUE when the driver is supposed to
-            unload itself; setting this and then signalling the request
-            semaphore tells the thread to terminate itself.
 
             MappedControllerAddress - Set to TRUE indicates that when
             unloading the driver, the pointer to the device controller
@@ -1005,6 +989,21 @@ extern ULONG FloppyDebugLevel = 0;
 #pragma alloc_text(PAGE,FlStartDrive)
 #pragma alloc_text(PAGE,FloppyThread)
 #pragma alloc_text(PAGE,FlAllocateIoBuffer)
+#pragma alloc_text(PAGE,FlTurnOnMotor)
+#pragma alloc_text(PAGE,FlTurnOffMotor)
+#pragma alloc_text(PAGE,FlFreeIoBuffer)
+#pragma alloc_text(PAGE,FlDisketteRemoved)
+#pragma alloc_text(PAGE,FloppyDispatchCreateClose)
+#pragma alloc_text(PAGE,FloppyDispatchDeviceControl)
+#pragma alloc_text(PAGE,FloppyDispatchReadWrite)
+#pragma alloc_text(PAGE,FlCheckFormatParameters)
+#endif
+
+#ifdef POOL_TAGGING
+#ifdef ExAllocatePool
+#undef ExAllocatePool
+#endif
+#define ExAllocatePool(a,b) ExAllocatePoolWithTag(a,b,'polF')
 #endif
 
 // #define KEEP_COUNTERS 1
@@ -1027,6 +1026,13 @@ LARGE_INTEGER FloppyIntrTime      = { 0, 0 };
 LARGE_INTEGER FloppyEndIntrTime   = { 0, 0 };
 LARGE_INTEGER FloppyDPCTime       = { 0, 0 };
 #endif
+
+//
+// Used for paging the driver.
+//
+
+ULONG PagingReferenceCount = 0;
+PFAST_MUTEX PagingMutex = NULL;
 
 
 NTSTATUS
@@ -1092,8 +1098,6 @@ Return Value:
     UNICODE_STRING thinkpad, ps2e;
     ULONG pathLength;
 
-    UNREFERENCED_PARAMETER(RegistryPath);
-
     RtlInitUnicodeString(&parameters, L"\\Parameters");
     RtlInitUnicodeString(&systemPath,
         L"\\REGISTRY\\MACHINE\\HARDWARE\\DESCRIPTION\\System");
@@ -1118,18 +1122,13 @@ Return Value:
 
     if (path = ExAllocatePool(PagedPool, pathLength)) {
 
-        RtlZeroMemory(
-            &paramTable[0],
-            sizeof(paramTable)
-            );
-
+        RtlZeroMemory(&paramTable[0],
+                      sizeof(paramTable));
         RtlZeroMemory(path, pathLength);
+        RtlMoveMemory(path,
+                      RegistryPath->Buffer,
+                      RegistryPath->Length);
 
-        RtlMoveMemory(
-            path,
-            RegistryPath->Buffer,
-            RegistryPath->Length
-            );
         paramTable[0].Flags = RTL_QUERY_REGISTRY_DIRECT;
         paramTable[0].Name = L"BreakOnEntry";
         paramTable[0].EntryContext = &shouldBreak;
@@ -1144,13 +1143,11 @@ Return Value:
         paramTable[1].DefaultLength = sizeof(ULONG);
 
 
-        if (!NT_SUCCESS(RtlQueryRegistryValues(
-                            RTL_REGISTRY_ABSOLUTE | RTL_REGISTRY_OPTIONAL,
-                            path,
-                            &paramTable[0],
-                            NULL,
-                            NULL
-                            ))) {
+        if (!NT_SUCCESS(RtlQueryRegistryValues(RTL_REGISTRY_ABSOLUTE | RTL_REGISTRY_OPTIONAL,
+                                               path,
+                                               &paramTable[0],
+                                               NULL,
+                                               NULL))) {
 
             shouldBreak = 0;
             debugLevel = 0;
@@ -1164,7 +1161,8 @@ Return Value:
 
         RtlZeroMemory(paramTable, sizeof(paramTable));
         RtlZeroMemory(path, pathLength);
-        RtlMoveMemory(path, systemPath.Buffer,
+        RtlMoveMemory(path,
+                      systemPath.Buffer,
                       systemPath.Length);
         RtlZeroMemory(&identifier, sizeof(UNICODE_STRING));
         paramTable[0].Flags = RTL_QUERY_REGISTRY_DIRECT |
@@ -1172,13 +1170,11 @@ Return Value:
         paramTable[0].Name = L"Identifier";
         paramTable[0].EntryContext = &identifier;
 
-        if (NT_SUCCESS(RtlQueryRegistryValues(
-                            RTL_REGISTRY_ABSOLUTE,
-                            path,
-                            paramTable,
-                            NULL,
-                            NULL
-                            ))) {
+        if (NT_SUCCESS(RtlQueryRegistryValues(RTL_REGISTRY_ABSOLUTE,
+                                              path,
+                                              paramTable,
+                                              NULL,
+                                              NULL))) {
 
 
             if (identifier.Length == thinkpad.Length &&
@@ -1199,36 +1195,29 @@ Return Value:
             model30 = 0;
         }
 
+        //
         // This part gets from the parameters part of the registry
         // to see if the controller configuration needs to be disabled.
         // Doing this lets SMC 661, and 662 work.  On hardware that
         // works normally, this change will show a slowdown of up
         // to 40%.  So defining this variable is not recommended
         // unless things don't work without it.
-
+        //
         //
         // Also check the model30 value in the parameters section
         // that is used to override the decision above.
         //
 
-        RtlZeroMemory(
-            &paramTable[0],
-            sizeof(paramTable)
-            );
-        RtlZeroMemory(
-            path,
-            RegistryPath->Length+parameters.Length+sizeof(WCHAR)
-            );
-        RtlMoveMemory(
-            path,
-            RegistryPath->Buffer,
-            RegistryPath->Length
-            );
-        RtlMoveMemory(
-            (PCHAR) path + RegistryPath->Length,
-            parameters.Buffer,
-            parameters.Length
-            );
+        RtlZeroMemory(&paramTable[0],
+                      sizeof(paramTable));
+        RtlZeroMemory(path,
+                      RegistryPath->Length+parameters.Length+sizeof(WCHAR));
+        RtlMoveMemory(path,
+                      RegistryPath->Buffer,
+                      RegistryPath->Length);
+        RtlMoveMemory((PCHAR) path + RegistryPath->Length,
+                      parameters.Buffer,
+                      parameters.Length);
 
         paramTable[0].Flags = RTL_QUERY_REGISTRY_DIRECT;
         paramTable[0].Name = L"NotConfigurable";
@@ -1244,13 +1233,11 @@ Return Value:
         paramTable[1].DefaultData = model30 ? &one : &zero;
         paramTable[1].DefaultLength = sizeof(ULONG);
 
-        if (!NT_SUCCESS(RtlQueryRegistryValues(
-                            RTL_REGISTRY_ABSOLUTE | RTL_REGISTRY_OPTIONAL,
-                            path,
-                            &paramTable[0],
-                            NULL,
-                            NULL
-                            ))) {
+        if (!NT_SUCCESS(RtlQueryRegistryValues(RTL_REGISTRY_ABSOLUTE | RTL_REGISTRY_OPTIONAL,
+                                               path,
+                                               &paramTable[0],
+                                               NULL,
+                                               NULL))) {
 
             notConfigurable = 0;
         }
@@ -1276,10 +1263,8 @@ Return Value:
 
     }
 
-    FloppyDump(
-        FLOPSHOW,
-        ("Floppy: DriverEntry...\n")
-        );
+    FloppyDump(FLOPSHOW,
+               ("Floppy: DriverEntry...\n"));
 
     //
     // Ask configuration manager for information on the hardware that
@@ -1313,13 +1298,11 @@ Return Value:
               controllerNumber < configData->NumberOfControllers;
               controllerNumber++ ) {
 
-            ntStatus = FlInitializeController(
-                configData,
-                controllerNumber,
-                DriverObject,
-                notConfigurable,
-                model30 );
-
+            ntStatus = FlInitializeController(configData,
+                                              controllerNumber,
+                                              DriverObject,
+                                              notConfigurable,
+                                              model30);
             if ( NT_SUCCESS( ntStatus ) ) {
 
                 partlySuccessful = TRUE;
@@ -1347,17 +1330,22 @@ Return Value:
 
     if ( !NT_SUCCESS( ntStatus ) ) {
 
-        FloppyDump(
-            FLOPDBGP,
-            ("Floppy: exiting with error %lx\n", ntStatus)
-            );
+        FloppyDump(FLOPDBGP,
+                   ("Floppy: exiting with error %lx\n", ntStatus));
     }
 
     if (configData) {
 
         ExFreePool(configData);
-
     }
+
+    PagingMutex = ExAllocatePool(NonPagedPool, sizeof(FAST_MUTEX));
+    if (!PagingMutex) {
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+    ExInitializeFastMutex(PagingMutex);
+
+    MmPageEntireDriver(DriverEntry);
 
     return ntStatus;
 }
@@ -1538,11 +1526,9 @@ Return Value:
     // Make sure we have room for this floppy disk peripheral.
     //
 
-    if (config->Controller[ControllerSlot].NumberOfDrives >=
-        MAXIMUM_DISKETTES_PER_CONTROLLER) {
+    if (config->Controller[ControllerSlot].NumberOfDrives >= MAXIMUM_DISKETTES_PER_CONTROLLER) {
 
         return STATUS_SUCCESS;
-
     }
 
     controller = &config->Controller[ControllerSlot];
@@ -1827,6 +1813,26 @@ Return Value:
 
             }
 
+#if defined(DBCS) && defined(_MIPS_)
+            //
+            // Get the supported drive mode.
+            //
+            // If Size[0] is '3' and Size[1] is '.' and Size[2] is '5' and
+            // Size[6] is '3', the drive supports 3 mode. Otherwise, 2 mode.
+            //
+            //
+
+            if ((fDeviceData->Size[0] == '3') && (fDeviceData->Size[1] == '.') &&
+                (fDeviceData->Size[2] == '5') && (fDeviceData->Size[6] == '3')) {
+
+                controller->Drive3Mode[controller->NumberOfDrives] = DRIVE_3MODE;
+
+            } else {
+
+                controller->Drive3Mode[controller->NumberOfDrives] = DRIVE_2MODE;
+            }
+#endif // DBCS && _MIPS_
+
             controller->DriveType[controller->NumberOfDrives] = driveType;
 
             //
@@ -1868,6 +1874,17 @@ Return Value:
                     // value is often returned by SCSI floppies.
                     return STATUS_SUCCESS;
                 }
+
+                if (fDeviceData->MaxDensity == 0 ) {
+                    //
+                    // This values are returned by the LS-120 atapi drive.
+                    // BIOS function 8, in int 13 is returned in bl, which is mapped
+                    // to this field. The LS-120 returns 0x10 which is mapped to 0.
+                    // Thats why we wont pick it up as a normal floppy.
+                    //
+                    return STATUS_SUCCESS;
+                }
+
 
                 biosDriveMediaConstants->SectorsPerTrack =
                     fDeviceData->SectorPerTrack;
@@ -1955,15 +1972,12 @@ Return Value:
     NTSTATUS Status;
     ULONG i;
 
-    *ConfigData = ExAllocatePool(
-                      PagedPool,
-                      sizeof(CONFIG_DATA)
-                      );
+    *ConfigData = ExAllocatePool(PagedPool,
+                                 sizeof(CONFIG_DATA));
 
     if (!*ConfigData) {
 
         return STATUS_INSUFFICIENT_RESOURCES;
-
     }
 
     //
@@ -1972,10 +1986,8 @@ Return Value:
     // can recognize a new controller.
     //
 
-    RtlZeroMemory(
-        *ConfigData,
-        sizeof(CONFIG_DATA)
-        );
+    RtlZeroMemory(*ConfigData,
+                  sizeof(CONFIG_DATA));
 
     for (
         i = 0;
@@ -1984,7 +1996,6 @@ Return Value:
         ) {
 
         (*ConfigData)->Controller[i].ActualControllerNumber = -1;
-
     }
 
     //
@@ -2005,25 +2016,21 @@ Return Value:
         CONFIGURATION_TYPE Dc = DiskController;
         CONFIGURATION_TYPE Fp = FloppyDiskPeripheral;
 
-        Status = IoQueryDeviceDescription(
-                     &InterfaceType,
-                     NULL,
-                     &Dc,
-                     NULL,
-                     &Fp,
-                     NULL,
-                     FlConfigCallBack,
-                     *ConfigData
-                     );
+        Status = IoQueryDeviceDescription(&InterfaceType,
+                                          NULL,
+                                          &Dc,
+                                          NULL,
+                                          &Fp,
+                                          NULL,
+                                          FlConfigCallBack,
+                                          *ConfigData);
 
         if (!NT_SUCCESS(Status) && (Status != STATUS_OBJECT_NAME_NOT_FOUND)) {
 
             ExFreePool(*ConfigData);
             *ConfigData = NULL;
             return Status;
-
         }
-
     }
 
     //
@@ -2033,10 +2040,8 @@ Return Value:
 
     if ( IoGetConfigurationInformation() == NULL ) {
 
-        FloppyDump(
-            FLOPDBGP,
-            ("Floppy: configuration information is NULL\n")
-            );
+        FloppyDump(FLOPDBGP,
+                   ("Floppy: configuration information is NULL\n"));
         ExFreePool(*ConfigData);
         *ConfigData = NULL;
         return STATUS_INSUFFICIENT_RESOURCES;
@@ -2198,10 +2203,8 @@ Return Value:
             partial->Type = CmResourceTypePort;
             partial->ShareDisposition = CmResourceShareShared;
             partial->Flags = (USHORT)ConfigData->Controller[i].ResourcePortType;
-            partial->u.Port.Start = RtlLargeIntegerAdd(
-                        ConfigData->Controller[i].OriginalBaseAddress,
-                        RtlConvertUlongToLargeInteger((ULONG)7)
-                        );
+            partial->u.Port.Start.QuadPart =
+                    ConfigData->Controller[i].OriginalBaseAddress.QuadPart + 7;
             partial->u.Port.Length = 1;
 
             partial++;
@@ -2327,10 +2330,8 @@ Return Value:
 
 {
     PCONTROLLER_DATA controllerData;
-    PVOID threadObject;
     NTSTATUS ntStatus;
     NTSTATUS ntStatus2;
-    HANDLE threadHandle = 0;
     UCHAR driveNumber;
     BOOLEAN partlySuccessful;
     UCHAR ntNameBuffer[256];
@@ -2338,24 +2339,20 @@ Return Value:
     UNICODE_STRING ntUnicodeString;
     OBJECT_ATTRIBUTES objectAttributes;
 
-    FloppyDump(
-        FLOPSHOW,
-        ("Floppy: FlInitializeController...\n")
-        );
+    FloppyDump(FLOPSHOW,
+               ("Floppy: FlInitializeController...\n"));
 
     //
-    // This routine will take attempt to "append" the resources
+    // This routine will attempt to "append" the resources
     // used by this controller into the resource map of the
     // registry.  If there was a conflict with previously "declared"
     // data, then this routine will return false, in which case we
     // will NOT try to initialize this particular controller.
     //
 
-    if (!FlReportResources(
-             DriverObject,
-             ConfigData,
-             ControllerNumber
-             )) {
+    if (!FlReportResources(DriverObject,
+                           ConfigData,
+                           ControllerNumber)) {
 
         return STATUS_INSUFFICIENT_RESOURCES;
 
@@ -2365,9 +2362,8 @@ Return Value:
     // Allocate and zero-initialize data to describe this controller
     //
 
-    controllerData = (PCONTROLLER_DATA) ExAllocatePool(
-        NonPagedPool,
-        sizeof( CONTROLLER_DATA ) );
+    controllerData = (PCONTROLLER_DATA) ExAllocatePool(NonPagedPool,
+                                                       sizeof(CONTROLLER_DATA));
 
     if ( controllerData == NULL ) {
 
@@ -2376,24 +2372,21 @@ Return Value:
 
     RtlZeroMemory( controllerData, sizeof( CONTROLLER_DATA ) );
 
-    (VOID) sprintf(
-        ntNameBuffer,
-        "\\Device\\FloppyControllerEvent%d",
-        ControllerNumber );
+    (VOID) sprintf(ntNameBuffer,
+                   "\\Device\\FloppyControllerEvent%d",
+                   ControllerNumber);
 
     RtlInitString( &ntNameString, ntNameBuffer );
 
-    ntStatus = RtlAnsiStringToUnicodeString(
-        &ntUnicodeString,
-        &ntNameString,
-        TRUE );
+    ntStatus = RtlAnsiStringToUnicodeString(&ntUnicodeString,
+                                            &ntNameString,
+                                            TRUE);
 
-    InitializeObjectAttributes(
-        &objectAttributes,
-        &ntUnicodeString,
-        OBJ_PERMANENT | OBJ_CASE_INSENSITIVE | OBJ_OPENIF,
-        NULL,
-        NULL );
+    InitializeObjectAttributes(&objectAttributes,
+                               &ntUnicodeString,
+                               OBJ_PERMANENT | OBJ_CASE_INSENSITIVE | OBJ_OPENIF,
+                               NULL,
+                               NULL);
 
 
     controllerData->ControllerEvent = IoCreateSynchronizationEvent(
@@ -2432,11 +2425,7 @@ Return Value:
     // few seconds.
     //
 
-    controllerData->InterruptDelay = RtlLargeIntegerNegate(
-                                         RtlConvertLongToLargeInteger(
-                                             (LONG)(10 * 1000 * 4000)
-                                             )
-                                         );
+    controllerData->InterruptDelay.QuadPart = -(10 * 1000 * 4000);
 
     //
     // Set the minimum time that we can delay (10ms according to system
@@ -2444,11 +2433,7 @@ Return Value:
     // for the FIFO - the FIFO should become ready is well under 10ms.
     //
 
-    controllerData->Minimum10msDelay = RtlLargeIntegerNegate(
-                                           RtlConvertLongToLargeInteger(
-                                               (LONG)(10 * 1000 * 10)
-                                               )
-                                           );
+    controllerData->Minimum10msDelay.QuadPart = -(10 * 1000 * 10);
 
     //
     // Occasionally during stress we've seen the device lock up.
@@ -2471,11 +2456,18 @@ Return Value:
     controllerData->Model30 = Model30 ? TRUE : FALSE;
 
     //
-    // Initialize and connect to the interrupt object in the controller
-    // extension.
+    // Save interrupt information for connecting the interrupt later.
     //
 
-    controllerData->CurrentInterrupt = TRUE;
+    controllerData->ControllerVector = ConfigData->Controller[ControllerNumber].ControllerVector;
+    controllerData->ControllerIrql   = ConfigData->Controller[ControllerNumber].ControllerIrql;
+    controllerData->ControllerIrql   = ConfigData->Controller[ControllerNumber].ControllerIrql;
+    controllerData->InterruptMode    = ConfigData->Controller[ControllerNumber].InterruptMode;
+    controllerData->SharableVector   = ConfigData->Controller[ControllerNumber].SharableVector;
+    controllerData->ProcessorMask    = ConfigData->Controller[ControllerNumber].ProcessorMask;
+    controllerData->SaveFloatState   = ConfigData->Controller[ControllerNumber].SaveFloatState;
+
+    controllerData->AllowInterruptProcessing = controllerData->CurrentInterrupt = TRUE;
 
     ntStatus = IoConnectInterrupt(
         &controllerData->InterruptObject,
@@ -2492,17 +2484,7 @@ Return Value:
 
     controllerData->CurrentInterrupt = FALSE;
 
-
-    controllerData->UseFifo = TRUE;
-
-    if ( NT_SUCCESS( ntStatus ) ) {
-
-        //
-        // Allocate spinlock to protect controller and data
-        //
-
-        KeInitializeSpinLock( &controllerData->TimerSpinLock );
-
+    if (NT_SUCCESS(ntStatus)) {
 
         //
         // Initialize the interlocked request queue, including a
@@ -2516,12 +2498,11 @@ Return Value:
 
         KeInitializeSpinLock( &controllerData->ListSpinLock );
 
-        KeInitializeSpinLock( &controllerData->ThreadReferenceSpinLock );
+        ExInitializeFastMutex( &controllerData->ThreadReferenceMutex );
 
         InitializeListHead( &controllerData->ListEntry );
 
-        controllerData->ThreadReferenceCount = 0;
-        controllerData->ThreadQueueLocked = FALSE;
+        controllerData->ThreadReferenceCount = -1;
 
         //
         // Initialize events to signal interrupts and adapter object
@@ -2541,61 +2522,38 @@ Return Value:
         controllerData->AdapterChannelRefCount = 0;
 
         //
-        // Create a thread with entry point FloppyThread()
+        // Call FlInitializeDrive() for each drive on the
+        // controller
         //
 
-        ntStatus = PsCreateSystemThread(
-            &threadHandle,
-            (ACCESS_MASK) 0L,
-            NULL,
-            (HANDLE) 0L,
-            NULL,
-            FloppyThread,
-            controllerData );
+        ntStatus = STATUS_NO_SUCH_DEVICE;
+        partlySuccessful = FALSE;
 
-        if ( !NT_SUCCESS( ntStatus ) ) {
+        for ( driveNumber = 0;
+            driveNumber < controllerData->NumberOfDrives;
+            driveNumber++ ) {
 
-            FloppyDump(
-                FLOPDBGP,
-                ("Floppy: error %x creating thread\n",ntStatus)
-                );
+            ntStatus = FlInitializeDrive(
+                ConfigData,
+                controllerData,
+                ControllerNumber,
+                driveNumber,
+                driveNumber,
+                DriverObject );
 
-        }
+            if ( NT_SUCCESS( ntStatus ) ) {
 
-        if ( NT_SUCCESS( ntStatus ) ) {
-
-            //
-            // Call FlInitializeDrive() for each drive on the
-            // controller
-            //
-
-            ntStatus = STATUS_NO_SUCH_DEVICE;
-            partlySuccessful = FALSE;
-
-            for ( driveNumber = 0;
-                driveNumber < controllerData->NumberOfDrives;
-                driveNumber++ ) {
-
-                ntStatus = FlInitializeDrive(
-                    ConfigData,
-                    controllerData,
-                    ControllerNumber,
-                    driveNumber,
-                    driveNumber,
-                    DriverObject );
-
-                if ( NT_SUCCESS( ntStatus ) ) {
-
-                    ( *( ConfigData->FloppyCount ) )++;
-                    partlySuccessful = TRUE;
-                }
-            }
-
-            if ( partlySuccessful ) {
-
-                ntStatus = STATUS_SUCCESS;
+                ( *( ConfigData->FloppyCount ) )++;
+                partlySuccessful = TRUE;
             }
         }
+
+        if ( partlySuccessful ) {
+
+            ntStatus = STATUS_SUCCESS;
+        }
+
+        IoDisconnectInterrupt(controllerData->InterruptObject);
     }
 
     //
@@ -2609,77 +2567,8 @@ Return Value:
             ("Floppy: InitializeController failing\n")
             );
 
-        //
-        // If we created the thread, wake it up and tell it to kill itself.
-        // Wait until it's dead.  (Note that since it's a system thread,
-        // it has to kill itself - we can't do it).
-        //
-
-        if ( threadHandle != 0 ) {
-
-            controllerData->UnloadingDriver = TRUE;
-
-            ntStatus2 = ObReferenceObjectByHandle(
-                threadHandle,
-                THREAD_ALL_ACCESS,
-                NULL,
-                KernelMode,
-                (PVOID *) &threadObject,
-                NULL );
-
-            KeReleaseSemaphore(
-                &controllerData->RequestSemaphore,
-                (KPRIORITY) 0,
-                1,
-                FALSE );
-
-            if ( NT_SUCCESS( ntStatus2 ) ) {
-
-                //
-                // The thread object will be signalled when it dies.
-                //
-
-                ntStatus2 = KeWaitForSingleObject(
-                    threadObject,
-                    Suspended,
-                    KernelMode,
-                    FALSE,
-                    NULL );
-
-                ASSERT( ntStatus2 == STATUS_SUCCESS );
-
-                ObDereferenceObject( threadObject );
-
-            } else {
-
-                //
-                // We can't get the thread object for some reason; just
-                // block for a while to give the thread a chance to run
-                // and die.
-                //
-
-                FloppyDump(
-                    FLOPDBGP,
-                    ("Floppy: couldn't get thread object\n")
-                    );
-
-                KeDelayExecutionThread(
-                    KernelMode,
-                    FALSE,
-                    &controllerData->InterruptDelay );
-            }
-        }
-
-        if ( controllerData->InterruptObject != NULL ) {
-            IoDisconnectInterrupt( controllerData->InterruptObject );
-        }
-
         ExFreePool( controllerData );
 
-    }
-
-    if (threadHandle != 0) {
-        ZwClose(threadHandle);
     }
 
     return ntStatus;
@@ -2741,39 +2630,44 @@ Return Value:
         // CurrentDeviceObject until after the 10ms wait, in case any
         // stray interrupts come in.
         //
-    
+
         ControllerData->DriveControlImage |= DRVCTL_ENABLE_DMA_AND_INTERRUPTS;
         ControllerData->DriveControlImage &= ~( DRVCTL_ENABLE_CONTROLLER );
-    
+
+#ifdef _PPC_
+        ControllerData->DriveControlImage |= DRVCTL_DRIVE_MASK;
+#endif
+
         WRITE_CONTROLLER(
             &ControllerData->ControllerAddress->DriveControl,
             ControllerData->DriveControlImage );
-    
+
         KeStallExecutionProcessor( 10 );
-    
+
         ControllerData->CurrentDeviceObject = DeviceObject;
+        ControllerData->AllowInterruptProcessing = TRUE;
         ControllerData->CommandHasResultPhase = FALSE;
         KeResetEvent( &ControllerData->InterruptEvent );
-    
+
         ControllerData->DriveControlImage |= DRVCTL_ENABLE_CONTROLLER;
-    
+
         WRITE_CONTROLLER(
             &ControllerData->ControllerAddress->DriveControl,
             ControllerData->DriveControlImage );
-    
+
         //
         // Wait for an interrupt.  Note that STATUS_TIMEOUT and STATUS_SUCCESS
         // are the only possible return codes, since we aren't alertable and
         // won't get APCs.
         //
-    
+
         ntStatus = KeWaitForSingleObject(
             &ControllerData->InterruptEvent,
             Executive,
             KernelMode,
             FALSE,
             &ControllerData->InterruptDelay );
-    
+
         if (ntStatus == STATUS_TIMEOUT) {
 
             if (retrycnt >= 1) {
@@ -2784,9 +2678,7 @@ Return Value:
             // interrupt.
 
             ControllerData->FifoBuffer[0] = 0;
-            ControllerData->FifoBuffer[1] = ControllerData->UseFifo ?
-                                            COMMND_CONFIGURE_FIFO_THRESHOLD :
-                                            COMMND_CONFIGURE_DISABLE_FIFO;
+            ControllerData->FifoBuffer[1] = COMMND_CONFIGURE_FIFO_THRESHOLD;
             ControllerData->FifoBuffer[2] = 0;
 
             ntStatus = FlIssueCommand(COMMND_CONFIGURE, disketteExtension);
@@ -2816,12 +2708,12 @@ Return Value:
 
 #ifdef KEEP_COUNTERS
     FloppyThreadTime = KeQueryPerformanceCounter((PVOID)NULL);
-    FloppyThreadDelay = RtlLargeIntegerAdd(FloppyThreadDelay,
-                                    RtlLargeIntegerSubtract(FloppyDPCTime,
-                                                            FloppyThreadTime));
-    FloppyFromIntrDelay = RtlLargeIntegerAdd(FloppyFromIntrDelay,
-                                     RtlLargeIntegerSubtract(FloppyIntrTime,
-                                                             FloppyThreadTime));
+    FloppyThreadDelay.QuadPart = FloppyThreadDelay.QuadPart +
+                                 (FloppyDPCTime.QuadPart -
+                                  FloppyThreadTime.QuadPart);
+    FloppyFromIntrDelay.QuadPart = FloppyFromIntrDelay.QuadPart +
+                                   (FloppyIntrTime.QuadPart -
+                                    FloppyThreadTime.QuadPart);
     FloppyThreadWake++;
 #endif
 
@@ -3033,7 +2925,7 @@ Return Value:
                     ( DRVCTL_DRIVE_0 << DisketteUnit ) );
 
                 disketteExtension->IsReadOnly = FALSE;
- 
+
                 disketteExtension->DriveType = ConfigData->
                     Controller[ControllerNum].DriveType[DisketteUnit];
 
@@ -3042,26 +2934,13 @@ Return Value:
                 disketteExtension->BiosDriveMediaConstants = ConfigData->
                     Controller[ControllerNum].BiosDriveMediaConstants[DisketteUnit];
 
+#if defined(DBCS) && defined(_MIPS_)
+                disketteExtension->Drive3Mode = ConfigData->
+                    Controller[ControllerNum].Drive3Mode[DisketteUnit];
+#endif // DBCS && _MIPS_
+
                 if ( disketteExtension->DriveType == DRIVE_TYPE_2880 ) {
                     ControllerData->PerpendicularDrives |= 1 << DisketteUnit;
-                }
-
-                //
-                // If this is the first drive, start the motor timer (this
-                // would best be done in FlInitializeController(), but we
-                // must have a device object to attach to it.)
-                //
-
-                if ( DisketteNum == 0 ) {
-
-                    ControllerData->MotorTimer = TIMER_CANCEL;
-
-                    IoInitializeTimer(
-                        deviceObject,
-                        FloppyMotorOffDpc,
-                        ControllerData );
-
-                    IoStartTimer( deviceObject );
                 }
 
                 //
@@ -3080,7 +2959,7 @@ Return Value:
                     ( disketteExtension->DriveType == DRIVE_TYPE_2880 ) ||
                     ( ControllerData->HardwareFailed ) ) {
 
-                    ControllerData->CurrentInterrupt = TRUE;
+                    ControllerData->AllowInterruptProcessing = ControllerData->CurrentInterrupt = TRUE;
 
                     ntStatus = FlInitializeControllerHardware(
                         ControllerData,
@@ -3121,11 +3000,6 @@ Return Value:
 
         if ( deviceObject != NULL ) {
 
-            if ( DisketteNum == 0 ) {
-
-                IoStopTimer( deviceObject );
-            }
-
             IoDeleteDevice( deviceObject );
         }
     }
@@ -3161,31 +3035,25 @@ Return Value:
 
 {
     KIRQL       oldIrql;
-    BOOLEAN     queueLocked, startThread;
     NTSTATUS    status;
     HANDLE      threadHandle;
-    PLIST_ENTRY request;
-    PIRP        queueIrp;
 
-    KeAcquireSpinLock(&ControllerData->ThreadReferenceSpinLock, &oldIrql);
+    ExAcquireFastMutex(&ControllerData->ThreadReferenceMutex);
 
-    if (!(queueLocked = ControllerData->ThreadQueueLocked)) {
+    if (++(ControllerData->ThreadReferenceCount) == 0) {
+        ControllerData->ThreadReferenceCount++;
 
-        if (++(ControllerData->ThreadReferenceCount) == 0) {
-            ControllerData->ThreadReferenceCount++;
-            startThread = TRUE;
-        } else {
-            startThread = FALSE;
+        ExAcquireFastMutex(PagingMutex);
+        if (++PagingReferenceCount == 1) {
+
+            // Lock down the driver.
+
+            MmResetDriverPaging(DriverEntry);
         }
-    }
+        ExReleaseFastMutex(PagingMutex);
 
-    KeReleaseSpinLock(&ControllerData->ThreadReferenceSpinLock, oldIrql);
 
-    if (queueLocked) {
-        return STATUS_INSUFFICIENT_RESOURCES;
-    }
-
-    if (startThread) {
+        // Create the thread.
 
         status = PsCreateSystemThread(&threadHandle,
                                       (ACCESS_MASK) 0L,
@@ -3196,58 +3064,24 @@ Return Value:
                                       ControllerData);
 
         if (!NT_SUCCESS(status)) {
+            ControllerData->ThreadReferenceCount = -1;
 
-            // We couldn't create the thread so lock up the queue
-            // temporarily while we patch things up and fail all
-            // requests that are in the queue.  When everything
-            // is properly reset then we can unlock the queue
-            // and start over.
-
-            KeAcquireSpinLock(&ControllerData->ThreadReferenceSpinLock,
-                              &oldIrql);
-            ControllerData->ThreadQueueLocked = TRUE;
-            KeReleaseSpinLock(&ControllerData->ThreadReferenceSpinLock,
-                              oldIrql);
-
-            // Since the queue is locked and the thread doesn't exist
-            // we can use 'ThreadReferenceCount' without the spin lock.
-
-            ControllerData->ThreadReferenceCount--;
-            while (ControllerData->ThreadReferenceCount) {
-
-                KeWaitForSingleObject(&ControllerData->RequestSemaphore,
-                                      Executive, KernelMode, FALSE, NULL);
-
-                request = ExInterlockedRemoveHeadList(
-                                &ControllerData->ListEntry,
-                                &ControllerData->ListSpinLock);
-
-                queueIrp = CONTAINING_RECORD(request, IRP,
-                                             Tail.Overlay.ListEntry);
-
-                queueIrp->IoStatus.Information = 0;
-                queueIrp->IoStatus.Status = status;
-
-                IoCompleteRequest(queueIrp, IO_NO_INCREMENT);
-
-                ControllerData->ThreadReferenceCount--;
+            ExAcquireFastMutex(PagingMutex);
+            if (--PagingReferenceCount == 0) {
+                MmPageEntireDriver(DriverEntry);
             }
-            ControllerData->ThreadReferenceCount--;
+            ExReleaseFastMutex(PagingMutex);
 
-
-            // Now that everything is back to normal open up the
-            // queue for business again.
-
-            KeAcquireSpinLock(&ControllerData->ThreadReferenceSpinLock,
-                              &oldIrql);
-            ControllerData->ThreadQueueLocked = FALSE;
-            KeReleaseSpinLock(&ControllerData->ThreadReferenceSpinLock,
-                              oldIrql);
-
+            ExReleaseFastMutex(&ControllerData->ThreadReferenceMutex);
             return status;
         }
 
+        ExReleaseFastMutex(&ControllerData->ThreadReferenceMutex);
+
         ZwClose(threadHandle);
+
+    } else {
+        ExReleaseFastMutex(&ControllerData->ThreadReferenceMutex);
     }
 
     IoMarkIrpPending(Irp);
@@ -3353,6 +3187,10 @@ Return Value:
     DRIVE_MEDIA_TYPE highestDriveMediaType;
     ULONG formatExParametersSize;
     PFORMAT_EX_PARAMETERS formatExParameters;
+#if defined(DBCS) && defined(_MIPS_)
+    ULONG inputBufferLength;
+    ULONG inputBuffer;
+#endif // DBCS && _MIPS_
 
     FloppyDump(
         FLOPSHOW,
@@ -3564,6 +3402,204 @@ Return Value:
             break;
         }
 
+#if defined(DBCS) && defined(_MIPS_)
+
+        case IOCTL_DISK_GET_REMOVABLE_TYPES: {
+
+            outputBufferLength =
+                irpSp->Parameters.DeviceIoControl.OutputBufferLength;
+
+            //
+            // Make sure that the input buffer has enough room to return
+            // at least one descriptions of a supported media type.
+            //
+
+            if ( outputBufferLength < ( sizeof( DDRIVE_TYPE ) ) ) {
+
+                FloppyDump(
+                    FLOPDBGP,
+                    ("Floppy: invalid GET_REMOVABLE_TYPES buffer size\n")
+                    );
+
+                ntStatus = STATUS_BUFFER_TOO_SMALL;
+                break;
+            }
+
+            (PDDRIVE_TYPE) outputBuffer
+                 = (PDDRIVE_TYPE) Irp->AssociatedIrp.SystemBuffer;
+
+            ((PDDRIVE_TYPE)outputBuffer)->DDrive_Type = 1;
+
+            Irp->IoStatus.Information = sizeof( DDRIVE_TYPE );
+
+            ntStatus = STATUS_SUCCESS;
+
+            break;
+        }
+
+        case IOCTL_DISK_SET_MEDIA_TYPE: {
+
+            FloppyDump(
+                FLOPDBGP,
+                ("Floppy: SET_MEDIA_TYPE \n")
+                );
+
+            outputBufferLength =
+                irpSp->Parameters.DeviceIoControl.OutputBufferLength;
+
+            //
+            // Make sure that the input buffer has enough room to return
+            // at least one descriptions of a supported media type.
+            //
+
+            if ( outputBufferLength < ( sizeof( MEDIA_TYPE_PTOS ) ) ) {
+
+               FloppyDump(
+                    FLOPDBGP,
+                    ("Floppy: invalid SET_MEDIA_TYPE buffer size\n")
+                   );
+
+                ntStatus = STATUS_BUFFER_TOO_SMALL;
+                break;
+            }
+
+            (PMEDIA_TYPE_PTOS)outputBuffer
+                   =(PMEDIA_TYPE_PTOS)Irp->AssociatedIrp.SystemBuffer;
+            Set_Media_Type_PTOS[disketteExtension->DeviceUnit].Media_Type_PTOS
+                   =((PMEDIA_TYPE_PTOS)outputBuffer)->Media_Type_PTOS;
+
+
+            ntStatus = STATUS_SUCCESS;
+
+            break;
+        }
+
+        case IOCTL_DISK_READ:
+        case IOCTL_DISK_WRITE: {
+
+            FloppyDump(
+                FLOPDBGP,
+                ("Floppy: IOCTL READ WRITE \n")
+                );
+
+            //
+            // Make sure that we got all the necessary IOCTL read write parameters.
+            //
+
+            if ( irpSp->Parameters.DeviceIoControl.InputBufferLength <
+                sizeof( DISK_READ_WRITE_PARAMETER_PTOS ) ) {
+
+                FloppyDump(
+                    FLOPDBGP,
+                    ("Floppy: invalid IOCTL READ WRITE buffer length\n")
+                  );
+
+                ntStatus = STATUS_INVALID_PARAMETER;
+                break;
+            }
+
+
+            irpSp->Parameters.DeviceIoControl.Type3InputBuffer = (PVOID)
+                disketteExtension;
+
+            FloppyDump(
+                FLOPIRPPATH,
+                ("Floppy: Enqueing  up IRP: %x\n",Irp)
+                );
+
+              ntStatus = FlQueueIrpToThread(Irp,
+                                            disketteExtension->ControllerData);
+            break;
+        }
+
+        case IOCTL_DISK_GET_STATUS: {
+
+            FloppyDump(
+                FLOPDBGP,
+                ("Floppy: GET_STATUS \n")
+                );
+
+            outputBufferLength =
+                irpSp->Parameters.DeviceIoControl.OutputBufferLength;
+
+            //
+            // Make sure that the input buffer has enough room to return
+            // at least one descriptions of a supported media type.
+            //
+
+            if ( outputBufferLength < ( sizeof( RESULT_STATUS_PTOS ) ) ) {
+
+                FloppyDump(
+                   FLOPDBGP,
+                    ("Floppy: invalid GET_STATUS buffer size\n")
+                   );
+
+                ntStatus = STATUS_BUFFER_TOO_SMALL;
+                break;
+            }
+
+            (PRESULT_STATUS_PTOS)inputBuffer
+                =(PRESULT_STATUS_PTOS)Irp->AssociatedIrp.SystemBuffer;
+
+            ((PRESULT_STATUS_PTOS)inputBuffer)->ST0_PTOS
+                =Result_Status_PTOS[0].ST0_PTOS;
+            ((PRESULT_STATUS_PTOS)inputBuffer)->ST1_PTOS
+                =Result_Status_PTOS[0].ST1_PTOS;
+            ((PRESULT_STATUS_PTOS)inputBuffer)->ST2_PTOS
+                =Result_Status_PTOS[0].ST2_PTOS;
+            ((PRESULT_STATUS_PTOS)inputBuffer)->C_PTOS
+                =Result_Status_PTOS[0].C_PTOS;
+            ((PRESULT_STATUS_PTOS)inputBuffer)->H_PTOS
+                =Result_Status_PTOS[0].H_PTOS;
+            ((PRESULT_STATUS_PTOS)inputBuffer)->R_PTOS
+                =Result_Status_PTOS[0].R_PTOS;
+            ((PRESULT_STATUS_PTOS)inputBuffer)->N_PTOS
+                =Result_Status_PTOS[0].N_PTOS;
+            Irp->IoStatus.Information = sizeof( RESULT_STATUS_PTOS );
+            ntStatus = STATUS_SUCCESS;
+
+            break;
+        }
+
+       case IOCTL_DISK_SENSE_DEVICE: {
+
+            FloppyDump(
+                FLOPDBGP,
+                ("Floppy: SENSE_DEVISE_STATUS \n")
+                );
+
+            //
+            // Make sure that we got all the necessary IOCTL read write parameters.
+            //
+
+            if ( irpSp->Parameters.DeviceIoControl.OutputBufferLength <
+                sizeof( SENSE_DEVISE_STATUS_PTOS ) ) {
+
+                FloppyDump(
+                    FLOPDBGP,
+                    ("Floppy: invalid SENSE_DEVISE_STATUS buffer length\n")
+                  );
+
+                ntStatus = STATUS_INVALID_PARAMETER;
+                break;
+            }
+
+
+            irpSp->Parameters.DeviceIoControl.Type3InputBuffer = (PVOID)
+                disketteExtension;
+
+            FloppyDump(
+                FLOPIRPPATH,
+                ("Floppy: Enqueing  up IRP: %x\n",Irp)
+                );
+
+
+              ntStatus = FlQueueIrpToThread(Irp,
+                                            disketteExtension->ControllerData);
+            break;
+        }
+#endif // DBCS && _MIPS_
+
         default: {
 
             FloppyDump(
@@ -3716,7 +3752,7 @@ Return Value:
     PDEVICE_OBJECT currentDeviceObject;
     ULONG i;
     UCHAR statusByte;
-    BOOLEAN controllerStateError = FALSE;
+    BOOLEAN controllerStateError;
 
     UNREFERENCED_PARAMETER( Interrupt );
 
@@ -3727,10 +3763,17 @@ Return Value:
 
     FloppyDump(
         FLOPSHOW,
-        ("Floppy: FloppyInterruptService...\n")
+        ("FloppyInterruptService: ")
         );
 
     controllerData = (PCONTROLLER_DATA) Context;
+    if (!controllerData->AllowInterruptProcessing) {
+        FloppyDump(
+            FLOPSHOW,
+            ("processing not allowed\n")
+            );
+        return FALSE;
+    }
 
     //
     // CurrentDeviceObject is set to the device object that is
@@ -3739,13 +3782,7 @@ Return Value:
 
     currentDeviceObject = controllerData->CurrentDeviceObject;
     controllerData->CurrentDeviceObject = NULL;
-
-    if (currentDeviceObject == NULL &&
-        !controllerData->CurrentInterrupt) {
-
-        return FALSE;
-
-    }
+    controllerStateError = FALSE;
 
     KeStallExecutionProcessor(10);
 
@@ -3761,11 +3798,20 @@ Return Value:
         // unexpected, to make sure the interrupt is dismissed.
         //
 
+        FloppyDump(
+            FLOPSHOW,
+            ("have result phase\n")
+            );
         if ( ( READ_CONTROLLER( &controllerData->ControllerAddress->Status )
             & STATUS_IO_READY_MASK ) == STATUS_READ_READY ) {
 
             controllerData->FifoBuffer[0] =
                 READ_CONTROLLER( &controllerData->ControllerAddress->Fifo );
+
+            FloppyDump(
+                FLOPSHOW,
+                ("FloppyInterruptService: 1st fifo byte %2x\n", controllerData->FifoBuffer[0])
+                );
 
         } else {
 
@@ -3777,7 +3823,7 @@ Return Value:
 
             FloppyDump(
                 FLOPDBGP,
-                ("Floppy: controller not ready to be read in ISR\n")
+                ("FloppyInterruptService: controller not ready to be read in ISR\n")
                 );
 
             controllerStateError = TRUE;
@@ -3794,13 +3840,16 @@ Return Value:
         // unexpected, to make sure the interrupt is dismissed.
         //
 
+        FloppyDump(
+            FLOPSHOW,
+            ("no result phase\n")
+            );
         i = 0;
 
         do {
 
             KeStallExecutionProcessor( 1 );
-            statusByte = READ_CONTROLLER(
-                &controllerData->ControllerAddress->Status );
+            statusByte = READ_CONTROLLER(&controllerData->ControllerAddress->Status);
             i++;
 
         } while ( ( i < FIFO_ISR_TIGHTLOOP_RETRY_COUNT ) &&
@@ -3822,13 +3871,20 @@ Return Value:
             //
 
             for (i = ISR_SENSE_RETRY_COUNT; i; i--) {
-                statusByte = READ_CONTROLLER(
-                    &controllerData->ControllerAddress->Status );
 
-                if (statusByte & STATUS_CONTROLLER_BUSY)
+                statusByte = READ_CONTROLLER( &controllerData->ControllerAddress->Status );
+                if (statusByte & STATUS_CONTROLLER_BUSY) {
                     break;
+                }
 
                 KeStallExecutionProcessor( 1 );
+            }
+
+            if (!i) {
+                FloppyDump(
+                    FLOPSHOW,
+                    ("FloppyInterruptService: spin loop complete and controller NOT busy\n")
+                    );
             }
 
             if ( currentDeviceObject == NULL ) {
@@ -3838,6 +3894,10 @@ Return Value:
                 // read the result bytes.  Read them now.
                 //
 
+                FloppyDump(
+                    FLOPSHOW,
+                    ("FloppyInterruptService: Dumping fifo bytes!\n")
+                    );
                 READ_CONTROLLER( &controllerData->ControllerAddress->Fifo );
                 READ_CONTROLLER( &controllerData->ControllerAddress->Fifo );
             }
@@ -3877,9 +3937,9 @@ Return Value:
 
 #ifdef KEEP_COUNTERS
     FloppyEndIntrTime = KeQueryPerformanceCounter((PVOID)NULL);
-    FloppyIntrDelay = RtlLargeIntegerAdd(FloppyIntrDelay,
-                       RtlLargeIntegerSubtract(FloppyEndIntrTime,
-                                               FloppyIntrTime));
+    FloppyIntrDelay.QuadPart = FloppyIntrDelay.QuadPart +
+                               (FloppyEndIntrTime.QuadPart -
+                                FloppyIntrTime.QuadPart);
 #endif
     if ( currentDeviceObject == NULL ) {
 
@@ -3888,10 +3948,8 @@ Return Value:
         // in case, but now return FALSE withOUT waking up the thread.
         //
 
-        FloppyDump(
-            FLOPDBGP,
-            ("Floppy: unexpected interrupt\n")
-            );
+        FloppyDump(FLOPDBGP,
+                   ("Floppy: unexpected interrupt\n"));
 
         return FALSE;
     }
@@ -3904,10 +3962,10 @@ Return Value:
         //
 
         controllerData->IsrReentered = 0;
-        IoRequestDpc(
-            currentDeviceObject,
-            currentDeviceObject->CurrentIrp,
-            (PVOID) NULL );
+        controllerData->AllowInterruptProcessing = FALSE;
+        IoRequestDpc(currentDeviceObject,
+                     currentDeviceObject->CurrentIrp,
+                     (PVOID) NULL);
 
     } else {
 
@@ -3951,17 +4009,19 @@ Return Value:
             controllerData->DriveControlImage |= DRVCTL_ENABLE_DMA_AND_INTERRUPTS;
             controllerData->DriveControlImage &= ~( DRVCTL_ENABLE_CONTROLLER );
 
-            WRITE_CONTROLLER(
-                &controllerData->ControllerAddress->DriveControl,
-                controllerData->DriveControlImage );
+#ifdef _PPC_
+            controllerData->DriveControlImage |= DRVCTL_DRIVE_MASK;
+#endif
+
+            WRITE_CONTROLLER(&controllerData->ControllerAddress->DriveControl,
+                             controllerData->DriveControlImage);
 
             KeStallExecutionProcessor( 10 );
 
             controllerData->DriveControlImage |= DRVCTL_ENABLE_CONTROLLER;
 
-            WRITE_CONTROLLER(
-                &controllerData->ControllerAddress->DriveControl,
-                controllerData->DriveControlImage );
+            WRITE_CONTROLLER(&controllerData->ControllerAddress->DriveControl,
+                             controllerData->DriveControlImage);
 
             //
             // Give the device plenty of time to be reset and
@@ -3971,21 +4031,16 @@ Return Value:
             //
 
             KeStallExecutionProcessor(500);
-            WRITE_CONTROLLER(
-                &controllerData->ControllerAddress->Fifo,
-                COMMND_SENSE_INTERRUPT );
+            WRITE_CONTROLLER(&controllerData->ControllerAddress->Fifo,
+                             COMMND_SENSE_INTERRUPT);
             KeStallExecutionProcessor(500);
 
-            KeInsertQueueDpc(
-                &controllerData->LogErrorDpc,
-                NULL,
-                NULL
-                );
-
+            KeInsertQueueDpc(&controllerData->LogErrorDpc,
+                             NULL,
+                             NULL);
         } else {
 
             controllerData->IsrReentered++;
-
         }
 
     }
@@ -4037,9 +4092,9 @@ Return Value:
     FloppyDPCs++;
     FloppyDPCTime = KeQueryPerformanceCounter((PVOID)NULL);
 
-    FloppyDPCDelay = RtlLargeIntegerAdd(FloppyDPCDelay,
-                                        RtlLargeIntegerSubtract(FloppyDPCTime,
-                                                               FloppyIntrTime));
+    FloppyDPCDelay.QuadPart = FloppyDPCDelay.QuadPart +
+                              (FloppyDPCTime.QuadPart -
+                               FloppyIntrTime.QuadPart);
 #endif
 
     deviceObject = (PDEVICE_OBJECT) DeferredContext;
@@ -4308,17 +4363,29 @@ Return Value:
     if ( ( StatusRegister1 & STREG1_CRC_ERROR ) ||
         ( StatusRegister2 & STREG2_CRC_ERROR ) ) {
 
+        FloppyDump(
+            FLOPSHOW,
+            ("FlInterpretError: STATUS_CRC_ERROR\n")
+            );
         return STATUS_CRC_ERROR;
     }
 
     if ( StatusRegister1 & STREG1_DATA_OVERRUN ) {
 
+        FloppyDump(
+            FLOPSHOW,
+            ("FlInterpretError: STATUS_DATA_OVERRUN\n")
+            );
         return STATUS_DATA_OVERRUN;
     }
 
     if ( ( StatusRegister1 & STREG1_SECTOR_NOT_FOUND ) ||
         ( StatusRegister1 & STREG1_END_OF_DISKETTE ) ) {
 
+        FloppyDump(
+            FLOPSHOW,
+            ("FlInterpretError: STATUS_NONEXISTENT_SECTOR\n")
+            );
         return STATUS_NONEXISTENT_SECTOR;
     }
 
@@ -4326,22 +4393,38 @@ Return Value:
         ( StatusRegister2 & STREG2_BAD_CYLINDER ) ||
         ( StatusRegister2 & STREG2_DELETED_DATA ) ) {
 
+        FloppyDump(
+            FLOPSHOW,
+            ("FlInterpretError: STATUS_DEVICE_DATA_ERROR\n")
+            );
         return STATUS_DEVICE_DATA_ERROR;
     }
 
     if ( StatusRegister1 & STREG1_WRITE_PROTECTED ) {
 
+        FloppyDump(
+            FLOPSHOW,
+            ("FlInterpretError: STATUS_MEDIA_WRITE_PROTECTED\n")
+            );
         return STATUS_MEDIA_WRITE_PROTECTED;
     }
 
     if ( StatusRegister1 & STREG1_ID_NOT_FOUND ) {
 
+        FloppyDump(
+            FLOPSHOW,
+            ("FlInterpretError: STATUS_FLOPPY_ID_MARK_NOT_FOUND\n")
+            );
         return STATUS_FLOPPY_ID_MARK_NOT_FOUND;
 
     }
 
     if ( StatusRegister2 & STREG2_WRONG_CYLINDER ) {
 
+        FloppyDump(
+            FLOPSHOW,
+            ("FlInterpretError: STATUS_FLOPPY_WRONG_CYLINDER\n")
+            );
         return STATUS_FLOPPY_WRONG_CYLINDER;
 
     }
@@ -4351,6 +4434,10 @@ Return Value:
     // to.  Just return a generic one.
     //
 
+    FloppyDump(
+        FLOPSHOW,
+        ("FlInterpretError: STATUS_FLOPPY_UNKNOWN_ERROR\n")
+        );
     return STATUS_FLOPPY_UNKNOWN_ERROR;
 }
 
@@ -4380,50 +4467,6 @@ Return Value:
     *((ULONG *)Context) = 0;
     return FALSE;
 
-}
-
-VOID
-FlStartMotorTimer(
-    IN OUT  PCONTROLLER_DATA    ControllerData
-    )
-
-/*++
-
-Routine Description:
-
-    This routine turns on the Motor Timer if the motor is on so that
-    the motor will be turned off in a couple of seconds if nobody uses
-    it.
-
-Arguments:
-
-    ControllerData  - Supplies the controller data.
-
-Return Value:
-
-    None.
-
---*/
-
-{
-    UCHAR driveStatus;
-    KIRQL oldIrql;
-
-    driveStatus = ControllerData->DriveControlImage;
-
-    if ( ( driveStatus & DRVCTL_MOTOR_MASK ) != 0 ) {
-
-        KeAcquireSpinLock( &ControllerData->TimerSpinLock, &oldIrql );
-
-        driveStatus = ControllerData->DriveControlImage;
-
-        if ( ( driveStatus & DRVCTL_MOTOR_MASK ) != 0 ) {
-
-            ControllerData->MotorTimer = TIMER_START;
-        }
-
-        KeReleaseSpinLock( &ControllerData->TimerSpinLock, oldIrql );
-    }
 }
 
 VOID
@@ -4517,9 +4560,10 @@ Return Value:
                      Irp)
                     );
 
-                ExInterlockedIncrementLong(
-                    &controllerData->ThreadReferenceCount,
-                    &controllerData->ThreadReferenceSpinLock);
+                ExAcquireFastMutex(&controllerData->ThreadReferenceMutex);
+                ASSERT(controllerData->ThreadReferenceCount >= 0);
+                (controllerData->ThreadReferenceCount)++;
+                ExReleaseFastMutex(&controllerData->ThreadReferenceMutex);
 
                 ExInterlockedInsertHeadList(
                     &controllerData->ListEntry,
@@ -4543,13 +4587,6 @@ Return Value:
     //
 
     controllerData->HardwareFailCount = 0;
-
-    //
-    // If there's a motor on, set the timer so that it will be turned off
-    // in a couple of seconds if nobody uses it.
-    //
-
-    FlStartMotorTimer(controllerData);
 
     //
     // If this request was unsuccessful and the error is one that can be
@@ -4599,27 +4636,19 @@ Return Value:
 }
 
 VOID
-FloppyMotorOffDpc(
-    IN PDEVICE_OBJECT DeviceObject,
-    IN PVOID Context
+FlTurnOffMotor(
+    IN OUT  PCONTROLLER_DATA ControllerData
     )
 
 /*++
 
 Routine Description:
 
-    This routine is called at DISPATCH_LEVEL once every second by the
-    I/O system.
-
-    If the timer is "set" (greater than 0) this routine will decrement
-    it.  If it ever reaches 0, the running motor is turned off.
+    This routine turns off the motor.
 
 Arguments:
 
-    DeviceObject - a pointer to the device object associated with this
-    timer (always the first disk on the controller).
-
-    Context - unused.
+    DisketteExtension   - Supplies the diskette extension.
 
 Return Value:
 
@@ -4628,55 +4657,26 @@ Return Value:
 --*/
 
 {
-    KIRQL oldIrql;
-    PDISKETTE_EXTENSION disketteExtension;
-    PCONTROLLER_DATA controllerData;
+    ControllerData->DriveControlImage =
+        DRVCTL_ENABLE_DMA_AND_INTERRUPTS +
+#ifdef _PPC_
+        DRVCTL_DRIVE_MASK +
+#endif
+        DRVCTL_ENABLE_CONTROLLER;
 
-    UNREFERENCED_PARAMETER( Context );
+    WRITE_CONTROLLER(
+        &ControllerData->ControllerAddress->DriveControl,
+        ControllerData->DriveControlImage );
 
-    disketteExtension = (PDISKETTE_EXTENSION) DeviceObject->DeviceExtension;
-    controllerData = disketteExtension->ControllerData;
+    if (ControllerData->CurrentInterrupt) {
+        ControllerData->CurrentInterrupt = FALSE;
 
-    if ( controllerData->MotorTimer != TIMER_CANCEL ) {
-
-        //
-        // One of the motors is running - grab the timer spinlock and
-        // decrement the timer counter.  If it expires, turn off the
-        // motor.
-        //
-
-        KeAcquireSpinLock( &controllerData->TimerSpinLock, &oldIrql );
-
-        if ( controllerData->MotorTimer != TIMER_CANCEL ) {
-
-            controllerData->MotorTimer--;
-
-            if ( controllerData->MotorTimer == TIMER_EXPIRED ) {
-
-                controllerData->MotorTimer = TIMER_CANCEL;
-
-                controllerData->DriveControlImage =
-                    DRVCTL_ENABLE_DMA_AND_INTERRUPTS +
-                    DRVCTL_ENABLE_CONTROLLER;
-
-                WRITE_CONTROLLER(
-                    &controllerData->ControllerAddress->DriveControl,
-                    controllerData->DriveControlImage );
-
-                if (controllerData->CurrentInterrupt) {
-                    controllerData->CurrentInterrupt = FALSE;
-
-                    KeSetEvent(controllerData->ControllerEvent,
-                        (KPRIORITY) 0,
-                        FALSE);
-                }
-
-                FlFreeIoBuffer(controllerData);
-            }
-        }
-
-        KeReleaseSpinLock( &controllerData->TimerSpinLock, oldIrql );
+        KeSetEvent(ControllerData->ControllerEvent,
+            (KPRIORITY) 0,
+            FALSE);
     }
+
+    FlFreeIoBuffer(ControllerData);
 }
 
 NTSTATUS
@@ -4725,7 +4725,7 @@ Return Value:
 
     FloppyDump(
         FLOPSHOW,
-        ("Floppy: FloppyIssueCommand...\n")
+        ("Floppy: FloppyIssueCommand %2x...\n", Command)
         );
 
     controllerData = DisketteExtension->ControllerData;
@@ -4738,12 +4738,28 @@ Return Value:
     if ( CommandTable[Command & COMMAND_MASK].InterruptExpected ) {
 
         controllerData->CurrentDeviceObject = DisketteExtension->DeviceObject;
-
+        controllerData->AllowInterruptProcessing = TRUE;
         controllerData->CommandHasResultPhase =
             !!CommandTable[Command & COMMAND_MASK].FirstResultByte;
 
         KeResetEvent( &controllerData->InterruptEvent );
     }
+
+#if defined(DBCS) && defined(_MIPS_)
+
+    //
+    // Call FlOutputCommandFor3Mode(), so the drive mode can be changed
+    // if necessary.
+    //
+
+    ntStatus = FlOutputCommandFor3Mode( Command, DisketteExtension );
+
+    if (!NT_SUCCESS( ntStatus )) {
+
+        return ntStatus;
+    }
+
+#endif // DBCS && _MIPS_
 
     //
     // Send the command to the controller.
@@ -4799,12 +4815,12 @@ Return Value:
                 }
 #ifdef KEEP_COUNTERS
     FloppyThreadTime = KeQueryPerformanceCounter((PVOID)NULL);
-    FloppyThreadDelay = RtlLargeIntegerAdd(FloppyThreadDelay,
-                                    RtlLargeIntegerSubtract(FloppyThreadTime,
-                                                            FloppyDPCTime));
-    FloppyFromIntrDelay = RtlLargeIntegerAdd(FloppyFromIntrDelay,
-                                     RtlLargeIntegerSubtract(FloppyThreadTime,
-                                                             FloppyIntrTime));
+    FloppyThreadTime.QuadPart = FloppyThreadDelay.QuadPart +
+                                (FloppyThreadTime.QuadPart -
+                                 FloppyDPCTime.QuadPart);
+    FloppyFromIntrDelay.QuadPart = FloppyFromIntrDelay.QuadPart +
+                                   (FloppyThreadTime.QuadPart -
+                                    FloppyIntrTime.QuadPart);
     FloppyThreadWake++;
 #endif
             }
@@ -4824,6 +4840,11 @@ Return Value:
                         &controllerData->FifoBuffer[i],
                         controllerData );
                 }
+            } else {
+                FloppyDump(
+                    FLOPINFO,
+                    ("FlIssueCommand: failure after issue %x\n", ntStatus)
+                    );
             }
         }
     }
@@ -4864,6 +4885,16 @@ Return Value:
                     ntStatus = STATUS_FLOPPY_BAD_REGISTERS;
 
                     controllerData->HardwareFailed = TRUE;
+                    FloppyDump(
+                        FLOPINFO,
+                        ("FlIssueCommand: unexpected error value %2x\n",
+                         controllerData->FifoBuffer[0])
+                        );
+                } else {
+                    FloppyDump(
+                        FLOPINFO,
+                        ("FlIssueCommand: Invalid command error returned\n")
+                        );
                 }
 
             } else {
@@ -4872,6 +4903,10 @@ Return Value:
                 // GetByte returned an error, so propogate THAT.
                 //
 
+                FloppyDump(
+                    FLOPINFO,
+                    ("FlIssueCommand: FlGetByte returned error %x\n", ntStatus2)
+                    );
                 ntStatus = ntStatus2;
             }
         }
@@ -4930,7 +4965,6 @@ Return Value:
 --*/
 
 {
-    KIRQL oldIrql;
     UCHAR driveStatus;
     NTSTATUS waitStatus;
     LARGE_INTEGER controllerWait;
@@ -4941,10 +4975,6 @@ Return Value:
     *MotorStarted = FALSE;
 
     controllerData = DisketteExtension->ControllerData;
-
-    KeAcquireSpinLock( &controllerData->TimerSpinLock, &oldIrql );
-
-    controllerData->MotorTimer = TIMER_CANCEL;
 
     driveStatus = controllerData->DriveControlImage;
 
@@ -4957,13 +4987,7 @@ Return Value:
 
         if (!controllerData->CurrentInterrupt) {
 
-            KeReleaseSpinLock(&controllerData->TimerSpinLock, oldIrql);
-
-            controllerWait = RtlLargeIntegerNegate(
-                                RtlConvertLongToLargeInteger(
-                                (LONG)(10 * 1000 * 3000)
-                                )
-                                );
+            controllerWait.QuadPart = -(10 * 1000 * 3000);
 
             waitStatus = KeWaitForSingleObject(
                                 controllerData->ControllerEvent,
@@ -4978,12 +5002,10 @@ Return Value:
 
             controllerData->CurrentInterrupt = TRUE;
 
-            KeAcquireSpinLock(&controllerData->TimerSpinLock, &oldIrql);
-
-            controllerData->MotorTimer = TIMER_CANCEL;
-
             driveStatus = controllerData->DriveControlImage;
         }
+
+        controllerData->AllowInterruptProcessing = TRUE;
 
         controllerData->DriveControlImage = DisketteExtension->DriveOnValue;
 
@@ -5002,8 +5024,6 @@ Return Value:
 
             DisketteExtension->DriveMediaConstants = DriveMediaConstants[0];
         }
-
-        KeReleaseSpinLock( &controllerData->TimerSpinLock, oldIrql );
 
         //
         // Wait the appropriate length of time for the drive to spin up.
@@ -5030,10 +5050,6 @@ Return Value:
 
         *MotorStarted = TRUE;
 
-    } else {
-
-        KeReleaseSpinLock( &controllerData->TimerSpinLock, oldIrql );
-
     }
 
     return STATUS_SUCCESS;
@@ -5042,7 +5058,8 @@ Return Value:
 BOOLEAN
 FlDisketteRemoved(
     IN  PCONTROLLER_DATA    ControllerData,
-    IN  UCHAR               DriveStatus
+    IN  UCHAR               DriveStatus,
+    IN  BOOLEAN             MotorStarted
     )
 
 /*++
@@ -5051,7 +5068,9 @@ Routine Description:
 
     This routine computes whether or not the diskette has been
     removed from the drive by examining the disk change bit in
-    the given drive status byte.
+    the given drive status byte.  It is now assumed that if the
+    motor has just been started this will return that the diskette
+    changed.
 
 Arguments:
 
@@ -5060,7 +5079,6 @@ Arguments:
 
 Return Value:
 
-    FALSE   - The diskette has not been removed.
     TRUE    - The diskette has been removed.
 
 --*/
@@ -5068,8 +5086,14 @@ Return Value:
 {
     UCHAR   invertMask;
 
+#if 0
+    if (MotorStarted) {
+        return TRUE;
+    }
+#endif
+
     invertMask = ControllerData->Model30 ? DSKCHG_DISKETTE_REMOVED : 0;
-    return (DriveStatus^invertMask) & DSKCHG_DISKETTE_REMOVED;
+    return (DriveStatus ^ invertMask) & DSKCHG_DISKETTE_REMOVED;
 }
 
 NTSTATUS
@@ -5116,10 +5140,11 @@ Return Value:
 --*/
 
 {
+    LARGE_INTEGER    delay;
     PCONTROLLER_DATA controllerData;
+    BOOLEAN  motorStarted;
+    UCHAR    driveStatus;
     NTSTATUS ntStatus = STATUS_SUCCESS;
-    BOOLEAN motorStarted;
-    UCHAR driveStatus;
 
     FloppyDump(
         FLOPSHOW,
@@ -5143,9 +5168,6 @@ Return Value:
 
     DriveMediaConstants[DriveMediaLimits[DisketteExtension->DriveType].
         HighestDriveMediaType] = DisketteExtension->BiosDriveMediaConstants;
-
-
-
     controllerData = DisketteExtension->ControllerData;
 
     //
@@ -5176,7 +5198,7 @@ Return Value:
     if ( ((DisketteExtension->DriveType == DRIVE_TYPE_0360) &&
               motorStarted) ||
          ((DisketteExtension->DriveType != DRIVE_TYPE_0360) &&
-              FlDisketteRemoved(controllerData, driveStatus)) ) {
+              FlDisketteRemoved(controllerData, driveStatus, motorStarted)) ) {
 
         FloppyDump(
             FLOPSHOW,
@@ -5254,7 +5276,23 @@ Return Value:
             controllerData->FifoBuffer[0] = DisketteExtension->DeviceUnit;
             controllerData->FifoBuffer[1] = 0;
 
+            //
+            // Floppy drives use by Toshiba systems require a delay
+            // when this operation is performed.
+            //
+
+            delay.LowPart = (ULONG) -900;
+            delay.HighPart = -1;
+            KeDelayExecutionThread( KernelMode, FALSE, &delay );
             ntStatus = FlIssueCommand( COMMND_SEEK, DisketteExtension );
+
+            //
+            // Again, for Toshiba floppy drives, a delay is required.
+            //
+
+            delay.LowPart = (ULONG) -5;
+            delay.HighPart = -1;
+            KeDelayExecutionThread( KernelMode, FALSE, &delay );
 
             if ( !NT_SUCCESS( ntStatus ) ) {
 
@@ -5284,7 +5322,7 @@ Return Value:
             driveStatus = READ_CONTROLLER(
                 &controllerData->ControllerAddress->DRDC.DiskChange );
 
-            if ( FlDisketteRemoved(controllerData, driveStatus) ) {
+            if ( FlDisketteRemoved(controllerData, driveStatus, motorStarted) ) {
 
                 //
                 // If "disk changed" is still set after the double seek, the
@@ -5447,12 +5485,13 @@ Return Value:
     PCONTROLLER_DATA controllerData;
     NTSTATUS ntStatus = STATUS_SUCCESS;
 
+    controllerData = DisketteExtension->ControllerData;
+
     FloppyDump(
         FLOPSHOW,
-        ("Floppy: FloppyDatarateSpecifyConfigure...\n")
+        ("Floppy: FloppyDatarateSpecifyConfigure: Controller is %s configurable\n",
+        controllerData->ControllerConfigurable ? "" : "not")
         );
-
-    controllerData = DisketteExtension->ControllerData;
 
     //
     // If the controller has a CONFIGURE command, use it to enable implied
@@ -5463,9 +5502,7 @@ Return Value:
 
         controllerData->FifoBuffer[0] = 0;
 
-        controllerData->FifoBuffer[1] = controllerData->UseFifo ?
-                                        COMMND_CONFIGURE_FIFO_THRESHOLD :
-                                        COMMND_CONFIGURE_DISABLE_FIFO;
+        controllerData->FifoBuffer[1] = COMMND_CONFIGURE_FIFO_THRESHOLD;
         controllerData->FifoBuffer[1] += COMMND_CONFIGURE_DISABLE_POLLING;
 
         if (!DisketteExtension->DriveMediaConstants.CylinderShift) {
@@ -5525,7 +5562,17 @@ Return Value:
             //
 
             ntStatus = FlRecalibrateDrive( DisketteExtension );
+        } else {
+            FloppyDump(
+                FLOPINFO,
+                ("Floppy: Failed specify %x\n", ntStatus)
+                );
         }
+    } else {
+        FloppyDump(
+            FLOPINFO,
+            ("Floppy: Failed configuration %x\n", ntStatus)
+            );
     }
 
     if ( NT_SUCCESS( ntStatus ) ) {
@@ -5535,6 +5582,10 @@ Return Value:
     } else {
 
         controllerData->LastDriveMediaType = Unknown;
+        FloppyDump(
+            FLOPINFO,
+            ("Floppy: Failed recalibrate %x\n", ntStatus)
+            );
     }
 
     return ntStatus;
@@ -5570,11 +5621,6 @@ Return Value:
     PCONTROLLER_DATA controllerData;
     NTSTATUS ntStatus;
     UCHAR recalibrateCount;
-
-    FloppyDump(
-        FLOPSHOW,
-        ("Floppy: FloppyRecalibrateDrive...\n")
-        );
 
     controllerData = DisketteExtension->ControllerData;
 
@@ -5619,6 +5665,11 @@ Return Value:
 
     } while ( ( !NT_SUCCESS( ntStatus ) ) && ( recalibrateCount < 2 ) );
 
+    FloppyDump(
+        FLOPSHOW,
+        ("Floppy: FloppyRecalibrateDrive: status %x, count %d\n", ntStatus, recalibrateCount)
+        );
+
     return ntStatus;
 }
 
@@ -5657,7 +5708,7 @@ Return Value:
 
     FloppyDump(
         FLOPSHOW,
-        ("Floppy: FloppyDetermineMediaType...\n")
+        ("FlDetermineMediaType...\n")
         );
 
     controllerData = DisketteExtension->ControllerData;
@@ -5682,11 +5733,14 @@ Return Value:
             // it a better chance of working.
             //
 
+            FloppyDump(
+                FLOPINFO,
+                ("FlDetermineMediaType: Resetting controller\n")
+                );
             FlInitializeControllerHardware(
                 controllerData,
                 DisketteExtension->DeviceObject
                 );
-
         }
 
         //
@@ -5712,6 +5766,10 @@ Return Value:
                 // Force ourselves out of this loop and return error.
                 //
 
+                FloppyDump(
+                    FLOPINFO,
+                    ("FlDetermineMediaType: DatarateSpecify failed %x\n", ntStatus)
+                    );
                 mediaTypesExhausted = TRUE;
 
             } else {
@@ -5741,7 +5799,13 @@ Return Value:
                         (UCHAR)( ( DisketteExtension->DeviceUnit ) |
                         ( ( driveMediaConstants->NumberOfHeads - 1 ) << 2 ) ) ) ||
                     ( controllerData->FifoBuffer[1] != 0 ) ||
-                    ( controllerData->FifoBuffer[2] != 0 ) ) {
+#if defined(DBCS) && defined(_MIPS_)
+                    ( controllerData->FifoBuffer[2] != 0 ) ||
+                    ( (128 << (controllerData->FifoBuffer[6])) != driveMediaConstants->BytesPerSector )
+#else // !DBCS && !_MIPS_
+                    ( controllerData->FifoBuffer[2] != 0 )
+#endif // DBCS && _MIPS_
+                    ) {
 
                     FloppyDump(
                         FLOPINFO,
@@ -5757,13 +5821,31 @@ Return Value:
                         );
 
                     DisketteExtension->DriveMediaType--;
+#if defined(DBCS) && defined(_MIPS_)
+                    //
+                    // This drive isn't the 3 mode Floppy disk drive.
+                    // So the driver skips over 1.23Mb and 1.2MB format
+                    // when it determines a DriveMediaType for DRIVE_TYPE_1440.
+                    //
+
+                    if (( DisketteExtension->DriveType == DRIVE_TYPE_1440 )  &&
+                        ( DisketteExtension->DriveMediaType == Drive144Media123) &&
+                        ( DisketteExtension->Drive3Mode == DRIVE_2MODE )) {
+
+                            FloppyDump(
+                                FLOPINFO,
+                                ("Floppy: Skip over 1.23Mb and 1.2Mb\n")
+                                );
+
+                            DisketteExtension->DriveMediaType = Drive144Media720;
+                    }
+#endif // DBCS && _MIPS_
                     DisketteExtension->DriveMediaConstants =
                         DriveMediaConstants[DisketteExtension->DriveMediaType];
 
                     if (ntStatus != STATUS_DEVICE_NOT_READY) {
 
                         ntStatus = STATUS_UNRECOGNIZED_MEDIA;
-
                     }
 
                     //
@@ -5782,11 +5864,8 @@ Return Value:
                             FLOPINFO,
                             ("Floppy: Unrecognized media.\n")
                             );
-
                     }
-
                 }
-
             }
 
         } while ( ( !NT_SUCCESS( ntStatus ) ) && !( mediaTypesExhausted ) );
@@ -5797,27 +5876,27 @@ Return Value:
             // We determined the media type.  Time to move on.
             //
 
+            FloppyDump(
+                FLOPINFO,
+                ("Floppy: Determined media type %d\n", retries)
+                );
             break;
-
         }
-
     }
 
     if ( (!NT_SUCCESS( ntStatus )) || mediaTypesExhausted) {
 
+        FloppyDump(
+            FLOPINFO,
+            ("Floppy: failed determine types status = %x %s\n",
+             ntStatus,
+             mediaTypesExhausted ? "media types exhausted" : "")
+            );
         return ntStatus;
-
     }
 
     DisketteExtension->MediaType = driveMediaConstants->MediaType;
-
-    DisketteExtension->BytesPerSector =
-        driveMediaConstants->BytesPerSector;
-
-    FloppyDump(
-        FLOPINFO,
-        ("Floppy: MediaType is %x\n", DisketteExtension->MediaType)
-        );
+    DisketteExtension->BytesPerSector = driveMediaConstants->BytesPerSector;
 
     DisketteExtension->ByteCapacity =
         ( driveMediaConstants->BytesPerSector ) *
@@ -5825,6 +5904,13 @@ Return Value:
         ( 1 + driveMediaConstants->MaximumTrack ) *
         driveMediaConstants->NumberOfHeads;
 
+    FloppyDump(
+        FLOPINFO,
+        ("FlDetermineMediaType: MediaType is %x, bytes per sector %d, capacity %d\n",
+         DisketteExtension->MediaType,
+         DisketteExtension->BytesPerSector,
+         DisketteExtension->ByteCapacity)
+        );
     //
     // Structure copy the media constants into the diskette extension.
     //
@@ -5948,7 +6034,8 @@ Return Value:
 --*/
 
 {
-    BOOLEAN allocateContiguous;
+    BOOLEAN         allocateContiguous;
+    LARGE_INTEGER   maxDmaAddress;
 
     if (ControllerData->IoBuffer) {
         if (ControllerData->IoBufferSize >= BufferSize) {
@@ -5964,8 +6051,9 @@ Return Value:
     }
 
     if (allocateContiguous) {
+        maxDmaAddress.QuadPart = MAXIMUM_DMA_ADDRESS;
         ControllerData->IoBuffer = MmAllocateContiguousMemory(BufferSize,
-                RtlConvertUlongToLargeInteger(MAXIMUM_DMA_ADDRESS));
+                                                              maxDmaAddress);
     } else {
         ControllerData->IoBuffer = ExAllocatePool(NonPagedPoolCacheAligned,
                                                   BufferSize);
@@ -6078,6 +6166,8 @@ Return Value:
     NTSTATUS ntStatus;
     NTSTATUS waitStatus;
     LARGE_INTEGER queueWait;
+    BOOLEAN interruptConnected = FALSE;
+
 
     //
     // Set thread priority to lowest realtime level.
@@ -6085,11 +6175,7 @@ Return Value:
 
     KeSetPriorityThread(KeGetCurrentThread(), LOW_REALTIME_PRIORITY);
 
-    queueWait = RtlLargeIntegerNegate(
-                        RtlConvertLongToLargeInteger(
-                        (LONG)(10 * 1000 * 10000)
-                        )
-                        );
+    queueWait.QuadPart = -(3 * 1000 * 10000);
 
     do {
 
@@ -6108,36 +6194,42 @@ Return Value:
             &queueWait );
 
         if (waitStatus == STATUS_TIMEOUT) {
-            if (ExInterlockedDecrementLong(
-                    &controllerData->ThreadReferenceCount,
-                    &controllerData->ThreadReferenceSpinLock) == ResultNegative) {
 
+            ExAcquireFastMutex(&controllerData->ThreadReferenceMutex);
+
+            if (controllerData->ThreadReferenceCount == 0) {
+                controllerData->ThreadReferenceCount = -1;
+
+                controllerData->AllowInterruptProcessing = FALSE;
+                FlTurnOffMotor(controllerData);
+
+                if (interruptConnected) {
+                    IoDisconnectInterrupt(controllerData->InterruptObject);
+                }
+
+                ExAcquireFastMutex(PagingMutex);
+                if (--PagingReferenceCount == 0) {
+                    MmPageEntireDriver(DriverEntry);
+                }
+                ExReleaseFastMutex(PagingMutex);
+
+
+                ExReleaseFastMutex(&controllerData->ThreadReferenceMutex);
                 PsTerminateSystemThread( STATUS_SUCCESS );
             }
 
-            ExInterlockedIncrementLong(
-                &controllerData->ThreadReferenceCount,
-                &controllerData->ThreadReferenceSpinLock);
+            ExReleaseFastMutex(&controllerData->ThreadReferenceMutex);
             continue;
-        }
-
-        if ( controllerData->UnloadingDriver ) {
-
-            FloppyDump(
-                FLOPDBGP,
-                ("Floppy: Thread asked to kill itself\n")
-                );
-
-            PsTerminateSystemThread( STATUS_SUCCESS );
         }
 
         while (request = ExInterlockedRemoveHeadList(
                 &controllerData->ListEntry,
                 &controllerData->ListSpinLock)) {
 
-            ExInterlockedDecrementLong(
-                &controllerData->ThreadReferenceCount,
-                &controllerData->ThreadReferenceSpinLock);
+            ExAcquireFastMutex(&controllerData->ThreadReferenceMutex);
+            ASSERT(controllerData->ThreadReferenceCount > 0);
+            (controllerData->ThreadReferenceCount)--;
+            ExReleaseFastMutex(&controllerData->ThreadReferenceMutex);
 
             controllerData->HardwareFailed = FALSE;
 
@@ -6145,6 +6237,33 @@ Return Value:
 
 
             irpSp = IoGetCurrentIrpStackLocation( irp );
+
+            if (!interruptConnected) {
+
+                ntStatus = IoConnectInterrupt(&controllerData->InterruptObject,
+                                              FloppyInterruptService,
+                                              controllerData,
+                                              NULL,
+                                              controllerData->ControllerVector,
+                                              controllerData->ControllerIrql,
+                                              controllerData->ControllerIrql,
+                                              controllerData->InterruptMode,
+                                              controllerData->SharableVector,
+                                              controllerData->ProcessorMask,
+                                              controllerData->SaveFloatState);
+
+                if (!NT_SUCCESS(ntStatus)) {
+
+                    irp->IoStatus.Status = ntStatus;
+                    irp->IoStatus.Information = 0;
+
+                    IoCompleteRequest(irp, IO_NO_INCREMENT);
+
+                    continue;
+                }
+
+                interruptConnected = TRUE;
+            }
 
             FloppyDump(
                 FLOPIRPPATH,
@@ -6494,6 +6613,77 @@ Return Value:
 
                                 break;
                             }                              //end of case format
+
+#if defined(DBCS) && defined(_MIPS_)
+                            case IOCTL_DISK_READ:
+                            case IOCTL_DISK_WRITE:  {
+
+                                FloppyDump(
+                                    FLOPSHOW,
+                                    ("Floppy: IOCTL_DISK_READ WRITE\n")
+                                    );
+
+                                //
+                                // Start the drive, and make sure it's not
+                                // write protected.
+                                //
+
+                                ntStatus = FlStartDrive(
+                                    disketteExtension,
+                                    irp,
+                                    TRUE,
+                                    FALSE,
+                                    FALSE );
+                               //
+                               // Allocate an adapter channel to do
+                               // the format.
+                               //
+
+                               FlAllocateAdapterChannel(disketteExtension);
+
+                                    ntStatus = FlReadWrite_PTOS(
+                                        disketteExtension,
+                                        irp );
+
+                                    //
+                                    // Free the adapter channel.
+                                    //
+                               FlFreeAdapterChannel(disketteExtension);
+                               break;
+                           }                           //end of case read/write
+
+                           case IOCTL_DISK_SENSE_DEVICE: {
+
+                               controllerData->FifoBuffer[0] = disketteExtension->DeviceUnit;
+                               ntStatus = FlSendByte( COMMND_SENSE_DRIVE, controllerData );
+                               if ( NT_SUCCESS( ntStatus ) ) {
+
+                                   ntStatus = FlSendByte(
+                                   controllerData->FifoBuffer[0],
+                                   controllerData );
+
+                                   if ( NT_SUCCESS( ntStatus ) ) {
+
+                                       ntStatus = FlGetByte(
+                                       &controllerData->FifoBuffer[0],
+                                       controllerData );
+                                       Result_Status3_PTOS[0].ST3_PTOS = controllerData->FifoBuffer[0]; //PTOS
+                                   }
+                               }
+
+                               if ( NT_SUCCESS( ntStatus ) ) {
+
+                                   PSENSE_DEVISE_STATUS_PTOS outputBuffer
+                                        =(PSENSE_DEVISE_STATUS_PTOS)irp->AssociatedIrp.SystemBuffer;
+                                   ((PSENSE_DEVISE_STATUS_PTOS)outputBuffer)->ST3_PTOS
+                                        =Result_Status3_PTOS[0].ST3_PTOS;
+
+                                   irp->IoStatus.Information = sizeof( SENSE_DEVISE_STATUS_PTOS );
+                               }
+                               break;
+                           }                         //end of case sense device
+#endif // DBCS && _MIPS_
+
                         }                           //end of switch controlcode
                     }
 
@@ -6534,9 +6724,10 @@ Return Value:
                         break;
                     }
 
-                    ExInterlockedDecrementLong(
-                        &controllerData->ThreadReferenceCount,
-                        &controllerData->ThreadReferenceSpinLock);
+                    ExAcquireFastMutex(&controllerData->ThreadReferenceMutex);
+                    ASSERT(controllerData->ThreadReferenceCount > 0);
+                    (controllerData->ThreadReferenceCount)--;
+                    ExReleaseFastMutex(&controllerData->ThreadReferenceMutex);
 
                     irp = CONTAINING_RECORD(request, IRP, Tail.Overlay.ListEntry);
                 }
@@ -6695,11 +6886,19 @@ Return Value:
         ("FLOPPY: After switch media type is: %x\n",bpbMediaType)
         );
 
+    FloppyDump(
+        FLOPINFO,
+        ("FloppyBpb: Media type ")
+        );
     if (bpbMediaType == DisketteExtension->MediaType) {
 
         // No conflict between BPB and readId result.
 
         changeToBpbMedia = FALSE;
+        FloppyDump(
+            FLOPINFO,
+            ("is same\n")
+            );
 
     } else {
 
@@ -6719,6 +6918,11 @@ Return Value:
         } else {
             changeToBpbMedia = FALSE;
         }
+
+        FloppyDump(
+            FLOPINFO,
+            ("%s", changeToBpbMedia ? "will change to Bpb\n" : "will not change\n")
+            );
 
         // If we didn't derive a new media type from the BPB then
         // just use the one from readId.  Also override any
@@ -6747,14 +6951,9 @@ Return Value:
         }
 
         DisketteExtension->MediaType = bpbMediaType;
-
         DisketteExtension->ByteCapacity = bpbNumberOfSectors*bpbBytesPerSector;
-
-        DisketteExtension->DriveMediaConstants.SectorsPerTrack = (UCHAR)
-                bpbSectorsPerTrack;
-
-        DisketteExtension->DriveMediaConstants.NumberOfHeads = (UCHAR)
-                bpbNumberOfHeads;
+        DisketteExtension->DriveMediaConstants.SectorsPerTrack = (UCHAR) bpbSectorsPerTrack;
+        DisketteExtension->DriveMediaConstants.NumberOfHeads = (UCHAR) bpbNumberOfHeads;
 
         // If the MSDMF3. signature is there then make this floppy
         // read-only.
@@ -6794,7 +6993,6 @@ Return Value:
     PBOOT_SECTOR_INFO   bootSector;
     LARGE_INTEGER       offset;
     PIRP                irp;
-    PCONTROLLER_DATA    controllerData;
     NTSTATUS            status;
 
 
@@ -6822,21 +7020,14 @@ Return Value:
 
     // Allocate an adapter channel, do read, free adapter channel.
 
-    controllerData = DisketteExtension->ControllerData;
     FlAllocateAdapterChannel(DisketteExtension);
 
     status = FlReadWrite(DisketteExtension, irp, TRUE);
 
     FlFreeAdapterChannel(DisketteExtension);
 
-
-    // If the read was successful then consolidate the
-    // boot sector with the determined density.
-
-    if (NT_SUCCESS(status)) {
-        FlConsolidateMediaTypeWithBootSector(DisketteExtension, bootSector);
-    }
-
+    MmUnlockPages(irp->MdlAddress);
+    IoFreeMdl(irp->MdlAddress);
     IoFreeIrp(irp);
     ExFreePool(bootSector);
 }
@@ -6898,6 +7089,17 @@ Return Value:
     BOOLEAN                 recalibrateDrive = FALSE;
     UCHAR                   i;
 
+    FloppyDump(
+        FLOPSHOW,
+        ("\nFlReadWriteTrack:%sseek for %s at chs %d/%d/%d for %d sectors\n",
+         NeedSeek ? " need " : " ",
+         WriteOperation ? "write" : "read",
+         Cylinder,
+         Head,
+         Sector,
+         NumberOfSectors)
+        );
+
     driveMediaConstants = &DisketteExtension->DriveMediaConstants;
     byteToSectorShift = SECTORLENGTHCODE_TO_BYTESHIFT +
                         driveMediaConstants->SectorLengthCode;
@@ -6910,7 +7112,13 @@ Return Value:
     for (seekRetry = 0, ioRetry = 0; seekRetry < 3; seekRetry++) {
 
         if (recalibrateDrive) {
+
             // Something failed, so recalibrate the drive.
+
+            FloppyDump(
+                FLOPINFO,
+                ("FlReadWriteTrack: performing recalibrate\n")
+                );
             FlRecalibrateDrive(DisketteExtension);
         }
 
@@ -6925,7 +7133,7 @@ Return Value:
                                             DisketteExtension->DeviceUnit;
             controllerData->FifoBuffer[1] = Cylinder<<
                                             driveMediaConstants->CylinderShift;
-    
+
             status = FlIssueCommand(COMMND_SEEK, DisketteExtension);
 
             if (NT_SUCCESS(status)) {
@@ -6941,16 +7149,16 @@ Return Value:
                 }
 
                 if (NT_SUCCESS(status)) {
-    
+
                     // Delay after doing seek.
-    
+
                     KeDelayExecutionThread(KernelMode, FALSE, &headSettleTime);
-    
+
                     // SEEKs should always be followed by a READID.
-    
+
                     controllerData->FifoBuffer[0] = (Head<<2) |
                                                     DisketteExtension->DeviceUnit;
-    
+
                     status = FlIssueCommand(COMMND_READ_ID + COMMND_MFM,
                                             DisketteExtension);
 
@@ -6968,9 +7176,20 @@ Return Value:
                                         controllerData->FifoBuffer[1],
                                         controllerData->FifoBuffer[2]);
                         }
+                    } else {
+                        FloppyDump(
+                            FLOPINFO,
+                            ("FlReadWriteTrack: Read ID failed %x\n", status)
+                            );
                     }
                 }
+            } else {
+                FloppyDump(
+                    FLOPINFO,
+                    ("FlReadWriteTrack: SEEK failed %x\n", status)
+                    );
             }
+
 
         } else {
             status = STATUS_SUCCESS;
@@ -6980,6 +7199,10 @@ Return Value:
 
             // The seek failed so try again.
 
+            FloppyDump(
+                FLOPINFO,
+                ("FlReadWriteTrack: setup failure %x - recalibrating\n", status)
+                );
             recalibrateDrive = TRUE;
             continue;
         }
@@ -7047,6 +7270,13 @@ Return Value:
                     status = FlInterpretError(controllerData->FifoBuffer[1],
                                               controllerData->FifoBuffer[2]);
                 }
+            } else {
+                FloppyDump(
+                    FLOPINFO,
+                    ("FlReadWriteTrack: %s command failed %x\n",
+                     WriteOperation ? "write" : "read",
+                     status)
+                    );
             }
 
             if (NT_SUCCESS(status)) {
@@ -7054,6 +7284,10 @@ Return Value:
             }
 
             if (ioRetry >= 2) {
+                FloppyDump(
+                    FLOPINFO,
+                    ("FlReadWriteTrack: too many retries - failing\n")
+                    );
                 break;
             }
         }
@@ -7070,6 +7304,11 @@ Return Value:
 
         // Retry one sector at a time.
 
+        FloppyDump(
+            FLOPINFO,
+            ("FlReadWriteTrack: Attempting sector at a time\n")
+            );
+
         for (i = 0; i < NumberOfSectors; i++) {
             status = FlReadWriteTrack(DisketteExtension, IoMdl,
                                       ((PCHAR) IoBuffer) +
@@ -7077,12 +7316,18 @@ Return Value:
                                       WriteOperation, Cylinder, Head,
                                       (UCHAR) (Sector + i), 1, FALSE);
             if (!NT_SUCCESS(status)) {
+                FloppyDump(
+                    FLOPINFO,
+                    ("FlReadWriteTrack: failed sector %d status %x\n",
+                     i,
+                     status)
+                    );
                 break;
             }
         }
     }
 
-    return(status);
+    return status;
 }
 
 NTSTATUS
@@ -7138,16 +7383,33 @@ Return Value:
     irpSp = IoGetCurrentIrpStackLocation(Irp);
     controllerData = DisketteExtension->ControllerData;
 
+    FloppyDump(
+        FLOPSHOW,
+        ("FlReadWrite: for %s at offset %x size %x ",
+         irpSp->MajorFunction == IRP_MJ_WRITE ? "write" : "read",
+         irpSp->Parameters.Read.ByteOffset.LowPart,
+         irpSp->Parameters.Read.Length)
+        );
+
     // Check for valid operation on this device.
 
     if (irpSp->MajorFunction == IRP_MJ_WRITE) {
         if (DisketteExtension->IsReadOnly) {
+            FloppyDump(
+                FLOPSHOW,
+                ("is read-only\n")
+                );
             return STATUS_INVALID_PARAMETER;
         }
         writeOperation = TRUE;
     } else {
         writeOperation = FALSE;
     }
+
+    FloppyDump(
+        FLOPSHOW,
+        ("\n")
+        );
 
     // Start up the drive.
 
@@ -7159,11 +7421,19 @@ Return Value:
     }
 
     if (!NT_SUCCESS(status)) {
-        return(status);
+        FloppyDump(
+            FLOPSHOW,
+            ("FlReadWrite: error on start %x\n", status)
+            );
+        return status;
     }
 
     if (DisketteExtension->MediaType == Unknown) {
-        return(STATUS_UNRECOGNIZED_MEDIA);
+        FloppyDump(
+            FLOPSHOW,
+            ("not recognized\n")
+            );
+        return STATUS_UNRECOGNIZED_MEDIA;
     }
 
     // The drive has started up with a recognized media.
@@ -7181,7 +7451,6 @@ Return Value:
     numberOfHeads = driveMediaConstants->NumberOfHeads;
     userBuffer = MmGetSystemAddressForMdl(Irp->MdlAddress);
     trackSize = ((ULONG) sectorsPerTrack)<<byteToSectorShift;
-
 
     skew = 0;
     skewDelta = driveMediaConstants->SkewDelta;
@@ -7209,7 +7478,11 @@ Return Value:
         if (trackSize > controllerData->NumberOfMapRegisters*PAGE_SIZE) {
             FlAllocateIoBuffer(controllerData, trackSize);
             if (!controllerData->IoBuffer) {
-                return(STATUS_INSUFFICIENT_RESOURCES);
+                FloppyDump(
+                    FLOPSHOW,
+                    ("FlReadWrite: no resources\n")
+                    );
+                return STATUS_INSUFFICIENT_RESOURCES;
             }
             mdl = controllerData->IoBufferMdl;
             ioBuffer = controllerData->IoBuffer;
@@ -7269,7 +7542,7 @@ Return Value:
         // read then copy the contents back to the IRPs buffer.
         //
 
-        if (!writeOperation && 
+        if (!writeOperation &&
             trackSize > controllerData->NumberOfMapRegisters*PAGE_SIZE) {
 
             RtlMoveMemory(userBuffer + ((currentSector - firstSector)<<
@@ -7288,7 +7561,20 @@ Return Value:
 
     Irp->IoStatus.Information = (currentSector - firstSector)<<byteToSectorShift;
 
-    return(status);
+
+    // If the read was successful then consolidate the
+    // boot sector with the determined density.
+
+    if (NT_SUCCESS(status) && firstSector == 0) {
+        FlConsolidateMediaTypeWithBootSector(DisketteExtension,
+                                             (PBOOT_SECTOR_INFO) userBuffer);
+    }
+
+    FloppyDump(
+        FLOPSHOW,
+        ("FlReadWrite: completed status %x information %d\n", status, Irp->IoStatus.Information)
+        );
+    return status;
 }
 
 NTSTATUS
@@ -7685,7 +7971,7 @@ Return Value:
                 &controllerData->ControllerAddress->DRDC.DiskChange );
 
             if ( (DisketteExtension->DriveType != DRIVE_TYPE_0360) &&
-                 FlDisketteRemoved(controllerData, driveStatus) ) {
+                 FlDisketteRemoved(controllerData, driveStatus, FALSE) ) {
 
                 //
                 // The user apparently popped the floppy.  Return error
@@ -7808,40 +8094,6 @@ Return Value:
     }
 }
 
-VOID
-FloppyUnloadDriver(
-    IN PDRIVER_OBJECT DriverObject
-    )
-
-/*++
-
-Routine Description:
-
-    This routine is called by the system to remove the driver from memory.
-
-    When this routine is called, there is no I/O being done to this device.
-    The driver object is passed in, and from this the driver can find and
-    delete all of its device objects, extensions, etc.
-
-Arguments:
-
-    DriverObject - a pointer to the object associated with this device
-    driver.
-
-Return Value:
-
-    None.
-
---*/
-
-{
-    UNREFERENCED_PARAMETER( DriverObject );
-
-//    signal FloppyThread() to unload itself
-//    disable interrupts from controller(s?)
-//    delete everything that's been allocated
-}
-
 PCONTROLLER
 FlGetControllerBase(
     IN INTERFACE_TYPE BusType,
@@ -7880,13 +8132,16 @@ Return Value:
     ULONG addressSpace = InIoSpace;
     PCONTROLLER Address;
 
-    HalTranslateBusAddress(
+    if (!HalTranslateBusAddress(
             BusType,
             BusNumber,
             IoAddress,
             &addressSpace,
             &cardAddress
-            );
+            )) {
+
+        return NULL;
+    }
 
     //
     // Map the device base address into the virtual address space
@@ -7970,3 +8225,967 @@ Return Value:
     }
 
 }
+
+
+#if defined(DBCS) && defined(_MIPS_)
+
+NTSTATUS
+FlOutputCommandFor3Mode(
+    IN UCHAR Command,
+    IN OUT PDISKETTE_EXTENSION DisketteExtension
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is merely used to log an error that we had to reset the device.
+
+Arguments:
+
+    Command - a byte specifying the command to be sent to the controller.
+
+    DisketteExtension - a pointer to our data area for the drive being
+    accessed (any drive if a controller command is being given).
+
+Return Value:
+
+    STATUS_SUCCESS if the command was sent and bytes received properly;
+    appropriate error propogated otherwise.
+
+--*/
+
+{
+    KIRQL oldIrql;
+    PCONTROLLER_DATA controllerData;
+    UCHAR configurationRegister5;
+    UCHAR needDrive1600kbMode;
+    NTSTATUS ntStatus;
+    UCHAR save_FifoBuffer[10];
+    ULONG i;
+
+
+    ntStatus = STATUS_SUCCESS;
+
+    if (DisketteExtension->Drive3Mode == DRIVE_2MODE) {
+
+        return ntStatus;
+    }
+
+    if (((Command & ~(COMMND_MFM)) != COMMND_READ_ID) &&
+        ((Command & ~(COMMND_MFM)) != COMMND_READ_DATA) &&
+        ((Command & ~(COMMND_MFM)) != COMMND_WRITE_DATA) &&
+        ((Command & ~(COMMND_MFM)) != COMMND_READ_DELETED_DATA) &&
+        ((Command & ~(COMMND_MFM)) != COMMND_SEEK) &&
+        ((Command & ~(COMMND_MFM)) != COMMND_RECALIBRATE) &&
+        ((Command & ~(COMMND_MFM)) != COMMND_WRITE_DELETED_DATA)) {
+
+        return ntStatus;
+    }
+
+    controllerData =  DisketteExtension->ControllerData;
+
+    if ((DisketteExtension->DriveMediaType == Drive144Media120) ||
+        (DisketteExtension->DriveMediaType == Drive144Media123) ||
+        ((DisketteExtension->DriveMediaConstants).SectorsPerTrack == 0x1b) ||
+        ((DisketteExtension->DriveMediaConstants).SectorsPerTrack == 0x1a)) {
+
+        needDrive1600kbMode = TRUE;
+
+    } else {
+
+        needDrive1600kbMode = FALSE;
+
+    }
+
+    KeAcquireSpinLock( &controllerData->TimerSpinLock, &oldIrql );
+
+    WRITE_CONTROLLER(
+        &controllerData->ControllerAddress->StatusA,
+        CONFIG5_ENTER_MODE);
+
+    WRITE_CONTROLLER(
+        &controllerData->ControllerAddress->StatusA,
+        CONFIG5_ENTER_MODE);
+
+    KeReleaseSpinLock( &controllerData->TimerSpinLock, oldIrql );
+
+
+    WRITE_CONTROLLER(
+        &controllerData->ControllerAddress->StatusA,
+        CONFIG5_SELECT_CR5);
+
+
+    configurationRegister5 =  READ_CONTROLLER(
+                       &controllerData->ControllerAddress->StatusB);
+
+
+    if (((configurationRegister5 & CONFIG5_1600KB_MODE_MASK) ==
+           CONFIG5_1600KB_MODE) && (needDrive1600kbMode == FALSE)) {
+
+        //
+        // the CR5 is set the 1.6MB mode, but the required access mode
+        // is the 2.0MB mode. So the CR5 is changed into 2.0MB mode.
+        //
+
+        WRITE_CONTROLLER(
+            &controllerData->ControllerAddress->StatusB,
+            (configurationRegister5 & ~(CONFIG5_1600KB_MODE)));
+
+    } else if (((configurationRegister5 & CONFIG5_1600KB_MODE_MASK) !=
+           CONFIG5_1600KB_MODE) && (needDrive1600kbMode == TRUE)) {
+
+
+        //
+        // the CR5 is set the 2.0MB mode, but the required access mode
+        // is the 1.6MB mode. So the CR5 is changed into 1.6MB mode.
+        //
+
+        WRITE_CONTROLLER(
+            &controllerData->ControllerAddress->StatusB,
+            (configurationRegister5 | CONFIG5_1600KB_MODE));
+
+    }
+
+    WRITE_CONTROLLER(
+        &controllerData->ControllerAddress->StatusA,
+        CONFIG5_EXIT_MODE);
+
+    if (((configurationRegister5 & CONFIG5_1600KB_MODE_MASK) !=
+        CONFIG5_1600KB_MODE) && (needDrive1600kbMode == TRUE) &&
+        (((DisketteExtension->DriveMediaConstants).SectorsPerTrack == 0x1b) ||
+        ((DisketteExtension->DriveMediaConstants).SectorsPerTrack == 0x1a))) {
+
+
+       //
+       // If the controller has a CONFIGURE command, use it to enable implied
+       // seeks.  If it doesn't, we'll find out here the first time through.
+       //
+
+       for ( i = 0; i < 10; i++ ) {
+
+           save_FifoBuffer[i] = controllerData->FifoBuffer[i];
+
+       }
+
+       if ( controllerData->ControllerConfigurable ) {
+
+
+           controllerData->FifoBuffer[0] = 0;
+           controllerData->FifoBuffer[1] = COMMND_CONFIGURE_FIFO_THRESHOLD +
+                                           COMMND_CONFIGURE_DISABLE_POLLING;
+
+           if (!DisketteExtension->DriveMediaConstants.CylinderShift) {
+
+               controllerData->FifoBuffer[1] += COMMND_CONFIGURE_IMPLIED_SEEKS;
+
+           }
+
+           controllerData->FifoBuffer[2] = 0;
+
+           ntStatus = FlIssueCommand( COMMND_CONFIGURE, DisketteExtension );
+
+           if ( ntStatus == STATUS_DEVICE_NOT_READY ) {
+
+               //
+               // Note the CONFIGURE command doesn't exist.  Set status to
+               // success, so we can issue the SPECIFY command below.
+               //
+
+               FloppyDump(
+                   FLOPINFO,
+                   ("Floppy: Ignore above error - no CONFIGURE command\n")
+                   );
+
+               controllerData->ControllerConfigurable = FALSE;
+
+               ntStatus = STATUS_SUCCESS;
+           }
+       }
+
+       //
+       // Issue SPECIFY command to program the head load and unload
+       // rates, the drive step rate, and the DMA data transfer mode.
+       //
+
+       if ( NT_SUCCESS( ntStatus ) ) {
+
+           controllerData->FifoBuffer[0] =
+               DisketteExtension->DriveMediaConstants.StepRateHeadUnloadTime;
+
+           controllerData->FifoBuffer[1] =
+               DisketteExtension->DriveMediaConstants.HeadLoadTime;
+
+           ntStatus = FlIssueCommand( COMMND_SPECIFY, DisketteExtension );
+
+           if ( NT_SUCCESS( ntStatus ) ) {
+
+               //
+               // Program the data rate
+               //
+
+               WRITE_CONTROLLER(
+                   &controllerData->ControllerAddress->DRDC.DataRate,
+                   DisketteExtension->DriveMediaConstants.DataTransferRate );
+
+           }
+       }
+
+
+       for ( i = 0; i < 10; i++ ) {
+
+           controllerData->FifoBuffer[i] = save_FifoBuffer[i];
+
+       }
+
+    }
+
+    return ntStatus;
+}
+
+
+NTSTATUS
+FlReadWrite_PTOS(
+    IN PDISKETTE_EXTENSION DisketteExtension,
+    IN PIRP Irp
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called by the floppy thread to read write one tracks on
+    the diskette.
+
+Arguments:
+
+    DisketteExtension - a pointer to our data area for the diskette to be
+    read write.
+
+    Irp - a pointer to the IO Request Packet.
+
+Return Value:
+
+    STATUS_SUCCESS
+
+--*/
+
+{
+    LARGE_INTEGER headSettleTime;
+    PIO_STACK_LOCATION irpSp;
+    PCONTROLLER_DATA controllerData;
+    PDRIVE_MEDIA_CONSTANTS driveMediaConstants;
+    PUCHAR userBuffer;
+    NTSTATUS ntStatus;
+    NTSTATUS ntStatus2;
+    ULONG startingSectorOfTransfer;
+    ULONG totalBytesOfTransfer;
+    ULONG bytesTransferredSoFar = 0;
+    ULONG numberOfPagesInTransfer;
+    UCHAR transferCylinder;
+    UCHAR transferSector;
+    UCHAR transferHead;
+    UCHAR byteToSectorShift;
+    UCHAR retryCount;
+    UCHAR secondaryRetryCount;
+    UCHAR mediaDescriptor;
+    DRIVE_MEDIA_TYPE driveMediaType;
+    MEDIA_TYPE mediaType;
+    BOOLEAN writeOperation;
+    BOOLEAN fatalError;
+    BOOLEAN needToUseBuffer;
+    BOOLEAN fifoDisabled = FALSE;
+    PDISK_READ_WRITE_PARAMETER_PTOS readwriteParameters;
+    UCHAR command;
+
+    FloppyDump(
+        FLOPSHOW,
+        ("Floppy: FlReadWrite_PTOS...3\n")
+        );
+
+    controllerData = DisketteExtension->ControllerData;
+    readwriteParameters = (PDISK_READ_WRITE_PARAMETER_PTOS) Irp->AssociatedIrp.SystemBuffer;
+
+
+    irpSp = IoGetCurrentIrpStackLocation( Irp );
+
+    switch( irpSp->Parameters.DeviceIoControl.IoControlCode ) {
+         case    IOCTL_DISK_READ: {
+            writeOperation = FALSE;
+            if (readwriteParameters->Read_Write_Mode_PTOS == 0) {
+                 FloppyDump(
+                     FLOPSHOW,
+                     ("Floppy: IOCTL_ReadData...\n")
+                    );
+                command = COMMND_READ_DATA;
+            } else {
+                 FloppyDump(
+                     FLOPSHOW,
+                     ("Floppy: IOCTL_ReadDeletedData...\n")
+                    );
+                command = COMMND_READ_DELETED_DATA;
+            }
+            break;
+        }
+         case    IOCTL_DISK_WRITE: {
+            writeOperation = TRUE;
+            if (readwriteParameters->Read_Write_Mode_PTOS == 0) {
+                 FloppyDump(
+                     FLOPSHOW,
+                     ("Floppy: IOCTL_WriteData...\n")
+                    );
+                command = COMMND_WRITE_DATA;
+            } else {
+                 FloppyDump(
+                     FLOPSHOW,
+                     ("Floppy: IOCTL_WriteDeletedData...\n")
+                    );
+                command = COMMND_WRITE_DELETED_DATA;
+            }
+            break;
+        }
+    }
+    FloppyDump(
+        FLOPSHOW,
+        ("Floppy: IOCTL Read Write - Mode     : %d\n"
+         "------                     Start Cyl: %x\n"
+         "------                     End   Cyl: %x\n"
+         "------                     Start  Hd: %d\n"
+         "------                     End    Hd: %d\n",
+         readwriteParameters->Read_Write_Mode_PTOS,
+         readwriteParameters->CylinderNumber_PTOS,
+         readwriteParameters->HeadNumber_PTOS,
+         readwriteParameters->StartSectorNumber_PTOS,
+         readwriteParameters->NumberOfSectors_PTOS)
+         );
+
+    if ((readwriteParameters->CylinderNumber_PTOS ==0) &&
+         (readwriteParameters->HeadNumber_PTOS ==0)) {
+
+
+    driveMediaConstants =
+
+       &DriveMediaConstantsPTOS[4];
+
+    } else {
+
+    driveMediaConstants =
+       &DriveMediaConstantsPTOS[3];
+
+    }
+
+
+    //
+    // For 3mode floppy disk drive
+    //
+
+    DisketteExtension->DriveMediaConstants = *driveMediaConstants;
+
+
+    //
+    // Initialize variables to be used in the loop that transfers
+    // portions of the request.
+    //
+
+    byteToSectorShift = (UCHAR)( SECTORLENGTHCODE_TO_BYTESHIFT +
+        driveMediaConstants->SectorLengthCode );
+
+    fatalError = FALSE;
+
+    userBuffer = (PUCHAR) MmGetSystemAddressForMdl( Irp->MdlAddress );
+
+    //
+    // Determine the initial sector to be read from the diskette.
+    //
+
+
+    transferCylinder = (UCHAR)readwriteParameters->CylinderNumber_PTOS;
+
+    transferSector = (UCHAR)readwriteParameters->StartSectorNumber_PTOS;
+
+    transferHead = (UCHAR)readwriteParameters->HeadNumber_PTOS;
+
+    totalBytesOfTransfer = (readwriteParameters->NumberOfSectors_PTOS << byteToSectorShift);
+
+    FloppyDump(
+        FLOPSTATUS,
+        ("Floppy: SectorsPerTrack          = %x\n"
+         "------  NumberOfHeads            = %x\n"
+         "------  transferCylinder         = %x\n"
+         "------  transferSector           = %x\n"
+         "------  transferHead             = %x\n",
+         driveMediaConstants->SectorsPerTrack,
+         driveMediaConstants->NumberOfHeads,
+         transferCylinder,
+         transferSector,
+         transferHead)
+         );
+
+        //
+        // Make sure the transfer doesn't go past the end of the track
+        //
+
+
+    needToUseBuffer = TRUE;
+
+    FloppyDump(
+        FLOPSHOW,
+        ("Floppy: TransferLength = %lx\n", totalBytesOfTransfer)
+        );
+
+    //
+    // If this is a write and we have to use the contiguous buffer
+    // (because we don't have enough map registers) then copy the
+    // data from the user's buffer to the contiguous buffer.
+    //
+#if 0
+    if ( ( needToUseBuffer ) &&
+        ( writeOperation ) ) {
+
+        FloppyDump(
+            FLOPSHOW,
+            ("Floppy: Writing from address %lx\n",
+             userBuffer + bytesTransferredSoFar)
+            );
+
+        RtlMoveMemory(
+            controllerData->IoBuffer,
+            (PVOID)( userBuffer + bytesTransferredSoFar ),
+            totalBytesOfTransfer );
+    }
+#else
+#endif
+    retryCount = 0;
+    secondaryRetryCount = 0;
+
+    //
+    // Try this transfer until it succeeds or is failed.
+    //
+
+    do {
+
+        //
+        // If the controller doesn't do an implicit seek, then do an
+        // explicit one.
+        //
+        // Also do an explicit seek if this drive isn't set up to
+        // seek properly on this media, as noted by CylinderShift.
+        // (This happens for 360kb diskettes in 1.2Mb drives).
+        //
+
+        controllerData->FifoBuffer[0] = DisketteExtension->DeviceUnit;
+        ntStatus = FlSendByte( COMMND_SENSE_DRIVE, controllerData );
+        if ( NT_SUCCESS( ntStatus ) ) {
+            ntStatus = FlSendByte(
+                controllerData->FifoBuffer[0],
+                controllerData );
+            if ( NT_SUCCESS( ntStatus ) ) {
+
+                ntStatus = FlGetByte(
+                    &controllerData->FifoBuffer[0],
+                    controllerData );
+                Result_Status3_PTOS[0].ST3_PTOS = controllerData->FifoBuffer[0];
+            }
+        }
+
+        if ( ( !controllerData->ControllerConfigurable ) ||
+            ( driveMediaConstants->CylinderShift != 0 ) ) {
+
+            controllerData->FifoBuffer[0] = (UCHAR)
+                ( ( transferHead << 2 ) | DisketteExtension->DeviceUnit );
+            controllerData->FifoBuffer[1] = (UCHAR)( transferCylinder <<
+                driveMediaConstants->CylinderShift );
+
+            FloppyDump(
+                FLOPSHOW,
+                ("Floppy: Issuing SEEK to %x\n",
+                 controllerData->FifoBuffer[1])
+                );
+
+#ifdef KEEP_COUNTERS
+            FloppyUsedSeek++;
+#endif
+
+            ntStatus = FlIssueCommand( COMMND_SEEK, DisketteExtension );
+
+            if ( !NT_SUCCESS( ntStatus ) ) {
+
+                FloppyDump(
+                    FLOPWARN,
+                    ("Floppy: SEEK returned %x\n", ntStatus)
+                    );
+            }
+
+            if ( NT_SUCCESS( ntStatus ) ) {
+
+                FloppyDump(
+                    FLOPSHOW,
+                    ("Floppy: SEEK says we got to cylinder %x\n",
+                     controllerData->FifoBuffer[1])
+                    );
+
+                if ( controllerData->FifoBuffer[1] != (UCHAR)
+                        ( transferCylinder <<
+                        driveMediaConstants->CylinderShift ) ) {
+
+                     FloppyDump(
+                        FLOPWARN,
+                        ("Floppy: Seek returned bad registers\n")
+                        );
+
+                     controllerData->HardwareFailed = TRUE;
+
+                     ntStatus = STATUS_FLOPPY_BAD_REGISTERS;
+
+                } else {
+
+                    //
+                    // Must delay HeadSettleTime milliseconds before
+                    // doing anything after a SEEK.
+                    //
+
+                    headSettleTime.LowPart = - ( 10 * 1000 *
+                        driveMediaConstants->HeadSettleTime );
+                    headSettleTime.HighPart = -1;
+
+
+                    KeDelayExecutionThread(
+                        KernelMode,
+                        FALSE,
+                        &headSettleTime );
+
+                    //
+                    // SEEKs should always be followed by a READID.
+                    //
+
+                    controllerData->FifoBuffer[0] = (UCHAR)
+                        ( ( transferHead << 2 ) |
+                        DisketteExtension->DeviceUnit );
+                }
+            }
+        } else {
+
+#ifdef KEEP_COUNTERS
+                FloppyNoSeek++;
+#endif
+        }
+
+        //
+        // Start the operation on the DMA and floppy hardware.
+        //
+
+        if ( NT_SUCCESS( ntStatus ) ) {
+
+            //
+            // Map the transfer through the DMA hardware.  How we do
+            // it depends on whether we're using the user's buffer
+            // or our own contiguous buffer.
+            //
+
+#if 0
+                KeFlushIoBuffers(
+                    controllerData->IoBufferMdl,
+                    !writeOperation,
+                    TRUE );
+
+                //
+                // We can ignore the logical address returned by
+                // IoMapTransfer, since we're not using busmaster
+                // stuff.
+                //
+
+                IoMapTransfer(
+                    controllerData->AdapterObject,
+                    controllerData->IoBufferMdl,
+                    controllerData->MapRegisterBase,
+                    controllerData->IoBuffer,
+                    &totalBytesOfTransfer,
+                    (BOOLEAN)writeOperation);
+
+#else
+                KeFlushIoBuffers( Irp->MdlAddress, !writeOperation, TRUE );
+
+                IoMapTransfer(
+                    controllerData->AdapterObject,
+                    Irp->MdlAddress,
+                    controllerData->MapRegisterBase,
+                    (PVOID)( (ULONG) MmGetMdlVirtualAddress(Irp->MdlAddress)
+                        + bytesTransferredSoFar ),
+                    &totalBytesOfTransfer,
+                    (BOOLEAN)writeOperation);
+#endif
+
+                if ( controllerData->ControllerConfigurable &&
+                     (command != COMMND_WRITE_DELETED_DATA)) {
+
+                    //
+                    // We enable the FIFO threshold brfore issuing
+                    // the WRITE DELETE DATA command.
+                    //
+
+                    controllerData->FifoBuffer[0] = 0;
+                    controllerData->FifoBuffer[1] =
+                        COMMND_CONFIGURE_IMPLIED_SEEKS +
+                        COMMND_CONFIGURE_FIFO_THRESHOLD +
+                        COMMND_CONFIGURE_DISABLE_POLLING;
+                    controllerData->FifoBuffer[0] = 0;
+
+                    ntStatus2 = FlIssueCommand( COMMND_CONFIGURE, DisketteExtension );
+                }
+
+            //
+            // Issue the READ or WRITE command
+            //
+            controllerData->FifoBuffer[0] = (UCHAR)
+                ( ( transferHead << 2 ) | DisketteExtension->DeviceUnit );
+            controllerData->FifoBuffer[1] = transferCylinder;
+            controllerData->FifoBuffer[2] = transferHead;
+            controllerData->FifoBuffer[3] = transferSector;
+            controllerData->FifoBuffer[4] =
+                driveMediaConstants->SectorLengthCode;
+            controllerData->FifoBuffer[5] = (UCHAR)( (transferSector - 1) +
+                ( totalBytesOfTransfer >> byteToSectorShift ) );
+            controllerData->FifoBuffer[6] =
+                driveMediaConstants->ReadWriteGapLength;
+            controllerData->FifoBuffer[7] = driveMediaConstants->DataLength;
+
+            FloppyDump(
+                FLOPSHOW,
+                ("Floppy: R/W params:\n"
+                 "------  head+unit   = %x\n"
+                 "------  cylinder    = %x\n"
+                 "------  head        = %x\n"
+                 "------  sector      = %x\n"
+                 "------  seclen code = %x\n"
+                 "------  numsecs     = %x\n"
+                 "------  rw gap len  = %x\n"
+                 "------  datalen     = %x\n",
+                 controllerData->FifoBuffer[0],
+                 controllerData->FifoBuffer[1],
+                 controllerData->FifoBuffer[2],
+                 controllerData->FifoBuffer[3],
+                 controllerData->FifoBuffer[4],
+                 controllerData->FifoBuffer[5],
+                 controllerData->FifoBuffer[6],
+                 controllerData->FifoBuffer[7])
+                 );
+
+            if ( !writeOperation ) {
+
+                if (driveMediaConstants->SectorsPerTrack!=26){
+                      /**  1s only FM mode  **/
+                    ntStatus = FlIssueCommand(
+                        command + COMMND_MFM,
+                        DisketteExtension );
+              } else {
+                  ntStatus = FlIssueCommand(
+                        command,
+                      DisketteExtension );
+              }
+                   FloppyDump(
+                       FLOPDBGP,
+                       ("Floppy: READ DATA! : \n"
+                       "------  userBuffer is    : %lx\n",
+                       userBuffer));
+
+            } else {
+
+
+                if (driveMediaConstants->SectorsPerTrack!=26){
+                      /**  1s only FM mode  **/
+                    ntStatus = FlIssueCommand(
+                        command + COMMND_MFM,
+                        DisketteExtension );
+
+              } else {
+
+                      ntStatus = FlIssueCommand(
+                        command ,
+                        DisketteExtension );
+
+                }
+                   FloppyDump(
+                       FLOPDBGP,
+                       ("Floppy: WRITE DATA! : \n"
+                       "------  userBuffer is    : %lx\n",
+                       userBuffer));
+            }
+
+            if ( !NT_SUCCESS( ntStatus ) ) {
+
+
+                FloppyDump(
+                    FLOPWARN,
+                    ("Floppy: read/write returned %x\n", ntStatus)
+                    );
+            }
+
+        }
+
+        Result_Status_PTOS[0].ST0_PTOS
+            = controllerData->FifoBuffer[0];
+        Result_Status_PTOS[0].ST1_PTOS
+            = controllerData->FifoBuffer[1];
+        Result_Status_PTOS[0].ST2_PTOS
+            = controllerData->FifoBuffer[2];
+        Result_Status_PTOS[0].C_PTOS
+            = controllerData->FifoBuffer[3];
+        Result_Status_PTOS[0].H_PTOS
+            = controllerData->FifoBuffer[4];
+        Result_Status_PTOS[0].R_PTOS
+            = controllerData->FifoBuffer[5];
+        Result_Status_PTOS[0].N_PTOS
+            = controllerData->FifoBuffer[6];
+
+        if ( NT_SUCCESS( ntStatus ) ) {
+
+            if ( ( ( controllerData->FifoBuffer[0] & STREG0_END_MASK ) !=
+                    STREG0_END_NORMAL ) &&
+                ( ( ( controllerData->FifoBuffer[0] & STREG0_END_MASK ) !=
+                    STREG0_END_ERROR ) ||
+                ( controllerData->FifoBuffer[1] !=
+                    STREG1_END_OF_DISKETTE ) ||
+                ( controllerData->FifoBuffer[2] != STREG2_SUCCESS ) ) ) {
+                FloppyDump(
+                    FLOPWARN,
+                    ("Floppy: Status registers wrong after I/O\n")
+                    );
+
+                controllerData->HardwareFailed = TRUE;
+
+                ntStatus = FlInterpretError(
+                    controllerData->FifoBuffer[1],
+                    controllerData->FifoBuffer[2] );
+
+                FloppyDump(
+                    FLOPWARN,
+                    ("Floppy: Register values are\n"
+                     "------  StatusRegister0        = %x\n"
+                     "------  StatusRegister1        = %x\n"
+                     "------  StatusRegister2        = %x\n"
+                     "------  actualCylinder         = %x\n"
+                     "------  actualHead             = %x\n"
+                     "------  actualSector           = %x\n"
+                     "------  actualSectorLengthCode = %x\n",
+                     controllerData->FifoBuffer[0],
+                     controllerData->FifoBuffer[1],
+                     controllerData->FifoBuffer[2],
+                     controllerData->FifoBuffer[3],
+                     controllerData->FifoBuffer[4],
+                     controllerData->FifoBuffer[5],
+                     controllerData->FifoBuffer[6])
+                     );
+            }
+
+        }
+
+        if ( !NT_SUCCESS( ntStatus ) ) {
+
+            //
+            // Operation failed.  Recalibrate drive & try again.
+            //
+
+            FloppyDump(
+                FLOPWARN,
+                ("Floppy: operation failed.  Recalibrating...\n")
+                );
+
+            ntStatus2 = FlRecalibrateDrive( DisketteExtension );
+
+            if ( NT_SUCCESS( ntStatus2 ) ) {
+
+                retryCount++;
+
+            } else {
+
+                //
+                // Ugh, we can't even recalibrate the drive.  Force
+                // ourselves out of this nasty loop.
+                //
+
+                retryCount = RECALIBRATE_RETRY_COUNT;
+
+                fatalError = TRUE;
+
+                FloppyDump(
+                    FLOPWARN,
+                    ("Floppy: Operation AND recalibrate failed\n")
+                    );
+            }
+        }
+
+        if ( retryCount == RECALIBRATE_RETRY_COUNT ) {
+
+            //
+            // The retry count is exhausted.  If the FIFO has
+            // overrun, reset the retry count and increment
+            // the secondary retry count - FIFO overruns mean that
+            // another device is hogging the DMA, so give the floppy
+            // another chance to make good.
+            //
+
+            if ( controllerData->FifoBuffer[1] & STREG1_DATA_OVERRUN ) {
+
+                if ( secondaryRetryCount < OVERRUN_RETRY_COUNT ) {
+
+                    secondaryRetryCount++;
+
+                    retryCount = 0;
+
+                } else {
+
+                    //
+                    // It looks like another device is STILL hogging
+                    // the DMA.  Before failing, try disabling the
+                    // FIFO, if it exists.
+                    //
+
+                    if ( controllerData->ControllerConfigurable ) {
+
+                        if ( fifoDisabled ||
+                             (command != COMMND_WRITE_DELETED_DATA)) {
+
+                            //
+                            // We already disabled it, and still
+                            // failed. Or The command is WRITE DELETED DATA.
+                            // Exit with failure.
+                            //
+
+                            fatalError = TRUE;
+
+                        } else {
+
+                            fifoDisabled = FALSE;
+                      ntStatus = STATUS_SUCCESS;
+                            FloppyDump(
+                                FLOPINFO,
+                                ("Floppy: disabling FIFO\n")
+                                );
+
+                            controllerData->FifoBuffer[0] = 0;
+                            controllerData->FifoBuffer[1] =
+                                COMMND_CONFIGURE_IMPLIED_SEEKS +
+                                COMMND_CONFIGURE_DISABLE_FIFO +
+                                COMMND_CONFIGURE_DISABLE_POLLING;
+                            controllerData->FifoBuffer[2] = 0;
+
+                            ntStatus = FlIssueCommand(
+                                COMMND_CONFIGURE,
+                                DisketteExtension );
+
+                            if ( NT_SUCCESS( ntStatus ) ) {
+
+                                fifoDisabled = TRUE;
+                            }
+                        }
+
+                    } else {
+
+                        //
+                        // No FIFO to disable.  Just exit with error.
+                        //
+
+                        fatalError = TRUE;
+                    }
+                }
+
+            } else {
+
+                //
+                // Not an overrun error.
+                //
+
+                fatalError = TRUE;
+            }
+        }
+
+        //
+        // Flush the DMA adapter buffers.
+        //
+#if 0
+            IoFlushAdapterBuffers(
+                controllerData->AdapterObject,
+                controllerData->IoBufferMdl,
+                controllerData->MapRegisterBase,
+                controllerData->IoBuffer,
+                totalBytesOfTransfer,
+                (BOOLEAN)writeOperation);
+
+#else
+
+            IoFlushAdapterBuffers(
+                controllerData->AdapterObject,
+                Irp->MdlAddress,
+                controllerData->MapRegisterBase,
+                (PVOID)( (ULONG) MmGetMdlVirtualAddress( Irp->MdlAddress )
+                    + bytesTransferredSoFar ),
+                totalBytesOfTransfer,
+                (BOOLEAN)writeOperation);
+#endif
+
+    } while ( ( !NT_SUCCESS( ntStatus ) ) &&
+            ( retryCount < RECALIBRATE_RETRY_COUNT ) );
+
+    if ( NT_SUCCESS( ntStatus ) ) {
+
+#if 0
+        if ( ( !writeOperation ) && ( needToUseBuffer ) ) {
+
+            //
+            // copy data from contiguous buffer
+            //
+
+            FloppyDump(
+                FLOPSHOW,
+                ("Floppy: Reading to address %lx\n",
+                 userBuffer + bytesTransferredSoFar)
+                );
+
+            RtlMoveMemory(
+                (PVOID)( userBuffer + bytesTransferredSoFar ),
+                controllerData->IoBuffer,
+                totalBytesOfTransfer );
+        }
+#else
+#endif
+
+    }
+
+
+    if ( fifoDisabled ) {
+
+        //
+        // We disabled the FIFO threshold.  Restore it now.
+        //
+
+        controllerData->FifoBuffer[0] = 0;
+        controllerData->FifoBuffer[1] = COMMND_CONFIGURE_IMPLIED_SEEKS +
+            COMMND_CONFIGURE_FIFO_THRESHOLD + COMMND_CONFIGURE_DISABLE_POLLING;
+        controllerData->FifoBuffer[2] = 0;
+
+        ntStatus2 = FlIssueCommand( COMMND_CONFIGURE, DisketteExtension );
+
+        if ( !NT_SUCCESS( ntStatus2 ) ) {
+
+            FloppyDump(
+                FLOPDBGP,
+                ("Floppy: restoring FIFO after r/w gave %x\n", ntStatus2)
+                );
+        }
+
+    }
+
+    //
+    // The bytesTransferred so far is correct even if there was an error.
+    //
+
+    Irp->IoStatus.Information = totalBytesOfTransfer;
+
+    FloppyDump(
+        FLOPIRPPATH,
+        ("Floppy: done with read/write for irp %x extension %x\n",
+         Irp,DisketteExtension)
+        );
+    return ntStatus;
+}
+#endif // DBCS && _MIPS_

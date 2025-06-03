@@ -15,113 +15,16 @@ Abstract:
     private in the private header file.  Chicago only has one header file,
     but private lines are marked as internal.
 
-    BLOCK TAGS:
-                            public          private         Comments  
-                            -------------------------------------------------
-
-    ;begin_internal         -               NT              
-    ...                     Chicago         -               add // ;internal
-    ;end_internal           -               Cairo
-
-
-    ;begin_both             NT              NT        
-    ...                     Chicago         -
-    ;end_both               Cairo           Cairo
-
-
-    ;begin_internal_NT      -               NT        
-    ...                     -               -
-    ;end_internal_NT        -               Cairo
-
-
-    ;begin_internal_win40   -               -        
-    ...                     Chicago         -               add // ;internal
-    ;end_internal_win40     -               Cairo
-
-
-    ;begin_internal_NT_35   -               NT        
-    ...                     -               -
-    ;end_internal_NT_35     -               -
-
-
-    ;begin_internal_chicago -               -        
-    ...                     Chicago         -               add // ;internal
-    ;end_internal_chicago   -               -
-
-
-    ;begin_internal_cairo   -               -        
-    ...                     -               -
-    ;end_internal_cairo     -               Cairo          
-
-
-    ;begin_winver_400       -               NT              add #if(ver<4)
-    ...                     Chicago         -               add #if(ver>=4)
-    ;end_winver_400         Cairo           -               add #if(ver>=4)
-
-
-    ;begin_public_cairo     -               -              
-    ...                     -               -              
-    ;end_public_cairo       Cairo           -               add #if(ver>=4)
-
-
-    LINE TAGS:              public          private         Comments
-                            -------------------------------------------------
-
-    ;internal               -               NT        
-                            Chicago         -               add // ;internal
-                            -               Cairo
-
-    ;both                   NT              NT
-                            Chicago         -
-                            Cairo           Cairo
-
-    ;internal_NT            -               NT
-                            -               -
-                            -               Cairo
-
-    ;internal_win40         -               -
-                            Chicago         -               add // ;internal
-                            -               Cairo
-
-    ;internal_NT_35         -               NT
-                            -               -
-                            -               -
-
-    ;internal_chicago       -               -
-                            Chicago         -               add // ;internal
-                            -               -
-
-    ;internal_cairo         -               -
-                            -               -
-                            -               Cairo
-
-    ;public_NT              NT              -
-                            -               -
-                            Cairo           -
- 
-    ;public_win40           -               -
-                            Chicago         -
-                            Cairo           -
-
-    ;public_NT_35           NT              -
-                            -               -
-                            -               -
-
-    ;public_chicago         -               -
-                            Chicago         -
-                            -               -
-
-    ;public_cairo           -               -
-                            -               -
-                            Cairo           - 
-
-
 
 Author:
 
     Sanford Staab (sanfords) 22-Apr-1992
 
 Revision History:
+
+    sankar      05-Dec-1995  Make it work for Nashville.
+
+    stevefir    14-Dec-1995  Make it work for SUR & WINVER 4.1
 
 --*/
 
@@ -135,16 +38,240 @@ typedef int boolean;
 #define TRUE    1
 #define FALSE   0
 
-//
-// defines that surround the chi specific stuff
-//
-#define IFDEF   "#if(WINVER >= 0x0400)\n"
-#define ENDIF   "#endif /* WINVER >= 0x0400 */\n"
+char  *szIFDEF[7][2] = {
+                       { 
+                         "#if(WINVER >= 0x0400)\n",
+                         "#endif /* WINVER >= 0x0400 */\n"
+                       },
+                       { 
+                         "#if(WINVER < 0x0400)\n",
+                         "#endif /* WINVER < 0x0400 */\n"
+                       },
+                       { 
+                         "#if(WINVER >= 0x040a)\n",
+                         "#endif /* WINVER >= 0x040a */\n"
+                       },
+                       { 
+                         "#if(WINVER < 0x040a)\n",
+                         "#endif /* WINVER < 0x040a */\n"
+                       },
+                       { 
+                         "#if(_WIN32_WINNT >= 0x0400)\n",
+                         "#endif /* _WIN32_WINNT >= 0x0400 */\n"
+                       },
+                       { 
+                         "#if(_WIN32_WINNT < 0x0400)\n",
+                         "#endif /* _WIN32_WINNT < 0x0400 */\n"
+                       },
+                       { 
+                         "#if(_WIN32_WINDOWS >= 0x040a)\n",
+                         "#endif /* _WIN32_WINDOWS >= 0x040a */\n"
+                       },
 
-#define IFDEFLESS   "#if(WINVER < 0x0400)\n"
-#define ENDIFLESS   "#endif /* WINVER < 0x0400 */\n"
+                       //
+                       // we don't need _WIN32_WINDOWS < 0x040a
+                       //  since Chicago has no private *p.h headers.
+                       //
+                    };
 
-
+
+
+//
+// Global Data
+//
+
+boolean NT =      TRUE;         // says if nt flag is on command line
+boolean Chicago = FALSE;        // says if chicago flag is on command line
+boolean Cairo =   FALSE;        // says if cairo flag is on command line
+boolean SURPlus = FALSE;        // says if SURPlus flag is on command line
+boolean SplitOnly = FALSE;      // says only do both and internal
+
+#define MODE_PUBLICNT        0x01
+#define MODE_PUBLICCHICAGO   0x02
+#define MODE_PUBLICCAIRO     0x04
+#define MODE_PUBLICSURPLUS   0x08
+#define MODE_PUBLICALL       0x0F
+
+#define MODE_PRIVATENT       0x10
+#define MODE_PRIVATECHICAGO  0x20 // goes to public header and marked ;internal.
+#define MODE_PRIVATECAIRO    0x40
+#define MODE_PRIVATESURPLUS  0x80
+#define MODE_PRIVATEALL      0xF0
+
+#define MODE_BOTH            0xFF
+#define MODE_NOWHERE         0
+
+#define MODE_IFDEF_WV400     0x100
+#define MODE_IFDEF_WV40a     0x200
+#define MODE_IFDEF_W32WIN    0x400
+#define MODE_IFDEF_W32WNT    0x800
+#define MODE_IFDEFALL        0xf00
+
+#define C_BLOCKDEFS          21
+#define BLOCKDEF_BOTH        0
+#define BLOCKDEF_INTERNAL    1
+
+typedef struct tagBLOCKDEF {
+    char *pszLineMark;
+    char * pszBlockStart;
+    char * pszBlockEnd;
+    int dwFlags;
+} BLOCKDEF, *PBLOCKDEF;
+
+BLOCKDEF aBlockDef[C_BLOCKDEFS] = {
+    {
+        "both",
+        "begin_both",
+        "end_both",
+        MODE_BOTH
+    },
+    {
+        "internal",
+        "begin_internal",
+        "end_internal",
+        MODE_PRIVATEALL
+    },
+    {
+        "internal_NT",
+        "begin_internal_NT",
+        "end_internal_NT",
+        MODE_PRIVATENT | MODE_PRIVATECAIRO | MODE_PRIVATESURPLUS
+    },
+    {
+        "internal_win40",
+        "begin_internal_win40",
+        "end_internal_win40",
+        MODE_PRIVATECHICAGO | MODE_PRIVATECAIRO | MODE_PRIVATESURPLUS
+    },
+    {
+        "internal_win40a",
+        "begin_internal_win40a",
+        "end_internal_win40a",
+        MODE_PRIVATECHICAGO | MODE_PRIVATESURPLUS
+    },
+    {
+        "internal_chicago",
+        "begin_internal_chicago",
+        "end_internal_chicago",
+        MODE_PRIVATECHICAGO
+    },
+    {
+        "internal_NT_35",
+        "begin_internal_NT_35",
+        "end_internal_NT_35",
+        MODE_PRIVATENT
+    },
+    {
+        "internal_cairo",
+        "begin_internal_cairo",
+        "end_internal_cairo",
+        MODE_PRIVATECAIRO | MODE_PRIVATESURPLUS
+    },
+    {
+        "internal_surplus",
+        "begin_internal_surplus",
+        "end_internal_surplus",
+        MODE_PRIVATESURPLUS
+    },
+    {
+        "public_winver_400",
+        "begin_winver_400",
+        "end_winver_400",
+        MODE_PRIVATENT | MODE_PUBLICALL | MODE_IFDEF_WV400
+    },
+    {
+        "public_win40",
+        "begin_public_win40",
+        "end_public_win40",
+        MODE_PUBLICCAIRO | MODE_PUBLICCHICAGO
+    },
+    {
+        "public_win40a",
+        "begin_public_win40a",
+        "end_public_win40a",
+        MODE_PUBLICSURPLUS | MODE_PUBLICCHICAGO
+    },
+
+    {
+        "public_cairo",
+        "begin_public_cairo",
+        "end_public_cairo",
+        MODE_PUBLICCAIRO
+    },
+    {
+        "public_NT",
+        "begin_public_NT",
+        "end_public_NT",
+        MODE_PUBLICNT | MODE_PUBLICCAIRO
+    },
+    {
+        "public_NT_35",
+        "begin_public_NT_35",
+        "end_public_NT_35",
+        MODE_PUBLICNT
+    },
+    {
+        "public_chicago",
+        "begin_public_chicago",
+        "end_public_chicago",
+        MODE_PUBLICCHICAGO
+    },
+    {
+        "public_sur",
+        "begin_sur",
+        "end_sur",
+        MODE_PUBLICCAIRO | MODE_IFDEF_W32WNT
+    },
+    {
+        "public_surplus",
+        "begin_surplus",
+        "end_surplus",
+        MODE_PUBLICSURPLUS | MODE_IFDEF_W32WNT
+    },
+    {
+        "public_nashville",
+        "begin_nashville",
+        "end_nashville",
+        MODE_PUBLICCHICAGO | MODE_IFDEF_W32WIN
+    },
+    {
+        "public_winver_40a",
+        "begin_winver_40a",
+        "end_winver_40a",
+        MODE_PUBLICSURPLUS | MODE_PRIVATECAIRO | MODE_PUBLICCHICAGO | MODE_IFDEF_WV40a
+    },
+    {
+        "$",
+        "begin_$",
+        "end_$",
+        MODE_NOWHERE
+    }    
+};
+
+char *CommentDelimiter =    ";";
+
+char *OutputFileName1;
+char *OutputFileName2;
+char *SourceFileName;
+char **SourceFileList;
+
+int SourceFileCount;
+FILE *SourceFile, *OutputFile1, *OutputFile2;
+
+
+#define STRING_BUFFER_SIZE 1024
+char StringBuffer[STRING_BUFFER_SIZE];
+
+
+#define BUILD_VER_COMMENT  "/*++ BUILD Version: "
+#define BUILD_VER_COMMENT_LENGTH (sizeof (BUILD_VER_COMMENT)-1)
+
+int OutputVersion = 0;
+
+#define DONE        1
+#define NOT_DONE    0
+
+
 //
 // Function declarations
 //
@@ -187,6 +314,12 @@ AddString (
     char *string
 );
 
+void
+AddIfDef (
+    int mode,
+    int fBegin
+);
+
 
 int
 ProcessBlock (
@@ -202,95 +335,6 @@ DoOutput (
    char *string
 );
 
-//
-// Global Data
-//
-
-boolean NT =      TRUE;         // says if nt flag is on command line
-boolean Chicago = FALSE;        // says if chicago flag is on command line
-boolean Cairo =   FALSE;        // says if cairo flag is on command line
-
-
-char *LineTagBoth =             "both";
-char *BlockTagStartBoth =       "begin_both";
-char *BlockTagEndBoth =         "end_both";
-
-char *LineTagInternal =         "internal";
-char *BlockTagInternal =        "begin_internal";
-char *BlockTagEndInternal =     "end_internal";
-
-char *LineTagIntNT =            "internal_NT";
-char *BlockTagStartIntNT =      "begin_internal_NT";
-char *BlockTagEndIntNT =        "end_internal_NT";
-
-char *LineTagIntWin40 =         "internal_win40";
-char *BlockTagStartIntWin40 =   "begin_internal_win40";
-char *BlockTagEndIntWin40 =     "end_internal_win40";
-
-char *LineTagIntChicago =       "internal_chicago";
-char *BlockTagStartIntChicago = "begin_internal_chicago";
-char *BlockTagEndIntChicago =   "end_internal_chicago";
-
-char *LineTagIntNT35 =          "internal_NT_35";
-char *BlockTagStartIntNT35 =    "begin_internal_NT_35";
-char *BlockTagEndIntNT35 =      "end_internal_NT_35";
-
-char *LineTagIntCairo =         "internal_cairo";
-char *BlockTagStartIntCairo =   "begin_internal_cairo";
-char *BlockTagEndIntCairo =     "end_internal_cairo";
-
-char *BlockTagStartWin400 =     "begin_winver_400";
-char *BlockTagEndWin400 =       "end_winver_400";
-
-char *LineTagPubCairo =         "public_cairo";
-char *BlockTagStartPubCairo =   "begin_public_cairo";
-char *BlockTagEndPubCairo =     "end_public_cairo";
-
-char *LineTagPubWin40 =         "public_win40";
-char *LineTagPubNT =            "public_NT";
-char *LineTagPubNT35=           "public_NT_35";
-char *LineTagPubChicago =       "public_chicago";
-
-
-char *CommentDelimiter =    ";";
-
-char *OutputFileName1;
-char *OutputFileName2;
-char *SourceFileName;
-char **SourceFileList;
-
-int SourceFileCount;
-FILE *SourceFile, *OutputFile1, *OutputFile2;
-
-
-#define STRING_BUFFER_SIZE 1024
-char StringBuffer[STRING_BUFFER_SIZE];
-
-
-#define BUILD_VER_COMMENT  "/*++ BUILD Version: "
-#define BUILD_VER_COMMENT_LENGTH (sizeof (BUILD_VER_COMMENT)-1)
-
-int OutputVersion = 0;
-
-#define DONE        1
-#define NOT_DONE    0
-
-
-#define MODE_PUBLICNT        0x1
-#define MODE_PUBLICCHICAGO   0x2
-#define MODE_PUBLICCAIRO     0x4
-#define MODE_PUBLIC          0x7
-
-#define MODE_WINVER400       0x8  // Set if line should appear based on the
-                                  // windows version.  Currently this is Public
-                                  // in Chicago, but Private in NT.
-
-#define MODE_PRIVATENT       0x10
-#define MODE_PRIVATECHICAGO  0x20
-#define MODE_PRIVATECAIRO    0x40
-#define MODE_PRIVATE         0x70
-
-#define MODE_BOTH            0x77
 
 
 int
@@ -310,21 +354,25 @@ char *argv[];
         fprintf( stderr, "\n" );
         fprintf( stderr, "  [-lt2 string]\n" );
         fprintf( stderr, "       one line tag for output to second file only\n" );
-        fprintf( stderr, "       default=\"%s\"\n", LineTagInternal );
+        fprintf( stderr, "       default=\"%s\"\n",
+                 aBlockDef[BLOCKDEF_INTERNAL].pszLineMark );
         fprintf( stderr, "\n" );
         fprintf( stderr, "  [-bt2 string1 string2]\n" );
         fprintf( stderr, "       block tags for output to second file only\n" );
         fprintf( stderr, "       default=\"%s\",\"%s\"\n",
-                 BlockTagInternal, BlockTagEndInternal );
+                 aBlockDef[BLOCKDEF_INTERNAL].pszBlockStart,
+                 aBlockDef[BLOCKDEF_INTERNAL].pszBlockEnd );
         fprintf( stderr, "\n" );
         fprintf( stderr, "  [-ltb string]\n" );
         fprintf( stderr, "       one line tag for output to both files\n" );
-        fprintf( stderr, "       default=\"%s\"\n", LineTagBoth );
+        fprintf( stderr, "       default=\"%s\"\n",
+                 aBlockDef[BLOCKDEF_BOTH].pszLineMark );
         fprintf( stderr, "\n" );
         fprintf( stderr, "  [-btb string1 string2]\n" );
         fprintf( stderr, "       block tags for output to both files\n" );
         fprintf( stderr, "       default=\"%s\",\"%s\"\n",
-                 BlockTagStartBoth, BlockTagEndBoth );
+                 aBlockDef[BLOCKDEF_BOTH].pszBlockStart,
+                 aBlockDef[BLOCKDEF_BOTH].pszBlockEnd );
         fprintf( stderr, "\n" );
         fprintf( stderr, "  [-c comment delimiter]\n" );
         fprintf( stderr, "       default=\"%s\"\n", CommentDelimiter);
@@ -335,11 +383,22 @@ char *argv[];
         fprintf( stderr, "\n" );
 
         fprintf( stderr, "  [-4]\n" );
-        fprintf( stderr, "       generate win4 (chicago) header\n");
+        fprintf( stderr, "       generate Chicago/Nashville header\n");
         fprintf( stderr, "\n" );
 
         fprintf( stderr, "  [-e]\n" );
-        fprintf( stderr, "       generate NT win4 (cairo) header\n");
+        fprintf( stderr, "       generate NT (SUR) header\n");
+        fprintf( stderr, "\n" );
+
+        fprintf( stderr, "  [-p]\n" );
+        fprintf( stderr, "       generate NT (SURPlus) header\n");
+        fprintf( stderr, "\n" );
+
+        fprintf( stderr, "  [-s]\n" );
+        fprintf( stderr, "       process only the ;both and ;internal\n");
+        fprintf( stderr, "       tags, or those tags specified by the\n");
+        fprintf( stderr, "       -lt* and -bt* options.  All other tags\n");
+        fprintf( stderr, "       are left intact.\n");
         fprintf( stderr, "\n" );
 
         fprintf( stderr, "  filename1 filename2 ...\n" );
@@ -352,7 +411,6 @@ char *argv[];
         fprintf( stderr, " Tag nesting is not supported.\n" );
 
         return TRUE;
-
     }
 
     if ( (OutputFile1 = fopen(OutputFileName1,"w")) == 0) {
@@ -452,13 +510,13 @@ ProcessParameters(
                 switch (toupper ( c )) {
                 case '2':
                     argc--, argv++;
-                    LineTagInternal = *argv;
+                    aBlockDef[BLOCKDEF_INTERNAL].pszLineMark = *argv;
 
                     break;
 
                 case 'B':
                     argc--, argv++;
-                    LineTagBoth = *argv;
+                    aBlockDef[BLOCKDEF_BOTH].pszLineMark = *argv;
 
                     break;
 
@@ -477,17 +535,17 @@ ProcessParameters(
                 switch (toupper ( c )) {
                 case '2':
                     argc--, argv++;
-                    BlockTagInternal = *argv;
+                    aBlockDef[BLOCKDEF_INTERNAL].pszBlockStart = *argv;
                     argc--, argv++;
-                    BlockTagEndInternal = *argv;
+                    aBlockDef[BLOCKDEF_INTERNAL].pszBlockEnd = *argv;
 
                     break;
 
                 case 'B':
                     argc--, argv++;
-                    BlockTagStartBoth = *argv;
+                    aBlockDef[BLOCKDEF_BOTH].pszBlockStart = *argv;
                     argc--, argv++;
-                    BlockTagEndBoth = *argv;
+                    aBlockDef[BLOCKDEF_BOTH].pszBlockEnd = *argv;
 
                     break;
 
@@ -503,19 +561,43 @@ ProcessParameters(
                 Chicago = TRUE;
                 NT = FALSE;
                 Cairo = FALSE;
+                SURPlus = FALSE;
+                SplitOnly = FALSE;
                 break;
 
             case 'N':
 
                 NT = TRUE;
                 Chicago = FALSE;
+                SURPlus = FALSE;
                 Cairo = FALSE;
+                SplitOnly = FALSE;
+                break;
+
+            case 'S':
+
+                Cairo = FALSE;
+                NT = FALSE;
+                SURPlus = FALSE;
+                Chicago = FALSE;
+                SplitOnly = TRUE;
                 break;
 
             case 'E':
 
-                Cairo = TRUE; 
+                Cairo = TRUE;
                 NT = FALSE;
+                SURPlus = FALSE;
+                SplitOnly = FALSE;
+                Chicago = FALSE;
+                break;
+
+            case 'P':
+
+                Cairo = FALSE;
+                NT = FALSE;
+                SURPlus = TRUE;
+                SplitOnly = FALSE;
                 Chicago = FALSE;
                 break;
 
@@ -549,6 +631,7 @@ ProcessSourceFile(
 )
 {
     char *s;
+    int i;
 
     s = fgets(StringBuffer,STRING_BUFFER_SIZE,SourceFile);
 
@@ -558,61 +641,14 @@ ProcessSourceFile(
 
     while ( s ) {
 
-        if (ProcessBlock (&s,
-                          BlockTagInternal,
-                          BlockTagEndInternal,
-                          MODE_PRIVATE) == DONE)
-            goto bottom;
-
-        if (ProcessBlock (&s,
-                          BlockTagStartBoth,
-                          BlockTagEndBoth,
-                          MODE_BOTH) == DONE)
-            goto bottom;
-
-        if (ProcessBlock (&s,
-                          BlockTagStartIntNT,
-                          BlockTagEndIntNT,
-                          MODE_PRIVATENT | MODE_PRIVATECAIRO) == DONE)
-            goto bottom;
-
-        if (ProcessBlock (&s,
-                          BlockTagStartIntWin40,
-                          BlockTagEndIntWin40,
-                          MODE_PRIVATECHICAGO | MODE_PRIVATECAIRO) == DONE)
-            goto bottom;
-
-        if (ProcessBlock (&s,
-                          BlockTagStartIntNT35,
-                          BlockTagEndIntNT35,
-                          MODE_PRIVATENT) == DONE)
-            goto bottom;
-
-        if (ProcessBlock (&s,
-                          BlockTagStartIntCairo,
-                          BlockTagEndIntCairo,
-                          MODE_PRIVATECAIRO) == DONE)
-            goto bottom;
-
-        if (ProcessBlock (&s,
-                          BlockTagStartIntChicago,
-                          BlockTagEndIntChicago,
-                          MODE_PRIVATECHICAGO) == DONE)
-            goto bottom;
-
-        if (ProcessBlock (&s,
-                          BlockTagStartWin400,
-                          BlockTagEndWin400,
-                          MODE_PRIVATENT | MODE_PUBLICCHICAGO |   
-                          MODE_PUBLICCAIRO | MODE_WINVER400) == DONE)
-            goto bottom;
-
-        if (ProcessBlock (&s,
-                          BlockTagStartPubCairo,
-                          BlockTagEndPubCairo,
-                          MODE_PUBLICCAIRO | MODE_WINVER400) == DONE)
-
-            goto bottom;
+        for (i = 0; i < (SplitOnly ? (BLOCKDEF_INTERNAL + 1) : C_BLOCKDEFS); i++) {
+            if (ProcessBlock (&s,
+                    aBlockDef[i].pszBlockStart,
+                    aBlockDef[i].pszBlockEnd,
+                    aBlockDef[i].dwFlags) == DONE) {
+                goto bottom;
+            }
+        }
 
         if(!CheckForSingleLine(s)) {
 //          fprintf (stderr, "ProcessSouceFile: output by default\n");
@@ -638,66 +674,15 @@ CheckForSingleLine(
     char *s
 )
 {
-    if (ProcessLine (s,
-                     LineTagInternal,
-                     MODE_PRIVATE) == DONE)
-        return TRUE;
+    int i;
 
-    if (ProcessLine (s,
-                     LineTagIntNT,
-                     MODE_PRIVATENT | MODE_PRIVATECAIRO) == DONE)
-        return TRUE;
-
-    if (ProcessLine (s,
-                     LineTagIntWin40,
-                     MODE_PRIVATECHICAGO | MODE_PRIVATECAIRO) == DONE)
-        return TRUE;
-
-    if (ProcessLine (s,
-                     LineTagIntNT35,
-                     MODE_PRIVATENT) == DONE)
-        return TRUE;
-
-    if (ProcessLine (s,
-                     LineTagIntChicago,
-                     MODE_PRIVATECHICAGO) == DONE)
-        return TRUE;
-
-    if (ProcessLine (s,
-                     LineTagIntCairo,
-                     MODE_PRIVATECAIRO) == DONE)
-        return TRUE;
-
-    if (ProcessLine (s,
-                     LineTagBoth,
-                     MODE_BOTH) == DONE)
-        return TRUE;
-
-    if (ProcessLine (s,
-                     LineTagPubWin40,
-                     MODE_PUBLICCHICAGO | MODE_PUBLICCAIRO) == DONE)
-        return TRUE;
-
-    if (ProcessLine (s,
-                     LineTagPubNT,
-                     MODE_PUBLICNT | MODE_PUBLICCAIRO) == DONE)
-        return TRUE;
-
-    if (ProcessLine (s,
-                     LineTagPubNT35,
-                     MODE_PUBLICNT) == DONE)
-        return TRUE;
-
-    if (ProcessLine (s,
-                     LineTagPubCairo,
-                     MODE_PUBLICCAIRO) == DONE)
-        return TRUE;
-
-    if (ProcessLine (s,
-                     LineTagPubChicago,
-                     MODE_PUBLICCHICAGO) == DONE)
-        return TRUE;
-
+    for (i = 0; i < (SplitOnly ? (BLOCKDEF_INTERNAL + 1) : C_BLOCKDEFS); i++) {
+        if (ProcessLine (s,
+                aBlockDef[i].pszLineMark,
+                aBlockDef[i].dwFlags) == DONE) {
+            return TRUE;
+        }
+    }
 
     return(FALSE);
 }
@@ -711,8 +696,8 @@ CheckForSingleLine(
 //
 //      Input    -
 //      LineTag  -
-//      mode     - MODE_PUBLIC: 
-//                 MODE_PRIVATE:
+//      mode     - MODE_PUBLICALL:
+//                 MODE_PRIVATEALL:
 //                 NTONLY:
 //                 WIN4ONLY:
 //
@@ -753,7 +738,7 @@ ProcessLine (
                 p = laststrstr(comment + 1, CommentDelimiter);
             }
 
-            if (NT || Cairo || (mode & MODE_PUBLICCHICAGO)) {
+            if (NT || Cairo || SURPlus || (mode & MODE_PUBLICCHICAGO)) {
 
                 // lop off the line tag.
                 while (isspace(*(--comment)));
@@ -770,11 +755,18 @@ ProcessLine (
                 *comment++ = '/';
                 *comment++ = ' ';
                 strcpy (comment, temp);
-                
+
             }
 
+            if (mode & MODE_IFDEFALL) {
+                AddIfDef (mode, TRUE);
+            }
 
             AddString(mode, Input);
+
+            if (mode & MODE_IFDEFALL) {
+                AddIfDef (mode, FALSE);
+            }
 
             return(DONE);
         }
@@ -800,7 +792,7 @@ ExactMatch (char *Input, char *LookingFor)
 //  if (*Input == '\0' || *LookingFor == '\0')
 //      fprintf (stderr, "\n\n\nExactMatch: Input='%s' and LookingFor='%s'\n",
 //               Input, LookingFor);
-    
+
 
     //
     // Place a '\0' at the first space in the string, then compare, and restore
@@ -817,7 +809,7 @@ ExactMatch (char *Input, char *LookingFor)
     Save = Input [Length];
     Input [Length] = '\0';
 
-    TheSame = !stricmp (Input, LookingFor);
+    TheSame = !_stricmp (Input, LookingFor);
 
 //  fprintf (stderr, "Comparing Input='%s' and LookingFor='%s', ret=%d\n",
 //           Input, LookingFor, TheSame);
@@ -904,12 +896,9 @@ ProcessBlock (
             // For NT we set the string to be WINVER < 0x0400 so we
             // don't interfere with the Cairo stuff
             //
-   
-            if(mode & MODE_WINVER400) {
-                if (Chicago || Cairo) 
-                    AddString (mode, IFDEF);
-                else
-                    AddString (mode, IFDEFLESS);
+
+            if(mode & MODE_IFDEFALL) {
+                AddIfDef (mode, TRUE);
             }
 
             Input = fgets(StringBuffer,STRING_BUFFER_SIZE,SourceFile);
@@ -919,16 +908,13 @@ ProcessBlock (
                 if ( comment ) {
                     tag = strstr(comment,BlockTagEnd);
                     if ( tag ) {
-                        if(mode & MODE_WINVER400) {
-                            if (Chicago || Cairo)
-                                AddString (mode, ENDIF);
-                            else
-                                AddString (mode, ENDIFLESS);
+                        if(mode & MODE_IFDEFALL) {
+                            AddIfDef (mode, FALSE);
                         }
                         return DONE;
                     }
                 }
-                
+
                 DoOutput (mode, Input);
 
                 Input = fgets(StringBuffer,STRING_BUFFER_SIZE,SourceFile);
@@ -967,26 +953,22 @@ DoOutput (
         return;
     }
 
-        if ((mode & MODE_PRIVATECHICAGO) && Chicago && !(mode & MODE_PUBLICCHICAGO)) {
+    if ((mode & MODE_PRIVATECHICAGO) && Chicago && !(mode & MODE_PUBLICCHICAGO)) {
 
-                //
-                // If this is for Chicago, outfile2 is not relavant
-                // but we have to add the internal comment
-                //
-                comment = string + strlen(string);
-                while(*(--comment) != '\n');
-                if(comment != string) {
-                    *comment='\0';
-                    strcat(string, "\t// ;internal\n");
-                }
-
+        //
+        // If this is for Chicago, outfile2 is not relavant
+        // but we have to add the internal comment
+        //
+        comment = string + strlen(string);
+        while(*(--comment) != '\n');
+        if(comment != string) {
+            *comment='\0';
+            strcat(string, "\t// ;internal\n");
         }
+    }
+
     AddString(mode, string);
 }
-
-//
-//  AddString - outputs a string into the private file.
-//
 
 
 void
@@ -998,11 +980,70 @@ AddString (
 
     if ((NT      && (mode & MODE_PUBLICNT)) ||
         (Chicago && ((mode & MODE_PUBLICCHICAGO) || (mode & MODE_PRIVATECHICAGO))) ||
-        (Cairo   && (mode & MODE_PUBLICCAIRO)))
+        (Cairo   && (mode & MODE_PUBLICCAIRO)) ||
+        (SURPlus && (mode & MODE_PUBLICSURPLUS)) ||
+        (SplitOnly && (mode & MODE_PUBLICALL)))
             fputs(string, OutputFile1);
 
     if ((NT     && (mode & MODE_PRIVATENT)) ||
-        (Cairo  && (mode & MODE_PRIVATECAIRO)))
-            fputs(string, OutputFile2); 
-        
+        (Cairo  && (mode & MODE_PRIVATECAIRO))  ||
+        (SURPlus&& (mode & MODE_PRIVATESURPLUS)) ||
+        (SplitOnly && (mode & MODE_PRIVATEALL)))
+            fputs(string, OutputFile2);
+}
+
+
+void
+AddIfDef (
+    int mode,
+    int fBegin
+)
+{
+    int iVerIndex = 0;
+    int iBeginEnd = 0;
+
+    //
+    //  Chose index of the ifdef string
+    //
+    iBeginEnd = fBegin ? 0 : 1;
+
+    if      (mode & MODE_IFDEF_WV400 ) iVerIndex = 0;
+    else if (mode & MODE_IFDEF_WV40a ) iVerIndex = 2;
+    else if (mode & MODE_IFDEF_W32WNT) iVerIndex = 4;
+    else if (mode & MODE_IFDEF_W32WIN) iVerIndex = 6;
+    else
+         fprintf (stderr, "AddIfDef: bad mode parameter\n");
+
+
+    //
+    // Write ifdef line to the correct files.
+    //
+
+    if ((NT      && (mode & MODE_PUBLICNT)) ||
+        (Chicago && ((mode & MODE_PUBLICCHICAGO) || (mode & MODE_PRIVATECHICAGO))) ||
+        (Cairo   && (mode & MODE_PUBLICCAIRO)) ||
+        (SURPlus && (mode & MODE_PUBLICSURPLUS)))
+            fputs(szIFDEF[iVerIndex][iBeginEnd], OutputFile1);
+
+    //
+    // Private NT material also goes into public, so reverse sense of #if check
+    //   to avoid multiple defines.
+    //
+
+    if (NT     && (mode & MODE_PRIVATENT))
+            fputs(szIFDEF[iVerIndex+1][iBeginEnd], OutputFile2);
+
+    //
+    // Not a problem for private cairo material, since it is not in public.
+    //
+
+    if (Cairo   && (mode & MODE_PRIVATECAIRO))
+            fputs(szIFDEF[iVerIndex][iBeginEnd], OutputFile2);
+
+    //
+    // Not a problem for private SURPlus material, since it is not in public.
+    //
+
+    if (SURPlus && (mode & MODE_PRIVATESURPLUS))
+            fputs(szIFDEF[iVerIndex][iBeginEnd], OutputFile2);
 }

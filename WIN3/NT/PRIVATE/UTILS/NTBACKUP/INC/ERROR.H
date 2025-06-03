@@ -26,4 +26,6 @@ Initial revision.
 VOID eprintf( CHAR_PTR, ... ) ;
 VOID eresprintf( INT, ... ) ;
 
+BOOLEAN eresprintf_cancel( INT, ... ) ;
+
 #endif

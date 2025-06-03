@@ -1,62 +1,29 @@
+/*++
+
+Copyright (c) 1992-1996  Microsoft Corporation
+
+Module Name:
+
+    mibfuncs.h
+
+Abstract:
+
+    All constants, types, and prototypes to support the MIB manipulation
+    functions.
+
+Environment:
+
+    User Mode - Win32
+
+Revision History:
+
+    10-May-1996 DonRyan
+        Removed banner from Technology Dynamics, Inc.
+
+--*/
+ 
 #ifndef mibfuncs_h
 #define mibfuncs_h
-
-//-------------------------- MODULE DESCRIPTION ----------------------------
-//
-//  mibfuncs.h
-//
-//  Copyright 1992 Technology Dynamics, Inc.
-//
-//  All Rights Reserved!!!
-//
-//	This source code is CONFIDENTIAL and PROPRIETARY to Technology
-//	Dynamics. Unauthorized distribution, adaptation or use may be
-//	subject to civil and criminal penalties.
-//
-//  All Rights Reserved!!!
-//
-//---------------------------------------------------------------------------
-//
-//  All constants, types, and prototypes to support the MIB manipulation
-//  functions.
-//
-//  Project:  Implementation of an SNMP Agent for Microsoft's NT Kernel
-//
-//  $Revision:   1.0  $
-//  $Date:   20 May 1992 15:11:26  $
-//  $Author:   mlk  $
-//
-//  $Log:   N:/lmmib2/vcs/mibfuncs.h_v  $
-//
-//     Rev 1.0   20 May 1992 15:11:26   mlk
-//  Initial revision.
-//
-//     Rev 1.7   02 May 1992 19:06:40   todd
-//  Code cleanup
-//
-//     Rev 1.6   27 Apr 1992  1:43:02   todd
-//
-//     Rev 1.5   26 Apr 1992 14:24:28   todd
-//  Moved prototypes for session table into sess_tbl.c
-//  they do not need to be public
-//
-//     Rev 1.4   25 Apr 1992 17:40:38   todd
-//
-//     Rev 1.3   24 Apr 1992 14:45:08   todd
-//
-//     Rev 1.2   24 Apr 1992  9:45:56   todd
-//  Fixed prototype for MIB_srvcs_func
-//
-//     Rev 1.1   23 Apr 1992 17:58:44   todd
-//
-//     Rev 1.0   22 Apr 1992 17:06:58   todd
-//  Initial revision.
-//
-//---------------------------------------------------------------------------
-
-//--------------------------- VERSION INFO ----------------------------------
-
-static char *mibfuncs__h = "@(#) $Logfile:   N:/lmmib2/vcs/mibfuncs.h_v  $ $Revision:   1.0  $";
 
 //--------------------------- PUBLIC CONSTANTS ------------------------------
 

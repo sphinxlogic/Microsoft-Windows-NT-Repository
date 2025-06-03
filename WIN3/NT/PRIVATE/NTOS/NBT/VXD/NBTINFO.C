@@ -59,8 +59,7 @@ VOID AddrChngNotification( PVOID Context,
     //  zero first) then fake it.
     //
 
-    if ( OldIpAddress && NewIpAddress &&
-         pDeviceContext->IpAddress )
+    if ( NewIpAddress && pDeviceContext->IpAddress )
     {
         if ( status = NbtNewDhcpAddress( pDeviceContext, 0, 0 ) )
         {
@@ -70,6 +69,10 @@ VOID AddrChngNotification( PVOID Context,
 
     if ( NewIpAddress == 0 )
     {
+        if ( status = NbtNewDhcpAddress( pDeviceContext, 0, 0 ) )
+        {
+            CDbgPrint( DBGFLAG_ERROR, ("DhcpNotification: NbtSetNewDhcpAddress failed")) ;
+        }
         pDeviceContext->IpAddress = 0 ;
         return ;
     }
@@ -126,6 +129,11 @@ VOID AddrChngNotification( PVOID Context,
     {
         if (pDeviceContext->IpAddress)
         {
+            //
+            // Add the "permanent" name to the local name table.
+            //
+            status = NbtAddPermanentName(pDeviceContext);
+
             if (!(NodeType & BNODE))
             {
                // the Ip address just changed and Dhcp may be informing
@@ -141,11 +149,6 @@ VOID AddrChngNotification( PVOID Context,
                 //
                 LockedStopTimer(&NbtConfig.pRefreshTimer);
             }
-
-            //
-            // Add the "permanent" name to the local name table.
-            //
-            status = NbtAddPermanentName(pDeviceContext);
         }
     }
 
@@ -180,182 +183,45 @@ CloseAddressesWithTransport(
     IN tDEVICECONTEXT   *pDeviceContext )
 {
     TDI_REQUEST       Request ;
+    NTSTATUS          status;
 
-    Request.Handle.AddressHandle = pDeviceContext->pDgramFileObject ;
-    if ( TdiVxdCloseAddress( &Request ))
-        CDbgPrint( DBGFLAG_ERROR, ("NbtSetInfo: Warning - CloseAddress Failed\r\n")) ;
 
-    Request.Handle.AddressHandle = pDeviceContext->pNameServerFileObject ;
-    if ( TdiVxdCloseAddress( &Request ))
-        CDbgPrint( DBGFLAG_ERROR, ("NbtSetInfo: Warning - CloseAddress Failed\r\n")) ;
+    if (pDeviceContext->pDgramFileObject)
+    {
+        Request.Handle.AddressHandle = pDeviceContext->pDgramFileObject ;
+        if ( TdiVxdCloseAddress( &Request ))
+            CDbgPrint( DBGFLAG_ERROR, ("NbtSetInfo: Warning - CloseAddress Failed\r\n")) ;
+        pDeviceContext->pDgramFileObject = NULL;
+    }
 
-    Request.Handle.AddressHandle = pDeviceContext->pSessionFileObject ;
-    if ( TdiVxdCloseAddress( &Request ))
-        CDbgPrint( DBGFLAG_ERROR, ("NbtSetInfo: Warning - CloseAddress Failed\r\n")) ;
+    if (pDeviceContext->pNameServerFileObject)
+    {
+        Request.Handle.AddressHandle = pDeviceContext->pNameServerFileObject ;
+        if ( TdiVxdCloseAddress( &Request ))
+            CDbgPrint( DBGFLAG_ERROR, ("NbtSetInfo: Warning - CloseAddress Failed\r\n")) ;
+        pDeviceContext->pNameServerFileObject = NULL;
+    }
 
-    Request.Handle.AddressHandle = pDeviceContext->hBroadcastAddress ;
-    if ( NbtCloseAddress( &Request, NULL, pDeviceContext, NULL ))
-        CDbgPrint( DBGFLAG_ERROR, ("NbtSetInfo: Warning - Close Broadcast Address Failed\r\n")) ;
+    if (pDeviceContext->pSessionFileObject)
+    {
+        Request.Handle.AddressHandle = pDeviceContext->pSessionFileObject ;
+        if ( TdiVxdCloseAddress( &Request ))
+            CDbgPrint( DBGFLAG_ERROR, ("NbtSetInfo: Warning - CloseAddress Failed\r\n")) ;
+        pDeviceContext->pSessionFileObject = NULL;
+    }
+
+    if (pDeviceContext->hBroadcastAddress)
+    {
+        Request.Handle.ConnectionContext = pDeviceContext->hBroadcastAddress ;
+        status = NbtCloseAddress( &Request, NULL, pDeviceContext, NULL );
+        if ( !NT_SUCCESS(status) )
+        {
+            CDbgPrint( DBGFLAG_ERROR, ("NbtSetInfo: Warning - Close Broadcast Address Failed\r\n")) ;
+            ASSERT(0);
+        }
+    }
 
     return STATUS_SUCCESS ;
 }
 
 
-#if 0
-
-//
-//  Not needed since DHCP went to a general notification mechanism, leave
-//  around in case the need ever arises
-//
-
-typedef struct _NBTNewIPInfo
-{
-    ULONG       nnip_ipaddress ;        // New IP Address
-    ULONG       nnip_ipsubmask ;        // New submask address
-    UCHAR       nnip_ipindex ;          // Index of IP address in the
-                                        // IP driver's table
-} NBTNewIPInfo, *PNBTNewIPInfo ;
-
-
-typedef struct _NBTAddresses
-{
-    UCHAR       na_ipindex ;            // Index for this IP address
-    int         na_count ;              // Number of addresses in array
-    ULONG       na_ipaddress[1] ;       // Variable length array of IP addresses
-
-} NBTAddresses, *PNBTAddresses ;
-
-#define NBT_SET_IP_ADDR             1   // Uses NBTNewIPInfo
-#define NBT_SET_NBNS_ADDR           2   // Uses NBTAddresses
-#define NBT_SET_DNS_ADDR            3   // Uses NBTAddresses
-
-
-TDI_STATUS NbtSetInfo( UINT Type, PVOID pBuff, UINT Size ) ;
-
-
-tDEVICECONTEXT * FindDeviceCont( UCHAR IpIndex ) ;
-
-/*******************************************************************
-
-    NAME:       NbtSetInfo
-
-    SYNOPSIS:   Sets various NBT parameters from other Vxds
-
-    ENTER:      Type - What information to set
-                pBuff - Pointer to buffer that contains info
-                Size - Size of buffer
-
-    RETURNS:    TDI status code
-
-    NOTES:      DHCPed addresses that failed at startup (i.e., had an IP
-                address of zero) will not be in the device context list,
-                thus this API will fail.  We could potentially create a new
-                device context but there are problems associated with
-                that (Lana ordering, will rdr recognize etc.)
-
-    HISTORY:
-        Johnl   13-Dec-1993     Created
-
-********************************************************************/
-
-TDI_STATUS NbtSetInfo( UINT Type, PVOID pBuff, UINT Size )
-{
-    tDEVICECONTEXT * pDeviceContext ;
-
-    if ( !pBuff )
-        return TDI_INVALID_PARAMETER ;
-
-    switch ( Type )
-    {
-
-    case NBT_SET_IP_ADDR:
-        {
-            PNBTNewIPInfo     pnip = (PNBTNewIPInfo) pBuff ;
-
-            if ( Size < sizeof( NBTNewIPInfo ) )
-                return TDI_BUFFER_TOO_SMALL ;
-
-            if ( !(pDeviceContext = FindDeviceCont( pnip->nnip_ipindex )) )
-                return TDI_INVALID_PARAMETER ;
-#if 0
-            //
-            // Replace with Jim's API
-            //
-            return NbtSetNewDhcpAddress( pDeviceContext,
-                                         pnip->nnip_ipaddress,
-                                         pnip->nnip_ipsubmask ) ;
-#else
-            return TDI_SUCCESS ;
-#endif
-        }
-        break ;
-
-    case NBT_SET_NBNS_ADDR:
-        {
-            PNBTAddresses pna = (PNBTAddresses) pBuff ;
-
-            if ( Size < sizeof( NBTAddresses ) )
-                return TDI_BUFFER_TOO_SMALL ;
-
-            if ( !(pDeviceContext = FindDeviceCont( pna->na_ipindex )) )
-                return TDI_INVALID_PARAMETER ;
-
-            ASSERT( pna->na_count > 0 ) ;
-
-            if ( pna->na_count > 0 )
-                pDeviceContext->lNameServerAddress = pna->na_ipaddress[0] ;
-
-            if ( pna->na_count > 1 )
-                pDeviceContext->lBackupServer = pna->na_ipaddress[1] ;
-
-            return TDI_SUCCESS ;
-        }
-
-    case NBT_SET_DNS_ADDR:
-        CDbgPrint( DBGFLAG_ERROR, ("NbtSetInfo: Setting DNS address not supported\r\n")) ;
-        break ;
-
-    default:
-        break ;
-    }
-
-    return TDI_INVALID_PARAMETER ;
-}
-
-/*******************************************************************
-
-    NAME:       FindDeviceCont
-
-    SYNOPSIS:   Finds the device context that is responsible for the
-                IP Address at IpIndex
-
-    ENTRY:      IpIndex - IP Driver index of this IP address
-
-    RETURNS:    NULL if not found
-
-********************************************************************/
-
-tDEVICECONTEXT * FindDeviceCont( UCHAR IpIndex )
-{
-    PLIST_ENTRY       pentry ;
-    tDEVICECONTEXT *  pDeviceContext ;
-
-    //
-    //  Find the device this IP address is for
-    //
-
-    for ( pentry  = NbtConfig.DeviceContexts.Flink ;
-          pentry != &NbtConfig.DeviceContexts ;
-          pentry  = pentry->Flink )
-    {
-        pDeviceContext = CONTAINING_RECORD( pentry, tDEVICECONTEXT, Linkage ) ;
-
-        if ( IpIndex == pDeviceContext->IPIndex )
-            return pDeviceContext ;
-    }
-
-    NULL ;
-}
-
-#endif //0
-

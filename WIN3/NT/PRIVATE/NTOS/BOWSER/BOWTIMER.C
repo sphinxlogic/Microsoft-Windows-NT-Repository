@@ -190,7 +190,8 @@ Return Value
 
     ASSERT (KeGetCurrentIrql() == LOW_LEVEL);
 
-    Timeout = LiNMul(MillisecondsToExpireTimer, -10000);
+    Timeout.QuadPart = (LONGLONG)MillisecondsToExpireTimer * (LONGLONG)(-10000);
+//    Timeout = LiNMul(MillisecondsToExpireTimer, -10000);
 
     ACQUIRE_SPIN_LOCK(&Timer->Lock, &OldIrql);
 

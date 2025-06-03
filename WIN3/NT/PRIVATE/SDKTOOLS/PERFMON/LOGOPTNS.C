@@ -1,4 +1,4 @@
- 
+
 //==========================================================================//
 //                                  Includes                                //
 //==========================================================================//
@@ -30,6 +30,14 @@ extern BOOL    LocalManualRefresh ;
 static BOOL    bStopButtonClicked ;
 extern HWND    hWndLogEntries ;
 
+#if WINVER >= 0x0400
+// the win4.0 common dialogs are organized a little differently
+// the hDlg passed in not the Master dialog, but only the window 
+// with the extended controls. This buffer is to save the extended
+// controls in.
+static  HDLG    hWndDlg = NULL;
+#endif
+
 // This is a counter that is init. to 0.  It is incremened by 1
 // when the user click the cancel button.
 // It is set to -1 when we sent the cancell msg internally.
@@ -44,7 +52,8 @@ DWORD          msgFILEOK ;
 
 #define LogOptionsOFNStyle                      \
    (OFN_ENABLETEMPLATE | OFN_HIDEREADONLY |     \
-    OFN_SHOWHELP | OFN_ENABLEHOOK)
+    OFN_ENABLEHOOK | OFN_EXPLORER)
+//    OFN_SHOWHELP | OFN_ENABLEHOOK)
 
 
 
@@ -206,8 +215,11 @@ void OnStart (HDLG hDlg)
          break ;
       }  // switch
 
-
+#if WINVER < 0x0400
    SimulateButtonPush (hDlg, IDD_OK) ;
+#else
+   SimulateButtonPush (hWndDlg, IDOK) ;
+#endif
    }
 
 
@@ -264,7 +276,11 @@ BOOL static OnOK (HDLG hDlg)
          bNeedToSetTimer = TRUE ;
          bCancelled = -1 ;
          }
-      SimulateButtonPush (hDlg, IDD_CANCEL) ;
+#if WINVER < 0x0400
+       SimulateButtonPush (hDlg, IDD_CANCEL) ;
+#else
+       SimulateButtonPush (hWndDlg, IDCANCEL) ;
+#endif
       return TRUE ;
       }
    else
@@ -317,6 +333,101 @@ BOOL APIENTRY LogOptionsHookProc (HWND hDlg,
          OnInitDialog (hDlg) ;
          break ;
 
+#if WINVER >= 0x0400
+      case WM_NOTIFY:
+        {
+            LPOFNOTIFY  pOfn;
+            pOfn = (LPOFNOTIFY)lParam;
+
+            switch (pOfn->hdr.code) {
+                case CDN_INITDONE:
+                  hWndDlg = pOfn->hdr.hwndFrom;
+                  OnInitDialog (hWndDlg);
+                  break;
+
+                case CDN_FILEOK:
+                  {
+                  int   iFileIndex ;
+                  HWND  hWndCBox;
+
+                  hWndCBox = GetDlgItem (pOfn->hdr.hwndFrom, cmb1); // Type combo box
+                  iFileIndex = CBSelection (hWndCBox) ;
+                  // the order of the entries in the combo box depends on
+                  // the current delimiter character
+                  if (pDelimiter == TabStr) {
+                    pDelimiter = iFileIndex == 0 ? // 0 = TSV, 1=CSV
+                        TabStr : CommasStr;
+                  } else {
+                    pDelimiter = iFileIndex == 0 ? // 0 = TSV, 1=CSV
+                        CommasStr : TabStr;
+                  }
+                  }
+                  break;
+                 
+                default:
+                  break;
+            }
+        
+        }
+        break;
+    
+      case WM_HELP:
+        {
+            LPHELPINFO  pInfo;
+            PLOG        pLog ;
+            int         iHelpId;
+
+            pInfo = (LPHELPINFO)lParam;
+            pLog = LogData (hDlg) ;
+
+            if (pInfo->iContextType == HELPINFO_WINDOW) {
+                // display perfmon help if a "perfmon" control is selected
+                switch (pInfo->iCtrlId) {
+                    case IDD_LOGOPTSTART:
+                    case IDD_LOGOPTPAUSE:
+                        // call winhelp to display text
+                        // decide if start or stop button is pressed
+                        switch (pLog->iStatus) {
+                            case iPMStatusCollecting:
+                            case iPMStatusPaused:
+                                // then it's a stop button
+                                iHelpId = IDD_LOGOPTPAUSE;
+                                break;
+                                                            
+                            case iPMStatusClosed:
+                            default:
+                                // then it's a start button
+                                iHelpId = IDD_LOGOPTSTART;
+                                break;
+                        }
+                        bHandled = WinHelp (
+                            hDlg,
+                            pszHelpFile,
+                            HELP_CONTEXTPOPUP,
+                            iHelpId);
+                        break;
+
+                    case IDD_LOGOPTINTERVAL:
+                    case IDD_LOGOPTIONSPERIODIC:
+                    case IDD_LOGOPTIONSMANUALREFRESH:
+                        // call winhelp to display text
+                        bHandled = WinHelp (
+                            hDlg,
+                            pszHelpFile,
+                            HELP_CONTEXTPOPUP,
+                            pInfo->iCtrlId);
+                        break;
+
+                    default:
+                        bHandled = FALSE;
+                        break;
+                }
+            } else {
+                bHandled = FALSE;
+            }
+        }
+        break;
+#endif
       case WM_DESTROY:
 
          {
@@ -336,6 +447,9 @@ BOOL APIENTRY LogOptionsHookProc (HWND hDlg,
                iIntervalMSecs = (DWORD) eTimeInterval ;
                }
             }
+#if WINVER >= 0x0400
+            hWndDlg = NULL;
+#endif
 
          dwCurrentDlgID = 0 ;
          bHandled = FALSE ;
@@ -551,5 +665,5 @@ BOOL DisplayLogOptions (HWND hWndParent,
 
 
 
-
-
+
+

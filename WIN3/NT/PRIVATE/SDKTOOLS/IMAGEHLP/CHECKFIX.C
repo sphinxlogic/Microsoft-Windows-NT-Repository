@@ -17,13 +17,9 @@ Author:
 Revision History:
 
 --*/
-#include <nt.h>
-#include <ntrtl.h>
-#include <nturtl.h>
-#include <windows.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <imagehlp.h>
+
+#include <private.h>
+
 
 void Usage()
 {

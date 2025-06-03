@@ -25,15 +25,272 @@ Revision History:
 #include "lsasrvp.h"
 #include "ausrvp.h"
 #include "adtp.h"
+#include "ntlsapi.h"
 
+
+//
+// Pointer to license server routines in ntlsapi.dll
+//
+PNT_LICENSE_REQUEST_W LsaNtLicenseRequestW = NULL;
+PNT_LS_FREE_HANDLE LsaNtLsFreeHandle = NULL;
 
 
 
 
 
 NTSTATUS
+LsaCallLicenseServer(
+    IN PWCHAR LogonProcessName,
+    IN PUNICODE_STRING AccountName,
+    IN PUNICODE_STRING DomainName OPTIONAL,
+    IN BOOLEAN IsAdmin,
+    OUT HANDLE *LicenseHandle
+    )
+
+/*++
+
+Routine Description:
+
+    This function loads the license server DLL and calls it to indicate the
+    specified logon process has successfully authenticated the specified user.
+
+Arguments:
+
+    LogonProcessName - Name of the process authenticating the user.
+
+    AccountName - Name of the account authenticated.
+
+    DomainName - Name of the domain containing AccountName
+
+    IsAdmin - TRUE if the logged on user is an administrator
+
+    LicenseHandle - Returns a handle to the LicenseServer that must be
+        closed when the session goes away.  INVALID_HANDLE_VALUE is returned
+        if the handle need not be closed.
+
+Return Value:
+
+    None.
+
+
+--*/
+
+{
+    NTSTATUS Status;
+
+    NT_LS_DATA NtLsData;
+    ULONG BufferSize;
+    LPWSTR Name;
+    LS_STATUS_CODE LsStatus;
+    LS_HANDLE LsHandle;
+
+    static enum {
+            FirstCall,
+            DllMissing,
+            DllLoaded } DllState = FirstCall ;
+
+    HINSTANCE DllHandle;
+
+
+    //
+    // Initialization
+    //
+
+    NtLsData.DataType = NT_LS_USER_NAME;
+    NtLsData.Data = NULL;
+    NtLsData.IsAdmin = IsAdmin;
+    *LicenseHandle = INVALID_HANDLE_VALUE;
+
+
+    //
+    // Load the license server DLL if this is the first call to this routine.
+    //
+
+    LsapAuLock();
+
+    if ( DllState == FirstCall ) {
+
+        //
+        // Load the DLL
+        //
+
+        DllHandle = LoadLibraryA( "ntlsapi" );
+
+        if ( DllHandle == NULL ) {
+            LsapAuUnlock();
+            DllState = DllMissing;
+            Status = STATUS_SUCCESS;
+            goto Cleanup;
+        }
+
+        //
+        // Find the License routine
+        //
+
+
+        LsaNtLicenseRequestW = (PNT_LICENSE_REQUEST_W)
+            GetProcAddress(DllHandle, "NtLicenseRequestW");
+
+        if ( LsaNtLicenseRequestW == NULL ) {
+            LsapAuUnlock();
+            DllState = DllMissing;
+            Status = STATUS_SUCCESS;
+            goto Cleanup;
+        }
+
+        //
+        // Find the License handle free routine
+        //
+
+
+        LsaNtLsFreeHandle = (PNT_LS_FREE_HANDLE)
+            GetProcAddress(DllHandle, "NtLSFreeHandle");
+
+        if ( LsaNtLsFreeHandle == NULL ) {
+            LsapAuUnlock();
+            DllState = DllMissing;
+            *LsaNtLicenseRequestW = NULL;
+            Status = STATUS_SUCCESS;
+            goto Cleanup;
+        }
+
+        DllState = DllLoaded;
+
+    //
+    // Ensure the Dll was loaded on a previous call
+    //
+    } else if ( DllState != DllLoaded ) {
+        LsapAuUnlock();
+        Status = STATUS_SUCCESS;
+        goto Cleanup;
+    }
+
+    LsapAuUnlock();
+
+
+
+    //
+    // Allocate a buffer for the combined DomainName\UserName
+    //
+
+    BufferSize = AccountName->Length + sizeof(WCHAR);
+    if ( DomainName != NULL && DomainName->Length != 0 ) {
+        BufferSize += DomainName->Length + sizeof(WCHAR);
+    }
+
+    NtLsData.Data = LsapAllocateLsaHeap( BufferSize );
+
+    if ( NtLsData.Data == NULL ) {
+        Status = STATUS_NO_MEMORY;
+        goto Cleanup;
+    }
+
+    //
+    // Fill in the DomainName\UserName
+    //
+
+    Name = (LPWSTR)(NtLsData.Data);
+
+    if ( DomainName != NULL && DomainName->Length != 0 ) {
+        RtlCopyMemory( Name,
+                       DomainName->Buffer,
+                       DomainName->Length );
+        Name += DomainName->Length / sizeof(WCHAR);
+        *Name = L'\\';
+        Name++;
+    }
+
+    RtlCopyMemory( Name,
+                   AccountName->Buffer,
+                   AccountName->Length );
+    Name += AccountName->Length / sizeof(WCHAR);
+    *Name = L'\0';
+
+
+    //
+    // Call the license server.
+    //
+
+    LsStatus = (*LsaNtLicenseRequestW)(
+                    LogonProcessName,
+                    NULL,
+                    &LsHandle,
+                    &NtLsData );
+
+    switch (LsStatus) {
+    case LS_SUCCESS:
+        Status = STATUS_SUCCESS;
+        *LicenseHandle = (HANDLE) LsHandle;
+        break;
+
+    case LS_INSUFFICIENT_UNITS:
+        Status = STATUS_LICENSE_QUOTA_EXCEEDED;
+        break;
+
+    case LS_RESOURCES_UNAVAILABLE:
+        Status = STATUS_NO_MEMORY;
+        break;
+
+    default:
+        //
+        // Unavailability of the license server isn't fatal.
+        //
+        Status = STATUS_SUCCESS;
+        break;
+    }
+
+
+
+    //
+    // Cleanup and return.
+    //
+Cleanup:
+    if ( NtLsData.Data != NULL ) {
+        LsapFreeLsaHeap( NtLsData.Data );
+    }
+
+    return Status;
+}
+
+
+
+
+VOID
+LsaFreeLicenseHandle(
+    IN HANDLE LicenseHandle
+    )
+
+/*++
+
+Routine Description:
+
+    Free a handle returned by LsaCallLicenseServer.
+
+Arguments:
+
+    LicenseHandle - Handle returned to license for this logon session.
+
+Return Value:
+
+    None.
+
+
+--*/
+
+{
+    if ( LsaNtLsFreeHandle != NULL && LicenseHandle != INVALID_HANDLE_VALUE ) {
+        LS_HANDLE LsHandle;
+        LsHandle = (LS_HANDLE) LicenseHandle;
+        (*LsaNtLsFreeHandle)( LsHandle );
+    }
+}
+
+
+
+NTSTATUS
 LsapAuApiDispatchLogonUser(
-    IN OUT PLSAP_CLIENT_REQUEST ClientRequest
+    IN OUT PLSAP_CLIENT_REQUEST ClientRequest,
+    IN BOOLEAN TrustedClient
     )
 
 /*++
@@ -68,12 +325,14 @@ Return Value:
     PTOKEN_GROUPS ClientTokenGroups;
     PVOID TokenInformation;
     LSA_TOKEN_INFORMATION_TYPE TokenInformationType;
+    LSA_TOKEN_INFORMATION_TYPE OriginalTokenType;
     PLSA_TOKEN_INFORMATION_V1 TokenInformationV1;
     PLSA_TOKEN_INFORMATION_NULL TokenInformationNull;
     HANDLE Token;
     PUNICODE_STRING AccountName = NULL;
     PUNICODE_STRING AuthenticatingAuthority = NULL;
     PUNICODE_STRING SourceDevice = NULL;
+    PUNICODE_STRING WorkstationName = NULL;
     PSID UserSid = NULL;
     LUID AuthenticationId;
     ANSI_STRING AnsiSourceContext;
@@ -89,6 +348,16 @@ Return Value:
     UNICODE_STRING PackageNameU;
     BOOLEAN FreePackageName = TRUE;
     PPRIVILEGE_SET PrivilegesAssigned = NULL;
+    BOOLEAN CallLicenseServer;
+    SECURITY_LOGON_TYPE ActiveLogonType;
+
+    //
+    // Don't allow untrusted clients to call this API.
+    //
+
+    if (!TrustedClient) {
+        return(STATUS_ACCESS_DENIED);
+    }
 
 
     Arguments = &ClientRequest->Request->Arguments.LogonUser;
@@ -99,6 +368,27 @@ Return Value:
     UnicodeSourceContext.Buffer = NULL;
     UnicodeSourceContext.MaximumLength = UnicodeSourceContext.Length = 0;
 
+    //
+    // Determine if the LicenseServer should be called.
+    //  Turn off the flag to prevent confusing any other logic below.
+    //
+
+    if ( Arguments->AuthenticationPackage & LSA_CALL_LICENSE_SERVER ) {
+        Arguments->AuthenticationPackage &= ~LSA_CALL_LICENSE_SERVER ;
+        CallLicenseServer = TRUE;
+    } else {
+        CallLicenseServer = FALSE;
+    }
+
+
+    //
+    // Map an unlock logon into an interactive logon
+    //
+
+    ActiveLogonType = Arguments->LogonType;
+    if (ActiveLogonType == Unlock) {
+        ActiveLogonType = Interactive;
+    }
 
     //
     // Get the address of the package to call
@@ -196,22 +486,48 @@ Return Value:
     // user ultimately logs off.
     //
 
+    if (PackageApi->LsapApLogonUserEx != NULL) {
 
-    Status = (PackageApi->LsapApLogonUser)(
-                              (PLSA_CLIENT_REQUEST)ClientRequest,
-                               Arguments->LogonType,
-                               LocalAuthenticationInformation,
-                               Arguments->AuthenticationInformation,    //client base
-                               Arguments->AuthenticationInformationLength,
-                               &Arguments->ProfileBuffer,
-                               &Arguments->ProfileBufferLength,
-                               &Arguments->LogonId,
-                               &Arguments->SubStatus,
-                               &TokenInformationType,
-                               &TokenInformation,
-                               &AccountName,
-                               &AuthenticatingAuthority
-                               );
+        Status = (PackageApi->LsapApLogonUserEx)(
+                                  (PLSA_CLIENT_REQUEST)ClientRequest,
+                                   ActiveLogonType,
+                                   LocalAuthenticationInformation,
+                                   Arguments->AuthenticationInformation,    //client base
+                                   Arguments->AuthenticationInformationLength,
+                                   &Arguments->ProfileBuffer,
+                                   &Arguments->ProfileBufferLength,
+                                   &Arguments->LogonId,
+                                   &Arguments->SubStatus,
+                                   &TokenInformationType,
+                                   &TokenInformation,
+                                   &AccountName,
+                                   &AuthenticatingAuthority,
+                                   &WorkstationName
+                                   );
+    } else {
+
+        //
+        // We checked to make sure that at least one of these was exported
+        // from the package, so we know we can call this if LsapApLogonUserEx
+        // doesn't exist.
+        //
+
+        Status = (PackageApi->LsapApLogonUser)(
+                                  (PLSA_CLIENT_REQUEST)ClientRequest,
+                                   ActiveLogonType,
+                                   LocalAuthenticationInformation,
+                                   Arguments->AuthenticationInformation,    //client base
+                                   Arguments->AuthenticationInformationLength,
+                                   &Arguments->ProfileBuffer,
+                                   &Arguments->ProfileBufferLength,
+                                   &Arguments->LogonId,
+                                   &Arguments->SubStatus,
+                                   &TokenInformationType,
+                                   &TokenInformation,
+                                   &AccountName,
+                                   &AuthenticatingAuthority
+                                   );
+    }
 
     //
     // Free the local copy of the authentication information
@@ -231,11 +547,12 @@ Return Value:
             (PLSA_CLIENT_REQUEST)ClientRequest,
             Arguments->ProfileBuffer
             );
+        Arguments->ProfileBuffer = NULL;
 
         goto Done;
     }
 
-
+    OriginalTokenType = TokenInformationType;
 
 
     //
@@ -268,7 +585,7 @@ Return Value:
         //
 
         Status = LsapAuUserLogonPolicyFilter(
-                     Arguments->LogonType,
+                     ActiveLogonType,
                      &TokenInformationType,
                      &TokenInformation,
                      &Arguments->Quotas,
@@ -280,6 +597,74 @@ Return Value:
 
     if ( !NT_SUCCESS(Status) ) {
 
+        //
+        // Notify the logon package so it can clean up its
+        // logon session information.
+        //
+
+        (PackageApi->LsapApLogonTerminated)( &Arguments->LogonId );
+
+        //
+        // And delete the logon session
+        //
+
+        IgnoreStatus = LsapDeleteLogonSession( &Arguments->LogonId );
+        ASSERT( NT_SUCCESS(IgnoreStatus) );
+
+        //
+        // Free up the TokenInformation buffer and ProfileBuffer
+        // and return the error.
+        //
+
+        IgnoreStatus =
+            LsapFreeClientBuffer(
+                (PLSA_CLIENT_REQUEST)ClientRequest,
+                Arguments->ProfileBuffer
+                );
+        Arguments->ProfileBuffer = NULL;
+
+        switch ( TokenInformationType ) {
+        case LsaTokenInformationNull:
+            LsapFreeTokenInformationNull(
+                (PLSA_TOKEN_INFORMATION_NULL)TokenInformation
+                );
+            break;
+
+
+        case LsaTokenInformationV1:
+            LsapFreeTokenInformationV1(
+                (PLSA_TOKEN_INFORMATION_V1)TokenInformation
+                );
+            break;
+
+        }
+
+        goto Done;
+    }
+
+    //
+    // Check if we only allow admins to logon.  We do allow null session
+    // connections since they are severly restricted, though. Since the
+    // token type may have been changed, we use the token type originally
+    // returned by the package.
+    //
+
+    if (LsapAllowAdminLogonsOnly &&
+        (OriginalTokenType == LsaTokenInformationV1) &&
+        ((((PLSA_TOKEN_INFORMATION_V1) TokenInformation)->Owner.Owner == NULL) ||
+            !RtlEqualSid(
+                ((PLSA_TOKEN_INFORMATION_V1) TokenInformation)->Owner.Owner,
+                LsapAliasAdminsSid
+                ) ) ) {
+
+        //
+        // Set the status to be invalid workstation, since all accounts
+        // except administrative ones are locked out for this
+        // workstation.
+        //
+
+        Arguments->SubStatus = STATUS_INVALID_WORKSTATION;
+        Status = STATUS_ACCOUNT_RESTRICTION;
         //
         // Notify the logon package so it can clean up its
         // logon session information.
@@ -322,6 +707,109 @@ Return Value:
         }
 
         goto Done;
+    }
+    //
+    // Call the LicenseServer
+    //
+
+    if ( CallLicenseServer ) {
+
+        PLSAP_LOGON_SESSION LogonSession;
+        HANDLE LicenseHandle;
+        BOOLEAN IsAdmin = FALSE;
+
+        //
+        // Determine if we're logged on as administrator.
+        //
+        if ( TokenInformationType == LsaTokenInformationV1 &&
+            ((PLSA_TOKEN_INFORMATION_V1)TokenInformation)->Owner.Owner != NULL &&
+            RtlEqualSid(
+                ((PLSA_TOKEN_INFORMATION_V1)TokenInformation)->Owner.Owner,
+                LsapAliasAdminsSid ) ) {
+
+            IsAdmin = TRUE;
+
+        }
+
+        //
+        // Call the license server.
+        //
+
+        Status = LsaCallLicenseServer(
+            ClientRequest->LogonProcessContext->LogonProcessName,
+            AccountName,
+            AuthenticatingAuthority,
+            IsAdmin,
+            &LicenseHandle );
+
+        if ( !NT_SUCCESS(Status) ) {
+
+            //
+            // Notify the logon package so it can clean up its
+            // logon session information.
+            //
+
+            (PackageApi->LsapApLogonTerminated)( &Arguments->LogonId );
+
+            //
+            // And delete the logon session
+            //
+
+            IgnoreStatus = LsapDeleteLogonSession( &Arguments->LogonId );
+            ASSERT( NT_SUCCESS(IgnoreStatus) );
+
+            //
+            // Free up the TokenInformation buffer and ProfileBuffer
+            // and return the error.
+            //
+
+            IgnoreStatus =
+                LsapFreeClientBuffer(
+                    (PLSA_CLIENT_REQUEST)ClientRequest,
+                    Arguments->ProfileBuffer
+                    );
+            Arguments->ProfileBuffer = NULL;
+
+
+            switch ( TokenInformationType ) {
+            case LsaTokenInformationNull:
+                LsapFreeTokenInformationNull(
+                    (PLSA_TOKEN_INFORMATION_NULL)TokenInformation
+                    );
+                break;
+
+
+            case LsaTokenInformationV1:
+                LsapFreeTokenInformationV1(
+                    (PLSA_TOKEN_INFORMATION_V1)TokenInformation
+                    );
+                break;
+
+            }
+
+            goto Done;
+        }
+
+        //
+        // Save the LicenseHandle in the LogonSession so we can close the
+        //  handle on logoff.
+        //
+        LsapAuLock();
+        LogonSession = LsapGetLogonSession ( &Arguments->LogonId, FALSE );
+
+        if ( LogonSession != NULL ) {
+            LogonSession->LicenseHandle = LicenseHandle;
+        }
+        LsapAuUnlock();
+
+        //
+        // If we couldn't save the handle,
+        //  close it now.
+        //
+        if ( LogonSession == NULL ) {
+            LsaFreeLicenseHandle( LicenseHandle );
+        }
+
     }
 
 
@@ -380,7 +868,7 @@ Return Value:
         //        NetworkLogon     => ImpersonationToken
         //
 
-        if (Arguments->LogonType != Network) {
+        if (ActiveLogonType != Network) {
 
             //
             // Primary token
@@ -460,6 +948,7 @@ Return Value:
                 (PLSA_CLIENT_REQUEST)ClientRequest,
                 Arguments->ProfileBuffer
                 );
+        Arguments->ProfileBuffer = NULL;
 
         goto Done;
 
@@ -509,6 +998,7 @@ Return Value:
                 (PLSA_CLIENT_REQUEST)ClientRequest,
                 Arguments->ProfileBuffer
                 );
+        Arguments->ProfileBuffer = NULL;
 
         goto Done;
 
@@ -529,17 +1019,19 @@ Done:
     //
 
     AnsiSourceContext.Buffer = AnsiBuffer;
-    AnsiSourceContext.Length = TOKEN_SOURCE_LENGTH * sizeof( CHAR );
+    RtlCopyMemory(
+        AnsiBuffer,
+        Arguments->SourceContext.SourceName,
+        TOKEN_SOURCE_LENGTH * sizeof( CHAR )
+        );
+    AnsiBuffer[TOKEN_SOURCE_LENGTH] = '\0';
+
+    AnsiSourceContext.Length = strlen(AnsiBuffer);
     AnsiSourceContext.MaximumLength = (TOKEN_SOURCE_LENGTH + 2) * sizeof( CHAR );
 
     UnicodeSourceContext.Buffer = UnicodeBuffer;
     UnicodeSourceContext.MaximumLength = (TOKEN_SOURCE_LENGTH + 2) * sizeof( WCHAR );
 
-    RtlMoveMemory(
-        AnsiBuffer,
-        Arguments->SourceContext.SourceName,
-        TOKEN_SOURCE_LENGTH * sizeof( CHAR )
-        );
 
     XStatus = RtlAnsiStringToUnicodeString(
                  &UnicodeSourceContext,
@@ -692,24 +1184,36 @@ Done:
         }
     }
 
-    LsapAdtAuditLogon(
-        EventCategory,
-        EventID,
-        EventType,
-        AccountName,
-        AuthenticatingAuthority,
-        &UnicodeSourceContext,
-        SourceDevice,
-        &PackageNameU,
-        Arguments->LogonType,
-        UserSid,
-        AuthenticationId,
-        Status
-        );
+    LsapAdtAuditLogon( EventCategory,
+                       EventID,
+                       EventType,
+                       AccountName,
+                       AuthenticatingAuthority,
+                       &UnicodeSourceContext,
+                       SourceDevice,
+                       &PackageNameU,
+                       Arguments->LogonType,
+                       UserSid,
+                       AuthenticationId,
+                       Status,
+                       WorkstationName
+                       );
+
 
 
     if ( FreePackageName ) {
         RtlFreeUnicodeString( &PackageNameU );
+    }
+
+    //
+    // The WorkstationName is only used by the audit, free it here.
+    //
+
+    if (WorkstationName != NULL) {
+        if (WorkstationName->Buffer != NULL) {
+            LsapFreeLsaHeap( WorkstationName->Buffer );
+        }
+        LsapFreeLsaHeap( WorkstationName );
     }
 
     TmpStatus = STATUS_SUCCESS;

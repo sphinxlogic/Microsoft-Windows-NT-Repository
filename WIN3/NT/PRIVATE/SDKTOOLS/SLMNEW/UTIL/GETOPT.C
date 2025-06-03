@@ -11,9 +11,9 @@
 #define ERR(s, c)       if(opterr){\
         char errbuf[2];\
         errbuf[0] = c; errbuf[1] = '\n';\
-        (void) write(2, argv[0], (unsigned)strlen(argv[0]));\
-        (void) write(2, s, (unsigned)strlen(s));\
-        (void) write(2, errbuf, 2);}
+        (void) _write(2, argv[0], (unsigned)strlen(argv[0]));\
+        (void) _write(2, s, (unsigned)strlen(s));\
+        (void) _write(2, errbuf, 2);}
 
 
 int     opterr = 1;

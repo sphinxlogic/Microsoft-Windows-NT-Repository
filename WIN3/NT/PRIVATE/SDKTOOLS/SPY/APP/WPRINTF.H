@@ -85,3 +85,8 @@ HWND APIENTRY CreatePrintfWin (HWND,HANDLE,LPSTR,DWORD,INT,INT,INT,INT,INT);
 
 INT FAR cdecl vwprintf(HWND hWnd, LPSTR format, va_list marker);
 
+
+
+
+#define WM_VWPRINTF (WM_USER + 123)
+#define WM_WPRINTF  (WM_USER + 124)

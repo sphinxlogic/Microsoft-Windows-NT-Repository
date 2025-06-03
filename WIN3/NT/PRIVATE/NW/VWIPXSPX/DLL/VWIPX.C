@@ -645,9 +645,7 @@ _VwIPXRelinquishControl(
 
 Routine Description:
 
-    Just sleep for a nominal amount. Netware seems to be dependent on the
-    default setting of the PC clock, so one timer tick (1/18 second) would
-    seem to be a good value
+    Just sleep for a nominal amount. 
 
     This call is Synchronous
 
@@ -661,7 +659,7 @@ Return Value:
 
 --*/
 {
-    Sleep(SLEEP_TIME);
+    Sleep(0);
 }
 
 

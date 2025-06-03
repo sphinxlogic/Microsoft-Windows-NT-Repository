@@ -90,9 +90,9 @@ typedef struct {
 #ifndef LONGDOUBLE
 
 typedef struct {
-#if     defined(_M_MRX000) || defined(_MIPS_) || defined(_ALPHA_)
+#if   defined(_M_MRX000) || defined(_M_ALPHA) || defined(_M_PPC)
 	/*
-	 * No long double type for MIPS or ALPHA
+	 * No long double type for MIPS, ALPHA, or PPC
 	 */
 	double x;
 #else

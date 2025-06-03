@@ -65,7 +65,7 @@ RdrDiscardableCodeRoutine(
 //  When the reference count on the discardable code section drops to 0, a
 //  timer is set that will actually perform the work needed to uninitalize the
 //  section.  This means that if the reference count goes from 0 to 1 to 0
-//  frequently, we won't thrash inside MmLockPagableImageSection.
+//  frequently, we won't thrash inside MmLockPagableCodeSection.
 //
 
 ERESOURCE
@@ -96,7 +96,7 @@ Routine Description:
     RdrReferenceDiscardableCode is called to reference the redirectors
     discardable code section.
 
-    If the section is not present in memory, MmLockPagableImageSection is
+    If the section is not present in memory, MmLockPagableCodeSection is
     called to fault the section into memory.
 
 Arguments:
@@ -153,7 +153,7 @@ Return Value:
     //  at this time.
     //
     //  If the cancel timer fails, this is not a problem, since we will be
-    //  bumping a reference count in the MmLockPagableImageSection, so when
+    //  bumping a reference count in the MmLockPagableCodeSection, so when
     //  the timer actually runs and the call to MmUnlockPagableImageSection
     //  is called, we will simply unlock it.
     //
@@ -213,12 +213,12 @@ Return Value:
     dprintf(DPRT_DISCCODE, ("  RdrReferenceDiscardableCode: %d: Lock, Refcount now %ld\n", SectionName, Section->ReferenceCount));
 
     if (Section->CodeBase != NULL) {
-        Section->CodeHandle = MmLockPagableImageSection(Section->CodeBase);
+        Section->CodeHandle = MmLockPagableCodeSection(Section->CodeBase);
         ASSERT (Section->CodeHandle != NULL);
     }
 
     if (Section->DataBase != NULL) {
-        Section->DataHandle = MmLockPagableImageSection(Section->DataBase);
+        Section->DataHandle = MmLockPagableDataSection(Section->DataBase);
         ASSERT (Section->DataHandle != NULL);
     }
 
@@ -446,7 +446,7 @@ Return Value:
 
     KeInitializeDpc(Dpc, RdrDiscardableCodeDpcRoutine, WorkItem);
 
-    discardableCodeTimeout.QuadPart = (LONGLONG)RdrDiscardableCodeTimeout * 1000 * -10000;
+    discardableCodeTimeout.QuadPart = Int32x32To64(RdrDiscardableCodeTimeout, 1000 * -10000);
     KeSetTimer(Timer, discardableCodeTimeout, Dpc);
 
     dprintf(DPRT_DISCCODE, ("RdrDereferenceDiscardableCode: %d: Set timer, Refcount now %ld\n", SectionName, Section->ReferenceCount));
@@ -519,7 +519,7 @@ RdrUninitializeDiscardableCode(
 
                 ExReleaseResource(&RdrDiscardableCodeLock);
                 KeWaitForSingleObject(&Section->TimerDoneEvent,
-                                      KernelMode, Executive, FALSE, NULL);
+                                      Executive, KernelMode, FALSE, NULL);
                 ExAcquireResourceExclusive(&RdrDiscardableCodeLock, TRUE);
             } else {
                 FREE_POOL(Section->Timer);

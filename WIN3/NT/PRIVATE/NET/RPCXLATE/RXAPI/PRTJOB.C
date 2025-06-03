@@ -272,8 +272,8 @@ RxPrintJobGetInfo(
     }
 
     IF_DEBUG(PRTJOB) {
-        NetpDbgPrint( "RxPrintJobGetInfo: output (level " FORMAT_DWORD "):\n",
-                uLevel );
+        NetpKdPrint(( "RxPrintJobGetInfo: output (level " FORMAT_DWORD "):\n",
+                uLevel ));
         NetpDbgHexDump( (LPVOID) pbBuf, *BytesNeeded );
     }
     return (Status);
@@ -358,7 +358,7 @@ RxPrintJobSetInfo(
         DWORD FieldIndex;
         if (RapValueWouldBeTruncated(JobId)) {
             IF_DEBUG(PRTJOB) {
-                NetpDbgPrint( "RxPrintJobSetInfo: invalid (ID trunc).\n" );
+                NetpKdPrint(( "RxPrintJobSetInfo: invalid (ID trunc).\n" ));
             }
             return (ERROR_INVALID_PARAMETER);
         }
@@ -430,7 +430,7 @@ RxPrintJobSetInfo(
 
         default :
             IF_DEBUG(PRTJOB) {
-                NetpDbgPrint( "RxPrintJobSetInfo: invalid (bad parmnum).\n" );
+                NetpKdPrint(( "RxPrintJobSetInfo: invalid (bad parmnum).\n" ));
             }
             return (ERROR_INVALID_PARAMETER);
         }

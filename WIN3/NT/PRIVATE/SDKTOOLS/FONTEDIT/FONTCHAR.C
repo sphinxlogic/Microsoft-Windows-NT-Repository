@@ -503,6 +503,12 @@ FontEditCommand(
 		    fRepaint = TRUE;            /* Signal redraw */
 		    switch (id) {
 		    case WIDER_LEFT:
+#ifdef DBCS	//DBCS_FIX
+			DupCol(0, kBoxLim - 1);
+			for (y = 0; y < kBoxLim; y++)
+			    matBox[0][y] = FALSE;       /* Clear left column */
+			break;
+#endif
 		    case WIDER_BOTH:            /* Shift character one right */
 			DupCol(0, kBoxLim - 1);
 			for (y = 0; y < kBoxLim; y++)
@@ -1231,6 +1237,11 @@ DrawRubberBand(
 #if DBG
 	char	buf[256];
 #endif
+#ifdef JAPAN
+	SIZE        Size;
+	static LONG cxPrev;
+	INT         nLeftRect;
+#endif
 
 	SetROP2(hDst, rop);
 	Rectangle(hDst, lpRect->left,  lpRect->top,
@@ -1240,6 +1251,19 @@ DrawRubberBand(
 	sprintf(buf, "left=%d, top=%d, right=%d, bottom=%d", 
 		lpRect->left,  lpRect->top, lpRect->right, lpRect->bottom);
 	
+#ifdef JAPAN
+	GetTextExtentPoint32(hDst, buf, lstrlen(buf), &Size);
+	nLeftRect = ptBox.x+scale*wBox+16 + Size.cx;
+	if(nLeftRect < cxPrev) {
+		RECT rc;
+		rc.left   = nLeftRect;
+		rc.top    = 14+2*kBox+font.ExtLeading+3*cSysHeight;
+		rc.right  = cxPrev;
+		rc.bottom = 14+2*kBox+font.ExtLeading+3*cSysHeight + Size.cy;
+		    FillRect(hDst, &rc, hbrBackGround);
+	}
+	cxPrev = nLeftRect;
+#endif
 	TextOut(hDst, ptBox.x+scale*wBox+16,
 		      14+2*kBox+font.ExtLeading+3*cSysHeight,
 		      buf, strlen(buf));

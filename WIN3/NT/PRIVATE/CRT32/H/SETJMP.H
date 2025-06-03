@@ -87,21 +87,10 @@ extern "C" {
 #endif
 
 
-#ifdef	_CRUISER_
-
-#define setjmp	_setjmp
-
-#define _JBLEN	7
-#define _JBTYPE int
-
-#else	/* ndef _CRUISER_ */
-
-#ifdef	_WIN32_
-
 /*
  * Definitions specific to particular setjmp implementations.
  */
-#ifdef	_M_IX86
+#if defined(_M_IX86)
 
 /*
  * MS C8-32 or older MS C6-386 compilers
@@ -130,22 +119,14 @@ typedef struct __JUMP_BUFFER {
     unsigned long UnwindData[6];
 } _JUMP_BUFFER;
 
-#else
+#elif defined(_M_MRX000)
 
-/*
- * Assume compiler implements setjmp as a function
- */
-#define _setjmp setjmp
-
-#endif
-
-
-#ifdef _M_MRX000
 /*
  * All MIPS implementations need _JBLEN of 16
  */
 #define _JBLEN  16
 #define _JBTYPE double
+#define _setjmp setjmp
 
 /*
  * Define jump buffer layout for MIPS setjmp/longjmp.
@@ -178,14 +159,14 @@ typedef struct __JUMP_BUFFER {
     unsigned long Fir;
 } _JUMP_BUFFER;
 
-#endif
-
-#ifdef _M_ALPHA
+#elif defined(_M_ALPHA)
 
 /*
  * The Alpha C8/GEM C compiler uses an intrinsic _setjmp.
  * The Alpha acc compiler implements setjmp as a function.
  */
+
+#define _setjmp setjmp
 
 #ifdef _MSC_VER
 #ifndef _INC_SETJMPEX
@@ -202,7 +183,7 @@ typedef struct __JUMP_BUFFER {
 #define _JBLEN  24
 #define _JBTYPE double
 
-/* 
+/*
  * Define jump buffer layout for Alpha setjmp/longjmp.
  * A double is used only to obtain quadword size and alignment.
  */
@@ -232,27 +213,70 @@ typedef struct __JUMP_BUFFER {
     double Fill[5];
 } _JUMP_BUFFER;
 
+#elif defined(_M_PPC)
+
+/*
+ * Min length is 240 bytes; round to 256 bytes.
+ * Since this is allocated as an array of "double", the
+ * number of entries required is 32.
+ *
+ * All PPC implementations need _JBLEN of 32
+ */
+
+#define _JBLEN  32
+#define _JBTYPE double
+#define _setjmp setjmp
+
+/*
+ * Define jump buffer layout for PowerPC setjmp/longjmp.
+ */
+
+typedef struct __JUMP_BUFFER {
+    double Fpr14;
+    double Fpr15;
+    double Fpr16;
+    double Fpr17;
+    double Fpr18;
+    double Fpr19;
+    double Fpr20;
+    double Fpr21;
+    double Fpr22;
+    double Fpr23;
+    double Fpr24;
+    double Fpr25;
+    double Fpr26;
+    double Fpr27;
+    double Fpr28;
+    double Fpr29;
+    double Fpr30;
+    double Fpr31;
+    unsigned long Gpr1;
+    unsigned long Gpr2;
+    unsigned long Gpr13;
+    unsigned long Gpr14;
+    unsigned long Gpr15;
+    unsigned long Gpr16;
+    unsigned long Gpr17;
+    unsigned long Gpr18;
+    unsigned long Gpr19;
+    unsigned long Gpr20;
+    unsigned long Gpr21;
+    unsigned long Gpr22;
+    unsigned long Gpr23;
+    unsigned long Gpr24;
+    unsigned long Gpr25;
+    unsigned long Gpr26;
+    unsigned long Gpr27;
+    unsigned long Gpr28;
+    unsigned long Gpr29;
+    unsigned long Gpr30;
+    unsigned long Gpr31;
+    unsigned long Cr;
+    unsigned long Iar;
+    unsigned long Type;
+} _JUMP_BUFFER;
+
 #endif
-
-#else	/* ndef _WIN32_ */
-
-#ifdef	_MAC_
-
-#define setjmp	_setjmp
-
-#define _JBLEN	12	/* D2-D7, A2-A4, A6, A7, and return address */
-#define _JBTYPE int
-
-#else	/* ndef _MAC_ */
-
-#error ERROR - ONLY CRUISER, WIN32, OR MAC TARGET SUPPORTED!
-
-#endif	/* _MAC_ */
-
-#endif	/* _WIN32_ */
-
-#endif	/* _CRUISER_ */
-
 
 /* define the buffer type for holding the state information */
 

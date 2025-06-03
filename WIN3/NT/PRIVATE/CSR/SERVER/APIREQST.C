@@ -33,8 +33,126 @@ CsrUnhandledExceptionFilter(
 
 ULONG CsrpDynamicThreadTotal;
 ULONG CsrpStaticThreadCount;
-extern PQUICK_THREAD_CREATE_ROUTINE QuickThreadCreateRoutine;
 
+PCSR_THREAD CsrConnectToUser( VOID )
+{
+    static BOOLEAN (*ClientThreadSetupRoutine)(VOID) = NULL;
+    NTSTATUS Status;
+    ANSI_STRING DllName;
+    UNICODE_STRING DllName_U;
+    STRING ProcedureName;
+    HANDLE UserClientModuleHandle;
+    PTEB Teb;
+    PCSR_THREAD Thread;
+    BOOLEAN fConnected;
+
+    if (ClientThreadSetupRoutine == NULL) {
+        RtlInitAnsiString(&DllName, "user32");
+        Status = RtlAnsiStringToUnicodeString(&DllName_U, &DllName, TRUE);
+        ASSERT(NT_SUCCESS(Status));
+        Status = LdrGetDllHandle(
+                    UNICODE_NULL,
+                    NULL,
+                    &DllName_U,
+                    (PVOID *)&UserClientModuleHandle
+                    );
+
+        RtlFreeUnicodeString(&DllName_U);
+
+        if ( NT_SUCCESS(Status) ) {
+            RtlInitString(&ProcedureName,"ClientThreadSetup");
+            Status = LdrGetProcedureAddress(
+                            UserClientModuleHandle,
+                            &ProcedureName,
+                            0L,
+                            (PVOID *)&ClientThreadSetupRoutine
+                            );
+            ASSERT(NT_SUCCESS(Status));
+        }
+    }
+
+    try {
+        fConnected = ClientThreadSetupRoutine();
+    } except (EXCEPTION_EXECUTE_HANDLER) {
+        fConnected = FALSE;
+    }
+    if (!fConnected) {
+            IF_DEBUG {
+            DbgPrint("CSRSS: CsrConnectToUser failed\n");
+                }
+        return NULL;
+    }
+    
+    /*
+     * Set up CSR_THREAD pointer in the TEB
+     */
+    Teb = NtCurrentTeb();
+    Thread = CsrLocateThreadInProcess(NULL, &Teb->ClientId);
+    if (Thread)
+        Teb->CsrClientThread = Thread;
+
+    return Thread;
+}
+
+NTSTATUS
+CsrpCheckRequestThreads(VOID)
+{
+    //
+    // See if we need to create a new thread for api requests.
+    //
+    // Don't create a thread if we're in the middle of debugger
+    // initialization, which would cause the thread to be
+    // lost to the debugger.
+    //
+    // If we are not a dynamic api request thread, then decrement
+    // the static thread count. If it underflows, then create a temporary
+    // request thread
+    //
+
+    if ( !--CsrpStaticThreadCount && !CsrpServerDebugInitialize ) {
+
+        if ( CsrpDynamicThreadTotal < CsrMaxApiRequestThreads ) {
+
+            HANDLE QuickThread;
+            CLIENT_ID ClientId;
+            NTSTATUS CreateStatus;
+
+            //
+            // If we are ready to create quick threads, then create one
+            //
+
+            CreateStatus = RtlCreateUserThread(
+                                            NtCurrentProcess(),
+                                            NULL,
+                                            TRUE,
+                                            0,
+                                            0,
+                                            0,
+                                            CsrApiRequestThread,
+                                            NULL,
+                                            &QuickThread,
+                                            &ClientId
+                                        );
+
+            if ( NT_SUCCESS(CreateStatus) ) {
+                CsrpStaticThreadCount++;
+                CsrpDynamicThreadTotal++;
+                if ( CsrAddStaticServerThread(QuickThread,&ClientId,CSR_STATIC_API_THREAD) ) {
+                    NtResumeThread(QuickThread,NULL);
+                    }
+                else {
+                    CsrpStaticThreadCount--;
+                    CsrpDynamicThreadTotal--;
+                    NtTerminateThread(QuickThread,0);
+                    NtClose(QuickThread);
+                    return STATUS_UNSUCCESSFUL;
+                    }
+                }
+            }
+        }
+
+    return STATUS_SUCCESS;
+}
 NTSTATUS
 CsrApiRequestThread(
     IN PVOID Parameter
@@ -42,7 +160,6 @@ CsrApiRequestThread(
 {
     NTSTATUS Status;
     PCSR_PROCESS Process;
-    PCSR_QLPC_TEB QlpcTeb=NULL;
     PCSR_THREAD Thread;
     PCSR_THREAD MyThread;
     CSR_API_MSG ReceiveMsg;
@@ -69,7 +186,7 @@ CsrApiRequestThread(
 
     Teb->GdiClientPID = PID_SERVERLPC;
     Teb->GdiClientTID = (ULONG) Teb->ClientId.UniqueThread;
-    
+
     //
     // Try to connect to USER.
     //
@@ -79,19 +196,22 @@ CsrApiRequestThread(
 
         //
         // The connect failed.  The best thing to do is sleep for
-        // 30 seconds and retry the connect.
+        // 30 seconds and retry the connect.  Clear the
+        // initialized bit in the TEB so the retry can
+        // succeed.
         //
 
-        TimeOut = RtlEnlargedIntegerMultiply(30000, -10000);
+        Teb->Win32ClientInfo[0] = 0;
+        TimeOut.QuadPart = Int32x32To64(30000, -10000);
         NtDelayExecution(FALSE, &TimeOut);
-    }    
-    QlpcTeb = (PCSR_QLPC_TEB)NtCurrentTeb()->CsrQlpcTeb;
-    MyThread = QlpcTeb->ClientThread;
+    }
+    MyThread = Teb->CsrClientThread;
 
     if ( Parameter ) {
         Status = NtSetEvent((HANDLE)Parameter,NULL);
         ASSERT( NT_SUCCESS( Status ) );
         CsrpStaticThreadCount++;
+        CsrpDynamicThreadTotal++;
         }
 
     while (TRUE) {
@@ -207,15 +327,25 @@ CsrApiRequestThread(
 
                     m = (PHARDERROR_MSG)&ReceiveMsg;
                     m->Response = (ULONG)ResponseNotHandled;
-                    for (i=0; i<CSR_MAX_SERVER_DLL; i++) {
-                        LoadedServerDll = CsrLoadedServerDll[ i ];
-                        if (LoadedServerDll && LoadedServerDll->HardErrorRoutine) {
 
-                            (*LoadedServerDll->HardErrorRoutine)( Thread,
-                                                                  m );
-                            if (m->Response != (ULONG)ResponseNotHandled)
-                                break;
+                    //
+                    // Only call the handler if there are other
+                    // request threads available to handle
+                    // message processing.
+                    //
+
+                    if (NT_SUCCESS(CsrpCheckRequestThreads())) {
+                        for (i=0; i<CSR_MAX_SERVER_DLL; i++) {
+                            LoadedServerDll = CsrLoadedServerDll[ i ];
+                            if (LoadedServerDll && LoadedServerDll->HardErrorRoutine) {
+
+                                (*LoadedServerDll->HardErrorRoutine)( Thread,
+                                                                    m );
+                                if (m->Response != (ULONG)ResponseNotHandled)
+                                    break;
+                                }
                             }
+                        ++CsrpStaticThreadCount;
                         }
 
                     if (m->Response == (ULONG)-1) {
@@ -238,6 +368,78 @@ CsrApiRequestThread(
                     if ( MessageType == LPC_REQUEST ) {
                         ReplyMsg = &ReceiveMsg;
                         ReplyMsg->ReturnValue = (ULONG)STATUS_ILLEGAL_FUNCTION;
+                        }
+                    else if (MessageType == LPC_DATAGRAM) {
+                        //
+                        // If this is a datagram, make the api call
+                        //
+
+                        ApiNumber = ReceiveMsg.ApiNumber;
+                        ServerDllIndex =
+                            CSR_APINUMBER_TO_SERVERDLLINDEX( ApiNumber );
+                        if (ServerDllIndex >= CSR_MAX_SERVER_DLL ||
+                            (LoadedServerDll = CsrLoadedServerDll[ ServerDllIndex ]) == NULL
+                        ) {
+                            IF_DEBUG {
+                                DbgPrint( "CSRSS: %lx is invalid ServerDllIndex (%08x)\n",
+                                        ServerDllIndex, LoadedServerDll
+                                        );
+                                DbgBreakPoint();
+                                }
+
+                            ReplyPortHandle = CsrApiPort;
+                            ReplyMsg = NULL;
+                            continue;
+                            }
+                        else {
+                            ApiTableIndex =
+                                CSR_APINUMBER_TO_APITABLEINDEX( ApiNumber ) -
+                                LoadedServerDll->ApiNumberBase;
+                            if (ApiTableIndex >= LoadedServerDll->MaxApiNumber ) {
+                                IF_DEBUG {
+                                    DbgPrint( "CSRSS: %lx is invalid ApiTableIndex for %Z\n",
+                                            LoadedServerDll->ApiNumberBase + ApiTableIndex,
+                                            &LoadedServerDll->ModuleName
+                                            );
+                                    }
+
+                                ReplyPortHandle = CsrApiPort;
+                                ReplyMsg = NULL;
+                                continue;
+                                }
+                            }
+
+#if DBG
+                        IF_CSR_DEBUG( LPC ) {
+                            DbgPrint( "[%02x] CSRSS: [%02x,%02x] - %s Api called from %08x\n",
+                                    NtCurrentTeb()->ClientId.UniqueThread,
+                                    ReceiveMsg.h.ClientId.UniqueProcess,
+                                    ReceiveMsg.h.ClientId.UniqueThread,
+                                    LoadedServerDll->ApiNameTable[ ApiTableIndex ],
+                                    Thread
+                                    );
+                            }
+#endif // DBG
+
+                        ReceiveMsg.ReturnValue = (ULONG)STATUS_SUCCESS;
+
+                        try {
+
+                            CsrpCheckRequestThreads();
+
+                            ReplyPortHandle = CsrApiPort;
+                            ReplyMsg = NULL;
+
+                            (*(LoadedServerDll->ApiDispatchTable[ ApiTableIndex ]))(
+                                    &ReceiveMsg,
+                                    &ReplyStatus
+                                    );
+                            ++CsrpStaticThreadCount;
+                            }
+                        except ( CsrUnhandledExceptionFilter( GetExceptionInformation() ) ){
+                            ReplyPortHandle = CsrApiPort;
+                            ReplyMsg = NULL;
+                            }
                         }
                     else {
                         ReplyMsg = NULL;
@@ -265,7 +467,7 @@ CsrApiRequestThread(
             if (MessageType == LPC_CLIENT_DIED) {
 
                 CdMsg = (PLPC_CLIENT_DIED_MSG)&ReceiveMsg;
-                if ( RtlLargeIntegerEqualTo(CdMsg->CreateTime,Thread->CreateTime) ) {
+                if (CdMsg->CreateTime.QuadPart == Thread->CreateTime.QuadPart) {
                     ReplyPortHandle = Thread->Process->ClientPort;
 
                     CsrLockedReferenceThread(Thread);
@@ -317,16 +519,26 @@ CsrApiRequestThread(
 
                 m = (PHARDERROR_MSG)&ReceiveMsg;
                 m->Response = (ULONG)ResponseNotHandled;
-                for (i=0; i<CSR_MAX_SERVER_DLL; i++) {
-                    LoadedServerDll = CsrLoadedServerDll[ i ];
-                    if (LoadedServerDll && LoadedServerDll->HardErrorRoutine) {
 
-                        (*LoadedServerDll->HardErrorRoutine)( Thread,
-                                                              m );
-                        if (m->Response != (ULONG)ResponseNotHandled) {
-                            break;
+                //
+                // Only call the handler if there are other
+                // request threads available to handle
+                // message processing.
+                //
+
+                if (NT_SUCCESS(CsrpCheckRequestThreads())) {
+                    for (i=0; i<CSR_MAX_SERVER_DLL; i++) {
+                        LoadedServerDll = CsrLoadedServerDll[ i ];
+                        if (LoadedServerDll && LoadedServerDll->HardErrorRoutine) {
+
+                            (*LoadedServerDll->HardErrorRoutine)( Thread,
+                                                                m );
+                            if (m->Response != (ULONG)ResponseNotHandled) {
+                                break;
+                                }
                             }
                         }
+                    ++CsrpStaticThreadCount;
                     }
 
                 if (m->Response == (ULONG)-1) {
@@ -384,6 +596,7 @@ CsrApiRequestThread(
                               LoadedServerDll->ApiNumberBase + ApiTableIndex,
                               &LoadedServerDll->ModuleName
                             );
+		            DbgBreakPoint();
                     }
 
                 ReplyMsg = &ReceiveMsg;
@@ -417,55 +630,9 @@ CsrApiRequestThread(
 
         try {
 
-            //
-            // See if we need to create a new thread for api requests.
-            // If we are not a dynamic api request thread, then decrement
-            // the static thread count. If it underflows, then create a temporary
-            // request thread
-            //
+            CsrpCheckRequestThreads();
 
-            if ( !--CsrpStaticThreadCount ) {
-
-                if ( CsrpDynamicThreadTotal < CsrMaxApiRequestThreads ) {
-
-                    HANDLE QuickThread;
-                    CLIENT_ID ClientId;
-                    NTSTATUS CreateStatus;
-
-                    //
-                    // If we are ready to create quick threads, then create one
-                    //
-
-                    CreateStatus = RtlCreateUserThread(
-                                                  NtCurrentProcess(),
-                                                  NULL,
-                                                  TRUE,
-                                                  0,
-                                                  0,
-                                                  0,
-                                                  CsrApiRequestThread,
-                                                  NULL,
-                                                  &QuickThread,
-                                                  &ClientId
-                                                );
-
-                    if ( NT_SUCCESS(CreateStatus) ) {
-                        CsrpStaticThreadCount++;
-                        CsrpDynamicThreadTotal++;
-                        if ( CsrAddStaticServerThread(QuickThread,&ClientId,CSR_STATIC_API_THREAD) ) {
-                            NtResumeThread(QuickThread,NULL);
-                            }
-                        else {
-                            CsrpStaticThreadCount--;
-                            CsrpDynamicThreadTotal--;
-                            NtTerminateThread(QuickThread,0);
-                            NtClose(QuickThread);
-                            }
-                        }
-                    }
-                }
-
-            QlpcTeb->ClientThread = (PVOID)Thread;
+            Teb->CsrClientThread = (PVOID)Thread;
 
             ReplyMsg = &ReceiveMsg;
             ReplyPortHandle = Thread->Process->ClientPort;
@@ -478,7 +645,7 @@ CsrApiRequestThread(
                     );
             ++CsrpStaticThreadCount;
 
-            QlpcTeb->ClientThread = (PVOID)MyThread;
+            Teb->CsrClientThread = (PVOID)MyThread;
 
             if (ReplyStatus == CsrReplyImmediate) {
                 //
@@ -651,7 +818,7 @@ CsrCaptureArguments(
         return( FALSE );
         }
 
-    ServerCaptureBuffer = RtlAllocateHeap( CsrHeap, 0, Length );
+    ServerCaptureBuffer = RtlAllocateHeap( CsrHeap, MAKE_TAG( CAPTURE_TAG ), Length );
     if (ServerCaptureBuffer == NULL) {
         m->ReturnValue = (ULONG)STATUS_NO_MEMORY;
         return( FALSE );
@@ -848,17 +1015,6 @@ CsrApiHandleConnectionRequest(
                 ConnectionInformation->DebugFlags = CsrDebug;
 #endif
                 AcceptConnection = TRUE;
-                    }
-            else {
-                NtDuplicateObject( Process->ProcessHandle,
-                                   &ConnectionInformation->ObjectDirectory,
-                                   NULL,
-                                   NULL,
-                                   0,
-                                   0,
-                                   DUPLICATE_CLOSE_SOURCE
-                                 );
-
                 }
             }
         }

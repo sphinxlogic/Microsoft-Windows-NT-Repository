@@ -327,9 +327,18 @@ typedef DIRENT *PDIRENT;
 //          );
 //
 
+//
+// for prior to MS-DOS Version 3.2
+//
+// After DOS 4.0, at least one of these, Sectors or LargeSectors, will be zero.
+// but DOS version 3.2 case, both of these value might contains some value,
+// because, before 3.2, we don't have Large Sector entry, some disk might have
+// unexpected value in the field, we will use LargeSectors if Sectors eqaul to zero.
+//
+
 #define FatNumberOfClusters(B) (                                         \
                                                                          \
-    (((B)->Sectors + (B)->LargeSectors                                   \
+    ((((B)->Sectors ? (B)->Sectors : (B)->LargeSectors)                  \
                                                                          \
         -   ((B)->ReservedSectors +                                      \
              (B)->Fats * (B)->SectorsPerFat +                            \
@@ -339,7 +348,6 @@ typedef DIRENT *PDIRENT;
                                                                          \
                         (B)->SectorsPerCluster)                          \
 )
-
 
 //
 //  This macro returns the fat table bit size (i.e., 12 or 16 bits)
@@ -448,9 +456,8 @@ typedef DIRENT *PDIRENT;
 //  The following macro compares two FAT_TIME_STAMPs
 //
 
-#define FatAreTimesEqual(TIME1,TIME2) ((BOOLEAN)                  \
-    (RtlCompareMemory((TIME1),(TIME2), sizeof(FAT_TIME_STAMP)) == \
-     sizeof(FAT_TIME_STAMP))                                      \
+#define FatAreTimesEqual(TIME1,TIME2) (                     \
+    RtlEqualMemory((TIME1),(TIME2), sizeof(FAT_TIME_STAMP)) \
 )
 
 

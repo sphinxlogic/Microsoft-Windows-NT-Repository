@@ -21,10 +21,21 @@ Revision History:
 
 #include    "cmp.h"
 
+//
+// Prototypes local to this module
+//
+NTSTATUS
+CmpOpenFileWithExtremePrejudice(
+    OUT PHANDLE Primary,
+    IN POBJECT_ATTRIBUTES Obja,
+    IN ULONG IoFlags
+    );
+
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE,CmpOpenHiveFiles)
 #pragma alloc_text(PAGE,CmpInitializeHive)
 #pragma alloc_text(PAGE,CmpDestroyHive)
+#pragma alloc_text(PAGE,CmpOpenFileWithExtremePrejudice)
 #endif
 
 extern PCMHIVE CmpMasterHive;
@@ -110,6 +121,7 @@ Return Value:
     PVOID               WorkBuffer;
     USHORT              NameSize;
     ULONG               IoFlags;
+    USHORT              CompressionState;
 
     //
     // Allocate a buffer big enough to hold the full name
@@ -160,10 +172,24 @@ Return Value:
                 FILE_ATTRIBUTE_NORMAL,
                 0,                                  // share nothing
                 CreateDisposition,
-                FILE_SYNCHRONOUS_IO_NONALERT | FILE_NO_INTERMEDIATE_BUFFERING,
+                FILE_SYNCHRONOUS_IO_NONALERT | FILE_NO_INTERMEDIATE_BUFFERING | FILE_NO_COMPRESSION,
                 NULL,                               // eabuffer
                 0                                   // ealength
                 );
+    if (status == STATUS_ACCESS_DENIED) {
+
+        //
+        // This means some foolish person has put a read-only attribute
+        // on one of the critical system hive files. Remove it so they
+        // don't hurt themselves.
+        //
+
+        status = CmpOpenFileWithExtremePrejudice(Primary,
+                                                 &ObjectAttributes,
+                                                 FILE_SYNCHRONOUS_IO_NONALERT
+                                                 | FILE_NO_INTERMEDIATE_BUFFERING
+                                                 | FILE_NO_COMPRESSION);
+    }
 
     if ((MarkAsSystemHive) &&
         (NT_SUCCESS(status))) {
@@ -205,6 +231,27 @@ Return Value:
         }
         return status;
     }
+
+    //
+    // Make sure the file is uncompressed in order to prevent the filesystem
+    // from failing our updates due to disk full conditions.
+    //
+    // Do not fail to open the file if this fails, we don't want to prevent
+    // people from booting just because their disk is full. Although they
+    // will not be able to update their registry, they will at lease be
+    // able to delete some files.
+    //
+    CompressionState = 0;
+    ZwFsControlFile(*Primary,
+                    NULL,
+                    NULL,
+                    NULL,
+                    &FsctlIoStatus,
+                    FSCTL_SET_COMPRESSION,
+                    &CompressionState,
+                    sizeof(CompressionState),
+                    NULL,
+                    0);
 
     *PrimaryDisposition = IoStatus.Information;
 
@@ -260,8 +307,8 @@ Return Value:
         );
 
 
-    IoFlags = FILE_SYNCHRONOUS_IO_NONALERT;
-    if (wcsnicmp(Extension, L".log", 4) != 0) {
+    IoFlags = FILE_SYNCHRONOUS_IO_NONALERT | FILE_NO_COMPRESSION;
+    if (_wcsnicmp(Extension, L".log", 4) != 0) {
         IoFlags |= FILE_NO_INTERMEDIATE_BUFFERING;
     }
 
@@ -278,6 +325,19 @@ Return Value:
                 NULL,                               // eabuffer
                 0                                   // ealength
                 );
+
+    if (status == STATUS_ACCESS_DENIED) {
+
+        //
+        // This means some foolish person has put a read-only attribute
+        // on one of the critical system hive files. Remove it so they
+        // don't hurt themselves.
+        //
+
+        status = CmpOpenFileWithExtremePrejudice(Secondary,
+                                                 &ObjectAttributes,
+                                                 IoFlags);
+    }
 
     if ((MarkAsSystemHive) &&
         (NT_SUCCESS(status))) {
@@ -319,6 +379,27 @@ Return Value:
     }
 
     *SecondaryDisposition = IoStatus.Information;
+
+    //
+    // Make sure the file is uncompressed in order to prevent the filesystem
+    // from failing our updates due to disk full conditions.
+    //
+    // Do not fail to open the file if this fails, we don't want to prevent
+    // people from booting just because their disk is full. Although they
+    // will not be able to update their registry, they will at lease be
+    // able to delete some files.
+    //
+    CompressionState = 0;
+    ZwFsControlFile(*Secondary,
+                    NULL,
+                    NULL,
+                    NULL,
+                    &FsctlIoStatus,
+                    FSCTL_SET_COMPRESSION,
+                    &CompressionState,
+                    sizeof(CompressionState),
+                    NULL,
+                    0);
 
     if (WorkBuffer != NULL) {
         ExFreePool(WorkBuffer);
@@ -509,7 +590,7 @@ Return Value:
 }
 
 
-VOID
+BOOLEAN
 CmpDestroyHive(
     IN PHHIVE Hive,
     IN HCELL_INDEX Cell
@@ -529,7 +610,8 @@ Arguments:
 
 Return Value:
 
-    None.
+    TRUE if successful
+    FALSE if some failure occurred
 
 --*/
 
@@ -549,12 +631,106 @@ Return Value:
     //
     ASSERT(FIELD_OFFSET(CMHIVE, Hive) == 0);
     Status = CmpFreeKeyByCell((PHHIVE)CmpMasterHive, LinkCell, TRUE);
-    ASSERT(NT_SUCCESS(Status));
+
+    if (NT_SUCCESS(Status)) {
+        //
+        // Take the hive out of the hive list
+        //
+        RemoveEntryList(&( ((PCMHIVE)Hive)->HiveList));
+        return(TRUE);
+    } else {
+        return(FALSE);
+    }
+}
+
+
+NTSTATUS
+CmpOpenFileWithExtremePrejudice(
+    OUT PHANDLE Primary,
+    IN POBJECT_ATTRIBUTES Obja,
+    IN ULONG IoFlags
+    )
+
+/*++
+
+Routine Description:
+
+    This routine opens a hive file that some foolish person has put a
+    read-only attribute on. It is used to prevent people from hurting
+    themselves by making the critical system hive files read-only.
+
+Arguments:
+
+    Primary - Returns handle to file
+
+    Obja - Supplies Object Attributes of file.
+
+    IoFlags - Supplies flags to pass to ZwCreateFile
+
+Return Value:
+
+    NTSTATUS
+
+--*/
+
+{
+    NTSTATUS Status;
+    HANDLE Handle;
+    IO_STATUS_BLOCK IoStatusBlock;
+    FILE_BASIC_INFORMATION FileInfo;
 
     //
-    // Take the hive out of the hive list
+    // Get the current file attributes
     //
-    RemoveEntryList(&( ((PCMHIVE)Hive)->HiveList));
+    Status = ZwQueryAttributesFile(Obja, &FileInfo);
+    if (!NT_SUCCESS(Status)) {
+        return(Status);
+    }
 
-    return;
+    //
+    // Clear the readonly bit.
+    //
+    FileInfo.FileAttributes &= ~FILE_ATTRIBUTE_READONLY;
+
+    //
+    // Open the file
+    //
+    Status = ZwOpenFile(&Handle,
+                        FILE_WRITE_ATTRIBUTES | SYNCHRONIZE,
+                        Obja,
+                        &IoStatusBlock,
+                        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                        FILE_SYNCHRONOUS_IO_NONALERT | FILE_OPEN_FOR_BACKUP_INTENT);
+    if (!NT_SUCCESS(Status)) {
+        return(Status);
+    }
+
+    //
+    // Set the new attributes
+    //
+    Status = ZwSetInformationFile(Handle,
+                                  &IoStatusBlock,
+                                  &FileInfo,
+                                  sizeof(FileInfo),
+                                  FileBasicInformation);
+    ZwClose(Handle);
+    if (NT_SUCCESS(Status)) {
+        //
+        // Reopen the file with the access that we really need.
+        //
+        Status = ZwCreateFile(Primary,
+                              FILE_READ_DATA | FILE_WRITE_DATA | SYNCHRONIZE,
+                              Obja,
+                              &IoStatusBlock,
+                              NULL,
+                              FILE_ATTRIBUTE_NORMAL,
+                              0,
+                              FILE_OPEN,
+                              IoFlags,
+                              NULL,
+                              0);
+    }
+
+    return(Status);
+
 }

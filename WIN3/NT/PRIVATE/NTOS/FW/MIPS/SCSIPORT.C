@@ -1750,7 +1750,7 @@ Return Value:
     //
     // Issue inquiry command to each target id to find devices.
     //
-    // BUGBUG: Does not handle multiple logical units per target id.
+    // NOTE: Does not handle multiple logical units per target id.
     //
 
     for (target = 8; target > 0; target--) {
@@ -2616,7 +2616,6 @@ Return Value:
     //
 
     //
-    // BUGBUG:  Fix this hack.
     // Set a speical flags to indicate the logical unit queue should be by
     // passed and that no queue processing should be done when the request
     // completes.
@@ -2746,7 +2745,7 @@ Return Value:
     logicalUnit = deviceExtension->LogicalUnitList;
 
     //
-    // BUGBUG: The use of Current request needs to be synchronized with the
+    // NOTE: The use of Current request needs to be synchronized with the
     // clearing of current request.
     //
 

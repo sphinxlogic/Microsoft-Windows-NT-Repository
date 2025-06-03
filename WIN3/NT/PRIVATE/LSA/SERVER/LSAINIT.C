@@ -61,6 +61,17 @@ SAMPR_HANDLE LsapBuiltinDomainHandle;
 
 
 
+
+/////////////////////////////////////////////////////////////////////////
+//                                                                     //
+//      Module-Wide variables                                          //
+//                                                                     //
+/////////////////////////////////////////////////////////////////////////
+
+BOOLEAN
+    LsapHealthCheckingEnabled = FALSE;
+
+
 
 
 /////////////////////////////////////////////////////////////////////////
@@ -303,6 +314,12 @@ Return Value:
             Status = STATUS_SUCCESS;
         }
     }
+
+    //
+    // Enable health checking within lsa
+    //
+
+    LsaIHealthCheck( LsaIHealthLsaInitialized );
 
 InitLsaFinish:
 
@@ -660,7 +677,8 @@ Return Value:
         // See if SAM has signalled that he is initialized.
         //
 
-        Timeout = RtlEnlargedIntegerMultiply( 1000, -10000000 ); // 1000 seconds
+        Timeout.QuadPart = -10000000; // 1000 seconds
+        Timeout.QuadPart *= 1000;
         Status = NtWaitForSingleObject( EventHandle, FALSE, &Timeout );
         IgnoreStatus = NtClose( EventHandle );
         ASSERT(NT_SUCCESS(IgnoreStatus));
@@ -742,3 +760,84 @@ Return Value:
 
 
 
+
+VOID
+LsaIHealthCheck(
+    IN  ULONG CallerId
+    )
+
+/*++
+
+Routine Description:
+
+    This function is used to perform sanity checks within LSA.
+    It is here to aid in diagnosing and isolating problems within
+    LSA.
+
+Arguments:
+
+    CallerId - Identifies the caller (look in \nt\private\inc\lsaisrv.h).
+
+
+Return Values:
+
+    None.
+
+--*/
+
+{
+
+    LSAP_DB_HANDLE InternalHandle;
+
+    ////////////////////////////////////////////////////////////////////
+    //                                                                //
+    // Conditions being addressed:                                    //
+    //                                                                //
+    //                                                                //
+    // Bug 24194 is one in which someone is writting the string       //
+    //    "Domains\Account\Users\000001F4" on top of the              //
+    //    LsapPolicyHandle data structure.  In a retail system, we    //
+    //    can't really do anything. In a debug system we will         //
+    //    breakpoint when we encounter this situation.                //
+    //                                                                //
+    ////////////////////////////////////////////////////////////////////
+
+
+    //
+    // LSA Initialization
+    //
+
+    if (CallerId == LsaIHealthLsaInitialized) {
+        LsapHealthCheckingEnabled = TRUE;
+        return;
+    }
+
+
+
+
+
+
+    if (!LsapHealthCheckingEnabled) {
+        return;
+    }
+
+    //
+    // Bug 24194
+    //
+
+#if DBG
+    if ( (CallerId == LsaIHealthSamJustLocked) ||
+         (CallerId == LsaIHealthSamAboutToFree)    ){
+        InternalHandle = (LSAP_DB_HANDLE)LsapPolicyHandle;
+        if (InternalHandle->Next->Previous != InternalHandle) {
+            DbgPrint( "LSA Internal Failure:  (*LsapPolicyHandle) overwritten.\n"
+                      "                       Breaking for debug.\n");
+            DbgBreakPoint();
+        }
+    }
+#endif DBG
+
+
+    return;
+
+}

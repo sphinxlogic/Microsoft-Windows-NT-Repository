@@ -50,6 +50,7 @@ Return Value:
 --*/
 
 {
+
     NTSTATUS Status;
     OBJECT_ATTRIBUTES ObjectAttributes;
     HANDLE KeyHandle;
@@ -65,6 +66,17 @@ Return Value:
     BOOLEAN Result;
 
     RTL_PAGED_CODE();
+
+    //
+    // if we are in gui setup mode, product type is read from the registry since
+    // gui setup mode is the only time product type can be changed.
+    // All other times, the "captured at boot" version of product type is used
+    //
+
+    if ( USER_SHARED_DATA->ProductTypeIsValid ) {
+        *NtProductType = USER_SHARED_DATA->NtProductType;
+        return TRUE;
+        }
 
     //
     // Prepare default value for failure case
@@ -157,4 +169,16 @@ Return Value:
     //
 
     return(Result);
+
+
+
+
+
+
+
+
+
+
+
+
 }

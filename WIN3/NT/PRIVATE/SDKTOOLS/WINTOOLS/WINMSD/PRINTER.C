@@ -37,8 +37,7 @@ Environment:
 // Global Vars
 //
 
-BOOL bPrint;
-HWND hdlgCancel;
+BOOL bAbortReport;
 int  CharWidth, CharHt;
 UINT MaxLines;
 UINT LineNumber;
@@ -55,7 +54,7 @@ PrintReportToPrinter(
 
 Routine Description:
 
-    PrintReportToPrinter sets up print abort dialog and calls PrintReport.
+    PrintReportToPrinter sets up print and calls PrintReport.
 
 Arguments:
 
@@ -74,50 +73,10 @@ Return Value:
     BOOL Success;
 
     //
-    // Set the printing flag to TRUE.  Abort will set this to false.
-    //
-
-    bPrint = TRUE;
-
-    //
-    // Register the application's AbortProc
-    // function with GDI.
-    //
-
-    SetAbortProc( PrinterDC, AbortProc);
-
-    //
-    // Display the modeless Cancel dialog box.
-    //
-
-    hdlgCancel = CreateDialog( _hModule,
-                      (LPTSTR) L"AbortDlg",
-                               hWnd,
-                     (DLGPROC) AbortPrintJob );
-
-    //
-    // Disable the application's window.
-    //
-
-    EnableWindow( hWnd, FALSE );
-
-    //
     // Print the report.
     //
 
     Success = PrintReport( hWnd, PrinterDC, lpReportHead );
-
-    //
-    // Enable the application's window.
-    //
-
-    EnableWindow( hWnd, TRUE );
-
-    //
-    // Remove the AbortPrintJob dialog box.
-    //
-
-    DestroyWindow( hdlgCancel );
 
     //
     // Delete the printer DC.
@@ -128,113 +87,6 @@ Return Value:
     return Success;
 }
 
-
-BOOL
-CALLBACK
-AbortProc(
-    IN HDC hdc,
-    IN int nCode
-    )
-
-/*++
-
-Routine Description:
-
-    Message pump for the abort dialog.
-
-Arguments:
-
-
-
-Return Value:
-
-    BOOL - Depending on input message and processing options.
-
---*/
-
-{
-    MSG msg;
-
-    //
-    // Retrieve and remove messages from the thread's message queue.
-    //
-
-    while ( PeekMessage( (LPMSG) &msg, (HWND) NULL, 0, 0, PM_REMOVE ) ) {
-
-        //
-        // Process any messages for the Cancel dialog box.
-        //
-
-        if ( !IsDialogMessage( hdlgCancel, (LPMSG) &msg ) ) {
-            TranslateMessage( (LPMSG) &msg );
-            DispatchMessage( (LPMSG) &msg );
-
-         }
-    }
-
-    //
-    // Return the global bPrint flag (which is set to FALSE
-    // if the user presses the Cancel button).
-    //
-
-     return bPrint;
-}
-
-
-LRESULT
-CALLBACK
-AbortPrintJob(
-        HWND hwndDlg,
-        UINT message,
-        WPARAM wParam,
-        LPARAM lParam
-            )
-
-/*++
-
-Routine Description:
-
-    AbortPrintJob - handles the Abort Printing dialog.
-
-Arguments:
-
-    Standard dialog entry
-
-Return Value:
-
-    BOOL - Depending on input message and processing options.
-
---*/
-
-{
-
-    switch (message) {
-        case WM_INITDIALOG:
-
-            //
-            // Initialize the static text control.
-            //
-
-            SetDlgItemText( hwndDlg, IDD_FILE, GetString( IDS_DOC_TITLE ) );
-
-            return TRUE;
-
-        case WM_COMMAND:
-
-            //
-            // User pressed "Cancel" button--stop print job.
-            //
-
-            bPrint = FALSE;
-
-            return TRUE;
-
-        default:
-            return FALSE;
-
-    }
-
-}
 
 
 BOOL
@@ -264,18 +116,6 @@ Return Value:
     BOOL Success;
 
     //
-    // Enable the application's window.
-    //
-
-    EnableWindow( hWnd, TRUE );
-
-    //
-    // Remove the AbortPrintJob dialog box.
-    //
-
-    DestroyWindow( hdlgCancel );
-
-    //
     // Delete the printer DC.
     //
 
@@ -287,7 +127,7 @@ Return Value:
     // Display error
     //
 
-    MessageBox( hWnd, lpMsg, NULL, MB_OK );
+    MessageBox( hWnd, lpMsg, GetString(IDS_APPLICATION_FULLNAME), MB_OK );
 
     return FALSE;
 }
@@ -337,8 +177,19 @@ Return Value:
 
     if ( PrtDlg.hDC == NULL ){
 
-        MessageBox( hWnd, L"Can not find default printer", L"Print Error", MB_OK );
+    	TCHAR	Buffer[200];
+
+    	LoadStringW(
+                NULL,
+                IDS_NO_DEFUALT_PRINTER,
+                Buffer,
+                sizeof( Buffer )
+                );
+
+        MessageBox( hWnd, Buffer, GetString( IDS_PRINT_ERROR ), MB_OK | MB_ICONEXCLAMATION);
+
         return FALSE;
+
     } else {
 
         *PrinterDC = PrtDlg.hDC;
@@ -396,6 +247,8 @@ Return Value:
     DocInfo.cbSize = sizeof(DOCINFO);
     DocInfo.lpszDocName = GetString( IDS_DOC_TITLE );
     DocInfo.lpszOutput = (LPTSTR) NULL;
+    DocInfo.lpszDatatype = NULL;
+    DocInfo.fwType = 0;
 
     //
     // Begin a print job by calling the StartDoc function.
@@ -472,7 +325,7 @@ Return Value:
     // Output the report lines to file or printer.
     //
 
-    Success = OutputReportLines( hWnd, PrinterDC, IDM_FILE_PRINT, lpReportHead );
+    Success = OutputReportLines( hWnd, PrinterDC, IDC_SEND_TO_PRINTER, lpReportHead );
 
     //
     // Determine whether the user has pressed the Cancel button in the AbortPrintJob
@@ -480,27 +333,36 @@ Return Value:
     // the spooler that the page is complete.
     //
 
-    nError = EndPage( PrinterDC );
+    if (bAbortReport) {
 
-    if (nError <= 0) {
+       AbortDoc( PrinterDC );
+       return(FALSE);     // cancel print job
 
-        PrinterError( hWnd, PrinterDC, (LPTSTR) GetString( IDS_END_PAGE ) );
+    } else {
 
-        return FALSE;
+       nError = EndPage( PrinterDC );
+
+       if (nError <= 0) {
+
+           PrinterError( hWnd, PrinterDC, (LPTSTR) GetString( IDS_END_PAGE ) );
+
+           return FALSE;
+       }
+
+       //
+       // Inform the driver that the document has ended.
+       //
+
+       nError = EndDoc( PrinterDC );
+
+       if (nError <= 0) {
+
+           PrinterError( hWnd, PrinterDC, (LPTSTR) GetString( IDS_END_DOC ) );
+
+           return FALSE;
+       }
     }
-
-    //
-    // Inform the driver that the document has ended.
-    //
-
-    nError = EndDoc( PrinterDC );
-
-    if (nError <= 0) {
-
-        PrinterError( hWnd, PrinterDC, (LPTSTR) GetString( IDS_END_DOC ) );
-
-        return FALSE;
-    }
+    return(TRUE);
 }
 
 
@@ -568,26 +430,22 @@ Return Value:
     iLen = lstrlen( LineBuffer );
 
     //
-    // Make sure there is data to write.
+    // If we have data, print the line.
     //
 
-    if ( iLen < 1 ) {
+    if ( iLen ) {
 
-        DbgAssert( FALSE );
+       //
+       // Print the line.
+       //
 
-        return FALSE;
+       TextOut( PrinterDC,
+                xLeft,
+                yTop * LineNumber++,
+                LineBuffer,
+                iLen
+               );
     }
-
-    //
-    // Print the line.
-    //
-
-    TextOut( PrinterDC,
-             xLeft,
-             yTop * LineNumber++,
-             LineBuffer,
-             iLen
-            );
 
     //
     // See if we're at the end of a page
@@ -653,6 +511,7 @@ Return Value:
 
     return TRUE;
 }
+
 
 
 

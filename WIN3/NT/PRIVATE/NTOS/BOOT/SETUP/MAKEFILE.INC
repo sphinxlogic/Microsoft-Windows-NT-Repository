@@ -2,6 +2,7 @@
 LANGUAGE=usa
 !ENDIF
 
+
 msgs.rc msgs.h msg00001.bin: msgs.$(LANGUAGE)
     mc -v msgs.$(LANGUAGE)
 
@@ -12,7 +13,7 @@ SETUPLDR=obj\i386\setupldr.lib ..\obj\i386\boot.lib obj\i386\sldr.exp
 obj\i386\setupldr.res: msgs.$(LANGUAGE)
 
 obj\i386\setupldr.exe: $(SETUPLDR) makefile.inc ilinkldr.rsp
-        -link -out:obj\i386\setupldr.exe @ilinkldr.rsp
+        -link -out:obj\i386\setupldr.exe $(LINK_LIB_IGNORE_FLAG) @ilinkldr.rsp
 
 obj\i386\sldr.exp: i386\setupldr.def
     lib -machine:i386 -out:obj\i386\sldr.lib -def:i386\setupldr.def ..\obj\i386\boot.lib
@@ -57,9 +58,6 @@ SETUPLDR=obj\$(TARGET_DIRECTORY)\setupldr.lib ..\obj\$(TARGET_DIRECTORY)\boot.li
 obj\$(TARGET_DIRECTORY)\setupldr.res: msgs.$(LANGUAGE)
 
 obj\$(TARGET_DIRECTORY)\setupldr: $(SETUPLDR) makefile.inc
-        -link -out:obj\$(TARGET_DIRECTORY)\setupldr @$(TARGET_DIRECTORY)ldr.rsp
-!IFDEF _NT$(TARGET_DIRECTORY)TREE
+        -link -out:obj\$(TARGET_DIRECTORY)\setupldr $(LINK_LIB_IGNORE_FLAG) @$(TARGET_DIRECTORY)ldr.rsp
         -binplace obj\$(TARGET_DIRECTORY)\setupldr
-!ENDIF
-
 !ENDIF

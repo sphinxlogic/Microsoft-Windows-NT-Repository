@@ -23,22 +23,6 @@ Environment:
 
 Revision History:
 
-Note:
-    This comment is temporary...
-
-    APIs that are coded (not tested):
-        NetLocalGroupAdd
-        NetLocalGroupAddMember
-        NetLocalGroupSetInfo
-        NetLocalGroupDel
-        NetLocalGroupDelMember
-        NetLocalGroupSetMembers
-        NetLocalGroupGetInfo
-
-    Not coded:
-        NetLocalGroupEnum
-        NetLocalGroupGetMembers
-
 --*/
 
 #include <nt.h>
@@ -63,10 +47,9 @@ Note:
 #include <rpcutil.h>
 #include <rxgroup.h>
 #include <prefix.h>
-#include <secobj.h>
 #include <stddef.h>
 #include <uasp.h>
-#include <wcstr.h>
+#include <stdlib.h>
 
 /*lint -e614 */  /* Auto aggregate initializers need not be constant */
 
@@ -79,7 +62,7 @@ Note:
 
 NET_API_STATUS NET_API_FUNCTION
 NetLocalGroupAdd(
-    IN LPWSTR ServerName OPTIONAL,
+    IN LPCWSTR ServerName OPTIONAL,
     IN DWORD Level,
     IN LPBYTE Buffer,
     OUT LPDWORD ParmError OPTIONAL // Name required by NetpSetParmError
@@ -159,8 +142,8 @@ Return Value:
                                          ALIAS_READ_INFORMATION,
                                          AliasName,
                                          &AliasHandle,
-					 NULL,
-					 NULL );
+                                         NULL,
+                                         NULL );
 
     if ( NetStatus == NERR_Success ) {
 
@@ -183,7 +166,7 @@ Return Value:
 
     if ( NetStatus != NERR_Success ) {
         IF_DEBUG( UAS_DEBUG_ALIAS ) {
-            NetpDbgPrint( "NetLocalGroupAdd: Cannot UaspOpenDomain %ld\n", NetStatus );
+            NetpKdPrint(( "NetLocalGroupAdd: Cannot UaspOpenDomain %ld\n", NetStatus ));
         }
         return (NetStatus);
     }
@@ -243,7 +226,7 @@ Return Value:
 
 Cleanup:
     IF_DEBUG( UAS_DEBUG_ALIAS ) {
-        NetpDbgPrint( "NetLocalGroupAdd: returns %lu\n", NetStatus );
+        NetpKdPrint(( "NetLocalGroupAdd: returns %lu\n", NetStatus ));
     }
     UaspCloseDomain( DomainHandle );
     return NetStatus;
@@ -253,8 +236,8 @@ Cleanup:
 
 NET_API_STATUS NET_API_FUNCTION
 NetLocalGroupAddMember(
-    IN LPWSTR ServerName OPTIONAL,
-    IN LPWSTR LocalGroupName,
+    IN LPCWSTR ServerName OPTIONAL,
+    IN LPCWSTR LocalGroupName,
     IN PSID MemberSid
     )
 
@@ -295,8 +278,8 @@ Return Value:
     NetStatus = AliaspChangeMember( ServerName, LocalGroupName, MemberSid, TRUE);
 
     IF_DEBUG( UAS_DEBUG_ALIAS ) {
-        NetpDbgPrint( PREFIX_NETAPI
-                      "NetLocalGroupAddMember: returns %lu\n", NetStatus );
+        NetpKdPrint(( PREFIX_NETAPI
+                      "NetLocalGroupAddMember: returns %lu\n", NetStatus ));
     }
 
     return NetStatus;
@@ -306,8 +289,8 @@ Return Value:
 
 NET_API_STATUS NET_API_FUNCTION
 NetLocalGroupDel(
-    IN LPWSTR ServerName OPTIONAL,
-    IN LPWSTR LocalGroupName
+    IN LPCWSTR ServerName OPTIONAL,
+    IN LPCWSTR LocalGroupName
     )
 
 /*++
@@ -346,8 +329,8 @@ Return Value:
                     DELETE,
                     LocalGroupName,
                     &AliasHandle,
-		    NULL,
-		    NULL
+                    NULL,
+                    NULL
                     );
 
     if (NetStatus != NERR_Success) {
@@ -360,9 +343,9 @@ Return Value:
     Status = SamDeleteAlias(AliasHandle);
 
     if (! NT_SUCCESS(Status)) {
-        NetpDbgPrint(PREFIX_NETAPI
+        NetpKdPrint((PREFIX_NETAPI
                      "NetLocalGroupDel: SamDeleteAlias returns %lX\n",
-                     Status);
+                     Status));
 
         NetStatus = NetpNtStatusToApiStatus(Status);
     }
@@ -373,7 +356,7 @@ Return Value:
     (void) SamCloseHandle(AliasHandle);
 
     IF_DEBUG( UAS_DEBUG_ALIAS ) {
-        NetpDbgPrint( "NetLocalGroupDel: returns %lu\n", NetStatus );
+        NetpKdPrint(( "NetLocalGroupDel: returns %lu\n", NetStatus ));
     }
 
     return NetStatus;
@@ -383,8 +366,8 @@ Return Value:
 
 NET_API_STATUS NET_API_FUNCTION
 NetLocalGroupDelMember(
-    IN LPWSTR ServerName OPTIONAL,
-    IN LPWSTR LocalGroupName,
+    IN LPCWSTR ServerName OPTIONAL,
+    IN LPCWSTR LocalGroupName,
     IN PSID MemberSid
     )
 
@@ -424,7 +407,7 @@ Return Value:
 
 NET_API_STATUS NET_API_FUNCTION
 NetLocalGroupEnum(
-    IN LPWSTR ServerName OPTIONAL,
+    IN LPCWSTR ServerName OPTIONAL,
     IN DWORD Level,
     OUT LPBYTE *Buffer,
     IN DWORD PrefMaxLen,
@@ -481,21 +464,21 @@ Return Value:
     //
 
     struct _UAS_ENUM_HANDLE {
-	SAM_HANDLE  DomainHandleBuiltin;	// Enumerate built in domain first
-	SAM_HANDLE  DomainHandleAccounts;	// Aliases in the accounts domain
-	SAM_HANDLE  DomainHandleCurrent;	// where to get info from
+        SAM_HANDLE  DomainHandleBuiltin;        // Enumerate built in domain first
+        SAM_HANDLE  DomainHandleAccounts;       // Aliases in the accounts domain
+        SAM_HANDLE  DomainHandleCurrent;        // where to get info from
 
         SAM_ENUMERATE_HANDLE SamEnumHandle;     // Current Sam Enum Handle
-	PSAM_RID_ENUMERATION SamEnum;		// Sam returned buffer
+        PSAM_RID_ENUMERATION SamEnum;           // Sam returned buffer
         ULONG Index;                            // Index to current entry
         ULONG Count;                            // Total Number of entries
         ULONG TotalRemaining;
 
-	BOOL SamDoneWithBuiltin ;		// Set to TRUE after all of
-						// builtin domain is enumerated
-	BOOL SamAllDone;			// True if both the accounts
-						// and builtin have been
-						// enumerated
+        BOOL SamDoneWithBuiltin ;               // Set to TRUE after all of
+                                                // builtin domain is enumerated
+        BOOL SamAllDone;                        // True if both the accounts
+                                                // and builtin have been
+                                                // enumerated
 
     } *UasEnumHandle = NULL;
 
@@ -511,7 +494,7 @@ Return Value:
 
     if ( ARGUMENT_PRESENT( ResumeHandle ) && *ResumeHandle != 0 ) {
 /*lint -e511 */  /* Size incompatibility */
-	UasEnumHandle = (struct _UAS_ENUM_HANDLE *) *ResumeHandle;
+        UasEnumHandle = (struct _UAS_ENUM_HANDLE *) *ResumeHandle;
 /*lint +e511 */  /* Size incompatibility */
 
     //
@@ -534,28 +517,28 @@ Return Value:
         //
         // Initialize all the fields in the newly allocated resume handle
         //  to indicate that SAM has never yet been called.
-	//
-	UasEnumHandle->DomainHandleAccounts = NULL;
-	UasEnumHandle->DomainHandleBuiltin  = NULL;
-	UasEnumHandle->DomainHandleCurrent  = NULL;
+        //
+        UasEnumHandle->DomainHandleAccounts = NULL;
+        UasEnumHandle->DomainHandleBuiltin  = NULL;
+        UasEnumHandle->DomainHandleCurrent  = NULL;
         UasEnumHandle->SamEnumHandle = 0;
         UasEnumHandle->SamEnum = NULL;
         UasEnumHandle->Index = 0;
         UasEnumHandle->Count = 0;
-	UasEnumHandle->TotalRemaining = 0;
-	UasEnumHandle->SamDoneWithBuiltin = FALSE;
+        UasEnumHandle->TotalRemaining = 0;
+        UasEnumHandle->SamDoneWithBuiltin = FALSE;
         UasEnumHandle->SamAllDone = FALSE;
 
         //
-	// Open the Domains.
+        // Open the Domains.
         //
 
         NetStatus = UaspOpenDomain( ServerName,
                                     DOMAIN_LOOKUP |
                                         DOMAIN_LIST_ACCOUNTS |
                                         DOMAIN_READ_OTHER_PARAMETERS,
-				    FALSE,   // Builtin Domain
-				    &UasEnumHandle->DomainHandleBuiltin,
+                                    FALSE,   // Builtin Domain
+                                    &UasEnumHandle->DomainHandleBuiltin,
                                     NULL );
 
         if ( NetStatus != NERR_Success ) {
@@ -567,7 +550,7 @@ Return Value:
                                         DOMAIN_LIST_ACCOUNTS |
                                         DOMAIN_READ_OTHER_PARAMETERS,
                                     TRUE,   // Account Domain
-				    &UasEnumHandle->DomainHandleAccounts,
+                                    &UasEnumHandle->DomainHandleAccounts,
                                     NULL );
 
         if ( NetStatus != NERR_Success ) {
@@ -577,7 +560,7 @@ Return Value:
         //
         // Get the total number of aliases from SAM
         //
-	Status = SamQueryInformationDomain( UasEnumHandle->DomainHandleBuiltin,
+        Status = SamQueryInformationDomain( UasEnumHandle->DomainHandleBuiltin,
                                             DomainGeneralInformation,
                                             (PVOID *)&DomainGeneral );
 
@@ -586,10 +569,10 @@ Return Value:
             goto Cleanup;
         }
 
-	UasEnumHandle->TotalRemaining = DomainGeneral->AliasCount;
-	(void) SamFreeMemory( DomainGeneral );
+        UasEnumHandle->TotalRemaining = DomainGeneral->AliasCount;
+        (void) SamFreeMemory( DomainGeneral );
 
-	Status = SamQueryInformationDomain( UasEnumHandle->DomainHandleAccounts,
+        Status = SamQueryInformationDomain( UasEnumHandle->DomainHandleAccounts,
                                             DomainGeneralInformation,
                                             (PVOID *)&DomainGeneral );
 
@@ -598,8 +581,8 @@ Return Value:
             goto Cleanup;
         }
 
-	UasEnumHandle->TotalRemaining += DomainGeneral->AliasCount;
-	(void) SamFreeMemory( DomainGeneral );
+        UasEnumHandle->TotalRemaining += DomainGeneral->AliasCount;
+        (void) SamFreeMemory( DomainGeneral );
     }
 
 
@@ -628,7 +611,7 @@ Return Value:
         // than an if to handle the case where SAM returns zero entries.
         //
 
-	while ( UasEnumHandle->Index >= UasEnumHandle->Count ) {
+        while ( UasEnumHandle->Index >= UasEnumHandle->Count ) {
 
             //
             // If we've already gotten everything from SAM,
@@ -655,12 +638,12 @@ Return Value:
             // Do the actual enumeration
             //
 
-	    UasEnumHandle->DomainHandleCurrent  = 
-			UasEnumHandle->SamDoneWithBuiltin ?
-			    UasEnumHandle->DomainHandleAccounts :
-			    UasEnumHandle->DomainHandleBuiltin,
-	    Status = SamEnumerateAliasesInDomain(
-			UasEnumHandle->DomainHandleCurrent,
+            UasEnumHandle->DomainHandleCurrent  =
+                        UasEnumHandle->SamDoneWithBuiltin ?
+                            UasEnumHandle->DomainHandleAccounts :
+                            UasEnumHandle->DomainHandleBuiltin,
+            Status = SamEnumerateAliasesInDomain(
+                        UasEnumHandle->DomainHandleCurrent,
                         &UasEnumHandle->SamEnumHandle,
                         (PVOID *)&UasEnumHandle->SamEnum,
                         PrefMaxLen,
@@ -673,11 +656,11 @@ Return Value:
 
             //
             // Adjust TotalRemaining as we get better information
-	    //
+            //
 
             if (UasEnumHandle->TotalRemaining < UasEnumHandle->Count) {
                 UasEnumHandle->TotalRemaining = UasEnumHandle->Count;
-	    }
+            }
 
             //
             // If SAM says there is more information, just ensure he returned
@@ -691,21 +674,21 @@ Return Value:
                 }
 
             //
-	    // If SAM says he's returned all of the information for this domain,
-	    // check if we still have to do the accounts domain.
+            // If SAM says he's returned all of the information for this domain,
+            // check if we still have to do the accounts domain.
             //
 
-	    } else {
+            } else {
 
-		if ( UasEnumHandle->SamDoneWithBuiltin ) {
+                if ( UasEnumHandle->SamDoneWithBuiltin ) {
 
-		    UasEnumHandle->SamAllDone = TRUE;
+                    UasEnumHandle->SamAllDone = TRUE;
 
-		} else {
+                } else {
 
-		    UasEnumHandle->SamDoneWithBuiltin = TRUE ;
-		    UasEnumHandle->SamEnumHandle = 0;
-		}
+                    UasEnumHandle->SamDoneWithBuiltin = TRUE ;
+                    UasEnumHandle->SamEnumHandle = 0;
+                }
             }
 
             UasEnumHandle->Index = 0;
@@ -732,35 +715,35 @@ Return Value:
                 SamEnum->Name.Length + sizeof(WCHAR);
             break;
 
-	case 1:
-	    {
-		SAM_HANDLE AliasHandle ;
-		NetStatus = AliaspOpenAlias2(
-					UasEnumHandle->DomainHandleCurrent,
-					ALIAS_READ_INFORMATION,
-					SamEnum->RelativeId,
-					&AliasHandle ) ;
+        case 1:
+            {
+                SAM_HANDLE AliasHandle ;
+                NetStatus = AliaspOpenAlias2(
+                                        UasEnumHandle->DomainHandleCurrent,
+                                        ALIAS_READ_INFORMATION,
+                                        SamEnum->RelativeId,
+                                        &AliasHandle ) ;
 
-		if ( NetStatus != NERR_Success ) {
-		    goto Cleanup;
-		}
+                if ( NetStatus != NERR_Success ) {
+                    goto Cleanup;
+                }
 
-		NetStatus = AliaspGetInfo( AliasHandle,
-					   Level,
-					   (PVOID *)&lgrpi0_temp);
+                NetStatus = AliaspGetInfo( AliasHandle,
+                                           Level,
+                                           (PVOID *)&lgrpi0_temp);
 
-		(void) SamCloseHandle( AliasHandle ) ;
+                (void) SamCloseHandle( AliasHandle ) ;
 
-		if ( NetStatus != NERR_Success ) {
-		    goto Cleanup;
-		}
+                if ( NetStatus != NERR_Success ) {
+                    goto Cleanup;
+                }
 
-		FixedSize = sizeof(LOCALGROUP_INFO_1);
-		Size = sizeof(LOCALGROUP_INFO_1) +
-			SamEnum->Name.Length + sizeof(WCHAR) +
-			(wcslen(((PLOCALGROUP_INFO_1)lgrpi0_temp)->lgrpi1_comment) +
-			    1) * sizeof(WCHAR);
-	    }
+                FixedSize = sizeof(LOCALGROUP_INFO_1);
+                Size = sizeof(LOCALGROUP_INFO_1) +
+                        SamEnum->Name.Length + sizeof(WCHAR) +
+                        (wcslen(((PLOCALGROUP_INFO_1)lgrpi0_temp)->lgrpi1_comment) +
+                            1) * sizeof(WCHAR);
+            }
             break;
 
         default:
@@ -779,7 +762,7 @@ Return Value:
                         FALSE,      // Not a 'get' operation
                         PrefMaxLen,
                         Size,
-			AliaspRelocationRoutine,
+                        AliaspRelocationRoutine,
                         Level );
 
         if (NetStatus != NERR_Success) {
@@ -856,7 +839,7 @@ Return Value:
         (*EntriesRead)++;
 
         UasEnumHandle->Index ++;
-	UasEnumHandle->TotalRemaining --;
+        UasEnumHandle->TotalRemaining --;
     }
 
     //
@@ -890,12 +873,12 @@ Cleanup:
     if ( NetStatus != ERROR_MORE_DATA || !ARGUMENT_PRESENT( ResumeHandle ) ) {
 
         if ( UasEnumHandle != NULL ) {
-	    if ( UasEnumHandle->DomainHandleAccounts != NULL ) {
-		UaspCloseDomain( UasEnumHandle->DomainHandleAccounts );
-	    }
+            if ( UasEnumHandle->DomainHandleAccounts != NULL ) {
+                UaspCloseDomain( UasEnumHandle->DomainHandleAccounts );
+            }
 
-	    if ( UasEnumHandle->DomainHandleBuiltin != NULL ) {
-		UaspCloseDomain( UasEnumHandle->DomainHandleBuiltin );
+            if ( UasEnumHandle->DomainHandleBuiltin != NULL ) {
+                UaspCloseDomain( UasEnumHandle->DomainHandleBuiltin );
             }
 
             if ( UasEnumHandle->SamEnum != NULL ) {
@@ -934,7 +917,7 @@ Cleanup:
 
 
     IF_DEBUG( UAS_DEBUG_ALIAS ) {
-        NetpDbgPrint( "NetLocalGroupEnum: returns %ld\n", NetStatus );
+        NetpKdPrint(( "NetLocalGroupEnum: returns %ld\n", NetStatus ));
     }
 
     return NetStatus;
@@ -943,8 +926,8 @@ Cleanup:
 
 NET_API_STATUS NET_API_FUNCTION
 NetLocalGroupGetInfo(
-    IN LPWSTR ServerName OPTIONAL,
-    IN LPWSTR LocalGroupName,
+    IN LPCWSTR ServerName OPTIONAL,
+    IN LPCWSTR LocalGroupName,
     IN DWORD Level,
     OUT LPBYTE *Buffer
     )
@@ -989,8 +972,8 @@ Return Value:
                     ALIAS_READ_INFORMATION,
                     LocalGroupName,
                     &AliasHandle,
-		    NULL,
-		    NULL
+                    NULL,
+                    NULL
                     );
 
     if ( NetStatus != NERR_Success ) {
@@ -1008,7 +991,7 @@ Return Value:
     (void) SamCloseHandle( AliasHandle );
 
     IF_DEBUG( UAS_DEBUG_ALIAS ) {
-        NetpDbgPrint( "NetLocalGroupGetInfo: returns %lu\n", NetStatus );
+        NetpKdPrint(( "NetLocalGroupGetInfo: returns %lu\n", NetStatus ));
     }
 
     return NetStatus;
@@ -1019,8 +1002,8 @@ Return Value:
 
 NET_API_STATUS NET_API_FUNCTION
 NetLocalGroupGetMembers(
-    IN LPWSTR ServerName OPTIONAL,
-    IN LPWSTR LocalGroupName,
+    IN LPCWSTR ServerName OPTIONAL,
+    IN LPCWSTR LocalGroupName,
     IN DWORD Level,
     OUT LPBYTE *Buffer,
     IN DWORD PrefMaxLen,
@@ -1071,20 +1054,22 @@ Return Value:
     BUFFER_DESCRIPTOR BufferDescriptor;
 
     PLOCALGROUP_MEMBERS_INFO_0 lgrmi0;
+    LPWSTR MemberName;
 
     //
     // Declare Opaque group member enumeration handle.
     //
 
     struct _UAS_ENUM_HANDLE {
-	LSA_HANDLE  LsaHandle ; 	  // For looking up the Sids
-	SAM_HANDLE  AliasHandle;
+        LSA_HANDLE  LsaHandle ;           // For looking up the Sids
+        SAM_HANDLE  AliasHandle;
 
-	PSID * MemberSids ;		  // Sid for each member
-	PLSA_TRANSLATED_NAME Names;	  // Names of each member
+        PSID * MemberSids ;               // Sid for each member
+        PLSA_TRANSLATED_NAME Names;       // Names of each member
+        PLSA_REFERENCED_DOMAIN_LIST RefDomains; // Domains of each member
 
-	ULONG Index;			  // Index to current entry
-	ULONG Count;			  // Total Number of entries
+        ULONG Index;                      // Index to current entry
+        ULONG Count;                      // Total Number of entries
 
     } *UasEnumHandle = NULL;
 
@@ -1099,11 +1084,19 @@ Return Value:
     *EntriesLeft = 0;
     switch (Level) {
     case 0:
-	FixedSize = sizeof(LOCALGROUP_MEMBERS_INFO_0);
+        FixedSize = sizeof(LOCALGROUP_MEMBERS_INFO_0);
         break;
 
     case 1:
-	FixedSize = sizeof(LOCALGROUP_MEMBERS_INFO_1);
+        FixedSize = sizeof(LOCALGROUP_MEMBERS_INFO_1);
+        break;
+
+    case 2:
+        FixedSize = sizeof(LOCALGROUP_MEMBERS_INFO_2);
+        break;
+
+    case 3:
+        FixedSize = sizeof(LOCALGROUP_MEMBERS_INFO_3);
         break;
 
     default:
@@ -1142,11 +1135,12 @@ Return Value:
         //  to indicate that SAM has never yet been called.
         //
 
-	UasEnumHandle->LsaHandle  = NULL;
-	UasEnumHandle->AliasHandle= NULL;
+        UasEnumHandle->LsaHandle  = NULL;
+        UasEnumHandle->AliasHandle= NULL;
 
-	UasEnumHandle->MemberSids = NULL;
-	UasEnumHandle->Names	  = NULL;
+        UasEnumHandle->MemberSids = NULL;
+        UasEnumHandle->Names      = NULL;
+        UasEnumHandle->RefDomains = NULL;
         UasEnumHandle->Index = 0;
         UasEnumHandle->Count = 0;
 
@@ -1154,21 +1148,21 @@ Return Value:
         // Open the Domain
         //
 
-	NetStatus = AliaspOpenAliasInDomain(
-				       ServerName,
-				       AliaspBuiltinOrAccountDomain,
-				       ALIAS_READ | ALIAS_EXECUTE,
-				       LocalGroupName,
-				       &UasEnumHandle->AliasHandle,
-				       NULL,
-				       NULL
-				       );
+        NetStatus = AliaspOpenAliasInDomain(
+                                       ServerName,
+                                       AliaspBuiltinOrAccountDomain,
+                                       ALIAS_READ | ALIAS_EXECUTE,
+                                       LocalGroupName,
+                                       &UasEnumHandle->AliasHandle,
+                                       NULL,
+                                       NULL
+                                       );
 
         if ( NetStatus != NERR_Success ) {
             IF_DEBUG( UAS_DEBUG_ALIAS ) {
-                NetpDbgPrint(
+                NetpKdPrint((
                     "NetLocalGroupGetMembers: UaspOpenDomain returns %ld\n",
-                    NetStatus );
+                    NetStatus ));
             }
             goto Cleanup;
         }
@@ -1177,15 +1171,15 @@ Return Value:
         // Get the group membership information from SAM
         //
 
-	Status = SamGetMembersInAlias( UasEnumHandle->AliasHandle,
-				       &UasEnumHandle->MemberSids,
-				       &UasEnumHandle->Count );
+        Status = SamGetMembersInAlias( UasEnumHandle->AliasHandle,
+                                       &UasEnumHandle->MemberSids,
+                                       &UasEnumHandle->Count );
 
         if ( !NT_SUCCESS( Status ) ) {
             IF_DEBUG( UAS_DEBUG_ALIAS ) {
-                NetpDbgPrint(
-		    "NetLocalGroupGetMembers: SamGetMembersInAlias returned %lX\n",
-                    Status );
+                NetpKdPrint((
+                    "NetLocalGroupGetMembers: SamGetMembersInAlias returned %lX\n",
+                    Status ));
             }
             NetStatus = NetpNtStatusToApiStatus( Status );
             goto Cleanup;
@@ -1196,45 +1190,41 @@ Return Value:
             goto Cleanup;
         }
 
-	if ( Level > 0 ) {
+        if ( Level > 0 ) {
 
-	    PLSA_REFERENCED_DOMAIN_LIST RefDomains ;
+            //
+            // Determine the names and name usage for all the returned SIDs
+            //
 
-	    //
-	    // Determine the names and name usage for all the returned SIDs
-	    //
+            OBJECT_ATTRIBUTES ObjectAttributes ;
+            UNICODE_STRING    ServerNameString ;
 
-	    OBJECT_ATTRIBUTES ObjectAttributes ;
-	    UNICODE_STRING    ServerNameString ;
+            RtlInitUnicodeString( &ServerNameString, ServerName ) ;
+            InitializeObjectAttributes( &ObjectAttributes, NULL, 0, 0, NULL ) ;
 
-	    RtlInitUnicodeString( &ServerNameString, ServerName ) ;
-	    InitializeObjectAttributes( &ObjectAttributes, NULL, 0, 0, NULL ) ;
+            Status = LsaOpenPolicy( &ServerNameString,
+                                    &ObjectAttributes,
+                                    POLICY_EXECUTE,
+                                    &UasEnumHandle->LsaHandle ) ;
 
-	    Status = LsaOpenPolicy( &ServerNameString,
-				    &ObjectAttributes,
-				    POLICY_EXECUTE,
-				    &UasEnumHandle->LsaHandle ) ;
+            if ( !NT_SUCCESS( Status ) ) {
 
-	    if ( !NT_SUCCESS( Status ) ) {
+                NetStatus = NetpNtStatusToApiStatus( Status );
+                goto Cleanup;
+            }
 
-		NetStatus = NetpNtStatusToApiStatus( Status );
-		goto Cleanup;
-	    }
+            Status = LsaLookupSids( UasEnumHandle->LsaHandle,
+                                    UasEnumHandle->Count,
+                                    UasEnumHandle->MemberSids,
+                                    &UasEnumHandle->RefDomains,
+                                    &UasEnumHandle->Names ) ;
 
-	    Status = LsaLookupSids( UasEnumHandle->LsaHandle,
-				    UasEnumHandle->Count,
-				    UasEnumHandle->MemberSids,
-				    &RefDomains,
-				    &UasEnumHandle->Names ) ;
+            if ( !NT_SUCCESS( Status ) ) {
 
-	    if ( !NT_SUCCESS( Status ) ) {
-
-		NetStatus = NetpNtStatusToApiStatus( Status );
-		goto Cleanup;
-	    }
-
-	    (void) LsaFreeMemory( RefDomains );
-	}
+                NetStatus = NetpNtStatusToApiStatus( Status );
+                goto Cleanup;
+            }
+        }
     }
 
 
@@ -1244,7 +1234,8 @@ Return Value:
 
     while ( UasEnumHandle->Index < UasEnumHandle->Count ) {
 
-	DWORD cbMemberSid ;
+        DWORD cbMemberSid;
+        PUNICODE_STRING DomainName;
 
         //
         // ASSERT:  UasEnumHandle identifies the next entry to return
@@ -1253,7 +1244,7 @@ Return Value:
 #if 0
         //
         // Ignore members which aren't a user.
-	//
+        //
 
         if ( UasEnumHandle->NameUse[UasEnumHandle->Index] != SidTypeUser ) {
             continue;
@@ -1261,109 +1252,232 @@ Return Value:
 #endif
         //
         // Place this entry into the return buffer.
-	//  Compute the total size of this entry.  Both info levels have the
-	//  member's SID.  Cache the member sid size for copying
+        //  Compute the total size of this entry.  Both info levels have the
+        //  member's SID.  Cache the member sid size for copying
         //
 
-	cbMemberSid = RtlLengthSid( UasEnumHandle->MemberSids[UasEnumHandle->Index] ) ;
+        cbMemberSid = RtlLengthSid( UasEnumHandle->MemberSids[UasEnumHandle->Index] ) ;
 
-	Size = FixedSize + cbMemberSid ;
+        Size = FixedSize;
 
-	switch ( Level )
-	{
-	case 0:
-	    break ;
+        switch ( Level )
+        {
+        case 0:
+            Size += cbMemberSid;
+            break ;
 
-	case 1:
-	    Size += UasEnumHandle->Names[UasEnumHandle->Index].Name.Length +
-		    sizeof( WCHAR ) +
-		    sizeof( SID_NAME_USE ) ;
-	    break ;
+        case 1:
+            Size += cbMemberSid +
+                    UasEnumHandle->Names[UasEnumHandle->Index].Name.Length +
+                    sizeof( WCHAR );
+            break ;
 
-	default:
-	    NetStatus = ERROR_INVALID_LEVEL;
-	    goto Cleanup;
-	}
+        case 2:
+            DomainName = &UasEnumHandle->RefDomains->Domains[UasEnumHandle->Names[UasEnumHandle->Index].DomainIndex].Name;
+            Size += cbMemberSid +
+                    DomainName->Length + sizeof(WCHAR) +
+                    UasEnumHandle->Names[UasEnumHandle->Index].Name.Length +
+                    sizeof( WCHAR );
+            break ;
+
+        case 3:
+            DomainName = &UasEnumHandle->RefDomains->Domains[UasEnumHandle->Names[UasEnumHandle->Index].DomainIndex].Name;
+            Size += DomainName->Length + sizeof(WCHAR) +
+                    UasEnumHandle->Names[UasEnumHandle->Index].Name.Length +
+                    sizeof( WCHAR );
+            break ;
+
+        default:
+            NetStatus = ERROR_INVALID_LEVEL;
+            goto Cleanup;
+        }
 
         //
         // Ensure there is buffer space for this information.
         //
 
-        Size = ROUND_UP_COUNT( Size, ALIGN_WCHAR );
+        Size = ROUND_UP_COUNT( Size, ALIGN_DWORD );
 
         NetStatus = NetpAllocateEnumBuffer(
                         &BufferDescriptor,
                         FALSE,      // Not a 'get' operation
                         PrefMaxLen,
                         Size,
-			AliaspMemberRelocationRoutine,
+                        AliaspMemberRelocationRoutine,
                         Level );
 
         if (NetStatus != NERR_Success) {
             IF_DEBUG( UAS_DEBUG_ALIAS ) {
-                NetpDbgPrint(
+                NetpKdPrint((
                     "NetLocalGroupGetMembers: NetpAllocateEnumBuffer returns %ld\n",
-                    NetStatus );
+                    NetStatus ));
             }
             goto Cleanup;
         }
 
         //
-	// Copy the common member sid
+        // Copy the common member sid
         //
 
-	NetpAssert( offsetof( LOCALGROUP_MEMBERS_INFO_0,  lgrmi0_sid ) ==
-		    offsetof( LOCALGROUP_MEMBERS_INFO_1,  lgrmi1_sid ) );
+        lgrmi0 = (PLOCALGROUP_MEMBERS_INFO_0)BufferDescriptor.FixedDataEnd;
+        BufferDescriptor.FixedDataEnd += FixedSize;
 
-	lgrmi0 = (PLOCALGROUP_MEMBERS_INFO_0)BufferDescriptor.FixedDataEnd;
-	BufferDescriptor.FixedDataEnd += FixedSize;
+        if ( Level == 0 || Level == 1 || Level == 2 ) {
+            NetpAssert( offsetof( LOCALGROUP_MEMBERS_INFO_0,  lgrmi0_sid ) ==
+                        offsetof( LOCALGROUP_MEMBERS_INFO_1,  lgrmi1_sid ) );
+            NetpAssert( offsetof( LOCALGROUP_MEMBERS_INFO_0,  lgrmi0_sid ) ==
+                        offsetof( LOCALGROUP_MEMBERS_INFO_2,  lgrmi2_sid ) );
+            NetpAssert( offsetof( LOCALGROUP_MEMBERS_INFO_0,  lgrmi0_sid ) ==
+                        offsetof( LOCALGROUP_MEMBERS_INFO_2,  lgrmi2_sid ) );
 
-	if ( ! NetpCopyDataToBuffer(
-		       (LPBYTE) UasEnumHandle->MemberSids[UasEnumHandle->Index],
-		       cbMemberSid,
-		       BufferDescriptor.FixedDataEnd,
-		       (LPBYTE *)&BufferDescriptor.EndOfVariableData,
-		       (LPBYTE *)&lgrmi0->lgrmi0_sid,
-		       4) ) {
+            if ( ! NetpCopyDataToBuffer(
+                           (LPBYTE) UasEnumHandle->MemberSids[UasEnumHandle->Index],
+                           cbMemberSid,
+                           BufferDescriptor.FixedDataEnd,
+                           (LPBYTE *)&BufferDescriptor.EndOfVariableData,
+                           (LPBYTE *)&lgrmi0->lgrmi0_sid,
+                           ALIGN_DWORD ) ) {
 
-            NetStatus = NERR_InternalError;
-	    goto Cleanup;
+                NetStatus = NERR_InternalError;
+                goto Cleanup;
+            }
+        }
+
+        //
+        // Copy DomainName\MemberName
+        //
+
+        if ( Level == 2 || Level == 3 ) {
+            LPWSTR TempString;
+
+
+            //
+            // Copy the terminating zero after domain\membername
+            //
+            // It might seem you'd want to copy the domain name first,
+            //  but the strings are being copied to the tail of the allocated
+            //  buffer.
+            //
+
+            if ( ! NetpCopyDataToBuffer(
+                       (LPBYTE) L"",
+                       sizeof(WCHAR),
+                       BufferDescriptor.FixedDataEnd,
+                       (LPBYTE *)&BufferDescriptor.EndOfVariableData,
+                       (LPBYTE *)&TempString,
+                       ALIGN_WCHAR) ) {
+
+                NetStatus = NERR_InternalError;
+                goto Cleanup;
+            }
+
+            //
+            // Copy the member name portion of domain\membername
+            //
+
+            if ( ! NetpCopyDataToBuffer(
+                       (LPBYTE) UasEnumHandle->Names[UasEnumHandle->Index].Name.Buffer,
+                       UasEnumHandle->Names[UasEnumHandle->Index].Name.Length,
+                       BufferDescriptor.FixedDataEnd,
+                       (LPBYTE *)&BufferDescriptor.EndOfVariableData,
+                       (LPBYTE *)&MemberName,
+                       ALIGN_WCHAR) ) {
+
+                NetStatus = NERR_InternalError;
+                goto Cleanup;
+            }
+
+            //
+            // Only prepend the dommain name if it is there.
+            //
+
+            if ( DomainName->Length > 0 ) {
+                //
+                // Copy the separating \ between domain\membername
+                //
+
+                if ( ! NetpCopyDataToBuffer(
+                           (LPBYTE) L"\\",
+                           sizeof(WCHAR),
+                           BufferDescriptor.FixedDataEnd,
+                           (LPBYTE *)&BufferDescriptor.EndOfVariableData,
+                           (LPBYTE *)&TempString,
+                           ALIGN_WCHAR) ) {
+
+                    NetStatus = NERR_InternalError;
+                    goto Cleanup;
+                }
+
+                //
+                // Copy the domain name onto the front of the domain\membername.
+                //
+
+                if ( ! NetpCopyDataToBuffer(
+                           (LPBYTE) DomainName->Buffer,
+                           DomainName->Length,
+                           BufferDescriptor.FixedDataEnd,
+                           (LPBYTE *)&BufferDescriptor.EndOfVariableData,
+                           (LPBYTE *)&MemberName,
+                           ALIGN_WCHAR) ) {
+
+                    NetStatus = NERR_InternalError;
+                    goto Cleanup;
+                }
+            }
         }
 
         //
         // Fill in the Level dependent fields
-	//
+        //
 
-	switch ( Level )
-	{
-	case 0:
-	    break ;
+        switch ( Level ) {
+        case 0:
+            break ;
 
-	case 1:
-	    //
-	    //	Copy the Member name and sid usage
-	    //
+        case 1:
+            //
+            //  Copy the Member name and sid usage
+            //
 
-	    if ( ! NetpCopyStringToBuffer(
-		       UasEnumHandle->Names[UasEnumHandle->Index].Name.Buffer,
-		       UasEnumHandle->Names[UasEnumHandle->Index].Name.Length
-				/sizeof(WCHAR),
-		       BufferDescriptor.FixedDataEnd,
-		       (LPWSTR *)&BufferDescriptor.EndOfVariableData,
-		       &((PLOCALGROUP_MEMBERS_INFO_1)lgrmi0)->lgrmi1_name) ) {
+            if ( ! NetpCopyStringToBuffer(
+                       UasEnumHandle->Names[UasEnumHandle->Index].Name.Buffer,
+                       UasEnumHandle->Names[UasEnumHandle->Index].Name.Length
+                                /sizeof(WCHAR),
+                       BufferDescriptor.FixedDataEnd,
+                       (LPWSTR *)&BufferDescriptor.EndOfVariableData,
+                       &((PLOCALGROUP_MEMBERS_INFO_1)lgrmi0)->lgrmi1_name) ) {
 
-		NetStatus = NERR_InternalError;
-		goto Cleanup;
-	    }
+                NetStatus = NERR_InternalError;
+                goto Cleanup;
+            }
 
-	    ((PLOCALGROUP_MEMBERS_INFO_1)lgrmi0)->lgrmi1_sidusage =
-			     UasEnumHandle->Names[UasEnumHandle->Index].Use ;
-	    break ;
+            ((PLOCALGROUP_MEMBERS_INFO_1)lgrmi0)->lgrmi1_sidusage =
+                             UasEnumHandle->Names[UasEnumHandle->Index].Use ;
+            break ;
 
-	default:
-	    NetStatus = ERROR_INVALID_LEVEL;
-	    goto Cleanup;
-	}
+        case 2:
+            //
+            //  Copy the Member name and sid usage
+            //
+
+            ((PLOCALGROUP_MEMBERS_INFO_2)lgrmi0)->lgrmi2_domainandname = MemberName;
+
+            ((PLOCALGROUP_MEMBERS_INFO_2)lgrmi0)->lgrmi2_sidusage =
+                             UasEnumHandle->Names[UasEnumHandle->Index].Use ;
+            break ;
+
+        case 3:
+            //
+            //  Copy the Member name and sid usage
+            //
+
+            ((PLOCALGROUP_MEMBERS_INFO_3)lgrmi0)->lgrmi3_domainandname = MemberName;
+            break;
+
+        default:
+            NetStatus = ERROR_INVALID_LEVEL;
+            goto Cleanup;
+        }
 
         //
         // ASSERT: The current entry has been completely copied to the
@@ -1405,20 +1519,24 @@ Cleanup:
     if ( NetStatus != ERROR_MORE_DATA || !ARGUMENT_PRESENT( ResumeHandle ) ) {
 
         if ( UasEnumHandle != NULL ) {
-	    if ( UasEnumHandle->LsaHandle != NULL ) {
-		(void) LsaClose( UasEnumHandle->LsaHandle );
-	    }
+            if ( UasEnumHandle->LsaHandle != NULL ) {
+                (void) LsaClose( UasEnumHandle->LsaHandle );
+            }
 
-	    if ( UasEnumHandle->AliasHandle != NULL ) {
-		(void) SamCloseHandle( UasEnumHandle->AliasHandle );
+            if ( UasEnumHandle->AliasHandle != NULL ) {
+                (void) SamCloseHandle( UasEnumHandle->AliasHandle );
             }
 
             if ( UasEnumHandle->Names != NULL ) {
-		(void) LsaFreeMemory( UasEnumHandle->Names );
-	    }
+                (void) LsaFreeMemory( UasEnumHandle->Names );
+            }
 
-	    if ( UasEnumHandle->MemberSids != NULL ) {
-		(void) SamFreeMemory( UasEnumHandle->MemberSids );
+            if ( UasEnumHandle->RefDomains != NULL ) {
+                (void) LsaFreeMemory( UasEnumHandle->RefDomains );
+            }
+
+            if ( UasEnumHandle->MemberSids != NULL ) {
+                (void) SamFreeMemory( UasEnumHandle->MemberSids );
             }
 
             NetpMemoryFree( UasEnumHandle );
@@ -1450,7 +1568,7 @@ Cleanup:
     }
 
     IF_DEBUG( UAS_DEBUG_ALIAS ) {
-        NetpDbgPrint( "NetLocalGroupGetMembers: returns %ld\n", NetStatus );
+        NetpKdPrint(( "NetLocalGroupGetMembers: returns %ld\n", NetStatus ));
     }
 
     return NetStatus;
@@ -1461,8 +1579,8 @@ Cleanup:
 
 NET_API_STATUS NET_API_FUNCTION
 NetLocalGroupSetInfo(
-    IN LPWSTR ServerName OPTIONAL,
-    IN LPWSTR LocalGroupName,
+    IN LPCWSTR ServerName OPTIONAL,
+    IN LPCWSTR LocalGroupName,
     IN DWORD Level,
     IN LPBYTE Buffer,
     OUT LPDWORD ParmError OPTIONAL // Name required by NetpSetParmError
@@ -1518,8 +1636,8 @@ Return Value:
                     ALIAS_WRITE_ACCOUNT,
                     LocalGroupName,
                     &AliasHandle,
-		    NULL,
-		    NULL
+                    NULL,
+                    NULL
                     );
 
     if (NetStatus != NERR_Success) {
@@ -1532,7 +1650,6 @@ Return Value:
     switch (Level) {
 
         case 0:
-        case 1:
         //
         // Set alias name
         //
@@ -1546,7 +1663,7 @@ Return Value:
             if (NewAliasName == NULL) {
 
                 IF_DEBUG( UAS_DEBUG_ALIAS ) {
-                    NetpDbgPrint( "NetLocalGroupSetInfo: Alias Name is NULL\n" );
+                    NetpKdPrint(( "NetLocalGroupSetInfo: Alias Name is NULL\n" ));
                 }
                 NetStatus = NERR_Success;
                 goto Cleanup;
@@ -1555,8 +1672,8 @@ Return Value:
             RtlInitUnicodeString( &NewSamAliasName.Name, NewAliasName );
 
             IF_DEBUG( UAS_DEBUG_ALIAS ) {
-                NetpDbgPrint( "NetLocalAliasSetInfo: Renaming Alias Account to %wZ\n",
-                                &NewSamAliasName.Name);
+                NetpKdPrint(( "NetLocalAliasSetInfo: Renaming Alias Account to %wZ\n",
+                                &NewSamAliasName.Name));
             }
 
             Status = SamSetInformationAlias( AliasHandle,
@@ -1565,8 +1682,8 @@ Return Value:
 
             if ( !NT_SUCCESS(Status) ) {
                 IF_DEBUG( UAS_DEBUG_ALIAS ) {
-                    NetpDbgPrint( "NetLocalGroupSetInfo: SamSetInformationAlias %lX\n",
-                              Status );
+                    NetpKdPrint(( "NetLocalGroupSetInfo: SamSetInformationAlias %lX\n",
+                              Status ));
                 }
                 NetStatus = NetpNtStatusToApiStatus( Status );
 
@@ -1576,16 +1693,11 @@ Return Value:
                 goto Cleanup;
             }
 
-            if ( Level == 0 ) {
-                break;
-            }
-
-            //
-            // Level 1 falls through to set the comment
-            //
+            break;
         }
 
 
+        case 1:
         case 1002:
         //
         // Set the alias comment
@@ -1605,7 +1717,7 @@ Return Value:
 
             if ( AliasComment == NULL ) {
                 IF_DEBUG( UAS_DEBUG_ALIAS ) {
-                    NetpDbgPrint( "NetLocalGroupSetInfo: Alias comment is NULL\n" );
+                    NetpKdPrint(( "NetLocalGroupSetInfo: Alias comment is NULL\n" ));
                 }
                 NetStatus = NERR_Success;
                 goto Cleanup;
@@ -1614,8 +1726,8 @@ Return Value:
             RtlInitUnicodeString( &AdminComment.AdminComment, AliasComment );
 
             IF_DEBUG( UAS_DEBUG_ALIAS ) {
-                NetpDbgPrint( "NetLocalGroupSetInfo: Setting AdminComment to %wZ\n",
-                          &AdminComment.AdminComment );
+                NetpKdPrint(( "NetLocalGroupSetInfo: Setting AdminComment to %wZ\n",
+                          &AdminComment.AdminComment ));
             }
 
             Status = SamSetInformationAlias( AliasHandle,
@@ -1624,8 +1736,8 @@ Return Value:
 
             if ( !NT_SUCCESS(Status) ) {
                 IF_DEBUG( UAS_DEBUG_ALIAS ) {
-                    NetpDbgPrint( "NetLocalGroupSetInfo: SamSetInformationAlias %lX\n",
-                              Status );
+                    NetpKdPrint(( "NetLocalGroupSetInfo: SamSetInformationAlias %lX\n",
+                              Status ));
                 }
                 NetStatus = NetpNtStatusToApiStatus( Status );
 
@@ -1640,7 +1752,7 @@ Return Value:
         default:
             NetStatus = ERROR_INVALID_LEVEL;
             IF_DEBUG( UAS_DEBUG_ALIAS ) {
-                NetpDbgPrint( "NetLocalGroupSetInfo: Invalid Level %lu\n", Level );
+                NetpKdPrint(( "NetLocalGroupSetInfo: Invalid Level %lu\n", Level ));
             }
             goto Cleanup;
     }
@@ -1657,7 +1769,7 @@ Cleanup:
     }
 
     IF_DEBUG( UAS_DEBUG_ALIAS ) {
-        NetpDbgPrint( "NetLocalGroupSetInfo: returns %lu\n", NetStatus );
+        NetpKdPrint(( "NetLocalGroupSetInfo: returns %lu\n", NetStatus ));
     }
 
     return NetStatus;
@@ -1667,8 +1779,8 @@ Cleanup:
 
 NET_API_STATUS NET_API_FUNCTION
 NetLocalGroupSetMembers (
-    IN LPWSTR ServerName OPTIONAL,
-    IN LPWSTR LocalGroupName,
+    IN LPCWSTR ServerName OPTIONAL,
+    IN LPCWSTR LocalGroupName,
     IN DWORD Level,
     IN LPBYTE Buffer,
     IN DWORD NewMemberCount
@@ -1698,7 +1810,7 @@ Arguments:
 
     LocalGroupName - Name of the alias to modify.
 
-    Level - Level of information provided.  Must be 0 or 1.
+    Level - Level of information provided.  Must be 0 or 3.
 
     Buffer - A pointer to the buffer containing an array of NewMemberCount
         the alias membership information structures.
@@ -1708,6 +1820,15 @@ Arguments:
 Return Value:
 
     Error code for the operation.
+
+    NERR_GroupNotFound - The specified LocalGroupName does not exist
+
+    ERROR_NO_SUCH_MEMBER - One or more of the members doesn't exist.  Therefore,
+        the local group membership was not changed.
+
+    ERROR_INVALID_MEMBER - one or more of the members cannot be added because
+        it has an invalid account type.  Therefore, the local group membership
+        was not changed.
 
 --*/
 
@@ -1719,15 +1840,168 @@ Return Value:
                                   LocalGroupName,
                                   Level,
                                   Buffer,
-                                  NewMemberCount );
+                                  NewMemberCount,
+                                  SetMembers );
 
 
     IF_DEBUG( UAS_DEBUG_ALIAS ) {
-        NetpDbgPrint( "NetLocalGroupSetMembers: returns %lu\n", NetStatus );
+        NetpKdPrint(( "NetLocalGroupSetMembers: returns %lu\n", NetStatus ));
     }
 
     return NetStatus;
 
 } // NetLocalGroupSetMembers
+
+
+NET_API_STATUS NET_API_FUNCTION
+NetLocalGroupAddMembers (
+    IN LPCWSTR ServerName OPTIONAL,
+    IN LPCWSTR LocalGroupName,
+    IN DWORD Level,
+    IN LPBYTE Buffer,
+    IN DWORD NewMemberCount
+    )
+
+/*++
+
+Routine Description:
+
+    Add the list of members of a local group.  Any previous members of the
+    local group are preserved.
+
+    The SAM API allows only one member to be added at a time.
+    This API allows several new members of a alias to be specified en-masse.
+    This API is careful to always leave the alias membership in the SAM
+    database in a reasonable state.
+
+    Alias membership is restored to its previous state (if possible) if
+    an error occurs during changing the alias membership.
+
+Arguments:
+
+    ServerName - A pointer to a string containing the name of the remote
+        server on which the function is to execute.  A NULL pointer
+        or string specifies the local machine.
+
+    LocalGroupName - Name of the alias to modify.
+
+    Level - Level of information provided.  Must be 0 or 3.
+
+    Buffer - A pointer to the buffer containing an array of NewMemberCount
+        the alias membership information structures.
+
+    NewMemberCount - Number of entries in Buffer.
+
+Return Value:
+
+    NERR_Success - Members were added successfully
+
+    NERR_GroupNotFound - The specified LocalGroupName does not exist
+
+    ERROR_NO_SUCH_MEMBER - One or more of the members doesn't exist.  Therefore,
+        no new members were added.
+
+    ERROR_MEMBER_IN_ALIAS - one or more of the members specified were already
+        members of the local group.  Therefore, no new members were added.
+
+    ERROR_INVALID_MEMBER - one or more of the members cannot be added because
+        it has an invalid account type.  Therefore, no new members were added.
+
+
+--*/
+
+{
+    NET_API_STATUS NetStatus;
+
+
+    NetStatus = AliaspSetMembers( ServerName,
+                                  LocalGroupName,
+                                  Level,
+                                  Buffer,
+                                  NewMemberCount,
+                                  AddMembers );
+
+
+    IF_DEBUG( UAS_DEBUG_ALIAS ) {
+        NetpKdPrint(( "NetLocalGroupAddMembers: returns %lu\n", NetStatus ));
+    }
+
+    return NetStatus;
+
+} // NetLocalGroupAddMembers
+
+
+NET_API_STATUS NET_API_FUNCTION
+NetLocalGroupDelMembers (
+    IN LPCWSTR ServerName OPTIONAL,
+    IN LPCWSTR LocalGroupName,
+    IN DWORD Level,
+    IN LPBYTE Buffer,
+    IN DWORD NewMemberCount
+    )
+
+/*++
+
+Routine Description:
+
+    Delete the list of members of a local group.
+
+    The SAM API allows only one member to be deleted at a time.
+    This API allows several members of a alias to be specified en-masse.
+    This API is careful to always leave the alias membership in the SAM
+    database in a reasonable state.
+
+    Alias membership is restored to its previous state (if possible) if
+    an error occurs during changing the alias membership.
+
+
+Arguments:
+
+    ServerName - A pointer to a string containing the name of the remote
+        server on which the function is to execute.  A NULL pointer
+        or string specifies the local machine.
+
+    LocalGroupName - Name of the alias to modify.
+
+    Level - Level of information provided.  Must be 0 or 3.
+
+    Buffer - A pointer to the buffer containing an array of NewMemberCount
+        the alias membership information structures.
+
+    NewMemberCount - Number of entries in Buffer.
+
+Return Value:
+
+    NERR_Success - Members were added successfully
+
+    NERR_GroupNotFound - The specified LocalGroupName does not exist
+
+    ERROR_MEMBER_NOT_IN_ALIAS - one or more of the members specified were not
+        in the local group.  Therefore, no members were deleted.
+
+    ERROR_NO_SUCH_MEMBER - One or more of the members doesn't exist.  Therefore,
+        no new members were added.
+
+--*/
+
+{
+    NET_API_STATUS NetStatus;
+
+
+    NetStatus = AliaspSetMembers( ServerName,
+                                  LocalGroupName,
+                                  Level,
+                                  Buffer,
+                                  NewMemberCount,
+                                  DelMembers );
+
+
+    IF_DEBUG( UAS_DEBUG_ALIAS ) {
+        NetpKdPrint(( "NetLocalGroupDelMembers: returns %lu\n", NetStatus ));
+    }
+
+    return NetStatus;
+
+} // NetLocalGroupDelMembers
 /*lint +e614 */
 /*lint +e740 */

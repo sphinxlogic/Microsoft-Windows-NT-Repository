@@ -1,24 +1,6 @@
-#if defined(OS2)
-#define INCL_DOSFILEMGR
-#include <os2.h>
-#endif
-
-#include "slm.h"
-#include "sys.h"
-#include "util.h"
-#include "stfile.h"
-#include "ad.h"
-#include "dir.h"
-#include "de.h"
-
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <ctype.h>
-#include <time.h>
-
-#include "proto.h"
+#include "precomp.h"
+#pragma hdrstop
 #include "messages.h"
-
 EnableAssert
 
 const PTH pthEtc[] = "/etc";
@@ -41,6 +23,11 @@ const char szUQF[]       = "%&/U/Q/F";
 const char szUQFR[]      = "%&/U/Q/F/R";
 const char szUQZCache[]  = "%&/U/Q/slm.dif/Z";
 const char szUQFCached[] = "%&/U/Q/slm.dif/F";
+
+const char szYEtcPC[]    = "%&/Y/etc/P/C";
+const char szYEtcPCT[]   = "%&/Y/etc/P/C/T";
+const char szYSrcPC[]    = "%&/Y/src/P/C";
+const char szYSrcPCF[]   = "%&/Y/src/P/C/F";
 
 const char szCD[] = "%c%d";
 
@@ -128,6 +115,35 @@ void InsertNe(
 {
     pne->pneNext = *ppneList;
     *ppneList = pne;
+}
+
+void
+RemoveNe(
+    NE **ppneList,
+    NE *pne
+    )
+{
+    NE *pneT;
+    pneT = *ppneList;
+
+    if (pne == pneT) {
+        // First node in the list
+        if (pneT->pneNext == pne) {
+            // Only node in the list
+            *ppneList = NULL;
+        } else {
+            *ppneList = pne->pneNext;
+        }
+    } else {
+        while (pneT && pneT->pneNext != pne) {
+            pneT= pneT->pneNext;
+        }
+
+        // Remove it from the list
+        pneT->pneNext = pne->pneNext;
+    }
+
+    free((char *)pne);
 }
 
 /* Return count of names in NE list */
@@ -568,7 +584,8 @@ void MarkAOut(
         pfi->fMarked = fFalse;
         for (ied = 0; ied < pad->psh->iedMac; ied++)
         {
-            if (FCheckedOut(pad, ied, pfi))
+            if ((!FIsFreeEdValid(pad->psh) || !pad->rged[ied].fFreeEd) &&
+                FCheckedOut(pad, ied, pfi))
             {
                 pfi->fMarked = fTrue;
                 break;
@@ -590,6 +607,36 @@ void MarkAll(
         pfi->fMarked = fTrue;
 }
 
+
+/* marks all of the directories */
+void MarkAllDir(
+    AD *pad)
+{
+    register FI far *pfi;
+    FI far *pfiMac;
+
+    AssertLoaded(pad);
+
+    for (pfi=pad->rgfi, pfiMac=pfi+pad->psh->ifiMac; pfi < pfiMac; pfi++)
+        if (pfi->fk == fkDir)
+            pfi->fMarked = fTrue;
+}
+
+/* marks all of the directories */
+void MarkAllDirOnly(
+    AD *pad)
+{
+    register FI far *pfi;
+    FI far *pfiMac;
+
+    AssertLoaded(pad);
+
+    for (pfi=pad->rgfi, pfiMac=pfi+pad->psh->ifiMac; pfi < pfiMac; pfi++)
+        if (pfi->fk == fkDir)
+            pfi->fMarked = fTrue;
+        else
+            pfi->fMarked = fFalse;
+}
 
 /* marks all of the non-deleted files and directories */
 void MarkNonDel(
@@ -693,7 +740,15 @@ F FHaveCurDir(
     AssertLoaded(pad);
     if (pad->iedCur != iedNil)
     {
-        if (NmCmp(pad->nmInvoker, pad->rged[pad->iedCur].nmOwner, cchUserMax) != 0)
+        ED *rged;
+
+        if (pad->fQuickIO) {
+            rged = pad->rged1;
+        }
+        else {
+            rged = &pad->rged[pad->iedCur];
+        }
+        if (NmCmp(pad->nmInvoker, rged->nmOwner, cchUserMax) != 0)
             Warn("invoker is not owner of directory\n");
         return fTrue;
     }
@@ -873,9 +928,6 @@ void ChngDir(
 }
 
 
-char *malloc(unsigned);
-char *realloc(char *, unsigned);
-
 /* calls malloc and aborts if we ran out of memory; zeros the block before
    returning a pointer to it.  REVIEW.
 */
@@ -951,6 +1003,42 @@ char *SzTime(
 }
 
 
+/* return short or long version of time;
+ * 23 for long, 14 for short.
+ * But year is first so it is sortable.
+ *
+ *      short - 85-11-06@19:57
+ *      long  - 85-11-06@19:57:16 (Tue)
+ */
+char *SzTimeSortable(
+    TIME time)
+{
+    static char szUnknown[] = "(unknown)";
+    static char szTTime[26];
+    struct tm *tmT;
+
+    if (timeNil == time)
+        return (szUnknown);
+
+    if ((tmT = localtime(&time)) == NULL)
+        return (szUnknown);
+
+    if (fVerbose)
+    {
+        SzPrint(szTTime,"%02d-%02d-%02d@%02d:%02d:%02d (%s)",tmT->tm_year,tmT->tm_mon+1,tmT->tm_mday,
+                tmT->tm_hour,tmT->tm_min,tmT->tm_sec,
+                rgszDay[tmT->tm_wday]);
+    }
+    else
+    {
+        SzPrint(szTTime,"%02d-%02d-%02d@%02d:%02d",tmT->tm_year,tmT->tm_mon+1,tmT->tm_mday,
+                tmT->tm_hour,tmT->tm_min);
+    }
+
+    return szTTime;
+}
+
+
 /* This predicate tests the first 50 characters in a file to see if the
  * file is binary or not.  It returns fTrue if any nonASCII characters
  * or unusual control codes are found.
@@ -964,7 +1052,7 @@ F FBinaryPth(
     register char *pbMac;
     register char *pb;
     MF *pmf;
-    struct stat st;
+    struct _stat st;
 
     if (!FStatPth(pth, &st) || (st.st_mode&S_IFREG) == 0)
         /* not present, or not regular */
@@ -976,13 +1064,8 @@ F FBinaryPth(
     pbMac = CbReadMf(pmf, (char far *)rgb, cchBinMax) + rgb;
     CloseMf(pmf);
 
-#if defined (_WIN32)
     if ((*TestForUnicode) (rgb, pbMac - rgb, NULL))
         return fUnicode;
-#else
-    if (*((WCHAR *)rgb) == BYTE_ORDER_MARK)
-        return fUnicode;
-#endif
 
     for (pb = rgb; pb < pbMac; pb++)
     {
@@ -1009,9 +1092,20 @@ F FBinaryPth(
     // It looks like text so far.  Add a final test for the COFF
     // library signature.
 
-    if (!strcmp(rgb, "!<arch>"))
+    if (!strncmp(rgb, IMAGE_ARCHIVE_START, IMAGE_ARCHIVE_START_SIZE))
         return(fTrue);
-    else
+    {
+        PIMAGE_DOS_HEADER pHdr = (PIMAGE_DOS_HEADER)rgb;
+
+        if ((pHdr->e_magic == IMAGE_NT_SIGNATURE)  ||
+            (pHdr->e_magic == IMAGE_DOS_SIGNATURE) ||
+            (pHdr->e_magic == IMAGE_OS2_SIGNATURE) ||
+            (pHdr->e_magic == IMAGE_VXD_SIGNATURE)
+
+            )
+            return(fTrue);
+    }
+
         return fText;
 }
 
@@ -1031,7 +1125,8 @@ F FOutUsers(
 
     for (ied = 0, iedMac = pad->psh->iedMac; ied < iedMac; ied++)
     {
-        if (FCheckedOut(pad,ied,pfi))
+        if ((!FIsFreeEdValid(pad->psh) || !pad->rged[ied].fFreeEd) &&
+            FCheckedOut(pad,ied,pfi))
         {
             cchUsed = strlen(sz);
             pch     = sz + cchUsed;
@@ -1167,10 +1262,18 @@ PV PvLocal(
     AD *pad,
     IED ied)
 {
+    ED *rged;
+
     AssertLoaded(pad);
 
     AssertF(ied != iedNil);
-    return (pad->rged[ied].fNewVer) ? PvIncr(PvGlobal(pad)) : PvGlobal(pad);
+    if (pad->fQuickIO) {
+        rged = pad->rged1;
+    }
+    else {
+        rged = &pad->rged[ied];
+    }
+    return (rged->fNewVer) ? PvIncr(PvGlobal(pad)) : PvGlobal(pad);
 }
 
 
@@ -1255,7 +1358,7 @@ F FBroken(
     FS far *pfs,
     int fDelOk)
 {
-    struct stat stUFile;
+    struct _stat stUFile;
     PTH pthUFile[cchPthMax];
 
     AssertLoaded(pad);
@@ -1311,11 +1414,7 @@ F FBroken(
         /* neither are version.h files */
         return fFalse;
 
-#if defined(DOS) || defined(OS2)
-    return (stUFile.st_mode&0222) != 0;/* return true if writable */
-#elif defined(_WIN32)
     return (stUFile.st_mode&S_IWRITE) != 0;/* return true if writable */
-#endif
 }
 
 
@@ -1343,8 +1442,11 @@ F FIsValidFileNm(
  * This checking is a superset of FIsValidFileNm().
  *
  */
-void ValidateFileName(
-    char *szFile)
+BOOL
+ValidateFileName(
+    char *szFile,
+    BOOL fAbortOnSystemFile
+    )
 {
     char *pch;
     unsigned cchName;
@@ -1353,6 +1455,7 @@ void ValidateFileName(
     static char *rgszSLMNames[] = { "slm.ini",
                                     "local.scr",
                                     "status.slm",
+                                    "iedcache.slm",
                                     "cookie" };
     static char *rgszDOSNames[] = { "AUX",
                                     "CLOCK$",
@@ -1368,7 +1471,7 @@ void ValidateFileName(
      * checking is done here.
      */
 #define FIsDevN(szDev, szName)  (strlen(szName) == 4 && \
-                                 strnicmp(szDev, szName, 3) == 0 && \
+                                 _strnicmp(szDev, szName, 3) == 0 && \
                                  isdigit(szName[3]))
 
     pch = index(szFile, '.');
@@ -1376,8 +1479,7 @@ void ValidateFileName(
     /* Make sure file name conforms to cchDosName.cchDosExt.
      * These checks disallow "." and "..".
      */
-    if (pch != NULL)
-    {
+    if (pch != NULL) {
         if (index(pch + 1, '.') != NULL)
             FatalError("\"%s\": names cannot contain more"
                        " than one '.'\n", szFile);
@@ -1402,11 +1504,13 @@ void ValidateFileName(
                    szFile);
 
     /* Check for protected SLM names */
-    for (isz = 0; isz < cSLMNames; isz++)
-    {
-        if (stricmp(szFile, rgszSLMNames[isz]) == 0)
-            FatalError("the name \"%s\" would conflict with"
-                       " SLM system files.\n", szFile);
+    for (isz = 0; isz < cSLMNames; isz++) {
+        if (_stricmp(szFile, rgszSLMNames[isz]) == 0)
+            if (fAbortOnSystemFile)
+                FatalError("the name \"%s\" would conflict with"
+                           " SLM system files.\n", szFile);
+            else
+                return(FALSE);
     }
 
     /* Check for DOS devices, with or w/o extension (relies on
@@ -1416,7 +1520,7 @@ void ValidateFileName(
         *pch = '\0';
 
     for (isz = 0, fDev = fFalse; !fDev && isz < cDOSNames; isz++)
-        fDev = stricmp(szFile, rgszDOSNames[isz]) == 0;
+        fDev = _stricmp(szFile, rgszDOSNames[isz]) == 0;
 
     fDev |= FIsDevN("LPT", szFile) || FIsDevN("COM", szFile);
 
@@ -1425,8 +1529,13 @@ void ValidateFileName(
         *pch = '.';
 
     if (fDev)
-        FatalError("the name \"%s\" would conflict with"
-                   " a DOS device.\n", szFile);
+        if (fAbortOnSystemFile)
+            FatalError("the name \"%s\" would conflict with"
+                       " a DOS device.\n", szFile);
+        else
+            return(FALSE);
+
+    return(TRUE);
 
 #undef cSLMNames
 #undef cDOSNames

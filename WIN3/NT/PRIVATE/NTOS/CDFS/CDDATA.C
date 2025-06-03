@@ -1,3 +1,4 @@
+
 /*++
 
 Copyright (c) 1989  Microsoft Corporation
@@ -10,15 +11,22 @@ Abstract:
 
     This module declares the global data used by the Cdfs file system.
 
+    This module also handles the dispath routines in the Fsd threads as well as
+    handling the IrpContext and Irp through the exception path.
+
 Author:
 
-    Brian Andrew    [BrianAn]   02-Jan-1991
+    Brian Andrew    [BrianAn]   01-July-1995
 
 Revision History:
 
 --*/
 
 #include "CdProcs.h"
+
+#ifdef CD_SANITY
+BOOLEAN CdfsTestTopLevel = TRUE;
+#endif
 
 //
 //  The Bug check file id for this module
@@ -27,131 +35,396 @@ Revision History:
 #define BugCheckFileId                   (CDFS_BUG_CHECK_CDDATA)
 
 //
-//  The debug trace level
-//
-
-#define Dbg                              (DEBUG_TRACE_CATCH_EXCEPTIONS)
-
-#ifdef ALLOC_PRAGMA
-#pragma alloc_text(PAGE, CdCompleteRequest_Real)
-#pragma alloc_text(PAGE, CdIsIrpTopLevel)
-#endif
-
-//
-//  The global fsd data record and zero large integer
+//  Global data structures
 //
 
 CD_DATA CdData;
-
-LARGE_INTEGER CdLargeZero = {0,0};
-LARGE_INTEGER CdMaxLarge = {MAXULONG,MAXLONG};
-
 FAST_IO_DISPATCH CdFastIoDispatch;
 
-#ifdef CDDBG
-
-LONG CdDebugTraceLevel = 0x0000000b;
-LONG CdDebugTraceIndent = 0;
-
 //
-//  I need this because C can't support conditional compilation within
-//  a macro.
+//  Reserved directory strings.
 //
 
-PVOID CdNull = NULL;
+WCHAR CdUnicodeSelfArray[] = { L'.' };
+WCHAR CdUnicodeParentArray[] = { L'.', L'.' };
 
-#endif // CDDBG
+UNICODE_STRING CdUnicodeDirectoryNames[] = {
+    { 2, 2, CdUnicodeSelfArray},
+    { 4, 4, CdUnicodeParentArray}
+};
 
-STRING CdSelfString = { sizeof( ".." ) - 1,
-                        sizeof( "." ),
-                        "." };
+//
+//  Volume descriptor identifier strings.
+//
+
+CHAR CdHsgId[] = { 'C', 'D', 'R', 'O', 'M' };
+CHAR CdIsoId[] = { 'C', 'D', '0', '0', '1' };
+CHAR CdXaId[] = { 'C', 'D', '-', 'X', 'A', '0', '0', '1' };
+
+//
+//  Volume label for audio disks.
+//
+
+WCHAR CdAudioLabel[] = { L'A', L'u', L'd', L'i', L'o', L' ', L'C', L'D' };
+USHORT CdAudioLabelLength = sizeof( CdAudioLabel );
+
+//
+//  Pseudo file names for audio disks.
+//
+
+CHAR CdAudioFileName[] = { 'T', 'r', 'a', 'c', 'k', '0', '0', '.', 'c', 'd', 'a' };
+UCHAR CdAudioFileNameLength = sizeof( CdAudioFileName );
+ULONG CdAudioDirentSize = FIELD_OFFSET( RAW_DIRENT, FileId ) + sizeof( CdAudioFileName ) + sizeof( SYSTEM_USE_XA );
+ULONG CdAudioDirentsPerSector = SECTOR_SIZE / (FIELD_OFFSET( RAW_DIRENT, FileId ) + sizeof( CdAudioFileName ) + sizeof( SYSTEM_USE_XA ));
+ULONG CdAudioSystemUseOffset = FIELD_OFFSET( RAW_DIRENT, FileId ) + sizeof( CdAudioFileName );
+
+//
+//  Escape sequences for mounting Unicode volumes.
+//
+
+PCHAR CdJolietEscape[] = { "%/@", "%/C", "%/E" };
+
+//
+//  Audio Play Files consist completely of this header block.  These
+//  files are readable in the root of any audio disc regardless of
+//  the capabilities of the drive.
+//
+//  The "Unique Disk ID Number" is a calculated value consisting of
+//  a combination of parameters, including the number of tracks and
+//  the starting locations of those tracks.
+//
+//  Applications interpreting CDDA RIFF files should be advised that
+//  additional RIFF file chunks may be added to this header in the
+//  future in order to add information, such as the disk and song title.
+//
+
+LONG CdAudioPlayHeader[] = {
+    0x46464952,                         // Chunk ID = 'RIFF'
+    4 * 11 - 8,                         // Chunk Size = (file size - 8)
+    0x41444443,                         // 'CDDA'
+    0x20746d66,                         // 'fmt '
+    24,                                 // Chunk Size (of 'fmt ' subchunk) = 24
+    0x00000001,                         // WORD Format Tag, WORD Track Number
+    0x00000000,                         // DWORD Unique Disk ID Number
+    0x00000000,                         // DWORD Track Starting Sector (LBN)
+    0x00000000,                         // DWORD Track Length (LBN count)
+    0x00000000,                         // DWORD Track Starting Sector (MSF)
+    0x00000000                          // DWORD Track Length (MSF)
+};
+
+//  Audio Philes begin with this header block to identify the data as a
+//  PCM waveform.  AudioPhileHeader is coded as if it has no data included
+//  in the waveform.  Data must be added in 2352-byte multiples.
+//
+//  Fields marked 'ADJUST' need to be adjusted based on the size of the
+//  data: Add (nSectors*2352) to the DWORDs at offsets 1*4 and 10*4.
+//
+//  File Size of TRACK??.WAV = nSectors*2352 + sizeof(AudioPhileHeader)
+//  RIFF('WAVE' fmt(1, 2, 44100, 176400, 16, 4) data( <CD Audio Raw Data> )
+//
+//  The number of sectors in a CD-XA CD-DA file is (DataLen/2048).
+//  CDFS will expose these files to applications as if they were just
+//  'WAVE' files, adjusting the file size so that the RIFF file is valid.
+//
+//  NT NOTE: We do not do any fidelity adjustment. These are presented as raw
+//  2352 byte sectors - 95 has the glimmer of an idea to allow CDFS to expose
+//  the CDXA CDDA data at different sampling rates in a virtual directory
+//  structure, but we will never do that.
+//
+
+LONG CdXAAudioPhileHeader[] = {
+    0x46464952,                         // Chunk ID = 'RIFF'
+    -8,                                 // Chunk Size = (file size - 8) ADJUST1
+    0x45564157,                         // 'WAVE'
+    0x20746d66,                         // 'fmt '
+    16,                                 // Chunk Size (of 'fmt ' subchunk) = 16
+    0x00020001,                         // WORD Format Tag WORD nChannels
+    44100,                              // DWORD nSamplesPerSecond
+    2352 * 75,                          // DWORD nAvgBytesPerSec
+    0x00100004,                         // WORD nBlockAlign WORD nBitsPerSample
+    0x61746164,                         // 'data'
+    -44                                 // <CD Audio Raw Data>          ADJUST2
+};
+
+//
+//  XA Files begin with this RIFF header block to identify the data as
+//  raw CD-XA sectors.  Data must be added in 2352-byte multiples.
+//
+//  This header is added to all CD-XA files which are marked as having
+//  mode2form2 sectors.
+//
+//  Fields marked 'ADJUST' need to be adjusted based on the size of the
+//  data: Add file size to the marked DWORDS.
+//
+//  File Size of TRACK??.WAV = nSectors*2352 + sizeof(XAFileHeader)
+//
+//  RIFF('CDXA' FMT(Owner, Attr, 'X', 'A', FileNum, 0) data ( <CDXA Raw Data> )
+//
+
+LONG CdXAFileHeader[] = {
+    0x46464952,                         // Chunk ID = 'RIFF'
+    -8,                                 // Chunk Size = (file size - 8) ADJUST
+    0x41584443,                         // 'CDXA'
+    0x20746d66,                         // 'fmt '
+    16,                                 // Chunk Size (of CDXA chunk) = 16
+    0,                                  // DWORD Owner ID
+    0x41580000,                         // WORD Attributes
+                                        // BYTE Signature byte 1 'X'
+                                        // BYTE Signature byte 2 'A'
+    0,                                  // BYTE File Number
+    0,                                  // BYTE Reserved[7]
+    0x61746164,                         // 'data'
+    -44                                 // <CD-XA Raw Sectors>          ADJUST
+};
+
+#ifdef ALLOC_PRAGMA
+#pragma alloc_text(PAGE, CdFastIoCheckIfPossible)
+#pragma alloc_text(PAGE, CdSerial32)
+#endif
 
 
-//
-//  Global static default code page for the US
-//
+NTSTATUS
+CdFsdDispatch (
+    IN PVOLUME_DEVICE_OBJECT VolumeDeviceObject,
+    IN PIRP Irp
+    )
 
-CODEPAGE PrimaryCodePage = {
+/*++
 
-    1,  437,                                         // Count and CodePage ID
+Routine Description:
 
-    0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,  // 0x00 - 0x07
-    0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,  // 0x08 - 0x0f
-    0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,  // 0x10 - 0x17
-    0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,  // 0x18 - 0x1f
-    0x20, 0x21, 0x01, 0x23, 0x24, 0x25, 0x26, 0x27,  // 0x20 - 0x27
-    0x28, 0x29, 0x2a, 0x01, 0x01, 0x2d, 0x2e, 0x01,  // 0x28 - 0x2f
-    0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,  // 0x30 - 0x37
-    0x38, 0x39, 0x01, 0x3b, 0x01, 0x01, 0x01, 0x3f,  // 0x38 - 0x3f
-    0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47,  // 0x40 - 0x47
-    0x48, 0x49, 0x4a, 0x4b, 0x4c, 0x4d, 0x4e, 0x4f,  // 0x48 - 0x4f
-    0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57,  // 0x50 - 0x57
-    0x58, 0x59, 0x5a, 0x01, 0x01, 0x01, 0x5e, 0x5f,  // 0x58 - 0x5f
-    0x60, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47,  // 0x60 - 0x67
-    0x48, 0x49, 0x4a, 0x4b, 0x4c, 0x4d, 0x4e, 0x4f,  // 0x68 - 0x6f
-    0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57,  // 0x70 - 0x77
-    0x58, 0x59, 0x5a, 0x7b, 0x01, 0x7d, 0x7e, 0x7f,  // 0x78 - 0x7f
+    This is the driver entry to all of the Fsd dispatch points.
 
-    0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87,  // 0x80 - 0x87
-    0x88, 0x89, 0x8a, 0x8b, 0x8c, 0x8d, 0x8e, 0x8f,  // 0x88 - 0x8f
-    0x90, 0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97,  // 0x90 - 0x97
-    0x98, 0x99, 0x9a, 0x9b, 0x9c, 0x9d, 0x9e, 0x9f,  // 0x98 - 0x9f
-    0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7,  // 0xa0 - 0xa7
-    0xa8, 0xa9, 0xaa, 0xab, 0xac, 0xad, 0xae, 0xaf,  // 0xa8 - 0xaf
-    0xb0, 0xb1, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7,  // 0xb0 - 0xb7
-    0xb8, 0xb9, 0xba, 0xbb, 0xbc, 0xbd, 0xbe, 0xbf,  // 0xb8 - 0xbf
-    0xc0, 0xc1, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7,  // 0xc0 - 0xc7
-    0xc8, 0xc9, 0xca, 0xcb, 0xcc, 0xcd, 0xce, 0xcf,  // 0xc8 - 0xcf
-    0xd0, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7,  // 0xd0 - 0xd7
-    0xd8, 0xd9, 0xda, 0xdb, 0xdc, 0xdd, 0xde, 0xdf,  // 0xd8 - 0xdf
-    0xe0, 0xe1, 0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7,  // 0xe0 - 0xe7
-    0xe8, 0xe9, 0xea, 0xeb, 0xec, 0xed, 0xee, 0xef,  // 0xe8 - 0xef
-    0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7,  // 0xf0 - 0xf7
-    0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xff}; // 0xf8 - 0xff
+    Conceptually the Io routine will call this routine on all requests
+    to the file system.  We case on the type of request and invoke the
+    correct handler for this type of request.  There is an exception filter
+    to catch any exceptions in the CDFS code as well as the CDFS process
+    exception routine.
 
-
-//
-//  Global static default code page for the Kanji character set
-//
+    This routine allocates and initializes the IrpContext for this request as
+    well as updating the top-level thread context as necessary.  We may loop
+    in this routine if we need to retry the request for any reason.  The
+    status code STATUS_CANT_WAIT is used to indicate this.  Suppose the disk
+    in the drive has changed.  An Fsd request will proceed normally until it
+    recognizes this condition.  STATUS_VERIFY_REQUIRED is raised at that point
+    and the exception code will handle the verify and either return
+    STATUS_CANT_WAIT or STATUS_PENDING depending on whether the request was
+    posted.
 
-CODEPAGE KanjiCodePage = {
+Arguments:
 
-    81,  932,                                        // Count and CodePage ID
+    VolumeDeviceObject - Supplies the volume device object for this request
 
-    0x01, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,  // 0x00 - 0x07
-    0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,  // 0x08 - 0x0f
-    0x10, 0x11, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16,  // 0x10 - 0x17
-    0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x0e, 0x1f,  // 0x18 - 0x1f
-    0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27,  // 0x20 - 0x27
-    0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f,  // 0x28 - 0x2f
-    0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,  // 0x30 - 0x37
-    0x38, 0x39, 0x3a, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f,  // 0x38 - 0x3f
-    0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47,  // 0x40 - 0x47
-    0x48, 0x49, 0x4a, 0x4b, 0x4c, 0x4d, 0x4e, 0x4f,  // 0x48 - 0x4f
-    0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57,  // 0x50 - 0x57
-    0x58, 0x59, 0x5a, 0x5b, 0x5c, 0x5d, 0x5e, 0x5f,  // 0x58 - 0x5f
-    0x60, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47,  // 0x60 - 0x67
-    0x48, 0x49, 0x4a, 0x4b, 0x4c, 0x4d, 0x4e, 0x4f,  // 0x68 - 0x6f
-    0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57,  // 0x70 - 0x77
-    0x58, 0x59, 0x5a, 0x7b, 0x7c, 0x7d, 0x7e, 0x7f,  // 0x78 - 0x7f
+    Irp - Supplies the Irp being processed
 
-    0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // 0x80 - 0x87
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // 0x88 - 0x8f
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // 0x90 - 0x97
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // 0x98 - 0x9f
-    0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7,  // 0xa0 - 0xa7
-    0xa8, 0xa9, 0xaa, 0xab, 0xac, 0xad, 0xae, 0xaf,  // 0xa8 - 0xaf
-    0xb0, 0xb1, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7,  // 0xb0 - 0xb7
-    0xb8, 0xb9, 0xba, 0xbb, 0xbc, 0xbd, 0xbe, 0xbf,  // 0xb8 - 0xbf
-    0xc0, 0xc1, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7,  // 0xc0 - 0xc7
-    0xc8, 0xc9, 0xca, 0xcb, 0xcc, 0xcd, 0xce, 0xcf,  // 0xc8 - 0xcf
-    0xd0, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7,  // 0xd0 - 0xd7
-    0xd8, 0xd9, 0xda, 0xdb, 0xdc, 0xdd, 0xde, 0xdf,  // 0xd8 - 0xdf
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // 0xe0 - 0xe7
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // 0xe8 - 0xef
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // 0xf0 - 0xf7
-    0x00, 0x00, 0x00, 0x00, 0x00, 0xfd, 0xfe, 0xff}; // 0xf8 - 0xff
+Return Value:
 
+    NTSTATUS - The FSD status for the IRP
+
+--*/
+
+{
+    THREAD_CONTEXT ThreadContext;
+    PIRP_CONTEXT IrpContext = NULL;
+    BOOLEAN Wait;
+
+#ifdef CD_SANITY
+    PVOID PreviousTopLevel;
+#endif
+
+    NTSTATUS Status;
+
+    KIRQL SaveIrql = KeGetCurrentIrql();
+
+    ASSERT_OPTIONAL_IRP( Irp );
+
+    FsRtlEnterFileSystem();
+
+#ifdef CD_SANITY
+    PreviousTopLevel = IoGetTopLevelIrp();
+#endif
+
+    //
+    //  Loop until this request has been completed or posted.
+    //
+
+    do {
+
+        //
+        //  Use a try-except to handle the exception cases.
+        //
+
+        try {
+
+            //
+            //  If the IrpContext is NULL then this is the first pass through
+            //  this loop.
+            //
+
+            if (IrpContext == NULL) {
+
+                //
+                //  Decide if this request is waitable an allocate the IrpContext.
+                //  If the file object in the stack location is NULL then this
+                //  is a mount which is always waitable.  Otherwise we look at
+                //  the file object flags.
+                //
+
+                if (IoGetCurrentIrpStackLocation( Irp )->FileObject == NULL) {
+
+                    Wait = TRUE;
+
+                } else {
+
+                    Wait = CanFsdWait( Irp );
+                }
+
+                IrpContext = CdCreateIrpContext( Irp, Wait );
+
+                //
+                //  Update the thread context information.
+                //
+
+                CdSetThreadContext( IrpContext, &ThreadContext );
+
+#ifdef CD_SANITY
+                ASSERT( !CdfsTestTopLevel ||
+                        SafeNodeType( IrpContext->TopLevel ) == CDFS_NTC_IRP_CONTEXT );
+#endif
+
+            //
+            //  Otherwise cleanup the IrpContext for the retry.
+            //
+
+            } else {
+
+                //
+                //  Set the MORE_PROCESSING flag to make sure the IrpContext
+                //  isn't inadvertently deleted here.  Then cleanup the
+                //  IrpContext to perform the retry.
+                //
+
+                SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_MORE_PROCESSING );
+                CdCleanupIrpContext( IrpContext, FALSE );
+            }
+
+            //
+            //  Initialize the Io status field in the Irp.
+            //
+
+            Irp->IoStatus.Status = STATUS_SUCCESS;
+            Irp->IoStatus.Information = 0;
+
+            //
+            //  Case on the major irp code.
+            //
+
+            switch (IrpContext->MajorFunction) {
+
+            case IRP_MJ_CREATE :
+
+                Status = CdCommonCreate( IrpContext, Irp );
+                break;
+
+            case IRP_MJ_CLOSE :
+
+                Status = CdCommonClose( IrpContext, Irp );
+                break;
+
+            case IRP_MJ_READ :
+
+                //
+                //  If this is an Mdl complete request, don't go through
+                //  common read.
+                //
+
+                if (FlagOn( IrpContext->MinorFunction, IRP_MN_COMPLETE )) {
+
+                    Status = CdCompleteMdl( IrpContext, Irp );
+
+                //
+                //  Always post the Dpc requests.
+                //
+
+                } else if (FlagOn( IrpContext->MinorFunction, IRP_MN_DPC )) {
+
+                    ClearFlag( IrpContext->MinorFunction, IRP_MN_DPC );
+
+                    SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_FORCE_POST );
+
+                    CdRaiseStatus( IrpContext, STATUS_CANT_WAIT );
+
+                } else {
+
+                    Status = CdCommonRead( IrpContext, Irp );
+                }
+
+                break;
+
+            case IRP_MJ_QUERY_INFORMATION :
+
+                Status = CdCommonQueryInfo( IrpContext, Irp );
+                break;
+
+            case IRP_MJ_SET_INFORMATION :
+
+                Status = CdCommonQueryInfo( IrpContext, Irp );
+                break;
+
+            case IRP_MJ_QUERY_VOLUME_INFORMATION :
+
+                Status = CdCommonQueryVolInfo( IrpContext, Irp );
+                break;
+
+            case IRP_MJ_DIRECTORY_CONTROL :
+
+                Status = CdCommonDirControl( IrpContext, Irp );
+                break;
+
+            case IRP_MJ_FILE_SYSTEM_CONTROL :
+
+                Status = CdCommonFsControl( IrpContext, Irp );
+                break;
+
+            case IRP_MJ_DEVICE_CONTROL :
+
+                Status = CdCommonDevControl( IrpContext, Irp );
+                break;
+
+            case IRP_MJ_LOCK_CONTROL :
+
+                Status = CdCommonLockControl( IrpContext, Irp );
+                break;
+
+            case IRP_MJ_CLEANUP :
+
+                Status = CdCommonCleanup( IrpContext, Irp );
+                break;
+
+            default :
+
+                Status = STATUS_INVALID_DEVICE_REQUEST;
+                CdCompleteRequest( IrpContext, Irp, Status );
+            }
+
+        } except( CdExceptionFilter( IrpContext, GetExceptionInformation() )) {
+
+            Status = CdProcessException( IrpContext, Irp, GetExceptionCode() );
+        }
+
+    } while (Status == STATUS_CANT_WAIT);
+
+#ifdef CD_SANITY
+    ASSERT( !CdfsTestTopLevel ||
+            (PreviousTopLevel == IoGetTopLevelIrp()) );
+#endif
+
+    FsRtlExitFileSystem();
+
+    ASSERT( SaveIrql == KeGetCurrentIrql( ));
+
+    return Status;
+}
 
 
 LONG
@@ -164,10 +437,10 @@ CdExceptionFilter (
 
 Routine Description:
 
-    This routine is used to decide if we should or should not handle
-    an exception status that is being raised.  It inserts the status
-    into the IrpContext and either indicates that we should handle
-    the exception or bug check the system.
+    This routine is used to decide whether we will handle a raised exception
+    status.  If CDFS explicitly raised an error then this status is already
+    in the IrpContext.  We choose which is the correct status code and
+    either indicate that we will handle the exception or bug-check the system.
 
 Arguments:
 
@@ -181,6 +454,9 @@ Return Value:
 
 {
     NTSTATUS ExceptionCode;
+    BOOLEAN TestStatus = TRUE;
+
+    ASSERT_OPTIONAL_IRP_CONTEXT( IrpContext );
 
     ExceptionCode = ExceptionPointer->ExceptionRecord->ExceptionCode;
 
@@ -189,56 +465,60 @@ Return Value:
     // from the exception record.
     //
 
-    if (ExceptionCode == STATUS_IN_PAGE_ERROR) {
-        if (ExceptionPointer->ExceptionRecord->NumberParameters >= 3) {
-            ExceptionCode = ExceptionPointer->ExceptionRecord->ExceptionInformation[2];
-        }
+    if ((ExceptionCode == STATUS_IN_PAGE_ERROR) &&
+        (ExceptionPointer->ExceptionRecord->NumberParameters >= 3)) {
+
+        ExceptionCode = ExceptionPointer->ExceptionRecord->ExceptionInformation[2];
     }
 
     //
-    //  If there is not an irp context, we must have had insufficient resources.
+    //  If there is an Irp context then check which status code to use.
     //
 
-    DebugTrace(0, DEBUG_TRACE_UNWIND, "CdExceptionFilter %X\n", ExceptionCode);
+    if (ARGUMENT_PRESENT( IrpContext )) {
 
-    if (!ARGUMENT_PRESENT( IrpContext )) {
+        if (IrpContext->ExceptionStatus == STATUS_SUCCESS) {
 
-        ASSERT( ExceptionCode == STATUS_INSUFFICIENT_RESOURCES );
-
-        return EXCEPTION_EXECUTE_HANDLER;
-    }
-
-    IrpContext->Wait = TRUE;
-
-    if (IrpContext->ExceptionStatus == 0) {
-
-        if (FsRtlIsNtstatusExpected( ExceptionCode )) {
+            //
+            //  Store the real status into the IrpContext.
+            //
 
             IrpContext->ExceptionStatus = ExceptionCode;
 
-            return EXCEPTION_EXECUTE_HANDLER;
-
         } else {
 
-            return EXCEPTION_CONTINUE_SEARCH;
+            //
+            //  No need to test the status code if we raised it ourselves.
+            //
+
+            TestStatus = FALSE;
         }
+    }
 
-    } else {
+#ifdef CD_SANITY
+    ASSERT( (ExceptionCode != STATUS_DISK_CORRUPT_ERROR ) &&
+            (ExceptionCode != STATUS_FILE_CORRUPT_ERROR ));
+#endif
 
-        //
-        //  We raised this code explicitly ourselves, so it had better be
-        //  expected.
-        //
+    //
+    //  Bug check if this status is not supported.
+    //
 
-        ASSERT( FsRtlIsNtstatusExpected( ExceptionCode ) );
+    if (TestStatus && !FsRtlIsNtstatusExpected( ExceptionCode )) {
+
+        CdBugCheck( (ULONG) ExceptionPointer->ExceptionRecord,
+                    (ULONG) ExceptionPointer->ContextRecord,
+                    (ULONG) ExceptionPointer->ExceptionRecord->ExceptionAddress );
+
     }
 
     return EXCEPTION_EXECUTE_HANDLER;
 }
 
+
 NTSTATUS
 CdProcessException (
-    IN PIRP_CONTEXT IrpContext,
+    IN PIRP_CONTEXT IrpContext OPTIONAL,
     IN PIRP Irp,
     IN NTSTATUS ExceptionCode
     )
@@ -247,8 +527,14 @@ CdProcessException (
 
 Routine Description:
 
-    This routine process an exception.  It either completes the request
-    with the saved exception status or it sends the request off to the Fsp
+    This routine processes an exception.  It either completes the request
+    with the exception status in the IrpContext, sends this off to the Fsp
+    workque or causes it to be retried in the current thread if a verification
+    is needed.
+
+    If the volume needs to be verified (STATUS_VERIFY_REQUIRED) and we can
+    do the work in the current thread we will translate the status code
+    to STATUS_CANT_WAIT to indicate that we need to retry the request.
 
 Arguments:
 
@@ -264,115 +550,139 @@ Return Value:
 --*/
 
 {
-    DebugTrace(0, Dbg, "CdProcessException\n", 0);
+    PDEVICE_OBJECT Device;
+    PVPB Vpb;
+    PETHREAD Thread;
+
+    ASSERT_OPTIONAL_IRP_CONTEXT( IrpContext );
+    ASSERT_IRP( Irp );
 
     //
-    //  If there is not an irp context, we must have had insufficient resources.
+    //  If there is not an irp context, then complete the request with the
+    //  current status code.
     //
 
     if (!ARGUMENT_PRESENT( IrpContext )) {
 
-        ASSERT( ExceptionCode == STATUS_INSUFFICIENT_RESOURCES );
-
         CdCompleteRequest( NULL, Irp, ExceptionCode );
-
         return ExceptionCode;
     }
 
     //
-    //  Get the real exception status from IrpContext->ExceptionStatus, and
-    //  reset it.  Also copy it to the Irp in case it isn't already there
+    //  Get the real exception status from the IrpContext.
     //
 
     ExceptionCode = IrpContext->ExceptionStatus;
-    IrpContext->ExceptionStatus = 0;
 
     //
-    //  If we will have to post the request, do it here.  Note
-    //  that the last thing CdPrePostIrp() does is mark the Irp pending,
-    //  so it is critical that we actually return PENDING.  Nothing
-    //  from this point to return can fail, so we are OK.
-    //
-    //  We cannot do a verify operations at APC level because we
-    //  have to wait for Io operations to complete.
+    //  If we are not a top level request then we just complete the request
+    //  with the current status code.
     //
 
-    if (!IrpContext->RecursiveFileSystemCall &&
-        (((ExceptionCode == STATUS_VERIFY_REQUIRED) && (KeGetCurrentIrql() >= APC_LEVEL)) ||
-         (ExceptionCode == STATUS_CANT_WAIT))) {
-
-        ExceptionCode = CdFsdPostRequest( IrpContext, Irp );
-    }
-
-    //
-    //  If we posted the request, just return here.
-    //
-
-    if (ExceptionCode == STATUS_PENDING) {
-
-        return ExceptionCode;
-    }
-
-    Irp->IoStatus.Status = ExceptionCode;
-
-    //
-    //  If this request is not a "top-level" irp, just complete it.
-    //
-
-    if (IrpContext->RecursiveFileSystemCall) {
+    if (!FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_TOP_LEVEL )) {
 
         CdCompleteRequest( IrpContext, Irp, ExceptionCode );
 
         return ExceptionCode;
     }
 
-    if (IoIsErrorUserInduced(ExceptionCode)) {
+    //
+    //  Check if we are posting this request.  One of the following must be true
+    //  if we are to post a request.
+    //
+    //      - Status code is STATUS_CANT_WAIT and the request is asynchronous
+    //          or we are forcing this to be posted.
+    //
+    //      - Status code is STATUS_VERIFY_REQUIRED and we are at APC level
+    //          or higher.  Can't wait for IO in the verify path in this case.
+    //
+    //  Set the MORE_PROCESSING flag in the IrpContext to keep if from being
+    //  deleted if this is a retryable condition.
+    //
+
+    if (ExceptionCode == STATUS_CANT_WAIT) {
+
+        if (FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_FORCE_POST )) {
+
+            ExceptionCode = CdFsdPostRequest( IrpContext, Irp );
+        }
+
+    } else if (ExceptionCode == STATUS_VERIFY_REQUIRED) {
+
+        if (KeGetCurrentIrql() >= APC_LEVEL) {
+
+            ExceptionCode = CdFsdPostRequest( IrpContext, Irp );
+        }
+    }
+
+    //
+    //  If we posted the request or our caller will retry then just return here.
+    //
+
+    if ((ExceptionCode == STATUS_PENDING) ||
+        (ExceptionCode == STATUS_CANT_WAIT)) {
+
+        return ExceptionCode;
+    }
+
+    ClearFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_MORE_PROCESSING );
+
+    //
+    //  Store this error into the Irp for posting back to the Io system.
+    //
+
+    Irp->IoStatus.Status = ExceptionCode;
+
+    if (IoIsErrorUserInduced( ExceptionCode )) {
 
         //
         //  Check for the various error conditions that can be caused by,
-        //  and possibly resolvued my the user.
+        //  and possibly resolved my the user.
         //
 
         if (ExceptionCode == STATUS_VERIFY_REQUIRED) {
 
-            PDEVICE_OBJECT Device;
-
-            DebugTrace(0, Dbg, "Perform Verify Operation\n", 0);
-
             //
             //  Now we are at the top level file system entry point.
             //
-            //  Grab the device to verify from the thread local storage
-            //  and stick it in the information field for transportation
-            //  to the fsp.  We also clear the field at this time.
+            //  If we have already posted this request then the device to
+            //  verify is in the original thread.  Find this via the Irp.
             //
 
             Device = IoGetDeviceToVerify( Irp->Tail.Overlay.Thread );
             IoSetDeviceToVerify( Irp->Tail.Overlay.Thread, NULL );
 
-            if ( Device == NULL ) {
+            //
+            //  If there is no device in that location then check in the
+            //  current thread.
+            //
+
+            if (Device == NULL) {
 
                 Device = IoGetDeviceToVerify( PsGetCurrentThread() );
                 IoSetDeviceToVerify( PsGetCurrentThread(), NULL );
 
                 ASSERT( Device != NULL );
-            }
 
-            //
-            //  Let's not BugCheck just because the driver screwed up.
-            //
+                //
+                //  Let's not BugCheck just because the driver screwed up.
+                //
 
-            if (Device == NULL) {
+                if (Device == NULL) {
 
-                ExceptionCode = STATUS_DRIVER_INTERNAL_ERROR;
+                    ExceptionCode = STATUS_DRIVER_INTERNAL_ERROR;
 
-                CdCompleteRequest( IrpContext, Irp, ExceptionCode );
+                    CdCompleteRequest( IrpContext, Irp, ExceptionCode );
 
-                return ExceptionCode;
+                    return ExceptionCode;
+                }
             }
 
             //
             //  CdPerformVerify() will do the right thing with the Irp.
+            //  If we return STATUS_CANT_WAIT then the current thread
+            //  can retry the request.
+            //
 
             return CdPerformVerify( IrpContext, Irp, Device );
         }
@@ -382,7 +692,7 @@ Return Value:
         //  they have been disabled for this request.
         //
 
-        if (IrpContext->DisablePopUps) {
+        if (FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_DISABLE_POPUPS )) {
 
             CdCompleteRequest( IrpContext, Irp, ExceptionCode );
 
@@ -394,13 +704,9 @@ Return Value:
             //  Generate a pop-up
             //
 
-            PDEVICE_OBJECT RealDevice;
-            PVPB Vpb;
-            PETHREAD Thread;
+            if (IoGetCurrentIrpStackLocation( Irp )->FileObject != NULL) {
 
-            if (IoGetCurrentIrpStackLocation(Irp)->FileObject != NULL) {
-
-                Vpb = IoGetCurrentIrpStackLocation(Irp)->FileObject->Vpb;
+                Vpb = IoGetCurrentIrpStackLocation( Irp )->FileObject->Vpb;
 
             } else {
 
@@ -413,25 +719,25 @@ Return Value:
             //
 
             Thread = Irp->Tail.Overlay.Thread;
-            RealDevice = IoGetDeviceToVerify( Thread );
+            Device = IoGetDeviceToVerify( Thread );
 
-            if ( RealDevice == NULL ) {
+            if (Device == NULL) {
 
                 Thread = PsGetCurrentThread();
-                RealDevice = IoGetDeviceToVerify( Thread );
+                Device = IoGetDeviceToVerify( Thread );
 
-                ASSERT( RealDevice != NULL );
-            }
+                ASSERT( Device != NULL );
 
-            //
-            //  Let's not BugCheck just because the driver screwed up.
-            //
+                //
+                //  Let's not BugCheck just because the driver screwed up.
+                //
 
-            if (RealDevice == NULL) {
+                if (Device == NULL) {
 
-                CdCompleteRequest( IrpContext, Irp, ExceptionCode );
+                    CdCompleteRequest( IrpContext, Irp, ExceptionCode );
 
-                return ExceptionCode;
+                    return ExceptionCode;
+                }
             }
 
             //
@@ -442,7 +748,7 @@ Return Value:
             //
 
             IoMarkIrpPending( Irp );
-            IoRaiseHardError( Irp, Vpb, RealDevice );
+            IoRaiseHardError( Irp, Vpb, Device );
 
             //
             //  We will be handing control back to the caller here, so
@@ -456,7 +762,7 @@ Return Value:
             //  case we must clean up the IrpContext here.
             //
 
-            CdDeleteIrpContext( IrpContext );
+            CdCompleteRequest( IrpContext, NULL, STATUS_SUCCESS );
             return STATUS_PENDING;
         }
     }
@@ -469,9 +775,10 @@ Return Value:
 
     return ExceptionCode;
 }
+
 
 VOID
-CdCompleteRequest_Real (
+CdCompleteRequest (
     IN PIRP_CONTEXT IrpContext OPTIONAL,
     IN PIRP Irp OPTIONAL,
     IN NTSTATUS Status
@@ -481,11 +788,12 @@ CdCompleteRequest_Real (
 
 Routine Description:
 
-    This routine completes a Irp
+    This routine completes a Irp and cleans up the IrpContext.  Either or
+    both of these may not be specified.
 
 Arguments:
 
-    Irp - Supplies the Irp being processed
+    Irp - Supplies the Irp being processed.
 
     Status - Supplies the status to complete the Irp with
 
@@ -496,64 +804,281 @@ Return Value:
 --*/
 
 {
-    PAGED_CODE();
+    ASSERT_OPTIONAL_IRP_CONTEXT( IrpContext );
+    ASSERT_OPTIONAL_IRP( Irp );
+
+    //
+    //  Cleanup the IrpContext if passed in here.
+    //
+
+    if (ARGUMENT_PRESENT( IrpContext )) {
+
+        CdCleanupIrpContext( IrpContext, FALSE );
+    }
 
     //
     //  If we have an Irp then complete the irp.
     //
 
-    if (Irp != NULL) {
+    if (ARGUMENT_PRESENT( Irp )) {
+
+        //
+        //  Clear the information field in case we have used this Irp
+        //  internally.
+        //
+
+        if (NT_ERROR( Status ) &&
+            FlagOn( Irp->Flags, IRP_INPUT_OPERATION )) {
+
+            Irp->IoStatus.Information = 0;
+        }
 
         Irp->IoStatus.Status = Status;
         IoCompleteRequest( Irp, IO_CD_ROM_INCREMENT );
     }
 
-    //
-    //  Delete the Irp context.
-    //
-
-    if (IrpContext != NULL) {
-
-        CdDeleteIrpContext( IrpContext );
-    }
-
     return;
 }
+
 
-BOOLEAN
-CdIsIrpTopLevel (
-    IN PIRP Irp
+VOID
+CdSetThreadContext (
+    IN PIRP_CONTEXT IrpContext,
+    IN PTHREAD_CONTEXT ThreadContext
     )
 
 /*++
 
 Routine Description:
 
-    This routine completes a Irp
+    This routine is called at each Fsd/Fsp entry point set up the IrpContext
+    and thread local storage to track top level requests.  If there is
+    not a Cdfs context in the thread local storage then we use the input one.
+    Otherwise we use the one already there.  This routine also updates the
+    IrpContext based on the state of the top-level context.
+
+    If the TOP_LEVEL flag in the IrpContext is already set when we are called
+    then we force this request to appear top level.
 
 Arguments:
 
-    Irp - Supplies the Irp being processed
+    ThreadContext - Address on stack for local storage if not already present.
 
-    Status - Supplies the status to complete the Irp with
+    ForceTopLevel - We force this request to appear top level regardless of
+        any previous stack value.
 
 Return Value:
 
-    None.
+    None
 
 --*/
 
 {
+    PTHREAD_CONTEXT CurrentThreadContext;
+    ULONG StackTop;
+    ULONG StackBottom;
+
     PAGED_CODE();
 
-    if ( IoGetTopLevelIrp() == NULL ) {
+    ASSERT_IRP_CONTEXT( IrpContext );
 
-        IoSetTopLevelIrp( Irp );
+    //
+    //  Get the current top-level irp out of the thread storage.
+    //  If NULL then this is the top-level request.
+    //
 
-        return TRUE;
+    CurrentThreadContext = (PTHREAD_CONTEXT) IoGetTopLevelIrp();
+
+    if (CurrentThreadContext == NULL) {
+
+        SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_TOP_LEVEL );
+    }
+
+    //
+    //  Initialize the input context unless we are using the current
+    //  thread context block.  We use the new block if our caller
+    //  specified this or the existing block is invalid.
+    //
+    //  The following must be true for the current to be a valid Cdfs context.
+    //
+    //      Structure must lie within current stack.
+    //      Address must be ULONG aligned.
+    //      Cdfs signature must be present.
+    //
+    //  If this is not a valid Cdfs context then use the input thread
+    //  context and store it in the top level context.
+    //
+
+    IoGetStackLimits( &StackTop, &StackBottom);
+
+    if (FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_TOP_LEVEL ) ||
+        (((ULONG) CurrentThreadContext > StackBottom - sizeof( THREAD_CONTEXT )) ||
+         ((ULONG) CurrentThreadContext <= StackTop) ||
+         FlagOn( (ULONG) CurrentThreadContext, 0x3 ) ||
+         (CurrentThreadContext->Cdfs != 0x53464443))) {
+
+        ThreadContext->Cdfs = 0x53464443;
+        ThreadContext->SavedTopLevelIrp = (PIRP) CurrentThreadContext;
+        ThreadContext->TopLevelIrpContext = IrpContext;
+        IoSetTopLevelIrp( (PIRP) ThreadContext );
+
+        IrpContext->TopLevel = IrpContext;
+        IrpContext->ThreadContext = ThreadContext;
+
+        SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_TOP_LEVEL_CDFS );
+
+    //
+    //  Otherwise use the IrpContext in the thread context.
+    //
 
     } else {
 
-        return FALSE;
+        IrpContext->TopLevel = CurrentThreadContext->TopLevelIrpContext;
     }
+
+    return;
+}
+
+
+BOOLEAN
+CdFastIoCheckIfPossible (
+    IN PFILE_OBJECT FileObject,
+    IN PLARGE_INTEGER FileOffset,
+    IN ULONG Length,
+    IN BOOLEAN Wait,
+    IN ULONG LockKey,
+    IN BOOLEAN CheckForReadOperation,
+    OUT PIO_STATUS_BLOCK IoStatus,
+    IN PDEVICE_OBJECT DeviceObject
+    )
+
+/*++
+
+Routine Description:
+
+    This routine checks if fast i/o is possible for a read/write operation
+
+Arguments:
+
+    FileObject - Supplies the file object used in the query
+
+    FileOffset - Supplies the starting byte offset for the read/write operation
+
+    Length - Supplies the length, in bytes, of the read/write operation
+
+    Wait - Indicates if we can wait
+
+    LockKey - Supplies the lock key
+
+    CheckForReadOperation - Indicates if this is a check for a read or write
+        operation
+
+    IoStatus - Receives the status of the operation if our return value is
+        FastIoReturnError
+
+Return Value:
+
+    BOOLEAN - TRUE if fast I/O is possible and FALSE if the caller needs
+        to take the long route.
+
+--*/
+
+{
+    PFCB Fcb;
+    TYPE_OF_OPEN TypeOfOpen;
+    LARGE_INTEGER LargeLength;
+
+    PAGED_CODE();
+
+    //
+    //  Decode the type of file object we're being asked to process and
+    //  make sure that is is only a user file open.
+    //
+
+    TypeOfOpen = CdFastDecodeFileObject( FileObject, &Fcb );
+
+    if ((TypeOfOpen != UserFileOpen) || !CheckForReadOperation) {
+
+        IoStatus->Status = STATUS_INVALID_PARAMETER;
+        return TRUE;
+    }
+
+    LargeLength.QuadPart = Length;
+
+    //
+    //  Check whether the file locks will allow for fast io.
+    //
+
+    if ((Fcb->FileLock == NULL) ||
+        FsRtlFastCheckLockForRead( Fcb->FileLock,
+                                   FileOffset,
+                                   &LargeLength,
+                                   LockKey,
+                                   FileObject,
+                                   PsGetCurrentProcess() )) {
+
+        return TRUE;
+    }
+
+    return FALSE;
+}
+
+
+ULONG
+CdSerial32 (
+    IN PCHAR Buffer,
+    IN ULONG ByteCount
+    )
+/*++
+
+Routine Description:
+
+    This routine is called to generate a 32 bit serial number.  This is
+    done by doing four separate checksums into an array of bytes and
+    then treating the bytes as a ULONG.
+
+Arguments:
+
+    Buffer - Pointer to the buffer to generate the ID for.
+
+    ByteCount - Number of bytes in the buffer.
+
+Return Value:
+
+    ULONG - The 32 bit serial number.
+
+--*/
+
+{
+    union {
+        UCHAR   Bytes[4];
+        ULONG   SerialId;
+    } Checksum;
+
+    PAGED_CODE();
+
+    //
+    //  Initialize the serial number.
+    //
+
+    Checksum.SerialId = 0;
+
+    //
+    //  Continue while there are more bytes to use.
+    //
+
+    while (ByteCount--) {
+
+        //
+        //  Increment this sub-checksum.
+        //
+
+        Checksum.Bytes[ByteCount & 0x3] += *(Buffer++);
+    }
+
+    //
+    //  Return the checksums as a ULONG.
+    //
+
+    return Checksum.SerialId;
 }

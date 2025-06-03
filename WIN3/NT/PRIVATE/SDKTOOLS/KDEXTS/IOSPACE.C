@@ -22,6 +22,8 @@ Revision History:
 
 --*/
 
+#include "precomp.h"
+#pragma hdrstop
 
 
 VOID
@@ -80,17 +82,17 @@ Return Value:
 
 DECLARE_API( ib )
 {
-    InternalReadIoSpace( 1, args );
+    InternalReadIoSpace( 1, (PSTR)args );
 }
 
 DECLARE_API( iw )
 {
-    InternalReadIoSpace( 2, args );
+    InternalReadIoSpace( 2, (PSTR)args );
 }
 
 DECLARE_API( id )
 {
-    InternalReadIoSpace( 4, args );
+    InternalReadIoSpace( 4, (PSTR)args );
 }
 
 
@@ -137,26 +139,21 @@ Return Value:
         OutputValue = GetExpression( p );
     }
 
-    if (OutputValue == 0) {
-        dprintf( "Could not evaluate value expresion (%s)\n", args );
-        return;
-    }
-
     WriteIoSpace( IoAddress, OutputValue, &OutputSize );
 }
 
 
 DECLARE_API( ob )
 {
-    InternalWriteIoSpace( 1, args );
+    InternalWriteIoSpace( 1, (PSTR)args );
 }
 
 DECLARE_API( ow )
 {
-    InternalWriteIoSpace( 2, args );
+    InternalWriteIoSpace( 2, (PSTR)args );
 }
 
 DECLARE_API( od )
 {
-    InternalWriteIoSpace( 4, args );
+    InternalWriteIoSpace( 4, (PSTR)args );
 }

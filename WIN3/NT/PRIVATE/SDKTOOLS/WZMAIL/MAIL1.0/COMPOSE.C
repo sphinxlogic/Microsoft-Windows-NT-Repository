@@ -21,7 +21,7 @@
  *  20-Jul-87   danl    Use ReadKey instead of getc
  *  22-Jul-87   danl    Added pRFAIndent
  *  24-Jul-87   danl    DoAppend: add n to -mn -Mn -fn -Fn, meaning no tab
- *  13-Aug-87   danl    ExitComposer: unlink *.bak too
+ *  13-Aug-87   danl    ExitComposer: _unlink *.bak too
  *  19-Aug-87   danl    FileFixTab: use fgetl on input
  *  21-Aug-87   danl    CreateRetain: don't exit composer unless msg saved
  *  21-Aug-1987 mz      Change references from MAXARG to MAXLINELEN
@@ -113,11 +113,11 @@ VOID PASCAL INTERNAL ExitComposer (VOID)
     BringToTop ( hCommand, FALSE );
     hCompose = NULL;
     hFocus = hHeaders;
-    unlink ( pCompFile );
+    _unlink ( pCompFile );
     /*  in case the user's editor created a *.bak file
      */
     pCompFile = AppendStr ( pCompFile, "bak", NULL, TRUE );
-    unlink ( pCompFile );
+    _unlink ( pCompFile );
     ZMfree ( pCompFile );
     if ( fDirectComp )
         fQuit = TRUE;
@@ -168,7 +168,7 @@ FLAG PASCAL INTERNAL FileFixTab ( HW hWnd, PSTR pSrcName, PSTR pDestName, UINT o
     else {
         if ( options & F_BRKPAGE )
             fprintf ( fpDest, "\n%c", CTRL_L );
-        if ( filelength ( fileno ( fpDest ) ) != 0L )
+        if ( filelength ( _fileno ( fpDest ) ) != 0L )
             fprintf ( fpDest, "\n" );
         if ( options & F_BRKLN ) {
             fprintf ( fpDest, "#######################################################" );
@@ -265,7 +265,7 @@ FLAG PASCAL INTERNAL AppendMsgs ( HW hWnd, PSTR pMsgList, PSTR pDestName, UINT o
                 if ( IdocToFile ( idoc, pTmpFN, 0 ) != ERROR ) {
                     fTemp = FileFixTab ( hWnd, pTmpFN, pDestName, options,
                         idoc + 1 );
-                    unlink ( pTmpFN );
+                    _unlink ( pTmpFN );
                     ZMfree ( pTmpFN );
                     if ( fTemp ) {
                         SendMessage ( hWnd, DISPLAY, "I couldn't 'fix' a message." );
@@ -730,7 +730,7 @@ VOID PASCAL INTERNAL CreateRetain ( PSTR pFldNm, FLAG fAddFrom )
                 SendMessage ( hCommand, DISPLAY,
                     "Do a \"headers all\" to see created message" );
         }
-        unlink ( pTmpFN );
+        _unlink ( pTmpFN );
         ZMfree ( pTmpFN );
     }
     /*  don't exit composer if retained msg not successfully put into a folder

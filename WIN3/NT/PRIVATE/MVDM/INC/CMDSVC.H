@@ -42,6 +42,29 @@ CMDSVC	macro	func
 #define MASK_STDERR     4
 
 
+// define extention type for command.com.
+// these value must be in sync with 16bits. Please refer to
+// tmisc1.asm in mvdm\dos\v86\cmd\command
+#define BAD_EXTENTION	    0	    // never returned from 32 bits
+#define BAT_EXTENTION	    2
+#define EXE_EXTENTION	    4
+#define COM_EXTENTION	    8
+#define MAX_STD_EXTENTION   COM_EXTENTION
+
+// THIS VALUE IS VERY IMPORTANT.
+// 0(zero) means there is no such a program file and command.com would spit out
+// well-known "bad command or file name".
+// Give it to any value larger than than MAX_STD_EXTENTION) makes command.com
+// by-passing any other checking and passing down the program file as is
+// to DOS which doesn't have tight executable file extention convention.
+// The reason that we allow program file with "non-standard" extention to
+// pass through command.com and reach DOS is we receive the program pathname
+// from CreateProcess which doesn't limit any file extention.
+//
+
+
+#define UNKNOWN_EXTENTION   MAX_STD_EXTENTION + 1
+
 
 /* XLATOFF */
 
@@ -90,8 +113,12 @@ typedef struct _CMDINFO {		/**/
     USHORT	CodePage;
     USHORT      fTSRExit;
     USHORT      fBatStatus;
-} CMDINFO, UNALIGNED *PCMDINFO;
-
+    USHORT      ExecPathSeg;
+    USHORT      ExecPathOff;
+    USHORT      ExecPathSize;
+    USHORT	ExecExtType;
+} CMDINFO;
+typedef CMDINFO UNALIGNED *PCMDINFO;
 
 /* XLATOFF */
 #pragma pack()

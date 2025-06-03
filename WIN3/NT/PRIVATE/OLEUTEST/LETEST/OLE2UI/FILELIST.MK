@@ -73,4 +73,3 @@ CINC        = -I$(CAIROLE)\h -I$(CAIROLE)\common \
 
 CFLAGS=/DWIN32 /D_DEBUG /DOLE201 /D_INC_OLE
 
-

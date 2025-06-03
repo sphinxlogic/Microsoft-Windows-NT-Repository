@@ -29,8 +29,16 @@ Environment:
 #include "wintools.h"
 #include "dlgprint.h"
 
+#define SZ_VENDOR          TEXT("VendorIdentifier")
+#define SZ_PROCESSORKEY    TEXT("Hardware\\Description\\System\\CentralProcessor")
+#define SZ_BIOSKEY         TEXT("Hardware\\Description\\System")
+#define SZ_HALKEY          TEXT("Hardware\\RESOURCEMAP\\Hardware Abstraction Layer")
+#define SZ_SYSTEMBIOSDATE       TEXT("SystemBiosDate")
+#define SZ_SYSTEMBIOSVERSION    TEXT("SystemBiosVersion")
+#define SZ_IDENTIFIER           TEXT("Identifier")
+
 BOOL
-HardwareDlgProc(
+HardwareTabProc(
     IN HWND hWnd,
     IN UINT message,
     IN WPARAM wParam,
@@ -39,21 +47,9 @@ HardwareDlgProc(
 
 BOOL
 BuildHardwareReport(
-    IN HWND hWnd
-    );
-
-BOOL
-GetHardwareData(
     IN HWND hWnd,
-    IN OUT LPDIALOGTEXT HardwareData
-    );
-
-BOOL
-ProcessorStepDlgProc(
-    IN HWND hWnd,
-    IN UINT message,
-    IN WPARAM wParam,
-    IN LPARAM lParam
+    IN UINT iDetailLevel
     );
 
 #endif // _HARDWARE_
+

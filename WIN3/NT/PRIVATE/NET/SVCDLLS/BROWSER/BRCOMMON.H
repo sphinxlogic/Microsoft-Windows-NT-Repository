@@ -65,8 +65,35 @@ Revision History:
 #define BROWSER_DEBUG_ADD_DOMAINNAME    29
 #define BROWSER_DEBUG_GET_WINSSERVER    30
 #define BROWSER_DEBUG_GET_DOMAINLIST    31
+#define BROWSER_DEBUG_GET_NETBIOSNAMES  32
+#define BROWSER_DEBUG_SET_EMULATEDDOMAIN 33
+#define BROWSER_DEBUG_SET_EMULATEDDOMAINENUM 34
+#define BROWSER_DEBUG_ADD_ALTERNATE     35
 
+#ifdef _CAIRO_
+//
+// Debug trace level bits for turning on/off trace statements in the
+// browser service
+//
 
+#define BR_CRITICAL     0x00000001
+#define BR_INIT         0x00000002
+#define BR_UTIL         0x00000020
+#define BR_CONFIG       0x00000040
+#define BR_MAIN         0x00000080
+#define BR_BACKUP       0x00000400
+#define BR_MASTER       0x00000800
+#define BR_DOMAIN       0x00001000
+#define BR_NETWORK      0x00002000
+#define BR_COMMON       0x0000FFFF
+
+#define BR_TIMER        0x00010000
+#define BR_QUEUE        0x00020000
+#define BR_LOCKS        0x00040000
+#define BR_SERVER_ENUM  0x00100000
+
+#define BR_ALL          0xFFFFFFFF
+#else // _CAIRO_
 //
 // Debug trace level bits for turning on/off trace statements in the
 // browser service
@@ -85,6 +112,7 @@ Revision History:
 #define BROWSER_DEBUG_LOCKS        0x00008000
 #define BROWSER_DEBUG_INIT         0x00010000
 #define BROWSER_DEBUG_ALL          0xFFFFFFFF
+#endif // _CAIRO_
 //#include <\nt\private\ntos\bowser\debug.h>
 
 NET_API_STATUS
@@ -184,7 +212,7 @@ OpenBrowser(
 NET_API_STATUS
 GetBrowserServerList(
     IN PUNICODE_STRING TransportName,
-    IN LPTSTR domain,
+    IN LPCWSTR domain,
     OUT LPWSTR *BrowserList[],
     OUT PULONG BrowserListLength,
     IN BOOLEAN ForceRescan
@@ -258,7 +286,8 @@ PackServerList(
     IN ULONG PreferedDataLength,
     OUT PVOID *bufptr,
     OUT PULONG entriesread,
-    OUT PULONG totalentries
+    OUT PULONG totalentries,
+    IN LPCWSTR FirstNameToReturn
     );
 
 VOID
@@ -293,10 +322,14 @@ NET_API_STATUS
 SendDatagram(
     IN HANDLE DgReceiverHandle,
     IN PUNICODE_STRING Network,
+#ifdef _CAIRO_
+    IN PUNICODE_STRING EmulatedDomainName,
+#endif // _CAIRO_
     IN PWSTR ResponseName,
     IN DGRECEIVER_NAME_TYPE NameType,
     IN PVOID Buffer,
     IN ULONG BufferLength
     );
+
 #endif  // _BRCOMMON_
 

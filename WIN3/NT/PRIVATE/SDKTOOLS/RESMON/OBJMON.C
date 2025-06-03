@@ -4,6 +4,7 @@
 #include <imagehlp.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <wtypes.h>
 #include <ntstatus.dbg>
 #include <winerror.dbg>
 #include <netevent.h>

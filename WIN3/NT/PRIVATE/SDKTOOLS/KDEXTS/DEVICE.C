@@ -23,6 +23,8 @@ Revision History:
 --*/
 
 
+#include "precomp.h"
+#pragma hdrstop
 
 
 VOID
@@ -131,7 +133,7 @@ Return Value:
                            &NameInfo,
                            sizeof(NameInfo),
                            &result) && (result == sizeof(NameInfo))) {
-                buffer = malloc(NameInfo.Name.MaximumLength);
+                buffer = LocalAlloc(LPTR, NameInfo.Name.MaximumLength);
                 if (buffer != NULL) {
                     unicodeString.MaximumLength = NameInfo.Name.MaximumLength;
                     unicodeString.Length = NameInfo.Name.Length;
@@ -142,7 +144,7 @@ Return Value:
                                    &result) && (result == unicodeString.Length)) {
                         dprintf(" %wZ", &unicodeString);
                     }
-                    free(buffer);
+                    LocalFree(buffer);
                 }
             }
         }
@@ -211,4 +213,3 @@ Return Value:
         }
     }
 }
-

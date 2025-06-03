@@ -16,7 +16,7 @@
         include vtdi.inc
         include vip.inc
 
-        include vnbtd.inc
+        include vnbt.inc
         include vnetbios.inc
 .LIST
 
@@ -43,6 +43,12 @@ VxD_CODE_SEG
 ;
 BeginProc _RegisterLana2
 
+        VxDcall VNETBIOS_Get_Version
+        jnc     Do_Register
+        mov     eax, 0ffh               ; yukk! vnetbios is not loaded!
+        jmp     Register_Fail
+
+Do_Register:
         mov     ecx, [esp+4]            ; PNP device context
         mov     eax, [esp+8]            ; Get the request lana to register
 
@@ -58,6 +64,7 @@ BeginProc _RegisterLana2
 RegLana10:
         pop     edx
         pop     ebx
+Register_Fail:
         ret
 
 EndProc _RegisterLana2
@@ -95,9 +102,9 @@ EndProc _DeregisterLana
 ;
 BeginProc _IPRegisterAddrChangeHandler
 
-        mov     eax, [esp+4]            ; Handler
-        push    eax
         mov     eax, [esp+8]            ; bool
+        push    eax
+        mov     eax, [esp+8]            ; Handler (yes, it should be esp+8)
         push    eax
 
         VxDcall VIP_Register_Addr_Change; Carry set on failure

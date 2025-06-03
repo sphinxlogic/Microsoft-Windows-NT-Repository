@@ -54,15 +54,20 @@ public:
 
 							CG_BASETYPE(
 									 node_skl * pBT,
-									 unsigned long WS) 
-									 : CG_NDR( pBT, (unsigned short) WS )
+									 XLAT_SIZE_INFO & Info)	// packing and size info
+									 : CG_NDR( pBT, Info )
 								{
-								SetWireSize( (unsigned short) WS );
 								SetSStubAllocLocation(
 										 S_STUB_ALLOC_LOCATION_UNKNOWN );
 								SetSStubAllocType( S_STUB_ALLOC_TYPE_NONE );
 								SetSStubInitNeed( S_STUB_INIT_NOT_NEEDED );
 								}
+
+    // 
+    // VARDESC generation routine
+    //
+    virtual
+    CG_STATUS               GetTypeDesc(TYPEDESC * &ptd, CCB * pCCB);
 
 	//
 	// Get and set methods.
@@ -103,23 +108,34 @@ public:
 								// Do nothing.
                                 }
 
-    //
-    // Generates the inline portion of a parameter description.
-    //
     virtual
-    void                    GenNdrParamDescription( CCB * pCCB )
+    void                    GenNdrParamDescription( CCB * pCCB );
+
+    virtual
+    void                    GenNdrParamDescriptionOld( CCB * pCCB )
                                 {
 								pCCB->GetProcFormatString()->
 									PushFormatChar( GetFormatChar() );
                                 }
 
+    //
+	// CG_ENUM redefines the GetFormatChar* methods.
 	//
-	// CG_ENUM redefines this.
-	//
+
 	virtual
 	FORMAT_CHARACTER		GetFormatChar( CCB * pCCB = 0 );
 
+    virtual
+	FORMAT_CHARACTER		GetSignedFormatChar();
+
 	char *					GetTypeName();
+
+    long                    FixedBufferSize( CCB * pCCB );
+
+    BOOL                    InterpreterMustFree( CCB * pCCB )
+                                {
+                                return GetFormatChar() != FC_ENUM16;
+                                }
 	
 	//
 	// This routine adjusts the stack size for the basetype, based upon the 
@@ -221,6 +237,8 @@ class CG_ENUM	: public CG_BASETYPE
 	{
 private:
 
+    void * _pCTI;
+
 public:
 	
 	//
@@ -229,10 +247,12 @@ public:
 
 							CG_ENUM(
 									 node_skl * pBT,
-									 unsigned long WS ) 
-									 : CG_BASETYPE( pBT, WS )
+									 XLAT_SIZE_INFO & Info ) 
+									 : CG_BASETYPE( pBT, Info  )
 								{
+                                    _pCTI = NULL;
 								}
+
 
 	//
 	// Get and set methods.
@@ -250,9 +270,23 @@ public:
 								return ID_CG_ENUM;
 								}
 
+    //
+    // Generate typeinfo
+    //
+    virtual
+    CG_STATUS               GenTypeInfo( CCB * pCCB);
+
+    virtual
+    CG_STATUS       GetTypeDesc(TYPEDESC * &ptd, CCB * pCCB)
+                                {
+                                return CG_NDR::GetTypeDesc(ptd, pCCB);
+                                };
+
 	virtual
 	FORMAT_CHARACTER		GetFormatChar( CCB * pCCB = 0 );
 
+    virtual
+	FORMAT_CHARACTER		GetSignedFormatChar();
 	};
 
 /////////////////////////////////////////////////////////////////////////////
@@ -276,8 +310,9 @@ public:
 	//
 
 							CG_ERROR_STATUS_T(
-									 node_skl * pBT )
-									 : CG_BASETYPE( pBT, 4 )
+									 node_skl * pBT,
+									 XLAT_SIZE_INFO & Info )
+									 : CG_BASETYPE( pBT, Info )
 								{
 								}
 
@@ -295,6 +330,12 @@ public:
 	virtual
 	FORMAT_CHARACTER		GetFormatChar( CCB * pCCB = 0 );
 
+    virtual
+	FORMAT_CHARACTER		GetSignedFormatChar()
+                                {
+                                assert(0);
+                                return FC_ZERO;
+                                }
 	};
 
 /////////////////////////////////////////////////////////////////////////////
@@ -318,8 +359,9 @@ public:
 	//
 
 							CG_HRESULT(
-									 node_skl * pBT )
-									 : CG_BASETYPE( pBT, 4 )
+									 node_skl * pBT,
+									 XLAT_SIZE_INFO & Info )
+									 : CG_BASETYPE( pBT, Info )
 								{
 								}
 
@@ -340,6 +382,12 @@ public:
                                 return FC_LONG; 
                                 }
 
+    virtual
+	FORMAT_CHARACTER		GetSignedFormatChar()
+                                {
+                                assert(0);
+                                return FC_ZERO;
+                                }
 	};
 
 

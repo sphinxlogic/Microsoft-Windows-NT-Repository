@@ -100,4 +100,3 @@ extern DoPrm(struct CHP *pchp, struct PAP *ppap, struct PRM prm);
 
 #define dxaTabDelta     50
 #endif
-

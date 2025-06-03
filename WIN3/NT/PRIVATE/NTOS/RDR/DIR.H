@@ -30,6 +30,7 @@ typedef PFILE_NAMES_INFORMATION     *PPFILE_NAMES_INFORMATION;
 typedef PFILE_DIRECTORY_INFORMATION *PPFILE_DIRECTORY_INFORMATION;
 typedef PFILE_FULL_DIR_INFORMATION  *PPFILE_FULL_DIR_INFORMATION;
 typedef PFILE_BOTH_DIR_INFORMATION  *PPFILE_BOTH_DIR_INFORMATION;
+typedef PFILE_OLE_DIR_INFORMATION  *PPFILE_OLE_DIR_INFORMATION;
 
 //
 //  All T2Find requests to the remote server request the 32 bit resume key
@@ -51,6 +52,7 @@ typedef union _SMB_RFIND_BUFFER_NT {
         FILE_DIRECTORY_INFORMATION Dir;
         FILE_FULL_DIR_INFORMATION FullDir;
         FILE_BOTH_DIR_INFORMATION BothDir;
+        FILE_OLE_DIR_INFORMATION OleDir;
 } SMB_RFIND_BUFFER_NT;
 typedef SMB_RFIND_BUFFER_NT SMB_UNALIGNED *PSMB_RFIND_BUFFER_NT;
 
@@ -72,8 +74,6 @@ typedef DIRPTR SMB_UNALIGNED *PDIRPTR;
 //  accessed at DPC level or above.
 //
 
-//  BUGBUG: Put Search/Find and Transact specific data in a union
-
 typedef struct _SCB {
     ULONG Signature;                    // SCB structure signature
     PSERVERLISTENTRY Sle;               // ServerList for search.
@@ -89,6 +89,7 @@ typedef struct _SCB {
     USHORT SearchBuffLength;            // Length in bytes allocated/charged
     USHORT MaxCount;                    // Value for Search/Find SMB
     USHORT MaxBuffLength;               // Based on servers max-xmit-size
+    USHORT ReturnLength;                // Amount of data returned by server
 
     DIRPTR FirstDirEntry;               // First in SearchBuffer
 
@@ -135,9 +136,12 @@ typedef struct _SCB {
 #define ST_NTFIND   0x00000010  // SMB 4.0 NT Transact 2 Find
 #define ST_UNICODE  0x00000020  // Strings in SMB are unicode.
 
-VOID
-RdrFreeSearchBuffer(
-    IN PSCB SCB
-    );
+//
+//  DirectoryControlSpinLock is used to protect the LARGE_INTEGER fields in the SCB's
+//  from being modified while they are being accessed. It can also be used
+//  for other short term exclusions if the need arises.
+//
+
+extern KSPIN_LOCK DirectoryControlSpinLock;
 
 #endif

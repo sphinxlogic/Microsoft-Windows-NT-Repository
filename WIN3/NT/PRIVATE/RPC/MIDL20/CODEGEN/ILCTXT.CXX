@@ -33,6 +33,7 @@
 #include "cmdana.hxx"
 #include "optprop.hxx"
 #include "ilreg.hxx"
+#include "ndrcls.hxx"
 
 
 /****************************************************************************
@@ -49,6 +50,26 @@ extern CMD_ARG				*	pCommand;
 
 
 // #define trace_cg
+//--------------------------------------------------------------------
+//
+// XLAT_SIZE_INFO::XLAT_SIZE_INFO
+//
+// Notes:
+//		
+//
+//
+//--------------------------------------------------------------------
+XLAT_SIZE_INFO::XLAT_SIZE_INFO(
+	CG_NDR * pCG )
+	{
+	ZeePee		= 8;
+	MemAlign	= pCG->GetMemoryAlignment();
+	WireAlign	= CvtAlignPropertyToAlign(pCG->GetWireAlignment());
+	MemSize		= pCG->GetMemorySize();
+	WireSize	= pCG->GetWireSize();
+	MemOffset	= 0;
+	WireOffset	= 0;
+	}
 
 //--------------------------------------------------------------------
 //
@@ -262,6 +283,27 @@ XLAT_SIZE_INFO::AlignOffset()
 	RoundToAlignment( WireOffset, WireAlign );
 }
 
+
+//--------------------------------------------------------------------
+//
+// XLAT_SIZE_INFO::AlignEmbeddedUnion
+//
+// Notes:
+//	For use only by field and struct/union nodes!!
+//	
+//	Round the offsets up to the corresponding alignments.
+//  don't round up the wire offset
+//
+//--------------------------------------------------------------------
+
+void
+XLAT_SIZE_INFO::AlignEmbeddedUnion()
+{
+	RoundToAlignment( MemOffset, MemAlign );
+	RoundToAlignment( MemSize,   MemAlign );
+	// RoundToAlignment( WireOffset, WireAlign );
+}
+
 //--------------------------------------------------------------------
 //
 // XLAT_SIZE_INFO::AlignConfOffset
@@ -271,14 +313,19 @@ XLAT_SIZE_INFO::AlignOffset()
 //	
 //	Round the offsets up to the corresponding alignments.
 //
+//  the Mem offset passed down from the parent
+//		of the conformant field is aligned
+//  the Wire offset passed down from the parent is advanced by
+//		the wire size and then aligned
+//
 //--------------------------------------------------------------------
 
 void
 XLAT_SIZE_INFO::AlignConfOffset()
 {
 	RoundToAlignment( MemOffset, MemAlign );
-	WireSize	+= WireOffset;
-	WireOffset	=  WireSize;
+	//WireSize	+= WireOffset;
+	WireOffset	+=  WireSize;
 	RoundToAlignment( WireOffset, WireAlign );
 }
 
@@ -381,6 +428,7 @@ XLAT_SIZE_INFO::FixMemSizes( node_skl * pNode )
 {
 	MemSize = pNode->GetSize( 0, ZeePee );
 	MemAlign = pNode->GetMscAlign( ZeePee );
+    RoundToAlignment( MemSize, MemAlign );
 }
 
 //--------------------------------------------------------------------
@@ -421,6 +469,32 @@ XLAT_SIZE_INFO::ReturnSize( XLAT_SIZE_INFO & pCtxt )
 
 	if ( pCtxt.WireAlign > WireAlign ) WireAlign	= pCtxt.WireAlign;
 	WireSize		= pCtxt.WireSize;
+
+	// note: ZeePee is NOT propogated up, only down
+	// note: offsets are propogated up specially
+}
+
+//--------------------------------------------------------------------
+//
+// XLAT_SIZE_INFO::ReturnConfSize
+//
+// Notes:
+//
+// 	Copy the size information up into the parent.
+//	Don't overwrite the wire size the parent already has
+//
+//--------------------------------------------------------------------
+
+
+
+void
+XLAT_SIZE_INFO::ReturnConfSize( XLAT_SIZE_INFO & pCtxt )
+{
+	if ( pCtxt.MemAlign > MemAlign ) MemAlign		= pCtxt.MemAlign;
+	MemSize			= pCtxt.MemSize;
+
+	if ( pCtxt.WireAlign > WireAlign ) WireAlign	= pCtxt.WireAlign;
+	// WireSize		= pCtxt.WireSize;
 
 	// note: ZeePee is NOT propogated up, only down
 	// note: offsets are propogated up specially

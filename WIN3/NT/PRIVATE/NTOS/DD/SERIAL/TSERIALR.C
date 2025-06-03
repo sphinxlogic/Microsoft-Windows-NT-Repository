@@ -89,6 +89,10 @@ int _CRTAPI1 main(int argc,char *argv[]) {
             MyDcb.ByteSize = 8;
             MyDcb.Parity = NOPARITY;
             MyDcb.StopBits = ONESTOPBIT;
+            MyDcb.fOutxCtsFlow = TRUE;
+            MyDcb.fOutxDsrFlow = TRUE;
+            MyDcb.fDtrControl = DTR_CONTROL_ENABLE;
+            MyDcb.fRtsControl = RTS_CONTROL_ENABLE;
 
             if (SetCommState(
                     hFile,

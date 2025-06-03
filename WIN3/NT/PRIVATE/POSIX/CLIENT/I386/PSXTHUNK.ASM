@@ -37,6 +37,7 @@ _TEXT   SEGMENT DWORD USE32 PUBLIC 'CODE'
 	public  __PdxNullApiCaller@4
 __PdxNullApiCaller@4 proc
 
+    mov     eax,0
 	call    _PdxNullApiCaller@4
 
 ;	NOTREACHED
@@ -47,6 +48,7 @@ __PdxNullApiCaller@4 endp
 	public  __PdxSignalDeliverer@16
 __PdxSignalDeliverer@16 proc
 
+    mov     eax,0
 	call	_PdxSignalDeliverer@16
 
 ;	NOTREACHED

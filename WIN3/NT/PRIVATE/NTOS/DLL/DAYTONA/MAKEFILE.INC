@@ -17,3 +17,19 @@ obj\$(TARGET_DIRECTORY)\ntdll.def: ..\ntdlldef.src ..\$(TARGET_DIRECTORY)def.src
     -del obj\$(TARGET_DIRECTORY)\ntdll.pp
 
 ..\ntdll.rc: ..\ntstatus.rc ..\MSG00001.bin
+
+..\ntprop.cxx: ..\..\..\dcomidl\ntprop.cxx
+        copy $** $@
+
+..\ntpropb.cxx: ..\..\..\dcomidl\ntpropb.cxx
+        copy $** $@
+
+..\propstm.cxx: ..\..\..\dcomidl\propstm.cxx
+        copy $** $@
+
+..\propvar.cxx: ..\..\..\dcomidl\propvar.cxx
+        copy $** $@
+
+..\stgvarb.cxx: ..\..\..\dcomidl\stgvarb.cxx
+        copy $** $@
+

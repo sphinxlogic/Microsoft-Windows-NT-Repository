@@ -75,9 +75,58 @@
  *               data in rows and columns.  The interface is in gutils.h
  *               read it if you hope to understand view!
  *    status.c   (in gutils) the status line at the top. See gutils.h
+ *
+ * The data structures:
+ * Each "module" owns storage which is an encapsulated data type, inaccessable
+ * from the outside.  Thus COMPLIST holds a list of COMPITEMs, but they are
+ * pointers to structures whose definitions are out of scope, thus they are
+ * "just opaque pointers".  To access anything in the COMPITEM you have to
+ * call functions in COMPITEM.C.  And so on.  The overall scheme of how they
+ * link together is below.  Some things are identified by field name, some by
+ * type name, some both, some abbreviations.  Many connecting arrows omitted.
+ * Look in the C files for details.
+ *
+ * COMPLIST
+ * > left   -----------> DIRLIST    <--------------------
+ * > right  -----------> > rootname                       |
+ * > LIST of items--     > bFile                          |
+ *                  |    > bRemote                        |
+ *                  |    > bSum                           |
+ *  ----------------     > dot--------> DIRECT     <------+-------------------------
+ * |                     > server       > relname         |                         |
+ * |                     > hpipe        > DIRLIST head ---                          |
+ * |                     > uncname      > DIRECT parent                             |
+ * |                     > password     > bScanned                                  |
+ * |                                    > LIST of diritems-----> DIRITEM            |
+ * |                                    > LIST OF directs     -> > name             |
+ * |                                    > enum pos           |   > int size         |
+ * |                                    > DIRECT curdir      |   > int checksum     |
+ * |                                                         |   > bool sumvalid    |
+ * |                                                         |   > DIRECT direct ---
+ * |                                                         |   > localname
+ *  --->COMPITEM                                             |   > bLocalIsTemp
+ *      > left-------------------> FILEDATA                  |
+ *      > right------------------> > DIRITEM-----------------
+ *      > LIST of CompSecs---      > LIST of lines--> LINE
+ *      > LIST of LeftSecs---|                    --> > flags
+ *      > LIST of RightSecs--|                   |    > text
+ *                           |                   |    > hash
+ *                           |                   |    > link
+ *                           |                   |    > linenr
+ *                            --> SECTION        |
+ *                                > first--------|
+ *                                > last---------
+ *                                > bDiscard
+ *                                > SECTION link
+ *                                > SECTION correspond
+ *                                > int state
+ *                                > int leftbase
+ *                                > int rightbase
+ *
+ *
  *************************************************************************
  *
- * Overview of this file's business:
+ * Overview of THIS file's business:
  *
  *   we create a table window (gutils.dll) to show the files and the
  *   results of their comparisons. We create a COMPLIST object representing
@@ -160,9 +209,11 @@ typedef struct {
         LPSTR first;
         LPSTR second;
         LPSTR savelist;
+        LPSTR notify;
         UINT saveopts;
         VIEW view;
         BOOL fDeep;
+        BOOL fExit;
         char slmpath[MAX_PATH];
 } THREADARGS, FAR * PTHREADARGS;
 
@@ -175,6 +226,69 @@ typedef struct {
         int option;
         long selection;
 } EDITARGS, FAR * PEDITARGS;
+
+/*---- string constants --------------------------- */
+
+       const CHAR szWinDiff[]                = "WinDiff";
+static const char szD[]                      = "%d";
+static const char szBlanks[]                 = "Blanks";
+static const char szAlgorithm2[]             = "Algorithm2";
+static const char szPicture[]                = "Picture";
+static const char szMonoColours[]            = "MonoColours";
+static const char szHideMark[]               = "HideMark";
+static const char szWinDiffViewerClass[]     = "WinDiffViewerClass";
+static const char szWinDiffMenu[]            = "WinDiffMenu";
+static const char szOutlineMenu[]            = "OutlineFloatMenu";
+static const char szExpandMenu[]             = "ExpandFloatMenu";
+static const char szWinDiffAccel[]           = "WinDiffAccel";
+static const char szExit[]                   = "Exit";
+static const char szBarClass[]               = "BarClass";
+static const char szOutline[]                = "Outline";
+static const char szExpand[]                 = "Expand";
+static const char szAbort[]                  = "Abort";
+static const char szLineNumbers[]            = "LineNumbers";
+static const char szFileInclude[]            = "FileInclude";
+static const char szOutlineSaved[]           = "OutlineSaved";
+static const char szOutlineShowCmd[]         = "OutlineShowCmd";
+static const char szOutlineMaxX[]            = "OutlineMaxX";
+static const char szOutlineMaxY[]            = "OutlineMaxY";
+static const char szOutlineNormLeft[]        = "OutlineNormLeft";
+static const char szOutlineNormTop[]         = "OutlineNormTop";
+static const char szOutlineNormRight[]       = "OutlineNormRight";
+static const char szOutlineNormBottom[]      = "OutlineNormBottom";
+static const char szEditor[]                 = "Editor";
+static const char szExpandedSaved[]          = "ExpandedSaved";
+static const char szExpandShowCmd[]          = "ExpandShowCmd";
+static const char szExpandMaxX[]             = "ExpandMaxX";
+static const char szExpandMaxY[]             = "ExpandMaxY";
+static const char szExpandNormLeft[]         = "ExpandNormLeft";
+static const char szExpandNormTop[]          = "ExpandNormTop";
+static const char szExpandNormRight[]        = "ExpandNormRight";
+static const char szExpandNormBottom[]       = "ExpandNormBottom";
+static const char szColourPrinting[]         = "ColourPrinting";
+static const char szTabWidth[]               = "TabWidth";
+static const char szrgb_outlinehi[]          = "RGBOutlineHi";
+static const char szrgb_leftfore[]           = "RGBLeftFore";
+static const char szrgb_leftback[]           = "RGBLeftBack";
+static const char szrgb_rightfore[]          = "RGBRightFore";
+static const char szrgb_rightback[]          = "RGBRightBack";
+static const char szrgb_similarleft[]        = "RGBSimilarLeft";
+static const char szrgb_similarright[]       = "RGBSimilarRight";
+static const char szrgb_similar[]            = "RGBSimilar";
+static const char szrgb_mleftfore[]          = "RGBMLeftFore";
+static const char szrgb_mleftback[]          = "RGBMLeftBack";
+static const char szrgb_mrightfore[]         = "RGBMRightFore";
+static const char szrgb_mrightback[]         = "RGBMRightBack";
+static const char szrgb_barleft[]            = "RGBBarLeft";
+static const char szrgb_barright[]           = "RGBBarRight";
+static const char szrgb_barcurrent[]         = "RGBBarCurrent";
+static const char szrgb_defaultfore[]        = "RGBDefaultFore";
+static const char szrgb_defaultback[]        = "RGBDefaultBack";
+
+static const char szrgb_fileleftfore[]       = "RGBFileLeftFore";
+static const char szrgb_fileleftback[]       = "RGBFileLeftBack";
+static const char szrgb_filerightfore[]      = "RGBFileRightFore";
+static const char szrgb_filerightback[]      = "RGBFileRightBack";
 
 /*---- colour scheme------------------------------- */
 
@@ -202,31 +316,79 @@ DWORD rgb_barleft;           /* bar sections in left only  */
 DWORD rgb_barright;          /* bar sections in right only */
 DWORD rgb_barcurrent;        /* current pos markers in bar */
 
+DWORD rgb_defaultfore;       /* default foreground */
+DWORD rgb_defaultback;       /* default background */
+
+DWORD rgb_fileleftfore;       /* outline mode left only file */
+DWORD rgb_fileleftback;       /* outline mode left only file */
+DWORD rgb_filerightfore;      /* outline mode right only file */
+DWORD rgb_filerightback;      /* outline mode right only file */
+
+
+/* PickUpProfile */
+void PickUpProfile( DWORD * pfoo, LPCSTR szfoo)
+{
+   *pfoo = GetProfileInt(APPNAME, szfoo, *pfoo);
+}
+
+
 void SetColours(void)
 {
         /* outline */
+
         rgb_outlinehi = (DWORD)RGB(255, 0, 0);   /* hilighted files in outline mode  */
+        PickUpProfile(&rgb_outlinehi, szrgb_outlinehi);
+
+        rgb_fileleftfore = (DWORD)RGB(0, 0, 0);   /* left only outline mode  */
+        PickUpProfile(&rgb_fileleftfore, szrgb_fileleftfore);
+        rgb_fileleftback = (DWORD)RGB(255, 255, 255);
+        PickUpProfile(&rgb_fileleftback, szrgb_fileleftback);
+
+        rgb_filerightfore = (DWORD)RGB(0, 0, 0);  /* right only outline mode  */
+        PickUpProfile(&rgb_filerightfore, szrgb_filerightfore);
+        rgb_filerightback = (DWORD)RGB(255, 255, 255);
+        PickUpProfile(&rgb_filerightback, szrgb_filerightback);
 
         /* expand view */
         rgb_leftfore =   (DWORD)RGB(  0,   0,   0);         /* foregrnd for left lines */
+        PickUpProfile(&rgb_leftfore, szrgb_leftfore);
         rgb_leftback  =  (DWORD)RGB(255,   0,   0);         /* backgrnd for left lines */
+        PickUpProfile(&rgb_leftback, szrgb_leftback);
         rgb_rightfore =  (DWORD)RGB(  0,   0,   0);         /* foregrnd for right lines*/
+        PickUpProfile(&rgb_rightfore, szrgb_rightfore);
         rgb_rightback =  (DWORD)RGB(255, 255,   0);         /* backgrnd for right lines*/
+        PickUpProfile(&rgb_rightback, szrgb_rightback);
 
         rgb_similarleft= (DWORD)RGB(  0, 255, 255);         /* foreground zebra        */
+        PickUpProfile(&rgb_similarleft, szrgb_similarleft);
         rgb_similarright=(DWORD)RGB(  0, 127, 127);         /* forground zebra         */
+        PickUpProfile(&rgb_similarright, szrgb_similarright);
         rgb_similar   =  (DWORD)RGB(  127, 127, 255);       /* same within comp options*/
+        PickUpProfile(&rgb_similar, szrgb_similar);
 
         /* moved lines */
         rgb_mleftfore =  (DWORD)RGB(  0,   0, 128);         /* foregrnd for moved-left */
+        PickUpProfile(&rgb_mleftfore, szrgb_mleftfore);
         rgb_mleftback =  (DWORD)RGB(255,   0,   0);         /* backgrnd for moved-left */
+        PickUpProfile(&rgb_mleftback, szrgb_mleftback);
         rgb_mrightfore = (DWORD)RGB(  0,   0, 255);         /* foregrnd for moved-right*/
+        PickUpProfile(&rgb_mrightfore, szrgb_mrightfore);
         rgb_mrightback = (DWORD)RGB(255, 255,   0);         /* backgrnd for moved-right*/
+        PickUpProfile(&rgb_mrightback, szrgb_mrightback);
 
         /* bar window */
         rgb_barleft =    (DWORD)RGB(255,   0,   0);         /* bar sections in left only  */
+        PickUpProfile(&rgb_barleft, szrgb_barleft);
         rgb_barright =   (DWORD)RGB(255, 255,   0);         /* bar sections in right only */
+        PickUpProfile(&rgb_barright, szrgb_barright);
         rgb_barcurrent = (DWORD)RGB(  0,   0, 255);         /* current pos markers in bar */
+        PickUpProfile(&rgb_barcurrent, szrgb_barcurrent);
+
+        /* defaults */
+        rgb_defaultfore = (DWORD)RGB(   0,   0,   0);       /* default foreground colour */
+        PickUpProfile(&rgb_defaultfore, szrgb_defaultfore);
+        rgb_defaultback = (DWORD)RGB(255, 255, 255);        /* default background colour */
+        PickUpProfile(&rgb_defaultback, szrgb_defaultback);
 
 } /* SetColours */
 
@@ -301,7 +463,7 @@ UINT table_msgcode;
 BOOL fBusy = FALSE;
 
 
-long     selection       =       -1;     /* selected row in table*/
+long     selection      =       -1;     /* selected row in table*/
 long selection_nrows    =       0;      /* number of rows in selection */
 
 /* options for DisplayMode field indicating what is currently shown.
@@ -317,13 +479,11 @@ VIEW current_view = NULL;
 
 BOOL fAutoExpand = TRUE;        /* Should we auto expand ? */
 
-/* command line parameters */
-extern int __argc;
-extern char ** __argv;
-
 /* These two flags are peeked at by lots of other modules */
 BOOL bAbort = FALSE;    /* set to request abort of current operation */
 BOOL bTrace = FALSE;    /* set if tracing is to be enabled */
+
+extern char*s;
 
 char editor_cmdline[256] = "notepad %p";  /* editor cmdline */
                           /* slick version is "s %p -#%l" */
@@ -343,6 +503,9 @@ BOOL picture_mode = TRUE;
 BOOL hide_markedfiles = FALSE;
 BOOL mono_colours = FALSE;       /* monochrome display */
 
+// tab width - set from TabWidth entry in registry
+int g_tabwidth = 8;
+
 /* function prototypes ---------------------------------------------*/
 
 BOOL InitApplication(HINSTANCE hInstance);
@@ -352,10 +515,10 @@ void DeleteTools(void);
 long APIENTRY MainWndProc(HWND hWnd, UINT message, UINT wParam, LONG lParam);
 BOOL SetBusy(void);
 void SetNotBusy(void);
-void SetSelection(long rownr);
+void SetSelection(long rownr, long nrows);
 void SetButtonText(LPSTR cmd);
 BOOL ToExpand(HWND hwnd);
-void ParseArgs(int argc, char ** argv);
+void ParseArgs(char * lpCmdLine);
 void Trace_Status(LPSTR str);
 
 DWORD WINAPI wd_initial(LPVOID arg);
@@ -433,7 +596,7 @@ WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdS
         if (!InitInstance(hInstance, nCmdShow))
             return(FALSE);
 
-        ParseArgs(__argc, __argv);
+        ParseArgs(lpCmdLine);
 
 
         /* message loop */
@@ -444,6 +607,7 @@ WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdS
                 }
         }
 
+        // List_Term();
         Trace_Close();       // harmless, even if never opened
         return (msg.wParam);
 
@@ -470,10 +634,10 @@ InitApplication(HINSTANCE hInstance)
         wc.cbClsExtra = 0;
         wc.cbWndExtra = 0;
         wc.hInstance = hInstance;
-        wc.hIcon = LoadIcon(hInstance, "WinDiff");
+        wc.hIcon = LoadIcon(hInstance, szWinDiff);
         wc.hCursor = LoadCursor(NULL, IDC_ARROW);
         wc.hbrBackground = NULL;
-        wc.lpszClassName = (LPSTR) "WinDiffViewerClass";
+        wc.lpszClassName = (LPSTR) szWinDiffViewerClass;
         wc.lpszMenuName = NULL;
 
         resp = RegisterClass(&wc);
@@ -502,12 +666,12 @@ InitInstance(HINSTANCE hInstance, int nCmdShow)
         List_Init();
 
 
-        hMenu = LoadMenu(hInstance, "WinDiffMenu");
-        haccel = LoadAccelerators(hInstance, "WinDiffAccel");
+        hMenu = LoadMenu(hInstance, szWinDiffMenu);
+        haccel = LoadAccelerators(hInstance, szWinDiffAccel);
 
         /* create the main window */
-        hwndClient = CreateWindow("WinDiffViewerClass",
-                            "WinDiff",
+        hwndClient = CreateWindow(szWinDiffViewerClass,
+                            szWinDiff,
                             WS_OVERLAPPEDWINDOW,
                             CW_USEDEFAULT,
                             CW_USEDEFAULT,
@@ -537,7 +701,7 @@ InitInstance(HINSTANCE hInstance, int nCmdShow)
         hstatus = StatusAlloc(3);
         StatusAddItem(hstatus, 0, SF_STATIC, SF_LEFT|SF_VAR|SF_SZMIN, IDL_STATLAB, 14, NULL);
         StatusAddItem(hstatus, 1, SF_BUTTON, SF_RIGHT|SF_RAISE, IDM_ABORT, 8,
-                "Exit");
+                (LPSTR)szExit);
         StatusAddItem(hstatus, 2, SF_STATIC, SF_LOWER|SF_LEFT|SF_VAR,
                         IDL_NAMES, 60, NULL);
 
@@ -574,7 +738,7 @@ InitInstance(HINSTANCE hInstance, int nCmdShow)
         /* create a bar window as a child of the main window.
          * this window remains hidden until we switch into MODE_EXPAND
          */
-        hwndBar = CreateWindow("BarClass",
+        hwndBar = CreateWindow(szBarClass,
                         NULL,
                         WS_CHILD | WS_VISIBLE,
                         0,
@@ -591,24 +755,24 @@ InitInstance(HINSTANCE hInstance, int nCmdShow)
          */
         ShowWindow(hwndBar, SW_HIDE);
 
-        if (GetProfileInt(APPNAME, "OutlineSaved", 0))
+        if (GetProfileInt(APPNAME, szOutlineSaved, 0))
         {
-                WINDOWPLACEMENT wp;
+            WINDOWPLACEMENT wp;
+            /* restore the previous expanded size and position */
+            wp.length = sizeof(wp);
+            wp.flags                   = 0;
+            wp.showCmd                 = GetProfileInt( APPNAME, szOutlineShowCmd,
+                                                        SW_SHOWNORMAL);
+            wp.ptMaxPosition.x         = GetProfileInt( APPNAME, szOutlineMaxX,       0);
+            wp.ptMaxPosition.y         = GetProfileInt( APPNAME, szOutlineMaxY,       0);
+            wp.rcNormalPosition.left   = (int)GetProfileInt( APPNAME, szOutlineNormLeft,  (UINT)(-1));
+            wp.rcNormalPosition.top    = (int)GetProfileInt( APPNAME, szOutlineNormTop,   (UINT)(-1));
+            wp.rcNormalPosition.right  = (int)GetProfileInt( APPNAME, szOutlineNormRight, (UINT)(-1));
+            wp.rcNormalPosition.bottom = (int)GetProfileInt( APPNAME, szOutlineNormBottom,(UINT)(-1));
 
-                /* restore the previous expanded size and position */
-                wp.length = sizeof(wp);
-                wp.flags                   = 0;
-                wp.showCmd                 = GetProfileInt( APPNAME, "OutlineShowCmd",
-                                                            SW_SHOWNORMAL);
-                wp.ptMaxPosition.x         = GetProfileInt( APPNAME, "OutlineMaxX",       0);
-                wp.ptMaxPosition.y         = GetProfileInt( APPNAME, "OutlineMaxY",       0);
-                wp.rcNormalPosition.left   = (int)GetProfileInt( APPNAME, "OutlineNormLeft",  (UINT)(-1));
-                wp.rcNormalPosition.top    = (int)GetProfileInt( APPNAME, "OutlineNormTop",   (UINT)(-1));
-                wp.rcNormalPosition.right  = (int)GetProfileInt( APPNAME, "OutlineNormRight", (UINT)(-1));
-                wp.rcNormalPosition.bottom = (int)GetProfileInt( APPNAME, "OutlineNormBottom",(UINT)(-1));
-                if (!SetWindowPlacement(hwndClient,&wp)) {
-          ShowWindow(hwndClient, nMinMax);
-      }
+            if (!SetWindowPlacement(hwndClient,&wp)) {
+                ShowWindow(hwndClient, nMinMax);
+            }
         }
         else ShowWindow(hwndClient, nMinMax);
 
@@ -626,22 +790,25 @@ InitInstance(HINSTANCE hInstance, int nCmdShow)
 
 /*
  * complain to command line users about poor syntax,
- * will be replaced by proper help file.
+ * (there's a proper help file too).
  */
-static char szMsg0a[] = "windiff {-L}{-T}{-D} path1 {path2} {-s{slrd} savefile}\n";
-static char szMsg1a[] = "\n   -L to compare with SLM library";
+static char szMsg0a[] = "windiff path1 {path2} {-L}{-T}{-D}{-O}{-N name}\n";
+static char szMsg01a[]= "                      {-s{s}{l}{r}{d}{x} savefile}\n";
+static char szMsg1a[] = "\n   -L to compare SLM library to specified directory";
+static char szMsg02a[] = "\n     (-LR to compare specified directory to SLM library)";
 static char szMsg2a[] = "\n   -T to compare whole subtree";
 static char szMsg3a[] = "\n   -D to compare one directory only";
 static char szMsg4a[] = "\n   -O Outline view (no automatic expansion)";
-static char szMsg5a[] = "\n   -S to save list of files including Same/Left/Right/Different";
-static char szMsg6a[] = "\n         e.g. -Sld saves list of Left or Different files";
-static char szMsg7a[] = "\n\n  -L implies -D (use -T to override)";
+static char szMsg5a[] = "\n   -N name.  NET SEND notification to name at end of comparison";
+static char szMsg6a[] = "\n   -S to save list of files including Same/Left/Right/Different";
+static char szMsg7a[] = "\n         e.g. -Sld saves list of Left or Different files";
+static char szMsg8a[] = "\n                x to exit program after writing list";
+static char szMsg9a[] = "\n\n   -L implies -D (use -T to override)";
+static char szMsg10a[]= "\n\n   A file can have a SLM version e.g. windiff foo.c@v-3 foo.c";
+static char szMsg11a[]= "\n   Do not use -L with SLM versions (SLM is implied anyway)";
 
-static char szMsg0b[] = "windiff {-D} path1 {path2} {-s{slrd} savefile}\n";
-//static char szMsg1b[] = "\n   -D to compare one directory only";
-//static char szMsg2b[] = "\n   -O Outline view (no automatic expansion)";
-//static char szMsg3b[] = "\n   -S to save list of files including Same/Left/Right/Different";
-//static char szMsg4b[] = "\n         e.g. -Sld saves list of Left or Different files";
+static char szMsg0b[] = "windiff path1 {path2} {-D}{-O}{-N name}{-s{s}{l}{r}{d}{x} savefile}\n";
+
 void
 windiff_usage(LPSTR msg)
 {
@@ -653,14 +820,23 @@ windiff_usage(LPSTR msg)
         if (msg==NULL) {
             fuStyle |= MB_DEFBUTTON2;  // Make it easier to get out
             msg = &(Usage[0]);
-            if (IsSLMOK()) {
-                wsprintf(Usage, "%s%s%s%s%s%s%s%s",
-                         szMsg0a, szMsg1a, szMsg2a, szMsg3a,
-                         szMsg4a, szMsg5a, szMsg6a, szMsg7a);
+            Usage[0]='\0';
+            if (2&IsSLMOK()) {
+               Format(Usage, s);
+               lstrcat(Usage,"\n\n");
+            }
+
+            if (1&IsSLMOK()) {
+                wsprintf(Usage, "%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s",
+                         Usage,
+                         szMsg0a, szMsg01a,szMsg1a, szMsg02a, szMsg2a, szMsg3a,
+                         szMsg4a, szMsg5a, szMsg6a, szMsg7a,
+                         szMsg8a, szMsg9a, szMsg10a,szMsg11a);
 
             } else {
-                wsprintf(Usage, "%s%s%s%s%s",
-                         szMsg0b, szMsg3a, szMsg4a, szMsg5a, szMsg6a);
+                wsprintf(Usage, "%s%s%s%s%s%s%s%s",
+                         Usage,
+                         szMsg0b, szMsg3a, szMsg4a, szMsg5a, szMsg6a, szMsg7a, szMsg8a);
             }
         }
 
@@ -677,6 +853,110 @@ windiff_usage(LPSTR msg)
 }
 
 
+/*  Functionally similar to strtok except that " ... " is a token, even if
+    it contains spaces and the delimiters are built in (no second parameter)
+    GetNextToken(foo) delivers the first token in foo (or NULL if foo is empty)
+    and caches foo so that GetNextToken(NULL) then gives the next token.  When there
+    are no more tokens left it returns NULL
+    It mangles the original by peppering it with NULLs as it chops the tokens
+    off.  Each time except the last it inserts a new NULL.
+    Obviously not thread safe!
+    Command line is limited to 512 chars.
+
+*/
+char * GetNextToken(char * Tok)
+{
+   static char * Source;     // The address of the original source string
+                             // which gets progressively mangled
+
+   static char RetBuff[512]; // We will build results in here
+   static char *Ret;         // We build the results here (in RetBuff)
+                             // but moved along each time.
+
+   static char * p;       // the next char to parse in Source
+                          // NULL if none left.
+
+   // Quotes are a damned nuisance (they are the whole reason why strtok
+   // wouldn't work).  If the string starts with quotes then we potentially
+   // need to pull together fragments of the string "foo""ba"r => foobar
+   // We want to pull these together into storage that we can safely write
+   // into and return (can't be stack).  Mangling the original parameter
+   // gets very messy so we cache a pointer to the original source that
+   // we work through and we build up output tokens in a static
+   // and therefore permanently wasted buffer of (arbitrarily) 512 bytes.
+   // then we can set Ret to \0 and concatenate bits on as we find them.
+   // The rule is that we split at the first space outside quotes.
+
+
+   // cache the Source if a "first time" call.  Kill the "finished" case.
+   if (Tok!=NULL) {
+       Source = Tok;
+       Ret = RetBuff;
+       RetBuff[0] = '\0';
+       p = Source;
+   } else if (p==NULL) {
+       return NULL;          // finished
+   } else {
+       Ret +=strlen(Ret)+1;  // slide it past last time's stuff
+   }
+
+   *Ret = '\0';              // empty string to concatenate onto
+
+   // from here on Tok is used as a temporary.
+
+   // keep taking sections and adding them to the start of Source
+   for (; ; ) {
+
+       // for each possibility we grow Ret and move p on.
+       if (*p=='\"') {
+           ++p;
+           Tok = strchr(p, '"');
+           if (Tok==NULL) {
+               strcat(Ret, p);
+               p = NULL;
+               return Ret;
+           } else {
+               *Tok = '\0';    // split the section off, replaceing the "
+               strcat(Ret, p); // add it to the result
+               p = Tok+1;      // move past the quote
+           }
+       } else {
+           int i = strcspn(p," \"");   // search for space or quote
+           if (p[i]=='\0') {
+               // It's fallen off the end
+               strcat(Ret, p);
+               p = NULL;
+               return Ret;
+           } else if (p[i]==' ') {
+               // We've hit a genuine delimiting space
+               p[i] = '\0';
+               strcat(Ret, p);
+               p +=i+1;
+
+               // strip trailing spaces (leading spaces for next time)
+               while(*p==' ')
+                   ++p;
+               if (*p=='\0')
+                   p = NULL;
+
+               return Ret;
+           } else {
+               // we've hit a quote
+               p[i] = '\0';
+               strcat(Ret, p);
+               p[i] = '\"';     // put it back so that we can find it again
+               p +=i;           // aim at it and iterate
+           }
+       }
+
+   } // for
+
+} // GetNextToken
+
+
+
+
+
 /*
  * parse command line arguments
  *
@@ -685,8 +965,9 @@ windiff_usage(LPSTR msg)
  * and the other a file, we compare a file of the same name in the two dirs.
  *
  * the command -s filename causes the outline list to be written to a file
- * and then the program exits. -s{slrd} filename allows selection of which
- * files are written out; by default, we assume -sld for files left and different.
+ * -s{slrd} filename allows selection of which files are written out;
+ * by default, we assume -sld for files left and different.
+ * -s{slrd}x causes the program to exit after the list has been written out
  *
  * -r server uses server as a remote checksum server, and will also mark the
  * first of the two names as a remote path.
@@ -696,18 +977,21 @@ windiff_usage(LPSTR msg)
  * You can use -L and -R together for a remote library.
  *
  * -T means tree.  Go deep.
+ * -D means Directory or Don't go deep.
+ * -O means Stay in outline mode.  No auto expand.
+ * -N means Notify on completion - try a NET SEND.
  *
  * The default is Deep, -L overrides and implies shallow.
  * A deep library compare requires -L and -T
  */
 void
-ParseArgs(int argc, char ** argv)
+ParseArgs(char * lpCmdLine)
 {
-        int i;
-        LPSTR chp;
         PTHREADARGS ta;
-        BOOL slm = FALSE;   /* TRUE means use slm.ini */
+        int slm = 0;   /* nonzero means use slm.ini */
         BOOL fDeepDefault = TRUE;
+        char * tok;         /* token from lpCmdLine */
+
 #ifdef WIN32
         DWORD threadid;
 #endif
@@ -720,39 +1004,47 @@ ParseArgs(int argc, char ** argv)
         ta->first = NULL;
         ta->second = NULL;
         ta->savelist = NULL;
+        ta->notify = NULL;
         ta->saveopts = 0;
+        ta->fExit = FALSE;
         ta->fDeep = FALSE;  /* No -T option seen yet */
 
-        for (i = 1; i < argc; i++) {
+        tok = GetNextToken(lpCmdLine);
+
+        while ((tok!=NULL) && (lstrlen(tok) > 0)) {
 
                 /* is this an option ? */
-                if ((argv[i][0] == '-') || (argv[i][0] == '/')) {
-                        switch(argv[i][1]) {
+                if ((tok[0] == '-') || (tok[0] == '/')) {
+                        switch(tok[1]) {
 
                         case 'r':
                         case 'R':
-                                ta->server = argv[++i];
+                                ta->server = GetNextToken(NULL);
                                 break;
                         case 's':
                         case 'S':
                                 /* read letters for the save option: s,l,r,d */
-                                for(chp = &argv[i][2]; *chp != '\0'; chp++) {
-                                        switch(*chp) {
+                                for(++tok; *tok != '\0'; ++tok) {
+                                        switch(*tok) {
                                         case 's':
                                         case 'S':
                                                 ta->saveopts |= INCLUDE_SAME;
                                                 break;
                                         case 'l':
                                         case 'L':
-                                                ta->saveopts |= INCLUDE_DIFFER;
+                                                ta->saveopts |= INCLUDE_LEFTONLY;
                                                 break;
                                         case 'r':
                                         case 'R':
-                                                ta->saveopts |= INCLUDE_LEFTONLY;
+                                                ta->saveopts |= INCLUDE_RIGHTONLY;
                                                 break;
                                         case 'd':
                                         case 'D':
-                                                ta->saveopts |= INCLUDE_RIGHTONLY;
+                                                ta->saveopts |= INCLUDE_DIFFER;
+                                                break;
+                                        case 'x':
+                                        case 'X':
+                                                ta->fExit = TRUE;
                                                 break;
                                         default:
                                                 windiff_usage(NULL);
@@ -764,11 +1056,16 @@ ParseArgs(int argc, char ** argv)
                                         /* default to left and differ */
                                         ta->saveopts = (INCLUDE_LEFTONLY) | (INCLUDE_DIFFER);
                                 }
-                                ta->savelist = argv[++i];
+                                ta->savelist = GetNextToken(NULL);
                                 break;
                         case 'l':
                         case 'L':
-                                slm = TRUE;
+                                slm = 1;
+                                if (toupper(tok[2]) == 'R') slm = 2; // reverse compare
+                                break;
+                        case 'n':
+                        case 'N':
+                                ta->notify = GetNextToken(NULL);
                                 break;
                         case 't':
                         case 'T':
@@ -783,20 +1080,34 @@ ParseArgs(int argc, char ** argv)
                         case 'O':
                                 fAutoExpand = FALSE;
                                 break;
+                        case '?':
+                                {
+                                    int j = 0;
+                                    windiff_usage(NULL);
+                                    for(++tok; tok[1] != '\0'; ++tok)
+                                        if ('?'==*tok) ++j;
+
+                                    if (2==j) {
+                                       WriteProfileString(APPNAME, "SYSUK", "1");
+                                    }
+                                    return;
+                                }
                         default:
                                 windiff_usage(NULL);
                                 return;
                         }
                 } else {
                         if (ta->first == NULL) {
-                                ta->first = argv[i];
+                                ta->first = tok;
                         } else {
-                                ta->second = argv[i];
+                                ta->second = tok;
                         }
                 }
+                tok = GetNextToken(NULL);
         }
+
         /* slm option ? */
-        if (slm) {
+        if (slm != 0) {
                 if (ta->second!=NULL) {
                         windiff_usage("-L got two paths - needs at most one");
                         return;
@@ -804,17 +1115,30 @@ ParseArgs(int argc, char ** argv)
                 else {
                         SLMOBJECT hslm;
 
-                        ta->second = ta->first;
-                        ta->first = ta->slmpath;    /* point at buffer */
+                        LPSTR srcdir, slmpath;
+
+                        if (slm == 1) {
+                            ta->second = ta->first;
+                            ta->first = ta->slmpath;    /* point at buffer */
+                            srcdir = ta->second;
+                            slmpath = ta->first;
+                        } else {
+                            if (ta->first == NULL) {
+                                    ta->first = ".";
+                            }
+                            ta->second = ta->slmpath;
+                            srcdir = ta->first;
+                            slmpath = ta->second;
+                        }
                         /*
                          * look for the slm enlistment dir in
                          * the other argument (NULL means current dir).
                          */
-                        if ((hslm = SLM_New(ta->second)) == NULL) {
+                        if ((hslm = SLM_New(srcdir)) == NULL) {
                                 windiff_usage("bad or missing slm.ini");
                                 return;
                         } else {
-                                SLM_GetMasterPath(hslm, ta->first);
+                                SLM_GetMasterPath(hslm, slmpath);
                                 SLM_Free(hslm);
                         }
                 }
@@ -823,7 +1147,7 @@ ParseArgs(int argc, char ** argv)
         /* set the correct depth */
         if (ta->fDeep)
                 ;                       /* explicitly set -- leave it alone */
-        else if (slm)
+        else if (slm != 0)
                 ;                       /* default to shallow for SLM */
         else ta->fDeep = fDeepDefault;  /* global default */
 
@@ -881,16 +1205,19 @@ CreateTools(void)
          */
         table_msgcode = RegisterWindowMessage(TableMessage);
 
-        line_numbers = GetProfileInt(APPNAME, "LineNumbers", line_numbers);
-        outline_include = GetProfileInt(APPNAME, "FileInclude", outline_include);
-        ignore_blanks = GetProfileInt(APPNAME, "Blanks", ignore_blanks);
-        Algorithm2 = GetProfileInt(APPNAME, "Algorithm2", Algorithm2);
-        mono_colours = GetProfileInt(APPNAME, "MonoColours", mono_colours);
-        picture_mode = GetProfileInt(APPNAME, "Picture", picture_mode);
-        hide_markedfiles = GetProfileInt(APPNAME, "HideMark", hide_markedfiles);
+        line_numbers = GetProfileInt(APPNAME, szLineNumbers, line_numbers);
+        outline_include = GetProfileInt(APPNAME, szFileInclude, outline_include);
+        ignore_blanks = GetProfileInt(APPNAME, szBlanks, ignore_blanks);
+        Algorithm2 = GetProfileInt(APPNAME, szAlgorithm2, Algorithm2);
+        mono_colours = GetProfileInt(APPNAME, szMonoColours, mono_colours);
+        picture_mode = GetProfileInt(APPNAME, szPicture, picture_mode);
+        hide_markedfiles = GetProfileInt(APPNAME, szHideMark, hide_markedfiles);
 
-        GetProfileString(APPNAME, "Editor", editor_cmdline, editor_cmdline,
+        GetProfileString(APPNAME, szEditor, editor_cmdline, editor_cmdline,
                         sizeof(editor_cmdline));
+
+        g_tabwidth = GetProfileInt(APPNAME, szTabWidth, g_tabwidth);
+
 #ifdef WIN32
         InitializeCriticalSection(&CSWindiff);
 #endif
@@ -1021,7 +1348,7 @@ DoPrint(void)
         if (strlen(AppTitle) > 0) {
                 head.ptext = AppTitle;
         } else {
-                head.ptext = "WinDiff";
+                head.ptext = (LPSTR)szWinDiff;
         }
 
         /* header is centred, footer is right-aligned and
@@ -1064,11 +1391,11 @@ FindNextChange(void)
         /* find the next 'interesting' line */
         row = view_findchange(current_view, row, TRUE);
         if (row >= 0) {
-                SetSelection(row);
+                SetSelection(row, 1);
                 return(TRUE);
         } else {
                 windiff_UI(TRUE);
-                MessageBox(hwndClient, "No More Changes", "Windiff",
+                MessageBox(hwndClient, "No More Changes", szWinDiff,
                         MB_ICONINFORMATION|MB_OK);
                 windiff_UI(FALSE);
 
@@ -1093,11 +1420,11 @@ FindPrevChange(void)
         /* find the previous 'interesting' line */
         row = view_findchange(current_view, row, FALSE);
         if (row >= 0) {
-                SetSelection(row);
+                SetSelection(row, 1);
                 return(TRUE);
         } else {
                 windiff_UI(TRUE);
-                MessageBox(hwndClient, "No Previous Changes", "Windiff",
+                MessageBox(hwndClient, "No Previous Changes", szWinDiff,
                         MB_ICONINFORMATION|MB_OK);
                 windiff_UI(FALSE);
 
@@ -1106,12 +1433,15 @@ FindPrevChange(void)
 
 }
 
+#ifndef WriteProfileInt // Only needed if the profile->registry
+                        // mapping is not in use
 BOOL WriteProfileInt(LPSTR AppName, LPSTR Key, int Int)
 {       char Str[40];
-        wsprintf(Str, "%d", Int);
+        wsprintf(Str, szD, Int);
         return WriteProfileString(AppName, Key, Str);
 
 } /* WriteProfileInt */
+#endif
 
 
 /* switch to expand view of the selected line */
@@ -1142,37 +1472,37 @@ ToExpand(HWND hwnd)
                 wp.length = sizeof(wp);
 
                 if (GetWindowPlacement(hwndClient,&wp)) {
-                        WriteProfileInt(APPNAME, "OutlineShowCmd", wp.showCmd);
-                        WriteProfileInt(APPNAME, "OutlineMaxX", wp.ptMaxPosition.x);
-                        WriteProfileInt(APPNAME, "OutlineMaxY", wp.ptMaxPosition.y);
-                        WriteProfileInt(APPNAME, "OutlineNormLeft", wp.rcNormalPosition.left);
-                        WriteProfileInt(APPNAME, "OutlineNormTop", wp.rcNormalPosition.top);
-                        WriteProfileInt(APPNAME, "OutlineNormRight", wp.rcNormalPosition.right);
-                        WriteProfileInt(APPNAME, "OutlineNormBottom", wp.rcNormalPosition.bottom);
-                        WriteProfileInt(APPNAME, "OutlineSaved", 1);
+                        WriteProfileInt(APPNAME, szOutlineShowCmd, wp.showCmd);
+                        WriteProfileInt(APPNAME, szOutlineMaxX, wp.ptMaxPosition.x);
+                        WriteProfileInt(APPNAME, szOutlineMaxY, wp.ptMaxPosition.y);
+                        WriteProfileInt(APPNAME, szOutlineNormLeft, wp.rcNormalPosition.left);
+                        WriteProfileInt(APPNAME, szOutlineNormTop, wp.rcNormalPosition.top);
+                        WriteProfileInt(APPNAME, szOutlineNormRight, wp.rcNormalPosition.right);
+                        WriteProfileInt(APPNAME, szOutlineNormBottom, wp.rcNormalPosition.bottom);
+                        WriteProfileInt(APPNAME, szOutlineSaved, 1);
                 }
 
                 /* restore the previous expanded size and position, if any */
-                if (GetProfileInt(APPNAME, "ExpandedSaved", 0)) {
+                if (GetProfileInt(APPNAME, szExpandedSaved, 0)) {
                         wp.flags                   = 0;
                         wp.showCmd
-                                = GetProfileInt( APPNAME, "ExpandShowCmd"
+                                = GetProfileInt( APPNAME, szExpandShowCmd
                                                , SW_SHOWMAXIMIZED);
                         wp.ptMaxPosition.x
-                                = GetProfileInt( APPNAME, "ExpandMaxX", 0);
+                                = GetProfileInt( APPNAME, szExpandMaxX, 0);
                         wp.ptMaxPosition.y
-                                = GetProfileInt( APPNAME, "ExpandMaxY", 0);
+                                = GetProfileInt( APPNAME, szExpandMaxY, 0);
                         wp.rcNormalPosition.left
-                                = GetProfileInt( APPNAME, "ExpandNormLeft"
+                                = GetProfileInt( APPNAME, szExpandNormLeft
                                                , wp.rcNormalPosition.left);
                         wp.rcNormalPosition.top
-                                = GetProfileInt( APPNAME, "ExpandNormTop"
+                                = GetProfileInt( APPNAME, szExpandNormTop
                                                , wp.rcNormalPosition.top);
                         wp.rcNormalPosition.right
-                                = GetProfileInt( APPNAME, "ExpandNormRight"
+                                = GetProfileInt( APPNAME, szExpandNormRight
                                                , wp.rcNormalPosition.right);
                         wp.rcNormalPosition.bottom
-                                = GetProfileInt( APPNAME, "ExpandNormBottom"
+                                = GetProfileInt( APPNAME, szExpandNormBottom
                                                , wp.rcNormalPosition.bottom);
                         SetWindowPlacement(hwndClient,&wp);
                 }
@@ -1200,7 +1530,7 @@ ToExpand(HWND hwnd)
                          * item we are expanding
                          */
                         SetStatus(view_getcurrenttag(current_view) );
-                        SetButtonText("Outline");
+                        SetButtonText((LPSTR)szOutline);
                 }
 
                 return(TRUE);
@@ -1227,37 +1557,37 @@ ToOutline(HWND hwnd)
 
                 wp.length = sizeof(wp);
                 if (GetWindowPlacement(hwndClient,&wp)) {
-                        WriteProfileInt(APPNAME, "ExpandShowCmd", wp.showCmd);
-                        WriteProfileInt(APPNAME, "ExpandMaxX", wp.ptMaxPosition.x);
-                        WriteProfileInt(APPNAME, "ExpandMaxY", wp.ptMaxPosition.y);
-                        WriteProfileInt(APPNAME, "ExpandNormLeft", wp.rcNormalPosition.left);
-                        WriteProfileInt(APPNAME, "ExpandNormTop", wp.rcNormalPosition.top);
-                        WriteProfileInt(APPNAME, "ExpandNormRight", wp.rcNormalPosition.right);
-                        WriteProfileInt(APPNAME, "ExpandNormBottom", wp.rcNormalPosition.bottom);
-                        WriteProfileInt(APPNAME, "ExpandedSaved", 1);
+                        WriteProfileInt(APPNAME, szExpandShowCmd, wp.showCmd);
+                        WriteProfileInt(APPNAME, szExpandMaxX, wp.ptMaxPosition.x);
+                        WriteProfileInt(APPNAME, szExpandMaxY, wp.ptMaxPosition.y);
+                        WriteProfileInt(APPNAME, szExpandNormLeft, wp.rcNormalPosition.left);
+                        WriteProfileInt(APPNAME, szExpandNormTop, wp.rcNormalPosition.top);
+                        WriteProfileInt(APPNAME, szExpandNormRight, wp.rcNormalPosition.right);
+                        WriteProfileInt(APPNAME, szExpandNormBottom, wp.rcNormalPosition.bottom);
+                        WriteProfileInt(APPNAME, szExpandedSaved, 1);
                 }
 
                 /* restore the previous expanded size and position, if any */
-                if (GetProfileInt(APPNAME, "OutlineSaved", 0))  {
+                if (GetProfileInt(APPNAME, szOutlineSaved, 0))  {
                         wp.flags = 0;
                         wp.showCmd
-                                = GetProfileInt( APPNAME, "OutlineShowCmd"
+                                = GetProfileInt( APPNAME, szOutlineShowCmd
                                                , SW_SHOWNORMAL);
                         wp.ptMaxPosition.x
-                                = GetProfileInt( APPNAME, "OutlineMaxX", 0);
+                                = GetProfileInt( APPNAME, szOutlineMaxX, 0);
                         wp.ptMaxPosition.y
-                                = GetProfileInt( APPNAME, "OutlineMaxY", 0);
+                                = GetProfileInt( APPNAME, szOutlineMaxY, 0);
                         wp.rcNormalPosition.left
-                                = GetProfileInt( APPNAME, "OutlineNormLeft"
+                                = GetProfileInt( APPNAME, szOutlineNormLeft
                                                , wp.rcNormalPosition.left);
                         wp.rcNormalPosition.top
-                                = GetProfileInt( APPNAME, "OutlineNormTop"
+                                = GetProfileInt( APPNAME, szOutlineNormTop
                                                , wp.rcNormalPosition.top);
                         wp.rcNormalPosition.right
-                                = GetProfileInt( APPNAME, "OutlineNormRight"
+                                = GetProfileInt( APPNAME, szOutlineNormRight
                                                , wp.rcNormalPosition.right);
                         wp.rcNormalPosition.bottom
-                                = GetProfileInt( APPNAME, "OutlineNormBottom"
+                                = GetProfileInt( APPNAME, szOutlineNormBottom
                                                , wp.rcNormalPosition.bottom);
                         SetWindowPlacement(hwndClient,&wp);
                 } else {
@@ -1276,7 +1606,7 @@ ToOutline(HWND hwnd)
 
         /* change label on button */
         if (!fBusy) {
-                SetButtonText("Expand");
+                SetButtonText((LPSTR)szExpand);
                 SetStatus(NULL);
         }
 } /* ToOutline */
@@ -1284,9 +1614,12 @@ ToOutline(HWND hwnd)
 /*
  * if the user clicks on a MOVED line in expand mode, we jump to the
  * other line. We return TRUE if this was possible,  or FALSE otherwise.
+ * If bMove is not true, then just test to see if it is possible to move
+ * and don't actually make the selection change. (I was going to have
+ * an IsMoved function but there seemed to be so much in common).
  */
 BOOL
-ToMoved(HWND hwnd)
+ToMoved(HWND hwnd, BOOL bMove)
 {
         BOOL bIsLeft;
         int linenr, state;
@@ -1319,18 +1652,51 @@ ToMoved(HWND hwnd)
                 if (bIsLeft) {
                         if (linenr == view_getlinenr_right(current_view, i)) {
                                 /* found it */
-                                SetSelection(i);
+                                if (bMove) {
+                                    SetSelection(i, 1);
+                                }
                                 return(TRUE);
                         }
                 } else {
                         if (linenr == view_getlinenr_left(current_view, i)) {
-                                SetSelection(i);
+                                if (bMove) {
+                                    SetSelection(i, 1);
+                                }
                                 return(TRUE);
                         }
                 }
         }
         return(FALSE);
-}
+} /* ToMoved */
+
+
+void RescanFile( HWND hwnd)
+{
+    COMPITEM ci;
+    int i;
+
+    /* N.B.  This should work in both expanded and outline mode.
+     * (used to work only in outline mode)
+     */
+    if (selection_nrows > 0) {
+        for (i = 0; i < selection_nrows; i++) {
+            ci = view_getitem(current_view, selection+i);
+            if (ci != NULL){
+                compitem_rescan(ci);
+            }
+        }
+    } else {
+        windiff_UI(TRUE);
+        MessageBox(hwndClient, "No file selected.  Nothing rescanned.",
+                   szWinDiff, MB_ICONSTOP|MB_OK);
+        windiff_UI(FALSE);
+
+        return;
+    }
+    PostMessage(hwndClient, WM_COMMAND, IDM_UPDATE, (LONG)ci);
+
+} /* RescanFile */
+
 
 /*
  * launch an editor on the current file (the file we are expanding, or
@@ -1363,6 +1729,11 @@ do_editfile(PEDITARGS pe)
 
         item = view_getitem(view, selection);
         if (item == NULL) {
+                windiff_UI(TRUE);
+                MessageBox(hwndClient, "No file selected.  Nothing to edit.",
+                           szWinDiff, MB_ICONSTOP|MB_OK);
+                windiff_UI(FALSE);
+
                 return -1;
         }
 
@@ -1376,7 +1747,7 @@ do_editfile(PEDITARGS pe)
         {
             windiff_UI(TRUE);
             MessageBox(hwndClient, "File does not exist.",
-                       "Windiff", MB_ICONSTOP|MB_OK);
+                       szWinDiff, MB_ICONSTOP|MB_OK);
             windiff_UI(FALSE);
             goto error;
         }
@@ -1463,7 +1834,7 @@ do_editfile(PEDITARGS pe)
         /* cheap and nasty WIN31 version */
         if ((module = WinExec(cmdline, SW_SHOWNORMAL)) <= 32) {
                 MessageBox(hwndClient, "Failed to launch editor",
-                        "Windiff", MB_ICONSTOP|MB_OK);
+                        szWinDiff, MB_ICONSTOP|MB_OK);
                 goto error;
         }
 
@@ -1478,11 +1849,17 @@ do_editfile(PEDITARGS pe)
          * complete
          */
 
+        // note - make title of window same each time since if this is
+        // a command-window editor (eg slick) NT will only apply window
+        // property changes to all subsequent editor windows if they
+        // have the same title. If you include the full command line in the
+        // window title, it will differ each time. Win95 seems not to use
+        // this field.
+        si.lpTitle = "Edit File";
         si.cb = sizeof(STARTUPINFO);
         si.lpReserved = NULL;
         si.lpReserved2 = NULL;
         si.cbReserved2 = 0;
-        si.lpTitle = cmdline;
         si.lpDesktop = NULL;
         // si.dwXCountChars = 100;            // didn't work.
         // si.dwYCountChars = 60;             // dunno why not.
@@ -1501,7 +1878,7 @@ do_editfile(PEDITARGS pe)
                         &pi)) {
                 windiff_UI(TRUE);
                 MessageBox(hwndClient, "Failed to launch editor",
-                        "Windiff", MB_ICONSTOP|MB_OK);
+                        szWinDiff, MB_ICONSTOP|MB_OK);
                 windiff_UI(FALSE);
                 goto error;
         }
@@ -1525,13 +1902,23 @@ do_editfile(PEDITARGS pe)
 
         /* We want to force both files to be re-read, but it's not a terribly
          * good idea to throw the lines away on this thread.  Someone might
-         * be reading them on another thread!
+         * be reading them on another thread! (e.g. user tries to expand
+         * file, seems to be taking a long time, so user decides to edit it
+         * to have a look!
+         * DO NOT file_discardlines(compitem_getleftfile(item))
+         * DO NOT file_discardlines(compitem_getrightfile(item))
          */
-        /* file_discardlines(compitem_getleftfile(item)) */
-        /* file_discardlines(compitem_getrightfile(item)) */
+
+        /* We don't discard the lines (well, not on this thread) but we do discard
+         * status information.  (Used to work only in expanded mode, relying on
+         * status being reset when we go back to outline).
+         */
+
 
         /* force the compare to be re-done */
+        compitem_rescan(item);
         PostMessage(hwndClient, WM_COMMAND, IDM_UPDATE, (LONG)item);
+
 error:
         gmem_free(hHeap, (LPSTR) pe, sizeof(EDITARGS));
 
@@ -1579,8 +1966,149 @@ void do_editthread(VIEW view, int option)
 #ifdef WIN32
         else CloseHandle(thread);
 #endif //WIN32
+
+        // new layout not needed as do_editfile sends IDM_UPDATE
+
 } /* do_editthread */
 
+
+// we are called when the right mouse button is pressed. Before we are
+// called, the row clicked on has been selected. We need to put up
+// a context menu.
+void
+OnRightClick(
+    HWND hWnd,
+    int x,
+    int y)
+{
+    HMENU hMenu, hSubMenu;
+    POINT point;
+    UINT uEnable;
+
+    if (DisplayMode == MODE_OUTLINE) {
+        hMenu = LoadMenu(hInst, szOutlineMenu);
+    } else if (DisplayMode == MODE_EXPAND) {
+        hMenu = LoadMenu(hInst, szExpandMenu);
+    } else {
+        return;
+    }
+
+
+    hSubMenu = GetSubMenu(hMenu, 0);
+
+    // -- lots of stuff to disable inappropriate menu items --
+
+    // enable IDM_TOMOVED only if it is a moved line that we can
+    // see the other copy of in this view (and only if there is a single
+    // selected line)
+
+    if (DisplayMode == MODE_EXPAND) {
+        if (ToMoved(hWnd, FALSE) && (1 == selection_nrows)) {
+            uEnable = MF_ENABLED;
+        } else {
+            uEnable = MF_GRAYED;
+        }
+        EnableMenuItem(hMenu, IDM_TOMOVED, MF_BYCOMMAND | uEnable);
+    }
+
+
+    // disable next/prev buttons if no more changes in that direction
+    if (view_findchange(current_view, selection+1, TRUE) >=0) {
+        uEnable = MF_ENABLED;
+    } else {
+        uEnable = MF_GRAYED;
+    }
+    EnableMenuItem(hSubMenu, IDM_FCHANGE, MF_BYCOMMAND | uEnable);
+
+    if (view_findchange(current_view, selection-1, FALSE) >=0) {
+        uEnable = MF_ENABLED;
+    } else {
+        uEnable = MF_GRAYED;
+    }
+    EnableMenuItem(hSubMenu, IDM_FPCHANGE, MF_BYCOMMAND | uEnable);
+
+    // check for left-only and right-only files and disable the appropriate
+    // menu item
+    // disable all editxxx and Expand if multiple files selected
+    if ((DisplayMode == MODE_OUTLINE) && (selection_nrows > 1)) {
+        EnableMenuItem(hSubMenu, IDM_EDITLEFT, MF_BYCOMMAND|MF_GRAYED);
+        EnableMenuItem(hSubMenu, IDM_EDITRIGHT, MF_BYCOMMAND|MF_GRAYED);
+        EnableMenuItem(hSubMenu, IDM_EDITCOMP, MF_BYCOMMAND|MF_GRAYED);
+        EnableMenuItem(hSubMenu, IDM_EXPAND, MF_BYCOMMAND|MF_GRAYED);
+    } else {
+        COMPITEM item = view_getitem(current_view, selection);
+        UINT uEnableLeft = MF_ENABLED;
+        UINT uEnableRight = MF_ENABLED;
+        int state;
+
+        state = compitem_getstate(item);
+
+        if (state == STATE_FILERIGHTONLY) {
+            uEnableLeft = MF_GRAYED;
+        } else if (state == STATE_FILELEFTONLY) {
+            uEnableRight = MF_GRAYED;
+        }
+        EnableMenuItem(hSubMenu, IDM_EDITLEFT, MF_BYCOMMAND | uEnableLeft);
+        EnableMenuItem(hSubMenu, IDM_EDITRIGHT, MF_BYCOMMAND | uEnableRight);
+        EnableMenuItem(hSubMenu, IDM_EDITCOMP, MF_BYCOMMAND|MF_ENABLED);
+
+        if (DisplayMode == MODE_OUTLINE) {
+            EnableMenuItem(hSubMenu, IDM_EXPAND, MF_BYCOMMAND|MF_ENABLED);
+        }
+   }
+
+
+    // convert the window-based co-ord to a screen co-ord
+    point.x = x;
+    point.y = y;
+    ClientToScreen(hwndRCD, &point);
+
+    TrackPopupMenu(
+           hSubMenu,
+           TPM_LEFTALIGN|TPM_RIGHTBUTTON,
+           point.x, point.y,
+           0,
+           hWnd,
+           NULL);
+}
+
+//
+// refresh the display after a rescan of a given line.
+// try to maintain existing scroll position and selection.
+void
+OnUpdate(COMPITEM item)
+{
+
+    // save current scroll position
+    long row = SendMessage(hwndRCD, TM_TOPROW, FALSE, 0);
+
+    // ... and current selection
+    long lSel = selection;
+    long cSel = selection_nrows;
+
+    /* update the display.  Options or files may have changed */
+    /* discard lines  (thereby forcing re-read).
+     */
+    file_discardlines(compitem_getleftfile(item));
+    file_discardlines(compitem_getrightfile(item));
+
+    view_changediffoptions(current_view);
+
+    // tell the table view to recalculate its
+    // idea of the width of each col etc
+
+    SendMessage(hwndRCD, TM_NEWLAYOUT, 0, (LPARAM) current_view);
+
+    // set old scroll position
+    SendMessage(hwndRCD, TM_TOPROW, TRUE, row);
+
+    // set back old selection
+    SetSelection(lSel, cSel);
+
+
+    /* force repaint of bar window */
+    InvalidateRect(hwndBar, NULL, TRUE);
+}
 
 /* status bar and busy flags --------------------------------------------*/
 
@@ -1657,7 +2185,7 @@ SetBusy(void)
 
         /* enable abort only when busy */
         EnableMenuItem(hmenu, IDM_ABORT,MF_ENABLED|MF_BYCOMMAND);
-        SetButtonText("Abort");  /* leave DisplayMode unchanged */
+        SetButtonText((LPSTR)szAbort);  /* leave DisplayMode unchanged */
 
         WDLeave();
         return(TRUE);
@@ -1680,20 +2208,20 @@ SetNotBusy(void)
 
         /* reset button and status bar (clearing out busy flags) */
         if (current_view == NULL) {
-                SetButtonText("Exit");
+                SetButtonText((LPSTR)szExit);
                 SetStatus(NULL);
                 DisplayMode = MODE_NULL;
         } else if (view_isexpanded(current_view)) {
-                SetButtonText("Outline");
+                SetButtonText((LPSTR)szOutline);
                 SetStatus(view_getcurrenttag(current_view) );
                 DisplayMode = MODE_EXPAND;
         } else {
-                SetButtonText("Expand");
+                SetButtonText((LPSTR)szExpand);
                 SetStatus(NULL);
                 DisplayMode = MODE_OUTLINE;
         }
 
-        SetWindowText(hwndClient, "WinDiff");
+        SetWindowText(hwndClient, szWinDiff);
 
         /* re-enable appropriate parts of menu */
         hmenu = GetMenu(hwndClient);
@@ -1737,7 +2265,7 @@ BusyError(void)
         windiff_UI(TRUE);
         MessageBox(hwndClient,
                 "Please wait for current operation to finish",
-                "WinDiff", MB_OK|MB_ICONSTOP);
+                szWinDiff, MB_OK|MB_ICONSTOP);
         windiff_UI(FALSE);
 } /* BusyError */
 
@@ -1753,6 +2281,13 @@ BusyError(void)
 UINT
 StateToColour(int state, BOOL bMarked, int col, DWORD FAR * foreground, DWORD FAR * background)
 {
+
+        /* we always set both colours - allows all the colours to
+           be controlled from the profile.  Important for the
+           visually impaired.  So we first set the dafaults.
+        */
+        *foreground = rgb_defaultfore;
+        *background = rgb_defaultback;
 
         // marked compitems are highlighted specially - for now, use the
         // colour scheme used for different lines in expand mode
@@ -1770,14 +2305,26 @@ StateToColour(int state, BOOL bMarked, int col, DWORD FAR * foreground, DWORD FA
                  * with the default background
                  */
                 *foreground = rgb_outlinehi;
-                return(P_FCOLOUR);
+                return(P_FCOLOUR|P_BCOLOUR);
+
+        case STATE_FILELEFTONLY:
+                /* zebra lines in both files - right file version */
+                *foreground = rgb_fileleftfore;
+                *background = rgb_fileleftback;
+                return(P_FCOLOUR|P_BCOLOUR);
+
+        case STATE_FILERIGHTONLY:
+                /* zebra lines in both files - right file version */
+                *foreground = rgb_filerightfore;
+                *background = rgb_filerightback;
+                return(P_FCOLOUR|P_BCOLOUR);
 
         case STATE_SIMILAR:
                 /* for files that are same within expand compare options
                  * e.g. differ only in ignorable blanks  (NYI)
                 */
                 *foreground = rgb_similar;
-                return(P_FCOLOUR);
+                return(P_FCOLOUR|P_BCOLOUR);
 
         case STATE_LEFTONLY:
                 /* lines only in the left file */
@@ -1818,7 +2365,7 @@ StateToColour(int state, BOOL bMarked, int col, DWORD FAR * foreground, DWORD FA
         default:
 
                 /* no highlighting - default colours */
-                return(0);
+                return(P_FCOLOUR|P_BCOLOUR);
         }
 
 }
@@ -1827,13 +2374,13 @@ StateToColour(int state, BOOL bMarked, int col, DWORD FAR * foreground, DWORD FA
 
 /* set a given row as the selected row in the table window */
 void
-SetSelection(long rownr)
+SetSelection(long rownr, long nrows)
 {
         TableSelection select;
 
         select.startrow = rownr;
         select.startcell = 0;
-        select.nrows = 1;
+        select.nrows = nrows;
         select.ncells = 1;
         SendMessage(hwndRCD, TM_SELECT, 0, (long) (LPSTR)&select);
 }
@@ -2021,7 +2568,8 @@ do_getdata(HWND hwnd, lpCellDataList cdlist)
                  * or it will be grayed out and look ugly
                  */
 
-                if (!bIsPrinter) {
+                if ((GetProfileInt(APPNAME, szColourPrinting, 0) > 0) ||
+                    (!bIsPrinter)) {
 
                         /* convert the state of the requested row into a
                          * colour scheme. returns P_FCOLOUR and/or
@@ -2068,7 +2616,7 @@ SvrClose(void)
          * we should clean up the state of the status bar
          */
         if (!fBusy) {
-                SetButtonText("Exit");
+                SetButtonText((LPSTR)szExit);
                 SetNames(NULL);
                 SetStatus(NULL);
 
@@ -2134,7 +2682,7 @@ TableServer(HWND hwnd, UINT cmd, long lParam)
                                          * is a moved line- show the other
                                          * copy
                                          */
-                                        ToMoved(hwnd);
+                                        ToMoved(hwnd, TRUE);
                                 }
 
                         }
@@ -2155,6 +2703,13 @@ TableServer(HWND hwnd, UINT cmd, long lParam)
                         BarDrawPosition(hwndBar, NULL, TRUE);
                 }
                 break;
+
+        case TQ_TABS:
+                if (lParam != 0) {
+                    LONG * pTabs = (LONG *) lParam;
+                    *pTabs = g_tabwidth;
+                }
+                return TRUE;
 
         default:
                 return(FALSE);
@@ -2203,24 +2758,40 @@ wd_initial(LPVOID arg)
                 return 0;
         }
 
+        /* Comparison complete.  Should we tell anybody? */
+        if (pta->notify!=NULL) {
+            char cmdline[512];
+            lstrcpy(cmdline, "NET SEND ");
+            lstrcat(cmdline, pta->notify);
+            lstrcat(cmdline, " Finished Windiff ");
+            lstrcat(cmdline, pta->first);
+            lstrcat(cmdline, " ");
+            lstrcat(cmdline, pta->second);
+            WinExec(cmdline, SW_SHOWNORMAL);
+            /* Don't check retcode.  If it fails too bad.  What would we do?  Net send a msg? */
+        }
 
-        /* if savelist was selected, write out the list and exit */
+
+        /* if savelist was selected, write out the list and exit if -x was set */
         if(pta->savelist != NULL) {
                 complist_savelist(cl, pta->savelist, pta->saveopts);
                 gmem_free(hHeap, (LPSTR) pta, sizeof(THREADARGS));
                 SetNotBusy();
-                exit(0);
+                if (pta->fExit) exit(0);
         }
 
-        /* if there was only one file, expand it */
+        /* if there was only one file, expand it, unless... */
         if (view_getrowcount(pta->view) == 1) {
                 /* The interesting case is where there are a bunch of files
                    but only one of them is Different.  In this case we do
                    NOT expand it even though it is the only one showing.
                 */
                 UINT nItems = complist_itemcount(view_getcomplist(pta->view));
+                /* And even then, don't expand if the option said don't.
+                   Imagine just one HUGE REMOTE FILE.  Painful.
+                */
                 if (nItems==1 && fAutoExpand) {
-                    SetSelection(0);
+                    SetSelection(0, 1);
                     ToExpand(hwndClient);
                 }
         }
@@ -2287,7 +2858,7 @@ wd_copy(LPVOID arg)
 
         VIEW view = (VIEW) arg;
 
-        complist_copyfiles(view_getcomplist(view), NULL, 0, HFILE_ERROR);
+        complist_copyfiles(view_getcomplist(view), NULL, 0);
 
         SetNotBusy();
 
@@ -2395,28 +2966,28 @@ MainWndProc(HWND hWnd, UINT message, UINT wParam, LONG lParam)
                                 WINDOWPLACEMENT wp;
                                 wp.length = sizeof(wp);
                                 if (GetWindowPlacement(hwndClient,&wp)) {
-                                        WriteProfileInt(APPNAME, "OutlineShowCmd", wp.showCmd);
-                                        WriteProfileInt(APPNAME, "OutlineMaxX", wp.ptMaxPosition.x);
-                                        WriteProfileInt(APPNAME, "OutlineMaxY", wp.ptMaxPosition.y);
-                                        WriteProfileInt(APPNAME, "OutlineNormLeft", wp.rcNormalPosition.left);
-                                        WriteProfileInt(APPNAME, "OutlineNormTop", wp.rcNormalPosition.top);
-                                        WriteProfileInt(APPNAME, "OutlineNormRight", wp.rcNormalPosition.right);
-                                        WriteProfileInt(APPNAME, "OutlineNormBottom", wp.rcNormalPosition.bottom);
-                                        WriteProfileInt(APPNAME, "OutlineSaved", 1);
+                                        WriteProfileInt(APPNAME, szOutlineShowCmd, wp.showCmd);
+                                        WriteProfileInt(APPNAME, szOutlineMaxX, wp.ptMaxPosition.x);
+                                        WriteProfileInt(APPNAME, szOutlineMaxY, wp.ptMaxPosition.y);
+                                        WriteProfileInt(APPNAME, szOutlineNormLeft, wp.rcNormalPosition.left);
+                                        WriteProfileInt(APPNAME, szOutlineNormTop, wp.rcNormalPosition.top);
+                                        WriteProfileInt(APPNAME, szOutlineNormRight, wp.rcNormalPosition.right);
+                                        WriteProfileInt(APPNAME, szOutlineNormBottom, wp.rcNormalPosition.bottom);
+                                        WriteProfileInt(APPNAME, szOutlineSaved, 1);
                                 }
                         } else {
                                 /* save the current expanded size and position */
                                 WINDOWPLACEMENT wp;
                                 wp.length = sizeof(wp);
                                 if (GetWindowPlacement(hwndClient,&wp)) {
-                                        WriteProfileInt(APPNAME, "ExpandShowCmd", wp.showCmd);
-                                        WriteProfileInt(APPNAME, "ExpandMaxX", wp.ptMaxPosition.x);
-                                        WriteProfileInt(APPNAME, "ExpandMaxY", wp.ptMaxPosition.y);
-                                        WriteProfileInt(APPNAME, "ExpandNormLeft", wp.rcNormalPosition.left);
-                                        WriteProfileInt(APPNAME, "ExpandNormTop", wp.rcNormalPosition.top);
-                                        WriteProfileInt(APPNAME, "ExpandNormRight", wp.rcNormalPosition.right);
-                                        WriteProfileInt(APPNAME, "ExpandNormBottom", wp.rcNormalPosition.bottom);
-                                        WriteProfileInt(APPNAME, "ExpandedSaved", 1);
+                                        WriteProfileInt(APPNAME, szExpandShowCmd, wp.showCmd);
+                                        WriteProfileInt(APPNAME, szExpandMaxX, wp.ptMaxPosition.x);
+                                        WriteProfileInt(APPNAME, szExpandMaxY, wp.ptMaxPosition.y);
+                                        WriteProfileInt(APPNAME, szExpandNormLeft, wp.rcNormalPosition.left);
+                                        WriteProfileInt(APPNAME, szExpandNormTop, wp.rcNormalPosition.top);
+                                        WriteProfileInt(APPNAME, szExpandNormRight, wp.rcNormalPosition.right);
+                                        WriteProfileInt(APPNAME, szExpandNormBottom, wp.rcNormalPosition.bottom);
+                                        WriteProfileInt(APPNAME, szExpandedSaved, 1);
                                 }
                         }
                         DestroyWindow(hWnd);
@@ -2601,7 +3172,7 @@ MainWndProc(HWND hWnd, UINT message, UINT wParam, LONG lParam)
                         if (current_view == NULL) {
                                 MessageBox(hWnd,
                                     "Please create a diff list first",
-                                    "WinDiff", MB_OK|MB_ICONSTOP);
+                                    szWinDiff, MB_OK|MB_ICONSTOP);
                                 break;
                         }
 
@@ -2631,18 +3202,23 @@ MainWndProc(HWND hWnd, UINT message, UINT wParam, LONG lParam)
                 case IDM_ABOUT:
 #ifdef WIN32
                         ShellAbout( hWnd,
-                                    "WinDiff",
+                                    (LPTSTR)szWinDiff,
                                     "File and directory comparisons",
-                                    LoadIcon(hInst, "WinDiff")
+                                    LoadIcon(hInst, szWinDiff)
                                   );
 #else
                         {
                                 DLGPROC lpProc;
                                 lpProc = (DLGPROC)MakeProcInstance((WINPROCTYPE)AboutBox, hInst);
-                                DialogBox(hInst, "About", hWnd, lpProc);
+                                DialogBox(hInst, szAbout, hWnd, lpProc);
                                 FreeProcInstance(lpProc);
                         }
 #endif
+                        break;
+
+                case IDM_CONTENTS:
+                        /* Help contents */
+                        WinHelp(hWnd, "windiff.hlp", HELP_INDEX, 0);
                         break;
 
                 /* launch an editor on the current item - left, right or
@@ -2664,8 +3240,8 @@ MainWndProc(HWND hWnd, UINT message, UINT wParam, LONG lParam)
                 case IDM_SETEDIT:
                         if (StringInput(editor_cmdline, sizeof(editor_cmdline),
                                         "Editor command (%p = file, %l = line#)",
-                                        "Windiff", editor_cmdline))  {
-                                WriteProfileString(APPNAME, "Editor",
+                                        (LPSTR)szWinDiff, editor_cmdline))  {
+                                WriteProfileString(APPNAME, szEditor,
                                         editor_cmdline);
                         }
                         break;
@@ -2685,8 +3261,8 @@ MainWndProc(HWND hWnd, UINT message, UINT wParam, LONG lParam)
                                 line_numbers, MF_UNCHECKED);
                         line_numbers = GET_WM_COMMAND_ID(wParam, lParam);
                         CheckMenuItem(GetMenu(hWnd), line_numbers, MF_CHECKED);
-                        wsprintf(str, "%d", line_numbers);
-                        WriteProfileString(APPNAME, "LineNumbers", str);
+                        wsprintf(str, szD, line_numbers);
+                        WriteProfileString(APPNAME, szLineNumbers, str);
 
                         /* change the display to show the line nr style
                          * chosen
@@ -2712,8 +3288,8 @@ MainWndProc(HWND hWnd, UINT message, UINT wParam, LONG lParam)
                               (outline_include & INCLUDE_LEFTONLY) ?
                                         MF_CHECKED:MF_UNCHECKED);
 
-                        wsprintf(str, "%d", outline_include);
-                        WriteProfileString(APPNAME, "FileInclude", str);
+                        wsprintf(str, szD, outline_include);
+                        WriteProfileString(APPNAME, szFileInclude, str);
                         view_changeviewoptions(current_view);
 
 
@@ -2727,8 +3303,8 @@ MainWndProc(HWND hWnd, UINT message, UINT wParam, LONG lParam)
                         CheckMenuItem(hMenu, IDM_INCRIGHT,
                               (outline_include & INCLUDE_RIGHTONLY) ?
                                         MF_CHECKED:MF_UNCHECKED);
-                        wsprintf(str, "%d", outline_include);
-                        WriteProfileString(APPNAME, "FileInclude", str);
+                        wsprintf(str, szD, outline_include);
+                        WriteProfileString(APPNAME, szFileInclude, str);
                         view_changeviewoptions(current_view);
 
                         break;
@@ -2741,8 +3317,8 @@ MainWndProc(HWND hWnd, UINT message, UINT wParam, LONG lParam)
                         CheckMenuItem(hMenu, IDM_INCSAME,
                               (outline_include & INCLUDE_SAME) ?
                                         MF_CHECKED:MF_UNCHECKED);
-                        wsprintf(str, "%d", outline_include);
-                        WriteProfileString(APPNAME, "FileInclude", str);
+                        wsprintf(str, szD, outline_include);
+                        WriteProfileString(APPNAME, szFileInclude, str);
                         view_changeviewoptions(current_view);
 
 
@@ -2759,26 +3335,24 @@ MainWndProc(HWND hWnd, UINT message, UINT wParam, LONG lParam)
                               (outline_include & INCLUDE_DIFFER) ?
                                         MF_CHECKED:MF_UNCHECKED);
 
-                        wsprintf(str, "%d", outline_include);
-                        WriteProfileString(APPNAME, "FileInclude", str);
+                        wsprintf(str, szD, outline_include);
+                        WriteProfileString(APPNAME, szFileInclude, str);
                         view_changeviewoptions(current_view);
 
 
                         break;
 
                 case IDM_UPDATE:
-                        /* update the display.  Options or files may have changed */
-                        /* discard lines  (thereby forcing re-read).
-                         */
-                        file_discardlines(compitem_getleftfile( (COMPITEM)lParam) );
-                        file_discardlines(compitem_getrightfile( (COMPITEM)lParam) );
-
-                        view_changediffoptions(current_view);
-
-                        /* force repaint of bar window */
-                        InvalidateRect(hwndBar, NULL, TRUE);
+                        OnUpdate( (COMPITEM) lParam);
                         break;
 
+
+                case IDM_RESCAN:
+                        RescanFile(hWnd);
+
+                        /* do we need to force any repaints? */
+                        // - no, as RescanFile sends a IDM_UPDATE
+                        break;
 
 
                 case IDM_LONLY:
@@ -2820,8 +3394,8 @@ MainWndProc(HWND hWnd, UINT message, UINT wParam, LONG lParam)
                         ignore_blanks = !ignore_blanks;
                         CheckMenuItem(hMenu, IDM_IGNBLANKS,
                                 ignore_blanks? MF_CHECKED:MF_UNCHECKED);
-                        wsprintf(str, "%d", ignore_blanks);
-                        WriteProfileString(APPNAME, "Blanks", str);
+                        wsprintf(str, szD, ignore_blanks);
+                        WriteProfileString(APPNAME, szBlanks, str);
 
                         /* invalidate all diffs since we have
                          * changed diff options, and re-do and display the
@@ -2843,8 +3417,8 @@ MainWndProc(HWND hWnd, UINT message, UINT wParam, LONG lParam)
                         Algorithm2 = !Algorithm2;
                         CheckMenuItem(hMenu, IDM_ALG2,
                                 Algorithm2? MF_CHECKED:MF_UNCHECKED);
-                        wsprintf(str, "%d", Algorithm2);
-                        WriteProfileString(APPNAME, "Algorithm2", str);
+                        wsprintf(str, szD, Algorithm2);
+                        WriteProfileString(APPNAME, szAlgorithm2, str);
 
                         /* invalidate all diffs since we have
                          * changed diff options, and re-do and display the
@@ -2864,8 +3438,8 @@ MainWndProc(HWND hWnd, UINT message, UINT wParam, LONG lParam)
                         mono_colours = !mono_colours;
                         CheckMenuItem(hMenu, IDM_MONOCOLS,
                                 mono_colours? MF_CHECKED:MF_UNCHECKED);
-                        wsprintf(str, "%d", mono_colours);
-                        WriteProfileString(APPNAME, "MonoColours", str);
+                        wsprintf(str, szD, mono_colours);
+                        WriteProfileString(APPNAME, szMonoColours, str);
                         if (mono_colours)
                                 SetMonoColours();
                         else
@@ -2885,8 +3459,8 @@ MainWndProc(HWND hWnd, UINT message, UINT wParam, LONG lParam)
                         picture_mode = !picture_mode;
                         CheckMenuItem(hMenu, IDM_PICTURE,
                                 picture_mode? MF_CHECKED:MF_UNCHECKED);
-                        wsprintf(str, "%d", picture_mode);
-                        WriteProfileString(APPNAME, "Picture", str);
+                        wsprintf(str, szD, picture_mode);
+                        WriteProfileString(APPNAME, szPicture, str);
                         DoResize(hWnd);
                         break;
 
@@ -2895,8 +3469,8 @@ MainWndProc(HWND hWnd, UINT message, UINT wParam, LONG lParam)
                         hide_markedfiles = !hide_markedfiles;
                         CheckMenuItem(hMenu, IDM_HIDEMARK,
                                 hide_markedfiles? MF_CHECKED : MF_UNCHECKED);
-                        wsprintf(str, "%d", hide_markedfiles);
-                        WriteProfileString(APPNAME, "HideMark", str);
+                        wsprintf(str, szD, hide_markedfiles);
+                        WriteProfileString(APPNAME, szHideMark, str);
 
                         // rebuild view with new global option
                         // - note that marks only affect outline views
@@ -2989,6 +3563,14 @@ MainWndProc(HWND hWnd, UINT message, UINT wParam, LONG lParam)
                         FindPrevChange();
 
                         break;
+
+                // given a line that has been moved, jump to the
+                // other representation of the same line.
+                // this used to be available just through double-click
+                // but now is also available from a context menu
+                case IDM_TOMOVED:
+                        ToMoved(hWnd, TRUE);
+                        break;
                 }
                 break;
 
@@ -3013,6 +3595,15 @@ MainWndProc(HWND hWnd, UINT message, UINT wParam, LONG lParam)
                 }
                 break;
 
+        case WM_RBUTTONDOWN:
+                /*
+                 * the table window handles this by performing the
+                 * selection and then passing the message to us, allowing
+                 * us to put up a context menu.
+                 */
+                OnRightClick(hWnd, LOWORD(lParam), HIWORD(lParam));
+                break;
+
         case WM_CLOSE:
                 /* experiment: DO close anyway */
                 SendMessage(hWnd, WM_COMMAND, IDM_EXIT, 0);   /* brutal */
@@ -3026,6 +3617,7 @@ MainWndProc(HWND hWnd, UINT message, UINT wParam, LONG lParam)
         case WM_DESTROY:
 
                 DeleteTools();
+                WinHelp(hWnd, "windiff.hlp", HELP_QUIT, 0);
                 PostQuitMessage(0);
                 break;
 
@@ -3045,4 +3637,5 @@ MainWndProc(HWND hWnd, UINT message, UINT wParam, LONG lParam)
         }
         return(0);
 }
+
 

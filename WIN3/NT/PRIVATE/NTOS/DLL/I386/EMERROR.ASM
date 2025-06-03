@@ -47,10 +47,17 @@ endif
 
 error_return    macro   noerror
 ifdef   _DOS32EXT
-        sti                                             ; JWM, 9/3/91
-        push    [esp+8]                 ; JWM, 9/6/91
+        sti                                     ; JWM, 9/3/91
+        push    dword ptr [esp+8]               ; JWM, 9/6/91
         popfd                                   ; JWM, 9/6/91
 endif                                           ; DOS32EXT
+
+ifdef NT386
+if DBG
+        push    dword ptr [esp+8]               ; On checked build, allow
+        popfd                                   ; single step to work
+endif
+endif
         iretd
         endm
 
@@ -237,18 +244,6 @@ ISIZE                   equ     4
 ISizeEC                 equ     (ContextFrameLength + ISIZE - 1) and (not (ISIZE - 1))
 ISizeExceptStruct       equ     (ExceptionRecordLength + ISIZE - 1) and (not (ISIZE - 1))
 
-public ErrToException
-ErrToException:                                      ; Conversion of error
-        dd      XCPT_FLOAT_INVALID_OPERATION         ;   bits to exception
-        dd      XCPT_FLOAT_DENORMAL_OPERAND          ;   numbers
-        dd      XCPT_FLOAT_DIVIDE_BY_ZERO
-        dd      XCPT_FLOAT_OVERFLOW
-        dd      XCPT_FLOAT_UNDERFLOW
-        dd      XCPT_FLOAT_INEXACT_RESULT
-        dd      XCPT_FLOAT_STACK_CHECK
-
-
-
 ec_off          EQU     4+ISizeEc
 estruct_off     EQU     ec_off+ISizeExceptStruct
 
@@ -332,9 +327,10 @@ EmExcept PROC   NEAR
         lea     esi, [ec]
         add     esi, ctx_env
 
-
         or      EMSEG:[StatusWord], 8000H		; set 'busy' bit
-        or		EMSEG:[SWerr], Summary			; set Summary bit
+        or      EMSEG:[SWerr], Summary                  ; set Summary bit
+        or      EMSEG:[CURerr], Summary
+
         mov     cl, EMSEG:[ErrMask]
         push    ecx
         push    ebp
@@ -343,25 +339,51 @@ EmExcept PROC   NEAR
         pop     ecx
 
         call    GetEMSEGStatusWord                      ; EAX = status word
-        and     al, cl
-        jne     Err00
+        test    al, cl                          ; test status word against mask
+        jne     short Err00
+
+ifdef TRACENPX
+        mov     edx, 0C1020304h                 ; Raise bogus exception code, to trace with
+        jmp     short Err50
+endif
         mov     al, Invalid
 
-Err00:  or		al, Summary
-		bsf     ebx, eax
-        test    eax, Invalid                    ; Invalid Op might be Stack Fault
-        jz      short Err10
-        test    eax, StackFlag                  ; Set --> Stack fault
-        jnz     short Err10
-        mov     ebx, 6                          ; Bit 6 is stack bit.
-Err10:  mov     eax, dword ptr cs:[ErrToException + 4 * ebx]
-        mov     [eStruct.ExceptionNum], eax
+;
+; According to the floating error priority, we test what is the cause of
+; the NPX error and raise an appropriate exception.
+;
+
+Err00:
+        test    al, Invalid                     ; Invalid Op?
+        jz      short Err10                     ; No, go check next
+
+        mov     edx, XCPT_FLOAT_INVALID_OPERATION
+        test    al, StackFlag                   ; Stack fault?
+        jz      short Err50                     ; No, go raise invalid op
+        mov     edx, XCPT_FLOAT_STACK_CHECK
+        jmp     short Err50                     ; Go raise stack fault
+
+Err10:  mov     edx, XCPT_FLOAT_DIVIDE_BY_ZERO
+        test    al, ZeroDivide
+        jnz     short Err50
+        mov     edx, XCPT_FLOAT_DENORMAL_OPERAND
+        test    al, Denormal
+        jnz     short Err50
+        mov     edx, XCPT_FLOAT_OVERFLOW
+        test    al, Overflow
+        jnz     short Err50
+        mov     edx, XCPT_FLOAT_UNDERFLOW
+        test    al, Underflow
+        jnz     short Err50
+        mov     edx, XCPT_FLOAT_INEXACT_RESULT
+
+Err50:  mov     [eStruct.ExceptionNum], edx
 
         xor     eax,eax
         mov     [eStruct.fHandlerFlags], eax
         mov     [eStruct.NestedExceptionReportRecord], eax
-		mov     dword ptr [eStruct.CParameters], 1      ; GeorgioP convention
-		mov     [eStruct.ErExceptionInformation], eax   ; GeorgioP convention
+        mov     dword ptr [eStruct.CParameters], 1      ; GeorgioP convention
+        mov     [eStruct.ErExceptionInformation], eax   ; GeorgioP convention
 
         mov     eax, EMSEG:[PrevCodeOff]
         mov     [eStruct.ExceptionAddress], eax

@@ -365,10 +365,18 @@ Return Value:
          (*Path2 == '\\' ) ) {
 
         PCHAR p = Path2;
+#ifdef DBCS
+        PCHAR q = PrevChar( Path2, Path2 + strlen(Path2) );
+#else
         PCHAR q = Path2 + strlen(Path2)-1;
+#endif
 
         while ( (p != q) && (*q != '\\')) {
+#ifdef DBCS
+            q = PrevChar( p, q );
+#else
             q--;
+#endif
         }
 
         if ( p == q ) {
@@ -383,7 +391,12 @@ Return Value:
         if ((CHAR)(toupper(*Path1)) != (CHAR)(toupper(*Path2))) {
             return COMPARE_NOMATCH;
         }
+#ifdef DBCS
+        Path1 = NextChar( Path1 );
+        Path2 = NextChar( Path2 );
+#else
         Path1++; Path2++;
+#endif
     }
 
 
@@ -444,25 +457,67 @@ Return Value:
 
     case '.':
         if ( *Path == '\0' ) {
+#ifdef DBCS
+            return NameMatch( NextChar(Pattern), Path );
+#else
             return NameMatch( Pattern+1, Path );
+#endif
         } else if ( *Path == '.' ) {
+#ifdef DBCS
+       // Yes, both Pattern and Path point '.', we don't need NextChar().
+       // But it's a good idea to always call a right function.
+       //
+            return NameMatch( NextChar(Pattern), NextChar(Path) );
+#else
             return NameMatch( Pattern+1, Path+1 );
+#endif
         }
         return FALSE;
 
     case '?':
+#ifdef DBCS
+        return ( *Path != '\0') && NameMatch( NextChar(Pattern), NextChar(Path)) ;
+#else
         return ( *Path != '\0') && NameMatch(Pattern+1, Path+1) ;
+#endif
 
     case '*':
+#ifdef DBCS
+        {
+            PCHAR PathTmp;
+
+            do {
+                if ( NameMatch( NextChar(Pattern), Path) ) {
+                    return TRUE;
+                }          
+                PathTmp = Path;
+                Path = NextChar(Path);
+            } while ( *PathTmp );
+        }
+#else
         do {
             if (NameMatch(Pattern + 1, Path)) {
                 return TRUE;
             }
         } while (*Path++);
+#endif
         return FALSE;
 
     default:
+#ifdef DBCS
+        if ( IsDBCSLeadByte( *Pattern )) {
+            if ( *Path == *Pattern && *(Path+1) == *(Pattern+1) ) {
+                return NameMatch( Pattern + 2, Path + 2 );
+            } else {
+                return FALSE;
+            }
+        } else {
+            return ( toupper(*Path) == toupper(*Pattern)) &&
+                     NameMatch(Pattern + 1, Path + 1);
+        }
+#else
         return ( toupper(*Path) == toupper(*Pattern)) && NameMatch(Pattern + 1, Path + 1);
+#endif
     }
 }
 
@@ -783,3 +838,4 @@ Return Value:
                  ((Time1.Minutes == Time2.Minutes) && (Time1.DoubleSeconds < Time2.DoubleSeconds)))));
 
 }
+

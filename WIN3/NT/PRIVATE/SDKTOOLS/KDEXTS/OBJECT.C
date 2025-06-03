@@ -23,18 +23,8 @@ Revision History:
 --*/
 
 
-#define KD_OBJECT_HEADER_TO_QUOTA_INFO( roh, loh ) (POBJECT_HEADER_QUOTA_INFO) \
-    ((loh)->QuotaInfoOffset == 0 ? NULL : ((PCHAR)(roh) - (loh)->QuotaInfoOffset))
-
-#define KD_OBJECT_HEADER_TO_HANDLE_INFO( roh, loh ) (POBJECT_HEADER_HANDLE_INFO) \
-    ((loh)->HandleInfoOffset == 0 ? NULL : ((PCHAR)(roh) - (loh)->HandleInfoOffset))
-
-#define KD_OBJECT_HEADER_TO_NAME_INFO( roh, loh ) (POBJECT_HEADER_NAME_INFO) \
-    ((loh)->NameInfoOffset == 0 ? NULL : ((PCHAR)(roh) - (loh)->NameInfoOffset))
-
-#define KD_OBJECT_HEADER_TO_CREATOR_INFO( roh, loh ) (POBJECT_HEADER_CREATOR_INFO) \
-    ((loh)->CreatorInfoOffset == 0 ? NULL : ((PCHAR)(roh) - (loh)->CreatorInfoOffset))
-
+#include "precomp.h"
+#pragma hdrstop
 
 typedef struct _SEGMENT_OBJECT {
     PVOID BaseAddress;
@@ -126,6 +116,11 @@ Return Value:
 
     ObjectToDump    = EXPRLastDump;
     NameBuffer[ 0 ] = '\0';
+
+    if (!strcmp(args, "\\")) {
+        DumpObject("", (PVOID)ObpRootDirectoryObject, NULL, 0xFFFFFFFF);
+        return;
+    }
 
     if (sscanf(args,"%lx %s",&ObjectToDump, &NameBuffer) == 1) {
         DumpObject("", (PVOID)ObjectToDump, NULL, 0xFFFFFFFF);
@@ -449,28 +444,34 @@ CompareObjectTypeName(
     }
     NameBuffer[ NameInfo.Name.Length / sizeof( WCHAR ) ] = UNICODE_NULL;
 
-    if (!wcsicmp( NameBuffer, (PWSTR)Parameter )) {
+    if (!_wcsicmp( NameBuffer, (PWSTR)Parameter )) {
         return &(pObjectTypeObjectHeader->Body);
     }
 
     return NULL;
 }
 
+typedef struct _OBJECT_INFO {
+    POBJECT_HEADER pObjectHeader;
+    OBJECT_HEADER ObjectHeader;
+    OBJECT_TYPE ObjectType;
+    OBJECT_HEADER_NAME_INFO NameInfo;
+    WCHAR TypeName[ 32 ];
+    WCHAR ObjectName[ 256 ];
+    WCHAR FileSystemName[ 32 ];
+    CHAR Message[ 256 ];
+} OBJECT_INFO, *POBJECT_INFO;
 
 
 BOOLEAN
-DumpObject(
-    IN char     *Pad,
-    IN PVOID    Object,
-    IN PNONPAGED_OBJECT_HEADER OptNonPagedObjectHeader OPTIONAL,
-    IN ULONG    Flags
+GetObjectInfo(
+    PVOID Object,
+    IN POBJECT_HEADER OptObjectHeader OPTIONAL,
+    POBJECT_INFO ObjectInfo
     )
 {
     ULONG           Result;
-    OBJECT_HEADER   ObjectHeader;
-    POBJECT_HEADER  pObjectHeader;
-    OBJECT_TYPE     ObjectType;
-    WCHAR           NameBuffer[ 64 ];
+    POBJECT_HEADER_NAME_INFO pNameInfo;
     BOOLEAN         PagedOut;
     UNICODE_STRING  ObjectName;
     PWSTR           FileSystemName;
@@ -478,184 +479,389 @@ DumpObject(
     SECTION_OBJECT  SectionObject;
     SEGMENT_OBJECT  SegmentObject;
     CONTROL_AREA    ControlArea;
-
-    POBJECT_HEADER_NAME_INFO    pNameInfo;
-    OBJECT_HEADER_NAME_INFO     NameInfo;
-    NONPAGED_OBJECT_HEADER      NonPagedObjectHeader;
+    CM_KEY_BODY     KeyBody;
+    CM_KEY_CONTROL_BLOCK KeyControlBlock;
 
     PagedOut = FALSE;
-    dprintf(Pad);
-    pObjectHeader = OBJECT_TO_OBJECT_HEADER( Object );
-    if ( !ReadMemory( (DWORD)pObjectHeader,
-                      &ObjectHeader,
-                      sizeof( ObjectHeader ),
-                      &Result) ) {
+    memset( ObjectInfo, 0, sizeof( *ObjectInfo ) );
+    ObjectInfo->pObjectHeader = OBJECT_TO_OBJECT_HEADER( Object );
+    if (!ReadMemory( (DWORD)ObjectInfo->pObjectHeader,
+                     &ObjectInfo->ObjectHeader,
+                     sizeof( ObjectInfo->ObjectHeader ),
+                     &Result
+                   )
+       ) {
         if ((ULONG)Object > (ULONG)MM_HIGHEST_USER_ADDRESS && (ULONG)Object < 0xF0000000) {
-            dprintf( "%08lx: object is paged out.\n", Object );
-            if (!ARGUMENT_PRESENT( OptNonPagedObjectHeader )) {
-                return TRUE;
-            }
+            sprintf( ObjectInfo->Message, "%08lx: object is paged out.", Object );
+            if (!ARGUMENT_PRESENT( OptObjectHeader )) {
+                return FALSE;
+                }
+            ObjectInfo->ObjectHeader = *OptObjectHeader;
             PagedOut = TRUE;
-        } else {
-            dprintf( "%08lx: not a valid object (ObjectHeader invalid)\n", Object );
+            }
+        else {
+            sprintf( ObjectInfo->Message, "%08lx: not a valid object (ObjectHeader invalid)", Object );
             return FALSE;
+            }
         }
-    }
+
+    if (!ReadMemory( (DWORD)ObjectInfo->ObjectHeader.Type,
+                     &ObjectInfo->ObjectType,
+                     sizeof( ObjectInfo->ObjectType ),
+                     &Result
+                   )
+       ) {
+        sprintf( ObjectInfo->Message, "%08lx: Not a valid object (ObjectType invalid)", Object );
+        return FALSE;
+        }
+
+    if (ObjectInfo->ObjectType.Name.Length > sizeof( ObjectInfo->TypeName )) {
+        ObjectInfo->ObjectType.Name.Length = sizeof( ObjectInfo->TypeName ) - sizeof( UNICODE_NULL );
+        }
+
+    if (!ReadMemory( (DWORD)ObjectInfo->ObjectType.Name.Buffer,
+                     ObjectInfo->TypeName,
+                     ObjectInfo->ObjectType.Name.Length,
+                     &Result
+                   )
+       ) {
+        sprintf( ObjectInfo->Message, "%08lx: Not a valid object (ObjectTypePagedObjectHeader.Name invalid)", Object );
+        return FALSE;
+        }
+    ObjectInfo->TypeName[ ObjectInfo->ObjectType.Name.Length / sizeof( WCHAR ) ] = UNICODE_NULL;
 
     if (PagedOut) {
-        NonPagedObjectHeader = *OptNonPagedObjectHeader;
-    } else {
-
-        if ( !ReadMemory( (DWORD)ObjectHeader.NonPagedObjectHeader,
-                          &NonPagedObjectHeader,
-                          sizeof( NonPagedObjectHeader ),
-                          &Result) ) {
-            dprintf( "%08lx: Not a valid object (NonPagedObjectHeader invalid)\n", Object );
-            return FALSE;
+        return TRUE;
         }
-    }
 
-    if ( !ReadMemory( (DWORD)NonPagedObjectHeader.Type,
-                      &ObjectType,
-                      sizeof( ObjectType ),
-                      &Result) ) {
-        dprintf( "%08lx: Not a valid object (ObjectType invalid)\n", Object );
+    if (!wcscmp( ObjectInfo->TypeName, L"File" )) {
+        if (!ReadMemory( (DWORD)Object,
+                         &FileObject,
+                         sizeof( FileObject ),
+                         &Result
+                       )
+           ) {
+            sprintf( ObjectInfo->Message, "%08lx: unable to read file object for name\n", Object );
+            }
+        else {
+            ObjectName = FileObject.FileName;
+            FileSystemName = GetObjectName( FileObject.DeviceObject );
+            if (FileSystemName != NULL) {
+                wcscpy( ObjectInfo->FileSystemName, FileSystemName );
+                }
+            }
+        }
+    else
+    if (!wcscmp( ObjectInfo->TypeName, L"Key" )) {
+        if (!ReadMemory( (DWORD)Object,
+                         &KeyBody,
+                         sizeof( KeyBody ),
+                         &Result
+                       )
+           ) {
+            sprintf( ObjectInfo->Message, "%08lx: unable to read key object for name\n", Object );
+            }
+        else
+        if (!ReadMemory( (DWORD)KeyBody.KeyControlBlock,
+                         &KeyControlBlock,
+                         sizeof( KeyControlBlock ),
+                         &Result
+                       )
+           ) {
+            sprintf( ObjectInfo->Message, "%08lx: unable to read key control block for name\n", KeyBody.KeyControlBlock );
+            }
+        else {
+            ObjectName = KeyControlBlock.FullName;
+            }
+        }
+    else {
+        pNameInfo = KD_OBJECT_HEADER_TO_NAME_INFO( ObjectInfo->pObjectHeader, &ObjectInfo->ObjectHeader );
+        if (pNameInfo == NULL) {
+            return TRUE;
+            }
+
+        if (!ReadMemory( (DWORD)pNameInfo,
+                         &ObjectInfo->NameInfo,
+                         sizeof( ObjectInfo->NameInfo ),
+                         &Result
+                       )
+           ) {
+            sprintf( ObjectInfo->Message, "*** unable to read object name info at %08x\n", pNameInfo );
+            return FALSE;
+            }
+
+        ObjectName = ObjectInfo->NameInfo.Name;
+        }
+
+    if (ObjectName.Length == 0 && !wcscmp( ObjectInfo->TypeName, L"Section" )) {
+        if (ReadMemory( (DWORD)Object,
+                        &SectionObject,
+                        sizeof( SectionObject ),
+                        &Result
+                      )
+           ) {
+            if (ReadMemory( (DWORD)SectionObject.Segment,
+                            &SegmentObject,
+                            sizeof( SegmentObject ),
+                            &Result
+                          )
+               ) {
+                if (ReadMemory( (DWORD)SegmentObject.ControlArea,
+                                &ControlArea,
+                                sizeof( ControlArea ),
+                                &Result
+                              )
+                   ) {
+                    if (ControlArea.FilePointer) {
+                        if (ReadMemory( (DWORD)ControlArea.FilePointer,
+                                        &FileObject,
+                                        sizeof( FileObject ),
+                                        &Result
+                                      )
+                           ) {
+                            ObjectName = FileObject.FileName;
+                            }
+                        else {
+                            sprintf( ObjectInfo->Message, "unable to read file object at %08lx for section %08lx\n", ControlArea.FilePointer, Object );
+                            }
+                        }
+                    }
+                else {
+                    sprintf( ObjectInfo->Message, "unable to read control area at %08lx for section %08lx\n", SegmentObject.ControlArea, Object );
+                    }
+                }
+            else {
+                sprintf( ObjectInfo->Message, "unable to read segment object at %08lx for section %08lx\n", SectionObject.Segment, Object );
+                }
+            }
+        else {
+            sprintf( ObjectInfo->Message, "unable to read section object at %08lx\n", Object );
+            }
+        }
+
+    if (ObjectName.Length >= sizeof( ObjectInfo->ObjectName )) {
+        ObjectName.Length = sizeof( ObjectInfo->ObjectName ) - sizeof( UNICODE_NULL );
+        }
+
+    if (ObjectName.Length != 0) {
+        if (!ReadMemory( (DWORD)ObjectName.Buffer,
+                         ObjectInfo->ObjectName,
+                         ObjectName.Length,
+                         &Result
+                       )
+           ) {
+            wcscpy( ObjectInfo->ObjectName, L"(*** Name not accessable ***)" );
+            }
+        else {
+            ObjectInfo->ObjectName[ ObjectName.Length / sizeof( WCHAR ) ] = UNICODE_NULL;
+            }
+        }
+
+    return TRUE;
+}
+
+VOID
+DumpDirectoryObject(
+    IN char     *Pad,
+    IN PVOID    Object
+    )
+{
+    ULONG Result, i;
+    POBJECT_DIRECTORY pDirectoryObject = (POBJECT_DIRECTORY)Object;
+    OBJECT_DIRECTORY DirectoryObject;
+    POBJECT_DIRECTORY_ENTRY pDirectoryEntry;
+    OBJECT_DIRECTORY_ENTRY DirectoryEntry;
+    OBJECT_INFO ObjectInfo;
+
+    if (!ReadMemory( (DWORD)pDirectoryObject,
+                     &DirectoryObject,
+                     sizeof( DirectoryObject ),
+                     &Result
+                   )
+       ) {
+        dprintf( "Unable to read directory object at %x\n", Object );
+        return;
+        }
+
+    if (DirectoryObject.SymbolicLinkUsageCount != 0) {
+        dprintf( "%s    %u symbolic links snapped through this directory\n",
+                 Pad,
+                 DirectoryObject.SymbolicLinkUsageCount
+               );
+        }
+    for (i=0; i<NUMBER_HASH_BUCKETS; i++) {
+        if (DirectoryObject.HashBuckets[ i ] != NULL) {
+            dprintf( "%s    HashBucket[ %02u ]: ",
+                     Pad,
+                     i
+                   );
+            pDirectoryEntry = DirectoryObject.HashBuckets[ i ];
+            while (pDirectoryEntry != NULL) {
+                if (!ReadMemory( (DWORD)pDirectoryEntry,
+                                 &DirectoryEntry,
+                                 sizeof( DirectoryEntry ),
+                                 &Result
+                               )
+                   ) {
+                    dprintf( "Unable to read directory entry at %x\n", pDirectoryEntry );
+                    break;
+                    }
+
+                if (pDirectoryEntry != DirectoryObject.HashBuckets[ i ]) {
+                    dprintf( "%s                      ", Pad );
+                    }
+                dprintf( "%x", DirectoryEntry.Object );
+
+                if (!GetObjectInfo( DirectoryEntry.Object, NULL, &ObjectInfo)) {
+                    dprintf( " - %s\n", ObjectInfo.Message );
+                    }
+                else {
+                    dprintf( " %ws '%ws'\n", ObjectInfo.TypeName, ObjectInfo.ObjectName );
+                    }
+                pDirectoryEntry = DirectoryEntry.ChainLink;
+                }
+            }
+        }
+}
+
+VOID
+DumpSymbolicLinkObject(
+    IN char     *Pad,
+    IN PVOID    Object
+    )
+{
+    ULONG Result, i;
+    POBJECT_SYMBOLIC_LINK pSymbolicLinkObject = (POBJECT_SYMBOLIC_LINK)Object;
+    OBJECT_SYMBOLIC_LINK SymbolicLinkObject;
+    PWSTR s, FreeBuffer;
+
+    if (!ReadMemory( (DWORD)pSymbolicLinkObject,
+                     &SymbolicLinkObject,
+                     sizeof( SymbolicLinkObject ),
+                     &Result
+                   )
+       ) {
+        dprintf( "Unable to read symbolic link object at %x\n", Object );
+        return;
+        }
+
+    FreeBuffer = s = HeapAlloc( GetProcessHeap(),
+                                HEAP_ZERO_MEMORY,
+                                SymbolicLinkObject.LinkTarget.Length + sizeof( UNICODE_NULL )
+                              );
+    if (s == NULL ||
+        !ReadMemory( (DWORD)SymbolicLinkObject.LinkTarget.Buffer,
+                     s,
+                     SymbolicLinkObject.LinkTarget.Length,
+                     &Result
+                   )
+       ) {
+        s = L"*** target string unavailable ***";
+        }
+    dprintf( "%s    Target String is '%ws'\n",
+             Pad,
+             s
+           );
+
+    if (FreeBuffer != NULL) {
+        HeapFree( GetProcessHeap(), 0, FreeBuffer );
+        }
+
+
+    if (SymbolicLinkObject.DosDeviceDriveIndex != 0) {
+        dprintf( "%s    Drive Letter Index is %u (%c:)\n",
+                 Pad,
+                 SymbolicLinkObject.DosDeviceDriveIndex,
+                 'A' + SymbolicLinkObject.DosDeviceDriveIndex - 1
+               );
+        }
+    if (SymbolicLinkObject.LinkTargetObject != NULL) {
+        FreeBuffer = s = HeapAlloc( GetProcessHeap(),
+                                    HEAP_ZERO_MEMORY,
+                                    SymbolicLinkObject.LinkTargetRemaining.Length + sizeof( UNICODE_NULL )
+                                  );
+        if (s == NULL ||
+            !ReadMemory( (DWORD)SymbolicLinkObject.LinkTargetRemaining.Buffer,
+                         s,
+                         SymbolicLinkObject.LinkTargetRemaining.Length,
+                         &Result
+                       )
+           ) {
+            s = L"*** remaining name unavailable ***";
+            }
+        dprintf( "%s    Snapped to Object %x '%ws'\n",
+                 Pad,
+                 SymbolicLinkObject.LinkTargetObject,
+                 s
+               );
+
+        if (FreeBuffer != NULL) {
+            HeapFree( GetProcessHeap(), 0, FreeBuffer );
+            }
+        }
+
+    return;
+}
+
+
+BOOLEAN
+DumpObject(
+    IN char     *Pad,
+    IN PVOID    Object,
+    IN POBJECT_HEADER OptObjectHeader OPTIONAL,
+    IN ULONG    Flags
+    )
+{
+    OBJECT_INFO ObjectInfo;
+
+    if (!GetObjectInfo( Object, OptObjectHeader, &ObjectInfo)) {
+        dprintf( "KD: %s\n", ObjectInfo.Message );
         return FALSE;
-    }
-
-    if (ObjectType.Name.Length > sizeof( NameBuffer )) {
-        ObjectType.Name.Length = sizeof( NameBuffer ) - sizeof( UNICODE_NULL );
-    }
-
-    if ( !ReadMemory( (DWORD)ObjectType.Name.Buffer,
-                      NameBuffer,
-                      ObjectType.Name.Length,
-                      &Result) ) {
-        dprintf( "%08lx: Not a valid object (ObjectTypePagedObjectHeader.Name invalid)\n", Object );
-        return FALSE;
-    }
-    NameBuffer[ ObjectType.Name.Length / sizeof( WCHAR ) ] = UNICODE_NULL;
-
-    dprintf( "Object: %08lx  Type: (%08lx) %ws\n", Object, NonPagedObjectHeader.Type, NameBuffer );
-    dprintf( "    NonPagedHeader: %08lx  PagedHeader: %08lx\n",
-             ObjectHeader.NonPagedObjectHeader,
-             OBJECT_TO_OBJECT_HEADER( Object )
+        }
+    dprintf( "Object: %08lx  Type: (%08lx) %ws\n",
+             Object,
+             ObjectInfo.ObjectHeader.Type,
+             ObjectInfo.TypeName
+           );
+    dprintf( "    ObjectHeader: %08lx\n",
+             ObjectInfo.pObjectHeader
            );
 
     if (!(Flags & 0x1)) {
         return TRUE;
-    }
+        }
+
     dprintf( "%s    HandleCount: %u  PointerCount: %u\n",
              Pad,
-             NonPagedObjectHeader.HandleCount,
-             NonPagedObjectHeader.PointerCount
+             ObjectInfo.ObjectHeader.HandleCount,
+             ObjectInfo.ObjectHeader.PointerCount
            );
 
-    if (PagedOut) {
-        return TRUE;
-    }
-
-    pNameInfo = KD_OBJECT_HEADER_TO_NAME_INFO( pObjectHeader, &ObjectHeader );
-    if (pNameInfo == NULL) {
-        return TRUE;
-    }
-
-    if ( !ReadMemory( (DWORD)pNameInfo,
-                      &NameInfo,
-                      sizeof( NameInfo ),
-                      &Result) ) {
-        dprintf( "*** unable to read object name info at %08x\n", pNameInfo );
-        return FALSE;
-    }
-    ObjectName      = NameInfo.Name;
-    FileSystemName  = NULL;
-
-    if (!wcscmp( NameBuffer, L"File" )) {
-
-        if ( !ReadMemory( (DWORD)Object,
-                          &FileObject,
-                          sizeof( FileObject ),
-                          &Result) ) {
-            dprintf( "%08lx: unable to read file object for name\n", Object );
-        } else {
-            ObjectName      = FileObject.FileName;
-            FileSystemName  = GetObjectName( FileObject.DeviceObject );
-#if 0
-            if ( !ReadMemory( (DWORD)FileObject.DeviceObject,
-                              &DeviceObject,
-                              sizeof( DeviceObject ),
-                              &Result) ) {
-                dprintf( "%08lx: Unable to read device object for file object.\n", FileObject.DeviceObject );
+    if (ObjectInfo.ObjectName[ 0 ] != UNICODE_NULL ||
+        ObjectInfo.NameInfo.Directory != NULL
+       ) {
+        dprintf( "%s    Directory Object: %08lx  Name: %ws",
+                 Pad,
+                 ObjectInfo.NameInfo.Directory,
+                 ObjectInfo.ObjectName
+               );
+        if (ObjectInfo.FileSystemName[0] != UNICODE_NULL) {
+            dprintf( " {%ws}\n", ObjectInfo.FileSystemName );
             }
-#endif
-        }
-    } else if (ObjectName.Length == 0 && !wcscmp( NameBuffer, L"Section" )) {
-
-        if (ReadMemory( (DWORD)Object,
-                         &SectionObject,
-                         sizeof( SectionObject ),
-                         &Result) ) {
-
-            if ( ReadMemory( (DWORD)SectionObject.Segment,
-                             &SegmentObject,
-                             sizeof( SegmentObject ),
-                             &Result) ) {
-
-                if ( ReadMemory( (DWORD)SegmentObject.ControlArea,
-                                 &ControlArea,
-                                 sizeof( ControlArea ),
-                                 &Result) ) {
-
-                    if (ControlArea.FilePointer) {
-
-                        if ( ReadMemory( (DWORD)ControlArea.FilePointer,
-                                         &FileObject,
-                                         sizeof( FileObject ),
-                                         &Result) ) {
-                            ObjectName = FileObject.FileName;
-                        } else {
-                            dprintf( "KD: unable to read file object at %08lx for section %08lx\n", ControlArea.FilePointer, Object );
-                        }
-                    }
-                } else {
-                    dprintf( "KD: unable to read control area at %08lx for section %08lx\n", SegmentObject.ControlArea, Object );
-                }
-            } else {
-                dprintf( "KD: unable to read segment object at %08lx for section %08lx\n", SectionObject.Segment, Object );
+        else {
+            dprintf( "\n" );
             }
-        } else {
-            dprintf( "KD: unable to read section object at %08lx\n", Object );
         }
-    }
 
-    if (ObjectName.Length >= sizeof( NameBuffer )) {
-        ObjectName.Length = sizeof( NameBuffer ) - sizeof( UNICODE_NULL );
-    }
-
-    if (ObjectName.Length != 0) {
-
-        if ( !ReadMemory( (DWORD)ObjectName.Buffer,
-                          NameBuffer,
-                          ObjectName.Length,
-                          &Result) ) {
-            wcscpy( NameBuffer, L"(*** Name not accessable ***)" );
-        } else {
-            NameBuffer[ ObjectName.Length / sizeof( WCHAR ) ] = UNICODE_NULL;
+    if ((Flags & 0x8)) {
+        if (!wcscmp( ObjectInfo.TypeName, L"Directory" )) {
+            DumpDirectoryObject( Pad, Object );
+            }
+        else
+        if (!wcscmp( ObjectInfo.TypeName, L"SymbolicLink" )) {
+            DumpSymbolicLinkObject( Pad, Object );
+            }
         }
-    } else {
-        NameBuffer[ 0 ] = UNICODE_NULL;
-    }
-
-    dprintf( "%s    Directory Object: %08lx  Name: %ws",
-             Pad,
-             NameInfo.Directory,
-             NameBuffer
-           );
-    if (FileSystemName != NULL) {
-        dprintf( " {%ws}\n", FileSystemName );
-    } else {
-        dprintf( "\n" );
-    }
 
     return TRUE;
 }
@@ -760,7 +966,7 @@ WalkObjectsByType(
     WalkingBackwards = FALSE;
     if ((ObjectType.TotalNumberOfObjects & 0x00FFFFFF) != 0 && Next == Head) {
         dprintf( "*** objects of the same type are only linked together if the %x flag is set in NtGlobalFlags\n",
-                 FLG_HEAP_TRACE_ALLOCS
+                 FLG_MAINTAIN_OBJECT_TYPELIST
                );
         return TRUE;
         }
@@ -826,7 +1032,7 @@ CaptureObjectName(
     ULONG n = BufferSize * sizeof( WCHAR );
     POBJECT_HEADER_NAME_INFO    pNameInfo;
     OBJECT_HEADER_NAME_INFO     NameInfo;
-    POBJECT_HEADER		pObjectDirectoryHeader = NULL;
+    POBJECT_HEADER              pObjectDirectoryHeader = NULL;
     POBJECT_DIRECTORY           ObjectDirectory;
 
     Buffer[ 0 ] = UNICODE_NULL;

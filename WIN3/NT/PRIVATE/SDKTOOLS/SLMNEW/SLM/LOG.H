@@ -1,3 +1,5 @@
+#ifndef LOG_INCLUDED
+#define LOG_INCLUDED
 /* Must include slm.h and sys.h first. */
 
 /* The log file is a series of text records with the following format:
@@ -31,7 +33,7 @@ extern char szFileLog[];
 typedef struct
 	{
 	POS posLog;	/* file pos if this entry */
-	TIME timeLog;	/* time of entry */
+        TIME timeLog;   /* time of entry */
 	char *szTimeLog;
 	char *szLogOp;	/* operation */
 	char *szUser;	/* name of user who performed the op */
@@ -48,15 +50,17 @@ typedef struct
 	char chLogOp;
 	char chUser;
 	char chURoot;
-	char chSubDir; 
+	char chSubDir;
 	char chFile;
 	char chFV;
 	char chDiFile;
 	char chComLog;
+        char chTimeHacked;
 	} LE;
 
 extern PTH pthLog[];
 extern MF *pmfNewLog;		/* used by sadmin + slmck to fix log file */
+extern TIME dtLogLastWrite;     /* used by logfile.c                      */
 
 POS PosOfLog();
 
@@ -87,6 +91,4 @@ typedef int SM; 	/* scan mode */
 /* used to read in log entries */
 #define cbLogPage 512
 
-#ifndef LOG_INCLUDED
-#define LOG_INCLUDED
 #endif

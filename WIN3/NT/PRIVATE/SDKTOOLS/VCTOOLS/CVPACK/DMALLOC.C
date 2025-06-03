@@ -4,7 +4,6 @@
 #include "compact.h"
 
 #define __DMALLOC_C__	1	/* prevent redef of malloc et.al. */
-#include <tchar.h>
 
 #include "dmalloc.h"	// public header file
 #include "dmalloc_.h"	// private header file
@@ -126,7 +125,7 @@ D_strdup(const char *szIn)
 void
 InitBlockPdmpre(DMPRE *pdmpre, size_t cbUser)
 {
-	DMSUF *pdmsuf = (DMSUF *)((char *)PvUserFromPdmpre(pdmpre) + cbUser);
+	DMSUF UNALIGNED *pdmsuf = (DMSUF UNALIGNED *)((char *)PvUserFromPdmpre(pdmpre) + cbUser);
 
 	memcpy(pdmpre, &dmprePrototype, sizeof(DMPRE));
 	memcpy(pdmsuf, &dmsufPrototype, sizeof(DMSUF));
@@ -191,7 +190,7 @@ CheckBlockPdmpre(DMPRE *pdmpre)
 void
 ClearBlockPdmpre(DMPRE *pdmpre)
 {
-	DMSUF *pdmsuf = (DMSUF *)((char *)pdmpre + sizeof(DMPRE) + pdmpre->cbUser);
+	DMSUF UNALIGNED *pdmsuf = (DMSUF UNALIGNED *)((char *)pdmpre + sizeof(DMPRE) + pdmpre->cbUser);
 
 	// Unhook it from the list.
 	//

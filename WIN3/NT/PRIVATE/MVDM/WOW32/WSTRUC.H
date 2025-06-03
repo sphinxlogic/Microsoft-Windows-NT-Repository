@@ -77,14 +77,18 @@
         (lp)->lpfnWndProc   = (WNDPROC)FETCHDWORD(pwc16->vpfnWndProc);\
         (lp)->cbClsExtra    = FETCHWORD(pwc16->cbClsExtra);\
         (lp)->cbWndExtra    = FETCHWORD(pwc16->cbWndExtra);\
-        (lp)->hInstance = (FETCHWORD(pwc16->hInstance) == BOGUSGDT ? ghInstanceUser32 : HMODINST32(FETCHWORD(pwc16->hInstance)));\
+        w = FETCHWORD(pwc16->hInstance);\
+        if((w == gUser16hInstance) || (w == BOGUSGDT))\
+            (lp)->hInstance = ghInstanceUser32;\
+        else\
+            (lp)->hInstance = HMODINST32(FETCHWORD(pwc16->hInstance));\
         (lp)->hIcon     = HICON32_REGCLASS(FETCHWORD(pwc16->hIcon));\
         (lp)->hCursor   = HCURSOR32(FETCHWORD(pwc16->hCursor));\
         w = FETCHWORD(pwc16->hbrBackground);\
         if (w > COLOR_ENDCOLORS)\
-        (lp)->hbrBackground = HBRUSH32(w);\
+            (lp)->hbrBackground = HBRUSH32(w);\
         else\
-        (lp)->hbrBackground = (HBRUSH)w;\
+            (lp)->hbrBackground = (HBRUSH)w;\
         (lp)->lpszMenuName  = (LPSTR)FETCHDWORD(pwc16->vpszMenuName);\
         (lp)->lpszClassName = (LPSTR)FETCHDWORD(pwc16->vpszClassName);\
         FREEVDMPTR(pwc16);\
@@ -229,7 +233,6 @@
 #define PUTHANDLETABLE16(vp,c, p)   puthandletable16(FETCHDWORD(vp), c, p)
 #define FREEHANDLETABLE16(p)        {if (p) free_w(p);}
 
-#define GETDEVMODE32(vp,p) {(p) = GetDevMode32(vp);}
 #define FREEDEVMODE32(p)   {if (p) free_w(p);}
 
 #define GETCLIENTCREATESTRUCT16(vp,lp)   { \
@@ -297,7 +300,6 @@ INT    GetBMI32Size(LPBITMAPINFO lpbmi32, WORD fuColorUse);
 LPBITMAPINFO       CopyBMI16ToBMI32(PVPVOID vpbmi16, LPBITMAPINFO lpbmi32, WORD fuColorUse);
 LPBITMAPINFOHEADER CopyBMIH16ToBMIH32(PVPVOID vpbmih16, LPBITMAPINFOHEADER lpbmih);
 
-LPDEVMODE GetDevMode32(VPDEVMODE16 vpdm16);
 
 VOID    getwindowpos16( VPWINDOWPOS16 vpwp, LPWINDOWPOS lpwp );
 VOID    putwindowpos16( VPWINDOWPOS16 vpwp, LPWINDOWPOS lpwp );
@@ -305,6 +307,7 @@ VOID    W32CopyMsgStruct(VPMSG16 vpmsg16, LPMSG lpmsg, BOOL fThunk16To32);
 VOID    getpaintstruct16(VPVOID vp, LPPAINTSTRUCT lp);
 VOID    putpaintstruct16(VPVOID vp, LPPAINTSTRUCT lp);
 
+LPDEVMODE ThunkDevMode16to32(VPDEVMODE31 vpdm16);
+BOOL      ThunkDevMode32to16(VPDEVMODE31 vpdm16, LPDEVMODE lpdm32, UINT nBytes);
 
 #endif  // ifndef _DEF_WSTRUC_  THIS SHOULD BE THE LAST LINE IN THIS FILE
-

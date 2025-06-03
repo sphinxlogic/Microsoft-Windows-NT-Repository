@@ -36,22 +36,6 @@ PrintReportToPrinter(
     );
 
 BOOL
-CALLBACK
-AbortProc(
-    IN HDC hdc,
-    IN int nCode
-    );
-
-LRESULT
-CALLBACK
-AbortPrintJob(
-        HWND hwndDlg,
-        UINT message,
-        WPARAM wParam,
-        LPARAM lParam
-            );
-
-BOOL
 GetPrinterDC(
      IN HWND hWnd,
      IN OUT HDC *PrinterDC
@@ -84,4 +68,5 @@ NewPage(
 
 
 #endif // _PRINTER_
+
 

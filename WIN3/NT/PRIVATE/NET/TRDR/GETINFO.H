@@ -36,4 +36,3 @@ DumpAttributeInformation(
     PFILE_FS_DEVICE_INFORMATION Ptr,
     ULONG BufferSize
     );
-

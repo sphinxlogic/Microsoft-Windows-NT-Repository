@@ -145,4 +145,4 @@ typeCP  CpFirstSty(), CpLastStyChar();
 /* page bound */
 #define pgnMin 1
 #define pgnMax 32767
-
+

@@ -1,7 +1,7 @@
 //++ BUILD Version: 0003    // Increment this if a change has global effects //
 //*++
 //
-// Copyright (c) 1990-1993  IBM Corporation
+// Copyright (c) 1990-1996  IBM Corporation
 //
 // Module Name:
 //
@@ -28,15 +28,19 @@
 //    Added SPECIAL ENTRY/EXIT (Curt Fawcett)                    22-Sep-1993
 //    Deleted EXCEPTION_HANDLER and changed NESTED_ENTRY_EX
 //    and LEAF_ENTRY_EX to not append .scope to the Scope
-//    parameter (Tom Wood)					 02-Nov-1993
+//    parameter (Tom Wood)                                       02-Nov-1993
 //    Added definition for SPR #1, Fixed Point Exception
-//    register XER (Mark D. Johnson)				 11-Mar-1994
+//    register XER (Mark D. Johnson)                             11-Mar-1994
 //    Added in the macros that used to be in /private/ntos/
 //    crt32/h/ppcsects.h.  I then removed that file since
 //    we don't need it anymore. (Matt Holle)                     27-Apr-1994
 //
 //--*/
 
+#ifndef _KXPPC_
+#define _KXPPC_
+
+#ifndef _KXPPC_C_HEADER_
 
 // =====================================================================
 // Begin code extracted from ppcsects.h
@@ -94,6 +98,8 @@
 // End code extracted from ppcsects.h
 // =====================================================================
 
+#endif // _KXPPC_C_HEADER_
+
 //
 // Define soft reset vector address for nonhandled cache parity errors.
 //
@@ -113,7 +119,7 @@
 //
 // Macro to generate a mask using the SPR bit definitions below
 //
-#define MASK_SPR(shift,mask)  (mask << (MAX_BITS-shift))
+#define MASK_SPR(shift,mask)  ((mask) << (MAX_BITS-(shift)))
 
 //
 // Define Machine State Register bit field offsets.
@@ -132,6 +138,7 @@
 // MSR_IP    0x19 Interrupt Prefix                <25>
 // MSR_IR    0x1a Instruction Relocate            <26>
 // MSR_DR    0x1b Data Relocate                   <27>
+// MSR_PM    0x1d Performance Monitor             <29>
 // MSR_RI    0x1e Recoverable Interrupt           <30>
 // MSR_LE    0x1f Little-Endian execution mode    <31>
 
@@ -149,6 +156,7 @@
 #define MSR_IP    0x19
 #define MSR_IR    0x1a
 #define MSR_DR    0x1b
+#define MSR_PM    0x1d
 #define MSR_RI    0x1e
 #define MSR_LE    0x1f
 
@@ -165,7 +173,7 @@
 // Fixed Point Exception Register is Special Purpose Reg no. 1
 //
 
-#define	XER	0x1
+#define XER     0x1
 
 //
 // Define Fixed Point Exception Register (XER) bit fields
@@ -338,25 +346,57 @@
 #define HIT_SET_VIRTUAL_SI 0x1e         // hit set virtual secondary instruction cache
 #define HIT_SET_VIRTUAL_SD 0x1f         // hit set virtual secondary data cache
 
+#ifndef _KXPPC_C_HEADER_
+
 //
 // Define save and restore floating state macros.
 //
 
-//#define RESTORE_VOLATILE_FLOAT_STATE    
-//        ldc1    f0,TrFltF0(s8);         
-//        jal     KiRestoreVolatileFloatState;
+#define RESTORE_VOLATILE_FLOAT_STATE(_tf)   \
+        lfd     f.13, TrFpscr(_tf);         \
+        lfd     f.0,  TrFpr0(_tf);          \
+        lfd     f.1,  TrFpr1(_tf);          \
+        lfd     f.2,  TrFpr2(_tf);          \
+        lfd     f.3,  TrFpr3(_tf);          \
+        lfd     f.4,  TrFpr4(_tf);          \
+        lfd     f.5,  TrFpr5(_tf);          \
+        lfd     f.6,  TrFpr6(_tf);          \
+        lfd     f.7,  TrFpr7(_tf);          \
+        lfd     f.8,  TrFpr8(_tf);          \
+        mtfsf   0xff, f.13;                 \
+        lfd     f.9,  TrFpr9(_tf);          \
+        lfd     f.10, TrFpr10(_tf);         \
+        lfd     f.11, TrFpr11(_tf);         \
+        lfd     f.12, TrFpr12(_tf);         \
+        lfd     f.13, TrFpr13(_tf);
 
-//#define SAVE_VOLATILE_FLOAT_STATE       
-//        sdc1    f0,TrFltF0(s8);         
-//        jal     KiSaveVolatileFloatState;
+#define SAVE_VOLATILE_FLOAT_STATE(_tf)      \
+        stfd    f.0,  TrFpr0(_tf);          \
+        stfd    f.1,  TrFpr1(_tf);          \
+        stfd    f.2,  TrFpr2(_tf);          \
+        stfd    f.3,  TrFpr3(_tf);          \
+        stfd    f.4,  TrFpr4(_tf);          \
+        stfd    f.5,  TrFpr5(_tf);          \
+        mffs    f.0;                        \
+        stfd    f.6,  TrFpr6(_tf);          \
+        stfd    f.7,  TrFpr7(_tf);          \
+        stfd    f.8,  TrFpr8(_tf);          \
+        stfd    f.9,  TrFpr9(_tf);          \
+        stfd    f.10, TrFpr10(_tf);         \
+        stfd    f.11, TrFpr11(_tf);         \
+        stfd    f.12, TrFpr12(_tf);         \
+        stfd    f.13, TrFpr13(_tf);         \
+        stfd    f.0,  TrFpscr(_tf);
 
-//#define RESTORE_NONVOLATILE_FLOAT_STATE    
-//        ldc1    f20,ExFltF20(sp);         
+//#define RESTORE_NONVOLATILE_FLOAT_STATE
+//        ldc1    f20,ExFltF20(sp);
 //        jal     KiRestoreNonvolatileFloatState;
 
-//#define SAVE_NONVOLATILE_FLOAT_STATE       
-//        sdc1    f20,ExFltF20(sp);         
+//#define SAVE_NONVOLATILE_FLOAT_STATE
+//        sdc1    f20,ExFltF20(sp);
 //        jal     KiSaveNonvolatileFloatState;
+
+#endif // _KXPPC_C_HEADER_
 
 //
 // Define TB and cache parameters.
@@ -375,11 +415,13 @@
 // Define cache parameters
 //
 
-#define DCACHE_SIZE 4 * 1024            // size of data cache in bytes
-#define ICACHE_SIZE 4 * 1024            // size of instruction cache in bytes
-#define MINIMUM_CACHE_SIZE 4 * 1024     // minimum size of cache
-#define MAXIMUM_CACHE_SIZE 128 * 1024   // maximum size fo cache
+#define DCACHE_SIZE (4 * 1024)          // size of data cache in bytes
+#define ICACHE_SIZE (4 * 1024)          // size of instruction cache in bytes
+#define MINIMUM_CACHE_SIZE (4 * 1024)   // minimum size of cache
+#define MAXIMUM_CACHE_SIZE (128 * 1024) // maximum size fo cache
 
+#ifndef _KXPPC_C_HEADER_
+
 //
 // Define subtitle macro
 //
@@ -396,9 +438,9 @@
 //      reg       - Register to load with the 32-bit immediate
 //      immediate - 32-bit immediate value
 //
-#define LWI(reg,immediate)                 \
-        lis     reg,immediate > 16         ;\
-        ori     reg,reg,immediate & 0xffff
+#define LWI(reg,immediate)                   \
+        lis     reg,(immediate) >> 16        ;\
+        ori     reg,reg,(immediate) & 0xffff
 
 #define END_REGION(Name)               \
         .globl  Name                   ;\
@@ -412,30 +454,30 @@ Name:
 // Define trap frame generation macro.
 //
 
-//#define GENERATE_TRAP_FRAME             
-//        .set    noat;                   
-//        sw      AT,TrIntAt(s8);         
-//        jal     KiGenerateTrapFrame;    
+//#define GENERATE_TRAP_FRAME
+//        .set    noat;
+//        sw      AT,TrIntAt(s8);
+//        jal     KiGenerateTrapFrame;
 //        .set    at;
 
 //
 // Define restore volatile integer state macro.
 //
 
-//#define RESTORE_VOLATILE_INTEGER_STATE  
-//        .set    noat;                   
-//        lw      AT,TrIntAt(s8);         
-//        jal     KiRestoreVolatileIntegerState; 
+//#define RESTORE_VOLATILE_INTEGER_STATE
+//        .set    noat;
+//        lw      AT,TrIntAt(s8);
+//        jal     KiRestoreVolatileIntegerState;
 //        .set    at;
 
 //
 // Define save volatile integer state macro.
 //
 
-//#define SAVE_VOLATILE_INTEGER_STATE     
-//        .set    noat;                   
-//        sw      AT,TrIntAt(s8);         
-//        jal     KiSaveVolatileIntegerState; 
+//#define SAVE_VOLATILE_INTEGER_STATE
+//        .set    noat;
+//        sw      AT,TrIntAt(s8);
+//        jal     KiSaveVolatileIntegerState;
 //        .set    at;
 
 //
@@ -907,6 +949,9 @@ Name:
         b       .._restfpr_15
 #define __restfpr18             \
         b       .._restfpr_14
+
+#endif // _KXPPC_C_HEADER_
+
 
 //**************************************************************************/
 //
@@ -967,8 +1012,9 @@ Name:
 #define STK_P6          (STK_P0+24)
 #define STK_P7          (STK_P0+28)
 #define STK_MIN_FRAME   56
-#define STK_SLACK_SPACE 232
 
+#ifndef _KXPPC_C_HEADER_
+
 //
 // Define procedure entry/exit macros
 //
@@ -1069,13 +1115,11 @@ Name##.body:
         __begintext(Name)
 
 #define LEAF_ENTRY(Name)                \
-        __fntabentry(Name,0,0)          ;\
         __gendescriptor(Name)           ;\
         __begintext(Name)               ;\
 Name##.body:
 
 #define LEAF_ENTRY_EX(Name,LangHandler,Scope) \
-        __fntabentry(Name,LangHandler,Scope)  ;\
         __gendescriptor(Name)                 ;\
         __begintext(Name)                     ;\
 Name##.body:
@@ -1093,13 +1137,11 @@ Name##.body:
         __begintext_S(Name,Section)
 
 #define LEAF_ENTRY_S(Name,Section)      \
-        __fntabentry(Name,0,0)          ;\
         __gendescriptor(Name)           ;\
         __begintext_S(Name,Section)     ;\
 Name##.body:
 
 #define LEAF_ENTRY_EX_S(Name,LangHandler,Scope,Section) \
-        __fntabentry(Name,LangHandler,Scope)  ;\
         __gendescriptor(Name)                 ;\
         __begintext_S(Name,Section)           ;\
 Name##.body:
@@ -1131,12 +1173,12 @@ Name##.end:
 
 //
 // Define special section "names" for use with the NESTED/LEAF_ENTRY_S
-// macros.   For the moment just define all possibilities as text.
+// macros.   For the moment just define all possibilities as .text.
 //
 
-#define _TEXT$normal    text
-#define _TEXT$00        text
-#define _TEXT$01        text
+#define _TEXT$normal    .text
+#define _TEXT$00        .text
+#define _TEXT$01        .text
 
 
 //
@@ -1144,7 +1186,7 @@ Name##.end:
 //
 
 #define __gendescriptor(Name)                   \
-        .reldata                                ;\
+        .rdata                                  ;\
         .align  2                               ;\
         .globl  Name                            ;\
 Name:                                           ;\
@@ -1166,7 +1208,7 @@ Name:                                           ;\
 ..##Name:
 
 #define __begintext_S(Name,Section)             \
-        .##Section                              ;\
+        .section Section                        ;\
         .align  2                               ;\
         .globl  ..##Name                        ;\
 ..##Name:
@@ -1177,7 +1219,7 @@ Name:                                           ;\
 // Get address of KiPcr into reg
 //
 
-#define KIPCR(reg) mfsprg       reg, 1
+#define KIPCR(reg) li   reg, 0xffffd000
 
 
 //
@@ -1186,24 +1228,35 @@ Name:                                           ;\
 // Clear EXTERNAL INTERRUPT ENABLE bit in Machine State Register
 // (bit MSR:EE).
 //
+//  The cror instructions in these macros work around 603e/ev errata #15
+//  by forcing the mtmsr to complete before allowing any subsequent loads
+//  to issue.   The condition register no-op is executed in the system unit
+//  on the 603.  This will not dispatch until the mtmsr completes and will
+//  halt further dispatch.   On a 601 or 604 this instruction executes in
+//  the branch unit and will run in parallel (i.e., no performance penalty
+//  except for code bloat).
+//
 // Returns OLD value in p0
 // Destroys s0 (actually, s0 contains new value)
 
 #define DISABLE_INTERRUPTS(p0, s0)                                      ; \
-        mfmsr   p0                         				; \
-        rlwinm  s0,p0,0,~MASK_SPR(MSR_EE,1)				; \
-        mtmsr   s0
+        mfmsr   p0                                                      ; \
+        rlwinm  s0,p0,0,~MASK_SPR(MSR_EE,1)                             ; \
+        mtmsr   s0                                                      ; \
+        cror    0,0,0
 
-#define ENABLE_INTERRUPTS(p0) mtmsr     p0
+#define ENABLE_INTERRUPTS(p0)                                           ; \
+        mtmsr   p0                                                      ; \
+        cror    0,0,0
+
 
 //
-// \RAISE_SOFTWARE_IRQL(p0, p1, s0, s1)
+// RAISE_SOFTWARE_IRQL(p0, p1, s0)
 //
 // Raise Interrupt Request Level.
 //      Parameters
 //      p0      new irql
 //      p1      pointer to byte to receive old irql
-//      p2      register pointing to KiPcr
 //      s0      scratch register (destroyed by this macro)
 //
 // LOWER_SOFTWARE_IRQL is done in a function rather than a macro.
@@ -1212,13 +1265,13 @@ Name:                                           ;\
 // mask does NOT need to be changed.
 //
 
-#define RAISE_SOFTWARE_IRQL(p0, p1, p2, s0)     ;\
-        lbz     s0, PcCurrentIrql(p2)           ;\
-        stb     p0, PcCurrentIrql(p2)           ;\
+#define RAISE_SOFTWARE_IRQL(p0, p1, s0)         ;\
+        lbz     s0, KiPcr+PcCurrentIrql(r.0)    ;\
+        stb     p0, KiPcr+PcCurrentIrql(r.0)    ;\
         stb     s0, 0(p1)
 
 //
-// \SOFTWARE_INTERRUPT(level, pcr, scratch)
+// SOFTWARE_INTERRUPT(level, scratch)
 //
 // Set a flag indicating we need to process a software interrupt.
 // This flag is checked when priority is lowered below dispatch level.
@@ -1226,20 +1279,205 @@ Name:                                           ;\
 //      Parameters
 //      level   is the priority of the interrupt  (either DISPATCH_LEVEL
 //              or APC_LEVEL).
-//      pcr     is a register containing the address of the PCR.
 //      scratch is a register that will be destroyed by this macro.
 //
 // The flag is in fact a word in the PCR.  There are only two levels of
 // software interrupt and we need to be able to set either one atomically.
 // To accomplish this we store into a different byte for either of the
-// interrupts. To indicate an APL_LEVEL interrupt store a non-zero value
+// interrupts. To indicate an APC_LEVEL interrupt store a non-zero value
 // at pcr->SoftwareInterrupt + 0, DISPATCH_LEVEL store at the same address
 // + 1.
 //
 
-#define SOFTWARE_INTERRUPT(level, pcr, scr)                               \
-        li      scr, 1                                                  ; \
-        stb     scr, PcSoftwareInterrupt+level-APC_LEVEL(pcr)
+#define SOFTWARE_INTERRUPT(level, scr)                                  \
+        li      scr, 1                                                  ;\
+        stb     scr, KiPcr+PcSoftwareInterrupt+(level)-APC_LEVEL(r.0)
+
+//
+// ACQUIRE_SPIN_LOCK(_lock, _value, _scratch, _try, _spin)
+//
+// Acquire a spin lock.
+//
+// _lock    is the register that holds the address of the spin lock.
+// _value   is the register that holds the value to be stored to the
+//          spin lock to lock it.
+// _scratch is a scratch register.
+// _try     is a label to use in the generated code.
+// _spin    is the label at an out-of-line location where a
+//          SPIN_ON_SPIN_LOCK invocation occurs.
+//
+
+#if !SPINDBG
+#define ACQUIRE_SPIN_LOCK(_lock, _value, _scratch, _try, _spin)  \
+_try:                                                            \
+        lwarx   _scratch, 0, _lock                              ;\
+        cmpwi   _scratch, 0                                     ;\
+        bne-    _spin                                           ;\
+        stwcx.  _value, 0, _lock                                ;\
+        bne-    _spin                                           ;\
+        isync
+#else
+#define ACQUIRE_SPIN_LOCK(_lock, _value, _scratch, _try, _spin)  \
+        stw     _lock,KiPcr+PcPcrPage2+8(0)                     ;\
+        li      _scratch,0                                      ;\
+        stw     _scratch,KiPcr+PcPcrPage2+16(0)                 ;\
+_try:                                                            \
+        lwarx   _scratch, 0, _lock                              ;\
+        cmpwi   _scratch, 0                                     ;\
+        bne-    _spin                                           ;\
+        stwcx.  _value, 0, _lock                                ;\
+        bne-    _spin                                           ;\
+        isync                                                   ;\
+        stw     _lock,KiPcr+PcPcrPage2+16(0)                    ;\
+        stw     _scratch,KiPcr+PcPcrPage2+20(0)
+#endif
+
+//
+// SPIN_ON_SPIN_LOCK(_lock, _scratch, _try, _spin)
+//
+// Spin waiting for a spin lock to be released.
+//
+// _lock    is the register that holds the address of the spin lock.
+// _scratch is a scratch register.
+// _try     is the label on the associated ACQUIRE_SPIN_LOCK invocation.
+// _spin    is a label to use in the generated code.
+//
+
+#if !SPINDBG
+#define SPIN_ON_SPIN_LOCK(_lock, _scratch, _try, _spin)          \
+_spin:                                                           \
+        lwz     _scratch, 0(_lock)                              ;\
+        cmpwi   _scratch, 0                                     ;\
+        beq+    _try                                            ;\
+        b       _spin
+#else
+#define SPIN_ON_SPIN_LOCK(_lock, _scratch, _try, _spin)          \
+_spin:                                                           \
+        stw     _lock,KiPcr+PcPcrPage2+12(0)                    ;\
+        lwz     _scratch, 0(_lock)                              ;\
+        cmpwi   _scratch, 0                                     ;\
+        bne-    _spin                                           ;\
+        stw     _lock,KiPcr+PcPcrPage2+24(0)                    ;\
+        stw     _scratch,KiPcr+PcPcrPage2+12(0)                 ;\
+        b       _try
+#endif
+
+//
+// SPIN_ON_SPIN_LOCK_ENABLED(_lock, _scratch, _try, _entry, _spin, _enable, _disable)
+//
+// Spin with interrupts enabled waiting for a spin lock to be released.
+//
+// _lock    is the register that holds the address of the spin lock.
+// _scratch is a scratch register.
+// _try     is the label on the associated ACQUIRE_SPIN_LOCK invocation.
+// _entry   is a label to use in the generated code.
+// _spin    is a label to use in the generated code.
+//
+//  The cror instruction in this macro works around 603e/ev errata #15
+//  by forcing the mtmsr to complete before allowing any subsequent loads
+//  to issue.   The condition register no-op is executed in the system unit
+//  on the 603.  This will not dispatch until the mtmsr completes and will
+//  halt further dispatch.   On a 601 or 604 this instruction executes in
+//  the branch unit and will run in parallel (i.e., no performance penalty
+//  except for code bloat).
+//
+
+#if !SPINDBG
+#define SPIN_ON_SPIN_LOCK_ENABLED(_lock, _scratch, _try, _entry, _spin, _enable, _disable)   \
+_entry:                                                                                      \
+        ENABLE_INTERRUPTS(_enable)                                                          ;\
+_spin:                                                                                       \
+        lwz     _scratch, 0(_lock)                                                          ;\
+        cmpwi   _scratch, 0                                                                 ;\
+        bne-    _spin                                                                       ;\
+        mtmsr   _disable                                                                    ;\
+        cror    0,0,0                                                                       ;\
+        b       _try
+#else
+#define SPIN_ON_SPIN_LOCK_ENABLED(_lock, _scratch, _try, _entry, _spin, _enable, _disable)   \
+_entry:                                                                                      \
+        ori     _scratch,_lock,0                                                            ;\
+        ori     _scratch,_scratch,1                                                         ;\
+        stw     _scratch,KiPcr+PcPcrPage2+12(0)                                             ;\
+        ENABLE_INTERRUPTS(_enable)                                                          ;\
+_spin:                                                                                       \
+        lwz     _scratch, 0(_lock)                                                          ;\
+        cmpwi   _scratch, 0                                                                 ;\
+        bne-    _spin                                                                       ;\
+        ori     _scratch,_lock,0                                                            ;\
+        ori     _scratch,_scratch,1                                                         ;\
+        stw     _scratch,KiPcr+PcPcrPage2+24(0)                                             ;\
+        li      _scratch,0                                                                  ;\
+        stw     _scratch,KiPcr+PcPcrPage2+12(0)                                             ;\
+        mtmsr   _disable                                                                    ;\
+        cror    0,0,0                                                                       ;\
+        b       _try
+#endif
+
+//
+// TRY_TO_ACQUIRE_SPIN_LOCK(_lock, _value, _scratch, _try, _fail)
+//
+// Try to acquire a spin lock.
+//
+// _lock   is the register that holds the address of the spin lock.
+// _value  is the register that holds the value to be stored to the
+//            spin lock to lock it.
+// _scratch    is a scratch register.
+// _try  is a label to use in the generated code.
+// fail_label is the label to jump to if the spin lock is already held.
+//
+
+#if !SPINDBG
+#define TRY_TO_ACQUIRE_SPIN_LOCK(_lock, _value, _scratch, _try, _fail)   \
+_try:                                                                    \
+        lwarx   _scratch, 0, _lock                                      ;\
+        cmpwi   _scratch, 0                                             ;\
+        bne-    _fail                                                   ;\
+        stwcx.  _value, 0, _lock                                        ;\
+        bne-    _try                                                    ;\
+        isync
+#else
+#define TRY_TO_ACQUIRE_SPIN_LOCK(_lock, _value, _scratch, _try, _fail)   \
+        ori     _scratch,_lock,0                                        ;\
+        ori     _scratch,_scratch,1                                     ;\
+        stw     _scratch,KiPcr+PcPcrPage2+8(0)                          ;\
+        li      _scratch,0                                              ;\
+        stw     _scratch,KiPcr+PcPcrPage2+16(0)                         ;\
+_try:                                                                    \
+        lwarx   _scratch, 0, _lock                                      ;\
+        cmpwi   _scratch, 0                                             ;\
+        bne-    _fail                                                   ;\
+        stwcx.  _value, 0, _lock                                        ;\
+        bne-    _try                                                    ;\
+        isync                                                           ;\
+        ori     _scratch,_lock,0                                        ;\
+        ori     _scratch,_scratch,1                                     ;\
+        stw     _scratch,KiPcr+PcPcrPage2+16(0)                         ;\
+        li      _scratch,0                                              ;\
+        stw     _scratch,KiPcr+PcPcrPage2+20(0)
+#endif
+
+//
+// RELEASE_SPIN_LOCK(_lock, _zero)
+//
+// Release a spin lock.
+//
+// _lock   is the register that holds the address of the spin lock.
+// _zero   is a register that contains a 0.
+//
+
+#if !SPINDBG
+#define RELEASE_SPIN_LOCK(_lock, _zero)          \
+        eieio                                   ;\
+        stw     _zero, 0(_lock)
+#else
+#define RELEASE_SPIN_LOCK(_lock, _zero)          \
+        stw     _lock,KiPcr+PcPcrPage2+20(0)    ;\
+        eieio                                   ;\
+        stw     _zero, 0(_lock)
+#endif
+
+#endif // _KXPPC_C_HEADER_
 
 
 #ifndef _PPC601_
@@ -1265,3 +1503,231 @@ Name:                                           ;\
 #define ppc_fp_assist           12
 #define ppc_run_mode            13
 #define ppc_panic               256
+
+#if !DBG_STORE
+
+#define DBGSTORE(reg,reg2,regv)
+#define DBGSTORE_I(reg,reg2,val)
+#define DBGSTORE_IRR(reg,reg2,val,regv2,regv3)
+#define DBGSTORE_IRRR(reg,reg2,val,regv2,regv3,regv4)
+#define DBGSTORE_I_R(reg,reg2,val)
+
+#else
+
+#define STORE_ADDR 0x3800
+
+#if 1
+#define DCBST(reg)
+#else
+#define DCBST(reg) dcbst 0,reg
+#endif
+
+#if 0
+#define DBGSTORE(reg,reg2,regv)
+#else
+#define DBGSTORE(reg,reg2,regv)         \
+        mfsprg  reg,1;                  \
+        lwz     reg2,PcSpare+4(reg);    \
+        addi    reg2,reg2,16;           \
+        clrlwi  reg2,reg2,22;           \
+        stw     reg2,PcSpare+4(reg);    \
+        lbz     reg,PcNumber(reg);      \
+        slwi    reg,reg,10;             \
+        add     reg,reg,reg2;           \
+        addi    reg,reg,STORE_ADDR;     \
+        oris    reg,reg,0x8000;         \
+        stw     regv,0(reg);            \
+        DCBST(reg)
+#endif
+
+#if 0
+#define DBGSTORE_I(reg,reg2,val)
+#else
+#define DBGSTORE_I(reg,reg2,val)        \
+        mfsprg  reg,1;                  \
+        lwz     reg2,PcSpare+4(reg);    \
+        addi    reg2,reg2,16;           \
+        clrlwi  reg2,reg2,22;           \
+        stw     reg2,PcSpare+4(reg);    \
+        lbz     reg,PcNumber(reg);      \
+        slwi    reg,reg,10;             \
+        add     reg,reg,reg2;           \
+        addi    reg,reg,STORE_ADDR;     \
+        oris    reg,reg,0x8000;         \
+        li      reg2,val;               \
+        stw     reg2,0(reg);            \
+        DCBST(reg)
+#endif
+
+#if 0
+#define DBGSTORE_IRR(reg,reg2,val,regv2,regv3)
+#else
+#define DBGSTORE_IRR(reg,reg2,val,regv2,regv3) \
+        .extern KeTickCount;            \
+        mfsprg  reg,1;                  \
+        lwz     reg2,PcSpare+4(reg);    \
+        addi    reg2,reg2,16;           \
+        clrlwi  reg2,reg2,22;           \
+        stw     reg2,PcSpare+4(reg);    \
+        lbz     reg,PcNumber(reg);      \
+        slwi    reg,reg,10;             \
+        add     reg,reg,reg2;           \
+        addi    reg,reg,STORE_ADDR;     \
+        oris    reg,reg,0x8000;         \
+        li      reg2,val;               \
+        stw     reg2,0(reg);            \
+        stw     regv2,4(reg);           \
+        stw     regv3,8(reg);           \
+        lwz     reg2,[toc]KeTickCount(r2); \
+        lwz     reg2,0(reg2);           \
+        stw     reg2,0xc(reg);          \
+        DCBST(reg)
+#endif
+
+#if 0
+#define DBGSTORE_IRRR(reg,reg2,val,regv2,regv3,regv4)
+#else
+#define DBGSTORE_IRRR(reg,reg2,val,regv2,regv3,regv4) \
+        mfsprg  reg,1;                  \
+        lwz     reg2,PcSpare+4(reg);    \
+        addi    reg2,reg2,16;           \
+        clrlwi  reg2,reg2,22;           \
+        stw     reg2,PcSpare+4(reg);    \
+        lbz     reg,PcNumber(reg);      \
+        slwi    reg,reg,10;             \
+        add     reg,reg,reg2;           \
+        addi    reg,reg,STORE_ADDR;     \
+        oris    reg,reg,0x8000;         \
+        li      reg2,val;               \
+        stw     reg2,0(reg);            \
+        stw     regv2,4(reg);           \
+        stw     regv3,8(reg);           \
+        stw     regv4,0xc(reg);         \
+        DCBST(reg)
+#endif
+
+#if 0
+#define DBGSTORE_I_R(reg,reg2,val)
+#else
+#define DBGSTORE_I_R(reg,reg2,val)      \
+        mfsprg  reg,0;                  \
+        lwz     reg2,PcSpare+4(reg);    \
+        addi    reg2,reg2,16;           \
+        clrlwi  reg2,reg2,22;           \
+        stw     reg2,PcSpare+4(reg);    \
+        lbz     reg,PcNumber(reg);      \
+        slwi    reg,reg,10;             \
+        add     reg,reg,reg2;           \
+        addi    reg,reg,STORE_ADDR;     \
+        li      reg2,val;               \
+        stw     reg2,0(reg);            \
+        DCBST(reg)
+#endif
+
+#endif // DBG_STORE
+
+#if !SPINDBG
+
+#define CHKBRK(reg,label)
+#define CHKLOCK(reg,regl,label)
+
+#else
+
+#if 1
+#define CHKBRK(reg,label)
+#else
+#define CHKBRK(reg,label)               \
+        mfsprg  reg,1;                  \
+        lwz     reg,PcSpare+8(reg);     \
+        cmpwi   reg,0;                  \
+        beq     label;                  \
+        twi     31,0,0x16;              \
+label:
+#endif
+
+#if 1
+#define CHKLOCK(reg,regl,label)
+#else
+#define CHKLOCK(reg,regl,label)         \
+        .extern KiDispatcherLock;       \
+        lwz     reg,[toc]KiDispatcherLock(r2); \
+        cmpw    reg,regl;               \
+        bne     label
+#endif
+
+#endif // SPINDBG
+
+#if !COLLECT_PAGING_DATA
+
+#define INC_CTR(ctr,rpcr,rscr)
+#define INC_CTR2(ctr,rpcr,rscr)
+#define INC_GRP_CTR_R(ctr,roff)
+#define INC_GRP_CTR(ctr,roff,rscr1,rscr2)
+
+#else
+
+#define CTR_DTLB_MISS           0
+#define CTR_DTLB_MISS_VALID_PTE 4
+#define CTR_ITLB_MISS           8
+#define CTR_ITLB_MISS_VALID_PTE 12
+#define CTR_DSI                 16
+#define CTR_DSI_HPT_MISS        20
+#define CTR_ISI                 24
+#define CTR_ISI_HPT_MISS        28
+#define CTR_PCR                 32
+#define CTR_PCR2                36
+#define CTR_STORAGE_ERROR       40
+#define CTR_PAGE_FAULT          44
+#define CTR_FLUSH_SINGLE        48
+#define CTR_FILL_ENTRY          52
+#define CTR_FLUSH_CURRENT       56
+#define PROC_CTR_SIZE           60
+
+#define GRP_CTR_BASE PROC_CTR_SIZE
+
+#define GRP_CTR_DSI_VALID_PTE       (GRP_CTR_BASE + 0)
+#define GRP_CTR_DSI_FULL            (GRP_CTR_BASE + 4)
+#define GRP_CTR_DSI_FOUND           (GRP_CTR_BASE + 8)
+#define GRP_CTR_FLUSH_SINGLE        (GRP_CTR_BASE + 12)
+#define GRP_CTR_FLUSH_SINGLE_FOUND  (GRP_CTR_BASE + 16)
+#define GRP_CTR_FILL_ENTRY          (GRP_CTR_BASE + 20)
+#define GRP_CTR_FILL_ENTRY_FOUND    (GRP_CTR_BASE + 24)
+#define GRP_CTR_FILL_ENTRY_FULL     (GRP_CTR_BASE + 28)
+#define GRP_CTR_SIZE                (GRP_CTR_BASE + 32)
+
+#define CTR_SIZE (PROC_CTR_SIZE + GRP_CTR_SIZE)
+
+#define PcSpare (PcPcrPage2+4)
+#define PcR31 (PcSpare+4)
+#define PcPagingData (PcSpare+8)
+
+#define INC_CTR(ctr,rpcr,rscr)                  \
+        lwz     rscr,PcPagingData+ctr(rpcr);    \
+        addi    rscr,rscr,1;                    \
+        stw     rscr,PcPagingData+ctr(rpcr)
+
+#define INC_CTR2(ctr,rpcr,rscr)                 \
+        mfsprg  rpcr,1;                         \
+        lwz     rscr,PcPagingData+ctr(rpcr);    \
+        addi    rscr,rscr,1;                    \
+        stw     rscr,PcPagingData+ctr(rpcr)
+
+#define INC_GRP_CTR_R(ctr,rgrp)                 \
+        ori     r0,r30,0;                       \
+        mfsprg  r30,0;                          \
+        stw     r31,PcR31(r30);                 \
+        lwz     r31,PcPagingData+ctr(r30);      \
+        addi    r31,r31,1;                      \
+        stw     r31,PcPagingData+ctr(r30);      \
+        lwz     r31,PcR31(r30);                 \
+        ori     r30,r0,0
+
+#define INC_GRP_CTR(ctr,rgrp,rscr1,rscr2)       \
+        mfsprg  rscr2,1;                        \
+        lwz     rscr1,PcPagingData+ctr(rscr2);  \
+        addi    rscr1,rscr1,1;                  \
+        stw     rscr1,PcPagingData+ctr(rscr2)
+
+#endif // COLLECT_PAGING_DATA
+
+#endif // _KXPPC_

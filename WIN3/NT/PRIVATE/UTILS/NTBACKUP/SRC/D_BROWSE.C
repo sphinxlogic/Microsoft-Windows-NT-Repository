@@ -108,11 +108,7 @@ Initial revision.
 #    define LOCALVAR static
 #endif
 
-#ifndef UNICODE
 #    define DRIVENAMEFORMAT  TEXT("%s %s")
-#else //UNICODE
-#    define DRIVENAMEFORMAT  TEXT("%ws %ws")
-#endif //UNICODE
 
 #define DUMMY_FILE      TEXT("dummy.fil")
 #define DUMMY_DRIVE     TEXT("c:\\")

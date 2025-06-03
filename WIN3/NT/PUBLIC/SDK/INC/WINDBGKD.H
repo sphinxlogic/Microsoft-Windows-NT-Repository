@@ -128,7 +128,6 @@ typedef DWORD DBGKD_CONTROL_SET, *PDBGKD_CONTROL_SET;
 
 #if defined(_PPC_)
 
-// end_ntddk end_nthal
 
 //
 // Define PowerPC specific kernel debugger information.
@@ -153,8 +152,70 @@ typedef struct _DBGKD_CONTROL_REPORT {
 
 typedef DWORD DBGKD_CONTROL_SET, *PDBGKD_CONTROL_SET;
 
-#endif                          // ntddk nthal
+#endif // defined(_PPC_)
 
+#ifdef _PPC_
+//
+// Special Registers for PowerPC
+//
+
+typedef struct _KSPECIAL_REGISTERS {
+    DWORD  KernelDr0;
+    DWORD  KernelDr1;
+    DWORD  KernelDr2;
+    DWORD  KernelDr3;
+    DWORD  KernelDr4;
+    DWORD  KernelDr5;
+    DWORD  KernelDr6;
+    DWORD  KernelDr7;
+    DWORD  Sprg0;
+    DWORD  Sprg1;
+    DWORD  Sr0;
+    DWORD  Sr1;
+    DWORD  Sr2;
+    DWORD  Sr3;
+    DWORD  Sr4;
+    DWORD  Sr5;
+    DWORD  Sr6;
+    DWORD  Sr7;
+    DWORD  Sr8;
+    DWORD  Sr9;
+    DWORD  Sr10;
+    DWORD  Sr11;
+    DWORD  Sr12;
+    DWORD  Sr13;
+    DWORD  Sr14;
+    DWORD  Sr15;
+    DWORD  DBAT0L;
+    DWORD  DBAT0U;
+    DWORD  DBAT1L;
+    DWORD  DBAT1U;
+    DWORD  DBAT2L;
+    DWORD  DBAT2U;
+    DWORD  DBAT3L;
+    DWORD  DBAT3U;
+    DWORD  IBAT0L;
+    DWORD  IBAT0U;
+    DWORD  IBAT1L;
+    DWORD  IBAT1U;
+    DWORD  IBAT2L;
+    DWORD  IBAT2U;
+    DWORD  IBAT3L;
+    DWORD  IBAT3U;
+    DWORD  Sdr1;
+    DWORD  Reserved[9];
+} KSPECIAL_REGISTERS, *PKSPECIAL_REGISTERS;
+
+//
+// Processor State structure.
+//
+
+typedef struct _KPROCESSOR_STATE {
+    struct _CONTEXT ContextFrame;
+    struct _KSPECIAL_REGISTERS SpecialRegisters;
+} KPROCESSOR_STATE, *PKPROCESSOR_STATE;
+
+#endif // _PPC_
 
 #ifdef _X86_
 //
@@ -310,7 +371,7 @@ typedef struct _DBGKD_LOAD_SYMBOLS {
 
 typedef struct _DBGKD_WAIT_STATE_CHANGE {
     DWORD NewState;
-    WORD   ProcessorType;
+    WORD   ProcessorLevel;
     WORD   Processor;
     DWORD NumberProcessors;
     PVOID Thread;
@@ -330,33 +391,36 @@ typedef struct _DBGKD_WAIT_STATE_CHANGE {
 // Api Numbers for state manipulation
 //
 
-#define DbgKdReadVirtualMemoryApi     0x00003130L
-#define DbgKdWriteVirtualMemoryApi    0x00003131L
-#define DbgKdGetContextApi            0x00003132L
-#define DbgKdSetContextApi            0x00003133L
-#define DbgKdWriteBreakPointApi       0x00003134L
-#define DbgKdRestoreBreakPointApi     0x00003135L
-#define DbgKdContinueApi              0x00003136L
-#define DbgKdReadControlSpaceApi      0x00003137L
-#define DbgKdWriteControlSpaceApi     0x00003138L
-#define DbgKdReadIoSpaceApi           0x00003139L
-#define DbgKdWriteIoSpaceApi          0x0000313AL
-#define DbgKdRebootApi                0x0000313BL
-#define DbgKdContinueApi2             0x0000313CL
-#define DbgKdReadPhysicalMemoryApi    0x0000313DL
-#define DbgKdWritePhysicalMemoryApi   0x0000313EL
-#define DbgKdQuerySpecialCallsApi     0x0000313FL
-#define DbgKdSetSpecialCallApi        0x00003140L
-#define DbgKdClearSpecialCallsApi     0x00003141L
-#define DbgKdSetInternalBreakPointApi 0x00003142L
-#define DbgKdGetInternalBreakPointApi 0x00003143L
-#define DbgKdReadIoSpaceExtendedApi   0x00003144L
-#define DbgKdWriteIoSpaceExtendedApi  0x00003145L
-#define DbgKdGetVersionApi            0x00003146L
-#define DbgKdWriteBreakPointExApi     0x00003147L
-#define DbgKdRestoreBreakPointExApi   0x00003148L
-#define DbgKdCauseBugCheckApi         0x00003149L
-#define DbgKdSwitchProcessor          0x00003150L
+#define DbgKdReadVirtualMemoryApi           0x00003130L
+#define DbgKdWriteVirtualMemoryApi          0x00003131L
+#define DbgKdGetContextApi                  0x00003132L
+#define DbgKdSetContextApi                  0x00003133L
+#define DbgKdWriteBreakPointApi             0x00003134L
+#define DbgKdRestoreBreakPointApi           0x00003135L
+#define DbgKdContinueApi                    0x00003136L
+#define DbgKdReadControlSpaceApi            0x00003137L
+#define DbgKdWriteControlSpaceApi           0x00003138L
+#define DbgKdReadIoSpaceApi                 0x00003139L
+#define DbgKdWriteIoSpaceApi                0x0000313AL
+#define DbgKdRebootApi                      0x0000313BL
+#define DbgKdContinueApi2                   0x0000313CL
+#define DbgKdReadPhysicalMemoryApi          0x0000313DL
+#define DbgKdWritePhysicalMemoryApi         0x0000313EL
+#define DbgKdQuerySpecialCallsApi           0x0000313FL
+#define DbgKdSetSpecialCallApi              0x00003140L
+#define DbgKdClearSpecialCallsApi           0x00003141L
+#define DbgKdSetInternalBreakPointApi       0x00003142L
+#define DbgKdGetInternalBreakPointApi       0x00003143L
+#define DbgKdReadIoSpaceExtendedApi         0x00003144L
+#define DbgKdWriteIoSpaceExtendedApi        0x00003145L
+#define DbgKdGetVersionApi                  0x00003146L
+#define DbgKdWriteBreakPointExApi           0x00003147L
+#define DbgKdRestoreBreakPointExApi         0x00003148L
+#define DbgKdCauseBugCheckApi               0x00003149L
+#define DbgKdSwitchProcessor                0x00003150L
+#define DbgKdPageInApi                      0x00003151L
+#define DbgKdReadMachineSpecificRegister    0x00003152L
+#define DbgKdWriteMachineSpecificRegister   0x00003153L
 
 //
 // Response is a read memory message with data following
@@ -393,6 +457,8 @@ typedef struct _DBGKD_GET_CONTEXT {
 typedef struct _DBGKD_SET_CONTEXT {
     DWORD ContextFlags;
 } DBGKD_SET_CONTEXT, *PDBGKD_SET_CONTEXT;
+
+#define BREAKPOINT_TABLE_SIZE   32      // max number supported by kernel
 
 typedef struct _DBGKD_WRITE_BREAKPOINT {
     PVOID BreakPointAddress;
@@ -432,6 +498,13 @@ typedef struct _DBGKD_READ_WRITE_IO_EXTENDED {
     DWORD DataValue;
 } DBGKD_READ_WRITE_IO_EXTENDED, *PDBGKD_READ_WRITE_IO_EXTENDED;
 
+typedef struct _DBGKD_READ_WRITE_MSR {
+    DWORD Msr;
+    DWORD DataValueLow;
+    DWORD DataValueHigh;
+} DBGKD_READ_WRITE_MSR, *PDBGKD_READ_WRITE_MSR;
+
+
 typedef struct _DBGKD_QUERY_SPECIAL_CALLS {
     DWORD NumberOfSpecialCalls;
     // DWORD SpecialCalls[];
@@ -468,14 +541,63 @@ typedef struct _DBGKD_GET_VERSION {
     WORD    Flags;
     DWORD   KernBase;
     DWORD   PsLoadedModuleList;
+    WORD    MachineType;
+
+    //
+    // help for walking stacks with user callbacks:
+    //
+
+    //
+    // The address of the thread structure is provided in the
+    // WAIT_STATE_CHANGE packet.  This is the offset from the base of
+    // the thread structure to the pointer to the kernel stack frame
+    // for the currently active usermode callback.
+    //
+
+    WORD    ThCallbackStack;            // offset in thread data
+
+    //
+    // these values are offsets into that frame:
+    //
+
+    WORD    NextCallback;               // saved pointer to next callback frame
+    WORD    FramePointer;               // saved frame pointer
+
+    //
+    // Address of the kernel callout routine.
+    //
+
+    DWORD   KiCallUserMode;             // kernel routine
+
+    //
+    // Address of the usermode entry point for callbacks.
+    //
+
+    DWORD   KeUserCallbackDispatcher;   // address in ntdll
+
+    //
+    // DbgBreakPointWithStatus is a function which takes an argument
+    // and hits a breakpoint.  This field contains the address of the
+    // breakpoint instruction.  When the debugger sees a breakpoint
+    // at this address, it may retrieve the argument from the first
+    // argument register, or on x86 the eax register.
+    //
+
+    DWORD   BreakpointWithStatus;       // address of breakpoint
+
+    DWORD   Reserved4;
 } DBGKD_GET_VERSION, *PDBGKD_GET_VERSION;
 
 #define DBGKD_VERS_FLAG_MP      0x0001      // kernel is MP built
 
+typedef struct _DBGKD_PAGEIN {
+    DWORD   Address;
+    DWORD   ContinueStatus;
+} DBGKD_PAGEIN, *PDBGKD_PAGEIN;
 
 typedef struct _DBGKD_MANIPULATE_STATE {
     DWORD ApiNumber;
-    WORD   ProcessorType;
+    WORD   ProcessorLevel;
     WORD   Processor;
     DWORD    ReturnStatus;
     union {
@@ -495,6 +617,8 @@ typedef struct _DBGKD_MANIPULATE_STATE {
         DBGKD_GET_INTERNAL_BREAKPOINT GetInternalBreakpoint;
         DBGKD_GET_VERSION GetVersion;
         DBGKD_BREAKPOINTEX BreakPointEx;
+        DBGKD_PAGEIN PageIn;
+        DBGKD_READ_WRITE_MSR ReadWriteMsr;
     } u;
 } DBGKD_MANIPULATE_STATE, *PDBGKD_MANIPULATE_STATE;
 
@@ -579,7 +703,7 @@ typedef struct _DBGKD_GET_STRING {
 
 typedef struct _DBGKD_DEBUG_IO {
     DWORD ApiNumber;
-    WORD   ProcessorType;
+    WORD   ProcessorLevel;
     WORD   Processor;
     union {
         DBGKD_PRINT_STRING PrintString;
@@ -693,6 +817,21 @@ DbgKdWriteIoSpace(
     IN DWORD DataValue,
     IN DWORD DataSize
     );
+
+DWORD   
+NTAPI
+DbgKdReadMsr(
+    IN DWORD MsrReg,
+    OUT PDWORDLONG MsrValue
+    );
+
+DWORD   
+NTAPI
+DbgKdWriteMsr(
+    IN DWORD MsrReg,
+    IN DWORDLONG MsrValue
+    );
+
 
 DWORD   
 NTAPI

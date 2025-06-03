@@ -19,15 +19,179 @@ Revision History may be found at the end of this file.
 
 --*/
 
-#include "dderror.h"
-#include "devioctl.h"
-#include "miniport.h"
-
-#include "ntddvdeo.h"
-#include "video.h"
-#include "dac.h"
 #include "p9.h"
 #include "p9gbl.h"
+#include "p9000.h"
+#include "bt485.h"
+#include "vga.h"
+#include "p91regs.h"
+#include "p91dac.h"
+#include "pci.h"
+
+//
+// This global is used as an error flag to error out quickly on the multiple
+// calls to P9FindAdapter when a board is not supported.
+//
+
+VP_STATUS vpP91AdapterStatus = NO_ERROR;
+
+
+//
+// Coprocessor info structure for the Weitek P9100.
+//
+
+//
+// The P9100's total address space is 16mb (0x0100000).  The maximum
+// frame-buffer is 4mb (0x00400000).  So define the coproc length as
+// the maximum (16mb) less the size of the frame buffer (4mb).
+// Note: we might want to map the optional video power coprocessor
+// discretely.
+//
+// NOTE only ask for 0x00C00000 since that;s was preconfigured PCI devices
+// have.
+//
+
+P9_COPROC   P9100Info =
+{
+    P9100_ID,
+    0x00C00000,        // Size of memory address space.
+    0x00000000,        // Offset to coproc regs.
+    0x00800000,        // Size of coproc register block.
+    0x00800000,        // Offset to frame buffer.
+    P91SizeVideoMemory // Memory sizing function.
+};
+
+//
+// Coprocessor info structure for the Weitek P9000.
+//
+
+P9_COPROC   P9000Info =
+{
+    P9000_ID,
+    0x00400000,   // Size of memory address space.
+    0x00100000,   // Offset to coproc regs.
+    0x00100000,   // Size of coproc register block.
+    0x00200000,   // Offset to frame buffer.
+    P9000SizeMem  // Memory sizing function.
+};
+
+//
+// The default adapter description structure for the Weitek P9 PCI
+// boards.
+//
+
+ADAPTER_DESC    WtkPciDesc =
+{
+    {L"Weitek P9000 PCI Adapter"},
+    0L,                                 // P9 Memconf value (un-initialized)
+    HSYNC_INTERNAL | VSYNC_INTERNAL |
+    COMPOSITE_SYNC | VIDEO_NORMAL,      // P9 Srctl value
+    TRUE,                               // Should autodetection be attempted?
+    TRUE,                               // Is this a PCI adapter ?
+    PciGetBaseAddr,                     // Routine to detect/map P9 base addr
+    VLSetMode,                          // Routine to set the P9 mode
+    VLEnableP9,                         // Routine to enable P9 video
+    VLDisableP9,                        // Routine to disable P9 video
+    PciP9MemEnable,                     // Routine to enable memory/io
+    8,                                  // Clock divisor value
+    TRUE,                               // Is a Wtk 5x86 VGA present?
+    TRUE
+};
+
+
+//
+// The default adapter description structure for the Weitek P9100 PCI
+// boards.
+//
+
+ADAPTER_DESC    WtkP91PciDesc =
+{
+    {L"Weitek P9100 PCI Adapter"},
+    0L,                                 // P9 Memconf value (un-initialized)
+    HSYNC_INTERNAL | VSYNC_INTERNAL |
+    COMPOSITE_SYNC | VIDEO_NORMAL,      // P9 Srctl value
+    TRUE,                               // Should autodetection be attempted?
+    TRUE,                               // Is this a PCI adapter ?
+    PciGetBaseAddr,                     // Routine to detect/map P9 base addr
+    VLSetModeP91,                       // Routine to set the P9 mode
+    VLEnableP91,                        // Routine to enable P9 video
+    VLDisableP91,                       // Routine to disable P9 video
+    // PciP9MemEnable,                     // Routine to enable memory/io
+    NULL,
+    4,                                  // Clock divisor value
+    TRUE,                               // Is a Wtk 5x86 VGA present?
+    FALSE
+};
+
+//
+// The default adapter description structure for the Diamond Viper VL board.
+//
+
+ADAPTER_DESC    ViperVLDesc =
+{
+    {L"Diamond Viper P9000 VL Adapter"},
+    0L,                                 // P9 Memconf value (un-initialized)
+    HSYNC_INTERNAL | VSYNC_INTERNAL |
+    COMPOSITE_SYNC | VIDEO_NORMAL,      // P9 Srctl value
+    TRUE,                               // Should autodetection be attempted?
+    FALSE,                              // Is this a PCI adapter ?
+    ViperGetBaseAddr,                   // Routine to detect/map P9 base addr
+    ViperSetMode,                       // Routine to set the P9 mode
+    ViperEnableP9,                      // Routine to enable P9 video
+    ViperDisableP9,                     // Routine to disable P9 video
+    ViperEnableMem,                     // Routine to enable P9 memory
+    4,                                  // Clock divisor value
+    TRUE,                               // Is a Wtk 5x86 VGA present?
+    TRUE
+};
+
+
+//
+// The default adapter description structure for the Weitek P9100 PCI
+// boards.
+//
+
+ADAPTER_DESC    WtkP91VLDesc =
+{
+    {L"Weitek P9100 VL Adapter"},
+    0L,                                 // P9 Memconf value (un-initialized)
+    HSYNC_INTERNAL | VSYNC_INTERNAL |
+    COMPOSITE_SYNC | VIDEO_NORMAL,      // P9 Srctl value
+    TRUE,                               // Should autodetection be attempted?
+    FALSE,                              // Is this a PCI adapter ?
+    VLGetBaseAddrP91,                   // Routine to detect/map P9 base addr
+    VLSetModeP91,                       // Routine to set the P9 mode
+    VLEnableP91,                        // Routine to enable P9 video
+    VLDisableP91,                       // Routine to disable P9 video
+    // PciP9MemEnable,                     // Routine to enable memory/io
+    NULL,
+    4,                                  // Clock divisor value
+    TRUE,                               // Is a Wtk 5x86 VGA present?
+    FALSE
+};
+
+//
+// The default adapter description structure for the Weitek P9000 VL board.
+//
+
+ADAPTER_DESC    WtkVLDesc =
+{
+    {L"Generic Weitek P9000 VL Adapter"},
+    0L,                                 // P9 Memconf value (un-initialized)
+    HSYNC_INTERNAL | VSYNC_INTERNAL |
+    COMPOSITE_SYNC | VIDEO_NORMAL,      // P9 Srctl value
+    FALSE,                              // Should autodetection be attempted?
+    FALSE,                              // Is this a PCI adapter ?
+    VLGetBaseAddr,                      // Routine to detect/map P9 base addr
+    VLSetMode,                          // Routine to set the P9 mode
+    VLEnableP9,                         // Routine to enable P9 video
+    VLDisableP9,                        // Routine to disable P9 video
+    (PVOID) 0,                          // Routine to enable P9 memory
+    4,                                  // Clock divisor value
+    TRUE,                               // Is a Wtk 5x86 VGA present?
+    TRUE
+};
+
 
 //
 // List of OEM P9ADAPTER structures.
@@ -35,6 +199,37 @@ Revision History may be found at the end of this file.
 
 P9ADAPTER   OEMAdapter[NUM_OEM_ADAPTERS] =
 {
+
+    //
+    // Weitek P9100 PCI adapters, with the IBM525,
+    // including Viper PCI Adapter.
+    //
+
+    {
+        &WtkP91PciDesc,
+        &Ibm525,
+        &P9100Info
+    },
+
+    // Weitek P9100 PCI adapters, with the Bt485
+    //
+
+    {
+        &WtkP91PciDesc,
+        &P91Bt485,
+        &P9100Info
+    },
+
+    //
+    // Weitek P9100 PCI adapters, with the Bt489
+    //
+
+    {
+        &WtkP91PciDesc,
+        &P91Bt489,
+        &P9100Info
+    },
+
     //
     // Weitek PCI adapters, including Viper PCI Adapter.
     //
@@ -46,6 +241,26 @@ P9ADAPTER   OEMAdapter[NUM_OEM_ADAPTERS] =
     },
 
     //
+    // Weitek P9100 VL adapters, with the IBM525,
+    //
+
+    {
+        &WtkP91VLDesc,
+        &Ibm525,
+        &P9100Info
+    },
+
+
+    //
+    // Weitek P9100 VL adapters, with the Bt485,
+    //
+
+    {
+        &WtkP91VLDesc,
+        &Bt485,
+        &P9100Info
+    },
+
     // Viper VL Adapter.
     //
 
@@ -65,13 +280,16 @@ P9ADAPTER   OEMAdapter[NUM_OEM_ADAPTERS] =
         &P9000Info
     }
 };
+
+
 //
 // DriverAccessRanges are used to verify access to the P9 coprocessor's
 // address space and to the VGA and DAC registers.
 //
 
 VIDEO_ACCESS_RANGE DriverAccessRanges[NUM_DRIVER_ACCESS_RANGES
-                                        + NUM_DAC_ACCESS_RANGES] =
+                                        + NUM_DAC_ACCESS_RANGES
+                                        + NUM_MISC_ACCESS_RANGES] =
 {
     //
     // The P9 Coprocessor's access range. Everything is initialized
@@ -233,23 +451,63 @@ VIDEO_ACCESS_RANGE DriverAccessRanges[NUM_DRIVER_ACCESS_RANGES
         0,                              // Is range in i/o space?
         0,                              // Range should be visible
         0                               // Range should be shareable
+     },
+
+    //
+    // This is a miscellaneous access range. It is uninitialized and
+    // is only used (currently) by the PCI adapter type.
+    //
+
+     {
+        0L,                             // Low address
+        0L,                             // Hi address
+        0L,                             // length
+        0,                              // Is range in i/o space?
+        0,                              // Range should be visible
+        0                               // Range should be shareable
      }
 };
 
 
+VDATA v1280_1K_55[] =
+{
+   10018L,              // Dot Freq 1
+   184L,                // Horiz Sync Pulse
+   200L,                // Horiz Back Porch
+   1280L,               // X size
+   44L,                 // Horiz Front Porch
+   360L,                // hco
+   POSITIVE,            // Horizontal Polarity
+   55L,                 // Vertical Refresh Rate in Hz.
+   3L,                  // Vertical Sync Pulse
+   26L,                 // Vertical Back Porch
+   1024L,               // Y size
+   3L,                  // Vertical Front Porch
+   27L,                 // vco
+   POSITIVE,            // Vertical Polarity
+   0,                   // IcdSerPixClk
+   0xFFFFFFFF,          // IcdCtrlPixClk
+   0,                   // IcdSer525Ref
+   0xFFFFFFFF,          // IcdCtrl525Ref
+   0xFFFFFFFF,          // 525RefClkCnt
+   0xFFFFFFFF,          // 525VidClkFreq
+   0xFFFFFFFF,          // MemCfgClr
+   0                    // MemCfgSet
+};
+
 //
-// Default Video parameters for the specific modes supported by this driver.
-// These are the parameters to be used if no video parameters are found
-// in the registry.
+// These values came from the 3.1 driver.
+// They are more current than the 3.5 values
 //
+
 
 VDATA v640_480_60[] =
 {
    2517L,               // Dot Freq 1
    96L,                 // Horiz Sync Pulse
-   40L,                 // Horiz Back Porch
+   32L,                 // Horiz Back Porch
    640L,                // X size
-   24L,                 // Horiz Front Porch
+   32L,                 // Horiz Front Porch
    0L,                  // hco
    NEGATIVE,            // Horizontal Polarity
    60L,                 // Vertical Refresh Rate in Hz.
@@ -258,16 +516,24 @@ VDATA v640_480_60[] =
    480L,                // Y size
    17L,                 // Vertical Front Porch
    0L,                  // vco
-   NEGATIVE             // Vertical Polarity
+   NEGATIVE,            // Vertical Polarity
+   0,                   // IcdSerPixClk
+   0xFFFFFFFF,          // IcdCtrlPixClk
+   0,                   // IcdSer525Ref
+   0xFFFFFFFF,          // IcdCtrl525Ref
+   0xFFFFFFFF,          // 525RefClkCnt
+   0xFFFFFFFF,          // 525VidClkFreq
+   0xFFFFFFFF,          // MemCfgClr
+   0                    // MemCfgSet
 };
 
 VDATA v640_480_72[] =
 {
-   3146L,               // Dot Freq 1
+   3150L,               // Dot Freq 1
    40L,                 // Horiz Sync Pulse
-   128L,                // Horiz Back Porch
+   136L,                // Horiz Back Porch
    640L,                // X size
-   24L,                 // Horiz Front Porch
+   32L,                 // Horiz Front Porch
    144L,                // hco
    NEGATIVE,            // Horizontal Polarity
    72L,                 // Vertical Refresh Rate in Hz.
@@ -276,7 +542,15 @@ VDATA v640_480_72[] =
    480L,                // Y size
    9L,                  // Vertical Front Porch
    35L,                 // vco
-   NEGATIVE             // Vertical Polarity
+   NEGATIVE,            // Vertical Polarity
+   0,                   // IcdSerPixClk
+   0xFFFFFFFF,          // IcdCtrlPixClk
+   0,                   // IcdSer525Ref
+   0xFFFFFFFF,          // IcdCtrl525Ref
+   0xFFFFFFFF,          // 525RefClkCnt
+   0xFFFFFFFF,          // 525VidClkFreq
+   0xFFFFFFFF,          // MemCfgClr
+   0                    // MemCfgSet
 };
 
 VDATA v800_600_60[] =
@@ -294,13 +568,21 @@ VDATA v800_600_60[] =
    600L,                // Y size
    1L,                  // Vertical Front Porch
    22L,                 // vco
-   POSITIVE             // Vertical Polarity
+   POSITIVE,            // Vertical Polarity
+   0,                   // IcdSerPixClk
+   0xFFFFFFFF,          // IcdCtrlPixClk
+   0,                   // IcdSer525Ref
+   0xFFFFFFFF,          // IcdCtrl525Ref
+   0xFFFFFFFF,          // 525RefClkCnt
+   0xFFFFFFFF,          // 525VidClkFreq
+   0xFFFFFFFF,          // MemCfgClr
+   0                    // MemCfgSet
 };
 
 VDATA v800_600_72[] =
 {
    5000L,               // Dot Freq 1
-   128L,                // Horiz Sync Pulse
+   120L,                // Horiz Sync Pulse
    64L,                 // Horiz Back Porch
    800L,                // X size
    56L,                 // Horiz Front Porch
@@ -312,7 +594,15 @@ VDATA v800_600_72[] =
    600L,                // Y size
    37L,                 // Vertical Front Porch
    22L,                 // vco
-   POSITIVE             // Vertical Polarity
+   POSITIVE,            // Vertical Polarity
+   0,                   // IcdSerPixClk
+   0xFFFFFFFF,          // IcdCtrlPixClk
+   0,                   // IcdSer525Ref
+   0xFFFFFFFF,          // IcdCtrl525Ref
+   0xFFFFFFFF,          // 525RefClkCnt
+   0xFFFFFFFF,          // 525VidClkFreq
+   0xFFFFFFFF,          // MemCfgClr
+   0                    // MemCfgSet
 };
 
 VDATA v1K_768_60[] =
@@ -330,7 +620,15 @@ VDATA v1K_768_60[] =
    768L,                // Y size
    3L,                  // Vertical Front Porch
    30L,                 // vco
-   NEGATIVE             // Vertical Polarity
+   NEGATIVE,            // Vertical Polarity
+   0,                   // IcdSerPixClk
+   0xFFFFFFFF,          // IcdCtrlPixClk
+   0,                   // IcdSer525Ref
+   0xFFFFFFFF,          // IcdCtrl525Ref
+   0xFFFFFFFF,          // 525RefClkCnt
+   0xFFFFFFFF,          // 525VidClkFreq
+   0xFFFFFFFF,          // MemCfgClr
+   0                    // MemCfgSet
 };
 
 VDATA v1K_768_70[] =
@@ -348,25 +646,15 @@ VDATA v1K_768_70[] =
    768L,                // Y size
    3L,                  // Vertical Front Porch
    30L,                 // vco
-   NEGATIVE             // Vertical Polarity
-};
-
-VDATA v1280_1K_55[] =
-{
-   10018L,              // Dot Freq 1
-   184L,                // Horiz Sync Pulse
-   200L,                // Horiz Back Porch
-   1280L,               // X size
-   44L,                 // Horiz Front Porch
-   360L,                // hco
-   POSITIVE,            // Horizontal Polarity
-   55L,                 // Vertical Refresh Rate in Hz.
-   3L,                  // Vertical Sync Pulse
-   26L,                 // Vertical Back Porch
-   1024L,               // Y size
-   3L,                  // Vertical Front Porch
-   27L,                 // vco
-   POSITIVE             // Vertical Polarity
+   NEGATIVE,            // Vertical Polarity
+   0,                   // IcdSerPixClk
+   0xFFFFFFFF,          // IcdCtrlPixClk
+   0,                   // IcdSer525Ref
+   0xFFFFFFFF,          // IcdCtrl525Ref
+   0xFFFFFFFF,          // 525RefClkCnt
+   0xFFFFFFFF,          // 525VidClkFreq
+   0xFFFFFFFF,          // MemCfgClr
+   0                    // MemCfgSet
 };
 
 VDATA v1280_1K_60[] =
@@ -384,12 +672,20 @@ VDATA v1280_1K_60[] =
    1024L,               // Y size
    1L,                  // Vertical Front Porch
    41L,                 // vco
-   POSITIVE             // Vertical Polarity
+   POSITIVE,            // Vertical Polarity
+   0,                   // IcdSerPixClk
+   0xFFFFFFFF,          // IcdCtrlPixClk
+   0,                   // IcdSer525Ref
+   0xFFFFFFFF,          // IcdCtrl525Ref
+   0xFFFFFFFF,          // 525RefClkCnt
+   0xFFFFFFFF,          // 525VidClkFreq
+   0xFFFFFFFF,          // MemCfgClr
+   0                    // MemCfgSet
 };
 
 VDATA v1280_1K_74[] =
 {
-   13490L,              // Dot Freq 1
+   13500L,              // Dot Freq 1
    144L,                // Horiz Sync Pulse
    256L,                // Horiz Back Porch
    1280L,               // X size
@@ -402,13 +698,21 @@ VDATA v1280_1K_74[] =
    1024L,               // Y size
    1L,                  // Vertical Front Porch
    0L,                  // vco
-   POSITIVE             // Vertical Polarity
+   POSITIVE,            // Vertical Polarity
+   0,                   // IcdSerPixClk
+   0xFFFFFFFF,          // IcdCtrlPixClk
+   0,                   // IcdSer525Ref
+   0xFFFFFFFF,          // IcdCtrl525Ref
+   0xFFFFFFFF,          // 525RefClkCnt
+   0xFFFFFFFF,          // 525VidClkFreq
+   0xFFFFFFFF,          // MemCfgClr
+   0                    // MemCfgSet
 };
 
 VDATA v1280_1K_75[] =
 {
-   12790L,              // Dot Freq 1
-   136L,                // Horiz Sync Pulse
+   12800L,              // Dot Freq 1
+   112L,                // Horiz Sync Pulse
    240L,                // Horiz Back Porch
    1280L,               // X size
    32L,                 // Horiz Front Porch
@@ -420,7 +724,15 @@ VDATA v1280_1K_75[] =
    1024L,               // Y size
    3L,                  // Vertical Front Porch
    0L,                  // vco
-   POSITIVE             // Vertical Polarity
+   POSITIVE,            // Vertical Polarity
+   0,                   // IcdSerPixClk
+   0xFFFFFFFF,          // IcdCtrlPixClk
+   0,                   // IcdSer525Ref
+   0xFFFFFFFF,          // IcdCtrl525Ref
+   0xFFFFFFFF,          // 525RefClkCnt
+   0xFFFFFFFF,          // 525VidClkFreq
+   0xFFFFFFFF,          // MemCfgClr
+   0                    // MemCfgSet
 };
 
 VDATA v1600_1200_60[] =
@@ -438,7 +750,15 @@ VDATA v1600_1200_60[] =
    1200L,               // Y size
    4L,                  // Vertical Front Porch
    0L,                  // vco
-   NEGATIVE             // Vertical Polarity
+   NEGATIVE,            // Vertical Polarity
+   0,                   // IcdSerPixClk
+   0xFFFFFFFF,          // IcdCtrlPixClk
+   0,                   // IcdSer525Ref
+   0xFFFFFFFF,          // IcdCtrl525Ref
+   0xFFFFFFFF,          // 525RefClkCnt
+   0xFFFFFFFF,          // 525VidClkFreq
+   0xFFFFFFFF,          // MemCfgClr
+   0                    // MemCfgSet
 };
 
 //
@@ -450,7 +770,9 @@ P9INITDATA P9Modes[mP9ModeCount] =
 {
 {
   18,                                   // Number of entries in the structure
+  (P9000_ID | P9100_ID),
   v640_480_60,                          // Ptr to the default video parms
+  FALSE,
     {                                   // containing the video parms.
       sizeof(VIDEO_MODE_INFORMATION),   // Size of the mode informtion structure
       m640_480_8_60,                    // Index used to set this mode
@@ -475,7 +797,9 @@ P9INITDATA P9Modes[mP9ModeCount] =
 },
 {
   18,                                   // Number of entries in the structure
+  (P9000_ID | P9100_ID),
   v640_480_60,                          // Ptr to the default video parms
+  FALSE,
     {                                   // containing the video parms.
       sizeof(VIDEO_MODE_INFORMATION),   // Size of the mode informtion structure
       m640_480_16_60,                   // Index used to set this mode
@@ -499,7 +823,35 @@ P9INITDATA P9Modes[mP9ModeCount] =
 },
 {
   18,                                   // Number of entries in the structure
+  P9100_ID,
   v640_480_60,                          // Ptr to the default video parms
+  FALSE,
+    {                                   // containing the video parms.
+      sizeof(VIDEO_MODE_INFORMATION),   // Size of the mode informtion structure
+      m640_480_24_60,                   // Index used to set this mode
+      640,                              // X Resolution, in pixels
+      480,                              // Y Resolution, in pixels
+      640 * 3,                          // physical scanline byte length
+      1,                                // Number of video memory planes
+      24,                               // Number of bits per plane
+      60,                               // Screen Frequency, in Hertz.
+      330,                              // Horizontal size of screen in mm
+      240,                              // Vertical size of screen in mm
+      8,                                // # of Red bits in non-palette modes
+      8,                                // # of Green bits in non-palette modes
+      8,                                // # of Blue bits in non-palette modes
+      0x00FF0000,                       // Mask for Red bits in non-palette modes
+      0x0000FF00,                       // Mask for Green bits in non-palette modes
+      0x000000FF,                       // Mask for Blue bits in non-palette modes
+      VIDEO_MODE_COLOR | VIDEO_MODE_GRAPHICS,   // Mode flags
+      0L, 0L
+    }
+},
+{
+  18,                                   // Number of entries in the structure
+  (P9000_ID | P9100_ID),
+  v640_480_60,                          // Ptr to the default video parms
+  FALSE,
     {                                   // containing the video parms.
       sizeof(VIDEO_MODE_INFORMATION),   // Size of the mode informtion structure
       m640_480_32_60,                   // Index used to set this mode
@@ -523,7 +875,9 @@ P9INITDATA P9Modes[mP9ModeCount] =
 },
 {
   18,                                   // Number of entries in the structure
+  (P9000_ID | P9100_ID),
   v640_480_72,                          // Ptr to the default video parms
+  FALSE,
     {                                   // containing the video parms.
       sizeof(VIDEO_MODE_INFORMATION),   // Size of the mode informtion structure
       m640_480_8_72,                    // Index used to set this mode
@@ -548,7 +902,9 @@ P9INITDATA P9Modes[mP9ModeCount] =
 },
 {
   18,                                   // Number of entries in the structure
+  (P9000_ID | P9100_ID),
   v640_480_72,                          // Ptr to the default video parms
+  FALSE,
     {                                   // containing the video parms.
       sizeof(VIDEO_MODE_INFORMATION),   // Size of the mode informtion structure
       m640_480_16_72,                   // Index used to set this mode
@@ -572,7 +928,35 @@ P9INITDATA P9Modes[mP9ModeCount] =
 },
 {
   18,                                   // Number of entries in the structure
+  P9100_ID,
   v640_480_72,                          // Ptr to the default video parms
+  FALSE,
+    {                                   // containing the video parms.
+      sizeof(VIDEO_MODE_INFORMATION),   // Size of the mode informtion structure
+      m640_480_24_72,                   // Index used to set this mode
+      640,                              // X Resolution, in pixels
+      480,                              // Y Resolution, in pixels
+      640 * 3,                          // physical scanline byte length
+      1,                                // Number of video memory planes
+      24,                               // Number of bits per plane
+      72,                               // Screen Frequency, in Hertz.
+      330,                              // Horizontal size of screen in mm
+      240,                              // Vertical size of screen in mm
+      8,                                // # of Red bits in non-palette modes
+      8,                                // # of Green bits in non-palette modes
+      8,                                // # of Blue bits in non-palette modes
+      0x00FF0000,                       // Mask for Red bits in non-palette modes
+      0x0000FF00,                       // Mask for Green bits in non-palette modes
+      0x000000FF,                       // Mask for Blue bits in non-palette modes
+      VIDEO_MODE_COLOR | VIDEO_MODE_GRAPHICS, // Mode flags
+      0L, 0L
+    }
+},
+{
+  18,                                   // Number of entries in the structure
+  (P9000_ID | P9100_ID),
+  v640_480_72,                          // Ptr to the default video parms
+  FALSE,
     {                                   // containing the video parms.
       sizeof(VIDEO_MODE_INFORMATION),   // Size of the mode informtion structure
       m640_480_32_72,                   // Index used to set this mode
@@ -596,7 +980,9 @@ P9INITDATA P9Modes[mP9ModeCount] =
 },
 {
   18,                                   // Number of entries in the mode set structure
+  (P9000_ID | P9100_ID),
   v800_600_60,                          // Ptr to the default video parms
+  FALSE,
     {                                   // containing the video parms.
       sizeof(VIDEO_MODE_INFORMATION),   // Size of the mode info struct
       m800_600_8_60,                    // Index used to set this mode
@@ -621,7 +1007,9 @@ P9INITDATA P9Modes[mP9ModeCount] =
 },
 {
   18,                                   // Number of entries in the mode set structure
+  (P9000_ID | P9100_ID),
   v800_600_72,                          // Ptr to the default video parms
+  FALSE,
     {                                   // containing the video parms.
       sizeof(VIDEO_MODE_INFORMATION),   // Size of the mode info struct
       m800_600_8_72,                    // Index used to set this mode
@@ -646,7 +1034,9 @@ P9INITDATA P9Modes[mP9ModeCount] =
 },
 {
   18,                                   // Number of entries in the mode set structure
+  (P9000_ID | P9100_ID),
   v800_600_60,                          // Ptr to the default video parms
+  FALSE,
     {                                   // containing the video parms.
       sizeof(VIDEO_MODE_INFORMATION),   // Size of the mode info struct
       m800_600_16_60,                   // Index used to set this mode
@@ -670,7 +1060,9 @@ P9INITDATA P9Modes[mP9ModeCount] =
 },
 {
   18,                                   // Number of entries in the mode set structure
+  (P9000_ID | P9100_ID),
   v800_600_72,                          // Ptr to the default video parms
+  FALSE,
     {                                   // containing the video parms.
       sizeof(VIDEO_MODE_INFORMATION),   // Size of the mode info struct
       m800_600_16_72,                   // Index used to set this mode
@@ -694,7 +1086,61 @@ P9INITDATA P9Modes[mP9ModeCount] =
 },
 {
   18,                                   // Number of entries in the struct
+  P9100_ID,
   v800_600_60,                          // Ptr to the default video parms
+  FALSE,
+    {                                   // containing the video parms.
+      sizeof(VIDEO_MODE_INFORMATION),   // Size of the mode info struct
+      m800_600_24_60,                   // Index used to set this mode
+      800,                              // X Resolution, in pixels
+      600,                              // Y Resolution, in pixels
+      800 * 3,                          // physical scanline byte length
+      1,                                // Number of video memory planes
+      24,                               // Number of bits per plane
+      60,                               // Screen Frequency, in Hertz.
+      330,                              // Horizontal size of screen in mm
+      240,                              // Vertical size of screen in mm
+      8,                                // # of Red bits in non-palette modes
+      8,                                // # of Green bits in non-palette modes
+      8,                                // # of Blue bits in non-palette modes
+      0x00FF0000,                       // Mask for Red bits in non-palette modes
+      0x0000FF00,                       // Mask for Green bits in non-palette modes
+      0x000000FF,                       // Mask for Blue bits in non-palette modes
+      VIDEO_MODE_COLOR | VIDEO_MODE_GRAPHICS,
+      0L, 0L
+    }                                   // Mode flags
+},
+{
+  18,                                   // Number of entries in the struct
+  P9100_ID,
+  v800_600_72,                          // Ptr to the default video parms
+  FALSE,
+    {                                   // containing the video parms.
+      sizeof(VIDEO_MODE_INFORMATION),   // Size of the mode info struct
+      m800_600_24_72,                   // Index used to set this mode
+      800,                              // X Resolution, in pixels
+      600,                              // Y Resolution, in pixels
+      800 * 3,                          // physical scanline byte length
+      1,                                // Number of video memory planes
+      24,                               // Number of bits per plane
+      72,                               // Screen Frequency, in Hertz.
+      330,                              // Horizontal size of screen in mm
+      240,                              // Vertical size of screen in mm
+      8,                                // # of Red bits in non-palette modes
+      8,                                // # of Green bits in non-palette modes
+      8,                                // # of Blue bits in non-palette modes
+      0x00FF0000,                       // Mask for Red bits in non-palette modes
+      0x0000FF00,                       // Mask for Green bits in non-palette modes
+      0x000000FF,                       // Mask for Blue bits in non-palette modes
+      VIDEO_MODE_COLOR | VIDEO_MODE_GRAPHICS,
+      0L, 0L
+    }                                   // Mode flags
+},
+{
+  18,                                   // Number of entries in the struct
+  (P9000_ID | P9100_ID),
+  v800_600_60,                          // Ptr to the default video parms
+  FALSE,
     {                                   // containing the video parms.
       sizeof(VIDEO_MODE_INFORMATION),   // Size of the mode info struct
       m800_600_32_60,                   // Index used to set this mode
@@ -718,7 +1164,9 @@ P9INITDATA P9Modes[mP9ModeCount] =
 },
 {
   18,                                   // Number of entries in the struct
+  (P9000_ID | P9100_ID),
   v800_600_72,                          // Ptr to the default video parms
+  FALSE,
     {                                   // containing the video parms.
       sizeof(VIDEO_MODE_INFORMATION),   // Size of the mode info struct
       m800_600_32_72,                   // Index used to set this mode
@@ -742,7 +1190,9 @@ P9INITDATA P9Modes[mP9ModeCount] =
 },
 {
   18,                                   // Number of entries in the struct
+  (P9000_ID | P9100_ID),
   v1K_768_60,                           // Ptr to the default video parms
+  FALSE,
     {                                   // containing the video parms.
       sizeof(VIDEO_MODE_INFORMATION),   // Size of the mode info struct
       m1K_768_8_60,                     // Index used to set this mode
@@ -767,7 +1217,9 @@ P9INITDATA P9Modes[mP9ModeCount] =
 },
 {
   18,                                   // Number of entries in the struct
+  (P9000_ID | P9100_ID),
   v1K_768_70,                           // Ptr to the default video parms
+  FALSE,
     {                                   // containing the video parms.
       sizeof(VIDEO_MODE_INFORMATION),   // Size of the mode info struct
       m1K_768_8_70,                     // Index used to set this mode
@@ -792,7 +1244,9 @@ P9INITDATA P9Modes[mP9ModeCount] =
 },
 {
   18,                                   // Number of entries in the struct
+  (P9000_ID | P9100_ID),
   v1K_768_60,                           // Ptr to the default video parms
+  FALSE,
     {                                   // containing the video parms.
       sizeof(VIDEO_MODE_INFORMATION),   // Size of the mode info struct
       m1K_768_16_60,                    // Index used to set this mode
@@ -816,7 +1270,9 @@ P9INITDATA P9Modes[mP9ModeCount] =
 },
 {
   18,                                   // Number of entries in the struct
+  (P9000_ID | P9100_ID),
   v1K_768_70,                           // Ptr to the default video parms
+  FALSE,
     {                                   // containing the video parms.
       sizeof(VIDEO_MODE_INFORMATION),   // Size of the mode info struct
       m1K_768_16_70,                    // Index used to set this mode
@@ -838,9 +1294,118 @@ P9INITDATA P9Modes[mP9ModeCount] =
       0L, 0L
     }                                   // Mode flags
 },
+
 {
   18,                                   // Number of entries in the struct
+  P9100_ID,
+  v1K_768_60,                           // Ptr to the default video parms
+  FALSE,
+    {                                   // containing the video parms.
+      sizeof(VIDEO_MODE_INFORMATION),   // Size of the mode info struct
+      m1K_768_24_60,                    // Index used to set this mode
+      1024,                             // X Resolution, in pixels
+      768,                              // Y Resolution, in pixels
+      1024 * 3,                         // physical scanline byte length
+      1,                                // Number of video memory planes
+      24,                               // Number of bits per plane
+      60,                               // Screen Frequency, in Hertz.
+      330,                              // Horizontal size of screen in mm
+      240,                              // Vertical size of screen in mm
+      8,                                // # of Red bits in non-palette modes
+      8,                                // # of Green bits in non-palette modes
+      8,                                // # of Blue bits in non-palette modes
+      0x00FF0000,                       // Mask for Red bits in non-palette modes
+      0x0000FF00,                       // Mask for Green bits in non-palette modes
+      0x000000FF,                       // Mask for Blue bits in non-palette modes
+      VIDEO_MODE_COLOR | VIDEO_MODE_GRAPHICS,
+      0L, 0L
+    }                                   // Mode flags
+},
+{
+  18,                                   // Number of entries in the struct
+  P9100_ID,
+  v1K_768_70,                           // Ptr to the default video parms
+  FALSE,
+    {                                   // containing the video parms.
+      sizeof(VIDEO_MODE_INFORMATION),   // Size of the mode info struct
+      m1K_768_24_70,                    // Index used to set this mode
+      1024,                             // X Resolution, in pixels
+      768,                              // Y Resolution, in pixels
+      1024 * 3,                         // physical scanline byte length
+      1,                                // Number of video memory planes
+      24,                               // Number of bits per plane
+      70,                               // Screen Frequency, in Hertz.
+      330,                              // Horizontal size of screen in mm
+      240,                              // Vertical size of screen in mm
+      8,                                // # of Red bits in non-palette modes
+      8,                                // # of Green bits in non-palette modes
+      8,                                // # of Blue bits in non-palette modes
+      0x00FF0000,                       // Mask for Red bits in non-palette modes
+      0x0000FF00,                       // Mask for Green bits in non-palette modes
+      0x000000FF,                       // Mask for Blue bits in non-palette modes
+      VIDEO_MODE_COLOR | VIDEO_MODE_GRAPHICS,
+      0L, 0L
+    }                                   // Mode flags
+},
+{
+  18,                                   // Number of entries in the struct
+  P9100_ID,
+  v1K_768_60,                           // Ptr to the default video parms
+  FALSE,
+    {                                   // containing the video parms.
+      sizeof(VIDEO_MODE_INFORMATION),   // Size of the mode info struct
+      m1K_768_32_60,                    // Index used to set this mode
+      1024,                             // X Resolution, in pixels
+      768,                              // Y Resolution, in pixels
+      1024 * 4,                         // physical scanline byte length
+      1,                                // Number of video memory planes
+      32,                               // Number of bits per plane
+      60,                               // Screen Frequency, in Hertz.
+      330,                              // Horizontal size of screen in mm
+      240,                              // Vertical size of screen in mm
+      8,                                // # of Red bits in non-palette modes
+      8,                                // # of Green bits in non-palette modes
+      8,                                // # of Blue bits in non-palette modes
+      0x00FF0000,                       // Mask for Red bits in non-palette modes
+      0x0000FF00,                       // Mask for Green bits in non-palette modes
+      0x000000FF,                       // Mask for Blue bits in non-palette modes
+      VIDEO_MODE_COLOR | VIDEO_MODE_GRAPHICS,
+      0L, 0L
+    }                                   // Mode flags
+},
+{
+  18,                                   // Number of entries in the struct
+  P9100_ID,
+  v1K_768_70,                           // Ptr to the default video parms
+  FALSE,
+    {                                   // containing the video parms.
+      sizeof(VIDEO_MODE_INFORMATION),   // Size of the mode info struct
+      m1K_768_32_70,                    // Index used to set this mode
+      1024,                             // X Resolution, in pixels
+      768,                              // Y Resolution, in pixels
+      1024 * 4,                         // physical scanline byte length
+      1,                                // Number of video memory planes
+      32,                               // Number of bits per plane
+      70,                               // Screen Frequency, in Hertz.
+      330,                              // Horizontal size of screen in mm
+      240,                              // Vertical size of screen in mm
+      8,                                // # of Red bits in non-palette modes
+      8,                                // # of Green bits in non-palette modes
+      8,                                // # of Blue bits in non-palette modes
+      0x00FF0000,                       // Mask for Red bits in non-palette modes
+      0x0000FF00,                       // Mask for Green bits in non-palette modes
+      0x000000FF,                       // Mask for Blue bits in non-palette modes
+      VIDEO_MODE_COLOR | VIDEO_MODE_GRAPHICS,
+      0L, 0L
+    }                                   // Mode flags
+},
+
+
+{
+  18,                                   // Number of entries in the struct
+  P9000_ID,
   v1280_1K_55,                          // Ptr to the default video parms
+  FALSE,
     {                                   // containing the video parms.
       sizeof(VIDEO_MODE_INFORMATION),   // Size of the mode info struct
       m1280_1K_8_55,                    // Index used to set this mode
@@ -863,9 +1428,12 @@ P9INITDATA P9Modes[mP9ModeCount] =
       0L, 0L
     }
 },
+
 {
   18,                                   // Number of entries in the struct
+  (P9000_ID | P9100_ID),
   v1280_1K_60,                          // Ptr to the default video parms
+  FALSE,
     {                                   // containing the video parms.
       sizeof(VIDEO_MODE_INFORMATION),   // Size of the mode info struct
       m1280_1K_8_60,                    // Index used to set this mode
@@ -890,7 +1458,9 @@ P9INITDATA P9Modes[mP9ModeCount] =
 },
 {
   18,                                   // Number of entries in the struct
+  (P9000_ID | P9100_ID),
   v1280_1K_74,                          // Ptr to the default video parms
+  FALSE,
     {                                   // containing the video parms.
       sizeof(VIDEO_MODE_INFORMATION),   // Size of the mode info struct
       m1280_1K_8_74,                    // Index used to set this mode
@@ -915,7 +1485,9 @@ P9INITDATA P9Modes[mP9ModeCount] =
 },
 {
   18,                                   // Number of entries in the struct
+  (P9000_ID | P9100_ID),
   v1280_1K_75,                          // Ptr to the default video parms
+  FALSE,
     {                                   // containing the video parms.
       sizeof(VIDEO_MODE_INFORMATION),   // Size of the mode info struct
       m1280_1K_8_75,                    // Index used to set this mode
@@ -940,7 +1512,165 @@ P9INITDATA P9Modes[mP9ModeCount] =
 },
 {
   18,                                   // Number of entries in the struct
+  P9100_ID,
+  v1280_1K_60,                          // Ptr to the default video parms
+  FALSE,
+    {                                   // containing the video parms.
+      sizeof(VIDEO_MODE_INFORMATION),   // Size of the mode info struct
+      m1280_1K_16_60,                   // Index used to set this mode
+      1280,                             // X Resolution, in pixels
+      1024,                             // Y Resolution, in pixels
+      1280 * 2,                         // physical scanline byte length
+      1,                                // Number of video memory planes
+      16,                               // Number of bits per plane
+      60,                               // Screen Frequency, in Hertz.
+      330,                              // Horizontal size of screen in mm
+      240,                              // Vertical size of screen in mm
+      5,                                // # of Red bits in non-palette modes
+      5,                                // # of Green bits in non-palette modes
+      5,                                // # of Blue bits in non-palette modes
+      0x00007C00,                       // Mask for Red bits in non-palette modes
+      0x000003E0,                       // Mask for Green bits in non-palette modes
+      0x0000001F,                       // Mask for Blue bits in non-palette modes
+      VIDEO_MODE_COLOR | VIDEO_MODE_GRAPHICS,
+      0L, 0L
+    }
+},
+{
+  18,                                   // Number of entries in the struct
+  P9100_ID,
+  v1280_1K_74,                          // Ptr to the default video parms
+  FALSE,
+    {                                   // containing the video parms.
+      sizeof(VIDEO_MODE_INFORMATION),   // Size of the mode info struct
+      m1280_1K_16_74,                   // Index used to set this mode
+      1280,                             // X Resolution, in pixels
+      1024,                             // Y Resolution, in pixels
+      1280 * 2,                         // physical scanline byte length
+      1,                                // Number of video memory planes
+      16,                               // Number of bits per plane
+      74,                               // Screen Frequency, in Hertz.
+      330,                              // Horizontal size of screen in mm
+      240,                              // Vertical size of screen in mm
+      5,                                // # of Red bits in non-palette modes
+      5,                                // # of Green bits in non-palette modes
+      5,                                // # of Blue bits in non-palette modes
+      0x00007C00,                       // Mask for Red bits in non-palette modes
+      0x000003E0,                       // Mask for Green bits in non-palette modes
+      0x0000001F,                       // Mask for Blue bits in non-palette modes
+      VIDEO_MODE_COLOR | VIDEO_MODE_GRAPHICS,
+      0L, 0L
+    }
+},
+{
+  18,                                   // Number of entries in the struct
+  P9100_ID,
+  v1280_1K_75,                          // Ptr to the default video parms
+  FALSE,
+    {                                   // containing the video parms.
+      sizeof(VIDEO_MODE_INFORMATION),   // Size of the mode info struct
+      m1280_1K_16_75,                   // Index used to set this mode
+      1280,                             // X Resolution, in pixels
+      1024,                             // Y Resolution, in pixels
+      1280 * 2,                         // physical scanline byte length
+      1,                                // Number of video memory planes
+      16,                               // Number of bits per plane
+      75,                               // Screen Frequency, in Hertz.
+      330,                              // Horizontal size of screen in mm
+      240,                              // Vertical size of screen in mm
+      5,                                // # of Red bits in non-palette modes
+      5,                                // # of Green bits in non-palette modes
+      5,                                // # of Blue bits in non-palette modes
+      0x00007C00,                       // Mask for Red bits in non-palette modes
+      0x000003E0,                       // Mask for Green bits in non-palette modes
+      0x0000001F,                       // Mask for Blue bits in non-palette modes
+      VIDEO_MODE_COLOR | VIDEO_MODE_GRAPHICS,
+      0L, 0L
+    }
+},
+{
+  18,                                   // Number of entries in the struct
+  P9100_ID,
+  v1280_1K_60,                          // Ptr to the default video parms
+  FALSE,
+    {                                   // containing the video parms.
+      sizeof(VIDEO_MODE_INFORMATION),   // Size of the mode info struct
+      m1280_1K_24_60,                   // Index used to set this mode
+      1280,                             // X Resolution, in pixels
+      1024,                             // Y Resolution, in pixels
+      1280 * 3,                         // physical scanline byte length
+      1,                                // Number of video memory planes
+      24,                               // Number of bits per plane
+      60,                               // Screen Frequency, in Hertz.
+      330,                              // Horizontal size of screen in mm
+      240,                              // Vertical size of screen in mm
+      8,                                // # of Red bits in non-palette modes
+      8,                                // # of Green bits in non-palette modes
+      8,                                // # of Blue bits in non-palette modes
+      0x00FF0000,                       // Mask for Red bits in non-palette modes
+      0x0000FF00,                       // Mask for Green bits in non-palette modes
+      0x000000FF,                       // Mask for Blue bits in non-palette modes
+      VIDEO_MODE_COLOR | VIDEO_MODE_GRAPHICS, // Mode flags
+      0L, 0L
+    }
+},
+{
+  18,                                   // Number of entries in the struct
+  P9100_ID,
+  v1280_1K_74,                          // Ptr to the default video parms
+  FALSE,
+    {                                   // containing the video parms.
+      sizeof(VIDEO_MODE_INFORMATION),   // Size of the mode info struct
+      m1280_1K_24_74,                   // Index used to set this mode
+      1280,                             // X Resolution, in pixels
+      1024,                             // Y Resolution, in pixels
+      1280 * 3,                         // physical scanline byte length
+      1,                                // Number of video memory planes
+      24,                               // Number of bits per plane
+      74,                               // Screen Frequency, in Hertz.
+      330,                              // Horizontal size of screen in mm
+      240,                              // Vertical size of screen in mm
+      8,                                // # of Red bits in non-palette modes
+      8,                                // # of Green bits in non-palette modes
+      8,                                // # of Blue bits in non-palette modes
+      0x00FF0000,                       // Mask for Red bits in non-palette modes
+      0x0000FF00,                       // Mask for Green bits in non-palette modes
+      0x000000FF,                       // Mask for Blue bits in non-palette modes
+      VIDEO_MODE_COLOR | VIDEO_MODE_GRAPHICS, // Mode flags
+      0L, 0L
+    }
+},
+{
+  18,                                   // Number of entries in the struct
+  P9100_ID,
+  v1280_1K_75,                          // Ptr to the default video parms
+  FALSE,
+    {                                   // containing the video parms.
+      sizeof(VIDEO_MODE_INFORMATION),   // Size of the mode info struct
+      m1280_1K_24_75,                   // Index used to set this mode
+      1280,                             // X Resolution, in pixels
+      1024,                             // Y Resolution, in pixels
+      1280 * 3,                         // physical scanline byte length
+      1,                                // Number of video memory planes
+      24,                               // Number of bits per plane
+      75,                               // Screen Frequency, in Hertz.
+      330,                              // Horizontal size of screen in mm
+      240,                              // Vertical size of screen in mm
+      8,                                // # of Red bits in non-palette modes
+      8,                                // # of Green bits in non-palette modes
+      8,                                // # of Blue bits in non-palette modes
+      0x00FF0000,                       // Mask for Red bits in non-palette modes
+      0x0000FF00,                       // Mask for Green bits in non-palette modes
+      0x000000FF,                       // Mask for Blue bits in non-palette modes
+      VIDEO_MODE_COLOR | VIDEO_MODE_GRAPHICS, // Mode flags
+      0L, 0L
+    }
+},
+{
+  18,                                   // Number of entries in the struct
+  (P9000_ID | P9100_ID),
   v1600_1200_60,                        // Ptr to the default video parms
+  FALSE,
     {                                   // containing the video parms.
       sizeof(VIDEO_MODE_INFORMATION),   // Size of the mode info struct
       m1600_1200_8_60,                  // Index used to set this mode
@@ -962,16 +1692,34 @@ P9INITDATA P9Modes[mP9ModeCount] =
       VIDEO_MODE_MANAGED_PALETTE,       // Mode flags
       0L, 0L
     }
+},
+{
+  18,                                   // Number of entries in the struct
+  P9100_ID,
+  v1600_1200_60,                        // Ptr to the default video parms
+  FALSE,
+    {                                   // containing the video parms.
+      sizeof(VIDEO_MODE_INFORMATION),   // Size of the mode info struct
+      m1600_1200_16_60,                 // Index used to set this mode
+      1600,                             // X Resolution, in pixels
+      1200,                             // Y Resolution, in pixels
+      1600 * 2,                         // physical scanline byte length
+      1,                                // Number of video memory planes
+      16,                               // Number of bits per plane
+      60,                               // Screen Frequency, in Hertz.
+      330,                              // Horizontal size of screen in mm
+      240,                              // Vertical size of screen in mm
+      5,                                // # of Red bits in non-palette modes
+      5,                                // # of Green bits in non-palette modes
+      5,                                // # of Blue bits in non-palette modes
+      0x00007C00,                       // Mask for Red bits in non-palette modes
+      0x000003E0,                       // Mask for Green bits in non-palette modes
+      0x0000001F,                       // Mask for Blue bits in non-palette modes
+      VIDEO_MODE_COLOR | VIDEO_MODE_GRAPHICS,
+      0L, 0L
+    }
 }
 };
-
-//
-// Dummy variable used as destination for P9 register reads. This global
-// variable will prevent the compiler from "optimizing" (i.e. eliminating)
-// register reads (e.g. reads used to start the blt engine, etc.).
-//
-
-ULONG   ulDummyDst;
 
 //
 // Dummy variables used as destination reads of the P9 VRTC register reads.
@@ -980,91 +1728,3 @@ ULONG   ulDummyDst;
 
 ULONG   ulStrtScan;
 ULONG   ulCurScan;
-
-//
-//  Global Functions.
-//
-
-long mul32(
-    short op1,
-    short op2
-    )
-{
-    return ( ((long) op1) * ((long) op2));
-}
-
-int div32(
-    long op1,
-    short op2
-    )
-{
-    return ( (int) (op1 / (long) op2));
-}
-
-
-BOOLEAN
-P9TestMem(
-    PHW_DEVICE_EXTENSION HwDeviceExtension
-    )
-
-/*++
-
-Routine Description:
-
-    Tests the currently active P9 memory configuration to determine if it
-    is valid. Uses the frame buffer address stored in the device extension.
-
-Arguments:
-
-    HwDeviceExtension - Pointer to the miniport driver's device extension.
-
-Return Value:
-
-    TRUE - Memory configuration is valid.
-    FALSE - Memory configuration is not valid.
-
---*/
-{
-    PULONG   pulFrameBufAddr;
-    LONG    i;
-    BOOLEAN bMemOk;
-
-    pulFrameBufAddr = (PULONG) HwDeviceExtension->FrameAddress;
-
-    //
-    // Write a series of test values to the frame buffer.
-    //
-
-    for (i = 0; i < 32; i++)
-    {
-        pulFrameBufAddr[i] = i;
-    }
-
-    //
-    // Read back the test values. If any errors occur, this is not a valid
-    // memory configuration.
-    //
-
-    bMemOk = TRUE;
-    for (i = 0; i < 32; i++)
-    {
-        if (pulFrameBufAddr[i] != i)
-        {
-            bMemOk = FALSE;
-            break;
-        }
-    }
-
-    return(bMemOk);
-}
-
-/*++
-
-Revision History:
-
-    $Log:   N:/ntdrv.vcs/miniport.new/p9gbl.c_v  $
- *
- *    Rev 1.0   14 Jan 1994 22:53:10   robk
- * Initial revision.
-
---*/

@@ -43,11 +43,6 @@ _hModule;
 #define ID_HEADER           ( 0x1234 )
 #define ID_LISTBOX          ( 0xABCD )
 
-//
-// Unicode version of header's class name.
-//
-
-#define HEADERCLASSNAMEW    L"msctls_headerbar"
 
 //
 // Separator used to parse headings.
@@ -495,7 +490,7 @@ Return Value:
         // Copy the string.
         //
 
-        TempRow->Strings[ i ].String = wcsdup( ClbRow->Strings[ i ].String );
+        TempRow->Strings[ i ].String = _wcsdup( ClbRow->Strings[ i ].String );
     }
 
     //
@@ -553,6 +548,9 @@ Return Value:
     LPLONG      WidthsInPixels;
     LONG        TotalPixels;
     HDC         hDCClientHeader;
+    HD_ITEM     hdi;
+    UINT        iRight;
+
     //
     // Validate arguments.
     //
@@ -649,25 +647,26 @@ Return Value:
     // Tell the header window the width of each column.
     //
 
-    Success = ( BOOL )SendMessage(
-                        ClbInfo->hWndHeader,
-                        HB_SETWIDTHS,
-                        ( WPARAM ) ClbInfo->Columns,
-                        ( LPARAM ) WidthsInPixels
-                        );
-    DbgAssert( Success );
+    hdi.mask = HDI_WIDTH;
+
+    for( i = 0; i < ClbInfo->Columns - 1; i++ ) {
+
+        hdi.cxy = WidthsInPixels[i];
+        Success = Header_SetItem(ClbInfo->hWndHeader, i, &hdi);
+
+        DbgAssert( Success );
+    }
 
     //
-    // Query the header for the array of right edges.
+    // Calc the array of right edges.
     //
 
-    Columns = SendMessage(
-                    ClbInfo->hWndHeader,
-                    HB_GETPARTS,
-                    ( WPARAM ) ClbInfo->Columns,
-                    ( LPARAM ) ClbInfo->Right
-                    );
-    DbgAssert( Columns == ClbInfo->Columns );
+    iRight = 0;
+
+    for( i = 0; i < ClbInfo->Columns - 1; i++ ) {
+        iRight += WidthsInPixels[i];
+        ClbInfo->Right[i] = iRight;
+    }
 
     //
     // Free the array of pixel widths.
@@ -718,6 +717,9 @@ Return Value:
     TCHAR   Buffer[ MAX_PATH ];
     LPCWSTR Heading;
     RECT    ClientRectHeader;
+    HD_ITEM hdi;
+    UINT    iCount, j, iRight;
+
 
     DbgPointerAssert( ClbInfo );
     DbgAssert( ! (( ClbInfo->Columns == 0 ) && ( Headings == NULL )));
@@ -828,28 +830,44 @@ Return Value:
     }
 
     //
-    // Tell the header window how many columns it has and the width of each.
+    // Update the existing header items
     //
 
-    Success = ( BOOL )SendMessage(
-                        ClbInfo->hWndHeader,
-                        HB_SETWIDTHS,
-                        ( WPARAM ) ClbInfo->Columns,
-                        ( LPARAM ) ClbInfo->Right
-                        );
-    DbgAssert( Success );
+    iCount = Header_GetItemCount(ClbInfo->hWndHeader);
+
+    j = 0;
+    hdi.mask = HDI_WIDTH;
+
+    while ((j < iCount) && (j < Columns)) {
+
+        hdi.cxy = ClbInfo->Right[j];
+        Header_SetItem (ClbInfo->hWndHeader, j, &hdi);
+        j++;
+    }
+
+    //
+    // Add new header items if necessary.
+    //
+
+    hdi.mask = HDI_WIDTH;
+    for (; j < Columns; j++) {
+        hdi.cxy = ClbInfo->Right[j];
+        Header_InsertItem (ClbInfo->hWndHeader, j, &hdi);
+    }
+
 
     //
     // Query the header for the array of right edges.
     //
 
-    Columns = SendMessage(
-                    ClbInfo->hWndHeader,
-                    HB_GETPARTS,
-                    ( WPARAM ) ClbInfo->Columns,
-                    ( LPARAM ) ClbInfo->Right
-                    );
-    DbgAssert( Columns == ClbInfo->Columns );
+    iRight = 0;
+
+    for( i = 0; i < ClbInfo->Columns - 1; i++ ) {
+        iRight += ClbInfo->Right[i];
+        ClbInfo->Right[i] = iRight;
+    }
+
+    ClbInfo->Right[i] = ClientRectHeader.right;
 
     //
     // Copy and parse the headings so that each column's heading
@@ -860,15 +878,12 @@ Return Value:
 
     Heading = _tcstok( Buffer, HEADING_SEPARATOR );
 
+    hdi.mask = HDI_TEXT | HDI_FORMAT;
+    hdi.fmt  = HDF_STRING;
     for( i = 0; i < ClbInfo->Columns; i++ ) {
 
-        SendMessage(
-            ClbInfo->hWndHeader,
-            SB_SETTEXT,
-            ( WPARAM ) i,
-            ( LPARAM ) Heading
-            );
-
+        hdi.pszText = (LPTSTR)Heading;
+        Header_SetItem (ClbInfo->hWndHeader, i, &hdi);
         Heading = _tcstok( NULL, HEADING_SEPARATOR );
     }
 
@@ -902,8 +917,11 @@ Return Value:
 --*/
 
 {
-    BOOL    Success;
-    RECT    WindowRectHeader;
+    BOOL      Success;
+    RECT      WindowRectHeader, rcParent;
+    HD_LAYOUT hdl;
+    WINDOWPOS wp;
+
 
     DbgHandleAssert( hWnd );
     DbgPointerAssert( ClbInfo );
@@ -917,7 +935,7 @@ Return Value:
     //
 
     ClbInfo->hWndHeader = CreateWindow(
-                                HEADERCLASSNAMEW,
+                                WC_HEADER,
                                 NULL,
                                   (
                                         lpcs->style
@@ -940,13 +958,17 @@ Return Value:
     // position the list box.
     //
 
-    Success = GetWindowRect(
-                 ClbInfo->hWndHeader,
-                 &WindowRectHeader
-                 );
-    DbgAssert( Success );
+    GetClientRect(hWnd, &rcParent);
 
-    ClbInfo->HeaderHeight = WindowRectHeader.bottom - WindowRectHeader.top;
+    hdl.prc = &rcParent;
+    hdl.pwpos = &wp;
+
+    SendMessage(ClbInfo->hWndHeader, HDM_LAYOUT, 0, (LPARAM)&hdl);
+
+    SetWindowPos(ClbInfo->hWndHeader, wp.hwndInsertAfter, wp.x, wp.y, wp.cx, wp.cy,
+            wp.flags);
+
+    ClbInfo->HeaderHeight = wp.cy;
 
     return TRUE;
 }
@@ -1024,7 +1046,7 @@ Return Value:
     DbgHandleAssert( hDCClientListBox );
 
     //
-    // Set the default font for the list box to MS Sans Serif.
+    // Set the default font for the list box to MS Shell Dlg.
     //
 
     LogFont.lfHeight            = MulDiv(
@@ -1048,7 +1070,7 @@ Return Value:
     LogFont.lfQuality           = DEFAULT_QUALITY;
     LogFont.lfPitchAndFamily    = DEFAULT_PITCH | FF_DONTCARE;
 
-    _tcscpy( LogFont.lfFaceName, TEXT( "MS Sans Serif" ));
+    _tcscpy( LogFont.lfFaceName, TEXT( "MS Shell Dlg" ));
 
     ClbInfo->hFontListBox = CreateFontIndirect( &LogFont );
     DbgHandleAssert( ClbInfo->hFontListBox );
@@ -1097,6 +1119,9 @@ Return Value:
 {
     BOOL            Success;
     LPCLB_INFO      ClbInfo;
+
+
+
 
     if( message == WM_NCCREATE ) {
 
@@ -1332,150 +1357,6 @@ Return Value:
                 }
                 break;
 
-            case ID_HEADER:
-
-                switch( HIWORD( wParam )) {
-
-                static
-                DRAW_ERASE_LINE DrawEraseLine;
-
-                static
-                HPEN            hPen;
-
-                static
-                HDC             hDCClientListBox;
-
-                case HBN_BEGINDRAG:
-                    {
-
-                        RECT    ClientRectListBox;
-
-                        //
-                        // Get thd HDC for the list box.
-                        //
-
-                        hDCClientListBox = GetDC( ClbInfo->hWndListBox );
-                        DbgHandleAssert( hDCClientListBox );
-
-                        //
-                        // Create the pen used to display the drag position and
-                        // select it into the in list box client area DC. Also set
-                        // the ROP2 code so that drawing with the pen twice in the
-                        // same place will erase it. This is what allows the
-                        // line to drag.
-                        //
-
-                        hPen = CreatePen( PS_DOT, 1, RGB( 255, 255, 255 ));
-                        DbgHandleAssert( hPen );
-
-                        hPen = SelectObject( hDCClientListBox, hPen );
-                        SetROP2( hDCClientListBox, R2_XORPEN );
-
-                        //
-                        // Set up the DRAW_ERASE_LINE structure so that the drag line is
-                        // drawn from the top to the bottom of the list box at the
-                        // current drag position.
-                        //
-
-                        Success = GetClientRect(
-                                        ClbInfo->hWndListBox,
-                                        &ClientRectListBox
-                                        );
-                        DbgAssert( Success );
-
-                        //
-                        // Draw the initial drag line from the top to the bottom
-                        // of the list box equivalent with the header edge grabbed
-                        // by the user.
-                        //
-
-                        DrawEraseLine.Draw.Src.x = ClbInfo->Right[ lParam ];
-                        DrawEraseLine.Draw.Src.y = 0;
-                        DrawEraseLine.Draw.Dst.x = ClbInfo->Right[ lParam ];
-                        DrawEraseLine.Draw.Dst.y =   ClientRectListBox.bottom
-                                                   - ClientRectListBox.top;
-
-                        Success = DrawLine( hDCClientListBox, &DrawEraseLine );
-                        DbgAssert( Success );
-
-                        return 0;
-                    }
-
-                case HBN_DRAGGING:
-                    {
-
-                        DWORD           Columns;
-
-                        //
-                        // Get new drag position.
-                        //
-
-                        Columns = SendMessage(
-                                        ClbInfo->hWndHeader,
-                                        HB_GETPARTS,
-                                        ( WPARAM ) ClbInfo->Columns,
-                                        ( LPARAM ) ClbInfo->Right
-                                        );
-                        DbgAssert( Columns == ClbInfo->Columns );
-
-                        //
-                        // BUGBUG Common controls are sending the last HBN_DRAGGING
-                        // (i.e. before the HBN_ENDDRAG) with an lParam (i.e.
-                        // column number) of -1.
-                        //
-
-                        if(( DWORD ) lParam >= Columns ) {
-                            break;
-                        }
-
-                        //
-                        // Erase the old line and draw the new one at the new
-                        // drag position.
-                        //
-
-                        Success = RedrawVerticalLine(
-                                    hDCClientListBox,
-                                    ClbInfo->Right[ LOWORD( lParam )],
-                                    &DrawEraseLine
-                                    );
-                        DbgAssert( Success );
-
-                        return 0;
-                    }
-
-                case HBN_ENDDRAG:
-
-                    //
-                    // Replace the old pen and delete the one created
-                    // during HBN_BEGINDRAG.
-                    //
-
-                    hPen = SelectObject( hDCClientListBox, hPen );
-                    Success = DeleteObject( hPen );
-                    DbgAssert( Success );
-
-                    //
-                    // Release the DC for the list box.
-                    //
-
-                    Success = ReleaseDC( ClbInfo->hWndListBox, hDCClientListBox );
-                    DbgAssert( Success );
-
-                    Success = RedrawWindow(
-                                    hWnd,
-                                    NULL,
-                                    NULL,
-                                      RDW_ERASE
-                                    | RDW_INVALIDATE
-                                    | RDW_UPDATENOW
-                                    | RDW_ALLCHILDREN
-                                    );
-                    DbgAssert( Success );
-
-                    return 0;
-                }
-
-                break;
             }
             break;
 
@@ -1762,7 +1643,6 @@ Return Value:
                                     );
                         DbgAssert( Success );
 
-
                         Success = ExtTextOut(
                                     lpdis->hDC,
                                     x,
@@ -1807,6 +1687,161 @@ Return Value:
                 }
 
                 return TRUE;
+            }
+
+        case WM_NOTIFY:
+            {
+            HD_NOTIFY * lpNot;
+            HD_ITEM   *pHDI;
+
+            lpNot = (HD_NOTIFY *)lParam;
+            pHDI = lpNot->pitem;
+
+            switch( lpNot->hdr.code) {
+
+            static
+            DRAW_ERASE_LINE DrawEraseLine;
+
+            static
+            HPEN            hPen;
+
+            static
+            HDC             hDCClientListBox;
+            HD_ITEM         hdi;
+            UINT            iRight;
+            UINT            i;
+            RECT            ClientRectHeader;
+
+
+            case HDN_BEGINTRACK:
+                {
+
+                    RECT    ClientRectListBox;
+
+                    //
+                    // Get thd HDC for the list box.
+                    //
+
+                    hDCClientListBox = GetDC( ClbInfo->hWndListBox );
+                    DbgHandleAssert( hDCClientListBox );
+
+                    //
+                    // Create the pen used to display the drag position and
+                    // select it into the in list box client area DC. Also set
+                    // the ROP2 code so that drawing with the pen twice in the
+                    // same place will erase it. This is what allows the
+                    // line to drag.
+                    //
+
+                    hPen = CreatePen( PS_DOT, 1, RGB( 255, 255, 255 ));
+                    DbgHandleAssert( hPen );
+
+                    hPen = SelectObject( hDCClientListBox, hPen );
+                    SetROP2( hDCClientListBox, R2_XORPEN );
+
+                    //
+                    // Set up the DRAW_ERASE_LINE structure so that the drag line is
+                    // drawn from the top to the bottom of the list box at the
+                    // current drag position.
+                    //
+
+                    Success = GetClientRect(
+                                    ClbInfo->hWndListBox,
+                                    &ClientRectListBox
+                                    );
+                    DbgAssert( Success );
+
+                    //
+                    // Draw the initial drag line from the top to the bottom
+                    // of the list box equivalent with the header edge grabbed
+                    // by the user.
+                    //
+
+                    DrawEraseLine.Draw.Src.x = ClbInfo->Right[ pHDI->cxy ];
+                    DrawEraseLine.Draw.Src.y = 0;
+                    DrawEraseLine.Draw.Dst.x = ClbInfo->Right[ pHDI->cxy ];
+                    DrawEraseLine.Draw.Dst.y =   ClientRectListBox.bottom
+                                               - ClientRectListBox.top;
+
+                    Success = DrawLine( hDCClientListBox, &DrawEraseLine );
+                    DbgAssert( Success );
+
+                    return 0;
+                }
+
+            case HDN_TRACK:
+                {
+
+                    //DWORD           Columns;
+
+                    //
+                    // Get new drag position.
+                    //
+
+                    iRight = 0;
+                    hdi.mask = HDI_WIDTH;
+
+                    for( i = 0; i < ClbInfo->Columns - 1; i++ ) {
+                        if (i != (UINT)lpNot->iItem) {
+                          Header_GetItem(ClbInfo->hWndHeader, i, &hdi);
+                        } else {
+                          hdi.cxy = pHDI->cxy;
+                        }
+                        iRight += hdi.cxy;
+                        ClbInfo->Right[i] = iRight;
+                    }
+
+                    GetClientRect( ClbInfo->hWndHeader, &ClientRectHeader );
+                    ClbInfo->Right[i] = ClientRectHeader.right;
+
+                    //
+                    // Erase the old line and draw the new one at the new
+                    // drag position.
+                    //
+
+                    Success = RedrawVerticalLine(
+                                hDCClientListBox,
+                                ClbInfo->Right[lpNot->iItem],
+                                &DrawEraseLine
+                                );
+                    DbgAssert( Success );
+
+                    return 0;
+                }
+
+            case HDN_ENDTRACK:
+
+                //
+                // Replace the old pen and delete the one created
+                // during HBN_BEGINDRAG.
+                //
+
+                hPen = SelectObject( hDCClientListBox, hPen );
+                Success = DeleteObject( hPen );
+                DbgAssert( Success );
+
+                //
+                // Release the DC for the list box.
+                //
+
+                Success = ReleaseDC( ClbInfo->hWndListBox, hDCClientListBox );
+                DbgAssert( Success );
+
+                Success = RedrawWindow(
+                                hWnd,
+                                NULL,
+                                NULL,
+                                  RDW_ERASE
+                                | RDW_INVALIDATE
+                                | RDW_UPDATENOW
+                                | RDW_ALLCHILDREN
+                                );
+                DbgAssert( Success );
+
+                return 0;
+            }
+
+            break;
             }
 
         case WM_SETTEXT:

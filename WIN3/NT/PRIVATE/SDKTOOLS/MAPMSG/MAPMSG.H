@@ -43,4 +43,4 @@ VOID MapMessage(int, PCHAR);
 VOID ReportError(PCHAR, PCHAR);
 int GetNextLine(PCHAR, PCHAR, PCHAR, int *, PCHAR *, PCHAR);
 VOID TrimTrailingSpaces(PCHAR );
-
+

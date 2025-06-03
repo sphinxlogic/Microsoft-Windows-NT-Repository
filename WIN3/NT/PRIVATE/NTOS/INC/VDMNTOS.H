@@ -20,16 +20,17 @@ Revision History:
 
 --*/
 
-#ifndef _vdmntos_
+#ifndef _VDMNTOS_
+#define _VDMNTOS_
 
 //
 // Need this #include here because non-x86 ntos\vdm\vdm.c
 // references structures defined there.
 //
+
 #include "..\..\inc\vdm.h"
 
 #if defined(i386)
-
 
 typedef struct _VDM_IO_LISTHEAD {
     PVDM_IO_HANDLER VdmIoHandlerList;
@@ -42,6 +43,7 @@ typedef struct _VDM_PROCESS_OBJECTS {
     PVDM_IO_LISTHEAD VdmIoListHead;
     KAPC             QueuedIntApc;
     KAPC             QueuedIntUserApc;
+    FAST_MUTEX       DelayIntFastMutex;
     KSPIN_LOCK       DelayIntSpinLock;
     LIST_ENTRY       DelayIntListHead;
     PVDMICAUSERDATA  pIcaUserData;
@@ -86,6 +88,14 @@ Ps386GetVdmIoHandler(
 BOOLEAN
 VdmDispatchIRQ13(
     PKTRAP_FRAME TrapFrame
+    );
+
+BOOLEAN
+VdmSkipNpxInstruction(
+    PKTRAP_FRAME TrapFrame,
+    ULONG        Address32Bits,
+    PUCHAR       istream,
+    ULONG        InstructionSize
     );
 
 VOID
@@ -163,5 +173,14 @@ VdmDispatchException(
 // The following value must be 1 more than the last defined index value
 #define MAX_VDM_INDEX                34
 
-#endif
-#endif
+//
+// This is the address of the Vdm communication area.  It's in ke\i386\vdm.c
+//
+
+extern ULONG VdmFixedStateLinear;
+
+#define FIXED_NTVDMSTATE_LINEAR_PC_AT   0x714
+#define FIXED_NTVDMSTATE_LINEAR_PC_98   0x614
+
+#endif // i386
+#endif // _VDMNTOS_

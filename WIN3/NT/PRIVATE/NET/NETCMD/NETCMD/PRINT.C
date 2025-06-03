@@ -136,7 +136,7 @@ VOID print_q_display(TCHAR * queue)
     USHORT          available;  /* num entries available */
     USHORT          buffer_size;        /* Actual buffer size in bytes. */
     BOOL            first_time = TRUE;
-    TCHAR            server_name[UNCLEN+1];
+    TCHAR            server_name[MAX_PATH+1];
     TCHAR              * ptr_to_server;
     struct wksta_info_10 FAR * workstn;
 
@@ -263,7 +263,7 @@ VOID print_server_display(TCHAR  * server)
     unsigned int               err;        /* API return status */
     USHORT                     num_read;   /* num entries read by API */
     USHORT                     available;  /* num entries available */
-    TCHAR                       server_name[CNLEN+1];
+    TCHAR                       server_name[MAX_PATH+1];
     struct wksta_info_10 FAR * workstn;
     PPRQINFO FAR *             pSortBuf;
 
@@ -719,36 +719,46 @@ VOID print_job_status(TCHAR  * server, TCHAR  * num)
 
     get_dests(server);
 
-    WriteToCon(fmtUSHORT, len, len, PJSMsgList[PRINT_MSG_JOB_ID].msg_text,
-            job_ptr->uJobId);
+    WriteToCon(fmtUSHORT, 0, len,
+               PaddedString(len, PJSMsgList[PRINT_MSG_JOB_ID].msg_text, NULL),
+               job_ptr->uJobId);
 
-    WriteToCon(fmtPSZ, len, len, PJSMsgList[PRINT_MSG_STATUS].msg_text,
-            findjobstatus(job_ptr, textbuf, TEXTBUFSZ));
+    WriteToCon(fmtPSZ, 0, len,
+               PaddedString(len, PJSMsgList[PRINT_MSG_STATUS].msg_text, NULL),
+               findjobstatus(job_ptr, textbuf, TEXTBUFSZ));
 
     if (job_ptr->ulSize == (ULONG) -1)
-        WriteToCon(fmtNPSZ, len, len, PJSMsgList[PRINT_MSG_SIZE].msg_text,
-            PJSMsgList[MSG_UNKNOWN].msg_text);
+        WriteToCon(fmtNPSZ, 0, len,
+                   PaddedString(len, PJSMsgList[PRINT_MSG_SIZE].msg_text, NULL),
+                   PJSMsgList[MSG_UNKNOWN].msg_text);
     else
-        WriteToCon(fmtULONG, len, len, PJSMsgList[PRINT_MSG_SIZE].msg_text,
-            job_ptr->ulSize);
+        WriteToCon(fmtULONG, 0, len,
+                   PaddedString(len, PJSMsgList[PRINT_MSG_SIZE].msg_text, NULL),
+                   job_ptr->ulSize);
 
-    WriteToCon(fmtPSZ, len, len, PJSMsgList[MSG_REMARK].msg_text,
-            job_ptr->pszComment);
+    WriteToCon(fmtPSZ, 0, len,
+               PaddedString(len, PJSMsgList[MSG_REMARK].msg_text, NULL),
+               job_ptr->pszComment);
 
-    WriteToCon(fmtPSZ, len, len, PJSMsgList[PRINT_MSG_SUBMITTING_USER].msg_text,
-            job_ptr->szUserName);
+    WriteToCon(fmtPSZ, 0, len,
+               PaddedString(len, PJSMsgList[PRINT_MSG_SUBMITTING_USER].msg_text, NULL),
+               job_ptr->szUserName);
 
-    WriteToCon(fmtPSZ, len, len, PJSMsgList[PRINT_MSG_NOTIFY].msg_text,
-            job_ptr->szNotifyName);
+    WriteToCon(fmtPSZ, 0, len,
+               PaddedString(len, PJSMsgList[PRINT_MSG_NOTIFY].msg_text, NULL),
+               job_ptr->szNotifyName);
 
-    WriteToCon(fmtPSZ, len, len, PJSMsgList[PRINT_MSG_JOB_DATA_TYPE].msg_text,
-            job_ptr->szDataType);
+    WriteToCon(fmtPSZ, 0, len,
+               PaddedString(len, PJSMsgList[PRINT_MSG_JOB_DATA_TYPE].msg_text, NULL),
+               job_ptr->szDataType);
 
-    WriteToCon(fmtPSZ, len, len, PJSMsgList[PRINT_MSG_JOB_PARAMETERS].msg_text,
-            job_ptr->pszParms);
+    WriteToCon(fmtPSZ, 0, len,
+               PaddedString(len, PJSMsgList[PRINT_MSG_JOB_PARAMETERS].msg_text, NULL),
+               job_ptr->pszParms);
 
-    WriteToCon(fmtPSZ, len, len, PJSMsgList[PRINT_MSG_ADDITIONAL_INFO].msg_text,
-            job_ptr->pszStatus);
+    WriteToCon(fmtPSZ, 0, len,
+               PaddedString(len, PJSMsgList[PRINT_MSG_ADDITIONAL_INFO].msg_text, NULL),
+               job_ptr->pszStatus);
 
     InfoSuccess();
 }
@@ -909,7 +919,7 @@ VOID print_job_dev_del(TCHAR *device, TCHAR *num)
 {
     USHORT          err;
     unsigned int    printer_err;
-    TCHAR            server[UNCLEN+1];
+    TCHAR            server[MAX_PATH+1];
     TCHAR            path_name[MAXPATHLEN];
     struct use_info_0 FAR * temp_use_inf_0;
     USHORT          jobnum;
@@ -958,7 +968,7 @@ VOID print_job_dev_del(TCHAR *device, TCHAR *num)
 VOID print_job_dev_display(TCHAR *device, TCHAR *num)
 {
     USHORT          err;
-    TCHAR            server[UNCLEN+1];
+    TCHAR            server[MAX_PATH+1];
     TCHAR            path_name[MAXPATHLEN];
     struct use_info_0 FAR * temp_use_inf_0;
 
@@ -1003,7 +1013,7 @@ VOID print_job_dev_hold(TCHAR *device, TCHAR *num)
 {
     USHORT          err;/* API return status */
     unsigned int    printer_err;
-    TCHAR            server[UNCLEN+1];
+    TCHAR            server[MAX_PATH+1];
     TCHAR            path_name[MAXPATHLEN];
     struct use_info_0 FAR * temp_use_inf_0;
     USHORT          jobnum;
@@ -1051,7 +1061,7 @@ VOID print_job_dev_release(TCHAR *device, TCHAR *num)
 {
     USHORT  err;/* API return status */
     unsigned int printer_err;
-    TCHAR    server[UNCLEN+1];
+    TCHAR    server[MAX_PATH+1];
     TCHAR    path_name[MAXPATHLEN];
     struct  use_info_0 FAR * temp_use_inf_0;
     USHORT  jobnum;
@@ -1222,9 +1232,9 @@ VOID NEAR print_field_header(VOID)
 
 VOID NEAR print_each_job(PPRJINFO job_ptr)
 {
-    WriteToCon(TEXT("%5.5ws%-23.23Fws%6hu"),
+    WriteToCon(TEXT("%5.5ws%Fws%6hu"),
             NULL_STRING,
-            job_ptr->szUserName,
+            PaddedString(23,job_ptr->szUserName,NULL),
             job_ptr->uJobId);
 
     if (job_ptr->ulSize == (ULONG) -1)
@@ -1232,7 +1242,7 @@ VOID NEAR print_each_job(PPRJINFO job_ptr)
     else
         WriteToCon(TEXT("%10lu"), job_ptr->ulSize);
 
-    WriteToCon(TEXT("%12.12ws%ws\n"),
+    WriteToCon(TEXT("%12.12ws%ws\r\n"),
             NULL_STRING,
             findjobstatus(job_ptr, textbuf, TEXTBUFSZ));
 }
@@ -1254,19 +1264,25 @@ static MESSAGE PQSMsgList[] = {
 VOID NEAR print_printqstruct(PPRQINFO queue_ptr)
 {
     USHORT      len;
+    TCHAR	    firstbuf[7];
 
     GetMessageList(NUM_PQS_MSGS, PQSMsgList, &len);
 
-    WriteToCon(TEXT("%Fws %-5.5ws%*.*ws%2hu %4.4ws%22.22ws*%ws*\n"),
+    /* Increased the size for the display text. */
+
+    _tcscpy(firstbuf, PaddedString(6, PQSMsgList[MSG_QUEUE].msg_text,NULL));
+
+    WriteToCon(TEXT("%Fws %-5.5ws%*.*ws%2hu %4.4ws%22.22ws*%ws*\r\n"),
             queue_ptr->szName,
-            PQSMsgList[MSG_QUEUE].msg_text,
-            21 - _tcslen(queue_ptr->szName),
-            21 - _tcslen(queue_ptr->szName),
+            firstbuf,
+            20 - _tcslen(queue_ptr->szName),
+            20 - _tcslen(queue_ptr->szName),
             NULL_STRING,
             queue_ptr->cJobs,
-            PQSMsgList[PRINT_MSG_JOBS].msg_text,
+            PaddedString(6, PQSMsgList[PRINT_MSG_JOBS].msg_text,NULL),
             NULL_STRING,
             print_findstatus(queue_ptr,textbuf,TEXTBUFSZ));
+
 }
 
 

@@ -64,11 +64,25 @@ NtfsQueryFsAttributeInfo (
     );
 
 NTSTATUS
+NtfsQueryFsControlInfo (
+    IN PIRP_CONTEXT IrpContext,
+    IN PVCB Vcb,
+    IN PFILE_FS_CONTROL_INFORMATION Buffer,
+    IN OUT PULONG Length
+    );
+
+NTSTATUS
 NtfsSetFsLabelInfo (
     IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb,
-    IN PFILE_FS_LABEL_INFORMATION Buffer,
-    IN ULONG Length
+    IN PFILE_FS_LABEL_INFORMATION Buffer
+    );
+
+NTSTATUS
+NtfsSetFsControlInfo (
+    IN PIRP_CONTEXT IrpContext,
+    IN PVCB Vcb,
+    IN PFILE_FS_CONTROL_INFORMATION Buffer
     );
 
 #ifdef ALLOC_PRAGMA
@@ -80,7 +94,9 @@ NtfsSetFsLabelInfo (
 #pragma alloc_text(PAGE, NtfsQueryFsDeviceInfo)
 #pragma alloc_text(PAGE, NtfsQueryFsSizeInfo)
 #pragma alloc_text(PAGE, NtfsQueryFsVolumeInfo)
+#pragma alloc_text(PAGE, NtfsQueryFsControlInfo)
 #pragma alloc_text(PAGE, NtfsSetFsLabelInfo)
+#pragma alloc_text(PAGE, NtfsSetFsControlInfo)
 #endif
 
 
@@ -121,7 +137,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsFsdQueryVolumeInformation\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsFsdQueryVolumeInformation\n") );
 
     //
     //  Call the common query Volume Information routine
@@ -177,7 +193,7 @@ Return Value:
     //  And return to our caller
     //
 
-    DebugTrace(-1, Dbg, "NtfsFsdQueryVolumeInformation -> %08lx\n", Status);
+    DebugTrace( -1, Dbg, ("NtfsFsdQueryVolumeInformation -> %08lx\n", Status) );
 
     return Status;
 }
@@ -220,7 +236,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsFsdSetVolumeInformation\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsFsdSetVolumeInformation\n") );
 
     //
     //  Call the common set Volume Information routine
@@ -276,7 +292,7 @@ Return Value:
     //  And return to our caller
     //
 
-    DebugTrace(-1, Dbg, "NtfsFsdSetVolumeInformation -> %08lx\n", Status);
+    DebugTrace( -1, Dbg, ("NtfsFsdSetVolumeInformation -> %08lx\n", Status) );
 
     return Status;
 }
@@ -331,12 +347,12 @@ Return Value:
 
     IrpSp = IoGetCurrentIrpStackLocation( Irp );
 
-    DebugTrace(+1, Dbg, "NtfsCommonQueryVolumeInfo...\n", 0);
-    DebugTrace( 0, Dbg, "IrpContext         = %08lx\n", IrpContext);
-    DebugTrace( 0, Dbg, "Irp                = %08lx\n", Irp);
-    DebugTrace( 0, Dbg, "Length             = %08lx\n", IrpSp->Parameters.QueryVolume.Length);
-    DebugTrace( 0, Dbg, "FsInformationClass = %08lx\n", IrpSp->Parameters.QueryVolume.FsInformationClass);
-    DebugTrace( 0, Dbg, "Buffer             = %08lx\n", Irp->AssociatedIrp.SystemBuffer);
+    DebugTrace( +1, Dbg, ("NtfsCommonQueryVolumeInfo...\n") );
+    DebugTrace( 0, Dbg, ("IrpContext         = %08lx\n", IrpContext) );
+    DebugTrace( 0, Dbg, ("Irp                = %08lx\n", Irp) );
+    DebugTrace( 0, Dbg, ("Length             = %08lx\n", IrpSp->Parameters.QueryVolume.Length) );
+    DebugTrace( 0, Dbg, ("FsInformationClass = %08lx\n", IrpSp->Parameters.QueryVolume.FsInformationClass) );
+    DebugTrace( 0, Dbg, ("Buffer             = %08lx\n", Irp->AssociatedIrp.SystemBuffer) );
 
     //
     //  Reference our input parameters to make things easier
@@ -392,6 +408,20 @@ Return Value:
             Status = NtfsQueryFsAttributeInfo( IrpContext, Vcb, Buffer, &Length );
             break;
 
+#ifdef _CAIRO_
+        case FileFsControlInformation:
+
+            Status = NtfsQueryFsControlInfo( IrpContext, Vcb, Buffer, &Length );
+            break;
+
+
+        case FileFsQuotaQueryInformation:
+
+            Status = NtfsFsQuotaQueryInfo( IrpContext, Vcb, Buffer, &Length );
+            break;
+
+#endif // _CAIRO_
+
         default:
 
             Status = STATUS_INVALID_PARAMETER;
@@ -408,20 +438,20 @@ Return Value:
         //  Abort transaction on error by raising.
         //
 
-        NtfsCleanupTransaction( IrpContext, Status );
+        NtfsCleanupTransaction( IrpContext, Status, FALSE );
 
     } finally {
 
         DebugUnwind( NtfsCommonQueryVolumeInfo );
 
-        NtfsReleaseVcb( IrpContext, Vcb, NULL );
+        NtfsReleaseVcb( IrpContext, Vcb );
 
         if (!AbnormalTermination()) {
 
             NtfsCompleteRequest( &IrpContext, &Irp, Status );
         }
 
-        DebugTrace(-1, Dbg, "NtfsCommonQueryVolumeInfo -> %08lx\n", Status);
+        DebugTrace( -1, Dbg, ("NtfsCommonQueryVolumeInfo -> %08lx\n", Status) );
     }
 
     return Status;
@@ -477,12 +507,12 @@ Return Value:
 
     IrpSp = IoGetCurrentIrpStackLocation( Irp );
 
-    DebugTrace(+1, Dbg, "NtfsCommonSetVolumeInfo\n", 0);
-    DebugTrace( 0, Dbg, "IrpContext         = %08lx\n", IrpContext);
-    DebugTrace( 0, Dbg, "Irp                = %08lx\n", Irp);
-    DebugTrace( 0, Dbg, "Length             = %08lx\n", IrpSp->Parameters.SetVolume.Length);
-    DebugTrace( 0, Dbg, "FsInformationClass = %08lx\n", IrpSp->Parameters.SetVolume.FsInformationClass);
-    DebugTrace( 0, Dbg, "Buffer             = %08lx\n", Irp->AssociatedIrp.SystemBuffer);
+    DebugTrace( +1, Dbg, ("NtfsCommonSetVolumeInfo\n") );
+    DebugTrace( 0, Dbg, ("IrpContext         = %08lx\n", IrpContext) );
+    DebugTrace( 0, Dbg, ("Irp                = %08lx\n", Irp) );
+    DebugTrace( 0, Dbg, ("Length             = %08lx\n", IrpSp->Parameters.SetVolume.Length) );
+    DebugTrace( 0, Dbg, ("FsInformationClass = %08lx\n", IrpSp->Parameters.SetVolume.FsInformationClass) );
+    DebugTrace( 0, Dbg, ("Buffer             = %08lx\n", Irp->AssociatedIrp.SystemBuffer) );
 
     //
     //  Reference our input parameters to make things easier
@@ -504,7 +534,7 @@ Return Value:
 
         NtfsCompleteRequest( &IrpContext, &Irp, STATUS_ACCESS_DENIED );
 
-        DebugTrace(-1, Dbg, "NtfsCommonSetVolumeInfo -> STATUS_ACCESS_DENIED\n", 0);
+        DebugTrace( -1, Dbg, ("NtfsCommonSetVolumeInfo -> STATUS_ACCESS_DENIED\n") );
 
         return STATUS_ACCESS_DENIED;
     }
@@ -518,43 +548,68 @@ Return Value:
     try {
 
         //
-        //  Based on the information class we'll do different actions.  Each
-        //  of the procedures that we're calling performs the action if
-        //  possible and returns true if it successful and false if it couldn't
-        //  wait for any I/O to complete.
+        //  Proceed only if the volume is mounted.
         //
 
-        switch (FsInformationClass) {
+        if (FlagOn( Vcb->VcbState, VCB_STATE_VOLUME_MOUNTED )) {
 
-        case FileFsLabelInformation:
+            //
+            //  Based on the information class we'll do different actions.  Each
+            //  of the procedures that we're calling performs the action if
+            //  possible and returns true if it successful and false if it couldn't
+            //  wait for any I/O to complete.
+            //
 
-            Status = NtfsSetFsLabelInfo( IrpContext, Vcb, Buffer, Length );
-            break;
+            switch (FsInformationClass) {
 
-        default:
+            case FileFsLabelInformation:
 
-            Status = STATUS_INVALID_PARAMETER;
-            break;
+                Status = NtfsSetFsLabelInfo( IrpContext, Vcb, Buffer );
+                break;
+
+#ifdef _CAIRO_
+
+            case FileFsQuotaSetInformation:
+    
+                Status = NtfsFsQuotaSetInfo( IrpContext, Vcb, Buffer, Length );
+                break;
+
+            case FileFsControlInformation:
+
+                Status = NtfsSetFsControlInfo( IrpContext, Vcb, Buffer );
+                break;
+
+#endif // _CAIRO_
+
+            default:
+
+                Status = STATUS_INVALID_PARAMETER;
+                break;
+            }
+
+        } else {
+
+            Status = STATUS_FILE_INVALID;
         }
 
         //
         //  Abort transaction on error by raising.
         //
 
-        NtfsCleanupTransaction( IrpContext, Status );
+        NtfsCleanupTransaction( IrpContext, Status, FALSE );
 
     } finally {
 
         DebugUnwind( NtfsCommonSetVolumeInfo );
 
-        NtfsReleaseVcb( IrpContext, Vcb, NULL );
+        NtfsReleaseVcb( IrpContext, Vcb );
 
         if (!AbnormalTermination()) {
 
             NtfsCompleteRequest( &IrpContext, &Irp, Status );
         }
 
-        DebugTrace(-1, Dbg, "NtfsCommonSetVolumeInfo -> %08lx\n", Status);
+        DebugTrace( -1, Dbg, ("NtfsCommonSetVolumeInfo -> %08lx\n", Status) );
     }
 
     return Status;
@@ -598,93 +653,66 @@ Return Value:
 {
     NTSTATUS Status;
 
-    ATTRIBUTE_ENUMERATION_CONTEXT AttributeContext;
     ULONG BytesToCopy;
-
-    PSTANDARD_INFORMATION StandardInformation;
 
     ASSERT_IRP_CONTEXT( IrpContext );
     ASSERT_VCB( Vcb );
 
     PAGED_CODE();
 
-    DebugTrace(0, Dbg, "NtfsQueryFsVolumeInfo...\n", 0);
+    DebugTrace( 0, Dbg, ("NtfsQueryFsVolumeInfo...\n") );
 
-    try {
+    //
+    //  Get the volume creation time from the Vcb.
+    //
 
-        //
-        //  First read in the volume information attribute to get the format time.
-        //
+    Buffer->VolumeCreationTime.QuadPart = Vcb->VolumeCreationTime;
 
-        NtfsInitializeAttributeContext( &AttributeContext );
+    //
+    //  Fill in the serial number and indicate that we support objects
+    //
 
-        if (NtfsLookupAttributeByCode( IrpContext,
-                                       Vcb->VolumeDasdScb->Fcb,
-                                       &Vcb->VolumeDasdScb->Fcb->FileReference,
-                                       $STANDARD_INFORMATION,
-                                       &AttributeContext )) {
+    Buffer->VolumeSerialNumber = Vcb->Vpb->SerialNumber;
+    Buffer->SupportsObjects = TRUE;
 
-            StandardInformation = (PSTANDARD_INFORMATION)NtfsAttributeValue( NtfsFoundAttribute( &AttributeContext ));
+    Buffer->VolumeLabelLength = Vcb->Vpb->VolumeLabelLength;
 
-            Buffer->VolumeCreationTime.QuadPart = StandardInformation->CreationTime;
+    //
+    //  Update the length field with how much we have filled in so far.
+    //
 
-        } else {
+    *Length -= FIELD_OFFSET(FILE_FS_VOLUME_INFORMATION, VolumeLabel[0]);
 
-            Buffer->VolumeCreationTime = Li0;
-        }
+    //
+    //  See how many bytes of volume label we can copy
+    //
 
-        //
-        //  Fill in the serial number and indicate that we support objects
-        //
+    if (*Length >= (ULONG)Vcb->Vpb->VolumeLabelLength) {
 
-        Buffer->VolumeSerialNumber = Vcb->Vpb->SerialNumber;
-        Buffer->SupportsObjects = TRUE;
+        Status = STATUS_SUCCESS;
 
-        Buffer->VolumeLabelLength = Vcb->Vpb->VolumeLabelLength;
+        BytesToCopy = Vcb->Vpb->VolumeLabelLength;
 
-        //
-        //  Update the length field with how much we have filled in so far.
-        //
+    } else {
 
-        *Length -= FIELD_OFFSET(FILE_FS_VOLUME_INFORMATION, VolumeLabel[0]);
+        Status = STATUS_BUFFER_OVERFLOW;
 
-        //
-        //  See how many bytes of volume label we can copy
-        //
-
-        if ( *Length >= (ULONG)Vcb->Vpb->VolumeLabelLength ) {
-
-            Status = STATUS_SUCCESS;
-
-            BytesToCopy = Vcb->Vpb->VolumeLabelLength;
-
-        } else {
-
-            Status = STATUS_BUFFER_OVERFLOW;
-
-            BytesToCopy = *Length;
-        }
-
-        //
-        //  Copy over the volume label (if there is one).
-        //
-
-        RtlCopyMemory( &Buffer->VolumeLabel[0],
-                       &Vcb->Vpb->VolumeLabel[0],
-                       BytesToCopy);
-
-        //
-        //  Update the buffer length by the amount we copied.
-        //
-
-        *Length -= BytesToCopy;
-
-    } finally {
-
-        DebugUnwind( NtfsQueryFsVolumeInfo );
-
-        NtfsCleanupAttributeContext( IrpContext, &AttributeContext );
+        BytesToCopy = *Length;
     }
+
+    //
+    //  Copy over the volume label (if there is one).
+    //
+
+    RtlCopyMemory( &Buffer->VolumeLabel[0],
+                   &Vcb->Vpb->VolumeLabel[0],
+                   BytesToCopy);
+
+    //
+    //  Update the buffer length by the amount we copied.
+    //
+
+    *Length -= BytesToCopy;
 
     return Status;
 }
@@ -730,7 +758,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(0, Dbg, "NtfsQueryFsSizeInfo...\n", 0);
+    DebugTrace( 0, Dbg, ("NtfsQueryFsSizeInfo...\n") );
 
     //
     //  Make sure the buffer is large enough and zero it out
@@ -743,7 +771,13 @@ Return Value:
 
     RtlZeroMemory( Buffer, sizeof(FILE_FS_SIZE_INFORMATION) );
 
-    if (FlagOn( Vcb->VcbState, VCB_STATE_RELOAD_FREE_CLUSTERS )) {
+    //
+    //  Check if we need to rescan the bitmap.  Don't try this
+    //  if we have started to teardown the volume.
+    //
+
+    if (FlagOn( Vcb->VcbState, VCB_STATE_RELOAD_FREE_CLUSTERS ) &&
+        FlagOn( Vcb->VcbState, VCB_STATE_VOLUME_MOUNTED )) {
 
         //
         //  Acquire the volume bitmap shared to rescan the bitmap.
@@ -769,6 +803,42 @@ Return Value:
     Buffer->AvailableAllocationUnits.QuadPart = Vcb->FreeClusters;
     Buffer->SectorsPerAllocationUnit = Vcb->BytesPerCluster / Vcb->BytesPerSector;
     Buffer->BytesPerSector = Vcb->BytesPerSector;
+
+
+#ifdef _CAIRO_
+
+    //
+    //  If quota enforcement is enabled then the availalble allocation
+    //  units. must be reduced by the available quota.
+    //
+
+    if (FlagOn(Vcb->QuotaFlags, QUOTA_FLAG_TRACKING_ENABLED)) {
+        PCCB Ccb;
+        
+        //
+        //  Go grab the ccb out of the Irp.
+        //
+        
+        Ccb = (PCCB) (IoGetCurrentIrpStackLocation(IrpContext->OriginatingIrp)->
+                        FileObject->FsContext2);
+
+        if (Ccb != NULL && Ccb->OwnerId != 0) {
+            ULONGLONG Quota;
+    
+            NtfsGetRemainingQuota( IrpContext, Ccb->OwnerId, &Quota, NULL );
+    
+            Quota = LlClustersFromBytesTruncate( Vcb, Quota );
+    
+            if (Quota < (ULONGLONG) Vcb->FreeClusters) {
+
+                Buffer->AvailableAllocationUnits.QuadPart = Quota;
+
+            }
+        }
+    }
+
+#endif // _CAIRO_
+
 
     //
     //  Adjust the length variable
@@ -820,7 +890,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(0, Dbg, "NtfsQueryFsDeviceInfo...\n", 0);
+    DebugTrace( 0, Dbg, ("NtfsQueryFsDeviceInfo...\n") );
 
     //
     //  Make sure the buffer is large enough and zero it out
@@ -893,7 +963,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(0, Dbg, "NtfsQueryFsAttributeInfo...\n", 0);
+    DebugTrace( 0, Dbg, ("NtfsQueryFsAttributeInfo...\n") );
 
     //
     //  See how many bytes of the name we can copy.
@@ -921,10 +991,18 @@ Return Value:
     Buffer->FileSystemAttributes = FILE_CASE_SENSITIVE_SEARCH |
                                    FILE_CASE_PRESERVED_NAMES |
                                    FILE_UNICODE_ON_DISK |
-#ifdef NTFS_ALLOW_COMPRESSED
                                    FILE_FILE_COMPRESSION |
-#endif
                                    FILE_PERSISTENT_ACLS;
+
+    //
+    //  Clear the compression flag if we don't allow compression on this drive
+    //  (i.e. large clusters)
+    //
+
+    if (!FlagOn( Vcb->AttributeFlagsMask, ATTRIBUTE_FLAG_COMPRESSION_MASK )) {
+
+        ClearFlag( Buffer->FileSystemAttributes, FILE_FILE_COMPRESSION );
+    }
 
     Buffer->MaximumComponentNameLength = 255;
     Buffer->FileSystemNameLength = BytesToCopy;;
@@ -940,16 +1018,175 @@ Return Value:
 }
 
 
+#ifdef _CAIRO_
+
 //
 //  Internal Support Routine
 //
 
 NTSTATUS
-NtfsSetFsLabelInfo (
+NtfsQueryFsControlInfo (
     IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb,
-    IN PFILE_FS_LABEL_INFORMATION Buffer,
-    IN ULONG Length
+    IN PFILE_FS_CONTROL_INFORMATION Buffer,
+    IN OUT PULONG Length
+    )
+
+/*++
+
+Routine Description:
+
+    This routine implements the query control information call
+
+Arguments:
+
+    Vcb - Supplies the Vcb being queried
+
+    Buffer - Supplies a pointer to the output buffer where the information
+        is to be returned
+
+    Length - Supplies the length of the buffer in byte.  This variable
+        upon return recieves the remaining bytes free in the buffer
+
+Return Value:
+
+    NTSTATUS - Returns the status for the query
+
+--*/
+
+{
+    INDEX_ROW IndexRow;
+    INDEX_KEY IndexKey;
+    QUOTA_USER_DATA QuotaBuffer;
+    PQUOTA_USER_DATA UserData;
+    ULONG OwnerId;
+    ULONG Count = 1;
+    PREAD_CONTEXT ReadContext = NULL;
+    NTSTATUS Status = STATUS_SUCCESS;
+
+    ASSERT_IRP_CONTEXT( IrpContext );
+    ASSERT_VCB( Vcb );
+
+    PAGED_CODE();
+
+    DebugTrace( 0, Dbg, ("NtfsQueryFsControlInfo...\n") );
+
+    RtlZeroMemory( Buffer, sizeof( FILE_FS_CONTROL_INFORMATION ));
+
+    PAGED_CODE();
+
+    try {
+
+        //
+        //  Fill in the quota information if quotas are running.
+        //
+        
+        if (Vcb->QuotaTableScb != NULL) {
+
+            OwnerId = QUOTA_DEFAULTS_ID;
+            IndexKey.KeyLength = sizeof( OwnerId );
+            IndexKey.Key = &OwnerId;
+    
+            Status = NtOfsReadRecords( IrpContext,
+                                       Vcb->QuotaTableScb,
+                                       &ReadContext,
+                                       &IndexKey,
+                                       NtOfsMatchUlongExact,
+                                       &IndexKey,
+                                       &Count,
+                                       &IndexRow,
+                                       sizeof( QuotaBuffer ),
+                                       &QuotaBuffer );
+    
+    
+            if (NT_SUCCESS( Status )) {
+
+                UserData = IndexRow.DataPart.Data;
+    
+                Buffer->DefaultQuotaThreshold.QuadPart =
+                    UserData->QuotaThreshold;
+                Buffer->DefaultQuotaLimit.QuadPart =
+                    UserData->QuotaLimit;
+
+                //
+                //  If the quota info is corrupt or has not been rebuilt
+                //  yet then indicate the information is incomplete.
+                //
+                
+                if (FlagOn( Vcb->QuotaFlags, QUOTA_FLAG_OUT_OF_DATE |
+                                                 QUOTA_FLAG_CORRUPT )) {
+                    
+                    SetFlag( Buffer->FileSystemControlFlags,
+                             FILE_VC_QUOTAS_INCOMPLETE );
+                }
+
+                if ((Vcb->QuotaState & VCB_QUOTA_REPAIR_RUNNING) >
+                     VCB_QUOTA_REPAIR_POSTED ) {
+
+                    SetFlag( Buffer->FileSystemControlFlags,
+                             FILE_VC_QUOTAS_REBUILDING );
+                }
+
+                //
+                //  Set the quota information basied on where we want
+                //  to be rather than where we are.
+                //
+                
+                if (FlagOn( UserData->QuotaFlags,
+                            QUOTA_FLAG_ENFORCEMENT_ENABLED )) {
+
+                    SetFlag( Buffer->FileSystemControlFlags,
+                             FILE_VC_QUOTA_ENFORCE );
+                    
+                } else if (FlagOn( UserData->QuotaFlags,
+                            QUOTA_FLAG_TRACKING_REQUESTED )) {
+
+                    SetFlag( Buffer->FileSystemControlFlags,
+                             FILE_VC_QUOTA_TRACK );
+                }
+
+                if (FlagOn( UserData->QuotaFlags, QUOTA_FLAG_LOG_LIMIT)) {
+
+                    SetFlag( Buffer->FileSystemControlFlags,
+                             FILE_VC_LOG_QUOTA_LIMIT );
+                    
+                }
+
+                if (FlagOn( UserData->QuotaFlags, QUOTA_FLAG_LOG_THRESHOLD)) {
+
+                    SetFlag( Buffer->FileSystemControlFlags,
+                             FILE_VC_LOG_QUOTA_THRESHOLD );
+                    
+                }
+            }
+        }
+
+    } finally {
+
+        if (ReadContext != NULL) {
+            NtOfsFreeReadContext( ReadContext );
+        }
+
+    }
+
+    //
+    //  Adjust the length variable
+    //
+
+    *Length -= sizeof( FILE_FS_CONTROL_INFORMATION );
+
+    return Status;
+}
+
+//
+//  Internal Support Routine
+//
+
+NTSTATUS
+NtfsSetFsControlInfo (
+    IN PIRP_CONTEXT IrpContext,
+    IN PVCB Vcb,
+    IN PFILE_FS_CONTROL_INFORMATION Buffer
     )
 
 /*++
@@ -964,7 +1201,54 @@ Arguments:
 
     Buffer - Supplies a pointer to the input buffer containing the new label
 
-    Length - Supplies the length of the buffer in bytes
+Return Value:
+
+    NTSTATUS - Returns the status for the operation
+
+--*/
+
+{
+    ASSERT_IRP_CONTEXT( IrpContext );
+    ASSERT_VCB( Vcb );
+
+    PAGED_CODE();
+
+    if (Vcb->QuotaTableScb == NULL) {
+        return( STATUS_INVALID_PARAMETER );
+    }
+
+    //
+    //  Process the quota part of the control structure.
+    //
+    
+    NtfsUpdateQuotaDefaults( IrpContext, Vcb, Buffer );
+
+    return STATUS_SUCCESS;
+}
+#endif // _CAIRO_
+
+//
+//  Internal Support Routine
+//
+
+NTSTATUS
+NtfsSetFsLabelInfo (
+    IN PIRP_CONTEXT IrpContext,
+    IN PVCB Vcb,
+    IN PFILE_FS_LABEL_INFORMATION Buffer
+    )
+
+/*++
+
+Routine Description:
+
+    This routine implements the set label call
+
+Arguments:
+
+    Vcb - Supplies the Vcb being altered
+
+    Buffer - Supplies a pointer to the input buffer containing the new label
 
 Return Value:
 
@@ -980,7 +1264,16 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(0, Dbg, "NtfsSetFsLabelInfo...\n", 0);
+    DebugTrace( 0, Dbg, ("NtfsSetFsLabelInfo...\n") );
+
+    //
+    //  Check that the volume label length is supported by the system.
+    //
+
+    if (Buffer->VolumeLabelLength > MAXIMUM_VOLUME_LABEL_LENGTH) {
+
+        return STATUS_INVALID_VOLUME_LABEL;
+    }
 
     try {
 
@@ -1018,7 +1311,7 @@ Return Value:
             //  We didn't find the volume name so now create a new label
             //
 
-            NtfsCleanupAttributeContext( IrpContext, &AttributeContext );
+            NtfsCleanupAttributeContext( &AttributeContext );
             NtfsInitializeAttributeContext( &AttributeContext );
 
             NtfsCreateAttributeWithValue( IrpContext,
@@ -1048,7 +1341,7 @@ Return Value:
 
         DebugUnwind( NtfsSetFsLabelInfo );
 
-        NtfsCleanupAttributeContext( IrpContext, &AttributeContext );
+        NtfsCleanupAttributeContext( &AttributeContext );
     }
 
     //

@@ -1,25 +1,30 @@
 /********************************************************************/
-/**			Microsoft LAN Manager			   **/
-/**		  Copyright(c) Microsoft Corp., 1987-1990	   **/
+/**                        Microsoft LAN Manager                           **/
+/**                  Copyright(c) Microsoft Corp., 1987-1990           **/
 /********************************************************************/
 
 /***
  *  time.c
- *	NET TIME command
+ *        NET TIME command
  *
  *  History:
- *	mm/dd/yy, who, comment
- *	03/25/89, kevinsch, new code
- *	05/11/90, erichn, moved from nettime.c, removed DosGetInfoSeg
- *	06/08/89, erichn, canonicalization sweep
- *	07/06/89, thomaspa, fix find_dc() to use large enough buffer
- *		    (now uses BigBuf)
+ *        mm/dd/yy, who, comment
+ *        03/25/89, kevinsch, new code
+ *        05/11/90, erichn, moved from nettime.c, removed DosGetInfoSeg
+ *        06/08/89, erichn, canonicalization sweep
+ *        07/06/89, thomaspa, fix find_dc() to use large enough buffer
+ *                    (now uses BigBuf)
  *
- *	02/20/91, danhi, change to use lm 16/32 mapping layer
+ *        02/20/91, danhi, change to use lm 16/32 mapping layer
  */
 
 
 
+#include <nt.h>		   // base definitions
+#include <ntrtl.h>	   
+#include <nturtl.h>	   // these 2 includes allows <windows.h> to compile. 
+			           // since we'vealready included NT, and <winnt.h> will
+			           // not be picked up, and <winbase.h> needs these defs.
 
 #define INCL_DOS
 #define INCL_ERRORS
@@ -43,9 +48,8 @@
 #include "netcmds.h"
 #include "nettext.h"
 
-#ifdef DOS3
-#include <dos.h>
-#endif
+
+#include "nwsupp.h"
 
 /* Constants */
 
@@ -54,8 +58,8 @@
 extern int YorN_Switch;
 
 /* Function prototypes */
-USHORT display_time(TCHAR FAR *);
-USHORT set_time(TCHAR FAR *);
+USHORT display_time(TCHAR FAR *, BOOL *lanman);
+USHORT set_time(TCHAR FAR *, BOOL lanman);
 USHORT find_rts(TCHAR FAR *, USHORT);
 USHORT find_dc(TCHAR FAR **);
 
@@ -65,7 +69,7 @@ USHORT find_dc(TCHAR FAR **);
  * and optionally tries to set the time locally.
  *
  * Parameters
- *     server	   - name of server to retrieve time from
+ *     server           - name of server to retrieve time from
  *     set     - if TRUE, we try to set the time
  *
  * Does not return on error.
@@ -75,22 +79,23 @@ VOID time_display_server(TCHAR FAR * server, BOOL set)
 
 {
     USHORT err;
+    BOOL   lanman = TRUE ;
 
 
     /* first display the time */
-    err = display_time(server);
+    err = display_time(server, &lanman);
     if (err)
-	ErrorExit(err);
+        ErrorExit(err);
 
     /* set the time, if we are asked to */
     if (set) {
-	err = set_time(server);
-	if (err)
-	    ErrorExit(err);
+        err = set_time(server, lanman);
+        if (err)
+            ErrorExit(err);
     }
     else
     /* everything worked out great */
-	InfoSuccess();
+        InfoSuccess();
 }
 
 /*
@@ -110,13 +115,13 @@ VOID time_display_server(TCHAR FAR * server, BOOL set)
 VOID time_display_dc(BOOL set)
 {
     TCHAR    FAR *dc;
-    USHORT	 err;
+    USHORT         err;
 
     /* get the domain controller */
     err = find_dc(&dc);
 
     if (err)
-	ErrorExit(err);
+        ErrorExit(err);
 
     /* now act like any other server */
     time_display_server(dc, set);
@@ -136,14 +141,14 @@ VOID time_display_dc(BOOL set)
 VOID time_display_rts(BOOL set)
 
 {
-    TCHAR	rts[UNCLEN+1];
-    USHORT	err;
+    TCHAR        rts[MAX_PATH+1];
+    USHORT        err;
 
     /* find a reliable time server */
     err = find_rts(rts,sizeof(rts));
 
     if (err)
-	ErrorExit(err);
+        ErrorExit(err);
 
     /* now treat it like any old server */
     time_display_server(rts, set);
@@ -157,27 +162,91 @@ VOID time_display_rts(BOOL set)
  * displaying the time.
  *
  * Parameters
- *     server		   name of server to poll
+ *     server                   name of server to poll
  *
  * Returns
- *     0	       success
- *     otherwise	   API return code describing the problem
+ *     0               success
+ *     otherwise           API return code describing the problem
  *
  *
  */
 
-USHORT display_time(TCHAR FAR * server)
+USHORT display_time(TCHAR FAR * server, BOOL *lanman)
 {
-    USHORT		    err;		/* API return status */
+    USHORT                       err;                /* API return status */
     struct time_of_day_info FAR *tod;
+    DWORD                        elapsedt ;
 
     /* get the time of day from the server */
     err = MNetRemoteTOD(server, (LPBYTE*)&tod);
-    if (err)
-	return err;
+    if (!err)
+    {
+        elapsedt = tod->tod_elapsedt ;
+        *lanman = TRUE ;
 
-    /* format it nicely */
-    UnicodeCtime((ULONG FAR *)&(tod->tod_elapsedt), BigBuf, BIG_BUF_SIZE);
+        /* format it nicely */
+        UnicodeCtime((ULONG FAR *)&elapsedt, BigBuf, BIG_BUF_SIZE);
+    }
+    else
+    {
+        USHORT        err1 ;
+        NWCONN_HANDLE hConn ;
+        BYTE          year ;
+        BYTE          month ;
+        BYTE          day ;
+        BYTE          hour ;
+        BYTE          minute ;
+        BYTE          second ;
+        BYTE          dayofweek ;
+	    SYSTEMTIME    st;
+	    DWORD         cchD ;
+
+        err1 = NetcmdNWAttachToFileServerW(server + 2, 0, &hConn) ;
+        if (err1)
+            return err;
+  
+        err1 = NetcmdNWGetFileServerDateAndTime(hConn,
+                                                &year,
+                                                &month,
+                                                &day,
+                                                &hour,
+                                                &minute,
+                                                &second,
+                                                &dayofweek) ;
+        
+        (void) NetcmdNWDetachFromFileServer(hConn) ;
+
+        if (err1)
+            return err ;
+
+        *lanman = FALSE ;
+
+        st.wYear   = (WORD)(year + 1900);
+	    st.wMonth  = (WORD)(month);
+        st.wDay    = (WORD)(day);
+        st.wHour   = (WORD)(hour);
+        st.wMinute = (WORD)(minute);
+        st.wSecond = (WORD)(second);
+        st.wMilliseconds = 0;
+	    cchD = GetDateFormatW(GetThreadLocale(),
+                              0,
+                              &st,
+                              NULL,
+                              BigBuf,
+                              BIG_BUF_SIZE);
+	    if (cchD != 0) 
+        {
+	        *(BigBuf+cchD-1) = TEXT(' ');	/* replace NULLC with blank */
+	        (void) GetTimeFormatW(GetThreadLocale(), 
+                                  TIME_NOSECONDS, 
+                                  &st, 
+                                  NULL, 
+                                  BigBuf+cchD, 
+                                  BIG_BUF_SIZE-cchD);
+	    }
+
+    }
+
 
     /* print it out nicely */
     IStrings[0] = server;
@@ -202,103 +271,114 @@ USHORT display_time(TCHAR FAR * server)
  *
  *
  * Parameters:
- *     server		   name of server to poll for time
+ *     server                   name of server to poll for time
  *
  * Returns:
- *     0	       success
- *     otherwise	   API return code describing the problem
+ *     0               success
+ *     otherwise           API return code describing the problem
  *
  */
 
 
-USHORT set_time(TCHAR FAR * server)
+USHORT set_time(TCHAR FAR * server, BOOL lanman)
 {
     struct time_of_day_info  FAR * tod;
-    USHORT			   err;      /* API return status */
-    ULONG			   time_value;
+    USHORT                           err;      /* API return status */
+    ULONG                           time_value;
 
-#if OS2
 
-    DATETIME			   datetime;
-
-#endif
-
-#ifdef	DOS3
-    struct dosdate_t	     dosdate;
-    struct dostime_t	     dostime;
-#endif
+    DATETIME                           datetime;
 
     switch( YorN_Switch )
     {
-	case 0:     /* no switch on command line */
-	    /* display local time */
-	    time_value = time_now();
-	    UnicodeCtime( &time_value, BigBuf, BIG_BUF_SIZE);
+        case 0:     /* no switch on command line */
+            /* display local time */
+            time_value = time_now();
+            UnicodeCtime( &time_value, BigBuf, BIG_BUF_SIZE);
 
-	    IStrings[0] = BigBuf;
-	    IStrings[1] = server;
-	    if( !LUI_YorNIns( IStrings, 2, APE_TIME_SetTime, 1) )
-		return( 0 );
-	    break;
-	case 1:     /* Yes */
-	    break;
-	case 2:     /* No */
-	    return( 0 );
+            IStrings[0] = BigBuf;
+            IStrings[1] = server;
+            if( !LUI_YorNIns( IStrings, 2, APE_TIME_SetTime, 1) )
+                return( 0 );
+            break;
+        case 1:     /* Yes */
+            break;
+        case 2:     /* No */
+            return( 0 );
     }
 
 
-    /* once again, get the time of day */
-    if (err = MNetRemoteTOD(server, (LPBYTE*)&tod))
-	return err;
-
-    /* The following code is provided in OS-specific versions to reduce     */
-    /* FAPI utilization under DOS.									    */
-
-#ifdef	OS2
-    /* copy over info from tod to datetime, quickly */
-    datetime.hours	= (UCHAR)  tod->tod_hours;
-    datetime.minutes	= (UCHAR)  tod->tod_mins;
-    datetime.seconds	= (UCHAR)  tod->tod_secs;
-    datetime.hundredths = (UCHAR)  tod->tod_hunds;
-    datetime.day	= (UCHAR)  tod->tod_day;
-    datetime.month	= (UCHAR)  tod->tod_month;
-    datetime.year	= (USHORT) tod->tod_year;
-    datetime.timezone	= (SHORT)  tod->tod_timezone;
-    datetime.weekday	= (UCHAR)  tod->tod_weekday;
+    if (lanman)
+    {
+        /* once again, get the time of day */
+        if (err = MNetRemoteTOD(server, (LPBYTE*)&tod))
+            return err;
 
 
-    NetApiBufferFree((TCHAR FAR *) tod);
+        /* copy over info from tod to datetime, quickly */
+        datetime.hours        = (UCHAR)  tod->tod_hours;
+        datetime.minutes        = (UCHAR)  tod->tod_mins;
+        datetime.seconds        = (UCHAR)  tod->tod_secs;
+        datetime.hundredths = (UCHAR)  tod->tod_hunds;
+        datetime.day        = (UCHAR)  tod->tod_day;
+        datetime.month        = (UCHAR)  tod->tod_month;
+        datetime.year        = (USHORT) tod->tod_year;
+        datetime.timezone        = (SHORT)  tod->tod_timezone;
+        datetime.weekday        = (UCHAR)  tod->tod_weekday;
 
-    /* now set the local time */
-    if (err = MSetDateTime(&datetime))
-	return err;
-#endif
 
-#ifdef	DOS3
-    /* copy over info from tod to dosdate and dostime */
+        NetApiBufferFree((TCHAR FAR *) tod);
 
-    dostime.hour		= tod->tod_hours;
-    dostime.minute		= tod->tod_mins;
-    dostime.second		= tod->tod_secs;
-    dostime.hsecond		= tod->tod_hunds;
+        /* now set the local time */
+        if (err = MSetDateTime(&datetime,FALSE)) // FALSE -> UTC
+            return err;
+    }
+    else
+    {
+        NWCONN_HANDLE hConn ;
+        BYTE          year ;
+        BYTE          month ;
+        BYTE          day ;
+        BYTE          hour ;
+        BYTE          minute ;
+        BYTE          second ;
+        BYTE          dayofweek ;
 
-    dosdate.day 		= tod->tod_day;
-    dosdate.month		= tod->tod_month;
-    dosdate.year		= tod->tod_year;
-    dosdate.dayofweek		= tod->tod_weekday;
+        err = NetcmdNWAttachToFileServerW(server + 2, 0, &hConn) ;
+        if (err)
+            return ERROR_BAD_NETPATH;
+  
+        err = NetcmdNWGetFileServerDateAndTime(hConn,
+                                                &year,
+                                                &month,
+                                                &day,
+                                                &hour,
+                                                &minute,
+                                                &second,
+                                                &dayofweek) ;
+        
+        (void) NetcmdNWDetachFromFileServer(hConn) ;
 
-    /* NOTE - We do not support a timezone under DOS. */
+        if (err)
+            return ERROR_BAD_NETPATH ;
 
-    NetApiBufferFree((TCHAR FAR *) tod);
 
-    /* now set the local time */
+        /* copy over info from tod to datetime, quickly */
+        datetime.hours      = hour;
+        datetime.minutes    = minute;
+        datetime.seconds    = second;
+        datetime.hundredths = 0 ;
+        datetime.day        = day;
+        datetime.month      = month;
+        datetime.year       = year + 1900;
+        datetime.timezone   = 0 ;  // not used
+        datetime.weekday    = 0 ;  // not used
 
-    if (err = _dos_settime(&dostime))
-	return ERROR_TS_DATETIME;
 
-    if (err = _dos_setdate(&dosdate))
-	return ERROR_TS_DATETIME;
-#endif
+        /* now set the local time */
+        if (err = MSetDateTime(&datetime,TRUE))  // TRUE -> set local time
+            return err;
+    }
 
 
     InfoSuccess();
@@ -313,33 +393,33 @@ USHORT set_time(TCHAR FAR * server)
  * This function finds a reliable time server and returns the name in buf.
  *
  * Parameters:
- *     buf	       buffer to fill with servername
- *     buflen		   maximum length of buffer
+ *     buf               buffer to fill with servername
+ *     buflen                   maximum length of buffer
  *
  *
  * Returns:
- *     0	    success
+ *     0            success
  *     APE_TIME_RtsNotFound    reliable time server not found
- *     otherwise	API return code describing the problem
+ *     otherwise        API return code describing the problem
  *
  */
 
 USHORT find_rts(TCHAR FAR * buf, USHORT buflen)
 
 {
-    USHORT		       err;		   /* API return status */
+    USHORT                       err;                   /* API return status */
     struct server_info_0 FAR * si;
-    USHORT2ULONG	       eread;
+    USHORT2ULONG               eread;
 
     UNREFERENCED_PARAMETER(buflen) ;
 
     /* find a reliable time server */
     err = MNetServerEnum(NULL,0,(LPBYTE*)&si, &eread,
-	     (ULONG) SV_TYPE_TIME_SOURCE, NULL);
+             (ULONG) SV_TYPE_TIME_SOURCE, NULL);
 
     /* there are none -- bag it */
     if (err != NERR_Success || eread == 0)
-	return APE_TIME_RtsNotFound;
+        return APE_TIME_RtsNotFound;
 
     /* copy over name into buffer */
     _tcscpy(buf,TEXT("\\\\"));
@@ -361,11 +441,11 @@ USHORT find_rts(TCHAR FAR * buf, USHORT buflen)
  *
  *
  * Parameters:
- *     buf	       buffer to fill with domain controller name
- *     buflen		   length of buf
+ *     buf               buffer to fill with domain controller name
+ *     buflen                   length of buf
  *
  * Returns:
- *  0		       success
+ *  0                       success
  *
  *  Uses BigBuf for NetWkstaGetInfo call, but this only occurs in the error case
  *  Does not return on error.
@@ -376,41 +456,40 @@ USHORT find_rts(TCHAR FAR * buf, USHORT buflen)
 USHORT find_dc(TCHAR FAR ** ppBuffer)
 
 {
-    USHORT			err;		    /* API return status */
-    TCHAR FAR *			ptr = NULL;
-    struct wksta_info_10 FAR *	wkinfo;
-    int 			i;
+    USHORT                        err;                    /* API return status */
+    TCHAR FAR *                        ptr = NULL;
+    struct wksta_info_10 FAR *        wkinfo;
+    int                         i;
 
     /* look for a /DOMAIN switch */
     for (i = 0; SwitchList[i]; i++)
-	if (_tcsstr(SwitchList[i],swtxt_SW_DOMAIN) == SwitchList[i]) {
-	    ptr = SwitchList[i];   /* found one -- point to it */
-	    break;
-	}
+        if (_tcsstr(SwitchList[i],swtxt_SW_DOMAIN) == SwitchList[i]) {
+            ptr = SwitchList[i];   /* found one -- point to it */
+            break;
+        }
 
     /* if we found one, look for a colon and argument */
     if (ptr != NULL) {
-	ptr = _tcschr(ptr, ':');    /* look for colon */
-	if (ptr != NULL)	/* found a colon; increment past it */
-	    ptr++;
+        ptr = _tcschr(ptr, ':');    /* look for colon */
+        if (ptr != NULL)        /* found a colon; increment past it */
+            ptr++;
     }
 
-    /* now go look up this domain (ptr == NULL	means primary domain) */
+    /* now go look up this domain (ptr == NULL        means primary domain) */
     err = MNetGetDCName(NULL, ptr, (LPBYTE*)ppBuffer);
 
     if (err) {
-	/* we failed on primary domain; find out the name */
-	if (ptr == NULL) {
-	    NetApiBufferFree(*ppBuffer);
-	    if (err = MNetWkstaGetInfo(NULL, 10, (LPBYTE*)ppBuffer))
-		ErrorExit(err);
-	    wkinfo = (struct wksta_info_10 FAR *) *ppBuffer;
-	    IStrings[0] = wkinfo->wki10_langroup;
-	}
-	else
-	    IStrings[0] = ptr;
+        /* we failed on primary domain; find out the name */
+        if (ptr == NULL) {
+            if (err = MNetWkstaGetInfo(NULL, 10, (LPBYTE*)ppBuffer))
+                ErrorExit(err);
+            wkinfo = (struct wksta_info_10 FAR *) *ppBuffer;
+            IStrings[0] = wkinfo->wki10_langroup;
+        }
+        else
+            IStrings[0] = ptr;
 
-	ErrorExitIns(APE_TIME_DcNotFound, 1);
+        ErrorExitIns(APE_TIME_DcNotFound, 1);
     }
 
     return 0;

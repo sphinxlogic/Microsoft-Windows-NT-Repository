@@ -92,7 +92,8 @@ void OnChangeLog (HWND hWndParent)
    ofn.lpstrInitialDir = NULL ;
    ofn.lpstrTitle = szOpenLog ;
    ofn.Flags = OFN_FILEMUSTEXIST | OFN_HIDEREADONLY | 
-               OFN_PATHMUSTEXIST | OFN_SHOWHELP  | OFN_ENABLEHOOK ;
+//               OFN_PATHMUSTEXIST | OFN_SHOWHELP  | OFN_ENABLEHOOK ;
+               OFN_PATHMUSTEXIST | OFN_ENABLEHOOK | OFN_EXPLORER;
    ofn.lCustData = 0L ;
    ofn.lpfnHook = (LPOFNHOOKPROC) FileOpenHookProc ;
    ofn.lpstrDefExt = (LPTSTR)NULL;
@@ -241,9 +242,12 @@ int FAR WINAPI DataSourceDlgProc (HWND hDlg,
          return  (TRUE) ;
 
       case WM_CLOSE:
-         dwCurrentDlgID = 0 ;
          EndDialog (hDlg, 0) ;
          break ;
+
+      case WM_DESTROY:
+         dwCurrentDlgID = 0 ;
+         break;
 
       case WM_COMMAND:
          switch(LOWORD(wParam))
@@ -286,12 +290,10 @@ int FAR WINAPI DataSourceDlgProc (HWND hDlg,
                break ;
 
             case IDD_OK:
-               dwCurrentDlgID = 0 ;
                OnDataSourceOK (hDlg) ;
                break ;
 
             case IDD_CANCEL:
-               dwCurrentDlgID = 0 ;
                EndDialog (hDlg, 0) ;
                break ;
 
@@ -343,5 +345,5 @@ BOOL DisplayDataSourceOptions (HWND hWndParent)
    }  // DisplayDisplayOptions
 
 
-
-
+
+

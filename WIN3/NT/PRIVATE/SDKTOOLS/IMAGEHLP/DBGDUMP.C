@@ -20,15 +20,8 @@ Revision History:
 
 --*/
 
-#include <assert.h>
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-#include <memory.h>
-#include <ctype.h>
-#include <time.h>
-#include <windows.h>
-#include <imagehlp.h>
+#include <private.h>
+
 
 BOOL fVerbose;
 BOOL fRemote;
@@ -243,6 +236,7 @@ char *FrameType[] = {
     "FRAME_FPO",
     "FRAME_TRAP",
     "FRAME_TSS",
+    "FRAME_NONFPO",
     "FRAME_UNKNOWN"
 };
 

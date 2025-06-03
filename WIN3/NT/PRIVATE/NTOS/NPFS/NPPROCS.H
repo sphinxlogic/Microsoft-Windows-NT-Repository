@@ -36,12 +36,11 @@ Revision History:
 //  Tag all of our allocations if tagging is turned on
 //
 
-#ifdef POOL_TAGGING
+#undef FsRtlAllocatePool
+#undef FsRtlAllocatePoolWithQuota
 
 #define FsRtlAllocatePool(a,b) FsRtlAllocatePoolWithTag(a,b,'sfpN')
 #define FsRtlAllocatePoolWithQuota(a,b) FsRtlAllocatePoolWithQuotaTag(a,b,'sfpN')
-
-#endif
 
 
 //
@@ -153,17 +152,19 @@ NpEventTableDeallocate (
     IN PVOID Buffer
     );
 
-//VOID
-//NpInitializeEventTable (
-//    IN PEVENT_TABLE EventTable
-//    );
+//
+//  VOID
+//  NpInitializeEventTable (
+//      IN PEVENT_TABLE EventTable
+//      );
+//
+
 #define NpInitializeEventTable(_et) {                       \
     RtlInitializeGenericTable( &(_et)->Table,               \
                                NpEventTableCompareRoutine,  \
                                NpEventTableAllocate,        \
                                NpEventTableDeallocate,      \
                                (PVOID)NonPagedPool );       \
-    KeInitializeSpinLock( &(_et)->SpinLock );               \
 }
 
 
@@ -472,15 +473,6 @@ NpWriteDataQueue (                      // implemented in WriteSup.c
 //
 //  Miscellaneous support routines
 //
-
-//
-//  This macro returns TRUE if a flag in a set of flags is on and FALSE
-//  otherwise
-//
-
-#define FlagOn(F,SF) ( \
-    (((F) & (SF)))     \
-)
 
 #define BooleanFlagOn(F,SF) (    \
     (BOOLEAN)(((F) & (SF)) != 0) \

@@ -378,7 +378,7 @@ Return Value:
     CHAR Destination[MAC_LENGTH_OF_ADDRESS];
 
     //
-    // Junk variable to hold the length of the source address.
+    // variable to hold the length of the source address.
     //
     UINT AddressLength;
 
@@ -789,7 +789,7 @@ Return Value:
 
         if (SourceLength < 14) {
             DbgPrint("pc586 ConstrainPacket(): can't handle fragmented xmt buffers\n");
-            SourceLength = 14;  //bugbug
+            SourceLength = 14;  // ???
         }
         Adapter->Cb->CmdStatus = 0;
         Adapter->Cb->CmdCmd    = CSEL | CSCMDXMIT | CSINT;

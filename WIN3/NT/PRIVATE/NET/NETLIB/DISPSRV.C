@@ -65,9 +65,9 @@ NetpDbgDisplayDisconnectTime(
 {
     NetpDbgDisplayTag( "Idle session time (min)" );
     if (DiscTime == SV_NODISC) {
-        NetpDbgPrint("infinite\n" );
+        NetpKdPrint(("infinite\n" ));
     } else {
-        NetpDbgPrint(FORMAT_LONG "\n", DiscTime );
+        NetpKdPrint((FORMAT_LONG "\n", DiscTime ));
     }
 } // NetpDbgDisplayDisconnectTime
 
@@ -135,8 +135,8 @@ NetpDbgDisplayServerInfo(
     IN LPVOID Info
     )
 {
-    NetpDbgPrint("server info (level " FORMAT_DWORD ") at "
-                FORMAT_LPVOID ":\n", Level, (LPVOID) Info);
+    NetpKdPrint(("server info (level " FORMAT_DWORD ") at "
+                FORMAT_LPVOID ":\n", Level, (LPVOID) Info));
     NetpAssert(Info != NULL);
 
     switch (Level) {

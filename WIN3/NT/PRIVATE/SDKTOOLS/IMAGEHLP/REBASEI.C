@@ -20,20 +20,8 @@ Revision History:
 
 --*/
 
-#include <assert.h>
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-#include <time.h>
-#include <memory.h>
-#include <ctype.h>
-#define _NTSYSTEM_     // So RtlImageDirectoryEntryToData will not be imported
-#include <nt.h>
-#include <ntrtl.h>
-#include <nturtl.h>
-#include <windows.h>
-#define _IMAGEHLP_SOURCE_
-#include <imagehlp.h>
+#include <private.h>
+
 
 #define REBASE_ERR 99
 #define REBASE_OK  0
@@ -112,7 +100,9 @@ ReBaseImage(
     CHAR  DebugFilePath[ MAX_PATH+1 ];
     ULONG CurrentImageSize;
     ULONG DesiredImageBase;
+    ULONG OldChecksum;
     ULONG Diff = 0;
+    ULONG UpdateSymbolsError = 0;
 
     // Map and load the current image
 
@@ -129,13 +119,13 @@ ReBaseImage(
 
                 strcpy( DebugFileName, CurrentImageName );
 
-                DebugDirectories = (PIMAGE_DEBUG_DIRECTORY)RtlImageDirectoryEntryToData(
+                DebugDirectories = (PIMAGE_DEBUG_DIRECTORY)ImageDirectoryEntryToData(
                                                         CurrentImage.MappedAddress,
                                                         FALSE,
                                                         IMAGE_DIRECTORY_ENTRY_DEBUG,
                                                         &DebugDirectoriesSize
                                                         );
-                if (DebugDirectories != NULL) {
+                if (DebugDirectoryIsUseful(DebugDirectories, DebugDirectoriesSize)) {
                     while (DebugDirectoriesSize != 0) {
                         if (DebugDirectories->Type == IMAGE_DEBUG_TYPE_MISC) {
                             MiscDebug = (PIMAGE_DEBUG_MISC)
@@ -185,17 +175,26 @@ ReBaseImage(
                     (DesiredImageBase != *OldImageBase)
                    ) {
 
+                    OldChecksum = CurrentImage.FileHeader->OptionalHeader.CheckSum;
                     if ( !RelocateImage( &CurrentImage, DesiredImageBase, &Diff, tstamp ) ) {
                         return(FALSE);
                     }
 
                     if ( fSymbolsAlreadySplit && Diff ) {
-                        UpdateDebugInfoFile( DebugFileName,
-                                             SymbolPath,
-                                             DebugFilePath,
-                                             CurrentImage.FileHeader );
+                        if (UpdateDebugInfoFileEx( DebugFileName,
+                                                   SymbolPath,
+                                                   DebugFilePath,
+                                                   CurrentImage.FileHeader,
+                                                   OldChecksum )) {
+                            UpdateSymbolsError = GetLastError();
+                        } else {
+                            UpdateSymbolsError = 0;
+                        }
                     }
                 } else {
+                    //
+                    // Should this be -1??  shouldn't it be 0 instead? - kentf
+                    //
                     Diff = (ULONG) -1;
                 }
 
@@ -228,6 +227,8 @@ ReBaseImage(
         // Couldn't Map and Load the current image
         return(FALSE);
     }
+
+    SetLastError(UpdateSymbolsError);
 
     return(TRUE);
 }
@@ -312,7 +313,7 @@ RelocateImage(
     // Locate the relocation section.
     //
 
-    NextBlock = (PIMAGE_BASE_RELOCATION)RtlImageDirectoryEntryToData(
+    NextBlock = (PIMAGE_BASE_RELOCATION)ImageDirectoryEntryToData(
                                             LoadedImage->MappedAddress,
                                             FALSE,
                                             IMAGE_DIRECTORY_ENTRY_BASERELOC,
@@ -407,20 +408,28 @@ RvaToVa(
 
     Va = NULL;
     Section = Image->LastRvaSection;
-    if ( (ULONG)Rva >= Section->VirtualAddress &&
-         (ULONG)Rva < Section->VirtualAddress + Section->SizeOfRawData ) {
-        Va = (PVOID)((ULONG)Rva - Section->VirtualAddress + Section->PointerToRawData + Image->MappedAddress);
-        }
-    else {
-        for(Section = Image->Sections,i=0; i<Image->NumberOfSections; i++,Section++) {
-            if ( (ULONG)Rva >= Section->VirtualAddress &&
-                 (ULONG)Rva < Section->VirtualAddress + Section->SizeOfRawData ) {
-                Va = (PVOID)((ULONG)Rva - Section->VirtualAddress + Section->PointerToRawData + Image->MappedAddress);
-                Image->LastRvaSection = Section;
-                break;
+    if (Rva == NULL) {
+        // a NULL Rva will be sent if there are relocs before the first page
+        //  (ie: we're relocating a system image)
+
+        Va = Image->MappedAddress;
+
+    } else {
+        if ( (ULONG)Rva >= Section->VirtualAddress &&
+             (ULONG)Rva < Section->VirtualAddress + Section->SizeOfRawData ) {
+            Va = (PVOID)((ULONG)Rva - Section->VirtualAddress + Section->PointerToRawData + Image->MappedAddress);
+        } else {
+            for(Section = Image->Sections,i=0; i<Image->NumberOfSections; i++,Section++) {
+                if ( (ULONG)Rva >= Section->VirtualAddress &&
+                     (ULONG)Rva < Section->VirtualAddress + Section->SizeOfRawData ) {
+                    Va = (PVOID)((ULONG)Rva - Section->VirtualAddress + Section->PointerToRawData + Image->MappedAddress);
+                    Image->LastRvaSection = Section;
+                    break;
                 }
             }
         }
+    }
+
     return Va;
 }
 

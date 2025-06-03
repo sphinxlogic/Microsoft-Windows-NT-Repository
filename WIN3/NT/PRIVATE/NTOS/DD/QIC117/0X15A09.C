@@ -13,7 +13,10 @@
 *
 * HISTORY:
 *		$Log:   J:\se.vcs\driver\q117kdi\nt\src\0x15a09.c  $
-*	
+*
+*	   Rev 1.3   10 Aug 1994 09:53:14   BOBLEHMA
+*	Added a cast to thread_handle to remove compiler warning.
+*
 *	   Rev 1.2   26 Apr 1994 16:17:36   KEVINKES
 *	Changed timeout to an SDDWord.
 *
@@ -103,16 +106,6 @@ NTSTATUS kdi_InitializeController
    /* data, then this routine will return false, in which case we */
    /* will NOT try to initialize this particular controller. */
 
-   if (!kdi_ReportResources(
-            driver_object_ptr,
-            config_data_ptr,
-				controller_number
-            )) {
-
-      return STATUS_INSUFFICIENT_RESOURCES;
-
-   }
-
    /* Allocate and zero-initialize data to describe this controller */
 
    kdi_context = (KdiContextPtr) ExAllocatePool(
@@ -193,59 +186,44 @@ NTSTATUS kdi_InitializeController
 
 	}
 
-   nt_status = IoConnectInterrupt(
-      (PKINTERRUPT *) &kdi_context->interrupt_object,
-      (PKSERVICE_ROUTINE) kdi_Hardware,
-      (PVOID) kdi_context,
-      (PKSPIN_LOCK)NULL,
-      config_data_ptr->controller[controller_number].controller_vector,
-      config_data_ptr->controller[controller_number].controller_irql,
-      config_data_ptr->controller[controller_number].controller_irql,
-      config_data_ptr->controller[controller_number].interrupt_mode,
-      config_data_ptr->controller[controller_number].sharable_vector,
-      config_data_ptr->controller[controller_number].processor_mask,
-      config_data_ptr->controller[controller_number].save_float_state);
 
+    /* Initialize the interlocked request queue, including a */
+    /* counting semaphore to indicate items in the queue */
 
-   if ( NT_SUCCESS( nt_status ) ) {
-
-      /* Initialize the interlocked request queue, including a */
-      /* counting semaphore to indicate items in the queue */
-
-      KeInitializeSemaphore(
+    KeInitializeSemaphore(
             &kdi_context->request_semaphore,
             0L,
             MAXLONG );
 
-      KeInitializeSpinLock( &kdi_context->list_spin_lock );
+    KeInitializeSpinLock( &kdi_context->list_spin_lock );
 
-      InitializeListHead( &kdi_context->list_entry );
+    InitializeListHead( &kdi_context->list_entry );
 
-      /* Initialize events to signal interrupts and adapter object */
-      /* allocation */
+    /* Initialize events to signal interrupts and adapter object */
+    /* allocation */
 
-      KeInitializeEvent(
+    KeInitializeEvent(
             &kdi_context->interrupt_event,
             SynchronizationEvent,
             FALSE);
 
 
-      KeInitializeEvent(
+    KeInitializeEvent(
             &kdi_context->allocate_adapter_channel_event,
             NotificationEvent,
             FALSE );
 
 
-      KeInitializeEvent(
+    KeInitializeEvent(
             &kdi_context->clear_queue_event,
             SynchronizationEvent,
             FALSE);
 
 
 
-      /* Create a thread with entry point Q117iTapeThread() */
+    /* Create a thread with entry point Q117iTapeThread() */
 
-      nt_status = PsCreateSystemThread(
+    nt_status = PsCreateSystemThread(
             &thread_handle,
             (ACCESS_MASK) 0L,
             (POBJECT_ATTRIBUTES) NULL,
@@ -255,19 +233,19 @@ NTSTATUS kdi_InitializeController
             (PVOID) kdi_context );
 
 #if DBG
-      if ( !NT_SUCCESS( nt_status ) ) {
+    if ( !NT_SUCCESS( nt_status ) ) {
 
             kdi_CheckedDump(QIC117DBGP,
-									"q117i: error creating thread: %08x\n",
-									nt_status );
-      }
+                                    "q117i: error creating thread: %08x\n",
+                                    nt_status );
+    }
 #endif
 
-      if ( NT_SUCCESS( nt_status ) ) {
+    if ( NT_SUCCESS( nt_status ) ) {
 
             kdi_CheckedDump(QIC117INFO,
-										"Q117iThread = %08x\n",
-										(dUDWord)thread_handle);
+                                        "Q117iThread = %08x\n",
+                                        (dUDWord)thread_handle);
 
             /* Call Q117iInitializeDrive() for each drive on the */
             /* controller */
@@ -278,15 +256,14 @@ NTSTATUS kdi_InitializeController
             partly_successful = FALSE;
 
             nt_status = kdi_InitializeDrive(
-               config_data_ptr,
-               kdi_context,
-               cqd_context,
-               controller_number,
-               driver_object_ptr,
-               registry_path_ptr );
-      }
+            config_data_ptr,
+            kdi_context,
+            cqd_context,
+            controller_number,
+            driver_object_ptr,
+            registry_path_ptr );
+    }
 
-   }
 
    /* If we're exiting with an error, clean up first. */
 
@@ -357,14 +334,13 @@ NTSTATUS kdi_InitializeController
       }
 
 
-      if ( kdi_context->interrupt_object != NULL ) {
-
+      if ( kdi_context->controller_event != NULL ) {
+          // Tell others that it is safe to use the controller
           (VOID) KeSetEvent(
                     kdi_context->controller_event,
                     (KPRIORITY) 0,
                     FALSE );
 
-          IoDisconnectInterrupt( kdi_context->interrupt_object );
       }
 
       ExFreePool( kdi_context );
@@ -374,4 +350,3 @@ NTSTATUS kdi_InitializeController
 
    return nt_status;
 }
-

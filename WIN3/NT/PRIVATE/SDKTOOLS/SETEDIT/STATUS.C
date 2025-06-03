@@ -302,4 +302,4 @@ void StatusUpdateIcons (HWND hWndStatus)
    PaintStatusBar (hWndStatus, hStatusDC, PaintIcons) ;
    }
 
-
+

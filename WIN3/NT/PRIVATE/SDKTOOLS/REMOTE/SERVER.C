@@ -35,19 +35,18 @@ Revision History:
 
 #define MAX_SESSION   10
 
-#define COMMANDFORMAT     "%c%-15s    [%-15s %d:%d]\n%c"
+#define COMMANDFORMAT     "%c%-15s    [%-15s %s]\n%c"
 #define LOCALNAME         "Local"
 #define LOCALCLIENT(x)    (strcmp((char *)(x->Name),LOCALNAME)==0)
 #define RemoteInfo(prt,flg) {if (!(flg&&0x80000000)) prt;}
 
-#define CMDSTRING(OutBuff,InpBuff,Client,sTime)  {                               \
-                                                    int xxlen;                   \
+#define CMDSTRING(OutBuff,InpBuff,Client,szTime)  {                              \
                                                     sprintf                      \
                                                     (                            \
                                                        &OutBuff[0],COMMANDFORMAT,\
                                                        BEGINMARK,InpBuff,        \
-                                                       Client->Name,sTime.wHour, \
-                                                       sTime.wMinute,ENDMARK     \
+                                                       Client->Name,szTime,      \
+                                                       ENDMARK                   \
                                                     );                           \
                                                  }                               \
 
@@ -74,6 +73,31 @@ HANDLE  SaveFile;       //File containing all that was
 char    SaveFileName[64]; //Name of above file - all new sessions need
 HANDLE  ChldProc;
 HANDLE  ListenThreadH;
+
+// GetFormattedTime -- returns pointer to formatted time
+//
+// returns pointer to static buffer which should be OK.
+//
+
+
+PCHAR GetFormattedTime(VOID)
+{
+    static char  szTime[30];
+
+    //
+    // Get time and format to characters
+    //
+
+    GetTimeFormat( LOCALE_USER_DEFAULT,
+                   TIME_NOSECONDS | TIME_FORCE24HOURFORMAT | TIME_NOTIMEMARKER,
+                   NULL,   // use current time
+                   NULL,   // use default format
+                   szTime,
+                   30 );
+
+    return( (PCHAR) &szTime );
+}
+
 
 HANDLE
 ForkChildProcess(          // Creates a new process
@@ -192,6 +216,12 @@ Server(                    //Main routine for server.
     WRITEF((VBuff,"To Connect: Remote /C %s %s\n\n",HostName,PipeName));
 
     InitClientList();
+
+    //
+    // set environment variable
+    //
+
+    SetEnvironmentVariable("_REMOTE", PipeName);
 
     //
     //Start the command as a child process
@@ -702,9 +732,7 @@ RemoteSession(
     char                 msg[BUFFSIZE];
     DWORD                tmp;
     SESSION_STARTREPLY   ssr;
-    SYSTEMTIME           st;
 
-    GetLocalTime(&st);
     memset((char *)&ssi,0,sizeof(ssi));
 
     if ((MyClient->rSaveFile=CreateFile(
@@ -835,9 +863,9 @@ RemoteSession(
 
     }
 
-    RemoteInfo(printf("\n**Remote:Connected To %s [%02d:%02d]\n",MyClient->Name,st.wHour,st.wMinute),ssi.Flag);
+    RemoteInfo(printf("\n**Remote:Connected To %s [%s]\n",MyClient->Name,GetFormattedTime()),ssi.Flag);
     NewSession(MyClient);
-    RemoteInfo(printf("\n**Remote:Disconnected From %s [%02d:%02d]\n",MyClient->Name,st.wHour,st.wMinute),ssi.Flag);
+    RemoteInfo(printf("\n**Remote:Disconnected From %s [%s]\n",MyClient->Name,GetFormattedTime()),ssi.Flag);
     CloseClient(MyClient);
     return(0);
 }
@@ -891,7 +919,7 @@ NewSession(
     TerminateThread(rwThread[1],1);
 
     CloseHandle(rwThread[0]);
-    CloseHandle(rwThread[0]);
+    CloseHandle(rwThread[1]);
 
     return(0);
 }
@@ -1047,6 +1075,7 @@ GetClientInput(
     return(1);
 }
 /*************************************************************/
+
 BOOL
 FilterCommand(
     SESSION_TYPE *cl,
@@ -1054,7 +1083,6 @@ FilterCommand(
     int dread
     )
 {
-    SYSTEMTIME st;
     char       inp_buff[4096];
     char       tmpchar;
     char       ch[3];
@@ -1066,8 +1094,6 @@ FilterCommand(
         return(FALSE);
 
     buff[dread]=0;
-
-    GetLocalTime(&st);
 
 
     if (buff[0]==COMMANDCHAR)
@@ -1094,7 +1120,7 @@ FilterCommand(
             if (mssg==NULL)
                 break;
 
-            sprintf(mssg,"From %s [%d:%d]\n\n%s\n",cl->Name,st.wHour,st.wMinute,&buff[2]);
+            sprintf(mssg,"From %s [%s]\n\n%s\n",cl->Name,GetFormattedTime(),&buff[2]);
             CreateThread(
                   (LPSECURITY_ATTRIBUTES)NULL,         // No security attributes.
                   (DWORD)0,              // Use same stack size.
@@ -1110,14 +1136,14 @@ FilterCommand(
         case 'm':
         case 'M':
                 buff[dread-2]=0;
-                CMDSTRING(inp_buff,buff,cl,st);
+                CMDSTRING(inp_buff,buff,cl,GetFormattedTime());
                 len=strlen(inp_buff);
                 WriteFile(SaveFile,inp_buff,len,&tmp,NULL);
                 break;
 
         case '@':
                 buff[dread-2]=0;
-                CMDSTRING(inp_buff,&buff[1],cl,st);
+                CMDSTRING(inp_buff,&buff[1],cl,GetFormattedTime());
                 len=strlen(inp_buff);
                 WriteFile(SaveFile,inp_buff,len,&tmp,NULL);
                 //
@@ -1153,7 +1179,7 @@ FilterCommand(
         BOOL ret=FALSE;
 
         sprintf(ch,"^%c",buff[0]+64);
-        CMDSTRING(inp_buff,ch,cl,st);
+        CMDSTRING(inp_buff,ch,cl,GetFormattedTime());
         len=strlen(inp_buff);
 
 
@@ -1171,7 +1197,7 @@ FilterCommand(
 
     tmpchar=buff[dread-2]; //must be 13;but just incase
     buff[dread-2]=0;
-    CMDSTRING(inp_buff,buff,cl,st);
+    CMDSTRING(inp_buff,buff,cl,GetFormattedTime());
     buff[dread-2]=tmpchar;
     len=strlen(inp_buff);
     WriteFile(SaveFile,inp_buff,len,&tmp,NULL);

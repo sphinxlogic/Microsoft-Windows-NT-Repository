@@ -31,7 +31,9 @@ Revision History:
 #define PROCESS_VM_OPERATION      (0x0008)  // winnt
 #define PROCESS_VM_READ           (0x0010)  // winnt
 #define PROCESS_VM_WRITE          (0x0020)  // winnt
+// begin_ntddk
 #define PROCESS_DUP_HANDLE        (0x0040)  // winnt
+// end_ntddk
 #define PROCESS_CREATE_PROCESS    (0x0080)  // winnt
 #define PROCESS_SET_QUOTA         (0x0100)  // winnt
 #define PROCESS_SET_INFORMATION   (0x0200)  // winnt
@@ -40,6 +42,9 @@ Revision History:
 // begin_winnt begin_ntddk
 #define PROCESS_ALL_ACCESS        (STANDARD_RIGHTS_REQUIRED | SYNCHRONIZE | \
                                    0xFFF)
+
+
+#define MAXIMUM_PROCESSORS 32
 
 // end_winnt
 
@@ -91,6 +96,7 @@ typedef struct _PEB_LDR_DATA {
 #define PEB_STDIO_HANDLE_PM         2
 #define PEB_STDIO_HANDLE_RESERVED   3
 
+#define GDI_HANDLE_BUFFER_SIZE      34
 
 #define FOREGROUND_BASE_PRIORITY  9
 #define NORMAL_BASE_PRIORITY      8
@@ -115,8 +121,12 @@ typedef CLIENT_ID *PCLIENT_ID;
 #define TLS_MINIMUM_AVAILABLE 64    // winnt
 
 typedef struct _PEB {
-    BOOLEAN InheritedAddressSpace;  // These two fields cannot change unless the
-    HANDLE Mutant;                  // INITIAL_PEB structure is also updated.
+    BOOLEAN InheritedAddressSpace;      // These four fields cannot change unless the
+    BOOLEAN ReadImageFileExecOptions;   //
+    BOOLEAN BeingDebugged;              //
+    BOOLEAN SpareBool;                  //
+    HANDLE Mutant;                      // INITIAL_PEB structure is also updated.
+
     PVOID ImageBaseAddress;
     PPEB_LDR_DATA Ldr;
     struct _RTL_USER_PROCESS_PARAMETERS *ProcessParameters;
@@ -126,7 +136,7 @@ typedef struct _PEB {
     PVOID FastPebLockRoutine;
     PVOID FastPebUnlockRoutine;
     ULONG EnvironmentUpdateCount;
-    ULONG Spare;
+    PVOID KernelCallbackTable;
     HANDLE EventLogSection;
     PVOID EventLog;
     PPEB_FREE_BLOCK FreeList;
@@ -139,7 +149,55 @@ typedef struct _PEB {
     PVOID AnsiCodePageData;
     PVOID OemCodePageData;
     PVOID UnicodeCaseTableData;
+
+    //
+    // Useful information for LdrpInitialize
+    ULONG NumberOfProcessors;
+    ULONG NtGlobalFlag;
+
+    //
+    // Passed up from MmCreatePeb from Session Manager registry key
+    //
+
     LARGE_INTEGER CriticalSectionTimeout;
+    ULONG HeapSegmentReserve;
+    ULONG HeapSegmentCommit;
+    ULONG HeapDeCommitTotalFreeThreshold;
+    ULONG HeapDeCommitFreeBlockThreshold;
+
+    //
+    // Where heap manager keeps track of all heaps created for a process
+    // Fields initialized by MmCreatePeb.  ProcessHeaps is initialized
+    // to point to the first free byte after the PEB and MaximumNumberOfHeaps
+    // is computed from the page size used to hold the PEB, less the fixed
+    // size of this data structure.
+    //
+
+    ULONG NumberOfHeaps;
+    ULONG MaximumNumberOfHeaps;
+    PVOID *ProcessHeaps;
+
+    //
+    //
+    PVOID GdiSharedHandleTable;
+    PVOID ProcessStarterHelper;
+    PVOID GdiDCAttributeList;
+    PVOID LoaderLock;
+
+    //
+    // Following fields filled in by MmCreatePeb from system values and/or
+    // image header.
+    //
+
+    ULONG OSMajorVersion;
+    ULONG OSMinorVersion;
+    ULONG OSBuildNumber;
+    ULONG OSPlatformId;
+    ULONG ImageSubsystem;
+    ULONG ImageSubsystemMajorVersion;
+    ULONG ImageSubsystemMinorVersion;
+    ULONG ImageProcessAffinityMask;
+    ULONG GdiHandleBuffer[GDI_HANDLE_BUFFER_SIZE];
 } PEB, *PPEB;
 
 // begin_nthal begin_ntddk
@@ -161,25 +219,42 @@ typedef struct _PEB {
 //      points there.
 //
 
+// begin_winnt
+
 typedef struct _NT_TIB {
     struct _EXCEPTION_REGISTRATION_RECORD *ExceptionList;
     PVOID StackBase;
     PVOID StackLimit;
     PVOID SubSystemTib;
-    ULONG Version;
+    union {
+        PVOID FiberData;
+        ULONG Version;
+    };
     PVOID ArbitraryUserPointer;
     struct _NT_TIB *Self;
 } NT_TIB;
 typedef NT_TIB *PNT_TIB;
-// end_nthal end_ntddk
+// end_nthal end_ntddk end_winnt
+
+//
+// Gdi command batching
+//
+
+#define GDI_BATCH_BUFFER_SIZE 310
+
+typedef struct _GDI_TEB_BATCH {
+    ULONG Offset;
+    ULONG HDC;
+    ULONG Buffer[GDI_BATCH_BUFFER_SIZE];
+} GDI_TEB_BATCH,*PGDI_TEB_BATCH;
 
 //
 //  TEB - The thread environment block
 //
 
 #define STATIC_UNICODE_BUFFER_LENGTH 261
-#define QLPC_TEB_LENGTH 5
-#define WIN32_CLIENT_INFO_LENGTH 5
+#define WIN32_CLIENT_INFO_LENGTH 31
+#define WIN32_CLIENT_INFO_SPIN_COUNT 1
 
 typedef struct _TEB {
     NT_TIB NtTib;
@@ -190,30 +265,30 @@ typedef struct _TEB {
     PPEB ProcessEnvironmentBlock;
     ULONG LastErrorValue;
     ULONG CountOfOwnedCriticalSections;
-    PVOID Win32ProcessInfo;         // PpiCurrent
+    PVOID CsrClientThread;
     PVOID Win32ThreadInfo;          // PtiCurrent
-    PVOID CsrQlpcStack;
-    UCHAR SpareBytes[124];
+    ULONG Win32ClientInfo[WIN32_CLIENT_INFO_LENGTH];    // User32 Client Info
+    PVOID WOW32Reserved;           // used by WOW
     LCID CurrentLocale;
     ULONG FpSoftwareStatusRegister;
-    PVOID SystemReserved1[54];
-    PVOID Spare1;                   // User Debug info
-    PVOID Spare2;
-    PVOID CsrQlpcTeb[QLPC_TEB_LENGTH];
-    PVOID Win32ClientInfo[WIN32_CLIENT_INFO_LENGTH];
-    PVOID SystemReserved2[322];
+    PVOID SystemReserved1[54];      // Used by FP emulator
+    PVOID Spare1;                   // unused
+    NTSTATUS ExceptionCode;         // for RaiseUserException
+    UCHAR SpareBytes1[40];
+    PVOID SystemReserved2[10];                      // Used by user/console for temp obja
+    GDI_TEB_BATCH GdiTebBatch;      // Gdi batching
     ULONG gdiRgn;
     ULONG gdiPen;
     ULONG gdiBrush;
     CLIENT_ID RealClientId;
-    PVOID Spare3;
+    HANDLE GdiCachedProcessHandle;
     ULONG GdiClientPID;
     ULONG GdiClientTID;
     PVOID GdiThreadLocalInfo;
-    PVOID User32Reserved0;          // User app spin count
-    PVOID User32Reserved1;
-    PVOID UserReserved[3];
-    PVOID glDispatchTable[307];     // OpenGL
+    PVOID UserReserved[5];          // unused
+    PVOID glDispatchTable[280];     // OpenGL
+    ULONG glReserved1[26];          // OpenGL
+    PVOID glReserved2;              // OpenGL
     PVOID glSectionInfo;            // OpenGL
     PVOID glSection;                // OpenGL
     PVOID glTable;                  // OpenGL
@@ -228,8 +303,74 @@ typedef struct _TEB {
     PVOID Vdm;
     PVOID ReservedForNtRpc;
     PVOID DbgSsReserved[2];
+    ULONG HardErrorsAreDisabled;
+    PVOID Instrumentation[16];
+    PVOID WinSockData;              // WinSock
+    ULONG GdiBatchCount;
+    ULONG Spare2;
+    ULONG Spare3;
+    ULONG Spare4;
+    PVOID ReservedForOle;
+    ULONG WaitingOnLoaderLock;
 } TEB;
 typedef TEB *PTEB;
+
+
+
+#if !defined(_X86_)
+#define Wx86CurrentTib()  (  \
+     NtCurrentTeb()->Vdm &&  \
+     ((PWX86TIB)NtCurrentTeb()->Vdm)->Size == sizeof(WX86TIB) \
+     ? (PWX86TIB)NtCurrentTeb()->Vdm : NULL                   \
+     )
+
+#define WX86
+
+//
+// Exception Registration structure
+//
+// X86 Call frame record definition, normally defined in nti386.h
+// which is not included on risc.
+//
+
+typedef struct _EXCEPTION_REGISTRATION_RECORD {
+    struct _EXCEPTION_REGISTRATION_RECORD *Next;
+    PEXCEPTION_ROUTINE Handler;
+} EXCEPTION_REGISTRATION_RECORD;
+
+typedef EXCEPTION_REGISTRATION_RECORD *PEXCEPTION_REGISTRATION_RECORD;
+
+#else
+#define Wx86CurrentTib() (NULL)
+#endif
+
+typedef struct _Wx86TIB {
+    ULONG Size;
+    ULONG InitialPc;
+    PVOID StackBase;
+    PVOID StackLimit;
+    PVOID DeallocationStack;
+    ULONG   LogFlags;
+    PULONG  CallBx86Eip;
+    ULONG   InitialSp;
+    BOOLEAN UseKnownWx86Dll;
+    BOOLEAN EmulateInitialPc;
+    BOOLEAN InCpuSimulation;
+    UCHAR   SimulationCount;
+    BOOLEAN OleStubInvoked;
+    BOOLEAN Initialized;
+    PEXCEPTION_REGISTRATION_RECORD ExceptionList;
+    PVOID   CpuContext;
+    PCONTEXT InitialExceptionContext;
+} WX86TIB, *PWX86TIB;
+
+
+
+
+
+
+
+
 
 #define EXCEPTION_CHAIN_END ((struct _EXCEPTION_REGISTRATION_RECORD *)-1)
 
@@ -259,11 +400,28 @@ typedef TEB *PTEB;
 #endif // DBG
 
 typedef struct _INITIAL_TEB {
+    struct {
+        PVOID OldStackBase;
+        PVOID OldStackLimit;
+    } OldInitialTeb;
     PVOID StackBase;
     PVOID StackLimit;
+    PVOID StackAllocationBase;
 } INITIAL_TEB, *PINITIAL_TEB;
 
+#define PROCESS_PRIORITY_CLASS_UNKNOWN      0
+#define PROCESS_PRIORITY_CLASS_IDLE         1
+#define PROCESS_PRIORITY_CLASS_NORMAL       2
+#define PROCESS_PRIORITY_CLASS_HIGH         3
+#define PROCESS_PRIORITY_CLASS_REALTIME     4
 
+typedef struct _PROCESS_PRIORITY_CLASS {
+    BOOLEAN Foreground;
+    UCHAR PriorityClass;
+} PROCESS_PRIORITY_CLASS, *PPROCESS_PRIORITY_CLASS;
+
+
+// begin_ntddk
 //
 // Process Information Classes
 //
@@ -287,8 +445,14 @@ typedef enum _PROCESSINFOCLASS {
     ProcessWorkingSetWatch,
     ProcessUserModeIOPL,
     ProcessEnableAlignmentFaultFixup,
+    ProcessPriorityClass,
+    ProcessWx86Information,
+    ProcessHandleCount,
+    ProcessAffinityMask,
+    ProcessPriorityBoost,
     MaxProcessInfoClass
     } PROCESSINFOCLASS;
+// end_ntddk
 
 //
 // Thread Information Classes
@@ -308,6 +472,10 @@ typedef enum _THREADINFOCLASS {
     ThreadQuerySetWin32StartAddress,
     ThreadZeroTlsCell,
     ThreadPerformanceCount,
+    ThreadAmILastThread,
+    ThreadIdealProcessor,
+    ThreadPriorityBoost,
+    ThreadSetTlsArrayAddress,
     MaxThreadInfoClass
     } THREADINFOCLASS;
 // end_ntddk
@@ -324,6 +492,7 @@ typedef enum _THREADINFOCLASS {
 #define THREAD_BASE_PRIORITY_IDLE   -15 // value that gets a thread to idle
 // end_winnt
 
+// begin_ntddk
 //
 // Process Information Structures
 //
@@ -359,6 +528,8 @@ typedef PROCESS_BASIC_INFORMATION *PPROCESS_BASIC_INFORMATION;
 //  NtSetInformationProcess using ProcessQuotaLimits
 //
 
+// begin_winnt
+
 typedef struct _QUOTA_LIMITS {
     ULONG PagedPoolLimit;
     ULONG NonPagedPoolLimit;
@@ -368,6 +539,8 @@ typedef struct _QUOTA_LIMITS {
     LARGE_INTEGER TimeLimit;
 } QUOTA_LIMITS;
 typedef QUOTA_LIMITS *PQUOTA_LIMITS;
+
+// end_winnt
 
 //
 // Process I/O Counters
@@ -463,6 +636,7 @@ typedef struct _KERNEL_USER_TIMES {
     LARGE_INTEGER UserTime;
 } KERNEL_USER_TIMES;
 typedef KERNEL_USER_TIMES *PKERNEL_USER_TIMES;
+// end_ntddk
 
 //
 // Thread Information Structures
@@ -483,6 +657,28 @@ typedef struct _THREAD_BASIC_INFORMATION {
 } THREAD_BASIC_INFORMATION;
 typedef THREAD_BASIC_INFORMATION *PTHREAD_BASIC_INFORMATION;
 
+typedef struct _FIBER {
+
+    PVOID FiberData;
+
+    //
+    // Matches first three DWORDs of TEB
+    //
+
+    struct _EXCEPTION_REGISTRATION_RECORD *ExceptionList;
+    PVOID StackBase;
+    PVOID StackLimit;
+
+    //
+    // Used by base to free a thread's stack
+    //
+
+    PVOID DeallocationStack;
+
+    CONTEXT FiberContext;
+
+} FIBER, *PFIBER;
+
 //
 //
 // Process Object APIs
@@ -502,6 +698,7 @@ NtCreateProcess(
     IN HANDLE ExceptionPort OPTIONAL
     );
 
+// begin_ntddk
 NTSYSAPI
 NTSTATUS
 NTAPI
@@ -511,6 +708,8 @@ NtOpenProcess (
     IN POBJECT_ATTRIBUTES ObjectAttributes,
     IN PCLIENT_ID ClientId OPTIONAL
     );
+// end_ntddk
+
 
 NTSYSAPI
 NTSTATUS
@@ -520,19 +719,6 @@ NtTerminateProcess(
     IN NTSTATUS ExitStatus
     );
 
-NTSYSAPI
-NTSTATUS
-NTAPI
-NtWaitForProcessMutant(
-    VOID
-    );
-
-NTSYSAPI
-NTSTATUS
-NTAPI
-NtReleaseProcessMutant(
-    VOID
-    );
 
 // begin_ntddk
 #define NtCurrentProcess() ( (HANDLE) -1 )
@@ -541,6 +727,7 @@ NtReleaseProcessMutant(
 
 #define NtCurrentPeb() (NtCurrentTeb()->ProcessEnvironmentBlock)
 
+// begin_ntddk
 NTSYSAPI
 NTSTATUS
 NTAPI
@@ -551,6 +738,7 @@ NtQueryInformationProcess(
     IN ULONG ProcessInformationLength,
     OUT PULONG ReturnLength OPTIONAL
     );
+// end_ntddk
 
 NTSYSAPI
 NTSTATUS
@@ -598,7 +786,10 @@ NtTerminateThread(
     IN NTSTATUS ExitStatus
     );
 
+// begin_ntddk
 #define NtCurrentThread() ( (HANDLE) -2 )
+
+// end_ntddk
 
 NTSYSAPI
 NTSTATUS
@@ -643,6 +834,7 @@ NtQueryInformationThread(
     OUT PULONG ReturnLength OPTIONAL
     );
 
+// begin_ntsrv
 NTSYSAPI
 NTSTATUS
 NTAPI
@@ -652,6 +844,7 @@ NtSetInformationThread(
     IN PVOID ThreadInformation,
     IN ULONG ThreadInformationLength
     );
+// end_ntsrv
 
 NTSYSAPI
 NTSTATUS
@@ -701,6 +894,25 @@ NtSetLdtEntries(
     IN ULONG Selector1,
     IN ULONG Entry1Low,
     IN ULONG Entry1High
+    );
+
+typedef
+VOID
+(*PPS_APC_ROUTINE) (
+    IN PVOID ApcArgument1,
+    IN PVOID ApcArgument2,
+    IN PVOID ApcArgument3
+    );
+
+NTSYSAPI
+NTSTATUS
+NTAPI
+NtQueueApcThread(
+    IN HANDLE ThreadHandle,
+    IN PPS_APC_ROUTINE ApcRoutine,
+    IN PVOID ApcArgument1,
+    IN PVOID ApcArgument2,
+    IN PVOID ApcArgument3
     );
 
 #endif // _NTPSAPI_

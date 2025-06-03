@@ -26,7 +26,7 @@ VDM_INT_32        EQU 00000002h
 VDM_INT_16        EQU 00000000h
 EFLAGS_VIF equ 080000H
 
-ifdef I386
+ifdef WOW_x86
 include vint.inc
 riret macro
     local   a,b,c,d
@@ -38,7 +38,7 @@ riret macro
     mov     ds,ax
     mov     ax,[bp+6]
     test    ax,200h
-    jz	    a
+    jz      a
     test    ds:FIXED_NTVDMSTATE_REL40,RI_BIT_MASK
     jz      c
     sti
@@ -48,7 +48,7 @@ a:
     test    ds:FIXED_NTVDMSTATE_REL40,RI_BIT_MASK
     jz      d
     cli
-d:  lock    and	word ptr ds:FIXED_NTVDMSTATE_REL40,NOT VIRTUAL_INTERRUPT_BIT
+d:  lock    and word ptr ds:FIXED_NTVDMSTATE_REL40,NOT VIRTUAL_INTERRUPT_BIT
 b:
     pop     ds
     pop     ax
@@ -66,7 +66,7 @@ riretd macro
     mov     ds,ax
     mov     ax,[bp+10]
     test    ax,200h
-    jz	    a
+    jz      a
     test    ds:FIXED_NTVDMSTATE_REL40,RI_BIT_MASK
     jz      c
     sti
@@ -76,7 +76,7 @@ a:
     test    ds:FIXED_NTVDMSTATE_REL40,RI_BIT_MASK
     jz      d
     cli
-d:  lock    and	word ptr ds:FIXED_NTVDMSTATE_REL40,NOT VIRTUAL_INTERRUPT_BIT
+d:  lock    and word ptr ds:FIXED_NTVDMSTATE_REL40,NOT VIRTUAL_INTERRUPT_BIT
 b:
     pop     ds
     pop     ax
@@ -94,7 +94,7 @@ riretd32 macro
     mov     ds,ax
     mov     ax,[ebp+0ch]
     test    ax,200h
-    jz	    a
+    jz      a
     test    ds:FIXED_NTVDMSTATE_REL40,RI_BIT_MASK
     jz      c
     sti
@@ -104,7 +104,7 @@ a:
     test    ds:FIXED_NTVDMSTATE_REL40,RI_BIT_MASK
     jz      d
     cli
-d:  lock    and	word ptr ds:FIXED_NTVDMSTATE_REL40,NOT VIRTUAL_INTERRUPT_BIT
+d:  lock    and word ptr ds:FIXED_NTVDMSTATE_REL40,NOT VIRTUAL_INTERRUPT_BIT
 b:
     pop     ds
     pop     ax
@@ -122,7 +122,7 @@ rpopf macro
     mov     ds,ax
     mov     ax,[bp+2]
     test    ax,200h
-    jz	    a
+    jz      a
     test    ds:FIXED_NTVDMSTATE_REL40,RI_BIT_MASK
     jz      c
     sti
@@ -132,7 +132,7 @@ a:
     test    ds:FIXED_NTVDMSTATE_REL40,RI_BIT_MASK
     jz      d
     cli
-d:  lock    and	word ptr ds:FIXED_NTVDMSTATE_REL40,NOT VIRTUAL_INTERRUPT_BIT
+d:  lock    and word ptr ds:FIXED_NTVDMSTATE_REL40,NOT VIRTUAL_INTERRUPT_BIT
 b:
     pop     ds
     pop     ax
@@ -150,7 +150,7 @@ rpopfd macro
     mov     ds,ax
     mov     ax,[bp+2]
     test    ax,200h
-    jz	    a
+    jz      a
     test    ds:FIXED_NTVDMSTATE_REL40,RI_BIT_MASK
     jz      c
     sti
@@ -160,7 +160,7 @@ a:
     test    ds:FIXED_NTVDMSTATE_REL40,RI_BIT_MASK
     jz      d
     cli
-d:  lock    and	word ptr ds:FIXED_NTVDMSTATE_REL40,NOT VIRTUAL_INTERRUPT_BIT
+d:  lock    and word ptr ds:FIXED_NTVDMSTATE_REL40,NOT VIRTUAL_INTERRUPT_BIT
 b:
     pop     ds
     pop     ax
@@ -182,26 +182,26 @@ rpushf macro
     push    ds
     mov     ax,40h
     mov     ds,ax
-    mov	    ax,word ptr ds:FIXED_NTVDMSTATE_REL40
+    mov     ax,word ptr ds:FIXED_NTVDMSTATE_REL40
     test    ax,RI_BIT_MASK
     jz      c
     pushfd
     test    dword ptr [bp-8],EFLAGS_VIF
     jz      d
-    or	    word ptr [bp+2],200h
+    or      word ptr [bp+2],200h
     popfd
     jmp     b
 d:
-    and	    word ptr [bp+2],NOT 200h
+    and     word ptr [bp+2],NOT 200h
     popfd
     jmp     b
 c:
     test    ax,VIRTUAL_INTERRUPT_BIT
-    jz	    a
-    or	    word ptr [bp+2],200h
+    jz      a
+    or      word ptr [bp+2],200h
     jmp     b
 a:
-    and	    word ptr [bp+2],NOT 200h
+    and     word ptr [bp+2],NOT 200h
 b:
     pop     ds
     pop     ax
@@ -218,23 +218,23 @@ rpushfd macro
     push    ds
     mov     ax,40h
     mov     ds,ax
-    mov	    ax,word ptr ds:FIXED_NTVDMSTATE_REL40
+    mov     ax,word ptr ds:FIXED_NTVDMSTATE_REL40
     test    ax,RI_BIT_MASK
     jz      c
     test    dword ptr [bp+2],EFLAGS_VIF
     jz      d
-    or	    word ptr [bp+2],200h
+    or      word ptr [bp+2],200h
     jmp     b
 d:
-    and	    word ptr [bp+2],NOT 200h
+    and     word ptr [bp+2],NOT 200h
     jmp     b
 c:
     test    ax,VIRTUAL_INTERRUPT_BIT
-    jz	    a
-    or	    word ptr [bp+2],200h
+    jz      a
+    or      word ptr [bp+2],200h
     jmp     b
 a:
-    and	    word ptr [bp+2],NOT 200h
+    and     word ptr [bp+2],NOT 200h
 b:
     pop     ds
     pop     ax
@@ -251,23 +251,23 @@ rpushfd32 macro
     push    ds
     mov     ax,40h
     mov     ds,ax
-    mov	    ax,word ptr ds:FIXED_NTVDMSTATE_REL40
+    mov     ax,word ptr ds:FIXED_NTVDMSTATE_REL40
     test    ax,RI_BIT_MASK
     jz      c
     test    dword ptr [ebp+4],EFLAGS_VIF
     jz      d
-    or	    word ptr [ebp+4],200h
+    or      word ptr [ebp+4],200h
     jmp     b
 d:
-    and	    word ptr [ebp+4],NOT 200h
+    and     word ptr [ebp+4],NOT 200h
     jmp     b
 c:
     test    ax,VIRTUAL_INTERRUPT_BIT
-    jz	    a
-    or	    word ptr [ebp+4],200h
+    jz      a
+    or      word ptr [ebp+4],200h
     jmp     b
 a:
-    and	    word ptr [ebp+4],NOT 200h
+    and     word ptr [ebp+4],NOT 200h
 b:
     pop     ds
     pop     ax
@@ -276,6 +276,14 @@ b:
 ELSE
 riret macro
     iret
+    endm
+
+riretd macro
+    iretd
+    endm
+
+riretd32 macro
+    iretd
     endm
 
 rpopf macro
@@ -291,6 +299,10 @@ rpushf macro
     endm
 
 rpushfd macro
+    pushfd
+    endm
+
+rpushfd32 macro
     pushfd
     endm
 

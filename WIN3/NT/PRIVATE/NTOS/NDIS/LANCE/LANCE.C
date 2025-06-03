@@ -281,18 +281,12 @@ Return Value:
 --*/
 
 {
-
-
     //
     // Receives the status of the NdisRegisterMac operation.
     //
     NDIS_STATUS Status;
-
     NDIS_HANDLE NdisWrapperHandle;
-
-    char Tmp[sizeof(NDIS_MINIPORT_CHARACTERISTICS)];
-    PNDIS_MINIPORT_CHARACTERISTICS LanceChar = (PNDIS_MINIPORT_CHARACTERISTICS)Tmp;
-
+    NDIS_MINIPORT_CHARACTERISTICS LanceChar;
     NDIS_STRING MacName = NDIS_STRING_CONST("Lance");
 
 #if NDIS_WIN
@@ -309,50 +303,45 @@ Return Value:
     //
     // Initialize the wrapper.
     //
-
-    NdisInitializeWrapper(&NdisWrapperHandle,
-              DriverObject,
-              RegistryPath,
-              NULL
-              );
+    NdisInitializeWrapper(
+        &NdisWrapperHandle,
+        DriverObject,
+        RegistryPath,
+        NULL
+    );
 
     //
     // Initialize the MAC characteristics for the call to
     // NdisRegisterMac.
     //
-
-    LanceChar->MajorNdisVersion = LANCE_NDIS_MAJOR_VERSION;
-    LanceChar->MinorNdisVersion = LANCE_NDIS_MINOR_VERSION;
-    LanceChar->CheckForHangHandler = NULL;
-    LanceChar->DisableInterruptHandler = LanceDisableInterrupt;
-    LanceChar->EnableInterruptHandler = LanceEnableInterrupt;
-    LanceChar->HaltHandler = LanceHalt;
-    LanceChar->HandleInterruptHandler = LanceHandleInterrupt;
-    LanceChar->InitializeHandler = LanceInitialize;
-    LanceChar->ISRHandler = LanceIsr;
-    LanceChar->QueryInformationHandler = LanceQueryInformation;
-    LanceChar->ReconfigureHandler = NULL;
-    LanceChar->ResetHandler = LanceReset;
-    LanceChar->SendHandler = LanceSend;
-    LanceChar->SetInformationHandler = LanceSetInformation;
-    LanceChar->TransferDataHandler = LanceTransferData;
+    NdisZeroMemory(&LanceChar, sizeof(LanceChar));
+    LanceChar.MajorNdisVersion = LANCE_NDIS_MAJOR_VERSION;
+    LanceChar.MinorNdisVersion = LANCE_NDIS_MINOR_VERSION;
+    LanceChar.CheckForHangHandler = NULL;
+    LanceChar.DisableInterruptHandler = LanceDisableInterrupt;
+    LanceChar.EnableInterruptHandler = LanceEnableInterrupt;
+    LanceChar.HaltHandler = LanceHalt;
+    LanceChar.HandleInterruptHandler = LanceHandleInterrupt;
+    LanceChar.InitializeHandler = LanceInitialize;
+    LanceChar.ISRHandler = LanceIsr;
+    LanceChar.QueryInformationHandler = LanceQueryInformation;
+    LanceChar.ReconfigureHandler = NULL;
+    LanceChar.ResetHandler = LanceReset;
+    LanceChar.SendHandler = LanceSend;
+    LanceChar.SetInformationHandler = LanceSetInformation;
+    LanceChar.TransferDataHandler = LanceTransferData;
 
     Status = NdisMRegisterMiniport(
                  NdisWrapperHandle,
-                 LanceChar,
-                 sizeof(*LanceChar)
-                 );
-
-    if (Status == NDIS_STATUS_SUCCESS) {
-
-        return NDIS_STATUS_SUCCESS;
-
+                 &LanceChar,
+                 sizeof(LanceChar)
+             );
+    if (Status != NDIS_STATUS_SUCCESS)
+    {
+        NdisTerminateWrapper(NdisWrapperHandle, NULL);
     }
 
-    NdisTerminateWrapper(NdisWrapperHandle, NULL);
-
-    return NDIS_STATUS_FAILURE;
-
+    return(Status);
 }
 
 #pragma NDIS_INIT_FUNCTION(LanceInitialize)
@@ -457,17 +446,12 @@ Return Value:
     //
 
     LANCE_ALLOC_PHYS(&Adapter, sizeof(LANCE_ADAPTER));
-
-    if (Adapter == NULL){
-
+    if (Adapter == NULL)
+    {
         return( NDIS_STATUS_RESOURCES ) ;
-
     }
 
-    LANCE_ZERO_MEMORY(
-        Adapter,
-        sizeof(LANCE_ADAPTER)
-        );
+    LANCE_ZERO_MEMORY(Adapter, sizeof(LANCE_ADAPTER));
 
     Adapter->MaxLookAhead = LANCE_MAX_LOOKAHEAD;
 
@@ -479,24 +463,15 @@ Return Value:
     Adapter->MiniportAdapterHandle = MiniportAdapterHandle;
 
     Adapter->IoBaseAddr = LANCE_DE201_PRI_NICSR_ADDRESS;
-    Adapter->NicsrDefaultValue = 0;
     Adapter->HardwareBaseAddr = LANCE_DE201_BASE;
     Adapter->AmountOfHardwareMemory = LANCE_DE201_HARDWARE_MEMORY;
     Adapter->InterruptNumber = LANCE_DE201_INTERRUPT_VECTOR;
     Adapter->InterruptRequestLevel = LANCE_DE201_INTERRUPT_VECTOR;
     Adapter->BeingRemoved = FALSE;
 
-    NdisOpenConfiguration(
-            &Status,
-            &ConfigHandle,
-            ConfigurationHandle
-            );
-
-    if (Status != NDIS_STATUS_SUCCESS) {
-
-        return Status;
-
-    }
+    NdisOpenConfiguration(&Status, &ConfigHandle, ConfigurationHandle);
+    if (Status != NDIS_STATUS_SUCCESS)
+        return(Status);
 
 #if NDIS2
     //
@@ -504,15 +479,14 @@ Return Value:
     //
 
     NdisReadConfiguration(
-            &Status,
-            &ReturnedValue,
-            ConfigHandle,
-            &CardStr,
-            NdisParameterString
-            );
-
-    if (Status == NDIS_STATUS_SUCCESS) {
-
+        &Status,
+        &ReturnedValue,
+        ConfigHandle,
+        &CardStr,
+        NdisParameterString
+    );
+    if (Status == NDIS_STATUS_SUCCESS)
+    {
         if (NdisEqualString (&ReturnedValue->ParameterData.StringData, &DE201Str, 1)) {
             Adapter->LanceCard = LANCE_DE201;
         } else if (NdisEqualString (&ReturnedValue->ParameterData.StringData, &DE100Str, 1)) {
@@ -554,174 +528,151 @@ Return Value:
     //
 
     NdisReadConfiguration(
-            &Status,
-            &ReturnedValue,
-            ConfigHandle,
-            &CardStr,
-            NdisParameterInteger
-            );
-
-    if (Status == NDIS_STATUS_SUCCESS) {
-
-        if (ReturnedValue->ParameterData.IntegerData == 2) {
-
+        &Status,
+        &ReturnedValue,
+        ConfigHandle,
+        &CardStr,
+        NdisParameterInteger
+    );
+    if (Status == NDIS_STATUS_SUCCESS)
+    {
+        if (ReturnedValue->ParameterData.IntegerData == 2)
+        {
             Adapter->LanceCard = LANCE_DE201;
-
-        } else if (ReturnedValue->ParameterData.IntegerData == 1) {
-
+        }
+        else if (ReturnedValue->ParameterData.IntegerData == 1)
+        {
             Adapter->LanceCard = LANCE_DE100;
-
-        } else if (ReturnedValue->ParameterData.IntegerData == 3) {
-
+        }
+        else if (ReturnedValue->ParameterData.IntegerData == 3)
+        {
             Adapter->LanceCard = LANCE_DEPCA;
 
 #ifndef i386
-        } else if (ReturnedValue->ParameterData.IntegerData == 4) {
-
+        }
+        else if (ReturnedValue->ParameterData.IntegerData == 4)
+        {
             Adapter->LanceCard = LANCE_DECTC;
 
             ConfigErrorCode = LanceDecTcGetConfiguration(ConfigHandle, Adapter);
 
-            if ( ConfigErrorCode != NDIS_STATUS_SUCCESS ) {
+            if ( ConfigErrorCode != NDIS_STATUS_SUCCESS )
+            {
                 ConfigError = TRUE;
             }
 #endif // i386
 
-        } else if (ReturnedValue->ParameterData.IntegerData == 5) {
-
+        }
+        else if (ReturnedValue->ParameterData.IntegerData == 5)
+        {
             Adapter->LanceCard = LANCE_DE422;
-
-        } else if (ReturnedValue->ParameterData.IntegerData == 6) {
-
+        }
+        else if (ReturnedValue->ParameterData.IntegerData == 6)
+        {
             //
             // This is the De200, but it operates exactly like the 201.
             //
-
             Adapter->LanceCard = LANCE_DE201;
-
-        } else if (ReturnedValue->ParameterData.IntegerData == 7) {
-
+        }
+        else if (ReturnedValue->ParameterData.IntegerData == 7)
+        {
             //
             // This is the De101, but it operates exactly like the 100.
             //
-
             Adapter->LanceCard = LANCE_DE100;
-
-        } else {
-
+        }
+        else
+        {
             ConfigError = TRUE;
             ConfigErrorCode = NDIS_ERROR_CODE_UNSUPPORTED_CONFIGURATION;
 
             goto RegisterAdapter;
         }
-
     }
-
 #endif
 
     //
     // Read MaxMulticastList
     //
-
     NdisReadConfiguration(
-            &Status,
-            &ReturnedValue,
-            ConfigHandle,
-            &MaxMulticastListStr,
-            NdisParameterInteger
-            );
-
-    if (Status == NDIS_STATUS_SUCCESS) {
-
+        &Status,
+        &ReturnedValue,
+        ConfigHandle,
+        &MaxMulticastListStr,
+        NdisParameterInteger
+    );
+    if (Status == NDIS_STATUS_SUCCESS)
+    {
         MaxMulticastList = ReturnedValue->ParameterData.IntegerData;
-
     }
 
     //
     // Read net address
     //
-
     NdisReadNetworkAddress(
-            &Status,
-            &NetAddress,
-            &Length,
-            ConfigHandle
-            );
+        &Status,
+        &NetAddress,
+        &Length,
+        ConfigHandle
+    );
 
-    if ((Length == LANCE_LENGTH_OF_ADDRESS) && (Status == NDIS_STATUS_SUCCESS)) {
-
+    if ((Length == LANCE_LENGTH_OF_ADDRESS) && (Status == NDIS_STATUS_SUCCESS))
+    {
         NdisMoveMemory(
             Adapter->CurrentNetworkAddress,
             NetAddress,
             LANCE_LENGTH_OF_ADDRESS
-            );
-
+        );
     }
 
-    if (Adapter->LanceCard & (LANCE_DE201 | LANCE_DE100)) {
-
+    if (Adapter->LanceCard & (LANCE_DE201 | LANCE_DE100))
+    {
         //
         // Read IoAddress
         //
-
         NdisReadConfiguration(
-                &Status,
-                &ReturnedValue,
-                ConfigHandle,
-                &IoAddressStr,
-                NdisParameterHexInteger
-                );
-
-        if (Status == NDIS_STATUS_SUCCESS) {
-
-#if NDIS_NT
-            if (ReturnedValue->ParameterData.IntegerData == 1) {
-#else
-            if (ReturnedValue->ParameterData.IntegerData == LANCE_DE201_PRI_NICSR_ADDRESS) {
-#endif
-
+            &Status,
+            &ReturnedValue,
+            ConfigHandle,
+            &IoAddressStr,
+            NdisParameterHexInteger
+        );
+        if (Status == NDIS_STATUS_SUCCESS)
+        {
+            if (ReturnedValue->ParameterData.IntegerData == LANCE_DE201_PRI_NICSR_ADDRESS)
+            {
                 Adapter->IoBaseAddr = LANCE_DE201_PRI_NICSR_ADDRESS;
-
-#if NDIS_NT
-            } else if (ReturnedValue->ParameterData.IntegerData == 2) {
-#else
-            } else if (ReturnedValue->ParameterData.IntegerData == LANCE_DE201_SEC_NICSR_ADDRESS) {
-#endif
-
+            }
+            else if (ReturnedValue->ParameterData.IntegerData == LANCE_DE201_SEC_NICSR_ADDRESS)
+            {
                 Adapter->IoBaseAddr = LANCE_DE201_SEC_NICSR_ADDRESS;
-
-            } else {
-
+            }
+            else
+            {
                 ConfigError = TRUE;
                 ConfigErrorCode = NDIS_ERROR_CODE_BAD_IO_BASE_ADDRESS;
 
                 goto RegisterAdapter;
             }
-
         }
-
-
-
 
         //
         // Read Interrupt
         //
-
         NdisReadConfiguration(
-                &Status,
-                &ReturnedValue,
-                ConfigHandle,
-                &InterruptStr,
-                NdisParameterInteger
-                );
-
-        if (Status == NDIS_STATUS_SUCCESS) {
-
+            &Status,
+            &ReturnedValue,
+            ConfigHandle,
+            &InterruptStr,
+            NdisParameterInteger
+        );
+        if (Status == NDIS_STATUS_SUCCESS)
+        {
             Adapter->InterruptNumber = (CCHAR)ReturnedValue->ParameterData.IntegerData;
             Adapter->InterruptRequestLevel = Adapter->InterruptNumber;
 
-            if (Adapter->LanceCard == LANCE_DE201) {
-
+            if (Adapter->LanceCard == LANCE_DE201)
+            {
                 if (!((Adapter->InterruptNumber == 5) ||
                       (Adapter->InterruptNumber == 9) ||
                       (Adapter->InterruptNumber == 10) ||
@@ -1058,13 +1009,11 @@ RegisterAdapter:
 
     }
 
-
     //
     // Now we get the rest of the information necessary for the DE422.
     //
-
-    if (Adapter->LanceCard == LANCE_DE422) {
-
+    if (Adapter->LanceCard == LANCE_DE422)
+    {
         //
         // Verify card is a DE422
         //
@@ -1778,37 +1727,27 @@ Return Value:
 --*/
 
 {
-
-    if (Adapter->LanceCard & (LANCE_DE201 | LANCE_DE100 | LANCE_DE422)) {
-
+    if (Adapter->LanceCard & (LANCE_DE201 | LANCE_DE100 | LANCE_DE422))
+    {
         //
         // Allow interrupts
         //
-
         Adapter->InterruptsStopped = FALSE;
 
         LOG(UNPEND);
 
         LANCE_WRITE_NICSR(Adapter, LANCE_NICSR_INT_ON);
-
     }
 
     SetInitBlockAndInit(Adapter);
 
-    //
-    // Delay execution for 1/2 second to give the lance
-    // time to initialize.
-    //
-
-    NdisStallExecution( 500000 );
 
     //
     // The only way that first initialization could have
     // been turned off is if we actually initialized.
     //
-
-    if (!Adapter->FirstInitialization) {
-
+    if (!Adapter->FirstInitialization)
+    {
         //
         // We can start the chip.  We may not
         // have any bindings to indicateto but this
@@ -1816,11 +1755,10 @@ Return Value:
         //
         LanceStartChip(Adapter);
         return NDIS_STATUS_SUCCESS;
-
-    } else {
-
-        return NDIS_STATUS_FAILURE;
-
+    }
+    else
+    {
+        return(NDIS_STATUS_FAILURE);
     }
 
 }
@@ -1917,41 +1855,33 @@ Return Value:
     LOG(IN_ISR);
 
     *QueueDpc = FALSE;
+    *InterruptRecognized = FALSE;
 
-    if (Adapter->LanceCard & (LANCE_DE201 | LANCE_DE100 | LANCE_DE422)) {
-
+    if ((Adapter->LanceCard & (LANCE_DE201 | LANCE_DE100 | LANCE_DE422)) &&
+        !Adapter->InterruptsStopped
+    )
+    {
         //
-        // If not currently pended, pend interrupts...
+        // Pend interrupts
         //
+        StoppedInterrupts = TRUE;
+        Adapter->InterruptsStopped = TRUE;
 
-        if (!(Adapter->InterruptsStopped)){
+        LOG(PEND);
 
-            //
-            // Pend interrupts
-            //
-
-            StoppedInterrupts = TRUE;
-
-            Adapter->InterruptsStopped = TRUE;
-
-            LOG(PEND);
-
-            LANCE_ISR_WRITE_NICSR(Adapter,
-            LANCE_NICSR_IMASK | LANCE_NICSR_LED_ON | LANCE_NICSR_INT_ON);
-
-        }
-
+        LANCE_ISR_WRITE_NICSR(
+            Adapter,
+            LANCE_NICSR_IMASK | LANCE_NICSR_LED_ON | LANCE_NICSR_INT_ON
+        );
     }
 
     //
     // We don't need to select csr0, as the only way we could get
     // an interrupt is to have already selected 0.
     //
-
     LANCE_ISR_READ_RDP(Adapter, &LocalCSR0Value);
-
-    if (LocalCSR0Value & LANCE_CSR0_INTERRUPT_FLAG) {
-
+    if (LocalCSR0Value & LANCE_CSR0_INTERRUPT_FLAG)
+    {
         *InterruptRecognized = TRUE;
 
         //
@@ -1960,70 +1890,39 @@ Return Value:
         // reasons for interrupts occur between the time that we
         // read csr0 and the time that we clear the bits.
         //
-
         LANCE_ISR_WRITE_RDP(
             Adapter,
             (USHORT)((LANCE_CSR0_CLEAR_INTERRUPT_BITS & LocalCSR0Value) |
                LANCE_CSR0_INTERRUPT_ENABLE)
-            );
-
+        );
         if (Adapter->FirstInitialization &&
-            (LocalCSR0Value & LANCE_CSR0_INITIALIZATION_DONE)) {
-
+            (LocalCSR0Value & LANCE_CSR0_INITIALIZATION_DONE)
+        )
+        {
             Adapter->FirstInitialization = FALSE;
-
-            if ((Adapter->LanceCard & (LANCE_DE201 | LANCE_DE100 | LANCE_DE422)) &&
-                StoppedInterrupts) {
-
-                //
-                // Allow interrupts
-                //
-
-                Adapter->InterruptsStopped = FALSE;
-
-                LOG(UNPEND);
-
-                LANCE_ISR_WRITE_NICSR(Adapter, LANCE_NICSR_INT_ON);
-
-            }
-
-            LOG(OUT_ISR);
-
-            return;
-
-        } else {
-
-            LOG(OUT_ISR);
-
-            return;
-
         }
-
-    } else {
-
-        *InterruptRecognized = FALSE;
-
-        if ((Adapter->LanceCard & (LANCE_DE201 | LANCE_DE100 | LANCE_DE422)) &&
-            StoppedInterrupts) {
-
-            //
-            // Allow interrupts
-            //
-
-            Adapter->InterruptsStopped = FALSE;
-
-            LOG(UNPEND);
-
-            LANCE_ISR_WRITE_NICSR(Adapter, LANCE_NICSR_INT_ON);
-
-        }
-
-        LOG(OUT_ISR);
-
-        return;
-
     }
 
+    //
+    //  Enable the interrupts.
+    //
+    if ((Adapter->LanceCard & (LANCE_DE201 | LANCE_DE100 | LANCE_DE422)) &&
+        StoppedInterrupts
+    )
+    {
+        //
+        // Allow interrupts
+        //
+        Adapter->InterruptsStopped = FALSE;
+
+        LOG(UNPEND);
+
+        LANCE_ISR_WRITE_NICSR(Adapter, LANCE_NICSR_INT_ON);
+    }
+
+    LOG(OUT_ISR);
+
+    return;
 }
 STATIC
 VOID
@@ -2053,14 +1952,14 @@ Return Value:
     //
     // Pend any interrupts
     //
-
     ASSERT(Adapter->LanceCard & (LANCE_DE201 | LANCE_DE100 | LANCE_DE422));
 
     LOG(PEND);
 
-    LANCE_ISR_WRITE_NICSR(Adapter,
-                LANCE_NICSR_IMASK | LANCE_NICSR_LED_ON | LANCE_NICSR_INT_ON);
-
+    LANCE_ISR_WRITE_NICSR(
+        Adapter,
+        LANCE_NICSR_IMASK | LANCE_NICSR_LED_ON | LANCE_NICSR_INT_ON
+    );
 }
 
 
@@ -2097,7 +1996,6 @@ Return Value:
     LOG(UNPEND);
 
     LANCE_ISR_WRITE_NICSR(Adapter, LANCE_NICSR_INT_ON);
-
 }
 VOID
 LanceDeferredTimerRoutine(
@@ -2165,37 +2063,32 @@ Return Value:
     //
     // Loop until there are no more processing sources.
     //
-
-    while (TRUE) {
-
+    for (;;)
+    {
         //
         // We don't need to select csr0, as the only way we could get
         // an interrupt is to have already selected 0.
         //
-
         LANCE_ISR_READ_RDP(Adapter, &LocalCSR0Value);
 
-        if (LocalCSR0Value & LANCE_CSR0_INTERRUPT_FLAG) {
-
+        if (LocalCSR0Value & LANCE_CSR0_INTERRUPT_FLAG)
+        {
             //
             // It's our interrupt. Clear only those bits that we got
             // in this read of csr0.  We do it this way incase any new
             // reasons for interrupts occur between the time that we
             // read csr0 and the time that we clear the bits.
             //
-
             LANCE_ISR_WRITE_RDP(
                 Adapter,
                 (USHORT)((LANCE_CSR0_CLEAR_INTERRUPT_BITS & LocalCSR0Value) |
                    LANCE_CSR0_INTERRUPT_ENABLE)
-                );
+            );
 
             //
             // Or the csr value into the adapter version of csr 0.
             //
-
             Csr |= LocalCSR0Value;
-
         }
 
         //
@@ -2203,7 +2096,6 @@ Return Value:
         // for processing.  If there are no reasons to
         // process then exit this loop.
         //
-
         if (((!Adapter->ResetInitStarted) &&
              ((Csr & (LANCE_CSR0_MEMORY_ERROR |
                   LANCE_CSR0_MISSED_PACKET |
@@ -2211,12 +2103,14 @@ Return Value:
                   LANCE_CSR0_RECEIVER_INTERRUPT |
                   LANCE_CSR0_TRANSMITTER_INTERRUPT)) ||
               (Adapter->ResetInProgress))) ||
-            (Csr & LANCE_CSR0_INITIALIZATION_DONE)) {
+            (Csr & LANCE_CSR0_INITIALIZATION_DONE)
+        )
+        {
 
-        } else {
-
+        }
+        else
+        {
             break;
-
         }
 
         //
@@ -2225,9 +2119,8 @@ Return Value:
         // Note that we come out of the synchronization above holding
         // the spinlock.
         //
-
-        if (Csr & LANCE_CSR0_INITIALIZATION_DONE) {
-
+        if (Csr & LANCE_CSR0_INITIALIZATION_DONE)
+        {
             //
             // Possibly undefined reason why the reset was requested.
             //
@@ -2251,50 +2144,42 @@ Return Value:
             // we get *another* reset while we're indicating the
             // last reset is done.
             //
-
             ResetRequestType = Adapter->ResetRequestType;
 
-            if (ResetRequestType == NdisRequestSetInformation) {
-
+            if (ResetRequestType == NdisRequestSetInformation)
+            {
                 //
                 // It was a request submitted by a protocol.
                 //
-
                 NdisMSetInformationComplete(
                     Adapter->MiniportAdapterHandle,
                     NDIS_STATUS_SUCCESS
-                    );
-
-            } else {
-
+                );
+            }
+            else
+            {
                 //
                 // It was a reset command.
                 //
-
-                if (ResetRequestType == NdisRequestGeneric1) {
-
+                if (ResetRequestType == NdisRequestGeneric1)
+                {
                     //
                     // Is was a reset request
                     //
-
                     NdisMResetComplete(
-                             Adapter->MiniportAdapterHandle,
-                             NDIS_STATUS_SUCCESS,
-                             FALSE
-                             );
-
+                        Adapter->MiniportAdapterHandle,
+                        NDIS_STATUS_SUCCESS,
+                        FALSE
+                    );
                 }
-
             }
 
             //
             // Restart the chip.
             //
-
             LanceStartChip(Adapter);
 
             goto LoopBottom;
-
         }
 
         //
@@ -2303,41 +2188,38 @@ Return Value:
         // we are the only "active" interrupt processing routine) then
         // it is safe to start the reset.
         //
-
         if (Adapter->ResetInProgress &&
-            !Adapter->ResetInitStarted) {
-
+            !Adapter->ResetInitStarted
+        )
+        {
 #if LANCE_TRACE
             DbgPrint("Starting Initialization.\n");
 #endif
-
             StartAdapterReset(Adapter);
 
             Adapter->ResetInitStarted = TRUE;
             goto LoopBottom;
-
         }
 
         //
         // Check for non-packet related errors.
         //
-
         if (Csr & (LANCE_CSR0_MEMORY_ERROR |
-               LANCE_CSR0_MISSED_PACKET |
-               LANCE_CSR0_BABBLE)) {
-
-            if (Csr & LANCE_CSR0_MISSED_PACKET) {
-
+                   LANCE_CSR0_MISSED_PACKET |
+                   LANCE_CSR0_BABBLE)
+        )
+        {
+            if (Csr & LANCE_CSR0_MISSED_PACKET)
+            {
                 Adapter->MissedPacket++;
-
-            } else if (Csr & LANCE_CSR0_BABBLE) {
-
+            }
+            else if (Csr & LANCE_CSR0_BABBLE)
+            {
                 //
                 // A babble error implies that we've sent a
                 // packet that is greater than the ethernet length.
                 // This implies that the driver is broken.
                 //
-
                 Adapter->Babble++;
 
                 NdisWriteErrorLogEntry(
@@ -2346,28 +2228,24 @@ Return Value:
                     2,
                     (ULONG)processInterrupt,
                     (ULONG)0x1
-                    );
-
-
-            } else {
-
+                );
+            }
+            else
+            {
                 //
                 // Could only be a memory error.  This shuts down
                 // the receiver and the transmitter.  We have to
                 // reset to get the device started again.
                 //
-
                 Adapter->MemoryError++;
 
                 SetupForReset(
                     Adapter,
                     NdisRequestGeneric4 // Means MAC issued
-                    );
+                 );
+            }
 
-                }
-
-                Csr &= ~LANCE_CSR0_ERROR_BITS;
-
+            Csr &= ~LANCE_CSR0_ERROR_BITS;
         }
 
         //
@@ -2378,72 +2256,59 @@ Return Value:
         // come in.  This is to lessen the probability that we
         // drop a receive.
         //
-
-
-        if (Csr & LANCE_CSR0_RECEIVER_INTERRUPT) {
-
-            if (ProcessReceiveInterrupts(Adapter)) {
-
+        if (Csr & LANCE_CSR0_RECEIVER_INTERRUPT)
+        {
+            if (ProcessReceiveInterrupts(Adapter))
+            {
                 Csr &= ~LANCE_CSR0_RECEIVER_INTERRUPT;
-
             }
-
         }
 
         //
         // Process the transmit interrupts if there are any.
         //
-
-        if (Csr & LANCE_CSR0_TRANSMITTER_INTERRUPT) {
-
+        if (Csr & LANCE_CSR0_TRANSMITTER_INTERRUPT)
+        {
             //
             // We need to check if the transmitter has
             // stopped as a result of an error.  If it
             // has then we really need to reset the adapter.
             //
-
-            if (!(Csr & LANCE_CSR0_TRANSMITTER_ON)) {
-
+            if (!(Csr & LANCE_CSR0_TRANSMITTER_ON))
+            {
                 //
                 // Might as well turn off the transmitter interrupt
                 // source since we won't ever be processing them
                 // and we don't want to come back here again.
                 //
-
                 Csr &= ~LANCE_CSR0_TRANSMITTER_INTERRUPT;
 
                 //
                 // Before we setup for the reset make sure that
                 // we aren't already resetting.
                 //
-
-                if (!Adapter->ResetInProgress) {
-
+                if (!Adapter->ResetInProgress)
+                {
                     SetupForReset(
                         Adapter,
                         NdisRequestGeneric4 // means MAC issued
-                        );
-
+                    );
                 }
 
                 goto LoopBottom;
-
-            } else {
-
-                if (!ProcessTransmitInterrupts(Adapter)) {
-
+            }
+            else
+            {
+                if (!ProcessTransmitInterrupts(Adapter))
+                {
                     //
                     // Process interrupts returns false if it
                     // finds no more work to do.  If this so we
                     // turn off the transmitter interrupt source.
                     //
-
                     Csr &= ~LANCE_CSR0_TRANSMITTER_INTERRUPT;
-
                 }
-
             }
-
         }
 
 LoopBottom:;
@@ -2456,13 +2321,11 @@ LoopBottom:;
     // Note: The only way to get out of the loop (via the break above) is
     // while we're still holding the spin lock.
     //
-
-    if (Adapter->IndicatedAPacket) {
-
+    if (Adapter->IndicatedAPacket)
+    {
         Adapter->IndicatedAPacket = FALSE;
 
         NdisMEthIndicateReceiveComplete(Adapter->MiniportAdapterHandle);
-
     }
 
     LOG(OUT_DPC);
@@ -3493,9 +3356,11 @@ Return Value:
 
             }
 
-            Status = LanceSetPacketFilter(Adapter,
-                              NdisRequestSetInformation,
-                              Filter);
+            Status = LanceSetPacketFilter(
+                         Adapter,
+                         NdisRequestSetInformation,
+                         Filter
+                     );
 
             break;
 
@@ -3504,28 +3369,25 @@ Return Value:
             //
             // Verify length
             //
-
-            if (OidLength != 4) {
-
+            if (OidLength != 4)
+            {
                 Status = NDIS_STATUS_INVALID_LENGTH;
 
                 *BytesRead = 0;
-                *BytesNeeded = 0;
+                *BytesNeeded = 4;
 
                 break;
-
             }
 
             LANCE_MOVE_MEMORY(&LookAhead, InfoBuffer, 4);
 
-            if (LookAhead <= (LANCE_MAX_LOOKAHEAD)) {
-
+            if (LookAhead <= (LANCE_MAX_LOOKAHEAD))
+            {
+                Status = NDIS_STATUS_SUCCESS;
+            }
+            else
+            {
                 Status = NDIS_STATUS_INVALID_LENGTH;
-
-            } else {
-
-                Status = NDIS_STATUS_INVALID_LENGTH;
-
             }
 
             *BytesRead = 4;
@@ -3608,40 +3470,27 @@ Return Value:
     DbgPrint("In LanceSetPacketFilter\n");
 #endif
 
-    if (Adapter->HardwareFailure) {
-
-        return(NDIS_STATUS_SUCCESS);
-
-    }
-
     //
     // Check to see if the device is already resetting.
     //
 
-    if (Adapter->ResetInProgress) {
-
+    if (Adapter->ResetInProgress || Adapter->HardwareFailure)
+    {
         return(NDIS_STATUS_FAILURE);
-
-    } else {
-
-        //
-        // We need to add this to the hardware multicast filtering.
-        //
-
-        Adapter->PacketFilter = PacketFilter;
-
-        SetupForReset(
-                Adapter,
-                NdisRequestType
-                );
-
     }
+
+    //
+    // We need to add this to the hardware multicast filtering.
+    //
+    Adapter->PacketFilter = PacketFilter;
+
+    SetupForReset(Adapter, NdisRequestType);
 
 #if LANCE_TRACE
     DbgPrint("Out LanceSetPacketFilter\n");
 #endif
 
-    return NDIS_STATUS_PENDING;
+    return(NDIS_STATUS_PENDING);
 }
 
 STATIC
@@ -3748,46 +3597,35 @@ Return Value:
     DbgPrint("In LanceChangeMultiAdresses\n");
 #endif
 
-    if (Adapter->HardwareFailure) {
-
-        return(NDIS_STATUS_SUCCESS);
-
-    }
-
     //
     // Check to see if the device is already resetting.  If it is
     // then pend this add.
     //
-
-    if (Adapter->ResetInProgress) {
+    if (Adapter->ResetInProgress || Adapter->HardwareFailure)
+    {
 
         return(NDIS_STATUS_FAILURE);
-
-    } else {
-
-        //
-        // We need to add this to the hardware multicast filtering.
-        //
-
-        Adapter->NumberOfAddresses = NewAddressCount;
-
-        NdisMoveMemory(Adapter->MulticastAddresses,
-                       NewAddresses,
-                       NewAddressCount * LANCE_LENGTH_OF_ADDRESS
-                      );
-
-        SetupForReset(
-                Adapter,
-                NdisRequestType
-                );
-
     }
+
+    //
+    // We need to add this to the hardware multicast filtering.
+    //
+    Adapter->NumberOfAddresses = NewAddressCount;
+
+    NdisMoveMemory(
+        Adapter->MulticastAddresses,
+        NewAddresses,
+        NewAddressCount * LANCE_LENGTH_OF_ADDRESS
+    );
+
+    SetupForReset(Adapter, NdisRequestType);
+
 
 #if LANCE_TRACE
     DbgPrint("Out LanceChangeMultiAdresses\n");
 #endif
 
-    return NDIS_STATUS_PENDING;
+    return(NDIS_STATUS_PENDING);
 
 }
 
@@ -3821,23 +3659,19 @@ Return Value:
 --*/
 
 {
-
     //
     // Holds the status that should be returned to the caller.
     //
     PLANCE_ADAPTER Adapter = (PLANCE_ADAPTER)MiniportAdapterContext;
 
-    ASSERT(!Adapter->ResetInProgress);
-
     SetupForReset(
-                Adapter,
-                NdisRequestGeneric1 // Means Reset
-                );
+        Adapter,
+        NdisRequestGeneric1 // Means Reset
+    );
 
     LANCE_DO_DEFERRED(Adapter);
 
-    return NDIS_STATUS_PENDING;
-
+    return(NDIS_STATUS_PENDING);
 }
 
 STATIC
@@ -3883,155 +3717,163 @@ Return Value:
     LANCE_ZERO_MEMORY_FOR_HARDWARE(
         (PUCHAR)Adapter->InitBlock,
         sizeof(LANCE_INITIALIZATION_BLOCK)
-        );
+    );
 
-    for (i=0; i < LANCE_LENGTH_OF_ADDRESS; i++) {
-
+    //
+    //  Set the card address.
+    //
+    for (i = 0; i < LANCE_LENGTH_OF_ADDRESS; i++)
+    {
         LANCE_WRITE_HARDWARE_MEMORY_UCHAR(
             Adapter->InitBlock->PhysicalAddress[i],
             Adapter->CurrentNetworkAddress[i]
-            );
-
+        );
     }
 
-    PhysAdr = LANCE_GET_HARDWARE_PHYSICAL_ADDRESS(Adapter, Adapter->TransmitRing);
+    //
+    //  Setup the transmit ring.
+    //
+    PhysAdr = LANCE_GET_HARDWARE_PHYSICAL_ADDRESS(
+                  Adapter,
+                  Adapter->TransmitRing
+              );
 
     LANCE_WRITE_HARDWARE_LOW_PART_ADDRESS(
          Adapter->InitBlock->LowTransmitRingAddress,
          LANCE_GET_LOW_PART_ADDRESS(PhysAdr)
-         );
+     );
 
     LANCE_WRITE_HARDWARE_HIGH_PART_ADDRESS(
          Adapter->InitBlock->HighTransmitRingAddress,
          LANCE_GET_HIGH_PART_ADDRESS(PhysAdr)
-         );
+     );
 
-    PhysAdr = LANCE_GET_HARDWARE_PHYSICAL_ADDRESS(Adapter, Adapter->ReceiveRing);
+    //
+    //  Setup the receive ring.
+    //
+    PhysAdr = LANCE_GET_HARDWARE_PHYSICAL_ADDRESS(
+                  Adapter,
+                  Adapter->ReceiveRing
+              );
 
     //
     // Set that the chip owns each entry in the ring
     //
-
     for (CurrentEntry = Adapter->ReceiveRing, RingNumber = 0;
          RingNumber < Adapter->NumberOfReceiveRings ;
          RingNumber++, CurrentEntry++
-        ) {
-
+    )
+    {
         LANCE_WRITE_HARDWARE_MEMORY_UCHAR(
-             CurrentEntry->ReceiveSummaryBits,
-             LANCE_RECEIVE_OWNED_BY_CHIP
-             );
-
+            CurrentEntry->ReceiveSummaryBits,
+            LANCE_RECEIVE_OWNED_BY_CHIP
+        );
     }
 
     LANCE_WRITE_HARDWARE_LOW_PART_ADDRESS(
-         Adapter->InitBlock->LowReceiveRingAddress,
-         LANCE_GET_LOW_PART_ADDRESS(PhysAdr)
-         );
+        Adapter->InitBlock->LowReceiveRingAddress,
+        LANCE_GET_LOW_PART_ADDRESS(PhysAdr)
+    );
 
     LANCE_WRITE_HARDWARE_HIGH_PART_ADDRESS(
-         Adapter->InitBlock->HighReceiveRingAddress,
-         LANCE_GET_HIGH_PART_ADDRESS(PhysAdr)
-         );
+        Adapter->InitBlock->HighReceiveRingAddress,
+        LANCE_GET_HIGH_PART_ADDRESS(PhysAdr)
+    );
 
     LANCE_WRITE_HARDWARE_MEMORY_UCHAR(
-         Adapter->InitBlock->TransmitLengthLow5BitsReserved,
-         (UCHAR)(Adapter->LogNumberTransmitRings << 5)
-         );
+        Adapter->InitBlock->TransmitLengthLow5BitsReserved,
+        (UCHAR)(Adapter->LogNumberTransmitRings << 5)
+    );
 
     LANCE_WRITE_HARDWARE_MEMORY_UCHAR(
-         Adapter->InitBlock->ReceiveLengthLow5BitsReserved,
-         (UCHAR)(Adapter->LogNumberReceiveRings << 5)
-         );
+        Adapter->InitBlock->ReceiveLengthLow5BitsReserved,
+        (UCHAR)(Adapter->LogNumberReceiveRings << 5)
+    );
 
     //
     // Set up the address filtering.
     //
     // First get hold of the combined packet filter.
     //
-
     PacketFilters = Adapter->PacketFilter;
 
 #if LANCE_TRACE
     DbgPrint("Filters 0x%x\n", PacketFilters);
 #endif
 
-    if (PacketFilters & NDIS_PACKET_TYPE_PROMISCUOUS) {
-
+    if (PacketFilters & NDIS_PACKET_TYPE_PROMISCUOUS)
+    {
         //
         // If one binding is promiscuous there is no point in
         // setting up any other filtering.  Every packet is
         // going to be accepted by the hardware.
         //
-
         LANCE_READ_HARDWARE_MEMORY_USHORT(
-             Adapter->InitBlock->ModeRegister,
-             &Mode
-             );
+            Adapter->InitBlock->ModeRegister,
+            &Mode
+        );
 
         LANCE_WRITE_HARDWARE_MEMORY_USHORT(
-             Adapter->InitBlock->ModeRegister,
-             Mode | LANCE_MODE_PROMISCUOUS
-             );
-
-    } else {
-
-
+            Adapter->InitBlock->ModeRegister,
+            Mode | LANCE_MODE_PROMISCUOUS
+        );
+    }
+    else
+    {
         //
         // Turn off promiscuous bit
         //
         LANCE_READ_HARDWARE_MEMORY_USHORT(
-             Adapter->InitBlock->ModeRegister,
-             &Mode
-             );
+            Adapter->InitBlock->ModeRegister,
+            &Mode
+        );
 
         LANCE_WRITE_HARDWARE_MEMORY_USHORT(
-             Adapter->InitBlock->ModeRegister,
-             Mode & (~LANCE_MODE_PROMISCUOUS)
-             );
+            Adapter->InitBlock->ModeRegister,
+            Mode & (~LANCE_MODE_PROMISCUOUS)
+        );
 
-        if (PacketFilters & NDIS_PACKET_TYPE_ALL_MULTICAST) {
-
+        if (PacketFilters & NDIS_PACKET_TYPE_ALL_MULTICAST)
+        {
             //
             // We turn on all the bits in the filter since one binding
             // wants every multicast address.
             //
-
             LANCE_WRITE_HARDWARE_MEMORY_UCHAR(
-                 Adapter->InitBlock->LogicalAddressFilter[0],
-                 0xff
-                 );
+                Adapter->InitBlock->LogicalAddressFilter[0],
+                0xff
+            );
             LANCE_WRITE_HARDWARE_MEMORY_UCHAR(
-                 Adapter->InitBlock->LogicalAddressFilter[1],
-                 0xff
-                 );
+                Adapter->InitBlock->LogicalAddressFilter[1],
+                0xff
+            );
             LANCE_WRITE_HARDWARE_MEMORY_UCHAR(
-                 Adapter->InitBlock->LogicalAddressFilter[2],
-                 0xff
-                 );
+                Adapter->InitBlock->LogicalAddressFilter[2],
+                0xff
+            );
             LANCE_WRITE_HARDWARE_MEMORY_UCHAR(
-                 Adapter->InitBlock->LogicalAddressFilter[3],
-                 0xff
-                 );
+                Adapter->InitBlock->LogicalAddressFilter[3],
+                0xff
+            );
             LANCE_WRITE_HARDWARE_MEMORY_UCHAR(
-                 Adapter->InitBlock->LogicalAddressFilter[4],
-                 0xff
-                 );
+                Adapter->InitBlock->LogicalAddressFilter[4],
+                0xff
+            );
             LANCE_WRITE_HARDWARE_MEMORY_UCHAR(
-                 Adapter->InitBlock->LogicalAddressFilter[5],
-                 0xff
-                 );
+                Adapter->InitBlock->LogicalAddressFilter[5],
+                0xff
+            );
             LANCE_WRITE_HARDWARE_MEMORY_UCHAR(
-                 Adapter->InitBlock->LogicalAddressFilter[6],
-                 0xff
-                 );
+                Adapter->InitBlock->LogicalAddressFilter[6],
+                0xff
+            );
             LANCE_WRITE_HARDWARE_MEMORY_UCHAR(
-                 Adapter->InitBlock->LogicalAddressFilter[7],
-                 0xff
-                 );
-
-        } else if (PacketFilters & NDIS_PACKET_TYPE_MULTICAST) {
-
+                Adapter->InitBlock->LogicalAddressFilter[7],
+                0xff
+            );
+        }
+        else if (PacketFilters & NDIS_PACKET_TYPE_MULTICAST)
+        {
            //
            // At least one open binding wants multicast addresses.
            //
@@ -4040,27 +3882,22 @@ Return Value:
            // order 6 bits from the 32 bit CRC and set that bit
            // in the logical address filter.
            //
-
            UINT NumberOfAddresses;
 
            NumberOfAddresses = Adapter->NumberOfAddresses;
 
            ASSERT(sizeof(ULONG) == 4);
 
-           for (
-               ;
-               NumberOfAddresses;
-               NumberOfAddresses--
-               ) {
-
+           for ( ; NumberOfAddresses; NumberOfAddresses--)
+           {
                UINT CRCValue;
 
                UINT HashValue = 0;
 
                CRCValue = CalculateCRC(
-                      6,
-                      Adapter->MulticastAddresses[NumberOfAddresses-1]
-                      );
+                              6,
+                              Adapter->MulticastAddresses[NumberOfAddresses-1]
+                          );
 
                HashValue |= ((CRCValue & 0x00000001)?(0x00000020):(0x00000000));
                HashValue |= ((CRCValue & 0x00000002)?(0x00000010):(0x00000000));
@@ -4070,19 +3907,16 @@ Return Value:
                HashValue |= ((CRCValue & 0x00000020)?(0x00000001):(0x00000000));
 
                LANCE_READ_HARDWARE_MEMORY_UCHAR(
-                     Adapter->InitBlock->LogicalAddressFilter[HashValue >> 3],
-                     &RingNumber
-                     );
+                   Adapter->InitBlock->LogicalAddressFilter[HashValue >> 3],
+                   &RingNumber
+               );
 
                LANCE_WRITE_HARDWARE_MEMORY_UCHAR(
-                 Adapter->InitBlock->LogicalAddressFilter[HashValue >> 3],
-                 RingNumber | (1 << (HashValue & 0x00000007))
-                 );
-
+                   Adapter->InitBlock->LogicalAddressFilter[HashValue >> 3],
+                   RingNumber | (1 << (HashValue & 0x00000007))
+               );
             }
-
         }
-
     }
 
 #if LANCE_TRACE
@@ -4117,8 +3951,6 @@ Return Value:
 --*/
 
 {
-
-
     //
     // We don't get here unless there was a receive.  Loop through
     // the receive descriptors starting at the last known descriptor
@@ -4173,10 +4005,9 @@ Return Value:
 
     ULONG ReceivePacketCount = 0;
 
-    while (TRUE) {
-
+    for (; ; )
+    {
         UCHAR ReceiveSummaryBits;
-
 
         //
         // Check to see whether we own the packet.  If
@@ -4186,22 +4017,22 @@ Return Value:
         LANCE_READ_HARDWARE_MEMORY_UCHAR(
             CurrentEntry->ReceiveSummaryBits,
             &ReceiveSummaryBits
-            );
+        );
 
-        if (ReceiveSummaryBits & LANCE_RECEIVE_OWNED_BY_CHIP) {
-
+        if (ReceiveSummaryBits & LANCE_RECEIVE_OWNED_BY_CHIP)
+        {
             LOG(RECEIVE);
 
-            return TRUE;
-
-        } else if (ReceivePacketCount > 10) {
-
+            return(TRUE);
+        }
+        else if (ReceivePacketCount > 10)
+        {
             LOG(RECEIVE)
 
-            return FALSE;
-
-        } else if (ReceiveSummaryBits & LANCE_RECEIVE_ERROR_SUMMARY) {
-
+            return(FALSE);
+        }
+        else if (ReceiveSummaryBits & LANCE_RECEIVE_ERROR_SUMMARY)
+        {
             //
             // We have an error in the packet.  Record
             // the details of the error.
@@ -4210,27 +4041,25 @@ Return Value:
             //
             // Synch with the set/query information routines.
             //
-
-            if (ReceiveSummaryBits & LANCE_RECEIVE_BUFFER_ERROR) {
-
+            if (ReceiveSummaryBits & LANCE_RECEIVE_BUFFER_ERROR)
+            {
                 //
                 // Probably ran out of descriptors.
                 //
 
                 Adapter->OutOfReceiveBuffers++;
-
-            } else if (ReceiveSummaryBits & LANCE_RECEIVE_CRC_ERROR) {
-
+            }
+            else if (ReceiveSummaryBits & LANCE_RECEIVE_CRC_ERROR)
+            {
                 Adapter->CRCError++;
-
-            } else if (ReceiveSummaryBits & LANCE_RECEIVE_OVERFLOW_ERROR) {
-
+            }
+            else if (ReceiveSummaryBits & LANCE_RECEIVE_OVERFLOW_ERROR)
+            {
                 Adapter->OutOfReceiveBuffers++;
-
-            } else if (ReceiveSummaryBits & LANCE_RECEIVE_FRAMING_ERROR) {
-
+            }
+            else if (ReceiveSummaryBits & LANCE_RECEIVE_FRAMING_ERROR)
+            {
                 Adapter->FramingError++;
-
             }
 
             ReceivePacketCount++;
@@ -4243,12 +4072,12 @@ Return Value:
                 Adapter,
                 Adapter->CurrentReceiveIndex,
                 NumberOfBuffers
-                );
+            );
 
             NewPacket = TRUE;
-
-        } else if (ReceiveSummaryBits & LANCE_RECEIVE_END_OF_PACKET) {
-
+        }
+        else if (ReceiveSummaryBits & LANCE_RECEIVE_END_OF_PACKET)
+        {
             //
             // We've reached the end of the packet.  Prepare
             // the parameters for indication, then indicate.
@@ -4265,11 +4094,9 @@ Return Value:
             // Check just before we do indications that we aren't
             // resetting.
             //
-
-            if (Adapter->ResetInProgress) {
-
-                return TRUE;
-
+            if (Adapter->ResetInProgress)
+            {
+                return(TRUE);
             }
 
             Context.INFO.IsContext = TRUE;
@@ -4306,14 +4133,14 @@ Return Value:
                 (PVOID)(Adapter->ReceiveVAs[Adapter->CurrentReceiveIndex]),
                 LookAheadSize + LANCE_HEADER_SIZE,
                 &LookaheadBuffer
-                );
+            );
 
-            if (LookaheadBuffer != NULL) {
-
-                if (PacketSize < LANCE_HEADER_SIZE) {
-
-                    if (PacketSize >= ETH_LENGTH_OF_ADDRESS) {
-
+            if (LookaheadBuffer != NULL)
+            {
+                if (PacketSize < LANCE_HEADER_SIZE)
+                {
+                    if (PacketSize >= ETH_LENGTH_OF_ADDRESS)
+                    {
                         //
                         // Runt packet
                         //
@@ -4326,12 +4153,11 @@ Return Value:
                             NULL,
                             0,
                             0
-                            );
-
+                        );
                     }
-
-                } else {
-
+                }
+                else
+                {
                     NdisMEthIndicateReceive(
                         Adapter->MiniportAdapterHandle,
                         (NDIS_HANDLE)Context.WholeThing,
@@ -4340,14 +4166,10 @@ Return Value:
                         LookaheadBuffer + LANCE_HEADER_SIZE,
                         LookAheadSize,
                         PacketSize - LANCE_HEADER_SIZE
-                        );
-
+                    );
                 }
 
-                NdisDestroyLookaheadBufferFromSharedMemory(
-                    LookaheadBuffer
-                    );
-
+                NdisDestroyLookaheadBufferFromSharedMemory(LookaheadBuffer);
             }
 
             ReceivePacketCount++;
@@ -4360,41 +4182,37 @@ Return Value:
                 Adapter,
                 Adapter->CurrentReceiveIndex,
                 NumberOfBuffers
-                );
+            );
 
             NewPacket = TRUE;
-
         }
 
         //
         // We're at some indermediate packet. Advance to
         // the next one.
         //
-
-        if (CurrentIndex == TopReceiveIndex) {
-
+        if (CurrentIndex == TopReceiveIndex)
+        {
             CurrentIndex = 0;
             CurrentEntry = Adapter->ReceiveRing;
-
-        } else {
-
+        }
+        else
+        {
             CurrentIndex++;
             CurrentEntry++;
-
         }
 
-        if (NewPacket) {
-
+        if (NewPacket)
+        {
             Adapter->CurrentReceiveIndex = CurrentIndex;
             NewPacket = FALSE;
             NumberOfBuffers = 0;
-
         }
 
         NumberOfBuffers++;
 
-        if (NumberOfBuffers > (TopReceiveIndex + 1)) {
-
+        if (NumberOfBuffers > (TopReceiveIndex + 1))
+        {
             //
             // Error!  For some reason we wrapped without ever seeing
             // the end of packet.  The card is hosed.  Stop the
@@ -4404,19 +4222,16 @@ Return Value:
             //
             // There are opens to notify
             //
-
             Adapter->HardwareFailure = TRUE;
 
             NdisMIndicateStatus(
-                           Adapter->MiniportAdapterHandle,
-                           NDIS_STATUS_CLOSING,
-                           NULL,
-                           0
-                          );
+                Adapter->MiniportAdapterHandle,
+                NDIS_STATUS_CLOSING,
+                NULL,
+                0
+            );
 
-            NdisMIndicateStatusComplete(
-                           Adapter->MiniportAdapterHandle
-                           );
+            NdisMIndicateStatusComplete(Adapter->MiniportAdapterHandle);
 
             NdisMDeregisterInterrupt(&(Adapter->Interrupt));
 
@@ -4424,14 +4239,11 @@ Return Value:
                 Adapter->MiniportAdapterHandle,
                 NDIS_ERROR_CODE_HARDWARE_FAILURE,
                 0
-                );
+            );
 
-            return TRUE;
-
+            return(TRUE);
         }
-
     }
-
 }
 
 STATIC
@@ -4484,35 +4296,29 @@ Return Value:
 
     UCHAR Tmp;
 
-    LANCE_READ_HARDWARE_MEMORY_UCHAR(
-        CurrentEntry->ReceiveSummaryBits,
-        &Tmp
-        );
+    LANCE_READ_HARDWARE_MEMORY_UCHAR(CurrentEntry->ReceiveSummaryBits, &Tmp);
 
     ASSERT(!(Tmp & LANCE_RECEIVE_OWNED_BY_CHIP));
     ASSERT(Tmp & LANCE_RECEIVE_START_OF_PACKET);
 
-    for ( ; NumberOfBuffers; NumberOfBuffers-- ) {
-
+    for ( ; NumberOfBuffers; NumberOfBuffers-- )
+    {
         LANCE_WRITE_HARDWARE_MEMORY_UCHAR(
             CurrentEntry->ReceiveSummaryBits,
             LANCE_RECEIVE_OWNED_BY_CHIP
-            );
+        );
 
-        if (CurrentIndex == TopReceiveIndex) {
-
+        if (CurrentIndex == TopReceiveIndex)
+        {
             CurrentEntry = Adapter->ReceiveRing;
             CurrentIndex = 0;
-
-        } else {
-
+        }
+        else
+        {
             CurrentEntry++;
             CurrentIndex++;
-
         }
-
     }
-
 }
 
 STATIC
@@ -4590,14 +4396,14 @@ Return Value:
     //
 
     if ((Adapter->TransmittingRing == Adapter->FirstUncommittedRing) &&
-        (Adapter->NumberOfAvailableRings > 0)) {
-
-        return FALSE;
-
-    } else {
-
+        (Adapter->NumberOfAvailableRings > 0)
+    )
+    {
+        return(FALSE);
+    }
+    else
+    {
         FirstIndex = Adapter->TransmittingRing - Adapter->TransmitRing;
-
     }
 
 
@@ -4612,19 +4418,17 @@ Return Value:
     // Get a pointer to the last ring entry for this packet.
     //
 
-    LastRingEntry = Adapter->TransmitRing +
-             SavedRingMapping.RingIndex;
+    LastRingEntry = Adapter->TransmitRing + SavedRingMapping.RingIndex;
 
     //
     // Get a pointer to the owning packet .
     //
-
     OwningPacket = SavedRingMapping.OwningPacket;
 
     SavedRingMapping.OwningPacket = NULL;
 
-    if (OwningPacket == NULL) {
-
+    if (OwningPacket == NULL)
+    {
         //
         // We seem to be in a messed up state.  Ignore this interrupt and
         // the wake up dpc will reset the card if necessary.
@@ -4632,7 +4436,6 @@ Return Value:
 
         ASSERT(OwningPacket != NULL);
         return(FALSE);
-
     }
 
     //
@@ -4642,19 +4445,18 @@ Return Value:
     LANCE_READ_HARDWARE_MEMORY_UCHAR(
         LastRingEntry->TransmitSummaryBits,
         &TransmitSummaryBits
-        );
+    );
 
-    if (TransmitSummaryBits & LANCE_TRANSMIT_OWNED_BY_CHIP) {
-
+    if (TransmitSummaryBits & LANCE_TRANSMIT_OWNED_BY_CHIP)
+    {
         //
         // We don't own this last packet.  We return FALSE to indicate
         // that we don't have any more packets to work on.
         //
-
-        return FALSE;
-
-    } else {
-
+        return(FALSE);
+    }
+    else
+    {
         //
         // Pointer to the current ring descriptor being examine for errors
         // and the statistics accumulated during its transmission.
@@ -4689,46 +4491,42 @@ Return Value:
         // We treat Late Collisions as success since the packet was
         // fully transmitted and may have been received.
         //
-
-        while (TRUE) {
-
+        for (;;)
+        {
             LANCE_READ_HARDWARE_MEMORY_UCHAR(
                 CurrentRingEntry->TransmitSummaryBits,
                 &TransmitSummaryBits
-                );
+            );
 
             LANCE_READ_HARDWARE_MEMORY_USHORT(
                 CurrentRingEntry->ErrorSummaryInfo,
                 &ErrorSummaryInfo
-                );
+            );
 
             if ((TransmitSummaryBits & LANCE_TRANSMIT_ANY_ERRORS) &&
-                !(ErrorSummaryInfo & LANCE_TRANSMIT_LATE_COLLISION)) {
-
-                if (ErrorSummaryInfo & LANCE_TRANSMIT_RETRY) {
-
+                !(ErrorSummaryInfo & LANCE_TRANSMIT_LATE_COLLISION)
+            )
+            {
+                if (ErrorSummaryInfo & LANCE_TRANSMIT_RETRY)
+                {
                     Adapter->RetryFailure++;
-
-                } else if (ErrorSummaryInfo & LANCE_TRANSMIT_LOST_CARRIER) {
-
+                }
+                else if (ErrorSummaryInfo & LANCE_TRANSMIT_LOST_CARRIER)
+                {
                     Adapter->LostCarrier++;
-
-                } else if (ErrorSummaryInfo & LANCE_TRANSMIT_UNDERFLOW) {
-
+                }
+                else if (ErrorSummaryInfo & LANCE_TRANSMIT_UNDERFLOW)
+                {
                     Adapter->UnderFlow++;
-
                 }
 
 #if DBG
                 LanceSendFails[LanceSendFailPlace] = (UCHAR)(ErrorSummaryInfo);
                 LanceSendFailPlace++;
-
-
 #endif
 
 #if LANCE_TRACE
-                DbgPrint("Unsuccessful Transmit 0x%x\n",
-                     ErrorSummaryInfo);
+                DbgPrint("Unsuccessful Transmit 0x%x\n", ErrorSummaryInfo);
 #endif
 
                 Successful = FALSE;
@@ -4745,20 +4543,19 @@ Return Value:
                      ((Adapter->LastTransmitRingEntry - CurrentRingEntry) +
                         (LastRingEntry-Adapter->TransmitRing) + 2);
 
-                if (LastRingEntry == Adapter->LastTransmitRingEntry) {
-
+                if (LastRingEntry == Adapter->LastTransmitRingEntry)
+                {
                     Adapter->TransmittingRing = Adapter->TransmitRing;
-
-                } else {
-
+                }
+                else
+                {
                     Adapter->TransmittingRing = LastRingEntry + 1;
-
                 }
 
                 break;
-
-            } else {
-
+            }
+            else
+            {
                 //
                 // Logical variable that records whether this
                 // is the last packet.
@@ -4766,48 +4563,44 @@ Return Value:
 
                 BOOLEAN DoneWithPacket = TransmitSummaryBits & LANCE_TRANSMIT_END_OF_PACKET;
 
-                if (ErrorSummaryInfo & LANCE_TRANSMIT_LATE_COLLISION) {
-
+                if (ErrorSummaryInfo & LANCE_TRANSMIT_LATE_COLLISION)
+                {
                     Adapter->LateCollision++;
-
                 }
 
-                if (TransmitSummaryBits & LANCE_TRANSMIT_START_OF_PACKET) {
-
+                if (TransmitSummaryBits & LANCE_TRANSMIT_START_OF_PACKET)
+                {
                     //
                     // Collect some statistics on how many tries were needed.
                     //
-
-                    if (TransmitSummaryBits & LANCE_TRANSMIT_DEFERRED) {
-
+                    if (TransmitSummaryBits & LANCE_TRANSMIT_DEFERRED)
+                    {
                         Adapter->Deferred++;
-
-                    } else if (TransmitSummaryBits & LANCE_TRANSMIT_ONE_RETRY) {
-
-                        Adapter->OneRetry++;
-
-                    } else if (TransmitSummaryBits & LANCE_TRANSMIT_MORE_THAN_ONE_RETRY) {
-
-                        Adapter->MoreThanOneRetry++;
-
                     }
-
+                    else if (TransmitSummaryBits & LANCE_TRANSMIT_ONE_RETRY)
+                    {
+                        Adapter->OneRetry++;
+                    }
+                    else if (TransmitSummaryBits & LANCE_TRANSMIT_MORE_THAN_ONE_RETRY)
+                    {
+                        Adapter->MoreThanOneRetry++;
+                    }
                 }
 
-                if (CurrentRingEntry == Adapter->LastTransmitRingEntry) {
-
+                if (CurrentRingEntry == Adapter->LastTransmitRingEntry)
+                {
                     CurrentRingEntry = Adapter->TransmitRing;
-
-                } else {
-
+                }
+                else
+                {
                     CurrentRingEntry++;
-
                 }
 
                 Adapter->TransmittingRing = CurrentRingEntry;
                 Adapter->NumberOfAvailableRings++;
 
-                if (DoneWithPacket) {
+                if (DoneWithPacket)
+                {
                     break;
                 }
             }
@@ -4816,22 +4609,17 @@ Return Value:
         //
         // Store result
         //
-
-        if (Successful) {
-
+        if (Successful)
+        {
             //
             // Increment number of packets successfully sent.
             //
-
             Adapter->Transmit++;
-
         }
 
-        NdisMSendResourcesAvailable(
-            Adapter->MiniportAdapterHandle
-            );
+        NdisMSendResourcesAvailable(Adapter->MiniportAdapterHandle);
 
-        return TRUE;
+        return(TRUE);
     }
 }
 
@@ -4887,24 +4675,22 @@ Return Value:
     //
     // Clean all of the receive ring entries.
     //
-
     {
 
         PLANCE_RECEIVE_ENTRY CurrentReceive = Adapter->ReceiveRing;
         const PLANCE_RECEIVE_ENTRY After = Adapter->ReceiveRing +
                            Adapter->NumberOfReceiveRings;
 
-        do {
-
+        do
+        {
             LANCE_WRITE_HARDWARE_MEMORY_UCHAR(
                 CurrentReceive->ReceiveSummaryBits,
                 LANCE_RECEIVE_OWNED_BY_CHIP
-                );
+            );
+
             CurrentReceive++;
 
-
         } while (CurrentReceive != After);
-
     }
 
 
@@ -4913,37 +4699,33 @@ Return Value:
     //
 
     {
-
         PLANCE_TRANSMIT_ENTRY CurrentTransmit = Adapter->TransmitRing;
         const PLANCE_TRANSMIT_ENTRY After = Adapter->TransmitRing+
                             Adapter->NumberOfTransmitRings;
 
-        do {
-
+        do
+        {
             LANCE_WRITE_HARDWARE_MEMORY_UCHAR(
                 CurrentTransmit->TransmitSummaryBits,
                 0x00
-                );
+            );
+
             CurrentTransmit++;
-
-
         } while (CurrentTransmit != After);
-
     }
 
     //
     // Recover all of the adapter buffers.
     //
 
-    for ( i = 0;
-          i < (Adapter->NumberOfSmallBuffers +
-               Adapter->NumberOfMediumBuffers +
-               Adapter->NumberOfLargeBuffers);
-          i++
-        ) {
-
+    for (i = 0;
+         i < (Adapter->NumberOfSmallBuffers +
+              Adapter->NumberOfMediumBuffers +
+              Adapter->NumberOfLargeBuffers);
+         i++
+    )
+    {
         Adapter->LanceBuffers[i].Next = i+1;
-
     }
 
     Adapter->LanceBufferListHeads[0] = -1;
@@ -5000,7 +4782,6 @@ Return Value:
     //
     // Fill in the adapters initialization block.
     //
-
     LanceSetInitializationBlock(Adapter);
 
     PhysAdr = LANCE_GET_HARDWARE_PHYSICAL_ADDRESS(Adapter,Adapter->InitBlock);
@@ -5008,47 +4789,27 @@ Return Value:
     //
     // Make sure that it does have even byte alignment.
     //
-
     ASSERT((PhysAdr & 0x01)==0);
 
     //
     // Write the address of the initialization block to csr1 and csr2.
     //
-
-    LANCE_WRITE_RAP(
-        Adapter,
-        LANCE_SELECT_CSR1
-        );
-
-    LANCE_WRITE_RDP(
-        Adapter,
-        LANCE_GET_LOW_PART_ADDRESS(PhysAdr)
-        );
-
-    LANCE_WRITE_RAP(
-        Adapter,
-        LANCE_SELECT_CSR2
-        );
-
-    LANCE_WRITE_RDP(
-        Adapter,
-        LANCE_GET_HIGH_PART_ADDRESS(PhysAdr)
-        );
+    LANCE_WRITE_RAP(Adapter, LANCE_SELECT_CSR1);
+    LANCE_WRITE_RDP(Adapter, LANCE_GET_LOW_PART_ADDRESS(PhysAdr));
+    LANCE_WRITE_RAP(Adapter, LANCE_SELECT_CSR2);
+    LANCE_WRITE_RDP(Adapter, LANCE_GET_HIGH_PART_ADDRESS(PhysAdr));
 
     //
     // Write to csr0 to initialize the chip.
     //
+    LANCE_WRITE_RAP(Adapter, LANCE_SELECT_CSR0);
+    LANCE_WRITE_RDP(Adapter, LANCE_CSR0_INIT_CHIP);
 
-    LANCE_WRITE_RAP(
-        Adapter,
-        LANCE_SELECT_CSR0
-        );
-
-    LANCE_WRITE_RDP(
-        Adapter,
-        LANCE_CSR0_INIT_CHIP
-        );
-
+    //
+    // Delay execution for 1/2 second to give the lance
+    // time to initialize.
+    //
+    NdisStallExecution( 500000 );
 }
 
 STATIC
@@ -5091,12 +4852,11 @@ Return Value:
     // Shut down the chip.  We won't be doing any more work until
     // the reset is complete.
     //
-
     NdisMSynchronizeWithInterrupt(
         &Adapter->Interrupt,
         LanceSyncStopChip,
         (PVOID)Adapter
-        );
+    );
 
     //
     // Once the chip is stopped we can't get any more interrupts.
@@ -5104,7 +4864,6 @@ Return Value:
     // only possibly service this reset.  It is therefore safe for
     // us to clear the adapter global csr value.
     //
-
     Adapter->ResetInProgress = TRUE;
     Adapter->ResetInitStarted = FALSE;
 
@@ -5112,13 +4871,11 @@ Return Value:
     // Shut down all of the transmit queues so that the
     // transmit portion of the chip will eventually calm down.
     //
-
     Adapter->ResetRequestType = NdisRequestType;
 
 #if LANCE_TRACE
     DbgPrint("Out SetupForReset\n");
 #endif
-
 }
 
 
@@ -5188,47 +4945,30 @@ Return Value:
     //
     // Set the RAP to csr0.
     //
-
-    LANCE_ISR_WRITE_RAP(
-        Adapter,
-        LANCE_SELECT_CSR0
-        );
+    LANCE_ISR_WRITE_RAP(Adapter, LANCE_SELECT_CSR0);
 
     //
     // Set the RDP to stop chip.
     //
+    LANCE_ISR_WRITE_RDP(Adapter, LANCE_CSR0_STOP);
 
-    LANCE_ISR_WRITE_RDP(
-        Adapter,
-        LANCE_CSR0_STOP
-        );
-
-    if (Adapter->LanceCard & (LANCE_DE201 | LANCE_DE100 | LANCE_DE422)) {
-
+    if (Adapter->LanceCard & (LANCE_DE201 | LANCE_DE100 | LANCE_DE422))
+    {
         //
         // Always reset the ACON bit after a stop.
         //
+        LANCE_ISR_WRITE_RAP(Adapter, LANCE_SELECT_CSR3);
 
-        LANCE_ISR_WRITE_RAP(
-            Adapter,
-            LANCE_SELECT_CSR3
-            );
-
-        LANCE_ISR_WRITE_RDP(
-            Adapter,
-            LANCE_CSR3_ACON
-            );
-
+        LANCE_ISR_WRITE_RDP(Adapter, LANCE_CSR3_ACON);
     }
 
     //
     // Select CSR0 again.
     //
-
-    LANCE_ISR_WRITE_RAP(
-        Adapter,
-        LANCE_SELECT_CSR0
-        );
+    LANCE_ISR_WRITE_RAP(Adapter, LANCE_SELECT_CSR0);
 
     return(FALSE);
 }
+
+
+

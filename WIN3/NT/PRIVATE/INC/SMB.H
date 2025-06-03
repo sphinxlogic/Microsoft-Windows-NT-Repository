@@ -139,6 +139,10 @@ conditionalized in the following way:
                                         ECHO
                                         QUERY_INFORMATION_DISK
 
+        INCLUDE_SMB_BULK
+                                        READ_BULK
+                                        WRITE_BULK
+
 */
 
 #ifdef INCLUDE_SMB_ALL
@@ -158,6 +162,7 @@ conditionalized in the following way:
 #define INCLUDE_SMB_PRINT
 #define INCLUDE_SMB_MESSAGE
 #define INCLUDE_SMB_MISC
+#define INCLUDE_SMB_BULK
 
 #endif // def INCLUDE_SMB_ALL
 
@@ -170,6 +175,17 @@ conditionalized in the following way:
 #include <packon.h>
 #endif // ndef NO_PACKING
 
+//
+// SMB servers listen on two NETBIOS addresses to facilitate connections. The
+// first one is a name formulated from the computer name by padding it with
+// a number of blanks ( upto NETBIOS_NAME_LEN ). This name is registered and
+// resolved using the NETBIOS name registration/resolution mechanism. They also
+// register under a second name *SMBSERVER which is not a valuid netbios name
+// but provides a name which can be used in NETBT session setup. This eliminates
+// the need for querying the remote adapter status to obtain the name.
+//
+
+#define SMBSERVER_LOCAL_ENDPOINT_NAME "*SMBSERVER      "
 
 //
 // SMB Command code definitions:
@@ -239,6 +255,7 @@ conditionalized in the following way:
 #define SMB_COM_NT_TRANSACT_SECONDARY    (UCHAR)0xA1
 #define SMB_COM_NT_CREATE_ANDX           (UCHAR)0xA2
 #define SMB_COM_NT_CANCEL                (UCHAR)0xA4
+#define SMB_COM_NT_RENAME                (UCHAR)0xA5
 #define SMB_COM_OPEN_PRINT_FILE          (UCHAR)0xC0
 #define SMB_COM_WRITE_PRINT_FILE         (UCHAR)0xC1
 #define SMB_COM_CLOSE_PRINT_FILE         (UCHAR)0xC2
@@ -251,6 +268,9 @@ conditionalized in the following way:
 #define SMB_COM_SEND_START_MB_MESSAGE    (UCHAR)0xD5
 #define SMB_COM_SEND_END_MB_MESSAGE      (UCHAR)0xD6
 #define SMB_COM_SEND_TEXT_MB_MESSAGE     (UCHAR)0xD7
+#define SMB_COM_READ_BULK                (UCHAR)0xD8
+#define SMB_COM_WRITE_BULK               (UCHAR)0xD9
+#define SMB_COM_WRITE_BULK_DATA          (UCHAR)0xDA
 // *** End of SMB commands
 
 #define SMB_COM_NO_ANDX_COMMAND          (UCHAR)0xFF
@@ -1200,6 +1220,8 @@ typedef RESP_NT_NEGOTIATE *PRESP_NT_NEGOTIATE;  // *** NOT SMB_UNALIGNED!
 
 //
 // Server / workstation capabilities
+// N.B. Most messages use a ULONG for this, so there are many more
+// bits available.
 //
 
 #define CAP_RAW_MODE            0x0001
@@ -1211,7 +1233,12 @@ typedef RESP_NT_NEGOTIATE *PRESP_NT_NEGOTIATE;  // *** NOT SMB_UNALIGNED!
 #define CAP_NT_STATUS           0x0040
 #define CAP_LEVEL_II_OPLOCKS    0x0080
 #define CAP_LOCK_AND_READ       0x0100
-
+#define CAP_NT_FIND             0x0200
+#define CAP_BULK_TRANSFER       0x0400
+#define CAP_COMPRESSED_DATA     0x0800
+#define CAP_DFS                 0x1000       // This server is DFS aware
+#define CAP_QUADWORD_ALIGNED    0x2000       // NT dir info level responses are quad aligned
+#define CAP_LARGE_READX         0x4000       // Server supports oversized READ&X on files
 
 #ifdef INCLUDE_SMB_OPEN_CLOSE
 
@@ -1730,6 +1757,107 @@ typedef REQ_NT_READ_RAW SMB_UNALIGNED *PREQ_NT_READ_RAW;
 
 #endif // def INCLUDE_SMB_RAW
 
+#ifdef INCLUDE_SMB_BULK
+
+typedef enum {
+    CompressionTechnologyNone,
+    CompressionTechnologyOne
+} COMPRESSION_TECHNOLOGY_TYPE;
+
+#define READ_BULK_COMPRESSED_DATA_INFO  0x01
+
+typedef struct _REQ_READ_BULK {
+    UCHAR   WordCount;                  // Count of parameter words = 12
+    _USHORT( Fid );                     // File handle
+    UCHAR   CompressionTechnology;      // Compression Technology or zero
+    UCHAR   Reserved;                   // Not used, MBZ
+    LARGE_INTEGER Offset;               // Offset in file to begin read
+    _ULONG( MaxCount );                 // Max bytes to return
+    _ULONG( MinCount );                 // Min bytes to return (normally 0)
+    _ULONG( MessageSize );              // Max bytes to return per message
+    UCHAR   Buffer[1];                  // empty
+} REQ_READ_BULK;
+typedef REQ_READ_BULK SMB_UNALIGNED *PREQ_READ_BULK;
+
+typedef struct  _COMPRESSION_TECHNOLOGY_1 {
+    _USHORT( CompressionFormatAndEngine ); // Compression Format
+    UCHAR   CompressionUnitShift;       // log2 of compression unit size
+    UCHAR   ChunkShift;                 // log 2 of chunk size
+    _ULONG( NumberOfChunks );           // number of chunks in next field
+    _ULONG( CompressedChunkSizes )[1];  // Chunk sizes
+} COMPRESSION_TECHNOLOGY_1;
+
+typedef struct _RESP_READ_BULK {
+    UCHAR   WordCount;                  // Count of parameter words = 12
+    UCHAR   Flags;                      // bit 0: 1 if Compressed Data Info sent
+    UCHAR   CompressionTechnology;      // Compression Technology
+    _ULONG( Count );                    // Bytes 'covered' by this message,
+                                        // since data could be compressed
+    LARGE_INTEGER( Offset );            // Offset in file for this data
+    _ULONG( DataCount );                // Data bytes, replaces ByteCount
+    _ULONG( Remaining );                // Bytes remaining to be sent
+    _USHORT( DataOffset );              // Offset from Buffer to data
+    union {
+        UCHAR   Buffer[1];                  // Start of data if not compressed
+        COMPRESSION_TECHNOLOGY_1 CompressedInfo1; // Compression Info
+    };
+} RESP_READ_BULK;
+typedef RESP_READ_BULK SMB_UNALIGNED *PRESP_READ_BULK;
+
+//
+// Define RESP_READ_BULK Flags
+//
+
+#define READ_BULK_COMPRESSED_DATA_INFO  0x01
+
+typedef struct _REQ_WRITE_BULK {
+    UCHAR   WordCount;                  // Count of parameter words = 12
+    UCHAR   Flags;                      // bit 0: 1 if write through mode
+    UCHAR   CompressionTechnology;      // The Compression Technology used
+    _USHORT( Fid );                     // File handle
+    LARGE_INTEGER Offset;               // Offset in file to begin write
+    _ULONG( TotalCount );               // Amount of data in next write message
+    _ULONG( DataCount );                // Data bytes, replaces ByteCount
+    _ULONG( MessageSize );              // Max bytes sent per message
+    _USHORT( ByteCount );               // Count of data bytes = 0
+    union {
+        UCHAR   Buffer[1];              // Empty if data is not compressed
+        COMPRESSION_TECHNOLOGY_1 CompressedInfo1;   // Chunk descriptor if compressed
+    };
+} REQ_WRITE_BULK;
+typedef REQ_WRITE_BULK SMB_UNALIGNED *PREQ_WRITE_BULK;
+
+//
+// Define REQ_WRITE_BULK Flags
+//
+
+typedef struct _RESP_WRITE_BULK {
+    UCHAR   WordCount;                  // Count of parameter words = 5
+    UCHAR   Sequence;                   // Handle for this exchange sequence
+    UCHAR   CompressionTechnology;      // Send data according to this format
+    _ULONG( Length );                   // Length of data client may send
+    _ULONG( MessageSize );              // Max bytes allowed per message
+    UCHAR   Buffer[1];                  // Empty
+} RESP_WRITE_BULK;
+typedef RESP_WRITE_BULK SMB_UNALIGNED *PRESP_WRITE_BULK;
+
+typedef struct _REQ_WRITE_BULK_DATA {
+    UCHAR   WordCount;                  // Count of parameter words = 10
+    UCHAR   Sequence;                   // Handle for this exchange sequence
+    UCHAR   Reserved;                   // Not used, MBZ
+    _USHORT( Fid );                     // File handle
+    _ULONG( DataCount );                // Count data bytes, replaces ByteCount
+    LARGE_INTEGER Offset;               // Offset in file for this write
+    _ULONG( Remaining );                // bytes remaining to be written
+    _USHORT( ByteCount );               // Not used, not big enough = 0
+    UCHAR   Buffer[1];                  // Start of data/chunks
+} REQ_WRITE_BULK_DATA;
+typedef REQ_WRITE_BULK_DATA SMB_UNALIGNED *PREQ_WRITE_BULK_DATA;
+
+// There is no response to a REQ_WRITE_BULK_DATA, except on error.
+
+#endif // def INCLUDE_SMB_BULK
+
 #ifdef INCLUDE_SMB_FILE_CONTROL
 
 //
@@ -1749,6 +1877,27 @@ typedef struct _REQ_RENAME {
     //UCHAR NewFileName[];              //  New file name
 } REQ_RENAME;
 typedef REQ_RENAME SMB_UNALIGNED *PREQ_RENAME;
+
+
+//
+// Extended NT rename SMB
+// Function is SrvSmbRename()
+// SMB_COM_NT_RENAME 0xA5
+//
+
+typedef struct _REQ_NTRENAME {
+    UCHAR WordCount;                    // Count of parameter words = 4
+    _USHORT( SearchAttributes );
+    _USHORT( InformationLevel );
+    _ULONG( ClusterCount );
+    _USHORT( ByteCount );               // Count of data bytes; min = 4
+    UCHAR Buffer[1];                    // Buffer containing:
+    //UCHAR BufferFormat1;              //  0x04 -- ASCII
+    //UCHAR OldFileName[];              //  Old file name
+    //UCHAR BufferFormat2;              //  0x04 -- ASCII
+    //UCHAR NewFileName[];              //  New file name
+} REQ_NTRENAME;
+typedef REQ_NTRENAME SMB_UNALIGNED *PREQ_NTRENAME;
 
 typedef struct _RESP_RENAME {
     UCHAR WordCount;                    // Count of parameter words = 0
@@ -2054,7 +2203,7 @@ typedef struct _REQ_NT_SESSION_SETUP_ANDX {
     _ULONG( SessionKey );               // Session key (valid iff VcNumber != 0)
     _USHORT( CaseInsensitivePasswordLength );      // Account password size, ANSI
     _USHORT( CaseSensitivePasswordLength );        // Account password size, Unicode
-    _ULONG( Reserved );
+    _ULONG( Reserved);
     _ULONG( Capabilities );             // Client capabilities
     _USHORT( ByteCount );               // Count of data bytes; min = 0
     UCHAR Buffer[1];                    // Buffer containing:
@@ -2069,6 +2218,7 @@ typedef REQ_NT_SESSION_SETUP_ANDX SMB_UNALIGNED *PREQ_NT_SESSION_SETUP_ANDX;
 
 #define SMB_SETUP_GUEST          0x0001          // Session setup as a guest
 #define SMB_SETUP_USE_LANMAN_KEY 0x0002          // Use the Lan Manager setup key.
+
 
 typedef struct _RESP_SESSION_SETUP_ANDX {
     UCHAR WordCount;                    // Count of parameter words = 3
@@ -2202,6 +2352,7 @@ typedef REQ_TRANSACTION SMB_UNALIGNED *PREQ_TRANSACTION;
 #define SMB_TRANSACTION_DISCONNECT 1
 #define SMB_TRANSACTION_NO_RESPONSE 2
 #define SMB_TRANSACTION_RECONNECTING 4
+#define SMB_TRANSACTION_DFSFILE 8
 
 typedef struct _RESP_TRANSACTION_INTERIM {
     UCHAR WordCount;                    // Count of parameter words = 0
@@ -2417,6 +2568,7 @@ typedef struct _RESP_21_TREE_CONNECT_ANDX {
 typedef RESP_21_TREE_CONNECT_ANDX SMB_UNALIGNED *PRESP_21_TREE_CONNECT_ANDX;
 
 #define  SMB_SUPPORT_SEARCH_BITS       1
+#define  SMB_SHARE_IS_IN_DFS           2
 
 #endif // def INCLUDE_SMB_TREE
 
@@ -3018,6 +3170,7 @@ typedef RESP_NT_CANCEL SMB_UNALIGNED *PRESP_NT_CANCEL;
 #define SMB_FLAGS2_KNOWS_LONG_NAMES      0x0001
 #define SMB_FLAGS2_KNOWS_EAS             0x0002
 #define SMB_FLAGS2_IS_LONG_NAME          0x0040
+#define SMB_FLAGS2_DFS                   0x1000
 #define SMB_FLAGS2_PAGING_IO             0x2000
 #define SMB_FLAGS2_NT_STATUS             0x4000
 #define SMB_FLAGS2_UNICODE               0x8000
@@ -3029,6 +3182,7 @@ typedef RESP_NT_CANCEL SMB_UNALIGNED *PRESP_NT_CANCEL;
 #define INCOMING_SMB_FLAGS2     \
             (SMB_FLAGS2_KNOWS_LONG_NAMES | \
              SMB_FLAGS2_KNOWS_EAS        | \
+             SMB_FLAGS2_DFS              | \
              SMB_FLAGS2_PAGING_IO        | \
              SMB_FLAGS2_IS_LONG_NAME     | \
              SMB_FLAGS2_NT_STATUS        | \
@@ -3554,3 +3708,4 @@ typedef RESP_NT_CANCEL SMB_UNALIGNED *PRESP_NT_CANCEL;
 // smb_wct               WordCount
 // smb_wmode             WriteMode
 // smb_xchain            EncryptChainOffset
+

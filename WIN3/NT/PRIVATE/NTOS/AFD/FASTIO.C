@@ -26,8 +26,6 @@ AfdFastDatagramIo (
     IN struct _FILE_OBJECT *FileObject,
     IN PVOID InputBuffer OPTIONAL,
     IN ULONG InputBufferLength,
-    OUT PVOID OutputBuffer OPTIONAL,
-    IN ULONG OutputBufferLength,
     IN ULONG IoControlCode,
     OUT PIO_STATUS_BLOCK IoStatus
     );
@@ -36,11 +34,12 @@ BOOLEAN
 AfdFastDatagramReceive (
     IN PAFD_ENDPOINT Endpoint,
     IN ULONG ReceiveFlags,
-    OUT PVOID OutputBuffer,
-    IN ULONG OutputBufferLength,
+    IN ULONG AfdFlags,
+    IN LPWSABUF BufferArray,
+    IN ULONG BufferCount,
+    IN ULONG ReceiveBufferLength,
     OUT PVOID SourceAddress,
     OUT PULONG SourceAddressLength,
-    OUT PULONG ReceiveLength,
     OUT PIO_STATUS_BLOCK IoStatus
     );
 
@@ -73,6 +72,7 @@ CopyAddressToBuffer (
 #pragma alloc_text( PAGEAFD, AfdFastDatagramReceive )
 #pragma alloc_text( PAGEAFD, AfdRestartFastSendDatagram )
 #pragma alloc_text( PAGEAFD, CopyAddressToBuffer )
+#pragma alloc_text( PAGEAFD, AfdShouldSendBlock )
 #endif
 
 BOOLEAN
@@ -87,17 +87,43 @@ AfdFastIoRead (
     IN struct _DEVICE_OBJECT *DeviceObject
     )
 {
+
+    AFD_RECV_INFO recvInfo;
+    WSABUF wsaBuf;
+
+    PAGED_CODE( );
+
     UNREFERENCED_PARAMETER( FileOffset );
     UNREFERENCED_PARAMETER( LockKey );
+
+    //
+    // Build the (one and only) WSABUF.
+    //
+
+    wsaBuf.buf = Buffer;
+    wsaBuf.len = Length;
+
+    //
+    // Setup the AFD_RECV_INFO structure.
+    //
+
+    recvInfo.BufferArray = &wsaBuf;
+    recvInfo.BufferCount = 1;
+    recvInfo.AfdFlags = AFD_OVERLAPPED;
+    recvInfo.TdiFlags = TDI_RECEIVE_NORMAL;
+
+    //
+    // Fake an ioctl.
+    //
 
     return AfdFastIoDeviceControl(
                FileObject,
                Wait,
+               &recvInfo,
+               sizeof(recvInfo),
                NULL,
                0,
-               Buffer,
-               Length,
-               IOCTL_TDI_RECEIVE,
+               IOCTL_AFD_RECEIVE,
                IoStatus,
                DeviceObject
                );
@@ -116,17 +142,43 @@ AfdFastIoWrite (
     IN struct _DEVICE_OBJECT *DeviceObject
     )
 {
+
+    AFD_SEND_INFO sendInfo;
+    WSABUF wsaBuf;
+
+    PAGED_CODE( );
+
     UNREFERENCED_PARAMETER( FileOffset );
     UNREFERENCED_PARAMETER( LockKey );
+
+    //
+    // Build the (one and only) WSABUF.
+    //
+
+    wsaBuf.buf = Buffer;
+    wsaBuf.len = Length;
+
+    //
+    // Setup the AFD_SEND_INFO structure.
+    //
+
+    sendInfo.BufferArray = &wsaBuf;
+    sendInfo.BufferCount = 1;
+    sendInfo.AfdFlags = AFD_OVERLAPPED;
+    sendInfo.TdiFlags = 0;
+
+    //
+    // Fake an ioctl.
+    //
 
     return AfdFastIoDeviceControl(
                FileObject,
                Wait,
+               &sendInfo,
+               sizeof(sendInfo),
                NULL,
                0,
-               Buffer,
-               Length,
-               IOCTL_TDI_SEND,
+               IOCTL_AFD_SEND,
                IoStatus,
                DeviceObject
                );
@@ -167,6 +219,8 @@ AfdFastIoDeviceControl (
         return FALSE;
     }
 
+    ASSERT( KeGetCurrentIrql( ) == LOW_LEVEL );
+
     success = AfdFastIoDeviceControlReal (
                   FileObject,
                   Wait,
@@ -181,8 +235,8 @@ AfdFastIoDeviceControl (
     ASSERT( KeGetCurrentIrql( ) == LOW_LEVEL );
 
     switch ( IoControlCode ) {
-    
-    case IOCTL_TDI_SEND:
+
+    case IOCTL_AFD_SEND:
 
         if ( success ) {
             AfdFastSendsSucceeded++;
@@ -191,7 +245,7 @@ AfdFastIoDeviceControl (
         }
         break;
 
-    case IOCTL_TDI_RECEIVE:
+    case IOCTL_AFD_RECEIVE:
 
         if ( success ) {
             AfdFastReceivesSucceeded++;
@@ -200,7 +254,7 @@ AfdFastIoDeviceControl (
         }
         break;
 
-    case IOCTL_TDI_SEND_DATAGRAM:
+    case IOCTL_AFD_SEND_DATAGRAM:
 
         if ( success ) {
             AfdFastSendDatagramsSucceeded++;
@@ -209,7 +263,7 @@ AfdFastIoDeviceControl (
         }
         break;
 
-    case IOCTL_TDI_RECEIVE_DATAGRAM:
+    case IOCTL_AFD_RECEIVE_DATAGRAM:
 
         if ( success ) {
             AfdFastReceiveDatagramsSucceeded++;
@@ -264,13 +318,7 @@ AfdFastIoDeviceControl (
     KIRQL oldIrql;
     PAFD_BUFFER afdBuffer;
     NTSTATUS status;
-
-    // !!! hack fix for a bug in MmSizeOfMdl which returns a too-small
-    //     number if a very large number is passed in.
-
-    if ( (OutputBufferLength & 0x80000000) != 0 ) {
-        return FALSE;
-    }
+    PMDL MdlChain;
 
     //
     // All we want to do is pass the request through to the TDI provider
@@ -289,34 +337,32 @@ AfdFastIoDeviceControl (
     }
 
     //
+    // If an OutputBuffer parameter was specified, then this is a more
+    // complicated IO request, so bail on fast IO.
+    //
+
+    if( OutputBuffer != NULL ) {
+        return FALSE;
+    }
+
+    //
     // Handle datagram fast IO in a subroutine.  This keeps this routine
     // cleaner and faster.
     //
 
-    if ( endpoint->EndpointType == AfdEndpointTypeDatagram ) {
+    if ( IS_DGRAM_ENDPOINT(endpoint) ) {
         return AfdFastDatagramIo(
                    FileObject,
                    InputBuffer,
                    InputBufferLength,
-                   OutputBuffer,
-                   OutputBufferLength,
                    IoControlCode,
                    IoStatus
                    );
     }
 
     //
-    // If an InputBuffer was specified, then this is a more complicated
-    // IO request.  Don't use fast IO.
-    //
-
-    if ( InputBuffer != NULL ) {
-        return FALSE;
-    }
-
-    //
-    // If the endpoint isn't connected yet, then we don't want to 
-    // attempt fast IO on it.  
+    // If the endpoint isn't connected yet, then we don't want to
+    // attempt fast IO on it.
     //
 
     if ( endpoint->State != AfdEndpointStateConnected ) {
@@ -338,7 +384,9 @@ AfdFastIoDeviceControl (
     connection = endpoint->Common.VcConnecting.Connection;
     ASSERT( connection->Type == AfdBlockTypeConnection );
 
-    ASSERT( !connection->CleanupBegun );
+    if( connection->CleanupBegun ) {
+        return FALSE;
+    }
 
     IF_DEBUG(FAST_IO) {
         KdPrint(( "AfdFastIoDeviceControl: attempting fast IO on endp %lx, "
@@ -353,14 +401,59 @@ AfdFastIoDeviceControl (
 
     switch ( IoControlCode ) {
 
-    case IOCTL_TDI_SEND:
+    case IOCTL_AFD_SEND: {
+
+        PAFD_SEND_INFO sendInfo;
+        ULONG sendLength;
+        ULONG afdFlags;
 
         //
-        // If the connection has been aborted, then we don't want to try 
-        // fast IO on it.  
+        // If the connection has been aborted, then we don't want to try
+        // fast IO on it.
         //
 
         if ( connection->AbortIndicated ) {
+            return FALSE;
+        }
+
+        //
+        // If the input structure isn't large enough, bail on fast IO.
+        //
+
+        if( InputBufferLength < sizeof(*sendInfo) ) {
+            return FALSE;
+        }
+
+        try {
+
+            //
+            // Make a quick preliminary check of the input buffer. If it's
+            // bogus (or if Fast IO is disabled), then fail the request.
+            //
+
+            sendInfo = (PAFD_SEND_INFO)InputBuffer;
+            afdFlags = sendInfo->AfdFlags;
+
+            if( (afdFlags & AFD_NO_FAST_IO) != 0 ||
+                sendInfo->TdiFlags != 0 ||
+                sendInfo->BufferArray == NULL ||
+                sendInfo->BufferCount == 0 ) {
+
+                return FALSE;
+
+            }
+
+            //
+            // Calculate the length of the send buffer.
+            //
+
+            sendLength = AfdCalcBufferArrayByteLengthRead(
+                             sendInfo->BufferArray,
+                             sendInfo->BufferCount
+                             );
+
+        } except( EXCEPTION_EXECUTE_HANDLER ) {
+
             return FALSE;
         }
 
@@ -371,28 +464,14 @@ AfdFastIoDeviceControl (
         // the requested amount of data.
         //
 
-        KeAcquireSpinLock( &endpoint->SpinLock, &oldIrql );
-
-        if ( !IsListEmpty( &connection->VcSendIrpListHead )
-
-             ||
-
-             connection->VcBufferredSendBytes >= connection->MaxBufferredSendBytes
-
-             ||
-
-             connection->VcBufferredSendCount >= connection->MaxBufferredSendCount
-
-             ) {
-
-            KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+        if ( AfdShouldSendBlock( endpoint, connection, sendLength ) ) {
 
             //
             // If this is a nonblocking endpoint, fail the request here and
             // save going through the regular path.
             //
 
-            if ( endpoint->NonBlocking ) {
+            if ( endpoint->NonBlocking && !( afdFlags & AFD_OVERLAPPED ) ) {
                 IoStatus->Status = STATUS_DEVICE_NOT_READY;
                 return TRUE;
             }
@@ -401,27 +480,18 @@ AfdFastIoDeviceControl (
         }
 
         //
-        // Update count of send bytes pending on the connection.
-        //
-
-        connection->VcBufferredSendBytes += OutputBufferLength;
-        connection->VcBufferredSendCount += 1;
-
-        KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
-
-        //
         // Next get an AFD buffer structure that contains an IRP and a
         // buffer to hold the data.
         //
 
-        afdBuffer = AfdGetBuffer( OutputBufferLength, 0 );
+        afdBuffer = AfdGetBuffer( sendLength, 0 );
 
         if ( afdBuffer == NULL ) {
 
-            KeAcquireSpinLock( &endpoint->SpinLock, &oldIrql );
-            connection->VcBufferredSendBytes -= OutputBufferLength;
+            AfdAcquireSpinLock( &endpoint->SpinLock, &oldIrql );
+            connection->VcBufferredSendBytes -= sendLength;
             connection->VcBufferredSendCount -= 1;
-            KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+            AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
 
             return FALSE;
         }
@@ -432,11 +502,12 @@ AfdFastIoDeviceControl (
         // sending.
         //
 
-        afdBuffer->Mdl->ByteCount = OutputBufferLength;
+        afdBuffer->Mdl->ByteCount = sendLength;
+        SET_CHAIN_LENGTH( afdBuffer, sendLength );
 
         //
-        // Remember the endpoint in the AFD buffer structure.  We need 
-        // this in order to access the endpoint in the restart routine.  
+        // Remember the endpoint in the AFD buffer structure.  We need
+        // this in order to access the endpoint in the restart routine.
         //
 
         afdBuffer->Context = endpoint;
@@ -445,57 +516,75 @@ AfdFastIoDeviceControl (
         // Copy the user's data into the AFD buffer.
         //
 
-        try {
+        if( sendLength > 0 ) {
 
-            RtlCopyMemory( afdBuffer->Buffer, OutputBuffer, OutputBufferLength );
+            try {
 
-        } except( EXCEPTION_EXECUTE_HANDLER ) {
+                AfdCopyBufferArrayToBuffer(
+                    afdBuffer->Buffer,
+                    sendLength,
+                    sendInfo->BufferArray,
+                    sendInfo->BufferCount
+                    );
 
-            afdBuffer->Mdl->ByteCount = afdBuffer->BufferLength;
-            AfdReturnBuffer( afdBuffer );
+            } except( EXCEPTION_EXECUTE_HANDLER ) {
 
-            KeAcquireSpinLock( &endpoint->SpinLock, &oldIrql );
-            connection->VcBufferredSendBytes -= OutputBufferLength;
-            connection->VcBufferredSendCount -= 1;
-            KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+                afdBuffer->Mdl->ByteCount = afdBuffer->BufferLength;
+                RESET_CHAIN_LENGTH( afdBuffer );
+                AfdReturnBuffer( afdBuffer );
 
-            return FALSE;
+                AfdAcquireSpinLock( &endpoint->SpinLock, &oldIrql );
+                connection->VcBufferredSendBytes -= sendLength;
+                connection->VcBufferredSendCount -= 1;
+                AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+
+                return FALSE;
+
+            }
+
         }
 
         //
-        // Use the IRP in the AFD buffer structure to give to the TDI 
-        // provider.  Build the TDI send request.  
+        // Use the IRP in the AFD buffer structure to give to the TDI
+        // provider.  Build the TDI send request.
         //
-    
+
         TdiBuildSend(
             afdBuffer->Irp,
-            connection->FileObject->DeviceObject,
+            connection->DeviceObject,
             connection->FileObject,
             AfdRestartBufferSend,
             afdBuffer,
             afdBuffer->Mdl,
             0,
-            OutputBufferLength
+            sendLength
             );
-    
+
+        //
+        // Add a reference to the connection object since the send
+        // request will complete asynchronously.
+        //
+
+        REFERENCE_CONNECTION( connection );
+
         //
         // Call the transport to actually perform the send.
         //
-    
+
         status = IoCallDriver(
-                     connection->FileObject->DeviceObject,
+                     connection->DeviceObject,
                      afdBuffer->Irp
                      );
-    
+
         //
         // Complete the user's IRP as appropriate.  Note that we change the
         // status code from what was returned by the TDI provider into
         // STATUS_SUCCESS.  This is because we don't want to complete
         // the IRP with STATUS_PENDING etc.
         //
-    
+
         if ( NT_SUCCESS(status) ) {
-            IoStatus->Information = OutputBufferLength;
+            IoStatus->Information = sendLength;
             IoStatus->Status = STATUS_SUCCESS;
             return TRUE;
         }
@@ -506,26 +595,71 @@ AfdFastIoDeviceControl (
 
         return FALSE;
 
-    case IOCTL_TDI_RECEIVE: {
+    }
+
+    case IOCTL_AFD_RECEIVE: {
 
         PLIST_ENTRY listEntry;
+        PAFD_RECV_INFO recvInfo;
+        ULONG recvLength;
+        ULONG totalOffset;
 
         //
-        // Determine whether we'll be able to perform fast IO.  In order 
-        // to do fast IO, there must be some bufferred data on the 
-        // connection, there must not be any pended receives on the 
-        // connection, and there must not be any bufferred expedited 
+        // If the input structure isn't large enough, bail on fast IO.
+        //
+
+        if( InputBufferLength < sizeof(*recvInfo) ) {
+            return FALSE;
+        }
+
+        try {
+
+            //
+            // Make a quick preliminary check of the input buffer. If it's
+            // bogus (or if Fast IO is disabled), then fail the request.
+            //
+
+            recvInfo = (PAFD_RECV_INFO)InputBuffer;
+
+            if( (recvInfo->AfdFlags & AFD_NO_FAST_IO) != 0 ||
+                recvInfo->TdiFlags != TDI_RECEIVE_NORMAL ||
+                recvInfo->BufferArray == NULL ||
+                recvInfo->BufferCount == 0 ) {
+
+                return FALSE;
+
+            }
+
+            //
+            // Calculate the length of the receive buffer.
+            //
+
+            recvLength = AfdCalcBufferArrayByteLengthWrite(
+                             recvInfo->BufferArray,
+                             recvInfo->BufferCount
+                             );
+
+        } except( EXCEPTION_EXECUTE_HANDLER ) {
+
+            return FALSE;
+        }
+
+        //
+        // Determine whether we'll be able to perform fast IO.  In order
+        // to do fast IO, there must be some bufferred data on the
+        // connection, there must not be any pended receives on the
+        // connection, and there must not be any bufferred expedited
         // data on the connection.  This last requirement is for
         // the sake of simplicity only.
         //
 
-        KeAcquireSpinLock( &endpoint->SpinLock, &oldIrql );
+        AfdAcquireSpinLock( &endpoint->SpinLock, &oldIrql );
 
         if ( connection->VcBufferredReceiveCount == 0 ||
                  !IsListEmpty( &connection->VcReceiveIrpListHead ) ||
                  connection->VcBufferredExpeditedCount != 0 ) {
 
-            KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+            AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
             return FALSE;
         }
 
@@ -545,25 +679,25 @@ AfdFastIoDeviceControl (
         ASSERT( !afdBuffer->ExpeditedData );
 
         //
-        // If the buffer contains a partial message, bail out of the 
-        // fast path.  We don't want the added complexity of handling 
-        // partial messages in the fast path.  
+        // If the buffer contains a partial message, bail out of the
+        // fast path.  We don't want the added complexity of handling
+        // partial messages in the fast path.
         //
 
         if ( afdBuffer->PartialMessage &&
                  endpoint->EndpointType != AfdEndpointTypeStream ) {
 
-            KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+            AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
             return FALSE;
         }
 
         //
-        // For simplicity, act differently based on whether the user's 
-        // buffer is large enough to hold the entire first AFD buffer 
-        // worth of data.  
+        // For simplicity, act differently based on whether the user's
+        // buffer is large enough to hold the entire first AFD buffer
+        // worth of data.
         //
 
-        if ( OutputBufferLength >= afdBuffer->DataLength ) {
+        if ( recvLength >= afdBuffer->DataLength ) {
 
             LIST_ENTRY bufferListHead;
 
@@ -573,25 +707,25 @@ AfdFastIoDeviceControl (
             InitializeListHead( &bufferListHead );
 
             //
-            // Loop getting AFD buffers that will fill in the user's 
-            // buffer with as much data as will fit, or else with a 
-            // single buffer if this is not a stream endpoint.  We don't 
-            // actually do the copy within this loop because this loop 
-            // must occur while holding a lock, and we cannot hold a 
-            // lock while copying the data into the user's buffer 
-            // because the user's buffer is not locked and we cannot 
-            // take a page fault at raised IRQL.  
+            // Loop getting AFD buffers that will fill in the user's
+            // buffer with as much data as will fit, or else with a
+            // single buffer if this is not a stream endpoint.  We don't
+            // actually do the copy within this loop because this loop
+            // must occur while holding a lock, and we cannot hold a
+            // lock while copying the data into the user's buffer
+            // because the user's buffer is not locked and we cannot
+            // take a page fault at raised IRQL.
             //
 
             do {
-    
+
                 //
                 // Update the count of bytes on the connection.
                 //
 
                 ASSERT( connection->VcBufferredReceiveBytes >= afdBuffer->DataLength );
                 ASSERT( connection->VcBufferredReceiveCount > 0 );
-    
+
                 connection->VcBufferredReceiveBytes -= afdBuffer->DataLength;
                 connection->VcBufferredReceiveCount -= 1;
                 IoStatus->Information += afdBuffer->DataLength;
@@ -611,7 +745,7 @@ AfdFastIoDeviceControl (
                 //
 
                 if ( !IsListEmpty( &connection->VcReceiveBufferListHead ) ) {
-                    
+
                     afdBuffer = CONTAINING_RECORD(
                                     connection->VcReceiveBufferListHead.Flink,
                                     AFD_BUFFER,
@@ -623,7 +757,7 @@ AfdFastIoDeviceControl (
 
                     if ( endpoint->EndpointType == AfdEndpointTypeStream &&
                              IoStatus->Information + afdBuffer->DataLength <=
-                                 OutputBufferLength ) {
+                                 recvLength ) {
                         continue;
                     } else {
                         break;
@@ -641,21 +775,21 @@ AfdFastIoDeviceControl (
             // and we have available buffer space, fire off an IRP to receive
             // the data.
             //
-    
+
             if ( connection->VcReceiveCountInTransport > 0
-    
+
                  &&
-    
+
                  connection->VcBufferredReceiveBytes <
                    connection->MaxBufferredReceiveBytes
-    
+
                  &&
-    
+
                  connection->VcBufferredReceiveCount <
                      connection->MaxBufferredReceiveCount ) {
-    
+
                 CLONG bytesToReceive;
-    
+
                 //
                 // Remember the count of data that we're going to receive,
                 // then reset the fields in the connection where we keep
@@ -670,17 +804,17 @@ AfdFastIoDeviceControl (
                 } else {
                     bytesToReceive = AfdLargeBufferSize;
                 }
-    
+
                 ASSERT( connection->VcReceiveCountInTransport == 1 );
                 connection->VcReceiveBytesInTransport = 0;
                 connection->VcReceiveCountInTransport = 0;
-    
-                KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
-    
+
+                AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+
                 //
                 // Get an AFD buffer structure to hold the data.
                 //
-    
+
                 afdBuffer = AfdGetBuffer( bytesToReceive, 0 );
 
                 if ( afdBuffer == NULL ) {
@@ -691,24 +825,24 @@ AfdFastIoDeviceControl (
                     //
 
                     AfdBeginAbort( connection );
-                    
+
                 } else {
-        
+
                     //
-                    // We need to remember the connection in the AFD buffer 
-                    // because we'll need to access it in the completion 
-                    // routine.  
+                    // We need to remember the connection in the AFD buffer
+                    // because we'll need to access it in the completion
+                    // routine.
                     //
-                
+
                     afdBuffer->Context = connection;
-                
+
                     //
                     // Finish building the receive IRP to give to the TDI provider.
                     //
-                
+
                     TdiBuildReceive(
                         afdBuffer->Irp,
-                        connection->FileObject->DeviceObject,
+                        connection->DeviceObject,
                         connection->FileObject,
                         AfdRestartBufferReceive,
                         afdBuffer,
@@ -716,26 +850,28 @@ AfdFastIoDeviceControl (
                         TDI_RECEIVE_NORMAL,
                         bytesToReceive
                         );
-        
+
                     //
                     // Hand off the IRP to the TDI provider.
                     //
-        
-                    (VOID)IoCallDriver( 
-                             connection->FileObject->DeviceObject,
+
+                    (VOID)IoCallDriver(
+                             connection->DeviceObject,
                              afdBuffer->Irp
                              );
                 }
 
             } else {
 
-               KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+               AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
             }
-    
+
             //
-            // We have in a local list all the data we'll use for this 
-            // IO.  Start copying data to the user buffer.  
+            // We have in a local list all the data we'll use for this
+            // IO.  Start copying data to the user buffer.
             //
+
+            totalOffset = 0;
 
             try {
 
@@ -752,42 +888,45 @@ AfdFastIoDeviceControl (
                                     BufferListEntry
                                     );
 
-                    //
-                    // Copy the data in the buffer to the user buffer.
-                    //
+                    if( afdBuffer->DataLength > 0 ) {
 
-                    RtlCopyMemory(
-                        OutputBuffer,
-                        (PCHAR)afdBuffer->Buffer + afdBuffer->DataOffset,
-                        afdBuffer->DataLength,
-                        );
+                        //
+                        // Copy the data in the buffer to the user buffer.
+                        //
 
-                    //
-                    // Update the OutputBuffer pointer to the proper
-                    // place in the user buffer.
-                    //
+                        AfdCopyBufferToBufferArray(
+                            recvInfo->BufferArray,
+                            totalOffset,
+                            recvInfo->BufferCount,
+                            (PCHAR)afdBuffer->Buffer + afdBuffer->DataOffset,
+                            afdBuffer->DataLength
+                            );
 
-                    OutputBuffer = (PCHAR)OutputBuffer + afdBuffer->DataLength;
+                        totalOffset += afdBuffer->DataLength;
+
+                    }
 
                     //
                     // We're done with the AFD buffer.
                     //
 
                     afdBuffer->DataOffset = 0;
+                    RESET_CHAIN_LENGTH( afdBuffer );
                     AfdReturnBuffer( afdBuffer );
                 }
-    
+
             } except( EXCEPTION_EXECUTE_HANDLER ) {
 
                 //
-                // If an exception is hit, there is the possibility of 
-                // data corruption.  However, it is nearly impossible to 
-                // avoid this in all cases, so just throw out the 
-                // remainder of the data that we would have copied to 
-                // the user buffer.  
+                // If an exception is hit, there is the possibility of
+                // data corruption.  However, it is nearly impossible to
+                // avoid this in all cases, so just throw out the
+                // remainder of the data that we would have copied to
+                // the user buffer.
                 //
 
                 afdBuffer->DataOffset = 0;
+                RESET_CHAIN_LENGTH( afdBuffer );
                 AfdReturnBuffer( afdBuffer );
 
                 while ( !IsListEmpty( &bufferListHead ) ) {
@@ -797,6 +936,7 @@ AfdFastIoDeviceControl (
                                     AFD_BUFFER,
                                     BufferListEntry
                                     );
+                    RESET_CHAIN_LENGTH( afdBuffer );
                     AfdReturnBuffer( afdBuffer );
                 }
 
@@ -804,10 +944,31 @@ AfdFastIoDeviceControl (
             }
 
             //
+            // Clear the receive data active bit. If there's more data
+            // available, set the corresponding event.
+            //
+
+            AfdAcquireSpinLock( &endpoint->SpinLock, &oldIrql );
+
+            endpoint->EventsActive &= ~AFD_POLL_RECEIVE;
+
+            if( !IsListEmpty( &connection->VcReceiveBufferListHead ) ) {
+
+                AfdIndicateEventSelectEvent(
+                    endpoint,
+                    AFD_POLL_RECEIVE_BIT,
+                    STATUS_SUCCESS
+                    );
+
+            }
+
+            AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+
+            //
             // Fast IO succeeded!
             //
 
-            ASSERT( IoStatus->Information <= OutputBufferLength );
+            ASSERT( IoStatus->Information <= recvLength );
 
             return TRUE;
 
@@ -821,46 +982,47 @@ AfdFastIoDeviceControl (
             // use fast IO because this IO will need to fail with
             // STATUS_BUFFER_OVERFLOW.
             //
-    
-            if ( endpoint->EndpointType != AfdEndpointTypeStream ) {
-                KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+
+            if ( endpoint->EndpointType != AfdEndpointTypeStream ||
+                 recvLength == 0 ) {
+                AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
                 return FALSE;
             }
-    
+
             //
-            // This is a stream endpoint and the user buffer is 
-            // insufficient for the amount of data stored in the first 
-            // buffer.  So that we can perform fast IO and still 
-            // preserve data ordering, we're going to allocate a new AFD 
-            // buffer structure, copy the appropriate amount of data 
-            // into that buffer, then release locks and copy the data 
-            // into the user buffer.  
+            // This is a stream endpoint and the user buffer is
+            // insufficient for the amount of data stored in the first
+            // buffer.  So that we can perform fast IO and still
+            // preserve data ordering, we're going to allocate a new AFD
+            // buffer structure, copy the appropriate amount of data
+            // into that buffer, then release locks and copy the data
+            // into the user buffer.
             //
-            // The extra copy incurred is still less than the IRP 
-            // overhead incurred in the normal IO path, so using fast IO 
-            // here is a win.  Also, applications which force us through 
-            // this path will typically be using very small receives, 
+            // The extra copy incurred is still less than the IRP
+            // overhead incurred in the normal IO path, so using fast IO
+            // here is a win.  Also, applications which force us through
+            // this path will typically be using very small receives,
             // like one or four bytes, so the copy will be short.
             //
             // First allocate an AFD buffer to hold the data we're
             // eventually going to give to the user.
             //
 
-            tempAfdBuffer = AfdGetBuffer( OutputBufferLength, 0 );
+            tempAfdBuffer = AfdGetBuffer( recvLength, 0 );
             if ( tempAfdBuffer == NULL ) {
-                KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+                AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
                 return FALSE;
             }
 
             //
-            // Copy the first path of the bufferred data into our local
+            // Copy the first part of the bufferred data into our local
             // AFD buffer.
             //
 
             RtlCopyMemory(
                 tempAfdBuffer->Buffer,
                 (PCHAR)afdBuffer->Buffer + afdBuffer->DataOffset,
-                OutputBufferLength
+                recvLength
                 );
 
             //
@@ -868,30 +1030,30 @@ AfdFastIoDeviceControl (
             // on the connection.
             //
 
-            afdBuffer->DataLength -= OutputBufferLength;
-            afdBuffer->DataOffset += OutputBufferLength;
-            connection->VcBufferredReceiveBytes -= OutputBufferLength;
+            afdBuffer->DataLength -= recvLength;
+            afdBuffer->DataOffset += recvLength;
+            connection->VcBufferredReceiveBytes -= recvLength;
 
             //
             // If there is indicated but unreceived data in the TDI provider,
             // and we have available buffer space, fire off an IRP to receive
             // the data.
             //
-    
+
             if ( connection->VcReceiveBytesInTransport > 0
-    
+
                  &&
-    
+
                  connection->VcBufferredReceiveBytes <
                    connection->MaxBufferredReceiveBytes
-    
+
                  &&
-    
+
                  connection->VcBufferredReceiveCount <
                      connection->MaxBufferredReceiveCount ) {
-    
+
                 CLONG bytesInTransport;
-    
+
                 //
                 // Remember the count of data that we're going to receive,
                 // then reset the fields in the connection where we keep
@@ -900,21 +1062,21 @@ AfdFastIoDeviceControl (
                 // another thread doesn't try to receive the data at the
                 // same time as us.
                 //
-    
+
                 bytesInTransport = connection->VcReceiveBytesInTransport;
-    
+
                 ASSERT( connection->VcReceiveCountInTransport == 1 );
                 connection->VcReceiveBytesInTransport = 0;
                 connection->VcReceiveCountInTransport = 0;
-    
-                KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
-    
+
+                AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+
                 //
                 // Get an AFD buffer structure to hold the data.
                 //
-    
+
                 afdBuffer = AfdGetBuffer( bytesInTransport, 0 );
-                
+
                 if ( afdBuffer == NULL ) {
 
                     //
@@ -923,24 +1085,24 @@ AfdFastIoDeviceControl (
                     //
 
                     AfdBeginAbort( connection );
-                    
+
                 } else {
-        
+
                     //
-                    // We need to remember the connection in the AFD buffer 
-                    // because we'll need to access it in the completion 
-                    // routine.  
+                    // We need to remember the connection in the AFD buffer
+                    // because we'll need to access it in the completion
+                    // routine.
                     //
-                
+
                     afdBuffer->Context = connection;
-                
+
                     //
                     // Finish building the receive IRP to give to the TDI provider.
                     //
-                
+
                     TdiBuildReceive(
                         afdBuffer->Irp,
-                        connection->FileObject->DeviceObject,
+                        connection->DeviceObject,
                         connection->FileObject,
                         AfdRestartBufferReceive,
                         afdBuffer,
@@ -948,53 +1110,88 @@ AfdFastIoDeviceControl (
                         TDI_RECEIVE_NORMAL,
                         bytesInTransport
                         );
-        
+
                     //
                     // Hand off the IRP to the TDI provider.
                     //
-        
-                    (VOID)IoCallDriver( 
-                             connection->FileObject->DeviceObject,
+
+                    (VOID)IoCallDriver(
+                             connection->DeviceObject,
                              afdBuffer->Irp
                              );
                 }
 
             } else {
 
-               KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+               AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
             }
-    
+
             //
-            // Now copy the data to the user buffer inside an exception 
-            // handler.  
+            // Now copy the data to the user buffer inside an exception
+            // handler.
             //
 
             try {
 
-                RtlCopyMemory(
-                    OutputBuffer,
+                AfdCopyBufferToBufferArray(
+                    recvInfo->BufferArray,
+                    0,
+                    recvInfo->BufferCount,
                     tempAfdBuffer->Buffer,
-                    OutputBufferLength
+                    recvLength
                     );
 
             } except( EXCEPTION_EXECUTE_HANDLER ) {
 
+                RESET_CHAIN_LENGTH( tempAfdBuffer );
                 AfdReturnBuffer( tempAfdBuffer );
                 return FALSE;
             }
 
             //
+            // Clear the receive data active bit. If there's more data
+            // available, set the corresponding event.
+            //
+
+            AfdAcquireSpinLock( &endpoint->SpinLock, &oldIrql );
+
+            endpoint->EventsActive &= ~AFD_POLL_RECEIVE;
+
+            if( !IsListEmpty( &connection->VcReceiveBufferListHead ) ) {
+
+                AfdIndicateEventSelectEvent(
+                    endpoint,
+                    AFD_POLL_RECEIVE_BIT,
+                    STATUS_SUCCESS
+                    );
+
+            }
+
+            AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+
+            //
             // Fast IO succeeded!
             //
 
+            RESET_CHAIN_LENGTH( tempAfdBuffer );
             AfdReturnBuffer( tempAfdBuffer );
 
             IoStatus->Status = STATUS_SUCCESS;
-            IoStatus->Information = OutputBufferLength;
+            IoStatus->Information = recvLength;
 
             return TRUE;
         }
     }
+
+    case IOCTL_AFD_TRANSMIT_FILE:
+
+        return AfdFastTransmitFile(
+                   FileObject,
+                   InputBuffer,
+                   InputBufferLength,
+                   IoStatus
+                   );
+
 
     default:
 
@@ -1011,14 +1208,11 @@ AfdFastDatagramIo (
     IN struct _FILE_OBJECT *FileObject,
     IN PVOID InputBuffer OPTIONAL,
     IN ULONG InputBufferLength,
-    OUT PVOID OutputBuffer OPTIONAL,
-    IN ULONG OutputBufferLength,
     IN ULONG IoControlCode,
     OUT PIO_STATUS_BLOCK IoStatus
     )
 {
     PAFD_ENDPOINT endpoint;
-    ULONG receiveFlags;
     PAFD_BUFFER afdBuffer;
 
     PAGED_CODE( );
@@ -1039,37 +1233,71 @@ AfdFastDatagramIo (
 
     switch ( IoControlCode ) {
 
-    case IOCTL_TDI_SEND:
+    case IOCTL_AFD_SEND: {
+
+        PAFD_SEND_INFO sendInfo;
+        ULONG sendLength;
 
         //
-        // If this is a send for more than the threshold number of 
-        // bytes, don't use the fast path.  We don't allow larger sends 
-        // in the fast path because of the extra data copy it entails, 
-        // which is more expensive for large buffers.  For smaller 
-        // buffers, however, the cost of the copy is small compared to 
-        // the IO system overhead of the slow path.  
+        // If the input structure isn't large enough, bail on fast IO.
         //
 
-        if ( OutputBufferLength > AfdFastSendDatagramThreshold ) {
+        if( InputBufferLength < sizeof(*sendInfo) ) {
+            return FALSE;
+        }
+
+        try {
+
+            //
+            // Make a quick preliminary check of the input buffer. If it's
+            // bogus (or if Fast IO is disabled), then fail the request.
+            //
+
+            sendInfo = (PAFD_SEND_INFO)InputBuffer;
+
+            if( (sendInfo->AfdFlags & AFD_NO_FAST_IO) != 0 ||
+                sendInfo->TdiFlags != 0 ||
+                sendInfo->BufferArray == NULL ||
+                sendInfo->BufferCount == 0 ) {
+
+                return FALSE;
+
+            }
+
+            //
+            // Calculate the length of the send buffer.
+            //
+
+            sendLength = AfdCalcBufferArrayByteLengthRead(
+                             sendInfo->BufferArray,
+                             sendInfo->BufferCount
+                             );
+
+        } except( EXCEPTION_EXECUTE_HANDLER ) {
+
             return FALSE;
         }
 
         //
-        // If an InputBuffer was specified, then this is a more 
-        // complicated IO request.  Don't use fast IO.  
-        //
-    
-        if ( InputBuffer != NULL ) {
-            return FALSE;
-        }
-    
-        //
-        // In a subroutine, copy the destination address to the AFD 
-        // buffer.  We do this in a subroutine because it needs to 
-        // acquire a spin lock and we want this routine to be pageable.  
+        // If this is a send for more than the threshold number of
+        // bytes, don't use the fast path.  We don't allow larger sends
+        // in the fast path because of the extra data copy it entails,
+        // which is more expensive for large buffers.  For smaller
+        // buffers, however, the cost of the copy is small compared to
+        // the IO system overhead of the slow path.
         //
 
-        afdBuffer = CopyAddressToBuffer( endpoint, OutputBufferLength );
+        if ( sendLength > AfdFastSendDatagramThreshold ) {
+            return FALSE;
+        }
+
+        //
+        // In a subroutine, copy the destination address to the AFD
+        // buffer.  We do this in a subroutine because it needs to
+        // acquire a spin lock and we want this routine to be pageable.
+        //
+
+        afdBuffer = CopyAddressToBuffer( endpoint, sendLength );
         if ( afdBuffer == NULL ) {
             return FALSE;
         }
@@ -1078,22 +1306,24 @@ AfdFastDatagramIo (
         // Store the length of the data we're going to send.
         //
 
-        afdBuffer->DataLength = OutputBufferLength;
+        afdBuffer->DataLength = sendLength;
 
         //
-        // Copy the output buffer to the AFD buffer.  
+        // Copy the output buffer to the AFD buffer.
         //
 
         try {
 
-            RtlCopyMemory(
+            AfdCopyBufferArrayToBuffer(
                 afdBuffer->Buffer,
-                OutputBuffer,
-                OutputBufferLength
+                sendLength,
+                sendInfo->BufferArray,
+                sendInfo->BufferCount
                 );
 
         } except( EXCEPTION_EXECUTE_HANDLER ) {
 
+            RESET_CHAIN_LENGTH( afdBuffer );
             AfdReturnBuffer( afdBuffer );
             return FALSE;
         }
@@ -1104,21 +1334,64 @@ AfdFastDatagramIo (
 
         return AfdFastDatagramSend( afdBuffer, endpoint, IoStatus );
 
-    case IOCTL_TDI_SEND_DATAGRAM: {
+    }
+
+    case IOCTL_AFD_SEND_DATAGRAM: {
 
         PTDI_REQUEST_SEND_DATAGRAM tdiRequest;
         ULONG destinationAddressLength;
+        PAFD_SEND_DATAGRAM_INFO sendInfo;
+        ULONG sendLength;
 
         //
-        // If this is a send for more than the threshold number of 
-        // bytes, don't use the fast path.  We don't allow larger sends 
-        // in the fast path because of the extra data copy it entails, 
-        // which is more expensive for large buffers.  For smaller 
-        // buffers, however, the cost of the copy is small compared to 
-        // the IO system overhead of the slow path.  
+        // If the input structure isn't large enough, bail on fast IO.
         //
 
-        if ( OutputBufferLength > AfdFastSendDatagramThreshold ) {
+        if( InputBufferLength < sizeof(*sendInfo) ) {
+            return FALSE;
+        }
+
+        try {
+
+            //
+            // Make a quick preliminary check of the input buffer. If it's
+            // bogus (or if Fast IO is disabled), then fail the request.
+            //
+
+            sendInfo = (PAFD_SEND_DATAGRAM_INFO)InputBuffer;
+
+            if( (sendInfo->AfdFlags & AFD_NO_FAST_IO) != 0 ||
+                sendInfo->BufferArray == NULL ||
+                sendInfo->BufferCount == 0 ) {
+
+                return FALSE;
+
+            }
+
+            //
+            // Calculate the length of the send buffer.
+            //
+
+            sendLength = AfdCalcBufferArrayByteLengthRead(
+                             sendInfo->BufferArray,
+                             sendInfo->BufferCount
+                             );
+
+        } except( EXCEPTION_EXECUTE_HANDLER ) {
+
+            return FALSE;
+        }
+
+        //
+        // If this is a send for more than the threshold number of
+        // bytes, don't use the fast path.  We don't allow larger sends
+        // in the fast path because of the extra data copy it entails,
+        // which is more expensive for large buffers.  For smaller
+        // buffers, however, the cost of the copy is small compared to
+        // the IO system overhead of the slow path.
+        //
+
+        if ( sendLength > AfdFastSendDatagramThreshold ) {
             return FALSE;
         }
 
@@ -1130,7 +1403,7 @@ AfdFastDatagramIo (
             return FALSE;
         }
 
-        tdiRequest = InputBuffer;
+        tdiRequest = &sendInfo->TdiRequest;
 
         try {
             destinationAddressLength =
@@ -1140,33 +1413,36 @@ AfdFastDatagramIo (
         }
 
         //
-        // Get an AFD buffer to use for the request.  We'll copy the 
-        // user's data to the AFD buffer then submit the IRP in the AFD 
-        // buffer to the TDI provider.  
+        // Get an AFD buffer to use for the request.  We'll copy the
+        // user's data to the AFD buffer then submit the IRP in the AFD
+        // buffer to the TDI provider.
         //
 
-        afdBuffer = AfdGetBuffer( OutputBufferLength, destinationAddressLength );
+        afdBuffer = AfdGetBuffer( sendLength, destinationAddressLength );
         if ( afdBuffer == NULL ) {
             return FALSE;
         }
 
         //
-        // Store the length of the data we're going to send.
+        // Store the length of the data and the address we're going to
+        // send.
         //
 
-        afdBuffer->DataLength = OutputBufferLength;
+        afdBuffer->DataLength = sendLength;
+        afdBuffer->SourceAddressLength = destinationAddressLength;
 
         //
-        // Copy the destination address and the output buffer to the 
-        // AFD buffer.  
+        // Copy the destination address and the output buffer to the
+        // AFD buffer.
         //
 
         try {
 
-            RtlCopyMemory(
+            AfdCopyBufferArrayToBuffer(
                 afdBuffer->Buffer,
-                OutputBuffer,
-                OutputBufferLength
+                sendLength,
+                sendInfo->BufferArray,
+                sendInfo->BufferCount
                 );
 
             RtlCopyMemory(
@@ -1177,6 +1453,7 @@ AfdFastDatagramIo (
 
         } except( EXCEPTION_EXECUTE_HANDLER ) {
 
+            RESET_CHAIN_LENGTH( afdBuffer );
             AfdReturnBuffer( afdBuffer );
             return FALSE;
         }
@@ -1186,63 +1463,58 @@ AfdFastDatagramIo (
         //
 
         return AfdFastDatagramSend( afdBuffer, endpoint, IoStatus );
+
     }
 
-    case IOCTL_TDI_RECEIVE: 
+    case IOCTL_AFD_RECEIVE: {
+
+        AFD_RECV_INFO recvInfo;
+        ULONG recvLength;
 
         //
-        // If an InputBuffer was specified, then this is a more 
-        // complicated IO request.  Don't use fast IO.  
+        // If the input structure isn't large enough, bail on fast IO.
         //
-    
-        if ( InputBuffer != NULL ) {
+
+        if( InputBufferLength < sizeof(recvInfo) ) {
             return FALSE;
         }
-    
-        //
-        // The receive flags are "normal" for a fast datagram receive.
-        //
-
-        receiveFlags = TDI_RECEIVE_NORMAL;
 
         //
-        // Attempt to perform fast IO on the endpoint.
+        // Capture the input structure.
         //
-
-        return AfdFastDatagramReceive(
-                   endpoint,
-                   receiveFlags,
-                   OutputBuffer,
-                   OutputBufferLength,
-                   NULL,
-                   NULL,
-                   &IoStatus->Information,
-                   IoStatus
-                   );
-
-    case IOCTL_TDI_RECEIVE_DATAGRAM: {
-
-        PAFD_RECEIVE_DATAGRAM_INPUT receiveInput;
-        PAFD_RECEIVE_DATAGRAM_OUTPUT receiveOutput;
-
-        //
-        // Grab the receive flags.
-        //
-
-        receiveInput = InputBuffer;
 
         try {
-            receiveFlags = receiveInput->ReceiveFlags;
+
+            recvInfo = *(PAFD_RECV_INFO)InputBuffer;
+
+            //
+            // Make a quick preliminary check of the input buffer. If it's
+            // bogus (or if Fast IO is disabled), then fail the request.
+            //
+
+            if( (recvInfo.AfdFlags & AFD_NO_FAST_IO) != 0 ||
+                recvInfo.TdiFlags != TDI_RECEIVE_NORMAL ||
+                recvInfo.BufferArray == NULL ||
+                recvInfo.BufferCount == 0 ) {
+
+                return FALSE;
+
+            }
+
+            //
+            // Calculate the length of the receive buffer.
+            //
+
+            recvLength = AfdCalcBufferArrayByteLengthWrite(
+                             recvInfo.BufferArray,
+                             recvInfo.BufferCount
+                             );
+
         } except( EXCEPTION_EXECUTE_HANDLER ) {
+
             return FALSE;
+
         }
-
-        //
-        // Determine where the source address and other output 
-        // information should go.  
-        //
-
-        receiveOutput = InputBuffer;
 
         //
         // Attempt to perform fast IO on the endpoint.
@@ -1250,14 +1522,84 @@ AfdFastDatagramIo (
 
         return AfdFastDatagramReceive(
                    endpoint,
-                   receiveFlags,
-                   OutputBuffer,
-                   OutputBufferLength,
-                   &receiveOutput->Address,
-                   &receiveOutput->AddressLength,
-                   &receiveOutput->ReceiveLength,
+                   recvInfo.TdiFlags,
+                   recvInfo.AfdFlags,
+                   recvInfo.BufferArray,
+                   recvInfo.BufferCount,
+                   recvLength,
+                   NULL,
+                   NULL,
                    IoStatus
                    );
+
+    }
+
+    case IOCTL_AFD_RECEIVE_DATAGRAM: {
+
+        AFD_RECV_DATAGRAM_INFO recvInfo;
+        ULONG recvLength;
+
+        //
+        // If the input structure isn't large enough, bail on fast IO.
+        //
+
+        if( InputBufferLength < sizeof(recvInfo) ) {
+            return FALSE;
+        }
+
+        //
+        // Capture the input structure.
+        //
+
+        try {
+
+            recvInfo = *(PAFD_RECV_DATAGRAM_INFO)InputBuffer;
+
+            //
+            // Make a quick preliminary check of the input buffer. If it's
+            // bogus (or if Fast IO is disabled), then fail the request.
+            //
+
+            if( (recvInfo.AfdFlags & AFD_NO_FAST_IO) != 0 ||
+                recvInfo.TdiFlags != TDI_RECEIVE_NORMAL ||
+                recvInfo.BufferArray == NULL ||
+                recvInfo.BufferCount == 0 ) {
+
+                return FALSE;
+
+            }
+
+            //
+            // Calculate the length of the receive buffer.
+            //
+
+            recvLength = AfdCalcBufferArrayByteLengthWrite(
+                             recvInfo.BufferArray,
+                             recvInfo.BufferCount
+                             );
+
+        } except( EXCEPTION_EXECUTE_HANDLER ) {
+
+            return FALSE;
+
+        }
+
+        //
+        // Attempt to perform fast IO on the endpoint.
+        //
+
+        return AfdFastDatagramReceive(
+                   endpoint,
+                   recvInfo.TdiFlags,
+                   recvInfo.AfdFlags,
+                   recvInfo.BufferArray,
+                   recvInfo.BufferCount,
+                   recvLength,
+                   recvInfo.Address,
+                   recvInfo.AddressLength,
+                   IoStatus
+                   );
+
     }
 
     default:
@@ -1272,24 +1614,27 @@ BOOLEAN
 AfdFastDatagramReceive (
     IN PAFD_ENDPOINT Endpoint,
     IN ULONG ReceiveFlags,
-    OUT PVOID OutputBuffer,
-    IN ULONG OutputBufferLength,
+    IN ULONG AfdFlags,
+    IN LPWSABUF BufferArray,
+    IN ULONG BufferCount,
+    IN ULONG ReceiveBufferLength,
     OUT PVOID SourceAddress,
     OUT PULONG SourceAddressLength,
-    OUT PULONG ReceiveLength,
     OUT PIO_STATUS_BLOCK IoStatus
     )
 {
     KIRQL oldIrql;
     PLIST_ENTRY listEntry;
     PAFD_BUFFER afdBuffer;
+    PTRANSPORT_ADDRESS tdiAddress;
+    ULONG addressLength;
 
     //
-    // If the receive flags has any unexpected bits set, fail fast IO.  
-    // We don't handle peeks or expedited data here.  
+    // If the receive flags has any unexpected bits set, fail fast IO.
+    // We don't handle peeks or expedited data here.
     //
 
-    if ( (ReceiveFlags & ~TDI_RECEIVE_NORMAL) != 0 ) {
+    if( ReceiveFlags != TDI_RECEIVE_NORMAL ) {
         return FALSE;
     }
 
@@ -1303,32 +1648,42 @@ AfdFastDatagramReceive (
     }
 
     //
-    // If there are no datagrams available to be received, don't 
-    // bother with the fast path.  
+    // If there are no datagrams available to be received, don't
+    // bother with the fast path.
     //
 
-    KeAcquireSpinLock( &Endpoint->SpinLock, &oldIrql );
+    AfdAcquireSpinLock( &Endpoint->SpinLock, &oldIrql );
 
     if ( !ARE_DATAGRAMS_ON_ENDPOINT( Endpoint ) ) {
-
-        KeReleaseSpinLock( &Endpoint->SpinLock, oldIrql );
 
         //
         // If this is a nonblocking endpoint, fail the request here and
         // save going through the regular path.
         //
 
-        if ( Endpoint->NonBlocking ) {
+        if ( Endpoint->NonBlocking && !( AfdFlags & AFD_OVERLAPPED ) ) {
+            Endpoint->EventsActive &= ~AFD_POLL_SEND;
+
+            IF_DEBUG(EVENT_SELECT) {
+                KdPrint((
+                    "AfdFastDatagramReceive: Endp %08lX, Active %08lX\n",
+                    Endpoint,
+                    Endpoint->EventsActive
+                    ));
+            }
+
             IoStatus->Status = STATUS_DEVICE_NOT_READY;
+            AfdReleaseSpinLock( &Endpoint->SpinLock, oldIrql );
             return TRUE;
         }
 
+        AfdReleaseSpinLock( &Endpoint->SpinLock, oldIrql );
         return FALSE;
     }
 
     //
-    // There is at least one datagram bufferred on the endpoint.  Use it 
-    // for this receive.  
+    // There is at least one datagram bufferred on the endpoint.  Use it
+    // for this receive.
     //
 
     listEntry = RemoveHeadList( &Endpoint->ReceiveDatagramBufferListHead );
@@ -1338,12 +1693,12 @@ AfdFastDatagramReceive (
     // If the datagram is too large, fail fast IO.
     //
 
-    if ( afdBuffer->DataLength > OutputBufferLength ) {
+    if ( afdBuffer->DataLength > ReceiveBufferLength ) {
         InsertHeadList(
             &Endpoint->ReceiveDatagramBufferListHead,
             &afdBuffer->BufferListEntry
             );
-        KeReleaseSpinLock( &Endpoint->SpinLock, oldIrql );
+        AfdReleaseSpinLock( &Endpoint->SpinLock, oldIrql );
         return FALSE;
     }
 
@@ -1355,19 +1710,25 @@ AfdFastDatagramReceive (
     Endpoint->BufferredDatagramBytes -= afdBuffer->DataLength;
 
     //
-    // Release the lock and copy the datagram into the user buffer.  We 
-    // can't continue to hold the lock, because it is not legal to take 
-    // an exception at raised IRQL.  Releasing the lock may result in a 
-    // misordered datagram if there is an exception in copying to the 
-    // user's buffer, but that is the user's fault for giving us a bogus 
+    // Release the lock and copy the datagram into the user buffer.  We
+    // can't continue to hold the lock, because it is not legal to take
+    // an exception at raised IRQL.  Releasing the lock may result in a
+    // misordered datagram if there is an exception in copying to the
+    // user's buffer, but that is the user's fault for giving us a bogus
     // pointer.  Besides, datagram order is not guaranteed.
     //
 
-    KeReleaseSpinLock( &Endpoint->SpinLock, oldIrql );
+    AfdReleaseSpinLock( &Endpoint->SpinLock, oldIrql );
 
     try {
 
-        RtlCopyMemory( OutputBuffer, afdBuffer->Buffer, afdBuffer->DataLength );
+        AfdCopyBufferToBufferArray(
+            BufferArray,
+            0,
+            BufferCount,
+            afdBuffer->Buffer,
+            afdBuffer->DataLength
+            );
 
         //
         // If we need to return the source address, copy it to the
@@ -1376,21 +1737,28 @@ AfdFastDatagramReceive (
 
         if ( SourceAddress != NULL ) {
 
+            tdiAddress = afdBuffer->SourceAddress;
+
+            addressLength = tdiAddress->Address[0].AddressLength +
+                sizeof(u_short);    // sa_family
+
+            if( *SourceAddressLength < addressLength ) {
+
+                ExRaiseAccessViolation();
+
+            }
+
             RtlCopyMemory(
                 SourceAddress,
-                afdBuffer->SourceAddress,
-                afdBuffer->SourceAddressLength
+                &tdiAddress->Address[0].AddressType,
+                addressLength
                 );
 
-            *SourceAddressLength = afdBuffer->SourceAddressLength;
+            *SourceAddressLength = addressLength;
 
-            IoStatus->Information = 
-                FIELD_OFFSET( AFD_RECEIVE_DATAGRAM_OUTPUT, Address ) +
-                afdBuffer->SourceAddressLength;
         }
 
-        *ReceiveLength = afdBuffer->DataLength;
-
+        IoStatus->Information = afdBuffer->DataLength;
         IoStatus->Status = STATUS_SUCCESS;
 
     } except( EXCEPTION_EXECUTE_HANDLER ) {
@@ -1399,7 +1767,7 @@ AfdFastDatagramReceive (
         // Put the buffer back on the endpoint's list.
         //
 
-        KeAcquireSpinLock( &Endpoint->SpinLock, &oldIrql );
+        AfdAcquireSpinLock( &Endpoint->SpinLock, &oldIrql );
 
         InsertHeadList(
             &Endpoint->ReceiveDatagramBufferListHead,
@@ -1409,15 +1777,37 @@ AfdFastDatagramReceive (
         Endpoint->BufferredDatagramCount++;
         Endpoint->BufferredDatagramBytes += afdBuffer->DataLength;
 
-        KeReleaseSpinLock( &Endpoint->SpinLock, oldIrql );
+        AfdReleaseSpinLock( &Endpoint->SpinLock, oldIrql );
 
         return FALSE;
     }
 
     //
+    // Clear the receive data active bit. If there's more data
+    // available, set the corresponding event.
+    //
+
+    AfdAcquireSpinLock( &Endpoint->SpinLock, &oldIrql );
+
+    Endpoint->EventsActive &= ~AFD_POLL_RECEIVE;
+
+    if( ARE_DATAGRAMS_ON_ENDPOINT( Endpoint ) ) {
+
+        AfdIndicateEventSelectEvent(
+            Endpoint,
+            AFD_POLL_RECEIVE_BIT,
+            STATUS_SUCCESS
+            );
+
+    }
+
+    AfdReleaseSpinLock( &Endpoint->SpinLock, oldIrql );
+
+    //
     // The fast IO worked!  Clean up and return to the user.
     //
 
+    RESET_CHAIN_LENGTH( afdBuffer );
     AfdReturnBuffer( afdBuffer );
 
     return TRUE;
@@ -1453,7 +1843,7 @@ AfdFastDatagramSend (
 
     TdiBuildSendDatagram(
         AfdBuffer->Irp,
-        Endpoint->AddressFileObject->DeviceObject,
+        Endpoint->AddressDeviceObject,
         Endpoint->AddressFileObject,
         AfdRestartFastSendDatagram,
         AfdBuffer,
@@ -1472,13 +1862,23 @@ AfdFastDatagramSend (
     AfdBuffer->Mdl->ByteCount = sendLength;
 
     //
-    // Give the IRP to the TDI provider.  If the request fails 
-    // immediately, then fail fast IO.  If the request fails later on, 
-    // there's nothing we can do about it.  
+    // Reference the endpoint so that it does not go away until the send
+    // completes.  This is necessary to ensure that a send which takes a
+    // very long time and lasts longer than the process will not cause a
+    // crash when the send datragram finally completes.
+    //
+
+    REFERENCE_ENDPOINT( Endpoint );
+    AfdBuffer->Context = Endpoint;
+
+    //
+    // Give the IRP to the TDI provider.  If the request fails
+    // immediately, then fail fast IO.  If the request fails later on,
+    // there's nothing we can do about it.
     //
 
     status = IoCallDriver(
-                 Endpoint->AddressFileObject->DeviceObject,
+                 Endpoint->AddressDeviceObject,
                  AfdBuffer->Irp
                  );
 
@@ -1501,12 +1901,20 @@ AfdRestartFastSendDatagram (
     )
 {
     PAFD_BUFFER afdBuffer;
+    PAFD_ENDPOINT endpoint;
+
+    afdBuffer = Context;
+
+    //
+    // Find the endpoint used for this request.
+    //
+
+    endpoint = afdBuffer->Context;
+    ASSERT( endpoint->Type == AfdBlockTypeDatagram );
 
     //
     // Reset and free the AFD buffer structure.
     //
-
-    afdBuffer = Context;
 
     ASSERT( afdBuffer->Irp == Irp );
 
@@ -1515,7 +1923,15 @@ AfdRestartFastSendDatagram (
 
     afdBuffer->Mdl->ByteCount = afdBuffer->BufferLength;
 
+    RESET_CHAIN_LENGTH( afdBuffer );
     AfdReturnBuffer( afdBuffer );
+
+    //
+    // Get rid of the reference we put on the endpoint when we started
+    // this I/O.
+    //
+
+    DEREFERENCE_ENDPOINT( endpoint );
 
     //
     // Tell the IO system to stop processing this IRP.
@@ -1537,21 +1953,21 @@ CopyAddressToBuffer (
 
     ASSERT( Endpoint->Type == AfdBlockTypeDatagram );
 
-    KeAcquireSpinLock( &Endpoint->SpinLock, &oldIrql );
+    AfdAcquireSpinLock( &Endpoint->SpinLock, &oldIrql );
 
     //
     // If the endpoint is not connected, fail.
     //
 
     if ( Endpoint->State != AfdEndpointStateConnected ) {
-        KeReleaseSpinLock( &Endpoint->SpinLock, oldIrql );
+        AfdReleaseSpinLock( &Endpoint->SpinLock, oldIrql );
         return NULL;
     }
 
     //
-    // Get an AFD buffer to use for the request.  We'll copy the 
-    // user to the AFD buffer then submit the IRP in the AFD 
-    // buffer to the TDI provider.  
+    // Get an AFD buffer to use for the request.  We'll copy the
+    // user to the AFD buffer then submit the IRP in the AFD
+    // buffer to the TDI provider.
     //
 
     afdBuffer = AfdGetBuffer(
@@ -1578,8 +1994,102 @@ CopyAddressToBuffer (
 
     afdBuffer->SourceAddressLength = Endpoint->Common.Datagram.RemoteAddressLength;
 
-    KeReleaseSpinLock( &Endpoint->SpinLock, oldIrql );
+    AfdReleaseSpinLock( &Endpoint->SpinLock, oldIrql );
 
     return afdBuffer;
 
 } // CopyAddressToBuffer
+
+
+BOOLEAN
+AfdShouldSendBlock (
+    IN PAFD_ENDPOINT Endpoint,
+    IN PAFD_CONNECTION Connection,
+    IN ULONG SendLength
+    )
+
+/*++
+
+Routine Description:
+
+    Determines whether a nonblocking send can be performed on the
+    connection, and if the send is possible, updates the connection's
+    send tracking information.
+
+Arguments:
+
+    Endpoint - the AFD endpoint for the send.
+
+    Connection - the AFD connection for the send.
+
+    SendLength - the number of bytes that the caller wants to send.
+
+Return Value:
+
+    TRUE if the there is not too much data on the endpoint to perform
+    the send; FALSE otherwise.
+
+--*/
+
+{
+    KIRQL oldIrql;
+
+    //
+    // Determine whether we can do fast IO with this send.  In order
+    // to perform fast IO, there must be no other sends pended on this
+    // connection and there must be enough space left for bufferring
+    // the requested amount of data.
+    //
+
+    AfdAcquireSpinLock( &Endpoint->SpinLock, &oldIrql );
+
+    if ( !IsListEmpty( &Connection->VcSendIrpListHead )
+
+         ||
+
+         Connection->VcBufferredSendBytes >= Connection->MaxBufferredSendBytes
+
+         ||
+
+         Connection->VcBufferredSendCount >= Connection->MaxBufferredSendCount
+
+         ) {
+
+        //
+        // If this is a nonblocking endpoint, fail the request here and
+        // save going through the regular path.
+        //
+
+        if ( Endpoint->NonBlocking ) {
+            Endpoint->EventsActive &= ~AFD_POLL_SEND;
+
+            IF_DEBUG(EVENT_SELECT) {
+                KdPrint((
+                    "AfdFastIoDeviceControl: Endp %08lX, Active %08lX\n",
+                    Endpoint,
+                    Endpoint->EventsActive
+                    ));
+            }
+        }
+
+        AfdReleaseSpinLock( &Endpoint->SpinLock, oldIrql );
+        return TRUE;
+    }
+
+    //
+    // Update count of send bytes pending on the connection.
+    //
+
+    Connection->VcBufferredSendBytes += SendLength;
+    Connection->VcBufferredSendCount += 1;
+
+    AfdReleaseSpinLock( &Endpoint->SpinLock, oldIrql );
+
+    //
+    // Indicate to the caller that it is OK to proceed with the send.
+    //
+
+    return FALSE;
+
+} // AfdShouldSendBlock
+

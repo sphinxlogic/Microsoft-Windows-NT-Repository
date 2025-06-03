@@ -442,6 +442,20 @@ mkerror macro	errcode,msg,segarg,offarg
 	endm
 else
 
+ifdef WOW ; For WOW we call FatalExitC which thunks to WK32FatalExit.
+externFP        <FatalExitC>
+kerror  macro   errcode,msg,segarg,offarg       ;; Non-Debug version
+        cCall   FatalExitC,<errcode>
+	endm
+
+fkerror macro	errcode,msg,segarg,offarg	;; Non-Debug version
+        cCall   FatalExitC,<errcode>
+	endm
+
+mkerror macro	errcode,msg,segarg,offarg	;; Non-Debug version
+        cCall   FatalExitC,<errcode>
+	endm
+else
 ife ?RIPAUX		 ; Dont declare external in RIPAUX.ASM
 externFP	<FatalExitDeath>
 endif
@@ -456,6 +470,7 @@ fkerror macro	errcode,msg,segarg,offarg	;; Non-Debug version
 mkerror macro	errcode,msg,segarg,offarg	;; Non-Debug version
 	cCall	FatalExitDeath,<errcode>
 	endm
+endif
 endif
 
 ; define misc. register pairs
@@ -977,6 +992,12 @@ OPENSTRUC	ENDS
 GACF_IGNORENODISCARD	EQU	0001h	; Ignore GA_NODISCARD on GlobalAlloc
 GACF_HACKWINFLAGS	EQU	0400h	; mask out new win31 flags ie. WF_PAGING
 
+; Look for module in Module Compatibilty section of win.ini
+MCF_FIXEDSEGLOW       = 00001h  ; Win31 behaviour for FIXED segs
+MCF_MODPATCH          = 00002h  ; Look for module patches in the registry
+MCF_NODISCARD         = 00004h  ; Make all segments in the module not discardable
+MCF_MODPATCH_X86      = 08000h  ; Apply this module patch on x86 only
+MCF_MODPATCH_RISC     = 04000h  ; Apply this module patch on RISC only
 
 ifdef	JAPAN
 ;
@@ -1176,7 +1197,9 @@ LME_PMODE 	= 18	; not an rmode windows app			;
 LME_COMP	= 19	; compressed EXE file				;
 LME_INVCOMP 	= 20	; invalid DLL (component) caused EXE load fail	;
 LME_PE		= 21	; Windows Portable EXE app - let them load it	;
-LME_MAXERR 	= 32	; for comparisons				;
+LME_MAXERR      = 32    ; for comparisons                               ;
+
+LME_WOAWOW32    = 23    ; For wow special handling of WOA
 
 PEMAGIC = 4550h	; 'PE'
 

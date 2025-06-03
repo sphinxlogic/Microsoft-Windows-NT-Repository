@@ -27,17 +27,6 @@ Revision History:
 //  Declare the internal workspace that we need
 //
 
-typedef struct _COMPRESS_ENTRY {
-
-    ULONG KeyTable;
-
-    USHORT IndexTable[2];
-
-    struct _COMPRESS_ENTRY *LeftChild;
-    struct _COMPRESS_ENTRY *RightChild;
-
-} COMPRESS_ENTRY, *PCOMPRESS_ENTRY;
-
 typedef struct _LZNT1_STANDARD_WORKSPACE {
 
     PUCHAR UncompressedBuffer;
@@ -45,9 +34,7 @@ typedef struct _LZNT1_STANDARD_WORKSPACE {
     ULONG  MaxLength;
     PUCHAR MatchedString;
 
-    USHORT NextFreeEntry;
-
-    COMPRESS_ENTRY Table[4096];
+    PUCHAR IndexPTable[4096][2];
 
 } LZNT1_STANDARD_WORKSPACE, *PLZNT1_STANDARD_WORKSPACE;
 
@@ -62,7 +49,7 @@ typedef struct _LZNT1_MAXIMUM_WORKSPACE {
 
 typedef struct _LZNT1_FRAGMENT_WORKSPACE {
 
-    UCHAR Buffer[0x10000];
+    UCHAR Buffer[0x1000];
 
 } LZNT1_FRAGMENT_WORKSPACE, *PLZNT1_FRAGMENT_WORKSPACE;
 
@@ -202,15 +189,29 @@ typedef union _COMPRESSED_CHUNK_HEADER {
 #define Maximum(A,B)    ((A) > (B) ? (A) : (B))
 
 #if defined(ALLOC_PRAGMA) && defined(NTOS_KERNEL_RUNTIME)
+
 #pragma alloc_text(PAGE, RtlCompressWorkSpaceSizeLZNT1)
 #pragma alloc_text(PAGE, RtlCompressBufferLZNT1)
 #pragma alloc_text(PAGE, RtlDecompressBufferLZNT1)
 #pragma alloc_text(PAGE, RtlDecompressFragmentLZNT1)
+#pragma alloc_text(PAGE, RtlDescribeChunkLZNT1)
+#pragma alloc_text(PAGE, RtlReserveChunkLZNT1)
 
 #pragma alloc_text(PAGE, LZNT1CompressChunk)
+
+#if !defined(_ALPHA_)
+#if !defined(_MIPS_)
+#if !defined(_PPC_)
+#if !defined(i386)
 #pragma alloc_text(PAGE, LZNT1DecompressChunk)
+#endif
+#endif
+#endif
+#endif
+
 #pragma alloc_text(PAGE, LZNT1FindMatchStandard)
 #pragma alloc_text(PAGE, LZNT1FindMatchMaximum)
+
 #endif
 
 
@@ -388,13 +389,16 @@ Return Value:
     //
     //  If we are not within two bytes of the end of the compressed buffer then we
     //  need to zero out two more for the ending compressed header and update
-    //  the compressed chunk pointer value
+    //  the compressed chunk pointer value.  Don't include these bytes in
+    //  the count however, as that may force our caller to allocate an unneeded
+    //  cluster, since on decompress we will terminate either on these two
+    //  bytes of 0, or byte count.
     //
 
     if (CompressedChunk <= (EndOfCompressedBuffer - 2)) {
 
-        *(CompressedChunk++) = 0;
-        *(CompressedChunk++) = 0;
+        *(CompressedChunk) = 0;
+        *(CompressedChunk + 1) = 0;
     }
 
     //
@@ -500,6 +504,8 @@ Return Value:
 
     while (TRUE) {
 
+        ASSERT(ChunkHeader.Chunk.ChunkSignature == 3);
+
         CompressedChunkSize = GetCompressedChunkSize(ChunkHeader);
 
         //
@@ -528,7 +534,7 @@ Return Value:
 
             if (!NT_SUCCESS(Status = LZNT1DecompressChunk( UncompressedChunk,
                                                            EndOfUncompressedBuffer,
-                                                           CompressedChunk,
+                                                           CompressedChunk + sizeof(COMPRESSED_CHUNK_HEADER),
                                                            CompressedChunk + CompressedChunkSize,
                                                            &UncompressedChunkSize ))) {
 
@@ -553,6 +559,17 @@ Return Value:
             if (UncompressedChunk + UncompressedChunkSize > EndOfUncompressedBuffer) {
 
                 UncompressedChunkSize = EndOfUncompressedBuffer - UncompressedChunk;
+            }
+
+            //
+            //  Check that the compressed chunk has this many bytes to copy.
+            //
+
+            if (CompressedChunk + sizeof(COMPRESSED_CHUNK_HEADER) + UncompressedChunkSize > EndOfCompressedBuffer) {
+
+                ASSERTMSG("CompressedBuffer is too small", FALSE);
+                *FinalUncompressedSize = (ULONG)CompressedChunk;
+                return STATUS_BAD_COMPRESSION_BUFFER;
             }
 
             RtlCopyMemory( UncompressedChunk,
@@ -728,9 +745,12 @@ Return Value:
     //  the compressed chunk sizes
     //
 
+    ASSERT(CompressedChunk <= EndOfCompressedBuffer - 2);
+
     RtlRetrieveUshort( &ChunkHeader, CompressedChunk );
 
     ASSERT(ChunkHeader.Short != 0);
+    ASSERT(ChunkHeader.Chunk.ChunkSignature == 3);
 
     UncompressedChunkSize = GetUncompressedChunkSize(ChunkHeader);
     CompressedChunkSize = GetCompressedChunkSize(ChunkHeader);
@@ -773,14 +793,21 @@ Return Value:
         //  compressed data so we'll return a zero sized fragment
         //
 
+        if (CompressedChunk > EndOfCompressedBuffer - 2) {
+
+            *FinalUncompressedSize = 0;
+            return STATUS_SUCCESS;
+        }
+
         RtlRetrieveUshort( &ChunkHeader, CompressedChunk );
 
         if (ChunkHeader.Short == 0) {
 
             *FinalUncompressedSize = 0;
-
             return STATUS_SUCCESS;
         }
+
+        ASSERT(ChunkHeader.Chunk.ChunkSignature == 3);
 
         //
         //  Decode the chunk sizes for the new current chunk
@@ -842,7 +869,7 @@ Return Value:
 
                 if (!NT_SUCCESS(Status = LZNT1DecompressChunk( CurrentUncompressedFragment,
                                                                EndOfUncompressedFragment,
-                                                               CompressedChunk,
+                                                               CompressedChunk + sizeof(COMPRESSED_CHUNK_HEADER),
                                                                CompressedChunk + CompressedChunkSize,
                                                                &CopySize ))) {
 
@@ -861,13 +888,29 @@ Return Value:
 
                 if (!NT_SUCCESS(Status = LZNT1DecompressChunk( (PUCHAR)WorkSpace,
                                                                &WorkSpace->Buffer[0] + sizeof(LZNT1_FRAGMENT_WORKSPACE),
-                                                               CompressedChunk,
+                                                               CompressedChunk + sizeof(COMPRESSED_CHUNK_HEADER),
                                                                CompressedChunk + CompressedChunkSize,
                                                                &UncompressedChunkSize ))) {
 
                     *FinalUncompressedSize = UncompressedChunkSize;
 
                     return Status;
+                }
+
+                //
+                //  If we got less than we were looking for then we are at the
+                //  end of the file.  Remember the real uncompressed size and
+                //  break out of the loop.
+                //
+
+                if ((UncompressedChunkSize - FragmentOffset) < CopySize) {
+
+                    RtlCopyMemory( CurrentUncompressedFragment,
+                                   &WorkSpace->Buffer[ FragmentOffset ],
+                                   (UncompressedChunkSize - FragmentOffset) );
+
+                    CurrentUncompressedFragment += (UncompressedChunkSize - FragmentOffset);
+                    break;
                 }
 
                 RtlCopyMemory( CurrentUncompressedFragment,
@@ -879,8 +922,16 @@ Return Value:
 
             //
             //  The chunk is not compressed so we can do a simple copy of the
-            //  data
+            //  data.  First verify that the compressed buffer holds this much
+            //  data.
             //
+
+            if (CompressedChunk + sizeof(COMPRESSED_CHUNK_HEADER) + FragmentOffset + CopySize > EndOfCompressedBuffer) {
+
+                ASSERTMSG("CompressedBuffer is too small", FALSE);
+                *FinalUncompressedSize = (ULONG)CompressedChunk;
+                return STATUS_BAD_COMPRESSION_BUFFER;
+            }
 
             RtlCopyMemory( CurrentUncompressedFragment,
                            CompressedChunk + sizeof(COMPRESSED_CHUNK_HEADER) + FragmentOffset,
@@ -920,9 +971,13 @@ Return Value:
 
         CompressedChunk += CompressedChunkSize;
 
+        if (CompressedChunk > EndOfCompressedBuffer - 2) { break; }
+
         RtlRetrieveUshort( &ChunkHeader, CompressedChunk );
 
         if (ChunkHeader.Short == 0) { break; }
+
+        ASSERT(ChunkHeader.Chunk.ChunkSignature == 3);
 
         //
         //  Decode the chunk sizes for the new current chunk
@@ -944,6 +999,360 @@ Return Value:
     *FinalUncompressedSize = CurrentUncompressedFragment - UncompressedFragment;
 
     return STATUS_SUCCESS;
+}
+
+
+NTSTATUS
+RtlDescribeChunkLZNT1 (
+    IN OUT PUCHAR *CompressedBuffer,
+    IN PUCHAR EndOfCompressedBufferPlus1,
+    OUT PUCHAR *ChunkBuffer,
+    OUT PULONG ChunkSize
+    )
+
+/*++
+
+Routine Description:
+
+    This routine takes as input a compressed buffer, and returns
+    a description of the current chunk in that buffer, updating
+    the CompressedBuffer pointer to point to the next chunk (if
+    there is one).
+
+Arguments:
+
+    CompressedBuffer - Supplies a pointer to the current chunk in
+        the compressed data, and returns pointing to the next chunk
+
+    EndOfCompressedBufferPlus1 - Points at first byte beyond
+        compressed buffer
+
+    ChunkBuffer - Receives a pointer to the chunk, if ChunkSize
+        is nonzero, else undefined
+
+    ChunkSize - Receives the size of the current chunk pointed
+        to by CompressedBuffer.  Returns 0 if STATUS_NO_MORE_ENTRIES.
+
+Return Value:
+
+    STATUS_SUCCESS - the chunk size is being returned
+
+    STATUS_BAD_COMPRESSION_BUFFER - the input compressed buffer is
+        ill-formed.
+
+    STATUS_NO_MORE_ENTRIES - There is no chunk at the current pointer.
+
+--*/
+
+{
+    COMPRESSED_CHUNK_HEADER ChunkHeader;
+    NTSTATUS Status = STATUS_NO_MORE_ENTRIES;
+
+    //
+    //  First initialize outputs
+    //
+
+    *ChunkBuffer = *CompressedBuffer;
+    *ChunkSize = 0;
+
+    //
+    //  Make sure that the compressed buffer is at least four bytes long to
+    //  start with, otherwise just return a zero chunk.
+    //
+
+    if (*CompressedBuffer <= EndOfCompressedBufferPlus1 - 4) {
+
+        RtlRetrieveUshort( &ChunkHeader, *CompressedBuffer );
+
+        //
+        //  Check for end of chunks, terminated by USHORT of 0.
+        //  First assume there are no more.
+        //
+
+        if (ChunkHeader.Short != 0) {
+
+            Status = STATUS_SUCCESS;
+
+            *ChunkSize = GetCompressedChunkSize(ChunkHeader);
+            *CompressedBuffer += *ChunkSize;
+
+            //
+            //  Check that the chunk actually fits in the buffer supplied
+            //  by the caller.  If not, restore *CompressedBuffer for debug!
+            //
+
+            if ((*CompressedBuffer > EndOfCompressedBufferPlus1) ||
+                (ChunkHeader.Chunk.ChunkSignature != 3)) {
+
+                ASSERTMSG("CompressedBuffer is bad or too small", FALSE);
+
+                *CompressedBuffer -= *ChunkSize;
+
+                Status = STATUS_BAD_COMPRESSION_BUFFER;
+
+            //
+            //  First make sure the chunk contains compressed data
+            //
+
+            } else if (!ChunkHeader.Chunk.IsChunkCompressed) {
+
+                //
+                //  The uncompressed chunk must be exactly this size!
+                //  If not, restore *CompressedBuffer for debug!
+                //
+
+                if (*ChunkSize != MAX_UNCOMPRESSED_CHUNK_SIZE + 2) {
+
+                    ASSERTMSG("Uncompressed chunk is wrong size", FALSE);
+
+                    *CompressedBuffer -= *ChunkSize;
+
+                    Status = STATUS_BAD_COMPRESSION_BUFFER;
+
+                //
+                //  The chunk does not contain compressed data so we need to
+                //  remove the chunk header from the chunk description.
+                //
+
+                } else {
+
+                    *ChunkBuffer += 2;
+                    *ChunkSize -= 2;
+                }
+
+            //
+            //  Otherwise we have a compressed chunk, and we only need to
+            //  see if it is all zeros!  Since the header is already interpreted,
+            //  we only have to see if there is exactly one literal and if it
+            //  is zero - it doesn't matter what the copy token says - we have
+            //  a chunk of zeros!
+            //
+
+            } else if ((*ChunkSize == 6) && (*(*ChunkBuffer + 2) == 2) && (*(*ChunkBuffer + 3) == 0)) {
+
+                *ChunkSize = 0;
+            }
+        }
+    }
+
+    return Status;
+}
+
+
+NTSTATUS
+RtlReserveChunkLZNT1 (
+    IN OUT PUCHAR *CompressedBuffer,
+    IN PUCHAR EndOfCompressedBufferPlus1,
+    OUT PUCHAR *ChunkBuffer,
+    IN ULONG ChunkSize
+    )
+
+/*++
+
+Routine Description:
+
+    This routine reserves space for a chunk of the specified
+    size in the buffer, writing in a chunk header if necessary
+    (uncompressed or all zeros case).  On return the CompressedBuffer
+    pointer points to the next chunk.
+
+Arguments:
+
+    CompressedBuffer - Supplies a pointer to the current chunk in
+        the compressed data, and returns pointing to the next chunk
+
+    EndOfCompressedBufferPlus1 - Points at first byte beyond
+        compressed buffer
+
+    ChunkBuffer - Receives a pointer to the chunk, if ChunkSize
+        is nonzero, else undefined
+
+    ChunkSize - Supplies the compressed size of the chunk to be received.
+                Two special values are 0 and MAX_UNCOMPRESSED_CHUNK_SIZE (4096).
+                0 means the chunk should be filled with a pattern that equates
+                to 4096 0's.  4096 implies that the compression routine should
+                prepare to receive all of the data in uncompressed form.
+
+Return Value:
+
+    STATUS_SUCCESS - the chunk size is being returned
+
+    STATUS_BUFFER_TOO_SMALL - the compressed buffer is too small to hold the
+        compressed data.
+
+--*/
+
+{
+    COMPRESSED_CHUNK_HEADER ChunkHeader;
+    BOOLEAN Compressed;
+    PUCHAR Tail, NextChunk, DontCare;
+    ULONG Size;
+    NTSTATUS Status;
+
+    ASSERT(ChunkSize <= MAX_UNCOMPRESSED_CHUNK_SIZE);
+
+    //
+    //  Calculate the address of the tail of this buffer and its
+    //  size, so it can be moved before we store anything.
+    //
+
+    Tail = NextChunk = *CompressedBuffer;
+    while (NT_SUCCESS(Status = RtlDescribeChunkLZNT1( &NextChunk,
+                                                      EndOfCompressedBufferPlus1,
+                                                      &DontCare,
+                                                      &Size))) {
+
+        //
+        //  First time through the loop, capture the address of the next chunk.
+        //
+
+        if (Tail == *CompressedBuffer) {
+            Tail = NextChunk;
+        }
+    }
+
+    //
+    //  The buffer could be invalid.
+    //
+
+    if (Status == STATUS_NO_MORE_ENTRIES) {
+
+        //
+        //  The only way to successfully terminate the loop is by finding a USHORT
+        //  terminator of 0.  Now calculate the size including the final USHORT
+        //  we stopped on.
+        //
+
+        Size = NextChunk - Tail + sizeof(USHORT);
+
+        //
+        //  First initialize outputs
+        //
+
+        Status = STATUS_BUFFER_TOO_SMALL;
+        *ChunkBuffer = *CompressedBuffer;
+
+        //
+        //  Make sure that the compressed buffer is at least four bytes long to
+        //  start with, otherwise just return a zero chunk.
+        //
+
+        if (*CompressedBuffer <= (EndOfCompressedBufferPlus1 - ChunkSize)) {
+
+            //
+            //  If the chunk is uncompressed, then we have to adjust the
+            //  chunk description for the header.
+            //
+
+            if (ChunkSize == MAX_UNCOMPRESSED_CHUNK_SIZE) {
+
+                //
+                //  Increase ChunkSize to include header.
+                //
+
+                ChunkSize += 2;
+
+                //
+                //  Move the tail now that we know where to put it.
+                //
+
+                if ((*CompressedBuffer + ChunkSize + Size) <= EndOfCompressedBufferPlus1) {
+
+                    RtlMoveMemory( *CompressedBuffer + ChunkSize, Tail, Size );
+
+                    //
+                    //  Build the header and store it for an uncompressed chunk.
+                    //
+
+                    SetCompressedChunkHeader( ChunkHeader,
+                                              MAX_UNCOMPRESSED_CHUNK_SIZE + 2,
+                                              FALSE );
+
+                    RtlStoreUshort( *CompressedBuffer, ChunkHeader.Short );
+
+                    //
+                    //  Advance to where the uncompressed data goes.
+                    //
+
+                    *ChunkBuffer += 2;
+
+                    Status = STATUS_SUCCESS;
+                }
+
+            //
+            //  Otherwise, if this is a zero chunk we have to build it.
+            //
+
+            } else if (ChunkSize == 0) {
+
+                //
+                //  It takes 6 bytes to describe a chunk of zeros.
+                //
+
+                ChunkSize = 6;
+
+                if ((*CompressedBuffer + ChunkSize + Size) <= EndOfCompressedBufferPlus1) {
+
+                    //
+                    //  Move the tail now that we know where to put it.
+                    //
+
+                    RtlMoveMemory( *CompressedBuffer + ChunkSize, Tail, Size );
+
+                    //
+                    //  Build the header and store it
+                    //
+
+                    SetCompressedChunkHeader( ChunkHeader,
+                                              6,
+                                              TRUE );
+
+                    RtlStoreUshort( *CompressedBuffer, ChunkHeader.Short );
+
+                    //
+                    //  Now store the mask byte with one literal and the literal
+                    //  is 0.
+                    //
+
+                    RtlStoreUshort( *CompressedBuffer + 2, (USHORT)2 );
+
+                    //
+                    //  Now store the copy token for copying 4095 bytes from
+                    //  the preceding byte (stored as offset 0).
+                    //
+
+                    RtlStoreUshort( *CompressedBuffer + 4, (USHORT)(4095-3));
+
+                    Status = STATUS_SUCCESS;
+                }
+
+            //
+            //  Otherwise we have a normal compressed chunk.
+            //
+
+            } else {
+
+                //
+                //  Move the tail now that we know where to put it.
+                //
+
+                if ((*CompressedBuffer + ChunkSize + Size) <= EndOfCompressedBufferPlus1) {
+
+                    RtlMoveMemory( *CompressedBuffer + ChunkSize, Tail, Size );
+
+                    Status = STATUS_SUCCESS;
+                }
+            }
+
+            //
+            //  Advance the *CompressedBuffer before return
+            //
+
+            *CompressedBuffer += ChunkSize;
+        }
+    }
+
+    return Status;
 }
 
 
@@ -1176,7 +1585,7 @@ Return Value:
     OutputPointer = CompressedBuffer + sizeof(COMPRESSED_CHUNK_HEADER);
 
     ASSERT(InputPointer < EndOfUncompressedBufferPlus1);
-    ASSERT(OutputPointer + 2 <= EndOfCompressedChunkPlus1);
+    //**** ASSERT(OutputPointer + 2 <= EndOfCompressedChunkPlus1);
 
     //
     //  The flag byte stores a copy of the flags for the current
@@ -1196,8 +1605,6 @@ Return Value:
     //  While there is some more data to be compressed we will do the
     //  following loop
     //
-
-    ((PLZNT1_STANDARD_WORKSPACE)WorkSpace)->NextFreeEntry = 0;
 
     ((PLZNT1_STANDARD_WORKSPACE)WorkSpace)->UncompressedBuffer = UncompressedBuffer;
     ((PLZNT1_STANDARD_WORKSPACE)WorkSpace)->EndOfUncompressedBufferPlus1 = EndOfUncompressedBufferPlus1;
@@ -1380,6 +1787,10 @@ Return Value:
 }
 
 
+#if !defined(_ALPHA_)
+#if !defined(_MIPS_)
+#if !defined(_PPC_)
+#if !defined(i386)
 //
 //  Local support routine
 //
@@ -1417,7 +1828,8 @@ Arguments:
         test against the pointer and by passing the pointer we get to
         skip the code to compute it each time.
 
-    CompressedBuffer - Supplies a pointer to the compressed chunk.
+    CompressedBuffer - Supplies a pointer to the compressed chunk.  (This
+        pointer has already been adjusted to point past the chunk header.)
 
     EndOfCompressedBufferPlus1 - Supplies a pointer to the next
         byte following the end of the compressed buffer.
@@ -1443,15 +1855,13 @@ Return Value:
 
     ULONG Format = FORMAT412;
 
-    ASSERT((EndOfCompressedBufferPlus1 - CompressedBuffer) > 3);
-
     //
     //  The two pointers will slide through our input and input buffer.
     //  For the input buffer we skip over the chunk header.
     //
 
     OutputPointer = UncompressedBuffer;
-    InputPointer = CompressedBuffer + sizeof(COMPRESSED_CHUNK_HEADER);
+    InputPointer = CompressedBuffer;
 
     //
     //  The flag byte stores a copy of the flags for the current
@@ -1575,6 +1985,10 @@ Return Value:
 
     return STATUS_SUCCESS;
 }
+#endif // i386
+#endif // _MIPS_
+#endif // _PPC_
+#endif // _ALPHA_
 
 
 //
@@ -1608,181 +2022,100 @@ Return Value:
 
 {
     PUCHAR UncompressedBuffer = WorkSpace->UncompressedBuffer;
-    PUCHAR EndOfUncompressedBuffer = WorkSpace->EndOfUncompressedBufferPlus1 - 1;
+    PUCHAR EndOfUncompressedBufferPlus1 = WorkSpace->EndOfUncompressedBufferPlus1;
     ULONG MaxLength = WorkSpace->MaxLength;
 
-    PCOMPRESS_ENTRY WorkEntry;
-    PCOMPRESS_ENTRY PreviousWorkEntry;
-    PCOMPRESS_ENTRY WorkTable;
-
     ULONG Index;
-    ULONG Ziv;
-    ULONG Key;
 
-    ULONG LongestLength;
+    PUCHAR FirstEntry;
+    ULONG  FirstLength;
 
-    //
-    //  Now extract three bytes of the ziv
-    //
-
-    Ziv = ZivString[0] | (ZivString[1] << 8) | (ZivString[2] << 16);
+    PUCHAR SecondEntry;
+    ULONG  SecondLength;
 
     //
-    //  If the work space is empty then we won't find a match and
-    //  we'll automatically insert the ziv in the table.  Note
-    //  that before any compression can take place our caller needs
-    //  to initialize the NextFreeEntry field to zero otherwise we'll
-    //  be completely lost.
+    //  First check if the Ziv is within two bytes of the end of
+    //  the uncompressed buffer, if so then we can't match
+    //  three or more characters
     //
 
-    if (WorkSpace->NextFreeEntry != 0) {
+    Index = ((40543*((((ZivString[0]<<4)^ZivString[1])<<4)^ZivString[2]))>>4) & 0xfff;
 
-        //
-        //  Binary search the table for a match.  When we are done
-        //  Index will either be a match or the parent where we need
-        //  to insert a new node.
-        //
+    FirstEntry  = WorkSpace->IndexPTable[Index][0];
+    FirstLength = 0;
 
-        WorkTable = (PCOMPRESS_ENTRY)&WorkSpace->Table[0];
-        PreviousWorkEntry = (PCOMPRESS_ENTRY)&WorkSpace->Table[1];
-        do {
-            WorkEntry = PreviousWorkEntry;
-            Key = WorkEntry->KeyTable;
-            if (Ziv == Key) {
-                break;
-            }
+    SecondEntry  = WorkSpace->IndexPTable[Index][1];
+    SecondLength = 0;
 
-            PreviousWorkEntry = WorkEntry->RightChild;
-            if (Ziv < Key) {
-                PreviousWorkEntry = WorkEntry->LeftChild;
-            }
+    //
+    //  Check if first entry is good, and if so then get its length
+    //
 
-        } while (PreviousWorkEntry != NULL);
+    if ((FirstEntry >= UncompressedBuffer) &&    //  is it within the uncompressed buffer?
+        (FirstEntry < ZivString)           &&
 
-        //
-        //  Now check if we have a match, if we do then for every match
-        //  find and remember the longest match.
-        //
+        (FirstEntry[0] == ZivString[0])    &&    //  do at least 3 characters match?
+        (FirstEntry[1] == ZivString[1])    &&
+        (FirstEntry[2] == ZivString[2])) {
 
-        if (Ziv == Key) {
+        FirstLength = 3;
 
-            ULONG i;
-            ULONG l;
-            PUCHAR p;
-            PUCHAR q;
+        while ((FirstLength < MaxLength)
 
-            //
-            //  Check if the matched string can be reached from where
-            //  we are
-            //
+                 &&
 
-            LongestLength = 0;
-            Index = WorkEntry->IndexTable[0];
+               (ZivString + FirstLength < EndOfUncompressedBufferPlus1)
 
-            p = &UncompressedBuffer[Index] + 3;
+                 &&
 
-            //
-            //  The match will be at least three characters long
-            //  so now find out how long the match really is.  And
-            //  if it turns out be be longer than the maximum
-            //  we have then remember it instead.
-            //
+               (ZivString[FirstLength] == FirstEntry[FirstLength])) {
 
-            q = ZivString + 2;
-            do {
-                q++;
-            } while ((q < EndOfUncompressedBuffer) && (*q == *p++));
-
-            LongestLength = q - ZivString;
-
-            if ((i = WorkEntry->IndexTable[1]) != 0xffff) {
-
-                p = &UncompressedBuffer[i] + 3;
-
-                q = ZivString + 2;
-                do {
-                    q++;
-                } while ((q < EndOfUncompressedBuffer) && (*q == *p++));
-
-                l = q - ZivString;
-                if (l > LongestLength) {
-                    Index = i;
-                    LongestLength = l;
-                }
-            }
-
-            //
-            // Age the 4-way set associative entries.
-            //
-
-            WorkEntry->IndexTable[1] = WorkEntry->IndexTable[0];
-            WorkEntry->IndexTable[0] = ZivString - UncompressedBuffer;
-
-            //
-            // Determinate the final length and the address of match string.
-            //
-
-            if (LongestLength > MaxLength) {
-                LongestLength = MaxLength;
-            }
-
-            WorkSpace->MatchedString = &UncompressedBuffer[Index];
-            return LongestLength;
-
-        } else {
-
-            ULONG i;
-
-            //
-            //  Get the next free entry in the table and initialize
-            //  its key and index.
-            //
-
-            i = WorkSpace->NextFreeEntry++;
-
-            WorkSpace->Table[i].KeyTable      = Ziv;
-            WorkSpace->Table[i].LeftChild     =
-            WorkSpace->Table[i].RightChild    = NULL;
-            WorkSpace->Table[i].IndexTable[0] = ZivString - UncompressedBuffer;
-            WorkSpace->Table[i].IndexTable[1] = 0xffff;
-
-            //
-            //  Otherwise the new node is a leaf node so zero its
-            //  children indices and figure out if it is a left
-            //  or right child
-            //
-
-            if (Ziv < Key) {
-
-                WorkEntry->LeftChild = &WorkSpace->Table[i];
-
-            } else {
-
-                WorkEntry->RightChild = &WorkSpace->Table[i];
-            }
-
-            return 0;
+            FirstLength++;
         }
-
-    } else {
-
-        //
-        // Allocate and initialize first entry in tree.
-        //
-
-        WorkSpace->NextFreeEntry++;
-        WorkSpace->NextFreeEntry++;
-
-        WorkSpace->Table[1].KeyTable      = Ziv;
-        WorkSpace->Table[1].IndexTable[0] = ZivString - UncompressedBuffer;
-        WorkSpace->Table[1].LeftChild     =
-        WorkSpace->Table[1].RightChild    = NULL;
-        WorkSpace->Table[1].IndexTable[1] = 0xffff;
-
-        return 0;
     }
-}
 
+    //
+    //  Check if second entry is good, and if so then get its length
+    //
+
+    if ((SecondEntry >= UncompressedBuffer) &&    //  is it within the uncompressed buffer?
+        (SecondEntry < ZivString)           &&
+
+        (SecondEntry[0] == ZivString[0])    &&    //  do at least 3 characters match?
+        (SecondEntry[1] == ZivString[1])    &&
+        (SecondEntry[2] == ZivString[2])) {
+
+        SecondLength = 3;
+
+        while ((SecondLength < MaxLength)
+
+                 &&
+
+               (ZivString + SecondLength< EndOfUncompressedBufferPlus1)
+
+                 &&
+
+               (ZivString[SecondLength] == SecondEntry[SecondLength])) {
+
+            SecondLength++;
+        }
+    }
+
+    if ((FirstLength >= SecondLength)) {
+
+        WorkSpace->IndexPTable[Index][1] = FirstEntry;
+        WorkSpace->IndexPTable[Index][0] = ZivString;
+
+        WorkSpace->MatchedString = FirstEntry;
+        return FirstLength;
+    }
+
+    WorkSpace->IndexPTable[Index][1] = FirstEntry;
+    WorkSpace->IndexPTable[Index][0] = ZivString;
+
+    WorkSpace->MatchedString = SecondEntry;
+    return SecondLength;
+}
 
 
 //

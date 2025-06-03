@@ -4,7 +4,7 @@
 extern HANDLE PipeRead;         // see DbgKdpKbdPollThread
 extern HANDLE PipeWrite;
 extern ULONG  NumberProcessors;
-static USHORT LastProcessorToPrint = -1;
+static SHORT  LastProcessorToPrint = -1;
 
 UCHAR DbgKdpPacketLeader[4] = {
         PACKET_LEADER_BYTE,
@@ -24,9 +24,7 @@ UCHAR DbgKdpPacketLeader[4] = {
 
 BOOLEAN DbgKdpCmdCanceled = FALSE;
 
-#ifdef DBG
 BOOLEAN KdDebug = FALSE;
-#endif
 
 BOOLEAN KdResync = FALSE;
 UCHAR PrintBuf[PACKET_MAX_SIZE];
@@ -172,7 +170,7 @@ DbgKdpPrint(
     DWORD j;
     UCHAR c;
     PUCHAR d;
-    static USHORT LastProcessor = -1;
+    static SHORT LastProcessor = -1;
 
     assert(StringLength < PACKET_MAX_SIZE - 2);
 

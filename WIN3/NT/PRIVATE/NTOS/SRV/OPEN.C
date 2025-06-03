@@ -120,30 +120,31 @@ CompleteOpen(
     OUT PBOOLEAN LfcbAddedToMfcbList
     );
 
-BOOLEAN
+BOOLEAN SRVFASTCALL
 MapCompatibilityOpen(
+    IN PUNICODE_STRING FileName,
     IN OUT PUSHORT SmbDesiredAccess
     );
 
-NTSTATUS
+NTSTATUS SRVFASTCALL
 MapDesiredAccess(
     IN USHORT SmbDesiredAccess,
     OUT PACCESS_MASK NtDesiredAccess
     );
 
-NTSTATUS
+NTSTATUS SRVFASTCALL
 MapOpenFunction(
     IN USHORT SmbOpenFunction,
     OUT PULONG CreateDisposition
     );
 
-NTSTATUS
+NTSTATUS SRVFASTCALL
 MapShareAccess(
     IN USHORT SmbDesiredAccess,
     OUT PULONG NtShareAccess
     );
 
-NTSTATUS
+NTSTATUS SRVFASTCALL
 MapCacheHints(
     IN USHORT SmbDesiredAccess,
     IN OUT PULONG NtCreateFlags
@@ -255,18 +256,20 @@ Return Value:
     ULONG attributes;
     ULONG openRetries;
     BOOLEAN isUnicode;
+    BOOLEAN caseInsensitive;
+
+    PSRV_LOCK mfcbLock;
 
     //
     // NOTE ON MFCB REFERENCE COUNT HANDLING
     //
     // After finding or creating an MFCB for a file, we increment the
     // MFCB reference count an extra time to simplify our
-    // synchronization logic.  The reference count can be incremented
-    // only with SrvMfcbListLock held.  We hold that lock while
+    // synchronization logic. We hold the MfcbListLock lock while
     // finding/creating the MFCB, but release it after acquiring the the
     // per-MFCB lock.  We then call one of the DoXxxOpen routines, which
     // may need to queue an LFCB to the MFCB and thus need to increment
-    // the count.  But they can't, because SrvMfcbListLock may not be
+    // the count.  But they can't, because the MFCB list lock may not be
     // acquired while the per-MFCB lock is held because of deadlock
     // potential.  The boolean LfcbAddedToMfcbList returned from the
     // routines indicates whether they actually queued an LFCB to the
@@ -302,7 +305,8 @@ Return Value:
     status = SrvVerifyUidAndTid(
                 WorkContext,
                 &session,
-                &treeConnect
+                &treeConnect,
+                ShareTypeWild
                 );
 
     if ( !NT_SUCCESS(status) ) {
@@ -311,6 +315,12 @@ Return Value:
         }
         return status;
     }
+
+    //
+    // Decide if we're case sensitive or not
+    //
+    caseInsensitive = (WorkContext->RequestHeader->Flags & SMB_FLAGS_CASE_INSENSITIVE) ||
+                          session->UsingUppercasePaths;
 
     //
     // Here we begin share type specific processing.
@@ -356,11 +366,10 @@ Return Value:
         // Check if there is already an MFCB for this device.
         //
 
-        ACQUIRE_LOCK( &SrvMfcbListLock );
-
         mfcb = SrvFindMfcb(
                    &WorkContext->TreeConnect->Share->DosPathName,
-                   FALSE
+                   FALSE,
+                   &mfcbLock
                    );
 
         if ( mfcb != NULL ) {
@@ -371,7 +380,7 @@ Return Value:
             // the open attempt.
             //
 
-            RELEASE_LOCK( &SrvMfcbListLock );
+            RELEASE_LOCK( mfcbLock );
 
             SrvDereferenceMfcb( mfcb );
 
@@ -387,7 +396,7 @@ Return Value:
         // There is no MFCB for this device.  Create one.
         //
 
-        mfcb = SrvCreateMfcb( &WorkContext->TreeConnect->Share->DosPathName );
+        mfcb = SrvCreateMfcb( &WorkContext->TreeConnect->Share->DosPathName, WorkContext );
 
         if ( mfcb == NULL ) {
 
@@ -395,7 +404,7 @@ Return Value:
             // Failure to add open file instance to MFT.
             //
 
-            RELEASE_LOCK( &SrvMfcbListLock );
+            RELEASE_LOCK( mfcbLock );
 
             IF_DEBUG(ERRORS) {
                 KdPrint(( "SrvCreateFile: Unable to allocate MFCB\n" ));
@@ -413,7 +422,7 @@ Return Value:
         mfcb->BlockHeader.ReferenceCount++;
         UPDATE_REFERENCE_HISTORY( Mfcb, FALSE );
 
-        RELEASE_LOCK( &SrvMfcbListLock );
+        RELEASE_LOCK( mfcbLock );
         ACQUIRE_LOCK( &nonpagedMfcb->Lock );
 
         status = DoCommDeviceOpen(
@@ -489,21 +498,11 @@ Return Value:
             return status;
         }
 
-        ACQUIRE_LOCK( &SrvMfcbListLock );
-
         //
         // Scan the Master File Table to see if the named file is already
         // open.
         //
-
-        if ( (WorkContext->RequestHeader->Flags & SMB_FLAGS_CASE_INSENSITIVE)
-             ||
-             WorkContext->Session->UsingUppercasePaths ) {
-
-             mfcb = SrvFindMfcb( &fullName, TRUE );
-        } else {
-            mfcb = SrvFindMfcb( &fullName, FALSE );
-        }
+        mfcb = SrvFindMfcb( &fullName, caseInsensitive, &mfcbLock );
 
         if ( mfcb == NULL ) {
 
@@ -511,7 +510,7 @@ Return Value:
             // There is no MFCB for this file.  Create one.
             //
 
-            mfcb = SrvCreateMfcb( &fullName );
+            mfcb = SrvCreateMfcb( &fullName, WorkContext );
 
             if ( mfcb == NULL ) {
 
@@ -519,7 +518,7 @@ Return Value:
                 // Failure to add open file instance to MFT.
                 //
 
-                RELEASE_LOCK( &SrvMfcbListLock );
+                RELEASE_LOCK( mfcbLock );
 
                 IF_DEBUG(ERRORS) {
                     KdPrint(( "SrvCreateFile: Unable to allocate MFCB\n" ));
@@ -541,9 +540,9 @@ Return Value:
 
         }
 
+
         //
-        // Increment the MFCB reference count before releasing the MFCB
-        // list lock.  See the note at the beginning of this routine.
+        // Increment the MFCB reference count. See the note at the beginning of this routine.
         //
 
         mfcb->BlockHeader.ReferenceCount++;
@@ -555,7 +554,7 @@ Return Value:
         //
 
         nonpagedMfcb = mfcb->NonpagedMfcb;
-        RELEASE_LOCK( &SrvMfcbListLock );
+        RELEASE_LOCK( mfcbLock );
         ACQUIRE_LOCK( &nonpagedMfcb->Lock );
 
         //
@@ -657,14 +656,18 @@ Return Value:
         //     returns.
         //
 
-        if ( !SrvCanonicalizePathName(
+        status = SrvCanonicalizePathName(
                 WorkContext,
+                treeConnect->Share,
+                NULL,
                 SmbFileName,
                 EndOfSmbFileName,
                 TRUE,
                 isUnicode,
                 &relativeName
-                ) ) {
+                );
+
+        if( !NT_SUCCESS( status ) ) {
 
             //
             // The path tried to do ..\ to get beyond the share it has
@@ -676,7 +679,7 @@ Return Value:
                             SmbFileName ));
             }
 
-            return STATUS_OBJECT_PATH_SYNTAX_BAD;
+            return status;
 
         }
 
@@ -784,13 +787,7 @@ Return Value:
             return STATUS_INSUFF_SERVER_RESOURCES;
         }
 
-        if ( (WorkContext->RequestHeader->Flags & SMB_FLAGS_CASE_INSENSITIVE)
-             ||
-             WorkContext->Session->UsingUppercasePaths ) {
-            attributes = OBJ_CASE_INSENSITIVE;
-        } else {
-            attributes = 0;
-        }
+        attributes = caseInsensitive ? OBJ_CASE_INSENSITIVE : 0;
 
         if ( WorkContext->ProcessingCount == 2) {
 
@@ -844,17 +841,14 @@ Return Value:
 
         }
 
-        ACQUIRE_LOCK( &SrvMfcbListLock );
-
         //
         // Scan the Master File Table to see if the named file is already
-        // open.
+        // open.  We can do the scan with a shared lock, but we must have an
+        // exclusive lock to modify the table.  Start out shared, assuming the
+        // file is already open.
         //
 
-        mfcb = SrvFindMfcb(
-                   &fullName,
-                   (BOOLEAN)((attributes & OBJ_CASE_INSENSITIVE) != 0)
-                   );
+        mfcb = SrvFindMfcb( &fullName, caseInsensitive, &mfcbLock );
 
         if ( mfcb == NULL ) {
 
@@ -862,7 +856,7 @@ Return Value:
             // There is no MFCB for this file.  Create one.
             //
 
-            mfcb = SrvCreateMfcb( &fullName );
+            mfcb = SrvCreateMfcb( &fullName, WorkContext );
 
             if ( mfcb == NULL ) {
 
@@ -870,7 +864,7 @@ Return Value:
                 // Failure to add open file instance to MFT.
                 //
 
-                RELEASE_LOCK( &SrvMfcbListLock );
+                RELEASE_LOCK( mfcbLock );
 
                 IF_DEBUG(ERRORS) {
                     KdPrint(( "SrvCreateFile: Unable to allocate MFCB\n" ));
@@ -884,14 +878,11 @@ Return Value:
 
                 return STATUS_INSUFF_SERVER_RESOURCES;
             }
-
         }
 
         //
-        // Increment the MFCB reference count before releasing the MFCB
-        // list lock.  See the note at the beginning of this routine.
+        // Increment the MFCB reference count. See the note at the beginning of this routine.
         //
-
         mfcb->BlockHeader.ReferenceCount++;
         UPDATE_REFERENCE_HISTORY( mfcb, FALSE );
 
@@ -899,9 +890,8 @@ Return Value:
         // Grab the MFCB-based lock to serialize opens of the same file
         // and release the MFCB list lock.
         //
-
         nonpagedMfcb = mfcb->NonpagedMfcb;
-        RELEASE_LOCK( &SrvMfcbListLock );
+        RELEASE_LOCK( mfcbLock );
         ACQUIRE_LOCK( &nonpagedMfcb->Lock );
 
         //
@@ -1071,6 +1061,13 @@ start_retry:
 
         NTSTATUS startStatus;
 
+        //
+        // Save the Information from the open, so it doesn't
+        //  get lost when we re-use the WorkContext->Irp for the
+        //  oplock processing.
+        //
+        WorkContext->Parameters2.Open.IosbInformation = WorkContext->Irp->IoStatus.Information;
+
         startStatus = SrvStartWaitForOplockBreak(
                         WorkContext,
                         RestartRoutine,
@@ -1182,7 +1179,6 @@ Return Value:
     ULONG createDisposition;
     ULONG createOptions;
     ACCESS_MASK desiredAccess;
-    BOOLEAN addedWriteAttributes = FALSE;
     PSHARE fileShare = NULL;
 
     UCHAR errorClass = SMB_ERR_CLASS_DOS;
@@ -1261,7 +1257,7 @@ Return Value:
     // Get the value for fileAttributes.
     //
 
-    SrvSmbAttributesToNt(
+    SRV_SMB_ATTRIBUTES_TO_NT(
         SmbFileAttributes,
         &directory,
         &fileAttributes
@@ -1315,17 +1311,6 @@ Return Value:
     status = MapCacheHints( SmbDesiredAccess, &createOptions );
 
     //
-    // If FILE_WRITE_ATTRIBUTES permission was not requested, we need to
-    // ask for it.  This is required in order to support setting the
-    // file time on Create and Close SMBs.
-    //
-
-    if ( (desiredAccess & FILE_WRITE_ATTRIBUTES) == 0 ) {
-        addedWriteAttributes = TRUE;
-        desiredAccess |= FILE_WRITE_ATTRIBUTES;
-    }
-
-    //
     // Check to see if there is a cached handle for the file.
     //
 
@@ -1352,6 +1337,9 @@ Return Value:
                 KdPrint(( "SrvCreateFile: FindCachedRfcb = TRUE, status = %x, rfcb = %x\n",
                             status, WorkContext->Rfcb ));
             }
+
+            IoStatusBlock->Information = FILE_OPENED;
+
             return status;
         }
 
@@ -1372,41 +1360,19 @@ Return Value:
 
     INCREMENT_DEBUG_STAT( SrvDbgStatistics.TotalOpenAttempts );
 
-    createOptions |= FILE_COMPLETE_IF_OPLOCKED;
-
-    status = SrvIoCreateFile(
-                 WorkContext,
-                 &fileHandle,
-                 desiredAccess,
-                 &objectAttributes,
-                 IoStatusBlock,
-                 &allocationSize,
-                 fileAttributes,
-                 shareAccess,
-                 createDisposition,
-                 createOptions,
-                 EaBuffer,
-                 EaLength,
-                 CreateFileTypeNone,
-                 NULL,                    // ExtraCreateParameters
-                 IO_FORCE_ACCESS_CHECK,
-                 fileShare
-                 );
-
-
     //
-    // If we got access denied and we had to add write attributes
-    // earlier, try again without write attributes.  In this case,
-    // setting the file time on Create/Close won't work later on if the
-    // client couldn't open the file.
+    // Ensure the EaBuffer is correctly formatted.  Since we are a kernel mode
+    //  component, the Io subsystem does not check it for us.
     //
+    if( ARGUMENT_PRESENT( EaBuffer ) ) {
+        status = IoCheckEaBufferValidity( (PFILE_FULL_EA_INFORMATION)EaBuffer, EaLength, EaErrorOffset );
+    } else {
+        status = STATUS_SUCCESS;
+    }
 
-    if ( status == STATUS_ACCESS_DENIED && addedWriteAttributes ) {
+    if( NT_SUCCESS( status ) ) {
 
-        desiredAccess &= ~FILE_WRITE_ATTRIBUTES;
-
-
-        INCREMENT_DEBUG_STAT( SrvDbgStatistics.TotalOpenAttempts );
+        createOptions |= FILE_COMPLETE_IF_OPLOCKED;
 
         status = SrvIoCreateFile(
                      WorkContext,
@@ -1426,7 +1392,6 @@ Return Value:
                      IO_FORCE_ACCESS_CHECK,
                      fileShare
                      );
-
     }
 
     //
@@ -1707,7 +1672,7 @@ Return Value:
 
             smbOpenMode = SmbDesiredAccess;
 
-            if ( MapCompatibilityOpen( &smbOpenMode ) ) {
+            if ( MapCompatibilityOpen( RelativeName, &smbOpenMode ) ) {
 
                 //
                 // The open has been mapped to a normal sharing mode.
@@ -1756,18 +1721,21 @@ Return Value:
 
         //
         // The named file is open in compatibility mode.  Get a pointer
-        // to the LFCB for the open -- there can be only one, by
-        // definition.  Determine whether the requesting session is the
-        // one that did the original open.
+        // to the LFCB for the open.  Determine whether the requesting
+        // session is the one that did the original open.
+        //
+        // Normally there will only be one LFCB linked to a
+        // compatibility mode MFCB.  However, it is possible for there
+        // to briefly be multiple LFCBs.  When an LFCB is in the process
+        // of closing, the ActiveRfcbCount will be 0, so a new open will
+        // be treated as the first open of the MFCB, and there will be
+        // two LFCBs linked to the MFCB.  There can actually be more
+        // than two LFCBs linked if the rundown of the closing LFCBs
+        // takes some time.  So the find "the" LFCB for the open, we go
+        // to the tail of the MFCB's list.
         //
 
-        lfcb = CONTAINING_RECORD(
-                        Mfcb->LfcbList.Flink,
-                        LFCB,
-                        MfcbListEntry
-                        );
-
-        ASSERT( lfcb->MfcbListEntry.Flink == &Mfcb->LfcbList );
+        lfcb = CONTAINING_RECORD( Mfcb->LfcbList.Blink, LFCB, MfcbListEntry );
 
         if ( lfcb->Session != WorkContext->Session ) {
 
@@ -1831,6 +1799,29 @@ Return Value:
                     LfcbAddedToMfcbList
                     );
 
+        if( NT_SUCCESS( status ) &&
+            ( createDisposition == FILE_OVERWRITE ||
+              createDisposition == FILE_OVERWRITE_IF)
+        ) {
+            //
+            // The file was successfully opened, and the client wants it
+            //  truncated. We need to do it here by hand since we
+            //  didn't actually call the filesystem to open the file and it
+            //  therefore never had a chance to truncate the file if the
+            //  open modes requested it.
+            //
+            LARGE_INTEGER zero;
+            IO_STATUS_BLOCK ioStatusBlock;
+
+            zero.QuadPart = 0;
+            NtSetInformationFile( lfcb->FileHandle,
+                                  &ioStatusBlock,
+                                  &zero,
+                                  sizeof( zero ),
+                                  FileEndOfFileInformation
+                                 );
+        }
+
         return status;
 
     } // if ( mfcb->ActiveRfcbCount > 0 )
@@ -1843,7 +1834,7 @@ Return Value:
 
     smbOpenMode = SmbDesiredAccess;
 
-    if ( MapCompatibilityOpen( &smbOpenMode ) ) {
+    if ( MapCompatibilityOpen( RelativeName, &smbOpenMode ) ) {
 
         //
         // The open has been mapped to a normal sharing mode.
@@ -1896,7 +1887,7 @@ Return Value:
     // Get the value for fileAttributes.
     //
 
-    SrvSmbAttributesToNt(
+    SRV_SMB_ATTRIBUTES_TO_NT(
         SmbFileAttributes,
         &directory,
         &fileAttributes
@@ -1906,29 +1897,41 @@ Return Value:
     // Try to open the file for Read/Write/Delete access.
     //
 
-
     INCREMENT_DEBUG_STAT( SrvDbgStatistics.TotalOpenAttempts );
 
-    createOptions |= FILE_COMPLETE_IF_OPLOCKED;
+    //
+    // Ensure the EaBuffer is correctly formatted.  Since we are a kernel mode
+    //  component, the Io subsystem does not check it for us.
+    //
+    if( ARGUMENT_PRESENT( EaBuffer ) ) {
+        status = IoCheckEaBufferValidity( (PFILE_FULL_EA_INFORMATION)EaBuffer, EaLength, EaErrorOffset );
+    } else {
+        status = STATUS_SUCCESS;
+    }
 
-    status = SrvIoCreateFile(
-                 WorkContext,
-                 &fileHandle,
-                 GENERIC_READ | GENERIC_WRITE | DELETE,      // DesiredAccess
-                 &objectAttributes,
-                 IoStatusBlock,
-                 &allocationSize,
-                 fileAttributes,
-                 0L,                                         // ShareAccess
-                 createDisposition,
-                 createOptions,
-                 EaBuffer,
-                 EaLength,
-                 CreateFileTypeNone,
-                 NULL,                                       // ExtraCreateParameters
-                 IO_FORCE_ACCESS_CHECK,
-                 WorkContext->TreeConnect->Share
-                 );
+    if( NT_SUCCESS( status ) ) {
+
+        createOptions |= FILE_COMPLETE_IF_OPLOCKED;
+
+        status = SrvIoCreateFile(
+                     WorkContext,
+                     &fileHandle,
+                     GENERIC_READ | GENERIC_WRITE | DELETE,      // DesiredAccess
+                     &objectAttributes,
+                     IoStatusBlock,
+                     &allocationSize,
+                     fileAttributes,
+                     0L,                                         // ShareAccess
+                     createDisposition,
+                     createOptions,
+                     EaBuffer,
+                     EaLength,
+                     CreateFileTypeNone,
+                     NULL,                                       // ExtraCreateParameters
+                     IO_FORCE_ACCESS_CHECK,
+                     WorkContext->TreeConnect->Share
+                     );
+    }
 
 
     if ( status == STATUS_ACCESS_DENIED ) {
@@ -1941,7 +1944,6 @@ Return Value:
         IF_SMB_DEBUG(OPEN_CLOSE2) {
             KdPrint(( "DoCompatibilityOpen: r/w/d access denied.\n" ));
         }
-
 
         INCREMENT_DEBUG_STAT( SrvDbgStatistics.TotalOpenAttempts );
 
@@ -1986,7 +1988,6 @@ Return Value:
                 //     mapping algorithm, we can't get here unless soft
                 //     compatibility is disabled.)
                 //
-
 
                 INCREMENT_DEBUG_STAT( SrvDbgStatistics.TotalOpenAttempts );
 
@@ -2375,17 +2376,21 @@ Return Value:
 
             //
             // The named file is open in compatibility mode.  Get a
-            // pointer to the LFCB for the open -- there can be only
-            // one, by definition.  Determine whether the requesting
-            // session is the one that did the original open.
+            // pointer to the LFCB for the open.  Determine whether the
+            // requesting session is the one that did the original open.
+            //
+            // Normally there will only be one LFCB linked to a
+            // compatibility mode MFCB.  However, it is possible for
+            // there to briefly be multiple LFCBs.  When an LFCB is in
+            // the process of closing, the ActiveRfcbCount will be 0, so
+            // a new open will be treated as the first open of the MFCB,
+            // and there will be two LFCBs linked to the MFCB.  There
+            // can actually be more than two LFCBs linked if the rundown
+            // of the closing LFCBs takes some time.  So the find "the"
+            // LFCB for the open, we go to the tail of the MFCB's list.
             //
 
-            lfcb = CONTAINING_RECORD(
-                        Mfcb->LfcbList.Flink,
-                        LFCB,
-                        MfcbListEntry
-                        );
-            ASSERT( lfcb->MfcbListEntry.Flink == &Mfcb->LfcbList );
+            lfcb = CONTAINING_RECORD( Mfcb->LfcbList.Blink, LFCB, MfcbListEntry );
 
             if ( lfcb->Session != WorkContext->Session ) {
 
@@ -2485,7 +2490,7 @@ Return Value:
     // Get the value for fileAttributes.
     //
 
-    SrvSmbAttributesToNt(
+    SRV_SMB_ATTRIBUTES_TO_NT(
         SmbFileAttributes,
         &directory,
         &fileAttributes
@@ -2497,24 +2502,36 @@ Return Value:
 
     INCREMENT_DEBUG_STAT( SrvDbgStatistics.TotalOpenAttempts );
 
-    status = SrvIoCreateFile(
-                 WorkContext,
-                 &fileHandle,
-                 GENERIC_READ | GENERIC_WRITE | DELETE,      // DesiredAccess
-                 &objectAttributes,
-                 IoStatusBlock,
-                 &allocationSize,
-                 fileAttributes,
-                 0L,                                         // ShareAccess
-                 createDisposition,
-                 createOptions,
-                 EaBuffer,
-                 EaLength,
-                 CreateFileTypeNone,
-                 NULL,                                       // ExtraCreateParameters
-                 IO_FORCE_ACCESS_CHECK,
-                 WorkContext->TreeConnect->Share
-                 );
+    //
+    // Ensure the EaBuffer is correctly formatted.  Since we are a kernel mode
+    //  component, the Io subsystem does not check it for us.
+    //
+    if( ARGUMENT_PRESENT( EaBuffer ) ) {
+        status = IoCheckEaBufferValidity( (PFILE_FULL_EA_INFORMATION)EaBuffer, EaLength, EaErrorOffset );
+    } else {
+        status = STATUS_SUCCESS;
+    }
+
+    if( NT_SUCCESS( status ) ) {
+        status = SrvIoCreateFile(
+                     WorkContext,
+                     &fileHandle,
+                     GENERIC_READ | GENERIC_WRITE | DELETE,      // DesiredAccess
+                     &objectAttributes,
+                     IoStatusBlock,
+                     &allocationSize,
+                     fileAttributes,
+                     0L,                                         // ShareAccess
+                     createDisposition,
+                     createOptions,
+                     EaBuffer,
+                     EaLength,
+                     CreateFileTypeNone,
+                     NULL,                                       // ExtraCreateParameters
+                     IO_FORCE_ACCESS_CHECK,
+                     WorkContext->TreeConnect->Share
+                     );
+    }
 
 
     if ( status == STATUS_ACCESS_DENIED ) {
@@ -3098,7 +3115,7 @@ Return Value:
     // Allocate an RFCB.
     //
 
-    SrvAllocateRfcb( &rfcb, WorkContext->Endpoint->IsConnectionless );
+    SrvAllocateRfcb( &rfcb, WorkContext );
 
     if ( rfcb == NULL ) {
 
@@ -3136,7 +3153,7 @@ Return Value:
 
         PFAST_IO_DISPATCH fastIoDispatch;
 
-        SrvAllocateLfcb( &newLfcb );
+        SrvAllocateLfcb( &newLfcb, WorkContext );
 
         if ( newLfcb == NULL ) {
 
@@ -3210,6 +3227,46 @@ Return Value:
             lfcb->FastIoWrite = fastIoDispatch->FastIoWrite;
             lfcb->FastIoLock = fastIoDispatch->FastIoLock;
             lfcb->FastIoUnlockSingle = fastIoDispatch->FastIoUnlockSingle;
+
+            //
+            //  Fill in Mdl calls.  If the file system's vector is large enough,
+            //  we still need to check if one of the routines is specified.  But
+            //  if one is specified they all must be.
+            //
+
+            if ((fastIoDispatch->SizeOfFastIoDispatch > FIELD_OFFSET(FAST_IO_DISPATCH, MdlWriteComplete)) &&
+                (fastIoDispatch->MdlRead != NULL)) {
+
+                lfcb->MdlRead = fastIoDispatch->MdlRead;
+                lfcb->MdlReadComplete = fastIoDispatch->MdlReadComplete;
+                lfcb->PrepareMdlWrite = fastIoDispatch->PrepareMdlWrite;
+                lfcb->MdlWriteComplete = fastIoDispatch->MdlWriteComplete;
+
+            //
+            //  Otherwise default to the original FsRtl routines.
+            //
+
+            } else {
+                lfcb->MdlRead = FsRtlMdlReadDev;
+                lfcb->MdlReadComplete = FsRtlMdlReadCompleteDev;
+                lfcb->PrepareMdlWrite = FsRtlPrepareMdlWriteDev;
+                lfcb->MdlWriteComplete = FsRtlMdlWriteCompleteDev;
+            }
+
+            //
+            //  Fill in Mdl calls, if the file system vector is long enough.
+            //  For now we will just copy all six compressed routines over,
+            //  whether they are actually supplied or not (NULL).  There are
+            //  no default routines for these, they are either supported or not.
+            //
+
+            if ((fastIoDispatch->SizeOfFastIoDispatch > FIELD_OFFSET(FAST_IO_DISPATCH, MdlWriteCompleteCompressed))) {
+
+                lfcb->FastIoReadCompressed = fastIoDispatch->FastIoReadCompressed;
+                lfcb->FastIoWriteCompressed = fastIoDispatch->FastIoWriteCompressed;
+                lfcb->MdlReadCompleteCompressed = fastIoDispatch->MdlReadCompleteCompressed;
+                lfcb->MdlWriteCompleteCompressed = fastIoDispatch->MdlWriteCompleteCompressed;
+            }
         }
 
         lfcb->FileMode = FileMode & ~FILE_COMPLETE_IF_OPLOCKED;
@@ -3343,9 +3400,8 @@ Return Value:
     }
 
     if ( WorkContext->Endpoint->IsConnectionless ) {
-        ASSERT( rfcb->WriteMpx != NULL );
-        rfcb->WriteMpx->FileObject = lfcb->FileObject;
-        rfcb->WriteMpx->MpxGlommingAllowed =
+        rfcb->WriteMpx.FileObject = lfcb->FileObject;
+        rfcb->WriteMpx.MpxGlommingAllowed =
             (BOOLEAN)((lfcb->FileObject->Flags & FO_CACHE_SUPPORTED) != 0);
     }
 
@@ -3603,7 +3659,7 @@ Return Value:
         // location in the SMB header.
         //
 
-        if ( WorkContext->Connection->SmbDialect == SmbDialectNtLanMan ) {
+        if ( IS_NT_DIALECT( WorkContext->Connection->SmbDialect ) ) {
             pid = (SmbGetUshort( &WorkContext->RequestHeader->PidHigh )
                     << 16) | pid;
         }
@@ -3668,7 +3724,7 @@ error_exit:
     //
 
     if ( newLfcb != NULL ) {
-        SrvFreeLfcb( newLfcb );
+        SrvFreeLfcb( newLfcb, WorkContext->CurrentWorkQueue );
     }
 
     //
@@ -3676,7 +3732,7 @@ error_exit:
     //
 
     if ( rfcb != NULL ) {
-        SrvFreeRfcb( rfcb );
+        SrvFreeRfcb( rfcb, WorkContext->CurrentWorkQueue );
     }
 
     //
@@ -3699,8 +3755,9 @@ error_exit:
 } // CompleteOpen
 
 
-BOOLEAN
+BOOLEAN SRVFASTCALL
 MapCompatibilityOpen(
+    IN PUNICODE_STRING FileName,
     IN OUT PUSHORT SmbDesiredAccess
     )
 
@@ -3712,6 +3769,8 @@ Routine Description:
     normal sharing mode.
 
 Arguments:
+
+    FileName - The name of the file being accessed
 
     SmbDesiredAccess - On input, the desired access specified in the
         received SMB.  On output, the share mode portion of this field
@@ -3727,27 +3786,69 @@ Return Value:
     PAGED_CODE( );
 
     //
-    // If soft compatibility is enabled, and the client is requesting
-    // readonly access, map away from compatibility mode.
+    // If soft compatibility is not enabled then reject the mapping
     //
+    if( !SrvEnableSoftCompatibility ) {
 
-    if ( SrvEnableSoftCompatibility &&
-         ((*SmbDesiredAccess & SMB_DA_ACCESS_MASK) == SMB_DA_ACCESS_READ) ) {
+        IF_SMB_DEBUG( OPEN_CLOSE2 ) {
+            KdPrint(( "MapCompatibilityOpen: "
+                      "SrvEnableSoftCompatibility is FALSE\n" ));
+        }
 
-        ASSERT( SMB_DA_SHARE_COMPATIBILITY == 0 );
-        //*SmbDesiredAccess &= ~SMB_DA_SHARE_MASK;
+        return FALSE;
+    }
+
+    //
+    // If the client is opening one of the following reserved suffixes, be lenient
+    //
+    if( FileName->Length > 4 * sizeof( WCHAR ) ) {
+
+        LPWSTR periodp;
+
+        periodp = FileName->Buffer + (FileName->Length / sizeof( WCHAR ) ) - 4;
+
+        if( (*periodp++ == L'.') &&
+            (_wcsicmp( periodp, L"EXE" ) == 0  ||
+             _wcsicmp( periodp, L"DLL" ) == 0  ||
+             _wcsicmp( periodp, L"SYM" ) == 0  ||
+             _wcsicmp( periodp, L"COM" ) == 0 )  ) {
+
+            //
+            // This is a readonly open of one of the above file types.
+            //  Map to DENY_NONE
+            //
+
+            IF_SMB_DEBUG( OPEN_CLOSE2 ) {
+                KdPrint(( "MapCompatibilityOpen: %wZ mapped to DENY_NONE\n", FileName ));
+            }
+
+            *SmbDesiredAccess |= SMB_DA_SHARE_DENY_NONE;
+            return TRUE;
+        }
+    }
+
+    //
+    // The filename does not end in one of the special suffixes -- map
+    // it to DENY_WRITE if the client is asking for just read permissions.
+    //
+    if( (*SmbDesiredAccess & SMB_DA_ACCESS_MASK) == SMB_DA_ACCESS_READ) {
+        IF_SMB_DEBUG( OPEN_CLOSE2 ) {
+                KdPrint(( "MapCompatibilityOpen: %wZ mapped to DENY_WRITE\n", FileName ));
+        }
         *SmbDesiredAccess |= SMB_DA_SHARE_DENY_WRITE;
-
         return TRUE;
+    }
 
+    IF_SMB_DEBUG( OPEN_CLOSE2 ) {
+        KdPrint(( "MapCompatibilityOpen: %wZ not mapped",
+                  " DesiredAccess %X\n", FileName, *SmbDesiredAccess ));
     }
 
     return FALSE;
-
 } // MapCompatibilityOpen
 
 
-NTSTATUS
+NTSTATUS SRVFASTCALL
 MapDesiredAccess(
     IN USHORT SmbDesiredAccess,
     OUT PACCESS_MASK NtDesiredAccess
@@ -3821,7 +3922,7 @@ Return Value:
 } // MapDesiredAccess
 
 
-NTSTATUS
+NTSTATUS SRVFASTCALL
 MapOpenFunction(
     IN USHORT SmbOpenFunction,
     OUT PULONG NtCreateDisposition
@@ -3911,7 +4012,7 @@ Return Value:
 } // MapOpenFunction
 
 
-NTSTATUS
+NTSTATUS SRVFASTCALL
 MapCacheHints(
     IN USHORT SmbDesiredAccess,
     IN OUT PULONG NtCreateFlags
@@ -3997,7 +4098,7 @@ Return Value:
 } // MapCacheHints
 
 
-NTSTATUS
+NTSTATUS SRVFASTCALL
 MapShareAccess(
     IN USHORT SmbDesiredAccess,
     OUT PULONG NtShareAccess
@@ -4179,21 +4280,22 @@ Return Value:
     OBJECT_ATTRIBUTES objectAttributes;
     HANDLE fileHandle;
     IO_STATUS_BLOCK ioStatusBlock;
-    BOOLEAN addedWriteAttributes = FALSE;
     ULONG ioCreateFlags;
     PSHARE fileShare = NULL;
+    BOOLEAN caseInsensitive;
+
+    PSRV_LOCK mfcbLock;
 
     //
     // NOTE ON MFCB REFERENCE COUNT HANDLING
     //
     // After finding or creating an MFCB for a file, we increment the
     // MFCB reference count an extra time to simplify our
-    // synchronization logic.  The reference count can be incremented
-    // only with SrvMfcbListLock held.  We hold that lock while
+    // synchronization logic.   We hold MfcbListLock lock while
     // finding/creating the MFCB, but release it after acquiring the the
     // per-MFCB lock.  After opening the file, we call CompleteOpen,
     // which may need to queue an LFCB to the MFCB and thus need to
-    // increment the count.  But it can't, because SrvMfcbListLock may
+    // increment the count.  But it can't, because the MFCB list lock may
     // not be acquired while the per-MFCB lock is held because of
     // deadlock potential.  The boolean LfcbAddedToMfcbList returned
     // from CompleteOpen indicates whether it actually queued an LFCB to
@@ -4227,7 +4329,8 @@ Return Value:
     status = SrvVerifyUidAndTid(
                 WorkContext,
                 &session,
-                &treeConnect
+                &treeConnect,
+                ShareTypeWild
                 );
 
     if ( !NT_SUCCESS(status) ) {
@@ -4331,8 +4434,10 @@ Return Value:
         // *** Note that this operation allocates space for the name.
         //
 
-        success = SrvCanonicalizePathName(
+        status = SrvCanonicalizePathName(
                      WorkContext,
+                     treeConnect->Share,
+                     RootDirectoryFid != 0 ? &rootDirLfcb->Mfcb->FileName : NULL,
                      FileName->Buffer,
                      ((PCHAR)FileName->Buffer +
                         FileName->Length - sizeof(WCHAR)),
@@ -4341,7 +4446,7 @@ Return Value:
                      &relativeName
                      );
 
-        if ( !success ) {
+        if ( !NT_SUCCESS( status ) ) {
 
             //
             // The path tried to do ..\ to get beyond the share it has
@@ -4356,7 +4461,7 @@ Return Value:
             if ( rootDirRfcb != NULL ) {
                 SrvDereferenceRfcb( rootDirRfcb );
             }
-            return STATUS_OBJECT_PATH_SYNTAX_BAD;
+            return status;
 
         }
 
@@ -4389,6 +4494,47 @@ Return Value:
         } else {
 
             UNICODE_STRING pipePrefix;
+
+            if( !WorkContext->Session->IsNullSession &&
+                WorkContext->Session->IsLSNotified == FALSE ) {
+
+                //
+                // We have a pipe open request, not a NULL session, and
+                //  we haven't gotten clearance from the license server yet.
+                //  If this pipe requires clearance, get a license.
+                //
+
+                ULONG i;
+                BOOLEAN matchFound = FALSE;
+
+                ACQUIRE_LOCK_SHARED( &SrvConfigurationLock );
+
+                for ( i = 0; SrvPipesNeedLicense[i] != NULL ; i++ ) {
+
+                    if ( _wcsicmp(
+                            SrvPipesNeedLicense[i],
+                            relativeName.Buffer
+                            ) == 0 ) {
+                        matchFound = TRUE;
+                        break;
+                    }
+                }
+
+                RELEASE_LOCK( &SrvConfigurationLock );
+
+                if( matchFound == TRUE ) {
+                    status = SrvXsLSOperation( WorkContext->Session,
+                                               XACTSRV_MESSAGE_LSREQUEST );
+
+                    if( !NT_SUCCESS( status ) ) {
+                        if( rootDirRfcb != NULL ) {
+                            SrvDereferenceRfcb( rootDirRfcb );
+                        }
+                        return status;
+                    }
+                }
+            }
+
             RtlInitUnicodeString( &pipePrefix, StrSlashPipeSlash );
 
             SrvAllocateAndBuildPathName(
@@ -4441,12 +4587,15 @@ Return Value:
     // Determine whether or not the path name is case sensitive.
     //
 
-    if ( WorkContext->RequestHeader->Flags & SMB_FLAGS_CASE_INSENSITIVE ) {
+    if ( (WorkContext->RequestHeader->Flags & SMB_FLAGS_CASE_INSENSITIVE) ||
+          WorkContext->Session->UsingUppercasePaths ) {
+
         attributes = OBJ_CASE_INSENSITIVE;
-    } else if ( WorkContext->Session->UsingUppercasePaths ) {
-        attributes = OBJ_CASE_INSENSITIVE;
+        caseInsensitive = TRUE;
+
     } else {
         attributes = 0L;
+        caseInsensitive = FALSE;
     }
 
     if ( RootDirectoryFid != 0 ) {
@@ -4559,25 +4708,19 @@ Return Value:
         }
     }
 
-    ACQUIRE_LOCK( &SrvMfcbListLock );
-
     //
     // Scan the Master File Table to see if the named file is already
     // open.
     //
 
-    mfcb = SrvFindMfcb(
-                    &fullName,
-                    (BOOLEAN)((attributes & OBJ_CASE_INSENSITIVE ) != 0)
-                    );
+    mfcb = SrvFindMfcb( &fullName, caseInsensitive, &mfcbLock );
 
     if ( mfcb == NULL ) {
-
         //
         // There is no MFCB for this file.  Create one.
         //
 
-        mfcb = SrvCreateMfcb( &fullName );
+        mfcb = SrvCreateMfcb( &fullName, WorkContext );
 
         if ( mfcb == NULL ) {
 
@@ -4585,7 +4728,7 @@ Return Value:
             // Failure to add open file instance to MFT.
             //
 
-            RELEASE_LOCK( &SrvMfcbListLock );
+            RELEASE_LOCK( mfcbLock );
 
             IF_DEBUG(ERRORS) {
                 KdPrint(( "SrvNtCreateFile: Unable to allocate MFCB\n" ));
@@ -4601,14 +4744,12 @@ Return Value:
 
             return STATUS_INSUFF_SERVER_RESOURCES;
         }
-
     }
 
-    //
-    // Increment the MFCB reference count before releasing the MFCB list
-    // lock.  See the note at the beginning of this routine.
-    //
 
+    //
+    // Increment the MFCB reference count.  See the note at the beginning of this routine.
+    //
     mfcb->BlockHeader.ReferenceCount++;
     UPDATE_REFERENCE_HISTORY( mfcb, FALSE );
 
@@ -4618,7 +4759,7 @@ Return Value:
     //
 
     nonpagedMfcb = mfcb->NonpagedMfcb;
-    RELEASE_LOCK( &SrvMfcbListLock );
+    RELEASE_LOCK( mfcbLock );
     ACQUIRE_LOCK( &nonpagedMfcb->Lock );
 
     openRetries = SrvSharingViolationRetryCount;
@@ -4626,14 +4767,15 @@ Return Value:
 start_retry:
 
     //
-    // If FILE_WRITE_ATTRIBUTES permission was not requested, we need to
-    // ask for it.  This is required in order to support setting the
-    // file time on Create and Close SMBs.
+    // If the client asked for FILE_NO_INTERMEDIATE_BUFFERING, turn that
+    // flag off and turn FILE_WRITE_THROUGH on instead.  We cannot give
+    // the client the true meaning of NO_INTERMEDIATE_BUFFERING, but we
+    // can at least get the data out to disk right away.
     //
 
-    if ( (DesiredAccess & FILE_WRITE_ATTRIBUTES) == 0 ) {
-        addedWriteAttributes = TRUE;
-        DesiredAccess |= FILE_WRITE_ATTRIBUTES;
+    if ( (CreateOptions & FILE_NO_INTERMEDIATE_BUFFERING) != 0 ) {
+        CreateOptions |= FILE_WRITE_THROUGH;
+        CreateOptions &= ~FILE_NO_INTERMEDIATE_BUFFERING;
     }
 
     //
@@ -4672,6 +4814,13 @@ start_retry:
 
             SrvDereferenceMfcb( mfcb );
 
+            //
+            // This second dereference is for the reference done by
+            // SrvFindMfcb/SrvCreateMfcb.
+            //
+
+            SrvDereferenceMfcb( mfcb );
+
             if ( nameAllocated ) {
                 FREE_HEAP( fullName.Buffer );
             }
@@ -4698,42 +4847,21 @@ start_retry:
         KdPrint(( "SrvCreateFile: Opening file %wZ\n", &fullName ));
     }
 
-    if ( (CreateOptions & FILE_DIRECTORY_FILE) == 0 ) {
-        CreateOptions |= FILE_COMPLETE_IF_OPLOCKED;
-    }
+    CreateOptions |= FILE_COMPLETE_IF_OPLOCKED;
 
     INCREMENT_DEBUG_STAT( SrvDbgStatistics.TotalOpenAttempts );
-    status = SrvIoCreateFile(
-                 WorkContext,
-                 &fileHandle,
-                 DesiredAccess,
-                 &objectAttributes,
-                 &ioStatusBlock,
-                 &AllocationSize,
-                 FileAttributes,
-                 ShareAccess,
-                 CreateDisposition,
-                 CreateOptions,
-                 EaBuffer,
-                 EaLength,
-                 CreateFileTypeNone,
-                 NULL,                    // ExtraCreateParameters
-                 ioCreateFlags,
-                 fileShare
-                 );
 
     //
-    // If we got access denied and we had to add write attributes
-    // earlier, try again without write attributes.  In this case,
-    // setting the file time on Create/Close won't work later on if the
-    // client couldn't open the file.
+    // Ensure the EaBuffer is correctly formatted.  Since we are a kernel mode
+    //  component, the Io subsystem does not check it for us.
     //
+    if( ARGUMENT_PRESENT( EaBuffer ) ) {
+        status = IoCheckEaBufferValidity( (PFILE_FULL_EA_INFORMATION)EaBuffer, EaLength, EaErrorOffset );
+    } else {
+        status = STATUS_SUCCESS;
+    }
 
-    if ( status == STATUS_ACCESS_DENIED && addedWriteAttributes ) {
-
-        DesiredAccess &= ~FILE_WRITE_ATTRIBUTES;
-
-        INCREMENT_DEBUG_STAT( SrvDbgStatistics.TotalOpenAttempts );
+    if( NT_SUCCESS( status ) ) {
 
         status = SrvIoCreateFile(
                      WorkContext,
@@ -4753,7 +4881,6 @@ start_retry:
                      ioCreateFlags,
                      fileShare
                      );
-
     }
 
     //
@@ -4941,7 +5068,7 @@ start_retry:
     // If this is a temporary file, don't attempt to cache it.
     //
 
-    if ( (FileAttributes & FILE_ATTRIBUTE_TEMPORARY) != 0 ) {
+    if ( rfcb != NULL && (FileAttributes & FILE_ATTRIBUTE_TEMPORARY) != 0 ) {
 
         rfcb->IsCacheable = FALSE;
     }
@@ -4968,6 +5095,13 @@ start_retry:
     if ( status == STATUS_OPLOCK_BREAK_IN_PROGRESS ) {
 
         NTSTATUS startStatus;
+
+        //
+        // Save the Information from the open, so it doesn't
+        //  get lost when we re-use the WorkContext->Irp for the
+        //  oplock processing.
+        //
+        WorkContext->Parameters2.Open.IosbInformation = WorkContext->Irp->IoStatus.Information;
 
         startStatus = SrvStartWaitForOplockBreak(
                         WorkContext,
@@ -5061,4 +5195,3 @@ Return Value:
     return TRUE;
 
 }  // SetDefaultPipeMode
-

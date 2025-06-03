@@ -1,6 +1,6 @@
 /*++ BUILD Version: 0001    // Increment this if a change has global effects
 
-Copyright (c) 1991  Microsoft Corporation
+Copyright (c) 1992-1996  Microsoft Corporation
 
 Module Name:
 
@@ -15,18 +15,9 @@ Abstract:
     the SNMP Extendible Agent for Windows NT.
 
     Extensive comments have been included to describe its structure and
-    operation.  See also "Microsoft Windows/NT SNMP Programmer's Reference".
-
-Created:
-
-    13-Jun-1991
-
-Revision History:
+    operation.  See also "Microsoft Windows NT SNMP Programmer's Reference".
 
 --*/
-
-
-static char *vcsid = "@(#) $Logfile:   N:/xtest/vcs/testmib.c_v  $ $Revision:   1.2  $";
 
 
 // This Extension Agent implements the Internet toaster MIB.  It's 
@@ -117,7 +108,6 @@ static char *vcsid = "@(#) $Logfile:   N:/xtest/vcs/testmib.c_v  $ $Revision:   
 // Necessary includes.
 
 #include <windows.h>
-#include <malloc.h>
 
 #include <snmp.h>
 
@@ -238,12 +228,12 @@ UINT                 nResult;
    while ( MibPtr == NULL && I < MIB_num_variables )
       {
       // Construct OID with complete prefix for comparison purposes
-      SNMP_oidcpy( &TempOid, &MIB_OidPrefix );
-      SNMP_oidappend( &TempOid, &Mib[I].Oid );
+      SnmpUtilOidCpy( &TempOid, &MIB_OidPrefix );
+      SnmpUtilOidAppend( &TempOid, &Mib[I].Oid );
 
       // Check for OID in MIB - On a GET-NEXT the OID does not have to exactly
       // match a variable in the MIB, it must only fall under the MIB root.
-      CompResult = SNMP_oidcmp( &VarBind->name, &TempOid );
+      CompResult = SnmpUtilOidCmp( &VarBind->name, &TempOid );
       if ( 0 > CompResult )
 	 {
 	 // Since there is not an exact match, the only valid action is GET-NEXT
@@ -259,9 +249,9 @@ UINT                 nResult;
 	 MibPtr = &Mib[I];
 
          // Replace var bind name with new name
-         SNMP_oidfree( &VarBind->name );
-         SNMP_oidcpy( &VarBind->name, &MIB_OidPrefix );
-         SNMP_oidappend( &VarBind->name, &MibPtr->Oid );
+         SnmpUtilOidFree( &VarBind->name );
+         SnmpUtilOidCpy( &VarBind->name, &MIB_OidPrefix );
+         SnmpUtilOidAppend( &VarBind->name, &MibPtr->Oid );
 	 }
       else
          {
@@ -273,7 +263,7 @@ UINT                 nResult;
 	 }
 
       // Free OID memory before checking another variable
-      SNMP_oidfree( &TempOid );
+      SnmpUtilOidFree( &TempOid );
 
       I++;
       } // while
@@ -290,7 +280,7 @@ UINT                 nResult;
    nResult = (*MibPtr->MibFunc)( PduAction, MibPtr, VarBind );
 
    // Free temp memory
-   SNMP_oidfree( &TempOid );
+   SnmpUtilOidFree( &TempOid );
 
 Exit:
    return nResult;
@@ -330,9 +320,9 @@ UINT   ErrStat;
 	    }
 
          // Setup var bind name of NEXT MIB variable
-         SNMP_oidfree( &VarBind->name );
-         SNMP_oidcpy( &VarBind->name, &MIB_OidPrefix );
-         SNMP_oidappend( &VarBind->name, &MibPtr->MibNext->Oid );
+         SnmpUtilOidFree( &VarBind->name );
+         SnmpUtilOidCpy( &VarBind->name, &MIB_OidPrefix );
+         SnmpUtilOidAppend( &VarBind->name, &MibPtr->MibNext->Oid );
 
          // Call function to process request.  Each MIB entry has a function
 	 // pointer that knows how to process its MIB variable.
@@ -365,7 +355,7 @@ UINT   ErrStat;
 
 	       if ( NULL == 
                     (VarBind->value.asnValue.string.stream =
-                    malloc(VarBind->value.asnValue.string.length *
+                    SnmpUtilMemAlloc(VarBind->value.asnValue.string.length *
                            sizeof(char))) )
 	          {
 	          ErrStat = SNMP_ERRORSTATUS_GENERR;

@@ -26,8 +26,9 @@ Revision History:
 --*/
 
 
-static char *vcsid = "@(#) $Logfile:   N:/xtest/vcs/dhcpdll.c_v  $ $Revision:   1.6  $";
-
+#ifdef UNICODE
+#undef UNICODE
+#endif
 
 // General notes:
 //
@@ -44,7 +45,6 @@ static char *vcsid = "@(#) $Logfile:   N:/xtest/vcs/dhcpdll.c_v  $ $Revision:   
 // Necessary includes.
 
 #include <windows.h>
-#include <malloc.h>
 
 #include <snmp.h>
 
@@ -188,7 +188,7 @@ BOOL SnmpExtensionTrap(
         // Communicate the trap data to the Extendible Agent.
 
         enterprise->idLength = OidListLen;
-        enterprise->ids = (UINT *)malloc(sizeof(UINT) * OidListLen);
+        enterprise->ids = (UINT *)SnmpUtilMemAlloc(sizeof(UINT) * OidListLen);
         memcpy(enterprise->ids, OidList, sizeof(UINT) * OidListLen);
 
         *genericTrap      = SNMP_GENERICTRAP_ENTERSPECIFIC;
@@ -264,8 +264,8 @@ try {
            // The Extendible Agent tests for this, and takes appropriate
            // action.
 
-           SNMP_oidfree( &variableBindings->list[I].name );
-           SNMP_oidcpy( &variableBindings->list[I].name, &MIB_OidPrefix );
+           SnmpUtilOidFree( &variableBindings->list[I].name );
+           SnmpUtilOidCpy( &variableBindings->list[I].name, &MIB_OidPrefix );
            variableBindings->list[I].name.ids[MIB_PREFIX_LEN-1] ++;
            }
 

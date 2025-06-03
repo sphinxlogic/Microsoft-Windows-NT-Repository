@@ -18,7 +18,7 @@ Revision History:
 
 --*/
 
-#include "dbgsrvp.h"
+#include "smsrvp.h"
 
 static SID_IDENTIFIER_AUTHORITY WorldSidAuthority = SECURITY_WORLD_SID_AUTHORITY;
 
@@ -52,22 +52,23 @@ DbgpInit()
     // create a security descriptor that allows all access
     //
 
-    SeWorldSid = RtlAllocateHeap( RtlProcessHeap(), 0, RtlLengthRequiredSid( 1 ) );
+    SeWorldSid = RtlAllocateHeap( RtlProcessHeap(), MAKE_TAG( DBG_TAG ), RtlLengthRequiredSid( 1 ) );
     RtlInitializeSid( SeWorldSid, &WorldSidAuthority, 1 );
     *(RtlSubAuthoritySid( SeWorldSid, 0 )) = SECURITY_WORLD_RID;
 
     Length = SECURITY_DESCRIPTOR_MIN_LENGTH +
              (ULONG)sizeof(ACL) +
              (ULONG)sizeof(ACCESS_ALLOWED_ACE) +
-             RtlLengthSid( SeWorldSid ) +
-             8; // The 8 is just for good measure
-    SecurityDescriptor = RtlAllocateHeap( RtlProcessHeap(), 0, Length);
+             RtlLengthSid( SeWorldSid );
+
+    SecurityDescriptor = RtlAllocateHeap( RtlProcessHeap(), MAKE_TAG( DBG_TAG ), Length);
     ASSERT( SecurityDescriptor != NULL );
+
+    RtlCreateSecurityDescriptor(SecurityDescriptor, SECURITY_DESCRIPTOR_REVISION);
 
     Dacl = (PACL)((PCHAR)SecurityDescriptor + SECURITY_DESCRIPTOR_MIN_LENGTH);
 
-    RtlCreateSecurityDescriptor(SecurityDescriptor, SECURITY_DESCRIPTOR_REVISION);
-    RtlCreateAcl( Dacl, Length, ACL_REVISION2);
+    RtlCreateAcl( Dacl, Length - SECURITY_DESCRIPTOR_MIN_LENGTH, ACL_REVISION2);
 
     RtlAddAccessAllowedAce (
                  Dacl,
@@ -102,6 +103,7 @@ DbgpInit()
             );
     RtlFreeUnicodeString(&UnicodeName);
     ASSERT( NT_SUCCESS(st) );
+
 
     RtlInitAnsiString( &Name, "\\DbgUiApiPort" );
 

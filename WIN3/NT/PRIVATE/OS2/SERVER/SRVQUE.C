@@ -248,10 +248,10 @@ Return Value:
                                       FALSE
                                     );
     if (!Queue) {
-	rc = ERROR_QUE_INVALID_HANDLE;
+    rc = ERROR_QUE_INVALID_HANDLE;
     }
     else if ((OwnerPid != (PID)(-1)) && (OwnerPid != Queue->CreatorPid)) {
-	rc = ERROR_QUE_INVALID_HANDLE;
+    rc = ERROR_QUE_INVALID_HANDLE;
     }
     else {
         rc = NO_ERROR;
@@ -535,32 +535,32 @@ Os2DosPeekQueue( IN POS2_THREAD t, IN POS2_API_MSG m )
 
             //
             // If the queue has some entries, then either look for the
-	    // next entry, or use list head.  Remember, if the entry positon
-	    // is specified we peek the NEXT item.  Not the specified item as
-	    // in the case of a call to DosReadQueue.
+        // next entry, or use list head.  Remember, if the entry positon
+        // is specified we peek the NEXT item.  Not the specified item as
+        // in the case of a call to DosReadQueue.
             //
 
-	    //
-	    // Compute the next entry read position. If we are peeking
-	    // the last entry, then read position is 0. Otherwise it is
-	    // the entry id of the next entry.
-	    //
+        //
+        // Compute the next entry read position. If we are peeking
+        // the last entry, then read position is 0. Otherwise it is
+        // the entry id of the next entry.
+        //
 
-	    QueueEntry = Os2LocateQueueEntry(Queue, a->ReadPosition);
+        QueueEntry = Os2LocateQueueEntry(Queue, a->ReadPosition);
 
-	    if (a->ReadPosition != 0)
-		 {
-		 if ( QueueEntry->Links.Flink == &Queue->Entries )
-		      {
-		      ReadPosition = 0;
-		      }
-		 else {
-		      QueueEntry2  = CONTAINING_RECORD(QueueEntry->Links.Flink,OS2_QUEUE_ENTRY,Links);
-		      ReadPosition = QueueEntry2->EntryId;
-		      }
+        if (a->ReadPosition != 0)
+         {
+         if ( QueueEntry->Links.Flink == &Queue->Entries )
+              {
+              ReadPosition = 0;
+              }
+         else {
+              QueueEntry2  = CONTAINING_RECORD(QueueEntry->Links.Flink,OS2_QUEUE_ENTRY,Links);
+              ReadPosition = QueueEntry2->EntryId;
+              }
 
-		 QueueEntry = Os2LocateQueueEntry(Queue, ReadPosition);
-		 }
+         QueueEntry = Os2LocateQueueEntry(Queue, ReadPosition);
+         }
 
             if ( !QueueEntry ) {
                 rc = ERROR_QUE_ELEMENT_NOT_EXIST;
@@ -758,7 +758,11 @@ Return Value:
     if (!Queue) {
         rc = ERROR_QUE_INVALID_HANDLE;
     }
-    else if (Queue->CreatorPid != a->OwnerProcessId) {
+        //
+        // If not called by the server (ProcessId == 0), check against
+        // the creator of the queue
+        //
+    else if (ProcessId != 0 && Queue->CreatorPid != a->OwnerProcessId) {
         ReleaseHandleTableLock( Os2QueueTable );
         rc = ERROR_QUE_INVALID_HANDLE;
     }
@@ -784,9 +788,9 @@ Return Value:
             QueueEntry->RequestData.SenderProcessId = ProcessId;
             QueueEntry->RequestData.SenderData = a->SenderData;
             QueueEntry->ElementAddress = (PVOID) a->Data;
-	    QueueEntry->ElementLength = a->DataLength;
+            QueueEntry->ElementLength = a->DataLength;
 
-	    if (a->ElementPriority>15) a->ElementPriority = 15;
+        if (a->ElementPriority>15) a->ElementPriority = 15;
 
             QueueEntry->Priority = (Queue->QueueType == QUE_PRIORITY ? a->ElementPriority : 0);
             QueueEntry->EntryId = Queue->EntryIdCounter++;

@@ -22,12 +22,104 @@ mikemon    12-31-90    Upgraded the comments.
 
 -------------------------------------------------------------------- */
 
-#include <sysinc.h>
+#include <precomp.hxx>
 
-#include <string.h>
+#ifdef NO_MEMORY_SLOWDOWN
 
-#include <rpc.h>
-#include <util.hxx>
+void *
+_CRTAPI1
+operator new (
+    IN size_t size
+    )
+{
+    void *pMem;
+
+    pMem = RtlAllocateHeap(RtlProcessHeap(), 0,size);
+
+    return(pMem);
+}
+
+void
+_CRTAPI1
+operator delete (
+    IN void * obj
+    )
+{
+    RtlFreeHeap(RtlProcessHeap(), 0,obj);
+}
+
+void
+__dl (
+    IN void * obj
+    )
+{
+    RtlFreeHeap(RtlProcessHeap(), 0,obj);
+}
+
+int
+RpcpCheckHeap (
+    void
+    )
+{
+    return 0;
+}
+
+#else // NO_MEMORY_SLOWDOWN
+
+#ifndef DOSWIN32RPC
+
+PVOID hRpcHeap = 0;
+
+#ifdef DEBUGRPC
+
+RTL_CRITICAL_SECTION HeapMutex;
+
+#endif
+
+int InitializeRpcAllocator(void)
+{
+
+#ifdef DEBUGRPC
+    // May be called >1 times if initialization failed after this step.
+    static BOOL fInited = FALSE;
+
+    ASSERT(hRpcHeap == 0 || fInited == TRUE);
+
+    if (! fInited)
+        {
+        hRpcHeap = RtlCreateHeap(  HEAP_GROWABLE
+                                 | HEAP_TAIL_CHECKING_ENABLED
+                                 | HEAP_FREE_CHECKING_ENABLED
+                                 | HEAP_CLASS_1,
+                                 0,
+                                 16 * 1024 - 512,
+                                 0,
+                                 0,
+                                 0
+                                 );
+
+#ifdef DOSWIN32RPC  // BUGBUG: quick hack.  to be fixed when datagram is ported to win95
+        if (hRpcHeap)
+#else
+        if (0 == RtlInitializeCriticalSection(&HeapMutex) && hRpcHeap)
+#endif            
+            {
+            fInited = TRUE;
+            }
+        }
+#else
+    // On retail builds it's okay to call more then once.
+    hRpcHeap = GetProcessHeap();
+#endif // DEBUGRPC
+
+    if (hRpcHeap)
+        {
+        return(RPC_S_OK);
+        }
+    return(RPC_S_OUT_OF_MEMORY);
+}
+
+#endif // DOSWIN32RPC
 
 void *
 #ifdef DEBUGRPC
@@ -44,7 +136,7 @@ operator new (
 #ifdef DOSWIN32RPC
     pMem = LocalLock(LocalAlloc(0,size));
 #else // DOSWIN32RPC
-    pMem = RtlAllocateHeap(RtlProcessHeap(), 0,size);
+    pMem = RtlAllocateHeap(hRpcHeap, 0,size);
 #endif // DOSWIN32RPC
 
     return(pMem);
@@ -64,7 +156,7 @@ operator delete (
 #ifdef DOSWIN32RPC
     LocalFree(LocalHandle(obj));
 #else // DOSWIN32RPC
-    RtlFreeHeap(RtlProcessHeap(), 0,obj);
+    RtlFreeHeap(hRpcHeap, 0,obj);
 #endif // DOSWIN32RPC
 }
 
@@ -105,6 +197,7 @@ typedef struct _RPC_MEMORY_BLOCK
 } RPC_MEMORY_BLOCK;
 
 RPC_MEMORY_BLOCK * AllocatedBlocks = 0;
+unsigned long BlockCount = 0;
 
 int
 CheckMemoryBlock (
@@ -140,6 +233,14 @@ CheckMemoryBlock (
         ASSERT(0);
         return(1);
         }
+    if ( block->next != 0)
+       {
+       ASSERT(block->next->previous == block);
+       }
+    if ( block->previous != 0)
+       {
+       ASSERT(block->previous->next == block);
+       }
     return(0);
 }
 
@@ -150,20 +251,33 @@ CheckLocalHeapDo (
 {
     RPC_MEMORY_BLOCK * block;
 
+#ifdef DOSWIN32RPC  // BUGBUG: quick hack.  to be fixed when datagram is ported to win95
     RequestGlobalMutex();
+#else
+    RtlEnterCriticalSection(&HeapMutex);
+#endif   
 
     block = AllocatedBlocks;
     while (block != 0)
         {
         if (CheckMemoryBlock(block))
             {
+#ifdef DOSWIN32RPC  // BUGBUG: quick hack.  to be fixed when datagram is ported to win95
             ClearGlobalMutex();
+#else
+            RtlLeaveCriticalSection(&HeapMutex);
+#endif            
             return(1);
             }
         block = block->next;
         }
 
+#ifdef DOSWIN32RPC  // BUGBUG: quick hack.  to be fixed when datagram is ported to win95
     ClearGlobalMutex();
+#else
+    RtlLeaveCriticalSection(&HeapMutex);
+#endif    
+
     return(0);
 }
 
@@ -174,9 +288,20 @@ RpcpCheckHeap (
 {
     int retval;
 
+#ifdef DOSWIN32RPC  // BUGBUG: quick hack.  to be fixed when datagram is ported to win95
     RequestGlobalMutex();
+#else
+    RtlEnterCriticalSection(&HeapMutex);
+#endif
+
     retval = CheckLocalHeapDo();
+
+#ifdef DOSWIN32RPC  // BUGBUG: quick hack.  to be fixed when datagram is ported to win95
     ClearGlobalMutex();
+#else
+    RtlLeaveCriticalSection(&HeapMutex);
+#endif    
+
     return(retval);
 }
 
@@ -187,12 +312,24 @@ operator new(
 {
     RPC_MEMORY_BLOCK * block;
 
+#ifdef DOSWIN32RPC  // BUGBUG: quick hack.  to be fixed when datagram is ported to win95
     RequestGlobalMutex();
+#else
+    RtlEnterCriticalSection(&HeapMutex);
+#endif    
+
+    ASSERT( ("You allocated a negative amount",
+            size < (size + sizeof(RPC_MEMORY_BLOCK))) );
+
     block = (RPC_MEMORY_BLOCK *) __nw_do(size + sizeof(RPC_MEMORY_BLOCK));
     CheckLocalHeapDo();
     if ( block == 0 )
         {
+#ifdef DOSWIN32RPC  // BUGBUG: quick hack.  to be fixed when datagram is ported to win95
         ClearGlobalMutex();
+#else
+        RtlLeaveCriticalSection(&HeapMutex);
+#endif    
         return(0);
         }
     block->size = size;
@@ -204,6 +341,7 @@ operator new(
     block->next = AllocatedBlocks;
     block->previous = 0;
     AllocatedBlocks = block;
+    BlockCount++ ;
 
     block->blockguard[0] = 0xFE;
     block->blockguard[1] = 0xFE;
@@ -220,7 +358,12 @@ operator new(
     block->rearguard[size+2] = 0xFE;
     block->rearguard[size+3] = 0xFE;
 
+#ifdef DOSWIN32RPC  // BUGBUG: quick hack.  to be fixed when datagram is ported to win95
     ClearGlobalMutex();
+#else
+    RtlLeaveCriticalSection(&HeapMutex);
+#endif    
+
     return(&(block->rearguard[0]));
 }
 
@@ -233,7 +376,12 @@ void __dl (
     if (obj == 0)
         return;
 
+#ifdef DOSWIN32RPC  // BUGBUG: quick hack.  to be fixed when datagram is ported to win95
     RequestGlobalMutex();
+#else
+    RtlEnterCriticalSection(&HeapMutex);
+#endif    
+
     block = (RPC_MEMORY_BLOCK *) (((unsigned char *) obj)
                     - sizeof(RPC_MEMORY_BLOCK) + 4);
     CheckMemoryBlock(block);
@@ -255,7 +403,12 @@ void __dl (
         block->previous->next = block->next;
     CheckLocalHeapDo();
     memset(block,0xEF,(unsigned int) block->size);
+    BlockCount-- ;
+#ifdef DOSWIN32RPC  // BUGBUG: quick hack.  to be fixed when datagram is ported to win95
     ClearGlobalMutex();
+#else
+    RtlLeaveCriticalSection(&HeapMutex);
+#endif    
     __dl_do(block);
 }
 
@@ -268,6 +421,17 @@ operator delete (
     __dl(obj);
 }
 
+#else
+
+int
+RpcpCheckHeap (
+    void
+    )
+{
+    return 0;
+}
+
 #endif // DEBUGRPC
 
 
+#endif // NO_MEMORY_SLOWDOWN

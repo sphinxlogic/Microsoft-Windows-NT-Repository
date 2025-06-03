@@ -54,7 +54,7 @@ Return Value:
     STRING MessageData;
     STRING MessageHeader;
     DBGKD_DEBUG_IO DebugIo;
-    
+
     //
     // Move the output string to the message buffer.
     //
@@ -79,7 +79,7 @@ Return Value:
     //
 
     DebugIo.ApiNumber = DbgKdPrintStringApi;
-    DebugIo.ProcessorType = (USHORT)KeProcessorType;
+    DebugIo.ProcessorLevel = KeProcessorLevel;
     DebugIo.Processor = (USHORT)KeGetCurrentPrcb()->Number;
     DebugIo.u.PrintString.LengthOfString = Length;
     MessageHeader.Length = sizeof(DBGKD_DEBUG_IO);
@@ -123,7 +123,7 @@ Arguments:
     Output - Supplies a pointer to a string descriptor for the output string.
 
     Input - Supplies a pointer to a string descriptor for the input string.
-	    (Length stored/returned in Input->Length)
+            (Length stored/returned in Input->Length)
 
 Return Value:
 
@@ -138,17 +138,17 @@ Return Value:
     STRING MessageData;
     STRING MessageHeader;
     DBGKD_DEBUG_IO DebugIo;
-    USHORT ReturnCode;
+    ULONG ReturnCode;
 
     //
     // Move the output string to the message buffer.
     //
 
     Length = KdpMoveMemory(
-		(PCHAR)KdpMessageBuffer,
-		(PCHAR)Output->Buffer,
-		Output->Length
-		);
+                (PCHAR)KdpMessageBuffer,
+                (PCHAR)Output->Buffer,
+                Output->Length
+                );
 
     //
     // If the total message length is greater than the maximum packet size,
@@ -156,7 +156,7 @@ Return Value:
     //
 
     if ((sizeof(DBGKD_DEBUG_IO) + Length) > PACKET_MAX_SIZE) {
-	Length = PACKET_MAX_SIZE - sizeof(DBGKD_DEBUG_IO);
+        Length = PACKET_MAX_SIZE - sizeof(DBGKD_DEBUG_IO);
     }
 
     //
@@ -164,7 +164,7 @@ Return Value:
     //
 
     DebugIo.ApiNumber = DbgKdGetStringApi;
-    DebugIo.ProcessorType = (USHORT)KeProcessorType;
+    DebugIo.ProcessorLevel = KeProcessorLevel;
     DebugIo.Processor = (USHORT)KeGetCurrentPrcb()->Number;
     DebugIo.u.GetString.LengthOfPromptString = Length;
     DebugIo.u.GetString.LengthOfStringRead = Input->MaximumLength;
@@ -198,13 +198,13 @@ Return Value:
 
     do {
         ReturnCode = KdpReceivePacket(
-	                              PACKET_TYPE_KD_DEBUG_IO,
-		                      &MessageHeader,
-		                      &MessageData,
-		                      &Length
+                                      PACKET_TYPE_KD_DEBUG_IO,
+                                      &MessageHeader,
+                                      &MessageData,
+                                      &Length
                                       );
         if (ReturnCode == KDP_PACKET_RESEND) {
-	    return TRUE;
+            return TRUE;
         }
     } while (ReturnCode != KDP_PACKET_RECEIVED);
 

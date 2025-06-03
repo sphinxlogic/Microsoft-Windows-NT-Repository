@@ -216,4 +216,7 @@
 #define API_WNetAccountConfirmUpdate          210
 #define API_WConfigSet          211
 #define API_WAccountsReplicate          212
-#define MAX_API         212
+/*   213 is used by WfW  */
+#define API_SamOEMChgPasswordUser2_P    214
+#define API_NetServerEnum3              215
+#define MAX_API         215

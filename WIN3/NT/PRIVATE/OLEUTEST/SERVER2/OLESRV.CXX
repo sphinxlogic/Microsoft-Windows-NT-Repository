@@ -22,9 +22,27 @@
 #include    <stdarg.h>
 #include    "wterm.h"
 
+
 #define IDM_DEBUG 0x100
 
 static const TCHAR *szAppName = TEXT("Test OLE Server");
+static const char *szFatalError = "OLESRV - Fatal Error";
+
+void MsgBox(char *pszMsg)
+{
+    MessageBoxA(NULL, pszMsg, szFatalError, MB_OK);
+}
+
+void HrMsgBox(char *pszMsg, HRESULT hr)
+{
+    char awcBuf[512];
+
+    // Build string for output
+    wsprintfA(awcBuf, "%s HRESULT = %lx", pszMsg, hr);
+
+    // Display message box
+    MessageBoxA(NULL, &awcBuf[0], szFatalError, MB_OK);
+}
 
 //+-------------------------------------------------------------------
 //  Class:    CTestServerApp
@@ -57,7 +75,6 @@ private:
                                     // is controlling now
     DWORD          _dwRegId;        // OLE registration ID
     BOOL           _fRegistered;    // TRUE if srv was registered w/OLE
-    BOOL           _fInitialized;   // TRUE if OleInitialize was OK
     BOOL           _fEmbedded;      // TRUE if OLE started us at the request
                                     //   of an embedded obj in a container app
 };
@@ -83,7 +100,6 @@ CTestServerApp::CTestServerApp()
     _pteClassFactory = NULL;
     _dwRegId         = 0;
     _fRegistered     = FALSE;
-    _fInitialized    = FALSE;
     _fEmbedded	     = TRUE;
     _cEmbeddedObjs   = 0;
 }
@@ -133,42 +149,13 @@ SCODE CTestServerApp::InitApp(LPSTR lpszCmdline)
     // Process Command Line arguments
     ProcessCmdLine(lpszCmdline, &_fEmbedded);
 
-#ifndef _CAIRO_
-    sc = OleInitialize(NULL);
-#else
-    // Look up the thread mode from the win.ini file.
-    DWORD thread_mode;
-    TCHAR buffer[80];
-    int len;
-
-    len = GetProfileString( TEXT("OleSrv"),
-                            TEXT("ThreadMode"),
-                            TEXT("MultiThreaded"),
-                            buffer,
-                            sizeof(buffer) / sizeof(TCHAR));
-    if (lstrcmp(buffer, TEXT("SingleThreaded")) == 0)
-        thread_mode = COINIT_SINGLETHREADED;
-    else
-        thread_mode = COINIT_MULTITHREADED;
-
-    // Initialize OLE
-    sc = OleInitializeEx(NULL, thread_mode);
-#endif
-
-    if (S_OK == sc)
-    {
-        _fInitialized = TRUE;
-    }
-    else
-    {
-        return(sc);
-    }
-
     // Create the applications class factory - note that we have to free
     //   at a later time
     _pteClassFactory = new CAdvBndCF();
+
     if (NULL == _pteClassFactory)
     {
+        MsgBox("Class Object Creation Failed");
         return(E_ABORT);
     }
 
@@ -179,9 +166,14 @@ SCODE CTestServerApp::InitApp(LPSTR lpszCmdline)
            CLSCTX_LOCAL_SERVER,
 	   REGCLS_MULTIPLEUSE,
            &_dwRegId);
+
     if (S_OK == sc)
     {
         _fRegistered = TRUE;
+    }
+    else
+    {
+        HrMsgBox("CoRegisterClassObject FAILED", sc);
     }
 
     return(sc);
@@ -230,11 +222,6 @@ SCODE CTestServerApp::CloseApp()
       #endif
     }
 
-    // Uninitialize OLE only if OleInitialize succeeded
-    if (TRUE == _fInitialized)
-    {
-        OleUninitialize();
-    }
     return(S_OK);
 }
 
@@ -298,6 +285,12 @@ ULONG CTestServerApp::DecEmbeddedCount()
 {
     if ((0 == --_cEmbeddedObjs) && _fEmbedded)
     {
+        // We are done so revoke our OLE stuff. We need to do this as
+        // soon as we know that we are shutting down so that the window
+        // for returning a bad class object is shut.
+        CloseApp();
+
+        // Tell window to die
 	SendMessage(g_hMain, WM_USER, 0xFFFFFFFF, 0xFFFFFFFF);
     }
 
@@ -337,7 +330,7 @@ void ProcessCmdLine(LPSTR lpszCmdline, BOOL *pfEmbedded)
 	return;
     }
 
-    Win4Assert(!"testsrv received an invalid command line!");
+    MsgBox("Received an invalid command line!");
     *pfEmbedded = FALSE;
 
     return;
@@ -467,12 +460,17 @@ int WINAPI WinMain(
     // For windows message
     MSG msg;
     BOOL bRet;
+    HRESULT hr;
 
     // Register the window class
     bRet = TermRegisterClass(hInstance, NULL, (LPTSTR) szAppName,
 	                     (LPTSTR) MAKEINTRESOURCE(IDI_APPLICATION));
 
-    Win4Assert(bRet && "OLESRV:  Couldn't register class");
+    if (!bRet)
+    {
+        MsgBox("TermRegisterClass FAILED");
+        return 1;
+    }
 
     // Create the server window
     bRet = TermCreateWindow(
@@ -486,13 +484,50 @@ int WINAPI WinMain(
 	&g_hMain,
 	NULL);
 
-    Win4Assert(bRet && "OLESRV:  Couldn't create window");
+    if (!bRet)
+    {
+        MsgBox("TermCreateWindow FAILED");
+        return 1;
+    }
 
     // Add debug option to system menu
     HMENU hmenu = GetSystemMenu(g_hMain, FALSE);
 
     AppendMenu(hmenu, MF_SEPARATOR, 0, NULL);
     AppendMenu(hmenu, MF_STRING | MF_ENABLED, IDM_DEBUG, TEXT("Debug"));
+
+    // Look up the thread mode from the win.ini file.
+    DWORD thread_mode;
+    TCHAR buffer[80];
+    int len;
+
+    len = GetProfileString( TEXT("OleSrv"),
+                            TEXT("ThreadMode"),
+                            TEXT("MultiThreaded"),
+                            buffer,
+                            sizeof(buffer) / sizeof(TCHAR));
+
+    if (lstrcmp(buffer, TEXT("ApartmentThreaded")) == 0)
+    {
+	thread_mode = COINIT_APARTMENTTHREADED;
+	hr = CoInitialize(NULL);
+    }
+    else
+    {
+#ifdef MULTI_THREADING
+	thread_mode = COINIT_MULTITHREADED;
+	hr = CoInitializeEx(NULL, thread_mode);
+#else
+	hr = E_INVALIDARG;
+#endif
+    }
+
+    if (S_OK != hr)
+    {
+	HrMsgBox("CoInitialize FAILED", hr);
+        return(1);
+    }
+
 
     // Initialize Application
     if (S_OK != tsaMain.InitApp(lpszCmdLine))
@@ -524,9 +559,8 @@ int WINAPI WinMain(
         DispatchMessage(&msg);
     }
 
-    // Clean up and exit
-    // BUGBUG - check return code?
-    tsaMain.CloseApp();
+    // If we get here, we initialized OLE so let's uninitialize it.
+    CoUninitialize();
 
     return (msg.wParam);	   /* Returns the value from PostQuitMessage */
 }
@@ -711,15 +745,21 @@ CAdvBnd::~CAdvBnd()
 
 	HRESULT hresult = GetRunningObjectTable(0, &prot);
 
-	Win4Assert(SUCCEEDED(hresult)
-	    && "CAdvBnd::~CAdvBnd GetRunningObjectTable failed");
+        if (hresult != S_OK)
+        {
+            HrMsgBox("CAdvBnd::~CAdvBnd GetRunningObjectTable failed", hresult);
+        }
+        else
+        {
+	    hresult = prot->Revoke(_dwRegister);
 
-	hresult = prot->Revoke(_dwRegister);
+            if (hresult != S_OK)
+            {
+                HrMsgBox("CAdvBnd::~CAdvBnd Revoke failed", hresult);
+            }
 
-	Win4Assert(SUCCEEDED(hresult)
-	    && "CAdvBnd::~CAdvBnd Revoke failed");
-
-	prot->Release();
+	    prot->Release();
+        }
     }
 
     tsaMain.DecEmbeddedCount();
@@ -808,24 +848,34 @@ STDMETHODIMP CAdvBnd::Load(LPCWSTR lpszFileName, DWORD grfMode)
     IMoniker *pmk;
     hresult = CreateFileMoniker((LPWSTR)lpszFileName, &pmk);
 
-    Win4Assert(SUCCEEDED(hresult)
-	&& "CAdvBnd::Load CreateFileMoniker failed");
+    if (FAILED(hresult))
+    {
+        HrMsgBox("CAdvBnd::Load CreateFileMoniker failed", hresult);
+        return hresult;
+    }
 
     // Get the running object table
     IRunningObjectTable *prot;
 
     hresult = GetRunningObjectTable(0, &prot);
 
-    Win4Assert(SUCCEEDED(hresult)
-	&& "CAdvBnd::Load GetRunningObjectTable failed");
+    if (FAILED(hresult))
+    {
+        HrMsgBox("CAdvBnd::Load GetRunningObjectTable failed", hresult);
+        return hresult;
+    }
 
     // Register in the running object table
     IUnknown *punk;
     QueryInterface(IID_IUnknown, (void **) &punk);
+
     hresult = prot->Register(0, punk, pmk, &_dwRegister);
 
-    Win4Assert(SUCCEEDED(hresult)
-	&& "CAdvBnd::Load Register failed");
+    if (FAILED(hresult))
+    {
+        HrMsgBox("CAdvBnd::Load Register failed", hresult);
+        return hresult;
+    }
 
     // Set filetime to known value
     FILETIME filetime;

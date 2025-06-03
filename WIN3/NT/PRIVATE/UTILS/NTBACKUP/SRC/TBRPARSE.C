@@ -377,7 +377,7 @@ BSD_PTR    bsd_ptr )
 
                //  We're parsing a file; open it and get tokens out.
 
-               fin = fopen( this_token->tok_spelling, TEXT("r") );
+               fin = UNI_fopen( this_token->tok_spelling, _O_TEXT|_O_RDONLY );
                if( fin == NULL ) {
 
                     eresprintf( (INT16) RES_SCRIPT_OPEN_ERROR, this_token->tok_spelling );

@@ -281,9 +281,9 @@ Return Value:
                 //
 
                 if ((networkName != NULL) &&
-                    (RtlCompareMemory (networkName->NetbiosName,
+                    (!RtlEqualMemory (networkName->NetbiosName,
                                        DeviceContext->ReservedNetBIOSAddress,
-                                       NETBIOS_NAME_LENGTH) < NETBIOS_NAME_LENGTH)) {
+                                       NETBIOS_NAME_LENGTH))) {
 
                     StRegisterAddress (address);    // begin address registration.
                     status = STATUS_PENDING;
@@ -1026,9 +1026,7 @@ Return Value:
 
     ASSERT (Address->ReferenceCount > 0);    // not perfect, but...
 
-    (VOID)ExInterlockedIncrementLong (
-            &Address->ReferenceCount,
-            &Address->Provider->Interlock);
+    (VOID)InterlockedIncrement (&Address->ReferenceCount);
 
 } /* StRefAddress */
 
@@ -1058,11 +1056,9 @@ Return Value:
 --*/
 
 {
-    INTERLOCKED_RESULT result;
+    LONG result;
 
-    result = ExInterlockedDecrementLong (
-                &Address->ReferenceCount,
-                &Address->Provider->Interlock);
+    result = InterlockedDecrement (&Address->ReferenceCount);
 
     //
     // If we have deleted all references to this address, then we can
@@ -1071,14 +1067,14 @@ Return Value:
     // stream of execution has access to the address any longer.
     //
 
-    ASSERT (result != ResultNegative);
+    ASSERT (result >= 0);
 
     //
     // Defer the actual call to StDestroyAddress to a thread
     // so the paged security descriptor can be accessed at IRQL 0.
     //
 
-    if (result == ResultZero) {
+    if (result == 0) {
         ExQueueWorkItem(&Address->DestroyAddressQueueItem, DelayedWorkQueue);
     }
 } /* StDerefAddress */
@@ -1453,9 +1449,7 @@ Return Value:
 
     ASSERT (AddressFile->ReferenceCount > 0);   // not perfect, but...
 
-    (VOID)ExInterlockedIncrementLong (
-            &AddressFile->ReferenceCount,
-            &AddressFile->Provider->Interlock);
+    (VOID)InterlockedIncrement (&AddressFile->ReferenceCount);
 
 } /* StReferenceAddressFile */
 
@@ -1485,11 +1479,9 @@ Return Value:
 --*/
 
 {
-    INTERLOCKED_RESULT result;
+    LONG result;
 
-    result = ExInterlockedDecrementLong (
-                &AddressFile->ReferenceCount,
-                &AddressFile->Provider->Interlock);
+    result = InterlockedDecrement (&AddressFile->ReferenceCount);
 
     //
     // If we have deleted all references to this address file, then we can
@@ -1498,9 +1490,9 @@ Return Value:
     // stream of execution has access to the address any longer.
     //
 
-    ASSERT (result != ResultNegative);
+    ASSERT (result >= 0);
 
-    if (result == ResultZero) {
+    if (result == 0) {
         StDestroyAddressFile (AddressFile);
     }
 } /* StDerefAddressFile */
@@ -1565,10 +1557,10 @@ Return Value:
 
         if (address->NetworkName != NULL) {
             if (NetworkName != NULL) {
-                if (RtlCompareMemory (
+                if (!RtlEqualMemory (
                         address->NetworkName->NetbiosName,
                         NetworkName->NetbiosName,
-                        i) < i) {
+                        i)) {
                     continue;
                 }
             } else {
@@ -1657,8 +1649,7 @@ Return Value:
             // connection.
             //
 
-            if (RtlCompareMemory(RemoteName, connection->RemoteName, NETBIOS_NAME_LENGTH) ==
-                    NETBIOS_NAME_LENGTH) {
+            if (RtlEqualMemory(RemoteName, connection->RemoteName, NETBIOS_NAME_LENGTH)) {
 
                 RELEASE_SPIN_LOCK (&Address->SpinLock, oldirql);
                 StReferenceConnection ("Lookup found", connection);

@@ -34,9 +34,53 @@ Revision History:
 //  hardware interrupts.
 //
 
-extern  ULONG   KiStartUnexpectedRange();
-extern  ULONG   KiEndUnexpectedRange();
+extern  ULONG   KiStartUnexpectedRange(VOID);
+extern  ULONG   KiEndUnexpectedRange(VOID);
 extern  ULONG   KiUnexpectedEntrySize;
+
+
+VOID
+KiInterruptDispatch2ndLvl(
+    VOID
+    );
+
+
+VOID
+KiChainedDispatch2ndLvl(
+    VOID
+    );
+
+
+typedef enum {
+    NoConnect,
+    NormalConnect,
+    ChainConnect,
+    UnkownConnect
+} CONNECT_TYPE, *PCONNECT_TYPE;
+
+typedef struct {
+    CONNECT_TYPE            Type;
+    PKINTERRUPT             Interrupt;
+    PKINTERRUPT_ROUTINE     NoDispatch;
+    PKINTERRUPT_ROUTINE     InterruptDispatch;
+    PKINTERRUPT_ROUTINE     FloatingDispatch;
+    PKINTERRUPT_ROUTINE     ChainedDispatch;
+    PKINTERRUPT_ROUTINE    *FlatDispatch;
+} DISPATCH_INFO, *PDISPATCH_INFO;
+
+
+VOID
+KiGetVectorInfo (
+    IN  ULONG                Vector,
+    OUT PDISPATCH_INFO       DispatchInfo
+    );
+
+VOID
+KiConnectVectorAndInterruptObject (
+    IN PKINTERRUPT Interrupt,
+    IN CONNECT_TYPE Type
+    );
+
 
 VOID
 KeInitializeInterrupt (
@@ -205,18 +249,14 @@ Return Value:
 --*/
 
 {
-
-    KAFFINITY Affinity;
+    DISPATCH_INFO DispatchInfo;
     BOOLEAN Connected;
-    PKINTERRUPT Interruptx;
-    PKTHREAD Thread;
+    BOOLEAN ConnectError;
+    BOOLEAN Enabled;
     KIRQL Irql;
     CCHAR Number;
     KIRQL OldIrql;
-    KIRQL PreviousIrql;
-    PKPRCB Prcb;
     ULONG Vector;
-    PULONG pl;
 
     //
     // If the interrupt object is already connected, the interrupt vector
@@ -228,6 +268,7 @@ Return Value:
     //
 
     Connected = FALSE;
+    ConnectError = FALSE;
     Irql = Interrupt->Irql;
     Number = Interrupt->Number;
     Vector = Interrupt->Vector;
@@ -240,11 +281,10 @@ Return Value:
 
         //
         //
-        // Set affinity to the specified processor.
+        // Set system affinity to the specified processor.
         //
 
-        Thread = KeGetCurrentThread();
-        Affinity = KeSetAffinityThread(Thread, (KAFFINITY)(1<<Number));
+        KeSetSystemAffinityThread((KAFFINITY)(1<<Number));
 
         //
         // Raise IRQL to dispatcher level and lock dispatcher database.
@@ -253,65 +293,77 @@ Return Value:
         KiLockDispatcherDatabase(&OldIrql);
 
         //
-        // If the specified interrupt vector is not connected, then
-        // connect the interrupt vector to the interrupt object dispatch
-        // code, establish the dispatcher address, and set the new
-        // interrupt mode and enable masks. Else if the interrupt is
-        // already chained, make sure the vector is sharable, then add
-        // the new interrupt object at the end of the chain. If the
-        // interrupt vector is not chained, then start a chain with the
-        // previous interrupt object at the front of the chain. The
-        // interrupt mode of all interrupt objects in a chain must be the
-        // same.
+        // Is interrupt object already connected?
         //
 
         if (!Interrupt->Connected) {
-            Prcb = KeGetCurrentPrcb();
-            if ( ((ULONG)KiReturnHandlerAddressFromIDT(Vector) >=
-                                       (ULONG)&KiStartUnexpectedRange) &&
-                  ((ULONG)KiReturnHandlerAddressFromIDT(Vector) <
-                                       (ULONG)&KiEndUnexpectedRange) ) {
+
+            //
+            // Determine interrupt dispatch vector
+            //
+
+            KiGetVectorInfo (
+                Vector,
+                &DispatchInfo
+                );
+
+            //
+            // If dispatch vector is not connected, then connect it
+            //
+
+            if (DispatchInfo.Type == NoConnect) {
                 Connected = TRUE;
                 Interrupt->Connected = TRUE;
-                if (Interrupt->FloatingSave) {
-                    Interrupt->DispatchAddress = KiFloatingDispatch;
-                } else {
-                    Interrupt->DispatchAddress = KiInterruptDispatch;
-                }
-                pl = &(Interrupt->DispatchCode[0]);
 
-                pl = (PULONG)((PUCHAR)pl +
-                            ((PUCHAR)&KiInterruptTemplateDispatch -
-                             (PUCHAR)KiInterruptTemplate));
-                *pl = (ULONG)Interrupt->DispatchAddress-(ULONG)((PUCHAR)pl+4);
-                KiSetHandlerAddressToIDT(Vector,
-                        (PKINTERRUPT_ROUTINE)&Interrupt->DispatchCode);
-                if (Vector <= MAXIMUM_PRIMARY_VECTOR) {
-                    // BUGBUG - kenr - check error return code
-                    HalEnableSystemInterrupt(Vector, Irql, Interrupt->Mode);
+                //
+                // Connect interrupt dispatch to interrupt object dispatch code
+                //
+
+                InitializeListHead(&Interrupt->InterruptListEntry);
+                KiConnectVectorAndInterruptObject (Interrupt, NormalConnect);
+
+                //
+                // Enabled system vector
+                //
+
+                Enabled = HalEnableSystemInterrupt(Vector, Irql, Interrupt->Mode);
+                if (!Enabled) {
+                    ConnectError = TRUE;
                 }
-            } else if (Interrupt->ShareVector) {
-                Interruptx = CONTAINING_RECORD(
-                    KiReturnHandlerAddressFromIDT(Vector),
-                    KINTERRUPT, DispatchCode);
-                if (Interruptx->ShareVector &&
-                    Interrupt->Mode == Interruptx->Mode) {
-                    Connected = TRUE;
-                    Interrupt->Connected = TRUE;
-                    KeRaiseIrql(Irql, &PreviousIrql);
-                    if (Interruptx->DispatchAddress != KiChainedDispatch) {
-                        InitializeListHead(&Interruptx->InterruptListEntry);
-                        Interruptx->DispatchAddress = KiChainedDispatch;
-                        pl = &(Interruptx->DispatchCode[0]);
-                        pl = (PULONG)((PUCHAR)pl +
-                              ((PUCHAR)&KiInterruptTemplateDispatch -
-                               (PUCHAR)KiInterruptTemplate));
-                        *pl = (ULONG)Interruptx->DispatchAddress-(ULONG)((PUCHAR)pl+4);
-                    }
-                    InsertTailList(&Interruptx->InterruptListEntry,
-                                   &Interrupt->InterruptListEntry);
-                    KeLowerIrql(PreviousIrql);
+
+
+            } else if (DispatchInfo.Type != UnkownConnect &&
+                       Interrupt->ShareVector  &&
+                       DispatchInfo.Interrupt->ShareVector  &&
+                       DispatchInfo.Interrupt->Mode == Interrupt->Mode) {
+
+                //
+                // Vector is already connected as sharable.  New vector is sharable
+                // and modes match.  Chain new vector.
+                //
+
+                Connected = TRUE;
+                Interrupt->Connected = TRUE;
+
+                ASSERT (Irql <= SYNCH_LEVEL);
+
+                //
+                // If not already using chained dispatch handler, set it up
+                //
+
+                if (DispatchInfo.Type != ChainConnect) {
+                    KiConnectVectorAndInterruptObject (DispatchInfo.Interrupt, ChainConnect);
                 }
+
+                //
+                // Add to tail of chained dispatch
+                //
+
+                InsertTailList(
+                    &DispatchInfo.Interrupt->InterruptListEntry,
+                    &Interrupt->InterruptListEntry
+                    );
+
             }
         }
 
@@ -322,10 +374,18 @@ Return Value:
         KiUnlockDispatcherDatabase(OldIrql);
 
         //
-        // Set affinity back to the original value.
+        // Set system affinity back to the original value.
         //
 
-        KeSetAffinityThread(Thread, Affinity);
+        KeRevertToUserAffinityThread();
+    }
+
+    if (Connected  &&  ConnectError) {
+#if DBG
+        DbgPrint ("HalEnableSystemInterrupt failed\n");
+#endif
+        KeDisconnectInterrupt (Interrupt);
+        Connected = FALSE;
     }
 
     //
@@ -363,25 +423,18 @@ Return Value:
 
 {
 
-    KAFFINITY Affinity;
+    DISPATCH_INFO DispatchInfo;
     BOOLEAN Connected;
-    PKINTERRUPT Interruptx;
     PKINTERRUPT Interrupty;
-    PKTHREAD Thread;
     KIRQL Irql;
     KIRQL OldIrql;
-    KIRQL PreviousIrql;
-    PKPRCB Prcb;
     ULONG Vector;
-    PULONG pl;
-    ULONG unexpected;
 
     //
-    // Set affinity to the specified processor.
+    // Set system affinity to the specified processor.
     //
 
-    Thread = KeGetCurrentThread();
-    Affinity = KeSetAffinityThread(Thread, (KAFFINITY)(1<<Interrupt->Number));
+    KeSetSystemAffinityThread((KAFFINITY)(1<<Interrupt->Number));
 
     //
     // Raise IRQL to dispatcher level and lock dispatcher database.
@@ -397,7 +450,6 @@ Return Value:
     Connected = Interrupt->Connected;
     if (Connected) {
         Irql = Interrupt->Irql;
-        Prcb = KeGetCurrentPrcb();
         Vector = Interrupt->Vector;
 
         //
@@ -409,48 +461,76 @@ Return Value:
         // address.
         //
 
-        Interruptx = CONTAINING_RECORD( KiReturnHandlerAddressFromIDT(Vector),
-                                        KINTERRUPT, DispatchCode);
-        if (Interruptx->DispatchAddress == KiChainedDispatch) {
-            KeRaiseIrql(Irql, &PreviousIrql);
-            if (Interrupt == Interruptx) {
-                Interruptx = CONTAINING_RECORD(Interruptx->InterruptListEntry.Flink,
-                                               KINTERRUPT, InterruptListEntry);
-                Interruptx->DispatchAddress = KiChainedDispatch;
-                pl = &(Interruptx->DispatchCode[0]);
-                pl = (PULONG)((PUCHAR)pl +
-                     ((PUCHAR)&KiInterruptTemplateDispatch -
-                     (PUCHAR)KiInterruptTemplate));
-                *pl = (ULONG)KiChainedDispatch - (ULONG)((PUCHAR)pl + 4);
-                KiSetHandlerAddressToIDT(Vector,
-                            (PKINTERRUPT_ROUTINE)&Interruptx->DispatchCode);
+        //
+        // Determine interrupt dispatch vector
+        //
+
+        KiGetVectorInfo (
+            Vector,
+            &DispatchInfo
+            );
+
+
+        //
+        // Is dispatch a chained handler?
+        //
+
+        if (DispatchInfo.Type == ChainConnect) {
+
+            ASSERT (Irql <= SYNCH_LEVEL);
+
+            //
+            // Is interrupt being removed from head?
+            //
+
+            if (Interrupt == DispatchInfo.Interrupt) {
+
+                //
+                // Update next interrupt object to be head
+                //
+
+                DispatchInfo.Interrupt = CONTAINING_RECORD(
+                                               DispatchInfo.Interrupt->InterruptListEntry.Flink,
+                                               KINTERRUPT,
+                                               InterruptListEntry
+                                               );
+
+                KiConnectVectorAndInterruptObject (DispatchInfo.Interrupt, ChainConnect);
             }
+
+            //
+            // Remove interrupt object
+            //
+
             RemoveEntryList(&Interrupt->InterruptListEntry);
-            Interrupty = CONTAINING_RECORD(Interruptx->InterruptListEntry.Flink,
-                                           KINTERRUPT, InterruptListEntry);
-            if (Interruptx == Interrupty) {
-                if (Interrupty->FloatingSave) {
-                    Interrupty->DispatchAddress = KiFloatingDispatch;
-                } else {
-                    Interrupty->DispatchAddress = KiInterruptDispatch;
-                }
-                pl = &(Interrupty->DispatchCode[0]);
-                pl = (PULONG)((PUCHAR)pl +
-                     ((PUCHAR)&KiInterruptTemplateDispatch -
-                     (PUCHAR)KiInterruptTemplate));
-                *pl = (ULONG)Interrupty->DispatchAddress - (ULONG)((PUCHAR)pl + 4);
-                KiSetHandlerAddressToIDT(Vector,
-                        (PKINTERRUPT_ROUTINE)&Interrupty->DispatchCode);
+
+            //
+            // If there's only one interrupt object left on this vector,
+            // determine proper interrupt dispatcher
+            //
+
+            Interrupty = CONTAINING_RECORD(
+                                DispatchInfo.Interrupt->InterruptListEntry.Flink,
+                                KINTERRUPT,
+                                InterruptListEntry
+                                );
+
+            if (DispatchInfo.Interrupt == Interrupty) {
+                KiConnectVectorAndInterruptObject (Interrupty, NormalConnect);
             }
-            KeLowerIrql(PreviousIrql);
+
         } else {
 
+            //
+            // Removing last interrupt object from the vector.  Disable the
+            // vector, and set it to unconnected
+            //
+
             HalDisableSystemInterrupt(Interrupt->Vector, Irql);
-            Vector = Interrupt->Vector - PRIMARY_VECTOR_BASE;
-            unexpected = ((ULONG)&KiStartUnexpectedRange +
-                          (Vector * KiUnexpectedEntrySize ));
-            KiSetHandlerAddressToIDT(Interrupt->Vector, unexpected);
+            KiConnectVectorAndInterruptObject (Interrupt, NoConnect);
         }
+
+
         KeSweepIcache(TRUE);
         Interrupt->Connected = FALSE;
     }
@@ -462,10 +542,10 @@ Return Value:
     KiUnlockDispatcherDatabase(OldIrql);
 
     //
-    // Set affinity back to the original value.
+    // Set system affinity back to the original value.
     //
 
-    KeSetAffinityThread(Thread, Affinity);
+    KeRevertToUserAffinityThread();
 
     //
     // Return whether interrupt was disconnected from the specified vector.
@@ -473,4 +553,215 @@ Return Value:
 
     return Connected;
 }
-
+
+VOID
+KiGetVectorInfo (
+    IN  ULONG                Vector,
+    OUT PDISPATCH_INFO       DispatchInfo
+    )
+{
+    PKINTERRUPT_ROUTINE Dispatch;
+    ULONG CurrentDispatch;
+    ULONG DispatchType;
+
+    //
+    // Get second level dispatch point
+    //
+
+
+    DispatchType = HalSystemVectorDispatchEntry (
+                        Vector,
+                        &DispatchInfo->FlatDispatch,
+                        &DispatchInfo->NoDispatch
+                        );
+
+    //
+    // Get vector info
+    //
+
+    switch (DispatchType) {
+        case 0:
+            //
+            // Primary dispatch
+            //
+
+            DispatchInfo->NoDispatch = (PKINTERRUPT_ROUTINE) (((ULONG) &KiStartUnexpectedRange) +
+                                     (Vector - PRIMARY_VECTOR_BASE) * KiUnexpectedEntrySize);
+
+            DispatchInfo->InterruptDispatch = KiInterruptDispatch;
+            DispatchInfo->FloatingDispatch = KiFloatingDispatch;
+            DispatchInfo->ChainedDispatch = KiChainedDispatch;
+            DispatchInfo->FlatDispatch = NULL;
+
+            CurrentDispatch = (ULONG) KiReturnHandlerAddressFromIDT(Vector);
+            DispatchInfo->Interrupt = CONTAINING_RECORD (
+                                        CurrentDispatch,
+                                        KINTERRUPT,
+                                        DispatchCode
+                                        );
+            break;
+
+        case 1:
+            //
+            // Secondardy dispatch.
+            //
+
+            DispatchInfo->InterruptDispatch = KiInterruptDispatch2ndLvl;
+            DispatchInfo->FloatingDispatch = KiInterruptDispatch2ndLvl;
+            DispatchInfo->ChainedDispatch = KiChainedDispatch2ndLvl;
+
+            CurrentDispatch = (ULONG) *DispatchInfo->FlatDispatch;
+            DispatchInfo->Interrupt = (PKINTERRUPT) ( (PUCHAR) CurrentDispatch -
+                                            (PUCHAR) KiInterruptTemplate +
+                                            (PUCHAR) &KiInterruptTemplate2ndDispatch
+                                            );
+            break;
+
+        default:
+            // Other values reserved
+            KeBugCheck (MISMATCHED_HAL);
+    }
+
+
+    //
+    // Determine dispatch type
+    //
+
+    if (((PKINTERRUPT_ROUTINE) CurrentDispatch) == DispatchInfo->NoDispatch) {
+
+        //
+        // Is connected to the NoDispatch function
+        //
+
+        DispatchInfo->Type = NoConnect;
+
+    } else {
+        Dispatch = DispatchInfo->Interrupt->DispatchAddress;
+
+        if (Dispatch == DispatchInfo->ChainedDispatch) {
+            //
+            // Is connected to the chained handler
+            //
+
+            DispatchInfo->Type = ChainConnect;
+
+        } else if (Dispatch == DispatchInfo->InterruptDispatch ||
+                   Dispatch == DispatchInfo->FloatingDispatch) {
+            //
+            // If connection to the non-chained handler
+            //
+
+            DispatchInfo->Type = NormalConnect;
+
+        } else {
+
+            //
+            // Unkown connection
+            //
+
+            DispatchInfo->Type = UnkownConnect;
+#if DBG
+            DbgPrint ("KiGetVectorInfo not understood\n");
+#endif
+        }
+    }
+}
+
+VOID
+KiConnectVectorAndInterruptObject (
+    IN PKINTERRUPT Interrupt,
+    IN CONNECT_TYPE Type
+    )
+{
+    PKINTERRUPT_ROUTINE DispatchAddress;
+    DISPATCH_INFO DispatchInfo;
+    PULONG pl;
+
+    //
+    // Get current connect info
+    //
+
+    KiGetVectorInfo (
+        Interrupt->Vector,
+        &DispatchInfo
+        );
+
+    //
+    // If disconnecting, set vector to NoDispatch
+    //
+
+    if (Type == NoConnect) {
+
+        DispatchAddress = DispatchInfo.NoDispatch;
+
+    } else {
+
+        //
+        // Set interrupt objects dispatch for new type
+        //
+
+        DispatchAddress = DispatchInfo.ChainedDispatch;
+
+        if (Type == NormalConnect) {
+            DispatchAddress = DispatchInfo.InterruptDispatch;
+            if (Interrupt->FloatingSave) {
+                DispatchAddress = DispatchInfo.FloatingDispatch;
+            }
+        }
+
+        Interrupt->DispatchAddress = DispatchAddress;
+
+        //
+        // Set interrupt objects dispatch code to kernel dispatcher
+        //
+
+        pl = &(Interrupt->DispatchCode[0]);
+        pl = (PULONG)((PUCHAR)pl +
+                    ((PUCHAR)&KiInterruptTemplateDispatch -
+                     (PUCHAR)KiInterruptTemplate));
+
+        *pl = (ULONG)DispatchAddress-(ULONG)((PUCHAR)pl+4);
+
+        //
+        // Set dispatch vector to proper address dispatch code location
+        //
+
+        if (DispatchInfo.FlatDispatch) {
+
+            //
+            // Connect to flat dispatch
+            //
+
+            DispatchAddress = (PKINTERRUPT_ROUTINE)
+                    ((PUCHAR) &(Interrupt->DispatchCode[0]) +
+                     ((PUCHAR) &KiInterruptTemplate2ndDispatch -
+                      (PUCHAR) KiInterruptTemplate));
+
+        } else {
+
+            //
+            // Connect to enter_all dispatch
+            //
+
+            DispatchAddress = (PKINTERRUPT_ROUTINE) &Interrupt->DispatchCode;
+        }
+    }
+
+
+    if (DispatchInfo.FlatDispatch) {
+
+        //
+        // Connect to flat dispatch
+        //
+
+        *DispatchInfo.FlatDispatch = DispatchAddress;
+
+    } else {
+
+        //
+        // Connect to IDT
+        //
+
+        KiSetHandlerAddressToIDT (Interrupt->Vector, DispatchAddress);
+    }
+}

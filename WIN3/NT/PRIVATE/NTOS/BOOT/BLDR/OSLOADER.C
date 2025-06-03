@@ -26,6 +26,7 @@ Revision History:
 #include "msg.h"
 
 
+BOOLEAN BlRebootSystem = FALSE;
 
 //
 // Define transfer entry of loaded image.
@@ -189,7 +190,6 @@ Return Value:
     PIMAGE_NT_HEADERS NtHeaders;
     PWSTR BootFileSystem;
     PCHAR LastKnownGood;
-    BOOLEAN UseLastKnownGood=FALSE;
     BOOLEAN BreakInKey;
     CHAR BadFileName[128];
     PBOOTFS_INFO FsInfo;
@@ -228,7 +228,7 @@ Return Value:
     // Announce OS Loader.
     //
 
-    strcpy(&OutputBuffer[0], "OS Loader V3.5\r\n");
+    strcpy(&OutputBuffer[0], "OS Loader V4.00\r\n");
     ArcWrite(BlConsoleOutDeviceId,
              &OutputBuffer[0],
              strlen(&OutputBuffer[0]),
@@ -414,16 +414,27 @@ Return Value:
         goto LoadFailed;
     }
 
-    if (BreakInKey = BlCheckBreakInKey()) {
-        if (!BlLastKnownGoodPrompt(&UseLastKnownGood)) {
+    //
+    // Initialize the debugging system.
+    //
 
-            //
-            // User has selected to return to firmware/flexboot
-            //
-            Status = ESUCCESS;
-            goto LoadFailed;
-        }
+    BlLogInitialize(SystemDeviceId);
+
+    //
+    // Display the Configuration prompt for breakin key at this
+    // point. No key presses are checked for at this point, but
+    // this gives the user a little more reaction time.
+    //
+    BlStartConfigPrompt();
+
+#if defined(_PPC_)
+
+    Status = BlPpcInitialize();
+    if (Status != ESUCCESS) {
+        goto LoadFailed;
     }
+
+#endif // defined(_PPC_)
 
     //
     // Get the path name of the system root directory.
@@ -650,28 +661,6 @@ Return Value:
     strcat(&DriverDirectoryPath[0], "\\Drivers\\");
 
     //
-    // Read the "LastKnownGood" environment variable to determine whether
-    // we should boot the Default control set or the LastKnownGood control
-    // set
-    //
-    // Note that the break-in key could have already set LastKnownGood to
-    // TRUE, in which case the environment variable is overridden.
-    //
-
-    if (UseLastKnownGood != TRUE) {
-        LastKnownGood = ArcGetEnvironmentVariable("LastKnownGood");
-        if (LastKnownGood == NULL) {
-            UseLastKnownGood = FALSE;
-        } else {
-            if (stricmp(LastKnownGood, "TRUE") == 0) {
-                UseLastKnownGood = TRUE;
-            } else {
-                UseLastKnownGood = FALSE;
-            }
-        }
-    }
-
-    //
     // Allocate structure for NLS data.  This will be loaded and filled
     // in by BlLoadAndScanSystemHive.
     //
@@ -695,31 +684,16 @@ Return Value:
                                      LoadDevice,
                                      LoadFileName,
                                      BootFileSystem,
-                                     UseLastKnownGood,
                                      BadFileName);
 
-    // warning message ?
-
     if (Status != ESUCCESS) {
-        BlBadFileMessage(BadFileName);
+        if (BlRebootSystem) {
+            Status = ESUCCESS;
+        } else {
+            BlBadFileMessage(BadFileName);
+        }
         goto LoadFailed;
     }
-
-    //
-    // Load the NT driver for the console output device.
-    //
-
-    //
-    // Generate a loader data entry for the console output driver.
-    //
-
-    //
-    // Load the NT driver for the console input device.
-    //
-
-    //
-    // Generate a loader data entry for the console input device.
-    //
 
     //
     // Generate the ARC boot device name and NT path name.
@@ -748,6 +722,18 @@ Return Value:
     // Generate the ARC HAL device name and NT path name.
     //
 
+#ifdef i386
+
+    //
+    // On X86, the systempartition variable lies, and instead points to the location
+    // of the hal.  We pass in another variable, 'X86SystemPartition', that tell us
+    // the real system partition.
+    //
+
+    strcpy(&DeviceName[0], BlGetArgumentValue(Argc, Argv, "x86systempartition"));
+
+#else
+
     Status = BlGenerateDeviceNames(SystemDevice, &DeviceName[0], &DevicePrefix[0]);
     if (Status != ESUCCESS) {
         BlFatalError(LOAD_HW_FW_CFG_CLASS,
@@ -756,14 +742,33 @@ Return Value:
         goto LoadFailed;
     }
 
+#endif //i386
+
     FileSize = strlen(&DeviceName[0]) + 1;
     FileName = (PCHAR)BlAllocateHeap(FileSize);
     strcpy(FileName, &DeviceName[0]);
     BlLoaderBlock->ArcHalDeviceName = FileName;
 
+#ifdef i386
+
+    //
+    // On X86, this structure is unfortunately named.  What we really need here is the
+    // osloader path.  What we actually have is a path to the HAL.  Since this path is
+    // always at the root of the partition, hardcode it here.
+    //
+
+    FileName = (PCHAR)BlAllocateHeap(2);
+    FileName[0] = '\\';
+    FileName[1] = '\0';
+
+#else
+
     FileSize = strlen(&HalDirectoryPath[0]) + 1;
     FileName = (PCHAR)BlAllocateHeap(FileSize);
     strcpy(FileName, &HalDirectoryPath[0]);
+
+#endif //i386
+
     BlLoaderBlock->NtHalPathName = FileName;
 
     //
@@ -784,6 +789,12 @@ Return Value:
 
         goto LoadFailed;
     }
+
+    //
+    // Turn off the debugging system.
+    //
+
+    BlLogTerminate();
 
     //
     // Transfer control to loaded image.
@@ -848,6 +859,8 @@ Return Value:
         strcpy(&OutputBuffer[0],".");
     }
 
+    BlLog((LOG_LOGFILE,OutputBuffer));
+
     ArcWrite(BlConsoleOutDeviceId,
               &OutputBuffer[0],
               strlen(&OutputBuffer[0]),
@@ -863,7 +876,6 @@ BlLoadAndScanSystemHive(
     IN PCHAR DeviceName,
     IN PCHAR DirectoryPath,
     IN PWSTR BootFileSystem,
-    IN BOOLEAN UseLastKnownGood,
     OUT PCHAR BadFileName
     )
 
@@ -890,9 +902,6 @@ Arguments:
 
     HiveName - Supplies the name of the SYSTEM hive
 
-    LastKnownGood - Supplies whether or not the LastKnownGood control set
-        should be used.
-
     BadFileName - Returns the file required for booting that was corrupt
         or missing.  This will not be filled in if ESUCCESS is returned.
 
@@ -914,6 +923,7 @@ Return Value:
     UNICODE_STRING OemCodepage;
     UNICODE_STRING OemHalFont;
     UNICODE_STRING LanguageTable;
+    BOOLEAN RestartSetup;
 
     strcpy(Directory,DirectoryPath);
     strcat(Directory,"\\system32\\config\\");
@@ -921,8 +931,10 @@ Return Value:
                                      DeviceName,
                                      Directory,
                                      "system",
-                                     FALSE);
-    if (Status != ESUCCESS) {
+                                     FALSE,
+                                     &RestartSetup);
+
+    if(Status != ESUCCESS) {
         //
         // bogus hive, try system.alt
         //
@@ -930,10 +942,28 @@ Return Value:
                                          DeviceName,
                                          Directory,
                                          "system.alt",
-                                         TRUE);
-        if (Status != ESUCCESS) {
+                                         TRUE,
+                                         &RestartSetup);
+        if(Status != ESUCCESS) {
             strcpy(BadFileName,DirectoryPath);
             strcat(BadFileName,"\\SYSTEM32\\CONFIG\\SYSTEM");
+            goto HiveScanFailed;
+        }
+    }
+
+    if(RestartSetup) {
+        //
+        // Need to restart setup
+        //
+        Status = BlLoadAndInitSystemHive(DeviceId,
+                                         DeviceName,
+                                         Directory,
+                                         "system.sav",
+                                         TRUE,
+                                         &RestartSetup);
+        if(Status != ESUCCESS) {
+            strcpy(BadFileName,DirectoryPath);
+            strcat(BadFileName,"\\SYSTEM32\\CONFIG\\SYSTEM.SAV");
             goto HiveScanFailed;
         }
     }
@@ -943,8 +973,7 @@ Return Value:
     // filenames.  Note that if this fails, there is no point in switching
     // to system.alt, since it will always be the same as system.
     //
-    FailReason = BlScanRegistry(UseLastKnownGood,
-                                BootFileSystem,
+    FailReason = BlScanRegistry(BootFileSystem,
                                 &BlLoaderBlock->BootDriverListHead,
                                 &AnsiCodepage,
                                 &OemCodepage,
@@ -986,10 +1015,11 @@ Return Value:
 #endif
 
     //
-    // Fonts are in the SYSTEM directory, not SYSTEM32.
+    // On newer systems fonts are in the FONTS directory.
+    // On older systems fonts are in the SYSTEM directory.
     //
     strcpy(FontDirectory, DirectoryPath);
-    strcat(FontDirectory, "\\system\\");
+    strcat(FontDirectory, "\\FONTS\\");
 
     Status = BlLoadOemHalFont(DeviceId,
                            DeviceName,
@@ -997,13 +1027,26 @@ Return Value:
                            &OemHalFont,
                            BadFileName);
 
+    if(Status != ESUCCESS) {
+        strcpy(FontDirectory, DirectoryPath);
+        strcat(FontDirectory, "\\SYSTEM\\");
+
+        Status = BlLoadOemHalFont(DeviceId,
+                               DeviceName,
+                               FontDirectory,
+                               &OemHalFont,
+                               BadFileName);
+    }
+
     if (Status != ESUCCESS) {
 #ifndef i386
         goto HiveScanFailed;
 #endif
 
     }
+#ifdef i386
 oktoskipfont:
+#endif
     //
     // Load boot drivers
     //
@@ -1067,7 +1110,7 @@ Return Value:
     strcpy(DiskName, Name);
     p=DiskName;
     while (*p != '\0') {
-        if (strnicmp(p, "partition(",10) == 0) {
+        if (_strnicmp(p, "partition(",10) == 0) {
             break;
         }
         ++p;
@@ -1084,7 +1127,7 @@ Return Value:
     //
     // Read the first sector of the physical drive
     //
-    SeekValue = RtlConvertUlongToLargeInteger(0);
+    SeekValue.QuadPart = 0;
     Status = ArcSeek(DiskId, &SeekValue, SeekAbsolute);
     if (Status==ESUCCESS) {
         Status = ArcRead(DiskId,
@@ -1167,6 +1210,11 @@ Return Value:
 
 
 VOID
+BlClearToEndOfScreen(
+    VOID
+    );
+
+VOID
 BlFatalError(
     IN ULONG ClassMessage,
     IN ULONG DetailMessage,
@@ -1213,6 +1261,12 @@ Return Value:
              strlen("\r\n"),
              &Count);
 
+
+    //
+    // Remove any remains from the last known good message
+    //
+    BlClearToEndOfScreen();
+
     Text = BlFindMessage(ClassMessage);
     if (Text == NULL) {
         sprintf(Buffer,"%08lx\r\n",ClassMessage);
@@ -1244,5 +1298,3 @@ Return Value:
              &Count);
 
 }
-
-

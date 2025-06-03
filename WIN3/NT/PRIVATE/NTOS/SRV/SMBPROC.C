@@ -140,7 +140,7 @@ Return Value:
 } // SrvEndSmbProcessing
 
 
-VOID
+VOID SRVFASTCALL
 SrvProcessSmb (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -209,7 +209,15 @@ Return Value:
 
         commandIndex = SrvSmbIndexTable[WorkContext->NextCommand];
 
-        smbStatus = (*SrvSmbDispatchTable[commandIndex])( WorkContext );
+        IF_SMB_DEBUG( TRACE ) {
+            KdPrint(( "%s @%X, Blocking %d, Count %d\n",
+                    SrvSmbDispatchTable[ commandIndex ].Name,
+                    WorkContext,
+                    WorkContext->UsingBlockingThread,
+                    WorkContext->ProcessingCount ));
+        }
+
+        smbStatus = SrvSmbDispatchTable[commandIndex].Func( WorkContext );
 
         //
         // If the SMB processor returned SmbStatusInProgress, it started
@@ -263,7 +271,7 @@ Return Value:
 } // SrvProcessSmb
 
 
-VOID
+VOID SRVFASTCALL
 SrvRestartFsdComplete (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -313,7 +321,7 @@ Return Value:
 } // SrvRestartFsdComplete
 
 
-VOID
+VOID SRVFASTCALL
 SrvRestartReceive (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -357,7 +365,7 @@ Return Value:
 
     length = irp->IoStatus.Information;
     WorkContext->RequestBuffer->DataLength = length;
-    SrvStatisticsShadow.BytesReceived += length;
+    WorkContext->CurrentWorkQueue->stats.BytesReceived += length;
 
     //
     // Store in the work context block the time at which processing
@@ -482,7 +490,7 @@ Return Value:
 } // SrvRestartReceive
 
 
-VOID
+VOID SRVFASTCALL
 SrvRestartSmbReceived (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -538,7 +546,7 @@ Return Value:
 
 } // SrvRestartSmbReceived
 
-SMB_PROCESSOR_RETURN_TYPE
+SMB_PROCESSOR_RETURN_TYPE SRVFASTCALL
 SrvSmbIllegalCommand (
     SMB_PROCESSOR_PARAMETERS
     )

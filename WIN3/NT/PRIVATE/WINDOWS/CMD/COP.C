@@ -1,15 +1,4 @@
 #include "cmd.h"
-#include "cmdproto.h"
-
-/* The following are definitions of the debugging group and level bits
- * for the code in this file.
- */
-
-#define OPGRP	0x0008	/* Operators group	    */
-#define PILVL	0x0001	/* Pipe level		    */
-#define DELVL	0x0002	/* Detach level 	    */
-#define OTLVL	0x0004	/* Other operators level    */
-
 
 extern int LastRetCode;
 
@@ -21,42 +10,6 @@ unsigned PipeCnt ;		/* M007 - Active pipe count		   */
 struct pipedata *PdHead = NULL; /* M007 - 1st element of pipedata list	   */
 struct pipedata *PdTail = NULL; /* M007 - Last element of pipedata list    */
 unsigned PipePid ;		/* M007 - Communication with ECWork	   */
-
-
-
-/***	eDetach - detach a command
- *
- *  Purpose: Start a program running in background.
- *
- *  int eDetach(struct detnode *n)
- *
- *  Args:
- *	n - the parsetree node containing the detach command
- *
- *  Returns:
- *	SUCCESS if the program was succesfully detached.
- *	FAILURE otherwise.
- *
- *  Notes:
- *	This function will have to be generalized to handle internal commands
- *	and operators when forking has been added to the DOS.
- *
- *	M000 - This function has been almost completely revised to let
- *	Dispatch() handle execution of the detached command and redirection
- *	of input from \DEV\NUL if necessary.  See file CMD.C for additional
- *	information.
- */
-
-int eDetach(n)
-struct detnode *n ;
-{
-        DEBUG((OPGRP,DELVL,"DET:Cmdline = %ws",n->cmdline)) ;
-        UNREFERENCED_PARAMETER( n );
-        PutStdErr(MSG_DIR_BAD_COMMAND_OR_FILE, NOARGS);
-        return(1);
-	// return(LastRetCode = Dispatch(RIO_DETACH,n->body)) ;
-}
-
 
 
 
@@ -673,9 +626,9 @@ struct node *n ;
 {
 #ifndef NODEB
 	if (n->type == PARTYP)
-		DEBUG((OPGRP,OTLVL,"ePAREN: Operator is Paren")) ;
+                DEBUG((OPGRP,PNLVL,"ePAREN: Operator is Paren")) ;
 	else if (n->type == SILTYP)
-		DEBUG((OPGRP,OTLVL,"ePAREN: Operator is Silent")) ;
+                DEBUG((OPGRP,PNLVL,"ePAREN: Operator is Silent")) ;
 #endif
 
 	return(Dispatch(RIO_OTHER,n->lhs)) ;

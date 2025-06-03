@@ -22,6 +22,7 @@
 *
 *****************************************************************************/
 #define FCT_ID 0x15A08
+#define MULTI_CONTROLLER 1
 #include "include\public\adi_api.h"
 #include "include\public\frb_api.h"
 #include "q117kdi\include\kdiwhio.h"
@@ -126,10 +127,10 @@ NTSTATUS kdi_GetConfigurationInformation
                      dNULL_PTR,
                      &Dc,
                      dNULL_PTR,
-#ifdef KEG
-                     &Fp,
+#if MULTI_CONTROLLER
+                     dNULL_PTR,			// Don't ask for a floppy disk drive
 #else
-                     dNULL_PTR,
+                     &Fp,
 #endif
                      dNULL_PTR,
                      kdi_ConfigCallBack,

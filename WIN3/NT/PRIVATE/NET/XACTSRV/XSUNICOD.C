@@ -90,13 +90,12 @@ Return Value:
 
     LPSTR dest = NULL;
 
-    if (( dest = NetpMemoryAllocate( wcslen( Src ) + 1 )) == NULL ) {
-
+    if (( dest = NetpMemoryAllocate( NetpUnicodeToDBCSLen( Src ) + 1 )) == NULL ) {
         return NULL;
 
     }
 
-    NetpCopyWStrToStr( dest, Src );
+    NetpCopyWStrToStrDBCS( dest, Src );
     return dest;
 
 } // XsDupWStrToStr
@@ -194,10 +193,10 @@ Return Value:
 
     if ( !NT_SUCCESS( ntStatus ) ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( PREFIX_XACTSRV
+            NetpKdPrint(( PREFIX_XACTSRV
                 "XsCopyTBufToBuf: unexpected return code from "
                 "RtlUnicodeToOemN: " FORMAT_NTSTATUS ".\n",
-                ntStatus );
+                ntStatus ));
         }
     }
 
@@ -257,10 +256,10 @@ Return Value:
 
     if ( !NT_SUCCESS( ntStatus ) ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( PREFIX_XACTSRV
+            NetpKdPrint(( PREFIX_XACTSRV
                 "XsCopyBufToTBuf: unexpected return code from "
                 "RtlOemToUnicodeN: " FORMAT_NTSTATUS ".\n",
-                ntStatus );
+                ntStatus ));
         }
     }
 

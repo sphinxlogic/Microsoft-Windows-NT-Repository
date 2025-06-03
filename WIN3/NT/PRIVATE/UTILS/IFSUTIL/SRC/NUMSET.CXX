@@ -1,19 +1,21 @@
 #include <pch.cxx>
 
 #define _NTAPI_ULIB_
+#define _IFSUTIL_MEMBER_
 
 #include "ulib.hxx"
+#include "ifsutil.hxx"
+
 #include "numset.hxx"
 #include "iterator.hxx"
 
-
-DEFINE_CONSTRUCTOR( NUMBER_SET, OBJECT );
+DEFINE_EXPORTED_CONSTRUCTOR( NUMBER_SET, OBJECT, IFSUTIL_EXPORT );
 
 DEFINE_CONSTRUCTOR( NUMBER_EXTENT, OBJECT );
 
 VOID
 NUMBER_SET::Construct (
- 	)
+        )
 /*++
 
 Routine Description:
@@ -60,6 +62,7 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 NUMBER_SET::~NUMBER_SET(
     )
 /*++
@@ -82,6 +85,7 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 NUMBER_SET::Initialize(
     )
@@ -114,6 +118,7 @@ Return Value:
     return TRUE;
 }
 
+IFSUTIL_EXPORT
 BOOLEAN
 NUMBER_SET::Add(
     IN  BIG_INT Number
@@ -139,7 +144,7 @@ Return Value:
     PNUMBER_EXTENT  new_extent;
     BIG_INT         next;
 
-    DbgAssert(_iterator);
+    DebugAssert(_iterator);
 
     _iterator->Reset();
     while (p = (PNUMBER_EXTENT) _iterator->GetPrevious()) {
@@ -203,7 +208,229 @@ Return Value:
     return TRUE;
 }
 
+IFSUTIL_EXPORT
+BOOLEAN
+NUMBER_SET::AddStart(
+    IN  BIG_INT Number
+    )
+/*++
 
+Routine Description:
+
+    This routine adds 'Number' to the set.  Call this routine once before calling 
+    AddNext.
+
+    NOTE: Do not insert other calls of this class in between AddStart and AddNext.
+
+Arguments:
+
+    Number    - Supplies the number to add to the set.
+
+Return Value:
+
+    FALSE   - Failure.
+    TRUE    - Success.
+
+--*/
+{
+    PNUMBER_EXTENT  p, pn;
+    PNUMBER_EXTENT  new_extent;
+    BIG_INT         next;
+
+    DebugAssert(_iterator);
+
+    _iterator->Reset();
+    p = (PNUMBER_EXTENT) _iterator->GetPrevious();
+
+    while (p != NULL) {
+        if (p->Start <= Number) {
+            next = p->Start + p->Length;
+
+            // if within range, then done
+            if (Number < next)
+                return TRUE;
+
+            // if passed the range by 1, try to expand the range to include it
+            if (Number == next) {
+                p->Length += 1;
+                _card += 1;
+                // see if the next range can be merged with the expanded range
+                if (pn = (PNUMBER_EXTENT) _iterator->GetNext()) {
+                   if (pn->Start == Number + 1) {
+                       p->Length += pn->Length;
+                       pn = (PNUMBER_EXTENT) _list.Remove(_iterator);
+                       DELETE(pn);
+                   }
+                }
+                p = (PNUMBER_EXTENT)_iterator->GetPrevious();
+                return TRUE;
+            }
+
+            // if less than the next range by 1, try to expand the range to
+            // include it.  There won't be a merge as there must be more than
+            // one hole in between the two ranges
+            if (p = (PNUMBER_EXTENT) _iterator->GetNext()) {
+                if (p->Start <= Number)
+                    continue;
+                if ((Number+1) == p->Start) {
+                    p->Start = Number;
+                    p->Length += 1;
+                    _card += 1;
+                    return TRUE;
+                }
+            }
+            break;
+        } else {
+            // search backwards
+            p = (PNUMBER_EXTENT) _iterator->GetPrevious();
+            if (p == NULL) {
+                p = (PNUMBER_EXTENT) _iterator->GetNext();
+                DebugAssert(p);
+                if (p && ((Number+1) == p->Start)) {
+                    p->Start = Number;
+                    p->Length += 1;
+                    _card += 1;
+                    return TRUE;
+                }
+                break;
+            }
+        }
+    }
+
+    if (!(new_extent = NEW NUMBER_EXTENT)) {
+        return FALSE;
+    }
+
+    new_extent->Start = Number;
+    new_extent->Length = 1;
+
+    if (!_list.Insert(new_extent, _iterator)) {
+        DELETE(new_extent);
+        return FALSE;
+    }
+
+    _card += 1;
+
+    p = (PNUMBER_EXTENT) _iterator->GetPrevious();
+
+    return TRUE;
+}
+
+
+IFSUTIL_EXPORT
+BOOLEAN
+NUMBER_SET::AddNext(
+    IN  BIG_INT Number
+    )
+/*++
+
+Routine Description:
+
+    This routine adds 'Number' to the set.  Call this routine after calling
+    AddStart once.  This routine differs from Add ni the sense that it searches
+    through each of the subset from where it last added instead of starting
+    backwards like Add does.
+
+    NOTE: Do not insert any other call of this class in between two AddNext calls.
+
+Arguments:
+
+    Number    - Supplies the number to add to the set.
+
+Return Value:
+
+    FALSE   - Failure.
+    TRUE    - Success.
+
+--*/
+{
+    PNUMBER_EXTENT  p, pn;
+    PNUMBER_EXTENT  new_extent;
+    BIG_INT         next;
+
+    DebugAssert(_iterator);
+
+    if (!(p = (PNUMBER_EXTENT) _iterator->GetCurrent())) {
+        _iterator->Reset();
+        p = (PNUMBER_EXTENT) _iterator->GetPrevious();
+    }
+
+    while (p != NULL) {
+        if (p->Start <= Number) {
+            next = p->Start + p->Length;
+
+            // if within range, then done
+            if (Number < next)
+                return TRUE;
+
+            // if passed the range by 1, try to expand the range to include it
+            if (Number == next) {
+                p->Length += 1;
+                _card += 1;
+                // see if the next range can be merged with the expanded range
+                if (pn = (PNUMBER_EXTENT) _iterator->GetNext()) {
+                   if (pn->Start == Number + 1) {
+                       p->Length += pn->Length;
+                       pn = (PNUMBER_EXTENT) _list.Remove(_iterator);
+                       DELETE(pn);
+                   }
+                }
+                p = (PNUMBER_EXTENT)_iterator->GetPrevious();
+                return TRUE;
+            }
+
+            // if less than the next range by 1, try to expand the range to
+            // include it.  There won't be a merge as there must be more than
+            // one hole in between the two ranges
+            if (p = (PNUMBER_EXTENT) _iterator->GetNext()) {
+                if (p->Start <= Number)
+                    continue;
+                if ((Number+1) == p->Start) {
+                    p->Start = Number;
+                    p->Length += 1;
+                    _card += 1;
+                    return TRUE;
+                }
+            }
+            break;
+        } else {
+            // search backwards
+            p = (PNUMBER_EXTENT) _iterator->GetPrevious();
+            if (p == NULL) {
+                p = (PNUMBER_EXTENT) _iterator->GetNext();
+                DebugAssert(p);
+                if (p && ((Number+1) == p->Start)) {
+                    p->Start = Number;
+                    p->Length += 1;
+                    _card += 1;
+                    return TRUE;
+                }
+                break;
+            }
+        }
+    }
+
+    if (!(new_extent = NEW NUMBER_EXTENT)) {
+        return FALSE;
+    }
+
+    new_extent->Start = Number;
+    new_extent->Length = 1;
+
+    if (!_list.Insert(new_extent, _iterator)) {
+        DELETE(new_extent);
+        return FALSE;
+    }
+
+    _card += 1;
+
+    p = (PNUMBER_EXTENT) _iterator->GetPrevious();
+
+    return TRUE;
+}
+
+
+IFSUTIL_EXPORT
 BOOLEAN
 NUMBER_SET::Add(
     IN  BIG_INT Start,
@@ -241,6 +468,7 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 NUMBER_SET::Add(
     IN  PCNUMBER_SET    NumberSet
@@ -267,6 +495,7 @@ Return Value:
     BIG_INT s, l;
 
     n = NumberSet->QueryNumDisjointRanges();
+
     for (i = 0; i < n; i++) {
 
         NumberSet->QueryDisjointRange(i, &s, &l);
@@ -279,10 +508,105 @@ Return Value:
     return TRUE;
 }
 
+IFSUTIL_EXPORT
+BOOLEAN
+NUMBER_SET::CheckAndAdd(
+    IN  BIG_INT   Number,
+    OUT PBOOLEAN  Duplicate
+    )
+/*++
 
+Routine Description:
+
+    This routine adds 'Number' to the set.
+
+Arguments:
+
+    Number  - Supplies the number to add to the set.
+
+Return Value:
+
+    FALSE   - Failure.
+    TRUE    - Success.
+
+--*/
+{
+    PNUMBER_EXTENT  p, pn;
+    PNUMBER_EXTENT  new_extent;
+    BIG_INT         next;
+
+    DebugAssert(_iterator);
+    DebugAssert(Duplicate);
+
+    *Duplicate = FALSE;
+
+    _iterator->Reset();
+    while (p = (PNUMBER_EXTENT) _iterator->GetPrevious()) {
+        if (p->Start <= Number) {
+            break;
+        }
+    }
+
+    if (p) {
+
+        next = p->Start + p->Length;
+
+        if (Number < next) {
+            *Duplicate = TRUE;
+            return TRUE;
+        }
+
+        if (Number == next) {
+
+            p->Length += 1;
+            _card += 1;
+
+            if (pn = (PNUMBER_EXTENT) _iterator->GetNext()) {
+
+                if (pn->Start == Number + 1) {
+
+                    p->Length += pn->Length;
+                    pn = (PNUMBER_EXTENT) _list.Remove(_iterator);
+                    DELETE(pn);
+                }
+            }
+
+            return TRUE;
+        }
+    }
+
+    if (p = (PNUMBER_EXTENT) _iterator->GetNext()) {
+
+        if (Number + 1 == p->Start) {
+
+            p->Start = Number;
+            p->Length += 1;
+            _card += 1;
+            return TRUE;
+        }
+    }
+
+    if (!(new_extent = NEW NUMBER_EXTENT)) {
+        return FALSE;
+    }
+
+    new_extent->Start = Number;
+    new_extent->Length = 1;
+
+    if (!_list.Insert(new_extent, _iterator)) {
+        DELETE(new_extent);
+        return FALSE;
+    }
+
+    _card += 1;
+
+    return TRUE;
+}
+
+IFSUTIL_EXPORT
 BOOLEAN
 NUMBER_SET::Remove(
-    IN  BIG_INT Number
+    IN  BIG_INT     Number
     )
 /*++
 
@@ -305,7 +629,7 @@ Routine Description:
     PNUMBER_EXTENT  new_extent;
     BIG_INT         next, new_length;
 
-    DbgAssert(_iterator);
+    DebugAssert(_iterator);
 
     _iterator->Reset();
     while (p = (PNUMBER_EXTENT) _iterator->GetNext()) {
@@ -364,7 +688,120 @@ Routine Description:
     return TRUE;
 }
 
+IFSUTIL_EXPORT
+BOOLEAN
+NUMBER_SET::RemoveAll(
+     )
+{
+    PNUMBER_EXTENT  p;
 
+    DebugAssert(_iterator);
+
+    _iterator->Reset();
+    if ((p = (PNUMBER_EXTENT) _iterator->GetNext())) 
+        do {
+            p = (PNUMBER_EXTENT) _list.Remove(_iterator);
+            DELETE(p);
+        } while ((p=(PNUMBER_EXTENT)_iterator->GetCurrent()));
+    _card = 0;
+    return TRUE;
+}
+
+IFSUTIL_EXPORT
+BOOLEAN
+NUMBER_SET::CheckAndRemove(
+    IN  BIG_INT     Number,
+     OUT PBOOLEAN   DoesExists
+    )
+/*++
+
+Routine Description:
+
+    This routine removes a number from the number set.
+
+Arguments:
+
+    Number      - Supplies the number to remove.
+     DoesExists - TRUE if Number was found in the set
+
+Routine Description:
+
+    FALSE   - Failure.
+    TRUE    - Success.
+
+--*/
+{
+    PNUMBER_EXTENT  p;
+    PNUMBER_EXTENT  new_extent;
+    BIG_INT         next, new_length;
+
+    DebugAssert(_iterator);
+    DebugAssert(DoesExists);
+
+    *DoesExists = FALSE;
+
+    _iterator->Reset();
+    while (p = (PNUMBER_EXTENT) _iterator->GetNext()) {
+        if (p->Start > Number) {
+            break;
+        }
+    }
+
+    if (p = (PNUMBER_EXTENT) _iterator->GetPrevious()) {
+
+        next = p->Start + p->Length;
+
+        if (p->Start == Number) {
+            p->Start += 1;
+            p->Length -= 1;
+            _card -= 1;
+            *DoesExists = TRUE;
+
+            if (p->Length == 0) {
+                p = (PNUMBER_EXTENT) _list.Remove(_iterator);
+                DELETE(p);
+            }
+
+            return TRUE;
+        }
+
+        if (Number + 1 == next) {
+            p->Length -= 1;
+            _card -= 1;
+            *DoesExists = TRUE;
+            return TRUE;
+        }
+
+        if (Number < next) {
+
+            if (!(new_extent = NEW NUMBER_EXTENT)) {
+                return FALSE;
+            }
+
+            _iterator->GetNext();
+
+            if (!_list.Insert(new_extent, _iterator)) {
+                DELETE(new_extent);
+                return FALSE;
+            }
+
+            new_length = Number - p->Start;
+
+            new_extent->Start = Number + 1;
+            new_extent->Length = p->Length - 1 - new_length;
+
+            p->Length = new_length;
+
+            _card -= 1;
+            *DoesExists = TRUE;
+        }
+    }
+
+    return TRUE;
+}
+
+
+IFSUTIL_EXPORT
 BOOLEAN
 NUMBER_SET::Remove(
     IN  BIG_INT Start,
@@ -402,6 +839,7 @@ Routine Description:
 }
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 NUMBER_SET::Remove(
     IN  PCNUMBER_SET    NumberSet
@@ -441,6 +879,7 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 BIG_INT
 NUMBER_SET::QueryNumber(
     IN  BIG_INT Index
@@ -465,7 +904,7 @@ Return Value:
     BIG_INT         r;
     BIG_INT         count;
 
-    DbgAssert(Index < _card);
+    DebugAssert(Index < _card);
 
     _iterator->Reset();
     count = 0;
@@ -478,12 +917,13 @@ Return Value:
         }
     }
 
-    DbgAssert(p);
+    DebugAssert(p);
 
     return p->Start + Index - (count - p->Length);
 }
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 NUMBER_SET::DoesIntersectSet(
     IN  BIG_INT Start,
@@ -513,7 +953,7 @@ Return Value:
     PNUMBER_EXTENT  p;
     BIG_INT         pnext, next;
 
-    DbgAssert(_iterator);
+    DebugAssert(_iterator);
 
     if (Length == 0) {
         return FALSE;
@@ -543,6 +983,7 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 VOID
 NUMBER_SET::QueryDisjointRange(
     IN  ULONG       Index,
@@ -571,22 +1012,23 @@ Return Value:
     ULONG           i;
     PNUMBER_EXTENT  p;
 
-    DbgAssert(_iterator);
+    DebugAssert(_iterator);
 
     _iterator->Reset();
     for (i = 0; i <= Index; i++) {
         p = (PNUMBER_EXTENT) _iterator->GetNext();
     }
 
-    DbgAssert(p);
-    DbgAssert(Start);
-    DbgAssert(Length);
+    DebugAssert(p);
+    DebugAssert(Start);
+    DebugAssert(Length);
 
     *Start = p->Start;
     *Length = p->Length;
 }
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 NUMBER_SET::QueryContainingRange(
     IN  BIG_INT     Number,
@@ -614,7 +1056,7 @@ Return Value:
 {
     PNUMBER_EXTENT  p;
 
-    DbgAssert(_iterator);
+    DebugAssert(_iterator);
 
     _iterator->Reset();
     while (p = (PNUMBER_EXTENT) _iterator->GetPrevious()) {

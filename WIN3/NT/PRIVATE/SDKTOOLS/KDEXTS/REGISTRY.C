@@ -26,6 +26,9 @@ Revision History:
 --*/
 
 
+#include "precomp.h"
+#pragma hdrstop
+
 HIVE_LIST_ENTRY HiveList[8];
 
 ULONG TotalPages;
@@ -535,7 +538,7 @@ Return Value:
 
     dprintf("%d - ",kcb.RefCount);
 
-    Buffer = malloc(kcb.FullName.Length);
+    Buffer = LocalAlloc(LPTR, kcb.FullName.Length);
     if (Buffer != NULL) {
         ReadMemory((DWORD)kcb.FullName.Buffer,
                     Buffer,
@@ -546,7 +549,7 @@ Return Value:
         kcb.FullName.Buffer = Buffer;
 
         dprintf(" %wZ\n",&kcb.FullName);
-        free(Buffer);
+        LocalFree(Buffer);
 
     } else {
         dprintf(" ??? \n");

@@ -1,23 +1,13 @@
 /* scomp - print diffs for the given files */
 
-#include "slm.h"
-#include "sys.h"
-#include "util.h"
-#include "log.h"
-#include "stfile.h"
-#include "ad.h"
-#include "da.h"
-#include <sys/types.h>
-#include <sys/stat.h>
-#include "slmproto.h"
-#include "proto.h"
+#include "precomp.h"
+#pragma hdrstop
 #include "messages.h"
+EnableAssert
 
 private F FDiffMarked(P1(AD *));
 private void CopyLDiff(P4(AD *, LE *, F, F));
 private F FDiffExists(P1(PTH *));
-
-EnableAssert
 
 F
 FScompInit(
@@ -85,6 +75,9 @@ FDiffMarked(
     register FS far *pfs;
     FI far *pfiMac;
     PTH pthDiff[cchPthMax];
+    char szCurDir[cchPthMax];
+    char *pszFilePart;
+    DWORD dwFileAttributes;
     FLAGS fDashB = pad->flags&(flagDifDashB|flagDifDashZ);
     F fCurSrc  = !!(pad->flags&flagDifCurSrc);
     F fBaseSrc = !!(pad->flags&flagDifBaseSrc);
@@ -92,6 +85,22 @@ FDiffMarked(
 
     AssertLoaded(pad);
     AssertF(pad->iedCur != iedNil);
+
+    szCurDir[0] = '\0';
+    SzPhysPath(szCurDir, PthForUDir(pad, szCurDir));
+    ConvTmpLog(szCurDir, szCurDir); /* convert in place */
+    if ((pszFilePart = strchr(szCurDir, '\0')) != NULL &&
+        pszFilePart > szCurDir &&
+        pszFilePart[ -1 ] != '\\'
+       )
+    {
+        *pszFilePart++ = '\\';
+        *pszFilePart = '\0';
+    }
+    else
+    {
+        pszFilePart = NULL;
+    }
 
     for (pfi=pad->rgfi, pfiMac=pfi+pad->psh->ifiMac; pfi < pfiMac; pfi++)
     {
@@ -114,8 +123,28 @@ FDiffMarked(
             case fmCopyIn:
             case fmIn:
                 fCache = fFalse;
+
+                dwFileAttributes = 0;
+                if (pszFilePart != NULL)
+                {
+                    SzPrint(pszFilePart, "%&F", pad, pfi);
+                    dwFileAttributes = GetFileAttributes(szCurDir);
+                }
+
                 Warn("%&C/F is not checked out%s\n", pad, pfi,
-                     (pfs->fm == fmCopyIn) ? " and is not the current version" : "");
+                     (pfs->fm == fmCopyIn) ? " and is not the current version" :
+                     (pad->pneFiles != 0 && (dwFileAttributes & FILE_ATTRIBUTE_READONLY)) ? " - assuming -1 specified" : "");
+
+                if (pad->pneFiles != 0 &&
+                    pfs->fm != fmCopyIn &&
+                    (dwFileAttributes & FILE_ATTRIBUTE_READONLY)
+                   ) {
+                    pad->ileMin = 1;
+                    pad->ileMac = 2;
+                    ScanLog(pad, pad->pneFiles, (PFNL)CopyLDiff, fsmInOnly);
+                    return fTrue;
+                }
+
                 /* fall through */
 
             case fmOut:
@@ -143,7 +172,7 @@ FDiffMarked(
 
                 PrOut("---------- %&C/F next ----------\n", pad, pfi);
                 /* copy diff to standard output */
-                CopyFile((char *)0, pthDiff);
+                CopyFile((char *)0, pthDiff, 0, 0, 0);
 
                 /* Remove the temporary diff, if it exists. */
                 if (!fCache)
@@ -166,7 +195,6 @@ CopyLDiff(
 {
     TDFF tdff;
     int  idae;                      /* diff archive entry index */
-    struct stat st;
     PTH pthDiff[cchPthMax];
 
     Unreferenced(fFirst);
@@ -180,11 +208,11 @@ CopyLDiff(
     if (((tdff == tdffDiff || tdff == tdffCkpt) &&
          FExtractDiff(pad, ple->szFile, idae, pthDiff)) ||
         (tdff == tdffDiffFile &&
-         FStatPth(PthForDiffSz(pad, ple->szDiFile, pthDiff), &st)))
+         FPthExists(PthForDiffSz(pad, ple->szDiFile, pthDiff), fFalse)))
     {
         PrOut("---------- %&C/Z (%s) next ----------\n", pad, ple->szFile, SzTime(ple->timeLog));
 
-        CopyFile((char *)0, pthDiff);
+        CopyFile((char *)0, pthDiff, 0, 0, 0);
         if (tdff == tdffDiff || tdff == tdffCkpt)
                 UnlinkNow(pthDiff, fFalse);
     }

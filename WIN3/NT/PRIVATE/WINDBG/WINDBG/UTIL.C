@@ -14,6 +14,18 @@ Environment:
 #include "direct.h"
 
 LRESULT SendMessageNZ (HWND,UINT,WPARAM,LPARAM);
+static BOOL CompareFileName(LPSTR, LPSTR);
+static BOOL CompareFileNameWithPath(LPSTR, LPSTR);
+
+#ifdef FE_IME
+
+#include <ime.h>
+
+static BOOL    (WINAPI *lpfnWINNLSEnableIME)(HWND, BOOL)    = NULL;
+static LRESULT (WINAPI *lpfnSendIMEMessageEx)(HWND, LPARAM) = NULL;
+static HINSTANCE hModUser32 = NULL;
+
+#endif
 
 extern BOOL bOffRibbon;
 
@@ -124,153 +136,6 @@ UnregisterLocalHotKey(
         }
     }
 }
-
-/***    ValidFileName
-**
-**  Synopsis:
-**      bool = ValidFilename(lpszName, fWildOkay)
-**
-**  Entry:
-**      lpszName        - Pointer to the zero termainted string to check
-**      fWildOkay       - Are wild cards permitted
-**
-**  Returns:
-**      TRUE if the string is a legal file name and FALSE otherwise.
-**
-**  Description:
-**      This function determines if a string forms a legal file name or search
-**      path.  Wildcard characters are acceptable if fWildOkay is true.  Returns
-**       TRUE if string is legal.
-**
-*/
-
-BOOL PASCAL ValidFilename(
-        LPSTR lpszName,
-        BOOL fWildOkay)
-{
-        int cLen;
-
-        Unused(fWildOkay);
-
-        /* check file name */
-        if (*lpszName == '\0') {
-            return FALSE;
-        }
-
-        if (lpszName[1] == ':') {
-            //
-            // Check Drive
-            //
-            if (!((*lpszName >= 'A' && *lpszName <= 'Z') || (*lpszName >= 'a' && *lpszName <= 'z'))) {
-                    return FALSE;
-            }
-            lpszName += 2;
-
-        } else if (*lpszName == '\\' ) {
-            //
-            //  If UNC name, skip first '\'
-            //
-            if ( *(lpszName+1) == '\\' ) {
-                lpszName++;
-            }
-        }
-
-        if (*lpszName == '\\')
-                // skip leading '\'
-                lpszName++;
-
-        if (*lpszName == '\0')
-                return FALSE;
-
-        do
-        {
-                cLen = 0;
-                while (*lpszName != '\0' && *lpszName != '\\' && *lpszName != '.')
-                {
-                  cLen++;
-
-                        if (/*++cLen > 8 ||*/ (unsigned char)*lpszName < 0x20)
-                                return FALSE;
-                        switch (*lpszName++)
-                        {
-                                case '*':
-                                case '?':
-                                case '\"':
-                                case '/':
-                                case '[':
-                                case ']':
-                                case ':':
-                                case '|':
-                                case '<':
-                                case '>':
-                                case '+':
-                                case '=':
-                                case ';':
-                                case ',':
-                                        return FALSE;
-                        }
-                }
-
-                if (cLen == 0)
-                {
-                        // have we hit a '.'
-                        if (*lpszName == '.')
-                        {
-                                // this must either be the start of ".\" or "..\",
-                                // otherwise a zero length file name has been specified
-                                // which is an error
-                                if (*(lpszName+1) == '\\')
-                                {
-                                        // current directory spec, this is ok
-                                        lpszName +=2;
-                                        continue; // start from after the ".\"
-                                }
-                                if ((*(lpszName+1) == '.') && (*(lpszName+2) == '\\'))
-                                {
-                                        // parent directory spec, this is ok too
-                                        lpszName += 3;
-                                        continue; //start from after the "..\"
-                                }
-                        }
-                        return FALSE;   // zero length file name specified
-                }
-
-                /* check extension */
-                if (*lpszName == '.')
-                {
-                        cLen = 0; lpszName++;
-                        while (*lpszName != '\0' && *lpszName != '\\')
-                        {
-                         cLen++;
-
-                                if (/*++cLen > 3 ||*/ (unsigned char)*lpszName < 0x20)
-                                        return FALSE;
-                                switch (*lpszName++)
-                                {
-                                        case '*':
-                                        case '?':
-                                        case '.':
-                                        case '\"':
-                                        case '/':
-                                        case '[':
-                                        case ']':
-                                        case ':':
-                                        case '|':
-                                        case '<':
-                                        case '>':
-                                        case '+':
-                                        case '=':
-                                        case ';':
-                                        case ',':
-                                                return FALSE;
-                                }
-                        }
-                }
-        }
-        while (*lpszName++ != '\0');
-
-        return TRUE;
-}                                       /* ValidFilename() */
 
 /***    FileExist
 **
@@ -875,6 +740,16 @@ MakePathNameFromProg(
     **  M00BUG -- no extension on file name but a dot in the path.
     */
 
+#ifdef DBCS
+    while (pcFileName > fileName) {
+        pcFileName = CharPrev(fileName, pcFileName);
+        if (*pcFileName == '.') {
+            *(++pcFileName) = '\0';
+            break;
+        }
+        nFileNameLen -= (IsDBCSLeadByte(*pcFileName) ? 2 : 1);
+    }
+#else
     while (pcFileName > fileName) {
         if (*pcFileName == '.') {
             *(++pcFileName) = '\0';
@@ -884,6 +759,7 @@ MakePathNameFromProg(
         nFileNameLen--;
         pcFileName--;
     }
+#endif
 
     /*
     **  Make sure that the name is really an ansi string and that
@@ -970,6 +846,8 @@ BOOL StartDialog(int rcDlgNb, DLGPROC dlgProc)
     DLGPROC lpDlgProc;
     int result;
 
+    //TestRoutine();
+
     lpDlgProc = (DLGPROC)dlgProc;
 
     /*
@@ -1023,6 +901,12 @@ void RemoveMnemonic(
         int k, j = 0;
 
         for (k = 0; k <= (int)lstrlen(sWith); k++)
+#ifdef DBCS
+                if (IsDBCSLeadByte(sWith[k]) && sWith[k+1]) {
+                        sWithout[j++] = sWith[k++];
+                        sWithout[j++] = sWith[k];
+                } else
+#endif
                 if (sWith[k] != '&')
                 {
                         sWithout[j++] = sWith[k];
@@ -1314,7 +1198,7 @@ void PASCAL StatusLineColumn(
                 if (newLine == 0)
                         tmp[0] = '\0';
                 else {
-                        itoa(newLine, s, 10);
+                        _itoa(newLine, s, 10);
 
                         //Fill tmp with 0
                         strcpy(tmp, status.lineS);
@@ -1337,7 +1221,7 @@ void PASCAL StatusLineColumn(
                 if (newColumn == 0)
                         tmp[0] = '\0';
                 else {
-                        itoa((int)newColumn, s, 10);
+                        _itoa((int)newColumn, s, 10);
 
                         //Fill tmp with 0
                         strcpy(tmp, status.columnS);
@@ -2031,7 +1915,7 @@ BOOL FindDoc(
         if (docOnly) {
             for (*doc = 0; *doc < MAX_DOCUMENTS; (*doc)++) {
                 if (Docs[*doc].docType == DOC_WIN && Docs[*doc].FirstView != -1
-                     && _fstricmp(GetFileName(Docs[*doc].FileName), SrcFile) == 0)      {
+                     && _stricmp(GetFileName(Docs[*doc].FileName), SrcFile) == 0)      {
                     return TRUE;
                 }
             }
@@ -2039,7 +1923,7 @@ BOOL FindDoc(
         else {
             for (*doc = 0; *doc < MAX_DOCUMENTS; (*doc)++) {
                 if (Docs[*doc].FirstView != -1
-                     && _fstricmp(GetFileName(Docs[*doc].FileName), SrcFile) == 0)      {
+                     && _stricmp(GetFileName(Docs[*doc].FileName), SrcFile) == 0)      {
                     return TRUE;
                 }
             }
@@ -2048,6 +1932,82 @@ BOOL FindDoc(
     return FALSE;
 }
 
+
+/***    FindDoc1
+**
+**  Synopsis:
+**      bool = FindDoc1(fileName, doc, docOnly)
+**
+**  Entry:
+**
+**  Returns:
+**      TRUE if document was found FALSE otherwise
+**
+**  Description:
+**      Given a file Name, find doc #, if docOnly == TRUE then
+**      the Debug windows are not included
+**
+**      Updates the location pointed to by doc with the document number
+*/
+
+BOOL FindDoc1(
+        LPSTR fileName,
+        int *doc,
+        BOOL docOnly)
+{
+    BOOL    (*lpCompareFileName)(LPSTR, LPSTR);
+    LPSTR   SrcFile = GetFileName( fileName );
+
+    if ( SrcFile ) {
+#if 1
+        if (strlen(SrcFile) == strlen(fileName)) {
+           lpCompareFileName = CompareFileName;
+        } else {
+           lpCompareFileName = CompareFileNameWithPath;
+           SrcFile = fileName;
+        }
+#else
+        lpCompareFileName = CompareFileName;
+#endif
+        if (docOnly) {
+            for (*doc = 0; *doc < MAX_DOCUMENTS; (*doc)++) {
+                if (Docs[*doc].docType == DOC_WIN && Docs[*doc].FirstView != -1
+                     && (*lpCompareFileName)(Docs[*doc].FileName, SrcFile)) {
+                    return TRUE;
+                }
+            }
+        }
+        else {
+            for (*doc = 0; *doc < MAX_DOCUMENTS; (*doc)++) {
+                if (Docs[*doc].FirstView != -1
+                     && (*lpCompareFileName)(Docs[*doc].FileName, SrcFile)) {
+                    return TRUE;
+                }
+            }
+        }
+    }
+    return FALSE;
+}
+
+static
+BOOL
+CompareFileName(
+   LPSTR szName1,
+   LPSTR szName2
+)
+{
+   return (_stricmp(GetFileName(szName1), szName2) == 0);
+}
+
+static
+BOOL
+CompareFileNameWithPath(
+   LPSTR szName1,
+   LPSTR szName2
+)
+{
+   return (_stricmp(szName1, szName2) == 0);
+}
 
 
 char *
@@ -2076,9 +2036,18 @@ Return Value:
     if ( *szPath ) {
 
         p = szPath + strlen(szPath );
+#ifdef DBCS
+        while (p > szPath) {
+            p = CharPrev(szPath, p);
+            if (*p == '\\' || *p == '/') {
+                break;
+            }
+        }
+#else
         while ( (*p != '\\') && (*p != '/') && (p != szPath ) ) {
             p--;
         }
+#endif
         if ((*p == '\\' ) || (*p == '/' )) {
             p++;
         }
@@ -2267,6 +2236,11 @@ void AdjustFullPathName(
                 //dir beginning and add it to reduced path name
                 cur = szDir + strlen(szDir) - remain;
                 while (*cur && *cur != '\\') {
+#ifdef DBCS
+                    if (IsDBCSLeadByte(*cur) && *(cur+1))
+                        cur += 2;
+                    else
+#endif
                     cur++;
                 }
                 if (*cur) {
@@ -2816,37 +2790,42 @@ Return Value:
 
 --*/
 {
-    char FAR *  lpch1;
-    char FAR *  lpch2;
-    char        ch;
-    char        rgchT[MAX_PATH*2];
+    char *  lpch1;
+    char *  lpch2;
+    char    ch;
+    char    rgchT[MAX_PATH*2];
 
     lpch1 = lszPaths;
 
     if (lpch1 == NULL)
-      return FALSE;
+        return FALSE;
 
     while (*lpch1 != 0) {
         lpch2 = lpch1;
-        while ((*lpch2) && (*lpch2 != ';')) lpch2++;
+        while ((*lpch2) && (*lpch2 != ';')) {
+#ifdef DBCS
+            lpch2 = CharNext(lpch2);
+#else
+            lpch2++;
+#endif
+        }
 
-        ch = *lpch2;
-        *lpch2 = 0;
-
-        _fstrcpy(rgchT, lpch1);
-        _fstrcat(rgchT, "\\");
-        _fstrcat(rgchT, lszFile);
-        *lpch2 = ch;
+        strncpy(rgchT, lpch1, lpch2-lpch1);
+        rgchT[lpch2-lpch1] = 0;
+        strcat(rgchT, "\\");
+        strcat(rgchT, lszFile);
 
         if (_fullpath(lszDest, rgchT, cchDest) != NULL) {
-
             if (FileExist(lszDest)) {
                 return TRUE;
             }
         }
 
         lpch1 = lpch2;
-        if (ch == ';') lpch1++;
+
+        if (*lpch1 == ';') {
+            lpch1++;
+        }
     }
 
     return FALSE;
@@ -2871,9 +2850,14 @@ SetDriveAndDir(
     dirLen = strlen(szDir);
     AnsiToOem(szDir, sTmp);
     if (dirLen > 0) {
+#ifdef DBCS
+        if (strlen(sTmp) > 1 && *CharPrev(sTmp, sTmp + dirLen - 1) == '\\')
+            sTmp[--dirLen] = 0;
+#else
         if (strlen(sTmp) > 1 && sTmp[--dirLen] == '\\')
             sTmp[dirLen] = 0;
-        if (chdir(sTmp) != 0) {
+#endif
+        if (_chdir(sTmp) != 0) {
             OemToAnsi(sTmp, szDir);
             return ErrorBox(ERR_Change_Directory, (LPSTR)szDir);
         }
@@ -2887,8 +2871,8 @@ SetDriveAndDir(
 //*******************************************************************
 #ifdef DEBUGGING
 
-struct timeb startTime;
-struct timeb stopTime;
+struct _timeb startTime;
+struct _timeb stopTime;
 
 void ShowElapsedTime(
         void)
@@ -2908,13 +2892,13 @@ void ShowElapsedTime(
 void StartTimer(
         void)
 {
-        ftime(&startTime);
+        _ftime(&startTime);
 }
 
 void StopTimer(
         void)
 {
-        ftime(&stopTime);
+        _ftime(&stopTime);
 }
 
 /****************************************************************************
@@ -2954,3 +2938,392 @@ InvalidateAllWindows(
     SendMessageNZ( GetWatchHWND(), WU_INVALIDATE, 0, 0L);
     SendMessageNZ( GetCallsHWND(), WU_INVALIDATE, 0, 0L);
 }
+
+
+#ifdef DBCS
+/***************************************************************************
+
+
+
+***************************************************************************/
+VOID GetDBCSCharWidth(
+    HDC hDC,
+    LPTEXTMETRIC ptm,
+    LPVIEWREC lpv)
+{
+    SIZE    Size;
+
+#ifdef DBCS
+    if (ptm->tmCharSet == SHIFTJIS_CHARSET) {
+        if (0 == (ptm->tmPitchAndFamily & TMPF_FIXED_PITCH)
+        &&  ptm->tmMaxCharWidth == ptm->tmAveCharWidth * 2) {
+            lpv->wViewPitch = VIEW_PITCH_ALL_FIXED;
+        } else {
+            lpv->wViewPitch = VIEW_PITCH_DBCS_FIXED;
+        }
+    } else {
+        if (0 == (ptm->tmPitchAndFamily & TMPF_FIXED_PITCH)) {
+            lpv->wViewPitch = VIEW_PITCH_ALL_FIXED;
+        } else {
+            lpv->wViewPitch = VIEW_PITCH_VARIABLE;
+        }
+    }
+#endif
+    GetTextExtentPoint((hDC), DBCS_CHAR, 2, &Size);
+    lpv->charWidthDBCS = Size.cx - ptm->tmOverhang;
+    lpv->wCharSet = ptm->tmCharSet;
+}
+#endif
+
+#ifdef DBCS
+/***************************************************************************
+
+    Modify UndoRedo record
+
+***************************************************************************/
+VOID SetReplaceDBCSFlag(
+    LPDOCREC lpd,
+    BOOL     bTwoRec)
+{
+    STREAMREC *pst;
+
+    if (DOC_WIN != lpd->docType) {
+        return;
+    }
+
+    //It is bad to update undo information directly...
+    pst = (STREAMREC *)((LPSTR)lpd->undo.pRec + lpd->undo.offset);
+
+    if (bTwoRec) {
+        // This is because lpd->undo.offset points the undo record
+        // for inserted chars. Previous record is for deleted chars.
+        pst = (STREAMREC *)((LPSTR)pst - pst->prevLen);
+    }
+    pst->action |= REPLACEDBCS;
+}
+#endif
+
+#ifdef FE_IME
+/***************************************************************************
+
+    Set position of IME conversion window
+
+***************************************************************************/
+LRESULT ImeMoveConvertWin(
+    HWND hwnd,
+    INT  x,
+    INT  y)
+{
+    HANDLE  hIME;
+    LPIMESTRUCT lpIme;
+    LRESULT lrRet;
+
+    if (NULL == lpfnSendIMEMessageEx) {
+        return FALSE;
+    }
+
+    if(!(hIME = GlobalAlloc(GHND | GMEM_SHARE, (DWORD)sizeof(IMESTRUCT)))){
+        return FALSE;
+    }
+    if(!(lpIme = (LPIMESTRUCT)GlobalLock(hIME))){
+        return FALSE;
+    }
+
+    // Set IME_SETCONVERSIONWINDOW as a sub-function number
+    lpIme->fnc = IME_SETCONVERSIONWINDOW;
+
+    // if x == -1 && y == -1 then set default conversion ID
+    if (x == -1 && y == -1) {
+        lpIme->wParam = MCW_DEFAULT;
+    } else {
+        RECT    rRect;
+
+        GetClientRect(hwnd, &rRect);
+        // Set spot conversion ID, and a position of a conversion window
+        lpIme->wParam = MCW_WINDOW | MCW_RECT;
+        lpIme->lParam1 = MAKELONG(LOWORD(x), LOWORD(y));
+        lpIme->lParam2 = MAKELONG(LOWORD(rRect.left), LOWORD(rRect.top));
+        lpIme->lParam3 = MAKELONG(LOWORD(rRect.right), LOWORD(rRect.bottom));
+    }
+    GlobalUnlock(hIME);
+
+    lrRet = (*lpfnSendIMEMessageEx)(hwnd, (LPARAM)hIME);
+    GlobalFree(hIME);
+    return lrRet;
+}
+#endif
+
+#ifdef FE_IME
+/***************************************************************************
+
+    Send virtial key message to IME
+
+***************************************************************************/
+LRESULT ImeSendVkey(
+    HWND hwnd,
+    WORD wVKey)
+{
+    HANDLE  hIME;
+    LPIMESTRUCT lpIme;
+    LRESULT lrRet;
+
+    if (NULL == lpfnSendIMEMessageEx) {
+        return FALSE;
+    }
+
+    if(!(hIME = GlobalAlloc(GHND | GMEM_SHARE, (DWORD)sizeof(IMESTRUCT)))){
+        return FALSE;
+    }
+    if(!(lpIme = (LPIMESTRUCT)GlobalLock(hIME))){
+        return FALSE;
+    }
+    lpIme->fnc = IME_SENDVKEY;
+    lpIme->wParam = wVKey;
+    GlobalUnlock(hIME);
+
+    lrRet = (*lpfnSendIMEMessageEx)(hwnd, (LPARAM)hIME);
+    GlobalFree(hIME);
+    return lrRet;
+}
+#endif
+
+#ifdef FE_IME
+/****************************************************************************
+
+    FUNCTION   : ImeSetFont
+
+    PURPOSE    : Specify the font which is used in IME conversion window
+
+****************************************************************************/
+BOOL ImeSetFont(
+    HWND hwnd,
+    HFONT hFont)
+{
+    HANDLE  hIME;
+    LPIMESTRUCT lpIme;
+    HANDLE      hLF;
+    LPLOGFONT   lpLF;
+
+    if (NULL == lpfnSendIMEMessageEx) {
+        return FALSE;
+    }
+
+    if(!(hIME = GlobalAlloc(GHND | GMEM_SHARE, (DWORD)sizeof(IMESTRUCT)))){
+        return FALSE;
+    }
+    if(!(lpIme = (LPIMESTRUCT)GlobalLock(hIME))){
+        return FALSE;
+    }
+
+    if (!(hLF = GlobalAlloc(GHND | GMEM_SHARE, sizeof(LOGFONT)))){
+        GlobalUnlock(hIME);
+        GlobalFree(hIME);
+        return FALSE;
+    }
+
+    if (!(lpLF = (LPLOGFONT)GlobalLock(hLF))){
+        GlobalFree(hLF);
+        GlobalUnlock(hIME);
+        GlobalFree(hIME);
+        return FALSE;
+    }
+
+    if (!GetObject(hFont, sizeof(LOGFONT), lpLF)) {
+        GlobalUnlock(hLF);
+        GlobalFree(hLF);
+        GlobalUnlock(hIME);
+        GlobalFree(hIME);
+        return FALSE;
+    }
+
+    GlobalUnlock(hLF);
+
+    // Set IME sub-function number
+    lpIme->fnc = IME_SETCONVERSIONFONTEX;
+
+    lpIme->lParam1 = (LPARAM)hLF;
+
+    GlobalUnlock(hIME);
+
+    (*lpfnSendIMEMessageEx)(hwnd, (LPARAM)hIME);
+
+    GlobalFree(hLF);
+    GlobalFree(hIME);
+
+    return TRUE;
+}
+#endif
+
+#ifdef FE_IME
+/****************************************************************************
+
+    FUNCTION   : ImeWINNLSEnableIME
+
+    PURPOSE    : 
+
+****************************************************************************/
+BOOL ImeWINNLSEnableIME(
+    HWND hwnd,
+    BOOL bEnable)
+{
+    if (lpfnWINNLSEnableIME) {
+        (*lpfnWINNLSEnableIME)(hwnd, bEnable);
+    } else {
+        return FALSE;
+    }
+}
+#endif
+
+#ifdef FE_IME
+/***************************************************************************
+
+    Proccess WM_IME_REPORT:IR_STRING message
+
+***************************************************************************/
+LONG ProccessIMEString(HWND hwnd, LPARAM lParam)
+{
+    int         view = GetWindowWord(hwnd, GWW_VIEW);
+    NPVIEWREC   v = &Views[view];
+    NPDOCREC    d = &Docs[v->Doc];
+    LPLINEREC   pl;
+    LPBLOCKDEF  pb;
+    LPTSTR      lpsz;
+    int         nLen1;
+    BOOL        bRet;
+
+    if (!(lpsz = GlobalLock((HANDLE)lParam))) {
+        return FALSE;
+    }
+
+    if (!FirstLine(v->Doc, &pl, &(v->Y), &pb)) {
+        GlobalUnlock ((HANDLE)lParam);
+        return FALSE;
+    }
+    CloseLine(v->Doc, &pl, v->Y, &pb);
+    v->Y--;
+
+    nLen1 = lstrlen(lpsz);
+
+    if ((v->X < elLen - 1)
+    && (status.overtype || d->forcedOvertype) && !v->BlockStatus) {
+        /**********************************************/
+        /* if over-write mode and no text is selected */
+        /**********************************************/
+        v->BlockStatus = TRUE;
+        v->BlockXL = v->X;
+        v->BlockYL = v->Y;
+        v->BlockYR = v->Y;
+
+        if (v->X + nLen1 >= elLen) {
+            v->BlockXR = elLen - 1;
+        } else if (v->bDBCSOverWrite) {
+            int i;
+
+            for (i = 0; i < nLen1; i++) {
+                if (IsDBCSLeadByte(el[v->X + i])) {
+                    i++;
+                }
+            }
+            if (i > nLen1) {
+                HGLOBAL hmemTmp;
+
+                GlobalUnlock ((HANDLE)lParam);
+                if (!(hmemTmp = GlobalReAlloc((HGLOBAL)lParam,
+                            nLen1+2, GMEM_MOVEABLE | GMEM_SHARE))) {
+                    return FALSE;
+                }
+                if (!(lpsz = GlobalLock((HANDLE)lParam = hmemTmp))) {
+                    return FALSE;
+                }
+                lpsz[nLen1] = ' ';
+                nLen1++;
+            }
+            v->BlockXR = v->X + nLen1;
+        } else {
+            int nNum1;
+            int nNum2;
+            int i;
+
+            for (i = 0, nNum1 = 0; i < nLen1; i++, nNum1++) {
+                if (IsDBCSLeadByte(lpsz[i])) {
+                    i++;
+                }
+            }
+            for (i = 0, nNum2 = 0; nNum2 < nNum1; i++, nNum2++) {
+                if (IsDBCSLeadByte(el[v->X + i])) {
+                    i++;
+                }
+            }
+            v->BlockXR = v->X + i;
+        }
+    }
+    bRet = InsertStream(view, v->X, v->Y, nLen1, lpsz, TRUE);
+    GlobalUnlock ((HANDLE)lParam);
+
+    if (bRet) {
+        SetReplaceDBCSFlag(d, v->BlockStatus ? TRUE : FALSE);
+        PosXY(view, v->X + nLen1, v->Y, TRUE);
+    }
+    return TRUE;
+}
+#endif
+
+#ifdef FE_IME
+/***************************************************************************
+
+    Initialize pointers of IME APIs
+
+***************************************************************************/
+BOOL ImeInit(void)
+{
+    if (NULL == hModUser32) {
+        hModUser32 = LoadLibrary("IMM32");
+    }
+    if (NULL == hModUser32) {
+#ifdef DEBUG
+        MessageBox(NULL, "Failed to load IMM32.DLL",
+                        NULL, MB_APPLMODAL | MB_OK);
+#endif
+        return FALSE;
+    }
+    if (NULL == lpfnWINNLSEnableIME) {
+        (FARPROC)lpfnWINNLSEnableIME
+                    = GetProcAddress(hModUser32, "ImmWINNLSEnableIME");
+#ifdef DEBUG
+        if (NULL == lpfnWINNLSEnableIME) {
+            MessageBox(NULL, "Failed to get address of ImmWINNLSEnableIME",
+                            NULL, MB_APPLMODAL | MB_OK);
+        }
+#endif
+    }
+    if (NULL == lpfnSendIMEMessageEx) {
+        (FARPROC)lpfnSendIMEMessageEx
+                    = GetProcAddress(hModUser32, "ImmSendIMEMessageExA");
+#ifdef DEBUG
+        if (NULL == lpfnSendIMEMessageEx) {
+            MessageBox(NULL, "Failed to get address of ImmSendIMEMessageExA",
+                            NULL, MB_APPLMODAL | MB_OK);
+        }
+#endif
+    }
+
+    return TRUE;
+}
+/***************************************************************************
+
+    Terminate proccess of IME
+
+***************************************************************************/
+BOOL ImeTerm(void)
+{
+    if (NULL != hModUser32) {
+        if (FreeLibrary(hModUser32)) {
+            hModUser32 = NULL;
+            lpfnWINNLSEnableIME = NULL;
+            lpfnSendIMEMessageEx = NULL;
+        }
+    }
+    return TRUE;
+}
+#endif // FE_IME
+

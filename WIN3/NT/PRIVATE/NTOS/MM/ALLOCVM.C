@@ -35,6 +35,14 @@ ULONG MMVADKEY = ' daV'; //Vad
 #pragma alloc_text(PAGE,NtAllocateVirtualMemory)
 #endif
 
+NTSTATUS
+MiResetVirtualMemory (
+    IN PVOID StartingAddress,
+    IN PVOID EndingAddress,
+    IN PMMVAD Vad,
+    IN PEPROCESS Process
+    );
+
 
 NTSTATUS
 NtAllocateVirtualMemory(
@@ -94,6 +102,15 @@ Arguments:
          MEM_TOP_DOWN - The specified region should be created at the
               highest virtual address possible based on ZeroBits.
 
+         MEM_RESET - Reset the state of the specified region so
+              that if the pages are in page paging file, they
+              are discarded and pages of zeroes are brought in.
+              If the pages are in memory and modified, they are marked
+              as not modified so they will not be written out to
+              the paging file.  The contents are NOT zeroed.
+
+              The Protect argument is ignored, but a valid protection
+              must be specified.
 
     Protect - Supplies the protection desired for the committed
          region of pages.
@@ -177,15 +194,25 @@ Return Value:
     // Check the AllocationType for correctness.
     //
 
-    if ((AllocationType & ~(MEM_COMMIT | MEM_RESERVE | MEM_TOP_DOWN)) != 0) {
+    if ((AllocationType & ~(MEM_COMMIT | MEM_RESERVE |
+                            MEM_TOP_DOWN | MEM_RESET)) != 0) {
         return STATUS_INVALID_PARAMETER_5;
     }
 
     //
-    // One of MEM_COMMIT or MEM_RESERVE must be set.
+    // One of MEM_COMMIT, MEM_RESET or MEM_RESERVE must be set.
     //
 
-    if ((AllocationType & (MEM_COMMIT | MEM_RESERVE)) == 0) {
+    if ((AllocationType & (MEM_COMMIT | MEM_RESERVE | MEM_RESET)) == 0) {
+        return STATUS_INVALID_PARAMETER_5;
+    }
+
+    if ((AllocationType & MEM_RESET) && (AllocationType != MEM_RESET)) {
+
+        //
+        // MEM_RESET may not be used with any other flag.
+        //
+
         return STATUS_INVALID_PARAMETER_5;
     }
 
@@ -200,6 +227,7 @@ Return Value:
     }
 
     PreviousMode = KeGetPreviousMode();
+    ChangeProtection = FALSE;
 
     //
     // Establish an exception handler, probe the specified addresses
@@ -238,7 +266,7 @@ Return Value:
     }
 
 #if DBG
-    if (MmDebug & 0x10000000) {
+    if (MmDebug & MM_DBG_SHOW_NT_CALLS) {
         if ( MmWatchProcess ) {
             ;
         } else {
@@ -287,15 +315,19 @@ Return Value:
     // Reference the specified process handle for VM_OPERATION access.
     //
 
-    Status = ObReferenceObjectByHandle ( ProcessHandle,
-                                         PROCESS_VM_OPERATION,
-                                         PsProcessType,
-                                         PreviousMode,
-                                         (PVOID *)&Process,
-                                         NULL );
+    if ( ProcessHandle == NtCurrentProcess() ) {
+        Process = PsGetCurrentProcess();
+    } else {
+        Status = ObReferenceObjectByHandle ( ProcessHandle,
+                                             PROCESS_VM_OPERATION,
+                                             PsProcessType,
+                                             PreviousMode,
+                                             (PVOID *)&Process,
+                                             NULL );
 
-    if (!NT_SUCCESS(Status)) {
-        return Status;
+        if (!NT_SUCCESS(Status)) {
+            return Status;
+        }
     }
 
     //
@@ -532,7 +564,10 @@ Return Value:
         if (Attached) {
             KeDetachProcess();
         }
-        ObDereferenceObject (Process);
+
+        if ( ProcessHandle != NtCurrentProcess() ) {
+            ObDereferenceObject (Process);
+        }
 
         //
         // Establish an exception handler and write the size and base
@@ -555,7 +590,7 @@ Return Value:
         }
 
 #if DBG
-        if (MmDebug & 0x10000000) {
+        if (MmDebug & MM_DBG_SHOW_NT_CALLS) {
             if ( MmWatchProcess ) {
                 if ( MmWatchProcess == PsGetCurrentProcess() ) {
                     DbgPrint("\n+++ ALLOC Type %lx Base %lx Size %lx\n",
@@ -583,12 +618,6 @@ Return Value:
         }
 #endif // DBG
 
-#if DBG
-    if (NtGlobalFlag & FLG_TRACE_PAGING_INFO) {
-        DbgPrint("$$$VM CREATION: %lx Start %lx Size %lx\n",
-            Process, StartingAddress, CapturedRegionSize);
-    }
-#endif
         return STATUS_SUCCESS;
 
     } else {
@@ -598,11 +627,22 @@ Return Value:
         // be either private or a section.
         //
 
-        EndingAddress = (PVOID)(((ULONG)CapturedBase +
-                                    CapturedRegionSize - 1L) | (PAGE_SIZE - 1L));
-        StartingAddress = (PVOID)PAGE_ALIGN(CapturedBase);
+        if (AllocationType == MEM_RESET) {
 
-        CapturedRegionSize = (ULONG)EndingAddress - (ULONG)StartingAddress + 1L;
+            //
+            // Round up to page boundaries so good data is not reset.
+            //
+
+            EndingAddress = (PVOID)((ULONG)PAGE_ALIGN ((ULONG)CapturedBase +
+                                    CapturedRegionSize) - 1);
+            StartingAddress = (PVOID)PAGE_ALIGN((PUCHAR)CapturedBase + PAGE_SIZE - 1);
+        } else {
+            EndingAddress = (PVOID)(((ULONG)CapturedBase +
+                                    CapturedRegionSize - 1) | (PAGE_SIZE - 1));
+            StartingAddress = (PVOID)PAGE_ALIGN(CapturedBase);
+        }
+
+        CapturedRegionSize = (ULONG)EndingAddress - (ULONG)StartingAddress + 1;
 
         FoundVad = MiCheckForConflictingVad (StartingAddress, EndingAddress);
 
@@ -634,7 +674,14 @@ Return Value:
             goto ErrorReturn;
         }
 
-        if (FoundVad->u.VadFlags.PrivateMemory == 0) {
+        if (AllocationType == MEM_RESET) {
+            Status = MiResetVirtualMemory (StartingAddress,
+                                           EndingAddress,
+                                           FoundVad,
+                                           Process);
+            goto done;
+
+        } else if (FoundVad->u.VadFlags.PrivateMemory == 0) {
 
             if (FoundVad->ControlArea->FilePointer != NULL) {
 
@@ -655,6 +702,22 @@ Return Value:
                 goto ErrorReturn;
             }
 
+            if (FoundVad->u.VadFlags.NoChange == 1) {
+
+                //
+                // An attempt is made at changing the protection
+                // of a SEC_NO_CHANGE section.
+                //
+
+                Status = MiCheckSecuredVad (FoundVad,
+                                            CapturedBase,
+                                            CapturedRegionSize,
+                                            ProtectionMask);
+
+                if (!NT_SUCCESS (Status)) {
+                    goto ErrorReturn;
+                }
+            }
 
             StartingPte = MiGetProtoPteAddress (FoundVad, StartingAddress);
             PointerPte = StartingPte;
@@ -724,7 +787,7 @@ Return Value:
             for (; ; ) {
                 try {
                     PageFileChargeSucceeded = FALSE;
-                    MiChargePageFileQuota ((ULONG)QuotaCharge, Process);
+                    MiChargePageFileQuota ((ULONG)CopyOnWriteCharge, Process);
 
                     PageFileChargeSucceeded = TRUE;
                     MiChargeCommitment ((ULONG)QuotaCharge + CopyOnWriteCharge,
@@ -740,7 +803,7 @@ Return Value:
                     //
 
                     if (PageFileChargeSucceeded) {
-                        MiReturnPageFileQuota ((ULONG)QuotaCharge, Process);
+                        MiReturnPageFileQuota ((ULONG)CopyOnWriteCharge, Process);
                     }
 
                     if (Status != STATUS_SUCCESS) {
@@ -813,9 +876,6 @@ Return Value:
             if (QuotaFree != 0) {
                 MiReturnCommitment (
                         (CopyOnWriteCharge ? 2*QuotaFree : QuotaFree));
-                MiReturnPageFileQuota (
-                                QuotaFree,
-                                Process);
                 FoundVad->ControlArea->Segment->NumberOfCommittedPages -= QuotaFree;
                 MmSharedCommit -= QuotaFree;
                 ASSERT ((LONG)FoundVad->ControlArea->Segment->NumberOfCommittedPages >= 0);
@@ -823,6 +883,9 @@ Return Value:
                 if (CopyOnWriteCharge != 0) {
                     FoundVad->u.VadFlags.CommitCharge -= QuotaFree;
                     Process->CommitCharge -= QuotaFree;
+                    MiReturnPageFileQuota (
+                                    QuotaFree,
+                                    Process);
                 }
                 ASSERT ((LONG)FoundVad->u.VadFlags.CommitCharge >= 0);
             }
@@ -847,13 +910,15 @@ Return Value:
             if (Attached) {
                 KeDetachProcess();
             }
-            ObDereferenceObject (Process);
+            if ( ProcessHandle != NtCurrentProcess() ) {
+                ObDereferenceObject (Process);
+            }
 
             *RegionSize = CapturedRegionSize;
             *BaseAddress = StartingAddress;
 
 #if DBG
-            if (MmDebug & 0x10000000) {
+            if (MmDebug & MM_DBG_SHOW_NT_CALLS) {
                 if ( MmWatchProcess ) {
                     if ( MmWatchProcess == PsGetCurrentProcess() ) {
                         DbgPrint("\n+++ ALLOC Type %lx Base %lx Size %lx\n",
@@ -1015,7 +1080,6 @@ Return Value:
                 CommitLimitPte = NULL;
             }
 
-            ChangeProtection = FALSE;
             while (PointerPte <= LastPte) {
 
                 if (((ULONG)PointerPte & (PAGE_SIZE - 1)) == 0) {
@@ -1093,6 +1157,7 @@ Return Value:
         // dererence process and return status.
         //
 
+done:
         UNLOCK_WS (Process);
         UNLOCK_ADDRESS_SPACE(Process);
 
@@ -1111,7 +1176,9 @@ Return Value:
         if (Attached) {
             KeDetachProcess();
         }
-        ObDereferenceObject (Process);
+        if ( ProcessHandle != NtCurrentProcess() ) {
+            ObDereferenceObject (Process);
+        }
 
         //
         // Establish an exception handler and write the size and base
@@ -1128,7 +1195,7 @@ Return Value:
         }
 
 #if DBG
-        if (MmDebug & 0x10000000) {
+        if (MmDebug & MM_DBG_SHOW_NT_CALLS) {
             if ( MmWatchProcess ) {
                 if ( MmWatchProcess == PsGetCurrentProcess() ) {
                     DbgPrint("\n+++ ALLOC Type %lx Base %lx Size %lx\n",
@@ -1166,9 +1233,203 @@ ErrorReturn1:
         if (Attached) {
             KeDetachProcess();
         }
-        ObDereferenceObject (Process);
+        if ( ProcessHandle != NtCurrentProcess() ) {
+            ObDereferenceObject (Process);
+        }
         return Status;
 }
+
+NTSTATUS
+MiResetVirtualMemory (
+    IN PVOID StartingAddress,
+    IN PVOID EndingAddress,
+    IN PMMVAD Vad,
+    IN PEPROCESS Process
+    )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+    StartingAddress - Supplies the starting address of the range.
+
+    RegionsSize - Supplies the size.
+
+    Process - Supplies the current process.
+
+Return Value:
+
+Environment:
+
+    Kernel mode, APCs disabled, WorkingSetMutex and AddressCreation mutexes
+    held.
+
+--*/
+
+{
+    PMMPTE PointerPte;
+    PMMPTE ProtoPte;
+    PMMPTE PointerPde;
+    PMMPTE LastPte;
+    MMPTE PteContents;
+    ULONG PfnHeld = FALSE;
+    ULONG First;
+    KIRQL OldIrql;
+    PMMPFN Pfn1;
+
+    if (Vad->u.VadFlags.PrivateMemory == 0) {
+
+        if (Vad->ControlArea->FilePointer != NULL) {
+
+            //
+            // Only page file backed sections can be committed.
+            //
+
+            return STATUS_USER_MAPPED_FILE;
+        }
+    }
+
+    First = TRUE;
+    PointerPte = MiGetPteAddress (StartingAddress);
+    LastPte = MiGetPteAddress (EndingAddress);
+
+    //
+    // Examine all the PTEs in the range.
+    //
+
+    while (PointerPte <= LastPte) {
+
+        if ((((ULONG)PointerPte & (PAGE_SIZE - 1)) == 0) ||
+            (First)) {
+
+            //
+            // Pointing to the next page table page, make
+            // a page table page exist and make it valid.
+            //
+
+            First = FALSE;
+            PointerPde = MiGetPteAddress (PointerPte);
+            if (!MiDoesPdeExistAndMakeValid(PointerPde,
+                                            Process,
+                                            (BOOLEAN)PfnHeld)) {
+
+                //
+                // This page directory entry is empty, go to the next one.
+                //
+
+                PointerPde += 1;
+                PointerPte = MiGetVirtualAddressMappedByPte (PointerPde);
+                continue;
+            }
+        }
+
+        PteContents = *PointerPte;
+        ProtoPte = NULL;
+
+        if ((PteContents.u.Hard.Valid == 0) &&
+            (PteContents.u.Soft.Prototype == 1))  {
+
+            //
+            // This is a prototype PTE, evaluate the
+            // prototype PTE.
+            //
+
+            ProtoPte = MiGetProtoPteAddress(Vad,
+                                            MiGetVirtualAddressMappedByPte(PointerPte));
+            if (!PfnHeld) {
+                PfnHeld = TRUE;
+                LOCK_PFN (OldIrql);
+            }
+            MiMakeSystemAddressValidPfnWs (ProtoPte, Process);
+            PteContents = *ProtoPte;
+        }
+        if (PteContents.u.Hard.Valid == 1) {
+            if (!PfnHeld) {
+                LOCK_PFN (OldIrql);
+                PfnHeld = TRUE;
+                continue;
+            }
+
+            Pfn1 = MI_PFN_ELEMENT (PteContents.u.Hard.PageFrameNumber);
+            if (Pfn1->u3.e2.ReferenceCount == 1) {
+
+                //
+                // Only this process has the page mapped.
+                //
+
+                Pfn1->u3.e1.Modified = 0;
+                MiReleasePageFileSpace (Pfn1->OriginalPte);
+                Pfn1->OriginalPte.u.Soft.PageFileHigh = 0;
+            }
+
+            if ((!ProtoPte) && (MI_IS_PTE_DIRTY (PteContents))) {
+
+                //
+                // Clear the dirty bit and flush tb if it is NOT a prototype
+                // PTE.
+                //
+
+                MI_SET_PTE_CLEAN (PteContents);
+                KeFlushSingleTb (MiGetVirtualAddressMappedByPte (PointerPte),
+                                 TRUE,
+                                 FALSE,
+                                 (PHARDWARE_PTE)PointerPte,
+                                 PteContents.u.Flush);
+            }
+
+        } else if (PteContents.u.Soft.Transition == 1) {
+            if (!PfnHeld) {
+                LOCK_PFN (OldIrql);
+                PfnHeld = TRUE;
+                continue;
+            }
+            Pfn1 = MI_PFN_ELEMENT (PteContents.u.Trans.PageFrameNumber);
+            if ((Pfn1->u3.e1.PageLocation == ModifiedPageList) &&
+                (Pfn1->u3.e2.ReferenceCount == 0)) {
+
+                //
+                // Remove from the modified list, release the page
+                // file space and insert on the standby list.
+                //
+
+                Pfn1->u3.e1.Modified = 0;
+                MiUnlinkPageFromList (Pfn1);
+                MiReleasePageFileSpace (Pfn1->OriginalPte);
+                Pfn1->OriginalPte.u.Soft.PageFileHigh = 0;
+                MiInsertPageInList (MmPageLocationList[StandbyPageList],
+                                    PteContents.u.Trans.PageFrameNumber);
+            }
+        } else {
+            if (PteContents.u.Soft.PageFileHigh != 0) {
+                if (!PfnHeld) {
+                    LOCK_PFN (OldIrql);
+                }
+                PfnHeld = FALSE;
+                MiReleasePageFileSpace (PteContents);
+                UNLOCK_PFN (OldIrql);
+                if (ProtoPte) {
+                    ProtoPte->u.Soft.PageFileHigh = 0;
+                } else {
+                    PointerPte->u.Soft.PageFileHigh = 0;
+                }
+            } else {
+                if (PfnHeld) {
+                    UNLOCK_PFN (OldIrql);
+                }
+                PfnHeld = FALSE;
+            }
+        }
+        PointerPte += 1;
+    }
+    if (PfnHeld) {
+        UNLOCK_PFN (OldIrql);
+    }
+    return STATUS_SUCCESS;
+}
+
 
 //
 // Commented out, no longer used.

@@ -21,8 +21,7 @@ Revision History:
 
 --*/
 
-#include "..\mi.h"
-#include "mm.h"
+#include "mi.h"
 
 //
 // A zero Pte.
@@ -98,44 +97,20 @@ PMMPTE MmDebugPte =  MiGetPteAddress( 0xfffdf000 );
 PMMPTE MmCrashDumpPte = (MiGetPteAddress(MM_NONPAGED_POOL_END));
 
 
-#ifdef COLORED_PAGES
+#if MM_MAXIMUM_NUMBER_OF_COLORS > 1
+MMPFNLIST MmFreePagesByPrimaryColor[2][MM_MAXIMUM_NUMBER_OF_COLORS];
+#endif
 
-//
-// Define page color structures.
-//
+PMMCOLOR_TABLES MmFreePagesByColor[2];
 
-//
-// The number of page colors for the system.
-//
+MMPFNLIST MmModifiedPageListByColor[MM_MAXIMUM_NUMBER_OF_COLORS] = {
+                            0, ModifiedPageList, MM_EMPTY_LIST, MM_EMPTY_LIST};
 
-ULONG MiAlphaAxpNumberColors = 1;
-
-//
-// The page color mask.
-//
-
-ULONG MiAlphaAxpColorMask = 0;
-
-//
-// Color tables for free and zeroed pages.
-//
-
-MMPRIMARY_COLOR_TABLES MmFreePagesByPrimaryColor[2][MM_MAXIMUM_NUMBER_OF_COLORS];
-
-MMCOLOR_TABLES MmFreePagesByColor[2][MM_SECONDARY_COLORS];
+ULONG MmSecondaryColorMask;
 
 //
 // Color tables for modified pages destined for the paging file.
 //
 
-MMPFNLIST MmModifiedPageListByColor[MM_MAXIMUM_NUMBER_OF_COLORS] = {
-                            0, ModifiedPageList, MM_EMPTY_LIST, MM_EMPTY_LIST} ;
+ULONG MmTotalPagesForPagingFile;
 
-//
-// Count of the number of modified pages destined for the paging file.
-//
-
-ULONG MmTotalPagesForPagingFile = 0;
-
-
-#endif //COLORED_PAGES

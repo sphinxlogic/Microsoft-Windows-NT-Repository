@@ -14,10 +14,9 @@
 *	11-05-92  SKS	Change name of variable "CrtHeap" to "_crtheap"
 *	11-07-92  SRW   _NTIDW340 replaced by linkopts\betacmp.c
 *	11-16-92  SRW   Heap???Ex functions renamed to Heap???
+*   12-02-94  MJB   POSIX back in.
 *
 *******************************************************************************/
-
-#ifndef _POSIX_
 
 #include <cruntime.h>
 #include <malloc.h>
@@ -48,5 +47,3 @@ void * pblock;
                             pblock
                            ));
 }
-
-#endif  /* !_POSIX_ */

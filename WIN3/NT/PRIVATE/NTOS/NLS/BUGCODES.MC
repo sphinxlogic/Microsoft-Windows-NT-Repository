@@ -404,7 +404,7 @@ MessageId=0x005C Facility=Kernel Severity=Fatal SymbolicName=HAL_INITIALIZATION_
 Language=English
 .
 
-MessageId=0x005D Facility=Kernel Severity=Fatal SymbolicName=HEAP_INITIALIZATION_FAILED
+MessageId=0x005D Facility=Kernel Severity=Fatal SymbolicName=UNSUPPORTED_PROCESSOR
 Language=English
 .
 
@@ -544,7 +544,7 @@ Language=English
 
 MessageId=0x007E Facility=Kernel Severity=None SymbolicName=WINDOWS_NT_BANNER
 Language=English
-Microsoft (R) Windows NT (TM) Version %s (Build %u%s)
+Microsoft (R) Windows NT (TM) Version %s (Build %u%s).
 .
 
 MessageId=0x007F Facility=Kernel Severity=Fatal SymbolicName=UNEXPECTED_KERNEL_MODE_TRAP
@@ -585,9 +585,10 @@ MessageId=0x0087 Facility=Kernel Severity=None SymbolicName=WINDOWS_NT_CSD_STRIN
 Language=English
 Service Pack
 .
+
 MessageId=0x0088 Facility=Kernel Severity=None SymbolicName=WINDOWS_NT_INFO_STRING
 Language=English
-%u System Processor%s [%u Kb Memory] %Z
+%u System Processor [%u MB Memory] %Z
 .
 
 MessageId=0x0089 Facility=Kernel Severity=None SymbolicName=WINDOWS_NT_MP_STRING
@@ -603,6 +604,88 @@ A kernel thread terminated while holding a mutex
 MessageId=0x008B Facility=Kernel Severity=Fatal SymbolicName=MBR_CHECKSUM_MISMATCH
 Language=English
 This system may be infected with a virus.
+.
+
+MessageId=0x008C Facility=Kernel Severity=Fatal SymbolicName=BUGCODE_PSS_CRASH_INIT
+Language=English
+Beginning dump of physical memory
+.
+
+MessageId=0x008D Facility=Kernel Severity=Fatal SymbolicName=BUGCODE_PSS_CRASH_PROGRESS
+Language=English
+Dumping physical memory to disk
+.
+
+MessageId=0x008E Facility=Kernel Severity=Fatal SymbolicName=BUGCODE_PSS_CRASH_DONE
+Language=English
+Physical memory dump complete.  Contact your system administrator or
+technical support group.
+.
+
+MessageId=0x008F Facility=Kernel Severity=Fatal SymbolicName=PP0_INITIALIZATION_FAILED
+Language=English
+.
+
+MessageId=0x0090 Facility=Kernel Severity=Fatal SymbolicName=PP1_INITIALIZATION_FAILED
+Language=English
+.
+
+MessageId=0x0091 Facility=Kernel Severity=Fatal SymbolicName=WIN32K_INIT_OR_RIT_FAILURE
+Language=English
+.
+
+MessageId=0x0092 Facility=Kernel Severity=Fatal SymbolicName=UP_DRIVER_ON_MP_SYSTEM
+Language=English
+.
+
+MessageId=0x0093 Facility=Kernel Severity=Fatal SymbolicName=INVALID_KERNEL_HANDLE
+Language=English
+.
+
+MessageId=0x0094 Facility=Kernel Severity=Fatal SymbolicName=KERNEL_STACK_LOCKED_AT_EXIT
+Language=English
+.
+
+MessageId=0x0095 Facility=Kernel Severity=Fatal SymbolicName=PNP_INTERNAL_ERROR
+Language=English
+.
+
+MessageId=0x0096 Facility=Kernel Severity=Fatal SymbolicName=INVALID_WORK_QUEUE_ITEM
+Language=English
+.
+
+MessageId=0x0097 Facility=Kernel Severity=Fatal SymbolicName=BOUND_IMAGE_UNSUPPORTED
+Language=English
+.
+
+MessageId=0x0098 Facility=Kernel Severity=Fatal SymbolicName=END_OF_NT_EVALUATION_PERIOD
+Language=English
+.
+
+MessageId=0x0099 Facility=Kernel Severity=Fatal SymbolicName=INVALID_REGION_OR_SEGMENT
+Language=English
+.
+
+MessageId=0x009A Facility=Kernel Severity=Fatal SymbolicName=SYSTEM_LICENSE_VIOLATION
+Language=English
+.
+
+MessageId=0x009B Facility=Kernel Severity=Fatal SymbolicName=UDFS_FILE_SYSTEM
+Language=English
+.
+
+MessageId=0x009C Facility=Kernel Severity=Fatal SymbolicName=MACHINE_CHECK_EXCEPTION
+Language=English
+.
+
+MessageId=0x009D Facility=Kernel Severity=None SymbolicName=WINDOWS_NT_INFO_STRING_PLURAL
+Language=English
+%u System Processors [%u MB Memory] %Z
+.
+
+MessageId=0x009E Facility=Kernel Severity=None SymbolicName=WINDOWS_NT_RC_STRING
+Language=English
+RC
 .
 
 ;#endif // _BUGCODES_

@@ -25,9 +25,7 @@ Environment:
 #include "ulib.hxx"
 #include "regiodsc.hxx"
 
-extern "C" {
-    #include <ctype.h>
-}
+#include <ctype.h>
 
 DEFINE_CONSTRUCTOR ( IO_DESCRIPTOR, OBJECT );
 
@@ -103,10 +101,10 @@ Return Value:
 --*/
 
 {
-    DbgPrintf( "\t\tOption = %#x \n", _Option );
-    DbgPrintf( "\t\tType = %#x \n", _Type );
-    DbgPrintf( "\t\tShareDisposition = %#x \n", _ShareDisposition );
-    DbgPrintf( "\t\tFlags = %x \n", _Flags );
+    DebugPrintf( "\t\tOption = %#x \n", _Option );
+    DebugPrintf( "\t\tType = %#x \n", _Type );
+    DebugPrintf( "\t\tShareDisposition = %#x \n", _ShareDisposition );
+    DebugPrintf( "\t\tFlags = %x \n", _Flags );
 }
 #endif
 
@@ -194,13 +192,13 @@ Return Value:
 
 {
     IO_DESCRIPTOR::DbgDumpObject();
-    DbgPrintf( "\t\tLength = %#lx \n", _Length );
-    DbgPrintf( "\t\tAlignment = %#lx \n", _Alignment );
-    DbgPrintf( "\t\tMinimumAddress.HighPart = %#lx \n", _MinimumAddress.HighPart );
-    DbgPrintf( "\t\tMinimumAddress.LowPart = %#lx \n", _MinimumAddress.LowPart );
-    DbgPrintf( "\t\tMaximumAddress.HighPart = %#lx \n", _MaximumAddress.HighPart );
-    DbgPrintf( "\t\tMaximumAddress.LowPart = %#lx \n", _MaximumAddress.LowPart );
-    DbgPrintf( "\n" );
+    DebugPrintf( "\t\tLength = %#lx \n", _Length );
+    DebugPrintf( "\t\tAlignment = %#lx \n", _Alignment );
+    DebugPrintf( "\t\tMinimumAddress.HighPart = %#lx \n", _MinimumAddress.HighPart );
+    DebugPrintf( "\t\tMinimumAddress.LowPart = %#lx \n", _MinimumAddress.LowPart );
+    DebugPrintf( "\t\tMaximumAddress.HighPart = %#lx \n", _MaximumAddress.HighPart );
+    DebugPrintf( "\t\tMaximumAddress.LowPart = %#lx \n", _MaximumAddress.LowPart );
+    DebugPrintf( "\n" );
 }
 #endif
 
@@ -284,9 +282,9 @@ Return Value:
 
 {
     IO_DESCRIPTOR::DbgDumpObject();
-    DbgPrintf( "\t\tMinimumVector = %#lx \n", _MinimumVector );
-    DbgPrintf( "\t\tMaximumVector = %#lx \n", _MaximumVector );
-    DbgPrintf( "\n" );
+    DebugPrintf( "\t\tMinimumVector = %#lx \n", _MinimumVector );
+    DebugPrintf( "\t\tMaximumVector = %#lx \n", _MaximumVector );
+    DebugPrintf( "\n" );
 }
 #endif
 
@@ -376,13 +374,13 @@ Return Value:
 
 {
     IO_DESCRIPTOR::DbgDumpObject();
-    DbgPrintf( "\t\tLength = %#lx \n", _Length );
-    DbgPrintf( "\t\tAlignment = %#lx \n", _Alignment );
-    DbgPrintf( "\t\tMinimumAddress.HighPart = %#lx \n", _MinimumAddress.HighPart );
-    DbgPrintf( "\t\tMinimumAddress.LowPart = %#lx \n", _MinimumAddress.LowPart );
-    DbgPrintf( "\t\tMaximumAddress.HighPart = %#lx \n", _MaximumAddress.HighPart );
-    DbgPrintf( "\t\tMaximumAddress.LowPart = %#lx \n", _MaximumAddress.LowPart );
-    DbgPrintf( "\n" );
+    DebugPrintf( "\t\tLength = %#lx \n", _Length );
+    DebugPrintf( "\t\tAlignment = %#lx \n", _Alignment );
+    DebugPrintf( "\t\tMinimumAddress.HighPart = %#lx \n", _MinimumAddress.HighPart );
+    DebugPrintf( "\t\tMinimumAddress.LowPart = %#lx \n", _MinimumAddress.LowPart );
+    DebugPrintf( "\t\tMaximumAddress.HighPart = %#lx \n", _MaximumAddress.HighPart );
+    DebugPrintf( "\t\tMaximumAddress.LowPart = %#lx \n", _MaximumAddress.LowPart );
+    DebugPrintf( "\n" );
 }
 #endif
 
@@ -466,8 +464,8 @@ Return Value:
 
 {
     IO_DESCRIPTOR::DbgDumpObject();
-    DbgPrintf( "\t\tMinimumChannel = %#lx \n", _MinimumChannel );
-    DbgPrintf( "\t\tMaximumChannel = %#lx \n", _MaximumChannel );
-    DbgPrintf( "\n" );
+    DebugPrintf( "\t\tMinimumChannel = %#lx \n", _MinimumChannel );
+    DebugPrintf( "\t\tMaximumChannel = %#lx \n", _MaximumChannel );
+    DebugPrintf( "\n" );
 }
 #endif

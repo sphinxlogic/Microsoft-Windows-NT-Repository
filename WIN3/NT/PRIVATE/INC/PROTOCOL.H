@@ -99,15 +99,12 @@ Revision History:
 //
 #define NTLANMAN "NT LM 0.12"
 
-#ifdef _CAIRO_
 //
-//       Cairo is not even far enough along to use numbers, in fact
-//       we hope to change cairo to be an attribute of NT and LANMAN 3.0
+// The Cairo dialect
 //
 //
 #define CAIROX   "Cairo 0.xa"
 
-#endif // _CAIRO_
 
 //
 //      The XENIXCORE dialect is a bit special.  It is identical to core,

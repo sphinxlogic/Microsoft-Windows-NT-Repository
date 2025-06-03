@@ -39,7 +39,7 @@ ULONG QueryVolumeInformation[] = {
 };
 
 STATIC
-VOID
+VOID SRVFASTCALL
 RestartEcho (
     IN OUT PWORK_CONTEXT WorkContext
     );
@@ -153,7 +153,7 @@ Return Value:
 } // SrvSmbEcho
 
 
-VOID
+VOID SRVFASTCALL
 RestartEcho (
     IN PWORK_CONTEXT WorkContext
     )
@@ -293,13 +293,6 @@ Routine Description:
     in a Transaction2 SMB.  Query FS Information corresponds to the
     OS/2 DosQFSInfo service.
 
-    In Cairo, this function handles two trans2s -
-        TRANS2_QUERY_FS_INFORMATION
-        TRANS2_QUERY_FS_INFORMATION_FID
-    The TRANS2_QUERY_FS_INFORMATION_FID is similar to the original,
-    except that the QueryVolumeInformation is applied to the FID
-    identified in the SMB.
-
 Arguments:
 
     WorkContext - Supplies the address of a Work Context Block
@@ -320,13 +313,9 @@ Return Value:
     PTRANSACTION transaction;
     USHORT informationLevel;
 
-#ifdef _CAIRO_
     USHORT trans2code;
     HANDLE fileHandle;
     BOOLEAN isRootDirectoryHandle;
-#else // _CAIRO_
-    PREQ_QUERY_FS_INFORMATION request;
-#endif // _CAIRO_
 
     FILE_FS_SIZE_INFORMATION fsSizeInfo;
     PFSALLOCATE fsAllocate;
@@ -336,6 +325,7 @@ Return Value:
     PFSINFO fsInfo;
     ULONG lengthVolumeLabel;
     BOOLEAN isUnicode;
+    PREQ_QUERY_FS_INFORMATION request;
 
     PAGED_CODE( );
 
@@ -352,9 +342,6 @@ Return Value:
     // response parameters.
     //
 
-#ifndef _CAIRO_
-    request = (PREQ_QUERY_FS_INFORMATION)transaction->InParameters;
-#endif // _CAIRO_
 
     if ( (transaction->ParameterCount < sizeof(REQ_QUERY_FS_INFORMATION)) ) {
 
@@ -375,87 +362,55 @@ Return Value:
         return SmbTransStatusErrorWithoutData;
     }
 
-#ifdef _CAIRO_
+    //
+    // See if a non-admin user is trying to access information on an Administrative share
+    //
+    status = SrvIsAllowedOnAdminShare( WorkContext, WorkContext->TreeConnect->Share );
+
+    if( !NT_SUCCESS( status ) ) {
+        SrvSetSmbError( WorkContext, status );
+        return SmbTransStatusErrorWithoutData;
+    }
+
     trans2code = SmbGetAlignedUshort(transaction->InSetup);
     IF_SMB_DEBUG(MISC1) {
         SrvPrint1("SrvSmbQueryFSInformation: Trans2 function = %x\n", trans2code);
     }
 
-    if (trans2code == TRANS2_QUERY_FS_INFORMATION_FID) {
+    request = (PREQ_QUERY_FS_INFORMATION) transaction->InParameters;
 
-        PREQ_QUERY_FS_INFORMATION_FID request =
-            (PREQ_QUERY_FS_INFORMATION_FID) transaction->InParameters;
-        PRFCB rfcb;
+    ASSERT( trans2code == TRANS2_QUERY_FS_INFORMATION );
 
-        informationLevel = SmbGetUshort( &request->InformationLevel );
-
-        rfcb = SrvVerifyFid(
-                    WorkContext,
-                    SmbGetUshort( &request->Fid ),
-                    TRUE,
-                    NULL,
-                    &status
-                    );
-
-        if (rfcb == SRV_INVALID_RFCB_POINTER) {
-            IF_DEBUG(SMB_ERRORS) {
-                SrvPrint1("SrvSmbQueryFSInformation: invalid FID %d\n",
-                            SmbGetUshort( &request->Fid ));
-            }
-            SrvSetSmbError( WorkContext, status );
-            return SmbTransStatusErrorWithoutData;
-        }
-
-        fileHandle = rfcb->Lfcb->FileHandle;
-        isRootDirectoryHandle = FALSE;
-
-        IF_SMB_DEBUG(MISC1) {
-            SrvPrint1("  Fid == %d\n", SmbGetUshort( &request->Fid ));
-            SrvPrint1("  FileObject == %08lx\n", rfcb->Lfcb->FileObject);
-            SrvPrint1("  FileHandle == %08lx\n", fileHandle);
-        }
-
-    } else {
-
-        PREQ_QUERY_FS_INFORMATION request =
-            (PREQ_QUERY_FS_INFORMATION) transaction->InParameters;
-
-        ASSERT( trans2code == TRANS2_QUERY_FS_INFORMATION );
-
-        informationLevel = SmbGetUshort( &request->InformationLevel );
-
-        //
-        // *** The share handle is used to get the allocation
-        //     information.  This is a "storage channel," and as a
-        //     result could allow people to get information to which
-        //     they are not entitled.  For a B2 security rating this may
-        //     need to be changed.
-        //
-
-        status = SrvGetShareRootHandle( WorkContext->TreeConnect->Share );
-
-        if (!NT_SUCCESS(status)) {
-
-            IF_DEBUG(ERRORS) {
-                SrvPrint1( "SrvSmbQueryFsInformation: SrvGetShareRootHandle failed %x.\n",
-                            status );
-            }
-
-            SrvSetSmbError( WorkContext, status );
-            return SmbTransStatusErrorWithoutData;
-
-        }
-
-        fileHandle = WorkContext->TreeConnect->Share->RootDirectoryHandle;
-        isRootDirectoryHandle = TRUE;
-
-        IF_SMB_DEBUG(MISC1) {
-            SrvPrint0("SrvSmbQueryFSInformation: Using share root handle\n");
-        }
-    }
-#else // _CAIRO_
     informationLevel = SmbGetUshort( &request->InformationLevel );
-#endif
+
+    //
+    // *** The share handle is used to get the allocation
+    //     information.  This is a "storage channel," and as a
+    //     result could allow people to get information to which
+    //     they are not entitled.  For a B2 security rating this may
+    //     need to be changed.
+    //
+
+    status = SrvGetShareRootHandle( WorkContext->TreeConnect->Share );
+
+    if (!NT_SUCCESS(status)) {
+
+        IF_DEBUG(ERRORS) {
+            SrvPrint1( "SrvSmbQueryFsInformation: SrvGetShareRootHandle failed %x.\n",
+                        status );
+        }
+
+        SrvSetSmbError( WorkContext, status );
+        return SmbTransStatusErrorWithoutData;
+
+    }
+
+    fileHandle = WorkContext->TreeConnect->Share->RootDirectoryHandle;
+    isRootDirectoryHandle = TRUE;
+
+    IF_SMB_DEBUG(MISC1) {
+        SrvPrint0("SrvSmbQueryFSInformation: Using share root handle\n");
+    }
 
     switch ( informationLevel ) {
 
@@ -472,25 +427,6 @@ Return Value:
             return SmbTransStatusErrorWithoutData;
         }
 
-#ifndef _CAIRO_
-        //
-        // Get the Share root handle.
-        //
-
-        status = SrvGetShareRootHandle( WorkContext->TreeConnect->Share );
-
-
-        if ( !NT_SUCCESS(status) ) {
-
-            IF_DEBUG(ERRORS) {
-                SrvPrint1( "SrvSmbQueryFsInformation: SrvGetShareRootHandle failed %x.\n",
-                            status );
-            }
-
-            SrvSetSmbError( WorkContext, status );
-            return SmbTransStatusErrorWithoutData;
-        }
-#endif
 
         //
         // *** The share handle is used to get the allocation
@@ -501,11 +437,7 @@ Return Value:
         //
 
         status = NtQueryVolumeInformationFile(
-#ifdef _CAIRO_
                      fileHandle,
-#else // _CAIRO_
-                     WorkContext->TreeConnect->Share->RootDirectoryHandle,
-#endif // _CAIRO_
                      &ioStatusBlock,
                      &fsSizeInfo,
                      sizeof(FILE_FS_SIZE_INFORMATION),
@@ -516,13 +448,9 @@ Return Value:
         // Release the share root handle if device is removable
         //
 
-#ifdef _CAIRO_
         if ( isRootDirectoryHandle ) {
             SrvReleaseShareRootHandle( WorkContext->TreeConnect->Share );
         }
-#else // _CAIRO_
-        SrvReleaseShareRootHandle( WorkContext->TreeConnect->Share );
-#endif // _CAIRO_
 
         if ( !NT_SUCCESS(status) ) {
             INTERNAL_ERROR(
@@ -588,7 +516,7 @@ Return Value:
         // will get STATUS_BUFFER_OVERFLOW from NtQueryVolumeInformationFile.
         //
 
-        fsVolumeInfoLength = sizeof(FILE_FS_VOLUME_INFORMATION) +
+        fsVolumeInfoLength = FIELD_OFFSET(FILE_FS_VOLUME_INFORMATION, VolumeLabel ) +
                              255 * sizeof(WCHAR);
         fsVolumeInfo = ALLOCATE_HEAP( fsVolumeInfoLength, BlockTypeDataBuffer );
 
@@ -597,36 +525,13 @@ Return Value:
             return SmbTransStatusErrorWithoutData;
         }
 
-#ifndef _CAIRO_
-        //
-        // Get the Share root handle.
-        //
-
-        status = SrvGetShareRootHandle( WorkContext->TreeConnect->Share );
-
-        if ( !NT_SUCCESS(status) ) {
-
-            IF_DEBUG(ERRORS) {
-                SrvPrint1( "SrvSmbQueryFsInformation: SrvGetShareRootHandle failed %x.\n",
-                            status );
-            }
-
-            FREE_HEAP( fsVolumeInfo );
-            SrvSetSmbError( WorkContext, status );
-            return SmbTransStatusErrorWithoutData;
-        }
-#endif // _CAIRO_
 
         //
         // Get the label information.
         //
 
         status = NtQueryVolumeInformationFile(
-#ifdef _CAIRO_
                      fileHandle,
-#else // _CAIRO_
-                     WorkContext->TreeConnect->Share->RootDirectoryHandle,
-#endif // _CAIRO_
                      &ioStatusBlock,
                      fsVolumeInfo,
                      fsVolumeInfoLength,
@@ -637,13 +542,9 @@ Return Value:
         // Release the share root handle if device is removable
         //
 
-#ifdef _CAIRO_
         if ( isRootDirectoryHandle ) {
             SrvReleaseShareRootHandle( WorkContext->TreeConnect->Share );
         }
-#else // _CAIRO_
-        SrvReleaseShareRootHandle( WorkContext->TreeConnect->Share );
-#endif // _CAIRO_
 
         if ( !NT_SUCCESS(status) ) {
             INTERNAL_ERROR(
@@ -666,13 +567,13 @@ Return Value:
 
         //
         // Make sure that the client can accept enough data.  The volume
-        // label length is limited to 12 characters (11 + zero
+        // label length is limited to 13 characters (8 + '.' + 3 + zero
         // terminator) in OS/2, so return STATUS_BUFFER_OVERFLOW if the
         // label is too long.
         //
 
         if ( !isUnicode &&
-                WorkContext->Connection->SmbDialect > SmbDialectNtLanMan ) {
+                !IS_NT_DIALECT( WorkContext->Connection->SmbDialect ) ) {
 
             //
             // For a non-NT client, we truncate the volume label in case
@@ -681,6 +582,23 @@ Return Value:
 
             if ( lengthVolumeLabel > 11 * sizeof(WCHAR) ) {
                 lengthVolumeLabel = 11 * sizeof(WCHAR);
+            }
+
+            //
+            // Wedge a '.' into the name if it's longer than 8 characters long
+            //
+            if( lengthVolumeLabel > 8 * sizeof( WCHAR ) ) {
+
+                LPWSTR p = &fsVolumeInfo->VolumeLabel[11];
+
+                *p = *(p-1);        // VolumeLabel[11] = VolumeLabel[10]
+                --p;
+                *p = *(p-1);        // VolumeLabel[10] = VolumeLabel[9]
+                --p;
+                *p = *(p-1);        // VolumeLabel[9] = VolumeLabel[8]
+                --p;
+                *p = L'.';          // VolumeLabel[8] = '.'
+
             }
 
         }
@@ -770,35 +688,14 @@ Return Value:
 
         //
         // These are NT infolevels.  We always return unicode.
+        //  Except for the fact that NEXUS on WFW calls through here and is
+        //  not unicode (isaache)
         //
+        // ASSERT( isUnicode );
 
-        ASSERT( isUnicode );
-
-#ifndef _CAIRO_
-        //
-        // Get the Share root handle.
-        //
-
-        status = SrvGetShareRootHandle( WorkContext->TreeConnect->Share );
-
-        if ( !NT_SUCCESS(status) ) {
-
-            IF_DEBUG(ERRORS) {
-                SrvPrint1( "SrvSmbQueryFsInformation: SrvGetShareRootHandle failed %x.\n",
-                            status );
-            }
-
-            SrvSetSmbError( WorkContext, status );
-            return SmbTransStatusErrorWithoutData;
-        }
-#endif // _CAIRO_
 
         status = NtQueryVolumeInformationFile(
-#ifdef _CAIRO_
                      fileHandle,
-#else // _CAIRO_
-                     WorkContext->TreeConnect->Share->RootDirectoryHandle,
-#endif // _CAIRO_
                      &ioStatusBlock,
                      transaction->OutData,
                      transaction->MaxDataCount,
@@ -812,13 +709,9 @@ Return Value:
         // Release the share root handle if device is removable
         //
 
-#ifdef _CAIRO_
         if ( isRootDirectoryHandle ) {
             SrvReleaseShareRootHandle( WorkContext->TreeConnect->Share );
         }
-#else // _CAIRO_
-        SrvReleaseShareRootHandle( WorkContext->TreeConnect->Share );
-#endif // _CAIRO_
 
         if ( NT_SUCCESS( status ) ) {
             transaction->DataCount = ioStatusBlock.Information;
@@ -952,6 +845,16 @@ Return Value:
     }
 
     //
+    // Make sure the client is allowed to do this, if we have an Admin share
+    //
+    status = SrvIsAllowedOnAdminShare( WorkContext, WorkContext->TreeConnect->Share );
+
+    if( !NT_SUCCESS( status ) ) {
+        SrvSetSmbError( WorkContext, status );
+        return SmbTransStatusErrorWithoutData;
+    }
+
+    //
     // Make sure that the client passed enough data bytes to account for
     // the entire length of the volume label.  The +2 accounts for the
     // zero terminator and the cch field of the VOLUMELABEL structure.
@@ -976,7 +879,7 @@ Return Value:
     unicodeString.MaximumLength =
                     (USHORT)RtlOemStringToUnicodeSize( &oemString );
 
-    fsLabelInfoLength = sizeof(FILE_FS_LABEL_INFORMATION) - sizeof(WCHAR) +
+    fsLabelInfoLength = FIELD_OFFSET( FILE_FS_LABEL_INFORMATION, VolumeLabel ) +
                         unicodeString.MaximumLength;
     fsLabelInfo = ALLOCATE_HEAP( fsLabelInfoLength, BlockTypeDataBuffer );
 
@@ -1124,7 +1027,8 @@ Return Value:
     status = SrvVerifyUidAndTid(
                 WorkContext,
                 &session,
-                &treeConnect
+                &treeConnect,
+                ShareTypeDisk
                 );
 
     if ( !NT_SUCCESS(status) ) {
@@ -1135,6 +1039,14 @@ Return Value:
         return SmbStatusSendResponse;
     }
 
+    //
+    // Make sure the client is allowed to do this, if we have an Admin share
+    //
+    status = SrvIsAllowedOnAdminShare( WorkContext, treeConnect->Share );
+    if( !NT_SUCCESS( status ) ) {
+        SrvSetSmbError( WorkContext, status );
+        return SmbStatusSendResponse;
+    }
     //
     // Get the Share root handle.
     //
@@ -1432,7 +1344,8 @@ Return Value:
     status = SrvVerifyUidAndTid(
                 WorkContext,
                 &session,
-                &treeConnect
+                &treeConnect,
+                ShareTypeWild
                 );
 
     if ( !NT_SUCCESS(status) ) {

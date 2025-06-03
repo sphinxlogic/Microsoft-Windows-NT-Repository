@@ -1197,7 +1197,7 @@ tryOneFile(
 #ifdef XENIX286
         iRet = open (fname, TEXTREAD);
 #else
-        iRet = sopen (fname, O_RDONLY | O_BINARY, SH_DENYWR);
+        iRet = _sopen (fname, O_RDONLY | O_BINARY, SH_DENYWR);
 #endif
         if( iRet == -1 && errno == EMFILE ){    /* If out of file handles */
             if( freeAFileHandle() ){
@@ -1318,11 +1318,11 @@ includedir ()
         pFCBT->pbufCur = NULL;
 #endif
 
-    if ((filelen = lseek(pFCBT->fh, 0L, 2 )) == -1L)
+    if ((filelen = _lseek(pFCBT->fh, 0L, 2 )) == -1L)
         TERMINATE1(ER_ULI, EX_UINP, save);
 
     /* go back to beginning */
-    lseek(pFCBT->fh, 0L, 0 );
+    _lseek(pFCBT->fh, 0L, 0 );
 
     if (filelen > DEF_INCBUFSIZ << 10)
         pFCBT->cbbuf = DEF_INCBUFSIZ << 10;
@@ -1998,7 +1998,7 @@ notPtr:
         }
 
         if (!pass2)
-            pArgCur->symu.equ.equrec.txtmacro.equtext = strdup(save);
+            pArgCur->symu.equ.equrec.txtmacro.equtext = _strdup(save);
     }
 }
 
@@ -2308,8 +2308,8 @@ int PASCAL CODESIZE
     /* Loop down linked list of nested include files */
     while( pFCBTmp ){
         if( (pFCBTmp->fh != FH_CLOSED) && (pFCBTmp != pFCBCur) ){
-            pFCBTmp->savefilepos = tell( pFCBTmp->fh );
-            close( pFCBTmp->fh );
+            pFCBTmp->savefilepos = _tell( pFCBTmp->fh );
+            _close( pFCBTmp->fh );
             pFCBTmp->fh = FH_CLOSED;
             return( TRUE );
         }

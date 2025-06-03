@@ -22,7 +22,7 @@ Environment:
 
 Revision History:
 
-    18-May-1992		John DeRosa [DEC]
+    18-May-1992         John DeRosa [DEC]
 
     Made Alpha/Jensen modifications.
 
@@ -34,7 +34,7 @@ Revision History:
 #ifdef JENSEN
 #include "jnsnrtc.h"
 #else
-#include "mrgnrtc.h"		// morgan
+#include "mrgnrtc.h"            // morgan
 #endif
 
 #include "string.h"
@@ -113,7 +113,6 @@ BOOLEAN ErrorsDuringEISABusConfiguration;
 //
 
 CCHAR KeNumberProcessors;
-USHORT KeProcessorType;
 PKPRCB KiProcessorBlock[MAXIMUM_PROCESSORS];
 KPRCB Prcb;
 KPROCESS Process;
@@ -255,35 +254,35 @@ Return Value:
 
     if (((PRTC_RAM_NT_FLAGS_0)(&NVRAMByte))->AutoRunECU) {
 
-	//
-	// AutoRunECU is on.
-	//
+        //
+        // AutoRunECU is on.
+        //
 
-	((PRTC_RAM_NT_FLAGS_0)(&NVRAMByte))->AutoRunECU = 0;
-	FwpWriteIOChip(RTC_APORT, RTC_RAM_NT_FLAGS0);
-	FwpWriteIOChip(RTC_DPORT, NVRAMByte);
+        ((PRTC_RAM_NT_FLAGS_0)(&NVRAMByte))->AutoRunECU = 0;
+        FwpWriteIOChip(RTC_APORT, RTC_RAM_NT_FLAGS0);
+        FwpWriteIOChip(RTC_DPORT, NVRAMByte);
 
-	FwSystemConsistencyCheck(TRUE, &Problems);
+        FwSystemConsistencyCheck(TRUE, &Problems);
 
-	//
-	// If there are no other Red problems besides the ECU bit,
-	// run the ECU.
-	//
+        //
+        // If there are no other Red problems besides the ECU bit,
+        // run the ECU.
+        //
 
-	if ((Problems &
-	     FWP_MACHINE_PROBLEMS_RED &
-	     ~FWP_MACHINE_PROBLEMS_ECU) == 0) {
-	    
-	    AutoRunTheECU = TRUE;
-	}
+        if ((Problems &
+             FWP_MACHINE_PROBLEMS_RED &
+             ~FWP_MACHINE_PROBLEMS_ECU) == 0) {
 
-    }      
+            AutoRunTheECU = TRUE;
+        }
+
+    }
 
     if (!AutoRunTheECU) {
 
-	//
-	// Warn the user if the system appears to be incapable of booting NT.
-	//
+        //
+        // Warn the user if the system appears to be incapable of booting NT.
+        //
 
         FwSystemConsistencyCheck(FALSE, &Problems);
     }
@@ -294,16 +293,16 @@ Return Value:
 
     while (TRUE) {
 
-	//
+        //
         // Since jnsetup is now part of the firmware, load the environment
-	// variables into the volatile environment.
-	//
-	// HACK: At some point the code should be changed to not use a
-	//       volatile environment.
-	//
-		      
+        // variables into the volatile environment.
+        //
+        // HACK: At some point the code should be changed to not use a
+        //       volatile environment.
+        //
+
         FwEnvironmentLoad();
-	
+
         //
         // Load up default environment variable values.
         //
@@ -328,93 +327,93 @@ Return Value:
             BootMenuChoices[0] = Choice0;
         }
 
-	strcpy(FwSearchPath, "FWSEARCHPATH");
-	
-	//
-	// The default action for running a program is to try to open
-	// the specified pathname without a appending .EXE extension first,
-	// and then if that fails, try appending a .EXE extension.
-	//
+        strcpy(FwSearchPath, "FWSEARCHPATH");
 
-	TryOpenWithSpecialMod = TRUE;
+        //
+        // The default action for running a program is to try to open
+        // the specified pathname without a appending .EXE extension first,
+        // and then if that fails, try appending a .EXE extension.
+        //
+
+        TryOpenWithSpecialMod = TRUE;
 
         FwSetScreenColor( ArcColorWhite, ArcColorBlue);
         FwSetScreenAttributes( TRUE, FALSE, FALSE);
 
-	//
-	// Add floppy controller to the CDS tree if it is not already there.
-	//
+        //
+        // Add floppy controller to the CDS tree if it is not already there.
+        //
 
-	FwSetupFloppy();
+        FwSetupFloppy();
 
 #ifdef EISA_PLATFORM
 
-	//
-	// If we are to automatically run the ECU, jam in some values
-	// and go directly to the run-a-program code.
-	//
+        //
+        // If we are to automatically run the ECU, jam in some values
+        // and go directly to the run-a-program code.
+        //
 
-	if (AutoRunTheECU) {
+        if (AutoRunTheECU) {
 
-	    AutoRunTheECU = FALSE;
-	    strcpy(PathName, FW_ECU_LOCATION);
-	    TempArgs = "";
-	    TryOpenWithSpecialMod = FALSE;
-	    goto ExecuteImage;
-	}
-    
+            AutoRunTheECU = FALSE;
+            strcpy(PathName, FW_ECU_LOCATION);
+            TempArgs = "";
+            TryOpenWithSpecialMod = FALSE;
+            goto ExecuteImage;
+        }
+
 #endif
-	//
-	// Redisplay whatever menu the user was in (Boot or Supplementary).
-	//
+        //
+        // Redisplay whatever menu the user was in (Boot or Supplementary).
+        //
 
         if (DefaultChoice != 3) {
 
-	    //
-	    // Display the main boot menu.  
-	    //
+            //
+            // Display the main boot menu.
+            //
 
-	    //
-	    // Calculate whether autoboot is active, and if so what the
-	    // autoboot value is.
-	    //
+            //
+            // Calculate whether autoboot is active, and if so what the
+            // autoboot value is.
+            //
 
-	    if (Timeout &&
-		((EnvironmentValue = FwGetEnvironmentVariable("Autoload")) != NULL) &&
-		(tolower(*EnvironmentValue) == 'y') &&
-		((EnvironmentValue = FwGetEnvironmentVariable("Countdown")) != NULL)) {
-		Countdown = atoi(EnvironmentValue);
+            if (Timeout &&
+                ((EnvironmentValue = FwGetEnvironmentVariable("Autoload")) != NULL) &&
+                (tolower(*EnvironmentValue) == 'y') &&
+                ((EnvironmentValue = FwGetEnvironmentVariable("Countdown")) != NULL)) {
+                Countdown = atoi(EnvironmentValue);
 
-	    } else {
-		Countdown = 0;
-		Timeout = FALSE;
-	    }
-	    
-	    DefaultChoice = JzGetSelection(BootMenuChoices,
-					   NUMBER_OF_BOOT_CHOICES,
-					   DefaultChoice,
-					   FW_MENU_BOOT_MSG,
-					   NULL,
-					   NULL,
-					   Countdown,
-					   FALSE);
-	}
-	
-	//
-	// Here when the user has made a selection, or the user was
-	// previously in the supplementary menu (DefaultChoice == 3) and
-	// so we will return him there, or we are automatically running
-	// the ECU.
-	//
+            } else {
+                Countdown = 0;
+                Timeout = FALSE;
+            }
 
-	//
-	// If the selection is not booting the default operating system,
-	// permanently remove the timeout.
-	//
+            DefaultChoice = JzGetSelection(BootMenuChoices,
+                                           NUMBER_OF_BOOT_CHOICES,
+                                           DefaultChoice,
+                                           FW_MENU_BOOT_MSG,
+                                           NULL,
+                                           NULL,
+                                           Countdown,
+                                           FALSE);
+        }
 
-	if (DefaultChoice != 0) {
-	    Timeout = FALSE;
-	}
+        //
+        // Here when the user has made a selection, or the user was
+        // previously in the supplementary menu (DefaultChoice == 3) and
+        // so we will return him there, or we are automatically running
+        // the ECU.
+        //
+
+        //
+        // If the selection is not booting the default operating system,
+        // permanently remove the timeout.
+        //
+
+        if (DefaultChoice != 0) {
+            Timeout = FALSE;
+        }
 
         switch (DefaultChoice) {
 
@@ -459,7 +458,7 @@ Return Value:
                 SecondaryBoot = FwGetVariableSegment(Index, LoadIdentifier) ||
                                 SecondaryBoot;
 
-		strcpy(BootChoices[Index], FW_BOOT_MSG);
+                strcpy(BootChoices[Index], FW_BOOT_MSG);
                 if (LoadIdentifier[sizeof("LOADIDENTIFIER=") - 1] != 0) {
                     strcat(BootChoices[Index],
                            &LoadIdentifier[sizeof("LOADIDENTIFIER=") - 1]);
@@ -502,11 +501,11 @@ Return Value:
             //
 
             Index = JzDisplayMenu (BootMenu,
-				   Index + 1,
-				   (Index ? 1 : 0),
-				   7,
-				   0,
-				   FALSE);
+                                   Index + 1,
+                                   (Index ? 1 : 0),
+                                   7,
+                                   0,
+                                   FALSE);
 
             //
             // Continue if the escape key was pressed.
@@ -540,15 +539,15 @@ Return Value:
             //
 
             FwSetPosition(5, 0);
-	    FwPrint("%cJ", ASCII_CSI);		// Clear to end of screen
+            FwPrint("%cJ", ASCII_CSI);          // Clear to end of screen
             FwPrint(FW_PROGRAM_TO_RUN_MSG);
             do {
                 Action = JzGetString(TempName,
-				     sizeof(TempName),
-				     NULL,
-				     5,
-				     strlen(FW_PROGRAM_TO_RUN_MSG),
-				     FALSE);
+                                     sizeof(TempName),
+                                     NULL,
+                                     5,
+                                     strlen(FW_PROGRAM_TO_RUN_MSG),
+                                     FALSE);
             } while ((Action != GetStringEscape) && (Action != GetStringSuccess));
 
             //
@@ -559,27 +558,27 @@ Return Value:
                 continue;
             }
 
-	    //
-	    // Execute monitor if special program name is given.
-	    //
+            //
+            // Execute monitor if special program name is given.
+            //
 
-	    if (strcmp(TempName, MON_INVOCATION_STRING) == 0) {
+            if (strcmp(TempName, MON_INVOCATION_STRING) == 0) {
 
-		FwClearScreen();
-                FwMonitor(3);		// goes thru PALcode link routine.
-	        continue;
-	    }
+                FwClearScreen();
+                FwMonitor(3);           // goes thru PALcode link routine.
+                continue;
+            }
 
-	    //
-	    // Strip off any arguments.
-	    //
+            //
+            // Strip off any arguments.
+            //
 
-	    if ((TempArgs = strchr(TempName, ' ')) != NULL) {
-	    	*TempArgs++ = 0;
-	    } else {
-	    	TempArgs = "";
-	    }
-	    
+            if ((TempArgs = strchr(TempName, ' ')) != NULL) {
+                *TempArgs++ = 0;
+            } else {
+                TempArgs = "";
+            }
+
             //
             // If the name does not contain a "(", then assume it is not a full
             // pathname.
@@ -621,7 +620,7 @@ Return Value:
                         FwSetPosition( 17, 0);
                         FwSetScreenColor(ArcColorRed, ArcColorWhite);
                         FwPrint(FW_PATHNAME_NOT_DEF_MSG);
-			FwWaitForKeypress(TRUE);
+                        FwWaitForKeypress(TRUE);
                         FwSetScreenColor(ArcColorWhite, ArcColorBlue);
                         continue;
                     } else {
@@ -658,7 +657,7 @@ Return Value:
                         FwSetPosition( 17, 0);
                         FwSetScreenColor(ArcColorRed, ArcColorWhite);
                         FwPrint(FW_ERROR_MSG[ENOENT - 1]);
-			FwWaitForKeypress(TRUE);
+                        FwWaitForKeypress(TRUE);
                         FwSetScreenColor(ArcColorWhite, ArcColorBlue);
                         continue;
                     }
@@ -671,11 +670,11 @@ Return Value:
             break;
 
 
-	case 3:
+        case 3:
 
-	    //
-	    // Bring up the supplementary menu
-	    //
+            //
+            // Bring up the supplementary menu
+            //
 
 #ifdef ALPHA_FW_VDB
     FwVideoStateDump(2);
@@ -696,16 +695,16 @@ Return Value:
 
     for (J = 0; J < 8; J++) {
 
-	for (H = 0; H < 3; H++) {
+        for (H = 0; H < 3; H++) {
 
-	    SerFwPrint("[%d:%d] = ", H, J*16);
+            SerFwPrint("[%d:%d] = ", H, J*16);
 
-	    for (I = J*16; I < (J+1)*16; I++) {
-		SerFwPrint("%x ", DebugAid[H][I]);
-	    }
-	    
-	    SerFwPrint("\r\n");
-	}
+            for (I = J*16; I < (J+1)*16; I++) {
+                SerFwPrint("%x ", DebugAid[H][I]);
+            }
+
+            SerFwPrint("\r\n");
+        }
 
     }
 
@@ -716,79 +715,79 @@ Return Value:
 
 
             SupplementaryMenuChoice = JzGetSelection (SupplementaryMenuChoices,
-						     NUMBER_OF_SUPP_CHOICES,
-						     SupplementaryMenuChoice,
-						     FW_MENU_SUPPLEMENTARY_MSG,
-						     NULL,
-						     NULL,
-						     0,
-						     FALSE);
+                                                     NUMBER_OF_SUPP_CHOICES,
+                                                     SupplementaryMenuChoice,
+                                                     FW_MENU_SUPPLEMENTARY_MSG,
+                                                     NULL,
+                                                     NULL,
+                                                     0,
+                                                     FALSE);
 
-	    FwClearScreen();
+            FwClearScreen();
 
-	    switch (SupplementaryMenuChoice) {
+            switch (SupplementaryMenuChoice) {
 
             case 0:
 
-		//
-		// Install new firmware
-		//
+                //
+                // Install new firmware
+                //
 
-		//
-		// If the Jensen update tool is present on the floppy,
-		// run it from there, otherwise run it from CD-ROM.
-		//
+                //
+                // If the Jensen update tool is present on the floppy,
+                // run it from there, otherwise run it from CD-ROM.
+                //
 
-	    	TempArgs = "";
+                TempArgs = "";
 
-		//
-		// The program string we will attempt to open already has
-		// a .EXE extension, so do not waste type by trying to
-		// open it first without one.
-		//
+                //
+                // The program string we will attempt to open already has
+                // a .EXE extension, so do not waste type by trying to
+                // open it first without one.
+                //
 
-		TryOpenWithSpecialMod = FALSE;
+                TryOpenWithSpecialMod = FALSE;
 
-		FwSetPosition(2, 0);
-		FwPrint(FW_FIRMWARE_UPDATE_SEARCH_MSG);
+                FwSetPosition(2, 0);
+                FwPrint(FW_FIRMWARE_UPDATE_SEARCH_MSG);
 
-		if (FwOpen(FW_PRIMARY_FIRMWARE_UPDATE_TOOL,
-			   ArcOpenReadOnly,
-			   &Count) == ESUCCESS) {
-		    FwClose(Count);
-		    strcpy(PathName, FW_PRIMARY_FIRMWARE_UPDATE_TOOL);
-		    break;
-		} else {
-		    FwpFindCDROM(PathName);
-		    strcat(PathName, FW_FIRMWARE_UPDATE_TOOL_NAME);
-		    break;
-		}
+                if (FwOpen(FW_PRIMARY_FIRMWARE_UPDATE_TOOL,
+                           ArcOpenReadOnly,
+                           &Count) == ESUCCESS) {
+                    FwClose(Count);
+                    strcpy(PathName, FW_PRIMARY_FIRMWARE_UPDATE_TOOL);
+                    break;
+                } else {
+                    FwpFindCDROM(PathName);
+                    strcat(PathName, FW_FIRMWARE_UPDATE_TOOL_NAME);
+                    break;
+                }
 
 
-	    case 1:
-		
-		//
-		// Install Windows NT from CD-ROM
-		//
+            case 1:
 
-		if (FwpEvaluateWNTInstall(PathName) == ESUCCESS) {
+                //
+                // Install Windows NT from CD-ROM
+                //
 
-		    //
-		    // The program string we will attempt to open does not have
-		    // a .EXE extension, and it is not supposed to, so do not
-		    // waste time trying to open it to see if it is really
-		    // there.
-		    //
+                if (FwpEvaluateWNTInstall(PathName) == ESUCCESS) {
 
-		    TryOpenWithSpecialMod = FALSE;
-		    TempArgs = "";
-		    break;
+                    //
+                    // The program string we will attempt to open does not have
+                    // a .EXE extension, and it is not supposed to, so do not
+                    // waste time trying to open it to see if it is really
+                    // there.
+                    //
 
-		} else {
+                    TryOpenWithSpecialMod = FALSE;
+                    TempArgs = "";
+                    break;
 
-		    // We cannot install Windows NT.
-		    continue;
-		}
+                } else {
+
+                    // We cannot install Windows NT.
+                    continue;
+                }
 
             case 2:
 
@@ -798,60 +797,60 @@ Return Value:
 
                 JensenSetupProgram(&RunAProgram, PathName);
 
-		if (RunAProgram) {
-		    TryOpenWithSpecialMod = FALSE;
-		    TempArgs = "";
-		    break;
-		} else {
-		    continue;
-		}
+                if (RunAProgram) {
+                    TryOpenWithSpecialMod = FALSE;
+                    TempArgs = "";
+                    break;
+                } else {
+                    continue;
+                }
 
             case 3:
 
                 //
                 // List available devices
-		//
+                //
 
-		FwSetPosition(2,0);
-		FwDumpLookupTable();
-		FwPrint(FW_CRLF_MSG);
-		FwWaitForKeypress(TRUE);
-		continue;
-
-	    case -1:
-            case 4:
-	    default:
-
-		//
-		// Back to boot menu if the escape key was pressed, or
-                // if Return to boot menu was selected, or if something
-		// bad happened in JzDisplayMenu.
-		//
-
-		DefaultChoice = 0;
-		SupplementaryMenuChoice = 0;
+                FwSetPosition(2,0);
+                FwDumpLookupTable();
+                FwPrint(FW_CRLF_MSG);
+                FwWaitForKeypress(TRUE);
                 continue;
 
-	    }
+            case -1:
+            case 4:
+            default:
 
-	    //
-	    // If the supplementary menu switch exits, we want to exit the
-	    // boot menu switch as well.
-	    //
+                //
+                // Back to boot menu if the escape key was pressed, or
+                // if Return to boot menu was selected, or if something
+                // bad happened in JzDisplayMenu.
+                //
 
-	    break;
+                DefaultChoice = 0;
+                SupplementaryMenuChoice = 0;
+                continue;
+
+            }
+
+            //
+            // If the supplementary menu switch exits, we want to exit the
+            // boot menu switch as well.
+            //
+
+            break;
 
 
         default:
 
-	    //
-	    // User hit escape.
-	    //
+            //
+            // User hit escape.
+            //
 
-	    DefaultChoice = 0;
+            DefaultChoice = 0;
             continue;
 
-	}
+        }
 
 
 
@@ -880,7 +879,7 @@ ExecuteImage:
 
             //
             // While variables still exist, find the end of each and set
-            // the next envp value to point there. BUGBUG This will break
+            // the next envp value to point there. Note this will break
             // if the last variable has only one null after it.
             //
 
@@ -889,40 +888,40 @@ ExecuteImage:
                 LoadEnvp[Index] = strchr(LoadEnvp[Index - 1],'\0') + 1;
             }
 
-	    //
-	    // Load the Alpha AXP protected environment variables.
-	    //
-	    
-	    if ((Index+1+5) >= MAX_NUMBER_OF_ENVIRONMENT_VARIABLES) {
+            //
+            // Load the Alpha AXP protected environment variables.
+            //
+
+            if ((Index+1+5) >= MAX_NUMBER_OF_ENVIRONMENT_VARIABLES) {
                 FwSetScreenColor(ArcColorRed, ArcColorWhite);
                 FwPrint(FW_INTERNAL_ERROR_ENVIRONMENT_VARS_MSG);
                 FwSetScreenColor(ArcColorWhite, ArcColorBlue);
-		FwWaitForKeypress(TRUE);
-	    } else {
-		strcpy (ProtectedEnvironmentVariables[0],
-			FwGetEnvironmentVariable("PHYSICALADDRESSBITS"));
-		strcpy (ProtectedEnvironmentVariables[1],
-			FwGetEnvironmentVariable("MAXIMUMADDRESSSPACENUMBER"));
-		strcpy (ProtectedEnvironmentVariables[2],
-			FwGetEnvironmentVariable("SYSTEMSERIALNUMBER"));
-		strcpy (ProtectedEnvironmentVariables[3],
-			FwGetEnvironmentVariable("CYCLECOUNTERPERIOD"));
-		strcpy (ProtectedEnvironmentVariables[4],
-			FwGetEnvironmentVariable("PROCESSORPAGESIZE"));
+                FwWaitForKeypress(TRUE);
+            } else {
+                strcpy (ProtectedEnvironmentVariables[0],
+                        FwGetEnvironmentVariable("PHYSICALADDRESSBITS"));
+                strcpy (ProtectedEnvironmentVariables[1],
+                        FwGetEnvironmentVariable("MAXIMUMADDRESSSPACENUMBER"));
+                strcpy (ProtectedEnvironmentVariables[2],
+                        FwGetEnvironmentVariable("SYSTEMSERIALNUMBER"));
+                strcpy (ProtectedEnvironmentVariables[3],
+                        FwGetEnvironmentVariable("CYCLECOUNTERPERIOD"));
+                strcpy (ProtectedEnvironmentVariables[4],
+                        FwGetEnvironmentVariable("PROCESSORPAGESIZE"));
 
-		LoadEnvp[Index++] = ProtectedEnvironmentVariables[0];
-		LoadEnvp[Index++] = ProtectedEnvironmentVariables[1];
-		LoadEnvp[Index++] = ProtectedEnvironmentVariables[2];
-		LoadEnvp[Index++] = ProtectedEnvironmentVariables[3];
-		LoadEnvp[Index++] = ProtectedEnvironmentVariables[4];
-	    }
+                LoadEnvp[Index++] = ProtectedEnvironmentVariables[0];
+                LoadEnvp[Index++] = ProtectedEnvironmentVariables[1];
+                LoadEnvp[Index++] = ProtectedEnvironmentVariables[2];
+                LoadEnvp[Index++] = ProtectedEnvironmentVariables[3];
+                LoadEnvp[Index++] = ProtectedEnvironmentVariables[4];
+            }
 
             //
             // No more, set the last one to NULL.
             //
 
             LoadEnvp[Index] = NULL;
-	}
+        }
 
         //
         // If this is an automatic boot selection, load up the standard
@@ -986,12 +985,12 @@ ExecuteImage:
         //
 
         if (TryOpenWithSpecialMod) {
-	    if (FwOpen(PathName, ArcOpenReadOnly, &Count) == ESUCCESS) {
-		FwClose(Count);
-	    } else {
-		strcat(PathName, ".exe");
-	    }
-	}
+            if (FwOpen(PathName, ArcOpenReadOnly, &Count) == ESUCCESS) {
+                FwClose(Count);
+            } else {
+                strcat(PathName, ".exe");
+            }
+        }
 
         //
         // Attempt to load the specified file.
@@ -1003,13 +1002,13 @@ ExecuteImage:
 
         //
         // Close and reopen the console in case it was changed by the user.
-	// Note that we must still check to see if there was a problem
-	// with either the video or keyboard hardware when we first booted.
+        // Note that we must still check to see if there was a problem
+        // with either the video or keyboard hardware when we first booted.
         //
 
         FwClose(ARC_CONSOLE_INPUT);
         FwClose(ARC_CONSOLE_OUTPUT);
-	FwOpenConsole();
+        FwOpenConsole();
 
         if (Status == ESUCCESS) {
 
@@ -1024,7 +1023,7 @@ ExecuteImage:
             }
 
         } else {
-	    ParseARCErrorStatus(Status);
+            ParseARCErrorStatus(Status);
         }
     }
 }
@@ -1057,13 +1056,13 @@ Return Value:
 
     FwSetScreenColor(ArcColorRed, ArcColorWhite);
     FwPrint(FW_ERROR2_MSG);
-    
+
     if (Status <= EROFS) {
-	FwPrint(FW_ERROR_MSG[Status - 1]);
+        FwPrint(FW_ERROR_MSG[Status - 1]);
     } else {
-	FwPrint(FW_ERROR_CODE_MSG, Status);
+        FwPrint(FW_ERROR_CODE_MSG, Status);
     }
-    
+
     FwPrint(FW_PRESS_ANY_KEY2_MSG);
     FwSetScreenColor(ArcColorWhite, ArcColorBlue);
     FwRead(ARC_CONSOLE_INPUT, &Character, 1, &Count);
@@ -1117,9 +1116,9 @@ Routine Description:
 
 Arguments:
 
-    StartAtRow	-	The screen row to start outputting at.
+    StartAtRow  -       The screen row to start outputting at.
 
-    RedProblems -	TRUE if Red problems exist.
+    RedProblems -       TRUE if Red problems exist.
 
 Return Value:
 
@@ -1135,17 +1134,17 @@ Return Value:
     FwPrint("บ                                                          บ");
 
     if (RedProblems) {
-	FwSetPosition(StartAtRow++, 5);
-	FwPrint(FW_RED_BANNER_PRESSKEY_MSG);
+        FwSetPosition(StartAtRow++, 5);
+        FwPrint(FW_RED_BANNER_PRESSKEY_MSG);
     }
 
     FwSetPosition(StartAtRow++, 5);
     FwPrint("ศออออออออออออออออออออออออออออออออออออออออออออออออออออออออออผ");
 
     if (RedProblems) {
-	FwRead(ARC_CONSOLE_INPUT, &Character, 1, &Count);
+        FwRead(ARC_CONSOLE_INPUT, &Character, 1, &Count);
     } else {
-	FwStallExecution(4 * 1000 * 1000);
+        FwStallExecution(4 * 1000 * 1000);
     }
 
 }
@@ -1165,9 +1164,9 @@ Routine Description:
 
 Arguments:
 
-    Component		Pointer to a node in the CDS tree.
+    Component           Pointer to a node in the CDS tree.
 
-    Identifier		Identifier string to match against.
+    Identifier          Identifier string to match against.
 
 
 Return Value:
@@ -1181,11 +1180,11 @@ Return Value:
     Component = FwGetChild(Component);
 
     while (Component != NULL) {
-	if ((Component->IdentifierLength != 0) &&
-	    (strcmp(Component->Identifier, Identifier) == 0)) {
-	    return (FALSE);
-	}
-	Component = FwGetPeer(Component);
+        if ((Component->IdentifierLength != 0) &&
+            (strcmp(Component->Identifier, Identifier) == 0)) {
+            return (FALSE);
+        }
+        Component = FwGetPeer(Component);
     }
 
     return (TRUE);
@@ -1208,11 +1207,11 @@ Routine Description:
 
 Arguments:
 
-    Component		Pointer to a node in the CDS tree.
+    Component           Pointer to a node in the CDS tree.
 
-    Class		The class to match against.
+    Class               The class to match against.
 
-    Type		The type to match against.
+    Type                The type to match against.
 
 
 Return Value:
@@ -1226,11 +1225,11 @@ Return Value:
     Component = FwGetChild(Component);
 
     while (Component != NULL) {
-	if ((Component->Class == Class) &&
-	    (Component->Type == Type)) {
-	    return (FALSE);
-	}
-	Component = FwGetPeer(Component);
+        if ((Component->Class == Class) &&
+            (Component->Type == Type)) {
+            return (FALSE);
+        }
+        Component = FwGetPeer(Component);
     }
 
     return (TRUE);
@@ -1251,7 +1250,7 @@ Routine Description:
     data block, and the system time.  On an error, it can optionally output
     an error message.
 
-    A volatile check is made to facilitate using this function in the 
+    A volatile check is made to facilitate using this function in the
     built-in ROM setup utility.  When this is called during the power-up
     initialization, the volatile areas will not have been loaded if
     the ROM had a bad checksum, so this indirectly checks the ROM state
@@ -1261,12 +1260,12 @@ Routine Description:
 
 Arguments:
 
-    Silent		FALSE if messages should be sent to the console.
+    Silent              FALSE if messages should be sent to the console.
                         TRUE if this should run silently.
 
-    Problems	        A pointer to the variable that should receive the
+    Problems            A pointer to the variable that should receive the
                         indicatation of what problems were found.  Zero
-			(0) indicates no problems.
+                        (0) indicates no problems.
 
 Return Value:
 
@@ -1293,14 +1292,14 @@ Return Value:
     SystemTime = FwGetTime();
 
     if ((SystemTime->Year < 1993) ||
-	(SystemTime->Month < 1) || (SystemTime->Month > 12) ||
-	(SystemTime->Day < 1) || (SystemTime->Day > 31) ||
-	(SystemTime->Hour < 0) || (SystemTime->Hour > 23) ||
-	(SystemTime->Minute < 0) || (SystemTime->Minute > 59) ||
-	(SystemTime->Second < 0) || (SystemTime->Second > 59) ||
-	(SystemTime->Milliseconds < 0) || (SystemTime->Milliseconds > 999) ||
-	(SystemTime->Weekday < 0) || (SystemTime->Weekday > 6)) {
-	*Problems = FWP_MACHINE_PROBLEMS_TIME;
+        (SystemTime->Month < 1) || (SystemTime->Month > 12) ||
+        (SystemTime->Day < 1) || (SystemTime->Day > 31) ||
+        (SystemTime->Hour < 0) || (SystemTime->Hour > 23) ||
+        (SystemTime->Minute < 0) || (SystemTime->Minute > 59) ||
+        (SystemTime->Second < 0) || (SystemTime->Second > 59) ||
+        (SystemTime->Milliseconds < 0) || (SystemTime->Milliseconds > 999) ||
+        (SystemTime->Weekday < 0) || (SystemTime->Weekday > 6)) {
+        *Problems = FWP_MACHINE_PROBLEMS_TIME;
     }
 
     //
@@ -1308,7 +1307,7 @@ Return Value:
     //
 
     if (FwGetVolatileEnvironmentVariable("CONSOLEIN") == NULL) {
-	*Problems |= FWP_MACHINE_PROBLEMS_EV;
+        *Problems |= FWP_MACHINE_PROBLEMS_EV;
     }
 
     //
@@ -1318,14 +1317,14 @@ Return Value:
     Component = FwGetComponent("cpu");
 
     if ((Component == NULL) ||
-	(Component->Class != ProcessorClass) ||
-	(Component->Type != CentralProcessor)) {
+        (Component->Class != ProcessorClass) ||
+        (Component->Type != CentralProcessor)) {
 
-	//
-	// If the CPU node is not valid, then the entire tree is probably bad.
-	//	
+        //
+        // If the CPU node is not valid, then the entire tree is probably bad.
+        //
 
-	*Problems |= FWP_MACHINE_PROBLEMS_CDS;
+        *Problems |= FWP_MACHINE_PROBLEMS_CDS;
     }
 
     //
@@ -1334,23 +1333,23 @@ Return Value:
     //
 
     if ((FwGetVolatileEnvironmentVariable("FLOPPY") == NULL) ||
-	(FwGetVolatileEnvironmentVariable("FLOPPY2") == NULL)) {
+        (FwGetVolatileEnvironmentVariable("FLOPPY2") == NULL)) {
 
-	*Problems |= FWP_MACHINE_PROBLEMS_CDS;
+        *Problems |= FWP_MACHINE_PROBLEMS_CDS;
 
     } else {
 
-	//
-	// Check the first character of the floppy environment variables.
-	//
+        //
+        // Check the first character of the floppy environment variables.
+        //
 
-	Floppy = *FwGetVolatileEnvironmentVariable("FLOPPY");
-	Floppy2 = *FwGetVolatileEnvironmentVariable("FLOPPY2");
+        Floppy = *FwGetVolatileEnvironmentVariable("FLOPPY");
+        Floppy2 = *FwGetVolatileEnvironmentVariable("FLOPPY2");
 
-	if ((Floppy < '0') || (Floppy > '2') ||
-	    ((Floppy2 != 'N') && ((Floppy2 < '0') || (Floppy2 > '2')))) {
-	    *Problems |= FWP_MACHINE_PROBLEMS_CDS;
-	}
+        if ((Floppy < '0') || (Floppy > '2') ||
+            ((Floppy2 != 'N') && ((Floppy2 < '0') || (Floppy2 > '2')))) {
+            *Problems |= FWP_MACHINE_PROBLEMS_CDS;
+        }
     }
 
     //
@@ -1359,7 +1358,7 @@ Return Value:
 
     JzCheckBootSelections(TRUE, &FoundBootProblems);
     if (FoundBootProblems) {
-	*Problems |= FWP_MACHINE_PROBLEMS_BOOT;
+        *Problems |= FWP_MACHINE_PROBLEMS_BOOT;
     }
 
 #ifdef EISA_PLATFORM
@@ -1373,42 +1372,42 @@ Return Value:
 
     if (ErrorsDuringEISABusConfiguration == TRUE) {
 
-	*Problems |= FWP_MACHINE_PROBLEMS_ECU;
+        *Problems |= FWP_MACHINE_PROBLEMS_ECU;
     }
 
     Component = FwGetComponent("eisa()");
 
     if ((Component == NULL) ||
-	(Component->Class != AdapterClass) ||
-	(Component->Type != EisaAdapter)) {
+        (Component->Class != AdapterClass) ||
+        (Component->Type != EisaAdapter)) {
 
-	*Problems |= FWP_MACHINE_PROBLEMS_CDS;
-	*Problems |= FWP_MACHINE_PROBLEMS_ECU;
+        *Problems |= FWP_MACHINE_PROBLEMS_CDS;
+        *Problems |= FWP_MACHINE_PROBLEMS_ECU;
 
     } else {
 
-	//
-	// Look for the three required children of the EISA adapter.
-	//
+        //
+        // Look for the three required children of the EISA adapter.
+        //
 
-	//
-	// System board and AHA1742
-	//
+        //
+        // System board and AHA1742
+        //
 
-	if (FwpLookForEISAChildIdentifier(Component, "DEC2400") ||
-	    FwpLookForEISAChildIdentifier(Component, "ADP0002")) {
-	    *Problems |= FWP_MACHINE_PROBLEMS_ECU;
-	}
+        if (FwpLookForEISAChildIdentifier(Component, "DEC2400") ||
+            FwpLookForEISAChildIdentifier(Component, "ADP0002")) {
+            *Problems |= FWP_MACHINE_PROBLEMS_ECU;
+        }
 
-	//
-	// SCSI adapter
-	//
+        //
+        // SCSI adapter
+        //
 
-	if (FwpLookForEISAChildClassType(Component,
-					 AdapterClass,
-					 ScsiAdapter)) {
-	    *Problems |= FWP_MACHINE_PROBLEMS_ECU;
-	}
+        if (FwpLookForEISAChildClassType(Component,
+                                         AdapterClass,
+                                         ScsiAdapter)) {
+            *Problems |= FWP_MACHINE_PROBLEMS_ECU;
+        }
 
     }
 
@@ -1417,73 +1416,73 @@ Return Value:
 
     if (!Silent && (*Problems != FWP_MACHINE_PROBLEMS_NOPROBLEMS)) {
 
-	//
-	// Tell the user what problems were found.
-	//
+        //
+        // Tell the user what problems were found.
+        //
 
-	FwClearScreen();
-	FwSetScreenColor(ArcColorBlue, ArcColorWhite);
-	FwErrorTopBoarder();
+        FwClearScreen();
+        FwSetScreenColor(ArcColorBlue, ArcColorWhite);
+        FwErrorTopBoarder();
 
-	LineNumber = 5;
+        LineNumber = 5;
 
-	for (Index = 0;
-	     Index < FW_SYSTEM_INCONSISTENCY_WARNING_MSG_SIZE;
-	     Index++) {
-	    FwSetPosition(LineNumber++, 5);
-	    FwPrint(FW_SYSTEM_INCONSISTENCY_WARNING_MSG[Index]);
-	}
+        for (Index = 0;
+             Index < FW_SYSTEM_INCONSISTENCY_WARNING_MSG_SIZE;
+             Index++) {
+            FwSetPosition(LineNumber++, 5);
+            FwPrint(FW_SYSTEM_INCONSISTENCY_WARNING_MSG[Index]);
+        }
 
-	TempX = *Problems;
-	Index = 0;
+        TempX = *Problems;
+        Index = 0;
 
-	while (TempX != 0) {
+        while (TempX != 0) {
 
-	    //
-	    // The check against a NULL MachineProblemAreas pointer is for
-	    // debugging and could be removed in the final product.
-	    //
+            //
+            // The check against a NULL MachineProblemAreas pointer is for
+            // debugging and could be removed in the final product.
+            //
 
-	    if ((((TempX & 1) != 0) || ((TempX & 0x10000) != 0)) &&
-		(MachineProblemAreas[Index] != NULL)) {
+            if ((((TempX & 1) != 0) || ((TempX & 0x10000) != 0)) &&
+                (MachineProblemAreas[Index] != NULL)) {
 
-		FwSetPosition(LineNumber++,5);
+                FwSetPosition(LineNumber++,5);
 
-		// For effect, print out all the error areas in yellow.
-		FwPrint("บ           %c3%dm%s%c3%dm         บ",
-			ASCII_CSI,
-			ArcColorYellow,
-			MachineProblemAreas[Index],
-			ASCII_CSI,
-			ArcColorBlue);
-	    }
+                // For effect, print out all the error areas in yellow.
+                FwPrint("บ           %c3%dm%s%c3%dm         บ",
+                        ASCII_CSI,
+                        ArcColorYellow,
+                        MachineProblemAreas[Index],
+                        ASCII_CSI,
+                        ArcColorBlue);
+            }
 
-	    TempX = ((TempX & FWP_MACHINE_PROBLEMS_RED) >> 1) |
-	            (((TempX & FWP_MACHINE_PROBLEMS_YELLOW) >> 17) << 16);
-	    Index++;
-	}
+            TempX = ((TempX & FWP_MACHINE_PROBLEMS_RED) >> 1) |
+                    (((TempX & FWP_MACHINE_PROBLEMS_YELLOW) >> 17) << 16);
+            Index++;
+        }
 
-	//
-	// LineNumber contains the line that we should next print on, and
-	// the screen colors are Blue on White.
-	//
+        //
+        // LineNumber contains the line that we should next print on, and
+        // the screen colors are Blue on White.
+        //
 
-	for (Index = 0;
-	     Index < FW_SYSTEM_INCONSISTENCY_WARNING_HOWTOFIX_MSG_SIZE;
-	     Index++) {
-	    FwSetPosition(LineNumber++, 5);
-	    FwPrint(FW_SYSTEM_INCONSISTENCY_WARNING_HOWTOFIX_MSG[Index]);
-	}
+        for (Index = 0;
+             Index < FW_SYSTEM_INCONSISTENCY_WARNING_HOWTOFIX_MSG_SIZE;
+             Index++) {
+            FwSetPosition(LineNumber++, 5);
+            FwPrint(FW_SYSTEM_INCONSISTENCY_WARNING_HOWTOFIX_MSG[Index]);
+        }
 
-	//
-	// Print the bottom of the error message.  Stall if only yellow
-	// errors were found, otherwise wait for a keypress.
-	//
+        //
+        // Print the bottom of the error message.  Stall if only yellow
+        // errors were found, otherwise wait for a keypress.
+        //
 
-	FwErrorBottomBoarder(LineNumber,
-			     (*Problems & FWP_MACHINE_PROBLEMS_RED));
+        FwErrorBottomBoarder(LineNumber,
+                             (*Problems & FWP_MACHINE_PROBLEMS_RED));
 
-	FwSetScreenColor(ArcColorWhite, ArcColorBlue);
+        FwSetScreenColor(ArcColorWhite, ArcColorBlue);
 
     }
 
@@ -1507,7 +1506,7 @@ Routine Description:
     Note: the system parameter block is initialized early in selftest.c.
     This was needed in the Jazz code because of how the Jazz video prom code
     worked; it is mainted here for code compatibility reasons.
-    
+
 Arguments:
 
     MemSize - Not Used. For compatibility with definitions in bldr\firmware.h
@@ -1525,7 +1524,7 @@ Return Value:
     BOOLEAN BadROMType = FALSE;
 
     FwPrint(FW_INITIALIZING_MSG);
-    
+
     //
     // Initialize Signal vector. And set default signal.
     //
@@ -1547,8 +1546,8 @@ Return Value:
     //
 
     if (FwROMDetermineMachineROMType() != ESUCCESS) {
-	FwPrint(FW_UNKNOWN_ROM_MSG);
-	BadROMType = TRUE;
+        FwPrint(FW_UNKNOWN_ROM_MSG);
+        BadROMType = TRUE;
     }
 
 #endif
@@ -1622,7 +1621,7 @@ Return Value:
 
     FwPrint(FW_OK_MSG);
     FwPrint(FW_CRLF_MSG);
-    
+
 #ifdef ALPHA_FW_KDHOOKS
 
     //
@@ -1646,8 +1645,8 @@ Return Value:
     EisaIni();
 
     if (ErrorsDuringEISABusConfiguration || BadROMType) {
-	FwPrint(FW_CRLF_MSG);
-	FwWaitForKeypress(FALSE);
+        FwPrint(FW_CRLF_MSG);
+        FwWaitForKeypress(FALSE);
     }
 
     //
@@ -1791,18 +1790,18 @@ Return Value:
     if (FwOpen(ConsoleName,ArcOpenReadOnly,&Fid) != ESUCCESS) {
 
         FwPrint(FW_CONSOLE_IN_ERROR_MSG);
-	FwPrint(FW_CONSOLE_TRYING_TO_OPEN_MSG, FW_KEYBOARD_IN_DEVICE);
+        FwPrint(FW_CONSOLE_TRYING_TO_OPEN_MSG, FW_KEYBOARD_IN_DEVICE);
 
-	if (FwOpen(FW_KEYBOARD_IN_DEVICE,ArcOpenReadOnly,&Fid) != ESUCCESS) {
-	    FwPrint(FW_CONSOLE_IN_FAILSAFE_ERROR_MSG);
-	    FwPrint(FW_CONTACT_FIELD_SERVICE_MSG);
-	} else {
-	    FwPrint(FW_OK_MSG);
-	    FwPrint(FW_CRLF_MSG);
-	    FwPrint(FW_CONSOLE_IN_PLEASE_REPAIR_MSG);
-	}	 
+        if (FwOpen(FW_KEYBOARD_IN_DEVICE,ArcOpenReadOnly,&Fid) != ESUCCESS) {
+            FwPrint(FW_CONSOLE_IN_FAILSAFE_ERROR_MSG);
+            FwPrint(FW_CONTACT_FIELD_SERVICE_MSG);
+        } else {
+            FwPrint(FW_OK_MSG);
+            FwPrint(FW_CRLF_MSG);
+            FwPrint(FW_CONSOLE_IN_PLEASE_REPAIR_MSG);
+        }
 
-	FwStallExecution(5000000);
+        FwStallExecution(5000000);
     }
 
     if (Fid != ARC_CONSOLE_INPUT) {
@@ -1820,18 +1819,18 @@ Return Value:
 
     if (FwOpen(ConsoleName,ArcOpenWriteOnly,&Fid) != ESUCCESS) {
         FwPrint(FW_CONSOLE_OUT_ERROR_MSG);
-	FwPrint(FW_CONSOLE_TRYING_TO_OPEN_MSG, FW_CONSOLE_OUT_DEVICE);
+        FwPrint(FW_CONSOLE_TRYING_TO_OPEN_MSG, FW_CONSOLE_OUT_DEVICE);
 
-	if (FwOpen(FW_CONSOLE_OUT_DEVICE,ArcOpenWriteOnly,&Fid) != ESUCCESS) {
-	    FwPrint(FW_CONSOLE_OUT_FAILSAFE_ERROR_MSG);
-	    FwPrint(FW_CONTACT_FIELD_SERVICE_MSG);
-	} else {
-	    FwPrint(FW_OK_MSG);
-	    FwPrint(FW_CRLF_MSG);
-	    FwPrint(FW_CONSOLE_OUT_PLEASE_REPAIR_MSG);
-	}	 
+        if (FwOpen(FW_CONSOLE_OUT_DEVICE,ArcOpenWriteOnly,&Fid) != ESUCCESS) {
+            FwPrint(FW_CONSOLE_OUT_FAILSAFE_ERROR_MSG);
+            FwPrint(FW_CONTACT_FIELD_SERVICE_MSG);
+        } else {
+            FwPrint(FW_OK_MSG);
+            FwPrint(FW_CRLF_MSG);
+            FwPrint(FW_CONSOLE_OUT_PLEASE_REPAIR_MSG);
+        }
 
-	FwStallExecution(5000000);
+        FwStallExecution(5000000);
     }
 
     if (Fid != ARC_CONSOLE_OUTPUT) {
@@ -1896,13 +1895,13 @@ Return Value:
     //
 
     if ((FwGetEnvironmentVariable("FLOPPY") == NULL) ||
-	(FwGetEnvironmentVariable("FLOPPY2") == NULL) ||
-	(((FloppyControllerLevel = FwGetComponent(FW_FLOPPY_0_DEVICE))
-	 != NULL) &&
-	 (FloppyControllerLevel->Class == PeripheralClass) &&
-	 (FloppyControllerLevel->Type == FloppyDiskPeripheral)) ||
-	((FloppyParentAdapterLevel = FwGetComponent(FW_FLOPPY_PARENT_NODE)) == NULL)) {
-	return;
+        (FwGetEnvironmentVariable("FLOPPY2") == NULL) ||
+        (((FloppyControllerLevel = FwGetComponent(FW_FLOPPY_0_DEVICE))
+         != NULL) &&
+         (FloppyControllerLevel->Class == PeripheralClass) &&
+         (FloppyControllerLevel->Type == FloppyDiskPeripheral)) ||
+        ((FloppyParentAdapterLevel = FwGetComponent(FW_FLOPPY_PARENT_NODE)) == NULL)) {
+        return;
     }
 
     //
@@ -1933,7 +1932,7 @@ Return Value:
                           8,                            // PortSize
                           TRUE,                         // Interrupt
                           CM_RESOURCE_INTERRUPT_LATCHED, // InterruptFlags
-                          FLOPPY_LEVEL, 	        // Level
+                          FLOPPY_LEVEL,                 // Level
 #ifdef EISA_PLATFORM
                           0,                            // Vector
 #else
@@ -1966,8 +1965,8 @@ Return Value:
                     );
 
     FloppyControllerLevel = FwAddChild(FloppyParentAdapterLevel,
-				       &Component,
-				       Descriptor);
+                                       &Component,
+                                       Descriptor);
 
     //
     // Add the floppy disk itself as a child of the floppy disk controller.
@@ -2153,7 +2152,7 @@ Routine Description:
 
 Arguments:
 
-     PathName		A pointer to a buffer area that can receive
+     PathName           A pointer to a buffer area that can receive
                         the CDROM pathname string.
 
 Return Value:
@@ -2170,20 +2169,20 @@ Return Value:
     ULONG Index;
 
     for ( Index = 0 ; Index < 8 ; Index++ ) {
-	sprintf(PathName, "scsi(0)cdrom(%d)fdisk(0)", Index);
-	Controller = FwGetComponent(PathName);
-	if ((Controller != NULL) &&
-	    (Controller->Type == FloppyDiskPeripheral)) {
-	    VariableFound = TRUE;
-	    break;
-	}
+        sprintf(PathName, "scsi(0)cdrom(%d)fdisk(0)", Index);
+        Controller = FwGetComponent(PathName);
+        if ((Controller != NULL) &&
+            (Controller->Type == FloppyDiskPeripheral)) {
+            VariableFound = TRUE;
+            break;
+        }
     }
 
     if (VariableFound) {
-	return (ESUCCESS);
+        return (ESUCCESS);
     } else {
-	sprintf(PathName, "scsi0)cdrom(4)fdisk(0)");
-	return (EIO);
+        sprintf(PathName, "scsi0)cdrom(4)fdisk(0)");
+        return (EIO);
     }
 }
 
@@ -2203,7 +2202,7 @@ Routine Description:
 
 Arguments:
 
-     PathName		A pointer to a buffer area that can receive
+     PathName           A pointer to a buffer area that can receive
                         the setupldr pathname string.
 
 Return Value:
@@ -2226,20 +2225,20 @@ Return Value:
     FwSystemConsistencyCheck(FALSE, &Problems);
 
     if (((Problems & FWP_MACHINE_PROBLEMS_RED) != 0) ||
-	(FwpFindCDROM(PathName) != ESUCCESS)) {
+        (FwpFindCDROM(PathName) != ESUCCESS)) {
 
-	//
-	// If there are no Red machine consistency problems, we must be
-	// here because FwpFindCDROM gave an error return.
-	//
+        //
+        // If there are no Red machine consistency problems, we must be
+        // here because FwpFindCDROM gave an error return.
+        //
 
-	if ((Problems & FWP_MACHINE_PROBLEMS_RED) == 0) {
-	    FwPrint(FW_NO_CDROM_DRIVE_MSG);
-	}
+        if ((Problems & FWP_MACHINE_PROBLEMS_RED) == 0) {
+            FwPrint(FW_NO_CDROM_DRIVE_MSG);
+        }
 
-	FwPrint(FW_WNT_INSTALLATION_ABORTED_MSG);
-	FwWaitForKeypress(FALSE);
-	return (EIO);
+        FwPrint(FW_WNT_INSTALLATION_ABORTED_MSG);
+        FwWaitForKeypress(FALSE);
+        return (EIO);
     }
 
     //

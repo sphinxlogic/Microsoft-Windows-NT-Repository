@@ -551,4 +551,3 @@ typedef unsigned long	SEM_STATE;
 
 
 #endif	// __MIDLNODE_HXX__
-

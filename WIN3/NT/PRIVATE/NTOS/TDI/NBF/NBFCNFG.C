@@ -102,6 +102,7 @@ NbfWstrLength(
     );
 
 #ifdef ALLOC_PRAGMA
+#ifndef _PNP_POWER
 #pragma alloc_text(INIT,NbfWstrLength)
 #pragma alloc_text(INIT,NbfConfigureTransport)
 #pragma alloc_text(INIT,NbfFreeConfigurationInfo)
@@ -113,6 +114,19 @@ NbfWstrLength(
 #pragma alloc_text(INIT,NbfReadLinkageInformation)
 #pragma alloc_text(INIT,NbfReadSingleParameter)
 #pragma alloc_text(INIT,NbfWriteSingleParameter)
+#else
+#pragma alloc_text(PAGE,NbfWstrLength)
+#pragma alloc_text(PAGE,NbfConfigureTransport)
+#pragma alloc_text(PAGE,NbfFreeConfigurationInfo)
+#pragma alloc_text(PAGE,NbfOpenParametersKey)
+#pragma alloc_text(PAGE,NbfCloseParametersKey)
+#pragma alloc_text(PAGE,NbfCountEntries)
+#pragma alloc_text(PAGE,NbfAddBind)
+#pragma alloc_text(PAGE,NbfAddExport)
+#pragma alloc_text(PAGE,NbfReadLinkageInformation)
+#pragma alloc_text(PAGE,NbfReadSingleParameter)
+#pragma alloc_text(PAGE,NbfWriteSingleParameter)
+#endif
 #endif
 
 UINT

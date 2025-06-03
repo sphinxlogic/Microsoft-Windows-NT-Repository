@@ -152,4 +152,3 @@ public:
 
 	};
 #endif // __DTABLE_HXX__
-

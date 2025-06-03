@@ -93,6 +93,8 @@ RtlFindMessage(
 
 #ifndef NTOS_KERNEL_RUNTIME
 
+#define MAX_INSERTS 200
+
 NTSTATUS
 RtlFormatMessage(
     IN PWSTR MessageFormat,
@@ -109,12 +111,13 @@ RtlFormatMessage(
     ULONG Column;
     int cchRemaining, cchWritten;
     PULONG ArgumentsArray = (PULONG)Arguments;
-    ULONG rgInserts[ 200 ], cSpaces;
+    ULONG rgInserts[ MAX_INSERTS ], cSpaces;
     ULONG MaxInsert, CurInsert;
     ULONG PrintParameterCount;
     ULONG PrintParameter1;
     ULONG PrintParameter2;
     WCHAR PrintFormatString[ 32 ];
+    BOOLEAN DefaultedFormatString;
     WCHAR c;
     PWSTR s, s1;
     PWSTR lpDst, lpDstBeg, lpDstLastSpace;
@@ -133,11 +136,18 @@ RtlFormatMessage(
                 CurInsert = *s++ - L'0';
                 if (*s >= L'0' && *s <= L'9') {
                     CurInsert = (CurInsert * 10) + (*s++ - L'0');
+                    if (*s >= L'0' && *s <= L'9') {
+                        CurInsert = (CurInsert * 10) + (*s++ - L'0');
+                        if (*s >= L'0' && *s <= L'9') {
+                            return( STATUS_INVALID_PARAMETER );
+                            }
+                        }
                     }
                 CurInsert -= 1;
 
                 PrintParameterCount = 0;
                 if (*s == L'!') {
+                    DefaultedFormatString = FALSE;
                     s1 = PrintFormatString;
                     *s1++ = L'%';
                     s++;
@@ -164,11 +174,33 @@ RtlFormatMessage(
                     *s1 = UNICODE_NULL;
                     }
                 else {
+                    DefaultedFormatString = TRUE;
                     wcscpy( PrintFormatString, L"%s" );
                     s1 = PrintFormatString + wcslen( PrintFormatString );
                     }
 
-                if (!IgnoreInserts && ARGUMENT_PRESENT( Arguments )) {
+                if (IgnoreInserts) {
+                    if (!wcscmp( PrintFormatString, L"%s" )) {
+                        cchWritten = _snwprintf( lpDst,
+                                                 cchRemaining,
+                                                 L"%%%u",
+                                                 CurInsert+1
+                                               );
+                        }
+                    else {
+                        cchWritten = _snwprintf( lpDst,
+                                                 cchRemaining,
+                                                 L"%%%u!%s!",
+                                                 CurInsert+1,
+                                                 &PrintFormatString[ 1 ]
+                                               );
+                        }
+                    }
+                else
+                if (ARGUMENT_PRESENT( Arguments )) {
+                    if ((CurInsert+PrintParameterCount) >= MAX_INSERTS) {
+                        return( STATUS_INVALID_PARAMETER );
+                        }
 
                     if (ArgumentsAreAnsi) {
                         if (s1[ -1 ] == L'c' && s1[ -2 ] != L'h'
@@ -226,21 +258,8 @@ RtlFormatMessage(
                                              PrintParameter2
                                            );
                     }
-                else
-                if (!wcscmp( PrintFormatString, L"%s" )) {
-                    cchWritten = _snwprintf( lpDst,
-                                             cchRemaining,
-                                             L"%%%u",
-                                             CurInsert+1
-                                           );
-                    }
                 else {
-                    cchWritten = _snwprintf( lpDst,
-                                             cchRemaining,
-                                             L"%%%u!%s!",
-                                             CurInsert+1,
-                                             &PrintFormatString[ 1 ]
-                                           );
+                    return( STATUS_INVALID_PARAMETER );
                     }
 
                 if ((cchRemaining -= cchWritten) <= 0) {
@@ -258,13 +277,25 @@ RtlFormatMessage(
                 return( STATUS_INVALID_PARAMETER );
                 }
             else
-            if (*s == L'!') {
+            if (*s == L'r') {
                 if ((cchRemaining -= 1) <= 0) {
                     return STATUS_BUFFER_OVERFLOW;
                     }
 
-                *lpDst++ = L'!';
+                *lpDst++ = L'\r';
                 s++;
+                lpDstBeg = NULL;
+                }
+            else
+            if (*s == L'n') {
+                if ((cchRemaining -= 2) <= 0) {
+                    return STATUS_BUFFER_OVERFLOW;
+                    }
+
+                *lpDst++ = L'\r';
+                *lpDst++ = L'\n';
+                s++;
+                lpDstBeg = NULL;
                 }
             else
             if (*s == L't') {
@@ -294,37 +325,17 @@ RtlFormatMessage(
                 s++;
                 }
             else
-            if (*s == L'r') {
-                if ((cchRemaining -= 1) <= 0) {
-                    return STATUS_BUFFER_OVERFLOW;
-                    }
-
-                *lpDst++ = L'\r';
-                s++;
-                lpDstBeg = NULL;
-                }
-            else
-            if (*s == L'n') {
+            if (IgnoreInserts) {
                 if ((cchRemaining -= 2) <= 0) {
                     return STATUS_BUFFER_OVERFLOW;
                     }
 
-                *lpDst++ = L'\r';
-                *lpDst++ = L'\n';
-                s++;
-                lpDstBeg = NULL;
+                *lpDst++ = L'%';
+                *lpDst++ = *s++;
                 }
             else {
                 if ((cchRemaining -= 1) <= 0) {
                     return STATUS_BUFFER_OVERFLOW;
-                    }
-
-                if (IgnoreInserts) {
-                    if ((cchRemaining -= 1) <= 0) {
-                        return STATUS_BUFFER_OVERFLOW;
-                        }
-
-                    *lpDst++ = L'%';
                     }
 
                 *lpDst++ = *s++;
@@ -341,7 +352,9 @@ RtlFormatMessage(
         else {
             c = *s++;
             if (c == L'\r' || c == L'\n') {
-                if (c == L'\r' && *s == L'\n') {
+                if ((c == L'\n' && *s == L'\r') ||
+                    (c == L'\r' && *s == L'\n')
+                   ) {
                     s++;
                     }
 

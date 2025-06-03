@@ -25,51 +25,16 @@ Revision History:
 --*/
 
 #include "exp.h"
-
-#if defined(_MIPS_)
-#define POOL_CACHE_SUPPORTED 1
-#define POOL_CACHE_ALIGN PoolCacheAlignment
-#define POOL_CACHE_CHECK 0x8
-ULONG PoolCacheAlignment;
-ULONG PoolCacheOverhead;
-ULONG PoolCacheSize;
-ULONG PoolBuddyMax;
-#else
-#define POOL_CACHE_SUPPORTED 0
-#define POOL_CACHE_ALIGN 0
-#endif //MIPS
-
-#include "pool.h"
+#pragma hdrstop
 
 #undef ExAllocatePoolWithTag
 #undef ExAllocatePool
 #undef ExAllocatePoolWithQuota
 #undef ExAllocatePoolWithQuotaTag
+#undef ExFreePoolWithTag
 
 #if DBG
-#include "..\mm\mi.h"
-ULONG ExSpecialPoolTag;
-PVOID SpecialPoolStart;
-PVOID SpecialPoolEnd;
-PMMPTE SpecialPoolFirstPte;
-PMMPTE SpecialPoolLastPte;
-
-VOID
-ExpInitializeSpecialPool (
-    VOID
-    );
-
-PVOID
-ExpAllocateSpecialPool (
-    IN ULONG NumberOfBytes,
-    IN ULONG Tag
-    );
-
-VOID
-ExpFreeSpecialPool (
-    IN PVOID P
-    );
-
+BOOLEAN ExpEchoPoolCalls;
 #endif //DBG
 
 //
@@ -89,8 +54,8 @@ NTSTATUS
 ExpSnapShotPoolPages(
     IN PVOID Address,
     IN ULONG Size,
-    IN OUT PRTL_HEAP_INFORMATION PoolInformation,
-    IN OUT PRTL_HEAP_ENTRY *PoolEntryInfo,
+    IN OUT PSYSTEM_POOL_INFORMATION PoolInformation,
+    IN OUT PSYSTEM_POOL_ENTRY *PoolEntryInfo,
     IN ULONG Length,
     IN OUT PULONG RequiredLength
     );
@@ -98,8 +63,10 @@ ExpSnapShotPoolPages(
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(INIT, InitializePool)
 #pragma alloc_text(INIT, ExpInitializePoolDescriptor)
+#if DBG
 #pragma alloc_text(PAGELK, ExSnapShotPool)
 #pragma alloc_text(PAGELK, ExpSnapShotPoolPages)
+#endif // DBG
 #endif
 
 
@@ -123,7 +90,7 @@ ExpRemovePoolTracker (
     POOL_TYPE PoolType
     );
 
-BOOLEAN
+PPOOL_TRACKER_BIG_PAGES
 ExpAddTagForBigPages (
     IN PVOID Va,
     IN ULONG Key
@@ -132,16 +99,6 @@ ExpAddTagForBigPages (
 ULONG
 ExpFindAndRemoveTagBigPages (
     IN PVOID Va
-    );
-
-NTSTATUS
-ExAcquireResourceStub(
-    IN PERESOURCE Resource
-    );
-
-NTSTATUS
-ExReleaseResourceStub(
-    IN PERESOURCE Resource
     );
 
 PVOID
@@ -169,16 +126,6 @@ ExOkayToLockRoutine(
     }
 }
 
-PRTL_INITIALIZE_LOCK_ROUTINE RtlInitializeLockRoutine =
-    (PRTL_INITIALIZE_LOCK_ROUTINE)ExInitializeResource;
-PRTL_ACQUIRE_LOCK_ROUTINE RtlAcquireLockRoutine =
-    (PRTL_ACQUIRE_LOCK_ROUTINE)ExAcquireResourceStub;
-PRTL_RELEASE_LOCK_ROUTINE RtlReleaseLockRoutine =
-    (PRTL_RELEASE_LOCK_ROUTINE)ExReleaseResourceStub;
-PRTL_DELETE_LOCK_ROUTINE RtlDeleteLockRoutine =
-    (PRTL_DELETE_LOCK_ROUTINE)ExDeleteResource;
-PRTL_OKAY_TO_LOCK_ROUTINE RtlOkayToLockRoutine =
-    (PRTL_OKAY_TO_LOCK_ROUTINE)ExOkayToLockRoutine;
 PRTL_ALLOCATE_STRING_ROUTINE RtlAllocateStringRoutine = ExpAllocateStringRoutine;
 PRTL_FREE_STRING_ROUTINE RtlFreeStringRoutine = (PRTL_FREE_STRING_ROUTINE)ExFreePool;
 
@@ -193,16 +140,23 @@ PRTL_FREE_STRING_ROUTINE RtlFreeStringRoutine = (PRTL_FREE_STRING_ROUTINE)ExFree
 // This structure exists in the pool descriptor structure.  There is one of
 // these for each pool block size
 //
+// The check list macro comes in three flavors there is one in the checked
+// build that will assert if the doubly linked list is ill-formed.  There
+// is one that is noop for the shipping version and then there is one that
+// can be enabled to check the list in the free build.
+//
 
 #if DBG
-#define CHECK_LIST(LIST)                                    \
-    ASSERT((LIST)->Flink->Blink == (LIST));                 \
+#define CHECK_LIST(LINE,LIST,ENTRY)                                    \
+    ASSERT((LIST)->Flink->Blink == (LIST));                            \
     ASSERT((LIST)->Blink->Flink == (LIST));
+#elif 1
+#define CHECK_LIST(LINE,LIST,ENTRY) {NOTHING;}
 #else
-#define CHECK_LIST(LIST)                                    \
-    if (((LIST)->Flink->Blink != (LIST)) ||                 \
-        ((LIST)->Blink->Flink != (LIST))) {                 \
-        KeBugCheckEx (BAD_POOL_HEADER,3,(ULONG)LIST,0,0);   \
+#define CHECK_LIST(LINE,LIST,ENTRY)                                    \
+    if (((LIST)->Flink->Blink != (LIST)) ||                            \
+        ((LIST)->Blink->Flink != (LIST))) {                            \
+        KeBugCheckEx (BAD_POOL_HEADER,3,(ULONG)LIST,LINE,(ULONG)ENTRY);\
     }
 #endif //DBG
 
@@ -282,6 +236,79 @@ PSZ PoolTypeNames[MaxPoolType] = {
     };
 #endif //DBG
 
+//
+// Define paged and nonpaged pool lookaside descriptors.
+//
+
+SMALL_POOL_LOOKASIDE ExpSmallNPagedPoolLookasideLists[POOL_SMALL_LISTS];
+
+#if !defined(_PPC_)
+
+SMALL_POOL_LOOKASIDE ExpSmallPagedPoolLookasideLists[POOL_SMALL_LISTS];
+
+#endif
+
+//
+// Two routines to check for pool that has been altered after it was freed.
+//
+
+#if DEADBEEF
+
+_inline
+VOID
+ExFillFreedPool (
+    IN PVOID Buffer,
+    IN ULONG Size,
+    IN ULONG Tag
+    )
+{
+    RtlFillMemoryUlong( Buffer, Size, Tag );
+
+    return;
+}
+
+VOID
+ExCheckFreedPool (
+    IN ULONG LineNumber,
+    IN PPOOL_HEADER PoolHeader
+    )
+{
+    ULONG MatchBytes;
+    ULONG i;
+
+    MatchBytes = RtlCompareMemoryUlong( (PCHAR)PoolHeader + 0x10,
+                                        0x20 - 0x10,
+                                        PoolHeader->PoolTag );
+    if (MatchBytes != 0x20 - 0x10) {
+        DbgPrint("EX(%d): Freed pool block %lx modified at %lx after it was freed\n",
+                 LineNumber,
+                 ((PCHAR)PoolHeader),
+                 ((PCHAR)PoolHeader) + 0x10 + MatchBytes);
+
+        DbgBreakPoint();
+    }
+
+    for (i = 1; i < PoolHeader->BlockSize; i += 1) {
+
+        MatchBytes = RtlCompareMemoryUlong( (((PCHAR)PoolHeader) + (0x20 * i)),
+                                            0x20,
+                                            *((PULONG)(((PCHAR)PoolHeader) + (0x20 * i))) );
+
+        if (MatchBytes != 0x20) {
+            DbgPrint("EX(%d): Freed pool block %lx modified at %lx after it was freed\n",
+                     LineNumber,
+                     ((PCHAR)PoolHeader),
+                     ((PCHAR)PoolHeader) + (0x20 * i) + MatchBytes);
+
+            DbgBreakPoint();
+        }
+    }
+
+    return;
+}
+
+#endif
+
 
 //
 // LOCK_POOL and LOCK_IF_PAGED_POOL are only used within this module.
@@ -291,15 +318,13 @@ PSZ PoolTypeNames[MaxPoolType] = {
     if ((PoolDesc->PoolType & BASE_POOL_TYPE_MASK) == NonPagedPool) {          \
         ExAcquireSpinLock(&NonPagedPoolLock, &LockHandle);                     \
     } else {                                                                   \
-        KeRaiseIrql(APC_LEVEL, &LockHandle);                                   \
-        ExAcquireResourceExclusiveLite((PERESOURCE)PoolDesc->LockAddress, TRUE); \
+        ExAcquireFastMutex((PFAST_MUTEX)PoolDesc->LockAddress);                \
     }                                                                          \
 }
 
 #define LOCK_IF_PAGED_POOL(CheckType)                                          \
     if (CheckType == PagedPool) {                                              \
-        ExAcquireResourceExclusiveLite((PERESOURCE)PoolVector[PagedPool]->LockAddress, \
-                                       TRUE);                                  \
+        ExAcquireFastMutex((PFAST_MUTEX)PoolVector[PagedPool]->LockAddress);   \
     }
 
 KIRQL
@@ -336,9 +361,8 @@ Return Value:
         ExAcquireSpinLock(NonPagedPoolDescriptor.LockAddress, &OldIrql);
 
     } else {
-        KeRaiseIrql(APC_LEVEL, &OldIrql);
-        ExAcquireResourceExclusiveLite((PERESOURCE)PoolVector[PagedPool]->LockAddress,
-                                       TRUE);
+        ExAcquireFastMutex((PFAST_MUTEX)PoolVector[PagedPool]->LockAddress);
+        OldIrql = (KIRQL)((PFAST_MUTEX)(PoolVector[PagedPool]->LockAddress))->OldIrql;
     }
 
     return OldIrql;
@@ -353,16 +377,13 @@ Return Value:
     if ((PoolDesc->PoolType & BASE_POOL_TYPE_MASK) == NonPagedPool) {          \
         ExReleaseSpinLock(&NonPagedPoolLock, (KIRQL)LockHandle);               \
     } else {                                                                   \
-        ExReleaseResourceForThreadLite((PERESOURCE)PoolDesc->LockAddress,      \
-                                       (ERESOURCE_THREAD)PsGetCurrentThread()); \
-        KeLowerIrql(LockHandle);                                               \
+        ExReleaseFastMutex((PFAST_MUTEX)PoolDesc->LockAddress);                \
     }                                                                          \
 }
 
 #define UNLOCK_IF_PAGED_POOL(CheckType)                                        \
     if (CheckType == PagedPool) {                                              \
-        ExReleaseResourceForThreadLite((PERESOURCE)PoolVector[PagedPool]->LockAddress, \
-                              (ERESOURCE_THREAD)PsGetCurrentThread());         \
+        ExReleaseFastMutex((PFAST_MUTEX)PoolVector[PagedPool]->LockAddress);   \
     }
 
 VOID
@@ -402,10 +423,7 @@ Return Value:
         ExReleaseSpinLock(&NonPagedPoolLock, LockHandle);
 
     } else {
-        ExReleaseResourceForThreadLite((PERESOURCE)PoolVector[PagedPool]->LockAddress,
-                                       (ERESOURCE_THREAD)PsGetCurrentThread());
-
-        KeLowerIrql(LockHandle);
+        ExReleaseFastMutex((PFAST_MUTEX)PoolVector[PagedPool]->LockAddress);
     }
 
     return;
@@ -457,8 +475,6 @@ Return Value:
     PoolDescriptor->PoolIndex = PoolIndex;
     PoolDescriptor->RunningAllocs = 0;
     PoolDescriptor->RunningDeAllocs = 0;
-    PoolDescriptor->IntervalAllocs = 0;
-    PoolDescriptor->IntervalDeAllocs = 0;
     PoolDescriptor->TotalPages = 0;
     PoolDescriptor->TotalBigPages = 0;
     PoolDescriptor->Threshold = Threshold;
@@ -517,7 +533,7 @@ Return Value:
 
     PPOOL_DESCRIPTOR Descriptor;
     ULONG Index;
-    PERESOURCE Resource;
+    PFAST_MUTEX FastMutex;
     ULONG Size;
 
     ASSERT((PoolType & MUST_SUCCEED_POOL_TYPE_MASK) == 0);
@@ -530,7 +546,7 @@ Return Value:
         //
 
 #if !DBG
-        if (NtGlobalFlag & FLG_ENABLE_POOL_TAGGING) {
+        if (NtGlobalFlag & FLG_POOL_ENABLE_TAGGING) {
 #endif  //!DBG
             PoolTrackTable = MiAllocatePoolPages(NonPagedPool,
                                                  MAX_TRACKER_TABLE *
@@ -577,34 +593,44 @@ Return Value:
                                     (PVOID)&NonPagedPoolLock);
 
 #if DBG
-        if (ExSpecialPoolTag != 0) {
-            ExpInitializeSpecialPool();
+        if (MmSpecialPoolTag != 0) {
+            MmInitializeSpecialPool();
         }
 #endif //DBG
 
     } else {
 
         //
-        // Allocate memory for the paged pool descriptors and resources.
+        // Allocate memory for the paged pool descriptors and fast mutexes.
         //
 
-        Size = (ExpNumberOfPagedPools + 1) * (sizeof(ERESOURCE) + sizeof(POOL_DESCRIPTOR));
-        Descriptor = (PPOOL_DESCRIPTOR)ExAllocatePool(NonPagedPoolMustSucceed,
-                                                      Size);
+        Size = (ExpNumberOfPagedPools + 1) * (sizeof(FAST_MUTEX) + sizeof(POOL_DESCRIPTOR));
+        Descriptor = (PPOOL_DESCRIPTOR)ExAllocatePoolWithTag (NonPagedPoolMustSucceed,
+                                                              Size,
+                                                              'looP');
+        if (PoolTrackTable) {
+            ExpInsertPoolTracker('looP',
+                                 MAX_TRACKER_TABLE * sizeof(POOL_TRACKER_TABLE),
+                                 NonPagedPool);
 
-        Resource = (PERESOURCE)(Descriptor + ExpNumberOfPagedPools + 1);
+            ExpInsertPoolTracker('looP',
+                                 MAX_BIGPAGE_TABLE * sizeof(POOL_TRACKER_BIG_PAGES),
+                                 NonPagedPool);
+        }
+
+        FastMutex = (PFAST_MUTEX)(Descriptor + ExpNumberOfPagedPools + 1);
         PoolVector[PagedPool] = Descriptor;
         ExpPagedPoolDescriptor = Descriptor;
         for (Index = 0; Index < (ExpNumberOfPagedPools + 1); Index += 1) {
-            ExInitializeResourceLite(Resource);
+            ExInitializeFastMutex(FastMutex);
             ExpInitializePoolDescriptor(Descriptor,
                                         PagedPool,
                                         Index,
                                         Threshold,
-                                        (PVOID)Resource);
+                                        (PVOID)FastMutex);
 
             Descriptor += 1;
-            Resource += 1;
+            FastMutex += 1;
         }
     }
 
@@ -629,12 +655,12 @@ Return Value:
 #ifndef CHECK_POOL_TAIL
 
     PoolBuddyMax =
-       (POOL_PAGE_SIZE - (POOL_OVERHEAD + (2*POOL_SMALLEST_BLOCK) + PoolCacheSize));
+       (POOL_PAGE_SIZE - (POOL_OVERHEAD + (3*POOL_SMALLEST_BLOCK) + 2*PoolCacheSize));
 
 #else
 
     PoolBuddyMax =
-       (POOL_PAGE_SIZE - (POOL_OVERHEAD + PoolCacheSize + (3*POOL_SMALLEST_BLOCK)));
+       (POOL_PAGE_SIZE - (POOL_OVERHEAD + 2*PoolCacheSize + (4*POOL_SMALLEST_BLOCK)));
 
 #endif // CHECK_POOL_TAIL
 
@@ -717,17 +743,13 @@ Return Value:
 
 #if DEADBEEF
 
-            if (!(NtGlobalFlag & FLG_POOL_DISABLE_FREE_CHECK)) {
-                PCHAR PoolBlock;
-                ULONG CountBytes;
-                ULONG MatchBytes;
+            if (NtGlobalFlag & FLG_POOL_ENABLE_FREE_CHECK) {
 
-                CountBytes = PoolHeader->BlockSize << POOL_BLOCK_SHIFT;
-                CountBytes -= (POOL_OVERHEAD + sizeof(LIST_ENTRY));
-                PoolBlock = (PCHAR)PoolHeader + POOL_OVERHEAD + sizeof(LIST_ENTRY);
-                MatchBytes = RtlCompareMemoryUlong(PoolBlock, CountBytes, FREED_POOL);
+                //
+                // Make sure the pool block has not been modified after it was freed.
+                //
 
-                ASSERT(MatchBytes == CountBytes);
+                ExCheckFreedPool( __LINE__, PoolHeader );
 
                 CHECK_POOL_PAGE(PoolHeader);
             }
@@ -875,6 +897,7 @@ Return Value:
 
     PVOID Block;
     PPOOL_HEADER Entry;
+    PSMALL_POOL_LOOKASIDE LookasideList;
     PPOOL_HEADER NextEntry;
     PPOOL_HEADER SplitEntry;
     KIRQL LockHandle;
@@ -887,10 +910,8 @@ Return Value:
     POOL_TYPE CheckType;
     PLIST_ENTRY ListHead;
     USHORT PoolTagHash;
-
-#if DBG
-    USHORT AllocatorBackTraceIndex;
-#endif
+    PKPRCB Prcb;
+    POOL_TYPE NewPoolType;
 
 #if POOL_CACHE_SUPPORTED
     ULONG CacheOverhead;
@@ -934,48 +955,40 @@ Return Value:
         LOCK_POOL(PoolDesc, LockHandle);
 
         PoolDesc->RunningAllocs++;
-        PoolDesc->IntervalAllocs++;
         Entry = (PPOOL_HEADER)MiAllocatePoolPages(CheckType, NumberOfBytes);
+        UNLOCK_POOL(PoolDesc, LockHandle);
         if (Entry != NULL) {
+            PPOOL_TRACKER_BIG_PAGES p;
+
             PoolDesc->TotalBigPages += BYTES_TO_PAGES(NumberOfBytes);
             if (PoolBigPageTable != FALSE) {
-                if (!ExpAddTagForBigPages((PVOID)Entry, Tag)) {
+                if (!(p = ExpAddTagForBigPages((PVOID)Entry, Tag))) {
                     Tag = ' GIB';
                 }
+#if DBG || (i386 && !FPO)
+                else
+                if ((NtGlobalFlag & FLG_KERNEL_STACK_TRACE_DB) && Entry) {
+                    p->NumberOfPages = (USHORT)BYTES_TO_PAGES(NumberOfBytes);
+#if i386 && !FPO
+                    p->AllocatorBackTraceIndex = RtlLogStackBackTrace();
+#endif // i386 && !FPO
+                }
+#endif // DBG || (i386 && !FPO)
+
                 ExpInsertPoolTracker(Tag, ROUND_TO_PAGES(NumberOfBytes), PoolType);
             }
 
         } else {
             KdPrint(("EX: ExAllocatePool( %d ) returning NULL\n",NumberOfBytes));
-        }
 
-        UNLOCK_POOL(PoolDesc, LockHandle);
-
-#if DBG && defined(_X86_)
-
-        if ((NtGlobalFlag & FLG_HEAP_TRACE_ALLOCS) && Entry) {
-            ULONG i;
-            KIRQL PreviousIrql;
-
-            ExAcquireSpinLock(&PoolTraceLock, &PreviousIrql);
-            for (i = 0; i < MAX_LARGE_ALLOCS ; i++) {
-                if (TraceLargeAllocs[i].Va == 0) {
-                    TraceLargeAllocs[i].Va = Entry;
-                    break;
-                }
+            if ((PoolType & POOL_RAISE_IF_ALLOCATION_FAILURE) != 0) {
+                ExRaiseStatus(STATUS_INSUFFICIENT_RESOURCES);
             }
-
-            ExReleaseSpinLock(&PoolTraceLock, PreviousIrql);
-            TraceLargeAllocs[i].NumberOfPages = (USHORT)BYTES_TO_PAGES(NumberOfBytes);
-            TraceLargeAllocs[i].AllocatorBackTraceIndex = RtlLogStackBackTrace();
-            TraceLargeAllocs[i].PoolTag = Tag;
         }
-
-#endif // DBG && defined(_X86_)
 
 #if DBG
 
-        if (NtGlobalFlag & FLG_ECHO_POOL_CALLS){
+        if (ExpEchoPoolCalls){
             PVOID CallingAddress;
             PVOID CallersCaller;
 
@@ -984,6 +997,7 @@ Return Value:
                 PoolTypeNames[PoolType & MaxPoolType],
                 NumberOfBytes
                 );
+
             RtlGetCallersAddress(&CallingAddress, &CallersCaller);
             DbgPrint(" Callers:%lx, %lx\n", CallingAddress, CallersCaller);
         }
@@ -1000,17 +1014,17 @@ Return Value:
         //
 
 #if DBG
-        if ((ExSpecialPoolTag != 0) && (Tag == ExSpecialPoolTag)) {
-            return ExpAllocateSpecialPool(NumberOfBytes, Tag);
+        if ((MmSpecialPoolTag != 0) && (Tag == MmSpecialPoolTag)) {
+            return MmAllocateSpecialPool(NumberOfBytes, Tag);
         }
 #endif //DBG
-
-#if POOL_CACHE_SUPPORTED  //only compile for machines which have a nonzero value.
 
         //
         // If the request is for cache aligned memory adjust the number of
         // bytes.
         //
+
+#if POOL_CACHE_SUPPORTED  //only compile for machines which have a nonzero value.
 
         CacheOverhead = POOL_OVERHEAD;
         if (PoolType & CACHE_ALIGNED_POOL_TYPE_MASK) {
@@ -1019,6 +1033,25 @@ Return Value:
         }
 
 #endif //POOL_CACHE_SUPPORTED
+
+        //
+        // Compute the Index of the listhead for blocks of the requested
+        // size.
+        //
+
+        ListNumber = ((NumberOfBytes + POOL_OVERHEAD + (POOL_SMALLEST_BLOCK - 1)) >> POOL_BLOCK_SHIFT);
+
+#ifdef CHECK_POOL_TAIL
+
+        ListNumber += 1;
+
+#endif // CHECK_POOL_TAIL
+
+
+        NeededSize = ListNumber;
+        if (ListNumber > POOL_SMALL_LISTS) {
+            ListNumber = (ListNumber >> SHIFT_OFFSET) + POOL_SMALL_LISTS + 2;
+        }
 
         //
         // If the pool type is paged, then pick a starting pool number and
@@ -1032,9 +1065,88 @@ Return Value:
         //      to get out of range.
         //
 
+        Prcb = KeGetCurrentPrcb();
         if (CheckType == PagedPool) {
-            KeRaiseIrql(APC_LEVEL, &LockHandle);                                   \
-            if (ExpNumberOfPagedPools != 1) {
+
+            //
+            // If the requested pool block is a small block, then attempt to
+            // allocate the requested pool from the per processor single entry
+            // lookaside list. If the allocation attempt fails, then select a
+            // pool to alocate from and allocate the block normally.
+            //
+
+#if !defined(CHECK_POOL_TAIL) && (DEADBEEF == 0)
+
+            if (NeededSize <= POOL_SMALL_LISTS) {
+
+#if defined(_PPC_)
+
+                if ((Entry = (PPOOL_HEADER)InterlockedExchange((PLONG)&Prcb->PagedFreeEntry[NeededSize - 1],
+                                                               (LONG)NULL)) != NULL) {
+
+                    PoolIndex = UNPACK_POOL_INDEX(Entry->PoolIndex);
+                    Prcb->PagedPoolLookasideHits += 1;
+
+#else
+
+                LookasideList = &ExpSmallPagedPoolLookasideLists[NeededSize - 1];
+                LookasideList->TotalAllocates += 1;
+                if ((Isx86FeaturePresent(KF_CMPXCHG8B)) &&
+                    (Entry = (PPOOL_HEADER)ExInterlockedPopEntrySList(&LookasideList->SListHead,
+                                                                      &LookasideList->Lock)) != NULL) {
+
+
+                    Entry -= 1;
+                    LookasideList->AllocateHits += 1;
+
+#endif
+                    NewPoolType = (PoolType & (BASE_POOL_TYPE_MASK | POOL_QUOTA_MASK)) + 1;
+#if defined (_ALPHA_)
+                    //
+                    // On Alpha, Entry->PoolType  cannot be updated without synchronizing with
+                    // updates to Entry->PreviousSize. Otherwise, the lack of byte granularity
+                    // can cause one update to get lost. In order to avoid an expensive interlocked
+                    // operation, check PoolType to see if it really needs to be updated.
+                    //
+                    if (Entry->PoolType != NewPoolType) {
+                        ULONG NewHeader;
+                        ULONG OldHeader;
+
+                        NewHeader = Entry->Ulong1;
+                        do {
+                            OldHeader = NewHeader;
+                            ((PPOOL_HEADER)(&NewHeader))->PoolType = NewPoolType;
+                            NewHeader = (ULONG)InterlockedCompareExchange((PVOID *)&Entry->Ulong1,
+                                                                          (PVOID)NewHeader,
+                                                                          (PVOID)OldHeader);
+
+                        } while ( NewHeader != OldHeader );
+                    }
+#else
+                    Entry->PoolType = NewPoolType;
+#endif
+
+                    if (PoolTrackTable != NULL) {
+                        ExpInsertPoolTracker(Tag,
+                                             Entry->BlockSize << POOL_BLOCK_SHIFT,
+                                             PoolType);
+
+                    }
+
+                    Entry->PoolTag = Tag;
+                    return (PUCHAR)Entry + CacheOverhead;
+                }
+            }
+
+#endif
+
+            //
+            // If there is more than one paged pool, then attempt to find
+            // one that can be immediately locked.
+            //
+
+            PoolIndex = 1;
+            if (ExpNumberOfPagedPools != PoolIndex) {
                 ExpPoolIndex += 1;
                 PoolIndex = ExpPoolIndex;
                 if (PoolIndex > ExpNumberOfPagedPools) {
@@ -1042,46 +1154,97 @@ Return Value:
                     ExpPoolIndex = 1;
                 }
 
-                Index = 0;
+                Index = PoolIndex;
                 do {
                     Lock = PoolDesc[PoolIndex].LockAddress;
-                    if (ExTryToAcquireResourceExclusiveLite((PERESOURCE)Lock) != FALSE) {
+                    if (ExTryToAcquireFastMutex((PFAST_MUTEX)Lock) != FALSE) {
                         goto PoolLocked;
                     }
 
-                    Index += 1;
                     PoolIndex += 1;
                     if (PoolIndex > ExpNumberOfPagedPools) {
                         PoolIndex = 1;
                     }
 
-                } while (Index < ExpNumberOfPagedPools);
-
-            } else {
-                PoolIndex = 1;
+                } while (PoolIndex != Index);
             }
 
             //
-            // None of the paged pools could be conditionally locked of there
+            // None of the paged pools could be conditionally locked or there
             // is only one paged pool. The first pool considered is picked as
             // the victim to wait on.
             //
 
             Lock = PoolDesc[PoolIndex].LockAddress;
-            ExAcquireResourceExclusiveLite((PERESOURCE)Lock, TRUE);
+            ExAcquireFastMutex((PFAST_MUTEX)Lock);
 
 PoolLocked:
             PoolDesc = &PoolDesc[PoolIndex];
 
         } else {
+
+            //
+            // If the requested pool block is a small block, then attempt to
+            // allocate the requested pool from the per processor single entry
+            // lookaside list. If the allocation attempt fails, then allocate
+            // the pool normally.
+            //
+
+#if !defined(CHECK_POOL_TAIL) && (DEADBEEF == 0)
+
+            if (NeededSize <= POOL_SMALL_LISTS) {
+                LookasideList = &ExpSmallNPagedPoolLookasideLists[NeededSize - 1];
+                LookasideList->TotalAllocates += 1;
+                if ((Entry = (PPOOL_HEADER)ExInterlockedPopEntrySList(&LookasideList->SListHead,
+                                                                      &LookasideList->Lock)) != NULL) {
+
+
+                    Entry -= 1;
+                    LookasideList->AllocateHits += 1;
+                    NewPoolType = (PoolType & (BASE_POOL_TYPE_MASK | POOL_QUOTA_MASK)) + 1;
+#if defined (_ALPHA_)
+                    //
+                    // On Alpha, Entry->PoolType  cannot be updated without synchronizing with
+                    // updates to Entry->PreviousSize. Otherwise, the lack of byte granularity
+                    // can cause one update to get lost. In order to avoid an expensive interlocked
+                    // operation, check PoolType to see if it really needs to be updated.
+                    //
+                    if (Entry->PoolType != NewPoolType) {
+                        ULONG NewHeader;
+                        ULONG OldHeader;
+
+                        NewHeader = Entry->Ulong1;
+                        do {
+                            OldHeader = NewHeader;
+                            ((PPOOL_HEADER)(&NewHeader))->PoolType = NewPoolType;
+                            NewHeader = (ULONG)InterlockedCompareExchange((PVOID *)&Entry->Ulong1,
+                                                                          (PVOID)NewHeader,
+                                                                          (PVOID)OldHeader);
+
+                        } while ( NewHeader != OldHeader );
+                    }
+#else
+                    Entry->PoolType = NewPoolType;
+#endif
+                    if (PoolTrackTable != NULL) {
+                        ExpInsertPoolTracker(Tag,
+                                             Entry->BlockSize << POOL_BLOCK_SHIFT,
+                                             PoolType);
+
+                    }
+
+                    Entry->PoolTag = Tag;
+                    return (PUCHAR)Entry + CacheOverhead;
+                }
+            }
+
+#endif
+
             PoolIndex = 0;
             ExAcquireSpinLock(&NonPagedPoolLock, &LockHandle);
         }
 
         ASSERT(PoolIndex == PoolDesc->PoolIndex);
-
-        PoolDesc->RunningAllocs++;
-        PoolDesc->IntervalAllocs++;
 
         //
         // The following code has an outer loop and an inner loop.
@@ -1092,23 +1255,8 @@ PoolLocked:
         // The inner loop is used to repeat an allocation attempt if there
         // are no entries in any of the pool lists.
         //
-        // Compute the address of the listhead for blocks of the
-        // requested size.
-        //
 
-        ListNumber = ((NumberOfBytes + POOL_OVERHEAD + (POOL_SMALLEST_BLOCK - 1)) >> POOL_BLOCK_SHIFT);
-
-#ifdef CHECK_POOL_TAIL
-
-        ListNumber += 1;
-
-#endif // CHECK_POOL_TAIL
-
-        NeededSize = ListNumber;
-        if (ListNumber > POOL_SMALL_LISTS) {
-            ListNumber = (ListNumber >> SHIFT_OFFSET) + POOL_SMALL_LISTS + 2;
-        }
-
+        PoolDesc->RunningAllocs += 1;
         ListHead = &PoolDesc->ListHeads[ListNumber - 1];
         do {
 
@@ -1125,7 +1273,11 @@ PoolLocked:
                 //
 
                 if (IsListEmpty(ListHead) == FALSE) {
+
+                    CHECK_LIST( __LINE__, ListHead, 0 );
                     Block = RemoveHeadList(ListHead);
+                    CHECK_LIST( __LINE__, ListHead, 0 );
+
                     Entry = (PPOOL_HEADER)((PCHAR)Block - POOL_OVERHEAD);
 
                     ASSERT(Entry->BlockSize >= NeededSize);
@@ -1215,26 +1367,18 @@ PoolLocked:
 
 #if DEADBEEF
 
-                    if (!(NtGlobalFlag & FLG_POOL_DISABLE_FREE_CHECK)) {
-                        PCHAR PoolBlock;
-                        ULONG CountBytes;
-                        ULONG CountBytesEqual;
+                    if (NtGlobalFlag & FLG_POOL_ENABLE_FREE_CHECK) {
 
-                        CountBytes = Entry->BlockSize << POOL_BLOCK_SHIFT;
-                        CountBytes -= (POOL_OVERHEAD + sizeof(LIST_ENTRY));
-                        PoolBlock = (PCHAR)Entry + POOL_OVERHEAD + sizeof(LIST_ENTRY);
-                        CountBytesEqual = RtlCompareMemoryUlong(PoolBlock, CountBytes, FREED_POOL);
-                        if (CountBytesEqual != CountBytes) {
-                            DbgPrint("EX: Free pool block %lx modified at %lx after it was freed\n",
-                                     PoolBlock,
-                                     PoolBlock + CountBytesEqual);
+                        //
+                        // Make sure the pool block has not been modified after it was freed
+                        // and then fill it in with allocated tags.
+                        //
 
-                            DbgBreakPoint();
-                        }
+                        ExCheckFreedPool( __LINE__, Entry );
 
-                        RtlFillMemoryUlong(PoolBlock - sizeof(LIST_ENTRY),
-                                           CountBytes + sizeof(LIST_ENTRY),
-                                           ALLOCATED_POOL);
+                        RtlFillMemoryUlong( (PCHAR)Entry + POOL_OVERHEAD,
+                                            (Entry->BlockSize << POOL_BLOCK_SHIFT) - POOL_OVERHEAD,
+                                            ALLOCATED_POOL );
 
                         CHECK_POOL_PAGE(Entry);
                     }
@@ -1245,33 +1389,27 @@ PoolLocked:
                         PoolTagHash = ExpInsertPoolTracker(Tag,
                                                            Entry->BlockSize << POOL_BLOCK_SHIFT,
                                                            PoolType);
+
                     }
 
                     UNLOCK_POOL(PoolDesc, LockHandle);
 
                     Entry->PoolTag = Tag;
 
-#if DBG
+#if i386 && !FPO
+                    if (NtGlobalFlag & FLG_KERNEL_STACK_TRACE_DB) {
+                        USHORT AllocatorBackTraceIndex;
 
-                    AllocatorBackTraceIndex = 0;
-
-#ifdef i386
-
-                    if (NtGlobalFlag & FLG_HEAP_TRACE_ALLOCS) {
-                        AllocatorBackTraceIndex = RtlLogStackBackTrace();
-                        if (AllocatorBackTraceIndex != 0) {
-                            AllocatorBackTraceIndex |= POOL_BACKTRACEINDEX_PRESENT;
+                        if (AllocatorBackTraceIndex = RtlLogStackBackTrace()) {
+                            Entry->AllocatorBackTraceIndex =  AllocatorBackTraceIndex |
+                                                              POOL_BACKTRACEINDEX_PRESENT;
+                            Entry->PoolTagHash = PoolTagHash;
                         }
                     }
+#endif // i386 && !FPO
 
-#endif
-
-                    if (AllocatorBackTraceIndex != 0) {
-                        Entry->AllocatorBackTraceIndex = AllocatorBackTraceIndex;
-                        Entry->PoolTagHash = PoolTagHash;
-                    }
-
-                    if (NtGlobalFlag & FLG_ECHO_POOL_CALLS){
+#if DBG
+                    if (ExpEchoPoolCalls){
                         PVOID CallingAddress;
                         PVOID CallersCaller;
 
@@ -1284,7 +1422,6 @@ PoolLocked:
                         RtlGetCallersAddress(&CallingAddress, &CallersCaller);
                         DbgPrint(" Callers:%lx, %lx\n", CallingAddress, CallersCaller);
                     }
-
 #endif
 
                     return (PCHAR)Entry + CacheOverhead;
@@ -1335,16 +1472,27 @@ PoolLocked:
 
                     UNLOCK_POOL(PoolDesc, LockHandle);
 
+                    if ((PoolType & POOL_RAISE_IF_ALLOCATION_FAILURE) != 0) {
+                        ExRaiseStatus(STATUS_INSUFFICIENT_RESOURCES);
+                    }
+
                     return NULL;
                 }
             }
 
 #if DEADBEEF
 
-            if (!(NtGlobalFlag & FLG_POOL_DISABLE_FREE_CHECK)) {
-                RtlFillMemoryUlong((PCHAR)Entry + POOL_OVERHEAD,
-                                   PAGE_SIZE - POOL_OVERHEAD,
-                                   FREED_POOL);
+            if (NtGlobalFlag & FLG_POOL_ENABLE_FREE_CHECK) {
+
+                //
+                // Fill in the entire page with freed pool tags.
+                //
+
+                ExFillFreedPool( (PCHAR)Entry + POOL_OVERHEAD,
+                                 PAGE_SIZE - POOL_OVERHEAD,
+                                 FREED_POOL );
+
+                Entry->PoolTag = FREED_POOL;
             }
 
 #endif
@@ -1385,41 +1533,89 @@ ExpInsertPoolTracker (
     POOL_TYPE PoolType
     )
 
+/*++
+
+Routine Description:
+
+    This function insert a pool tag in the tag table and increments the
+    number of allocates and updates the total allocation size.
+
+Arguments:
+
+    Key - Supplies the key value used to locate a matching entry in the
+        tag table.
+
+    Size - Supplies the allocation size.
+
+    PoolType - Supplies the pool type.
+
+Return Value:
+
+    The tag index is returned as the function value.
+
+--*/
+
 {
+
+    USHORT Result;
     ULONG Hash;
-    BOOLEAN NotInserted = FALSE;
+    ULONG Index;
     KIRQL OldIrql;
+
+    //
+    // Ignore protected pool bit except for returned hash index
+    //
+
+    if (Key & PROTECTED_POOL) {
+        Key &= ~PROTECTED_POOL;
+        Result = (USHORT)(PROTECTED_POOL >> 16);
+    } else {
+        Result = 0;
+    }
 
     if (Key == PoolHitTag) {
         DbgBreakPoint();
     }
 
+    //
+    // Compute hash index and search for pool tag.
+    //
+
+    Hash = ((40543*((((((((PUCHAR)&Key)[0]<<2)^((PUCHAR)&Key)[1])<<2)^((PUCHAR)&Key)[2])<<2)^((PUCHAR)&Key)[3]))>>2) & TRACKER_TABLE_MASK;
+    Index = Hash;
     ExAcquireSpinLock(&ExpTaggedPoolLock, &OldIrql);
-    Hash = (Key + (Key >> 8) + (Key >> 16) + (Key >> 24)) & TRACKER_TABLE_MASK;
-    while ((PoolTrackTable[Hash].Key != Key) && (PoolTrackTable[Hash].Key != 0)) {
-        Hash += 1;
-        if (Hash > MAX_TRACKER_TABLE) {
-            if (NotInserted) {
-
-                ExReleaseSpinLock(&ExpTaggedPoolLock, OldIrql);
-                return MAX_TRACKER_TABLE;
-            }
-            Hash = 0;
-            NotInserted = TRUE;
+    do {
+        if ((PoolTrackTable[Hash].Key == Key) ||
+            (PoolTrackTable[Hash].Key == 0)) {
+            goto EntryFound;
         }
-    }
 
+        Hash = (Hash + 1) & TRACKER_TABLE_MASK;
+    } while (Hash != Index);
+
+    //
+    // No matching entry and no free entry was found.
+    //
+
+    Hash = MAX_TRACKER_TABLE - 1;
+
+    //
+    // Update pool tracker table entry.
+    //
+
+EntryFound:
     PoolTrackTable[Hash].Key = Key;
     if ((PoolType & BASE_POOL_TYPE_MASK) == PagedPool) {
         PoolTrackTable[Hash].PagedAllocs += 1;
         PoolTrackTable[Hash].PagedBytes += Size;
+
     } else {
         PoolTrackTable[Hash].NonPagedAllocs += 1;
         PoolTrackTable[Hash].NonPagedBytes += Size;
     }
 
     ExReleaseSpinLock(&ExpTaggedPoolLock, OldIrql);
-    return (USHORT)Hash;
+    return (USHORT)Hash | Result;
 }
 
 
@@ -1430,47 +1626,91 @@ ExpRemovePoolTracker (
     POOL_TYPE PoolType
     )
 
+/*++
+
+Routine Description:
+
+    This function increments the number of frees and updates the total
+    allocation size.
+
+Arguments:
+
+    Key - Supplies the key value used to locate a matching entry in the
+        tag table.
+
+    Size - Supplies the allocation size.
+
+    PoolType - Supplies the pool type.
+
+Return Value:
+
+    None.
+
+--*/
+
 {
+
     ULONG Hash;
-    BOOLEAN Inserted = TRUE;
+    ULONG Index;
     KIRQL OldIrql;
 
+    //
+    // Ignore protected pool bit
+    //
+
+    Key &= ~PROTECTED_POOL;
     if (Key == PoolHitTag) {
         DbgBreakPoint();
     }
 
-    ExAcquireSpinLock(&ExpTaggedPoolLock, &OldIrql);
-    Hash = (Key + (Key >> 8) + (Key >> 16) + (Key >> 24)) & TRACKER_TABLE_MASK;
-    while (PoolTrackTable[Hash].Key != Key) {
-        Hash += 1;
-        if (Hash > MAX_TRACKER_TABLE) {
-            if (!Inserted) {
-                if (!FirstPrint) {
-                    KdPrint(("POOL:unable to find tracker %lx\n",Key));
-                    FirstPrint = TRUE;
-                }
-                ExReleaseSpinLock(&ExpTaggedPoolLock, OldIrql);
-                return;
-            }
-            Hash = 0;
-            Inserted = FALSE;
-        }
-    }
+    //
+    // Compute hash index and search for pool tag.
+    //
 
+    Hash = ((40543*((((((((PUCHAR)&Key)[0]<<2)^((PUCHAR)&Key)[1])<<2)^((PUCHAR)&Key)[2])<<2)^((PUCHAR)&Key)[3]))>>2) & TRACKER_TABLE_MASK;
+    Index = Hash;
+    ExAcquireSpinLock(&ExpTaggedPoolLock, &OldIrql);
+    do {
+        if (PoolTrackTable[Hash].Key == Key) {
+            goto EntryFound;
+        }
+
+        if (PoolTrackTable[Hash].Key == 0) {
+            KdPrint(("POOL: Unable to find tracker %lx, table corrupted\n", Key));
+            goto ExitRoutine;
+        }
+
+
+        Hash = (Hash + 1) & TRACKER_TABLE_MASK;
+    } while (Hash != Index);
+
+    //
+    // No matching entry and no free entry was found.
+    //
+
+    Hash = MAX_TRACKER_TABLE - 1;
+
+    //
+    // Update pool tracker table entry.
+    //
+
+EntryFound:
     if ((PoolType & BASE_POOL_TYPE_MASK) == PagedPool) {
         PoolTrackTable[Hash].PagedBytes -= Size;
         PoolTrackTable[Hash].PagedFrees += 1;
+
     } else {
         PoolTrackTable[Hash].NonPagedBytes -= Size;
         PoolTrackTable[Hash].NonPagedFrees += 1;
     }
-    ExReleaseSpinLock(&ExpTaggedPoolLock, OldIrql);
 
+ExitRoutine:
+    ExReleaseSpinLock(&ExpTaggedPoolLock, OldIrql);
     return;
 }
 
 
-BOOLEAN
+PPOOL_TRACKER_BIG_PAGES
 ExpAddTagForBigPages (
     IN PVOID Va,
     IN ULONG Key
@@ -1481,9 +1721,7 @@ ExpAddTagForBigPages (
     KIRQL OldIrql;
 
     Hash = ((ULONG)Va >> PAGE_SHIFT) & BIGPAGE_TABLE_MASK;
-
     ExAcquireSpinLock(&ExpTaggedPoolLock, &OldIrql);
-
     while (PoolBigPageTable[Hash].Va != NULL) {
         Hash += 1;
         if (Hash > MAX_BIGPAGE_TABLE) {
@@ -1492,18 +1730,20 @@ ExpAddTagForBigPages (
                     KdPrint(("POOL:unable to insert big page slot %lx\n",Key));
                     FirstPrint = TRUE;
                 }
+
                 ExReleaseSpinLock(&ExpTaggedPoolLock, OldIrql);
-                return FALSE;
+                return NULL;
             }
+
             Hash = 0;
             Inserted = FALSE;
         }
     }
+
     PoolBigPageTable[Hash].Va = Va;
     PoolBigPageTable[Hash].Key = Key;
     ExReleaseSpinLock(&ExpTaggedPoolLock, OldIrql);
-
-    return TRUE;
+    return &PoolBigPageTable[Hash];
 }
 
 
@@ -1513,15 +1753,14 @@ ExpFindAndRemoveTagBigPages (
     )
 
 {
+
     ULONG Hash;
     BOOLEAN Inserted = TRUE;
     KIRQL OldIrql;
     ULONG ReturnKey;
 
     Hash = ((ULONG)Va >> PAGE_SHIFT) & BIGPAGE_TABLE_MASK;
-
     ExAcquireSpinLock(&ExpTaggedPoolLock, &OldIrql);
-
     while (PoolBigPageTable[Hash].Va != Va) {
         Hash += 1;
         if (Hash > MAX_BIGPAGE_TABLE) {
@@ -1530,17 +1769,19 @@ ExpFindAndRemoveTagBigPages (
                     KdPrint(("POOL:unable to find big page slot %lx\n",Va));
                     FirstPrint = TRUE;
                 }
+
                 ExReleaseSpinLock(&ExpTaggedPoolLock, OldIrql);
                 return ' GIB';
             }
+
             Hash = 0;
             Inserted = FALSE;
         }
     }
+
     PoolBigPageTable[Hash].Va = NULL;
     ReturnKey = PoolBigPageTable[Hash].Key;
     ExReleaseSpinLock(&ExpTaggedPoolLock, OldIrql);
-
     return ReturnKey;
 }
 
@@ -1548,7 +1789,8 @@ ExpFindAndRemoveTagBigPages (
 ULONG
 ExpAllocatePoolWithQuotaHandler(
     IN NTSTATUS ExceptionCode,
-    IN PVOID PoolAddress
+    IN PVOID PoolAddress,
+    IN BOOLEAN ContinueSearch
     )
 
 /*++
@@ -1569,6 +1811,10 @@ Arguments:
     PoolAddress - Supplies the address of a pool block that needs to be
         deallocated.
 
+    ContinueSearch - Supplies a value that if TRUE causes the exception
+        search to continue.  This is used in allocate pool with quota
+        calls that do not contain the pool quota mask bit set.
+
 Return Value:
 
     EXCEPTION_CONTINUE_SEARCH - The exception should be propagated to the
@@ -1585,7 +1831,7 @@ Return Value:
         ASSERT(ExceptionCode == STATUS_INSUFFICIENT_RESOURCES);
     }
 
-    return EXCEPTION_CONTINUE_SEARCH;
+    return ContinueSearch ? EXCEPTION_CONTINUE_SEARCH : EXCEPTION_EXECUTE_HANDLER;
 }
 
 PVOID
@@ -1641,82 +1887,9 @@ Return Value:
 --*/
 
 {
-    PVOID p;
-    PEPROCESS Process;
-    PPOOL_HEADER Entry;
-    BOOLEAN IgnoreQuota = FALSE;
-
-
-    if (PoolTrackTable
-#if DBG && defined(i386)
-                       || (NtGlobalFlag & FLG_HEAP_TRACE_ALLOCS)
-#endif // DBG && defined(i386)
-       ) {
-        IgnoreQuota = TRUE;
-    } else {
-        PoolType = (POOL_TYPE)((UCHAR)PoolType + POOL_QUOTA_MASK);
-    }
-
-    p = ExAllocatePoolWithTag(PoolType, NumberOfBytes, 'atoQ');
-
-    if (IgnoreQuota) {
-        return p;
-    }
-
-    if ( p && !PAGE_ALIGNED(p) ) {
-
-
-#if POOL_CACHE_SUPPORTED
-
-        //
-        // Align entry on pool allocation boundary.
-        //
-
-        if (((ULONG)p & POOL_CACHE_CHECK) == 0) {
-            Entry = (PPOOL_HEADER)((ULONG)p - PoolCacheSize);
-        } else {
-            Entry = (PPOOL_HEADER)((PCH)p - POOL_OVERHEAD);
-        }
-
-#else
-        Entry = (PPOOL_HEADER)((PCH)p - POOL_OVERHEAD);
-#endif //POOL_CACHE_SUPPORTED
-
-        Process = PsGetCurrentProcess();
-
-        //
-        // Catch exception and back out allocation if necessary
-        //
-
-        try {
-
-            Entry->ProcessBilled = NULL;
-
-            PsChargePoolQuota(Process,
-                             PoolType & BASE_POOL_TYPE_MASK,
-                             (ULONG)(Entry->BlockSize << POOL_BLOCK_SHIFT));
-
-            ObReferenceObjectByPointer(
-                Process,
-                PROCESS_ALL_ACCESS,
-                PsProcessType,
-                KernelMode
-                );
-
-            Entry->ProcessBilled = Process;
-
-        } except ( ExpAllocatePoolWithQuotaHandler(GetExceptionCode(),p)) {
-            KeBugCheck(GetExceptionCode());
-        }
-
-    } else {
-        if ( !p ) {
-            ExRaiseStatus(STATUS_INSUFFICIENT_RESOURCES);
-        }
-    }
-
-    return p;
+    return (ExAllocatePoolWithQuotaTag (PoolType, NumberOfBytes, 'enoN'));
 }
+
 
 PVOID
 ExAllocatePoolWithQuotaTag(
@@ -1772,32 +1945,107 @@ Return Value:
 --*/
 
 {
-    if (!PoolTrackTable) {
-        return(ExAllocatePoolWithQuota(PoolType,NumberOfBytes));
+    PVOID p;
+    PEPROCESS Process;
+    PPOOL_HEADER Entry;
+    BOOLEAN IgnoreQuota = FALSE;
+    BOOLEAN RaiseOnQuotaFailure = TRUE;
+
+    if ( PoolType & POOL_QUOTA_FAIL_INSTEAD_OF_RAISE ) {
+        RaiseOnQuotaFailure = FALSE;
+        PoolType &= ~POOL_QUOTA_FAIL_INSTEAD_OF_RAISE;
     }
-    {
-        PVOID p;
 
-        p = ExAllocatePoolWithTag(PoolType,NumberOfBytes,Tag);
+    if (PoolTrackTable
+#if i386 && !FPO
+            || (NtGlobalFlag & FLG_KERNEL_STACK_TRACE_DB)
+#endif // i386 && !FPO
+       ) {
+        IgnoreQuota = TRUE;
+    } else {
+        PoolType = (POOL_TYPE)((UCHAR)PoolType + POOL_QUOTA_MASK);
+    }
 
-#if DBG && defined(i386)
-        if (NtGlobalFlag & FLG_HEAP_TRACE_ALLOCS) {
-            return p;
+    p = ExAllocatePoolWithTag(PoolType, NumberOfBytes, Tag);
+
+    //
+    // Note - NULL is page aligned.
+    //
+
+    if (!PAGE_ALIGNED(p) && !IgnoreQuota ) {
+
+#if POOL_CACHE_SUPPORTED
+
+        //
+        // Align entry on pool allocation boundary.
+        //
+
+        if (((ULONG)p & POOL_CACHE_CHECK) == 0) {
+            Entry = (PPOOL_HEADER)((ULONG)p - PoolCacheSize);
+        } else {
+            Entry = (PPOOL_HEADER)((PCH)p - POOL_OVERHEAD);
         }
-#endif // DBG && defined(i386)
 
-        if ( !p ) {
+#else
+        Entry = (PPOOL_HEADER)((PCH)p - POOL_OVERHEAD);
+#endif //POOL_CACHE_SUPPORTED
+
+        Process = PsGetCurrentProcess();
+
+        //
+        // Catch exception and back out allocation if necessary
+        //
+
+        try {
+
+            Entry->ProcessBilled = NULL;
+
+            if ( Process != PsInitialSystemProcess ) {
+                PsChargePoolQuota(Process,
+                                 PoolType & BASE_POOL_TYPE_MASK,
+                                 (ULONG)(Entry->BlockSize << POOL_BLOCK_SHIFT));
+
+                ObReferenceObject(Process);
+                Entry->ProcessBilled = Process;
+                }
+
+        } except ( ExpAllocatePoolWithQuotaHandler(GetExceptionCode(),p,RaiseOnQuotaFailure)) {
+            if ( RaiseOnQuotaFailure ) {
+                KeBugCheck(GetExceptionCode());
+                }
+            else {
+                p = NULL;
+                }
+        }
+
+    } else {
+        if ( !p && RaiseOnQuotaFailure ) {
             ExRaiseStatus(STATUS_INSUFFICIENT_RESOURCES);
         }
-
-        return p;
     }
+
+    return p;
 }
 
 VOID
 ExFreePool(
     IN PVOID P
     )
+{
+#ifdef POOL_TAGGING
+    ExFreePoolWithTag(P, 0);
+    return;
+}
+
+VOID
+ExFreePoolWithTag(
+    IN PVOID P,
+    IN ULONG TagToFree
+    )
+{
+#else
+    ULONG TagToFree = 0;
+#endif
 
 /*++
 
@@ -1827,17 +2075,17 @@ Return Value:
 
 --*/
 
-{
-
     POOL_TYPE CheckType;
     PPOOL_HEADER Entry;
     ULONG Index;
     KIRQL LockHandle;
+    PSMALL_POOL_LOOKASIDE LookasideList;
     PPOOL_HEADER NextEntry;
     ULONG PoolIndex;
     POOL_TYPE PoolType;
     PPOOL_DESCRIPTOR PoolDesc;
     PEPROCESS ProcessBilled = NULL;
+    PKPRCB Prcb;
     BOOLEAN Combined;
     ULONG BigPages;
     ULONG Tag;
@@ -1851,10 +2099,10 @@ Return Value:
 #endif //DBG
 
 #if DBG
-        if ((P > SpecialPoolStart) && (P < SpecialPoolEnd)) {
-            ExpFreeSpecialPool (P);
-            return;
-        }
+    if ((P > MmSpecialPoolStart) && (P < MmSpecialPoolEnd)) {
+        MmFreeSpecialPool (P);
+        return;
+    }
 #endif //DBG
 
     //
@@ -1871,7 +2119,6 @@ Return Value:
         LOCK_POOL(PoolDesc, LockHandle);
 
         PoolDesc->RunningDeAllocs++;
-        PoolDesc->IntervalDeAllocs++;
         BigPages = MiFreePoolPages(P);
         PoolDesc->TotalBigPages -= BigPages;
 
@@ -1885,31 +2132,33 @@ Return Value:
 
 #endif // DBG
 
-#if DBG && defined(_X86_)
-
-        if (NtGlobalFlag & FLG_HEAP_TRACE_ALLOCS) {
-            ULONG i;
-
-            for (i = 0; i < MAX_LARGE_ALLOCS; i++) {
-                if (TraceLargeAllocs[i].Va == P) {
-                    TraceLargeAllocs[i].Va = 0;
-                }
-            }
-        }
-
-#endif // DBG && defined(i386)
-
         UNLOCK_POOL(PoolDesc, LockHandle);
 
         if (PoolTrackTable != NULL) {
-            ExpRemovePoolTracker(ExpFindAndRemoveTagBigPages(P),
+            Tag = ExpFindAndRemoveTagBigPages(P);
+            if (Tag & PROTECTED_POOL) {
+                Tag &= ~PROTECTED_POOL;
+                TagToFree &= ~PROTECTED_POOL;
+                if (Tag != TagToFree) {
+                    DbgPrint( "EX: Invalid attempt to free protected pool block %x (%c%c%c%c)\n",
+                              P,
+                              Tag,
+                              Tag >> 8,
+                              Tag >> 16,
+                              Tag >> 24
+                            );
+                    DbgBreakPoint();
+                }
+            }
+
+            ExpRemovePoolTracker(Tag,
                                  BigPages * PAGE_SIZE,
                                  PoolType);
         }
 
 #if DBG
 
-        if (NtGlobalFlag & FLG_ECHO_POOL_CALLS){
+        if (ExpEchoPoolCalls){
             PVOID CallingAddress;
             PVOID CallersCaller;
 
@@ -1922,11 +2171,11 @@ Return Value:
 
     } else {
 
-#if POOL_CACHE_SUPPORTED
-
         //
         // Align the entry address to a pool allocation boundary.
         //
+
+#if POOL_CACHE_SUPPORTED
 
         if (((ULONG)P & POOL_CACHE_CHECK) == 0) {
             Entry = (PPOOL_HEADER)((ULONG)P - PoolCacheSize);
@@ -1986,7 +2235,7 @@ Return Value:
 
 #if DBG
 
-        if (NtGlobalFlag & FLG_ECHO_POOL_CALLS){
+        if (ExpEchoPoolCalls){
             PVOID CallingAddress;
             PVOID CallersCaller;
 
@@ -1999,7 +2248,7 @@ Return Value:
 
 #ifdef CHECK_POOL_TAIL
 
-        if (!(NtGlobalFlag & FLG_POOL_DISABLE_FREE_CHECK)) {
+        if (NtGlobalFlag & FLG_POOL_ENABLE_TAIL_CHECK) {
             PCHAR PoolBlock;
             ULONG CountBytes;
             ULONG CountBytesEqual;
@@ -2022,8 +2271,126 @@ Return Value:
 
 #endif //CHECK_POOL_TAIL
 
+#if i386 && !FPO
+        if ((NtGlobalFlag & FLG_KERNEL_STACK_TRACE_DB) &&
+            PoolTrackTable != NULL &&
+            Entry->AllocatorBackTraceIndex != 0 &&
+            Entry->AllocatorBackTraceIndex & POOL_BACKTRACEINDEX_PRESENT) {
+            if (Entry->PoolTagHash & (PROTECTED_POOL >> 16)) {
+                Entry->PoolTagHash &= ~(PROTECTED_POOL >> 16);
+                Tag = PROTECTED_POOL;
+            } else {
+                Tag = 0;
+            }
+            Entry->PoolTag = Tag | PoolTrackTable[Entry->PoolTagHash].Key;
+        }
+#endif // i386 && !FPO
+
+        //
+        // If pool tagging is enabled, then update the pool tracking database.
+        // Otherwise, check to determine if quota was charged when the pool
+        // block was allocated.
+        //
+
+        if (PoolTrackTable != NULL) {
+            Tag = Entry->PoolTag;
+            if (Tag & PROTECTED_POOL) {
+                Tag &= ~PROTECTED_POOL;
+                TagToFree &= ~PROTECTED_POOL;
+                if (Tag != TagToFree) {
+                    DbgPrint( "EX: Invalid attempt to free protected pool block %x (%c%c%c%c)\n",
+                              P,
+                              Tag,
+                              Tag >> 8,
+                              Tag >> 16,
+                              Tag >> 24
+                            );
+                    DbgBreakPoint();
+                }
+            }
+            ExpRemovePoolTracker(Tag,
+                                 Entry->BlockSize << POOL_BLOCK_SHIFT ,
+                                 PoolType);
+
+        } else if (ProcessBilled != NULL) {
+            PsReturnPoolQuota(ProcessBilled,
+                              PoolType & BASE_POOL_TYPE_MASK,
+                              (ULONG)Entry->BlockSize << POOL_BLOCK_SHIFT);
+            ObDereferenceObject(ProcessBilled);
+        }
+
+        //
+        // If the pool block is a small block, then attempt to free the block
+        // to the single entry lookaside list. If the free atempts fails, then
+        // free the block by merging it back into the pool data structures.
+        //
+
         PoolIndex = UNPACK_POOL_INDEX(Entry->PoolIndex);
         PoolDesc = PoolVector[PoolType];
+        Index = Entry->BlockSize;
+        if (Index > POOL_SMALL_LISTS) {
+            Index = (Index >> SHIFT_OFFSET) + POOL_SMALL_LISTS + 1;
+
+        } else {
+
+            //
+            // Attempt to free the small block to the per rpocessor single
+            // entry lookaside list.
+            //
+
+#if !defined(CHECK_POOL_TAIL) && (DEADBEEF == 0)
+
+            Prcb = KeGetCurrentPrcb();
+            if (CheckType == PagedPool) {
+
+#if defined(_PPC_)
+
+                if ((Entry = (PPOOL_HEADER)InterlockedExchange((PLONG)&Prcb->PagedFreeEntry[Index - 1],
+                                                               (LONG)Entry)) == NULL) {
+
+#else
+
+                LookasideList = &ExpSmallPagedPoolLookasideLists[Index - 1];
+                LookasideList->TotalFrees += 1;
+                if ((Isx86FeaturePresent(KF_CMPXCHG8B)) &&
+                    (ExQueryDepthSList(&LookasideList->SListHead) < LookasideList->Depth)) {
+                    LookasideList->FreeHits += 1;
+                    Entry += 1;
+                    ExInterlockedPushEntrySList(&LookasideList->SListHead,
+                                                (PSINGLE_LIST_ENTRY)Entry,
+                                                &LookasideList->Lock);
+
+#endif
+
+                    return;
+                }
+
+                PoolIndex = UNPACK_POOL_INDEX(Entry->PoolIndex);
+
+            } else {
+                LookasideList = &ExpSmallNPagedPoolLookasideLists[Index - 1];
+                LookasideList->TotalFrees += 1;
+                if (ExQueryDepthSList(&LookasideList->SListHead) < LookasideList->Depth) {
+                    LookasideList->FreeHits += 1;
+                    Entry += 1;
+                    ExInterlockedPushEntrySList(&LookasideList->SListHead,
+                                                (PSINGLE_LIST_ENTRY)Entry,
+                                                &LookasideList->Lock);
+
+                    return;
+                }
+
+                PoolIndex = UNPACK_POOL_INDEX(Entry->PoolIndex);
+            }
+#endif
+
+        }
+
+        //
+        // If the pool type is paged pool, then get the appropriate pool
+        // descriptor address.
+        //
+
         if (CheckType == PagedPool) {
             PoolDesc = &PoolDesc[PoolIndex];
         }
@@ -2033,45 +2400,25 @@ Return Value:
         LOCK_POOL(PoolDesc, LockHandle);
 
 #if DEADBEEF
-
-        if (!(NtGlobalFlag & FLG_POOL_DISABLE_FREE_CHECK)) {
+        if (NtGlobalFlag & FLG_POOL_ENABLE_FREE_CHECK) {
             CHECK_POOL_PAGE(Entry);
         }
-
 #endif
 
-        PoolDesc->RunningDeAllocs++;
-        PoolDesc->IntervalDeAllocs++;
-        Tag = Entry->PoolTag;
+        PoolDesc->RunningDeAllocs += 1;
 
-#if DBG && defined(_X86_)
+#if DEADBEEF
+        if (NtGlobalFlag & FLG_POOL_ENABLE_FREE_CHECK) {
 
-        if (NtGlobalFlag & FLG_HEAP_TRACE_ALLOCS &&
-            PoolTrackTable != NULL &&
-            Entry->AllocatorBackTraceIndex != 0 &&
-            Entry->AllocatorBackTraceIndex & POOL_BACKTRACEINDEX_PRESENT) {
-            Tag = PoolTrackTable[Entry->PoolTagHash].Key;
-            Entry->PoolTag = Tag;
+            //
+            // Fill in the block with its previous pool tags.
+            //
+
+            ExFillFreedPool( (PCHAR)Entry + POOL_OVERHEAD,
+                             (Entry->BlockSize  << POOL_BLOCK_SHIFT) - POOL_OVERHEAD,
+                             Entry->PoolTag );
         }
-
-#endif // DBG && defined(i386)
-
-        if (PoolTrackTable != NULL) {
-            ExpRemovePoolTracker(Tag,
-                                 Entry->BlockSize << POOL_BLOCK_SHIFT ,
-                                 PoolType);
-        }
-
-        //
-        // Check ProcessBilled flag to see if quota was charged for
-        // this allocation.
-        //
-
-        if (ProcessBilled) {
-            PsReturnPoolQuota(ProcessBilled,
-                              PoolType & BASE_POOL_TYPE_MASK,
-                              (ULONG)Entry->BlockSize << POOL_BLOCK_SHIFT);
-        }
+#endif
 
         //
         // Free the specified pool block.
@@ -2088,11 +2435,25 @@ Return Value:
                 // This block is free, combine with the released block.
                 //
 
-                CHECK_LIST(((PLIST_ENTRY)((PCHAR)NextEntry + POOL_OVERHEAD)));
+                CHECK_LIST(__LINE__, ((PLIST_ENTRY)((PCHAR)NextEntry + POOL_OVERHEAD)), P);
 
                 Combined = TRUE;
                 RemoveEntryList(((PLIST_ENTRY)((PCHAR)NextEntry + POOL_OVERHEAD)));
                 Entry->BlockSize += NextEntry->BlockSize;
+
+#if DEADBEEF
+                if (NtGlobalFlag & FLG_POOL_ENABLE_FREE_CHECK) {
+
+                    //
+                    // Overwrite the poolheader with its tag because we're being combined
+                    // an the previous block.
+                    //
+
+                    ExFillFreedPool( (PCHAR)NextEntry,
+                                     POOL_OVERHEAD + sizeof(LIST_ENTRY),
+                                     NextEntry->PoolTag );
+                }
+#endif
             }
         }
 
@@ -2108,11 +2469,26 @@ Return Value:
                 // This block is free, combine with the released block.
                 //
 
-                CHECK_LIST (((PLIST_ENTRY)((PCHAR)NextEntry + POOL_OVERHEAD)));
+                CHECK_LIST(__LINE__, ((PLIST_ENTRY)((PCHAR)NextEntry + POOL_OVERHEAD)), P);
 
                 Combined = TRUE;
                 RemoveEntryList(((PLIST_ENTRY)((PCHAR)NextEntry + POOL_OVERHEAD)));
                 NextEntry->BlockSize += Entry->BlockSize;
+
+#if DEADBEEF
+                if (NtGlobalFlag & FLG_POOL_ENABLE_FREE_CHECK) {
+
+                    //
+                    // Overwrite the poolheader with its tag because we're being combined
+                    // an the previous block.
+                    //
+
+                    ExFillFreedPool( (PCHAR)Entry,
+                                     POOL_OVERHEAD + sizeof(LIST_ENTRY),
+                                     Entry->PoolTag );
+                }
+#endif
+
                 Entry = NextEntry;
             }
         }
@@ -2144,16 +2520,6 @@ Return Value:
             // Insert this element into the list.
             //
 
-#if DEADBEEF
-
-            if (!(NtGlobalFlag & FLG_POOL_DISABLE_FREE_CHECK)) {
-                RtlFillMemoryUlong((PCHAR)Entry + POOL_OVERHEAD,
-                                   (Entry->BlockSize  << POOL_BLOCK_SHIFT) - POOL_OVERHEAD,
-                                   FREED_POOL);
-            }
-
-#endif
-
             Entry->PoolType = 0;
             Entry->PoolIndex = PACK_POOL_INDEX(PoolIndex);
             Index = Entry->BlockSize;
@@ -2184,14 +2550,14 @@ Return Value:
                 // neighbors for this will be freed before this is reallocated.
                 //
 
-                CHECK_LIST(&PoolDesc->ListHeads[Index - 1]);
+                CHECK_LIST(__LINE__, &PoolDesc->ListHeads[Index - 1], P);
 
                 InsertTailList(&PoolDesc->ListHeads[Index - 1],
                                ((PLIST_ENTRY)((PCHAR)Entry + POOL_OVERHEAD)));
 
             } else {
 
-                CHECK_LIST (&PoolDesc->ListHeads[Index - 1]);
+                CHECK_LIST(__LINE__, &PoolDesc->ListHeads[Index - 1], P);
 
                 InsertHeadList(&PoolDesc->ListHeads[Index - 1],
                                ((PLIST_ENTRY)((PCHAR)Entry + POOL_OVERHEAD)));
@@ -2200,38 +2566,11 @@ Return Value:
 
         UNLOCK_POOL(PoolDesc, LockHandle);
 
-        //
-        // Okay to dereference process pointer after we release lock.
-        //
-
-        if (ProcessBilled) {
-            ObDereferenceObject(ProcessBilled);
-        }
     }
 
     return;
 }
 
-NTSTATUS
-ExAcquireResourceStub(
-    IN PERESOURCE Resource
-    )
-{
-    if (ExAcquireResourceExclusive( Resource, TRUE )) {
-        return( STATUS_SUCCESS );
-    } else {
-        return( STATUS_ACCESS_DENIED );
-    }
-}
-
-NTSTATUS
-ExReleaseResourceStub(
-    IN PERESOURCE Resource
-    )
-{
-    ExReleaseResource( Resource );
-    return( STATUS_SUCCESS );
-}
 
 ULONG
 ExQueryPoolBlockSize (
@@ -2298,10 +2637,14 @@ Return Value:
 
 #endif
 
-    *QuotaCharged = (BOOLEAN) (Entry->ProcessBilled != NULL);
+    if ( PoolTrackTable ) {
+        *QuotaCharged = FALSE;
+        }
+    else {
+        *QuotaCharged = (BOOLEAN) (Entry->ProcessBilled != NULL);
+        }
     return size;
 }
-
 
 VOID
 ExQueryPoolUsage(
@@ -2309,14 +2652,18 @@ ExQueryPoolUsage(
     OUT PULONG NonPagedPoolPages,
     OUT PULONG PagedPoolAllocs,
     OUT PULONG PagedPoolFrees,
+    OUT PULONG PagedPoolLookasideHits,
     OUT PULONG NonPagedPoolAllocs,
-    OUT PULONG NonPagedPoolFrees
+    OUT PULONG NonPagedPoolFrees,
+    OUT PULONG NonPagedPoolLookasideHits
     )
 
 {
 
+    ULONG Count;
     ULONG Index;
     PPOOL_DESCRIPTOR pd;
+    PKPRCB Prcb;
 
     //
     // Sum all the paged pool usage.
@@ -2350,16 +2697,120 @@ ExQueryPoolUsage(
     *NonPagedPoolPages += pd->TotalPages + pd->TotalBigPages;
     *NonPagedPoolAllocs += pd->RunningAllocs;
     *NonPagedPoolFrees += pd->RunningDeAllocs;
+
+    //
+    // Sum all the lookaside hits for paged and nonpaged pool.
+    //
+
+    for (Index = 0; Index < (ULONG)KeNumberProcessors; Index += 1) {
+        Prcb = KiProcessorBlock[Index];
+        if (Prcb != NULL) {
+
+#if defined(_PPC_)
+
+            *PagedPoolLookasideHits += Prcb->PagedPoolLookasideHits;
+            for (Count = 0; Count < POOL_SMALL_LISTS; Count +=1) {
+                *NonPagedPoolLookasideHits += ExpSmallNPagedPoolLookasideLists[Count].AllocateHits;
+            }
+
+#else
+
+            for (Count = 0; Count < POOL_SMALL_LISTS; Count +=1) {
+                *PagedPoolLookasideHits += ExpSmallPagedPoolLookasideLists[Count].AllocateHits;
+                *NonPagedPoolLookasideHits += ExpSmallNPagedPoolLookasideLists[Count].AllocateHits;
+            }
+
+#endif
+
+        }
+    }
+
     return;
 }
-
 
+VOID
+ExReturnPoolQuota(
+    IN PVOID P
+    )
+
+/*++
+
+Routine Description:
+
+    This function returns quota charged to a subject process when the
+    specified pool block was allocated.
+
+Arguments:
+
+    P - Supplies the address of the block of pool being deallocated.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+
+    PPOOL_HEADER Entry;
+    POOL_TYPE PoolType;
+    PEPROCESS Process;
+
+    //
+    // Align the entry address to a pool allocation boundary.
+    //
+
+#if POOL_CACHE_SUPPORTED
+
+    if (((ULONG)P & POOL_CACHE_CHECK) == 0) {
+        Entry = (PPOOL_HEADER)((ULONG)P - PoolCacheSize);
+
+    } else {
+        Entry = (PPOOL_HEADER)((PCHAR)P - POOL_OVERHEAD);
+    }
+
+#else
+
+    Entry = (PPOOL_HEADER)((PCHAR)P - POOL_OVERHEAD);
+
+#endif //POOL_CACHE_SUPPORTED
+
+    //
+    // If quota was charged, then return the appropriate quota to the
+    // subject process.
+    //
+
+    PoolType = (Entry->PoolType & POOL_TYPE_MASK) - 1;
+    if ((Entry->PoolType & POOL_QUOTA_MASK) &&
+        (PoolTrackTable == NULL)) {
+        Process = Entry->ProcessBilled;
+        Entry->PoolTag = 'atoQ';
+        Entry->PoolType &= ~POOL_QUOTA_MASK;
+        if (Process != NULL) {
+            PsReturnPoolQuota(Process,
+                              PoolType & BASE_POOL_TYPE_MASK,
+                              (ULONG)Entry->BlockSize << POOL_BLOCK_SHIFT);
+
+            ObDereferenceObject(Process);
+        }
+    }
+
+    return;
+}
+
+#if DBG || (i386 && !FPO)
+
+//
+// Only works on checked builds or free x86 builds with FPO turned off
+// See comment in mm\allocpag.c
+//
+
 NTSTATUS
 ExpSnapShotPoolPages(
     IN PVOID Address,
     IN ULONG Size,
-    IN OUT PRTL_HEAP_INFORMATION PoolInformation,
-    IN OUT PRTL_HEAP_ENTRY *PoolEntryInfo,
+    IN OUT PSYSTEM_POOL_INFORMATION PoolInformation,
+    IN OUT PSYSTEM_POOL_ENTRY *PoolEntryInfo,
     IN ULONG Length,
     IN OUT PULONG RequiredLength
     )
@@ -2368,105 +2819,114 @@ ExpSnapShotPoolPages(
     CLONG i;
     PPOOL_HEADER p;
 
-#if DBG && defined(_X86_)
+    if (PAGE_ALIGNED(Address)) {
+        for (i = 0; i < MAX_BIGPAGE_TABLE; i++) {
+            if (PoolBigPageTable[i].NumberOfPages != 0 &&
+                PoolBigPageTable[i].Va == Address
+               ) {
+                PoolInformation->NumberOfEntries += 1;
+                *RequiredLength += sizeof(SYSTEM_POOL_ENTRY);
+                if (Length < *RequiredLength) {
+                    Status = STATUS_INFO_LENGTH_MISMATCH;
 
-    for (i = 0; i < MAX_LARGE_ALLOCS; i++) {
-        if (TraceLargeAllocs[i].Va == Address) {
-            PoolInformation->NumberOfEntries++;
-            PoolInformation->TotalAllocated += TraceLargeAllocs[i].NumberOfPages * PAGE_SIZE;
-            *RequiredLength += sizeof(RTL_HEAP_ENTRY);
-            if (Length < *RequiredLength) {
-                Status = STATUS_INFO_LENGTH_MISMATCH;
+                } else {
+                    (*PoolEntryInfo)->Allocated = TRUE;
+                    (*PoolEntryInfo)->Size = (PoolBigPageTable[i].NumberOfPages * PAGE_SIZE);
+                    (*PoolEntryInfo)->AllocatorBackTraceIndex = 0;
+#if i386 && !FPO
+                    if ((NtGlobalFlag & FLG_KERNEL_STACK_TRACE_DB)) {
+                        (*PoolEntryInfo)->AllocatorBackTraceIndex =
+                            PoolBigPageTable[i].AllocatorBackTraceIndex;
+                    }
+#endif // i386 && !FPO
+                    (*PoolEntryInfo)->ProcessChargedQuota = 0;
+#if !DBG
+                    if (NtGlobalFlag & FLG_POOL_ENABLE_TAGGING)
+#endif  //!DBG
+                    (*PoolEntryInfo)->TagUlong = PoolBigPageTable[i].Key;
+                    (*PoolEntryInfo)++;
+                    Status = STATUS_SUCCESS;
+                }
 
-            } else {
-                (*PoolEntryInfo)->Flags = RTL_HEAP_BUSY;
-                (*PoolEntryInfo)->Size = (TraceLargeAllocs[i].NumberOfPages * PAGE_SIZE);
-                (*PoolEntryInfo)->AllocatorBackTraceIndex =
-                    TraceLargeAllocs[i].AllocatorBackTraceIndex;
-                (*PoolEntryInfo)->u.s1.Tag = TraceLargeAllocs[i].PoolTag;
-                (*PoolEntryInfo)++;
-                Status = STATUS_SUCCESS;
+                return  Status;
             }
-
-            return  Status;
         }
     }
 
-#endif // DBG && defined(_X86_)
-
     p = (PPOOL_HEADER)Address;
     if ((Size == PAGE_SIZE) && (p->PreviousSize == 0)) {
-        ULONG TotalSize;
         ULONG EntrySize;
 
-        TotalSize = 0;
-        EntrySize = p->BlockSize << POOL_BLOCK_SHIFT;
-        if (EntrySize == 0) {
-            return STATUS_COMMITMENT_LIMIT;
-        }
-
-        while (PAGE_END(p) == FALSE) {
+        do {
             EntrySize = p->BlockSize << POOL_BLOCK_SHIFT;
-            PoolInformation->NumberOfEntries++;
-            if (p->PoolType != 0) {
-                PoolInformation->TotalAllocated += EntrySize;
-
-            } else {
-                PoolInformation->TotalFree += EntrySize;
-                PoolInformation->NumberOfFreeEntries++;
-            }
-
-            *RequiredLength += sizeof(RTL_HEAP_ENTRY);
+            if (EntrySize == 0) {
+                return STATUS_COMMITMENT_LIMIT;
+                }
+            PoolInformation->NumberOfEntries += 1;
+            *RequiredLength += sizeof(SYSTEM_POOL_ENTRY);
             if (Length < *RequiredLength) {
                 Status = STATUS_INFO_LENGTH_MISMATCH;
 
             } else {
                 (*PoolEntryInfo)->Size = EntrySize;
                 if (p->PoolType != 0) {
-                    (*PoolEntryInfo)->Flags = RTL_HEAP_BUSY;
+                    (*PoolEntryInfo)->Allocated = TRUE;
                     (*PoolEntryInfo)->AllocatorBackTraceIndex = 0;
-
-#if DBG && defined(_X86_)
-
-                    if (NtGlobalFlag & FLG_HEAP_TRACE_ALLOCS &&
+                    (*PoolEntryInfo)->ProcessChargedQuota = 0;
+#if !DBG
+                    if (NtGlobalFlag & FLG_POOL_ENABLE_TAGGING)
+#endif  //!DBG
+                    (*PoolEntryInfo)->TagUlong = p->PoolTag;
+#if i386 && !FPO
+                    if ((NtGlobalFlag & FLG_KERNEL_STACK_TRACE_DB) &&
                         p->AllocatorBackTraceIndex != 0 &&
-                        p->AllocatorBackTraceIndex & POOL_BACKTRACEINDEX_PRESENT) {
+                        p->AllocatorBackTraceIndex & POOL_BACKTRACEINDEX_PRESENT
+                       ) {
                         (*PoolEntryInfo)->AllocatorBackTraceIndex = p->AllocatorBackTraceIndex ^ POOL_BACKTRACEINDEX_PRESENT;
-                        (*PoolEntryInfo)->u.s1.Tag = PoolTrackTable[p->PoolTagHash].Key;
-
-                    } else {
-                        (*PoolEntryInfo)->u.s1.Tag = p->PoolTag;
+#if !DBG
+                        if (NtGlobalFlag & FLG_POOL_ENABLE_TAGGING) {
+#else
+                        if (TRUE) {
+#endif  //!DBG
+                            if (p->PoolTagHash & (PROTECTED_POOL >> 16)) {
+                                (*PoolEntryInfo)->TagUlong = PROTECTED_POOL;
+                            } else {
+                                (*PoolEntryInfo)->TagUlong = 0;
+                            }
+                            (*PoolEntryInfo)->TagUlong |= PoolTrackTable[p->PoolTagHash&~(PROTECTED_POOL >> 16)].Key;
+                        }
                     }
-
-#endif // DBG && defined(_X86_)
+#endif // i386 && !FPO
 
                 } else {
-                    (*PoolEntryInfo)->Flags = 0;
+                    (*PoolEntryInfo)->Allocated = FALSE;
                     (*PoolEntryInfo)->AllocatorBackTraceIndex = 0;
-                    (*PoolEntryInfo)->u.s1.Tag = p->PoolTag;
+                    (*PoolEntryInfo)->ProcessChargedQuota = 0;
+#if !DBG
+                    if (NtGlobalFlag & FLG_POOL_ENABLE_TAGGING)
+#endif  //!DBG
+                    (*PoolEntryInfo)->TagUlong = p->PoolTag;
                 }
 
                 (*PoolEntryInfo)++;
                 Status = STATUS_SUCCESS;
             }
 
-            TotalSize += EntrySize;
             p = (PPOOL_HEADER)((PCHAR)p + EntrySize);
         }
+        while (PAGE_END(p) == FALSE);
 
     } else {
-
-        PoolInformation->NumberOfEntries++;
-        PoolInformation->TotalAllocated += Size;
-        *RequiredLength += sizeof(RTL_HEAP_ENTRY);
+        PoolInformation->NumberOfEntries += 1;
+        *RequiredLength += sizeof(SYSTEM_POOL_ENTRY);
         if (Length < *RequiredLength) {
             Status = STATUS_INFO_LENGTH_MISMATCH;
 
         } else {
-            (*PoolEntryInfo)->Flags = RTL_HEAP_BUSY;
+            (*PoolEntryInfo)->Allocated = TRUE;
             (*PoolEntryInfo)->Size = Size;
             (*PoolEntryInfo)->AllocatorBackTraceIndex = 0;
-            (*PoolEntryInfo)->u.s1.Tag = 0;
+            (*PoolEntryInfo)->ProcessChargedQuota = 0;
             (*PoolEntryInfo)++;
             Status = STATUS_SUCCESS;
         }
@@ -2478,7 +2938,7 @@ ExpSnapShotPoolPages(
 NTSTATUS
 ExSnapShotPool(
     IN POOL_TYPE PoolType,
-    IN PRTL_HEAP_INFORMATION PoolInformation,
+    IN PSYSTEM_POOL_INFORMATION PoolInformation,
     IN ULONG Length,
     OUT PULONG ReturnLength OPTIONAL
     )
@@ -2492,7 +2952,7 @@ ExSnapShotPool(
     ULONG RequiredLength;
     NTSTATUS Status;
 
-    RequiredLength = FIELD_OFFSET(RTL_HEAP_INFORMATION, HeapEntries);
+    RequiredLength = FIELD_OFFSET(SYSTEM_POOL_INFORMATION, Entries);
     if (Length < RequiredLength) {
         return STATUS_INFO_LENGTH_MISMATCH;
     }
@@ -2510,7 +2970,7 @@ ExSnapShotPool(
             KeRaiseIrql(APC_LEVEL, &LockHandle);                                   \
             do {
                 Lock = PoolDesc[Index].LockAddress;
-                ExAcquireResourceExclusiveLite((PERESOURCE)Lock, TRUE);
+                ExAcquireFastMutex((PFAST_MUTEX)Lock);
                 Index += 1;
             } while (Index < ExpNumberOfPagedPools);
 
@@ -2518,18 +2978,17 @@ ExSnapShotPool(
             ExAcquireSpinLock(&NonPagedPoolLock, &LockHandle);
         }
 
-        PoolInformation->SizeOfHeader = POOL_OVERHEAD;
+        PoolInformation->EntryOverhead = POOL_OVERHEAD;
+        PoolInformation->NumberOfEntries = 0;
 
 #if POOL_CACHE_SUPPORTED  //only compile for machines which have a nonzero value.
 
         if (PoolType & CACHE_ALIGNED_POOL_TYPE_MASK) {
-            PoolInformation->SizeOfHeader = PoolCacheSize;
+            PoolInformation->EntryOverhead = (USHORT)PoolCacheSize;
         }
 
 #endif //POOL_CACHE_SUPPORTED
 
-        PoolInformation->CreatorBackTraceIndex = 0;
-        PoolInformation->NumberOfEntries = 0;
         Status = MmSnapShotPool(PoolType,
                                 ExpSnapShotPoolPages,
                                 PoolInformation,
@@ -2547,9 +3006,7 @@ ExSnapShotPool(
             Index = 0;
             do {
                 Lock = PoolDesc[Index].LockAddress;
-                ExReleaseResourceForThreadLite((PERESOURCE)Lock,
-                                               (ERESOURCE_THREAD)PsGetCurrentThread());
-
+                ExReleaseFastMutex((PFAST_MUTEX)Lock);
                 Index += 1;
             } while (Index < ExpNumberOfPagedPools);
 
@@ -2566,9 +3023,9 @@ ExSnapShotPool(
 
     return Status;
 }
+#endif // DBG || (i386 && !FPO)
 
-
-#if DBG && defined(i386)
+#if i386 && !FPO
 USHORT
 ExGetPoolBackTraceIndex(
     IN PVOID P
@@ -2577,11 +3034,13 @@ ExGetPoolBackTraceIndex(
     CLONG i;
     PPOOL_HEADER Entry;
 
-    if (NtGlobalFlag & FLG_HEAP_TRACE_ALLOCS) {
+    if (NtGlobalFlag & FLG_KERNEL_STACK_TRACE_DB) {
         if ( PAGE_ALIGNED(P) ) {
-            for (i = 0; i < MAX_LARGE_ALLOCS ; i++) {
-                if (TraceLargeAllocs[i].Va == P) {
-                    return TraceLargeAllocs[i].AllocatorBackTraceIndex;
+            for (i = 0; i < MAX_BIGPAGE_TABLE; i++) {
+                if (PoolBigPageTable[i].NumberOfPages != 0 &&
+                    PoolBigPageTable[i].Va == P
+                   ) {
+                    return PoolBigPageTable[i].AllocatorBackTraceIndex;
                 }
             }
 
@@ -2612,137 +3071,4 @@ ExGetPoolBackTraceIndex(
 
     return 0;
 }
-
-#endif // DBG && defined(i386)
-
-
-#if DBG
-PVOID
-ExpAllocateSpecialPool (
-    IN ULONG NumberOfBytes,
-    IN ULONG Tag
-    )
-
-{
-    MMPTE TempPte;
-    ULONG PageFrameIndex;
-    PMMPTE PointerPte;
-    KIRQL OldIrql2;
-    PULONG Entry;
-
-
-    TempPte = ValidKernelPte;
-
-    LOCK_PFN2 (OldIrql2);
-    if (MmAvailablePages == 0) {
-        KeBugCheck (MEMORY_MANAGEMENT);
-    }
-
-    PointerPte = SpecialPoolFirstPte;
-
-    ASSERT (SpecialPoolFirstPte->u.List.NextEntry != MM_EMPTY_PTE_LIST);
-
-    SpecialPoolFirstPte = PointerPte->u.List.NextEntry + MmSystemPteBase;
-
-    PageFrameIndex = MiRemoveAnyPage (MI_GET_PAGE_COLOR_FROM_PTE (PointerPte));
-
-    TempPte.u.Hard.PageFrameNumber = PageFrameIndex;
-    *PointerPte = TempPte;
-    MiInitializePfn (PageFrameIndex, PointerPte, 1);
-    UNLOCK_PFN2 (OldIrql2);
-
-    Entry = (PULONG)MiGetVirtualAddressMappedByPte (PointerPte);
-
-    Entry = (PULONG)(PVOID)(((ULONG)Entry + (PAGE_SIZE - (NumberOfBytes + 8))) &
-            0xfffffff8L);
-
-    *Entry = ExSpecialPoolTag;
-    Entry += 1;
-    *Entry = NumberOfBytes;
-    Entry += 1;
-    return (PVOID)(Entry);
-}
-#endif //DBG
-
-
-#if DBG
-VOID
-ExpFreeSpecialPool (
-    IN PVOID P
-    )
-
-{
-    PMMPTE PointerPte;
-    PMMPFN Pfn1;
-    PULONG Entry;
-    KIRQL OldIrql;
-
-    Entry = (PULONG)((PCH)P - 8);
-
-    PointerPte = MiGetPteAddress (P);
-
-    if (PointerPte->u.Hard.Valid == 0) {
-        KeBugCheck (MEMORY_MANAGEMENT);
-    }
-
-    ASSERT (*Entry == ExSpecialPoolTag);
-
-    KeSweepDcache(TRUE);
-
-    Pfn1 = MI_PFN_ELEMENT (PointerPte->u.Hard.PageFrameNumber);
-    MI_SET_PFN_DELETED (Pfn1);
-
-    LOCK_PFN2 (OldIrql);
-    MiDecrementShareCount (PointerPte->u.Hard.PageFrameNumber);
-    KeFlushSingleTb (PAGE_ALIGN(P),
-                     TRUE,
-                     TRUE,
-                     (PHARDWARE_PTE)PointerPte,
-                     ZeroKernelPte.u.Hard);
-
-    ASSERT (SpecialPoolLastPte->u.List.NextEntry == MM_EMPTY_PTE_LIST);
-    SpecialPoolLastPte->u.List.NextEntry = PointerPte - MmSystemPteBase;
-
-    SpecialPoolLastPte = PointerPte;
-    SpecialPoolLastPte->u.List.NextEntry = MM_EMPTY_PTE_LIST;
-
-    UNLOCK_PFN2 (OldIrql);
-
-    return;
-}
-#endif //DBG
-
-
-#if DBG
-VOID
-ExpInitializeSpecialPool (
-    VOID
-    )
-
-{
-    KIRQL OldIrql;
-    PMMPTE pte;
-
-    LOCK_PFN (OldIrql);
-    SpecialPoolFirstPte = MiReserveSystemPtes (25000, SystemPteSpace, 0, 0, TRUE);
-    UNLOCK_PFN (OldIrql);
-
-    //
-    // build list of pte pairs.
-    //
-
-    SpecialPoolLastPte = SpecialPoolFirstPte + 25000;
-    SpecialPoolStart = MiGetVirtualAddressMappedByPte (SpecialPoolFirstPte);
-
-    pte = SpecialPoolFirstPte;
-    while (pte < SpecialPoolLastPte) {
-        pte->u.List.NextEntry = ((pte+2) - MmSystemPteBase);
-        pte += 2;
-    }
-    pte -= 2;
-    pte->u.List.NextEntry = MM_EMPTY_PTE_LIST;
-    SpecialPoolLastPte = pte;
-    SpecialPoolEnd = MiGetVirtualAddressMappedByPte (SpecialPoolLastPte + 1);
-}
-#endif //DBG
-
+#endif // i386 && !FPO

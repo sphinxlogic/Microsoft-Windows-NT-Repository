@@ -3,21 +3,8 @@
  *             and finishing any unfinished work.
  */
 
-#include "slm.h"
-#include "sys.h"
-#include "util.h"
-#include "stfile.h"
-#include "ad.h"
-#include "dir.h"
-#include <ctype.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-
-#include "script.h"
-
-#include "proto.h"
-#include "sadproto.h"
-
+#include "precomp.h"
+#pragma hdrstop
 EnableAssert
 
 F FScrptInit(pad)

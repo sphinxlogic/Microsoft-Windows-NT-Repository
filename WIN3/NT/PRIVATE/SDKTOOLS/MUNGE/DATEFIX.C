@@ -10,7 +10,7 @@
  *      oldName newName
  *
  * and the remaining parameters are the names of the files to munge.
- * Each file is read into memory, scanned once, where each occurence
+ * Each file is _read into memory, scanned once, where each occurence
  * of an oldName string is replaced by its corresponding newName.
  * If any changes are made to a file, the old version is RMed and
  * the new version written out under the same name.
@@ -136,7 +136,7 @@ DoFiles(
 {
     if (strcmp (b->fbuf.cFileName, ".") &&
         strcmp (b->fbuf.cFileName, "..") &&
-        stricmp (b->fbuf.cFileName, "slm.dif")
+        _stricmp (b->fbuf.cFileName, "slm.dif")
        ) {
         if (HASATTR(b->fbuf.dwFileAttributes,FILE_ATTRIBUTE_DIRECTORY)) {
             switch (p[strlen(p)-1]) {
@@ -237,4 +237,3 @@ char *argv[];
 
     return( 0 );
 }
-

@@ -187,7 +187,7 @@ Return Value:
     ULONG startTimeInSecondsSince1980;
     ULONG secondsAlive;
 
-    PAGED_CODE( );
+    PAGED_CODE();
 
     //
     // Get the current time and use this to determine how long the
@@ -284,10 +284,25 @@ Return Value:
         }
 
         //
-        // Set up the count of opens done on this tree connect.
+        // Set up the count of opens done on this tree connect.  Do not include
+        //  cached opens, as they are transparent to users and administrators
         //
 
         coni1->coni1_num_opens = treeConnect->CurrentFileOpenCount;
+
+        if( coni1->coni1_num_opens > 0 ) {
+
+            ULONG count = SrvCountCachedRfcbsForTid(
+                                     treeConnect->Connection,
+                                     treeConnect->Tid );
+
+            if( coni1->coni1_num_opens > count ) {
+                coni1->coni1_num_opens -= count;
+            } else {
+                coni1->coni1_num_opens = 0;
+            }
+
+        }
 
         //
         // There is always exactly one user on a tree connect.

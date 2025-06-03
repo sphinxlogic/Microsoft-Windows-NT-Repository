@@ -996,4 +996,3 @@ DispatchPaintMsg()
         DispatchMessage((LPMSG)&msg);
         }
     }
-

@@ -32,7 +32,7 @@ log_getch()
         while ((x = getchar()) != '\n');
         }
     else if (szKeyReplay == NULL)
-	ch = getch();
+	ch = _getch();
     else
 	ch = fgetc(fpReplay);
     if (szKeySave != NULL)

@@ -61,14 +61,14 @@ Note:
 #include <stddef.h>
 #include <prefix.h>
 #include <uasp.h>
-#include <wcstr.h>
+#include <stdlib.h>
 
 
 
 NET_API_STATUS
 AliaspChangeMember(
-    IN LPWSTR ServerName OPTIONAL,
-    IN LPWSTR AliasName,
+    IN LPCWSTR ServerName OPTIONAL,
+    IN LPCWSTR AliasName,
     IN PSID MemberSid,
     IN BOOL AddMember
     )
@@ -116,8 +116,8 @@ Return Value:
                        ALIAS_ADD_MEMBER : ALIAS_REMOVE_MEMBER,
                     AliasName,
                     &AliasHandle,
-		    NULL,
-		    NULL
+                    NULL,
+                    NULL
                     );
 
 
@@ -147,10 +147,10 @@ Return Value:
     }
 
     if (! NT_SUCCESS(Status)) {
-        NetpDbgPrint(
+        NetpKdPrint((
             PREFIX_NETAPI
             "AliaspChangeMember: SamAdd(orRemove)MemberFromAlias returned %lX\n",
-            Status);
+            Status));
         NetStatus = NetpNtStatusToApiStatus(Status);
         goto Cleanup;
     }
@@ -336,7 +336,7 @@ Cleanup:
     }
 
     IF_DEBUG( UAS_DEBUG_ALIAS ) {
-        NetpDbgPrint( "AliaspGetInfo: returns %lu\n", NetStatus );
+        NetpKdPrint(( "AliaspGetInfo: returns %lu\n", NetStatus ));
     }
 
     return NetStatus;
@@ -346,10 +346,10 @@ Cleanup:
 
 NET_API_STATUS
 AliaspOpenAliasInDomain(
-    IN LPWSTR ServerName OPTIONAL,
+    IN LPCWSTR ServerName OPTIONAL,
     IN ALIASP_DOMAIN_TYPE DomainType,
     IN ACCESS_MASK DesiredAccess,
-    IN LPWSTR AliasName,
+    IN LPCWSTR AliasName,
     OUT PSAM_HANDLE AliasHandle OPTIONAL,
     OUT PULONG RelativeId OPTIONAL,
     OUT PSAM_HANDLE DomainHandle OPTIONAL
@@ -377,11 +377,11 @@ Arguments:
     AliasHandle - Returns a handle to the alias.  If NULL, alias is not
         actually opened (merely the relative ID is returned).
 
-    RelativeId - Returns the relative ID of the alias.	If NULL, the relative
-	Id is not returned.
+    RelativeId - Returns the relative ID of the alias.  If NULL, the relative
+        Id is not returned.
 
     DomainHandle - Returns a handle to the domain where AliasName was found.
-	If NULL, the domain handle is closed.
+        If NULL, the domain handle is closed.
 
 Return Value:
 
@@ -403,14 +403,14 @@ Return Value:
             NetStatus = UaspOpenDomain( ServerName,
                                         DOMAIN_LOOKUP,
                                         FALSE,   //  Builtin Domain
-					&DomainHandleLocal,
+                                        &DomainHandleLocal,
                                         NULL );  // DomainId
 
             if (NetStatus != NERR_Success) {
                 return NetStatus;
             }
 
-	    NetStatus = AliaspOpenAlias( DomainHandleLocal,
+            NetStatus = AliaspOpenAlias( DomainHandleLocal,
                                          DesiredAccess,
                                          AliasName,
                                          AliasHandle,
@@ -424,7 +424,7 @@ Return Value:
             //
             // Close the builtin domain handle.
             //
-	    UaspCloseDomain( DomainHandleLocal );
+            UaspCloseDomain( DomainHandleLocal );
 
             //
             // Fall through.  Try looking for alias in the account
@@ -436,14 +436,14 @@ Return Value:
             NetStatus = UaspOpenDomain( ServerName,
                                         DOMAIN_LOOKUP,
                                         TRUE,   // Account Domain
-					&DomainHandleLocal,
+                                        &DomainHandleLocal,
                                         NULL ); // DomainId
 
             if (NetStatus != NERR_Success) {
                 return NetStatus;
             }
 
-	    NetStatus = AliaspOpenAlias( DomainHandleLocal,
+            NetStatus = AliaspOpenAlias( DomainHandleLocal,
                                          DesiredAccess,
                                          AliasName,
                                          AliasHandle,
@@ -456,14 +456,14 @@ Return Value:
             NetStatus = UaspOpenDomain( ServerName,
                                         DOMAIN_LOOKUP,
                                         FALSE,   //  Builtin Domain
-					&DomainHandleLocal,
+                                        &DomainHandleLocal,
                                         NULL );  // DomainId
 
             if (NetStatus != NERR_Success) {
                 return NetStatus;
             }
 
-	    NetStatus = AliaspOpenAlias( DomainHandleLocal,
+            NetStatus = AliaspOpenAlias( DomainHandleLocal,
                                          DesiredAccess,
                                          AliasName,
                                          AliasHandle,
@@ -480,18 +480,18 @@ Return Value:
 Cleanup:
 
     //
-    //	Only close the domain if the client doesn't want it back
+    //  Only close the domain if the client doesn't want it back
     //
 
     if ( !ARGUMENT_PRESENT( DomainHandle ) ) {
-	UaspCloseDomain( DomainHandleLocal );
+        UaspCloseDomain( DomainHandleLocal );
     } else {
-	*DomainHandle = DomainHandleLocal ;
+        *DomainHandle = DomainHandleLocal ;
     }
 
     if (NetStatus != NERR_Success) {
-        NetpDbgPrint(PREFIX_NETAPI "AliaspOpenAliasInDomain of type %lu returns %lu\n",
-                     DomainType, NetStatus);
+        NetpKdPrint((PREFIX_NETAPI "AliaspOpenAliasInDomain of type %lu returns %lu\n",
+                     DomainType, NetStatus));
     }
 
     return NetStatus;
@@ -503,7 +503,7 @@ NET_API_STATUS
 AliaspOpenAlias(
     IN SAM_HANDLE DomainHandle,
     IN ACCESS_MASK DesiredAccess,
-    IN LPWSTR AliasName,
+    IN LPCWSTR AliasName,
     OUT PSAM_HANDLE AliasHandle OPTIONAL,
     OUT PULONG RelativeId OPTIONAL
     )
@@ -562,18 +562,18 @@ Return Value:
 
     if ( !NT_SUCCESS(Status) ) {
         IF_DEBUG( UAS_DEBUG_ALIAS ) {
-            NetpDbgPrint( "AliaspOpenAlias: %wZ: SamLookupNamesInDomain %lX\n",
+            NetpKdPrint(( "AliaspOpenAlias: %wZ: SamLookupNamesInDomain %lX\n",
                 &NameString,
-                Status );
+                Status ));
         }
         return NetpNtStatusToApiStatus( Status );
     }
 
     if ( *NameUse != SidTypeAlias ) {
         IF_DEBUG( UAS_DEBUG_ALIAS ) {
-            NetpDbgPrint( "AliaspOpenAlias: %wZ: Name is not an alias %ld\n",
+            NetpKdPrint(( "AliaspOpenAlias: %wZ: Name is not an alias %ld\n",
                 &NameString,
-                *NameUse );
+                *NameUse ));
         }
         NetStatus = ERROR_NO_SUCH_ALIAS;
         goto Cleanup;
@@ -591,9 +591,9 @@ Return Value:
 
         if ( !NT_SUCCESS(Status) ) {
             IF_DEBUG( UAS_DEBUG_ALIAS ) {
-                NetpDbgPrint( "AliaspOpenAlias: %wZ: SamOpenGroup %lX\n",
+                NetpKdPrint(( "AliaspOpenAlias: %wZ: SamOpenGroup %lX\n",
                     &NameString,
-                    Status );
+                    Status ));
             }
             NetStatus = NetpNtStatusToApiStatus( Status );
             goto Cleanup;
@@ -666,23 +666,23 @@ Return Value:
     NET_API_STATUS NetStatus = NERR_Success ;
 
     if ( AliasHandle == NULL )
-	return ERROR_INVALID_PARAMETER ;
+        return ERROR_INVALID_PARAMETER ;
 
     //
     // Open the alias
     //
 
     Status = SamOpenAlias( DomainHandle,
-			   DesiredAccess,
-			   RelativeID,
-			   AliasHandle);
+                           DesiredAccess,
+                           RelativeID,
+                           AliasHandle);
 
     if ( !NT_SUCCESS(Status) ) {
-	IF_DEBUG( UAS_DEBUG_ALIAS ) {
-	    NetpDbgPrint( "AliaspOpenAlias2: SamOpenAlias %lX\n",
-		Status );
-	}
-	NetStatus = NetpNtStatusToApiStatus( Status );
+        IF_DEBUG( UAS_DEBUG_ALIAS ) {
+            NetpKdPrint(( "AliaspOpenAlias2: SamOpenAlias %lX\n",
+                Status ));
+        }
+        NetStatus = NetpNtStatusToApiStatus( Status );
     }
 
     return NetStatus;
@@ -730,7 +730,7 @@ Return Value:
     DWORD EntryNumber;
     DWORD FixedSize;
     IF_DEBUG( UAS_DEBUG_ALIAS ) {
-        NetpDbgPrint( "AliaspRelocationRoutine: entering\n" );
+        NetpKdPrint(( "AliaspRelocationRoutine: entering\n" ));
     }
 
     //
@@ -739,11 +739,11 @@ Return Value:
 
     switch (Level) {
     case 0:
-	FixedSize = sizeof(LOCALGROUP_INFO_0);
+        FixedSize = sizeof(LOCALGROUP_INFO_0);
         break;
 
     case 1:
-	FixedSize = sizeof(LOCALGROUP_INFO_1);
+        FixedSize = sizeof(LOCALGROUP_INFO_1);
         break;
 
     default:
@@ -766,14 +766,14 @@ Return Value:
 
         switch ( Level ) {
         case 1:
-	    RELOCATE_ONE( ((PLOCALGROUP_INFO_1)TheStruct)->lgrpi1_comment, Offset );
+            RELOCATE_ONE( ((PLOCALGROUP_INFO_1)TheStruct)->lgrpi1_comment, Offset );
 
             //
             // Drop through to case 0
             //
 
         case 0:
-	    RELOCATE_ONE( ((PLOCALGROUP_INFO_0)TheStruct)->lgrpi0_name, Offset );
+            RELOCATE_ONE( ((PLOCALGROUP_INFO_0)TheStruct)->lgrpi0_name, Offset );
             break;
 
         default:
@@ -825,20 +825,34 @@ Return Value:
     DWORD EntryNumber;
     DWORD FixedSize;
     IF_DEBUG( UAS_DEBUG_ALIAS ) {
-        NetpDbgPrint( "AliaspMemberRelocationRoutine: entering\n" );
+        NetpKdPrint(( "AliaspMemberRelocationRoutine: entering\n" ));
     }
 
     //
     // Compute the number of fixed size entries
     //
 
+    NetpAssert( sizeof(LOCALGROUP_MEMBERS_INFO_1) ==
+                sizeof(LOCALGROUP_MEMBERS_INFO_2));
+    NetpAssert( offsetof( LOCALGROUP_MEMBERS_INFO_1,  lgrmi1_sid ) ==
+                offsetof( LOCALGROUP_MEMBERS_INFO_2,  lgrmi2_sid ) );
+    NetpAssert( offsetof( LOCALGROUP_MEMBERS_INFO_1,  lgrmi1_sidusage ) ==
+                offsetof( LOCALGROUP_MEMBERS_INFO_2,  lgrmi2_sidusage ) );
+    NetpAssert( offsetof( LOCALGROUP_MEMBERS_INFO_1,  lgrmi1_name ) ==
+                offsetof( LOCALGROUP_MEMBERS_INFO_2,  lgrmi2_domainandname ) );
+
     switch (Level) {
     case 0:
-	FixedSize = sizeof(LOCALGROUP_MEMBERS_INFO_0);
+        FixedSize = sizeof(LOCALGROUP_MEMBERS_INFO_0);
         break;
 
     case 1:
-	FixedSize = sizeof(LOCALGROUP_MEMBERS_INFO_1);
+    case 2:
+        FixedSize = sizeof(LOCALGROUP_MEMBERS_INFO_1);
+        break;
+
+    case 3:
+        FixedSize = sizeof(LOCALGROUP_MEMBERS_INFO_3);
         break;
 
     default:
@@ -859,20 +873,27 @@ Return Value:
 
         LPBYTE TheStruct = BufferDescriptor->Buffer + FixedSize * EntryNumber;
 
-	switch ( Level ) {
-	case 1:
-	    //
-	    //	Sid usage gets relocated automatically
-	    //
+        switch ( Level ) {
+        case 3:
 
-	    RELOCATE_ONE( ((PLOCALGROUP_MEMBERS_INFO_1)TheStruct)->lgrmi1_name, Offset );
+            RELOCATE_ONE( ((PLOCALGROUP_MEMBERS_INFO_3)TheStruct)->lgrmi3_domainandname, Offset );
+            break;
+
+
+        case 1:
+        case 2:
+            //
+            //  Sid usage gets relocated automatically
+            //
+
+            RELOCATE_ONE( ((PLOCALGROUP_MEMBERS_INFO_1)TheStruct)->lgrmi1_name, Offset );
 
             //
             // Drop through to case 0
             //
 
         case 0:
-	    RELOCATE_ONE( ((PLOCALGROUP_MEMBERS_INFO_0)TheStruct)->lgrmi0_sid, Offset );
+            RELOCATE_ONE( ((PLOCALGROUP_MEMBERS_INFO_0)TheStruct)->lgrmi0_sid, Offset );
             break;
 
         default:
@@ -888,19 +909,19 @@ Return Value:
 
 NET_API_STATUS
 AliaspSetMembers (
-    IN LPWSTR ServerName OPTIONAL,
-    IN LPWSTR AliasName,
+    IN LPCWSTR ServerName OPTIONAL,
+    IN LPCWSTR AliasName,
     IN DWORD Level,
     IN LPBYTE Buffer,
-    IN DWORD NewMemberCount
+    IN DWORD NewMemberCount,
+    IN ALIAS_MEMBER_CHANGE_TYPE ChangeType
     )
 
 /*++
 
 Routine Description:
 
-    Set the list of members of an alias and optionally delete the alias
-    when finished.
+    Set the list of members of an alias.
 
     The members specified by "Buffer" are called new members.  The current
     members of the alias are called old members.
@@ -924,12 +945,16 @@ Arguments:
     AliasName - Name of the alias to modify.
 
     Level - Level of information provided.  Must be 0 (so Buffer contains
-        array of member SIDs).
+        array of member SIDs) or 3 (so Buffer contains array of pointers to
+        names)
 
     Buffer - A pointer to the buffer containing an array of NewMemberCount
         the alias membership information structures.
 
     NewMemberCount - Number of entries in Buffer.
+
+    ChangeType - Indicates whether the specified members are to be set, added,
+        or deleted.
 
 Return Value:
 
@@ -943,31 +968,34 @@ Return Value:
     SAM_HANDLE AliasHandle = NULL;
 
     //
-    // Parallel array to the input Buffer to mark the ones that are
-    // already members in the alias.
-    //
-    PBOOL AlreadyMember = NULL;
-
-    //
     // Define an internal member list structure.
     //
     //   This structure is to hold information about a member which
     //   requires some operation in SAM: either it is a new member to
     //   be added, or an old member to be deleted.
     //
-    struct _MEMBER_DESCRIPTION {
-        struct _MEMBER_DESCRIPTION * Next;  // Next entry in linked list;
+
+    typedef enum {          // Action taken for this member
+        NoAction,
+        AddMember,          // Add Member to group
+        RemoveMember        // Remove Member from group
+    } MEMBER_ACTION;
+
+    typedef struct {
+        LIST_ENTRY Next;        // Next entry in linked list;
+
+        MEMBER_ACTION Action;   // Action to taken for this member
 
         PSID MemberSid;         // SID of member
 
-        enum _Action {          // Action taken for this member
-            AddMember,              // Add Member to group
-            RemoveMember            // Remove Member from group
-        } Action;
-
         BOOL    Done;           // True if this action has been taken
 
-    } *ActionList = NULL, *ActionEntry;
+    } MEMBER_DESCRIPTION, *PMEMBER_DESCRIPTION;
+
+    MEMBER_DESCRIPTION *ActionEntry;
+
+    PLIST_ENTRY ListEntry;
+    LIST_ENTRY ActionList;
 
     //
     // Array of existing (old) members, and count
@@ -979,8 +1007,9 @@ Return Value:
     //
     // Array of new members
     //
-    PLOCALGROUP_MEMBERS_INFO_0 NewMemberList = (PLOCALGROUP_MEMBERS_INFO_0) Buffer;
+    PLOCALGROUP_MEMBERS_INFO_0 NewMemberList;
     PLOCALGROUP_MEMBERS_INFO_0 NewMember;
+    BOOLEAN FreeNewMemberList = FALSE;
     DWORD j;
 
 
@@ -988,7 +1017,38 @@ Return Value:
     //
     // Validate the level
     //
-    if (Level != 0) {
+
+    InitializeListHead( &ActionList );
+
+    switch (Level) {
+    case 0:
+        NewMemberList = (PLOCALGROUP_MEMBERS_INFO_0) Buffer;
+        break;
+
+    //
+    // If this is level 3,
+    //  compute the SID of each of the added members
+    //
+    case 3:
+        NetpAssert( sizeof( LOCALGROUP_MEMBERS_INFO_3) ==
+                    sizeof( LPWSTR ) );
+        NetpAssert( sizeof( LOCALGROUP_MEMBERS_INFO_0) ==
+                    sizeof( PSID ) );
+
+        NetStatus = AliaspNamesToSids (
+                        ServerName,
+                        NewMemberCount,
+                        (LPWSTR *)Buffer,
+                        (PSID **) &NewMemberList );
+
+        if ( NetStatus != NERR_Success ) {
+            goto CleanExit;
+        }
+
+        FreeNewMemberList = TRUE;
+        break;
+
+    default:
         return ERROR_INVALID_LEVEL;
     }
 
@@ -1003,8 +1063,8 @@ Return Value:
                         ALIAS_ADD_MEMBER | ALIAS_REMOVE_MEMBER,
                     AliasName,
                     &AliasHandle,
-		    NULL,
-		    NULL
+                    NULL,
+                    NULL
                     );
 
     if (NetStatus != NERR_Success) {
@@ -1014,69 +1074,85 @@ Return Value:
     //
     // Get the existing membership list.
     //
-    Status = SamGetMembersInAlias(
-                 AliasHandle,
-                 &OldMemberList,
-                 &OldMemberCount
-                 );
 
-    if (! NT_SUCCESS(Status)) {
-        NetpDbgPrint(PREFIX_NETAPI
-                     "AliaspSetMembers: SamGetMembersInAlias returns %lX\n",
-                     Status);
-        NetStatus = NetpNtStatusToApiStatus(Status);
-        goto CleanExit;
-    }
+    if ( ChangeType == SetMembers ) {
+        Status = SamGetMembersInAlias(
+                     AliasHandle,
+                     &OldMemberList,
+                     &OldMemberCount
+                     );
 
-
-    //
-    // Allocate parallel array of flags to the NewMemberList to mark those
-    // members that already exist.
-    //
-    AlreadyMember = (PBOOL) LocalAlloc(
-                        LMEM_ZEROINIT,   // Initially all FALSE
-                        (UINT) (sizeof(BOOL) * NewMemberCount)
-                        );
-
-    if (AlreadyMember == NULL) {
-        NetStatus = ERROR_NOT_ENOUGH_MEMORY;
-        goto CleanExit;
-    }
-
-
-    //
-    // Go through each old member.  If it is in the new members list,
-    // indicate that we don't need to do anything.  Otherwise, mark
-    // it for deletion.
-    //
-    for (i = 0, OldMember = OldMemberList;
-         i < OldMemberCount;
-         i++, OldMember++) {
-
-        //
-        // See if old member is also in new member list.
-        //
-        for (j = 0, NewMember = NewMemberList;
-             j < NewMemberCount;
-             j++, NewMember++) {
-
-            if (EqualSid(*OldMember, NewMember->lgrmi0_sid)) {
-                AlreadyMember[j] = TRUE;
-                break;                   // leave NewMemberList loop
-            }
+        if (! NT_SUCCESS(Status)) {
+            NetpKdPrint((PREFIX_NETAPI
+                         "AliaspSetMembers: SamGetMembersInAlias returns %lX\n",
+                         Status));
+            NetStatus = NetpNtStatusToApiStatus(Status);
+            goto CleanExit;
         }
 
-        if (j == NewMemberCount) {
+    }
+
+
+    //
+    // Loop through each new member deciding what to do with it.
+    //
+    for (i = 0, NewMember = NewMemberList;
+         i < NewMemberCount;
+         i++, NewMember++) {
+
+        MEMBER_ACTION ProposedAction;
+        PSID ActionSid;
+
+        //
+        // If we're setting the complete membership to the new member list,
+        //  See if New member is also in Old member list.
+        //  if not, add the new member.
+        //  if so, mark the old member as being already found.
+        //
+
+        switch ( ChangeType ) {
+        case SetMembers:
+
+            ProposedAction = AddMember;
+            ActionSid = NewMember->lgrmi0_sid;
+
+            for (j = 0, OldMember = OldMemberList;
+                 j < OldMemberCount;
+                 j++, OldMember++) {
+
+                if ( *OldMember != NULL &&
+                     EqualSid(*OldMember, NewMember->lgrmi0_sid)) {
+
+                    ProposedAction = NoAction;
+                    *OldMember = NULL;  // Mark this old member as already found
+                    break;              // leave OldMemberList loop
+                }
+            }
+
+            break;
+
+        case AddMembers:
+            ProposedAction = AddMember;
+            ActionSid = NewMember->lgrmi0_sid;
+            break;
+
+        case DelMembers:
+            ProposedAction = RemoveMember;
+            ActionSid = NewMember->lgrmi0_sid;
+            break;
+
+        }
+
+        if ( ProposedAction != NoAction ) {
 
             //
-            // Old member was not found in new member list.  Create
-            // a delete action entry for this member and chain it up
-            // in the front of the ActionList.
+            // If action needs to be taken, create an action list entry
+            // and chain it on the tail of the ActionList.
             //
-            ActionEntry = (struct _MEMBER_DESCRIPTION *)
+            ActionEntry = (PMEMBER_DESCRIPTION)
                           LocalAlloc(
                               LMEM_ZEROINIT,
-                              (UINT) sizeof(struct _MEMBER_DESCRIPTION)
+                              (UINT) sizeof(MEMBER_DESCRIPTION)
                               );
 
             if (ActionEntry == NULL) {
@@ -1084,42 +1160,45 @@ Return Value:
                 goto RestoreMembership;
             }
 
-            ActionEntry->MemberSid = *OldMember;
-            ActionEntry->Action = RemoveMember;
-            ActionEntry->Next = ActionList;
-            ActionList = ActionEntry;
+            ActionEntry->MemberSid = ActionSid;
+            ActionEntry->Action = ProposedAction;
+            InsertTailList( &ActionList, &ActionEntry->Next );
         }
     }
 
     //
-    // Go through each new member.  If it already exists as an old
-    // member don't do anything, otherwise mark it for addition.
+    // For each old member,
+    //  if it doesn't have a corresponding entry in the new member list,
+    //  remember to delete the old membership.
     //
-    for (j = 0, NewMember = NewMemberList;
-         j < NewMemberCount;
-         j++, NewMember++) {
 
-        if (! AlreadyMember[j]) {
+    if ( ChangeType == SetMembers ) {
 
-            //
-            // Create an add action entry for this new member and
-            // chain it up in the front of the ActionList.
-            //
-            ActionEntry = (struct _MEMBER_DESCRIPTION *)
-                          LocalAlloc(
-                              LMEM_ZEROINIT,
-                              (UINT) sizeof(struct _MEMBER_DESCRIPTION)
-                              );
+        for (j = 0, OldMember = OldMemberList;
+             j < OldMemberCount;
+             j++, OldMember++) {
 
-            if (ActionEntry == NULL) {
-                NetStatus = ERROR_NOT_ENOUGH_MEMORY;
-                goto RestoreMembership;
+            if ( *OldMember != NULL ) {
+
+                //
+                // Create an add action entry for this new member and
+                // chain it up on the tail of the ActionList.
+                //
+                ActionEntry = (PMEMBER_DESCRIPTION)
+                              LocalAlloc(
+                                  LMEM_ZEROINIT,
+                                  (UINT) sizeof(MEMBER_DESCRIPTION)
+                                  );
+
+                if (ActionEntry == NULL) {
+                    NetStatus = ERROR_NOT_ENOUGH_MEMORY;
+                    goto RestoreMembership;
+                }
+
+                ActionEntry->MemberSid = *OldMember;
+                ActionEntry->Action = RemoveMember;
+                InsertTailList( &ActionList, &ActionEntry->Next );
             }
-
-            ActionEntry->MemberSid = NewMember->lgrmi0_sid;
-            ActionEntry->Action = AddMember;
-            ActionEntry->Next = ActionList;
-            ActionList = ActionEntry;
         }
     }
 
@@ -1127,9 +1206,14 @@ Return Value:
     // Now we can call SAM to do the work.  Add first so that we
     // leave less damage should we fail to restore on an error.
     //
-    for (ActionEntry = ActionList;
-         ActionEntry != NULL;
-         ActionEntry = ActionEntry->Next) {
+
+    for ( ListEntry = ActionList.Flink ;
+          ListEntry != &ActionList ;
+          ListEntry = ListEntry->Flink) {
+
+        ActionEntry = CONTAINING_RECORD( ListEntry,
+                                         MEMBER_DESCRIPTION,
+                                         Next );
 
         if (ActionEntry->Action == AddMember) {
 
@@ -1139,9 +1223,9 @@ Return Value:
                          );
 
             if (! NT_SUCCESS(Status)) {
-                NetpDbgPrint(PREFIX_NETAPI
+                NetpKdPrint((PREFIX_NETAPI
                              "AliaspSetMembers: SamAddMemberToAlias returns %lX\n",
-                             Status);
+                             Status));
 
                 NetStatus = NetpNtStatusToApiStatus(Status);
                 goto RestoreMembership;
@@ -1154,9 +1238,14 @@ Return Value:
     //
     // Delete old members.
     //
-    for (ActionEntry = ActionList;
-         ActionEntry != NULL;
-         ActionEntry = ActionEntry->Next) {
+
+    for ( ListEntry = ActionList.Flink ;
+          ListEntry != &ActionList ;
+          ListEntry = ListEntry->Flink) {
+
+        ActionEntry = CONTAINING_RECORD( ListEntry,
+                                         MEMBER_DESCRIPTION,
+                                         Next );
 
         if (ActionEntry->Action == RemoveMember) {
 
@@ -1166,9 +1255,9 @@ Return Value:
                          );
 
             if (! NT_SUCCESS(Status)) {
-                NetpDbgPrint(PREFIX_NETAPI
+                NetpKdPrint((PREFIX_NETAPI
                              "AliaspSetMembers: SamRemoveMemberFromAlias returns %lX\n",
-                             Status);
+                             Status));
 
                 NetStatus = NetpNtStatusToApiStatus(Status);
                 goto RestoreMembership;
@@ -1180,11 +1269,20 @@ Return Value:
 
     NetStatus = NERR_Success;
 
+
+    //
+    // Delete the action list
+    //  On error, undo any action already done.
+    //
 RestoreMembership:
 
-    ActionEntry = ActionList;
+    while ( !IsListEmpty( &ActionList ) ) {
 
-    while (ActionEntry != NULL) {
+        ListEntry = RemoveHeadList( &ActionList );
+
+        ActionEntry = CONTAINING_RECORD( ListEntry,
+                                         MEMBER_DESCRIPTION,
+                                         Next );
 
         if (NetStatus != NERR_Success && ActionEntry->Done) {
 
@@ -1214,19 +1312,21 @@ RestoreMembership:
         }
 
         //
-        // Save pointer for freeing entry
+        // Delete the entry
         //
-        ActionList = ActionEntry;
 
-        ActionEntry = ActionEntry->Next;
-
-        (void) LocalFree(ActionList);
+        (void) LocalFree( ActionEntry );
     }
 
 CleanExit:
 
-    if (AlreadyMember != NULL) {
-        (void) LocalFree(AlreadyMember);
+    //
+    // If we allocated the new member list,
+    //  delete it and any SIDs it points to.
+    //
+
+    if ( FreeNewMemberList ) {
+        AliaspFreeSidList( NewMemberCount, (PSID *)NewMemberList );
     }
 
     if (OldMemberList != NULL) {
@@ -1238,9 +1338,241 @@ CleanExit:
     }
 
     IF_DEBUG(UAS_DEBUG_ALIAS) {
-        NetpDbgPrint(PREFIX_NETAPI "AliaspSetMembers: returns %lu\n", NetStatus);
+        NetpKdPrint((PREFIX_NETAPI "AliaspSetMembers: returns %lu\n", NetStatus));
     }
 
     return NetStatus;
 
 } // AliaspSetMembers
+
+
+NET_API_STATUS
+AliaspNamesToSids (
+    IN LPCWSTR ServerName,
+    IN DWORD NameCount,
+    IN LPWSTR *Names,
+    OUT PSID **Sids
+    )
+
+/*++
+
+Routine Description:
+
+    Convert a list of Domain\Member strings to SIDs.
+
+Arguments:
+
+    ServerName - Name of the server to do the translation on.
+
+    NameCount - Number of names to convert.
+
+    Names - Array of pointers to Domain\Member strings
+
+    Sids - Returns a pointer to an array of pointers to SIDs.  The array should
+        be freed via AliaspFreeSidList.
+
+Return Value:
+
+    NERR_Success - The translation was successful
+
+    ERROR_NO_SUCH_MEMBER - One or more of the names could not be converted
+        to a SID.
+
+    ...
+
+--*/
+
+{
+    NET_API_STATUS NetStatus;
+    NTSTATUS Status;
+
+    DWORD i;
+
+    LSA_HANDLE LsaHandle = NULL;
+    OBJECT_ATTRIBUTES ObjectAttributes ;
+    UNICODE_STRING    ServerNameString ;
+
+    PUNICODE_STRING NameStrings = NULL;
+    PSID *SidList = NULL;
+
+    PLSA_REFERENCED_DOMAIN_LIST ReferencedDomains = NULL;
+    PLSA_TRANSLATED_SID LsaSids = NULL;
+
+
+    //
+    // Open the LSA database
+    //
+
+    RtlInitUnicodeString( &ServerNameString, ServerName ) ;
+    InitializeObjectAttributes( &ObjectAttributes, NULL, 0, 0, NULL ) ;
+
+    Status = LsaOpenPolicy( &ServerNameString,
+                            &ObjectAttributes,
+                            POLICY_EXECUTE,
+                            &LsaHandle ) ;
+
+    if ( !NT_SUCCESS( Status ) ) {
+        NetStatus = NetpNtStatusToApiStatus( Status );
+        goto Cleanup;
+    }
+
+    //
+    // Convert the names to unicode strings
+    //
+
+    NameStrings = (PUNICODE_STRING) LocalAlloc(
+                           0,
+                           sizeof(UNICODE_STRING) * NameCount );
+
+    if ( NameStrings == NULL ) {
+        NetStatus = ERROR_NOT_ENOUGH_MEMORY;
+        goto Cleanup;
+    }
+
+    for ( i=0; i<NameCount; i++ ) {
+        RtlInitUnicodeString( &NameStrings[i], Names[i] );
+    }
+
+
+    //
+    // Convert the names to sids
+    //
+
+    Status = LsaLookupNames(
+                    LsaHandle,
+                    NameCount,
+                    NameStrings,
+                    &ReferencedDomains,
+                    &LsaSids );
+
+    if ( !NT_SUCCESS( Status ) ) {
+        ReferencedDomains = NULL;
+        LsaSids = NULL;
+
+        if ( Status == STATUS_NONE_MAPPED ) {
+            NetStatus = ERROR_NO_SUCH_MEMBER;
+        } else {
+            NetStatus = NetpNtStatusToApiStatus( Status );
+        }
+
+        goto Cleanup;
+    }
+
+    if ( Status == STATUS_SOME_NOT_MAPPED ) {
+        NetStatus = ERROR_NO_SUCH_MEMBER;
+        goto Cleanup;
+    }
+
+
+    //
+    // Allocate the SID list to return
+    //
+
+    SidList = (PSID *) LocalAlloc(
+                           LMEM_ZEROINIT,   // Initially all to NULL
+                           sizeof(PSID) * NameCount );
+
+    if ( SidList == NULL ) {
+        NetStatus = ERROR_NOT_ENOUGH_MEMORY;
+        goto Cleanup;
+    }
+
+    //
+    // Construct a SID for each name
+    //
+
+    for ( i=0; i<NameCount; i++ ) {
+
+        NetStatus = NetpDomainIdToSid(
+                        ReferencedDomains->Domains[LsaSids[i].DomainIndex].Sid,
+                        LsaSids[i].RelativeId,
+                        &SidList[i] );
+
+        if ( NetStatus != NERR_Success ) {
+            goto Cleanup;
+        }
+
+    }
+
+
+    NetStatus = NERR_Success;
+
+    //
+    // Free locally used resources.
+    //
+Cleanup:
+
+    if ( LsaHandle != NULL ) {
+        (void) LsaClose( LsaHandle );
+    }
+
+    if ( NameStrings != NULL ) {
+        (void) LocalFree( NameStrings );
+    }
+
+    if ( ReferencedDomains != NULL ) {
+        (void) LsaFreeMemory( ReferencedDomains );
+    }
+
+    if ( LsaSids != NULL ) {
+        (void) LsaFreeMemory( LsaSids );
+    }
+
+    //
+    // If the translation wasn't successful,
+    //  free any partial translation.
+    //
+
+    if ( NetStatus != NERR_Success ) {
+        if ( SidList != NULL ) {
+            AliaspFreeSidList( NameCount, SidList );
+        }
+        SidList = NULL;
+    }
+
+    //
+    // Return
+    //
+
+    *Sids = SidList;
+    return NetStatus;
+}
+
+
+VOID
+AliaspFreeSidList (
+    IN DWORD SidCount,
+    IN PSID *Sids
+    )
+
+/*++
+
+Routine Description:
+
+    Free the SID list returned by AliaspNamesToSids
+
+Arguments:
+
+    SidCount - Number of entries in the sid list
+
+    Sids - Aan array of pointers to SIDs.
+
+Return Value:
+
+    None;
+
+--*/
+
+{
+    DWORD i;
+
+    if ( Sids != NULL ) {
+
+        for ( i=0; i<SidCount; i++ ) {
+            if ( Sids[i] != NULL ) {
+                NetpMemoryFree( Sids[i] );
+            }
+        }
+        (void) LocalFree( Sids );
+    }
+}

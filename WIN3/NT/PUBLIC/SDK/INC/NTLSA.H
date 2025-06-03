@@ -39,7 +39,11 @@ Revision History:
 #define LSA_PROMOTION_INCREMENT           {0x0,0x10}
 
 
+
+// begin_ntsecapi
+#ifndef _NTLSA_IFS_
 // begin_ntifs
+
 
 //
 // Security operation mode of the system is held in a control
@@ -49,6 +53,7 @@ Revision History:
 typedef ULONG  LSA_OPERATIONAL_MODE, *PLSA_OPERATIONAL_MODE;
 
 // end_ntifs
+#endif // _NTLSA_IFS_
 
 //
 // The flags in the security operational mode are defined
@@ -69,7 +74,7 @@ typedef ULONG  LSA_OPERATIONAL_MODE, *PLSA_OPERATIONAL_MODE;
 //    MandatoryAccess - Indicates the system is running in a mandatory
 //        access control mode (e.g., B-level as defined by the U.S.A's
 //        Department of Defense's "Orange Book").  This is not utilized
-//        in the current release of NT/OS2.  This flag is only meaningful
+//        in the current release of NT.  This flag is only meaningful
 //        if both the PasswordProtected and IndividualAccounts flags are
 //        set.  Once set, this value will not be cleared without
 //        re-booting the system.
@@ -89,6 +94,8 @@ typedef ULONG  LSA_OPERATIONAL_MODE, *PLSA_OPERATIONAL_MODE;
 #define LSA_MODE_INDIVIDUAL_ACCOUNTS    (0x00000002L)
 #define LSA_MODE_MANDATORY_ACCESS       (0x00000004L)
 #define LSA_MODE_LOG_FULL               (0x00000008L)
+
+// end_ntsecapi
 
 
 /////////////////////////////////////////////////////////////////////////
@@ -117,6 +124,13 @@ typedef ULONG  LSA_OPERATIONAL_MODE, *PLSA_OPERATIONAL_MODE;
 #define LSA_PRIVILEGE_PROGRAM_NAMES     2
 #define LSA_PRIVILEGE_DISPLAY_NAMES     3
 
+//
+// Flag OR'ed into AuthenticationPackage parameter of LsaLogonUser to
+// request that the license server be called upon successful logon.
+//
+
+#define LSA_CALL_LICENSE_SERVER 0x80000000
+
 
 /////////////////////////////////////////////////////////////////////////
 //                                                                     //
@@ -124,21 +138,28 @@ typedef ULONG  LSA_OPERATIONAL_MODE, *PLSA_OPERATIONAL_MODE;
 //                                                                     //
 /////////////////////////////////////////////////////////////////////////
 
-
+// begin_ntsecapi
+#ifndef _NTLSA_IFS_
 // begin_ntifs
 //
 // Used by a logon process to indicate what type of logon is being
 // requested.
+// NOTE: Proxy logon type is not currently supported in NT 3.x
 //
 
 typedef enum _SECURITY_LOGON_TYPE {
     Interactive = 2,    // Interactively logged on (locally or remotely)
     Network,            // Accessing system via network
     Batch,              // Started via a batch queue
-    Service             // Service started by service controller
+    Service,            // Service started by service controller
+    Proxy,              // Proxy logon
+    Unlock              // Unlock workstation
 } SECURITY_LOGON_TYPE, *PSECURITY_LOGON_TYPE;
 
 // end_ntifs
+#endif // _NTLSA_IFS_
+
+// end_ntsecapi
 
 
 //
@@ -153,6 +174,8 @@ typedef enum _SECURITY_LOGON_TYPE {
 #define SECURITY_ACCESS_NETWORK_LOGON           ((ULONG) 0x00000002L)
 #define SECURITY_ACCESS_BATCH_LOGON             ((ULONG) 0x00000004L)
 #define SECURITY_ACCESS_SERVICE_LOGON           ((ULONG) 0x00000010L)
+#define SECURITY_ACCESS_PROXY_LOGON             ((ULONG) 0x00000020L)
+
 
 /////////////////////////////////////////////////////////////////////////
 //                                                                     //
@@ -328,7 +351,7 @@ typedef enum _SE_ADT_PARAMETER_TYPE {
 
 typedef struct _SE_ADT_PARAMETER_ARRAY_ENTRY {
 
-    SE_ADT_PARAMETER_TYPE Type;    
+    SE_ADT_PARAMETER_TYPE Type;
     ULONG Length;
     ULONG Data[2];
     PVOID Address;
@@ -359,7 +382,7 @@ typedef struct _SE_ADT_PARAMETER_ARRAY {
 
 #define SE_ADT_PARAMETERS_SELF_RELATIVE     0x00000001
 
-
+// begin_ntsecapi
 
 //
 // Audit Event Categories
@@ -413,6 +436,64 @@ typedef enum _POLICY_AUDIT_EVENT_TYPE {
      POLICY_AUDIT_EVENT_NONE)
 
 
+#ifdef _NTDEF_
+// begin_ntifs
+typedef UNICODE_STRING LSA_UNICODE_STRING, *PLSA_UNICODE_STRING;
+typedef STRING LSA_STRING, *PLSA_STRING;
+typedef OBJECT_ATTRIBUTES LSA_OBJECT_ATTRIBUTES, *PLSA_OBJECT_ATTRIBUTES;
+// end_ntifs
+#else // _NTDEF_
+
+#ifndef IN
+#define IN
+#endif
+
+#ifndef OUT
+#define OUT
+#endif
+
+#ifndef OPTIONAL
+#define OPTIONAL
+#endif
+
+
+typedef struct _LSA_UNICODE_STRING {
+    USHORT Length;
+    USHORT MaximumLength;
+    PWSTR  Buffer;
+} LSA_UNICODE_STRING, *PLSA_UNICODE_STRING;
+
+typedef struct _LSA_STRING {
+    USHORT Length;
+    USHORT MaximumLength;
+    PCHAR Buffer;
+} LSA_STRING, *PLSA_STRING;
+
+typedef struct _LSA_OBJECT_ATTRIBUTES {
+    ULONG Length;
+    HANDLE RootDirectory;
+    PLSA_UNICODE_STRING ObjectName;
+    ULONG Attributes;
+    PVOID SecurityDescriptor;        // Points to type SECURITY_DESCRIPTOR
+    PVOID SecurityQualityOfService;  // Points to type SECURITY_QUALITY_OF_SERVICE
+} LSA_OBJECT_ATTRIBUTES, *PLSA_OBJECT_ATTRIBUTES;
+
+
+
+#endif // _NTDEF_
+// end_ntsecapi
+
+// begin_ntsecapi
+
+//
+// Macro for determining whether an API succeeded.
+//
+
+#define LSA_SUCCESS(Error) ((LONG)(Error) >= 0)
+
+// end_ntsecapi
+
+
 
 /////////////////////////////////////////////////////////////////////////
 //                                                                     //
@@ -420,23 +501,26 @@ typedef enum _POLICY_AUDIT_EVENT_TYPE {
 //                                                                     //
 /////////////////////////////////////////////////////////////////////////
 
+// begin_ntsecapi
+#ifndef _NTLSA_IFS_
 // begin_ntifs
 
 NTSTATUS
 NTAPI
 LsaRegisterLogonProcess (
-    IN PSTRING LogonProcessName,
+    IN PLSA_STRING LogonProcessName,
     OUT PHANDLE LsaHandle,
     OUT PLSA_OPERATIONAL_MODE SecurityMode
     );
 
 // end_ntifs
+// begin_ntsrv
 
 NTSTATUS
 NTAPI
 LsaLogonUser (
     IN HANDLE LsaHandle,
-    IN PSTRING OriginName,
+    IN PLSA_STRING OriginName,
     IN SECURITY_LOGON_TYPE LogonType,
     IN ULONG AuthenticationPackage,
     IN PVOID AuthenticationInformation,
@@ -451,13 +535,15 @@ LsaLogonUser (
     OUT PNTSTATUS SubStatus
     );
 
-//begin_ntifs
+
+// end_ntsrv
+// begin_ntifs
 
 NTSTATUS
 NTAPI
 LsaLookupAuthenticationPackage (
     IN HANDLE LsaHandle,
-    IN PSTRING PackageName,
+    IN PLSA_STRING PackageName,
     OUT PULONG AuthenticationPackage
     );
 
@@ -486,7 +572,17 @@ LsaDeregisterLogonProcess (
     IN HANDLE LsaHandle
     );
 
+NTSTATUS
+NTAPI
+LsaConnectUntrusted (
+    OUT PHANDLE LsaHandle
+    );
+
+
 // end_ntifs
+#endif // _NTLSA_IFS_
+
+// end_ntsecapi
 
 
 /////////////////////////////////////////////////////////////////////////
@@ -551,7 +647,7 @@ typedef struct _LSA_TOKEN_INFORMATION_NULL {
 //
 // The V1 information is used in most cases of logon.  This structure
 // contains information that an authentication package can place in a
-// Version 1 NT/OS2 token object.
+// Version 1 NT token object.
 //
 
 typedef struct _LSA_TOKEN_INFORMATION_V1 {
@@ -663,8 +759,8 @@ typedef NTSTATUS
 (*PLSA_ADD_CREDENTIAL) (
     IN PLUID LogonId,
     IN ULONG AuthenticationPackage,
-    IN PSTRING PrimaryKeyValue,
-    IN PSTRING Credentials
+    IN PLSA_STRING PrimaryKeyValue,
+    IN PLSA_STRING Credentials
     );
 
 typedef NTSTATUS
@@ -673,16 +769,16 @@ typedef NTSTATUS
     IN ULONG AuthenticationPackage,
     IN OUT PULONG QueryContext,
     IN BOOLEAN RetrieveAllCredentials,
-    IN PSTRING PrimaryKeyValue,
+    IN PLSA_STRING PrimaryKeyValue,
     OUT PULONG PrimaryKeyLength,
-    IN PSTRING Credentials
+    IN PLSA_STRING Credentials
     );
 
 typedef NTSTATUS
 (*PLSA_DELETE_CREDENTIAL) (
     IN PLUID LogonId,
     IN ULONG AuthenticationPackage,
-    IN PSTRING PrimaryKeyValue
+    IN PLSA_STRING PrimaryKeyValue
     );
 
 typedef PVOID
@@ -760,10 +856,12 @@ typedef struct _LSA_DISPATCH_TABLE {
 // so that their addresses can be retrieved when the DLL is loaded.
 //
 
-#define LSA_AP_NAME_INITIALIZE_PACKAGE "LsaApInitializePackage\0"
-#define LSA_AP_NAME_LOGON_USER         "LsaApLogonUser\0"
-#define LSA_AP_NAME_CALL_PACKAGE       "LsaApCallPackage\0"
-#define LSA_AP_NAME_LOGON_TERMINATED   "LsaApLogonTerminated\0"
+#define LSA_AP_NAME_INITIALIZE_PACKAGE      "LsaApInitializePackage\0"
+#define LSA_AP_NAME_LOGON_USER              "LsaApLogonUser\0"
+#define LSA_AP_NAME_LOGON_USER_EX           "LsaApLogonUserEx\0"
+#define LSA_AP_NAME_CALL_PACKAGE            "LsaApCallPackage\0"
+#define LSA_AP_NAME_LOGON_TERMINATED        "LsaApLogonTerminated\0"
+#define LSA_AP_NAME_CALL_PACKAGE_UNTRUSTED  "LsaApCallPackageUntrusted\0"
 
 
 //
@@ -775,9 +873,9 @@ typedef NTSTATUS
 (*PLSA_AP_INITIALIZE_PACKAGE) (
     IN ULONG AuthenticationPackageId,
     IN PLSA_DISPATCH_TABLE LsaDispatchTable,
-    IN PSTRING Database OPTIONAL,
-    IN PSTRING Confidentiality OPTIONAL,
-    OUT PSTRING *AuthenticationPackageName
+    IN PLSA_STRING Database OPTIONAL,
+    IN PLSA_STRING Confidentiality OPTIONAL,
+    OUT PLSA_STRING *AuthenticationPackageName
     );
 
 typedef NTSTATUS
@@ -793,8 +891,26 @@ typedef NTSTATUS
     OUT PNTSTATUS SubStatus,
     OUT PLSA_TOKEN_INFORMATION_TYPE TokenInformationType,
     OUT PVOID *TokenInformation,
+    OUT PLSA_UNICODE_STRING *AccountName,
+    OUT PLSA_UNICODE_STRING *AuthenticatingAuthority
+    );
+
+typedef NTSTATUS
+(*PLSA_AP_LOGON_USER_EX) (
+    IN PLSA_CLIENT_REQUEST ClientRequest,
+    IN SECURITY_LOGON_TYPE LogonType,
+    IN PVOID AuthenticationInformation,
+    IN PVOID ClientAuthenticationBase,
+    IN ULONG AuthenticationInformationLength,
+    OUT PVOID *ProfileBuffer,
+    OUT PULONG ProfileBufferLength,
+    OUT PLUID LogonId,
+    OUT PNTSTATUS SubStatus,
+    OUT PLSA_TOKEN_INFORMATION_TYPE TokenInformationType,
+    OUT PVOID *TokenInformation,
     OUT PUNICODE_STRING *AccountName,
-    OUT PUNICODE_STRING *AuthenticatingAuthority
+    OUT PUNICODE_STRING *AuthenticatingAuthority,
+    OUT PUNICODE_STRING *MachineName
     );
 
 typedef NTSTATUS
@@ -813,8 +929,11 @@ typedef VOID
     IN PLUID LogonId
     );
 
+typedef PLSA_AP_CALL_PACKAGE PLSA_AP_CALL_PACKAGE_UNTRUSTED;
+
 
 
+// begin_ntsecapi
 ////////////////////////////////////////////////////////////////////////////
 //                                                                        //
 // Local Security Policy Administration API datatypes and defines         //
@@ -882,7 +1001,7 @@ typedef VOID
 
 typedef struct _LSA_TRUST_INFORMATION {
 
-    UNICODE_STRING Name;
+    LSA_UNICODE_STRING Name;
     PSID Sid;
 
 } LSA_TRUST_INFORMATION, *PLSA_TRUST_INFORMATION;
@@ -956,7 +1075,7 @@ typedef struct _LSA_TRANSLATED_SID {
 typedef struct _LSA_TRANSLATED_NAME {
 
     SID_NAME_USE Use;
-    UNICODE_STRING Name;
+    LSA_UNICODE_STRING Name;
     LONG DomainIndex;
 
 } LSA_TRANSLATED_NAME, *PLSA_TRANSLATED_NAME;
@@ -977,6 +1096,8 @@ typedef struct _LSA_TRANSLATED_NAME {
 //         If there is no corresponding reference domain for an entry, then
 //         this field will contain a negative value.
 //
+
+// end_ntsecapi
 
 //
 // The following data type specifies the ways in whcih a user or member of
@@ -1001,11 +1122,15 @@ typedef ULONG POLICY_SYSTEM_ACCESS_MODE, *PPOLICY_SYSTEM_ACCESS_MODE;
 #define POLICY_MODE_NETWORK                 SECURITY_ACCESS_NETWORK_LOGON
 #define POLICY_MODE_BATCH                   SECURITY_ACCESS_BATCH_LOGON
 #define POLICY_MODE_SERVICE                 SECURITY_ACCESS_SERVICE_LOGON
+#define POLICY_MODE_PROXY                   SECURITY_ACCESS_PROXY_LOGON
 
 #define POLICY_MODE_ALL                     (POLICY_MODE_INTERACTIVE | \
                                              POLICY_MODE_NETWORK     | \
                                              POLICY_MODE_BATCH       | \
-                                             POLICY_MODE_SERVICE )
+                                             POLICY_MODE_SERVICE     | \
+                                             POLICY_MODE_PROXY )
+
+// begin_ntsecapi
 
 //
 // The following data type is used to represent the role of the LSA
@@ -1068,7 +1193,7 @@ typedef ULONG POLICY_AUDIT_EVENT_OPTIONS, *PPOLICY_AUDIT_EVENT_OPTIONS;
 
 typedef struct _POLICY_PRIVILEGE_DEFINITION {
 
-    UNICODE_STRING Name;
+    LSA_UNICODE_STRING Name;
     LUID LocalValue;
 
 } POLICY_PRIVILEGE_DEFINITION, *PPOLICY_PRIVILEGE_DEFINITION;
@@ -1120,9 +1245,9 @@ typedef struct _POLICY_AUDIT_LOG_INFO {
 
     ULONG AuditLogPercentFull;
     ULONG MaximumLogSize;
-    TIME AuditRetentionPeriod;
+    LARGE_INTEGER AuditRetentionPeriod;
     BOOLEAN AuditLogFullShutdownInProgress;
-    TIME TimeToShutdown;
+    LARGE_INTEGER TimeToShutdown;
     ULONG NextAuditRecordId;
 
 } POLICY_AUDIT_LOG_INFO, *PPOLICY_AUDIT_LOG_INFO;
@@ -1212,7 +1337,7 @@ typedef struct _POLICY_AUDIT_EVENTS_INFO {
 
 typedef struct _POLICY_ACCOUNT_DOMAIN_INFO {
 
-    UNICODE_STRING DomainName;
+    LSA_UNICODE_STRING DomainName;
     PSID DomainSid;
 
 } POLICY_ACCOUNT_DOMAIN_INFO, *PPOLICY_ACCOUNT_DOMAIN_INFO;
@@ -1232,7 +1357,7 @@ typedef struct _POLICY_ACCOUNT_DOMAIN_INFO {
 
 typedef struct _POLICY_PRIMARY_DOMAIN_INFO {
 
-    UNICODE_STRING Name;
+    LSA_UNICODE_STRING Name;
     PSID Sid;
 
 } POLICY_PRIMARY_DOMAIN_INFO, *PPOLICY_PRIMARY_DOMAIN_INFO;
@@ -1253,7 +1378,7 @@ typedef struct _POLICY_PRIMARY_DOMAIN_INFO {
 
 typedef struct _POLICY_PD_ACCOUNT_INFO {
 
-    UNICODE_STRING Name;
+    LSA_UNICODE_STRING Name;
 
 } POLICY_PD_ACCOUNT_INFO, *PPOLICY_PD_ACCOUNT_INFO;
 
@@ -1288,8 +1413,8 @@ typedef struct _POLICY_LSA_SERVER_ROLE_INFO {
 
 typedef struct _POLICY_REPLICA_SOURCE_INFO {
 
-    UNICODE_STRING ReplicaSource;
-    UNICODE_STRING ReplicaAccountName;
+    LSA_UNICODE_STRING ReplicaSource;
+    LSA_UNICODE_STRING ReplicaAccountName;
 
 } POLICY_REPLICA_SOURCE_INFO, *PPOLICY_REPLICA_SOURCE_INFO;
 
@@ -1352,6 +1477,8 @@ typedef struct _POLICY_AUDIT_FULL_QUERY_INFO {
 
 } POLICY_AUDIT_FULL_QUERY_INFO, *PPOLICY_AUDIT_FULL_QUERY_INFO;
 
+// end_ntsecapi
+
 //
 // Account object type-specific Access Types
 //
@@ -1377,12 +1504,16 @@ typedef struct _POLICY_AUDIT_FULL_QUERY_INFO {
 
 #define ACCOUNT_EXECUTE       (STANDARD_RIGHTS_EXECUTE)
 
+// begin_ntsecapi
+
 //
 // LSA RPC Context Handle (Opaque form).  Note that a Context Handle is
 // always a pointer type unlike regular handles.
 //
 
 typedef PVOID LSA_HANDLE, *PLSA_HANDLE;
+
+// end_ntsecapi
 
 //
 // Trusted Domain object specific access types
@@ -1415,6 +1546,7 @@ typedef PVOID LSA_HANDLE, *PLSA_HANDLE;
 
 
 
+// begin_ntsecapi
 
 //
 // Trusted Domain Object specific data types
@@ -1429,7 +1561,8 @@ typedef enum _TRUSTED_INFORMATION_CLASS {
 
     TrustedDomainNameInformation = 1,
     TrustedControllersInformation,
-    TrustedPosixOffsetInformation
+    TrustedPosixOffsetInformation,
+    TrustedPasswordInformation
 
 } TRUSTED_INFORMATION_CLASS, *PTRUSTED_INFORMATION_CLASS;
 
@@ -1440,7 +1573,7 @@ typedef enum _TRUSTED_INFORMATION_CLASS {
 
 typedef struct _TRUSTED_DOMAIN_NAME_INFO {
 
-    UNICODE_STRING Name;
+    LSA_UNICODE_STRING Name;
 
 } TRUSTED_DOMAIN_NAME_INFO, *PTRUSTED_DOMAIN_NAME_INFO;
 
@@ -1457,7 +1590,7 @@ typedef struct _TRUSTED_DOMAIN_NAME_INFO {
 typedef struct _TRUSTED_CONTROLLERS_INFO {
 
     ULONG Entries;
-    PUNICODE_STRING Names;
+    PLSA_UNICODE_STRING Names;
 
 } TRUSTED_CONTROLLERS_INFO, *PTRUSTED_CONTROLLERS_INFO;
 
@@ -1465,7 +1598,7 @@ typedef struct _TRUSTED_CONTROLLERS_INFO {
 //
 // Entries - Indicate how mamy entries there are in the Names array.
 //
-// Names - Pointer to an array of UNICODE_STRING structures containing the
+// Names - Pointer to an array of LSA_UNICODE_STRING structures containing the
 //     names of domain controllers of the domain.  This information may not
 //     be accurate and should be used only as a hint.  The order of this
 //     list is considered significant and will be maintained.
@@ -1496,6 +1629,19 @@ typedef struct _TRUSTED_POSIX_OFFSET_INFO {
 //     corresponding TrustedDomain object.
 //
 
+//
+// The following data type corresponds to the TrustedPasswordInformation
+// information class.
+//
+
+typedef struct _TRUSTED_PASSWORD_INFO {
+    LSA_UNICODE_STRING Password;
+    LSA_UNICODE_STRING OldPassword;
+} TRUSTED_PASSWORD_INFO, *PTRUSTED_PASSWORD_INFO;
+
+
+
+// end_ntsecapi
 
 //
 // Secret object specific access types
@@ -1531,8 +1677,10 @@ typedef struct _TRUSTED_POSIX_OFFSET_INFO {
 // Secret object limits
 //
 
-#define LSA_SECRET_MAXIMUM_COUNT                  0x00000100L
+#define LSA_SECRET_MAXIMUM_COUNT                  0x00001000L
 #define LSA_SECRET_MAXIMUM_LENGTH                 0x00000200L
+
+// begin_ntsecapi
 
 //
 // LSA Enumeration Context
@@ -1557,6 +1705,7 @@ typedef struct _LSA_ENUMERATION_INFORMATION {
 //                                                                        //
 ////////////////////////////////////////////////////////////////////////////
 
+
 NTSTATUS
 NTAPI
 LsaFreeMemory(
@@ -1568,6 +1717,8 @@ NTAPI
 LsaClose(
     IN LSA_HANDLE ObjectHandle
     );
+
+// end_ntsecapi
 
 NTSTATUS
 NTAPI
@@ -1594,11 +1745,11 @@ LsaSetSecurityObject(
 NTSTATUS
 NTAPI
 LsaChangePassword(
-    IN PUNICODE_STRING ServerName,
-    IN PUNICODE_STRING DomainName,
-    IN PUNICODE_STRING AccountName,
-    IN PUNICODE_STRING OldPassword,
-    IN PUNICODE_STRING NewPassword
+    IN PLSA_UNICODE_STRING ServerName,
+    IN PLSA_UNICODE_STRING DomainName,
+    IN PLSA_UNICODE_STRING AccountName,
+    IN PLSA_UNICODE_STRING OldPassword,
+    IN PLSA_UNICODE_STRING NewPassword
     );
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1607,11 +1758,12 @@ LsaChangePassword(
 //                                                                           //
 ///////////////////////////////////////////////////////////////////////////////
 
+// begin_ntsecapi
 NTSTATUS
 NTAPI
 LsaOpenPolicy(
-    IN PUNICODE_STRING SystemName OPTIONAL,
-    IN POBJECT_ATTRIBUTES ObjectAttributes,
+    IN PLSA_UNICODE_STRING SystemName OPTIONAL,
+    IN PLSA_OBJECT_ATTRIBUTES ObjectAttributes,
     IN ACCESS_MASK DesiredAccess,
     IN OUT PLSA_HANDLE PolicyHandle
     );
@@ -1631,6 +1783,8 @@ LsaSetInformationPolicy(
     IN POLICY_INFORMATION_CLASS InformationClass,
     IN PVOID Buffer
     );
+
+// end_ntsecapi
 
 NTSTATUS
 NTAPI
@@ -1666,6 +1820,8 @@ LsaCreateTrustedDomain(
     OUT PLSA_HANDLE TrustedDomainHandle
     );
 
+// begin_ntsecapi
+
 NTSTATUS
 NTAPI
 LsaEnumerateTrustedDomains(
@@ -1675,6 +1831,8 @@ LsaEnumerateTrustedDomains(
     IN ULONG PreferedMaximumLength,
     OUT PULONG CountReturned
     );
+
+// end_ntsecapi
 
 NTSTATUS
 NTAPI
@@ -1686,12 +1844,14 @@ LsaEnumeratePrivileges(
     OUT PULONG CountReturned
     );
 
+// begin_ntsecapi
+
 NTSTATUS
 NTAPI
 LsaLookupNames(
     IN LSA_HANDLE PolicyHandle,
     IN ULONG Count,
-    IN PUNICODE_STRING Names,
+    IN PLSA_UNICODE_STRING Names,
     OUT PLSA_REFERENCED_DOMAIN_LIST *ReferencedDomains,
     OUT PLSA_TRANSLATED_SID *Sids
     );
@@ -1706,11 +1866,13 @@ LsaLookupSids(
     OUT PLSA_TRANSLATED_NAME *Names
     );
 
+// end_ntsecapi
+
 NTSTATUS
 NTAPI
 LsaCreateSecret(
     IN LSA_HANDLE PolicyHandle,
-    IN PUNICODE_STRING SecretName,
+    IN PLSA_UNICODE_STRING SecretName,
     IN ACCESS_MASK DesiredAccess,
     OUT PLSA_HANDLE SecretHandle
     );
@@ -1821,7 +1983,7 @@ NTSTATUS
 NTAPI
 LsaOpenSecret(
     IN LSA_HANDLE PolicyHandle,
-    IN PUNICODE_STRING SecretName,
+    IN PLSA_UNICODE_STRING SecretName,
     IN ACCESS_MASK DesiredAccess,
     OUT PLSA_HANDLE SecretHandle
     );
@@ -1830,17 +1992,17 @@ NTSTATUS
 NTAPI
 LsaSetSecret(
     IN LSA_HANDLE SecretHandle,
-    IN OPTIONAL PUNICODE_STRING CurrentValue,
-    IN OPTIONAL PUNICODE_STRING OldValue
+    IN OPTIONAL PLSA_UNICODE_STRING CurrentValue,
+    IN OPTIONAL PLSA_UNICODE_STRING OldValue
     );
 
 NTSTATUS
 NTAPI
 LsaQuerySecret(
     IN LSA_HANDLE SecretHandle,
-    OUT OPTIONAL PUNICODE_STRING *CurrentValue,
+    OUT OPTIONAL PLSA_UNICODE_STRING *CurrentValue,
     OUT OPTIONAL PLARGE_INTEGER CurrentValueSetTime,
-    OUT OPTIONAL PUNICODE_STRING *OldValue,
+    OUT OPTIONAL PLSA_UNICODE_STRING *OldValue,
     OUT OPTIONAL PLARGE_INTEGER OldValueSetTime
     );
 
@@ -1855,7 +2017,7 @@ NTSTATUS
 NTAPI
 LsaLookupPrivilegeValue(
     IN LSA_HANDLE PolicyHandle,
-    IN PUNICODE_STRING Name,
+    IN PLSA_UNICODE_STRING Name,
     OUT PLUID Value
     );
 
@@ -1864,16 +2026,165 @@ NTAPI
 LsaLookupPrivilegeName(
     IN LSA_HANDLE PolicyHandle,
     IN PLUID Value,
-    OUT PUNICODE_STRING *Name
+    OUT PLSA_UNICODE_STRING *Name
     );
 
 NTSTATUS
 NTAPI
 LsaLookupPrivilegeDisplayName(
     IN LSA_HANDLE PolicyHandle,
-    IN PUNICODE_STRING Name,
-    OUT PUNICODE_STRING *DisplayName,
+    IN PLSA_UNICODE_STRING Name,
+    OUT PLSA_UNICODE_STRING *DisplayName,
     OUT PSHORT LanguageReturned
     );
+
+
+
+
+
+/////////////////////////////////////////////////////////////////////////
+//                                                                     //
+// Local Security Policy - New APIs for NT 4.0 (SUR release)           //
+//                                                                     //
+/////////////////////////////////////////////////////////////////////////
+
+NTSTATUS
+LsaGetUserName(
+    OUT PUNICODE_STRING * UserName,
+    OUT OPTIONAL PUNICODE_STRING * DomainName
+    );
+
+
+/////////////////////////////////////////////////////////////////////////
+//                                                                     //
+// Local Security Policy - New APIs for NT 3.51 (PPC release)          //
+//                                                                     //
+/////////////////////////////////////////////////////////////////////////
+
+// begin_ntsecapi
+
+
+#define SE_INTERACTIVE_LOGON_NAME       TEXT("SeInteractiveLogonRight")
+#define SE_NETWORK_LOGON_NAME           TEXT("SeNetworkLogonRight")
+#define SE_BATCH_LOGON_NAME             TEXT("SeBatchLogonRight")
+#define SE_SERVICE_LOGON_NAME           TEXT("SeServiceLogonRight")
+
+//
+// This new API returns all the accounts with a certain privilege
+//
+
+NTSTATUS
+NTAPI
+LsaEnumerateAccountsWithUserRight(
+    IN LSA_HANDLE PolicyHandle,
+    IN OPTIONAL PLSA_UNICODE_STRING UserRights,
+    OUT PVOID *EnumerationBuffer,
+    OUT PULONG CountReturned
+    );
+
+//
+// These new APIs differ by taking a SID instead of requiring the caller
+// to open the account first and passing in an account handle
+//
+
+NTSTATUS
+NTAPI
+LsaEnumerateAccountRights(
+    IN LSA_HANDLE PolicyHandle,
+    IN PSID AccountSid,
+    OUT PLSA_UNICODE_STRING *UserRights,
+    OUT PULONG CountOfRights
+    );
+
+NTSTATUS
+NTAPI
+LsaAddAccountRights(
+    IN LSA_HANDLE PolicyHandle,
+    IN PSID AccountSid,
+    IN PLSA_UNICODE_STRING UserRights,
+    IN ULONG CountOfRights
+    );
+
+NTSTATUS
+NTAPI
+LsaRemoveAccountRights(
+    IN LSA_HANDLE PolicyHandle,
+    IN PSID AccountSid,
+    IN BOOLEAN AllRights,
+    IN PLSA_UNICODE_STRING UserRights,
+    IN ULONG CountOfRights
+    );
+
+
+///////////////////////////////////////////////////////////////////////////////
+//                                                                           //
+// Local Security Policy - Trusted Domain Object API function prototypes     //
+//                                                                           //
+///////////////////////////////////////////////////////////////////////////////
+
+NTSTATUS
+NTAPI
+LsaQueryTrustedDomainInfo(
+    IN LSA_HANDLE PolicyHandle,
+    IN PSID TrustedDomainSid,
+    IN TRUSTED_INFORMATION_CLASS InformationClass,
+    OUT PVOID *Buffer
+    );
+
+NTSTATUS
+NTAPI
+LsaSetTrustedDomainInformation(
+    IN LSA_HANDLE PolicyHandle,
+    IN PSID TrustedDomainSid,
+    IN TRUSTED_INFORMATION_CLASS InformationClass,
+    IN PVOID Buffer
+    );
+
+NTSTATUS
+NTAPI
+LsaDeleteTrustedDomain(
+    IN LSA_HANDLE PolicyHandle,
+    IN PSID TrustedDomainSid
+    );
+
+//
+// This API sets the workstation password (equivalent of setting/getting
+// the SSI_SECRET_NAME secret)
+//
+
+NTSTATUS
+NTAPI
+LsaStorePrivateData(
+    IN LSA_HANDLE PolicyHandle,
+    IN PLSA_UNICODE_STRING KeyName,
+    IN PLSA_UNICODE_STRING PrivateData
+    );
+
+NTSTATUS
+NTAPI
+LsaRetrievePrivateData(
+    IN LSA_HANDLE PolicyHandle,
+    IN PLSA_UNICODE_STRING KeyName,
+    OUT PLSA_UNICODE_STRING * PrivateData
+    );
+
+
+ULONG
+NTAPI
+LsaNtStatusToWinError(
+    NTSTATUS Status
+    );
+
+//
+// Define a symbol so we can tell if ntifs.h has been included.
+//
+
+// begin_ntifs
+#ifndef _NTLSA_IFS_
+#define _NTLSA_IFS_
+#endif
+// end_ntifs
+
+// end_ntsecapi
 
 #endif // _NTLSA_

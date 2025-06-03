@@ -2,33 +2,22 @@
 WINLIB=..\lib
 INCLUDE=-I..\inc -I..\..\inc
 
-# work around stupid bug in RC 3.1 that doesn't allow rcpp.err to be
+########## Path definition so we find 16 bit tools ##########
+# Also works around stupid bug in RC 3.1 that doesn't allow rcpp.err to be
 # in a directory that is greater than 128 chars down the path, even if
 # rc 3.1 is running as an OS/2 app.
 
-PATH=..\..\tools16;$(PATH)
+PATH    = $(_NTBINDIR)\private\mvdm\tools16;$(PATH)
 
-!if "$(NTDEBUG)"!="" && "$(NTDEBUG)"!="retail"
-!if "$(NTDEBUGTYPE)"=="windbg"
-CVW=1
-CDEBUG=-Od -Oi -Zipe
-LDEBUG=/CO
-MDEBUG=-Zi
-!else
+!if "$(NTDEBUG)"!="" && "$(NTDEBUG)"!="retail" && "$(NTDEBUG)" != "ntsdnodbg"
 CDEBUG=-Odi -Zped
 LDEBUG=/LI/MAP
 MDEBUG=-Zd
-!endif
 !else
 CDEBUG=-Oas -Zpe
 !endif
 
-!ifdef CVW
-CC=cl16 -Zi $(INCLUDE)
-!else
 CC=cl16 $(INCLUDE)
-!endif
-
 LINK=link16
 
 MASM=masm $(INCLUDE)
@@ -72,13 +61,15 @@ EXE_DIR=$(INTL_EXE)
 !ENDIF
 
 !IFNDEF LANG
-target:  $(BLD)\commdlg.dll
+all:  $(BLD)\commdlg.dll
 !ELSE
-target:  $(BLD)\commdlg.$(LANG)
+all:  $(BLD)\commdlg.$(LANG)
 !ENDIF
 
 
-clean:
+clean: cleanup all
+
+cleanup:
         del *.res
         del *.rc
         del *.rcv
@@ -91,37 +82,36 @@ clean:
         del *.dll
         del *.lib
 
-sz.src:
+sz.src: $(RES_DIR)\sz.src
     copy $(RES_DIR)\sz.src
 
-commdlg.rc:
+commdlg.rc: $(RES_DIR)\commdlg.rc
     copy $(RES_DIR)\commdlg.rc
 
-commdlg.rcv:
+commdlg.rcv: $(RES_DIR)\commdlg.rcv
     copy $(RES_DIR)\commdlg.rcv
 
-commdlg.dlg:
-    copy $(RES_DIR)\commdlg.rc
+commdlg.dlg: $(RES_DIR)\commdlg.dlg
+    copy $(RES_DIR)\commdlg.dlg
 
-fileopen.dlg:
+fileopen.dlg: $(RES_DIR)\fileopen.dlg
     copy $(RES_DIR)\fileopen.dlg
 
-font.dlg:
+font.dlg: $(RES_DIR)\font.dlg
     copy $(RES_DIR)\font.dlg
 
-color.dlg:
+color.dlg: $(RES_DIR)\color.dlg
     copy $(RES_DIR)\color.dlg
 
-findtext.dlg:
+findtext.dlg: $(RES_DIR)\findtext.dlg
     copy $(RES_DIR)\findtext.dlg
 
-prnsetup.dlg:
+prnsetup.dlg: $(RES_DIR)\prnsetup.dlg
     copy $(RES_DIR)\prnsetup.dlg
 
 commdlg.res: commdlg.rc  fileopen.dlg prnsetup.dlg  \
              font.dlg findtext.dlg color.dlg colordlg.h sz.src commdlg.rcv \
              ..\inc\common.ver
-#             ..\inc\ver.h ..\inc\common.ver ..\inc\version.h
 
 $(BLD)\commdlg.obj: commdlg.asm ..\..\inc\wowcmdlg.inc
         $(MASM) commdlg.asm $@;
@@ -129,47 +119,14 @@ $(BLD)\commdlg.obj: commdlg.asm ..\..\inc\wowcmdlg.inc
 $(BLD)\start.obj: start.asm
         $(MASM) start.asm $@;
 
-!if 0
-$(BLD)\qutil.obj: qutil.asm xlib.h
-        $(MASM) qutil.asm $@;
-
-$(BLD)\init.obj: init.c privcomd.h
-        $(CC) $(STDOPTS) -Fo$@ -NT _INIT init.c
-
-$(BLD)\data.obj: data.c dlgs.h
-        $(CC) $(STDOPTS) -Fo$@ -NT _TEXT data.c
-
-$(BLD)\color.obj: color.c xlib.h dlgs.h
-        $(CC) $(STDOPTS) -Fo$@ -NT _TEXT color.c
-
-$(BLD)\color2.obj: color2.c xlib.h dlgs.h
-        $(CC) $(STDOPTS) -Fo$@ -NT _TEXT color2.c
-
 $(BLD)\dlgs.obj: dlgs.c xlib.h dlgs.h
         $(CC) $(STDOPTS) -Fo$@ -NT _DLGS dlgs.c
-
-!endif
-$(BLD)\init.obj: init.c privcomd.h
-        $(CC) $(STDOPTS) -Fo$@ -NT _INIT init.c
-
-$(BLD)\data.obj: data.c dlgs.h
-        $(CC) $(STDOPTS) -Fo$@ -NT _TEXT data.c
 
 $(BLD)\parse.obj: parse.c parse.h dlgs.h
         $(CC) $(STDOPTS) -Fo$@ -NT _FILEOPEN parse.c
 
-$(BLD)\find.obj: find.c xlib.h find.h dlgs.h
-        $(CC) $(STDOPTS) -Fo$@ -NT _FIND find.c
-
-!if 0
-
-$(BLD)\font.obj: font.c xlib.h font.h dlgs.h
+$(BLD)\font.obj: font.c xlib.h dlgs.h
         $(CC) $(STDOPTS) -Fo$@ -NT _FONT font.c
-
-$(BLD)\prnsetup.obj: prnsetup.c xlib.h dlgs.h
-        $(CC) $(STDOPTS) -Fo$@ -NT _PRNSETUP prnsetup.c
-
-!endif
 
 !IFDEF LANG
 $(BLD)\commdlg.$(LANG): commdlg.res
@@ -178,16 +135,15 @@ $(BLD)\commdlg.$(LANG): commdlg.res
 !ENDIF
 
 
-$(BLD)\commdlg.dll: $(BLD)\commdlg.obj  \
-                    $(BLD)\find.obj \
-                    $(BLD)\init.obj \
-                    $(BLD)\data.obj \
-                    $(BLD)\dlgs.obj \
-                    $(BLD)\start.obj \
-                    commdlg.res $(BLD)\parse.obj \
+$(BLD)\commdlg.dll: $(BLD)\commdlg.obj \
+                    $(BLD)\dlgs.obj    \
+                    $(BLD)\start.obj   \
+                    $(BLD)\parse.obj   \
+                    $(BLD)\font.obj    \
+                    commdlg.res $(BLD) \
                     $(BLD)\commdlg.def
         $(LINK) @<<
-              start commdlg parse find init data dlgs
+              start commdlg parse font dlgs
               commdlg.dll/align:16/map
               commdlg.map $(LDEBUG)
               $(WINLIB)\libw $(WINLIB)\libh $(WINLIB)\snocrtd /NODEFAULT
@@ -197,4 +153,4 @@ $(BLD)\commdlg.dll: $(BLD)\commdlg.obj  \
     mkpublic commdlg.def stripped.def
     implib commdlg.lib stripped.def
     rc16 -30 -t commdlg.res commdlg.dll
-    -binplace commdlg.dll commdlg.sym
+    binplace commdlg.dll commdlg.map commdlg.sym

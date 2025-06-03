@@ -5,9 +5,13 @@
 #ifndef _FILEDLG_
 #define _FILEDLG_
 
+#ifdef __cplusplus
+extern "C"{
+#endif
+
 typedef struct _FILE_OPTIONS {
-	BOOL TransferFileInfo;
-	BOOL Validated;         // Has user validated our mappings?
+   BOOL TransferFileInfo;
+   BOOL Validated;         // Has user validated our mappings?
 } FILE_OPTIONS;
 
 
@@ -22,5 +26,9 @@ void FillDirInit();
 void TreeFillRecurse(UINT Level, LPTSTR Path, DIR_BUFFER *Dir);
 void TreeCompact(DIR_BUFFER *Dir);
 void TreeRootInit(SHARE_BUFFER *CShare, LPTSTR NewPath);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -28,73 +28,100 @@
 STDAPI_(LPSTREAM) CreateMemStm(DWORD cb, LPHANDLE phdl);
 
 //  BUGBUG: Make this test more extensive -- all operations on a
-//	    bind context should be verified.
+//          bind context should be verified.
 BOOL TestBindCtx( void )
 {
-	XBindCtx pbc;
-	XUnknown punk;
-	XUnknown punk2;
+        XBindCtx pbc;
+        XUnknown punk;
+        XUnknown punk2;
 
-	HRESULT hres = CreateBindCtx(0, &pbc);
+        HRESULT hr = CreateBindCtx(0, &pbc);
 
-	TEST_FAILED(FAILED(hres), "CreateBindCtx Failed\n")
+        TEST_FAILED_HR(FAILED(hr), "CreateBindCtx Failed")
 
-	hres = pbc->RegisterObjectParam(L"Key1", pbc);
+        hr = pbc->RegisterObjectParam(L"Key1", pbc);
 
-	TEST_FAILED(FAILED(hres), "RegisterObjectParam Failed\n")
+        TEST_FAILED_HR(FAILED(hr), "RegisterObjectParam Failed")
 
-	hres = pbc->GetObjectParam(L"Key1", &punk2);
+        hr = pbc->GetObjectParam(L"Key1", &punk2);
 
-	TEST_FAILED(FAILED(hres), "GetObjectParam Failed\n")
+        TEST_FAILED_HR(FAILED(hr), "GetObjectParam Failed")
 
-	TEST_FAILED((pbc != punk2),
-	    "Failure to get registered object parameter\n")
+        TEST_FAILED((pbc != punk2),
+            "Failure to get registered object parameter")
 
-	// BUGBUG:  What do we test for here?
-	punk2.Set(NULL);
+        // BUGBUG:  What do we test for here?
+        punk2.Set(NULL);
 
-	hres = pbc->GetObjectParam(L"Key2", &punk2);
+        hr = pbc->GetObjectParam(L"Key2", &punk2);
 
-	TEST_FAILED((hres != E_FAIL),
-	    "GetObjectParam with bad key did not return an error\n")
+        TEST_FAILED_HR((hr != E_FAIL),
+            "GetObjectParam with bad key did not return an error")
 
-	TEST_FAILED((punk2 != NULL),
-	    "Bad GetObjectParam did not return NULL for object\n")
+        TEST_FAILED((punk2 != NULL),
+            "Bad GetObjectParam did not return NULL for object")
 
-	hres = pbc->RegisterObjectParam(L"Key2", pbc);
+        hr = pbc->RegisterObjectParam(L"Key2", pbc);
 
-	TEST_FAILED(FAILED(hres), "Second RegisterObjectParam Failed\n")
+        TEST_FAILED_HR(FAILED(hr), "Second RegisterObjectParam Failed")
 
-	hres = pbc->GetObjectParam(L"Key2", &punk);
+        hr = pbc->GetObjectParam(L"Key2", &punk);
 
-	TEST_FAILED(FAILED(hres), "GetObjectParam on second Failed\n")
+        TEST_FAILED_HR(FAILED(hr), "GetObjectParam on second Failed")
 
-	TEST_FAILED((pbc != punk),
-	    "Failure on second to get registered object parameter\n")
+        TEST_FAILED((pbc != punk),
+            "Failure on second to get registered object parameter")
 
-	// BUGBUG:  What do we check?
-	punk.Set(NULL);
+        // BUGBUG:  What do we check?
+        punk.Set(NULL);
 
-	hres = pbc->RevokeObjectParam(L"Key2");
+        hr = pbc->RevokeObjectParam(L"Key2");
 
-	TEST_FAILED(FAILED(hres),
-	    "RevokeObjectParam of Key2 Failed\n")
+        TEST_FAILED_HR(FAILED(hr),
+            "RevokeObjectParam of Key2 Failed")
 
-	hres = pbc->GetObjectParam(L"Key2", &punk);
+        hr = pbc->GetObjectParam(L"Key2", &punk);
 
-	TEST_FAILED((hres != E_FAIL),
-	    "Get of revoked Key2 returned success\n")
+        TEST_FAILED_HR((hr != E_FAIL),
+            "Get of revoked Key2 returned success")
 
-	TEST_FAILED((punk != NULL),
-	    "Value returned on get of revoked key2\n")
+        TEST_FAILED((punk != NULL),
+            "Value returned on get of revoked key2")
 
-	hres = pbc->RevokeObjectParam(L"Key1");
+        hr = pbc->RevokeObjectParam(L"Key1");
 
-	TEST_FAILED(FAILED(hres),
-	    "RevokeObjectParam of Key1 Failed\n")
-	return FALSE;
+        TEST_FAILED_HR(FAILED(hr),
+            "RevokeObjectParam of Key1 Failed")
+
+        return FALSE;
 }
 
+BOOL VerifyFileMoniker(LPWSTR wcsFile)
+{
+    HRESULT hr;
+    XMoniker   pmk;
+    XBindCtx   pbc;
+    LPWSTR wcsDisplayName = NULL;
+
+    hr = CreateBindCtx(0,&pbc);
+    TEST_FAILED_HR(FAILED(hr), "CreateBindCtx");
+
+    hr = CreateFileMoniker(wcsFile,&pmk);
+    TEST_FAILED_HR(FAILED(hr), "CreateFileMoniker failed");
+
+    hr = pmk->GetDisplayName(pbc,NULL,&wcsDisplayName);
+    TEST_FAILED_HR(FAILED(hr), "GetDisplayName failed");
+
+    if (0 != wcscmp(wcsFile,wcsDisplayName))
+    {
+        wsprintfA(&wszErrBuf[0], "(%S) doesn't match displayname (%S)",wcsFile,wcsDisplayName);
+        MessageBoxA(NULL, &wszErrBuf[0], szOleBindError, MB_OK);
+	hr = E_FAIL;
+    }
+
+    CoTaskMemFree(wcsDisplayName);
+    return(hr);
+}
 BOOL TestMoniker(LPWSTR pszPath1, LPWSTR pszPath2)
 {
     XUnknown   pUnk;
@@ -106,39 +133,82 @@ BOOL TestMoniker(LPWSTR pszPath1, LPWSTR pszPath2)
     XMoniker   pmk4;
     XMoniker   pmk5;
     XMoniker   pmk6;
+    XMoniker   pmkItem1;
+    XMoniker   pmkItem2;
+    XMoniker   pmkAnti;
     XStream    pStm;
     XOleObject pObj;
     XMalloc    pIMalloc;
+    XMoniker   pmkLong1;
+    XMoniker   pmkLong2;
+    XRunningObjectTable prot;
 
     ULONG chEaten;
     LPWSTR szName;
     LARGE_INTEGER large_int;
+    HRESULT hr;
 
-    HRESULT hres = CoGetMalloc(MEMCTX_TASK, &pIMalloc);
+    //
+    // Test the dotdot eating methods
+    //
+    VerifyFileMoniker(L".");
+    VerifyFileMoniker(L"..\\");
 
-    TEST_FAILED(FAILED(hres), "CoGetMalloc failed\n");
+    VerifyFileMoniker(L"foo.bar");
+    VerifyFileMoniker(L".foo.bar");
+    VerifyFileMoniker(L".foo..bar");
+    VerifyFileMoniker(L"..foo.bar");
+    VerifyFileMoniker(L"..foo..bar");
 
-    hres = CreateFileMoniker(pszPath1, &pmk1);
+    VerifyFileMoniker(L"foo\\bar");
+    VerifyFileMoniker(L"foo\\.bar");
+    VerifyFileMoniker(L"foo\\..bar");
 
-    TEST_FAILED(FAILED(hres), "CreateFileMoniker for path1 failed!\n")
+    VerifyFileMoniker(L".foo\\bar");
+    VerifyFileMoniker(L".foo\\.bar");
+    VerifyFileMoniker(L".foo\\..bar");
+
+    VerifyFileMoniker(L"..foo\\bar");
+    VerifyFileMoniker(L"..foo\\.bar");
+    VerifyFileMoniker(L"..foo\\..bar");
+
+    VerifyFileMoniker(L"...foo\\bar");
+    VerifyFileMoniker(L"...foo\\.bar");
+    VerifyFileMoniker(L"...foo\\..bar");
+
+    VerifyFileMoniker(L"\\foo\\bar");
+    VerifyFileMoniker(L"\\.foo\\bar");
+    VerifyFileMoniker(L"\\..foo\\bar");
+
+    VerifyFileMoniker(L"..\\foo\\bar");
+    VerifyFileMoniker(L"..\\.foo\\bar");
+    VerifyFileMoniker(L"..\\..foo\\bar");
+
+    hr = CoGetMalloc(MEMCTX_TASK, &pIMalloc);
+
+    TEST_FAILED_HR(FAILED(hr), "CoGetMalloc failed");
+
+    hr = CreateFileMoniker(pszPath1, &pmk1);
+
+    TEST_FAILED_HR(FAILED(hr), "CreateFileMoniker for path1 failed!")
 
     TEST_FAILED((pmk1 == NULL),
-	"CreateFileMoniker returned a null moniker ptr\n")
+        "CreateFileMoniker returned a null moniker ptr")
 
-    hres = CreateBindCtx(0, &pbc);
+    hr = CreateBindCtx(0, &pbc);
 
-    TEST_FAILED(FAILED(hres),
-	"CreateBindCtx File Moniker GetDisplayName failed!\n")
+    TEST_FAILED_HR(FAILED(hr),
+        "CreateBindCtx File Moniker GetDisplayName failed!")
 
-    hres = pmk1->GetDisplayName(pbc, NULL, &szName);
+    hr = pmk1->GetDisplayName(pbc, NULL, &szName);
 
-    //	release it
+    //  release it
     pbc.Set(NULL, FALSE);
 
-    TEST_FAILED(FAILED(hres), "File Moniker GetDisplayName failed!\n");
+    TEST_FAILED_HR(FAILED(hr), "File Moniker GetDisplayName failed!");
 
     // BUGBUG: The following is an inappropriate test.
-    // TEST_FAILED((lstrcmp(szName, pszPath1) != 0), "Wrong path from file mon\n");
+    // TEST_FAILED((lstrcmp(szName, pszPath1) != 0), "Wrong path from file mon");
 
     // Free the path
     pIMalloc->Free(szName);
@@ -147,51 +217,51 @@ BOOL TestMoniker(LPWSTR pszPath1, LPWSTR pszPath2)
 
     CreateFileMoniker(pszPath1, &pmk1);
 
-    hres = CreateFileMoniker(pszPath2, &pmk6);
+    hr = CreateFileMoniker(pszPath2, &pmk6);
 
-    TEST_FAILED(FAILED(hres), "CreateFileMoniker for path2 failed\n")
+    TEST_FAILED_HR(FAILED(hr), "CreateFileMoniker for path2 failed")
 
     //
-    //	Test Item Monikers
+    //  Test Item Monikers
     //
-    hres = CreateItemMoniker(L"\\", L"1", &pmk2);
+    hr = CreateItemMoniker(L"\\", L"1", &pmk2);
 
-    TEST_FAILED(FAILED(hres), "CreateItemMoniker 1 failed\n")
+    TEST_FAILED_HR(FAILED(hr), "CreateItemMoniker 1 failed")
 
-    hres = CreateBindCtx(0, &pbc);
+    hr = CreateBindCtx(0, &pbc);
 
-    TEST_FAILED(FAILED(hres),
-	"CreateBindCtx Item Moniker GetDisplayName failed!\n")
+    TEST_FAILED_HR(FAILED(hr),
+        "CreateBindCtx Item Moniker GetDisplayName failed!")
 
-    hres = pmk2->GetDisplayName(pbc, NULL, &szName);
+    hr = pmk2->GetDisplayName(pbc, NULL, &szName);
 
     pbc.Set(NULL);
 
-    TEST_FAILED(FAILED(hres), "Item Moniker GetDisplayName failed!\n");
+    TEST_FAILED_HR(FAILED(hr), "Item Moniker GetDisplayName failed!");
 
-    TEST_FAILED((wcscmp(szName, L"\\1") != 0), "Wrong path from item mon\n");
+    TEST_FAILED((wcscmp(szName, L"\\1") != 0), "Wrong path from item mon");
 
     // Free the path
     pIMalloc->Free(szName);
 
-    hres = CreateItemMoniker(L"\\", L"2", &pmk3);
+    hr = CreateItemMoniker(L"\\", L"2", &pmk3);
 
-    TEST_FAILED(FAILED(hres), "CreateItemMoniker 0 failed\n")
+    TEST_FAILED_HR(FAILED(hr), "CreateItemMoniker 0 failed")
 
-    hres = pmk3->Inverse(&pmk4);
+    hr = pmk3->Inverse(&pmk4);
 
-    TEST_FAILED(FAILED(hres), "Inverse of 0 failed\n")
+    TEST_FAILED_HR(FAILED(hr), "Inverse of 0 failed")
 
-    hres = CreateBindCtx(0, &pbc);
+    hr = CreateBindCtx(0, &pbc);
 
-    TEST_FAILED(FAILED(hres), "CreateBindCtx after inverse failed\n")
+    TEST_FAILED_HR(FAILED(hr), "CreateBindCtx after inverse failed")
 
-    hres = pmk4->GetDisplayName(pbc, NULL, &szName);
+    hr = pmk4->GetDisplayName(pbc, NULL, &szName);
 
-    TEST_FAILED(FAILED(hres), "GetDisplayName on AntiMoniker failed\n")
+    TEST_FAILED_HR(FAILED(hr), "GetDisplayName on AntiMoniker failed")
 
     TEST_FAILED((memcmp(szName, L"\\..", sizeof(L"\\..")) != 0),
-	"GetDisplayName on AntiMoniker name wrong\n")
+        "GetDisplayName on AntiMoniker name wrong\n")
 
     // Free memory API allocated.
     pIMalloc->Free(szName);
@@ -201,53 +271,54 @@ BOOL TestMoniker(LPWSTR pszPath1, LPWSTR pszPath2)
     LAST_RELEASE(pmk4)
 
     //
-    //	Test composition of file moniker & item moniker
+    //  Test composition of file moniker & item moniker
     //
-    hres = pmk1->ComposeWith(pmk2, FALSE, &pmk4);
+    hr = pmk1->ComposeWith(pmk2, FALSE, &pmk4);
 
-    TEST_FAILED(FAILED(hres), "ComposeWith failed\n")
+    TEST_FAILED_HR(FAILED(hr), "ComposeWith failed")
 
-    hres = CreateBindCtx(0, &pbc);
+    hr = CreateBindCtx(0, &pbc);
 
-    TEST_FAILED(FAILED(hres),
-	"CreateBindCtx Composite Moniker GetDisplayName failed!\n")
+    TEST_FAILED_HR(FAILED(hr),
+        "CreateBindCtx Composite Moniker GetDisplayName failed!")
 
-    hres = pmk4->GetDisplayName(pbc, NULL, &szName);
+    hr = pmk4->GetDisplayName(pbc, NULL, &szName);
 
     pbc.Set(NULL);
 
-    TEST_FAILED(FAILED(hres), "GetDisplayName on Composite moniker failed\n")
+    TEST_FAILED_HR(FAILED(hr), "GetDisplayName on Composite moniker failed")
 
     // Free memory API allocated.
     pIMalloc->Free(szName);
 
-    hres = BindMoniker(pmk4, 0, IID_IUnknown, (LPVOID FAR*) &pUnk);
+    Sleep(10);
+    hr = BindMoniker(pmk4, 0, IID_IUnknown, (LPVOID FAR*) &pUnk);
 
-    TEST_FAILED(FAILED(hres), "BindMoniker with composed moniker failed\n")
+    TEST_FAILED_HR(FAILED(hr), "BindMoniker with composed moniker failed")
 
     TEST_FAILED((pUnk == NULL),
-	"BindMoniker with composed moniker returned NULL punk\n")
+        "BindMoniker with composed moniker returned NULL punk\n")
 
-    hres = pUnk->QueryInterface(IID_IOleObject, (LPVOID FAR*) &pObj);
+    hr = pUnk->QueryInterface(IID_IOleObject, (LPVOID FAR*) &pObj);
 
-    TEST_FAILED(FAILED(hres), "QI to IID_IOleObject failed\n")
+    TEST_FAILED_HR(FAILED(hr), "QI to IID_IOleObject failed")
 
     TEST_FAILED((pObj == NULL),
-	"pObj returned from QI invalid\n")
+        "pObj returned from QI invalid")
 
-    hres = pmk6->ComposeWith(pmk3, FALSE, &pmk5);
+    hr = pmk6->ComposeWith(pmk3, FALSE, &pmk5);
 
-    TEST_FAILED(FAILED(hres), "ComposedWith of pmk6 failed\n")
+    TEST_FAILED_HR(FAILED(hr), "ComposedWith of pmk6 failed")
 
-    hres = BindMoniker(pmk5, 0, IID_IUnknown, (LPVOID FAR*) &pUnk1);
+    hr = BindMoniker(pmk5, 0, IID_IUnknown, (LPVOID FAR*) &pUnk1);
 
-    TEST_FAILED(FAILED(hres), "BindMoniker of pmk5 failed\n")
+    TEST_FAILED_HR(FAILED(hr), "BindMoniker of pmk5 failed")
 
-    hres = OleRun(pUnk1);
+    hr = OleRun(pUnk1);
 
-    TEST_FAILED(FAILED(hres), "OleRun call failed\n")
+    TEST_FAILED_HR(FAILED(hr), "OleRun call failed")
 
-    TEST_FAILED(FAILED(hres), "GetObject Failed\n");
+    TEST_FAILED_HR(FAILED(hr), "GetObject Failed");
 
     // Clean up objects
     pObj.Set(NULL);
@@ -257,31 +328,31 @@ BOOL TestMoniker(LPWSTR pszPath1, LPWSTR pszPath2)
     LAST_RELEASE(pmk6);
 
     //
-    //	Test Marshal/Unmarshal Moniker
+    //  Test Marshal/Unmarshal Moniker
     //
     // Make a moniker to marshal
-    hres = pmk4->ComposeWith(pmk3, FALSE, &pmk6);
+    hr = pmk4->ComposeWith(pmk3, FALSE, &pmk6);
 
-    TEST_FAILED(FAILED(hres), "Compose of moniker for marshal test failed\n");
+    TEST_FAILED_HR(FAILED(hr), "Compose of moniker for marshal test failed");
 
     // Create a shared memory stream for the marshaled moniker
-    hres = CreateStreamOnHGlobal(NULL, TRUE, &pStm);
+    hr = CreateStreamOnHGlobal(NULL, TRUE, &pStm);
 
-    TEST_FAILED((FAILED(hres)), "CreateStreamOnHGlobal\n")
+    TEST_FAILED((FAILED(hr)), "CreateStreamOnHGlobal")
 
     // Marshal the interface into the stream
-    hres = CoMarshalInterface(pStm, IID_IMoniker, pmk6, 0, NULL, MSHLFLAGS_NORMAL);
+    hr = CoMarshalInterface(pStm, IID_IMoniker, pmk6, 0, NULL, MSHLFLAGS_NORMAL);
 
-    TEST_FAILED(FAILED(hres), "CoMarshalInterface failed\n")
+    TEST_FAILED_HR(FAILED(hr), "CoMarshalInterface failed")
 
     LISet32(large_int, 0);
-    hres = pStm->Seek(large_int, STREAM_SEEK_SET, NULL);
+    hr = pStm->Seek(large_int, STREAM_SEEK_SET, NULL);
 
-    TEST_FAILED(FAILED(hres), "Seek on shared stream failed\n")
+    TEST_FAILED_HR(FAILED(hr), "Seek on shared stream failed")
 
-    hres = CoUnmarshalInterface(pStm, IID_IMoniker, (LPVOID FAR*)&pmk5);
+    hr = CoUnmarshalInterface(pStm, IID_IMoniker, (LPVOID FAR*)&pmk5);
 
-    TEST_FAILED(FAILED(hres), "CoUnmarshalInterface failed\n")
+    TEST_FAILED_HR(FAILED(hr), "CoUnmarshalInterface failed")
 
     // Dump interfaces we are done with
     LAST_RELEASE(pmk6);
@@ -293,23 +364,23 @@ BOOL TestMoniker(LPWSTR pszPath1, LPWSTR pszPath2)
     LAST_RELEASE(pmk5);
 
     //
-    //	Test Moniker Composition
+    //  Test Moniker Composition
     //
-    //	BUGBUG: Check result
-    hres = CreateFileMoniker(L"\\ole2\\test\\breadth\\servers\\ellipswt",
-	&pmk1);
+    //  BUGBUG: Check result
+    hr = CreateFileMoniker(L"\\ole2\\test\\breadth\\servers\\ellipswt",
+        &pmk1);
 
-    TEST_FAILED(FAILED(hres),
-	"First CreateFileMoniker in composition test failed\n")
+    TEST_FAILED_HR(FAILED(hr),
+        "First CreateFileMoniker in composition test failed")
 
-    hres = CreateFileMoniker(L"..\\..\\..\\dll\\sdemo1.exe",&pmk2);
+    hr = CreateFileMoniker(L"..\\..\\..\\dll\\sdemo1.exe",&pmk2);
 
-    TEST_FAILED(FAILED(hres),
-	"Second CreateFileMoniker in composition test failed\n")
+    TEST_FAILED_HR(FAILED(hr),
+        "Second CreateFileMoniker in composition test failed")
 
-    hres = pmk1->ComposeWith(pmk2, FALSE, &pmk4);
+    hr = pmk1->ComposeWith(pmk2, FALSE, &pmk4);
 
-    TEST_FAILED(FAILED(hres), "ComposeWith of file monikers failed\n")
+    TEST_FAILED_HR(FAILED(hr), "ComposeWith of file monikers failed")
 
     // Dump interfaces we are done with
     LAST_RELEASE(pmk4);
@@ -317,39 +388,39 @@ BOOL TestMoniker(LPWSTR pszPath1, LPWSTR pszPath2)
     LAST_RELEASE(pmk2);
 
     //
-    //	Testing file moniker CommonPrefixWith
+    //  Testing file moniker CommonPrefixWith
     //
     //	BUGBUG: Check result
-    hres = CreateFileMoniker(L"c:\\Ole2\\Test\\Breadth\\Servers\\Ellipswt",
-	&pmk1);
+    hr = CreateFileMoniker(L"\\Ole2\\Test\\Breadth\\Servers\\Ellipswt",
+        &pmk1);
 
-    TEST_FAILED(FAILED(hres),
-	"CommonPrefixWith First CreateFileMoniker failed\n")
+    TEST_FAILED_HR(FAILED(hr),
+        "CommonPrefixWith First CreateFileMoniker failed")
 
-    hres = CreateFileMoniker(
-	L"C:\\ole2\\test\\breadth\\serverandthensome\\bar", &pmk2);
+    hr = CreateFileMoniker(
+	L"\\ole2\\test\\breadth\\serverandthensome\\bar", &pmk2);
 
-    TEST_FAILED(FAILED(hres),
-	"CommonPrefixWith second CreateFileMoniker failed\n")
+    TEST_FAILED_HR(FAILED(hr),
+        "CommonPrefixWith second CreateFileMoniker failed")
 
 
-    hres = pmk1->CommonPrefixWith(pmk2, &pmk4);
+    hr = pmk1->CommonPrefixWith(pmk2, &pmk4);
 
-    TEST_FAILED(FAILED(hres), "CommonPrefixWith failed\n")
+    TEST_FAILED_HR(FAILED(hr), "CommonPrefixWith failed")
 
-    hres = CreateBindCtx(0, &pbc);
+    hr = CreateBindCtx(0, &pbc);
 
-    TEST_FAILED(FAILED(hres),
-	"CreateBindCtx CommonPrefixWith GetDisplayName failed!\n")
+    TEST_FAILED_HR(FAILED(hr),
+        "CreateBindCtx CommonPrefixWith GetDisplayName failed!")
 
-    hres = pmk4->GetDisplayName(pbc, NULL, &szName);
+    hr = pmk4->GetDisplayName(pbc, NULL, &szName);
 
     pbc.Set(NULL);
 
-    TEST_FAILED(FAILED(hres), "CommonPrefixWith: GetDisplayName failed!\n");
+    TEST_FAILED_HR(FAILED(hr), "CommonPrefixWith: GetDisplayName failed!");
 
-    TEST_FAILED((wcsicmp(szName, L"c:\\ole2\\test\\breadth") != 0),
-			"Common prefix with: Wrong Output Path\n");
+    TEST_FAILED((_wcsicmp(szName, L"\\ole2\\test\\breadth") != 0),
+                        "Common prefix with: Wrong Output Path\n");
 
     // Free the path
     pIMalloc->Free(szName);
@@ -360,38 +431,38 @@ BOOL TestMoniker(LPWSTR pszPath1, LPWSTR pszPath2)
     LAST_RELEASE(pmk1);
 
     //
-    //	Testing file moniker RelativePathTo
+    //  Testing file moniker RelativePathTo
     //
     //	BUGBUG: Check result.
-    hres = CreateFileMoniker(L"c:\\Ole2\\Test\\Breadth\\Servers\\Ellipswt",
-	&pmk1);
+    hr = CreateFileMoniker(L"\\Ole2\\Test\\Breadth\\Servers\\Ellipswt",
+        &pmk1);
 
-    TEST_FAILED(FAILED(hres), "RelativePathTo first CreateFileMoniker failed\n")
+    TEST_FAILED_HR(FAILED(hr), "RelativePathTo first CreateFileMoniker failed")
 
-    hres = CreateFileMoniker(
-	L"C:\\ole2\\test\\breadth\\serverandthensome\\bar", &pmk2);
+    hr = CreateFileMoniker(
+	L"\\ole2\\test\\breadth\\serverandthensome\\bar", &pmk2);
 
-    TEST_FAILED(FAILED(hres),
-	"RelativePathTo Second CreateFileMoniker failed\n")
+    TEST_FAILED_HR(FAILED(hr),
+        "RelativePathTo Second CreateFileMoniker failed")
 
-    hres = pmk1->RelativePathTo(pmk2, &pmk4);
+    hr = pmk1->RelativePathTo(pmk2, &pmk4);
 
-    TEST_FAILED(FAILED(hres), "RelativePathTo failed\n")
+    TEST_FAILED_HR(FAILED(hr), "RelativePathTo failed")
 
 
-    hres = CreateBindCtx(0, &pbc);
+    hr = CreateBindCtx(0, &pbc);
 
-    TEST_FAILED(FAILED(hres),
-	"CreateBindCtx RelativePathTo GetDisplayName failed!\n")
+    TEST_FAILED_HR(FAILED(hr),
+        "CreateBindCtx RelativePathTo GetDisplayName failed!")
 
-    hres = pmk4->GetDisplayName(pbc, NULL, &szName);
+    hr = pmk4->GetDisplayName(pbc, NULL, &szName);
 
     pbc.Set(NULL);
 
-    TEST_FAILED(FAILED(hres), "RelativePathTo: GetDisplayName failed!\n");
+    TEST_FAILED_HR(FAILED(hr), "RelativePathTo: GetDisplayName failed!");
 
     TEST_FAILED((wcscmp(szName, L"..\\..\\serverandthensome\\bar") != 0),
-			"RelativePathTo: Wrong Output Path\n");
+                        "RelativePathTo: Wrong Output Path");
 
     // Free the path
     pIMalloc->Free(szName);
@@ -402,71 +473,71 @@ BOOL TestMoniker(LPWSTR pszPath1, LPWSTR pszPath2)
     LAST_RELEASE(pmk4);
 
     //
-    //	Testing MkParseDisplayName
+    //  Testing MkParseDisplayName
     //
-    hres = CreateBindCtx(0, &pbc);
+    hr = CreateBindCtx(0, &pbc);
 
-    TEST_FAILED(FAILED(hres), "MkParseDisplayName CreatebindCtx failed\n")
+    TEST_FAILED_HR(FAILED(hr), "MkParseDisplayName CreatebindCtx failed")
 
     // make a path to the object
     WCHAR szBuf[256];
-    int cPath1 = wcslen(pszPath1);
+    int cPath1;
+    cPath1 = wcslen(pszPath1);
     memcpy(szBuf, pszPath1, cPath1 * sizeof(WCHAR));
     memcpy(szBuf + cPath1, L"\\1", sizeof(L"\\1"));
 
-    hres = MkParseDisplayName(pbc, szBuf, &chEaten, &pmk1);
+    hr = MkParseDisplayName(pbc, szBuf, &chEaten, &pmk1);
 
-    TEST_FAILED(FAILED(hres), "MkParseDisplayName failed\n")
+    TEST_FAILED_HR(FAILED(hr), "MkParseDisplayName failed")
 
     LAST_RELEASE(pmk1);
     LAST_RELEASE(pbc);
 
-
     //
-    //	Test Moniker IsEqual function on equivalent paths
+    //  Test Moniker IsEqual function on equivalent paths
     //  The moniker code should catch some forms of equivalent
     //  paths, but doesn't handle all of them.
     //
-    //	
+    //
 
-    hres = CreateFileMoniker(L"first",&pmk1);
+    hr = CreateFileMoniker(L"first",&pmk1);
 
-    TEST_FAILED(FAILED(hres),
-	"First CreateFileMoniker in IsEqual test failed\n")
+    TEST_FAILED_HR(FAILED(hr),
+        "First CreateFileMoniker in IsEqual test failed")
 
-    hres = CreateFileMoniker(L".\\first",&pmk2);
+    hr = CreateFileMoniker(L".\\first",&pmk2);
 
-    TEST_FAILED(FAILED(hres),
-	"Second CreateFileMoniker in IsEqual test failed\n")
+    TEST_FAILED_HR(FAILED(hr),
+        "Second CreateFileMoniker in IsEqual test failed")
 
-    hres = CreateFileMoniker(L"..\\first",&pmk3);
+    hr = CreateFileMoniker(L"..\\first",&pmk3);
 
-    TEST_FAILED(FAILED(hres),
-	"Third CreateFileMoniker in IsEqual test failed\n")
+    TEST_FAILED_HR(FAILED(hr),
+        "Third CreateFileMoniker in IsEqual test failed")
 
         //  This moniker variation has been disabled for Cairo
         //    until the moniker code gets unified.
 #ifndef _CAIRO_
-    hres = CreateFileMoniker(L"..\\.first",&pmk4);
+    hr = CreateFileMoniker(L"..\\.first",&pmk4);
 
-    TEST_FAILED(FAILED(hres),
-	"Fourth CreateFileMoniker in IsEqual test failed\n")
+    TEST_FAILED_HR(FAILED(hr),
+        "Fourth CreateFileMoniker in IsEqual test failed")
 #endif
-        
-    hres = pmk1->IsEqual(pmk2);
-    TEST_FAILED((hres != S_OK), "pmk1->IsEqual(pmk2) failed\n")
 
-    hres = pmk2->IsEqual(pmk3);
-    TEST_FAILED((hres != S_FALSE), "pmk2->IsEqual(pmk3) failed\n")
-        
+    hr = pmk1->IsEqual(pmk2);
+    TEST_FAILED_HR((hr != S_OK), "pmk1->IsEqual(pmk2) failed")
+
+    hr = pmk2->IsEqual(pmk3);
+    TEST_FAILED_HR((hr != S_FALSE), "pmk2->IsEqual(pmk3) failed")
+
 #ifndef _CAIRO_
-    hres = pmk3->IsEqual(pmk4);
-    TEST_FAILED((hres != S_FALSE), "pmk3->IsEqual(pmk4) failed\n")
+    hr = pmk3->IsEqual(pmk4);
+    TEST_FAILED_HR((hr != S_FALSE), "pmk3->IsEqual(pmk4) failed")
 
-    hres = pmk4->IsEqual(pmk4);
-    TEST_FAILED((hres != S_OK), "pmk4->IsEqual(pmk4) failed\n")
+    hr = pmk4->IsEqual(pmk4);
+    TEST_FAILED_HR((hr != S_OK), "pmk4->IsEqual(pmk4) failed")
 #endif
-        
+
     // Dump interfaces we are done with
     LAST_RELEASE(pmk1);
     LAST_RELEASE(pmk2);
@@ -475,47 +546,46 @@ BOOL TestMoniker(LPWSTR pszPath1, LPWSTR pszPath2)
 #ifndef _CAIRO_
     LAST_RELEASE(pmk4);
 #endif
-    
+
     //
     // Test IsRunning
     //
 
-    //	we make up a name based on the pid and an arbitrary string,
-    //	so that the name is unique to this process.
+    //  we make up a name based on the pid and an arbitrary string,
+    //  so that the name is unique to this process.
 
     WCHAR   wszMkName[MAX_PATH];
     wcscpy(wszMkName, L"YourStockOptionsDependOnThis");
-    wcscat(wszMkName, &wszPid[1]);  //	skip leading backslash
+    wcscat(wszMkName, &wszPid[1]);  //  skip leading backslash
 
-    hres = CreateFileMoniker(wszMkName, &pmk1);
+    hr = CreateFileMoniker(wszMkName, &pmk1);
 
-    TEST_FAILED(FAILED(hres),
-	"First CreateFileMoniker in IsRunning failed\n")
+    TEST_FAILED_HR(FAILED(hr),
+        "First CreateFileMoniker in IsRunning failed")
 
-    hres = CreateBindCtx(0, &pbc);
-    TEST_FAILED(FAILED(hres),
-	"CreateBindCtx in IsRunning failed\n")
+    hr = CreateBindCtx(0, &pbc);
+    TEST_FAILED_HR(FAILED(hr),
+        "CreateBindCtx in IsRunning failed")
 
     //
     // We shouldn't find the moniker in the ROT
     //
-    hres = pmk1->IsRunning(pbc,NULL,NULL);
-    TEST_FAILED((hres != S_FALSE),
-    	"IsRunning returns other than S_FALSE");
+    hr = pmk1->IsRunning(pbc,NULL,NULL);
+    TEST_FAILED_HR((hr != S_FALSE),
+        "IsRunning returns other than S_FALSE");
 
     //
     // The FileMoniker should ignore pmk1
     //
 
-    hres = pmk1->IsRunning(pbc,pmk1,NULL);
-    TEST_FAILED((hres != S_FALSE),
-    	"IsRunning #2 returns other than S_FALSE");
+    hr = pmk1->IsRunning(pbc,pmk1,NULL);
+    TEST_FAILED_HR((hr != S_FALSE),
+        "IsRunning #2 returns other than S_FALSE");
 
-    XRunningObjectTable prot;
 
-    hres = GetRunningObjectTable(0, &prot);
+    hr = GetRunningObjectTable(0, &prot);
 
-    TEST_FAILED(FAILED(hres),"IsRunning GetRunningObjectTable failed!\n");
+    TEST_FAILED_HR(FAILED(hr),"IsRunning GetRunningObjectTable failed!");
 
 
     //
@@ -525,31 +595,204 @@ BOOL TestMoniker(LPWSTR pszPath1, LPWSTR pszPath2)
     //
 
     DWORD dwRegister;
+    DWORD dwRegister2;
 
-    hres = prot->Register(0,pmk1,pmk1,&dwRegister);
-    TEST_FAILED(FAILED(hres),
-    	"Register with ROT failed in IsRunning");
+    hr = prot->Register(0,pmk1,pmk1,&dwRegister);
+    TEST_FAILED_HR(FAILED(hr),
+        "Register with ROT failed in IsRunning");
 
     //
     // We should find the moniker as running
     //
-    hres = pmk1->IsRunning(pbc,NULL,NULL);
-    TEST_FAILED((hres != S_OK),
-    	"IsRunning returns other than S_OK");
+    hr = pmk1->IsRunning(pbc,NULL,NULL);
+    TEST_FAILED_HR((hr != S_OK),
+        "IsRunning returns other than S_OK");
 
+    hr = prot->IsRunning(pmk1);
+    TEST_FAILED_HR((hr != S_OK),
+        "IsRunning returns other than S_OK");
 
     //
-    // Now revoke
+    // Register it again, and we should get notice that it is running
     //
-    hres = prot->Revoke(dwRegister);
-    TEST_FAILED(FAILED(hres),
-    	"Revoke with ROT failed in IsRunning");
+    // This test the ROT, and also test the moniker comparision
+    // functions
+    //
+
+    hr = prot->Register(0,pmk1,pmk1,&dwRegister2);
+    TEST_FAILED_HR(hr != MK_S_MONIKERALREADYREGISTERED,
+        "Register with ROT failed in IsRunning");
+
+    hr = prot->IsRunning(pmk1);
+    TEST_FAILED_HR((hr != S_OK),
+                "IsRunning #1 has returned != S_OK");
+
+    hr = prot->Revoke(dwRegister2);
+    TEST_FAILED_HR(FAILED(hr),
+        "Revoke dwRegister2 with ROT failed");
+
+    hr = prot->Revoke(dwRegister2);
+    TEST_FAILED_HR(hr == S_OK,
+        "Revoke dwRegister2 with ROT should have failed");
+
+    //
+    // It is registered twice, it should still be there from the original
+    // registration
+    //
+    hr = pmk1->IsRunning(pbc,NULL,NULL);
+    TEST_FAILED_HR((hr != S_OK),
+                "IsRunning #2 has returned != S_OK");
+
+    //
+    // Cram in a ItemMoniker to test its comparision stuff.
+    //
+    hr = CreateItemMoniker(L"!",L"KevinRo",&pmkItem1);
+    TEST_FAILED_HR(FAILED(hr),
+                "Creating Item Moniker KevinRo");
+
+    hr = CreateItemMoniker(L"!",L"SueA",&pmkItem2);
+    TEST_FAILED_HR(FAILED(hr),
+                "Creating Item Moniker SueA");
+
+    DWORD dwKevinRo;
+    DWORD dwSueA;
+
+    hr = prot->Register(0,pmkItem1,pmkItem1,&dwKevinRo);
+    TEST_FAILED_HR(FAILED(hr),
+        "Register KevinRo with ROT failed in IsRunning");
+
+    hr = prot->Register(0,pmkItem2,pmkItem2,&dwSueA);
+    TEST_FAILED_HR(FAILED(hr),
+        "Register SueA with ROT failed in IsRunning");
+
+    //
+    // Now revoke monikers
+    //
+    hr = prot->Revoke(dwRegister);
+    TEST_FAILED_HR(FAILED(hr),
+        "Revoke with ROT failed in IsRunning");
     //
     // We shouldn't find the moniker in the ROT
     //
-    hres = pmk1->IsRunning(pbc,NULL,NULL);
-    TEST_FAILED((hres != S_FALSE),
-    	"IsRunning returns other than S_FALSE");
+    hr = pmk1->IsRunning(pbc,NULL,NULL);
+    TEST_FAILED_HR((hr != S_FALSE),
+                "IsRunning returns other than S_FALSE");
+
+    //
+    // Now revoke the item monikers.
+    //
+    hr = prot->Revoke(dwKevinRo);
+    TEST_FAILED_HR(FAILED(hr),
+        "Revoke with ROT failed in for KevinRo");
+
+    hr = prot->Revoke(dwSueA);
+    TEST_FAILED_HR(FAILED(hr),
+        "Revoke with ROT failed in for SueA");
+
+    //
+    // An AntiMoniker
+    //
+    hr = CreateAntiMoniker(&pmkAnti);
+    TEST_FAILED_HR(FAILED(hr),
+    	"Failed creating AntiMoniker in Comparison Data Test");
+
+    DWORD dwAnti;
+
+    hr = prot->Register(0,pmkAnti,pmkAnti,&dwAnti);
+    TEST_FAILED_HR(FAILED(hr),
+        "Register Anti with ROT failed in IsRunning");
+
+    hr = prot->IsRunning(pmkAnti);
+    TEST_FAILED_HR((hr != S_OK),
+        "IsRunning pmkAnti returns other than S_OK");
+
+    //
+    // Now revoke the 'other' monikers.
+    //
+    hr = prot->Revoke(dwAnti);
+    TEST_FAILED_HR(FAILED(hr),
+        "Revoke with ROT failed in for Anti");
+
+    //
+    // Test file monikers with long file names
+    //
+
+    // Creation
+    hr = CreateFileMoniker(LongDirShort, &pmkLong1);
+
+    TEST_FAILED_HR(FAILED(hr), "CreateFileMoniker for long short failed!")
+
+    TEST_FAILED((pmkLong1 == NULL),
+        "CreateFileMoniker returned a null moniker ptr\n")
+
+    LAST_RELEASE(pmkLong1);
+
+    // Equivalence with short name version
+    hr = CreateFileMoniker(LongDirLong, &pmkLong1);
+
+    TEST_FAILED_HR(FAILED(hr), "CreateFileMoniker for long long failed!")
+
+    TEST_FAILED((pmkLong1 == NULL),
+        "CreateFileMoniker returned a null moniker ptr\n")
+
+#if 0
+    // Debug code to print out the display name to check that long
+    // names are handled correctly
+
+    hr = CreateBindCtx(0, &pbc);
+
+    TEST_FAILED_HR(FAILED(hr),
+        "CreateBindCtx File Moniker GetDisplayName failed!")
+
+    hr = pmkLong1->GetDisplayName(pbc, NULL, &szName);
+
+    //  release it
+    pbc.Set(NULL, FALSE);
+
+    TEST_FAILED_HR(FAILED(hr), "File Moniker GetDisplayName failed!");
+
+    wprintf(L"Display name: '%s', %d\n", szName, wcslen(szName));
+
+    // Free the path
+    pIMalloc->Free(szName);
+#endif
+
+    hr = CreateFileMoniker(LongDirLongSe, &pmkLong2);
+
+    TEST_FAILED_HR(FAILED(hr), "CreateFileMoniker for long long se failed!")
+
+    TEST_FAILED((pmkLong2 == NULL),
+        "CreateFileMoniker returned a null moniker ptr\n")
+
+    TEST_FAILED(pmkLong1->IsEqual(pmkLong2) != S_OK,
+        "Long file monikers not equal\n");
+
+#if 0
+
+
+    // Debug code to print out the display name to check that long
+    // names are handled correctly
+
+    hr = CreateBindCtx(0, &pbc);
+
+    TEST_FAILED_HR(FAILED(hr),
+        "CreateBindCtx File Moniker GetDisplayName failed!")
+
+    hr = pmkLong2->GetDisplayName(pbc, NULL, &szName);
+
+    //  release it
+    pbc.Set(NULL, FALSE);
+
+    TEST_FAILED_HR(FAILED(hr), "File Moniker GetDisplayName failed!");
+
+    wprintf(L"Display name: '%s', %d\n", szName, wcslen(szName));
+
+    // Free the path
+    pIMalloc->Free(szName);
+#endif
+
+    LAST_RELEASE(pmkLong1);
+    LAST_RELEASE(pmkLong2);
 
     return FALSE;
 }

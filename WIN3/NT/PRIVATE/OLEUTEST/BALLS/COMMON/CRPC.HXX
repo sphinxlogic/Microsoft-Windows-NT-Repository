@@ -68,6 +68,8 @@ public:
     STDMETHOD(IUnknownOut) (IUnknown **ppunk);
 
     STDMETHOD(IUnknownInKeep) (IUnknown *punk);
+    STDMETHOD(IUnknownInRelease) (void);
+
     STDMETHOD(IUnknownOutKeep) (IUnknown **ppunk);
 
     STDMETHOD(InterfaceIn)(REFIID riid, IUnknown *punk);

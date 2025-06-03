@@ -72,7 +72,7 @@ Return Value:
     SIZE    sizeText;
     RECT    rTextWnd;
     int     nCharsInLine;
-    DWORD   dwCharsInString;
+    DWORD   dwCharsInString = 0;
     LONG    nWindowWidth;
 
     szWorkString = GlobalAlloc (GPTR, dwBufSize * sizeof(TCHAR));
@@ -377,4 +377,3 @@ Return Value:
 
 
 
-

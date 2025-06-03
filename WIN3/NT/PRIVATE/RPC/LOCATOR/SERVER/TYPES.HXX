@@ -23,93 +23,93 @@ Author:
 // First are the alasis for base types
 
 #ifndef _WINDEF_
-typedef unsigned int   WORD;	// machine dependent unsigned integer *&
+typedef unsigned int   WORD;    // machine dependent unsigned integer *&
 #endif
 
-typedef unsigned short STATUS;	// machine independent unsigned 16 bit *&
-typedef unsigned short SWORD;	// machine independent unsigned 16 bit *&
-typedef 	 short SINT;	// machine independent signed 16 bit *&
-typedef 	 char SBYTE;	// machine independent unsigned 8 bit *&
+typedef unsigned short STATUS;  // machine independent unsigned 16 bit *&
+typedef unsigned short SWORD;   // machine independent unsigned 16 bit *&
+typedef      short SINT;    // machine independent signed 16 bit *&
+typedef      char SBYTE;    // machine independent unsigned 8 bit *&
 
 // OS/2 include files define these also, our definition matchs theres...
 
 #ifndef INCL_DOS
 
 #ifndef _WINDEF_
-typedef unsigned char BYTE;	// machine independent unsigned 8 bit *&
-typedef unsigned int  BOOL;	// boolean value *&
-typedef unsigned long ULONG;	// machine independent signed 32 bit *&
-typedef 	 long  LONG;	// machine independent unsigned 32 bit *&
+typedef unsigned char BYTE; // machine independent unsigned 8 bit *&
+typedef unsigned int  BOOL; // boolean value *&
+typedef unsigned long ULONG;    // machine independent signed 32 bit *&
+typedef      long  LONG;    // machine independent unsigned 32 bit *&
 #endif
 
-typedef 	 int   INT;	// machine dependent signed integer *&
+typedef      int   INT; // machine dependent signed integer *&
 #endif
 
-typedef 	 char * SZ;	// pointer to zero terminated string *&
-typedef 	 char * ST;	// pointer to length prefixed string *&
+typedef      char * SZ; // pointer to zero terminated string *&
+typedef      char * ST; // pointer to length prefixed string *&
 
-typedef 	 char * PB;	// pointer to character buffer *&
-typedef unsigned char * PUC;	// pointer to character buffer *&
-typedef unsigned short* PUZ;	// pointer to unicode character buffer *&
+typedef      char * PB; // pointer to character buffer *&
+typedef unsigned char * PUC;    // pointer to character buffer *&
+typedef unsigned short* PUZ;    // pointer to unicode character buffer *&
 typedef unsigned short  UICHAR; // unicode character buffer *&
 
 
 // Define a generic version pair template
 
-#define VERSION_PAIR(NAME, TYPE)		\
-						\
-class NAME {					\
-						\
-private:					\
-  TYPE	  major;	/* version pair */	\
-  TYPE	  minor;				\
-						\
-public: 					\
-						\
-  ASSERT_CLASS; 				\
-  NAME() {};					\
-  NAME(TYPE vMajor, TYPE vMinor = 0) {		\
-						\
-    major = vMajor;				\
-    minor = vMinor;				\
-  }						\
-						\
-  ~NAME() {};					\
-						\
-  /* relational operator */			\
-						\
-  int operator - (NAME& pRV) {			\
-    return ((major - pRV.major)?		\
-	    (major - pRV.major): (minor - pRV.minor)); \
-  }						\
-  /* relational operator */			\
+#define VERSION_PAIR(NAME, TYPE)        \
+                        \
+class NAME {                    \
+                        \
+private:                    \
+  TYPE    major;    /* version pair */  \
+  TYPE    minor;                \
+                        \
+public:                     \
+                        \
+  ASSERT_CLASS;                 \
+  NAME() {};                    \
+  NAME(TYPE vMajor, TYPE vMinor = 0) {      \
+                        \
+    major = vMajor;             \
+    minor = vMinor;             \
+  }                     \
+                        \
+  ~NAME() {};                   \
+                        \
+  /* relational operator */         \
+                        \
+  int operator - (NAME& pRV) {          \
+    return ((major - pRV.major)?        \
+        (major - pRV.major): (minor - pRV.minor)); \
+  }                     \
+  /* relational operator */         \
                                                 \
-						\
-  int Compatable (NAME& pRV) {			\
+                        \
+  int Compatable (NAME& pRV) {          \
     return ((major != pRV.major)? 0:            \
             (minor >= pRV.minor));               \
-  }						\
-						\
-  TYPE Major () {           			\
+  }                     \
+                        \
+  TYPE Major () {                       \
     return (major);                             \
-  }						\
-  TYPE Minor () {           			\
+  }                     \
+  TYPE Minor () {                       \
     return (minor);                             \
-  }						\
-						\
-  BOOL operator == (NAME& pPV) {		\
-    return (major == pPV.major && minor	== pPV.minor);	\
-  }						\
-						\
-  /* Copy operator */				\
-						\
-  void operator = (NAME& pRV) {			\
-    major = pRV.major;				\
-    minor = pRV.minor;				\
-  }						\
-						\
+  }                     \
+                        \
+  BOOL operator == (NAME& pPV) {        \
+    return (major == pPV.major && minor == pPV.minor);  \
+  }                     \
+                        \
+  /* Copy operator */               \
+                        \
+  void operator = (NAME& pRV) {         \
+    major = pRV.major;              \
+    minor = pRV.minor;              \
+  }                     \
+                        \
   friend ostream& operator << (ostream&, NAME&); \
-};						\
+};                      \
 
 
 
@@ -128,12 +128,12 @@ Abstract:
 
 class BUFFER_STREAM_BASE: public streambuf {
 
-PROTECTED:
-    enum {CB_BUFF = 1000 };		// size of output buffer
-    char buffer[CB_BUFF+1];		// buffer to output
+protected:
+    enum {CB_BUFF = 1000 };     // size of output buffer
+    char buffer[CB_BUFF+1];     // buffer to output
 
 public:
-    BUFFER_STREAM_BASE ( ): streambuf (buffer, CB_BUFF) 
+    BUFFER_STREAM_BASE ( ): streambuf (buffer, CB_BUFF)
        {
 
        }
@@ -193,14 +193,14 @@ Abstract:
 class STATICTS {
 
 public:
-    int cExports;		// total count of exports PS
-    int cCached;		// number of those cached
-    int cLookUp;		// number of lookUp calls
-    int cNetQuery;		// number of times net queried
-    int cNetRequests;		// number of advertisements
-    int averageNetTime; 	// average time to do a query
-    int cDiscard;		// number cached of PS discards
-    int cTimeOut;		// number of cached that were aged
+    int cExports;       // total count of exports PS
+    int cCached;        // number of those cached
+    int cLookUp;        // number of lookUp calls
+    int cNetQuery;      // number of times net queried
+    int cNetRequests;       // number of advertisements
+    int averageNetTime;     // average time to do a query
+    int cDiscard;       // number cached of PS discards
+    int cTimeOut;       // number of cached that were aged
 
     friend ostream& operator << (ostream&, STATICTS&);
 };
@@ -257,11 +257,11 @@ int CmpUZ(PUZ Dest, PUZ Src);
 int LenUZ(PUZ Src);
 PUZ StrdupUZ(PUZ StringW);
 
-extern ULONG maxCacheAge;	// max cache age
+extern ULONG maxCacheAge;   // max cache age
 
 #ifdef OS2_12
 
-extern void *pInfoSeg;			// Global info seg from OS/2
+extern void *pInfoSeg;          // Global info seg from OS/2
 
 #define CurrentTime() (*(long *)pInfoSeg)
 #define CurrentTimeMS() (*((long *)pInfoSeg+1))

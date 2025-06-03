@@ -63,4 +63,3 @@ void OleTestApp::Reset(void)
 	m_Temp = NULL;
 }
 
-

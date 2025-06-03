@@ -4,11 +4,11 @@
 /*                                                                          */
 /*                              Version 1.0                                 */
 /*                                                                          */
-/*        Copyright (c) 1992, Microsoft Corp.  All rights reserved.         */
+/*        Copyright (c) 1995-1996, Microsoft Corp.  All rights reserved.    */
 /*                                                                          */
 /*  Date            Modification                                            */
 /*  ------------    ------------                                            */
-/*  Aug 19, 1992    -Version 1.0 Release
+/*  Aug 19, 1992    -Version 1.0 Release                                    */
 /*                                                                          */
 /****************************************************************************/
 
@@ -199,6 +199,8 @@ extern "C" {            /* Assume C declarations for C++ */
 #define MCI_DGV_OPEN_WS                     0x00010000L
 #define MCI_DGV_OPEN_PARENT                 0x00020000L
 #define MCI_DGV_OPEN_NOSTATIC               0x00040000L
+#define MCI_DGV_OPEN_16BIT                  0x00080000L
+#define MCI_DGV_OPEN_32BIT                  0x00100000L
 
 /* flags for dwFlags parameter of MCI_PASTE command message */
 
@@ -615,7 +617,7 @@ typedef MCI_DGV_MONITOR_PARMS FAR * LPMCI_DGV_MONITOR_PARMS;
 typedef struct {
     DWORD   dwCallback;
     UINT    wDeviceID;
-#ifndef WIN32
+#ifndef _WIN32
     WORD    wReserved0;
 #endif
     LPTSTR% lpstrDeviceType;
@@ -623,7 +625,7 @@ typedef struct {
     LPTSTR% lpstrAlias;
     DWORD   dwStyle;
     HWND    hWndParent;
-#ifndef WIN32
+#ifndef _WIN32
     WORD    wReserved1;
 #endif
 } MCI_DGV_OPEN_PARMS%;
@@ -818,7 +820,7 @@ typedef struct {
 #endif
     HDC     hDC;
 
-#ifndef WIN32
+#ifndef _WIN32
     WORD    wReserved0;
 #endif
 } MCI_DGV_UPDATE_PARMS;
@@ -834,11 +836,11 @@ typedef MCI_DGV_WHERE_PARMS FAR * LPMCI_DGV_WHERE_PARMS;
 typedef struct {
     DWORD   dwCallback;
     HWND    hWnd;
-#ifndef WIN32
+#ifndef _WIN32
     WORD    wReserved1;
 #endif
     UINT    nCmdShow;
-#ifndef WIN32
+#ifndef _WIN32
     WORD    wReserved2;
 #endif
     LPTSTR% lpstrText;

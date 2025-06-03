@@ -27,7 +27,7 @@ Revision History:
 
 NET_API_STATUS NET_API_FUNCTION
 RxNetAccessAdd(
-    IN  LPTSTR  ServerName,
+    IN  LPCWSTR  ServerName,
     IN  DWORD   Level,
     IN  LPBYTE  Buffer,
     OUT LPDWORD ParmError OPTIONAL
@@ -44,14 +44,14 @@ RxNetAccessCheck(
 
 NET_API_STATUS NET_API_FUNCTION
 RxNetAccessDel(
-    IN  LPTSTR  ServerName,
-    IN  LPTSTR  ResourceName
+    IN  LPCWSTR  ServerName,
+    IN  LPCWSTR  ResourceName
     );
 
 NET_API_STATUS NET_API_FUNCTION
 RxNetAccessEnum(
-    IN  LPTSTR  ServerName,
-    IN  LPTSTR  BasePath,
+    IN  LPCWSTR  ServerName,
+    IN  LPCWSTR  BasePath,
     IN  DWORD   Recursive,
     IN  DWORD   Level,
     OUT LPBYTE* Buffer,
@@ -63,24 +63,24 @@ RxNetAccessEnum(
 
 NET_API_STATUS NET_API_FUNCTION
 RxNetAccessGetInfo(
-    IN  LPTSTR  ServerName,
-    IN  LPTSTR  ResourceName,
+    IN  LPCWSTR  ServerName,
+    IN  LPCWSTR  ResourceName,
     IN  DWORD   Level,
     OUT LPBYTE* Buffer
     );
 
 NET_API_STATUS NET_API_FUNCTION
 RxNetAccessGetUserPerms(
-    IN  LPTSTR  ServerName,
-    IN  LPTSTR  UserName,
-    IN  LPTSTR  ResourceName,
+    IN  LPCWSTR  ServerName,
+    IN  LPCWSTR  UserName,
+    IN  LPCWSTR  ResourceName,
     OUT LPDWORD Perms
     );
 
 NET_API_STATUS NET_API_FUNCTION
 RxNetAccessSetInfo(
-    IN  LPTSTR  ServerName,
-    IN  LPTSTR  ResourceName,
+    IN  LPCWSTR  ServerName,
+    IN  LPCWSTR  ResourceName,
     IN  DWORD   Level,
     IN  LPBYTE  Buffer,
     OUT LPDWORD ParmError OPTIONAL

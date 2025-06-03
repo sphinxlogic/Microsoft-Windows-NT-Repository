@@ -27,8 +27,17 @@ Revision History:
 #define Dbg                              (DEBUG_TRACE_CONVERT)
 
 #ifdef ALLOC_PRAGMA
+#ifndef QFE_BUILD
 #pragma alloc_text( PAGE1, CopyBufferToMdl )
 #endif
+#endif
+
+#if 0  // Not pageable
+
+// see ifndef QFE_BUILD above
+
+#endif
+
 
 
 VOID
@@ -66,6 +75,7 @@ Return Value:
     PMDL Mdl;
     ULONG BytesToCopy;
     ULONG MdlByteCount;
+    PVOID pSystemVa;
 
     DebugTrace( +1, Dbg, "MdlMoveMemory...\n", 0 );
     DebugTrace(  0, Dbg, "Desitination MDL = %X\n", DestinationMdl );
@@ -99,20 +109,19 @@ Return Value:
 
             while ( SourceByteCount > 0 ) {
 
-                BytesToCopy = MIN(
-                                 SourceByteCount,
-                                 BufferOffset - DataOffset );
+                BytesToCopy = MIN( SourceByteCount,
+                                   BufferOffset - DataOffset );
 
-                ASSERT( Mdl->MdlFlags & ( MDL_MAPPED_TO_SYSTEM_VA |
-                                          MDL_SOURCE_IS_NONPAGED_POOL |
-                                          MDL_PARENT_MAPPED_SYSTEM_VA ) );
+                pSystemVa = MmGetSystemAddressForMdl( Mdl );
 
-                DebugTrace(  0, Dbg, "Copy to    %X\n", (PUCHAR)Mdl->MappedSystemVa + DataOffset - PreviousBufferOffset );
+                DebugTrace(  0, Dbg, "Copy to    %X\n", (PUCHAR) pSystemVa +
+                                                                 DataOffset -
+                                                                 PreviousBufferOffset );
                 DebugTrace(  0, Dbg, "Copy from  %X\n", SourceData );
                 DebugTrace(  0, Dbg, "Copy bytes %d\n", BytesToCopy );
 
                 TdiCopyLookaheadData(
-                    (PUCHAR)Mdl->MappedSystemVa + DataOffset - PreviousBufferOffset,
+                    (PUCHAR)pSystemVa + DataOffset - PreviousBufferOffset,
                     SourceData,
                     BytesToCopy,
                     0 );
@@ -138,5 +147,239 @@ Return Value:
     }
 
     DebugTrace( -1, Dbg, "MdlMoveMemory -> VOID\n", 0 );
+}
+
+//
+// These parsing routines are used to do multiple credential
+// connects to a single server.
+//
+
+NTSTATUS
+GetCredentialFromServerName(
+    IN PUNICODE_STRING puServerName,
+    OUT PUNICODE_STRING puCredentialName
+)
+/*+++
+
+   Description:  Given a munged server(credential) name,
+   this routine returns the credential.
+---*/
+{
+
+    DWORD NameLength = 0;
+    BOOLEAN FoundFirstParen = FALSE;
+    BOOLEAN FoundLastParen = FALSE;
+
+    DebugTrace( 0, Dbg, "GetCredentialFromServerName: %wZ\n", puServerName );
+
+    puCredentialName->Length = puServerName->Length;
+    puCredentialName->Buffer = puServerName->Buffer;
+
+    //
+    // Find the first paren.
+    //
+
+    while ( ( puCredentialName->Length ) && !FoundFirstParen ) {
+
+        if ( puCredentialName->Buffer[0] == L'(' ) {
+            FoundFirstParen = TRUE;
+        }
+
+        puCredentialName->Buffer++;
+        puCredentialName->Length -= sizeof( WCHAR );
+    }
+
+    if ( !FoundFirstParen ) {
+        DebugTrace( 0, Dbg, "No opening paren for server(credential) name.\n", 0 );
+        return STATUS_UNSUCCESSFUL;
+    }
+
+    //
+    // Figure out the name length.
+    //
+
+    while ( ( puCredentialName->Length ) && !FoundLastParen ) {
+
+        if ( puCredentialName->Buffer[NameLength] == L')' ) {
+            FoundLastParen = TRUE;
+        }
+
+        NameLength++;
+        puCredentialName->Length -= sizeof( WCHAR );
+    }
+
+    if ( !FoundLastParen ) {
+        DebugTrace( 0, Dbg, "No closing paren for server(credential) name.\n", 0 );
+        return STATUS_UNSUCCESSFUL;
+    }
+
+    //
+    // Format the name and return.  Don't count the closing paren.
+    //
+
+    NameLength--;
+
+    if ( !NameLength ) {
+        DebugTrace( 0, Dbg, "Null credential name.\n", 0 );
+        return STATUS_UNSUCCESSFUL;
+    }
+
+    puCredentialName->Length = (USHORT) (NameLength * sizeof( WCHAR ));
+    puCredentialName->MaximumLength = puCredentialName->Length;
+
+    DebugTrace( 0, Dbg, "GetCredentialFromServerName --> %wZ\n", puCredentialName );
+
+    return STATUS_SUCCESS;
+
+}
+
+NTSTATUS
+BuildExCredentialServerName(
+    IN PUNICODE_STRING puServerName,
+    IN PUNICODE_STRING puUserName,
+    OUT PUNICODE_STRING puExCredServerName
+)
+/*+++
+
+Description:
+
+    Takes a server name and a user name and makes an
+    ExCredServerName, which is simply: server(user)
+
+    This routine allocates memory for the credential
+    server name and the caller is responsible for
+    freeing the memory when it is no longer needed.
+
+---*/
+{
+
+    NTSTATUS Status;
+    PBYTE pbCredNameBuffer;
+
+    DebugTrace( 0, Dbg, "BuildExCredentialServerName\n", 0 );
+
+    if ( ( !puExCredServerName ) ||
+         ( !puServerName ) ||
+         ( !puUserName ) ) {
+
+        DebugTrace( 0, DEBUG_TRACE_ALWAYS, "BuildExCredentialServerName -> STATUS_INVALID_PARAMETER\n", 0 );
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    puExCredServerName->MaximumLength = puServerName->Length +
+                                        puUserName->Length +
+                                        ( 2 * sizeof( WCHAR ) );
+
+    pbCredNameBuffer = ALLOCATE_POOL( PagedPool,
+                                      puExCredServerName->MaximumLength );
+
+    if ( pbCredNameBuffer == NULL ) {
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    puExCredServerName->Buffer = (PWCHAR) pbCredNameBuffer;
+    puExCredServerName->Length = puExCredServerName->MaximumLength;
+
+    //
+    // Copy over the server name.
+    //
+
+    RtlCopyMemory( pbCredNameBuffer,
+                   puServerName->Buffer,
+                   puServerName->Length );
+
+    pbCredNameBuffer += puServerName->Length;
+
+    //
+    // Add the credential name in parenthesis.
+    //
+
+    *( (PWCHAR) pbCredNameBuffer ) = L'(';
+
+    pbCredNameBuffer += sizeof( WCHAR );
+
+    RtlCopyMemory( pbCredNameBuffer,
+                   puUserName->Buffer,
+                   puUserName->Length );
+
+    pbCredNameBuffer += puUserName->Length;
+
+    *( (PWCHAR) pbCredNameBuffer ) = L')';
+
+    DebugTrace( 0, Dbg, "BuildExCredentialServerName: %wZ\n", puExCredServerName );
+    return STATUS_SUCCESS;
+
+}
+
+NTSTATUS
+UnmungeCredentialName(
+    IN PUNICODE_STRING puCredName,
+    OUT PUNICODE_STRING puServerName
+)
+/*+++
+
+Description:
+
+    Given server(username), return the server
+    name portion.
+
+---*/
+{
+
+    USHORT Length = 0;
+
+    DebugTrace( 0, Dbg, "UnmungeCredentialName: %wZ\n", puCredName );
+
+    puServerName->Buffer = puCredName->Buffer;
+    puServerName->MaximumLength = puCredName->MaximumLength;
+
+    while ( Length < ( puCredName->Length / sizeof( WCHAR ) ) ) {
+
+        //
+        // Look for the opening paren.
+        //
+
+        if ( puCredName->Buffer[Length] == L'(' ) {
+            break;
+        }
+
+        Length++;
+    }
+
+    puServerName->Length = Length * sizeof( WCHAR );
+
+    DebugTrace( 0, Dbg, "    -> %wZ\n", puServerName );
+    return STATUS_SUCCESS;
+
+}
+
+BOOLEAN
+IsCredentialName(
+    IN PUNICODE_STRING puObjectName
+)
+/*+++
+
+Description:  This returns TRUE if the object is an extended
+              credential munged name.
+
+---*/
+{
+
+    DWORD dwCurrent = 0;
+
+    if ( !puObjectName ) {
+        return FALSE;
+    }
+
+    while ( dwCurrent < ( puObjectName->Length ) / sizeof( WCHAR ) ) {
+
+        if ( puObjectName->Buffer[dwCurrent] == L'(' ) {
+            return TRUE;
+        }
+
+        dwCurrent++;
+    }
+
+    return FALSE;
 }
 

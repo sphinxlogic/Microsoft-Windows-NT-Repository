@@ -53,9 +53,9 @@ Revision History:
 
 #define UnexpectedConfigMsg( debugString ) \
     { \
-        NetpDbgPrint( FORMAT_LPDEBUG_STRING ": unexpected situation... " \
+        NetpKdPrint(( FORMAT_LPDEBUG_STRING ": unexpected situation... " \
                 debugString "; original api status is " FORMAT_API_STATUS \
-                ".\n", DebugName, OriginalApiStatus ); \
+                ".\n", DebugName, OriginalApiStatus )); \
     }
 
 NET_API_STATUS
@@ -120,8 +120,8 @@ NetpHandleConfigFailure(
             // Remote registry call failed.  Try call to downlevel.
             //
             IF_DEBUG(CONFIG) {
-                NetpDbgPrint(FORMAT_LPDEBUG_STRING
-                        ": Remote registry call failed.\n", DebugName);
+                NetpKdPrint((FORMAT_LPDEBUG_STRING
+                        ": Remote registry call failed.\n", DebugName));
             }
 
             //
@@ -136,8 +136,8 @@ NetpHandleConfigFailure(
 
             } else { // need to call downlevel
 
-                // NetpDbgPrint(FORMAT_LPDEBUG_STRING
-                //         ": call downlevel.\n", DebugName);
+                // NetpKdPrint((FORMAT_LPDEBUG_STRING
+                //         ": call downlevel.\n", DebugName));
 
                 // Tell caller to try calling downlevel routine.
 

@@ -193,10 +193,10 @@ NetpDisplayTStrArray (
     NetpAssert( Array != NULL );
 
     if (*CurrentEntry == TCHAR_EOS) {
-        NetpDbgPrint("   (empty)\n");
+        NetpKdPrint(("   (empty)\n"));
     } else {
         while (*CurrentEntry != TCHAR_EOS) {
-            NetpDbgPrint("   "  FORMAT_LPTSTR "\n", (LPTSTR) CurrentEntry);
+            NetpKdPrint(("   "  FORMAT_LPTSTR "\n", (LPTSTR) CurrentEntry));
             CurrentEntry += ( STRLEN( CurrentEntry ) + 1 );
         }
     }

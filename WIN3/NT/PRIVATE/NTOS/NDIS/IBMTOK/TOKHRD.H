@@ -36,6 +36,44 @@ Revision History:
 #ifndef _IBMTOKHARDWARE_
 #define _IBMTOKHARDWARE_
 
+//
+// Types of adapters this driver can work with
+//
+#define IBM_TOKEN_RING_PCMCIA           1
+
+//
+// Initialization Status Flag Bit Settings
+//
+
+#define RINGSPEEDLISTEN  0x40
+
+//
+//  Token-Ring Controller Configuration Register control bits
+//  Used by IBM_TOKEN_RING_16_4_CREDIT_CARD_ADAPTER
+//
+// #define DEFAULT_MMIO                    0xD4000
+// #define DEFAULT_RAM                     0xD6
+#define DEFAULT_MMIO                    0xC2000
+#define DEFAULT_RAM                     0xD0
+
+#define SHARED_RAM_64K                  0xC
+#define SHARED_RAM_32K                  0x8
+#define SHARED_RAM_16K                  0x4
+#define SHARED_RAM_8K                   0x0
+
+#define RING_SPEED_16_MPS               0x2
+#define RING_SPEED_4_MPS                0x0
+
+#define PRIMARY                         0x0
+#define ALTERNATE                       0x1
+
+#define DEFAULT_NIBBLE_2                0x6
+
+#define NIBBLE_0                        0x00
+#define NIBBLE_1                        0x10
+#define NIBBLE_2                        0x20
+#define NIBBLE_3                        0x30
+#define RELEASE_TR_CONTROLLER           0x40
 
 
 //
@@ -145,17 +183,17 @@ Revision History:
 
 
 #define WRITE_ADAPTER_REGISTER(a, r, v) \
-    NdisWriteRegisterUchar((a)->MmioRegion + (r), (v))
+    NdisWriteRegisterUchar((PUCHAR)((a)->MmioRegion + (r)), (UCHAR)(v))
 
 #define READ_ADAPTER_REGISTER(a, r, v) \
-    NdisReadRegisterUchar((a)->MmioRegion + (r), (v))
+    NdisReadRegisterUchar((PUCHAR)(a)->MmioRegion + (r), (PUCHAR)(v))
 
 
 #define WRITE_ADAPTER_PORT(a, p, v) \
-    NdisWritePortUchar((a)->NdisAdapterHandle, (a)->IbmtokPortAddress + (p), (v))
+    NdisWritePortUchar((a)->NdisAdapterHandle, (ULONG)((a)->IbmtokPortAddress + (p)), (UCHAR)(v))
 
 #define READ_ADAPTER_PORT(a, p, v) \
-    NdisReadPortUchar((a)->NdisAdapterHandle, (a)->IbmtokPortAddress + (p), (v))
+    NdisReadPortUchar((a)->NdisAdapterHandle, (ULONG)(a)->IbmtokPortAddress + (p), (PUCHAR)(v))
 
 
 
@@ -168,7 +206,7 @@ typedef USHORT IBMSHORT;
 
 
 //
-// BUGBUG: These are dangerous because s appears twice in them.
+// NOTE: These are dangerous because s appears twice in them.
 //
 
 #define READ_IBMSHORT(s) (USHORT)((((PUCHAR)&s)[0] << 8) + ((PUCHAR)&s)[1])
@@ -378,6 +416,7 @@ typedef struct _SRB_CLOSE_ADAPTER {
 #define OPEN_CONTENDER                    0x0001
 #define OPEN_PASS_BEACON_MAC              0x8000
 #define OPEN_MODIFIED_TOKEN_RELEASE       0x1000
+#define OPEN_REMOTE_PROGRAM_LOAD          0x2000
 
 
 typedef struct _SRB_OPEN_RESPONSE {

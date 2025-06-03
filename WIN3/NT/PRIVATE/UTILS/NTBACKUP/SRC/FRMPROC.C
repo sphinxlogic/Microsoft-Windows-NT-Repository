@@ -878,7 +878,7 @@ MP2   mp2 )    // I - yet another message parameter
 
      } /* end switch () */
 
-     return CallWindowProc ( glpfnOldMDIClientProc, hWnd, msg, mp1, mp2 );
+     return CallWindowProc ( (VOID *)glpfnOldMDIClientProc, hWnd, msg, mp1, mp2 );
 
 } /* end WM_MDIClientWndProc() */
 

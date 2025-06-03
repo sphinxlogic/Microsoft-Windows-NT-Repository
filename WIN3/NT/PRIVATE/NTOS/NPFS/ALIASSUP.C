@@ -239,7 +239,7 @@ Return Value:
             //  immediately after the first one, and all will be well.
             //
 
-            if ( wcsicmp( Alias->AliasString.Buffer,
+            if ( _wcsicmp( Alias->AliasString.Buffer,
                           TestAlias->AliasString.Buffer ) < 0 ) {
                 break;
             }

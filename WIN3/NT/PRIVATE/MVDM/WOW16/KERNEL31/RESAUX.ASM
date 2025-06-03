@@ -323,8 +323,12 @@ rafail:
 rafail2:
 	cCall	GlobalFree,<hres>
 if KDEBUG
-	xor	bx,bx
-	kerror	ERR_BADRESREAD,<Unable to read resource from >,SEG_pResInfo,bx
+        push    es
+        mov     bx,SEG_pResInfo
+        mov     es,bx
+        xor     bx,bx
+        KernelLogError <DBF_WARNING>,ERR_BADRESREAD,"Unable to read resource from @ES:BX"
+        pop     es
 endif
 	xor	ax,ax
 rax:
@@ -548,6 +552,10 @@ if PMODE32
 ;   the NT Kernel, so we read our copy of it directly.
 ;   see set_discarded_sel_owner   mattfe mar 23 93
 
+        push    cx
+        lar     cx, bx
+        pop     cx
+        jnz     lrfail0                 ; NZ -> LAR failed
 	mov	es,cs:gdtdsc
 	and	bl, not 7
 	mov	bx,es:[bx].dsc_owner

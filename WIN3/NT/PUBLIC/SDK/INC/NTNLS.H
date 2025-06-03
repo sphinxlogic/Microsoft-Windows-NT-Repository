@@ -47,4 +47,4 @@ typedef struct _NLSTABLEINFO {
 
 
 #endif // _NTNLS_
-
+

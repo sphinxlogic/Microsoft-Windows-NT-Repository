@@ -51,7 +51,7 @@
 
 /* Static variables */
 
-static TCHAR * fmt3 = TEXT("%-9.9ws\n");
+static TCHAR * fmt3 = TEXT("%-9.9ws\r\n");
 
 
 #define SESS_MSG_CMPTR      0
@@ -106,7 +106,7 @@ session_display(TCHAR * name)
 {
     USHORT          err;        /* API return status */
     TCHAR FAR *          pBuffer;
-    USHORT2ULONG        read;       /* num entries read by API */
+    USHORT2ULONG        _read;       /* num entries read by API */
     USHORT          maxLen;     /* max message length */
     USHORT          len;        /* format string size */
 
@@ -134,15 +134,15 @@ session_display(TCHAR * name)
                 DEFAULT_SERVER,
                 2,
                 (LPBYTE*)&pBuffer,
-                &read)) == ERROR_MORE_DATA)
+                &_read)) == ERROR_MORE_DATA)
         more_data = TRUE;
     else if (err)
         ErrorExit (err);
 
-    if (read == 0)
+    if (_read == 0)
         EmptyExit();
 
-    NetISort(pBuffer, read, sizeof(struct session_info_2), CmpSessInfo2);
+    NetISort(pBuffer, _read, sizeof(struct session_info_2), CmpSessInfo2);
 
     PrintNL();
     InfoPrint(APE2_SESS_MSG_HDR);
@@ -151,7 +151,7 @@ session_display(TCHAR * name)
     /* Display the listing */
 
     for (i = 0, sess_list_entry = (struct session_info_2 FAR *) pBuffer;
-        i < read; i++, sess_list_entry++)
+        i < _read; i++, sess_list_entry++)
     {
         if( sess_list_entry->sesi2_cname != NULL )
         {
@@ -159,16 +159,20 @@ session_display(TCHAR * name)
                 &(sess_list_entry->sesi2_idle_time),
                 time_str,DIMENSION(time_str));
 
-        WriteToCon(TEXT("\\\\%-21.21Fws%-21.21Fws%-17.17Fws%-6u%-12.12ws\n"),
-            sess_list_entry->sesi2_cname,
-            (sess_list_entry->sesi2_username == NULL) ?
-            (TCHAR FAR *)txt_UNKNOWN :
-            sess_list_entry->sesi2_username,
-            (sess_list_entry->sesi2_cltype_name == NULL) ?
-            (TCHAR FAR *)txt_UNKNOWN :
-            sess_list_entry->sesi2_cltype_name,
-            sess_list_entry->sesi2_num_opens,
-            time_str);
+        {
+            TCHAR buffer1[22],buffer2[22],buffer3[18];
+
+            WriteToCon(TEXT("\\\\%Fws%Fws%Fws%-6u%ws\r\n"),
+                PaddedString(21,sess_list_entry->sesi2_cname,buffer1),
+                PaddedString(21,(sess_list_entry->sesi2_username == NULL) ?
+                                    (TCHAR FAR *)txt_UNKNOWN :
+                                    sess_list_entry->sesi2_username,buffer2),
+                PaddedString(17,(sess_list_entry->sesi2_cltype_name == NULL) ?
+                                    (TCHAR FAR *)txt_UNKNOWN :
+                                    sess_list_entry->sesi2_cltype_name,buffer3),
+                sess_list_entry->sesi2_num_opens,
+                PaddedString(12,time_str,NULL));
+        }
         }
     }
 
@@ -188,29 +192,35 @@ session_display(TCHAR * name)
 
     /* Print the computer and user name etc... */
 
-    WriteToCon(fmtPSZ, len, len, SessMsgList[MSG_USER_NAME].msg_text,
-        sess_list_entry->sesi2_username);
+    WriteToCon(fmtPSZ, 0, len,
+               PaddedString(len, SessMsgList[MSG_USER_NAME].msg_text, NULL),
+               sess_list_entry->sesi2_username);
 
-    WriteToCon(fmtPSZ, len, len, SessMsgList[SESS_MSG_CMPTR].msg_text,
-        sess_list_entry->sesi2_cname);
+    WriteToCon(fmtPSZ, 0, len,
+               PaddedString(len, SessMsgList[SESS_MSG_CMPTR].msg_text, NULL),
+               sess_list_entry->sesi2_cname);
 
-    WriteToCon(fmtPSZ, len, len, SessMsgList[SESS_MSG_GUEST].msg_text,
-            YES_OR_NO(sess_list_entry->sesi2_user_flags & SESS_GUEST) );
+    WriteToCon(fmtPSZ, 0, len,
+               PaddedString(len, SessMsgList[SESS_MSG_GUEST].msg_text, NULL),
+               YES_OR_NO(sess_list_entry->sesi2_user_flags & SESS_GUEST) );
 
-    WriteToCon(fmtPSZ, len, len, SessMsgList[SESS_MSG_CLIENTTYPE].msg_text,
-        sess_list_entry->sesi2_cltype_name);
+    WriteToCon(fmtPSZ, 0, len,
+               PaddedString(len, SessMsgList[SESS_MSG_CLIENTTYPE].msg_text, NULL),
+               sess_list_entry->sesi2_cltype_name);
 
     LUI_FormatDuration((LONG FAR *) &(sess_list_entry->sesi2_time),
         time_str, DIMENSION(time_str));
 
-    WriteToCon(fmtNPSZ, len, len, SessMsgList[SESS_MSG_SESSTIME].msg_text,
-        time_str);
+    WriteToCon(fmtNPSZ, 0, len,
+               PaddedString(len, SessMsgList[SESS_MSG_SESSTIME].msg_text, NULL),
+               time_str);
 
     LUI_FormatDuration((LONG FAR *) &(sess_list_entry->sesi2_idle_time),
         time_str, DIMENSION(time_str));
 
-    WriteToCon(fmtNPSZ, len, len, SessMsgList[SESS_MSG_IDLETIME].msg_text,
-        time_str);
+    WriteToCon(fmtNPSZ, 0, len,
+               PaddedString(len, SessMsgList[SESS_MSG_IDLETIME].msg_text, NULL),
+               time_str);
 
     /* Print the header */
 
@@ -227,28 +237,29 @@ session_display(TCHAR * name)
                     name,
                     1,
                     (LPBYTE*)&pBuffer,
-                    &read)) == ERROR_MORE_DATA)
+                    &_read)) == ERROR_MORE_DATA)
         more_data = TRUE;
     else if( err )
         ErrorExit (err);
 
-    NetISort(pBuffer, read, sizeof(struct connection_info_1), CmpConnInfo1);
+    NetISort(pBuffer, _read, sizeof(struct connection_info_1), CmpConnInfo1);
 
     for ( i = 0,
           conn_list_entry = (struct connection_info_1 FAR *) pBuffer;
-          i < read; i++, conn_list_entry++)
+          i < _read; i++, conn_list_entry++)
     {
-        WriteToCon(TEXT("%-15.15Fws"), conn_list_entry->coni1_netname == NULL
-                ? (TCHAR FAR *)txt_UNKNOWN :
-                conn_list_entry->coni1_netname);
+        WriteToCon(TEXT("%Fws"),
+                   PaddedString(15, conn_list_entry->coni1_netname == NULL
+                                    ? (TCHAR FAR *)txt_UNKNOWN :
+                                      conn_list_entry->coni1_netname,NULL));
 
         /* NOTE : the only type that can have # open is disk . */
 
         switch ( conn_list_entry->coni1_type )
         {
         case STYPE_DISKTREE :
-        WriteToCon(TEXT("%-9.9ws%u\n"),
-            SessMsgList[USE_TYPE_DISK].msg_text,
+        WriteToCon(TEXT("%ws%u\r\n"),
+            PaddedString(9,SessMsgList[USE_TYPE_DISK].msg_text,NULL),
             conn_list_entry->coni1_num_opens);
         break;
 
@@ -265,7 +276,7 @@ session_display(TCHAR * name)
         break;
 #ifdef TRACE
         default:
-        WriteToCon(TEXT("Unknown Type\n"));
+        WriteToCon(TEXT("Unknown Type\r\n"));
         break;
 #endif
         }
@@ -346,8 +357,8 @@ VOID session_del_all(int print_ok, int actually_del)
 {
     USHORT          err;        /* API return status */
     TCHAR FAR *          pBuffer;
-    USHORT2ULONG        read;      /* num entries read by API */
-    TCHAR            tbuf[UNCLEN+1];
+    USHORT2ULONG        _read;      /* num entries read by API */
+    TCHAR            tbuf[MAX_PATH+1];
     USHORT2ULONG        i,j = 0;
     TCHAR            txt_UNKNOWN[APE2_GEN_MAX_MSG_LEN];
     USHORT      more_data = FALSE;
@@ -367,7 +378,7 @@ VOID session_del_all(int print_ok, int actually_del)
                 DEFAULT_SERVER,
                 1,
                 (LPBYTE*)&pBuffer,
-                &read)) == ERROR_MORE_DATA) {
+                &_read)) == ERROR_MORE_DATA) {
 
         more_data = TRUE;
     }
@@ -375,7 +386,7 @@ VOID session_del_all(int print_ok, int actually_del)
         ErrorExit (err);
     }
 
-    if (read == 0) {
+    if (_read == 0) {
 
         if (print_ok) {
             InfoSuccess();
@@ -390,15 +401,16 @@ VOID session_del_all(int print_ok, int actually_del)
     InfoPrint(APE_SessionList);
 
     for (i = 0, sess_list_entry = (struct session_info_1 FAR *) pBuffer;
-        i < read; i++, sess_list_entry++) {
+        i < _read; i++, sess_list_entry++) {
 
         if (sess_list_entry->sesi1_num_opens > 0) {
             j++;
         }
 
-        WriteToCon(TEXT("%-25.25Fws"), (sess_list_entry->sesi1_cname == NULL)
-            ? (TCHAR FAR *)txt_UNKNOWN :
-            sess_list_entry->sesi1_cname);
+        WriteToCon(TEXT("%Fws"),
+                   PaddedString(25,(sess_list_entry->sesi1_cname == NULL)
+                                   ? (TCHAR FAR *)txt_UNKNOWN :
+                                     sess_list_entry->sesi1_cname,NULL));
         if (((i + 1) % 3) == 0)
             PrintNL();
     }
@@ -416,14 +428,15 @@ VOID session_del_all(int print_ok, int actually_del)
         InfoPrint(APE_SessionOpenList);
 
         for (i=0, j=0, sess_list_entry = (struct session_info_1 FAR *) pBuffer;
-            i < read; i++, sess_list_entry++)
+            i < _read; i++, sess_list_entry++)
         {
             if (sess_list_entry->sesi1_num_opens > 0)
             {
                 j++;
-                WriteToCon(TEXT("%-25.25Fws"), (sess_list_entry->sesi1_cname == NULL)
-                    ? (TCHAR FAR *)txt_UNKNOWN :
-                    sess_list_entry->sesi1_cname);
+                WriteToCon(TEXT("%Fws"),
+                           PaddedString(25, (sess_list_entry->sesi1_cname == NULL)
+                                            ? (TCHAR FAR *)txt_UNKNOWN :
+                                              sess_list_entry->sesi1_cname,NULL));
             if (j && ((j % 3) == 0))
                 PrintNL();
             }
@@ -447,7 +460,7 @@ VOID session_del_all(int print_ok, int actually_del)
     _tcscpy(tbuf, TEXT("\\\\"));
 
     for (i = 0, sess_list_entry = (struct session_info_1 FAR *) pBuffer;
-    i < read; i++, sess_list_entry++)
+    i < _read; i++, sess_list_entry++)
     {
         if( sess_list_entry->sesi1_cname )
         {

@@ -14,7 +14,10 @@
 #pragma hdrstop
 
 
-#if defined(KANJI)
+#ifdef DBCS
+typedef unsigned short int CHAR_DBCS;
+#endif
+#if 0
 typedef unsigned short int DBCS;
 extern unsigned char REKTab[];
 extern unsigned char REBTab[];
@@ -55,7 +58,7 @@ unsigned char *MovePBackwards (unsigned char *bos, unsigned char *P);
 
 /* instruction templates and lengths */
 
-#if defined(KANJI)
+#if defined(DBCS)
 #define LLETTER     3
 #else
 #define LLETTER     2
@@ -75,7 +78,7 @@ unsigned char *MovePBackwards (unsigned char *bos, unsigned char *P);
 
 #define IMM(ip)     (*(RE_OPCODE **)(ip+sizeof(RE_OPCODE)+sizeof(RE_OPCODE *)))
 
-#if defined(KANJI)
+#if defined(DBCS)
 #define LRANGE      (sizeof(RE_OPCODE)+sizeof(RE_OPCODE)+sizeof(RE_OPCODE)+sizeof(RE_OPCODE))
 #define LCCL        (sizeof(RE_OPCODE))
 #define LNCCL       (sizeof(RE_OPCODE))
@@ -213,7 +216,7 @@ typedef struct {
          RE_OPCODE      i1[LPREV];              /*      PREV    n                     */
          } T_PREV;
 
-#if defined(KANJI)
+#if defined(DBCS)
 typedef struct {
          RE_OPCODE      i1[LRANGE];             /*      x1:x2 - y1:y2                 */
          } T_RANGE;
@@ -239,7 +242,7 @@ typedef union {
          T_CCL  U_CCL;
          T_EPILOG       U_EPILOG;
          T_PREV U_PREV;
-#if defined(KANJI)
+#if defined(DBCS)
          T_RANGE        U_RANGE;
 #endif
          } template ;
@@ -268,9 +271,9 @@ int cbIns[] =  {
 /* RANGE       18   */  0,
 /* EPILOG      19   */  sizeof (T_EPILOG      ),
 /* PREV        20   */  sizeof (T_PREV        ),
-#if defined(KANJI)
-/* RANGEJ1     21   */  sizeof (T_RANGE       ),
-/* RANGEJ2     22   */  0,
+#if defined(DBCS)
+/* RANGEDBCS1  21   */  sizeof (T_RANGE       ),
+/* RANGEDBCS2  22   */  0,
 #endif
                         0
                         };
@@ -283,7 +286,7 @@ int cbIns[] =  {
 
 
 
-#if defined (KANJI)
+#if defined (DBCS)
 /* MovePBackwards - Move P backwards
  *
  *
@@ -292,22 +295,22 @@ unsigned char *MovePBackwards (bos, P)
 unsigned char *bos;
 unsigned char *P;
 {
-         unsigned char *P1;
+        unsigned char *P1;
 
-         if (P - 1 <= bos)
-        return bos;
+        if (P - 1 <= bos)
+            return bos;
 
-         P1 = P - 2;
-         while (TRUE) {
-        if ( P1 == bos || !REis_kanji(*P1) )
+        P1 = P - 2;
+        while (TRUE) {
+            if ( P1 == bos || !IsDBCSLeadByte(*P1) )
                  break;
-        P1--;
+            P1--;
         }
 
-         if (REis_kanji(*P1))
-        P1--;
+        if (IsDBCSLeadByte(*P1))
+            P1--;
 
-         return P - 1 - ((P - P1) % 2);
+        return P - 1 - ((P - P1) % 2);
 }
 
 #endif
@@ -337,7 +340,7 @@ flagType fFor;
          register RE_OPCODE *IP;                /* current instruction to execute    */
          register unsigned char *P;             /* pointer to next char to match     */
          RE_OPCODE        C;
-#if defined(KANJI)
+#if defined(DBCS)
          unsigned short U;
          int fMatched;
 #endif
@@ -348,7 +351,7 @@ flagType fFor;
          if ((REPat = pat) == NULL)
         return REM_INVALID;
 
-         pfncomp = REPat->fCase ? strncmp : strnicmp;
+         pfncomp = REPat->fCase ? strncmp : _strnicmp;
 
          /* initialize the machine */
          Fill ((char far *) REPat->pArgBeg, -1, sizeof (REPat->pArgBeg));
@@ -379,19 +382,19 @@ flagType fFor;
 
         /* match a character, fail if no match */
         case I_LETTER:
-#if defined(KANJI)
-                 if (REis_kanji(*P)) {
-                if (*(DBCS *)P == *(DBCS *)(IP+1))
+#if defined(DBCS)
+                if (IsDBCSLeadByte(*P)) {
+                    if (*(CHAR_DBCS *)P == *(CHAR_DBCS *)(IP+1))
                          IP += LLETTER;
-                else
+                    else
                          IP = *SP--;
-                P += 2;
+                    P += 2;
                 }
-                 else {
-                C = REPat->fCase ? *P++ : XLTab[*P++];
-                if (C == IP[1])
+                else {
+                    C = REPat->fCase ? *P++ : XLTab[*P++];
+                    if (C == IP[1])
                          IP += LLETTER;
-                else
+                    else
                          IP = *SP--;
                 }
 #else
@@ -407,16 +410,16 @@ flagType fFor;
 
         /* match any character, fail if no match */
         case I_ANY:
-                 DEBOUT (("ANY\n"));
-#if defined(KANJI)
-                 if (*P != '\0') {
-                if (REis_kanji(*P))
-                         P++;
-                IP += LANY;
+                DEBOUT (("ANY\n"));
+#if defined(DBCS)
+                if (*P != '\0') {
+                    if (IsDBCSLeadByte(*P))
+                        P++;
+                    IP += LANY;
                 }
-                 else
-                IP = *SP--;
-                 P++;
+                else
+                    IP = *SP--;
+                P++;
 #else
                  if (*P++ != '\0')
                 IP += LANY;
@@ -445,29 +448,29 @@ flagType fFor;
 
         /* handle character class, fail if no match */
         case I_CCL:
-#if defined(KANJI)
-                 IP += LCCL;
-                 fMatched = FALSE;
-                 U = REPat->fCase ? *P++ : (unsigned char)XLTab[*P++];
-                 if (REis_kanji(U))
-                U = (U << 8) + *P++;
-                 if (C == '\0') {
-                IP = *SP--;
-                break;
+#if defined(DBCS)
+                IP += LCCL;
+                fMatched = FALSE;
+                U = REPat->fCase ? *P++ : (unsigned char)XLTab[*P++];
+                if (IsDBCSLeadByte((BYTE)U))
+                    U = (U << 8) + *P++;
+                if (C == '\0') {
+                    IP = *SP--;
+                    break;
                 }
 #define USIP    ((unsigned short *)IP)
 #define CLOW    (USIP[0])
 #define CHIGH   (USIP[1])
-                 while (CLOW != 0) {
-                fMatched |= (CLOW <= U) && (U <= CHIGH);
-                IP += LRANGE;
+                while (CLOW != 0) {
+                    fMatched |= (CLOW <= U) && (U <= CHIGH);
+                    IP += LRANGE;
                 }
-                 IP += LRANGE;
+                IP += LRANGE;
 #undef USIP
 #undef CLOW
 #undef CHIGH
-                 if (!fMatched)
-                IP = *SP--;
+                if (!fMatched)
+                    IP = *SP--;
 
 #else
                  C = REPat->fCase ? *P++ : XLTab[*P++];
@@ -481,11 +484,11 @@ flagType fFor;
 
         /* handle not character class, fail if match */
         case I_NCCL:
-#if defined(KANJI)
+#if defined(DBCS)
                  IP += LCCL;
                  fMatched = FALSE;
                  U = REPat->fCase ? *P++ : (unsigned char)XLTab[*P++];
-                 if (REis_kanji(U))
+                 if (IsDBCSLeadByte((BYTE)U))
                 U = (U << 8) + *P++;
                  if (C == '\0') {
                 IP = *SP--;
@@ -607,9 +610,9 @@ flagType fFor;
         case I_FAIL:
                  DEBOUT (("FAIL\n"));
                  P = REPat->pArgBeg[0];
-#if defined(KANJI)
+#if defined(DBCS)
                  if (fFor) {
-                if (REis_kanji(*P))
+                if (IsDBCSLeadByte(*P))
                          P++;
                 if (*P++ == '\0')
                          return REM_NOMATCH;
@@ -821,7 +824,7 @@ unsigned char x, y;
         if (!REPat->fCase)
                  x = XLTab[x];
         ip->i1[0] = I_LETTER;   ip->i1[1] = (RE_OPCODE) x;
-#if defined(KANJI)
+#if defined(DBCS)
         ip->i1[2] = (RE_OPCODE) y;
 #endif
         return (unsigned) NULL;
@@ -874,7 +877,7 @@ unsigned char x, y;
 
          case CCLBEG:
 #define ip  (&(t->U_CCL))
-#if defined(KANJI)
+#if defined(DBCS)
         ip->i1[0] = I_CCL;
         return (unsigned) NULL;
 
@@ -889,7 +892,7 @@ unsigned char x, y;
 
          case CCLNOT:
 #define ip  (&(t->U_CCL))
-#if defined(KANJI)
+#if defined(DBCS)
         ip->i1[0] = I_NCCL;
         return (unsigned) ip;
 #else
@@ -900,8 +903,8 @@ unsigned char x, y;
 #undef  ip
         break;
 
-#if defined(KANJI)
-         case RANGEJ1:
+#if defined(DBCS)
+         case RANGEDBCS1:
 #define ip  (&(t->U_RANGE))
         ip->i1[0] = (REPat->fCase || x) ? y : XLTab[y];
         ip->i1[1] = x;
@@ -909,7 +912,7 @@ unsigned char x, y;
 #undef  ip
         break;
 
-         case RANGEJ2:
+         case RANGEDBCS2:
 #define ip  ((T_RANGE *)u)
         ip->i1[2] = (REPat->fCase || x) ? y : XLTab[y];
         ip->i1[3] = x;

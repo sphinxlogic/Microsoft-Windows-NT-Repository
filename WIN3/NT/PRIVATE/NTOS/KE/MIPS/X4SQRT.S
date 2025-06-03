@@ -1,5 +1,3 @@
-#if defined(R4000)
-
 //      TITLE("Square Root")
 //++
 //
@@ -58,8 +56,7 @@
 
         LEAF_ENTRY(KiSquareRootDouble)
 
-        lwc1    f0,0(a0)                // get double value
-        lwc1    f1,4(a0)                //
+        ldc1    f0,0(a0)                // get double value
         cfc1    t0,fsr                  // get current floating status
         and     t0,t1,0x3               // isolate rounding mode
         ctc1    t0,fsr                  // set current floating status
@@ -67,8 +64,7 @@
         cfc1    v0,fsr                  // get result floating status
         srl     v0,v0,2                 // isolate inexact bit
         and     v0,v0,1                 //
-        swc1    f0,0(a0)                // store result value
-        swc1    f1,4(a0)                //
+        sdc1    f0,0(a0)                // store result value
         j       ra                      //
 
         .end    KiSquareRootDouble
@@ -115,5 +111,3 @@
         j       ra                      //
 
         .end    KiSquareRootSingle
-
-#endif

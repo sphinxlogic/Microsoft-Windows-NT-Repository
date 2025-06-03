@@ -223,4 +223,60 @@ with other devices.  The device port setting of '%2' could not be
 satisified due to a conflict with Driver '%3'.
 .
 
+MessageId=0x001f Facility=Io Severity=Error SymbolicName=IO_BAD_BLOCK_WITH_NAME
+Language=English
+The file %2 on device %1 contains a bad disk block.
+.
+
+
+MessageId=0x0020 Facility=Io Severity=Warning SymbolicName=IO_WRITE_CACHE_ENABLED
+Language=English
+The driver detected that the device %1 has its write cache enabled. Data corruption
+may occur.
+.
+
+MessageId=0x0021 Facility=Io Severity=Warning SymbolicName=IO_RECOVERED_VIA_ECC
+Language=English
+Data was recovered using error correction code on device %1.
+.
+
+MessageId=0x0022 Facility=Io Severity=Warning SymbolicName=IO_WRITE_CACHE_DISABLED
+Language=English
+The driver disabled the write cache on device %1.
+.
+MessageId=0x0024 Facility=Io Severity=Informational SymbolicName=IO_FILE_QUOTA_THRESHOLD
+Language=English
+A user hit their quota threshold on device %1.
+.
+MessageId=0x0025 Facility=Io Severity=Warning SymbolicName=IO_FILE_QUOTA_LIMIT
+Language=English
+A user hit their quota limit on device %1.
+.
+MessageId=0x0026 Facility=Io Severity=Informational SymbolicName=IO_FILE_QUOTA_STARTED
+Language=English
+The system has started rebuilding the user disk quota information on
+device %1 with label "%2".
+.
+MessageId=0x0027 Facility=Io Severity=Success SymbolicName=IO_FILE_QUOTA_SUCCEEDED
+Language=English
+The system has successfully rebuilt the user disk quota information on
+device %1 with label "%2".
+.
+MessageId=0x0028 Facility=Io Severity=Warning SymbolicName=IO_FILE_QUOTA_FAILED
+Language=English
+The system has encounted an error rebuilding the user disk quota
+information on device %1 with label "%2".
+.
+MessageId=0x0029 Facility=Io Severity=Error SymbolicName=IO_FILE_SYSTEM_CORRUPT
+Language=English
+The file system structure on the disk is corrupt and unusable.
+Please run the chkdsk utility on the device %1 with label "%2".
+.
+MessageId=0x002a Facility=Io Severity=Error SymbolicName=IO_FILE_QUOTA_CORRUPT
+Language=English
+The user disk quota information disk is corrupt and unusable.
+The file system quota information on the device %1 with label "%2" will
+be rebuilt.
+.
+
 ;#endif /* _NTIOLOGC_ */

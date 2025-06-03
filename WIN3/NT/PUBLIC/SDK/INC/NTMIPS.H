@@ -30,10 +30,14 @@ Revision History:
 // Define system time structure.
 //
 
-typedef struct _KSYSTEM_TIME {
-    ULONG LowPart;
-    LONG High1Time;
-    LONG High2Time;
+typedef union _KSYSTEM_TIME {
+    struct {
+        ULONG LowPart;
+        LONG High1Time;
+        LONG High2Time;
+    };
+
+    ULONGLONG Alignment;
 } KSYSTEM_TIME, *PKSYSTEM_TIME;
 
 //
@@ -102,7 +106,19 @@ typedef ULONG DBGKD_CONTROL_SET, *PDBGKD_CONTROL_SET;
 // Define size of kernel mode stack.
 //
 
-#define KERNEL_STACK_SIZE 8192
+#define KERNEL_STACK_SIZE 12288
+
+//
+// Define size of large kernel mode stack for callbacks.
+//
+
+#define KERNEL_LARGE_STACK_SIZE 61440
+
+//
+// Define number of pages to initialize in a large kernel stack.
+//
+
+#define KERNEL_LARGE_STACK_COMMIT 12288
 
 //
 // Define length of exception code dispatch vector.
@@ -181,18 +197,17 @@ typedef struct _KPCR {
     struct _KPRCB *Prcb;
 
 //
-// Pointer to the thread environment block.
+// Pointer to the thread environment block and the address of the TLS array.
 //
 
     PVOID Teb;
+    PVOID TlsArray;
 
 //
-// Data cache alignment and fill size used for cache flushing and alignment.
-// These fields are set to the larger of the first and second level data
-// cache fill sizes.
+// Data fill size used for cache flushing and alignment. This field is set
+// to the larger of the first and second level data cache fill sizes.
 //
 
-    ULONG DcacheAlignment;
     ULONG DcacheFillSize;
 
 //
@@ -291,16 +306,23 @@ typedef struct _KPCR {
     ULONG AlignedCachePolicy;
 
 //
-// Spare cell.
+// Complement of processor affinity mask.
 //
 
-    ULONG Spare0;
+    KAFFINITY NotMember;
 
 //
 // Space reserved for the system.
 //
 
-    ULONG   SystemReserved[16];
+    ULONG   SystemReserved[15];
+
+//
+// Data cache alignment used for cache flushing and alignment. This field is
+// set to the larger of the first and second level data cache fill sizes.
+//
+
+    ULONG DcacheAlignment;
 
 //
 // Space reserved for the HAL
@@ -327,19 +349,18 @@ typedef struct _KPCR {
     ULONG DpcRoutineActive;
 
 //
-// Spare cells.
+// Current process id.
 //
 
-    ULONG Spare1;
-    ULONG Spare2;
+    ULONG CurrentPid;
 
 //
-// Address limits for the interlock code in NTDLL used on R3000 systems
-// to implement interlocked operations in user mode.
+// On interrupt stack indicator, saved initial stack, and saved stack limit.
 //
 
-    PVOID RtlpLockRangeStart;
-    PVOID RtlpLockRangeEnd;
+    ULONG OnInterruptStack;
+    PVOID SavedInitialStack;
+    PVOID SavedStackLimit;
 
 //
 // System service dispatch start and end address used by get/set context.
@@ -352,13 +373,13 @@ typedef struct _KPCR {
 // Interrupt stack.
 //
 
-    ULONG InterruptStack;
+    PVOID InterruptStack;
 
 //
-// Address of per processor qunatum end DPC.
+// Panic stack.
 //
 
-    struct _KDPC *QuantumEndDpc;
+    PVOID PanicStack;
 
 //
 // Exception handler values.
@@ -366,19 +387,19 @@ typedef struct _KPCR {
 
     ULONG BadVaddr;
     PVOID InitialStack;
-    PVOID PanicStack;
-    ULONG SavedT7;
+    PVOID StackLimit;
     ULONG SavedEpc;
-    ULONG SavedT8;
-    ULONG SavedT9;
+    ULONGLONG SavedT7;
+    ULONGLONG SavedT8;
+    ULONGLONG SavedT9;
     PVOID SystemGp;
 
 //
-// On interrupt stack indicator and saved initial stack.
+// Quantum end flag.
 //
 
-    ULONG OnInterruptStack;
-    ULONG SavedInitialStack;
+    ULONG QuantumEnd;
+
 } KPCR, *PKPCR;                     // ntddk nthal
 
 //
@@ -393,34 +414,62 @@ typedef struct _KPCR {
 //
 
 #define USER_PCR ((KPCR * const)USPCR)
-#define USER_SHARED_DATA ((KUSER_SHARED_DATA * const)USPCR2)
 
 #if defined(NTOS_KERNEL_RUNTIME)
 
 #define NtCurrentTeb() ((PTEB)(PCR->Teb))
 
+#define USER_SHARED_DATA ((KUSER_SHARED_DATA * const)0xffffe000)
+
 #else
 
 #define NtCurrentTeb() ((PTEB)(USER_PCR->Teb))
 
+#define USER_SHARED_DATA ((KUSER_SHARED_DATA * const)0x7fffe000)
+
 #endif
+
+//
+// Define get system time macro.
+//
+// N.B. This macro can be changed when the compiler generates real double
+//      integer instructions.
+//
+
+#define QUERY_SYSTEM_TIME(CurrentTime) \
+    *((DOUBLE *)(CurrentTime)) = *((DOUBLE *)(&USER_SHARED_DATA->SystemTime))
 
 // begin_winnt
 
 #if defined(_MIPS_)
+
+//
+// Define functions to get the address of the current fiber and the
+// current fiber data.
+//
+
+#define GetCurrentFiber() ((*(PNT_TIB *)0x7ffff4a8)->FiberData)
+#define GetFiberData() (*(PVOID *)(GetCurrentFiber()))
 
 // begin_ntddk begin_nthal
 //
 // The following flags control the contents of the CONTEXT structure.
 //
 
+#if !defined(RC_INVOKED)
+
 #define CONTEXT_R4000   0x00010000    // r4000 context
 
-#define CONTEXT_CONTROL         (CONTEXT_R4000 | 0x00000001L)
-#define CONTEXT_FLOATING_POINT  (CONTEXT_R4000 | 0x00000002L)
-#define CONTEXT_INTEGER         (CONTEXT_R4000 | 0x00000004L)
+#define CONTEXT_CONTROL          (CONTEXT_R4000 | 0x00000001)
+#define CONTEXT_FLOATING_POINT   (CONTEXT_R4000 | 0x00000002)
+#define CONTEXT_INTEGER          (CONTEXT_R4000 | 0x00000004)
+#define CONTEXT_EXTENDED_FLOAT   (CONTEXT_FLOATING_POINT | 0x00000008)
+#define CONTEXT_EXTENDED_INTEGER (CONTEXT_INTEGER | 0x00000010)
 
-#define CONTEXT_FULL (CONTEXT_CONTROL | CONTEXT_FLOATING_POINT | CONTEXT_INTEGER)
+#define CONTEXT_FULL (CONTEXT_CONTROL | CONTEXT_FLOATING_POINT | \
+                      CONTEXT_INTEGER | CONTEXT_EXTENDED_INTEGER)
+
+#endif
 
 //
 // Context Frame
@@ -442,146 +491,307 @@ typedef struct _CONTEXT {
     // This section is always present and is used as an argument build
     // area.
     //
-
-    ULONG Argument[4];
-
-    //
-    // This section is specified/returned if the ContextFlags word contains
-    // the flag CONTEXT_FLOATING_POINT.
+    // N.B. Context records are 0 mod 8 aligned starting with NT 4.0.
     //
 
-    ULONG FltF0;
-    ULONG FltF1;
-    ULONG FltF2;
-    ULONG FltF3;
-    ULONG FltF4;
-    ULONG FltF5;
-    ULONG FltF6;
-    ULONG FltF7;
-    ULONG FltF8;
-    ULONG FltF9;
-    ULONG FltF10;
-    ULONG FltF11;
-    ULONG FltF12;
-    ULONG FltF13;
-    ULONG FltF14;
-    ULONG FltF15;
-    ULONG FltF16;
-    ULONG FltF17;
-    ULONG FltF18;
-    ULONG FltF19;
-    ULONG FltF20;
-    ULONG FltF21;
-    ULONG FltF22;
-    ULONG FltF23;
-    ULONG FltF24;
-    ULONG FltF25;
-    ULONG FltF26;
-    ULONG FltF27;
-    ULONG FltF28;
-    ULONG FltF29;
-    ULONG FltF30;
-    ULONG FltF31;
+    union {
+        ULONG Argument[4];
+        ULONGLONG Alignment;
+    };
 
     //
-    // This section is specified/returned if the ContextFlags word contains
-    // the flag CONTEXT_INTEGER.
-    //
-    // N.B. The registers gp, sp, and ra are defined in this section, but are
-    //  considered part of the control context rather than part of the integer
-    //  context.
-    //
-    // N.B. Register zero is not stored in the frame.
+    // The following union defines the 32-bit and 64-bit register context.
     //
 
-    ULONG IntZero;
-    ULONG IntAt;
-    ULONG IntV0;
-    ULONG IntV1;
-    ULONG IntA0;
-    ULONG IntA1;
-    ULONG IntA2;
-    ULONG IntA3;
-    ULONG IntT0;
-    ULONG IntT1;
-    ULONG IntT2;
-    ULONG IntT3;
-    ULONG IntT4;
-    ULONG IntT5;
-    ULONG IntT6;
-    ULONG IntT7;
-    ULONG IntS0;
-    ULONG IntS1;
-    ULONG IntS2;
-    ULONG IntS3;
-    ULONG IntS4;
-    ULONG IntS5;
-    ULONG IntS6;
-    ULONG IntS7;
-    ULONG IntT8;
-    ULONG IntT9;
-    ULONG IntK0;
-    ULONG IntK1;
-    ULONG IntGp;
-    ULONG IntSp;
-    ULONG IntS8;
-    ULONG IntRa;
-    ULONG IntLo;
-    ULONG IntHi;
+    union {
 
-    //
-    // This section is specified/returned if the ContextFlags word contains
-    // the flag CONTEXT_FLOATING_POINT.
-    //
+        //
+        // 32-bit context.
+        //
 
-    ULONG Fsr;
+        struct {
 
-    //
-    // This section is specified/returned if the ContextFlags word contains
-    // the flag CONTEXT_CONTROL.
-    //
-    // N.B. The registers gp, sp, and ra are defined in the integer section,
-    //   but are considered part of the control context rather than part of
-    //   the integer context.
-    //
+            //
+            // This section is specified/returned if the ContextFlags contains
+            // the flag CONTEXT_FLOATING_POINT.
+            //
+            // N.B. This section contains the 16 double floating registers f0,
+            //      f2, ..., f30.
+            //
 
-    ULONG Fir;
-    ULONG Psr;
+            ULONG FltF0;
+            ULONG FltF1;
+            ULONG FltF2;
+            ULONG FltF3;
+            ULONG FltF4;
+            ULONG FltF5;
+            ULONG FltF6;
+            ULONG FltF7;
+            ULONG FltF8;
+            ULONG FltF9;
+            ULONG FltF10;
+            ULONG FltF11;
+            ULONG FltF12;
+            ULONG FltF13;
+            ULONG FltF14;
+            ULONG FltF15;
+            ULONG FltF16;
+            ULONG FltF17;
+            ULONG FltF18;
+            ULONG FltF19;
+            ULONG FltF20;
+            ULONG FltF21;
+            ULONG FltF22;
+            ULONG FltF23;
+            ULONG FltF24;
+            ULONG FltF25;
+            ULONG FltF26;
+            ULONG FltF27;
+            ULONG FltF28;
+            ULONG FltF29;
+            ULONG FltF30;
+            ULONG FltF31;
 
-    //
-    // The flags values within this flag control the contents of
-    // a CONTEXT record.
-    //
-    // If the context record is used as an input parameter, then
-    // for each portion of the context record controlled by a flag
-    // whose value is set, it is assumed that that portion of the
-    // context record contains valid context. If the context record
-    // is being used to modify a thread's context, then only that
-    // portion of the threads context will be modified.
-    //
-    // If the context record is used as an IN OUT parameter to capture
-    // the context of a thread, then only those portions of the thread's
-    // context corresponding to set flags will be returned.
-    //
-    // The context record is never used as an OUT only parameter.
-    //
+            //
+            // This section is specified/returned if the ContextFlags contains
+            // the flag CONTEXT_INTEGER.
+            //
+            // N.B. The registers gp, sp, and ra are defined in this section,
+            //      but are considered part of the control context rather than
+            //      part of the integer context.
+            //
+            // N.B. Register zero is not stored in the frame.
+            //
 
-    ULONG ContextFlags;
+            ULONG IntZero;
+            ULONG IntAt;
+            ULONG IntV0;
+            ULONG IntV1;
+            ULONG IntA0;
+            ULONG IntA1;
+            ULONG IntA2;
+            ULONG IntA3;
+            ULONG IntT0;
+            ULONG IntT1;
+            ULONG IntT2;
+            ULONG IntT3;
+            ULONG IntT4;
+            ULONG IntT5;
+            ULONG IntT6;
+            ULONG IntT7;
+            ULONG IntS0;
+            ULONG IntS1;
+            ULONG IntS2;
+            ULONG IntS3;
+            ULONG IntS4;
+            ULONG IntS5;
+            ULONG IntS6;
+            ULONG IntS7;
+            ULONG IntT8;
+            ULONG IntT9;
+            ULONG IntK0;
+            ULONG IntK1;
+            ULONG IntGp;
+            ULONG IntSp;
+            ULONG IntS8;
+            ULONG IntRa;
+            ULONG IntLo;
+            ULONG IntHi;
 
-    ULONG Fill[2];
+            //
+            // This section is specified/returned if the ContextFlags word contains
+            // the flag CONTEXT_FLOATING_POINT.
+            //
+
+            ULONG Fsr;
+
+            //
+            // This section is specified/returned if the ContextFlags word contains
+            // the flag CONTEXT_CONTROL.
+            //
+            // N.B. The registers gp, sp, and ra are defined in the integer section,
+            //   but are considered part of the control context rather than part of
+            //   the integer context.
+            //
+
+            ULONG Fir;
+            ULONG Psr;
+
+            //
+            // The flags values within this flag control the contents of
+            // a CONTEXT record.
+            //
+            // If the context record is used as an input parameter, then
+            // for each portion of the context record controlled by a flag
+            // whose value is set, it is assumed that that portion of the
+            // context record contains valid context. If the context record
+            // is being used to modify a thread's context, then only that
+            // portion of the threads context will be modified.
+            //
+            // If the context record is used as an IN OUT parameter to capture
+            // the context of a thread, then only those portions of the thread's
+            // context corresponding to set flags will be returned.
+            //
+            // The context record is never used as an OUT only parameter.
+            //
+
+            ULONG ContextFlags;
+        };
+
+        //
+        // 64-bit context.
+        //
+
+        struct {
+
+            //
+            // This section is specified/returned if the ContextFlags contains
+            // the flag CONTEXT_EXTENDED_FLOAT.
+            //
+            // N.B. This section contains the 32 double floating registers f0,
+            //      f1, ..., f31.
+            //
+
+            ULONGLONG XFltF0;
+            ULONGLONG XFltF1;
+            ULONGLONG XFltF2;
+            ULONGLONG XFltF3;
+            ULONGLONG XFltF4;
+            ULONGLONG XFltF5;
+            ULONGLONG XFltF6;
+            ULONGLONG XFltF7;
+            ULONGLONG XFltF8;
+            ULONGLONG XFltF9;
+            ULONGLONG XFltF10;
+            ULONGLONG XFltF11;
+            ULONGLONG XFltF12;
+            ULONGLONG XFltF13;
+            ULONGLONG XFltF14;
+            ULONGLONG XFltF15;
+            ULONGLONG XFltF16;
+            ULONGLONG XFltF17;
+            ULONGLONG XFltF18;
+            ULONGLONG XFltF19;
+            ULONGLONG XFltF20;
+            ULONGLONG XFltF21;
+            ULONGLONG XFltF22;
+            ULONGLONG XFltF23;
+            ULONGLONG XFltF24;
+            ULONGLONG XFltF25;
+            ULONGLONG XFltF26;
+            ULONGLONG XFltF27;
+            ULONGLONG XFltF28;
+            ULONGLONG XFltF29;
+            ULONGLONG XFltF30;
+            ULONGLONG XFltF31;
+
+            //
+            // The following sections must exactly overlay the 32-bit context.
+            //
+
+            ULONG Fill1;
+            ULONG Fill2;
+
+            //
+            // This section is specified/returned if the ContextFlags contains
+            // the flag CONTEXT_FLOATING_POINT.
+            //
+
+            ULONG XFsr;
+
+            //
+            // This section is specified/returned if the ContextFlags contains
+            // the flag CONTEXT_CONTROL.
+            //
+            // N.B. The registers gp, sp, and ra are defined in the integer
+            //      section, but are considered part of the control context
+            //      rather than part of the integer context.
+            //
+
+            ULONG XFir;
+            ULONG XPsr;
+
+            //
+            // The flags values within this flag control the contents of
+            // a CONTEXT record.
+            //
+            // If the context record is used as an input parameter, then
+            // for each portion of the context record controlled by a flag
+            // whose value is set, it is assumed that that portion of the
+            // context record contains valid context. If the context record
+            // is being used to modify a thread's context, then only that
+            // portion of the threads context will be modified.
+            //
+            // If the context record is used as an IN OUT parameter to capture
+            // the context of a thread, then only those portions of the thread's
+            // context corresponding to set flags will be returned.
+            //
+            // The context record is never used as an OUT only parameter.
+            //
+
+            ULONG XContextFlags;
+
+            //
+            // This section is specified/returned if the ContextFlags contains
+            // the flag CONTEXT_EXTENDED_INTEGER.
+            //
+            // N.B. The registers gp, sp, and ra are defined in this section,
+            //      but are considered part of the control context rather than
+            //      part of the integer  context.
+            //
+            // N.B. Register zero is not stored in the frame.
+            //
+
+            ULONGLONG XIntZero;
+            ULONGLONG XIntAt;
+            ULONGLONG XIntV0;
+            ULONGLONG XIntV1;
+            ULONGLONG XIntA0;
+            ULONGLONG XIntA1;
+            ULONGLONG XIntA2;
+            ULONGLONG XIntA3;
+            ULONGLONG XIntT0;
+            ULONGLONG XIntT1;
+            ULONGLONG XIntT2;
+            ULONGLONG XIntT3;
+            ULONGLONG XIntT4;
+            ULONGLONG XIntT5;
+            ULONGLONG XIntT6;
+            ULONGLONG XIntT7;
+            ULONGLONG XIntS0;
+            ULONGLONG XIntS1;
+            ULONGLONG XIntS2;
+            ULONGLONG XIntS3;
+            ULONGLONG XIntS4;
+            ULONGLONG XIntS5;
+            ULONGLONG XIntS6;
+            ULONGLONG XIntS7;
+            ULONGLONG XIntT8;
+            ULONGLONG XIntT9;
+            ULONGLONG XIntK0;
+            ULONGLONG XIntK1;
+            ULONGLONG XIntGp;
+            ULONGLONG XIntSp;
+            ULONGLONG XIntS8;
+            ULONGLONG XIntRa;
+            ULONGLONG XIntLo;
+            ULONGLONG XIntHi;
+        };
+    };
 } CONTEXT, *PCONTEXT;
 
 // end_ntddk end_nthal
+
+#define CONTEXT32_LENGTH 0x130          // The original 32-bit Context length (pre NT 4.0)
 
 #endif // MIPS
 
 // end_winnt
 
-
 #define CONTEXT_TO_PROGRAM_COUNTER(Context) ((Context)->Fir)
 
 #define CONTEXT_LENGTH (sizeof(CONTEXT))
-#define CONTEXT_ALIGN (sizeof(ULONG))
+#define CONTEXT_ALIGN (sizeof(double))
 #define CONTEXT_ROUND (CONTEXT_ALIGN - 1)
 
 //
@@ -602,23 +812,23 @@ typedef struct _KNONVOLATILE_CONTEXT_POINTERS {
     PULONG FltF29;
     PULONG FltF30;
     PULONG FltF31;
-    PULONG IntegerContext[16];
-    PULONG IntS0;
-    PULONG IntS1;
-    PULONG IntS2;
-    PULONG IntS3;
-    PULONG IntS4;
-    PULONG IntS5;
-    PULONG IntS6;
-    PULONG IntS7;
-    PULONG IntT8;
-    PULONG IntT9;
-    PULONG IntK0;
-    PULONG IntK1;
-    PULONG IntGp;
-    PULONG IntSp;
-    PULONG IntS8;
-    PULONG IntRa;
+    PULONGLONG XIntegerContext[16];
+    PULONGLONG XIntS0;
+    PULONGLONG XIntS1;
+    PULONGLONG XIntS2;
+    PULONGLONG XIntS3;
+    PULONGLONG XIntS4;
+    PULONGLONG XIntS5;
+    PULONGLONG XIntS6;
+    PULONGLONG XIntS7;
+    PULONGLONG XIntT8;
+    PULONGLONG XIntT9;
+    PULONGLONG XIntK0;
+    PULONGLONG XIntK1;
+    PULONGLONG XIntGp;
+    PULONGLONG XIntSp;
+    PULONGLONG XIntS8;
+    PULONGLONG XIntRa;
 } KNONVOLATILE_CONTEXT_POINTERS, *PKNONVOLATILE_CONTEXT_POINTERS;
 
 // begin_nthal
@@ -671,6 +881,8 @@ typedef struct _HARDWARE_PTE {
     ULONG Write : 1;
     ULONG CopyOnWrite : 1;
 } HARDWARE_PTE, *PHARDWARE_PTE;
+
+#define HARDWARE_PTE_DIRTY_MASK     0x4
 
 //
 // Define R4000 macro to initialize page directory table base.
@@ -746,7 +958,7 @@ typedef struct _PSR {
 // Define configuration register fields.
 //
 
-typedef struct _CONFIG {
+typedef struct _CONFIGR {
     ULONG K0 : 3;
     ULONG CU : 1;
     ULONG DB : 1;
@@ -766,7 +978,7 @@ typedef struct _CONFIG {
     ULONG EP : 4;
     ULONG EC : 3;
     ULONG CM : 1;
-} CONFIG;
+} CONFIGR;
 
 //
 // Define ECC register fields.
@@ -885,8 +1097,7 @@ typedef struct _RUNTIME_FUNCTION {
 
 typedef struct _SCOPE_TABLE {
     ULONG Count;
-    struct
-    {
+    struct {
         ULONG BeginAddress;
         ULONG EndAddress;
         ULONG HandlerAddress;
@@ -963,3 +1174,4 @@ __jump_unwind (
 // end_ntddk end_nthal
 
 #endif // _NTMIPS_
+

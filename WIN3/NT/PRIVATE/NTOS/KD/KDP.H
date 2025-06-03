@@ -30,8 +30,6 @@ Revision History:
 // Define constants.
 //
 
-#define BREAKPOINT_TABLE_SIZE 32
-
 //
 // Addresses above GLOBAL_BREAKPOINT_LIMIT are either in system space
 // or part of dynlink, so we treat them as global.
@@ -113,7 +111,7 @@ KdpQuickMoveMemory (
     IN ULONG Length
     );
 
-USHORT
+ULONG
 KdpReceivePacket (
     IN ULONG ExpectedPacketType,
     OUT PSTRING MessageHeader,
@@ -295,7 +293,21 @@ KdpReadIoSpace(
     );
 
 VOID
+KdpReadMachineSpecificRegister(
+    IN PDBGKD_MANIPULATE_STATE m,
+    IN PSTRING AdditionalData,
+    IN PCONTEXT Context
+    );
+
+VOID
 KdpWriteIoSpace(
+    IN PDBGKD_MANIPULATE_STATE m,
+    IN PSTRING AdditionalData,
+    IN PCONTEXT Context
+    );
+
+VOID
+KdpWriteMachineSpecificRegister(
     IN PDBGKD_MANIPULATE_STATE m,
     IN PSTRING AdditionalData,
     IN PCONTEXT Context
@@ -315,7 +327,6 @@ VOID
 KdpRestoreAllBreakpoints (
     VOID
     );
-
 
 
 //
@@ -387,3 +398,21 @@ KdpReceivePacketLeader (
     IN ULONG PacketType,
     OUT PULONG PacketLeader
     );
+
+
+#if DBG
+
+#include <stdio.h>
+#define DPRINT(s) KdpDprintf s
+
+VOID
+KdpDprintf(
+    IN PCHAR f,
+    ...
+    );
+
+#else
+
+#define DPRINT(s)
+
+#endif

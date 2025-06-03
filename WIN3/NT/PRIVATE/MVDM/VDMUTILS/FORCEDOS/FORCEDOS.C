@@ -35,29 +35,22 @@ Revision History:
 #include <nt.h>
 #include <ntrtl.h>
 #include <nturtl.h>
+#include <windows.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <windows.h>
 #include <string.h>
 #include <memory.h>
-#include "pif.h"
 #include "forcedos.h"
 
 WCHAR	  * Extention[MAX_EXTENTION];
-WCHAR	  DefaultPifName[] = L"\\_default.pif";
 WCHAR	  EXEExtention[] = L".EXE";
 WCHAR	  COMExtention[] = L".COM";
 WCHAR	  BATExtention[] = L".BAT";
-WCHAR	  PIFExtention[] = L".PIF";
 WCHAR	  ProgramNameBuffer[MAX_PATH + 1];
 WCHAR	  SearchPathName[MAX_PATH + 1];
-WCHAR	  TempPifPathName[MAX_PATH + 1];
-WCHAR	  DefaultPifPathName[MAX_PATH + 1];
 WCHAR	  DefDirectory[MAX_PATH + 1];
-WCHAR	  DefCommandLine[MAX_PATH + 1];
 char	  CommandLine[MAX_PATH + 1];
 char	  ProgramName[MAX_PATH + 1];
-HANDLE	  hStdError, hStdOutput, hProgramPif, hDefaultPif;
 WCHAR	  UnicodeMessage[MAX_MSG_LENGTH];
 char	  OemMessage[MAX_MSG_LENGTH * 2];
 
@@ -76,9 +69,8 @@ main(
     char    * pCurDirectory;
     char    * pProgramName;
     char    * p;
-    BOOL    fDisplayUsage, fDontLookAtSwitch;
+    BOOL    fDisplayUsage;
     ULONG   i, nChar, Length, CommandLineLength;
-    BYTE    * PifBuffer;
     PROCESS_INFORMATION ProcessInformation;
     DWORD   ExitCode, dw;
     STARTUPINFO	StartupInfo;
@@ -95,12 +87,8 @@ main(
     pCurDirectory = pProgramName = NULL;
     pCommandLine = CommandLine;
     CommandLineLength = 0;
-    hProgramPif = hDefaultPif = INVALID_HANDLE_VALUE;
     pTebUnicodeString = &NtCurrentTeb()->StaticUnicodeString;
-    fDisplayUsage = fDontLookAtSwitch = TRUE;
-    //Should these fail???
-    hStdError = GetStdHandle(STD_ERROR_HANDLE);
-    hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
+    fDisplayUsage = TRUE;
 
     if ( argc > 1 ) {
 	fDisplayUsage = FALSE;
@@ -132,8 +120,13 @@ main(
 				 break;
 		    }
 		}
-		else
-		    pProgramName = p;
+                else {
+                    pProgramName = p;
+                    nChar = strlen(p);
+                    strncpy(CommandLine, pProgramName, nChar);
+                    pCommandLine = CommandLine + nChar;
+                    CommandLineLength = nChar + 1;
+                }
 	    }
 	    else {
 		// aggregate command line from all subsequent argvs
@@ -163,7 +156,7 @@ main(
 	for (i = ID_USAGE_BASE; i <= ID_USAGE_MAX; i++) {
 	    nChar = LoadString(NULL, i, UnicodeString.Buffer,
 			       UnicodeString.MaximumLength);
-	    UnicodeString.Length  = nChar << 1;
+            UnicodeString.Length  = (USHORT)(nChar << 1);
 	    Status = RtlUnicodeStringToOemString(
 						 &OemString,
 						 &UnicodeString,
@@ -171,15 +164,13 @@ main(
 						 );
 	    if (!NT_SUCCESS(Status))
 		break;
-	    if (!WriteFile(hStdOutput,
+            if (!WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),
 			   OemString.Buffer,
 			   OemString.Length,
 			   &Length, NULL) ||
 		Length != OemString.Length)
 		break;
 	}
-	CloseHandle(hStdError);
-	CloseHandle(hStdOutput);
 	ExitProcess(0xFF);
     }
 
@@ -217,7 +208,6 @@ main(
     Status = RtlOemStringToUnicodeString(pTebUnicodeString, &OemString, FALSE);
     if (!NT_SUCCESS(Status))
 	YellAndExit(ID_BAD_PATH, 0xFF);
-
     i = 0;
     nChar = 0;
     pwch = wcschr(pTebUnicodeString->Buffer, (WCHAR)'.');
@@ -238,140 +228,31 @@ main(
     if (nChar == (DWORD) (-1) || (nChar & FILE_ATTRIBUTE_DIRECTORY))
 	YellAndExit(ID_NO_FILE, 0xFF);
 
-    OemString.MaximumLength = MAX_PATH + 1;
-    RtlInitUnicodeString(&UnicodeString, ProgramNameBuffer);
-    Status = RtlUnicodeStringToOemString(&OemString, &UnicodeString, FALSE);
-    if (!NT_SUCCESS(Status) || OemString.Length > PIFSTARTLOCSIZE)
-	YellAndExit(ID_BAD_PATH, 0xFF);
     if (OemString.Length + CommandLineLength  > 128 - 2 - 1)
 	YellAndExit(ID_BAD_CMDLINE, 0xFF);
 #if DBG
     if (fOutputDebugInfo)
 	printf("Program path name is %s\n", ProgramNameBuffer);
 #endif
-    // Create a temp pif in the system drive root directory
-    // and pass the pif file full pathname to  the CreateProcess
-    if((nChar = GetSystemDirectory(TempPifPathName, MAX_PATH + 1)) == 0)
-	YellAndExit(ID_BAD_TEMPFILE, 0xFF);
-    // truncate the path to root directory
-    TempPifPathName[3] = (WCHAR) '\0';
-    GetTempFileName(TempPifPathName, NULL, 0, TempPifPathName);
-    DeleteFile(TempPifPathName);
-    pwch = wcsrchr(TempPifPathName, (WCHAR)'.');
-    if (pwch == NULL)
-	YellAndExit(ID_NO_FILE, 0xFF);
-    wcscpy(pwch, PIFExtention);
     RtlInitString((PSTRING)&CmdLineString, CommandLine);
     Status = RtlOemStringToUnicodeString(pTebUnicodeString, &CmdLineString, FALSE);
     if (!NT_SUCCESS(Status))
 	YellAndExit(ID_BAD_CMDLINE, 0xFF);
-    wcscpy(DefCommandLine, TempPifPathName);
-    wcscat(DefCommandLine, L" ");
-    wcscat(DefCommandLine, pTebUnicodeString->Buffer);
-    hProgramPif = CreateFile(
-			     TempPifPathName,
-			     GENERIC_READ | GENERIC_WRITE,
-			     FILE_SHARE_READ,
-			     NULL,
-			     CREATE_ALWAYS,
-			     FILE_ATTRIBUTE_NORMAL,
-			     NULL
-			     );
-    if (hProgramPif == INVALID_HANDLE_VALUE)
-	YellAndExit(ID_BAD_TEMPFILE, 0xFF);
 
-#if DBG
-    if(fOutputDebugInfo)
-	printf("Temporary pif file created: %s\n", TempPifPathName);
-#endif
-    // search for app's pif file based on this order:
-    // (1). the directory where the application comes from.
-    // (2). the  current directory
-    // (3). win32 search path
-
-    wcscpy(DefaultPifPathName, ProgramNameBuffer);
-    pwch = wcsrchr(DefaultPifPathName, (WCHAR) '.');
-    if (pwch == NULL)
-	YellAndExit(ID_NO_FILE, 0xFF);
-    wcscpy(pwch, PIFExtention);
-    nChar = GetFileAttributes(DefaultPifPathName);
-    if (nChar == (DWORD) (-1) || (nChar & FILE_ATTRIBUTE_DIRECTORY)) {
-	// try search from the current directory
-	// get the file name
-	pwch = wcsrchr(DefaultPifPathName, (WCHAR)'\\');
-	nChar = SearchPath(L".",
-			   pwch + 1,
-			   NULL,
-			   MAX_PATH + 1,
-			   DefaultPifPathName,
-			   &pFilePart
-			  );
-	if (nChar == 0 || nChar > MAX_PATH) {
-	    nChar = SearchPath(NULL,
-			       pwch + 1,
-			       NULL,
-			       MAX_PATH + 1,
-			       DefaultPifPathName,
-			       &pFilePart
-			      );
-	    if (nChar == 0 || nChar > MAX_PATH) {
-		nChar = GetWindowsDirectory(DefaultPifPathName, MAX_PATH + 1);
-		wcscpy(&DefaultPifPathName[nChar], DefaultPifName);
-	    }
-	}
-    }
-    hDefaultPif = CreateFile(DefaultPifPathName,
-			     GENERIC_READ,
-			     FILE_SHARE_READ,
-			     NULL,
-			     OPEN_EXISTING,
-			     0,
-			     NULL
-			     );
-    if (hDefaultPif == INVALID_HANDLE_VALUE)
-	YellAndExit(ID_NO_PIF, 0xFF);
-
-    Length = GetFileSize(hDefaultPif, NULL);
-    if (Length < sizeof(PIFNEWSTRUCT))
-	YellAndExit(ID_BAD_PIF, 0xFF);
-    PifBuffer = (BYTE *) malloc(Length+sizeof(PIFWNTEXT)+sizeof(PIFEXTHEADER));
-    if (PifBuffer == NULL)
-	YellAndExit(ID_NO_MEMORY, 0xFF);
-
-    if (!ReadFile(hDefaultPif, PifBuffer, Length, &Length, NULL))
-	YellAndExit(ID_BAD_PIF, 0xFF);
-#if DBG
-    if (fOutputDebugInfo)
-	printf("%s file read, size = %d\n", DefaultPifPathName, Length);
-#endif
-    CloseHandle(hDefaultPif);
-    if(!WriteTempPifFile(hProgramPif,
-			 OemString.Buffer,
-			 0,
-			 NULL,
-			 NULL,
-			 Length,
-			 PifBuffer
-			 )) {
-	DeleteFile(TempPifPathName);
-	YellAndExit(ID_BAD_PIF, 0xFF);
-    }
-    CloseHandle(hProgramPif);
     ZeroMemory(&StartupInfo, sizeof(STARTUPINFO));
     StartupInfo.cb = sizeof (STARTUPINFO);
     if (!CreateProcess(
-		      TempPifPathName,		// program name
-		      DefCommandLine,		// command line
+		      ProgramNameBuffer,	// program name
+		      pTebUnicodeString->Buffer,// command line
 		      NULL,			// process attr
 		      NULL,			// thread attr
 		      TRUE,			// inherithandle
-		      0,			// create flag
+		      CREATE_FORCEDOS,		// create flag
 		      NULL,			// environment
 		      DefDirectory,		// cur dir
 		      &StartupInfo,		// startupinfo
 		      &ProcessInformation
 		      )) {
-	DeleteFile(TempPifPathName);
 	YellAndExit(ID_BAD_PROCESS, 0xFF);
 #if DBG
 	if(fOutputDebugInfo)
@@ -382,106 +263,9 @@ main(
     WaitForSingleObject(ProcessInformation.hProcess, INFINITE);
     GetExitCodeProcess(ProcessInformation.hProcess, &ExitCode);
     CloseHandle(ProcessInformation.hProcess);
-    CloseHandle(hStdError);
-    DeleteFile(TempPifPathName);
     ExitProcess(ExitCode);
 }
 
-
-BOOL
-WriteTempPifFile (
-HANDLE	hPifFile,
-char	* pProgramName, 		// new program full path name (OEM)
-ULONG	CommandLineSize,		// command line size
-char	* pCommandLine, 		// command line
-char	* pCurDirectory,		// default directory
-ULONG	PifDataLength,			// _default.pif data length
-BYTE	* PifData			// _default.pif data
-)
-{
-    PIFNEWSTRUCT * pNewStruct;
-    PIF386EXT UNALIGNED * p386Ext;
-    PIFEXTHEADER UNALIGNED * pExtHdr;
-    PIFWNTEXT UNALIGNED * pWntExt;
-    ULONG	 BytesReturned, nChar;
-    char	ConfigNT[] = "\\CONFIG.NT";
-    char	AutoexecNT[] = "\\AUTOEXEC.NT";
-    WCHAR	UnicodePathName[MAX_PATH + 1];
-    char	OemPathName[MAX_PATH + 1];
-    UNICODE_STRING  UnicodeString;
-    OEM_STRING	    OemString;
-    NTSTATUS	    Status;
-
-    p386Ext = NULL;
-    pWntExt = NULL;
-
-    pNewStruct = (PIFNEWSTRUCT *)PifData;
-
-    // copy program name to the structure
-    strcpy(pNewStruct->startfile, pProgramName);
-    if (CommandLineSize != 0)
-	strncpy(pNewStruct->params, pCommandLine, CommandLineSize);
-    else
-	pNewStruct->params[0] = '\0';
-    if (pCurDirectory != NULL)
-	strcpy(pNewStruct->defpath, pCurDirectory);
-    else
-	pNewStruct->defpath[0] = '\0';
-
-    if (!strcmp((PCHAR)pNewStruct->stdpifext.extsig, STDHDRSIG)) {
-        pExtHdr = (PIFEXTHEADER *)&pNewStruct->stdpifext;
-        do {
-	    pExtHdr = (PIFEXTHEADER*)&PifData[pExtHdr->extnxthdrfloff];
-	    if (pExtHdr->extsizebytes == sizeof(PIF386EXT) &&
-		!strcmp(pExtHdr->extsig, W386HDRSIG))
-		{
-		p386Ext =  (PIF386EXT *)&PifData[pExtHdr->extfileoffset];
-	    } else if (pExtHdr->extsizebytes == sizeof(PIFWNTEXT) &&
-		       !strcmp(pExtHdr->extsig, WNTHDRSIG31))
-			{
-			pWntExt = (PIFWNTEXT *) &PifData[pExtHdr->extfileoffset];
-		   }
-
-	} while (pExtHdr->extnxthdrfloff != LASTHEADERPTR);
-	if (CommandLineSize != 0 && p386Ext != NULL)
-	    strncpy(p386Ext->params, pCommandLine, CommandLineSize);
-	if(pWntExt == NULL) {
-	    // append a Windows NT extention to the pif file
-	    // strings in the file must be in OEM
-	    pExtHdr->extnxthdrfloff = PifDataLength;
-	    pExtHdr = (PIFEXTHEADER *) &PifData[PifDataLength];
-	    pExtHdr->extnxthdrfloff = LASTHEADERPTR;
-	    pExtHdr->extsizebytes = sizeof(PIFWNTEXT);
-	    pExtHdr->extfileoffset = PifDataLength + sizeof(PIFEXTHEADER);
-	    strcpy(pExtHdr->extsig, WNTHDRSIG31);
-	    pWntExt = (PIFWNTEXT *) &PifData[pExtHdr->extfileoffset];
-	    OemString.Buffer = OemPathName;
-	    OemString.MaximumLength = MAX_PATH + 1;
-	    nChar = GetSystemDirectory(UnicodePathName,
-				       MAX_PATH + 1
-				       );
-	    RtlInitUnicodeString( &UnicodeString, UnicodePathName);
-	    Status = RtlUnicodeStringToOemString(&OemString,
-						 &UnicodeString,
-						 FALSE
-						 );
-	    if (!NT_SUCCESS(Status))
-		return FALSE;
-	    strncpy(pWntExt->achAutoexecFile, OemString.Buffer, OemString.Length);
-	    strncpy(pWntExt->achConfigFile, OemString.Buffer, OemString.Length);
-	    strcpy(&pWntExt->achConfigFile[OemString.Length], ConfigNT);
-	    strcpy(&pWntExt->achAutoexecFile[OemString.Length], AutoexecNT);
-	    PifDataLength += sizeof(PIFEXTHEADER) + sizeof(PIFWNTEXT);
-	}
-	pWntExt->dwWNTFlags &= ~(NTPIF_SUBSYSMASK);
-	pWntExt->dwWNTFlags |= SUBSYS_DOS;
-	if (!WriteFile(hPifFile, PifData, PifDataLength, &BytesReturned, NULL) ||
-	    BytesReturned != PifDataLength)
-	    return FALSE;
-	return TRUE;
-    }
-    return FALSE;
-}
 
 VOID YellAndExit
 (
@@ -500,10 +284,13 @@ WORD	ExitCode		    // exit code to be used
     OemString.MaximumLength = MAX_MSG_LENGTH * 2;
     RtlInitUnicodeString(&UnicodeString, UnicodeMessage);
     RtlUnicodeStringToOemString(&OemString, &UnicodeString, FALSE);
-    WriteFile(hStdError, OemString.Buffer, OemString.Length, &SizeWritten, NULL);
-    CloseHandle(hProgramPif);
-    CloseHandle(hDefaultPif);
-    CloseHandle(hStdError);
-    CloseHandle(hStdOutput);
+
+    WriteFile(GetStdHandle(STD_ERROR_HANDLE),
+              OemString.Buffer,
+              OemString.Length,
+              &SizeWritten,
+              NULL
+              );
+
     ExitProcess(ExitCode);
 }

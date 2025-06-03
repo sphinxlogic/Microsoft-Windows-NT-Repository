@@ -1372,21 +1372,13 @@ INT DisplayRuntime( INT Style )
       yresprintf( RES_TITLE_NEW_LINE );
       JobStatusBackupRestore( JOB_STATUS_LISTBOX );
 
-#ifndef UNICODE
       yprintf(TEXT("%s\r"), CDS_GetCatDataPath ( ) );
-#else //UNICODE
-      yprintf(TEXT("%ws\r"), CDS_GetCatDataPath ( ) );
-#endif //UNICODE
       JobStatusBackupRestore( JOB_STATUS_DEST_NAME );
 
       s = VLM_GetTapeName( mwTapeFID );
 
       if ( s != NULL ) {
-#ifndef UNICODE
          yprintf( TEXT("%s"), s );
-#else //UNICODE
-         yprintf( TEXT("%ws"), s );
-#endif //UNICODE
          JobStatusBackupRestore( JOB_STATUS_SOURCE_NAME ) ;
       }
 
@@ -1759,7 +1751,7 @@ UINT16     mode )
 #ifdef OS_WIN32
           NtDemoChangeTape( (UINT16)mwTapeNum ) ;
 #endif
-          _sleep( (DWORD)3000 );
+          Sleep( (DWORD)3000 );
           response = UI_NEW_TAPE_INSERTED;
         }
 
@@ -2019,11 +2011,7 @@ TPOS_PTR  tpos,
              ST_AddBSBytesProcessed( &mwOpStats, count );
 
              UI_BuildDelimitedPathFromDDB( &buffer, fsh, dblk_ptr, delimiter, TRUE );
-#ifndef UNICODE
              yprintf( TEXT("%s"), buffer );
-#else //UNICODE
-             yprintf( TEXT("%ws"), buffer );
-#endif //UNICODE
 
 
              yprintf( TEXT("%s"), buffer );
@@ -2423,7 +2411,7 @@ CHAR_PTR  DriveName )
 
    if ( response ) {
 #ifdef OS_WIN32
-      _sleep( (DWORD)3000 );
+      Sleep( (DWORD)3000 );
       NtDemoChangeTape( (UINT16)mwTapeNum );
 #endif
       response = UI_NEW_TAPE_INSERTED;
@@ -2465,11 +2453,7 @@ VOID ClockRoutine( VOID )
          TotalBytes = NumBytes;
          U64_Litoa( NumBytes, Numeral, (UINT16)10, &stat ) ;
          UI_BuildNumeralWithCommas( Numeral );
-#ifndef UNICODE
          yprintf(TEXT("%s\r"),Numeral );
-#else
-         yprintf(TEXT("%ws\r"),Numeral );
-#endif
          JobStatusBackupRestore( JOB_STATUS_BYTES_PROCESSED );
       }
 
@@ -2483,20 +2467,12 @@ VOID ClockRoutine( VOID )
       NumSeconds = ST_GetBSElapsedSeconds( &mwOpStats );
 
       if ( NumHours ) {
-#ifndef UNICODE
          yprintf( TEXT("%d%c%2.2d%c%2.2d\r"),
-#else
-         yprintf( TEXT("%d%wc%2.2d%wc%2.2d\r"),
-#endif
                   NumHours, UI_GetTimeSeparator(),
                   NumMinutes, UI_GetTimeSeparator(), NumSeconds );
       }
       else {
-#ifndef UNICODE
          yprintf( TEXT("%2.2d%c%2.2d\r"),
-#else
-         yprintf( TEXT("%2.2d%wc%2.2d\r"),
-#endif
                   NumMinutes, UI_GetTimeSeparator(), NumSeconds );
       }
 

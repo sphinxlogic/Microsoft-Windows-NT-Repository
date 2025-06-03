@@ -18,7 +18,7 @@ Revision History:
 
 --*/
 
-#include "dbgsrvp.h"
+#include "smsrvp.h"
 
 PDBGP_USER_INTERFACE
 DbgpIsUiInHashTable(

@@ -166,16 +166,25 @@ Routine Description:
         if (0 == *status || RPC_S_OK == *status)
             {
             *status = RPC_S_ACCESS_DENIED;
-            *server_princ_name = '\0';
             }
 
+        *server_princ_name = '\0';
         return;
         }
 
     *status = RpcMgmtInqServerPrincNameA(0, authn_svc, &ServerPrincName);
     if ( *status == 0 )
         {
-        strncpy(server_princ_name, ServerPrincName, princ_name_size);
+        unsigned int count;
+        count = strlen(ServerPrincName);
+        if (count > princ_name_size - 1)
+            {
+            *status = RPC_S_BUFFER_TOO_SMALL;
+            }
+        else
+            {
+            RpcpMemoryCopy(server_princ_name, ServerPrincName, count + 1);
+            }
         RpcStringFree(&ServerPrincName);
         }
     else

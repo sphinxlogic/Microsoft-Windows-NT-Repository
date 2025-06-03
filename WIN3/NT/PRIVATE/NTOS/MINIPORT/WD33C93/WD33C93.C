@@ -555,9 +555,9 @@ Return Value:
         for (luId = 0; luId < SCSI_MAXIMUM_LOGICAL_UNITS; luId++) {
 
             luExtension = ScsiPortGetLogicalUnit( DeviceExtension,
-                                                  pathId,
-                                                  targetId,
-                                                  luId
+                                                  (UCHAR)pathId,
+                                                  (UCHAR)targetId,
+                                                  (UCHAR)luId
                                                   );
 
             if (luExtension == NULL) {
@@ -723,8 +723,8 @@ Return Value:
 
                 luExtension = ScsiPortGetLogicalUnit( DeviceExtension,
                                                       srb->PathId,
-                                                      targetId,
-                                                      luId
+                                                      (UCHAR)targetId,
+                                                      (UCHAR)luId
                                                       );
 
                 if (luExtension == NULL) {
@@ -802,7 +802,7 @@ Return Value:
     // Complete the actual send-message request.
     //
 
-    srb->SrbStatus = SrbStatus;
+    srb->SrbStatus = (UCHAR)SrbStatus;
     ScsiPortNotification(
         RequestComplete,
         DeviceExtension,
@@ -1273,7 +1273,7 @@ Return Value:
             if (!WdDecodeSynchronousRequest(
                 DeviceExtension,
                 luExtension,
-                !(savedAdapterFlags & PD_SYNCHRONOUS_TRANSFER_SENT)
+                (BOOLEAN) (!(savedAdapterFlags & PD_SYNCHRONOUS_TRANSFER_SENT))
                 )) {
 
                 //
@@ -1718,7 +1718,7 @@ Return Value:
         LuExtension->SynchronousPeriod = ASYNCHRONOUS_PERIOD;
         return(FALSE);
     } else {
-        LuExtension->SynchronousPeriod = i;
+        LuExtension->SynchronousPeriod = (UCHAR)i;
     }
 
     //
@@ -2594,8 +2594,8 @@ NextInterrupt:
 
                 WdProcessReselection(
                     deviceExtension,
-                    sourceId.TargetId,
-                    targetLun.LogicalUnitNumber
+                    (UCHAR)sourceId.TargetId,
+                    (UCHAR)targetLun.LogicalUnitNumber
                     );
 
                 break;
@@ -2769,8 +2769,8 @@ NextInterrupt:
 
             WdProcessReselection(
                 deviceExtension,
-                sourceId.TargetId,
-                targetLun.LogicalUnitNumber
+                (UCHAR)sourceId.TargetId,
+                (UCHAR)targetLun.LogicalUnitNumber
                 );
 
             break;
@@ -2893,8 +2893,8 @@ NextInterrupt:
 
             WdProcessReselection(
                 deviceExtension,
-                sourceId.TargetId,
-                targetLun.LogicalUnitNumber
+                (UCHAR)sourceId.TargetId,
+                (UCHAR)targetLun.LogicalUnitNumber
                 );
 
            break;
@@ -3317,8 +3317,8 @@ NextInterrupt:
 
             SCSI_READ_TRANSFER_COUNT(deviceExtension->Adapter, count);
 
-            deviceExtension->MessageSent = deviceExtension->MessageCount -
-                count;
+            deviceExtension->MessageSent = (UCHAR)(deviceExtension->MessageCount -
+                count);
 
             if (deviceExtension->AdapterFlags & (PD_SYNCHRONOUS_TRANSFER_SENT |
                 PD_SYNCHRONOUS_RESPONSE_SENT)) {
@@ -3833,7 +3833,7 @@ NextInterrupt:
                     deviceExtension,
                     &deviceExtension->MessageBuffer[MESSAGE_BUFFER_SIZE-1],
                     1,
-                    (interruptStatus.PhaseState == DATA_OUT)? TRUE : FALSE
+                    (BOOLEAN)((interruptStatus.PhaseState == DATA_OUT)? TRUE : FALSE)
                     );
                 waitForInterrupt = TRUE;
 
@@ -3848,7 +3848,7 @@ NextInterrupt:
                     deviceExtension,
                     (PUCHAR)deviceExtension->ActiveDataPointer,
                     1,
-                    (interruptStatus.PhaseState == DATA_OUT)? TRUE : FALSE
+                    (BOOLEAN) ((interruptStatus.PhaseState == DATA_OUT)? TRUE : FALSE)
                     );
 
                 waitForInterrupt = TRUE;
@@ -4216,7 +4216,7 @@ Return Value:
 
     luExtension = ScsiPortGetLogicalUnit(
         DeviceExtension,
-        pathId,
+        (UCHAR)pathId,
         TargetId,
         LogicalUnitNumber
         );
@@ -4228,7 +4228,7 @@ Return Value:
         ScsiPortLogError(
             DeviceExtension,                    //  HwDeviceExtension,
             NULL,                               //  Srb
-            pathId,                             //  PathId,
+            (UCHAR)pathId,                      //  PathId,
             TargetId,                           //  TargetId,
             LogicalUnitNumber,                  //  Lun,
             SP_INVALID_RESELECTION,             //  ErrorCode,

@@ -28,7 +28,7 @@ MODNAME(wcall32.c);
 //
 
 
-HANDLE APIENTRY W32LocalAlloc(DWORD dwFlags, DWORD dwBytes, HANDLE hInstance)
+HANDLE APIENTRY W32LocalAlloc(UINT dwFlags, UINT dwBytes, HANDLE hInstance)
 {
 
     //
@@ -49,10 +49,17 @@ HANDLE APIENTRY W32LocalAlloc(DWORD dwFlags, DWORD dwBytes, HANDLE hInstance)
     return LocalAlloc16((WORD)dwFlags, (INT)dwBytes, hInstance);
 }
 
+// This api takes an extra pointer which is optional
+// In case of an edit control reallocating the memory inside apps memory 
+// space it is used to update the thunk data (see wparam.c)
 
-HANDLE APIENTRY W32LocalReAlloc(HANDLE hMem, DWORD dwBytes, DWORD dwFlags, HANDLE hInstance)
+HANDLE APIENTRY W32LocalReAlloc(
+    HANDLE hMem,        // memory to be reallocated
+    UINT dwBytes,       // size to reallocate to
+    UINT dwFlags,       // reallocation flags
+    HANDLE hInstance,   // Instance to identify ptr
+    PVOID* ppv)         // Pointer to the pointer that needs an update
 {
-
     //
     // If hInstance is not ours, then make Win32 call and return the
     // result to USER.
@@ -69,7 +76,17 @@ HANDLE APIENTRY W32LocalReAlloc(HANDLE hMem, DWORD dwBytes, DWORD dwFlags, HANDL
         dwBytes += 4;
 #endif
 
-    return LocalReAlloc16(hMem, (INT)dwBytes, (WORD)dwFlags);
+    hMem = LocalReAlloc16(hMem, (INT)dwBytes, (WORD)dwFlags);
+
+    // this code is used in User/Client (edit control) to realloc 
+    // memory for text storage
+    // update what ppv points to using wparam.c 
+
+    if (NULL != ppv && NULL != *ppv) {
+        *ppv = ParamMapUpdateNode((DWORD)*ppv, PARAM_32, NULL);
+    }
+
+    return hMem;
 }
 
 LPSTR  APIENTRY W32LocalLock(HANDLE hMem, HANDLE hInstance)

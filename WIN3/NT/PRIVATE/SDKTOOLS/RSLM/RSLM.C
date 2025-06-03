@@ -402,7 +402,7 @@ LPSTR pszCurProj)
             /*
              * Append child project info if its not part of the current proj.
              */
-            if (stricmp(szProject, pszCurProj)) {
+            if (_stricmp(szProject, pszCurProj)) {
                 hInfoFile = fopen(szInfoFileName, "a");
                 if (hInfoFile == NULL) {
                     fprintf(stderr, "RSLM: Couldn't append to %s.\n", szInfoFileName);
@@ -490,7 +490,7 @@ LPSTR pszCurProj)
     GetCurrentDirectory(MAX_PATH, szCurDir);
 
     MySpawn(P_WAIT, ssyncArgs, NULL, 0);
-    if (stricmp(szInfoFileName, szDefInfoFileName)) {
+    if (_stricmp(szInfoFileName, szDefInfoFileName)) {
         ReconcileInfoFile();
     }
 
@@ -541,8 +541,8 @@ LPSTR pszCurProj)
          */
         rewind(hInfoFile);
         while (ExtractRslmLine(hInfoFile, szThisProject, szThisServer)) {
-            if (!stricmp(szThisProject, szDirProject) {
-                 if (stricmp(szThisServer, szDirServer)) {
+            if (!_stricmp(szThisProject, szDirProject) {
+                 if (_stricmp(szThisServer, szDirServer)) {
                      goto nextFile;     // cool, no problems
                  } else {
                      Append(pszChanged, szThisProject, szThisServer, szCurDir);
@@ -575,11 +575,11 @@ char *pszIn)
     static char szCurDir[MAX_PATH];
     char *pszOut, *pszOut2;
 
-    if (!stricmp(pszIn, "%%CUR_PATH%%") ||
+    if (!_stricmp(pszIn, "%%CUR_PATH%%") ||
             !strcmp(pszIn, "%%CUR_DIR%%")) {
         GetCurrentDirectory(MAX_PATH, szCurDir);
         pszOut = szCurDir;
-        if (!stricmp(pszIn, "%%CUR_DIR%%")) {
+        if (!_stricmp(pszIn, "%%CUR_DIR%%")) {
             pszOut = strrchr(szCurDir, '\\');
             if (pszOut == NULL) {
                 pszOut = szCurDir;
@@ -697,7 +697,7 @@ char *pszParentProject)
     char szCurDir[MAX_PATH];
     int iRet;
 
-    if (!stricmp(szLocalMetaRoot, szNoLock)) {
+    if (!_stricmp(szLocalMetaRoot, szNoLock)) {
         return(TRUE);       // skip locks
     }
 
@@ -737,7 +737,7 @@ char *pszParentProject)
     char szCurDir[MAX_PATH];
     int iRet;
 
-    if (!stricmp(szLocalMetaRoot, szNoLock)) {
+    if (!_stricmp(szLocalMetaRoot, szNoLock)) {
         return(TRUE);       // skip locks
     }
 
@@ -774,7 +774,7 @@ char *pszParentProject)
     char szCurDir[MAX_PATH];
     int iRet;
 
-    if (!stricmp(szLocalMetaRoot, szNoLock)) {
+    if (!_stricmp(szLocalMetaRoot, szNoLock)) {
         return(TRUE);       // skip locks
     }
 
@@ -911,7 +911,7 @@ PSPAWNINFO psi)
 
     for (i = 0; TRUE; i++) {
         if (psi[i].pszCmd == NULL ||
-                !stricmp(argv[0], psi[i].pszCmd)) {
+                !_stricmp(argv[0], psi[i].pszCmd)) {
             return(psi[i].pfnSpawn(argv, pszParentServer, pszParentProject));
         }
     }
@@ -960,7 +960,7 @@ char *pszParentProject)
         while (ExtractRslmLine(hInfoFile, szSpawnProject, szSpawnServer)) {
             if (!SetCurrentDirectory(szSpawnProject)) {
                 fprintf(stderr, "RSLM: Creating %s directory\n", szSpawnProject);
-                mkdir(szSpawnProject);
+                _mkdir(szSpawnProject);
                 if (!SetCurrentDirectory(szSpawnProject)) {
                     fprintf(stderr, "RSLM: Could not create %s directory\n", szSpawnProject);
                     goto leave;
@@ -1001,7 +1001,7 @@ char *pszParentProject)
              * If the project key in the slmini file != the parent project,
              * skip this directory.
              */
-            if (stricmp(szSpawnProject, pszParentProject)) {
+            if (_stricmp(szSpawnProject, pszParentProject)) {
                 if (fDebug) {
                     fprintf(stderr, "RSLM: %s != %s\n", szSpawnProject, pszParentProject);
                 }
@@ -1109,4 +1109,3 @@ main (argc, argv)
 
     return(0);
 }
-

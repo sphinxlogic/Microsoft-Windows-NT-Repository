@@ -95,7 +95,7 @@ NTOpenConnection(
 
 VOID
 NTSetFileObjectContexts(
-    IN  tCLIENTELE      *pClientEle,
+    IN  PIRP            pIrp,
     IN  PVOID           FsContext,
     IN  PVOID           FsContext2);
 
@@ -268,6 +268,12 @@ DnsIrpCancel(
     );
 
 VOID
+CheckAddrIrpCancel(
+    IN PDEVICE_OBJECT DeviceContext,
+    IN PIRP pIrp
+    );
+
+VOID
 WaitForDnsIrpCancel(
     IN PDEVICE_OBJECT DeviceContext,
     IN PIRP pIrp
@@ -290,7 +296,8 @@ NTQueueToWorkerThread(
     IN  tDGRAM_SEND_TRACKING    *pTracker,
     IN  PVOID                   pClientContext,
     IN  PVOID                   ClientCompletion,
-    IN  PVOID                   CallBackRoutine
+    IN  PVOID                   CallBackRoutine,
+    IN  PVOID                   pDeviceContext
     );
 
 VOID
@@ -304,6 +311,22 @@ DispatchIoctls(
     IN  PIRP                pIrp,
     IN  PIO_STACK_LOCATION  pIrpSp);
 
+NTSTATUS
+NTCancelCancelRoutine(
+    IN  PIRP            pIrp
+    );
+
+VOID
+NTClearContextCancel(
+    IN NBT_WORK_ITEM_CONTEXT    *pContext
+    );
+
+VOID
+FindNameCancel(
+    IN PDEVICE_OBJECT DeviceContext,
+    IN PIRP pIrp
+    );
+
 //---------------------------------------------------------------------
 //
 // FROM NTUTIL.C
@@ -316,7 +339,17 @@ NbtCreateDeviceObject(
     PUNICODE_STRING      pBindName,
     PUNICODE_STRING      pExportName,
     tADDRARRAY           *pAddrs,
-    PUNICODE_STRING      RegistryPath);
+    PUNICODE_STRING      RegistryPath,
+#ifndef _IO_DELETE_DEVICE_SUPPORTED
+    BOOLEAN              fReuse,
+#endif
+    tDEVICECONTEXT      **ppDeviceContext
+    );
+
+NTSTATUS
+NbtDestroyDeviceObject(
+    IN  PVOID pBuffer
+    );
 
 NTSTATUS
 NbtProcessDhcpRequest(
@@ -463,7 +496,8 @@ GetIPFromRegistry(
     IN  PUNICODE_STRING pucRegistryPath,
     IN  PUNICODE_STRING pucBindDevice,
     OUT PULONG          pulIpAddress,
-    OUT PULONG          pulBroadcastAddress
+    OUT PULONG          pulBroadcastAddress,
+    IN  BOOL            fWantDhcpAddresses
     );
 
 NTSTATUS
@@ -735,4 +769,77 @@ WinsRegisterName(
     IN  enum eNSTYPE   eNsType
     );
 
-
+
+//---------------------------------------------------------------------
+//
+// FROM ntpnp.c
+//
+
+#ifdef _PNP_POWER
+
+VOID
+AddressArrival(IN PTA_ADDRESS Addr);
+
+VOID
+AddressDeletion(IN PTA_ADDRESS Addr);
+
+extern HANDLE      AddressChangeHandle;
+
+NTSTATUS
+NbtCreateNetBTDeviceObject(
+    PDRIVER_OBJECT       DriverObject,
+    tNBTCONFIG           *pConfig,
+    PUNICODE_STRING      RegistryPath
+    );
+
+tDEVICECONTEXT      *
+NbtFindIPAddress(
+    ULONG   IpAddr
+    );
+
+NTSTATUS
+NbtNtPNPInit(
+        VOID
+    );
+
+VOID
+NbtFailedNtPNPInit(
+        VOID
+    );
+
+NTSTATUS
+NbtAddressAdd(
+    ULONG   IpAddr,
+    PUNICODE_STRING pucBindString,
+    PUNICODE_STRING pucExportString,
+    PULONG  Inst
+    );
+
+NTSTATUS
+NbtAddNewInterface (
+    IN  PIRP            pIrp,
+    IN  PVOID           *pBuffer,
+    IN  ULONG            Size
+    );
+
+VOID
+NbtAddressDelete(
+    ULONG   IpAddr
+    );
+
+tDEVICECONTEXT      *
+NbtFindBindName(
+    PUNICODE_STRING      pucBindName
+    );
+
+#ifdef WATCHBIND
+VOID
+BindHandler(IN PUNICODE_STRING DeviceName);
+
+VOID
+UnbindHandler(IN PUNICODE_STRING DeviceName);
+
+extern HANDLE      BindingHandle;
+#endif // WATCHBIND
+
+#endif

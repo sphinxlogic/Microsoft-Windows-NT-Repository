@@ -323,7 +323,12 @@ DosSetSigHandler( PFNSIGHANDLER pfnSigHandler,
        return ERROR_INVALID_FUNCTION;
     }
 
-    SigHandlerRec.sighandler[usSigNum - 1] = (ULONG)(FLATTOFARPTR((ULONG)pfnSigHandler));
+    if (pfnSigHandler) {
+        //
+        // fAction is SIGA_IGNORE
+        //
+        SigHandlerRec.sighandler[usSigNum - 1] = (ULONG)(FLATTOFARPTR((ULONG)pfnSigHandler));
+    }
     SigHandlerRec.action[usSigNum - 1] = (USHORT) fAction;
 
     if (usSigNum == SIG_CTRLC || usSigNum == SIG_KILLPROCESS ||
@@ -386,13 +391,16 @@ Od2ProcessSignal16 (
     //
     RtlMoveMemory(&Context, pContext, sizeof(Context));
 
-    Od2MakeSignalHandlerContext(pa);
+    if (SigHandlerRec.signature == 0xdead) {
 
-    if (SigHandlerRec.sighandler[signum - 1] != 0 ) {
-        Od2JumpTo16SignalDispatch(SigHandlerRec.sighandler[signum - 1],
+        Od2MakeSignalHandlerContext(pa);
+
+        if (SigHandlerRec.sighandler[signum - 1] != 0 ) {
+            Od2JumpTo16SignalDispatch(SigHandlerRec.sighandler[signum - 1],
                               (ULONG) pa,
                               signum,
                               (ULONG) pa->usFlagArg);
+        }
     }
 
     size = 0;

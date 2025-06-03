@@ -263,34 +263,93 @@ Environment:
             return GetExceptionCode();
         }
     }
-    if (BaseAddress > MM_HIGHEST_VAD_ADDRESS) {
+    if (BaseAddress > MM_HIGHEST_USER_ADDRESS) {
         return STATUS_INVALID_PARAMETER;
     }
 
-    Status = ObReferenceObjectByHandle ( ProcessHandle,
-                                         PROCESS_QUERY_INFORMATION,
-                                         PsProcessType,
-                                         PreviousMode,
-                                         (PVOID *)&TargetProcess,
-                                         NULL );
+    if (BaseAddress >= MM_HIGHEST_VAD_ADDRESS) {
 
-    if (!NT_SUCCESS(Status)) {
-        return Status;
+        //
+        // Indicate a reserved area from this point on.
+        //
+
+        if ( MemoryInformationClass == MemoryBasicInformation ) {
+
+            try {
+                ((PMEMORY_BASIC_INFORMATION)MemoryInformation)->AllocationBase =
+                                      (PVOID)((ULONG)MM_HIGHEST_VAD_ADDRESS + 1);
+                ((PMEMORY_BASIC_INFORMATION)MemoryInformation)->AllocationProtect =
+                                                                      PAGE_READONLY;
+                ((PMEMORY_BASIC_INFORMATION)MemoryInformation)->BaseAddress =
+                                                       PAGE_ALIGN(BaseAddress);
+                ((PMEMORY_BASIC_INFORMATION)MemoryInformation)->RegionSize =
+                                    ((ULONG)MM_HIGHEST_USER_ADDRESS + 1) -
+                                                (ULONG)PAGE_ALIGN(BaseAddress);
+                ((PMEMORY_BASIC_INFORMATION)MemoryInformation)->State = MEM_RESERVE;
+                ((PMEMORY_BASIC_INFORMATION)MemoryInformation)->Protect = PAGE_NOACCESS;
+                ((PMEMORY_BASIC_INFORMATION)MemoryInformation)->Type = MEM_PRIVATE;
+
+                if (ARGUMENT_PRESENT(ReturnLength)) {
+                    *ReturnLength = sizeof(MEMORY_BASIC_INFORMATION);
+                }
+
+#if defined(MM_SHARED_USER_DATA_VA)
+                if (PAGE_ALIGN(BaseAddress) == (PVOID)MM_SHARED_USER_DATA_VA) {
+
+                    //
+                    // This is the page that is double mapped between
+                    // user mode and kernel mode.
+                    //
+
+                    ((PMEMORY_BASIC_INFORMATION)MemoryInformation)->Protect =
+                                                                 PAGE_READONLY;
+                    ((PMEMORY_BASIC_INFORMATION)MemoryInformation)->RegionSize =
+                                                                 PAGE_SIZE;
+                    ((PMEMORY_BASIC_INFORMATION)MemoryInformation)->State =
+                                                                 MEM_COMMIT;
+                }
+#endif
+
+            } except (EXCEPTION_EXECUTE_HANDLER) {
+
+                //
+                // Just return success.
+                //
+            }
+
+            return STATUS_SUCCESS;
+        } else {
+            return STATUS_INVALID_ADDRESS;
+        }
+    }
+
+    if ( ProcessHandle == NtCurrentProcess() ) {
+        TargetProcess = PsGetCurrentProcess();
+    } else {
+        Status = ObReferenceObjectByHandle ( ProcessHandle,
+                                             PROCESS_QUERY_INFORMATION,
+                                             PsProcessType,
+                                             PreviousMode,
+                                             (PVOID *)&TargetProcess,
+                                             NULL );
+
+        if (!NT_SUCCESS(Status)) {
+            return Status;
+        }
     }
 
     if (MemoryInformationClass == MemoryWorkingSetInformation) {
-        PVOID UnlockHandle;
 
-        UnlockHandle = MmLockPagableImageSection((PVOID)MiGetWorkingSetInfo);
-        ASSERT(UnlockHandle);
+        MmLockPagableSectionByHandle(ExPageLockHandle);
 
         Status = MiGetWorkingSetInfo (MemoryInformation,
                                       MemoryInformationLength,
                                       TargetProcess);
-        MmUnlockPagableImageSection(UnlockHandle);
+        MmUnlockPagableImageSection(ExPageLockHandle);
 
-        ObDereferenceObject (TargetProcess);
-
+        if ( ProcessHandle != NtCurrentProcess() ) {
+            ObDereferenceObject (TargetProcess);
+        }
         try {
 
             if (ARGUMENT_PRESENT(ReturnLength)) {
@@ -327,7 +386,9 @@ Environment:
         UNLOCK_WS (TargetProcess);
         UNLOCK_ADDRESS_SPACE (TargetProcess);
         KeDetachProcess();
-        ObDereferenceObject (TargetProcess);
+        if ( ProcessHandle != NtCurrentProcess() ) {
+            ObDereferenceObject (TargetProcess);
+        }
         return STATUS_PROCESS_IS_TERMINATING;
     }
 
@@ -376,7 +437,7 @@ Environment:
         //
 
         if (Vad == NULL) {
-            TheRegionSize = (ULONG)MM_HIGHEST_VAD_ADDRESS -
+            TheRegionSize = ((ULONG)MM_HIGHEST_VAD_ADDRESS + 1) -
                                                 (ULONG)PAGE_ALIGN(BaseAddress);
         } else {
             if (Vad->StartingVa < BaseAddress) {
@@ -388,7 +449,7 @@ Environment:
 
                 Vad = MiGetNextVad (Vad);
                 if (Vad == NULL) {
-                    TheRegionSize = (ULONG)MM_HIGHEST_VAD_ADDRESS -
+                    TheRegionSize = ((ULONG)MM_HIGHEST_VAD_ADDRESS + 1) -
                                                 (ULONG)PAGE_ALIGN(BaseAddress);
                 } else {
                     TheRegionSize = (ULONG)Vad->StartingVa -
@@ -403,7 +464,10 @@ Environment:
         UNLOCK_WS (TargetProcess);
         UNLOCK_ADDRESS_SPACE (TargetProcess);
         KeDetachProcess();
-        ObDereferenceObject (TargetProcess);
+
+        if ( ProcessHandle != NtCurrentProcess() ) {
+            ObDereferenceObject (TargetProcess);
+        }
 
         //
         // Establish an exception handler and write the information and
@@ -437,130 +501,131 @@ Environment:
             }
 
             return STATUS_SUCCESS;
-        } else {
-            return STATUS_INVALID_ADDRESS;
         }
+        return STATUS_INVALID_ADDRESS;
+    }
+
+    //
+    // Found a vad.
+    //
+
+    Va = PAGE_ALIGN(BaseAddress);
+    Info.BaseAddress = Va;
+
+    //
+    // There is a page mapped at the base address.
+    //
+
+    if (Vad->u.VadFlags.PrivateMemory) {
+        Info.Type = MEM_PRIVATE;
+    } else if (Vad->u.VadFlags.ImageMap == 0) {
+        Info.Type = MEM_MAPPED;
+
+        if ( MemoryInformationClass == MemoryMappedFilenameInformation ) {
+            if (Vad->ControlArea) {
+                FilePointer = Vad->ControlArea->FilePointer;
+            }
+            if ( !FilePointer ) {
+                FilePointer = (PVOID)1;
+            } else {
+                ObReferenceObject(FilePointer);
+            }
+        }
+
     } else {
+        Info.Type = MEM_IMAGE;
+    }
 
-        Va = PAGE_ALIGN(BaseAddress);
-        Info.BaseAddress = Va;
+    Info.State = MiQueryAddressState (Va, Vad, TargetProcess, &Info.Protect);
 
-        //
-        // There is a page mapped at the base address.
-        //
+    Va = (PVOID)((PCHAR)Va + PAGE_SIZE);
 
-        if (Vad->u.VadFlags.PrivateMemory) {
-            Info.Type = MEM_PRIVATE;
-        } else if (Vad->u.VadFlags.ImageMap == 0) {
-            Info.Type = MEM_MAPPED;
+    while (Va <= Vad->EndingVa) {
 
-            if ( MemoryInformationClass == MemoryMappedFilenameInformation ) {
-                if (Vad->ControlArea) {
-                    FilePointer = Vad->ControlArea->FilePointer;
-                }
-                if ( !FilePointer ) {
-                    FilePointer = (PVOID)1;
-                } else {
-                    ObReferenceObjectByPointer(FilePointer,0,IoFileObjectType,KernelMode);
-                }
-            }
+        NewState = MiQueryAddressState (Va,
+                                        Vad,
+                                        TargetProcess,
+                                        &NewProtect);
 
-        } else {
-            Info.Type = MEM_IMAGE;
+        if ((NewState != Info.State) || (NewProtect != Info.Protect)) {
+
+            //
+            // The state for this address does not match, calculate
+            // size and return.
+            //
+
+            break;
         }
+        Va = (PVOID)((ULONG)Va + PAGE_SIZE);
+    } // end while
 
-        Info.State = MiQueryAddressState (Va, Vad, TargetProcess, &Info.Protect);
+    Info.RegionSize = ((ULONG)Va - (ULONG)Info.BaseAddress);
+    Info.AllocationBase = Vad->StartingVa;
+    Info.AllocationProtect = MI_CONVERT_FROM_PTE_PROTECTION (
+                                             Vad->u.VadFlags.Protection);
 
-        Va = (PVOID)((PCHAR)Va + PAGE_SIZE);
+    //
+    // A range has been found, release the mutexes, deattach from the
+    // target process and return the information.
+    //
 
-        while (Va <= Vad->EndingVa) {
+    UNLOCK_WS (TargetProcess);
+    UNLOCK_ADDRESS_SPACE (TargetProcess);
+    KeDetachProcess();
 
-            NewState = MiQueryAddressState (Va,
-                                            Vad,
-                                            TargetProcess,
-                                            &NewProtect);
-
-            if ((NewState != Info.State) || (NewProtect != Info.Protect)) {
-
-                //
-                // The state for this address does not match, calculate
-                // size and return.
-                //
-
-                break;
-            }
-            Va = (PVOID)((ULONG)Va + PAGE_SIZE);
-        } // end while
-
-        Info.RegionSize = ((ULONG)Va - (ULONG)Info.BaseAddress);
-        Info.AllocationBase = Vad->StartingVa;
-        Info.AllocationProtect = MI_CONVERT_FROM_PTE_PROTECTION (
-                                                 Vad->u.VadFlags.Protection);
-
-        //
-        // A range has been found, release the mutexes, deattach from the
-        // target process and return the information.
-        //
-
-        UNLOCK_WS (TargetProcess);
-        UNLOCK_ADDRESS_SPACE (TargetProcess);
-        KeDetachProcess();
-
+    if ( ProcessHandle != NtCurrentProcess() ) {
         ObDereferenceObject (TargetProcess);
+    }
 
 #if DBG
-        if (MmDebug & 0x10000000) {
-            if ( !MmWatchProcess ) {
-                DbgPrint("queryvm base %lx allocbase %lx protect %lx size %lx\n",
-                    Info.BaseAddress, Info.AllocationBase, Info.AllocationProtect,
-                    Info.RegionSize);
-                DbgPrint("    state %lx  protect %lx  type %lx\n",
-                    Info.State, Info.Protect, Info.Type);
-            }
+    if (MmDebug & MM_DBG_SHOW_NT_CALLS) {
+        if ( !MmWatchProcess ) {
+            DbgPrint("queryvm base %lx allocbase %lx protect %lx size %lx\n",
+                Info.BaseAddress, Info.AllocationBase, Info.AllocationProtect,
+                Info.RegionSize);
+            DbgPrint("    state %lx  protect %lx  type %lx\n",
+                Info.State, Info.Protect, Info.Type);
         }
-#endif
-        if ( MemoryInformationClass == MemoryBasicInformation ) {
-            try {
-
-                *(PMEMORY_BASIC_INFORMATION)MemoryInformation = Info;
-
-                if (ARGUMENT_PRESENT(ReturnLength)) {
-                    *ReturnLength = sizeof(MEMORY_BASIC_INFORMATION);
-                }
-
-            } except (EXCEPTION_EXECUTE_HANDLER) {
-            }
-
-            return STATUS_SUCCESS;
-        } else {
-
-            //
-            // we are trying to get the filename
-            //
-
-            if ( !FilePointer ) {
-                return STATUS_INVALID_ADDRESS;
-            } else if ( FilePointer == (PVOID)1 ) {
-                return STATUS_FILE_INVALID;
-            }
-
-            //
-            // We have a referenced pointer to the file. Call ObQueryNameString
-            // and get the file name
-            //
-
-            Status = ObQueryNameString(
-                        FilePointer,
-                        MemoryInformation,
-                        MemoryInformationLength,
-                        ReturnLength
-                        );
-            ObDereferenceObject(FilePointer);
-            return Status;
-        }
-
-
     }
+#endif //DBG
+
+    if ( MemoryInformationClass == MemoryBasicInformation ) {
+        try {
+
+            *(PMEMORY_BASIC_INFORMATION)MemoryInformation = Info;
+
+            if (ARGUMENT_PRESENT(ReturnLength)) {
+                *ReturnLength = sizeof(MEMORY_BASIC_INFORMATION);
+            }
+
+        } except (EXCEPTION_EXECUTE_HANDLER) {
+        }
+        return STATUS_SUCCESS;
+    }
+
+    //
+    // Try to return the name of the file that is mapped.
+    //
+
+    if ( !FilePointer ) {
+        return STATUS_INVALID_ADDRESS;
+    } else if ( FilePointer == (PVOID)1 ) {
+        return STATUS_FILE_INVALID;
+    }
+
+    //
+    // We have a referenced pointer to the file. Call ObQueryNameString
+    // and get the file name
+    //
+
+    Status = ObQueryNameString(
+                FilePointer,
+                MemoryInformation,
+                MemoryInformationLength,
+                ReturnLength
+                );
+    ObDereferenceObject(FilePointer);
+    return Status;
 }
 
 
@@ -686,7 +751,15 @@ Environment:
         State = MEM_RESERVE;
         Protect = 0;
 
-        if ((Vad->u.VadFlags.PrivateMemory == 0) &&
+        if (Vad->u.VadFlags.PhysicalMapping == 1) {
+
+            //
+            // Must be banked memory, just return reserved.
+            //
+
+            NOTHING;
+
+        } else if ((Vad->u.VadFlags.PrivateMemory == 0) &&
             (Vad->ControlArea != (PCONTROL_AREA)NULL)) {
 
             //
@@ -754,14 +827,16 @@ MiGetWorkingSetInfo (
     ULONG WsSize;
     PMMPTE PointerPte;
     PMMPFN Pfn1;
+    NTSTATUS status;
 
     //
     // Allocate an MDL to map the request.
     //
 
-    Mdl = ExAllocatePool( NonPagedPool,
-                          sizeof(MDL) + sizeof(ULONG) +
-                                     BYTES_TO_PAGES (Length) * sizeof(ULONG));
+    Mdl = ExAllocatePoolWithTag (NonPagedPool,
+                                 sizeof(MDL) + sizeof(ULONG) +
+                                     BYTES_TO_PAGES (Length) * sizeof(ULONG),
+                                 '  mM');
 
     if (Mdl == NULL) {
         return(STATUS_INSUFFICIENT_RESOURCES);
@@ -788,17 +863,29 @@ MiGetWorkingSetInfo (
 
     LOCK_WS (Process);
 
+    status = STATUS_SUCCESS;
+
+    if (Process->AddressSpaceDeleted != 0) {
+        status = STATUS_PROCESS_IS_TERMINATING;
+    }
+
     WsSize = Process->Vm.WorkingSetSize;
     Info->NumberOfEntries = WsSize;
+
     if ((WsSize * sizeof(ULONG)) >= Length) {
+        status = STATUS_INFO_LENGTH_MISMATCH;
+    }
+
+    if (status != STATUS_SUCCESS) {
         UNLOCK_WS (Process);
+        KeDetachProcess ();
         MmUnlockPages (Mdl);
         ExFreePool (Mdl);
-        return(STATUS_INFO_LENGTH_MISMATCH);
+        return status;
     }
 
     Wsle = MmWsle;
-    LastWsle = &MmWsle[MmWorkingSetList->LastInitializedWsle];
+    LastWsle = &MmWsle[MmWorkingSetList->LastEntry];
     Entry = &Info->WorkingSetInfo[0];
     LastEntry = (PMEMORY_WORKING_SET_BLOCK)(
                             (PCHAR)Info + (Length & (~(sizeof(ULONG) - 1))));
@@ -829,5 +916,5 @@ MiGetWorkingSetInfo (
     KeDetachProcess ();
     MmUnlockPages (Mdl);
     ExFreePool (Mdl);
-    return(STATUS_SUCCESS);
+    return STATUS_SUCCESS;
 }

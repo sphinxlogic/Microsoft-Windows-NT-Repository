@@ -37,6 +37,11 @@ PCDROM_DESCRIPTOR CdRomChainBase = NULL;
 PCDROM_DESCRIPTOR CdRomChainLast = NULL;
 PCDROM_DESCRIPTOR CdRomChanged = NULL;
 
+static BOOLEAN CdRomFirstCall = TRUE;
+static TCHAR   SourcePathLetter = (TCHAR) '\0';
+static TCHAR   SourcePathKeyName[80];
+static TCHAR   SourcePathValueName[30];
+
 VOID
 CdRomAddDevice(
     IN PWSTR NtName,
@@ -63,6 +68,55 @@ Return Value:
 {
     PCDROM_DESCRIPTOR cdrom;
     PWCHAR            cp;
+    LONG              error;
+    HKEY              keyHandle;
+    DWORD             valueType;
+    ULONG             size;
+    TCHAR            *string;
+
+    if (CdRomFirstCall) {
+        CdRomFirstCall = FALSE;
+
+        // Get the registry path and value name.
+
+        LoadString(hModule,
+                   IDS_SOURCE_PATH,
+                   SourcePathKeyName,
+                   sizeof(SourcePathKeyName)/sizeof(TCHAR));
+        LoadString(hModule,
+                   IDS_SOURCE_PATH_NAME,
+                   SourcePathValueName,
+                   sizeof(SourcePathValueName)/sizeof(TCHAR));
+
+        error = RegOpenKey(HKEY_LOCAL_MACHINE,
+                             SourcePathKeyName,
+                             &keyHandle);
+        if (error == NO_ERROR) {
+            error = RegQueryValueEx(keyHandle,
+                                    SourcePathValueName,
+                                    NULL,
+                                    &valueType,
+                                    (PUCHAR)NULL,
+                                    &size);
+
+            if (error == NO_ERROR) {
+                string = (PUCHAR) LocalAlloc(LMEM_FIXED, size);
+                if (string) {
+                    error = RegQueryValueEx(keyHandle,
+                                            SourcePathValueName,
+                                            NULL,
+                                            &valueType,
+                                            string,
+                                            &size);
+                    if (error == NO_ERROR) {
+                        SourcePathLetter = *string;
+                    }
+                }
+                LocalFree(string);
+            }
+            RegCloseKey(keyHandle);
+        }
+    }
 
     cdrom = (PCDROM_DESCRIPTOR) malloc(sizeof(CDROM_DESCRIPTOR));
     if (cdrom) {
@@ -173,7 +227,7 @@ Return Value:
     case WM_COMMAND:
         switch (wParam) {
 
-        case IDHELP:
+        case FD_IDHELP:
             DialogHelp(HC_DM_DLG_CDROM);
             break;
 
@@ -304,11 +358,13 @@ Return Value:
 
 {
     BOOLEAN result = 0;
-    DWORD   action;
+    DWORD   action,
+            ec;
     TCHAR   name[40];
     TCHAR   letter[10];
-    WCHAR  *cp;
+    PWSTR   linkTarget;
     OBJECT_ATTRIBUTES oa;
+    WCHAR             dosName[20];
     HANDLE            handle;
     NTSTATUS          status;
     IO_STATUS_BLOCK   statusBlock;
@@ -373,6 +429,23 @@ Return Value:
             return;
         }
 
+        // Before attempting to move the name, see if the letter
+        // is currently in use - could be a new network connection
+        // or a partition that is scheduled for deletion.
+
+        wsprintfW(dosName, L"\\DosDevices\\%wc:", (WCHAR) CdRomChanged->NewDriveLetter);
+        ec = GetDriveLetterLinkTarget(dosName, &linkTarget);
+        if (ec == NO_ERROR) {
+
+            // Something is using this letter.
+
+            LowCloseDisk(handle);
+            ErrorDialog(MSG_CANNOT_MOVE_CDROM);
+            return;
+        }
+
+        // remove existing definition - if this fails don't continue.
+
         sprintf(letter, "%c:", (UCHAR) CdRomChanged->DriveLetter);
         if (!DefineDosDevice(DDD_REMOVE_DEFINITION, (LPCTSTR) letter, (LPCTSTR) NULL)) {
             LowCloseDisk(handle);
@@ -382,6 +455,58 @@ Return Value:
         status = DiskRegistryAssignCdRomLetter(CdRomChanged->DeviceName,
                                                CdRomChanged->NewDriveLetter);
         MarkDriveLetterFree((UCHAR)CdRomChanged->DriveLetter);
+
+        // See if this was the device used to install NT
+
+        if (SourcePathLetter) {
+            if (SourcePathLetter == CdRomChanged->DriveLetter) {
+                LONG   error;
+                HKEY   keyHandle;
+                DWORD  valueType;
+                ULONG  size;
+                TCHAR *string;
+
+
+                // Update the source path
+
+                error = RegOpenKeyEx(HKEY_LOCAL_MACHINE,
+                                     SourcePathKeyName,
+                                     0,
+                                     KEY_ALL_ACCESS,
+                                     &keyHandle);
+                if (error == NO_ERROR) {
+                    error = RegQueryValueEx(keyHandle,
+                                            SourcePathValueName,
+                                            NULL,
+                                            &valueType,
+                                            (PUCHAR)NULL,
+                                            &size);
+
+                    if (error == NO_ERROR) {
+                        string = (PUCHAR) LocalAlloc(LMEM_FIXED, size);
+                        if (string) {
+                            error = RegQueryValueEx(keyHandle,
+                                                    SourcePathValueName,
+                                                    NULL,
+                                                    &valueType,
+                                                    string,
+                                                    &size);
+                            if (error == NO_ERROR) {
+                                *string = SourcePathLetter = (UCHAR) CdRomChanged->NewDriveLetter;
+                                RegSetValueEx(keyHandle,
+                                              SourcePathValueName,
+                                              0,
+                                              REG_SZ,
+                                              string,
+                                              size);
+                            }
+                        }
+                        LocalFree(string);
+                    }
+                    RegCloseKey(keyHandle);
+                }
+            }
+        }
 
         // set up new device letter - name is already set up
 

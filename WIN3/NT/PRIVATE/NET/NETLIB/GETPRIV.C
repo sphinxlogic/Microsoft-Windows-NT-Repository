@@ -61,7 +61,7 @@ Arguments:
 
     pulPrivileges - This is a pointer to the array of privileges that are
         desired.  This is an array of ULONGs.
-        
+
 Return Value:
 
     NO_ERROR - If the operation was completely successful.
@@ -88,22 +88,22 @@ Return Value:
     //
     pTokenPrivilege = LocalAlloc(LMEM_FIXED, sizeof(TOKEN_PRIVILEGES) +
                         (sizeof(LUID_AND_ATTRIBUTES) * numPrivileges));
-                        
+
     if (pTokenPrivilege == NULL) {
         status = GetLastError();
         IF_DEBUG(SECURITY) {
-            NetpDbgPrint("NetpGetPrivilege:LocalAlloc Failed %d\n", status);
-        }    
+            NetpKdPrint(("NetpGetPrivilege:LocalAlloc Failed %d\n", status));
+        }
         return(status);
     }
     pTokenPrivilege->PrivilegeCount  = numPrivileges;
     for (i=0; i<numPrivileges ;i++ ) {
-        pTokenPrivilege->Privileges[i].Luid = RtlConvertLongToLargeInteger(
+        pTokenPrivilege->Privileges[i].Luid = RtlConvertUlongToLuid(
                                                 pulPrivileges[i]);
         pTokenPrivilege->Privileges[i].Attributes = SE_PRIVILEGE_ENABLED;
 
     }
-    
+
     //
     // Initialize Object Attribute Structure.
     //
@@ -122,20 +122,20 @@ Return Value:
     //
     // Allocate storage for the structure that will hold the Previous State
     // information.
-    //            
+    //
     pPreviousState = LocalAlloc(LMEM_FIXED, PRIVILEGE_BUF_SIZE);
     if (pPreviousState == NULL) {
-        
+
         status = GetLastError();
 
         IF_DEBUG(SECURITY) {
-            NetpDbgPrint("NetpGetPrivilege: LocalAlloc Failed "FORMAT_DWORD"\n",
-            status);
-        }    
-            
-        LocalFree(pTokenPrivilege);    
-        return(status);    
-            
+            NetpKdPrint(("NetpGetPrivilege: LocalAlloc Failed "FORMAT_DWORD"\n",
+            status));
+        }
+
+        LocalFree(pTokenPrivilege);
+        return(status);
+
     }
 
     //
@@ -148,18 +148,18 @@ Return Value:
 
     if (!NT_SUCCESS(ntStatus)) {
         IF_DEBUG(SECURITY) {
-            NetpDbgPrint( "NetpGetPrivilege: NtOpenThreadToken Failed "
-                "FORMAT_NTSTATUS" "\n", ntStatus);
-        }    
+            NetpKdPrint(( "NetpGetPrivilege: NtOpenThreadToken Failed "
+                "FORMAT_NTSTATUS" "\n", ntStatus));
+        }
 
         LocalFree(pPreviousState);
-        LocalFree(pTokenPrivilege);    
-        return(RtlNtStatusToDosError(ntStatus));   
-    }    
-                
+        LocalFree(pTokenPrivilege);
+        return(RtlNtStatusToDosError(ntStatus));
+    }
+
     //
     // Duplicate that Token
-    //            
+    //
     ntStatus = NtDuplicateToken(
                 ourToken,
                 TOKEN_IMPERSONATE | TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY,
@@ -170,19 +170,19 @@ Return Value:
 
     if (!NT_SUCCESS(ntStatus)) {
         IF_DEBUG(SECURITY) {
-            NetpDbgPrint( "NetpGetPrivilege: NtDuplicateToken Failed "
-                "FORMAT_NTSTATUS" "\n", ntStatus);
-        }    
+            NetpKdPrint(( "NetpGetPrivilege: NtDuplicateToken Failed "
+                "FORMAT_NTSTATUS" "\n", ntStatus));
+        }
 
         LocalFree(pPreviousState);
-        LocalFree(pTokenPrivilege);    
+        LocalFree(pTokenPrivilege);
         NtClose(ourToken);
-        return(RtlNtStatusToDosError(ntStatus));   
-    }    
-                
+        return(RtlNtStatusToDosError(ntStatus));
+    }
+
     //
     // Add new privileges
-    //            
+    //
     bufLen = PRIVILEGE_BUF_SIZE;
     ntStatus = NtAdjustPrivilegesToken(
                 newToken,                   // TokenHandle
@@ -191,16 +191,16 @@ Return Value:
                 bufLen,                     // bufferSize for previous state
                 pPreviousState,             // pointer to previous state info
                 &returnLen);                // numBytes required for buffer.
-                
+
     if (ntStatus == STATUS_BUFFER_TOO_SMALL) {
 
         LocalFree(pPreviousState);
-        
+
         bufLen = returnLen;
 
         pPreviousState = LocalAlloc(LMEM_FIXED, bufLen);
-        
-        
+
+
         ntStatus = NtAdjustPrivilegesToken(
                     newToken,               // TokenHandle
                     FALSE,                  // DisableAllPrivileges
@@ -208,21 +208,21 @@ Return Value:
                     bufLen,                 // bufferSize for previous state
                     pPreviousState,         // pointer to previous state info
                     &returnLen);            // numBytes required for buffer.
-                
+
     }
     if (!NT_SUCCESS(ntStatus)) {
         IF_DEBUG(SECURITY) {
-            NetpDbgPrint( "NetpGetPrivilege: NtAdjustPrivilegesToken Failed "
-                "FORMAT_NTSTATUS" "\n", ntStatus);
-        }    
+            NetpKdPrint(( "NetpGetPrivilege: NtAdjustPrivilegesToken Failed "
+                "FORMAT_NTSTATUS" "\n", ntStatus));
+        }
 
         LocalFree(pPreviousState);
-        LocalFree(pTokenPrivilege);    
+        LocalFree(pTokenPrivilege);
         NtClose(ourToken);
         NtClose(newToken);
-        return(RtlNtStatusToDosError(ntStatus));   
-    }    
-                
+        return(RtlNtStatusToDosError(ntStatus));
+    }
+
     //
     // Begin impersonating with the new token
     //
@@ -234,22 +234,22 @@ Return Value:
 
     if (!NT_SUCCESS(ntStatus)) {
         IF_DEBUG(SECURITY) {
-            NetpDbgPrint( "NetpGetPrivilege: NtAdjustPrivilegesToken Failed "
-                "FORMAT_NTSTATUS" "\n", ntStatus);
-        }    
+            NetpKdPrint(( "NetpGetPrivilege: NtAdjustPrivilegesToken Failed "
+                "FORMAT_NTSTATUS" "\n", ntStatus));
+        }
 
         LocalFree(pPreviousState);
-        LocalFree(pTokenPrivilege);    
+        LocalFree(pTokenPrivilege);
         NtClose(ourToken);
         NtClose(newToken);
-        return(RtlNtStatusToDosError(ntStatus));   
-    }    
+        return(RtlNtStatusToDosError(ntStatus));
+    }
 
     LocalFree(pPreviousState);
-    LocalFree(pTokenPrivilege);    
+    LocalFree(pTokenPrivilege);
     NtClose(ourToken);
     NtClose(newToken);
-                    
+
     return(NO_ERROR);
 }
 
@@ -285,7 +285,7 @@ Return Value:
     // Revert To Self.
     //
     NewToken = NULL;
-    
+
     ntStatus = NtSetInformationThread(
                 NtCurrentThread(),
                 ThreadImpersonationToken,
@@ -294,8 +294,8 @@ Return Value:
 
     if ( !NT_SUCCESS(ntStatus) ) {
         return(RtlNtStatusToDosError(ntStatus));
-    }    
-        
-                
+    }
+
+
     return(NO_ERROR);
 }

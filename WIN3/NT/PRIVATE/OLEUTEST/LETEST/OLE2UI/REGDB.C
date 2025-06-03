@@ -398,4 +398,4 @@ STDAPI_(CLIPFORMAT) OleStdGetDefaultFileFormatOfClass(
    return cfFmt;
 }
 
-
+

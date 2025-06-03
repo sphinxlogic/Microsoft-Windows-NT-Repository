@@ -9,11 +9,11 @@ Module Name:
 Abstract:
 
     This module implements the File System Control routines for Cdfs called
-    by the dispatch driver.
+    by the Fsd/Fsp dispatch drivers.
 
 Author:
 
-    Brian Andrew    [BrianAn]   02-Jan-1991
+    Brian Andrew    [BrianAn]   01-July-1995
 
 Revision History:
 
@@ -28,21 +28,17 @@ Revision History:
 #define BugCheckFileId                   (CDFS_BUG_CHECK_FSCTRL)
 
 //
-//  The local debug trace level
+//  Local constants
 //
 
-#define Dbg                              (DEBUG_TRACE_FSCTRL)
-
-#define XA_LABEL                    "CD-XA001"
-#define XA_LABEL_OFFSET             (1024)
-#define XA_LABEL_LENGTH             (8)
+BOOLEAN CdDisable = FALSE;
 
 //
-//  Local procedure prototypes
+//  Local support routines
 //
 
 NTSTATUS
-CdCommonFileSystemControl (
+CdUserFsctl (
     IN PIRP_CONTEXT IrpContext,
     IN PIRP Irp
     );
@@ -55,18 +51,6 @@ CdMountVolume (
 
 NTSTATUS
 CdVerifyVolume (
-    IN PIRP_CONTEXT IrpContext,
-    IN PIRP Irp
-    );
-
-NTSTATUS
-CdDismountVolume (
-    IN PIRP_CONTEXT IrpContext,
-    IN PIRP Irp
-    );
-
-NTSTATUS
-CdUserFsctl (
     IN PIRP_CONTEXT IrpContext,
     IN PIRP Irp
     );
@@ -89,45 +73,10 @@ CdUnlockVolume (
     IN PIRP Irp
     );
 
-BOOLEAN
-CdFindPrimaryVd (
+NTSTATUS
+CdDismountVolume (
     IN PIRP_CONTEXT IrpContext,
-    IN OUT PMVCB Mvcb,
-    IN OUT PRAW_ISO_VD RawIsoVd,
-    OUT LOGICAL_BLOCK *StartingSector,
-    IN OUT PVPB Vpb,
-    IN BOOLEAN ReturnOnError,
-    IN BOOLEAN VerifyVolume
-    );
-
-VOID
-CdCreateSecondaryVcbs (
-    IN PIRP_CONTEXT IrpContext,
-    IN OUT PMVCB Mvcb,
-    IN LOGICAL_BLOCK StartingSector,
-    IN PRAW_ISO_VD RawIsoVd
-    );
-
-BOOLEAN
-CdFindSecondaryVd (
-    IN PIRP_CONTEXT IrpContext,
-    IN OUT PMVCB Mvcb,
-    IN LOGICAL_BLOCK StartingSector,
-    IN PRAW_ISO_VD RawIsoVd,
-    IN PCODEPAGE_ELEMENT CodepageElement
-    );
-
-ULONG
-CdSerial32 (
-    IN PUCHAR Buffer,
-    IN ULONG ByteCount
-    );
-
-BOOLEAN
-CdIsRemount (
-    IN PIRP_CONTEXT IrpContext,
-    IN PMVCB NewMvcb,
-    OUT PMVCB *OldMvcb
+    IN PIRP Irp
     );
 
 NTSTATUS
@@ -142,21 +91,54 @@ CdIsPathnameValid (
     IN PIRP Irp
     );
 
+NTSTATUS
+CdInvalidateVolumes (
+    IN PIRP_CONTEXT IrpContext,
+    IN PIRP Irp
+    );
+
+VOID
+CdScanForDismountedVcb (
+    IN PIRP_CONTEXT IrpContext
+    );
+
+BOOLEAN
+CdFindPrimaryVd (
+    IN PIRP_CONTEXT IrpContext,
+    IN PVCB Vcb,
+    IN PCHAR RawIsoVd,
+    IN ULONG BlockFactor,
+    IN BOOLEAN ReturnOnError,
+    IN BOOLEAN VerifyVolume
+    );
+
+BOOLEAN
+CdIsRemount (
+    IN PIRP_CONTEXT IrpContext,
+    IN PVCB Vcb,
+    OUT PVCB *OldVcb
+    );
+
+VOID
+CdFindActiveVolDescriptor (
+    IN PIRP_CONTEXT IrpContext,
+    IN PVCB Vcb,
+    IN OUT PCHAR RawIsoVd
+    );
+
 #ifdef ALLOC_PRAGMA
-#pragma alloc_text(PAGE, CdCommonFileSystemControl)
-#pragma alloc_text(PAGE, CdCreateSecondaryVcbs)
+#pragma alloc_text(PAGE, CdCommonFsControl)
 #pragma alloc_text(PAGE, CdDismountVolume)
+#pragma alloc_text(PAGE, CdFindActiveVolDescriptor)
 #pragma alloc_text(PAGE, CdFindPrimaryVd)
-#pragma alloc_text(PAGE, CdFindSecondaryVd)
-#pragma alloc_text(PAGE, CdFsdFileSystemControl)
-#pragma alloc_text(PAGE, CdFspFileSystemControl)
+#pragma alloc_text(PAGE, CdInvalidateVolumes)
 #pragma alloc_text(PAGE, CdIsPathnameValid)
 #pragma alloc_text(PAGE, CdIsRemount)
 #pragma alloc_text(PAGE, CdIsVolumeMounted)
 #pragma alloc_text(PAGE, CdLockVolume)
 #pragma alloc_text(PAGE, CdMountVolume)
 #pragma alloc_text(PAGE, CdOplockRequest)
-#pragma alloc_text(PAGE, CdSerial32)
+#pragma alloc_text(PAGE, CdScanForDismountedVcb)
 #pragma alloc_text(PAGE, CdUnlockVolume)
 #pragma alloc_text(PAGE, CdUserFsctl)
 #pragma alloc_text(PAGE, CdVerifyVolume)
@@ -164,146 +146,7 @@ CdIsPathnameValid (
 
 
 NTSTATUS
-CdFsdFileSystemControl (
-    IN PVOLUME_DEVICE_OBJECT VolumeDeviceObject,
-    IN PIRP Irp
-    )
-
-/*++
-
-Routine Description:
-
-    This routine implements the FSD part of FileSystem control operations
-
-Arguments:
-
-    VolumeDeviceObject - Supplies the volume device object where the
-        file exists
-
-    Irp - Supplies the Irp being processed
-
-Return Value:
-
-    NTSTATUS - The FSD status for the IRP
-
---*/
-
-{
-    BOOLEAN Wait;
-    NTSTATUS Status;
-    PIRP_CONTEXT IrpContext = NULL;
-
-    BOOLEAN TopLevel;
-
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "CdFsdFileSystemControl\n", 0);
-
-    //
-    //  Call the common FileSystem Control routine, with blocking allowed if
-    //  synchronous.  This opeation needs to special case the mount
-    //  and verify suboperations because we know they are allowed to block.
-    //  We identify these suboperations by looking at the file object field
-    //  and seeing if its null.
-    //
-
-    if (IoGetCurrentIrpStackLocation(Irp)->FileObject == NULL) {
-
-        Wait = TRUE;
-
-    } else {
-
-        Wait = CanFsdWait( Irp );
-    }
-
-    FsRtlEnterFileSystem();
-
-    TopLevel = CdIsIrpTopLevel( Irp );
-
-    try {
-
-        IrpContext = CdCreateIrpContext( Irp, Wait );
-
-        Status = CdCommonFileSystemControl( IrpContext, Irp );
-
-    } except( CdExceptionFilter( IrpContext, GetExceptionInformation() )) {
-
-        //
-        //  We had some trouble trying to perform the requested
-        //  operation, so we'll abort the I/O request with
-        //  the error status that we get back from the
-        //  execption code
-        //
-
-        Status = CdProcessException( IrpContext, Irp, GetExceptionCode() );
-    }
-
-    if (TopLevel) { IoSetTopLevelIrp( NULL ); }
-
-    FsRtlExitFileSystem();
-
-    //
-    //  And return to our caller
-    //
-
-    DebugTrace(-1, Dbg, "CdFsdFileSystemControl -> %08lx\n", Status);
-
-    return Status;
-
-    UNREFERENCED_PARAMETER( VolumeDeviceObject );
-}
-
-
-VOID
-CdFspFileSystemControl (
-    IN PIRP_CONTEXT IrpContext,
-    IN PIRP Irp
-    )
-
-/*++
-
-Routine Description:
-
-    This routine implements the FSP part of the file system control operations
-
-Arguments:
-
-    Irp - Supplies the Irp being processed
-
-Return Value:
-
-    None
-
---*/
-
-{
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "CdFspFileSystemControl\n", 0);
-
-    //
-    //  Call the common FileSystem Control routine.  The Fsp is always allowed
-    //  to block
-    //
-
-    CdCommonFileSystemControl( IrpContext, Irp );
-
-    //
-    //  And return to our caller
-    //
-
-    DebugTrace(-1, Dbg, "CdFspFileSystemControl -> VOID\n", 0);
-
-    return;
-}
-
-
-//
-//  Internal support routine
-//
-
-NTSTATUS
-CdCommonFileSystemControl (
+CdCommonFsControl (
     IN PIRP_CONTEXT IrpContext,
     IN PIRP Irp
     )
@@ -327,7 +170,7 @@ Return Value:
 
 {
     NTSTATUS Status;
-    PIO_STACK_LOCATION IrpSp;
+    PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation( Irp );
 
     //
     //  Get a pointer to the current Irp stack location
@@ -336,10 +179,6 @@ Return Value:
     IrpSp = IoGetCurrentIrpStackLocation( Irp );
 
     PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "CdCommonFileSystemControl\n", 0);
-    DebugTrace( 0, Dbg, "Irp           = %08lx\n", Irp);
-    DebugTrace( 0, Dbg, "MinorFunction = %08lx\n", IrpSp->MinorFunction);
 
     //
     //  We know this is a file system control so we'll case on the
@@ -366,21 +205,122 @@ Return Value:
 
     default:
 
-        DebugTrace( 0, Dbg, "Invalid FS Control Minor Function %08lx\n", IrpSp->MinorFunction);
+        CdCompleteRequest( IrpContext, Irp, STATUS_INVALID_DEVICE_REQUEST );
+        Status = STATUS_INVALID_DEVICE_REQUEST;
+        break;
+    }
+
+    return Status;
+}
+
+
+//
+//  Local support routine
+//
+
+NTSTATUS
+CdUserFsctl (
+    IN PIRP_CONTEXT IrpContext,
+    IN PIRP Irp
+    )
+/*++
+
+Routine Description:
+
+    This is the common routine for implementing the user's requests made
+    through NtFsControlFile.
+
+Arguments:
+
+    Irp - Supplies the Irp being processed
+
+Return Value:
+
+    NTSTATUS - The return status for the operation
+
+--*/
+
+{
+    NTSTATUS Status;
+    PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation( Irp );
+
+    PAGED_CODE();
+
+    //
+    //  Case on the control code.
+    //
+
+    switch ( IrpSp->Parameters.FileSystemControl.FsControlCode ) {
+
+    case FSCTL_REQUEST_OPLOCK_LEVEL_1 :
+    case FSCTL_REQUEST_OPLOCK_LEVEL_2 :
+    case FSCTL_REQUEST_BATCH_OPLOCK :
+    case FSCTL_OPLOCK_BREAK_ACKNOWLEDGE :
+    case FSCTL_OPBATCH_ACK_CLOSE_PENDING :
+    case FSCTL_OPLOCK_BREAK_NOTIFY :
+    case FSCTL_OPLOCK_BREAK_ACK_NO_2 :
+    case FSCTL_REQUEST_FILTER_OPLOCK :
+
+        Status = CdOplockRequest( IrpContext, Irp );
+        break;
+
+    case FSCTL_LOCK_VOLUME :
+
+        Status = CdLockVolume( IrpContext, Irp );
+        break;
+
+    case FSCTL_UNLOCK_VOLUME :
+
+        Status = CdUnlockVolume( IrpContext, Irp );
+        break;
+
+    case FSCTL_DISMOUNT_VOLUME :
+
+        Status = CdDismountVolume( IrpContext, Irp );
+        break;
+
+    case FSCTL_IS_VOLUME_MOUNTED :
+
+        Status = CdIsVolumeMounted( IrpContext, Irp );
+        break;
+
+    case FSCTL_IS_PATHNAME_VALID :
+
+        Status = CdIsPathnameValid( IrpContext, Irp );
+        break;
+
+    case FSCTL_INVALIDATE_VOLUMES :
+
+        Status = CdInvalidateVolumes( IrpContext, Irp );
+        break;
+
+
+    //
+    //  We don't support any of the known or unknown requests.
+    //
+
+    case FSCTL_MARK_VOLUME_DIRTY :
+    case FSCTL_MOUNT_DBLS_VOLUME :
+    case FSCTL_QUERY_RETRIEVAL_POINTERS :
+    case FSCTL_GET_COMPRESSION :
+    case FSCTL_SET_COMPRESSION :
+    case FSCTL_READ_COMPRESSION :
+    case FSCTL_WRITE_COMPRESSION :
+    case FSCTL_MARK_AS_SYSTEM_HIVE :
+    case FSCTL_QUERY_FAT_BPB :
+    default:
 
         CdCompleteRequest( IrpContext, Irp, STATUS_INVALID_DEVICE_REQUEST );
         Status = STATUS_INVALID_DEVICE_REQUEST;
         break;
     }
 
-    DebugTrace(-1, Dbg, "CdCommonFileSystemControl -> %08lx\n", Status);
-
     return Status;
 }
 
-
+
 //
-//  Local Support Routine
+//  Local support routine
 //
 
 NTSTATUS
@@ -397,23 +337,22 @@ Routine Description:
     either completing of enqueuing the input Irp.
 
     Its job is to verify that the volume denoted in the IRP is a Cdrom volume,
-    and create the MVCB, VCB and root DCB structures.  The algorithm it
+    and create the VCB and root DCB structures.  The algorithm it
     uses is essentially as follows:
 
-    1. Create a new Mvcb Structure, and initialize it enough to do I/O
-       through the volume descriptors.
+    1. Create a new Vcb Structure, and initialize it enough to do I/O
+       through the on-disk volume descriptors.
 
     2. Read the disk and check if it is a Cdrom volume.
 
-    3. If it is not a Cdrom volume then delete
-       the MVCB, and complete the IRP with STATUS_UNRECOGNIZED_VOLUME
+    3. If it is not a Cdrom volume then delete the Vcb and
+       complete the IRP back with an appropriate status.
 
     4. Check if the volume was previously mounted and if it was then do a
        remount operation.  This involves deleting the VCB, hook in the
        old VCB, and complete the IRP.
 
     5. Otherwise create a Vcb and root DCB for each valid volume descriptor.
-       Create Fsp threads as necessary, and complete the IRP.
 
 Arguments:
 
@@ -427,138 +366,175 @@ Return Value:
 
 {
     NTSTATUS Status;
-    KEVENT Event;
-    IO_STATUS_BLOCK Iosb;
+
+    PVOLUME_DEVICE_OBJECT VolDo = NULL;
+    PVCB Vcb = NULL;
+    PVCB OldVcb;
+
+    PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation( Irp );
+    PDEVICE_OBJECT DeviceObjectWeTalkTo = IrpSp->Parameters.MountVolume.DeviceObject;
+    PVPB Vpb = IrpSp->Parameters.MountVolume.Vpb;
+
+    ULONG BlockFactor;
     DISK_GEOMETRY DiskGeometry;
 
-    PIO_STACK_LOCATION IrpSp;
+    IO_SCSI_CAPABILITIES Capabilities;
 
-    PDEVICE_OBJECT DeviceObjectWeTalkTo;
-    PVPB Vpb;
+    IO_STATUS_BLOCK Iosb;
 
-    BOOLEAN MountNewVolume;
-    PVOLUME_DEVICE_OBJECT VolDo;
-    PMVCB Mvcb;
-    PIRP DeviceIrp;
+    PCHAR RawIsoVd = NULL;
 
-    PRAW_ISO_VD RawIsoVd;
-    LOGICAL_BLOCK VolumeStart;
-
-    ULONG BlockFactor = CD_SECTOR_SIZE;
-
-    //
-    //  Get the current Irp stack location
-    //
-
-    IrpSp = IoGetCurrentIrpStackLocation( Irp );
+    PCDROM_TOC CdromToc = NULL;
+    ULONG TocLength = 0;
+    ULONG TocTrackCount = 0;
+    ULONG TocDiskFlags = 0;
+    ULONG MediaChangeCount = 0;
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "CdMountVolume\n", 0);
-    DebugTrace( 0, Dbg, "DeviceObject = %08lx\n", IrpSp->Parameters.MountVolume.DeviceObject);
-    DebugTrace( 0, Dbg, "Vpb          = %08lx\n", IrpSp->Parameters.MountVolume.Vpb);
-
     //
-    //  Save some references to make our life a little easier
+    //  Check that we are talking to a Cdrom device.  This request should
+    //  always be waitable.
     //
 
-    DeviceObjectWeTalkTo = IrpSp->Parameters.MountVolume.DeviceObject;
-    Vpb = IrpSp->Parameters.MountVolume.Vpb;
+    ASSERT( Vpb->RealDevice->DeviceType == FILE_DEVICE_CD_ROM );
+    ASSERT( FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_WAIT ));
 
     //
-    //  Do a CheckVerify here to make Jeff happy.
+    //  Update the real device in the IrpContext from the Vpb.  There was no available
+    //  file object when the IrpContext was created.
     //
 
-    Status = CdPerformCheckVerify( IrpContext, DeviceObjectWeTalkTo );
+    IrpContext->RealDevice = Vpb->RealDevice;
 
-    if (!NT_SUCCESS( Status )) {
+    //
+    //  Check if we have disabled the mount process.
+    //
 
-        //
-        //  Raise the error.
-        //
+    if (CdDisable) {
 
-        CdNormalizeAndRaiseStatus( IrpContext, Status );
+        Vpb->DeviceObject = NULL;
+        CdCompleteRequest( IrpContext, Irp, STATUS_UNRECOGNIZED_VOLUME );
+        return STATUS_UNRECOGNIZED_VOLUME;
     }
 
     //
-    //  Now let's Jeff delirious and call to get the disk geometry.  This
+    //  Do a CheckVerify here to lift the MediaChange ticker from the driver
+    //
+
+    Status = CdPerformDevIoCtrl( IrpContext,
+                                 IOCTL_CDROM_CHECK_VERIFY,
+                                 DeviceObjectWeTalkTo,
+                                 &MediaChangeCount,
+                                 sizeof(ULONG),
+                                 FALSE,
+                                 FALSE,
+                                 &Iosb );
+
+    if (!NT_SUCCESS( Status ) && (Status != STATUS_VERIFY_REQUIRED)) {
+
+        //
+        //  Clear the device object in the Vpb to indicate this device isn't
+        //  mounted.
+        //
+
+        Vpb->DeviceObject = NULL;
+
+        Status = FsRtlNormalizeNtstatus( Status, STATUS_UNEXPECTED_IO_ERROR );
+        CdCompleteRequest( IrpContext, Irp, Status );
+        return Status;
+    }
+
+    if (Iosb.Information != sizeof(ULONG)) {
+
+        //
+        //  Be safe about the count in case the driver didn't fill it in
+        //
+
+        MediaChangeCount = 0;
+    }
+
+    //
+    //  Now let's make Jeff delirious and call to get the disk geometry.  This
     //  will fix the case where the first change line is swallowed.
     //
 
-    KeInitializeEvent( &Event, NotificationEvent, FALSE );
+    Status = CdPerformDevIoCtrl( IrpContext,
+                                 IOCTL_CDROM_GET_DRIVE_GEOMETRY,
+                                 DeviceObjectWeTalkTo,
+                                 &DiskGeometry,
+                                 sizeof( DISK_GEOMETRY ),
+                                 FALSE,
+                                 TRUE,
+                                 NULL );
 
     //
-    //  Now check the block size being used by the unit.
+    //  Return insufficient sources to our caller.
     //
 
-    DeviceIrp = IoBuildDeviceIoControlRequest( IOCTL_CDROM_GET_DRIVE_GEOMETRY,
-                                               DeviceObjectWeTalkTo,
-                                               NULL,
-                                               0,
-                                               &DiskGeometry,
-                                               sizeof( DISK_GEOMETRY ),
-                                               FALSE,
-                                               &Event,
-                                               &Iosb );
+    if (Status == STATUS_INSUFFICIENT_RESOURCES) {
 
-    Status = IoCallDriver( DeviceObjectWeTalkTo, DeviceIrp );
-
-    if (Status == STATUS_PENDING) {
-
-        (VOID) KeWaitForSingleObject( &Event,
-                                      Executive,
-                                      KernelMode,
-                                      FALSE,
-                                      (PLARGE_INTEGER)NULL );
-
-        Status = Iosb.Status;
+        Vpb->DeviceObject = NULL;
+        CdCompleteRequest( IrpContext, Irp, Status );
+        return Status;
     }
 
-    if (NT_SUCCESS( Status )) {
+    //
+    //  Now check the block factor for addressing the volume descriptors.
+    //  If the call for the disk geometry failed then assume there is one
+    //  block per sector.
+    //
 
-        if (DiskGeometry.BytesPerSector != 0
-            && DiskGeometry.BytesPerSector < CD_SECTOR_SIZE) {
+    BlockFactor = 1;
 
-            BlockFactor = DiskGeometry.BytesPerSector;
-        }
+    if (NT_SUCCESS( Status ) &&
+        (DiskGeometry.BytesPerSector != 0) &&
+        (DiskGeometry.BytesPerSector < SECTOR_SIZE)) {
+
+        BlockFactor = SECTOR_SIZE / DiskGeometry.BytesPerSector;
     }
 
-    BlockFactor = CD_SECTOR_SIZE / BlockFactor;
-
     //
-    //  TEMPCODE  We check that we are talking to a Cdrom device.
+    //  Acquire the global resource to do mount operations.
     //
 
-    ASSERT(Vpb->RealDevice->DeviceType == FILE_DEVICE_CD_ROM);
-
-    ASSERT( IrpContext->Wait );
+    CdAcquireCdData( IrpContext );
 
     //
-    //  Initialize the variables to indicate the starting state of the
-    //  mount operation.
+    //  Use a try-finally to facilitate cleanup.
     //
-
-    MountNewVolume = FALSE;
-    VolDo = NULL;
-    Mvcb = NULL;
-    RawIsoVd = NULL;
 
     try {
 
-        PMVCB OldMvcb;
+        //
+        //  Allocate a buffer to query the TOC.
+        //
 
-        if (!NT_SUCCESS(Status = IoCreateDevice( CdData.DriverObject,
-                                                 sizeof( VOLUME_DEVICE_OBJECT )
-                                                 - sizeof( DEVICE_OBJECT ),
-                                                 NULL,
-                                                 FILE_DEVICE_CD_ROM_FILE_SYSTEM,
-                                                 0,
-                                                 FALSE,
-                                                 (PDEVICE_OBJECT *) &VolDo ))) {
+        CdromToc = FsRtlAllocatePoolWithTag( CdPagedPool,
+                                             sizeof( CDROM_TOC ),
+                                             TAG_CDROM_TOC );
 
-            DebugTrace(0, Dbg, "CdMountVolume:  Couldn't create device -> %08lx\n", Status );
-            try_return( Status );
-        }
+        RtlZeroMemory( CdromToc, sizeof( CDROM_TOC ));
+
+        //
+        //  Do a quick check to see if there any Vcb's which can be removed.
+        //
+
+        CdScanForDismountedVcb( IrpContext );
+
+        //
+        //  Get our device object and alignment requirement.
+        //
+
+        Status = IoCreateDevice( CdData.DriverObject,
+                                 sizeof( VOLUME_DEVICE_OBJECT ) - sizeof( DEVICE_OBJECT ),
+                                 NULL,
+                                 FILE_DEVICE_CD_ROM_FILE_SYSTEM,
+                                 0,
+                                 FALSE,
+                                 (PDEVICE_OBJECT *) &VolDo );
+
+        if (!NT_SUCCESS( Status )) { try_return( Status ); }
 
         //
         //  Our alignment requirement is the larger of the processor alignment requirement
@@ -583,7 +559,49 @@ Return Value:
         KeInitializeSpinLock( &VolDo->OverflowQueueSpinLock );
 
         //
-        //  Now before we can initialize the Mvcb we need to set up the
+        //  Let's query for the Toc now and handle any error we get from this operation.
+        //
+
+        Status = CdProcessToc( IrpContext,
+                               DeviceObjectWeTalkTo,
+                               CdromToc,
+                               &TocLength,
+                               &TocTrackCount,
+                               &TocDiskFlags );
+
+        //
+        //  It's possible that the current device doesn't support the TOC command.  In that case
+        //  we plow on.  We will fail the mount if there is no media in the device.
+        //
+
+        if (Status != STATUS_SUCCESS) {
+
+            //
+            //  We want to continue even for devices which do not support the TOC command.
+            //  Any other error should cause us to fail the request.
+            //
+
+            if (Status != STATUS_INVALID_DEVICE_REQUEST) {
+
+                try_return( Status );
+            }
+
+            //
+            //  Throw away the Toc and all flags.
+            //
+
+            ExFreePool( CdromToc );
+            CdromToc = NULL;
+
+            TocLength = 0;
+            TocTrackCount = 0;
+            TocDiskFlags = 0;
+
+            Status = STATUS_SUCCESS;
+        }
+
+        //
+        //  Now before we can initialize the Vcb we need to set up the
         //  device object field in the VPB to point to our new volume device
         //  object.
         //
@@ -591,34 +609,20 @@ Return Value:
         Vpb->DeviceObject = (PDEVICE_OBJECT) VolDo;
 
         //
-        //  Initialize the Mvcb, status will be raised on error.
+        //  Initialize the Vcb.  This routine will raise on an allocation
+        //  failure.
         //
 
-        CdInitializeMvcb( IrpContext, &VolDo->Mvcb, DeviceObjectWeTalkTo, Vpb );
-
-        //
-        //  Remember a pointer to the Mvcb structure.
-        //
-
-        Mvcb = &VolDo->Mvcb;
-
-        //
-        //  Remember the block factor.
-        //
-
-        Mvcb->BlockFactor = BlockFactor;
-
-        //
-        //  Remember the real device object.
-        //
-
-        IrpContext->RealDevice = Vpb->RealDevice;
-
-        //
-        //  TEMPCODE.  Hack to make sure verify bit not set on mount.
-        //
-
-        ClearFlag( Vpb->RealDevice->Flags, DO_VERIFY_VOLUME );
+        CdInitializeVcb( IrpContext,
+                         &VolDo->Vcb,
+                         DeviceObjectWeTalkTo,
+                         Vpb,
+                         CdromToc,
+                         TocLength,
+                         TocTrackCount,
+                         TocDiskFlags,
+                         BlockFactor,
+                         MediaChangeCount );
 
         //
         //  We must initialize the stack size in our device object before
@@ -628,134 +632,190 @@ Return Value:
         ((PDEVICE_OBJECT) VolDo)->StackSize = (CCHAR) (DeviceObjectWeTalkTo->StackSize + 1);
 
         //
-        //  Attempt to mount this as a data disk.
+        //  Show that we initialized the Vcb and can cleanup with the Vcb.
         //
 
-        //
-        //  Allocate a buffer for the sector buffer.
-        //
-
-        RawIsoVd = FsRtlAllocatePool( NonPagedPool,
-                                      (ULONG) (ROUND_TO_PAGES( CD_SECTOR_SIZE )));
+        Vcb = &VolDo->Vcb;
+        VolDo = NULL;
+        Vpb = NULL;
+        CdromToc = NULL;
 
         //
-        //  Try to find a primary volume descriptor.  If we can't then treat this
-        //  as a raw disk.
+        //  Store the Vcb in the IrpContext as we didn't have one before.
+        //
+
+        IrpContext->Vcb = Vcb;
+
+        CdAcquireVcbExclusive( IrpContext, Vcb, FALSE );
+
+        //
+        //  Let's reference the Vpb to make sure we are the one to
+        //  have the last dereference.
+        //
+
+        Vcb->Vpb->ReferenceCount += 1;
+
+        //
+        //  Clear the verify bit for the start of mount.
+        //
+
+        ClearFlag( Vcb->Vpb->RealDevice->Flags, DO_VERIFY_VOLUME );
+
+        //
+        //  Allocate a buffer to read in the volume descriptors.  We allocate a full
+        //  page to make sure we don't hit any alignment problems.
+        //
+
+        RawIsoVd = FsRtlAllocatePoolWithTag( CdNonPagedPool,
+                                             ROUND_TO_PAGES( SECTOR_SIZE ),
+                                             TAG_VOL_DESC );
+
+        //
+        //  Try to find the primary volume descriptor.  Otherwise we will
+        //  mount this as a raw disk.  This routine will raise on an
+        //  empty device.
         //
 
         if (!CdFindPrimaryVd( IrpContext,
-                              Mvcb,
+                              Vcb,
                               RawIsoVd,
-                              &VolumeStart,
-                              Vpb,
+                              BlockFactor,
                               TRUE,
                               FALSE )) {
 
-            SetFlag( Mvcb->MvcbState, MVCB_STATE_FLAG_RAW_DISK );
+            SetFlag( Vcb->VcbState, VCB_STATE_RAW_DISK );
+
+            //
+            //  Increment the reference count for the missing internal
+            //  Fcb's.
+            //
+
+            Vcb->VcbReference += 4;
+
+            ExFreePool( RawIsoVd );
+            RawIsoVd = NULL;
         }
 
         //
-        //  Check if this is a remount operation.  On a remount, free the
-        //  structures just allocated.  Also free the new Vpb structure.
-        //  Exit the try statement.
-        //
-        //  Acquire exclusive global access, the termination handler for the
+        //  Look and see if there is a secondary volume descriptor we want to
+        //  use.
         //
 
-        CdAcquireExclusiveGlobal( IrpContext );
-
-        if (CdIsRemount( IrpContext, Mvcb, &OldMvcb )) {
-
-            PVPB OldVpb;
-            PLIST_ENTRY Link;
-
-            DebugTrace( 0, Dbg, "CdMountVolume:  Doing a remount\n", 0 );
+        if (!FlagOn( Vcb->VcbState, VCB_STATE_RAW_DISK )) {
 
             //
-            //  Link the old mvcb to point to the new device object that we
+            //  Store the primary volume descriptor in the second half of
+            //  RawIsoVd.  Then if our search for a secondary fails we can
+            //  recover this immediately.
+            //
+
+            RtlCopyMemory( Add2Ptr( RawIsoVd, SECTOR_SIZE, PVOID ),
+                           RawIsoVd,
+                           SECTOR_SIZE );
+
+            //
+            //  We have the initial volume descriptor.  Locate a secondary
+            //  volume descriptor if present.
+            //
+
+            CdFindActiveVolDescriptor( IrpContext,
+                                       Vcb,
+                                       RawIsoVd );
+        }
+
+        //
+        //  Check if this is a remount operation.  If so then clean up
+        //  the data structures passed in and created here.
+        //
+
+        if (CdIsRemount( IrpContext, Vcb, &OldVcb )) {
+
+            //
+            //  Link the old Vcb to point to the new device object that we
             //  should be talking to
             //
 
-            OldVpb = OldMvcb->Vpb;
+            Vcb->Vpb->RealDevice->Vpb = OldVcb->Vpb;
 
-            OldVpb->RealDevice = Vpb->RealDevice;
-            OldVpb->RealDevice->Vpb = OldVpb;
-            OldMvcb->TargetDeviceObject = DeviceObjectWeTalkTo;
-            OldMvcb->MvcbCondition = MvcbGood;
+            OldVcb->Vpb->RealDevice = Vcb->Vpb->RealDevice;
 
-            //
-            // Deallocate the Vpb passed in.
-            //
+            OldVcb->TargetDeviceObject = DeviceObjectWeTalkTo;
+            OldVcb->VcbCondition = VcbMounted;
 
-            ExFreePool( Vpb );
-            Vpb = NULL;
-
-            //
-            //  Make sure the remaining stream files are orphaned.
-            //
-
-            for( Link = Mvcb->VcbLinks.Flink;
-                 Link != &Mvcb->VcbLinks;
-                 Link = Link->Flink ) {
-
-                PVCB Vcb;
-
-                Vcb = CONTAINING_RECORD( Link, VCB, VcbLinks );
-
-                Vcb->PathTableFile->Vpb = NULL;
-                Vcb->RootDcb->Specific.Dcb.StreamFile->Vpb = NULL;
-            }
-
-            //
-            //  The completion status is STATUS_SUCCESS.
-            //
-
-            CdReleaseGlobal( IrpContext );
+            OldVcb->MediaChangeCount = Vcb->MediaChangeCount;
 
             try_return( Status = STATUS_SUCCESS );
         }
 
-        CdReleaseGlobal( IrpContext );
-
         //
-        //  This is now a new mount operation.  The Mvcb has been updated
-        //  already.
+        //  This is a new mount.  Go ahead and initialize the
+        //  Vcb from the volume descriptor.
         //
 
-        DebugTrace( 0, Dbg, "CdMountVolume:  Doing a new mount\n", 0 );
+        CdUpdateVcbFromVolDescriptor( IrpContext,
+                                      Vcb,
+                                      RawIsoVd );
+
 
         //
-        //  Create the VCB and associated structures for the primary
-        //  volume descriptor.  If we can't create the Vcb, we
-        //  assume there is an audio disk present.
+        //  Now check the maximum transfer limits on the device in case we
+        //  get raw reads on this volume.
         //
+    
+        Status = CdPerformDevIoCtrl( IrpContext,
+                                     IOCTL_SCSI_GET_CAPABILITIES,
+                                     DeviceObjectWeTalkTo,
+                                     &Capabilities,
+                                     sizeof( IO_SCSI_CAPABILITIES ),
+                                     FALSE,
+                                     TRUE,
+                                     NULL );
+    
+        if (NT_SUCCESS(Status)) {
 
-        if (!FlagOn( Mvcb->MvcbState, MVCB_STATE_FLAG_RAW_DISK )) {
+            Vcb->MaximumTransferRawSectors = Capabilities.MaximumTransferLength / RAW_SECTOR_SIZE;
+            Vcb->MaximumPhysicalPages = Capabilities.MaximumPhysicalPages;
 
-            CdCreateVcb( IrpContext,
-                         Mvcb,
-                         RawIsoVd,
-                         CdData.PrimaryCodePage );
+        } else {
 
             //
-            //  Read in as many applicable secondary volume descriptors as
-            //  possible.
+            //  This should never happen, but we can safely assume 64k and 16 pages.
             //
 
-            CdCreateSecondaryVcbs( IrpContext, Mvcb, VolumeStart, RawIsoVd );
+            Vcb->MaximumTransferRawSectors = (64 * 1024) / RAW_SECTOR_SIZE;
+            Vcb->MaximumPhysicalPages = 16;
         }
 
         //
-        //  Indicate to our termination handler that we have mounted
-        //  a new volume.
+        //  The new mount is complete.  Remove the additional references on this
+        //  Vcb.
         //
 
-        MountNewVolume = TRUE;
+        Vcb->VcbReference -= CDFS_RESIDUAL_REFERENCE;
+        ASSERT( Vcb->VcbReference == CDFS_RESIDUAL_REFERENCE );
+
+        Vcb->VcbCondition = VcbMounted;
+
+        CdReleaseVcb( IrpContext, Vcb );
+        Vcb = NULL;
 
         Status = STATUS_SUCCESS;
 
-    try_exit: NOTHING;
+    try_exit:  NOTHING;
     } finally {
+
+        //
+        //  Free the TOC buffer if not in the Vcb.
+        //
+
+        if (CdromToc != NULL) {
+
+            ExFreePool( CdromToc );
+        }
+
+        //
+        //  Free the sector buffer if allocated.
+        //
 
         if (RawIsoVd != NULL) {
 
@@ -763,46 +823,49 @@ Return Value:
         }
 
         //
-        // If this was not a new mount, then cleanup any structures
-        // allocated.
+        //  If we didn't complete the mount then cleanup any remaining structures.
         //
 
-        if (!MountNewVolume) {
+        if (Vpb != NULL) { Vpb->DeviceObject = NULL; }
+
+        if (Vcb != NULL) {
 
             //
-            //  Show that no media is currently mounted on this device
+            //  Make sure there is no Vcb in the IrpContext since it could go away
             //
 
-            if (Vpb != NULL) {
+            IrpContext->Vcb = NULL;
 
-                Vpb->DeviceObject = NULL;
+            Vcb->VcbReference -= CDFS_RESIDUAL_REFERENCE;
+
+            if (CdDismountVcb( IrpContext, Vcb )) {
+
+                CdReleaseVcb( IrpContext, Vcb );
             }
 
-            if (Mvcb != NULL) {
+        } else if (VolDo != NULL) {
 
-                CdDeleteMvcb( IrpContext, Mvcb );
-            }
-
-            if (VolDo != NULL) {
-
-                IoDeleteDevice( (PDEVICE_OBJECT) VolDo );
-            }
+            IoDeleteDevice( (PDEVICE_OBJECT) VolDo );
         }
 
-        if (!AbnormalTermination()) {
+        //
+        //  Release the global resource.
+        //
 
-            CdCompleteRequest( IrpContext, Irp, Status );
-        }
-
-        DebugTrace(-1, Dbg, "CdMountVolume -> %08lx\n", Status);
+        CdReleaseCdData( IrpContext );
     }
 
+    //
+    //  Complete the request if no exception.
+    //
+
+    CdCompleteRequest( IrpContext, Irp, Status );
     return Status;
 }
 
-
+
 //
-//  Local Support Routine
+//  Local support routine
 //
 
 NTSTATUS
@@ -829,78 +892,56 @@ Return Value:
 --*/
 
 {
-    PIO_STACK_LOCATION      IrpSp;
-    PVPB                    Vpb;
+    PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation( Irp );
+    PVPB Vpb = IrpSp->Parameters.VerifyVolume.Vpb;
+    PVCB Vcb = &((PVOLUME_DEVICE_OBJECT) IrpSp->Parameters.VerifyVolume.DeviceObject)->Vcb;
 
-    PRAW_ISO_VD             RawIsoVd;
+    PCHAR RawIsoVd = NULL;
 
-    PVOLUME_DEVICE_OBJECT   VolDo;
-    PMVCB                   Mvcb;
-    ULONG                   StartingSector;
+    PCDROM_TOC CdromToc = NULL;
+    ULONG TocLength = 0;
+    ULONG TocTrackCount = 0;
+    ULONG TocDiskFlags = 0;
 
-    NTSTATUS                Status = STATUS_SUCCESS;
-    BOOLEAN                 ReturnError;
+    ULONG MediaChangeCount = 0;
 
-    //
-    //  Get the current Irp stack location
-    //
+    BOOLEAN ReturnError;
 
-    IrpSp = IoGetCurrentIrpStackLocation( Irp );
+    IO_STATUS_BLOCK Iosb;
+
+    STRING AnsiLabel;
+    UNICODE_STRING UnicodeLabel;
+
+    WCHAR VolumeLabel[ VOLUME_ID_LENGTH ];
+    ULONG VolumeLabelLength;
+
+    ULONG Index;
+
+    NTSTATUS Status;
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "CdVerifyVolume\n", 0);
-    DebugTrace( 0, Dbg, "DeviceObject = %08lx\n", IrpSp->Parameters.VerifyVolume.DeviceObject);
-    DebugTrace( 0, Dbg, "Vpb          = %08lx\n", IrpSp->Parameters.VerifyVolume.Vpb);
-
     //
-    //  Save some references to make our life a little easier
+    //  We check that we are talking to a Cdrom device.
     //
 
-    VolDo = (PVOLUME_DEVICE_OBJECT) IrpSp->Parameters.VerifyVolume.DeviceObject;
-    Vpb = IrpSp->Parameters.VerifyVolume.Vpb;
+    ASSERT( Vpb->RealDevice->DeviceType == FILE_DEVICE_CD_ROM );
+    ASSERT( FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_WAIT ));
 
     //
-    //  TEMPCODE  We check that we are talking to a Cdrom device.
+    //  Update the real device in the IrpContext from the Vpb.  There was no available
+    //  file object when the IrpContext was created.
     //
 
-    ASSERT(Vpb->RealDevice->DeviceType == FILE_DEVICE_CD_ROM);
-
-    //
-    //  Remember a pointer to the Mvcb structure.
-    //
-
-    Mvcb = &VolDo->Mvcb;
-
-    //
-    //  If we cannot wait then enqueue the irp to the fsp and
-    //  return the status to our caller
-    //
-
-    if (!IrpContext->Wait) {
-
-        DebugTrace(0, Dbg, "Cannot wait for verify\n", 0);
-
-        Status = CdFsdPostRequest( IrpContext, Irp );
-
-        DebugTrace(-1, Dbg, "CdVerifyVolume -> %08lx\n", Status );
-        return Status;
-    }
-
-    //
-    //  Initialize the variables to indicate the starting state of the
-    //  verify operation.
-    //
-
-    RawIsoVd = NULL;
+    IrpContext->RealDevice = Vpb->RealDevice;
 
     //
     //  Acquire shared global access, the termination handler for the
     //  following try statement will free the access.
     //
 
-    CdAcquireExclusiveGlobal( IrpContext );
-    CdAcquireExclusiveMvcb( IrpContext, Mvcb );
+    CdAcquireCdData( IrpContext );
+    CdAcquireVcbExclusive( IrpContext, Vcb, FALSE );
 
     try {
 
@@ -913,18 +954,33 @@ Return Value:
 
         if (!FlagOn( Vpb->RealDevice->Flags, DO_VERIFY_VOLUME )) {
 
-            DebugTrace(0, Dbg, "RealDevice has already been verified\n", 0);
-
             try_return( Status = STATUS_SUCCESS );
         }
 
-        IrpContext->RealDevice = Vpb->RealDevice;
+        //
+        //  If the current Vcb is for a raw disk then always force the
+        //  remount path.
+        //
+
+        if (FlagOn( Vcb->VcbState, VCB_STATE_RAW_DISK )) {
+
+            try_return( Status = STATUS_WRONG_VOLUME );
+        }
 
         //
         //  Verify that there is a disk here.
         //
 
-        if (!NT_SUCCESS( Status = CdPerformCheckVerify( IrpContext, Mvcb->TargetDeviceObject ))) {
+        Status = CdPerformDevIoCtrl( IrpContext,
+                                     IOCTL_CDROM_CHECK_VERIFY,
+                                     Vcb->TargetDeviceObject,
+                                     &MediaChangeCount,
+                                     sizeof(ULONG),
+                                     FALSE,
+                                     TRUE,
+                                     &Iosb );
+
+        if (!NT_SUCCESS( Status )) {
 
             //
             //  If we will allow a raw mount then return WRONG_VOLUME to
@@ -934,117 +990,223 @@ Return Value:
             if (FlagOn( IrpSp->Flags, SL_ALLOW_RAW_MOUNT )) {
 
                 Status = STATUS_WRONG_VOLUME;
-                Mvcb->MvcbCondition = MvcbNotMounted;
             }
 
-            try_return( NOTHING );
+            try_return( Status );
+        }
+
+        if (Iosb.Information != sizeof(ULONG)) {
+
+            //
+            //  Be safe about the count in case the driver didn't fill it in
+            //
+    
+            MediaChangeCount = 0;
         }
 
         //
-        //  Allocate a buffer for the sector buffer.
+        //  Verify that the device actually saw a change. If the driver does not
+        //  support the MCC, then we must verify the volume in any case.
         //
 
-        RawIsoVd = FsRtlAllocatePool( NonPagedPool,
-                                      (ULONG) (ROUND_TO_PAGES( CD_SECTOR_SIZE )));
-
-        //
-        //  Read the primary volume descriptor for this volume.  If we
-        //  get an io error and this verify was a the result of DASD open,
-        //  commute the Io error to STATUS_WRONG_VOLUME.  Note that if we currently
-        //  expect a music disk then this request should fail.
-        //
-
-        if (FlagOn( Mvcb->MvcbState, MVCB_STATE_FLAG_RAW_DISK )
-            || FlagOn( IrpSp->Flags, SL_ALLOW_RAW_MOUNT )) {
-
-            ReturnError = TRUE;
-
-        } else {
-
-            ReturnError = FALSE;
-        }
-
-        if (!CdFindPrimaryVd( IrpContext,
-                              Mvcb,
-                              RawIsoVd,
-                              &StartingSector,
-                              Vpb,
-                              ReturnError,
-                              TRUE )) {
+        if (MediaChangeCount == 0 ||
+            (Vcb->MediaChangeCount != MediaChangeCount)) {
 
             //
-            //  If the previous Mvcb represented a raw disk then this was successful.
+            //  Allocate a buffer to query the TOC.
+            //
+    
+            CdromToc = FsRtlAllocatePoolWithTag( CdPagedPool,
+                                                 sizeof( CDROM_TOC ),
+                                                 TAG_CDROM_TOC );
+    
+            RtlZeroMemory( CdromToc, sizeof( CDROM_TOC ));
+    
+            //
+            //  Let's query for the Toc now and handle any error we get from this operation.
+            //
+    
+            Status = CdProcessToc( IrpContext,
+                                   Vcb->TargetDeviceObject,
+                                   CdromToc,
+                                   &TocLength,
+                                   &TocTrackCount,
+                                   &TocDiskFlags );
+    
+            //
+            //  It's possible that the current device doesn't support the TOC command.  In that case
+            //  we plow on.  Check the results with the previous Vcb.
             //
 
-            if (!FlagOn( Mvcb->MvcbState, MVCB_STATE_FLAG_RAW_DISK )) {
-
-                Mvcb->MvcbCondition = MvcbNotMounted;
-
-                try_return( Status = STATUS_WRONG_VOLUME );
-            }
-
-        } else {
-
-            //
-            //  Compare the serial numbers.  If they don't match, set the
-            //  status to wrong volume.
-            //
-
-            if (Vpb->SerialNumber != CdSerial32( (PUCHAR) RawIsoVd, CD_SECTOR_SIZE )) {
-
-                DebugTrace(0, Dbg, "CdVerifyVolume:  Serial numbers don't match\n", 0);
-                Mvcb->MvcbCondition = MvcbNotMounted;
-
-                try_return( Status = STATUS_WRONG_VOLUME );
-            }
-
-            //
-            //  Verify the volume labels.
-            //
-
-            {
-                ANSI_STRING AnsiLabel;
-                UNICODE_STRING UnicodeLabel;
-                UNICODE_STRING VpbLabel;
-
-                WCHAR LabelBuffer[VOLUME_ID_LENGTH];
-
-                AnsiLabel.MaximumLength = VOLUME_ID_LENGTH;
-
-                AnsiLabel.Buffer = RVD_VOL_ID( RawIsoVd,
-                                               FlagOn( Mvcb->MvcbState,
-                                                       MVCB_STATE_FLAG_ISO_VOLUME ));
-
-                for ( AnsiLabel.Length = VOLUME_ID_LENGTH;
-                      AnsiLabel.Length > 0;
-                      AnsiLabel.Length -= 1) {
-
-                    if ( (AnsiLabel.Buffer[AnsiLabel.Length-1] != 0x00) &&
-                         (AnsiLabel.Buffer[AnsiLabel.Length-1] != 0x20) ) { break; }
-                }
-
-                UnicodeLabel.MaximumLength = VOLUME_ID_LENGTH * sizeof(WCHAR);
-                UnicodeLabel.Buffer = LabelBuffer;
-
-                VpbLabel.Length = Vpb->VolumeLabelLength;
-                VpbLabel.MaximumLength = MAXIMUM_VOLUME_LABEL_LENGTH;
-                VpbLabel.Buffer = &Vpb->VolumeLabel[0];
-
-                Status = RtlOemStringToCountedUnicodeString( &UnicodeLabel,
-                                                             &AnsiLabel,
-                                                             FALSE );
-
-                if ( !NT_SUCCESS( Status ) ) {
-
+            if (Status != STATUS_SUCCESS) {
+    
+                //
+                //  If their is no media then return the error.
+                //
+    
+                if (CdIsRawDevice( IrpContext, Status )) {
+    
+                    try_return( Status );
+    
+                //
+                //  If the previous Vcb has a TOC then fail the request.
+                //  Fail on any error not related to a device not supporting
+                //  the TOC command.
+                //
+    
+                } else if ((Vcb->CdromToc != NULL) ||
+                           (Status != STATUS_INVALID_DEVICE_REQUEST)) {
+    
                     try_return( Status );
                 }
+    
+            //
+            //  We got a TOC.  Verify that it matches the previous Toc.
+            //
+    
+            } else if ((Vcb->TocLength != TocLength) ||
+                       (Vcb->TrackCount != TocTrackCount) ||
+                       (Vcb->DiskFlags != TocDiskFlags) ||
+                       !RtlEqualMemory( CdromToc,
+                                        Vcb->CdromToc,
+                                        TocLength )) {
+    
+                try_return( Status = STATUS_WRONG_VOLUME );
+            }
 
-                if (!RtlEqualUnicodeString( &UnicodeLabel, &VpbLabel, FALSE ) ) {
-
-                    DebugTrace(0, Dbg, "CdVerifyVolume:  Volume label mismatch\n", 0);
-                    Mvcb->MvcbCondition = MvcbNotMounted;
-
+            //
+            //  If the disk to verify is an audio disk then we already have a
+            //  match.  Otherwise we need to check the volume descriptor.
+            //
+    
+            if (!FlagOn( Vcb->VcbState, VCB_STATE_AUDIO_DISK )) {
+    
+                //
+                //  Allocate a buffer for the sector buffer.
+                //
+    
+                RawIsoVd = FsRtlAllocatePoolWithTag( CdNonPagedPool,
+                                                     ROUND_TO_PAGES( SECTOR_SIZE ),
+                                                     TAG_VOL_DESC );
+    
+                //
+                //  Read the primary volume descriptor for this volume.  If we
+                //  get an io error and this verify was a the result of DASD open,
+                //  commute the Io error to STATUS_WRONG_VOLUME.  Note that if we currently
+                //  expect a music disk then this request should fail.
+                //
+    
+                ReturnError = FALSE;
+    
+                if (FlagOn( IrpSp->Flags, SL_ALLOW_RAW_MOUNT )) {
+    
+                    ReturnError = TRUE;
+                }
+    
+                if (!CdFindPrimaryVd( IrpContext,
+                                      Vcb,
+                                      RawIsoVd,
+                                      Vcb->BlockFactor,
+                                      ReturnError,
+                                      TRUE )) {
+    
+                    //
+                    //  If the previous Vcb did not represent a raw disk
+                    //  then show this volume was dismounted.
+                    //
+    
                     try_return( Status = STATUS_WRONG_VOLUME );
+    
+                } else {
+    
+                    //
+                    //  Compare the serial numbers.  If they don't match, set the
+                    //  status to wrong volume.
+                    //
+    
+                    if (Vpb->SerialNumber != CdSerial32( RawIsoVd, SECTOR_SIZE )) {
+    
+                        try_return( Status = STATUS_WRONG_VOLUME );
+                    }
+    
+                    //
+                    //  Verify the volume labels.
+                    //
+    
+                    if (!FlagOn( Vcb->VcbState, VCB_STATE_JOLIET )) {
+    
+                        //
+                        //  Compute the length of the volume name
+                        //
+    
+                        AnsiLabel.Buffer = CdRvdVolId( RawIsoVd, Vcb->VcbState );
+                        AnsiLabel.MaximumLength = AnsiLabel.Length = VOLUME_ID_LENGTH;
+    
+                        UnicodeLabel.MaximumLength = VOLUME_ID_LENGTH * sizeof( WCHAR );
+                        UnicodeLabel.Buffer = VolumeLabel;
+    
+                        //
+                        //  Convert this to unicode.  If we get any error then use a name
+                        //  length of zero.
+                        //
+    
+                        VolumeLabelLength = 0;
+    
+                        if (NT_SUCCESS( RtlOemStringToCountedUnicodeString( &UnicodeLabel,
+                                                                            &AnsiLabel,
+                                                                            FALSE ))) {
+    
+                            VolumeLabelLength = UnicodeLabel.Length;
+                        }
+    
+                    //
+                    //  We need to convert from big-endian to little endian.
+                    //
+    
+                    } else {
+    
+                        CdConvertBigToLittleEndian( IrpContext,
+                                                    CdRvdVolId( RawIsoVd, Vcb->VcbState ),
+                                                    VOLUME_ID_LENGTH,
+                                                    (PCHAR) VolumeLabel );
+    
+                        VolumeLabelLength = VOLUME_ID_LENGTH;
+                    }
+    
+                    //
+                    //  Strip the trailing spaces or zeroes from the name.
+                    //
+    
+                    Index = VolumeLabelLength / sizeof( WCHAR );
+    
+                    while (Index > 0) {
+    
+                        if ((VolumeLabel[ Index - 1 ] != L'\0') &&
+                            (VolumeLabel[ Index - 1 ] != L' ')) {
+    
+                            break;
+                        }
+    
+                        Index -= 1;
+                    }
+    
+                    //
+                    //  Now set the final length for the name.
+                    //
+    
+                    VolumeLabelLength = (USHORT) (Index * sizeof( WCHAR ));
+    
+                    //
+                    //  Now check that the label matches.
+                    //
+    
+                    if ((Vpb->VolumeLabelLength != VolumeLabelLength) ||
+                        !RtlEqualMemory( Vpb->VolumeLabel,
+                                         VolumeLabel,
+                                         VolumeLabelLength )) {
+    
+                        try_return( Status = STATUS_WRONG_VOLUME );
+                    }
                 }
             }
         }
@@ -1053,136 +1215,64 @@ Return Value:
         //  The volume is OK, clear the verify bit.
         //
 
-        Mvcb->MvcbCondition = MvcbGood;
+        Vcb->VcbCondition = VcbMounted;
 
         ClearFlag( Vpb->RealDevice->Flags, DO_VERIFY_VOLUME );
 
     try_exit: NOTHING;
+
+        //
+        //  Update the media change count to note that we have verified the volume
+        //  at this value
+        //
+
+        Vcb->MediaChangeCount = MediaChangeCount;
+
+        //
+        //  If we got the wrong volume then free any remaining XA sector in
+        //  the current Vcb.  Also mark the Vcb as not mounted.
+        //
+
+        if (Status == STATUS_WRONG_VOLUME) {
+
+            Vcb->VcbCondition = VcbNotMounted;
+            if (Vcb->XASector != NULL) {
+
+                ExFreePool( Vcb->XASector );
+                Vcb->XASector = 0;
+                Vcb->XADiskOffset = 0;
+            }
+        }
+
     } finally {
+
+        //
+        //  Free the TOC buffer if allocated.
+        //
+
+        if (CdromToc != NULL) {
+
+            ExFreePool( CdromToc );
+        }
 
         if (RawIsoVd != NULL) {
 
             ExFreePool( RawIsoVd );
         }
 
-        CdReleaseMvcb( IrpContext, Mvcb );
-        CdReleaseGlobal( IrpContext );
-
-        if (!AbnormalTermination()) {
-
-            CdCompleteRequest( IrpContext, Irp, Status );
-        }
-
-        DebugTrace(-1, Dbg, "CdVerifyVolume -> %08lx\n", Status);
+        CdReleaseVcb( IrpContext, Vcb );
+        CdReleaseCdData( IrpContext );
     }
 
+    //
+    //  Complete the request if no exception.
+    //
+
+    CdCompleteRequest( IrpContext, Irp, Status );
     return Status;
 }
 
 
-//
-//  Local Support Routine
-//
-
-NTSTATUS
-CdUserFsctl (
-    IN PIRP_CONTEXT IrpContext,
-    IN PIRP Irp
-    )
-
-/*++
-
-Routine Description:
-
-    This is the common routine for implementing the user's requests made
-    through NtFsControlFile.
-
-Arguments:
-
-    Irp - Supplies the Irp being processed
-
-Return Value:
-
-    NTSTATUS - The return status for the operation
-
---*/
-
-{
-    NTSTATUS Status;
-    ULONG FsControlCode;
-
-    PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation( Irp );
-
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "CdUserFsctl:  Entered\n", 0);
-    DebugTrace( 0, Dbg, "CdUserFsctl:  Irp         -> %08lx\n", Irp );
-    DebugTrace( 0, Dbg, "CdUserFsctl:  Cntrl Code  -> %08lx\n",
-                IrpSp->Parameters.FileSystemControl.FsControlCode);
-
-    //
-    //  Save some references to make our life a little easier
-    //
-
-    FsControlCode = IrpSp->Parameters.FileSystemControl.FsControlCode;
-
-    //
-    //  Case on the control code.
-    //
-
-    switch ( FsControlCode ) {
-
-    case FSCTL_REQUEST_OPLOCK_LEVEL_1:
-    case FSCTL_REQUEST_OPLOCK_LEVEL_2:
-    case FSCTL_REQUEST_BATCH_OPLOCK:
-    case FSCTL_OPLOCK_BREAK_ACKNOWLEDGE:
-    case FSCTL_OPBATCH_ACK_CLOSE_PENDING:
-    case FSCTL_OPLOCK_BREAK_NOTIFY:
-    case FSCTL_OPLOCK_BREAK_ACK_NO_2:
-
-        Status = CdOplockRequest( IrpContext, Irp );
-        break;
-
-    case FSCTL_LOCK_VOLUME:
-
-        Status = CdLockVolume( IrpContext, Irp );
-        break;
-
-    case FSCTL_UNLOCK_VOLUME:
-
-        Status = CdUnlockVolume( IrpContext, Irp );
-        break;
-
-    case FSCTL_DISMOUNT_VOLUME:
-
-        Status = CdDismountVolume( IrpContext, Irp );
-        break;
-
-    case FSCTL_IS_VOLUME_MOUNTED:
-
-        Status = CdIsVolumeMounted( IrpContext, Irp );
-        break;
-
-    case FSCTL_IS_PATHNAME_VALID:
-
-        Status = CdIsPathnameValid( IrpContext, Irp );
-        break;
-
-    default :
-
-        DebugTrace(0, Dbg, "Invalid control code -> %08lx\n", FsControlCode );
-
-        CdCompleteRequest( IrpContext, Irp, STATUS_INVALID_PARAMETER );
-        Status = STATUS_INVALID_PARAMETER;
-        break;
-    }
-
-    DebugTrace(-1, Dbg, "CdUserFsCtrl:  Exit -> %08lx\n", Status );
-    return Status;
-}
-
-
-
 //
 //  Local support routine
 //
@@ -1212,104 +1302,59 @@ Return Value:
 
 {
     NTSTATUS Status;
-    ULONG FsControlCode;
-    PMVCB Mvcb;
     PFCB Fcb;
-    PVCB Vcb;
     PCCB Ccb;
 
-    BOOLEAN AcquiredMvcb = FALSE;
-
-    ULONG OplockCount;
-
+    ULONG OplockCount = 0;
     PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation( Irp );
 
-    //
-    //  Save some references to make our life a little easier
-    //
-
-    FsControlCode = IrpSp->Parameters.FileSystemControl.FsControlCode;
-
     PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "CdOplockRequest...\n", 0);
-    DebugTrace( 0, Dbg, "FsControlCode = %08lx\n", FsControlCode);
 
     //
     //  We only permit oplock requests on files.
     //
 
-    if ( CdDecodeFileObject( IrpSp->FileObject,
-                             &Mvcb,
-                             &Vcb,
-                             &Fcb,
-                             &Ccb ) != UserFileOpen ) {
+    if (CdDecodeFileObject( IrpContext,
+                            IrpSp->FileObject,
+                            &Fcb,
+                            &Ccb ) != UserFileOpen ) {
 
         CdCompleteRequest( IrpContext, Irp, STATUS_INVALID_PARAMETER );
-        DebugTrace(-1, Dbg, "CdOplockRequest -> STATUS_INVALID_PARAMETER\n", 0);
         return STATUS_INVALID_PARAMETER;
     }
+
+    //
+    //  Make this a waitable Irpcontext so we don't fail to acquire
+    //  the resources.
+    //
+
+    SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_WAIT );
+    ClearFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_FORCE_POST );
 
     //
     //  Switch on the function control code.  We grab the Fcb exclusively
     //  for oplock requests, shared for oplock break acknowledgement.
     //
 
-    switch ( FsControlCode ) {
+    switch (IrpSp->Parameters.FileSystemControl.FsControlCode) {
 
-    case FSCTL_REQUEST_OPLOCK_LEVEL_1:
-    case FSCTL_REQUEST_OPLOCK_LEVEL_2:
-    case FSCTL_REQUEST_BATCH_OPLOCK:
+    case FSCTL_REQUEST_OPLOCK_LEVEL_1 :
+    case FSCTL_REQUEST_OPLOCK_LEVEL_2 :
+    case FSCTL_REQUEST_BATCH_OPLOCK :
+    case FSCTL_REQUEST_FILTER_OPLOCK :
 
-        if ( !CdAcquireExclusiveMvcb( IrpContext, Fcb->Vcb->Mvcb )) {
+        CdAcquireFcbExclusive( IrpContext, Fcb, FALSE );
 
-            //
-            //  If we can't acquire the Mcb, then this is an invalid
-            //  operation since we can't post Oplock requests.
-            //
+        if (IrpSp->Parameters.FileSystemControl.FsControlCode == FSCTL_REQUEST_OPLOCK_LEVEL_2) {
 
-            DebugTrace(0, Dbg, "Cannot acquire exclusive Mvcb\n", 0)
+            if (Fcb->FileLock != NULL) {
 
-            CdCompleteRequest( IrpContext, Irp, STATUS_OPLOCK_NOT_GRANTED );
-            DebugTrace(-1, Dbg, "CdOplockRequest -> STATUS_OPLOCK_NOT_GRANTED\n", 0);
-            return STATUS_OPLOCK_NOT_GRANTED;
-        }
-
-        AcquiredMvcb = TRUE;
-
-        //
-        //  We set the wait parameter in the IrpContext to FALSE.  If this
-        //  request can't grab the Fcb and we are in the Fsp thread, then
-        //  we fail this request.
-        //
-
-        IrpContext->Wait = FALSE;
-
-        if ( !CdAcquireExclusiveFcb( IrpContext, Fcb )) {
-
-            DebugTrace(0, Dbg, "Cannot acquire exclusive Fcb\n", 0);
-
-            CdReleaseMvcb( IrpContext, Fcb->Vcb->Mvcb );
-
-            //
-            //  We fail this request.
-            //
-
-            Status = STATUS_OPLOCK_NOT_GRANTED;
-
-            CdCompleteRequest( IrpContext, Irp, Status );
-
-            DebugTrace(-1, Dbg, "CdOplockRequest -> %08lx\n", Status );
-            return Status;
-        }
-
-        if (FsControlCode == FSCTL_REQUEST_OPLOCK_LEVEL_2) {
-
-            OplockCount = (ULONG) FsRtlAreThereCurrentFileLocks( &Fcb->Specific.Fcb.FileLock );
+                OplockCount = (ULONG) FsRtlAreThereCurrentFileLocks( Fcb->FileLock );
+            }
 
         } else {
 
-            OplockCount = Fcb->UncleanCount;
+            OplockCount = Fcb->FcbCleanup;
         }
 
         break;
@@ -1319,21 +1364,13 @@ Return Value:
     case FSCTL_OPLOCK_BREAK_NOTIFY:
     case FSCTL_OPLOCK_BREAK_ACK_NO_2:
 
-        if ( !CdAcquireSharedFcb( IrpContext, Fcb )) {
-
-            DebugTrace(0, Dbg, "Cannot acquire shared Fcb\n", 0);
-
-            Status = CdFsdPostRequest( IrpContext, Irp );
-
-            DebugTrace(-1, Dbg, "CdOplockRequest -> %08lx\n", Status );
-            return Status;
-        }
-
+        CdAcquireFcbShared( IrpContext, Fcb, FALSE );
         break;
 
     default:
 
-        CdBugCheck( FsControlCode, 0, 0 );
+        CdCompleteRequest( IrpContext, Irp, STATUS_INVALID_PARAMETER );
+        return STATUS_INVALID_PARAMETER;
     }
 
     //
@@ -1343,10 +1380,16 @@ Return Value:
     try {
 
         //
+        //  Verify the Fcb.
+        //
+
+        CdVerifyFcbOperation( IrpContext, Fcb );
+
+        //
         //  Call the FsRtl routine to grant/acknowledge oplock.
         //
 
-        Status = FsRtlOplockFsctrl( &Fcb->Specific.Fcb.Oplock,
+        Status = FsRtlOplockFsctrl( &Fcb->Oplock,
                                     Irp,
                                     OplockCount );
 
@@ -1354,7 +1397,15 @@ Return Value:
         //  Set the flag indicating if Fast I/O is possible
         //
 
-        Fcb->NonPagedFcb->Header.IsFastIoPossible = (BOOLEAN) CdIsFastIoPossible( Fcb );
+        CdLockFcb( IrpContext, Fcb );
+        Fcb->IsFastIoPossible = CdIsFastIoPossible( Fcb );
+        CdUnlockFcb( IrpContext, Fcb );
+
+        //
+        //  The oplock package will complete the Irp.
+        //
+
+        Irp = NULL;
 
     } finally {
 
@@ -1362,31 +1413,20 @@ Return Value:
         //  Release all of our resources
         //
 
-        if (AcquiredMvcb) {
-
-            CdReleaseMvcb( IrpContext, Fcb->Vcb->Mvcb );
-        }
-
         CdReleaseFcb( IrpContext, Fcb );
-
-        //
-        //  If this is not an abnormal termination then complete the irp
-        //
-
-        if (!AbnormalTermination()) {
-
-            CdCompleteRequest( IrpContext, CdNull, 0 );
-        }
-
-        DebugTrace(-1, Dbg, "CdOplockRequest:  Exit -> %08lx\n", Status );
     }
 
+    //
+    //  Complete the request if there was no exception.
+    //
+
+    CdCompleteRequest( IrpContext, Irp, Status );
     return Status;
 }
 
-
+
 //
-//  Local Support Routine
+//  Local support routine
 //
 
 NTSTATUS
@@ -1415,106 +1455,107 @@ Return Value:
 {
     NTSTATUS Status;
 
-    PIO_STACK_LOCATION IrpSp;
+    PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation( Irp );
 
-    PMVCB Mvcb;
     PVCB Vcb;
     PFCB Fcb;
     PCCB Ccb;
 
-    TYPE_OF_OPEN TypeOfOpen;
-
-    IrpSp = IoGetCurrentIrpStackLocation( Irp );
-
     PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "CdLockVolume:  Entered\n", 0);
 
     //
     //  Decode the file object, the only type of opens we accept are
     //  user volume opens.
     //
 
-    TypeOfOpen = CdDecodeFileObject( IrpSp->FileObject, &Mvcb, &Vcb, &Fcb, &Ccb );
-
-    if (TypeOfOpen != UserVolumeOpen &&
-        TypeOfOpen != RawDiskOpen) {
+    if (CdDecodeFileObject( IrpContext, IrpSp->FileObject, &Fcb, &Ccb ) != UserVolumeOpen) {
 
         CdCompleteRequest( IrpContext, Irp, STATUS_INVALID_PARAMETER );
 
-        DebugTrace(-1, Dbg, "CdLockVolume:  Exit -> %08lx\n", STATUS_INVALID_PARAMETER);
         return STATUS_INVALID_PARAMETER;
     }
 
     //
-    //  Acquire exclusive access to the Mvcb and enqueue the Irp if we
-    //  didn't get access.
+    //  Acquire exclusive access to the Vcb.
     //
 
-    if (!CdAcquireExclusiveMvcb( IrpContext, Mvcb )) {
-
-        DebugTrace( 0, Dbg, "CdLockVolume:  Cannot acquire Mvcb\n", 0);
-
-        Status = CdFsdPostRequest( IrpContext, Irp );
-
-        DebugTrace(-1, Dbg, "CdLockVolume:  Exit -> %08lx\n", Status);
-        return Status;
-    }
+    Vcb = Fcb->Vcb;
+    CdAcquireVcbExclusive( IrpContext, Vcb, FALSE );
 
     try {
 
         //
-        //  Check if the Mvcb is already locked, or if the open file count
-        //  is greater than 1 (which implies that someone else also is
-        //  currently using the volume, or a file on the volume).
+        //  Verify the Vcb.
         //
 
-        if ((FlagOn( Mvcb->MvcbState, MVCB_STATE_FLAG_LOCKED))
-            || Mvcb->OpenFileCount > 1) {
+        CdVerifyVcb( IrpContext, Vcb );
 
-            DebugTrace(0, Dbg, "CdLockVolume:  Volume already locked or currently in use\n", 0);
+        //
+        //  If the volume is already locked then complete with success if this file
+        //  object has the volume locked, fail otherwise.
+        //
+
+        if (FlagOn( Vcb->VcbState, VCB_STATE_LOCKED )) {
 
             Status = STATUS_ACCESS_DENIED;
 
+            if (Vcb->VolumeLockFileObject == IrpSp->FileObject) {
+
+                Status = STATUS_SUCCESS;
+            }
+
+        //
+        //  If the cleanup count for the volume is greater than 1 then this request
+        //  will fail.
+        //
+
+        } else if (Vcb->VcbCleanup > 1) {
+
+            Status = STATUS_ACCESS_DENIED;
+
+        //
+        //  We will try to get rid of all of the user references.  If there is only one
+        //  remaining after the purge then we can allow the volume to be locked.
+        //
+
         } else {
 
-            //
-            //  Lock the volume and complete the Irp
-            //
+            CdPurgeVolume( IrpContext, Vcb, FALSE );
 
-            SetFlag( Mvcb->MvcbState, MVCB_STATE_FLAG_LOCKED );
-            Mvcb->FileObjectWithMvcbLocked = IrpSp->FileObject;
+            CdFspClose( Vcb );
 
-            Status = STATUS_SUCCESS;
+            if (Vcb->VcbUserReference > CDFS_RESIDUAL_USER_REFERENCE + 1) {
+
+                Status = STATUS_ACCESS_DENIED;
+
+            } else {
+
+                SetFlag( Vcb->VcbState, VCB_STATE_LOCKED );
+                Vcb->VolumeLockFileObject = IrpSp->FileObject;
+                Status = STATUS_SUCCESS;
+            }
         }
 
     } finally {
 
         //
-        //  Release all of our resources
+        //  Release the Vcb.
         //
 
-        CdReleaseMvcb( IrpContext, Mvcb );
-
-        //
-        //  If this is an abnormal termination then undo our work, otherwise
-        //  complete the irp
-        //
-
-        if (!AbnormalTermination()) {
-
-            CdCompleteRequest( IrpContext, Irp, Status );
-        }
-
-        DebugTrace(-1, Dbg, "CdLockVolume:  Exit -> %08lx\n", Status);
+        CdReleaseVcb( IrpContext, Vcb );
     }
 
+    //
+    //  Complete the request if there haven't been any exceptions.
+    //
+
+    CdCompleteRequest( IrpContext, Irp, Status );
     return Status;
 }
 
-
+
 //
-//  Local Support Routine
+//  Local support routine
 //
 
 NTSTATUS
@@ -1541,64 +1582,52 @@ Return Value:
 --*/
 
 {
-    NTSTATUS Status;
+    NTSTATUS Status = STATUS_INVALID_PARAMETER;
 
-    PIO_STACK_LOCATION IrpSp;
+    PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation( Irp );
 
-    PMVCB Mvcb;
     PVCB Vcb;
     PFCB Fcb;
     PCCB Ccb;
 
-    TYPE_OF_OPEN TypeOfOpen;
-
-    IrpSp = IoGetCurrentIrpStackLocation( Irp );
-
     PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "CdUnlockVolume:  Entered\n", 0);
 
     //
     //  Decode the file object, the only type of opens we accept are
     //  user volume opens.
     //
 
-    TypeOfOpen = CdDecodeFileObject( IrpSp->FileObject, &Mvcb, &Vcb, &Fcb, &Ccb );
-
-    if (TypeOfOpen != UserVolumeOpen &&
-        TypeOfOpen != RawDiskOpen) {
+    if (CdDecodeFileObject( IrpContext, IrpSp->FileObject, &Fcb, &Ccb ) != UserVolumeOpen ) {
 
         CdCompleteRequest( IrpContext, Irp, STATUS_INVALID_PARAMETER );
-
-        DebugTrace(-1, Dbg, "CdUnlockVolume:  Exit -> %08lx\n", STATUS_INVALID_PARAMETER);
         return STATUS_INVALID_PARAMETER;
     }
 
     //
-    //  Acquire exclusive access to the Mvcb and enqueue the Irp if we
-    //  didn't get access.
+    //  Acquire exclusive access to the Vcb.
     //
 
-    if (!CdAcquireExclusiveMvcb( IrpContext, Mvcb )) {
+    Vcb = Fcb->Vcb;
 
-        DebugTrace( 0, Dbg, "CdUnlockVolume: Cannot acquire Mvcb\n", 0);
+    CdAcquireVcbExclusive( IrpContext, Vcb, FALSE );
 
-        Status = CdFsdPostRequest( IrpContext, Irp );
-
-        DebugTrace(-1, Dbg, "CdUnlockVolume:  Exit -> %08lx\n", Status);
-        return Status;
-    }
+    //
+    //  Use a try-finally to facilitate cleanup.
+    //
 
     try {
 
         //
-        //  Unlock the volume and complete the Irp
+        //  We won't check for a valid Vcb for this request.  An unlock will always
+        //  succeed on a locked volume.
         //
 
-        ClearFlag( Mvcb->MvcbState, MVCB_STATE_FLAG_LOCKED );
-        Mvcb->FileObjectWithMvcbLocked = NULL;
+        if (IrpSp->FileObject == Vcb->VolumeLockFileObject) {
 
-        Status = STATUS_SUCCESS;
+            ClearFlag( Vcb->VcbState, VCB_STATE_LOCKED );
+            Vcb->VolumeLockFileObject = NULL;
+            Status = STATUS_SUCCESS;
+        }
 
     } finally {
 
@@ -1607,27 +1636,21 @@ Return Value:
         //  Release all of our resources
         //
 
-        CdReleaseMvcb( IrpContext, Mvcb );
-
-        //
-        //  If this is an abnormal termination then undo our work, otherwise
-        //  complete the irp
-        //
-
-        if (!AbnormalTermination()) {
-
-            CdCompleteRequest( IrpContext, Irp, Status );
-        }
-
-        DebugTrace(-1, Dbg, "CdUnlockVolume:  Exit -> %08lx\n", Status);
+        CdReleaseVcb( IrpContext, Vcb );
     }
 
+    //
+    //  Complete the request if there haven't been any exceptions.
+    //
+
+    CdCompleteRequest( IrpContext, Irp, Status );
     return Status;
 }
 
 
+
 //
-//  Local Support Routine
+//  Local support routine
 //
 
 NTSTATUS
@@ -1641,7 +1664,10 @@ CdDismountVolume (
 Routine Description:
 
     This routine performs the dismount volume operation.  It is responsible for
-    either completing of enqueuing the input Irp.
+    either completing of enqueuing the input Irp.  We only dismount a volume which
+    has been locked.  The intent here is that someone has locked the volume (they are the
+    only remaining handle).  We set the verify bit here and the user will close his handle.
+    We will dismount a volume with no user's handles in the verify path.
 
 Arguments:
 
@@ -1655,67 +1681,43 @@ Return Value:
 
 {
     NTSTATUS Status;
+    PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation( Irp );
 
-    PIO_STACK_LOCATION IrpSp;
-
-    PMVCB Mvcb;
     PVCB Vcb;
     PFCB Fcb;
     PCCB Ccb;
 
-    TYPE_OF_OPEN TypeOfOpen;
-
-    IrpSp = IoGetCurrentIrpStackLocation( Irp );
-
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "CdDismountVolume...\n", 0);
-
-    //
-    //  Decode the file object, the only type of opens we accept are
-    //  user volume opens.
-    //
-
-    TypeOfOpen = CdDecodeFileObject( IrpSp->FileObject, &Mvcb, &Vcb, &Fcb, &Ccb );
-
-    if (TypeOfOpen != UserVolumeOpen &&
-        TypeOfOpen != RawDiskOpen) {
+    if (CdDecodeFileObject( IrpContext, IrpSp->FileObject, &Fcb, &Ccb ) != UserVolumeOpen ) {
 
         CdCompleteRequest( IrpContext, Irp, STATUS_INVALID_PARAMETER );
-
-        DebugTrace(-1, Dbg, "CdDismountVolume -> %08lx\n", STATUS_INVALID_PARAMETER);
         return STATUS_INVALID_PARAMETER;
     }
 
     //
-    //  Acquire exclusive access to the Mvcb and enqueue the Irp if we
-    //  didn't get access.
+    //  Acquire exclusive access to the Vcb.
     //
 
-    if (!CdAcquireExclusiveMvcb( IrpContext, Mvcb )) {
+    Vcb = Fcb->Vcb;
 
-        DebugTrace( 0, Dbg, "Cannot acquire Mvcb\n", 0);
-
-        Status = CdFsdPostRequest( IrpContext, Irp );
-
-        DebugTrace(-1, Dbg, "CdDismountVolume -> %08lx\n", Status);
-        return Status;
-    }
+    CdAcquireVcbExclusive( IrpContext, Vcb, FALSE );
 
     try {
 
         //
         //  Mark the volume as needs to be verified, but only do it if
-        //  the vcb is locked
+        //  the vcb is locked by this handle and the volume is currently mounted.
         //
 
-        if (!FlagOn(Mvcb->MvcbState, MVCB_STATE_FLAG_LOCKED)) {
+        if ((Vcb->VcbCondition != VcbMounted) &&
+            (Vcb->VolumeLockFileObject != IrpSp->FileObject)) {
 
             Status = STATUS_NOT_IMPLEMENTED;
 
         } else {
 
-            SetFlag( Mvcb->Vpb->RealDevice->Flags, DO_VERIFY_VOLUME );
+            SetFlag( Vcb->Vpb->RealDevice->Flags, DO_VERIFY_VOLUME );
 
             Status = STATUS_SUCCESS;
         }
@@ -1726,902 +1728,20 @@ Return Value:
         //  Release all of our resources
         //
 
-        CdReleaseMvcb( IrpContext, Mvcb );
-
-        //
-        //  If this is an abnormal termination then undo our work, otherwise
-        //  complete the irp
-        //
-
-        if (!AbnormalTermination()) {
-
-            CdCompleteRequest( IrpContext, Irp, Status );
-        }
-
-        DebugTrace(-1, Dbg, "CdDismountVolume -> %08lx\n", Status);
+        CdReleaseVcb( IrpContext, Vcb );
     }
 
+    //
+    //  Complete the request if there haven't been any exceptions.
+    //
+
+    CdCompleteRequest( IrpContext, Irp, Status );
     return Status;
-}
-
-//
-//  Local Support Routine
-//
-
-BOOLEAN
-CdFindPrimaryVd (
-    IN PIRP_CONTEXT IrpContext,
-    IN OUT PMVCB Mvcb,
-    IN OUT PRAW_ISO_VD RawIsoVd,
-    OUT LOGICAL_BLOCK *StartingSector,
-    IN OUT PVPB Vpb,
-    IN BOOLEAN ReturnOnError,
-    IN BOOLEAN VerifyVolume
-    )
-
-/*++
-
-Routine Description:
-
-    This routine is called to walk through the volume descriptors looking
-    for a primary volume descriptor.  When/if a primary is found a 32-bit
-    serial number is generated and the volume ID is copied from the
-    volume.  Both of these are then stored in the VPB for the volume.
-    An exception is raised if the primary volume descriptor is not found.
-
-Arguments:
-
-    Mvcb - Pointer to the MVCB for the volume.
-
-    RawIsoVd - Pointer to a sector buffer which will contain the primary
-               volume descriptor on exit, if successful.
-
-    StartingSector - Base sector to use to find the volume descriptor.
-        Will be zero except for multi-session disk.
-
-    Vpb - VPB for the volume to mount.
-
-    ReturnOnError - Indicates that we should raise on I/O errors rather than
-        returning a FALSE value.
-
-    VerifyVolume - Indicates if we were called from the verify path.  We
-        do a few things different in this path.  We don't update the Mvcb in
-        the verify path.
-
-Return Value:
-
-    BOOLEAN - TRUE if a valid primary volume descriptor found, FALSE
-              otherwise.
-
---*/
-
-{
-    BOOLEAN             FoundVd = FALSE;
-    LARGE_INTEGER       VolumeOffset;
-    LOGICAL_BLOCK       SectorNumber;
-
-    BOOLEAN             IsoVol;
-    BOOLEAN             HsgVol;
-
-    ULONG               ThisPass;
-    UCHAR               DescType;
-    UCHAR               Version;
-
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "CdFindPrimaryVd:  Entered\n", 0);
-
-    //
-    //  We will make at most two passes through the volume descriptor sequence.
-    //
-    //  On the first pass we will query for the last session.  Using this
-    //  as a starting offset we will attempt to mount the volume.  If this fails
-    //  we will go to the second pass.
-    //
-    //  On the second pass we will start offset from sector zero.
-    //
-
-    ThisPass = 0;
-
-    while (++ThisPass <= 2) {
-
-        //
-        //  If we aren't at pass 1 then we start at sector 0.  Otherwise we
-        //  try to look up the multi-session information.
-        //
-
-        *StartingSector = 0;
-
-        if (ThisPass == 1) {
-
-            PCDROM_TOC CdromToc;
-
-            CdromToc = NULL;
-
-            //
-            //  Check for whether this device supports XA and multi-session.
-            //
-
-            try {
-
-                PIRP Irp;
-                KEVENT Event;
-                IO_STATUS_BLOCK Iosb;
-                NTSTATUS Status;
-
-                KeInitializeEvent( &Event, NotificationEvent, FALSE );
-
-                CdromToc = FsRtlAllocatePool( PagedPool, sizeof( CDROM_TOC ));
-                RtlZeroMemory( CdromToc, sizeof( CDROM_TOC ));
-
-                Irp = IoBuildDeviceIoControlRequest( IOCTL_CDROM_GET_LAST_SESSION,
-                                                     Mvcb->TargetDeviceObject,
-                                                     NULL,
-                                                     0,
-                                                     CdromToc,
-                                                     sizeof( CDROM_TOC ),
-                                                     FALSE,
-                                                     &Event,
-                                                     &Iosb );
-
-                Status = IoCallDriver( Mvcb->TargetDeviceObject, Irp );
-
-                if (Status == STATUS_PENDING) {
-
-                    (VOID) KeWaitForSingleObject( &Event,
-                                                  Executive,
-                                                  KernelMode,
-                                                  FALSE,
-                                                  (PLARGE_INTEGER)NULL );
-
-                    Status = Iosb.Status;
-                }
-
-                //
-                //  We check for device not ready by first checking Status
-                //  and then if status pending was returned, the Iosb status
-                //  value.
-                //
-
-                if (NT_SUCCESS( Status )
-                    && (CdromToc->FirstTrack != CdromToc->LastTrack)) {
-
-                    PUCHAR Source, Dest;
-                    ULONG Count;
-
-                    Count = 4;
-
-                    //
-                    //  The track address is BigEndian, we need to flip the bytes.
-                    //
-
-                    Source = (PUCHAR) &CdromToc->TrackData[0].Address[3];
-                    Dest = (PUCHAR) StartingSector;
-
-                    do {
-
-                        *Dest++ = *Source--;
-
-                    } while (--Count);
-
-                    //
-                    //  Now check the block size being used by the unit.
-                    //
-
-                    *StartingSector = *StartingSector / Mvcb->BlockFactor;
-
-                //
-                //  We can make this look like the last pass since we won't
-                //  be retrying on error.
-                //
-
-                } else {
-
-                    ThisPass += 1;
-                }
-
-            } finally {
-
-                if (CdromToc != NULL) {
-
-                    ExFreePool( CdromToc );
-                }
-            }
-        }
-
-        //
-        //  Compute the starting offset in the virtual volume file.
-        //
-
-        SectorNumber = FIRST_VD_SECTOR + *StartingSector;
-        VolumeOffset = CdVolumeOffsetFromSector( SectorNumber );
-
-        HsgVol = IsoVol = FALSE;
-
-        //
-        //  Loop until either error encountered, primary volume descriptor is
-        //  found or a terminal volume descriptor is found.
-        //
-
-        while (TRUE) {
-
-            //
-            //  Attempt to read the desired sector. Exit directly if operation
-            //  not completed.
-            //
-
-            DebugTrace(0, Dbg, "CdFindPrimaryVd:  Reading at sector %08x\n", SectorNumber);
-
-            //
-            //  If this is pass 1 we will ignore errors in read sectors and just
-            //  go to the next pass.
-            //
-
-            if (!CdReadSectors( IrpContext,
-                                VolumeOffset,
-                                CD_SECTOR_SIZE,
-                                (BOOLEAN) ((ThisPass == 1
-                                            || ReturnOnError)
-                                           ? TRUE
-                                           : FALSE),
-                                RawIsoVd,
-                                Mvcb->TargetDeviceObject )) {
-
-                break;
-            }
-
-            //
-            //  Check if either an ISO or HSG volume.
-            //
-
-            if (!(IsoVol = (BOOLEAN) !strncmp( ISO_VOL_ID,
-                                               RVD_STD_ID( RawIsoVd, TRUE ),
-                                               VOL_ID_LEN ))) {
-
-                HsgVol = (BOOLEAN) !strncmp( HSG_VOL_ID,
-                                             RVD_STD_ID( RawIsoVd, FALSE ),
-                                             VOL_ID_LEN );
-
-            }
-
-            //
-            //  If neither then return FALSE unless we are in pass 2.  In that
-            //  case start the search again.
-            //
-
-            if (!( IsoVol || HsgVol)) {
-
-                if (ThisPass == 1) {
-
-                    break;
-                }
-
-                DebugTrace(-1, Dbg, "CdFindPrimaryVd:  Not a cdrom volume\n", 0);
-                return FALSE;
-            }
-
-            //
-            //  Get the volume descriptor type and standard version number.
-            //
-
-            DescType = RVD_DESC_TYPE( RawIsoVd, IsoVol );
-            Version = RVD_VERSION( RawIsoVd, IsoVol );
-
-            //
-            //  Return FALSE if the version is incorrect
-            //  or this is a terminal volume descriptor.
-            //  Go to the next pass if we are in pass 2.
-            //
-
-            if (Version != VERSION_1
-                || DescType == VD_TERMINATOR) {
-
-                if (ThisPass == 1) {
-
-                    break;
-                }
-
-                DebugTrace(-1, Dbg, "CdFindPrimaryVd:  Invalid version or terminal vd found\n", 0);
-                return FALSE;
-            }
-
-            //
-            //  If this is a primary volume descriptor then our search is over.
-            //
-
-            if (DescType == VD_PRIMARY) {
-
-                TIME_FIELDS TimeFields;
-                PCHAR DateTimeString;
-                PCHAR ThisString;
-                ANSI_STRING AnsiLabel;
-
-                DebugTrace(0, Dbg, "CdFindPrimaryVd:  Primary found\n", 0);
-
-                //
-                //  Generate a 32-bit serial number for the volume and
-                //  copy the volume id bytes.
-                //
-
-                if (!VerifyVolume) {
-
-                    NTSTATUS Status;
-                    UNICODE_STRING VpbLabel;
-
-                    Vpb->SerialNumber = CdSerial32( (PUCHAR) RawIsoVd, CD_SECTOR_SIZE );
-
-                    //
-                    //  Compute the length of the volume name
-                    //
-
-                    AnsiLabel.Buffer = RVD_VOL_ID( RawIsoVd, IsoVol );
-                    AnsiLabel.MaximumLength = VOLUME_ID_LENGTH;
-
-                    for ( AnsiLabel.Length = VOLUME_ID_LENGTH;
-                          AnsiLabel.Length > 0;
-                          AnsiLabel.Length -= 1) {
-
-                        if ( (AnsiLabel.Buffer[AnsiLabel.Length-1] != 0x00) &&
-                             (AnsiLabel.Buffer[AnsiLabel.Length-1] != 0x20) ) { break; }
-                    }
-
-                    VpbLabel.MaximumLength = MAXIMUM_VOLUME_LABEL_LENGTH;
-                    VpbLabel.Buffer = &Vpb->VolumeLabel[0];
-
-                    Status = RtlOemStringToCountedUnicodeString( &VpbLabel,
-                                                                 &AnsiLabel,
-                                                                 FALSE );
-
-                    if ( !NT_SUCCESS( Status ) ) {
-
-                        DebugTrace(0, Dbg, "Illegal Volume label\n", 0);
-
-                        return FALSE;
-                    }
-
-                    Vpb->VolumeLabelLength = VpbLabel.Length;
-
-                    //
-                    //  Store which type of volume this is.
-                    //
-
-                    if (IsoVol) {
-
-                        SetFlag( Mvcb->MvcbState, MVCB_STATE_FLAG_ISO_VOLUME );
-
-                    } else {
-
-                        ClearFlag( Mvcb->MvcbState, MVCB_STATE_FLAG_ISO_VOLUME );
-                    }
-
-                    //
-                    //  Modify the section size for the volume using the data
-                    //  in the volume descriptor.
-                    //
-                    Mvcb->VolumeSize = RVD_VOL_SIZE( RawIsoVd, IsoVol )
-                                       * RVD_LB_SIZE( RawIsoVd, IsoVol );
-
-                    //
-                    //  Store the sector number for the primary volume descriptor.
-                    //
-
-                    Mvcb->PrimaryVdSectorNumber = SectorNumber;
-
-                    //
-                    //  Compute the datetime value for the volume.
-                    //
-
-                    DateTimeString = RVD_CR_DATE( RawIsoVd, IsoVol );
-
-                    ThisString = DateTimeString + CR_YEAR_OFF;
-
-                    CdStringToDecimal( ThisString,
-                                       CR_YEAR_LEN,
-                                       TimeFields.Year );
-
-                    ThisString = DateTimeString + CR_MONTH_OFF;
-
-                    CdStringToDecimal( ThisString,
-                                       CR_MONTH_LEN,
-                                       TimeFields.Month );
-
-                    ThisString = DateTimeString + CR_DAY_OFF;
-
-                    CdStringToDecimal( ThisString,
-                                       CR_DAY_LEN,
-                                       TimeFields.Day );
-
-                    ThisString = DateTimeString + CR_HOUR_OFF;
-
-                    CdStringToDecimal( ThisString,
-                                       CR_HOUR_LEN,
-                                       TimeFields.Hour );
-
-                    ThisString = DateTimeString + CR_MINUTE_OFF;
-
-                    CdStringToDecimal( ThisString,
-                                       CR_MINUTE_LEN,
-                                       TimeFields.Minute );
-
-                    ThisString = DateTimeString + CR_SECOND_OFF;
-
-                    CdStringToDecimal( ThisString,
-                                       CR_SECOND_LEN,
-                                       TimeFields.Second );
-
-                    TimeFields.Milliseconds = 0;
-
-                    RtlTimeFieldsToTime ( &TimeFields, &Mvcb->DateTime );
-                }
-
-                FoundVd = TRUE;
-                break;
-            }
-
-            //
-            //  Compute the next offset.
-            //
-
-            VolumeOffset = LiAdd( VolumeOffset, LiFromUlong( CD_SECTOR_SIZE ));
-
-            //
-            //  Indicate that we're at the next sector.
-            //
-
-            SectorNumber++;
-        }
-
-        if (FoundVd) {
-
-            break;
-        }
-    }
-
-    DebugTrace(-1, Dbg, "CdFindPrimaryVd:  Sector number %08x\n", SectorNumber);
-
-    return FoundVd;
-}
-
-
-//
-//  Local Support Routine
-//
-
-VOID
-CdCreateSecondaryVcbs (
-    IN PIRP_CONTEXT IrpContext,
-    IN OUT PMVCB Mvcb,
-    IN LOGICAL_BLOCK StartingSector,
-    IN PRAW_ISO_VD RawIsoVd
-    )
-
-/*++
-
-Routine Description:
-
-    This routine is called to walk through the volume descriptors to
-    find all of the valid secondary descriptors for this volume.
-
-    For each of the secondary volume descriptors described in the
-    global data array, we call 'CdFindSecondaryVd'.
-
-    Each call to 'CdFindSecondaryVd' that doesn't fail may or may not
-    find a volume descriptor.  For each one found, we call 'CdCreateVcb'
-    for that volume descriptor.
-
-Arguments:
-
-    Mvcb - Pointer to the MVCB for the volume.
-
-    StartingSector - This is the base sector to use to find volume
-        descriptors.  Will be zero except for multisession drives.
-
-    RawIsoVd - Buffer to hold any volume descriptors found.
-
-Return Value:
-
-    None
-
---*/
-
-{
-    USHORT Index;
-
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "CdFindSecondaryVcbs:  Entered\n", 0);
-
-    //
-    //  For each index in CdData.SecondaryCodePages call 'CdFindSecondaryVd'.
-    //
-
-    for (Index = 0; Index < COUNT_SECONDARY_VD; Index++) {
-
-        //
-        //  Call 'CdFindSecondaryVd'.  If there is an error then we return
-        //  the error condition.
-        //
-
-        if (CdFindSecondaryVd( IrpContext,
-                               Mvcb,
-                               StartingSector,
-                               RawIsoVd,
-                               &CdData.SecondaryCodePages[ Index ] )) {
-
-            //
-            //  If a volume descriptor was found, then we call
-            //  'CdCreateVcb' for that volume descriptor.  If this operation
-            //  fails, break out of the loop.
-            //
-
-            CdCreateVcb( IrpContext,
-                         Mvcb,
-                         RawIsoVd,
-                         CdData.SecondaryCodePages[ Index ].CodePage );
-
-        } else {
-
-            break;
-        }
-    }
-
-    DebugTrace(-1, Dbg, "CdFindSecondaryVcbs:  Exit\n", 0);
-
-    return;
-}
-
-
-//
-//  Local Support Routine
-//
-
-BOOLEAN
-CdFindSecondaryVd (
-    IN PIRP_CONTEXT IrpContext,
-    IN OUT PMVCB Mvcb,
-    IN LOGICAL_BLOCK StartingSector,
-    IN PRAW_ISO_VD RawIsoVd,
-    IN PCODEPAGE_ELEMENT CodepageElement
-    )
-
-/*++
-
-Routine Description:
-
-    This routine is called to walk through the volume descriptors to
-    find all of the valid secondary descriptors for this volume.
-
-    For each of the secondary volume descriptors described in the
-    global data array, we call 'CdFindSecondaryVd'.  On any IO error
-    we raise a status condition.
-
-Arguments:
-
-    Mvcb - Pointer to the MVCB for the volume.
-
-    StartingSector - This is the base address to use to find the volume
-        descriptors.  Will be zero except for multisession disks.
-
-    RawIsoVd - Buffer to store the volume descriptor.
-
-    CodePageElement - Codepage information for the volume descriptor.
-
-Return Value:
-
-    BOOLEAN - TRUE if the volume descriptor was found, FALSE otherwise.
-
---*/
-
-{
-    LARGE_INTEGER       VolumeOffset;
-
-    BOOLEAN             VolDescriptorFound;
-    BOOLEAN             IsoVol;
-    BOOLEAN             HsgVol;
-
-    UCHAR               DescType;
-    UCHAR               Version;
-
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "CdFindSecondaryVd:  Entered\n", 0);
-
-    //
-    //  Initialize the return boolean to FALSE.
-    //
-
-    VolDescriptorFound = FALSE;
-
-    //
-    //  Initialize the starting sector.
-    //
-
-    VolumeOffset = CdVolumeOffsetFromSector( FIRST_VD_SECTOR + StartingSector );
-
-    //
-    //  Loop until either error encountered, secondary volume descriptor is
-    //  found or a terminal volume descriptor is found.
-    //
-
-    while (TRUE) {
-
-        //
-        //  Attempt to read the desired sector.  We stop searching for
-        //  them if we can't read the disk.
-        //
-
-        (VOID)CdReadSectors( IrpContext,
-                             VolumeOffset,
-                             CD_SECTOR_SIZE,
-                             FALSE,
-                             RawIsoVd,
-                             Mvcb->TargetDeviceObject );
-
-        //
-        //  Check if either an ISO or HSG volume.
-        //
-
-        if (!(IsoVol = (BOOLEAN) !strncmp( ISO_VOL_ID,
-                                           RVD_STD_ID( RawIsoVd, TRUE ),
-                                           VOL_ID_LEN ))) {
-
-            HsgVol = (BOOLEAN) !strncmp( HSG_VOL_ID,
-                                         RVD_STD_ID( RawIsoVd, FALSE ),
-                                         VOL_ID_LEN );
-        }
-
-        //
-        //  If neither then break out of loop.
-        //
-
-        if (!(IsoVol || HsgVol)) {
-
-            break;
-        }
-
-        //
-        //  Get the volume descriptor type and standard version number.
-        //
-
-        DescType = RVD_DESC_TYPE( RawIsoVd, IsoVol );
-        Version = RVD_VERSION( RawIsoVd, IsoVol );
-
-        //
-        //  Exit loop if the version is incorrect or this is a
-        //  terminal volume descriptor.
-        //
-
-        if (Version != VERSION_1
-            || DescType == VD_TERMINATOR) {
-
-            break;
-        }
-
-        //
-        //  If this is a secondary volume descriptor with a matching
-        //  escape string then our search is over.
-        //
-
-        if (DescType == VD_SECONDARY
-            && !strncmp( CodepageElement->EscapeString.Buffer,
-                         RVD_CHARSET( RawIsoVd,
-                                      FlagOn( Mvcb->MvcbState,
-                                              MVCB_STATE_FLAG_ISO_VOLUME )),
-                         CodepageElement->EscapeString.Length )) {
-
-            DebugTrace(0, Dbg, "CdFindSecondaryVd:  Secondary found\n", 0);
-
-            //
-            //  Show that we found the volume descriptor.
-            //
-
-            VolDescriptorFound = TRUE;
-            break;
-        }
-
-        //
-        //  Increment the sector number and compute
-        //  new volume offset.
-        //
-
-        VolumeOffset = LiAdd( VolumeOffset, LiFromUlong( CD_SECTOR_SIZE ));
-    }
-
-    DebugTrace(-1, Dbg, "CdFindSecondaryVd:  Exit -> %08x\n", VolDescriptorFound);
-
-    return VolDescriptorFound;
-}
-
-
-//
-//  Local Support Routine
-//
-
-ULONG
-CdSerial32 (
-    IN PUCHAR Buffer,
-    IN ULONG ByteCount
-    )
-
-/*++
-
-Routine Description:
-
-    This routine is called to generate a 32 bit serial number.  This is
-    done by doing four separate checksums into an array of bytes and
-    then treating the bytes as a ULONG.
-
-Arguments:
-
-    Buffer - Pointer to the buffer to generate the ID for.
-
-    ByteCount - Number of bytes in the buffer.
-
-Return Value:
-
-    ULONG - The 32 bit serial number.
-
---*/
-
-{
-    union {
-        UCHAR   Bytes[4];
-        ULONG   SerialId;
-    } Checksum;
-
-    PAGED_CODE();
-
-    //
-    //  Initialize the serial number.
-    //
-
-    Checksum.SerialId = 0;
-
-    //
-    //  Continue while there are more bytes to use.
-    //
-
-    while (ByteCount--) {
-
-        //
-        //  Increment this sub-checksum.
-        //
-
-        Checksum.Bytes[ByteCount & 0x3] += *(Buffer++);
-    }
-
-    //
-    //  Return the checksums as a ULONG.
-    //
-
-    return Checksum.SerialId;
-}
-
-
-//
-//  Local Support Routine
-//
-
-BOOLEAN
-CdIsRemount (
-    IN PIRP_CONTEXT IrpContext,
-    IN PMVCB NewMvcb,
-    OUT PMVCB *OldMvcb
-    )
-
-/*++
-
-Routine Description:
-
-    This routine walks through the links of the Mvcb chain in the global
-    data structure.  The remount condition is met when the following
-    conditions are all met:
-
-        If the new Mvcb is a device only Mvcb and there is a previous
-        device only Mvcb.
-
-        The following conditions must be matched.
-
-            1 - The 32 serial in the current VPB matches that in a previous
-                VPB.
-
-            2 - The 32 volume ID in the current VPB matches that in the same
-                previous VPB.
-
-            3 - The system pointer to the real device object in the current
-                VPB matches that in the same previous VPB.
-
-    If a VPB is found which matches these conditions, then the address of
-    the MVCB for that VPB is returned via the pointer Mvcb.
-
-    We ignore the first Mvcb in the chain as that is the Mvcb just added.
-
-Arguments:
-
-    NewMvcb - This is the Mvcb we are checking for a remount.
-
-    OldMvcb -  A pointer to the address to store the address for the Mvcb
-              for the volume if this is a remount.  (This is a pointer to
-              a pointer)
-
-Return Value:
-
-    TRUE - If this is in fact a remount.
-
-    FALSE - If the volume isn't currently mounted on this volume.
-
---*/
-
-{
-    PLIST_ENTRY Link;
-
-    PVPB Vpb;
-    PVPB OldVpb;
-
-    BOOLEAN Remount;
-
-    PAGED_CODE();
-
-    Remount = FALSE;
-
-    Vpb = NewMvcb->Vpb;
-
-    //
-    //  Check whether we are looking for a device only Mvcb.
-    //
-
-    for (Link = CdData.MvcbLinks.Flink->Flink;
-         Link != &CdData.MvcbLinks;
-         Link = Link->Flink) {
-
-        *OldMvcb = CONTAINING_RECORD( Link, MVCB, MvcbLinks );
-        OldVpb = (*OldMvcb)->Vpb;
-
-        if ((OldVpb != Vpb) &&
-            (OldVpb->RealDevice == Vpb->RealDevice) &&
-            ((*OldMvcb)->MvcbCondition == MvcbNotMounted)) {
-
-            //
-            //  We have a match if these are music disks or
-            //  data disks with identical serial numbers and volume labels.
-            //
-
-            if (FlagOn( NewMvcb->MvcbState, MVCB_STATE_FLAG_RAW_DISK )) {
-
-                if (FlagOn( (*OldMvcb)->MvcbState, MVCB_STATE_FLAG_RAW_DISK )) {
-
-                    Remount = TRUE;
-                    break;
-                }
-
-            } else {
-
-                if ((OldVpb->SerialNumber == Vpb->SerialNumber) &&
-                    (OldVpb->VolumeLabelLength == Vpb->VolumeLabelLength) &&
-                    (RtlCompareMemory(&OldVpb->VolumeLabel[0],
-                                      &Vpb->VolumeLabel[0],
-                                      Vpb->VolumeLabelLength) == (ULONG)Vpb->VolumeLabelLength)) {
-
-                    //
-                    //  Remember the old mvcb.  Then set the return value to
-                    //  TRUE and break.
-                    //
-
-                    Remount = TRUE;
-                    break;
-                }
-            }
-        }
-    }
-
-    return Remount;
-
-    UNREFERENCED_PARAMETER( IrpContext );
 }
 
 
 //
-//  Local Support Routine
+//  Local support routine
 //
 
 NTSTATUS
@@ -2647,53 +1767,42 @@ Return Value:
 --*/
 
 {
-    NTSTATUS Status;
+    PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation( Irp );
 
-    PIO_STACK_LOCATION IrpSp;
-
-    PMVCB Mvcb = NULL;
-    PVCB Vcb;
     PFCB Fcb;
     PCCB Ccb;
 
-    IrpSp = IoGetCurrentIrpStackLocation( Irp );
-
-    Status = STATUS_SUCCESS;
-
     PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "CdIsVolumeMounted...\n", 0);
 
     //
     //  Decode the file object.
     //
 
-    (VOID)CdDecodeFileObject( IrpSp->FileObject, &Mvcb, &Vcb, &Fcb, &Ccb );
+    CdDecodeFileObject( IrpContext, IrpSp->FileObject, &Fcb, &Ccb );
 
-    ASSERT( Mvcb != NULL );
+    if (Fcb != NULL) {
 
-    //
-    //  Disable PopUps, we want to return any error.
-    //
+        //
+        //  Disable PopUps, we want to return any error.
+        //
 
-    IrpContext->DisablePopUps = TRUE;
+        SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_DISABLE_POPUPS );
 
-    //
-    //  Verify the Vcb.
-    //
+        //
+        //  Verify the Vcb.  This will raise in the error condition.
+        //
 
-    CdVerifyMvcb( IrpContext, Mvcb );
+        CdVerifyVcb( IrpContext, Fcb->Vcb );
+    }
 
-    CdCompleteRequest( IrpContext, Irp, Status );
+    CdCompleteRequest( IrpContext, Irp, STATUS_SUCCESS );
 
-    DebugTrace(-1, Dbg, "CdIsVolumeMounted -> %08lx\n", Status);
-
-    return Status;
+    return STATUS_SUCCESS;
 }
 
 
 //
-//  Local Support Routine
+//  Local support routine
 //
 
 NTSTATUS
@@ -2706,7 +1815,44 @@ CdIsPathnameValid (
 
 Routine Description:
 
-    This routine determines if pathname is a valid FAT pathname.
+    This routine determines if pathname is a valid CDFS pathname.
+    We always succeed this request.
+
+Arguments:
+
+    Irp - Supplies the Irp to process.
+
+Return Value:
+
+    None
+
+--*/
+
+{
+    PAGED_CODE();
+
+    CdCompleteRequest( IrpContext, Irp, STATUS_SUCCESS );
+    return STATUS_SUCCESS;
+}
+
+
+//
+//  Local support routine
+//
+
+NTSTATUS
+CdInvalidateVolumes (
+    IN PIRP_CONTEXT IrpContext,
+    IN PIRP Irp
+    )
+
+/*++
+
+Routine Description:
+
+    This routine searches for all the volumes mounted on the same real device
+    of the current DASD handle, and marks them all bad.  The only operation
+    that can be done on such handles is cleanup and close.
 
 Arguments:
 
@@ -2719,9 +1865,847 @@ Return Value:
 --*/
 
 {
+    NTSTATUS Status;
+    PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation( Irp );
+    KIRQL SavedIrql;
+
+    LUID TcbPrivilege = {SE_TCB_PRIVILEGE, 0};
+
+    HANDLE Handle;
+
+    PVPB NewVpb;
+    PVCB Vcb;
+
+    PLIST_ENTRY Links;
+
+    PFILE_OBJECT FileToMarkBad;
+    PDEVICE_OBJECT DeviceToMarkBad;
+
+    //
+    //  Check for the correct security access.
+    //  The caller must have the SeTcbPrivilege.
+    //
+
+    if (!SeSinglePrivilegeCheck( TcbPrivilege, Irp->RequestorMode )) {
+
+        CdCompleteRequest( IrpContext, Irp, STATUS_PRIVILEGE_NOT_HELD );
+
+        return STATUS_PRIVILEGE_NOT_HELD;
+    }
+
+    //
+    //  Try to get a pointer to the device object from the handle passed in.
+    //
+
+    if (IrpSp->Parameters.FileSystemControl.InputBufferLength != sizeof( HANDLE )) {
+
+        CdCompleteRequest( IrpContext, Irp, STATUS_INVALID_PARAMETER );
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    Handle = *((PHANDLE) Irp->AssociatedIrp.SystemBuffer);
+
+    Status = ObReferenceObjectByHandle( Handle,
+                                        0,
+                                        *IoFileObjectType,
+                                        KernelMode,
+                                        &FileToMarkBad,
+                                        NULL );
+
+    if (!NT_SUCCESS(Status)) {
+
+        CdCompleteRequest( IrpContext, Irp, Status );
+        return Status;
+    }
+
+    //
+    //  We only needed the pointer, not a reference.
+    //
+
+    ObDereferenceObject( FileToMarkBad );
+
+    //
+    //  Grab the DeviceObject from the FileObject.
+    //
+
+    DeviceToMarkBad = FileToMarkBad->DeviceObject;
+
+    //
+    //  Create a new Vpb for this device so that any new opens will mount
+    //  a new volume.
+    //
+
+    NewVpb = ExAllocatePoolWithTag( NonPagedPoolMustSucceed, sizeof( VPB ), TAG_VPB );
+    RtlZeroMemory( NewVpb, sizeof( VPB ) );
+
+    NewVpb->Type = IO_TYPE_VPB;
+    NewVpb->Size = sizeof( VPB );
+    NewVpb->RealDevice = DeviceToMarkBad;
+
+    //
+    //  Make sure this request can wait.
+    //
+
+    SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_WAIT );
+    ClearFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_FORCE_POST );
+
+    CdAcquireCdData( IrpContext );
+
+    //
+    //  Nothing can go wrong now.
+    //
+
+    IoAcquireVpbSpinLock( &SavedIrql );
+    DeviceToMarkBad->Vpb = NewVpb;
+    IoReleaseVpbSpinLock( SavedIrql );
+
+    //
+    //  Now walk through all the mounted Vcb's looking for candidates to
+    //  mark invalid.
+    //
+    //  On volumes we mark invalid, check for dismount possibility (which is
+    //  why we have to get the next link so early).
+    //
+
+    Links = CdData.VcbQueue.Flink;
+
+    while (Links != &CdData.VcbQueue) {
+
+        Vcb = CONTAINING_RECORD( Links, VCB, VcbLinks);
+
+        Links = Links->Flink;
+
+        //
+        //  If we get a match, mark the volume Bad, and also check to
+        //  see if the volume should go away.
+        //
+
+        CdLockVcb( IrpContext, Vcb );
+
+        if (Vcb->Vpb->RealDevice == DeviceToMarkBad) {
+
+            Vcb->VcbCondition = VcbInvalid;
+            CdUnlockVcb( IrpContext, Vcb );
+
+            CdCheckForDismount( IrpContext, Vcb );
+
+        } else {
+
+            CdUnlockVcb( IrpContext, Vcb );
+        }
+    }
+
+    CdReleaseCdData( IrpContext );
+
+    CdCompleteRequest( IrpContext, Irp, STATUS_SUCCESS );
+    return STATUS_SUCCESS;
+}
+
+
+//
+//  Local support routine
+//
+
+VOID
+CdScanForDismountedVcb (
+    IN PIRP_CONTEXT IrpContext
+    )
+
+/*++
+
+Routine Description:
+
+    This routine walks through the list of Vcb's looking for any which may
+    now be deleted.  They may have been left on the list because there were
+    outstanding references.
+
+Arguments:
+
+Return Value:
+
+    None
+
+--*/
+
+{
+    PVCB Vcb;
+    PLIST_ENTRY Links;
+
     PAGED_CODE();
 
-    return STATUS_SUCCESS;
+    //
+    //  Walk through all of the Vcb's attached to the global data.
+    //
 
-    UNREFERENCED_PARAMETER( IrpContext );
+    Links = CdData.VcbQueue.Flink;
+
+    while (Links != &CdData.VcbQueue) {
+
+        Vcb = CONTAINING_RECORD( Links, VCB, VcbLinks );
+
+        //
+        //  Move to the next link now since the current Vcb may be deleted.
+        //
+
+        Links = Links->Flink;
+
+        //
+        //  If dismount is already underway then check if this Vcb can
+        //  go away.
+        //
+
+        if ((Vcb->VcbCondition == VcbDismountInProgress) ||
+            (Vcb->VcbCondition == VcbInvalid) ||
+            ((Vcb->VcbCondition == VcbNotMounted) && (Vcb->VcbReference <= CDFS_RESIDUAL_REFERENCE))) {
+
+            CdCheckForDismount( IrpContext, Vcb );
+        }
+    }
+
+    return;
 }
+
+
+//
+//  Local support routine
+//
+
+BOOLEAN
+CdFindPrimaryVd (
+    IN PIRP_CONTEXT IrpContext,
+    IN PVCB Vcb,
+    IN PCHAR RawIsoVd,
+    IN ULONG BlockFactor,
+    IN BOOLEAN ReturnOnError,
+    IN BOOLEAN VerifyVolume
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called to walk through the volume descriptors looking
+    for a primary volume descriptor.  When/if a primary is found a 32-bit
+    serial number is generated and stored into the Vpb.  We also store the
+    location of the primary volume descriptor in the Vcb.
+
+Arguments:
+
+    Vcb - Pointer to the VCB for the volume.
+
+    RawIsoVd - Pointer to a sector buffer which will contain the primary
+               volume descriptor on exit, if successful.
+
+    BlockFactor - Block factor used by the current device for the TableOfContents.
+
+    ReturnOnError - Indicates that we should raise on I/O errors rather than
+        returning a FALSE value.
+
+    VerifyVolume - Indicates if we were called from the verify path.  We
+        do a few things different in this path.  We don't update the Vcb in
+        the verify path.
+
+Return Value:
+
+    BOOLEAN - TRUE if a valid primary volume descriptor found, FALSE
+              otherwise.
+
+--*/
+
+{
+    NTSTATUS Status;
+    ULONG ThisPass = 1;
+    BOOLEAN FoundVd = FALSE;
+
+    ULONG BaseSector;
+    ULONG SectorOffset;
+
+    PCDROM_TOC CdromToc;
+
+    ULONG VolumeFlags;
+
+    PAGED_CODE();
+
+    //
+    //  We will make at most two passes through the volume descriptor sequence.
+    //
+    //  On the first pass we will query for the last session.  Using this
+    //  as a starting offset we will attempt to mount the volume.  On any failure
+    //  we will go to the second pass and try without using any multi-session
+    //  information.
+    //
+    //  On the second pass we will start offset from sector zero.
+    //
+
+    while (!FoundVd && (ThisPass <= 2)) {
+
+        //
+        //  If we aren't at pass 1 then we start at sector 0.  Otherwise we
+        //  try to look up the multi-session information.
+        //
+
+        BaseSector = 0;
+
+        if (ThisPass == 1) {
+
+            CdromToc = NULL;
+
+            //
+            //  Check for whether this device supports XA and multi-session.
+            //
+
+            try {
+
+                //
+                //  Allocate a buffer for the last session information.
+                //
+
+                CdromToc = FsRtlAllocatePoolWithTag( CdPagedPool,
+                                                     sizeof( CDROM_TOC ),
+                                                     TAG_CDROM_TOC );
+
+                RtlZeroMemory( CdromToc, sizeof( CDROM_TOC ));
+
+                //
+                //  Query the last session information from the driver.
+                //
+
+                Status = CdPerformDevIoCtrl( IrpContext,
+                                             IOCTL_CDROM_GET_LAST_SESSION,
+                                             Vcb->TargetDeviceObject,
+                                             CdromToc,
+                                             sizeof( CDROM_TOC ),
+                                             FALSE,
+                                             TRUE,
+                                             NULL );
+
+                //
+                //  Raise an exception if there was an allocation failure.
+                //
+
+                if (Status == STATUS_INSUFFICIENT_RESOURCES) {
+
+                    CdRaiseStatus( IrpContext, Status );
+                }
+
+                //
+                //  We don't handle any errors yet.  We will hit that below
+                //  as we try to scan the disk.  If we have last session information
+                //  then modify the base sector.
+                //
+
+                if (NT_SUCCESS( Status ) &&
+                    (CdromToc->FirstTrack != CdromToc->LastTrack)) {
+
+                    PCHAR Source, Dest;
+                    ULONG Count;
+
+                    Count = 4;
+
+                    //
+                    //  The track address is BigEndian, we need to flip the bytes.
+                    //
+
+                    Source = (PUCHAR) &CdromToc->TrackData[0].Address[3];
+                    Dest = (PUCHAR) &BaseSector;
+
+                    do {
+
+                        *Dest++ = *Source--;
+
+                    } while (--Count);
+
+                    //
+                    //  Now adjust the base sector by the block factor of the
+                    //  device.
+                    //
+
+                    BaseSector /= BlockFactor;
+
+                //
+                //  Make this look like the second pass since we are only using the
+                //  first session.  No reason to retry on error.
+                //
+
+                } else {
+
+                    ThisPass += 1;
+                }
+
+            } finally {
+
+                if (CdromToc != NULL) { ExFreePool( CdromToc ); }
+            }
+        }
+
+        //
+        //  Compute the starting sector offset from the start of the session.
+        //
+
+        SectorOffset = FIRST_VD_SECTOR;
+
+        //
+        //  Start by assuming we have neither Hsg or Iso volumes.
+        //
+
+        VolumeFlags = 0;
+
+        //
+        //  Loop until either error encountered, primary volume descriptor is
+        //  found or a terminal volume descriptor is found.
+        //
+
+        while (TRUE) {
+
+            //
+            //  Attempt to read the desired sector. Exit directly if operation
+            //  not completed.
+            //
+            //  If this is pass 1 we will ignore errors in read sectors and just
+            //  go to the next pass.
+            //
+
+            if (!CdReadSectors( IrpContext,
+                                LlBytesFromSectors( BaseSector + SectorOffset ),
+                                SECTOR_SIZE,
+                                (BOOLEAN) ((ThisPass == 1) || ReturnOnError),
+                                RawIsoVd,
+                                Vcb->TargetDeviceObject )) {
+
+                break;
+            }
+
+            //
+            //  Check if either an ISO or HSG volume.
+            //
+
+            if (RtlEqualMemory( CdIsoId,
+                                CdRvdId( RawIsoVd, VCB_STATE_ISO ),
+                                VOL_ID_LEN )) {
+
+                SetFlag( VolumeFlags, VCB_STATE_ISO );
+
+            } else if (RtlEqualMemory( CdHsgId,
+                                       CdRvdId( RawIsoVd, VCB_STATE_HSG ),
+                                       VOL_ID_LEN )) {
+
+                SetFlag( VolumeFlags, VCB_STATE_HSG );
+
+            //
+            //  We have neither so break out of the loop.
+            //
+
+            } else {
+
+                 break;
+            }
+
+            //
+            //  Break out if the version number is incorrect or this is
+            //  a terminator.
+            //
+
+            if ((CdRvdVersion( RawIsoVd, VolumeFlags ) != VERSION_1) ||
+                (CdRvdDescType( RawIsoVd, VolumeFlags ) == VD_TERMINATOR)) {
+
+                break;
+            }
+
+            //
+            //  If this is a primary volume descriptor then our search is over.
+            //
+
+            if (CdRvdDescType( RawIsoVd, VolumeFlags ) == VD_PRIMARY) {
+
+                //
+                //  If we are not in the verify path then initialize the
+                //  fields in the Vcb with basic information from this
+                //  descriptor.
+                //
+
+                if (!VerifyVolume) {
+
+                    //
+                    //  Set the flag for the volume type.
+                    //
+
+                    SetFlag( Vcb->VcbState, VolumeFlags );
+
+                    //
+                    //  Store the base sector and sector offset for the
+                    //  primary volume descriptor.
+                    //
+
+                    Vcb->BaseSector = BaseSector;
+                    Vcb->VdSectorOffset = SectorOffset;
+                    Vcb->PrimaryVdSectorOffset = SectorOffset;
+                }
+
+                FoundVd = TRUE;
+                break;
+            }
+
+            //
+            //  Indicate that we're at the next sector.
+            //
+
+            SectorOffset += 1;
+        }
+
+        ThisPass += 1;
+    }
+
+    return FoundVd;
+}
+
+
+//
+//  Local support routine
+//
+
+BOOLEAN
+CdIsRemount (
+    IN PIRP_CONTEXT IrpContext,
+    IN PVCB Vcb,
+    OUT PVCB *OldVcb
+    )
+/*++
+
+Routine Description:
+
+    This routine walks through the links of the Vcb chain in the global
+    data structure.  The remount condition is met when the following
+    conditions are all met:
+
+        If the new Vcb is a device only Mvcb and there is a previous
+        device only Mvcb.
+
+        Otherwise following conditions must be matched.
+
+            1 - The 32 serial in the current VPB matches that in a previous
+                VPB.
+
+            2 - The volume label in the Vpb matches that in the previous
+                Vpb.
+
+            3 - The system pointer to the real device object in the current
+                VPB matches that in the same previous VPB.
+
+            4 - Finally the previous Vcb cannot be invalid or have a dismount
+                underway.
+
+    If a VPB is found which matches these conditions, then the address of
+    the VCB for that VPB is returned via the pointer Vcb.
+
+    Skip over the current Vcb.
+
+Arguments:
+
+    Vcb - This is the Vcb we are checking for a remount.
+
+    OldVcb -  A pointer to the address to store the address for the Vcb
+              for the volume if this is a remount.  (This is a pointer to
+              a pointer)
+
+Return Value:
+
+    BOOLEAN - TRUE if this is in fact a remount, FALSE otherwise.
+
+--*/
+
+{
+    PLIST_ENTRY Link;
+
+    PVPB Vpb = Vcb->Vpb;
+    PVPB OldVpb;
+
+    BOOLEAN Remount = FALSE;
+
+    PAGED_CODE();
+
+    //
+    //  Check whether we are looking for a device only Mvcb.
+    //
+
+    for (Link = CdData.VcbQueue.Flink;
+         Link != &CdData.VcbQueue;
+         Link = Link->Flink) {
+
+        *OldVcb = CONTAINING_RECORD( Link, VCB, VcbLinks );
+
+        //
+        //  Skip ourselves.
+        //
+
+        if (Vcb == *OldVcb) { continue; }
+
+        //
+        //  Look at the Vpb and state of the previous Vcb.
+        //
+
+        OldVpb = (*OldVcb)->Vpb;
+
+        if ((OldVpb != Vpb) &&
+            (OldVpb->RealDevice == Vpb->RealDevice) &&
+            ((*OldVcb)->VcbCondition == VcbNotMounted)) {
+
+            //
+            //  If the current disk is a raw disk then it can match a previous music or
+            //  raw disk.
+            //
+
+            if (FlagOn( Vcb->VcbState, VCB_STATE_RAW_DISK )) {
+
+                if (FlagOn( (*OldVcb)->VcbState, VCB_STATE_RAW_DISK | VCB_STATE_AUDIO_DISK )) {
+
+                    //
+                    //  If we have both TOC then fail the remount if the lengths
+                    //  are different or they don't match.
+                    //
+
+                    if ((Vcb->TocLength != (*OldVcb)->TocLength) ||
+                        ((Vcb->TocLength != 0) &&
+                         !RtlEqualMemory( Vcb->CdromToc,
+                                          (*OldVcb)->CdromToc,
+                                          Vcb->TocLength ))) {
+
+                        continue;
+                    }
+
+                    Remount = TRUE;
+                    break;
+                }
+
+            //
+            //  The current disk is not a raw disk.  Go ahead and compare
+            //  serial numbers and volume label.
+            //
+
+            } else if ((OldVpb->SerialNumber == Vpb->SerialNumber) &&
+                       (Vpb->VolumeLabelLength == OldVpb->VolumeLabelLength) &&
+                       (RtlEqualMemory( OldVpb->VolumeLabel,
+                                        Vpb->VolumeLabel,
+                                        Vpb->VolumeLabelLength ))) {
+
+                //
+                //  Remember the old mvcb.  Then set the return value to
+                //  TRUE and break.
+                //
+
+                Remount = TRUE;
+                break;
+            }
+        }
+    }
+
+    return Remount;
+}
+
+
+//
+//  Local support routine
+//
+
+VOID
+CdFindActiveVolDescriptor (
+    IN PIRP_CONTEXT IrpContext,
+    IN PVCB Vcb,
+    IN OUT PCHAR RawIsoVd
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called to search for a valid secondary volume descriptor that
+    we will support.  Right now we only support Joliet escape sequences for
+    the secondary descriptor.
+
+    If we don't find the secondary descriptor then we will reread the primary.
+
+    This routine will update the serial number and volume label in the Vpb.
+
+Arguments:
+
+    Vcb - This is the Vcb for the volume being mounted.
+
+    RawIsoVd - Sector buffer used to read the volume descriptors from the disks.
+
+Return Value:
+
+    None
+
+--*/
+
+{
+    BOOLEAN FoundSecondaryVd = FALSE;
+    ULONG SectorOffset = FIRST_VD_SECTOR;
+
+    ULONG Length;
+
+    ULONG Index;
+
+    PAGED_CODE();
+
+    //
+    //  We only look for secondary volume descriptors on an Iso disk.
+    //
+
+    if (FlagOn( Vcb->VcbState, VCB_STATE_ISO )) {
+
+        //
+        //  Scan the volume descriptors from the beginning looking for a valid
+        //  secondary or a terminator.
+        //
+
+        SectorOffset = FIRST_VD_SECTOR;
+
+        while (TRUE) {
+
+            //
+            //  Read the next sector.  We should never have an error in this
+            //  path.
+            //
+
+            CdReadSectors( IrpContext,
+                           LlBytesFromSectors( Vcb->BaseSector + SectorOffset ),
+                           SECTOR_SIZE,
+                           FALSE,
+                           RawIsoVd,
+                           Vcb->TargetDeviceObject );
+
+            //
+            //  Break out if the version number or standard Id is incorrect.
+            //  Also break out if this is a terminator.
+            //
+
+            if (!RtlEqualMemory( CdIsoId, CdRvdId( RawIsoVd, VCB_STATE_JOLIET ), VOL_ID_LEN ) ||
+                (CdRvdVersion( RawIsoVd, VCB_STATE_JOLIET ) != VERSION_1) ||
+                (CdRvdDescType( RawIsoVd, VCB_STATE_JOLIET ) == VD_TERMINATOR)) {
+
+                break;
+            }
+
+            //
+            //  We have a match if this is a secondary descriptor with a matching
+            //  escape sequence.
+            //
+
+            if ((CdRvdDescType( RawIsoVd, VCB_STATE_JOLIET ) == VD_SECONDARY) &&
+                (RtlEqualMemory( CdRvdEsc( RawIsoVd, VCB_STATE_JOLIET ),
+                                 CdJolietEscape[0],
+                                 ESC_SEQ_LEN ) ||
+                 RtlEqualMemory( CdRvdEsc( RawIsoVd, VCB_STATE_JOLIET ),
+                                 CdJolietEscape[1],
+                                 ESC_SEQ_LEN ) ||
+                 RtlEqualMemory( CdRvdEsc( RawIsoVd, VCB_STATE_JOLIET ),
+                                 CdJolietEscape[2],
+                                 ESC_SEQ_LEN ))) {
+
+                //
+                //  Update the Vcb with the new volume descriptor.
+                //
+
+                ClearFlag( Vcb->VcbState, VCB_STATE_ISO );
+                SetFlag( Vcb->VcbState, VCB_STATE_JOLIET );
+
+                Vcb->VdSectorOffset = SectorOffset;
+                FoundSecondaryVd = TRUE;
+                break;
+            }
+
+            //
+            //  Otherwise move on to the next sector.
+            //
+
+            SectorOffset += 1;
+        }
+
+        //
+        //  If we didn't find the secondary then recover the original volume
+        //  descriptor stored in the second half of the RawIsoVd.
+        //
+
+        if (!FoundSecondaryVd) {
+
+            RtlCopyMemory( RawIsoVd,
+                           Add2Ptr( RawIsoVd, SECTOR_SIZE, PVOID ),
+                           SECTOR_SIZE );
+        }
+    }
+
+    //
+    //  Compute the serial number and volume label from the volume descriptor.
+    //
+
+    Vcb->Vpb->SerialNumber = CdSerial32( RawIsoVd, SECTOR_SIZE );
+
+    //
+    //  Make sure the CD label will fit in the Vpb.
+    //
+
+    ASSERT( VOLUME_ID_LENGTH * sizeof( WCHAR ) <= MAXIMUM_VOLUME_LABEL_LENGTH );
+
+    //
+    //  If this is not a Unicode label we must convert it to unicode.
+    //
+
+    if (!FlagOn( Vcb->VcbState, VCB_STATE_JOLIET )) {
+
+        //
+        //  Convert the label to unicode.  If we get any error then use a name
+        //  length of zero.
+        //
+
+        Vcb->Vpb->VolumeLabelLength = 0;
+
+        if (NT_SUCCESS( RtlOemToUnicodeN( &Vcb->Vpb->VolumeLabel[0],
+                                          MAXIMUM_VOLUME_LABEL_LENGTH,
+                                          &Length,
+                                          CdRvdVolId( RawIsoVd, Vcb->VcbState ),
+                                          VOLUME_ID_LENGTH ))) {
+
+            Vcb->Vpb->VolumeLabelLength = (USHORT) Length;
+        }
+
+    //
+    //  We need to convert from big-endian to little endian.
+    //
+
+    } else {
+
+        CdConvertBigToLittleEndian( IrpContext,
+                                    CdRvdVolId( RawIsoVd, Vcb->VcbState ),
+                                    VOLUME_ID_LENGTH,
+                                    (PCHAR) Vcb->Vpb->VolumeLabel );
+
+        Vcb->Vpb->VolumeLabelLength = VOLUME_ID_LENGTH * sizeof( WCHAR );
+    }
+
+    //
+    //  Strip the trailing spaces or zeroes from the name.
+    //
+
+    Index = Vcb->Vpb->VolumeLabelLength / sizeof( WCHAR );
+
+    while (Index > 0) {
+
+        if ((Vcb->Vpb->VolumeLabel[ Index - 1 ] != L'\0') &&
+            (Vcb->Vpb->VolumeLabel[ Index - 1 ] != L' ')) {
+
+            break;
+        }
+
+        Index -= 1;
+    }
+
+    //
+    //  Now set the final length for the name.
+    //
+
+    Vcb->Vpb->VolumeLabelLength = (USHORT) (Index * sizeof( WCHAR ));
+
+    return;
+}
+
+

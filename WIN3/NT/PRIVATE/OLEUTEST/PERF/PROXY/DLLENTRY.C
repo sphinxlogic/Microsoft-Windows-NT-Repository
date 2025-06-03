@@ -222,4 +222,3 @@ static void _CRTAPI1 _onexitinit ( void )
 }
 
 #endif  // USE_CRTDLL
-

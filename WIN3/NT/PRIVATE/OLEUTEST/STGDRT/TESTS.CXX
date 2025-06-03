@@ -163,7 +163,7 @@ void t_tmodify(void)
     STATSTG stat;
 
     tm.dwLowDateTime = 0x12345678;
-    tm.dwHighDateTime = 0x9abcdef0;
+    tm.dwHighDateTime = 0x01bcdef0;
 
     // Set when element not open
     pstgChild->SetElementTimes(STR("RenamedChild"), &tm, NULL, NULL);
@@ -179,20 +179,22 @@ void t_tmodify(void)
 
     // Test SetClass and SetStateBits
     pstgChild2->SetClass(IID_IStorage);
+    fExitOnFail = FALSE;
     pstgChild2->SetStateBits(0xff00ff00, 0xffffffff);
     pstgChild2->SetStateBits(0x00880088, 0xeeeeeeee);
+    fExitOnFail = TRUE;
     pstgChild2->Stat(&stat, STATFLAG_NONAME);
     if (!IsEqualCLSID(stat.clsid, IID_IStorage))
         error(EXIT_BADSC, "Class ID set to %s\n", GuidText(&stat.clsid));
     if (stat.grfStateBits != 0x11881188)
-        error(EXIT_BADSC, "State bits set improperly: has %lX vs. %lX\n",
+        errorprint("State bits set improperly: has %lX vs. %lX\n",
               stat.grfStateBits, 0x11881188);
     pstgChild2->Revert();
     pstgChild2->Stat(&stat, STATFLAG_NONAME);
     if (!IsEqualCLSID(stat.clsid, CLSID_NULL))
         error(EXIT_BADSC, "Class ID reverted to %s\n", GuidText(&stat.clsid));
     if (stat.grfStateBits != 0)
-        error(EXIT_BADSC, "State bits reverted improperly: has %lX vs. %lX\n",
+        errorprint("State bits reverted improperly: has %lX vs. %lX\n",
               stat.grfStateBits, 0);
     pstgChild2->Unwrap();
 
@@ -259,7 +261,7 @@ void t_dmodify(void)
     STATSTG stat;
 
     tm.dwLowDateTime = 0x12345678;
-    tm.dwHighDateTime = 0x9abcdef0;
+    tm.dwHighDateTime = 0x01bcdef0;
 
     // Set when element not open
     pstgChild->SetElementTimes(STR("RenamedChild"), &tm, NULL, NULL);
@@ -275,13 +277,15 @@ void t_dmodify(void)
 
     // Test SetClass and SetStateBits
     pstgChild2->SetClass(IID_IStorage);
+    fExitOnFail = FALSE;
     pstgChild2->SetStateBits(0xff00ff00, 0xffffffff);
     pstgChild2->SetStateBits(0x00880088, 0xeeeeeeee);
+    fExitOnFail = TRUE;
     pstgChild2->Stat(&stat, STATFLAG_NONAME);
     if (!IsEqualCLSID(stat.clsid, IID_IStorage))
         error(EXIT_BADSC, "Class ID set improperly\n");
     if (stat.grfStateBits != 0x11881188)
-        error(EXIT_BADSC, "State bits set improperly: has %lX vs. %lX\n",
+        errorprint("State bits set improperly: has %lX vs. %lX\n",
               stat.grfStateBits, 0x11881188);
     pstgChild2->Unwrap();
 
@@ -574,7 +578,9 @@ void t_stgcopyto(void)
 
     // Set some interesting values to make sure they're copied
     pstgFrom->SetClass(SCT_CLASSID);
+    fExitOnFail = FALSE;
     pstgFrom->SetStateBits(SCT_STATEBITS, 0xffffffff);
+    fExitOnFail = TRUE;
 
     WStgCreateDocfile(NULL, ROOTP(WSTG_READWRITE) | WSTG_CREATE |
 		      WSTG_DELETEONRELEASE, 0, &pstgTo);
@@ -589,7 +595,7 @@ void t_stgcopyto(void)
     if (!IsEqualCLSID(statTo.clsid, SCT_CLASSID))
         error(EXIT_BADSC, "Class ID mismatch after copy\n");
     if (statTo.grfStateBits != SCT_STATEBITS)
-        error(EXIT_BADSC, "State bits mismatch: has %lX vs. %lX\n",
+        errorprint("State bits mismatch: has %lX vs. %lX\n",
               statTo.grfStateBits, SCT_STATEBITS);
 
     pstgFrom->Unwrap();
@@ -604,7 +610,7 @@ void t_stgcopyto(void)
 
 #define MARSHAL_STM STR("Marshal")
 
-static void do_marshal(WStorage *pstg, WStream *pstm)
+void do_marshal(WStorage *pstg, WStream *pstm)
 {
     WStorage *pstgMarshal;
     WStream *pstmMarshal;
@@ -617,6 +623,10 @@ static void do_marshal(WStorage *pstg, WStream *pstm)
                         MSHLFLAGS_NORMAL);
     WCoMarshalInterface(pstmMarshal, IID_IStream, pstm->GetI(), 0, NULL,
                         MSHLFLAGS_NORMAL);
+    WCoMarshalInterface(pstmMarshal, IID_IUnknown, pstg->GetI(), 0, NULL,
+                        MSHLFLAGS_NORMAL);
+    WCoMarshalInterface(pstmMarshal, IID_IUnknown, pstm->GetI(), 0, NULL,
+                        MSHLFLAGS_NORMAL);
     pstmMarshal->Unwrap();
     pstgMarshal->Commit(0);
     pstgMarshal->Unwrap();
@@ -624,7 +634,8 @@ static void do_marshal(WStorage *pstg, WStream *pstm)
 
 static char STREAM_DATA[] = "This is data to be written";
 
-static void do_unmarshal(WStorage **ppstg, WStream **ppstm)
+void do_unmarshal(WStorage **ppstg, WStream **ppstm,
+                  IUnknown **ppstg2, IUnknown **ppstm2)
 {
     IStorage *pistg;
     WStorage *pstgMarshal;
@@ -639,6 +650,8 @@ static void do_unmarshal(WStorage **ppstg, WStream **ppstm)
     *ppstg = WStorage::Wrap(pistg);
     WCoUnmarshalInterface(pstmMarshal, IID_IStream, (void **)&pistm);
     *ppstm = WStream::Wrap(pistm);
+    WCoUnmarshalInterface(pstmMarshal, IID_IUnknown, (void **)ppstg2);
+    WCoUnmarshalInterface(pstmMarshal, IID_IUnknown, (void **)ppstm2);
     pstmMarshal->Unwrap();
     pstgMarshal->Unwrap();
 }
@@ -647,6 +660,7 @@ void t_marshal(void)
 {
     WStorage *pstg, *pstgM;
     WStream *pstm, *pstmM;
+    IUnknown *pstgM2, *pstmM2;
     ULONG cbRead, cbWritten;
     char buf[sizeof(STREAM_DATA)];
 
@@ -657,7 +671,7 @@ void t_marshal(void)
     CreateStructure(pstg->GetI(), "dChild(dChild(sStream))");
 
     do_marshal(pstg, pstm);
-    do_unmarshal(&pstgM, &pstmM);
+    do_unmarshal(&pstgM, &pstmM, &pstgM2, &pstmM2);
     pstm->Unwrap();
     pstg->Unwrap();
 
@@ -666,9 +680,11 @@ void t_marshal(void)
     if (strcmp(buf, STREAM_DATA))
 	error(EXIT_BADSC, "Stream data mismatch\n");
     pstmM->Unwrap();
+    pstmM2->Release();
 
     VerifyStructure(pstgM->GetI(), "dChild(dChild(sStream)),sStream");
     pstgM->Unwrap();
+    pstgM2->Release();
 }
 
 void t_stgmisc(void)
@@ -681,6 +697,8 @@ void t_stgmisc(void)
     // the storage signature to make it into the file right away
     WStgCreateDocfile(DRTDF, WSTG_READWRITE | WSTG_CREATE |
 	WSTG_SHARE_EXCLUSIVE, 0, &pstg);
+    if (!fOfs)
+    {
     sc = DfGetScode(WStgIsStorageFile(DRTDF));
     if (sc == S_FALSE)
 	error(EXIT_BADSC, "Open file - Should be a storage object\n");
@@ -688,6 +706,7 @@ void t_stgmisc(void)
     sc = DfGetScode(WStgIsStorageFile(DRTDF));
     if (sc == S_FALSE)
 	error(EXIT_BADSC, "Closed file - Should be a storage object\n");
+    }
     WStgCreateDocfile(NULL, ROOTP(WSTG_READWRITE) | WSTG_CREATE |
 	    WSTG_DELETEONRELEASE, 0, &pstg);
     pstg->Stat(&stat, 0);

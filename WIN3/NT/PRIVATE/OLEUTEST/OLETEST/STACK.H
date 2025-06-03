@@ -59,4 +59,3 @@ private:
 };
 
 #endif	//!_STACK_H
-

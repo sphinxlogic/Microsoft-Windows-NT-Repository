@@ -608,7 +608,7 @@ char *v[];
     if (!fBinary && !fLine) {
         extention (v[0], line);
         for (i = 0; extBin[i]; i++)
-            if (!strcmpi (extBin[i], line))
+            if (!_strcmpi (extBin[i], line))
                 fBinary = TRUE;
         if (!fBinary)
             fLine = TRUE;
@@ -624,7 +624,7 @@ char *v[];
     if (fCase)
 	fCmp = strcmp;
     else
-	fCmp = strcmpi;
+	fCmp = _strcmpi;
     if (fBinary)
         BinaryCompare (v[0], v[1]);
     else

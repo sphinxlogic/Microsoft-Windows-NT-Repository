@@ -24,6 +24,7 @@ Revision History:
 extern  PCMHIVE CmpMasterHive;
 extern  BOOLEAN CmpNoMasterCreates;
 extern  PCM_KEY_CONTROL_BLOCK CmpKeyControlBlockRoot;
+extern  UNICODE_STRING CmSymbolicLinkValueName;
 
 //
 // Prototypes for procedures private to this file
@@ -32,23 +33,19 @@ extern  PCM_KEY_CONTROL_BLOCK CmpKeyControlBlockRoot;
 BOOLEAN
 CmpGetSymbolicLink(
     IN PHHIVE Hive,
-    IN HCELL_INDEX Cell,
+    IN PCM_KEY_NODE Node,
     IN OUT PUNICODE_STRING ObjectName,
     IN PUNICODE_STRING RemainingName
-    );
-
-BOOLEAN
-CmpStepThroughExit(
-    IN OUT PHHIVE       *Hive,
-    IN OUT HCELL_INDEX  *Cell
     );
 
 NTSTATUS
 CmpDoOpen(
     IN PHHIVE Hive,
     IN HCELL_INDEX Cell,
+    IN PCM_KEY_NODE Node,
     IN PACCESS_STATE AccessState,
     IN KPROCESSOR_MODE AccessMode,
+    IN ULONG Attributes,
     IN PCM_PARSE_CONTEXT Context,
     IN PUNICODE_STRING BaseName,
     IN PUNICODE_STRING KeyName,
@@ -62,6 +59,7 @@ CmpCreateLinkNode(
     IN PACCESS_STATE AccessState,
     IN UNICODE_STRING Name,
     IN KPROCESSOR_MODE AccessMode,
+    IN ULONG Attributes,
     IN PCM_PARSE_CONTEXT Context,
     IN PUNICODE_STRING BaseName,
     IN PUNICODE_STRING KeyName,
@@ -71,11 +69,25 @@ CmpCreateLinkNode(
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE,CmpParseKey)
 #pragma alloc_text(PAGE,CmpGetNextName)
-#pragma alloc_text(PAGE,CmpStepThroughExit)
 #pragma alloc_text(PAGE,CmpDoOpen)
 #pragma alloc_text(PAGE,CmpCreateLinkNode)
 #pragma alloc_text(PAGE,CmpGetSymbolicLink)
 #endif
+
+/*
+VOID
+CmpStepThroughExit(
+    IN OUT PHHIVE       *Hive,
+    IN OUT HCELL_INDEX  *Cell,
+    IN OUT PCM_KEY_NODE *pNode
+    )
+*/
+#define CmpStepThroughExit(h,c,n)           \
+if ((n)->Flags & KEY_HIVE_EXIT) {           \
+    (h)=(n)->u1.ChildHiveReference.KeyHive; \
+    (c)=(n)->u1.ChildHiveReference.KeyCell; \
+    (n)=(PCM_KEY_NODE)HvGetCell((h),(c));   \
+}
 
 
 NTSTATUS
@@ -149,6 +161,7 @@ Return Value:
     BOOLEAN     rc;
     PHHIVE      Hive;
     PHHIVE      ParentHive;
+    PCM_KEY_NODE Node;
     HCELL_INDEX Cell;
     HCELL_INDEX ParentCell;
     HCELL_INDEX NextCell;
@@ -170,7 +183,7 @@ Return Value:
     }
 
     Current = *RemainingName;
-    if ((ObjectType != NULL) & (ObjectType != CmpKeyObjectType)) {
+    if (ObjectType != CmpKeyObjectType) {
         return STATUS_OBJECT_TYPE_MISMATCH;
     }
 
@@ -190,6 +203,7 @@ Return Value:
     //
     Hive = ((PCM_KEY_BODY)ParseObject)->KeyControlBlock->KeyHive;
     Cell = ((PCM_KEY_BODY)ParseObject)->KeyControlBlock->KeyCell;
+    Node = ((PCM_KEY_BODY)ParseObject)->KeyControlBlock->KeyNode;
     BaseName = &(((PCM_KEY_BODY)ParseObject)->KeyControlBlock->FullName);
 
     //
@@ -209,7 +223,7 @@ Return Value:
         // If Hive,Cell -> an exit cell, step through it to the
         // child hive that it refers to.
         //
-        CmpStepThroughExit(&Hive, &Cell);
+        CmpStepThroughExit(Hive, Cell, Node);
 
         //
         // Parse out next component of name
@@ -217,165 +231,154 @@ Return Value:
         rc = CmpGetNextName(&Current, &NextName, &Last);
         if ((NextName.Length > 0) && (rc == TRUE)) {
 
-            //
-            // Got a legal name component, see if we can find a sub key
-            // that actually has such a name.
-            //
-            status = CmpFindChildByName(
-                        Hive,
-                        Cell,
-                        NextName,
-                        KeyBodyNode,
-                        &NextCell,
-                        &Index
-                        );
+            if (!(Node->Flags & KEY_SYM_LINK)) {
+                //
+                // Got a legal name component, see if we can find a sub key
+                // that actually has such a name.
+                //
+                NextCell = CmpFindSubKeyByName(Hive,
+                                               Node,
+                                               &NextName);
+                CMLOG(CML_FLOW, CMS_PARSE) {
+                    KdPrint(("CmpParseKey:\n\t"));
+                    KdPrint(("NextName = '%wZ'\n\t", &NextName));
+                    KdPrint(("NextCell = %08lx  Last = %01lx\n", NextCell, Last));
+                }
+                if (NextCell != HCELL_NIL) {
+                    Cell = NextCell;
+                    Node = (PCM_KEY_NODE)HvGetCell(Hive,Cell);
+                    if (Last == TRUE) {
 
-            CMLOG(CML_FLOW, CMS_PARSE) {
-                KdPrint(("CmpParseKey:\n\t"));
-                KdPrint(("NextName = '%wZ'\n\t", &NextName));
-                KdPrint(("status = %08lx  Last = %01lx\n", status, Last));
-            }
-
-            if (status == STATUS_SUCCESS) {
-
-                Cell = NextCell;
-
-                if (Last == TRUE) {
-
-                    //
-                    // We will open the key regardless of whether the
-                    // call was open or create, so step through exit
-                    // portholes here.
-                    //
-
-                    CmpStepThroughExit(&Hive, &Cell);
-
-                    //
-                    // We have found the entire path, so we want to open
-                    // it (for both Open and Create calls).
-                    // Hive,Cell -> the key we are supposed to open.
-                    //
-
-                    status = CmpDoOpen(
-                                Hive,
-                                Cell,
-                                AccessState,
-                                AccessMode,
-                                lcontext,
-                                BaseName,
-                                RemainingName,
-                                Object
-                                );
-                    if (status == STATUS_REPARSE) {
                         //
-                        // The given key was a symbolic link.  Find the name of
-                        // its link, and return STATUS_REPARSE to the Object Manager.
+                        // We will open the key regardless of whether the
+                        // call was open or create, so step through exit
+                        // portholes here.
                         //
-                        if (!CmpGetSymbolicLink(Hive,
-                                                Cell,
-                                                CompleteName,
-                                                NULL)) {
-                            CMLOG(CML_MAJOR, CMS_PARSE) {
-                                KdPrint(("CmpParseKey: couldn't find symbolic link name\n"));
+
+                        CmpStepThroughExit(Hive, Cell, Node);
+
+                        //
+                        // We have found the entire path, so we want to open
+                        // it (for both Open and Create calls).
+                        // Hive,Cell -> the key we are supposed to open.
+                        //
+
+                        status = CmpDoOpen(Hive,
+                                           Cell,
+                                           Node,
+                                           AccessState,
+                                           AccessMode,
+                                           Attributes,
+                                           lcontext,
+                                           BaseName,
+                                           RemainingName,
+                                           Object);
+                        if (status == STATUS_REPARSE) {
+                            //
+                            // The given key was a symbolic link.  Find the name of
+                            // its link, and return STATUS_REPARSE to the Object Manager.
+                            //
+                            if (!CmpGetSymbolicLink(Hive,
+                                                    Node,
+                                                    CompleteName,
+                                                    NULL)) {
+                                CMLOG(CML_MAJOR, CMS_PARSE) {
+                                    KdPrint(("CmpParseKey: couldn't find symbolic link name\n"));
+                                }
+                                status = STATUS_OBJECT_NAME_NOT_FOUND;
                             }
-                            status = STATUS_OBJECT_NAME_NOT_FOUND;
+                        }
+                        break;
+                    }
+
+                    // else
+                    //   Not at end, so we'll simply iterate and consume
+                    //   the next component.
+                    //
+
+                } else {
+                    //
+                    // We did not find a key matching the name, but no
+                    // unexpected error occured
+                    //
+
+                    if ((Last == TRUE) && (ARGUMENT_PRESENT(lcontext))) {
+
+                        //
+                        // Only unfound component is last one, and operation
+                        // is a create, so perform the create.
+                        //
+
+                        //
+                        // There are two possibilities here.  The normal one
+                        // is that we are simply creating a new node.
+                        //
+                        // The abnormal one is that we are creating a root
+                        // node that is linked to the main hive.  In this
+                        // case, we must create the link.  Once the link is
+                        // created, we can check to see if the root node
+                        // exists, then either create it or open it as
+                        // necessary.
+                        //
+                        // CmpCreateLinkNode creates the link, and calls
+                        // back to CmpDoCreate or CmpDoOpen to create or open
+                        // the root node as appropriate.
+                        //
+
+                        if (lcontext->CreateLink) {
+                            status = CmpCreateLinkNode(Hive,
+                                                       Cell,
+                                                       AccessState,
+                                                       NextName,
+                                                       AccessMode,
+                                                       Attributes,
+                                                       lcontext,
+                                                       BaseName,
+                                                       RemainingName,
+                                                       Object);
+
+                        } else {
+
+                            if ( (Hive == &(CmpMasterHive->Hive)) &&
+                                 (CmpNoMasterCreates == TRUE) ) {
+                                //
+                                // attempting to create a cell in the master
+                                // hive, and not a link, so blow out of here,
+                                // since it wouldn't work anyway.
+                                //
+                                status = STATUS_INVALID_PARAMETER;
+                                break;
+                            }
+
+                            status = CmpDoCreate(Hive,
+                                                 Cell,
+                                                 AccessState,
+                                                 &NextName,
+                                                 AccessMode,
+                                                 lcontext,
+                                                 BaseName,
+                                                 RemainingName,
+                                                 Object);
                         }
 
-                    }
-                    break;
-                }
-
-                // else
-                //   Not at end, so we'll simply iterate and consume
-                //   the next component.
-                //
-
-            } else if (status == STATUS_OBJECT_NAME_NOT_FOUND) {
-
-                //
-                // We did not find a key matching the name, but no
-                // unexpected error occured
-                //
-
-                if ((Last == TRUE) && (ARGUMENT_PRESENT(lcontext))) {
-
-                    //
-                    // Only unfound component is last one, and operation
-                    // is a create, so perform the create.
-                    //
-
-                    //
-                    // There are two possibilities here.  The normal one
-                    // is that we are simply creating a new node.
-                    //
-                    // The abnormal one is that we are creating a root
-                    // node that is linked to the main hive.  In this
-                    // case, we must create the link.  Once the link is
-                    // created, we can check to see if the root node
-                    // exists, then either create it or open it as
-                    // necessary.
-                    //
-                    // CmpCreateLinkNode creates the link, and calls
-                    // back to CmpDoCreate or CmpDoOpen to create or open
-                    // the root node as appropriate.
-                    //
-
-                    if (lcontext->CreateLink) {
-                        status = CmpCreateLinkNode(
-                                    Hive,
-                                    Cell,
-                                    AccessState,
-                                    NextName,
-                                    AccessMode,
-                                    lcontext,
-                                    BaseName,
-                                    RemainingName,
-                                    Object
-                                    );
+                        lcontext->Disposition = REG_CREATED_NEW_KEY;
+                        break;
 
                     } else {
 
-                        if ( (Hive == &(CmpMasterHive->Hive)) &&
-                             (CmpNoMasterCreates == TRUE) )
-                        {
-                            //
-                            // attempting to create a cell in the master
-                            // hive, and not a link, so blow out of here,
-                            // since it wouldn't work anyway.
-                            //
-                            status = STATUS_INVALID_PARAMETER;
-                            break;
-                        }
-
-                        status = CmpDoCreate(
-                                    Hive,
-                                    Cell,
-                                    AccessState,
-                                    &NextName,
-                                    AccessMode,
-                                    lcontext,
-                                    BaseName,
-                                    RemainingName,
-                                    Object
-                                    );
+                        //
+                        // Did not find a key to match the component, and
+                        // are not at the end of the path.  Thus, open must
+                        // fail because the whole path dosn't exist, create must
+                        // fail because more than 1 component doesn't exist.
+                        //
+                        status = STATUS_OBJECT_NAME_NOT_FOUND;
+                        break;
                     }
 
-                    lcontext->Disposition = REG_CREATED_NEW_KEY;
-                    break;
-
-                } else {
-
-                    //
-                    // Did not find a key to match the component, and
-                    // are not at the end of the path.  Thus, open must
-                    // fail because the whole path dosn't exist, create must
-                    // fail because more than 1 component doesn't exist.
-                    //
-                    status = STATUS_OBJECT_NAME_NOT_FOUND;
-                    break;
                 }
-            } else if (status == STATUS_REPARSE) {
 
+            } else {
                 //
                 // The given key was a symbolic link.  Find the name of
                 // its link, and return STATUS_REPARSE to the Object Manager.
@@ -384,7 +387,7 @@ Return Value:
                 Current.Length += NextName.Length;
                 Current.MaximumLength += NextName.MaximumLength;
                 if (CmpGetSymbolicLink(Hive,
-                                       Cell,
+                                       Node,
                                        CompleteName,
                                        &Current)) {
 
@@ -398,38 +401,29 @@ Return Value:
                     status = STATUS_OBJECT_NAME_NOT_FOUND;
                     break;
                 }
-
-
-            } else {
-
-                //
-                // Something bad and unusual happened, return status directly
-                //
-
-                break;
             }
 
         } else if (rc == TRUE && Last == TRUE) {
             //
             // We will open the \Registry root.
             //
-            CmpStepThroughExit(&Hive, &Cell);
+            CmpStepThroughExit(Hive, Cell, Node);
 
             //
             // We have found the entire path, so we want to open
             // it (for both Open and Create calls).
             // Hive,Cell -> the key we are supposed to open.
             //
-            status = CmpDoOpen(
-                        Hive,
-                        Cell,
-                        AccessState,
-                        AccessMode,
-                        lcontext,
-                        BaseName,       // This is \Registry
-                        RemainingName,  // This is a null string
-                        Object
-                        );
+            status = CmpDoOpen(Hive,
+                               Cell,
+                               Node,
+                               AccessState,
+                               AccessMode,
+                               Attributes,
+                               lcontext,
+                               BaseName,       // This is \Registry
+                               RemainingName,  // This is a null string
+                               Object);
             break;
 
         } else {
@@ -550,83 +544,14 @@ Return Value:
 }
 
 
-BOOLEAN
-CmpStepThroughExit(
-    IN OUT PHHIVE       *Hive,
-    IN OUT HCELL_INDEX  *Cell
-    )
-/*++
-
-Routine Description:
-
-    This routine transitions accross hive boundaries.
-
-    If Hive.Cell -> refer to an exit cell, then we must map it in, get
-        the Hive and root Cell of the child hive it refers to, and return
-        them.  An exit cell is really an alias for a cell in another hive,
-        which happens to always be the root cell of that hive, with a
-        special interpretation of its parent cell, but is in all other
-        ways normal.
-
-    Else
-        do nothing at all
-
-    NOTE:   This routine MUST SUCCEED.  (Failure is bugcheck time.)
-
-
-Arguments:
-
-    Hive - pointer to hive we start out in, if we step through an
-            exit cell (through the porthole) to another hive, will
-            be set to that hive.
-
-    Cell - index of cell we start out with, if we step through an
-            exit cell (through the porthole) to another hive, will
-            be set to the Cell in the second hive that the Cell in
-            the first Hive is an alias for.
-
-Return Value:
-
-    TRUE - a transition to another hive was made
-
-    FALSE - no transition occurred
-
---*/
-{
-    PCELL_DATA pcell;
-
-    //
-    // Map in cell in parent hive
-    //
-
-    pcell = HvGetCell(*Hive, *Cell);
-
-    if ((pcell->u.KeyNode.Flags & KEY_HIVE_EXIT) != 0) {
-
-        //
-        // Cell is indeed an exit cell, unmap it HERE, set Hive and Cell
-        // to new values.
-        //
-        *Hive = pcell->u.KeyNode.u1.ChildHiveReference.KeyHive;
-        *Cell = pcell->u.KeyNode.u1.ChildHiveReference.KeyCell;
-        return TRUE;
-
-    } else {
-
-        //
-        // Ordinary cell
-        //
-        return FALSE;
-    }
-}
-
-
 NTSTATUS
 CmpDoOpen(
     IN PHHIVE Hive,
     IN HCELL_INDEX Cell,
+    IN PCM_KEY_NODE Node,
     IN PACCESS_STATE AccessState,
     IN KPROCESSOR_MODE AccessMode,
+    IN ULONG Attributes,
     IN PCM_PARSE_CONTEXT Context,
     IN PUNICODE_STRING BaseName,
     IN PUNICODE_STRING KeyName,
@@ -648,6 +573,8 @@ Arguments:
 
     AccessMode - Access mode of the original caller.
 
+    Attributes - Attributes to be applied to the object.
+
     Context - if create or hive root open, points to a CM_PARSE_CONTEXT
               structure,
               if open, is NULL.
@@ -667,7 +594,6 @@ Return Value:
 {
     NTSTATUS status;
     PCM_KEY_BODY pbody;
-    PCM_KEY_NODE pnode;
     PCM_KEY_CONTROL_BLOCK kcb;
     KPROCESSOR_MODE   mode;
     BOOLEAN BackupRestore;
@@ -703,21 +629,17 @@ Return Value:
     }
 
     //
-    // Check for symbolic link.
+    // Check for symbolic link and caller does not want to open a link
     //
-    pnode = (PCM_KEY_NODE)HvGetCell(Hive, Cell);
-    if (pnode->Flags & KEY_SYM_LINK) {
+    if (Node->Flags & KEY_SYM_LINK && !(Attributes & OBJ_OPENLINK)) {
         return(STATUS_REPARSE);
     }
-
-
-
 
     //
     // If key control block does not exist, and cannot be created, fail,
     // else just increment the ref count (done for us by CreateKeyControlBlock)
     //
-    kcb = CmpCreateKeyControlBlock(Hive, Cell, BaseName, KeyName);
+    kcb = CmpCreateKeyControlBlock(Hive, Cell, Node, BaseName, KeyName);
     if (kcb  == NULL) {
         return STATUS_INSUFFICIENT_RESOURCES;
     }
@@ -752,9 +674,9 @@ Return Value:
 
         pbody = (PCM_KEY_BODY)(*Object);
 
-        if (pnode->Flags & KEY_PREDEF_HANDLE) {
+        if (Node->Flags & KEY_PREDEF_HANDLE) {
 
-            pbody->Type = pnode->ValueList.Count;
+            pbody->Type = Node->ValueList.Count;
             return(STATUS_PREDEFINED_HANDLE);
         } else {
             //
@@ -804,7 +726,7 @@ Return Value:
 
         if (SeSinglePrivilegeCheck(SeRestorePrivilege, mode)) {
             AccessState->PreviouslyGrantedAccess |=
-                KEY_WRITE | ACCESS_SYSTEM_SECURITY;
+                KEY_WRITE | ACCESS_SYSTEM_SECURITY | WRITE_DAC | WRITE_OWNER;
         }
 
         if (AccessState->PreviouslyGrantedAccess == 0) {
@@ -850,6 +772,7 @@ CmpCreateLinkNode(
     IN PACCESS_STATE AccessState,
     IN UNICODE_STRING Name,
     IN KPROCESSOR_MODE AccessMode,
+    IN ULONG Attributes,
     IN PCM_PARSE_CONTEXT Context,
     IN PUNICODE_STRING BaseName,
     IN PUNICODE_STRING KeyName,
@@ -875,6 +798,8 @@ Arguments:
             the child to be created.
 
     AccessMode - Access mode of the original caller.
+
+    Attributes - Attributes to be applied to the object.
 
     Context - pointer to CM_PARSE_CONTEXT structure passed through
                 the object manager
@@ -934,8 +859,10 @@ Return Value:
 
         Status = CmpDoOpen( Context->ChildHive.KeyHive,
                             KeyCell,
+                            (PCM_KEY_NODE)HvGetCell(Context->ChildHive.KeyHive,KeyCell),
                             AccessState,
                             AccessMode,
+                            Attributes,
                             NULL,
                             BaseName,
                             KeyName,
@@ -979,7 +906,7 @@ Return Value:
         //
         CellData = HvGetCell(Context->ChildHive.KeyHive, ChildCell);
         CellData->u.KeyNode.Parent = LinkCell;
-        CellData->u.KeyNode.Flags = KEY_HIVE_ENTRY | KEY_NO_DELETE;
+        CellData->u.KeyNode.Flags |= KEY_HIVE_ENTRY | KEY_NO_DELETE;
 
         //
         // Initialize special link node flags and data
@@ -1041,7 +968,7 @@ Return Value:
 BOOLEAN
 CmpGetSymbolicLink(
     IN PHHIVE Hive,
-    IN HCELL_INDEX Cell,
+    IN PCM_KEY_NODE Node,
     IN OUT PUNICODE_STRING ObjectName,
     IN PUNICODE_STRING RemainingName OPTIONAL
     )
@@ -1057,7 +984,7 @@ Arguments:
 
     Hive - Supplies the hive of the key.
 
-    Cell - Supplies the cell index of the key.
+    Node - Supplies pointer to the key node
 
     ObjectName - Supplies the current ObjectName.
                  Returns the new ObjectName.  If the new name is longer
@@ -1079,31 +1006,21 @@ Return Value:
     NTSTATUS Status;
     HCELL_INDEX LinkCell;
     PHCELL_INDEX Index;
-    UNICODE_STRING LinkValueName;
     PCM_KEY_VALUE LinkValue;
     PWSTR LinkName;
     PWSTR NewBuffer;
-    PWSTR OldBuffer = NULL;
     USHORT Length;
     ULONG ValueLength;
-
-    RtlInitUnicodeString(
-        &LinkValueName,
-        L"SymbolicLinkValue"
-        );
 
     //
     // Find the SymbolicLinkValue value.  This is the name of the symbolic link.
     //
-    Status = CmpFindChildByName(Hive,
-                                Cell,
-                                LinkValueName,
-                                KeyValueNode,
-                                &LinkCell,
-                                &Index);
-    if (!NT_SUCCESS(Status)) {
+    LinkCell = CmpFindValueByName(Hive,
+                                  Node,
+                                  &CmSymbolicLinkValueName);
+    if (LinkCell == HCELL_NIL) {
         CMLOG(CML_MINOR, CMS_PARSE) {
-            KdPrint(("CmpGetSymbolicLink: couldn't open symbolic link value: %08lx\n",Status));
+            KdPrint(("CmpGetSymbolicLink: couldn't open symbolic link\n"));
         }
         return(FALSE);
     }
@@ -1120,13 +1037,16 @@ Return Value:
     LinkName = (PWSTR)HvGetCell(Hive, LinkValue->Data);
 
     CmpIsHKeyValueSmall(ValueLength, LinkValue->DataLength);
-    Length = (USHORT)ValueLength;
+    Length = (USHORT)ValueLength + sizeof(WCHAR);
 
 
     if (ARGUMENT_PRESENT(RemainingName)) {
         Length += RemainingName->Length + sizeof(WCHAR);
     }
+
     if (Length > ObjectName->MaximumLength) {
+        UNICODE_STRING NewObjectName;
+
         //
         // The new name is too long to fit in the existing ObjectName buffer,
         // so allocate a new buffer.
@@ -1139,38 +1059,46 @@ Return Value:
             return(FALSE);
         }
 
-        //
-        // We can't free the buffer yet, because the RemainingName still
-        // points into it.
-        //
-        OldBuffer = ObjectName->Buffer;
-        ObjectName->Buffer = NewBuffer;
-        ObjectName->MaximumLength = Length;
-
-    }
-    RtlMoveMemory(ObjectName->Buffer, LinkName, ValueLength);
-    ObjectName->Length = (USHORT)ValueLength;
-    CMLOG(CML_FLOW, CMS_PARSE) {
-        KdPrint(("CmpGetSymbolicLink: LinkName is %wZ\n", ObjectName));
-        if (ARGUMENT_PRESENT(RemainingName)) {
-            KdPrint(("               RemainingName is %wZ\n", RemainingName));
-        } else {
-            KdPrint(("               RemainingName is NULL\n"));
+        NewObjectName.Buffer = NewBuffer;
+        NewObjectName.MaximumLength = Length;
+        NewObjectName.Length = (USHORT)ValueLength;
+        RtlCopyMemory(NewBuffer, LinkName, ValueLength);
+        CMLOG(CML_FLOW, CMS_PARSE) {
+            KdPrint(("CmpGetSymbolicLink: LinkName is %wZ\n", ObjectName));
+            if (ARGUMENT_PRESENT(RemainingName)) {
+                KdPrint(("               RemainingName is %wZ\n", RemainingName));
+            } else {
+                KdPrint(("               RemainingName is NULL\n"));
+            }
         }
-    }
 
-    if (ARGUMENT_PRESENT(RemainingName)) {
-        ObjectName->Buffer[ (ObjectName->Length/2) ] = OBJ_NAME_PATH_SEPARATOR;
-        ObjectName->Length += sizeof(WCHAR);
-        Status = RtlAppendUnicodeStringToString(ObjectName, RemainingName);
-        ASSERT(NT_SUCCESS(Status));
-    }
+        if (ARGUMENT_PRESENT(RemainingName)) {
+            NewBuffer[ ValueLength / sizeof(WCHAR) ] = OBJ_NAME_PATH_SEPARATOR;
+            NewObjectName.Length += sizeof(WCHAR);
+            Status = RtlAppendUnicodeStringToString(&NewObjectName, RemainingName);
+            ASSERT(NT_SUCCESS(Status));
+        }
 
-    if (OldBuffer != NULL) {
-        ExFreePool(OldBuffer);
+        ExFreePool(ObjectName->Buffer);
+        *ObjectName = NewObjectName;
+    } else {
+        //
+        // The new name will fit within the maximum length of the existing
+        // ObjectName, so do the expansion in-place. Note that the remaining
+        // name must be moved into its new position first since the symbolic
+        // link may or may not overlap it.
+        //
+        ObjectName->Length = (USHORT)ValueLength;
+        if (ARGUMENT_PRESENT(RemainingName)) {
+            RtlMoveMemory(&ObjectName->Buffer[(ValueLength / sizeof(WCHAR)) + 1],
+                          RemainingName->Buffer,
+                          RemainingName->Length);
+            ObjectName->Buffer[ValueLength / sizeof(WCHAR)] = OBJ_NAME_PATH_SEPARATOR;
+            ObjectName->Length += RemainingName->Length + sizeof(WCHAR);
+        }
+        RtlCopyMemory(ObjectName->Buffer, LinkName, ValueLength);
     }
+    ObjectName->Buffer[ObjectName->Length / sizeof(WCHAR)] = UNICODE_NULL;
 
     return(TRUE);
-
 }
-

@@ -530,6 +530,8 @@ INT16 DoRead(
                     channel->cur_drv->cur_pos.lba = req->tape_loc.lba ;
 
                     channel->ui_tpos->tape_seq_num = req->tape_loc.tape_seq ;
+                    channel->ts_num = req->tape_loc.tape_seq ;
+
                     if( ( ret_val = PositionAtSet( channel, channel->ui_tpos, FALSE ) ) == TFLE_NO_ERR ) {
 
                          /* Set the lba of the beginning of the buffer and
@@ -1651,4 +1653,4 @@ static VOID _near HandleSXStartScanTapeConcerns( CHANNEL_PTR channel )
           }
      }
 }
-
+

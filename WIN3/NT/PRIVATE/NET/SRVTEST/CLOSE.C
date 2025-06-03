@@ -4,7 +4,7 @@ Copyright (c) 1989  Microsoft Corporation
 
 Module Name:
 
-    close.c
+    _close.c
 
 Abstract:
 
@@ -266,16 +266,16 @@ CloseController(
     }
 
     if ( Redir->argc < 2 ||
-            strnicmp( Redir->argv[1], "close", paramLength ) == 0 ) {
+            _strnicmp( Redir->argv[1], "close", paramLength ) == 0 ) {
         smbMaker = MakeCloseSmb;
         smbVerifier = VerifyClose;
-    } else if ( strnicmp( Redir->argv[1], "tdisc", paramLength ) == 0 ) {
+    } else if ( _strnicmp( Redir->argv[1], "tdisc", paramLength ) == 0 ) {
         smbMaker = MakeTreeDisconnectSmb;
         smbVerifier = VerifyTreeDisconnect;
-    } else if ( strnicmp( Redir->argv[1], "logoff", paramLength ) == 0 ) {
+    } else if ( _strnicmp( Redir->argv[1], "logoff", paramLength ) == 0 ) {
         smbMaker = MakeLogoffAndXSmb;
         smbVerifier = VerifyLogoffAndX;
-    } else if ( strnicmp( Redir->argv[1], "processexit", paramLength ) == 0 ) {
+    } else if ( _strnicmp( Redir->argv[1], "processexit", paramLength ) == 0 ) {
         smbMaker = MakeProcessExitSmb;
         smbVerifier = VerifyProcessExit;
     }

@@ -24,9 +24,6 @@ Revision History:
 --*/
 
 #include "ki.h"
-
-VOID    (*KiUserApcDispatcherAddress)();
-
 
 VOID
 KiInitializeUserApc (
@@ -146,7 +143,7 @@ Return Value:
         //
 
         TrapFrame->HardwareEsp = UserStack;
-        TrapFrame->Eip = (ULONG)KiUserApcDispatcherAddress;
+        TrapFrame->Eip = (ULONG)KeUserApcDispatcher;
         TrapFrame->ErrCode = 0;
         *((PULONG)UserStack)++ = (ULONG)NormalRoutine;
         *((PULONG)UserStack)++ = (ULONG)NormalContext;
@@ -160,7 +157,7 @@ Return Value:
         // and raise the exception by calling the exception dispatcher.
         //
 
-        ExceptionRecord.ExceptionAddress = TrapFrame->Eip;
+        ExceptionRecord.ExceptionAddress = (PVOID)(TrapFrame->Eip);
         KiDispatchException(&ExceptionRecord,
                             ExceptionFrame,
                             TrapFrame,
@@ -169,4 +166,4 @@ Return Value:
     }
     return;
 }
-
+

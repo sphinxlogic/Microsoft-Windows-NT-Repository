@@ -26,6 +26,16 @@ Revision History:
 #include "precomp.h"
 #pragma hdrstop
 
+//
+// Keep track of the number of datagram queued to worker threads.
+//  Keep a separate count of critical versus non-critical to ensure non-critical
+//  datagrams don't starve critical ones.
+//
+
+LONG BowserPostedDatagramCount;
+LONG BowserPostedCriticalDatagramCount;
+#define BOWSER_MAX_POSTED_DATAGRAMS 100
+
 #define INCLUDE_SMB_TRANSACTION
 
 typedef struct _PROCESS_MASTER_ANNOUNCEMENT_CONTEXT {
@@ -79,16 +89,6 @@ CompleteShortBrowserPacket (
     IN PIRP Irp,
     IN PVOID Ctx
     );
-#if 0
-NTSTATUS
-HandleLogonStatusRequest (
-    IN PTRANSPORT_NAME TransportName,
-    IN ULONG HeaderSize,
-    IN ULONG BytesAvailable,
-    OUT PULONG BytesTaken,
-    OUT PIRP *Irp
-    );
-#endif
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE, BowserLogIllegalDatagramWorker)
@@ -438,6 +438,8 @@ Return Value:
     PINTERNAL_TRANSACTION InternalTransaction;
     BOOLEAN MailslotLanman = FALSE;
     BOOLEAN MailslotBrowse = FALSE;
+    ULONG i;
+    ULONG MaxMailslotNameLength;
 
     ASSERT (sizeof(BowserMinimumDatagramSize) == MaximumMailslotType);
 
@@ -497,12 +499,32 @@ Return Value:
 
         (SmbGetUshort(&Transaction->Class) != 2) ||
 
-        strnicmp(MailslotName, SMB_MAILSLOT_PREFIX,
+        _strnicmp(MailslotName, SMB_MAILSLOT_PREFIX,
                  min(SMB_MAILSLOT_PREFIX_LENGTH,
                      BufferLength-((PCHAR)Buffer-(PCHAR)MailslotName)))) {
 
         return Illegal;
     }
+
+
+    //
+    // Ensure there's a zero byte in the mailslotname
+    //
+
+    MaxMailslotNameLength =
+                min( MAXIMUM_FILENAME_LENGTH-7,   // \Device
+                BufferLength-((PCHAR)Buffer-(PCHAR)MailslotName));
+
+    for ( i = SMB_MAILSLOT_PREFIX_LENGTH; i < MaxMailslotNameLength; i++ ) {
+        if ( MailslotName[i] == '\0' ) {
+            break;
+        }
+    }
+
+    if ( i == MaxMailslotNameLength ) {
+        return Illegal;
+    }
+
 
     //
     //  We now know this is a mailslot of some kind.  Now check what type
@@ -516,9 +538,9 @@ Return Value:
     //  and \MAILSLOT\BROWSE
     //
 
-    if (strnicmp(MailslotName, MAILSLOT_LANMAN_NAME, min(sizeof(MAILSLOT_LANMAN_NAME)-1, BufferLength-((PCHAR)Buffer-(PCHAR)MailslotName)))) {
+    if (_strnicmp(MailslotName, MAILSLOT_LANMAN_NAME, min(sizeof(MAILSLOT_LANMAN_NAME)-1, BufferLength-((PCHAR)Buffer-(PCHAR)MailslotName)))) {
 
-        if (strnicmp(MailslotName, MAILSLOT_BROWSER_NAME, min(sizeof(MAILSLOT_BROWSER_NAME)-1, BufferLength-((PCHAR)Buffer-(PCHAR)MailslotName)))) {
+        if (_strnicmp(MailslotName, MAILSLOT_BROWSER_NAME, min(sizeof(MAILSLOT_BROWSER_NAME)-1, BufferLength-((PCHAR)Buffer-(PCHAR)MailslotName)))) {
             return MailslotTransaction;
         } else {
             MailslotBrowse = TRUE;
@@ -632,12 +654,14 @@ Return Value:
 
     ExInitializeWorkItem(&Context->WorkItem, BowserProcessMasterAnnouncement, Context);
 
+    BowserReferenceTransport( TransportName->Transport );
     Context->Transport = TransportName->Transport;
 
     Context->ServerType = SmbGetUlong(&BrowseAnnouncement->Type);
     Context->ServerElectionVersion = SmbGetUlong(&BrowseAnnouncement->CommentPointer);
 
-    strcpy(Context->MasterName, BrowseAnnouncement->ServerName);
+    RtlCopyMemory(Context->MasterName, BrowseAnnouncement->ServerName, sizeof(Context->MasterName)-1);
+    Context->MasterName[sizeof(Context->MasterName)-1] = '\0';
 
     Context->MasterAddressLength = SourceAddressLength;
 
@@ -722,7 +746,7 @@ Return Value:
 
         if (!NT_SUCCESS(Status)) {
             BowserWriteErrorLogEntry(EVENT_BOWSER_NAME_CONVERSION_FAILED, Status, AnsiMasterName.Buffer, AnsiMasterName.Length, 0);
-            return;
+            try_return(NOTHING);
         }
 
         //
@@ -744,13 +768,14 @@ Return Value:
         //
 
         if (Context->MasterAddressLength != PagedTransport->MasterBrowserAddress.Length ||
-            RtlCompareMemory(PagedTransport->MasterBrowserAddress.Buffer, Context->Buffer, Context->MasterAddressLength) != Context->MasterAddressLength) {
+            !RtlEqualMemory(PagedTransport->MasterBrowserAddress.Buffer, Context->Buffer, Context->MasterAddressLength)) {
 
             ASSERT (Context->MasterAddressLength <= PagedTransport->MasterBrowserAddress.MaximumLength);
 
-            PagedTransport->MasterBrowserAddress.Length = (USHORT)Context->MasterAddressLength;
-
-            RtlCopyMemory(PagedTransport->MasterBrowserAddress.Buffer, Context->Buffer, Context->MasterAddressLength);
+            if (Context->MasterAddressLength <= PagedTransport->MasterBrowserAddress.MaximumLength) {
+                PagedTransport->MasterBrowserAddress.Length = (USHORT)Context->MasterAddressLength;
+                RtlCopyMemory(PagedTransport->MasterBrowserAddress.Buffer, Context->Buffer, Context->MasterAddressLength);
+            }
 
         }
 
@@ -932,6 +957,7 @@ try_exit:NOTHING;
     } finally {
 
         UNLOCK_TRANSPORT(Transport);
+        BowserDereferenceTransport( Transport );
 
         FREE_POOL(Context);
 
@@ -998,6 +1024,7 @@ Return Value:
     //
 
     if ((TransportName->NameType != ComputerName) &&
+        (TransportName->NameType != AlternateComputerName) &&
         (TransportName->NameType != DomainName) &&
         (TransportName->NameType != PrimaryDomain) &&
         (TransportName->NameType != PrimaryDomainBrowser) ) {
@@ -1008,7 +1035,7 @@ Return Value:
     //  Now allocate a buffer to hold the data.
     //
 
-    Buffer = BowserAllocateMailslotBuffer( TransportName );
+    Buffer = BowserAllocateMailslotBuffer( TransportName, BytesToReceive );
 
     if (Buffer == NULL) {
 
@@ -1019,7 +1046,7 @@ Return Value:
         return(STATUS_REQUEST_NOT_ACCEPTED);
     }
 
-    ASSERT (Buffer->BufferSize >= BytesAvailable);
+    ASSERT (Buffer->BufferSize >= BytesToReceive);
     KeQuerySystemTime( &Buffer->TimeReceived );
 
     //
@@ -1090,7 +1117,7 @@ Return Value:
     *Irp = IoAllocateIrp(DeviceObject->StackSize, FALSE);
 
     if (*Irp == NULL) {
-        BowserFreeMailslotBuffer(Buffer);
+        BowserFreeMailslotBufferHighIrql(Buffer);
 
         BowserStatistics.NumberOfFailedMailslotReceives += 1;
 
@@ -1106,7 +1133,7 @@ Return Value:
     if ((*Irp)->MdlAddress == NULL) {
         IoFreeIrp(*Irp);
 
-        BowserFreeMailslotBuffer(Buffer);
+        BowserFreeMailslotBufferHighIrql(Buffer);
 
         BowserStatistics.NumberOfFailedMailslotReceives += 1;
 
@@ -1220,7 +1247,7 @@ Return Value:
     } else {
 
         BowserStatistics.NumberOfFailedMailslotReceives += 1;
-        BowserFreeMailslotBuffer(Buffer);
+        BowserFreeMailslotBufferHighIrql(Buffer);
 
     }
 
@@ -1636,100 +1663,57 @@ Return Value:
 
     ExInitializeWorkItem(&Context->WorkItem, Handler, Context);
 
-    //
-    // Reference the Transport and TransportName to ensure they aren't deleted.   The
-    // Handler routine is expected to dereference them.
-    //
-    BowserReferenceTransportName(TransportName);
-    BowserReferenceTransport( TransportName->Transport );
+    if ( QueueType == CriticalWorkQueue ) {
 
-//    if (PostToRdrWorkerThread) {
-//        RdrQueueWorkItem(&Context->WorkItem, QueueType);
-//    } else {
+        //
+        // Ensure we've not consumed too much memory
+        //
+
+        InterlockedIncrement( &BowserPostedCriticalDatagramCount );
+
+        if ( BowserPostedCriticalDatagramCount > BOWSER_MAX_POSTED_DATAGRAMS ) {
+            InterlockedDecrement( &BowserPostedCriticalDatagramCount );
+            FREE_POOL( Context );
+            return STATUS_REQUEST_NOT_ACCEPTED;
+        }
+
+        //
+        // Reference the Transport and TransportName to ensure they aren't deleted.   The
+        // Handler routine is expected to dereference them.
+        //
+        BowserReferenceTransportName(TransportName);
+        BowserReferenceTransport( TransportName->Transport );
+
+        //
+        // Queue the workitem.
+        //
+        BowserQueueCriticalWorkItem( &Context->WorkItem );
+    } else {
+
+        //
+        // Ensure we've not consumed too much memory
+        //
+
+        InterlockedIncrement( &BowserPostedDatagramCount );
+
+        if ( BowserPostedDatagramCount > BOWSER_MAX_POSTED_DATAGRAMS ) {
+            InterlockedDecrement( &BowserPostedDatagramCount );
+            FREE_POOL( Context );
+            return STATUS_REQUEST_NOT_ACCEPTED;
+        }
+
+        //
+        // Reference the Transport and TransportName to ensure they aren't deleted.   The
+        // Handler routine is expected to dereference them.
+        //
+        BowserReferenceTransportName(TransportName);
+        BowserReferenceTransport( TransportName->Transport );
+
+        //
+        // Queue the workitem.
+        //
         ExQueueWorkItem(&Context->WorkItem, QueueType);
-//    }
+    }
 
     return STATUS_SUCCESS;
 }
-
-#if 0
-NTSTATUS
-HandleLogonStatusRequest (
-    IN PTRANSPORT_NAME TransportName,
-    IN ULONG HeaderSize,
-    IN ULONG BytesAvailable,
-    OUT PULONG BytesTaken,
-    OUT PIRP *Irp
-    )
-/*++
-
-Routine Description:
-
-    This routine will process logon status requests (relogon and others)
-    and process them as appropriate.
-
-Arguments:
-
-    IN PTRANSPORT_NAME TransportName - The transport name for this request.
-    IN ULONG BytesAvailable  - number of bytes in complete Tsdu
-    OUT PIRP *BytesTaken,    - I/O request packet used to complete the request
-
-
-Return Value:
-
-    NTSTATUS - Status of operation.
-
---*/
-{
-
-    PIRP LogonStatusRequest;
-
-    ASSERT (TransportName->Signature == STRUCTURE_SIGNATURE_TRANSPORTNAME);
-
-    LogonStatusRequest = BowserDequeueQueuedIrp(&BowserLogonStatusQueue);
-
-    if (LogonStatusRequest == NULL) {
-        return STATUS_SUCCESS;
-    }
-
-    //
-    //  Build the receive datagram IRP.
-    //
-
-    TdiBuildReceiveDatagram(LogonStatusRequest,
-                            TransportName->DeviceObject,
-                            TransportName->FileObject,
-                            NULL,               // No completion routine.
-                            NULL,
-                            LogonStatusRequest->MdlAddress,
-                            BytesAvailable-HeaderSize,
-                            NULL,
-                            NULL,
-                            0);
-
-
-    //
-    //  This gets kinda wierd.
-    //
-    //  Since this IRP is going to be completed by the transport without
-    //  ever going to IoCallDriver, we have to update the stack location
-    //  to make the transports stack location the current stack location.
-    //
-    //  Please note that this means that any transport provider that uses
-    //  IoCallDriver to re-submit it's requests at indication time will
-    //  break badly because of this code....
-    //
-
-    IoSetNextIrpStackLocation(LogonStatusRequest);
-
-    *Irp = LogonStatusRequest;
-
-    *BytesTaken = HeaderSize;
-
-    //
-    //  And return to the caller indicating we want to receive this stuff.
-    //
-
-    return STATUS_MORE_PROCESSING_REQUIRED;
-}
-#endif

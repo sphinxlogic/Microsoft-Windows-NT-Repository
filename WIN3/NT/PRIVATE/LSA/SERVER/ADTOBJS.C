@@ -27,6 +27,13 @@ Revision History:
 
 
 
+//
+// This is the maximum length of standard access type names.
+// This is used to build an array.
+//
+
+#define ADTP_MAX_ACC_NAME_LENGTH        (12)
+
 
 //
 //
@@ -184,14 +191,14 @@ RTL_CRITICAL_SECTION LsapAdtSourceModuleLock;
 
 //
 // This is used to house well-known access ID strings.
-// Each string name may be up to 12 WCHARs long.
+// Each string name may be up to ADTP_MAX_ACC_NAME_LENGTH WCHARs long.
 // There are 16 specific names, and 4
 //
 
 ULONG           LsapAdtAccessIdsStringBuffer[
-                     12 *                          // max wchars in each string
+                     ADTP_MAX_ACC_NAME_LENGTH *    // max wchars in each string
                      (sizeof(ULONG)/sizeof(WCHAR)) // wchars, not ulongs.
-                     * 22                          // and there are this many
+                     * 23                          // and there are this many
                      ];
 
 
@@ -206,6 +213,7 @@ UNICODE_STRING          LsapAdtEventIdStringDelete,
                         LsapAdtEventIdStringWriteOwner,
                         LsapAdtEventIdStringSynchronize,
                         LsapAdtEventIdStringAccessSysSec,
+                        LsapAdtEventIdStringMaxAllowed,
                         LsapAdtEventIdStringSpecific[16];
 
 
@@ -322,7 +330,7 @@ Return Value:
 
     i=0;
     LsapAdtEventIdStringDelete.Length = 0;
-    LsapAdtEventIdStringDelete.MaximumLength = 24;
+    LsapAdtEventIdStringDelete.MaximumLength = (ADTP_MAX_ACC_NAME_LENGTH * sizeof(WCHAR));
     LsapAdtEventIdStringDelete.Buffer = (PWSTR)&LsapAdtAccessIdsStringBuffer[i];
     Status = RtlIntegerToUnicodeString ( SE_ACCESS_NAME_DELETE,
                                          10,        //Base
@@ -332,9 +340,9 @@ Return Value:
         return(Status);
     }
 
-    i+= 12 / (sizeof(ULONG)/sizeof(WCHAR));  //Skip to the beginning of the next string
+    i+= ADTP_MAX_ACC_NAME_LENGTH / (sizeof(ULONG)/sizeof(WCHAR));  //Skip to the beginning of the next string
     LsapAdtEventIdStringReadControl.Length = 0;
-    LsapAdtEventIdStringReadControl.MaximumLength = 24;
+    LsapAdtEventIdStringReadControl.MaximumLength = (ADTP_MAX_ACC_NAME_LENGTH * sizeof(WCHAR));
     LsapAdtEventIdStringReadControl.Buffer = (PWSTR)&LsapAdtAccessIdsStringBuffer[i];
     Status = RtlIntegerToUnicodeString ( SE_ACCESS_NAME_READ_CONTROL,
                                          10,        //Base
@@ -344,9 +352,9 @@ Return Value:
         return(Status);
     }
 
-    i+= 12 / (sizeof(ULONG)/sizeof(WCHAR));  //Skip to the beginning of the next string
+    i+= ADTP_MAX_ACC_NAME_LENGTH / (sizeof(ULONG)/sizeof(WCHAR));  //Skip to the beginning of the next string
     LsapAdtEventIdStringWriteDac.Length = 0;
-    LsapAdtEventIdStringWriteDac.MaximumLength = 24;
+    LsapAdtEventIdStringWriteDac.MaximumLength = (ADTP_MAX_ACC_NAME_LENGTH * sizeof(WCHAR));
     LsapAdtEventIdStringWriteDac.Buffer = (PWSTR)&LsapAdtAccessIdsStringBuffer[i];
     Status = RtlIntegerToUnicodeString ( SE_ACCESS_NAME_WRITE_DAC,
                                          10,        //Base
@@ -356,9 +364,9 @@ Return Value:
         return(Status);
     }
 
-    i+= 12 / (sizeof(ULONG)/sizeof(WCHAR));  //Skip to the beginning of the next string
+    i+= ADTP_MAX_ACC_NAME_LENGTH / (sizeof(ULONG)/sizeof(WCHAR));  //Skip to the beginning of the next string
     LsapAdtEventIdStringWriteOwner.Length = 0;
-    LsapAdtEventIdStringWriteOwner.MaximumLength = 24;
+    LsapAdtEventIdStringWriteOwner.MaximumLength = (ADTP_MAX_ACC_NAME_LENGTH * sizeof(WCHAR));
     LsapAdtEventIdStringWriteOwner.Buffer = (PWSTR)&LsapAdtAccessIdsStringBuffer[i];
     Status = RtlIntegerToUnicodeString ( SE_ACCESS_NAME_WRITE_OWNER,
                                          10,        //Base
@@ -368,9 +376,9 @@ Return Value:
         return(Status);
     }
 
-    i+= 12 / (sizeof(ULONG)/sizeof(WCHAR));  //Skip to the beginning of the next string
+    i+= ADTP_MAX_ACC_NAME_LENGTH / (sizeof(ULONG)/sizeof(WCHAR));  //Skip to the beginning of the next string
     LsapAdtEventIdStringSynchronize.Length = 0;
-    LsapAdtEventIdStringSynchronize.MaximumLength = 24;
+    LsapAdtEventIdStringSynchronize.MaximumLength = (ADTP_MAX_ACC_NAME_LENGTH * sizeof(WCHAR));
     LsapAdtEventIdStringSynchronize.Buffer = (PWSTR)&LsapAdtAccessIdsStringBuffer[i];
     Status = RtlIntegerToUnicodeString ( SE_ACCESS_NAME_SYNCHRONIZE,
                                          10,        //Base
@@ -381,9 +389,9 @@ Return Value:
     }
 
 
-    i+= 12 / (sizeof(ULONG)/sizeof(WCHAR));  //Skip to the beginning of the next string
+    i+= ADTP_MAX_ACC_NAME_LENGTH / (sizeof(ULONG)/sizeof(WCHAR));  //Skip to the beginning of the next string
     LsapAdtEventIdStringAccessSysSec.Length = 0;
-    LsapAdtEventIdStringAccessSysSec.MaximumLength = 24;
+    LsapAdtEventIdStringAccessSysSec.MaximumLength = (ADTP_MAX_ACC_NAME_LENGTH * sizeof(WCHAR));
     LsapAdtEventIdStringAccessSysSec.Buffer = (PWSTR)&LsapAdtAccessIdsStringBuffer[i];
     Status = RtlIntegerToUnicodeString ( SE_ACCESS_NAME_ACCESS_SYS_SEC,
                                          10,        //Base
@@ -394,11 +402,24 @@ Return Value:
     }
 
 
+    i+= ADTP_MAX_ACC_NAME_LENGTH / (sizeof(ULONG)/sizeof(WCHAR));  //Skip to the beginning of the next string
+    LsapAdtEventIdStringMaxAllowed.Length = 0;
+    LsapAdtEventIdStringMaxAllowed.MaximumLength = (ADTP_MAX_ACC_NAME_LENGTH * sizeof(WCHAR));
+    LsapAdtEventIdStringMaxAllowed.Buffer = (PWSTR)&LsapAdtAccessIdsStringBuffer[i];
+    Status = RtlIntegerToUnicodeString ( SE_ACCESS_NAME_MAXIMUM_ALLOWED,
+                                         10,        //Base
+                                         &LsapAdtEventIdStringMaxAllowed
+                                         );
+    if (!NT_SUCCESS(Status)) {
+        return(Status);
+    }
 
 
-    i+= 12 / (sizeof(ULONG)/sizeof(WCHAR));  //Skip to the beginning of the next string
+
+
+    i+= ADTP_MAX_ACC_NAME_LENGTH / (sizeof(ULONG)/sizeof(WCHAR));  //Skip to the beginning of the next string
     LsapAdtEventIdStringSpecific[0].Length = 0;
-    LsapAdtEventIdStringSpecific[0].MaximumLength = 24;
+    LsapAdtEventIdStringSpecific[0].MaximumLength = (ADTP_MAX_ACC_NAME_LENGTH * sizeof(WCHAR));
     LsapAdtEventIdStringSpecific[0].Buffer = (PWSTR)&LsapAdtAccessIdsStringBuffer[i];
     Status = RtlIntegerToUnicodeString ( SE_ACCESS_NAME_SPECIFIC_0,
                                          10,        //Base
@@ -409,9 +430,9 @@ Return Value:
     }
 
 
-    i+= 12 / (sizeof(ULONG)/sizeof(WCHAR));  //Skip to the beginning of the next string
+    i+= ADTP_MAX_ACC_NAME_LENGTH / (sizeof(ULONG)/sizeof(WCHAR));  //Skip to the beginning of the next string
     LsapAdtEventIdStringSpecific[1].Length = 0;
-    LsapAdtEventIdStringSpecific[1].MaximumLength = 24;
+    LsapAdtEventIdStringSpecific[1].MaximumLength = (ADTP_MAX_ACC_NAME_LENGTH * sizeof(WCHAR));
     LsapAdtEventIdStringSpecific[1].Buffer = (PWSTR)&LsapAdtAccessIdsStringBuffer[i];
     Status = RtlIntegerToUnicodeString ( SE_ACCESS_NAME_SPECIFIC_1,
                                          10,        //Base
@@ -422,9 +443,9 @@ Return Value:
     }
 
 
-    i+= 12 / (sizeof(ULONG)/sizeof(WCHAR));  //Skip to the beginning of the next string
+    i+= ADTP_MAX_ACC_NAME_LENGTH / (sizeof(ULONG)/sizeof(WCHAR));  //Skip to the beginning of the next string
     LsapAdtEventIdStringSpecific[2].Length = 0;
-    LsapAdtEventIdStringSpecific[2].MaximumLength = 24;
+    LsapAdtEventIdStringSpecific[2].MaximumLength = (ADTP_MAX_ACC_NAME_LENGTH * sizeof(WCHAR));
     LsapAdtEventIdStringSpecific[2].Buffer = (PWSTR)&LsapAdtAccessIdsStringBuffer[i];
     Status = RtlIntegerToUnicodeString ( SE_ACCESS_NAME_SPECIFIC_2,
                                          10,        //Base
@@ -435,9 +456,9 @@ Return Value:
     }
 
 
-    i+= 12 / (sizeof(ULONG)/sizeof(WCHAR));  //Skip to the beginning of the next string
+    i+= ADTP_MAX_ACC_NAME_LENGTH / (sizeof(ULONG)/sizeof(WCHAR));  //Skip to the beginning of the next string
     LsapAdtEventIdStringSpecific[3].Length = 0;
-    LsapAdtEventIdStringSpecific[3].MaximumLength = 24;
+    LsapAdtEventIdStringSpecific[3].MaximumLength = (ADTP_MAX_ACC_NAME_LENGTH * sizeof(WCHAR));
     LsapAdtEventIdStringSpecific[3].Buffer = (PWSTR)&LsapAdtAccessIdsStringBuffer[i];
     Status = RtlIntegerToUnicodeString ( SE_ACCESS_NAME_SPECIFIC_3,
                                          10,        //Base
@@ -448,9 +469,9 @@ Return Value:
     }
 
 
-    i+= 12 / (sizeof(ULONG)/sizeof(WCHAR));  //Skip to the beginning of the next string
+    i+= ADTP_MAX_ACC_NAME_LENGTH / (sizeof(ULONG)/sizeof(WCHAR));  //Skip to the beginning of the next string
     LsapAdtEventIdStringSpecific[4].Length = 0;
-    LsapAdtEventIdStringSpecific[4].MaximumLength = 24;
+    LsapAdtEventIdStringSpecific[4].MaximumLength = (ADTP_MAX_ACC_NAME_LENGTH * sizeof(WCHAR));
     LsapAdtEventIdStringSpecific[4].Buffer = (PWSTR)&LsapAdtAccessIdsStringBuffer[i];
     Status = RtlIntegerToUnicodeString ( SE_ACCESS_NAME_SPECIFIC_4,
                                          10,        //Base
@@ -461,9 +482,9 @@ Return Value:
     }
 
 
-    i+= 12 / (sizeof(ULONG)/sizeof(WCHAR));  //Skip to the beginning of the next string
+    i+= ADTP_MAX_ACC_NAME_LENGTH / (sizeof(ULONG)/sizeof(WCHAR));  //Skip to the beginning of the next string
     LsapAdtEventIdStringSpecific[5].Length = 0;
-    LsapAdtEventIdStringSpecific[5].MaximumLength = 24;
+    LsapAdtEventIdStringSpecific[5].MaximumLength = (ADTP_MAX_ACC_NAME_LENGTH * sizeof(WCHAR));
     LsapAdtEventIdStringSpecific[5].Buffer = (PWSTR)&LsapAdtAccessIdsStringBuffer[i];
     Status = RtlIntegerToUnicodeString ( SE_ACCESS_NAME_SPECIFIC_5,
                                          10,        //Base
@@ -474,9 +495,9 @@ Return Value:
     }
 
 
-    i+= 12 / (sizeof(ULONG)/sizeof(WCHAR));  //Skip to the beginning of the next string
+    i+= ADTP_MAX_ACC_NAME_LENGTH / (sizeof(ULONG)/sizeof(WCHAR));  //Skip to the beginning of the next string
     LsapAdtEventIdStringSpecific[6].Length = 0;
-    LsapAdtEventIdStringSpecific[6].MaximumLength = 24;
+    LsapAdtEventIdStringSpecific[6].MaximumLength = (ADTP_MAX_ACC_NAME_LENGTH * sizeof(WCHAR));
     LsapAdtEventIdStringSpecific[6].Buffer = (PWSTR)&LsapAdtAccessIdsStringBuffer[i];
     Status = RtlIntegerToUnicodeString ( SE_ACCESS_NAME_SPECIFIC_6,
                                          10,        //Base
@@ -487,9 +508,9 @@ Return Value:
     }
 
 
-    i+= 12 / (sizeof(ULONG)/sizeof(WCHAR));  //Skip to the beginning of the next string
+    i+= ADTP_MAX_ACC_NAME_LENGTH / (sizeof(ULONG)/sizeof(WCHAR));  //Skip to the beginning of the next string
     LsapAdtEventIdStringSpecific[7].Length = 0;
-    LsapAdtEventIdStringSpecific[7].MaximumLength = 24;
+    LsapAdtEventIdStringSpecific[7].MaximumLength = (ADTP_MAX_ACC_NAME_LENGTH * sizeof(WCHAR));
     LsapAdtEventIdStringSpecific[7].Buffer = (PWSTR)&LsapAdtAccessIdsStringBuffer[i];
     Status = RtlIntegerToUnicodeString ( SE_ACCESS_NAME_SPECIFIC_7,
                                          10,        //Base
@@ -500,9 +521,9 @@ Return Value:
     }
 
 
-    i+= 12 / (sizeof(ULONG)/sizeof(WCHAR));  //Skip to the beginning of the next string
+    i+= ADTP_MAX_ACC_NAME_LENGTH / (sizeof(ULONG)/sizeof(WCHAR));  //Skip to the beginning of the next string
     LsapAdtEventIdStringSpecific[8].Length = 0;
-    LsapAdtEventIdStringSpecific[8].MaximumLength = 24;
+    LsapAdtEventIdStringSpecific[8].MaximumLength = (ADTP_MAX_ACC_NAME_LENGTH * sizeof(WCHAR));
     LsapAdtEventIdStringSpecific[8].Buffer = (PWSTR)&LsapAdtAccessIdsStringBuffer[i];
     Status = RtlIntegerToUnicodeString ( SE_ACCESS_NAME_SPECIFIC_8,
                                          10,        //Base
@@ -513,9 +534,9 @@ Return Value:
     }
 
 
-    i+= 12 / (sizeof(ULONG)/sizeof(WCHAR));  //Skip to the beginning of the next string
+    i+= ADTP_MAX_ACC_NAME_LENGTH / (sizeof(ULONG)/sizeof(WCHAR));  //Skip to the beginning of the next string
     LsapAdtEventIdStringSpecific[9].Length = 0;
-    LsapAdtEventIdStringSpecific[9].MaximumLength = 24;
+    LsapAdtEventIdStringSpecific[9].MaximumLength = (ADTP_MAX_ACC_NAME_LENGTH * sizeof(WCHAR));
     LsapAdtEventIdStringSpecific[9].Buffer = (PWSTR)&LsapAdtAccessIdsStringBuffer[i];
     Status = RtlIntegerToUnicodeString ( SE_ACCESS_NAME_SPECIFIC_9,
                                          10,        //Base
@@ -526,9 +547,9 @@ Return Value:
     }
 
 
-    i+= 12 / (sizeof(ULONG)/sizeof(WCHAR));  //Skip to the beginning of the next string
+    i+= ADTP_MAX_ACC_NAME_LENGTH / (sizeof(ULONG)/sizeof(WCHAR));  //Skip to the beginning of the next string
     LsapAdtEventIdStringSpecific[10].Length = 0;
-    LsapAdtEventIdStringSpecific[10].MaximumLength = 24;
+    LsapAdtEventIdStringSpecific[10].MaximumLength = (ADTP_MAX_ACC_NAME_LENGTH * sizeof(WCHAR));
     LsapAdtEventIdStringSpecific[10].Buffer = (PWSTR)&LsapAdtAccessIdsStringBuffer[i];
     Status = RtlIntegerToUnicodeString ( SE_ACCESS_NAME_SPECIFIC_10,
                                          10,        //Base
@@ -539,9 +560,9 @@ Return Value:
     }
 
 
-    i+= 12 / (sizeof(ULONG)/sizeof(WCHAR));  //Skip to the beginning of the next string
+    i+= ADTP_MAX_ACC_NAME_LENGTH / (sizeof(ULONG)/sizeof(WCHAR));  //Skip to the beginning of the next string
     LsapAdtEventIdStringSpecific[11].Length = 0;
-    LsapAdtEventIdStringSpecific[11].MaximumLength = 24;
+    LsapAdtEventIdStringSpecific[11].MaximumLength = (ADTP_MAX_ACC_NAME_LENGTH * sizeof(WCHAR));
     LsapAdtEventIdStringSpecific[11].Buffer = (PWSTR)&LsapAdtAccessIdsStringBuffer[i];
     Status = RtlIntegerToUnicodeString ( SE_ACCESS_NAME_SPECIFIC_11,
                                          10,        //Base
@@ -552,9 +573,9 @@ Return Value:
     }
 
 
-    i+= 12 / (sizeof(ULONG)/sizeof(WCHAR));  //Skip to the beginning of the next string
+    i+= ADTP_MAX_ACC_NAME_LENGTH / (sizeof(ULONG)/sizeof(WCHAR));  //Skip to the beginning of the next string
     LsapAdtEventIdStringSpecific[12].Length = 0;
-    LsapAdtEventIdStringSpecific[12].MaximumLength = 24;
+    LsapAdtEventIdStringSpecific[12].MaximumLength = (ADTP_MAX_ACC_NAME_LENGTH * sizeof(WCHAR));
     LsapAdtEventIdStringSpecific[12].Buffer = (PWSTR)&LsapAdtAccessIdsStringBuffer[i];
     Status = RtlIntegerToUnicodeString ( SE_ACCESS_NAME_SPECIFIC_12,
                                          10,        //Base
@@ -565,9 +586,9 @@ Return Value:
     }
 
 
-    i+= 12 / (sizeof(ULONG)/sizeof(WCHAR));  //Skip to the beginning of the next string
+    i+= ADTP_MAX_ACC_NAME_LENGTH / (sizeof(ULONG)/sizeof(WCHAR));  //Skip to the beginning of the next string
     LsapAdtEventIdStringSpecific[13].Length = 0;
-    LsapAdtEventIdStringSpecific[13].MaximumLength = 24;
+    LsapAdtEventIdStringSpecific[13].MaximumLength = (ADTP_MAX_ACC_NAME_LENGTH * sizeof(WCHAR));
     LsapAdtEventIdStringSpecific[13].Buffer = (PWSTR)&LsapAdtAccessIdsStringBuffer[i];
     Status = RtlIntegerToUnicodeString ( SE_ACCESS_NAME_SPECIFIC_13,
                                          10,        //Base
@@ -578,9 +599,9 @@ Return Value:
     }
 
 
-    i+= 12 / (sizeof(ULONG)/sizeof(WCHAR));  //Skip to the beginning of the next string
+    i+= ADTP_MAX_ACC_NAME_LENGTH / (sizeof(ULONG)/sizeof(WCHAR));  //Skip to the beginning of the next string
     LsapAdtEventIdStringSpecific[14].Length = 0;
-    LsapAdtEventIdStringSpecific[14].MaximumLength = 24;
+    LsapAdtEventIdStringSpecific[14].MaximumLength = (ADTP_MAX_ACC_NAME_LENGTH * sizeof(WCHAR));
     LsapAdtEventIdStringSpecific[14].Buffer = (PWSTR)&LsapAdtAccessIdsStringBuffer[i];
     Status = RtlIntegerToUnicodeString ( SE_ACCESS_NAME_SPECIFIC_14,
                                          10,        //Base
@@ -591,9 +612,9 @@ Return Value:
     }
 
 
-    i+= 12 / (sizeof(ULONG)/sizeof(WCHAR));  //Skip to the beginning of the next string
+    i+= ADTP_MAX_ACC_NAME_LENGTH / (sizeof(ULONG)/sizeof(WCHAR));  //Skip to the beginning of the next string
     LsapAdtEventIdStringSpecific[15].Length = 0;
-    LsapAdtEventIdStringSpecific[15].MaximumLength = 24;
+    LsapAdtEventIdStringSpecific[15].MaximumLength = (ADTP_MAX_ACC_NAME_LENGTH * sizeof(WCHAR));
     LsapAdtEventIdStringSpecific[15].Buffer = (PWSTR)&LsapAdtAccessIdsStringBuffer[i];
     Status = RtlIntegerToUnicodeString ( SE_ACCESS_NAME_SPECIFIC_15,
                                          10,        //Base
@@ -1159,6 +1180,18 @@ Return Values:
         ASSERT( NT_SUCCESS( Status ));
 
         Status = RtlAppendUnicodeStringToString( ResultantString, &LsapAdtEventIdStringAccessSysSec);
+        ASSERT( NT_SUCCESS( Status ));
+
+        Status =  RtlAppendUnicodeToString( ResultantString, LSAP_ADT_ACCESS_NAME_FORMATTING );
+        ASSERT( NT_SUCCESS( Status ));
+    }
+
+    if (Accesses & MAXIMUM_ALLOWED) {
+
+        Status = RtlAppendUnicodeToString( ResultantString, L"%%" );
+        ASSERT( NT_SUCCESS( Status ));
+
+        Status = RtlAppendUnicodeStringToString( ResultantString, &LsapAdtEventIdStringMaxAllowed);
         ASSERT( NT_SUCCESS( Status ));
 
         Status =  RtlAppendUnicodeToString( ResultantString, LSAP_ADT_ACCESS_NAME_FORMATTING );

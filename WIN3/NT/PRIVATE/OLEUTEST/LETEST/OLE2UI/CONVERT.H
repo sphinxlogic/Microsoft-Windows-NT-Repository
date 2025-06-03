@@ -61,4 +61,3 @@ void            SwapWindows(HWND, HWND, HWND);
 void            ConvertCleanup(HWND hDlg, LPCONVERT lpCV);
 
 #endif // _CONVERT_H_
-

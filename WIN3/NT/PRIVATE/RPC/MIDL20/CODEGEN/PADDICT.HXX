@@ -33,10 +33,47 @@ extern "C"
 #include "cgcommon.hxx"
 #include "dict.hxx"
 
-//#include "allcls.hxx"
-//#include "typecls.hxx"
+/////////////////////////////////////////////////////////////////////////////
+//
+//  This class defines a dictionary with members for counting and traversing.
+//
+/////////////////////////////////////////////////////////////////////////////
 
-//typedef XMIT_AS_CONTEXT;
+
+class CountedDictionary : public Dictionary
+    {
+private:
+    unsigned short          CurrentIndex;
+
+public:
+
+                            CountedDictionary() : Dictionary()
+                                {
+                                CurrentIndex = 0;
+                                }
+                        
+                            ~CountedDictionary()  {}
+
+    unsigned short          GetCount()
+                                {
+                                return CurrentIndex;
+                                }
+
+    void                    IncrementCount()
+                                {
+                                CurrentIndex++;
+                                }
+
+    unsigned short          GetListOfItems( ITERATOR& ListIter );
+
+    void *                  GetFirst();
+
+    void *                  GetNext();
+
+    virtual
+    int                     Compare( pUserType pL, pUserType pR );
+
+    };
 
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -141,6 +178,8 @@ public:
 /////////////////////////////////////////////////////////////////////////////
 //
 //  This class defines a dictionary for handling quintuple routines.
+//  I.e. this is a support needed for transmit_as represent_as table,
+//  that is called the Quintuple table for historical reasons.
 //
 /////////////////////////////////////////////////////////////////////////////
 
@@ -148,7 +187,7 @@ public:
 class QuintupleDict : public Dictionary
     {
 private:
-    unsigned short      CurrentIndex;
+    unsigned short          CurrentIndex;
 
 public:
 
@@ -168,12 +207,37 @@ public:
                                 return CurrentIndex;
                                 }
 
-    void *              GetFirst();
-    void *              GetNext();
+    void *                  GetFirst();
+    void *                  GetNext();
                                                 
     int                     Compare( pUserType pL, pUserType pR );
 
     };
 
+/////////////////////////////////////////////////////////////////////////////
+//
+//  This class defines a dictionary for Quadruples (usr_marshall support).
+//
+/////////////////////////////////////////////////////////////////////////////
+
+
+class QuadrupleDict : public CountedDictionary
+    {
+public:
+
+                            QuadrupleDict() : CountedDictionary() 
+                                {}
+                        
+                            ~QuadrupleDict()  {}
+
+    //
+    // Try to Add an entry.
+    //
+
+    BOOL                    Add( void * pContext );
+
+    int                     Compare( pUserType pL, pUserType pR );
+
+    };
+
 #endif // __PADDICT_HXX__
-

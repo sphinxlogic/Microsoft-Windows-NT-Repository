@@ -40,6 +40,7 @@ LPSOUNDDEVMSGPROC  PASCAL wid32Message;
 LPSOUNDDEVMSGPROC  PASCAL mod32Message;
 LPSOUNDDEVMSGPROC  PASCAL mid32Message;
 LPSOUNDDEVMSGPROC  PASCAL aux32Message;
+JOYMESSAGEPROC     PASCAL joy32Message;
 
 
 UINT FAR PASCAL _loadds ThunkInit(void);
@@ -77,7 +78,7 @@ static  SZCODE  szModMessage[]          = "mod32Message";
 static  SZCODE  szMidMessage[]          = "mid32Message";
 static  SZCODE  szAuxMessage[]          = "aux32Message";
 static  SZCODE  szTidMessage[]          = "tid32Message";
-        SZCODE  szJoyMessage[]          = "joy32Message";
+static  SZCODE  szJoyMessage[]          = "joy32Message";
 static  SZCODE  szWaveMapper[]          = "wavemapper";
 static  SZCODE  szWodMapper[]           = "wodMessage";
 static  SZCODE  szWidMapper[]           = "widMessage";
@@ -276,6 +277,14 @@ DrvFree(
 BOOL FAR PASCAL DrvLoad(void)
 {
 
+/*
+**  The VFW1.1 wave mapper was GP faulting in Daytona when running dangerous
+**  creatures videos.  Since it was trying to load an invalid selector in
+**  its callback routine it's doubtful we can ever enable them.
+**
+*/
+#if 0 // The wave mappers were GP faulting in Daytona so NOOP for now
+
     HDRVR   h;
 
 
@@ -300,6 +309,7 @@ BOOL FAR PASCAL DrvLoad(void)
         h = mmDrvOpen(szWaveMapper);
         mmDrvInstall(h, &widMapper, MMDRVI_MAPPER|MMDRVI_WAVEIN |MMDRVI_HDRV);
     }
+#endif // NOOP wave mapper
 
 
     if ( TimeInit() && WndInit() ) {
@@ -612,7 +622,6 @@ ThunkInit(
     */
     Notify_Callback_Data( vpCallbackData );
 
-
     /*
     ** Now initialize the rest of the thuynking system
     */
@@ -623,8 +632,7 @@ ThunkInit(
     aux32Message = (LPSOUNDDEVMSGPROC)GetProcAddress32W( mmwow32Lib, szAuxMessage );
     mci32Message = (LPMCIMESSAGE)GetProcAddress32W( mmwow32Lib, "mci32Message" );
     tid32Message = (TIDMESSAGEPROC)GetProcAddress32W( mmwow32Lib, szTidMessage );
-
-    JoyInit();                  // joy.c        init joysick driver
+    joy32Message = (JOYMESSAGEPROC)GetProcAddress32W( mmwow32Lib, szJoyMessage );
 
     return MMSYSERR_NOERROR;
 }

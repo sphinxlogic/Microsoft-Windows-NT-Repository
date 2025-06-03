@@ -71,6 +71,19 @@ Revision History:
 #include "precomp.h"
 #pragma hdrstop
 
+#ifdef _CAIRO_
+#include <kerbcon.h>                             // For KERBSIZE_AP_REPLY
+#endif
+
+#ifdef RASAUTODIAL
+extern BOOLEAN fAcdLoadedG;
+
+VOID
+RdrAttemptAutoDial(
+    PUNICODE_STRING Server
+    );
+#endif // RASAUTODIAL
+
 //BOOLEAN SmallSmbs = FALSE;
 
 KSPIN_LOCK
@@ -98,6 +111,8 @@ typedef struct _TreeConnectContext {
     KEVENT ReceiveCompleteEvent;        // Event signalled when receive completes
     BOOLEAN BufferTooShort;             // True if buffer received was too short
     BOOLEAN UseLmSessionSetupKey;       // True if we are using the LM session setup key.
+    BOOLEAN ShareIsInDfs;               // True if the share is in Dfs
+    BOOLEAN Unused;                     // For padding...
     WCHAR FileSystemType[LM20_DEVLEN+1]; // Type of file system backing connect
 } TREECONNECTCONTEXT, *PTREECONNECTCONTEXT;
 
@@ -127,9 +142,18 @@ typedef struct _NegotiateContext {
     BOOLEAN Encryption;         // TRUE if server supports encryption.
 
 
-
     UCHAR CryptKey[CRYPT_TXT_LEN]; // Password encryption key
+    UNICODE_STRING DomainName;
 } NEGOTIATECONTEXT, *PNEGOTIATECONTEXT;
+
+//
+//      Logon session termination context
+//
+
+typedef struct _LogonSessionTerminationContext {
+    WORK_HEADER         WorkHeader;
+    LUID                LogonId;
+} LOGONSESSIONTERMINATIONCONTEXT, *PLOGONSESSIONTERMINATIONCONTEXT;
 
 //
 //
@@ -247,7 +271,7 @@ DBGSTATIC
 NTSTATUS
 BuildSessionSetupAndX(
     IN PSMB_BUFFER Smb,
-    IN PSERVERLISTENTRY Server,
+    IN PCONNECTLISTENTRY Connection,
     IN PSECURITY_ENTRY Se
     );
 
@@ -319,6 +343,11 @@ DelayedDereferenceServer(
     IN PVOID Ctx
     );
 
+VOID
+LogonSessionTerminationHandler(
+    IN PVOID Context
+    );
+
 #ifdef _CAIRO_
 DBGSTATIC
 NTSTATUS
@@ -333,6 +362,8 @@ NTSTATUS
 BuildCairoSessionSetup(IN PCONNECTLISTENTRY Connection,
                   IN PSECURITY_ENTRY Se,
                   IN PSERVERLISTENTRY Server,
+                  IN  PUCHAR pOldBlob,
+                  IN  ULONG  cOldBlobSize,
                   OUT PVOID *SendData,
                   OUT PCLONG SendDataCount,
                   OUT PVOID *ReceiveData,
@@ -365,7 +396,6 @@ BuildCairoSessionSetup(IN PCONNECTLISTENTRY Connection,
 #pragma alloc_text(PAGE, RdrEvaluateTimeouts)
 #pragma alloc_text(PAGE, EvaluateServerTimeouts)
 #pragma alloc_text(INIT, RdrpInitializeConnectPackage)
-#pragma alloc_text(PAGE, RdrpUninitializeConnectPackage)
 #pragma alloc_text(PAGE, DelayedDereferenceServer)
 #pragma alloc_text(PAGE, RdrReconnectConnection)
 #pragma alloc_text(PAGE, RdrReferenceConnection)
@@ -373,6 +403,9 @@ BuildCairoSessionSetup(IN PCONNECTLISTENTRY Connection,
 #pragma alloc_text(PAGE, RdrSetConnectlistFlag)
 #pragma alloc_text(PAGE, RdrResetConnectlistFlag)
 #pragma alloc_text(PAGE, RdrScanForDormantConnections)
+#pragma alloc_text(PAGE, LogonSessionTerminationHandler)
+#pragma alloc_text(PAGE, RdrHandleLogonSessionTermination)
+
 
 #ifdef  PAGING_OVER_THE_NET
 #pragma alloc_text(PAGE, CountPagingFiles)
@@ -761,6 +794,13 @@ Notes:
     //
     //  Acquire the lock synchronizing reconnect and disconnect.
     //
+    //  N.B. We have to acquire the RawResource first in order to avoid
+    //       deadlock (see Bug 31262) RdrFsdCreate calls this
+    //       routine with this lock already owned, but other callers
+    //       do not.  See comments in RdrDisconnectConnection.
+    //
+
+    ExAcquireResourceShared(&Server->RawResource, TRUE );
 
     ExAcquireResourceExclusive(&Server->SessionStateModifiedLock, TRUE);
 
@@ -824,6 +864,7 @@ Notes:
             try_return(Status);
         }
 
+
         //
         //  On MSNET servers we support connection to the server. There is no
         //  connection to IPC$ and the only operation available on the handle
@@ -871,22 +912,28 @@ Notes:
             //
 
 #ifdef _CAIRO_
-            if ( (Server->Capabilities & DF_KERBEROS) &&
-                 (Server->Principal.Length > 0) &&
-                 !(Se->Flags & SE_HAS_SESSION) ) {
+            if ( (Server->Capabilities & DF_KERBEROS)
+                            &&
+                 !(Se->Flags & (SE_IS_NULL_SESSION | SE_HAS_SESSION)) ) {
 
                 //
-                // if we dont have a session, create a cairo one, otherwise
-                // drop through and do a normal treeconnect.
+                // We don't have a session,  but the server claims
+                // to support Kerberors. So we will try connecting
+                // the Kerberos way.
                 //
 
                 dprintf(DPRT_CONNECT, ("Setting up Cairo session\n"));
 
                 Status = SetupCairoSession(Irp,Connection,Se);
 
-                if (NT_SUCCESS(Status) && !Connection->HasTreeId) {
+                if ((!Connection->HasTreeId && NT_SUCCESS(Status))
+                              ||
+                     (((Status == STATUS_NO_LOGON_SERVERS) ||
+                       (Status == STATUS_NO_SUCH_LOGON_SESSION)) &&
+                         RdrCleanSecurityContexts(Se)) )
+                {
 
-                    ASSERT(Se->Flags & SE_HAS_SESSION != 0);
+//                    ASSERT((Se->Flags & SE_HAS_SESSION) == 0);
 
                     dprintf(DPRT_CONNECT, ("Session established, getting Tree connect\n"));
 
@@ -909,7 +956,13 @@ Notes:
             Status = CreateTreeConnection(Irp, Connection, Connection->Type, Se);
 #endif // _CAIRO_
 
-            if (!NT_SUCCESS(Status)) {
+            if (NT_SUCCESS(Status)) {
+
+                SeMarkLogonSessionForTerminationNotification(
+                        &Se->LogonId);
+
+            } else {
+
                 ULONG NumberOfValidConnections = 0;
                 PLIST_ENTRY ConnectEntry;
 
@@ -932,6 +985,8 @@ Notes:
                     //
 
                     if (NT_SUCCESS(Status)) {
+                        SeMarkLogonSessionForTerminationNotification(
+                            &Se->LogonId);
                         try_return(Status);
                     }
 
@@ -946,6 +1001,8 @@ Notes:
                         Status = CreateTreeConnection(Irp, Connection, Connection->Type, Se);
 
                         if (NT_SUCCESS(Status)) {
+                            SeMarkLogonSessionForTerminationNotification(
+                                &Se->LogonId);
                             try_return(Status);
                         }
 
@@ -1007,6 +1064,7 @@ try_exit:NOTHING;
         ASSERT (KeGetCurrentIrql() <= APC_LEVEL);
 
         ExReleaseResource(&Server->SessionStateModifiedLock);
+        ExReleaseResource(&Server->RawResource);
 
     }
 
@@ -1131,6 +1189,10 @@ Return Value:
                     SeEntry = RemoveHeadList(&Connection->DefaultSeList);
 
                     Se2 = CONTAINING_RECORD(SeEntry, SECURITY_ENTRY, DefaultSeNext);
+                    //RdrLog(( "c rmv c", NULL, 12, Se2, Connection, 0, Se2->Connection, Se2->Server, Connection->Server,
+                    //            Connection->Server->DefaultSeList.Flink, Connection->Server->DefaultSeList.Blink,
+                    //            Connection->DefaultSeList.Flink, Connection->DefaultSeList.Blink,
+                    //            Se2->DefaultSeNext.Flink, Se2->DefaultSeNext.Blink ));
 
                     Se2->DefaultSeNext.Flink = NULL;
 
@@ -1771,14 +1833,13 @@ Return Value:
     //  that we don't reconnect while there are any outstanding requests:
     //
     //          Server->RawResource (Shared)
-    //          Server->CreationLock (Shared)
     //          Server->SessionStateModifiedLock (Exclusive) (OPTIONAL)
     //          Server->OutstandingRequestResource (Exclusive) (OPTIONAL)
     //          Server->RawResource (Shared)
     //          Server->OutstandingRequestResource (Shared)
     //
 
-    ExAcquireResourceShared(&Connection->Server->RawResource, TRUE);
+    ExAcquireResourceShared(&Connection->Server->RawResource, TRUE );
 
     ExAcquireResourceExclusive(&Connection->Server->SessionStateModifiedLock, TRUE);
 
@@ -1961,7 +2022,7 @@ Return Value:
 
         ACQUIRE_REQUEST_RESOURCE_EXCLUSIVE( Server, TRUE, 5 );
 
-        ASSERT (Server->NumberOfActiveEntries == 0);
+        ASSERT (Server->NumberOfActiveEntries <= 1);
 
         RdrInvalidateConnectionActiveSecurityEntries(Irp, Server, Connection, TRUE, 0);
 
@@ -2089,7 +2150,7 @@ NTSTATUS
     //  creation lock until no raw I/O is outstanding on the VC.
     //
 
-    ExAcquireResourceShared(&Connection->Server->RawResource, TRUE);
+    ExAcquireResourceShared(&Connection->Server->RawResource, TRUE );
 
     //
     //  Acquire the FCB creation lock to guarantee that no-one creates
@@ -2106,12 +2167,6 @@ NTSTATUS
                                         &NumberOfTreeConnections,
                                         &NumberOfOpenDirectories,
                                         &NumberOfOpenFiles);
-
-#if DBG
-        if (ARGUMENT_PRESENT(DeviceName) && (DeviceName->Length != 0)) {
-            ASSERT(NumberOfTreeConnections == 1 || NumberOfTreeConnections == 0);
-        }
-#endif
 
         if (Level != USE_LOTS_OF_FORCE) {
 
@@ -2187,9 +2242,36 @@ NTSTATUS
 
             (NumberOfOpenDirectories != 0)) {
 
+            //
+            // After invalidating all files on this connection belonging to
+            // this Se and DeviceName, we still have open files on this
+            // connection. If none of these open files belong to this Se, then
+            // we need to log off this Se from the server, or we'll leak
+            // sessions...
+            //
+
+            if (ARGUMENT_PRESENT(Se)) {
+
+                RdrGetConnectionReferences(
+                        Connection,
+                        NULL,
+                        Se,
+                        &NumberOfTreeConnections,
+                        &NumberOfOpenDirectories,
+                        &NumberOfOpenFiles);
+
+                if (NumberOfTreeConnections == 1 &&
+                        NumberOfOpenDirectories == 0 &&
+                            NumberOfOpenFiles == 0) {
+
+                    RdrUserLogoff( Irp, Connection, Se );
+
+                }
+
+            }
+
             try_return(Status = STATUS_SUCCESS);
         }
-
 
         Status = RdrDisconnectConnection(Irp,
                                          Connection,
@@ -2227,6 +2309,7 @@ try_exit:NOTHING;
             ExReleaseResource(&Connection->Server->CreationLock);
 
             ExReleaseResource(&Connection->Server->RawResource);
+
         }
 
         RdrDereferenceDiscardableCode(RdrFileDiscardableSection);
@@ -2236,6 +2319,168 @@ try_exit:NOTHING;
 
 }
 
+VOID
+LogonSessionTerminationHandler(
+    IN PVOID Context)
+{
+    PLOGONSESSIONTERMINATIONCONTEXT LSTContext = Context;
+    PLUID LogonId = &LSTContext->LogonId;
+    PLIST_ENTRY         ConnectionEntry;
+    PCONNECTLISTENTRY   Connection;
+    PSERVERLISTENTRY    *ServerList;
+    PSECURITY_ENTRY     SecurityEntry;
+    PCONNECTLISTENTRY   *ConnectionList;
+    ULONG               ConnectionCount;
+
+    PAGED_CODE();
+
+    //
+    //  First acquire the connection package exclusion mutex.
+    //
+
+    KeWaitForMutexObject(
+        &RdrDatabaseMutex,
+        Executive,
+        KernelMode,
+        FALSE,
+        NULL);
+
+    //
+    //  Next, capture the list of connections.
+    //
+
+    for (ConnectionEntry = RdrConnectHead.Flink, ConnectionCount = 0;
+            ConnectionEntry != &RdrConnectHead ;
+                ConnectionEntry = ConnectionEntry->Flink,
+                    ConnectionCount++) {
+        NOTHING;
+    }
+
+    if (ConnectionCount > 0) {
+        ConnectionList = ALLOCATE_POOL(
+                            PagedPool,
+                            ConnectionCount * sizeof(PCONNECTLISTENTRY),
+                            POOL_LOGONTERMINATION);
+
+        if (ConnectionList != NULL) {
+
+            for (ConnectionEntry = RdrConnectHead.Flink, ConnectionCount = 0;
+                    ConnectionEntry != &RdrConnectHead ;
+                        ConnectionEntry = ConnectionEntry->Flink,
+                            ConnectionCount++) {
+
+                ConnectionList[ConnectionCount] = CONTAINING_RECORD(
+                                                    ConnectionEntry,
+                                                    CONNECTLISTENTRY,
+                                                    GlobalNext);
+
+                RdrReferenceConnection( ConnectionList[ConnectionCount] );
+
+            }
+
+        }
+
+    } else {
+
+        ConnectionList = NULL;
+
+    }
+
+    //
+    // Release the connection package mutex.
+    //
+
+    KeReleaseMutex(&RdrDatabaseMutex, FALSE);
+
+    //
+    // Now, scan the captured list of connections for active sessions with
+    // the logon-id that is terminating
+    //
+
+    if (ConnectionList != NULL) {
+
+        ULONG i;
+
+        ASSERT(ConnectionCount > 0);
+
+        for (i = 0; i < ConnectionCount; i++) {
+
+            SecurityEntry = RdrFindActiveSecurityEntry(
+                                ConnectionList[i]->Server,
+                                LogonId);
+
+            if (SecurityEntry != NULL) {
+
+                RdrUserLogoff(NULL, ConnectionList[i], SecurityEntry);
+
+                RdrDereferenceSecurityEntry( SecurityEntry->NonPagedSecurityEntry );
+
+            }
+
+            RdrDereferenceConnection(
+                    NULL,                        // Irp
+                    ConnectionList[i],           // Connection
+                    NULL,                        // Security Entry
+                    FALSE);                      // Force disconnect if necessary
+
+        }
+
+        FREE_POOL( ConnectionList );
+
+    }
+
+    // Done
+    //
+
+    FREE_POOL( LSTContext );
+
+}
+
+VOID
+RdrHandleLogonSessionTermination(
+    IN PLUID LogonId
+    )
+
+/*++
+
+Routine Description:
+
+    This routine handles a notification of a logon session being terminated
+    from the security subsystem. It essentially sends a logoff SMB to every
+    server to which this logon session has an active session.
+
+Arguments:
+
+    LogonId - The logon id that is being logged off
+
+Returns:
+
+    Nothing.
+
+--*/
+
+{
+    PLOGONSESSIONTERMINATIONCONTEXT Ctx;
+
+    PAGED_CODE();
+
+    Ctx = ALLOCATE_POOL( NonPagedPool, sizeof(LOGONSESSIONTERMINATIONCONTEXT), POOL_LOGONTERMINATION);
+
+    if (Ctx != NULL) {
+
+        RtlZeroMemory(Ctx, sizeof(*Ctx));
+
+        Ctx->LogonId = *LogonId;
+
+        Ctx->WorkHeader.WorkerFunction = LogonSessionTerminationHandler;
+
+        RdrQueueToWorkerThread(
+            &RdrDeviceObject->IrpWorkQueue,
+            &Ctx->WorkHeader.WorkItem,
+            FALSE );
+
+    }
+}
 
 VOID
 RdrReferenceServer (
@@ -2271,7 +2516,7 @@ Return Value:
 }
 
 typedef struct _DEREF_SERVER_CONTEXT {
-    WORK_QUEUE_ITEM Item;
+    WORK_QUEUE_ITEM  Item;
     PSERVERLISTENTRY Server;
 } DEREF_SERVER_CONTEXT, *PDEREF_SERVER_CONTEXT;
 
@@ -2287,6 +2532,51 @@ DelayedDereferenceServer(
     RdrDereferenceServer(NULL, Context->Server);
 
     FREE_POOL(Context);
+}
+
+VOID
+RdrScavengeServerEntries()
+{
+    SERVERLISTENTRY *pAgedServerEntry;
+    PLIST_ENTRY     pListEntry,pNextListEntry;
+    LIST_ENTRY      AgedServersList;
+    KIRQL           OldIrql;
+
+    InitializeListHead(&AgedServersList);
+
+    ACQUIRE_SPIN_LOCK(&RdrServerListSpinLock, &OldIrql);
+
+    pListEntry = RdrServerScavengerListHead.Flink;
+    while (pListEntry != &RdrServerScavengerListHead) {
+        pNextListEntry = pListEntry->Flink;
+
+        pAgedServerEntry = (PSERVERLISTENTRY)
+                           CONTAINING_RECORD(
+                               pListEntry,
+                               SERVERLISTENTRY,
+                               ScavengerList);
+        if ((pAgedServerEntry->LastConnectTime + FAILED_CONNECT_TIMEOUT < RdrCurrentTime) ||
+                (RdrData.Initialized != RdrStarted)) {
+           RemoveEntryList(pListEntry);
+           InsertTailList(&AgedServersList,pListEntry);
+        }
+
+        pListEntry = pNextListEntry;
+    }
+
+    RELEASE_SPIN_LOCK(&RdrServerListSpinLock, OldIrql);
+
+    while (!IsListEmpty(&AgedServersList)) {
+        pListEntry = RemoveHeadList(&AgedServersList);
+
+        pAgedServerEntry = (PSERVERLISTENTRY)
+                           CONTAINING_RECORD(
+                               pListEntry,
+                               SERVERLISTENTRY,
+                               ScavengerList);
+
+        RdrDereferenceServer(NULL,pAgedServerEntry);
+    }
 }
 
 VOID
@@ -2338,6 +2628,22 @@ Return Value:
         RELEASE_SPIN_LOCK(&RdrServerListSpinLock, OldIrql);
 
         return;
+    } else if ((ServerList->RefCount == 1) &&
+               (RdrData.Initialized == RdrStarted)) {
+        // Ensure that the Server entry has aged sufficiently before it can be thrown
+        // away. By allowing them to age, subsequent attempts to a failed server can
+        // be throttled back.
+        if (!NT_SUCCESS(ServerList->LastConnectStatus) &&
+                ((ServerList->LastConnectTime + FAILED_CONNECT_TIMEOUT) > RdrCurrentTime)) {
+            // The Server list entry has not aged sufficiently. Insert it in the global
+            // list and return without finalizing now. The RdrpScavengeServerEntries will
+            // subsequently take away this reference.
+
+            InsertTailList(&RdrServerScavengerListHead,&ServerList->ScavengerList);
+            RELEASE_SPIN_LOCK(&RdrServerListSpinLock, OldIrql);
+
+            return;
+        }
     }
 
     RELEASE_SPIN_LOCK(&RdrServerListSpinLock, OldIrql);
@@ -2412,6 +2718,10 @@ Return Value:
                 SeEntry = RemoveHeadList(&ServerList->DefaultSeList);
 
                 Se2 = CONTAINING_RECORD(SeEntry, SECURITY_ENTRY, DefaultSeNext);
+                //RdrLog(( "c rmv s", NULL, 12, Se2, 0, ServerList, Se2->Connection, Se2->Server, 0,
+                //                ServerList->DefaultSeList.Flink, ServerList->DefaultSeList.Blink,
+                //                0, 0,
+                //                Se2->DefaultSeNext.Flink, Se2->DefaultSeNext.Blink ));
 
                 Se2->DefaultSeNext.Flink = NULL;
 
@@ -2435,7 +2745,18 @@ Return Value:
 
             ExReleaseResource(&RdrDefaultSeLock);
 
+            //
+            // CleanupTransportConnection It acquires the request resource,
+            // then calls RdrInvalidateConnectionActiveSecurityEntries,
+            // which acquires SessionStateModified.  Since our lock
+            // ordering requires that SessionStateModified be acquired
+            // first, we need to acquire it here before calling
+            // CleanupTransportConnection.
+            //
+
+            ExAcquireResourceExclusive(&ServerList->SessionStateModifiedLock, TRUE);
             CleanupTransportConnection(Irp, NULL, ServerList);
+            ExReleaseResource(&ServerList->SessionStateModifiedLock);
 
             //
             //  We are decrementing this servers reference count to 0 -
@@ -2637,9 +2958,6 @@ GetFcbReferences(
                         //
                         //  Also count tree connections that HAVE been
                         //  invalidated.
-                        //
-                        //
-                        //  BUGBUG: Why do we need to count these?
                         //
 
                         if (Icb->Flags & ICB_TCONCREATED) {
@@ -3130,6 +3448,8 @@ Return Value:
         return STATUS_INSUFFICIENT_RESOURCES;
     }
 
+    RtlZeroMemory( Connect, sizeof( CONNECTLISTENTRY ) );
+
     Connect->Signature = STRUCTURE_SIGNATURE_CONNECTLISTENTRY;
     Connect->Size = sizeof(CONNECTLISTENTRY);
 
@@ -3175,28 +3495,11 @@ Return Value:
 
     Connect->SerialNumber = RdrConnectionSerialNumber ++;
 
-    Connect->Flags = 0;
-    Connect->NumberOfDormantFiles = 0;
+    Connect->CachedValidCheckPath.Buffer = (PUSHORT)(&Connect->CachedValidCheckPath + 1);
+    Connect->CachedValidCheckPath.MaximumLength = MAX_PATH * sizeof( WCHAR );
 
-    //
-    //  Zero out the contents of the connectlist entry's "file system cache"
-    //
-
-    Connect->FileSystemGranularity = 0;
-    Connect->FileSystemSize.HighPart = 0;
-    Connect->FileSystemSize.LowPart = 0;
-    Connect->FileSystemAttributes = 0;
-    Connect->MaximumComponentLength = 0;
-
-    Connect->DormantTimeout = 0;
-
-    Connect->TreeId = 0;
-
-    Connect->HasTreeId = FALSE;
-
-//    Connect->SpecialTreeId = 0;
-//
-//    Connect->HasSpecialTreeId = FALSE;
+    Connect->CachedInvalidPath.Buffer = (PUSHORT)(&Connect->CachedInvalidPath + 1 );
+    Connect->CachedInvalidPath.MaximumLength = MAX_PATH * sizeof( WCHAR );
 
     //
     //  Initialize the connection type to CONNECT_WILD until we know what
@@ -3272,6 +3575,8 @@ Return Value:
             try_return(Status = STATUS_INSUFFICIENT_RESOURCES);
         }
 
+        RtlZeroMemory( Server, sizeof(SERVERLISTENTRY) );
+
         Server->Signature = STRUCTURE_SIGNATURE_SERVERLISTENTRY;
         Server->Size = sizeof(SERVERLISTENTRY);
 
@@ -3301,21 +3606,13 @@ Return Value:
         //  Initialize the default server capabilties.
         //
 
-        Server->Flags = 0;
-
         Server->Capabilities = DF_CORE | DF_LANMAN20 | DF_LONGNAME;
 
-#ifdef _CAIRO_
-        Server->Principal.Length = 0;
-        Server->Principal.MaximumLength = 0;
-#endif // _CAIRO_
-
         //
-        //  Initialize the timzone bias for this server to 0 (no bias).
+        //  Assume for now that the server supports user security.
         //
 
-        Server->TimeZoneBias.HighPart = 0;
-        Server->TimeZoneBias.LowPart = 0;
+        Server->UserSecurity = TRUE;
 
         if (ARGUMENT_PRESENT(Transport)) {
             RdrReferenceTransport(Transport->NonPagedTransport);
@@ -3323,9 +3620,12 @@ Return Value:
 
         Server->SpecificTransportProvider = Transport;
 
-//        Server->Connection = NULL;
-//
-//        Server->SpecialIpcConnection = NULL;
+        Server->InCancel = FALSE;
+
+        //
+        // Start out assuming we can potentially do large RAW reads and writes
+        //
+        Server->RawReadMaximum = Server->RawWriteMaximum = 64*1024;
 
         InitializeListHead(&Server->DefaultSeList);
 
@@ -3431,6 +3731,11 @@ Return Value:
         FREE_POOL(ServerList->Principal.Buffer);
     }
 #endif // _CAIRO_
+
+    if(ServerList->DomainName.Buffer)
+    {
+        FREE_POOL(ServerList->DomainName.Buffer);
+    }
 
     ExDeleteResource(&ServerList->SessionStateModifiedLock);
 
@@ -3561,7 +3866,7 @@ Return Value:
     PUCHAR Bufferp;
     PREQ_NEGOTIATE Negotiate;
     NEGOTIATECONTEXT Context;
-    PSMB_BUFFER SMBBuffer;
+    PSMB_BUFFER SMBBuffer = NULL;
     PSMB_HEADER SendSMB;
     PMDL SendMDL;
     ULONG SendLength;
@@ -3582,11 +3887,21 @@ Return Value:
     //  worked and then immediately was disconnected.
     //
 
-//    if (ARGUMENT_PRESENT(Se) && (Se->Flags & SE_USE_SPECIAL_IPC) ) {
-//        Status = RdrTdiConnectOnTransport (Irp, Se->Transport, &Server->Text, Server->SpecialIpcConnection);
-//
-//        Se->TransportConnection = Server->SpecialIpcConnection;
-//
+#ifdef RASAUTODIAL
+    //
+    // If there are no transport bindings, then
+    // we alert the automatic connection driver
+    // to see if it would like to bring up a
+    // connection.  When it completes, we continue
+    // with the remote server connection process.
+    //
+    if (fAcdLoadedG &&
+        RdrNoTransportBindings())
+    {
+        RdrAttemptAutoDial(&Server->Text);
+    }
+#endif // RASAUTODIAL
+
     if (Server->SpecificTransportProvider) {
         Status = RdrTdiConnectOnTransport (Irp, Server->SpecificTransportProvider, &Server->Text, Server);
 
@@ -3604,9 +3919,25 @@ Return Value:
         return Status;
     }
 
+    Context.DomainName.Buffer = 0;
+
     //
-    //  We now have a VC with the remote server.
+    //  We now have a VC with the remote server - find out the NB and IP
+    //  address, if any, of the server. This will succeed only if we went
+    //  over NetBT.
     //
+
+    Server->NBName.Length = 0;
+    Server->NBName.MaximumLength = 16;
+    Server->NBName.Buffer = Server->NBNameBuffer;
+
+    if (NT_SUCCESS(RdrQueryServerAddresses(
+            Server, &Server->NBName, &Server->IPAddress))) {
+        Server->Flags |= SLE_HAS_IP_ADDR;
+    } else {
+        Server->Flags &= ~SLE_HAS_IP_ADDR;
+    }
+
     //  (Re)initialize the maximum commands for this server appropriately.
     //  Note that we have to do this here in case the connection is being
     //  reused -- we need to reinitialize the MPX table because some servers
@@ -3674,6 +4005,23 @@ Return Value:
     Context.Header.Type = CONTEXT_NEGOTIATE;
     Context.Header.TransferSize = SendLength + sizeof(RESP_NT_NEGOTIATE) + CRYPT_TXT_LEN;
 
+    //
+    // Almost ready to go. But first, allocate some space to hold
+    // the returned domain name.
+    //
+
+    Context.DomainName.Buffer = ExAllocatePool(NonPagedPool,
+                                               MAX_PATH * sizeof(WCHAR));
+    if(Context.DomainName.Buffer)
+    {
+        Context.DomainName.MaximumLength = MAX_PATH * sizeof(WCHAR);
+        Context.DomainName.Buffer[0] = 0;
+    }
+    else
+    {
+        Context.DomainName.MaximumLength = 0;
+    }
+
     Status = RdrNetTranceiveWithCallback(
                     NT_RECONNECTING | NT_NOCONNECTLIST | NT_CANNOTCANCEL,
                     Irp,                // Irp
@@ -3727,7 +4075,11 @@ Return Value:
         }
 
         if (Context.Capabilities & CAP_NT_SMBS) {
-            Server->Capabilities |= DF_NT_SMBS;
+            Server->Capabilities |= DF_NT_SMBS | DF_NT_FIND;
+        }
+
+        if (Context.Capabilities & CAP_NT_FIND) {
+            Server->Capabilities |= DF_NT_FIND;
         }
 
         if (Context.Capabilities & CAP_RPC_REMOTE_APIS) {
@@ -3744,6 +4096,18 @@ Return Value:
 
         if (Context.Capabilities & CAP_LOCK_AND_READ) {
             Server->Capabilities |= DF_LOCKREAD;
+        }
+
+        if (Context.Capabilities & CAP_DFS) {
+            Server->Capabilities |= DF_DFSAWARE;
+        }
+
+        if (Context.Capabilities & (CAP_QUADWORD_ALIGNED|CAP_LARGE_READX)) {
+            Server->Capabilities |= DF_NT_40;
+        }
+
+        if (Context.Capabilities & CAP_LARGE_READX ) {
+            Server->Capabilities |= DF_LARGE_READX;
         }
 
     } else {
@@ -3794,13 +4158,14 @@ Return Value:
             //  then convert back to the bias time.
             //
 
-            Workspace.QuadPart += ((LONGLONG)ONE_MINUTE_IN_TIME) * 15;
+            Workspace.QuadPart += Int32x32To64(ONE_MINUTE_IN_TIME, 15);
 
             //  Workspace is now  exact bias + 15 minutes in 100ns units
 
-            Workspace.QuadPart /= ((LONGLONG)ONE_MINUTE_IN_TIME) * 30;
+            Workspace.QuadPart /= Int32x32To64(ONE_MINUTE_IN_TIME, 30);
 
-            Server->TimeZoneBias.QuadPart = Workspace.QuadPart * ((LONGLONG)ONE_MINUTE_IN_TIME) * 30;
+            Server->TimeZoneBias.QuadPart =
+                Workspace.QuadPart * Int32x32To64(ONE_MINUTE_IN_TIME, 30);
 
             if ( Negated == TRUE ) {
                 Server->TimeZoneBias.QuadPart = -Server->TimeZoneBias.QuadPart;
@@ -3818,7 +4183,8 @@ Return Value:
 
             TimeZoneBiasInMinutes = (SHORT)Context.TimeZone - (SHORT)LocalTimeZone;
 
-            Server->TimeZoneBias.QuadPart = TimeZoneBiasInMinutes * ONE_MINUTE_IN_TIME;
+            Server->TimeZoneBias.QuadPart =
+                Int32x32To64(TimeZoneBiasInMinutes, ONE_MINUTE_IN_TIME);
         }
 
         //
@@ -3906,6 +4272,30 @@ Return Value:
         Server->MaximumRequests = 1;
     }
 
+    //
+    // If we've a domain name, copy it into the server list entry
+    //
+
+    if(Context.DomainName.Buffer
+                &&
+       Context.DomainName.Buffer[0])
+    {
+        //
+        // yepper
+        //
+
+         if(Server->DomainName.Buffer)
+         {
+             FREE_POOL(Server->DomainName.Buffer);
+             Server->DomainName.Buffer = 0;
+         }
+         RdrpDuplicateUnicodeStringWithString(&Server->DomainName,
+                                              &Context.DomainName,
+                                              PagedPool,
+                                              FALSE);
+
+    }
+
 #ifdef  PAGING_OVER_THE_NET
     //
     //  Re-initialize the maximum commands for this server appropriately.
@@ -3966,8 +4356,14 @@ ReturnError:
     //  done with them
     //
 
-    RdrFreeSMBBuffer(SMBBuffer);
+    if ( SMBBuffer != NULL ) {
+        RdrFreeSMBBuffer(SMBBuffer);
+    }
 
+    if(Context.DomainName.Buffer)
+    {
+        FREE_POOL(Context.DomainName.Buffer);
+    }
     return Status;
 
 }
@@ -4014,6 +4410,11 @@ Notes:
     ASSERT(Context->Header.Type == CONTEXT_NEGOTIATE);
 
     DISCARDABLE_CODE(RdrVCDiscardableSection);
+
+    UNREFERENCED_PARAMETER(MpxEntry);
+    UNREFERENCED_PARAMETER(Irp);
+    UNREFERENCED_PARAMETER(SmbLength);
+    UNREFERENCED_PARAMETER(Server);
 
     Context->Header.ErrorType = NoError;        // Assume no error at first.
 
@@ -4098,6 +4499,8 @@ Notes:
     //
 
     if (RdrNegotiateDialect[Context->DialectIndex].DialectFlags&DF_NTNEGOTIATE) {
+        ULONG byteCount;
+        PWCHAR pwszDomainName;
 
         if (NtNegotiateResponse->WordCount != 17) {
 
@@ -4168,6 +4571,38 @@ Notes:
             }
         }
 
+        //
+        // Copy the domain name
+        //
+
+
+        byteCount = (ULONG)SmbGetUshort(&NtNegotiateResponse->ByteCount);
+        byteCount -= NtNegotiateResponse->EncryptionKeyLength;
+
+        //
+        // The following is to handle improperly aligned domain names
+        // from old servers. If the number of bytes remaining
+        // is odd, then the srv thought it needed to do some
+        // filling. So, we have to adjust for that!
+        //
+
+        pwszDomainName = (PWCHAR)(NtNegotiateResponse->Buffer +
+                                   NtNegotiateResponse->EncryptionKeyLength +
+                                   (byteCount & 1));
+        byteCount &= ~1;
+
+        if(byteCount
+             &&
+           Context->DomainName.Buffer
+             &&
+           (byteCount <= Context->DomainName.MaximumLength))
+        {
+            Context->DomainName.Length = (USHORT)(byteCount  - sizeof(WCHAR));
+            RtlMoveMemory(Context->DomainName.Buffer,
+                          pwszDomainName,
+                          byteCount);
+
+        }
     } else if (RdrNegotiateDialect[Context->DialectIndex].DialectFlags&DF_EXTENDNEGOT) {
 
         if (NegotiateResponse->WordCount != 13 &&
@@ -4277,7 +4712,6 @@ Notes:
         Context->MaximumRequests = 1;
         Context->MaximumVCs = 1;
         Context->SessionKey = 0;
-//  BUGBUG: For Core ServerTime, ServerDate and TimeZone are undefined"
         Context->SupportsRawWrite = Context->SupportsRawRead = FALSE;
     }
 
@@ -4312,10 +4746,6 @@ ReturnError:
     KeSetEvent(&Context->Header.KernelEvent, IO_NETWORK_INCREMENT, FALSE); // Wake up the caller
 
     return STATUS_SUCCESS;
-    UNREFERENCED_PARAMETER(MpxEntry);
-    UNREFERENCED_PARAMETER(Irp);
-    UNREFERENCED_PARAMETER(SmbLength);
-    UNREFERENCED_PARAMETER(Server);
 }
 
 USHORT
@@ -4421,7 +4851,7 @@ Return Value:
 {
     NTSTATUS Status;
     PSERVERLISTENTRY Server = Connection->Server;
-    CLONG ResponseLength;
+    CLONG ResponseLength, cResponseLength;
     PRESP_CAIRO_TRANS2_SESSION_SETUP Response;
     PVOID SessionSetupBuffer = NULL;
     struct _TempSetup SetupData = { TRANS2_SESSION_SETUP,0,0,0 };
@@ -4431,6 +4861,8 @@ Return Value:
     CLONG InDataCount;
     CLONG ZeroCount = 0;
     PSECURITY_ENTRY Se1 = NULL;
+    ULONG ulBufferLength = 0;
+    PUCHAR pContextBuffer = NULL;
 
     dprintf(DPRT_CAIRO, (" -- CreateCairoSessionSetup\n"));
 
@@ -4446,131 +4878,183 @@ Return Value:
     if (!NT_SUCCESS(Status = BuildCairoSessionSetup(Connection,
                                 Se,
                                 Server,
+                                NULL,
+                                0,
                                 &InData,
                                 &InDataCount,
                                 &Response,
-                                &ResponseLength))) {
+                                &ResponseLength)))
+    {
         dprintf(DPRT_CAIRO, ("Build of Cairo SessionSetup failed\n"));
         return Status;
     }
 
-    //
-    // Now call rdrtransact with the blob in the input buffer.
-    //
-    //
-
-    dprintf(DPRT_CAIRO, (" -- CreateCairoSessionSetup- sending trans2\n"));
-
-    RdrReferenceDiscardableCode(RdrFileDiscardableSection);
-
-    Status = RdrTransact( Irp,
-                          Connection,
-                          Se,
-                          &SetupData,                 // IN OUT PVOID Setup,
-                          SetupDataCount,            // IN CLONG InSetupCount,
-                          &SetupDataCount,           // IN OUT PCLONG OutSetupCount,
-                          NULL,                      // IN PUNICODE_STRING Name OPTIONAL,
-                          NULL,                      // IN OUT PVOID Parameters,
-                          0,                         // IN CLONG InParameterCount,
-                          &ZeroCount,                // IN OUT PCLONG OutParameterCount,
-                          InData,                    // IN PVOID InData OPTIONAL,
-                          InDataCount,               // IN CLONG InDataCount,
-                          Response,                  // OUT PVOID OutData OPTIONAL,
-                          &ResponseLength,           // IN OUT PCLONG OutDataCount,
-                          NULL,                      // IN PUSHORT Fid OPTIONAL,
-                          0,                         // IN ULONG TimeoutInMilliseconds,
-                          SMB_TRANSACTION_RECONNECTING, // IN USHORT Flags,
-                          0,                         // IN USHORT NtTransactFunction
-                          NULL,                      // IN CompletionRoutine
-                          NULL                       // IN CallbackContext
-                            );
-
-
-    RdrDereferenceDiscardableCode(RdrFileDiscardableSection);
-
-    if (!NT_SUCCESS(Status)) {
-        dprintf(0, ("Send of trans2 failed: %lx\n", Status));
-        return Status;
-    }
-
-    dprintf(DPRT_CAIRO, (" -- CreateCairoSessionSetup- sent trans2\n"));
-
-    ExInterlockedAddUlong( &RdrStatistics.Sessions, 1, &RdrStatisticsSpinLock );
+    ASSERT(InData);        // It must have returned something.
 
     //
-    //  Update the UID with the new UID from the session setup.
-    //
+    // We may have to do this more than once. The one important case
+    // of this is receiving time-skew error from the srv and
+    // after correcting it, trying again. The loop goes on as long
+    // as Kerberos says to try.
 
 
-    Se->UserId = Response->Uid;
-
-    Se1 = RdrFindActiveSecurityEntry(Server, &Se->LogonId);
-
-
-    if ( (Se1 == NULL) || ( Se1 != Se ) ) {
-
+    do
+    {
         //
-        // Need to send the LSA the returned Blob, if any.
+        // Now call rdrtransact with the blob in the input buffer.
+        //
         //
 
-        if ( Se->Flags & SE_BLOB_NEEDS_VERIFYING ) {
+        dprintf(DPRT_CAIRO, (" -- CreateCairoSessionSetup- sending trans2\n"));
 
-            //
-            // BUGBUG
-            //
-            // Due to the unfortunate misalignment of the PRESP_... struct,
-            // we have to declare these stack based variables, and then copy
-            // them into the struct.
-            //
-            // We should probably change the PRESP_... struct so it is properly
-            // aligned. We are currently not doing so because we need a cairo
-            // server (DC) to talk to bootstrap the MIPS build.
-            //
+        RdrReferenceDiscardableCode(RdrFileDiscardableSection);
 
-            ULONG ulBufferLength = 0;
-            PUCHAR pContextBuffer = NULL;
+        Status = RdrTransact( Irp,
+                              Connection,
+                              Se,
+                              &SetupData,                 // IN OUT PVOID Setup,
+                              SetupDataCount,            // IN CLONG InSetupCount,
+                              &SetupDataCount,           // IN OUT PCLONG OutSetupCount,
+                              NULL,                      // IN PUNICODE_STRING Name OPTIONAL,
+                              NULL,                      // IN OUT PVOID Parameters,
+                              0,                         // IN CLONG InParameterCount,
+                              &ZeroCount,                // IN OUT PCLONG OutParameterCount,
+                              InData,                    // IN PVOID InData OPTIONAL,
+                              InDataCount,               // IN CLONG InDataCount,
+                              Response,                  // OUT PVOID OutData OPTIONAL,
+                              &ResponseLength,           // IN OUT PCLONG OutDataCount,
+                              NULL,                      // IN PUSHORT Fid OPTIONAL,
+                              0,                         // IN ULONG TimeoutInMilliseconds,
+                              SMB_TRANSACTION_RECONNECTING, // IN USHORT Flags,
+                              0,                         // IN USHORT NtTransactFunction
+                              NULL,                      // IN CompletionRoutine
+                              NULL                       // IN CallbackContext
+                                );
 
-            // We are doing Kerberos authentication. The returned Blob is in the
-            // Context block. Feed it back to the LSA
-            //
 
-            Se->Flags &= ~SE_BLOB_NEEDS_VERIFYING;
-            Status = RdrGetKerberosBlob(Se,
-                                        &pContextBuffer,
-                                        &ulBufferLength,
-                                        &Server->Principal,
-                                        Response->Buffer,
-                                        Response->BufferLength,
-                                        TRUE);
-            if (!NT_SUCCESS(Status) && !NT_INFORMATION(Status)) {
-                dprintf(DPRT_CAIRO, (" -- CreateCairoSessionSetup- get kerb blob failed, status = %lC\n",Status));
-                return Status;
-            }
-            Response->BufferLength = ulBufferLength;
-            if (pContextBuffer) {
-                RtlMoveMemory(Response->Buffer, pContextBuffer, ulBufferLength);
-                ExFreePool(pContextBuffer);
-            }
+        RdrDereferenceDiscardableCode(RdrFileDiscardableSection);
+
+        if(!NT_SUCCESS(Status))
+        {
+            dprintf(0, ("Send of trans2 failed: %lx\n", Status));
+            return Status;
         }
 
-        RdrInsertSecurityEntryList(Server, Se);
+        dprintf(DPRT_CAIRO, (" -- CreateCairoSessionSetup- sent trans2\n"));
 
-        dprintf(DPRT_CAIRO, ("CreateCairoSessionSetup - Linking Se %lx to Server %lx\n", Se, Server));
+        ExInterlockedAddUlong( &RdrStatistics.Sessions, 1, &RdrStatisticsSpinLock );
 
-        Se->Server = Server;
+        //
+        //  Update the UID with the new UID from the session setup.
+        //
 
-    }
 
-    if (Se1 != NULL) {
+        Se->UserId = Response->Uid;
+
+        RdrLog(("scs find",NULL,4,PsGetCurrentThread(),Server,Se->LogonId.LowPart,Se->LogonId.HighPart));
+        Se1 = RdrFindActiveSecurityEntry(Server, &Se->LogonId);
+
+
+        if ( (Se1 == NULL) || ( Se1 != Se ) )
+        {
+
+            //
+            // Need to send the LSA the returned Blob, if any.
+            //
+
+            if ( Se->Flags & SE_BLOB_NEEDS_VERIFYING )
+            {
+
+                PRESP_CAIRO_TRANS2_SESSION_SETUP Response2 = 0;
+
+                //
+                // BUGBUG Due to the unfortunate misalignment of the PRESP_...
+                // struct, we have to declare these stack based variables, and
+                // then copy them into the struct.
+                //
+                // We should probably change the PRESP_... struct so it is
+                // properly aligned. We are currently not doing so because we
+                // need a cairo server (DC) to talk to bootstrap the MIPS build.
+                //
+
+
+                // We are doing Kerberos authentication. The returned Blob is in the
+                // Context block. Feed it back to the LSA
+                //
+
+                Se->Flags &= ~SE_BLOB_NEEDS_VERIFYING;
+
+                Status = BuildCairoSessionSetup(Connection,
+                                Se,
+                                Server,
+                                Response->Buffer,
+                                Response->BufferLength,
+                                &pContextBuffer,
+                                &ulBufferLength,
+                                &Response2,
+                                &ResponseLength);
+
+                ExFreePool(Response);         // get rid of this
+
+                if (!NT_SUCCESS(Status) && !NT_INFORMATION(Status)) {
+                    dprintf(DPRT_CAIRO, (" -- CreateCairoSessionSetup- get kerb blob failed, status = %lC\n",Status));
+                    return Status;
+                }
+
+                if(pContextBuffer && Response2)
+                {
+                    //
+                    // We have to go again. So copy pointers and
+                    // redo the Transact operation. Note that this
+                    // time we send only the blob and not the other
+                    // stuff.
+                    //
+
+                    InData = pContextBuffer;
+                    InDataCount = ulBufferLength;
+                    Response = Response2;
+                    continue;
+                }
+                else
+                {
+                    if(Response2)
+                    {
+                        ExFreePool(Response2);
+                    }
+                    if(pContextBuffer)
+                    {
+                        ExFreePool(pContextBuffer);
+                    }
+                }
+
+            }
+
+            {
+                PVOID caller,callerscaller;
+                RtlGetCallersAddress(&caller,&callerscaller);
+                RdrLog(("scs ise",NULL,5,PsGetCurrentThread(),Server,Se,caller,callerscaller));
+            }
+            RdrInsertSecurityEntryList(Server, Se);
+
+            dprintf(DPRT_CAIRO, ("CreateCairoSessionSetup - Linking Se %lx to Server %lx\n", Se, Server));
+
+            Se->Server = Server;
+            break;
+        }
+    }while(TRUE);
+
+    if (Se1 != NULL)
+    {
 
     //
     //  If we found a security entry, dereference it.
     //
 
         dprintf(DPRT_CAIRO, ("CreateCairoSessionSetup - Derefing Se1 (found) %lx current = %lx\n", Se1, Se));
-        RdrDereferenceSecurityEntry(Se1);
+        RdrDereferenceSecurityEntry(Se1->NonPagedSecurityEntry);
 
     }
+
     dprintf(DPRT_CAIRO, (" -- CreateCairoSessionSetup- done, status = %lC\n",Status));
     return Status;
 }
@@ -4619,6 +5103,8 @@ Return Value:
 
     PAGED_CODE();
 
+    InterlockedIncrement( &RdrServerStateUpdated );
+
     Context.ReceiveIrp = NULL;
     Context.SessionSetupMdl = NULL;
 
@@ -4633,6 +5119,8 @@ Return Value:
         Context.BufferTooShort = FALSE;
 
         Context.UseLmSessionSetupKey = FALSE;
+
+        Context.ShareIsInDfs = FALSE;
 
         ASSERT(Se->Signature == STRUCTURE_SIGNATURE_SECURITYENTRY);
 
@@ -4767,7 +5255,12 @@ Return Value:
 
             ConnectionObjectReferenced = TRUE;
 
-            Context.ReceiveIrp = RdrAllocateIrp(Server->ConnectionContext->ConnectionObject, NULL);
+            Context.ReceiveIrp = ALLOCATE_IRP(
+                                    Server->ConnectionContext->ConnectionObject,
+                                    NULL,
+                                    1,
+                                    &Context
+                                    );
 
             if (Context.ReceiveIrp == NULL) {
                 try_return(Status = STATUS_INSUFFICIENT_RESOURCES);
@@ -4853,10 +5346,10 @@ Return Value:
 
                 if (TreeConnect->WordCount == 2) {
                     p = (PVOID)TreeConnect->Buffer;
-
                 } else if (TreeConnect->WordCount == 3) {
-
                     p = (PVOID)LM21TreeConnect->Buffer;
+                } else {
+                    try_return(Status = STATUS_UNEXPECTED_NETWORK_ERROR);
                 }
 
                 Status = ProcessTreeConnectAndXBuffer(Smb, p, &Context, Server, Context.ReceiveLength - ((PCHAR)p-(PCHAR)Smb), TDI_RECEIVE_COPY_LOOKAHEAD);
@@ -4914,6 +5407,11 @@ Return Value:
                 //  We're done - link this security entry to the server.
                 //
 
+                {
+                    PVOID caller,callerscaller;
+                    RtlGetCallersAddress(&caller,&callerscaller);
+                    RdrLog(("ctc ise1",NULL,5,PsGetCurrentThread(),Server,Se,caller,callerscaller));
+                }
                 RdrInsertSecurityEntryList(Server, Se);
 
                 if (!Server->UserSecurity) {
@@ -4952,6 +5450,11 @@ Return Value:
 
                             OtherSecurityEntry->UserId = Context.UserId;
 
+                            {
+                                PVOID caller,callerscaller;
+                                RtlGetCallersAddress(&caller,&callerscaller);
+                                RdrLog(("ctc ise2",NULL,5,PsGetCurrentThread(),Server,Se,caller,callerscaller));
+                            }
                             RdrInsertSecurityEntryList(Server, OtherSecurityEntry);
                         }
                     }
@@ -5017,6 +5520,11 @@ Return Value:
 
                     if (Se->ActiveNext.Flink == NULL) {
 
+                        {
+                            PVOID caller,callerscaller;
+                            RtlGetCallersAddress(&caller,&callerscaller);
+                            RdrLog(("ctc ise3",NULL,5,PsGetCurrentThread(),Server,Se,caller,callerscaller));
+                        }
                         RdrInsertSecurityEntryList(Server, Se);
                     }
 
@@ -5045,6 +5553,10 @@ Return Value:
                         }
 
                         Connection->FileSystemTypeLength = FsType.Length;
+                    }
+
+                    if (Context.ShareIsInDfs) {
+                        Connection->Flags |= CLE_IS_A_DFS_SHARE;
                     }
 
                 }
@@ -5083,7 +5595,7 @@ try_exit:NOTHING;
                                             FALSE,
                                             NULL);
 
-            IoFreeIrp(Context.ReceiveIrp);
+            FREE_IRP( Context.ReceiveIrp, 1, &Context );
 
         }
 
@@ -5160,7 +5672,7 @@ Return Value:
 
     SmbHeader = (PSMB_HEADER )(*SmbBuffer)->Buffer;
 
-    RdrSmbScrounge(SmbHeader, Connection->Server, TRUE, TRUE);
+    RdrSmbScrounge(SmbHeader, Connection->Server, FALSE, TRUE, TRUE);
 
     //
     //  If either there is no session to the server with this security entry,
@@ -5179,7 +5691,7 @@ Return Value:
         //  server.
         //
 
-        Status = BuildSessionSetupAndX(*SmbBuffer, Connection->Server, Se);
+        Status = BuildSessionSetupAndX(*SmbBuffer, Connection, Se);
 
         //
         //  If we were able to build the session setup&x, and the connection
@@ -5260,7 +5772,7 @@ Return Value:
     }
 
     SmbHeader = (PSMB_HEADER )(*SmbBuffer)->Buffer;
-    RdrSmbScrounge(SmbHeader, Connection->Server, FALSE, FALSE);
+    RdrSmbScrounge(SmbHeader, Connection->Server, FALSE, FALSE, FALSE);
     SmbHeader->Command = SMB_COM_TREE_CONNECT;
 
     TreeConnect = (PREQ_TREE_CONNECT )(SmbHeader+1);
@@ -5275,6 +5787,7 @@ Return Value:
 
     if (!NT_SUCCESS(Status)) {
         RdrFreeSMBBuffer(*SmbBuffer);
+        *SmbBuffer = NULL;
         return Status;
     }
 
@@ -5374,6 +5887,11 @@ Return Value:
 
     DISCARDABLE_CODE(RdrVCDiscardableSection);
 
+    UNREFERENCED_PARAMETER(MpxEntry);
+    UNREFERENCED_PARAMETER(Irp);
+    UNREFERENCED_PARAMETER(SmbLength);
+    UNREFERENCED_PARAMETER(Server);
+
     ASSERT(Context->Header.Type == CONTEXT_TREECONNECT);
 
     if (ErrorIndicator) {
@@ -5427,11 +5945,6 @@ ReturnError:
     KeSetEvent(&Context->Header.KernelEvent, IO_NETWORK_INCREMENT, FALSE); // Wake up the caller
     return STATUS_SUCCESS;
 
-    UNREFERENCED_PARAMETER(MpxEntry);
-    UNREFERENCED_PARAMETER(Irp);
-    UNREFERENCED_PARAMETER(SmbLength);
-    UNREFERENCED_PARAMETER(Server);
-
 }
 
 
@@ -5470,8 +5983,13 @@ Return Value:
     PVOID p;
     ULONG ByteCount;
     NTSTATUS Status;
+    USHORT OptionalSupport;
 
     DISCARDABLE_CODE(RdrVCDiscardableSection);
+
+    UNREFERENCED_PARAMETER(MpxEntry);
+    UNREFERENCED_PARAMETER(Irp);
+    UNREFERENCED_PARAMETER(Server);
 
     ASSERT(Context->Header.Type == CONTEXT_TREECONNECT);
 
@@ -5661,6 +6179,9 @@ Return Value:
 
         ByteCount = SmbGetUshort(&LM21TreeConnect->ByteCount);
 
+        OptionalSupport = SmbGetUshort(&LM21TreeConnect->OptionalSupport);
+        Context->ShareIsInDfs = OptionalSupport & SMB_SHARE_IS_IN_DFS;
+
         //
         //  Only LM 2.1 servers should return a word count of 3.
         //
@@ -5747,10 +6268,6 @@ Return Value:
 ReturnError:
     KeSetEvent(&Context->Header.KernelEvent, IO_NETWORK_INCREMENT, FALSE); // Wake up the caller
     return STATUS_SUCCESS;
-
-    UNREFERENCED_PARAMETER(MpxEntry);
-    UNREFERENCED_PARAMETER(Irp);
-    UNREFERENCED_PARAMETER(Server);
 
 }
 
@@ -5995,6 +6512,8 @@ Return Value:
 
     DISCARDABLE_CODE(RdrVCDiscardableSection);
 
+    UNREFERENCED_PARAMETER(DeviceObject);
+
     dprintf(DPRT_CONNECT, ("TreeConnectComplete.  Irp: %lx, Context: %lx\n", Irp, Context));
 
     ASSERT(Context->Header.Type == CONTEXT_TREECONNECT);
@@ -6042,15 +6561,13 @@ Return Value:
     //
 
     return STATUS_MORE_PROCESSING_REQUIRED;
-
-    if (DeviceObject);
 }
 
 DBGSTATIC
 NTSTATUS
 BuildSessionSetupAndX(
     IN PSMB_BUFFER SmbBuffer,
-    IN PSERVERLISTENTRY Server,
+    IN PCONNECTLISTENTRY Connection,
     IN PSECURITY_ENTRY Se
     )
 
@@ -6080,6 +6597,7 @@ Notes:
 
 {
     NTSTATUS Status;
+    PSERVERLISTENTRY Server = Connection->Server;
     PSMB_HEADER Smb = (PSMB_HEADER )SmbBuffer->Buffer;
     PREQ_SESSION_SETUP_ANDX SessionSetup;
     PREQ_NT_SESSION_SETUP_ANDX NtSessionSetup;
@@ -6151,28 +6669,19 @@ Notes:
     //  The number of VC number field is set to the number of sessions
     //  outstanding on a VC.
     //
+    //  Milans : WHY? Why should the *VC* number be set to the number of
+    //           *SESSIONS*?
+    //
+    //           This breaks connection to HP-UX if there is a null session to
+    //           the server already. So, we only do this for servers that
+    //           negotiate >= DF_LANMAN20
+    //
 
-#ifdef MULTIPLE_VCS_PER_SERVER
-    {
-        USHORT i;
-        BOOLEAN PlusFound = FALSE;
-
-        for ( i = 0 ; i < (Server->Text.Length) / sizeof(WCHAR) ; i += 1 ) {
-            if (Server->Text.Buffer[i] == L'+') {
-                PlusFound = TRUE;
-            }
-        }
-
-        if (PlusFound) {
-            SmbPutUshort(&SessionSetup->VcNumber, 2);
-        } else {
-#endif
-            SmbPutUshort(&SessionSetup->VcNumber, RdrGetNumberSessions(Server));
-
-#ifdef  MULTIPLE_VCS_PER_SERVER
-        }
+    if (Server->Capabilities & DF_LANMAN20) {
+        SmbPutUshort(&SessionSetup->VcNumber, RdrGetNumberSessions(Server));
+    } else {
+        SmbPutUshort(&SessionSetup->VcNumber, 0);
     }
-#endif
 
     SmbPutUlong(&SessionSetup->SessionKey, Server->SessionKey);
 
@@ -6511,13 +7020,13 @@ Notes:
                     PTDI_ADDRESS_NETBIOS Address;
                     OEM_STRING AString;
                     UNICODE_STRING UString;
-                    UCHAR Computername[NETBIOS_NAME_LEN];
+                    UCHAR Computername[ sizeof( Address->NetbiosName ) ];
 
                     ExAcquireResourceShared(&RdrDataResource, TRUE);
 
                     Address = &RdrData.ComputerName->Address[0].Address[0];
 
-                    for (i = 0;i < NETBIOS_NAME_LEN ; i ++) {
+                    for (i = 0;i < sizeof(Address->NetbiosName) ; i ++) {
                         if (Address->NetbiosName[i] == ' ' || Address->NetbiosName[i] == '\0') {
                             break;
                         }
@@ -6528,10 +7037,10 @@ Notes:
 
                     AString.Buffer = Computername;
                     AString.Length = (USHORT)i;
-                    AString.MaximumLength = NETBIOS_NAME_LEN;
+                    AString.MaximumLength = sizeof( Computername );
 
                     UString.Buffer = p;
-                    UString.MaximumLength = (USHORT)(NETBIOS_NAME_LEN*sizeof(WCHAR));
+                    UString.MaximumLength = (USHORT)(sizeof(Computername)*sizeof(WCHAR));
 
                     Status = RtlOemStringToUnicodeString(&UString, &AString, FALSE);
 
@@ -6561,7 +7070,7 @@ Notes:
 
                     Address = &RdrData.ComputerName->Address[0].Address[0];
 
-                    for (i = 0;i < NETBIOS_NAME_LEN ; i ++) {
+                    for (i = 0;i < sizeof(Address->NetbiosName) ; i ++) {
                         if (Address->NetbiosName[i] == ' ' || Address->NetbiosName[i] == '\0') {
                             break;
                         }
@@ -6662,6 +7171,8 @@ NTSTATUS
 BuildCairoSessionSetup(IN PCONNECTLISTENTRY Connection,
                   IN PSECURITY_ENTRY Se,
                   IN PSERVERLISTENTRY Server,
+                  PUCHAR    pucIn,
+                  ULONG     ulIn,
                   OUT PVOID *SendData,
                   OUT PCLONG SendDataCount,
                   OUT PVOID *ReceiveData,
@@ -6688,17 +7199,84 @@ Return Value:
     NTSTATUS Status;
     PCHAR Blob = NULL;
     ULONG BlobLength = 0;
-//    PTRANSPORT_CONNECTION TransportConnection;
     PREQ_CAIRO_TRANS2_SESSION_SETUP BlobPointer;
     PVOID BufPtr;
-    UNICODE_STRING KerberosText;
-
-
-//    UNICODE_STRING LogonDomain;
-
-//    LogonDomain.Buffer = NULL;
+    UNICODE_STRING KerberosText, TempPrincipal;
 
     dprintf(DPRT_CAIRO, (" -- BuildCairoConnect\n"));
+
+    KerberosText.Length = KerberosText.MaximumLength = 0;
+    KerberosText.Buffer = NULL;
+
+    if(!Server->Principal.Length)
+    {
+        ULONG ulLen;
+        PWCHAR pPtr;
+
+        //
+        // We've no principal. Need to construct one
+        //
+
+        if((Server->DomainName.Length == 0)
+                   ||
+            (Server->DomainName.Buffer[0] != L'\\'))
+        {
+            //
+            // Invalid domain name. Bail out now
+            //
+
+            return(STATUS_NO_LOGON_SERVERS);
+        }
+
+        //
+        // we've a valid Kerberos domain. Build a principal name
+        // The name will be domainname:servname
+        //
+
+        ulLen = Server->DomainName.Length +
+                Server->Text.Length +
+                (2 * sizeof(WCHAR));
+
+        pPtr = ExAllocatePool(PagedPool,
+                              ulLen);
+        if(!pPtr)
+        {
+            return(STATUS_NO_MEMORY);
+        }
+
+        TempPrincipal.Buffer = pPtr;
+
+        //
+        // construct the name
+        //
+
+        RtlMoveMemory(pPtr,
+                      Server->DomainName.Buffer,
+                      Server->DomainName.Length);
+        pPtr += Server->DomainName.Length / 2;
+        *pPtr++ = L':';
+        RtlMoveMemory(pPtr,
+                      Server->Text.Buffer,
+                      Server->Text.Length);
+
+        pPtr += Server->Text.Length / 2;
+
+        *pPtr = 0;       // It's nice to be NULL terminated
+
+        //
+        // Fix up the counts
+        //
+
+        TempPrincipal.Length = Server->DomainName.Length +
+                                   Server->Text.Length +
+                                   sizeof(WCHAR);
+        TempPrincipal.MaximumLength = Server->Principal.Length +
+                                           sizeof(WCHAR);
+    }
+    else
+    {
+        TempPrincipal.Buffer = 0;
+    }
 
     try {
 
@@ -6707,7 +7285,9 @@ Return Value:
         // don't know. (unicode or char).
         //
 
-        RtlInitUnicodeString(&KerberosText,L"(Kerberos)");
+        *SendData = *ReceiveData = 0;
+
+        RdrGetUserName(&Se->LogonId, &KerberosText);
 
         if (Server->Capabilities & DF_UNICODE) {
 
@@ -6723,12 +7303,17 @@ Return Value:
         Status = RdrGetKerberosBlob(Se,
                                      &Blob,
                                      &BlobLength,
-                                     &Server->Principal,
-                                     (PCHAR)NULL,
-                                     0,
+                                     TempPrincipal.Buffer ?
+                                      &TempPrincipal :
+                                       &Server->Principal,
+                                     pucIn,
+                                     ulIn,
                                      TRUE);
 
-        if (!NT_SUCCESS(Status)) {
+        if (!NT_SUCCESS(Status)
+                  ||
+            !Blob)
+        {
            try_return(Status);
         }
 
@@ -6762,8 +7347,6 @@ Return Value:
 
         BlobPointer->VcNumber = RdrGetNumberSessions(Server);
 
-        BlobPointer->SessionKey = Server->SessionKey;
-
         (USHORT) BlobPointer->MaxBufferSize = (USHORT) Server->BufferSize;
 
         (USHORT) BlobPointer->MaxMpxCount = Server->MaximumRequests;
@@ -6788,7 +7371,7 @@ Return Value:
 
             RdrCopyUnicodeStringToUnicode((PVOID *)&BufPtr, &KerberosText, TRUE);
 
-            *((PWCH)BufPtr)++ = '\0';
+            *((PWCH)BufPtr)++ = L'\0';
 
         } else {
 
@@ -6799,21 +7382,28 @@ Return Value:
             *((PCHAR)BufPtr)++ = '\0';
         }
 
+
+
         //
-        // BUGBUG allocate space for the return kerberos blob, currently
-        // the same size as the send blob plus a fudge factor. The fudge
-        // factor is needed because we don't know the size of the return
-        // ticket. We need to ask security folks to figure this out for us,
-        // so we can tell exactly how large the return ticket will be.
+        // Allocate space for the return kerberos blob. The return blob is
+        // going to have a kerberos reply message in addition to the rest
+        // of the blob.
         //
 
-        *ReceiveDataCount = *SendDataCount + 128;
+        *ReceiveDataCount = *SendDataCount + KERBSIZE_AP_REPLY;
 
         *ReceiveData = ExAllocatePool(PagedPool, *ReceiveDataCount);
 
         //
         // all done.
         //
+
+        if(!*ReceiveData)
+        {
+            ExFreePool(*SendData);
+            *SendData = 0;
+            Status = STATUS_INSUFFICIENT_RESOURCES;
+        }
 
         try_return(Status = STATUS_SUCCESS);
 
@@ -6826,6 +7416,15 @@ try_exit:NOTHING;
 
         if (Blob != NULL) {
            ExFreePool(Blob);
+        }
+
+        if (KerberosText.Buffer != NULL) {
+            FREE_POOL(KerberosText.Buffer);
+        }
+
+        if(TempPrincipal.Buffer)
+        {
+            FREE_POOL(TempPrincipal.Buffer);
         }
     }
     dprintf(DPRT_CAIRO, (" -- BuildCairoConnect - done, status = %lC\n",Status));
@@ -6881,7 +7480,7 @@ Return Value:
         TreeConnect = (PREQ_TREE_CONNECT_ANDX )((PCHAR )Smb+
                                                SmbGetUshort(&AndX->AndXOffset));
     } else {
-        RdrSmbScrounge(Smb, Connection->Server, TRUE, TRUE);
+        RdrSmbScrounge(Smb, Connection->Server, FALSE, TRUE, TRUE);
         Smb->Command = SMB_COM_TREE_CONNECT_ANDX;
         TreeConnect = (PREQ_TREE_CONNECT_ANDX )(Smb+1);
     }
@@ -7156,6 +7755,7 @@ Return Value:
         //  There is no security entry provided for this request.
         //
 
+        RdrLog(("td find",NULL,2,PsGetCurrentThread(),Server));
         SeForDisconnect = RdrFindActiveSecurityEntry(Server,
                                                NULL);
 
@@ -7214,18 +7814,16 @@ Return Value:
 --*/
 
 {
-    INTERLOCKED_RESULT Result;
+    LONG Result;
     PAGED_CODE();
 
     //
     //  We do not want to re-evaluate on each tick. Just do it every 20-30 seconds.
     //
 
-    Result = ExInterlockedDecrementLong (&RdrConnectionTickCount,
-                                         &RdrTimeInterLock);
+    Result = InterlockedDecrement (&RdrConnectionTickCount);
 
-
-    if ( Result == ResultZero) {
+    if ( Result == 0 ) {
 
         RdrConnectionTickCount = RdrRequestTimeout/(2*SCAVENGER_TIMER_GRANULARITY);
 
@@ -7304,9 +7902,6 @@ RdrResetConnectlistFlag(
 }
 
 
-
-
-
 //
 //
 //      Initialization routines
@@ -7365,6 +7960,8 @@ Return Value:
 
     InitializeListHead(&RdrServerHead);
 
+    InitializeListHead(&RdrServerScavengerListHead);
+
     InitializeListHead(&RdrConnectHead);
 
     RdrConnectionSerialNumber = 1;
@@ -7373,35 +7970,7 @@ Return Value:
     //  Maximum timezone bias.
     //
 
-    RdrMaxTimezoneBias.QuadPart = (LONGLONG)24*60*60*1000*10000;
-
-}
-
-VOID
-RdrpUninitializeConnectPackage (
-    VOID
-    )
-
-/*++
-
-Routine Description:
-
-    This routine uninitializes the structures used by the connection package.
-
-Arguments:
-
-    None
-
-Return Value:
-
-    None.
-
---*/
-
-{
-    ASSERT (IsListEmpty(&RdrServerHead));
-
-    ASSERT (IsListEmpty(&RdrConnectHead));
+    RdrMaxTimezoneBias.QuadPart = Int32x32To64(24*60*60, 1000*10000);
 
 }
 
@@ -7484,3 +8053,4 @@ ReleaseRequestResourceForThread (
     return;
 }
 #endif
+

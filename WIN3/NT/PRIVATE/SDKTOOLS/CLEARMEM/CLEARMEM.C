@@ -827,4 +827,4 @@ RC ReadFlushFile (void)
 	 printf( "**DEFAULT: clearmem -p63 -t1\n");
      exit (1);
  }
-
+

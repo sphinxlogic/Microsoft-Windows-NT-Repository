@@ -1,61 +1,25 @@
-//-------------------------- MODULE DESCRIPTION ----------------------------
-//
-//  testmain.c
-//
-//  Copyright 1992 Technology Dynamics, Inc.
-//
-//  All Rights Reserved!!!
-//
-//	This source code is CONFIDENTIAL and PROPRIETARY to Technology
-//	Dynamics. Unauthorized distribution, adaptation or use may be
-//	subject to civil and criminal penalties.
-//
-//  All Rights Reserved!!!
-//
-//---------------------------------------------------------------------------
-//
-//  Driver routine to invoke an test the Extension Agent DLL.
-//
-//  Project:  Implementation of an SNMP Agent for Microsoft's NT Kernel
-//
-//  $Revision:   1.2  $
-//  $Date:   11 Jun 1992  9:40:22  $
-//  $Author:   todd  $
-//
-//  $Log:   N:/lmmib2/vcs/snmptst4.c_v  $
-//
-//     Rev 1.2   11 Jun 1992  9:40:22   todd
-//  Removed the explicit path from the DLL name on GetModuleHandle & LoadLibrary.
-//
-//     Rev 1.1   28 May 1992 12:58:30   unknown
-//  Corrected some problems with the GET-NEXT walk of the MIB
-//
-//     Rev 1.0   20 May 1992 15:10:54   mlk
-//  Initial revision.
-//
-//     Rev 1.1   02 May 1992 19:06:30   todd
-//  Code cleanup.
-//
-//     Rev 1.0   24 Apr 1992 18:20:44   todd
-//  Initial revision.
-//
-//     Rev 1.3   23 Apr 1992 17:43:26   mlk
-//  Cleanup and trap example.
-//
-//     Rev 1.2   22 Apr 1992 23:25:28   mlk
-//  Misc.
-//
-//     Rev 1.1   08 Apr 1992 18:29:18   mlk
-//  Mod to be sample dll.
-//
-//     Rev 1.0   06 Apr 1992 19:46:08   unknown
-//  Initial revision.
-//
-//---------------------------------------------------------------------------
+/*++
 
-//--------------------------- VERSION INFO ----------------------------------
+Copyright (c) 1992-1996  Microsoft Corporation
 
-static char *vcsid = "@(#) $Logfile:   N:/lmmib2/vcs/snmptst4.c_v  $ $Revision:   1.2  $";
+Module Name:
+
+    snmptst4.c
+
+Abstract:
+
+    Driver routine to invoke an test the Extension Agent DLL.
+
+Environment:
+
+    User Mode - Win32
+
+Revision History:
+
+    10-May-1996 DonRyan
+        Removed banner from Technology Dynamics, Inc.
+
+--*/
 
 //--------------------------- WINDOWS DEPENDENCIES --------------------------
 
@@ -65,12 +29,11 @@ static char *vcsid = "@(#) $Logfile:   N:/lmmib2/vcs/snmptst4.c_v  $ $Revision: 
 //--------------------------- STANDARD DEPENDENCIES -- #include<xxxxx.h> ----
 
 #include <stdio.h>
-#include <malloc.h>
 
 //--------------------------- MODULE DEPENDENCIES -- #include"xxxxx.h" ------
 
 #include <snmp.h>
-#include <util.h>
+#include <snmputil.h>
 #include <authapi.h>
 
 //--------------------------- SELF-DEPENDENCY -- ONE #include"module.h" -----
@@ -178,10 +141,10 @@ int _CRTAPI1 main(
 
 	 errorStatus = 0;
 	 errorIndex  = 0;
-         varBinds.list = (RFC1157VarBind *)malloc( sizeof(RFC1157VarBind) );
+         varBinds.list = (RFC1157VarBind *)SnmpUtilMemAlloc( sizeof(RFC1157VarBind) );
          varBinds.len = 1;
          varBinds.list[0].name.idLength = MIB_OidPrefix.idLength;
-         varBinds.list[0].name.ids = (UINT *)malloc( sizeof(UINT) *
+         varBinds.list[0].name.ids = (UINT *)SnmpUtilMemAlloc( sizeof(UINT) *
                                                varBinds.list[0].name.idLength );
          memcpy( varBinds.list[0].name.ids, MIB_OidPrefix.ids,
                  sizeof(UINT)*varBinds.list[0].name.idLength );
@@ -189,28 +152,28 @@ int _CRTAPI1 main(
 
          do
             {
-	    printf( "GET-NEXT of:  " ); SNMP_oiddisp( &varBinds.list[0].name );
+	    printf( "GET-NEXT of:  " ); SnmpUtilPrintOid( &varBinds.list[0].name );
                                         printf( "   " );
             (*queryAddr)( (AsnInteger)ASN_RFC1157_GETNEXTREQUEST,
                           &varBinds,
 		          &errorStatus,
 		          &errorIndex
                           );
-            printf( "\n  is  " ); SNMP_oiddisp( &varBinds.list[0].name );
+            printf( "\n  is  " ); SnmpUtilPrintOid( &varBinds.list[0].name );
 	    if ( errorStatus )
 	       {
                printf( "\nErrorstatus:  %lu\n\n", errorStatus );
 	       }
 	    else
 	       {
-               printf( "\n  =  " ); SNMP_printany( &varBinds.list[0].value );
+               printf( "\n  =  " ); SnmpUtilPrintAsnAny( &varBinds.list[0].value );
 	       }
             putchar( '\n' );
             }
          while ( varBinds.list[0].name.ids[7-1] != 78 );
 
          // Free the memory
-         SNMP_FreeVarBindList( &varBinds );
+         SnmpUtilVarBindListFree( &varBinds );
 
 
 #if 0

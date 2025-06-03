@@ -202,7 +202,8 @@ void DrawLegendLabel (PLEGEND pLegend,
    RECT           rectLB ;
    INT            LocalThreeDPad = ThreeDPad - 1 ;
 
-   SetBkColor (hDC, crLightGray) ;
+//   SetBkColor (hDC, crLightGray) ;
+   SetBkColor (hDC, ColorBtnFace) ;
 
    SelectFont (hDC, pLegend->hFontLabels) ;
 
@@ -304,7 +305,8 @@ void DrawColorCol (PLEGEND pLegend,
          if (pLine->Visual.iWidth == 1)
             {
             // simple case with thin pen
-            hBrush = SelectBrush (hDC, hbLightGray) ;
+//            hBrush = SelectBrush (hDC, hbLightGray) ;
+            hBrush = SelectBrush (hDC, hBrushFace) ;
             Rectangle (hDC, rect.left, rect.top, rect.right, rect.bottom) ;
    
             HLine (hDC, pLine->hPen, 
@@ -316,7 +318,8 @@ void DrawColorCol (PLEGEND pLegend,
             // thicker pen width, have to set ClipRect so
             // it will not draw otherside the rect.
             SaveDC (hDC) ;
-            hBrush = SelectBrush (hDC, hbLightGray) ;
+//            hBrush = SelectBrush (hDC, hbLightGray) ;
+            hBrush = SelectBrush (hDC, hBrushFace) ;
             Rectangle (hDC, rect.left, rect.top, rect.right, rect.bottom) ;
    
             IntersectClipRect (hDC, 
@@ -462,7 +465,7 @@ void DrawLegendItem (PLEGEND pLegend,
       {
       if (pLine->eScale < (FLOAT) 1.0)
          {
-         TSPRINTF (szValue, TEXT("%6.6f"), pLine->eScale) ;
+         TSPRINTF (szValue, TEXT("%7.7f"), pLine->eScale) ;
          }
       else
          {
@@ -651,6 +654,8 @@ BOOL OnLegendCreate (HWND hWnd, LPCREATESTRUCT lpCS)
                     NULL,                          // menu
                     hInstance,                     // program instance
                     (LPVOID) TRUE) ;               // user-supplied data
+
+    return TRUE;
    }  // OnLegendCreate
    
 
@@ -819,8 +824,8 @@ void OnDrawLegendItem (HWND hWnd,
    PLEGEND        pLegend ;
    PLINESTRUCT    pLine ;
    int            iLBIndex ;
-   COLORREF       preBkColor ;
-   COLORREF       preTextColor ;
+   COLORREF       preBkColor = 0;
+   COLORREF       preTextColor = 0;
    BOOL           ResetColor = FALSE ;
 
    
@@ -1150,7 +1155,8 @@ BOOL GraphLegendInitializeApplication (void)
    wc.cbWndExtra     = iGraphLegendWindowExtra ;
    wc.hIcon          = NULL ;
    wc.hCursor        = LoadCursor (NULL, IDC_ARROW) ;
-   wc.hbrBackground  = hbLightGray ;
+//   wc.hbrBackground  = hbLightGray ;
+   wc.hbrBackground  = hBrushFace ;
    wc.lpszMenuName   = NULL ;
    wc.lpszClassName  = szGraphLegendClass ;
 
@@ -1343,4 +1349,4 @@ void LegendSetRedraw (HWND hWndLegend, BOOL bRedraw)
 }
 
 
-
+

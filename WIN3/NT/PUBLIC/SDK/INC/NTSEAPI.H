@@ -188,7 +188,7 @@ typedef GENERIC_MAPPING *PGENERIC_MAPPING;
 //
 
 
-#include "pshpack4.h"
+#include <pshpack4.h>
 
 typedef struct _LUID_AND_ATTRIBUTES {
     LUID Luid;
@@ -197,7 +197,7 @@ typedef struct _LUID_AND_ATTRIBUTES {
 typedef LUID_AND_ATTRIBUTES LUID_AND_ATTRIBUTES_ARRAY[ANYSIZE_ARRAY];
 typedef LUID_AND_ATTRIBUTES_ARRAY *PLUID_AND_ATTRIBUTES_ARRAY;
 
-#include "poppack.h"
+#include <poppack.h>
 
 // end_winnt end_ntddk end_nthal end_ntifs
 
@@ -233,11 +233,16 @@ typedef LUID_AND_ATTRIBUTES_ARRAY *PLUID_AND_ATTRIBUTES_ARRAY;
 
 // begin_ntifs
 
+#ifndef SID_IDENTIFIER_AUTHORITY_DEFINED
+#define SID_IDENTIFIER_AUTHORITY_DEFINED
 typedef struct _SID_IDENTIFIER_AUTHORITY {
     UCHAR Value[6];
 } SID_IDENTIFIER_AUTHORITY, *PSID_IDENTIFIER_AUTHORITY;
+#endif
 
 
+#ifndef SID_DEFINED
+#define SID_DEFINED
 typedef struct _SID {
    UCHAR Revision;
    UCHAR SubAuthorityCount;
@@ -248,7 +253,7 @@ typedef struct _SID {
    ULONG SubAuthority[ANYSIZE_ARRAY];
 #endif // MIDL_PASS
 } SID, *PISID;
-
+#endif
 
 #define SID_REVISION                     (1)    // Current revision level
 #define SID_MAX_SUB_AUTHORITIES          (15)
@@ -266,8 +271,6 @@ typedef enum _SID_NAME_USE {
     SidTypeUnknown
 } SID_NAME_USE, *PSID_NAME_USE;
 
-// end_ntifs
-
 typedef struct _SID_AND_ATTRIBUTES {
     PSID Sid;
     ULONG Attributes;
@@ -282,30 +285,33 @@ typedef SID_AND_ATTRIBUTES_ARRAY *PSID_AND_ATTRIBUTES_ARRAY;
 //                                                                         //
 // Universal well-known SIDs                                               //
 //                                                                         //
-//     Null SID              S-1-0-0                                       //
-//     World                 S-1-1-0                                       //
-//     Local                 S-1-2-0                                       //
-//     Creator Owner ID      S-1-3-0                                       //
-//     Creator Group ID      S-1-3-1                                       //
+//     Null SID                     S-1-0-0                                //
+//     World                        S-1-1-0                                //
+//     Local                        S-1-2-0                                //
+//     Creator Owner ID             S-1-3-0                                //
+//     Creator Group ID             S-1-3-1                                //
+//     Creator Owner Server ID      S-1-3-2                                //
+//     Creator Group Server ID      S-1-3-3                                //
 //                                                                         //
-//     (Non-unique IDs)      S-1-4                                         //
+//     (Non-unique IDs)             S-1-4                                  //
 //                                                                         //
 /////////////////////////////////////////////////////////////////////////////
 
-#define SECURITY_NULL_SID_AUTHORITY     {0,0,0,0,0,0}
-#define SECURITY_WORLD_SID_AUTHORITY    {0,0,0,0,0,1}
-#define SECURITY_LOCAL_SID_AUTHORITY    {0,0,0,0,0,2}
-#define SECURITY_CREATOR_SID_AUTHORITY  {0,0,0,0,0,3}
-#define SECURITY_NON_UNIQUE_AUTHORITY   {0,0,0,0,0,4}
+#define SECURITY_NULL_SID_AUTHORITY       {0,0,0,0,0,0}
+#define SECURITY_WORLD_SID_AUTHORITY      {0,0,0,0,0,1}
+#define SECURITY_LOCAL_SID_AUTHORITY      {0,0,0,0,0,2}
+#define SECURITY_CREATOR_SID_AUTHORITY    {0,0,0,0,0,3}
+#define SECURITY_NON_UNIQUE_AUTHORITY     {0,0,0,0,0,4}
 
-#define SECURITY_NULL_RID               (0x00000000L)
-#define SECURITY_WORLD_RID              (0x00000000L)
-#define SECURITY_LOCAL_RID              (0X00000000L)
+#define SECURITY_NULL_RID                 (0x00000000L)
+#define SECURITY_WORLD_RID                (0x00000000L)
+#define SECURITY_LOCAL_RID                (0X00000000L)
 
-#define SECURITY_CREATOR_OWNER_RID      (0x00000000L)
-#define SECURITY_CREATOR_GROUP_RID      (0x00000001L)
+#define SECURITY_CREATOR_OWNER_RID        (0x00000000L)
+#define SECURITY_CREATOR_GROUP_RID        (0x00000001L)
 
-
+#define SECURITY_CREATOR_OWNER_SERVER_RID (0x00000002L)
+#define SECURITY_CREATOR_GROUP_SERVER_RID (0x00000003L)
 
 
 /////////////////////////////////////////////////////////////////////////////
@@ -320,6 +326,8 @@ typedef SID_AND_ATTRIBUTES_ARRAY *PSID_AND_ATTRIBUTES_ARRAY;
 //     Interactive           S-1-5-4                                       //
 //     Service               S-1-5-6                                       //
 //     AnonymousLogon        S-1-5-7       (aka null logon session)        //
+//     Proxy                 S-1-5-8                                       //
+//     ServerLogon           S-1-5-8       (aka domain controller account) //
 //                                                                         //
 //     (Logon IDs)           S-1-5-5-X-Y                                   //
 //                                                                         //
@@ -338,6 +346,8 @@ typedef SID_AND_ATTRIBUTES_ARRAY *PSID_AND_ATTRIBUTES_ARRAY;
 #define SECURITY_INTERACTIVE_RID        (0x00000004L)
 #define SECURITY_SERVICE_RID            (0x00000006L)
 #define SECURITY_ANONYMOUS_LOGON_RID    (0x00000007L)
+#define SECURITY_PROXY_RID              (0x00000008L)
+#define SECURITY_SERVER_LOGON_RID       (0x00000009L)
 
 #define SECURITY_LOGON_IDS_RID          (0x00000005L)
 #define SECURITY_LOGON_IDS_RID_COUNT    (3L)
@@ -393,7 +403,7 @@ typedef SID_AND_ATTRIBUTES_ARRAY *PSID_AND_ATTRIBUTES_ARRAY;
 
 
 
-// end_winnt
+// end_winnt end_ntifs
 
 
 /////////////////////////////////////////////////////////////////////////////
@@ -496,6 +506,7 @@ typedef SID_AND_ATTRIBUTES_ARRAY *PSID_AND_ATTRIBUTES_ARRAY;
 
 #define ACL_REVISION1   (1)
 #define ACL_REVISION2   (2)
+#define ACL_REVISION3   (3)
 
 typedef struct _ACL {
     UCHAR AclRevision;
@@ -542,6 +553,11 @@ typedef ACE_HEADER *PACE_HEADER;
 #define ACCESS_DENIED_ACE_TYPE           (0x1)
 #define SYSTEM_AUDIT_ACE_TYPE            (0x2)
 #define SYSTEM_ALARM_ACE_TYPE            (0x3)
+// end_winnt
+
+#define ACCESS_ALLOWED_COMPOUND_ACE_TYPE (0x4)
+
+// begin_winnt
 
 //
 //  The following are the inherit flags that go into the AceFlags field
@@ -639,6 +655,49 @@ typedef SYSTEM_ALARM_ACE *PSYSTEM_ALARM_ACE;
 
 // end_ntifs
 
+// end_winnt
+//
+//                                  COMPOUND ACE
+//
+//       3 3 2 2 2 2 2 2 2 2 2 2 1 1 1 1 1 1 1 1 1 1
+//       1 0 9 8 7 6 5 4 3 2 1 0 9 8 7 6 5 4 3 2 1 0 9 8 7 6 5 4 3 2 1 0
+//      +---------------+-------+-------+---------------+---------------+
+//      |    AceFlags   | Resd  |Inherit|    AceSize    |     AceType   |
+//      +---------------+-------+-------+---------------+---------------+
+//      |                              Mask                             |
+//      +-------------------------------+-------------------------------+
+//      |     Compound ACE Type         |        Reserved (SBZ)         |
+//      +-------------------------------+-------------------------------+
+//      |                                                               |
+//      +                                                               +
+//      |                                                               |
+//      +                              Sid                              +
+//      |                                                               |
+//      +                                                               +
+//      |                                                               |
+//      +---------------------------------------------------------------+
+//
+
+
+
+typedef struct _COMPOUND_ACCESS_ALLOWED_ACE {
+    ACE_HEADER Header;
+    ACCESS_MASK Mask;
+    USHORT CompoundAceType;
+    USHORT Reserved;
+    ULONG SidStart;
+} COMPOUND_ACCESS_ALLOWED_ACE;
+
+typedef COMPOUND_ACCESS_ALLOWED_ACE *PCOMPOUND_ACCESS_ALLOWED_ACE;
+
+//
+// Currently defined Compound ACE types
+//
+
+#define COMPOUND_ACE_IMPERSONATION  1
+
+// begin_winnt
+
 
 //
 //  The following declarations are used for setting and querying information
@@ -715,6 +774,10 @@ typedef USHORT SECURITY_DESCRIPTOR_CONTROL, *PSECURITY_DESCRIPTOR_CONTROL;
 #define SE_DACL_DEFAULTED                (0x0008)
 #define SE_SACL_PRESENT                  (0x0010)
 #define SE_SACL_DEFAULTED                (0x0020)
+// end_winnt
+#define SE_DACL_UNTRUSTED                (0x0040)
+#define SE_SERVER_SECURITY               (0x0080)
+// begin_winnt
 #define SE_SELF_RELATIVE                 (0x8000)
 
 //
@@ -758,6 +821,21 @@ typedef USHORT SECURITY_DESCRIPTOR_CONTROL, *PSECURITY_DESCRIPTOR_CONTROL;
 //          treatment of the ACL with respect to inheritence of an ACL.
 //          This flag is ignored if the SaclPresent flag is not set.
 //
+// end_winnt
+//      SE_DACL_TRUSTED - This boolean flag, when set, indicates that the
+//          ACL pointed to by the Dacl field was provided by a trusted source
+//          and does not require any editing of compound ACEs.  If this flag
+//          is not set and a compound ACE is encountered, the system will
+//          substitute known valid SIDs for the server SIDs in the ACEs.
+//
+//      SE_SERVER_SECURITY - This boolean flag, when set, indicates that the
+//         caller wishes the system to create a Server ACL based on the
+//         input ACL, regardess of its source (explicit or defaulting.
+//         This is done by replacing all of the GRANT ACEs with compound
+//         ACEs granting the current server.  This flag is only
+//         meaningful if the subject is impersonating.
+//
+// begin_winnt
 //      SE_SELF_RELATIVE - This boolean flag, when set, indicates that the
 //          security descriptor is in self-relative form.  In this form,
 //          all fields of the security descriptor are contiguous in memory
@@ -1006,45 +1084,10 @@ typedef enum _SECURITY_IMPERSONATION_LEVEL {
 
 #define DEFAULT_IMPERSONATION_LEVEL SecurityImpersonation
 
-// end_nthal
+// end_nthal end_ntddk end_ntifs end_winnt
 //
-// Security Tracking Mode
-//
-
-#define SECURITY_DYNAMIC_TRACKING      (TRUE)
-#define SECURITY_STATIC_TRACKING       (FALSE)
-
-typedef BOOLEAN SECURITY_CONTEXT_TRACKING_MODE,
-                    * PSECURITY_CONTEXT_TRACKING_MODE;
-
-
-
-//
-// Quality Of Service
-//
-
-typedef struct _SECURITY_QUALITY_OF_SERVICE {
-    ULONG Length;
-    SECURITY_IMPERSONATION_LEVEL ImpersonationLevel;
-    SECURITY_CONTEXT_TRACKING_MODE ContextTrackingMode;
-    BOOLEAN EffectiveOnly;
-    } SECURITY_QUALITY_OF_SERVICE, * PSECURITY_QUALITY_OF_SERVICE;
-
-
-//
-// Used to represent information related to a thread impersonation
-//
-
-typedef struct _SE_IMPERSONATION_STATE {
-    PACCESS_TOKEN Token;
-    BOOLEAN CopyOnOpen;
-    BOOLEAN EffectiveOnly;
-    SECURITY_IMPERSONATION_LEVEL Level;
-} SE_IMPERSONATION_STATE, *PSE_IMPERSONATION_STATE;
-
-// end_winnt end_ntddk end_ntifs
 
-// begin_winnt
+// begin_winnt begin_ntifs
 
 ////////////////////////////////////////////////////////////////////
 //                                                                //
@@ -1090,7 +1133,7 @@ typedef struct _SE_IMPERSONATION_STATE {
 #define TOKEN_EXECUTE    (STANDARD_RIGHTS_EXECUTE)
 
 
-// begin_ntifs
+//
 //
 // Token Types
 //
@@ -1101,7 +1144,6 @@ typedef enum _TOKEN_TYPE {
     } TOKEN_TYPE;
 typedef TOKEN_TYPE *PTOKEN_TYPE;
 
-// end_ntifs
 
 //
 // Token Information Classes.
@@ -1120,6 +1162,7 @@ typedef enum _TOKEN_INFORMATION_CLASS {
     TokenImpersonationLevel,
     TokenStatistics
 } TOKEN_INFORMATION_CLASS, *PTOKEN_INFORMATION_CLASS;
+// end_ntifs
 
 //
 // Token information class structures
@@ -1130,6 +1173,7 @@ typedef struct _TOKEN_USER {
     SID_AND_ATTRIBUTES User;
 } TOKEN_USER, *PTOKEN_USER;
 
+// begin_ntifs
 
 typedef struct _TOKEN_GROUPS {
     ULONG GroupCount;
@@ -1142,6 +1186,7 @@ typedef struct _TOKEN_PRIVILEGES {
     LUID_AND_ATTRIBUTES Privileges[ANYSIZE_ARRAY];
 } TOKEN_PRIVILEGES, *PTOKEN_PRIVILEGES;
 
+// end_ntifs
 
 typedef struct _TOKEN_OWNER {
     PSID Owner;
@@ -1158,7 +1203,37 @@ typedef struct _TOKEN_DEFAULT_DACL {
 } TOKEN_DEFAULT_DACL, *PTOKEN_DEFAULT_DACL;
 
 
-// begin_ntifs
+// end_winnt
+
+// begin_ntddk begin_ntifs
+
+
+typedef enum _PROXY_CLASS {
+        ProxyFull,
+        ProxyService,
+        ProxyTree,
+        ProxyDirectory
+} PROXY_CLASS, * PPROXY_CLASS;
+
+
+typedef struct _SECURITY_TOKEN_PROXY_DATA {
+    ULONG Length;
+    PROXY_CLASS ProxyClass;
+    UNICODE_STRING PathInfo;
+    ACCESS_MASK ContainerMask;
+    ACCESS_MASK ObjectMask;
+} SECURITY_TOKEN_PROXY_DATA, *PSECURITY_TOKEN_PROXY_DATA;
+
+typedef struct _SECURITY_TOKEN_AUDIT_DATA {
+    ULONG Length;
+    ACCESS_MASK GrantMask;
+    ACCESS_MASK DenyMask;
+} SECURITY_TOKEN_AUDIT_DATA, *PSECURITY_TOKEN_AUDIT_DATA;
+
+// end_ntddk end_ntifs
+
+
+// begin_ntifs begin_winnt
 
 #define TOKEN_SOURCE_LENGTH 8
 
@@ -1194,6 +1269,62 @@ typedef struct _TOKEN_CONTROL {
 
 // end_winnt
 // end_ntifs
+
+
+// begin_ntddk begin_ntifs begin_winnt
+//
+// Security Tracking Mode
+//
+
+#define SECURITY_DYNAMIC_TRACKING      (TRUE)
+#define SECURITY_STATIC_TRACKING       (FALSE)
+
+typedef BOOLEAN SECURITY_CONTEXT_TRACKING_MODE,
+                    * PSECURITY_CONTEXT_TRACKING_MODE;
+
+
+
+//
+// Quality Of Service
+//
+
+typedef struct _SECURITY_QUALITY_OF_SERVICE {
+    ULONG Length;
+    SECURITY_IMPERSONATION_LEVEL ImpersonationLevel;
+    SECURITY_CONTEXT_TRACKING_MODE ContextTrackingMode;
+    BOOLEAN EffectiveOnly;
+    } SECURITY_QUALITY_OF_SERVICE, * PSECURITY_QUALITY_OF_SERVICE;
+
+// end_winnt end_ntddk end_ntifs
+
+//
+// Advanced Quality of Service
+//
+
+typedef struct _SECURITY_ADVANCED_QUALITY_OF_SERVICE {
+    ULONG Length;
+    SECURITY_IMPERSONATION_LEVEL ImpersonationLevel;
+    SECURITY_CONTEXT_TRACKING_MODE ContextTrackingMode;
+    BOOLEAN EffectiveOnly;
+    PSECURITY_TOKEN_PROXY_DATA ProxyData;
+    PSECURITY_TOKEN_AUDIT_DATA AuditData;
+} SECURITY_ADVANCED_QUALITY_OF_SERVICE, *PSECURITY_ADVANCED_QUALITY_OF_SERVICE;
+
+
+// begin_ntddk begin_ntifs begin_winnt
+
+//
+// Used to represent information related to a thread impersonation
+//
+
+typedef struct _SE_IMPERSONATION_STATE {
+    PACCESS_TOKEN Token;
+    BOOLEAN CopyOnOpen;
+    BOOLEAN EffectiveOnly;
+    SECURITY_IMPERSONATION_LEVEL Level;
+} SE_IMPERSONATION_STATE, *PSE_IMPERSONATION_STATE;
+
+// end_winnt end_ntddk end_ntifs
 
 
 ////////////////////////////////////////////////////////////////////////
@@ -1287,21 +1418,25 @@ NtCreateToken(
 NTSYSAPI
 NTSTATUS
 NTAPI
-NtOpenProcessToken(
-    IN HANDLE ProcessHandle,
-    IN ACCESS_MASK DesiredAccess,
-    OUT PHANDLE TokenHandle
-    );
-
-NTSYSAPI
-NTSTATUS
-NTAPI
 NtOpenThreadToken(
     IN HANDLE ThreadHandle,
     IN ACCESS_MASK DesiredAccess,
     IN BOOLEAN OpenAsSelf,
     OUT PHANDLE TokenHandle
     );
+
+// begin_ntifs
+
+NTSYSAPI
+NTSTATUS
+NTAPI
+NtOpenProcessToken(
+    IN HANDLE ProcessHandle,
+    IN ACCESS_MASK DesiredAccess,
+    OUT PHANDLE TokenHandle
+    );
+
+
 
 NTSYSAPI
 NTSTATUS
@@ -1326,6 +1461,8 @@ NtQueryInformationToken (
     OUT PULONG ReturnLength
     );
 
+// end_ntifs
+
 NTSYSAPI
 NTSTATUS
 NTAPI
@@ -1335,6 +1472,8 @@ NtSetInformationToken (
     IN PVOID TokenInformation,
     IN ULONG TokenInformationLength
     );
+
+// begin_ntifs
 
 NTSYSAPI
 NTSTATUS
@@ -1347,6 +1486,8 @@ NtAdjustPrivilegesToken (
     IN PTOKEN_PRIVILEGES PreviousState OPTIONAL,
     OUT PULONG ReturnLength
     );
+
+// end_ntifs
 
 NTSYSAPI
 NTSTATUS
@@ -1422,6 +1563,15 @@ NTSYSAPI
 NTSTATUS
 NTAPI
 NtCloseObjectAuditAlarm (
+    IN PUNICODE_STRING SubsystemName,
+    IN PVOID HandleId,
+    IN BOOLEAN GenerateOnClose
+    );
+
+NTSYSAPI
+NTSTATUS
+NTAPI
+NtDeleteObjectAuditAlarm (
     IN PUNICODE_STRING SubsystemName,
     IN PVOID HandleId,
     IN BOOLEAN GenerateOnClose

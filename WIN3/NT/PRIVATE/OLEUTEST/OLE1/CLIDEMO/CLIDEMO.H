@@ -60,4 +60,3 @@ static LONG          QueryEndSession(PSTR, LHCLIENTDOC, LPAPPSTREAM);
          break; \
 }
    
-

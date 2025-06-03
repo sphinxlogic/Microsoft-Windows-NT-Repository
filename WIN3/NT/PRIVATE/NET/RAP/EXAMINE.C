@@ -369,10 +369,10 @@ Return Value:
         default:
 
             // !!!!
-            NetpDbgPrint( PREFIX_NETRAP
+            NetpKdPrint(( PREFIX_NETRAP
                         "RapExamineDescriptor: unsupported character: "
                         FORMAT_DESC_CHAR " at " FORMAT_LPVOID ".\n",
-                        *(s - 1), s - 1 );
+                        *(s - 1), s - 1 ));
             NetpAssert(FALSE);
         }
     }

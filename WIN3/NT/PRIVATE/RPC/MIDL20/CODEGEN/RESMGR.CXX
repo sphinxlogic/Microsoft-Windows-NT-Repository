@@ -65,7 +65,7 @@ CG_PROC::C_PreAllocateResources(
 	node_id	*	pRpcMessageType	= new node_id( RPC_MESSAGE_VAR_NAME );
 	node_id	*	pStubMessageType= new node_id( STUB_MESSAGE_VAR_NAME );
 	node_id	*	pStatus			= new node_id( RPC_STATUS_VAR_NAME );
-	ITERATOR	ParamList;
+	CG_ITERATOR	ParamList;
 
 	// Set up local copies of the stub message and the rpc message.
 
@@ -130,8 +130,7 @@ CG_PROC::C_PreAllocateResources(
     //
     if ( ((CG_NDR *)pReturn->GetChild())->IsStruct() ||
          ((CG_NDR *)pReturn->GetChild())->IsUnion()  ||
-         ((CG_NDR *)pReturn->GetChild())->GetCGID() == ID_CG_TRANSMIT_AS ||
-         ((CG_NDR *)pReturn->GetChild())->GetCGID() == ID_CG_REPRESENT_AS )
+         ((CG_NDR *)pReturn->GetChild())->IsXmitRepOrUserMarshal() )
         {
         node_id *   pLocalType;
 		char *		pName;
@@ -171,7 +170,8 @@ CG_PROC::S_PreAllocateResources(
 {
 	node_id	*	pStubMessageType= new node_id( STUB_MESSAGE_VAR_NAME );
 	node_param	*	pRpcMessageType	= new node_param();
-	ITERATOR	ParamList;
+    node_param  *   pDWordType      = new node_param();
+	CG_ITERATOR	ParamList;
 
 	// The local copy of the rpc message pointer.
 
@@ -184,6 +184,18 @@ CG_PROC::S_PreAllocateResources(
 						    (node_skl *) pRpcMessageType
 						  );
 
+    // For object procs , one more param after the rpc message.
+
+    if( IsObject() )
+        {
+        // DWORD * pDwPhase parameter
+
+        pDWordType->SetSymName( "_pdwStubPhase" );
+        pDWordType->SetBasicType( (node_skl *)new node_def( "DWORD *" ) );
+        pDWordType->SetEdgeType( EDGE_USE );
+        pAna->AddParamResource( "_pdwStubPhase", pDWordType );
+        }
+
 	// Add the stub message local variable.
 
 	pStubMessageType->SetBasicType( (node_skl *)
@@ -194,13 +206,24 @@ CG_PROC::S_PreAllocateResources(
 							(node_skl *) pStubMessageType
 						  );
 
-	//
-	// Check for by-value [in] structures and unions.  We must allocate 
-	// a local which is a pointer to the same type for these.
-	//
-	// Also check for arrays so I can put a hack in until we get their
-	// allocation figured out.
-	//
+    if ( HasNotifyFlag() )
+        {
+        node_id * pNotifyFlag = new node_id( NOTIFY_FLAG_VAR_NAME );
+
+        pNotifyFlag->SetBasicType( (node_skl *) new node_def( "boolean" ));
+        pNotifyFlag->SetEdgeType( EDGE_USE );
+
+        pAna->AddLocalResource( NOTIFY_FLAG_VAR_NAME,
+                                (node_skl *) pNotifyFlag );
+        }
+
+    //
+    // Check for by-value [in] structures and unions.  We must allocate 
+    // a local which is a pointer to the same type for these.
+    //
+    // Also check for arrays so I can put a hack in until we get their
+    // allocation figured out.
+    //
 
 	if( GetMembers( ParamList ) )
 		{
@@ -225,16 +248,16 @@ CG_PROC::S_PreAllocateResources(
             // local which is a pointer to the same type.
             //
 			if ( pChild->IsStruct() || pChild->IsUnion()  ||
-                 ChildID == ID_CG_TRANSMIT_AS  ||
-                 ChildID == ID_CG_REPRESENT_AS  )
+                 pChild->IsXmitRepOrUserMarshal()  )
 				{
 				char *		pName;
 				node_id *	pLocalType;
+				char *		pPlainName = pType->GetSymName();
 
-				pName = new char[128];
+				pName = new char[strlen( pPlainName ) + 10];
 
 				strcpy( pName, LOCAL_NAME_POINTER_MANGLE );
-				strcat( pName, (PNAME) pType->GetSymName() );
+				strcat( pName, (PNAME) pPlainName );
 
                 pLocalType = MakePtrIDNodeFromTypeName( pName,
                                                         "void",

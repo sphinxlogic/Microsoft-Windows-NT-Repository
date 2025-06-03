@@ -24,7 +24,7 @@ Revision History:
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE,LpcpFreePortClientSecurity)
-#pragma alloc_text(PAGELK,NtImpersonateClientOfPort)
+#pragma alloc_text(PAGE,NtImpersonateClientOfPort)
 #endif
 
 
@@ -35,15 +35,15 @@ NtImpersonateClientOfPort(
     )
 {
     PLPCP_PORT_OBJECT PortObject;
+    PLPCP_PORT_OBJECT ConnectedPort;
     KPROCESSOR_MODE PreviousMode;
     NTSTATUS Status;
-    KIRQL OldIrql;
     PETHREAD ClientThread;
     CLIENT_ID CapturedClientId;
     ULONG CapturedMessageId;
     SECURITY_CLIENT_CONTEXT DynamicSecurity;
-    PVOID UnlockHandle;
 
+    PAGED_CODE();
     //
     // Get previous processor mode and probe output arguments if necessary.
     //
@@ -84,12 +84,6 @@ NtImpersonateClientOfPort(
         return( STATUS_INVALID_PORT_HANDLE );
         }
 
-    if (PortObject->ConnectedPort == NULL) {
-        ObDereferenceObject( PortObject );
-        return( STATUS_PORT_DISCONNECTED );
-        }
-
-
     //
     // Translate the ClientId from the connection request into a
     // thread pointer.  This is a referenced pointer to keep the thread
@@ -106,15 +100,21 @@ NtImpersonateClientOfPort(
         }
 
     //
-    // Acquire the spin lock that gaurds the LpcReplyMessage field of
+    // Acquire the mutex that gaurds the LpcReplyMessage field of
     // the thread and get the pointer to the message that the thread
     // is waiting for a reply to.
     //
 
-    UnlockHandle = MmLockPagableImageSection((PVOID)NtImpersonateClientOfPort);
-    ASSERT(UnlockHandle);
+    ExAcquireFastMutex( &LpcpLock );
 
-    ExAcquireSpinLock( &LpcpLock, &OldIrql );
+    if (PortObject->ConnectedPort == NULL) {
+        ExReleaseFastMutex( &LpcpLock );
+        ObDereferenceObject( PortObject );
+        ObDereferenceObject( ClientThread );
+        return( STATUS_PORT_DISCONNECTED );
+        }
+    ConnectedPort = PortObject->ConnectedPort;
+    ObReferenceObject( ConnectedPort );
 
     //
     // See if the thread is waiting for a reply to the message
@@ -123,14 +123,13 @@ NtImpersonateClientOfPort(
     //
 
     if (ClientThread->LpcReplyMessageId != CapturedMessageId) {
-        ExReleaseSpinLock( &LpcpLock, OldIrql );
-        MmUnlockPagableImageSection(UnlockHandle);
+        ExReleaseFastMutex( &LpcpLock );
         ObDereferenceObject( PortObject );
         ObDereferenceObject( ClientThread );
+        ObDereferenceObject( ConnectedPort );
         return (STATUS_REPLY_MESSAGE_MISMATCH);
         }
-    ExReleaseSpinLock( &LpcpLock, OldIrql );
-    MmUnlockPagableImageSection(UnlockHandle);
+    ExReleaseFastMutex( &LpcpLock );
 
     //
     // If the client requested dynamic security tracking, then the client
@@ -138,7 +137,7 @@ NtImpersonateClientOfPort(
     // it is already in the client's port.
     //
 
-    if (PortObject->ConnectedPort->Flags & PORT_DYNAMIC_SECURITY) {
+    if (ConnectedPort->Flags & PORT_DYNAMIC_SECURITY) {
 
         //
         // Impersonate the client with information from the queued message
@@ -151,6 +150,7 @@ NtImpersonateClientOfPort(
         if (!NT_SUCCESS( Status )) {
             ObDereferenceObject( PortObject );
             ObDereferenceObject( ClientThread );
+            ObDereferenceObject( ConnectedPort );
             return( Status );
             }
 
@@ -164,12 +164,13 @@ NtImpersonateClientOfPort(
         // Impersonate the client with information from the client's port
         //
 
-        SeImpersonateClient( &PortObject->ConnectedPort->StaticSecurity, NULL );
+        SeImpersonateClient( &ConnectedPort->StaticSecurity, NULL );
 
         }
 
     ObDereferenceObject( PortObject );
     ObDereferenceObject( ClientThread );
+    ObDereferenceObject( ConnectedPort );
     return STATUS_SUCCESS;
 }
 
@@ -180,8 +181,10 @@ LpcpFreePortClientSecurity(
     )
 {
     if ((Port->Flags & PORT_TYPE) == CLIENT_COMMUNICATION_PORT) {
-        if (!Port->Flags & PORT_DYNAMIC_SECURITY) {
-            SeDeleteClientSecurity( &(Port)->StaticSecurity );
+        if (!(Port->Flags & PORT_DYNAMIC_SECURITY)) {
+            if ( Port->StaticSecurity.ClientToken ) {
+                SeDeleteClientSecurity( &(Port)->StaticSecurity );
+                }
             }
         }
 }

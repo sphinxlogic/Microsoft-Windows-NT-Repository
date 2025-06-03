@@ -398,4 +398,3 @@ Receive_Msg (ADAPTER_PTR HA, unsigned char Msg)
 
   return MI_MORE;
 }
-

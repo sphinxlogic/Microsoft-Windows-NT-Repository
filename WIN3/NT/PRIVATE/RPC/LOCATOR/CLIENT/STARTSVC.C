@@ -18,17 +18,18 @@ Author:
 Revision History:
 
 --*/
-#include <windows.h>
-#include <winsvc.h>
 
+#include <windows.h>
 #include <rpc.h>
+#include <winsvc.h>
 #include <startsvc.h>
 
 #define SUCCESS         0
-#define RPCLOCATOR	"RPCLOCATOR"
+#define RPCLOCATOR      "RPCLOCATOR"
 
 
-RPC_STATUS
+
+RPC_STATUS 
 StartServiceIfNecessary(
     void
     )
@@ -41,8 +42,7 @@ Routine Description:
 
 Returns:
 
-    RPC_S_OK - The locator service was already running or got started
-               correctly
+    RPC_S_OK - The locator service is running.
 
     Service controller errors.
 
@@ -90,6 +90,7 @@ Returns:
     //
     // Call StartService
     //
+    /*
     if (!StartService(hService,ArgC,ArgV))
        {
           status = GetLastError();
@@ -97,6 +98,7 @@ Returns:
              status = RPC_S_OK;
           goto CleanExit;
        }
+    */
 
     do
       {
@@ -115,6 +117,7 @@ Returns:
                 goto CleanExit;
                 break;
 
+          case SERVICE_STOP_PENDING:
           case SERVICE_START_PENDING:
                 if (!FirstTime && (Counter == ServiceStatus.dwCheckPoint))
                    {
@@ -124,9 +127,20 @@ Returns:
                 else
                    {
                     FirstTime = FALSE;
-                    Counter == ServiceStatus.dwCheckPoint;
+                    Counter = ServiceStatus.dwCheckPoint;
                     Sleep(ServiceStatus.dwWaitHint);
                    }
+                 break;
+ 
+          case SERVICE_STOPPED:
+                if (!StartService(hService,ArgC,ArgV))
+                   {
+                   status = GetLastError();
+                   if (status == ERROR_SERVICE_ALREADY_RUNNING)
+                               status = RPC_S_OK;
+                   goto CleanExit;
+                   }
+                 Sleep(500);
                  break;
 
           default:
@@ -147,4 +161,3 @@ CleanExit:
     }
     return(status);
 }
-

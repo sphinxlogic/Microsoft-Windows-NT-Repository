@@ -8,9 +8,9 @@ Module Name :
 
 Abstract :
 
-    This file contains the routines called by MIDL 2.0 stubs and the 
-	intepreter for computing the memory size needed to hold a parameter being 
-	unmarshalled.  
+    This file contains the routines called by MIDL 2.0 stubs and the
+	intepreter for computing the memory size needed to hold a parameter being
+	unmarshalled.
 
 Author :
 
@@ -22,7 +22,8 @@ Revision History :
 
 #include "ndrp.h"
 
-PMEM_SIZE_ROUTINE	pfnMemSizeRoutines[] =
+const
+PMEM_SIZE_ROUTINE	MemSizeRoutinesTable[] =
 					{
 					NdrPointerMemorySize,
 					NdrPointerMemorySize,
@@ -64,24 +65,44 @@ PMEM_SIZE_ROUTINE	pfnMemSizeRoutines[] =
 					NdrXmitOrRepAsMemorySize,    // transmit as
 					NdrXmitOrRepAsMemorySize,    // represent as
 
-					NdrInterfacePointerMemorySize
+					NdrInterfacePointerMemorySize,
+
+                    0,
+
+                    // New Post NT 3.5 token serviced from here on.
+
+                    NdrHardStructMemorySize,
+
+                    NdrXmitOrRepAsMemorySize,  // transmit as ptr
+                    NdrXmitOrRepAsMemorySize,  // represent as ptr
+
+                    NdrUserMarshalMemorySize
+
 					};
 
+const
+PMEM_SIZE_ROUTINE * pfnMemSizeRoutines = &MemSizeRoutinesTable[-FC_RP];
+
 #if defined( DOS ) || defined( WIN )
-#pragma code_seg( "NDR_1" )
+#pragma code_seg( "NDR20_10" )
 #endif
 
+
 unsigned long RPC_ENTRY
-NdrPointerMemorySize ( 
+NdrPointerMemorySize(
 	PMIDL_STUB_MESSAGE	pStubMsg,
 	PFORMAT_STRING		pFormat )
 /*++
 
 Routine Description :
 
-	Computes the memory size required for a pointer to anything.
+	Computes the memory size required for a top level pointer to anything.
+    Pointers embedded in structures, arrays, or unions call
+    NdrpPointerMemorySize directly.
 
-Arguments : 
+    Used for FC_RP, FC_UP, FC_FP, FC_OP.
+
+Arguments :
 
 	pStubMsg	- Pointer to stub message.
 	pFormat		- Pointer's format string description.
@@ -95,7 +116,7 @@ Return :
     uchar *	pBufferMark;
 
     //
-    // If this is not a ref pointer then mark where the pointer's id is in 
+    // If this is not a ref pointer then mark where the pointer's id is in
 	// the buffer and increment the stub message buffer pointer.
     //
     if ( *pFormat != FC_RP )
@@ -106,6 +127,8 @@ Return :
 
         pStubMsg->Buffer += 4;
         }
+    else
+        pBufferMark = 0;
 
 	// Else we can leave pBufferMark unitialized.
 
@@ -114,8 +137,9 @@ Return :
                            		  pFormat );
 }
 
-unsigned long 
-NdrpPointerMemorySize ( 
+
+unsigned long
+NdrpPointerMemorySize(
 	PMIDL_STUB_MESSAGE	pStubMsg,
 	uchar *				pBufferMark,
 	PFORMAT_STRING		pFormat )
@@ -123,10 +147,13 @@ NdrpPointerMemorySize (
 
 Routine Description :
 
-	Private routine for computing the memory size required for a pointer to 
-	anything.  This is the entry pointer for sizing an embedded pointer.
+	Private routine for computing the memory size required for a pointer to
+	anything.  This is the entry point for pointers embedded in structures
+    arrays, or unions.
 
-Arguments : 
+    Used for FC_RP, FC_UP, FC_FP, FC_OP.
+
+Arguments :
 
 	pStubMsg	- Pointer to stub message.
 	pBufferMark	- Location in the buffer where a unique or full pointer's id is.
@@ -164,10 +191,12 @@ Return :
 
 		default :
 			NDR_ASSERT(0,"NdrpPointerMemorySize : bad format char");
+            RpcRaiseException( RPC_S_INTERNAL_ERROR );
+            return 0;
 		}
 
 	//
-	// We align all memory pointers on at least a void * boundary.  
+	// We align all memory pointers on at least a void * boundary.
 	//
 	LENGTH_ALIGN( pStubMsg->MemorySize, PTR_MEM_SIZE - 1 );
 
@@ -182,7 +211,7 @@ Return :
 
 		pFormat += *((signed short *)pFormat);
 		}
-	else 
+	else
 		{
 		switch ( pFormat[2] )
 			{
@@ -227,8 +256,9 @@ Return :
 			  pFormat );
 }
 
+
 unsigned long RPC_ENTRY
-NdrSimpleStructMemorySize ( 
+NdrSimpleStructMemorySize(
 	PMIDL_STUB_MESSAGE	pStubMsg,
 	PFORMAT_STRING		pFormat )
 /*++
@@ -237,7 +267,9 @@ Routine Description :
 
 	Computes the memory size required for a simple structure.
 
-Arguments : 
+    Used for FC_STRUCT and FC_PSTRUCT.
+
+Arguments :
 
 	pStubMsg	- Pointer to stub message.
 	pFormat		- Structure's format string description.
@@ -250,7 +282,7 @@ Return :
 {
 	ulong	Size;
 
-	Size = *((ushort *)(pFormat + 2));  
+	Size = *((ushort *)(pFormat + 2));
 
 	ALIGN(pStubMsg->Buffer,pFormat[1]);
 
@@ -260,7 +292,7 @@ Return :
 
  	pStubMsg->MemorySize += Size;
 
-	if ( *pFormat == FC_PSTRUCT ) 
+	if ( *pFormat == FC_PSTRUCT )
 		{
 		// Mark where the structure starts in the buffer.
 		pStubMsg->BufferMark = pStubMsg->Buffer - Size;
@@ -272,17 +304,20 @@ Return :
 	return pStubMsg->MemorySize;
 }
 
+
 unsigned long RPC_ENTRY
-NdrConformantStructMemorySize ( 
+NdrConformantStructMemorySize(
 	PMIDL_STUB_MESSAGE	pStubMsg,
 	PFORMAT_STRING		pFormat )
 /*++
 
 Routine Description :
 
-	Determines the memory size required for a conformant structure.
+	Computes the memory size required for a conformant structure.
 
-Arguments : 
+    Used for FC_CSTRUCT and FC_CPSTRUCT.
+
+Arguments :
 
 	pStubMsg	- Pointer to stub message.
 	pFormat		- Pointer's format string description.
@@ -305,7 +340,7 @@ Return :
 	pStubMsg->MaxCount = *((long *)pStubMsg->Buffer)++;
 
 	// Realign on 8 byte boundary only.
-	if ( pFormat[1] == 7 ) 
+	if ( pFormat[1] == 7 )
 		ALIGN(pStubMsg->Buffer,0x7);
 
 	LENGTH_ALIGN( pStubMsg->MemorySize, pFormat[1] );
@@ -316,6 +351,9 @@ Return :
 	// Get the array's description.
 	pFormatArray = pFormat + *((signed short *)pFormat);
 
+    if ( pStubMsg->fCheckBounds && ! pStubMsg->IsClient )
+        CHECK_BOUND( pStubMsg->MaxCount, pFormatArray[4] & 0x0f );
+
 	// Add array size.
 	Size += pStubMsg->MaxCount * *((ushort *)(pFormatArray + 2));
 
@@ -325,7 +363,7 @@ Return :
 
 	pFormat += 2;
 
-	if ( *pFormat == FC_PP )  
+	if ( *pFormat == FC_PP )
 		{
 		// Mark the beginning of the struct in the buffer.
 		pStubMsg->BufferMark = pStubMsg->Buffer - Size;
@@ -337,17 +375,20 @@ Return :
 	return pStubMsg->MemorySize;
 }
 
+
 unsigned long RPC_ENTRY
-NdrConformantVaryingStructMemorySize ( 
+NdrConformantVaryingStructMemorySize(
 	PMIDL_STUB_MESSAGE	pStubMsg,
 	PFORMAT_STRING		pFormat )
 /*++
 
 Routine Description :
 
-	Determines the memory size required for a conformant varying structure.
+	Computes the memory size required for a conformant varying structure.
 
-Arguments : 
+    Used for FC_CVSTRUCT.
+
+Arguments :
 
 	pStubMsg	- Pointer to stub message.
 	pFormat		- Pointer's format string description.
@@ -371,7 +412,7 @@ Return :
 	pStubMsg->MaxCount = *((long *)pStubMsg->Buffer)++;
 
 	// Realign on 8 byte boundary only.
-	if ( pFormat[1] == 7 ) 
+	if ( pFormat[1] == 7 )
 		ALIGN(pStubMsg->Buffer,7);
 
 	LENGTH_ALIGN( pStubMsg->MemorySize, pFormat[1] );
@@ -388,7 +429,7 @@ Return :
 	// Get array's format string description.
 	pFormatArray = pFormat + *((signed short *)pFormat);
 
-	if ( *pFormatArray == FC_CVARRAY ) 
+	if ( *pFormatArray == FC_CVARRAY )
 		{
 		NdrpConformantVaryingArrayMemorySize( pStubMsg,
 				  							  pFormatArray );
@@ -401,7 +442,7 @@ Return :
 
 	pFormat += 2;
 
-	if ( *pFormat == FC_PP ) 
+	if ( *pFormat == FC_PP )
 		{
 		// Mark the start of the structure in the buffer.
 		pStubMsg->Buffer = pBufferMark;
@@ -413,17 +454,65 @@ Return :
 	return pStubMsg->MemorySize;
 }
 
+
 unsigned long RPC_ENTRY
-NdrComplexStructMemorySize ( 
+NdrHardStructMemorySize(
 	PMIDL_STUB_MESSAGE	pStubMsg,
 	PFORMAT_STRING		pFormat )
 /*++
 
 Routine Description :
 
-	Determines the memory size required for a complex structure.
+	Computes the memory size required for a hard structure.
 
-Arguments : 
+    Used for FC_HARD_STRUCT.
+
+Arguments :
+
+	pStubMsg	- Pointer to stub message.
+	pFormat		- Pointer's format string description.
+
+Return :
+
+	The computed memory size.
+
+--*/
+{
+
+    LENGTH_ALIGN(pStubMsg->MemorySize,pFormat[1]);
+
+    pStubMsg->MemorySize += *((ushort *)&pFormat[2]);
+
+    ALIGN(pStubMsg->Buffer,pFormat[1]);
+
+    pStubMsg->Buffer += *((ushort *)&pFormat[10]);
+
+    if ( *((short *)&pFormat[14]) )
+        {
+        pFormat += 14;
+        pFormat += *((short *)pFormat);
+
+        (*pfnMemSizeRoutines[ROUTINE_INDEX(*pFormat)])( pStubMsg,
+                                                        pFormat );
+        }
+
+    return pStubMsg->MemorySize;
+}
+
+
+unsigned long RPC_ENTRY
+NdrComplexStructMemorySize(
+	PMIDL_STUB_MESSAGE	pStubMsg,
+	PFORMAT_STRING		pFormat )
+/*++
+
+Routine Description :
+
+	Computes the memory size required for a complex structure.
+
+    Used for FC_BOGUS_STRUCT.
+
+Arguments :
 
 	pStubMsg	- Pointer to stub message.
 	pFormat		- Pointer's format string description.
@@ -443,12 +532,12 @@ Return :
 
 	//
 	// This is fun.  If we're not ignoring embedded pointers and this structure
-	// is not embedded inside of another struct or array then we make a 
+	// is not embedded inside of another struct or array then we make a
 	// recursive call to get a pointer to where the flat part of the structure
-	// ends in the buffer.  Then we can properly get to any embedded pointer's 
+	// ends in the buffer.  Then we can properly get to any embedded pointer's
 	// pointees.
 	//
-	if ( fSetPointerBufferMark = 
+	if ( fSetPointerBufferMark =
 		 (! pStubMsg->IgnoreEmbeddedPointers && ! pStubMsg->PointerBufferMark) )
 		{
 		uchar *		pBuffer;
@@ -494,7 +583,10 @@ Return :
         pStubMsg->Buffer += NdrpArrayDimensions( pFormatArray, FALSE ) * 4;
         }
     else
+        {
         pFormatArray = 0;
+        pBufferMark = 0;
+        }
 
     pFormat += 2;
 
@@ -565,7 +657,7 @@ Return :
 				// We actually do a post alignment of the memory size.
 				// Do this to prevent some under-allocations when pointers
 				// to strings, or char or short are involved.
-				// 
+				//
 				LENGTH_ALIGN( pStubMsg->MemorySize, PTR_MEM_SIZE - 1 );
 
 				pStubMsg->MemorySize += PTR_MEM_SIZE;
@@ -620,7 +712,7 @@ Return :
 				//
 				// Increment memory size by amount of padding.
 				//
-				pStubMsg->MemorySize += (*pFormat - FC_STRUCTPAD1) + 1; 
+				pStubMsg->MemorySize += (*pFormat - FC_STRUCTPAD1) + 1;
                 break;
 
             case FC_PAD :
@@ -634,6 +726,8 @@ Return :
 
             default :
                 NDR_ASSERT(0,"NdrComplexStructMemorySize : bad format char");
+                RpcRaiseException( RPC_S_INTERNAL_ERROR );
+                return 0;
 			}
 		}
 
@@ -687,17 +781,20 @@ ComplexMemorySizeEnd :
 	return pStubMsg->MemorySize;
 }
 
+
 unsigned long RPC_ENTRY
-NdrFixedArrayMemorySize( 
+NdrFixedArrayMemorySize(
 	PMIDL_STUB_MESSAGE	pStubMsg,
 	PFORMAT_STRING		pFormat )
 /*++
 
 Routine Description :
 
-	Determines the memory size of a fixed array.
+	Computes the memory size of a fixed array of any number of dimensions.
 
-Arguments : 
+    Used for FC_SMFARRAY and FC_LGFARRAY.
+
+Arguments :
 
 	pStubMsg	- Pointer to stub message.
 	pFormat		- Pointer's format string description.
@@ -714,10 +811,10 @@ Return :
 
 	LENGTH_ALIGN( pStubMsg->MemorySize, pFormat[1] );
 
-	if ( *pFormat == FC_SMFARRAY )  
+	if ( *pFormat == FC_SMFARRAY )
 		{
 		pFormat += 2;
-		Size = *((ushort *)pFormat)++; 
+		Size = *((ushort *)pFormat)++;
 		}
 	else
 		{
@@ -729,7 +826,7 @@ Return :
 
 	pStubMsg->MemorySize += Size;
 
-	if ( *pFormat == FC_PP ) 
+	if ( *pFormat == FC_PP )
 		{
 		// Mark the location in the buffer where the array starts.
 		pStubMsg->BufferMark = pStubMsg->Buffer - Size;
@@ -741,17 +838,20 @@ Return :
 	return pStubMsg->MemorySize;
 }
 
+
 unsigned long RPC_ENTRY
-NdrConformantArrayMemorySize( 
+NdrConformantArrayMemorySize(
 	PMIDL_STUB_MESSAGE	pStubMsg,
 	PFORMAT_STRING		pFormat )
 /*++
 
 Routine Description :
 
-	Determines the memory size of a conformant array.
+	Computes the memory size of a top level one dimensional conformant array.
 
-Arguments : 
+    Used for FC_CARRAY.
+
+Arguments :
 
 	pStubMsg	- Pointer to stub message.
 	pFormat		- Pointer's format string description.
@@ -773,18 +873,22 @@ Return :
 										  pFormat );
 }
 
+
 unsigned long
-NdrpConformantArrayMemorySize( 
+NdrpConformantArrayMemorySize(
 	PMIDL_STUB_MESSAGE	pStubMsg,
 	PFORMAT_STRING		pFormat )
 /*++
 
 Routine Description :
 
-	Private routine for determing the memory size of a conformant array.
-	This is the entry point for an embedded conformant array.
+	Private routine for computing the memory size of a one dimensional
+    conformant array.  This is the entry point for an embedded conformant
+    array.
 
-Arguments : 
+    Used for FC_CARRAY.
+
+Arguments :
 
 	pStubMsg	- Pointer to stub message.
 	pFormat		- Pointer's format string description.
@@ -797,8 +901,11 @@ Return :
 {
 	ulong	Size;
 
-	if ( ! pStubMsg->MaxCount ) 
+	if ( ! pStubMsg->MaxCount )
 		return pStubMsg->MemorySize;
+
+    if ( pStubMsg->fCheckBounds && ! pStubMsg->IsClient )
+        CHECK_BOUND( pStubMsg->MaxCount, pFormat[4] & 0x0f );
 
 	// Align on 8 byte boundary if needed.
 	if ( pFormat[1] == 0x7 )
@@ -818,7 +925,7 @@ Return :
 
 	pStubMsg->MemorySize += Size;
 
-	if ( *pFormat == FC_PP ) 
+	if ( *pFormat == FC_PP )
 		{
 		// Mark the location in the buffer where the array starts.
 		pStubMsg->BufferMark = pStubMsg->Buffer - Size;
@@ -830,17 +937,21 @@ Return :
 	return pStubMsg->MemorySize;
 }
 
+
 unsigned long RPC_ENTRY
-NdrConformantVaryingArrayMemorySize( 
+NdrConformantVaryingArrayMemorySize(
 	PMIDL_STUB_MESSAGE	pStubMsg,
 	PFORMAT_STRING		pFormat )
 /*++
 
 Routine Description :
 
-	Determines the memory size of a conformant varying array.
+	Computes the memory size of a one dimensional top level conformant
+    varying array.
 
-Arguments : 
+    Used for FC_CVARRAY.
+
+Arguments :
 
 	pStubMsg	- Pointer to stub message.
 	pFormat		- Pointer's format string description.
@@ -862,18 +973,22 @@ Return :
 										  		 pFormat );
 }
 
-unsigned long 
-NdrpConformantVaryingArrayMemorySize( 
+
+unsigned long
+NdrpConformantVaryingArrayMemorySize(
 	PMIDL_STUB_MESSAGE	pStubMsg,
 	PFORMAT_STRING		pFormat )
 /*++
 
 Routine Description :
 
-	Private routine for determing the memory size of a conformant varying
-	array.  This is the entry point for an embedded conformant varying array.
+    Private routine for computing the memory size of a one dimensional
+    conformant varying array.  This is the entry point for memory sizing an
+    embedded conformant varying array.
 
-Arguments : 
+    Used for FC_CVARRAY.
+
+Arguments :
 
 	pStubMsg	- Pointer to stub message.
 	pFormat		- Pointer's format string description.
@@ -895,6 +1010,16 @@ Return :
 	pStubMsg->Offset = *((long *)pStubMsg->Buffer)++;
 	pStubMsg->ActualCount = *((long *)pStubMsg->Buffer)++;
 
+    if ( pStubMsg->fCheckBounds && ! pStubMsg->IsClient )
+        {
+        CHECK_BOUND( pStubMsg->MaxCount, pFormat[4] & 0x0f );
+        CHECK_BOUND( pStubMsg->ActualCount, pFormat[8] & 0x0f );
+
+        if ( (pStubMsg->Offset < 0) ||
+             (pStubMsg->MaxCount < (pStubMsg->Offset + pStubMsg->ActualCount)) )
+            RpcRaiseException( RPC_X_INVALID_BOUND );
+        }
+
 	//
 	// Do the memory size increment now in case the actual count is 0.
 	//
@@ -902,7 +1027,7 @@ Return :
 
 	pStubMsg->MemorySize += pStubMsg->MaxCount * *((ushort *)(pFormat + 2));
 
-	if ( ! pStubMsg->ActualCount ) 
+	if ( ! pStubMsg->ActualCount )
 		return pStubMsg->MemorySize;
 
 	// Align if needed on an 8 byte boundary.
@@ -918,12 +1043,12 @@ Return :
 
 	pFormat += 10;
 
-	if ( *pFormat == FC_PP ) 
+	if ( *pFormat == FC_PP )
 		{
 		// Mark the location in the buffer where the array starts.
 		pStubMsg->BufferMark = pStubMsg->Buffer - BufferSize;
 
-		pStubMsg->MaxCount = pStubMsg->ActualCount; 
+		pStubMsg->MaxCount = pStubMsg->ActualCount;
 
 		NdrpEmbeddedPointerMemorySize( pStubMsg,
 									   pFormat );
@@ -932,17 +1057,20 @@ Return :
 	return pStubMsg->MemorySize;
 }
 
+
 unsigned long RPC_ENTRY
-NdrVaryingArrayMemorySize ( 
+NdrVaryingArrayMemorySize(
 	PMIDL_STUB_MESSAGE	pStubMsg,
 	PFORMAT_STRING		pFormat )
 /*++
 
 Routine Description :
 
-	Determines the memory size of a varying array.
+	Computes the memory size of a top level or embedded varying array.
 
-Arguments : 
+    Used for FC_SMVARRAY and FC_LGVARRAY.
+
+Arguments :
 
 	pStubMsg	- Pointer to stub message.
 	pFormat		- Pointer's format string description.
@@ -965,9 +1093,25 @@ Return :
 	pStubMsg->Offset = *((long *)pStubMsg->Buffer)++;
 	pStubMsg->ActualCount = *((long *)pStubMsg->Buffer)++;
 
+    if ( pStubMsg->fCheckBounds && ! pStubMsg->IsClient )
+        {
+        long    Elements;
+
+        CHECK_BOUND( pStubMsg->ActualCount,
+                     pFormat[(*pFormat == FC_SMVARRAY) ? 8 : 12] & 0x0f );
+
+        Elements =
+            (*pFormat == FC_SMVARRAY) ?
+            *((ushort *)(pFormat + 4)) : *((ulong UNALIGNED *)(pFormat + 6));
+
+        if ( (((long)pStubMsg->Offset) < 0) ||
+             (Elements < (long)(pStubMsg->ActualCount + pStubMsg->Offset)) )
+            RpcRaiseException( RPC_X_INVALID_BOUND );
+        }
+
 	Alignment = pFormat[1];
 
-	if ( *pFormat == FC_SMVARRAY ) 
+	if ( *pFormat == FC_SMVARRAY )
 		{
 		pFormat += 2;
 		MemorySize = (ulong) *((ushort *)pFormat);
@@ -990,7 +1134,7 @@ Return :
 
 	pStubMsg->MemorySize += MemorySize;
 
-	if ( ! pStubMsg->ActualCount ) 
+	if ( ! pStubMsg->ActualCount )
 		return pStubMsg->MemorySize;
 
 	//
@@ -1005,12 +1149,12 @@ Return :
 
 	pFormat += 6;
 
-	if ( *pFormat == FC_PP ) 
+	if ( *pFormat == FC_PP )
 		{
 		// Mark the start of the array in the buffer.
 		pStubMsg->BufferMark = pStubMsg->Buffer - BufferSize;
 
-		pStubMsg->MaxCount = pStubMsg->ActualCount; 
+		pStubMsg->MaxCount = pStubMsg->ActualCount;
 
 		NdrpEmbeddedPointerMemorySize( pStubMsg,
 									   pFormat );
@@ -1019,17 +1163,20 @@ Return :
 	return pStubMsg->MemorySize;
 }
 
+
 unsigned long RPC_ENTRY
-NdrComplexArrayMemorySize ( 
+NdrComplexArrayMemorySize(
 	PMIDL_STUB_MESSAGE	pStubMsg,
 	PFORMAT_STRING		pFormat )
 /*++
 
 Routine Description :
 
-	Determines the memory size of a complex array.
+	Computes the memory size of a top level complex array.
 
-Arguments : 
+    Used for FC_BOGUS_STRUCT.
+
+Arguments :
 
 	pStubMsg	- Pointer to stub message.
 	pFormat		- Pointer's format string description.
@@ -1040,13 +1187,11 @@ Return :
 
 --*/
 {
-//	uchar *		pBuffer;
-//	ulong		MemorySize;
 	BOOL		fSetPointerBufferMark;
 
 	//
 	// We set this if we're doing a real 'all nodes' sizing, this array
-	// is not embedded in another structure or array, and this is not an 
+	// is not embedded in another structure or array, and this is not an
 	// array of ref pointers.
 	//
 	fSetPointerBufferMark = ! pStubMsg->IgnoreEmbeddedPointers &&
@@ -1054,8 +1199,8 @@ Return :
 							pFormat[12] != FC_RP;
 
 	//
-	// More fun.  Make a recursive call so that we have a pointer to the end 
-	// of the array's flat stuff in the buffer.  Then we can properly get to 
+	// More fun.  Make a recursive call so that we have a pointer to the end
+	// of the array's flat stuff in the buffer.  Then we can properly get to
 	// any embedded pointer members.  We have no way of knowing if there are
 	// any embedded pointers so we're stuck doing this all the time.
 	//
@@ -1096,7 +1241,7 @@ Return :
 
 		ALIGN(pStubMsg->Buffer,0x3);
 
-        pStubMsg->BufferMark = pStubMsg->Buffer;  
+        pStubMsg->BufferMark = pStubMsg->Buffer;
 
         // Increment past conformance count(s).
         pStubMsg->Buffer += NdrpArrayDimensions( pFormat, FALSE ) * 4;
@@ -1115,18 +1260,21 @@ Return :
 	return pStubMsg->MemorySize;
 }
 
-unsigned long 
-NdrpComplexArrayMemorySize ( 
+
+unsigned long
+NdrpComplexArrayMemorySize(
 	PMIDL_STUB_MESSAGE	pStubMsg,
 	PFORMAT_STRING		pFormat )
 /*++
 
 Routine Description :
 
-	Private routine for determining the memory size of a complex array.
-	This is the entry point for an embedded complex array.
+    Private routine for computing the memory size of a complex array.  This
+    is the entry point for memory sizing an embedded complex array.
 
-Arguments : 
+    Used for FC_BOGUS_ARRAY.
+
+Arguments :
 
 	pStubMsg	- Pointer to stub message.
 	pFormat		- Pointer's format string description.
@@ -1173,7 +1321,7 @@ Return :
 
     pFormat += 2;
 
-	// Get number of elements (0 if conformance present). 
+	// Get number of elements (0 if conformance present).
 	Elements = *((ushort *)pFormat)++;
 
 	//
@@ -1182,6 +1330,9 @@ Return :
     if ( *((long UNALIGNED *)pFormat) != 0xffffffff )
         {
 		Elements = pArrayInfo->BufferConformanceMark[Dimension];
+
+        if ( pStubMsg->fCheckBounds && ! pStubMsg->IsClient )
+            CHECK_BOUND( Elements, *pFormat & 0x0f );
         }
 
     pFormat += 4;
@@ -1203,6 +1354,18 @@ Return :
             }
 
 		Count = pArrayInfo->BufferVarianceMark[(Dimension * 2) + 1];
+
+        if ( pStubMsg->fCheckBounds && ! pStubMsg->IsClient )
+            {
+            long    Offset;
+
+            CHECK_BOUND( Count, *pFormat & 0x0f );
+
+            Offset = pArrayInfo->BufferVarianceMark[(Dimension * 2)];
+
+            if ( (Offset < 0) || (Elements < (Offset + Count)) )
+                RpcRaiseException( RPC_X_INVALID_BOUND );
+            }
         }
     else
 		{
@@ -1213,10 +1376,11 @@ Return :
 
     pFormat += 4;
 
-	if ( ! Count ) 
-        goto ComplexArrayMemSizeEnd;
-
-    ALIGN(pStubMsg->Buffer,Alignment);
+    //
+    // Only align the buffer if at least one element was shipped.
+    //
+	if ( Count )
+        ALIGN(pStubMsg->Buffer,Alignment);
 
 	switch ( *pFormat )
 		{
@@ -1235,6 +1399,7 @@ Return :
 			//
 			// Add in the size of the array explicitly.
 			//
+            LENGTH_ALIGN(pStubMsg->MemorySize,0x3);
 			pStubMsg->MemorySize += Elements * PTR_MEM_SIZE;
 
 			if ( pStubMsg->IgnoreEmbeddedPointers )
@@ -1249,8 +1414,9 @@ Return :
                	pStubMsg->PointerBufferMark = 0;
 				}
 
-            pfnMemSize = (*pFormat == FC_RP) ? NdrPointerMemorySize :
-                                               NdrInterfacePointerMemorySize;
+            pfnMemSize = (*pFormat == FC_RP) ?
+                            (PMEM_SIZE_ROUTINE) NdrpPointerMemorySize :
+                            NdrInterfacePointerMemorySize;
             break;
 
 		default :
@@ -1259,10 +1425,10 @@ Return :
 
 			pStubMsg->Buffer += Count * SIMPLE_TYPE_BUFSIZE(*pFormat);
 
-            if ( *pFormat == FC_ENUM16 )  
+            if ( *pFormat == FC_ENUM16 )
 			    LENGTH_ALIGN( pStubMsg->MemorySize, sizeof(int) - 1 );
             else
-			    LENGTH_ALIGN( pStubMsg->MemorySize, 
+			    LENGTH_ALIGN( pStubMsg->MemorySize,
                               SIMPLE_TYPE_ALIGNMENT(*pFormat) );
 
 			pStubMsg->MemorySize += Elements * SIMPLE_TYPE_MEMSIZE(*pFormat);
@@ -1273,14 +1439,26 @@ Return :
     if ( ! IS_ARRAY_OR_STRING(*pFormat) )
         pStubMsg->pArrayInfo = 0;
 
-    for ( ; Count--; )
+    if ( pfnMemSize == (PMEM_SIZE_ROUTINE) NdrpPointerMemorySize )
         {
-        // Keep track of multidimensional array dimension.
-        if ( IS_ARRAY_OR_STRING(*pFormat) )
-            pArrayInfo->Dimension = Dimension + 1;
+        for ( ; Count--; )
+            {
+            NdrpPointerMemorySize( pStubMsg,
+                                   0,
+                                   pFormat );
+            }
+        }
+    else
+        {
+        for ( ; Count--; )
+            {
+            // Keep track of multidimensional array dimension.
+            if ( IS_ARRAY_OR_STRING(*pFormat) )
+                pArrayInfo->Dimension = Dimension + 1;
 
-        (*pfnMemSize)( pStubMsg,
-                       pFormat );
+            (*pfnMemSize)( pStubMsg,
+                           pFormat );
+            }
         }
 
 	if ( pBufferSave )
@@ -1309,7 +1487,11 @@ Return :
 
         pArrayInfo->MaxCountArray = 0;
 
-		// Alignment problems here.
+        //
+		// We don't have the memory alignment anywhere, so align the memory
+        // size to 8.  At worse we'll allocate a few extra bytes.
+        //
+        LENGTH_ALIGN(pStubMsg->MemorySize,0x7);
 		pStubMsg->MemorySize += (Elements - CountSave) * ElementSize;
 		}
 
@@ -1321,121 +1503,21 @@ ComplexArrayMemSizeEnd:
 	return pStubMsg->MemorySize;
 }
 
+
 unsigned long RPC_ENTRY
-NdrConformantStringMemorySize ( 
+NdrNonConformantStringMemorySize(
 	PMIDL_STUB_MESSAGE	pStubMsg,
 	PFORMAT_STRING		pFormat )
 /*++
 
 Routine Description :
 
-	Determines the memory size of a conformant string.
+	Computes the memory size of a non conformant string.
 
-Arguments : 
+    Used for FC_CSTRING, FC_WSTRING, FC_SSTRING, and FC_BSTRING (NT Beta2
+    compatability only).
 
-	pStubMsg	- Pointer to stub message.
-	pFormat		- Pointer's format string description.
-
-Return :
-
-	The computed memory size.
-
---*/
-{
-	//
-	// Get string size.
-	//
-
-    if ( pStubMsg->pArrayInfo != 0 )
-        {
-        //
-        // If this is part of a multidimensional array then we get the location
-        // where the conformance is from a special place.
-        //
-        pStubMsg->MaxCount =
-            pStubMsg->pArrayInfo->
-                      BufferConformanceMark[pStubMsg->pArrayInfo->Dimension];
-        }
-    else
-        {
-	    ALIGN(pStubMsg->Buffer,0x3);
-
-	    pStubMsg->MaxCount = *((long *)pStubMsg->Buffer)++;
-        }
-
-	return NdrpConformantStringMemorySize( pStubMsg,
-										   pFormat );
-}
-
-unsigned long
-NdrpConformantStringMemorySize ( 
-	PMIDL_STUB_MESSAGE	pStubMsg,
-	PFORMAT_STRING		pFormat )
-/*++
-
-Routine Description :
-
-	Private routine for determing the memory size of a conformant string. 
-	This is the entry point for an embedded conformant string.
-
-Arguments : 
-
-	pStubMsg	- Pointer to stub message.
-	pFormat		- Pointer's format string description.
-
-Return :
-
-	The computed memory size.
-
---*/
-{
-	ulong	MemorySize;
-	ulong	BufferSize;
-
-	// Skip the offset.
-	pStubMsg->Buffer += 4;
-
-	BufferSize = *((long *)pStubMsg->Buffer)++;
-
-	MemorySize = pStubMsg->MaxCount;
-
-	switch ( *pFormat )
-        {
-        case FC_C_WSTRING :
-		    // Buffer is already aligned on a 4 byte boundary.
-
-		    // Align memory just in case.
-		    LENGTH_ALIGN( pStubMsg->MemorySize, 0x1 );
-
-		    BufferSize *= 2;
-		    MemorySize *= 2;
-            break;
-        case FC_C_SSTRING :
-		    BufferSize *= pFormat[1];
-		    MemorySize *= pFormat[1];
-            break;
-        default :
-            break;
-		}
-
-	pStubMsg->Buffer += BufferSize;
-
-	pStubMsg->MemorySize += MemorySize;
-
-	return pStubMsg->MemorySize;
-}
-
-unsigned long RPC_ENTRY
-NdrNonConformantStringMemorySize ( 
-	PMIDL_STUB_MESSAGE	pStubMsg,
-	PFORMAT_STRING		pFormat )
-/*++
-
-Routine Description :
-
-	Determines the memory size of a non conformant string.
-
-Arguments : 
+Arguments :
 
 	pStubMsg	- Pointer to stub message.
 	pFormat		- Pointer's format string description.
@@ -1484,17 +1566,147 @@ Return :
 	return pStubMsg->MemorySize;
 }
 
+
 unsigned long RPC_ENTRY
-NdrEncapsulatedUnionMemorySize ( 
+NdrConformantStringMemorySize(
 	PMIDL_STUB_MESSAGE	pStubMsg,
 	PFORMAT_STRING		pFormat )
 /*++
 
 Routine Description :
 
-	Determines the memory size of an encapsulated union.
+	Computes the memory size of a top level conformant string.
 
-Arguments : 
+    Used for FC_C_CSTRING, FC_C_WSTRING, FC_C_SSTRING, and FC_C_BSTRING
+    (NT Beta2 compatability only).
+
+Arguments :
+
+	pStubMsg	- Pointer to stub message.
+	pFormat		- Pointer's format string description.
+
+Return :
+
+	The computed memory size.
+
+--*/
+{
+	//
+	// Get string size.
+	//
+
+    if ( pStubMsg->pArrayInfo != 0 )
+        {
+        //
+        // If this is part of a multidimensional array then we get the location
+        // where the conformance is from a special place.
+        //
+        pStubMsg->MaxCount =
+            pStubMsg->pArrayInfo->
+                      BufferConformanceMark[pStubMsg->pArrayInfo->Dimension];
+        }
+    else
+        {
+	    ALIGN(pStubMsg->Buffer,0x3);
+
+	    pStubMsg->MaxCount = *((long *)pStubMsg->Buffer)++;
+        }
+
+	return NdrpConformantStringMemorySize( pStubMsg,
+										   pFormat );
+}
+
+
+unsigned long
+NdrpConformantStringMemorySize(
+	PMIDL_STUB_MESSAGE	pStubMsg,
+	PFORMAT_STRING		pFormat )
+/*++
+
+Routine Description :
+
+	Private routine for determing the memory size of a conformant string.
+	This is the entry point for an embedded conformant string.
+
+    Used for FC_C_CSTRING, FC_C_WSTRING, FC_C_SSTRING, and FC_C_BSTRING
+    (NT Beta2 compatability only).
+
+Arguments :
+
+	pStubMsg	- Pointer to stub message.
+	pFormat		- Pointer's format string description.
+
+Return :
+
+	The computed memory size.
+
+--*/
+{
+	ulong	MemorySize;
+	ulong	BufferSize;
+
+	// Skip the offset.
+	pStubMsg->Buffer += 4;
+
+	BufferSize = *((long *)pStubMsg->Buffer)++;
+
+	MemorySize = pStubMsg->MaxCount;
+
+    if ( pStubMsg->fCheckBounds && ! pStubMsg->IsClient )
+        {
+        if ( (*pFormat != FC_C_SSTRING) && (pFormat[1] == FC_STRING_SIZED) )
+            CHECK_BOUND( MemorySize, pFormat[2] );
+
+        //
+        // Make sure the offset is 0 and the memory size is at least as
+        // large as the buffer size.
+        //
+        if ( *((long *)(pStubMsg->Buffer - 8)) != 0 ||
+             (MemorySize < BufferSize) )
+            RpcRaiseException( RPC_X_INVALID_BOUND );
+        }
+
+	switch ( *pFormat )
+        {
+        case FC_C_WSTRING :
+		    // Buffer is already aligned on a 4 byte boundary.
+
+		    // Align memory just in case.
+		    LENGTH_ALIGN( pStubMsg->MemorySize, 0x1 );
+
+		    BufferSize *= 2;
+		    MemorySize *= 2;
+            break;
+
+        case FC_C_SSTRING :
+		    BufferSize *= pFormat[1];
+		    MemorySize *= pFormat[1];
+            break;
+        default :
+            break;
+		}
+
+	pStubMsg->Buffer += BufferSize;
+
+	pStubMsg->MemorySize += MemorySize;
+
+	return pStubMsg->MemorySize;
+}
+
+
+unsigned long RPC_ENTRY
+NdrEncapsulatedUnionMemorySize(
+	PMIDL_STUB_MESSAGE	pStubMsg,
+	PFORMAT_STRING		pFormat )
+/*++
+
+Routine Description :
+
+	Computes the memory size of an encapsulated union.
+
+    Used for FC_ENCAPSULATED_UNION.
+
+Arguments :
 
 	pStubMsg	- Pointer to stub message.
 	pFormat		- Pointer's format string description.
@@ -1519,17 +1731,20 @@ Return :
 								SwitchType );
 }
 
+
 unsigned long RPC_ENTRY
-NdrNonEncapsulatedUnionMemorySize ( 
+NdrNonEncapsulatedUnionMemorySize(
 	PMIDL_STUB_MESSAGE	pStubMsg,
 	PFORMAT_STRING		pFormat )
 /*++
 
 Routine Description :
 
-	Determines the memory size of a non-encapsulated union.
+	Computes the memory size of a non-encapsulated union.
 
-Arguments : 
+    Used for FC_NON_ENCAPSULATED_UNION.
+
+Arguments :
 
 	pStubMsg	- Pointer to stub message.
 	pFormat		- Pointer's format string description.
@@ -1555,8 +1770,9 @@ Return :
                        			SwitchType );
 }
 
-unsigned long 
-NdrpUnionMemorySize ( 
+
+unsigned long
+NdrpUnionMemorySize(
 	PMIDL_STUB_MESSAGE	pStubMsg,
 	PFORMAT_STRING		pFormat,
 	uchar				SwitchType )
@@ -1564,9 +1780,10 @@ NdrpUnionMemorySize (
 
 Routine Description :
 
-	Private routine for determining the memory size of a union.
+    Private routine for computing the memory size needed for a union.  This
+    routine is used for sizing both encapsulated and non-encapsulated unions.
 
-Arguments : 
+Arguments :
 
 	pStubMsg	- Pointer to stub message.
 	pFormat		- Pointer's format string description.
@@ -1585,37 +1802,39 @@ Return :
 
     switch ( SwitchType )
         {
-        case FC_CHAR :
-		case FC_BYTE :
         case FC_SMALL :
+        case FC_CHAR :
             SwitchIs = (long) *((char *)pStubMsg->Buffer)++;
             break;
         case FC_USMALL :
             SwitchIs = (long) *((uchar *)pStubMsg->Buffer)++;
             break;
         case FC_SHORT :
-		case FC_ENUM16 :
+        case FC_ENUM16 :
 			ALIGN(pStubMsg->Buffer,0x1);
             SwitchIs = (long) *((short *)pStubMsg->Buffer)++;
             break;
-		case FC_WCHAR :
 		case FC_USHORT :
+        case FC_WCHAR :
 			ALIGN(pStubMsg->Buffer,0x1);
             SwitchIs = (long) *((ushort *)pStubMsg->Buffer)++;
             break;
         case FC_LONG :
-		case FC_ENUM32 :
+		case FC_ULONG :
+        case FC_ENUM32 :
 			ALIGN(pStubMsg->Buffer,0x3);
             SwitchIs = *((long *)pStubMsg->Buffer)++;
             break;
 		default :
             NDR_ASSERT(0,"NdrpUnionMemorySize : bad switch type");
+            RpcRaiseException( RPC_S_INTERNAL_ERROR );
+            return 0;
         }
 
 	//
     // Get the max flat union memory size.
 	//
-	UnionSize = *((ushort *)pFormat)++; 
+	UnionSize = *((ushort *)pFormat)++;
 
     //
     // We're at the union_arms<2> field now, which contains both the
@@ -1623,7 +1842,7 @@ Return :
     //
 
     //
-    // Get the union alignment (0 if this is a DCE union).  
+    // Get the union alignment (0 if this is a DCE union).
     //
     Alignment = (uchar) ( *((ushort *)pFormat) >> 12 );
 
@@ -1636,7 +1855,7 @@ Return :
 	//
     Arms = (long) ( *((ushort *)pFormat)++ & 0x0fff );
 
-	// 
+	//
 	// Search for the correct arm.
 	//
     for ( ; Arms; Arms-- )
@@ -1672,7 +1891,7 @@ Return :
 
 	//
 	// Ok we've got the correct arm now.  The only goal now is to increment
-	// the buffer pointer by the correct amount, and possibly add the size 
+	// the buffer pointer by the correct amount, and possibly add the size
 	// of embedded pointers in the chosen union arm to the memory size.
 	//
 
@@ -1682,15 +1901,23 @@ Return :
     // We need a real solution after beta for simple type arms.  This could
     // break if we have a format string larger than about 32K.
     //
-    if ( pFormat[1] != MAGIC_UNION_BYTE )
-        pFormat += *((signed short *)pFormat);
-    else
+    if ( IS_MAGIC_UNION_BYTE(pFormat) )
 		{
-		ALIGN(pStubMsg->Buffer,SIMPLE_TYPE_ALIGNMENT(*pFormat));
-		pStubMsg->Buffer += SIMPLE_TYPE_BUFSIZE(*pFormat);
+        unsigned char FcType;
+
+        #if defined(__RPC_MAC__)
+            FcType = pFormat[1];
+        #else
+            FcType = pFormat[0];
+        #endif
+
+		ALIGN( pStubMsg->Buffer, SIMPLE_TYPE_ALIGNMENT( FcType ));
+		pStubMsg->Buffer += SIMPLE_TYPE_BUFSIZE( FcType );
 
         return pStubMsg->MemorySize;
         }
+
+    pFormat += *((signed short *)pFormat);
 
     if ( IS_POINTER_TYPE(*pFormat) )
         {
@@ -1705,7 +1932,13 @@ Return :
 
         	return pStubMsg->MemorySize;
             }
+        }
 
+    //
+    // Non-interface pointer only.
+    //
+    if ( IS_BASIC_POINTER(*pFormat) )
+        {
         if ( pStubMsg->PointerBufferMark )
             {
 			uchar *	pBufferSave;
@@ -1742,20 +1975,21 @@ Return :
       		 pFormat );
 }
 
+
 unsigned long RPC_ENTRY
-NdrXmitOrRepAsMemorySize ( 
+NdrXmitOrRepAsMemorySize(
 	PMIDL_STUB_MESSAGE	pStubMsg,
-	PFORMAT_STRING		pFormat ) 
+	PFORMAT_STRING		pFormat )
 /*++
 
 Routine Description :
 
-	Determines the memory size required for the presented type of a 
+	Computes the memory size required for the presented type of a
 	transmit as or represent as.
 
     See mrshl.c for the description of the FC layout.
 
-Arguments : 
+Arguments :
 
 	pStubMsg	- Pointer to stub message.
 	pFormat		- Pointer's format string description.
@@ -1769,10 +2003,10 @@ Return :
     unsigned long           MemorySize;
     unsigned short          QIndex;
 
-    // Skip the token itself and Oi flag. Fetch the QuintupleIndex.
+    // Fetch the QuintupleIndex.
 
     QIndex = *(unsigned short *)(pFormat + 2);
-    
+
     // Memsize the presented object.
 
     MemorySize = *(unsigned short *)(pFormat + 4);
@@ -1780,7 +2014,8 @@ Return :
 	// Update our current count in the stub message.
 	pStubMsg->MemorySize += MemorySize;
 
-    // move the pointer in the buffer behind the transmitted object
+    // Move the pointer in the buffer behind the transmitted object
+    // for the next field to be memsized correctly.
 
     pFormat += 8;
     pFormat = pFormat + *(short *)pFormat;
@@ -1799,17 +2034,106 @@ Return :
     return( MemorySize );
 }
 
+
 unsigned long RPC_ENTRY
-NdrInterfacePointerMemorySize ( 
+NdrUserMarshalMemorySize(
 	PMIDL_STUB_MESSAGE	pStubMsg,
 	PFORMAT_STRING		pFormat )
 /*++
 
 Routine Description :
 
-	Determines the memory size needed for an interface pointer.
+	Computes the memory size required for a usr_marshal type.
+    See mrshl.c for the description of the layouts.
 
-Arguments : 
+Arguments :
+
+	pStubMsg	- Pointer to stub message.
+	pFormat		- Pointer's format string description.
+
+Return :
+
+	The memory size of the usr_marshall object.
+
+--*/
+{
+    unsigned long           MemorySize;
+
+    // The memory sizing routine can be called only when sizing a complex
+    // struct for memory allocation.
+    // Hence, IgnoreEmbeddedPointer in this case has to be on.
+
+    NDR_ASSERT( pStubMsg->IgnoreEmbeddedPointers, "non-embedded call?" );
+
+    // Memsize the presented object.
+
+    MemorySize = *(unsigned short *)(pFormat + 4);
+
+	// Update our current count in the stub message.
+	pStubMsg->MemorySize += MemorySize;
+
+    // Move the pointer in the buffer behind the transmitted object
+    // for the next field to be memsized correctly.
+
+    ALIGN( pStubMsg->Buffer, LOW_NIBBLE( pFormat[1] ) );
+
+    if ( pFormat[1] & USER_MARSHAL_POINTER )
+        {
+        // it's embedded: unique or ref.
+        pStubMsg->Buffer += 4;
+        }
+    else
+        {
+        unsigned long MemorySizeSave;
+
+        // Flat type.
+        // Optimization: if we know the wire size, don't walk to size it.
+
+        if ( *(unsigned short *)(pFormat + 6) != 0 )
+            {
+            pStubMsg->Buffer += *(unsigned short *)(pFormat + 6);
+            return MemorySize;
+            }
+
+        // Unknown wire size: we need to step through the buffer.
+        // However, the memory size may have nothing to do with
+        // the wire type description..
+        // so, we need to remember what the current memory size is.
+
+        MemorySizeSave = pStubMsg->MemorySize;
+
+        pFormat += 8;
+        pFormat = pFormat + *(short *)pFormat;
+
+        if ( IS_SIMPLE_TYPE( *pFormat ))
+            {
+            // Simple type.
+            pStubMsg->Buffer += SIMPLE_TYPE_BUFSIZE( *pFormat );
+            }
+        else
+            {
+            (*pfnMemSizeRoutines[ ROUTINE_INDEX( *pFormat) ])( pStubMsg, pFormat );
+            }
+
+        pStubMsg->MemorySize = MemorySizeSave;
+
+        }
+
+    return( MemorySize );
+}
+
+
+unsigned long RPC_ENTRY
+NdrInterfacePointerMemorySize (
+	PMIDL_STUB_MESSAGE	pStubMsg,
+	PFORMAT_STRING		pFormat )
+/*++
+
+Routine Description :
+
+	Computes the memory size needed for an interface pointer.
+
+Arguments :
 
 	pStubMsg	- Pointer to stub message.
 	pFormat		- Pointer's format string description.
@@ -1833,18 +2157,19 @@ Return :
 	return pStubMsg->MemorySize;
 }
 
-void 
-NdrpEmbeddedPointerMemorySize ( 
+
+void
+NdrpEmbeddedPointerMemorySize (
 	PMIDL_STUB_MESSAGE	pStubMsg,
 	PFORMAT_STRING		pFormat )
 /*++
 
 Routine Description :
 
-	Computes the memory size required for all embedded pointers in an 
+	Computes the memory size required for all embedded pointers in an
 	array or a structure.
 
-Arguments : 
+Arguments :
 
 	pStubMsg	- Pointer to stub message.
 	pFormat		- Pointer's format string description.
@@ -1858,7 +2183,7 @@ Return :
 	uchar * 	pBufPtr;
 	uchar *		pBufferMark;
 	uchar *		pBufferSave;
-    long        MaxCountSave; 
+    long        MaxCountSave;
 
     MaxCountSave = pStubMsg->MaxCount;
 
@@ -1866,7 +2191,7 @@ Return :
 		return;
 
     //
-    // Check if we're handling pointers in a complex struct or array, and 
+    // Check if we're handling pointers in a complex struct or array, and
 	// re-set the Buffer pointer if so.
     //
     if ( pStubMsg->PointerBufferMark )
@@ -1931,18 +2256,19 @@ Return :
         } // for
 }
 
-void 
-NdrpEmbeddedRepeatPointerMemorySize ( 
+
+void
+NdrpEmbeddedRepeatPointerMemorySize (
 	PMIDL_STUB_MESSAGE	pStubMsg,
 	PFORMAT_STRING *	ppFormat )
 /*++
 
 Routine Description :
 
-	Computes the memory size required for all embedded pointers in an 
+	Computes the memory size required for all embedded pointers in an
 	array.
 
-Arguments : 
+Arguments :
 
 	pStubMsg	- Pointer to stub message.
 	pFormat		- Pointer's format string description.
@@ -1983,8 +2309,9 @@ Return :
             break;
 
         default :
-			NDR_ASSERT(0,"NdrpEmbeddedRepeatPointerMemorySize"
-						 " : bad format char");
+			NDR_ASSERT(0,"NdrpEmbeddedRepeatPointerMemorySize : bad format");
+            RpcRaiseException( RPC_S_INTERNAL_ERROR );
+            return;
         }
 
     // Get the increment amount between successive pointers.
@@ -2030,4 +2357,5 @@ Return :
 	// Get the format string pointer past this repeat pointer description.
 	*ppFormat = pFormatSave + PointersSave * 8;
 }
+
 

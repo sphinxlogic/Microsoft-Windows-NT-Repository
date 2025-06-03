@@ -17,6 +17,16 @@
 #include "dxferobj.h"
 #include "site.h"
 
+//BUGBUG:  These should be fetched from real header files
+#define CF_HDROP 15
+typedef struct _dropfilestruct {
+    DWORD pFiles;
+    POINT pt;
+    BOOL fNC;
+    BOOL fWide;
+} DROPFILESTRUCT;
+
+
 CLIPFORMAT g_cfEmbeddedObject=RegisterClipboardFormat(CF_EMBEDDEDOBJECT);
 CLIPFORMAT g_cfObjectDescriptor=RegisterClipboardFormat(CF_OBJECTDESCRIPTOR);
 
@@ -101,13 +111,13 @@ CDataXferObj FAR * CDataXferObj::Create(
         if (OleSave(pPersistStorage, lpTemp->m_lpObjStorage, FALSE)
             != ResultFromScode(S_OK))
         {
-            OutputDebugString("Fail in OleSave\n");
+            TestDebugOut("Fail in OleSave\n");
         }
 
         // pass NULL so that object application won't forget the real stg
         if (pPersistStorage->SaveCompleted(NULL) != ResultFromScode(S_OK))
         {
-          OutputDebugString("Fail in IPersistStorage::SaveCompleted\n");
+          TestDebugOut("Fail in IPersistStorage::SaveCompleted\n");
         }
         pPersistStorage->Release();
     }
@@ -187,7 +197,7 @@ CDataXferObj::CDataXferObj (void)
 // Function Calls:
 //      Function                                Location
 //
-//      OutputDebugString                       Windows API
+//      TestDebugOut                       Windows API
 //      IOleObject::Release                     Object
 //      IStorage::Release                       OLE API
 //
@@ -196,7 +206,7 @@ CDataXferObj::CDataXferObj (void)
 
 CDataXferObj::~CDataXferObj ()
 {
-    OutputDebugString ("In CDataXferObj's Destructor \r\n");
+    TestDebugOut ("In CDataXferObj's Destructor \r\n");
 
     if (m_lpOleObject)
     {
@@ -235,7 +245,7 @@ CDataXferObj::~CDataXferObj ()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      IsEqualIID                  OLE API
 //      ResultFromScode             OLE API
 //      CDataXferObj::AddRef        DXFEROBJ.CPP
@@ -245,7 +255,7 @@ CDataXferObj::~CDataXferObj ()
 
 STDMETHODIMP CDataXferObj::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 {
-    OutputDebugString("In CDataXferObj::QueryInterface\r\n");
+    TestDebugOut("In CDataXferObj::QueryInterface\r\n");
 
     if (IsEqualIID( riid, IID_IUnknown) || IsEqualIID(riid, IID_IDataObject))
     {
@@ -278,14 +288,14 @@ STDMETHODIMP CDataXferObj::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 //
 //********************************************************************
 
 STDMETHODIMP_(ULONG) CDataXferObj::AddRef()
 {
-    OutputDebugString("In CDataXferObj::AddRef\r\n");
+    TestDebugOut("In CDataXferObj::AddRef\r\n");
 
     return ++m_nCount;
 }
@@ -309,14 +319,14 @@ STDMETHODIMP_(ULONG) CDataXferObj::AddRef()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 //
 //********************************************************************
 
 STDMETHODIMP_(ULONG) CDataXferObj::Release()
 {
-    OutputDebugString("In CDataXferObj::Release\r\n");
+    TestDebugOut("In CDataXferObj::Release\r\n");
 
     if (--m_nCount == 0)
     {
@@ -362,7 +372,7 @@ STDMETHODIMP_(ULONG) CDataXferObj::Release()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      ResultFromScode             OLE API
 //
 // Comments:
@@ -376,7 +386,7 @@ STDMETHODIMP CDataXferObj::QueryGetData (LPFORMATETC pformatetc)
 {
     SCODE sc = DV_E_FORMATETC;
 
-    OutputDebugString("In CDataXferObj::QueryGetData\r\n");
+    TestDebugOut("In CDataXferObj::QueryGetData\r\n");
 
     // check the validity of the formatetc.
 
@@ -400,9 +410,17 @@ STDMETHODIMP CDataXferObj::QueryGetData (LPFORMATETC pformatetc)
     {
         sc = S_OK;
     }
+    else if ( (pformatetc->cfFormat == CF_HDROP) &&
+	 (pformatetc->dwAspect == DVASPECT_CONTENT) &&
+	 (pformatetc->tymed == TYMED_HGLOBAL) )
+    {
+	sc = S_OK;
+    }
 
     return ResultFromScode(sc);
 }
+
+extern BOOL gfUseEmptyEnumerator;
 
 //**********************************************************************
 //
@@ -429,7 +447,7 @@ STDMETHODIMP CDataXferObj::QueryGetData (LPFORMATETC pformatetc)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      ResultFromScode             OLE API
 //      OleStdEnumFmtEtc_Create     OLE2UI
 //
@@ -440,10 +458,15 @@ STDMETHODIMP CDataXferObj::EnumFormatEtc(
 		LPENUMFORMATETC FAR* ppenumFormatEtc
 )
 {
-	SCODE sc = E_NOTIMPL;
+    SCODE sc = E_NOTIMPL;
 
-    OutputDebugString("In CDataXferObj::EnumFormatEtc\r\n");
-  	*ppenumFormatEtc = NULL;
+    TestDebugOut("In CDataXferObj::EnumFormatEtc\r\n");
+    *ppenumFormatEtc = NULL;
+
+    if( gfUseEmptyEnumerator == TRUE )
+    {
+	return E_FAIL;
+    }
 
     if (dwDirection == DATADIR_GET)
     {
@@ -481,7 +504,7 @@ STDMETHODIMP CDataXferObj::EnumFormatEtc(
 // Function Calls:
 //      Function                        Location
 //
-//      OutputDebugString               Windows API
+//      TestDebugOut               Windows API
 //      OleStdGetOleObjectData          OLE2UI API
 //      OleStdGetMetafilePictFromOleObject OLE2UI API
 //      OleStdGetObjectDescriptorDataFromOleObject OLE2UI API
@@ -503,7 +526,7 @@ STDMETHODIMP CDataXferObj::GetData (
 {
     SCODE sc = DV_E_FORMATETC;
 
-    OutputDebugString("In CDataXferObj::GetData\r\n");
+    TestDebugOut("In CDataXferObj::GetData\r\n");
 
     // we must set all out pointer parameters to NULL. */
     pmedium->tymed = TYMED_NULL;
@@ -539,11 +562,10 @@ STDMETHODIMP CDataXferObj::GetData (
          sc = GetScode( hrErr );
 
     }
-    else
-       if ( (pformatetcIn->cfFormat == g_cfObjectDescriptor) &&
+    else if ( (pformatetcIn->cfFormat == g_cfObjectDescriptor) &&
          (pformatetcIn->dwAspect == DVASPECT_CONTENT) &&
          (pformatetcIn->tymed == TYMED_HGLOBAL) )
-       {
+    {
 
          // render CF_OBJECTDESCRIPTOR data
          pmedium->hGlobal = OleStdGetObjectDescriptorDataFromOleObject(
@@ -561,24 +583,89 @@ STDMETHODIMP CDataXferObj::GetData (
              sc = S_OK;
          }
 
-       }
-       else
-         if ( (pformatetcIn->cfFormat == CF_METAFILEPICT) &&
+    }
+    else if ( (pformatetcIn->cfFormat == CF_METAFILEPICT) &&
             (pformatetcIn->dwAspect == DVASPECT_CONTENT) &&
             (pformatetcIn->tymed == TYMED_MFPICT) )
-         {
+    {
 
-            // render CF_METAFILEPICT by drawing the object into a metafile DC
-            pmedium->hGlobal = OleStdGetMetafilePictFromOleObject(
-                 m_lpOleObject, DVASPECT_CONTENT, NULL, pformatetcIn->ptd);
-            if (! pmedium->hGlobal)
-               sc = E_OUTOFMEMORY;
-            else
-            {
-               pmedium->tymed = TYMED_MFPICT;
-               sc = S_OK;
-            }
-         }
+	// render CF_METAFILEPICT by drawing the object into a metafile DC
+	pmedium->hGlobal = OleStdGetMetafilePictFromOleObject(
+	     m_lpOleObject, DVASPECT_CONTENT, NULL, pformatetcIn->ptd);
+	if (! pmedium->hGlobal)
+	   sc = E_OUTOFMEMORY;
+	else
+	{
+	   pmedium->tymed = TYMED_MFPICT;
+	   sc = S_OK;
+	}
+    }
+    else if ( (pformatetcIn->cfFormat == CF_HDROP) &&
+	    (pformatetcIn->dwAspect == DVASPECT_CONTENT) &&
+	    (pformatetcIn->tymed == TYMED_HGLOBAL) )
+    {
+	// testing for Win3.1 style drag drop.  If we offer
+	// CF_HDROP ( basically, a list of filenames) in a data object
+	// given to OLE DoDragDrop, then DoDragDrop will translate
+	// OLE drag drop into Win3.1 drag drop for Win3.1 drop targets
+
+	ULONG cbFile;
+	char szFile[256];
+	DROPFILESTRUCT *pdfs;
+	char *pfile;
+
+
+	cbFile = GetEnvironmentVariable("SystemRoot", szFile, sizeof(szFile));
+
+	if( cbFile == 0 )
+	{
+	    sc = E_FAIL;
+	    goto errRtn;
+	}
+
+
+	cbFile += sizeof("\\setup.txt");
+
+	strcat(szFile, "\\setup.txt");
+	
+	pmedium->tymed = TYMED_HGLOBAL;
+
+	pmedium->hGlobal = GlobalAlloc( GMEM_DDESHARE,
+			    sizeof(DROPFILESTRUCT) +
+			    cbFile + 3);
+
+	if( pmedium->hGlobal )
+	{
+	    pdfs = (DROPFILESTRUCT *)GlobalLock(pmedium->hGlobal);
+
+	    if( pdfs )
+	    {
+		pdfs->pFiles = sizeof(DROPFILESTRUCT);
+		pfile = (char *)((BYTE *)pdfs) + sizeof(DROPFILESTRUCT);
+		pdfs->fNC = FALSE;
+		pdfs->fWide = FALSE;
+		pdfs->pt.x = 0;
+		pdfs->pt.y = 0;
+		strcpy(pfile, szFile);
+		// double-NULL terminate it
+		pfile[strlen(pfile)+2] = '\0';
+
+		GlobalUnlock(pmedium->hGlobal);
+
+		sc = S_OK;
+	    }
+	    else
+	    {
+		sc = E_OUTOFMEMORY;
+	    }
+	}
+	else
+	{
+	    sc = E_OUTOFMEMORY;
+	}
+    }
+
+errRtn:
 
     return ResultFromScode( sc );
 }
@@ -605,7 +692,7 @@ STDMETHODIMP CDataXferObj::GetData (
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      OleStdGetOleObjectData      OLE2UI API
 //      IOleObject::QueryInterface  Object
 //
@@ -619,7 +706,7 @@ STDMETHODIMP CDataXferObj::GetDataHere (
 {
     SCODE sc = DV_E_FORMATETC;
 
-    OutputDebugString("In CDataXferObj::GetDataHere\r\n");
+    TestDebugOut("In CDataXferObj::GetDataHere\r\n");
 
     // NOTE: pmedium is an IN parameter. we should NOT set
     //           pmedium->pUnkForRelease to NULL
@@ -650,4 +737,3 @@ STDMETHODIMP CDataXferObj::GetDataHere (
     }
     return ResultFromScode( sc );
 }
-

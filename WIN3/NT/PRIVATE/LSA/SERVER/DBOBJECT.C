@@ -136,6 +136,7 @@ IMPLEMENTATION NOTES
 
 #include "lsasrvp.h"
 #include "dbp.h"
+#include "adtp.h"
 
 
 NTSTATUS
@@ -1797,10 +1798,11 @@ Return Value:
 --*/
 
 {
-    NTSTATUS Status, SecondaryStatus;
+    NTSTATUS Status, SecondaryStatus, TmpStatus;
     LSAP_DB_HANDLE InternalHandle = (LSAP_DB_HANDLE) *ObjectHandle;
     BOOLEAN DecrementCount = TRUE;
     ULONG EffectiveOptions;
+    ULONG ReferenceCount = 0;
 
     Status = PreliminaryStatus;
     SecondaryStatus = STATUS_SUCCESS;
@@ -1841,36 +1843,21 @@ Return Value:
     if (EffectiveOptions & LSAP_DB_DEREFERENCE_CONTR) {
 
         if (InternalHandle->ContainerHandle != NULL) {
-
             //
             // Dereference the container object.
             //
 
             Status = LsapDbDereferenceObject(
-                         (PLSAPR_HANDLE) &InternalHandle->ContainerHandle,
-                         NullObject,
-                         0,
-                         (SECURITY_DB_DELTA_TYPE) 0,
-                         Status
-                         );
+                        (PLSAPR_HANDLE) &InternalHandle->ContainerHandle,
+                        NullObject,
+                        0,
+                        (SECURITY_DB_DELTA_TYPE) 0,
+                        Status
+                        );
 
-            //
-            // NOTE: Status is propagated to next routine
-            //
         }
     }
 
-    Status = LsapDbResetStates(
-                 *ObjectHandle,
-                 EffectiveOptions,
-                 SecurityDbDeltaType,
-                 Status
-                 );
-
-    if (!NT_SUCCESS(Status)) {
-
-        goto DereferenceObjectError;
-    }
 
 DereferenceObjectFinish:
 
@@ -1889,13 +1876,50 @@ DereferenceObjectFinish:
         }
 
         (InternalHandle->ReferenceCount)--;
+        ReferenceCount = InternalHandle->ReferenceCount;
 
-        if (InternalHandle->ReferenceCount == (ULONG) 0) {
-
-            LsapDbFreeHandle( *ObjectHandle );
-            *ObjectHandle = NULL;
-        }
     }
+
+
+    //
+    // This must happen after the reference count is adjusted, as it the one
+    // that will unlock the database.
+    //
+
+    if (NT_SUCCESS(SecondaryStatus))
+    {
+        Status = LsapDbResetStates(
+                    *ObjectHandle,
+                    EffectiveOptions,
+                    SecurityDbDeltaType,
+                    Status
+                    );
+
+    }
+
+    //
+    // This has to happen after resetting states because resetting
+    // requires the handle to be present.
+    //
+
+    if (DecrementCount && (ReferenceCount == 0)) {
+
+        TmpStatus = NtCloseObjectAuditAlarm (
+                        &LsapState.SubsystemName,
+                        *ObjectHandle,
+                        InternalHandle->GenerateOnClose
+                        );
+
+        if (!NT_SUCCESS( TmpStatus )) {
+            LsapAuditFailed();
+        }
+
+        LsapDbFreeHandle( *ObjectHandle );
+
+        *ObjectHandle = NULL;
+    }
+
+
 
     return( Status );
 
@@ -3345,19 +3369,37 @@ Return Values:
 --*/
 
 {
-    NTSTATUS Status;
-    NTSTATUS SecondaryStatus = STATUS_SUCCESS;
-    LSAP_DB_HANDLE InternalHandle = (LSAP_DB_HANDLE) ObjectHandle;
-    ACCESS_MASK RequiredAccess = 0;
-    BOOLEAN ObjectReferenced = FALSE;
-    LSAP_DB_ATTRIBUTE Attribute;
-    PLSAPR_SR_SECURITY_DESCRIPTOR RpcSD = NULL;
+    NTSTATUS
+        Status,
+        IgnoreStatus;
 
-    Status = STATUS_INVALID_PARAMETER;
+    LSAP_DB_HANDLE
+        InternalHandle = (LSAP_DB_HANDLE) ObjectHandle;
+
+    ACCESS_MASK
+        RequiredAccess = 0;
+
+    BOOLEAN
+        Present,
+        IgnoreBoolean;
+
+    LSAP_DB_ATTRIBUTE
+        Attribute;
+
+    PLSAPR_SR_SECURITY_DESCRIPTOR
+        RpcSD = NULL;
+
+    SECURITY_DESCRIPTOR
+        *SD,
+        *ReturnSD;
+
+    ULONG
+        ReturnSDLength;
+
+
 
     if (!ARGUMENT_PRESENT( SecurityDescriptor )) {
-
-        goto QuerySecurityObjectError;
+        return(STATUS_INVALID_PARAMETER);
     }
 
     //
@@ -3368,21 +3410,6 @@ Return Values:
 
     LsapRtlQuerySecurityAccessMask( SecurityInformation, &RequiredAccess );
 
-    //
-    // Allocate the first block of returned memory.
-    //
-
-    RpcSD = MIDL_user_allocate( sizeof (LSAPR_SR_SECURITY_DESCRIPTOR) );
-
-    Status = STATUS_INSUFFICIENT_RESOURCES;
-
-    if (RpcSD == NULL) {
-
-        goto QuerySecurityObjectError;
-    }
-
-    RpcSD->Length = 0;
-    RpcSD->SecurityDescriptor = NULL;
 
     //
     // Acquire the Lsa Database lock.  Verify that the object handle
@@ -3398,83 +3425,120 @@ Return Values:
                  LSAP_DB_ACQUIRE_LOCK
                  );
 
-    if (!NT_SUCCESS(Status)) {
-
-        goto QuerySecurityObjectError;
-    }
-
-    ObjectReferenced = TRUE;
-
-    //
-    // Read the existing Security Descriptor for the object.  This always
-    // exists as the value of the SecDesc attribute of the object.
-    //
-
-    LsapDbInitializeAttribute(
-        &Attribute,
-        &LsapDbNames[ SecDesc ],
-        NULL,
-        0,
-        FALSE
-        );
-
-    Status = LsapDbReadAttribute( ObjectHandle, &Attribute );
-
-    if (!NT_SUCCESS(Status)) {
-
-        goto QuerySecurityObjectError;
-    }
-
-    RpcSD->Length = Attribute.AttributeValueLength;
-    RpcSD->SecurityDescriptor = Attribute.AttributeValue;
-
-QuerySecurityObjectFinish:
-
-    *SecurityDescriptor = RpcSD;
-
-    //
-    // If necessary, dereference the object, finish the database
-    // transaction, notify the LSA Database Replicator of the change,
-    // release the LSA Database lock and return.
-    //
-
-    if (ObjectReferenced) {
-
-        Status = LsapDbDereferenceObject(
-                     &ObjectHandle,
-                     InternalHandle->ObjectTypeId,
-                     LSAP_DB_RELEASE_LOCK,
-                     (SECURITY_DB_DELTA_TYPE) 0,
-                     Status
-                     );
-    }
-
-    return(Status);
-
-QuerySecurityObjectError:
-
-    //
-    // If necessary, free the memory allocated for the returned
-    // Security Descriptor.
-    //
-
-    if (RpcSD != NULL) {
-
-        LsaIFree_LSAPR_SR_SECURITY_DESCRIPTOR( RpcSD );
-
-        RpcSD = NULL;
-    }
-
-    //
-    // Propagate Secondary Status if Primary Status is success.
-    //
-
     if (NT_SUCCESS(Status)) {
 
-        Status = SecondaryStatus;
+
+        //
+        // Read the existing Security Descriptor for the object.  This always
+        // exists as the value of the SecDesc attribute of the object.
+        //
+
+        LsapDbInitializeAttribute(
+            &Attribute,
+            &LsapDbNames[ SecDesc ],
+            NULL,
+            0,
+            FALSE
+            );
+
+        Status = LsapDbReadAttribute( ObjectHandle, &Attribute );
+
+
+
+        if (NT_SUCCESS(Status)) {
+
+            SD = Attribute.AttributeValue;
+            ASSERT( SD != NULL );
+
+
+            //
+            // Elimate components that weren't requested.
+            //
+
+            if ( !(SecurityInformation & OWNER_SECURITY_INFORMATION)) {
+                SD->Owner = NULL;
+            }
+
+            if ( !(SecurityInformation & GROUP_SECURITY_INFORMATION)) {
+                SD->Group = NULL;
+            }
+
+            if ( !(SecurityInformation & DACL_SECURITY_INFORMATION)) {
+                SD->Control &= (~SE_DACL_PRESENT);
+            }
+
+            if ( !(SecurityInformation & SACL_SECURITY_INFORMATION)) {
+                SD->Control &= (~SE_SACL_PRESENT);
+            }
+
+
+            //
+            // Now copy the parts of the security descriptor that we are going to return.
+            //
+
+            ReturnSDLength = 0;
+            ReturnSD = NULL;
+            Status = RtlMakeSelfRelativeSD( (PSECURITY_DESCRIPTOR) SD,
+                                            (PSECURITY_DESCRIPTOR) ReturnSD,
+                                            &ReturnSDLength );
+
+            if (Status == STATUS_BUFFER_TOO_SMALL) {    // This is the expected case
+
+                ReturnSD = MIDL_user_allocate( ReturnSDLength );
+
+                if (ReturnSD == NULL) {
+                    Status = STATUS_INSUFFICIENT_RESOURCES;
+                } else {
+                    Status = RtlMakeSelfRelativeSD( (PSECURITY_DESCRIPTOR) SD,
+                                                    (PSECURITY_DESCRIPTOR) ReturnSD,
+                                                    &ReturnSDLength );
+                    ASSERT( NT_SUCCESS(Status) );
+                }
+            }
+
+
+            if (NT_SUCCESS(Status)) {
+
+                //
+                // Allocate the first block of returned memory.
+                //
+
+                RpcSD = MIDL_user_allocate( sizeof(LSAPR_SR_SECURITY_DESCRIPTOR) );
+
+                if (RpcSD == NULL) {
+
+                    Status = STATUS_INSUFFICIENT_RESOURCES;
+                    if (ReturnSD != NULL) {
+                        MIDL_user_free( ReturnSD );
+                    }
+                } else {
+
+                    RpcSD->Length = ReturnSDLength;
+                    RpcSD->SecurityDescriptor = (PUCHAR)( (PVOID)ReturnSD );
+                }
+            }
+
+
+            //
+            // free the attribute read from disk
+            //
+
+            MIDL_user_free( SD );
+        }
+
+        IgnoreStatus = LsapDbDereferenceObject(
+                           &ObjectHandle,
+                           InternalHandle->ObjectTypeId,
+                           LSAP_DB_RELEASE_LOCK,
+                           (SECURITY_DB_DELTA_TYPE) 0,
+                           Status
+                           );
+        ASSERT( NT_SUCCESS(IgnoreStatus) );
     }
 
-    goto QuerySecurityObjectFinish;
+
+    *SecurityDescriptor = RpcSD;
+    return(Status);
 }
 
 

@@ -27,15 +27,9 @@ Revision History:
 #include "precomp.h"
 #pragma hdrstop
 
-ULONG
-RdrNumberOfComponents(
-    IN PUNICODE_STRING String
-    );
-
 #ifdef  ALLOC_PRAGMA
 #pragma alloc_text(PAGE, RdrLockUsersBuffer)
 #pragma alloc_text(PAGE, RdrMapUsersBuffer)
-#pragma alloc_text(PAGE, RdrUnMapUsersBuffer)
 #pragma alloc_text(PAGE, RdrCopyNetworkPath)
 #pragma alloc_text(PAGE, RdrCanonicalizeFilename)
 #pragma alloc_text(PAGE, RdrNumberOfComponents)
@@ -68,6 +62,7 @@ RdrNumberOfComponents(
 RdrSmbScrounge (
     IN PSMB_HEADER Smb,
     IN PSERVERLISTENTRY Sle OPTIONAL,
+    IN BOOLEAN DfsFile,
     IN BOOLEAN KnowsEas,
     IN BOOLEAN KnowsLongNames
     )
@@ -128,6 +123,12 @@ Return Value:
             Flags2 |= SMB_FLAGS2_KNOWS_LONG_NAMES;
         }
 
+    }
+
+    if (Sle == NULL || (Sle->Capabilities & DF_DFSAWARE)) {
+        if (DfsFile) {
+            Flags2 |= SMB_FLAGS2_DFS;
+        }
     }
 
     SmbPutAlignedUshort(&Smb->Flags2, Flags2);
@@ -316,39 +317,6 @@ Return Value:
     return FALSE;
 }
 
-VOID
-RdrUnMapUsersBuffer (
-    IN PIRP Irp,
-    IN PVOID UserBuffer
-    )
-
-/*++
-
-Routine Description:
-
-    This routine will probe and lock the buffer described by the
-    provided Irp.
-
-Arguments:
-
-    IN PIRP Irp - Supplies the IRP that is to be locked.
-    IN PVOID UserBuffer - Supplies a buffer that was mapped with MmMapLockedPages.
-
-Return Value:
-
-    None.
-
---*/
-
-{
-    PAGED_CODE();
-
-    UNREFERENCED_PARAMETER(Irp);
-    UNREFERENCED_PARAMETER(UserBuffer);
-}
-
-
-
 NTSTATUS
 RdrCopyNetworkPath (
     IN OUT PVOID *Destination,
@@ -391,6 +359,8 @@ Return Value:
 {
     USHORT i;
     USHORT PathComp = 0;
+    USHORT PathLength;
+    UNICODE_STRING RemainingPart;
     NTSTATUS Status;
     PSZ dest = *Destination;
 
@@ -402,24 +372,36 @@ Return Value:
         *dest++ = CoreProtocol;
     }
 
-    if (Server->Capabilities & DF_UNICODE) {
-        PWSTR UDest = ALIGN_SMB_WSTR(dest);
+    //
+    //  The name passed in is of the form \SERVER\SHARE\PATH.
+    //
+    //  Skip over the first n components in the path. Use the literals
+    //   SKIP_SERVER_SHARE(=3) and  SKIP_SERVER(=2)
+    //
 
-        //
-        //  The name passed in is of the form \SERVER\SHARE\PATH.
-        //
-        //  Skip over the first n components in the path. Use the literals
-        //   SKIP_SERVER_SHARE(=3) and  SKIP_SERVER(=2)
-        //
+    PathLength = PathName->Length/sizeof(WCHAR);
 
-
-        for (i=0; i<(USHORT)(PathName->Length/sizeof(WCHAR));i++) {
-            register WCHAR ch = PathName->Buffer[i];
-            if (ch == OBJ_NAME_PATH_SEPARATOR) {
-                if (++PathComp==SkipCount)
-                    break;
-            }
+    for (i=0; i<PathLength; i++) {
+        if ((PathName->Buffer[i] == OBJ_NAME_PATH_SEPARATOR) &&
+            (++PathComp==SkipCount)) {
+                break;
         }
+    }
+
+    RemainingPart.Buffer = &PathName->Buffer[i];
+    RemainingPart.MaximumLength =
+    RemainingPart.Length = PathName->Length - i*sizeof(WCHAR);
+
+    //
+    //  If the last character in the name is a "\", strip the trailing "\"
+    //
+
+    if (PathName->Buffer[PathLength-1] == OBJ_NAME_PATH_SEPARATOR) {
+        RemainingPart.Length -= sizeof(WCHAR);
+    }
+
+    if (Server->Capabilities & DF_UNICODE) {
+        PWCH UDest = ALIGN_SMB_WSTR(dest);
 
         //
         //  If there are not path components (if we are trying to access
@@ -428,92 +410,51 @@ Return Value:
         //  into the SMB.
         //
 
-        if ((i == (USHORT)(PathName->Length/sizeof(WCHAR))) ||
-            ((i == (USHORT)((PathName->Length/sizeof(WCHAR))-1)) &&
-             (PathName->Buffer[i] == OBJ_NAME_PATH_SEPARATOR))) {
-            *((PWCH)UDest)++ = L'\\';
+        if (RemainingPart.Length == 0) {
+            *UDest++ = L'\\';
         } else {
-            for ( ;i < (USHORT)(PathName->Length/sizeof(WCHAR)) ; i++) {
-                *((PWCH)UDest)++ = PathName->Buffer[i];
-            }
+            RtlCopyMemory(UDest,
+                          RemainingPart.Buffer,
+                          RemainingPart.Length);
 
-            //
-            //  If the last character in the name is a "\", strip the trailing "\"
-            //
-
-            if (*(PWCH)&UDest[-1] == OBJ_NAME_PATH_SEPARATOR) {
-                UDest--;
-            }
-
+            UDest += RemainingPart.Length/sizeof(WCHAR);
         }
 
-        *((PWCH)UDest)++ = UNICODE_NULL;
+        *UDest++ = UNICODE_NULL;
 
         *Destination = UDest;
     } else {
-        OEM_STRING AnsiPath;
-        PSZ PathPtr;
-
-        Status = RtlUnicodeStringToOemString(&AnsiPath, PathName, TRUE);
-
-        if (!NT_SUCCESS(Status)) {
-            return Status;
-        }
-
-        //
-        //  The name passed in is of the form \SERVER\SHARE\PATH.
-        //
-        //  Skip over the first n components in the path. Use the literals
-        //   SKIP_SERVER_SHARE(=3) and  SKIP_SERVER(=2)
-        //
-
-
-        PathPtr = AnsiPath.Buffer;
-
-        for (i=0; i<AnsiPath.Length;i++) {
-            register UCHAR ch = AnsiPath.Buffer[i];
-            if (ch == OBJ_NAME_PATH_SEPARATOR) {
-                if (++PathComp==SkipCount)
-                    break;
-            }
-        }
-
         //
         //  If there are not path components (if we are trying to access
         //  \Server\Share), we want to put the directory name as the path
         //  into the SMB.
         //
 
-        if ((i == AnsiPath.Length) ||
-            ((i == (USHORT)(AnsiPath.Length-1)) &&
-             (PathName->Buffer[i] == OBJ_NAME_PATH_SEPARATOR))) {
+        if (RemainingPart.Length == 0) {
             *dest++ = OBJ_NAME_PATH_SEPARATOR;
         } else {
-            for ( ;i < AnsiPath.Length ; i++) {
-                *dest++ = AnsiPath.Buffer[i];
-            }
+
+            OEM_STRING AnsiPath = {0,RemainingPart.Length*sizeof(WCHAR),dest};
 
             //
-            //  If the last character in the name is a "\", strip the trailing "\"
+            //  Convert the UNICODE name into OEM directly into the SMB
             //
 
-            if (dest[-1] == OBJ_NAME_PATH_SEPARATOR) {
-                dest--;
+            Status = RtlUnicodeStringToOemString(&AnsiPath, &RemainingPart, FALSE);
+
+            if (!NT_SUCCESS(Status)) {
+                return Status;
             }
 
+            dest += AnsiPath.Length;
         }
 
         *dest++ = '\0';
 
-        RtlFreeOemString(&AnsiPath);
-
         *Destination = dest;
     }
 
-
     return STATUS_SUCCESS;
-
-
 }
 
 #ifdef  _M_IX86
@@ -823,11 +764,11 @@ Return Value:
                 if (ComponentNumber == 1) {
 
                     //
-                    //  We can't support more than CNLEN bytes in a computer
+                    //  We can't support more than MAX_PATH bytes in a computer
                     //  name
                     //
 
-                    if (ComponentSize > CNLEN) {
+                    if (ComponentSize > MAX_PATH) {
                         try_return (Status = STATUS_BAD_NETWORK_PATH);
                     }
                 } else if (ComponentNumber == 2) {
@@ -1158,9 +1099,9 @@ Return Value:
             return Status;
         }
 
-        if (ServerNameA.Length > LM20_CNLEN) {
+        if( ServerNameA.Length > MAX_PATH ) {
 
-            RtlFreeOemString(&ServerNameA);
+            RtlFreeOemString( &ServerNameA );
 
             return STATUS_BAD_NETWORK_PATH;
         }
@@ -1332,12 +1273,19 @@ Return Value:
     }
 
     //
-    //  Initialize the extracted name to the name passed in.
+    // Initialize the extracted name to the name passed in.
+    //
+
     *ServerName = *ConnectionName;
 
-    ServerName->Buffer += 1;
-    ServerName->Length-= sizeof(WCHAR);
-    ServerName->MaximumLength-= sizeof(WCHAR);
+    //
+    // If the input name starts with "\", skip over it.
+    //
+
+    if (ServerName->Buffer[0] == OBJ_NAME_PATH_SEPARATOR) {
+        ServerName->Buffer += 1;
+        ServerName->Length -= sizeof(WCHAR);
+    }
 
     //
     // Scan forward finding the terminal "\" in the server name.
@@ -1355,7 +1303,6 @@ Return Value:
     //
 
     ServerName->Length = ServerName->MaximumLength = (USHORT)(i*sizeof(WCHAR));
-
 }
 
 NTSTATUS
@@ -1390,8 +1337,18 @@ Return Value:
 {
     UNICODE_STRING Component;
     UNICODE_STRING FilePath = *EntryPath;
+    USHORT leadingSlashLength;
 
     PAGED_CODE();
+
+    //
+    // If the input string is empty, return empty output strings.
+    //
+
+    if (FilePath.Length == 0) {
+        *PathString = *FileName = FilePath;
+        return STATUS_SUCCESS;
+    }
 
     //
     //  Scan through the current file name to find the entire path
@@ -1399,6 +1356,12 @@ Return Value:
     //
 
     do {
+
+        //
+        // Remember whether the input string starts with a "\".
+        //
+
+        leadingSlashLength = (FilePath.Buffer[0] == OBJ_NAME_PATH_SEPARATOR) ? sizeof(WCHAR) : 0;
 
         //
         //  Extract the next component from the name.
@@ -1415,16 +1378,16 @@ Return Value:
 
         if (Component.Length != 0) {
 
-            FilePath.Length -= Component.Length+sizeof(WCHAR);
-            FilePath.MaximumLength -= Component.MaximumLength+sizeof(WCHAR);
-            FilePath.Buffer += (Component.Length/sizeof(WCHAR))+1;
+            FilePath.Length -= Component.Length + leadingSlashLength;
+            FilePath.MaximumLength -= Component.MaximumLength + leadingSlashLength;
+            FilePath.Buffer += (Component.Length + leadingSlashLength)/sizeof(WCHAR);
 
             *FileName = Component;
         }
 
         dprintf(DPRT_FILEINFO, ("Last Component: %wZ\n", FileName));
 
-    } while (Component.Length != 0);
+    } while ((Component.Length != 0) && (FilePath.Length != 0));
 
     //
     //  Take the FCB's name, subtract the last component of the name
@@ -1437,8 +1400,8 @@ Return Value:
     //  Set the path's name based on the original name, subtracting
     //  the length of the name portion (including the "\")
     //
-    PathString->Length -= (FileName->Length + sizeof(WCHAR));
-    PathString->MaximumLength -= (FileName->Length + sizeof(WCHAR));
+    PathString->Length -= FileName->Length + leadingSlashLength;
+    PathString->MaximumLength -= FileName->Length + leadingSlashLength;
 
     return STATUS_SUCCESS;
 }
@@ -1617,9 +1580,6 @@ Return Value:
         if (TimeFields.Year < 1601) {
             TimeFields.Year = 1601;
         }
-
-// BUGBUG: Need to check for max value for year, but since that's about 24000
-//          years, it's not really relevent
 
         if (TimeFields.Month > 12) {
             TimeFields.Month = 12;
@@ -1874,8 +1834,6 @@ Note:
 --*/
 
 {
-    BOOLEAN RetValue = FALSE;
-
     PAGED_CODE();
 
     if (Icb->Type == DiskFile) {
@@ -1895,30 +1853,36 @@ Note:
         }
 
 
-        if (Icb->u.f.Flags & ICBF_OPENEDEXCLUSIVE) {
+        //
+        //  If we have exclusive access to the file, or if we have an
+        //  oplock, and this is not a loopback connection, then we can
+        //  buffer this file.
+        //
+
+        if (((Icb->u.f.Flags & ICBF_OPENEDEXCLUSIVE) ||
+             (Icb->u.f.Flags & ICBF_OPLOCKED)) &&
+            !Icb->Fcb->Connection->Server->IsLoopback) {
 
             return TRUE;
 
         } else {
 
-            if (Icb->u.f.Flags & ICBF_OPLOCKED) {
-                RetValue = TRUE;
-            }
-
             //
-            //  If the user will let us, we will buffer read only files.
+            //  If the user will let us, we will buffer readonly files.
+            //  Note that we will buffer readonly files even on loopback
+            //  connections.
             //
 
             if ((Icb->Fcb->Attribute & FILE_ATTRIBUTE_READONLY) &&
                 RdrData.BufferReadOnlyFiles) {
-                RetValue = TRUE;
+                return TRUE;
             }
         }
-    } else {
-        RetValue = TRUE;
+
+        return FALSE;
     }
 
-    return RetValue;
+    return TRUE;
 }
 
 ULONG
@@ -2065,6 +2029,9 @@ Return Value:
         return FILE_OVERWRITTEN;
         break;
     }
+
+    ASSERT(FALSE);
+    return 0;
 }
 
 
@@ -2293,13 +2260,38 @@ RdrPackNtString(
     if ((*laststring - dataend) < size) {
         string->Length = 0;
         return(0);
+    }
+
+    if( size == 0 ) {
+
+        //
+        // A NULL string!  If there is room, put a NULL in the
+        //  output buffer.
+        //
+
+        if( (*laststring - dataend) < sizeof( WCHAR ) ) {
+            //
+            // There is no room.
+            //
+            return( 0 );
+
+        } else {
+            //
+            // There is room.
+            //
+            *laststring -= sizeof( WCHAR );
+            **laststring = UNICODE_NULL;
+            size = sizeof( WCHAR );
+        }
+
     } else {
         *laststring -= size;
         RtlCopyMemory(*laststring, string->Buffer, size);
-        (PCHAR )(string->Buffer) = *laststring;
-        (PCHAR )(string->Buffer) -= BufferDisplacement;
-        return(size);
     }
+
+    (PCHAR )(string->Buffer) = *laststring;
+    (PCHAR )(string->Buffer) -= BufferDisplacement;
+    return(size);
 }
 
 ULONG
@@ -2537,7 +2529,7 @@ Note:
     }
 
     for (i = 0; i < RdrNumberOfBatchExtensions ; i++) {
-        if (!wcsnicmp(RdrBatchExtensionArray[i],
+        if (!_wcsnicmp(RdrBatchExtensionArray[i],
                     &FileName->Buffer[(FileName->Length / sizeof(WCHAR)) - 4],
                     4)) {
             return TRUE;
@@ -2627,7 +2619,7 @@ struct s_smbcmd     rgCmdTable[] = {
     0x23, "getattrE",     /*SMBDgetattrE*/NULL,     0,                      def,
     0x24, "lockingX",     /*SMBDlockingX*/NULL,     S_ANDX | S_BUFFRAW,     def,
     0x25, "trans",        /*SMBDtrans*/NULL,        S_BUFFRAW,              def,
-//  0x26, "transs",       /*SMBDtranss*/NULL,       S_BUFFRAW,      BUGBUG  def,
+//  0x26, "transs",       /*SMBDtranss*/NULL,       S_BUFFRAW,              def,
     0x27, "ioctl",        /*SMBDioctl*/NULL,        S_BUFFRAW,              def,
     0x28, "ioctls",       /*SMBDioctls*/NULL,       S_BUFFRAW,              def,
     0x29, "copy",         /*SMBDcopy*/NULL,         S_NULLSTR,              def,
@@ -2675,6 +2667,7 @@ struct s_smbcmd     rgCmdTable[] = {
     0xA1, "NtTrans2",     /*SMBDsplwr*/NULL,        0,                      def,
     0xA2, "Nt Create&X",  /*SMBDsplretq*/NULL,      0,                      def,
     0xA4, "Cancel",       /*SMBDsplretq*/NULL,      0,                      def,
+    0xA5, "Nt Rename",    /*???*/NULL,              S_BUFFRAW,              def,
 
     0xC0, "splopen",      /*SMBDsplopen*/NULL,      0,                      def,
     0xC1, "splwr",        /*SMBDsplwr*/NULL,        0,                      def,

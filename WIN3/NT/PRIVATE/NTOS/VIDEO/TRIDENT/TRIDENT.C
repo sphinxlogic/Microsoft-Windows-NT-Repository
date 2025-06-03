@@ -190,6 +190,13 @@ VgaValidateModes(
 
 // Trident TVGA end
 
+VOID
+vBankMap(
+    LONG iBankRead,
+    LONG iBankWrite,
+    PVOID pvContext
+    );
+
 #if defined(ALLOC_PRAGMA)
 #pragma alloc_text(PAGE,DriverEntry)
 #pragma alloc_text(PAGE,VgaFindAdapter)
@@ -585,12 +592,110 @@ Return Value:
     PVIDEO_MEMORY_INFORMATION memoryInformation;
     ULONG inIoSpace;
 
+    PVIDEO_SHARE_MEMORY pShareMemory;
+    PVIDEO_SHARE_MEMORY_INFORMATION pShareMemoryInformation;
+    PHYSICAL_ADDRESS shareAddress;
+    PVOID virtualAddress;
+    ULONG sharedViewSize;
+    ULONG ulBankSize;
+
+    VOID (*pfnBank)(LONG,LONG,PVOID);
+
     //
     // Switch on the IoContolCode in the RequestPacket. It indicates which
     // function must be performed by the driver.
     //
 
     switch (RequestPacket->IoControlCode) {
+
+
+    case IOCTL_VIDEO_SHARE_VIDEO_MEMORY:
+
+        VideoDebugPrint((2, "VgaStartIO - ShareVideoMemory\n"));
+
+        if ( (RequestPacket->OutputBufferLength < sizeof(VIDEO_SHARE_MEMORY_INFORMATION)) ||
+             (RequestPacket->InputBufferLength < sizeof(VIDEO_MEMORY)) ) {
+
+            status = ERROR_INSUFFICIENT_BUFFER;
+            VideoDebugPrint((0, "VgaStartIO - ShareVideoMemory - ERROR_INSUFFICIENT_BUFFER\n"));
+            break;
+
+        }
+
+        pShareMemory = RequestPacket->InputBuffer;
+
+        if ( (pShareMemory->ViewOffset > hwDeviceExtension->AdapterMemorySize) ||
+             ((pShareMemory->ViewOffset + pShareMemory->ViewSize) >
+                  hwDeviceExtension->AdapterMemorySize) ) {
+
+            status = ERROR_INVALID_PARAMETER;
+            VideoDebugPrint((0, "VgaStartIO - ShareVideoMemory - ERROR_INVALID_PARAMETER\n"));
+            break;
+
+        }
+
+        RequestPacket->StatusBlock->Information =
+                                    sizeof(VIDEO_SHARE_MEMORY_INFORMATION);
+
+        //
+        // Beware: the input buffer and the output buffer are the same
+        // buffer, and therefore data should not be copied from one to the
+        // other
+        //
+
+        virtualAddress = pShareMemory->ProcessHandle;
+        sharedViewSize = pShareMemory->ViewSize;
+
+        inIoSpace = 0;
+
+        //
+        // NOTE: we are ignoring ViewOffset
+        //
+
+        shareAddress.QuadPart =
+            hwDeviceExtension->PhysicalFrameBase.QuadPart;
+
+
+        pfnBank = vBankMap;
+        ulBankSize = 0x10000; // 64K banks
+
+        status = VideoPortMapBankedMemory(hwDeviceExtension,
+                                          shareAddress,
+                                          &sharedViewSize,
+                                          &inIoSpace,
+                                          &virtualAddress,
+                                          ulBankSize,   // bank size                  
+                                          FALSE,        // we have separate read/write
+                                          pfnBank,
+                                          (PVOID)hwDeviceExtension);
+
+        pShareMemoryInformation = RequestPacket->OutputBuffer;
+
+        pShareMemoryInformation->SharedViewOffset = pShareMemory->ViewOffset;
+        pShareMemoryInformation->VirtualAddress = virtualAddress;
+        pShareMemoryInformation->SharedViewSize = sharedViewSize;
+
+        break;
+
+
+    case IOCTL_VIDEO_UNSHARE_VIDEO_MEMORY:
+
+        VideoDebugPrint((2, "VgaStartIO - UnshareVideoMemory\n"));
+
+        if (RequestPacket->InputBufferLength < sizeof(VIDEO_SHARE_MEMORY)) {
+
+            status = ERROR_INSUFFICIENT_BUFFER;
+            break;
+
+        }
+
+        pShareMemory = RequestPacket->InputBuffer;
+
+        status = VideoPortUnmapMemory(hwDeviceExtension,
+                                      pShareMemory->RequestedVirtualAddress,
+                                      pShareMemory->ProcessHandle);
+
+        break;
 
 
     case IOCTL_VIDEO_MAP_VIDEO_MEMORY:
@@ -4773,6 +4878,50 @@ Return Value:
 } // end VgaPlaybackValidatorData()
 
 
+//---------------------------------------------------------------------------
+//
+// The memory manager needs a "C" interface to the banking function
+//
+
+/*++
+
+Routine Description:
+
+    This function is a "C" callable interface to the ASM banking
+    function.  It is NON paged because it is called from the
+    Memory Manager during some page faults.
+
+Arguments:
+
+    iBankRead -     Index of bank we want mapped in to read from.
+    iBankWrite -    Index of bank we want mapped in to write to.
+
+Return Value:
+
+    None.
+
+--*/
+
+
+VOID
+vBankMap(
+    LONG iBankRead,
+    LONG iBankWrite,
+    PVOID pvContext
+    )
+{
+    VideoDebugPrint((1, "vBankMap(%d,%d) - enter\n",iBankRead,iBankWrite));
+#ifdef _X86_
+    _asm {
+        mov     eax,iBankRead
+        mov     edx,iBankWrite
+        lea     ebx,BankSwitchStart
+        call    ebx
+    }
+#endif
+    VideoDebugPrint((1, "vBankMap - exit\n"));
+}
+
 
 // Trident TVGA begin
 
@@ -4896,9 +5045,7 @@ Return Value:
     //
 
     //
-    // BUGBUG
-    // !!!
-    // HACK
+    // NOTE
     //
     // Right now, if we only find 256K, fail since the driver only supports
     // mode tables for 512K and 1 MEG.

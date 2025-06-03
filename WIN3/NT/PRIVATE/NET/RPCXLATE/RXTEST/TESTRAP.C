@@ -55,7 +55,7 @@ TestRap(
     DWORD Size;
 
     IF_DEBUG( RAP ) {
-        NetpDbgPrint("\nTestRap: begining...\n" );
+        NetpKdPrint(("\nTestRap: begining...\n" ));
     }
 
     //
@@ -78,8 +78,8 @@ TestRap(
 
     Size = RapStructureSize(Desc, Both, TRUE);  // get len of native bytes
     if (Size != 16) {
-        NetpDbgPrint("TestRap: struct size of '" FORMAT_LPDESC "' is "
-                FORMAT_DWORD ".\n", Desc, Size);
+        NetpKdPrint(("TestRap: struct size of '" FORMAT_LPDESC "' is "
+                FORMAT_DWORD ".\n", Desc, Size));
         Fail( NERR_InternalError );
     }
 

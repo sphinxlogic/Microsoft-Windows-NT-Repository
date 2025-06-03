@@ -1716,20 +1716,20 @@ DbgPrint("\n (debug) return length: 0x%lx \n", ReturnLength);
             ValuesCompare = FALSE;
         }
 
-        if ( !RtlLargeIntegerEqualTo(Privileges->Privileges[UNSOLICITED_INDEX].Luid,
-                                     UnsolicitedInputPrivilege)      ||
+        if ( !(Privileges->Privileges[UNSOLICITED_INDEX].Luid.QuadPart ==
+               UnsolicitedInputPrivilege.QuadPart)      ||
              (Privileges->Privileges[UNSOLICITED_INDEX].Attributes != 0)             ) {
             ValuesCompare = FALSE;
         }
 
-        if ( !RtlLargeIntegerEqualTo(Privileges->Privileges[SECURITY_INDEX].Luid,
-                                      SecurityPrivilege)             ||
+        if ( !(Privileges->Privileges[SECURITY_INDEX].Luid.QuadPart ==
+               SecurityPrivilege.QuadPart)             ||
              (Privileges->Privileges[SECURITY_INDEX].Attributes != 0)             ) {
             ValuesCompare = FALSE;
         }
 
-        if ( !RtlLargeIntegerEqualTo(Privileges->Privileges[ASSIGN_PRIMARY_INDEX].Luid,
-                                      AssignPrimaryTokenPrivilege)             ||
+        if ( !(Privileges->Privileges[ASSIGN_PRIMARY_INDEX].Luid.QuadPart ==
+               AssignPrimaryTokenPrivilege.QuadPart)             ||
              (Privileges->Privileges[ASSIGN_PRIMARY_INDEX].Attributes != SE_PRIVILEGE_ENABLED)             ) {
             ValuesCompare = FALSE;
         }
@@ -2240,9 +2240,8 @@ DbgPrint("\n (debug) return length: 0x%lx \n", ReturnLength);
 
         }
 
-        if ( !RtlLargeIntegerEqualTo(
-                  QueriedSource.SourceIdentifier,
-                  TestSource.SourceIdentifier)   ) {
+        if ( !(QueriedSource.SourceIdentifier.QuadPart ==
+               TestSource.SourceIdentifier.QuadPart)   ) {
 
             ValuesCompare = FALSE;
 

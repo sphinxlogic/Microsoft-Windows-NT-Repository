@@ -51,10 +51,11 @@ PULONG             Signatures;
 
 PBOOLEAN           OffLine;
 
-// Keeps track of whether changes have been made
+// Keeps track of whether changes have been requested
 // to each disk's partition structure.
 
-BOOLEAN           *ChangesMade;
+BOOLEAN           *ChangesRequested;
+BOOLEAN           *ChangesCommitted;
 
 
 // Value used to indicate that the partition entry has changed but in a non-
@@ -192,18 +193,6 @@ LowQueryFdiskPathList(
     OUT PULONG   ListLength
     );
 
-STATUS_CODE
-LowSetDiskLayout(
-    IN PCHAR                     Path,
-    IN PDRIVE_LAYOUT_INFORMATION DriveLayout
-    );
-
-STATUS_CODE
-LowGetDiskLayout(
-    IN  PCHAR                      Path,
-    OUT PDRIVE_LAYOUT_INFORMATION *DriveLayout
-    );
-
 
 STATUS_CODE
 FdiskInitialize(
@@ -242,7 +231,8 @@ Return Value:
     LogicalVolumes = NULL;
 
     if (((DiskGeometryArray      = AllocateMemory(CountOfDisks * sizeof(DISKGEOM  ))) == NULL)
-     || ((ChangesMade            = AllocateMemory(CountOfDisks * sizeof(BOOLEAN   ))) == NULL)
+     || ((ChangesRequested       = AllocateMemory(CountOfDisks * sizeof(BOOLEAN   ))) == NULL)
+     || ((ChangesCommitted       = AllocateMemory(CountOfDisks * sizeof(BOOLEAN   ))) == NULL)
      || ((PrimaryPartitions      = AllocateMemory(CountOfDisks * sizeof(PPARTITION))) == NULL)
      || ((Signatures             = AllocateMemory(CountOfDisks * sizeof(ULONG     ))) == NULL)
      || ((OffLine                = AllocateMemory(CountOfDisks * sizeof(BOOLEAN   ))) == NULL)
@@ -254,7 +244,8 @@ Return Value:
     for (i=0; i<CountOfDisks; i++) {
         PrimaryPartitions[i] = NULL;
         LogicalVolumes[i] = NULL;
-        ChangesMade[i] = FALSE;
+        ChangesRequested[i] = FALSE;
+        ChangesCommitted[i] = FALSE;
         OffLine[i] = CheckIfDiskIsOffLine(i);
     }
 
@@ -291,24 +282,27 @@ Return Value:
 {
     LowFreeFdiskPathList(DiskNames, CountOfDisks);
 
-    if(DiskGeometryArray != NULL) {
+    if (DiskGeometryArray != NULL) {
         FreeMemory(DiskGeometryArray);
     }
-    if(PrimaryPartitions != NULL) {
+    if (PrimaryPartitions != NULL) {
         FreePartitionInfoLinkedLists(PrimaryPartitions);
         FreeMemory(PrimaryPartitions);
     }
-    if(LogicalVolumes != NULL) {
+    if (LogicalVolumes != NULL) {
         FreePartitionInfoLinkedLists(LogicalVolumes);
         FreeMemory(LogicalVolumes);
     }
-    if(ChangesMade != NULL) {
-        FreeMemory(ChangesMade);
+    if (ChangesRequested != NULL) {
+        FreeMemory(ChangesRequested);
     }
-    if(OffLine != NULL) {
+    if (ChangesCommitted != NULL) {
+        FreeMemory(ChangesCommitted);
+    }
+    if (OffLine != NULL) {
         FreeMemory(OffLine);
     }
-    if(Signatures != NULL) {
+    if (Signatures != NULL) {
         FreeMemory(Signatures);
     }
 }
@@ -428,7 +422,7 @@ Return Value:
         DiskGeometryArray[i].BytesPerSector   = SectorSize;
         DiskGeometryArray[i].SectorsPerTrack  = SectorsPerTrack;
         DiskGeometryArray[i].Heads            = Heads;
-        DiskGeometryArray[i].Cylinders        = UNSIGNED(TotalSectorCount / (SectorsPerTrack * Heads));
+        DiskGeometryArray[i].Cylinders.QuadPart = (TotalSectorCount / (SectorsPerTrack * Heads));
         DiskGeometryArray[i].BytesPerTrack    = SectorsPerTrack * SectorSize;
         DiskGeometryArray[i].BytesPerCylinder = SectorsPerTrack * SectorSize * Heads;
     }
@@ -470,7 +464,7 @@ Return Value:
         if(!p->Update) {
             p->Update = CHANGED_DONT_ZAP;
         }
-        ChangesMade[p->Disk] = TRUE;
+        ChangesRequested[p->Disk] = TRUE;
     }
 }
 #endif
@@ -518,11 +512,12 @@ Return Value:
 --*/
 
 {
-    PREGION_DATA CreateData = Region->Reserved;
-    LARGE_INTEGER CSize,CStart;
-    LARGE_INTEGER Mod;
-    ULONG  bpc = DiskGeometryArray[Region->Disk].BytesPerCylinder;
-    ULONG  bpt = DiskGeometryArray[Region->Disk].BytesPerTrack;
+    PREGION_DATA  createData = Region->Reserved;
+    ULONG         bpc = DiskGeometryArray[Region->Disk].BytesPerCylinder;
+    ULONG         bpt = DiskGeometryArray[Region->Disk].BytesPerTrack;
+    LARGE_INTEGER cSize,
+                  cStart,
+                  mod;
 
     //
     // If we are creating a partition at offset 0, adjust the aligned region
@@ -530,30 +525,27 @@ Return Value:
     // start at offset 0.
     //
 
-    if(ZERO(CreateData->AlignedRegionOffset)) {
+    if (!createData->AlignedRegionOffset.QuadPart) {
 
-        LARGE_INTEGER Delta;
+        LARGE_INTEGER delta;
 
-        if(Type == REGION_EXTENDED) {
-
-            Delta = UNSIGNED(bpc);
-
+        if (Type == REGION_EXTENDED) {
+            delta.QuadPart = bpc;
         } else {
-
-            Delta = UNSIGNED(bpt);
+            delta.QuadPart = bpt;
         }
 
-        CreateData->AlignedRegionOffset = Delta;
-        CreateData->AlignedRegionSize = SUBTRACT(CreateData->AlignedRegionSize,Delta);
+        createData->AlignedRegionOffset = delta;
+        createData->AlignedRegionSize.QuadPart -= delta.QuadPart;
     }
 
-    CStart = CreateData->AlignedRegionOffset;
-    if(ZERO(MinimumSize)) {
-        CSize = MULTIPLY(UNSIGNED(CreationSizeMB),ONE_MEG);
+    cStart = createData->AlignedRegionOffset;
+    if (!MinimumSize.QuadPart) {
+        cSize.QuadPart = UInt32x32To64(CreationSizeMB, ONE_MEG);
     } else {
-        CSize = MinimumSize;
-        if(Type == REGION_LOGICAL) {
-            CSize = ADD(CSize,UNSIGNED(bpt));
+        cSize = MinimumSize;
+        if (Type == REGION_LOGICAL) {
+            cSize.QuadPart += bpt;
         }
     }
 
@@ -564,29 +556,28 @@ Return Value:
     // the disk start.
     //
 
-    MOD(ADD(CStart,CSize),UNSIGNED(bpc),&Mod);
+    mod.QuadPart = (cStart.QuadPart + cSize.QuadPart) % bpc;
+    if (mod.QuadPart) {
 
-    if(!ZERO(Mod)) {
-
-        if((!(ZERO(MinimumSize))) || GT(Mod,UNSIGNED(bpc/2))) {
-            CSize = ADD(CSize,SUBTRACT(UNSIGNED(bpc),Mod));
+        if ((MinimumSize.QuadPart) || (mod.QuadPart > (bpc/2))) {
+            cSize.QuadPart += ((LONGLONG)bpc - mod.QuadPart);
         } else {
-            CSize = SUBTRACT(CSize,Mod);        // snap downwards tp cyl boundary
+            cSize.QuadPart -= mod.QuadPart;  // snap downwards to cyl boundary
         }
     }
 
-    if(GT(CSize,CreateData->AlignedRegionSize)) {
+    if (cSize.QuadPart > createData->AlignedRegionSize.QuadPart) {
 
         //
         // Space available in the free space isn't large enough to accomodate
-        // the request in its entirety;  just use the entire free space.
+        // the request;  just use the entire free space.
         //
 
-        CSize  = CreateData->AlignedRegionSize;
+        cSize  = createData->AlignedRegionSize;
     }
 
-    *CreationStart = CStart;
-    *CreationSize  = CSize;
+    *CreationStart = cStart;
+    *CreationSize  = cSize;
 }
 
 
@@ -633,7 +624,9 @@ Return Value:
     PREGION_DATA  createData = Region->Reserved;
     LARGE_INTEGER creationStart,
                   creationSize,
-                  leftOver;
+                  leftOver,
+                  offset,
+                  length;
     PPARTITION   *partitionList;
 
     DetermineCreateSizeAndOffset(Region,
@@ -648,9 +641,11 @@ Return Value:
     // alignment), make a new PARTITION structure.
 
     p1 = NULL;
-    leftOver = SUBTRACT(creationStart, createData->Partition->Offset);
+    offset = createData->Partition->Offset;
+    length = createData->Partition->Length;
+    leftOver.QuadPart = creationStart.QuadPart - offset.QuadPart;
 
-    if (GT(leftOver, UNSIGNED(0))) {
+    if (leftOver.QuadPart > 0) {
 
         p1 = AllocatePartitionStructure(Region->Disk,
                                         createData->Partition->Offset,
@@ -668,13 +663,15 @@ Return Value:
     // a result of this creation.
 
     p2 = NULL;
-    leftOver = SUBTRACT(ADD(createData->Partition->Offset, createData->Partition->Length),
-                        ADD(creationStart, creationSize));
+    leftOver.QuadPart = (offset.QuadPart + length.QuadPart) -
+                        (creationStart.QuadPart + creationSize.QuadPart);
 
-    if (!ZERO(leftOver)) {
+    if (leftOver.QuadPart) {
+        LARGE_INTEGER temp;
 
+        temp.QuadPart = creationStart.QuadPart + creationSize.QuadPart;
         p2 = AllocatePartitionStructure(Region->Disk,
-                                        ADD(creationStart,creationSize),
+                                        temp,
                                         leftOver,
                                         SYSID_UNUSED,
                                         FALSE,
@@ -723,7 +720,7 @@ Return Value:
     }
 
     MergeFreePartitions(*partitionList);
-    ChangesMade[Region->Disk] = TRUE;
+    ChangesRequested[Region->Disk] = TRUE;
     return(OK_STATUS);
 }
 
@@ -753,8 +750,11 @@ Return Value:
 --*/
 
 {
+    LARGE_INTEGER zero;
+
+    zero.QuadPart = 0;
     return CreatePartitionEx(Region,
-                             UNSIGNED(0),
+                             zero,
                              CreationSizeMB,
                              Type,
                              (UCHAR)((Type == REGION_EXTENDED) ? SYSID_EXTENDED
@@ -807,10 +807,8 @@ Return Value:
                   : &PrimaryPartitions[Region->Disk];
 
     MergeFreePartitions(*PartitionList);
-
-    ChangesMade[Region->Disk] = TRUE;
-
-    return(OK_STATUS);
+    ChangesRequested[Region->Disk] = TRUE;
+    return OK_STATUS;
 }
 
 
@@ -913,9 +911,10 @@ Return Value:
 
 {
     STATUS_CODE   status;
-    LARGE_INTEGER AlignedOffset,
-                  AlignedSize;
-    ULONG         SizeMB;
+    LARGE_INTEGER alignedOffset,
+                  alignedSize,
+                  temp;
+    ULONG         sizeMB;
 
     while (p) {
 
@@ -923,10 +922,11 @@ Return Value:
 
             if (WantFreeRegions) {
 
-                AlignedOffset = AlignTowardsDiskEnd(p->Disk,p->Offset);
-                AlignedSize   = SUBTRACT(AlignTowardsDiskStart(p->Disk,ADD(p->Offset,p->Length)),
-                                         AlignedOffset);
-                SizeMB        = SIZEMB(AlignedSize);
+                alignedOffset = AlignTowardsDiskEnd(p->Disk,p->Offset);
+                temp.QuadPart = p->Offset.QuadPart + p->Length.QuadPart;
+                temp = AlignTowardsDiskStart(p->Disk, temp);
+                alignedSize.QuadPart = temp.QuadPart - alignedOffset.QuadPart;
+                sizeMB        = SIZEMB(alignedSize);
 
                 // Show the space free if it is greater than 1 meg, AND
                 // it is not a space starting at the beginning of the disk
@@ -936,18 +936,16 @@ Return Value:
                 // extended partition starting on cylinder 1 and cylinders
                 // of 1 megabyte or larger).
 
-                if (    GT(AlignedSize,UNSIGNED(0))
-                     && SizeMB
-                     && (   !ZERO(p->Offset)
-                          || GT( p->Length,
-                                 UNSIGNED(DiskGeometryArray[p->Disk].BytesPerCylinder)))) {
+                if ((alignedSize.QuadPart > 0) && sizeMB &&
+                    ((p->Offset.QuadPart) ||
+                      (p->Length.QuadPart > (DiskGeometryArray[p->Disk].BytesPerCylinder)))) {
                     if (!AddRegionEntry(Region,
                                         RegionCount,
-                                        SizeMB,
+                                        sizeMB,
                                         RegionType,
                                         p,
-                                        AlignedOffset,
-                                        AlignedSize)) {
+                                        alignedOffset,
+                                        alignedSize)) {
                         RETURN_OUT_OF_MEMORY;
                     }
                 }
@@ -956,17 +954,17 @@ Return Value:
 
             if (WantUsedRegions) {
 
-                AlignedOffset = p->Offset;
-                AlignedSize   = p->Length;
-                SizeMB        = SIZEMB(AlignedSize);
+                alignedOffset = p->Offset;
+                alignedSize   = p->Length;
+                sizeMB        = SIZEMB(alignedSize);
 
                 if (!AddRegionEntry(Region,
                                     RegionCount,
-                                    SizeMB,
+                                    sizeMB,
                                     RegionType,
                                     p,
-                                    AlignedOffset,
-                                    AlignedSize)) {
+                                    alignedOffset,
+                                    alignedSize)) {
                     RETURN_OUT_OF_MEMORY;
                 }
             }
@@ -1029,7 +1027,7 @@ Return Value:
     PREGION_DESCRIPTOR regionDescriptor;
     PREGION_DATA       regionData;
 
-    regionDescriptor = ReallocateMemory(*Regions,((*RegionCount) + 1) * sizeof(REGION_DESCRIPTOR));
+    regionDescriptor = ReallocateMemory(*Regions,(((*RegionCount) + 1) * sizeof(REGION_DESCRIPTOR)) + 20);
     if (regionDescriptor == NULL) {
         return FALSE;
     } else {
@@ -1090,7 +1088,7 @@ Return Value:
 {
     ULONG i;
 
-    for (i=0; i<RegionCount; i++) {
+    for (i = 0; i < RegionCount; i++) {
 
         if (Region[i].Reserved) {
             FreeMemory(Region[i].Reserved);
@@ -1116,7 +1114,6 @@ Routine Description:
 Arguments:
 
     Head    - pointer to pointer to first element in list
-
     p       - pointer to item to be added to list
 
 Return Value:
@@ -1126,14 +1123,15 @@ Return Value:
 --*/
 
 {
-    PARTITION *cur,*prev;
+    PARTITION *cur,
+              *prev;
 
-    if((cur = *Head) == NULL) {
+    if ((cur = *Head) == NULL) {
         *Head = p;
         return;
     }
 
-    if(LT(p->Offset,cur->Offset)) {
+    if (p->Offset.QuadPart < cur->Offset.QuadPart) {
         p->Next = cur;
         cur->Prev = p;
         *Head = p;
@@ -1143,8 +1141,8 @@ Return Value:
     prev = *Head;
     cur = cur->Next;
 
-    while(cur) {
-        if(LT(p->Offset,cur->Offset)) {
+    while (cur) {
+        if (p->Offset.QuadPart < cur->Offset.QuadPart) {
 
             p->Next = cur;
             p->Prev = prev;
@@ -1178,7 +1176,6 @@ Routine Description:
 Arguments:
 
     p       - pointer to element to be checked for
-
     List    - first element in list to be scanned
 
 Return Value:
@@ -1188,13 +1185,13 @@ Return Value:
 --*/
 
 {
-    while(List) {
-        if(p == List) {
-            return(TRUE);
+    while (List) {
+        if (p == List) {
+            return TRUE;
         }
         List = List->Next;
     }
-    return(FALSE);
+    return FALSE;
 }
 
 
@@ -1214,7 +1211,6 @@ Routine Description:
 Arguments:
 
     Disk    - index of disk to be checked
-
     p       - pointer to element to be checked for
 
 Return Value:
@@ -1224,7 +1220,7 @@ Return Value:
 --*/
 
 {
-    return(IsInLinkedList(p,LogicalVolumes[Disk]));
+    return IsInLinkedList(p, LogicalVolumes[Disk]);
 }
 
 
@@ -1244,7 +1240,6 @@ Routine Description:
 Arguments:
 
     Disk    - index of disk to be checked
-
     p       - pointer to element to be checked for
 
 Return Value:
@@ -1254,7 +1249,7 @@ Return Value:
 --*/
 
 {
-    return IsInLinkedList(p,PrimaryPartitions[Disk]);
+    return IsInLinkedList(p, PrimaryPartitions[Disk]);
 }
 
 
@@ -1290,8 +1285,7 @@ Return Value:
         if ((p->SysID == SYSID_UNUSED) && (p->Next->SysID == SYSID_UNUSED)) {
 
             next = p->Next;
-
-            p->Length = SUBTRACT(ADD(next->Offset,next->Length),p->Offset);
+            p->Length.QuadPart = (next->Offset.QuadPart + next->Length.QuadPart) - p->Offset.QuadPart;
 
             if (p->Next = next->Next) {
                 next->Next->Prev = p;
@@ -1337,19 +1331,14 @@ Return Value:
 
     p = PrimaryPartitions[Disk];
     while (p) {
-        if ((p->SysID != SYSID_UNUSED)
-         && !IsExtended(p->SysID)
-         && (p->PartitionNumber == Partition))
-        {
+        if ((p->SysID != SYSID_UNUSED) && !IsExtended(p->SysID) && (p->PartitionNumber == Partition)) {
             return p;
         }
         p = p->Next;
     }
     p = LogicalVolumes[Disk];
     while (p) {
-        if ((p->SysID != SYSID_UNUSED)
-         && (p->PartitionNumber == Partition))
-        {
+        if ((p->SysID != SYSID_UNUSED) && (p->PartitionNumber == Partition)) {
             return p;
         }
         p = p->Next;
@@ -1394,7 +1383,7 @@ Return Value:
         if (!p->Update) {
             p->Update = CHANGED_DONT_ZAP;
         }
-        ChangesMade[p->Disk] = TRUE;
+        ChangesRequested[p->Disk] = TRUE;
     }
 }
 
@@ -1422,7 +1411,7 @@ Return Value:
     if (!p->Update) {
         p->Update = CHANGED_DONT_ZAP;
     }
-    ChangesMade[p->Disk] = TRUE;
+    ChangesRequested[p->Disk] = TRUE;
 }
 
 
@@ -1487,7 +1476,7 @@ Return Value:
 {
     ULONG i;
 
-    for(i=0; i<CountOfDisks; i++) {
+    for (i = 0; i < CountOfDisks; i++) {
 
         FreeLinkedPartitionList(&ListHeadArray[i]);
     }
@@ -1516,21 +1505,15 @@ Arguments:
 
     Disk    - index of disk, one of whose regions the new PARTITION
               strucure describes.
-
     Offset  - byte offset of region on the disk
-
     Length  - length in bytes of the region
-
     SysID   - system id of region, of SYSID_UNUSED of this PARTITION
               is actually a free space.
-
     Update  - whether this PARTITION is dirty, ie, has changed and needs
               to be written to disk.
-
     Active  - flag for the BootIndicator field in a partition table entry,
               indicates to the x86 master boot program which partition
               is active.
-
     Recognized - whether the partition is a type recognized by NT
 
 Return Value:
@@ -1603,19 +1586,16 @@ Return Value:
 --*/
 
 {
-    PPARTITION              p = *PartitionList,
-                            q;
-    LARGE_INTEGER           start,
-                            size;
+    PPARTITION    p = *PartitionList,
+                  q;
+    LARGE_INTEGER start,
+                  size;
 
     start = StartOffset;
+    while (p) {
 
-    while(p) {
-
-        size = SUBTRACT(p->Offset, start);
-
-        if (GT(size,UNSIGNED(0))) {
-
+        size.QuadPart = p->Offset.QuadPart - start.QuadPart;
+        if (size.QuadPart > 0) {
             if (!(q = AllocatePartitionStructure(Disk,
                                                  start,
                                                  size,
@@ -1629,13 +1609,12 @@ Return Value:
             AddPartitionToLinkedList(PartitionList, q);
         }
 
-        start = ADD(p->Offset, p->Length);
+        start.QuadPart = p->Offset.QuadPart + p->Length.QuadPart;
         p = p->Next;
     }
 
-    size = SUBTRACT(ADD(StartOffset, Length), start);
-
-    if (GT(size, UNSIGNED(0))) {
+    size.QuadPart = (StartOffset.QuadPart + Length.QuadPart) - start.QuadPart;
+    if (size.QuadPart > 0) {
 
         if (!(q = AllocatePartitionStructure(Disk,
                                              start,
@@ -1707,12 +1686,16 @@ Return Value:
                 d = &DriveLayout->PartitionEntry[j];
 
                 if ((d->PartitionType != SYSID_UNUSED) && (d->PartitionType != SYSID_EXTENDED)) {
+                    LARGE_INTEGER t1,
+                                  t2;
 
-                    HiddenBytes = LiNMul(d->HiddenSectors,BytesPerSector);
+                    HiddenBytes.QuadPart = (LONGLONG)d->HiddenSectors * (LONGLONG)BytesPerSector;
 
+                    t1.QuadPart = d->StartingOffset.QuadPart - HiddenBytes.QuadPart;
+                    t2.QuadPart = d->PartitionLength.QuadPart + HiddenBytes.QuadPart;
                     if (!(q = AllocatePartitionStructure(Disk,
-                                                        SUBTRACT(d->StartingOffset,HiddenBytes),
-                                                        ADD(d->PartitionLength,HiddenBytes),
+                                                        t1,
+                                                        t2,
                                                         d->PartitionType,
                                                         FALSE,
                                                         d->BootIndicator,
@@ -1764,10 +1747,12 @@ Return Value:
 --*/
 
 {
+    LARGE_INTEGER          zero;
     ULONG                  i;
     PPARTITION             p;
     PPARTITION_INFORMATION d;
 
+    zero.QuadPart = 0;
     FreeLinkedPartitionList(&PrimaryPartitions[Disk]);
 
     if (DriveLayout->PartitionCount >= ENTRIES_PER_BOOTSECTOR) {
@@ -1799,7 +1784,7 @@ Return Value:
     }
     return InitializeFreeSpace(Disk,
                                &PrimaryPartitions[Disk],
-                               UNSIGNED(0),
+                               zero,
                                DiskLengthBytes(Disk));
 }
 
@@ -1929,7 +1914,7 @@ Return Value:
 
             // compare the name to see if it is a Partition
 
-            if (!wcsnicmp(dirInfo->Name.Buffer, L"Partition", 9)) {
+            if (!_wcsnicmp(dirInfo->Name.Buffer, L"Partition", 9)) {
                 UCHAR digits[3];
                 ULONG partitionNumber;
 
@@ -1980,8 +1965,8 @@ Return Value:
                for (index = 0; index < DriveLayout->PartitionCount; index++) {
 
                    partitionInfoPtr = &DriveLayout->PartitionEntry[index];
-                   if ((EQ(partitionInfoPtr->StartingOffset, partitionInfo.StartingOffset)) &&
-                       (EQ(partitionInfoPtr->PartitionLength, partitionInfo.PartitionLength))) {
+                   if ((partitionInfoPtr->StartingOffset.QuadPart == partitionInfo.StartingOffset.QuadPart) &&
+                       (partitionInfoPtr->PartitionLength.QuadPart == partitionInfo.PartitionLength.QuadPart)) {
 
                        // This is a match.
 
@@ -2156,8 +2141,11 @@ Return Value:
 --*/
 
 {
-    return MULTIPLY(DiskGeometryArray[Disk].Cylinders,
-                    DiskGeometryArray[Disk].BytesPerCylinder);
+    LARGE_INTEGER result;
+
+    result.QuadPart = DiskGeometryArray[Disk].Cylinders.QuadPart *
+                      DiskGeometryArray[Disk].BytesPerCylinder;
+    return result;
 }
 
 
@@ -2245,7 +2233,6 @@ Routine Description:
 Arguments:
 
     Disk - index of disk whose offset is to be snapped
-
     Offset - byte offset to be aligned (snapped to cylinder boundary)
 
 Return Value:
@@ -2256,10 +2243,11 @@ Return Value:
 
 {
     LARGE_INTEGER mod;
+    LARGE_INTEGER result;
 
-    MOD(Offset,UNSIGNED(DiskGeometryArray[Disk].BytesPerCylinder),&mod);
-
-    return SUBTRACT(Offset,mod);
+    mod.QuadPart = Offset.QuadPart % DiskGeometryArray[Disk].BytesPerCylinder;
+    result.QuadPart = Offset.QuadPart - mod.QuadPart;
+    return result;
 }
 
 
@@ -2279,7 +2267,6 @@ Routine Description:
 Arguments:
 
     Disk - index of disk whose offset is to be snapped
-
     Offset - byte offset to be aligned (snapped to cylinder boundary)
 
 Return Value:
@@ -2289,15 +2276,14 @@ Return Value:
 --*/
 
 {
-    LARGE_INTEGER mod;
+    LARGE_INTEGER mod,
+                  temp;
 
-    MOD(Offset,UNSIGNED(DiskGeometryArray[Disk].BytesPerCylinder),&mod);
+    mod.QuadPart = Offset.QuadPart % DiskGeometryArray[Disk].BytesPerCylinder;
+    if (mod.QuadPart) {
 
-    if (!ZERO(mod)) {
-
-        Offset = AlignTowardsDiskStart(Disk,
-                                       ADD(Offset,
-                                           UNSIGNED(DiskGeometryArray[Disk].BytesPerCylinder)));
+        temp.QuadPart = Offset.QuadPart + DiskGeometryArray[Disk].BytesPerCylinder;
+        Offset = AlignTowardsDiskStart(Disk, temp);
     }
     return Offset;
 }
@@ -2326,7 +2312,7 @@ Return Value:
 --*/
 
 {
-    return((BOOLEAN)(SysID == SYSID_EXTENDED));
+    return (BOOLEAN)(SysID == SYSID_EXTENDED);
 }
 
 
@@ -2351,17 +2337,12 @@ Routine Description:
 Arguments:
 
     Disk            - index of disk to check
-
     AllowMultiplePrimaries - whether to allow multiple primary partitions
-
     AnyAllowed - returns whether any creation is allowed
-
     PrimaryAllowed - returns whether creation of a primary partition
                      is allowed
-
     ExtendedAllowed - returns whether creation of an extended partition
                       is allowed
-
     Logical Allowed - returns whether creation of a logical volume is allowed.
 
 Return Value:
@@ -2407,10 +2388,8 @@ Routine Description:
 Arguments:
 
     Disk            - index of disk to check
-
     AllowMultiplePrimaries - whether existnace of primary partition
                              disallows creation of a primary partition
-
     Allowed - returns whether creation of a primary partition
               is allowed
 
@@ -2429,7 +2408,7 @@ Return Value:
     STATUS_CODE        status;
     BOOLEAN            FreeSpace = FALSE;
 
-    status = GetPrimaryDiskRegions(Disk,&Regions,&RegionCount);
+    status = GetPrimaryDiskRegions(Disk, &Regions, &RegionCount);
     if (status != OK_STATUS) {
         return status;
     }
@@ -2453,7 +2432,7 @@ Return Value:
         *Allowed = FALSE;
     }
 
-    FreeRegionArray(Regions,RegionCount);
+    FreeRegionArray(Regions, RegionCount);
     return OK_STATUS;
 }
 
@@ -2601,13 +2580,9 @@ Routine Description:
 Arguments:
 
     Disk            - index of disk to check
-
     AnyExists - returns whether any partitions exist on Disk
-
     PrimaryExists - returns whether any primary partitions exist on Disk
-
     ExtendedExists - returns whether there is an extended partition on Disk
-
     LogicalExists - returns whether any logical volumes exist on Disk
 
 Return Value:
@@ -2649,7 +2624,6 @@ Routine Description:
 Arguments:
 
     Disk   - index of disk to check
-
     Exists - returns whether any primary partitions exist on Disk
 
 Return Value:
@@ -2698,7 +2672,6 @@ Routine Description:
 Arguments:
 
     Disk   - index of disk to check
-
     Exists - returns whether an extended partition exists on Disk
 
 Return Value:
@@ -2747,7 +2720,6 @@ Routine Description:
 Arguments:
 
     Disk   - index of disk to check
-
     Exists - returns whether any logical volumes exist on Disk
 
 Return Value:
@@ -2824,7 +2796,7 @@ Return Value:
 --*/
 
 {
-    return(DiskNames[Disk]);
+    return DiskNames[Disk];
 }
 
 
@@ -2855,12 +2827,13 @@ Return Value:
 
 {
     ULONG         i;
-    LARGE_INTEGER Zero = UNSIGNED(0);
+    LARGE_INTEGER zero;
 
-    for(i=0; i<EntryCount; i++) {
+    zero.QuadPart = 0;
+    for (i = 0; i < EntryCount; i++) {
 
-        pinfo[i].StartingOffset   = Zero;
-        pinfo[i].PartitionLength  = Zero;
+        pinfo[i].StartingOffset   = zero;
+        pinfo[i].PartitionLength  = zero;
         pinfo[i].HiddenSectors    = 0;
         pinfo[i].PartitionType    = SYSID_UNUSED;
         pinfo[i].BootIndicator    = FALSE;
@@ -2872,7 +2845,7 @@ Return Value:
 LARGE_INTEGER
 MakeBootRec(
     ULONG                  Disk,
-    PPARTITION_INFORMATION pinfo,
+    PPARTITION_INFORMATION pInfo,
     PPARTITION             pLogical,
     PPARTITION             pNextLogical
     )
@@ -2895,41 +2868,45 @@ Return Value:
 --*/
 
 {
-    ULONG         Entry = 0;
-    LARGE_INTEGER BytesPerTrack = UNSIGNED(DiskGeometryArray[Disk].BytesPerTrack);
-    LARGE_INTEGER SectorsPerTrack = UNSIGNED(DiskGeometryArray[Disk].SectorsPerTrack);
-    LARGE_INTEGER StartingOffset = UNSIGNED(0);
+    ULONG         entry = 0;
+    LARGE_INTEGER bytesPerTrack;
+    LARGE_INTEGER sectorsPerTrack;
+    LARGE_INTEGER startingOffset;
+
+    bytesPerTrack.QuadPart = DiskGeometryArray[Disk].BytesPerTrack;
+    sectorsPerTrack.QuadPart = DiskGeometryArray[Disk].SectorsPerTrack;
+    startingOffset.QuadPart = 0;
 
     if (pLogical) {
 
-        pinfo[Entry].StartingOffset   = ADD(pLogical->Offset,BytesPerTrack);
-        pinfo[Entry].PartitionLength  = SUBTRACT(pLogical->Length,BytesPerTrack);
-        pinfo[Entry].HiddenSectors    = SectorsPerTrack.LowPart;
-        pinfo[Entry].RewritePartition = pLogical->Update;
-        pinfo[Entry].BootIndicator    = pLogical->Active;
-        pinfo[Entry].PartitionType    = pLogical->SysID;
+        pInfo[entry].StartingOffset.QuadPart = pLogical->Offset.QuadPart + bytesPerTrack.QuadPart;
+        pInfo[entry].PartitionLength.QuadPart = pLogical->Length.QuadPart - bytesPerTrack.QuadPart;
+        pInfo[entry].HiddenSectors    = sectorsPerTrack.LowPart;
+        pInfo[entry].RewritePartition = pLogical->Update;
+        pInfo[entry].BootIndicator    = pLogical->Active;
+        pInfo[entry].PartitionType    = pLogical->SysID;
 
-        if(pinfo[Entry].RewritePartition) {
-            StartingOffset = pinfo[Entry].StartingOffset;
+        if(pInfo[entry].RewritePartition) {
+            startingOffset = pInfo[entry].StartingOffset;
         }
 
-        Entry++;
+        entry++;
     }
 
     if (pNextLogical) {
 
-        pinfo[Entry].StartingOffset   = pNextLogical->Offset;
-        pinfo[Entry].PartitionLength  = pNextLogical->Length;
-        pinfo[Entry].HiddenSectors    = 0;
-        pinfo[Entry].RewritePartition = TRUE;
-        pinfo[Entry].BootIndicator    = FALSE;
-        pinfo[Entry].PartitionType    = SYSID_EXTENDED;
+        pInfo[entry].StartingOffset   = pNextLogical->Offset;
+        pInfo[entry].PartitionLength  = pNextLogical->Length;
+        pInfo[entry].HiddenSectors    = 0;
+        pInfo[entry].RewritePartition = TRUE;
+        pInfo[entry].BootIndicator    = FALSE;
+        pInfo[entry].PartitionType    = SYSID_EXTENDED;
 
-        Entry++;
+        entry++;
     }
 
-    UnusedEntryFill(pinfo+Entry,ENTRIES_PER_BOOTSECTOR-Entry);
-    return StartingOffset;
+    UnusedEntryFill(pInfo + entry, ENTRIES_PER_BOOTSECTOR - entry);
+    return startingOffset;
 }
 
 
@@ -2967,6 +2944,7 @@ Return Value:
                 alignedSectorBuffer;
     STATUS_CODE status;
     HANDLE_T    handle;
+    LARGE_INTEGER temp;
 
     if ((sectorBuffer = AllocateMemory(2*sectorSize)) == NULL) {
         RETURN_OUT_OF_MEMORY;
@@ -2981,9 +2959,10 @@ Return Value:
         return status;
     }
 
+    temp.QuadPart = Offset.QuadPart / sectorSize;
     status = LowWriteSectors(handle,
                              sectorSize,
-                             LOWPART(DIVIDE(Offset,UNSIGNED(sectorSize))),
+                             temp.LowPart,
                              1,
                              alignedSectorBuffer);
     LowCloseDisk(handle);
@@ -2993,7 +2972,7 @@ Return Value:
     // problem where HPFS doesn't dismount when asked, but instead
     // marks the volume for verify.
 
-    if ((status = LowOpenDisk(GetDiskName(Disk),&handle)) != OK_STATUS) {
+    if ((status = LowOpenDisk(GetDiskName(Disk), &handle)) == OK_STATUS) {
         LowCloseDisk(handle);
     }
 
@@ -3034,11 +3013,12 @@ Return Value:
     ULONG                     sectorSize;
     STATUS_CODE               status;
     LARGE_INTEGER             startingOffset,
-                              extendedStartingOffset = UNSIGNED(0);
+                              extendedStartingOffset;
     PPARTITION                nextPartition,
                               partition,
                               partitionHash[MAX_DISKS];
 
+    extendedStartingOffset.QuadPart = 0;
     memset(partitionHash, 0, sizeof(partitionHash));
 
     // allocate a huge buffer now to avoid complicated dynamic
@@ -3071,8 +3051,7 @@ Return Value:
             pinfo[entryCount].PartitionType    = partition->SysID;
             pinfo[entryCount].BootIndicator    = partition->Active;
             pinfo[entryCount].RewritePartition = partition->Update;
-            pinfo[entryCount].HiddenSectors    = LOWPART(DIVIDE(partition->Offset,
-                                                                UNSIGNED(sectorSize)));
+            pinfo[entryCount].HiddenSectors    = (ULONG) (partition->Offset.QuadPart / sectorSize);
 
             // if we're creating this partition, clear out the
             // filesystem boot sector.
@@ -3157,7 +3136,7 @@ Return Value:
             // if we're creating a volume, clear out its filesystem
             // boot sector so it starts out fresh.
 
-            if (!ZERO(startingOffset) && (partition->Update != CHANGED_DONT_ZAP)) {
+            if ((startingOffset.QuadPart) && (partition->Update != CHANGED_DONT_ZAP)) {
                 status = ZapSector(Disk,startingOffset);
                 if (status != OK_STATUS) {
                     FreeMemory(driveLayout);
@@ -3246,7 +3225,8 @@ Return Value:
         p = p->Next;
     }
 
-    ChangesMade[Disk] = FALSE;
+    ChangesRequested[Disk] = FALSE;
+    ChangesCommitted[Disk] = TRUE;
     return OK_STATUS;
 }
 
@@ -3310,7 +3290,65 @@ Return Value:
 --*/
 
 {
-    return ChangesMade[Disk];
+    return ChangesRequested[Disk];
+}
+
+
+BOOLEAN
+ChangeCommittedOnDisk(
+    IN ULONG Disk
+    )
+
+/*++
+
+Routine Description:
+
+    This routine will inform the caller if a change was actually committed
+    to the disk given.
+
+Arguments:
+
+    Disk - index of disk to check
+
+Return Value:
+
+    TRUE if disk was changed
+    FALSE otherwise.
+
+--*/
+
+{
+    return ChangesCommitted[Disk];
+}
+
+
+VOID
+ClearCommittedDiskInformation(
+    )
+
+/*++
+
+Routine Description:
+
+    Clear all knowledge about any changes that have occurred to the
+    disks.
+
+Arguments:
+
+    None
+
+Return Value:
+
+    None
+
+--*/
+
+{
+    ULONG i;
+
+    for (i=0; i<CountOfDisks; i++) {
+        ChangesCommitted[i] = FALSE;
+    }
 }
 
 
@@ -3336,7 +3374,7 @@ Return Value:
 --*/
 
 {
-    ChangesMade[Disk] = TRUE;
+    ChangesRequested[Disk] = TRUE;
 }
 
 
@@ -3393,7 +3431,10 @@ Return Value:
 --*/
 
 {
-    return(max(SIZEMB(UNSIGNED(DiskGeometryArray[Disk].BytesPerCylinder)),1));
+    LARGE_INTEGER temp;
+
+    temp.QuadPart = DiskGeometryArray[Disk].BytesPerCylinder;
+    return max(SIZEMB(temp), 1);
 }
 
 
@@ -3425,21 +3466,21 @@ Return Value:
 --*/
 
 {
-    PREGION_DATA CreateData = Region->Reserved;
-    LARGE_INTEGER MaxSize = CreateData->AlignedRegionSize;
+    PREGION_DATA  createData = Region->Reserved;
+    LARGE_INTEGER maxSize;
 
-    if (ZERO(CreateData->AlignedRegionOffset)) {
+    maxSize = createData->AlignedRegionSize;
+    if (!(createData->AlignedRegionOffset.QuadPart)) {
+        ULONG delta;
 
-        ULONG Delta;
-
-        Delta = (CreationType == REGION_EXTENDED)
+        delta = (CreationType == REGION_EXTENDED)
               ? DiskGeometryArray[Region->Disk].BytesPerCylinder
               : DiskGeometryArray[Region->Disk].BytesPerTrack;
 
-        MaxSize = SUBTRACT(MaxSize,UNSIGNED(Delta));
+        maxSize.QuadPart -= delta;
     }
 
-    return SIZEMB(MaxSize);
+    return SIZEMB(maxSize);
 }
 
 
@@ -3460,10 +3501,13 @@ Return Value:
 --*/
 
 {
-    PREGION_DATA  RegionData = Region->Reserved;
-    LARGE_INTEGER LargeSize = RegionData->AlignedRegionSize;
-    LARGE_INTEGER BytesPerTrack = UNSIGNED(DiskGeometryArray[Region->Disk].BytesPerTrack);
-    LARGE_INTEGER BytesPerCylinder = UNSIGNED(DiskGeometryArray[Region->Disk].BytesPerCylinder);
+    PREGION_DATA  regionData = Region->Reserved;
+    LARGE_INTEGER largeSize = regionData->AlignedRegionSize;
+    LARGE_INTEGER bytesPerTrack;
+    LARGE_INTEGER bytesPerCylinder;
+
+    bytesPerTrack.QuadPart = DiskGeometryArray[Region->Disk].BytesPerTrack;
+    bytesPerCylinder.QuadPart = DiskGeometryArray[Region->Disk].BytesPerCylinder;
 
     if (Region->RegionType == REGION_LOGICAL) {
 
@@ -3473,7 +3517,7 @@ Return Value:
         // account for the reserved EBR track.
         //
 
-        LargeSize = SUBTRACT(LargeSize,BytesPerTrack);
+        largeSize.QuadPart -= bytesPerTrack.QuadPart;
 
     } else if (Region->SysID == SYSID_UNUSED) {
 
@@ -3488,16 +3532,16 @@ Return Value:
         // extended+logical.
         //
 
-        if(ZERO(RegionData->AlignedRegionOffset) || ForExtended) {
-            LargeSize = SUBTRACT(LargeSize,BytesPerTrack);
+        if ((!regionData->AlignedRegionOffset.QuadPart) || ForExtended) {
+            largeSize.QuadPart -= bytesPerTrack.QuadPart;
         }
 
-        if(ZERO(RegionData->AlignedRegionOffset) && ForExtended) {
-            LargeSize = SUBTRACT(LargeSize,BytesPerCylinder);
+        if ((!regionData->AlignedRegionOffset.QuadPart) && ForExtended) {
+            largeSize.QuadPart -= bytesPerCylinder.QuadPart;
         }
     }
 
-    return LargeSize;
+    return largeSize;
 }
 
 
@@ -3527,7 +3571,7 @@ Return Value:
 --*/
 
 {
-    LARGE_INTEGER Offset = ((PREGION_DATA)(Region->Reserved))->Partition->Offset;
+    LARGE_INTEGER offset = ((PREGION_DATA)(Region->Reserved))->Partition->Offset;
 
     if ((Region->SysID != SYSID_UNUSED) && (Region->RegionType == REGION_LOGICAL)) {
 
@@ -3536,12 +3580,10 @@ Return Value:
         // Account for the reserved EBR track.
         //
 
-        Offset = ADD(Offset,
-                     UNSIGNED(DiskGeometryArray[Region->Disk].BytesPerTrack)
-                    );
+        offset.QuadPart += DiskGeometryArray[Region->Disk].BytesPerTrack;
     }
 
-    return Offset;
+    return offset;
 }
 
 
@@ -3562,10 +3604,8 @@ Routine Description:
 Arguments:
 
     Region - region describing the partition to check.
-
     CreationSizeMB - if the Region is for a free space, this is the size of
         the partition to be checked.
-
     RegionType - one of REGION_PRIMARY, REGION_EXTENDED, or REGION_LOGICAL
 
 Return Value:
@@ -3575,36 +3615,36 @@ Return Value:
 --*/
 
 {
-    LARGE_INTEGER Start,Size,End;
+    LARGE_INTEGER start,
+                  size,
+                  end,
+                  zero;
 
     if (Region->SysID == SYSID_UNUSED) {
 
         // Determine the exact size and offset of the partition, according
         // to how CreatePartitionEx() will do it.
 
+        zero.QuadPart = 0;
         DetermineCreateSizeAndOffset(Region,
-                                     UNSIGNED(0),
+                                     zero,
                                      CreationSizeMB,
                                      RegionType,
-                                     &Start,
-                                     &Size);
+                                     &start,
+                                     &size);
     } else {
 
-        Start = ((PREGION_DATA)(Region->Reserved))->Partition->Offset;
-        Size  = ((PREGION_DATA)(Region->Reserved))->Partition->Length;
+        start = ((PREGION_DATA)(Region->Reserved))->Partition->Offset;
+        size  = ((PREGION_DATA)(Region->Reserved))->Partition->Length;
     }
 
-    End = SUBTRACT(ADD(Start,Size),UNSIGNED(1));
+    end.QuadPart = (start.QuadPart + size.QuadPart) - 1;
 
     // End is the last byte in the partition.  Divide by the number of
     // bytes in a cylinder and see whether the result is > 1023.
 
-    return(GT( DIVIDE( End,
-                       UNSIGNED(DiskGeometryArray[Region->Disk].BytesPerCylinder)
-                     ),
-               UNSIGNED(1023)
-             )
-          );
+    end.QuadPart = end.QuadPart / DiskGeometryArray[Region->Disk].BytesPerCylinder;
+    return (end.QuadPart > 1023);
 }
 
 
@@ -3624,7 +3664,7 @@ Return Value:
 --*/
 
 {
-    return(OffLine[Disk]);
+    return OffLine[Disk];
 }
 
 ULONG
@@ -3643,7 +3683,7 @@ Return Value:
 --*/
 
 {
-    return(Signatures[Disk]);
+    return Signatures[Disk];
 }
 
 VOID

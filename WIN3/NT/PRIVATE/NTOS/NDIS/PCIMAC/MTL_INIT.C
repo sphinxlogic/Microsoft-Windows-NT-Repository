@@ -3,7 +3,7 @@
  */
 
 #include	<ndis.h>
-#include    <ndismini.h>
+//#include	<ndismini.h>
 #include	<ndiswan.h>
 #include	<mytypes.h>
 #include	<mydefs.h>
@@ -26,8 +26,10 @@ mtl_create(VOID **mtl_1, NDIS_HANDLE AdapterHandle)
     NDIS_PHYSICAL_ADDRESS   pa = NDIS_PHYSICAL_ADDRESS_CONST(0xffffffff, 0xffffffff);
 
     D_LOG(D_ENTRY, ("mtl_create: entry, ret_mtl: 0x%p", ret_mtl));
-	
-    /* allocate memory object */
+
+	//
+	// allocate memory for mtl object
+	//
     NdisAllocateMemory((PVOID*)&mtl, sizeof(*mtl), 0, pa);
     if ( !mtl )
     {
@@ -40,6 +42,26 @@ mtl_create(VOID **mtl_1, NDIS_HANDLE AdapterHandle)
     D_LOG(D_ALWAYS, ("mtl_create: mtl: 0x%p", mtl));
     NdisZeroMemory(mtl, sizeof(MTL));
 
+	//
+	// allocate rx table
+	//
+    NdisAllocateMemory((PVOID*)&mtl->rx_tbl.Data, (MTL_RX_BUFS * MTL_MAC_MTU), 0, pa);
+    if ( !mtl->rx_tbl.Data )
+    {
+        D_LOG(D_ALWAYS, ("mtl_create: RxData memory allocate failed!"));
+
+		NdisWriteErrorLogEntry (AdapterHandle,
+		                        NDIS_ERROR_CODE_OUT_OF_RESOURCES,
+								0);
+
+		/* free memory */
+		NdisFreeMemory(mtl, sizeof(*mtl), 0);
+
+        return(MTL_E_NOMEM);
+    }
+    D_LOG(D_ALWAYS, ("mtl_create: RxData: 0x%p", mtl->rx_tbl.Data));
+    NdisZeroMemory(mtl->rx_tbl.Data, (MTL_RX_BUFS * MTL_MAC_MTU));
+
     /* setup some simple fields */
     mtl->idd_mtu = MTL_IDD_MTU;
 
@@ -49,25 +71,59 @@ mtl_create(VOID **mtl_1, NDIS_HANDLE AdapterHandle)
     /* allocate spinlock for channel table */
     NdisAllocateSpinLock(&mtl->chan_tbl.lock);
 
-    /* allocate spin locks for receive table */
-    for ( n = 0 ; n < MTL_RX_BUFS ; n++ )
-	{
-        NdisAllocateSpinLock(&mtl->rx_tbl[n].lock);
-	}
+	//
+	// create assembly descriptor pointers into rx table
+	//
+	for (n = 0; n < MTL_RX_BUFS; n++)
+		mtl->rx_tbl.as_tbl[n].buf = mtl->rx_tbl.Data + (n * MTL_MAC_MTU);
 
-    /* allocate spin lock for trasmit table & fifo */
+	NdisAllocateSpinLock(&mtl->rx_tbl.lock);
+
+	//
+	// spinlock for RxIndicationFifo
+	//
+    NdisAllocateSpinLock(&mtl->RxIndicationFifo.lock);
+
+	//
+	// initialize assembly completion fifo
+	//
+	NdisAcquireSpinLock(&mtl->RxIndicationFifo.lock);
+
+	InitializeListHead(&mtl->RxIndicationFifo.head);
+
+	NdisReleaseSpinLock(&mtl->RxIndicationFifo.lock);
+
+	//
+	// tx packet table lock
+	//
     NdisAllocateSpinLock(&mtl->tx_tbl.lock);
-    NdisAllocateSpinLock(&mtl->tx_fifo.lock);
 
-    /* create tx pakcet free list */
-    InitializeListHead(&mtl->tx_tbl.pkt_free);
-    for ( n = 0 ; n < MTL_TX_BUFS ; n++ )
+	for (n = 0; n < MTL_TX_BUFS; n++)
 	{
-        InsertHeadList(&mtl->tx_tbl.pkt_free, &mtl->tx_tbl.pkt_tbl[n].link);
+		MTL_TX_PKT	*MtlTxPacket = &mtl->tx_tbl.TxPacketTbl[n];
+
+		NdisAllocateSpinLock(&MtlTxPacket->lock);
 	}
 
-    /* initialize tx_fifo */
-    InitializeListHead(&mtl->tx_fifo.head);
+	//
+	// initialize MtlTxPacket Queue
+	//
+	NdisAcquireSpinLock(&mtl->tx_tbl.lock);
+
+	InitializeListHead(&mtl->tx_tbl.head);
+
+	NdisReleaseSpinLock(&mtl->tx_tbl.lock);
+
+	//
+	// Tx WanPacket storage
+	//
+	NdisAllocateSpinLock(&mtl->WanPacketFifo.lock);
+
+	NdisAcquireSpinLock(&mtl->WanPacketFifo.lock);
+
+    InitializeListHead(&mtl->WanPacketFifo.head);
+
+	NdisReleaseSpinLock(&mtl->WanPacketFifo.lock);
 
 	//
 	// setup default wan link fields
@@ -88,11 +144,6 @@ mtl_create(VOID **mtl_1, NDIS_HANDLE AdapterHandle)
 	/* init sema */
     sema_init(&mtl->tx_sema);
 
-	//
-	// initialize recv complete timer
-	//
-	NdisMInitializeTimer(&mtl->RecvCompleteTimer, AdapterHandle, MtlRecvCompleteFunction, mtl);
-
     /* return success */
     *ret_mtl = mtl;
     D_LOG(D_EXIT, ("mtl_create: exit"));
@@ -103,7 +154,6 @@ mtl_create(VOID **mtl_1, NDIS_HANDLE AdapterHandle)
 mtl_destroy(VOID* mtl_1)
 {
 	MTL	*mtl = (MTL*)mtl_1;
-    BOOLEAN TimerCanceled;
 	INT		n;
 
     D_LOG(D_ENTRY, ("mtl_destroy: entry, mtl: 0x%p", mtl));
@@ -115,18 +165,28 @@ mtl_destroy(VOID* mtl_1)
     NdisFreeSpinLock(&mtl->chan_tbl.lock);
 
     /* allocate spin locks for receive table */
-    for ( n = 0 ; n < MTL_RX_BUFS ; n++ )
-        NdisFreeSpinLock(&mtl->rx_tbl[n].lock);
+//    for ( n = 0 ; n < MTL_RX_BUFS ; n++ )
+//        NdisFreeSpinLock(&mtl->rx_tbl.as_tbl[n].lock);
+
+	NdisFreeSpinLock(&mtl->rx_tbl.lock);
 
     /* allocate spin lock for trasmit table & fifo */
     NdisFreeSpinLock(&mtl->tx_tbl.lock);
-    NdisFreeSpinLock(&mtl->tx_fifo.lock);
 
-	if (mtl->RecvCompleteScheduled)
-		NdisMCancelTimer(&mtl->RecvCompleteTimer, &TimerCanceled);		
+	for (n = 0; n < MTL_TX_BUFS; n++)
+	{
+		MTL_TX_PKT	*MtlTxPacket = &mtl->tx_tbl.TxPacketTbl[n];
+
+		NdisFreeSpinLock(&MtlTxPacket->lock);
+	}
+
+    NdisFreeSpinLock(&mtl->WanPacketFifo.lock);
+	NdisFreeSpinLock(&mtl->RxIndicationFifo.lock);
 
 	/* term sema */
     sema_term(&mtl->tx_sema);
+
+    NdisFreeMemory(mtl->rx_tbl.Data, (MTL_RX_BUFS * MTL_MAC_MTU), 0);
 
     /* free memory */
     NdisFreeMemory(mtl, sizeof(*mtl), 0);

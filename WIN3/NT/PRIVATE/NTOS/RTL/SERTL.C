@@ -39,6 +39,16 @@ RtlLengthUsedSecurityDescriptor (
     IN PSECURITY_DESCRIPTOR SecurityDescriptor
     );
 
+#undef RtlEqualLuid
+
+NTSYSAPI
+BOOLEAN
+NTAPI
+RtlEqualLuid (
+    PLUID Luid1,
+    PLUID Luid2
+    );
+
 #if defined(ALLOC_PRAGMA) && defined(NTOS_KERNEL_RUNTIME)
 #pragma alloc_text(PAGE,RtlRunEncodeUnicodeString)
 #pragma alloc_text(PAGE,RtlRunDecodeUnicodeString)
@@ -169,7 +179,27 @@ Return Value:
         ASSERT(NT_SUCCESS(Status));
 
         LocalSeed = (PUCHAR)((PVOID)&Time);
-        (*Seed) = LocalSeed[1];
+
+        i = 1;
+
+        (*Seed) = LocalSeed[ i ];
+
+        //
+        // Occasionally, this byte could be zero.  That would cause the
+        // string to become un-decodable, since 0 is the magic value that
+        // causes us to re-gen the seed.  This loop makes sure that we
+        // never end up with a zero byte (unless time is zero, as well).
+        //
+
+        while ( ((*Seed) == 0) && ( i < sizeof( Time ) ) )
+        {
+            (*Seed) |= LocalSeed[ i++ ] ;
+        }
+
+        if ( (*Seed) == 0 )
+        {
+            (*Seed) = 1;
+        }
     }
 
     //
@@ -257,7 +287,7 @@ Return Value:
     PSTRING
         S;
 
-    RTL_PAGED_CODE(); 
+    RTL_PAGED_CODE();
 
     //
     // Typecast so we can work on bytes rather than WCHARs
@@ -323,7 +353,7 @@ Return Value:
 --*/
 
 {
-    RTL_PAGED_CODE(); 
+    RTL_PAGED_CODE();
 
     if ((String->Buffer == NULL) || (String->MaximumLength == 0)) {
         return;
@@ -448,7 +478,7 @@ Return Value:
     // Initialize the privilege adjustment structure
     //
 
-    LuidPrivilege = RtlConvertLongToLargeInteger(Privilege);
+    LuidPrivilege = RtlConvertUlongToLuid(Privilege);
 
 
     NewPrivileges->PrivilegeCount = 1;
@@ -583,7 +613,7 @@ Return Value:
 {
    ULONG SidLength;
 
-   RTL_PAGED_CODE(); 
+   RTL_PAGED_CODE();
 
    //
    // Make sure they are the same revision
@@ -599,7 +629,7 @@ Return Value:
        if ( *RtlSubAuthorityCountSid( Sid1 ) == *RtlSubAuthorityCountSid( Sid2 )) {
 
            SidLength = SeLengthSid( Sid1 );
-           return( (BOOLEAN)(RtlCompareMemory( Sid1, Sid2, SidLength ) == SidLength) );
+           return( (BOOLEAN)RtlEqualMemory( Sid1, Sid2, SidLength) );
        }
    }
 
@@ -1372,6 +1402,9 @@ Routine Description:
 
     This procedure test two LUID values for equality.
 
+    This routine is here for backwards compatibility only. New code
+    should use the macro.
+
 Arguments:
 
     Luid1, Luid2 - Supply pointers to the two LUID values to compare.
@@ -1385,9 +1418,13 @@ Return Value:
 --*/
 
 {
+    LUID UNALIGNED * TempLuid1;
+    LUID UNALIGNED * TempLuid2;
+
     RTL_PAGED_CODE();
 
-    return( RtlLargeIntegerEqualTo( *Luid1, *Luid2 ));
+    return((Luid1->HighPart == Luid2->HighPart) &&
+           (Luid1->LowPart  == Luid2->LowPart));
 
 }
 
@@ -1843,6 +1880,43 @@ Return Value:
 
     return sum;
 }
+
+
+
+NTSTATUS
+RtlSetAttributesSecurityDescriptor(
+    IN PSECURITY_DESCRIPTOR SecurityDescriptor,
+    IN SECURITY_DESCRIPTOR_CONTROL Control,
+    IN OUT PULONG Revision
+    )
+{
+    RTL_PAGED_CODE();
+
+    //
+    // Always return the revision value - even if this isn't a valid
+    // security descriptor
+    //
+
+    *Revision = ((SECURITY_DESCRIPTOR *)SecurityDescriptor)->Revision;
+
+    if ( ((SECURITY_DESCRIPTOR *)SecurityDescriptor)->Revision
+         != SECURITY_DESCRIPTOR_REVISION ) {
+        return STATUS_UNKNOWN_REVISION;
+    }
+
+    //
+    // Only allow setting SE_SERVER_SECURITY and SE_DACL_UNTRUSTED
+    //
+
+    if ( Control & (SE_SERVER_SECURITY | SE_DACL_UNTRUSTED) != Control ) {
+        return STATUS_INVALID_PARAMETER ;
+    }
+
+    ((SECURITY_DESCRIPTOR *)SecurityDescriptor)->Control |= Control;
+
+    return STATUS_SUCCESS;
+}
+
 
 
 NTSTATUS
@@ -2901,11 +2975,240 @@ Return Value:
 
 #ifndef WIN16
 
+
 
 BOOLEAN
 RtlpValidOwnerSubjectContext(
     IN HANDLE Token,
     IN PSID Owner,
+    IN BOOLEAN ServerObject,
+    OUT PNTSTATUS ReturnStatus
+    )
+/*++
+
+Routine Description:
+
+    This routine checks to see whether the provided SID is one the subject
+    is authorized to assign as the owner of objects.
+
+Arguments:
+
+    Token - Points to the subject's effective token
+
+    Owner - Points to the SID to be checked.
+
+    ServerObject - Boolean indicating whether or not this is a server
+       object, meaning it is protected by a primary-client combination.
+
+    ReturnStatus - Status to be passed back to the caller on failure.
+
+Return Value:
+
+    FALSE on failure.
+
+--*/
+
+{
+
+    ULONG Index;
+    BOOLEAN Found;
+    ULONG ReturnLength;
+    PTOKEN_GROUPS GroupIds = NULL;
+    PTOKEN_USER UserId = NULL;
+    BOOLEAN rc = FALSE;
+    PVOID HeapHandle;
+    HANDLE TokenToUse;
+
+    RTL_PAGED_CODE();
+
+    //
+    // Get the handle to the current process heap
+    //
+
+    if ( Owner == NULL ) {
+        return(FALSE);
+    }
+
+    //
+    // If it's not a server object, check the owner against the contents of the
+    // client token.  If it is a server object, the owner must be valid in the
+    // primary token.
+    //
+
+    if (!ServerObject) {
+
+        TokenToUse = Token;
+
+    } else {
+
+        *ReturnStatus = NtOpenProcessToken(
+                            NtCurrentProcess(),
+                            TOKEN_QUERY,
+                            &TokenToUse
+                            );
+
+        if (!NT_SUCCESS( *ReturnStatus )) {
+            return( FALSE );
+        }
+    }
+
+    HeapHandle = RtlProcessHeap();
+
+    //
+    //  Get the User from the Token
+    //
+
+    *ReturnStatus = NtQueryInformationToken(
+                         TokenToUse,
+                         TokenUser,
+                         UserId,
+                         0,
+                         &ReturnLength
+                         );
+
+    if (!NT_SUCCESS( *ReturnStatus ) && (STATUS_BUFFER_TOO_SMALL != *ReturnStatus)) {
+        if (ServerObject) {
+            NtClose( TokenToUse );
+        }
+        return( FALSE );
+
+    }
+
+    UserId = RtlAllocateHeap( HeapHandle, 0, ReturnLength );
+
+    if (UserId == NULL) {
+
+        *ReturnStatus = STATUS_NO_MEMORY;
+        if (ServerObject) {
+            NtClose( TokenToUse );
+        }
+
+        return( FALSE );
+    }
+
+    *ReturnStatus = NtQueryInformationToken(
+                         TokenToUse,
+                         TokenUser,
+                         UserId,
+                         ReturnLength,
+                         &ReturnLength
+                         );
+
+    if (!NT_SUCCESS( *ReturnStatus )) {
+        if (ServerObject) {
+            NtClose( TokenToUse );
+        }
+        return( FALSE );
+    }
+
+    if ( RtlEqualSid( Owner, UserId->User.Sid ) ) {
+
+        RtlFreeHeap( HeapHandle, 0, (PVOID)UserId );
+        if (ServerObject) {
+            NtClose( TokenToUse );
+        }
+        return( TRUE );
+    }
+
+    RtlFreeHeap( HeapHandle, 0, (PVOID)UserId );
+
+    //
+    // Get the groups from the Token
+    //
+
+    *ReturnStatus = NtQueryInformationToken(
+                         TokenToUse,
+                         TokenGroups,
+                         GroupIds,
+                         0,
+                         &ReturnLength
+                         );
+
+    if (!NT_SUCCESS( *ReturnStatus ) && (STATUS_BUFFER_TOO_SMALL != *ReturnStatus)) {
+
+        if (ServerObject) {
+            NtClose( TokenToUse );
+        }
+        return( FALSE );
+    }
+
+    GroupIds = RtlAllocateHeap( HeapHandle, 0, ReturnLength );
+
+    if (GroupIds == NULL) {
+
+        *ReturnStatus = STATUS_NO_MEMORY;
+        if (ServerObject) {
+            NtClose( TokenToUse );
+        }
+        return( FALSE );
+    }
+
+    *ReturnStatus = NtQueryInformationToken(
+                         TokenToUse,
+                         TokenGroups,
+                         GroupIds,
+                         ReturnLength,
+                         &ReturnLength
+                         );
+
+    if (ServerObject) {
+        NtClose( TokenToUse );
+    }
+
+    if (!NT_SUCCESS( *ReturnStatus )) {
+        RtlFreeHeap( HeapHandle, 0, GroupIds );
+        return( FALSE );
+    }
+
+    //
+    //  Walk through the list of group IDs looking for a match to
+    //  the specified SID.  If one is found, make sure it may be
+    //  assigned as an owner.
+    //
+    //  This code is similar to that performed to set the default
+    //  owner of a token (NtSetInformationToken).
+    //
+
+    Index = 0;
+    while (Index < GroupIds->GroupCount) {
+
+        Found = RtlEqualSid(
+                    Owner,
+                    GroupIds->Groups[Index].Sid
+                    );
+
+        if ( Found ) {
+
+            if ( RtlpIdAssignableAsOwner(GroupIds->Groups[Index])) {
+
+                RtlFreeHeap( HeapHandle, 0, GroupIds );
+                return( TRUE );
+
+            } else {
+
+                RtlFreeHeap( HeapHandle, 0, GroupIds );
+                return( FALSE );
+
+            } //endif assignable
+
+        }  //endif Found
+
+        Index++;
+
+    } //endwhile
+
+    RtlFreeHeap( HeapHandle, 0, GroupIds );
+
+    return ( FALSE  );
+}
+
+#if 0
+
+BOOLEAN
+RtlpValidOwnerSubjectContext(
+    IN HANDLE Token,
+    IN PSID Owner,
+    BOOLEAN Dummy,
     OUT PNTSTATUS ReturnStatus
     )
 /*++
@@ -3084,6 +3387,10 @@ Return Value:
 #endif  // WIN16
 
 
+#endif
+
+#if 0
+
 
 BOOLEAN
 RtlpContainsCreatorOwnerSid(
@@ -3197,8 +3504,114 @@ Return Value:
     IsEqual = RtlEqualSid(&Ace->SidStart, (PSID)CreatorSid );
 
     return( IsEqual );
+}
+
+
+BOOLEAN
+RtlpContainsCreatorOwnerServerSid(
+    PKNOWN_COMPOUND_ACE Ace
+    )
+/*++
+
+Routine Description:
+
+    Tests to see if the specified ACE contains the CreatorClientSid.
+
+Arguments:
+
+    Ace - Pointer to the compound ACE whose Client SID is be compared to the
+          Creator Client Sid.  This ACE is assumed to be valid and a known
+          compound ACE type.
+
+Return Value:
+
+    TRUE - The creator sid is in the ACE.
+
+    FALSE - The creator sid is not in the ACE.
+
+
+--*/
+{
+    BOOLEAN IsEqual;
+    ULONG CreatorSid[CREATOR_SID_SIZE];
+    SID_IDENTIFIER_AUTHORITY  CreatorSidAuthority = SECURITY_CREATOR_SID_AUTHORITY;
+
+    RTL_PAGED_CODE();
+
+    //
+    //  This is gross and ugly, but it's better than allocating
+    //  virtual memory to hold the ClientSid, because that can
+    //  fail, and propogating the error back is a tremendous pain
+    //
+
+    ASSERT(RtlLengthRequiredSid( 1 ) == CREATOR_SID_SIZE);
+
+    //
+    //  Allocate and initialize the universal SID
+    //
+
+    RtlInitializeSid( (PSID)CreatorSid, &CreatorSidAuthority, 1 );
+    *(RtlSubAuthoritySid( (PSID)CreatorSid, 0 )) = SECURITY_CREATOR_OWNER_SERVER_RID;
+
+    IsEqual = RtlEqualSid(RtlCompoundAceClientSid( Ace ), (PSID)CreatorSid );
+
+    return( IsEqual );
 
 }
+
+
+BOOLEAN
+RtlpContainsCreatorGroupServerSid(
+    PKNOWN_COMPOUND_ACE Ace
+    )
+/*++
+
+Routine Description:
+
+    Tests to see if the specified ACE contains the CreatorServerSid.
+
+Arguments:
+
+    Ace - Pointer to the compound ACE whose Server SID is be compared to the
+          Creator Server Sid.  This ACE is assumed to be valid and a known
+          compound ACE type.
+
+Return Value:
+
+    TRUE - The creator Server sid is in the ACE.
+
+    FALSE - The creator Server sid is not in the ACE.
+
+
+--*/
+{
+    BOOLEAN IsEqual;
+    ULONG CreatorSid[CREATOR_SID_SIZE];
+    SID_IDENTIFIER_AUTHORITY  CreatorSidAuthority = SECURITY_CREATOR_SID_AUTHORITY;
+
+    RTL_PAGED_CODE();
+
+    //
+    //  This is gross and ugly, but it's better than allocating
+    //  virtual memory to hold the CreatorSid, because that can
+    //  fail, and propogating the error back is a tremendous pain
+    //
+
+    ASSERT(RtlLengthRequiredSid( 1 ) == CREATOR_SID_SIZE);
+
+    //
+    //  Allocate and initialize the universal SIDs
+    //
+
+    RtlInitializeSid( (PSID)CreatorSid, &CreatorSidAuthority, 1 );
+    *(RtlSubAuthoritySid( (PSID)CreatorSid, 0 )) = SECURITY_CREATOR_GROUP_SERVER_RID;
+
+    IsEqual = RtlEqualSid(RtlCompoundAceServerSid(Ace), (PSID)CreatorSid );
+
+    return( IsEqual );
+}
+
+#endif
 
 
 VOID
@@ -3266,9 +3679,9 @@ Return Value:
          i < Acl->AceCount;
          i += 1, Ace = NextAce(Ace)) {
 
-        if (IsKnownAceType( Ace )) {
+        if (IsMSAceType( Ace )) {
 
-            SepApplyAceToObject( Ace, GenericMapping );
+            RtlApplyAceToObject( Ace, GenericMapping );
         }
 
     }
@@ -3285,6 +3698,8 @@ RtlpInheritAcl (
     IN BOOLEAN IsDirectoryObject,
     IN PSID OwnerSid,
     IN PSID GroupSid,
+    IN PSID ServerOwnerSid OPTIONAL,
+    IN PSID ServerGroupSid OPTIONAL,
     IN PGENERIC_MAPPING GenericMapping,
     OUT PACL *NewAcl
     )
@@ -3359,7 +3774,7 @@ Return Value:
 
     }
 
-    if (Acl->AclRevision != ACL_REVISION2) {
+    if (Acl->AclRevision != ACL_REVISION2 && Acl->AclRevision != ACL_REVISION3) {
         return STATUS_UNKNOWN_REVISION;
     }
 
@@ -3376,6 +3791,8 @@ Return Value:
                  IsDirectoryObject,
                  OwnerSid,
                  GroupSid,
+                 ServerOwnerSid,
+                 ServerGroupSid,
                  GenericMapping,
                  &NewAclLength
                  );
@@ -3394,12 +3811,14 @@ Return Value:
 
 
 
-    RtlCreateAcl( (*NewAcl), NewAclLength, ACL_REVISION2 );
+    RtlCreateAcl( (*NewAcl), NewAclLength, Acl->AclRevision ); // Used to be hardwired to ACL_REVISION2
     Status = RtlpGenerateInheritAcl(
                  Acl,
                  IsDirectoryObject,
                  OwnerSid,
                  GroupSid,
+                 ServerOwnerSid,
+                 ServerGroupSid,
                  GenericMapping,
                  (*NewAcl)
                  );
@@ -3416,8 +3835,10 @@ NTSTATUS
 RtlpLengthInheritAcl(
     IN PACL Acl,
     IN BOOLEAN IsDirectoryObject,
-    IN PSID OwnerSid,
-    IN PSID GroupSid,
+    IN PSID ClientOwnerSid,
+    IN PSID ClientGroupSid,
+    IN PSID ServerOwnerSid OPTIONAL,
+    IN PSID ServerGroupSid OPTIONAL,
     IN PGENERIC_MAPPING GenericMapping,
     OUT PULONG NewAclLength
     )
@@ -3495,8 +3916,10 @@ Return Value:
         Status = RtlpLengthInheritedAce(
                      OldAce,
                      IsDirectoryObject,
-                     OwnerSid,
-                     GroupSid,
+                     ClientOwnerSid,
+                     ClientGroupSid,
+                     ServerOwnerSid,
+                     ServerGroupSid,
                      GenericMapping,
                      &NewAceSize
                      );
@@ -3537,8 +3960,10 @@ NTSTATUS
 RtlpGenerateInheritAcl(
     IN PACL Acl,
     IN BOOLEAN IsDirectoryObject,
-    IN PSID OwnerSid,
-    IN PSID GroupSid,
+    IN PSID ClientOwnerSid,
+    IN PSID ClientGroupSid,
+    IN PSID ServerOwnerSid OPTIONAL,
+    IN PSID ServerGroupSid OPTIONAL,
     IN PGENERIC_MAPPING GenericMapping,
     OUT PACL NewAcl
     )
@@ -3618,8 +4043,10 @@ Return Value:
         Status = RtlpGenerateInheritedAce(
                      OldAce,
                      IsDirectoryObject,
-                     OwnerSid,
-                     GroupSid,
+                     ClientOwnerSid,
+                     ClientGroupSid,
+                     ServerOwnerSid,
+                     ServerGroupSid,
                      GenericMapping,
                      NewAcl
                      );
@@ -3641,8 +4068,10 @@ NTSTATUS
 RtlpLengthInheritedAce (
     IN PACE_HEADER Ace,
     IN BOOLEAN IsDirectoryObject,
-    IN PSID OwnerSid,
-    IN PSID GroupSid,
+    IN PSID ClientOwnerSid,
+    IN PSID ClientGroupSid,
+    IN PSID ServerOwnerSid OPTIONAL,
+    IN PSID ServerGroupSid OPTIONAL,
     IN PGENERIC_MAPPING GenericMapping,
     IN PULONG NewAceLength
     )
@@ -3662,9 +4091,19 @@ Arguments:
 
     IsDirectoryObject - Specifies if the new ace is for a directory
 
-    OwnerSid - Pointer to Sid to be assigned as the new owner.
+    ClientOwnerSid - Pointer to Sid to be assigned as the new owner.
 
-    GroupSid - Points to SID to be assigned as the new primary group.
+    ClientGroupSid - Points to SID to be assigned as the new primary group.
+
+    ServerOwnerSid - Provides the SID of a server to substitute into
+        compound ACEs (if any that require editing are encountered).
+        If this parameter is not provided, the SID passed for ClientOwnerSid
+        will be used.
+
+    ServerGroupSid - Provides the SID of a client to substitute into
+        compound ACEs (if any that require editing are encountered).
+        If this parameter is not provided, the SID passed for ClientGroupSid
+        will be used.
 
     GenericMapping - Specifies the generic mapping to use.
 
@@ -3679,6 +4118,9 @@ Return Value:
         result in an invalid ACL structure.  For example, an SID substitution
         for a known ACE type which has a CreatorOwner SID might exceed the
         length limits of an ACE.
+
+    STATUS_INVALID_PARAMETER - An optional parameter was required, but not
+        provided.
 
 --*/
 
@@ -3761,14 +4203,56 @@ Return Value:
     ULONG LengthRequired = 0;
     ACCESS_MASK LocalMask;
 
+    PSID LocalServerOwner;
+    PSID LocalServerGroup;
+    PSID Sid;
+
+    ULONG Rid;
+
+    ULONG CreatorSid[CREATOR_SID_SIZE];
+    ULONG GroupSid[CREATOR_SID_SIZE];
+    ULONG CreatorOwnerServerSid[CREATOR_SID_SIZE];
+    ULONG CreatorGroupServerSid[CREATOR_SID_SIZE];
+
+    SID_IDENTIFIER_AUTHORITY  CreatorSidAuthority = SECURITY_CREATOR_SID_AUTHORITY;
+
 
     RTL_PAGED_CODE();
+
+    //
+    //  This is gross and ugly, but it's better than allocating
+    //  virtual memory to hold the ClientSid, because that can
+    //  fail, and propogating the error back is a tremendous pain
+    //
+
+    ASSERT(RtlLengthRequiredSid( 1 ) == CREATOR_SID_SIZE);
+
+    //
+    // Allocate and initialize the universal SIDs we're going to need
+    // to look for inheritable ACEs.
+    //
+
+    RtlInitializeSid( (PSID)CreatorSid, &CreatorSidAuthority, 1 );
+    RtlInitializeSid( (PSID)GroupSid,   &CreatorSidAuthority, 1 );
+
+    RtlInitializeSid( (PSID)CreatorOwnerServerSid, &CreatorSidAuthority, 1 );
+    RtlInitializeSid( (PSID)CreatorGroupServerSid, &CreatorSidAuthority, 1 );
+
+    *(RtlSubAuthoritySid( (PSID)CreatorSid, 0 ))            = SECURITY_CREATOR_OWNER_RID;
+    *(RtlSubAuthoritySid( (PSID)GroupSid, 0 ))              = SECURITY_CREATOR_GROUP_RID;
+
+    *(RtlSubAuthoritySid( (PSID)CreatorOwnerServerSid, 0 )) = SECURITY_CREATOR_OWNER_SERVER_RID;
+    *(RtlSubAuthoritySid( (PSID)CreatorGroupServerSid, 0 )) = SECURITY_CREATOR_GROUP_SERVER_RID;
 
     //
     // Everywhere the pseudo-code above says "copy", the code in this
     // routine simply calculates the length of.  RtlpGenerateInheritedAce()
     // will actually be used to do the "copy".
     //
+
+    LocalServerOwner = ARGUMENT_PRESENT(ServerOwnerSid) ? ServerOwnerSid : ClientOwnerSid;
+
+    LocalServerGroup = ARGUMENT_PRESENT(ServerGroupSid) ? ServerGroupSid : ClientGroupSid;
 
     //
     //  check to see if we will have a protection ACE (one mapped to
@@ -3778,7 +4262,6 @@ Return Value:
     if ( (IsDirectoryObject && ContainerInherit(Ace)) ||
          (!IsDirectoryObject && ObjectInherit(Ace))     ) {
 
-
         LengthRequired = (ULONG)Ace->AceSize;
 
         if (IsKnownAceType( Ace ) ) {
@@ -3787,19 +4270,44 @@ Return Value:
             // May need to adjust size due to SID substitution
             //
 
-            if ( RtlpContainsCreatorOwnerSid( (PKNOWN_ACE)Ace ) ) {
+            PKNOWN_ACE KnownAce = (PKNOWN_ACE)Ace;
 
-                LengthRequired =
-                    LengthRequired -
-                    SeLengthSid( (PSID)(&(((PKNOWN_ACE)Ace)->SidStart)) ) +
-                    SeLengthSid(OwnerSid);
+            Sid = &KnownAce->SidStart;
 
-            } else if ( RtlpContainsCreatorGroupSid( (PKNOWN_ACE)Ace )   ) {
+            if (RtlEqualPrefixSid ( Sid, CreatorSid )) {
 
-                LengthRequired =
-                    LengthRequired -
-                    SeLengthSid( (PSID)(&(((PKNOWN_ACE)Ace)->SidStart)) ) +
-                    SeLengthSid(GroupSid);
+                Rid = *RtlSubAuthoritySid( Sid, 0 );
+
+                switch (Rid) {
+                    case SECURITY_CREATOR_OWNER_RID:
+                        {
+                            LengthRequired = LengthRequired - CREATOR_SID_SIZE + SeLengthSid(ClientOwnerSid);
+                            break;
+                        }
+                    case SECURITY_CREATOR_GROUP_RID:
+                        {
+                            LengthRequired = LengthRequired - CREATOR_SID_SIZE + SeLengthSid(ClientGroupSid);
+                            break;
+                        }
+                    case SECURITY_CREATOR_OWNER_SERVER_RID:
+                        {
+                            LengthRequired = LengthRequired - CREATOR_SID_SIZE + SeLengthSid(ServerOwnerSid);
+                            break;
+                        }
+                    case SECURITY_CREATOR_GROUP_SERVER_RID:
+                        {
+                            LengthRequired = LengthRequired - CREATOR_SID_SIZE + SeLengthSid(ServerGroupSid);
+                            break;
+                        }
+                    default :
+                        {
+                            //
+                            // We don't know what this SID is, do nothing and the original will be copied.
+                            //
+
+                            break;
+                        }
+                }
             }
 
             //
@@ -3820,7 +4328,107 @@ Return Value:
                 LengthRequired = 0;
             }
 
+        } else {
 
+            if (IsCompoundAceType(Ace)) {
+
+                PKNOWN_COMPOUND_ACE KnownAce = (PKNOWN_COMPOUND_ACE)Ace;
+                PSID AceServerSid;
+                PSID AceClientSid;
+
+                AceServerSid = RtlCompoundAceServerSid( KnownAce );
+                AceClientSid = RtlCompoundAceClientSid( KnownAce );
+
+                if (RtlEqualPrefixSid ( AceClientSid, CreatorSid )) {
+
+                    Rid = *RtlSubAuthoritySid( AceClientSid, 0 );
+
+                    switch (Rid) {
+                        case SECURITY_CREATOR_OWNER_RID:
+                            {
+                                LengthRequired = LengthRequired - CREATOR_SID_SIZE + SeLengthSid(ClientOwnerSid);
+                                break;
+                            }
+                        case SECURITY_CREATOR_GROUP_RID:
+                            {
+                                LengthRequired = LengthRequired - CREATOR_SID_SIZE + SeLengthSid(ClientGroupSid);
+                                break;
+                            }
+                        case SECURITY_CREATOR_OWNER_SERVER_RID:
+                            {
+                                LengthRequired = LengthRequired - CREATOR_SID_SIZE + SeLengthSid(ServerOwnerSid);
+                                break;
+                            }
+                        case SECURITY_CREATOR_GROUP_SERVER_RID:
+                            {
+                                LengthRequired = LengthRequired - CREATOR_SID_SIZE + SeLengthSid(ServerGroupSid);
+                                break;
+                            }
+                        default :
+                            {
+                                //
+                                // We don't know what this SID is, do nothing and the original will be copied.
+                                //
+
+                                break;
+                            }
+                    }
+                }
+
+                if (RtlEqualPrefixSid ( AceServerSid, CreatorSid )) {
+
+                    Rid = *RtlSubAuthoritySid( AceServerSid, 0 );
+
+                    switch (Rid) {
+                        case SECURITY_CREATOR_OWNER_RID:
+                            {
+                                LengthRequired = LengthRequired - CREATOR_SID_SIZE + SeLengthSid(ClientOwnerSid);
+                                break;
+                            }
+                        case SECURITY_CREATOR_GROUP_RID:
+                            {
+                                LengthRequired = LengthRequired - CREATOR_SID_SIZE + SeLengthSid(ClientGroupSid);
+                                break;
+                            }
+                        case SECURITY_CREATOR_OWNER_SERVER_RID:
+                            {
+                                LengthRequired = LengthRequired - CREATOR_SID_SIZE + SeLengthSid(ServerOwnerSid);
+                                break;
+                            }
+                        case SECURITY_CREATOR_GROUP_SERVER_RID:
+                            {
+                                LengthRequired = LengthRequired - CREATOR_SID_SIZE + SeLengthSid(ServerGroupSid);
+                                break;
+                            }
+                        default :
+                            {
+                                //
+                                // We don't know what this SID is, do nothing and the original will be copied.
+                                //
+
+                                break;
+                            }
+                    }
+                }
+            }
+
+            //
+            // If after mapping the access mask, the access mask
+            // is empty, then drop the ACE.
+            //
+
+            LocalMask = ((PKNOWN_COMPOUND_ACE)(Ace))->Mask;
+            RtlMapGenericMask( &LocalMask, GenericMapping);
+
+            //
+            // Mask off any bits that aren't meaningful
+            //
+
+            LocalMask &= ( STANDARD_RIGHTS_ALL | SPECIFIC_RIGHTS_ALL | ACCESS_SYSTEM_SECURITY );
+
+            if (LocalMask == 0) {
+                LengthRequired = 0;
+            }
         }
 
         //
@@ -3833,7 +4441,6 @@ Return Value:
         if (LengthRequired > 0xFFFF) {
             return STATUS_BAD_INHERITANCE_ACL;
         }
-
     }
 
     //
@@ -3843,10 +4450,8 @@ Return Value:
 
     if (IsDirectoryObject && Propagate(Ace)) {
 
-            LengthRequired += (ULONG)Ace->AceSize;
+        LengthRequired += (ULONG)Ace->AceSize;
     }
-
-
 
     //
     //  Now return to our caller
@@ -3862,8 +4467,10 @@ NTSTATUS
 RtlpGenerateInheritedAce (
     IN PACE_HEADER OldAce,
     IN BOOLEAN IsDirectoryObject,
-    IN PSID OwnerSid,
-    IN PSID GroupSid,
+    IN PSID ClientOwnerSid,
+    IN PSID ClientGroupSid,
+    IN PSID ServerOwnerSid OPTIONAL,
+    IN PSID ServerGroupSid OPTIONAL,
     IN PGENERIC_MAPPING GenericMapping,
     OUT PACL NewAcl
     )
@@ -3885,9 +4492,13 @@ Arguments:
 
     IsDirectoryObject - Specifies if the new ACE is for a directory
 
-    OwnerSid - Specifies the owner Sid to use
+    ClientOwnerSid - Specifies the owner Sid to use
 
-    GroupSid - Specifies the new Group Sid (not currently used)
+    ClientGroupSid - Specifies the new Group Sid to use
+
+    ServerSid - Optionally specifies the Server Sid to use in compound ACEs.
+
+    ClientSid - Optionally specifies the Client Sid to use in compound ACEs.
 
     GenericMapping - Specifies the generic mapping to use
 
@@ -3918,16 +4529,58 @@ Return Value:
 
     ACCESS_MASK LocalMask;
     PVOID AcePosition;
-    PUCHAR CopyLocation;
+    PUCHAR Target;
     BOOLEAN CreatorOwner, CreatorGroup;
+    BOOLEAN CreatorClient, CreatorServer;
     BOOLEAN ProtectionAceCopied;
 
+    PSID LocalServerOwner;
+    PSID LocalServerGroup;
+
+    ULONG CreatorSid[CREATOR_SID_SIZE];
+
+    SID_IDENTIFIER_AUTHORITY  CreatorSidAuthority = SECURITY_CREATOR_SID_AUTHORITY;
+
+    ULONG Rid;
+    PSID SidToCopy;
+    PSID ClientSidToCopy;
+    PSID ServerSidToCopy;
+    PSID AceClientSid;
+    PSID AceServerSid;
+
     RTL_PAGED_CODE();
+
+    //
+    //  This is gross and ugly, but it's better than allocating
+    //  virtual memory to hold the ClientSid, because that can
+    //  fail, and propogating the error back is a tremendous pain
+    //
+
+    ASSERT(RtlLengthRequiredSid( 1 ) == CREATOR_SID_SIZE);
+
+    //
+    // Allocate and initialize the universal SIDs we're going to need
+    // to look for inheritable ACEs.
+    //
+
+    RtlInitializeSid( (PSID)CreatorSid, &CreatorSidAuthority, 1 );
+    *(RtlSubAuthoritySid( (PSID)CreatorSid, 0 ))            = SECURITY_CREATOR_OWNER_RID;
 
     if (!RtlFirstFreeAce( NewAcl, &AcePosition ) ) {
         return STATUS_BAD_INHERITANCE_ACL;
     }
 
+    if (!ARGUMENT_PRESENT(ServerOwnerSid)) {
+        LocalServerOwner = ClientOwnerSid;
+    } else {
+        LocalServerOwner = ServerOwnerSid;
+    }
+
+    if (!ARGUMENT_PRESENT(ServerGroupSid)) {
+        LocalServerGroup = ClientGroupSid;
+    } else {
+        LocalServerGroup = ServerGroupSid;
+    }
 
     //
     //  check to see if we will have a protection ACE (one mapped to
@@ -3937,11 +4590,9 @@ Return Value:
     if ( (IsDirectoryObject  && ContainerInherit(OldAce)) ||
          (!IsDirectoryObject && ObjectInherit(OldAce))      ) {
 
-
         ProtectionAceCopied = TRUE;
 
         if (IsKnownAceType( OldAce ) ) {
-
 
             //
             // If after mapping the access mask, the access mask
@@ -3963,83 +4614,92 @@ Return Value:
 
             } else {
 
+                PKNOWN_ACE KnownAce = (PKNOWN_ACE)OldAce;
 
+                Target = (PUCHAR)AcePosition;
 
-                CreatorOwner = RtlpContainsCreatorOwnerSid( (PKNOWN_ACE)OldAce );
-                CreatorGroup = RtlpContainsCreatorGroupSid( (PKNOWN_ACE)OldAce );
+                //
+                // See if the SID in the ACE is one of the various CREATOR_* SIDs by
+                // comparing identifier authorities.
+                //
 
-                CopyLocation = (PUCHAR)AcePosition;
+                if (RtlEqualPrefixSid ( &KnownAce->SidStart, CreatorSid )) {
 
-                if (!CreatorOwner && !CreatorGroup) {
+                    Rid = *RtlSubAuthoritySid( &KnownAce->SidStart, 0 );
+
+                    switch (Rid) {
+                        case SECURITY_CREATOR_OWNER_RID:
+                            {
+                                SidToCopy = ClientOwnerSid;
+                                break;
+                            }
+                        case SECURITY_CREATOR_GROUP_RID:
+                            {
+                                SidToCopy = ClientGroupSid;
+                                break;
+                            }
+                        case SECURITY_CREATOR_OWNER_SERVER_RID:
+                            {
+                                SidToCopy = LocalServerOwner;
+                                break;
+                            }
+                        case SECURITY_CREATOR_GROUP_SERVER_RID:
+                            {
+                                SidToCopy = LocalServerGroup;
+                                break;
+                            }
+                        default :
+                            {
+                                //
+                                // We don't know what this SID is, just copy the original.
+                                //
+
+                                SidToCopy = &KnownAce->SidStart;
+                                break;
+                            }
+                    }
+
+                    //
+                    // SID substitution required.  Copy all except the SID.
+                    //
+
+                    RtlMoveMemory(
+                        Target,
+                        OldAce,
+                        FIELD_OFFSET(KNOWN_ACE, SidStart)
+                        );
+
+                    Target = (PUCHAR)(Target + FIELD_OFFSET(KNOWN_ACE, SidStart));
+
+                    //
+                    // Now copy the correct SID
+                    //
+
+                    RtlMoveMemory(
+                        Target,
+                        SidToCopy,
+                        SeLengthSid(SidToCopy)
+                        );
+
+                    //
+                    // Set the size of the ACE accordingly
+                    //
+
+                    ((PKNOWN_ACE)AcePosition)->Header.AceSize =
+                        (USHORT)FIELD_OFFSET(KNOWN_ACE, SidStart) +
+                        (USHORT)SeLengthSid(SidToCopy);
+
+                } else {
 
                     //
                     // No ID substitution, copy ACE as is.
                     //
 
                     RtlMoveMemory(
-                        CopyLocation,
+                        Target,
                         OldAce,
                         ((PKNOWN_ACE)OldAce)->Header.AceSize
                         );
-
-                } else {
-
-                    //
-                    // SID substitution required.
-                    // Copy all except the SID.
-                    //
-
-                    RtlMoveMemory(
-                        CopyLocation,
-                        OldAce,
-                        FIELD_OFFSET(KNOWN_ACE, SidStart)
-                        );
-                    CopyLocation += (UCHAR)(FIELD_OFFSET(KNOWN_ACE, SidStart));
-
-                    //
-                    // Now copy the correct SID
-                    //
-
-                    if ( CreatorOwner ) {
-
-                        //
-                        // Substitute the Owner SID
-                        //
-
-                        RtlMoveMemory(
-                            CopyLocation,
-                            OwnerSid,
-                            SeLengthSid(OwnerSid)
-                            );
-
-                        //
-                        // Set the size of the ACE accordingly
-                        //
-
-                        ((PKNOWN_ACE)AcePosition)->Header.AceSize =
-                            (USHORT)FIELD_OFFSET(KNOWN_ACE, SidStart) +
-                            (USHORT)SeLengthSid(OwnerSid);
-
-                    } else if ( CreatorGroup ) {
-
-                        //
-                        // Substitute the Group SID
-                        //
-
-                        RtlMoveMemory(
-                            CopyLocation,
-                            GroupSid,
-                            SeLengthSid(GroupSid)
-                            );
-
-                        //
-                        // Set the size of the ACE accordingly
-                        //
-
-                        ((PKNOWN_ACE)AcePosition)->Header.AceSize =
-                            (USHORT)FIELD_OFFSET(KNOWN_ACE, SidStart) +
-                            (USHORT)SeLengthSid(GroupSid);
-                    }
                 }
 
                 //
@@ -4047,6 +4707,173 @@ Return Value:
                 //
 
                 ((PKNOWN_ACE)AcePosition)->Mask = LocalMask;
+            }
+
+        } else if (IsCompoundAceType(OldAce)) {
+
+            //
+            // If after mapping the access mask, the access mask
+            // is empty, then drop the ACE.
+            //
+
+            LocalMask = ((PKNOWN_COMPOUND_ACE)(OldAce))->Mask;
+            RtlMapGenericMask( &LocalMask, GenericMapping);
+
+            //
+            // Mask off any bits that aren't meaningful
+            //
+
+            LocalMask &= ( STANDARD_RIGHTS_ALL | SPECIFIC_RIGHTS_ALL | ACCESS_SYSTEM_SECURITY );
+
+            if (LocalMask == 0) {
+
+                ProtectionAceCopied = FALSE;
+
+            } else {
+
+                Target = (PUCHAR)AcePosition;
+
+                //
+                // See if the SID in the ACE is one of the various CREATOR_* SIDs by
+                // comparing identifier authorities.
+                //
+
+                AceServerSid = RtlCompoundAceServerSid( OldAce );
+                AceClientSid = RtlCompoundAceClientSid( OldAce );
+
+                if (RtlEqualPrefixSid ( AceServerSid, CreatorSid )) {
+
+                    Rid = *RtlSubAuthoritySid( AceServerSid, 0 );
+
+                    switch (Rid) {
+                        case SECURITY_CREATOR_OWNER_RID:
+                            {
+                                ServerSidToCopy = ClientOwnerSid;
+                                break;
+                            }
+                        case SECURITY_CREATOR_GROUP_RID:
+                            {
+                                ServerSidToCopy = ClientGroupSid;
+                                break;
+                            }
+                        case SECURITY_CREATOR_OWNER_SERVER_RID:
+                            {
+                                ServerSidToCopy = LocalServerOwner;
+                                break;
+                            }
+                        case SECURITY_CREATOR_GROUP_SERVER_RID:
+                            {
+                                ServerSidToCopy = LocalServerGroup;
+                                break;
+                            }
+                        default :
+                            {
+                                //
+                                // We don't know what this SID is, just copy the original.
+                                //
+
+                                ServerSidToCopy = AceServerSid;
+                                break;
+                            }
+                    }
+
+                } else {
+
+                    ServerSidToCopy = AceServerSid;
+                }
+
+                if (RtlEqualPrefixSid ( AceClientSid, CreatorSid )) {
+
+                    Rid = *RtlSubAuthoritySid( AceClientSid, 0 );
+
+                    switch (Rid) {
+                        case SECURITY_CREATOR_OWNER_RID:
+                            {
+                                ClientSidToCopy = ClientOwnerSid;
+                                break;
+                            }
+                        case SECURITY_CREATOR_GROUP_RID:
+                            {
+                                ClientSidToCopy = ClientGroupSid;
+                                break;
+                            }
+                        case SECURITY_CREATOR_OWNER_SERVER_RID:
+                            {
+                                ClientSidToCopy = LocalServerOwner;
+                                break;
+                            }
+                        case SECURITY_CREATOR_GROUP_SERVER_RID:
+                            {
+                                ClientSidToCopy = LocalServerGroup;
+                                break;
+                            }
+                        default :
+                            {
+                                //
+                                // We don't know what this SID is, just copy the original.
+                                //
+
+                                ClientSidToCopy = AceClientSid;
+                                break;
+                            }
+                    }
+
+                } else {
+
+                    ClientSidToCopy = AceClientSid;
+                }
+
+                //
+                // Copy ACE in pieces.  Body of ACE first.
+                //
+
+
+                RtlMoveMemory(
+                    Target,
+                    OldAce,
+                    FIELD_OFFSET(KNOWN_ACE, Mask)
+                    );
+
+                Target = (PUCHAR)(Target + FIELD_OFFSET(KNOWN_COMPOUND_ACE, SidStart));
+
+                //
+                // Now copy the correct Server SID
+                //
+
+                RtlMoveMemory(
+                    Target,
+                    ServerSidToCopy,
+                    SeLengthSid(ServerSidToCopy)
+                    );
+
+                Target = (PUCHAR)(Target + SeLengthSid(ServerSidToCopy));
+
+                //
+                // Now copy the correct Client SID
+                //
+
+                RtlMoveMemory(
+                    Target,
+                    ClientSidToCopy,
+                    SeLengthSid(ClientSidToCopy)
+                    );
+
+                //
+                // Set the size of the ACE accordingly
+                //
+
+                ((PKNOWN_COMPOUND_ACE)AcePosition)->Header.AceSize =
+                    (USHORT)FIELD_OFFSET(KNOWN_COMPOUND_ACE, SidStart) +
+                    (USHORT)SeLengthSid(ServerSidToCopy) +
+                    (USHORT)SeLengthSid(ClientSidToCopy);
+
+                //
+                // Put the mapped access mask in the new ACE and set the type information
+                //
+
+                ((PKNOWN_COMPOUND_ACE)AcePosition)->Mask = LocalMask;
+                ((PKNOWN_COMPOUND_ACE)AcePosition)->Header.AceType = ACCESS_ALLOWED_COMPOUND_ACE_TYPE;
+                ((PKNOWN_COMPOUND_ACE)AcePosition)->CompoundAceType = COMPOUND_ACE_IMPERSONATION;
             }
 
         } else {
@@ -4058,9 +4885,8 @@ Return Value:
             RtlMoveMemory(
                 AcePosition,
                 OldAce,
-                ((PKNOWN_ACE)OldAce)->Header.AceSize
+                ((PKNOWN_COMPOUND_ACE)OldAce)->Header.AceSize
                 );
-
         }
 
         //
@@ -4072,10 +4898,7 @@ Return Value:
             ((PACE_HEADER)AcePosition)->AceFlags &= ~VALID_INHERIT_FLAGS;
             NewAcl->AceCount += 1;
         }
-
-
     }
-
 
     //
     // If we are inheriting onto a container, then we may need to
@@ -4100,19 +4923,13 @@ Return Value:
 
         ((PACE_HEADER)AcePosition)->AceFlags |= INHERIT_ONLY_ACE;
         NewAcl->AceCount += 1;
-
-
     }
-
-
 
     //
     //  Now return to our caller
     //
 
     return STATUS_SUCCESS;
-
-
 }
 
 #if DBG
@@ -4133,21 +4950,21 @@ RtlDumpUserSid(
     // Attempt to open the impersonation token first
     //
 
-    Status = NtOpenThreadToken(                
+    Status = NtOpenThreadToken(
                  NtCurrentThread(),
                  GENERIC_READ,
                  FALSE,
-                 &TokenHandle       
+                 &TokenHandle
                  );
 
     if (!NT_SUCCESS( Status )) {
 
         DbgPrint("Not impersonating, status = %X, trying process token\n",Status);
 
-        Status = NtOpenProcessToken(                
+        Status = NtOpenProcessToken(
                      NtCurrentProcess(),
                      GENERIC_READ,
-                     &TokenHandle       
+                     &TokenHandle
                      );
 
         if (!NT_SUCCESS( Status )) {
@@ -4156,16 +4973,16 @@ RtlDumpUserSid(
         }
     }
 
-    Status = NtQueryInformationToken (                             
-                 TokenHandle,                            
+    Status = NtQueryInformationToken (
+                 TokenHandle,
                  TokenUser,
                  Buffer,
                  200,
-                 &ReturnLength                           
+                 &ReturnLength
                  );
 
     if (!NT_SUCCESS( Status )) {
-            
+
         DbgPrint("Unable to query user sid, status = %X \n",Status);
         NtClose(TokenHandle);
         return( Status );
@@ -4186,7 +5003,7 @@ RtlDumpUserSid(
     DbgPrint("Current Sid = %wZ \n",&SidString);
 
     RtlFreeUnicodeString( &SidString );
-    
+
     return( STATUS_SUCCESS );
 }
 

@@ -69,6 +69,7 @@ Revision History:
 #include        <stdlib.h>
 #include        "hd.h"
 
+#define FALSE 0
 
 
 /*************************************************************************
@@ -387,7 +388,8 @@ Return Value:
                         break;
 
                 default:
-                        assert( "Unknown base" == NULL );
+                        printf( "Unknown base\n" );
+                        assert( FALSE );
                         break;
         }
 
@@ -482,7 +484,8 @@ Return Value:
                         break;
 
                 default:
-                        assert( "Unknown base" == NULL );
+                        printf( "Unknown base\n" );
+                        assert( FALSE );
                         break;
         }
 
@@ -608,7 +611,8 @@ Return Value:
                         break;
 
                 default:
-                        assert( "Unknown base" == NULL );
+                        printf( "Unknown base\n" );
+                        assert( FALSE );
                         break;
         }
 
@@ -825,7 +829,8 @@ Return Value:
 
 
                 default:
-                        assert( "Bad Format" == NULL );
+                        printf( "Bad Format\n" );
+                        assert( FALSE );
                         break;
         }
 }
@@ -887,7 +892,8 @@ Return Value:
                         break;
 
                 default:
-                        assert( "Bad Address Base" == NULL );
+                        printf( "Bad Address Base\n" );
+                        assert( FALSE );
                         break;
         }
         line[ ulIndex ] = SPACE;   // Get rid of the NUL added by sprintf
@@ -1269,7 +1275,7 @@ Return Value:
 //.     printf( "\n\n" );                               //.gratuitous newlines removed
                                                                         // Initialization of global variables
         Offset = 0;
-        Count = -1;                                             // Maximum file size
+        Count = (unsigned long)-1;                      // Maximum file size
         AddrFormat = HEX;
         DispFormat = BYTE_HEX;
         DumpAscii = NOT_DEFINED;
@@ -1404,4 +1410,3 @@ Return Value:
         }
 }
 /* end of "void main()" */
-

@@ -19,7 +19,9 @@
 #define NODBCS
 #define NOSYSTEMPARAMSINFO
 #define NOSCALABLEFONT
-//#define TESTING
+
+//#define DEBUG
+
 #include "topdesk.h"
 //#include <shell.h> // import stuff directly-------------------------
 HINSTANCE RealShellExecuteA(
@@ -100,18 +102,17 @@ FILE            *hfDbgOut;
 #define DPRINTF(x)
 #endif // DEBUG
 BOOL            fStartingGhost              = FALSE;
-BOOL            fWin31                      = FALSE;
 BOOL            fBlockRefresh               = FALSE;
 BOOL            fFrameToggleSize            = FALSE;
 BOOL            fInvalidated                = FALSE;
 BOOL            fStarted                    = FALSE;
+BOOL            fCairoShell                 = FALSE;
 LPTSTR          pszTopmost;
 LPTSTR          pszShowFrmCtrls;
 LPTSTR          pszData;
 LPTSTR          pszTopdeskHelpTitle;
 LPTSTR          pszHelpFileName;
 LPTSTR          pszWorking;
-LPTSTR          pszMenu;
 LPTSTR          pszProfile;
 LPTSTR          pszStartupInfo;
 LPTSTR          pszTitle;
@@ -849,7 +850,7 @@ INT dy)
     INT i;
 
     for (i = 0; i < cGhosts; i++) {
-        if (!(ghoststate[i].style & WSF_FIXED)) {
+        if (!(ghoststate[i].style & WISF_FIXED)) {
             OffsetRect(&ghoststate[i].rc, dx, dy);
         }
     }
@@ -917,7 +918,7 @@ INT cy)
     }
     Working(&rc);
     for (i = 0; i < cWindows; i++) {
-        if (!(winstate[i].style & (WSF_FIXED | WS_MINIMIZE)) &&
+        if (!(winstate[i].style & (WISF_FIXED | WS_MINIMIZE)) &&
                 winstate[i].hwnd != hwndTopdesk &&
                 IsWindow(winstate[i].hwnd)) {
             OffsetRect(&winstate[i].rc, cx, cy);
@@ -1002,10 +1003,10 @@ INT iGhost)
     if (pro.iShowGhosts) {
         InvalidateRect(hwndTopdesk, NULL, TRUE);
     }
-    if (ghoststate[iGhost].style & WSF_LINKED) {
+    if (ghoststate[iGhost].style & WISF_LINKED) {
         for (j = 0; j < cWindows; j++) {
             if (ghoststate[iGhost].hwnd == winstate[j].hwnd) {
-                winstate[j].style &= ~WSF_LINKED;
+                winstate[j].style &= ~WISF_LINKED;
             }
         }
     }
@@ -1121,7 +1122,7 @@ HWND hwnd)
     }
 
     style = (GetWindowLong(hwnd, GWL_STYLE) & WS_TRACKEDSTYLES) |
-            (pws->style & WSF_CUSTOMSTYLES);
+            (pws->style & WISF_CUSTOMSTYLES);
     if (style != pws->style) {
         fChanged |= 1;
         pws->style = style;
@@ -1201,8 +1202,8 @@ VOID Unlink(
 INT iReal,
 INT iGhost)
 {
-    winstate[iReal].style &= ~WSF_LINKED;
-    ghoststate[iGhost].style &= ~WSF_LINKED;
+    winstate[iReal].style &= ~WISF_LINKED;
+    ghoststate[iGhost].style &= ~WISF_LINKED;
     ghoststate[iGhost].hwnd = 0;
 }
 
@@ -1233,8 +1234,8 @@ INT iReal,
 INT iGhost,
 BOOL fSnapGhost)
 {
-    winstate[iReal].style |= WSF_LINKED;
-    ghoststate[iGhost].style |= WSF_LINKED;
+    winstate[iReal].style |= WISF_LINKED;
+    ghoststate[iGhost].style |= WISF_LINKED;
     ghoststate[iGhost].hwnd = winstate[iReal].hwnd;
     _tcscpy(ghoststate[iGhost].szTitle, winstate[iReal].szTitle);
     if (fSnapGhost) {
@@ -1358,10 +1359,12 @@ LONG l)
     RECT rc;
     WINSTATE winstateT;
     DWORD StateChanges;
+    TCHAR szClass[30];
 
     l;
 
-    if (iRefresh == MAX_REMEMBER) {
+    if (iRefresh >= MAX_REMEMBER - 1) {
+        iRefresh++;
         return(FALSE);                  // overflow
     }
 
@@ -1381,26 +1384,55 @@ LONG l)
     if (GetWindowTextLength(hwnd) == 0) {    // skip empty title windows too.
         return(TRUE);
     }
+    /*
+     * Skip the vslick owner window - its real trouble.
+     */
+    GetClassName(hwnd, szClass, sizeof(szClass) / sizeof(szClass[0]));
+    if (!_tcscmp(szClass, TEXT("Visual SlickEdit"))) {
+        return(TRUE);
+    }
 
-    if (iRefresh >= cWindows || winstate[iRefresh].hwnd != hwnd) {
+    /*
+     * If we are runing with the cairo shell, don't show the full screen
+     * sized program manager window.  (which draws the icons for the new
+     * shell and handles DDE.)  We will still accept progman windows that
+     * aren't the size of the desktop because the person could be runing
+     * progman at the same time. (like me)
+     */
+    if (fCairoShell) {
+        static TCHAR szProgman[] = TEXT("Program Manager");
+        TCHAR szBuf[25];
+        RECT rc;
+
+        GetClientRect(hwnd, &rc);
+        if (GetWindowText(hwnd, szBuf, sizeof(szBuf) / sizeof(TCHAR)) &&
+               !_tcscmp(szBuf, szProgman) &&
+               EqualRect(&rc, &rcrDT)) {
+            return(TRUE);
+        }
+    }
+
+    if ((iRefresh >= cWindows || winstate[iRefresh].hwnd != hwnd)) {
         //
         // Something has changed or been added.
         //
         fInvalidated = TRUE;
         fNew = TRUE;
         for (j = iRefresh + 1; j < cWindows; j++) {
-            //
-            // see if it was a Z-order change
-            //
-            if (winstate[j].hwnd == hwnd) {
+            if (j < MAX_REMEMBER) {
                 //
-                // yes it was... its not new, just swap.
+                // see if it was a Z-order change
                 //
-                fNew = FALSE;
-                winstateT   = winstate[j];
-                winstate[j] = winstate[iRefresh];
-                winstate[iRefresh] = winstateT;
-                break;
+                if (winstate[j].hwnd == hwnd) {
+                    //
+                    // yes it was... its not new, just swap.
+                    //
+                    fNew = FALSE;
+                    winstateT   = winstate[j];
+                    winstate[j] = winstate[iRefresh];
+                    winstate[iRefresh] = winstateT;
+                    break;
+                }
             }
         }
         if (fNew) {
@@ -1437,11 +1469,23 @@ LONG l)
         }
         fInvalidated = TRUE;
     }
-    if (fNew && !_tcscmp(winstate[iRefresh].szTitle, pszTopdeskHelpTitle)) {
+    if (fNew) {
+
         /*
-         * Fix topdesk help so it don't go flying when the user is learning.
+         * 2 hacks:
+         *   1) Make topdesk's help window automatically locked.
+         *   2) vslick uses an off-screen owner window that will move
+         *      with its ownee.  If we move the ownee, the owner
+         *      will move and then when we move the owner, the ownee
+         *      will move again, so we always lock the ownee.
          */
-        winstate[iRefresh].style |= WSF_FIXED;
+        if (!_tcscmp(winstate[iRefresh].szTitle, pszTopdeskHelpTitle)
+                // || !_tcscmp(TEXT("vs_mdiframe"), szClass)
+            )
+        {
+
+            winstate[iRefresh].style |= WISF_FIXED;
+        }
     }
 
     //
@@ -1473,9 +1517,22 @@ LONG l)
      * be jumped to when focus changes.
      */
     if (iRefresh == 0 && ihwndJump == -1) {
-        GetBestGuessRect(&rc, &winstate[0]);
-        if (!IsCriticalPointOnDesktop(&rc)) {
-            ihwndJump = 0;
+        int i;
+        HWND hwndForeground = GetForegroundWindow();
+
+        /*
+         * because of WM_TOPMOST, the top window may not have the focus
+         * so make sure we have the right one.
+         */
+        if (hwndForeground) {
+            for (i = 0; i < MAX_REMEMBER; i++) {
+                if (winstate[i].hwnd && IsChild(winstate[i].hwnd, hwndForeground)) {
+                    GetBestGuessRect(&rc, &winstate[i]);
+                    if (!IsCriticalPointOnDesktop(&rc)) {
+                        ihwndJump = i;
+                    }
+                }
+            }
         }
     }
     iRefresh++;
@@ -1534,7 +1591,7 @@ VOID RefreshWinState()
     }
     iRefresh = 0;
     EnumWindows((WNDENUMPROC)fpRefreshEnumProc, 0);
-    if (iRefresh != cWindows) {
+    if (iRefresh != cWindows && iRefresh < MAX_REMEMBER) {
         fInvalidated = TRUE;
         cWindows = iRefresh;
     }
@@ -1545,7 +1602,7 @@ VOID RefreshWinState()
         j = FindRealLink(i);
         if (j == -1) {
             ghoststate[i].hwnd = 0;
-            ghoststate[i].style &= ~WSF_LINKED;
+            ghoststate[i].style &= ~WISF_LINKED;
         }
     }
 
@@ -1734,7 +1791,7 @@ INT i)
     //
     // see if there exists a ghost we can link the window to.
     //
-    if (!(winstate[i].style & WSF_LINKED)) {
+    if (!(winstate[i].style & WISF_LINKED)) {
         for (j = 0; j < cGhosts; j++) {
             if (ghoststate[j].hwnd == 0 &&
                     !_tcsicmp(ghoststate[j].szTitle, winstate[iRefresh].szTitle)
@@ -1743,15 +1800,15 @@ INT i)
                 // Link the ghost window with the real window and make the
                 // real window jump to the ghost's location and state.
                 //
-                winstate[iRefresh].style |= WSF_LINKED;
-                ghoststate[j].style |= WSF_LINKED;
+                winstate[iRefresh].style |= WISF_LINKED;
+                ghoststate[j].style |= WISF_LINKED;
                 ghoststate[j].hwnd = winstate[iRefresh].hwnd;
                 _tcscpy(ghoststate[j].szTitle, winstate[iRefresh].szTitle);
             }
         }
     }
 
-    if (winstate[i].style & WSF_LINKED) {
+    if (winstate[i].style & WISF_LINKED) {
         //
         // update ghost
         //
@@ -1769,7 +1826,7 @@ INT i)
         //
         if (winstate[i].hwnd != hwndTopdesk) {
             NewGhostWindow(winstate[i].szTitle);
-            winstate[i].style |= WSF_LINKED;
+            winstate[i].style |= WISF_LINKED;
             ghoststate[cGhosts - 1] = winstate[i];
             ghoststate[cGhosts - 1].rc = winstate[i].rc;
         }
@@ -1944,7 +2001,7 @@ BOOL CommandMsg(WORD cmd)
         }
         cGhosts = 0;
         for (i = 0; i < cWindows; i++) {
-            winstate[i].style &= ~WSF_LINKED;
+            winstate[i].style &= ~WISF_LINKED;
         }
         SaveGhostState();
         goto repaint;
@@ -2049,12 +2106,12 @@ BOOL CommandMsg(WORD cmd)
 
     case CMD_DISTRIBUTE:
         for (iReal = 0; iReal < cWindows; iReal++) {
-            if (winstate[iReal].style & WSF_LINKED) {
+            if (winstate[iReal].style & WISF_LINKED) {
                 iGhost = FindLinkedGhost(iReal);
                 if (iGhost > -1) {
                     DistributeWindow(iReal, iGhost);
                 } else {
-                    winstate[iReal].style &= ~WSF_LINKED;
+                    winstate[iReal].style &= ~WISF_LINKED;
                 }
             } else {
                 iGhost = FindLinkableGhost(iReal);
@@ -2179,13 +2236,13 @@ repaint:
         break;
 
     case CMDP_UNLOCK_GHOST:
-        ghoststate[PopupGhostIndex].style &= ~WSF_FIXED;
+        ghoststate[PopupGhostIndex].style &= ~WISF_FIXED;
         SaveGhostState();
         InvalidateRect(hwndTopdesk, NULL, FALSE);
         break;
 
     case CMDP_LOCK_GHOST:
-        ghoststate[PopupGhostIndex].style |= WSF_FIXED;
+        ghoststate[PopupGhostIndex].style |= WISF_FIXED;
         SaveGhostState();
         InvalidateRect(hwndTopdesk, NULL, FALSE);
         break;
@@ -2199,12 +2256,12 @@ repaint:
         break;
 
     case CMDP_UNLOCK_REAL:
-        winstate[PopupRealIndex].style &= ~WSF_FIXED;
+        winstate[PopupRealIndex].style &= ~WISF_FIXED;
         InvalidateRect(hwndTopdesk, NULL, FALSE);
         break;
 
     case CMDP_LOCK_REAL:
-        winstate[PopupRealIndex].style |= WSF_FIXED;
+        winstate[PopupRealIndex].style |= WISF_FIXED;
         InvalidateRect(hwndTopdesk, NULL, FALSE);
         break;
 
@@ -2231,7 +2288,6 @@ repaint:
     case CMD_DUMP_ALL:
         {
             _ftprintf(hfDbgOut, TEXT("Globals:\n"));
-            _ftprintf(hfDbgOut, TEXT("\tfWin31              = %d\n"), fWin31);
             _ftprintf(hfDbgOut, TEXT("\tfBlockRefresh       = %d\n"), fBlockRefresh);
             _ftprintf(hfDbgOut, TEXT("\tfFrameToggleSize    = %d\n"), fFrameToggleSize);
             _ftprintf(hfDbgOut, TEXT("\tfInvalidated        = %d\n"), fInvalidated);
@@ -2519,14 +2575,14 @@ RECT rc)
             GetBestGuessRect(&rcChild, &winstate[i]);
             DrawWindowRect(winstate[i].hwnd, &rcChild,
                     WINDOWFILLCOLOR,
-                    (winstate[i].style & (WSF_FIXED | WS_MINIMIZE) ? FIXEDFRAMECOLOR : WINDOWFRAMECOLOR),
+                    (winstate[i].style & (WISF_FIXED | WS_MINIMIZE) ? FIXEDFRAMECOLOR : WINDOWFRAMECOLOR),
                     winstate[i].style & WS_MAXIMIZE);
         }
     }
 
     if ((pro.iShowGhosts != SG_NONE) && cGhosts) {
         for (i = cGhosts - 1; i >= 0; i--) {
-            if ((pro.iShowGhosts == SG_ALL) || !(ghoststate[i].style & WSF_LINKED)) {
+            if ((pro.iShowGhosts == SG_ALL) || !(ghoststate[i].style & WISF_LINKED)) {
                 /*
                  * Draw ghost window
                  */
@@ -2542,7 +2598,7 @@ RECT rc)
                             DT_LEFT | DT_BOTTOM | DT_SINGLELINE);
                 }
                 InflateRect(&rcChild, 2, 2);
-                FrameRect(hdc, &rcChild, pro.ahbr[ghoststate[i].style & WSF_FIXED ?
+                FrameRect(hdc, &rcChild, pro.ahbr[ghoststate[i].style & WISF_FIXED ?
                         FIXEDFRAMECOLOR : GHOSTFRAMECOLOR].hbr);
             }
         }
@@ -2578,7 +2634,7 @@ BOOL fSkipGhosts) // set if we don't want to hit a ghost.
      */
     if ((pro.iShowGhosts != SG_NONE) && cGhosts && !fSkipGhosts) {
         for (i = 0; i < cGhosts; i++) {
-            if ((pro.iShowGhosts == SG_PARTIAL) && ghoststate[i].style & WSF_LINKED) {
+            if ((pro.iShowGhosts == SG_PARTIAL) && ghoststate[i].style & WISF_LINKED) {
                 continue;
             }
             if (PtInRect(&ghoststate[i].rc, *pptr)) {
@@ -2673,8 +2729,8 @@ INT yc)
             (wType == HTY_REAL && winstate[i].style & WS_MAXIMIZE) ||
             (GetKeyState(VK_CONTROL) & 0x8000);
 
-    fLocked = (wType & HTY_REAL && winstate[i].style & WSF_FIXED) ||
-            (wType & HTY_GHOST && ghoststate[i].style & WSF_FIXED);
+    fLocked = (wType & HTY_REAL && winstate[i].style & WISF_FIXED) ||
+            (wType & HTY_GHOST && ghoststate[i].style & WISF_FIXED);
 
     if (fLocked && fDesktopGrid) {
         return;
@@ -2851,7 +2907,7 @@ BOOL ExecProgram(
 
   hRet = RealShellExecute(hwndTopdesk, NULL, lpszPath, lpP,
                             lpDir, NULL, lpTitle, NULL, SW_SHOW, NULL);
-  LocalFree(lpP);
+  LocalFree(lpszPath);
   return((DWORD)hRet >= 32);
 }
 
@@ -2949,7 +3005,7 @@ INT iGhost)
     /*
      * See if ghost's real window already exists - if so just switch to it.
      */
-    if (ghoststate[iGhost].style & WSF_LINKED) {
+    if (ghoststate[iGhost].style & WISF_LINKED) {
         iReal = FindLinkedReal(iGhost);
         if (iReal > -1) {
             int x, y;
@@ -3006,7 +3062,7 @@ BOOL fFirstTime)
         AppendMenu(hMenu, MF_ENABLED | MF_STRING | MF_UNCHECKED,
                 CMDP_DESTROY_GHOST, szT);
         Count++;
-        if (ghoststate[i].style & WSF_FIXED) {
+        if (ghoststate[i].style & WISF_FIXED) {
             wsprintf(szT, GetResString(IDS_UNLOCKGHOST), ghoststate[i].szTitle);
             AppendMenu(hMenu, MF_ENABLED | MF_STRING | MF_UNCHECKED,
                     CMDP_UNLOCK_GHOST, szT);
@@ -3047,7 +3103,7 @@ BOOL fFirstTime)
                     CMDP_SNAPSHOT_REAL, szT);
             Count++;
         }
-        if (!(winstate[i].style & WS_MINIMIZE) && winstate[i].style & WSF_FIXED) {
+        if (!(winstate[i].style & WS_MINIMIZE) && winstate[i].style & WISF_FIXED) {
             wsprintf(szT, GetResString(IDS_UNLOCKWINDOW), winstate[i].szTitle);
             AppendMenu(hMenu, MF_ENABLED | MF_STRING | MF_UNCHECKED,
                     CMDP_UNLOCK_REAL, szT);
@@ -3527,7 +3583,6 @@ HANDLE hInst)
     InitResString(&pszTopdeskHelpTitle, IDS_TOPDESKHELPTITLE);
     InitResString(&pszHelpFileName, IDS_HELPFILENAME);
     InitResString(&pszWorking, IDS_WORKING);
-    InitResString(&pszMenu, IDS_MENU);
     InitResString(&pszProfile, IDS_PROFILE);
     InitResString(&pszStartupInfo, IDS_STARTUPINFO);
     InitResString(&pszTitle, IDS_TITLE);
@@ -3555,10 +3610,10 @@ HANDLE hInst)
     wc.cbClsExtra = 0;
     wc.cbWndExtra = 0;
     wc.hInstance = hInst;
-    wc.hIcon = LoadIcon(hInst, TEXT("MEGAICON"));
+    wc.hIcon = LoadIcon(hInst, MAKEINTRESOURCE(IDR_ICON));
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
     wc.hbrBackground = NULL;
-    wc.lpszMenuName = pszMenu;
+    wc.lpszMenuName = MAKEINTRESOURCE(IDR_MENU);
     wc.lpszClassName = pszTitle;
 
     if (RegisterClass(&wc)) {
@@ -3612,6 +3667,7 @@ BOOL TopDeskInit()
 {
     HDC hdc;
     int i;
+    OSVERSIONINFO ovi;
 
     wmRefreshMsg = RegisterWindowMessage(TEXT(szMYWM_REFRESH));
     if (RegOpenKey(HKEY_CURRENT_USER, pszSubKey, &hKeyTopDesk) != ERROR_SUCCESS) {
@@ -3628,7 +3684,11 @@ BOOL TopDeskInit()
     cyrDT = GetSystemMetrics(SM_CYSCREEN);
     cxFrame = GetSystemMetrics(SM_CXFRAME);
     cyFrame = GetSystemMetrics(SM_CYFRAME);
-    fWin31 = HIBYTE(LOWORD(GetVersion())) >= 10;
+
+    ovi.dwOSVersionInfoSize = sizeof(OSVERSIONINFO);
+    GetVersionEx(&ovi);
+    fCairoShell = ovi.dwMajorVersion >= 4;
+
     if (!GetProfile()) {
         pro.x = 0;
         pro.y = 0;
@@ -3646,7 +3706,7 @@ BOOL TopDeskInit()
         DPRINTF((hfDbgOut, "MakeProcInstance failied.\n"));
         return(FALSE);
     }
-    hAccel = LoadAccelerators(hInst, TEXT("MEGAACCEL"));
+    hAccel = LoadAccelerators(hInst, MAKEINTRESOURCE(IDR_ACCEL));
     if (!hAccel) {
         DPRINTF((hfDbgOut, "Could not load accelerators.\n"));
         return(FALSE);
@@ -3748,4 +3808,4 @@ int nCmdShow)
 #endif // DEBUG
     return(0);
 }
-
+

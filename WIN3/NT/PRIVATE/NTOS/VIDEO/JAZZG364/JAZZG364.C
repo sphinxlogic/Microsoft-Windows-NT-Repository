@@ -628,7 +628,7 @@ Return Value:
         VideoDebugPrint((2, "G364: getting monitor information\n"));
 
         //
-        // BUGBUG because we had a RESOURCE LIST header at the top.
+        // NOTE: because we had a RESOURCE LIST header at the top.
         // + 8 should be the offset of the paertial resource descriptor
         // in a full resource descriptor.
         //
@@ -760,6 +760,11 @@ Return Value:
     ULONG pixelShift;
     PUCHAR pixelSource;
     UCHAR pixelValue;
+    PVIDEO_SHARE_MEMORY pShareMemory;
+    PVIDEO_SHARE_MEMORY_INFORMATION pShareMemoryInformation;
+    PHYSICAL_ADDRESS shareAddress;
+    PVOID virtualAddress;
+    ULONG sharedViewSize;
 
     //
     // Switch on the IoContolCode in the RequestPacket. It indicates which
@@ -767,6 +772,86 @@ Return Value:
     //
 
     switch (RequestPacket->IoControlCode) {
+
+
+    case IOCTL_VIDEO_SHARE_VIDEO_MEMORY:
+
+        VideoDebugPrint((2, "DGXStartIO - ShareVideoMemory\n"));
+
+        if ( (RequestPacket->OutputBufferLength < sizeof(VIDEO_SHARE_MEMORY_INFORMATION)) ||
+             (RequestPacket->InputBufferLength < sizeof(VIDEO_MEMORY)) ) {
+
+            status = ERROR_INSUFFICIENT_BUFFER;
+            break;
+
+        }
+
+        pShareMemory = RequestPacket->InputBuffer;
+
+        if ( (pShareMemory->ViewOffset > hwDeviceExtension->FrameLength) ||
+             ((pShareMemory->ViewOffset + pShareMemory->ViewSize) >
+                  hwDeviceExtension->FrameLength) ) {
+
+            status = ERROR_INVALID_PARAMETER;
+            break;
+
+        }
+
+        RequestPacket->StatusBlock->Information =
+                                    sizeof(VIDEO_SHARE_MEMORY_INFORMATION);
+
+        //
+        // Beware: the input buffer and the output buffer are the same
+        // buffer, and therefore data should not be copied from one to the
+        // other
+        //
+
+        virtualAddress = pShareMemory->ProcessHandle;
+        sharedViewSize = pShareMemory->ViewSize;
+
+        inIoSpace = 0;
+
+        //
+        // NOTE: we are ignoring ViewOffset
+        //
+
+        shareAddress.QuadPart =
+            hwDeviceExtension->PhysicalFrameAddress.QuadPart;
+
+        status = VideoPortMapMemory(hwDeviceExtension,
+                                    shareAddress,
+                                    &sharedViewSize,
+                                    &inIoSpace,
+                                    &virtualAddress);
+
+        pShareMemoryInformation = RequestPacket->OutputBuffer;
+
+        pShareMemoryInformation->SharedViewOffset = pShareMemory->ViewOffset;
+        pShareMemoryInformation->VirtualAddress = virtualAddress;
+        pShareMemoryInformation->SharedViewSize = sharedViewSize;
+
+
+        break;
+
+
+    case IOCTL_VIDEO_UNSHARE_VIDEO_MEMORY:
+
+        VideoDebugPrint((2, "G300StartIO - UnshareVideoMemory\n"));
+
+        if (RequestPacket->InputBufferLength < sizeof(VIDEO_SHARE_MEMORY)) {
+
+            status = ERROR_INSUFFICIENT_BUFFER;
+            break;
+
+        }
+
+        pShareMemory = RequestPacket->InputBuffer;
+
+        status = VideoPortUnmapMemory(hwDeviceExtension,
+                                      pShareMemory->RequestedVirtualAddress,
+                                      pShareMemory->ProcessHandle);
+
+        break;
 
 
     case IOCTL_VIDEO_MAP_VIDEO_MEMORY:
@@ -855,8 +940,8 @@ Return Value:
             modeInformation->NumberOfPlanes = 1;
             modeInformation->BitsPerPlane = DISPLAY_BITS_PER_PIXEL;
 
-            modeInformation->XMillimeter = 320;  // BUGBUG This should come
-            modeInformation->YMillimeter = 240;  // from the monitor
+            modeInformation->XMillimeter = 320;
+            modeInformation->YMillimeter = 240;
             modeInformation->Frequency = 1;
 
             modeInformation->NumberRedBits = 8;
@@ -1023,8 +1108,8 @@ Return Value:
                                                               VIDEO_MODE_MONO_POINTER);
                 VideoPointerCapabilities->MaxWidth         = CURSOR_WIDTH;
                 VideoPointerCapabilities->MaxHeight        = CURSOR_HEIGHT;
-                VideoPointerCapabilities->HWPtrBitmapStart = -1;
-                VideoPointerCapabilities->HWPtrBitmapEnd   = -1;
+                VideoPointerCapabilities->HWPtrBitmapStart = 0xffffffff;
+                VideoPointerCapabilities->HWPtrBitmapEnd   = 0xffffffff;
 
                 status = NO_ERROR;
             }
@@ -1076,6 +1161,14 @@ Return Value:
         if (RequestPacket->InputBufferLength < sizeof(VIDEO_POINTER_POSITION)) {
 
             status = ERROR_INSUFFICIENT_BUFFER;
+
+        } else if (hwDeviceExtension->HorizontalResolution == 800) {
+
+            //
+            // hw cursor is broken at 800x600 resolution, fail call
+            //
+
+            status = ERROR_INVALID_PARAMETER;
 
         } else {
 
@@ -1161,7 +1254,16 @@ Return Value:
 
                 status = ERROR_INSUFFICIENT_BUFFER;
                 break;
+            }
 
+            //
+            // hw cursor is broken at 800x600 resolution, fail call
+            //
+
+            if (hwDeviceExtension->HorizontalResolution == 800) {
+
+                status = ERROR_INVALID_PARAMETER;
+                break;
             }
 
             //
@@ -1636,17 +1738,21 @@ Return Value:
         ULONG dataLong;
 
         //
+        // Don't turn off CURSOR, this will cause animated cursors to flicker.
+        // Ignore AMINATE_UPDATE flag and just don't turn off any cursor shape update.
+        //
+        //
         // Turn off cursor:
         // Read-modify-write to set cursor disable bit in control register
         //
-
-        dataLong = VideoPortReadRegisterUlong(&VIDEO_CONTROL->Parameters.Long);
-
-        ((PG364_VIDEO_PARAMETERS)(&dataLong))->DisableCursor = 1;
-
-        VideoPortWriteRegisterUlong(&VIDEO_CONTROL->Parameters.Long,
-                                    dataLong);
-
+        //
+        //dataLong = VideoPortReadRegisterUlong(&VIDEO_CONTROL->Parameters.Long);
+        //
+        //((PG364_VIDEO_PARAMETERS)(&dataLong))->DisableCursor = 1;
+        //
+        //VideoPortWriteRegisterUlong(&VIDEO_CONTROL->Parameters.Long,
+        //                           dataLong);
+        //
         //
         // update the pixels SLOWLY
         //

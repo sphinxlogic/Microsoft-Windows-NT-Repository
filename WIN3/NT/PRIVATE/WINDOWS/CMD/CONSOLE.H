@@ -3,5 +3,3 @@
 #define SetPause( pscr, crow ) pscr->crowPause = crow
 #define ICGRP   0x0040  // Informational commands group
 #define CONLVL  0x0020  // Console
-
-#define MAXCBMSGBUFFER 2048

@@ -23,6 +23,22 @@ Revision History:
 #include "ausrvp.h"
 #include <string.h>
 
+//
+// Internal routine prototypes
+//
+
+
+NTSTATUS
+LsapBuildWorldSynchSD(
+    IN PSECURITY_DESCRIPTOR SD,
+    IN PACL                 Dacl,
+    IN ULONG                AclLength
+    );
+
+
+
+
+
 
 BOOLEAN
 LsapAuInit(
@@ -50,11 +66,15 @@ Return Value:
     NTSTATUS Status;
     OBJECT_ATTRIBUTES ObjectAttributes;
     HANDLE EventHandle;
-    STRING Name;
     UNICODE_STRING UnicodeName;
 
-    Status = NtAllocateLocallyUniqueId( &LsapSystemLogonId );
-    ASSERT(NT_SUCCESS(Status));
+    SECURITY_DESCRIPTOR WorldSynchSD;
+    CHAR WorldSynchDaclBuffer[200];  //200 bytes is plenty for this.
+    PACL WorldSynchDacl = (PACL)(WorldSynchDaclBuffer);
+    LUID SystemLuid = SYSTEM_LUID;
+
+    LsapSystemLogonId.LowPart = SystemLuid.LowPart;
+    LsapSystemLogonId.HighPart = SystemLuid.HighPart;
 
     //
     // Strings needed for auditing.
@@ -99,26 +119,24 @@ Return Value:
 
     //
     // Indicate that we are ready to accept LSA authentication
-    // service requests.
+    // service requests.  Allow anyone to wait on this event.
     //
     // NOTE: This must be done even if authentication is not
     //       active in the system.  Otherwise logon processes
     //       won't know when to query the authentication state.
     //
 
-    RtlInitString( &Name, "\\SECURITY\\LSA_AUTHENTICATION_INITIALIZED" );
-    Status = RtlAnsiStringToUnicodeString( &UnicodeName, &Name, TRUE );
-    ASSERT( NT_SUCCESS(Status) );
+    Status = LsapBuildWorldSynchSD( &WorldSynchSD, WorldSynchDacl, sizeof(WorldSynchDaclBuffer) );
+    RtlInitUnicodeString( &UnicodeName, L"\\SECURITY\\LSA_AUTHENTICATION_INITIALIZED" );
     InitializeObjectAttributes(
         &ObjectAttributes,
         &UnicodeName,
         OBJ_CASE_INSENSITIVE,
         0,
-        NULL
+        &WorldSynchSD
         );
 
     Status = NtOpenEvent( &EventHandle, GENERIC_WRITE, &ObjectAttributes );
-    RtlFreeUnicodeString( &UnicodeName );
     ASSERTMSG("LSA/AU Initialization Notification Event Open Failed.",NT_SUCCESS(Status));
 
     Status = NtSetEvent( EventHandle, NULL );
@@ -180,7 +198,7 @@ Return Value:
     //
 
     CreateTokenPrivilege =
-        RtlConvertLongToLargeInteger(SE_CREATE_TOKEN_PRIVILEGE);
+        RtlConvertLongToLuid(SE_CREATE_TOKEN_PRIVILEGE);
 
     ASSERT( (sizeof(TOKEN_PRIVILEGES) + sizeof(LUID_AND_ATTRIBUTES)) < 100);
     NewState = LsapAllocateLsaHeap( 100 );
@@ -216,4 +234,96 @@ Return Value:
 
     return TRUE;
 
+}
+
+
+NTSTATUS
+LsapBuildWorldSynchSD(
+    IN PSECURITY_DESCRIPTOR SD,
+    IN PACL                 Dacl,
+    IN ULONG                AclLength
+    )
+
+/*++
+
+Routine Description:
+
+    This function builds an absolute security descriptor containing an
+    ACL granting WORLD:SYNCHRONIZE access.
+
+Arguments:
+
+    SD - Pointer to the security descriptor to be initialized.
+
+    Dacl - Pointer to the ACL to be initialized.
+
+    AclLength - Length of the buffer pointed to by ACL.
+
+Return Value:
+
+    STATUS_SUCCESS - The security desciptor has been initialized.
+
+    STATUS_BUFFER_TOO_SMALL - The ACL buffer is not large enough to build the ACL.
+
+--*/
+{
+    NTSTATUS
+        Status;
+
+    ULONG
+        Length;
+
+
+    ASSERT(SD != NULL);
+    ASSERT(Dacl != NULL);
+
+    //
+    // Initialize the security descriptor.
+    // This call should not fail.
+    //
+
+    Status = RtlCreateSecurityDescriptor( SD, SECURITY_DESCRIPTOR_REVISION1 );
+    ASSERT(NT_SUCCESS(Status));
+
+    Length = (ULONG)sizeof(ACL) +
+                 ((ULONG)sizeof(ACCESS_ALLOWED_ACE)) +
+                 RtlLengthSid( LsapWorldSid );
+
+    if (AclLength < Length) {
+        return(STATUS_BUFFER_TOO_SMALL);
+    }
+
+
+    Status = RtlCreateAcl (Dacl, Length, ACL_REVISION2 );
+    ASSERT(NT_SUCCESS(Status));
+
+    //
+    // Add ACEs to the ACL...
+    // These calls should not be able to fail.
+    //
+
+    Status = RtlAddAccessAllowedAce(
+                 Dacl,
+                 ACL_REVISION2,
+                 (SYNCHRONIZE ),
+                 LsapWorldSid
+                 );
+    ASSERT(NT_SUCCESS(Status));
+
+
+    //
+    // And add the ACL to the security descriptor.
+    // This call should not fail.
+    //
+
+    Status = RtlSetDaclSecurityDescriptor(
+                 SD,
+                 TRUE,              // DaclPresent
+                 Dacl,              // Dacl
+                 FALSE              // DaclDefaulted
+                 );
+    ASSERT(NT_SUCCESS(Status));
+
+
+    return(STATUS_SUCCESS);
 }

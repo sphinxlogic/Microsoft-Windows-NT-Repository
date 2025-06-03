@@ -59,4 +59,4 @@ char * strappend(register char *dst, register char *src)
     while ((*dst++ = *src++) != 0);
     return(--dst);
 }
-
+

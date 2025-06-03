@@ -19,10 +19,9 @@ Revision History:
 --*/
 
 #include "cmd.h"
-#include "cmdproto.h"
 
 extern TCHAR SwitChar;
-extern BOOLEAN CtrlCSeen;
+extern BOOL CtrlCSeen;
 
 extern unsigned LastRetCode;
 
@@ -41,7 +40,7 @@ extern unsigned LastRetCode;
 #define INITIAL_DISPLAY_NAME_LENGTH 128
 
 
-BOOL         
+BOOL
 DisablePrivileges(
     USHORT PassedPrivilegeCount,
     PLUID PrivilegeValues,
@@ -50,7 +49,7 @@ DisablePrivileges(
     HANDLE TokenHandle
     );
 
-BOOL         
+BOOL
 EnablePrivileges(
     USHORT PassedPrivilegeCount,
     PLUID PrivilegeValues,
@@ -70,18 +69,13 @@ Priv (
     );
 
 #define EqualLuid( Luid1, Luid2 )   (((Luid1).HighPart == (Luid2).HighPart) &&         \
-                                    ((Luid1).LowPart == (Luid2).LowPart)) 
+                                    ((Luid1).LowPart == (Luid2).LowPart))
 
 
 //
 // temp hack until I put in actuall message
 //
 #define MSG_MISSING_PRIV_NAME MSG_BAD_SYNTAX
-
-#include <stdio.h>
-#include <string.h>
-
-//#include <tools.h>
 
 #ifndef SHIFT
 #define SHIFT(c,v)      {c--; v++;}

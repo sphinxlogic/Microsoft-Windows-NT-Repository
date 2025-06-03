@@ -53,4 +53,3 @@ CINC	    = $(CINC) -I. -I..\common -I. -I..\strms\server -I$(CAIROLE)\ole\inc
 NO_WINMAIN  = 1
 
 NEWDEF      = 1
-

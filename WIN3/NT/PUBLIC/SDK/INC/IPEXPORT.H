@@ -1,12 +1,12 @@
 /********************************************************************/
 /**                     Microsoft LAN Manager                      **/
-/**               Copyright(c) Microsoft Corp., 1990-1992          **/
+/**               Copyright(c) Microsoft Corp., 1990-1996          **/
 /********************************************************************/
 /* :ts=4 */
 
 //** IPEXPORT.H - IP public definitions.
 //
-//  This file contains public definitions exported to upper layer and
+//  This file contains public definitions exported to transport layer and
 //  application software.
 //
 
@@ -16,7 +16,7 @@
 /*NOINC*/
 
 //
-// IP types
+// IP type definitions.
 //
 typedef unsigned long   IPAddr;     // An IP address.
 typedef unsigned long   IPMask;     // An IP subnet mask.
@@ -25,6 +25,18 @@ typedef unsigned long   IP_STATUS;  // Status code returned from IP APIs.
 
 /*INC*/
 
+//
+// The ip_option_information structure describes the options to be
+// included in the header of an IP packet. The TTL, TOS, and Flags
+// values are carried in specific fields in the header. The OptionsData
+// bytes are carried in the options area following the standard IP header.
+// With the exception of source route options, this data must be in the
+// format to be transmitted on the wire as specified in RFC 791. A source
+// route option should contain the full route - first hop thru final
+// destination - in the route data. The first hop will be pulled out of the
+// data and the option will be reformatted accordingly. Otherwise, the route
+// option should be formatted as specified in RFC 791.
+//
 struct ip_option_information {
     unsigned char      Ttl;             // Time To Live
     unsigned char      Tos;             // Type Of Service
@@ -33,22 +45,22 @@ struct ip_option_information {
     unsigned char FAR *OptionsData;     // Pointer to options data
 }; /* ip_option_information */
 
+//
+// The icmp_echo_reply structure describes the data returned in response
+// to an echo request.
+//
 struct icmp_echo_reply {
     IPAddr                         Address;         // Replying address
-    unsigned long                  Status;          // Reply status
+    unsigned long                  Status;          // Reply IP_STATUS
     unsigned long                  RoundTripTime;   // RTT in milliseconds
-    unsigned short                 DataSize;        // Echo data size
+    unsigned short                 DataSize;        // Reply data size in bytes
     unsigned short                 Reserved;        // Reserved for system use
-    void FAR                      *Data;            // Pointer to the echo data
+    void FAR                      *Data;            // Pointer to the reply data
     struct ip_option_information   Options;         // Reply options
 }; /* icmp_echo_reply */
 
 
 /*NOINC*/
-
-//
-// IP Options structure for use by the application-level ICMP interface.
-//
 
 typedef struct ip_option_information IP_OPTION_INFORMATION,
                                      FAR *PIP_OPTION_INFORMATION;
@@ -59,7 +71,7 @@ typedef struct icmp_echo_reply ICMP_ECHO_REPLY,
 /*INC*/
 
 //
-// IP status codes returned to transports and user IOCTLs.
+// IP_STATUS codes returned from IP APIs
 //
 
 #define IP_STATUS_BASE              11000
@@ -86,38 +98,43 @@ typedef struct icmp_echo_reply ICMP_ECHO_REPLY,
 
 
 //
-// The next group are status codes passed up on status indications.
+// The next group are status codes passed up on status indications to
+// transport layer protocols.
 //
 #define IP_ADDR_DELETED             (IP_STATUS_BASE + 19)
 #define IP_SPEC_MTU_CHANGE          (IP_STATUS_BASE + 20)
 #define IP_MTU_CHANGE               (IP_STATUS_BASE + 21)
+#define IP_UNLOAD                   (IP_STATUS_BASE + 22)
+#define IP_ADDR_ADDED               (IP_STATUS_BASE + 23)
 
 #define IP_GENERAL_FAILURE          (IP_STATUS_BASE + 50)
-
 #define MAX_IP_STATUS               IP_GENERAL_FAILURE
-
 #define IP_PENDING                  (IP_STATUS_BASE + 255)
 
 
 //
-// IP header flags
+// Values used in the IP header Flags field.
 //
 #define IP_FLAG_DF      0x2         // Don't fragment this packet.
 
 //
-// IP Option Types
+// Supported IP Option Types.
 //
-#define IP_OPT_EOL      0                       // End of list option
-#define IP_OPT_NOP      1                       // No operation
-#define IP_OPT_SECURITY 0x82                    // Security option.
-#define IP_OPT_LSRR     0x83                    // Loose source route.
-#define IP_OPT_SSRR     0x89                    // Strict source route.
-#define IP_OPT_RR       0x7                     // Record route.
-#define IP_OPT_TS       0x44                    // Timestamp.
-#define IP_OPT_SID      0x88                    // Stream ID (obsolete)
-#define MAX_OPT_SIZE    40
+// These types define the options which may be used in the OptionsData field
+// of the ip_option_information structure.  See RFC 791 for a complete
+// description of each.
+//
+#define IP_OPT_EOL      0          // End of list option
+#define IP_OPT_NOP      1          // No operation
+#define IP_OPT_SECURITY 0x82       // Security option
+#define IP_OPT_LSRR     0x83       // Loose source route
+#define IP_OPT_SSRR     0x89       // Strict source route
+#define IP_OPT_RR       0x7        // Record route
+#define IP_OPT_TS       0x44       // Timestamp
+#define IP_OPT_SID      0x88       // Stream ID (obsolete)
+
+#define MAX_OPT_SIZE    40         // Maximum length of IP options in bytes
 
 
 #endif // IP_EXPORT_INCLUDED
 
-

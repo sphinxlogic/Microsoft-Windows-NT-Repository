@@ -14,7 +14,7 @@ outd	macro	msg,n
 %out msg n
 endm
 if2
-outd <TDBsize =>,%TDBsize
+; outd <TDBsize =>,%TDBsize
 endif
 
 externW pStackBot
@@ -60,6 +60,11 @@ endif
 
 if KDEBUG
 externFP SetupAllocBreak
+endif
+
+ifdef WOW
+externFP WowReserveHtask
+externFP FreeSelector
 endif
 
 DataBegin
@@ -434,13 +439,113 @@ parm_block_considered:
 	mov	di,si
 	mov	cl,4
 	shr	si,cl
-	xor	dx,dx			; Make size of allocation a dword
-	regptr	xsize,dx,di
+ifdef WOW
+; We need to ensure task handles are unique across multiple WOW VDMs
+; on Windows NT, so that for example the undocumented feature of
+; passing a 16-bit htask to Win32 Post(App|Thread)Message instead
+; of a thread ID will work reliably with multiple WOW VDMs.
+;
+; To accomplish this we call WowReserveHtask, which will return
+; the htask if the htask (ptdb) was previously unused and has
+; been reserved for us.  If it returns 0 another VDM is already
+; using that value and so we need to allocate another and try again.
+; To avoid risking exhausting low memory, we allocate memory for the
+; TDB once using GlobalDOSAlloc, then clone it using AllocSelector.
+; We test this cloned selector value using WowReserveHtask, if it
+; fails we get another clone until one works.  Then we free all but
+; the clone we'll return, and magically swap things around so that
+; the cloned selector owns the TDB memory and then free the original
+; selector from GlobalDOSAlloc
+;
+
+        xor     dx,dx                   ; Make size of allocation a dword
+        regptr  xsize,dx,di
+        cCall   GlobalDOSAlloc,<xsize>
+        or      ax,ax
+        jnz     @f
+        jmp     ats6                    ; Return zero for failure.
+
+@@:     push    di                      ; save TDB size on stack
+        push    ax                      ; save GlobalDOSAlloc selector on stack
+        mov     di,ax                   ; and in DI
+        cCall   WowReserveHtask,<ax>    ; returns htask or 0
+        or      ax,ax                   ; Is this selector value avail as htask?
+        jz      MustClone               ; no, start cloning loop
+        pop     ax                      ; htask to return
+        pop     di                      ; TDB size
+        jmps    NoClone
+MustClone:
+        xor     cx,cx                   ; count of clone selectors
+        xor     si,si                   ; no selector to return yet
+AnotherHtask:
+        push    cx
+        cCall   AllocSelector,<di>      ; clone the selector
+        pop     cx
+        or      ax,ax
+        jz      FreeAnyHtasks           ; Out of selectors cleanup and exit
+        push    ax                      ; save cloned selector on stack
+        inc     cx
+        push    cx
+        cCall   WowReserveHtask,<ax>    ; returns htask or 0
+        pop     cx
+        or      ax,ax
+        jz      AnotherHtask            ; conflict
+        mov     si,ax                   ; SI = selector to return
+        pop     bx                      ; pop the selector we're returning
+        dec     cx
+        jcxz    @f
+FreeLoop:
+        pop     bx                      ; pop an allocated selector from stack
+        push    cx
+        cCall   FreeSelector,<bx>
+        pop     cx
+        dec     cx
+FreeAnyHtasks:
+        jcxz    @f                      ; have we popped all the allocated selectors? Yes
+        jmps    FreeLoop                ; No
+
+@@:     mov     ax,si
+        or      si,si
+        jnz     @f
+        pop     ax                      ; original selector from GlobalDOSAlloc
+        cCall   GlobalDOSFree,<ax>
+        pop     di
+        jmp     ats6
+
+@@:
+        ; SI is selector to return, top of stack is original GlobalDOSAlloc
+        ; selector.  We need to free the original selector and make the clone
+        ; selector "own" the memory so it will be freed properly by GlobalDOSFree
+        ; during task cleanup.
+
+        pop     di                              ; DI = original GlobalDOSAlloc selector
+        push    ds
+        mov     ds, pGlobalHeap
+        UnSetKernelDS
+        .386
+        cCall   far_get_arena_pointer32,<di>
+        push    eax
+        cCall   FarAssociateSelector32,<di,0,0>
+        pop     eax
+        mov     ds:[eax].pga_handle, si
+        cCall   FarAssociateSelector32,<si,eax>
+        .286p
+        pop     ds
+        ReSetKernelDS
+        cCall   FreeSelector,<di>
+        mov     ax,si                           ; AX is the final TDB selector/handle.
+        pop     di                              ; TDB size
+NoClone:
+
+else
+        xor     dx,dx                   ; Make size of allocation a dword
+        regptr  xsize,dx,di
 	cCall	GlobalDOSAlloc,<xsize>
 	or	ax,ax
 	jnz	@f
 	jmp	ats6			; Return zero for failure.
 @@:
+endif
 	mov	es, ax
 	xor	ax, ax			; zero allocated block
 	mov	cx, di
@@ -485,7 +590,7 @@ no_it_isnt:
 	test	dx,NEPROT		; OS/2 app?
 	mov	dx,TopPDB		; DX has segment of parent PDB
 	jz	use_kernel_TDB
-%OUT This should probably be Win_PDB
+; %OUT This should probably be Win_PDB
 	mov	dx,cur_DOS_PDB		; inherit parent's stuff
 use_kernel_TDB:
 	pop	ds
@@ -610,6 +715,18 @@ endif
 	mov	si,es:[TDB_PDB]
 	mov	ds:[TDB_PDB],si
 @@:	mov	ds:[TDB_Parent],es
+;
+; Inherit parent's wow compatibiltiy flags
+; Special code is required in wkman.c to exploit this
+	mov	ax,es:[TDB_WOWCompatFlags]
+	mov	ds:[TDB_WOWCompatFlags],ax
+	mov	ax,es:[TDB_WOWCompatFlags2]
+	mov	ds:[TDB_WOWCompatFlags2],ax
+	mov	ax,es:[TDB_WOWCompatFlagsEx]
+	mov	ds:[TDB_WOWCompatFlagsEx],ax
+	mov	ax,es:[TDB_WOWCompatFlagsEx2]
+	mov	ds:[TDB_WOWCompatFlagsEx2],ax
+
 	mov	ds:[TDB_thread_tdb],ds
 	mov	ds:[TDB_DTA].off,80h	; set initial DTA
 	mov	ds:[TDB_DTA].sel,si
@@ -714,7 +831,7 @@ cBegin
 	mov	ax,es:[di].envseg
 	or	ax,ax
 	jnz	pe_given_env
-%OUT This should probably be Win_PDB
+; %OUT This should probably be Win_PDB
 	mov	ds,cur_DOS_PDB
 	UnsetKernelDS
 	mov	ax,ds:[PDB_environ]
@@ -742,7 +859,7 @@ pe_given_env:
         add     dx,cx
         push    8000h                   ; No command line after the env.
 
-        jmp     pe_got_com_len
+        jmps    pe_got_com_len
 
 @@:
 	les	di,pParmBlk
@@ -973,7 +1090,7 @@ endif
 	cmp	SEG_startAddr, 0
 	jnz	HaveStart
 	mov	ax, di
-	jmp	slxx
+        jmps    slxx
 HaveStart:
 	cCall	IGlobalHandle,<di>
 	mov	ds,si
@@ -1335,9 +1452,9 @@ libinit_loop:
 	xor	cx,cx
 	cCall	StartLibrary,<es,cx,cx,dx,ax>
 	or	ax,ax
-	jnz	libinit_loop1
-	mov	ax,4CF0h
-	DOSFCALL
+        jnz     libinit_loop1
+        mov     ax,4CF0h
+        DOSFCALL
 libinit_loop1:
 	pop	es
 	jmp	libinit_loop

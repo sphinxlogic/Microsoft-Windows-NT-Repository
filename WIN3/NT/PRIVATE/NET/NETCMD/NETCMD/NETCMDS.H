@@ -347,6 +347,8 @@ VOID DOSNEAR FASTCALL PromptForString(USHORT, TCHAR FAR *, USHORT);
 VOID DOSNEAR FASTCALL NetNotStarted(VOID);
 void DOSNEAR FASTCALL GetMessageList(USHORT,MESSAGELIST,USHORT *);
 void DOSNEAR FASTCALL FreeMessageList(USHORT, MESSAGELIST);
+int  DOSNEAR FASTCALL SizeOfHalfWidthString(PWCHAR pwch);
+PWCHAR DOSNEAR FASTCALL PaddedString(int size, PWCHAR pwch, PWCHAR buffer);
 
 /* svcutil */
 VOID Print_UIC_Error(USHORT, USHORT, TCHAR FAR *);
@@ -470,6 +472,7 @@ int IsSharePassword(TCHAR *);
 int IsMsgname(TCHAR *);
 int IsAliasname(TCHAR *);
 int IsWildCard(TCHAR *);
+int IsQuestionMark(TCHAR *);
 
 /* config */
 VOID config_display(VOID);

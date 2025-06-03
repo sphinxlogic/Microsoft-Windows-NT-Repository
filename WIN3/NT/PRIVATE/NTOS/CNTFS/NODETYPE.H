@@ -37,10 +37,13 @@ typedef NODE_TYPE_CODE *PNODE_TYPE_CODE;
 #define NTFS_NTC_SCB_DATA                ((NODE_TYPE_CODE)0x0705)
 #define NTFS_NTC_SCB_MFT                 ((NODE_TYPE_CODE)0x0706)
 #define NTFS_NTC_SCB_NONPAGED            ((NODE_TYPE_CODE)0x0707)
-#define NTFS_NTC_CCB                     ((NODE_TYPE_CODE)0x0708)
-#define NTFS_NTC_IRP_CONTEXT             ((NODE_TYPE_CODE)0x0709)
-#define NTFS_NTC_LCB                     ((NODE_TYPE_CODE)0x070a)
-#define NTFS_NTC_PREFIX_ENTRY            ((NODE_TYPE_CODE)0x070b)
+#define NTFS_NTC_CCB_INDEX               ((NODE_TYPE_CODE)0x0708)
+#define NTFS_NTC_CCB_DATA                ((NODE_TYPE_CODE)0x0709)
+#define NTFS_NTC_IRP_CONTEXT             ((NODE_TYPE_CODE)0x070A)
+#define NTFS_NTC_LCB                     ((NODE_TYPE_CODE)0x070B)
+#define NTFS_NTC_PREFIX_ENTRY            ((NODE_TYPE_CODE)0x070C)
+#define NTFS_NTC_QUOTA_CONTROL           ((NODE_TYPE_CODE)0x070D)
+
 
 
 typedef CSHORT NODE_BYTE_SIZE;
@@ -57,6 +60,7 @@ typedef CSHORT NODE_BYTE_SIZE;
 //
 
 #define NodeType(P) ((P) != NULL ? (*((PNODE_TYPE_CODE)(P))) : NTC_UNDEFINED)
+#define SafeNodeType(P) (*((PNODE_TYPE_CODE)(P)))
 
 
 //
@@ -116,4 +120,3 @@ typedef CSHORT NODE_BYTE_SIZE;
 
 #endif // _NODETYPE_
 
-

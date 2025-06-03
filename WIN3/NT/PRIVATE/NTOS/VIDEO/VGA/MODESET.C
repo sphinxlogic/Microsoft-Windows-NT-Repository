@@ -393,6 +393,7 @@ Return Value:
 
     if (Mode->RequestedMode >= NumVideoModes) {
 
+        ASSERT(FALSE);
         return ERROR_INVALID_PARAMETER;
 
     }
@@ -413,8 +414,6 @@ Return Value:
 
     modeNumber = pRequestedMode->Int10ModeNumber;
 
-second_VESA_mode:
-
     biosArguments.Eax = modeNumber & 0x0000FFFF;
     biosArguments.Ebx = modeNumber >> 16;
 
@@ -422,6 +421,7 @@ second_VESA_mode:
 
     if (status != NO_ERROR) {
 
+        ASSERT(FALSE);
         return status;
 
     }
@@ -440,8 +440,38 @@ second_VESA_mode:
             //
 
             modeNumber = 0x6A;
-            goto second_VESA_mode;
 
+            biosArguments.Eax = modeNumber;
+
+            status = VideoPortInt10(HwDeviceExtension, &biosArguments);
+
+            if (status != NO_ERROR) {
+
+                ASSERT(FALSE);
+                return status;
+
+            }
+
+            //
+            // We already know that the VESA modeset for this mode
+            // failed.  Now lets check to see if the regular
+            // 0x6a modeset failed as well.
+            //
+
+            biosArguments.Eax = 0x0f00;
+            VideoPortInt10(HwDeviceExtension, &biosArguments);
+
+            if ((biosArguments.Eax & 0xff) != modeNumber)
+            {
+                //
+                // The int10 modeset failed.  Return the failure back to
+                // the system.
+                //
+
+                VideoDebugPrint((0, "The INT 10 modeset didn't set the mode.\n"));
+
+                return ERROR_INVALID_PARAMETER;
+            }
         }
     }
 

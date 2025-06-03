@@ -356,13 +356,15 @@ DBLK_PTR *blk_ptr )
                     }
 
                     if ( (find_error == FS_NO_MORE) ||
+                       ( find_error == FS_DEVICE_ERROR ) ||
                          (find_error == FS_ACCESS_DENIED) ) {
 
                          attrib = FS_GetAttribFromDBLK( fsh, lp->curr_ddb ) ;
                          attrib |= DIR_EMPTY_BIT ;
                          FS_SetAttribFromDBLK( fsh, lp->curr_ddb, attrib ) ;
 
-                         if ( find_error == FS_ACCESS_DENIED ) {
+                         if ( ( find_error == FS_DEVICE_ERROR ) ||
+                              ( find_error == FS_ACCESS_DENIED ) ) {
                               LP_MsgError( pid,
                                            bsd,
                                            fsh,

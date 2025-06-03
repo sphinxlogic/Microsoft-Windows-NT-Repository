@@ -11,6 +11,8 @@
 
 MODNAME(waccel.c);
 
+extern ULONG SetCursorIconFlag(HAND16 hAccel16, BOOL bFlag);
+
 LPACCELALIAS lpAccelAlias = NULL;
 
 
@@ -91,6 +93,10 @@ LPACCELALIAS SetupAccelAlias(
         lpT->h16     = hAccel16;
         lpT->h32     = hAccel32;
         lpT->f16     = f16;
+
+        // mark this so we can remove it from the alias list when 
+        // FreeResource() (in user.exe) calls GlobalFree() (in krnl386)
+        SetCursorIconFlag(hAccel16, TRUE);
     }
     else {
         WOW32ASSERT(FALSE);
@@ -249,7 +255,9 @@ HACCEL CreateAccel32(VPVOID vpAccel16, DWORD cbAccel16)
     LPACCEL lpAccel;
     HACCEL  hAccel = (HACCEL)NULL;
     UINT    i;
-    BOOL    fLastkey;
+#if DBG
+    UINT    LastKeyIndex = 0xffffffff;
+#endif
 
     //
     // pAccel16 is pointer to an array of records of length:
@@ -266,20 +274,27 @@ HACCEL CreateAccel32(VPVOID vpAccel16, DWORD cbAccel16)
         nElem16 = cbAccel16 / (sizeof(BYTE) + 2 * sizeof(WORD));
         lpAccel = (LPACCEL)malloc_w(nElem16 * sizeof(ACCEL));
         if (lpAccel) {
-            i = 0;
-            do {
+            for (i=0; i<nElem16; ++i) {
                  lpAccel[i].fVirt = *(LPBYTE)(pAccel16);
+#if DBG
+                 if ((lpAccel[i].fVirt & 0x80) && i < LastKeyIndex) {
+                    LastKeyIndex = i;
+                 }
+#endif
                  ((LPBYTE)pAccel16)++;
                  lpAccel[i].key   = FETCHWORD(*(LPWORD)pAccel16);
                  ((LPWORD)pAccel16)++;
                  lpAccel[i].cmd   = FETCHWORD(*(LPWORD)pAccel16);
                  ((LPWORD)pAccel16)++;
+            }
 
-                 fLastkey = (BYTE)lpAccel[i].fVirt & (BYTE)0x80;
-                 i++;
-
-            } while (!fLastkey && (i <= nElem16));
-
+#if DBG
+            if (LastKeyIndex == 0xffffffff) {
+                LOGDEBUG(LOG_ALWAYS, ("WOW::CreateAccel32 : no LastKey found in 16-bit haccel\n"));
+            } else if (LastKeyIndex < nElem16-1) {
+                LOGDEBUG(LOG_ALWAYS, ("WOW::CreateAccel32 : bogus LastKey flags ignored in 16-bit haccel\n"));
+            }
+#endif
             hAccel = CreateAcceleratorTable(lpAccel, i);
             free_w(lpAccel);
         }
@@ -366,4 +381,32 @@ HAND16 CreateAccel16(HACCEL hAccel32)
 
     return( hAccel16 );
 }
-
+
+
+
+// this gets called indirectly from GlobalFree() in krnl386.exe
+// via WK32WowCursorIconOp() in wcuricon.c
+void FreeAccelAliasEntry(LPACCELALIAS lpT) {
+
+    if (lpT == lpAccelAlias)
+        lpAccelAlias = lpT->lpNext;
+    
+    if (lpT->lpPrev)
+        lpT->lpPrev->lpNext = lpT->lpNext;
+
+    if (lpT->lpNext)
+        lpT->lpNext->lpPrev = lpT->lpPrev;
+
+    if ( lpT->f16 ) {
+        DestroyAcceleratorTable(lpT->h32);
+    } else {
+         // this function - FreeAccelAliasEntry -- is being called
+         // indirectly from GlobalFree() in krnl386.  GlobalFree()
+         // takes care of freeing h16 so this callback is not needed.
+         //                                                - a-craigj
+         // WOWGlobalFree16( lpT->h16 );
+    }
+
+    free_w_small(lpT);
+}
+

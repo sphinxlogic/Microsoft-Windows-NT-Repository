@@ -25,15 +25,15 @@
 
 
 /*+-------------------------------------------------------------------------+
-  | CriticalErrorExit()                                                     |
-  |                                                                         |
-  |    This should only be called when there is an unrecoverable error and  |
-  |    the program must abort (such as running out of disk space on main    |
-  |    system or out of memory).                                            |
-  |                                                                         |
-  |    Can't dynamically load the error string (must do this at program     |
-  |    init), because at time or error we might not be able to load it!     |
-  |                                                                         |
+  | CriticalErrorExit()
+  |
+  |    This should only be called when there is an unrecoverable error and
+  |    the program must abort (such as running out of disk space on main
+  |    system or out of memory).
+  |
+  |    Can't dynamically load the error string (must do this at program
+  |    init), because at time or error we might not be able to load it!
+  |
   +-------------------------------------------------------------------------+*/
 void CriticalErrorExit(LPTSTR ErrorString) {
    MessageBox(NULL, ErrorString, Lids(IDS_E_1), MB_ICONHAND | MB_SYSTEMMODAL | MB_OK);
@@ -44,16 +44,16 @@ void CriticalErrorExit(LPTSTR ErrorString) {
 
 
 /*+-------------------------------------------------------------------------+
-  | WarningError()                                                          |
-  |                                                                         |
-  |    Pops up a warning message to the user - this should only be used     |
-  |    when the user must be notified of something (the program stops until |
-  |    the user responds), but it is not so critical the the program has to |
-  |    abort.                                                               |
-  |                                                                         |
-  |    An example of this is if a config file is corrupt and the program    |
-  |    will ignore it.                                                      |
-  |                                                                         |
+  | WarningError()
+  |
+  |    Pops up a warning message to the user - this should only be used
+  |    when the user must be notified of something (the program stops until
+  |    the user responds), but it is not so critical the the program has to
+  |    abort.
+  |
+  |    An example of this is if a config file is corrupt and the program
+  |    will ignore it.
+  |
   +-------------------------------------------------------------------------+*/
 void WarningError(LPTSTR ErrorString, ...) {
    static TCHAR tmpStr[TMP_STR_LEN_256];

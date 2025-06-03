@@ -83,85 +83,16 @@ ExInitSystem(
     VOID
     );
 
+NTKERNELAPI
+VOID
+ExInitSystemPhase2(
+    VOID
+    );
+
 ULONG
 ExComputeTickCountMultiplier (
     IN ULONG TimeIncrement
     );
-
-//
-// Interlocked support routine definitions.
-//
-// begin_ntddk begin_nthal begin_ntifs
-
-NTKERNELAPI
-VOID
-FASTCALL
-ExInterlockedAddLargeStatistic (
-    IN PLARGE_INTEGER Addend,
-    IN ULONG Increment
-    );
-
-NTKERNELAPI
-LARGE_INTEGER
-ExInterlockedAddLargeInteger (
-    IN PLARGE_INTEGER Addend,
-    IN LARGE_INTEGER Increment,
-    IN PKSPIN_LOCK Lock
-    );
-
-NTKERNELAPI
-ULONG
-FASTCALL
-ExInterlockedAddUlong (
-    IN PULONG Addend,
-    IN ULONG Increment,
-    IN PKSPIN_LOCK Lock
-    );
-
-NTKERNELAPI
-PLIST_ENTRY
-FASTCALL
-ExInterlockedInsertHeadList (
-    IN PLIST_ENTRY ListHead,
-    IN PLIST_ENTRY ListEntry,
-    IN PKSPIN_LOCK Lock
-    );
-
-NTKERNELAPI
-PLIST_ENTRY
-FASTCALL
-ExInterlockedInsertTailList (
-    IN PLIST_ENTRY ListHead,
-    IN PLIST_ENTRY ListEntry,
-    IN PKSPIN_LOCK Lock
-    );
-
-NTKERNELAPI
-PLIST_ENTRY
-FASTCALL
-ExInterlockedRemoveHeadList (
-    IN PLIST_ENTRY ListHead,
-    IN PKSPIN_LOCK Lock
-    );
-
-NTKERNELAPI
-PSINGLE_LIST_ENTRY
-FASTCALL
-ExInterlockedPopEntryList (
-    IN PSINGLE_LIST_ENTRY ListHead,
-    IN PKSPIN_LOCK Lock
-    );
-
-NTKERNELAPI
-PSINGLE_LIST_ENTRY
-FASTCALL
-ExInterlockedPushEntryList (
-    IN PSINGLE_LIST_ENTRY ListHead,
-    IN PSINGLE_LIST_ENTRY ListEntry,
-    IN PKSPIN_LOCK Lock
-    );
-
-// end_ntddk end_nthal end_ntifs
 
 // begin_ntddk begin_nthal begin_ntifs
 //
@@ -179,7 +110,16 @@ typedef enum _POOL_TYPE {
     MaxPoolType
     } POOL_TYPE;
 
+
 // end_ntddk end_nthal end_ntifs
+
+//
+// The following two defintions control the raising of excpetions on quota
+// and allocation failures.
+//
+
+#define POOL_QUOTA_FAIL_INSTEAD_OF_RAISE 8
+#define POOL_RAISE_IF_ALLOCATION_FAILURE 16               // ntifs
 
 VOID
 InitializePool(
@@ -228,14 +168,32 @@ ExAllocatePoolWithQuotaTag(
 #define ExAllocatePoolWithQuotaTag(a,b,c) ExAllocatePoolWithQuota(a,b)
 #endif //POOL_TAGGING
 
-
 NTKERNELAPI
 VOID
+NTAPI
 ExFreePool(
     IN PVOID P
     );
 
 // end_ntddk end_nthal end_ntifs
+
+//
+// If high order bit in Pool tag is set, then must use ExFreePoolWithTag to free
+//
+
+#define PROTECTED_POOL 0x80000000
+
+NTKERNELAPI
+VOID
+ExFreePoolWithTag(
+    IN PVOID P,
+    IN ULONG Tag
+    );
+
+#ifndef POOL_TAGGING
+#define ExFreePoolWithTag(a,b) ExFreePool(a)
+#endif //POOL_TAGGING
+
 
 NTKERNELAPI
 KIRQL
@@ -264,30 +222,648 @@ ExQueryPoolUsage(
     OUT PULONG NonPagedPoolPages,
     OUT PULONG PagedPoolAllocs,
     OUT PULONG PagedPoolFrees,
+    OUT PULONG PagedPoolLookasideHits,
     OUT PULONG NonPagedPoolAllocs,
-    OUT PULONG NonPagedPoolFrees
+    OUT PULONG NonPagedPoolFrees,
+    OUT PULONG NonPagedPoolLookasideHits
     );
 
+VOID
+ExReturnPoolQuota (
+    IN PVOID P
+    );
 
-#if DEVL
+#if DBG
 NTKERNELAPI
 NTSTATUS
 ExSnapShotPool(
     IN POOL_TYPE PoolType,
-    IN PRTL_HEAP_INFORMATION PoolInformation,
+    IN PSYSTEM_POOL_INFORMATION PoolInformation,
     IN ULONG Length,
     OUT PULONG ReturnLength OPTIONAL
     );
+#endif // DBG
 
-#ifdef _X86_
+
+// begin_ntifs begin_ntddk begin_nthal
+//
+// Routines to support fast mutexes.
+//
+
+typedef struct _FAST_MUTEX {
+    LONG Count;
+    PKTHREAD Owner;
+    ULONG Contention;
+    KEVENT Event;
+    ULONG OldIrql;
+} FAST_MUTEX, *PFAST_MUTEX;
+
+#if DBG
+#define ExInitializeFastMutex(_FastMutex)                            \
+    (_FastMutex)->Count = 1;                                         \
+    (_FastMutex)->Owner = NULL;                                      \
+    (_FastMutex)->Contention = 0;                                    \
+    KeInitializeEvent(&(_FastMutex)->Event,                          \
+                      SynchronizationEvent,                          \
+                      FALSE);
+#else
+#define ExInitializeFastMutex(_FastMutex)                            \
+    (_FastMutex)->Count = 1;                                         \
+    (_FastMutex)->Contention = 0;                                    \
+    KeInitializeEvent(&(_FastMutex)->Event,                          \
+                      SynchronizationEvent,                          \
+                      FALSE);
+#endif // DBG
+
+NTKERNELAPI
+VOID
+FASTCALL
+ExAcquireFastMutexUnsafe (
+    IN PFAST_MUTEX FastMutex
+    );
+
+NTKERNELAPI
+VOID
+FASTCALL
+ExReleaseFastMutexUnsafe (
+    IN PFAST_MUTEX FastMutex
+    );
+
+#if defined(_MIPS_) || defined(_ALPHA_) || defined(_PPC_) || (defined(_X86_) && defined(_NTHAL_))
+
+NTKERNELAPI
+VOID
+FASTCALL
+ExAcquireFastMutex (
+    IN PFAST_MUTEX FastMutex
+    );
+
+NTKERNELAPI
+VOID
+FASTCALL
+ExReleaseFastMutex (
+    IN PFAST_MUTEX FastMutex
+    );
+
+NTKERNELAPI
+BOOLEAN
+FASTCALL
+ExTryToAcquireFastMutex (
+    IN PFAST_MUTEX FastMutex
+    );
+
+#elif defined(_X86_) && !defined(_NTHAL_)
+
+__declspec(dllimport)
+VOID
+FASTCALL
+ExAcquireFastMutex (
+    IN PFAST_MUTEX FastMutex
+    );
+
+__declspec(dllimport)
+VOID
+FASTCALL
+ExReleaseFastMutex (
+    IN PFAST_MUTEX FastMutex
+    );
+
+__declspec(dllimport)
+BOOLEAN
+FASTCALL
+ExTryToAcquireFastMutex (
+    IN PFAST_MUTEX FastMutex
+    );
+
+#elif
+
+#error "Target architecture not defined"
+
+#endif
+
+// end_ntifs end_ntddk end_nthal
+
+//
+// Interlocked support routine definitions.
+//
+// begin_ntddk begin_nthal begin_ntifs
+//
+
+NTKERNELAPI
+VOID
+FASTCALL
+ExInterlockedAddLargeStatistic (
+    IN PLARGE_INTEGER Addend,
+    IN ULONG Increment
+    );
+
+NTKERNELAPI
+LARGE_INTEGER
+ExInterlockedAddLargeInteger (
+    IN PLARGE_INTEGER Addend,
+    IN LARGE_INTEGER Increment,
+    IN PKSPIN_LOCK Lock
+    );
+
+#if defined(NT_UP) && !defined(_NTHAL_) && !defined(_NTDDK_) && !defined(_NTIFS_)
+
+#undef ExInterlockedAddUlong
+#define ExInterlockedAddUlong(x, y, z) InterlockedExchangeAdd((PLONG)(x), (LONG)(y))
+
+#else
+
+NTKERNELAPI
+ULONG
+FASTCALL
+ExInterlockedAddUlong (
+    IN PULONG Addend,
+    IN ULONG Increment,
+    IN PKSPIN_LOCK Lock
+    );
+
+#endif
+
+#if defined(_ALPHA_) || defined(_MIPS_)
+
+#define ExInterlockedCompareExchange64(Destination, Exchange, Comperand, Lock) \
+    ExpInterlockedCompareExchange64(Destination, Exchange, Comperand)
+
+NTKERNELAPI
+ULONGLONG
+ExpInterlockedCompareExchange64 (
+    IN PULONGLONG Destination,
+    IN PULONGLONG Exchange,
+    IN PULONGLONG Comperand
+    );
+
+#else
+
+NTKERNELAPI
+ULONGLONG
+FASTCALL
+ExInterlockedCompareExchange64 (
+    IN PULONGLONG Destination,
+    IN PULONGLONG Exchange,
+    IN PULONGLONG Comperand,
+    IN PKSPIN_LOCK Lock
+    );
+
+#endif
+
+NTKERNELAPI
+PLIST_ENTRY
+FASTCALL
+ExInterlockedInsertHeadList (
+    IN PLIST_ENTRY ListHead,
+    IN PLIST_ENTRY ListEntry,
+    IN PKSPIN_LOCK Lock
+    );
+
+NTKERNELAPI
+PLIST_ENTRY
+FASTCALL
+ExInterlockedInsertTailList (
+    IN PLIST_ENTRY ListHead,
+    IN PLIST_ENTRY ListEntry,
+    IN PKSPIN_LOCK Lock
+    );
+
+NTKERNELAPI
+PLIST_ENTRY
+FASTCALL
+ExInterlockedRemoveHeadList (
+    IN PLIST_ENTRY ListHead,
+    IN PKSPIN_LOCK Lock
+    );
+
+NTKERNELAPI
+PSINGLE_LIST_ENTRY
+FASTCALL
+ExInterlockedPopEntryList (
+    IN PSINGLE_LIST_ENTRY ListHead,
+    IN PKSPIN_LOCK Lock
+    );
+
+NTKERNELAPI
+PSINGLE_LIST_ENTRY
+FASTCALL
+ExInterlockedPushEntryList (
+    IN PSINGLE_LIST_ENTRY ListHead,
+    IN PSINGLE_LIST_ENTRY ListEntry,
+    IN PKSPIN_LOCK Lock
+    );
+
+//
+// Define interlocked sequenced listhead functions.
+//
+// A sequenced interlocked list is a singly linked list with a header that
+// contains the current depth and a sequence number. Each time an entry is
+// inserted or removed from the list the depth is updated and the sequence
+// number is incremented. This enables MIPS, Alpha, and Pentium and later
+// machines to insert and remove from the list without the use of spinlocks.
+// The PowerPc, however, must use a spinlock to synchronize access to the
+// list.
+//
+// N.B. A spinlock must be specified with SLIST operations. However, it may
+//      not actually be used.
+//
+
+/*++
+
+VOID
+ExInitializeSListHead (
+    IN PSLIST_HEADER SListHead
+    )
+
+Routine Description:
+
+    This function initializes a sequenced singly linked listhead.
+
+Arguments:
+
+    SListHead - Supplies a pointer to a sequenced singly linked listhead.
+
+Return Value:
+
+    None.
+
+--*/
+
+#define ExInitializeSListHead(_listhead_) \
+    (_listhead_)->Next.Next = NULL;       \
+    (_listhead_)->Depth = 0;              \
+    (_listhead_)->Sequence = 0
+
+/*++
+
+USHORT
+ExQueryDepthSListHead (
+    IN PSLIST_HEADERT SListHead
+    )
+
+Routine Description:
+
+    This function queries the current number of entries contained in a
+    sequenced single linked list.
+
+Arguments:
+
+    SListHead - Supplies a pointer to the sequenced listhead which is
+        be queried.
+
+Return Value:
+
+    The current number of entries in the sequenced singly linked list is
+    returned as the function value.
+
+--*/
+
+#define ExQueryDepthSList(_listhead_) (_listhead_)->Depth
+
+#if defined(_MIPS_) || defined(_ALPHA_)
+
+#define ExInterlockedPopEntrySList(Head, Lock) \
+    ExpInterlockedPopEntrySList(Head)
+
+#define ExInterlockedPushEntrySList(Head, Entry, Lock) \
+    ExpInterlockedPushEntrySList(Head, Entry)
+
+#define ExQueryDepthSList(_listhead_) (_listhead_)->Depth
+
+NTKERNELAPI
+PSINGLE_LIST_ENTRY
+ExpInterlockedPopEntrySList (
+    IN PSLIST_HEADER ListHead
+    );
+
+NTKERNELAPI
+PSINGLE_LIST_ENTRY
+ExpInterlockedPushEntrySList (
+    IN PSLIST_HEADER ListHead,
+    IN PSINGLE_LIST_ENTRY ListEntry
+    );
+
+#else
+
+NTKERNELAPI
+PSINGLE_LIST_ENTRY
+FASTCALL
+ExInterlockedPopEntrySList (
+    IN PSLIST_HEADER ListHead,
+    IN PKSPIN_LOCK Lock
+    );
+
+NTKERNELAPI
+PSINGLE_LIST_ENTRY
+FASTCALL
+ExInterlockedPushEntrySList (
+    IN PSLIST_HEADER ListHead,
+    IN PSINGLE_LIST_ENTRY ListEntry,
+    IN PKSPIN_LOCK Lock
+    );
+
+#endif
+
+//
+// Define interlocked lookaside list structure and allocation functions.
+//
+
+VOID
+ExAdjustLookasideDepth (
+    VOID
+    );
+
+typedef
+PVOID
+(*PALLOCATE_FUNCTION) (
+    IN POOL_TYPE PoolType,
+    IN ULONG NumberOfBytes,
+    IN ULONG Tag
+    );
+
+typedef
+VOID
+(*PFREE_FUNCTION) (
+    IN PVOID Buffer
+    );
+
+typedef struct _GENERAL_LOOKASIDE {
+    SLIST_HEADER ListHead;
+    USHORT Depth;
+    USHORT MaximumDepth;
+    ULONG TotalAllocates;
+    ULONG AllocateMisses;
+    ULONG TotalFrees;
+    ULONG FreeMisses;
+    POOL_TYPE Type;
+    ULONG Tag;
+    ULONG Size;
+    PALLOCATE_FUNCTION Allocate;
+    PFREE_FUNCTION Free;
+    LIST_ENTRY ListEntry;
+    ULONG LastTotalAllocates;
+    ULONG LastAllocateMisses;
+    ULONG Future[2];
+} GENERAL_LOOKASIDE, *PGENERAL_LOOKASIDE;
+
+typedef struct _NPAGED_LOOKASIDE_LIST {
+    GENERAL_LOOKASIDE L;
+    KSPIN_LOCK Lock;
+} NPAGED_LOOKASIDE_LIST, *PNPAGED_LOOKASIDE_LIST;
+
+NTKERNELAPI
+VOID
+ExInitializeNPagedLookasideList (
+    IN PNPAGED_LOOKASIDE_LIST Lookaside,
+    IN PALLOCATE_FUNCTION Allocate,
+    IN PFREE_FUNCTION Free,
+    IN ULONG Flags,
+    IN ULONG Size,
+    IN ULONG Tag,
+    IN USHORT Depth
+    );
+
+
+NTKERNELAPI
+VOID
+ExDeleteNPagedLookasideList (
+    IN PNPAGED_LOOKASIDE_LIST Lookaside
+    );
+
+__inline
+PVOID
+ExAllocateFromNPagedLookasideList(
+    IN PNPAGED_LOOKASIDE_LIST Lookaside
+    )
+
+/*++
+
+Routine Description:
+
+    This function removes (pops) the first entry from the specified
+    nonpaged lookaside list.
+
+Arguments:
+
+    Lookaside - Supplies a pointer to a nonpaged lookaside list structure.
+
+Return Value:
+
+    If an entry is removed from the specified lookaside list, then the
+    address of the entry is returned as the function value. Otherwise,
+    NULL is returned.
+
+--*/
+
+{
+
+    PVOID Entry;
+
+    Lookaside->L.TotalAllocates += 1;
+    Entry = ExInterlockedPopEntrySList(&Lookaside->L.ListHead, &Lookaside->Lock);
+    if (Entry == NULL) {
+        Lookaside->L.AllocateMisses += 1;
+        Entry = (Lookaside->L.Allocate)(Lookaside->L.Type,
+                                        Lookaside->L.Size,
+                                        Lookaside->L.Tag);
+    }
+
+    return Entry;
+}
+
+__inline
+VOID
+ExFreeToNPagedLookasideList(
+    IN PNPAGED_LOOKASIDE_LIST Lookaside,
+    IN PVOID Entry
+    )
+
+/*++
+
+Routine Description:
+
+    This function inserts (pushes) the specified entry into the specified
+    nonpaged lookaside list.
+
+Arguments:
+
+    Lookaside - Supplies a pointer to a nonpaged lookaside list structure.
+
+    Entry - Supples a pointer to the entry that is inserted in the
+        lookaside list.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+
+    Lookaside->L.TotalFrees += 1;
+    if (ExQueryDepthSList(&Lookaside->L.ListHead) >= Lookaside->L.Depth) {
+        Lookaside->L.FreeMisses += 1;
+        (Lookaside->L.Free)(Entry);
+
+    } else {
+        ExInterlockedPushEntrySList(&Lookaside->L.ListHead,
+                                    (PSINGLE_LIST_ENTRY)Entry,
+                                    &Lookaside->Lock);
+    }
+
+    return;
+}
+
+typedef struct _PAGED_LOOKASIDE_LIST {
+    GENERAL_LOOKASIDE L;
+    FAST_MUTEX Lock;
+} PAGED_LOOKASIDE_LIST, *PPAGED_LOOKASIDE_LIST;
+
+NTKERNELAPI
+VOID
+ExInitializePagedLookasideList (
+    IN PPAGED_LOOKASIDE_LIST Lookaside,
+    IN PALLOCATE_FUNCTION Allocate,
+    IN PFREE_FUNCTION Free,
+    IN ULONG Flags,
+    IN ULONG Size,
+    IN ULONG Tag,
+    IN USHORT Depth
+    );
+
+NTKERNELAPI
+VOID
+ExDeletePagedLookasideList (
+    IN PPAGED_LOOKASIDE_LIST Lookaside
+    );
+
+#if defined(_X86_) || defined(_PPC_)
+
+NTKERNELAPI
+PVOID
+ExAllocateFromPagedLookasideList(
+    IN PPAGED_LOOKASIDE_LIST Lookaside
+    );
+
+NTKERNELAPI
+VOID
+ExFreeToPagedLookasideList(
+    IN PPAGED_LOOKASIDE_LIST Lookaside,
+    IN PVOID Entry
+    );
+
+#else
+
+__inline
+PVOID
+ExAllocateFromPagedLookasideList(
+    IN PPAGED_LOOKASIDE_LIST Lookaside
+    )
+
+/*++
+
+Routine Description:
+
+    This function removes (pops) the first entry from the specified
+    paged lookaside list.
+
+Arguments:
+
+    Lookaside - Supplies a pointer to a paged lookaside list structure.
+
+Return Value:
+
+    If an entry is removed from the specified lookaside list, then the
+    address of the entry is returned as the function value. Otherwise,
+    NULL is returned.
+
+--*/
+
+{
+
+    PVOID Entry;
+
+    Lookaside->L.TotalAllocates += 1;
+    Entry = ExInterlockedPopEntrySList(&Lookaside->L.ListHead, NULL);
+    if (Entry == NULL) {
+        Lookaside->L.AllocateMisses += 1;
+        Entry = (Lookaside->L.Allocate)(Lookaside->L.Type,
+                                        Lookaside->L.Size,
+                                        Lookaside->L.Tag);
+    }
+
+    return Entry;
+}
+
+__inline
+VOID
+ExFreeToPagedLookasideList(
+    IN PPAGED_LOOKASIDE_LIST Lookaside,
+    IN PVOID Entry
+    )
+
+/*++
+
+Routine Description:
+
+    This function inserts (pushes) the specified entry into the specified
+    paged lookaside list.
+
+Arguments:
+
+    Lookaside - Supplies a pointer to a nonpaged lookaside list structure.
+
+    Entry - Supples a pointer to the entry that is inserted in the
+        lookaside list.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+
+    Lookaside->L.TotalFrees += 1;
+    if (ExQueryDepthSList(&Lookaside->L.ListHead) >= Lookaside->L.Depth) {
+        Lookaside->L.FreeMisses += 1;
+        (Lookaside->L.Free)(Entry);
+
+    } else {
+        ExInterlockedPushEntrySList(&Lookaside->L.ListHead,
+                                    (PSINGLE_LIST_ENTRY)Entry,
+                                    NULL);
+    }
+
+    return;
+}
+
+#endif
+
+// end_ntddk end_nthal end_ntifs
+
+extern LIST_ENTRY ExNPagedLookasideListHead;
+extern KSPIN_LOCK ExNPagedLookasideLock;
+
+extern LIST_ENTRY ExPagedLookasideListHead;
+extern KSPIN_LOCK ExPagedLookasideLock;
+
+#if i386 && !FPO
+
+NTSTATUS
+ExQuerySystemBackTraceInformation(
+    OUT PRTL_PROCESS_BACKTRACES BackTraceInformation,
+    IN ULONG BackTraceInformationLength,
+    OUT PULONG ReturnLength OPTIONAL
+    );
+
 NTKERNELAPI
 USHORT
 ExGetPoolBackTraceIndex(
     IN PVOID P
     );
-#endif
 
-#endif // DEVL
+#endif // i386 && !FPO
 
 NTKERNELAPI
 PVOID
@@ -308,7 +884,7 @@ ExUnlockUserBuffer(
 //
 // Probe function definitions
 //
-// Common probe for read funstions.
+// Probe for read funstions.
 //
 //++
 //
@@ -327,11 +903,11 @@ ExUnlockUserBuffer(
                                                                              \
     if ((Length) != 0) {                                                     \
         if (((ULONG)(Address) & ((Alignment) - 1)) != 0) {                   \
-            ExRaiseStatus(STATUS_DATATYPE_MISALIGNMENT);                     \
+            ExRaiseDatatypeMisalignment();                                   \
                                                                              \
-        } else if ((((ULONG)(Address) + (Length)) < (ULONG)(Address)) ||     \
+        } else if ((((ULONG)(Address) + (Length)) < (ULONG)(Address)) ||                                  \
                    (((ULONG)(Address) + (Length)) > (ULONG)MM_USER_PROBE_ADDRESS)) { \
-            ExRaiseStatus(STATUS_ACCESS_VIOLATION);                          \
+            ExRaiseAccessViolation();                                        \
         }                                                                    \
     }
 
@@ -506,6 +1082,445 @@ ExUnlockUserBuffer(
     (((Source) >= (UNICODE_STRING * const)MM_USER_PROBE_ADDRESS) ? \
         (*(volatile UNICODE_STRING * const)MM_USER_PROBE_ADDRESS) : (*(volatile UNICODE_STRING *)(Source)))
 
+//++
+//
+// <STRUCTURE>
+// ProbeAndReadStructure(
+//     IN P<STRUCTURE> Source
+//     <STRUCTURE>
+//     )
+//
+//--
+
+#define ProbeAndReadStructure(Source,STRUCTURE)  \
+    (((Source) >= (STRUCTURE * const)MM_USER_PROBE_ADDRESS) ? \
+        (*(STRUCTURE * const)MM_USER_PROBE_ADDRESS) : (*(STRUCTURE *)(Source)))
+
+//
+// Probe for write functions definitions.
+//
+//++
+//
+// VOID
+// ProbeForWriteBoolean(
+//     IN PBOOLEAN Address
+//     )
+//
+//--
+
+#define ProbeForWriteBoolean(Address) {                                      \
+    if ((Address) >= (BOOLEAN * const)MM_USER_PROBE_ADDRESS) {               \
+        *(volatile BOOLEAN * const)MM_USER_PROBE_ADDRESS = 0;                \
+    }                                                                        \
+                                                                             \
+    *(volatile BOOLEAN *)(Address) = *(volatile BOOLEAN *)(Address);         \
+}
+
+//++
+//
+// VOID
+// ProbeForWriteChar(
+//     IN PCHAR Address
+//     )
+//
+//--
+
+#define ProbeForWriteChar(Address) {                                         \
+    if ((Address) >= (CHAR * const)MM_USER_PROBE_ADDRESS) {                  \
+        *(volatile CHAR * const)MM_USER_PROBE_ADDRESS = 0;                   \
+    }                                                                        \
+                                                                             \
+    *(volatile CHAR *)(Address) = *(volatile CHAR *)(Address);               \
+}
+
+//++
+//
+// VOID
+// ProbeForWriteUchar(
+//     IN PUCHAR Address
+//     )
+//
+//--
+
+#define ProbeForWriteUchar(Address) {                                        \
+    if ((Address) >= (UCHAR * const)MM_USER_PROBE_ADDRESS) {                 \
+        *(volatile UCHAR * const)MM_USER_PROBE_ADDRESS = 0;                  \
+    }                                                                        \
+                                                                             \
+    *(volatile UCHAR *)(Address) = *(volatile UCHAR *)(Address);             \
+}
+
+//++
+//
+// VOID
+// ProbeForWriteIoStatus(
+//     IN PIO_STATUS_BLOCK Address
+//     )
+//
+//--
+
+#define ProbeForWriteIoStatus(Address) {                                     \
+    if ((Address) >= (IO_STATUS_BLOCK * const)MM_USER_PROBE_ADDRESS) {       \
+        *(volatile ULONG * const)MM_USER_PROBE_ADDRESS = 0;                  \
+    }                                                                        \
+                                                                             \
+    *(volatile IO_STATUS_BLOCK *)(Address) = *(volatile IO_STATUS_BLOCK *)(Address); \
+}
+
+//++
+//
+// VOID
+// ProbeForWriteShort(
+//     IN PSHORT Address
+//     )
+//
+//--
+
+#define ProbeForWriteShort(Address) {                                        \
+    if ((Address) >= (SHORT * const)MM_USER_PROBE_ADDRESS) {                 \
+        *(volatile SHORT * const)MM_USER_PROBE_ADDRESS = 0;                  \
+    }                                                                        \
+                                                                             \
+    *(volatile SHORT *)(Address) = *(volatile SHORT *)(Address);             \
+}
+
+//++
+//
+// VOID
+// ProbeForWriteUshort(
+//     IN PUSHORT Address
+//     )
+//
+//--
+
+#define ProbeForWriteUshort(Address) {                                       \
+    if ((Address) >= (USHORT * const)MM_USER_PROBE_ADDRESS) {                \
+        *(volatile USHORT * const)MM_USER_PROBE_ADDRESS = 0;                 \
+    }                                                                        \
+                                                                             \
+    *(volatile USHORT *)(Address) = *(volatile USHORT *)(Address);           \
+}
+
+//++
+//
+// VOID
+// ProbeForWriteHandle(
+//     IN PHANDLE Address
+//     )
+//
+//--
+
+#define ProbeForWriteHandle(Address) {                                       \
+    if ((Address) >= (HANDLE * const)MM_USER_PROBE_ADDRESS) {                \
+        *(volatile HANDLE * const)MM_USER_PROBE_ADDRESS = 0;                 \
+    }                                                                        \
+                                                                             \
+    *(volatile HANDLE *)(Address) = *(volatile HANDLE *)(Address);           \
+}
+
+//++
+//
+// VOID
+// ProbeAndZeroHandle(
+//     IN PHANDLE Address
+//     )
+//
+//--
+
+#define ProbeAndZeroHandle(Address) {                                        \
+    if ((Address) >= (HANDLE * const)MM_USER_PROBE_ADDRESS) {                \
+        *(volatile HANDLE * const)MM_USER_PROBE_ADDRESS = 0;                 \
+    }                                                                        \
+                                                                             \
+    *(volatile HANDLE *)(Address) = 0;                                       \
+}
+
+//++
+//
+// VOID
+// ProbeAndNullPointer(
+//     IN PVOID Address
+//     )
+//
+//--
+
+#define ProbeAndNullPointer(Address) {                                       \
+    if ((PVOID *)(Address) >= (PVOID * const)MM_USER_PROBE_ADDRESS) {        \
+        *(volatile PVOID * const)MM_USER_PROBE_ADDRESS = NULL;               \
+    }                                                                        \
+                                                                             \
+    *(volatile PVOID *)(Address) = NULL;                                     \
+}
+
+//++
+//
+// VOID
+// ProbeForWriteLong(
+//     IN PLONG Address
+//     )
+//
+//--
+
+#define ProbeForWriteLong(Address) {                                        \
+    if ((Address) >= (LONG * const)MM_USER_PROBE_ADDRESS) {                 \
+        *(volatile LONG * const)MM_USER_PROBE_ADDRESS = 0;                  \
+    }                                                                       \
+                                                                            \
+    *(volatile LONG *)(Address) = *(volatile LONG *)(Address);              \
+}
+
+//++
+//
+// VOID
+// ProbeForWriteUlong(
+//     IN PULONG Address
+//     )
+//
+//--
+
+#define ProbeForWriteUlong(Address) {                                        \
+    if ((Address) >= (ULONG * const)MM_USER_PROBE_ADDRESS) {                 \
+        *(volatile ULONG * const)MM_USER_PROBE_ADDRESS = 0;                  \
+    }                                                                        \
+                                                                             \
+    *(volatile ULONG *)(Address) = *(volatile ULONG *)(Address);             \
+}
+
+//++
+//
+// VOID
+// ProbeForWriteQuad(
+//     IN PQUAD Address
+//     )
+//
+//--
+
+#define ProbeForWriteQuad(Address) {                                         \
+    if ((Address) >= (QUAD * const)MM_USER_PROBE_ADDRESS) {                  \
+        *(volatile LONG * const)MM_USER_PROBE_ADDRESS = 0;                   \
+    }                                                                        \
+                                                                             \
+    *(volatile QUAD *)(Address) = *(volatile QUAD *)(Address);               \
+}
+
+//++
+//
+// VOID
+// ProbeForWriteUquad(
+//     IN PUQUAD Address
+//     )
+//
+//--
+
+#define ProbeForWriteUquad(Address) {                                        \
+    if ((Address) >= (QUAD * const)MM_USER_PROBE_ADDRESS) {                  \
+        *(volatile ULONG * const)MM_USER_PROBE_ADDRESS = 0;                  \
+    }                                                                        \
+                                                                             \
+    *(volatile UQUAD *)(Address) = *(volatile UQUAD *)(Address);             \
+}
+
+//
+// Probe and write functions definitions.
+//
+//++
+//
+// VOID
+// ProbeAndWriteBoolean(
+//     IN PBOOLEAN Address,
+//     IN BOOLEAN Value
+//     )
+//
+//--
+
+#define ProbeAndWriteBoolean(Address, Value) {                               \
+    if ((Address) >= (BOOLEAN * const)MM_USER_PROBE_ADDRESS) {               \
+        *(volatile BOOLEAN * const)MM_USER_PROBE_ADDRESS = 0;                \
+    }                                                                        \
+                                                                             \
+    *(Address) = (Value);                                                    \
+}
+
+//++
+//
+// VOID
+// ProbeAndWriteChar(
+//     IN PCHAR Address,
+//     IN CHAR Value
+//     )
+//
+//--
+
+#define ProbeAndWriteChar(Address, Value) {                                  \
+    if ((Address) >= (CHAR * const)MM_USER_PROBE_ADDRESS) {                  \
+        *(volatile CHAR * const)MM_USER_PROBE_ADDRESS = 0;                   \
+    }                                                                        \
+                                                                             \
+    *(Address) = (Value);                                                    \
+}
+
+//++
+//
+// VOID
+// ProbeAndWriteUchar(
+//     IN PUCHAR Address,
+//     IN UCHAR Value
+//     )
+//
+//--
+
+#define ProbeAndWriteUchar(Address, Value) {                                 \
+    if ((Address) >= (UCHAR * const)MM_USER_PROBE_ADDRESS) {                 \
+        *(volatile UCHAR * const)MM_USER_PROBE_ADDRESS = 0;                  \
+    }                                                                        \
+                                                                             \
+    *(Address) = (Value);                                                    \
+}
+
+//++
+//
+// VOID
+// ProbeAndWriteShort(
+//     IN PSHORT Address,
+//     IN SHORT Value
+//     )
+//
+//--
+
+#define ProbeAndWriteShort(Address, Value) {                                 \
+    if ((Address) >= (SHORT * const)MM_USER_PROBE_ADDRESS) {                 \
+        *(volatile SHORT * const)MM_USER_PROBE_ADDRESS = 0;                  \
+    }                                                                        \
+                                                                             \
+    *(Address) = (Value);                                                    \
+}
+
+//++
+//
+// VOID
+// ProbeAndWriteUshort(
+//     IN PUSHORT Address,
+//     IN USHORT Value
+//     )
+//
+//--
+
+#define ProbeAndWriteUshort(Address, Value) {                                \
+    if ((Address) >= (USHORT * const)MM_USER_PROBE_ADDRESS) {                \
+        *(volatile USHORT * const)MM_USER_PROBE_ADDRESS = 0;                 \
+    }                                                                        \
+                                                                             \
+    *(Address) = (Value);                                                    \
+}
+
+//++
+//
+// VOID
+// ProbeAndWriteHandle(
+//     IN PHANDLE Address,
+//     IN HANDLE Value
+//     )
+//
+//--
+
+#define ProbeAndWriteHandle(Address, Value) {                                \
+    if ((Address) >= (HANDLE * const)MM_USER_PROBE_ADDRESS) {                \
+        *(volatile HANDLE * const)MM_USER_PROBE_ADDRESS = 0;                 \
+    }                                                                        \
+                                                                             \
+    *(Address) = (Value);                                                    \
+}
+
+//++
+//
+// VOID
+// ProbeAndWriteLong(
+//     IN PLONG Address,
+//     IN LONG Value
+//     )
+//
+//--
+
+#define ProbeAndWriteLong(Address, Value) {                                  \
+    if ((Address) >= (LONG * const)MM_USER_PROBE_ADDRESS) {                  \
+        *(volatile LONG * const)MM_USER_PROBE_ADDRESS = 0;                   \
+    }                                                                        \
+                                                                             \
+    *(Address) = (Value);                                                    \
+}
+
+//++
+//
+// VOID
+// ProbeAndWriteUlong(
+//     IN PULONG Address,
+//     IN ULONG Value
+//     )
+//
+//--
+
+#define ProbeAndWriteUlong(Address, Value) {                                 \
+    if ((Address) >= (ULONG * const)MM_USER_PROBE_ADDRESS) {                 \
+        *(volatile ULONG * const)MM_USER_PROBE_ADDRESS = 0;                  \
+    }                                                                        \
+                                                                             \
+    *(Address) = (Value);                                                    \
+}
+
+//++
+//
+// VOID
+// ProbeAndWriteQuad(
+//     IN PQUAD Address,
+//     IN QUAD Value
+//     )
+//
+//--
+
+#define ProbeAndWriteQuad(Address, Value) {                                  \
+    if ((Address) >= (QUAD * const)MM_USER_PROBE_ADDRESS) {                  \
+        *(volatile LONG * const)MM_USER_PROBE_ADDRESS = 0;                   \
+    }                                                                        \
+                                                                             \
+    *(Address) = (Value);                                                    \
+}
+
+//++
+//
+// VOID
+// ProbeAndWriteUquad(
+//     IN PUQUAD Address,
+//     IN UQUAD Value
+//     )
+//
+//--
+
+#define ProbeAndWriteUquad(Address, Value) {                                 \
+    if ((Address) >= (UQUAD * const)MM_USER_PROBE_ADDRESS) {                 \
+        *(volatile ULONG * const)MM_USER_PROBE_ADDRESS = 0;                  \
+    }                                                                        \
+                                                                             \
+    *(Address) = (Value);                                                    \
+}
+
+//++
+//
+// VOID
+// ProbeAndWriteSturcture(
+//     IN P<STRUCTURE> Address,
+//     IN <STRUCTURE> Value,
+//     <STRUCTURE>
+//     )
+//
+//--
+
+#define ProbeAndWriteStructure(Address, Value,STRUCTURE) {                   \
+    if ((STRUCTURE * const)(Address) >= (STRUCTURE * const)MM_USER_PROBE_ADDRESS) {    \
+        *(volatile ULONG * const)MM_USER_PROBE_ADDRESS = 0;                  \
+    }                                                                        \
+                                                                             \
+    *(Address) = (Value);                                                    \
+}
 
 // begin_ntifs
 //
@@ -514,6 +1529,7 @@ ExUnlockUserBuffer(
 
 NTKERNELAPI
 VOID
+NTAPI
 ProbeForWrite (
     IN PVOID Address,
     IN ULONG Length,
@@ -531,259 +1547,6 @@ VOID
 ExTimerRundown (
     VOID
     );
-
-// begin_ntifs begin_ntddk
-//
-// Routines to support fast mutexes.
-//
-
-typedef struct _FAST_MUTEX {
-    LONG Count;
-    PKTHREAD Owner;
-    ULONG Contention;
-    KEVENT Event;
-    ULONG OldIrql;
-} FAST_MUTEX, *PFAST_MUTEX;
-
-#define ExInitializeFastMutex(_FastMutex)                            \
-    (_FastMutex)->Count = 1;                                         \
-    (_FastMutex)->Contention = 0;                                    \
-    KeInitializeEvent(&(_FastMutex)->Event,                          \
-                      SynchronizationEvent,                          \
-                      FALSE);
-
-NTKERNELAPI
-VOID
-FASTCALL
-ExAcquireFastMutexUnsafe (
-    IN PFAST_MUTEX FastMutex
-    );
-
-NTKERNELAPI
-VOID
-FASTCALL
-ExReleaseFastMutexUnsafe (
-    IN PFAST_MUTEX FastMutex
-    );
-
-#if defined(_MIPS_) || defined(_ALPHA_) || defined(_PPC_) || (defined(_X86_) && defined(_NTHAL_))
-
-NTKERNELAPI
-VOID
-FASTCALL
-ExAcquireFastMutex (
-    IN PFAST_MUTEX FastMutex
-    );
-
-NTKERNELAPI
-VOID
-FASTCALL
-ExReleaseFastMutex (
-    IN PFAST_MUTEX FastMutex
-    );
-
-NTKERNELAPI
-BOOLEAN
-FASTCALL
-ExTryToAcquireFastMutex (
-    IN PFAST_MUTEX FastMutex
-    );
-
-#elif defined(_X86_) && !defined(_NTHAL_)
-
-__declspec(dllimport)
-VOID
-FASTCALL
-ExAcquireFastMutex (
-    IN PFAST_MUTEX FastMutex
-    );
-
-__declspec(dllimport)
-VOID
-FASTCALL
-ExReleaseFastMutex (
-    IN PFAST_MUTEX FastMutex
-    );
-
-__declspec(dllimport)
-BOOLEAN
-FASTCALL
-ExTryToAcquireFastMutex (
-    IN PFAST_MUTEX FastMutex
-    );
-
-#elif
-
-#error "Target architecture not defined"
-
-#endif
-
-// end_ntifs end_ntddk
-
-//
-// Routines for handle manipulation (in handle.c)
-//
-
-NTKERNELAPI
-PVOID
-ExCreateHandleTable(
-    IN struct _EPROCESS *Process,
-    IN ULONG InitialCountTableEntries,
-    IN ULONG CountTableEntriesToGrowBy,
-    IN ULONG LogSizeTableEntry
-    );
-
-typedef BOOLEAN (*EX_DUPLICATE_HANDLE_ROUTINE)(
-    IN PVOID HandleTableEntry
-    );
-
-NTKERNELAPI
-PVOID
-ExDupHandleTable(
-    IN struct _EPROCESS *Process,
-    IN PVOID OldHandleTable,
-    IN EX_DUPLICATE_HANDLE_ROUTINE DupHandleProcedure OPTIONAL
-    );
-
-typedef VOID (*EX_DESTROY_HANDLE_ROUTINE)(
-    IN HANDLE Handle,
-    IN PVOID HandleTableEntry
-    );
-
-NTKERNELAPI
-VOID
-ExDestroyHandleTable(
-    IN PVOID HandleTableHandle,
-    IN EX_DESTROY_HANDLE_ROUTINE DestroyHandleProcedure
-    );
-
-typedef BOOLEAN (*EX_ENUMERATE_HANDLE_ROUTINE)(
-    IN PVOID HandleTableEntry,
-    IN PVOID HandleId,
-    IN PVOID EnumParameter
-    );
-
-NTKERNELAPI
-BOOLEAN
-ExEnumHandleTable(
-    IN PVOID HandleTableHandle,
-    IN EX_ENUMERATE_HANDLE_ROUTINE EnumHandleProcedure,
-    IN PVOID EnumParameter,
-    OUT PHANDLE Handle OPTIONAL
-    );
-
-NTKERNELAPI
-ULONG
-ExGetHandleTableEntryCount(
-    IN PVOID HandleTableHandle
-    );
-
-NTKERNELAPI
-HANDLE
-ExCreateHandle(
-    IN PVOID HandleTable,
-    IN PVOID Pointer
-    );
-
-typedef
-BOOLEAN
-(*PEX_CHANGE_HANDLE_ROUTINE) (
-    IN OUT PVOID TableEntry,
-    IN ULONG Parameter
-    );
-
-NTKERNELAPI
-BOOLEAN
-ExChangeHandle(
-    IN PVOID HandleTableHandle,
-    IN HANDLE Handle,
-    IN PEX_CHANGE_HANDLE_ROUTINE ChangeRoutine,
-    IN ULONG Parameter
-    );
-
-NTSTATUS
-ExSetHandleExtraBit(
-    IN PVOID HandleTableHandle,
-    IN HANDLE Handle,
-    IN BOOLEAN Bit
-    );
-
-NTSTATUS
-ExQueryHandleExtraBit(
-    IN PVOID HandleTableHandle,
-    IN BOOLEAN HandleTableLocked,
-    IN HANDLE Handle,
-    OUT PBOOLEAN Bit
-    );
-
-NTKERNELAPI
-BOOLEAN
-ExDestroyHandle(
-    IN PVOID HandleTable,
-    IN HANDLE Handle,
-    IN BOOLEAN HandleTableLocked
-    );
-
-NTKERNELAPI
-PVOID
-ExMapHandleToPointer(
-    IN PVOID HandleTable,
-    IN HANDLE Handle,
-    IN BOOLEAN Shared
-    );
-
-#define ExLockHandleTable(_T)                                        \
-    ASSERT((PHANDLETABLE)(_T) != NULL);                              \
-    ASSERT(((PHANDLETABLE)(_T))->Length == sizeof(HANDLETABLE));     \
-    KeEnterCriticalRegion();                                         \
-    ExAcquireResourceExclusive(&((PHANDLETABLE)(_T))->Resource,TRUE)
-
-#define ExLockHandleTableShared(_T)                                  \
-    ASSERT((PHANDLETABLE)(_T) != NULL);                              \
-    ASSERT(((PHANDLETABLE)(_T))->Length == sizeof(HANDLETABLE));     \
-    KeEnterCriticalRegion();                                         \
-    ExAcquireResourceShared(&((PHANDLETABLE)(_T))->Resource,TRUE)
-
-#define ExUnlockHandleTable(_T)                                      \
-    ASSERT((PHANDLETABLE)(_T) != NULL);                              \
-    ASSERT(((PHANDLETABLE)(_T))->Length == sizeof(HANDLETABLE));     \
-    ExReleaseResource(&((PHANDLETABLE)(_T))->Resource);              \
-    KeLeaveCriticalRegion()
-
-#if DEVL
-NTKERNELAPI
-VOID
-ExInitializeHandleTablePackage(
-    VOID
-    );
-
-NTKERNELAPI
-VOID
-ExSetHandleTableOwner(
-    IN PVOID HandleTableHandle,
-    IN HANDLE UniqueProcessId
-    );
-
-typedef NTSTATUS (*PEX_SNAPSHOT_HANDLE_ENTRY)(
-    IN OUT PSYSTEM_HANDLE_TABLE_ENTRY_INFO *HandleEntryInfo,
-    IN HANDLE UniqueProcessId,
-    IN PVOID HandleTableEntry,
-    IN HANDLE HandleIndex,
-    IN ULONG Length,
-    IN OUT PULONG RequiredLength
-    );
-
-NTKERNELAPI
-NTSTATUS
-ExSnapShotHandleTables(
-    IN ULONG LogSizeTableEntry,
-    IN PEX_SNAPSHOT_HANDLE_ENTRY SnapShotHandleEntry,
-    IN OUT PSYSTEM_HANDLE_INFORMATION HandleInformation,
-    IN ULONG Length,
-    IN OUT PULONG RequiredLength
-    );
-#endif // DEVL
-
 
 // begin_ntddk begin_nthal begin_ntifs
 //
@@ -822,9 +1585,17 @@ ExQueueWorkItem(
     IN WORK_QUEUE_TYPE QueueType
     );
 
+
+NTKERNELAPI
+BOOLEAN
+ExIsProcessorFeaturePresent(
+    ULONG ProcessorFeature
+    );
+
 // end_ntddk end_nthal end_ntifs
 
-extern KQUEUE ExWorkerQueue[MaximumWorkQueue];
+extern KQUEUE ExWorkerQueue[];
+
 
 // begin_ntddk begin_nthal begin_ntifs
 //
@@ -930,7 +1701,6 @@ ExInterlockedExtendZone(
       (Zone)->FreeList.Next = ((PSINGLE_LIST_ENTRY)(Block)),        \
       ((PSINGLE_LIST_ENTRY)(Block))->Next                           \
     )
-
 
 //++
 //
@@ -1087,7 +1857,10 @@ typedef struct _ERESOURCE {
     ULONG ContentionCount;
     USHORT NumberOfSharedWaiters;
     USHORT NumberOfExclusiveWaiters;
-    PVOID Address;
+    union {
+        PVOID Address;
+        ULONG CreatorBackTraceIndex;
+    };
     KSPIN_LOCK SpinLock;
 } ERESOURCE, *PERESOURCE;
 
@@ -1132,6 +1905,12 @@ ExInitializeResourceLite(
     );
 
 NTKERNELAPI
+NTSTATUS
+ExReinitializeResourceLite(
+    IN PERESOURCE Resource
+    );
+
+NTKERNELAPI
 BOOLEAN
 ExAcquireResourceSharedLite(
     IN PERESOURCE Resource,
@@ -1172,13 +1951,27 @@ ExTryToAcquireResourceExclusiveLite(
 //      );
 //
 
-#define ExReleaseResource(R) (ExReleaseResourceForThreadLite(R, ExGetCurrentResourceThread()))
+#define ExReleaseResource(R) (ExReleaseResourceLite(R))
+
+NTKERNELAPI
+VOID
+FASTCALL
+ExReleaseResourceLite(
+    IN PERESOURCE Resource
+    );
 
 NTKERNELAPI
 VOID
 ExReleaseResourceForThreadLite(
     IN PERESOURCE Resource,
     IN ERESOURCE_THREAD ResourceThreadId
+    );
+
+NTKERNELAPI
+VOID
+ExSetResourceOwnerPointer(
+    IN PERESOURCE Resource,
+    IN PVOID OwnerPointer
     );
 
 NTKERNELAPI
@@ -1316,14 +2109,8 @@ typedef struct _NTDDK_ERESOURCE {
 
     KSPIN_LOCK          SpinLock;
 
-#ifdef _X86_
-    ULONG CreatorBackTraceIndex;
-    USHORT Depth;
-    USHORT Reserved;
-    PVOID OwnerBackTrace[ 4 ];
-#else
-    ULONG Spare[ 6 ];
-#endif
+    USHORT CreatorBackTraceIndex;
+    USHORT Spare2;
 
 } NTDDK_ERESOURCE;
 typedef NTDDK_ERESOURCE *PNTDDK_ERESOURCE;
@@ -1361,6 +2148,232 @@ typedef NTDDK_ERESOURCE *PNTDDK_ERESOURCE;
 //      IN PNTDDK_ERESOURCE Resource
 //      );
 //
+
+
+//
+// Macros to convert between handles and handle table indexes.
+//
+
+#define HANDLE_TO_INDEX(h) ((ULONG)(h))
+#define INDEX_TO_HANDLE(i) ((HANDLE)(i))
+
+//
+// Define handle entry structure.
+//
+
+typedef struct _HANDLE_ENTRY {
+    union {
+        LIST_ENTRY ListEntry;
+        struct {
+            PVOID Object;
+            ULONG Attributes;
+        };
+    };
+} HANDLE_ENTRY, *PHANDLE_ENTRY;
+
+#define ExIsEntryFree(base, bound, p) ((p)->Object >= (PVOID)(base) && (p)->Object < (PVOID)(bound))
+#define ExIsEntryUsed(base, bound, p) ((p)->Object < (PVOID)(base) || (p)->Object >= (PVOID)(bound))
+
+//
+// Define handle table descriptor structure.
+//
+
+struct _EPROCESS;
+
+typedef union _HANDLE_SYNCH {
+    struct {
+        USHORT NumberOfSharedWaiters;
+        USHORT NumberOfExclusiveWaiters;
+        ULONG OwnerCount;
+    } u;
+
+    ULONGLONG Value;
+}HANDLE_SYNCH, *PHANDLE_SYNCH;
+
+typedef struct _HANDLE_TABLE {
+    HANDLE_SYNCH State;
+    KSPIN_LOCK SpinLock;
+    PHANDLE_ENTRY TableEntries;
+    PHANDLE_ENTRY TableBound;
+    ULONG HandleCount;
+    struct _EPROCESS *QuotaProcess;
+    HANDLE UniqueProcessId;
+    USHORT CountToGrowBy;
+    BOOLEAN LifoOrder;
+    UCHAR Spare1;
+    LIST_ENTRY ListEntry;
+    KEVENT ExclusiveWaiters;
+    KSEMAPHORE SharedWaiters;
+} HANDLE_TABLE, *PHANDLE_TABLE;
+
+//
+// Routines for handle manipulation.
+//
+
+typedef
+BOOLEAN
+(*PEX_CHANGE_HANDLE_ROUTINE) (
+    IN OUT PHANDLE_ENTRY HandleEntry,
+    IN ULONG Parameter
+    );
+
+NTKERNELAPI
+BOOLEAN
+ExChangeHandle(
+    IN PHANDLE_TABLE HandleTable,
+    IN HANDLE Handle,
+    IN PEX_CHANGE_HANDLE_ROUTINE ChangeRoutine,
+    IN ULONG Parameter
+    );
+
+NTKERNELAPI
+HANDLE
+ExCreateHandle(
+    IN PHANDLE_TABLE HandleTable,
+    IN PHANDLE_ENTRY HandleEntry
+    );
+
+NTKERNELAPI
+PHANDLE_TABLE
+ExCreateHandleTable(
+    IN struct _EPROCESS *Process OPTIONAL,
+    IN ULONG CountEntries,
+    IN ULONG CountToGrowBy
+    );
+
+NTKERNELAPI
+BOOLEAN
+ExDestroyHandle(
+    IN PHANDLE_TABLE HandleTable,
+    IN HANDLE Handle,
+    IN BOOLEAN TableLocked
+    );
+
+typedef VOID (*EX_DESTROY_HANDLE_ROUTINE)(
+    IN HANDLE Handle,
+    IN PHANDLE_ENTRY HandleEntry
+    );
+
+NTKERNELAPI
+VOID
+ExDestroyHandleTable(
+    IN PHANDLE_TABLE HandleTable,
+    IN EX_DESTROY_HANDLE_ROUTINE DestroyHandleProcedure
+    );
+
+NTKERNELAPI
+VOID
+ExRemoveHandleTable(
+    IN PHANDLE_TABLE HandleTable
+    );
+
+typedef BOOLEAN (*EX_DUPLICATE_HANDLE_ROUTINE)(
+    IN struct _EPROCESS *Process OPTIONAL,
+    IN PHANDLE_ENTRY HandleEntry
+    );
+
+NTKERNELAPI
+PHANDLE_TABLE
+ExDupHandleTable(
+    IN struct _EPROCESS *Process OPTIONAL,
+    IN PHANDLE_TABLE OldHandleTable,
+    IN EX_DUPLICATE_HANDLE_ROUTINE DupHandleProcedure OPTIONAL
+    );
+
+typedef BOOLEAN (*EX_ENUMERATE_HANDLE_ROUTINE)(
+    IN PHANDLE_ENTRY HandleEntry,
+    IN HANDLE Handle,
+    IN PVOID EnumParameter
+    );
+
+NTKERNELAPI
+BOOLEAN
+ExEnumHandleTable(
+    IN PHANDLE_TABLE HandleTable,
+    IN EX_ENUMERATE_HANDLE_ROUTINE EnumHandleProcedure,
+    IN PVOID EnumParameter,
+    OUT PHANDLE Handle OPTIONAL
+    );
+
+NTKERNELAPI
+VOID
+FASTCALL
+ExAcquireHandleTableExclusive (
+    IN PHANDLE_TABLE HandleTable
+    );
+
+NTKERNELAPI
+VOID
+FASTCALL
+ExAcquireHandleTableShared (
+    IN PHANDLE_TABLE HandleTable
+    );
+
+NTKERNELAPI
+VOID
+FASTCALL
+ExReleaseHandleTableExclusive (
+    IN PHANDLE_TABLE HandleTable
+    );
+
+NTKERNELAPI
+VOID
+FASTCALL
+ExReleaseHandleTableShared (
+    IN PHANDLE_TABLE HandleTable
+    );
+
+#define ExLockHandleTableExclusive(_T)                               \
+    KeEnterCriticalRegion();                                         \
+    ExAcquireHandleTableExclusive(_T)
+
+#define ExLockHandleTableShared(_T)                                  \
+    KeEnterCriticalRegion();                                         \
+    ExAcquireHandleTableShared(_T)
+
+#define ExUnlockHandleTableExclusive(_T)                             \
+    ExReleaseHandleTableExclusive(_T);                               \
+    KeLeaveCriticalRegion()
+
+#define ExUnlockHandleTableShared(_T)                                \
+    ExReleaseHandleTableShared(_T);                                  \
+    KeLeaveCriticalRegion()
+
+NTKERNELAPI
+PHANDLE_ENTRY
+ExMapHandleToPointer(
+    IN PHANDLE_TABLE HandleTable,
+    IN HANDLE Handle,
+    IN BOOLEAN Shared
+    );
+
+NTKERNELAPI
+VOID
+ExInitializeHandleTablePackage(
+    VOID
+    );
+
+#define ExSetHandleTableOwner(t, id) (t)->UniqueProcessId = (id)
+
+#define ExSetHandleTableOrder(t, order) (t)->LifoOrder = (order)
+
+typedef NTSTATUS (*PEX_SNAPSHOT_HANDLE_ENTRY)(
+    IN OUT PSYSTEM_HANDLE_TABLE_ENTRY_INFO *HandleEntryInfo,
+    IN HANDLE UniqueProcessId,
+    IN PHANDLE_ENTRY HandleEntry,
+    IN HANDLE Handle,
+    IN ULONG Length,
+    IN OUT PULONG RequiredLength
+    );
+
+NTKERNELAPI
+NTSTATUS
+ExSnapShotHandleTables(
+    IN PEX_SNAPSHOT_HANDLE_ENTRY SnapShotHandleEntry,
+    IN OUT PSYSTEM_HANDLE_INFORMATION HandleInformation,
+    IN ULONG Length,
+    IN OUT PULONG RequiredLength
+    );
 
 
 //
@@ -1404,21 +2417,42 @@ ExLuidInitialization (
 // --*/
 
 
-extern LUID ExpLuid;
+extern LARGE_INTEGER ExpLuid;
 extern LARGE_INTEGER ExpLuidIncrement;
 extern KSPIN_LOCK ExpLuidLock;
 
-#define ExAllocateLocallyUniqueId(Luid)                     \
-    *(Luid) = ExInterlockedAddLargeInteger(&ExpLuid,        \
-                                           ExpLuidIncrement,\
-                                           &ExpLuidLock)
+
+#define ExAllocateLocallyUniqueId(Luid)                                 \
+    {                                                                   \
+    LARGE_INTEGER _TempLi;                                              \
+                                                                        \
+    _TempLi = ExInterlockedExchangeAddLargeInteger(&ExpLuid,            \
+                                                   ExpLuidIncrement,    \
+                                                   &ExpLuidLock);       \
+    (Luid)->LowPart = _TempLi.LowPart;                                  \
+    (Luid)->HighPart = _TempLi.HighPart;                                \
+    }
+
 
+// begin_ntddk begin_ntifs
+//
+// Get previous mode
+//
+
+NTKERNELAPI
+KPROCESSOR_MODE
+ExGetPreviousMode(
+    VOID
+    );
+// end_ntddk end_ntifs
+
 //
 // Raise exception from kernel mode.
 //
 
 NTKERNELAPI
 VOID
+NTAPI
 ExRaiseException (
     PEXCEPTION_RECORD ExceptionRecord
     );
@@ -1430,11 +2464,26 @@ ExRaiseException (
 
 NTKERNELAPI
 VOID
+NTAPI
 ExRaiseStatus (
     IN NTSTATUS Status
     );
 
+NTKERNELAPI
+VOID
+ExRaiseDatatypeMisalignment (
+    VOID
+    );
+
+NTKERNELAPI
+VOID
+ExRaiseAccessViolation (
+    VOID
+    );
+
 // end_ntddk end_ntifs
+
+extern BOOLEAN ExReadyForErrors;
 
 NTKERNELAPI
 NTSTATUS
@@ -1568,6 +2617,68 @@ ExInitializeTimeRefresh(
     VOID
     );
 
+
+// begin_ntddk begin_nthal begin_ntminiport
+
+
+NTKERNELAPI
+VOID
+ExPostSystemEvent(
+    IN SYSTEM_EVENT_ID EventID,
+    IN PVOID           EventData OPTIONAL,
+    IN ULONG           EventDataLength
+    );
+
+// end_ntddk end_nthal end_ntminiport
+
+// begin_ntddk begin_ntifs begin_nthal begin_ntminiport
+
+//
+// Define the type for Callback function.
+//
+
+typedef struct _CALLBACK_OBJECT *PCALLBACK_OBJECT;
+
+typedef VOID (*PCALLBACK_FUNCTION ) (
+    IN PVOID CallbackContext,
+    IN PVOID Argument1,
+    IN PVOID Argument2
+    );
+
+
+NTKERNELAPI
+NTSTATUS
+ExCreateCallback (
+    OUT PCALLBACK_OBJECT *CallbackObject,
+    IN POBJECT_ATTRIBUTES ObjectAttributes,
+    IN BOOLEAN Create,
+    IN BOOLEAN AllowMultipleCallbacks
+    );
+
+NTKERNELAPI
+PVOID
+ExRegisterCallback (
+    IN PCALLBACK_OBJECT CallbackObject,
+    IN PCALLBACK_FUNCTION CallbackFunction,
+    IN PVOID CallbackContext
+    );
+
+NTKERNELAPI
+VOID
+ExUnregisterCallback (
+    IN PVOID CallbackRegistration
+    );
+
+NTKERNELAPI
+VOID
+ExNotifyCallback (
+    IN PVOID CallbackObject,
+    IN PVOID Argument1,
+    IN PVOID Argument2
+    );
+
+// end_ntddk end_ntifs end_nthal end_ntminiport
+
 //
 // The current bias from GMT to LocalTime
 //
@@ -1580,6 +2691,30 @@ extern ULONG ExpRealTimeIsUniversal;
 extern ULONG ExCriticalWorkerThreads;
 extern ULONG ExDelayedWorkerThreads;
 extern ULONG ExpTickCountMultiplier;
+
+//
+// The lock handle for PAGELK section, initialized in init\init.c
+//
+
+extern PVOID ExPageLockHandle;
+
+#ifdef _PNP_POWER_
+
+//
+// Global executive callbacks
+//
+
+extern PCALLBACK_OBJECT ExCbSetSystemInformation;
+extern PCALLBACK_OBJECT ExCbSetSystemTime;
+extern PCALLBACK_OBJECT ExCbSuspendHibernateSystem;
+
+#endif // _PNP_POWER_
+
+typedef
+PVOID
+(*PKWIN32_GLOBALATOMTABLE_CALLOUT) ( void );
+
+extern PKWIN32_GLOBALATOMTABLE_CALLOUT ExGlobalAtomTableCallout;
 
 #if DBG
 

@@ -106,7 +106,7 @@ CloseARemoteFile(
     )
 {
     if (_lclose(OpenFileHandle) != 0) {
-        NetpDbgPrint( "Error closing remote file.\n" );
+        NetpKdPrint(( "Error closing remote file.\n" ));
         TestAssert( FailureOK );
     }
 } // CloseARemoteFile
@@ -126,9 +126,9 @@ FindARemoteFileId(
     DWORD TotalAvail;
 
     IF_DEBUG(FILE) {
-        NetpDbgPrint( "FindARemoteFileId: trying NetFileEnum("
+        NetpKdPrint(( "FindARemoteFileId: trying NetFileEnum("
                 FORMAT_DWORD ")...\n",
-                InfoLevel );
+                InfoLevel ));
     }
     Status = NetFileEnum(
             UncServerName,
@@ -141,11 +141,11 @@ FindARemoteFileId(
             & TotalAvail,
             NULL);  // no resume handle
     IF_DEBUG(FILE) {
-        NetpDbgPrint( "FindARemoteFileId: back from NetFileEnum, stat="
-                FORMAT_API_STATUS "\n", Status );
+        NetpKdPrint(( "FindARemoteFileId: back from NetFileEnum, stat="
+                FORMAT_API_STATUS "\n", Status ));
     }
     if (Status != NERR_Success) {
-        NetpDbgPrint( "FindARemoteFileId: NetFileEnum failed.\n" );
+        NetpKdPrint(( "FindARemoteFileId: NetFileEnum failed.\n" ));
         if (Status == ERROR_NOT_SUPPORTED) {
             return (FILE_ID_NOT_FOUND);   // WFW does not implement this API.
         }
@@ -155,7 +155,7 @@ FindARemoteFileId(
     if (EntriesRead > 0) {
         InfoArray = (LPVOID) BufPtr;
         IF_DEBUG(FILE) {
-            NetpDbgPrint( "FindARemoteFileId: Found file:\n" );
+            NetpKdPrint(( "FindARemoteFileId: Found file:\n" ));
             NetpDbgDisplayFile( InfoLevel, InfoArray );
         }
         FileId = InfoArray->fi2_id;
@@ -187,8 +187,8 @@ OpenARemoteFile(
     (void) STRCAT( TFileName, ShareName );
     (void) STRCAT( TFileName, (LPTSTR) TEXT( "\\RxTest.Dat" ) );
     IF_DEBUG(FILE) {
-        NetpDbgPrint( "OpenARemoteFile: opening (tstr) " FORMAT_LPTSTR "...\n",
-                TFileName );
+        NetpKdPrint(( "OpenARemoteFile: opening (tstr) " FORMAT_LPTSTR "...\n",
+                TFileName ));
     }
 
     // Convert TFileName to ANSI (codepage) for OpenFile.
@@ -196,8 +196,8 @@ OpenARemoteFile(
             AnsiFileName,       // dest (codepage)
             TFileName);         // src (TCHARs)
     IF_DEBUG(FILE) {
-        NetpDbgPrint( "OpenARemoteFile: opening (ANSI) " FORMAT_LPSTR "...\n",
-                AnsiFileName );
+        NetpKdPrint(( "OpenARemoteFile: opening (ANSI) " FORMAT_LPSTR "...\n",
+                AnsiFileName ));
     }
 
     // Open the file.
@@ -208,9 +208,9 @@ OpenARemoteFile(
             );
 
     if (TempFileHandle == -1) {
-        NetpDbgPrint( "OpenARemoteFile: OpenFile failed, error code is "
+        NetpKdPrint(( "OpenARemoteFile: OpenFile failed, error code is "
                 FORMAT_API_STATUS ".\n",
-                (NET_API_STATUS) GetLastError() );
+                (NET_API_STATUS) GetLastError() ));
     }
 
     return (TempFileHandle);
@@ -281,22 +281,22 @@ TestFileClose(
     FileId = FindARemoteFileId( UncServerName );
     if (FileId == FILE_ID_NOT_FOUND) {
         IF_DEBUG(FILE) {
-            NetpDbgPrint( "TestFileClose: skipping test "
-                    "(unable to find file)\n" );
+            NetpKdPrint(( "TestFileClose: skipping test "
+                    "(unable to find file)\n" ));
         }
         // Let's not treat this as a failure.
         return;
     }
 
     IF_DEBUG(FILE) {
-        NetpDbgPrint( "TestFileClose: closing " );
+        NetpKdPrint(( "TestFileClose: closing " ));
         NetpDbgDisplayFileId( FileId );
-        NetpDbgPrint( ".\n" );
+        NetpKdPrint(( ".\n" ));
     }
     Status = NetFileClose( UncServerName, FileId );
     IF_DEBUG(FILE) {
-        NetpDbgPrint( "TestFileClose: back from NetFileClose, stat="
-                FORMAT_API_STATUS "\n", Status );
+        NetpKdPrint(( "TestFileClose: back from NetFileClose, stat="
+                FORMAT_API_STATUS "\n", Status ));
     }
     if (Status != ExpectedStatus) {
         FailGotWrongStatus( "TestFileClose: NetFileClose failed.\n",
@@ -320,8 +320,8 @@ TestFileEnum(
     DWORD TotalAvail;
 
     IF_DEBUG(FILE) {
-        NetpDbgPrint( "\nTestFileEnum: trying NetFileEnum("
-                FORMAT_DWORD ")...\n", Level );
+        NetpKdPrint(( "\nTestFileEnum: trying NetFileEnum("
+                FORMAT_DWORD ")...\n", Level ));
     }
     Status = NetFileEnum(
             UncServerName,
@@ -334,10 +334,10 @@ TestFileEnum(
             & TotalAvail,
             NULL);  // no resume key
     IF_DEBUG(FILE) {
-        NetpDbgPrint( "TestFileEnum: back from NetFileEnum, stat="
-                FORMAT_API_STATUS "\n", Status );
-        NetpDbgPrint( INDENT "entries read=" FORMAT_DWORD "\n", EntriesRead );
-        NetpDbgPrint( INDENT "total avail=" FORMAT_DWORD "\n", TotalAvail );
+        NetpKdPrint(( "TestFileEnum: back from NetFileEnum, stat="
+                FORMAT_API_STATUS "\n", Status ));
+        NetpKdPrint(( INDENT "entries read=" FORMAT_DWORD "\n", EntriesRead ));
+        NetpKdPrint(( INDENT "total avail=" FORMAT_DWORD "\n", TotalAvail ));
     }
     if (Status == ERROR_NOT_SUPPORTED) {
         return;   // WFW does not implement this API.
@@ -349,17 +349,17 @@ TestFileEnum(
     if (Status == NERR_Success) {
         if (EntriesRead > 0) {
             IF_DEBUG(FILE) {
-                NetpDbgPrint( "TestFileEnum: returned buffer:\n" );
+                NetpKdPrint(( "TestFileEnum: returned buffer:\n" ));
                 TestAssert( BufPtr != NULL );
                 NetpDbgDisplayFileArray( Level, BufPtr, EntriesRead );
             }
         }
 
         if (MinExpectedEntries > EntriesRead) {
-            NetpDbgPrint( "TestFileEnum: expected at least " FORMAT_DWORD
+            NetpKdPrint(( "TestFileEnum: expected at least " FORMAT_DWORD
                     " entry/entries avail but only " FORMAT_DWORD
                     " was/were read.\n",
-                    MinExpectedEntries, EntriesRead );
+                    MinExpectedEntries, EntriesRead ));
             Fail( NERR_InternalError );
         }
         (void) NetApiBufferFree( BufPtr );
@@ -381,20 +381,20 @@ TestFileGetInfo(
     NET_API_STATUS Status;
 
     IF_DEBUG(FILE) {
-        NetpDbgPrint( "\nTestFileGetInfo: trying FindARemoteFileId...\n" );
+        NetpKdPrint(( "\nTestFileGetInfo: trying FindARemoteFileId...\n" ));
     }
     FileId = FindARemoteFileId( UncServerName );
 
     if (FileId == FILE_ID_NOT_FOUND) {
         IF_DEBUG(FILE) {
-            NetpDbgPrint( "TestFileGetInfo: no files found.\n" );
+            NetpKdPrint(( "TestFileGetInfo: no files found.\n" ));
         }
         return;  // Let's not treat this as an error.
     }
 
     IF_DEBUG(FILE) {
-        NetpDbgPrint( "\nTestFileGetInfo: trying NetFileGetInfo("
-                FORMAT_DWORD ")...\n", Level );
+        NetpKdPrint(( "\nTestFileGetInfo: trying NetFileGetInfo("
+                FORMAT_DWORD ")...\n", Level ));
     }
     Status = NetFileGetInfo(
             UncServerName,
@@ -408,10 +408,10 @@ TestFileGetInfo(
                 ExpectedStatus, Status );
     }
     IF_DEBUG(FILE) {
-        NetpDbgPrint( "TestFileGetInfo: back from NetFileGetInfo, stat="
-                FORMAT_API_STATUS "\n", Status );
+        NetpKdPrint(( "TestFileGetInfo: back from NetFileGetInfo, stat="
+                FORMAT_API_STATUS "\n", Status ));
         if (Status == NERR_Success) {
-            NetpDbgPrint( "TestFileGetInfo: returned buffer:\n" );
+            NetpKdPrint(( "TestFileGetInfo: returned buffer:\n" ));
             NetpDbgDisplayFile( Level, BufPtr );
         }
     }

@@ -368,13 +368,13 @@ ULONG FASTCALL WU32LoadCursor(PVDMFRAME pFrame)
         lpUniName_CursorIcon = (LPWSTR)psz2;
     }
 
-    ul = (pfnOut.pfnServerLoadCreateCursorIcon)(HINSTRES32(hInst16),
-                                    pszModName,
+    ul = (ULONG) (pfnOut.pfnServerLoadCreateCursorIcon)(HINSTRES32(hInst16),
+                                    (LPTSTR) pszModName,
                                     parg16->f6,
-                                    lpUniName_CursorIcon,
+                                    (LPCTSTR) lpUniName_CursorIcon,
                                     parg16->f4,
                                     pResData,
-                                    parg16->f7,
+                                    (LPTSTR) parg16->f7,
                                     0);
 
     if (ul)
@@ -393,4 +393,3 @@ ULONG FASTCALL WU32LoadCursor(PVDMFRAME pFrame)
     FREEARGPTR(parg16);
     RETURN(ul);
 }
-

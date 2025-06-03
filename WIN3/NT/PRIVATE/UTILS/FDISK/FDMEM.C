@@ -61,9 +61,17 @@ ConfirmOutOfMemory(
     VOID
     )
 {
-    va_list arglist;
+    va_list arglist =
+#ifdef _ALPHA_
+    {0};      // Alpha defines va_list as a struct.  Init as such.
+#else
+    NULL;
+#endif
 
-    if(CommonDialog(MSG_OUT_OF_MEMORY,NULL,MB_ICONHAND | MB_RETRYCANCEL | MB_SYSTEMMODAL,arglist) != IDRETRY) {
+    if(CommonDialog(MSG_OUT_OF_MEMORY,
+                    NULL,
+                    MB_ICONHAND | MB_RETRYCANCEL | MB_SYSTEMMODAL,
+                    arglist) != IDRETRY) {
         exit(1);
     }
 }

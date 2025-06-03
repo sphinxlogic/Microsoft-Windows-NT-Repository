@@ -66,10 +66,10 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(MESSAGE) {
-        NetpDbgPrint( "XsNetMessageBufferSend: header at %lx, params at %lx, "
+        NetpKdPrint(( "XsNetMessageBufferSend: header at %lx, params at %lx, "
                       "recipient %s\n",
                       Header, parameters,
-                      SmbGetUlong( &parameters->Recipient ));
+                      SmbGetUlong( &parameters->Recipient )));
     }
 
     //
@@ -121,8 +121,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetMessageBufferSend: NetMessageBufferSend "
-                          "failed: %X\n", status );
+            NetpKdPrint(( "XsNetMessageBufferSend: NetMessageBufferSend "
+                          "failed: %X\n", status ));
         }
     }
 
@@ -176,10 +176,10 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(MESSAGE) {
-        NetpDbgPrint( "XsNetMessageNameDel: header at %lx, params at %lx, "
+        NetpKdPrint(( "XsNetMessageNameDel: header at %lx, params at %lx, "
                       "name %s\n",
                       Header, parameters,
-                      SmbGetUlong( &parameters->MessageName ));
+                      SmbGetUlong( &parameters->MessageName )));
     }
 
     //
@@ -206,8 +206,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetMessageNameAdd: NetMessageNameAdd "
-                          "failed: %X\n", status );
+            NetpKdPrint(( "XsNetMessageNameAdd: NetMessageNameAdd "
+                          "failed: %X\n", status ));
         }
     }
 
@@ -257,10 +257,10 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(MESSAGE) {
-        NetpDbgPrint( "XsNetMessageNameDel: header at %lx, params at %lx, "
+        NetpKdPrint(( "XsNetMessageNameDel: header at %lx, params at %lx, "
                       "name %s\n",
                       Header, parameters,
-                      SmbGetUlong( &parameters->MessageName ));
+                      SmbGetUlong( &parameters->MessageName )));
     }
 
     //
@@ -287,8 +287,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetMessageNameDel: NetMessageNameDel failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetMessageNameDel: NetMessageNameDel failed: "
+                          "%X\n", status ));
         }
     }
 
@@ -344,10 +344,10 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(MESSAGE) {
-        NetpDbgPrint( "XsNetMessageNameEnum: header at %lx, params at %lx, "
+        NetpKdPrint(( "XsNetMessageNameEnum: header at %lx, params at %lx, "
                       "level %ld, buf size %ld\n",
                       Header, parameters, SmbGetUshort( &parameters->Level ),
-                      SmbGetUshort( &parameters->BufLen ));
+                      SmbGetUshort( &parameters->BufLen )));
     }
 
     //
@@ -376,16 +376,16 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetMessageNameEnum: NetMessageNameEnum failed:"
-                          " %X\n", status );
+            NetpKdPrint(( "XsNetMessageNameEnum: NetMessageNameEnum failed:"
+                          " %X\n", status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
     }
 
     IF_DEBUG(MESSAGE) {
-        NetpDbgPrint( "XsNetMessageNameEnum: received %ld entries at %lx\n",
-                      entriesRead, outBuffer );
+        NetpKdPrint(( "XsNetMessageNameEnum: received %ld entries at %lx\n",
+                      entriesRead, outBuffer ));
     }
 
     //
@@ -428,10 +428,10 @@ Return Value:
         );
 
     IF_DEBUG(MESSAGE) {
-        NetpDbgPrint( "32-bit data at %lx, 16-bit data at %lx, %ld BR,"
+        NetpKdPrint(( "32-bit data at %lx, 16-bit data at %lx, %ld BR,"
                       " Entries %ld of %ld\n",
                       outBuffer, SmbGetUlong( &parameters->Buffer ),
-                      bytesRequired, entriesFilled, totalEntries );
+                      bytesRequired, entriesFilled, totalEntries ));
     }
 
     //
@@ -510,9 +510,9 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(MESSAGE) {
-        NetpDbgPrint( "XsNetMessageNameGetInfo: header at %lx, "
+        NetpKdPrint(( "XsNetMessageNameGetInfo: header at %lx, "
                       "params at %lx, level %ld\n",
-                      Header, parameters, SmbGetUshort( &parameters->Level ) );
+                      Header, parameters, SmbGetUshort( &parameters->Level ) ));
     }
 
     //
@@ -543,8 +543,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetMessageNameGetInfo: "
-                          "NetMessageNameGetInfo failed: %X\n", status );
+            NetpKdPrint(( "XsNetMessageNameGetInfo: "
+                          "NetMessageNameGetInfo failed: %X\n", status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
@@ -597,8 +597,8 @@ Return Value:
 
     if ( status != NERR_Success ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "NetMessageNameGetInfo: "
-                          "RapConvertSingleEntry failed: %X\n", status );
+            NetpKdPrint(( "NetMessageNameGetInfo: "
+                          "RapConvertSingleEntry failed: %X\n", status ));
         }
 
         Header->Status = NERR_InternalError;
@@ -606,9 +606,9 @@ Return Value:
     }
 
     IF_DEBUG(MESSAGE) {
-        NetpDbgPrint( "32-bit data at %lx, 16-bit data at %lx, %ld BR\n",
+        NetpKdPrint(( "32-bit data at %lx, 16-bit data at %lx, %ld BR\n",
                       outBuffer, SmbGetUlong( &parameters->Buffer ),
-                      bytesRequired );
+                      bytesRequired ));
     }
 
     //
@@ -623,7 +623,7 @@ Return Value:
              )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetMessageNameGetInfo: Buffer too small.\n" );
+            NetpKdPrint(( "XsNetMessageNameGetInfo: Buffer too small.\n" ));
         }
         Header->Status = NERR_BufTooSmall;
 

@@ -15,7 +15,13 @@
 
 #ifndef __ILB_HXX__
 
-#include <dfmsp.hxx>		//  Pick up UL64 support
+//#include <dfmsp.hxx>		//  Pick up UL64 support
+#define ULISetLow(li, v) ((li).LowPart = (v))
+#define ULISetHigh(li, v) ((li).HighPart = (v))
+#define ULIGetLow(li)  ((li).LowPart)
+#define ULIGetHigh(li) ((li).HighPart)
+#define AtomicInc(lp) InterlockedIncrement(lp)
+#define AtomicDec(lp) InterlockedDecrement(lp)
 
 #if DBG == 1
 

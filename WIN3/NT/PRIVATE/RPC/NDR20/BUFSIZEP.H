@@ -30,7 +30,7 @@ typedef     void	(* PPRIVATE_SIZE_ROUTINE)(
                         PFORMAT_STRING		pFormat
                     );
 
-extern PSIZE_ROUTINE     pfnSizeRoutines[];
+extern const PSIZE_ROUTINE * pfnSizeRoutines;
 
 void
 NdrpPointerBufferSize ( 

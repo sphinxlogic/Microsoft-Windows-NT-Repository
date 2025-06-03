@@ -33,7 +33,9 @@ Revision History:
 //  simply a arithmetic AND of the inputs, and may have bits set beyond bit 7.
 //
 
+#if !defined(BUILDING_RDR_KD_EXTENSIONS)
 #define FlagOn(Flags,SingleFlag) ((Flags) & (SingleFlag))
+#endif
 
 //
 //  This macro returns TRUE (1) if a flag in a set of flags is on and FALSE
@@ -145,7 +147,6 @@ Revision History:
 //     None.
 //
 //--
-//  BUGBUG: NAME_LENGTH not DBCS safe and needs UNICODE conversion
 #define NAME_LENGTH( Length, Ptr, Max ) {                         \
     Length = 0;                                                   \
     while( ((PCHAR)Ptr)[Length] != '\0' ) {                       \

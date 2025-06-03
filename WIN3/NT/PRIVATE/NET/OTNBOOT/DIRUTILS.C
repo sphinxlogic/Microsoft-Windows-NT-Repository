@@ -39,6 +39,45 @@ Revision History:
 #include "otnboot.h"
 #include "otnbtdlg.h"
 
+LPCTSTR
+GetRootFromPath (
+    IN  LPCTSTR  szPath
+)
+{
+    static TCHAR szReturnBuffer[MAX_PATH];
+    LPTSTR      szNextChar;
+    LONG        lIndex;
+
+    if (IsUncPath(szPath)) {
+        // return server & share
+        lstrcpy (szReturnBuffer, cszDoubleBackslash);
+        szNextChar = &szReturnBuffer[2];
+        if (GetServerFromUnc (szPath, szNextChar)) {
+            lstrcat (szReturnBuffer, cszBackslash);
+            szNextChar = &szReturnBuffer[lstrlen(szReturnBuffer)];
+            if (GetShareFromUnc(szPath, szNextChar)) {
+                // append trailing backslash
+                lstrcat (szReturnBuffer, cszBackslash);
+            } else {
+                szReturnBuffer[0] = 0;
+            }
+        } else {
+            szReturnBuffer[0] = 0;
+        }
+    } else {
+        // dos path name
+        for (lIndex = 0; lIndex < 3; lIndex++) {
+            if (szPath[lIndex] > cSpace) {
+                szReturnBuffer[lIndex] = szPath[lIndex];
+            } else {
+                break;
+            }
+        }
+        szReturnBuffer[lIndex] = 0;
+  }
+    return (LPCTSTR)&szReturnBuffer[0];
+}
+
 BOOL
 GetShareFromUnc (
     IN  LPCTSTR  szPath,
@@ -146,7 +185,7 @@ Return Value:
     TCHAR   szDrive[4];             // buffer to build drive string in
     LPTSTR  szSubDirs;              // pointer to start of dirs not in share
     LONG    lBsCount;               // count of backslashes found parsing UNC
-    BOOL    bReturn;                // return valie
+    BOOL    bReturn = FALSE;        // return valie
     PSHARE_INFO_2    psi2Data;      // pointer to Net data buffer
 
     // check args
@@ -177,7 +216,7 @@ Return Value:
                 }
                 // now look up the share on the server to get the
                 // source path on the server machine
-                if (NetShareGetInfo (NULL, (LPWSTR)szShareName, 2L, (LPBYTE *)&psi2Data) == NERR_Success) {
+                if (NetShareGetInfo (szServer, (LPWSTR)szShareName, 2L, (LPBYTE *)&psi2Data) == NERR_Success) {
                     // successful call so copy the data to the user's buffer
                     lstrcpy (szRemotePath, psi2Data->shi2_path);
                     NetApiBufferFree (psi2Data);
@@ -224,7 +263,7 @@ Return Value:
                 if (GetServerFromUnc(szUncPath, szServer)) {
                     if (GetShareFromUnc(szUncPath, szShareName)) {
                         // now look up the share on the server
-                        if (NetShareGetInfo (NULL, (LPWSTR)szShareName, 2L, (LPBYTE *)&psi2Data) == NERR_Success) {
+                        if (NetShareGetInfo (szServer, (LPWSTR)szShareName, 2L, (LPBYTE *)&psi2Data) == NERR_Success) {
                             // successful call so return pointer to path string
                             lstrcpy (szRemotePath, psi2Data->shi2_path);
                             NetApiBufferFree (psi2Data);
@@ -664,6 +703,7 @@ Return Value:
             return FALSE;
         }
     }
+    return FALSE;
 }
 
 DWORD
@@ -693,7 +733,7 @@ Return Value:
     DWORD   dwBytesPerSector;
     DWORD   dwFreeClusters;
     DWORD   dwClusters;
-    TCHAR   szRoot[4];              // root dir of path
+    TCHAR   szRoot[MAX_PATH];              // root dir of path
     DWORD   dwFreeBytes = 0;
 
     UINT    nErrorMode;
@@ -701,12 +741,9 @@ Return Value:
     // disable windows error message popup
     nErrorMode = SetErrorMode  (SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX);
 
-    if (!IsUncPath(szPath)) {
-        szRoot[0] = szPath[0];  // drive letter
-        szRoot[1] = szPath[1];  // colon
-        szRoot[2] = cBackslash;   // backslash
-        szRoot[3] = 0;          // null terminator
-
+    lstrcpy (szRoot, GetRootFromPath(szPath));
+    if (lstrlen(szRoot) > 0) {
+        // we have a path to process so get info from the root
         if (GetDiskFreeSpace(szRoot, &dwSectorsPerCluster,
             &dwBytesPerSector, &dwFreeClusters, &dwClusters)) {
             dwFreeBytes = dwFreeClusters * dwSectorsPerCluster * dwBytesPerSector;
@@ -765,7 +802,8 @@ Return Value:
     BOOL    bReturn = FALSE;            // function return value
     DWORD   dwLocalType;                // share dir type
     PSHARE_INFO_2   psi2Data = NULL;    // net info buffer pointer
-    LPTSTR  szReturnPath;               // pointer to path string to return
+    LPTSTR  szReturnPath
+        = (LPTSTR)cszEmptyString;       // pointer to path string to return
 
     szLocalPath = GlobalAlloc (GPTR, MAX_PATH_BYTES);
 
@@ -1639,7 +1677,13 @@ Return Value:
             if (bStatus) {
                 *pOutputBuffer = pBootSector;
                 lStatus = ERROR_SUCCESS;
+            } else {
+            	// unable to read the file (drive) so return error
+            	*pOutputBuffer = NULL;
+            	lStatus = GetLastError();
             }
+            // close handle now that we're done with it.
+            CloseHandle (hDrive);
         } else {
             // unable to open drive
             *pOutputBuffer = NULL;
@@ -1716,15 +1760,15 @@ GetClusterSizeOfDisk (
 /*++
 
 Routine Description:
-    
-    returns the cluster size (in bytes) of the disk in the path    
+
+    returns the cluster size (in bytes) of the disk in the path
 
 Arguments:
 
     Path containing disk drive to examine
 
 Return Value:
-   
+
     cluster size (allocation unit size) of disk in bytes.
     if the function cannot determine the cluster size, then
     a value of 512 for floppy disk or 4096 for hard disks will
@@ -1774,16 +1818,16 @@ QuietGetFileSize (
 /*++
 
 Routine Description:
-        
+
     Returns the size of the file passed in the arg list ( file sizz < 4GB)
         while supressing any windows system error messages.
 
 Arguments:
 
-    path to file to size    
+    path to file to size
 
 Return Value:
-    
+
     size of the file (if less then 4GB) or 0xFFFFFFFF if error
 
 --*/
@@ -1807,7 +1851,7 @@ Return Value:
         NULL);
     if (hFile != INVALID_HANDLE_VALUE) {
         // then the file was opened successfully
-        // go get it's size 
+        // go get it's size
         dwFileSizeLow = GetFileSize (hFile, &dwFileSizeHigh);
         dwReturn = dwFileSizeLow;
         // now close the file handle
@@ -1818,7 +1862,6 @@ Return Value:
     }
 
     SetErrorMode (nErrorMode);  // restore old error mode
-    
+
     return dwReturn;
 }
-

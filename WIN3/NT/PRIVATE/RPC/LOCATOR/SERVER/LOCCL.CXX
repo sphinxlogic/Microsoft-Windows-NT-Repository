@@ -6,12 +6,11 @@
 
 #define  PIPENAME   ( (unsigned short *)L"\\PIPE\\LOCATOR" )
 #define  PROTSEQ    ( (unsigned short *)L"ncacn_np" )
-defModule
 
 extern "C" {
 void CLIENT_I_nsi_ping_locator(
-	handle_t hLocatortoPing,
-	error_status_t *status);
+    handle_t hLocatortoPing,
+    error_status_t *status);
 }
 
 /*
@@ -22,12 +21,12 @@ Class __LOCATOR
 
 extern NATIVE_CLASS_LOCATOR *Locator;
 
-handle_t 
+handle_t
 NATIVE_CLASS_LOCATOR::GetBindingToMasterLocator(
                                           int * Status)
 {
 
- 
+
   if ( Status ) ;
   ASSERT(!"should never be triggered");
 
@@ -35,16 +34,16 @@ NATIVE_CLASS_LOCATOR::GetBindingToMasterLocator(
 
 }
 
-void 
+void
 NATIVE_CLASS_LOCATOR::CacheThisServer(
                                   PUZ ServerName)
 {
 
   //we really dont do much in the default case
 }
-  
+
 /*
-void     
+void
 NATIVE_CLASS_LOCATOR::SetupHelperRoutine(
                                         )
 {
@@ -55,7 +54,7 @@ NATIVE_CLASS_LOCATOR::SetupHelperRoutine(
 */
 
 /*
-void     
+void
 NATIVE_CLASS_LOCATOR::DestroyBindingToMasterLocator()
 {
   ASSERT(!"should never be triggered");
@@ -64,7 +63,7 @@ NATIVE_CLASS_LOCATOR::DestroyBindingToMasterLocator()
 
 void NATIVE_CLASS_LOCATOR::SetIamMasterLocator()
 {
-  
+
   IamMasterLocatorFlag = TRUE;
 }
 
@@ -95,7 +94,7 @@ NATIVE_CLASS_LOCATOR::GetBindingToNamedLocator(
                                         );
      }
 
-  
+
   if (*Status == RPC_S_OK)
      {
        CLIENT_I_nsi_ping_locator(
@@ -113,24 +112,24 @@ NATIVE_CLASS_LOCATOR::GetBindingToNamedLocator(
          {
            //oops someone already bound to something while we getDCing
            //lets try and use the same thing
-           
+
                *Status = RpcBindingFree(&hNewHandle);
                RpcStringFreeW(&StringBindingW);
                ASSERT(*Status == RPC_S_OK);
-         }             
+         }
        else
          {
            State = BOUND;
            MasterLocatorStringBinding = StringBindingW;
            MasterLocator = StrdupUZ((PUZ)Server);
          }
- 
+
        DataStructureMutex.Clear();
      }
 
    return((handle_t) hNewHandle);
 }
-        
+
 BOOL
 NATIVE_CLASS_LOCATOR::IsReplyNeeded(
                               PQUERYLOCATOR Query)
@@ -141,16 +140,16 @@ NATIVE_CLASS_LOCATOR::IsReplyNeeded(
    switch (Query->MessageType)
 
    {
-   
+
       case QUERY_MASTER_LOCATOR:
           return (Locator->InqIfIamMasterLocator());
 
- 
+
       case QUERY_ANY_LOCATOR:
           return(TRUE);
 
       case QUERY_DC_LOCATOR:
-          return((SysType == ROLE_LMNT_BACKUPDC) || 
+          return((SysType == ROLE_LMNT_BACKUPDC) ||
                                        (SysType == ROLE_LMNT_PDC));
 
       case QUERY_BOUND_LOCATOR:
@@ -163,8 +162,8 @@ NATIVE_CLASS_LOCATOR::IsReplyNeeded(
 
    return (FALSE);
 }
- 
-handle_t 
+
+handle_t
 DOMAIN_MACHINE_LOCATOR::GetBindingToMasterLocator(
                                             int * RetStatus)
 {
@@ -172,7 +171,7 @@ DOMAIN_MACHINE_LOCATOR::GetBindingToMasterLocator(
 
  Routine Description:
 
- Returns a binding handle to the master locator. 
+ Returns a binding handle to the master locator.
  Returns RPC_S_SERVER_UNAVAILABLE if master is unavailable
 
 */
@@ -189,19 +188,19 @@ DOMAIN_MACHINE_LOCATOR::GetBindingToMasterLocator(
   DataStructureMutex.Request();
   if ((IState = State) == BOUND)
     {
-      *RetStatus = 
+      *RetStatus =
         RpcBindingFromStringBindingW(
                               MasterLocatorStringBinding,
                               &hNewHandle
                               );
     }
   DataStructureMutex.Clear();
- 
+
   if (IState == BOUND)
      {
        ASSERT(*RetStatus == RPC_S_OK);
        return(hNewHandle);
-     } 
+     }
 
   //Now try Locators on PDC and then BDCs
 
@@ -219,10 +218,10 @@ DOMAIN_MACHINE_LOCATOR::GetBindingToMasterLocator(
                                          (unsigned short *)  ServerNameBuffer,
                                          (int *)RetStatus
                                          );
-       if (*RetStatus == RPC_S_OK) 
+       if (*RetStatus == RPC_S_OK)
           {
            IState = BOUND;
-          } 
+          }
      }
 
    if (ServerNameBuffer != 0)
@@ -256,7 +255,7 @@ DOMAIN_MACHINE_LOCATOR::GetBindingToMasterLocator(
          goto Cleanup;
       }
 
-   
+
    LPServerInfo = (LPSERVER_INFO_100)Buffer;
 
    while (ReturnedEntries != 0)
@@ -272,7 +271,7 @@ DOMAIN_MACHINE_LOCATOR::GetBindingToMasterLocator(
       hNewHandle = GetBindingToNamedLocator (
                                        (unsigned short *) UZServerName,
                                        (int *)RetStatus
-                                       );    
+                                       );
 
       if (*RetStatus == RPC_S_OK)
          break;
@@ -281,7 +280,7 @@ DOMAIN_MACHINE_LOCATOR::GetBindingToMasterLocator(
       ReturnedEntries--;
 
     }
-               
+
 Cleanup:
 
     if (Buffer != NULL)
@@ -289,12 +288,12 @@ Cleanup:
 
     if (*RetStatus != RPC_S_OK)
        *RetStatus = RPC_S_SERVER_UNAVAILABLE;
-     
+
     return(hNewHandle);
 }
 
 
-void 
+void
 WRKGRP_MACHINE_LOCATOR::TryBroadcastingForMasterLocator(
                         )
 {
@@ -307,7 +306,7 @@ WRKGRP_MACHINE_LOCATOR::TryBroadcastingForMasterLocator(
 
   if (Status != NSI_S_OK)
      {
-       //Log it but ignore it 
+       //Log it but ignore it
        DLIST(3, "Attempted Broadcast Failure Err=" << Status << nl);
        return;
 
@@ -318,7 +317,7 @@ WRKGRP_MACHINE_LOCATOR::TryBroadcastingForMasterLocator(
 
    Query.RequesterName[0] = 0;
    CatUZ(Query.RequesterName, SelfName);
- 
+
    MailStatus = BSResponder.Write((PB) &Query, sizeof(Query));
 
    if (MailStatus != 0)
@@ -329,10 +328,10 @@ WRKGRP_MACHINE_LOCATOR::TryBroadcastingForMasterLocator(
        return;
       }
 }
-  
 
 
-handle_t 
+
+handle_t
 WRKGRP_MACHINE_LOCATOR::GetBindingToMasterLocator(
                                             int * RetStatus)
 {
@@ -341,7 +340,7 @@ WRKGRP_MACHINE_LOCATOR::GetBindingToMasterLocator(
 
  Routine Description:
 
- Returns a binding handle to the master locator. 
+ Returns a binding handle to the master locator.
  Returns RPC_S_SERVER_UNAVAILABLE if master is unavailable
 
 */
@@ -357,17 +356,17 @@ WRKGRP_MACHINE_LOCATOR::GetBindingToMasterLocator(
   if ((IState = State) == BOUND)
     {
       *RetStatus =  RpcBindingFromStringBindingW(
-                              MasterLocatorStringBinding, 
+                              MasterLocatorStringBinding,
                               &hNewHandle
                               );
     }
   DataStructureMutex.Clear();
- 
+
   if (IState == BOUND)
      {
        ASSERT(*RetStatus == RPC_S_OK);
        return(hNewHandle);
-     } 
+     }
 
   //Now try all the cached locators, one after the other!
 
@@ -384,46 +383,46 @@ WRKGRP_MACHINE_LOCATOR::GetBindingToMasterLocator(
                 TriedBroadcasting = TRUE;
                 DataStructureMutex.Clear();
                 continue;
-            } 
-         
+            }
+
          *RetStatus = RPC_S_SERVER_UNAVAILABLE;
          DataStructureMutex.Clear();
          break;
        }
- 
+
      ServerName[0] = NIL;
      CatUZ((PUZ)ServerName, (PUZ)Head->ServerName);
- 
+
      DataStructureMutex.Clear();
-     
+
      hNewHandle = GetBindingToNamedLocator (
                                       (unsigned short *)  ServerName,
                                       (int *)RetStatus
                                       );
-     if (*RetStatus == RPC_S_OK) 
+     if (*RetStatus == RPC_S_OK)
           {
             return(hNewHandle);
           }
-       else 
+       else
           {
             DataStructureMutex.Request();
-             
+
             pNode = FindCachedEntry(ServerName);
             pNode = DeleteCachedEntry(pNode);
             delete pNode;
-             
+
             DataStructureMutex.Clear();
           }
 
     }
-               
+
 }
 
-void     
+void
 NATIVE_CLASS_LOCATOR::DestroyBindingToMasterLocator()
 {
   DataStructureMutex.Request();
- 
+
   State = UNBOUND;
 
   if (MasterLocator != 0)
@@ -437,7 +436,7 @@ NATIVE_CLASS_LOCATOR::DestroyBindingToMasterLocator()
      }
 
   MasterLocatorStringBinding = 0;
- 
+
   DataStructureMutex.Clear();
 
 }
@@ -448,15 +447,15 @@ NATIVE_CLASS_LOCATOR::ProcessMessage(
                          int * Status
                          )
 {
- 
+
    QUERYLOCATORREPLY Reply;
    int               MailStatus;
    STATUS            Err;
-   
+
    *Status = NSI_S_OK;
    if (IsReplyNeeded(Query) == FALSE)
       return;
-  
+
    //Copy SelfName
 
    Reply.SenderName[0] = Nil;
@@ -467,15 +466,15 @@ NATIVE_CLASS_LOCATOR::ProcessMessage(
       {
        Reply.Hint = REPLY_MASTER_LOCATOR;
       }
-   else 
+   else
    if (State == BOUND)
       {
-       Reply.Hint = REPLY_BOUND_LOCATOR; 
+       Reply.Hint = REPLY_BOUND_LOCATOR;
       }
-   else 
+   else
       {
         Reply.Hint =
-           ((SysType == ROLE_LMNT_BACKUPDC) ? 
+           ((SysType == ROLE_LMNT_BACKUPDC) ?
                       REPLY_DC_LOCATOR : REPLY_OTHER_LOCATOR);
       }
 
@@ -489,7 +488,7 @@ NATIVE_CLASS_LOCATOR::ProcessMessage(
     CatUZ(CatUZ(ReplyMSName, Query->RequesterName), RESPONDERMSLOT_C);
 
     WRITE_MAIL_SLOT MSReply(ReplyMSName, NIL, &Err);
-     
+
     if (Err != NSI_S_OK)
        {
          DLIST( 3, "Error (" << *Status << ") creating a MSlot" << nl);
@@ -513,7 +512,7 @@ DomainLocatorResponder(
 
 Routine Description:
 
-    Each Locator has an additional thread that creates a mailslot 
+    Each Locator has an additional thread that creates a mailslot
     This thread replies to queries that seek to find the master locator.
 
     This particular Responder runs on Domain locators only
@@ -538,32 +537,32 @@ Routine Description:
 
     Reply.SenderName[0] = NIL;
     CatUZ(Reply.SenderName, SelfName);
- 
-    while (1) 
+
+    while (1)
       {
-	ASSERT(AssertHeap());
-	MailStatus = hMSRead.Read((PB) &Query, cbBytesRead);
+    ASSERT(AssertHeap());
+    MailStatus = hMSRead.Read((PB) &Query, cbBytesRead);
 
-	if (MailStatus)
-	    AbortServer("Mailslot read error", MailStatus);
+    if (MailStatus)
+        AbortServer("Mailslot read error", MailStatus);
 
-	if (!CmpUZ(Query.RequesterName, SelfName))
-	    continue;
+    if (!CmpUZ(Query.RequesterName, SelfName))
+        continue;
 
         DLIST(3, Query.RequesterName  << " did query for locator"  << nl);
-    
+
         if (cbBytesRead  != sizeof(QUERYLOCATOR))
           {
             DLIST(3, "Bummer, Bad Message of size(" << cbBytesRead
                   << ") recvd" << nl);
             continue;
           }
- 
+
          Locator->ProcessMessage(&Query, &LongStatus);
       }
 }
 
-void     
+void
 NATIVE_CLASS_LOCATOR::SetupHelperRoutine(
                                         )
 {
@@ -571,23 +570,23 @@ NATIVE_CLASS_LOCATOR::SetupHelperRoutine(
   void * pThreadHandle;
   DWORD  ThreadId;
 
-	pThreadHandle = CreateThread(
-                             0, 
-                             0, 
+    pThreadHandle = CreateThread(
+                             0,
+                             0,
                              (LPTHREAD_START_ROUTINE)DomainLocatorResponder,
                              0,
-                             0, 
+                             0,
                              &ThreadId
                              );
 
 }
 
-PCACHEDNODE 
+PCACHEDNODE
 WRKGRP_MACHINE_LOCATOR::FindCachedEntry(PUZ  ServerName)
 {
- 
+
   PCACHEDNODE pNode;
- 
+
   for(pNode = Head; pNode; pNode = pNode->Next)
    {
     if ( CmpUZ(pNode->ServerName, (PUZ)ServerName) == 0 )
@@ -599,7 +598,7 @@ WRKGRP_MACHINE_LOCATOR::FindCachedEntry(PUZ  ServerName)
   return(pNode);
 }
 
-void 
+void
 WRKGRP_MACHINE_LOCATOR::InsertCacheEntry(PCACHEDNODE pNode)
 {
 
@@ -635,7 +634,7 @@ WRKGRP_MACHINE_LOCATOR::DeleteCachedEntry(PCACHEDNODE pNode)
 
  if (pNode->Next != NULL)
     pNode->Next->Previous = pNode->Previous;
- 
+
  if (pNode->Previous != NULL)
     pNode->Previous->Next = pNode->Next;
 
@@ -655,7 +654,7 @@ WRKGRP_MACHINE_LOCATOR::CacheThisServer(PUZ ServerName)
 
   if (pNode == NULL)
     {
-     
+
       pNode = new CACHEDNODE;
       pNode->Next = pNode->Previous = 0;
       pNode->ServerName[0] = NIL;
@@ -677,4 +676,4 @@ WRKGRP_MACHINE_LOCATOR::CacheThisServer(PUZ ServerName)
 
    DataStructureMutex.Clear();
 }
-     
+

@@ -60,6 +60,40 @@
 //++
 //
 // VOID
+// DbgBreakPointWithStatus(
+//     IN ULONG Status
+//     )
+//
+// Routine Description:
+//
+//    This function executes a breakpoint instruction.  Useful for entering
+//    the debugger under program control.  This breakpoint will always go to
+//    the kernel debugger if one is installed, otherwise it will go to the
+//    debug subsystem.  This function is identical to DbgBreakPoint, except
+//    that it takes an argument which the debugger can see.
+//
+// Arguments:
+//
+//    A status code.
+//
+// Return Value:
+//
+//    None.
+//
+//--
+
+        LEAF_ENTRY(DbgBreakPointWithStatus)
+
+
+        ALTERNATE_ENTRY(RtlpBreakWithStatusInstruction)
+	BREAK_DEBUG_STOP		// debug stop breakpoint
+	ret	zero, (ra)		// return
+
+        .end    DbgBreakPointWithStatus
+
+//++
+//
+// VOID
 // DbgUserBreakPoint()
 //
 // Routine Description:

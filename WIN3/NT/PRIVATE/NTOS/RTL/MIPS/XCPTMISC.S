@@ -338,8 +338,8 @@ CfExr:  .space  4                       // address of exception routine
 // Current mode is kernel - compute stack limits.
 //
 
-        lw      t1,KiPcr+PcInitialStack(zero) // get high limit kernel stack
-        subu    t2,t1,KERNEL_STACK_SIZE // compute low limit of kernel stack
+        lw      t1,KiPcr + PcInitialStack(zero) // get high limit kernel stack
+        lw      t2,KiPcr + PcStackLimit(zero) // get low limit kernel stack
         b       20f                     // finish in commom code
 
 //

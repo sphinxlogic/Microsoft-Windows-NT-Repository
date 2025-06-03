@@ -221,7 +221,7 @@ SetOptions( INT argc, PUCHAR *argv )
 
                 case 'p': Option.Mask |= SPECIFIC;
                           Procedure = argv[++i];
-                          strupr (Procedure);
+                          _strupr (Procedure);
                           break;
 
                 case 'v': Option.Mask |= VERBOSE;
@@ -1688,7 +1688,7 @@ AdjustSymbols( pFileList File, PIMAGE_FILE_HEADER pHeader, FILE *hFile,
         fflush(stderr);
     }
 
-    fstat( fileno(hFile), &Stat);
+    fstat( _fileno(hFile), &Stat);
 
     if (Stat.st_size > (LONG)Offset) {
         fseek(hFile, Offset, SEEK_SET);

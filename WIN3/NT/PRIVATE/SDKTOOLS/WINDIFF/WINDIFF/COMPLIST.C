@@ -60,13 +60,15 @@ struct complist {
 char dlg_file[MAX_PATH];                /* filename to save to */
 BOOL dlg_sums = TRUE;                           /* do we include sums ? */
 
+// have we read the dialog names yet?
+BOOL SeenDialogNames = FALSE;
+
 /* checkbox options */
 BOOL dlg_identical, dlg_differ, dlg_left, dlg_right;
 
 /* data for Directory, SaveList and Remote dialog box */
 char dialog_leftname[MAX_PATH];
 char dialog_rightname[MAX_PATH];
-char dialog_LogFile[MAX_PATH];
 char dialog_servername[80];
 BOOL dialog_recursive;             // do whole tree
 BOOL dialog_fastscan;              // times and sizes only, no checksums
@@ -91,7 +93,7 @@ int FAR PASCAL complist_dodlg_savelist(HWND hDlg, UINT message,
         UINT wParam, long lParam);
 int FAR PASCAL complist_dodlg_copyfiles(HWND hDlg, UINT message,
         UINT wParam, long lParam);
-BOOL complist_match(COMPLIST cl, VIEW view, BOOL fDeep, BOOL fExact, HFILE hfLog);
+BOOL complist_match(COMPLIST cl, VIEW view, BOOL fDeep, BOOL fExact);
 COMPLIST complist_new(void);
 int FAR PASCAL complist_dodlg_dir(HWND hDlg, unsigned message,
         UINT wParam, LONG lParam);
@@ -138,10 +140,24 @@ complist_filedialog(VIEW view)
         /* register with the view (must be done after the list is non-null) */
         view_setcomplist(view, cl);
 
-        complist_match(cl, view, FALSE, TRUE, HFILE_ERROR);
+        complist_match(cl, view, FALSE, TRUE);
 
         return(cl);
 }/* complist_filedialog */
+
+
+void
+complist_setdialogdefault(
+    LPSTR left,
+    LPSTR right,
+    BOOL fDeep)
+{
+    dialog_recursive = fDeep;
+    lstrcpy(dialog_leftname, left);
+    lstrcpy(dialog_rightname, right);
+    SeenDialogNames = TRUE;
+}
+
 
 /* build a new complist by querying the user for two directory
  * names and scanning those in parallel.
@@ -278,11 +294,21 @@ complist_args(LPSTR p1, LPSTR p2, VIEW view, BOOL fDeep)
                 return(NULL);
         }
 
+        {
+            // remember these paths as defaults for the next dialog -
+            // get the normalised, absolute paths
+            LPSTR pleft = dir_getrootdescription(cl->left);
+            LPSTR pright = dir_getrootdescription(cl->right);
+            complist_setdialogdefault(pleft, pright, fDeep);
+            dir_freerootdescription(cl->left, pleft);
+            dir_freerootdescription(cl->right, pright);
+        }
+
 
         /* register with the view (must be done after building lists) */
         view_setcomplist(view, cl);
 
-        complist_match(cl, view, fDeep, TRUE, HFILE_ERROR);
+        complist_match(cl, view, fDeep, TRUE);
 
         return(cl);
 } /* complist_args */
@@ -313,7 +339,6 @@ complist_remote(LPSTR server, LPSTR remote, LPSTR local, VIEW view, BOOL fDeep)
         BOOL FastScan= FALSE;
         BOOL AutoCopy= FALSE;
         BOOL fBothRemote = FALSE;
-        HFILE hfLog = HFILE_ERROR;  /* handle for log file */
 
         if (server == NULL) {
                 /* put up a dialog for the two pathnames */
@@ -357,24 +382,10 @@ complist_remote(LPSTR server, LPSTR remote, LPSTR local, VIEW view, BOOL fDeep)
         /* register with view */
         view_setcomplist(view, cl);
 
-        if (dialog_LogFile!=NULL && dialog_LogFile[0]!='\0') {
-            hfLog = _lcreat(dialog_LogFile, 0);
-            if (hfLog==HFILE_ERROR) {
-                if (!TRACE_ERROR("Could not create log file.  OK to continue or cancel?", TRUE))
-                    return NULL;
-            }
-
-            wsprintf(msg, "REM SET Server=%s\n", server);
-            _lwrite(hfLog, msg, lstrlen(msg));
-            Trace_Unattended(TRUE);
-        } else {
-            hfLog = HFILE_ERROR;
-        }
-
         compitem_SetCopyPaths( dir_getrootpath(cl->left)
                              , dir_getrootpath(cl->right) );
 
-        complist_match(cl, view, fDeep, !FastScan, hfLog);
+        complist_match(cl, view, fDeep, !FastScan);
 
         if (AutoCopy)
         {
@@ -382,10 +393,8 @@ complist_remote(LPSTR server, LPSTR remote, LPSTR local, VIEW view, BOOL fDeep)
                               , local
                               , COPY_FROMLEFT|INCLUDE_LEFTONLY|INCLUDE_DIFFER
                                              |COPY_HITREADONLY
-                              , hfLog
                               );
         }
-        _lclose(hfLog);
         Trace_Unattended(FALSE);
 
         return(cl);
@@ -629,7 +638,7 @@ complist_savelist(COMPLIST cl, LPSTR savename, UINT options)
  * indicates which side to copy from).
  */
 void
-complist_copyfiles(COMPLIST cl, LPSTR newroot, UINT options, HFILE hfLog)
+complist_copyfiles(COMPLIST cl, LPSTR newroot, UINT options)
 {
         int nFiles = 0;
         int nFails = 0;
@@ -716,10 +725,10 @@ complist_copyfiles(COMPLIST cl, LPSTR newroot, UINT options, HFILE hfLog)
            copy these things turn into no-ops somewhere below us.
         */
         if (dlg_options & COPY_FROMLEFT) {
-                if (!dir_startcopy(cl->left, hfLog))
+                if (!dir_startcopy(cl->left))
                         return;
         } else {
-                if (!dir_startcopy(cl->right, hfLog))
+                if (!dir_startcopy(cl->right))
                         return;
         }
 
@@ -775,7 +784,7 @@ complist_copyfiles(COMPLIST cl, LPSTR newroot, UINT options, HFILE hfLog)
                 /*
                  * copy the file to the new root directory
                  */
-                if (dir_copy(diritem, dlg_root, HitReadOnly, CopyNoAttributes, hfLog) == FALSE) {
+                if (dir_copy(diritem, dlg_root, HitReadOnly, CopyNoAttributes) == FALSE) {
                         nFails++;
                         pstr = dir_getrelname(diritem);
                         wsprintf(buffer, "failed to copy %s", pstr);
@@ -869,7 +878,7 @@ complist_itemcount(COMPLIST cl)
     UINT n = 0;
 
     if (cl == NULL) {
-        return;
+        return 0;
     }
 
     /*
@@ -902,7 +911,7 @@ complist_markpattern(COMPLIST cl)
 
     windiff_UI(TRUE);
     if ( fInit ) {
-        strcpy( previous_pat, "\\.obj$" );
+        GetProfileString(APPNAME, "Pattern", "\\.obj$", previous_pat, 256);
         fInit = FALSE;
     }
 
@@ -931,6 +940,7 @@ complist_markpattern(COMPLIST cl)
     ** only overwrite previous pattern with a known good pattern
     */
     strcpy( previous_pat, achPattern );
+    WriteProfileString(APPNAME, "Pattern", previous_pat);
 
 #ifdef WIN32
 #define _fstrstr        strstr
@@ -1080,7 +1090,7 @@ complist_freedescription(COMPLIST cl, LPSTR desc)
  * aborted in some way.
  */
 BOOL
-complist_match(COMPLIST cl, VIEW view, BOOL fDeep, BOOL fExact, HFILE hfLog)
+complist_match(COMPLIST cl, VIEW view, BOOL fDeep, BOOL fExact)
 {
         LPSTR lname;
         LPSTR rname;
@@ -1100,7 +1110,7 @@ complist_match(COMPLIST cl, VIEW view, BOOL fDeep, BOOL fExact, HFILE hfLog)
                          */
                         compitem_new(dir_firstitem(cl->left),
                                      dir_firstitem(cl->right),
-                                     cl->items, fExact, hfLog);
+                                     cl->items, fExact);
 
                         view_newitem(view);
 
@@ -1119,7 +1129,7 @@ complist_match(COMPLIST cl, VIEW view, BOOL fDeep, BOOL fExact, HFILE hfLog)
                         if (cmpvalue == 0) {
                                 /* this is the match */
                                 compitem_new( leftitem, rightitem
-                                            , cl->items, fExact, hfLog);
+                                            , cl->items, fExact);
                                 view_newitem(view);
 
                                 dir_freerelname(leftitem, lname);
@@ -1132,7 +1142,7 @@ complist_match(COMPLIST cl, VIEW view, BOOL fDeep, BOOL fExact, HFILE hfLog)
                 }
                 /* not found */
                 dir_freerelname(leftitem, lname);
-                compitem_new(leftitem, NULL, cl->items, fExact, hfLog);
+                compitem_new(leftitem, NULL, cl->items, fExact);
                 view_newitem(view);
                 TickCount = GetTickCount() - TickCount;
                 return(TRUE);
@@ -1156,7 +1166,7 @@ complist_match(COMPLIST cl, VIEW view, BOOL fDeep, BOOL fExact, HFILE hfLog)
                         if (cmpvalue == 0) {
                                 /* this is the match */
                                 compitem_new(leftitem, rightitem
-                                             , cl->items, fExact, hfLog);
+                                             , cl->items, fExact);
                                 view_newitem(view);
 
                                 dir_freerelname(rightitem, rname);
@@ -1169,7 +1179,7 @@ complist_match(COMPLIST cl, VIEW view, BOOL fDeep, BOOL fExact, HFILE hfLog)
                 }
                 /* not found */
                 dir_freerelname(rightitem, rname);
-                compitem_new(NULL, rightitem, cl->items, fExact, hfLog);
+                compitem_new(NULL, rightitem, cl->items, fExact);
                 view_newitem(view);
                 TickCount = GetTickCount() - TickCount;
                 return(TRUE);
@@ -1208,7 +1218,7 @@ complist_match(COMPLIST cl, VIEW view, BOOL fDeep, BOOL fExact, HFILE hfLog)
 
                 if (cmpvalue == 0) {
                         compitem_new( leftitem, rightitem
-                                    , cl->items, fExact, hfLog);
+                                    , cl->items, fExact);
                         if (view_newitem(view)) {
                                 TickCount = GetTickCount() - TickCount;
                                 return(FALSE);
@@ -1217,14 +1227,14 @@ complist_match(COMPLIST cl, VIEW view, BOOL fDeep, BOOL fExact, HFILE hfLog)
                         rightitem = dir_nextitem(cl->right, rightitem, fDeep);
 
                 } else if (cmpvalue < 0) {
-                        compitem_new(leftitem, NULL, cl->items, fExact, hfLog);
+                        compitem_new(leftitem, NULL, cl->items, fExact);
                         if (view_newitem(view)) {
                                 TickCount = GetTickCount() - TickCount;
                                 return(FALSE);
                         }
                         leftitem = dir_nextitem(cl->left, leftitem, fDeep);
                 }  else {
-                        compitem_new(NULL, rightitem, cl->items, fExact, hfLog);
+                        compitem_new(NULL, rightitem, cl->items, fExact);
                         if (view_newitem(view)) {
                                 TickCount = GetTickCount() - TickCount;
                                 return(FALSE);
@@ -1236,7 +1246,7 @@ complist_match(COMPLIST cl, VIEW view, BOOL fDeep, BOOL fExact, HFILE hfLog)
 
         /* any left over are unmatched */
         while (leftitem != NULL) {
-                compitem_new(leftitem, NULL, cl->items, fExact, hfLog);
+                compitem_new(leftitem, NULL, cl->items, fExact);
                 if (view_newitem(view)) {
                         TickCount = GetTickCount() - TickCount;
                         return(FALSE);
@@ -1244,7 +1254,7 @@ complist_match(COMPLIST cl, VIEW view, BOOL fDeep, BOOL fExact, HFILE hfLog)
                 leftitem = dir_nextitem(cl->left, leftitem, fDeep);
         }
         while (rightitem != NULL) {
-                compitem_new(NULL, rightitem, cl->items, fExact, hfLog);
+                compitem_new(NULL, rightitem, cl->items, fExact);
                 if (view_newitem(view)) {
                         TickCount = GetTickCount() - TickCount;
                         return(FALSE);
@@ -1291,14 +1301,12 @@ complist_dodlg_savelist(HWND hDlg, UINT message, UINT wParam, long lParam)
 
                 /* convert 'left tree' into the right name */
                 GetDlgItemText(hDlg, IDD_LEFT, buffer, sizeof(buffer)/sizeof(TCHAR));
-      lstrcat(buffer, dialog_leftname);
-                //wsprintf(buffer, "Files only in %s", (LPSTR) dialog_leftname);
+		lstrcat(buffer, dialog_leftname);
                 SendDlgItemMessage(hDlg, IDD_LEFT, WM_SETTEXT, 0, (DWORD) (LPSTR) buffer);
 
                 /* convert 'right tree' msg into correct path */
                 GetDlgItemText(hDlg, IDD_RIGHT, buffer, sizeof(buffer)/sizeof(TCHAR));
-      lstrcat(buffer, dialog_rightname);
-                //wsprintf(buffer, "Files only in %s", (LPSTR) dialog_rightname);
+		lstrcat(buffer, dialog_rightname);
                 SendDlgItemMessage(hDlg, IDD_RIGHT, WM_SETTEXT, 0, (DWORD) (LPSTR) buffer);
 
 
@@ -1346,6 +1354,7 @@ int FAR PASCAL
 complist_dodlg_copyfiles(HWND hDlg, UINT message, UINT wParam, long lParam)
 {
         static char buffer[MAX_PATH+20];
+	static int  default_buffer_length;
 
         switch(message) {
 
@@ -1386,30 +1395,57 @@ complist_dodlg_copyfiles(HWND hDlg, UINT message, UINT wParam, long lParam)
                  */
 
                 GetDlgItemText(hDlg, IDD_LEFT, buffer, sizeof(buffer)/sizeof(TCHAR));
+		// Remember the length of the default buffer text
+		// this (English) is "Files &only in "
+                default_buffer_length = lstrlen(buffer);
 
                 if (dlg_options & COPY_FROMLEFT) {
                         CheckRadioButton(hDlg, IDD_FROMLEFT, IDD_FROMRIGHT,
                                         IDD_FROMLEFT);
 
-                        //wsprintf(buffer, "Files only in %s", (LPSTR) dialog_leftname);
-         lstrcat(buffer, dialog_leftname);
-                        SetDlgItemText(hDlg, IDD_LEFT, buffer);
+			lstrcat(buffer, dialog_leftname);
                 } else {
                         CheckRadioButton(hDlg, IDD_FROMLEFT, IDD_FROMRIGHT,
                                         IDD_FROMRIGHT);
 
-                        //wsprintf(buffer, "Files only in %s", (LPSTR) dialog_rightname);
-         lstrcat(buffer, dialog_rightname);
-                        SetDlgItemText(hDlg, IDD_LEFT, buffer);
+			lstrcat(buffer, dialog_rightname);
                 }
+                SetDlgItemText(hDlg, IDD_LEFT, buffer);
 
                 return(TRUE);
 
         case WM_COMMAND:
                 switch (GET_WM_COMMAND_ID(wParam, lParam)) {
 
+#if 0 	// NOT YET WORKING.  The idea is that when you select the
+	// copy TO directory, the copy from is changed to be different.
+
+		case IDD_DIR1:
+			switch (GET_WM_COMMAND_CMD(wParam, lParam)) {
+			case CBN_KILLFOCUS:
+			    {
+				// Whenever the "Copy To" selection alters
+				// (and when we enter/leave the list box),
+				// we set the copy from field.  IF we are
+				// copying TO the LEFT directory, then set
+				// the default copy from directory to the
+				// right.
+				GetDlgItemText(hDlg, IDD_DIR1, dlg_root, sizeof(dlg_root));
+				if (dlg_root[0] != 0) {
+				    UINT button = IDD_FROMLEFT;
+				    if (0 == lstrcmpi(dlg_root, dialog_leftname)) {
+					button = IDD_FROMRIGHT;
+				    }
+				    CheckRadioButton(hDlg, IDD_FROMLEFT, IDD_FROMRIGHT, button);
+				}
+			    }
+			}
+			break;
+#endif
+
                 case IDD_FROMLEFT:
-                        wsprintf(buffer, "Files only in %s", (LPSTR) dialog_leftname);
+			buffer[default_buffer_length] = 0;  // truncate to initial length
+			lstrcat(buffer, dialog_leftname);
                         SetDlgItemText(hDlg, IDD_LEFT, buffer);
 
                         dlg_options &= ~(COPY_FROMRIGHT);
@@ -1417,7 +1453,8 @@ complist_dodlg_copyfiles(HWND hDlg, UINT message, UINT wParam, long lParam)
                         break;
 
                 case IDD_FROMRIGHT:
-                        wsprintf(buffer, "Files only in %s", (LPSTR) dialog_rightname);
+			buffer[default_buffer_length] = 0;  // truncate to initial length
+			lstrcat(buffer, dialog_rightname);
                         SetDlgItemText(hDlg, IDD_LEFT, buffer);
 
                         dlg_options &= ~(COPY_FROMLEFT);
@@ -1494,10 +1531,6 @@ complist_dodlg_dir(HWND hDlg, unsigned message, UINT wParam, LONG lParam)
 {
         static char path[MAX_PATH];
         static char buffer[MAX_PATH];
-        static char LeftName[MAX_PATH];
-        static char RightName[MAX_PATH];
-        static BOOL SeenDialog = FALSE;
-        static BOOL Recursive;
 
         /* We write what we find to the ini file, but we only load from the ini file
         ** once per instance of the app.  So if you start two windiffs, each remembers
@@ -1524,27 +1557,27 @@ complist_dodlg_dir(HWND hDlg, unsigned message, UINT wParam, LONG lParam)
                 AnsiLowerBuff(path, strlen(path));
                 SetDlgItemText(hDlg, IDD_LAB3, path);
 
-                if (!SeenDialog)
-                   GetProfileString(APPNAME, "NameLeft", path, LeftName, MAX_PATH);
-                SetDlgItemText(hDlg, IDD_DIR1, LeftName);
-                if (!SeenDialog)
-                   GetProfileString(APPNAME, "NameRight", path, RightName, MAX_PATH);
-                SetDlgItemText(hDlg, IDD_DIR2, RightName);
-                if (!SeenDialog)
-                   Recursive = GetProfileInt(APPNAME, "Recursive", 1);
+                if (!SeenDialogNames)
+                   GetProfileString(APPNAME, "NameLeft", path, dialog_leftname, MAX_PATH);
+                SetDlgItemText(hDlg, IDD_DIR1, dialog_leftname);
+                if (!SeenDialogNames)
+                   GetProfileString(APPNAME, "NameRight", path, dialog_rightname, MAX_PATH);
+                SetDlgItemText(hDlg, IDD_DIR2, dialog_rightname);
+                if (!SeenDialogNames)
+                   dialog_recursive = GetProfileInt(APPNAME, "Recursive", 1);
                 SendDlgItemMessage( hDlg
                                   , IDD_RECURSIVE
                                   , BM_SETCHECK
-                                  , (WPARAM)Recursive
+                                  , (WPARAM)dialog_recursive
                                   , 0
                                   );
 
                 /* If there's a slm.ini visible, enable the SLM check boxes */
-                if (IsSLMOK()) {
+                if (1&IsSLMOK()) {
                         ShowWindow(GetDlgItem(hDlg, IDD_SLM), SW_SHOW);
                         ShowWindow(GetDlgItem(hDlg, IDD_LOCALSLM), SW_SHOW);
                 }
-                SeenDialog = TRUE;
+                SeenDialogNames = TRUE;
                 return(TRUE);
 
         case WM_COMMAND:
@@ -1645,12 +1678,10 @@ complist_dodlg_dir(HWND hDlg, unsigned message, UINT wParam, LONG lParam)
                 GetDlgItemText(hDlg, IDD_DIR1,
                         dialog_leftname, sizeof(dialog_leftname));
                 WriteProfileString(APPNAME, "NameLeft", dialog_leftname);
-                strcpy(LeftName, dialog_leftname);
 
                 GetDlgItemText(hDlg, IDD_DIR2,
                         dialog_rightname, sizeof(dialog_rightname));
                 WriteProfileString(APPNAME, "NameRight", dialog_rightname);
-                strcpy(RightName, dialog_rightname);
 
                 dialog_recursive =  ( 1 == SendDlgItemMessage( hDlg
                                                              , IDD_RECURSIVE
@@ -1663,7 +1694,6 @@ complist_dodlg_dir(HWND hDlg, unsigned message, UINT wParam, LONG lParam)
                                   , "Recursive"
                                   , dialog_recursive ? "1" : "0"
                                   );
-                Recursive = dialog_recursive;
                 EndDialog(hDlg, TRUE);
                 return(TRUE);
             }
@@ -1728,10 +1758,6 @@ complist_dodlg_remote(HWND hDlg, unsigned message, UINT wParam, LONG lParam)
 
                 path[0] = '\0';
 
-                if (!SeenDialog)
-                   GetProfileString(APPNAME, "Logfile", path, dialog_LogFile, MAX_PATH);
-                SetDlgItemText(hDlg, IDD_LOGFILE, dialog_LogFile);
-
                 path[0] = '\0';
                 if (!SeenDialog)
                    GetProfileString(APPNAME, "NameServer", path, dialog_servername, MAX_PATH);
@@ -1750,7 +1776,7 @@ complist_dodlg_remote(HWND hDlg, unsigned message, UINT wParam, LONG lParam)
                       dialog_bothremote?1:0, 0);
 
                 /* If there's a slm.ini visible, enable the SLM check boxes */
-                if (IsSLMOK()) {
+                if (1&IsSLMOK()) {
                     ShowWindow(GetDlgItem(hDlg, IDD_SLM), SW_SHOW);
                     ShowWindow(GetDlgItem(hDlg, IDD_LOCALSLM), SW_SHOW);
                 }
@@ -1889,10 +1915,6 @@ complist_dodlg_remote(HWND hDlg, unsigned message, UINT wParam, LONG lParam)
                                             );
                         /* The autocopy function is DANGEROUS so we do NOT keep it */
 
-                        GetDlgItemText(hDlg, IDD_LOGFILE,
-                                dialog_LogFile, sizeof(dialog_LogFile));
-                        WriteProfileString(APPNAME, "Logfile", dialog_LogFile);
-
                         dialog_bothremote = (SendDlgItemMessage( hDlg
                                                                , IDD_BOTHREMOTE
                                                                , BM_GETCHECK
@@ -1909,3 +1931,4 @@ complist_dodlg_remote(HWND hDlg, unsigned message, UINT wParam, LONG lParam)
 } /* complist_dodlg_remote */
 
 /* complist_matchnames has become utils_CompPath in gutils\utils.c */
+

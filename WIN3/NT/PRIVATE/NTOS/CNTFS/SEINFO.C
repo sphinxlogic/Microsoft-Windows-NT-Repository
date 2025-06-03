@@ -67,12 +67,13 @@ Return Value:
     NTSTATUS Status = STATUS_SUCCESS;
     PIRP_CONTEXT IrpContext = NULL;
 
-    UNREFERENCED_PARAMETER( VolumeDeviceObject );
     ASSERT_IRP( Irp );
+
+    UNREFERENCED_PARAMETER( VolumeDeviceObject );
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsFsdQuerySecurityInfo\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsFsdQuerySecurityInfo\n") );
 
     //
     //  Call the common query Information routine
@@ -128,7 +129,7 @@ Return Value:
     //  And return to our caller
     //
 
-    DebugTrace(-1, Dbg, "NtfsFsdQuerySecurityInfo -> %08lx\n", Status);
+    DebugTrace( -1, Dbg, ("NtfsFsdQuerySecurityInfo -> %08lx\n", Status) );
 
     return Status;
 }
@@ -166,12 +167,13 @@ Return Value:
     NTSTATUS Status = STATUS_SUCCESS;
     PIRP_CONTEXT IrpContext = NULL;
 
-    UNREFERENCED_PARAMETER( VolumeDeviceObject );
     ASSERT_IRP( Irp );
+
+    UNREFERENCED_PARAMETER( VolumeDeviceObject );
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsFsdSetSecurityInfo\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsFsdSetSecurityInfo\n") );
 
     //
     //  Call the common query Information routine
@@ -227,7 +229,7 @@ Return Value:
     //  And return to our caller
     //
 
-    DebugTrace(-1, Dbg, "NtfsFsdSetSecurityInfo -> %08lx\n", Status);
+    DebugTrace( -1, Dbg, ("NtfsFsdSetSecurityInfo -> %08lx\n", Status) );
 
     return Status;
 }
@@ -280,9 +282,9 @@ Return Value:
 
     IrpSp = IoGetCurrentIrpStackLocation( Irp );
 
-    DebugTrace(+1, Dbg, "NtfsCommonQuerySecurityInfo", 0);
-    DebugTrace( 0, Dbg, "IrpContext = %08lx\n", IrpContext);
-    DebugTrace( 0, Dbg, "Irp        = %08lx\n", Irp);
+    DebugTrace( +1, Dbg, ("NtfsCommonQuerySecurityInfo") );
+    DebugTrace( 0, Dbg, ("IrpContext = %08lx\n", IrpContext) );
+    DebugTrace( 0, Dbg, ("Irp        = %08lx\n", Irp) );
 
     //
     //  Extract and decode the file object
@@ -296,9 +298,7 @@ Return Value:
     //
 
     if ((TypeOfOpen != UserFileOpen)
-        && (TypeOfOpen != UserDirectoryOpen)
-        && (TypeOfOpen != UserOpenFileById)
-        && (TypeOfOpen != UserOpenDirectoryById)) {
+        && (TypeOfOpen != UserDirectoryOpen)) {
 
         Status = STATUS_INVALID_PARAMETER;
 
@@ -350,7 +350,7 @@ Return Value:
             //  Abort transaction on error by raising.
             //
 
-            NtfsCleanupTransaction( IrpContext, Status );
+            NtfsCleanupTransaction( IrpContext, Status, FALSE );
 
         } finally {
 
@@ -369,7 +369,7 @@ Return Value:
 
     NtfsCompleteRequest( &IrpContext, &Irp, Status );
 
-    DebugTrace(-1, Dbg, "NtfsCommonQuerySecurityInfo -> %08lx", Status);
+    DebugTrace( -1, Dbg, ("NtfsCommonQuerySecurityInfo -> %08lx", Status) );
 
     return Status;
 }
@@ -403,6 +403,12 @@ Return Value:
     PIO_STACK_LOCATION IrpSp;
     PFILE_OBJECT FileObject;
 
+#ifdef _CAIRO_
+    PQUOTA_CONTROL_BLOCK OldQuotaControl;
+    ULONG OldOwnerId;
+    ULONG LargeStdInfo;
+#endif // _CAIRO_
+
     TYPE_OF_OPEN TypeOfOpen;
     PVCB Vcb;
     PFCB Fcb;
@@ -420,9 +426,9 @@ Return Value:
 
     IrpSp = IoGetCurrentIrpStackLocation( Irp );
 
-    DebugTrace(+1, Dbg, "NtfsCommonSetSecurityInfo", 0);
-    DebugTrace( 0, Dbg, "IrpContext = %08lx\n", IrpContext);
-    DebugTrace( 0, Dbg, "Irp        = %08lx\n", Irp);
+    DebugTrace( +1, Dbg, ("NtfsCommonSetSecurityInfo") );
+    DebugTrace( 0, Dbg, ("IrpContext = %08lx\n", IrpContext) );
+    DebugTrace( 0, Dbg, ("Irp        = %08lx\n", Irp) );
 
     //
     //  Extract and decode the file object
@@ -436,9 +442,7 @@ Return Value:
     //
 
     if ((TypeOfOpen != UserFileOpen)
-        && (TypeOfOpen != UserDirectoryOpen)
-        && (TypeOfOpen != UserOpenFileById)
-        && (TypeOfOpen != UserOpenDirectoryById)) {
+        && (TypeOfOpen != UserDirectoryOpen)) {
 
         Status = STATUS_INVALID_PARAMETER;
 
@@ -461,6 +465,19 @@ Return Value:
 
         try {
 
+#ifdef _CAIRO_
+
+            //
+            //  Capture the current OwnerId, Qutoa Control Block and
+            //  size of standard information.
+            //
+
+            OldQuotaControl = Fcb->QuotaControl;
+            OldOwnerId = Fcb->OwnerId;
+            LargeStdInfo = Fcb->FcbState & FCB_STATE_LARGE_STD_INFO;
+
+#endif // _CAIRO_
+
             Status = NtfsModifySecurity( IrpContext,
                                          Fcb,
                                          &IrpSp->Parameters.SetSecurity.SecurityInformation,
@@ -468,23 +485,81 @@ Return Value:
 
             if (NT_SUCCESS( Status )) {
 
-                if (!FlagOn( Ccb->Flags, CCB_FLAG_USER_SET_LAST_CHANGE_TIME )) {
+#ifdef _CAIRO_
+                //
+                //  Make sure the new security descriptor Id is written out.
+                //
 
-                    NtfsGetCurrentTime( IrpContext, Fcb->Info.LastChangeTime );
-                    SetFlag( Fcb->FcbState, FCB_STATE_UPDATE_STD_INFO );
-                    SetFlag( Fcb->InfoFlags, FCB_INFO_CHANGED_LAST_CHANGE );
-                }
+                NtfsUpdateStandardInformation( IrpContext, Fcb );
+#endif
             }
 
             //
             //  Abort transaction on error by raising.
             //
 
-            NtfsCleanupTransaction( IrpContext, Status );
+            NtfsCleanupTransaction( IrpContext, Status, FALSE );
+
+            //
+            //  Set the flag in the Ccb to indicate this change occurred.
+            //
+
+            SetFlag( Ccb->Flags,
+                     CCB_FLAG_UPDATE_LAST_CHANGE | CCB_FLAG_SET_ARCHIVE );
 
         } finally {
 
             DebugUnwind( NtfsCommonSetSecurityInfo );
+
+#ifdef _CAIRO_
+            if (AbnormalTermination()) {
+
+                //
+                //  The request failed.  Restore the owner and
+                //  QuotaControl are restored.
+                //
+
+                if (Fcb->QuotaControl != OldQuotaControl &&
+                    Fcb->QuotaControl != NULL) {
+
+                    //
+                    //  A new quota control block was assigned.
+                    //  Dereference it.
+                    //
+
+                    NtfsDereferenceQuotaControlBlock( Fcb->Vcb,
+                                                      &Fcb->QuotaControl );
+                }
+
+                Fcb->QuotaControl = OldQuotaControl;
+                Fcb->OwnerId = OldOwnerId;
+
+                if (LargeStdInfo == 0) {
+
+                    //
+                    //  The standard information has be returned to
+                    //  its orginal size.
+                    //
+
+                    ClearFlag( Fcb->FcbState, FCB_STATE_LARGE_STD_INFO );
+                }
+
+            } else {
+
+                //
+                //  The request succeed.  If the quota control block was
+                //  changed then derefence the old block.
+                //
+
+                if (Fcb->QuotaControl != OldQuotaControl &&
+                    OldQuotaControl != NULL) {
+
+                    NtfsDereferenceQuotaControlBlock( Fcb->Vcb,
+                                                      &OldQuotaControl);
+
+                }
+            }
+#endif // _CAIRO_
 
             NtfsReleaseFcb( IrpContext, Fcb );
         }
@@ -496,7 +571,7 @@ Return Value:
 
     NtfsCompleteRequest( &IrpContext, &Irp, Status );
 
-    DebugTrace(-1, Dbg, "NtfsCommonSetSecurityInfo -> %08lx", Status);
+    DebugTrace( -1, Dbg, ("NtfsCommonSetSecurityInfo -> %08lx", Status) );
 
     return Status;
 }

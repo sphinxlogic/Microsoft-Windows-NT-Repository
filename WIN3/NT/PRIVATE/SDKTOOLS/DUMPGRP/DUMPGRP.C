@@ -172,9 +172,9 @@ typedef struct _ITEM_DEF16 {
 } ITEM_DEF16, *PITEM_DEF16;
 
 typedef struct _TAG_DEF16 {
-    WORD wID;			// tag identifier
-    WORD wItem; 		// item the tag belongs to
-    WORD cb;			// size of record, including id and count
+    WORD wID;                   // tag identifier
+    WORD wItem;                 // item the tag belongs to
+    WORD cb;                    // size of record, including id and count
     BYTE rgb[1];
 } TAG_DEF16, *PTAG_DEF16;
 
@@ -542,7 +542,7 @@ DumpGroup(
 
     Tag = (PTAG_DEF)((PBYTE)Group + Group->cbGroup);
     if (Tag->wID == ID_MAGIC && Tag->wItem == ID_LASTTAG &&
-        *(LPDWORD)&Tag->rgb == PMTAG_MAGIC
+        *(UNALIGNED DWORD *)&Tag->rgb == PMTAG_MAGIC
        ) {
         while (Tag->wID != ID_LASTTAG) {
             printf( "     Tag at %04x\n", (PBYTE)Tag - (PBYTE)Group );
@@ -771,7 +771,7 @@ DumpGroup16(
 
     Tag = (PTAG_DEF16)((PBYTE)Group + Group->cbGroup);
     if (Tag->wID == ID_MAGIC && Tag->wItem == ID_LASTTAG &&
-        *(LPDWORD)&Tag->rgb == PMTAG_MAGIC
+        *(UNALIGNED DWORD *)&Tag->rgb == PMTAG_MAGIC
        ) {
         while (Tag->wID != ID_LASTTAG) {
             printf( "     Tag at %04x\n", (PBYTE)Tag - (PBYTE)Group );
@@ -854,7 +854,7 @@ int _CRTAPI1 main(
     bDumpConvertedGroup = FALSE;
     while (--argc) {
         s = *++argv;
-        strupr( s );
+        _strupr( s );
         if (!strcmp( s, "-C" ) || !strcmp( s, "/C" )) {
             bDumpConvertedGroup = TRUE;
             }
@@ -1420,7 +1420,7 @@ CreateGroupFromGroup16(
                           imagesize +
                           masksize;
 
-        Item->cbIconRes = ROUND_UP( Item->cbIconRes, sizeof( DWORD ) );
+        Item->cbIconRes = (USHORT)( ROUND_UP( Item->cbIconRes, sizeof( DWORD ) ) );
         Item->pIconRes = AddDataToGroup( Group, NULL, Item->cbIconRes );
 
         p = PTR( Group, Item->pIconRes );
@@ -1467,7 +1467,7 @@ CreateGroupFromGroup16(
 
     Tag16 = (PTAG_DEF16)((PBYTE)Group16 + Group16->cbGroup);
     if (Tag16->wID == ID_MAGIC && Tag16->wItem == ID_LASTTAG &&
-        *(LPDWORD)&Tag16->rgb[ 0 ] == PMTAG_MAGIC
+        *(UNALIGNED DWORD *)&Tag16->rgb[ 0 ] == PMTAG_MAGIC
        ) {
         while (Tag16->wID != ID_LASTTAG) {
             AddTagToGroup( Group,

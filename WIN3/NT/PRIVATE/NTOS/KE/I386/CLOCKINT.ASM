@@ -57,14 +57,19 @@ include mac386.inc
         extrn   _KeMaximumIncrement:DWORD
         extrn   _KeTickCount:DWORD
         extrn   _KeTimeAdjustment:DWORD
+        extrn   _KiAdjustDpcThreshold:DWORD
+        extrn   _KiIdealDpcRate:DWORD
+        extrn   _KiMaximumDpcQueueDepth:DWORD
         extrn   _KiTickOffset:DWORD
         extrn   _KiTimerTableListHead:DWORD
         extrn   _KiTimerExpireDpc:DWORD
+        extrn   _KiTimeUpdateNotifyRoutine:DWORD
         extrn   _KiProfileListHead:DWORD
         extrn   _KiProfileLock:DWORD
         extrn   _KiProfileInterval:DWORD
         extrn   _KdDebuggerEnabled:BYTE
         EXTRNP  _DbgBreakPoint
+        EXTRNP  _DbgBreakPointWithStatus,1
         EXTRNP  _KdPollBreakIn
         EXTRNP  _KiDeliverApc,3
         extrn   _KeI386MachineType:DWORD
@@ -243,7 +248,7 @@ kust10: and     eax,TIMER_TABLE_SIZE-1  ; isolate current hand value
         jb      kustxx                  ; if below, timer has not expired
         ja      short kust15            ; if above, timer has expired
         cmp     edi,[edx].TiDueTime.TmLowTime-TiTimerListEntry ; compare low
-        jb      short kustxx            ; if below, timer has not expired
+        jb      kustxx                  ; if below, timer has not expired
 
 kust15:
 ;
@@ -256,15 +261,16 @@ kust15:
         mov     ecx,PCR[PcPrcb]         ; get processor control block address
         lea     eax,_KiTimerExpireDpc+DpDpcListEntry ; get list entry address
         lea     edx,[ecx]+PbDpcLock     ; get DPC lock address
-        add     ecx,PbDpcListHead       ; compute DPC listhead address
         cmp     dword ptr [eax]+(DpLock-DpDpcListEntry), 0H ; check if inserted
         jnz     kustxx                  ; if nz, DPC already inserted
 
 kust20: cli
         ACQUIRE_SPINLOCK edx, kust60
 
+        inc     dword ptr [ecx].PbDpcQueueDepth ; increment DPC queue depth
         mov     dword ptr [eax]+(DpLock-DpDpcListEntry), edx ; set lock address
         mov     [eax]+(DpSystemArgument1-DpDpcListEntry),ebx  ; pass tick count
+        add     ecx,PbDpcListHead       ; compute DPC listhead address
         mov     ebx,[ecx]+LsBlink       ; get address of last entry in list
         mov     [ecx]+LsBlink, eax      ; set new address of last entry
         mov     [ebx]+LsFlink, eax      ; set forward link in old last entry
@@ -314,7 +320,7 @@ kust45:
         stdCall _KdPollBreakIn
         or      al,al
         jz      short kust30
-        int     3
+        stdCall _DbgBreakPointWithStatus,<DBG_STATUS_CONTROL_C>
         jmp     short kust30
 endif
 
@@ -332,7 +338,6 @@ endif
 ALIGN 4
 kust60: sti                             ; spin with interrupts enabled
         SPIN_ON_SPINLOCK    edx, kust20,,DbgMp
-
 
 stdENDP _KeUpdateSystemTime
 
@@ -387,22 +392,23 @@ endif
 ;
 ; Update the total time spent in kernel mode
 ;
+
+        mov     edx, 0                  ; set kernel mode
         inc     dword ptr [eax].PcPrcbData.PbKernelTime
-
         cmp     byte ptr [esp+8], DISPATCH_LEVEL
-        jc      short Kutp4              ; OldIrql<2, then kernel
-        ja      short Kutp3              ; OldIrql>2, then interrupt
+        jc      short Kutp4             ; OldIrql<2, then kernel
+        ja      short Kutp3             ; OldIrql>2, then interrupt
 
-        cmp     dword ptr PCR[PcIsExecutingDpc], 0
-        jz      short Kutp4              ; Executing Dpc?, no then thread time
+        cmp     dword ptr PCR[PcPrcbData.PbDpcRoutineActive], 0
+        jz      short Kutp4             ; Executing Dpc?, no then thread time
 
         inc     dword ptr [eax].PcPrcbData.PbDpcTime
-        jmp     Kutp50
+        jmp     Kutp51
 
 ALIGN 4
 Kutp3:
         inc     dword ptr [eax].PcPrcbData.PbInterruptTime
-        jmp     Kutp50
+        jmp     Kutp51
 
 ALIGN 4
 Kutp4:
@@ -424,6 +430,7 @@ Kutp4:
 
 ALIGN 4
 Kutp20:
+        mov     edx, 1                  ; set user mode
         inc     dword ptr [eax].PcPrcbData.PbUserTime
 ;
 ; Update the time spend in user mode for the current thread and the current
@@ -435,19 +442,96 @@ Kutp20:
         LOCK_INC    dword ptr [ecx]+PrUserTime
 
 ;
+; Notify registered callout routine of update time.
+;
+; N.B. The register edx contains the processor mode.
+;
+
+ALIGN 4
+Kutp50:                                 ;
+
+ifndef NT_UP
+
+        cmp     _KiTimeUpdateNotifyRoutine, 0 ; check for callout routine
+        je      short Kutp51            ; if eq, no callout routine registered
+        mov     ecx, [ebx].EtCid.CidUniqueThread ; set current thread unique id
+        call    [_KiTimeUpdateNotifyRoutine] ; notify callout routine
+        mov     eax, PCR[PcSelfPcr]     ; restore PCR address
+
+endif
+
+;
+; Update the DPC request rate which is computed as the average between
+; the previous rate and the current rate.
+;
+
+ALIGN 4
+Kutp51: mov     ecx, [eax].PcPrcbData.PbDpcCount ; get current DPC count
+        mov     edx, [eax].PcPrcbData.PbDpcLastCount ; get last DPC count
+        mov     [eax].PcPrcbData.PbDpcLastCount, ecx ; set last DPC count
+        sub     ecx, edx                ; compute count during interval
+        add     ecx, [eax].PcPrcbData.PbDpcRequestRate ; compute sum
+        shr     ecx, 1                  ; average current and last
+        mov     [eax].PcPrcbData.PbDpcRequestRate, ecx ; set new DPC request rate
+
+;
+; If the current DPC queue depth is not zero, a DPC routine is not active,
+; and a DPC interrupt has not been requested, then request a dispatch
+; interrupt, decrement the maximum DPC queue depth, and reset the threshold
+; counter if appropriate.
+;
+
+        cmp     dword ptr [eax].PcPrcbData.PbDpcQueueDepth, 0 ; check queue depth
+        je      short Kutp53            ; if eq, DPC queue depth is zero
+        cmp     dword ptr [eax].PcPrcbData.PbDpcRoutineActive, 0 ; check if DPC active
+        jne     short Kutp53            ; if ne, DPC routine active
+        cmp     dword ptr [eax].PcPrcbData.PbDpcInterruptRequested, 0 ; check if interrupt
+        jne     short Kutp53            ; if ne, DPC routine active
+        mov     ecx, DISPATCH_LEVEL     ; request a dispatch interrupt
+        fstCall HalRequestSoftwareInterrupt ;
+        mov     eax, PCR[PcSelfPcr]     ; restore address of current PCR
+        mov     ecx, [eax].PcPrcbData.PbDpcRequestRate ; get DPC request rate
+        mov     edx, _KiAdjustDpcThreshold ; reset initial threshold counter
+        mov     [eax].PcPrcbData.PbAdjustDpcThreshold, edx ;
+        cmp     ecx, _KiIdealDpcRate    ; test if current rate less than ideal
+        jge     short Kutp55            ; if ge, rate greater or equal ideal
+        cmp     [eax].PcPrcbData.PbMaximumDpcQueueDepth, 1 ; check if depth one
+        je      short Kutp55            ; if eq, maximum depth is one
+        dec     dword ptr [eax].PcPrcbData.PbMaximumDpcQueueDepth ; decrement depth
+        jmp     short Kutp55            ;
+
+;
+; The DPC queue is empty or a DPC routine is active or a DPC interrupt
+; has been requested. Count down the adjustment threshold and if the
+; count reaches zero, then increment the maximum DPC queue depth, but
+; no above the initial value and reset the adjustment threshold value.
+;
+
+Kutp53: dec     dword ptr [eax].PcPrcbData.PbAdjustDpcThreshold ; decrement threshold
+        jnz     short Kutp55            ; if nz, threshold not zero
+        mov     ecx, _KiAdjustDpcThreshold ; reset initial threshold counter
+        mov     [eax].PcprcbData.PbAdjustDpcThreshold, ecx ;
+        mov     ecx, _KiMaximumDpcQueueDepth ; get maximum DPC queue depth
+        cmp     ecx, [eax].PcPrcbData.PbMaximumDpcQueueDepth ; check depth
+        je      short Kutp55            ; if eq, aleady a maximum level
+        inc     dword ptr [eax].PcPrcbData.PbMaximumDpcQueueDepth ; increment maximum depth
+
+;
 ; Decrement current thread quantum and check to determine if a quantum end
 ; has occurred.
 ;
 
 ALIGN 4
-Kutp50: sub    byte ptr [ebx]+ThQuantum, 1  ; decrement current quantum
-        jg     Kutp75                       ; if > 0, time remaining on quantum
+Kutp55: sub     byte ptr [ebx]+ThQuantum, CLOCK_QUANTUM_DECREMENT ; decrement quantum
+        jg      Kutp75                      ; if > 0, time remaining on quantum
 
 ;
 ; Set quantum end flag and initiate a dispather interrupt on the current
 ; processor.
 ;
 
+        cmp     ebx,[eax].PcPrcbData.PbIdleThread ; check if idle thread
+        jz      Kutp75                      ; if z, then idle thread
         mov     [eax].PcPrcbData.PbQuantumEnd, esp ; set quantum end indicator
         mov     ecx, DISPATCH_LEVEL         ; request dispatch interrupt
         fstCall HalRequestSoftwareInterrupt ;
@@ -470,11 +554,12 @@ stdENDP _KeUpdateRunTime
 ;
 ;--
 
+
 ;++
 ;
 ; VOID
 ; KeProfileInterrupt (
-;       IN PKTRAP_FRAME TrapeFrame,
+;       IN PKTRAP_FRAME TrapFrame,
 ;       )
 ;
 ; Routine Description:
@@ -499,7 +584,7 @@ stdENDP _KeUpdateRunTime
 ;
 ; Environment:
 ;
-;    IRQL = PROFILE_LEVEL
+;    IRQL = KiProfileIrql
 ;
 ;
 ; Return Value:
@@ -511,6 +596,53 @@ stdENDP _KeUpdateRunTime
 ;--
 
 cPublicProc _KeProfileInterrupt ,1
+;
+; rearrange arguments to pass a source of 0 to KeProfileInterruptWithSource
+;
+        pop     eax     ; return code in eax
+        pop     ebx     ; trap frame in ebx
+        push    0       ; push source of 0 (ProfileTime)
+        push    ebx     ; push trap frame
+        push    eax     ; push return address
+        jmp     short   _KeProfileInterruptWithSource@8
+stdENDP _KeProfileInterrupt
+
+;++
+;
+; VOID
+; KeProfileInterruptWithSource (
+;       IN PKTRAP_FRAME TrapFrame,
+;       IN KPROFILE_SOURCE ProfileSource
+;       )
+;
+; Routine Description:
+;
+;    This procedure is the ISR for the multiple-source profile interrupt.
+;
+;    Since no x86 HAL currently implements any source other than the
+;    clock interrupt, this routine is just a stub that calls KeProfileInterrupt
+;
+; Arguments:
+;
+;    Return Address (esp)
+;
+;    TrapFrame (esp+4) - supplies pointer to profile trap frame
+;
+;    ProfileSource (esp+8) - supplies source of profile interrupt
+;
+; Environment:
+;
+;    IRQL = KiProfileIrql
+;
+;
+; Return Value:
+;
+;    None.
+;
+;    WARNING: Uses ALL registers
+;
+;--
+cPublicProc _KeProfileInterruptWithSource,2
 
 kipieip         equ     <dword ptr [ebp+TsEip]>
 kipsegcs        equ     <word ptr [ebp+TsSegCs]>
@@ -552,6 +684,10 @@ endif
         mov     ebx, kipieip
         mov     edx,offset FLAT:_KiProfileListHead
         mov     esi,[edx].LsFlink       ; (esi) -> profile object
+ifndef NT_UP
+        mov     edi, PCR[PcSetMember]   ; (edi) = current processor
+endif
+        mov     ecx, [esp+8]            ; (cx) = profile source
         cmp     esi,edx
         je      kipi30                  ; end of system list, go do process
 
@@ -565,6 +701,12 @@ kipi10: cmp     ebx,[esi+PfRangeBase-PfProfileListEntry]    ; >= base?
         jb      kipi20                                      ; no, skip entry
         cmp     ebx,[esi+PfRangeLimit-PfProfileListEntry]   ; < limit?
         jae     kipi20                                      ; no, skip entry
+        cmp     cx,word ptr [esi+PfSource-PfProfileListEntry]       ; == source?
+        jne     kipi20                                      ; no, skip entry
+ifndef NT_UP
+        test    edi,[esi+PfAffinity-PfProfileListEntry]     ; affinity match?
+        jz      kipi20                                      ; no, skip entry
+endif
 
 ;
 ;   RangeBase <= program counter < RangeLimit, we have a hit
@@ -577,6 +719,11 @@ kipi10: cmp     ebx,[esi+PfRangeBase-PfProfileListEntry]    ; >= base?
         mov     edi,[esi+PfBuffer-PfProfileListEntry] ; (edi) -> buffer
         inc     dword ptr [edi+ebx]     ; record hit
         mov     ebx, kipieip            ; (ebx) = sample pc
+        mov     ecx, [esp+8]            ; (cx) = profile source
+ifndef NT_UP
+        mov     edi, PCR[PcSetMember]   ; (edi) = current processor
+endif
+
 
 ;
 ;   Go to next entry
@@ -626,6 +773,15 @@ kipi40: cmp     [esi+PfSegment-PfProfileListEntry],word ptr 0 ; flat object?
         jb      kipi50                                      ; no, skip entry
         cmp     ebx,[esi+PfRangeLimit-PfProfileListEntry]   ; < limit?
         jae     kipi50                                      ; no, skip entry
+        mov     ecx, [esp+8]                                ; (cx) = profile source
+        cmp     cx,word ptr [esi+PfSource-PfProfileListEntry]       ; == source?
+        jne     kipi50                                      ; no, skip entry
+ifndef NT_UP
+        mov     edi,PCR[PcSetMember]                        ; (edi) = set member
+        test    edi,[esi+PfAffinity-PfProfileListEntry]     ; affinity match?
+        jz      kipi50                                      ; no, skip entry
+endif
+
 
 ;
 ;   RangeBase <= program counter < RangeLimit, we have a hit
@@ -638,6 +794,7 @@ kipi40: cmp     [esi+PfSegment-PfProfileListEntry],word ptr 0 ; flat object?
         mov     edi,[esi+PfBuffer-PfProfileListEntry] ; (edi) -> buffer
         inc     dword ptr [edi+ebx]     ; record hit
         mov     ebx, kipieip            ; (ebx) = sample pc
+        mov     ecx, [esp+8]                                ; (cx) = profile source
 
 ;
 ;   Go to next entry
@@ -655,7 +812,7 @@ ifndef  NT_UP
         lea     eax,_KiProfileLock
         RELEASE_SPINLOCK    eax
 endif
-        stdRet  _KeProfileInterrupt
+        stdRet  _KeProfileInterruptWithSource
 
 ifndef NT_UP
 ALIGN 4
@@ -685,6 +842,14 @@ kipi110:
         jb      kipi120                                     ; no, skip entry
         cmp     ebx,[esi+PfRangeLimit-PfProfileListEntry]   ; < limit?
         jae     kipi120                                     ; no, skip entry
+        mov     ecx, [esp+8]                                ; (cx) = profile source
+        cmp     cx,word ptr [esi+PfSource-PfProfileListEntry]       ; == source?
+        jne     kipi120                                     ; no, skip entry
+ifndef NT_UP
+        mov     edi,PCR[PcSetMember]                        ; (edi) = set member
+        test    edi,[esi+PfAffinity-PfProfileListEntry]     ; affinity match?
+        jnz     kipi120                                     ; no, skip entry
+endif
 
 ;
 ;   RangeBase <= program counter < RangeLimit, we have a hit
@@ -711,8 +876,6 @@ kipi120:
 
         jmp     kipi60
 
-stdENDP _KeProfileInterrupt
-
-
+stdENDP _KeProfileInterruptWithSource
 _TEXT$00   ends
         end

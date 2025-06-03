@@ -27,7 +27,7 @@ Revision History:
 #include <eventp.h>
 #include <lmalert.h>
 #include <string.h>
-#include <wcstr.h>
+#include <stdlib.h>
 
 
 
@@ -894,7 +894,7 @@ Note:
 
 
 VOID
-LinkLogModule (PLOGMODULE    LogModule
+LinkLogModule (PLOGMODULE LogModule, ANSI_STRING * pModuleNameA
     )
 
 /*++
@@ -908,6 +908,7 @@ Routine Description:
 Arguments:
 
     LogModule points to a context handle structure.
+    ANSI LogModule name.
 
 Return Value:
 
@@ -923,6 +924,10 @@ Note:
 
     RtlEnterCriticalSection ((PRTL_CRITICAL_SECTION)&LogModuleCritSec);
 
+
+    // Add the atom for this module.
+
+    LogModule->ModuleAtom = AddAtomA(pModuleNameA->Buffer);
 
     // Place structure at the beginning of the list.
 

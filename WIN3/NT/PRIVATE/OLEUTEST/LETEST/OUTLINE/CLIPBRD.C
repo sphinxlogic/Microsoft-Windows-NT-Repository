@@ -997,7 +997,7 @@ BOOL OleDoc_PasteFromData(
 	LPOLEAPP        lpOleApp = (LPOLEAPP)g_lpApp;
 	CLIPFORMAT      cfFormat;
 	BOOL            fDisplayAsIcon = FALSE;
-	SIZEL           sizelInSrc;
+	SIZEL           sizelInSrc = {0, 0};
 	HGLOBAL         hMem = NULL;
 	HGLOBAL         hMetaPict = NULL;
 	STGMEDIUM       medium;

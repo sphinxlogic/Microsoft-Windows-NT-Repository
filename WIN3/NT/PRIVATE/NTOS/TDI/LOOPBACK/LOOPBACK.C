@@ -875,26 +875,7 @@ Return Value:
             // Reference the loopback device object.
             //
 
-            status = ObReferenceObjectByPointer(
-                        LoopDeviceObject,
-                        0,
-                        *IoDeviceObjectType,
-                        KernelMode
-                        );
-
-            if ( !NT_SUCCESS(status) ) {
-                IF_DEBUG(LOOP2) {
-                    DbgPrint( "  Unable to reference device object\n" );
-                }
-                ExFreePool( endpoint );
-                Irp->IoStatus.Status = status;
-                IoCompleteRequest( Irp, 0 );
-                IF_DEBUG(LOOP1) {
-                    DbgPrint( "LoopDispatchCreate complete for IRP %lx\n",
-                                Irp );
-                }
-                return status;
-            }
+            ObReferenceObject( LoopDeviceObject );
 
             endpoint->DeviceObject = LoopDeviceObject;
 
@@ -1026,26 +1007,7 @@ Return Value:
             // Reference the loopback device object.
             //
 
-            status = ObReferenceObjectByPointer(
-                        LoopDeviceObject,
-                        0,
-                        *IoDeviceObjectType,
-                        KernelMode
-                        );
-
-            if ( !NT_SUCCESS(status) ) {
-                IF_DEBUG(LOOP2) {
-                    DbgPrint( "  Unable to reference device object\n" );
-                }
-                ExFreePool( connection );
-                Irp->IoStatus.Status = status;
-                IoCompleteRequest( Irp, 0 );
-                IF_DEBUG(LOOP1) {
-                    DbgPrint( "LoopDispatchCreate complete for IRP %lx\n",
-                                Irp );
-                }
-                return status;
-            }
+            ObReferenceObject( LoopDeviceObject );
 
             connection->DeviceObject = LoopDeviceObject;
 

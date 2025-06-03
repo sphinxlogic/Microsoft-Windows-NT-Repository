@@ -31,7 +31,6 @@ extern EI Ei;
 #define Lpei (&Ei)
 
 #define MAXERRMSG       256
-#define GEXPRERR        1201
 
 extern  CXF     CxfIp;
 extern  LPSHF   Lpshf;
@@ -59,9 +58,9 @@ PHExactCmp (
         // if length is diff, they are not equal
         if ( lpsstr && lpsstr->cb == cb ) {
             if ( fCase ) {
-                shf = (SHFLAG) _fmemcmp ( lpb + 1, lpsstr->lpName, cb );
+                shf = (SHFLAG) memcmp ( lpb + 1, lpsstr->lpName, cb );
             } else {
-                shf = (SHFLAG) _fstrnicmp( lpb + 1, (LPSTR) lpsstr->lpName, cb );
+                shf = (SHFLAG) _strnicmp( lpb + 1, (LPSTR) lpsstr->lpName, cb );
             }
         }
     }
@@ -100,6 +99,15 @@ PHAtCmp(
 
     if (fCase) {
         for (i = 0; i < cbt; i++) {
+#ifdef DBCS
+            if (IsDBCSLeadByte(*lpb)) {
+                if (*lpb++ != *pm++ || *lpb++ != *pm++) {
+                    return 1;
+                }
+                i++;
+                continue;
+            }
+#endif
             if (i == cbm && *lpb == '@') {
                 return 0;
             }
@@ -109,6 +117,15 @@ PHAtCmp(
         }
     } else {
         for (i = 0; i < cbt; i++) {
+#ifdef DBCS
+            if (IsDBCSLeadByte(*lpb)) {
+                if (*lpb++ != *pm++ || *lpb++ != *pm++) {
+                    return 1;
+                }
+                i++;
+                continue;
+            }
+#endif
             if (i == cbm && *lpb == '@') {
                 return 0;
             }
@@ -213,14 +230,20 @@ get_initial_context_helper(
 {
     // Look for main for a windows exe first
 
+    // dotdot names are for the PPC
+    if(get_a_procedure(pCXT,"..main")) return(TRUE);
+    if(get_a_procedure(pCXT,"..WinMain")) return(TRUE);
+
     if(get_a_procedure(pCXT,"_WinMain")) return(TRUE);
     if(get_a_procedure(pCXT,"WinMain")) return(TRUE);
+    if(get_a_procedure(pCXT,"wWinMain")) return(TRUE);
     if(get_a_procedure(pCXT,"WINMAIN")) return(TRUE);
 
     // Not there? Try for a Windows TTY
 
     if(get_a_procedure(pCXT,"_main")) return(TRUE);
     if(get_a_procedure(pCXT,"main")) return(TRUE);
+    if(get_a_procedure(pCXT,"wmain")) return(TRUE);
     if(get_a_procedure(pCXT,"MAIN")) return(TRUE);
 
     if(get_a_procedure(pCXT,"ENTGQQ")) return(TRUE);
@@ -328,7 +351,7 @@ CVMessage (
                 break;
 
             case EXPREVALMSG:
-                _fstrcpy(rgch, va_arg(va_mark, LPSTR));
+                strcpy(rgch, va_arg(va_mark, LPSTR));
                 break;
 
             default:
@@ -359,10 +382,10 @@ CVMessage (
     }
 
     if (msgwhere == MSGSTRING) {
-        _fstrcpy(szStringLoc, szMsg);
+        strcpy(szStringLoc, szMsg);
     } else if (msgwhere == MSGGERRSTR) {
         gMSGID = msgid;
-        _fstrcpy(gszErrStr, szMsg);
+        strcpy(gszErrStr, szMsg);
     } else if (msgwhere == CMDWINDOW) {
         AuxPrintf(1, szFormat, msgid, (LPSTR)szErr);
         AuxPrintf(1, szMsg);

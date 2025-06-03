@@ -9,6 +9,7 @@ C_DEFINES=    \
               -DINC_OLE2            \
               -DNOEXCEPTIONS        \
               -DCAIROLE_DOWNLEVEL   \
+              -DMULTI_THREADING     \
               $(TRACELOG)
 
 # For the Chicago project, we do not want to use CRTDLL.DLL, so leave this
@@ -20,4 +21,3 @@ USE_LIBCMT=   1
 
 CHICAGO_PRODUCT=1
 
-

@@ -109,7 +109,7 @@ ushort PASCAL GetDBToken (uchar FAR *pbExpr, ptoken_t pTok, uint radix, op_t ope
     uchar FAR  *pbSave = pbExpr;
     ushort      error;
 
-    _fmemset (pTok, 0, sizeof (token_t));
+    memset (pTok, 0, sizeof (token_t));
     pTok->opTok = OP_badtok;
     pTok->pbTok = (char FAR *)pbExpr;
     c = *pbExpr;
@@ -265,12 +265,12 @@ ushort PASCAL ParseConst (uchar FAR *pb, ptoken_t pTok, uint radixin)
     // The type of an integer constant is the first of the corresponding
     // list in which its value can be represented:
     // unsuffixed decimal            : int, long int, unsigned long int
-    // unsuffixed octal or hex       : int, unsigned int, long int, unsigned long int; 
+    // unsuffixed octal or hex       : int, unsigned int, long int, unsigned long int;
     // suffixed by the letter u or U : unsigned int, unsigned long int
     // suffixed by the letter l or L : long int, unsigned long int
     // suffixed by both the letters u or U and l or L: unsigned long int.
     //
-    // To extend for quad values:  
+    // To extend for quad values:
     //    unsuffixed decimal:  postpend           __int64
     //    octal or hex:        postpend           __int64, unsigned __int64
     //    suffix with u or U:  postpend  unsigned __int64
@@ -314,10 +314,10 @@ ushort PASCAL ParseConst (uchar FAR *pb, ptoken_t pTok, uint radixin)
         }
     }
     else if (fLSuffix) {
-        //         
+        //
         // might be long int, unsigned long int,
         //           __int64, unsigned __int64
-        //         
+        //
 
         if (fFitsLong) {
             typ = T_INT4;
@@ -372,14 +372,14 @@ ushort PASCAL ParseConst (uchar FAR *pb, ptoken_t pTok, uint radixin)
 
 LOCAL ushort NEAR PASCAL ParseIntConst (uchar FAR *pb, ptoken_t pTok, uint radix, PLARGE_INTEGER pval)
 {
-    char          c;
-    ULONG         junk;
-    LARGE_INTEGER li, maxvalue;
+    char            c;
+    LARGE_INTEGER   li;
+    LARGE_INTEGER   maxvalue;
+    ULONG           junk;
 
-    maxvalue.LowPart = maxvalue.HighPart = 0xffffffff;
-    maxvalue = RtlExtendedLargeIntegerDivide(maxvalue, (ULONG)radix, &junk);
 
-    li = RtlConvertLongToLargeInteger(0);
+    maxvalue.QuadPart = (ULONGLONG)-1 / (ULONGLONG)radix;
+    li.QuadPart = 0;
 
     DASSERT(radix == 10 || radix == 8 || radix == 16);
 
@@ -396,24 +396,20 @@ LOCAL ushort NEAR PASCAL ParseIntConst (uchar FAR *pb, ptoken_t pTok, uint radix
             return (ERR_SYNTAX);
         }
 
-        if (RtlLargeIntegerLessThanZero(li) ||
-            RtlLargeIntegerGreaterThan(li, maxvalue) ) {
+        if (li.QuadPart < 0 || li.QuadPart > maxvalue.QuadPart) {
             //
             // This is the overflow case
             //
             return ERR_CONSTANT;
         }
 
-        li = RtlExtendedIntegerMultiply(li, radix);
+        li.QuadPart = li.QuadPart * radix;
 
         if (isdigit (c = *pb)) {
-            li = RtlLargeIntegerAdd(li,
-                     RtlConvertLongToLargeInteger((c - '0')));
+            li.QuadPart += (c - '0');
 
-        }
-        else {
-            li = RtlLargeIntegerAdd(li,
-                     RtlConvertLongToLargeInteger(((toupper(c) - 'A' + 10))));
+        } else {
+            li.QuadPart += (toupper(c) - 'A' + 10);
         }
         pb++;
     }
@@ -448,7 +444,7 @@ LOCAL ushort NEAR PASCAL ParseFloatConst (uchar FAR *pb, ptoken_t pTok)
     // check for a single '.' - strtold returns 0 in such a case
 
     if (((*pb == '.') && (!isdigit (*(pb + 1)))) ||
-        (_fstrlen (pb)) >= 100)  {
+        (strlen (pb)) >= 100)  {
         return (ERR_SYNTAX);
     }
 
@@ -476,11 +472,11 @@ LOCAL ushort NEAR PASCAL ParseFloatConst (uchar FAR *pb, ptoken_t pTok)
 // MBH - bugbug  (FP)
 // Is the correct handling for us?
 //
-#if defined (TARGET_MIPS) || defined( TARGET_i386) || defined(ALPHA)
+#if defined (TARGET_MIPS) || defined( TARGET_i386) || defined(ALPHA) || defined(PPC)
     else if (toupper(*pEnd) == 'L') {
         pEnd++;
 
-#if defined( TARGET_MIPS) || defined(TARGET_ALPHA)
+#if defined( TARGET_MIPS) || defined(TARGET_ALPHA) || defined(TARGET_PPC)
 
         //
         // NOTENOTE: v_willhe, MIPS doesn't support long double, but treats
@@ -581,13 +577,13 @@ LOCAL ushort NEAR PASCAL ParseIdent (uchar FAR *pb, ptoken_t pTok, bool_t fTilde
     // Check for the 'operator', 'sizeof', 'by', 'wo' and 'dw' operators.
 
     if ((len = pTok->pbEnd - pTok->pbTok) == 6) {
-        if (_fstrncmp (pTok->pbTok, "sizeof", 6) == 0) {
+        if (strncmp (pTok->pbTok, "sizeof", 6) == 0) {
             pTok->opTok = OP_sizeof;
         }
     }
 #if !defined (C_ONLY)
     else if (len == 8) {
-        if (_fstrncmp (pTok->pbTok, "operator", 8) == 0) {
+        if (strncmp (pTok->pbTok, "operator", 8) == 0) {
             // allow for operator op
             return (CanonOp (pb, pTok));
         }
@@ -595,13 +591,13 @@ LOCAL ushort NEAR PASCAL ParseIdent (uchar FAR *pb, ptoken_t pTok, bool_t fTilde
 #endif
     else if (len == 2) {
         // Could be 'by', 'wo' or 'dw'...
-        if (_fstrnicmp (pTok->pbTok, "BY", 2) == 0) {
+        if (_strnicmp (pTok->pbTok, "BY", 2) == 0) {
             pTok->opTok = OP_by;
         }
-        else if (_fstrnicmp (pTok->pbTok, "WO", 2) == 0) {
+        else if (_strnicmp (pTok->pbTok, "WO", 2) == 0) {
             pTok->opTok = OP_wo;
         }
-        else if (_fstrnicmp (pTok->pbTok, "DW", 2) == 0) {
+        else if (_strnicmp (pTok->pbTok, "DW", 2) == 0) {
             pTok->opTok = OP_dw;
         }
     }
@@ -655,7 +651,7 @@ LOCAL ushort NEAR PASCAL CanonOp (uchar FAR *pb, ptoken_t pTok)
             pTemp++;
         }
         *pOp++ = ' ';
-        _fmemmove (pOp, pb, pTemp - pb);
+        memmove (pOp, pb, pTemp - pb);
         pOp += pTemp - pb;
         pb = pTemp;
     }
@@ -684,14 +680,14 @@ LOCAL ushort NEAR PASCAL CanonOp (uchar FAR *pb, ptoken_t pTok)
     else {
         // process operator strings
         for ( i = 0; i < OPCNT; i++) {
-            if (_fstrncmp (OpStr[i].str + 1, pb, OpStr[i].str[0]) == 0) {
+            if (strncmp (OpStr[i].str + 1, pb, OpStr[i].str[0]) == 0) {
                 break;
             }
         }
         if (i == OPCNT) {
             return (ERR_SYNTAX);
         }
-        _fmemmove (pOp, OpStr[i].str + 1, OpStr[i].str[0]);
+        memmove (pOp, OpStr[i].str + 1, OpStr[i].str[0]);
         pOp += OpStr[i].str[0];
         pb += OpStr[i].str[0];
     }

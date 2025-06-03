@@ -432,7 +432,7 @@ UINT16 F40_CopyAndTerminate(
           memcpy( *dest, src, size ) ;
           *dest += size ;
           if( src_str_type == BEC_UNIC_STR ) {
-               *((WCHAR_PTR)(*dest)) = L'\0' ;
+               *((WCHAR UNALIGNED *)(*dest)) = L'\0' ;
                (*dest) += sizeof( WCHAR ) ;
                new_size = size + sizeof( WCHAR ) ;
           } else {
@@ -453,7 +453,7 @@ UINT16 F40_CopyAndTerminate(
           mapAnsiToUnicNoNull( (ACHAR_PTR)src, (WCHAR_PTR)(*dest),
                                size, &new_size ) ;
           *dest += new_size ;
-          *((WCHAR_PTR)(*dest)) = L'\0' ;
+          *((WCHAR UNALIGNED *)(*dest)) = L'\0' ;
           (*dest) += sizeof( WCHAR ) ;
           new_size += sizeof( WCHAR ) ;
      }
@@ -652,11 +652,13 @@ UINT16    F40_GetBlkType( MTF_DB_HDR_PTR cur_hdr )
 
      static UINT8 *blk_type[] = { MTF_TAPE_N, MTF_SSET_N, MTF_DIRB_N,
                                   MTF_FILE_N, MTF_ESET_N, MTF_EOTM_N,
-                                  F40_IMAG_N, MTF_CFIL_N, MTF_ESPB_N, NULL } ;
+                                  F40_IMAG_N, MTF_CFIL_N, MTF_ESPB_N,
+                                  F40_DBDB_N, NULL } ;
 
      static UINT16 blk_id[] = { F40_TAPE_IDI, F40_SSET_IDI, F40_DIRB_IDI,
                                 F40_FILE_IDI, F40_ESET_IDI, F40_EOTM_IDI,
-                                F40_IMAG_IDI, F40_CFIL_IDI, F40_ESPB_IDI, 0 } ;
+                                F40_IMAG_IDI, F40_CFIL_IDI, F40_ESPB_IDI,
+                                F40_DBDB_IDI, 0 } ;
 
      i = 0 ;
      while( blk_type[i] != NULL ) {
@@ -1030,7 +1032,7 @@ INT16 F40_RdVOLB(
      }
 
      if( ret_val == TFLE_NO_ERR ) {
-          F40_FindNextDBLK( buffer, cur_env->tape_hdr.logical_block_size, MTF_DIRB_N ) ;
+          F40_FindNextDBLK( buffer, cur_env->tape_hdr.logical_block_size, NULL ) ;
      }
 
      return( ret_val ) ;
@@ -1417,10 +1419,12 @@ INT16 F40_RdDIRB(
      F40_ENV_PTR    cur_env  = (F40_ENV_PTR)( channel->fmt_env ) ;
      DBLK_PTR       cur_dblk = channel->cur_dblk ;
      MTF_DIR_PTR    cur_dirb = (MTF_DIR_PTR)( BM_NextBytePtr(  buffer  ) ) ;
+     F40_DBDB_PTR   cur_dbdb = (F40_DBDB_PTR)( BM_NextBytePtr(  buffer  ) ) ;
      FSYS_HAND      cur_fsys = channel->cur_fsys ;
      GEN_DDB_DATA   gddb_data ;
      UINT16         tmp_filter ;
      UINT8_PTR      vstr_ptr = (UINT8_PTR)cur_dirb ;
+     DATE_TIME      dummy_date ;
      DATE_TIME      create_date ;
      DATE_TIME      last_mod_date ;
      DATE_TIME      backup_date  ;
@@ -1430,43 +1434,81 @@ INT16 F40_RdDIRB(
      FS_SetDefaultDBLK( cur_fsys, BT_DDB, (CREATE_DBLK_PTR)&gddb_data ) ;
      gddb_data.std_data.dblk = cur_dblk ;
 
-     /* Set the non-defaulted standard fields for the FS */
-     SetStandFields( channel, &gddb_data.std_data, &cur_dirb->block_hdr, buffer ) ;
+     if( memcmp( F40_DBDB_N, BM_NextBytePtr( buffer ), 4 ) == 0 ) {
+          /* This is a Database DBLK, but the boys upstairs don't want to
+             know about such silly things!  So we lie and call it a DDB to
+             get it passed on to the File System.  The File System can tell
+             what it really is too, and will deal with it appropriatly.
+          */
+          /* Set the non-defaulted standard fields for the FS */
+          SetStandFields( channel, &gddb_data.std_data, &cur_dirb->block_hdr, buffer ) ;
 
-     /* Set the DIR attributes.  Note that if this is an "old" tape,
-        the attibute bits were being set wrong, and need to be translated.
-     */
-     if( cur_env->old_tape ) {
+          gddb_data.std_data.attrib = cur_dbdb->database_attribs ;
 
-          gddb_data.std_data.attrib = cur_dirb->directory_attribs &
+          /* Clear all vendor specific bits */
+          gddb_data.std_data.attrib &= 0x00FFFFFF ;
+
+          /* Set our vendor specific bit that says this is a DBDB */
+          gddb_data.std_data.attrib |= DIR_IS_REALLY_DB ;
+
+          gddb_data.path_name =
+               (CHAR_PTR)( (INT8_PTR)vstr_ptr + cur_dbdb->database_name.data_offset ) ;
+          gddb_data.path_size = (INT16)cur_dbdb->database_name.data_size ;
+
+          TapeDateToDate( &backup_date, &cur_dbdb->backup_date ) ;
+          gddb_data.backup_date = &backup_date  ;
+
+          /* DBDBs don't have the following date fields */
+          memset( &dummy_date, 0, sizeof( dummy_date ) ) ;
+          gddb_data.creat_date = &dummy_date ;
+          gddb_data.mod_date = &dummy_date ;
+          gddb_data.access_date = &dummy_date ;
+
+     } else {
+
+          /* Standard DDB structure stuffing */
+
+          /* Set the non-defaulted standard fields for the FS */
+          SetStandFields( channel, &gddb_data.std_data, &cur_dirb->block_hdr, buffer ) ;
+
+          /* Set the DIR attributes.  Note that if this is an "old" tape,
+             the attibute bits were being set wrong, and need to be translated.
+          */
+          if( cur_env->old_tape ) {
+
+               gddb_data.std_data.attrib = cur_dirb->directory_attribs &
                         ~( OLD_DIR_EMPTY_BIT | OLD_DIR_PATH_IN_STREAM_BIT ) ;
 
-          gddb_data.std_data.attrib |= ( cur_dirb->directory_attribs & OLD_DIR_EMPTY_BIT )
-                                        ? DIR_EMPTY_BIT : 0 ;
-          gddb_data.std_data.attrib |= ( cur_dirb->directory_attribs & OLD_DIR_PATH_IN_STREAM_BIT )
-                                        ? DIR_PATH_IN_STREAM_BIT : 0 ;
-     } else {
-          gddb_data.std_data.attrib = cur_dirb->directory_attribs ;
-     }
+               gddb_data.std_data.attrib |= ( cur_dirb->directory_attribs & OLD_DIR_EMPTY_BIT )
+                                             ? DIR_EMPTY_BIT : 0 ;
+               gddb_data.std_data.attrib |= ( cur_dirb->directory_attribs & OLD_DIR_PATH_IN_STREAM_BIT )
+                                             ? DIR_PATH_IN_STREAM_BIT : 0 ;
+          } else {
+               gddb_data.std_data.attrib = cur_dirb->directory_attribs ;
+          }
 
-     /* Set the non-defaulted DDB specific fields */
-     if( ! ( cur_dirb->directory_attribs & DIR_PATH_IN_STREAM_BIT ) ) {
-          gddb_data.path_name =
-              (CHAR_PTR)( (INT8_PTR)vstr_ptr + cur_dirb->directory_name.data_offset ) ;
-          gddb_data.path_size = (INT16)cur_dirb->directory_name.data_size ;
-     } else {
-          gddb_data.path_name = NULL ;
-          gddb_data.path_size = 0 ;
-     }
+          /* Clear all vendor specific bits */
+          gddb_data.std_data.attrib &= 0x00FFFFFF ;
 
-     TapeDateToDate( &create_date, &cur_dirb->create_date ) ;
-     gddb_data.creat_date = &create_date ;
-     TapeDateToDate( &last_mod_date, &cur_dirb->last_mod_date ) ;
-     gddb_data.mod_date = &last_mod_date ;
-     TapeDateToDate( &backup_date, &cur_dirb->backup_date ) ;
-     gddb_data.backup_date = &backup_date  ;
-     TapeDateToDate( &last_access_date, &cur_dirb->last_access_date ) ;
-     gddb_data.access_date = &last_access_date ;
+          /* Set the non-defaulted DDB specific fields */
+          if( ! ( cur_dirb->directory_attribs & DIR_PATH_IN_STREAM_BIT ) ) {
+               gddb_data.path_name =
+                   (CHAR_PTR)( (INT8_PTR)vstr_ptr + cur_dirb->directory_name.data_offset ) ;
+               gddb_data.path_size = (INT16)cur_dirb->directory_name.data_size ;
+          } else {
+               gddb_data.path_name = NULL ;
+               gddb_data.path_size = 0 ;
+          }
+
+          TapeDateToDate( &create_date, &cur_dirb->create_date ) ;
+          gddb_data.creat_date = &create_date ;
+          TapeDateToDate( &last_mod_date, &cur_dirb->last_mod_date ) ;
+          gddb_data.mod_date = &last_mod_date ;
+          TapeDateToDate( &backup_date, &cur_dirb->backup_date ) ;
+          gddb_data.backup_date = &backup_date  ;
+          TapeDateToDate( &last_access_date, &cur_dirb->last_access_date ) ;
+          gddb_data.access_date = &last_access_date ;
+     }
 
      /* Tell the file system to do its thing */
      tmp_filter = FS_CreateGenDDB( cur_fsys, &gddb_data ) ;
@@ -1810,13 +1852,15 @@ INT16 F40_RdMDB( CHANNEL_PTR channel,
      F40_ENV_PTR    currentEnv    = (F40_ENV_PTR)( channel->fmt_env ) ;
 
 
+     if( currentEnv->frag_cnt && BM_BytesFree( buffer ) == 0 ) {
+          return( TFLE_NO_ERR ) ;
+     }
+
      if( currentEnv->make_streams_invisible ) {
           return( F40_RdVarStream( channel, buffer ) ) ;
      } else {
           return( F40_RdEOSPadBlk( channel, buffer ) ) ;
      }
-
-
 }
 
 
@@ -2371,7 +2415,10 @@ static VOID F40_FindNextDBLK(
           if( F40_CalcChecksum( (UINT16_PTR)cur_hdr, F40_HDR_CHKSUM_LEN )
                                                     == cur_hdr->hdr_chksm ) {
                if( ( blk_type == NULL &&
-                     memcmp( temp, cur_hdr->block_type, 4 ) != 0 ) ||
+                     memcmp( temp, cur_hdr->block_type, 4 ) != 0 )) {
+                     return ;
+               }
+               if ( ( blk_type == NULL) ||
                    memcmp( blk_type, cur_hdr->block_type, 4 ) == 0 ) {
 
                     return ;

@@ -42,3 +42,6 @@ Revision History:
 
 #define MMSNDSRV_SERVERDLL_INDEX        5
 #define MMSNDSRV_FIRST_API_NUMBER       2048
+
+#define USERK_SERVERDLL_INDEX           6
+#define USERK_FIRST_API_NUMBER          2560

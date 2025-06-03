@@ -155,7 +155,7 @@ typedef struct _DLM_ITEM {
      BYTE      bTag ;         /*  Tag state 0:no  1:yes                 */
 
 #if defined( OS_WIN32 )
-     BYTE      szText[500] ;  /*  Allow for very long name with NT      */
+     BYTE      szText[600] ;  /*  Allow for very long name with NT      */
 #else
      BYTE      szText[133] ;
 #endif

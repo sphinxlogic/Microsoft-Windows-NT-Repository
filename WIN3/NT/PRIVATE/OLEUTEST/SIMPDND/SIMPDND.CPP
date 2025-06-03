@@ -30,6 +30,18 @@ extern "C" {
 }
 
 CSimpleApp FAR * lpCSimpleApp;
+BOOL fBeVerbose = FALSE;
+extern "C"
+void TestDebugOut(LPSTR psz)
+{
+    if (fBeVerbose)
+    {
+	OutputDebugStringA(psz);
+    }
+}
+
+BOOL gfUseEmptyEnumerator;
+
 
 //**********************************************************************
 //
@@ -83,11 +95,18 @@ int PASCAL WinMain
 {
     MSG msg;
     LPSTR	pszTemp;
+    fBeVerbose = GetProfileInt("OLEUTEST","BeVerbose",0);
+
+    if(fBeVerbose == 0)
+    {
+	fBeVerbose = GetProfileInt("OLEUTEST","simpdnd",0);
+    }
 
     // needed for LRPC to work properly...
     SetMessageQueue(96);
 
     lpCSimpleApp = new CSimpleApp;
+
 
     if (!lpCSimpleApp)
     {
@@ -109,6 +128,12 @@ int PASCAL WinMain
     {
     	//we were launched by the test driver
 	lpCSimpleApp->m_hDriverWnd = (HWND)strtoul(pszTemp+8, NULL, 10);
+    }
+
+    // check for the -empty flag (use empty enumerator)
+    if( strstr(lpCmdLine, "-empty") )
+    {
+	gfUseEmptyEnumerator = TRUE;
     }
 
     // app initialization
@@ -473,3 +498,5 @@ long FAR PASCAL EXPORT DocWndProc(HWND hWnd, UINT message, WPARAM wParam,
     }
     return (NULL);
 }
+
+

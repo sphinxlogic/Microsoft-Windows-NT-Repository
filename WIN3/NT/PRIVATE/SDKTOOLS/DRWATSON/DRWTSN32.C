@@ -32,6 +32,12 @@ Environment:
 #include "resource.h"
 
 
+#define MAX_SYMNAME_SIZE  1024
+CHAR symBuffer[sizeof(IMAGEHLP_SYMBOL)+MAX_SYMNAME_SIZE];
+PIMAGEHLP_SYMBOL sym = (PIMAGEHLP_SYMBOL) symBuffer;
+
+
+
 int _CRTAPI1
 main( int argc, char *argv[] )
 
@@ -57,6 +63,10 @@ Return Value:
     HANDLE  hEventToSignal = 0;
     BOOLEAN rc;
 
+
+    sym->SizeOfStruct  = sizeof(IMAGEHLP_SYMBOL);
+    sym->MaxNameLength = MAX_SYMNAME_SIZE;
+
     rc = GetCommandLineArgs( &dwPidToDebug, &hEventToSignal );
 
     if (dwPidToDebug > 0) {
@@ -69,4 +79,3 @@ Return Value:
 
     return 0;
 }
-

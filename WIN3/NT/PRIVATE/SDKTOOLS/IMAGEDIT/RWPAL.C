@@ -74,7 +74,7 @@ VOID LoadColorFile(VOID)
 {
     HFILE hf;
     OFSTRUCT OfStruct;
-    struct stat FileStatus;
+    struct _stat FileStatus;
     DWORD argb[COLORSMAX];
     UINT cbRead;
     INT i;
@@ -91,7 +91,7 @@ VOID LoadColorFile(VOID)
         return;
     }
 
-    fstat(HFILE2INT(hf, O_RDONLY), &FileStatus);
+    _fstat(HFILE2INT(hf, O_RDONLY), &FileStatus);
 
     if (FileStatus.st_size != CBCOLORFILE) {
         Message(MSG_BADPALFILE, szFileName);

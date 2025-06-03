@@ -1,9 +1,8 @@
-@if "%_echo%" == "" echo off
 @rem
 @rem If no drive has been specified for the NT development tree, assume
 @rem C:.  To override this, place a SET _NTDRIVE=X: in your CONFIG.SYS
 @rem
-if "%_NTDRIVE%" == "" set _NTDRIVE=C:
+if "%_NTDRIVE%" == "" set _NTDRIVE=W:
 @rem
 @rem If no directory has been specified for the NT development tree, assume
 @rem \nt.  To override this, place a SET _NTROOT=\xt in your CONFIG.SYS

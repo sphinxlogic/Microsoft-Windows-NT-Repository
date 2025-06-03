@@ -551,6 +551,8 @@ Revision History:
 extern "C" {
 #define _IMAGEHLP_SOURCE_
 #include <imagehlp.h>
+#include "private.h"
+LONGLONG UndecTime;
 }
 
 #pragma inline_depth ( 3 )
@@ -565,7 +567,6 @@ extern "C" VOID FixAlign( DWORD );
 #define THREAD_LS __declspec(thread)
 #endif
 
-//static THREAD_LS  HeapManager *heap;
 static HeapManager *heap;
 
 static  pcchar_t          tokenTable[]    =
@@ -677,8 +678,8 @@ HeapManager::~HeapManager( )
 {
     while( tail = head ) {
         head = tail->next;
-        HeapFree( GetProcessHeap(), 0, tail->memory );
-        HeapFree( GetProcessHeap(), 0, tail );
+        MemFree(  tail->memory );
+        MemFree(  tail );
     }
 }
 
@@ -691,7 +692,7 @@ HeapManager::getMemory ( unsigned int sz )
     }
 
     // Allocate a new block
-    Block * pNewBlock = (Block *)HeapAlloc( GetProcessHeap(), 0, sizeof(Block) );
+    Block * pNewBlock = (Block *) MemAlloc( sizeof(Block) );
 
     // Did the allocation succeed ?  If so connect it up
     if (pNewBlock) {
@@ -703,7 +704,7 @@ HeapManager::getMemory ( unsigned int sz )
             head = tail = pNewBlock;
         }
         tail->next   = NULL;
-        tail->memory = HeapAlloc( GetProcessHeap(), 0, sz );
+        tail->memory = MemAlloc( sz );
 
     }
     else {
@@ -4127,46 +4128,84 @@ DNameStatusNode::getString ( pchar_t buf, int len ) const
 
 void * _cdecl operator new( unsigned int cb )
 {
-    return HeapAlloc( GetProcessHeap(), 0, cb );
+    return MemAlloc( cb );
 }
 
 void _cdecl operator delete( void * p )
 {
-    HeapFree( GetProcessHeap(), 0, p );
+    MemFree( p );
 }
 
-extern "C" {
+void * __cdecl AllocIt(unsigned int cb)
+{
+    return (MemAlloc(cb));
+}
 
-    DWORD
-    IMAGEAPI
-    WINAPI
-    UnDecorateSymbolName( LPSTR name,
-                          LPSTR outputString,
-                          DWORD maxStringLength,
-                          DWORD flags
-                        )
-    {
-        heap = new HeapManager;
-        //
-        // can't undecorate into a zero length buffer
-        //
-        if (maxStringLength == 0) {
-            return 0;
+void __cdecl FreeIt(void * p)
+{
+    MemFree(p);
+}
+
+HMODULE hMsvcrt;
+PUNDNAME pfUnDname;
+BOOL fLoadMsvcrtDLL;
+
+DWORD
+IMAGEAPI
+WINAPI
+UnDecorateSymbolName(
+    LPCSTR name,
+    LPSTR outputString,
+    DWORD maxStringLength,
+    DWORD flags
+    )
+{
+    //
+    // can't undecorate into a zero length buffer
+    //
+    if (!maxStringLength) {
+        return 0;
+    }
+
+    if (!fLoadMsvcrtDLL) {
+        // The first time we run, see if we can find the system undname.  Use
+        // GetModuleHandle to avoid any additionally overhead.
+
+        hMsvcrt = GetModuleHandle("msvcrt.dll");
+        if (!hMsvcrt) {
+            hMsvcrt = GetModuleHandle("msvcrt40.dll");
         }
+
+        if (hMsvcrt) {
+            pfUnDname = (PUNDNAME) GetProcAddress(hMsvcrt, "__unDName");
+        }
+        fLoadMsvcrtDLL = TRUE;
+    }
+
+    if (pfUnDname) {
+        if (flags & UNDNAME_NO_ARGUMENTS) {
+            flags |= UNDNAME_NAME_ONLY;
+            flags &= ~UNDNAME_NO_ARGUMENTS;
+        }
+
+        if (flags & UNDNAME_NO_SPECIAL_SYMS) {
+            flags &= ~UNDNAME_NO_SPECIAL_SYMS;
+        }
+        return(*(pfUnDname)(outputString, name, maxStringLength, AllocIt, FreeIt, (USHORT)flags));
+    } else {
+
+        heap = new HeapManager;
 
         //
         // make sure that the buffer is a big as the caller says
         //
-        try {
-            memset( outputString, 0, maxStringLength );
-        } except(EXCEPTION_EXECUTE_HANDLER) {
+        __try {
+            UnDecorator unDecorate( outputString, name, maxStringLength, flags );
+            pchar_t unDecoratedName = unDecorate;
+            delete heap;
+            return strlen(outputString);
+        } __except(EXCEPTION_EXECUTE_HANDLER) {
             return 0;
         }
-
-        UnDecorator unDecorate( outputString, name, maxStringLength, flags );
-        pchar_t unDecoratedName = unDecorate;
-        delete heap;
-        return strlen(outputString);
     }
 }
-

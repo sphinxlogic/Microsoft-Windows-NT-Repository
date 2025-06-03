@@ -249,9 +249,8 @@ RiInitializeRegistryFromAsciiFile(
                         }
                     }
                 else {
-                    if (RtlLargeIntegerGreaterThan( UnicodeFile.LastWriteTime,
-                                                    CurrentKey->LastWriteTime
-                                                  )
+                    if ( UnicodeFile.LastWriteTime.QuadPart >
+                         CurrentKey->LastWriteTime.QuadPart
                        ) {
                         Status = STATUS_UNSUCCESSFUL;
                         UpdateKeyValue = TRUE;
@@ -276,11 +275,10 @@ RiInitializeRegistryFromAsciiFile(
                     if (!NT_SUCCESS( Status ) ||
                         OldValueInformation->Type != ValueType ||
                         OldValueInformation->DataLength != ValueLength ||
-                        RtlCompareMemory( (PCHAR)OldValueInformation +
+                        !RtlEqualMemory( (PCHAR)OldValueInformation +
                                             OldValueInformation->DataOffset,
                                           ValueBuffer,
-                                          ValueLength
-                                        ) != ValueLength
+                                          ValueLength )
                        ) {
 
                         Status = EhSetValueKey( HiveHandle,

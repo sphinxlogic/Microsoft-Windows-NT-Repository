@@ -10,7 +10,8 @@ Class __LOCATOR
 
 #include "locquery.h"
 
-typedef struct CACHEDNODE {
+struct CACHEDNODE
+{
         struct CACHEDNODE * Next;
         struct CACHEDNODE * Previous;
         UICHAR              ServerName[UNCLEN+1];
@@ -20,7 +21,7 @@ typedef CACHEDNODE * PCACHEDNODE;
 
 #define CACHESIZE   4
 
-class NATIVE_CLASS_LOCATOR  
+class NATIVE_CLASS_LOCATOR
  {
 
   private:
@@ -72,11 +73,11 @@ class NATIVE_CLASS_LOCATOR
         LocatorStartTime           = CurrentTimeMS();
      }
 
-         
-     
+
+
  };
 
-class DOMAIN_MACHINE_LOCATOR: public NATIVE_CLASS_LOCATOR 
+class DOMAIN_MACHINE_LOCATOR: public NATIVE_CLASS_LOCATOR
  {
 
 
@@ -90,13 +91,13 @@ class DOMAIN_MACHINE_LOCATOR: public NATIVE_CLASS_LOCATOR
      {
 
              IamMasterLocatorFlag = (Type == ROLE_LMNT_PDC);
-           
+
 
      }
-     
+
  };
 
-class WRKGRP_MACHINE_LOCATOR: public NATIVE_CLASS_LOCATOR 
+class WRKGRP_MACHINE_LOCATOR: public NATIVE_CLASS_LOCATOR
  {
 
   private:
@@ -125,7 +126,7 @@ class WRKGRP_MACHINE_LOCATOR: public NATIVE_CLASS_LOCATOR
      void                  TryBroadcastingForMasterLocator(void);
      virtual void          CacheThisServer(PUZ ServerName);
 
-     
+
  };
 
 

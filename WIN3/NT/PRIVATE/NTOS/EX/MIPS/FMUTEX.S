@@ -58,7 +58,7 @@ FmIrql: .space  4                       // old IRQL value
 FmRa:   .space  4                       // saved return address
 FastMutexFrameLength:                   // frame length
 
-        NESTED_ENTRY_S(ExAcquireFastMutex, FastMutexFrameLength, zero, _TEXT$00)
+        NESTED_ENTRY(ExAcquireFastMutex, FastMutexFrameLength, zero)
 
         subu    sp,sp,FastMutexFrameLength // allocate stack frame
         sw      ra,FmRa(sp)             // save return address
@@ -157,7 +157,7 @@ FastMutexFrameLength:                   // frame length
 //
 //--
 
-        NESTED_ENTRY_S(ExReleaseFastMutex, FastMutexFrameLength, zero, _TEXT$00)
+        NESTED_ENTRY(ExReleaseFastMutex, FastMutexFrameLength, zero)
 
         subu    sp,sp,FastMutexFrameLength // allocate stack frame
         sw      ra,FmRa(sp)             // save return address
@@ -236,7 +236,7 @@ FastMutexFrameLength:                   // frame length
 //
 //--
 
-        LEAF_ENTRY_S(ExTryToAcquireFastMutex, _TEXT$00)
+        LEAF_ENTRY(ExTryToAcquireFastMutex)
 
         li      a1,APC_LEVEL            // set new IRQL level
         lbu     t0,KiPcr + PcIrqlTable(a1) // get translation table entry value
@@ -302,7 +302,7 @@ FastMutexFrameLength:                   // frame length
 //
 //--
 
-        NESTED_ENTRY_S(ExAcquireFastMutexUnsafe, FastMutexFrameLength, zero, _TEXT$00)
+        NESTED_ENTRY(ExAcquireFastMutexUnsafe, FastMutexFrameLength, zero)
 
         subu    sp,sp,FastMutexFrameLength // allocate stack frame
         sw      ra,FmRa(sp)             // save return address
@@ -379,7 +379,7 @@ FastMutexFrameLength:                   // frame length
 //
 //--
 
-        NESTED_ENTRY_S(ExReleaseFastMutexUnsafe, FastMutexFrameLength, zero, _TEXT$00)
+        NESTED_ENTRY(ExReleaseFastMutexUnsafe, FastMutexFrameLength, zero)
 
         subu    sp,sp,FastMutexFrameLength // allocate stack frame
         sw      ra,FmRa(sp)             // save return address

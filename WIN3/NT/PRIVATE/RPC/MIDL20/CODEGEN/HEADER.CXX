@@ -33,7 +33,7 @@
  *  externs
  ***************************************************************************/
 extern  CMD_ARG             *   pCommand;
-
+
 
 CG_STATUS
 CG_OBJECT_INTERFACE::GenHeader(
@@ -64,61 +64,63 @@ CG_OBJECT_INTERFACE::GenHeader(
 ----------------------------------------------------------------------------*/
 {
     node_interface *    pInterface = (node_interface *) GetType();
-    ITERATOR            I;
     ISTREAM *           pStream = pCCB->GetStream();
 	char			*	pName	= pInterface->GetSymName();
 
-    //Initialize the CCB for this interface.
-    InitializeCCB(pCCB);
+    if (!pInterface->PrintedDef())
+    {
 
-	// put out the interface guards
-	pStream->Write("\n#ifndef __");
-	pStream->Write( pName );
-	pStream->Write( "_INTERFACE_DEFINED__\n" );
+        //Initialize the CCB for this interface.
+        InitializeCCB(pCCB);
 
-	pStream->Write( "#define __");
-	pStream->Write( pName );
-	pStream->Write( "_INTERFACE_DEFINED__\n" );
+	    // put out the interface guards
+	    pStream->Write("\n#ifndef __");
+	    pStream->Write( pName );
+	    pStream->Write( "_INTERFACE_DEFINED__\n" );
 
-    // Print out the declarations of the types
-    pStream->NewLine();
-    pInterface->PrintType( PRT_INTERFACE | PRT_OMIT_PROTOTYPE, pStream, 0);
-    Out_IID(pCCB);
+	    pStream->Write( "#define __");
+	    pStream->Write( pName );
+	    pStream->Write( "_INTERFACE_DEFINED__\n" );
+
+        // Print out the declarations of the types
+        pStream->NewLine();
+        pInterface->PrintType( PRT_INTERFACE | PRT_OMIT_PROTOTYPE, pStream, 0);
+        Out_IID(pCCB);
     
-	// print out the vtable/class definitions
-    pStream->NewLine();
-    pStream->Write("#if defined(__cplusplus) && !defined(CINTERFACE)");
+	    // print out the vtable/class definitions
+        pStream->NewLine();
+        pStream->Write("#if defined(__cplusplus) && !defined(CINTERFACE)");
 
-    pStream->IndentInc();
-    CPlusPlusLanguageBinding(pCCB);
-    pStream->IndentDec();
+        pStream->IndentInc();
+        CPlusPlusLanguageBinding(pCCB);
+        pStream->IndentDec();
 
-    pStream->NewLine();
-    pStream->Write("#else \t/* C style interface */");
+        pStream->NewLine();
+        pStream->Write("#else \t/* C style interface */");
 
-    pStream->IndentInc();
-    CLanguageBinding(pCCB);
-    pStream->IndentDec();
+        pStream->IndentInc();
+        CLanguageBinding(pCCB);
+        pStream->IndentDec();
 
-	// print out the C Macros
-	CLanguageMacros( pCCB );
-    pStream->NewLine();
+	    // print out the C Macros
+	    CLanguageMacros( pCCB );
+        pStream->NewLine( 2 );
 
-    pStream->NewLine();
-    pStream->Write("#endif \t/* C style interface */");
-    pStream->NewLine();
+        pStream->Write("#endif \t/* C style interface */");
+        pStream->NewLine( 2 );
     
-	// print out the prototypes for the proxy and stub routines
-    pStream->NewLine();
-    ProxyPrototypes(pCCB);
-    pStream->NewLine();
+	    // print out the prototypes for the proxy and stub routines
+        ProxyPrototypes(pCCB);
+        pStream->NewLine();
 
-	// put out the trailing interface guard
-	pStream->Write( "\n#endif \t/* __");
-	pStream->Write( pName );
-	pStream->Write( "_INTERFACE_DEFINED__ */\n" );
+	    // put out the trailing interface guard
+	    pStream->Write( "\n#endif \t/* __");
+	    pStream->Write( pName );
+	    pStream->Write( "_INTERFACE_DEFINED__ */\n" );
 
-    pStream->NewLine();
+        pStream->NewLine();
+        pInterface->SetPrintedDef();
+    }
     return CG_OK;
 }
 
@@ -145,11 +147,28 @@ CG_OBJECT_INTERFACE::CPlusPlusLanguageBinding(CCB *pCCB)
     }
 
     pStream->NewLine();
-    pStream->Write("{");
+    pStream->Write('{');
     pStream->NewLine();
     pStream->Write("public:");
     pStream->IndentInc();
-    PrintMemberFunctions( pStream );
+
+    if( ! pBaseCG )
+        {
+        // For IUnknown only and only on PowerMac the following macro
+        // would add a dummy entry, otherwise it's empty.
+
+        pStream->NewLine();
+        pStream->Write("BEGIN_INTERFACE");
+        }
+
+    PrintMemberFunctions( pStream, TRUE );
+
+    if( ! pBaseCG )
+        {
+        pStream->NewLine();
+        pStream->Write("END_INTERFACE");
+        }
+
     pStream->IndentDec();
     pStream->NewLine();
     pStream->Write("};");
@@ -160,7 +179,8 @@ CG_OBJECT_INTERFACE::CPlusPlusLanguageBinding(CCB *pCCB)
 
 STATUS_T 
 CG_OBJECT_INTERFACE::PrintMemberFunctions(
-    ISTREAM       * pStream) 
+    ISTREAM       * pStream,
+    BOOL			fAbstract) 
 /*++
 
 Routine Description:
@@ -170,7 +190,8 @@ Routine Description:
 
 Arguments:
 
-    pStream - Specifies the output stream.
+    pStream 	- Specifies the output stream.
+	fAbstract	- Specifies whether the methods should be abstract ( = 0 ).
 
 --*/
 {
@@ -185,16 +206,22 @@ Arguments:
     pProc = (CG_OBJECT_PROC *) GetChild();
     while( pProc )
         {
-        pN = pProc->GetType();
+        if ( !pProc->SupressHeader())
+            {
+            pN = pProc->GetType();
 
-        //Assume this is a pure virtual function.
-        // use the call_as form, if any
-        pStream->NewLine();
-        pStream->Write("virtual ");
-        pN->PrintType( PRT_PROTOTYPE | PRT_CALL_AS | PRT_FORCE_CALL_CONV, pStream, 0 );
-        pStream->Write(" = 0;");
-        pStream->NewLine();
-
+            //Assume this is a pure virtual function.
+            // use the call_as form, if any
+            pStream->NewLine();
+            pStream->Write("virtual ");
+            pN->PrintType( PRT_PROTOTYPE | PRT_CALL_AS | PRT_FORCE_CALL_CONV, pStream, 0 );
+            if ( fAbstract) 
+        	    pStream->Write(" = 0;");
+		    else
+			    pStream->Write(";");
+            pStream->NewLine();
+            }
+ 
         pProc = (CG_OBJECT_PROC *) pProc->GetSibling();
         }
     return STATUS_OK;
@@ -208,7 +235,12 @@ CG_OBJECT_PROC::PrintVtableEntry(
     ISTREAM *   pStream = pCCB->GetStream();
     node_id *   pTempID;
     char    *   pName   = GetType()->GetSymName();
-    
+
+    if (SupressHeader())
+    {
+        return CG_OK;
+    }
+
     if ( GetCallAsName() )
         {
         pName = GetCallAsName();
@@ -229,43 +261,57 @@ CG_OBJECT_PROC::PrintVtableEntry(
 CG_STATUS
 CG_OBJECT_INTERFACE::CLanguageBinding(CCB *pCCB)
 {
+#ifndef DISABLE_C_OUTPUT
     ISTREAM *           pStream = pCCB->GetStream();
+	char	*			pName	= pCCB->GetInterfaceName();
 
-    pStream->NewLine();
-    pStream->NewLine();
+    pStream->NewLine( 2 );
     pStream->Write("typedef struct ");
-    pStream->Write(pCCB->GetInterfaceName());
+    pStream->Write(pName);
     pStream->Write("Vtbl");
     pStream->NewLine();
-    pStream->Write("{");
+    pStream->Write('{');
 
     
     pStream->IndentInc();
     pStream->NewLine();
 
+    // We need to emit a macro that creates a dummy entry on PowerMac.
+    // On Win32 the macro is defined as empty.
+
+    pStream->Write("BEGIN_INTERFACE");
+    pStream->NewLine();
+
+    // Now the regular entries.
+
     PrintVtableEntries( pCCB );
+
+    // This is a match for the other macro.
+
+    pStream->NewLine();
+    pStream->Write("END_INTERFACE");
 
     pStream->IndentDec();
     pStream->NewLine();
+
     pStream->Write("} ");
-    pStream->Write(pCCB->GetInterfaceName());
+    pStream->Write(pName);
     pStream->Write("Vtbl;");
-    pStream->NewLine();
-    pStream->NewLine();
+    pStream->NewLine( 2 );
     pStream->Write("interface ");
-    pStream->Write(pCCB->GetInterfaceName());
+    pStream->Write(pName);
     pStream->NewLine();
-    pStream->Write("{");
+    pStream->Write('{');
     pStream->IndentInc();
     pStream->NewLine();
     pStream->Write("CONST_VTBL struct ");
-    pStream->Write(pCCB->GetInterfaceName());
+    pStream->Write(pName);
     pStream->Write("Vtbl __RPC_FAR *lpVtbl;");
     pStream->IndentDec();
     pStream->NewLine();
     pStream->Write("};");
-    pStream->NewLine();
-    pStream->NewLine();
+    pStream->NewLine( 2 );
+#endif
     return CG_OK;
 }
 
@@ -294,8 +340,7 @@ Arguments:
     ISTREAM             *   pStream = pCCB->GetStream();
     CG_OBJECT_PROC      *   pProcCG;
     char *                  pszName;
-    ITERATOR                I;
-	char					FName[ _MAX_FNAME ];
+    CG_ITERATOR				I;
 
     pszName = GetType()->GetSymName();
     assert (pszName != (char *)0);
@@ -303,17 +348,20 @@ Arguments:
     GetMembers( I );
     while( ITERATOR_GETNEXT( I, pProcCG ) )
         {
-        //print proxy function prototype
-        pStream->NewLine();
-        pProcCG->Out_ProxyFunctionPrototype(pCCB, 
-                                   PRT_TRAILING_SEMI );
+        if (!pProcCG->SupressHeader())
+            {
+            //print proxy function prototype
+            pStream->NewLine();
+            pProcCG->Out_ProxyFunctionPrototype(pCCB, 
+                                       PRT_TRAILING_SEMI );
 
-        //print stub function prototype
-        pStream->NewLine();
-        pProcCG->Out_StubFunctionPrototype( pCCB );
-        pStream->Write(";");
+            //print stub function prototype
+            pStream->NewLine();
+            pProcCG->Out_StubFunctionPrototype( pCCB );
+            pStream->Write(';');
     
-        pStream->NewLine();
+            pStream->NewLine();
+            }
         }
     pStream->NewLine();
 
@@ -339,9 +387,10 @@ Arguments:
 
 --*/
 {
+#ifndef DISABLE_C_OUTPUT
     ISTREAM             *   pStream = pCCB->GetStream();
     CG_OBJECT_PROC      *   pProcCG;
-    ITERATOR                I;
+    CG_ITERATOR        		I;
 
 	// print inherited methods ( with our current ccb intf name )
 	if ( GetBaseInterfaceCG() )                    
@@ -356,7 +405,7 @@ Arguments:
 
         }
     pStream->NewLine();
-    
+#endif    
     return CG_OK;
 }
 
@@ -364,10 +413,10 @@ Arguments:
 CG_STATUS
 CG_OBJECT_INTERFACE::CLanguageMacros(CCB *pCCB)
 {
+#ifndef DISABLE_C_OUTPUT
     ISTREAM *           pStream = pCCB->GetStream();
 
-    pStream->NewLine();
-    pStream->NewLine();
+    pStream->NewLine( 2 );
     pStream->Write("#ifdef COBJMACROS");
     pStream->NewLine();
 
@@ -376,6 +425,7 @@ CG_OBJECT_INTERFACE::CLanguageMacros(CCB *pCCB)
     pStream->NewLine();
     pStream->Write("#endif /* COBJMACROS */");
     pStream->NewLine();
+#endif
     return CG_OK;
 }
 

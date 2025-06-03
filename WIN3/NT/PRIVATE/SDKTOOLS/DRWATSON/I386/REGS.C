@@ -31,15 +31,7 @@ Environment:
 
 
 
-PUCHAR RegNameFromIndex (ULONG index);
 ULONG  GetDregValue (PDEBUGPACKET dp, ULONG index);
-void   OutputOneReg (PDEBUGPACKET dp, ULONG regnum);
-void   OutputAllRegs(PDEBUGPACKET dp);
-ULONG  GetRegString (PUCHAR pszString);
-ULONG  GetRegFlagValue (PDEBUGPACKET dp, ULONG regnum);
-ULONG  GetRegValue (PDEBUGPACKET dp, ULONG regnum);
-
-
 
 
 
@@ -186,10 +178,10 @@ struct SubReg subregname[] = {
         { REGEFL, 19,      1 }          //  VIF (virtual interrupt flag)
         };
 
-ULONG
+DWORDLONG
 GetRegFlagValue (PDEBUGPACKET dp, ULONG regnum)
 {
-    ULONG value;
+    DWORDLONG value;
 
     if (regnum < FLAGBASE)
         value = GetRegValue(dp, regnum);
@@ -201,8 +193,11 @@ GetRegFlagValue (PDEBUGPACKET dp, ULONG regnum)
     return value;
 }
 
-ULONG
-GetRegValue (PDEBUGPACKET dp, ULONG regnum)
+DWORDLONG
+GetRegValue (
+    PDEBUGPACKET dp,
+    ULONG regnum
+    )
 {
     switch (regnum) {
         case REGGS:
@@ -282,71 +277,75 @@ GetRegString (PUCHAR pszString)
 {
     ULONG   count;
 
-    for (count = 0; count < REGNAMESIZE; count++)
-        if (!strcmp(pszString, regname[count].psz))
+    for (count = 0; count < REGNAMESIZE; count++) {
+        if (!strcmp(pszString, regname[count].psz)) {
             return regname[count].value;
+        }
+    }
     return (ULONG)-1;
 }
 
 void
-OutputAllRegs( PDEBUGPACKET dp )
+OutputAllRegs( PDEBUGPACKET dp, BOOL Show64 )
 {
     lprintfs("eax=%08lx ebx=%08lx ecx=%08lx edx=%08lx esi=%08lx edi=%08lx\r\n",
-                GetRegValue(dp,REGEAX),
-                GetRegValue(dp,REGEBX),
-                GetRegValue(dp,REGECX),
-                GetRegValue(dp,REGEDX),
-                GetRegValue(dp,REGESI),
-                GetRegValue(dp,REGEDI));
+                (DWORD)GetRegValue(dp,REGEAX),
+                (DWORD)GetRegValue(dp,REGEBX),
+                (DWORD)GetRegValue(dp,REGECX),
+                (DWORD)GetRegValue(dp,REGEDX),
+                (DWORD)GetRegValue(dp,REGESI),
+                (DWORD)GetRegValue(dp,REGEDI));
 
     lprintfs("eip=%08lx esp=%08lx ebp=%08lx iopl=%1lx "
         "%s %s %s %s %s %s %s %s %s %s\r\n",
-                GetRegValue(dp,REGEIP),
-                GetRegValue(dp,REGESP),
-                GetRegValue(dp,REGEBP),
-                GetRegFlagValue(dp,FLAGIOPL),
-        GetRegFlagValue(dp,FLAGVIP) ? "vip" : "   ",
-        GetRegFlagValue(dp,FLAGVIF) ? "vif" : "   ",
-        GetRegFlagValue(dp,FLAGOF) ? "ov" : "nv",
-        GetRegFlagValue(dp,FLAGDF) ? "dn" : "up",
-        GetRegFlagValue(dp,FLAGIF) ? "ei" : "di",
-        GetRegFlagValue(dp,FLAGSF) ? "ng" : "pl",
-        GetRegFlagValue(dp,FLAGZF) ? "zr" : "nz",
-        GetRegFlagValue(dp,FLAGAF) ? "ac" : "na",
-        GetRegFlagValue(dp,FLAGPF) ? "po" : "pe",
-        GetRegFlagValue(dp,FLAGCF) ? "cy" : "nc");
+                (DWORD)GetRegValue(dp,REGEIP),
+                (DWORD)GetRegValue(dp,REGESP),
+                (DWORD)GetRegValue(dp,REGEBP),
+                (DWORD)GetRegFlagValue(dp,FLAGIOPL),
+        (DWORD)GetRegFlagValue(dp,FLAGVIP) ? "vip" : "   ",
+        (DWORD)GetRegFlagValue(dp,FLAGVIF) ? "vif" : "   ",
+        (DWORD)GetRegFlagValue(dp,FLAGOF) ? "ov" : "nv",
+        (DWORD)GetRegFlagValue(dp,FLAGDF) ? "dn" : "up",
+        (DWORD)GetRegFlagValue(dp,FLAGIF) ? "ei" : "di",
+        (DWORD)GetRegFlagValue(dp,FLAGSF) ? "ng" : "pl",
+        (DWORD)GetRegFlagValue(dp,FLAGZF) ? "zr" : "nz",
+        (DWORD)GetRegFlagValue(dp,FLAGAF) ? "ac" : "na",
+        (DWORD)GetRegFlagValue(dp,FLAGPF) ? "po" : "pe",
+        (DWORD)GetRegFlagValue(dp,FLAGCF) ? "cy" : "nc");
     lprintfs("cs=%04lx  ss=%04lx  ds=%04lx  es=%04lx  fs=%04lx  gs=%04lx"
         "             efl=%08lx\r\n",
-                GetRegValue(dp,REGCS),
-                GetRegValue(dp,REGSS),
-                GetRegValue(dp,REGDS),
-                GetRegValue(dp,REGES),
-                GetRegValue(dp,REGFS),
-                GetRegValue(dp,REGGS),
-        GetRegFlagValue(dp,REGEFL));
+                (DWORD)GetRegValue(dp,REGCS),
+                (DWORD)GetRegValue(dp,REGSS),
+                (DWORD)GetRegValue(dp,REGDS),
+                (DWORD)GetRegValue(dp,REGES),
+                (DWORD)GetRegValue(dp,REGFS),
+                (DWORD)GetRegValue(dp,REGGS),
+        (DWORD)GetRegFlagValue(dp,REGEFL));
     lprintfs("\r\n\r\n");
 }
 
 void
-OutputOneReg (PDEBUGPACKET dp, ULONG regnum)
+OutputOneReg (PDEBUGPACKET dp, ULONG regnum, BOOL Show64)
 {
-    ULONG value;
+    DWORD value;
 
-    value = GetRegFlagValue(dp,regnum);
-    if (regnum < FLAGBASE)
+    value = (DWORD)GetRegFlagValue(dp,regnum);
+    if (regnum < FLAGBASE) {
         lprintfs("%08lx\r\n", value);
-    else
+    } else {
         lprintfs("%lx\r\n", value);
+    }
 }
 
 ULONG
 GetDregValue (PDEBUGPACKET dp, ULONG index)
 {
-    if (index < 4)
+    if (index < 4) {
         index += REGDR0;
-    else
+    } else {
         index += REGDR6 - 6;
-    return GetRegValue(dp,index);
+    }
+    return (DWORD)GetRegValue(dp,index);
 }
 
 PUCHAR
@@ -354,8 +353,10 @@ RegNameFromIndex (ULONG index)
 {
     ULONG    count;
 
-    for (count = 0; count < REGNAMESIZE; count++)
-        if (regname[count].value == index)
+    for (count = 0; count < REGNAMESIZE; count++) {
+        if (regname[count].value == index) {
             return regname[count].psz;
+        }
+    }
     return NULL;
 }

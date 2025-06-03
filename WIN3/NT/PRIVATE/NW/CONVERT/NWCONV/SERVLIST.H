@@ -5,30 +5,26 @@
 #ifndef _HSERVLIST_
 #define _HSERVLIST_
 
+#ifdef __cplusplus
+extern "C"{
+#endif
+
 /*+-------------------------------------------------------------------------+
   | User List                                                               |
   +-------------------------------------------------------------------------+*/
 typedef struct _USER_BUFFER {
-   TCHAR Name[MAX_USER_NAME_LEN];
+   TCHAR Name[MAX_USER_NAME_LEN + 1];
    TCHAR NewName[MAX_USER_NAME_LEN + MAX_UCONST_LEN];
-   
+   TCHAR Password[MAX_PW_LEN + 1];
+
    USHORT err;
    BOOL Overwrite;
    BOOL IsNewName;
 } USER_BUFFER;
   
-//typedef struct _USER_LIST {
-//   ULONG Count;
-//   USER_BUFFER UserBuffer[];
-//} USER_LIST;
-
 typedef struct _USER_LIST {
-   TCHAR Name[MAX_USER_NAME_LEN];
-   TCHAR NewName[MAX_USER_NAME_LEN + MAX_UCONST_LEN];
-   
-   USHORT err;
-   BOOL Overwrite;
-   BOOL IsNewName;
+   ULONG Count;
+   USER_BUFFER UserBuffer[];
 } USER_LIST;
 
 
@@ -36,24 +32,16 @@ typedef struct _USER_LIST {
   | Group List                                                              |
   +-------------------------------------------------------------------------+*/
 typedef struct _GROUP_BUFFER {
-   TCHAR Name[MAX_GROUP_NAME_LEN];
+   TCHAR Name[MAX_GROUP_NAME_LEN + 1];
    TCHAR NewName[MAX_GROUP_NAME_LEN + MAX_UCONST_LEN];
    
    USHORT err;
    BOOL IsNewName;
 } GROUP_BUFFER;
 
-//typedef struct _GROUP_LIST {
-//   ULONG Count;
-//   GROUP_BUFFER GroupBuffer[];
-//} GROUP_LIST;
-
 typedef struct _GROUP_LIST {
-   TCHAR Name[MAX_GROUP_NAME_LEN];
-   TCHAR NewName[MAX_GROUP_NAME_LEN + MAX_UCONST_LEN];
-   
-   USHORT err;
-   BOOL IsNewName;
+   ULONG Count;
+   GROUP_BUFFER GroupBuffer[];
 } GROUP_LIST;
 
 
@@ -89,7 +77,7 @@ typedef struct _SHARE_BUFFER {
    
    USHORT Index;
    
-   TCHAR Name[MAX_SHARE_NAME_LEN];
+   TCHAR Name[MAX_SHARE_NAME_LEN + 1];
    BOOL Convert;
    BOOL HiddenFiles;
    BOOL SystemFiles;
@@ -180,6 +168,7 @@ typedef struct _SOURCE_SERVER_BUFFER {
    UINT Type;                    // Type of server (NetWare only for now)
    BYTE VerMaj;
    BYTE VerMin;
+   LPTSTR LName;
    LPTSTR Name;
    SHARE_LIST *ShareList;
 } SOURCE_SERVER_BUFFER;
@@ -197,6 +186,7 @@ typedef struct _DEST_SERVER_BUFFER {
    DWORD Type;
    DWORD VerMaj;
    DWORD VerMin;
+   LPTSTR LName;        // Name with double whack pre-pended
    LPTSTR Name;
    SHARE_LIST *ShareList;
 
@@ -205,6 +195,7 @@ typedef struct _DEST_SERVER_BUFFER {
    VIRTUAL_SHARE_BUFFER *VShareEnd;
    ULONG UseCount;
    BOOL IsNTAS;
+   BOOL IsFPNW;
    BOOL InDomain;
    DOMAIN_BUFFER *Domain;
    DRIVE_LIST *DriveList;
@@ -212,24 +203,24 @@ typedef struct _DEST_SERVER_BUFFER {
 
 
 /*+-------------------------------------------------------------------------+
-  | Convert List                                                            |
-  |                                                                         |
-  |   This is the main data structure that everything links off of.  The    |
-  |   ConvertOptions is a void type to allow it to be based on the type     |
-  |   of server being converted.  This allows the program to be (relatively)|
-  |   easily modified to work with other source server types (like          |
-  |   LAN Server).                                                          |
-  |                                                                         |
-  |   The Server list constructs (SOURCE_SERVER_BUFFER and                  |
-  |   DEST_SERVER_BUFFER) are kept in addition to this, but this contains   |
-  |   some links to those structures.                                       |
-  |                                                                         |
+  | Convert List
+  |
+  |   This is the main data structure that everything links off of.  The
+  |   ConvertOptions is a void type to allow it to be based on the type
+  |   of server being converted.  This allows the program to be (relatively)
+  |   easily modified to work with other source server types (like
+  |   LAN Server).
+  |
+  |   The Server list constructs (SOURCE_SERVER_BUFFER and
+  |   DEST_SERVER_BUFFER) are kept in addition to this, but this contains
+  |   some links to those structures.
+  |
   +-------------------------------------------------------------------------+*/
 typedef struct _CONVERT_LIST {
    struct _CONVERT_LIST *next;
    struct _CONVERT_LIST *prev;
    SOURCE_SERVER_BUFFER *SourceServ;
-   DEST_SERVER_BUFFER *DestServ;
+   DEST_SERVER_BUFFER *FileServ;
 
    void *ConvertOptions;
    void *FileOptions;
@@ -295,6 +286,8 @@ void ConvertListLoadAll(HANDLE hFile);
 void ConvertListFixup(HWND hWnd);
 void ConvertListLog();
 
+LPTSTR UserServerNameGet(DEST_SERVER_BUFFER *DServ, void *ConvOpt);
+
 // Internal Data Structures
 extern UINT NumServerPairs;
 extern CONVERT_LIST *ConvertListStart;
@@ -311,7 +304,8 @@ extern DEST_SERVER_BUFFER *DServListCurrent;
 extern DOMAIN_BUFFER *DomainListStart;
 extern DOMAIN_BUFFER *DomainListEnd;
 
-
+#ifdef __cplusplus
+}
 #endif
 
-
+#endif

@@ -263,12 +263,34 @@ ULONG FASTCALL WU32GetClipboardData(PVDMFRAME pFrame)
         case CF_WAVE:
         case CF_OWNERDISPLAY:
             hMem16 = WU32ICBGetHandle(parg16->f1);
-            if (!(hMem16)) {
+            if (!hMem16) {
                 hMem32 = GetClipboardData(WORD32(parg16->f1));
+
+                if (hMem16 = WU32ICBGetHandle(parg16->f1)) {
+
+                    //
+                    // We couldn't find the hMem16 using WU32ICBGetHandle
+                    // before we called Win32 GetClipboardData, but we can
+                    // now, so that means it was cut/copied from a task in
+                    // this WOW using delayed rendering, so that the actual
+                    // non-NULL hMem16 wasn't SetClipboardData until we
+                    // just called GetClipboardData.  Since we now have
+                    // a valid cached copy of the data in 16-bit land,
+                    // we can just return that.
+                    //
+
+                    break;
+                }
+
                 if (hMem32) {
                     lpMem32 = GlobalLock(hMem32);
                     cb = GlobalSize(hMem32);
-                    vp = GlobalAllocLock16(GMEM_MOVEABLE | GMEM_DDESHARE, cb, &hMem16);
+		    vp = GlobalAllocLock16(GMEM_MOVEABLE | GMEM_DDESHARE, cb, &hMem16);
+		    // 16-bit memory may have moved - refresh flat pointers
+		    FREEARGPTR(parg16);
+		    FREEVDMPTR(pFrame);
+		    GETFRAMEPTR(((PTD)CURRENTPTD())->vpStack, pFrame);
+		    GETARGPTR(pFrame, sizeof(GETCLIPBOARDDATA16), parg16);
                     if (vp) {
                         GETMISCPTR(vp, lpMem16);
                         RtlCopyMemory(lpMem16, lpMem32, cb);
@@ -279,6 +301,20 @@ ULONG FASTCALL WU32GetClipboardData(PVDMFRAME pFrame)
                     GlobalUnlock(hMem32);
                 }
 
+                WU32ICBStoreHandle(parg16->f1, hMem16);
+            }
+            break;
+
+        case CF_HDROP:
+            // This is the case when app is retrieving cf_hdrop from the 
+            // clipboard, thus we will convert the dropfiles structure
+            // from 32 to 16-bit one
+            hMem16 = WU32ICBGetHandle(parg16->f1);
+            if (!hMem16) {
+                hMem32 = GetClipboardData(WORD32(parg16->f1));
+                if (hMem32) {
+                    hMem16 = CopyDropFilesFrom32(hMem32);
+                }
                 WU32ICBStoreHandle(parg16->f1, hMem16);
             }
             break;
@@ -297,18 +333,45 @@ ULONG FASTCALL WU32GetClipboardData(PVDMFRAME pFrame)
             hMem16 = WU32ICBGetHandle(parg16->f1);
             if (!(hMem16)) {
                 hMem32 = GetClipboardData(WORD32(parg16->f1));
+
+                if (hMem16 = WU32ICBGetHandle(parg16->f1)) {
+
+                    //
+                    // We couldn't find the hMem16 using WU32ICBGetHandle
+                    // before we called Win32 GetClipboardData, but we can
+                    // now, so that means it was cut/copied from a task in
+                    // this WOW using delayed rendering, so that the actual
+                    // non-NULL hMem16 wasn't SetClipboardData until we
+                    // just called GetClipboardData.  Since we now have
+                    // a valid cached copy of the data in 16-bit land,
+                    // we can just return that.
+                    //
+
+                    break;
+                }
+
                 if (hMem32) {
                     lpMem32 = GlobalLock(hMem32);
                     vp = GlobalAllocLock16(GMEM_MOVEABLE | GMEM_DDESHARE, sizeof(METAFILEPICT16), &hMem16);
-                    if (vp) {
+		    // 16-bit memory may have moved - refresh flat pointers
+		    FREEARGPTR(parg16);
+		    FREEVDMPTR(pFrame);
+		    GETFRAMEPTR(((PTD)CURRENTPTD())->vpStack, pFrame);
+		    GETARGPTR(pFrame, sizeof(GETCLIPBOARDDATA16), parg16);
+		    if (vp) {
                         GETMISCPTR(vp, lpMem16);
                         FixMetafile32To16 ((LPMETAFILEPICT) lpMem32, (LPMETAFILEPICT16) lpMem16);
                         FREEMISCPTR(lpMem16);
 
                         hMeta32 = ((LPMETAFILEPICT) lpMem32)->hMF;
                         if (hMeta32) {
-                            hMeta16 = WinMetaFileFromHMF(hMeta32, FALSE);
-                        }
+			    hMeta16 = WinMetaFileFromHMF(hMeta32, FALSE);
+			    // 16-bit memory may have moved
+			    FREEARGPTR(parg16);
+			    FREEVDMPTR(pFrame);
+			    GETFRAMEPTR(((PTD)CURRENTPTD())->vpStack, pFrame);
+			    GETARGPTR(pFrame, sizeof(GETCLIPBOARDDATA16), parg16);
+			}
 
                         GETMISCPTR(vp, lpMem16);
                         STOREWORD(((LPMETAFILEPICT16) lpMem16)->hMF, hMeta16);
@@ -507,9 +570,37 @@ ULONG FASTCALL WU32IsClipboardFormatAvailable(PVDMFRAME pFrame)
 
     GETARGPTR(pFrame, sizeof(ISCLIPBOARDFORMATAVAILABLE16), parg16);
 
-    ul = GETBOOL16(IsClipboardFormatAvailable(
-            WORD32(parg16->f1)
-    ));
+    // Hack-a-roo!  PhotoShop 2.5 has a bug in its code for handling large DIB's
+    // on the clipboard and will fault if it encounters one.  On WFW, it usually
+    // won't encounter one because most apps (in this case alt-Prtscrn button)
+    // copy BITMAPS, not DIBS, to the clipboard.  On NT, anytime an app writes
+    // a BITMAP to the clipboard it gets converted to a DIB & vice versa-making
+    // more clipboard data formats available to inquiring apps.  Unfortunately,
+    // Photoshop checks for DIBS before BITMAPS and finds one on Win 
+    // Versions >= 4.0.                                             a-craigj
+
+    // if this is a DIB check && the app is PhotoShop...
+    if((WORD32(parg16->f1) == CF_DIB) && 
+       (CURRENTPTD()->dwWOWCompatFlagsEx & WOWCFEX_NODIBSHERE)) {
+
+        // ...see if there is a bitmap format available too
+        if(IsClipboardFormatAvailable(CF_BITMAP)) {
+
+            // if so return FALSE which will cause Photoshop to ask for a
+            // BITMAP format next
+            ul = FALSE;
+        }
+
+        // otherwise we'll check for a DIB anyway & hope it's a small one
+        else {
+            ul = GETBOOL16(IsClipboardFormatAvailable(CF_DIB));
+        }
+    }
+
+    // no hack path
+    else {
+        ul = GETBOOL16(IsClipboardFormatAvailable(WORD32(parg16->f1)));
+    }
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -743,7 +834,7 @@ ULONG FASTCALL WU32SetClipboardData(PVDMFRAME pFrame)
                     hMem32 = W32ConvertObjDescriptor((HANDLE) parg16->f2, CFOLE_ANSI_TO_UNICODE);
                 }
                 ul = (ULONG) SetClipboardData(WORD32(parg16->f1), hMem32);
-                WU32ICBStoreHandle(parg16->f1, parg16->f2);
+		WU32ICBStoreHandle(parg16->f1, parg16->f2);
                 break;
             }
 
@@ -774,6 +865,16 @@ ULONG FASTCALL WU32SetClipboardData(PVDMFRAME pFrame)
 
             ul = (ULONG) SetClipboardData(WORD32(parg16->f1), hMem32);
 
+            WU32ICBStoreHandle(parg16->f1, hMem16);
+            break;
+
+        case CF_HDROP:
+            // support cf_hdrop format by converting the dropfiles structure
+            hMem16 = parg16->f2;
+            if (hMem16) {
+                hMem32 = CopyDropFilesFrom16(hMem16);
+            }
+            ul = (ULONG)SetClipboardData(WORD32(parg16->f1), hMem32);
             WU32ICBStoreHandle(parg16->f1, hMem16);
             break;
 
@@ -920,6 +1021,13 @@ VOID WU32ICBStoreHandle(WORD wFormat, HMEM16 hMem16)
 
         ClipboardFormats.Pre2[wFormat] = hMem16;
     }
+    else if (wFormat == CF_HDROP) {
+
+        if (ClipboardFormats.hmem16Drop) {
+            GlobalUnlockFree16(GlobalLock16(ClipboardFormats.hmem16Drop, NULL));
+        }
+        ClipboardFormats.hmem16Drop = hMem16;
+    }
     else {
         Temp = ClipboardFormats.NewFormats;
         if (Temp) {
@@ -928,6 +1036,12 @@ VOID WU32ICBStoreHandle(WORD wFormat, HMEM16 hMem16)
             }
 
             if (Temp->Id == wFormat) {
+
+                // free a previous handle if it exists
+                if (Temp->hMem16) {
+                    GlobalUnlockFree16(GlobalLock16(Temp->hMem16, NULL));
+                }
+
                 Temp->hMem16 = hMem16;
             }
             else {
@@ -969,6 +1083,9 @@ HMEM16 WU32ICBGetHandle(WORD wFormat)
     else if ((wFormat >= CF_OWNERDISPLAY) && (wFormat <= CF_DSPMETAFILEPICT)) {
         wFormat = (wFormat & (WORD) 3);
         hMem16 = ClipboardFormats.Pre2[wFormat];
+    }
+    else if (wFormat == CF_HDROP) {
+        hMem16 = ClipboardFormats.hmem16Drop;
     }
     else {
         Temp = ClipboardFormats.NewFormats;
@@ -1044,6 +1161,12 @@ VOID W32EmptyClipboard ()
         }
     }
 
+    if (ClipboardFormats.hmem16Drop) {
+        GlobalUnlockFree16(GlobalLock16(ClipboardFormats.hmem16Drop, NULL));
+    }
+    ClipboardFormats.hmem16Drop = 0;
+
+
     // These are the private registered data formats. This list is purged when
     // 32 bit USER purges its clipboard cache.
 
@@ -1078,6 +1201,8 @@ VOID InitCBFormats ()
     for (wFormat=0; wFormat < 4; wFormat++) {
         ClipboardFormats.Pre2[wFormat] = 0;
     }
+
+    ClipboardFormats.hmem16Drop = 0;
 
     // These are the private registered data formats.
 
@@ -1114,7 +1239,7 @@ HGLOBAL W32ConvertObjDescriptor(HANDLE hMem, UINT flag)
         }
     }
 
-    hMemOut = (*OleStringConversion[WOW_OLE_STRINGCONVERSION].lpfn) (hMem, flag);
+    hMemOut = (HANDLE) (*OleStringConversion[WOW_OLE_STRINGCONVERSION].lpfn) (hMem, flag);
 
     return (hMemOut);
 }

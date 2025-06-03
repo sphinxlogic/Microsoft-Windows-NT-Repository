@@ -168,8 +168,8 @@
 
 
 // convert an unicode string to ASCII string
-#define ConvertUnicodeStr(pNonUnicodeStr, pUnicodeStr)   \
-   wcstombs(pNonUnicodeStr, pUnicodeStr, lstrlen(pUnicodeStr) + 1)
+#define ConvertUnicodeStr(pOemStr, pUnicodeStr)   \
+   CharToOemBuff(pUnicodeStr, pOemStr, lstrlen(pUnicodeStr) + 1)
 
 #define CallWinHelp(ContextID)   \
    WinHelp(hWndMain, pszHelpFile, HELP_CONTEXT, ContextID) ;
@@ -388,4 +388,5 @@ void StringToWindowPlacement (LPTSTR lpszText,
 DWORD MenuIDToHelpID (DWORD MenuID) ;
 
 
-
+
+

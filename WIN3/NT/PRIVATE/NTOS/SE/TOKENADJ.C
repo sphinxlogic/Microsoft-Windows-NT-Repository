@@ -982,10 +982,7 @@ Return Value:
                 // Look for a comparison
                 //
 
-                if (RtlLargeIntegerEqualTo(
-                        CurrentPrivilege.Luid,
-                        NewState[NewIndex].Luid
-                        ) ) {
+                if (RtlEqualLuid(&CurrentPrivilege.Luid,&NewState[NewIndex].Luid)) {
 
                     Found = TRUE;
                     MatchCount += 1;
@@ -1021,9 +1018,8 @@ Return Value:
                             // change its corresponding bit in TokenFlags
                             //
 
-                            if (RtlLargeIntegerEqualTo(
-                                    CurrentPrivilege.Luid,
-                                    SeChangeNotifyPrivilege)){
+                            if (RtlEqualLuid(&CurrentPrivilege.Luid,
+                                              &SeChangeNotifyPrivilege)) {
                                 Token->TokenFlags ^= TOKEN_HAS_TRAVERSE_PRIVILEGE;
                             }
 

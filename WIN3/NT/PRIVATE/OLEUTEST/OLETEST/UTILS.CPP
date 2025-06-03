@@ -131,4 +131,3 @@ void DumpFormatetc( FORMATETC *pformatetc, FILE *fp)
 	fprintf(fp, "tymed:     %s\n\n", szBuf);
 }
 	
-

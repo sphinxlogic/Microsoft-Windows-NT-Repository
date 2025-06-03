@@ -58,6 +58,7 @@ Initial revision.
 #define IDD_BKUP_CREATION_DATE      116
 #define IDD_BKUP_OWNER              117
 #define IDD_BKUP_REGISTRY           118
+#define IDD_XCHG_BKUP_METHOD        215
 #define IDD_BKUP_METHOD             216
 #define IDD_BKUP_TAPE_TEXT          217
 #define IDD_BKUP_TAPE_NAME_TEXT     218
@@ -70,5 +71,10 @@ Initial revision.
 #define IDD_BKUP_LOG_NONE           224   //DLGDVC
 
 #define IDD_BKUP_HARDCOMP           242
+#define IDD_BKUP_DRIVE_NAME_TEXT    243
+#define IDD_BKUP_DESC_TEXT          244
+#define IDD_BKUP_TYPE_TEXT          245
+#define IDD_BKUP_XCHG_NAME_TEXT     246
+#define IDD_BKUP_XCHG_NAME          247
 
 #endif

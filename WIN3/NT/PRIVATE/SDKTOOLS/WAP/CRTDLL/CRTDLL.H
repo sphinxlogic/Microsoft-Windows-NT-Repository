@@ -41,7 +41,6 @@
 #include <tchar.h>
 #include <time.h>
 #include <wchar.h>
-#include <wcstr.h>
 
 #include <sys\locking.h>
 #include <sys\stat.h>
@@ -55,4 +54,3 @@ int       _CRTAPI1 swscanf(const wchar_t *, const wchar_t *, ...);
 int       _CRTAPI1 wscanf(const wchar_t *, ...);
 
 
-

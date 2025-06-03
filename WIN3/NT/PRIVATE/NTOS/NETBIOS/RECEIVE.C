@@ -93,7 +93,7 @@ Return Value:
         OldIrql = LockedIrql;
     }
 
-    ppcb = FindCb( pfcb, pdncb);
+    ppcb = FindCb( pfcb, pdncb, FALSE);
 
     pdncb->irp = Irp;
     pdncb->pfcb = pfcb;
@@ -468,8 +468,6 @@ Return Value:
         pdncb->irp->MdlAddress,
         0,
         pdncb->ncb_length);
-
-    IoSetNextIrpStackLocation( pdncb->irp );
 
     pcb->ReceiveIndicated = 0;
 

@@ -1,1 +1,0 @@
-#include "..\alpha\ntdis.c"

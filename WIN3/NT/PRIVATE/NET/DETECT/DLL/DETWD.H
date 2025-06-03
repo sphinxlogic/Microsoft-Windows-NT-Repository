@@ -240,6 +240,12 @@ Revision History:
 #define    BOARD_16BIT           0x00000040    /* 16 bit capability */
 #define    PAGED_RAM             0x00000080    /* Is there RAM paging? */
 #define    PAGED_ROM             0x00000100    /* Is there ROM paging? */
+
+#define	   PCM_ADAPTER		 0x00000200    /* PCMCIA adapter */
+#define    LITE_VERSION          0x00000400    /* Reduced Feature Adapter */
+#define    NIC_SUPERSET          0x00000800    /* Superset of 790 */
+#define    NO_AUI_MEDIA          0x00004000    /* No AUI connector */
+
 #define    RAM_SIZE_UNKNOWN      0x00000000    /* 000 => Unknown RAM Size */
 #define    RAM_SIZE_RESERVED_1   0x00010000    /* 001 => Reserved */
 #define    RAM_SIZE_8K           0x00020000    /* 010 => 8k RAM */
@@ -262,22 +268,45 @@ Revision History:
 
 /* Word definitions for board types */
 
-#define    WD8003E     ETHERNET_MEDIA
-#define    WD8003EB    ETHERNET_MEDIA | INTERFACE_CHIP
-#define    WD8003EP    ETHERNET_MEDIA | INTERFACE_CHIP
-#define    WD8003WC    TWISTED_PAIR_MEDIA | INTERFACE_CHIP | ADVANCED_FEATURES
-#define    WD8013EW    EW_MEDIA | BOARD_16BIT | INTERFACE_CHIP
-#define    WD8013EPC   EW_MEDIA | BOARD_16BIT | INTERFACE_CHIP | ADVANCED_FEATURES
-#define    WD8013WC    TWISTED_PAIR_MEDIA | BOARD_16BIT | INTERFACE_CHIP | ADVANCED_FEATURES
-#define    WD8013EWC   EW_MEDIA | BOARD_16BIT | INTERFACE_CHIP | ADVANCED_FEATURES
-#define    WD8013W     TWISTED_PAIR_MEDIA | BOARD_16BIT | INTERFACE_CHIP
+#define    WD8003E     (ETHERNET_MEDIA)
+#define    WD8003EB    (ETHERNET_MEDIA | INTERFACE_CHIP)
+#define    WD8003EP    (ETHERNET_MEDIA | INTERFACE_CHIP)
+#define    WD8003WC    (TWISTED_PAIR_MEDIA | INTERFACE_CHIP | ADVANCED_FEATURES)
+#define    WD8013EW    (EW_MEDIA | BOARD_16BIT | INTERFACE_CHIP)
+#define    WD8013EPC   (EW_MEDIA | BOARD_16BIT | INTERFACE_CHIP | ADVANCED_FEATURES)
+#define    WD8013WC    (TWISTED_PAIR_MEDIA | BOARD_16BIT | INTERFACE_CHIP | ADVANCED_FEATURES)
+#define    WD8013EWC   (EW_MEDIA | BOARD_16BIT | INTERFACE_CHIP | ADVANCED_FEATURES)
+#define    WD8013W     (TWISTED_PAIR_MEDIA | BOARD_16BIT | INTERFACE_CHIP)
 
-#define    WD8003EBT   WD8003E        /* functionally identical to WD8003E */
-#define    WD8003S     STARLAN_MEDIA
-#define    WD8003SH    WD8003S        /* functionally identical to WD8003S */
-#define    WD8003WT    TWISTED_PAIR_MEDIA
-#define    WD8003W     TWISTED_PAIR_MEDIA | INTERFACE_CHIP
-#define    WD8003EW    EW_MEDIA | INTERFACE_CHIP
-#define    WD8013EBT   ETHERNET_MEDIA | BOARD_16BIT
-#define    WD8013EB    ETHERNET_MEDIA | BOARD_16BIT | INTERFACE_CHIP
+#define    WD8003EBT   (WD8003E)        /* functionally identical to WD8003E */
+#define    WD8003S     (STARLAN_MEDIA)
+#define    WD8003SH    (WD8003S)        /* functionally identical to WD8003S */
+#define    WD8003WT    (TWISTED_PAIR_MEDIA)
+#define    WD8003W     (TWISTED_PAIR_MEDIA | INTERFACE_CHIP)
+#define    WD8003EW    (EW_MEDIA | INTERFACE_CHIP)
+#define    WD8013EBT   (ETHERNET_MEDIA | BOARD_16BIT)
+#define    WD8013EB    (ETHERNET_MEDIA | BOARD_16BIT | INTERFACE_CHIP)
 
+// Not supported, yet.
+
+#define    WD8216T     (WD8013WC | PAGED_ROM | PAGED_RAM)
+#define	   WD8216      (WD8013EPC | PAGED_ROM | PAGED_RAM)
+#define	   WD8216C     (WD8216)
+#define	   WD8216LT    (WD8216T | LITE_VERSION)
+#define	   WD8216L     (WD8216 | LITE_VERSION)
+#define	   WD8216LC    (WD8216L)
+#define	   PCM10BT     (TWISTED_PAIR_MEDIA | PCM_ADAPTER | PAGED_RAM | ADVANCED_FEATURES)
+#define    WD8416T     (WD8216T | NIC_SUPERSET | NO_AUI_MEDIA)
+#define    WD8416B     (WD8216 | NIC_SUPERSET | NO_AUI_MEDIA)
+#define    WD8416BT    (WD8416B)
+#define    WD8416BA    (WD8216 | NIC_SUPERSET)
+#define    WD8416BTA   (WD8416BA)
+#define    WD8416TA    (WD8216T | NIC_SUPERSET)
+#define    WD8414T     (WD8416T | LITE_VERSION)
+
+#define    WD8414B     (WD8416B | LITE_VERSION)
+#define    WD8414BT    (WD8414B)
+
+#define    WD8414BA    (WD8416BA | LITE_VERSION)
+#define    WD8414BTA   (WD8414BA)
+#define    WD8414TA    (WD8416TA | LITE_VERSION)

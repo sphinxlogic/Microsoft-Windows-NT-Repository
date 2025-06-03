@@ -1,17 +1,7 @@
 /* sadmin [un]lock - [un]lock the status file for the project specified */
 
-#include "slm.h"
-#include "sys.h"
-#include "util.h"
-#include "stfile.h"
-#include "script.h"
-#include "ad.h"
-
-#include <signal.h>
-
-#include "proto.h"
-#include "sadproto.h"
-
+#include "precomp.h"
+#pragma hdrstop
 EnableAssert
 
 private F	FLocked(AD *pad);
@@ -92,7 +82,8 @@ AD *pad;
 
 	for (ied = 0; ied < pad->psh->iedMac; ied++)
 		{
-		if (pad->rged[ied].fLocked)
+                if ((!FIsFreeEdValid(pad->psh) || !pad->rged[ied].fFreeEd) &&
+                    pad->rged[ied].fLocked)
 			{
                         if (pad->psh->lck != lckEd)
                             FatalError(szBadLock);
@@ -129,7 +120,7 @@ AD *pad;
 			 */
 			}
 		else
-			{ 
+			{
 			/* Only the administrator can unlock it! */
 
 			char szAdmin[cchUserMax + 1];

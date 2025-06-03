@@ -89,6 +89,7 @@ static HANDLE CurrConsole;
 static HANDLE ViConsole,ConsoleIn;
 static HANDLE PrevConsole; // [jrm 6/93] Save previous screen buffer
 static DWORD OldConsoleMode;
+static DWORD ViConsoleInputMode;
 
 /*
  * inchar() - get a character from the keyboard
@@ -133,15 +134,15 @@ inchar()
 }
 
 #if 0
-        switch (c = getch()) {
+        switch (c = _getch()) {
         case 0x1e:
             return K_CGRAVE;
         case 0:             /* special key */
             if (State != NORMAL) {
-                c = getch();    /* throw away next char */
+                c = _getch();    /* throw away next char */
                 continue;   /* and loop for another char */
             }
-            switch (c = getch()) {
+            switch (c = _getch()) {
             case 0x50:
                 return K_DARROW;
             case 0x48:
@@ -313,7 +314,7 @@ useviconsole()
     CursorSize = P(P_CS);
     VisibleCursor();
     FlushConsoleInputBuffer(ConsoleIn);
-    SetConsoleMode(ConsoleIn,0);
+    SetConsoleMode(ConsoleIn,ViConsoleInputMode);
 }
 
 void
@@ -371,7 +372,19 @@ windinit()
                                coord,
                                &NumRead);
     GetConsoleMode(ConsoleIn,&OldConsoleMode);
-    SetConsoleMode(ConsoleIn,0);
+    ViConsoleInputMode = OldConsoleMode & ~(ENABLE_PROCESSED_INPUT |
+                                            ENABLE_LINE_INPUT |
+                                            ENABLE_ECHO_INPUT |
+                                            ENABLE_WINDOW_INPUT |
+                                            ENABLE_MOUSE_INPUT
+                                           );
+    SetConsoleMode(ConsoleIn,ViConsoleInputMode);
+
+
+
+
+
+
 
     setviconsoletitle();
 
@@ -563,7 +576,7 @@ int  async;
     }
 
     if (!*cmd) {
-        cmdline = strdup(shell);
+        cmdline = _strdup(shell);
     } else {
         cmdline = malloc(strlen(shell) + strlen(cmd) + 5);
         strcpy(cmdline, shell);
@@ -610,7 +623,9 @@ int  async;
         if (async) {
             status = 0;
         } else {
+            SetConsoleCtrlHandler(NULL, TRUE);
             WaitForSingleObject(pi.hProcess, INFINITE);
+            SetConsoleCtrlHandler(NULL, FALSE);
             GetExitCodeProcess(pi.hProcess, &status);
         }
         CloseHandle(pi.hProcess);
@@ -875,4 +890,3 @@ void HighlightCheck()
         CurHighlightColumn = -1;
     }
 }
-

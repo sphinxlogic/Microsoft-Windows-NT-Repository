@@ -19,19 +19,16 @@ Revision History:
 
 --*/
 
-#define _NTSYSTEM_     // So RtlImageDirectoryEntryToData will not be imported
-#define _IMAGEHLP_SOURCE_
+#include <private.h>
 
-#include <nt.h>
-#include <ntrtl.h>
-#include <nturtl.h>
-#include <windows.h>
-#include <imagehlp.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <cvexefmt.h>
 
-API_VERSION ApiVersion = { 3, 5, API_VERSION_NUMBER, 0 };
+API_VERSION ApiVersion = { (VER_PRODUCTVERSION_W >> 8), (VER_PRODUCTVERSION_W & 0xff), API_VERSION_NUMBER, 0 };
+
+//
+// If the app does not call ImagehlpApiVersionEx, always assume
+// that it is version 3.
+//
+API_VERSION AppVersion = { 3, 5, 3, 0 };
 
 LPSTR
 GetEnvVariable(
@@ -54,7 +51,7 @@ SplitSymbols(
     PIMAGE_NT_HEADERS NtHeaders;
     LPSTR ImageFileName;
     DWORD SizeOfSymbols, ImageNameOffset, DebugSectionStart;
-    PIMAGE_SECTION_HEADER DebugSection = NULL, RdataSection = NULL;
+    PIMAGE_SECTION_HEADER DebugSection = NULL;
     DWORD SectionNumber, BytesWritten, NewFileSize, HeaderSum, CheckSum;
     PIMAGE_DEBUG_DIRECTORY DebugDirectory, DebugDirectories, DbgDebugDirectories = NULL;
     IMAGE_DEBUG_DIRECTORY MiscDebugDirectory = {0};
@@ -67,7 +64,7 @@ SplitSymbols(
     DWORD  ExportedNamesSize;
     LPDWORD pp;
     LPSTR ExportedNames, Src, Dst;
-    DWORD i, RvaOffset, ExportDirectorySize;
+    DWORD i, j, RvaOffset, ExportDirectorySize;
     PFPO_DATA FpoTable;
     DWORD FpoTableSize;
     PIMAGE_RUNTIME_FUNCTION_ENTRY RuntimeFunctionTable, pSrc;
@@ -83,56 +80,61 @@ SplitSymbols(
     BOOL fNewCvData = FALSE;
     PCHAR  NewDebugData = NULL;
 
-
     ImageFileName = ImageName + strlen( ImageName );
     while (ImageFileName > ImageName) {
         if (ImageFileName[ -1 ] == '\\' ||
             ImageFileName[ -1 ] == '/' ||
-            ImageFileName[ -1 ] == ':'
-           ) {
+            ImageFileName[ -1 ] == ':' )
+        {
             break;
-            }
-        else {
+        } else {
             ImageFileName -= 1;
-            }
         }
+    }
 
     if (SymbolsPath == NULL ||
         SymbolsPath[ 0 ] == '\0' ||
-        SymbolsPath[ 0 ] == '.'
-       ) {
+        SymbolsPath[ 0 ] == '.' )
+    {
         strncpy( SymbolFilePath, ImageName, ImageFileName - ImageName );
         SymbolFilePath[ ImageFileName - ImageName ] = '\0';
         InsertExtensionSubDir = FALSE;
-        }
-    else {
+    } else {
         strcpy( SymbolFilePath, SymbolsPath );
         InsertExtensionSubDir = TRUE;
-        }
+    }
 
     Dst = SymbolFilePath + strlen( SymbolFilePath );
-    if (Dst > SymbolFilePath && Dst[-1] != '\\' && Dst[-1] != '/' && Dst[-1] != ':') {
+    if ((Dst > SymbolFilePath) &&
+        (Dst[-1] != '\\')  &&
+        (Dst[-1] != '/')   &&
+        (Dst[-1] != ':') )
+    {
         *Dst++ = '\\';
-        }
+    }
     ImageFilePathToSaveInImage = Dst;
     Src = strrchr( ImageFileName, '.' );
     if (Src != NULL && InsertExtensionSubDir) {
         while (*Dst = *++Src) {
             Dst += 1;
-            }
-        *Dst++ = '\\';
         }
+        *Dst++ = '\\';
+    }
 
     strcpy( Dst, ImageFileName );
     Dst = strrchr( Dst, '.' );
     if (Dst == NULL) {
         Dst = SymbolFilePath + strlen( SymbolFilePath );
-        }
-    strcpy( Dst, ".DBG" );
+    }
+    strcpy( Dst, ".dbg" );
 
-    //
-    // open and map the file.
-    //
+    // Make sure we can open the .dbg file before we continue...
+
+    if (!MakeSureDirectoryPathExists( SymbolFilePath ))
+        return FALSE;
+
+    // Now, open and map the input file.
+
     FileHandle = CreateFile( ImageName,
                              GENERIC_READ | GENERIC_WRITE,
                              FILE_SHARE_READ,
@@ -145,7 +147,7 @@ SplitSymbols(
 
     if (FileHandle == INVALID_HANDLE_VALUE) {
         return FALSE;
-        }
+    }
 
     hMappedFile = CreateFileMapping( FileHandle,
                                      NULL,
@@ -157,7 +159,7 @@ SplitSymbols(
     if (!hMappedFile) {
         CloseHandle( FileHandle );
         return FALSE;
-        }
+    }
 
     ImageBase = MapViewOfFile( hMappedFile,
                                FILE_MAP_WRITE,
@@ -169,45 +171,14 @@ SplitSymbols(
         CloseHandle( hMappedFile );
         CloseHandle( FileHandle );
         return FALSE;
-        }
+    }
 
     //
     // Everything is mapped. Now check the image and find nt image headers
     //
 
-    NtHeaders = RtlImageNtHeader( ImageBase );
+    NtHeaders = ImageNtHeader( ImageBase );
     if (NtHeaders == NULL) {
-        UnmapViewOfFile( ImageBase );
-        CloseHandle( hMappedFile );
-        CloseHandle( FileHandle );
-        SetLastError( ERROR_BAD_EXE_FORMAT );
-        return FALSE;
-        }
-
-    if (NtHeaders->OptionalHeader.MajorLinkerVersion < 2 ||
-        NtHeaders->OptionalHeader.MinorLinkerVersion < 5
-       ) {
-        UnmapViewOfFile( ImageBase );
-        CloseHandle( hMappedFile );
-        CloseHandle( FileHandle );
-        SetLastError( ERROR_BAD_EXE_FORMAT );
-        return FALSE;
-        }
-
-    if (NtHeaders->FileHeader.Characteristics & IMAGE_FILE_DEBUG_STRIPPED) {
-        UnmapViewOfFile( ImageBase );
-        CloseHandle( hMappedFile );
-        CloseHandle( FileHandle );
-        SetLastError( ERROR_ALREADY_ASSIGNED );
-        return FALSE;
-        }
-
-    DebugDirectories = (PIMAGE_DEBUG_DIRECTORY) RtlImageDirectoryEntryToData( ImageBase,
-                                                     FALSE,
-                                                     IMAGE_DIRECTORY_ENTRY_DEBUG,
-                                                     &DebugDirectorySize
-                                                   );
-    if (DebugDirectories == NULL || DebugDirectorySize == 0) {
         UnmapViewOfFile( ImageBase );
         CloseHandle( hMappedFile );
         CloseHandle( FileHandle );
@@ -215,12 +186,57 @@ SplitSymbols(
         return FALSE;
     }
 
+    if ((NtHeaders->OptionalHeader.MajorLinkerVersion < 3) &&
+        (NtHeaders->OptionalHeader.MinorLinkerVersion < 5) )
+    {
+        UnmapViewOfFile( ImageBase );
+        CloseHandle( hMappedFile );
+        CloseHandle( FileHandle );
+        SetLastError( ERROR_BAD_EXE_FORMAT );
+        return FALSE;
+    }
+
+    if (NtHeaders->FileHeader.Characteristics & IMAGE_FILE_DEBUG_STRIPPED)
+    {
+        // The symbols have already been stripped.  No need to continue.
+        UnmapViewOfFile( ImageBase );
+        CloseHandle( hMappedFile );
+        CloseHandle( FileHandle );
+        SetLastError( ERROR_ALREADY_ASSIGNED );
+        return FALSE;
+    }
+
+    DebugDirectories = (PIMAGE_DEBUG_DIRECTORY) ImageDirectoryEntryToData( ImageBase,
+                                                  FALSE,
+                                                  IMAGE_DIRECTORY_ENTRY_DEBUG,
+                                                  &DebugDirectorySize
+                                                );
+    if (!DebugDirectoryIsUseful(DebugDirectories, DebugDirectorySize)) {
+        UnmapViewOfFile( ImageBase );
+        CloseHandle( hMappedFile );
+        CloseHandle( FileHandle );
+        SetLastError( ERROR_BAD_EXE_FORMAT );
+        return FALSE;
+    }
+
+    // Try to open the symbol file
+
+    SymbolFileHandle = CreateFile( SymbolFilePath,
+                                   GENERIC_WRITE,
+                                   0,
+                                   NULL,
+                                   CREATE_ALWAYS,
+                                   0,
+                                   NULL
+                                 );
+    if (SymbolFileHandle == INVALID_HANDLE_VALUE)
+        goto nosyms;
+
     NumberOfDebugDirectories = DebugDirectorySize / sizeof( IMAGE_DEBUG_DIRECTORY );
 
     // The entire file is mapped so we don't have to care if the rva's
     // are correct.  It is interesting to note if there's a debug section
-    // we need to whack before terminating, though.  As we're wandering the list
-    // keep an eye out for rdata so we can determine if misc is stored there...
+    // we need to whack before terminating, though.
 
     {
         PIMAGE_SECTION_HEADER Sections;
@@ -229,13 +245,9 @@ SplitSymbols(
         for (SectionNumber = 0;
              SectionNumber < NtHeaders->FileHeader.NumberOfSections;
              SectionNumber++ ) {
-            if (Sections[ SectionNumber ].PointerToRawData != 0 &&
-                !stricmp( (char *) Sections[ SectionNumber ].Name, ".rdata" )) {
-                RdataSection = &Sections[ SectionNumber ];
-            }
 
             if (Sections[ SectionNumber ].PointerToRawData != 0 &&
-                !stricmp( (char *) Sections[ SectionNumber ].Name, ".debug" )) {
+                !_stricmp( (char *) Sections[ SectionNumber ].Name, ".debug" )) {
                 DebugSection = &Sections[ SectionNumber ];
             }
         }
@@ -259,10 +271,21 @@ SplitSymbols(
                 // Save it away.
                 MiscDebugDirectory = *DebugDirectory;
 
-                // check to see if the misc debug data is in the rdata section
-                if (DebugDirectory->PointerToRawData >= RdataSection->PointerToRawData &&
-                    DebugDirectory->PointerToRawData < (RdataSection->PointerToRawData +
-                                                        RdataSection->SizeOfRawData)) {
+                // check to see if the misc debug data is in some other section.
+
+                // If Address Of Raw Data is cleared, it must be in .debug (there's no such thing as not-mapped rdata)
+                // If it's set and there's no debug section, it must be somewhere else.
+                // If it's set and there's a debug section, check the range.
+
+                if ((DebugDirectory->AddressOfRawData != 0) &&
+                    ((DebugSection == NULL) ||
+                     (((DebugDirectory->PointerToRawData < DebugSection->PointerToRawData) ||
+                       (DebugDirectory->PointerToRawData >= DebugSection->PointerToRawData + DebugSection->SizeOfRawData)
+                      )
+                     )
+                    )
+                   )
+                {
                     MiscInRdata = TRUE;
                 } else {
                     if (DebugDirectory->PointerToRawData < DebugSectionStart) {
@@ -284,20 +307,80 @@ SplitSymbols(
                 break;
 
             case IMAGE_DEBUG_TYPE_CODEVIEW:
-                if (DebugDirectory->PointerToRawData < DebugSectionStart) {
-                    DebugSectionStart = DebugDirectory->PointerToRawData;
-                }
-
-                // If private's are removed, do so and save the new size...
-                if (Flags & SPLITSYM_REMOVE_PRIVATE) {
+                {
                     ULONG   NewDebugSize;
-                    if (RemovePrivateCvSymbolic(DebugDirectory->PointerToRawData + (PCHAR)ImageBase,
-                                            &NewDebugData,
-                                            &NewDebugSize)) {
-                        DebugDirectory->PointerToRawData = (ULONG) (NewDebugData - (PCHAR)ImageBase);
-                        DebugDirectory->SizeOfData = NewDebugSize;
+
+                    if (DebugDirectory->PointerToRawData < DebugSectionStart) {
+                        DebugSectionStart = DebugDirectory->PointerToRawData;
+                    }
+
+                    // If private's are removed, do so and save the new size...
+                    if (Flags & SPLITSYM_REMOVE_PRIVATE) {
+                        if (RemovePrivateCvSymbolic(DebugDirectory->PointerToRawData + (PCHAR)ImageBase,
+                                                &NewDebugData,
+                                                &NewDebugSize)) {
+                            DebugDirectory->PointerToRawData = (ULONG) (NewDebugData - (PCHAR)ImageBase);
+                            DebugDirectory->SizeOfData = NewDebugSize;
+                        }
+                    }
+
+                    if (DebugDirectory->SizeOfData && DebugDirectory->PointerToRawData) {
+
+                        // If there's a .pdb, copy it to the same location as the .dbg file.
+                        typedef struct NB10I                   // NB10 debug info
+                        {
+                            DWORD   nb10;                      // NB10
+                            DWORD   off;                       // offset, always 0
+                            DWORD   sig;
+                            DWORD   age;
+                        } NB10I;
+
+                        NB10I *pNB10Info;
+
+                        pNB10Info = (NB10I *) (DebugDirectory->PointerToRawData + (PCHAR)ImageBase);
+                        if (pNB10Info->nb10 == '01BN') {
+                            // Got a PDB.  The name immediately follows the signature.
+
+                            CHAR PdbName[_MAX_PATH];
+                            CHAR NewPdbName[_MAX_PATH];
+                            CHAR Drive[_MAX_DRIVE];
+                            CHAR Dir[_MAX_DIR];
+                            CHAR Filename[_MAX_FNAME];
+                            CHAR FileExt[_MAX_EXT];
+
+                            memset(PdbName, 0, sizeof(PdbName));
+                            memcpy(PdbName, ((PCHAR)pNB10Info) + sizeof(NB10I), DebugDirectory->SizeOfData - sizeof(NB10I));
+
+                            _splitpath(PdbName, NULL, NULL, Filename, FileExt);
+                            _splitpath(SymbolFilePath, Drive, Dir, NULL, NULL);
+                            _makepath(NewPdbName, Drive, Dir, Filename, FileExt);
+
+                            if ( !CopyFile(PdbName, NewPdbName, FALSE)) {
+                                // It's possible the name in the pdb isn't in the same location as it was when built.  See if we can
+                                //  find it in the same dir as the image...
+                                _splitpath(ImageName, Drive, Dir, NULL, NULL);
+                                _makepath(PdbName, Drive, Dir, Filename, FileExt);
+
+                                CopyFile(PdbName, NewPdbName, FALSE);
+                            }
+
+                            SetFileAttributes(NewPdbName, FILE_ATTRIBUTE_NORMAL);
+
+                            // Change the data so only the pdb name is in the .dbg file (no path).
+
+                            NewDebugSize = sizeof(NB10I) + strlen(Filename) + strlen(FileExt) + 1;
+
+                            NewDebugData = (PCHAR) MemAlloc( NewDebugSize );
+                            *(NB10I *)NewDebugData = *pNB10Info;
+                            strcpy(NewDebugData + sizeof(NB10I), Filename);
+                            strcat(NewDebugData + sizeof(NB10I), FileExt);
+
+                            DebugDirectory->PointerToRawData = (ULONG) (NewDebugData - (PCHAR)ImageBase);
+                            DebugDirectory->SizeOfData = NewDebugSize;
+                        }
                     }
                 }
+
                 break;
 
             case IMAGE_DEBUG_TYPE_OMAP_TO_SRC:
@@ -342,11 +425,7 @@ SplitSymbols(
         // If FPO stays here, make a copy so we don't need to worry about stomping on it.
 
         FpoTableSize = pFpoDebugDirectory->SizeOfData;
-        FpoTable = (PFPO_DATA) VirtualAlloc( NULL,
-                                 FpoTableSize,
-                                 MEM_COMMIT,
-                                 PAGE_READWRITE );
-
+        FpoTable = (PFPO_DATA) MemAlloc( FpoTableSize );
         if ( FpoTable == NULL ) {
             goto nosyms;
         }
@@ -357,11 +436,11 @@ SplitSymbols(
     }
 
     ExportDirectory = (PIMAGE_EXPORT_DIRECTORY)
-        RtlImageDirectoryEntryToData( ImageBase,
-                                      FALSE,
-                                      IMAGE_DIRECTORY_ENTRY_EXPORT,
-                                      &ExportDirectorySize
-                                    );
+        ImageDirectoryEntryToData( ImageBase,
+                                   FALSE,
+                                   IMAGE_DIRECTORY_ENTRY_EXPORT,
+                                   &ExportDirectorySize
+                                 );
     if (ExportDirectory) {
         //
         // This particular piece of magic gets us the RVA of the
@@ -369,11 +448,11 @@ SplitSymbols(
         //
 
         RvaOffset = (DWORD)
-            RtlImageDirectoryEntryToData( ImageBase,
-                                          TRUE,
-                                          IMAGE_DIRECTORY_ENTRY_EXPORT,
-                                          &ExportDirectorySize
-                                        ) - (DWORD)ImageBase;
+            ImageDirectoryEntryToData( ImageBase,
+                                       TRUE,
+                                       IMAGE_DIRECTORY_ENTRY_EXPORT,
+                                       &ExportDirectorySize
+                                     ) - (DWORD)ImageBase;
 
         pp = (LPDWORD)((DWORD)ExportDirectory +
                       (DWORD)ExportDirectory->AddressOfNames - RvaOffset
@@ -386,7 +465,7 @@ SplitSymbols(
         }
         ExportedNamesSize = (ExportedNamesSize + 16) & ~15;
 
-        Dst = (LPSTR)LocalAlloc( LPTR, ExportedNamesSize );
+        Dst = (LPSTR) MemAlloc( ExportedNamesSize );
         if (Dst != NULL) {
             ExportedNames = Dst;
             pp = (LPDWORD)((DWORD)ExportDirectory +
@@ -403,11 +482,11 @@ SplitSymbols(
     }
 
     RuntimeFunctionTable = (PIMAGE_RUNTIME_FUNCTION_ENTRY)
-        RtlImageDirectoryEntryToData( ImageBase,
-                                      FALSE,
-                                      IMAGE_DIRECTORY_ENTRY_EXCEPTION,
-                                      &RuntimeFunctionTableSize
-                                    );
+        ImageDirectoryEntryToData( ImageBase,
+                                   FALSE,
+                                   IMAGE_DIRECTORY_ENTRY_EXCEPTION,
+                                   &RuntimeFunctionTableSize
+                                 );
     if (RuntimeFunctionTable == NULL) {
         RuntimeFunctionTableSize = 0;
         FunctionTableSize = 0;
@@ -416,11 +495,7 @@ SplitSymbols(
     else {
         NumberOfFunctionTableEntries = RuntimeFunctionTableSize / sizeof( IMAGE_RUNTIME_FUNCTION_ENTRY );
         FunctionTableSize = NumberOfFunctionTableEntries * sizeof( IMAGE_FUNCTION_ENTRY );
-        FunctionTable = (PIMAGE_FUNCTION_ENTRY)VirtualAlloc( NULL,
-                                                             FunctionTableSize,
-                                                             MEM_COMMIT,
-                                                             PAGE_READWRITE
-                                                           );
+        FunctionTable = (PIMAGE_FUNCTION_ENTRY) MemAlloc( FunctionTableSize );
         if (FunctionTable == NULL) {
             goto nosyms;
             }
@@ -438,20 +513,6 @@ SplitSymbols(
             pDst += 1;
             }
         }
-
-    if (!MakeSureDirectoryPathExists( SymbolFilePath ))
-        return FALSE;
-
-    SymbolFileHandle = CreateFile( SymbolFilePath,
-                                   GENERIC_WRITE,
-                                   0,
-                                   NULL,
-                                   CREATE_ALWAYS,
-                                   0,
-                                   NULL
-                                 );
-    if (SymbolFileHandle == INVALID_HANDLE_VALUE)
-        goto nosyms;
 
     DbgFileHeaderSize = sizeof( DbgFileHeader ) +
                         ((NtHeaders->FileHeader.NumberOfSections - (DebugSection ? 1 : 0)) *
@@ -484,13 +545,15 @@ SplitSymbols(
 
             DWORD WriteCount;
 
-            WriteFile( SymbolFileHandle,
-                       (PCHAR) ImageBase + DebugDirectory->PointerToRawData,
-                       (DebugDirectory->SizeOfData +3) & ~3,
-                       &WriteCount,
-                       NULL );
+            if (DebugDirectory->SizeOfData) {
+                WriteFile( SymbolFileHandle,
+                           (PCHAR) ImageBase + DebugDirectory->PointerToRawData,
+                           (DebugDirectory->SizeOfData +3) & ~3,
+                           &WriteCount,
+                           NULL );
 
-            BytesWritten += WriteCount;
+                BytesWritten += WriteCount;
+            }
         }
     }
 
@@ -554,7 +617,7 @@ SplitSymbols(
 
         // Make a copy of the Debug directory that we can write into the .dbg file
 
-        DbgDebugDirectories = (PIMAGE_DEBUG_DIRECTORY) LocalAlloc(LPTR, NumberOfDebugDirectories * sizeof(IMAGE_DEBUG_DIRECTORY));
+        DbgDebugDirectories = (PIMAGE_DEBUG_DIRECTORY) MemAlloc( NumberOfDebugDirectories * sizeof(IMAGE_DEBUG_DIRECTORY) );
 
         RtlMoveMemory(DbgDebugDirectories,
                         DebugDirectories,
@@ -587,14 +650,24 @@ SplitSymbols(
 
         DbgOffset = DbgFileHeaderSize;
 
-        for (i = 0, DebugDirectory=DbgDebugDirectories;
-             i < NumberOfDebugDirectories; i++, DebugDirectory++) {
+        for (i = 0, j=0, DebugDirectory=DbgDebugDirectories;
+             i < NumberOfDebugDirectories; i++) {
 
-            DebugDirectory->AddressOfRawData = 0;
-            DebugDirectory->PointerToRawData = DbgOffset;
+            if (DebugDirectory[i].SizeOfData) {
+                DebugDirectory[j] = DebugDirectory[i];
 
-            DbgOffset += (DebugDirectory->SizeOfData + 3 )& ~3;
+                DebugDirectory[j].AddressOfRawData = 0;
+                DebugDirectory[j].PointerToRawData = DbgOffset;
+
+                DbgOffset += (DebugDirectory[j].SizeOfData + 3 )& ~3;
+                j++;
+            }
         }
+
+        if (FunctionTable) {
+            FunctionTableDir.PointerToRawData -= sizeof(IMAGE_DEBUG_DIRECTORY) * (NumberOfDebugDirectories - j);
+        }
+        NumberOfDebugDirectories = j;
 
         CheckSumMappedFile( ImageBase,
                             NewFileSize,
@@ -618,6 +691,7 @@ SplitSymbols(
         }
         DbgFileHeader.NumberOfSections = NtHeaders->FileHeader.NumberOfSections;
         memset( DbgFileHeader.Reserved, 0, sizeof( DbgFileHeader.Reserved ) );
+        DbgFileHeader.SectionAlignment = NtHeaders->OptionalHeader.SectionAlignment;
 
         SetFilePointer( SymbolFileHandle, 0, NULL, FILE_BEGIN );
         WriteFile( SymbolFileHandle,
@@ -678,23 +752,23 @@ SplitSymbols(
         CloseHandle( FileHandle );
 
         if (ExportedNames != NULL) {
-            LocalFree( ExportedNames );
+            MemFree( ExportedNames );
         }
 
         if (FpoTable != NULL) {
-            VirtualFree( FpoTable, 0, MEM_RELEASE );
+            MemFree( FpoTable );
         }
 
         if (FunctionTable != NULL) {
-            VirtualFree( FunctionTable, 0, MEM_RELEASE );
+            MemFree( FunctionTable );
         }
 
         if (NewDebugData) {
-            LocalFree(NewDebugData);
+            MemFree(NewDebugData);
         }
 
         if (DbgDebugDirectories) {
-            LocalFree(DbgDebugDirectories);
+            MemFree(DbgDebugDirectories);
         }
 
         return TRUE;
@@ -707,15 +781,15 @@ SplitSymbols(
 nosyms:
     SavedErrorCode = GetLastError();
     if (ExportedNames != NULL) {
-        LocalFree( ExportedNames );
+        MemFree( ExportedNames );
     }
 
     if (FpoTable != NULL) {
-        VirtualFree( FpoTable, 0, MEM_RELEASE );
+        MemFree( FpoTable );
     }
 
     if (FunctionTable != NULL) {
-        VirtualFree( FunctionTable, 0, MEM_RELEASE );
+        MemFree( FunctionTable );
     }
 
     UnmapViewOfFile( ImageBase );
@@ -749,6 +823,100 @@ GetImageNameFromMiscDebugData(
     LPSTR ImageFilePath
     );
 
+#define AddToDebugInfoSize(x) (DebugInfoSize += (((x + 7) & ~7)+4))     // Make sure all the con's start at a qword boundary
+#define AdvanceNext(x) (Next = (PVOID)((((ULONG)Next + x) + 7) & ~7))
+
+void
+ProcessDbgFile(
+    PIMAGE_DEBUG_INFORMATION DebugInfo,
+    PIMAGE_SEPARATE_DEBUG_HEADER DebugFileHeader,
+    ULONG ImageBase,
+    ULONG FunctionTableSize,
+    ULONG DebugInfoHeaderSize
+    )
+{
+    PVOID MappedBase, Next;
+    PIMAGE_DEBUG_DIRECTORY DebugDirectory;
+    ULONG i, j;
+    ULONG NumberOfDebugDirectories;
+    LONG BaseOffset;
+    PIMAGE_FUNCTION_ENTRY FunctionTable;
+
+    //
+    // .DBG file processing
+    //
+    DebugInfo->Machine = DebugFileHeader->Machine;
+    DebugInfo->Characteristics = DebugFileHeader->Characteristics;
+    DebugInfo->TimeDateStamp = DebugFileHeader->TimeDateStamp;
+    DebugInfo->CheckSum = DebugFileHeader->CheckSum;
+    DebugInfo->ImageBase = DebugFileHeader->ImageBase;
+    DebugInfo->SizeOfImage = DebugFileHeader->SizeOfImage;
+    DebugInfo->NumberOfSections = DebugFileHeader->NumberOfSections;
+    DebugInfo->Sections = (PIMAGE_SECTION_HEADER)(DebugFileHeader + 1);
+    Next = (PVOID)(DebugInfo->Sections + DebugInfo->NumberOfSections);
+
+    DebugInfo->ExportedNamesSize = DebugFileHeader->ExportedNamesSize;
+    if (DebugInfo->ExportedNamesSize) {
+        DebugInfo->ExportedNames = (LPSTR)Next;
+        Next = (PVOID)((PCHAR)Next + DebugInfo->ExportedNamesSize);
+    }
+
+    DebugDirectory = DebugInfo->DebugDirectory;
+    MappedBase = DebugInfo->MappedBase;
+    NumberOfDebugDirectories = DebugFileHeader->DebugDirectorySize / sizeof( IMAGE_DEBUG_DIRECTORY );
+    Next = (PVOID)((PCHAR)Next + DebugFileHeader->DebugDirectorySize);
+
+    for (i=0; i<NumberOfDebugDirectories; i++) {
+        switch (DebugDirectory->Type) {
+            case IMAGE_DEBUG_TYPE_EXCEPTION:
+                DebugInfo->FunctionTableEntries = (PIMAGE_FUNCTION_ENTRY)
+                    ((PCHAR)MappedBase + DebugDirectory->PointerToRawData);
+
+                BaseOffset = ImageBase ? ImageBase : DebugInfo->ImageBase;
+                FunctionTable = (PIMAGE_FUNCTION_ENTRY)((ULONG)DebugInfo + DebugInfoHeaderSize);
+                memmove( FunctionTable, DebugInfo->FunctionTableEntries, FunctionTableSize );
+
+                DebugInfo->FunctionTableEntries = FunctionTable;
+                DebugInfo->LowestFunctionStartingAddress = (ULONG)0xFFFFFFFF;
+                DebugInfo->HighestFunctionEndingAddress = 0;
+
+                for (j=0; j<DebugInfo->NumberOfFunctionTableEntries; j++) {
+                    FunctionTable->StartingAddress += BaseOffset;
+                    if (FunctionTable->StartingAddress < DebugInfo->LowestFunctionStartingAddress) {
+                        DebugInfo->LowestFunctionStartingAddress = FunctionTable->StartingAddress;
+                    }
+
+                    FunctionTable->EndingAddress += BaseOffset;
+                    if (FunctionTable->EndingAddress > DebugInfo->HighestFunctionEndingAddress) {
+                        DebugInfo->HighestFunctionEndingAddress = FunctionTable->EndingAddress;
+                    }
+
+                    FunctionTable->EndOfPrologue += BaseOffset;
+                    FunctionTable += 1;
+                }
+                break;
+
+            case IMAGE_DEBUG_TYPE_FPO:
+                DebugInfo->NumberOfFpoTableEntries = DebugDirectory->SizeOfData / sizeof( FPO_DATA );
+                DebugInfo->FpoTableEntries = (PFPO_DATA) ((PCHAR)MappedBase + DebugDirectory->PointerToRawData);
+                break;
+
+            case IMAGE_DEBUG_TYPE_COFF:
+                DebugInfo->SizeOfCoffSymbols = DebugDirectory->SizeOfData;
+                DebugInfo->CoffSymbols = (PIMAGE_COFF_SYMBOLS_HEADER) ((PCHAR)MappedBase + DebugDirectory->PointerToRawData);
+                break;
+
+            case IMAGE_DEBUG_TYPE_CODEVIEW:
+                DebugInfo->SizeOfCodeViewSymbols = DebugDirectory->SizeOfData;
+                DebugInfo->CodeViewSymbols = (PVOID) ((PCHAR)MappedBase + DebugDirectory->PointerToRawData);
+                break;
+        }
+
+        DebugDirectory++;
+    }
+}
+
+
 PIMAGE_DEBUG_INFORMATION
 MapDebugInformation(
     HANDLE FileHandle,
@@ -780,13 +948,17 @@ MapDebugInformation(
     ULONG i, j;
     ULONG ExportedNamesSize;
     ULONG DebugInfoHeaderSize;
-    ULONG DebugInfoSize;
+    ULONG DebugInfoSize = 0;
     ULONG Size;
     ULONG NumberOfDebugDirectories;
     LONG BaseOffset;
     HANDLE SavedImageFileHandle;
     BOOL RomImage = FALSE;
     PIMAGE_ROM_HEADERS RomHeader;
+    ULONG FallbackChecksum;
+    ULONG FallbackNumberOfSections;
+    ULONG FallbackSectionSize;
+    PIMAGE_SECTION_HEADER FallbackSections = NULL;
 
     if (FileHandle == NULL && (FileName == NULL || FileName[ 0 ] == '\0')) {
         return NULL;
@@ -797,12 +969,16 @@ MapDebugInformation(
     MappedBase = NULL;
     SeparateSymbols = FALSE;
     SavedImageFileHandle = NULL;
-    ImageFilePath[ 0 ] = '\0';
+    if (FileName) {
+        strcpy(ImageFilePath, FileName);
+    } else {
+        ImageFilePath[0] = '\0';
+    }
     NumberOfFunctionTableEntries = 0;
     FunctionTableSize = 0;
     FunctionTable = NULL;
-    try {
-        try {
+    __try {
+        __try {
             if (FileHandle == NULL) {
                 FileHandle = FindExecutableImage( FileName, SymbolPath, (PCHAR) ImageFilePath );
                 if (FileHandle == NULL) {
@@ -815,7 +991,7 @@ getDebugFile:
                             goto noDebugFile;
                         }
                         else {
-                            leave;
+                            __leave;
                         }
                     }
                     else {
@@ -845,8 +1021,8 @@ getDebugFile:
                                           NULL
                                         );
             if (MappingHandle == NULL) {
-                leave;
-                }
+                __leave;
+            }
             HandlesToClose[ NumberOfHandlesToClose++ ] = MappingHandle;
 
             MappedBase = MapViewOfFile( MappingHandle,
@@ -856,40 +1032,39 @@ getDebugFile:
                                         0
                                       );
             if (MappedBase == NULL) {
-                leave;
-                }
+                __leave;
+            }
 
-            DebugInfoSize = sizeof( *DebugInfo ) + strlen( (PCHAR) ImageFilePath ) + 1;
+            AddToDebugInfoSize((sizeof( *DebugInfo ) + strlen( (PCHAR) ImageFilePath ) + 1));
             if (SeparateSymbols) {
-                DebugInfoSize += strlen( (PCHAR) DebugFilePath ) + 1;
-                }
+                AddToDebugInfoSize((strlen( (PCHAR) DebugFilePath ) + 1));
+            }
 
             if (!SeparateSymbols) {
-                NtHeaders = RtlImageNtHeader( MappedBase );
+                NtHeaders = ImageNtHeader( MappedBase );
                 if (NtHeaders == NULL) {
-                    if (((PIMAGE_FILE_HEADER)MappedBase)->SizeOfOptionalHeader ==
-                                              IMAGE_SIZEOF_ROM_OPTIONAL_HEADER) {
+                    if (((PIMAGE_FILE_HEADER)MappedBase)->SizeOfOptionalHeader == IMAGE_SIZEOF_ROM_OPTIONAL_HEADER) {
                         //
                         // rom image
                         //
                         RomImage = TRUE;
                         RomHeader = (PIMAGE_ROM_HEADERS) MappedBase;
                     } else {
-                        leave;
+                        __leave;
                     }
                 }
 
                 DebugDirectories = (PIMAGE_DEBUG_DIRECTORY)
-                    RtlImageDirectoryEntryToData( MappedBase,
-                                                  FALSE,
-                                                  IMAGE_DIRECTORY_ENTRY_DEBUG,
-                                                  &Size
-                                                );
-                if (DebugDirectories != NULL) {
+                    ImageDirectoryEntryToData( MappedBase,
+                                               FALSE,
+                                               IMAGE_DIRECTORY_ENTRY_DEBUG,
+                                               &Size
+                                             );
+                if (DebugDirectoryIsUseful(DebugDirectories, Size)) {
                     NumberOfDebugDirectories = Size / sizeof( IMAGE_DEBUG_DIRECTORY );
-                }
-                else {
+                } else {
                     NumberOfDebugDirectories = 0;
+                    DebugDirectories = NULL;
                 }
 
                 if (FileName == NULL && NtHeaders &&
@@ -902,24 +1077,51 @@ getDebugFile:
                                                  )
                    ) {
                     FileName = (PCHAR) ImageFilePath;
-                    DebugInfoSize += strlen( (PCHAR) ImageFilePath );
+                    AddToDebugInfoSize( strlen((PCHAR) ImageFilePath ));
                 }
 
-                DebugInfoSize = (DebugInfoSize + 16) & ~15;
                 DebugInfoHeaderSize = DebugInfoSize;
+
+                FallbackChecksum = NtHeaders->OptionalHeader.CheckSum;
+                if (RomImage) {
+                    FallbackNumberOfSections = RomHeader->FileHeader.NumberOfSections;
+                    FallbackSectionSize = FallbackNumberOfSections * sizeof(IMAGE_SECTION_HEADER);
+                    FallbackSections = (PIMAGE_SECTION_HEADER)MemAlloc( FallbackSectionSize );
+                    if (!FallbackSections) {
+                        leave;
+                    }
+                    RtlCopyMemory(FallbackSections,
+                                  (PVOID)((ULONG)MappedBase +
+                                  IMAGE_SIZEOF_ROM_OPTIONAL_HEADER +
+                                  IMAGE_SIZEOF_FILE_HEADER ),
+                                  FallbackSectionSize);
+                } else {
+                    FallbackNumberOfSections = NtHeaders->FileHeader.NumberOfSections;
+                    FallbackSectionSize = FallbackNumberOfSections * sizeof(IMAGE_SECTION_HEADER);
+                    FallbackSections = (PIMAGE_SECTION_HEADER)MemAlloc( FallbackSectionSize );
+                    if (!FallbackSections) {
+                        leave;
+                    }
+                    RtlCopyMemory(FallbackSections,
+                                  (PVOID)IMAGE_FIRST_SECTION( NtHeaders ),
+                                  FallbackSectionSize);
+                }
 
                 if (!RomImage &&
                     NtHeaders->FileHeader.Characteristics & IMAGE_FILE_DEBUG_STRIPPED) {
                     goto getDebugFile;
                 }
+                if (NumberOfDebugDirectories == 0) {
+                    goto getDebugFile;
+                }
 
 noDebugFile:
                 ExportDirectory = (PIMAGE_EXPORT_DIRECTORY)
-                    RtlImageDirectoryEntryToData( MappedBase,
-                                                  FALSE,
-                                                  IMAGE_DIRECTORY_ENTRY_EXPORT,
-                                                  &Size
-                                                );
+                    ImageDirectoryEntryToData( MappedBase,
+                                               FALSE,
+                                               IMAGE_DIRECTORY_ENTRY_EXPORT,
+                                               &Size
+                                             );
                 if (ExportDirectory) {
                     //
                     // This particular piece of magic gets us the RVA of the
@@ -927,11 +1129,11 @@ noDebugFile:
                     //
 
                     RvaOffset = (ULONG)
-                        RtlImageDirectoryEntryToData( MappedBase,
-                                                      TRUE,
-                                                      IMAGE_DIRECTORY_ENTRY_EXPORT,
-                                                      &Size
-                                                    ) - (DWORD)MappedBase;
+                        ImageDirectoryEntryToData( MappedBase,
+                                                   TRUE,
+                                                   IMAGE_DIRECTORY_ENTRY_EXPORT,
+                                                   &Size
+                                                 ) - (DWORD)MappedBase;
 
                     pp = (PULONG)((ULONG)ExportDirectory +
                                   (ULONG)ExportDirectory->AddressOfNames - RvaOffset
@@ -943,68 +1145,86 @@ noDebugFile:
                         ExportedNamesSize += strlen( Src ) + 1;
                         }
                     ExportedNamesSize = (ExportedNamesSize + 16) & ~15;
-                    DebugInfoSize += ExportedNamesSize;
+                    AddToDebugInfoSize(ExportedNamesSize);
                 }
                 else {
                     ExportedNamesSize = 0;
                 }
 
                 RuntimeFunctionTable = (PIMAGE_RUNTIME_FUNCTION_ENTRY)
-                    RtlImageDirectoryEntryToData( MappedBase,
-                                                  FALSE,
-                                                  IMAGE_DIRECTORY_ENTRY_EXCEPTION,
-                                                  &Size
-                                                );
+                    ImageDirectoryEntryToData( MappedBase,
+                                               FALSE,
+                                               IMAGE_DIRECTORY_ENTRY_EXCEPTION,
+                                               &Size
+                                             );
                 if (RuntimeFunctionTable != NULL) {
                     NumberOfFunctionTableEntries = Size / sizeof( IMAGE_RUNTIME_FUNCTION_ENTRY );
                     FunctionTableSize = NumberOfFunctionTableEntries *
                                         sizeof( IMAGE_FUNCTION_ENTRY );
 
-                    DebugInfoSize += FunctionTableSize;
+                    AddToDebugInfoSize(FunctionTableSize);
                 }
 
                 if (NumberOfDebugDirectories != 0) {
                     DebugDirectory = DebugDirectories;
                     for (i=0; i<NumberOfDebugDirectories; i++) {
-                        if (DebugDirectory->Type == IMAGE_DEBUG_TYPE_FPO ||
-                            DebugDirectory->Type == IMAGE_DEBUG_TYPE_COFF ) {
-                            if (DebugDirectory->AddressOfRawData == 0) {
-                                DebugInfoSize += DebugDirectory->SizeOfData;
-                            }
+                        if (DebugDirectory->Type == IMAGE_DEBUG_TYPE_FPO      ||
+                            DebugDirectory->Type == IMAGE_DEBUG_TYPE_COFF     ||
+                            DebugDirectory->Type == IMAGE_DEBUG_TYPE_CODEVIEW
+                           ) {
+                            AddToDebugInfoSize(DebugDirectory->SizeOfData);
                         }
 
                         DebugDirectory += 1;
                     }
                 }
-            }
-            else {
+            } else {
                 DebugFileHeader = (PIMAGE_SEPARATE_DEBUG_HEADER)MappedBase;
-                Next = (PVOID)((PIMAGE_SECTION_HEADER)(DebugFileHeader + 1) + DebugFileHeader->NumberOfSections);
-                if (DebugFileHeader->ExportedNamesSize != 0) {
-                    Next = (PVOID)((PCHAR)Next + DebugFileHeader->ExportedNamesSize);
-                }
-                DebugDirectories = (PIMAGE_DEBUG_DIRECTORY)Next;
-                DebugDirectory = DebugDirectories;
-                NumberOfDebugDirectories = DebugFileHeader->DebugDirectorySize / sizeof( IMAGE_DEBUG_DIRECTORY );
+                if (DebugFileHeader->Signature == IMAGE_SEPARATE_DEBUG_SIGNATURE) {
+                    //
+                    // Yes, .DBG file information
+                    //
+                    Next = (PVOID)((PIMAGE_SECTION_HEADER)(DebugFileHeader + 1) + DebugFileHeader->NumberOfSections);
+                    if (DebugFileHeader->ExportedNamesSize != 0) {
+                        Next = (PVOID)((PCHAR)Next + DebugFileHeader->ExportedNamesSize);
+                    }
+                    DebugDirectories = (PIMAGE_DEBUG_DIRECTORY)Next;
+                    DebugDirectory = DebugDirectories;
+                    NumberOfDebugDirectories = DebugFileHeader->DebugDirectorySize / sizeof( IMAGE_DEBUG_DIRECTORY );
 
-                for (i=0; i<NumberOfDebugDirectories; i++) {
-                    if (DebugDirectory->Type == IMAGE_DEBUG_TYPE_EXCEPTION) {
-                        FunctionTableSize = DebugDirectory->SizeOfData;
-                        NumberOfFunctionTableEntries = FunctionTableSize / sizeof( IMAGE_FUNCTION_ENTRY );
-                        break;
+                    for (i=0; i<NumberOfDebugDirectories; i++) {
+                        if (DebugDirectory->Type == IMAGE_DEBUG_TYPE_EXCEPTION) {
+                            FunctionTableSize = DebugDirectory->SizeOfData;
+                            NumberOfFunctionTableEntries = FunctionTableSize / sizeof( IMAGE_FUNCTION_ENTRY );
+                            break;
+                        }
+
+                        DebugDirectory += 1;
                     }
 
-                    DebugDirectory += 1;
-                }
+                    DebugInfoHeaderSize = DebugInfoSize;
+                    AddToDebugInfoSize(FunctionTableSize);
+                } else {
+                    //
+                    // No, some other sort of debug information
+                    //
+                    DebugFileHeader = NULL;
+                    DebugDirectories = NULL;
+                    DebugDirectory = NULL;
+                    NumberOfDebugDirectories = 0;
+                    //
+                    // We need the fallback section info (add to size and remeber where
+                    // to store our stuff relative to the rest of the info).
+                    //
+                    DebugInfoHeaderSize = DebugInfoSize;
+                    AddToDebugInfoSize( FallbackSectionSize );
 
-                DebugInfoSize = (DebugInfoSize + 16) & ~15;
-                DebugInfoHeaderSize = DebugInfoSize;
-                DebugInfoSize += FunctionTableSize;
+                }
             }
 
-            DebugInfo = (PIMAGE_DEBUG_INFORMATION) VirtualAlloc( NULL, DebugInfoSize, MEM_COMMIT, PAGE_READWRITE );
+            DebugInfo = (PIMAGE_DEBUG_INFORMATION) MemAlloc( DebugInfoSize );
             if (DebugInfo == NULL) {
-                leave;
+                __leave;
             }
 
             InitializeListHead( &DebugInfo->List );
@@ -1015,86 +1235,54 @@ noDebugFile:
             while (Src > DebugInfo->ImageFilePath) {
                 if (Src[ -1 ] == '\\' || Src[ -1 ] == '/' || Src[ -1 ] == ':') {
                     break;
-                    }
-                else {
+                } else {
                     Src -= 1;
-                    }
                 }
+            }
             DebugInfo->ImageFileName = Src;
             DebugInfo->DebugFilePath = DebugInfo->ImageFilePath;
             if (SeparateSymbols) {
                 DebugInfo->DebugFilePath += strlen( DebugInfo->ImageFilePath ) + 1;
                 strcpy( DebugInfo->DebugFilePath, (PCHAR) DebugFilePath );
-                }
+            }
 
             DebugInfo->MappedBase = MappedBase;
             DebugInfo->DebugDirectory = DebugDirectories;
             DebugInfo->NumberOfDebugDirectories = NumberOfDebugDirectories;
+            DebugInfo->NumberOfFunctionTableEntries = NumberOfFunctionTableEntries;
 
             if (SeparateSymbols) {
-                DebugInfo->Machine = DebugFileHeader->Machine;
-                DebugInfo->Characteristics = DebugFileHeader->Characteristics;
-                DebugInfo->TimeDateStamp = DebugFileHeader->TimeDateStamp;
-                DebugInfo->CheckSum = DebugFileHeader->CheckSum;
-                DebugInfo->ImageBase = DebugFileHeader->ImageBase;
-                DebugInfo->SizeOfImage = DebugFileHeader->SizeOfImage;
-                DebugInfo->NumberOfSections = DebugFileHeader->NumberOfSections;
-                DebugInfo->Sections = (PIMAGE_SECTION_HEADER)(DebugFileHeader + 1);
-                Next = (PVOID)(DebugInfo->Sections + DebugInfo->NumberOfSections);
+                if (DebugFileHeader) {
+                    ProcessDbgFile(DebugInfo, DebugFileHeader, ImageBase, FunctionTableSize, DebugInfoHeaderSize);
 
-                DebugInfo->ExportedNamesSize = DebugFileHeader->ExportedNamesSize;
-                if (DebugInfo->ExportedNamesSize) {
-                    DebugInfo->ExportedNames = (LPSTR)Next;
-                    Next = (PVOID)((PCHAR)Next + DebugInfo->ExportedNamesSize);
+                } else {
+                    //
+                    // Some other kind of file processing
+                    //
+                    DebugInfo->Machine = 0;
+                    DebugInfo->Characteristics = 0;
+                    DebugInfo->TimeDateStamp = 0;
+                    DebugInfo->CheckSum = FallbackChecksum;
+                    DebugInfo->ImageBase = 0;
+                    DebugInfo->SizeOfImage = 0;
+                    DebugInfo->NumberOfSections = FallbackNumberOfSections;
+                    DebugInfo->Sections = (PIMAGE_SECTION_HEADER)((ULONG)DebugInfo + DebugInfoHeaderSize);
+                    memmove( DebugInfo->Sections, FallbackSections, FallbackSectionSize );
+
+                    DebugInfo->ExportedNamesSize = 0;
+                    DebugInfo->ExportedNames = NULL;
+                    DebugInfo->NumberOfFunctionTableEntries = 0;
+                    DebugInfo->FunctionTableEntries = NULL;
+                    DebugInfo->LowestFunctionStartingAddress = (ULONG)0xFFFFFFFF;
+                    DebugInfo->HighestFunctionEndingAddress = 0;
+                    DebugInfo->NumberOfFpoTableEntries = 0;
+                    DebugInfo->FpoTableEntries = NULL;
+                    DebugInfo->SizeOfCoffSymbols = 0;
+                    DebugInfo->CoffSymbols = NULL;
+                    DebugInfo->SizeOfCodeViewSymbols = 0;
+                    DebugInfo->CodeViewSymbols = NULL;
                 }
-                DebugDirectory = DebugDirectories;
-                NumberOfDebugDirectories = DebugFileHeader->DebugDirectorySize / sizeof( IMAGE_DEBUG_DIRECTORY );
-                Next = (PVOID)((PCHAR)Next + DebugFileHeader->DebugDirectorySize);
-                for (i=0; i<NumberOfDebugDirectories; i++) {
-                    if (DebugDirectory->Type == IMAGE_DEBUG_TYPE_EXCEPTION) {
-                        DebugInfo->NumberOfFunctionTableEntries = NumberOfFunctionTableEntries;
-                        DebugInfo->FunctionTableEntries = (PIMAGE_FUNCTION_ENTRY)
-                            ((PCHAR)MappedBase + DebugDirectory->PointerToRawData);
-
-                        BaseOffset = ImageBase;
-                        FunctionTable = (PIMAGE_FUNCTION_ENTRY)((ULONG)DebugInfo + DebugInfoHeaderSize);
-                        memmove( FunctionTable, DebugInfo->FunctionTableEntries, FunctionTableSize );
-                        DebugInfo->FunctionTableEntries = FunctionTable;
-                        DebugInfo->LowestFunctionStartingAddress = (ULONG)0xFFFFFFFF;
-                        DebugInfo->HighestFunctionEndingAddress = 0;
-                        for (j=0; j<DebugInfo->NumberOfFunctionTableEntries; j++) {
-                            FunctionTable->StartingAddress += BaseOffset;
-                            if (FunctionTable->StartingAddress < DebugInfo->LowestFunctionStartingAddress) {
-                                DebugInfo->LowestFunctionStartingAddress = FunctionTable->StartingAddress;
-                            }
-
-                            FunctionTable->EndingAddress += BaseOffset;
-                            if (FunctionTable->EndingAddress > DebugInfo->HighestFunctionEndingAddress) {
-                                DebugInfo->HighestFunctionEndingAddress = FunctionTable->EndingAddress;
-                            }
-
-                            FunctionTable->EndOfPrologue += BaseOffset;
-                            FunctionTable += 1;
-                        }
-                    }
-                    else
-                    if (DebugDirectory->Type == IMAGE_DEBUG_TYPE_FPO) {
-                        DebugInfo->NumberOfFpoTableEntries =
-                            DebugDirectory->SizeOfData / sizeof( FPO_DATA );
-                        DebugInfo->FpoTableEntries = (PFPO_DATA)
-                            ((PCHAR)MappedBase + DebugDirectory->PointerToRawData);
-                    }
-                    else
-                    if (DebugDirectory->Type == IMAGE_DEBUG_TYPE_COFF) {
-                        DebugInfo->SizeOfCoffSymbols = DebugDirectory->SizeOfData;
-                        DebugInfo->CoffSymbols = (PIMAGE_COFF_SYMBOLS_HEADER)
-                            ((PCHAR)MappedBase + DebugDirectory->PointerToRawData);
-                    }
-
-                    DebugDirectory += 1;
-                }
-            }
-            else {
+            } else {
                 if (RomImage) {
                     DebugInfo->Machine = RomHeader->FileHeader.Machine;
                     DebugInfo->Characteristics = RomHeader->FileHeader.Characteristics;
@@ -1121,7 +1309,7 @@ noDebugFile:
                 DebugInfo->ExportedNamesSize = ExportedNamesSize;
                 if (DebugInfo->ExportedNamesSize) {
                     DebugInfo->ExportedNames = (LPSTR)Next;
-                    Next = (PVOID)((LPSTR)Next + ExportedNamesSize);
+                    AdvanceNext(ExportedNamesSize);
 
                     pp = (PULONG)((ULONG)ExportDirectory +
                                   (ULONG)ExportDirectory->AddressOfNames - RvaOffset
@@ -1130,16 +1318,16 @@ noDebugFile:
                     Dst = DebugInfo->ExportedNames;
                     for (i=0; i<ExportDirectory->NumberOfNames; i++) {
                         Src = (LPSTR)((ULONG)ExportDirectory + *pp++ - RvaOffset);
-                        while (*Dst++ = *Src++) {
-                        }
+                        while (*Dst++ = *Src++)
+                            ;
                     }
                 }
 
                 if (RuntimeFunctionTable != NULL) {
-                    BaseOffset = ImageBase - DebugInfo->ImageBase;
+                    BaseOffset = ImageBase ? ImageBase - DebugInfo->ImageBase : 0;
                     DebugInfo->FunctionTableEntries = (PIMAGE_FUNCTION_ENTRY)Next;
                     DebugInfo->NumberOfFunctionTableEntries = NumberOfFunctionTableEntries;
-                    Next = (PVOID)((LPSTR)Next + FunctionTableSize);
+                    AdvanceNext(FunctionTableSize);
 
                     DebugInfo->LowestFunctionStartingAddress = (ULONG)0xFFFFFFFF;
                     DebugInfo->HighestFunctionEndingAddress = 0;
@@ -1182,7 +1370,8 @@ noDebugFile:
 
                     for (i=0; i<NumberOfDebugDirectories; i++) {
                         if (DebugDirectory->Type == IMAGE_DEBUG_TYPE_FPO ||
-                            ((DebugDirectory->Type == IMAGE_DEBUG_TYPE_COFF) &&
+                            (((DebugDirectory->Type == IMAGE_DEBUG_TYPE_CODEVIEW) ||
+                              (DebugDirectory->Type == IMAGE_DEBUG_TYPE_COFF)) &&
                              !(NtHeaders->FileHeader.Characteristics & IMAGE_FILE_DEBUG_STRIPPED)
                             )
                            ) {
@@ -1203,11 +1392,10 @@ noDebugFile:
                                         DebugDirectory->SizeOfData == Size
                                        ) {
                                         DebugData = Next;
-                                        Next = (PVOID)((LPSTR)Next + Size);
+                                        AdvanceNext(Size);
                                     }
                                 }
-                            }
-                            else {
+                            } else {
                                 DebugData = (LPSTR)MappedBase + DebugDirectory->PointerToRawData;
                                 Size = DebugDirectory->SizeOfData;
                             }
@@ -1216,10 +1404,12 @@ noDebugFile:
                                 if (DebugDirectory->Type == IMAGE_DEBUG_TYPE_FPO) {
                                     DebugInfo->FpoTableEntries = (PFPO_DATA) DebugData;
                                     DebugInfo->NumberOfFpoTableEntries = Size / sizeof( FPO_DATA );
-                                }
-                                else {
+                                } else if (DebugDirectory->Type == IMAGE_DEBUG_TYPE_COFF) {
                                     DebugInfo->CoffSymbols = (PIMAGE_COFF_SYMBOLS_HEADER) DebugData;
                                     DebugInfo->SizeOfCoffSymbols = Size;
+                                } else if (DebugDirectory->Type == IMAGE_DEBUG_TYPE_CODEVIEW) {
+                                    DebugInfo->CodeViewSymbols = (PVOID) DebugData;
+                                    DebugInfo->SizeOfCodeViewSymbols = Size;
                                 }
                             }
                         }
@@ -1228,15 +1418,17 @@ noDebugFile:
                     }
                 }
             }
-        }
-        except( EXCEPTION_EXECUTE_HANDLER ) {
+        } __except( EXCEPTION_EXECUTE_HANDLER ) {
             if (DebugInfo != NULL) {
-                VirtualFree( DebugInfo, 0, MEM_RELEASE );
+                MemFree( DebugInfo );
                 DebugInfo = NULL;
             }
         }
-    }
-    finally {
+    } __finally {
+        if (FallbackSections) {
+            MemFree(FallbackSections);
+        }
+
         if (DebugInfo == NULL) {
             if (MappedBase != NULL) {
                 UnmapViewOfFile( MappedBase );
@@ -1262,15 +1454,14 @@ UnmapDebugInformation(
     )
 {
     if (DebugInfo != NULL) {
-        try {
+        __try {
             UnmapViewOfFile( DebugInfo->MappedBase );
             memset( DebugInfo, 0, sizeof( *DebugInfo ) );
-            VirtualFree( DebugInfo, 0, MEM_RELEASE );
-            }
-        except( EXCEPTION_EXECUTE_HANDLER ) {
+            MemFree( DebugInfo );
+        } __except( EXCEPTION_EXECUTE_HANDLER ) {
             return FALSE;
-            }
         }
+    }
 
     return TRUE;
 }
@@ -1282,7 +1473,7 @@ ExpandPath(
     )
 {
     LPSTR   p = lpPath;
-    LPSTR   newpath = (LPSTR) LocalAlloc( 0, strlen(lpPath) + MAX_PATH );
+    LPSTR   newpath = (LPSTR) MemAlloc( (lpPath? strlen(lpPath): 0) + MAX_PATH );
     LPSTR   p1;
     LPSTR   p2 = newpath;
     CHAR    envvar[MAX_PATH];
@@ -1335,10 +1526,10 @@ FindExecutableImage(
                                  NULL
                                );
         if (FileHandle != INVALID_HANDLE_VALUE) {
-            LocalFree( NewSymbolPath );
+            MemFree( NewSymbolPath );
             return FileHandle;
-            }
         }
+    }
 
     Start = NewSymbolPath;
     while (Start && *Start != '\0') {
@@ -1361,7 +1552,7 @@ FindExecutableImage(
                                      NULL
                                    );
             if (FileHandle != INVALID_HANDLE_VALUE) {
-                LocalFree( NewSymbolPath );
+                MemFree( NewSymbolPath );
                 return FileHandle;
                 }
             }
@@ -1369,7 +1560,7 @@ FindExecutableImage(
         Start = End;
         }
 
-    LocalFree( NewSymbolPath );
+    MemFree( NewSymbolPath );
     return NULL;
 }
 
@@ -1387,54 +1578,60 @@ FindDebugInfoFile(
     UCHAR BaseName[ MAX_PATH ];
     DWORD n;
     LPSTR NewSymbolPath = ExpandPath(SymbolPath);
+    BOOL  UseSymbolsDir = TRUE;
+    LPSTR pExt = NULL;
 
-    if (!(s = strrchr( FileName, '.' )) || stricmp( s, ".DBG" )) {
+    if (!(s = strrchr( FileName, '.' )) || _stricmp( s, ".dbg" )) {
         if (s != NULL) {
             strcpy( (PCHAR) BaseName, s+1 );
             strcat( (PCHAR) BaseName, "\\" );
-            }
-        else {
+        } else {
             BaseName[ 0 ] = '\0';
-            }
+        }
 
         s = FileName + strlen( FileName );
         while (s > FileName) {
             if (*--s == '\\' || *s == '/' || *s == ':') {
                 s += 1;
                 break;
-                }
             }
+        }
         strcat( (PCHAR) BaseName, s );
         if (!(s = strrchr( (PCHAR) BaseName, '.' ))) {
             s = strchr( (PCHAR) BaseName, '\0' );
-            }
-        strcpy( s, ".DBG" );
         }
-    else {
+        strcpy( s, ".dbg" );
+        pExt = s;
+    } else {
         strcpy( (PCHAR) BaseName, FileName );
-        }
+    }
 
+try_again:
     Start = NewSymbolPath;
     while (Start && *Start != '\0') {
         if (End = strchr( Start, ';' )) {
             *End = '\0';
-            }
+        }
 
         n = GetFullPathName( Start, MAX_PATH, DebugFilePath, &s );
         if (End) {
             *End++ = ';';
-            }
+        }
         Start = End;
         if (n == 0) {
             continue;
-            }
+        }
 
-        if (s != NULL && !stricmp( s, "Symbols" )) {
+        if (UseSymbolsDir) {
+            if (s != NULL && !_stricmp( s, "Symbols" )) {
+                strcat( DebugFilePath, "\\" );
+            } else {
+                strcat( DebugFilePath, "\\Symbols\\" );
+            }
+        } else {
             strcat( DebugFilePath, "\\" );
-            }
-        else {
-            strcat( DebugFilePath, "\\Symbols\\" );
-            }
+        }
+
         strcat( DebugFilePath, (PCHAR) BaseName );
 
         FileHandle = CreateFile( DebugFilePath,
@@ -1446,12 +1643,44 @@ FindDebugInfoFile(
                                  NULL
                                );
         if (FileHandle != INVALID_HANDLE_VALUE) {
-            LocalFree( NewSymbolPath );
+            MemFree( NewSymbolPath );
             return FileHandle;
-            }
+        }
+    }
+
+    if (pExt) {
+        if (_stricmp(pExt,".dbg") == 0) {
+            //
+            // Now Try again with .SYM
+            //
+            strcpy(pExt, ".sym");
+            goto try_again;
         }
 
-    LocalFree( NewSymbolPath );
+        if (_stricmp(pExt,".sym") == 0) {
+            strcpy(pExt, ".dbg");       // Restore to pre-sym searching state
+        }
+    }
+
+    if (UseSymbolsDir) {
+        //
+        // this code allows the symbol file to be
+        // located when the symbols are placed into
+        // a flat directory.
+        //
+        UseSymbolsDir = FALSE;
+        s = strrchr( (char *) BaseName, '\\' );
+        if (s) {
+            strcpy( (char *) BaseName, s+1 );
+        }
+        if (!(s = strrchr( (PCHAR) BaseName, '.' ))) {
+            s = strchr( (PCHAR) BaseName, '\0' );
+        }
+        pExt = s;
+        goto try_again;
+    }
+
+    MemFree( NewSymbolPath );
     return NULL;
 }
 
@@ -1607,7 +1836,7 @@ startDirectorySearch:
                     }
                 }
             else
-            if (!stricmp( FindFileData->cFileName, FileName )) {
+            if (!_stricmp( FindFileData->cFileName, FileName )) {
                 strcpy( PathTail[ Depth ], FindFileData->cFileName );
                 strcpy( OutputPathBuffer, PathBuffer );
                 Result = TRUE;
@@ -1635,76 +1864,100 @@ restartDirectorySearch:
 
 BOOL
 MakeSureDirectoryPathExists(
-    LPSTR DirPath
+    LPCSTR DirPath
     )
 {
-    LPSTR Dir,p;
+    LPSTR p, DirCopy;
     DWORD dw;
 
-    Dir = DirPath;
-    p = Dir+1;
+    // Make a copy of the string for editing.
 
-    //
-    //  If the second character in the path is "\", then this is a UNC
-    //  path, and we should skip forward until we reach the 2nd \ in the
-    //  path.
-    //
-    if (*p == '\\') {
-        p++;            // Skip over the second \ in the name.
+    __try {
+        DirCopy = (LPSTR) MemAlloc(strlen(DirPath) + 1);
 
-        //
-        //  Skip until we hit the first "\" (\\Server\).
-        //
-
-        while (*p && *p != '\\') {
-            p++;
-            }
-
-        if (*p) {
-            *p++;
-            }
-
-        //
-        //  Skip until we hit the second "\" (\\Server\Share\).
-        //
-
-        while (*p && *p != '\\') {
-            p++;
-            }
-
-        //
-        //  The directory to check is the "path" part of \\Server\Share\path
-        //
-
-        if (*p) {
-            Dir = p-1;
-            }
-        }
-    else if (*p == ':' ) {
-        p++;
-        p++;
+        if (!DirCopy) {
+            return FALSE;
         }
 
-    while( *p ) {
-        if ( *p == '\\' ) {
-            *p = '\0';
-            dw = GetFileAttributes(DirPath);
-            if ( dw == 0xffffffff || dw & FILE_ATTRIBUTE_DIRECTORY != FILE_ATTRIBUTE_DIRECTORY ) {
+        strcpy(DirCopy, DirPath);
+
+        p = DirCopy;
+
+        //  If the second character in the path is "\", then this is a UNC
+        //  path, and we should skip forward until we reach the 2nd \ in the path.
+
+        if ((*p == '\\') && (*(p+1) == '\\')) {
+            p++;            // Skip over the first \ in the name.
+            p++;            // Skip over the second \ in the name.
+
+            //  Skip until we hit the first "\" (\\Server\).
+
+            while (*p && *p != '\\') {
+                p++;
+            }
+
+            // Advance over it.
+
+            if (*p) {
+                p++;
+            }
+
+            //  Skip until we hit the second "\" (\\Server\Share\).
+
+            while (*p && *p != '\\') {
+                p++;
+            }
+
+            // Advance over it also.
+
+            if (*p) {
+                p++;
+            }
+
+        } else
+        // Not a UNC.  See if it's <drive>:
+        if (*(p+1) == ':' ) {
+
+            p++;
+            p++;
+
+            // If it exists, skip over the root specifier
+
+            if (*p && (*p == '\\')) {
+                p++;
+            }
+        }
+
+        while( *p ) {
+            if ( *p == '\\' ) {
+                *p = '\0';
+                dw = GetFileAttributes(DirCopy);
+                // Nothing exists with this name.  Try to make the directory name and error if unable to.
                 if ( dw == 0xffffffff ) {
-                    if ( !CreateDirectory(DirPath,NULL) ) {
+                    if ( !CreateDirectory(DirCopy,NULL) ) {
+                        MemFree(DirCopy);
                         return FALSE;
-                        }
                     }
+                } else
+                if ( (dw & FILE_ATTRIBUTE_DIRECTORY) != FILE_ATTRIBUTE_DIRECTORY ) {
+                    // Something exists with this name, but it's not a directory... Error
+                    MemFree(DirCopy);
+                    return FALSE;
                 }
 
-            *p = '\\';
+                *p = '\\';
             }
-        p++;
+            p++;
         }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        SetLastError( GetExceptionCode() );
+        MemFree(DirCopy);
+        return(FALSE);
+    }
 
+    MemFree(DirCopy);
     return TRUE;
 }
-
 
 BOOL
 UpdateDebugInfoFile(
@@ -1712,6 +1965,23 @@ UpdateDebugInfoFile(
     LPSTR SymbolPath,
     LPSTR DebugFilePath,
     PIMAGE_NT_HEADERS NtHeaders
+    )
+{
+    return UpdateDebugInfoFileEx(
+                ImageFileName,
+                SymbolPath,
+                DebugFilePath,
+                NtHeaders,
+                NtHeaders->OptionalHeader.CheckSum);
+}
+
+BOOL
+UpdateDebugInfoFileEx(
+    LPSTR ImageFileName,
+    LPSTR SymbolPath,
+    LPSTR DebugFilePath,
+    PIMAGE_NT_HEADERS NtHeaders,
+    DWORD OldCheckSum
     )
 {
     HANDLE hDebugFile, hMappedFile;
@@ -1772,6 +2042,12 @@ UpdateDebugInfoFile(
         DbgFileHeader->ImageBase = NtHeaders->OptionalHeader.ImageBase;
         DbgFileHeader->CheckSum = NtHeaders->OptionalHeader.CheckSum;
         DbgFileHeader->TimeDateStamp = NtHeaders->FileHeader.TimeDateStamp;
+        if (OldCheckSum != NtHeaders->OptionalHeader.CheckSum) {
+            DbgFileHeader->Flags |= IMAGE_SEPARATE_DEBUG_MISMATCH;
+            SetLastError(ERROR_INVALID_DATA);
+        } else {
+            SetLastError(ERROR_SUCCESS);
+        }
         UnmapViewOfFile(MappedAddress);
         FlushViewOfFile(MappedAddress,0);
         TouchFileTimes(hDebugFile,NULL);
@@ -1790,6 +2066,15 @@ ImagehlpApiVersion(
     VOID
     )
 {
+    return &ApiVersion;
+}
+
+LPAPI_VERSION
+ImagehlpApiVersionEx(
+    LPAPI_VERSION av
+    )
+{
+    AppVersion = *av;
     return &ApiVersion;
 }
 
@@ -1879,7 +2164,7 @@ RemovePrivateCvSymbolic(
                             CvDebugDirHead->cbDirHeader +   // The directory header
                             (sizeof(OMFSignature) * 2);     // The signature/offset pairs at each end.
 
-            NewCvData = (PCHAR) LocalAlloc(LPTR, NewCvSize);
+            NewCvData = (PCHAR) MemAlloc( NewCvSize );
 
             // And move the stuff we kept into the new section.
 
@@ -1924,8 +2209,13 @@ RemovePrivateCvSymbolic(
             *NewDebugSize = NewCvSize;
 
         } else {
+
+            // Not NB09 or NB08.  Forget we ever heard of it.
+            // UNDONE: What we really need to do here is write a new pdb file with just the
+            //  public info...
             *NewDebugData = NULL;
             *NewDebugSize = 0;
+            RC = TRUE;
         }
 
     } __except(EXCEPTION_EXECUTE_HANDLER) {
@@ -1941,7 +2231,7 @@ RemoveRelocations(
     )
 {
     LOADED_IMAGE li;
-    IMAGE_SECTION_HEADER RelocSectionHdr, *Section, *ReadOnlySectionHdr, *pRelocSecHdr;
+    IMAGE_SECTION_HEADER RelocSectionHdr, *Section, *pRelocSecHdr;
     PIMAGE_DEBUG_DIRECTORY DebugDirectory;
     ULONG DebugDirectorySize, i, RelocSecNum;
 
@@ -1959,14 +2249,10 @@ RemoveRelocations(
 
     for (Section = li.Sections, i = 0; i < li.NumberOfSections; Section++, i++) {
         if (Section->PointerToRawData != 0) {
-            if (!stricmp( (char *) Section->Name, ".reloc" )) {
+            if (!_stricmp( (char *) Section->Name, ".reloc" )) {
                 RelocSectionHdr = *Section;
                 pRelocSecHdr = Section;
                 RelocSecNum = i + 1;
-            }
-
-            if (!stricmp( (char *) Section->Name, ".rdata" )) {
-                ReadOnlySectionHdr = Section;
             }
         }
     }
@@ -2012,21 +2298,21 @@ RemoveRelocations(
 
     // Reduce the image size.
 
-    li.FileHeader->OptionalHeader.SizeOfImage -= RelocSectionHdr.SizeOfRawData;
+    li.FileHeader->OptionalHeader.SizeOfImage -=
+        ((RelocSectionHdr.SizeOfRawData +
+          (li.FileHeader->OptionalHeader.SectionAlignment - 1)
+         ) & ~(li.FileHeader->OptionalHeader.SectionAlignment - 1));
 
     // Move the debug info up (if there is any).
 
     DebugDirectory = (PIMAGE_DEBUG_DIRECTORY)
-                            RtlImageDirectoryEntryToData( li.MappedAddress,
-                                                         FALSE,
-                                                         IMAGE_DIRECTORY_ENTRY_DEBUG,
-                                                         &DebugDirectorySize
-                                                       );
-    if (DebugDirectory != NULL && DebugDirectorySize != 0) {
-
-        for (i = 0;
-             i < (DebugDirectorySize / sizeof(IMAGE_DEBUG_DIRECTORY));
-             i++) {
+                            ImageDirectoryEntryToData( li.MappedAddress,
+                                                      FALSE,
+                                                      IMAGE_DIRECTORY_ENTRY_DEBUG,
+                                                      &DebugDirectorySize
+                                                    );
+    if (DebugDirectoryIsUseful(DebugDirectory, DebugDirectorySize)) {
+        for (i = 0; i < (DebugDirectorySize / sizeof(IMAGE_DEBUG_DIRECTORY)); i++) {
             RtlMoveMemory(li.MappedAddress + DebugDirectory->PointerToRawData - RelocSectionHdr.SizeOfRawData,
                             li.MappedAddress + DebugDirectory->PointerToRawData,
                             DebugDirectory->SizeOfData);

@@ -27,7 +27,7 @@ Revision History:
 #define NLP_ALLOCATE
 #include "nlp.h"
 #undef NLP_ALLOCATE
-#include <wcstr.h>
+#include <stdlib.h>
 #include <rpc.h>        // Needed by samrpc.h
 #include <samisrv.h>    // SamIFree Routines
 #include <lsarpc.h>     // Lsar routines
@@ -78,6 +78,8 @@ Return Status:
 
     NlpEnumerationHandle = 0;
     NlpSessionCount = 0;
+    NlpLogonAttemptCount = 0;
+
 
     NlpComputerName.Buffer = NULL;
     NlpSamDomainName.Buffer = NULL;
@@ -265,7 +267,7 @@ Return Status:
     // Wait for NETLOGON to initialize.  Wait a maximum of Timeout seconds.
     //
 
-    LocalTimeout = RtlEnlargedIntegerMultiply( Timeout, -10000000 );
+    LocalTimeout.QuadPart = ((LONGLONG)(Timeout)) * (-10000000);
     Status = NtWaitForSingleObject( EventHandle, (BOOLEAN)FALSE, &LocalTimeout);
     (VOID) NtClose( EventHandle );
 
@@ -1780,7 +1782,7 @@ Return Value:
         // This shouldn't happen since LOGON_BY_NETLOGON is set.
         //
 
-        if ( !NlpNetlogonDllLoaded ) {
+        if ( NlpNetlogonDllHandle == NULL ) {
             continue;
         }
 
@@ -1893,7 +1895,7 @@ Cleanup:
 
 
 NTSTATUS
-LsaApLogonUser (
+LsaApLogonUserEx (
     IN PLSA_CLIENT_REQUEST ClientRequest,
     IN SECURITY_LOGON_TYPE LogonType,
     IN PVOID ProtocolSubmitBuffer,
@@ -1906,7 +1908,8 @@ LsaApLogonUser (
     OUT PLSA_TOKEN_INFORMATION_TYPE TokenInformationType,
     OUT PVOID *TokenInformation,
     OUT PUNICODE_STRING *AccountName,
-    OUT PUNICODE_STRING *AuthenticatingAuthority
+    OUT PUNICODE_STRING *AuthenticatingAuthority,
+    OUT PUNICODE_STRING *MachineName
     )
 
 /*++
@@ -2043,6 +2046,7 @@ Return Value:
     PSECURITY_SEED_AND_LENGTH SeedAndLength;
     UCHAR Seed;
 
+    PUNICODE_STRING WorkStationName = NULL;
 
     //
     // Temporary storage while we try to figure
@@ -2095,6 +2099,7 @@ Return Value:
         {
             PMSV1_0_INTERACTIVE_LOGON Authentication;
 
+            WorkStationName = &NlpComputerName;
 
             //
             // Ensure this is really an interactive logon.
@@ -2218,6 +2223,7 @@ Return Value:
             LogonInteractive.Identity.UserName = Authentication->UserName;
             LogonInteractive.Identity.Workstation = NlpComputerName;
 
+
             LogonInteractive.LmOwfPassword = Credential->LmOwfPassword;
             LogonInteractive.NtOwfPassword = Credential->NtOwfPassword;
 
@@ -2243,15 +2249,6 @@ Return Value:
                 goto Cleanup;
             }
 
-            //
-            // Enforce length restrictions on username
-            //
-
-            if ( Authentication->UserName.Length > UNLEN ) {
-                KdPrint(("MSV1_0: LsaApLogonUser: Name too long\n"));
-                Status = STATUS_NAME_TOO_LONG;
-                goto Cleanup;
-            }
 
             //
             // Relocate any pointers to be relative to 'Authentication'
@@ -2303,6 +2300,8 @@ Return Value:
             LogonNetwork.Identity.UserName = Authentication->UserName;
             LogonNetwork.Identity.Workstation = Authentication->Workstation;
 
+            WorkStationName = &Authentication->Workstation;
+
             LogonNetwork.NtChallengeResponse =
                 Authentication->CaseSensitiveChallengeResponse;
             LogonNetwork.LmChallengeResponse =
@@ -2312,6 +2311,16 @@ Return Value:
             RtlCopyMemory( &LogonNetwork.LmChallenge,
                            Authentication->ChallengeToClient,
                            LM_CHALLENGE_LENGTH );
+
+            //
+            // Enforce length restrictions on username
+            //
+
+            if ( Authentication->UserName.Length > UNLEN ) {
+                KdPrint(("MSV1_0: LsaApLogonUser: Name too long\n"));
+                Status = STATUS_NAME_TOO_LONG;
+                goto Cleanup;
+            }
 
             //
             // If this is a null session logon,
@@ -2370,6 +2379,14 @@ Return Value:
     //
 
     if ( LsaTokenInformationType != LsaTokenInformationNull ) {
+
+        //
+        // Try to load NetlogonDll again if it isn't already.
+        //
+
+        if ( NlpNetlogonDllHandle == NULL ) {
+            NlpLoadNetlogonDll();
+        }
 
         //
         // If Sam is not yet initialized,
@@ -2440,7 +2457,7 @@ Return Value:
     //      workstation.
     //
 
-    } else if ( !NlpNetlogonDllLoaded || !NlpLanmanInstalled ||
+    } else if ( NlpNetlogonDllHandle == NULL || !NlpLanmanInstalled ||
        StandaloneWorkstation ||
        ( NlpWorkstation &&
          LogonInformation->LogonDomainName.Length != 0 &&
@@ -2484,7 +2501,7 @@ Return Value:
 
         if ( !NlpNetlogonInitialized ) {
 
-            Status = NlWaitForNetlogon( 45 );
+            Status = NlWaitForNetlogon( 90 );
 
             if ( !NT_SUCCESS(Status) ) {
                 if ( Status != STATUS_NETLOGON_NOT_STARTED ) {
@@ -2603,13 +2620,15 @@ Return Value:
         // STATUS_NETLOGON_NOT_STARTED indicates the local netlogon service
         //  isn't running.
         //
-        // ONLY TRY TO LOGON USING THE CACHE FOR INTERACTIVE LOGONS
-        // (not Service or Batch).
+        //
+        // Even though we change the cache only for interactive logons,
+        // we use the cache for ANY logon type.  This not only allows a
+        // user to logon interactively, but it allows that same user to
+        // connect from another machine while the DC is down.
         //
 
-        } else if ( LogonType == Interactive &&
-                    (Status == STATUS_NO_LOGON_SERVERS ||
-                     Status == STATUS_NETLOGON_NOT_STARTED) ) {
+        } else if ( Status == STATUS_NO_LOGON_SERVERS ||
+                    Status == STATUS_NETLOGON_NOT_STARTED ) {
 
             NTSTATUS ntStatus;
             CACHE_PASSWORDS cachePasswords;
@@ -2619,7 +2638,7 @@ Return Value:
             //
             //
 
-            ntStatus = NlpGetCacheEntry(&LogonInteractive, &NlpUser, &cachePasswords);
+            ntStatus = NlpGetCacheEntry(LogonInformation, &NlpUser, &cachePasswords);
 
             if (!NT_SUCCESS(ntStatus)) {
 
@@ -2639,8 +2658,8 @@ Return Value:
 
             if (!MsvpPasswordValidate(
                     NlpUasCompatibilityRequired,
-                    NetlogonInteractiveInformation,
-                    (PVOID)&LogonInteractive,
+                    LogonLevel,
+                    (PVOID)LogonInformation,
                     &cachePasswords.SecretPasswords,
                     &NlpUser->UserFlags,
                     &NlpUser->UserSessionKey,
@@ -2651,16 +2670,16 @@ Return Value:
                 goto Cleanup;
             }
 
-	    Status = STATUS_SUCCESS;
+            Status = STATUS_SUCCESS;
 
-	    //
-	    // The cache always returns a NETLOGONV_VALIDATION_SAM_INFO2
-	    // structure so set the LOGON_EXTRA_SIDS flag, whether or not
-	    // there are extra sids
-	    //
+            //
+            // The cache always returns a NETLOGONV_VALIDATION_SAM_INFO2
+            // structure so set the LOGON_EXTRA_SIDS flag, whether or not
+            // there are extra sids
+            //
 
-	    NlpUser->UserFlags |= LOGON_CACHED_ACCOUNT | LOGON_EXTRA_SIDS;
-            Flags |= LOGON_BY_CACHE;
+            NlpUser->UserFlags |= LOGON_CACHED_ACCOUNT | LOGON_EXTRA_SIDS;
+                Flags |= LOGON_BY_CACHE;
 
         //
         // If the account is permanently dead on the domain controller,
@@ -2757,11 +2776,11 @@ Return Value:
         // Allocate an entry for the active logon table.
         //
 
-        LogonEntrySize = sizeof(ACTIVE_LOGON) +
+        LogonEntrySize = ROUND_UP_COUNT(sizeof(ACTIVE_LOGON), ALIGN_DWORD) +
+              ROUND_UP_COUNT(UserSidSize, sizeof(WCHAR)) +
               NlpUser->EffectiveName.Length + sizeof(WCHAR) +
               NlpUser->LogonDomainName.Length + sizeof(WCHAR) +
-              NlpUser->LogonServer.Length + sizeof(WCHAR) +
-              UserSidSize ;
+              NlpUser->LogonServer.Length + sizeof(WCHAR);
 
         LogonEntry = RtlAllocateHeap( MspHeap, 0, LogonEntrySize );
 
@@ -2785,6 +2804,25 @@ Return Value:
         LogonEntry->Flags = Flags;
         LogonEntry->LogonType = LogonType;
 
+        //
+        // Copy DWORD aligned fields first.
+        //
+
+        Where = ROUND_UP_POINTER( Where, ALIGN_DWORD );
+        Status = RtlCopySid(UserSidSize, (PSID)Where, UserSid);
+
+        if ( !NT_SUCCESS(Status) ) {
+            goto Cleanup;
+        }
+
+        LogonEntry->UserSid = (PSID) Where;
+        Where += UserSidSize;
+
+        //
+        // Copy WCHAR aligned fields
+        //
+
+        Where = ROUND_UP_POINTER( Where, ALIGN_WCHAR );
         NlpPutString( &LogonEntry->UserName,
                       &NlpUser->EffectiveName,
                       &Where );
@@ -2796,15 +2834,6 @@ Return Value:
         NlpPutString( &LogonEntry->LogonServer,
                       &NlpUser->LogonServer,
                       &Where );
-
-        Status = RtlCopySid(UserSidSize, (PSID)Where, UserSid);
-
-        if ( !NT_SUCCESS(Status) ) {
-            goto Cleanup;
-        }
-
-        LogonEntry->UserSid = (PSID) Where;
-        Where += UserSidSize;
 
 
         //
@@ -2877,7 +2906,8 @@ Return Value:
                     ClientRequest,
                     (PMSV1_0_LM20_LOGON_PROFILE *) ProfileBuffer,
                     ProfileBufferSize,
-                    NlpUser );
+                    NlpUser,
+                    LogonNetwork.Identity.ParameterControl );
 
         if ( !NT_SUCCESS( Status ) ) {
             KdPrint((
@@ -3001,7 +3031,6 @@ Cleanup:
         }
     }
 
-
     *AuthenticatingAuthority = (*Lsa.AllocateLsaHeap)( sizeof( UNICODE_STRING ) );
 
     if ( *AuthenticatingAuthority != NULL ) {
@@ -3016,6 +3045,28 @@ Cleanup:
         } else {
 
             RtlInitUnicodeString( *AuthenticatingAuthority, NULL );
+        }
+    }
+
+    *MachineName = NULL;
+
+    if (WorkStationName != NULL) {
+
+        *MachineName = (*Lsa.AllocateLsaHeap)( sizeof( UNICODE_STRING ) );
+
+        if ( *MachineName != NULL ) {
+
+            (*MachineName)->Buffer = (*Lsa.AllocateLsaHeap)( WorkStationName->Length + sizeof( UNICODE_NULL ) );
+
+            if ( (*MachineName)->Buffer != NULL ) {
+
+                (*MachineName)->MaximumLength = (USHORT)(WorkStationName->Length + sizeof( UNICODE_NULL ));
+                RtlCopyUnicodeString( *MachineName, WorkStationName );
+
+            } else {
+
+                RtlInitUnicodeString( *MachineName, NULL );
+            }
         }
     }
 
@@ -3157,7 +3208,7 @@ Return Status:
     //  tell netlogon the session is terminated.
     //
 
-    if ( (LogonEntry->Flags & LOGON_BY_NETLOGON) && NlpNetlogonDllLoaded ) {
+    if ( (LogonEntry->Flags & LOGON_BY_NETLOGON) && NlpNetlogonDllHandle != NULL ) {
 
         //
         // If netlogon isn't running,

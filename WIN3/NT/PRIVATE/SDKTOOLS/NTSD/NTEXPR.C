@@ -28,8 +28,7 @@ UCHAR   PeekChar(void);
 
 ULONG   GetExpression(void);
 BOOLEAN GetLocalFromString(PUCHAR, PULONG);
-USHORT  GetSrcExpression(PPSYMFILE, PPLINENO);
-ULONG   GetCommonExpression(PPSYMFILE, PPLINENO, BOOLEAN);
+ULONG   GetCommonExpression(VOID);
 void    GetLowerString(PUCHAR, ULONG);
 LONG    GetExpr(void);
 LONG    GetLRterm(void);
@@ -37,8 +36,8 @@ LONG    GetLterm(void);
 LONG    GetAterm(void);
 LONG    GetMterm(void);
 LONG    GetTerm(void);
-USHORT	addrExpression;
-ADDR	tempAddr;
+USHORT  addrExpression;
+ADDR    tempAddr;
 
 #ifdef KERNEL
 extern USHORT DefaultProcessor;
@@ -119,27 +118,8 @@ extern BOOL cdecl waitHandler(ULONG);
 ULONG GetExpression (void)
 {
     ULONG    value;
-    PSYMFILE pSymfile;
-    PLINENO  pLineno;
 
-//dprintf("ULONG GetExpression ()\n");
-    value = GetCommonExpression(&pSymfile, &pLineno, FALSE);
-
-    if (pSymfile) {
-        if (pLineno->breakLineNumber != (USHORT)value)
-            error(LINENUMBER);
-
-#if defined(KERNEL) & defined(i386)
-        addrExpression = tempAddr.type = ADDR_32;
-#endif
-
-        Off(tempAddr) = value = pLineno->memoryOffset;
-        ComputeFlatAddress(&tempAddr, NULL);
-        }
-#ifndef MULTIMODE
-    if (addrExpression)
-        value = Flat(tempAddr);
-#endif
+    value = GetCommonExpression();
 
     EXPRLastExpression = value;
     return value;
@@ -175,7 +155,6 @@ PADDR GetAddrExpression (ULONG defaultSeg, PADDR Address)
     if (!(addrExpression & ~INSTR_POINTER)) {
         Off(*Address) = value;
 
-#ifdef MULTIMODE
 #ifdef i386
         addrExpression = Address->type =
                  fVm86 ? ADDR_V86 : (f16pm ? ADDR_16 : ADDR_32);
@@ -208,29 +187,10 @@ PADDR GetAddrExpression (ULONG defaultSeg, PADDR Address)
             }
 #endif
         ComputeFlatAddress(Address, NULL);
-#endif
         }
 
     return Address;
 }
-
-USHORT GetSrcExpression (PPSYMFILE ppSymfile, PPLINENO ppLineno)
-{
-    ULONG value;
-
-//dprintf("USHORT GetSrcExpression (PPSYMFILE ppSymfile, PPLINENO ppLineno)\n");
-    value = GetCommonExpression(ppSymfile, ppLineno, TRUE);
-
-    if (!*ppSymfile) {
-        *ppLineno = GetLinenoFromOffset(ppSymfile, value);
-        if (!*ppLineno)
-            error(LINENUMBER);
-        UpdateLineno(*ppSymfile, *ppLineno);
-        value = (ULONG)((*ppLineno)->topLineNumber);
-        }
-    return (USHORT)value;
-}
-
 
 /*** GetCommonExpression - read and evaluate expression
 *
@@ -270,8 +230,10 @@ USHORT GetSrcExpression (PPSYMFILE ppSymfile, PPLINENO ppLineno)
 *
 *************************************************************************/
 
-ULONG GetCommonExpression (PPSYMFILE ppSymfile, PPLINENO ppLineno,
-                                                BOOLEAN fSourceDefault)
+ULONG
+GetCommonExpression(
+    VOID
+    )
 {
     PUCHAR       pchCommandSaved;
     UCHAR        chModule[40];
@@ -279,12 +241,9 @@ ULONG GetCommonExpression (PPSYMFILE ppSymfile, PPLINENO ppLineno,
     UCHAR        ch;
     ULONG        value;
     PIMAGE_INFO  pImage;
-    PSYMFILE     pSymfile;
-    PLINENO      pLineno;
     ULONG        baseSaved;
     PUCHAR       pchFilename;
 
-//dprintf("GetCommonExpression()\n");
     savedClass = (ULONG)-1;
     pchCommandSaved = pchCommand;
 
@@ -305,102 +264,31 @@ ULONG GetCommonExpression (PPSYMFILE ppSymfile, PPLINENO ppLineno,
     else {
         strcpy(chFilename, chModule);
         chModule[0] = '\0';
+    }
+
+    pchCommand = pchCommandSaved;
+
+    ch = PeekChar();
+    //  Change this switch statement to a x?y:z type expression
+    switch(ch) {
+        case '&':
+            pchCommand++;
+            addrExpression = ADDR_V86;
+            break;
+        case '#':
+            pchCommand++;
+            addrExpression = ADDR_16;
+            break;
+        case '%':
+            pchCommand++;
+            addrExpression = ADDR_32;
+            break;
+        default:
+            addrExpression = FALSE;
+            break;
         }
-
-    //  if character is '.' and either fSourceDefault is set (parsing
-    //      from a VIEW command), or followed by a decimal digit,
-    //      evaluate as a line number.
-
-    if (ch == '.' && (fSourceDefault
-                || (*(pchCommand + 1) >= '0' && *(pchCommand + 1) <= '9'))) {
-        ch = *++pchCommand;
-
-        //  process strings as <module> and <file>, evaluate the
-        //  line number, and determine the offset.
-
-        if (chModule[0] == '\0')
-            pImage = GetCurrentModuleIndex();
-        else
-            pImage = GetModuleIndex(chModule);
-        if (!pImage)
-            error(SYNTAX);      // pImage->index has module...
-
-        //  evaluate the source line number - make default radix decimal
-
-        if (ch >= '0' && ch <= '9') {
-            baseSaved = baseDefault;
-            baseDefault = 10;
-            value = GetExpr();
-            baseDefault = baseSaved;
-            if (value == 0 || value > 0xffff)
-                error(LINENUMBER);
-            }
-        else {
-            pLineno = GetCurrentLineno(&pSymfile);
-            if (!pLineno)
-                error(LINENUMBER);
-            UpdateLineno(pSymfile, pLineno);
-            value = pLineno->topLineNumber;
-            }
-
-        //  determine the filename, chFilename if given, or the
-        //      name of the current file if not
-
-        if (chFilename[0])
-            pchFilename = chFilename;
-        else {
-            pLineno = GetCurrentLineno(&pSymfile);
-            if (!pLineno)
-                error(LINENUMBER);
-            pchFilename = pSymfile->pchName;
-            }
-
-        //  compute pSymfile and pLineno for input.
-
-        pLineno = GetLinenoFromFilename(pchFilename, &pSymfile,
-                                        (USHORT)value, pImage->index);
-        if (!pLineno)
-            error(LINENUMBER);
-
-        //  set *ppSymfile and *ppLineno for return.
-        //      value is already set to the line number.
-
-        *ppSymfile = pSymfile;
-        *ppLineno = pLineno;
-        }
-    else {
-
-        //  if not '.', then restore pointer and evaluate as a normal
-        //     expression.  set *ppSymfile to NULL for offset value.
-
-        pchCommand = pchCommandSaved;
-#if MULTIMODE
-        ch = PeekChar();
-        //  Change this switch statement to a x?y:z type expression
-        switch(ch) {
-            case '&':
-                pchCommand++;
-                addrExpression = ADDR_V86;
-                break;
-            case '#':
-                pchCommand++;
-                addrExpression = ADDR_16;
-                break;
-            case '%':
-                pchCommand++;
-                addrExpression = ADDR_32;
-                break;
-            default:
-                addrExpression = FALSE;
-                break;
-            }
-        ch = PeekChar();
-#else
-        addrExpression = FALSE;
-#endif
-        value = (ULONG)GetExpr();
-        *ppSymfile = NULL;
-        }
+    ch = PeekChar();
+    value = (ULONG)GetExpr();
 
     return value;
 }
@@ -409,7 +297,6 @@ void GetLowerString (PUCHAR pchBuffer, ULONG cbBuffer)
 {
     UCHAR   ch;
 
-//dprintf("void GetLowerString (PUCHAR pchBuffer, ULONG cbBuffer)\n");
     ch = PeekChar();
     ch = (UCHAR)tolower(ch);
     while ((ch == '_' || (ch >= 'a' && ch <= 'z')
@@ -641,7 +528,6 @@ LONG GetAterm ()
             case MULOP_MOD:
                 value1 %= value2;
                 break;
-#ifdef MULTIMODE
             case MULOP_SEG:{
                 PDESCRIPTOR_TABLE_ENTRY pdesc=NULL;
 
@@ -673,7 +559,6 @@ LONG GetAterm ()
                 value1 = value2;
                 }
                 break;
-#endif
             default:
                 error(SYNTAX);
             }
@@ -723,15 +608,15 @@ LONG GetMterm ()
             case UNOP_BY:
             case UNOP_WO:
             case UNOP_DW:
-#ifdef MULTIMODE
-                if (fnotFlat(tempAddr)) {
-                    Off(tempAddr)  = Flat(tempAddr) = value;
-                    Type(tempAddr) = ADDR_32 | FLAT_COMPUTED;
-                } else
-                    Flat(tempAddr) = value;
-#else
-                Flat(tempAddr) = value;
-#endif
+            case UNOP_POI:
+
+                NotFlat(tempAddr);
+
+                Off(tempAddr) = value;
+                Type(tempAddr) = ADDR_32;
+
+                ComputeFlatAddress(&tempAddr, NULL);
+
                 switch (opvalue) {
                     case UNOP_BY:
                         if (!GetMemByte(&tempAddr, &bvalue))
@@ -744,6 +629,17 @@ LONG GetMterm ()
                         value = (LONG)wvalue;
                         break;
                     case UNOP_DW:
+                        if (!GetMemDword(&tempAddr, (PULONG)&value))
+                            error(MEMORY);
+                        break;
+                    case UNOP_POI:
+                        //
+                        // There should be some special processing for
+                        // 16:16 or 16:32 addresses (i.e. take the DWORD)
+                        // and make it back into a value with a possible
+                        // segment, but I've left this for others who might
+                        // know more of what they want.
+                        //
                         if (!GetMemDword(&tempAddr, (PULONG)&value))
                             error(MEMORY);
                         break;
@@ -807,15 +703,18 @@ LONG GetTerm ()
         }
     else if (opclass == REG_CLASS) {
 #ifdef i386
-        if (opvalue == REGEIP || opvalue == REGIP)
+        if (opvalue == REGEIP || opvalue == REGIP) {
             addrExpression |= INSTR_POINTER;
+            }
 #endif
-        value = GetRegFlagValue(opvalue);
+        value = (ULONG)GetRegFlagValue(opvalue);
         }
-    else if (opclass == NUMBER_CLASS || opclass == SYMBOL_CLASS)
+    else if (opclass == NUMBER_CLASS || opclass == SYMBOL_CLASS) {
         value = opvalue;
-    else
+        }
+    else {
         error(SYNTAX);
+        }
 
     return value;
 }
@@ -1022,7 +921,10 @@ void AcceptToken (void)
 *
 *************************************************************************/
 
-ULONG GetTokenSym (PLONG pvalue)
+ULONG
+GetTokenSym (
+    PLONG pvalue
+    )
 {
     ULONG   opclass;
 
@@ -1032,12 +934,14 @@ ULONG GetTokenSym (PLONG pvalue)
         savedClass = (ULONG)-1;
         *pvalue = savedValue;
         pchCommand = savedpchCmd;
-        }
-    else
+    }
+    else {
         opclass = NextToken(pvalue);
+    }
 
-    if (opclass == ERROR_CLASS)
+    if (opclass == ERROR_CLASS) {
         error(*pvalue);
+    }
 
     return opclass;
 }
@@ -1066,37 +970,43 @@ ULONG GetTokenSym (PLONG pvalue)
 *
 *************************************************************************/
 
-ULONG NextToken (PLONG pvalue)
+ULONG
+NextToken (
+    PLONG pvalue
+    )
 {
-    ULONG    base;
-    UCHAR    chSymbol[SYMBOLSIZE];
-    UCHAR    chPreSym[9];
-    ULONG    cbSymbol = 0;
-    BOOLEAN  fNumber = TRUE;
-    BOOLEAN  fSymbol = TRUE;
-    BOOLEAN  fForceReg = FALSE;
-    BOOLEAN  fForceSym = FALSE;
-    ULONG    errNumber = 0;
-    UCHAR    ch;
-    UCHAR    chlow;
-    UCHAR    chtemp;
-    UCHAR    limit1 = '9';
-    UCHAR    limit2 = '9';
-    BOOLEAN  fDigit = FALSE;
-    ULONG    value = 0;
-    ULONG    tmpvalue;
-    ULONG    index;
-    PIMAGE_INFO pImage;
-    PUCHAR   pchCmdSave;
+    ULONG               base;
+    UCHAR               chSymbol[SYMBOLSIZE];
+    UCHAR               chSymbolString[SYMBOLSIZE];
+    UCHAR               chPreSym[9];
+    ULONG               cbSymbol = 0;
+    BOOLEAN             fNumber = TRUE;
+    BOOLEAN             fSymbol = TRUE;
+    BOOLEAN             fForceReg = FALSE;
+    BOOLEAN             fForceSym = FALSE;
+    ULONG               errNumber = 0;
+    UCHAR               ch;
+    UCHAR               chlow;
+    UCHAR               chtemp;
+    UCHAR               limit1 = '9';
+    UCHAR               limit2 = '9';
+    BOOLEAN             fDigit = FALSE;
+    ULONG               value = 0;
+    ULONG               tmpvalue;
+    ULONG               index;
+    PIMAGE_INFO         pImage;
+    PUCHAR              pchCmdSave;
+    IMAGEHLP_MODULE     mi;
+    BOOL                UseDeferred;
 
-//dprintf("ULONG NextToken (PLONG pvalue)\n");
+
     base = baseDefault;
 
     //  skip leading white space.
 
-    do
+    do {
         ch = *pchCommand++;
-    while (ch == ' ' || ch == '\t');
+    } while (ch == ' ' || ch == '\t');
 
     chlow = (UCHAR)tolower(ch);
 
@@ -1132,8 +1042,9 @@ ULONG NextToken (PLONG pvalue)
             *pvalue = LOGOP_XOR;
             return LOGOP_CLASS;
         case '=':
-            if (*pchCommand == '=')
+            if (*pchCommand == '=') {
                 pchCommand++;
+            }
             *pvalue = LRELOP_EQ;
             return LRELOP_CLASS;
         case '>':
@@ -1160,10 +1071,22 @@ ULONG NextToken (PLONG pvalue)
         case ']':
             return RBRACK_CLASS;
         case '.':
-            GetRegPCValue(&tempAddr);
-            *pvalue = Flat(tempAddr);
-            addrExpression =  Type(tempAddr);
-            return NUMBER_CLASS;
+#ifdef _PPC_
+            // Modified to test for .# to all .symbol (added if{}break; IBMCDB
+            if (*(pchCommand + 1) >= '0' && *(pchCommand + 1) <= '9') {
+#endif
+               GetRegPCValue(&tempAddr);
+               *pvalue = Flat(tempAddr);
+               addrExpression =  Type(tempAddr);
+               return NUMBER_CLASS;
+#ifdef _PPC_
+            } else {
+               fForceSym = TRUE;
+               fForceReg = FALSE;
+               fNumber = FALSE;
+               break;
+            }
+#endif
         case ':':
             *pvalue = MULOP_SEG;
             return MULOP_CLASS;
@@ -1171,13 +1094,19 @@ ULONG NextToken (PLONG pvalue)
 
     //  special prefixes - '@' for register - '!' for symbol
 
-    if (chlow == '@' || chlow == '!') {
+#ifndef _PPC_
+    if (chlow == '@' || chlow == '!')
+#else
+    if (chlow == '@' || chlow == '!' ||
+       (chlow == '.' && *(pchCommand+1) == '.'))
+#endif
+    {               // CDB
         fForceReg = (BOOLEAN)(chlow == '@');
         fForceSym = (BOOLEAN)!fForceReg;
         fNumber = FALSE;
         ch = *pchCommand++;
         chlow = (UCHAR)tolower(ch);
-        }
+    }
 
     //  if string is followed by '!', but not '!=',
     //      then it is a module name and treat as text
@@ -1186,15 +1115,21 @@ ULONG NextToken (PLONG pvalue)
 
     while ((chlow >= 'a' && chlow <= 'z') ||
            (chlow >= '0' && chlow <= '9') ||
-	   (chlow == '_') || (chlow == '$')) {
-	chlow = (UCHAR)tolower(*pchCommand); pchCommand++;
+#if !defined(_PPC_)
+           (chlow == '_') || (chlow == '$'))
+#else
+           (chlow == '_') || (chlow == '$') || (chlow == '.'))
+#endif
+    {
+        chlow = (UCHAR)tolower(*pchCommand); pchCommand++;
     }
 
     //  treat as symbol if a nonnull string is followed by '!',
     //      but not '!='
 
-    if (chlow == '!' && *pchCommand != '=' && pchCmdSave != pchCommand)
+    if (chlow == '!' && *pchCommand != '=' && pchCmdSave != pchCommand) {
         fNumber = FALSE;
+    }
 
     pchCommand = pchCmdSave;
     chlow = (UCHAR)tolower(ch);       //  ch was NOT modified
@@ -1205,21 +1140,25 @@ ULONG NextToken (PLONG pvalue)
             *pvalue = 0;
             while (TRUE) {
                 ch = *pchCommand++;
+                if (!ch) {
+                    *pvalue = SYNTAX;
+                    return ERROR_CLASS;
+                }
                 if (ch == '\'') {
                     if (*pchCommand != '\'') {
                         break;
-                        }
-                    ch = *pchCommand++;
                     }
+                    ch = *pchCommand++;
+                }
                 else
                 if (ch == '\\') {
                     ch = *pchCommand++;
-                    }
-                *pvalue = (*pvalue << 8) | ch;
                 }
+                *pvalue = (*pvalue << 8) | ch;
+            }
 
             return NUMBER_CLASS;
-            }
+        }
 
         //  if first character is a decimal digit, it cannot
         //  be a symbol.  leading '0' implies octal, except
@@ -1229,7 +1168,7 @@ ULONG NextToken (PLONG pvalue)
             if (fForceReg) {
                 *pvalue = SYNTAX;
                 return ERROR_CLASS;
-                }
+            }
             fSymbol = FALSE;
             if (chlow == '0') {
                 ch = *pchCommand++;
@@ -1239,40 +1178,47 @@ ULONG NextToken (PLONG pvalue)
                     ch = *pchCommand++;
                     chlow = (UCHAR)tolower(ch);
                     fDigit = TRUE;
-                    }
+                }
                 else if (chlow == 'n') {
                     base = 10;
                     ch = *pchCommand++;
                     chlow = (UCHAR)tolower(ch);
-                    }
+                }
                 else {
                     base = 8;
                     fDigit = TRUE;
-                    }
                 }
             }
+        }
 
         //  a number can start with a letter only if base is
         //  hexadecimal and it is a hexadecimal digit 'a'-'f'.
 
-        else if ((chlow < 'a' || chlow > 'f') || base != 16)
+        else if ((chlow < 'a' || chlow > 'f') || base != 16) {
             fNumber = FALSE;
+        }
 
         //  set limit characters for the appropriate base.
 
-        if (base == 8)
+        if (base == 8) {
             limit1 = '7';
-        if (base == 16)
+        }
+        if (base == 16) {
             limit2 = 'f';
         }
+    }
 
     //  perform processing while character is a letter,
     //  digit, underscore, or dollar-sign.
 
     while ((chlow >= 'a' && chlow <= 'z') ||
            (chlow >= '0' && chlow <= '9') ||
-           (chlow == '_') || (chlow == '$')) {
-
+#if !defined(_PPC_)
+           (chlow == '_') || (chlow == '$'))
+#else
+           (chlow == '_') || (chlow == '$') || (chlow == '.'))
+#endif
+    { //IBMCDB
         //  if possible number, test if within proper range,
         //  and if so, accumulate sum.
 
@@ -1281,55 +1227,61 @@ ULONG NextToken (PLONG pvalue)
                     (chlow >= 'a' && chlow <= limit2)) {
                 fDigit = TRUE;
                 tmpvalue = value * base;
-                if (tmpvalue < value)
-                    errNumber = OVERFLOW;
-                chtemp = (UCHAR)(chlow - '0');
-                if (chtemp > 9)
-                    chtemp -= 'a' - '0' - 10;
-                value = tmpvalue + (ULONG)chtemp;
-                if (value < tmpvalue)
+                if (tmpvalue < value) {
                     errNumber = OVERFLOW;
                 }
+                chtemp = (UCHAR)(chlow - '0');
+                if (chtemp > 9) {
+                    chtemp -= 'a' - '0' - 10;
+                }
+                value = tmpvalue + (ULONG)chtemp;
+                if (value < tmpvalue) {
+                    errNumber = OVERFLOW;
+                }
+            }
             else {
                 fNumber = FALSE;
                 errNumber = SYNTAX;
-                }
             }
+        }
         if (fSymbol) {
-            if (cbSymbol < 9)
+            if (cbSymbol < 9) {
                 chPreSym[cbSymbol] = chlow;
-            if (cbSymbol < SYMBOLSIZE - 1)
+            }
+            if (cbSymbol < SYMBOLSIZE - 1) {
                 chSymbol[cbSymbol++] = ch;
             }
+        }
         ch = *pchCommand++;
         chlow = (UCHAR)tolower(ch);
-        }
+    }
 
     //  back up pointer to first character after token.
 
     pchCommand--;
 
-    if (cbSymbol < 9)
+    if (cbSymbol < 9) {
         chPreSym[cbSymbol] = '\0';
+    }
 
     //  if fForceReg, check for register name and return
     //      success or failure
 
     if (fForceReg) {
-        if ((*pvalue = GetRegString(chPreSym)) != -1)
+        if ((*pvalue = GetRegString(chPreSym)) != -1) {
             return REG_CLASS;
-        else {
+        } else {
             *pvalue = BADREG;
             return ERROR_CLASS;
-            }
         }
+    }
 
     //  test if number
 
     if (fNumber && !errNumber && fDigit) {
         *pvalue = value;
         return NUMBER_CLASS;
-        }
+    }
 
     //  next test for reserved word and symbol string
 
@@ -1339,12 +1291,14 @@ ULONG NextToken (PLONG pvalue)
         //  or register name.
         //  otherwise, return symbol value from name in chSymbol.
 
-        if (!fForceSym && (cbSymbol == 2 || cbSymbol == 3))
-            for (index = 0; index < RESERVESIZE; index++)
+        if (!fForceSym && (cbSymbol == 2 || cbSymbol == 3)) {
+            for (index = 0; index < RESERVESIZE; index++) {
                 if (!strncmp(chPreSym, Reserved[index].chRes, 3)) {
                     *pvalue = Reserved[index].valueRes;
                     return Reserved[index].classRes;
-                    }
+                }
+            }
+        }
 
         //  start processing string as symbol
 
@@ -1361,153 +1315,157 @@ ULONG NextToken (PLONG pvalue)
             // chSymbolString holds the name of the symbol to be searched.
             // chSymbol holds the symbol image file name.
 
-            UCHAR chSymbolString[SYMBOLSIZE];
-
             pchCommand++;
             ch = PeekChar();
             pchCommand++;
             cbSymbol = 0;
             while ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') ||
-                   (ch >= '0' && ch <= '9') || (ch == '_') || (ch == '$')) {
+#if !defined(_PPC_)
+                   (ch >= '0' && ch <= '9') || (ch == '_') || (ch == '$'))
+#else
+                   (ch >= '0' && ch <= '9') || (ch == '_') || (ch == '$') ||
+                   (ch == '.'))
+#endif
+            {                               // IBMCDB
                 chSymbolString[cbSymbol++] = ch;
                 ch = *pchCommand++;
-                }
+            }
             chSymbolString[cbSymbol] = '\0';
             pchCommand--;
 
-            for (pImage = pProcessCurrent->pImageHead; pImage;
-                                        pImage = pImage->pImageNext) {
-//////
-                if (fControlC) {
-                    fControlC = 0;
-                    *pvalue = SYNTAX;
-                    return ERROR_CLASS;
-                    }
-//////
-                if (!stricmp(chSymbol, pImage->szModuleName)) {
-                    if (GetOffsetFromSym(chSymbolString, (PULONG)pvalue, pImage->index)) {
-#ifdef MULTIMODE
-                        Type(tempAddr) = ADDR_32 | FLAT_COMPUTED;
-#endif
-                        Flat(tempAddr) = Off(tempAddr)  = *pvalue;
-                        addrExpression  = Type(tempAddr);
-                        return SYMBOL_CLASS;
-                    }
-                }
+            if (cbSymbol == 0) {
+                *pvalue = SYNTAX;
+                return( ERROR_CLASS );
             }
-        }
-        else {
+
+            strcat( chSymbol, "!" );
+            strcat( chSymbol, chSymbolString );
+
+            if (GetOffsetFromSym( chSymbol, &value, 0 )) {
+                *pvalue = value;
+                Type(tempAddr) = ADDR_32 | FLAT_COMPUTED;
+                Flat(tempAddr) = Off(tempAddr)  = value;
+                addrExpression  = Type(tempAddr);
+                return SYMBOL_CLASS;
+            }
+
+        } else {
 
             int     loaded = 0;
             int     instance = 0;
-            ULONG   insValue;
-#ifndef KERNEL
-            PSYMBOL pSymbol;
-#endif
+            ULONG   insValue = 0;
 
-            if (GetLocalFromString(chSymbol, (PULONG)pvalue))
-                    return SYMBOL_CLASS;
+            if (cbSymbol == 0) {
+                *pvalue = SYNTAX;
+                return( ERROR_CLASS );
+            }
 
-            //  First check all the exported symbols, if none found on
-            //      first pass, force symbol load on second.
+            for (UseDeferred=0; UseDeferred<2; UseDeferred++) {
+                for (pImage = pProcessCurrent->pImageHead; pImage; pImage = pImage->pImageNext) {
 
-            do {
-                for (pImage = pProcessCurrent->pImageHead; pImage;
-                                                pImage = pImage->pImageNext) {
-//////
                     if (fControlC) {
                         fControlC = 0;
                         *pvalue = SYNTAX;
                         return ERROR_CLASS;
-                        }
-//////
-                    if (pImage->fSymbolsLoaded ^ loaded &&
-                            GetOffsetFromSym(chSymbol, (PULONG)pvalue,
-                                                         pImage->index)) {
-                        instance++;
-#ifndef KERNEL
-                        insValue = *pvalue;
-                        pSymbol = PNODE_TO_PSYMBOL(
-                            pProcessCurrent->symcontextSymbolString.pNodeRoot,
-                            &(pProcessCurrent->symcontextSymbolString));
-                        if (pSymbol->type == SYMBOL_TYPE_EXPORT)
-#endif
-                            break;
-                        }
                     }
 
-                if (pImage) {
-#ifdef MULTIMODE
-                    Type(tempAddr) = ADDR_32 | FLAT_COMPUTED;
-#endif
-                    Flat(tempAddr) = Off(tempAddr)  = *pvalue;
-                    addrExpression  = Type(tempAddr);
-                    return SYMBOL_CLASS;
+                    if (SymGetModuleInfo( pProcessCurrent->hProcess, (ULONG)pImage->lpBaseOfImage, &mi )) {
+                        if ((mi.SymType == SymDeferred && UseDeferred) || mi.SymType != SymDeferred) {
+                            sprintf( chSymbolString, "%s!%s", mi.ModuleName, chSymbol );
+                            if (GetOffsetFromSym( chSymbolString, &value, 0 )) {
+                                //
+                                // found the symbol
+                                //
+                                *pvalue = value;
+                                instance++;
+                                insValue = *pvalue;
+                                Type(tempAddr) = ADDR_32 | FLAT_COMPUTED;
+                                Flat(tempAddr) = Off(tempAddr)  = *pvalue;
+                                addrExpression  = Type(tempAddr);
+                                return SYMBOL_CLASS;
+                            }
+                        }
+                    }
                 }
-                // If we didn't find it, then error out if only 1 character!
-                if ( strlen(chSymbol) == 1 ) {
-                    *pvalue = SYMTOOSMALL;
-                    return( ERROR_CLASS );
-                }
-                // Quick test for register names too
-                if (!fForceSym && (*pvalue = GetRegString(chPreSym)) != -1)
-                    return REG_CLASS;
+            }
 
-            } while (++loaded < 2);
 
+            //
+            // If we didn't find it, then error out if only 1 character!
+            //
+            if ( strlen(chSymbol) == 1 ) {
+                *pvalue = SYMTOOSMALL;
+                return( ERROR_CLASS );
+            }
+
+            //
+            // Quick test for register names too
+            //
+            if (!fForceSym && (*pvalue = GetRegString(chPreSym)) != -1) {
+                return REG_CLASS;
+            }
+
+            //
             // If there was only one instance of the symbol then return it
-
+            //
             if (instance == 1) {
                 *pvalue = insValue;
                 Flat(tempAddr) = Off(tempAddr)  = *pvalue;
-#ifdef MULTIMODE
                 Type(tempAddr) = ADDR_32 | FLAT_COMPUTED;
-#endif
                 addrExpression= Type(tempAddr);
                 return SYMBOL_CLASS;
-                }
+            }
 
+            //
             // If multiple instances then enumerate them for the user
-
+            //
             if (instance) {
-//////
                 if (fControlC) {
                     fControlC = 0;
                     *pvalue = SYNTAX;
                     return ERROR_CLASS;
+                }
+                for (pImage=pProcessCurrent->pImageHead; pImage; pImage = pImage->pImageNext) {
+                    ULONG disp;
+                    if (SymGetSymFromAddr( pProcessCurrent->hProcess, (ULONG)*pvalue, &disp, sym )) {
+                        dprintf("%17s!%s\n", pImage->szModuleName, sym->Name );
                     }
-//////
-                for (pImage=pProcessCurrent->pImageHead; pImage;
-                                                pImage = pImage->pImageNext)
-                    if (GetOffsetFromSym(chSymbol, (PULONG)pvalue,
-                                                    pImage->index))
-                        dprintf("%17s!%s\n", pImage->szModuleName, chSymbol);
+                }
                 *pvalue = AMBIGUOUS;
                 return ERROR_CLASS;
-                }
-
             }
-        //  symbol is undefined.
-        //  if a possible hex number, do not set the error type
 
-        if (!fNumber)
-            errNumber = VARDEF;
         }
 
+        //
+        //  symbol is undefined.
+        //  if a possible hex number, do not set the error type
+        //
+        if (!fNumber) {
+            errNumber = VARDEF;
+        }
+    }
 
+
+    //
     //  last chance, undefined symbol and illegal number,
     //      so test for register, will handle old format
-
-    if (!fForceSym && (*pvalue = GetRegString(chPreSym)) != -1)
+    //
+    if (!fForceSym && (*pvalue = GetRegString(chPreSym)) != -1) {
         return REG_CLASS;
+    }
 
+    //
     //  no success, so set error message and return
-
+    //
     *pvalue = (ULONG)errNumber;
     return ERROR_CLASS;
 }
 
-BOOLEAN SymbolOnlyExpr (void)
+BOOLEAN
+SymbolOnlyExpr (
+    VOID
+    )
 {
     PUCHAR  pchComSaved = pchCommand;
     LONG    pvalue;
@@ -1553,8 +1511,8 @@ LookupSymbolInDll (
         symName++;
     }
 
-    dllStr = strdup(dllName);
-    strlwr(dllStr);
+    dllStr = _strdup(dllName);
+    _strlwr(dllStr);
 
     //  First check all the exported symbols, if none found on
     //      first pass, force symbol load on second.
@@ -1562,10 +1520,12 @@ LookupSymbolInDll (
     for (pImage = pProcessCurrent->pImageHead;
          pImage;
          pImage = pImage->pImageNext) {
-        imageStr = strdup(pImage->szModuleName);
-        strlwr(imageStr);
-        if (strstr(imageStr,dllStr)) {
-            GetOffsetFromSym(symName, &retValue, pImage->index);
+        imageStr = _strdup(pImage->szModuleName);
+        _strlwr(imageStr);
+        if (!strcmp(imageStr,dllStr)) {
+            if (!GetOffsetFromSym( symName, &retValue, 0 )) {
+                retValue = 0;
+            }
             free(imageStr);
             free(dllStr);
             return(retValue);

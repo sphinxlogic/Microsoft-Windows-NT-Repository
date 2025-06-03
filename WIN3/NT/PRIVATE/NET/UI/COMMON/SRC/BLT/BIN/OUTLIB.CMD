@@ -1,1 +1,0 @@
-out ..\..\..\lib\blt.lib

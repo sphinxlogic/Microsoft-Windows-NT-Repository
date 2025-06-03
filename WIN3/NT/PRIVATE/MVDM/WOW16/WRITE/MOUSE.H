@@ -129,4 +129,3 @@ include files, it will do no algerbraic simplification. */
     #define imb4ComOptShfDn	0x280f	/* fMouseButton4 | fCommand | fOption |
 					   fShift | fDown */
 #endif /* cMouseButton > 3 */
-

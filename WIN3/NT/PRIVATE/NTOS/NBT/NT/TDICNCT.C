@@ -6,7 +6,6 @@
 //  provider.  The Code is NT specific.
 
 #include "nbtprocs.h"
-#include <io.h>
 
 //*******************  Pageable Routine Declarations ****************
 #ifdef ALLOC_PRAGMA
@@ -73,7 +72,7 @@ Return Value:
     // Allocate an MDL for the Indication buffer since we may need to buffer
     // up to 128 bytes
     //
-    pBuffer = CTEAllocMem(NBT_INDICATE_BUFFER_SIZE);
+    pBuffer = NbtAllocMem(NBT_INDICATE_BUFFER_SIZE,NBT_TAG('l'));
 
     if (!pBuffer)
     {
@@ -102,10 +101,10 @@ Return Value:
             KdPrint(("tcp device to open = %ws\n",DeviceName.Buffer));
 
         // Allocate memory for the address info to be passed to the transport
-        EaBuffer = (PFILE_FULL_EA_INFORMATION)CTEAllocMem (
+        EaBuffer = (PFILE_FULL_EA_INFORMATION)NbtAllocMem (
                         sizeof(FILE_FULL_EA_INFORMATION) - 1 +
                         TDI_CONNECTION_CONTEXT_LENGTH + 1 +
-                        sizeof(CONNECTION_CONTEXT) );
+                        sizeof(CONNECTION_CONTEXT),NBT_TAG('m'));
 
         if (EaBuffer)
         {
@@ -126,27 +125,24 @@ Return Value:
                 (CONST PVOID)&pLowerConn,
                 sizeof (CONNECTION_CONTEXT));
 
+            {
 
-            Status = ZwCreateFile (
-//            Status = IoCreateFile (
-                         &pLowerConn->FileHandle,
-                         GENERIC_READ | GENERIC_WRITE,
-                         &ObjectAttributes,     // object attributes.
-                         &IoStatusBlock,        // returned status information.
-                         NULL,                  // block size (unused).
-                         FILE_ATTRIBUTE_NORMAL, // file attributes.
-                         0,
-                         FILE_CREATE,
-                         0,                     // create options.
-                         (PVOID)EaBuffer,       // EA buffer.
-                         sizeof(FILE_FULL_EA_INFORMATION) - 1 +
-                            TDI_CONNECTION_CONTEXT_LENGTH + 1 +
-                            sizeof(CONNECTION_CONTEXT)
-                            );
-//                            CreateFileTypeNone,
-//                            NULL,
-//                            0 );
-
+                Status = ZwCreateFile (
+                             &pLowerConn->FileHandle,
+                             GENERIC_READ | GENERIC_WRITE,
+                             &ObjectAttributes,     // object attributes.
+                             &IoStatusBlock,        // returned status information.
+                             NULL,                  // block size (unused).
+                             FILE_ATTRIBUTE_NORMAL, // file attributes.
+                             0,
+                             FILE_CREATE,
+                             0,                     // create options.
+                             (PVOID)EaBuffer,       // EA buffer.
+                             sizeof(FILE_FULL_EA_INFORMATION) - 1 +
+                                TDI_CONNECTION_CONTEXT_LENGTH + 1 +
+                                sizeof(CONNECTION_CONTEXT)
+                                );
+            }
 
             IF_DBG(NBT_DEBUG_TDICNCT)
                 KdPrint( ("OpenConnection CreateFile Status:%X, IoStatus:%X\n", Status, IoStatusBlock.Status));
@@ -242,7 +238,7 @@ Return Value:
         SynchronizationEvent,
         FALSE);
 
-    pIrp = NTAllocateNbtIrp(pFileObject->DeviceObject);
+    pIrp = NTAllocateNbtIrp(IoGetRelatedDeviceObject(pFileObject));
 
     if (!pIrp)
     {
@@ -297,7 +293,7 @@ Return Value:
     //
     Len = (wcslen(NbtConfig.pTcpBindName) + wcslen(AppendingString) + 1) * sizeof(WCHAR);
 
-    pBuffer = CTEAllocMem(Len);
+    pBuffer = NbtAllocMem(Len,NBT_TAG('n'));
     if (!pBuffer)
     {
         return(STATUS_INSUFFICIENT_RESOURCES);
@@ -358,7 +354,7 @@ Return Value:
 
     // allocate memory for the lower connection block.
     //
-    pConnEle->pLowerConnId = (PVOID)CTEAllocMem(sizeof(tLOWERCONNECTION));
+    pConnEle->pLowerConnId = (PVOID)NbtAllocMem(sizeof(tLOWERCONNECTION),NBT_TAG('o'));
 
     if (!pConnEle->pLowerConnId)
     {
@@ -382,6 +378,12 @@ Return Value:
 
     pLowerConn->pUpperConnection = pConnEle;
     pLowerConn->State = NBT_IDLE;
+
+    //
+    // until the correct state proc is set (i.e.Outbound), reject any data
+    // (in other words, don't let this field stay NULL!)
+    //
+    SetStateProc( pLowerConn, RejectAnyData ) ;
 
 
     if (NT_SUCCESS(status))
@@ -471,7 +473,10 @@ Return Value:
 
     CTEAttachFsp(&Attached);
 
-    status = ZwClose(pLowerConn->FileHandle);
+    if (pLowerConn->FileHandle) {
+        status = ZwClose(pLowerConn->FileHandle);
+        pLowerConn->FileHandle = NULL;
+    }
 
 #if DBG
     if (!NT_SUCCESS(status))
@@ -523,4 +528,3 @@ Return Value:
     return(status);
 
 }
-

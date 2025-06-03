@@ -1,8 +1,6 @@
-#ifdef WATCHHEAPS
-
-#include <windows.h>
-#include <stdlib.h>
+#include "ddemlp.h"
 #include "heapwach.h"
+#ifdef WATCHHEAPS
 
 extern char FAR SZHEAPWATCHCLASS[];
 #define MAX_WINDOWS  20
@@ -108,4 +106,3 @@ VOID CloseHeapWatch()
 }
 
 #endif
-

@@ -36,6 +36,7 @@ extern    HWND    _MDIHandle;
 typedef struct  _REGISTRY_WINDOW_SET {
     PREGISTRY_WINDOW    ClassesRoot;
     PREGISTRY_WINDOW    CurrentUser;
+    PREGISTRY_WINDOW    CurrentConfig;
     PREGISTRY_WINDOW    LocalMachine;
     PREGISTRY_WINDOW    Users;
     PREGISTRY           Registry;

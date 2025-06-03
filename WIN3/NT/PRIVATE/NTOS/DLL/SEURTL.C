@@ -29,8 +29,32 @@ Revision History:
 #include <ntlsa.h>      // needed for RtlGetPrimaryDomain
 #include "seopaque.h"
 #include "sertlp.h"
+#include "ldrp.h"
 
 
+
+//
+// Private routines
+//
+
+NTSTATUS
+RtlpCreateServerAcl(
+    IN PACL Acl,
+    IN BOOLEAN AclUntrusted,
+    IN PSID ServerSid,
+    OUT PACL *ServerAcl,
+    OUT BOOLEAN *ServerAclAllocated
+    );
+
+NTSTATUS
+RtlpGetDefaultsSubjectContext(
+    HANDLE ClientToken,
+    OUT PTOKEN_OWNER *OwnerInfo,
+    OUT PTOKEN_PRIMARY_GROUP *GroupInfo,
+    OUT PTOKEN_DEFAULT_DACL *DefaultDaclInfo,
+    OUT PTOKEN_OWNER *ServerOwner,
+    OUT PTOKEN_PRIMARY_GROUP *ServerGroup
+    );
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -221,6 +245,7 @@ Return Value:
 
 
 
+
 NTSTATUS
 RtlNewSecurityObject (
     IN PSECURITY_DESCRIPTOR ParentDescriptor OPTIONAL,
@@ -363,6 +388,7 @@ Return Value:
     BOOLEAN NewSaclInherited = FALSE;
 
     PACL NewDacl = NULL;
+    PACL ServerDacl = NULL;
     BOOLEAN NewDaclPresent = FALSE;
     BOOLEAN NewDaclInherited = FALSE;
 
@@ -372,12 +398,21 @@ Return Value:
     BOOLEAN CleanUp = FALSE;
     BOOLEAN SaclExplicitlyAssigned = FALSE;
     BOOLEAN OwnerExplicitlyAssigned = FALSE;
+    BOOLEAN DaclExplicitlyAssigned = FALSE;
+
+    BOOLEAN ServerDaclAllocated = FALSE;
+
+    BOOLEAN ServerObject;
+    BOOLEAN DaclUntrusted;
 
     BOOLEAN HasPrivilege;
     PRIVILEGE_SET PrivilegeSet;
 
     PSID SubjectContextOwner;
     PSID SubjectContextGroup;
+    PSID ServerOwner;
+    PSID ServerGroup;
+
     PACL SubjectContextDacl;
 
     ULONG AllocationSize;
@@ -392,19 +427,17 @@ Return Value:
     PTOKEN_OWNER         TokenOwnerInfo = NULL;
     PTOKEN_PRIMARY_GROUP TokenPrimaryGroupInfo = NULL;
     PTOKEN_DEFAULT_DACL  TokenDefaultDaclInfo = NULL;
+
+    PTOKEN_OWNER         ServerOwnerInfo = NULL;
+    PTOKEN_PRIMARY_GROUP ServerGroupInfo = NULL;
+
     TOKEN_STATISTICS    ThreadTokenStatistics;
 
-    ULONG TokenOwnerInfoSize;
-    ULONG TokenGroupInfoSize;
-    ULONG TokenDaclInfoSize;
-
     PISECURITY_DESCRIPTOR INewDescriptor = NULL;
-
     ULONG ReturnLength;
-
     NTSTATUS PassedStatus;
-
     PVOID HeapHandle;
+    HANDLE PrimaryToken;
 
     //
     // Get the handle to the current process heap
@@ -474,108 +507,36 @@ Return Value:
 
     }
 
-    //
-    // Grab pointers to the default owner, primary group, and
-    // discretionary ACL.
-    //
-
-    Status = NtQueryInformationToken(
-                 Token,                        // Handle
-                 TokenOwner,                   // TokenInformationClass
-                 NULL,                         // TokenInformation
-                 0,                            // TokenInformationLength
-                 &TokenOwnerInfoSize           // ReturnLength
+    Status = RtlpGetDefaultsSubjectContext(
+                 Token,
+                 &TokenOwnerInfo,
+                 &TokenPrimaryGroupInfo,
+                 &TokenDefaultDaclInfo,
+                 &ServerOwnerInfo,
+                 &ServerGroupInfo
                  );
 
-    ASSERT( Status == STATUS_BUFFER_TOO_SMALL );
-
-    TokenOwnerInfo = RtlAllocateHeap( HeapHandle, 0, TokenOwnerInfoSize );
-
-    if ( TokenOwnerInfo == NULL ) {
-        return( STATUS_NO_MEMORY );
+    if (!NT_SUCCESS( Status )) {
+        return( Status );
     }
-
-    Status = NtQueryInformationToken(
-                 Token,                        // Handle
-                 TokenPrimaryGroup,            // TokenInformationClass
-                 TokenPrimaryGroupInfo,        // TokenInformation
-                 0,                            // TokenInformationLength
-                 &TokenGroupInfoSize           // ReturnLength
-                 );
-
-    ASSERT( Status == STATUS_BUFFER_TOO_SMALL );
-
-    TokenPrimaryGroupInfo = RtlAllocateHeap( HeapHandle, 0, TokenGroupInfoSize );
-
-    if ( TokenPrimaryGroupInfo == NULL ) {
-
-        RtlFreeHeap( HeapHandle, 0, (PVOID)TokenOwnerInfo );
-        return( STATUS_NO_MEMORY );
-
-    }
-
-    Status = NtQueryInformationToken(
-                 Token,                        // Handle
-                 TokenDefaultDacl,             // TokenInformationClass
-                 TokenDefaultDaclInfo,         // TokenInformation
-                 0,                            // TokenInformationLength
-                 &TokenDaclInfoSize            // ReturnLength
-                 );
-
-    ASSERT( Status == STATUS_BUFFER_TOO_SMALL );
-
-
-    TokenDefaultDaclInfo = RtlAllocateHeap( HeapHandle, 0, TokenDaclInfoSize );
-
-    if ( TokenDefaultDaclInfo == NULL ) {
-
-        RtlFreeHeap( HeapHandle, 0, (PVOID)TokenOwnerInfo );
-        RtlFreeHeap( HeapHandle, 0, (PVOID)TokenPrimaryGroupInfo );
-
-        return( STATUS_NO_MEMORY );
-
-    }
-
-    Status = NtQueryInformationToken(
-                 Token,                        // Handle
-                 TokenOwner,                   // TokenInformationClass
-                 TokenOwnerInfo,               // TokenInformation
-                 TokenOwnerInfoSize,           // TokenInformationLength
-                 &TokenOwnerInfoSize           // ReturnLength
-                 );
-
-    ASSERT( NT_SUCCESS(Status) );
 
     SubjectContextOwner = TokenOwnerInfo->Owner;
-
-
-
-    Status = NtQueryInformationToken(
-                 Token,                        // Handle
-                 TokenPrimaryGroup,            // TokenInformationClass
-                 TokenPrimaryGroupInfo,        // TokenInformation
-                 TokenGroupInfoSize,           // TokenInformationLength
-                 &TokenGroupInfoSize           // ReturnLength
-                 );
-
-    ASSERT( NT_SUCCESS(Status) );
-
     SubjectContextGroup = TokenPrimaryGroupInfo->PrimaryGroup;
+    SubjectContextDacl  = TokenDefaultDaclInfo->DefaultDacl;
+    ServerOwner         = ServerOwnerInfo->Owner;
+    ServerGroup         = ServerGroupInfo->PrimaryGroup;
 
+    if ( CapturedDescriptor->Control & SE_SERVER_SECURITY ) {
+        ServerObject = TRUE;
+    } else {
+        ServerObject = FALSE;
+    }
 
-    Status = NtQueryInformationToken(
-                 Token,                        // Handle
-                 TokenDefaultDacl,             // TokenInformationClass
-                 TokenDefaultDaclInfo,         // TokenInformation
-                 TokenDaclInfoSize,            // TokenInformationLength
-                 &TokenDaclInfoSize            // ReturnLength
-                 );
-
-    ASSERT( NT_SUCCESS(Status) );
-
-    SubjectContextDacl = TokenDefaultDaclInfo->DefaultDacl;
-
-
+    if ( CapturedDescriptor->Control & SE_DACL_UNTRUSTED ) {
+        DaclUntrusted = TRUE;
+    } else {
+        DaclUntrusted = FALSE;
+    }
 
 
     if (!CleanUp) {
@@ -614,6 +575,8 @@ Return Value:
                                          IsDirectoryObject,
                                          SubjectContextOwner,
                                          SubjectContextGroup,
+                                         ServerOwner,
+                                         ServerGroup,
                                          GenericMapping,
                                          &NewSacl )
                             )) {
@@ -667,6 +630,7 @@ Return Value:
 
             NewDacl = RtlpDaclAddrSecurityDescriptor(CapturedDescriptor);
             NewDaclPresent = TRUE;
+            DaclExplicitlyAssigned = TRUE;
 
         } else {
 
@@ -685,6 +649,8 @@ Return Value:
                                          IsDirectoryObject,
                                          SubjectContextOwner,
                                          SubjectContextGroup,
+                                         ServerOwner,
+                                         ServerGroup,
                                          GenericMapping,
                                          &NewDacl
                                          )
@@ -712,6 +678,13 @@ Return Value:
 
                     NewDacl = RtlpDaclAddrSecurityDescriptor(CapturedDescriptor);
                     NewDaclPresent = TRUE;
+
+                    //
+                    // This counts as an explicit assignment.
+                    //
+
+                    DaclExplicitlyAssigned = TRUE;
+
                 } else {
 
                     if (ARGUMENT_PRESENT(SubjectContextDacl)) {
@@ -760,7 +733,14 @@ Return Value:
             // can assign it as an owner.
             //
 
-            NewOwner = SubjectContextOwner;
+            //
+            // If we've been asked to create a ServerObject, we need to
+            // make sure to pick up the new owner from the Primary token,
+            // not the client token.  If we're not impersonating, they will
+            // end up being the same.
+            //
+
+            NewOwner = ServerObject ? ServerOwner : SubjectContextOwner;
         }
     }
 
@@ -784,8 +764,11 @@ Return Value:
             //
             // Pick up the primary group from the subject's security context
             //
+            // If we're creating a Server object, use the group from the server
+            // context.
+            //
 
-            NewGroup = SubjectContextGroup;
+            NewGroup = ServerObject ? ServerGroup : SubjectContextGroup;
         }
     }
 
@@ -818,7 +801,7 @@ Return Value:
 
             PrivilegeSet.PrivilegeCount = 1;
             PrivilegeSet.Control = PRIVILEGE_SET_ALL_NECESSARY;
-            PrivilegeSet.Privilege[0].Luid.QuadPart = SE_SECURITY_PRIVILEGE;
+            PrivilegeSet.Privilege[0].Luid = RtlConvertLongToLuid(SE_SECURITY_PRIVILEGE);
             PrivilegeSet.Privilege[0].Attributes = 0;
 
             Status = NtPrivilegeCheck(
@@ -876,6 +859,7 @@ Return Value:
                 if (!RtlpValidOwnerSubjectContext(
                         Token,
                         NewOwner,
+                        ServerObject,
                         &PassedStatus) ) {
 
                     if (!NT_SUCCESS( PassedStatus )) {
@@ -887,6 +871,32 @@ Return Value:
                     }
 
                     RequestorCanAssignDescriptor = FALSE;
+                }
+            }
+        }
+
+        if (NT_SUCCESS( Status )) {
+
+            if (DaclExplicitlyAssigned) {
+
+                if (ServerObject) {
+
+                    Status = RtlpCreateServerAcl(
+                                 NewDacl,
+                                 DaclUntrusted,
+                                 ServerOwner,
+                                 &ServerDacl,
+                                 &ServerDaclAllocated
+                                 );
+
+                    if (!NT_SUCCESS( Status )) {
+
+                        RequestorCanAssignDescriptor = FALSE;
+
+                    } else {
+
+                        NewDacl = ServerDacl;
+                    }
                 }
             }
         }
@@ -927,7 +937,7 @@ Return Value:
             // self-relative form.
             //
 
-            INewDescriptor = RtlAllocateHeap( HeapHandle, 0, AllocationSize );
+            INewDescriptor = RtlAllocateHeap( HeapHandle, MAKE_TAG( SE_TAG ), AllocationSize );
 
             if ( INewDescriptor != NULL ) {
 
@@ -993,6 +1003,10 @@ Return Value:
 
                 }
 
+                //
+                // Assign the owner
+                //
+
                 RtlMoveMemory( Field, NewOwner, SeLengthSid(NewOwner) );
                 INewDescriptor->Owner = (PSID)RtlPointerToOffset(Base,Field);
                 Field += NewOwnerSize;
@@ -1008,7 +1022,15 @@ Return Value:
             }
         }
     }
+
 
+    //
+    // If we allocated memory for a Server DACL, free it now.
+    //
+
+    if (ServerDaclAllocated) {
+        RtlFreeHeap(RtlProcessHeap(), 0, ServerDacl );
+    }
 
     //
     // Either an error was encountered or the assignment has completed
@@ -1018,6 +1040,8 @@ Return Value:
     RtlFreeHeap( HeapHandle, 0, (PVOID)TokenOwnerInfo );
     RtlFreeHeap( HeapHandle, 0, (PVOID)TokenPrimaryGroupInfo );
     RtlFreeHeap( HeapHandle, 0, (PVOID)TokenDefaultDaclInfo );
+    RtlFreeHeap( HeapHandle, 0, (PVOID)ServerOwnerInfo );
+    RtlFreeHeap( HeapHandle, 0, (PVOID)ServerGroupInfo );
 
     if (NewSaclInherited) {
 
@@ -1121,6 +1145,10 @@ Return Value:
     BOOLEAN NewDaclPresent  = FALSE;
     BOOLEAN NewOwnerPresent = FALSE;
 
+    BOOLEAN ServerAclAllocated = FALSE;
+    BOOLEAN ServerObject;
+    BOOLEAN DaclUntrusted;
+
     PCHAR Field;
     PCHAR Base;
 
@@ -1134,6 +1162,7 @@ Return Value:
 
     PSID NewGroup;
     PSID NewOwner;
+    PTOKEN_OWNER ServerSid;
 
     PACL NewDacl;
     PACL NewSacl;
@@ -1143,6 +1172,11 @@ Return Value:
     ULONG NewOwnerSize;
     ULONG NewGroupSize;
     ULONG AllocationSize;
+    ULONG ServerOwnerInfoSize;
+
+    HANDLE PrimaryToken;
+
+    PACL ServerDacl;
 
 
     PISECURITY_DESCRIPTOR IModificationDescriptor =
@@ -1165,6 +1199,27 @@ Return Value:
 
     if ( !RtlpAreControlBitsSet(*IObjectsSecurityDescriptor, SE_SELF_RELATIVE) ) {
         return( STATUS_BAD_DESCRIPTOR_FORMAT );
+    }
+
+    if (ARGUMENT_PRESENT(ModificationDescriptor)) {
+
+        if ( RtlpAreControlBitsSet(IModificationDescriptor, SE_SERVER_SECURITY)) {
+            ServerObject = TRUE;
+        } else {
+            ServerObject = FALSE;
+        }
+
+        if ( RtlpAreControlBitsSet(IModificationDescriptor, SE_DACL_UNTRUSTED)) {
+            DaclUntrusted = TRUE;
+        } else {
+            DaclUntrusted = FALSE;
+        }
+
+    } else {
+
+        ServerObject = FALSE;
+        DaclUntrusted = FALSE;
+
     }
 
 
@@ -1195,6 +1250,71 @@ Return Value:
 
         NewDacl = RtlpDaclAddrSecurityDescriptor( IModificationDescriptor );
         NewDaclPresent = TRUE;
+
+        if (ServerObject) {
+
+            //
+            // Obtain the default Server SID to substitute in the
+            // ACL if necessary.
+            //
+
+            ServerOwnerInfoSize = RtlLengthRequiredSid( SID_MAX_SUB_AUTHORITIES );
+
+            ServerSid = RtlAllocateHeap( HeapHandle, MAKE_TAG( SE_TAG ), ServerOwnerInfoSize );
+
+            if (ServerSid == NULL) {
+                return( STATUS_NO_MEMORY );
+            }
+
+            Status = NtOpenProcessToken(
+                         NtCurrentProcess(),
+                         TOKEN_QUERY,
+                         &PrimaryToken
+                         );
+
+            if (!NT_SUCCESS( Status )) {
+                RtlFreeHeap( HeapHandle, 0, ServerSid );
+                return( Status );
+            }
+
+            Status = NtQueryInformationToken(
+                         PrimaryToken,                 // Handle
+                         TokenOwner,                   // TokenInformationClass
+                         ServerSid,                    // TokenInformation
+                         ServerOwnerInfoSize,          // TokenInformationLength
+                         &ServerOwnerInfoSize          // ReturnLength
+                         );
+
+            NtClose( PrimaryToken );
+
+            if (!NT_SUCCESS( Status )) {
+                RtlFreeHeap( HeapHandle, 0, ServerSid );
+                return( Status );
+            }
+
+            if (NT_SUCCESS( Status )) {
+
+                Status = RtlpCreateServerAcl(
+                             NewDacl,
+                             DaclUntrusted,
+                             ServerSid->Owner,
+                             &ServerDacl,
+                             &ServerAclAllocated
+                             );
+
+                RtlFreeHeap( HeapHandle, 0, ServerSid );
+
+                if (!NT_SUCCESS( Status )) {
+                    return( Status );
+                }
+
+                NewDacl = ServerDacl;
+
+            } else {
+
+                return( Status );
+            }
+        }
 
     } else {
 
@@ -1230,8 +1350,9 @@ Return Value:
                          &ReturnLength                 // ReturnLength
                          );
 
-            ASSERT( NT_SUCCESS(Status) );
-
+            if (!NT_SUCCESS( Status )) {
+                return( Status );
+            }
 
             //
             //  If it is an impersonation token, then make sure it is at a
@@ -1249,9 +1370,7 @@ Return Value:
         } else {
 
             return( STATUS_INVALID_OWNER );
-
         }
-
 
         NewOwner = RtlpOwnerAddrSecurityDescriptor( IModificationDescriptor );
         NewOwnerPresent = TRUE;
@@ -1259,6 +1378,7 @@ Return Value:
         if (!RtlpValidOwnerSubjectContext(
                 Token,
                 NewOwner,
+                ServerObject,
                 &Status) ) {
 
             if (!NT_SUCCESS( Status )) {
@@ -1274,9 +1394,12 @@ Return Value:
     } else {
 
         NewOwner = RtlpOwnerAddrSecurityDescriptor ( *IObjectsSecurityDescriptor );
+        if (NewOwner == NULL) {
+            return(STATUS_INVALID_OWNER);
+        }
+
     }
 
-    ASSERT( NewOwner != NULL );
 
     //
     // Everything is assignable by the requestor.
@@ -1313,7 +1436,7 @@ Return Value:
     // self-relative form.
     //
 
-    NewDescriptor = RtlAllocateHeap( HeapHandle, 0, AllocationSize );
+    NewDescriptor = RtlAllocateHeap( HeapHandle, MAKE_TAG( SE_TAG ), AllocationSize );
 
     if ( NewDescriptor == NULL ) {
 
@@ -1516,9 +1639,12 @@ Return Value:
         *ObjectsSecurityDescriptor = (PSECURITY_DESCRIPTOR)NewDescriptor;
     }
 
+    if (ServerAclAllocated == TRUE) {
+        RtlFreeHeap( RtlProcessHeap(), 0, ServerDacl );
+    }
+
     return( Status );
 }
-
 
 
 
@@ -1889,7 +2015,7 @@ Return Value:
 
     *NewClientTokenModifiedId = ClientTokenStatistics.ModifiedId;
 
-    if ( NewClientTokenModifiedId->QuadPart == OldClientTokenModifiedId->QuadPart ) {
+    if ( RtlEqualLuid(NewClientTokenModifiedId, OldClientTokenModifiedId) ) {
 
         if ( !(ParentDescriptorChanged || CreatorDescriptorChanged) ) {
 
@@ -2053,7 +2179,7 @@ Return Value:
 
         RequiredPrivilege.PrivilegeCount = 1;
         RequiredPrivilege.Control = PRIVILEGE_SET_ALL_NECESSARY;
-        RequiredPrivilege.Privilege[0].Luid.QuadPart = SE_SECURITY_PRIVILEGE;
+        RequiredPrivilege.Privilege[0].Luid = RtlConvertLongToLuid(SE_SECURITY_PRIVILEGE);
         RequiredPrivilege.Privilege[0].Attributes = 0;
 
         //
@@ -2107,14 +2233,14 @@ Return Value:
 
         Privileges->PrivilegeCount = 1;
         Privileges->Control = 0;
-        Privileges->Privilege[PrivilegeNumber].Luid.QuadPart = SE_SECURITY_PRIVILEGE;
+        Privileges->Privilege[PrivilegeNumber].Luid = RtlConvertLongToLuid(SE_SECURITY_PRIVILEGE);
         Privileges->Privilege[PrivilegeNumber].Attributes = SE_PRIVILEGE_USED_FOR_ACCESS;
 
     } else {
 
         Privileges->PrivilegeCount = 0;
         Privileges->Control = 0;
-        Privileges->Privilege[PrivilegeNumber].Luid.QuadPart = 0;
+        Privileges->Privilege[PrivilegeNumber].Luid = RtlConvertLongToLuid(0);
         Privileges->Privilege[PrivilegeNumber].Attributes = 0;
 
     }
@@ -2199,7 +2325,7 @@ Return Value:
                 DaclSize +
                 SaclSize;
 
-    *OutputSecurityDescriptor = RtlAllocateHeap( RtlProcessHeap(), 0, TotalSize );
+    *OutputSecurityDescriptor = RtlAllocateHeap( RtlProcessHeap(), MAKE_TAG( SE_TAG ), TotalSize );
 
     if ( *OutputSecurityDescriptor == NULL ) {
         return( STATUS_NO_MEMORY );
@@ -2527,7 +2653,7 @@ Return Value:
     }
 
     if ((AbsoluteSd = RtlAllocateHeap(
-                          HeapHandle, 0,
+                          HeapHandle, MAKE_TAG( SE_TAG ),
                           Size
                           )) == NULL) {
         ntstatus = STATUS_NO_MEMORY;
@@ -2567,7 +2693,7 @@ Return Value:
     //
 
     if ((MaxAce = RtlAllocateHeap(
-                      HeapHandle, 0,
+                      HeapHandle, MAKE_TAG( SE_TAG ),
                       MaxAceSize
                       )) == NULL ) {
         ntstatus = STATUS_NO_MEMORY;
@@ -2884,4 +3010,460 @@ Return Value:
     //
     (void) RtlFreeHeap(HeapHandle, 0, AbsoluteSd);
     return ntstatus;
+}
+
+
+
+NTSTATUS
+RtlpGetDefaultsSubjectContext(
+    HANDLE ClientToken,
+    OUT PTOKEN_OWNER *OwnerInfo,
+    OUT PTOKEN_PRIMARY_GROUP *GroupInfo,
+    OUT PTOKEN_DEFAULT_DACL *DefaultDaclInfo,
+    OUT PTOKEN_OWNER *ServerOwner,
+    OUT PTOKEN_PRIMARY_GROUP *ServerGroup
+    )
+{
+    HANDLE PrimaryToken;
+    PVOID HeapHandle;
+    NTSTATUS Status;
+    ULONG ServerGroupInfoSize;
+    ULONG ServerOwnerInfoSize;
+    ULONG TokenDaclInfoSize;
+    ULONG TokenGroupInfoSize;
+    ULONG TokenOwnerInfoSize;
+
+    BOOLEAN ClosePrimaryToken = FALSE;
+
+    *OwnerInfo = NULL;
+    *GroupInfo = NULL;
+    *DefaultDaclInfo = NULL;
+    *ServerOwner = NULL;
+    *ServerGroup = NULL;
+
+    HeapHandle = RtlProcessHeap();
+
+    //
+    // Obtain the default owner from the client.
+    //
+
+    Status = NtQueryInformationToken(
+                 ClientToken,                        // Handle
+                 TokenOwner,                   // TokenInformationClass
+                 NULL,                         // TokenInformation
+                 0,                            // TokenInformationLength
+                 &TokenOwnerInfoSize           // ReturnLength
+                 );
+
+    if ( STATUS_BUFFER_TOO_SMALL != Status ) {
+        goto Cleanup;
+    }
+
+    *OwnerInfo = RtlAllocateHeap( HeapHandle, MAKE_TAG( SE_TAG ), TokenOwnerInfoSize );
+
+    if ( *OwnerInfo == NULL ) {
+        Status = STATUS_NO_MEMORY;
+        goto Cleanup;
+    }
+
+    Status = NtQueryInformationToken(
+                 ClientToken,                        // Handle
+                 TokenOwner,                   // TokenInformationClass
+                 *OwnerInfo,               // TokenInformation
+                 TokenOwnerInfoSize,           // TokenInformationLength
+                 &TokenOwnerInfoSize           // ReturnLength
+                 );
+
+    if (!NT_SUCCESS( Status )) {
+        goto Cleanup;
+    }
+
+    //
+    // Obtain the default group from the client token.
+    //
+
+    Status = NtQueryInformationToken(
+                 ClientToken,                        // Handle
+                 TokenPrimaryGroup,            // TokenInformationClass
+                 *GroupInfo,                   // TokenInformation
+                 0,                            // TokenInformationLength
+                 &TokenGroupInfoSize           // ReturnLength
+                 );
+
+    if ( STATUS_BUFFER_TOO_SMALL != Status ) {
+        goto Cleanup;
+    }
+
+    *GroupInfo = RtlAllocateHeap( HeapHandle, MAKE_TAG( SE_TAG ), TokenGroupInfoSize );
+
+    if ( *GroupInfo == NULL ) {
+
+        Status = STATUS_NO_MEMORY;
+        goto Cleanup;
+    }
+
+    Status = NtQueryInformationToken(
+                 ClientToken,                  // Handle
+                 TokenPrimaryGroup,            // TokenInformationClass
+                 *GroupInfo,                   // TokenInformation
+                 TokenGroupInfoSize,           // TokenInformationLength
+                 &TokenGroupInfoSize           // ReturnLength
+                 );
+
+    if (!NT_SUCCESS( Status )) {
+        goto Cleanup;
+    }
+
+    Status = NtQueryInformationToken(
+                 ClientToken,                        // Handle
+                 TokenDefaultDacl,             // TokenInformationClass
+                 *DefaultDaclInfo,             // TokenInformation
+                 0,                            // TokenInformationLength
+                 &TokenDaclInfoSize            // ReturnLength
+                 );
+
+    if ( STATUS_BUFFER_TOO_SMALL != Status ) {
+        goto Cleanup;
+    }
+
+    *DefaultDaclInfo = RtlAllocateHeap( HeapHandle, MAKE_TAG( SE_TAG ), TokenDaclInfoSize );
+
+    if ( *DefaultDaclInfo == NULL ) {
+
+        Status = STATUS_NO_MEMORY;
+        goto Cleanup;
+    }
+
+    Status = NtQueryInformationToken(
+                 ClientToken,                        // Handle
+                 TokenDefaultDacl,             // TokenInformationClass
+                 *DefaultDaclInfo,             // TokenInformation
+                 TokenDaclInfoSize,            // TokenInformationLength
+                 &TokenDaclInfoSize            // ReturnLength
+                 );
+
+    if (!NT_SUCCESS( Status )) {
+        goto Cleanup;
+    }
+
+    //
+    // Now open the primary token to determine how to substitute for
+    // ServerOwner and ServerGroup.
+    //
+
+    Status = NtOpenProcessToken(
+                 NtCurrentProcess(),
+                 TOKEN_QUERY,
+                 &PrimaryToken
+                 );
+
+    if (!NT_SUCCESS( Status )) {
+        ClosePrimaryToken = FALSE;
+        goto Cleanup;
+    } else {
+        ClosePrimaryToken = TRUE;
+    }
+
+    Status = NtQueryInformationToken(
+                 PrimaryToken,                 // Handle
+                 TokenOwner,                   // TokenInformationClass
+                 NULL,                         // TokenInformation
+                 0,                            // TokenInformationLength
+                 &ServerOwnerInfoSize          // ReturnLength
+                 );
+
+    if ( STATUS_BUFFER_TOO_SMALL != Status ) {
+        goto Cleanup;
+    }
+
+    *ServerOwner = RtlAllocateHeap( HeapHandle, MAKE_TAG( SE_TAG ), ServerOwnerInfoSize );
+
+    if ( *ServerOwner == NULL ) {
+        Status = STATUS_NO_MEMORY;
+        goto Cleanup;
+    }
+
+    Status = NtQueryInformationToken(
+                 PrimaryToken,                 // Handle
+                 TokenOwner,                   // TokenInformationClass
+                 *ServerOwner,                 // TokenInformation
+                 ServerOwnerInfoSize,          // TokenInformationLength
+                 &ServerOwnerInfoSize          // ReturnLength
+                 );
+
+    if (!NT_SUCCESS( Status )) {
+        goto Cleanup;
+    }
+
+    //
+    // Find the server group.
+    //
+
+    Status = NtQueryInformationToken(
+                 PrimaryToken,                 // Handle
+                 TokenPrimaryGroup,            // TokenInformationClass
+                 *ServerGroup,                 // TokenInformation
+                 0,                            // TokenInformationLength
+                 &ServerGroupInfoSize          // ReturnLength
+                 );
+
+    if ( STATUS_BUFFER_TOO_SMALL != Status ) {
+        goto Cleanup;
+    }
+
+    *ServerGroup = RtlAllocateHeap( HeapHandle, MAKE_TAG( SE_TAG ), ServerGroupInfoSize );
+
+    if ( *ServerGroup == NULL ) {
+        goto Cleanup;
+    }
+
+    Status = NtQueryInformationToken(
+                 PrimaryToken,                 // Handle
+                 TokenPrimaryGroup,            // TokenInformationClass
+                 *ServerGroup,                 // TokenInformation
+                 ServerGroupInfoSize,          // TokenInformationLength
+                 &ServerGroupInfoSize          // ReturnLength
+                 );
+
+    if (!NT_SUCCESS( Status )) {
+        goto Cleanup;
+    }
+
+    NtClose( PrimaryToken );
+
+    return( STATUS_SUCCESS );
+
+Cleanup:
+
+    if (*OwnerInfo != NULL) {
+        RtlFreeHeap( HeapHandle, 0, (PVOID)*OwnerInfo );
+        *OwnerInfo = NULL;
+    }
+
+    if (*GroupInfo != NULL) {
+        RtlFreeHeap( HeapHandle, 0, (PVOID)*GroupInfo );
+        *GroupInfo = NULL;
+    }
+
+    if (*DefaultDaclInfo != NULL) {
+        RtlFreeHeap( HeapHandle, 0, (PVOID)*DefaultDaclInfo );
+        *DefaultDaclInfo = NULL;
+    }
+
+    if (*ServerOwner != NULL) {
+        RtlFreeHeap( HeapHandle, 0, (PVOID)*ServerOwner );
+        *ServerOwner = NULL;
+    }
+
+    if (*ServerGroup != NULL) {
+        RtlFreeHeap( HeapHandle, 0, (PVOID)*ServerGroup );
+        *ServerGroup = NULL;
+    }
+
+    if (ClosePrimaryToken  == TRUE) {
+        NtClose( PrimaryToken );
+    }
+
+    return( Status );
+}
+
+
+NTSTATUS
+RtlpCreateServerAcl(
+    IN PACL Acl,
+    IN BOOLEAN AclUntrusted,
+    IN PSID ServerSid,
+    OUT PACL *ServerAcl,
+    OUT BOOLEAN *ServerAclAllocated
+    )
+
+/*++
+
+Routine Description:
+
+    This routine takes an ACL and converts it into a server ACL.
+    Currently, that means converting all of the GRANT ACEs into
+    Compount Grants, and if necessary sanitizing any Compound
+    Grants that are encountered.
+
+Arguments:
+
+
+
+Return Value:
+
+
+--*/
+
+{
+    USHORT RequiredSize = sizeof(ACL);
+    USHORT AceSizeAdjustment;
+    USHORT ServerSidSize;
+    PACE_HEADER Ace;
+    ULONG i;
+    PVOID Target;
+    PVOID AcePosition;
+    PSID UntrustedSid;
+    PSID ClientSid;
+    NTSTATUS Status;
+
+    if (Acl == NULL) {
+        *ServerAclAllocated = FALSE;
+        *ServerAcl = NULL;
+        return( STATUS_SUCCESS );
+    }
+
+    AceSizeAdjustment = sizeof( KNOWN_COMPOUND_ACE ) - sizeof( KNOWN_ACE );
+    ASSERT( sizeof( KNOWN_COMPOUND_ACE ) >= sizeof( KNOWN_ACE ) );
+
+    ServerSidSize = (USHORT)RtlLengthSid( ServerSid );
+
+    //
+    // Do this in two passes.  First, determine how big the final
+    // result is going to be, and then allocate the space and make
+    // the changes.
+    //
+
+    for (i = 0, Ace = FirstAce(Acl);
+         i < Acl->AceCount;
+         i += 1, Ace = NextAce(Ace)) {
+
+        //
+        // If it's an ACCESS_ALLOWED_ACE_TYPE, we'll need to add in the
+        // size of the Server SID.
+        //
+
+        if (Ace->AceType == ACCESS_ALLOWED_ACE_TYPE) {
+
+            //
+            // Simply add the size of the new Server SID plus whatever
+            // adjustment needs to be made to increase the size of the ACE.
+            //
+
+            RequiredSize += ( ServerSidSize + AceSizeAdjustment );
+
+        } else {
+
+            if (AclUntrusted && Ace->AceType == ACCESS_ALLOWED_COMPOUND_ACE_TYPE ) {
+
+                //
+                // Since the Acl is untrusted, we don't care what is in the
+                // server SID, we're going to replace it.
+                //
+
+                UntrustedSid = RtlCompoundAceServerSid( Ace );
+                if ((USHORT)RtlLengthSid(UntrustedSid) > ServerSidSize) {
+                    RequiredSize += ((USHORT)RtlLengthSid(UntrustedSid) - ServerSidSize);
+                } else {
+                    RequiredSize += (ServerSidSize - (USHORT)RtlLengthSid(UntrustedSid));
+
+                }
+            }
+        }
+
+        RequiredSize += Ace->AceSize;
+    }
+
+    (*ServerAcl) = (PACL)RtlAllocateHeap( RtlProcessHeap(), MAKE_TAG( SE_TAG ), RequiredSize );
+
+    if ((*ServerAcl) == NULL) {
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    //
+    // Mark as allocated so caller knows to free it.
+    //
+
+    *ServerAclAllocated = TRUE;
+
+    Status = RtlCreateAcl( (*ServerAcl), RequiredSize, ACL_REVISION3 );
+    ASSERT( NT_SUCCESS( Status ));
+
+    for (i = 0, Ace = FirstAce(Acl), Target=FirstAce( *ServerAcl );
+         i < Acl->AceCount;
+         i += 1, Ace = NextAce(Ace)) {
+
+        //
+        // If it's an ACCESS_ALLOWED_ACE_TYPE, convert to a Server ACE.
+        //
+
+        if (Ace->AceType == ACCESS_ALLOWED_ACE_TYPE ||
+           (AclUntrusted && Ace->AceType == ACCESS_ALLOWED_COMPOUND_ACE_TYPE )) {
+
+            AcePosition = Target;
+
+            if (Ace->AceType == ACCESS_ALLOWED_ACE_TYPE) {
+                ClientSid =  &((PKNOWN_ACE)Ace)->SidStart;
+            } else {
+                ClientSid = RtlCompoundAceClientSid( Ace );
+            }
+
+            //
+            // Copy up to the access mask.
+            //
+
+            RtlMoveMemory(
+                Target,
+                Ace,
+                FIELD_OFFSET(KNOWN_ACE, SidStart)
+                );
+
+            //
+            // Now copy the correct Server SID
+            //
+
+            Target = (PVOID)((ULONG)Target + (UCHAR)(FIELD_OFFSET(KNOWN_COMPOUND_ACE, SidStart)));
+
+            RtlMoveMemory(
+                Target,
+                ServerSid,
+                RtlLengthSid(ServerSid)
+                );
+
+            Target = (PVOID)((ULONG)Target + (UCHAR)RtlLengthSid(ServerSid));
+
+            //
+            // Now copy in the correct client SID.  We can copy this right out of
+            // the original ACE.
+            //
+
+            RtlMoveMemory(
+                Target,
+                ClientSid,
+                RtlLengthSid(ClientSid)
+                );
+
+            Target = (PVOID)((ULONG)Target + RtlLengthSid(ClientSid));
+
+            //
+            // Set the size of the ACE accordingly
+            //
+
+            ((PKNOWN_COMPOUND_ACE)AcePosition)->Header.AceSize =
+                (USHORT)FIELD_OFFSET(KNOWN_COMPOUND_ACE, SidStart) +
+                (USHORT)RtlLengthSid(ServerSid) +
+                (USHORT)RtlLengthSid(ClientSid);
+
+            //
+            // Set the type
+            //
+
+            ((PKNOWN_COMPOUND_ACE)AcePosition)->Header.AceType = ACCESS_ALLOWED_COMPOUND_ACE_TYPE;
+            ((PKNOWN_COMPOUND_ACE)AcePosition)->CompoundAceType = COMPOUND_ACE_IMPERSONATION;
+
+        } else {
+
+            //
+            // Just copy the ACE as is.
+            //
+
+            RtlMoveMemory( Target, Ace, Ace->AceSize );
+
+            Target = (PVOID)((ULONG)Target + Ace->AceSize);
+        }
+    }
+
+    (*ServerAcl)->AceCount = Acl->AceCount;
+
+    return( STATUS_SUCCESS );
 }

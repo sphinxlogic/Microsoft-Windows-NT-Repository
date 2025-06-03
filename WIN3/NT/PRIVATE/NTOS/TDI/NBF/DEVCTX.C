@@ -36,7 +36,12 @@ Revision History:
 
 
 #ifdef ALLOC_PRAGMA
+#ifndef _PNP_POWER
 #pragma alloc_text(INIT,NbfCreateDeviceContext)
+#else
+#pragma alloc_text(PAGE,NbfCreateDeviceContext)
+#endif
+
 #endif
 
 
@@ -68,9 +73,7 @@ Return Value:
 
     ASSERT (DeviceContext->ReferenceCount > 0);    // not perfect, but...
 
-    (VOID)ExInterlockedIncrementLong (
-              &DeviceContext->ReferenceCount,
-              &DeviceContext->Interlock);
+    (VOID)InterlockedIncrement (&DeviceContext->ReferenceCount);
 
 } /* NbfRefDeviceContext */
 
@@ -100,19 +103,17 @@ Return Value:
 --*/
 
 {
-    INTERLOCKED_RESULT result;
+    LONG result;
 
     IF_NBFDBG (NBF_DEBUG_DEVCTX) {
         NbfPrint0 ("NbfDerefDeviceContext:  Entered.\n");
     }
 
-    result = ExInterlockedDecrementLong (
-                 &DeviceContext->ReferenceCount,
-                 &DeviceContext->Interlock);
+    result = InterlockedDecrement (&DeviceContext->ReferenceCount);
 
-    ASSERT (result != ResultNegative);
+    ASSERT (result >= 0);
 
-    if (result == ResultZero) {
+    if (result == 0) {
         NbfDestroyDeviceContext (DeviceContext);
     }
 
@@ -231,6 +232,8 @@ Return Value:
     KeInitializeSpinLock (&deviceContext->LinkSpinLock);
     KeInitializeSpinLock (&deviceContext->TimerSpinLock);
     KeInitializeSpinLock (&deviceContext->LoopbackSpinLock);
+    KeInitializeSpinLock (&deviceContext->SendPoolListLock);
+    KeInitializeSpinLock (&deviceContext->RcvPoolListLock);
 
     deviceContext->LinkTreeRoot = NULL;
     deviceContext->LastLink = NULL;
@@ -370,7 +373,7 @@ Return Value:
     }
 
      deviceContext->Type = NBF_DEVICE_CONTEXT_SIGNATURE;
-     deviceContext->Size - sizeof (DEVICE_CONTEXT);
+     deviceContext->Size = sizeof (DEVICE_CONTEXT);
 
     *DeviceContext = deviceContext;
     return STATUS_SUCCESS;

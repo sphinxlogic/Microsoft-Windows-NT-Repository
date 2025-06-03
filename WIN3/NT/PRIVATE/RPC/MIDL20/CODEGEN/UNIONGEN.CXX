@@ -61,17 +61,16 @@ CG_UNION::S_GenInitOutLocals(
 
 	if( HasPointer() )
 		{
-		ITERATOR	I;
-		_expr_node	*	pSrc = pCCB->GetSourceExpression();
+		expr_node	*	pSrc = pCCB->GetSourceExpression();
 
 		// BUGBUG: Embedded structure are not inited yet!!
 		// It is enough to emit code to set just the first pointer field to
 		// 0. Guess why ?. Base type fields need not be set to 0.
 
-		_expr_proc_call * pProc = new _expr_proc_call( MIDL_MEMSET_RTN_NAME );
-		pProc->SetParam( new _expr_param( pSrc ) );
-		pProc->SetParam( new _expr_param( new _expr_constant( 0L ) ) );
-		pProc->SetParam( new _expr_param( new _expr_sizeof( GetType())));
+		expr_proc_call * pProc = new expr_proc_call( MIDL_MEMSET_RTN_NAME );
+		pProc->SetParam( new expr_param( pSrc ) );
+		pProc->SetParam( new expr_param( new expr_constant( 0L ) ) );
+		pProc->SetParam( new expr_param( new expr_sizeof( GetType())));
 		pCCB->GetStream()->NewLine();
 		pProc->PrintCall( pCCB->GetStream(), 0, 0 );
 		}
@@ -83,7 +82,7 @@ short
 CG_UNION::GetPointerMembers(
 	ITERATOR&	I )
 	{
-	ITERATOR	M;
+	CG_ITERATOR	M;
 	CG_CASE	*	pCase;
 	short		Count = 0;
 

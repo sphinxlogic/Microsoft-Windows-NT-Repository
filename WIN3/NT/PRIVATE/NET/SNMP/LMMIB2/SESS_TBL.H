@@ -1,52 +1,28 @@
+/*++
+
+Copyright (c) 1992-1996  Microsoft Corporation
+
+Module Name:
+
+    sess_tbl.h
+
+Abstract:
+
+    Definition of all structures used by the Session table.
+
+Environment:
+
+    User Mode - Win32
+
+Revision History:
+
+    10-May-1996 DonRyan
+        Removed banner from Technology Dynamics, Inc.
+
+--*/
+
 #ifndef sess_tbl_h
 #define sess_tbl_h
-
-//-------------------------- MODULE DESCRIPTION ----------------------------
-//
-//  sess_tbl.h
-//
-//  Copyright 1992 Technology Dynamics, Inc.
-//
-//  All Rights Reserved!!!
-//
-//	This source code is CONFIDENTIAL and PROPRIETARY to Technology
-//	Dynamics. Unauthorized distribution, adaptation or use may be
-//	subject to civil and criminal penalties.
-//
-//  All Rights Reserved!!!
-//
-//---------------------------------------------------------------------------
-//
-//  Definition of all structures used by the Session table.
-//
-//  Project:  Implementation of an SNMP Agent for Microsoft's NT Kernel
-//
-//  $Revision:   1.2  $
-//  $Date:   01 Jun 1992 10:34:18  $
-//  $Author:   unknown  $
-//
-//  $Log:   N:/lmmib2/vcs/sess_tbl.h_v  $
-//
-//     Rev 1.2   01 Jun 1992 10:34:18   unknown
-//  Added set functionality to table commands.
-//
-//     Rev 1.1   22 May 1992 17:38:32   todd
-//  Added return codes to _lmget() functions
-//
-//     Rev 1.0   20 May 1992 15:11:34   mlk
-//  Initial revision.
-//
-//     Rev 1.1   02 May 1992 19:10:58   todd
-//  code cleanup
-//
-//     Rev 1.0   25 Apr 1992 19:14:44   Chip
-//  Initial revision.
-//
-//---------------------------------------------------------------------------
-
-//--------------------------- VERSION INFO ----------------------------------
-
-static char *sess_tbl__h = "@(#) $Logfile:   N:/lmmib2/vcs/sess_tbl.h_v  $ $Revision:   1.2  $";
 
 //--------------------------- PUBLIC CONSTANTS ------------------------------
 
@@ -106,10 +82,10 @@ UINT MIB_sess_lmset(
 
 int MIB_sess_match(
        IN AsnObjectIdentifier *Oid,
-       OUT UINT *Pos
+       OUT UINT *Pos,
+       IN BOOL Next
        );
 
 //------------------------------- END ---------------------------------------
 
 #endif /* sess_tbl_h */
-

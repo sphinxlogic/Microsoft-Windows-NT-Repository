@@ -60,7 +60,7 @@ static ADAPTER_INFO Adapters[] = {
     {
         1000,
         L"ELNK3ISA509",
-        L"IOADDR 1 100 IRQ 1 100 TRANSCEIVER 1 100 ",
+        L"IOADDR 1 100 IRQ 1 100 TRANSCEIVER 1 100 PCMCIA 1 100 CARDTYPE 1 100",
         NULL,
         700
 
@@ -85,7 +85,21 @@ static ADAPTER_INFO Adapters[] = {
     {
         1000,
         L"ELNK3ISA509",
-        L"IOADDR\0001\000100\0IRQ\01\0100\0TRANSCEIVER\01\0100\0",
+        L"IOADDR\0"
+        L"1\0"
+        L"100\0"
+        L"IRQ\0"
+        L"1\0"
+        L"100\0"
+        L"TRANSCEIVER\0"
+        L"1\0"
+        L"100\0"
+        L"PCMCIA\0"
+        L"1\0"
+        L"100\0"
+        L"CARDTYPE\0"
+        L"1\0"
+        L"100\0",
         NULL,
         700
 
@@ -98,17 +112,16 @@ static ADAPTER_INFO Adapters[] = {
 //
 // Structure for holding state of a search
 //
-
-typedef struct _SEARCH_STATE {
-
-
+typedef struct _SEARCH_STATE
+{
     ULONG   NumberOfAdapters;
     ULONG   CurrentAdapter;
     USHORT  IoBases[7];
     UCHAR   Irq[7];
     UCHAR   Transceiver[7];
-
-} SEARCH_STATE, *PSEARCH_STATE;
+}
+	SEARCH_STATE,
+	*PSEARCH_STATE;
 
 
 //
@@ -125,16 +138,16 @@ static SEARCH_STATE SearchStates[sizeof(Adapters) / sizeof(ADAPTER_INFO)] = {0};
 //
 // Structure for holding a particular adapter's complete information
 //
-typedef struct _ELNK3_ADAPTER {
-
+typedef struct _ELNK3_ADAPTER
+{
     INTERFACE_TYPE InterfaceType;
     ULONG          BusNumber;
     USHORT         IoBaseAddr;
     UCHAR          Irq;
     UCHAR          Transceiver;
-
-} ELNK3_ADAPTER, *PELNK3_ADAPTER;
-
+}
+	ELNK3_ADAPTER,
+	*PELNK3_ADAPTER;
 
 //
 // Constant strings for parameters
@@ -356,45 +369,55 @@ Return Value:
 --*/
 
 {
-
+	NETDTECT_RESOURCE	Resource;
 
     *lConfidence = 0;
     *ppvToken    = 0;
 
-
-    if ((InterfaceType != Isa) &&
-        (InterfaceType != Eisa)) {
-
+    if ((InterfaceType != Isa) && (InterfaceType != Eisa))
+	{
         return(0);
-
     }
 
-
-    if (First) {
-
-        SearchStates[0].CurrentAdapter=0;
+    if (First)
+	{
+        SearchStates[0].CurrentAdapter = 0;
 
         Elnk3FindCards(
             InterfaceType,
             BusNumber,
-            SearchStates
-            );
-
-    } else {
-
-
-        if (++SearchStates[0].CurrentAdapter > 7) {
-
+            SearchStates);
+    }
+	else
+	{
+        if (++SearchStates[0].CurrentAdapter > 7)
+		{
             return(0);
-
         }
     }
 
-    while (SearchStates[0].CurrentAdapter < 7) {
+    while (SearchStates[0].CurrentAdapter < 7)
+	{
+        if ((SearchStates[0].IoBases[SearchStates[0].CurrentAdapter] != 0) &&
+            (SearchStates[0].IoBases[SearchStates[0].CurrentAdapter] != 0x3f0))
+		{
+			//
+			//	Acquire the resources.
+			//
+			Resource.InterfaceType = InterfaceType;
+			Resource.BusNumber = BusNumber;
+			Resource.Type = NETDTECT_PORT_RESOURCE;
+			Resource.Value = SearchStates[0].IoBases[SearchStates[0].CurrentAdapter];
+			Resource.Length = 0x10;
+			Resource.Flags = 0;
 
-        if ((SearchStates[0].IoBases[SearchStates[0].CurrentAdapter] != 0)
-             &&
-            (SearchStates[0].IoBases[SearchStates[0].CurrentAdapter] != 0x3f0)) {
+			DetectTemporaryClaimResource(&Resource);
+
+			Resource.Type = NETDTECT_IRQ_RESOURCE;
+			Resource.Value = SearchStates[0].Irq[SearchStates[0].CurrentAdapter];
+			Resource.Length = 0;
+
+			DetectTemporaryClaimResource(&Resource);
 
             break;
         }
@@ -402,11 +425,9 @@ Return Value:
         SearchStates[0].CurrentAdapter++;
     }
 
-
-    if (SearchStates[0].CurrentAdapter == 7) {
-
+    if (SearchStates[0].CurrentAdapter == 7)
+	{
         return(0);
-
     }
 
     //
@@ -421,13 +442,12 @@ Return Value:
     // NOTE: This presumes that there are < 129 buses in the
     // system. Is this reasonable?
     //
-
-    if (InterfaceType == Isa) {
-
+    if (InterfaceType == Isa)
+	{
         *ppvToken = (PVOID)0x8000;
-
-    } else {
-
+    }
+	else
+	{
         *ppvToken = (PVOID)0x0;
     }
 
@@ -437,8 +457,6 @@ Return Value:
 
     *lConfidence = 100;
     return(0);
-
-
 }
 
 extern
@@ -477,15 +495,13 @@ Return Value:
     //
     // Get info from the token
     //
-
-    if (((ULONG)Token) & 0x8000) {
-
+    if (((ULONG)Token) & 0x8000)
+	{
         InterfaceType = Isa;
-
-    } else {
-
+    }
+	else
+	{
         InterfaceType = Eisa;
-
     }
 
     BusNumber = (ULONG)(((ULONG)Token >> 8) & 0x7F);
@@ -495,21 +511,15 @@ Return Value:
     //
     // Store information
     //
-
-    Adapter = (PELNK3_ADAPTER)DetectAllocateHeap(
-                                 sizeof(ELNK3_ADAPTER)
-                                 );
-
-    if (Adapter == NULL) {
-
+    Adapter = (PELNK3_ADAPTER)DetectAllocateHeap(sizeof(ELNK3_ADAPTER));
+    if (Adapter == NULL)
+	{
         return(ERROR_NOT_ENOUGH_MEMORY);
-
     }
 
     //
     // Copy across memory address
     //
-
     Adapter->IoBaseAddr = SearchStates[(ULONG)AdapterNumber].IoBases[SearchStates[(ULONG)AdapterNumber].CurrentAdapter];
     Adapter->Irq        = SearchStates[(ULONG)AdapterNumber].Irq[SearchStates[(ULONG)AdapterNumber].CurrentAdapter];
     Adapter->Transceiver= SearchStates[(ULONG)AdapterNumber].Transceiver[SearchStates[(ULONG)AdapterNumber].CurrentAdapter];
@@ -557,50 +567,59 @@ Return Value:
     PELNK3_ADAPTER Adapter;
     LONG NumberOfAdapters;
     LONG i;
+	NETDTECT_RESOURCE	Resource;
 
-    if ((InterfaceType != Isa) &&
-        (InterfaceType != Eisa)) {
-
+    if ((InterfaceType != Isa) && (InterfaceType != Eisa))
+	{
         return(ERROR_INVALID_PARAMETER);
-
     }
 
     NumberOfAdapters = sizeof(Adapters) / sizeof(ADAPTER_INFO);
 
-    for (i=0; i < NumberOfAdapters; i++) {
-
-        if (Adapters[i].Index == NetcardId) {
-
+    for (i = 0; i < NumberOfAdapters; i++)
+	{
+        if (Adapters[i].Index == NetcardId)
+		{
             //
             // Store information
             //
-
-            Adapter = (PELNK3_ADAPTER)DetectAllocateHeap(
-                                         sizeof(ELNK3_ADAPTER)
-                                         );
-
-            if (Adapter == NULL) {
-
+            Adapter = (PELNK3_ADAPTER)DetectAllocateHeap(sizeof(ELNK3_ADAPTER));
+            if (Adapter == NULL)
+			{
                 return(ERROR_NOT_ENOUGH_MEMORY);
-
             }
 
             //
             // Copy across memory address
             //
-
             Adapter->IoBaseAddr              = 0x300;
             Adapter->Irq                     = 10;
             Adapter->Transceiver             = 0;
             Adapter->InterfaceType           = InterfaceType;
             Adapter->BusNumber               = BusNumber;
 
+			//
+			//	Acquire the resources.
+			//
+			Resource.InterfaceType = InterfaceType;
+			Resource.BusNumber = BusNumber;
+			Resource.Type = NETDTECT_PORT_RESOURCE;
+			Resource.Value = 0x300;
+			Resource.Length = 0x10;
+			Resource.Flags = 0;
+
+			DetectTemporaryClaimResource(&Resource);
+
+			Resource.Type = NETDTECT_IRQ_RESOURCE;
+			Resource.Value = 10;
+			Resource.Length = 0;
+
+			DetectTemporaryClaimResource(&Resource);
+
             *Handle = (PVOID)Adapter;
 
             return(0);
-
         }
-
     }
 
     return(ERROR_INVALID_PARAMETER);
@@ -670,36 +689,29 @@ Return Value:
 
     ULONG StartPointer = (ULONG)Buffer;
 
-    if ((Adapter->InterfaceType != Isa) &&
-        (Adapter->InterfaceType != Eisa)) {
-
+    if ((Adapter->InterfaceType != Isa) && (Adapter->InterfaceType != Eisa))
+	{
         return(ERROR_INVALID_PARAMETER);
-
     }
-
 
     //
     // Now the IoBaseAddress
     //
-
-    ParameterValue=Adapter->IoBaseAddr;
+    ParameterValue = Adapter->IoBaseAddr;
 
     //
     // Copy in the title string
     //
-
     CopyLength = UnicodeStrLen(IoAddrString) + 1;
 
-    if (OutputLengthLeft < CopyLength) {
-
+    if (OutputLengthLeft < CopyLength)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     RtlMoveMemory((PVOID)Buffer,
                   (PVOID)IoAddrString,
-                  (CopyLength * sizeof(WCHAR))
-                 );
+                  (CopyLength * sizeof(WCHAR)));
 
     Buffer = &(Buffer[CopyLength]);
     OutputLengthLeft -= CopyLength;
@@ -707,19 +719,16 @@ Return Value:
     //
     // Copy in the value
     //
-
-    if (OutputLengthLeft < 6) {
-
+    if (OutputLengthLeft < 6)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength = wsprintf(Buffer,L"0x%x",ParameterValue);
 
-    if (CopyLength < 0) {
-
+    if (CopyLength < 0)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength++;  // Add in the \0
@@ -729,25 +738,21 @@ Return Value:
     //
     // Now the IRQ
     //
-
-    ParameterValue=Adapter->Irq;
+    ParameterValue = Adapter->Irq;
 
     //
     // Copy in the title string
     //
-
     CopyLength = UnicodeStrLen(IrqString) + 1;
 
-    if (OutputLengthLeft < CopyLength) {
-
+    if (OutputLengthLeft < CopyLength)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     RtlMoveMemory((PVOID)Buffer,
                   (PVOID)IrqString,
-                  (CopyLength * sizeof(WCHAR))
-                 );
+                  (CopyLength * sizeof(WCHAR)));
 
     Buffer = &(Buffer[CopyLength]);
     OutputLengthLeft -= CopyLength;
@@ -755,19 +760,16 @@ Return Value:
     //
     // Copy in the value
     //
-
-    if (OutputLengthLeft < 6) {
-
+    if (OutputLengthLeft < 6)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength = wsprintf(Buffer,L"0x%x",ParameterValue);
 
-    if (CopyLength < 0) {
-
+    if (CopyLength < 0)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength++;  // Add in the \0
@@ -777,25 +779,21 @@ Return Value:
     //
     // Now the transceiver
     //
-
     ParameterValue=Adapter->Transceiver;
 
     //
     // Copy in the title string
     //
-
     CopyLength = UnicodeStrLen(TransceiverString) + 1;
 
-    if (OutputLengthLeft < CopyLength) {
-
+    if (OutputLengthLeft < CopyLength)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     RtlMoveMemory((PVOID)Buffer,
                   (PVOID)TransceiverString,
-                  (CopyLength * sizeof(WCHAR))
-                 );
+                  (CopyLength * sizeof(WCHAR)));
 
     Buffer = &(Buffer[CopyLength]);
     OutputLengthLeft -= CopyLength;
@@ -803,29 +801,70 @@ Return Value:
     //
     // Copy in the value
     //
-
-    if (OutputLengthLeft < 6) {
-
+    if (OutputLengthLeft < 6)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength = wsprintf(Buffer,L"0x%x",ParameterValue);
 
-    if (CopyLength < 0) {
-
+    if (CopyLength < 0)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength++;  // Add in the \0
 
+    Buffer = &(Buffer[CopyLength]);
+    OutputLengthLeft -= CopyLength;
 
+    //
+    //  Add the PCMCIA parameter.
+    //
+    CopyLength = UnicodeStrLen(PcmciaString) + 1;
+    if (OutputLengthLeft < CopyLength)
+        return(ERROR_INSUFFICIENT_BUFFER);
 
+    RtlMoveMemory(Buffer, PcmciaString, CopyLength * sizeof(WCHAR));
+
+    Buffer = &(Buffer[CopyLength]);
+    OutputLengthLeft -= CopyLength;
+
+    if (OutputLengthLeft < 2)
+        return(ERROR_INSUFFICIENT_BUFFER);
+
+    CopyLength = wsprintf(Buffer, L"%d", 0);
+    if (CopyLength < 0)
+        return(ERROR_INSUFFICIENT_BUFFER);
+
+    CopyLength++;
+    Buffer = &(Buffer[CopyLength]);
+    OutputLengthLeft -= CopyLength;
+
+    //
+    //  Add the CARDTYPE parameter.
+    //
+    CopyLength = UnicodeStrLen(CardTypeString) + 1;
+    if (OutputLengthLeft < CopyLength)
+        return(ERROR_INSUFFICIENT_BUFFER);
+
+    RtlMoveMemory(Buffer, CardTypeString, CopyLength * sizeof(WCHAR));
+
+    Buffer = &(Buffer[CopyLength]);
+    OutputLengthLeft -= CopyLength;
+
+    if (OutputLengthLeft < 2)
+        return(ERROR_INSUFFICIENT_BUFFER);
+
+    CopyLength = wsprintf(Buffer, L"%d", 0);
+
+    if (CopyLength < 0)
+        return(ERROR_INSUFFICIENT_BUFFER);
+
+    CopyLength++;
     Buffer[CopyLength] = L'\0';
 
     return(0);
-
 }
 
 
@@ -844,13 +883,11 @@ TestParameter(
     //
     // Get the IoBaseAddress
     //
-
     Place = FindParameterString(Buffer, SearchString);
 
-    if (Place == NULL) {
-
+    if (Place == NULL)
+	{
         return(ERROR_INVALID_DATA);
-
     }
 
     Place += UnicodeStrLen(SearchString) + 1;
@@ -858,23 +895,19 @@ TestParameter(
     //
     // Now parse the thing.
     //
-
     ScanForNumber(Place, &Parameter, &Found);
 
-    if (Found == FALSE) {
-
+    if (Found == FALSE)
+	{
         return FALSE;
-
     }
 
-    if (Parameter != Value) {
-
+    if (Parameter != Value)
+	{
         return FALSE;
-
     }
 
     return TRUE;
-
 }
 
 
@@ -910,57 +943,51 @@ Return Value:
     PELNK3_ADAPTER Adapter = (PELNK3_ADAPTER)(Handle);
     BOOLEAN Found = FALSE;
 
-    if ((Adapter->InterfaceType != Isa) &&
-        (Adapter->InterfaceType != Eisa)) {
-
+    if ((Adapter->InterfaceType != Isa) && (Adapter->InterfaceType != Eisa))
+	{
         return(ERROR_INVALID_DATA);
-
     }
 
-    Found=TestParameter(
-              Buffer,
-              IoAddrString,
-              Adapter->IoBaseAddr
-              );
+    Found = TestParameter(
+				Buffer,
+				IoAddrString,
+				Adapter->IoBaseAddr);
 
-    if (Found == FALSE) {
-
+    if (Found == FALSE)
+	{
         return(ERROR_INVALID_DATA);
-
     }
 
     Found=TestParameter(
               Buffer,
               IrqString,
-              Adapter->Irq
-              );
+              Adapter->Irq);
 
-    if (Found == FALSE) {
-
+    if (Found == FALSE)
+	{
         return(ERROR_INVALID_DATA);
-
     }
 
     Found=TestParameter(
               Buffer,
               TransceiverString,
-              Adapter->Transceiver
-              );
+              Adapter->Transceiver);
 
-    if (Found == FALSE) {
-
+    if (Found == FALSE)
+	{
         return(ERROR_INVALID_DATA);
-
     }
 
+    Found = TestParameter(Buffer, PcmciaString, 0);
+    if (!Found)
+        return(ERROR_INVALID_DATA);
+
+    Found = TestParameter(Buffer, CardTypeString, 1);
+    if (!Found)
+        return(ERROR_INVALID_DATA);
+
     return(NO_ERROR);
-
 }
-
-
-
-
-
 
 
 extern
@@ -1000,53 +1027,44 @@ Return Value:
     //
     // Find the adapter
     //
-
     NumberOfAdapters = sizeof(Adapters) / sizeof(ADAPTER_INFO);
 
-    for (i=0; i < NumberOfAdapters; i++) {
-
-        if (Adapters[i].Index == NetcardId) {
-
+    for (i=0; i < NumberOfAdapters; i++)
+	{
+        if (Adapters[i].Index == NetcardId)
+		{
             Result = Adapters[i].Parameters;
 
             //
             // Find the string length (Ends with 2 NULLs)
             //
-
-            for (Length=0; ; Length++) {
-
-                if (Result[Length] == L'\0') {
-
+            for (Length=0; ; Length++)
+			{
+                if (Result[Length] == L'\0')
+				{
                     ++Length;
 
-                    if (Result[Length] == L'\0') {
-
+                    if (Result[Length] == L'\0')
+					{
                         break;
-
                     }
-
                 }
-
             }
 
             Length++;
 
-            if (BuffSize < Length) {
-
+            if (BuffSize < Length)
+			{
                 return(ERROR_INSUFFICIENT_BUFFER);
-
             }
 
             memcpy((PVOID)Buffer, Result, Length * sizeof(WCHAR));
 
             return(0);
-
         }
-
     }
 
     return(ERROR_INVALID_PARAMETER);
-
 }
 
 extern
@@ -1084,6 +1102,15 @@ Return Value:
 --*/
 
 {
+   //
+   // Verify that the caller is looking for us.
+   //
+   if (1000 != NetcardId)
+   {
+      *plBuffSize = 0;
+
+      return(ERROR_INVALID_PARAMETER);
+   }
 
 
     //
@@ -1103,58 +1130,40 @@ Return Value:
 
         }
 
-        //
-        // Find which card
-        //
+        plValues[0]  = 0x200;
+        plValues[1]  = 0x210;
+        plValues[2]  = 0x220;
+        plValues[3]  = 0x230;
+        plValues[4]  = 0x240;
+        plValues[5]  = 0x250;
+        plValues[6]  = 0x260;
+        plValues[7]  = 0x270;
+        plValues[8]  = 0x280;
+        plValues[9]  = 0x290;
+        plValues[10] = 0x2a0;
+        plValues[11] = 0x2b0;
+        plValues[12] = 0x2c0;
+        plValues[13] = 0x2d0;
+        plValues[14] = 0x2e0;
+        plValues[15] = 0x2f0;
+        plValues[16] = 0x300;
+        plValues[17] = 0x310;
+        plValues[18] = 0x320;
+        plValues[19] = 0x330;
+        plValues[20] = 0x340;
+        plValues[21] = 0x350;
+        plValues[22] = 0x360;
+        plValues[23] = 0x370;
+        plValues[24] = 0x380;
+        plValues[25] = 0x390;
+        plValues[26] = 0x3a0;
+        plValues[27] = 0x3b0;
+        plValues[28] = 0x3c0;
+        plValues[29] = 0x3d0;
+        plValues[30] = 0x3e0;
+        *plBuffSize = 31;
 
-        switch (NetcardId) {
-
-            case 1000:
-
-                plValues[0]  = 0x200;
-                plValues[1]  = 0x210;
-                plValues[2]  = 0x220;
-                plValues[3]  = 0x230;
-                plValues[4]  = 0x240;
-                plValues[5]  = 0x250;
-                plValues[6]  = 0x260;
-                plValues[7]  = 0x270;
-                plValues[8]  = 0x280;
-                plValues[9]  = 0x290;
-                plValues[10] = 0x2a0;
-                plValues[11] = 0x2b0;
-                plValues[12] = 0x2c0;
-                plValues[13] = 0x2d0;
-                plValues[14] = 0x2e0;
-                plValues[15] = 0x2f0;
-                plValues[16] = 0x300;
-                plValues[17] = 0x310;
-                plValues[18] = 0x320;
-                plValues[19] = 0x330;
-                plValues[20] = 0x340;
-                plValues[21] = 0x350;
-                plValues[22] = 0x360;
-                plValues[23] = 0x370;
-                plValues[24] = 0x380;
-                plValues[25] = 0x390;
-                plValues[26] = 0x3a0;
-                plValues[27] = 0x3b0;
-                plValues[28] = 0x3c0;
-                plValues[29] = 0x3d0;
-                plValues[30] = 0x3e0;
-                *plBuffSize = 31;
-                break;
-
-            default:
-
-                *plBuffSize = 0;
-
-                return(ERROR_INVALID_PARAMETER);
-
-       }
-
-       return(0);
-
+        return(0);
     }
 
     //
@@ -1174,36 +1183,18 @@ Return Value:
 
         }
 
-        //
-        // Find which card
-        //
+        plValues[0]  = 3;
+        plValues[1]  = 5;
+        plValues[2]  = 7;
+        plValues[3]  = 9;
+        plValues[4]  = 10;
+        plValues[5]  = 11;
+        plValues[6]  = 12;
+        plValues[7]  = 15;
 
-        switch (NetcardId) {
-
-            case 1000:
-
-                plValues[0]  = 3;
-                plValues[1]  = 5;
-                plValues[2]  = 7;
-                plValues[3]  = 9;
-                plValues[4]  = 10;
-                plValues[5]  = 11;
-                plValues[6]  = 12;
-                plValues[7]  = 15;
-
-                *plBuffSize = 8;
-                break;
-
-            default:
-
-                *plBuffSize = 0;
-
-                return(ERROR_INVALID_PARAMETER);
-
-       }
+        *plBuffSize = 8;
 
        return(0);
-
     }
 
 
@@ -1224,28 +1215,11 @@ Return Value:
 
         }
 
-        //
-        // Find which card
-        //
+        plValues[0]  = 0;
+        plValues[1]  = 1;
+        plValues[2]  = 3;
 
-        switch (NetcardId) {
-
-            case 1000:
-
-                plValues[0]  = 0;
-                plValues[1]  = 1;
-                plValues[2]  = 3;
-
-                *plBuffSize = 3;
-                break;
-
-            default:
-
-                *plBuffSize = 0;
-
-                return(ERROR_INVALID_PARAMETER);
-
-       }
+        *plBuffSize = 3;
 
        return(0);
 
@@ -1300,56 +1274,47 @@ Elnk3FindCards(
     )
 
 {
+    NTSTATUS	NtStatus;
+    ULONG   	IdPort;
+    USHORT  	AddressConfigRegister;
+    USHORT  	ResourceConfigRegister;
+    USHORT  	ProductId;
+    UINT    	i;
 
-    NTSTATUS NtStatus;
-    ULONG   IdPort;
-    USHORT  AddressConfigRegister;
-    USHORT  ResourceConfigRegister;
-    USHORT  ProductId;
-    UINT    i;
+    SearchStates->NumberOfAdapters = 0;
 
-    SearchStates->NumberOfAdapters=0;
-
-    for (i=0;i<16;i++) {
-
-        NtStatus= DetectCheckPortUsage(
-                      InterfaceType,
-                      BusNumber,
-                      0x100+(i<<4),
-                      1
-                      );
-
-        if (NtStatus == STATUS_SUCCESS) {
-
+    for (i = 0; i < 16; i++)
+	{
+        NtStatus = DetectCheckPortUsage(
+						InterfaceType,
+						BusNumber,
+						0x100 + (i << 4),
+						1);
+        if (NtStatus == STATUS_SUCCESS)
+		{
             break;
         }
     }
 
-    if (NtStatus!=STATUS_SUCCESS) {
-
-        return 0;
+    if (NtStatus != STATUS_SUCCESS)
+	{
+        return(0);
     }
 
+    IdPort = 0x100 + (i << 4);
 
-    IdPort=0x100+(i<<4) ;
-
-
-    ELNK3WriteIDSequence( InterfaceType, BusNumber, IdPort );
+    ELNK3WriteIDSequence(InterfaceType, BusNumber, IdPort);
 
     NtStatus = DetectWritePortUchar(
                    InterfaceType,
                    BusNumber,
                    IdPort,
-                   IDCMD_SET_TAG+0
-                   );
+                   IDCMD_SET_TAG + 0);
 
+    SearchStates->NumberOfAdapters = 0;
 
-
-    SearchStates->NumberOfAdapters=0;
-
-
-    for (i=1; i<8 ; i++) {
-
+    for (i = 1; i < 8 ; i++)
+	{
         //
         //  Get the cards' attention
         //
@@ -1358,18 +1323,18 @@ Elnk3FindCards(
         //
         //  See if there any cards out there
         //
-        if ( ELNK3ContentionTest( InterfaceType, BusNumber,IdPort, EE_MANUFACTURER_CODE ) == EISA_MANUFACTURER_ID ) {
-
+        if (ELNK3ContentionTest( InterfaceType, BusNumber,IdPort, EE_MANUFACTURER_CODE ) == EISA_MANUFACTURER_ID)
+		{
             ELNK3ContentionTest(InterfaceType, BusNumber, IdPort, EE_TCOM_NODE_ADDR_WORD0);
             ELNK3ContentionTest(InterfaceType, BusNumber, IdPort, EE_TCOM_NODE_ADDR_WORD1);
             ELNK3ContentionTest(InterfaceType, BusNumber, IdPort, EE_TCOM_NODE_ADDR_WORD2);
 
+            ProductId = ELNK3ContentionTest(InterfaceType, BusNumber, IdPort, EE_VULCAN_PROD_ID );
 
-            ProductId=ELNK3ContentionTest(InterfaceType, BusNumber, IdPort, EE_VULCAN_PROD_ID );
+            ProductId &= 0xf0ff;
 
-            ProductId&=0xf0ff;
-
-            if (ProductId == 0x9050) {
+            if (ProductId == 0x9050)
+			{
                 //
                 //  This one is a elnk3 adapter
                 //
@@ -1380,43 +1345,40 @@ Elnk3FindCards(
                 //
                 AddressConfigRegister = ELNK3ContentionTest(InterfaceType, BusNumber, IdPort, EE_ADDR_CONFIGURATION );
 
-                SearchStates->IoBases[i-1]=  0x200 + ((AddressConfigRegister & 0x1f)<<4);
-                SearchStates->Transceiver[i-1]= AddressConfigRegister>>14;
+                SearchStates->IoBases[i-1] = 0x200 + ((AddressConfigRegister & 0x1f) << 4);
+                SearchStates->Transceiver[i-1] = AddressConfigRegister >> 14;
 
-                ResourceConfigRegister=ELNK3ContentionTest(InterfaceType, BusNumber, IdPort, EE_RESOURCE_CONFIGURATION );
+                ResourceConfigRegister = ELNK3ContentionTest(InterfaceType, BusNumber, IdPort, EE_RESOURCE_CONFIGURATION );
 
-                SearchStates->Irq[i-1]=ResourceConfigRegister>>12;
-
-            } else {
-
+                SearchStates->Irq[i-1] = ResourceConfigRegister >> 12;
+            }
+			else
+			{
                 //
                 //  it's a 3com card but not an elnk3
                 //  set the iobase so that it looks like and eisa
                 //  which will be ignored
                 //
                 SearchStates->IoBases[i-1]=0x3f0;
-
             }
-
 
             //
             //  Tag it so it don't bother us again
             //
-
             NtStatus = DetectWritePortUchar(
                            InterfaceType,
                            BusNumber,
                            IdPort,
-                           (UCHAR)(IDCMD_SET_TAG+(i))
-                           );
+                           (UCHAR)(IDCMD_SET_TAG+(i)));
 
 
             //
             // One more found
             //
             SearchStates->NumberOfAdapters++;
-
-        } else {
+        }
+		else
+		{
             //
             //  No more elnk3 cards
             //
@@ -1424,13 +1386,8 @@ Elnk3FindCards(
         }
     }
 
-
     return 0;
-
 }
-
-
-
 
 VOID
 ELNK3WriteIDSequence(
@@ -1462,43 +1419,29 @@ Return Value:
 
 
 {
-        NTSTATUS NtStatus;
-        USHORT outval;
-        UINT i;
-
-
-        NtStatus = DetectWritePortUchar(
-                       InterfaceType,
-                       BusNumber,
-                       IdPort,
-                       0
-                       );
-
-        NtStatus = DetectWritePortUchar(
-                       InterfaceType,
-                       BusNumber,
-                       IdPort,
-                       0
-                       );
-
-
-       for ( outval = 0xff, i = 255 ; i-- ; ) {
-            NtStatus = DetectWritePortUchar(
-                           InterfaceType,
-                           BusNumber,
-                           IdPort,
-                           (UCHAR)outval
-                           );
-
-            outval <<= 1;
-            if ( ( outval & 0x0100 ) != 0 ){
-            outval ^= 0xCF;
-        }
-    }
+	NTSTATUS NtStatus;
+	USHORT outval;
+	UINT i;
+	
+	
+	NtStatus = DetectWritePortUchar(InterfaceType, BusNumber, IdPort, 0);
+	NtStatus = DetectWritePortUchar(InterfaceType, BusNumber, IdPort, 0);
+	
+	for ( outval = 0xff, i = 255 ; i-- ; )
+	{
+		NtStatus = DetectWritePortUchar(
+						InterfaceType,
+						BusNumber,
+						IdPort,
+						(UCHAR)outval);
+		
+		outval <<= 1;
+		if (( outval & 0x0100 ) != 0 )
+		{
+			outval ^= 0xCF;
+		}
+	}
 }
-
-
-
 
 USHORT
 ELNK3ContentionTest(
@@ -1517,31 +1460,26 @@ ELNK3ContentionTest(
                    InterfaceType,
                    BusNumber,
                    IdPort,
-                   (UCHAR)IDCMD_READ_PROM + EEPromWord
-                   );
-
-
+                   (UCHAR)(IDCMD_READ_PROM + EEPromWord));
 
     /*
-    3COM's detection code has a 400 microsecond delay here.
+		3COM's detection code has a 400 microsecond delay here.
     */
+    Sleep(20);
 
-    Sleep(1);
-
-
-    for ( i = 16, result = 0 ; i-- ; ) {
+    for ( i = 16, result = 0 ; i-- ; )
+	{
         result <<= 1;
 
         NtStatus = DetectReadPortUchar(
                            InterfaceType,
                            BusNumber,
                            IdPort,
-                           &data
-                           );
-
+                           &data);
 
         result += (data & 1);
     }
 
     return (result);
 }
+

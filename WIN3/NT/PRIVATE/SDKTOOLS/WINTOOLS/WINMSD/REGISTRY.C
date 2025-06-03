@@ -612,3 +612,40 @@ Return Value:
 
     return NULL;
 }
+
+
+LONG
+QueryValue(
+    IN HKEY Key,
+    IN LPWSTR pszKeyValue,
+    IN LPBYTE *lpValueBuffer
+    )
+{
+   DWORD err = FALSE;
+   DWORD cb = MAX_REG_VALUE;
+   LPBYTE lpValue;
+
+   lpValue = (LPBYTE) LocalAlloc(LPTR, cb);
+
+   if ( lpValue ) 
+   {
+
+     err = RegQueryValueEx(Key, pszKeyValue, 0, 0, lpValue, &cb);
+
+     if (err == ERROR_MORE_DATA) 
+     {
+         LocalFree(lpValue);
+         lpValue = (LPBYTE) LocalAlloc(LPTR, cb);
+         err = RegQueryValueEx(Key, pszKeyValue, 0, 0, lpValue, &cb);
+     }
+
+   }
+
+   *lpValueBuffer = lpValue;
+
+   return(err);
+
+}
+
+
+

@@ -19,9 +19,9 @@
 
 #include <string.h>     // for strncpy
 #ifdef UNICODE
-#define _tcsncpy	wcsncpy
+#define _tcsncpy        wcsncpy
 #else
-#define _tcsncpy	strncpy
+#define _tcsncpy        strncpy
 #endif
 
 TCHAR LOCAL_SYS_CODE_NAME[] = TEXT("....") ;
@@ -29,12 +29,12 @@ TCHAR LOCAL_SYS_CODE_NAME[] = TEXT("....") ;
 
 // Local Function prototype
 PLINE ReadLine (PPERFSYSTEM *ppSystem,
-                PPPERFSYSTEM ppSystemFirst,
-                PPERFDATA *ppPerfData, 
-                HANDLE hFile,
-                int LineType,
-                PDISKLINE  *ppDiskLine,
-                DWORD *pSizeofDiskLine) ;
+		PPPERFSYSTEM ppSystemFirst,
+		PPERFDATA *ppPerfData,
+		HANDLE hFile,
+		int LineType,
+		PDISKLINE  *ppDiskLine,
+		DWORD *pSizeofDiskLine) ;
 
 
 
@@ -46,14 +46,14 @@ PLINE ReadLine (PPERFSYSTEM *ppSystem,
 PLINE LineAllocate (void)
 /*
    Effect:        Allocate and initialize a Line data structure. Lines
-                  are used as the primary elements of both charts and
-                  alerts.
+		  are used as the primary elements of both charts and
+		  alerts.
 
-                  Establish any representation invariants for the Line
-                  type.
+		  Establish any representation invariants for the Line
+		  type.
 
-                  Also alllocate another structure, an array of data
-                  elements, iNumDataValues long.
+		  Also alllocate another structure, an array of data
+		  elements, iNumDataValues long.
 */
    {  // LineAllocate
    PLINE          pLine ;
@@ -123,19 +123,19 @@ void LineFree (PLINE pLine)
 
 
 
-void LineAppend (PPLINE ppLineFirst, 
-                 PLINE pLineNew)
+void LineAppend (PPLINE ppLineFirst,
+		 PLINE pLineNew)
    {
    PLINE          pLine ;
 
    if (!*ppLineFirst)
       *ppLineFirst = pLineNew ;
-   else  
+   else
       {  // else
       for (pLine = *ppLineFirst ;
-           pLine->pLineNext ;
-           pLine = pLine->pLineNext)
-         /* nothing */ ;
+	   pLine->pLineNext ;
+	   pLine = pLine->pLineNext)
+	 /* nothing */ ;
       pLine->pLineNext = pLineNew ;
       }  // else
    }
@@ -143,7 +143,7 @@ void LineAppend (PPLINE ppLineFirst,
 
 
 BOOL LineRemove (PPLINE ppLineFirst,
-                 PLINE pLineRemove)
+		 PLINE pLineRemove)
    {
    PLINE          pLine ;
 
@@ -154,14 +154,14 @@ BOOL LineRemove (PPLINE ppLineFirst,
       }
 
    for (pLine = *ppLineFirst ;
-        pLine->pLineNext ;
-        pLine = pLine->pLineNext)
+	pLine->pLineNext ;
+	pLine = pLine->pLineNext)
       {   // for
       if (pLine->pLineNext == pLineRemove)
-         {
-         pLine->pLineNext = pLineRemove->pLineNext ;
-         return (TRUE) ;
-         }  // if
+	 {
+	 pLine->pLineNext = pLineRemove->pLineNext ;
+	 return (TRUE) ;
+	 }  // if
       }  // for
 
    return (FALSE) ;
@@ -177,11 +177,11 @@ int NumLines (PLINE pLineFirst)
    if (!pLineFirst)
       return (0) ;
 
-  
+
    iNumLines = 0 ;
    for (pLine = pLineFirst ;
-        pLine ;
-        pLine = pLine->pLineNext)
+	pLine ;
+	pLine = pLine->pLineNext)
       {  // for
       iNumLines++ ;
       }  // for
@@ -213,19 +213,19 @@ LPTSTR LineParentName (PLINE pLine)
 
 
 
-void LineCounterAppend (PPLINE ppLineFirst, 
-                        PLINE pLineNew)
+void LineCounterAppend (PPLINE ppLineFirst,
+			PLINE pLineNew)
    {
    PLINE          pLine ;
 
    if (!*ppLineFirst)
       *ppLineFirst = pLineNew ;
-   else  
+   else
       {  // else
       for (pLine = *ppLineFirst ;
-           pLine->pLineCounterNext ;
-           pLine = pLine->pLineCounterNext)
-         /* nothing */ ;
+	   pLine->pLineCounterNext ;
+	   pLine = pLine->pLineCounterNext)
+	 /* nothing */ ;
       pLine->pLineCounterNext = pLineNew ;
       }  // else
    }
@@ -233,27 +233,27 @@ void LineCounterAppend (PPLINE ppLineFirst,
 
 
 BOOL EquivalentLine (PLINE pLine1,
-                     PLINE pLine2)
+		     PLINE pLine2)
    {  // LineEquivalent
    return (pstrsame (pLine1->lnCounterName, pLine2->lnCounterName) &&
-           pstrsame (pLine1->lnInstanceName, pLine2->lnInstanceName) &&
-           pstrsame (pLine1->lnPINName, pLine2->lnPINName) &&
-           pstrsame (pLine1->lnObjectName, pLine2->lnObjectName) &&
-           pstrsamei (pLine1->lnSystemName, pLine2->lnSystemName)) ;
+	   pstrsame (pLine1->lnInstanceName, pLine2->lnInstanceName) &&
+	   pstrsame (pLine1->lnPINName, pLine2->lnPINName) &&
+	   pstrsame (pLine1->lnObjectName, pLine2->lnObjectName) &&
+	   pstrsamei (pLine1->lnSystemName, pLine2->lnSystemName)) ;
    }  // LineEquivalent
 
 
 PLINE FindEquivalentLine (PLINE pLineToFind,
-                          PLINE pLineFirst)
+			  PLINE pLineFirst)
    {
    PLINE          pLine ;
 
    for (pLine = pLineFirst ;
-        pLine ;
-        pLine = pLine->pLineNext)
+	pLine ;
+	pLine = pLine->pLineNext)
       {  // for
       if (EquivalentLine (pLine, pLineToFind))
-         return (pLine) ;
+	 return (pLine) ;
       }  // for
 
    return (NULL) ;
@@ -279,32 +279,32 @@ LPTSTR DiskStringReadSys (PDISKSTRING pDS)
       bLocalSysName = TRUE ;
       pDiskSysName = (LPTSTR)((PBYTE) pDS + pDS->dwOffset) ;
       for (iIndex = 0 ; iIndex < sizeofCodeName; iIndex++, pDiskSysName++)
-         {
-         if (*pDiskSysName != LOCAL_SYS_CODE_NAME[iIndex])
-            {
-            bLocalSysName = FALSE ;
-            break ;
-            }
-         }
+	 {
+	 if (*pDiskSysName != LOCAL_SYS_CODE_NAME[iIndex])
+	    {
+	    bLocalSysName = FALSE ;
+	    break ;
+	    }
+	 }
       }
 
    if (bLocalSysName)
       {
       lpszText =
-         MemoryAllocate ((lstrlen(LocalComputerName)+1) * sizeof(TCHAR)) ;
+	 MemoryAllocate ((lstrlen(LocalComputerName)+1) * sizeof(TCHAR)) ;
       if (lpszText)
-         {
-         lstrcpy (lpszText, LocalComputerName) ;
-         }
+	 {
+	 lstrcpy (lpszText, LocalComputerName) ;
+	 }
       }
    else
       {
       lpszText = MemoryAllocate (sizeof (TCHAR) * (pDS->dwLength + 1)) ;
       if (lpszText)
-         {
-         _tcsncpy ((WCHAR *)lpszText, (WCHAR *)((PBYTE) pDS + pDS->dwOffset),
-                  pDS->dwLength) ;
-         }
+	 {
+	 _tcsncpy ((WCHAR *)lpszText, (WCHAR *)((PBYTE) pDS + pDS->dwOffset),
+		  pDS->dwLength) ;
+	 }
       }
 
    return (lpszText) ;
@@ -328,7 +328,7 @@ LPTSTR DiskStringRead (PDISKSTRING pDS)
       }
 
    _tcsncpy ((WCHAR *)lpszText, (WCHAR *)((PBYTE) pDS + pDS->dwOffset),
-            pDS->dwLength) ;
+	    pDS->dwLength) ;
 
    return (lpszText) ;
    }  // DiskStringRead
@@ -358,36 +358,37 @@ PBYTE DiskStringCopy (PDISKSTRING pDS, LPTSTR lpszText, PBYTE pNextFree)
       return (pNextFree + pDS->dwLength * sizeof(TCHAR)) ;
       }
    }  // DiskStringCopy
-   
 
-void CounterName (PPERFSYSTEM pSystem, 
-                  PPERFCOUNTERDEF pCounter, 
-                  LPTSTR lpszCounter)
+
+void CounterName (PPERFSYSTEM pSystem,
+		  PPERFCOUNTERDEF pCounter,
+		  LPTSTR lpszCounter)
    {  // CounterName
 //!!   strclr (lpszCounter) ;
    lpszCounter [0] = TEXT('\0') ;
-   QueryPerformanceName (pSystem, 
-                         pCounter->CounterNameTitleIndex, 
-                         0, 256,
-                         lpszCounter,
-                         FALSE) ;
+   QueryPerformanceName (pSystem,
+			 pCounter->CounterNameTitleIndex,
+			 0, 256,
+			 lpszCounter,
+			 FALSE) ;
    }  // CounterName
 
 
 
-PPERFOBJECT LineFindObject (PPERFSYSTEM pSystem,
-                            PPERFDATA pPerfData,
-                            PLINE pLine)
+PERF_OBJECT_TYPE UNALIGNED * 
+LineFindObject (PPERFSYSTEM pSystem,
+			    PPERFDATA pPerfData,
+			    PLINE pLine)
 /*
    Effect:        Set the lnObject field of pLine to the object with the
-                  name of lnObjectName, and return TRUE. Return FALSE if
-                  there is no such object.
+		  name of lnObjectName, and return TRUE. Return FALSE if
+		  there is no such object.
 */
    {  // LineFindObject
-   PPERFOBJECT    pObject ;
+   PERF_OBJECT_TYPE UNALIGNED *pObject ;
 
-   pObject = GetObjectDefByName (pSystem, pPerfData, pLine->lnObjectName) ;
-   
+   pObject = (PERF_OBJECT_TYPE UNALIGNED *)GetObjectDefByName (pSystem, pPerfData, pLine->lnObjectName) ;
+
    if (pObject)
       {
       pLine->lnObject = *pObject ;
@@ -396,55 +397,57 @@ PPERFOBJECT LineFindObject (PPERFSYSTEM pSystem,
    else
       return (NULL) ;
    }  // LineFindObject
-   
+
 
 
 PPERFCOUNTERDEF LineFindCounter (PPERFSYSTEM pSystem,
-                                 PPERFOBJECT pObject,
-                                 PPERFDATA pPerfData,
-                                 PLINE pLine)
+				 PERF_OBJECT_TYPE  UNALIGNED *pObject,
+				 PPERFDATA pPerfData,
+				 PLINE pLine)
    {  // LineFindCounter
    UINT               i ;
    PPERFCOUNTERDEF   pCounter ;
    TCHAR             szCounter [256] ;
 
    for (i = 0, pCounter = FirstCounter (pObject) ;
-        i < pObject->NumCounters ;
-        i++, pCounter = NextCounter (pCounter))
+	i < pObject->NumCounters ;
+	i++, pCounter = NextCounter (pCounter))
       {  // for
       CounterName (pSystem, pCounter, szCounter) ;
       if (strsame (szCounter, pLine->lnCounterName))
-         {
-         pLine->lnCounterDef = *pCounter ;
-         return (pCounter) ;
-         }  // if
+	 {
+	 pLine->lnCounterDef = *pCounter ;
+	 return (pCounter) ;
+	 }  // if
       }  // for
 
    return (NULL) ;
    }  // LineFindCounter
 
-                      
+
 PPERFINSTANCEDEF LineFindInstance (PPERFDATA pPerfData,
-                                   PPERFOBJECT pObject,
-                                   PLINE pLine)
+				   PERF_OBJECT_TYPE UNALIGNED *pObject,
+				   PLINE pLine)
    {  // LineFindInstance
-  
-                                   
+
+
    PPERFINSTANCEDEF  pInstance = NULL ;
 
    if ((pObject->NumInstances > 0) && pLine->lnInstanceName)
       {
       // instances exist, find the right one
-      
+
       if (pLine->lnUniqueID != PERF_NO_UNIQUE_ID)
-         {
-         pInstance = GetInstanceByUniqueID(pObject, pLine->lnUniqueID) ;
-         }
+	 {
+	 pInstance = GetInstanceByUniqueID(pObject, pLine->lnUniqueID,
+		pLine->dwInstanceIndex) ;
+	 }
       else
-         {
-         pInstance = GetInstanceByName(pPerfData, pObject,
-                        pLine->lnInstanceName, pLine->lnPINName) ;
-         }
+	 {
+	 pInstance = GetInstanceByName(pPerfData, pObject,
+			pLine->lnInstanceName, pLine->lnPINName,
+			pLine->dwInstanceIndex) ;
+	 }
       }
 
    if (pInstance)
@@ -459,10 +462,10 @@ PPERFINSTANCEDEF LineFindInstance (PPERFDATA pPerfData,
 
 
 void ReadLines (HANDLE hFile,
-                DWORD dwNumLines,
-                PPPERFSYSTEM ppSystemFirst,
-                PPLINE ppLineFirst,
-                int LineType)
+		DWORD dwNumLines,
+		PPPERFSYSTEM ppSystemFirst,
+		PPLINE ppLineFirst,
+		int LineType)
    {
    DWORD          i ;
    PPERFDATA      pPerfData ;
@@ -478,7 +481,7 @@ void ReadLines (HANDLE hFile,
 #if 0
    if (!pSystem)
       {
-      pSystem = SystemAdd (ppSystemFirst, LocalComputerName) ;
+      pSystem = SystemAdd (ppSystemFirst, LocalComputerName, NULL) ;
       pSystem = *ppSystemFirst ; //!!
       }
 
@@ -494,15 +497,15 @@ void ReadLines (HANDLE hFile,
    SizeofDiskLine = FilePathLen ;
 
    for (i = 0 ;
-        i < dwNumLines ;
-        i++)
+	i < dwNumLines ;
+	i++)
       {
       pLine = ReadLine (&pSystem, ppSystemFirst, &pPerfData, hFile,
-            LineType, &pDiskLine, &SizeofDiskLine) ;
+	    LineType, &pDiskLine, &SizeofDiskLine) ;
       if (pLine)
-         InsertLine (pLine)  ;
+	 InsertLine (pLine)  ;
       }
-   
+
    if (pDiskLine)
       {
       MemoryFree (pDiskLine);
@@ -514,12 +517,12 @@ void ReadLines (HANDLE hFile,
 
 
 void LineSetCounter (PLINE pLine,
-                     PPERFSYSTEM pSystem,
-                     PPERFCOUNTERDEF pCounter,
-                     PPERFINSTANCEDEF pInstance)
+		     PPERFSYSTEM pSystem,
+		     PPERFCOUNTERDEF pCounter,
+		     PPERFINSTANCEDEF pInstance)
 /*
    Effect:        Set the counter-specific portions of pLine to point to
-                  the desired counter.
+		  the desired counter.
 
    Called By:     AddLine, ReadLine.
 */
@@ -528,21 +531,21 @@ void LineSetCounter (PLINE pLine,
 
 
 PLINE ReadLine (PPERFSYSTEM *ppSystem,
-                PPPERFSYSTEM ppSystemFirst,
-                PPERFDATA *ppPerfData,
-                HANDLE hFile,
-                int LineType,
-                PDISKLINE  *ppDiskLine,
-                DWORD *pSizeofDiskLine)
+		PPPERFSYSTEM ppSystemFirst,
+		PPERFDATA *ppPerfData,
+		HANDLE hFile,
+		int LineType,
+		PDISKLINE  *ppDiskLine,
+		DWORD *pSizeofDiskLine)
 
 
 /*
    Effect:        Read in a line from the file hFile, at the current file
-                  position.
+		  position.
 
-   Internals:     The very first characters are a line signature, then a 
-                  length integer. If the signature is correct, then allocate
-                  the length amount, and work with that.
+   Internals:     The very first characters are a line signature, then a
+		  length integer. If the signature is correct, then allocate
+		  the length amount, and work with that.
 */
    {  // ReadLine
    PLINE             pLine ;
@@ -553,7 +556,7 @@ PLINE ReadLine (PPERFSYSTEM *ppSystem,
       DWORD             dwLength ;
       } LineHeader ;
 
-   PPERFOBJECT       pObject ;
+   PERF_OBJECT_TYPE  UNALIGNED *pObject ;
    PPERFCOUNTERDEF   pCounter ;
    PDISKLINE         pDiskLine ;    // Local copy of the pointer
 
@@ -597,27 +600,27 @@ PLINE ReadLine (PPERFSYSTEM *ppSystem,
 //      return (NULL) ;
 
 
-   // check if we need a bigger buffer, 
+   // check if we need a bigger buffer,
    // normally, it should be the same except the first time...
    if (LineHeader.dwLength > *pSizeofDiskLine)
       {
       if (*ppDiskLine)
-         {
-         // free the previous buffer
-         MemoryFree (*ppDiskLine);
-         *pSizeofDiskLine = 0 ;
-         }
+	 {
+	 // free the previous buffer
+	 MemoryFree (*ppDiskLine);
+	 *pSizeofDiskLine = 0 ;
+	 }
 
       // re-allocate a new buffer
       *ppDiskLine = (PDISKLINE) MemoryAllocate (LineHeader.dwLength) ;
       if (!(*ppDiskLine))
-         {
-         // no memory, should flag an error...
-         return (NULL) ;
-         }
+	 {
+	 // no memory, should flag an error...
+	 return (NULL) ;
+	 }
       *pSizeofDiskLine = LineHeader.dwLength ;
       }
-      
+
    pDiskLine = *ppDiskLine ;
 
 
@@ -648,12 +651,12 @@ PLINE ReadLine (PPERFSYSTEM *ppSystem,
 
    if (!*ppSystem || !strsamei (pLine->lnSystemName, (*ppSystem)->sysName))
       {
-      *ppSystem = SystemAdd (ppSystemFirst, pLine->lnSystemName) ;
+      *ppSystem = SystemAdd (ppSystemFirst, pLine->lnSystemName, NULL) ;
       if (!*ppSystem)
-         {
-         SetLastError (ERROR_BAD_FORMAT) ;
-         goto ErrorBadLine ;
-         }
+	 {
+	 SetLastError (ERROR_BAD_FORMAT) ;
+	 goto ErrorBadLine ;
+	 }
 
       UpdateSystemData (*ppSystem, ppPerfData) ;
       }  // if
@@ -724,8 +727,8 @@ PLINE ReadLine (PPERFSYSTEM *ppSystem,
       {
       pLine->Visual = pDiskLine->Visual ;
       pLine->hPen = CreatePen (pLine->Visual.iStyle,
-                               pLine->Visual.iWidth, 
-                               pLine->Visual.crColor) ;
+			       pLine->Visual.iWidth,
+			       pLine->Visual.crColor) ;
       pLine->iScaleIndex = pDiskLine->iScaleIndex ;
       pLine->eScale = pDiskLine->eScale ;
       }
@@ -777,23 +780,23 @@ PLINE ReadLine (PPERFSYSTEM *ppSystem,
    if (pObject->NumInstances > 0 && pInstance)
       {
       pCounterBlock = (PERF_COUNTER_BLOCK *) ( (PBYTE) pInstance +
-                       pInstance->ByteLength);
+		       pInstance->ByteLength);
       }
    else
       {
       pCounterBlock = (PERF_COUNTER_BLOCK *) ( (PBYTE) pObject +
-                       pObject->DefinitionLength);
+		       pObject->DefinitionLength);
       }
 
    if (pLine->lnCounterLength <= 4)
        pLine->lnaOldCounterValue[0].LowPart =
-               * ( (DWORD FAR *) ( (PBYTE)pCounterBlock +
-               pCounter[0].CounterOffset));
+	       * ( (DWORD FAR *) ( (PBYTE)pCounterBlock +
+	       pCounter[0].CounterOffset));
    else
       {
       pLine->lnaOldCounterValue[0] =
-              * ( (LARGE_INTEGER *) ( (PBYTE)pCounterBlock +
-              pCounter[0].CounterOffset));
+	      * ( (LARGE_INTEGER *) ( (PBYTE)pCounterBlock +
+	      pCounter[0].CounterOffset));
       }
 
    // Get second counter, only if we are not at
@@ -805,13 +808,13 @@ PLINE ReadLine (PPERFSYSTEM *ppSystem,
        iCounterIndex != -1)
       {
       if (pLine->lnCounterLength <= 4)
-          pLine->lnaOldCounterValue[1].LowPart =
-                  * ( (DWORD FAR *) ( (PBYTE)pCounterBlock +
-                  pCounter[1].CounterOffset));
+	  pLine->lnaOldCounterValue[1].LowPart =
+		  * ( (DWORD FAR *) ( (PBYTE)pCounterBlock +
+		  pCounter[1].CounterOffset));
       else
-         pLine->lnaOldCounterValue[1] =
-                 * ( (LARGE_INTEGER *) ( (PBYTE)pCounterBlock +
-                 pCounter[1].CounterOffset));
+	 pLine->lnaOldCounterValue[1] =
+		 * ( (LARGE_INTEGER *) ( (PBYTE)pCounterBlock +
+		 pCounter[1].CounterOffset));
       }
 
 //   pLine->valNext = CounterFuncEntry ;
@@ -840,7 +843,7 @@ ErrorBadLine:
 
 
 BOOL WriteLine (PLINE pLine,
-                HANDLE hFile)
+		HANDLE hFile)
    {  // WriteLine
    PDISKLINE      pDiskLine ;
    DWORD          dwSignature ;
@@ -917,40 +920,40 @@ BOOL WriteLine (PLINE pLine,
 
    if (bConvertName)
       {
-      pNextFree = DiskStringCopy (&pDiskLine->dsSystemName, 
-                                  LOCAL_SYS_CODE_NAME,
-                                  pNextFree) ;
+      pNextFree = DiskStringCopy (&pDiskLine->dsSystemName,
+				  LOCAL_SYS_CODE_NAME,
+				  pNextFree) ;
       }
    else
       {
-      pNextFree = DiskStringCopy (&pDiskLine->dsSystemName, 
-                                  pLine->lnSystemName,
-                                  pNextFree) ;
+      pNextFree = DiskStringCopy (&pDiskLine->dsSystemName,
+				  pLine->lnSystemName,
+				  pNextFree) ;
       }
 
-   pNextFree = DiskStringCopy (&pDiskLine->dsObjectName, 
-                               pLine->lnObjectName,
-                               pNextFree) ;
+   pNextFree = DiskStringCopy (&pDiskLine->dsObjectName,
+			       pLine->lnObjectName,
+			       pNextFree) ;
 
-   pNextFree = DiskStringCopy (&pDiskLine->dsCounterName, 
-                               pLine->lnCounterName,
-                               pNextFree) ;
+   pNextFree = DiskStringCopy (&pDiskLine->dsCounterName,
+			       pLine->lnCounterName,
+			       pNextFree) ;
 
-   pNextFree = DiskStringCopy (&pDiskLine->dsParentObjName, 
-                               pLine->lnParentObjName,
-                               pNextFree) ;
+   pNextFree = DiskStringCopy (&pDiskLine->dsParentObjName,
+			       pLine->lnParentObjName,
+			       pNextFree) ;
 
-   pNextFree = DiskStringCopy (&pDiskLine->dsInstanceName, 
-                               pLine->lnInstanceName,
-                               pNextFree) ;
+   pNextFree = DiskStringCopy (&pDiskLine->dsInstanceName,
+			       pLine->lnInstanceName,
+			       pNextFree) ;
 
-   pNextFree = DiskStringCopy (&pDiskLine->dsPINName, 
-                               pLine->lnPINName,
-                               pNextFree) ;
+   pNextFree = DiskStringCopy (&pDiskLine->dsPINName,
+			       pLine->lnPINName,
+			       pNextFree) ;
 
-   pNextFree = DiskStringCopy (&pDiskLine->dsAlertProgram, 
-                               pLine->lpszAlertProgram,
-                               pNextFree) ;
+   pNextFree = DiskStringCopy (&pDiskLine->dsAlertProgram,
+			       pLine->lpszAlertProgram,
+			       pNextFree) ;
 
 
 
@@ -967,7 +970,7 @@ BOOL WriteLine (PLINE pLine,
 // we are not doing printing.  In case we need this
 // later, then define DO_PRINTING
 #ifdef DO_PRINTING
-int aiPrinterLineStyles [] = 
+int aiPrinterLineStyles [] =
    {
    PS_SOLID,
    PS_DASH,
@@ -982,7 +985,7 @@ int aiPrinterLineStyles [] =
 COLORREF acrPrinterLineColors [] =
    {
    RGB (192, 192, 192),
-   RGB (128, 128, 128), 
+   RGB (128, 128, 128),
    RGB (64, 64, 64),
    RGB (0, 0, 0)
    }  ;
@@ -994,14 +997,14 @@ COLORREF acrPrinterLineColors [] =
 
 
 HPEN LineCreatePen (HDC hDC,
-                    PLINEVISUAL pVisual,
-                    BOOL bForPrint)
+		    PLINEVISUAL pVisual,
+		    BOOL bForPrint)
    {  // LineCreatePen
    HPEN        hPen ;
 
    hPen = CreatePen (pVisual->iStyle,
-                     pVisual->iWidth, 
-                     pVisual->crColor) ;
+		     pVisual->iWidth,
+		     pVisual->crColor) ;
 
    return (hPen) ;
    }  // LineCreatePen
@@ -1020,5 +1023,3 @@ VOID FreeLines (PLINESTRUCT pLineFirst)
       }
    }  // FreeLines
 
-
-

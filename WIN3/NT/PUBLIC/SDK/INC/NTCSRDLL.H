@@ -140,12 +140,6 @@ CsrProbeForRead(
     );
 
 
-//NTSTATUS
-//NTAPI
-//CsrThreadConnectToServer(
-//    VOID
-//    );
-
 NTSYSAPI
 NTSTATUS
 NTAPI

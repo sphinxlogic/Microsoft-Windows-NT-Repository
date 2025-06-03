@@ -211,6 +211,8 @@ struct _DLC_EVENT {
     PDLC_OBJECT pOwnerObject;   // if null => no owner
     PVOID pEventInformation;
     ULONG SecondaryInfo;
+
+    BOOLEAN bFreeEventInfo;
 };
 
 typedef struct {
@@ -246,6 +248,7 @@ struct _DLC_CLOSE_WAIT_INFO {
     BOOLEAN ChainCommands;
     BOOLEAN CancelReceive;
     BOOLEAN ClosingAdapter;
+    BOOLEAN FreeCompletionInfo;
 };
 
 
@@ -320,6 +323,7 @@ enum _DLC_BUFFER_STATES {
     //
 
     DEALLOCATE_AFTER_USE = 0x80
+
 };
 
 union _DLC_BUFFER_HEADER {
@@ -391,6 +395,7 @@ union _DLC_BUFFER_HEADER {
     } FrameBuffer;
 
     PDLC_BUFFER_HEADER pNext;
+
 };
 
 typedef struct _DLC_BUFFER_POOL {
@@ -449,6 +454,7 @@ typedef struct _DLC_BUFFER_POOL {
     //
 
     PDLC_BUFFER_HEADER BufferHeaders[];
+
 } DLC_BUFFER_POOL, *PDLC_BUFFER_POOL;
 
 //
@@ -516,6 +522,12 @@ union _FIRST_DLC_SEGMENT {
 
 struct _DLC_FILE_CONTEXT {
 
+    //
+    // all file contexts are put on single-entry list
+    //
+
+    SINGLE_LIST_ENTRY List;             // linked list of file contexts
+
 #if DBG
 
     //
@@ -523,7 +535,6 @@ struct _DLC_FILE_CONTEXT {
     // checking and to help when looking at DLC using the kernel debugger
     //
 
-    SINGLE_LIST_ENTRY List;             // linked list of file contexts
 //    DBG_OBJECT_ID;
 
 #endif

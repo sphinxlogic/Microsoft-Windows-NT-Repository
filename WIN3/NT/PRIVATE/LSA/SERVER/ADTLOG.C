@@ -80,6 +80,8 @@ BOOLEAN LsapAuditFailedLogons = FALSE;
 BOOLEAN LsapAdtCrashOnAuditFail = FALSE;
 
 RTL_CRITICAL_SECTION LsapAdtQueueLock;
+RTL_CRITICAL_SECTION LsapAdtLogFullLock;
+BOOLEAN LsapAdtSignalFullInProgress;
 
 LSAP_ADT_LOG_QUEUE_HEAD LsapAdtLogQueue;
 
@@ -99,7 +101,7 @@ ULONG LsapAuditQueueEventsDiscarded = 0;
 //
 
 VOID
-LsapAdtAuditDiscardedAudits( 
+LsapAdtAuditDiscardedAudits(
     ULONG NumberOfEventsDiscarded
     );
 
@@ -466,7 +468,8 @@ LsapAdtAuditLogon(
     SECURITY_LOGON_TYPE LogonType,
     PSID UserSid,
     LUID AuthenticationId,
-    NTSTATUS LogonStatus
+    NTSTATUS LogonStatus,
+    PUNICODE_STRING WorkstationName
     )
 
 /*++
@@ -494,6 +497,9 @@ Return Value:
     BOOLEAN AuditingSuccess;
     BOOLEAN AuditingFailure;
     PSID LocalSystemSid = NULL;
+    UNICODE_STRING NullString;
+
+    RtlInitUnicodeString( &NullString, L"" );
 
     RtlInitUnicodeString( &SpareString, L"Security");
 
@@ -560,14 +566,24 @@ Return Value:
         //    Account name
         //
 
-        LsapSetParmTypeString( AuditParameters, AuditParameters.ParameterCount, AccountName );
+        if (ARGUMENT_PRESENT(AccountName)) {
+            LsapSetParmTypeString( AuditParameters, AuditParameters.ParameterCount, AccountName );
+        } else {
+            LsapSetParmTypeString( AuditParameters, AuditParameters.ParameterCount, &NullString );
+        }
+
         AuditParameters.ParameterCount++;
 
         //
         //    Authenticating Authority (domain name)
         //
 
-        LsapSetParmTypeString( AuditParameters, AuditParameters.ParameterCount, AuthenticatingAuthority );
+        if (ARGUMENT_PRESENT(AuthenticatingAuthority)) {
+            LsapSetParmTypeString( AuditParameters, AuditParameters.ParameterCount, AuthenticatingAuthority );
+        } else {
+            LsapSetParmTypeString( AuditParameters, AuditParameters.ParameterCount, &NullString );
+
+        }
         AuditParameters.ParameterCount++;
 
         if ( AuditingSuccess ) {
@@ -626,6 +642,17 @@ Return Value:
         //
 
         LsapSetParmTypeString( AuditParameters, AuditParameters.ParameterCount, PackageName );
+        AuditParameters.ParameterCount++;
+
+        //
+        // Authentication Package
+        //
+
+        if ( ARGUMENT_PRESENT( WorkstationName )) {
+
+            LsapSetParmTypeString( AuditParameters, AuditParameters.ParameterCount, WorkstationName );
+        }
+
         AuditParameters.ParameterCount++;
 
         ( VOID ) LsapAdtWriteLog( &AuditParameters, 0 );
@@ -1035,7 +1062,7 @@ WriteLogError:
     // Take whatever action we're supposed to take when an audit attempt fails.
     //
 
-    LsapAuditFailed();    
+    LsapAuditFailed();
 
     //
     // If the error is other than Audit Log Full, just cleanup and return
@@ -1219,7 +1246,7 @@ Return Values:
     // indefinitely.
     //
 
-    if (RtlLargeIntegerEqualToZero( PolicyAuditLogInfo->AuditRetentionPeriod )) {
+    if ( PolicyAuditLogInfo->AuditRetentionPeriod.QuadPart == 0) {
 
         if (LsapAdtLogFullInformation.LogIsFull) {
 
@@ -1581,6 +1608,39 @@ Return Values:
     ULONG ReturnLength;
 
     //
+    // Get the lock for LsapAdtSignalFullInProgress, which indicates
+    // that we are currently setting the log full flag.
+    //
+
+    Status = RtlEnterCriticalSection(
+                &LsapAdtLogFullLock
+                );
+
+    if (!NT_SUCCESS(Status)) {
+        return(Status);
+    }
+
+    //
+    // If we are already signalling that the log is full, don't try this
+    // now.
+    //
+
+    if (LsapAdtSignalFullInProgress) {
+
+        RtlLeaveCriticalSection(
+            &LsapAdtLogFullLock
+            );
+        return(STATUS_SUCCESS);
+    }
+
+    LsapAdtSignalFullInProgress = TRUE;
+
+    RtlLeaveCriticalSection(
+        &LsapAdtLogFullLock
+        );
+
+
+    //
     // Set the Audit Log Full Policy Information to reflect the log full condition.
     // There is an in-memory copy and a copy in the LSA Database.
     //
@@ -1654,7 +1714,7 @@ Return Values:
 
         PrivilegesToBeChanged.PrivilegeCount = 1;
         PrivilegesToBeChanged.Privileges[0].Luid =
-            RtlConvertUlongToLargeInteger(SE_SHUTDOWN_PRIVILEGE);
+            RtlConvertUlongToLuid(SE_SHUTDOWN_PRIVILEGE);
 
         PrivilegesToBeChanged.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
 
@@ -1720,6 +1780,28 @@ Return Values:
     }
 
 SignalLogFullFinish:
+
+
+    //
+    // Indicate that we are done setting the log full flag
+    //
+
+    SecondaryStatus = RtlEnterCriticalSection(
+                        &LsapAdtLogFullLock
+                        );
+
+    //
+    // We can't do much about this, so assert success
+    //
+
+    ASSERT(NT_SUCCESS(SecondaryStatus));
+
+    LsapAdtSignalFullInProgress = FALSE;
+
+    RtlLeaveCriticalSection(
+        &LsapAdtLogFullLock
+        );
+
 
     //
     // If necessary, close the Lsa Process Token handle.
@@ -2257,6 +2339,13 @@ Return Value:
         }
     }
 
+    //
+    // If we are in the middle of shutdown, we can tolerate this failure.
+    //
+
+    if ( (Status == RPC_NT_UNKNOWN_IF) && LsapShutdownInProgress ) {
+        Status = STATUS_SUCCESS;
+    }
     return( Status );
 }
 
@@ -2634,7 +2723,7 @@ Parmeters:
         it may be on the stack).  ALSO NOTE: The privilege set will be
         destroyed by this call (due to use of the routine used to
         convert the privilege values to privilege names).
-        
+
 
 --*/
 
@@ -2863,25 +2952,25 @@ VOID
 LsapAdtAuditLogonProcessRegistration(
     IN PLSAP_AU_REGISTER_CONNECT_INFO ConnectInfo
     )
-    
+
 /*++
-    
+
 Routine Description:
-    
+
     Audits the registration of a logon process
-    
+
 Arguments:
 
     ConnectInfo - Supplies the connection information for the new
         logon process.
-    
-    
+
+
 Return Value:
-    
+
     None.
-    
+
 --*/
-    
+
 {
     SID_IDENTIFIER_AUTHORITY    NtAuthority = SECURITY_NT_AUTHORITY;
     NTSTATUS Status;
@@ -2923,17 +3012,17 @@ Return Value:
 
     LogonProcessNameBuffer = (PSZ)LsapAllocateLsaHeap( ConnectInfo->LogonProcessNameLength+1 );
 
-    RtlCopyMemory( 
-        LogonProcessNameBuffer, 
-        ConnectInfo->LogonProcessName, 
-        ConnectInfo->LogonProcessNameLength 
+    RtlCopyMemory(
+        LogonProcessNameBuffer,
+        ConnectInfo->LogonProcessName,
+        ConnectInfo->LogonProcessNameLength
         );
 
     LogonProcessNameBuffer[ConnectInfo->LogonProcessNameLength] = 0;
     RtlInitAnsiString( &AnsiString, LogonProcessNameBuffer );
 
     Status = RtlAnsiStringToUnicodeString( &Unicode, &AnsiString, TRUE );
-    
+
     if ( !NT_SUCCESS( Status )) {
 
         //
@@ -2975,26 +3064,26 @@ Return Value:
 
 
 VOID
-LsapAdtAuditPackageLoad( 
-    PUNICODE_STRING PackageFileName 
+LsapAdtAuditPackageLoad(
+    PUNICODE_STRING PackageFileName
     )
-    
+
 /*++
-    
+
 Routine Description:
-    
+
     Audits the loading of an authentication package.
-    
+
 Arguments:
-    
+
     PackageFileName - The name of the package being loaded.
-    
+
 Return Value:
-    
+
     None.
-    
+
 --*/
-    
+
 {
     SID_IDENTIFIER_AUTHORITY    NtAuthority = SECURITY_NT_AUTHORITY;
     NTSTATUS Status;
@@ -3050,28 +3139,109 @@ Return Value:
     RtlFreeSid( LocalSystemSid );
 
     return;
-    
+
+}
+
+
+
+VOID
+LsaIAuditNotifyPackageLoad(
+    PUNICODE_STRING PackageFileName
+    )
+
+/*++
+
+Routine Description:
+
+    Audits the loading of an notification package.
+
+Arguments:
+
+    PackageFileName - The name of the package being loaded.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    SID_IDENTIFIER_AUTHORITY    NtAuthority = SECURITY_NT_AUTHORITY;
+    NTSTATUS Status;
+    PSID LocalSystemSid;
+    SE_ADT_PARAMETER_ARRAY AuditParameters;
+
+    if ( !LsapAdtEventsInformation.AuditingMode ) {
+        return;
+    }
+
+    if (!(LsapAdtEventsInformation.EventAuditingOptions[AuditCategorySystem] & POLICY_AUDIT_EVENT_SUCCESS)) {
+        return;
+    }
+
+    Status = RtlAllocateAndInitializeSid(
+                 &NtAuthority,
+                 1,
+                 SECURITY_LOCAL_SYSTEM_RID,
+                 0, 0, 0, 0, 0, 0, 0,
+                 &LocalSystemSid
+                 );
+
+    if ( !NT_SUCCESS( Status )) {
+
+        //
+        // Must be out of memory, not much we can do here
+        //
+
+        return;
+    }
+
+    RtlZeroMemory (
+       (PVOID) &AuditParameters,
+       sizeof( AuditParameters )
+       );
+
+    AuditParameters.CategoryId = SE_CATEGID_SYSTEM;
+    AuditParameters.AuditId = SE_AUDITID_NOTIFY_PACKAGE_LOAD;
+    AuditParameters.Type = EVENTLOG_AUDIT_SUCCESS;
+    AuditParameters.ParameterCount = 0;
+
+    LsapSetParmTypeSid( AuditParameters, AuditParameters.ParameterCount, LocalSystemSid );
+    AuditParameters.ParameterCount++;
+
+    LsapSetParmTypeString( AuditParameters, AuditParameters.ParameterCount, &LsapSubsystemName );
+    AuditParameters.ParameterCount++;
+
+    LsapSetParmTypeString( AuditParameters, AuditParameters.ParameterCount, PackageFileName );
+    AuditParameters.ParameterCount++;
+
+    ( VOID ) LsapAdtWriteLog( &AuditParameters, 0 );
+
+    RtlFreeSid( LocalSystemSid );
+
+    return;
+
 }
 
 
 VOID
-LsapAdtAuditDiscardedAudits( 
+LsapAdtAuditDiscardedAudits(
     ULONG NumberOfEventsDiscarded
     )
 /*++
-    
+
 Routine Description:
-    
+
     Audits the fact that we discarded some audits.
-    
+
 Arguments:
-    
-    NumberOfEventsDiscarded - The number of events discarded.    
-    
+
+    NumberOfEventsDiscarded - The number of events discarded.
+
 Return Value:
-    
+
     None.
-    
+
 --*/
 {
     SID_IDENTIFIER_AUTHORITY  NtAuthority = SECURITY_NT_AUTHORITY;
@@ -3142,25 +3312,25 @@ PLUID LsaFilterPrivileges[] =
 
 
 VOID
-LsapAdtAuditSpecialPrivileges( 
+LsapAdtAuditSpecialPrivileges(
     PPRIVILEGE_SET Privileges,
     LUID LogonId,
     PSID UserSid
     )
 /*++
-    
+
 Routine Description:
-    
+
     Audits the assignment of special privileges at logon time.
-    
+
 Arguments:
-    
+
     Privileges - List of privileges being assigned.
-    
+
 Return Value:
-    
+
     None.
-    
+
 --*/
 {
     PPRIVILEGE_SET Buffer;
@@ -3202,13 +3372,13 @@ Return Value:
         FilterPrivilege = LsaFilterPrivileges;
 
         do {
-    
+
             if ( RtlEqualLuid( &Privileges->Privilege[i].Luid, *FilterPrivilege )) {
-    
-                Buffer->Privilege[Buffer->PrivilegeCount].Luid = **FilterPrivilege;    
+
+                Buffer->Privilege[Buffer->PrivilegeCount].Luid = **FilterPrivilege;
                 Buffer->PrivilegeCount++;
             }
-    
+
         } while ( *++FilterPrivilege != NULL  );
     }
 
@@ -3396,29 +3566,29 @@ Return Value:
 
     return( FALSE );
 }
-    
+
 
 VOID
 LsapAuditFailed(
     VOID
     )
-    
+
 /*++
-    
+
 Routine Description:
-    
+
     Implements current policy of how to deal with a failed audit.
-    
+
 Arguments:
-    
+
     None.
-    
+
 Return Value:
-    
+
     None.
-    
+
 --*/
-    
+
 {
 
     NTSTATUS Status;
@@ -3426,8 +3596,10 @@ Return Value:
     HANDLE KeyHandle;
     UNICODE_STRING KeyName;
     UNICODE_STRING ValueName;
-    BOOLEAN NewValue;
+    UCHAR NewValue;
     ULONG Response;
+
+    ASSERT(sizeof(UCHAR) == sizeof(BOOLEAN));
 
     if (LsapCrashOnAuditFail) {
 
@@ -3436,7 +3608,7 @@ Return Value:
         //
 
         RtlInitUnicodeString( &KeyName, L"\\Registry\\Machine\\System\\CurrentControlSet\\Control\\Lsa");
-    
+
         InitializeObjectAttributes( &Obja,
                                     &KeyName,
                                     OBJ_CASE_INSENSITIVE,
@@ -3444,32 +3616,32 @@ Return Value:
                                     NULL
                                     );
         do {
-    
-            Status = NtOpenKey(                                 
-                         &KeyHandle,                 
+
+            Status = NtOpenKey(
+                         &KeyHandle,
                          KEY_SET_VALUE,
                          &Obja
                          );
-    
+
         } while ((Status == STATUS_INSUFFICIENT_RESOURCES) || (Status == STATUS_NO_MEMORY));
 
         //
         // If the LSA key isn't there, he's got big problems.  But don't crash.
         //
-    
+
         if (Status == STATUS_OBJECT_NAME_NOT_FOUND) {
             LsapCrashOnAuditFail = FALSE;
             return;
         }
-    
+
         if (!NT_SUCCESS( Status )) {
-            goto bugcheck;        
+            goto bugcheck;
         }
 
         RtlInitUnicodeString( &ValueName, CRASH_ON_AUDIT_FAIL_VALUE );
 
-        NewValue = FALSE;
-    
+        NewValue = LSAP_ALLOW_ADIMIN_LOGONS_ONLY;
+
         do {
 
             Status = NtSetValueKey( KeyHandle,
@@ -3477,20 +3649,20 @@ Return Value:
                                     0,
                                     REG_NONE,
                                     &NewValue,
-                                    sizeof(BOOLEAN)
+                                    sizeof(UCHAR)
                                     );
-    
+
         } while ((Status == STATUS_INSUFFICIENT_RESOURCES) || (Status == STATUS_NO_MEMORY));
         ASSERT(NT_SUCCESS(Status));
 
         if (!NT_SUCCESS( Status )) {
-            goto bugcheck;        
+            goto bugcheck;
         }
-    
+
         do {
-    
+
             Status = NtFlushKey( KeyHandle );
-                                    
+
         } while ((Status == STATUS_INSUFFICIENT_RESOURCES) || (Status == STATUS_NO_MEMORY));
         ASSERT(NT_SUCCESS(Status));
     }
@@ -3509,6 +3681,7 @@ bugcheck:
                  OptionShutdownSystem,
                  &Response
                  );
-                                             
+
 }
+
 

@@ -498,6 +498,95 @@ Environment:
          *is %1, please reenter. %0
          */
 
+/***
+ *
+ *   #ifdef JAPAN
+ *
+ *   Japanese version specific messages    
+ *
+ */
+
+#define APE2_GEN_NONLOCALIZED_SUNDAY (APPERR2_BASE + 85)      /* @I
+                        *
+                        *Sunday%0
+                        */
+
+#define APE2_GEN_NONLOCALIZED_MONDAY (APPERR2_BASE + 86)      /* @I
+                        *
+                        *Monday%0
+                        */
+
+#define APE2_GEN_NONLOCALIZED_TUESDAY (APPERR2_BASE + 87)      /* @I
+                        *
+                        *Tuesday%0
+                        */
+
+#define APE2_GEN_NONLOCALIZED_WEDNSDAY (APPERR2_BASE + 88)     /* @I
+                        *
+                        *Wednesday%0
+                        */
+
+#define APE2_GEN_NONLOCALIZED_THURSDAY (APPERR2_BASE + 89)     /* @I
+                        *
+                        *Thursday%0
+                        */
+
+#define APE2_GEN_NONLOCALIZED_FRIDAY (APPERR2_BASE + 90)     /* @I
+                        *
+                        *Friday%0
+                        */
+
+#define APE2_GEN_NONLOCALIZED_SATURDAY (APPERR2_BASE + 91)     /* @I
+                        *
+                        *Saturday%0
+                        */
+
+#define APE2_GEN_NONLOCALIZED_SUNDAY_ABBREV (APPERR2_BASE + 92)     /* @I
+                        *
+                        *Su%0
+                        */
+
+#define APE2_GEN_NONLOCALIZED_MONDAY_ABBREV (APPERR2_BASE + 93)     /* @I
+                        *
+                        *M%0
+                        */
+
+#define APE2_GEN_NONLOCALIZED_TUESDAY_ABBREV (APPERR2_BASE + 94)     /* @I
+                        *
+                        *T%0
+                        */
+
+#define APE2_GEN_NONLOCALIZED_WEDNSDAY_ABBREV (APPERR2_BASE + 95)     /* @I
+                        *
+                        *W%0
+                        */
+
+#define APE2_GEN_NONLOCALIZED_THURSDAY_ABBREV (APPERR2_BASE + 96)     /* @I
+                        *
+                        *Th%0
+                        */
+
+#define APE2_GEN_NONLOCALIZED_FRIDAY_ABBREV (APPERR2_BASE + 97)     /* @I
+                        *
+                        *F%0
+                        */
+
+#define APE2_GEN_NONLOCALIZED_SATURDAY_ABBREV (APPERR2_BASE + 98)     /* @I
+                        *
+                        *S%0
+                        */
+
+#define APE2_GEN_NONLOCALIZED_SATURDAY_ABBREV2 (APPERR2_BASE + 99)     /* @I
+                        *
+                        *Sa%0
+                        */
+
+/***
+ *
+ *   #endif // JAPAN
+ *
+ */
+
 
 
 
@@ -2668,3 +2757,48 @@ Environment:
          *
          *The printer does not exist.  Do you want to create it? %1: %0
          */
+/***
+ *
+ *   #ifdef JAPAN
+ *
+ *   Japanese version specific messages    
+ *
+ */
+
+#define APE2_NEVER_FORCE_LOGOFF    (APPERR2_BASE + 991) /* @I
+        *
+        *Never%0
+        */
+
+#define APE2_NEVER_EXPIRED    (APPERR2_BASE + 992) /* @I
+        *
+        *Never%0
+        */
+
+#define APE2_NEVER_LOGON    (APPERR2_BASE + 993) /* @I
+        *
+        *Never%0
+        */
+
+#define APE2_
+
+/***
+ *
+ *   #endif // JAPAN
+ *
+ */
+
+/***
+ *
+ * The below should be changed to NETUS.HLP for Far East versions.
+ *
+ */
+#define APE2_US_NETCMD_HELP_FILE    (APPERR2_BASE + 995) /* @I
+        *
+        *NET.HLP%0
+        */
+
+#define APE2_FE_NETCMD_HELP_FILE    (APPERR2_BASE + 996) /* @I
+        *
+        *NET.HLP%0
+        */

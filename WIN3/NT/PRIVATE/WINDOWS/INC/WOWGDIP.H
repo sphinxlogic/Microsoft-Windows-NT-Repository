@@ -15,3 +15,5 @@ extern int APIENTRY SetPolyFillModeWOW(HDC hdc,int iMode);
 extern int APIENTRY SetROP2WOW(HDC hdc,int iMode);
 extern int APIENTRY SetStretchBltModeWOW(HDC hdc,int iMode);
 extern UINT APIENTRY SetTextAlignWOW(HDC hdc,UINT iMode);
+extern DWORD APIENTRY GetGlyphOutlineWow( HDC, UINT, UINT, LPGLYPHMETRICS, DWORD, LPVOID, CONST MAT2* );
+

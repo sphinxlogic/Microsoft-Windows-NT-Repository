@@ -7,10 +7,23 @@
 
 /**********************       PolyTron RCS Utilities
    
-  $Revision:   1.2  $
-      $Date:   30 Jun 1994 18:22:38  $
+  $Revision:   1.5  $
+      $Date:   18 May 1995 14:14:34  $
 	$Author:   RWOLFF  $
 	   $Log:   S:/source/wnt/ms11/miniport/vcs/setup_m.h  $
+ * 
+ *    Rev 1.5   18 May 1995 14:14:34   RWOLFF
+ * No longer uses the memory-mapped form of CLOCK_SEL (sometimes the
+ * value written wouldn't "take" even though a readback showed the
+ * correct value).
+ * 
+ *    Rev 1.4   23 Dec 1994 10:48:16   ASHANMUG
+ * ALPHA/Chrontel-DAC
+ * 
+ *    Rev 1.3   07 Jul 1994 14:00:48   RWOLFF
+ * Andre Vachon's fix: re-sized DriverMMRange_m[] from NUM_DRIVER_ACCESS_RANGES
+ * entries to NUM_IO_ACCESS_RANGES entries because this array doesn't need
+ * a slot for the framebuffer.
  * 
  *    Rev 1.2   30 Jun 1994 18:22:38   RWOLFF
  * Added prototypes for IsApertureConflict_m() and IsVGAConflict_m(), and
@@ -63,7 +76,6 @@ extern BOOL IsVGAConflict_m(void);
  */
 #ifdef INCLUDE_SETUP_M
 
-#ifndef MSDOS
 
 /*
  * Avoid runtime bugs due to overflowing the address range arrays
@@ -275,7 +287,7 @@ VIDEO_ACCESS_RANGE DriverMMRange_m[NUM_IO_ACCESS_RANGES] = {
      {FALSE                 , DONT_USE  , 2, ISinIO     , TRUE  , FALSE},
      {MM_ADVFUNC_CNTL       , 0         , 4, ISinMEMORY , TRUE  , FALSE},
 
-     {MM_CLOCK_SEL          , 0         , 4, ISinMEMORY , TRUE  , FALSE},
+     {FALSE                 , DONT_USE  , 2, ISinIO     , TRUE  , FALSE},
      {FALSE                 , DONT_USE  , 2, ISinIO     , TRUE  , FALSE},
      {FALSE                 , DONT_USE  , 2, ISinIO     , TRUE  , FALSE},
      {FALSE                 , DONT_USE  , 2, ISinIO     , TRUE  , FALSE},
@@ -356,8 +368,7 @@ VIDEO_ACCESS_RANGE DriverMMRange_m[NUM_IO_ACCESS_RANGES] = {
      {FALSE                 , DONT_USE  , 2, ISinIO     , TRUE  , TRUE}     // 100
     };
 
-#endif  /* not defined MSDOS */
-
 
 
 #endif  /* defined INCLUDE_SETUP_M */
+

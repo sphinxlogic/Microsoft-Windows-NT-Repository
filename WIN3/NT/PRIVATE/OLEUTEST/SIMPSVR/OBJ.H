@@ -139,4 +139,3 @@ friend interface CExternalConnection;
 };
 #endif
 
-

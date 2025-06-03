@@ -792,47 +792,58 @@ Return Value:
 
         pab255 = plana->AddressBlocks[MAXIMUM_ADDRESS];
 
-        ReceiveEntry = pab255->ReceiveBroadcastDatagramList.Flink;
+        //
+        // check for null pointer.  Added to fix stress bug
+        //
+        //  V Raman
+        //
+        
+        if ( pab255 != NULL )
+        {
+            ReceiveEntry = pab255->ReceiveBroadcastDatagramList.Flink;
 
-        while ( ReceiveEntry != &pab255->ReceiveBroadcastDatagramList ) {
-            PLIST_ENTRY NextReceiveEntry = ReceiveEntry->Flink;
+            while ( ReceiveEntry != &pab255->ReceiveBroadcastDatagramList ) {
+            
+                PLIST_ENTRY NextReceiveEntry = ReceiveEntry->Flink;
 
-            PDNCB pdncb = CONTAINING_RECORD( ReceiveEntry, DNCB, ncb_next);
+                PDNCB pdncb = CONTAINING_RECORD( ReceiveEntry, DNCB, ncb_next);
 
-            if ( pab->NameNumber == pdncb->ncb_num ) {
-                PIRP Irp;
+                if ( pab->NameNumber == pdncb->ncb_num ) {
+                    PIRP Irp;
 
-                RemoveEntryList( &pdncb->ncb_next );
+                    RemoveEntryList( &pdncb->ncb_next );
 
-                Irp = pdncb->irp;
+                    Irp = pdncb->irp;
 
-                IoAcquireCancelSpinLock(&Irp->CancelIrql);
+                    IoAcquireCancelSpinLock(&Irp->CancelIrql);
 
-                //
-                //  Remove the cancel request for this IRP. If its cancelled then its
-                //  ok to just process it because we will be returning it to the caller.
-                //
+                    //
+                    //  Remove the cancel request for this IRP. If its cancelled then its
+                    //  ok to just process it because we will be returning it to the caller.
+                    //
 
-                Irp->Cancel = FALSE;
+                    Irp->Cancel = FALSE;
 
-                IoSetCancelRoutine(Irp, NULL);
+                    IoSetCancelRoutine(Irp, NULL);
 
-                IoReleaseCancelSpinLock(Irp->CancelIrql);
+                    IoReleaseCancelSpinLock(Irp->CancelIrql);
 
-                UNLOCK_SPINLOCK( pfcb, OldIrql );
+                    UNLOCK_SPINLOCK( pfcb, OldIrql );
 
-                NCB_COMPLETE( pdncb, NRC_NAMERR );
+                    NCB_COMPLETE( pdncb, NRC_NAMERR );
 
-                pdncb->irp->IoStatus.Information = FIELD_OFFSET( DNCB, ncb_cmd_cplt );
+                    pdncb->irp->IoStatus.Information = FIELD_OFFSET( DNCB, ncb_cmd_cplt );
 
-                NbCompleteRequest( pdncb->irp, STATUS_SUCCESS );
+                    NbCompleteRequest( pdncb->irp, STATUS_SUCCESS );
 
-                LOCK_SPINLOCK( pfcb, OldIrql );
+                    LOCK_SPINLOCK( pfcb, OldIrql );
 
+                }
+                    
+                ReceiveEntry = NextReceiveEntry;
             }
-            ReceiveEntry = NextReceiveEntry;
         }
-
+        
         UNLOCK_SPINLOCK( pfcb, OldIrql );
         CloseListens( pfcb, ppab );
         LOCK_SPINLOCK( pfcb, OldIrql );
@@ -953,8 +964,7 @@ Return Value:
     for ( index = 0; index <= MAXIMUM_ADDRESS; index++ ) {
         pab = plana->AddressBlocks[index];
         if (( pab != NULL ) &&
-            (RtlCompareMemory( &pab->Name, pdncb->ncb_name, NCBNAMSZ) ==
-                 NCBNAMSZ)) {
+            (RtlEqualMemory( &pab->Name, pdncb->ncb_name, NCBNAMSZ))) {
 
             ASSERT( pab->Signature == AB_SIGNATURE );
 

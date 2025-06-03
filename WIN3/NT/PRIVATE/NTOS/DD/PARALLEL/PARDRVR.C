@@ -249,7 +249,7 @@ Return Value:
 
             if (doDelays) {
 
-                difference = RtlLargeIntegerNegate(Extension->AbsoluteOneSecond);
+                difference.QuadPart = -(Extension->AbsoluteOneSecond.QuadPart);
                 KeDelayExecutionThread(
                     KernelMode,
                     FALSE,
@@ -265,19 +265,11 @@ Return Value:
 
                 KeQueryTickCount(&nextQuery);
 
-                difference = RtlLargeIntegerSubtract(
-                                 nextQuery,
-                                 startOfSpin
-                                 );
+                difference.QuadPart = nextQuery.QuadPart - startOfSpin.QuadPart;
 
                 ASSERT(KeQueryTimeIncrement() <= MAXLONG);
-                if (RtlLargeIntegerGreaterThanOrEqualTo(
-                        RtlExtendedIntegerMultiply(
-                            difference,
-                            (LONG)KeQueryTimeIncrement()
-                            ),
-                        Extension->AbsoluteOneSecond
-                        )) {
+                if (difference.QuadPart*KeQueryTimeIncrement() >=
+                    Extension->AbsoluteOneSecond.QuadPart) {
 
                     ParDump(
                         PARINITDEV,
@@ -1034,7 +1026,7 @@ Return Value:
 
         PFILE_STANDARD_INFORMATION buf = Irp->AssociatedIrp.SystemBuffer;
 
-        buf->AllocationSize = RtlConvertUlongToLargeInteger(0ul);
+        buf->AllocationSize.QuadPart = 0;
         buf->EndOfFile = buf->AllocationSize;
         buf->NumberOfLinks = 0;
         buf->DeletePending = FALSE;
@@ -1045,7 +1037,7 @@ Return Value:
                FilePositionInformation) {
 
         ((PFILE_POSITION_INFORMATION)Irp->AssociatedIrp.SystemBuffer)->
-            CurrentByteOffset = RtlConvertUlongToLargeInteger(0ul);
+            CurrentByteOffset.QuadPart = 0;
         Irp->IoStatus.Information = sizeof(FILE_POSITION_INFORMATION);
 
     } else {
@@ -1932,7 +1924,7 @@ PushSomeBytes:;
 
             if (doDelays) {
 
-                difference = RtlLargeIntegerNegate(Extension->AbsoluteOneSecond);
+                difference.QuadPart = -(Extension->AbsoluteOneSecond.QuadPart);
                 KeDelayExecutionThread(
                     KernelMode,
                     FALSE,
@@ -1948,18 +1940,10 @@ PushSomeBytes:;
 
                 KeQueryTickCount(&nextQuery);
 
-                difference = RtlLargeIntegerSubtract(
-                                 nextQuery,
-                                 startOfSpin
-                                 );
+                difference.QuadPart = nextQuery.QuadPart - startOfSpin.QuadPart;
 
-                if (RtlLargeIntegerGreaterThanOrEqualTo(
-                        RtlExtendedIntegerMultiply(
-                            difference,
-                            (LONG)KeQueryTimeIncrement()
-                            ),
-                        Extension->AbsoluteOneSecond
-                        )) {
+                if (difference.QuadPart*KeQueryTimeIncrement() >=
+                    Extension->AbsoluteOneSecond.QuadPart) {
 
                     ParDump(
                         PARTHREAD,

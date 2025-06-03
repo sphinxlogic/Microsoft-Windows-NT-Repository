@@ -30,8 +30,12 @@ Revision History:
 #define ELF_LOGFILE_START            0x0008
 #define ELF_LOGFILE_STOP             0x000C
 #define ELF_LOGFILE_CONFIGURE        0x0010
+#define ELF_LOGFILE_BACKUP           0x0020     // Set iff a backup operator
+                                                // opens the security log -
+                                                // this overrides all other
+                                                // flags.
 
-#define ELF_LOGFILE_ALL_ACCESS       (STANDARD_RIGHTS_REQUIRED | \
+#define ELF_LOGFILE_ALL_ACCESS       (STANDARD_RIGHTS_REQUIRED       | \
                                          ELF_LOGFILE_READ            | \
                                          ELF_LOGFILE_WRITE           | \
                                          ELF_LOGFILE_CLEAR           | \
@@ -185,6 +189,10 @@ typedef struct _LOGMODULE {
     PWSTR       ModuleName;         // Name of module
     ATOM        ModuleAtom;         // Atom identifying this module
     PLOGFILE    LogFile;            // Log file for this module
+#ifdef _CAIRO_
+    SHORT       AlertCategory;      // Cairo alert category filter
+    SHORT       AlertSeverity;      // Cairo alert severity filter
+#endif // _CAIRO_
 } LOGMODULE, *PLOGMODULE;
 
 //
@@ -340,9 +348,10 @@ typedef struct _ELF_LOGFILE_HEADER {
 // LOGFILE structures' Flag fields.
 //
 
-#define     ELF_LOGFILE_HEADER_DIRTY    0x0001      // File has been written to
-#define     ELF_LOGFILE_HEADER_WRAP     0x0002      // The file has wrapped
-#define     ELF_LOGFILE_LOGFULL_WRITTEN 0x0004      // Already wrote logfull record
+#define     ELF_LOGFILE_HEADER_DIRTY    0x0001  // File has been written to
+#define     ELF_LOGFILE_HEADER_WRAP     0x0002  // The file has wrapped
+#define     ELF_LOGFILE_LOGFULL_WRITTEN 0x0004  // Written logfull record
+#define     ELF_LOGFILE_ARCHIVE_SET     0x0008  // Archive bit flag
 
 
 //
@@ -416,6 +425,7 @@ typedef struct _LOG_FILE_INFO {
     PUNICODE_STRING LogFileName;
     ULONG MaxFileSize;
     ULONG Retention;
+    ULONG GuestAccessRestriction; 
 } LOG_FILE_INFO, *PLOG_FILE_INFO;
 
 //

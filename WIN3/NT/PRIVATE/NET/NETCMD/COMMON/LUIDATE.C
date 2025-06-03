@@ -30,7 +30,7 @@ Revision History:
         RAID 3556: Added NetpSystemTimeToGmtTime() for DosPrint APIs.
 
     16-Feb-1993     chuckc
-        fixed to read internation info from system
+        fixed to _read internation info from system
 
     22-Feb-1993     yihsins
         Moved from netcmd\map32\pdate.c. And added LUI_ParseDateSinceStartOfDay.
@@ -787,6 +787,7 @@ WParseDate(
     *nextchr = inbuf ;
     memset((TCHAR  *)d_data,0,sizeof(d_data)) ;
     memset((TCHAR  *)t_data,0,sizeof(t_data)) ;
+    d_data[YEARS] = (SHORT)0xffff;
 
     /*
      * try all date followed by time combinations
@@ -821,6 +822,7 @@ WParseDate(
      */
     *nextchr = inbuf ;
     memset((TCHAR  *)d_data,0,sizeof(d_data)) ;
+    d_data[YEARS] = (SHORT)0xffff;
     if (t_desc != NULL)
 	for (t_index = 0; t_desc[t_index] != NULL; t_index++)
 	{
@@ -879,7 +881,6 @@ read_format(
      */
     if (*inbuf == NULL || **inbuf==NULLC)
 	return(PD_ERROR_END_OF_INPUT) ;
-    memset((TCHAR  *)data,0,sizeof(date_data)) ;
     ptr = *inbuf ;
     oldptr = NULL ;
 
@@ -892,7 +893,7 @@ read_format(
 	SHORT value_read ;
 
 	entry = &desc[i] ;
-	if (entry->typ == PD_END_MARKER)
+	if (entry->typ == PD_END_MARKER || *ptr == '\0' )
 	    break ;  /* no more descriptors */
 
 	/*
@@ -1008,7 +1009,7 @@ convert_to_abs(
     net_gmtime(&current_time, &time_struct);
 
     /* check for default values */
-    if (d_data[DAYS] == 0 && d_data[MONTHS] == 0 && d_data[YEARS] == 0)
+    if (d_data[DAYS] == 0 && d_data[MONTHS] == 0 && d_data[YEARS] == (SHORT)0xffff)
     {
 	/* whole date's been left out */
 	d_data[DAYS] = (USHORT) time_struct.tm_mday ;
@@ -1028,7 +1029,7 @@ convert_to_abs(
 	    total_secs = seconds_since_1970(d_data,t_data) ;
 	}
     }
-    else if (d_data[YEARS] == 0 && d_data[MONTHS] != 0 && d_data[DAYS] != 0)
+    else if (d_data[YEARS] == (SHORT)0xffff && d_data[MONTHS] != 0 && d_data[DAYS] != 0)
     {
 	/* year's been left out */
 	d_data[YEARS] = (USHORT) time_struct.tm_year ;
@@ -1040,7 +1041,9 @@ convert_to_abs(
 	}
     }
     else
+    {
 	total_secs = seconds_since_1970(d_data,t_data) ; /* no need defaults */
+    }
 
     if (total_secs < 0)
 	return(ERROR_BAD_ARGUMENTS) ;
@@ -1175,8 +1178,11 @@ convert_to_24hr(
     }
     else if (t_data[AMPM] == PD_24HR)
     {
-	if (t_data[HOURS] > 23)
-	    return(-1) ;
+	if (t_data[HOURS] > 23) 
+            if (t_data[HOURS] != 24 || t_data[MINUTES] != 0 || t_data[SECONDS] != 0)
+            {
+	        return(-1) ;
+            }
     }
     else
 	return(-1) ;

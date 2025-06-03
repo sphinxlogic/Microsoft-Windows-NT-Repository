@@ -11,14 +11,12 @@
 //  History:	23-Nov-92   Rickhi	Created
 //
 //--------------------------------------------------------------------
-
 #ifndef __CQICLASSFACTORY__
 #define __CQICLASSFACTORY__
 
 #include    <win4p.hxx>
 #include    <otrack.hxx>	    //	object tracking
-
-extern "C" const GUID CLSID_QI;
+#include    <cqi.hxx>		    //	class code
 
 //+-------------------------------------------------------------------
 //
@@ -26,20 +24,15 @@ extern "C" const GUID CLSID_QI;
 //
 //  Purpose:	test class factory object implementation
 //
-//  Interface:
-//
 //  History:	23-Nov-92   Rickhi	Created
 //
-//  Notes:
-//
 //--------------------------------------------------------------------
-
 class CQIClassFactory : INHERIT_TRACKING,
 			public IClassFactory
 {
 public:
     //	Constructor & Destructor
-		    CQIClassFactory(void);
+		    CQIClassFactory(REFCLSID rclsid);
 
     //	IUnknown methods
     STDMETHOD(QueryInterface)(REFIID riid, void **ppUnk);
@@ -55,7 +48,8 @@ public:
 
 private:
 		    ~CQIClassFactory(void);
+
+    CLSID	_clsid;
 };
 	
-
 #endif	//  __CQICLASSFACTORY__

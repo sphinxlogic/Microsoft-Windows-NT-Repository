@@ -76,7 +76,7 @@ Return Value:
     wndclass.hInstance      = hInst;
     wndclass.hIcon          = LoadIcon( hInst, MAKEINTRESOURCE(APPICON) );
     wndclass.hCursor        = LoadCursor( NULL, IDC_ARROW );
-    wndclass.hbrBackground  = (HBRUSH) (COLOR_WINDOW + 1);
+    wndclass.hbrBackground  = (HBRUSH) (COLOR_3DFACE + 1);
     wndclass.lpszMenuName   = NULL;
     wndclass.lpszClassName  = "DrWatsonDialog";
     RegisterClass( &wndclass );
@@ -124,8 +124,10 @@ Return Value:
 
 {
     DWORD    helpId;
+    UINT     Checked;
     char     szCurrDir[MAX_PATH];
     char     szWave[MAX_PATH];
+    char     szDump[MAX_PATH];
     char     szHelpFileName[MAX_PATH];
     LPSTR    p;
 
@@ -210,6 +212,14 @@ Return Value:
                         helpId = IDH_CLEAR;
                         break;
 
+                    case ID_CRASH:
+                        helpId = IDH_CRASH;
+                        break;
+
+                    case ID_CRASH_DUMP:
+                        helpId = IDH_CRASH_DUMP;
+                        break;
+
                     case IDOK:
                         helpId = IDH_INDEX;
                         break;
@@ -230,7 +240,7 @@ Return Value:
                 // call winhelp
                 //
                 GetHelpFileName( szHelpFileName, sizeof(szHelpFileName ) );
-                WinHelp( hwnd, szHelpFileName, HELP_CONTEXT, helpId );
+                WinHelp( hwnd, szHelpFileName, HELP_FINDER, helpId );
             }
             return 1;
 
@@ -289,12 +299,23 @@ Return Value:
 
                 case ID_BROWSE_WAVEFILE:
                     szWave[0] = '\0';
-                    EnableWindow( GetDlgItem( hwnd, ID_BROWSE_LOGPATH ), FALSE );
+                    EnableWindow( GetDlgItem( hwnd, ID_BROWSE_WAVEFILE ), FALSE );
                     if (GetWaveFileName( szWave )) {
                         SetDlgItemText( hwnd, ID_WAVE_FILE, szWave );
                     }
-                    EnableWindow( GetDlgItem( hwnd, ID_BROWSE_LOGPATH ), TRUE );
+                    EnableWindow( GetDlgItem( hwnd, ID_BROWSE_WAVEFILE ), TRUE );
                     SetFocus( GetDlgItem(hwnd, ID_BROWSE_WAVEFILE) );
+                    return FALSE;
+                    break;
+
+                case ID_BROWSE_CRASH:
+                    szDump[0] = '\0';
+                    EnableWindow( GetDlgItem( hwnd, ID_BROWSE_CRASH ), FALSE );
+                    if (GetDumpFileName( szDump )) {
+                        SetDlgItemText( hwnd, ID_CRASH_DUMP, szDump );
+                    }
+                    EnableWindow( GetDlgItem( hwnd, ID_BROWSE_CRASH ), TRUE );
+                    SetFocus( GetDlgItem(hwnd, ID_BROWSE_CRASH) );
                     return FALSE;
                     break;
 
@@ -323,7 +344,7 @@ Return Value:
                     // call winhelp
                     //
                     GetHelpFileName( szHelpFileName, sizeof(szHelpFileName ) );
-                    WinHelp( hwnd, szHelpFileName, HELP_CONTEXT, IDH_INDEX );
+                    WinHelp( hwnd, szHelpFileName, HELP_FINDER, IDH_INDEX );
                     SetFocus( GetDlgItem(hwnd, ID_HELP) );
                     break;
 
@@ -336,6 +357,13 @@ Return Value:
                                LogFileViewerDialogProc,
                                SendMessage((HWND)lParam,LB_GETCURSEL,0,0)
                              );
+                    }
+                    if (((HWND)lParam == GetDlgItem( hwnd, ID_CRASH )) &&
+                        (HIWORD( wParam ) == BN_CLICKED)) {
+                        Checked = IsDlgButtonChecked( hwnd, ID_CRASH );
+                        EnableWindow( GetDlgItem( hwnd, ID_CRASH_DUMP_TEXT ), Checked == 1 );
+                        EnableWindow( GetDlgItem( hwnd, ID_CRASH_DUMP ), Checked == 1 );
+                        EnableWindow( GetDlgItem( hwnd, ID_BROWSE_CRASH ), Checked == 1 );
                     }
                     break;
             }
@@ -466,6 +494,7 @@ Return Value:
     RegInitialize( &o );
     SetDlgItemText( hwnd, ID_LOGPATH, o.szLogPath );
     SetDlgItemText( hwnd, ID_WAVE_FILE, o.szWaveFile );
+    SetDlgItemText( hwnd, ID_CRASH_DUMP, o.szCrashDump );
     wsprintf( buf, "%d", o.dwMaxCrashes );
     SetDlgItemText( hwnd, ID_NUM_CRASHES, buf );
     wsprintf( buf, "%d", o.dwInstructions );
@@ -475,12 +504,17 @@ Return Value:
     SendMessage( GetDlgItem( hwnd, ID_APPENDTOLOGFILE ), BM_SETCHECK, o.fAppendToLogFile, 0 );
     SendMessage( GetDlgItem( hwnd, ID_VISUAL ), BM_SETCHECK, o.fVisual, 0 );
     SendMessage( GetDlgItem( hwnd, ID_SOUND ), BM_SETCHECK, o.fSound, 0 );
+    SendMessage( GetDlgItem( hwnd, ID_CRASH ), BM_SETCHECK, o.fCrash, 0 );
 
     if (waveOutGetNumDevs() == 0) {
         EnableWindow( GetDlgItem( hwnd, ID_WAVEFILE_TEXT ), FALSE );
         EnableWindow( GetDlgItem( hwnd, ID_WAVE_FILE ), FALSE );
         EnableWindow( GetDlgItem( hwnd, ID_BROWSE_WAVEFILE ), FALSE );
     }
+
+    EnableWindow( GetDlgItem( hwnd, ID_CRASH_DUMP_TEXT ), o.fCrash );
+    EnableWindow( GetDlgItem( hwnd, ID_CRASH_DUMP ), o.fCrash );
+    EnableWindow( GetDlgItem( hwnd, ID_BROWSE_CRASH ), o.fCrash );
 
     InitializeCrashList( hwnd );
 
@@ -492,7 +526,7 @@ Return Value:
     hMenu = GetSystemMenu( hwnd, FALSE );
     if (hMenu != NULL) {
         AppendMenu( hMenu, MF_SEPARATOR, 0, NULL );
-        AppendMenu( hMenu, MF_STRING, ID_ABOUT, "About Dr. Watson..." );
+        AppendMenu( hMenu, MF_STRING, ID_ABOUT, LoadRcString( IDS_ABOUT ) );
     }
 
     return;
@@ -523,13 +557,15 @@ Return Value:
     OPTIONS  o;
     char     buf[256];
     DWORD    dwFa;
-    LPSTR    p;
+    LPSTR    p,p1;
+    char     szDrive    [_MAX_DRIVE];
+    char     szDir      [_MAX_DIR];
+    char     szPath     [MAX_PATH];
 
 
     RegInitialize( &o );
 
     GetDlgItemText( hwnd, ID_LOGPATH, buf, sizeof(buf) );
-
     p = ExpandPath( buf );
     if (p) {
         dwFa = GetFileAttributes( p );
@@ -537,14 +573,52 @@ Return Value:
     } else {
         dwFa = GetFileAttributes( buf );
     }
-
     if ((dwFa == 0xffffffff) || (!(dwFa&FILE_ATTRIBUTE_DIRECTORY))) {
         NonFatalError( LoadRcString(IDS_INVALID_PATH) );
         return FALSE;
     }
-
     if (strlen(buf) > 0) {
         strcpy( o.szLogPath, buf );
+    }
+
+    o.fCrash = SendMessage( GetDlgItem( hwnd, ID_CRASH ), BM_GETCHECK, 0, 0 );
+
+    GetDlgItemText( hwnd, ID_CRASH_DUMP, buf, sizeof(buf) );
+    if (o.fCrash) {
+        p = ExpandPath( buf );
+        if (p) {
+            dwFa = GetFileAttributes( p );
+            free( p );
+        } else {
+            dwFa = GetFileAttributes( buf );
+        }
+        if (dwFa == 0xffffffff) {
+            //
+            // file does not exist, check to see if the dir is ok
+            //
+            p = ExpandPath( buf );
+            if (p) {
+                p1 = p;
+            } else {
+                p1 = buf;
+            }
+            _splitpath( p1, szDrive, szDir, NULL, NULL );
+            _makepath( szPath, szDrive, szDir, NULL, NULL );
+            if (p) {
+                free( p );
+            }
+            dwFa = GetFileAttributes( szPath );
+            if (dwFa == 0xffffffff) {
+                NonFatalError( LoadRcString(IDS_INVALID_CRASH_PATH) );
+                return FALSE;
+            }
+        } else if (dwFa & FILE_ATTRIBUTE_DIRECTORY) {
+            NonFatalError( LoadRcString(IDS_INVALID_CRASH_PATH) );
+            return FALSE;
+        }
+        if (strlen(buf) > 0) {
+            strcpy( o.szCrashDump, buf );
+        }
     }
 
     GetDlgItemText( hwnd, ID_WAVE_FILE, buf, sizeof(buf) );
@@ -638,8 +712,8 @@ Return Value:
 --*/
 
 {
-    CRASHINFO     crashInfo;
-    HFONT         hFont;
+    static CRASHINFO    crashInfo;
+    HFONT               hFont;
 
     switch (message) {
         case WM_INITDIALOG:

@@ -199,7 +199,7 @@ GetCommandLineArgs(
             ch = *lpstrCmd++;
         }
         *p = '\0';
-        strupr( pname );
+        _strupr( pname );
     }
 
     return;

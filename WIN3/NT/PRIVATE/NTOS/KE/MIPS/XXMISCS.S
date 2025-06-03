@@ -33,7 +33,7 @@
 //
 // VOID
 // KiRequestSoftwareInterrupt (
-//    KIRQL RequestIrql
+//    ULONG RequestIrql
 //    )
 //
 // Routine Description:
@@ -118,14 +118,16 @@
 // exit if it is not overwritten by the specified context record.
 //
 
-        sw      s0,ExIntS0(sp)          // save nonvolatile integer state
-        sw      s1,ExIntS1(sp)          //
-        sw      s2,ExIntS2(sp)          //
-        sw      s3,ExIntS3(sp)          //
-        sw      s4,ExIntS4(sp)          //
-        sw      s5,ExIntS5(sp)          //
-        sw      s6,ExIntS6(sp)          //
-        sw      s7,ExIntS7(sp)          //
+        sd      s0,TrXIntS0(s8)         // save integer registers s0 - s7
+        sd      s1,TrXIntS1(s8)         //
+        sd      s2,TrXIntS2(s8)         //
+        sd      s3,TrXIntS3(s8)         //
+        sd      s4,TrXIntS4(s8)         //
+        sd      s5,TrXIntS5(s8)         //
+        sd      s6,TrXIntS6(s8)         //
+        sd      s7,TrXIntS7(s8)         //
+        li      t0,TRUE                 // set saved s-registers flag
+        sb      t0,TrSavedFlag(s8)      //
 
         sdc1    f20,ExFltF20(sp)        // save floating registers f20 - f31
         sdc1    f22,ExFltF22(sp)        //
@@ -139,7 +141,7 @@
 // frames.
 //
 
-        sw      a1,ExceptionFrameLength + 4(sp) // save test alert argument
+        sb      a1,ExceptionFrameLength + 4(sp) // save test alert argument
         move    a1,sp                   // set address of exception frame
         move    a2,s8                   // set address of trap frame
         jal     KiContinue              // transfer context to kernel frames
@@ -157,10 +159,12 @@
 //
 
         lw      t0,KiPcr + PcCurrentThread(zero) // get current thread address
-        lw      t1,ExceptionFrameLength + 4(sp) // get test alert argument
-        lbu     a0,ThPreviousMode(t0)   // get previous mode
-        lbu     t2,TrPreviousMode(s8)   // restore previous mode in thread object
-        sb      t2,ThPreviousMode(t0)   //
+        lbu     t1,ExceptionFrameLength + 4(sp) // get test alert argument
+        lw      t2,TrTrapFrame(s8)      // get old trap frame address
+        lbu     t3,TrPreviousMode(s8)   // get old previous mode
+        lbu     a0,ThPreviousMode(t0)   // get current previous mode
+        sw      t2,ThTrapFrame(t0)      // restore old trap frame address
+        sb      t3,ThPreviousMode(t0)   // restore old previous mode
         beq     zero,t1,10f             // if eq, don't test for alert
         jal     KeTestAlertThread       // test alert for current thread
 
@@ -228,14 +232,16 @@
 // exit if it is not overwritten by the specified context record.
 //
 
-        sw      s0,ExIntS0(sp)          // save nonvolatile integer state
-        sw      s1,ExIntS1(sp)          //
-        sw      s2,ExIntS2(sp)          //
-        sw      s3,ExIntS3(sp)          //
-        sw      s4,ExIntS4(sp)          //
-        sw      s5,ExIntS5(sp)          //
-        sw      s6,ExIntS6(sp)          //
-        sw      s7,ExIntS7(sp)          //
+        sd      s0,TrXIntS0(s8)         // save integer registers s0 - s7
+        sd      s1,TrXIntS1(s8)         //
+        sd      s2,TrXIntS2(s8)         //
+        sd      s3,TrXIntS3(s8)         //
+        sd      s4,TrXIntS4(s8)         //
+        sd      s5,TrXIntS5(s8)         //
+        sd      s6,TrXIntS6(s8)         //
+        sd      s7,TrXIntS7(s8)         //
+        li      t0,TRUE                 // set saved s-registers flag
+        sb      t0,TrSavedFlag(s8)      //
 
         sdc1    f20,ExFltF20(sp)        // save floating registers f20 - f31
         sdc1    f22,ExFltF22(sp)        //
@@ -259,8 +265,10 @@
 // exit code. Otherwise return to the system service dispatcher.
 //
 
-        lw      ra,ExIntRa(sp)          // restore return address
+        lw      t0,KiPcr + PcCurrentThread(zero) // get current thread address
+        lw      t1,TrTrapFrame(s8)      // get old trap frame address
         bne     zero,v0,10f             // if ne, dispatch not successful
+        sw      t1,ThTrapFrame(t0)      // restore old trap frame address
 
 //
 // Exit the system via exception exit which will restore the nonvolatile
@@ -274,7 +282,8 @@
 // exception was not handled.
 //
 
-10:     addu    sp,sp,ExceptionFrameLength // deallocate stack frame
+10:     lw      ra,ExIntRa(sp)          // restore return address
+        addu    sp,sp,ExceptionFrameLength // deallocate stack frame
         j       ra                      // return
 
         .end    NtRaiseException

@@ -119,7 +119,8 @@ SampCalculateLmPassword(
 NTSTATUS
 SampCheckPasswordRestrictions(
     IN SAMPR_HANDLE UserHandle,
-    PUNICODE_STRING NewNtPassword
+    IN PUNICODE_STRING NewNtPassword,
+    OUT PBOOLEAN UseOwfPasswords
     );
 
 
@@ -485,6 +486,10 @@ Return Value:
     } RpcExcept( EXCEPTION_EXECUTE_HANDLER ) {
 
         NtStatus = I_RpcMapWin32Status(RpcExceptionCode());
+        if ((NtStatus != RPC_NT_SS_CONTEXT_MISMATCH) &&
+            (NtStatus != RPC_NT_INVALID_BINDING)) {
+            (void) RpcSsDestroyClientContext( &TmpHandle);
+        }
 
     } RpcEndExcept;
 
@@ -573,13 +578,18 @@ Return Value:
         RServerName = (PSAMPR_SERVER_NAME)(ServerName->Buffer);
         RServerNameWithNullLength = ServerName->Length + (USHORT) sizeof(WCHAR);
         RServerNameWithNull = MIDL_user_allocate( RServerNameWithNullLength );
-        RtlZeroMemory( RServerNameWithNull, (ULONG) RServerNameWithNullLength );
-        RtlMoveMemory( RServerNameWithNull, RServerName, ServerName->Length);
+
+        if (RServerNameWithNull == NULL) {
+            return(STATUS_INSUFFICIENT_RESOURCES);
+        }
+
+        RtlCopyMemory( RServerNameWithNull, RServerName, ServerName->Length);
+        RServerNameWithNull[ServerName->Length/sizeof(WCHAR)] = L'\0';
     }
 
     RpcTryExcept {
 
-        NtStatus = SamrConnect(
+        NtStatus = SamrConnect2(
                        RServerNameWithNull,
                        (SAMPR_HANDLE *)ServerHandle,
                        DesiredAccess
@@ -590,6 +600,29 @@ Return Value:
         NtStatus = I_RpcMapWin32Status(RpcExceptionCode());
 
     } RpcEndExcept;
+
+    //
+    // If the new connect  call failed because it didn't exist,
+    // try the old one.
+    //
+
+    if ((NtStatus == RPC_NT_UNKNOWN_IF) ||
+        (NtStatus == RPC_NT_PROCNUM_OUT_OF_RANGE)) {
+
+        RpcTryExcept {
+
+            NtStatus = SamrConnect(
+                           RServerNameWithNull,
+                           (SAMPR_HANDLE *)ServerHandle,
+                           DesiredAccess
+                           );
+
+        } RpcExcept( EXCEPTION_EXECUTE_HANDLER ) {
+
+            NtStatus = I_RpcMapWin32Status(RpcExceptionCode());
+
+        } RpcEndExcept;
+    }
 
     if (RServerNameWithNull != NULL) {
         MIDL_user_free( RServerNameWithNull );
@@ -1487,7 +1520,7 @@ Routine Description:
     being created using model #2 above, then this handle will have
     only USER_WRITE and DELETE access.  Otherwise, it will be open
     for USER_ALL_ACCESS.
-    
+
 
     A newly created user will automatically be made a member of the
     DOMAIN_USERS group.
@@ -1562,11 +1595,11 @@ Parameters:
     AccountType - Indicates what type of account is being created.
         Exactly one account type must be provided:
 
-              USER_INTERDOMAIN_TRUST_ACCOUNT 
-              USER_WORKSTATION_TRUST_ACCOUNT 
+              USER_INTERDOMAIN_TRUST_ACCOUNT
+              USER_WORKSTATION_TRUST_ACCOUNT
               USER_SERVER_TRUST_ACCOUNT
-              USER_TEMP_DUPLICATE_ACCOUNT 
-              USER_NORMAL_ACCOUNT 
+              USER_TEMP_DUPLICATE_ACCOUNT
+              USER_NORMAL_ACCOUNT
               USER_MACHINE_ACCOUNT_MASK
 
 
@@ -1707,7 +1740,7 @@ Return Values:
                 //
 
                 (*GrantedAccess) = 0;
-                               
+
             }
         }
     }
@@ -2518,7 +2551,7 @@ Return Values:
 
 
     //
-    // Set up the call structures list 
+    // Set up the call structures list
     //
 
     InitializeListHead( &CallHead );
@@ -2586,7 +2619,7 @@ Return Values:
 
             CallLength += Names[i].Length;
             Next->Count ++;
-            
+
         }
 
 
@@ -2604,7 +2637,7 @@ Return Values:
         //
 
         RpcTryExcept{
-        
+
             NtStatus = SamrLookupNamesInDomain(
                                  (SAMPR_HANDLE)DomainHandle,
                                  Next->Count,
@@ -2612,15 +2645,15 @@ Return Values:
                                  &Next->RidBuffer,
                                  &Next->UseBuffer
                                  );
-        
-        
+
+
         } RpcExcept( EXCEPTION_EXECUTE_HANDLER ) {
-        
+
             NtStatus = I_RpcMapWin32Status(RpcExceptionCode());
-        
+
         } RpcEndExcept;
 
-        
+
         //
         // Keep track of what our completion status should be.
         //
@@ -2680,7 +2713,7 @@ Return Values:
     //
     //   The user is responsible for freeing whichever buffer we do
     //   return.
-    //          
+    //
 
     ASSERT(Calls != 0);  // Error go around this path, success always has calls
 
@@ -2704,7 +2737,7 @@ Return Values:
     // More than one call.
     // Allocate return buffers large enough to copy all the information into.
     //
-        
+
     RidBuffer = MIDL_user_allocate( sizeof(ULONG) * Count );
     if (RidBuffer == NULL) {
         ReturnStatus = STATUS_INSUFFICIENT_RESOURCES;
@@ -5170,6 +5203,176 @@ Return Values:
 
 
 NTSTATUS
+SamAddMultipleMembersToAlias(
+    IN SAM_HANDLE   AliasHandle,
+    IN PSID         *MemberIds,
+    IN ULONG        MemberCount
+    )
+
+/*++
+
+Routine Description:
+
+    This API adds the SIDs listed in MemberIds to the specified Alias.
+
+
+Parameters:
+
+    AliasHandle - The handle of an opened Alias to operate on.
+
+    MemberIds - Points to an array of SID pointers containing MemberCount
+        entries.
+
+    MemberCount - number of members in the array.
+
+
+Return Values:
+
+    STATUS_SUCCESS - The Service completed successfully.  All of the
+        listed members are now members of the alias.  However, some of
+        the members may already have been members of the alias (this is
+        NOT an error or warning condition).
+
+    STATUS_ACCESS_DENIED - Caller does not have the object open for
+        the required access.
+
+    STATUS_INVALID_HANDLE - The handle passed is invalid.
+
+    STATUS_INVALID_MEMBER - The member has the wrong account type.
+
+    STATUS_INVALID_SID - The member sid is corrupted.
+
+    STATUS_INVALID_DOMAIN_STATE - The domain server is not in the
+        correct state (disabled or enabled) to perform the requested
+        operation.  The domain server must be enabled for this
+        operation
+
+    STATUS_INVALID_DOMAIN_ROLE - The domain server is serving the
+        incorrect role (primary or backup) to perform the requested
+        operation.
+--*/
+
+{
+    NTSTATUS                    NtStatus;
+    SAMPR_PSID_ARRAY            MembersBuffer;
+
+    //
+    // Validate parameters
+    //
+
+    if ( !ARGUMENT_PRESENT(MemberIds) ) {
+        return(STATUS_INVALID_PARAMETER_2);
+    }
+
+
+    RpcTryExcept{
+
+        //
+        // Call the server ...
+        //
+
+        MembersBuffer.Count = MemberCount;
+        MembersBuffer.Sids  = (PSAMPR_SID_INFORMATION)MemberIds;
+
+        NtStatus = SamrAddMultipleMembersToAlias(
+                        (SAMPR_HANDLE)AliasHandle,
+                        &MembersBuffer
+                        );
+
+
+    } RpcExcept( EXCEPTION_EXECUTE_HANDLER ) {
+
+        NtStatus = I_RpcMapWin32Status(RpcExceptionCode());
+
+    } RpcEndExcept;
+
+
+    return(SampMapCompletionStatus(NtStatus));
+
+}
+
+
+
+NTSTATUS
+SamRemoveMultipleMembersFromAlias(
+    IN SAM_HANDLE   AliasHandle,
+    IN PSID         *MemberIds,
+    IN ULONG        MemberCount
+    )
+
+/*++
+
+Routine Description:
+
+    This API Removes the SIDs listed in MemberIds from the specified Alias.
+
+
+Parameters:
+
+    AliasHandle - The handle of an opened Alias to operate on.
+
+    MemberIds - Points to an array of SID pointers containing MemberCount
+        entries.
+
+    MemberCount - number of members in the array.
+
+
+Return Values:
+
+    STATUS_SUCCESS - The Service completed successfully.  All of the
+        listed members are now NOT members of the alias.  However, some of
+        the members may already have not been members of the alias (this
+        is NOT an error or warning condition).
+
+    STATUS_ACCESS_DENIED - Caller does not have the object open for
+        the required access.
+
+    STATUS_INVALID_HANDLE - The handle passed is invalid.
+
+--*/
+
+{
+    NTSTATUS                    NtStatus;
+    SAMPR_PSID_ARRAY            MembersBuffer;
+
+    //
+    // Validate parameters
+    //
+
+    if ( !ARGUMENT_PRESENT(MemberIds) ) {
+        return(STATUS_INVALID_PARAMETER_2);
+    }
+
+
+    RpcTryExcept{
+
+        //
+        // Call the server ...
+        //
+
+        MembersBuffer.Count = MemberCount;
+        MembersBuffer.Sids  = (PSAMPR_SID_INFORMATION)MemberIds;
+
+        NtStatus = SamrRemoveMultipleMembersFromAlias(
+                        (SAMPR_HANDLE)AliasHandle,
+                        &MembersBuffer
+                        );
+
+
+    } RpcExcept( EXCEPTION_EXECUTE_HANDLER ) {
+
+        NtStatus = I_RpcMapWin32Status(RpcExceptionCode());
+
+    } RpcEndExcept;
+
+
+    return(SampMapCompletionStatus(NtStatus));
+
+}
+
+
+
+NTSTATUS
 SamOpenUser(
     IN SAM_HANDLE DomainHandle,
     IN ACCESS_MASK DesiredAccess,
@@ -5496,13 +5699,19 @@ Return Values:
 {
     NTSTATUS            NtStatus;
     PCHAR               LmPasswordBuffer;
+    BOOLEAN             UseOwfPasswords;
+
+    //
+    // We ignore the UseOwfPasswords flag since we already are.
+    //
 
     if (IgnorePasswordRestrictions) {
         NtStatus = STATUS_SUCCESS;
     } else {
         NtStatus = SampCheckPasswordRestrictions(
                        UserHandle,
-                       UnicodePassword
+                       UnicodePassword,
+                       &UseOwfPasswords
                        );
     }
 
@@ -5552,6 +5761,142 @@ Return Values:
 
     return( NtStatus );
 }
+
+
+NTSTATUS
+SampRandomFill(
+    IN ULONG BufferSize,
+    IN OUT PUCHAR Buffer
+)
+/*++
+
+Routine Description:
+
+    This routine fills a buffer with random data.
+
+Parameters:
+
+    BufferSize - Length of the input buffer, in bytes.
+
+    Buffer - Input buffer to be filled with random data.
+
+Return Values:
+
+    Errors from NtQuerySystemTime()
+
+
+--*/
+{
+    ULONG Index;
+    LARGE_INTEGER Time;
+    ULONG Seed;
+    NTSTATUS NtStatus;
+
+
+    NtStatus = NtQuerySystemTime(&Time);
+    if (!NT_SUCCESS(NtStatus)) {
+        return(NtStatus);
+    }
+
+    Seed = Time.LowPart ^ Time.HighPart;
+
+    for (Index = 0 ; Index < BufferSize ; Index++ )
+    {
+        *Buffer++ = (UCHAR) (RtlRandom(&Seed) % 256);
+    }
+    return(STATUS_SUCCESS);
+
+}
+
+
+
+NTSTATUS
+SampEncryptClearPassword(
+    IN SAM_HANDLE UserHandle,
+    IN PUNICODE_STRING UnicodePassword,
+    OUT PSAMPR_ENCRYPTED_USER_PASSWORD EncryptedUserPassword
+)
+
+/*++
+
+Routine Description:
+
+    This routine takes a cleartext unicode NT password from the user,
+    and encrypts it with the session key.
+
+Parameters:
+
+    UserHandle - SAM_HANDLE used to acquiring a session key.
+
+    UnicodePassword - the cleartext unicode NT password.
+
+    EncryptedUserPassword - receives the encrypted cleartext password.
+
+Return Values:
+
+    STATUS_SUCCESS - the service has completed.  The booleans say which
+        of the OWFs are valid.
+
+
+--*/
+{
+    NTSTATUS             NtStatus;
+    USER_SESSION_KEY     UserSessionKey;
+    struct RC4_KEYSTRUCT Rc4Key;
+    PSAMPR_USER_PASSWORD UserPassword = (PSAMPR_USER_PASSWORD) EncryptedUserPassword;
+
+    if (UnicodePassword->Length > SAM_MAX_PASSWORD_LENGTH * sizeof(WCHAR)) {
+        return(STATUS_PASSWORD_RESTRICTION);
+    }
+
+    NtStatus = RtlGetUserSessionKeyClient(
+                   (RPC_BINDING_HANDLE)UserHandle,
+                   &UserSessionKey
+                   );
+
+    //
+    // Convert the session key into an RC4 key
+    //
+
+    if (NT_SUCCESS(NtStatus)) {
+
+        rc4_key(
+            &Rc4Key,
+            sizeof(USER_SESSION_KEY),
+            (PUCHAR) &UserSessionKey
+            );
+
+        RtlCopyMemory(
+            ((PCHAR) UserPassword->Buffer) +
+                (SAM_MAX_PASSWORD_LENGTH * sizeof(WCHAR)) -
+                UnicodePassword->Length,
+            UnicodePassword->Buffer,
+            UnicodePassword->Length
+            );
+        UserPassword->Length = UnicodePassword->Length;
+
+        NtStatus = SampRandomFill(
+                    (SAM_MAX_PASSWORD_LENGTH * sizeof(WCHAR)) -
+                        UnicodePassword->Length,
+                    (PUCHAR) UserPassword->Buffer
+                    );
+
+        if (NT_SUCCESS(NtStatus)) {
+            rc4(
+                &Rc4Key,
+                sizeof(SAMPR_ENCRYPTED_USER_PASSWORD),
+                (PUCHAR) UserPassword
+                );
+
+        }
+
+
+    }
+
+
+    return( NtStatus );
+}
+
 
 
 
@@ -5751,237 +6096,304 @@ Return Values:
 {
     SAMPR_USER_INTERNAL1_INFORMATION Internal1RpcBuffer;
     USER_INTERNAL1_INFORMATION       Internal1Buffer;
+    SAMPR_USER_INTERNAL4_INFORMATION Internal4RpcBuffer;
+    SAMPR_USER_INTERNAL5_INFORMATION Internal5RpcBuffer;
     PVOID                            BufferToPass;
     PUSER_ALL_INFORMATION            UserAll;
     USER_ALL_INFORMATION             LocalAll;
     NTSTATUS                         NtStatus = STATUS_SUCCESS;
     BOOLEAN                          IgnorePasswordRestrictions;
+    ULONG                            Pass = 0;
+    USER_INFORMATION_CLASS           ClassToUse = UserInformationClass;
+    BOOLEAN                          SendOwfs = FALSE;
 
-    RpcTryExcept{
+    do
+    {
 
-        //
-        // Normally just pass the info buffer through to rpc
-        //
-
-        BufferToPass = Buffer;
-
-
-        //
-        // Deal with special cases
-        //
-
-        switch (UserInformationClass) {
-
-
-        case UserPreferencesInformation: {
+        RpcTryExcept{
 
             //
-            // Field is unused, but make sure RPC doesn't choke on it.
+            // Normally just pass the info buffer through to rpc
             //
 
-            ((PUSER_PREFERENCES_INFORMATION)(Buffer))->Reserved1.Length = 0;
-            ((PUSER_PREFERENCES_INFORMATION)(Buffer))->Reserved1.MaximumLength = 0;
-            ((PUSER_PREFERENCES_INFORMATION)(Buffer))->Reserved1.Buffer = NULL;
+            BufferToPass = Buffer;
 
-            break;
-        }
-
-        case UserSetPasswordInformation:
 
             //
-            // We're going to calculate the OWFs for the password and
-            // turn this into an INTERNAL1 set info request by dropping
-            // through to the INTERNAL1 code with Buffer pointing at our
-            // local INTERNAL1 buffer.  First, make sure that the password
-            // meets our quality requirements.
+            // Deal with special cases
             //
 
-            NtStatus = SampOwfPassword(
-                           UserHandle,
-                           &((PUSER_SET_PASSWORD_INFORMATION)(Buffer))->Password,
-                           FALSE,      // Don't ignore password restrictions
-                           &Internal1Buffer.NtPasswordPresent,
-                           &Internal1Buffer.NtOwfPassword,
-                           &Internal1Buffer.LmPasswordPresent,
-                           &Internal1Buffer.LmOwfPassword
-                           );
+            switch (UserInformationClass) {
 
-            if (!NT_SUCCESS(NtStatus)) {
+
+            case UserPreferencesInformation: {
+
+                //
+                // Field is unused, but make sure RPC doesn't choke on it.
+                //
+
+                ((PUSER_PREFERENCES_INFORMATION)(Buffer))->Reserved1.Length = 0;
+                ((PUSER_PREFERENCES_INFORMATION)(Buffer))->Reserved1.MaximumLength = 0;
+                ((PUSER_PREFERENCES_INFORMATION)(Buffer))->Reserved1.Buffer = NULL;
+
                 break;
             }
 
+            case UserSetPasswordInformation:
 
-            //
-            // Copy the PasswordExpired flag
-            //
-
-            Internal1Buffer.PasswordExpired =
-                ((PUSER_SET_PASSWORD_INFORMATION)(Buffer))->PasswordExpired;
-
-
-            //
-            // We now have a USER_INTERNAL1_INFO buffer in Internal1Buffer.
-            // Point Buffer at Internal1buffer and drop through to the code
-            // that handles INTERNAL1 requests
-
-            Buffer = &Internal1Buffer;
-            UserInformationClass = UserInternal1Information;
-
-            //
-            // drop through.....
-            //
-
-
-
-
-        case UserInternal1Information:
-
-
-            //
-            // We're going to pass a different data structure to rpc
-            //
-
-            BufferToPass = &Internal1RpcBuffer;
-
-
-            //
-            // Copy the password present flags
-            //
-
-            Internal1RpcBuffer.NtPasswordPresent =
-                ((PUSER_INTERNAL1_INFORMATION)Buffer)->NtPasswordPresent;
-
-            Internal1RpcBuffer.LmPasswordPresent =
-                ((PUSER_INTERNAL1_INFORMATION)Buffer)->LmPasswordPresent;
-
-
-            //
-            // Copy the PasswordExpired flag
-            //
-
-            Internal1RpcBuffer.PasswordExpired =
-                ((PUSER_INTERNAL1_INFORMATION)Buffer)->PasswordExpired;
-
-
-            //
-            // Encrypt the OWFs with the user session key before we send
-            // them over the Rpc link
-            //
-
-            NtStatus = SampEncryptOwfs(
-                           UserHandle,
-                           Internal1RpcBuffer.NtPasswordPresent,
-                           &((PUSER_INTERNAL1_INFORMATION)Buffer)->NtOwfPassword,
-                           &Internal1RpcBuffer.EncryptedNtOwfPassword,
-                           Internal1RpcBuffer.LmPasswordPresent,
-                           &((PUSER_INTERNAL1_INFORMATION)Buffer)->LmOwfPassword,
-                           &Internal1RpcBuffer.EncryptedLmOwfPassword
-                           );
-
-            break;
-
-
-
-        case UserAllInformation:
-
-            UserAll = (PUSER_ALL_INFORMATION)Buffer;
-
-            //
-            // If the caller is passing passwords we need to convert them
-            // into OWFs and encrypt them.
-            //
-
-            if (UserAll->WhichFields & (USER_ALL_LMPASSWORDPRESENT |
-                                        USER_ALL_NTPASSWORDPRESENT) ) {
-
-                //
-                // We'll need a private copy of the buffer which we can edit
-                // and then send over RPC.
-                //
-
-                LocalAll = *UserAll;
-                BufferToPass = &LocalAll;
-
-
-
-                if (LocalAll.WhichFields & USER_ALL_OWFPASSWORD) {
+                if (Pass == 0) {
 
                     //
-                    // The caller is passing OWFS directly
-                    // Check they're valid and copy them into the
-                    // Internal1Buffer in preparation for encryption.
+                    // On the zeroth pass try sending a UserInternal5 structure.
+                    // This is only available on 3.51 and above releases.
                     //
 
-                    if (LocalAll.WhichFields & USER_ALL_NTPASSWORDPRESENT) {
+                    //
+                    // Check password restrictions.
+                    //
 
-                        if (LocalAll.NtPasswordPresent) {
+                    NtStatus = SampCheckPasswordRestrictions(
+                                    UserHandle,
+                                    &((PUSER_SET_PASSWORD_INFORMATION)(Buffer))->Password,
+                                    &SendOwfs
+                                    );
 
-                            if (LocalAll.NtPassword.Length != NT_OWF_PASSWORD_LENGTH) {
-                                NtStatus = STATUS_INVALID_PARAMETER;
-                            } else {
-                                Internal1Buffer.NtOwfPassword =
-                                  *((PNT_OWF_PASSWORD)LocalAll.NtPassword.Buffer);
-                            }
+                    //
+                    // If password restrictions told us we could send reversibly
+                    // encrypted passwords, compute them. Otherwise drop through
+                    // to the OWF case.
+                    //
 
-                        } else {
-                            LocalAll.NtPasswordPresent = FALSE;
+                    if (!SendOwfs) {
+
+                        //
+                        // Encrypt the cleatext password - we don't need to
+                        // restrictions because that can be done on the server.
+                        //
+
+                        NtStatus = SampEncryptClearPassword(
+                                        UserHandle,
+                                        &((PUSER_SET_PASSWORD_INFORMATION)(Buffer))->Password,
+                                        &Internal5RpcBuffer.UserPassword
+                                        );
+
+                        if (!NT_SUCCESS(NtStatus)) {
+                            break;
                         }
+
+                        Internal5RpcBuffer.PasswordExpired =
+                            ((PUSER_SET_PASSWORD_INFORMATION)(Buffer))->PasswordExpired;
+
+
+                        //
+                        // Set the class and buffer to send over.
+                        //
+
+                        ClassToUse = UserInternal5Information;
+                        BufferToPass = &Internal5RpcBuffer;
+                        break;
+
                     }
-
-                    if (LocalAll.WhichFields & USER_ALL_LMPASSWORDPRESENT) {
-
-                        if (LocalAll.LmPasswordPresent) {
-
-                            if (LocalAll.LmPassword.Length != LM_OWF_PASSWORD_LENGTH) {
-                                NtStatus = STATUS_INVALID_PARAMETER;
-                            } else {
-                                Internal1Buffer.LmOwfPassword =
-                                  *((PNT_OWF_PASSWORD)LocalAll.LmPassword.Buffer);
-                            }
-
-                        } else {
-                            LocalAll.LmPasswordPresent = FALSE;
-                        }
-                    }
-
-
-                    //
-                    // Always remove the OWF_PASSWORDS flag. This is used
-                    // only on the client side to determine the mode
-                    // of password input and will be rejected by the server
-                    //
-
-                    LocalAll.WhichFields &= ~USER_ALL_OWFPASSWORD;
-
 
                 } else {
 
-
-
                     //
-                    // The caller is passing text passwords.
-                    // Check for validity and convert to OWFs.
+                    // Set the pass counter to one since we aren't trying a new
+                    // interface and don't want to retry.
                     //
 
-                    if (LocalAll.WhichFields & USER_ALL_LMPASSWORDPRESENT) {
+                    Pass = 1;
+                    SendOwfs = TRUE;
+                }
+
+                ASSERT(SendOwfs);
+
+                //
+                // We're going to calculate the OWFs for the password and
+                // turn this into an INTERNAL1 set info request by dropping
+                // through to the INTERNAL1 code with Buffer pointing at our
+                // local INTERNAL1 buffer.  First, make sure that the password
+                // meets our quality requirements.
+                //
+
+                NtStatus = SampOwfPassword(
+                               UserHandle,
+                               &((PUSER_SET_PASSWORD_INFORMATION)(Buffer))->Password,
+                               FALSE,      // Don't ignore password restrictions
+                               &Internal1Buffer.NtPasswordPresent,
+                               &Internal1Buffer.NtOwfPassword,
+                               &Internal1Buffer.LmPasswordPresent,
+                               &Internal1Buffer.LmOwfPassword
+                               );
+
+                if (!NT_SUCCESS(NtStatus)) {
+                    break;
+                }
+
+
+                //
+                // Copy the PasswordExpired flag
+                //
+
+                Internal1Buffer.PasswordExpired =
+                    ((PUSER_SET_PASSWORD_INFORMATION)(Buffer))->PasswordExpired;
+
+
+                //
+                // We now have a USER_INTERNAL1_INFO buffer in Internal1Buffer.
+                // Point Buffer at Internal1buffer and drop through to the code
+                // that handles INTERNAL1 requests
+
+                Buffer = &Internal1Buffer;
+                ClassToUse = UserInternal1Information;
+
+                //
+                // drop through.....
+                //
+
+
+            case UserInternal1Information:
+
+
+                //
+                // We're going to pass a different data structure to rpc
+                //
+
+                BufferToPass = &Internal1RpcBuffer;
+
+
+                //
+                // Copy the password present flags
+                //
+
+                Internal1RpcBuffer.NtPasswordPresent =
+                    ((PUSER_INTERNAL1_INFORMATION)Buffer)->NtPasswordPresent;
+
+                Internal1RpcBuffer.LmPasswordPresent =
+                    ((PUSER_INTERNAL1_INFORMATION)Buffer)->LmPasswordPresent;
+
+
+                //
+                // Copy the PasswordExpired flag
+                //
+
+                Internal1RpcBuffer.PasswordExpired =
+                    ((PUSER_INTERNAL1_INFORMATION)Buffer)->PasswordExpired;
+
+
+                //
+                // Encrypt the OWFs with the user session key before we send
+                // them over the Rpc link
+                //
+
+                NtStatus = SampEncryptOwfs(
+                               UserHandle,
+                               Internal1RpcBuffer.NtPasswordPresent,
+                               &((PUSER_INTERNAL1_INFORMATION)Buffer)->NtOwfPassword,
+                               &Internal1RpcBuffer.EncryptedNtOwfPassword,
+                               Internal1RpcBuffer.LmPasswordPresent,
+                               &((PUSER_INTERNAL1_INFORMATION)Buffer)->LmOwfPassword,
+                               &Internal1RpcBuffer.EncryptedLmOwfPassword
+                               );
+
+                break;
+
+
+
+            case UserAllInformation:
+
+                UserAll = (PUSER_ALL_INFORMATION)Buffer;
+
+                //
+                // If the caller is passing passwords we need to convert them
+                // into OWFs and encrypt them.
+                //
+
+                if (UserAll->WhichFields & (USER_ALL_LMPASSWORDPRESENT |
+                                            USER_ALL_NTPASSWORDPRESENT) ) {
+
+                    //
+                    // We'll need a private copy of the buffer which we can edit
+                    // and then send over RPC.
+                    //
+
+
+
+
+                    if (UserAll->WhichFields & USER_ALL_OWFPASSWORD) {
+
+                        LocalAll = *UserAll;
+                        BufferToPass = &LocalAll;
+                        SendOwfs = TRUE;
 
                         //
-                        // User clients are only allowed to put a unicode string
-                        // in the NT password. We always calculate the LM password
+                        // The caller is passing OWFS directly
+                        // Check they're valid and copy them into the
+                        // Internal1Buffer in preparation for encryption.
                         //
 
-                        NtStatus = STATUS_INVALID_PARAMETER;
+                        if (LocalAll.WhichFields & USER_ALL_NTPASSWORDPRESENT) {
+
+                            if (LocalAll.NtPasswordPresent) {
+
+                                if (LocalAll.NtPassword.Length != NT_OWF_PASSWORD_LENGTH) {
+                                    NtStatus = STATUS_INVALID_PARAMETER;
+                                } else {
+                                    Internal1Buffer.NtOwfPassword =
+                                      *((PNT_OWF_PASSWORD)LocalAll.NtPassword.Buffer);
+                                }
+
+                            } else {
+                                LocalAll.NtPasswordPresent = FALSE;
+                            }
+                        }
+
+                        if (LocalAll.WhichFields & USER_ALL_LMPASSWORDPRESENT) {
+
+                            if (LocalAll.LmPasswordPresent) {
+
+                                if (LocalAll.LmPassword.Length != LM_OWF_PASSWORD_LENGTH) {
+                                    NtStatus = STATUS_INVALID_PARAMETER;
+                                } else {
+                                    Internal1Buffer.LmOwfPassword =
+                                      *((PNT_OWF_PASSWORD)LocalAll.LmPassword.Buffer);
+                                }
+
+                            } else {
+                                LocalAll.LmPasswordPresent = FALSE;
+                            }
+                        }
+
+
+                        //
+                        // Always remove the OWF_PASSWORDS flag. This is used
+                        // only on the client side to determine the mode
+                        // of password input and will be rejected by the server
+                        //
+
+                        LocalAll.WhichFields &= ~USER_ALL_OWFPASSWORD;
+
+
 
                     } else {
 
-                        if ( LocalAll.WhichFields & USER_ALL_NTPASSWORDPRESENT ) {
+
+
+                        //
+                        // The caller is passing text passwords.
+                        // Check for validity and convert to OWFs.
+                        //
+
+                        if (UserAll->WhichFields & USER_ALL_LMPASSWORDPRESENT) {
 
                             //
-                            // The user specified a password.  We must validate
-                            // it, convert it to LM, and calculate the OWFs
+                            // User clients are only allowed to put a unicode string
+                            // in the NT password. We always calculate the LM password
                             //
 
-                            LocalAll.WhichFields |= USER_ALL_LMPASSWORDPRESENT;
+                            NtStatus = STATUS_INVALID_PARAMETER;
+
+                        } else {
 
                             //
                             // The caller might be simultaneously setting
@@ -6000,105 +6412,217 @@ Return Values:
                                 }
                             }
 
-                            //
-                            // Stick the OWFs in the Internal1Buffer - just
-                            // until we use them in the SampEncryptOwfs().
-                            //
 
-                            NtStatus = SampOwfPassword(
-                                           UserHandle,
-                                           &LocalAll.NtPassword,
-                                           IgnorePasswordRestrictions,
-                                           &LocalAll.NtPasswordPresent,
-                                           &(Internal1Buffer.NtOwfPassword),
-                                           &LocalAll.LmPasswordPresent,
-                                           &(Internal1Buffer.LmOwfPassword)
-                                           );
+                            SendOwfs = TRUE;
+                            if (Pass == 0) {
+
+                                //
+                                // On the first pass, try sending the cleatext
+                                // password.
+                                //
+
+                                Internal4RpcBuffer.I1 = *(PSAMPR_USER_ALL_INFORMATION)
+                                                            UserAll;
+
+                                BufferToPass = &Internal4RpcBuffer;
+                                ClassToUse = UserInternal4Information;
+                                SendOwfs = FALSE;
+
+                                //
+                                // Check the password restrictions.  We also
+                                // want to get the information on whether
+                                // we can send reversibly encrypted passwords.
+                                //
+
+                                NtStatus = SampCheckPasswordRestrictions(
+                                                UserHandle,
+                                                &UserAll->NtPassword,
+                                                &SendOwfs
+                                                );
+
+                                if (IgnorePasswordRestrictions) {
+                                    NtStatus = STATUS_SUCCESS;
+                                }
+
+                                if (!SendOwfs) {
+                                    //
+                                    // Encrypt the clear password
+                                    //
+
+                                    NtStatus = SampEncryptClearPassword(
+                                                    UserHandle,
+                                                    &UserAll->NtPassword,
+                                                    &Internal4RpcBuffer.UserPassword
+                                                    );
+                                    if (!NT_SUCCESS(NtStatus)) {
+                                        break;
+                                    }
+
+                                    //
+                                    // Zero the password NT password
+                                    //
+
+                                    RtlZeroMemory(
+                                        &Internal4RpcBuffer.I1.NtOwfPassword,
+                                        sizeof(UNICODE_STRING)
+                                        );
+
+                                }
+                            }
+
+                            if (SendOwfs) {
+
+
+                                //
+                                // On the second pass, do the normal thing.
+                                //
+
+                                LocalAll = *UserAll;
+                                BufferToPass = &LocalAll;
+                                SendOwfs = TRUE;
+
+                                ClassToUse = UserAllInformation;
+                                if ( LocalAll.WhichFields & USER_ALL_NTPASSWORDPRESENT ) {
+
+                                    //
+                                    // The user specified a password.  We must validate
+                                    // it, convert it to LM, and calculate the OWFs
+                                    //
+
+                                    LocalAll.WhichFields |= USER_ALL_LMPASSWORDPRESENT;
+
+
+                                    //
+                                    // Stick the OWFs in the Internal1Buffer - just
+                                    // until we use them in the SampEncryptOwfs().
+                                    //
+
+                                    NtStatus = SampOwfPassword(
+                                                   UserHandle,
+                                                   &LocalAll.NtPassword,
+                                                   IgnorePasswordRestrictions,
+                                                   &LocalAll.NtPasswordPresent,
+                                                   &(Internal1Buffer.NtOwfPassword),
+                                                   &LocalAll.LmPasswordPresent,
+                                                   &(Internal1Buffer.LmOwfPassword)
+                                                   );
+                                }
+                            }
+
                         }
+                    }
+
+
+
+
+                    //
+                    // We now have one or more OWFs in Internal1 buffer.
+                    // We got these either directly or we calculated them
+                    // from the text strings.
+                    // Encrypt these OWFs with the session key and
+                    // store the result in Internal1RpcBuffer.
+                    //
+                    // Note the Password present flags are in LocalAll.
+                    // (The ones in Internal1Buffer are not used.)
+                    //
+
+                    if ( NT_SUCCESS( NtStatus ) && SendOwfs ) {
+
+                        //
+                        // Make all LocalAll's password strings point to
+                        // the buffers in Internal1RpcBuffer
+                        //
+
+                        LocalAll.NtPassword.Length =
+                            sizeof( ENCRYPTED_NT_OWF_PASSWORD );
+                        LocalAll.NtPassword.MaximumLength =
+                            sizeof( ENCRYPTED_NT_OWF_PASSWORD );
+                        LocalAll.NtPassword.Buffer = (PWSTR)
+                            &Internal1RpcBuffer.EncryptedNtOwfPassword;
+
+                        LocalAll.LmPassword.Length =
+                            sizeof( ENCRYPTED_LM_OWF_PASSWORD );
+                        LocalAll.LmPassword.MaximumLength =
+                            sizeof( ENCRYPTED_LM_OWF_PASSWORD );
+                        LocalAll.LmPassword.Buffer = (PWSTR)
+                            &Internal1RpcBuffer.EncryptedLmOwfPassword;
+
+                        //
+                        // Encrypt the Owfs
+                        //
+
+                        NtStatus = SampEncryptOwfs(
+                                       UserHandle,
+                                       LocalAll.NtPasswordPresent,
+                                       &Internal1Buffer.NtOwfPassword,
+                                       &Internal1RpcBuffer.EncryptedNtOwfPassword,
+                                       LocalAll.LmPasswordPresent,
+                                       &Internal1Buffer.LmOwfPassword,
+                                       &Internal1RpcBuffer.EncryptedLmOwfPassword
+                                       );
                     }
                 }
 
+                break;
+
+            default:
+
+                break;
+
+            } // switch
 
 
+
+
+            //
+            // Call the server ...
+            //
+
+            if ( NT_SUCCESS( NtStatus ) ) {
 
                 //
-                // We now have one or more OWFs in Internal1 buffer.
-                // We got these either directly or we calculated them
-                // from the text strings.
-                // Encrypt these OWFs with the session key and
-                // store the result in Internal1RpcBuffer.
-                //
-                // Note the Password present flags are in LocalAll.
-                // (The ones in Internal1Buffer are not used.)
+                // If we are trying one of the new info levels, use the new
+                // api.
                 //
 
-                if ( NT_SUCCESS( NtStatus ) ) {
+                if ((ClassToUse == UserInternal4Information) ||
+                     (ClassToUse == UserInternal5Information)) {
 
-                    //
-                    // Make all LocalAll's password strings point to
-                    // the buffers in Internal1RpcBuffer
-                    //
+                    NtStatus =
+                        SamrSetInformationUser2(
+                            (SAMPR_HANDLE)UserHandle,
+                            ClassToUse,
+                            BufferToPass
+                            );
 
-                    LocalAll.NtPassword.Length =
-                        sizeof( ENCRYPTED_NT_OWF_PASSWORD );
-                    LocalAll.NtPassword.MaximumLength =
-                        sizeof( ENCRYPTED_NT_OWF_PASSWORD );
-                    LocalAll.NtPassword.Buffer = (PWSTR)
-                        &Internal1RpcBuffer.EncryptedNtOwfPassword;
-
-                    LocalAll.LmPassword.Length =
-                        sizeof( ENCRYPTED_LM_OWF_PASSWORD );
-                    LocalAll.LmPassword.MaximumLength =
-                        sizeof( ENCRYPTED_LM_OWF_PASSWORD );
-                    LocalAll.LmPassword.Buffer = (PWSTR)
-                        &Internal1RpcBuffer.EncryptedLmOwfPassword;
-
-                    //
-                    // Encrypt the Owfs
-                    //
-
-                    NtStatus = SampEncryptOwfs(
-                                   UserHandle,
-                                   LocalAll.NtPasswordPresent,
-                                   &Internal1Buffer.NtOwfPassword,
-                                   &Internal1RpcBuffer.EncryptedNtOwfPassword,
-                                   LocalAll.LmPasswordPresent,
-                                   &Internal1Buffer.LmOwfPassword,
-                                   &Internal1RpcBuffer.EncryptedLmOwfPassword
-                                   );
+                } else {
+                    NtStatus =
+                        SamrSetInformationUser(
+                            (SAMPR_HANDLE)UserHandle,
+                            ClassToUse,
+                            BufferToPass
+                            );
                 }
             }
 
-            break;
+        } RpcExcept( EXCEPTION_EXECUTE_HANDLER ) {
 
-        default:
+            NtStatus = I_RpcMapWin32Status(RpcExceptionCode());
 
-            break;
+        } RpcEndExcept;
 
-        } // switch
-
-
-
+        Pass++;
 
         //
-        // Call the server ...
+        // If this is the first pass and the status indicated that the
+        // server did not support the info class or the api
+        // and we were trying one of the new info levels, try again.
         //
 
-        if ( NT_SUCCESS( NtStatus ) ) {
-
-            NtStatus =
-                SamrSetInformationUser(
-                    (SAMPR_HANDLE)UserHandle,
-                    UserInformationClass,
-                    BufferToPass
-                    );
-        }
-
-    } RpcExcept( EXCEPTION_EXECUTE_HANDLER ) {
-
-        NtStatus = I_RpcMapWin32Status(RpcExceptionCode());
-
-    } RpcEndExcept;
+    } while ( (Pass < 2) &&
+              ((NtStatus == RPC_NT_INVALID_TAG) ||
+               (NtStatus == RPC_NT_UNKNOWN_IF) ||
+               (NtStatus == RPC_NT_PROCNUM_OUT_OF_RANGE)));
 
     return(SampMapCompletionStatus(NtStatus));
 
@@ -6637,6 +7161,7 @@ Return Values:
     BOOLEAN             LmOldPresent;
     PCHAR               LmPassword;
     NTSTATUS            NtStatus;
+    BOOLEAN             UseOwfPasswords;
 
     //
     // Call the server ...
@@ -6646,7 +7171,8 @@ Return Values:
 
         NtStatus = SampCheckPasswordRestrictions(
                        UserHandle,
-                       NewNtPassword
+                       NewNtPassword,
+                       &UseOwfPasswords
                        );
 
         if ( NT_SUCCESS( NtStatus ) ) {
@@ -7036,7 +7562,7 @@ Return Values:
         return(STATUS_INSUFFICIENT_RESOURCES);
     }
 
-    LmPassword.MaximumLength = LM_BUFFER_LENGTH;
+    LmPassword.MaximumLength = LmPassword.Length = LM_BUFFER_LENGTH;
     RtlZeroMemory( LmPassword.Buffer, LM_BUFFER_LENGTH );
 
     NtStatus = RtlUpcaseUnicodeStringToOemString( &LmPassword, NtPassword, FALSE );
@@ -7077,7 +7603,8 @@ Return Values:
 NTSTATUS
 SampCheckPasswordRestrictions(
     IN SAMPR_HANDLE UserHandle,
-    PUNICODE_STRING NewNtPassword
+    IN PUNICODE_STRING NewNtPassword,
+    OUT PBOOLEAN UseOwfPasswords
     )
 
 /*++
@@ -7094,6 +7621,9 @@ Arguments:
 
     NewNtPassword - Pointer to the UNICODE_STRING containing the new
         password.
+
+    UseOwfPasswords - Indicates that reversibly encrypted passwords should
+        not be sent over the network.
 
 
 Return Value:
@@ -7123,6 +7653,8 @@ Return Value:
         return(STATUS_SUCCESS);
     }
 
+    *UseOwfPasswords = FALSE;
+
 
     //
     // Query information domain to get password length and
@@ -7141,6 +7673,16 @@ Return Value:
             NtStatus = STATUS_PASSWORD_RESTRICTION;
 
         } else {
+
+            //
+            // Check whether policy allows us to send reversibly encrypted
+            // passwords.
+            //
+
+            if ( DomainPasswordInformationBuffer.PasswordProperties &
+                 DOMAIN_PASSWORD_NO_CLEAR_CHANGE ) {
+                *UseOwfPasswords = TRUE;
+            }
 
             //
             // Check password complexity.
@@ -7236,4 +7778,1072 @@ Return Value:
     }
 
     return( NtStatus );
+}
+
+
+
+NTSTATUS
+SamiEncryptPasswords(
+    IN PUNICODE_STRING OldPassword,
+    IN PUNICODE_STRING NewPassword,
+    OUT PSAMPR_ENCRYPTED_USER_PASSWORD NewEncryptedWithOldNt,
+    OUT PENCRYPTED_NT_OWF_PASSWORD OldNtOwfEncryptedWithNewNt,
+    OUT PBOOLEAN LmPresent,
+    OUT PSAMPR_ENCRYPTED_USER_PASSWORD NewEncryptedWithOldLm,
+    OUT PENCRYPTED_NT_OWF_PASSWORD OldLmOwfEncryptedWithNewNt
+)
+/*++
+
+Routine Description:
+
+    This routine takes old and new cleartext passwords, converts them to
+    LM passwords, generates OWF passwords, and produces reversibly
+    encrypted cleartext and OWF passwords.
+
+Arguments:
+
+    OldPassword - The current cleartext password for the user.
+
+    NewPassword - The new cleartext password for the user.
+
+    NewEncryptedWithOldNt - The new password, in an SAMPR_USER_PASSWORD
+        structure, reversibly encrypted with the old NT OWF password.
+
+    OldNtOwfEncryptedWithNewNt - The old NT OWF password reversibly
+        encrypted with the new NT OWF password.
+
+    LmPresent - Indicates whether or not LM versions of the passwords could
+        be calculated.
+
+    NewEncryptedWithOldLm - The new password, in an SAMPR_USER_PASSWORD
+        structure, reversibly encrypted with the old LM OWF password.
+
+    OldLmOwfEncryptedWithNewNt - The old LM OWF password reversibly
+        encrypted with the new NT OWF password.
+
+
+Return Value:
+
+    Errors from RtlEncryptXXX functions
+
+--*/
+{
+    PCHAR OldLmPassword = NULL;
+    PCHAR NewLmPassword = NULL;
+    LM_OWF_PASSWORD OldLmOwfPassword;
+    NT_OWF_PASSWORD OldNtOwfPassword;
+    NT_OWF_PASSWORD NewNtOwfPassword;
+    PSAMPR_USER_PASSWORD NewNt = (PSAMPR_USER_PASSWORD) NewEncryptedWithOldNt;
+    PSAMPR_USER_PASSWORD NewLm = (PSAMPR_USER_PASSWORD) NewEncryptedWithOldLm;
+    struct RC4_KEYSTRUCT Rc4Key;
+    NTSTATUS NtStatus;
+    BOOLEAN OldLmPresent = TRUE;
+    BOOLEAN NewLmPresent = TRUE;
+
+
+    //
+    // Initialization
+    //
+
+    *LmPresent = TRUE;
+
+    //
+    // Make sure the password isn't too long.
+    //
+
+    if (NewPassword->Length > SAM_MAX_PASSWORD_LENGTH * sizeof(WCHAR)) {
+        return(STATUS_PASSWORD_RESTRICTION);
+    }
+
+    //
+    // Calculate the LM passwords. This may fail because the passwords are
+    // too complex, but we can deal with that, so just remember what failed.
+    //
+
+    NtStatus = SampCalculateLmPassword(
+                OldPassword,
+                &OldLmPassword
+                );
+
+    if (NtStatus != STATUS_SUCCESS) {
+        OldLmPresent = FALSE;
+        *LmPresent = FALSE;
+
+        //
+        // If the error was that it couldn't calculate the password, that
+        // is o.k.
+        //
+
+        if (NtStatus == STATUS_NULL_LM_PASSWORD) {
+            NtStatus = STATUS_SUCCESS;
+        }
+
+    }
+
+
+
+    //
+    // Calculate the LM OWF passwords
+    //
+
+    if (NT_SUCCESS(NtStatus) && OldLmPresent) {
+        NtStatus = RtlCalculateLmOwfPassword(
+                    OldLmPassword,
+                    &OldLmOwfPassword
+                    );
+    }
+
+
+    //
+    // Calculate the NT OWF passwords
+    //
+
+    if (NT_SUCCESS(NtStatus)) {
+        NtStatus = RtlCalculateNtOwfPassword(
+                    OldPassword,
+                    &OldNtOwfPassword
+                    );
+    }
+
+    if (NT_SUCCESS(NtStatus)) {
+        NtStatus = RtlCalculateNtOwfPassword(
+                    NewPassword,
+                    &NewNtOwfPassword
+                    );
+    }
+
+    //
+    // Calculate the encrypted old passwords
+    //
+
+    if (NT_SUCCESS(NtStatus)) {
+        NtStatus = RtlEncryptNtOwfPwdWithNtOwfPwd(
+                    &OldNtOwfPassword,
+                    &NewNtOwfPassword,
+                    OldNtOwfEncryptedWithNewNt
+                    );
+    }
+
+    //
+    // Compute the encrypted old LM password.  Always use the new NT OWF
+    // to encrypt it, since we may not have a new LM OWF password.
+    //
+
+
+    if (NT_SUCCESS(NtStatus) && OldLmPresent) {
+        ASSERT(LM_OWF_PASSWORD_LENGTH == NT_OWF_PASSWORD_LENGTH);
+
+        NtStatus = RtlEncryptLmOwfPwdWithLmOwfPwd(
+                    &OldLmOwfPassword,
+                    (PLM_OWF_PASSWORD) &NewNtOwfPassword,
+                    OldLmOwfEncryptedWithNewNt
+                    );
+    }
+
+    //
+    // Calculate the encrypted new passwords
+    //
+
+    if (NT_SUCCESS(NtStatus)) {
+
+        ASSERT(sizeof(SAMPR_ENCRYPTED_USER_PASSWORD) == sizeof(SAMPR_USER_PASSWORD));
+
+        //
+        // Compute the encrypted new password with NT key.
+        //
+
+        rc4_key(
+            &Rc4Key,
+            NT_OWF_PASSWORD_LENGTH,
+            (PUCHAR) &OldNtOwfPassword
+            );
+
+        RtlCopyMemory(
+            ((PUCHAR) NewNt->Buffer) +
+                SAM_MAX_PASSWORD_LENGTH * sizeof(WCHAR) -
+                NewPassword->Length,
+            NewPassword->Buffer,
+            NewPassword->Length
+            );
+
+        *(ULONG UNALIGNED *) &NewNt->Length = NewPassword->Length;
+
+        //
+        // Fill the rest of the buffer with random numbers
+        //
+
+        NtStatus = SampRandomFill(
+                    (SAM_MAX_PASSWORD_LENGTH * sizeof(WCHAR)) -
+                        NewPassword->Length,
+                    (PUCHAR) NewNt->Buffer
+                    );
+    }
+
+    if (NT_SUCCESS(NtStatus))
+    {
+        rc4(&Rc4Key,
+            sizeof(SAMPR_USER_PASSWORD),
+            (PUCHAR) NewEncryptedWithOldNt
+            );
+
+    }
+
+    //
+    // Compute the encrypted new password with LM key if it exists.
+    //
+
+
+    if (NT_SUCCESS(NtStatus) && OldLmPresent) {
+
+        rc4_key(
+            &Rc4Key,
+            LM_OWF_PASSWORD_LENGTH,
+            (PUCHAR) &OldLmOwfPassword
+            );
+
+        RtlCopyMemory(
+            ((PUCHAR) NewLm->Buffer) +
+                (SAM_MAX_PASSWORD_LENGTH * sizeof(WCHAR)) -
+                NewPassword->Length,
+            NewPassword->Buffer,
+            NewPassword->Length
+            );
+
+        *(ULONG UNALIGNED *) &NewLm->Length = NewPassword->Length;
+
+        NtStatus = SampRandomFill(
+                    (SAM_MAX_PASSWORD_LENGTH * sizeof(WCHAR)) -
+                        NewPassword->Length,
+                    (PUCHAR) NewLm->Buffer
+                    );
+
+
+    }
+
+    //
+    // Encrypt the password (or, if the old LM OWF password does not exist,
+    // zero it).
+
+    if (NT_SUCCESS(NtStatus) && OldLmPresent) {
+
+        rc4(&Rc4Key,
+            sizeof(SAMPR_USER_PASSWORD),
+            (PUCHAR) NewEncryptedWithOldLm
+            );
+
+    } else {
+        RtlZeroMemory(
+            NewLm,
+            sizeof(SAMPR_ENCRYPTED_USER_PASSWORD)
+            );
+    }
+
+
+
+    //
+    // Make sure to zero the passwords before freeing so we don't have
+    // passwords floating around in the page file.
+    //
+
+    if (OldLmPassword != NULL) {
+
+        RtlZeroMemory(
+            OldLmPassword,
+            lstrlenA(OldLmPassword)
+            );
+
+        MIDL_user_free(OldLmPassword);
+    }
+
+
+    return(NtStatus);
+
+}
+
+
+
+
+
+NTSTATUS
+SampChangePasswordUser2(
+    IN PUNICODE_STRING ServerName,
+    IN PUNICODE_STRING UserName,
+    IN PUNICODE_STRING OldPassword,
+    IN PUNICODE_STRING NewPassword
+)
+
+/*++
+
+
+Routine Description:
+
+    Password will be set to NewPassword only if OldPassword matches the
+    current user password for this user and the NewPassword is not the
+    same as the domain password parameter PasswordHistoryLength
+    passwords.  This call allows users to change their own password if
+    they have access USER_CHANGE_PASSWORD.  Password update restrictions
+    apply.
+
+
+Parameters:
+
+    UserHandle - The handle of an opened user to operate on.
+
+    OldPassword - Current password for the user.
+
+    NewPassword - Desired new password for the user.
+
+Return Values:
+
+    STATUS_SUCCESS - The Service completed successfully.
+
+    STATUS_ACCESS_DENIED - Caller does not have the appropriate
+        access to complete the operation.
+
+    STATUS_INVALID_HANDLE - The handle passed is invalid.
+
+    STATUS_ILL_FORMED_PASSWORD - The new password is poorly formed,
+        e.g. contains characters that can't be entered from the
+        keyboard, etc.
+
+    STATUS_PASSWORD_RESTRICTION - A restriction prevents the password
+        from being changed.  This may be for a number of reasons,
+        including time restrictions on how often a password may be
+        changed or length restrictions on the provided password.
+
+        This error might also be returned if the new password matched
+        a password in the recent history log for the account.
+        Security administrators indicate how many of the most
+        recently used passwords may not be re-used.  These are kept
+        in the password recent history log.
+
+    STATUS_WRONG_PASSWORD - OldPassword does not contain the user's
+        current password.
+
+    STATUS_INVALID_DOMAIN_STATE - The domain server is not in the
+        correct state (disabled or enabled) to perform the requested
+        operation.  The domain server must be enabled for this
+        operation
+
+    STATUS_INVALID_DOMAIN_ROLE - The domain server is serving the
+        incorrect role (primary or backup) to perform the requested
+        operation.
+
+
+--*/
+{
+    NTSTATUS NtStatus;
+    SAM_HANDLE SamServerHandle = NULL;
+    SAM_HANDLE DomainHandle = NULL;
+    SAM_HANDLE UserHandle = NULL;
+    LSA_HANDLE PolicyHandle = NULL;
+    OBJECT_ATTRIBUTES ObjectAttributes;
+    SECURITY_QUALITY_OF_SERVICE SecurityQualityOfService;
+    PPOLICY_ACCOUNT_DOMAIN_INFO AccountDomainInfo = NULL;
+    PULONG UserId = NULL;
+    PSID_NAME_USE NameUse = NULL;
+
+    InitializeObjectAttributes(
+        &ObjectAttributes,
+        NULL,
+        0,
+        NULL,
+        NULL
+        );
+
+    //
+    // The InitializeObjectAttributes call doesn't initialize the
+    // quality of serivce, so do that separately.
+    //
+
+    SecurityQualityOfService.Length = sizeof(SECURITY_QUALITY_OF_SERVICE);
+    SecurityQualityOfService.ImpersonationLevel = SecurityImpersonation;
+    SecurityQualityOfService.ContextTrackingMode = SECURITY_DYNAMIC_TRACKING;
+    SecurityQualityOfService.EffectiveOnly = FALSE;
+
+    ObjectAttributes.SecurityQualityOfService = &SecurityQualityOfService;
+
+
+
+    NtStatus = LsaOpenPolicy(
+                ServerName,
+                &ObjectAttributes,
+                POLICY_VIEW_LOCAL_INFORMATION,
+                &PolicyHandle
+                );
+
+    if (!NT_SUCCESS(NtStatus)) {
+        goto Cleanup;
+    }
+
+    NtStatus = LsaQueryInformationPolicy(
+                PolicyHandle,
+                PolicyAccountDomainInformation,
+                &AccountDomainInfo
+                );
+    if (!NT_SUCCESS(NtStatus)) {
+        goto Cleanup;
+    }
+
+    NtStatus = SamConnect(
+                ServerName,
+                &SamServerHandle,
+                SAM_SERVER_LOOKUP_DOMAIN,
+                &ObjectAttributes
+                );
+    if (!NT_SUCCESS(NtStatus)) {
+        goto Cleanup;
+    }
+
+    NtStatus = SamOpenDomain(
+                SamServerHandle,
+                GENERIC_EXECUTE,
+                AccountDomainInfo->DomainSid,
+                &DomainHandle
+                );
+    if (!NT_SUCCESS(NtStatus)) {
+        goto Cleanup;
+    }
+
+    NtStatus = SamLookupNamesInDomain(
+                DomainHandle,
+                1,
+                UserName,
+                &UserId,
+                &NameUse
+                );
+
+    if (!NT_SUCCESS(NtStatus)) {
+        if (NtStatus == STATUS_NONE_MAPPED) {
+            NtStatus = STATUS_NO_SUCH_USER;
+        }
+        goto Cleanup;
+    }
+
+    NtStatus = SamOpenUser(
+                DomainHandle,
+                USER_CHANGE_PASSWORD,
+                *UserId,
+                &UserHandle
+                );
+
+    if (!NT_SUCCESS(NtStatus)) {
+        goto Cleanup;
+    }
+
+    NtStatus = SamChangePasswordUser(
+                UserHandle,
+                OldPassword,
+                NewPassword
+                );
+Cleanup:
+    if (UserHandle != NULL) {
+        SamCloseHandle(UserHandle);
+    }
+    if (DomainHandle != NULL) {
+        SamCloseHandle(DomainHandle);
+    }
+    if (SamServerHandle != NULL) {
+        SamCloseHandle(SamServerHandle);
+    }
+    if (PolicyHandle != NULL){
+        LsaClose(PolicyHandle);
+    }
+    if (AccountDomainInfo != NULL) {
+        LsaFreeMemory(AccountDomainInfo);
+    }
+    if (UserId != NULL) {
+        SamFreeMemory(UserId);
+    }
+    if (NameUse != NULL) {
+        SamFreeMemory(NameUse);
+    }
+
+    return(NtStatus);
+
+}
+
+NTSTATUS
+SamiChangePasswordUser2(
+    PUNICODE_STRING ServerName,
+    PUNICODE_STRING UserName,
+    PSAMPR_ENCRYPTED_USER_PASSWORD NewPasswordEncryptedWithOldNt,
+    PENCRYPTED_NT_OWF_PASSWORD OldNtOwfPasswordEncryptedWithNewNt,
+    BOOLEAN LmPresent,
+    PSAMPR_ENCRYPTED_USER_PASSWORD NewPasswordEncryptedWithOldLm,
+    PENCRYPTED_LM_OWF_PASSWORD OldLmOwfPasswordEncryptedWithNewLmOrNt
+    )
+/*++
+
+
+Routine Description:
+
+    Changes the password of a user account. This is the worker routine for
+    SamChangePasswordUser2 and can be called by OWF-aware clients.
+    Password will be set to NewPassword only if OldPassword matches the
+    current user password for this user and the NewPassword is not the
+    same as the domain password parameter PasswordHistoryLength
+    passwords.  This call allows users to change their own password if
+    they have access USER_CHANGE_PASSWORD.  Password update restrictions
+    apply.
+
+
+Parameters:
+
+    ServerName - The server to operate on, or NULL for this machine.
+
+    UserName - Name of user whose password is to be changed
+
+    NewPasswordEncryptedWithOldNt - The new cleartext password encrypted
+        with the old NT OWF password.
+
+    OldNtOwfPasswordEncryptedWithNewNt - The old NT OWF password encrypted
+        with the new NT OWF password.
+
+    LmPresent - If TRUE, indicates that the following two last parameter
+        was encrypted with the LM OWF password not the NT OWF password.
+
+    NewPasswordEncryptedWithOldLm - The new cleartext password encrypted
+        with the old LM OWF password.
+
+    OldLmOwfPasswordEncryptedWithNewLmOrNt - The old LM OWF password encrypted
+        with the new LM OWF password.
+
+Return Values:
+
+    STATUS_SUCCESS - The Service completed successfully.
+
+    STATUS_ACCESS_DENIED - Caller does not have the appropriate
+        access to complete the operation.
+
+    STATUS_INVALID_HANDLE - The handle passed is invalid.
+
+    STATUS_ILL_FORMED_PASSWORD - The new password is poorly formed,
+        e.g. contains characters that can't be entered from the
+        keyboard, etc.
+
+    STATUS_PASSWORD_RESTRICTION - A restriction prevents the password
+        from being changed.  This may be for a number of reasons,
+        including time restrictions on how often a password may be
+        changed or length restrictions on the provided password.
+
+        This error might also be returned if the new password matched
+        a password in the recent history log for the account.
+        Security administrators indicate how many of the most
+        recently used passwords may not be re-used.  These are kept
+        in the password recent history log.
+
+    STATUS_WRONG_PASSWORD - OldPassword does not contain the user's
+        current password.
+
+    STATUS_INVALID_DOMAIN_STATE - The domain server is not in the
+        correct state (disabled or enabled) to perform the requested
+        operation.  The domain server must be enabled for this
+        operation
+
+    STATUS_INVALID_DOMAIN_ROLE - The domain server is serving the
+        incorrect role (primary or backup) to perform the requested
+        operation.
+
+--*/
+
+{
+    handle_t BindingHandle;
+    PSAMPR_SERVER_NAME RServerNameWithNull;
+    USHORT RServerNameWithNullLength;
+    PSAMPR_SERVER_NAME  RServerName;
+    ULONG Tries = 2;
+    NTSTATUS NtStatus;
+    USER_DOMAIN_PASSWORD_INFORMATION PasswordInformation;
+
+    RServerNameWithNull = NULL;
+
+    if (ARGUMENT_PRESENT(ServerName)) {
+
+        RServerName = (PSAMPR_SERVER_NAME)(ServerName->Buffer);
+        RServerNameWithNullLength = ServerName->Length + (USHORT) sizeof(WCHAR);
+        RServerNameWithNull = MIDL_user_allocate( RServerNameWithNullLength );
+
+        if (RServerNameWithNull == NULL) {
+            return(STATUS_INSUFFICIENT_RESOURCES);
+        }
+
+        RtlCopyMemory( RServerNameWithNull, RServerName, ServerName->Length);
+        RServerNameWithNull[ServerName->Length/sizeof(WCHAR)] = L'\0';
+
+    }
+
+
+    do
+    {
+        //
+        // Try privacy level first, and if that failed with unknown authn
+        // level or invalid binding try with a lower level (none).
+        //
+
+        if (Tries == 2) {
+            BindingHandle = SampSecureBind(
+                                RServerNameWithNull,
+                                RPC_C_AUTHN_LEVEL_PKT_PRIVACY
+                                );
+
+
+        } else if ((NtStatus == RPC_NT_UNKNOWN_AUTHN_LEVEL) ||
+                   (NtStatus == RPC_NT_UNKNOWN_AUTHN_TYPE) ||
+                   (NtStatus == RPC_NT_UNKNOWN_AUTHN_SERVICE) ||
+                   (NtStatus == RPC_NT_INVALID_BINDING) ||
+                   (NtStatus == STATUS_ACCESS_DENIED) ) {
+            SampSecureUnbind(BindingHandle);
+
+            BindingHandle = SampSecureBind(
+                                RServerNameWithNull,
+                                RPC_C_AUTHN_LEVEL_NONE
+                                );
+
+        } else {
+            break;
+        }
+
+        if (BindingHandle != NULL) {
+
+            RpcTryExcept{
+
+                //
+                // Get password information to make sure this operation
+                // is allowed.  We do it now because we wanted to bind
+                // before trying it.
+                //
+
+                NtStatus = SamrGetDomainPasswordInformation(
+                               BindingHandle,
+                               (PRPC_UNICODE_STRING) ServerName,
+                               &PasswordInformation
+                               );
+
+                if (NtStatus == STATUS_SUCCESS) {
+
+                    if (!( PasswordInformation.PasswordProperties &
+                         DOMAIN_PASSWORD_NO_CLEAR_CHANGE) ) {
+
+                        NtStatus = SamrUnicodeChangePasswordUser2(
+                                       BindingHandle,
+                                       (PRPC_UNICODE_STRING) ServerName,
+                                       (PRPC_UNICODE_STRING) UserName,
+                                       NewPasswordEncryptedWithOldNt,
+                                       OldNtOwfPasswordEncryptedWithNewNt,
+                                       LmPresent,
+                                       NewPasswordEncryptedWithOldLm,
+                                       OldLmOwfPasswordEncryptedWithNewLmOrNt
+                                       );
+
+                    } else {
+
+                        //
+                        // Set the error to indicate that we should try the
+                        // downlevel way to change passwords.
+                        //
+
+                        NtStatus = STATUS_NOT_SUPPORTED;
+                    }
+                }
+
+
+
+            } RpcExcept( EXCEPTION_EXECUTE_HANDLER ) {
+
+
+                //
+                // The mapping function doesn't handle this error so
+                // special case it by hand.
+                //
+                NtStatus = RpcExceptionCode();
+
+                if (NtStatus == RPC_S_SEC_PKG_ERROR) {
+                    NtStatus = STATUS_ACCESS_DENIED;
+                } else {
+                    NtStatus = I_RpcMapWin32Status(NtStatus);
+                }
+
+
+            } RpcEndExcept;
+
+        } else {
+            NtStatus = RPC_NT_INVALID_BINDING;
+        }
+
+        Tries--;
+    } while ( (Tries > 0) && (!NT_SUCCESS(NtStatus)) );
+    if (RServerNameWithNull != NULL) {
+        MIDL_user_free( RServerNameWithNull );
+    }
+
+    if (BindingHandle != NULL) {
+        SampSecureUnbind(BindingHandle);
+    }
+
+    //
+    // Map these errors to STATUS_NOT_SUPPORTED
+    //
+
+    if ((NtStatus == RPC_NT_UNKNOWN_IF) ||
+        (NtStatus == RPC_NT_PROCNUM_OUT_OF_RANGE)) {
+
+        NtStatus = STATUS_NOT_SUPPORTED;
+    }
+    return(SampMapCompletionStatus(NtStatus));
+
+
+}
+
+NTSTATUS
+SamiOemChangePasswordUser2(
+    PSTRING ServerName,
+    PSTRING UserName,
+    PSAMPR_ENCRYPTED_USER_PASSWORD NewPasswordEncryptedWithOldLm,
+    PENCRYPTED_LM_OWF_PASSWORD OldLmOwfPasswordEncryptedWithNewLm
+    )
+/*++
+
+
+Routine Description:
+
+    Changes the password of a user account. This  can be called by OWF-aware
+    clients. Password will be set to NewPassword only if OldPassword matches
+    the current user password for this user and the NewPassword is not the
+    same as the domain password parameter PasswordHistoryLength
+    passwords.  This call allows users to change their own password if
+    they have access USER_CHANGE_PASSWORD.  Password update restrictions
+    apply.
+
+
+Parameters:
+
+    ServerName - The server to operate on, or NULL for this machine.
+
+    UserName - Name of user whose password is to be changed
+
+
+    NewPasswordEncryptedWithOldLm - The new cleartext password encrypted
+        with the old LM OWF password.
+
+    OldLmOwfPasswordEncryptedWithNewLm - The old LM OWF password encrypted
+        with the new LM OWF password.
+
+Return Values:
+
+    STATUS_SUCCESS - The Service completed successfully.
+
+    STATUS_ACCESS_DENIED - Caller does not have the appropriate
+        access to complete the operation.
+
+    STATUS_INVALID_HANDLE - The handle passed is invalid.
+
+    STATUS_ILL_FORMED_PASSWORD - The new password is poorly formed,
+        e.g. contains characters that can't be entered from the
+        keyboard, etc.
+
+    STATUS_PASSWORD_RESTRICTION - A restriction prevents the password
+        from being changed.  This may be for a number of reasons,
+        including time restrictions on how often a password may be
+        changed or length restrictions on the provided password.
+
+        This error might also be returned if the new password matched
+        a password in the recent history log for the account.
+        Security administrators indicate how many of the most
+        recently used passwords may not be re-used.  These are kept
+        in the password recent history log.
+
+    STATUS_WRONG_PASSWORD - OldPassword does not contain the user's
+        current password.
+
+    STATUS_INVALID_DOMAIN_STATE - The domain server is not in the
+        correct state (disabled or enabled) to perform the requested
+        operation.  The domain server must be enabled for this
+        operation
+
+    STATUS_INVALID_DOMAIN_ROLE - The domain server is serving the
+        incorrect role (primary or backup) to perform the requested
+        operation.
+
+--*/
+
+{
+    handle_t BindingHandle;
+    UNICODE_STRING RemoteServerName;
+    ULONG Tries = 2;
+    NTSTATUS NtStatus;
+    USER_DOMAIN_PASSWORD_INFORMATION PasswordInformation;
+
+    RemoteServerName.Buffer = NULL;
+    RemoteServerName.Length = 0;
+
+    if (ARGUMENT_PRESENT(ServerName)) {
+
+        NtStatus = RtlAnsiStringToUnicodeString(
+                        &RemoteServerName,
+                        ServerName,
+                        TRUE            // allocate destination
+                        );
+
+        if (!NT_SUCCESS(NtStatus)) {
+            return(NtStatus);
+        }
+        ASSERT(RemoteServerName.Buffer[RemoteServerName.Length/sizeof(WCHAR)] == L'\0');
+    }
+
+
+    do
+    {
+        //
+        // Try privacy level first, and if that failed with unknown authn
+        // level or invalid binding try with a lower level (none).
+        //
+
+        if (Tries == 2) {
+            BindingHandle = SampSecureBind(
+                                RemoteServerName.Buffer,
+                                RPC_C_AUTHN_LEVEL_PKT_PRIVACY
+                                );
+
+
+        } else if ((NtStatus == RPC_NT_UNKNOWN_AUTHN_LEVEL) ||
+                   (NtStatus == RPC_NT_UNKNOWN_AUTHN_TYPE) ||
+                   (NtStatus == RPC_NT_INVALID_BINDING) ||
+                   (NtStatus == STATUS_ACCESS_DENIED) ) {
+            SampSecureUnbind(BindingHandle);
+
+            BindingHandle = SampSecureBind(
+                                RemoteServerName.Buffer,
+                                RPC_C_AUTHN_LEVEL_NONE
+                                );
+
+        } else {
+            break;
+        }
+
+        if (BindingHandle != NULL) {
+
+            RpcTryExcept{
+
+                //
+                // Get password information to make sure this operation
+                // is allowed.  We do it now because we wanted to bind
+                // before trying it.
+                //
+
+                NtStatus = SamrGetDomainPasswordInformation(
+                               BindingHandle,
+                               (PRPC_UNICODE_STRING) ServerName,
+                               &PasswordInformation
+                               );
+
+                if (NtStatus == STATUS_SUCCESS) {
+
+                    if (!( PasswordInformation.PasswordProperties &
+                         DOMAIN_PASSWORD_NO_CLEAR_CHANGE) ) {
+
+                        NtStatus = SamrOemChangePasswordUser2(
+                                       BindingHandle,
+                                       (PRPC_STRING) ServerName,
+                                       (PRPC_STRING) UserName,
+                                       NewPasswordEncryptedWithOldLm,
+                                       OldLmOwfPasswordEncryptedWithNewLm
+                                       );
+
+                    } else {
+
+                        //
+                        // Set the error to indicate that we should try the
+                        // downlevel way to change passwords.
+                        //
+
+                        NtStatus = STATUS_NOT_SUPPORTED;
+                    }
+                }
+
+
+
+            } RpcExcept( EXCEPTION_EXECUTE_HANDLER ) {
+
+
+                //
+                // The mappin function doesn't handle this error so
+                // special case it by hand.
+                //
+
+                if (NtStatus == RPC_S_SEC_PKG_ERROR) {
+                    NtStatus = STATUS_ACCESS_DENIED;
+                } else {
+                    NtStatus = I_RpcMapWin32Status(RpcExceptionCode());
+                }
+
+
+            } RpcEndExcept;
+
+        } else {
+            NtStatus = RPC_NT_INVALID_BINDING;
+        }
+
+        Tries--;
+    } while ( (Tries > 0) && (!NT_SUCCESS(NtStatus)) );
+
+    RtlFreeUnicodeString( &RemoteServerName );
+
+    if (BindingHandle != NULL) {
+        SampSecureUnbind(BindingHandle);
+    }
+
+    //
+    // Map these errors to STATUS_NOT_SUPPORTED
+    //
+
+    if ((NtStatus == RPC_NT_UNKNOWN_IF) ||
+        (NtStatus == RPC_NT_PROCNUM_OUT_OF_RANGE)) {
+
+        NtStatus = STATUS_NOT_SUPPORTED;
+    }
+
+    return(SampMapCompletionStatus(NtStatus));
+
+}
+
+
+NTSTATUS
+SamChangePasswordUser2(
+    IN PUNICODE_STRING ServerName,
+    IN PUNICODE_STRING UserName,
+    IN PUNICODE_STRING OldPassword,
+    IN PUNICODE_STRING NewPassword
+)
+
+/*++
+
+
+Routine Description:
+
+    Password will be set to NewPassword only if OldPassword matches the
+    current user password for this user and the NewPassword is not the
+    same as the domain password parameter PasswordHistoryLength
+    passwords.  This call allows users to change their own password if
+    they have access USER_CHANGE_PASSWORD.  Password update restrictions
+    apply.
+
+
+Parameters:
+
+    ServerName - The server to operate on, or NULL for this machine.
+
+    UserName - Name of user whose password is to be changed
+
+    OldPassword - Current password for the user.
+
+    NewPassword - Desired new password for the user.
+
+Return Values:
+
+    STATUS_SUCCESS - The Service completed successfully.
+
+    STATUS_ACCESS_DENIED - Caller does not have the appropriate
+        access to complete the operation.
+
+    STATUS_INVALID_HANDLE - The handle passed is invalid.
+
+    STATUS_ILL_FORMED_PASSWORD - The new password is poorly formed,
+        e.g. contains characters that can't be entered from the
+        keyboard, etc.
+
+    STATUS_PASSWORD_RESTRICTION - A restriction prevents the password
+        from being changed.  This may be for a number of reasons,
+        including time restrictions on how often a password may be
+        changed or length restrictions on the provided password.
+
+        This error might also be returned if the new password matched
+        a password in the recent history log for the account.
+        Security administrators indicate how many of the most
+        recently used passwords may not be re-used.  These are kept
+        in the password recent history log.
+
+    STATUS_WRONG_PASSWORD - OldPassword does not contain the user's
+        current password.
+
+    STATUS_INVALID_DOMAIN_STATE - The domain server is not in the
+        correct state (disabled or enabled) to perform the requested
+        operation.  The domain server must be enabled for this
+        operation
+
+    STATUS_INVALID_DOMAIN_ROLE - The domain server is serving the
+        incorrect role (primary or backup) to perform the requested
+        operation.
+
+
+--*/
+{
+    SAMPR_ENCRYPTED_USER_PASSWORD NewNtEncryptedWithOldNt;
+    SAMPR_ENCRYPTED_USER_PASSWORD NewNtEncryptedWithOldLm;
+    ENCRYPTED_NT_OWF_PASSWORD OldNtOwfEncryptedWithNewNt;
+    ENCRYPTED_NT_OWF_PASSWORD OldLmOwfEncryptedWithNewNt;
+    NTSTATUS            NtStatus;
+    BOOLEAN             LmPresent = TRUE;
+    ULONG               AuthnLevel;
+    ULONG               Tries = 2;
+    USER_DOMAIN_PASSWORD_INFORMATION PasswordInformation;
+
+
+    //
+    // Call the server, passing either a NULL Server Name pointer, or
+    // a pointer to a Unicode Buffer with a Wide Character NULL terminator.
+    // Since the input name is contained in a counted Unicode String, there
+    // is no NULL terminator necessarily provided, so we must append one.
+    //
+
+    //
+    // Encrypted the passwords
+    //
+
+    NtStatus = SamiEncryptPasswords(
+                OldPassword,
+                NewPassword,
+                &NewNtEncryptedWithOldNt,
+                &OldNtOwfEncryptedWithNewNt,
+                &LmPresent,
+                &NewNtEncryptedWithOldLm,
+                &OldLmOwfEncryptedWithNewNt
+                );
+
+    if (!NT_SUCCESS(NtStatus)) {
+        return(NtStatus);
+    }
+
+    //
+    // Try the remote call...
+    //
+
+
+    NtStatus = SamiChangePasswordUser2(
+                   ServerName,
+                   UserName,
+                   &NewNtEncryptedWithOldNt,
+                   &OldNtOwfEncryptedWithNewNt,
+                   LmPresent,
+                   &NewNtEncryptedWithOldLm,
+                   &OldLmOwfEncryptedWithNewNt
+                   );
+
+
+    //
+    // If the new API failed, try calling the old API.
+    //
+
+    if (NtStatus == STATUS_NOT_SUPPORTED) {
+
+        NtStatus = SampChangePasswordUser2(
+                    ServerName,
+                    UserName,
+                    OldPassword,
+                    NewPassword
+                    );
+    }
+
+    return(SampMapCompletionStatus(NtStatus));
+
 }

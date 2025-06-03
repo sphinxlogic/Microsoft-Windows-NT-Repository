@@ -23,6 +23,8 @@ Revision History:
 --*/
 
 
+#include "precomp.h"
+#pragma hdrstop
 
 
 BOOL
@@ -118,10 +120,13 @@ Return Value:
     dprintf("    DynamicCharged:        0x%lx\n", FIELD_OFFSET(TOKEN, DynamicCharged) );
     dprintf("    DynamicAvailable:      0x%lx\n", FIELD_OFFSET(TOKEN, DynamicAvailable) );
     dprintf("    DefaultOwnerIndex:     0x%lx\n", FIELD_OFFSET(TOKEN, DefaultOwnerIndex) );
+    dprintf("    DefaultDacl:           0x%lx\n", FIELD_OFFSET(TOKEN, DefaultDacl) );
     dprintf("    TokenType:             0x%lx\n", FIELD_OFFSET(TOKEN, TokenType) );
     dprintf("    ImpersonationLevel:    0x%lx\n", FIELD_OFFSET(TOKEN, ImpersonationLevel) );
     dprintf("    TokenFlags:            0x%lx\n", FIELD_OFFSET(TOKEN, TokenFlags) );
     dprintf("    TokenInUse:            0x%lx\n", FIELD_OFFSET(TOKEN, TokenInUse) );
+    dprintf("    ProxyData:             0x%lx\n", FIELD_OFFSET(TOKEN, ProxyData) );
+    dprintf("    AuditData:             0x%lx\n", FIELD_OFFSET(TOKEN, AuditData) );
     dprintf("    VariablePart:          0x%lx\n", FIELD_OFFSET(TOKEN, VariablePart) );
 
     return;

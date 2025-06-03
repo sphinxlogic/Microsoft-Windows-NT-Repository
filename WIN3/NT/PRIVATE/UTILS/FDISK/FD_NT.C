@@ -104,6 +104,17 @@ Return Value:
         stringId = IDS_PARTITION_UNIX;
         break;
 
+    case PARTITION_PREP:
+#ifdef _PPC_
+        stringId = IDS_PARTITION_POWERPC;
+#else
+
+        // If not on a PPC platform, assume this is Eisa related
+
+        stringId = IDS_PARTITION_EISA;
+#endif
+        break;
+
     default:
         stringId = IDS_UNKNOWN;
         break;
@@ -208,7 +219,8 @@ Return Value:
     if (!baseSignature) {
 
         NtQuerySystemTime(&time);
-        baseSignature = RtlLargeIntegerShiftRight(time, 16).LowPart;
+        time.QuadPart = time.QuadPart >> 16;
+        baseSignature = time.LowPart;
     }
     return baseSignature++;
 }
@@ -270,7 +282,7 @@ Return Value:
 
             // Convert to MB
 
-            partitionLength = LiShr(partitionInfo.PartitionLength, 20);
+            partitionLength.QuadPart = partitionInfo.PartitionLength.QuadPart >> 20;
             *Size = partitionLength.LowPart;
             retValue = TRUE;
         }
@@ -391,15 +403,15 @@ Return Value:
                                     diskGeometry.SectorsPerTrack *
                                     diskGeometry.BytesPerSector;
 
-                    sizeInBytes = LiXMul(diskGeometry.Cylinders, cylinderBytes);
+                    sizeInBytes.QuadPart = diskGeometry.Cylinders.QuadPart * cylinderBytes;
 
                     // Now convert everything to KB
 
-                    sizeInBytes = LiShr(sizeInBytes, 10);
+                    sizeInBytes.QuadPart = sizeInBytes.QuadPart >> 10;
                     *Size = (ULONG) sizeInBytes.LowPart;
                 }
             }
-            NtClose(handle);
+            DmClose(handle);
             sc = OK_STATUS;
             break;
         } else {
@@ -461,7 +473,7 @@ Return Value:
                                               buffer,
                                               sizeof(buffer),
                                               FileFsVolumeInformation);
-            NtClose(handle);
+            DmClose(handle);
             if (sc == OK_STATUS) {
 
                 length = labelInfo->VolumeLabelLength;
@@ -543,7 +555,7 @@ Return Value:
                                               buffer,
                                               sizeof(buffer),
                                               FileFsAttributeInformation);
-            NtClose(handle);
+            DmClose(handle);
             if (sc == OK_STATUS) {
 
                 length = info->FileSystemNameLength;
@@ -709,8 +721,9 @@ Return Value:
 ULONG
 MasterBootCode(
     IN ULONG   Disk,
-    IN BOOLEAN SetSignature,
-    IN ULONG   Signature
+    IN ULONG   Signature,
+    IN BOOLEAN SetBootCode,
+    IN BOOLEAN SetSignature
     )
 
 /*++
@@ -749,69 +762,78 @@ Return Value:
 #define     max(a,b) ((a > b) ? a : b)
 #endif
 
-    writeIt = FALSE;
+    if (SetBootCode) {
+        writeIt = FALSE;
 
-    // allocate sector buffer
+        // allocate sector buffer
 
-    status = LowGetDriveGeometry(diskName, &dummy, &bps, &dummy, &dummy);
-    if (status != OK_STATUS) {
-        return EC(status);
-    }
-    if (bps < 512) {
-        bps = 512;
-    }
-    unalignedSectorBuffer = Malloc(2*bps);
-    sectorBuffer = (PUCHAR)(((ULONG)unalignedSectorBuffer+bps) & ~(bps-1));
+        status = LowGetDriveGeometry(diskName, &dummy, &bps, &dummy, &dummy);
+        if (status != OK_STATUS) {
+            return EC(status);
+        }
+        if (bps < 512) {
+            bps = 512;
+        }
+        unalignedSectorBuffer = Malloc(2*bps);
+        sectorBuffer = (PUCHAR)(((ULONG)unalignedSectorBuffer+bps) & ~(bps-1));
 
-    // open entire disk (partition 0)
+        // open entire disk (partition 0)
 
-    if ((status = LowOpenDisk(diskName, &handle)) != OK_STATUS) {
-        return EC(status);
-    }
+        if ((status = LowOpenDisk(diskName, &handle)) != OK_STATUS) {
+            return EC(status);
+        }
 
-    // read (at least) first 512 bytes
+        // read (at least) first 512 bytes
 
-    status = LowReadSectors(handle, bps, 0, 1, sectorBuffer);
-    if (status == OK_STATUS) {
+        status = LowReadSectors(handle, bps, 0, 1, sectorBuffer);
+        if (status == OK_STATUS) {
 
-        if ((sectorBuffer[MBOOT_SIG_OFFSET+0] != MBOOT_SIG1)
-        ||  (sectorBuffer[MBOOT_SIG_OFFSET+1] != MBOOT_SIG2)) {
+            if ((sectorBuffer[MBOOT_SIG_OFFSET+0] != MBOOT_SIG1)
+            ||  (sectorBuffer[MBOOT_SIG_OFFSET+1] != MBOOT_SIG2)) {
 
-            // xfer boot code into sectorBuffer
+                // xfer boot code into sectorBuffer
 
-            for (i=0; i<MBOOT_CODE_SIZE; i++) {
-                sectorBuffer[i] = x86BootCode[i];
+                for (i=0; i<MBOOT_CODE_SIZE; i++) {
+                    sectorBuffer[i] = x86BootCode[i];
+                }
+
+                // wipe partition table
+
+                for (i=MBOOT_CODE_SIZE; i<MBOOT_SIG_OFFSET; i++) {
+                    sectorBuffer[i] = 0;
+                }
+
+                // set the signature
+
+                sectorBuffer[MBOOT_SIG_OFFSET+0] = MBOOT_SIG1;
+                sectorBuffer[MBOOT_SIG_OFFSET+1] = MBOOT_SIG2;
+
+                writeIt = TRUE;
             }
 
-            // wipe partition table
-
-            for (i=MBOOT_CODE_SIZE; i<MBOOT_SIG_OFFSET; i++) {
-                sectorBuffer[i] = 0;
+            if (writeIt) {
+                status = LowWriteSectors(handle, bps, 0, 1, sectorBuffer);
             }
-
-            // set the signature
-
-            sectorBuffer[MBOOT_SIG_OFFSET+0] = MBOOT_SIG1;
-            sectorBuffer[MBOOT_SIG_OFFSET+1] = MBOOT_SIG2;
-
-            writeIt = TRUE;
         }
 
-        if (SetSignature) {
-            *(PULONG)(sectorBuffer+0x1b8) = Signature;
-            writeIt = TRUE;
-        }
+        LowCloseDisk(handle);
+        Free(unalignedSectorBuffer);
+    }
 
-        if (writeIt) {
-            status = LowWriteSectors(handle, bps, 0, 1, sectorBuffer);
+    if (SetSignature) {
+        PDRIVE_LAYOUT_INFORMATION layout;
+
+        // Use the IOCTL to set the signature.  This code really does
+        // not know where the MBR exists.  (ezDrive extensions).
+
+        status = LowGetDiskLayout(diskName, &layout);
+
+        if (status == OK_STATUS) {
+            layout->Signature = Signature;
+            LowSetDiskLayout(diskName, layout);
         }
     }
 
-    LowCloseDisk(handle);
-
-    // free the sector buffer
-
-    Free(unalignedSectorBuffer);
     return EC(status);
 }
 
@@ -908,9 +930,18 @@ MakePartitionActive(
 
 Routine Description:
 
+    Update the information in the internal structures to indicate
+    that the specified partition is active.
+
 Arguments:
 
+    DiskRegionArray
+    RegionCount
+    RegionIndex
+
 Return Value:
+
+    None
 
 --*/
 
@@ -987,7 +1018,7 @@ Return Values:
         // just use the first character before the colon
         // and assume that's the drive letter.
 
-        p = strchr(strlwr(ansiPageFileName.Buffer), ':');
+        p = strchr(_strlwr(ansiPageFileName.Buffer), ':');
 
         if ((p-- != NULL) && (*p >= 'a') && (*p <= 'z')) {
 

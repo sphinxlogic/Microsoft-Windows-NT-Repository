@@ -46,6 +46,7 @@ VOID ReadRegistry(VOID);
 VOID WriteRegistry(VOID);
 INT Message(UINT fuStyle, LPSTR pszFormat, ...);
 VOID SetSpyCaption(VOID);
+LPTSTR LoadResourceString(UINT wId);
 
 
 //

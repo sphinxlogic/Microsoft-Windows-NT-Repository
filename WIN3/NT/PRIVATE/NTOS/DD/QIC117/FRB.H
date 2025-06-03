@@ -5,7 +5,7 @@ All Rights Reserved
 
 Module Name:
 
-    cms.h
+    frb.h
 
 Abstract:
 
@@ -65,7 +65,29 @@ typedef struct _CMS_RW_ABS {
     ULONG Count;    // Number of blocks to read/write
     ULONG Status;   // CMS Status of operation
     ULONG BadMap;   // in: bad sectors,  out: sector failures
+    ULONG flags;    // operation flags:
+#define RW_ABS_DOECC    1
+#define RW_ABS_DOENCODE 2
+#define RW_ABS_USEBSM   4
 } CMS_RW_ABS, *PCMS_RW_ABS;
 
 #define IOCTL_CMS_READ_ABS_BLOCK CTL_CODE(FILE_DEVICE_TAPE, 0x5501, METHOD_BUFFERED, FILE_READ_ACCESS | FILE_WRITE_ACCESS)
 
+
+#define IOCTL_CMS_DETECT_DEVICE CTL_CODE(FILE_DEVICE_TAPE, 0x5502, METHOD_BUFFERED, FILE_READ_ACCESS | FILE_WRITE_ACCESS)
+
+typedef struct _CMS_DETECT {
+
+    ULONG               driveConfigStatus;
+    DeviceCfg           driveConfig;
+
+    ULONG               driveDescriptorStatus;
+    DeviceDescriptor    driveDescriptor;
+
+    ULONG               driveInfoStatus;
+    DeviceInfo          driveInfo;
+
+    ULONG               tapeConfigStatus;
+    CQDTapeCfg          tapeConfig;
+
+} CMS_DETECT, *PCMS_DETECT;

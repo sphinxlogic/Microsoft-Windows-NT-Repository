@@ -89,7 +89,7 @@ Return Value:
     // Get a copy of the latest server statistics.
     //
 
-    SrvUpdateStatisticsFromShadow( &capturedStats );
+    SrvUpdateStatisticsFromQueues( &capturedStats );
 
     //
     // Fill in the fields in the statistics structure.

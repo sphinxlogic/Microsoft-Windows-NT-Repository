@@ -49,7 +49,7 @@ Revision History:
 
 // Level 0.
 #define MAX_SESSION_0_STRING_LENGTH \
-        (LM20_CNLEN+1)
+        (MAX_PATH+1)
 #define MAX_SESSION_0_STRING_SIZE \
         (MAX_SESSION_0_STRING_LENGTH * sizeof(TCHAR))
 
@@ -67,7 +67,7 @@ Revision History:
 
 // Level 10 is unique.
 #define MAX_SESSION_10_STRING_LENGTH \
-        (LM20_CNLEN+1 + LM20_UNLEN+1)
+        (MAX_PATH+1 + LM20_UNLEN+1)
 #define MAX_SESSION_10_STRING_SIZE \
         (MAX_SESSION_10_STRING_LENGTH * sizeof(TCHAR))
 
@@ -136,16 +136,16 @@ NetpSessionStructureInfo (
 
     IF_DEBUG(STRUCINF) {
         if (DataDesc16) {
-            NetpDbgPrint( "NetpSessionStructureInfo: desc 16 is " FORMAT_LPDESC
-                    ".\n", *DataDesc16 );
+            NetpKdPrint(( "NetpSessionStructureInfo: desc 16 is " FORMAT_LPDESC
+                    ".\n", *DataDesc16 ));
         }
         if (DataDesc32) {
-            NetpDbgPrint( "NetpSessionStructureInfo: desc 32 is " FORMAT_LPDESC
-                    ".\n", *DataDesc32 );
+            NetpKdPrint(( "NetpSessionStructureInfo: desc 32 is " FORMAT_LPDESC
+                    ".\n", *DataDesc32 ));
         }
         if (DataDescSmb) {
-            NetpDbgPrint( "NetpSessionStructureInfo: desc Smb is " FORMAT_LPDESC
-                    ".\n", *DataDescSmb );
+            NetpKdPrint(( "NetpSessionStructureInfo: desc Smb is " FORMAT_LPDESC
+                    ".\n", *DataDescSmb ));
         }
     }
     return (NERR_Success);

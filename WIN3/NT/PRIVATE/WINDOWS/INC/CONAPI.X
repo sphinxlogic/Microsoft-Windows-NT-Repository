@@ -25,7 +25,7 @@ VOID
 WINAPI
 SetLastConsoleEventActive( VOID );
 
-#define VDM_HIDE_WINDOW 	1
+#define VDM_HIDE_WINDOW         1
 #define VDM_IS_ICONIC           2
 #define VDM_CLIENT_RECT         3
 #define VDM_CLIENT_TO_SCREEN    4
@@ -51,6 +51,12 @@ WINAPI
 SetConsoleFont(
     HANDLE hConsoleOutput,
     DWORD nFont
+    );
+
+BOOL
+WINAPI
+SetConsoleIcon(
+    HICON hIcon
     );
 
 BOOL
@@ -265,6 +271,25 @@ SetConsoleMenuClose(
     BOOL bEnable
     );
 
+DWORD
+GetConsoleInputExeName%(
+    IN DWORD nBufferLength,
+    OUT LPTSTR% lpBuffer
+    );
+
+BOOL
+SetConsoleInputExeName%(
+    IN LPTSTR% lpExeName
+    );
+
+typedef struct _CONSOLE_READCONSOLE_CONTROL {
+    IN ULONG nLength;           // sizeof( CONSOLE_READCONSOLE_CONTROL )
+    IN ULONG nInitialChars;
+    IN ULONG dwCtrlWakeupMask;
+    OUT ULONG dwControlKeyState;
+} CONSOLE_READCONSOLE_CONTROL, *PCONSOLE_READCONSOLE_CONTROL;
+
+
 #define CONSOLE_ADD_SUBST 1
 #define CONSOLE_REMOVE_SUBST 2
 #define CONSOLE_QUERY_SUBST 3
@@ -275,6 +300,21 @@ ConsoleSubst(
     IN DWORD dwFlag,
     IN OUT LPWSTR lpPhysicalDriveBuffer,
     IN DWORD dwPhysicalDriveBufferLength
+    );
+
+#define CONSOLE_READ_NOREMOVE   0x0001
+#define CONSOLE_READ_NOWAIT     0x0002
+
+#define CONSOLE_READ_VALID      (CONSOLE_READ_NOREMOVE | CONSOLE_READ_NOWAIT)
+
+BOOL
+WINAPI
+ReadConsoleInputEx%(
+    HANDLE hConsoleInput,
+    PINPUT_RECORD lpBuffer,
+    DWORD nLength,
+    LPDWORD lpNumberOfEventsRead,
+    USHORT wFlags
     );
 
 BOOL

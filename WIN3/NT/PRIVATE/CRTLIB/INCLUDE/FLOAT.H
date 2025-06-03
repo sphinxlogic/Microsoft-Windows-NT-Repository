@@ -156,11 +156,7 @@ unsigned int _CRTAPI1 _control87(unsigned int,unsigned int);
 
 #define _CW_DEFAULT ( _RC_NEAR + _PC_64 + _EM_INVALID + _EM_ZERODIVIDE + _EM_OVERFLOW + _EM_UNDERFLOW + _EM_INEXACT )
 
-#elif   defined(_M_MRX000) || defined(_MIPS_)
-
-#define _CW_DEFAULT ( _RC_NEAR + _DN_FLUSH + _EM_INVALID + _EM_ZERODIVIDE + _EM_OVERFLOW + _EM_UNDERFLOW + _EM_INEXACT )
-
-#elif   defined(_M_ALPHA) || defined (_ALPHA_)
+#elif	defined(_M_MRX000) || defined (_M_ALPHA) || defined(_M_PPC)
 
 #define _CW_DEFAULT ( _RC_NEAR + _DN_FLUSH + _EM_INVALID + _EM_ZERODIVIDE + _EM_OVERFLOW + _EM_UNDERFLOW + _EM_INEXACT )
 

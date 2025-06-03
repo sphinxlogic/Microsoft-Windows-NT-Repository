@@ -1166,13 +1166,21 @@ Return Value:
 
         if ( !endpoint->IsConnectionless ) {
 
-            status = SrvIssueSendDatagramRequest(
+            if( endpoint->IsNoNetBios ) {
+                //
+                // Make mailslot sends over this transport "always work"
+                //
+                status = STATUS_SUCCESS;
+
+            } else {
+                status = SrvIssueSendDatagramRequest(
                          endpoint->FileObject,
                          &endpoint->DeviceObject,
                          connectionInformation,
                          Buffer,
                          BufferLength
                          );
+            }
 
             if ( !NT_SUCCESS(status) ) {
                 SrvPrint1( "SrvSendDatagram: SrvIssueSendDatagramRequest "
@@ -1379,4 +1387,3 @@ SrvLengthOfStringInApiBuffer (
     return UnicodeString->Length + sizeof(UNICODE_NULL);
 
 } // SrvLengthOfStringInApiBuffer
-

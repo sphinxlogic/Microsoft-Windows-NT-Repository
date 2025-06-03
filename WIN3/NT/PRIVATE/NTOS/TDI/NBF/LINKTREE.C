@@ -112,7 +112,7 @@ Return Value:
         // that's
         //
 
-        if (RtlLargeIntegerEqualTo (treeLink->MagicAddress, Link->MagicAddress)) {
+        if ((treeLink->MagicAddress).QuadPart == (Link->MagicAddress).QuadPart) {
 
             //
             // First make sure we don't have the splay tree in a loop.
@@ -167,7 +167,7 @@ Return Value:
         // traverse the tree for the correct spot
         //
 
-        if (RtlLargeIntegerLessThan (Link->MagicAddress, treeLink->MagicAddress)) {
+        if ((Link->MagicAddress).QuadPart < (treeLink->MagicAddress).QuadPart) {
             if ((linkLink = RtlLeftChild (linkLink)) == NULL) {
                 IF_NBFDBG(NBF_DEBUG_LINKTREE) {
                     NbfPrint0 ("NbfAddLinkToTree: Adding link as LC.\n");
@@ -311,7 +311,7 @@ Return Value:
 
     ASSERT (DeviceContext->LastLink != NULL);
 
-    if (RtlLargeIntegerEqualTo (DeviceContext->LastLink->MagicAddress, Magic)) {
+    if ((DeviceContext->LastLink->MagicAddress).QuadPart == Magic.QuadPart) {
 
         link = DeviceContext->LastLink;
 
@@ -336,14 +336,14 @@ Return Value:
                     Magic.HighPart, Magic.LowPart);
             }
 
-            if (RtlLargeIntegerEqualTo (link->MagicAddress, Magic)) {
+            if ((link->MagicAddress).QuadPart == Magic.QuadPart) {
                 IF_NBFDBG(NBF_DEBUG_LINKTREE) {
                     NbfPrint0 ("NbfFindLinkInTree: equal, going to end.\n");
                 }
                 break;
 
             } else {
-                if (RtlLargeIntegerLessThan (link->MagicAddress, Magic)) {
+                if ((link->MagicAddress).QuadPart < Magic.QuadPart) {
                     if ((linkLink = RtlRightChild (linkLink)) == NULL) {
 
                         IF_NBFDBG(NBF_DEBUG_LINKTREE) {

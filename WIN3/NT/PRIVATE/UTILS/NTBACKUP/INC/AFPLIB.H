@@ -83,4 +83,4 @@ INT16 AFP_LowLevelOpen( FSYS_HAND, AFP_FDB_PTR, UINT8 *, UINT8, UINT32 *, INT8 )
 
 VOID ConvertHandAFP( FSYS_HAND fsh, CHAR_PTR net_hand, UINT32 fork_size,
   UINT8 mode, UINT8 *dos_hand );
-
+

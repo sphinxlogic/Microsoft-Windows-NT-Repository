@@ -378,7 +378,7 @@ VOID TokenizeFsmDef(
 
         // search the token
         for (i = 0; aFsmKeys[i].pszToken != NULL; i++)
-            if (!stricmp( aFsmKeys[i].pszToken, pszToken ))
+            if (!_stricmp( aFsmKeys[i].pszToken, pszToken ))
                 break;
         *pusToken = aFsmKeys[i].usToken;
 

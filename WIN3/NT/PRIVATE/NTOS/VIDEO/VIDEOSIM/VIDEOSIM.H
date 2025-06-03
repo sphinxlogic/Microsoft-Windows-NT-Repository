@@ -26,9 +26,7 @@ Revision History:
 typedef struct _HW_DEVICE_EXTENSION {
     PVOID VideoRamBase;
     ULONG VideoRamLength;
-    ULONG FrameLength;
     ULONG CurrentModeNumber;
-    HANDLE SectionHandle;
 } HW_DEVICE_EXTENSION, *PHW_DEVICE_EXTENSION;
 
 

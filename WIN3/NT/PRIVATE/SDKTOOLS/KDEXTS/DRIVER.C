@@ -22,12 +22,22 @@ Revision History:
 
 --*/
 
+#include "precomp.h"
+#pragma hdrstop
+
 #include <time.h>
 
 VOID
 DumpDriver(
     PVOID DriverAddress,
     BOOLEAN FullDetail
+    );
+
+VOID
+DumpImage(
+    ULONG Base,
+    BOOL DoHeaders,
+    BOOL DoSections
     );
 
 
@@ -103,7 +113,7 @@ Return Value:
         return;
     }
 
-    buffer = malloc(driverObject.DriverName.MaximumLength);
+    buffer = LocalAlloc(LPTR, driverObject.DriverName.MaximumLength);
     if (buffer == NULL) {
         dprintf("Could not allocate %d bytes\n",
                 driverObject.DriverName.MaximumLength);
@@ -126,7 +136,7 @@ Return Value:
     } else {
         dprintf(" %wZ", &unicodeString);
     }
-    free(buffer);
+    LocalFree(buffer);
 
     if (FullDetail == TRUE) {
         dprintf("\n");
@@ -151,6 +161,7 @@ Return Value:
     }
 }
 
+UCHAR *PagedOut = {"Header Paged Out"};
 
 DECLARE_API( drivers )
 
@@ -186,10 +197,15 @@ Return Value:
     ULONG SizeOfCode;
     ULONG TotalCode = 0;
     ULONG TotalData = 0;
+    ULONG TotalValid = 0;
+    ULONG TotalTransition = 0;
     ULONG DosHeaderSize;
     ULONG TimeDateStamp;
     PUCHAR time;
+    ULONG Flags;
 
+    Flags = 0;
+    sscanf(args,"%lx",&Flags);
 
     ListHead = GetExpression( "PsLoadedModuleList" );
 
@@ -207,7 +223,11 @@ Return Value:
     }
 
     dprintf("Loaded System Driver Summary\n\n");
-    dprintf("Base       Code Size        Data Size       Driver Name        Creation Time\n");
+    if (Flags & 1) {
+        dprintf("Base       Code Size        Data Size       Resident  Standby   Driver Name\n");
+    } else {
+        dprintf("Base       Code Size        Data Size       Driver Name        Creation Time\n");
+    }
 
     Next = List.Flink;
     if (Next == NULL) {
@@ -254,65 +274,105 @@ Return Value:
                          &DosHeaderSize,
                          sizeof(ULONG),
                          &Result)) || (Result < sizeof(ULONG))) {
-            dprintf("Unable to read DosHeader at %08lx - status %08lx\n",
-                    &DosHeader->e_lfanew,
-                    Status);
-            return;
+            //dprintf("Unable to read DosHeader at %08lx - status %08lx\n",
+            //        &DosHeader->e_lfanew,
+            //        Status);
+
+            SizeOfCode = 0;
+            SizeOfData = 0;
+            time = PagedOut;
+        } else {
+
+            NtHeader = (PIMAGE_NT_HEADERS)((ULONG)DosHeader + DosHeaderSize);
+
+            if ((!ReadMemory((DWORD)&(NtHeader->OptionalHeader.SizeOfCode),
+                             &SizeOfCode,
+                             sizeof(ULONG),
+                             &Result)) || (Result < sizeof(ULONG))) {
+                dprintf("Unable to read DosHeader at %08lx - status %08lx\n",
+                        &(NtHeader->OptionalHeader.SizeOfCode),
+                        Status);
+                goto getnext;
+            }
+
+            if ((!ReadMemory((DWORD)&(NtHeader->OptionalHeader.SizeOfInitializedData),
+                             &SizeOfData,
+                             sizeof(ULONG),
+                             &Result)) || (Result < sizeof(ULONG))) {
+                dprintf("Unable to read DosHeader at %08lx - status %08lx\n",
+                        &(NtHeader->OptionalHeader.SizeOfCode),
+                        Status);
+                goto getnext;
+            }
+
+            if ((!ReadMemory((DWORD)&(NtHeader->FileHeader.TimeDateStamp),
+                             &TimeDateStamp,
+                             sizeof(ULONG),
+                             &Result)) || (Result < sizeof(ULONG))) {
+                dprintf("Unable to read DosHeader at %08lx - status %08lx\n",
+                        &(NtHeader->FileHeader.TimeDateStamp),
+                        Status);
+                goto getnext;
+            }
+
+            time = ctime((time_t *)&TimeDateStamp);
+            time[strlen(time)-1] = 0;
         }
 
-        NtHeader = (PIMAGE_NT_HEADERS)((ULONG)DosHeader + DosHeaderSize);
+        if (Flags & 1) {
+            PCHAR Va;
+            PCHAR EndVa;
+            ULONG States[3] = {0,0,0};
 
-        if ((!ReadMemory((DWORD)&(NtHeader->OptionalHeader.SizeOfCode),
-                         &SizeOfCode,
-                         sizeof(ULONG),
-                         &Result)) || (Result < sizeof(ULONG))) {
-            dprintf("Unable to read DosHeader at %08lx - status %08lx\n",
-                    &(NtHeader->OptionalHeader.SizeOfCode),
-                    Status);
-            return;
+            Va = DataTableBuffer.DllBase;
+            EndVa = Va + DataTableBuffer.SizeOfImage;
+
+            while (Va < EndVa) {
+                States[GetAddressState((PVOID)Va)] += PAGE_SIZE/1024;
+                Va += PAGE_SIZE;
+            }
+            dprintf("%08lx %6lx (%4ld kb) %6lx (%4ld kb) (%5ld kb %5ld kb) %12wZ\n",
+                     DataTableBuffer.DllBase,
+                     SizeOfCode,
+                     SizeOfCode / 1024,
+                     SizeOfData,
+                     SizeOfData / 1024,
+                     States[ADDRESS_VALID],
+                     States[ADDRESS_TRANSITION],
+                     &BaseName);
+            TotalValid += States[ADDRESS_VALID];
+            TotalTransition += States[ADDRESS_TRANSITION];
+        } else {
+
+             dprintf("%08lx %6lx (%4ld kb) %6lx (%4ld kb) %12wZ   %s\n",
+                      DataTableBuffer.DllBase,
+                      SizeOfCode,
+                      SizeOfCode / 1024,
+                      SizeOfData,
+                      SizeOfData / 1024,
+                      &BaseName,
+                      time);
         }
 
-        if ((!ReadMemory((DWORD)&(NtHeader->OptionalHeader.SizeOfInitializedData),
-                         &SizeOfData,
-                         sizeof(ULONG),
-                         &Result)) || (Result < sizeof(ULONG))) {
-            dprintf("Unable to read DosHeader at %08lx - status %08lx\n",
-                    &(NtHeader->OptionalHeader.SizeOfCode),
-                    Status);
-            return;
+        if (Flags & 6) {
+            DumpImage((ULONG)DataTableBuffer.DllBase,
+                     (Flags & 2) == 2,
+                     (Flags & 4) == 4
+                     );
         }
-
-        if ((!ReadMemory((DWORD)&(NtHeader->FileHeader.TimeDateStamp),
-                         &TimeDateStamp,
-                         sizeof(ULONG),
-                         &Result)) || (Result < sizeof(ULONG))) {
-            dprintf("Unable to read DosHeader at %08lx - status %08lx\n",
-                    &(NtHeader->FileHeader.TimeDateStamp),
-                    Status);
-            return;
-        }
-
-        time = ctime((time_t *)&TimeDateStamp);
-
-        dprintf("%08lx %6lx (%4ld kb) %6lx (%4ld kb) %12wZ   %s\n",
-                 DataTableBuffer.DllBase,
-                 SizeOfCode,
-                 SizeOfCode / 1024,
-                 SizeOfData,
-                 SizeOfData / 1024,
-                 &BaseName,
-                 time);
 
         TotalCode += SizeOfCode;
         TotalData += SizeOfData;
-
+getnext:
         Next = DataTableBuffer.InLoadOrderLinks.Flink;
     }
 
-    dprintf("TOTAL:   %6lx (%4ld kb) %6lx (%4ld kb)\n",
+    dprintf("TOTAL:   %6lx (%4ld kb) %6lx (%4ld kb) (%5ld kb %5ld kb)\n",
             TotalCode,
             TotalCode / 1024,
             TotalData,
-            TotalData / 1024);
+            TotalData / 1024,
+            TotalValid,
+            TotalTransition);
 
 }

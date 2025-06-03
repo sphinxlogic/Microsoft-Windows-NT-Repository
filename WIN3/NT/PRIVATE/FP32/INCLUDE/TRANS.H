@@ -19,6 +19,7 @@
 *   09-06-92    GDP     include cruntime.h, calling convention macros
 *   07-16-93    SRW     ALPHA Merge
 *   01-13-94    RDL	Added #ifndef _LANGUAGE_ASSEMBLY for asm includes.
+*   10-02-94    BWT     PPC merge
 *
 *******************************************************************************/
 #ifndef _INC_TRANS
@@ -91,7 +92,7 @@ extern "C" {
 #define IS_D_SPECIAL(x)	((*D_EXP(x) & 0x7ff0) == 0x7ff0)
 #define IS_D_NAN(x) (IS_D_SPECIAL(x) && !D_ISINF(x))
 
-#ifdef MIPS
+#ifdef  _M_MRX000
 
 #define IS_D_SNAN(x)	((*D_EXP(x) & 0x7ff8) == 0x7ff8)
 #define IS_D_QNAN(x)	((*D_EXP(x) & 0x7ff8) == 0x7ff0 && \
@@ -110,7 +111,7 @@ extern "C" {
 #define IS_D_INF(x)  (*D_HI(x) == 0x7ff00000 && *D_LO(x) == 0)
 #define IS_D_MINF(x) (*D_HI(x) == 0xfff00000 && *D_LO(x) == 0)
 
-#ifdef MIPS
+#ifdef  _M_MRX000
 #define D_IND_HI 0x7ff7ffff
 #define D_IND_LO 0xffffffff
 #else
@@ -143,7 +144,9 @@ extern _dbl _d_mzero;
 
 #endif  /* _LANGUAGE_ASSEMBLY */
 
-#ifdef i386
+
+#if defined(_M_IX86)
+
 
 /* Control word for computation of transcendentals */
 #define ICW	   0x133f
@@ -181,11 +184,10 @@ extern _dbl _d_mzero;
 #define IIC_AFFINE	0x1000		/*   affine */
 #define IIC_PROJECTIVE	0x0000		/*   projective */
 
-#endif
+
+#elif defined(_M_MRX000)
 
 
-
-#ifdef MIPS
 #define ICW		0x00000f80		/* Internal CW for transcendentals */
 #define IMCW		0xffffff83		/* Internal CW Mask */
 
@@ -210,9 +212,9 @@ extern _dbl _d_mzero;
 #define ISW_UNDERFLOW	(1<<3)	/* underflow */
 #define ISW_INEXACT	(1<<2)	/* inexact (precision) */
 
-#endif
 
-#ifdef _ALPHA_
+#elif defined(_M_ALPHA)
+
 
 //
 // ICW is the Internal Control Word for transcendentals: all five exceptions
@@ -264,25 +266,57 @@ extern _dbl _d_mzero;
 #define ISW_ZERODIVIDE	0x00040000	/* zero divide */
 #define ISW_INVALID	0x00020000	/* invalid */
 
+
+#elif defined(_M_PPC)
+
+
+#define IMCW_EM         0x000000f8	/* Exception Enable Mask    */
+
+#define IEM_INVALID     0x00000080	/*   invalid                */
+#define IEM_OVERFLOW    0x00000040	/*   overflow               */
+#define IEM_UNDERFLOW   0x00000020	/*   underflow              */
+#define IEM_ZERODIVIDE  0x00000010      /*   zero divide            */
+#define IEM_INEXACT     0x00000008	/*   inexact (precision)    */
+
+
+#define IMCW_RC         0x00000003      /* Rounding Control Mask    */
+
+#define IRC_NEAR        0x00000000      /*   near                   */
+#define IRC_CHOP        0x00000001      /*   chop                   */
+#define IRC_UP          0x00000002      /*   up                     */
+#define IRC_DOWN        0x00000003      /*   down                   */
+
+
+#define IMCW_SW		0x3E000000	/* Status Mask              */
+
+#define ISW_INVALID     0x20000000      /*   invalid summary        */
+#define ISW_OVERFLOW    0x10000000      /*   overflow               */
+#define ISW_UNDERFLOW   0x08000000      /*   underflow              */
+#define ISW_ZERODIVIDE  0x04000000      /*   zero divide            */
+#define ISW_INEXACT     0x02000000      /*   inexact (precision)    */
+
+
+#define IMCW_VX         0x01F80100      /* Invalid Cause Mask       */
+
+#define IVX_SNAN	0x01000000	/*   SNaN                   */
+#define IVX_ISI         0x00800000      /*   infinity - infinity    */
+#define IVX_IDI         0x00400000      /*   infinity / infinity    */
+#define IVX_ZDZ         0x00200000      /*   zero / zero            */
+#define IVX_IMZ         0x00100000      /*   infinity * zero        */
+#define IVX_VC          0x00080000      /*   inv flpt compare       */
+#define IVX_CVI         0x00000100      /*   inv integer convert    */
+
+
+/* Internal CW for transcendentals */
+
+#define ICW             (IMCW_EM)
+
+/* Internal CW Mask (non-status bits) */
+
+#define IMCW           (0xffffffff & (~(IMCW_SW|IMCW_VX)))
+
 #endif
 
-#ifdef M68K
-
-#include "trans.a"
-
-
-/* LATER -- we don't handle exception until Mac OS has better support on it */
-
-#define _except1(flags, op, arg1, res, cw) _errcode(flags), \
-					    _set_statfp(cw),(res)
-
-#define _except2(flags, op, arg1, arg2, res, cw) _errcode(flags), \
-					          _set_statfp(cw),(res)
-
-#define _handle_qnan1(opcode, x, savedcw) _set_errno(_DOMAIN), _rstorfp(savedcw), (x);
-#define _handle_qnan2(opcode, x, y, savedcw) _set_errno(_DOMAIN), _rstorfp(savedcw), (x+y);
-
-#endif /* M68K*/
 
 #ifndef _LANGUAGE_ASSEMBLY
 
@@ -307,8 +341,7 @@ extern _dbl _d_mzero;
 	    return _except2(FP_P, op, arg1, arg2, res, cw);	\
 	}
 
-
-#ifdef _ALPHA_
+#ifdef _M_ALPHA
 
 //
 // Since fp32 is not compiled in IEEE exception mode perform Alpha NaN
@@ -414,13 +447,18 @@ int _d_inttype(double);
 
 #ifndef _LANGUAGE_ASSEMBLY
 
+double _copysign(double x, double y);
 double _set_exp(double x, int exp);
 double _set_bexp(double x, int exp);
 double _add_exp(double x, int exp);
 double _frnd(double);
 double _fsqrt(double);
-#ifndef M68K
+/* Must have these declarations (or a suitable macro) or the C implementations
+ * of a great many FP functions fail badly when there is an exception */
+#ifndef	_except1
 double _except1(int flags, int opcode, double arg, double res, unsigned int cw);
+#endif
+#ifndef	_except2
 double _except2(int flags, int opcode, double arg1, double arg2, double res, unsigned int cw);
 #endif
 int _sptype(double);
@@ -430,10 +468,8 @@ int _powhlp(double x, double y, double * result);
 extern unsigned int _fpstatus;
 double _frnd(double);
 double _exphlp(double, int *);
-#ifndef M68K
 double _handle_qnan1(unsigned int op, double arg, unsigned int cw);
 double _handle_qnan2(unsigned int op,double arg1,double arg2,unsigned int cw);
-#endif
 unsigned int _clhwfp(void);
 unsigned int _setfpcw(unsigned int);
 int _errcode(unsigned int flags);
@@ -442,9 +478,7 @@ int _handle_exc(unsigned int flags, double * presult, unsigned int cw);
 unsigned int _clrfp(void);
 unsigned int _ctrlfp(unsigned int,unsigned int);
 unsigned int _statfp(void);
-#ifdef M68K
-void _set_statfp(unsigned int sw);
-#endif
+void _set_statfp(unsigned int);
 
 #endif  /* _LANGUAGE_ASSEMBLY */
 

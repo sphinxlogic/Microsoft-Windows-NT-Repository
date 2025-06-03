@@ -183,6 +183,10 @@ static STATS    op_stats;
 static INT      mw_oper_type;
 static INT      mw_rewind;
 
+#ifdef OEM_EMS
+extern INT32    RT_BSD_OsId ;
+#endif
+
 #ifdef OS_WIN32
 static UINT16   mwTapeSettlingCount,
                 tape_retries;
@@ -565,13 +569,13 @@ UINT16    mode )
                          WMMB_ICONEXCLAMATION, NULL, 0, 0 ) ;
 
           response = PromptNextTape( tpos, cur_vcb, curr_vcb_valid,
-                                        mode, tape_name, drive_name );
+                                        mode, NULL, drive_name );
           break;
 
      case TF_NO_TAPE_PRESENT:
 #ifdef OS_WIN32
           if( tape_retries ){
-              _sleep( 3000 ) ;
+              Sleep( 3000 ) ;
               response = UI_NEW_TAPE_INSERTED ;
               --tape_retries ;
               break ;
@@ -683,11 +687,7 @@ static VOID clock_routine( VOID )
          total_bytes = num_bytes;
          U64_Litoa( num_bytes, numeral, (INT16) 10, &stat ) ;
          UI_BuildNumeralWithCommas( numeral );
-#ifndef UNICODE
          yprintf(TEXT("%s\r"),numeral );
-#else //UNICODE
-         yprintf(TEXT("%ws\r"),numeral );
-#endif //UNICODE
          JobStatusBackupRestore( JOB_STATUS_BYTES_PROCESSED );
       }
 
@@ -716,39 +716,22 @@ static VOID clock_routine( VOID )
 
       if ( num_hours ) {                                    // chs:02-22-93 per mikep
                                                             // chs:02-22-93 per mikep
-#ifndef UNICODE                                             // chs:02-22-93 per mikep
          yprintf( TEXT("%2.2d%c%2.2d%c%2.2d\r"),            // chs:02-22-93 per mikep
                   num_hours, UI_GetTimeSeparator(),         // chs:02-22-93 per mikep
                   num_min,   UI_GetTimeSeparator(),         // chs:02-22-93 per mikep
                   num_seconds );                            // chs:02-22-93 per mikep
                                                             // chs:02-22-93 per mikep
-#else                                                       // chs:02-22-93 per mikep
-         yprintf( TEXT("%2.2d%wc%2.2d%wc%2.2d\r"),          // chs:02-22-93 per mikep
-                  num_hours,  UI_GetTimeSeparator(),        // chs:02-22-93 per mikep
-                  num_min, UI_GetTimeSeparator(),           // chs:02-22-93 per mikep
-                  num_seconds );                            // chs:02-22-93 per mikep
-#endif                                                      // chs:02-22-93 per mikep
                                                             // chs:02-22-93 per mikep
       }                                                     // chs:02-22-93 per mikep
       else {                                                // chs:02-22-93 per mikep
                                                             // chs:02-22-93 per mikep
-#ifndef UNICODE                                             // chs:02-22-93 per mikep
          yprintf( TEXT("%2.2d%c%2.2d\r"),                   // chs:02-22-93 per mikep
                   num_min, UI_GetTimeSeparator(),           // chs:02-22-93 per mikep
                   num_seconds );                            // chs:02-22-93 per mikep
-#else                                                       // chs:02-22-93 per mikep
-         yprintf( TEXT("%2.2d%wc%2.2d\r"),                  // chs:02-22-93 per mikep
-                  num_min, UI_GetTimeSeparator(),           // chs:02-22-93 per mikep
-                  num_seconds );                            // chs:02-22-93 per mikep
-#endif                                                      // chs:02-22-93 per mikep
 
       }
 
-// chs:02-22-93 per mikep #ifndef UNICODE
 // chs:02-22-93 per mikep       yprintf( TEXT("%2.2d%c%2.2d\r"), num_min, UI_GetTimeSeparator(), num_seconds );
-// chs:02-22-93 per mikep #else //UNICODE
-// chs:02-22-93 per mikep       yprintf( TEXT("%2.2d%wc%2.2d\r"), num_min, UI_GetTimeSeparator(), num_seconds );
-// chs:02-22-93 per mikep #endif //UNICODE
 
       JobStatusBackupRestore( JOB_STATUS_ELAPSED_TIME );
    }
@@ -820,11 +803,7 @@ TPOS_PTR  tpos,
                     delimiter = FS_GetDelimiterFromOSID( OS_id, OS_ver );
                     UI_BuildDelimitedPathFromDDB( &buffer, fsh, dblk_ptr, delimiter, FALSE );
                     if ( buffer != NULL ) {
-#ifndef UNICODE
                          yprintf( TEXT("%s"), buffer );
-#else //UNICODE
-                         yprintf( TEXT("%ws"), buffer );
-#endif //UNICODE
                          JobStatusBackupRestore( JOB_STATUS_DIRECTORY_NAMES );
 
                          ST_EndBackupSet( &op_stats );
@@ -1042,17 +1021,9 @@ TPOS_PTR  tpos,
                     UI_BuildFileDetail( buffer, fsh, dblk_ptr, FALSE );
 
                     if ( buffer != NULL ) {
-#ifndef UNICODE
                          yprintf( TEXT("%s"), buffer );
-#else //UNICODE
-                         yprintf( TEXT("%ws"), buffer );
-#endif //UNICODE
                          JobStatusBackupRestore( JOB_STATUS_LISTBOX );
-#ifndef UNICODE
                          lprintf( LOGGING_FILE, TEXT("  %s"), buffer );
-#else //UNICODE
-                         lprintf( LOGGING_FILE, TEXT("  %ws"), buffer );
-#endif //UNICODE
                     }
 
                     UI_AllocPathBuffer( &file_buf, FS_SizeofFnameInFDB( fsh, dblk_ptr ) ) ;
@@ -1162,22 +1133,10 @@ TPOS_PTR  tpos,
                                    UI_BuildFileDetail( buffer, fsh, tape_dblk_ptr, FALSE );
 
                                    if ( buffer != NULL ) {
-#ifndef UNICODE
                                         yprintf( TEXT("%s"), buffer );
-#else //UNICODE
-                                        yprintf( TEXT("%ws"), buffer );
-#endif //UNICODE
                                         JobStatusBackupRestore( JOB_STATUS_LISTBOX );
-#ifndef UNICODE
                                         lprintf( LOGGING_FILE, TEXT("  %s"), buffer );
-#else //UNICODE
-                                        lprintf( LOGGING_FILE, TEXT("  %ws"), buffer );
-#endif //UNICODE
-#ifndef UNICODE
                                         lprintf( VERIFY_FILE, TEXT("  %s"), buffer );
-#else //UNICODE
-                                        lprintf( VERIFY_FILE, TEXT("  %ws"), buffer );
-#endif //UNICODE
 
                                         yresprintf( (INT16) RES_ON_DISK );
                                         JobStatusBackupRestore( JOB_STATUS_LISTBOX );
@@ -1189,22 +1148,10 @@ TPOS_PTR  tpos,
 
                                    if ( buffer != NULL ) {
 
-#ifndef UNICODE
                                         yprintf( TEXT("%s"), buffer );
-#else //UNICODE
-                                        yprintf( TEXT("%ws"), buffer );
-#endif //UNICODE
                                         JobStatusBackupRestore( JOB_STATUS_LISTBOX );
-#ifndef UNICODE
                                         lprintf( LOGGING_FILE, TEXT("  %s"), buffer );
-#else //UNICODE
-                                        lprintf( LOGGING_FILE, TEXT("  %ws"), buffer );
-#endif //UNICODE
-#ifndef UNICODE
                                         lprintf( VERIFY_FILE, TEXT("  %s"), buffer );
-#else //UNICODE
-                                        lprintf( VERIFY_FILE, TEXT("  %ws"), buffer );
-#endif //UNICODE
 
                                    } else {
                                         yresprintf( (INT16) RES_OS_FILE_INFO_DIFFERENT, file_buf );
@@ -1359,11 +1306,7 @@ TPOS_PTR  tpos,
                               UI_BuildFullPathFromDDB( &buffer, fsh, ddb_dblk_ptr, delimiter, FALSE );
                               UI_AppendDelimiter( buffer, delimiter );
                               strcat( buffer, file_buf );
-#ifndef UNICODE
                               lprintf( VERIFY_FILE, TEXT("%s%s%s\n"),
-#else //UNICODE
-                              lprintf( VERIFY_FILE, TEXT("%ws%ws%ws\n"),
-#endif //UNICODE
                                       ( DLE_GetDeviceType( BSD_GetDLE( bsd_ptr ) ) == REMOTE_DOS_DRV ) ?
                                       TEXT("+") : TEXT(""),
                                       DLE_GetDeviceName( BSD_GetDLE( bsd_ptr ) ),
@@ -1422,11 +1365,7 @@ TPOS_PTR  tpos,
 
           U64_Litoa( num_bytes, numeral, (INT16) 10, &stat ) ;
           UI_BuildNumeralWithCommas( numeral );
-#ifndef UNICODE
           yprintf(TEXT("%s\r"),numeral );
-#else //UNICODE
-          yprintf(TEXT("%ws\r"),numeral );
-#endif //UNICODE
           JobStatusBackupRestore( JOB_STATUS_BYTES_PROCESSED );
 
           //  If the verify worked, blow away VERIFY.BKS
@@ -1435,11 +1374,7 @@ TPOS_PTR  tpos,
 
                RSM_StringCopy( IDS_VERIFY_JOBNAME, szFileName, MAX_UI_FILENAME_LEN );
 
-#ifndef UNICODE
                wsprintf ( szPathSpec, TEXT("%s%s%s"), CDS_GetUserDataPath(), szFileName, TEXT(".bks") );
-#else //UNICODE
-               wsprintf ( szPathSpec, TEXT("%ws%ws%ws"), CDS_GetUserDataPath(), szFileName, TEXT(".bks") );
-#endif //UNICODE
                remove ( szPathSpec );  //  if not found, it was never there
           }
 
@@ -1463,6 +1398,11 @@ TPOS_PTR  tpos,
 
                dle = BSD_GetDLE( bsd_ptr );
 
+#ifdef OEM_EMS
+               RT_BSD_OsId = DLE_GetOsId( dle );
+               JobStatusBackupRestore( (WORD) JOB_STATUS_FS_TYPE );
+#endif OEM_EMS
+
                if ( DLE_HasFeatures( dle, DLE_FEAT_REMOTE_DRIVE ) ) {
                    JobStatusBackupRestore( JOB_STATUS_VOLUME_NETDRIVE );
                }
@@ -1470,21 +1410,13 @@ TPOS_PTR  tpos,
                    JobStatusBackupRestore( JOB_STATUS_VOLUME_HARDDRIVE );
                }
 
-#ifndef UNICODE
                yprintf(TEXT("%s\r"),BSD_GetTapeLabel( bsd_ptr ));
-#else //UNICODE
-               yprintf(TEXT("%ws\r"),BSD_GetTapeLabel( bsd_ptr ));
-#endif //UNICODE
                JobStatusBackupRestore( JOB_STATUS_SOURCE_NAME );
 
                if ( buffer != NULL ) {
 
                     DLE_GetVolName( BSD_GetDLE( bsd_ptr ), buffer );
-#ifndef UNICODE
                     yprintf(TEXT("%s\r"), buffer );
-#else //UNICODE
-                    yprintf(TEXT("%ws\r"), buffer );
-#endif //UNICODE
 
                     JobStatusBackupRestore( JOB_STATUS_DEST_NAME );
 
@@ -1507,7 +1439,7 @@ TPOS_PTR  tpos,
                            buffer ,
                            BSD_GetSetNum( bsd_ptr ),
                            BSD_GetTapeNum( bsd_ptr ),
-                           BSD_GetBackupLabel( bsd_ptr ) ? (CHAR_PTR)BSD_GetBackupLabel( bsd_ptr ) : TEXT("\0") );
+                           (BSD_GetBackupLabel( bsd_ptr )!= NULL) ? (CHAR_PTR)BSD_GetBackupLabel( bsd_ptr ) : TEXT("\0") );
 
                     JobStatusBackupRestore( JOB_STATUS_LISTBOX );
 
@@ -1515,7 +1447,7 @@ TPOS_PTR  tpos,
                       buffer ,
                       BSD_GetSetNum( bsd_ptr ),
                       BSD_GetTapeNum( bsd_ptr ),
-                      BSD_GetBackupLabel( bsd_ptr ) ? (CHAR_PTR)BSD_GetBackupLabel( bsd_ptr ) : TEXT("\0") ); // chs:05-18-93
+                      (BSD_GetBackupLabel( bsd_ptr ) != NULL) ? (CHAR_PTR)BSD_GetBackupLabel( bsd_ptr ) : TEXT("\0") ); // chs:05-18-93
 
                }
 
@@ -1578,30 +1510,34 @@ TPOS_PTR  tpos,
 
                /* produce stats for dirs & files */
                /* display number of files / number of dirs */
-               if( ST_GetFilesVerified( &op_stats ) == 1 &&
-                   ST_GetBSDirsProcessed( &op_stats ) == 1) {
-                       res_id = RES_VERIFIED_DIR_FILE;
-               }
-               else if( ST_GetFilesVerified( &op_stats ) == 1 &&
-                        ST_GetBSDirsProcessed( &op_stats ) > 1) {
-                    res_id = RES_VERIFIED_DIRS_FILE;
-               }
-               else if( ST_GetBSDirsProcessed( &op_stats ) == 1 &&
-                        ST_GetFilesVerified( &op_stats ) > 1) {
-                    res_id = RES_VERIFIED_DIR_FILES;
-               }
-               else {
-                    res_id = RES_VERIFIED_DIRS_FILES;
-               }
+               dle = BSD_GetDLE( bsd_ptr );
+               if ( DLE_GetDeviceType( dle ) != FS_EMS_DRV ) {
 
-               yresprintf( res_id,
-                           ST_GetFilesVerified( &op_stats ),
-                           ST_GetBSDirsProcessed( &op_stats ) );
-               JobStatusBackupRestore( JOB_STATUS_LISTBOX );
+                    if( ST_GetFilesVerified( &op_stats ) == 1 &&
+                        ST_GetBSDirsProcessed( &op_stats ) == 1) {
+                            res_id = RES_VERIFIED_DIR_FILE;
+                    }
+                    else if( ST_GetFilesVerified( &op_stats ) == 1 &&
+                             ST_GetBSDirsProcessed( &op_stats ) > 1) {
+                         res_id = RES_VERIFIED_DIRS_FILE;
+                    }
+                    else if( ST_GetBSDirsProcessed( &op_stats ) == 1 &&
+                             ST_GetFilesVerified( &op_stats ) > 1) {
+                         res_id = RES_VERIFIED_DIR_FILES;
+                    }
+                    else {
+                         res_id = RES_VERIFIED_DIRS_FILES;
+                    }
 
-               lresprintf( LOGGING_FILE, LOG_MSG, SES_ENG_MSG, res_id,
-                           ST_GetFilesVerified( &op_stats ),
-                           ST_GetBSDirsProcessed( &op_stats ) );
+                    yresprintf( res_id,
+                                ST_GetFilesVerified( &op_stats ),
+                                ST_GetBSDirsProcessed( &op_stats ) );
+                    JobStatusBackupRestore( JOB_STATUS_LISTBOX );
+
+                    lresprintf( LOGGING_FILE, LOG_MSG, SES_ENG_MSG, res_id,
+                                ST_GetFilesVerified( &op_stats ),
+                                ST_GetBSDirsProcessed( &op_stats ) );
+               }
 
                /* display number of mac files verified */
                if( ST_GetBSAFPFilesProcessed( &op_stats ) > 0 ) {

@@ -380,4 +380,3 @@ fnVisiMode()
         TrashAllWws();
 }
 #endif /* CASHMERE */
-

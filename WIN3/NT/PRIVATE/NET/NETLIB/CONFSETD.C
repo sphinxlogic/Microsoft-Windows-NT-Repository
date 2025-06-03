@@ -77,9 +77,9 @@ NetpSetConfigDword (
                 sizeof(DWORD) );          // byte count for data
 
         IF_DEBUG(CONFIG) {
-            NetpDbgPrint( PREFIX_NETLIB "NetpSetConfigDword: RegSetValueEx("
+            NetpKdPrint(( PREFIX_NETLIB "NetpSetConfigDword: RegSetValueEx("
                     FORMAT_LPTSTR ") returned " FORMAT_LONG ".\n",
-                    Keyword, Error );
+                    Keyword, Error ));
         }
 
         return ( (NET_API_STATUS) Error );

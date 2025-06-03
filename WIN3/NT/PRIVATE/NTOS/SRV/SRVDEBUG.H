@@ -20,6 +20,8 @@
 #undef SRVDBG2
 #define SRVDBG2 0
 
+#define SRVFASTCALL FASTCALL
+
 #else
 
 #ifndef SRVDBG
@@ -29,6 +31,8 @@
 #define SRVDBG2 0
 #endif
 
+#define SRVFASTCALL
+
 #endif
 
 #ifndef SRVDBG_LIST
@@ -36,9 +40,6 @@
 #endif
 #ifndef SRVDBG_LOCK
 #define SRVDBG_LOCK 0
-#endif
-#ifndef SRVDBG_HEAP
-#define SRVDBG_HEAP 0
 #endif
 #ifndef SRVDBG_STATS
 #define SRVDBG_STATS 0
@@ -74,10 +75,17 @@
 #else
 
 #define DEBUG if (TRUE)
-#define IF_DEBUG(flag) if (SrvDebug & (DEBUG_ ## flag))
-extern ULONG SrvDebug;
-#define IF_SMB_DEBUG(flag) if (SmbDebug & (DEBUG_SMB_ ## flag))
-extern ULONG SmbDebug;
+//
+// We shouldn't have to futz around with LowPart and HighPart, but the x86 compiler
+//   is generating incorrect code for bit testing 64 bit quantities (12/16/94)
+//
+#define	IF_DEBUG(flag) if( (SrvDebug.u.LowPart  & (ULONG)(DEBUG_ ## flag)) || \
+                           (SrvDebug.u.HighPart & (ULONG)(DEBUG_ ## flag >> 32)) )
+extern ULARGE_INTEGER SrvDebug;
+
+#define	IF_SMB_DEBUG(flag) if( (SmbDebug.u.LowPart  & (ULONG)(DEBUG_SMB_ ## flag)) || \
+                           (SmbDebug.u.HighPart & (ULONG)(DEBUG_SMB_ ## flag >> 32)) )
+extern ULARGE_INTEGER SmbDebug;
 
 #define SrvPrint0(fmt) DbgPrint((fmt))
 #define SrvPrint1(fmt,v0) DbgPrint((fmt),(v0))
@@ -87,94 +95,110 @@ extern ULONG SmbDebug;
 
 #define PRINT_LITERAL(literal) DbgPrint( #literal" = %lx\n", (literal) )
 
-#define DEBUG_TRACE1              0x00000001
-#define DEBUG_TRACE2              0x00000002
-#define DEBUG_REFCNT              0x00000004
-#define DEBUG_HEAP                0x00000008
+#define DEBUG_TRACE1              (ULONGLONG)0x0000000000000001
+#define DEBUG_TRACE2              (ULONGLONG)0x0000000000000002
+#define DEBUG_REFCNT              (ULONGLONG)0x0000000000000004
+#define DEBUG_HEAP                (ULONGLONG)0x0000000000000008
 
-#define DEBUG_WORKER1             0x00000010
-#define DEBUG_WORKER2             0x00000020
-#define DEBUG_NET1                0x00000040
-#define DEBUG_NET2                0x00000080
+#define DEBUG_WORKER1             (ULONGLONG)0x0000000000000010
+#define DEBUG_WORKER2             (ULONGLONG)0x0000000000000020
+#define DEBUG_NET1                (ULONGLONG)0x0000000000000040
+#define DEBUG_NET2                (ULONGLONG)0x0000000000000080
 
-#define DEBUG_FSP1                0x00000100
-#define DEBUG_FSP2                0x00000200
-#define DEBUG_FSD1                0x00000400
-#define DEBUG_FSD2                0x00000800
+#define DEBUG_FSP1                (ULONGLONG)0x0000000000000100
+#define DEBUG_FSP2                (ULONGLONG)0x0000000000000200
+#define DEBUG_FSD1                (ULONGLONG)0x0000000000000400
+#define DEBUG_FSD2                (ULONGLONG)0x0000000000000800
 
-#define DEBUG_SCAV1               0x00001000
-#define DEBUG_SCAV2               0x00002000
-#define DEBUG_BLOCK1              0x00004000
-#define DEBUG_IPX_PIPES           0x00008000
+#define DEBUG_SCAV1               (ULONGLONG)0x0000000000001000
+#define DEBUG_SCAV2               (ULONGLONG)0x0000000000002000
+#define DEBUG_BLOCK1              (ULONGLONG)0x0000000000004000
+#define DEBUG_IPX_PIPES           (ULONGLONG)0x0000000000008000
 
-#define DEBUG_HANDLES             0x00010000
-#define DEBUG_IPX                 0x00020000
-#define DEBUG_TDI                 0x00040000
-#define DEBUG_OPLOCK              0x00080000
+#define DEBUG_HANDLES             (ULONGLONG)0x0000000000010000
+#define DEBUG_IPX                 (ULONGLONG)0x0000000000020000
+#define DEBUG_TDI                 (ULONGLONG)0x0000000000040000
+#define DEBUG_OPLOCK              (ULONGLONG)0x0000000000080000
 
-#define DEBUG_NETWORK_ERRORS      0x00100000
-#define DEBUG_FILE_CACHE          0x00200000
-#define DEBUG_IPX2                0x00400000
-#define DEBUG_LOCKS               0x00800000
+#define DEBUG_NETWORK_ERRORS      (ULONGLONG)0x0000000000100000
+#define DEBUG_FILE_CACHE          (ULONGLONG)0x0000000000200000
+#define DEBUG_IPX2                (ULONGLONG)0x0000000000400000
+#define DEBUG_LOCKS               (ULONGLONG)0x0000000000800000
 
-#define DEBUG_SEARCH              0x01000000
-#define DEBUG_BRUTE_FORCE_REWIND  0x02000000
-#define DEBUG_COMM                0x04000000
-#define DEBUG_XACTSRV             0x08000000
+#define DEBUG_SEARCH              (ULONGLONG)0x0000000001000000
+#define DEBUG_BRUTE_FORCE_REWIND  (ULONGLONG)0x0000000002000000
+#define DEBUG_COMM                (ULONGLONG)0x0000000004000000
+#define DEBUG_XACTSRV             (ULONGLONG)0x0000000008000000
 
-#define DEBUG_API_ERRORS          0x10000000
-#define DEBUG_STOP_ON_ERRORS      0x20000000 // If set, stop on internal errs
-#define DEBUG_SMB_ERRORS          0x40000000
-#define DEBUG_ERRORS              0x80000000
+#define DEBUG_API_ERRORS          (ULONGLONG)0x0000000010000000
+#define DEBUG_STOP_ON_ERRORS      (ULONGLONG)0x0000000020000000 // If set, stop on internal errs
+#define DEBUG_SMB_ERRORS          (ULONGLONG)0x0000000040000000
+#define DEBUG_ERRORS              (ULONGLONG)0x0000000080000000
+
+#define DEBUG_LICENSE             (ULONGLONG)0x0000000100000000
+#define DEBUG_WORKITEMS           (ULONGLONG)0x0000000200000000
+#define DEBUG_IPXNAMECLAIM        (ULONGLONG)0x0000000400000000
+
+#define DEBUG_SENDS2OTHERCPU      (ULONGLONG)0x0000001000000000
+#define DEBUG_REBALANCE           (ULONGLONG)0x0000002000000000
+#define DEBUG_PNP                 (ULONGLONG)0x0000004000000000
+
+#define DEBUG_DFS                 (ULONGLONG)0x0000010000000000
+#define DEBUG_SIPX                (ULONGLONG)0x0000020000000000
 
 //
 // SMB debug flags.
 //
 
-#define DEBUG_SMB_ADMIN1          0x00000001
-#define DEBUG_SMB_ADMIN2          0x00000002
+#define DEBUG_SMB_ADMIN1          (ULONGLONG)0x0000000000000001
+#define DEBUG_SMB_ADMIN2          (ULONGLONG)0x0000000000000002
 
-#define DEBUG_SMB_TREE1           0x00000004
-#define DEBUG_SMB_TREE2           0x00000008
+#define DEBUG_SMB_TREE1           (ULONGLONG)0x0000000000000004
+#define DEBUG_SMB_TREE2           (ULONGLONG)0x0000000000000008
 
-#define DEBUG_SMB_DIRECTORY1      0x00000010
-#define DEBUG_SMB_DIRECTORY2      0x00000020
+#define DEBUG_SMB_DIRECTORY1      (ULONGLONG)0x0000000000000010
+#define DEBUG_SMB_DIRECTORY2      (ULONGLONG)0x0000000000000020
 
-#define DEBUG_SMB_OPEN_CLOSE1     0x00000040
-#define DEBUG_SMB_OPEN_CLOSE2     0x00000080
+#define DEBUG_SMB_OPEN_CLOSE1     (ULONGLONG)0x0000000000000040
+#define DEBUG_SMB_OPEN_CLOSE2     (ULONGLONG)0x0000000000000080
 
-#define DEBUG_SMB_FILE_CONTROL1   0x00000100
-#define DEBUG_SMB_FILE_CONTROL2   0x00000200
+#define DEBUG_SMB_FILE_CONTROL1   (ULONGLONG)0x0000000000000100
+#define DEBUG_SMB_FILE_CONTROL2   (ULONGLONG)0x0000000000000200
 
-#define DEBUG_SMB_READ_WRITE1     0x00000400
-#define DEBUG_SMB_READ_WRITE2     0x00000800
+#define DEBUG_SMB_READ_WRITE1     (ULONGLONG)0x0000000000000400
+#define DEBUG_SMB_READ_WRITE2     (ULONGLONG)0x0000000000000800
 
-#define DEBUG_SMB_LOCK1           0x00001000
-#define DEBUG_SMB_LOCK2           0x00002000
+#define DEBUG_SMB_LOCK1           (ULONGLONG)0x0000000000001000
+#define DEBUG_SMB_LOCK2           (ULONGLONG)0x0000000000002000
 
-#define DEBUG_SMB_RAW1            0x00004000
-#define DEBUG_SMB_RAW2            0x00008000
+#define DEBUG_SMB_RAW1            (ULONGLONG)0x0000000000004000
+#define DEBUG_SMB_RAW2            (ULONGLONG)0x0000000000008000
 
-#define DEBUG_SMB_MPX1            0x00010000
-#define DEBUG_SMB_MPX2            0x00020000
+#define DEBUG_SMB_MPX1            (ULONGLONG)0x0000000000010000
+#define DEBUG_SMB_MPX2            (ULONGLONG)0x0000000000020000
 
-#define DEBUG_SMB_SEARCH1         0x00040000
-#define DEBUG_SMB_SEARCH2         0x00080000
+#define DEBUG_SMB_SEARCH1         (ULONGLONG)0x0000000000040000
+#define DEBUG_SMB_SEARCH2         (ULONGLONG)0x0000000000080000
 
-#define DEBUG_SMB_TRANSACTION1    0x00100000
-#define DEBUG_SMB_TRANSACTION2    0x00200000
+#define DEBUG_SMB_TRANSACTION1    (ULONGLONG)0x0000000000100000
+#define DEBUG_SMB_TRANSACTION2    (ULONGLONG)0x0000000000200000
 
-#define DEBUG_SMB_PRINT1          0x00400000
-#define DEBUG_SMB_PRINT2          0x00800000
+#define DEBUG_SMB_PRINT1          (ULONGLONG)0x0000000000400000
+#define DEBUG_SMB_PRINT2          (ULONGLONG)0x0000000000800000
 
-#define DEBUG_SMB_MESSAGE1        0x01000000
-#define DEBUG_SMB_MESSAGE2        0x02000000
+#define DEBUG_SMB_MESSAGE1        (ULONGLONG)0x0000000001000000
+#define DEBUG_SMB_MESSAGE2        (ULONGLONG)0x0000000002000000
 
-#define DEBUG_SMB_MISC1           0x04000000
-#define DEBUG_SMB_MISC2           0x08000000
+#define DEBUG_SMB_MISC1           (ULONGLONG)0x0000000004000000
+#define DEBUG_SMB_MISC2           (ULONGLONG)0x0000000008000000
 
-#define DEBUG_SMB_QUERY_SET1      0x10000000
-#define DEBUG_SMB_QUERY_SET2      0x20000000
+#define DEBUG_SMB_QUERY_SET1      (ULONGLONG)0x0000000010000000
+#define DEBUG_SMB_QUERY_SET2      (ULONGLONG)0x0000000020000000
+
+#define DEBUG_SMB_BULK1           (ULONGLONG)0x0000000040000000
+#define DEBUG_SMB_BULK2           (ULONGLONG)0x0000000080000000
+
+#define DEBUG_SMB_TRACE           (ULONGLONG)0x0000000100000000
 
 #endif // else !SRVDBG
 
@@ -269,6 +293,14 @@ SrvdbgClaimOrReleaseHandle (
 #define SRVDBG_CLAIM_HANDLE(_a_,_b_,_c_,_d_) SrvdbgClaimOrReleaseHandle((_a_),(_b_),(_c_),FALSE,(_d_))
 #define SRVDBG_RELEASE_HANDLE(_a_,_b_,_c_,_d_) SrvdbgClaimOrReleaseHandle((_a_),(_b_),(_c_),TRUE,(_d_))
 
+#endif
+
+#if DBG
+//
+// Routine to write a server buffer to a log file
+//
+VOID
+SrvLogBuffer( PCHAR msg, PVOID buf, ULONG len );
 #endif
 
 #endif // ndef _SRVDEBUG_

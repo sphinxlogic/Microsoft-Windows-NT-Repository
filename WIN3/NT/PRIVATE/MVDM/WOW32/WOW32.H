@@ -51,28 +51,17 @@
 #include "wowcmpat.h"
 
 
+//
+// Enable warnings that are turned off by sdk\inc\warning.h but we want on
+//
+#pragma warning(error:4101)   // Unreferenced local variable
+
+
 /* Constants
  */
 #define CIRC_BUFFERS        100             // Number of Saved in Circular Buffer for debug logging only
-#define TMP_LINE_LEN        128             // maxlen of Circular Buffer strings
+#define TMP_LINE_LEN        200             // maxlen of Circular Buffer strings
 #define FILTER_FUNCTION_MAX 10              // Number of Calls you can filter on
-
-#ifdef DEBUG
-    #define LOCALAPI        WOW32LocalAPI
-    #define NOPAPI          WOW32NopAPI
-#else
-    #define LOCALAPI        WOW32UnimplementedAPI
-    #define NOPAPI          WOW32UnimplementedAPI
-#endif
-
-#define WK32UNIMPLEMENTEDAPI    WOW32UnimplementedAPI
-#define WU32UNIMPLEMENTEDAPI    WOW32UnimplementedAPI
-#define WG32UNIMPLEMENTEDAPI    WOW32UnimplementedAPI
-#define WS32UNIMPLEMENTEDAPI    WOW32UnimplementedAPI
-#define WKB32UNIMPLEMENTEDAPI   WOW32UnimplementedAPI
-#define WMM32UNIMPLEMENTEDAPI   WOW32UnimplementedAPI
-#define WWS32UNIMPLEMENTEDAPI   WOW32UnimplementedAPI
-#define WCD32UNIMPLEMENTEDAPI   WOW32UnimplementedAPI
 
 #define WOWPRIVATEMSG   0x00010000  // this gets OR'd into certain 16-bit msg's
                                     // for handling special message cases
@@ -110,7 +99,9 @@
 #endif // DEBUG
 
 #ifdef WOWPROFILE
+#ifndef DEBUG_OR_WOWPROFILE
 #define DEBUG_OR_WOWPROFILE
+#endif
 #endif // WOWPROFILE
 
 
@@ -149,10 +140,10 @@ typedef struct _PA32 {
 
 #ifdef DEBUG_OR_WOWPROFILE
 #define  W32FUN(fn,name,mod,size)   fn,name,size,0L,0L
-#define  W32MSGFUN(fn,name,size)    fn,name,size,0L,0L
+#define  W32MSGFUN(fn,name)         fn,name,0L,0L
 #else              // non-profile RETAIL
 #define  W32FUN(fn,name,mod,size)   fn
-#define  W32MSGFUN(fn,name,size)    fn
+#define  W32MSGFUN(fn,name)         fn
 #endif
 
 
@@ -166,40 +157,79 @@ typedef struct _PA32 {
 
 /* Per-thread data
  */
-#define CURRENTPTD()        ((PTD)(NtCurrentTeb()->UserReserved[0]))
-#define PTEBTOPTD(pteb)     ((PTD)((pteb)->UserReserved[0]))
+#define CURRENTPTD()        ((PTD)(NtCurrentTeb()->WOW32Reserved))
+#define PTEBTOPTD(pteb)     ((PTD)((pteb)->WOW32Reserved))
 
 
+//
+// Internal flags used in the COMMDLGTD Flags element
+//
+
+#define WOWCD_ISCHOOSEFONT 1
+#define WOWCD_ISOPENFILE   2
+
+//
 // Used for COMMDLG thunk support
+//
 
 typedef struct _COMMDLGTD {
     HWND16  hdlg;
     VPVOID  vpfnHook;
     VPVOID  vpData;
     ULONG   ExtendedErr;
-    VPVOID  vpfnSetupHook;
+    union {
+        VPVOID  vpfnSetupHook;
+        PVOID   pRes;
+    };
     HWND16  SetupHwnd;
     struct  _COMMDLGTD *Previous;
     PVOID   pData32;
     ULONG   Flags;
 } COMMDLGTD, *PCOMMDLGTD;
 
-typedef struct _TD {        /* td */
-    VPVOID  vpStack;        // 16-bit stack  MUST BE FIRST!!!
-    struct _TD *ptdNext;    // Pointer to Next PTD
-    HAND16  htask16;        // 16-bit kernel task handle - unique across VDMs
-    HAND16  hInst16;        // 16-bit instance handle for this task
-    HAND16  hMod16;         // 16-bit module handle for this task
-    INT     VDMInfoiTaskID; // SCS Task ID != 0 if task Exec'd form 32 bit program
-    BOOL    gfIgnoreInput;  // TRUE when an app GP Faults
-    DWORD   dwThreadID;     // ID of the thread
-    BOOL    fInitvpCBStack;
-    VPVOID  vpCBStack;      // 16-bit callback frame
-    PCOMMDLGTD CommDlgTd;   // COMMDLG support - jvert 5-Jan-1993
-    DWORD   dwWOWCompatFlags; // WOW Compatibility flags
-    HANDLE  hThread;        // Thread Handle
-    HHOOK   hIdleHook;      // Hook handle for USER idle notification
-    HRGN    hrgnClip;       // used by GetClipRgn()
+
+//
+// WOAINST
+//
+
+typedef struct _WOAINST {
+    struct _WOAINST *pNext;
+    struct _TD      *ptdWOA;            // TD of associated WinOldAp task
+    DWORD            dwChildProcessID;
+    HANDLE           hChildProcess;
+    CHAR             szModuleName[1];   // As provided to LoadModule
+} WOAINST, *PWOAINST;
+
+
+//
+// TD.dwFlags bit definitions
+//
+
+#define TDF_INITCALLBACKSTACK  0x00000001
+#define TDF_IGNOREINPUT        0x00000002
+#define TDF_FORCETASKEXIT      0x00000004
+#define TDF_TASKCLEANUPDONE    0x00000008
+#define TDF_SETUPAPPLICATION   0x00000010
+
+typedef struct _TD {           /* td */
+    VPVOID      vpStack;           // 16-bit stack  MUST BE FIRST!!!
+    VPVOID      vpCBStack;         // 16-bit callback frame
+    DWORD       FastWowEsp;        // offset must match mvdm\inc\vdmtb.inc
+    struct _TD *ptdNext;           // Pointer to Next PTD
+    DWORD       dwFlags;           // TDF_ values above
+    INT         VDMInfoiTaskID;    // SCS Task ID != 0 if task Exec'd form 32 bit program
+    PCOMMDLGTD  CommDlgTd;         // COMMDLG support - jvert 5-Jan-1993
+    DWORD       dwWOWCompatFlags;  // WOW Compatibility flags
+    DWORD       dwWOWCompatFlagsEx;// Extended WOW Compatibility flags
+    DWORD       dwThreadID;        // ID of the thread
+    HANDLE      hThread;           // Thread Handle
+    HHOOK       hIdleHook;         // Hook handle for USER idle notification
+    HRGN        hrgnClip;          // used by GetClipRgn()
+    ULONG       ulLastDesktophDC;  // remembers last desktop DC for GetDC(0)
+    PWOAINST    pWOAList;          // One per active winoldap child
+    HAND16      htask16;           // 16-bit kernel task handle - unique across VDMs
+    HAND16      hInst16;           // 16-bit instance handle for this task
+    HAND16      hMod16;            // 16-bit module handle for this task
 } TD, *PTD;
 
 
@@ -233,6 +263,8 @@ typedef struct _TD {        /* td */
 /* Global data
  */
 #ifdef DEBUG
+extern UCHAR  gszAssert[256]; // Buffer for assertion text (could be eliminated with restructuring)
+int _cdecl sprintf_gszAssert(PSZ pszFmt, ...);
 extern HANDLE hfLog;        // log file handle, if any
 #endif
 extern INT    flOptions;    // command-line options (see OPT_*)
@@ -240,7 +272,6 @@ extern INT    flOptions;    // command-line options (see OPT_*)
 extern INT    iLogLevel;    // logging level;  0 implies none
 extern INT    fDebugWait;   // Single Step; 0 = No Single Step
 #endif
-extern BOOL   fDebugged;    // TRUE if running under a debugger (NTSD)
 extern HANDLE hHostInstance;
 #ifdef DEBUG
 extern INT    fLogFilter;   // Filter Catagories of Functions
@@ -253,11 +284,9 @@ extern PX86CONTEXT pIntelRegisters; // x86 Only - Pointer to Intel Register Bloc
 #ifdef DEBUG
 extern INT    iReqLogLevel;         // Current Output LogLevel
 extern INT    iCircBuffer;          // Current Buffer
-extern CHAR   achTmp[CIRC_BUFFERS][128];    // Circular Buffer
+extern CHAR   achTmp[CIRC_BUFFERS][TMP_LINE_LEN];    // Circular Buffer
 extern WORD   awfLogFunctionFilter[FILTER_FUNCTION_MAX]; // Specific Filter API Array
 extern INT    iLogFuncFiltIndex;        // Index Into Specific Array for Debugger Extensions
-
-
 #endif
 
 
@@ -267,72 +296,136 @@ extern UINT   iW32ExecTaskId;   // Base Task ID of Task Being Exec'd
 extern UINT   nWOWTasks;    // # of WOW tasks running
 extern BOOL   fBoot;        // TRUE During Boot Process
 extern HANDLE  ghevWaitCreatorThread; // Used to Syncronize creation of a new thread
-extern HANDLE  ghevWaitNewThread;     // Used to Syncronize creation of a new thread
 extern WORD   iWOWTaskCur;  // ID of current task running
 extern BOOL   fWowMode;     // see comment in wow32.c
 extern HANDLE hWOWHeap;
-extern LPBOOL pfSeparateWow;   // imported from ntvdm, FALSE if shared WOW VDM.
+extern DECLSPEC_IMPORT BOOL fSeparateWow;   // imported from ntvdm, FALSE if shared WOW VDM.
 extern HANDLE ghProcess;       // WOW Process Handle
 extern PFNWOWHANDLERSOUT pfnOut; // USER secret API pointers
-extern LPDWORD FlatAddress;    // Base address of each selector in LDT
-#if DBG
-extern LPDWORD SelectorLimit;  // Limit of each selector in LDT (x86 only)
-#endif
+extern DECLSPEC_IMPORT DWORD FlatAddress[];    // Base address of each selector in LDT
+extern DECLSPEC_IMPORT LPDWORD SelectorLimit;  // Limit of each selector in LDT (x86 only)
+extern PTD *  pptdWOA;
+extern PTD    gptdShell;
+extern char szEmbedding[];
+extern char szServerKey[];
+extern char szPicture[];
+extern char szPostscript[];
+extern char szZapfDingbats[];
+extern char szZapf_Dingbats[];
+extern char szSymbol[];
+extern char szTmsRmn[];
+extern char szHelv[];
+extern char szMavisCourier[];
+extern char szDevices[];
+extern char szBoot[];
+extern char szShell[];
+extern char szWinDotIni[];
+extern char szSystemDotIni[];
+extern char szExplorerDotExe[];
+extern PSTR pszWinIniFullPath;
+extern PSTR pszWindowsDirectory;
+extern PSTR pszSystemDirectory;
+extern BOOL gfIgnoreInputAssertGiven;
+
+
+
 #ifndef _X86_
 extern PUCHAR IntelMemoryBase;  // Start of emulated CPU's memory
 #define pNtVDMState   ((ULONG *)(IntelMemoryBase+FIXED_NTVDMSTATE_LINEAR))
 #endif
 
-/* Miscellaneous macros
+
+/* WOW32 assertion/warning macros
  *
  * Take care where you put ASSERTs and where you put VERIFYs;  ASSERT
  * expressions go away in the retail product, VERIFYs don't, so if an essential
  * calculation or function call is taking place, put it in WOW32VERIFY().
+ *
+ * WOW32ASSERT(exp)  - prints module and line number and breakpoints
+ * WOW32VERIFY(exp)  - like WOW32ASSERT but expression evaluated on free build
+ * WOW32ASSERTMSG(exp, msg) - print the string and breakpoint
+ * WOW32ASSERTMSGF(exp, (fmt, args...)) - print the formatted string and
+ *                                        breakpoint
+ * WOW32WARNMSG(exp, msg) - print the string but don't breakpoint
+ * WOW32WARNMSGF(exp, (fmt, args, ...)) - print the formatted string but don't
+ *                                        breakpoint
+ * WOW32APIWARN(exp, msg) - specific to API thunks, msg must be API name,
+ *                          does not breakpoint at all.
  */
-#define ADVGET(p,i)     {(UINT)p+=i;}
-#define ADVPUT(p,i,c)       {(UINT)p+=i;}
-#define ALIGNWORD(p,c)      {(UINT)p+=( ((UINT)p)&(sizeof(WORD)-1));}
-#define ALIGNDWORD(p,c)     {(UINT)p+=(-((UINT)p)&(sizeof(DWORD)-1));}
 
 #define EXCEPTION_WOW32_ASSERTION   0x9898
 
 #ifdef DEBUG
 #undef  MODNAME
-#define MODNAME(module)     static char szModule[] = __FILE__;\
-                static char szAssert[] = "WOW32 assertion failure: %s(%d)\n"
+#define MODNAME(module)     static char szModule[] = __FILE__
 
-VOID DoAssert(PSZ szAssert, PSZ szModule, UINT line, UINT loglevel);
+int DoAssert(PSZ szAssert, PSZ szModule, UINT line, UINT loglevel);
 
-#define WOW32ASSERT(exp)    if (!(exp)) {\
-                    DoAssert(szAssert, szModule, __LINE__, LOG_ALWAYS);\
-                }
+#define WOW32ASSERT(exp)                                                     \
+{                                                                            \
+    if (!(exp))                                                              \
+    {                                                                        \
+        DoAssert(NULL, szModule, __LINE__, LOG_ALWAYS);                      \
+    }                                                                        \
+}
+
 #define WOW32VERIFY(exp)    WOW32ASSERT(exp)
-#define WOW32ASSERTWARN(exp,msg) {\
-    if ((exp) == 0) {\
-    LOGDEBUG(1,("    WOW32 ERROR: %s failed", msg));\
-    if (flOptions & OPT_FAKESUCCESS) {\
-        LOGDEBUG(1,(" (but returning fake success)\n"));\
-        (ULONG)exp = TRUE;\
-    }\
-    else {\
-        LOGDEBUG(1,("\n"));\
-    }\
-    }\
+
+#define WOW32ASSERTMSG(exp,msg)                                              \
+{                                                                            \
+    if (!(exp)) {                                                            \
+        DoAssert(msg, szModule, __LINE__, LOG_ALWAYS);                       \
+    }                                                                        \
 }
-#define WOW32ASSERTEXP(exp,msg) {\
-    if (!(exp)) {\
-        LOGDEBUG(0,("%s", msg));\
-    }\
+
+#define WOW32ASSERTMSGF(exp, printf_args)                                    \
+(                                                                            \
+    (!(exp)) ? (                                                             \
+        sprintf_gszAssert printf_args,                                       \
+        DoAssert(gszAssert, szModule, __LINE__, LOG_ALWAYS)                  \
+    ) : 0                                                                    \
+)
+
+#define WOW32WARNMSG(exp,msg)                                                \
+{                                                                            \
+    if (!(exp)) {                                                            \
+        LOGDEBUG(LOG_ALWAYS, ("%s", (msg)));                                 \
+    }                                                                        \
 }
+
+#define WOW32WARNMSGF(exp, printf_args)                                      \
+{                                                                            \
+    if (!(exp)) {                                                            \
+        LOGDEBUG(LOG_ALWAYS, printf_args);                                   \
+    }                                                                        \
+}
+
+#define WOW32APIWARN(exp,msg)                                                \
+{                                                                            \
+    if (!(exp)) {                                                            \
+        LOGDEBUG(1,("    WOW32 WARNING: %s failed", (msg)));                 \
+        if (flOptions & OPT_FAKESUCCESS) {                                   \
+            LOGDEBUG(1,(" (but returning fake success)\n"));                 \
+            (ULONG)exp = TRUE;                                               \
+        }                                                                    \
+        else {                                                               \
+            LOGDEBUG(1,("\n"));                                              \
+        }                                                                    \
+    }                                                                        \
+}
+
 #else
 #ifndef i386
 #undef  MODNAME
 #define MODNAME(module)     static DWORD no_extra_semicolon_on_mipsfree
 #endif  // MIPS
 #define WOW32ASSERT(exp)
-#define WOW32VERIFY(exp) exp
-#define WOW32ASSERTWARN(exp,msg)
-#define WOW32ASSERTEXP(exp,msg)
+#define WOW32VERIFY(exp) (exp)
+#define WOW32ASSERTMSG(exp,msg)
+#define WOW32ASSERTMSGF(exp,msg)
+#define WOW32WARNMSG(exp,msg)
+#define WOW32WARNMSGF(exp,msg)
+#define WOW32APIWARN(exp,msg)
 #endif
 
 #ifdef DEBUG
@@ -431,6 +524,12 @@ VOID DoAssert(PSZ szAssert, PSZ szModule, UINT line, UINT loglevel);
         : NULL                                                                \
     )
 
+#define SetPModeVDMPointerBase(Selector, Base)                                \
+    {                                                                         \
+        FlatAddress[Selector >> 3] = Base;                                    \
+    }                                                                         \
+
+
 #define GetRModeVDMPointer(Address)                                           \
         (void *)(INTEL_MEMORY_BASE + (((Address) & 0xFFFF0000) >> 12) +       \
                  ((Address) & 0xFFFF))
@@ -472,7 +571,7 @@ VOID DoAssert(PSZ szAssert, PSZ szModule, UINT line, UINT loglevel);
 // code affected.
 //
 
-#define FLUSHVDMCODEPTR(vp,cb,p) Sim32FlushVDMPointer( vp, cb, (PBYTE)p, fWowMode)
+#define FLUSHVDMCODEPTR(vp,cb,p) Sim32FlushVDMPointer( (vp), (USHORT)(cb), (PBYTE)(p), (fWowMode))
 //#define FLUSHVDMPTR(vp,cb,p)     TRUE          // BUGBUG! davehart
 #define FLUSHVDMPTR(vp,cb,p)     FLUSHVDMCODEPTR(vp,cb,p)
 
@@ -525,19 +624,15 @@ BOOL    W32Init(VOID);
 VOID    W32Dispatch(VOID);
 INT     W32Exception(DWORD dwException, PEXCEPTION_POINTERS pexi);
 BOOLEAN W32DllInitialize(PVOID DllHandle,ULONG Reason,PCONTEXT Context);
-ULONG FASTCALL   WOW32UnimplementedAPI(PVDMFRAME pFrame);
-
-#ifdef DEBUG
-ULONG FASTCALL   WOW32NopAPI(PVDMFRAME pFrame);
-ULONG FASTCALL   WOW32LocalAPI(PVDMFRAME pFrame);
-#endif
+BOOL IsDebuggerAttached(VOID);
 
 ULONG FASTCALL   W32GetFastAddress( PVDMFRAME pFrame );
 ULONG FASTCALL   W32GetFastCbRetAddress( PVDMFRAME pFrame );
 ULONG FASTCALL   W32GetTableOffsets( PVDMFRAME pFrame );
 ULONG FASTCALL   W32GetFlatAddressArray( PVDMFRAME pFrame );
-PTD     ThreadID32toPTD(DWORD ThreadID32);
+PTD     ThreadProcID32toPTD(DWORD ThreadID, DWORD dwProcessID);
 PTD     Htask16toPTD( HAND16 );
+HTASK16 ThreadID32toHtask16(DWORD ThreadID32);
 PVOID   WOWStartupFailed(VOID);
 
 #ifdef DEBUG
@@ -552,6 +647,29 @@ DWORD   GetWOWTicDiff(DWORD dwPrevCount);
 INT     GetFuncId(DWORD iFun);
 #endif
 
+BOOL    IsDebuggerAttached(VOID);
+
+//
+// Thunk table stub functions and aliases.
+//
+
+ULONG FASTCALL   WOW32UnimplementedAPI(PVDMFRAME pFrame);
+
+#ifdef DEBUG
+    ULONG FASTCALL   WOW32NopAPI(PVDMFRAME pFrame);
+    ULONG FASTCALL   WOW32LocalAPI(PVDMFRAME pFrame);
+    ULONG FASTCALL   WK32WowPartyByNumber(PVDMFRAME pFrame);
+
+    #define LOCALAPI              WOW32LocalAPI
+    #define NOPAPI                WOW32NopAPI
+    #define UNIMPLEMENTEDAPI      WOW32UnimplementedAPI
+    #define WK32WOWPARTYBYNUMBER  WK32WowPartyByNumber
+#else
+    #define LOCALAPI              WOW32UnimplementedAPI
+    #define NOPAPI                WOW32UnimplementedAPI
+    #define UNIMPLEMENTEDAPI      WOW32UnimplementedAPI
+    #define WK32WOWPARTYBYNUMBER  UNIMPLEMENTEDAPI
+#endif
+
 
 #endif // ifndef _DEF_WOW32_  THIS SHOULD BE THE LAST LINE IN THIS FILE
-

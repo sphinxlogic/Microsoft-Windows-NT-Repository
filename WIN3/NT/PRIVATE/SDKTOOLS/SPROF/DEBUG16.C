@@ -322,8 +322,9 @@ Return Value:
             1024 * 1024 + 64 * 1024,
             6,  // bugbug
             V86ProfileBuffer,
-            ((1024 * 1024 + 64 * 1024) / 64) * sizeof(ULONG)
-            );
+            ((1024 * 1024 + 64 * 1024) / 64) * sizeof(ULONG),
+            ProfileTime,
+            (KAFFINITY)-1);
 
     }
 

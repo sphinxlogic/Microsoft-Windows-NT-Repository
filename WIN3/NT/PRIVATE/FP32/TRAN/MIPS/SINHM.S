@@ -20,13 +20,6 @@
 #include <trans.h>
 #include <fpieee.h>
 
-#ifdef CRTDLL
-.extern _HUGE_dll
-#define _HUGE _HUGE_dll
-#else
-.extern _HUGE
-#endif
-
 #define  one     1.0
 #define  eps     3.72529029846191406250e-9
 #define  p3     -0.78966127417357099479e+0
@@ -140,22 +133,29 @@ ret1:	lw  ra, FSIZE-4(sp)
 .ent set_sinh_err
 set_sinh_err:
 #define FSIZE 48
-	.frame  sp, FSIZE, ra
-	.mask   0x80000000, -4
-	subu    sp, FSIZE
-	sw      ra, FSIZE-4(sp)
-    .prologue 1
-	li      $4, (FP_O | FP_P)   // exception mask
-	li      $5, OP_SINH         // operation code (funtion name index)
-	mfc1.d	$6, $f12   	        // arg1 
-	l.d     $f0, _HUGE	        // api help says return HUGE_VAL for overflow
-	s.d     $f0, 16(sp)	        // default result
-	cfc1    t7, $31             // floating point control/status register
-	xor     t7, t7, 0xf80       // inverse exception enable bits
-	sw      t7, 24(sp)
-	jal  	_except1
-	lw      ra, FSIZE-4(sp)
-	addu    sp, FSIZE
+	.frame	sp, FSIZE, ra
+	.mask	0x80000000, -4
+	subu	sp, FSIZE
+	sw	ra, FSIZE-4(sp)
+	.prologue 1
+	li	$4, (FP_O | FP_P)	// exception mask
+	li	$5, OP_SINH		// operation code (funtion name index)
+	mfc1.d	$6, $f12		// arg1 
+	// return +/-INF for overflow
+	li.d	$f20, 0.0
+	li.d	$f0, 1.0
+	c.lt.d	$f12, $f20
+	bc1f	1f
+	neg.d	$f0
+1:
+	div.d	$f0,$f20
+	s.d	$f0, 16(sp)		// default result
+	cfc1	t7, $31			// fp control/status register
+	xor	t7, t7, 0xf80		// inverse exception enable bits
+	sw	t7, 24(sp)
+	jal	_except1
+	lw	ra, FSIZE-4(sp)
+	addu	sp, FSIZE
 	j	ra
 #undef FSIZE
 .end set_sinh_error

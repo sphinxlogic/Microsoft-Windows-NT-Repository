@@ -90,102 +90,107 @@ extern BOOL WINAPI DllMain(
 *
 *******************************************************************************/
 
-BOOL WINAPI _CRT_INIT(
+BOOL WINAPI
+_CRT_INIT(
 	HANDLE	hDllHandle,
 	DWORD	dwReason,
 	LPVOID	lpreserved
 	)
 {
-	/*
-	 * Start-up code only gets executed when the process is initialized
-	 */
-	if ( dwReason != DLL_PROCESS_ATTACH ) {
-
-		if ( dwReason == DLL_PROCESS_DETACH ) {
+    switch (dwReason) {
+        case DLL_PROCESS_DETACH:
 		    /*
 		     * make sure there has been prior process attach
 		     * notification!
 		     */
 		    if ( __proc_attached > 0 ) {
-			__proc_attached--;
+			    __proc_attached--;
 
-			if ( _C_Termination_Done == FALSE )
-				/* do exit() time clean-up */
-				_cexit();
-		/*
-		 * Any basic clean-up code that goes here must be duplicated
-		 * below in _DllMainCRTStartup for the case where the user's
-		 * DllMain() routine fails on a Process Attach notification.
-		 * This does not include calling user C++ destructors, etc.
-		 */
+			    if ( _C_Termination_Done == FALSE ) {
+				    /* do exit() time clean-up */
+				    _cexit();
+                }
+
 #ifdef MTHREAD
-			/* delete MT locks, free TLS index, etc. */
-			_mtterm();
+			    /* delete MT locks, free TLS index, etc. */
+		    	_mtterm();
 #endif
-		    }
-		    else
-			/* no prior process attach, just return */
-			return FALSE;
-		}
+                if (_aenvptr) {
+                    FreeEnvironmentStrings(_aenvptr);
+                    _aenvptr=NULL;
+                }
+
+                return TRUE;
+
+		    } else {
+                /* no prior process attach, just return */
+                return FALSE;
+            }
+
 #ifdef MTHREAD
-		else if ( dwReason == DLL_THREAD_DETACH )
+        case DLL_THREAD_DETACH:
 			_freeptd(NULL);  /* free up per-thread CRT data */
+
+        case DLL_THREAD_ATTACH:
+            return TRUE;
 #endif
 
-		return TRUE;
-	}
+        case DLL_PROCESS_ATTACH:
 
-	/*
-	 * increment flag to indicate process attach notification has been
-	 * received
-	 */
-	__proc_attached++;
+            /*
+             * increment flag to indicate process attach notification has been
+             * received
+             */
+            __proc_attached++;
 
-	_acmdln = (char *)GetCommandLine();
-	_aenvptr = (char *)GetEnvironmentStrings();
+            _acmdln = (char *)GetCommandLine();
+            _aenvptr = (char *)GetEnvironmentStrings();
 
-	/*
-	 * Get the full Win32 version
-	 */
-	_osversion = 			/* OBSOLETE */
-	_osver = GetVersion();
+            /*
+             * Get the full Win32 version
+             */
+            _osversion = 			/* OBSOLETE */
+            _osver = GetVersion();
 
-	_winminor = (_osver >> 8) & 0x00FF ;
-	_winmajor = _osver & 0x00FF ;
-	_winver = (_winmajor << 8) + _winminor;
-	_osver = (_osver >> 16) & 0x00FFFF ;
+            _winminor = (_osver >> 8) & 0x00FF ;
+            _winmajor = _osver & 0x00FF ;
+            _winver = (_winmajor << 8) + _winminor;
+            _osver = (_osver >> 16) & 0x00FFFF ;
 
-	/* --------- The following block is OBSOLETE --------- */
+            /* --------- The following block is OBSOLETE --------- */
 
-	/*
-	 * unpack base version info
-	 */
-	_baseversion = (_osversion & 0xFFFF0000) >> 16;
-	_baseminor = _baseversion & 0x00FF;
-	_basemajor = (_baseversion & 0xFF00) >> 8;
+            /*
+             * unpack base version info
+             */
+            _baseversion = (_osversion & 0xFFFF0000) >> 16;
+            _baseminor = _baseversion & 0x00FF;
+            _basemajor = (_baseversion & 0xFF00) >> 8;
 
-	/*
-	 * unpack top-level version info (Windows version)
-	 */
-	_osversion &= 0x0000FFFF;
-	_osmajor = _osversion & 0x00FF;
-	_osminor = (_osversion & 0xFF00) >> 8;
+            /*
+             * unpack top-level version info (Windows version)
+             */
+            _osversion &= 0x0000FFFF;
+            _osmajor = _osversion & 0x00FF;
+            _osminor = (_osversion & 0xFF00) >> 8;
 
-	/* --------- The preceding block is OBSOLETE --------- */
+            /* --------- The preceding block is OBSOLETE --------- */
 
-	_heap_init();				/* initialize heap */
+            _heap_init();	        /* initialize heap */
 
 #ifdef MTHREAD
-	if(!_mtinit())			/* initialize multi-thread */
-		return FALSE;		/* fail to load DLL */
+            if(!_mtinit()) {        /* initialize multi-thread */
+                FreeEnvironmentStrings(_aenvptr);
+                return FALSE;		/* fail to load DLL */
+            }
 #endif
-	_ioinit();				/* initialize lowio */
-	_setargv();				/* get cmd line info */
-	_setenvp();				/* get environ info */
+            _ioinit();				/* initialize lowio */
+            _setargv();				/* get cmd line info */
+            _setenvp();				/* get environ info */
 
-	_cinit();				/* do C data initialize */
+            _cinit();				/* do C data initialize */
 
-	return TRUE;				/* initialization succeeded */
+            return TRUE;				/* initialization succeeded */
+    }
 }
 
 
@@ -253,6 +258,10 @@ BOOL WINAPI _DllMainCRTStartup(
 #ifdef MTHREAD
 		_mtterm();
 #endif
+        if (_aenvptr) {
+            FreeEnvironmentStrings(_aenvptr);
+            _aenvptr=NULL;
+        }
 	}
 
 	if ( dwReason == DLL_PROCESS_DETACH || dwReason == DLL_THREAD_DETACH )

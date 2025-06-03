@@ -1,9 +1,7 @@
+CPP_CMD=cl
+
 !if $(386)
 CPP_CMD=cl386
-!endif
-
-!if $(MIPS)
-CPP_CMD=mcl
 !endif
 
 !if $(ALPHA)
@@ -32,4 +30,3 @@ allidl:   iperf.h
 
 clean:
           erase iperf.h  >NUL 2>NUL
-

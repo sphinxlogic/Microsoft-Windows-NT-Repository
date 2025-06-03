@@ -12,7 +12,7 @@
 
 #define Delay(SECONDS) {                                               \
     LARGE_INTEGER Time;                                                \
-    Time = RtlEnlargedIntegerMultiply( -10 * 1000 * 1000, (SECONDS) ); \
+    Time.QuadPart = -10 * 1000 * 1000, ((LONGLONG)SECONDS);            \
     NtDelayExecution(TRUE,(PLARGE_INTEGER)&Time);                               \
 }
 
@@ -1394,7 +1394,7 @@ SepServerCreatePipe(
     //  Set the default timeout to 60 seconds, and initalize the attributes
     //
 
-    Timeout = RtlEnlargedIntegerMultiply( -10 * 1000 * 1000, 60 );
+    Timeout.QuadPart = -10 * 1000 * 1000 * 60;
 
     InitializeObjectAttributes(
         &ObjectAttributes,

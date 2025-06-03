@@ -13,6 +13,8 @@
 #define	__DICT_HXX__
 
 #include "common.hxx"
+#include "freelist.hxx"
+#include "listhndl.hxx"
 extern "C"
 	{
 	#include "string.h"
@@ -43,14 +45,25 @@ public:
 				    item = itemI;
 					}
 
-	void	*	operator new ( size_t size )
-					{
-					return AllocateOnceNew( size );
-					}
-	void		operator delete( void * ptr )
-					{
-					AllocateOnceDelete( ptr );
-					}
+// here is the use of the private memory allocator
+private:
+
+	static
+	FreeListMgr				MyFreeList;
+	
+
+public:
+
+
+	void		*			operator new (size_t size)
+								{
+								return (MyFreeList.Get (size));
+								} 
+
+	void 					operator delete (void * pX)
+								{
+								MyFreeList.Put (pX);
+								}
 
 };
 
@@ -131,7 +144,17 @@ public:
 
 	Dict_Status 	Dict_Insert(pUserType);		// Add a new item to the tree
 	Dict_Status 	Dict_Delete(pUserType *);	// Delete an item form the tree
-										// returns the item just deleted
+												// returns the item just deleted
+	pUserType		Dict_Delete_One();			// Delete any convenient node from the tree
+												// and return the deleted node
+	Dict_Status		Dict_Discard()				// Delete the dictionary ( but not the user items )
+						{
+						while ( Dict_Delete_One() )
+							;
+						return EMPTY_DICTIONARY;
+						}
+
+	short			Dict_GetList( gplistmgr & List );	// make a list of the nodes in the dictionary	
 };
 
 // dictionary of strings ( compare function compares strings )

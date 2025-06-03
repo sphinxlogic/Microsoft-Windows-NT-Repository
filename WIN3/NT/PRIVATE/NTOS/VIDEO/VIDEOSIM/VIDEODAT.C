@@ -33,7 +33,7 @@ Revision History:
 // Global data - we will initialize x instances of this device
 //
 
-ULONG DeviceCount = 1;
+ULONG DeviceCount = 2;
 
 
 //
@@ -41,7 +41,6 @@ ULONG DeviceCount = 1;
 //
 
 VIDEO_MODE_INFORMATION SimModes[] = {
-/*
 {
       sizeof(VIDEO_MODE_INFORMATION),
       0,
@@ -293,7 +292,6 @@ VIDEO_MODE_INFORMATION SimModes[] = {
       0x0000000f,
       VIDEO_MODE_COLOR | VIDEO_MODE_GRAPHICS
 },
-*/
 {
       sizeof(VIDEO_MODE_INFORMATION),
       0,

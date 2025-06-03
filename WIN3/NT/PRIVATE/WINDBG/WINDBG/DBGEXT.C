@@ -28,16 +28,67 @@ Environment:
 //
 // prototypes
 //
-DWORD  ExtGetExpression(LPSTR lpsz);
-VOID   ExtGetSymbol(LPVOID offset, PUCHAR pchBuffer, LPDWORD lpDisplacement);
-DWORD  ExtDisasm(LPDWORD lpOffset, LPSTR lpBuffer, BOOL fShowEffectiveAddress);
-BOOL   ExtReadProcessMemory(DWORD offset, LPVOID lpBuffer, DWORD cb, LPDWORD lpcbBytesRead);
-BOOL   ExtWriteProcessMemory(DWORD offset, LPVOID lpBuffer, DWORD cb, LPDWORD lpcbBytesWritten);
-BOOL   ExtGetThreadContext(DWORD Processor, LPCONTEXT lpContext, DWORD cbSizeOfContext);
-BOOL   ExtSetThreadContext(DWORD Processor, LPCONTEXT lpContext, DWORD cbSizeOfContext);
-BOOL   ExtIoctl(USHORT IoctlType, LPVOID lpvData, DWORD cbSize);
-DWORD  ExtCallStack(DWORD FramePointer, DWORD StackPointer, DWORD ProgramCounter, PEXTSTACKTRACE StackFrames, DWORD Frames);
+DWORD
+ExtGetExpression(
+    LPSTR lpsz
+    );
 
+VOID
+ExtGetSymbol(LPVOID offset,
+    PUCHAR pchBuffer,
+    LPDWORD lpDisplacement
+    );
+
+DWORD
+ExtDisasm(LPDWORD lpOffset,
+    LPSTR lpBuffer,
+    ULONG fShowEffectiveAddress
+    );
+
+BOOL
+ExtReadProcessMemory(DWORD offset,
+    LPVOID lpBuffer,
+    DWORD cb,
+    LPDWORD lpcbBytesRead
+    );
+
+BOOL
+ExtWriteProcessMemory(DWORD offset,
+    LPVOID lpBuffer,
+    DWORD cb,
+    LPDWORD lpcbBytesWritten
+    );
+
+BOOL
+ExtGetThreadContext(DWORD Processor,
+    LPCONTEXT lpContext,
+    DWORD cbSizeOfContext
+    );
+
+BOOL
+ExtSetThreadContext(DWORD Processor,
+    LPCONTEXT lpContext,
+    DWORD cbSizeOfContext
+    );
+
+BOOL
+ExtIoctl(USHORT IoctlType,
+    LPVOID lpvData,
+    DWORD cbSize
+    );
+
+DWORD
+ExtCallStack(DWORD FramePointer,
+    DWORD StackPointer,
+    DWORD ProgramCounter,
+    PEXTSTACKTRACE StackFrames,
+    DWORD Frames
+    );
+
+LOGERR
+LogPageIn(
+    LPSTR lpsz
+    );
 
 DWORD OsVersion;
 static  BOOL    fApp = FALSE;;
@@ -47,8 +98,12 @@ static  char    AppName[ MAX_PATH ];
 #define MAX_EXTDLLS           32
 #define DEFAULT_EXTENSION_LIB "ntsdexts"
 
+#define EXT_NOT_LOADED        0
+#define EXT_LOADED            1
+#define EXT_NEEDS_LOADING     2
+
 typedef struct _EXTCOMMANDS {
-    DWORD   CmdId;
+    CMDID   CmdId;
     LPSTR   CmdString;
     LPSTR   HelpString;
 } EXTCOMMANDS, *LPEXTCOMMANDS;
@@ -58,7 +113,7 @@ typedef struct _EXTLOAD {
     DWORD                       Version;
     DWORD                       Calls;
     BOOL                        OldStyle;
-    BOOL                        Loaded;
+    DWORD                       Loaded;
     BOOL                        DoVersionCheck;
     CHAR                        Name[32];
     PWINDBG_EXTENSION_DLL_INIT  pDllInit;
@@ -71,12 +126,12 @@ static WINDBG_EXTENSION_APIS WindbgExtensions =
     {
     sizeof(WindbgExtensions),
     (PWINDBG_OUTPUT_ROUTINE)CmdLogFmt,
-    ExtGetExpression,
+    (PWINDBG_GET_EXPRESSION)ExtGetExpression,
     ExtGetSymbol,
-    ExtDisasm,
+    (PWINDBG_DISASM)ExtDisasm,
     CheckCtrlCTrap,
     ExtReadProcessMemory,
-    ExtWriteProcessMemory,
+    (PWINDBG_WRITE_PROCESS_MEMORY_ROUTINE)ExtWriteProcessMemory,
     ExtGetThreadContext,
     ExtSetThreadContext,
     ExtIoctl,
@@ -84,25 +139,17 @@ static WINDBG_EXTENSION_APIS WindbgExtensions =
     };
 
 
-
-#define CMDID_LOAD          1
-#define CMDID_UNLOAD        2
-#define CMDID_RELOAD        3
-#define CMDID_SYMPATH       4
-#define CMDID_NOVERSION     5
-#define CMDID_HELP          6
-#define CMDID_DEFAULT       7
-
 static EXTCOMMANDS ExtCommands[] =
     {
-    0,                  NULL,           NULL,
+    CMDID_NULL,         NULL,           NULL,
     CMDID_HELP,         "?",            "Display this help information",
     CMDID_DEFAULT,      "default",      "Change the default extension dll",
     CMDID_LOAD,         "load",         "Load an extension dll",
     CMDID_NOVERSION,    "noversion",    "Disable extension dll version checking",
     CMDID_RELOAD,       "reload",       "Reload kernel symbols (KD only)",
     CMDID_SYMPATH,      "sympath",      "Change or display the symbol path",
-    CMDID_UNLOAD,       "unload",       "Unload the default extension dll"
+    CMDID_UNLOAD,       "unload",       "Unload the default extension dll",
+    CMDID_PAGEIN,       "pagein",       "Attempt to make a page present"
     };
 
 #define ExtMaxCommands (sizeof(ExtCommands)/sizeof(EXTCOMMANDS))
@@ -110,7 +157,6 @@ static EXTCOMMANDS ExtCommands[] =
 static  EXTLOAD  LoadedExts[MAX_EXTDLLS];
 static  DWORD    NumLoadedExts;
 static  LPSTR    DefaultExt;
-static  BOOL     fDoVersionCheck = TRUE;
 
 #define BUILD_MAJOR_VERSION 3
 #define BUILD_MINOR_VERSION 5
@@ -127,8 +173,8 @@ extern LPTD    LptdCommand;
 
 DWORD
 ExtGetExpression(
-                 LPSTR lpsz
-                 )
+    LPSTR lpsz
+    )
 
 /*++
 
@@ -149,141 +195,24 @@ Return Value:
 {
     ADDR  addr;
     int   cch;
-#define BUF_SIZE    256
-    char  chExprBuffer[BUF_SIZE], *pchExprBuf = chExprBuffer;
-    LPSTR lpszExprCurr;
-#define WANTED(x) ((x >= 'a' && x <= 'z') || (x >= 'A' && x <= 'Z') || \
-                   (x >= '0' && x <= '9') || (x == '_') || (x == '$'))
+    char  *expr;
 
 
     lpsz = CPSkipWhitespace(lpsz);
 
-    /*
-    **  Convert substring "foo!bar" in lpsz to
-    **     "{,,foo}bar"
-    **  Assume substrings like "foo!bar" may occur 0 or more times. In any
-    **  case, lpsz will point to the final expression string. chExprBuffer
-    **  holds the new exprssion if "foo!bar"(s) is(are) found.
-    */
-
-    lpszExprCurr = lpsz;
-    while(lpszExprCurr = strchr(lpszExprCurr, '!')) {
-
-        if(lpszExprCurr > lpsz && WANTED(*(lpszExprCurr-1))
-           && WANTED(*(lpszExprCurr+1))) {
-
-            LPSTR lpszHead, lpszTail;
-            char  chTailSave;
-
-            /*
-            **  We've got a pattern foo!bar and set the following pointers.
-            **
-            **          foo!bar
-            **          ^  ^   ^
-            **    lpszHead ^ lpszTail
-            **             ^
-            **        lpszExprCurr ==> this is already true.
-            */
-
-            lpszHead = lpszExprCurr - 1;
-            while((lpszHead > lpsz) && WANTED(*(lpszHead-1))) {
-                lpszHead--;
-            }
-
-            lpszTail = lpszExprCurr + 2;
-            while(WANTED(*lpszTail)) {
-                lpszTail++;
-            }
-
-            /*  Set ...foo!bar'\0' and check for chExprBuffer overflow.
-            **  pchExprBuf always points to the next starting copy position in
-            **  chExprBuffer.
-            */
-
-            chTailSave = *lpszTail;
-            *lpszTail = '\0';
-
-            if(pchExprBuf+strlen(lpsz)+4 > chExprBuffer + BUF_SIZE-1) {
-                *lpszTail = chTailSave;
-                return 0; // because of chExprBuffer overflow
-            }
-
-            /*
-            **  Copy substring ahead of foo!bar to chExprBuffer.
-            */
-
-            memcpy(pchExprBuf, lpsz, (int)(lpszHead-lpsz));
-            pchExprBuf += (int)(lpszHead-lpsz);
-
-            /*
-            **  Prepare foo'\0' (bar'\0' already done) for sprintf and
-            **  do the conversion. Note: *lpszExprCurr == '!'
-            */
-
-            *lpszExprCurr = '\0';
-
-            if ( !stricmp( lpszHead, "app" ) ) {
-
-                if ( !fApp ) {
-                    HEXE    hexe = (HEXE) NULL;
-                    char    Ext[ _MAX_CVEXT ];
-
-                    while ((( hexe = SHGetNextExe( hexe ) ) != 0) ) {
-                        strcpy( AppName, SHGetExeName( hexe ) );
-
-                        SplitPath( AppName, NULL, NULL, NULL, Ext );
-
-                        if ( !stricmp(Ext, ".EXE") ||
-                             !stricmp(Ext, ".COM") ) {
-                            fApp = TRUE;
-                            break;
-                        }
-                    }
-                }
-
-                if ( fApp ) {
-                    lpszHead = AppName;
-                }
-            }
-            if (stricmp(lpszHead,"nt")==0) {
-                lpszHead = "ntoskrnl";
-            }
-            sprintf(pchExprBuf, "{,,%s}%s", lpszHead, lpszExprCurr+1);
-            pchExprBuf += strlen(lpszHead) + strlen(lpszExprCurr+1) + 4;
-
-            *lpszExprCurr = '!';
-            *lpszTail = chTailSave;
-
-            /*
-            **  Get search for next foo!bar ready.
-            */
-
-            lpszExprCurr = lpsz = lpszTail;
-
-        } else {
-
-            /*
-            **  Not foo!bar and get ready for next possible one.
-            */
-
-            lpszExprCurr++;
-        }
-    }
-
-    //
-    // curly brace in comment is for editor brace matcher  VVVVV
-    //
-    if ((pchExprBuf > chExprBuffer) || strchr( lpsz, '{') )/*}*/ {
-        //
-        //  foo!bar found, or the string contains a context.
-        //  Copy the rest of string and get the address
-        //
-        strcpy(pchExprBuf, lpsz);
-        lpsz = chExprBuffer;
-    }
-
     if (CPGetAddress(lpsz, &cch, &addr, radix, &CxfIp, fCaseSensitive, runDebugParams.fMasmEval) != 0) {
-        return 0;
+        if (DefaultExt && tolower(DefaultExt[0]) == 'k' && tolower(DefaultExt[1]) == 'd') {
+            expr = malloc( strlen(lpsz) + 32 );
+            strcpy( expr, "nt!" );
+            strcat( expr, lpsz );
+            if (CPGetAddress(expr, &cch, &addr, radix, &CxfIp, fCaseSensitive, runDebugParams.fMasmEval) != 0) {
+                free( expr );
+                return 0;
+            }
+            free( expr );
+        } else {
+            return 0;
+        }
     }
 
     SYFixupAddr(&addr);
@@ -295,10 +224,10 @@ Return Value:
 
 VOID
 ExtGetSymbol(
-             LPVOID  offset,
-             PUCHAR  pchBuffer,
-             LPDWORD lpDisplacement
-             )
+    LPVOID  offset,
+    PUCHAR  pchBuffer,
+    LPDWORD lpDisplacement
+    )
 
 /*++
 
@@ -323,14 +252,14 @@ Return Value:
 {
     ADDR   addr;
     LPADDR loc = SHpADDRFrompCXT(&CxfIp.cxt);
-
+    ODR    odr;
 
     AddrInit( &addr, 0, 0, (UOFF32)offset, TRUE, TRUE, FALSE, FALSE );
     SYFixupAddr(&addr);
 
     if (pchBuffer[0] == '!') {
         if (SHGetModule(&addr, pchBuffer)) {
-            strupr( pchBuffer );
+            _strupr( pchBuffer );
             strcat( pchBuffer, "!" );
             pchBuffer += strlen(pchBuffer);
         } else {
@@ -340,7 +269,11 @@ Return Value:
         *pchBuffer = '\0';
     }
 
-    SHGetSymbol(&addr, sopNone, loc, pchBuffer, lpDisplacement);
+    odr.lszName = pchBuffer;
+
+    SHGetSymbol(&addr, loc, sopNone, &odr);
+
+    *lpDisplacement = odr.dwDeltaOff;
 }
 
 
@@ -348,10 +281,10 @@ Return Value:
 
 DWORD
 ExtDisasm(
-          LPDWORD lpOffset,
-          LPSTR   lpBuffer,
-          BOOL    fShowEffectiveAddress
-          )
+    LPDWORD lpOffset,
+    LPSTR   lpBuffer,
+    ULONG   fShowEffectiveAddress
+    )
 
 /*++
 
@@ -470,11 +403,11 @@ Return Value:
 
 BOOL
 ExtReadProcessMemory(
-                     DWORD   offset,
-                     LPVOID  lpBuffer,
-                     DWORD   cb,
-                     LPDWORD lpcbBytesRead
-                     )
+    DWORD   offset,
+    LPVOID  lpBuffer,
+    DWORD   cb,
+    LPDWORD lpcbBytesRead
+    )
 
 /*++
 
@@ -528,11 +461,11 @@ Return Value:
 
 BOOL
 ExtWriteProcessMemory(
-                      DWORD   offset,
-                      LPVOID  lpBuffer,
-                      DWORD   cb,
-                      LPDWORD lpcbBytesWritten
-                      )
+    DWORD   offset,
+    LPVOID  lpBuffer,
+    DWORD   cb,
+    LPDWORD lpcbBytesWritten
+    )
 
 /*++
 
@@ -596,10 +529,10 @@ Return Value:
 
 BOOL
 ExtGetThreadContext(
-                    DWORD       Processor,
-                    LPCONTEXT   lpContext,
-                    DWORD       cbSizeOfContext
-                    )
+    DWORD       Processor,
+    LPCONTEXT   lpContext,
+    DWORD       cbSizeOfContext
+    )
 
 /*++
 
@@ -645,10 +578,11 @@ Return Value:
 
 BOOL
 ExtSetThreadContext(
-                    DWORD       Processor,
-                    LPCONTEXT   lpContext,
-                    DWORD       cbSizeOfContext
-                    )
+    DWORD       Processor,
+    LPCONTEXT   lpContext,
+    DWORD       cbSizeOfContext
+    )
+
 /*++
 
 Routine Description:
@@ -801,7 +735,7 @@ ParseBangCommand(
     LPSTR   lpsz,
     LPSTR   *lpszMod,
     LPSTR   *lpszFnc,
-    LPDWORD lpdwCmdId
+    PCMDID  pCmdId
     )
 {
     DWORD                           i;
@@ -850,10 +784,6 @@ ParseBangCommand(
                     return NULL;
                 }
                 switch( ProcessorType ) {
-                    case mptix86:
-                        *lpszMod = "kdextx86.dll";
-                        break;
-
                     case mptmips:
                         *lpszMod = "kdextmip.dll";
                         break;
@@ -866,6 +796,7 @@ ParseBangCommand(
                         *lpszMod = "kdextppc.dll";
                         break;
 
+                    case mptix86:
                     default:
                         *lpszMod = "kdextx86.dll";
                         break;
@@ -905,10 +836,10 @@ ParseBangCommand(
     //
     // look to see if the user entered one of the built-in commands
     //
-    *lpdwCmdId = 0;
+    *pCmdId = CMDID_NULL;
     for (i=1; i<ExtMaxCommands; i++) {
-        if (stricmp( *lpszFnc, ExtCommands[i].CmdString ) == 0) {
-            *lpdwCmdId = ExtCommands[i].CmdId;
+        if (_stricmp( *lpszFnc, ExtCommands[i].CmdString ) == 0) {
+            *pCmdId = ExtCommands[i].CmdId;
             if (ExtCommands[i].CmdId == CMDID_LOAD) {
                 *lpszMod = lpsz;
             }
@@ -916,7 +847,7 @@ ParseBangCommand(
         }
     }
 
-    strlwr( *lpszFnc );
+    _strlwr( *lpszFnc );
 
     return lpsz;
 }
@@ -937,12 +868,10 @@ LoadExtensionDll(
         }
     }
 
-    ExtLoad->Loaded = TRUE;
+    ExtLoad->Loaded = EXT_LOADED;
     NumLoadedExts++;
 
-    if (!DefaultExt) {
-        DefaultExt = ExtLoad->Name;
-    }
+    DefaultExt = ExtLoad->Name;
 
     CmdLogFmt( "Debugger extension library [%s] loaded\n", ExtLoad->Name );
 
@@ -969,17 +898,21 @@ LoadExtensionDll(
                                &OsVersion );
         }
 
-        try {
+        __try {
 
             (ExtLoad->pDllInit)( &WindbgExtensions,
                                  HIWORD(OsVersion),
                                  LOWORD(OsVersion) );
 
-        } except (ExtensionExceptionFilterFunction(
+        } __except (ExtensionExceptionFilterFunction(
                       "DllInit() failed", GetExceptionInformation())) {
             return FALSE;
 
         }
+    }
+
+    if (runDebugParams.fNoVersion) {
+        ExtLoad->DoVersionCheck = FALSE;
     }
 
     return TRUE;
@@ -1029,7 +962,7 @@ Return Value:
     HANDLE                          hThread;
     INT                             len;
     INT                             mi;
-    DWORD                           CmdId;
+    CMDID                           CmdId;
 
 
     IsKdCmdAllowed();
@@ -1059,8 +992,13 @@ Return Value:
 
     switch (CmdId) {
         case CMDID_DEFAULT:
+            if (!lpszArgs) {
+                CmdLogFmt("Extension dll %s unloaded\r\n",DefaultExt);
+                goto done;
+            }
+
             for( mi=0; mi<MAX_EXTDLLS; mi++) {
-                if (stricmp( LoadedExts[mi].Name, lpszArgs ) == 0) {
+                if (_stricmp( LoadedExts[mi].Name, lpszArgs ) == 0) {
                     CmdLogFmt( "%s is now the default extension dll\n", lpszArgs );
                     DefaultExt = LoadedExts[mi].Name;
                     rVal = LOGERROR_NOERROR;
@@ -1077,9 +1015,7 @@ Return Value:
             goto done;
 
         case CMDID_SYMPATH:
-            lpsz += 7;
-            lpsz = CPSkipWhitespace(lpsz);
-            if (!*lpsz) {
+            if (!*lpszArgs) {
                 len =  ModListGetSearchPath( NULL, 0 );
                 if (!len) {
                     CmdLogFmt( "Sympath =\n" );
@@ -1090,10 +1026,17 @@ Return Value:
                     free(lpsz);
                 }
             } else {
-                ModListSetSearchPath( lpsz );
+                char szBuf[MAX_USER_LINE];
+                CPCopyString(&lpszArgs, szBuf, '\0', *lpszArgs == '"');
+                ModListSetSearchPath( szBuf );
             }
             rVal = LOGERROR_NOERROR;
             goto done;
+
+        case CMDID_PAGEIN:
+            rVal = LogPageIn(lpszArgs);
+            goto done;
+
     }
 
     if(!DebuggeeActive()) {
@@ -1103,7 +1046,7 @@ Return Value:
     }
 
     for( mi=0; mi<MAX_EXTDLLS; mi++) {
-        if (stricmp( LoadedExts[mi].Name, lpszMod ) == 0) {
+        if (_stricmp( LoadedExts[mi].Name, lpszMod ) == 0) {
             //
             // it has already been loaded
             //
@@ -1117,7 +1060,7 @@ Return Value:
         // so lets look for an empty slot
         //
         for( mi=0; mi<MAX_EXTDLLS; mi++) {
-            if (LoadedExts[mi].Module == NULL) {
+            if (LoadedExts[mi].Loaded == EXT_NOT_LOADED) {
                 break;
             }
         }
@@ -1129,7 +1072,8 @@ Return Value:
         goto done;
     }
 
-    if (!LoadedExts[mi].Loaded) {
+    if (LoadedExts[mi].Loaded == EXT_NOT_LOADED ||
+        LoadedExts[mi].Loaded == EXT_NEEDS_LOADING) {
         //
         // either this ext dll has never been loaded or
         // it has been unloaded.  in either case we need
@@ -1151,15 +1095,17 @@ Return Value:
         case CMDID_UNLOAD:
             FreeLibrary( LoadedExts[mi].Module );
             LoadedExts[mi].Module = NULL;
-            LoadedExts[mi].Loaded = FALSE;
+            LoadedExts[mi].Loaded = EXT_NOT_LOADED;
             NumLoadedExts--;
-            CmdLogFmt("Extension dll unloaded\r\n");
+            DefaultExt = NULL;
+            CmdLogFmt("Extension dll %s unloaded\r\n",LoadedExts[mi].Name);
             rVal = LOGERROR_NOERROR;
             goto done;
 
         case CMDID_NOVERSION:
             CmdLogFmt("Extension dll system version checking is disabled\r\n");
             LoadedExts[mi].DoVersionCheck = FALSE;
+            runDebugParams.fNoVersion = TRUE;
             rVal = LOGERROR_NOERROR;
             goto done;
 
@@ -1173,7 +1119,14 @@ Return Value:
 
     if (!WindbgExtRoutine) {
         for( mi=0; mi<MAX_EXTDLLS; mi++) {
-            if (LoadedExts[mi].Loaded) {
+            if (LoadedExts[mi].Loaded == EXT_NEEDS_LOADING) {
+                if (!LoadExtensionDll( &LoadedExts[mi] )) {
+                    CmdLogFmt("Cannot load '%s'\r\n", LoadedExts[mi].Name);
+                    rVal = LOGERROR_QUIET;
+                    goto done;
+                }
+            }
+            if (LoadedExts[mi].Loaded == EXT_LOADED) {
                 WindbgExtRoutine =
                       (PWINDBG_EXTENSION_ROUTINE)GetProcAddress( LoadedExts[mi].Module, lpszFnc );
                 if (WindbgExtRoutine) {
@@ -1191,11 +1144,11 @@ Return Value:
     WindbgOldExtRoutine = (PWINDBG_OLD_EXTENSION_ROUTINE) WindbgExtRoutine;
 
     if (LoadedExts[mi].DoVersionCheck) {
-        try {
+        __try {
 
             (LoadedExts[mi].pCheckVersion)();
 
-        } except (ExtensionExceptionFilterFunction(
+        } __except (ExtensionExceptionFilterFunction(
                       "CheckVersion() failed", GetExceptionInformation())) {
             rVal = LOGERROR_QUIET;
             goto done;
@@ -1239,7 +1192,7 @@ Return Value:
         if (NumLoadedExts > 1) {
             CmdLogFmt( "*** Loaded Extension Dlls:\n" );
             for( l=0; l<MAX_EXTDLLS; l++) {
-                if (LoadedExts[l].Loaded) {
+                if (LoadedExts[l].Loaded == EXT_LOADED) {
                     CmdLogFmt( "%d %s\n", l+1, LoadedExts[l].Name );
                 }
             }
@@ -1256,7 +1209,7 @@ Return Value:
         CmdLogFmt( "\n%s Bang Commands:\n\n", LoadedExts[mi].Name );
     }
 
-    try {
+    __try {
 
         if (LoadedExts[mi].OldStyle) {
             (WindbgOldExtRoutine)( hProcess,
@@ -1272,7 +1225,7 @@ Return Value:
                                 lpszArgs );
         }
 
-    } except (ExtensionExceptionFilterFunction(
+    } __except (ExtensionExceptionFilterFunction(
                   "Extension function faulted", GetExceptionInformation())) {
 
     }
@@ -1354,7 +1307,7 @@ PrintDllBuildInfo(
 
     buf[0] = 0;
     GetModuleFileName( hMod, buf, sizeof(buf) );
-    strlwr( buf );
+    _strlwr( buf );
     tstamp = GetTimestampForLoadedLibrary( hMod );
     p = ctime( &tstamp );
     p[strlen(p)-1] = 0;
@@ -1381,6 +1334,7 @@ LogVersion(
     DWORD                          mi;
     LPSTR                          p;
     LPAPI_VERSION                  lpav;
+    LPEXT_API_VERSION              lpextav;
     PWINDBG_EXTENSION_API_VERSION  ExtensionApiVersion;
     LPPD                           LppdT = LppdCur;
     LPTD                           LptdT = LptdCur;
@@ -1407,7 +1361,7 @@ LogVersion(
     CmdLogFmt( "\n" );
 
     GetModuleFileName( NULL, buf, sizeof(buf) );
-    strlwr( buf );
+    _strlwr( buf );
     tstamp = GetTimestampForLoadedLibrary( GetModuleHandle( NULL ) );
     p = ctime( &tstamp );
     p[strlen(p)-1] = 0;
@@ -1435,7 +1389,7 @@ LogVersion(
     tstamp = GetTimestampForLoadedLibrary( GetModuleHandle( "imagehlp.dll" ) );
     p = ctime( &tstamp );
     p[strlen(p)-1] = 0;
-    strlwr( buf );
+    _strlwr( buf );
     CmdLogFmt(
         "%-20s: %d.%d.%d, built: %s [name: %s]\n",
         "imagehlp",
@@ -1447,7 +1401,7 @@ LogVersion(
 
     if (DefaultExt) {
         for( mi=0; mi<MAX_EXTDLLS; mi++) {
-            if (stricmp( LoadedExts[mi].Name, DefaultExt ) == 0) {
+            if (_stricmp( LoadedExts[mi].Name, DefaultExt ) == 0) {
                 break;
             }
         }
@@ -1455,18 +1409,18 @@ LogVersion(
         ExtensionApiVersion = (PWINDBG_EXTENSION_API_VERSION)
             GetProcAddress( LoadedExts[mi].Module, "ExtensionApiVersion" );
         if (ExtensionApiVersion) {
-            lpav = ExtensionApiVersion();
+            lpextav = ExtensionApiVersion();
             GetModuleFileName( LoadedExts[mi].Module, buf, sizeof(buf) );
             tstamp = GetTimestampForLoadedLibrary( LoadedExts[mi].Module );
             p = ctime( &tstamp );
             p[strlen(p)-1] = 0;
-            strlwr( buf );
+            _strlwr( buf );
             CmdLogFmt(
                 "%-20s: %d.%d.%d, built: %s [name: %s]\n",
                 LoadedExts[mi].Name,
-                lpav->MajorVersion,
-                lpav->MinorVersion,
-                lpav->Revision,
+                lpextav->MajorVersion,
+                lpextav->MinorVersion,
+                lpextav->Revision,
                 p,
                 buf );
         }
@@ -1485,4 +1439,143 @@ done:
     LptdCur = LptdT;
 
     return rVal;
+}
+
+
+LPSTR
+GetExtensionDllNames(
+    LPDWORD len
+    )
+{
+    DWORD mi;
+    LPSTR DllNames;
+    LPSTR p;
+
+
+    if (!NumLoadedExts) {
+        return NULL;
+    }
+    for( mi=0,*len=0; mi<MAX_EXTDLLS; mi++) {
+        if (LoadedExts[mi].Loaded == EXT_LOADED) {
+            *len += (strlen(LoadedExts[mi].Name) + 1);
+        }
+    }
+    if (!*len) {
+        return NULL;
+    }
+    *len += 2;
+    DllNames = malloc( *len );
+    if (!DllNames) {
+        return NULL;
+    }
+    ZeroMemory( DllNames, *len );
+    for( mi=0,p=DllNames; mi<MAX_EXTDLLS; mi++) {
+        if (LoadedExts[mi].Loaded == EXT_LOADED) {
+            strcpy( p, LoadedExts[mi].Name );
+            p += (strlen(p) + 1);
+        }
+    }
+    return DllNames;
+}
+
+
+VOID
+SetExtensionDllNames(
+    LPSTR DllNames
+    )
+{
+    DWORD mi;
+    LPSTR p;
+
+
+    p = DllNames;
+    for( mi=0; mi<MAX_EXTDLLS; mi++) {
+        if (LoadedExts[mi].Loaded == EXT_LOADED) {
+            FreeLibrary( LoadedExts[mi].Module );
+            LoadedExts[mi].Module = NULL;
+            LoadedExts[mi].Loaded = EXT_NOT_LOADED;
+            NumLoadedExts--;
+        }
+    }
+    mi = 0;
+    ZeroMemory( LoadedExts, sizeof(LoadedExts) );
+    while( p && *p ) {
+        strcpy( LoadedExts[mi].Name, p );
+        LoadedExts[mi].Loaded = EXT_NEEDS_LOADING;
+        mi += 1;
+        p += (strlen(p) + 1);
+    }
+}
+
+LOGERR
+LogPageIn(
+    LPSTR lpsz
+    )
+{
+    LPPD            lppd;
+    LPTD            lptd;
+    XOSD            xosd = xosdUnknown;
+    MSG             msg;
+    PIOCTLGENERIC   pig;
+    int             cch;
+    EESTATUS        eest;
+    ADDR            addr;
+
+
+    IsKdCmdAllowed();
+
+    lppd = LppdCur;
+    lptd = LptdCur;
+    if (!lppd || !lppd->hpid) {
+        lppd = LppdFirst;
+        lptd = NULL;
+    }
+
+    if (!runDebugParams.fKernelDebugger) {
+        CmdLogFmt( "Command allowed only for kernel debugging\n" );
+        return LOGERROR_QUIET;
+    }
+
+    lpsz = CPSkipWhitespace(lpsz);
+
+    eest = CPGetAddress(
+        lpsz,
+        &cch,
+        &addr,
+        radix,
+        &CxfIp,
+        fCaseSensitive,
+        runDebugParams.fMasmEval
+        );
+
+    if (eest != EENOERROR) {
+        CmdLogFmt( "Invalid address\n" );
+        return LOGERROR_QUIET;
+    }
+
+    SYFixupAddr( &addr );
+
+    if (lppd && lppd->hpid) {
+        pig = (PIOCTLGENERIC)malloc(sizeof(ULONG) + sizeof(IOCTLGENERIC));
+        if (!pig) {
+            CmdLogFmt( "Could not allocate memory, bummer...\n" );
+            return LOGERROR_QUIET;
+        }
+        pig->ioctlSubType = IG_PAGEIN;
+        pig->length = sizeof(ULONG);
+        ((PULONG)pig->data)[0] = addr.addr.off;
+        xosd = OSDIoctl(
+            lppd->hpid,
+            NULL,
+            ioctlGeneric,
+            pig->length + sizeof(IOCTLGENERIC),
+            (LPV)pig
+            );
+        if (xosd == xosdNone) {
+            Go();
+        }
+        free( pig );
+    }
+
+    return (xosd == xosdNone) ? LOGERROR_NOERROR : LOGERROR_UNKNOWN;
 }

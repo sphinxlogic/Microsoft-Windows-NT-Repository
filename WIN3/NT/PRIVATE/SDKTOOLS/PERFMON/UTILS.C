@@ -6,9 +6,9 @@
             Microsoft Windows NT (TM) Performance Monitor
 
   File:
-            utils.c -- miscellaneous utility routines.  
+            utils.c -- miscellaneous utility routines.
 
-            This file contains miscellaneous utiltity routines, mostly 
+            This file contains miscellaneous utiltity routines, mostly
             low-level windows helpers. These routines are not specific
             to the perfmon utillity.
 
@@ -149,7 +149,7 @@ void Line (HDC hDC,
            int x1, int y1,
            int x2, int y2)
    {  // Line
-   HPEN           hPenPrevious ;
+   HPEN           hPenPrevious = NULL;
 
    if (hPen)
       hPenPrevious = SelectPen (hDC, hPen) ;
@@ -162,8 +162,8 @@ void Line (HDC hDC,
 #if 0
 void HLine (HDC hDC,
             HPEN hPen,
-            int x1, 
-            int x2, 
+            int x1,
+            int x2,
             int y)
    {  // HLine
    Line (hDC, hPen, x1, y, x2, y) ;
@@ -195,7 +195,7 @@ void Fill (HDC hDC,
    }  // Fill
 
 void ThreeDConvex (HDC hDC,
-               int x1, int y1, 
+               int x1, int y1,
                int x2, int y2)
    {  // ThreeDConvex
    HBRUSH         hBrushPrevious ;
@@ -209,9 +209,9 @@ void ThreeDConvex (HDC hDC,
    //읕컴컴컴컴컴컴컴컴컴컴컴컴컴켸
 
    hBrushPrevious = SelectBrush (hDC, hBrushFace) ;
-   PatBlt (hDC, 
-           x1 + ThreeDPad, y1 + ThreeDPad, 
-           x2 - x1 - ThreeDPad, y2 - y1 - ThreeDPad, 
+   PatBlt (hDC,
+           x1 + ThreeDPad, y1 + ThreeDPad,
+           x2 - x1 - ThreeDPad, y2 - y1 - ThreeDPad,
            PATCOPY) ;
    SelectBrush (hDC, hBrushPrevious) ;
 
@@ -240,8 +240,8 @@ void ThreeDConvex (HDC hDC,
    aCounts [1] = 3 ;
 
    PolyPolyline (hDC, aPoints, aCounts, 2) ;
-   
-   
+
+
    if (hPenHighlight)
       hPenPrevious = SelectPen (hDC, hPenPrevious) ;
 
@@ -279,8 +279,8 @@ void ThreeDConvex (HDC hDC,
    aCounts [1] = 4 ;
 
    PolyPolyline (hDC, aPoints, aCounts, 2) ;
-   
-   
+
+
    if (hPenShadow)
       hPenPrevious = SelectPen (hDC, hPenPrevious) ;
 
@@ -294,7 +294,7 @@ void ThreeDConvex (HDC hDC,
 
 
 void ThreeDConcave (HDC hDC,
-                    int x1, int y1, 
+                    int x1, int y1,
                     int x2, int y2,
                     BOOL bFace)
    {  // ThreeDConcave
@@ -311,9 +311,9 @@ void ThreeDConcave (HDC hDC,
    if (bFace)
       {
       hBrushPrevious = SelectBrush (hDC, hBrushFace) ;
-      PatBlt (hDC, 
-              x1 + ThreeDPad, y1 + ThreeDPad, 
-              x2 - x1 - ThreeDPad, y2 - y1 - ThreeDPad, 
+      PatBlt (hDC,
+              x1 + ThreeDPad, y1 + ThreeDPad,
+              x2 - x1 - ThreeDPad, y2 - y1 - ThreeDPad,
               PATCOPY) ;
       SelectBrush (hDC, hBrushPrevious) ;
       }
@@ -344,7 +344,7 @@ void ThreeDConcave (HDC hDC,
    aCounts [1] = 3 ;
 
    PolyPolyline (hDC, aPoints, aCounts, 2) ;
-   
+
    if (hPenShadow)
       hPenPrevious = SelectPen (hDC, hPenPrevious) ;
 
@@ -377,26 +377,26 @@ void ThreeDConcave (HDC hDC,
    aCounts [1] = 2 ;
 
    PolyPolyline (hDC, aPoints, aCounts, 2) ;
-   
+
    if (hPenHighlight)
       hPenPrevious = SelectPen (hDC, hPenPrevious) ;
 
 #else
    HLine (hDC, hPenHighlight, x1 + 1, x2, y2 - 1) ;   // outside bottom line
    VLine (hDC, hPenHighlight, x2 - 1, y1 + 1, y2) ;   // outside right line
-#endif   
+#endif
    }  // ThreeDConcave
 #endif // KEEP_UTIL
 
-     
+
 void ThreeDConvex1 (HDC hDC,
-                    int x1, int y1, 
+                    int x1, int y1,
                     int x2, int y2)
    {  // ThreeDConvex1
    HBRUSH         hBrushPrevious ;
    POINT          aPoints [6] ;
    DWORD          aCounts [2] ;
-   HPEN           hPenPrevious ;
+   HPEN           hPenPrevious = NULL;
 
 
    //旼컴컴컴컴컴컴컴컴컴컴컴컴컴커
@@ -404,9 +404,9 @@ void ThreeDConvex1 (HDC hDC,
    //읕컴컴컴컴컴컴컴컴컴컴컴컴컴켸
 #if 1
    hBrushPrevious = SelectBrush (hDC, hBrushFace) ;
-   PatBlt (hDC, 
-           x1 + 1, y1 + 1, 
-           x2 - x1 - 1, y2 - y1 - 1, 
+   PatBlt (hDC,
+           x1 + 1, y1 + 1,
+           x2 - x1 - 1, y2 - y1 - 1,
            PATCOPY) ;
    SelectBrush (hDC, hBrushPrevious) ;
 
@@ -425,7 +425,7 @@ void ThreeDConvex1 (HDC hDC,
    aPoints [2].y = y1 ;
 
    Polyline (hDC, aPoints, 3) ;
-   
+
    if (hPenHighlight)
       hPenPrevious = SelectPen (hDC, hPenPrevious) ;
 
@@ -456,7 +456,7 @@ void ThreeDConvex1 (HDC hDC,
    aCounts [1] = 2 ;
 
    PolyPolyline (hDC, aPoints, aCounts, 2) ;
-   
+
    if (hPenShadow)
       hPenPrevious = SelectPen (hDC, hPenPrevious) ;
 #else
@@ -469,13 +469,13 @@ void ThreeDConvex1 (HDC hDC,
 
 
 void ThreeDConcave1 (HDC hDC,
-                     int x1, int y1, 
+                     int x1, int y1,
                      int x2, int y2)
    {  // ThreeDConcave1
    HBRUSH         hBrushPrevious ;
    POINT          aPoints [6] ;
    DWORD          aCounts [2] ;
-   HPEN           hPenPrevious ;
+   HPEN           hPenPrevious = NULL;
 
 
    //旼컴컴컴컴컴컴컴컴컴컴컴컴컴커
@@ -483,9 +483,9 @@ void ThreeDConcave1 (HDC hDC,
    //읕컴컴컴컴컴컴컴컴컴컴컴컴컴켸
 
    hBrushPrevious = SelectBrush (hDC, hBrushFace) ;
-   PatBlt (hDC, 
-           x1 + 1, y1 + 1, 
-           x2 - x1 - 1, y2 - y1 - 1, 
+   PatBlt (hDC,
+           x1 + 1, y1 + 1,
+           x2 - x1 - 1, y2 - y1 - 1,
            PATCOPY) ;
    SelectBrush (hDC, hBrushPrevious) ;
 
@@ -505,7 +505,7 @@ void ThreeDConcave1 (HDC hDC,
    aPoints [2].y = y1 ;
 
    Polyline (hDC, aPoints, 3) ;
-   
+
    if (hPenShadow)
       hPenPrevious = SelectPen (hDC, hPenPrevious) ;
 #else
@@ -534,14 +534,14 @@ void ThreeDConcave1 (HDC hDC,
    aCounts [1] = 2 ;
 
    PolyPolyline (hDC, aPoints, aCounts, 2) ;
-   
+
    if (hPenHighlight)
       hPenPrevious = SelectPen (hDC, hPenPrevious) ;
 #else
    HLine (hDC, hPenHighlight, x1 + 1, x2, y2 - 1) ;   // outside bottom line
    VLine (hDC, hPenHighlight, x2 - 1, y1 + 1, y2) ;   // outside right line
 #endif
-   
+
    }  // ThreeDConcave1
 
 
@@ -587,7 +587,7 @@ int _cdecl DlgErrorBox (HWND hDlg, UINT id, ...)
 
 
 
-int FontHeight (HDC hDC, 
+int FontHeight (HDC hDC,
                  BOOL bIncludeLeading)
    {  // FontHeight
    TEXTMETRIC     tm ;
@@ -612,7 +612,7 @@ int TextAvgWidth (HDC hDC,
    xAvgWidth = iNumChars * tm.tmAveCharWidth ;
 
    // add 10% slop
-   return (MulDiv (xAvgWidth, 11, 10)) ;   
+   return (MulDiv (xAvgWidth, 11, 10)) ;
    }
 
 
@@ -643,12 +643,12 @@ void WindowCenter (HWND hWnd)
 
 BOOL DialogMove (HDLG hDlg,
                  WORD wControlID,
-                 int xPos, 
+                 int xPos,
                  int yPos,
                  int xWidth,
                  int yHeight)
 /*
-   Effect:        Move the control identified by wControlID in the dialog  
+   Effect:        Move the control identified by wControlID in the dialog
                   hDlg to the new position (xPos, yPos), and resize to
                   (xWidth, yHeight). If any of these values are NOCHANGE, retain
                   the current value.
@@ -658,7 +658,7 @@ BOOL DialogMove (HDLG hDlg,
 
                   DialogMove (hDlg, IDD_FOO, NOCHANGE, NOCHANGE, 100, NOCHANGE)
                      sets width of control to 100
-*/                     
+*/
    {  // DialogMove
    HWND        hWndControl ;
    RECT        rectControl ;
@@ -680,7 +680,7 @@ BOOL DialogMove (HDLG hDlg,
    }  // DialogMove
 
 
-int DialogWidth (HDLG hDlg, 
+int DialogWidth (HDLG hDlg,
                  WORD wControlID)
    {
    HWND           hWndControl ;
@@ -693,9 +693,9 @@ int DialogWidth (HDLG hDlg,
    GetWindowRect (hWndControl, &rectControl) ;
    return (rectControl.right - rectControl.left) ;
    }
-   
 
-int DialogHeight (HDLG hDlg, 
+
+int DialogHeight (HDLG hDlg,
                   WORD wControlID)
    {
    HWND           hWndControl ;
@@ -708,7 +708,7 @@ int DialogHeight (HDLG hDlg,
    GetWindowRect (hWndControl, &rectControl) ;
    return (rectControl.bottom - rectControl.top) ;
    }
-   
+
 
 int DialogXPos (HDLG hDlg,
                 WORD wControlID)
@@ -748,7 +748,7 @@ void DialogEnable (HDLG hDlg,
                    WORD wID,
                    BOOL bEnable)
 /*
-   Effect:        Enable or disable (based on bEnable) the control 
+   Effect:        Enable or disable (based on bEnable) the control
                   identified by wID in dialog hDlg.
 
    See Also:      DialogShow.
@@ -890,10 +890,10 @@ BOOL MenuSetPopup (HWND hWnd,
    StringLoad (wControlID, szTopChoice) ;
    return (ModifyMenu (hMenuMain, iPosition, MF_BYPOSITION | MF_POPUP,
                        (UINT) hMenuPopup, szTopChoice)) ;
-   }               
-         
+   }
 
-   
+
+
 LPTSTR FileCombine (LPTSTR lpszFileSpec,
                     LPTSTR lpszFileDirectory,
                     LPTSTR lpszFileName)
@@ -938,11 +938,11 @@ LPTSTR ExtractFileName (LPTSTR pFileSpec)
             }
          pFileName-- ;
          }
-      
+
       if (*pFileName == DIRECTORY_DELIMITER1 ||
          *pFileName == DIRECTORY_DELIMITER2)
          {
-         // directory delimiter found, point the 
+         // directory delimiter found, point the
          // filename right after it
          pFileName++ ;
          }
@@ -956,7 +956,7 @@ int CBAddInt (HWND hWndCB,
    TCHAR       szValue [ShortTextLen + 1] ;
    CHAR        szCharValue [ShortTextLen + 1] ;
 
-   itoa (iValue, (LPSTR)szCharValue, 10) ;
+   _itoa (iValue, (LPSTR)szCharValue, 10) ;
 #ifdef UNICODE
    mbstowcs (szValue, (LPSTR)szCharValue, strlen((LPSTR)szCharValue)+1) ;
    return (CBAdd (hWndCB, szValue)) ;
@@ -973,7 +973,7 @@ void DialogSetInterval (HDLG hDlg,
    TCHAR          szValue [MiscTextLen] ;
 
    TSPRINTF (szValue, TEXT("%3.3f"),
-            (FLOAT)(IntervalMSec) / (FLOAT)1000.0) ;
+            (FLOAT)(IntervalMSec / 1000)) ;
    ConvertDecimalPoint (szValue) ;
    SetDlgItemText (hDlg, wControlID, szValue) ;
    }
@@ -1004,14 +1004,14 @@ void DialogSetFloat (HDLG hDlg,
    }
 
 
-FLOAT DialogFloat (HDLG hDlg, 
+FLOAT DialogFloat (HDLG hDlg,
                    WORD wControlID,
                    BOOL *pbOK)
 /*
    Effect:        Return a floating point representation of the string
                   value found in the control wControlID of hDlg.
 
-   Internals:     We use sscanf instead of atof becuase atof returns a 
+   Internals:     We use sscanf instead of atof becuase atof returns a
                   double. This may or may not be the right thing to do.
 */
    {  // DialogFloat
@@ -1058,11 +1058,11 @@ int DivRound (int iNumerator, int iDenominator)
                   but normal division always rounds down.
 
    Note:          Surely there must already be a runtime version of this,
-                  but I couldn't find it. 
+                  but I couldn't find it.
 
    Note:          This function originally used the runtime div function
                   instead of (/ and %), but the div runtime function is
-                  now broken (build 265).   
+                  now broken (build 265).
 */
    {  // DivRound
    int            iQuotient ;
@@ -1141,7 +1141,7 @@ void WindowResize (HWND hWnd,
    Internals:     Since hWnd may be a child of another parent, we need
                   to scale the MoveWindow arguments to be in the client
                   coordinates of the parent.
-            
+
 */
    {  // WindowResize
    RECT           rectWindow ;
@@ -1152,7 +1152,7 @@ void WindowResize (HWND hWnd,
 
    if (hWndParent)
       ScreenRectToClient (hWndParent, &rectWindow) ;
-   
+
    MoveWindow (hWnd,
                rectWindow.left,
                rectWindow.top,
@@ -1184,12 +1184,12 @@ void WindowEnableTitle (HWND hWnd, BOOL bTitle)
 
 
    dwStyle = WindowStyle (hWnd) ;
-   
+
    if (bTitle)
       dwStyle = WS_TILEDWINDOW | dwStyle ;
    else
-      dwStyle = 
-         dwStyle & 
+      dwStyle =
+         dwStyle &
          ~ (WS_DLGFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX) ;
 
    if (!bTitle)
@@ -1209,7 +1209,7 @@ int MessageBoxResource (HWND hWndParent,
 /*
    Effect:        Just like MessageBox, but takes the title and format
                   strings from the resoure. In addition, the format string
-                  is used as a printf style format, combined with the 
+                  is used as a printf style format, combined with the
                   additional arguments.
 */
    {  // MessageBoxResource
@@ -1323,13 +1323,13 @@ LRESULT APIENTRY FocusCtlWndProc (HWND hWnd,
    switch (wMsg)
       {  // switch
       case WM_SETFOCUS:
-         SendMessage (WindowParent (hWnd), 
+         SendMessage (WindowParent (hWnd),
                       WM_DLGSETFOCUS, WindowID (hWnd), 0) ;
          break ;
 
 
       case WM_KILLFOCUS:
-         SendMessage (WindowParent (hWnd), 
+         SendMessage (WindowParent (hWnd),
                       WM_DLGKILLFOCUS, WindowID (hWnd), 0) ;
          break ;
 
@@ -1432,7 +1432,7 @@ int _cdecl mike1 (TCHAR *szFormat, ...)
    va_list        vaList ;
    HDC            hDC ;
    RECT           rect ;
-  
+
    va_start (vaList, szFormat) ;
    TSPRINTF (szBuffer, szFormat, va_arg(vaList, LPTSTR)) ;
    va_end (vaList) ;
@@ -1443,7 +1443,7 @@ int _cdecl mike1 (TCHAR *szFormat, ...)
    rect.bottom = 20 ;
 
    hDC = CreateScreenDC () ;
-   ExtTextOut (hDC, 0, 0, ETO_OPAQUE, &rect, 
+   ExtTextOut (hDC, 0, 0, ETO_OPAQUE, &rect,
                szBuffer, lstrlen (szBuffer), NULL) ;
    DeleteDC (hDC) ;
 
@@ -1458,7 +1458,7 @@ int _cdecl mike2 (TCHAR *szFormat, ...)
    {  //  mike2
    TCHAR           szBuffer [MikeBufferSize] ;
    va_list        vaList ;
-  
+
    va_start (vaList, szFormat) ;
    TSPRINTF (szBuffer, szFormat, va_arg(vaList, LPTSTR)) ;
    va_end (vaList) ;
@@ -1475,7 +1475,7 @@ int inttok (LPSTR lpszText, LPSTR lpszDelimiters)
    {  // inttok
 
    // Inttok only works with LPSTRs because of the atoi & strtok
-   
+
    LPSTR   lpszToken ;
 
    lpszToken = strtok (lpszText, lpszDelimiters) ;
@@ -1487,11 +1487,11 @@ int inttok (LPSTR lpszText, LPSTR lpszDelimiters)
    }  // inttok
 
 
-void WindowPlacementToString (PWINDOWPLACEMENT pWP, 
+void WindowPlacementToString (PWINDOWPLACEMENT pWP,
                               LPTSTR lpszText)
    {
    TSPRINTF (lpszText, TEXT("%d %d %d %d %d %d %d %d %d"),
-            pWP->showCmd, 
+            pWP->showCmd,
             pWP->ptMinPosition.x,
             pWP->ptMinPosition.y,
             pWP->ptMaxPosition.x,
@@ -1507,9 +1507,9 @@ void StringToWindowPlacement (LPTSTR lpszText,
                               PWINDOWPLACEMENT pWP)
    {  // StringToWindowPlacement
    int            iNumScanned ;
-   
+
    iNumScanned = swscanf (lpszText, TEXT("%d %d %d %d %d %d %d %d %d"),
-            &pWP->showCmd, 
+            &pWP->showCmd,
             &pWP->ptMinPosition.x,
             &pWP->ptMinPosition.y,
             &pWP->ptMaxPosition.x,
@@ -1572,4 +1572,3 @@ DWORD MenuIDToHelpID (DWORD MenuID)
    return (HelpID) ;
    }
 
-

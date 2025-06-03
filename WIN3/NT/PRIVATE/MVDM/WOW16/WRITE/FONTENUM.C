@@ -543,5 +543,5 @@ struct FFN *pffn;
     return(chs);
     }
 #endif /* NEWFONTENUM */
-
-
+
+

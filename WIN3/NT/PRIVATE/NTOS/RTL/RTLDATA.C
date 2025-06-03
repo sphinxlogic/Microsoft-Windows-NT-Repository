@@ -51,7 +51,7 @@ PWSTR RtlpRegistryPaths[ RTL_REGISTRY_MAXIMUM ] = {
     L"\\Registry\\Machine\\System\\CurrentControlSet\\Control",
     L"\\Registry\\Machine\\Software\\Microsoft\\Windows NT\\CurrentVersion",
     L"\\Registry\\Machine\\Hardware\\DeviceMap",
-    L"\\Registry\\User\\CurrentUser"
+    L"\\Registry\\User\\.Default"
 };
 
 WCHAR szBias[] =          L"Bias";
@@ -65,4 +65,4 @@ WCHAR szDaylightStart[] = L"DaylightStart";
 #if defined(ALLOC_DATA_PRAGMA) && defined(NTOS_KERNEL_RUNTIME)
 #pragma data_seg()
 #endif
-
+

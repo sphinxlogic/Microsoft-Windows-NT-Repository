@@ -123,4 +123,3 @@ Revision History:
 #define IBM     (INOUT+IO+MULTI)            // input multiple bytes
 #define IW      (INOUT+IO+BW)               // input word
 #define IWM     (INOUT+IO+BW+MULTI)         // input multiple words
-

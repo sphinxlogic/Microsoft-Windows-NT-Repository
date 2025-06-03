@@ -7,10 +7,6 @@
 #include "compact.h"
 
 
-LOCAL	void	FixupPublics (uchar *, ushort);
-LOCAL	uchar  *RemoveComDat (uchar *Symbols);
-LOCAL	void	RewritePublics (uchar *, DirEntry *, PMOD);
-LOCAL	void	RewriteSrcLnSeg (uchar *, DirEntry *, uchar *, PMOD);
 LOCAL	void	RewriteSymbols (uchar *, DirEntry *, char *, PMOD);
 
 // Called through Fixup function table
@@ -66,9 +62,6 @@ LOCAL ushort C6CnvrtBPRelSym32 (uchar *, uchar *);
 
 LOCAL void C6RewriteSymbolStrings (uchar * End);
 
-LOCAL short SizeChgNumeric (uchar *);
-
-
 extern ushort recursive;
 extern ushort AddNewSymbols;
 extern uchar  Signature[];
@@ -84,7 +77,6 @@ extern uchar **ExtraSymbolLink;
 extern uchar *ExtraSymbols;
 extern ulong InitialSymInfoSize;
 extern ulong FinalSymInfoSize;
-extern char    *ModAddr;
 
 extern ulong ulCVTypeSignature; // The signature from the modules type segment
 
@@ -97,7 +89,6 @@ LOCAL int	 iLevel;
 // These are shared by the rewrite functions
 
 LOCAL uchar *NewSymbols;		// Where to write next byte of new symbol
-LOCAL uchar *StartSymbols;		// Where to write next byte of new symbol
 LOCAL uchar *OldSymbols;		// Where to get next byte of old symbol
 LOCAL ushort segment;
 
@@ -506,70 +497,6 @@ LOCAL void C6SizeProcSym32 (void)
 	SymbolSizeAdd += MAXPAD + (sizeof (PROCSYM32) - 1) - (2 + 15);
 }
 
-
-
-
-
-
-
-/**
- *
- *	FixupPublicsC6
- *
- *	Fixup type indices in the publics segment similar to symbols segment.
- *	Not called through Fixup function tables.
- *
- */
-
-void FixupPublicsC6 (uchar *Publics, ulong PublicCount)
-{
-	register uchar *End;
-	register uchar Offset = 4;
-
-	if (fLinearExe) {
-		Offset += 2;				// another 2 bytes
-	}
-	End = Publics + PublicCount;
-	while (Publics < End) {
-		switch (ulCVTypeSignature){
-			case CV_SIGNATURE_C6:
-				if (delete == TRUE) {
-					*(ushort *) (Publics + Offset) = T_NOTYPE;
-				}
-				else {
-					*(ushort *) (Publics + Offset) =
-					  C6GetCompactedIndex(*(ushort *) (Publics + Offset));
-				}
-				break;
-
-			case CV_SIGNATURE_C7:
-				if (delete == TRUE) {
-					*(ushort *) (Publics + Offset) = T_NOTYPE;
-				}
-				else {
-					*(ushort *) (Publics + Offset) =
-					  C7GetCompactedIndex(*(ushort *) (Publics + Offset));
-				}
-				break;
-
-			default:
-				*(ushort *) (Publics + Offset) = 0;
-		}
-		Publics += Offset + 2;			// skip over index
-		Publics += *Publics + 1;		// skip over name
-		DASSERT (!recursive);
-	}
-}
-
-
-
-
-////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////
 
 /** 	RewriteSymbols - reformat symbols to new format and store in VM
  *
@@ -1635,152 +1562,9 @@ LOCAL void C6RwrtExecModel16 (void)
 }
 
 
-
-
 LOCAL void C6RwrtExecModel32 (void)
 {
 	// I never expect to see one of these
 
 	DASSERT (FALSE);
-}
-
-
-/** 	RewritePublics - reformat publics to new format and store in VM
- *
- *		RewritePublics (addr, pDir, pMod);
- *
- *		Entry	addr = address of publics table
- *				pDir = address of directory entry
- *				pMod = module table entry
- *
- *		Exit	pDir->lfo = address of rewritten table
- *				pDir->Size = size of rewritten table
- *
- *		Return	none
- *
- *		Note	Not called through Symbol Rewrite funtion table.
- */
-
-
-void RewritePublicsC6 (uchar *OldPublics, OMFDirEntry *pDir)
-{
-	uchar		*NewPublics;
-	uchar		*End;
-	uchar		Offset = 4;
-	uchar		length;
-	ushort		usNTotal;		// New length of symbol including length field
-	int 		iPad;
-	uchar		buf[512];
-
-
-	if ((pDir->cb) == 0) {
-		// if publics directory entry but no data
-		return;
-	}
-	if (fLinearExe) {
-		Offset += 2;
-	}
-	End = OldPublics + pDir->cb;
-	while (OldPublics < End) {
-		NewPublics = buf;
-		// add in offset, type, name length, name length prefix
-		length = (uchar)(Offset + 2 + OldPublics[Offset + 2] + 1);
-
-		// calculate new length; length size, record type size, length of data
-		usNTotal = LNGTHSZ + RECTYPSZ + length;
-		*((ushort *)NewPublics)++ = ALIGN4 (usNTotal) - LNGTHSZ;
-		iPad = PAD4 (usNTotal);
-
-		if (fLinearExe) {
-			*((ushort *)NewPublics)++ = S_PUB32;
-		}
-		else{
-			*((ushort *)NewPublics)++ = S_PUB16;
-		}
-		for (; length > 0; length--) {
-			*NewPublics++ = *OldPublics++;
-		}
-		*NewPublics = 0;
-		PADLOOP (iPad, NewPublics);
-		PackPublic ((SYMPTR)&buf, HASHFUNC);
-	}
-}
-
-
-
-
-
-
-LOCAL uchar *RemoveComDat (uchar *Symbols)
-{
-	int level = 1;
-
-	SymbolSizeSub += Symbols[0] + 1;
-	Symbols[1] = OSYMRESERVED;
-	Symbols += Symbols[0] + 1;
-
-	while (level) {
-		switch (Symbols[1] & 0x7f) {
-		case OSYMWITH:
-		case OSYMBLOCKSTART:
-		case OSYMTHUNK:
-		case OSYMCV4BLOCK:
-		case OSYMCV4WITH:
-		case OSYMPROCSTART:
-		case OSYMLOCALPROC:
-			level++;
-			break;
-		case OSYMEND:
-			level--;
-			break;
-		default:
-			break;
-		}
-
-		SymbolSizeSub += Symbols[0] + 1;
-		Symbols[1] = OSYMRESERVED;
-		Symbols += Symbols[0] + 1;
-	}
-	return (Symbols);
-}
-
-
-
-/**
- *
- *	SizeChgNumeric
- *
- *	Calculates the difference in size between an old style numeric leaf and
- *	a new (C7) style numeric leaf. Below is is the table of the old vs new size.
- *		Type			Range			Old 		New 		Change
- *		unsigned		0-127			1			2			1
- *		unsigned		127-0x7fff		3			2			-1
- *		unsigned		0x8000-0xffff	3			4			1
- *		unsigned long					5			6			1
- *		signed short					3			4			1
- *		signed long 					5			6			1
- *		string			1 - 256 bytes	2 + n		4 + n		2
- *
- *	Input:	pOld - Pointer to the old Numeric Leaf
- *	Output: Return value is how many more bytes the new format will occupy
- *			than the old format. May be a negative number.
- */
-
-LOCAL short SizeChgNumeric (uchar *pOld)
-{
-	if (*pOld < 0x80) {
-		return (0);
-	}
-	if (*pOld == 0x82) {
-		// new takes 2 byte leaf + 2 byte length
-		return (3);
-	}
-	if (*pOld == 133 && *((ushort *)(pOld + 1)) < LF_NUMERIC){
-		// An unsigned short that will fit in the leaf indicy
-		return (2 - 3); // old takes 24bits, new takes 16bits
-	}
-	if (*pOld > 138){
-		ErrorExit (ERR_INVALIDMOD, FormatMod (pCurMod), NULL);
-	}
-	return (1);
 }

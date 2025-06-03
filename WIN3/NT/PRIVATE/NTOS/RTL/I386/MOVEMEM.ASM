@@ -38,7 +38,19 @@ _DATA   SEGMENT  DWORD PUBLIC 'DATA'
 _RtlpZeroCount dd 0
 _RtlpZeroBytes dd 0
 
+ifndef BLDR_KERNEL_RUNTIME
+_MsgUnalignedPtr    db  'RTL: RtlCompare/FillMemoryUlong called with unaligned pointer (%x)\n',0
+endif
+
 _DATA ENDS
+
+ifndef BLDR_KERNEL_RUNTIME
+ifdef NTOS_KERNEL_RUNTIME
+        extrn   _KdDebuggerEnabled:BYTE
+endif
+        EXTRNP  _DbgBreakPoint,0
+        extrn   _DbgPrint:near
+endif
 endif
 
 ;
@@ -50,9 +62,20 @@ ZERO_MEMORY_ALIGNMENT_LOG2 = 2
 ZERO_MEMORY_ALIGNMENT_MASK = ZERO_MEMORY_ALIGNMENT - 1
 
 MEMORY_ALIGNMENT = 4
+MEMORY_ALIGNMENT_LOG2 = 2
 MEMORY_ALIGNMENT_MASK = MEMORY_ALIGNMENT - 1
 
-_TEXT$00   SEGMENT DWORD PUBLIC 'CODE'
+
+;
+; Alignment for functions in this module
+;
+
+CODE_ALIGNMENT macro
+    align   16
+endm
+
+
+_TEXT$00   SEGMENT PARA PUBLIC 'CODE'
         ASSUME  DS:FLAT, ES:FLAT, SS:NOTHING, FS:NOTHING, GS:NOTHING
 
         page , 132
@@ -73,13 +96,13 @@ _TEXT$00   SEGMENT DWORD PUBLIC 'CODE'
 ;
 ; Arguments:
 ;
-;    Source1 (ebp+8) - Supplies a pointer to the first block of memory to
+;    Source1 (esp+4) - Supplies a pointer to the first block of memory to
 ;       compare.
 ;
-;    Source2 (ebp+12) - Supplies a pointer to the second block of memory to
+;    Source2 (esp+8) - Supplies a pointer to the second block of memory to
 ;       compare.
 ;
-;    Length (ebp+16) - Supplies the Length, in bytes, of the memory to be
+;    Length (esp+12) - Supplies the Length, in bytes, of the memory to be
 ;       compared.
 ;
 ; Return Value:
@@ -90,78 +113,71 @@ _TEXT$00   SEGMENT DWORD PUBLIC 'CODE'
 ;
 ;--
 
-RcmSource1      equ     [ebp+8]
-RcmSource2      equ     [ebp+12]
-RcmLength       equ     [ebp+16]
+RcmSource1      equ     [esp+12]
+RcmSource2      equ     [esp+16]
+RcmLength       equ     [esp+20]
 
-cPublicProc _RtlCompareMemory   ,3
+CODE_ALIGNMENT
+cPublicProc _RtlCompareMemory,3
+cPublicFpo 3,0
 
-        push    ebp
-        mov     ebp,esp
-        push    esi
-        push    edi
-        cld
-
+        push    esi                     ; save registers
+        push    edi                     ;
+        cld                             ; clear direction
         mov     esi,RcmSource1          ; (esi) -> first block to compare
         mov     edi,RcmSource2          ; (edi) -> second block to compare
-        mov     ecx,RcmLength           ; (ecx) = length in bytes
-        and     ecx,3                   ; (ecx) = length mod 4
-        jz      rcm10                   ; 0 odd bytes, go do dwords
 
 ;
-;   Compare "odd" bytes.
-;
-
-        repe    cmpsb                   ; compare odd bytes
-        jnz     rcm40                   ; mismatch, go report how far we got
-
-;
-;   Compare dwords.
+;   Compare dwords, if any.
 ;
 
 rcm10:  mov     ecx,RcmLength           ; (ecx) = length in bytes
         shr     ecx,2                   ; (ecx) = length in dwords
-        jz      rcm20                   ; no dwords, go exit
-
+        jz      rcm20                   ; no dwords, try bytes
         repe    cmpsd                   ; compare dwords
-        jnz     rcm30                   ; mismatch, go find byte
+        jnz     rcm40                   ; mismatch, go find byte
 
 ;
-;   When we come to rcm20, we matched all the way to the end.  Esi
-;   points to the byte after the last byte in the block, so Esi - RcmSource1
-;   equals the number of bytes that matched
+;   Compare residual bytes, if any.
 ;
 
-rcm20:  sub     esi,RcmSource1
-        mov     eax,esi
-        pop     edi
-        pop     esi
-        pop     ebp
-        stdRET    _RtlCompareMemory                             ; EXIT
+rcm20:  mov     ecx,RcmLength           ; (ecx) = length in bytes
+        and     ecx,3                   ; (ecx) = length mod 4
+        jz      rcm30                   ; 0 odd bytes, go do dwords
+        repe    cmpsb                   ; compare odd bytes
+        jnz     rcm50                   ; mismatch, go report how far we got
 
 ;
-;   When we come to rcm30, esi (and edi) points to the dword after the
+;   All bytes in the block match.
+;
+
+rcm30:  mov     eax,RcmLength           ; set number of matching bytes
+        pop     edi                     ; restore registers
+        pop     esi                     ;
+        stdRET  _RtlCompareMemory
+
+;
+;   When we come to rcm40, esi (and edi) points to the dword after the
 ;   one which caused the mismatch.  Back up 1 dword and find the byte.
 ;   Since we know the dword didn't match, we can assume one byte won't.
 ;
 
-rcm30:  sub     esi,4                   ; back up
+rcm40:  sub     esi,4                   ; back up
         sub     edi,4                   ; back up
         mov     ecx,5                   ; ensure that ecx doesn't count out
         repe    cmpsb                   ; find mismatch byte
 
 ;
-;   When we come to rcm40, esi points to the byte after the one that
+;   When we come to rcm50, esi points to the byte after the one that
 ;   did not match, which is TWO after the last byte that did match.
 ;
 
-rcm40:  dec     esi
-        sub     esi,RcmSource1
-        mov     eax,esi
-        pop     edi
-        pop     esi
-        pop     ebp
-        stdRET    _RtlCompareMemory                             ; EXIT
+rcm50:  dec     esi                     ; back up
+        sub     esi,RcmSource1          ; compute bytes that matched
+        mov     eax,esi                 ;
+        pop     edi                     ; restore registers
+        pop     esi                     ;
+        stdRET  _RtlCompareMemory
 
 stdENDP _RtlCompareMemory
 
@@ -173,6 +189,7 @@ EcmlPattern      equ     [esp + 4 + 12]
 
 ; end of arguments
 
+CODE_ALIGNMENT
 cPublicProc _RtlCompareMemoryUlong  ,3
 
 ;
@@ -193,6 +210,26 @@ cPublicProc _RtlCompareMemoryUlong  ,3
 ;
 
         mov     edi,EcmlSource
+if DBG
+ifndef BLDR_KERNEL_RUNTIME
+        test    edi,3
+        jz      @F
+        push    edi
+        push    offset FLAT:_MsgUnalignedPtr
+        call    _DbgPrint
+        add     esp, 2 * 4
+ifdef NTOS_KERNEL_RUNTIME
+        cmp     _KdDebuggerEnabled,0
+else
+        mov     eax,fs:[PcTeb]
+        mov    eax,[eax].TebPeb
+        cmp     byte ptr [eax].PebBeingDebugged,0
+endif
+        je      @F
+        call    _DbgBreakPoint@0
+@@:
+endif
+endif
         mov     ecx,EcmlLength
         mov     eax,EcmlPattern
         shr     ecx,ZERO_MEMORY_ALIGNMENT_LOG2
@@ -251,6 +288,7 @@ EfmFill         equ     byte ptr [esp + 4 + 12]
 
 ; end of arguments
 
+CODE_ALIGNMENT
 cPublicProc _RtlFillMemory  ,3
 cPublicFpo 3,1
 
@@ -346,6 +384,7 @@ EfmlFill         equ     [esp + 4 + 12]
 
 ; end of arguments
 
+CODE_ALIGNMENT
 cPublicProc _RtlFillMemoryUlong  ,3
 cPublicFpo 3,1
 
@@ -367,6 +406,26 @@ cPublicFpo 3,1
 ;
 
         mov     edi,EfmlDestination
+if DBG
+ifndef BLDR_KERNEL_RUNTIME
+        test    edi,3
+        jz      @F
+        push    edi
+        push    offset FLAT:_MsgUnalignedPtr
+        call    _DbgPrint
+        add     esp, 2 * 4
+ifdef NTOS_KERNEL_RUNTIME
+        cmp     _KdDebuggerEnabled,0
+else
+        mov     eax,fs:[PcTeb]
+        mov    eax,[eax].TebPeb
+        cmp     byte ptr [eax].PebBeingDebugged,0
+endif
+        je      @F
+        call    _DbgBreakPoint@0
+@@:
+endif
+endif
         mov     ecx,EfmlLength
         mov     eax,EfmlFill
         shr     ecx,ZERO_MEMORY_ALIGNMENT_LOG2
@@ -416,6 +475,7 @@ EzmLength       equ     [esp + 4 + 8]
 
 ; end of arguments
 
+CODE_ALIGNMENT
 cPublicProc _RtlZeroMemory  ,2
 cPublicFpo 2,1
 
@@ -507,6 +567,7 @@ EmmLength       equ     [esp + 8 + 12]
 
 ; End of arguments
 
+CODE_ALIGNMENT
 cPublicProc _RtlMoveMemory  ,3
 cPublicFpo 3,2
 
@@ -543,14 +604,7 @@ endif
 nooverlap:
         mov     edx,ecx
         and     edx,MEMORY_ALIGNMENT_MASK
-;
-;       BUGBUG: LarryO: MEMORY_ALIGNMENT can never be any value other
-;       than 4 by this code, the /2 is incorrect, we want
-;       LOG2(MEMORY_ALIGNMENT) to be correct.
-;
-    .errnz      MEMORY_ALIGNMENT NE 4 ;LarryO: Added
-
-        shr     ecx,MEMORY_ALIGNMENT/2
+        shr     ecx,MEMORY_ALIGNMENT_LOG2
 
 ;
 ; If number of 32-bit words to move is non-zero, then do it.

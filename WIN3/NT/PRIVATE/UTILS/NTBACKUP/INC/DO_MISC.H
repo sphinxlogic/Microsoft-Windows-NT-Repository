@@ -57,5 +57,6 @@ BOOLEAN   UI_ReturnToTOC( UINT16 channel, BOOLEAN check_tape_change ) ;
 INT16     UI_HandleTapeReadError( CHAR_PTR drive_name ) ;
 INT16     TryToCreateFFRQueue( struct LIS *, INT16 ) ;
 VOID      UI_ChkDispGlobalError ( VOID ) ;
+VOID      UI_AddSpecialIncOrExc( BSD_PTR bsd, BOOLEAN IsInclude ) ;
 
 #endif

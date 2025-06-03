@@ -11,16 +11,14 @@
 //		CQI::CQI
 //		CQI::~CQI
 //		CQI::QueryInterface
+//		CQI::GetClassForHandler
 //
 //  History:	06-Aug-92 Rickhi    Created
 //
 //--------------------------------------------------------------------------
-
 #include    <pch.cxx>
 #pragma     hdrstop
 #include    <cqi.hxx>	 //	class definition
-
-
 
 //+-------------------------------------------------------------------------
 //
@@ -31,14 +29,13 @@
 //  History:	06-Aug-92 Rickhi    Created
 //
 //--------------------------------------------------------------------------
-CQI::CQI(void)
+CQI::CQI(REFCLSID rclsid) : _clsid(rclsid)
 {
     Display(TEXT("CQI created.\n"));
     GlobalRefs(TRUE);
 
     ENLIST_TRACKING(CQI);
 }
-
 
 //+-------------------------------------------------------------------------
 //
@@ -57,7 +54,6 @@ CQI::~CQI(void)
     //	automatic actions are enough
 }
 
-
 //+-------------------------------------------------------------------------
 //
 //  Method:	CQI::QueryInterface
@@ -65,7 +61,8 @@ CQI::~CQI(void)
 //  Synopsis:	returns ptr to requested interface.
 //
 //		DANGER: this returns SUCCESS on almost every interface,
-//		though the only valid methods on any interface are IUnknown.
+//		though the only valid methods on any interface are IUnknown
+//		and IStdMarshalInfo.
 //
 //  Arguments:	[riid] - interface instance requested
 //		[ppv]  - where to put pointer to interface instance
@@ -77,22 +74,57 @@ CQI::~CQI(void)
 //--------------------------------------------------------------------------
 STDMETHODIMP CQI::QueryInterface(REFIID riid, void **ppv)
 {
-    //	the interface cant be one of these or marshalling will fail.
+    if (IsEqualIID(riid, IID_IStdMarshalInfo))
+    {
+	if (IsEqualCLSID(_clsid, CLSID_QIHANDLER))
+	{
+	    *ppv = (IStdMarshalInfo *)this;
+	    AddRef();
+	    return S_OK;
+	}
+    }
 
-    if (!IsEqualIID(riid,IID_IMarshal) &&
-	!IsEqualIID(riid,IID_IStdMarshalInfo) &&
-	!IsEqualIID(riid,IID_IStdIdentity) &&
-	!IsEqualIID(riid,IID_IExternalConnection) &&
-	!IsEqualIID(riid,IID_IRunnableObject) &&
-	!IsEqualIID(riid,IID_IPersist))
+    if (IsEqualIID(riid,IID_IUnknown) ||
+	IsEqualIID(riid,IID_IAdviseSink) ||
+	IsEqualIID(riid,IID_IDataObject) ||
+	IsEqualIID(riid,IID_IOleObject) ||
+	IsEqualIID(riid,IID_IOleClientSite) ||
+	IsEqualIID(riid,IID_IParseDisplayName) ||
+	IsEqualIID(riid,IID_IPersistStorage) ||
+	IsEqualIID(riid,IID_IPersistFile) ||
+	IsEqualIID(riid,IID_IStorage) ||
+	IsEqualIID(riid,IID_IOleContainer) ||
+	IsEqualIID(riid,IID_IOleItemContainer) ||
+	IsEqualIID(riid,IID_IOleInPlaceSite) ||
+	IsEqualIID(riid,IID_IOleInPlaceActiveObject) ||
+	IsEqualIID(riid,IID_IOleInPlaceObject) ||
+	IsEqualIID(riid,IID_IOleInPlaceUIWindow) ||
+	IsEqualIID(riid,IID_IOleInPlaceFrame) ||
+	IsEqualIID(riid,IID_IOleWindow))
     {
 	*ppv = (void *)(IUnknown *) this;
 	AddRef();
 	return S_OK;
     }
-    else
-    {
-	*ppv = NULL;
-	return E_NOINTERFACE;
-    }
+
+    *ppv = NULL;
+    return E_NOINTERFACE;
+}
+
+//+-------------------------------------------------------------------------
+//
+//  Method:	CQI::GetClassForHandler
+//
+//  Synopsis:	returns the classid for the inproc handler of this object.
+//		Used to test handler marshaling.
+//
+//  History:	06-Aug-92 Rickhi    Created
+//
+//--------------------------------------------------------------------------
+STDMETHODIMP CQI::GetClassForHandler(DWORD dwDestContext,
+				     void *pvDestContext,
+				     CLSID *pClsid)
+{
+    *pClsid = CLSID_QIHANDLER;
+    return S_OK;
 }

@@ -11,7 +11,7 @@ Abstract:
     This file contains the routines for managing the caches on machines
     based on the DECchip 21064 microprocessor.
 
-    EV4 has primary I and D caches of 8KB each, both write-through.  
+    EV4 has primary I and D caches of 8KB each, both write-through.
     Any systems based on EV4 are expected to have an external backup cache
     which is write-back, but it is also coherent with all DMA operations.  The
     primary caches are shadowed by the backup, and on a write hit, the
@@ -175,37 +175,20 @@ Return Value:
 {
     //
     // The Dcache coherency is maintained in hardware.  The Icache coherency
-    // is maintained in software via translation buffer invalidation.
-    // (When the Itb is invalidated the Icache is flushed.)
+    // is maintained by invalidating the istream on page read operations.
     //
-    // The only work that needs to be performed here is to ensure that any
-    // pending writes are made visibile at the system coherency point.
-    //
-    // If this is not a read operation then flush the write buffer to
-    // make the writes visible.  The method for flushing the write buffer
-    // is specific to the 21064.
-    //
-
-    if (ReadOperation == FALSE) {
-        HalpMb();     // force all previous writes off chip
+    HalpMb();     // synchronize this processors view of memory
+    if (ReadOperation) {
         HalpMb();     // not issued until previous mb completes
-    } else {
-        HalpMb();     // synchronize this processors view of memory
+        if (Mdl->MdlFlags & MDL_IO_PAGE_READ) {
+
+            //
+            // The operation is a page read, thus the istream must
+            // be flushed.
+            //
+            HalpImb();
+        }
     }
-
-//#if defined(AXP_FIRMWARE)
-
-    //
-    // The firmware does not maintain Icache coherency via translation
-    // buffer invalidation.  If this is a read, guarantee Icache coherency.
-    //
-
-    if( ReadOperation == TRUE ){
-        HalpImb();
-    }
-
-//#endif //AXP_FIRMWARE
-
 }
 
 VOID

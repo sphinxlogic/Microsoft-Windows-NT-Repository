@@ -37,16 +37,20 @@ Revision History:
 // Private flags for loader data table entries
 //
 
-#define LDRP_PROCESS_ATTACH_CALLED      0x00080000
-#define LDRP_DONT_CALL_FOR_THREADS      0x00040000
-#define LDRP_FAILED_BUILTIN_LOAD        0x00020000
-#define LDRP_CURRENT_LOAD               0x00010000
-#define LDRP_ENTRY_INSERTED             0x00008000
-#define LDRP_ENTRY_PROCESSED            0x00004000
-#define LDRP_UNLOAD_IN_PROGRESS         0x00002000
-#define LDRP_LOAD_IN_PROGRESS           0x00001000
-#define LDRP_IMAGE_DLL                  0x00000004
 #define LDRP_STATIC_LINK                0x00000002
+#define LDRP_IMAGE_DLL                  0x00000004
+#define LDRP_LOAD_IN_PROGRESS           0x00001000
+#define LDRP_UNLOAD_IN_PROGRESS         0x00002000
+#define LDRP_ENTRY_PROCESSED            0x00004000
+#define LDRP_ENTRY_INSERTED             0x00008000
+#define LDRP_CURRENT_LOAD               0x00010000
+#define LDRP_FAILED_BUILTIN_LOAD        0x00020000
+#define LDRP_DONT_CALL_FOR_THREADS      0x00040000
+#define LDRP_PROCESS_ATTACH_CALLED      0x00080000
+#define LDRP_DEBUG_SYMBOLS_LOADED       0x00100000
+#define LDRP_IMAGE_NOT_AT_BASE          0x00200000
+#define LDRP_WX86_IGNORE_MACHINETYPE    0x00400000
+
 
 //
 // Loader Data Table. Used to track DLLs loaded into an
@@ -72,6 +76,7 @@ typedef struct _LDR_DATA_TABLE_ENTRY {
             ULONG CheckSum;
         };
     };
+    ULONG   TimeDateStamp;
 } LDR_DATA_TABLE_ENTRY, *PLDR_DATA_TABLE_ENTRY;
 
 #define DLL_PROCESS_ATTACH 1    // winnt
@@ -85,6 +90,18 @@ BOOLEAN
     IN PVOID DllHandle,
     IN ULONG Reason,
     IN PCONTEXT Context OPTIONAL
+    );
+
+typedef
+BOOLEAN
+(*PPROCESS_STARTER_ROUTINE) (
+    IN PVOID RealStartAddress
+    );
+
+VOID
+LdrProcessStarterHelper(
+    IN PPROCESS_STARTER_ROUTINE ProcessStarter,
+    IN PVOID RealStartAddress
     );
 
 VOID
@@ -149,10 +166,20 @@ LdrVerifyMappedImageMatchesChecksum (
     IN ULONG FileLength
     );
 
+typedef
+VOID
+(*PLDR_IMPORT_MODULE_CALLBACK)(
+    IN PVOID Parameter,
+    PCHAR ModuleName
+    );
+
 NTSTATUS
 NTAPI
 LdrVerifyImageMatchesChecksum (
-    IN HANDLE ImageFileHandle
+    IN HANDLE ImageFileHandle,
+    IN PLDR_IMPORT_MODULE_CALLBACK ImportCallbackRoutine OPTIONAL,
+    IN PVOID ImportCallbackParameter,
+    OUT PUSHORT ImageCharacteristics OPTIONAL
     );
 
 NTSTATUS
@@ -163,6 +190,8 @@ LdrGetProcedureAddress(
     IN ULONG ProcedureNumber OPTIONAL,
     OUT PVOID *ProcedureAddress
     );
+
+#define LDR_RESOURCE_ID_NAME_MASK 0xFFFF0000
 
 NTSTATUS
 NTAPI
@@ -180,6 +209,32 @@ LdrFindResource_U(
     IN PULONG ResourceIdPath,
     IN ULONG ResourceIdPathLength,
     OUT PIMAGE_RESOURCE_DATA_ENTRY *ResourceDataEntry
+    );
+
+#define LDR_MAXIMUM_RESOURCE_PATH_DEPTH 3
+
+typedef struct _LDR_ENUM_RESOURCE_ENTRY {
+    union {
+        ULONG NameOrId;
+        PIMAGE_RESOURCE_DIRECTORY_STRING Name;
+        struct {
+            USHORT Id;
+            USHORT NameIsPresent;
+        };
+    } Path[ LDR_MAXIMUM_RESOURCE_PATH_DEPTH ];
+    PVOID Data;
+    ULONG Size;
+    ULONG Reserved;
+} LDR_ENUM_RESOURCE_ENTRY, *PLDR_ENUM_RESOURCE_ENTRY;
+
+NTSTATUS
+NTAPI
+LdrEnumResources(
+    IN PVOID DllHandle,
+    IN PULONG ResourceIdPath,
+    IN ULONG ResourceIdPathLength,
+    IN OUT PULONG NumberOfResources,
+    OUT PLDR_ENUM_RESOURCE_ENTRY Resources OPTIONAL
     );
 
 NTSTATUS
@@ -207,7 +262,6 @@ LdrDisableThreadCalloutsForDll (
     );
 
 
-#if DEVL
 typedef struct _RTL_PROCESS_MODULE_INFORMATION {
     HANDLE Section;                 // Not filled in
     PVOID MappedBase;
@@ -245,8 +299,4 @@ LdrQueryImageFileExecutionOptions(
     OUT PULONG ResultSize OPTIONAL
     );
 
-#endif // DEVL
-
 #endif // _NTLDR_
-
-

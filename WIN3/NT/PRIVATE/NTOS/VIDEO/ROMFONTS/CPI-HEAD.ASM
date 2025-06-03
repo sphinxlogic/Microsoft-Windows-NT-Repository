@@ -13,7 +13,7 @@ FNTHEAD:DB     0FFH,"FONT.NT"           ;FILE TAG
         DW     1                        ;CNT OF POINTERS IN HEADER
         DB     1                        ;TYPE FOR INFO POINTER
         DW     OFFSET INFO,0            ;POINTER TO INFO IN FILE
-INFO:   DW     11                       ;COUNT OF ENTRIES
+INFO:   DW     12                       ;COUNT OF ENTRIES
 
 CODE    ENDS
         END

@@ -384,20 +384,25 @@ GENERIC_DLE_PTR *dle )  /* O - pointer to matched DLE    */
      return SUCCESS ;
 }
 
+#define TMP_XCH_DLE( dle )  ( ((dle)->type == FS_EMS_DRV)&&\
+     (((dle)->subtype==EMS_MDB)||((dle)->subtype==EMS_DSA))&&\
+     (((dle)->parent == NULL) || ((dle)->parent->parent == NULL)) )
+
 static VOID RecurseSearchName ( 
 GENERIC_DLE_PTR dle_tree,
 GENERIC_DLE_PTR *dle,
 CHAR_PTR        name,
 INT16           type )
 {
-     while ( (dle_tree != NULL) && (*dle == NULL) ) {
+     while ( (dle_tree != NULL) &&
+             ((*dle == NULL) || TMP_XCH_DLE( *dle ) ) ) {
 
           if ( QueueCount( &(dle_tree->child_q) ) != 0 ) {
                RecurseSearchName ( (GENERIC_DLE_PTR)QueueHead( &(dle_tree->child_q) ) ,
                  dle, name, type ) ;
           }
 
-          if ( *dle == NULL ) {
+          if ( ( *dle == NULL ) || TMP_XCH_DLE( *dle ) ) {
 
                if ( !stricmp( name, dle_tree->device_name ) ) {
                     if ( ( type == ANY_DRIVE_TYPE ) || ( (UINT16)type == dle_tree->type ) ) {

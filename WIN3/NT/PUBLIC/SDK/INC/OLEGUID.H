@@ -4,16 +4,16 @@
 *                                                                             *
 *               OLE Version 2.0                                               *
 *                                                                             *
-*               Copyright (c) 1992-1993, Microsoft Corp. All rights reserved. *
+*               Copyright (c) 1992-1995, Microsoft Corp. All rights reserved. *
 *                                                                             *
 \*****************************************************************************/
 
-/* this file is the master definition of all public GUIDs specific to OLE 
+/* this file is the master definition of all public GUIDs specific to OLE
    and is included in ole2.h.
-   
+
    NOTE: The second least significant byte of all of these GUIDs is 1.
 */
-   
+
 
 DEFINE_OLEGUID(IID_IEnumUnknown,            0x00000100, 0, 0);
 DEFINE_OLEGUID(IID_IEnumString,             0x00000101, 0, 0);
@@ -66,8 +66,8 @@ DEFINE_OLEGUID(IID_IAdviseSink2,            0x00000125, 0, 0);
 
 DEFINE_OLEGUID(IID_IRunnableObject,         0x00000126, 0, 0);
 
-DEFINE_OLEGUID(IID_IViewObject2,			0x00000127, 0, 0);
-DEFINE_OLEGUID(IID_IOleCache2,				0x00000128, 0, 0);
+DEFINE_OLEGUID(IID_IViewObject2,                        0x00000127, 0, 0);
+DEFINE_OLEGUID(IID_IOleCache2,                          0x00000128, 0, 0);
 DEFINE_OLEGUID(IID_IOleCacheControl,        0x00000129, 0, 0);
 
 /* NOTE: LSB values 0x27 through 0xff are reserved */

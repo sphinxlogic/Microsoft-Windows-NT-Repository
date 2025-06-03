@@ -264,4 +264,3 @@ public:
 
 #endif	// __PROCNODE_HXX__
 
-

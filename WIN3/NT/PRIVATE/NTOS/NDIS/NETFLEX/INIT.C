@@ -80,21 +80,17 @@ NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject,
     //
     NDIS_MINIPORT_CHARACTERISTICS NetFlexChar;
 
-#ifdef ODD_POINTER
-    DebugPrint(0,("NetFlex: Dynamic Ratio with Odd Forward Pointer Version\n"));
-#else
-    DebugPrint(0,("NetFlex: Dynamic Ratio Version\n"));
-#endif
+    DebugPrint(1,("NetFlex: Dynamic Ratio Version\n"));
 
 #ifdef XMIT_INTS
-    DebugPrint(0,("NetFlex: with Transmit Interrupts\n"));
+    DebugPrint(1,("NetFlex: with Transmit Interrupts\n"));
 #endif
 
     //
     // Indicate that we are in initialization mode.
     //
     macgbls.Initializing = TRUE;
-        
+
     //
     // Initialize the Wrapper
     //
@@ -129,6 +125,9 @@ NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject,
     NetFlexChar.SendHandler             = NetFlexSend;
     NetFlexChar.SetInformationHandler   = NetFlexSetInformation;
     NetFlexChar.TransferDataHandler     = NetFlexTransferData;
+    NetFlexChar.ReturnPacketHandler 	= NULL;
+    NetFlexChar.SendPacketsHandler 		= NULL;
+    NetFlexChar.AllocateCompleteHandler = NULL;
 
     //
     // Register this driver with NDIS
@@ -144,7 +143,7 @@ NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject,
 
     if (Status == NDIS_STATUS_SUCCESS)
     {
-     
+
         return STATUS_SUCCESS;
     }
 
@@ -175,7 +174,6 @@ NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject,
 //  Called_By:      NDIS Miniport Wrapper
 //
 //----------------------------------------------------------------
-#pragma NDIS_INIT_FUNCTION(NetFlexInitialize)
 NDIS_STATUS
 NetFlexInitialize(
     OUT PNDIS_STATUS    OpenErrorStatus,
@@ -188,14 +186,12 @@ NetFlexInitialize(
 
 {
     NDIS_STATUS status;
-    PACB        acb = NULL;
+    PACB        acb           = NULL;
     PACB        FirstHeadsAcb = NULL;
     USHORT      baseaddr;
     UINT        slot,i;
     NDIS_STRING portnumber  = NDIS_STRING_CONST("PortNumber");
-    BOOLEAN     ConfigError = FALSE;
-    NDIS_STATUS ConfigErrorCode;
-    NDIS_HANDLE ConfigHandle;
+    NDIS_HANDLE ConfigHandle = NULL;
 
     NDIS_EISA_FUNCTION_INFORMATION  EisaData;
     PNDIS_CONFIGURATION_PARAMETER   cfgp;
@@ -212,8 +208,7 @@ NetFlexInitialize(
     if (macgbls.mac_wrapper == NULL)
     {
         DebugPrint(0,("NetFlex: Don't have a handle to the Wrapper!\n"));
-        ConfigError = TRUE;
-        ConfigErrorCode = NDIS_STATUS_DEVICE_FAILED;
+        status = NDIS_STATUS_FAILURE;
         goto ConfigError;
     }
 
@@ -223,8 +218,7 @@ NetFlexInitialize(
     if (ConfigurationHandle == NULL)
     {
         DebugPrint(0,("NetFlex: Adapter not set up properly - no config handle\n"));
-        ConfigError = TRUE;
-        ConfigErrorCode = NDIS_STATUS_DEVICE_FAILED;
+        status = NDIS_STATUS_FAILURE;
         goto ConfigError;
     }
 
@@ -238,8 +232,8 @@ NetFlexInitialize(
     if (status != NDIS_STATUS_SUCCESS)
     {
         DebugPrint(0,("NetFlex: Adapter not set up properly - couldn't open config\n"));
-        ConfigError = TRUE;
-        ConfigErrorCode = status;
+        status = NDIS_STATUS_FAILURE;
+		ConfigHandle = NULL;
         goto ConfigError;
     }
 
@@ -255,8 +249,7 @@ NetFlexInitialize(
     if (status != NDIS_STATUS_SUCCESS)
     {
         DebugPrint(0,("NetFlex: Slot number not set up\n"));
-        ConfigError = TRUE;
-        ConfigErrorCode = NDIS_ERROR_CODE_UNSUPPORTED_CONFIGURATION;
+        status = NDIS_ERROR_CODE_ADAPTER_NOT_FOUND;
         goto ConfigError;
     }
 
@@ -291,14 +284,13 @@ NetFlexInitialize(
     // The very first time we are called, acb should be NULL.
     //
 
-    if (macgbls.mac_adapters == NULL)
+    if (macgbls.DownloadCode == NULL)
     {
         // On Initial Init, We need to get the global stuff...
         //
-        if (NetFlexInitGlobals() != NDIS_STATUS_SUCCESS)
+        status = NetFlexInitGlobals();
+        if (status != NDIS_STATUS_SUCCESS)
         {
-            ConfigErrorCode = NDIS_STATUS_FAILURE;
-            ConfigError = TRUE;
             goto ConfigError;
         }
     }
@@ -322,8 +314,7 @@ NetFlexInitialize(
                 else
                 {
                     DebugPrint(0,("NetFlex: Adapter already added\n"));
-                    ConfigError = TRUE;
-                    ConfigErrorCode = NDIS_STATUS_FAILURE;
+                    status = NDIS_STATUS_FAILURE;
                     goto ConfigError;
                 }
             }
@@ -347,7 +338,6 @@ NetFlexInitialize(
 
     if (status != NDIS_STATUS_SUCCESS)
     {
-        ConfigError = TRUE;
         goto ConfigError;
     }
 
@@ -371,7 +361,19 @@ NetFlexInitialize(
     if (i == MediumArraySize)
     {
         DebugPrint(0,("NetFlex: No supported media found!\n"));
-        return NDIS_STATUS_UNSUPPORTED_MEDIA;
+        status = NDIS_STATUS_UNSUPPORTED_MEDIA;
+        goto ConfigError;
+    }
+
+    //
+    // Now, initialize the board and the data structures.
+    // glb_ErrorCode will be set if there was an error.
+    //
+    status = NetFlexBoardInitandReg(acb,&EisaData);
+    if (status != NDIS_STATUS_SUCCESS)
+    {
+        DebugPrint(0,("NF(%d): Board Init and Reg Failed\n",acb->anum));
+        goto ConfigError;
     }
 
 ConfigError:
@@ -379,32 +381,27 @@ ConfigError:
     //
     // Were there any errors?
     //
-    if (ConfigError)
+    if (status != NDIS_STATUS_SUCCESS)
     {
-        NdisWriteErrorLogEntry( MiniportAdapterHandle,
-                                ConfigErrorCode,
-                                0   );
-
-        status = NDIS_STATUS_FAILURE;
-    }
-    else
-    {
-        // Now, initialize the board and the data structures.
         //
-        if ((status = NetFlexBoardInitandReg(acb,&EisaData)) == NDIS_STATUS_SUCCESS)
+        // if we allocated an acb, we need to get rid of it...
+        //
+        if (acb != NULL)
         {
-            DebugPrint(0,("NF(%d): Successful Initialization!\n\n",acb->anum));
-            status = NDIS_STATUS_SUCCESS;            
-        }
-        else
-        {
+            //
+            // Since there was an acb, the error data and section code will be in
+            // the acb instead of the globals.
+            //
             NetFlexDeregisterAdapter(acb);
-            DebugPrint(0,("NF(%d): Board Init and Reg Failed\n",acb->anum));
-            status = NDIS_STATUS_FAILURE;
         }
+
+		DebugPrint(0, ("NF: NetFlexInitialize Failed!\n"));
     }
 
-    NdisCloseConfiguration(ConfigHandle);
+    if (ConfigHandle != NULL)
+	{
+		NdisCloseConfiguration(ConfigHandle);
+	}
     return status;
 }
 
@@ -423,7 +420,6 @@ ConfigError:
 //                  returned.
 //
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-#pragma NDIS_INIT_FUNCTION(NetFlexRegisterAdapter)
 NDIS_STATUS
 NetFlexRegisterAdapter(
     PACB *acbp,
@@ -435,8 +431,7 @@ NetFlexRegisterAdapter(
 {
     PACB acb;
     USHORT cpqid, boardid, reg_value;
-    NDIS_STATUS Status;
-    BOOLEAN RegisterError = FALSE;
+    NDIS_STATUS Status = NDIS_STATUS_SUCCESS;
 
     //
     // Allocate the Memory for the adapter's acb.
@@ -460,8 +455,14 @@ NetFlexRegisterAdapter(
     acb->acb_state = AS_REGISTERING;
     acb->acb_baseaddr = baseaddr;
 
-    // link in this acb
+	//
+    // Indicate that we are initializing the adapter.
+    //
+    acb->AdapterInitializing = TRUE;
 
+    //
+    // link in this acb
+    //
     *acbp = acb;
     macgbls.mac_numadpts++;
 #if (DBG || DBGPRINT)
@@ -482,7 +483,6 @@ NetFlexRegisterAdapter(
         (PVOID) NetFlexResetHandler,
         (PVOID) acb );
 
-
     //
     // Initialize DPC timer
     //
@@ -491,7 +491,7 @@ NetFlexRegisterAdapter(
         acb->acb_handle,
         (PVOID) NetFlexDeferredTimer,
         (PVOID) acb );
-    
+
     //
     // Set the attributes for this adapter
     //
@@ -499,6 +499,16 @@ NetFlexRegisterAdapter(
                         (NDIS_HANDLE) acb,
                         TRUE,
                         NdisInterfaceEisa   );
+
+    //
+    // Register our shutdown handler.
+    //
+
+    NdisMRegisterAdapterShutdownHandler(
+                        MiniportAdapterHandle,  // wrapper miniport handle.
+                        acb,                    // shutdown context.
+                        NetFlexShutdown         // shutdown handler.
+                        );
 
     //
     // Reserve this adapters IO ports, if they haven't allready been added by the first
@@ -595,7 +605,6 @@ NetFlexRegisterAdapter(
     if (Status != NDIS_STATUS_SUCCESS)
     {
         DebugPrint(0,("NF: Registration FAILED for slot#%d\n",(baseaddr / 1000)));
-        RegisterError = TRUE;
         goto HandleRegisterError;
     }
 
@@ -624,8 +633,6 @@ NetFlexRegisterAdapter(
         // Not a Compaq id.
         //
         DebugPrint(0,("NF(%d): No Compaq adapter found\n",acb->anum));
-
-        RegisterError = TRUE;
         Status = NDIS_STATUS_ADAPTER_NOT_FOUND;
         goto HandleRegisterError;
     }
@@ -639,7 +646,6 @@ NetFlexRegisterAdapter(
     {
         DebugPrint(0,("NF(%d): Adapter is not enabled\n",acb->anum));
         DebugPrint(0,("NF(%d): Board Test Failed\n",acb->anum));
-        RegisterError = TRUE;
         Status = NDIS_STATUS_ADAPTER_NOT_FOUND;
         goto HandleRegisterError;
     }
@@ -693,7 +699,7 @@ NetFlexRegisterAdapter(
     // Save the Board ID
     //
     acb->acb_boardid = boardid;
-    
+
     //
     // Do a reset to the adapter
     //
@@ -705,20 +711,16 @@ NetFlexRegisterAdapter(
     NdisStallExecution((UINT)15000);  // Wait 15 milliseconds
 
     //
-    //
     // Get the Network type and speed from the eisa config info.
     //
-    if ( (Status = NetFlexSetupNetType(acb)) != NDIS_STATUS_SUCCESS)
-    {
-        DebugPrint(0,("NF(%d): Setup Net Type Failed\n",acb->anum));
-        Status = NDIS_STATUS_ADAPTER_NOT_FOUND;
-        goto HandleRegisterError;
-    }
+    NetFlexSetupNetType(acb);
 
     //
     // Read configuration parameters from the registry if there are any
     //
-    if (NetFlexReadConfigurationParameters(acb,ConfigHandle) != NDIS_STATUS_SUCCESS)
+
+    Status = NetFlexReadConfigurationParameters(acb,ConfigHandle);
+    if (Status != NDIS_STATUS_SUCCESS)
     {
         DebugPrint(0,("NF(%d): NetFlexReadConfigurationParameters Failed\n",acb->anum));
         Status = NDIS_STATUS_RESOURCES;
@@ -727,7 +729,7 @@ NetFlexRegisterAdapter(
 
 HandleRegisterError:
 
-    if (RegisterError)
+    if (Status != NDIS_STATUS_SUCCESS)
     {
         if (acb!=NULL)
         {
@@ -759,7 +761,6 @@ HandleRegisterError:
 //                  returned.
 //
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-#pragma NDIS_INIT_FUNCTION(NetFlexReadConfigurationParameters)
 NDIS_STATUS
 NetFlexReadConfigurationParameters(
     PACB            acb,
@@ -786,6 +787,7 @@ NetFlexReadConfigurationParameters(
     NDIS_STRING maxinternalbufs = NDIS_STRING_CONST("MAXINTERNALBUFS");
     NDIS_STRING maxtxbuf = NDIS_STRING_CONST("MAXTXBUF");
     NDIS_STRING mintxbuf = NDIS_STRING_CONST("MINTXBUF");
+	NDIS_STRING	extremecheckforhang = NDIS_STRING_CONST("ExtremeCheckForHang");
 
 #ifdef XMIT_INTS
     NDIS_STRING xmitintratio = NDIS_STRING_CONST("TXINTRATIO");
@@ -882,7 +884,7 @@ NetFlexReadConfigurationParameters(
         //
         // Set MaxTransmits
         //
-        pParms->utd_maxtrans = DF_XMITS_TR;
+        pParms->utd_numsmallbufs = pParms->utd_maxtrans = DF_XMITS_TR;
         //
         // See if the user has specified the maximum number of transmit
         // lists supported.
@@ -899,7 +901,7 @@ NetFlexReadConfigurationParameters(
             if ( (cfgp->ParameterData.IntegerData <= MAX_XMITS_TR) &&
                  (cfgp->ParameterData.IntegerData >= MIN_XMITS) )
             {
-                pParms->utd_maxtrans = (USHORT)cfgp->ParameterData.IntegerData;
+                pParms->utd_numsmallbufs = pParms->utd_maxtrans = (USHORT)cfgp->ParameterData.IntegerData;
             }
             else
             {
@@ -943,7 +945,7 @@ NetFlexReadConfigurationParameters(
                 else
                 {
                     pParms->utd_maxframesz = (USHORT)cfgp->ParameterData.IntegerData;
-                }                
+                }
             }
             //
             // 4Mb
@@ -1002,7 +1004,7 @@ NetFlexReadConfigurationParameters(
                 DebugPrint(0,("NF(%d): MAXReceives parameter is out of range, using default\n",acb->anum));
             }
         }
-        
+
         //
         // Adjust Number of Lists based on size of Max TR Frame Size
         //
@@ -1075,7 +1077,7 @@ NetFlexReadConfigurationParameters(
         // See if the user has specified the maximum number of transmit lists.
         //
 
-        pParms->utd_maxtrans = DF_XMITS_ETH;
+        pParms->utd_numsmallbufs = pParms->utd_maxtrans = DF_XMITS_ETH;
 
         NdisReadConfiguration(  &status,
                                 &cfgp,
@@ -1088,7 +1090,7 @@ NetFlexReadConfigurationParameters(
             if ( (cfgp->ParameterData.IntegerData <= MAX_XMITS_ETH) &&
                  (cfgp->ParameterData.IntegerData >= MIN_XMITS) )
             {
-                pParms->utd_maxtrans = (USHORT)cfgp->ParameterData.IntegerData;
+                pParms->utd_numsmallbufs = pParms->utd_maxtrans = (USHORT)cfgp->ParameterData.IntegerData;
             }
             else
             {
@@ -1176,14 +1178,32 @@ NetFlexReadConfigurationParameters(
         }
     }
 
-    DebugPrint(1,("NF(%d) MaxFrameSize = %d\n",acb->anum,pParms->utd_maxframesz));
-    DebugPrint(1,("NF(%d) MaxTransmits = %d\n",acb->anum,pParms->utd_maxtrans));
-    DebugPrint(1,("NF(%d) MaxReceives  = %d\n",acb->anum,pParms->utd_maxrcvs));
+    DebugPrint(1,("NF(%d): MaxFrameSize = %d\n",acb->anum,pParms->utd_maxframesz));
+    DebugPrint(1,("NF(%d): MaxTransmits = %d\n",acb->anum,pParms->utd_maxtrans));
+    DebugPrint(1,("NF(%d): MaxReceives  = %d\n",acb->anum,pParms->utd_maxrcvs));
 
     //
     // Common Configuration settings for both Ethernet and TokenRing
     //
-    
+
+	//
+	//	See if the user has specified extreme checking for adapter hang.
+	//
+	NdisReadConfiguration(&status,
+						  &cfgp,
+						  ConfigHandle,
+						  &extremecheckforhang,
+						  NdisParameterInteger);
+	if ((NDIS_STATUS_SUCCESS == status) &&
+		(cfgp->ParameterData.IntegerData != 0))
+	{
+		//
+		//	They want the extreme checking to see if this adapter is
+		//	hung.
+		//
+		pParms->utd_extremecheckforhang = TRUE;
+	}
+
     //
     // See if the user has specified the maximum number of adapter transmit buffers.
     //
@@ -1319,6 +1339,11 @@ NetFlexReadConfigurationParameters(
     //
     if (acb->FullDuplexEnabled)
     {
+		//
+		//	Allocate the xmit spin lock.
+		//
+		NdisAllocateSpinLock(&acb->XmitLock);
+
         pParms->utd_open.OPEN_Options |= SWAPS(OOPTS_FULLDUP);
     }
 
@@ -1340,7 +1365,7 @@ NetFlexReadConfigurationParameters(
     if (status == NDIS_STATUS_SUCCESS) {
         acb->XmitIntRatio = (USHORT)cfgp->ParameterData.IntegerData;
     }
-    DebugPrint(0,("NF(%d): TxIntRatio = 1:%d\n",acb->anum,acb->XmitIntRatio));
+    DebugPrint(1,("NF(%d): TxIntRatio = 1:%d\n",acb->anum,acb->XmitIntRatio));
 #endif
 
     //
@@ -1359,7 +1384,7 @@ NetFlexReadConfigurationParameters(
     {
         acb->RcvIntRatio = (USHORT)cfgp->ParameterData.IntegerData;
     }
-    DebugPrint(0,("NF(%d): Rx Int Ratio = 1:%d\n",acb->anum,acb->RcvIntRatio));
+    DebugPrint(1,("NF(%d): Rx Int Ratio = 1:%d\n",acb->anum,acb->RcvIntRatio));
 
     return NDIS_STATUS_SUCCESS;
 }
@@ -1381,7 +1406,6 @@ NetFlexReadConfigurationParameters(
 //                  returned.
 //
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-#pragma NDIS_INIT_FUNCTION(NetFlexBoardInitandReg)
 NDIS_STATUS
 NetFlexBoardInitandReg(
     PACB acb,
@@ -1427,6 +1451,12 @@ NetFlexBoardInitandReg(
     int_mode = EisaData->EisaIrq[0].ConfigurationByte.LevelTriggered ? NdisInterruptLevelSensitive : NdisInterruptLatched;
 
     //
+    // Add this acb to the global list
+    //
+    acb->acb_next = macgbls.mac_adapters;
+    macgbls.mac_adapters = acb;
+
+    //
     // Initialize the interrupt.
     //
     status = NdisMRegisterInterrupt(    &acb->acb_interrupt,
@@ -1446,12 +1476,6 @@ NetFlexBoardInitandReg(
 
         return status;
     }
-
-    //
-    // Add this acb to the global list
-    //
-    acb->acb_next = macgbls.mac_adapters;
-    macgbls.mac_adapters = acb;
 
     //
     // Ok, we're set, so reset the adapter and open'er up!
@@ -1489,6 +1513,11 @@ NetFlexBoardInitandReg(
 
     NdisMSetTimer(&acb->DpcTimer, 10);
 
+    //
+    // Indidicate that we're done with initializing this adapter.
+    //
+    acb->AdapterInitializing = FALSE;
+
     return NDIS_STATUS_SUCCESS;
 }
 
@@ -1506,7 +1535,6 @@ NetFlexBoardInitandReg(
 //  Output:         Status = SUCCESS .
 //
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-#pragma NDIS_INIT_FUNCTION(NetFlexInitGlobals)
 NDIS_STATUS
 NetFlexInitGlobals(
     )
@@ -1516,7 +1544,7 @@ NetFlexInitGlobals(
     NDIS_STATUS status;
     PUSHORT MappedBuffer;
     NDIS_HANDLE mac_filehandle;
-    
+
     //
     // Open the file containing the MAC download code.
     //

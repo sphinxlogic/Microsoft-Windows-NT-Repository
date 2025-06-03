@@ -1,5 +1,5 @@
 /*
- *	LPPRINT.C   -	Printer handling for PPR
+ *      LPPRINT.C   -   Printer handling for PPR
  *
  */
 
@@ -13,10 +13,9 @@
 #include "lpr.h"
 
 
-
-char szPName[cchArgMax];	/* text of printer to open		*/
-char szNet[cchArgMax] = "";	/* network name of printer to open	*/
-char *szPDesc = NULL;		/* printer description string		*/
+char szPName[cchArgMax];        /* text of printer to open              */
+char szNet[cchArgMax] = "";     /* network name of printer to open      */
+char *szPDesc = NULL;           /* printer description string           */
 
 FILE *pfileLPR = NULL;          /* file for output                      */
 
@@ -24,17 +23,19 @@ extern BOOL fVerify; /* From LPR.C */
 extern USHORT usCodePage;
 
 
-void OutLPR(sz, cb)
-char *sz;
-register int cb;
-    {
+void
+OutLPR(
+    char *sz,
+    int cb
+    )
+{
     if (cb == 0)
         cb = strlen(sz);
-    lcbOutLPR += cb;	/* keep track of how much has been written to printer */
+    lcbOutLPR += cb;    /* keep track of how much has been written to printer */
 
     if (fwrite(sz, 1, cb, pfileLPR) != (unsigned int)cb)
-	Error("warning: error writing to printer");
-    }
+        Error("warning: error writing to printer");
+}
 
 /*
  *  We need to add a little cheat, since some of our forced strings might have
@@ -43,10 +44,12 @@ register int cb;
  *  outputing will be within '(...)', and might contain \, (, or ).
  *  The code was borrowed from the original version of OutEncPS.
  */
-void OutLPRPS(pchF, cchF)
+void
+OutLPRPS(
 /* output substring quoting all \, ( and ) */
-    register char *pchF;
-    int cchF;
+    char *pchF,
+    int cchF
+    )
 {
     register char *pchT;
     int cchT;
@@ -59,7 +62,7 @@ void OutLPRPS(pchF, cchF)
     *pchT = (char)0;
 
     while (cchF-- > 0) {
-	switch(*pchF++) {
+        switch(*pchF++) {
             default:
                 *pchT++ = *(pchF-1);
                 cchT++;
@@ -79,12 +82,13 @@ void OutLPRPS(pchF, cchF)
                 *pchT++ = ')';
                 cchT += 2;
                 break;
-	}
+        }
     }
     OutLPR(rgbT, cchT);
 }
 
-void DefaultPSHeader()
+void
+DefaultPSHeader()
 {
 /* Don't install an error handler for now. If they need one, then they
  * should be installing one onto the printer permanently. SETERROR.PSF
@@ -423,14 +427,14 @@ OutLPR ("} bind def\n",0); /* join */
 } /* DefaultPSHeader */
 
 
-void InitPrinter()
+void
+InitPrinter()
 {
     char *szHeader;
     char *szDirlist;
     char szFullname[cchPthMax];
     BOOL fConcat = FALSE;
     FILE *psfFile;
-    char *tmp;
 
     register char *pch;
 
@@ -456,7 +460,7 @@ void InitPrinter()
 /* Lets make an attempt to use environment variables... */
             if ((*szHeader == '$') && ((pch = strchr(++szHeader,':')) != NULL)) {
                     *pch      = (char)NULL;
-                    strupr(szHeader);
+                    _strupr(szHeader);
                     szDirlist = getenvOem(szHeader);
 //                    szDirlist = getenv(szHeader);
                     *pch      = ':';
@@ -477,7 +481,7 @@ void InitPrinter()
                 char szFFile[cchPthMax];
 
                 rootpath (szHeader, szFFile);
-                strupr(szFFile);
+                _strupr(szFFile);
                 fprintf (stdout, "\nUsing PSF File: %s\n", szFFile);
                 while ((cb = fread(psfLine, 1, cchLineMax, psfFile)) > 0)
                     RawOut(psfLine, cb);
@@ -494,111 +498,112 @@ void InitPrinter()
 
 
 
-void MyOpenPrinter()
-	{
-	if (strcmp(szPName, "-") == 0)
-		{
-		pfileLPR = stdout;
-		setmode((int)fileno(pfileLPR), (int)O_BINARY);
-		}
-	else
-		{
-		if ((pfileLPR = fopen(szPName, szWOBin)) == NULL)
-			Fatal("Error opening output file %s", szPName);
-		}
-	InitPrinter();
-	}
+void
+MyOpenPrinter()
+{
+    if (strcmp(szPName, "-") == 0) {
+        pfileLPR = stdout;
+        _setmode((int)_fileno(pfileLPR), (int)O_BINARY);
+    } else {
+        if ((pfileLPR = fopen(szPName, szWOBin)) == NULL)
+            Fatal("Error opening output file %s", szPName);
+    }
+    InitPrinter();
+}
+
+
+void
+FlushPrinter()
+{
+    /* A FormFeed is sent before each page.  For fForceFF, we also send
+       one after the last page.  For !fForceFF we move to the top of
+       the page so that when the network software outputs \r\n\f, we do
+       not get a blank page.
+
+       NOTE: for !fForceFF we don't reset the printer or change modes back
+       to portrait since that causes any unfinished page to be ejected.
+    */
+    if (fLaser) {
+        if (fVDuplex || fHDuplex)
+            OutLPR(BEGINSIMPLEX,0);
+        else
+            if (fForceFF)
+                OutLPR(RESETPRINTER, 0);
+            else
+                OutLPR(MOVETOTOP, 0);
+    }
+    else if (fPostScript)
+        OutLPR("\n\004\n", 0); /* ^D to flush */
+    else
+        OutLPR("\n\n",0);       /* force last line on LP */
+}
 
 
 
-void FlushPrinter()
-	{
-	/* A FormFeed is sent before each page.  For fForceFF, we also send
-	   one after the last page.  For !fForceFF we move to the top of
-	   the page so that when the network software outputs \r\n\f, we do
-	   not get a blank page.
+void
+MyClosePrinter()
+{
+    if (pfileLPR == 0)
+        return;         /* already closed */
 
-	   NOTE: for !fForceFF we don't reset the printer or change modes back
-	   to portrait since that causes any unfinished page to be ejected.
-	*/
-	if (fLaser)
-		{
-		if (fVDuplex || fHDuplex)
-			OutLPR(BEGINSIMPLEX,0);
-		else
-			if (fForceFF)
-				OutLPR(RESETPRINTER, 0);
-    			else
-				OutLPR(MOVETOTOP, 0);
-    		}
-	else if (fPostScript)
-                OutLPR("\n\004\n", 0); /* ^D to flush */
-	else
-		OutLPR("\n\n",0); 	/* force last line on LP */
-	}
+    FlushPrinter();
+    if (pfileLPR != stdout)
+        fclose(pfileLPR);
+    pfileLPR = NULL;
+}
 
 
 
-void MyClosePrinter()
-	{
-	if (pfileLPR == 0)
-		return;		/* already closed */
-
-	FlushPrinter();
-	if (pfileLPR != stdout)
-    		fclose(pfileLPR);
-	pfileLPR = NULL;
-	}
-
-
-
-char *SzGetSzSz(sz, szBuf)
 /* Fill szBuf with first non-blank substring found in sz;  return pointer
    to following non-blank.  Note: ',' is considered a separator as are ' '
    and '\t' however, ',' is also considered a non-blank.
 */
-register char * sz;
-char * szBuf;
-	{
-	int cch;
+char *
+SzGetSzSz(
+    char * sz,
+    char * szBuf
+    )
+{
+    int cch;
 
-	sz += strspn(sz, " \t");
-	cch = strcspn(sz, " \t,");
-	szBuf[0] = '\0';
-	if (cch)	/* count of 0 causes error on Xenix 286 */
-		strncat(szBuf, sz, cch);
-	sz += cch;
-	sz += strspn(sz, " \t");
-	return sz;
-	}
-
-
-
-
-char *SzGetPrnName(sz, szBuf)
-char *sz, *szBuf;
-	{
-	register char  *pch;
-
-	sz = SzGetSzSz(sz, szBuf);
-	if (*(pch = szBuf+strlen(szBuf)-1) == ':')
-		*pch = '\0';	/* Remove colon from end of printer name */
-	return (sz);
-	}
+    sz += strspn(sz, " \t");
+    cch = strcspn(sz, " \t,");
+    szBuf[0] = '\0';
+    if (cch)        /* count of 0 causes error on Xenix 286 */
+        strncat(szBuf, sz, cch);
+    sz += cch;
+    sz += strspn(sz, " \t");
+    return sz;
+}
 
 
 
 
-BOOL FParseSz(sz)
-char *sz;
+char *
+SzGetPrnName(
+    char *sz,
+    char *szBuf
+    )
+{
+    register char  *pch;
+
+    sz = SzGetSzSz(sz, szBuf);
+    if (*(pch = szBuf+strlen(szBuf)-1) == ':')
+        *pch = '\0';    /* Remove colon from end of printer name */
+    return (sz);
+}
+
+
+
+
 /*   get printer name and net redirection from a string
  *
  *      Entry:  sz - string to parse;
  *              szPName contains printer name that user requested to use
  *
- *	Return Value:	TRUE  if printer name found matches and thus
- *			the rest of the string was processed;
- *			FALSE  if no match and thus string is ignored
+ *      Return Value:   TRUE  if printer name found matches and thus
+ *                      the rest of the string was processed;
+ *                      FALSE  if no match and thus string is ignored
  *
  *      Global Variables Set:
  *
@@ -606,58 +611,61 @@ char *sz;
  *      szNet   - Network redirection name
  *      szPass  - Network password
  *
- *	printer desc:
+ *      printer desc:
  *        (DOS)   [<name> [none | \\<machine>\<shortname> [<password>]]] [,<options>]
  *        (Xenix) [ ( [ net[#] | lpr[#] | xenix[#] | alias[#] ] [<name>] )  |
  *                  ( dos[#] [<server> <shortname> [<password>] ) ]  [,<options>]
  *
- *	The optional network password must be separated from the network name
- *	by some space (it may not contain space, TAB or comma).
+ *      The optional network password must be separated from the network name
+ *      by some space (it may not contain space, TAB or comma).
  */
-	{
-	char szT[cchArgMax];
+BOOL
+FParseSz(
+    char *sz
+    )
+{
+    char szT[cchArgMax];
 
-        sz = SzGetPrnName(sz, szT); // Get first 'word', remove colon
-        if (strcmpx(szT, szPName)) {
-            // first word is not the printer name the user requested
-            return (FALSE);
+    sz = SzGetPrnName(sz, szT); // Get first 'word', remove colon
+    if (strcmpx(szT, szPName)) {
+        // first word is not the printer name the user requested
+        return (FALSE);
+    }
+
+    if (*sz != ',') {
+        sz = SzGetSzSz(sz, szT); // Get next 'word'
+
+        if (szT[strlen(szT)-1] == ':') {
+            // Possible physical 'port'
+            SzGetPrnName (szT, szPName);
+            sz = SzGetSzSz(sz, szT);
         }
 
-	if (*sz != ',')
-		{
-                sz = SzGetSzSz(sz, szT); // Get next 'word'
-
-                if (szT[strlen(szT)-1] == ':') {
-                    // Possible physical 'port'
-                    SzGetPrnName (szT, szPName);
-                    sz = SzGetSzSz(sz, szT);
-                }
-
-		if (*szT)
+        if (*szT)
             strcpy(szNet, szT);     // Network redirection name
 
-		if (*sz != ',')
-			{
-	    		sz= SzGetSzSz(sz, szT);
-			if (*szT)
-                                strcpy(szPass, szT); // Network Password
-			}
-                }
-
-        /* We are setting printer info, display it if we were asked to */
-        if (fVerify) {
-            fprintf (stdout, "Local printer name : %s\n", szPName);
-            fprintf (stdout, "Options specified  : %s\n", sz);
-            fprintf (stdout, "Remote printer name: %s\n", szNet);
+        if (*sz != ',') {
+            sz= SzGetSzSz(sz, szT);
+            if (*szT)
+                strcpy(szPass, szT); // Network Password
         }
+    }
 
-        DoOptSz(sz); // Now read any options that followed
-	return (TRUE);
-	}
+    /* We are setting printer info, display it if we were asked to */
+    if (fVerify) {
+        fprintf (stdout, "Local printer name : %s\n", szPName);
+        fprintf (stdout, "Options specified  : %s\n", sz);
+        fprintf (stdout, "Remote printer name: %s\n", szNet);
+    }
+
+    DoOptSz(sz); // Now read any options that followed
+    return (TRUE);
+}
 
 
 
-void SetupPrinter()
+void
+SetupPrinter()
 /* determine printer name and options */
 {
     char rgbSW[cchArgMax];
@@ -706,7 +714,7 @@ void SetupPrinter()
                 /* a line "default=<printer>" sets szPName **
                 ** if there is no environment setting      **
                 ** and no command line parameter -p        */
-                if (strnicmp(szT, DEFAULT, strlen(DEFAULT))==0 &&
+                if (_strnicmp(szT, DEFAULT, strlen(DEFAULT))==0 &&
                     szPDesc==NULL && *szEName == 0)
                 {
                     if ((szT = strchr(szT,'=')) != NULL) {
@@ -728,6 +736,5 @@ void SetupPrinter()
 
     /* command line printer description overrides other settings */
     if (szPDesc != NULL)
-            FParseSz(szPDesc);
-	}
-
+        FParseSz(szPDesc);
+}

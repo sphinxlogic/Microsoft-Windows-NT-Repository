@@ -1,6 +1,6 @@
 /*++
 
-Copyright (c) 1992  Microsoft Corporation
+Copyright (c) 1992-1996  Microsoft Corporation
 
 Module Name:
 

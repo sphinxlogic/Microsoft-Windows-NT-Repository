@@ -53,7 +53,7 @@ typedef struct _TASK_LIST {
 //
 // prototypes
 //
-PTASK_LIST GetTaskList( LPDWORD pdwNumTasks );
+PTASK_LIST GetTaskList( LPLONG pNumTasks );
 
 
 void
@@ -79,18 +79,18 @@ Return Value:
 {
     PTASK_LIST   pTask;
     PTASK_LIST   pTaskBegin;
-    DWORD        dwNumTasks;
+    LONG         NumTasks;
 
 
     lprintf( MSG_TASK_LIST );
 
-    pTask = pTaskBegin = GetTaskList( &dwNumTasks );
+    pTask = pTaskBegin = GetTaskList( &NumTasks );
 
     if (pTask == NULL) {
         printf( "ERROR: could not get the task list\n" );
     }
 
-    while (dwNumTasks--) {
+    while (NumTasks--) {
         lprintfs("%4d %s\r\n",pTask->dwProcessId, pTask->ProcessName );
         pTask++;
     }
@@ -125,32 +125,43 @@ Return Value:
 {
     PTASK_LIST   pTask;
     PTASK_LIST   pTaskBegin;
-    DWORD        dwNumTasks;
+    LONG         NumTasks;
 
 
-    pTask = pTaskBegin = GetTaskList( &dwNumTasks );
+    pTask = pTaskBegin = GetTaskList( &NumTasks );
 
     if (pTask == NULL) {
-        strcpy( szTaskName, "unknown" );
-        return;
-    }
-
-    while (dwNumTasks--) {
-        if (pTask->dwProcessId == pid) {
-            if (szTaskName) {
-                strncpy( szTaskName, pTask->ProcessName, *pdwSize );
-            }
-            *pdwSize = min( strlen(pTask->ProcessName), *pdwSize );
-            break;
+        if (szTaskName) {
+            strncpy( szTaskName, "unknown", *pdwSize );
         }
-        pTask++;
-    }
+        *pdwSize = min( 7, *pdwSize );
 
-    free( pTaskBegin );
+    } else {
+
+        while (NumTasks--) {
+            if (pTask->dwProcessId == pid) {
+                if (szTaskName) {
+                    strncpy( szTaskName, pTask->ProcessName, *pdwSize );
+                }
+                *pdwSize = min( strlen(pTask->ProcessName), *pdwSize );
+                break;
+            }
+            pTask++;
+        }
+
+        if (NumTasks < 0) {
+            if (szTaskName) {
+                strncpy( szTaskName, "<exited>", *pdwSize );
+            }
+            *pdwSize = min( 8, *pdwSize );
+        }
+
+        free( pTaskBegin );
+    }
 }
 
 PTASK_LIST
-GetTaskList( LPDWORD pdwNumTasks )
+GetTaskList( LPLONG pNumTasks )
 
 /*++
 
@@ -162,7 +173,7 @@ Routine Description:
 
 Arguments:
 
-    ldwNumTasks      - pointer to a dword that will be set to the
+    pNumTasks      - pointer to a dword that will be set to the
                        number of tasks returned.
 
 Return Value:
@@ -197,7 +208,7 @@ Return Value:
     //
     // set the number of tasks to zero until we get some
     //
-    *pdwNumTasks = 0;
+    *pNumTasks = 0;
 
     //
     // Look for the list of counters.  Always use the neutral
@@ -271,7 +282,7 @@ Return Value:
 
     p = buf;
     while (*p) {
-        if (stricmp(p, PROCESS_COUNTER) == 0) {
+        if (_stricmp(p, PROCESS_COUNTER) == 0) {
             //
             // look backwards for the counter number
             //
@@ -279,7 +290,7 @@ Return Value:
             strcpy( szSubKey, p2+1 );
         }
         else
-        if (stricmp(p, PROCESSID_COUNTER) == 0) {
+        if (_stricmp(p, PROCESSID_COUNTER) == 0) {
             //
             // look backwards for the counter number
             //
@@ -378,7 +389,7 @@ Return Value:
     // loop thru the performance instance data extracting each process name
     // and process id
     //
-    *pdwNumTasks = pObj->NumInstances;
+    *pNumTasks = pObj->NumInstances;
     pInst = (PPERF_INSTANCE_DEFINITION) ((DWORD)pObj + pObj->DefinitionLength);
     for (i=0; i<(DWORD)pObj->NumInstances; i++) {
         //

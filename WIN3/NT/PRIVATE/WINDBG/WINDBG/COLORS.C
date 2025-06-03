@@ -422,7 +422,7 @@ BOOL ChooseColorHookProc(HWND hDlg,UINT message,WPARAM wParam,LPARAM lParam)
 
            switch ( LOWORD( wParam ))
                {
-                case IDHELP:
+                case IDWINDBGHELP:
                 case pshHelp:
 
                   Dbg(WinHelp(hDlg, szHelpFileName, (DWORD) HELP_CONTEXT,(DWORD)ID_COLORDLG_HELP));

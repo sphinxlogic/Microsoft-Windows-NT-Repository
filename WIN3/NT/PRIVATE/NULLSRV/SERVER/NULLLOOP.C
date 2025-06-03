@@ -48,7 +48,7 @@ NullSrvApiLoop (
     PNULLAPIMSG ApiReplyMsg;
     NULLAPIMSG ApiMsg;
     NTSTATUS Status;
-    HANDLE ConnectionPort;
+    HANDLE ConnectionPort,CommunicationPort;
 
     ConnectionPort = (HANDLE) ThreadParameter;
 
@@ -61,60 +61,40 @@ NullSrvApiLoop (
                     (PPORT_MESSAGE) ApiReplyMsg,
                     (PPORT_MESSAGE) &ApiMsg
                     );
-        Status = (NullSrvApiDispatch[ApiMsg.ApiNumber])(&ApiMsg);
 
-        ApiMsg.ReturnedStatus = Status;
-        ApiReplyMsg = &ApiMsg;
-    }
+        if ( !NT_SUCCESS(Status) ) {
+            ApiReplyMsg = NULL;
+            continue;
+            }
+        else if ( ApiMsg.h.u2.s2.Type == LPC_CONNECTION_REQUEST ) {
+            Status = NtAcceptConnectPort(
+                    &CommunicationPort,
+                    NULL,
+                    &ApiMsg,
+                    TRUE,
+                    NULL,
+                    NULL
+                    );
+            if (!NT_SUCCESS(Status)) {
+                printf("NtAccept Failed %x\n",Status);
+                ExitProcess(1);
+                }
 
-    //
-    // Make the compiler happy
-    //
-
-    return STATUS_UNSUCCESSFUL;
-}
-
-NTSTATUS
-NullSrvListenLoop (
-    IN PVOID ThreadParameter
-    )
-
-{
-
-    NTSTATUS st;
-    CONNECTION_REQUEST ConnectionRequest;
-    HANDLE ConnectionPort;
-    HANDLE CommunicationPort;
-
-    ConnectionPort = (HANDLE) ThreadParameter;
-
-    for(;;) {
-
-        ConnectionRequest.Length = sizeof(CONNECTION_REQUEST);
-
-        st = NtListenPort(
-                ConnectionPort,
-                &ConnectionRequest,
-                NULL,
-                0L
-                );
-        ASSERT( NT_SUCCESS(st) );
-
-        st = NtAcceptConnectPort(
-                &CommunicationPort,
-                NULL,
-                &ConnectionRequest,
-                TRUE,
-                FALSE,
-                NULL,
-                NULL,
-                NULL,
-                0L
-                );
-        ASSERT( NT_SUCCESS(st) );
-
-        st = NtCompleteConnectPort(CommunicationPort);
-        ASSERT( NT_SUCCESS(st) );
+            Status = NtCompleteConnectPort(CommunicationPort);
+            if (!NT_SUCCESS(Status)) {
+                printf("NtAccept Failed %x\n",Status);
+                ExitProcess(1);
+                }
+            ApiReplyMsg = NULL;
+            }
+        else if ( ApiMsg.h.u2.s2.Type == LPC_PORT_CLOSED ) {
+            ApiReplyMsg = NULL;
+            }
+        else {
+            Status = (NullSrvApiDispatch[ApiMsg.ApiNumber])(&ApiMsg);
+            ApiMsg.ReturnedStatus = Status;
+            ApiReplyMsg = &ApiMsg;
+            }
     }
 
     //

@@ -20,14 +20,15 @@ Revision History:
 
 --*/
 
-#include "..\mi.h"
-#include "mm.h"
+#include "mi.h"
+
+ULONG MmSetDirtyCount; //fixfix - remove, temporary performance measurement
 
 VOID
 MiSetDirtyBit (
     IN PVOID FaultingAddress,
     IN PMMPTE PointerPte,
-    IN BOOLEAN PfnHeld
+    IN ULONG PfnHeld
     )
 
 /*++
@@ -67,6 +68,8 @@ Environment:
     // dirty bit and the accessed bit. Note, that as this PTE is in
     // the TB, the TB must be flushed.
     //
+
+    MmSetDirtyCount += 1; //fixfix - remove
 
     PageFrameIndex = PointerPte->u.Hard.PageFrameNumber;
     Pfn1 = MI_PFN_ELEMENT (PageFrameIndex);

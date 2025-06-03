@@ -10,7 +10,7 @@
   #include "sfs-tree.h"
 
 /*---------------------------------------------------------------------------------*/
-/*			 Prototype Definitions					   */
+/*                       Prototype Definitions                                     */
 /*---------------------------------------------------------------------------------*/
 
   static void AnnounceThisProcess ( void );
@@ -36,13 +36,19 @@
   void SplitTimerClassRequests ( CCB_Header * h );
 
 /*---------------------------------------------------------------------------------*/
-/*			 Other Definitions					   */
+/*                       Other Definitions                                         */
 /*---------------------------------------------------------------------------------*/
 
   BYTE *FramesBuffer;
   FCB_Frame FrameControlBlocks[ Frames ];
   QUAD OneFrameSize;
   BYTE FrameIndex = Frames - 2;
+
+  HANDLE LastReadHandle;
+  ULONG  LastReadOffset;
+  ULONG  LastReadCount;
+  BYTE   LastReadName[512];
+  BYTE   DebugBuffer[160];
 
   static CCB_Header * CCB_CommandChainEntryPoint;
   static CCB_Header * CCB_HeaderPointer;
@@ -64,7 +70,7 @@
 
   static SCB_Segment * SCB_SegmentChainEntryPoint;
 
-	 // many of these may now be omitted ...
+         // many of these may now be omitted ...
 
   static SCB_Semaphore * SCB_SemaphoreChainEntryPoint;
   static SCB_Semaphore * SCB_SemaphorePointer;
@@ -123,10 +129,10 @@
    {
       Prologue ( argc, argv );
 
-	InitializeControlBlocks ();
-	ProvideBufferSpace ();
-	AnnounceThisProcess ();
-	WakeUpToExecuteRequests ();
+        InitializeControlBlocks ();
+        ProvideBufferSpace ();
+        AnnounceThisProcess ();
+        WakeUpToExecuteRequests ();
 
       Epilogue ();
    }
@@ -138,17 +144,17 @@
       int count;
 
       for ( count = 0; count < argc; count ++ )
-	if ( ( * argv[ count ] == '-' ) || ( * argv[ count ] == '/' ) )
-	  switch ( tolower ( * ( argv[ count ] + 1 ) ) )
-	    {
-	       case 'k':
-		 strcpy ( GateLatchKey, argv[ ++ count ] );
-		 break;
+        if ( ( * argv[ count ] == '-' ) || ( * argv[ count ] == '/' ) )
+          switch ( tolower ( * ( argv[ count ] + 1 ) ) )
+            {
+               case 'k':
+                 strcpy ( GateLatchKey, argv[ ++ count ] );
+                 break;
 
-	       default:
-		 NotifyAndActAsProper ( ErrorImproperCall );
-		 break;
-	    }
+               default:
+                 NotifyAndActAsProper ( ErrorImproperCall );
+                 break;
+            }
       return;
    }
 
@@ -198,9 +204,9 @@
       SCB_SegmentChainEntryPoint = s;
 
       while ( s -> SCB_SegmentNextInChain )
-	{
-	   strcpy ( SegmentDeclaredName, SegmentNamePrefix );
-	   strcat ( SegmentDeclaredName, s -> NextSegmentIntrinsicName );
+        {
+           strcpy ( SegmentDeclaredName, SegmentNamePrefix );
+           strcat ( SegmentDeclaredName, s -> NextSegmentIntrinsicName );
 
            MappingHandle = OpenFileMapping ( FILE_MAP_WRITE,
                                              TRUE,
@@ -228,16 +234,16 @@
 
            BaseAddress += OneSegmentSpan;
            s = s -> SCB_SegmentNextInChain;
-	}
+        }
 
 
       IEB_GatePointer = ( IEB_Gate * ) SCB_SegmentChainEntryPoint;
       g = IEB_GatePointer;
 
       if ( p = FindProcessControlBlock ( g -> ProcessToWakeUp ) )
-	PCB_ProcessTrackPointer = p;
+        PCB_ProcessTrackPointer = p;
       else
-	NotifyAndActAsProper ( ErrorProcessNotFound );
+        NotifyAndActAsProper ( ErrorProcessNotFound );
 
       if ( !SetEvent ( g -> GateCheckInLights ) )
         {
@@ -285,35 +291,35 @@
       h = CCB_CommandChainEntryPoint;
 
       while ( h )
-	{
-	   switch ( h -> RequestClass )
-	     {
-		case AuxiliaryClass:
-		  SplitAuxiliaryClassRequests ( h );
-		  break;
+        {
+           switch ( h -> RequestClass )
+             {
+                case AuxiliaryClass:
+                  SplitAuxiliaryClassRequests ( h );
+                  break;
 
-		case FileClass:
-		  SplitFileClassRequests ( h );
-		  break;
+                case FileClass:
+                  SplitFileClassRequests ( h );
+                  break;
 
-		case FlowClass:
-		  h = SplitFlowClassRequests ( h );
-		  continue;
+                case FlowClass:
+                  h = SplitFlowClassRequests ( h );
+                  continue;
 
-		case SemaphoreClass:
-		  SplitSemaphoreClassRequests ( h );
-		  break;
+                case SemaphoreClass:
+                  SplitSemaphoreClassRequests ( h );
+                  break;
 
-		case TimerClass:
-		  SplitTimerClassRequests ( h );
-		  break;
+                case TimerClass:
+                  SplitTimerClassRequests ( h );
+                  break;
 
-		default:
-		  NotifyAndActAsProper ( ErrorClassNotSupported );
-		  break;
-	     }
-	   h = h -> CCB_HeaderNextInChain;
-	}
+                default:
+                  NotifyAndActAsProper ( ErrorClassNotSupported );
+                  break;
+             }
+           h = h -> CCB_HeaderNextInChain;
+        }
       return;
    }
 
@@ -338,10 +344,10 @@
       BufferSpace *= Frames;
 
       if ( BufferSpace < SpaceLowerLimit )
-	BufferSpace = SpaceLowerLimit;
+        BufferSpace = SpaceLowerLimit;
       else
-	if ( BufferSpace > SpaceUpperLimit )
-	  BufferSpace = SpaceUpperLimit;
+        if ( BufferSpace > SpaceUpperLimit )
+          BufferSpace = SpaceUpperLimit;
 
       OneFrameSize = BufferSpace / Frames;
       f = FrameControlBlocks;
@@ -403,15 +409,15 @@
 
      while ( f )
        {
-	  if ( f -> FileExtrinsicKey == SearchKey )
-	    break;
-	  f = f -> FCB_FileNextInChain;
+          if ( f -> FileExtrinsicKey == SearchKey )
+            break;
+          f = f -> FCB_FileNextInChain;
        }
      return FCB_FilePointer = f;
    }
 
 /*---------------------------------------------------------------------------------*/
- PCB_Process * FindProcessControlBlock	( BYTE SearchKey )
+ PCB_Process * FindProcessControlBlock  ( BYTE SearchKey )
 /*---------------------------------------------------------------------------------*/
    {
      IEB_Gate * g;
@@ -422,9 +428,9 @@
 
      while ( p )
        {
-	  if ( p -> ProcessIntrinsicKey == SearchKey )
-	    break;
-	  p = p -> PCB_ProcessNextInChain;
+          if ( p -> ProcessIntrinsicKey == SearchKey )
+            break;
+          p = p -> PCB_ProcessNextInChain;
        }
      return p;
    }
@@ -441,9 +447,9 @@
 
      while ( p )
        {
-	  if ( p -> PrototypeExtrinsicKey == SearchKey )
-	    break;
-	  p = p -> PCB_PrototypeNextInChain;
+          if ( p -> PrototypeExtrinsicKey == SearchKey )
+            break;
+          p = p -> PCB_PrototypeNextInChain;
        }
      return p;
    }
@@ -460,9 +466,9 @@
 
      while ( s )
        {
-	  if ( s -> SemaphoreExtrinsicKey == SearchKey )
-	    break;
-	  s = s -> SCB_SemaphoreNextInChain;
+          if ( s -> SemaphoreExtrinsicKey == SearchKey )
+            break;
+          s = s -> SCB_SemaphoreNextInChain;
        }
      return s;
    }
@@ -477,9 +483,9 @@
 
      while ( t )
        {
-	  if ( t -> TimerExtrinsicKey == SearchKey )
-	    break;
-	  t = t -> TCB_TimerNextInChain;
+          if ( t -> TimerExtrinsicKey == SearchKey )
+            break;
+          t = t -> TCB_TimerNextInChain;
        }
      return t;
    }
@@ -496,13 +502,13 @@
 
       l += sprintf ( p + l,"\r\nsfs-page: " );
       if ( ErrorDescriptor > DosErrorLowerLimit )
-	l += sprintf ( p + l, "Error %hu executing ", ReturnCode );
+        l += sprintf ( p + l, "Error %hu executing ", ReturnCode );
 
       switch ( ErrorDescriptor )
-	{
+        {
            case ErrorGlobalAlloc:
              l += sprintf ( p + l, "GlobalAlloc" );
-	     break;
+             break;
 
            case ErrorCreateFileMapping:
              l += sprintf ( ScreenBuffer + l, "CreateFileMapping" );
@@ -513,16 +519,16 @@
              break;
 
        case ErrorImproperCall:
-	     l += sprintf ( p + l, "Improper call" );
-	     break;
+             l += sprintf ( p + l, "Improper call" );
+             break;
 
-	   case ErrorProcessNotFound:
-	     l += sprintf ( p + l, "Process not found" );
-	     break;
+           case ErrorProcessNotFound:
+             l += sprintf ( p + l, "Process not found" );
+             break;
 
-	   default:
-	     break;
-	}
+           default:
+             break;
+        }
       DisplayScreenBuffer ( l );
       return;
    }

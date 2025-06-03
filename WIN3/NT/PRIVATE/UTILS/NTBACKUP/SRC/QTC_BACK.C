@@ -183,8 +183,11 @@ INT QTC_ErrorCleanup( QTC_BUILD_PTR build )
    if ( build ) {
       if ( build->files_open ) {
          QTC_CloseFile( build->fh_rec );
+         build->fh_rec = -1 ;
          QTC_CloseFile( build->fh_dir );
+         build->fh_dir = -1 ;
          QTC_CloseFile( build->fh_fil );
+         build->fh_fil = -1 ;
          build->files_open = FALSE;
       }
    }
@@ -250,8 +253,11 @@ INT QTC_FreeBuildHandle( QTC_BUILD_PTR build )
    if ( build != NULL ) {
       if ( build->files_open ) {
          QTC_CloseFile( build->fh_rec );
+         build->fh_rec = -1 ;
          QTC_CloseFile( build->fh_dir );
+         build->fh_dir = -1 ;
          QTC_CloseFile( build->fh_fil );
+         build->fh_fil = -1 ;
       }
       free( build->curr_build_path );
       free( build->old_header );
@@ -352,18 +358,21 @@ VOID QTC_AbortBackup( QTC_BUILD_PTR build )
 
                if( build->rec_file != NULL ) {
                    QTC_CloseFile( build->fh_rec ) ;
+                   build->fh_rec = -1 ;
                    unlink( build->rec_file ) ;
                    free( build->rec_file ) ;
                    build->rec_file = NULL ;
                }
                if( build->dir_file != NULL ) {
                    QTC_CloseFile( build->fh_dir ) ;
+                   build->fh_dir = -1 ;
                    unlink( build->dir_file ) ;
                    free( build->dir_file ) ;
                    build->dir_file = NULL ;
                }
                if( build->fil_file != NULL ) {
-                   QTC_CloseFile( build->fh_fil ) ;
+                   QTC_CloseFile( build->fh_fil );
+                   build->fh_fil = -1 ;
                    unlink( build->fil_file ) ;
                    free( build->fil_file ) ;
                    build->fil_file = NULL ;
@@ -455,19 +464,22 @@ VOID QTC_AbortCataloging( QTC_BUILD_PTR build, BOOLEAN keep_items )
                */
 
                if( build->rec_file != NULL ) {
-                   QTC_CloseFile( build->fh_rec ) ;
+                   QTC_CloseFile( build->fh_rec );
+                   build->fh_rec = -1 ;
                    unlink( build->rec_file ) ;
                    free( build->rec_file ) ;
                    build->rec_file = NULL ;
                }
                if( build->dir_file != NULL ) {
-                   QTC_CloseFile( build->fh_dir ) ;
+                   QTC_CloseFile( build->fh_dir );
+                   build->fh_dir = -1 ;
                    unlink( build->dir_file ) ;
                    free( build->dir_file ) ;
                    build->dir_file = NULL ;
                }
                if( build->fil_file != NULL ) {
-                   QTC_CloseFile( build->fh_fil ) ;
+                   QTC_CloseFile( build->fh_fil );
+                   build->fh_fil = -1 ;
                    unlink( build->fil_file ) ;
                    free( build->fil_file ) ;
                    build->fil_file = NULL ;
@@ -632,6 +644,7 @@ INT QTC_BuildNewPath( QTC_BUILD_PTR build, UINT32 mom_offset )
    CHAR_PTR temp;
    BYTE_PTR buff1;
    BYTE_PTR buff2;
+   CHAR_PTR terminator ;
 
 
    buff1 = calloc( QTC_BUF_SIZE, 1 );
@@ -667,7 +680,8 @@ INT QTC_BuildNewPath( QTC_BUILD_PTR build, UINT32 mom_offset )
 
          // terminate dir_name string in buffer with a zero
 
-         buff2[ name->size - (INT)name->xtra_size ] = TEXT( '\0' );
+         terminator = (CHAR_PTR)(&buff2[ name->size - (INT)name->xtra_size ] );
+         *terminator = TEXT( '\0' );
 
          mom_offset = name->mom_offset;
 
@@ -847,6 +861,9 @@ INT QTC_UpdateOTCInfo( QTC_HEADER_PTR header )
    INT fd;
    INT ret;
    INT Error;
+   INT num_files;
+   INT num_dirs ;
+   INT num_corrupt_files;
 
    if ( ! ( header->status & QTC_OTCVALID ) ) {
       return( SUCCESS );
@@ -874,6 +891,9 @@ INT QTC_UpdateOTCInfo( QTC_HEADER_PTR header )
       FDD_PBA = header->FDD_PBA;
       FDD_SeqNum = header->FDD_SeqNum;
       FDD_Version = header->FDD_Version;
+      num_files = header->num_files ;
+      num_dirs = header->num_dirs;
+      num_corrupt_files = header->num_corrupt_files;
 
       // Load the header for the one bset that is changing.
 
@@ -889,6 +909,10 @@ INT QTC_UpdateOTCInfo( QTC_HEADER_PTR header )
       header->FDD_PBA = FDD_PBA;
       header->FDD_SeqNum = FDD_SeqNum;
       header->FDD_Version = FDD_Version;
+
+      header->num_files =num_files ;
+      header->num_dirs=num_dirs ;
+      header->num_corrupt_files=num_corrupt_files ;
 
       fd = QTC_OpenFile( bset->tape_fid, (INT16)bset->tape_seq_num, TRUE, FALSE );
 
@@ -1148,6 +1172,13 @@ INT EncryptionAlgorithm )
       header->status |= QTC_UNICODE;
    }
 
+   header->num_dirs = build->num_dirs;
+   header->num_files = build->num_files ;
+   header->num_bytes = 0;
+   header->num_bytes_msw = 0;
+   header->num_corrupt_files = build->num_corrupt_files;
+   header->num_files_in_use = 0;
+
    if ( QTC_IsThisBsetKnown( build, header ) ) {
       QTC_UpdateOTCInfo( header );
       free( header );
@@ -1285,11 +1316,11 @@ INT EncryptionAlgorithm )
       header->status |= QTC_PARTIAL;
    }
 
-   header->num_dirs = 0;
-   header->num_files = 0;
+   header->num_dirs = build->num_dirs;
+   header->num_files = build->num_files ;
    header->num_bytes = 0;
    header->num_bytes_msw = 0;
-   header->num_corrupt_files = 0;
+   header->num_corrupt_files = build->num_corrupt_files;
    header->num_files_in_use = 0;
 
    if ( QTC_OpenTempFiles( build ) != SUCCESS ) {

@@ -23,14 +23,13 @@ Revision History:
 --*/
 
 
-#include "prerc.h"
-#pragma hdrstop
+#include "rc.h"
 
 extern BOOL WINAPI LocalIsTextUnicode(CONST LPVOID Buffer, int Size, LPINT Result);
 
 INT
 DetermineFileType (
-    IN      FILE        *fpInputFile
+    IN      PFILE        fpInputFile
     )
 
 /*++
@@ -202,7 +201,7 @@ WCHAR ** UnicodeCommandLine (int argc, char ** argv)
     nbytes *= sizeof(WCHAR);
 
     /* allocate space for argv[] vector and strings */
-    argv_U = (WCHAR **) malloc((argc + 1) * sizeof(WCHAR *) + nbytes);
+    argv_U = (WCHAR **) MyAlloc((argc + 1) * sizeof(WCHAR *) + nbytes);
     if (!argv_U)
         return (NULL);
 

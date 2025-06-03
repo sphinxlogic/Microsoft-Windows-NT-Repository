@@ -154,12 +154,37 @@ Return Value:
 
     DWORD   DiskType;       //  Type of backup disk
 
+#if defined( JAPAN )  // v-junm - 06/03/93
+// This is a hack for FormatMessage.  FormatMessage checks several variables
+// to determine which language message to display, and one is the TEB's
+// LanguageId.  Since the LanguageId in the TEB is always initialized to
+// Japan's language id when a thread is created, we will change the value
+// to US's language id when we are not running in JP CP.
+	
+	if ( GetConsoleOutputCP() == 932 )
+		SetThreadLocale( 
+			MAKELCID(
+				MAKELANGID( LANG_JAPANESE, SUBLANG_ENGLISH_US ),
+				SORT_DEFAULT
+				)
+			);
+	else
+		SetThreadLocale( 
+			MAKELCID(
+				MAKELANGID( LANG_ENGLISH, SUBLANG_ENGLISH_US ),
+				SORT_DEFAULT
+				)
+			);
+
+
+#endif	// JAPAN
+
     //
     // Don't expand line-feed to carriage-return and line-feed.
     //
 
-    setmode(fileno(stdout),O_BINARY);
-    setmode(fileno(stderr),O_BINARY);
+    _setmode(_fileno(stdout),O_BINARY);
+    _setmode(_fileno(stderr),O_BINARY);
 
     //
     //  Get command-line options and set the global state.
@@ -454,4 +479,3 @@ static  BOOL         HaveLastChunk   = FALSE;   //  have last part of file
         }
     }
 }
-

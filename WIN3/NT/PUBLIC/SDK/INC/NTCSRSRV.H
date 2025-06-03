@@ -74,20 +74,7 @@ typedef struct _CSR_THREAD {
     NTSTATUS ShutDownStatus;
     HANDLE ServerId;
 
-    PVOID ServerThread;
-
-    HANDLE ClientEventPairHandle;
-    HANDLE ClientSectionHandle;
-    PCHAR ClientSharedMemoryBase;
-    HANDLE ServerEventPairHandle;
-    HANDLE ServerSectionHandle;
-    HANDLE ServerThreadHandle;
-    PCHAR ServerSharedMemoryBase;
-    ULONG SharedMemorySize;
     ULONG ImpersonateCount;
-
-    BOOLEAN ThreadConnected;
-    BOOLEAN Dying;
 
     PVOID ServerDllPerThreadData[ 1 ];      // Variable length array
 } CSR_THREAD, *PCSR_THREAD;
@@ -110,6 +97,7 @@ typedef struct _CSR_THREAD {
 #define CSR_PROCESS_DESTROYED       0x00000200
 #define CSR_PROCESS_LASTTHREADOK    0x00000400
 #define CSR_PROCESS_CONSOLEAPP      0x00000800
+#define CSR_PROCESS_TERMINATED      0x00001000
 
 //
 // Flags defines
@@ -141,8 +129,11 @@ typedef struct _CSR_PROCESS {
 
     ULONG ThreadCount;
 
-    KPRIORITY ForegroundPriority;
-    KPRIORITY BackgroundPriority;
+    UCHAR PriorityClass;
+    UCHAR Spare0;
+    UCHAR Spare1;
+    UCHAR Spare2;
+    ULONG Spare3;
     ULONG ShutdownLevel;
     ULONG ShutdownFlags;
     PVOID ServerDllPerProcessData[ 1 ];     // Variable length array
@@ -182,7 +173,7 @@ ULONG
     );
 
 #define CSR_SERVER_QUERYCLIENTTHREAD() \
-    ((PCSR_THREAD)((PCSR_QLPC_TEB)(NtCurrentTeb()->CsrQlpcTeb))->ClientThread)
+    ((PCSR_THREAD)(NtCurrentTeb()->CsrClientThread))
 
 
 //
@@ -257,13 +248,6 @@ CsrCallServerFromServer(
     PCSR_API_MSG ReplyMsg
     );
 
-NTCSRAPI
-VOID
-NTAPI
-CsrSetLastQlpcError(
-    ULONG ulError
-    );
-
 //
 // ShutdownProcessRoutine return values
 //
@@ -286,34 +270,11 @@ ULONG
     IN BOOLEAN fFirstPass
     );
 
-typedef
-NTSTATUS
-(*PQUICK_THREAD_START_ROUTINE)(
-    IN PVOID ThreadParameter
-    );
-
-typedef
-NTSTATUS
-(*PQUICK_THREAD_CREATE_ROUTINE)(
-    IN BOOLEAN CreateSuspended,
-    IN PQUICK_THREAD_START_ROUTINE StartAddress,
-    IN PVOID Parameter OPTIONAL,
-    OUT PHANDLE Thread,
-    OUT PULONG ThreadId
-    );
-
 NTCSRAPI
 ULONG
 NTAPI
 CsrComputePriorityClass(
     IN PCSR_PROCESS Process
-    );
-
-NTCSRAPI
-NTSTATUS
-NTAPI
-CsrSetQuickThreadCreateRoutine(
-    IN PQUICK_THREAD_CREATE_ROUTINE CreateRoutine
     );
 
 NTCSRAPI
@@ -442,6 +403,21 @@ CsrUnlockProcess(
 NTCSRAPI
 NTSTATUS
 NTAPI
+CsrLockThreadByClientId(
+    IN HANDLE UniqueThreadId,
+    OUT PCSR_THREAD *Thread
+    );
+
+NTCSRAPI
+NTSTATUS
+NTAPI
+CsrUnlockThread(
+    IN PCSR_THREAD Thread
+    );
+
+NTCSRAPI
+NTSTATUS
+NTAPI
 CsrCreateThread(
     IN PCSR_PROCESS Process,
     IN HANDLE ThreadHandle,
@@ -550,13 +526,6 @@ CsrConnectToUser(
     );
 
 NTCSRAPI
-ULONG
-NTAPI
-CsrClientCallback(
-    VOID
-    );
-
-NTCSRAPI
 BOOLEAN
 NTAPI
 CsrImpersonateClient(
@@ -585,17 +554,15 @@ CsrSetBackgroundPriority(
     );
 
 NTCSRAPI
-VOID
+EXCEPTION_DISPOSITION
 NTAPI
-CsrRegisterCleanupEvent(
-    HANDLE hEvent
+CsrUnhandledExceptionFilter(
+    IN PEXCEPTION_POINTERS ExceptionInfo
     );
 
-NTCSRAPI
-VOID
-NTAPI
-CsrDelayedThreadCleanup(
-    VOID
-    );
+typedef struct _CSR_FAST_ANSI_OEM_TABLES {
+    char OemToAnsiTable[256];
+    char AnsiToOemTable[256];
+} CSR_FAST_ANSI_OEM_TABLES, *PCSR_FAST_ANSI_OEM_TABLES;
 
 #endif // _NTCSRSRVAPI_

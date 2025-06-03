@@ -22,12 +22,6 @@ Revision History:
 #include "Procs.h"
 #include <stdio.h>
 
-VOID
-CreateAnsiUid(
-    OUT PCHAR aUid,
-    IN PLARGE_INTEGER Uid
-    );
-
 PLOGON
 FindUserByName(
     IN PUNICODE_STRING UserName
@@ -185,7 +179,7 @@ Return Value:
 
         PLOGON Logon = CONTAINING_RECORD( LogonQueueEntry, LOGON, Next );
 
-        if ( LiEql( *Uid, Logon->UserUid) ) {
+        if ( (*Uid).QuadPart == Logon->UserUid.QuadPart ) {
             DebugTrace(-1, Dbg, "        ... %x\n", Logon );
             return Logon;
         }
@@ -203,7 +197,7 @@ Return Value:
 
         PLOGON Logon = CONTAINING_RECORD( LogonQueueEntry, LOGON, Next );
 
-        if (LiEql(Logon->UserUid, DefaultLuid)) {
+        if (Logon->UserUid.QuadPart == DefaultLuid.QuadPart) {
 
             //
             //  This is the first Default Logon entry. If this UID is not
@@ -310,7 +304,7 @@ Return Value:
         //  the local id.
         //
 
-        SeQueryAuthenticationIdToken(SubjectSecurityContext->ClientToken, &LogonId);
+        SeQueryAuthenticationIdToken(SubjectSecurityContext->ClientToken, (PLUID)&LogonId);
 
         if (FindUser(&LogonId, TRUE) == NULL) {
 
@@ -319,7 +313,7 @@ Return Value:
             //  gateway will work.
             //
 
-            SeQueryAuthenticationIdToken(SubjectSecurityContext->PrimaryToken, &LogonId);
+            SeQueryAuthenticationIdToken(SubjectSecurityContext->PrimaryToken, (PLUID)&LogonId);
         }
 
     } else {
@@ -328,7 +322,7 @@ Return Value:
         //  Use the processes LogonId
         //
 
-        SeQueryAuthenticationIdToken(SubjectSecurityContext->PrimaryToken, &LogonId);
+        SeQueryAuthenticationIdToken(SubjectSecurityContext->PrimaryToken, (PLUID)&LogonId);
     }
 
     DebugTrace( 0, Dbg, " ->UserUidHigh = %08lx\n", LogonId.HighPart);
@@ -359,6 +353,9 @@ Return Value:
 
 --*/
 {
+    PLIST_ENTRY pListEntry;
+    PNDS_SECURITY_CONTEXT pContext;
+
     PAGED_CODE();
 
     if ((Logon == NULL) ||
@@ -378,6 +375,15 @@ Return Value:
         FREE_POOL( Logon->ServerName.Buffer );
     }
 
+    while ( !IsListEmpty(&Logon->NdsCredentialList) ) {
+
+        pListEntry = RemoveHeadList( &Logon->NdsCredentialList );
+        pContext = CONTAINING_RECORD(pListEntry, NDS_SECURITY_CONTEXT, Next );
+        FreeNdsContext( pContext );
+
+    }
+
+    ExDeleteResource( &Logon->CredentialListResource );
     FREE_POOL( Logon );
 }
 
@@ -414,6 +420,7 @@ NTSTATUS
     ULONG InputBufferLength = IrpSp->Parameters.FileSystemControl.InputBufferLength;
 
     UNICODE_STRING ServerName;
+    PNDS_SECURITY_CONTEXT pNdsContext;
 
     PAGED_CODE();
 
@@ -437,7 +444,8 @@ NTSTATUS
                 (FIELD_OFFSET(NWR_REQUEST_PACKET,Parameters.Logon.UserName)) +
                 InputBuffer->Parameters.Logon.UserNameLength +
                 InputBuffer->Parameters.Logon.PasswordLength +
-                InputBuffer->Parameters.Logon.ServerNameLength) {
+                InputBuffer->Parameters.Logon.ServerNameLength +
+                InputBuffer->Parameters.Logon.ReplicaAddrLength) {
             try_return(Status = STATUS_INVALID_PARAMETER);
         }
 
@@ -449,6 +457,8 @@ NTSTATUS
         RtlZeroMemory(Logon, sizeof(LOGON));
         Logon->NodeTypeCode = NW_NTC_LOGON;
         Logon->NodeByteSize = sizeof(LOGON);
+        InitializeListHead( &Logon->NdsCredentialList );
+        ExInitializeResource( &Logon->CredentialListResource );
 
         Status = SetUnicodeString(&Logon->UserName,
                     InputBuffer->Parameters.Logon.UserNameLength,
@@ -475,17 +485,26 @@ NTSTATUS
                          InputBuffer->Parameters.Logon.PasswordLength);
 
         ServerName.Length =
-                    (USHORT)InputBuffer->Parameters.Logon.ServerNameLength,
+                    (USHORT)InputBuffer->Parameters.Logon.ServerNameLength;
 
         ServerName.MaximumLength =
-                    (USHORT)InputBuffer->Parameters.Logon.ServerNameLength,
+                    (USHORT)InputBuffer->Parameters.Logon.ServerNameLength;
 
-        Status = SetUnicodeString(&Logon->ServerName,
-                    ServerName.Length,
-                    ServerName.Buffer );
+        if ( ServerName.Length &&
+             ServerName.Buffer[0] != L'*' ) {
 
-        if (!NT_SUCCESS(Status)) {
-            try_return( Status );
+            //
+            // Only set this as the preferred server if it's not
+            // a default tree.  Default tree requests start with a '*'.
+            //
+
+            Status = SetUnicodeString(&Logon->ServerName,
+                        ServerName.Length,
+                        ServerName.Buffer );
+
+            if (!NT_SUCCESS(Status)) {
+                try_return( Status );
+            }
         }
 
         //
@@ -494,12 +513,12 @@ NTSTATUS
         //  paths so that each userid gets their own connection to the server.
         //
 
-        Logon->UserUid = InputBuffer->Parameters.Logon.LogonId;
+        *((PLUID)(&Logon->UserUid)) = InputBuffer->Parameters.Logon.LogonId;
 
         //  Save Uid for CreateScb
 
-        IrpContext->Specific.Create.UserUid =
-            InputBuffer->Parameters.Logon.LogonId;
+        *((PLUID)(&IrpContext->Specific.Create.UserUid)) =
+                                        InputBuffer->Parameters.Logon.LogonId;
 
 try_exit:NOTHING;
     } except (EXCEPTION_EXECUTE_HANDLER) {
@@ -513,14 +532,22 @@ try_exit:NOTHING;
 
         DebugTrace( 0, Dbg, " ->UserName    = %wZ\n",  &Logon->UserName );
         DebugTrace( 0, Dbg, " ->PassWord    = %wZ\n",  &Logon->PassWord );
-        DebugTrace( 0, Dbg, " ->ServerName  = %wZ\n",  &Logon->ServerName );
+
+        if ( ServerName.Length && ServerName.Buffer[0] == L'*' ) {
+            DebugTrace( 0, Dbg, " ->DefaultTree = %wZ\n", &ServerName );
+        } else {
+            DebugTrace( 0, Dbg, " ->ServerName  = %wZ\n",  &Logon->ServerName );
+        }
+
         DebugTrace( 0, Dbg, " ->UserUidHigh = %08lx\n", Logon->UserUid.HighPart);
         DebugTrace( 0, Dbg, " ->UserUidLow  = %08lx\n", Logon->UserUid.LowPart);
 
         InsertHeadList( &LogonList, &Logon->Next );
         NwReleaseRcb( &NwRcb );
 
-        if ( ServerName.Length != 0 ) {
+        if ( ServerName.Length &&
+             ServerName.Buffer[0] != L'*' ) {
+
             PSCB Scb;
 
             //  See if we can login as this user.
@@ -529,6 +556,7 @@ try_exit:NOTHING;
                             &Scb,
                             IrpContext,
                             &ServerName,
+                            NULL,
                             NULL,
                             NULL,
                             FALSE,
@@ -544,7 +572,159 @@ try_exit:NOTHING;
 
                 NwDereferenceScb(Scb->pNpScb);
             }
+
         }
+
+        if ( ServerName.Length &&
+             ServerName.Buffer[0] == L'*' ) {
+
+            PSCB Scb;
+            BOOL SetContext;
+            UINT ContextLength;
+            UNICODE_STRING DefaultContext;
+            IPXaddress *ReplicaAddr;
+
+            //
+            // Ok, this is a little confusing.  On Login, the provider can
+            // specify the address of the replica that we should use to log
+            // in.  If this is the case, then we do pre-connect that replica.
+            // Otherwise, we do the standard login to any replica.  The
+            // reason for this is that standard replica location uses the
+            // bindery and doesn't always get us the nearest dir server.
+            //
+
+            if ( InputBuffer->Parameters.Logon.ReplicaAddrLength ==
+                 sizeof( TDI_ADDRESS_IPX ) ) {
+
+                ReplicaAddr = (IPXaddress*)
+                    ((PUCHAR) InputBuffer->Parameters.Logon.UserName +
+                              InputBuffer->Parameters.Logon.UserNameLength +
+                              InputBuffer->Parameters.Logon.PasswordLength +
+                              InputBuffer->Parameters.Logon.ServerNameLength);
+
+                CreateScb( &Scb,
+                           IrpContext,
+                           NULL,        // anonymous create
+                           ReplicaAddr, // nearest replica add
+                           NULL,        // no user name
+                           NULL,        // no password
+                           TRUE,        // defer the login
+                           FALSE );     // we are not deleting the connection
+
+            }
+
+            //
+            // Set if this includes a default context.
+            //
+
+            ServerName.Buffer += 1;
+            ServerName.Length -= sizeof( WCHAR );
+            ServerName.MaximumLength -= sizeof( WCHAR );
+
+            SetContext = FALSE;
+            ContextLength = 0;
+
+            while ( ContextLength < ServerName.Length / sizeof( WCHAR ) ) {
+
+                if ( ServerName.Buffer[ContextLength] == L'\\' ) {
+
+                    SetContext = TRUE;
+
+                    ContextLength++;
+
+                    //
+                    // Skip any leading periods.
+                    //
+
+                    if ( ServerName.Buffer[ContextLength] == L'.' ) {
+
+                        DefaultContext.Buffer = &ServerName.Buffer[ContextLength + 1];
+                        ServerName.Length -= sizeof ( WCHAR ) ;
+                        ServerName.MaximumLength -= sizeof ( WCHAR );
+
+                    } else {
+
+                        DefaultContext.Buffer = &ServerName.Buffer[ContextLength];
+
+                    }
+
+                    ContextLength *= sizeof( WCHAR );
+                    DefaultContext.Length = ServerName.Length - ContextLength;
+                    DefaultContext.MaximumLength = ServerName.MaximumLength - ContextLength;
+
+                    ServerName.Length -= ( DefaultContext.Length + sizeof( WCHAR ) );
+                    ServerName.MaximumLength -= ( DefaultContext.Length + sizeof( WCHAR ) );
+
+                }
+
+                ContextLength++;
+            }
+
+            //
+            // Verify that this context is valid before we acquire
+            // the credentials and really set the context.
+            //
+
+            if ( SetContext ) {
+
+                Status = NdsVerifyContext( IrpContext, &ServerName, &DefaultContext );
+
+                if ( !NT_SUCCESS( Status )) {
+                    SetContext = FALSE;
+                }
+
+            }
+
+            //
+            // Generate the credential shell for the default tree and
+            // set the context if appropriate.
+            //
+
+            Status = NdsLookupCredentials( &ServerName,
+                                           Logon,
+                                           &pNdsContext,
+                                           CREDENTIAL_WRITE,
+                                           TRUE );
+
+            if ( NT_SUCCESS( Status ) ) {
+
+                //
+                // Set the context.  It doesn't matter if the
+                // credential is locked or not.
+                //
+
+                if ( SetContext ) {
+
+                    RtlCopyUnicodeString( &pNdsContext->CurrentContext,
+                                          &DefaultContext );
+                    DebugTrace( 0, Dbg, "Default Context: %wZ\n", &DefaultContext );
+                }
+
+                NwReleaseCredList( Logon );
+
+                //
+                // RELAX! The credential list is free.
+                //
+
+                DebugTrace( 0, Dbg, "Default Tree: %wZ\n", &ServerName );
+
+                Status = NdsCreateTreeScb( IrpContext,
+                                           &Scb,
+                                           &ServerName,
+                                           NULL,
+                                           NULL,
+                                           FALSE,
+                                           FALSE );
+
+                if (NT_SUCCESS(Status)) {
+                    NwDereferenceScb(Scb->pNpScb);
+                }
+            }
+        }
+
+        //
+        // No login requested.
+        //
 
     } else {
 
@@ -607,7 +787,7 @@ NTSTATUS
             try_return(Status = STATUS_INVALID_PARAMETER);
         }
 
-        User = InputBuffer->Parameters.Logoff.LogonId;
+        *((PLUID)(&User)) = InputBuffer->Parameters.Logoff.LogonId;
 
         NwAcquireExclusiveRcb( &NwRcb, TRUE );
         Locked = TRUE;
@@ -632,9 +812,13 @@ NTSTATUS
             DebugTrace( 0, Dbg, " ->UserUidHigh = %08lx\n", Logon->UserUid.HighPart);
             DebugTrace( 0, Dbg, " ->UserUidLow  = %08lx\n", Logon->UserUid.LowPart);
 
-            NwInvalidateAllHandles(&Uid);
 
-            NwLogoffAllServers( IrpContext, &Uid );
+            //
+            // Invalidating all the handles for this user will also cause logoffs
+            // to all the servers in question.
+            //
+
+            NwInvalidateAllHandles(&Uid, IrpContext);
 
             NwAcquireExclusiveRcb( &NwRcb, TRUE );
             Locked = TRUE;
@@ -793,6 +977,7 @@ Return Value:
     } else {
 
         NwReleaseRcb( &NwRcb );
+        FREE_POOL(UidServer.Buffer);
         return( STATUS_BAD_NETWORK_PATH );
     }
 
@@ -816,6 +1001,8 @@ Return Value:
     pScb->Password.Buffer = (PWCHAR)((PCHAR)Buffer + UserName->Length);
     pScb->Password.Length = pScb->Password.MaximumLength = Password->Length;
     RtlMoveMemory( pScb->Password.Buffer, Password->Buffer, Password->Length );
+
+    FREE_POOL(UidServer.Buffer);
 
     return( STATUS_SUCCESS );
 }

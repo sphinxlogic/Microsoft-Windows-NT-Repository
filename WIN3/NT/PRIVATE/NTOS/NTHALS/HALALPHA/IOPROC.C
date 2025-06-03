@@ -29,11 +29,6 @@ Revision History:
 
 UCHAR   HalName[] = "Alpha Compatible PCI/Eisa/Isa HAL";
 
-VOID
-HalpInitializePCIBus (
-    VOID
-    );
-
 BOOLEAN
 HalpInitMP (
     IN ULONG Phase,
@@ -45,8 +40,6 @@ VOID HalpInitOtherBuses (VOID);
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(INIT,HalpInitMP)
-#pragma alloc_text(INIT,HalStartNextProcessor)
-#pragma alloc_text(INIT,HalReportResourceUsage)
 #pragma alloc_text(INIT,HalReportResourceUsage)
 #pragma alloc_text(INIT,HalpInitOtherBuses)
 #endif
@@ -70,17 +63,6 @@ HalpResetAllProcessors (
     )
 {
     // Just return, that will invoke the standard PC reboot code
-}
-
-
-BOOLEAN
-HalStartNextProcessor (
-   IN PLOADER_PARAMETER_BLOCK   pLoaderBlock,
-   IN PKPROCESSOR_STATE         pProcessorState
-   )
-{
-    // no other processors
-    return FALSE;
 }
 
 
@@ -110,12 +92,6 @@ HalReportResourceUsage (
     );
 
     RtlFreeUnicodeString (&UHalName);
-
-    //
-    // Registry is now intialized, see if there are any PCI buses
-    //
-
-    HalpInitializePCIBus ();
 }
 
 

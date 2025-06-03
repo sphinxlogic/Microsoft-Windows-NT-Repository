@@ -853,5 +853,5 @@ void UpdateResultIcon(LPCHANGEICON lpCI, HWND hDlg, UINT uID)
         SendDlgItemMessage(hDlg, ID_RESULTICON, STM_SETICON, LOWORD(lTemp), 0L);
     return;
     }
-
-
+
+

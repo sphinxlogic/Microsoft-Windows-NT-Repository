@@ -23,31 +23,42 @@
 #include "becls.hxx"
 #pragma hdrstop
 
+
 
-CG_IID_FILE::CG_IID_FILE(
-	node_file	*	pFileNode, 
-	PFILENAME		pFileName
-	) : CG_FILE( pFileNode, pFileName )
+void
+CG_IID_FILE::EmitFileHeadingBlock(
+	CCB	*	pCCB )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
  Routine Description:
 
- 	The constructor for the IID file node.
+ 	Emit block comment file heading.
 
  Arguments:
-
- 	pFileNode	- A pointer to the actual file node.
- 	pFileName	- A pointer to the file name string.
 	
+ 	pCCB	- a pointer to the code generation control block.
+
  Return Value:
+
+ 	none.
 	
  Notes:
 
 ----------------------------------------------------------------------------*/
 {
+	ISTREAM		*	pStream	= pCCB->GetStream();
+
+	pStream->Write( "/* this file contains the actual definitions of */" );
+	pStream->NewLine();
+	pStream->Write( "/* the IIDs and CLSIDs */" );
+	pStream->NewLine(2);
+	pStream->Write( "/* link this file in with the server and any clients */" );
+	pStream->NewLine(2);
+
+	EmitStandardHeadingBlock( pCCB );
 }
 
-
+
 CG_STATUS
 CG_IID_FILE::GenCode(
 	CCB		*	pCCB)
@@ -69,30 +80,25 @@ CG_IID_FILE::GenCode(
 
 ----------------------------------------------------------------------------*/
 {
-	ISTREAM	*	pStream = pCCB->SetStream( new ISTREAM( GetFileName(), 4 ));
-	node_interface * pINode;
-	node_file	   * pIFile;
-	node_guid 		*	pGuid;
-	char 		*p1, *p2, *p3, *p4, *p5;
-	type_node_list tnList;
-	STATUS_T status;
+	ISTREAM				Stream( GetFileName(), 4 );
+	ISTREAM	*			pStream = pCCB->SetStream( &Stream );
+	CG_INTERFACE	*	pIntf;
+
+	EmitFileHeadingBlock( pCCB );
 
 
 	// Write out the cplusplus guard.
 
-	pStream->NewLine();
-	pStream->NewLine();
-
 	pStream->Write( "#ifdef __cplusplus\nextern \"C\"{\n#endif " );
-	pStream->NewLine();
 
 	// Print out the declarations of the types and the procedures.
 
-	pStream->NewLine();
-    pStream->NewLine();
+	pStream->NewLine( 3 );
+	pStream->Write("#ifndef __IID_DEFINED__\n#define __IID_DEFINED__");
+	pStream->NewLine( 2 );
     pStream->Write("typedef struct _IID");
     pStream->NewLine();
-    pStream->Write("{");
+    pStream->Write('{');
     pStream->IndentInc();
     pStream->NewLine();
     pStream->Write("unsigned long x;");
@@ -105,30 +111,144 @@ CG_IID_FILE::GenCode(
     pStream->IndentDec();
     pStream->NewLine();
     pStream->Write("} IID;");
+	pStream->NewLine( 2 );
+	pStream->Write("#endif // __IID_DEFINED__");
+    pStream->NewLine( 2 );        
+	pStream->Write("#ifndef CLSID_DEFINED\n#define CLSID_DEFINED");
+	pStream->NewLine();
+    pStream->Write("typedef IID CLSID;");
+    pStream->NewLine();        
+	pStream->Write("#endif // CLSID_DEFINED");
     pStream->NewLine();        
 
-	pIFile = GetFileNode();
-	pIFile->GetMembers(&tnList);
-	for(status = tnList.GetFirst((node_skl **)&pINode);
-		status == STATUS_OK; 
-		status = tnList.GetPeer((node_skl **)&pINode))
-	{
-		if(pINode->FInSummary(ATTR_OBJECT) && pINode->FInSummary(ATTR_GUID))
+	pIntf	=	(CG_INTERFACE*) GetChild();
+
+	while ( pIntf )
 		{
-			pGuid = (node_guid *)pINode->GetAttribute( ATTR_GUID );
-			if(pGuid)
-			{
-				pGuid->GetStrs( &p1,&p2,&p3,&p4,&p5 );
-				pStream->NewLine();
-				pStream->Write("const IID IID_");
-				pStream->Write(pINode->GetSymName());
-				pStream->Write(" = ");
-				Out_Guid(pCCB, p1, p2, p3, p4, p5 );
-				pStream->Write(";");
-				pStream->NewLine();
-			}
-		}
-	}
+        node_interface * pIntfNode = (node_interface *) pIntf->GetType();
+        if (!pIntfNode->PrintedIID())
+            {
+		    switch ( pIntf->GetCGID() )
+			    {
+			    case ID_CG_OBJECT_INTERFACE:
+				    {
+				    pStream->NewLine();
+				    pStream->Write("const IID IID_");
+				    pStream->Write(pIntf->GetSymName());
+				    pStream->Write(" = ");
+				    Out_Guid(pCCB, pIntf->GetGuidStrs() );
+				    pStream->Write(';');
+				    pStream->NewLine(2);
+                    pIntfNode->SetPrintedIID();
+
+				    break;
+				    }
+			    case ID_CG_COM_CLASS:
+				    {
+				    pStream->NewLine();
+				    pStream->Write("const CLSID CLSID_");
+				    pStream->Write(pIntf->GetSymName());
+				    pStream->Write(" = ");
+				    Out_Guid(pCCB, pIntf->GetGuidStrs() );
+				    pStream->Write(';');
+				    pStream->NewLine(2);
+                    pIntfNode->SetPrintedIID();
+
+				    break;
+				    }
+                case ID_CG_LIBRARY:
+                    {
+                    CG_LIBRARY * pLib = (CG_LIBRARY *)pIntf;
+                    node_library * pType = (node_library *) pLib->GetType();
+                    node_guid * pGuid = (node_guid *) pType->GetAttribute( ATTR_GUID );
+                    pStream->NewLine();
+                    pStream->Write("const IID LIBID_");
+                    pStream->Write(pLib->GetSymName());
+                    pStream->Write(" = ");
+                    Out_Guid(pCCB, pGuid->GetStrs());
+                    pStream->Write(';');
+                    pStream->NewLine(2);
+	                CG_NDR * pChild	=	(CG_NDR*) pLib->GetChild();
+                    pIntfNode->SetPrintedIID();
+
+	                while ( pChild )
+		                {
+                        node_interface * pChildType = (node_interface *) pChild->GetType();
+		                switch ( pChild->GetCGID() )
+			                {
+			                case ID_CG_OBJECT_INTERFACE:
+				                {
+                                if (!pChildType->PrintedIID())
+                                    {
+                                    pStream->NewLine();
+				                    pStream->Write("const IID IID_");
+				                    pStream->Write(pChild->GetSymName());
+				                    pStream->Write(" = ");
+				                    Out_Guid(pCCB, ((CG_INTERFACE*)pChild)->GetGuidStrs() );
+            				        pStream->Write(';');
+				                    pStream->NewLine(2);
+                                    pChildType->SetPrintedIID();
+                                    }
+				                break;
+				                }
+			                case ID_CG_COM_CLASS:
+				                {
+				                pStream->NewLine();
+				                pStream->Write("const CLSID CLSID_");
+				                pStream->Write(pChild->GetSymName());
+				                pStream->Write(" = ");
+				                Out_Guid(pCCB, ((CG_INTERFACE*)pChild)->GetGuidStrs() );
+				                pStream->Write(';');
+				                pStream->NewLine(2);
+
+				                break;
+				                }
+                            case ID_CG_DISPINTERFACE:
+                                {
+                                CG_DISPINTERFACE * pDI = (CG_DISPINTERFACE *)pChild;
+                                node_dispinterface * pType = (node_dispinterface *) pDI->GetType();
+                                node_guid * pGuid = (node_guid *) pType->GetAttribute( ATTR_GUID );
+                                pStream->NewLine();
+                                pStream->Write("const IID DIID_");
+                                pStream->Write(pDI->GetSymName());
+                                pStream->Write(" = ");
+                                Out_Guid(pCCB, pGuid->GetStrs());
+                                pStream->Write(';');
+                                pStream->NewLine(2);
+	                
+                                break;
+                                }
+                            case ID_CG_COCLASS:
+                                {
+                                CG_COCLASS * pCoclass = (CG_COCLASS *)pChild;
+                                node_coclass * pType = (node_coclass *) pCoclass->GetType();
+                                node_guid * pGuid = (node_guid *) pType->GetAttribute( ATTR_GUID );
+                                pStream->NewLine();
+                                pStream->Write("const CLSID CLSID_");
+                                pStream->Write(pCoclass->GetSymName());
+                                pStream->Write(" = ");
+                                Out_Guid(pCCB, pGuid->GetStrs());
+                                pStream->Write(';');
+                                pStream->NewLine(2);
+	                
+                                break;
+                                }
+                            case ID_CG_INTERFACE:
+			                case ID_CG_INHERITED_OBJECT_INTERFACE:
+			                default:
+				                break;
+			                }
+		                pChild = (CG_INTERFACE *) pChild->GetSibling();
+        		        }
+                    }
+			    case ID_CG_INTERFACE:
+			    case ID_CG_INHERITED_OBJECT_INTERFACE:
+			    default:
+				    break;
+			    }
+		    pIntf = (CG_INTERFACE *) pIntf->GetSibling();
+		    }
+        }
 
 	// print out the closing endifs.
 	// first the cplusplus stuff.

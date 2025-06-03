@@ -206,7 +206,9 @@ Return Value:
         //
 
         if (pLink->DlcStatus.StatusCode & INDICATE_CONNECT_REQUEST) {
-            pEvent = AllocatePacket(pAdapterContext->hPacketPool);
+
+            pEvent = ALLOCATE_PACKET_LLC_PKT(pAdapterContext->hPacketPool);
+
             if (pEvent != NULL) {
                 LlcInsertTailList(&pAdapterContext->QueueEvents, pEvent);
                 pEvent->pBinding = pLink->Gen.pLlcBinding;

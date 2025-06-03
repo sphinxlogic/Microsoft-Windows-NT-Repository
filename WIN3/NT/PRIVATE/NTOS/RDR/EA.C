@@ -415,7 +415,7 @@ Return Value:
     BOOLEAN ReturnSingleEntry;
     BOOLEAN IndexSpecified;
     PFEALIST ServerEaList = NULL;
-    PGEALIST ServerQueryEaList = NULL;
+    BOOLEAN ReturnValue;
 
     PAGED_CODE();
 
@@ -472,8 +472,8 @@ Return Value:
 
     if (( !NT_SUCCESS( Status ) )||
         ( ServerEaList == NULL )) {
-        *FinalStatus = Status;
-        return FALSE;
+        ReturnValue = FALSE;
+        goto done;
     }
 
     //
@@ -483,7 +483,8 @@ Return Value:
     //
 
     if ( !RdrAcquireFcbLock(Icb->Fcb, ExclusiveLock, Wait) ) {
-        return TRUE;    // Needed to block to get resource and Wait=FALSE
+        ReturnValue = TRUE;    // Needed to block to get resource and Wait=FALSE
+        goto done;
     }
 
 
@@ -528,13 +529,17 @@ Return Value:
 
     RdrReleaseFcbLock(Fcb);
 
+    ReturnValue = FALSE;
+
+done:
+
     if ( ServerEaList != NULL) {
         FREE_POOL((PVOID)ServerEaList);
     }
 
     dprintf(DPRT_EA, ("QueryEa  -> %08lx\n", Status));
     *FinalStatus = Status;
-    return FALSE;
+    return ReturnValue;
 
 }
 
@@ -724,7 +729,7 @@ Return Value:
                     &OutDataCount,
                     NULL,                   // Fid
                     0,                      // Timeout
-                    0,                      // Flags
+                    (USHORT) (FlagOn(Icb->NonPagedFcb->Flags, FCB_DFSFILE) ? SMB_TRANSACTION_DFSFILE : 0),
                     0,
                     NULL,
                     NULL
@@ -736,18 +741,18 @@ Return Value:
 
     if ( NT_SUCCESS(Status) ) {
 
-        //  Stash away all returned parameters.
-
-        *ServerEaList = Buffer;
-
         if ( OutDataCount == 0 ) {
             Status = STATUS_NO_EAS_ON_FILE;
         }
 
-        if ( SmbGetUlong( &(*ServerEaList)->cbList) != OutDataCount ){
+        if ( SmbGetUlong( &((PFEALIST)Buffer)->cbList) != OutDataCount ){
             Status = STATUS_EA_CORRUPT_ERROR;
         }
 
+    }
+
+    if ( NT_SUCCESS(Status) ) {
+        *ServerEaList = Buffer;
 #if     RDRDBG
         IFDEBUG(EA) {
             dprintf( DPRT_EA, ("ServerEaList:\n"));
@@ -755,7 +760,6 @@ Return Value:
         }
 #endif
     } else {
-
         FREE_POOL((PVOID)Buffer);
     }
 
@@ -946,29 +950,35 @@ Return Value:
     LastFeaStartLocation = (PFEA)( (PCHAR)ServerEaList +
                                SmbGetUlong( &ServerEaList->cbList ) );
 
-    //
-    //  Go through the ServerEaList until we find the entry corresponding to EaIndex
-    //
+    Fea = ServerEaList->list;
 
-    for ( Fea = ServerEaList->list;
-          (Fea <= LastFeaStartLocation) && (Index < EaIndex);
-          Index+= 1,
-          Fea = (PFEA)( (PCHAR)Fea + sizeof(FEA) +
-                        Fea->cbName + 1 + SmbGetUshort( &Fea->cbValue ) ) ) {
-        NOTHING;
-    }
+    if (!UserEaListSupplied) {
 
-    if ( Index != EaIndex ) {
+        //
+        //  Go through the ServerEaList until we find the entry corresponding to EaIndex
+        //
 
-        if ( Index == EaIndex+1 ) {
-            return STATUS_NO_MORE_EAS;
+        for ( ;
+              (Fea <= LastFeaStartLocation) && (Index < EaIndex);
+              Index+= 1,
+              Fea = (PFEA)( (PCHAR)Fea + sizeof(FEA) +
+                            Fea->cbName + 1 + SmbGetUshort( &Fea->cbValue ) ) ) {
+            NOTHING;
         }
 
-        //
-        //  No such index
-        //
+        if ( Index != EaIndex ) {
 
-        return STATUS_NONEXISTENT_EA_ENTRY;
+            if ( Index == EaIndex+1 ) {
+                return STATUS_NO_MORE_EAS;
+            }
+
+            //
+            //  No such index
+            //
+
+            return STATUS_NONEXISTENT_EA_ENTRY;
+        }
+
     }
 
     //
@@ -1091,11 +1101,14 @@ Return Value:
 
     LastNtFullEa->NextEntryOffset = 0;
 
-    //
-    //  Record position the default start position for the next query
-    //
+    if (!UserEaListSupplied) {
 
-    Icb->EaIndex = EaIndex;
+        //
+        //  Record position the default start position for the next query
+        //
+
+        Icb->EaIndex = EaIndex;
+    }
 
     if ( Overflow == FALSE ) {
         return STATUS_SUCCESS;
@@ -1685,7 +1698,7 @@ Return Value:
 
         SmbPutAlignedUshort( &Parameters.Q.InformationLevel, SMB_INFO_SET_EAS);
 
-        SmbPutAlignedUshort( &Parameters.Q.Flags, 0 );  // BUGBUG What should these be?
+        SmbPutAlignedUshort( &Parameters.Q.Flags, 0 );
 
         Status = RdrTransact(Irp,
             Icb->Fcb->Connection,

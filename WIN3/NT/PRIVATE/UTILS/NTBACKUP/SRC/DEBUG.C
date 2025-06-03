@@ -155,7 +155,7 @@ BOOL DBM_Init ( VOID )
           strcpy( szBuffer, pCDS->data_path );
           strcat( szBuffer, pCDS->debug_file_name );
 
-          mwhDebugFile = fopen( szBuffer, TEXT("a") );
+          mwhDebugFile = UNI_fopen( szBuffer, _O_TEXT|_O_APPEND );
      }
 
      mwpDebugQueue = (Q_HEADER_PTR)calloc ( 1, sizeof ( Q_HEADER ) );
@@ -236,11 +236,7 @@ VOID DBM_InsertStartMsg( VOID )
      EnQueueElem ( mwpDebugQueue, &pDebugItem->pQElem, FALSE );
 
      if ( mwhDebugFile ) {
-#ifndef UNICODE
           fprintf( mwhDebugFile, TEXT("%s\n"), pDebugItem->szMsg );
-#else //UNICODE
-          fprintf( mwhDebugFile, TEXT("%ws\n"), pDebugItem->szMsg );
-#endif //UNICODE
      }
 
 } /* end DBM_InsertStartMsg() */
@@ -271,11 +267,7 @@ CHAR_PTR szMsg )        // I - pointer to a message string
      }
 
      if ( mwhDebugFile ) {
-#ifndef UNICODE
           fprintf( mwhDebugFile, TEXT("%s\n"), szMsg );
-#else //UNICODE
-          fprintf( mwhDebugFile, TEXT("%ws\n"), szMsg );
-#endif //UNICODE
      }
 
      // If there is a limit on the number of messages and the limit has been
@@ -398,7 +390,7 @@ WORD wType )             // I - Type of reset
                strcpy( szBuffer, pCDS->data_path );
                strcat( szBuffer, pCDS->debug_file_name );
 
-               mwhDebugFile = fopen( szBuffer, TEXT("w+") );
+               mwhDebugFile = UNI_fopen( szBuffer, _O_TEXT );
           }
 
           break;
@@ -439,7 +431,7 @@ BOOL fOn )     // I - on or off
           strcpy ( szBuffer, pCDS->data_path );
           strcat ( szBuffer, pCDS->debug_file_name );
 
-          mwhDebugFile = fopen ( szBuffer, TEXT("a") );
+          mwhDebugFile = UNI_fopen ( szBuffer, _O_TEXT|_O_APPEND );
      }
 
      return (BOOL) ( mwhDebugFile != NULL );

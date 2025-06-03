@@ -553,7 +553,7 @@ cProc	Dos4IsRemote,<NEAR,PUBLIC.ATOMIC,NODATA>, <si,di,ds,es>
 cBegin
 
 ; We have to use DOS call int 21h/5f02h because DOS call int 21h/4409h
-; is not reliable under DOS versions 4.00 and 4.01. (IBM fuck-up).
+; is not reliable under DOS versions 4.00 and 4.01.
 
         xor     cx,cx
 	mov	ax,ss			; Load segs for stack vars.

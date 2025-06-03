@@ -251,7 +251,7 @@ Return Value:
 
         if (Irp->Cancel) {
 
-            NpCancelWaitQueueIrp( NULL, Irp );
+            NpCancelWaitQueueIrp( ((PVOID)0x1), Irp );
 
         } else {
 
@@ -570,7 +570,7 @@ Return Value:
     //  Get the spinlock proctecting the wait queue
     //
 
-    KeAcquireSpinLock( &WaitQueue->SpinLock, &OldIrql );
+    if (DeviceObject != (PVOID)0x1) { KeAcquireSpinLock( &WaitQueue->SpinLock, &OldIrql ); }
 
     try {
 
@@ -612,7 +612,7 @@ Return Value:
 
     } finally {
 
-        KeReleaseSpinLock( &WaitQueue->SpinLock, OldIrql );
+        if (DeviceObject != (PVOID)0x1) { KeReleaseSpinLock( &WaitQueue->SpinLock, OldIrql ); }
     }
 
     //
@@ -624,4 +624,3 @@ Return Value:
 
 
 }
-

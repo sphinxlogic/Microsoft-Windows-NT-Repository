@@ -334,4 +334,3 @@ extern ATTR_T GetInterfacePtrDefaultAttribute();
 
 #endif //  __MISCNODE_HXX__
 
-

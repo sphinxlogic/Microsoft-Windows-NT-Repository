@@ -79,6 +79,8 @@ PSID  SeWorldSid;
 PSID  SeLocalSid;
 PSID  SeCreatorOwnerSid;
 PSID  SeCreatorGroupSid;
+PSID  SeCreatorGroupServerSid;
+PSID  SeCreatorOwnerServerSid;
 
 //
 // Sids defined by NT
@@ -105,16 +107,25 @@ PSID SeAliasBackupOpsSid;
 //
 // System default DACLs & Security Descriptors
 //
-//  SePublicDefaultDacl - Protects objects so that WORLD can use them.
-//  SeSystemDefaultDacl - Protects objects so that SYSTEM & ADMIN can use them.
+//  SePublicDefaultDacl     - Protects objects so that WORLD:E, Admins:ALL, System: ALL.
+//                            Not inherited by sub-objects.
+//
+//  SePublicOpenDacl        - Protects so that WORLD can RWE and Admins: All.
+//                            Not inherited by sub-objects.
+//
+//  SeSystemDefaultDacl     - Protects objects so that SYSTEM & ADMIN can use them.
+//                            Not inherited by subobjects.
 //
 
 PSECURITY_DESCRIPTOR SePublicDefaultSd;
 SECURITY_DESCRIPTOR  SepPublicDefaultSd;
+PSECURITY_DESCRIPTOR SePublicOpenSd;
+SECURITY_DESCRIPTOR  SepPublicOpenSd;
 PSECURITY_DESCRIPTOR SeSystemDefaultSd;
 SECURITY_DESCRIPTOR  SepSystemDefaultSd;
 
 PACL SePublicDefaultDacl;
+PACL SePublicOpenDacl;
 PACL SeSystemDefaultDacl;
 
 //
@@ -234,7 +245,7 @@ UNICODE_STRING SeSubsystemName;
 // Mutex protecting the queue of work being passed to LSA
 //
 
-FAST_MUTEX SepLsaQueueLock;
+ERESOURCE SepLsaQueueLock;
 
 //
 // Doubly linked list of work items queued to worker threads.
@@ -317,17 +328,21 @@ Return Value:
     SeLocalSid        = (PSID)ExAllocatePoolWithTag(PagedPool,SidWithOneSubAuthority,'iSeS');
     SeCreatorOwnerSid = (PSID)ExAllocatePoolWithTag(PagedPool,SidWithOneSubAuthority,'iSeS');
     SeCreatorGroupSid = (PSID)ExAllocatePoolWithTag(PagedPool,SidWithOneSubAuthority,'iSeS');
+    SeCreatorOwnerServerSid = (PSID)ExAllocatePoolWithTag(PagedPool,SidWithOneSubAuthority,'iSeS');
+    SeCreatorGroupServerSid = (PSID)ExAllocatePoolWithTag(PagedPool,SidWithOneSubAuthority,'iSeS');
 
     //
     // Fail initialization if we didn't get enough memory for the universal
     // SIDs.
     //
 
-    if ( (SeNullSid         == NULL) ||
-         (SeWorldSid        == NULL) ||
-         (SeLocalSid        == NULL) ||
-         (SeCreatorOwnerSid == NULL) ||
-         (SeCreatorGroupSid == NULL)
+    if ( (SeNullSid         == NULL)        ||
+         (SeWorldSid        == NULL)        ||
+         (SeLocalSid        == NULL)        ||
+         (SeCreatorOwnerSid == NULL)        ||
+         (SeCreatorGroupSid == NULL)        ||
+         (SeCreatorOwnerServerSid == NULL ) ||
+         (SeCreatorGroupServerSid == NULL )
        ) {
 
         return( FALSE );
@@ -338,12 +353,16 @@ Return Value:
     RtlInitializeSid( SeLocalSid,        &LocalSidAuthority, 1 );
     RtlInitializeSid( SeCreatorOwnerSid, &CreatorSidAuthority, 1 );
     RtlInitializeSid( SeCreatorGroupSid, &CreatorSidAuthority, 1 );
+    RtlInitializeSid( SeCreatorOwnerServerSid, &CreatorSidAuthority, 1 );
+    RtlInitializeSid( SeCreatorGroupServerSid, &CreatorSidAuthority, 1 );
 
     *(RtlSubAuthoritySid( SeNullSid, 0 ))         = SECURITY_NULL_RID;
     *(RtlSubAuthoritySid( SeWorldSid, 0 ))        = SECURITY_WORLD_RID;
     *(RtlSubAuthoritySid( SeLocalSid, 0 ))        = SECURITY_LOCAL_RID;
     *(RtlSubAuthoritySid( SeCreatorOwnerSid, 0 )) = SECURITY_CREATOR_OWNER_RID;
     *(RtlSubAuthoritySid( SeCreatorGroupSid, 0 )) = SECURITY_CREATOR_GROUP_RID;
+    *(RtlSubAuthoritySid( SeCreatorOwnerServerSid, 0 )) = SECURITY_CREATOR_OWNER_SERVER_RID;
+    *(RtlSubAuthoritySid( SeCreatorGroupServerSid, 0 )) = SECURITY_CREATOR_GROUP_SERVER_RID;
 
     //
     // Allocate and initialize the NT defined SIDs
@@ -399,7 +418,7 @@ Return Value:
     RtlInitializeSid( SeLocalSystemSid,     &SeNtAuthority, 1 );
 
     RtlInitializeSid( SeAliasAdminsSid,     &SeNtAuthority, 2);
-    RtlInitializeSid( SeAliasUsersSid,	    &SeNtAuthority, 2);
+    RtlInitializeSid( SeAliasUsersSid,      &SeNtAuthority, 2);
     RtlInitializeSid( SeAliasGuestsSid,     &SeNtAuthority, 2);
     RtlInitializeSid( SeAliasPowerUsersSid, &SeNtAuthority, 2);
     RtlInitializeSid( SeAliasAccountOpsSid, &SeNtAuthority, 2);
@@ -415,23 +434,23 @@ Return Value:
     *(RtlSubAuthoritySid( SeLocalSystemSid,     0 )) = SECURITY_LOCAL_SYSTEM_RID;
 
 
-    *(RtlSubAuthoritySid( SeAliasAdminsSid,	0 )) = SECURITY_BUILTIN_DOMAIN_RID;
-    *(RtlSubAuthoritySid( SeAliasUsersSid,	0 )) = SECURITY_BUILTIN_DOMAIN_RID;
-    *(RtlSubAuthoritySid( SeAliasGuestsSid,	0 )) = SECURITY_BUILTIN_DOMAIN_RID;
+    *(RtlSubAuthoritySid( SeAliasAdminsSid,     0 )) = SECURITY_BUILTIN_DOMAIN_RID;
+    *(RtlSubAuthoritySid( SeAliasUsersSid,      0 )) = SECURITY_BUILTIN_DOMAIN_RID;
+    *(RtlSubAuthoritySid( SeAliasGuestsSid,     0 )) = SECURITY_BUILTIN_DOMAIN_RID;
     *(RtlSubAuthoritySid( SeAliasPowerUsersSid, 0 )) = SECURITY_BUILTIN_DOMAIN_RID;
     *(RtlSubAuthoritySid( SeAliasAccountOpsSid, 0 )) = SECURITY_BUILTIN_DOMAIN_RID;
-    *(RtlSubAuthoritySid( SeAliasSystemOpsSid,	0 )) = SECURITY_BUILTIN_DOMAIN_RID;
-    *(RtlSubAuthoritySid( SeAliasPrintOpsSid,	0 )) = SECURITY_BUILTIN_DOMAIN_RID;
-    *(RtlSubAuthoritySid( SeAliasBackupOpsSid,	0 )) = SECURITY_BUILTIN_DOMAIN_RID;
+    *(RtlSubAuthoritySid( SeAliasSystemOpsSid,  0 )) = SECURITY_BUILTIN_DOMAIN_RID;
+    *(RtlSubAuthoritySid( SeAliasPrintOpsSid,   0 )) = SECURITY_BUILTIN_DOMAIN_RID;
+    *(RtlSubAuthoritySid( SeAliasBackupOpsSid,  0 )) = SECURITY_BUILTIN_DOMAIN_RID;
 
-    *(RtlSubAuthoritySid( SeAliasAdminsSid,	1 )) = DOMAIN_ALIAS_RID_ADMINS;
-    *(RtlSubAuthoritySid( SeAliasUsersSid,	1 )) = DOMAIN_ALIAS_RID_USERS;
-    *(RtlSubAuthoritySid( SeAliasGuestsSid,	1 )) = DOMAIN_ALIAS_RID_GUESTS;
+    *(RtlSubAuthoritySid( SeAliasAdminsSid,     1 )) = DOMAIN_ALIAS_RID_ADMINS;
+    *(RtlSubAuthoritySid( SeAliasUsersSid,      1 )) = DOMAIN_ALIAS_RID_USERS;
+    *(RtlSubAuthoritySid( SeAliasGuestsSid,     1 )) = DOMAIN_ALIAS_RID_GUESTS;
     *(RtlSubAuthoritySid( SeAliasPowerUsersSid, 1 )) = DOMAIN_ALIAS_RID_POWER_USERS;
     *(RtlSubAuthoritySid( SeAliasAccountOpsSid, 1 )) = DOMAIN_ALIAS_RID_ACCOUNT_OPS;
-    *(RtlSubAuthoritySid( SeAliasSystemOpsSid,	1 )) = DOMAIN_ALIAS_RID_SYSTEM_OPS;
-    *(RtlSubAuthoritySid( SeAliasPrintOpsSid,	1 )) = DOMAIN_ALIAS_RID_PRINT_OPS;
-    *(RtlSubAuthoritySid( SeAliasBackupOpsSid,	1 )) = DOMAIN_ALIAS_RID_BACKUP_OPS;
+    *(RtlSubAuthoritySid( SeAliasSystemOpsSid,  1 )) = DOMAIN_ALIAS_RID_SYSTEM_OPS;
+    *(RtlSubAuthoritySid( SeAliasPrintOpsSid,   1 )) = DOMAIN_ALIAS_RID_PRINT_OPS;
+    *(RtlSubAuthoritySid( SeAliasBackupOpsSid,  1 )) = DOMAIN_ALIAS_RID_BACKUP_OPS;
 
 
 
@@ -447,51 +466,51 @@ Return Value:
     //
 
     SeCreateTokenPrivilege =
-        RtlConvertLongToLargeInteger(SE_CREATE_TOKEN_PRIVILEGE);
+        RtlConvertLongToLuid(SE_CREATE_TOKEN_PRIVILEGE);
     SeAssignPrimaryTokenPrivilege =
-        RtlConvertLongToLargeInteger(SE_ASSIGNPRIMARYTOKEN_PRIVILEGE);
+        RtlConvertLongToLuid(SE_ASSIGNPRIMARYTOKEN_PRIVILEGE);
     SeLockMemoryPrivilege =
-        RtlConvertLongToLargeInteger(SE_LOCK_MEMORY_PRIVILEGE);
+        RtlConvertLongToLuid(SE_LOCK_MEMORY_PRIVILEGE);
     SeIncreaseQuotaPrivilege =
-        RtlConvertLongToLargeInteger(SE_INCREASE_QUOTA_PRIVILEGE);
+        RtlConvertLongToLuid(SE_INCREASE_QUOTA_PRIVILEGE);
     SeUnsolicitedInputPrivilege =
-        RtlConvertLongToLargeInteger(SE_UNSOLICITED_INPUT_PRIVILEGE);
+        RtlConvertLongToLuid(SE_UNSOLICITED_INPUT_PRIVILEGE);
     SeTcbPrivilege =
-        RtlConvertLongToLargeInteger(SE_TCB_PRIVILEGE);
+        RtlConvertLongToLuid(SE_TCB_PRIVILEGE);
     SeSecurityPrivilege =
-        RtlConvertLongToLargeInteger(SE_SECURITY_PRIVILEGE);
+        RtlConvertLongToLuid(SE_SECURITY_PRIVILEGE);
     SeTakeOwnershipPrivilege =
-        RtlConvertLongToLargeInteger(SE_TAKE_OWNERSHIP_PRIVILEGE);
+        RtlConvertLongToLuid(SE_TAKE_OWNERSHIP_PRIVILEGE);
     SeLoadDriverPrivilege =
-        RtlConvertLongToLargeInteger(SE_LOAD_DRIVER_PRIVILEGE);
+        RtlConvertLongToLuid(SE_LOAD_DRIVER_PRIVILEGE);
     SeCreatePagefilePrivilege =
-        RtlConvertLongToLargeInteger(SE_CREATE_PAGEFILE_PRIVILEGE);
+        RtlConvertLongToLuid(SE_CREATE_PAGEFILE_PRIVILEGE);
     SeIncreaseBasePriorityPrivilege =
-        RtlConvertLongToLargeInteger(SE_INC_BASE_PRIORITY_PRIVILEGE);
+        RtlConvertLongToLuid(SE_INC_BASE_PRIORITY_PRIVILEGE);
     SeSystemProfilePrivilege =
-        RtlConvertLongToLargeInteger(SE_SYSTEM_PROFILE_PRIVILEGE);
+        RtlConvertLongToLuid(SE_SYSTEM_PROFILE_PRIVILEGE);
     SeSystemtimePrivilege =
-        RtlConvertLongToLargeInteger(SE_SYSTEMTIME_PRIVILEGE);
+        RtlConvertLongToLuid(SE_SYSTEMTIME_PRIVILEGE);
     SeProfileSingleProcessPrivilege =
-        RtlConvertLongToLargeInteger(SE_PROF_SINGLE_PROCESS_PRIVILEGE);
+        RtlConvertLongToLuid(SE_PROF_SINGLE_PROCESS_PRIVILEGE);
     SeCreatePermanentPrivilege =
-        RtlConvertLongToLargeInteger(SE_CREATE_PERMANENT_PRIVILEGE);
+        RtlConvertLongToLuid(SE_CREATE_PERMANENT_PRIVILEGE);
     SeBackupPrivilege =
-        RtlConvertLongToLargeInteger(SE_BACKUP_PRIVILEGE);
+        RtlConvertLongToLuid(SE_BACKUP_PRIVILEGE);
     SeRestorePrivilege =
-        RtlConvertLongToLargeInteger(SE_RESTORE_PRIVILEGE);
+        RtlConvertLongToLuid(SE_RESTORE_PRIVILEGE);
     SeShutdownPrivilege =
-        RtlConvertLongToLargeInteger(SE_SHUTDOWN_PRIVILEGE);
+        RtlConvertLongToLuid(SE_SHUTDOWN_PRIVILEGE);
     SeDebugPrivilege =
-        RtlConvertLongToLargeInteger(SE_DEBUG_PRIVILEGE);
+        RtlConvertLongToLuid(SE_DEBUG_PRIVILEGE);
     SeAuditPrivilege =
-        RtlConvertLongToLargeInteger(SE_AUDIT_PRIVILEGE);
+        RtlConvertLongToLuid(SE_AUDIT_PRIVILEGE);
     SeSystemEnvironmentPrivilege =
-        RtlConvertLongToLargeInteger(SE_SYSTEM_ENVIRONMENT_PRIVILEGE);
+        RtlConvertLongToLuid(SE_SYSTEM_ENVIRONMENT_PRIVILEGE);
     SeChangeNotifyPrivilege =
-        RtlConvertLongToLargeInteger(SE_CHANGE_NOTIFY_PRIVILEGE);
+        RtlConvertLongToLuid(SE_CHANGE_NOTIFY_PRIVILEGE);
     SeRemoteShutdownPrivilege =
-        RtlConvertLongToLargeInteger(SE_REMOTE_SHUTDOWN_PRIVILEGE);
+        RtlConvertLongToLuid(SE_REMOTE_SHUTDOWN_PRIVILEGE);
 
 
 
@@ -592,15 +611,18 @@ Return Value:
 
     ULONG
         PublicLength,
-        SystemLength;
+        SystemLength,
+        PublicOpenLength;
+
 
     PAGED_CODE();
 
     //
     // Set up a default ACLs
     //
-    //    Public: WORLD:execute, SYSTEM:all, ADMINS:(read|execute|read_control)
-    //    System: SYSTEM:all, ADMINS:(read|execute|read_control)
+    //    Public:       WORLD:execute, SYSTEM:all, ADMINS:all
+    //    Public Open:  WORLD:(Read|Write|Execute), ADMINS:(all), SYSTEM:all
+    //    System:       SYSTEM:all, ADMINS:(read|execute|read_control)
 
     SystemLength = (ULONG)sizeof(ACL) +
                    (2*((ULONG)sizeof(ACCESS_ALLOWED_ACE))) +
@@ -612,29 +634,28 @@ Return Value:
                    ((ULONG)sizeof(ACCESS_ALLOWED_ACE)) +
                    SeLengthSid( SeWorldSid );
 
-//    PublicLength = (ULONG)sizeof(ACL) +
-//                   (3*((ULONG)sizeof(ACCESS_ALLOWED_ACE))) +
-//                   SeLengthSid( SeLocalSystemSid ) +
-//                   SeLengthSid( SeAliasAdminsSid ) +
-//                   8; // The 8 is just for good measure
-//
-//    SystemLength = PublicLength + SeLengthSid( SeWorldSid );
+    PublicOpenLength = PublicLength;
+
 
     SePublicDefaultDacl = (PACL)ExAllocatePoolWithTag(PagedPool, PublicLength, 'cAeS');
+    SePublicOpenDacl = (PACL)ExAllocatePoolWithTag(PagedPool, PublicOpenLength, 'cAeS');
     SeSystemDefaultDacl = (PACL)ExAllocatePoolWithTag(PagedPool, SystemLength, 'cAeS');
     ASSERT(SePublicDefaultDacl != NULL);
+    ASSERT(SePublicOpenDacl    != NULL);
     ASSERT(SeSystemDefaultDacl != NULL);
 
 
 
-    Status = RtlCreateAcl( SeSystemDefaultDacl, SystemLength, ACL_REVISION2);
-    ASSERT( NT_SUCCESS(Status) );
     Status = RtlCreateAcl( SePublicDefaultDacl, PublicLength, ACL_REVISION2);
+    ASSERT( NT_SUCCESS(Status) );
+    Status = RtlCreateAcl( SePublicOpenDacl, PublicOpenLength, ACL_REVISION2);
+    ASSERT( NT_SUCCESS(Status) );
+    Status = RtlCreateAcl( SeSystemDefaultDacl, SystemLength, ACL_REVISION2);
     ASSERT( NT_SUCCESS(Status) );
 
 
     //
-    // WORLD access (Public default only)
+    // WORLD access (Public DACLs only)
     //
 
     Status = RtlAddAccessAllowedAce (
@@ -646,10 +667,20 @@ Return Value:
     ASSERT( NT_SUCCESS(Status) );
 
 
-    //
-    // SYSTEM access  (Public & System Defaults)
+    Status = RtlAddAccessAllowedAce (
+                 SePublicOpenDacl,
+                 ACL_REVISION2,
+                 (GENERIC_READ | GENERIC_WRITE  | GENERIC_EXECUTE),
+                 SeWorldSid
+                 );
+    ASSERT( NT_SUCCESS(Status) );
+
+
 
     //
+    // SYSTEM access  (PublicDefault, PublicOpen, and SystemDefault)
+    //
+
 
     Status = RtlAddAccessAllowedAce (
                  SePublicDefaultDacl,
@@ -658,6 +689,16 @@ Return Value:
                  SeLocalSystemSid
                  );
     ASSERT( NT_SUCCESS(Status) );
+
+
+    Status = RtlAddAccessAllowedAce (
+                 SePublicOpenDacl,
+                 ACL_REVISION2,
+                 GENERIC_ALL,
+                 SeLocalSystemSid
+                 );
+    ASSERT( NT_SUCCESS(Status) );
+
 
     Status = RtlAddAccessAllowedAce (
                  SeSystemDefaultDacl,
@@ -668,16 +709,26 @@ Return Value:
     ASSERT( NT_SUCCESS(Status) );
 
     //
-    // ADMINISTRATORS access  (Public & System Defaults)
+    // ADMINISTRATORS access  (PublicDefault, PublicOpen, and SystemDefault)
     //
 
     Status = RtlAddAccessAllowedAce (
                  SePublicDefaultDacl,
                  ACL_REVISION2,
-                 GENERIC_READ | GENERIC_EXECUTE | READ_CONTROL,
+                 GENERIC_ALL,
                  SeAliasAdminsSid
                  );
     ASSERT( NT_SUCCESS(Status) );
+
+
+    Status = RtlAddAccessAllowedAce (
+                 SePublicOpenDacl,
+                 ACL_REVISION2,
+                 GENERIC_ALL,
+                 SeAliasAdminsSid
+                 );
+    ASSERT( NT_SUCCESS(Status) );
+
 
     Status = RtlAddAccessAllowedAce (
                  SeSystemDefaultDacl,
@@ -686,6 +737,7 @@ Return Value:
                  SeAliasAdminsSid
                  );
     ASSERT( NT_SUCCESS(Status) );
+
 
 
     //
@@ -704,6 +756,21 @@ Return Value:
                  SePublicDefaultSd,
                  TRUE,                       // DaclPresent
                  SePublicDefaultDacl,
+                 FALSE                       // DaclDefaulted
+                 );
+    ASSERT( NT_SUCCESS(Status) );
+
+
+    SePublicOpenSd = (PSECURITY_DESCRIPTOR)&SepPublicOpenSd;
+    Status = RtlCreateSecurityDescriptor(
+                 SePublicOpenSd,
+                 SECURITY_DESCRIPTOR_REVISION1
+                 );
+    ASSERT( NT_SUCCESS(Status) );
+    Status = RtlSetDaclSecurityDescriptor(
+                 SePublicOpenSd,
+                 TRUE,                       // DaclPresent
+                 SePublicOpenDacl,
                  FALSE                       // DaclDefaulted
                  );
     ASSERT( NT_SUCCESS(Status) );
@@ -892,7 +959,7 @@ Return Value:
 {
     PAGED_CODE();
 
-    ExInitializeFastMutex(&SepLsaQueueLock);
+    ExInitializeResource(&SepLsaQueueLock);
     InitializeListHead(&SepLsaQueue);
     return( TRUE );
 }

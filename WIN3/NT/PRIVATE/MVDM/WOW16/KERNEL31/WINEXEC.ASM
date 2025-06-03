@@ -7,9 +7,21 @@
 ;-----------------------------------------------------------------------;
 
 include kernel.inc
+ifdef WOW
+include wowcmpat.inc
+;The following defines come from winerror.inc, which is new in the
+;win95 source tree, but hasn't been merged into wow
+ERROR_FILE_NOT_FOUND equ 2
+ERROR_BAD_LENGTH     equ 24
+endif
+
 
 ifdef DBCS
 externFP FarMyIsDBCSLeadByte
+endif
+
+ifdef WOW
+externFP MyGetAppWOWCompatFlagsEx
 endif
 
 	externW		WinFlags		; (kdata.asm)
@@ -37,13 +49,13 @@ cProc IWinExec, <FAR,PUBLIC>,<si,di>
 ; .EXE, null terminator, and newline terminator.
 ; So we add a little room for good measure here.
 ;
-        LocalV szCmdLine,256+8          ; Path and command line (to account for .exe)
+        LocalV szCmdLine,260+256+8      ; Path and command line (to account for .exe)
         LocalW pszParm                  ; Ptr to start of parameters
 
 	LocalB bDotFound		; Non-zero if a period is in the string
+	LocalB bDblQFound		; Non-zero if the string starts with "
 
 	LocalV loadparams, %(SIZE EXECBLOCK)
-	LocalV rOF, %(SIZE OPENSTRUC)
 	LocalD FCB1
 cBegin
 
@@ -52,14 +64,34 @@ cBegin
 	lds	si,lpszFile
 	smov	es,ss
         lea     di,szCmdLine
+        mov     cx,260                  ; MAX_PATH
 
 	xor	al,al
 	mov	bDotFound,al
+	mov	bDblQFound,al
+	; The Dbl-quote is used as a delimiter for cmdname as in
+	; winexec("\"c:\fldr with spaces\" cmd line", ..);
+	mov	al, ds:[si]		; get Ist char
+	cmp	al,'"'			; is it a "
+	jne	WELoop1			; N:
+	mov	bDblQFound,al		; Y: remember that
+	lodsb				; skip the dblQ
 
 ; Loop until a blank or NULL is found.
 WELoop1:
 	lodsb
+	cmp	bDblQFound, 0		; If str didn't start with dblQ
+	je	WESpaceCheck		; then SPACE is a delimiter
+					; otherwise " is the delimiter
+	cmp	al,'"'			; look for second DblQ
+	jne	WESkipSpaceCheck
+	and	bDblQFound,0		; reset this, so space is the delimiter
+	lodsb				; skip past the dbl Q
+WESpaceCheck:
 	cmp	al,' '			; Exit loop if blank or NULL
+	je	WECont1
+WESkipSpaceCheck:
+	cmp	al,9
 	je	WECont1
 	or	al,al
 	je	WECont1
@@ -77,12 +109,23 @@ WE_Separator:
         mov     bDotFound,0             ; No dots count yet
 WE_Not_Separator:
 	stosb
+        dec     cx
+        jz      WE_filename_too_long
 ifdef DBCS				;Apr.26,1990 by AkiraK
+        push    cx
 	call	FarMyIsDBCSLeadByte
+        pop     cx
 	jc	WELoop1
 	movsb
+        dec     cx
+        jz      WE_filename_too_long
 endif
 	jmp	short WELoop1
+
+WE_filename_too_long:
+	krDebugOut DEB_TRACE, "WinExecEnv: filename too long, > 259"
+	mov	ax,ERROR_FILE_NOT_FOUND
+	jmp	WinExecEnvExit
 
 WECont1:
 	mov	dx,ax			; Store final char in DX
@@ -112,16 +155,63 @@ WEHasExt:
 
 ; Copy everything else into szParm.
 
+        mov     cx,255                  ; Max length of cmd tail +1
 WELoop2:
-	lodsb
-	or	al,al
-	jz	WECont2
-	stosb
-	jmp	short WELoop2
+        lodsb
+        or      al,al
+ifdef WOW
+        jz      WEDoneParm
+else
+        jz      WECont2
+endif
+        stosb
+        dec     cx
+        jnz     WELoop2
+
+ifdef WOW
+        jmps    @F
+
+;
+; On NT we have a compatibility flag, WOWCFEX_LONGWINEXECTAIL which is
+; set for applications such as TSSETUP, the setup program for Intergraph's
+; NT-only Transcend app.  This app uses a command tail on the order of
+; 143 bytes for a Win32 worker app, and it worked on 3.5 and 3.51,
+; so we need to continue to let at least this app cheat.
+;
+
+WEDoneParm:
+        sub     cx, 128
+        ja      WECont2
+
+; tail was longer than 126 characters
+
+        call    MyGetAppWOWCompatFlagsEx
+        test    dx, word ptr cs:[WE_GACFEX_LONGWINEXECTAIL+2]
+        jz      @F
+        jmps    WECont2
+
+WE_GACFEX_LONGWINEXECTAIL:
+        DD WOWCFEX_LONGWINEXECTAIL
+
+@@:
+endif
+
+; Cmd tail too long to fit in PSP !!!
+; Fail the call.
+; We _could_ alloc some memory to hold the cmd tail and make its
+;   owner be the new hTask. However InitTask is documented to return 
+;   es=PSP, es:bx=cmd_tail. So we're screwed. Could truncate the cmd line.
+;   Cleaner to fail the exec.
+;   Could grow the PSP and tack the big cmd tail on at the end. Scary!
+; Unfortunately, kernel32.ExecWin16Program maps ERROR_BAD_LENGTH to
+; ERROR_GEN_FAILURE.
+        krDebugOut DEB_TRACE, "WinExecEnv: command tail too long, > 126"
+	mov	ax,ERROR_BAD_LENGTH
+        jmps    WinExecEnvExit
 
 WECont2:
 
-; Terminate it with a linefeed.
+; Terminate it with a carriage return.
 
 	mov	al,0Dh
 	stosb
@@ -159,6 +249,8 @@ WEExec:
 	lea	bx,loadparams		    ; es:bx == ptr to param block
 	mov	ax,4B00h		    ; dos exec
 	int	21h
+
+WinExecEnvExit:
 cEnd
 
 ;**************************************************************************

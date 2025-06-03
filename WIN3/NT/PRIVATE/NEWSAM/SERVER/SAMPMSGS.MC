@@ -212,6 +212,7 @@ Language=English
 All domain guests
 .
 
+
 ;//////////////////////////////////////////////////////////////////////
 ;//
 ;// SAM Database Commit/Refresh Events
@@ -224,7 +225,8 @@ MessageId=0x3000
 SAM failed to write changes to the database. This is most likely due to
 a memory or disk-space shortage. The SAM database will be restored to
 an earlier state. Recent changes will be lost. Check the disk-space
-available and maximum pagefile size setting.
+available, maximum pagefile size setting, and maximum registry size
+setting.
 .
 
 
@@ -235,6 +237,19 @@ SAM failed to restore the database to an earlier state. SAM has shutdown.
 You must reboot the machine to re-enable SAM.
 .
 
+
+MessageId=0x3002
+        SymbolicName=SAMMSG_UPDATE_FAILED
+        Language=English
+SAM failed to update the SAM database. It will try again next time you
+reboot the machine.
+.
+
+MessageId=0x3003
+        SymbolicName=SAMMSG_RPC_INIT_FAILED
+        Language=English
+SAM failed to start the TCP/IP or SPX/IPX listening thread
+.
 
 
 

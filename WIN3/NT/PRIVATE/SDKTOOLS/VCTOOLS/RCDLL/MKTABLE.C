@@ -34,7 +34,7 @@
  *			for an index array for key-letter indexed tables,
  *			or the initialization part of a collision-resolution
  *			table for linear-list hashed tables.
- *			(not generated for sorted or open-addressed tables.)
+ *			(not generated for sorted or _open-addressed tables.)
  *		mktable.info: contains arbitrary-stuff
  *
  *	For example, if the table to be defined were named "symtab" and the
@@ -82,7 +82,7 @@
  *	The `mktable' command itself is used in one of the following ways:
  *
  *	mktable "open" size <tablefile
- *		This form creates an open-addressed hash table, keyed on
+ *		This form creates an _open-addressed hash table, keyed on
  *		the string fields at the beginning of each record in the
  *		table file.  The hash function used is the absolute value
  *		of the sum of all the characters in a key, modulo the table
@@ -109,7 +109,7 @@
  *		vector entry is -1, the end of the chain has been reached.
  *		Note that since all entries are stored in the main table, the
  *		`size' must be at least as large as the number of entries.
- *		As with open addressing, some slots in the table may be
+ *		As with _open addressing, some slots in the table may be
  *		padded with a replicated entry (key value set to NULL).
  *		"table.c" receives the hash table.  "table.h" receives the
  *		index-macro definitions that will index into the table in
@@ -297,7 +297,7 @@ void open_addr(int size)
 	}
 
     endoutput();
-    unlink(INDEXFILE);
+    _unlink(INDEXFILE);
 }
 
 void hash_linear(int size)
@@ -402,7 +402,7 @@ void sorted(void)
     }
 
     endoutput();
-    unlink(INDEXFILE);
+    _unlink(INDEXFILE);
 }
 
 void key_letter(void)

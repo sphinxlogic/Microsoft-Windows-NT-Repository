@@ -212,7 +212,7 @@ BOOLEAN         silent_login_only )
            /* if there is currently a servers window displayed, add the
               children (volumes) to the window */
 
-#          if !defined ( OEM_MSOFT ) //unsupported feature
+#        if !defined ( OEM_MSOFT ) //unsupported feature
            {
             if ( gb_servers_win != (HWND)NULL ) {
 

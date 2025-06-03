@@ -192,6 +192,10 @@ Return Value:
     ASSERT(cbHeadBuf >= 13);
     ASSERT(cbHeadBuf <= sizeof(packet));
 
+	if ( cbHeadBuf > LLC_MAX_LAN_HEADER ) {
+		return NDIS_STATUS_NOT_RECOGNIZED;
+	}
+
     LlcMemCpy(packet, pHeadBuf, cbHeadBuf);
     LlcMemCpy(packet+cbHeadBuf, pLookBuf, sizeof(packet) - cbHeadBuf);
     cbPacketSize += cbHeadBuf;
@@ -223,6 +227,10 @@ Return Value:
         //
 
         EthernetTypeOrLength = (USHORT)packet[12] * 256 + (USHORT)packet[13];
+
+        if (EthernetTypeOrLength < 3) {
+            return NDIS_STATUS_INVALID_PACKET;
+        }
 
         //
         // If the ethernet length/type field is more than 1500, the
@@ -2009,7 +2017,7 @@ Return Value:
 #endif
 
                 return (pCache[i].FramingType == framingType);
-            } else if (RtlLargeIntegerLessThan(pCache[i].TimeStamp, timeStamp)) {
+            } else if (pCache[i].TimeStamp.QuadPart < timeStamp.QuadPart) {
 
                 //
                 // if we need to throw out a cache entry, we throw out the one

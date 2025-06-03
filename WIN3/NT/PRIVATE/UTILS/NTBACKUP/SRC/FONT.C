@@ -111,16 +111,16 @@ BOOL WM_ChangeFont ( VOID )
      cf.nSizeMin    = 4;
      cf.nSizeMax    = 36;
 
-#ifdef JAPAN /* #2842 15-Oct-93 v-katsuy */
-     cf.Flags       = CF_ENABLEHOOK | CF_ENABLETEMPLATE |
-                      CF_SCREENFONTS | CF_SHOWHELP | CF_LIMITSIZE |
-                      CF_FORCEFONTEXIST | CF_INITTOLOGFONTSTRUCT ;
+     if (IS_JAPAN() ) {
+          cf.Flags       = CF_ENABLEHOOK | CF_ENABLETEMPLATE |
+                           CF_SCREENFONTS | CF_SHOWHELP | CF_LIMITSIZE |
+                           CF_FORCEFONTEXIST | CF_INITTOLOGFONTSTRUCT ;
+     } else {
 
-#else
-     cf.Flags       = CF_ENABLEHOOK | CF_ENABLETEMPLATE | CF_ANSIONLY |
-                      CF_SCREENFONTS | CF_SHOWHELP | CF_LIMITSIZE |
-                      CF_FORCEFONTEXIST | CF_INITTOLOGFONTSTRUCT ;
-#endif
+          cf.Flags       = CF_ENABLEHOOK | CF_ENABLETEMPLATE | CF_ANSIONLY |
+                           CF_SCREENFONTS | CF_SHOWHELP | CF_LIMITSIZE |
+                           CF_FORCEFONTEXIST | CF_INITTOLOGFONTSTRUCT ;
+     }
 
      cf.rgbColors   = RGB( 0, 0, 0 );              // black
      cf.nFontType   = SCREEN_FONTTYPE;
@@ -208,31 +208,30 @@ INT APIENTRY WM_FontDlgHookProc(HWND hDlg, WORD wMsg, WPARAM wParam, LONG lParam
 {
      static LPCHOOSEFONT lpcf;
      static HWND         hWndOldCommon;
-#ifdef JAPAN /* #2842 15-Oct-93 v-katsuy */
      TCHAR str[LF_FULLFACESIZE], sel[LF_FULLFACESIZE];
      INT   index;
      INT   cnt;
-#endif
 
      switch ( wMsg ) {
 
      case WM_INITDIALOG:
 
-#ifdef JAPAN /* #2842 15-Oct-93 v-katsuy */
-             // Remove the Vertical Font Face Name in Font Dialog Box
-          cnt = (INT)SendDlgItemMessage( hDlg, cmb1, CB_GETCOUNT, 0, 0L);
-          index = (INT)SendDlgItemMessage( hDlg, cmb1, CB_GETCURSEL, 0, 0L);
-          SendDlgItemMessage( hDlg, cmb1, CB_GETLBTEXT, index, (DWORD)sel);
-          for (index = 0; index < cnt; ) {
-              SendDlgItemMessage( hDlg, cmb1, CB_GETLBTEXT, index, (DWORD)str);
-              if (str[0] == TEXT('@'))
-                 cnt = (INT)SendDlgItemMessage( hDlg, cmb1, CB_DELETESTRING, index, 0L);
-              else
-                 index++;
-          }
-          index = (INT)SendDlgItemMessage(hDlg, cmb1, CB_FINDSTRING, (WPARAM)-1, (DWORD)sel);
-          SendDlgItemMessage(hDlg, cmb1, CB_SETCURSEL, index, 0L);
-#endif
+          if ( IS_JAPAN() ) {
+               // Remove the Vertical Font Face Name in Font Dialog Box
+               cnt = (INT)SendDlgItemMessage( hDlg, cmb1, CB_GETCOUNT, 0, 0L);
+               index = (INT)SendDlgItemMessage( hDlg, cmb1, CB_GETCURSEL, 0, 0L);
+               SendDlgItemMessage( hDlg, cmb1, CB_GETLBTEXT, index, (DWORD)sel);
+               for (index = 0; index < cnt; ) {
+                    SendDlgItemMessage( hDlg, cmb1, CB_GETLBTEXT, index, (DWORD)str);
+                    if (str[0] == TEXT('@')) {
+                         cnt = (INT)SendDlgItemMessage( hDlg, cmb1, CB_DELETESTRING, index, 0L);
+                    }else{
+                         index++;
+                    }
+               }
+               index = (INT)SendDlgItemMessage(hDlg, cmb1, CB_FINDSTRING, (WPARAM)-1, (DWORD)sel);
+               SendDlgItemMessage(hDlg, cmb1, CB_SETCURSEL, index, 0L);
+          } 
 
           lpcf = (LPCHOOSEFONT)lParam;
 
@@ -280,4 +279,4 @@ INT APIENTRY WM_FontDlgHookProc(HWND hDlg, WORD wMsg, WPARAM wParam, LONG lParam
 }
 
 
-
+

@@ -15,6 +15,8 @@
 extern "C" {
 #endif
 
+#ifndef _LANGUAGE_ASSEMBLY
+
 
 /*
  * Conditional macro definition for function calling type and variable type
@@ -71,6 +73,8 @@ typedef enum {
 
 /*
  * Define operation code values.
+ *
+ * NOTE: If you change this enum, change the #defines below for assembler!
  */
 
 typedef enum {
@@ -117,6 +121,7 @@ typedef enum {
 
 } _FP_OPERATION_CODE;
 
+#endif  /* _LANGUAGE_ASSEMBLY */
 
 
 
@@ -124,6 +129,8 @@ typedef enum {
 /*
  * Define rounding modes.
  */
+
+#ifndef _LANGUAGE_ASSEMBLY
 
 typedef enum {
     _FpRoundNearest,
@@ -227,6 +234,7 @@ int _CRTAPI1 _fpieee_flt(unsigned long code,
 		struct _EXCEPTION_POINTERS *p,
 		int handler(_FPIEEE_RECORD *));
 
+#endif  /* _LANGUAGE_ASSEMBLY */
 
 
 #ifdef __cplusplus

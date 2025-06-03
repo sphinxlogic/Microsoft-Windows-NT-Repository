@@ -101,6 +101,23 @@ public:
 #endif // DOSWIN32RPC
     }
 
+    inline void
+    VerifyOwned()
+    {
+        ASSERT((unsigned long) CriticalSection.OwningThread == GetCurrentThreadId());
+    }
+
+    inline void
+    VerifyNotOwned()
+    {
+        //
+        // The first test is not needed by NT but might be needed
+        // by Windows 95.
+        //
+        ASSERT(CriticalSection.RecursionCount == -1 ||
+               (unsigned long) CriticalSection.OwningThread != GetCurrentThreadId());
+    }
+
 };
 
 class EVENT
@@ -177,6 +194,30 @@ public:
     Clear (
         ) {Raise();}
 
+};
+
+
+class CLAIM_MUTEX {
+
+private:
+
+    MUTEX & Resource;
+
+public:
+
+    CLAIM_MUTEX(
+        MUTEX & ClaimedResource
+        )
+        : Resource(ClaimedResource)
+    {
+        Resource.Request();
+    }
+
+    ~CLAIM_MUTEX(
+        )
+    {
+        Resource.Clear();
+    }
 };
 
 #endif // __MUTEX_HXX__

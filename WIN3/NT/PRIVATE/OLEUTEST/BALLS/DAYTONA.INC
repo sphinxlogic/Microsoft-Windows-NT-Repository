@@ -23,3 +23,8 @@ BLDCRT=       1
 
 
 USE_CRTDLL=1
+
+
+OLEDIR=       $(BASEDIR)\private\ole32
+OLEUTESTDIR=  $(BASEDIR)\private\oleutest
+OLEBALLSDIR=  $(BASEDIR)\private\oleutest\balls

@@ -24,9 +24,6 @@ Revision History:
 --*/
 
 #include "mi.h"
-#include "mm.h"
-
-extern KSPIN_LOCK KiDispatcherLock;
 
 
 PVOID
@@ -86,7 +83,8 @@ Environment:
 
     Pfn1 = MI_PFN_ELEMENT (PageFrameIndex);
     i = Pfn1->u3.e1.PageColor;
-    if ( i == (PageFrameIndex & MM_COLOR_MASK))  {
+    if ((i == (PageFrameIndex & MM_COLOR_MASK)) &&
+        (PageFrameIndex < MM_PAGES_IN_KSEG0)) {
 
         //
         // Virtual and physical alignment match, return the KSEG0 address
@@ -193,7 +191,6 @@ Environment:
     MMPTE TempPte;
     PMMPTE PointerPte;
     KIRQL OldIrql;
-    KEVENT Event;
 
 #if DBG
     if (PageFrameIndex == 0) {
@@ -219,12 +216,10 @@ Environment:
         if (MmWorkingSetList->WaitingForImageMapping == (PKEVENT)NULL) {
 
             //
-            // Initialize an event (on our kernel stack) and issue a wait.
+            // Set the global event into the field and wait for it.
             //
 
-            KeInitializeEvent (&Event, NotificationEvent, FALSE);
-            MmWorkingSetList->WaitingForImageMapping = &Event;
-
+            MmWorkingSetList->WaitingForImageMapping = &MmImageMappingPteEvent;
         }
 
         //
@@ -232,6 +227,7 @@ Environment:
         // atomic operation.
         //
 
+        KeEnterCriticalRegion();
         UNLOCK_PFN_AND_THEN_WAIT(OldIrql);
 
         KeWaitForSingleObject(MmWorkingSetList->WaitingForImageMapping,
@@ -239,6 +235,7 @@ Environment:
                               KernelMode,
                               FALSE,
                               (PLARGE_INTEGER)NULL);
+        KeLeaveCriticalRegion();
 
         LOCK_PFN (OldIrql);
     }
@@ -321,64 +318,8 @@ Environment:
         // If there was an event specified, set the event.
         //
 
-        KeSetEvent (Event, 0, FALSE);
+        KePulseEvent (Event, 0, FALSE);
     }
 
     return;
-}
-
-PVOID
-MiMapPageToZeroInHyperSpace (
-    IN ULONG PageFrameIndex
-    )
-
-/*++
-
-Routine Description:
-
-    This procedure maps the specified physical page into hyper space
-    and returns the virtual address which maps the page.
-
-    NOTE: it maps it into the same location reserved for fork operations!!
-    This is only to be used by the zeroing page thread.
-
-
-Arguments:
-
-    PageFrameIndex - Supplies the physical page number to map.
-
-Return Value:
-
-    Returns the virtual address where the specified physical page was
-    mapped.
-
-Environment:
-
-    Must be holding the PFN lock.
-
---*/
-
-{
-    MMPTE TempPte;
-    PMMPTE PointerPte;
-    PVOID MappedAddress;
-    PMMPFN Pfn1;
-
-#if DBG
-    if (PageFrameIndex == 0) {
-        DbgPrint("attempt to map physical page 0 in hyper space\n");
-        KeBugCheck (MEMORY_MANAGEMENT);
-    }
-#endif //DBG
-
-    //
-    // Indicate that the previously mapped address matches the
-    // physical page alignment.
-    //
-
-    Pfn1 = MI_PFN_ELEMENT (PageFrameIndex);
-    Pfn1->PteAddress = (PMMPTE)(PageFrameIndex << PTE_SHIFT);
-    Pfn1->u3.e1.PageColor = PageFrameIndex & MM_COLOR_MASK;
-
-    return (PVOID)(KSEG0_BASE + (PageFrameIndex << PAGE_SHIFT));
 }

@@ -1915,14 +1915,4 @@ Return Value:
         }
 
     }
-
-    //
-    // Indicate to the protocol(s) that this send has been aborted
-    //
-    NdisMSendComplete(
-        Adapter->MiniportAdapterHandle,
-        OwningPacket,
-        NDIS_STATUS_REQUEST_ABORTED
-        );
-
 }

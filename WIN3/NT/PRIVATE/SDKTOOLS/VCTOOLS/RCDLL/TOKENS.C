@@ -25,4 +25,4 @@ keytab_t Tokstrings[] = {
 #include "tokdat.h"
 #undef DAT
         };
-
+

@@ -272,7 +272,7 @@ Return Value:
     }
 
     if (Accept) {
-        ClientContext = RtlAllocateHeap(SmpHeap, 0, sizeof(SMP_CLIENT_CONTEXT));
+        ClientContext = RtlAllocateHeap(SmpHeap, MAKE_TAG( SM_TAG ), sizeof(SMP_CLIENT_CONTEXT));
         ClientContext->KnownSubSys = KnownSubSys;
     }
 

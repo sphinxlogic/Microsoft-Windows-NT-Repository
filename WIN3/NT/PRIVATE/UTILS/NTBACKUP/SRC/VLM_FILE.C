@@ -3156,7 +3156,7 @@ WORD ObjectNum )             // I - what item he did it to
          appinfo = ( APPINFO_PTR )WMDS_GetAppInfo( wininfo );
          window = WMDS_GetWin( wininfo );
 
-         directory_size = WM_GetTitle( window, directory, 0 );
+         directory_size = WM_GetTitle( window, NULL, 0 );
          directory_size += strlen( FLM_GetName( flm ) );
          directory_size += 256;
          directory_size *= sizeof(CHAR);

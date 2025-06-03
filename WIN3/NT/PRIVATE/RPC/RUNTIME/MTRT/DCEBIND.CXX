@@ -20,15 +20,7 @@ Revision History:
 
 --*/
 
-#include <sysinc.h>
-#include <rpc.h>
-#include <rpcdcep.h>
-#include <util.hxx>
-#include <rpcuuid.hxx>
-#include <binding.hxx>
-#include <linklist.hxx>
-#include <handle.hxx>
-#include <binding.hxx>
+#include <precomp.hxx>
 
 
 RPC_STATUS RPC_ENTRY
@@ -225,6 +217,7 @@ Return Value:
     DCE_BINDING * DceBinding;
     RPC_STATUS Status;
     BINDING_HANDLE * BindingHandle;
+    RPC_CHAR __RPC_FAR * CopiedStringBinding;
 
     InitializeIfNecessary();
 
@@ -232,7 +225,19 @@ Return Value:
 
     *Binding = 0;
 
-    DceBinding = new DCE_BINDING(StringBinding, &Status);
+#ifdef WIN32RPC
+    CopiedStringBinding = (RPC_CHAR *)
+              _alloca( (RpcpStringLength(StringBinding)+1)*(sizeof(RPC_CHAR)) );
+    if (CopiedStringBinding == 0)
+        {
+        return (RPC_S_OUT_OF_MEMORY);
+        }
+    RpcpStringCopy(CopiedStringBinding, StringBinding);
+#else
+    CopiedStringBinding = StringBinding;
+#endif
+
+    DceBinding = new DCE_BINDING(CopiedStringBinding, &Status);
     if (DceBinding == 0)
         Status = RPC_S_OUT_OF_MEMORY;
 
@@ -554,9 +559,96 @@ Return Value:
 --*/
 {
     BINDING_HANDLE * BindingObject;
-    CLIENT_AUTH_INFO PAPI * ClientAuthInfo;
+    CLIENT_AUTH_INFO * ClientAuthInfo;
 
     InitializeIfNecessary();
+
+#ifdef NTENV
+
+    return( RpcBindingInqAuthInfoExW(
+                  Binding,
+                  ServerPrincName, 
+                  AuthnLevel, 
+                  AuthnSvc, 
+                  AuthIdentity, 
+                  AuthzSvc,
+                  0,
+                  0
+                  ) );
+
+}
+
+
+RPC_STATUS RPC_ENTRY
+RpcBindingInqAuthInfoExW (
+    IN RPC_BINDING_HANDLE Binding,
+    OUT RPC_CHAR PAPI * PAPI * ServerPrincName, OPTIONAL
+    OUT unsigned long PAPI * AuthnLevel, OPTIONAL
+    OUT unsigned long PAPI * AuthnSvc, OPTIONAL
+    OUT RPC_AUTH_IDENTITY_HANDLE PAPI * AuthIdentity, OPTIONAL
+    OUT unsigned long PAPI * AuthzSvc, OPTIONAL
+    IN  unsigned long RpcSecurityQosVersion,
+    OUT RPC_SECURITY_QOS * SecurityQos
+    )
+/*++
+
+Routine Description:
+
+    This routine is used to return the authentication and authorization for
+    a binding handle.  You should also see RpcBindingSetAuthInfoW.
+
+Arguments:
+
+    Binding - Supplies the binding handle for which we wish to query the
+        authentication and authorization information.
+
+    ServerPrincName - Optionally returns the server principal name set for
+        the binding handle.
+
+    AuthnLevel - Optionally returns the authentication level set for the
+        binding handle.
+
+    AuthnSvc - Optionally returns the authentication service set for the
+        binding handle.
+
+    AuthIdentity - Optionally returns a handle to the security context
+        being used for authentication and authorization.
+
+    AuthzSvc -  Optionally returns the authorization service set for the
+        binding handle.
+
+    RpcSecurityQosVersion - Indicates a version for RPC_SECURITY_QOS structure,
+        that optionally can be inquired. If SecurityQOS passes in is 0, this 
+        is ignored.
+
+    SecurityQOS - is the version of the Security Quality Of Service
+
+
+Return Value:
+
+    RPC_S_OK - We successfully returned the information requested.
+
+    RPC_S_OUT_OF_MEMORY - Insufficient memory is available to complete
+        the operation.
+
+    RPC_S_INVALID_BINDING - The value supplied as the binding argument is
+        not a valid binding handle.
+
+    RPC_S_WRONG_KIND_OF_BINDING - A binding handle on the client side must
+        be specified as the binding argument.
+
+    RPC_S_BINDING_HAS_NO_AUTH - RpcBindingInqAuthInfo has not yet been
+        called on the binding handle, so there is not authentication or
+        authorization to be returned.
+
+--*/
+{
+    BINDING_HANDLE * BindingObject;
+    CLIENT_AUTH_INFO * ClientAuthInfo;
+
+    InitializeIfNecessary();
+
+#endif
 
     BindingObject = (BINDING_HANDLE *) Binding;
     if ( BindingObject->InvalidHandle(BINDING_HANDLE_TYPE | SCONNECTION_TYPE) )
@@ -606,9 +698,363 @@ Return Value:
                 }
             }
         }
+#ifdef NTENV
+    if (ARGUMENT_PRESENT(SecurityQos))
+        {
+        if (RpcSecurityQosVersion != RPC_C_SECURITY_QOS_VERSION)
+            {
+            delete *ServerPrincName;
+            return (RPC_S_INVALID_ARG);
+            }
+        SecurityQos->Version = RPC_C_SECURITY_QOS_VERSION;
+        SecurityQos->Capabilities = ClientAuthInfo->Capabilities;
+        SecurityQos->ImpersonationType = ClientAuthInfo->ImpersonationType;
+        SecurityQos->IdentityTracking  = ClientAuthInfo->IdentityTracking;
+        }
+#endif
     return(RPC_S_OK);
 }
 
+
+#ifdef NTENV
+
+
+RPC_STATUS RPC_ENTRY
+RpcBindingSetAuthInfoW (
+    IN RPC_BINDING_HANDLE Binding,
+    IN RPC_CHAR PAPI * ServerPrincName,
+    IN unsigned long AuthnLevel,
+    IN unsigned long AuthnSvc,
+    IN RPC_AUTH_IDENTITY_HANDLE AuthIdentity, OPTIONAL
+    IN unsigned long AuthzSvc
+    )
+/*++
+
+Routine Description:
+
+    A client application will use this routine to specify the authentication
+    and authorization information in a binding handle, so that the binding
+    handle can be used to make authenticated remote procedure calls.  If
+    the this routine is not used, then all remote procedure calls on the
+    binding handle will be unauthenticated.
+
+Arguments:
+
+    Binding - Supplies binding handle for which we want to set authentication
+        and authorization information.
+
+    ServerPrincName - Supplies the expected principal name of the server
+        referenced by the binding handle (that is supplied as the binding
+        argument).  This information is necessary for some security services
+        to be able to authenticate with the server.
+
+    AuthnLevel - Supplies a value indicating the amount (or level) of
+        authentication to be performed on remote procedure calls using
+        the binding handle.  If we do not support the requested level,
+        we will upgrade to the next highest supported level.
+
+        RPC_C_AUTHN_LEVEL_DEFAULT - Indicates that the default level for
+            authentication service being used should be used.
+
+        RPC_C_AUTHN_LEVEL_NONE - Do not perform any authentication.
+
+        RPC_C_AUTHN_LEVEL_CONNECT - Authentication will be performed only
+            when the client first talks to the server.
+
+        RPC_C_AUTHN_LEVEL_CALL - For connection based protocols, we will
+            use RPC_C_AUTHN_LEVEL_PKT instead; for datagram based protocols,
+            authentication will be performed at the beginning of each
+            remote procedure call.
+
+        RPC_C_AUTHN_LEVEL_PKT - All data will be authenticated to insure that
+            the data it is received from the expected client.
+
+        RPC_C_AUTHN_LEVEL_PKT_INTEGRITY - In addition, to authenticating that
+            the data is from the expected client, we will verify that none
+            of it has been modified.
+
+        RPC_C_AUTHN_LEVEL_PKT_PRIVACY - Finally, this includes all of the
+            support in packet integrity, as well as encrypting all remote
+            procedure call data.
+
+    AuthnSvc - Supplies the authentication service to use.
+
+    AuthIdentify - Optionally supplies authentication and authorization
+        credentials to use; if this argument is not specified, the security
+        context for the current address space will be used.
+
+    AuthzSvc - Supplies the authorization service being used by the
+        server.  The client must know this so that the correct authorization
+        information can be sent to the server.
+
+Return Value:
+
+    RPC_S_OK - The supplied authentication and authorization information has
+        been set in the binding handle.
+
+    RPC_S_OUT_OF_MEMORY - Insufficient memory is available to complete the
+        operation.
+
+    RPC_S_INVALID_BINDING - The value supplied as the binding argument is
+        not a valid binding handle.
+
+    RPC_S_WRONG_KIND_OF_BINDING - A binding handle on the client side must
+        be specified as the binding argument.
+
+    RPC_S_UNKNOWN_AUTHN_SERVICE - The specified authentication service is
+        not supported.
+
+    RPC_S_UNKNOWN_AUTHN_LEVEL - The specified authentication level is
+        not supported.
+
+    RPC_S_INVALID_AUTH_IDENTITY - The specified security context (supplied
+        by the auth identity argument) is invalid.
+
+    RPC_S_UNKNOWN_AUTHZ_SERVICE - The specified authorization service is
+        not supported.
+
+--*/
+
+{
+   return (  RpcBindingSetAuthInfoExW(
+                Binding,
+                ServerPrincName,
+                AuthnLevel,
+                AuthnSvc,
+                AuthIdentity,
+                AuthzSvc,
+                0 ) );
+}
+
+
+RPC_STATUS RPC_ENTRY
+RpcBindingSetAuthInfoExW (
+    IN RPC_BINDING_HANDLE Binding,
+    IN RPC_CHAR PAPI * ServerPrincName,
+    IN unsigned long AuthnLevel,
+    IN unsigned long AuthnSvc,
+    IN RPC_AUTH_IDENTITY_HANDLE AuthIdentity, OPTIONAL
+    IN unsigned long AuthzSvc,
+    IN RPC_SECURITY_QOS *SecurityQOS
+    )
+/*++
+
+Routine Description:
+
+    A client application will use this routine to specify the authentication
+    and authorization information in a binding handle, so that the binding
+    handle can be used to make authenticated remote procedure calls.  If
+    the this routine is not used, then all remote procedure calls on the
+    binding handle will be unauthenticated.
+
+Arguments:
+
+    Binding - Supplies binding handle for which we want to set authentication
+        and authorization information.
+
+    ServerPrincName - Supplies the expected principal name of the server
+        referenced by the binding handle (that is supplied as the binding
+        argument).  This information is necessary for some security services
+        to be able to authenticate with the server.
+
+    AuthnLevel - Supplies a value indicating the amount (or level) of
+        authentication to be performed on remote procedure calls using
+        the binding handle.  If we do not support the requested level,
+        we will upgrade to the next highest supported level.
+
+        RPC_C_AUTHN_LEVEL_DEFAULT - Indicates that the default level for
+            authentication service being used should be used.
+
+        RPC_C_AUTHN_LEVEL_NONE - Do not perform any authentication.
+
+        RPC_C_AUTHN_LEVEL_CONNECT - Authentication will be performed only
+            when the client first talks to the server.
+
+        RPC_C_AUTHN_LEVEL_CALL - For connection based protocols, we will
+            use RPC_C_AUTHN_LEVEL_PKT instead; for datagram based protocols,
+            authentication will be performed at the beginning of each
+            remote procedure call.
+
+        RPC_C_AUTHN_LEVEL_PKT - All data will be authenticated to insure that
+            the data it is received from the expected client.
+
+        RPC_C_AUTHN_LEVEL_PKT_INTEGRITY - In addition, to authenticating that
+            the data is from the expected client, we will verify that none
+            of it has been modified.
+
+        RPC_C_AUTHN_LEVEL_PKT_PRIVACY - Finally, this includes all of the
+            support in packet integrity, as well as encrypting all remote
+            procedure call data.
+
+    AuthnSvc - Supplies the authentication service to use.
+
+    AuthIdentify - Optionally supplies authentication and authorization
+        credentials to use; if this argument is not specified, the security
+        context for the current address space will be used.
+
+    AuthzSvc - Supplies the authorization service being used by the
+        server.  The client must know this so that the correct authorization
+        information can be sent to the server.
+
+Return Value:
+
+    RPC_S_OK - The supplied authentication and authorization information has
+        been set in the binding handle.
+
+    RPC_S_OUT_OF_MEMORY - Insufficient memory is available to complete the
+        operation.
+
+    RPC_S_INVALID_BINDING - The value supplied as the binding argument is
+        not a valid binding handle.
+
+    RPC_S_WRONG_KIND_OF_BINDING - A binding handle on the client side must
+        be specified as the binding argument.
+
+    RPC_S_UNKNOWN_AUTHN_SERVICE - The specified authentication service is
+        not supported.
+
+    RPC_S_UNKNOWN_AUTHN_LEVEL - The specified authentication level is
+        not supported.
+
+    RPC_S_INVALID_AUTH_IDENTITY - The specified security context (supplied
+        by the auth identity argument) is invalid.
+
+    RPC_S_UNKNOWN_AUTHZ_SERVICE - The specified authorization service is
+        not supported.
+
+--*/
+{
+    BINDING_HANDLE * BindingObject;
+    RPC_STATUS Status;
+#ifdef DOSWIN32RPC
+    int DontForgetToFreeMem = 0;
+#endif
+    RPC_CHAR __RPC_FAR * ServerName;
+    unsigned long ImpersonationType;
+    unsigned long IdentityTracking;
+    unsigned long Capabilities;
+
+    InitializeIfNecessary();
+
+    BindingObject = (BINDING_HANDLE *) Binding;
+    if ( BindingObject->InvalidHandle(BINDING_HANDLE_TYPE | SCONNECTION_TYPE) )
+        {
+        return(RPC_S_INVALID_BINDING);
+        }
+    if ( BindingObject->Type() == SCONNECTION_TYPE )
+        {
+        return(RPC_S_WRONG_KIND_OF_BINDING);
+        }
+
+    if ((SecurityQOS != 0) && 
+        (SecurityQOS->Version != RPC_C_SECURITY_QOS_VERSION))
+        {
+        return(RPC_S_INVALID_ARG);
+        }
+
+    //
+    // For no authentication, bail out now.
+    //
+
+    if (AuthnSvc == RPC_C_AUTHN_NONE)
+        {
+        if ((AuthnLevel != RPC_C_AUTHN_LEVEL_NONE) &&
+            (AuthnLevel != RPC_C_AUTHN_LEVEL_DEFAULT))
+            {
+            return(RPC_S_UNKNOWN_AUTHN_LEVEL);
+            }
+        //
+        // Clear the authentication info..
+        //
+
+        Status = BindingObject->SetAuthInformation(
+                                      0,
+                                      0,
+                                      AuthnSvc, 
+                                      0,
+                                      0
+                                      );
+        return(Status);
+        }
+
+#ifdef DOSWIN32RPC
+    /* 
+     
+      If an app provides a NULL server Name we need to  
+      inq server principal name from the server..
+      we use the binding handle provided to make the call..
+
+    */
+
+    if ( (ServerPrincName == 0)  || (*ServerPrincName == 0) )
+       {
+#ifdef NTENV
+       Status = RpcMgmtInqServerPrincNameW(
+#else
+       Status = RpcMgmtInqServerPrincNameA(
+#endif
+                                      Binding,
+                                      AuthnSvc,
+                                      &ServerName
+                                      );
+
+       if (Status != RPC_S_OK)
+          {
+          return (Status);
+          }
+
+       DontForgetToFreeMem = 1;
+       }
+    else
+      {
+      ServerName = ServerPrincName;
+      }
+#endif
+
+    if (SecurityQOS != 0)
+        {
+        IdentityTracking = SecurityQOS->IdentityTracking;
+        ImpersonationType= SecurityQOS->ImpersonationType;
+        Capabilities     = SecurityQOS->Capabilities;
+        }
+    else
+        {
+        IdentityTracking   = RPC_C_QOS_IDENTITY_STATIC;
+        ImpersonationType  = RPC_C_IMP_LEVEL_IMPERSONATE;
+        Capabilities       = RPC_C_QOS_CAPABILITIES_DEFAULT;
+        }
+
+    Status = BindingObject->SetAuthInformation(
+#ifdef DOSWIN32RPC
+                                      ServerName, 
+#else
+                                      ServerPrincName,
+#endif
+                                      AuthnLevel,
+                                      AuthnSvc, 
+                                      AuthIdentity, 
+                                      AuthzSvc,
+                                      0,
+                                      ImpersonationType,
+                                      IdentityTracking,
+                                      Capabilities
+                                      );
+
+#ifdef DOSWIN32RPC
+    if (DontForgetToFreeMem == 1)
+        {
+#ifdef NTENV
+        RpcStringFreeW(&ServerName);
+#else
+        RpcStringFreeA(&ServerName);
+#endif
+        }
+#endif
+
+   return (Status);
+}
+
+#else
 
 RPC_STATUS RPC_ENTRY
 RpcBindingSetAuthInfoW (
@@ -707,6 +1153,11 @@ Return Value:
 --*/
 {
     BINDING_HANDLE * BindingObject;
+    RPC_STATUS Status;
+#ifdef DOSWIN32RPC
+    int DontForgetToFreeMem = 0;
+#endif
+    RPC_CHAR __RPC_FAR * ServerName;
 
     InitializeIfNecessary();
 
@@ -731,53 +1182,79 @@ Return Value:
             {
             return(RPC_S_UNKNOWN_AUTHN_LEVEL);
             }
-        return(RPC_S_OK);
+        //
+        // Clear the authentication info..
+        //
+
+        Status = BindingObject->SetAuthInformation(
+                                      0,
+                                      0,
+                                      AuthnSvc, 
+                                      0,
+                                      0,
+                                      0
+                                      );
+        return(Status);
         }
 
-    return(BindingObject->SetAuthInformation(ServerPrincName, AuthnLevel,
-                    AuthnSvc, AuthIdentity, AuthzSvc));
+#ifdef DOSWIN32RPC
+    /* 
+     
+      If an app provides a NULL server Name we need to  
+      inq server principal name from the server..
+      we use the binding handle provided to make the call..
+
+    */
+
+    if ( (ServerPrincName == 0)  || (*ServerPrincName == 0) )
+       {
+#ifdef NTENV
+       Status = RpcMgmtInqServerPrincNameW(
+#else
+       Status = RpcMgmtInqServerPrincNameA(
+#endif
+                                      Binding,
+                                      AuthnSvc,
+                                      &ServerName
+                                      );
+
+       if (Status != RPC_S_OK)
+          {
+          return (Status);
+          }
+
+       DontForgetToFreeMem = 1;
+       }
+    else
+      {
+      ServerName = ServerPrincName;
+      }
+#endif
+
+    Status = BindingObject->SetAuthInformation(
+#ifdef DOSWIN32RPC
+                                      ServerName, 
+#else
+                                      ServerPrincName,
+#endif
+                                      AuthnLevel,
+                                      AuthnSvc, 
+                                      AuthIdentity, 
+                                      AuthzSvc,
+                                      0
+                                      );
+
+#ifdef DOSWIN32RPC
+    if (DontForgetToFreeMem == 1)
+        {
+#ifdef NTENV
+        RpcStringFreeW(&ServerName);
+#else
+        RpcStringFreeA(&ServerName);
+#endif
+        }
+#endif
+
+   return (Status);
 }
-
-
-RPC_STATUS RPC_ENTRY
-I_RpcBindingInqTransportType(
-    IN RPC_BINDING_HANDLE Binding,
-    OUT unsigned int __RPC_FAR * Type
-    )
-/*++
-
-Routine Description:
-
-    Determines what kind of transport this binding handle uses.
-
-Arguments:
-
-    Binding - Supplies the binding handle from which we wish to obtain
-        the information.
-
-
-    Type - Points to the type of binding if the functions succeeds.
-           One of:
-           TRANSPORT_TYPE_CN
-           TRANSPORT_TYPE_DG
-           TRANSPORT_TYPE_LPC
-
-Return Value:
-
-    RPC_S_OK - The operation completed successfully.
-
-    RPC_S_INVALID_BINDING - When the argument is not a binding handle.
-
---*/
-{
-    BINDING_HANDLE * BindingHandle;
-
-    InitializeIfNecessary();
-
-    BindingHandle = (BINDING_HANDLE *) Binding;
-    if (BindingHandle->InvalidHandle(BINDING_HANDLE_TYPE))
-        return(RPC_S_INVALID_BINDING);
-
-    return(BindingHandle->InquireTransportType(Type));
-}
-
+#endif

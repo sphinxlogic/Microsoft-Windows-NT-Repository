@@ -30,23 +30,29 @@ extern "C" {
 #include <stdlib.h>
 }
 
+//
+// Global variables to support DumpAttrib
+//
+char *AttribType, *AttribName;
+
+
 VOID
 Usage(
     )
 {
-    printf( "usage: ntfsdump <drive> /file <filename>    options\n" );
-    printf( "       ntfsdump <drive> /frs  <file number> options\n" );
-    printf( "       ntfsdump <drive> /boot\n" );
+    printf("usage: ntfsdump <drive> /file <filename>    options\n");
+    printf("       ntfsdump <drive> /frs  <file number> options\n");
+    printf("       ntfsdump <drive> /boot\n" );
 
-    printf( "\n" );
-    printf( "options:\n" );
-    printf( "    /records   display attribute records.\n" );
-    printf( "    /index     display index information.\n" );
-    printf( "    /entries   display index entries.\n" );
-    printf( "    /list      display attribute list (if present)\n" );
-    printf( "    /children  display child FRS's\n" );
-    printf( "    /all       display all of the above.\n" );
-
+    printf("\n" );
+    printf("options:\n" );
+    printf("    /records                display attribute records.\n");
+    printf("    /index                  display index information.\n");
+    printf("    /entries                display index entries.\n" );
+    printf("    /list                   display attribute list (if present)\n");
+    printf("    /children               display child FRS's\n");
+    printf("    /all                    display all of the above\n");
+    printf("    /attrib <type> <name>   display attribute contents\n");
 }
 
 VOID
@@ -199,30 +205,52 @@ SetupVolume(
     NTFS_ATTRIBUTE              upcase_attribute;
     BOOLEAN                     error;
 
-    if (!NtfsSa->Initialize(Drive, Message) ||
-        !NtfsSa->Read() ||
-        !VolumeBitmap->Initialize(Drive->QuerySectors()/
-                                  (ULONG) NtfsSa->QueryClusterFactor(), FALSE) ||
-        !Mft->Initialize(Drive,
+    if (!NtfsSa->Initialize(Drive, Message)) {
+        return FALSE;
+    }
+
+    if (!NtfsSa->Read())
+        return FALSE;
+
+    if (!VolumeBitmap->Initialize(Drive->QuerySectors()/
+                                  (ULONG) NtfsSa->QueryClusterFactor(), FALSE))
+        return FALSE;
+
+    if (!Mft->Initialize(Drive,
                          NtfsSa->QueryMftStartingLcn(),
                          NtfsSa->QueryClusterFactor(),
                          NtfsSa->QueryClustersPerFrs(),
                          NtfsSa->QueryVolumeSectors(),
                          VolumeBitmap,
-                         NULL) ||
-        !Mft->Read() ||
-        !bitmap_file.Initialize(Mft->GetMasterFileTable()) ||
-        !bitmap_file.Read() ||
-        !bitmap_file.QueryAttribute(&bitmap_attribute, &error, $DATA) ||
-        !VolumeBitmap->Read(&bitmap_attribute) ||
-        !upcase_file.Initialize(Mft->GetMasterFileTable()) ||
-        !upcase_file.Read() ||
-        !upcase_file.QueryAttribute(&upcase_attribute, &error, $DATA) ||
-        !UpcaseTable->Initialize(&upcase_attribute)) {
-
-        printf( "Unable to read volume meta-information.\n" );
+                         NULL))
         return FALSE;
-    }
+
+    if (!Mft->Read())
+        return FALSE;
+
+    if (!bitmap_file.Initialize(Mft->GetMasterFileTable()))
+        return FALSE;
+
+    if (!bitmap_file.Read())
+        return FALSE;
+
+    if (!bitmap_file.QueryAttribute(&bitmap_attribute, &error, $DATA))
+        return FALSE;
+
+    if (!VolumeBitmap->Read(&bitmap_attribute))
+        return FALSE;
+
+    if (!upcase_file.Initialize(Mft->GetMasterFileTable()))
+        return FALSE;
+
+    if (!upcase_file.Read())
+        return FALSE;
+
+    if (!upcase_file.QueryAttribute(&upcase_attribute, &error, $DATA))
+        return FALSE;
+
+    if (!UpcaseTable->Initialize(&upcase_attribute))
+        return FALSE;
 
     Mft->SetUpcaseTable( UpcaseTable );
     Mft->GetMasterFileTable()->SetUpcaseTable( UpcaseTable );
@@ -237,6 +265,7 @@ DumpFrs(
     IN      BOOLEAN                     DumpRecords,
     IN      BOOLEAN                     DumpAttributeList,
     IN      BOOLEAN                     DumpChildren,
+    IN      BOOLEAN                     DumpAttrib,
     IN      BOOLEAN                     IsChild
     )
 {
@@ -451,8 +480,90 @@ DumpFrs(
                          DumpRecords,
                          FALSE,
                          FALSE,
+                         FALSE,
                          TRUE );
             }
+        }
+
+    }
+
+    if ( DumpAttrib ) {
+        DSTRING attr_name;
+        PCWSTRING pcAttrName;
+        ULONG attr_type;
+        NTFS_FILE_RECORD_SEGMENT frs;
+        NTFS_ATTRIBUTE attr;
+        BOOLEAN error;
+        ULONG length;
+        PUCHAR data;
+
+        if (0 == strlen(AttribName)) {
+            pcAttrName = NULL;
+        } else {
+            if (!attr_name.Initialize(AttribName)) {
+                printf("Cannot init attr_name\n");
+                return;
+            }
+
+            pcAttrName = &attr_name;
+        }
+
+        sscanf(AttribType, "%x", &attr_type);
+
+        printf( "***** ATTRIBUTE VALUE frs 0x%x, type 0x%x, name \"%s\" *****\n\n",
+            FileNumber.GetLowPart(), attr_type,
+            (NULL == AttribName) ? "" : AttribName);
+
+        if (!frs.Initialize((VCN)FileNumber, MftFile) ||
+            !frs.Read()) {
+            printf("Cannot init or read frs\n");
+            return;
+        }
+
+        if (!frs.QueryAttribute(&attr, &error, attr_type, pcAttrName)) {
+            printf("Cannot QueryAttribute\n");
+            return;
+        }
+
+
+        // Read
+
+        ULONG bytes_read;
+        length = attr.QueryValueLength().GetLowPart();
+
+        if (attr.QueryValueLength().GetHighPart() != 0 ||
+            (NULL == (data = (PUCHAR)MALLOC(length + 16)))) {
+            printf("Cannot allocate data for attribute\n");
+            return;
+        }
+        if (!attr.Read(data, 0, length, &bytes_read) ||
+            bytes_read != length) {
+            printf("Cannot read attribute\n");
+            return;
+        }
+
+        // Display
+
+        ULONG pos = 0;
+
+        while (pos < length) {
+            printf("%05X ", pos);
+            for (i = 0; i < 16; ++i) {
+                if (8 == i)
+                    printf(" ");
+
+                printf("%02X ", data[pos + i]);
+
+            }
+
+            printf("  ");
+
+            for (i = 0; i < 16; ++i) {
+                printf("%c", isprint(data[pos + i]) ? data[pos + i] : '.');
+            }
+            pos += 16;
+
+            printf("\n");
         }
     }
 }
@@ -743,6 +854,7 @@ main(
             ChildrenFlag = FALSE,
             FileFlag = FALSE,
             FrsFlag = FALSE,
+            AttribFlag = FALSE,
             Error;
 
     int i, result, FileNumber;
@@ -753,7 +865,7 @@ main(
         exit(1);
     }
 
-    if( argc < 2 || !stricmp( argv[1], "/?") ) {
+    if( argc < 2 || !_stricmp( argv[1], "/?") ) {
 
         Usage();
         exit(0);
@@ -779,43 +891,52 @@ main(
 
     for( i = 2; i < argc; i++ ) {
 
-        if( !stricmp( argv[i], "/boot" ) ) {
+        if( !_stricmp( argv[i], "/boot" ) ) {
 
             BootFlag = TRUE;
             continue;
         }
 
-        if( !stricmp( argv[i], "/records" ) ) {
+        if( !_stricmp( argv[i], "/records" ) ) {
 
             RecordsFlag = TRUE;
             continue;
         }
 
-        if( !stricmp( argv[i], "/index" ) ) {
+        if( !_stricmp( argv[i], "/index" ) ) {
 
             IndexFlag = TRUE;
             continue;
         }
 
-        if( !stricmp( argv[i], "/entries" ) ) {
+        if( !_stricmp( argv[i], "/entries" ) ) {
 
             EntriesFlag = TRUE;
             continue;
         }
 
-        if( !stricmp( argv[i], "/list" ) ) {
+        if( !_stricmp( argv[i], "/list" ) ) {
 
             ListFlag = TRUE;
             continue;
         }
 
-        if( !stricmp( argv[i], "/children" ) ) {
+        if( !_stricmp( argv[i], "/children" ) ) {
 
             ChildrenFlag = TRUE;
             continue;
         }
 
-        if( !stricmp( argv[i], "/all" ) ) {
+        if ( !_stricmp( argv[i], "/attrib" ) ) {
+            
+            AttribFlag = TRUE;
+            AttribType = argv[i + 1];
+            AttribName = argv[i + 2];
+            i += 2;
+            continue;
+        }
+
+        if( !_stricmp( argv[i], "/all" ) ) {
 
             RecordsFlag = TRUE;
             ListFlag = TRUE;
@@ -825,7 +946,7 @@ main(
             continue;
         }
 
-        if( !stricmp( argv[i], "/file" ) ) {
+        if( !_stricmp( argv[i], "/file" ) ) {
 
             i++;
             if( !FileName.Initialize( argv[i] ) ) {
@@ -837,7 +958,7 @@ main(
             continue;
         }
 
-        if( !stricmp( argv[i], "/frs" ) ) {
+        if( !_stricmp( argv[i], "/frs" ) ) {
 
             i++;
             result = sscanf( argv[i], "%i", &FileNumber );
@@ -901,7 +1022,7 @@ main(
 
         printf( "Dump FRS number %d (0x%x)\n", FileNumber, FileNumber );
 
-        DumpFrs( FileNumber, &MftFile, RecordsFlag, ListFlag, ChildrenFlag, FALSE );
+        DumpFrs( FileNumber, &MftFile, RecordsFlag, ListFlag, ChildrenFlag, AttribFlag, FALSE );
 
         if( IndexFlag ) {
 

@@ -567,4 +567,3 @@ HAParmChange (ADAPTER_PTR HA)
   HA->Service(HA_PARM_CHANGE, HA, (U32)0);
 }
 
-

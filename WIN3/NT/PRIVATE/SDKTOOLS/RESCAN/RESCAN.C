@@ -28,7 +28,7 @@ GetDriverName(
     NTSTATUS status;
     UCHAR buffer[64];
     ULONG length;
-    KEY_VALUE_FULL_INFORMATION keyData;
+    PKEY_VALUE_FULL_INFORMATION keyData = (PKEY_VALUE_FULL_INFORMATION)buffer;
 
     printf("\nSCSI PORT %d\n", PortNumber);
 
@@ -99,7 +99,7 @@ GetDriverName(
     status = NtQueryValueKey(portKey,
                              &name,
                              KeyValueFullInformation,
-                             &keyData,
+                             keyData,
                              64,
                              &length);
 
@@ -108,7 +108,7 @@ GetDriverName(
     }
 
     printf("Driver name: %S\n",
-           (PUCHAR)&keyData + keyData.DataOffset);
+           (PUCHAR)keyData + keyData->DataOffset);
 
     RtlInitUnicodeString(&name,
                          L"Interrupt");
@@ -116,7 +116,7 @@ GetDriverName(
     status = NtQueryValueKey(portKey,
                              &name,
                              KeyValueFullInformation,
-                             &keyData,
+                             keyData,
                              64,
                              &length);
 
@@ -125,7 +125,7 @@ GetDriverName(
     }
 
     printf("IRQ %d ",
-           *((PUCHAR)&keyData + keyData.DataOffset));
+           *((PUCHAR)keyData + keyData->DataOffset));
 
     RtlInitUnicodeString(&name,
                          L"IOAddress");
@@ -133,7 +133,7 @@ GetDriverName(
     status = NtQueryValueKey(portKey,
                              &name,
                              KeyValueFullInformation,
-                             &keyData,
+                             keyData,
                              64,
                              &length);
 
@@ -143,7 +143,7 @@ GetDriverName(
     }
 
     printf("IO Address %x\n",
-           *((PULONG)&keyData + keyData.DataOffset/4));
+           *((PULONG)keyData + keyData->DataOffset/4));
 
     return;
 }
@@ -162,10 +162,17 @@ main( int argc, char **argv )
     PSCSI_ADAPTER_BUS_INFO  adapterInfo;
     PSCSI_BUS_DATA busData;
     PSCSI_INQUIRY_DATA inquiryData;
+    UCHAR prevDeviceInquiryData[INQUIRYDATABUFFERSIZE];
+    PINQUIRYDATA deviceInquiryData;
     ULONG bytesTransferred, i, j;
     ULONG deviceNumber;
     BOOLEAN newDisk = FALSE;
     BOOLEAN newCdrom = FALSE;
+    UCHAR prevPathId;
+    UCHAR prevTargetId;
+    UCHAR prevLun;
+    BOOLEAN prevDeviceClaimed;
+    UCHAR lunExtra;
 
     printf("\nWindows NT SCSI Bus Rescan Version 1.0\n");
 
@@ -251,28 +258,62 @@ main( int argc, char **argv )
             busData = &adapterInfo->BusData[i];
             printf( "\nBus  TID  LUN  In use  Type        Vendor                 FW Rev  Advanced SCSI\n" );
             printf( "===============================================================================\n" );
-            printf("%2d   %2d   %2d     %2d    Initiator\n",
+            printf("%2d   %2d   %2d     %2d    Initiator",
                    i,
-                   busData->InitiatorBusId,
+                   busData->InitiatorBusId & 0x7,
                    0,
                    1);
 
             inquiryData =
                 (PSCSI_INQUIRY_DATA)((PUCHAR)adapterInfo + busData->InquiryDataOffset);
 
+            memset(&prevDeviceInquiryData, 0, INQUIRYDATABUFFERSIZE);
+            prevPathId = 0xFF;
+            prevTargetId = 0xFF;
+            prevLun = 0xFF;
+            prevDeviceClaimed = 0xFF;
             for (j=0; j<busData->NumberOfLogicalUnits; j++) {
 
-                printf("%2d   %2d   %2d     %2d    ",
-                        inquiryData->PathId,
-                        inquiryData->TargetId,
-                        inquiryData->Lun,
-                        inquiryData->DeviceClaimed);
+                //
+                // Make sure VendorId string is null terminated.
+                //
+
+                deviceInquiryData = (PINQUIRYDATA)&inquiryData->InquiryData[0];
+
+                deviceInquiryData->VendorSpecific[0] = '\0';
+                if (prevPathId != inquiryData->PathId ||
+                    prevTargetId != inquiryData->TargetId ||
+                    prevLun != (inquiryData->Lun-1) ||
+                    prevDeviceClaimed != inquiryData->DeviceClaimed ||
+                    memcmp( &prevDeviceInquiryData, deviceInquiryData, INQUIRYDATABUFFERSIZE)
+                   ) {
+                    lunExtra = 0;
+                    printf("\n%2d   %2d   %2d     %2d    ",
+                            inquiryData->PathId,
+                            inquiryData->TargetId,
+                            inquiryData->Lun,
+                            inquiryData->DeviceClaimed);
+                } else {
+                    lunExtra += 1;
+                    printf("\r%2d   %2d   %2d-%1d   %2d    ",
+                            inquiryData->PathId,
+                            inquiryData->TargetId,
+                            inquiryData->Lun-lunExtra,
+                            inquiryData->Lun,
+                            inquiryData->DeviceClaimed);
+                    }
+
+                prevPathId = inquiryData->PathId;
+                prevTargetId = inquiryData->TargetId;
+                prevLun = inquiryData->Lun;
+                prevDeviceClaimed = inquiryData->DeviceClaimed;
+                memmove( &prevDeviceInquiryData, deviceInquiryData, INQUIRYDATABUFFERSIZE);
 
                 //
                 // Determine the perpherial type.
                 //
 
-                switch (inquiryData->InquiryData[0] & 0x1f) {
+                switch (deviceInquiryData->DeviceType) {
                 case DIRECT_ACCESS_DEVICE:
                     if (!inquiryData->DeviceClaimed) {
                         newDisk = TRUE;
@@ -326,43 +367,40 @@ main( int argc, char **argv )
                 // Display product information.
                 //
 
-                ((PINQUIRYDATA)inquiryData->InquiryData)->ProductId[20] = 0;
-                printf(" %s", ((PINQUIRYDATA)inquiryData->InquiryData)->VendorId);
+                printf(" %s", deviceInquiryData->VendorId);
 
                 //
                 // Display SCSI capabilities.
                 //
 
                 printf("   ");
-                if (((PINQUIRYDATA)inquiryData->InquiryData)->Synchronous) {
+                if (deviceInquiryData->Synchronous) {
                     printf(" SN");
                 }
 
-                if (((PINQUIRYDATA)inquiryData->InquiryData)->CommandQueue) {
+                if (deviceInquiryData->CommandQueue) {
                     printf(" CQ");
                 }
 
-                if (((PINQUIRYDATA)inquiryData->InquiryData)->Wide16Bit) {
+                if (deviceInquiryData->Wide16Bit) {
                     printf(" W16");
                 }
 
-                if (((PINQUIRYDATA)inquiryData->InquiryData)->Wide32Bit) {
+                if (deviceInquiryData->Wide32Bit) {
                     printf(" W32");
                 }
 
-                if (((PINQUIRYDATA)inquiryData->InquiryData)->SoftReset) {
+                if (deviceInquiryData->SoftReset) {
                     printf(" SR");
                 }
 
-                if (((PINQUIRYDATA)inquiryData->InquiryData)->LinkedCommands) {
+                if (deviceInquiryData->LinkedCommands) {
                     printf(" LC");
                 }
 
-                if (((PINQUIRYDATA)inquiryData->InquiryData)->RelativeAddressing) {
+                if (deviceInquiryData->RelativeAddressing) {
                     printf(" RA");
                 }
-
-                printf("\n");
 
                 //
                 // Get next device data.
@@ -371,6 +409,8 @@ main( int argc, char **argv )
                 inquiryData =
                     (PSCSI_INQUIRY_DATA)((PUCHAR)adapterInfo + inquiryData->NextInquiryDataOffset);
             }
+
+            printf("\n");
         }
 
         free (adapterInfo);

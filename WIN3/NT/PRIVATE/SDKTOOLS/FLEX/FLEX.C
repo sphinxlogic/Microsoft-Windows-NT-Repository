@@ -205,7 +205,7 @@ int status;
         else if ( fclose( temp_action_file ) )
             flexfatal( "error occurred when closing temporary action file" );
 
-        else if ( unlink( action_file_name ) )
+        else if ( _unlink( action_file_name ) )
             flexfatal( "error occurred when deleting temporary action file" );
         }
 
@@ -217,7 +217,7 @@ int status;
         else if ( fclose( stdout ) )
             flexfatal( "error occurred when closing output file" );
 
-        else if ( unlink( outfile ) )
+        else if ( _unlink( outfile ) )
             flexfatal( "error occurred when deleting output file" );
         }
 

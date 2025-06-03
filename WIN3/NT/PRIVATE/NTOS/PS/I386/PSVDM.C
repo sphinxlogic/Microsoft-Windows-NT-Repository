@@ -19,7 +19,6 @@ Revision History:
 --*/
 
 #include "psp.h"
-#include <vdmntos.h>
 
 
 #if DBG
@@ -1019,4 +1018,4 @@ Return Value:
 {
     return ExInitializeResource(&VdmIoListCreationResource);
 }
-
+

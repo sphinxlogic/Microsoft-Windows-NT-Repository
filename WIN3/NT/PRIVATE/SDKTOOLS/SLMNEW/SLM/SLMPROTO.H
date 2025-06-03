@@ -1,4 +1,6 @@
-#ifdef AD_INCLUDED
+#ifndef SLMPROTO_H
+#define SLMPROTO_H
+
 F       FAddFInit(AD *);
 F       FAddFDir(AD *);
 F       FAddPInit(AD *);
@@ -24,4 +26,5 @@ F       FSyncDir(AD *);
 F       FSyncTerm(AD *);
 F       FStatInit(AD *);
 F       FStatDir(AD *);
+
 #endif

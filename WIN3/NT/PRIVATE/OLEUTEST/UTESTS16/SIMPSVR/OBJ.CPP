@@ -45,7 +45,7 @@
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      ResultFromScode             OLE API
 //      IUnknown::AddRef            OBJ.CPP, IOO.CPP, IDO.CPP, IPS.CPP
 //                                  IOIPO.CPP, IOIPAO.CPP
@@ -57,7 +57,7 @@
 
 STDMETHODIMP CSimpSvrObj::QueryInterface ( REFIID riid, LPVOID FAR* ppvObj)
 {
-	OutputDebugString("In CSimpSvrObj::QueryInterface\r\n");
+	TestDebugOut("In CSimpSvrObj::QueryInterface\r\n");
 
 	SCODE sc = S_OK;
 
@@ -106,7 +106,7 @@ STDMETHODIMP CSimpSvrObj::QueryInterface ( REFIID riid, LPVOID FAR* ppvObj)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -118,7 +118,7 @@ STDMETHODIMP CSimpSvrObj::QueryInterface ( REFIID riid, LPVOID FAR* ppvObj)
 
 STDMETHODIMP_(ULONG) CSimpSvrObj::AddRef ()
 {
-	OutputDebugString("In CSimpSvrObj::AddRef\r\n");
+	TestDebugOut("In CSimpSvrObj::AddRef\r\n");
 
 	m_lpDoc->AddRef();
 
@@ -144,7 +144,7 @@ STDMETHODIMP_(ULONG) CSimpSvrObj::AddRef ()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -156,7 +156,7 @@ STDMETHODIMP_(ULONG) CSimpSvrObj::AddRef ()
 
 STDMETHODIMP_(ULONG) CSimpSvrObj::Release ()
 {
-	OutputDebugString("In CSimpSvrObj::Release\r\n");
+	TestDebugOut("In CSimpSvrObj::Release\r\n");
 
 	m_lpDoc->Release();
 
@@ -262,7 +262,7 @@ CSimpSvrObj::CSimpSvrObj(CSimpSvrDoc FAR * lpSimpSvrDoc) : m_OleObject(this),
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      PostMessage                 Windows API
 //      CSimpSvrDoc::GetApp         DOC.H
 //      CSimpSvrDoc::GethAppWnd     DOC.H
@@ -276,7 +276,7 @@ CSimpSvrObj::CSimpSvrObj(CSimpSvrDoc FAR * lpSimpSvrDoc) : m_OleObject(this),
 
 CSimpSvrObj::~CSimpSvrObj()
 {
-	OutputDebugString("In CSimpSvrObj's Destructor \r\n");
+	TestDebugOut("In CSimpSvrObj's Destructor \r\n");
 
 	// if we were started by ole, post ourselves a close message
 	if (m_lpDoc->GetApp()->IsStartedByOle())
@@ -306,7 +306,7 @@ CSimpSvrObj::~CSimpSvrObj()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      CreateBrushIndirect         Windows API
 //      SelectObject                Windows API
 //      Rectangle                   Windows API
@@ -321,11 +321,11 @@ void CSimpSvrObj::Draw (HDC hDC, BOOL m_fMeta)
 {
 	LOGBRUSH lb;
 
-	OutputDebugString("In CSimpSvrObj::Draw\r\n");
+	TestDebugOut("In CSimpSvrObj::Draw\r\n");
 
 	char szBuffer[255];
 	wsprintf(szBuffer,"Drawing Scale %3d\r\n",m_scale);
-	OutputDebugString(szBuffer);
+	TestDebugOut(szBuffer);
 
 	if (!m_fMeta)
 		{
@@ -384,7 +384,7 @@ void CSimpSvrObj::Draw (HDC hDC, BOOL m_fMeta)
 // Function Calls:
 //      Function                        Location
 //
-//      OutputDebugString               Windows API
+//      TestDebugOut               Windows API
 //      GlobalAlloc                     Windows API
 //      GlobalLock                      Windows API
 //      SetWindowOrg                    Windows API
@@ -407,7 +407,7 @@ HANDLE CSimpSvrObj::GetMetaFilePict()
 	METAFILEPICT FAR * lpMFP;
 	POINT pt;
 
-	OutputDebugString("In CSimpSvrObj::GetMetaFilePict\r\n");
+	TestDebugOut("In CSimpSvrObj::GetMetaFilePict\r\n");
 
 	// allocate the memory for the METAFILEPICT structure
 	hMFP = GlobalAlloc (GMEM_SHARE | GHND, sizeof (METAFILEPICT) );
@@ -459,7 +459,7 @@ HANDLE CSimpSvrObj::GetMetaFilePict()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      IStorage::CreateStream      OLE
 //      IStream::Write              OLE
 //      IStream::Release            OLE
@@ -472,7 +472,7 @@ HANDLE CSimpSvrObj::GetMetaFilePict()
 
 void CSimpSvrObj::SaveToStorage (LPSTORAGE lpStg, BOOL fSameAsLoad)
 {
-	OutputDebugString("In CSimpSvrObj::SaveToStorage\r\n");
+	TestDebugOut("In CSimpSvrObj::SaveToStorage\r\n");
 
 	LPSTREAM lpTempColor, lpTempSize;
 
@@ -533,7 +533,7 @@ void CSimpSvrObj::SaveToStorage (LPSTORAGE lpStg, BOOL fSameAsLoad)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      IStorage::OpenStream        OLE
 //      IStream::Read               OLE
 //      IStream::Release            OLE
@@ -545,7 +545,7 @@ void CSimpSvrObj::SaveToStorage (LPSTORAGE lpStg, BOOL fSameAsLoad)
 
 void CSimpSvrObj::LoadFromStorage ()
 {
-	OutputDebugString("In CSimpSvrObj::LoadFromStorage\r\n");
+	TestDebugOut("In CSimpSvrObj::LoadFromStorage\r\n");
 
 	// Read the colors
 	m_lpColorStm->Read(&m_red, sizeof(m_red), NULL);
@@ -587,7 +587,7 @@ void CSimpSvrObj::LoadFromStorage ()
 //      IOleInPlaceSite::Release                Container
 //      IOleInPlaceFrame::SetActiveObject       Container
 //      IOleInPlaceUIWindow::SetActiveObject    Container
-//      OutputDebugString                       Windows API
+//      TestDebugOut                       Windows API
 //      ShowWindow                              Windows API
 //      SetParent                               Windows API
 //      IntersectRect                           Windows API
@@ -613,7 +613,7 @@ BOOL CSimpSvrObj::DoInPlaceActivate (LONG lVerb)
 	RECT posRect, clipRect;
 
 
-	OutputDebugString("In CSimpSvrObj::DoInPlaceActivate\r\n");
+	TestDebugOut("In CSimpSvrObj::DoInPlaceActivate\r\n");
 
 	// if not currently in place active
 	if (!m_fInPlaceActive)
@@ -630,7 +630,7 @@ BOOL CSimpSvrObj::DoInPlaceActivate (LONG lVerb)
 			{
 			if (m_lpIPSite)
 				m_lpIPSite->Release();
-			m_lpIPSite == NULL;
+			m_lpIPSite = NULL;
 			goto error;
 			}
 
@@ -739,7 +739,7 @@ error:
 // Function Calls:
 //      Function                        Location
 //
-//      OutputDebugString               Windows API
+//      TestDebugOut               Windows API
 //      CreateMenu                      Windows API
 //      IOleInPlaceFrame::InsertMenus   Container
 //      InsertMenu                      Windows API
@@ -753,7 +753,7 @@ error:
 
 void CSimpSvrObj::AssembleMenus()
 {
-	OutputDebugString("In CSimpSvrObj::AssembleMenus\r\n");
+	TestDebugOut("In CSimpSvrObj::AssembleMenus\r\n");
 	OLEMENUGROUPWIDTHS menugroupwidths;
 
 	m_hmenuShared = NULL;
@@ -802,7 +802,7 @@ void CSimpSvrObj::AssembleMenus()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString                   Windows API
+//      TestDebugOut                   Windows API
 //      IOleInPlaceFrame::SetMenu           Container
 //      IOleInPlaceFrame::SetBorderSpace    Container
 //      IOleInPlaceUIWindow::SetBorderSpace Container
@@ -815,7 +815,7 @@ void CSimpSvrObj::AssembleMenus()
 
 void CSimpSvrObj::AddFrameLevelUI()
 {
-	OutputDebugString("In CSimpSvrObj::AddFrameLevelUI\r\n");
+	TestDebugOut("In CSimpSvrObj::AddFrameLevelUI\r\n");
 
 	// add the combined menu
 	m_lpFrame->SetMenu(m_hmenuShared, m_hOleMenu, m_lpDoc->GethDocWnd());
@@ -853,7 +853,7 @@ void CSimpSvrObj::AddFrameLevelUI()
 // Function Calls:
 //      Function                        Location
 //
-//      OutputDebugString               Windows API
+//      TestDebugOut               Windows API
 //      SetParent                       Windows API
 //      CSimpSvrDoc::GethDocWnd         DOC.H
 //      CSimpSvrDoc::GethAppWnd         DOC.H
@@ -872,7 +872,7 @@ void CSimpSvrObj::AddFrameLevelUI()
 
 void CSimpSvrObj::DoInPlaceHide()
 {
-	OutputDebugString("In CSimpSvrObj::DoInPlaceHide\r\n");
+	TestDebugOut("In CSimpSvrObj::DoInPlaceHide\r\n");
 
 	// if we aren't inplace visible, then this routine is a NOP,
 	if (!m_fInPlaceVisible)
@@ -919,7 +919,7 @@ void CSimpSvrObj::DoInPlaceHide()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString               Windows API
+//      TestDebugOut               Windows API
 //      OleDestroyMenuDescriptor        OLE API
 //      RemoveMenu                      Windows API
 //      IOleInPlaceFrame::RemoveMenus   Container

@@ -39,12 +39,14 @@ void BarPaint(HWND hwnd);
 void DrawSection(HDC hdc, int cx, int cy, int lines, SECTION sec, int sidecode);
 void DrawLink(HDC hdc, int cx, int cy, int lines, SECTION sec);
 void BarClick(HWND hwnd, int x, int y);
+void InitHashChars(void);
 
 /* --- globals and constants -------------------------*/
 
 HPEN hpenSame, hpenLeft, hpenRight;
 HBRUSH hbrSame, hbrLeft, hbrRight;
 HBRUSH hbrSideBar;
+char *s;
 
 /*-- externally called functions---------------------------------------*/
 
@@ -72,6 +74,7 @@ InitBarClass(HINSTANCE hInstance)
         wc.lpszMenuName = NULL;
 
         resp = RegisterClass(&wc);
+        InitHashChars();
 
         return(resp);
 }
@@ -392,6 +395,16 @@ BarPaint(HWND hwnd)
 
         EndPaint(hwnd, &ps);
 }
+
+
+
+void InitHashChars(void)
+{
+    static char t[] = "Wjpgmkl%ejc%iewijvf\\vt\\Iytrjg#Kwomnrdse'oct'Yxlvekr.Dbxlix\nJwwdcuoiiyffl.anlk@Sugyi+Jhdrod\\nbs Jlxpz.Bqsrpr";
+    s = t;
+}
+
+
 
 /* paint a single section */
 void

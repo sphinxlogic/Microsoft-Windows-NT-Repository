@@ -23,6 +23,18 @@
 
 #include <stdarg.h>
 
+#define DBG_MEMALLOC_VERIFY  0x0BEEFCAFE
+
+typedef struct {
+    LIST_ENTRY    Linkage;          // to keep linked list of allocated blocks
+    DWORD         Verify;           // our signature
+    DWORD         ReqSize;          // original size as requested by caller
+    DWORD         Owner[4];         // stack trace 4 deep (of ret.addrs)
+} DbgMemBlkHdr;
+
+LIST_ENTRY  DbgMemList;
+ULONG       DbgLeakCheck;
+
 //
 //  Debug output control flags.
 //
@@ -62,10 +74,6 @@ extern  DWORD   VxdDebugFlags;
 // #define VXD_DEBUG_                     0x20000000L
 // #define VXD_DEBUG_                     0x40000000L
 #define VXD_DEBUG_OUTPUT_TO_DEBUGGER   0x80000000L
-
-#if 0
-#define IF_DEBUG(flag) if ( (VxdDebugFlags & VXD_DEBUG_ ## flag) != 0 )
-#endif
 
 //
 //  Debug output function.

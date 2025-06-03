@@ -100,7 +100,10 @@ Or2DestroyQHandleTable(
     //
     for (i = (int)HandleTable->CountEntries - 1; i >= 0; i--) {
         if (QHandles[i].EntryIsAllocated) {
-            (*DestroyQHandleProcedure)(QHandles[i].Entry, (ULONG)i);
+            //
+            // Pass i+1, because outside world enumerate handles starting from 1 and not 0.
+            //
+            (*DestroyQHandleProcedure)(QHandles[i].Entry, (ULONG)i+1);
         }
         if (QHandles[i].EntryIsChunkPointer) {
             RtlFreeHeap(Heap, 0, QHandles[i].Entry);
@@ -132,12 +135,22 @@ Or2CreateQHandle(
     ULONG NewNextToAllocate;
     ULONG i,j;
 
-    NewHandle = *Handle;
+    //
+    // The handle can be or valid ( >=1 ) or -1 (means - create the new one).
+    //
+    ASSERT(*Handle);
+    //
+    // Outside world enumerate handles starting from 1 and not 0.
+    //
+    NewHandle = *Handle - 1;
     Heap = HandleTable->Heap;
 
     AcquireHandleTableLock( HandleTable );
 
-    if (NewHandle != -1)  {
+    //
+    // If the handle passed as parameter wasn't valid, create new handle.
+    //
+    if ((LONG)NewHandle >= 0)  {
         if (NewHandle < HandleTable->CountEntries) {
             if (HandleTable->QHandles[NewHandle].EntryIsAllocated) {
                 ReleaseHandleTableLock(HandleTable);
@@ -168,7 +181,10 @@ Or2CreateQHandle(
                 if (!HandleTable->QHandles[j].EntryIsAllocated) {
                     HandleTable->QHandles[j].EntryIsAllocated = TRUE;
                     HandleTable->CountFreeEntries--;
-                    *Handle = j;
+                    //
+                    // For the outside world the enumeration of handles is starting from 1 and not from 0.
+                    //
+                    *Handle = j + 1;
                     ReleaseHandleTableLock(HandleTable);
                     return (TRUE);
                 }
@@ -212,7 +228,10 @@ Or2CreateQHandle(
     HandleTable->QHandles[NewHandle].EntryIsAllocated = TRUE;
     RtlMoveMemory(HandleTable->QHandles[NewHandle].Entry,
                   Value, HandleTable->EntrySize);
-    *Handle = NewHandle;
+    //
+    // For the outside world the enumeration of handles is starting from 1 and not from 0.
+    //
+    *Handle = NewHandle + 1;
     NewNextToAllocate = NewHandle + 1;
     if (NewNextToAllocate == HandleTable->CountEntries) {
         NewNextToAllocate = 0;
@@ -231,6 +250,11 @@ Or2MapQHandle(
     )
 {
     PVOID HandleTableEntry;
+
+    //
+    // For the outside world the enumeration of handles is starting from 1 and not from 0.
+    //
+    Handle--;
 
     if (!TableLocked) {
         AcquireHandleTableLock( HandleTable );
@@ -264,6 +288,11 @@ Or2DestroyQHandle(
 {
     BOOLEAN Result;
     PVOID HandleTableEntry;
+
+    //
+    // For the outside world the enumeration of handles is starting from 1 and not from 0.
+    //
+    Handle--;
 
     if (Handle >= HandleTable->CountEntries) {
         Result = FALSE;

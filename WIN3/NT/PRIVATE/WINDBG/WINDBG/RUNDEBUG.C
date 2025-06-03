@@ -294,10 +294,11 @@ DlgRunDebug(
                 fChange = TRUE;
                 if (LppdCur) {
                     if (b) {
-                        OSDIoctl(LppdCur->hpid,0,ioctlCustomCommand,8,"slowstep");
+                        strcpy(rgch, "slowstep");
                     } else {
-                        OSDIoctl(LppdCur->hpid,0,ioctlCustomCommand,8,"faststep");
+                        strcpy(rgch, "faststep");
                     }
+                    OSDIoctl(LppdCur->hpid,0,ioctlCustomCommand,8,rgch);
                 }
             }
 
@@ -465,7 +466,7 @@ DlgRunDebug(
         case ID_DBUGOPT_SUFFIXNONE:
             return TRUE;
 
-        case IDHELP:                /* User Help */
+        case IDWINDBGHELP:                /* User Help */
             Dbg(WinHelp(hDlg, szHelpFileName, (DWORD) HELP_CONTEXT,(DWORD)ID_DBUGOPT_HELP));
             SetOkButtonToDefault( hDlg );
             return (TRUE);

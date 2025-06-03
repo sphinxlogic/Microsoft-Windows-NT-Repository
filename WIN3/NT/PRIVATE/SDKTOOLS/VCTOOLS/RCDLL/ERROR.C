@@ -8,8 +8,7 @@
 /*                                                                      */
 /************************************************************************/
 
-#include "prerc.h"
-#pragma hdrstop
+#include "rc.h"
 #include "rcmsgs.h"
 
 
@@ -78,7 +77,7 @@ void message(int msgtype, int msgnum, PCHAR msg)
     CHAR    msgnumstr[32];
 
     if (Linenumber > 0 && Filename) {
-        sprintf(p, "%ws(%d) : ", Filename, Linenumber);
+        wsprintfA(p, "%ws(%d) : ", Filename, Linenumber);
         p += strlen(p);
     }
     if (msgtype) {
@@ -100,7 +99,7 @@ void message(int msgtype, int msgnum, PCHAR msg)
         *pT = '\0';
         strcpy(p, msgname);
         p += strlen(msgname);
-        sprintf(msgnumstr, " %s%d: ", "RC", msgnum);
+        wsprintfA(msgnumstr, " %s%d: ", "RC", msgnum);
         strcpy(p, msgnumstr);
         p += strlen(msgnumstr);
         strcpy(p, msg);
@@ -119,7 +118,11 @@ void message(int msgtype, int msgnum, PCHAR msg)
     *pT = '\0';
     p = mbuffT; // error message to print
 
-    (*lpfnRCCallback)(0, 0, mbuff);
-    SendMessage(hWndCaller, WM_RC_ERROR, TRUE, (LPARAM) mbuff);
+    if (lpfnMessageCallback)
+		(*lpfnMessageCallback)(0, 0, mbuff);
+    if (hWndCaller) {
+	if (SendMessageA(hWndCaller, WM_RC_ERROR, TRUE, (LPARAM) mbuff) != 0)
+	    quit("\n");
+    }
     return;
 }

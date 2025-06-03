@@ -47,7 +47,7 @@ char **argv;
 
 	fseek(hFile, 0L, SEEK_END);
 	lFilesize = ftell(hFile);
-	iSizeInPages = (lFilesize / 512) + 1;
+	iSizeInPages = (lFilesize + 511) / 512;
 	iLengthMod512 = lFilesize % 512;
 
 	printf("Filesize is %lu bytes, %i pages, %i mod\n",lFilesize,iSizeInPages,iLengthMod512);

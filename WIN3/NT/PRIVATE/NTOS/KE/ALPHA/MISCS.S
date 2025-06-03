@@ -56,6 +56,23 @@
 
         LEAF_ENTRY(KiRequestSoftwareInterrupt)
 
+        //
+        // If we are already in an interrupt routine, do not
+        // request an interrupt from the PAL. Indicate the
+        // interrupt has been requested in the PRCB and the
+        // interrupt exit code will dispatch the software
+        // interrupt directly.
+        //
+        GET_PROCESSOR_CONTROL_BLOCK_BASE    // v0 = PRCB
+
+        ldl     t0, PbInterruptActive(v0)
+        beq     t0, 10f                     // no interrupt active, request
+                                            // interrupt from PAL
+        blbs    a0, 10f                     // APC interrupt requested, use PAL
+        stl     a0, PbSoftwareInterrupts(v0)    // set interrupt request bit in PRCB
+        ret     zero, (ra)
+
+10:
         REQUEST_SOFTWARE_INTERRUPT
 
         ret     zero, (ra)                  // return
@@ -146,14 +163,16 @@
 // mode and restore the previous mode in the thread object.
 //
 
-        GET_CURRENT_THREAD              // (PALcode) result in v0
+        GET_CURRENT_THREAD                  // (PALcode) result in v0
 
-        ldl     t2, TrPreviousMode(fp)  // restore previous mode
-        StoreByte( t2, ThPreviousMode(v0) )  //   in thread object
-        beq     s0, 10f                 // if eq, don't test for alert
+        ldl     t3, TrTrapFrame(fp)         // get old trap frame address
+        ldl     t2, TrPreviousMode(fp)      // get old previous mode
+        LoadByte(a0, ThPreviousMode(v0))    // get current previous mode
+        stl     t3, ThTrapFrame(v0)         // restore old trap frame address
+        StoreByte( t2, ThPreviousMode(v0) ) // restore old previous mode
+        beq     s0, 10f                     // if eq, don't test for alert
 
-        ldbu    a0, ThPreviousMode(v0)  // get previous mode
-        bsr     ra, KeTestAlertThread   // test alert for current thread
+        bsr     ra, KeTestAlertThread       // test alert for current thread
 
 //
 // Exit the system via exception exit which will restore the nonvolatile
@@ -211,7 +230,9 @@
 
         lda     sp, -ExceptionFrameLength(sp) // allocate exception frame
         stq     ra, ExIntRa(sp)               // save return address
-
+        stq     s0, ExIntS0(sp)               // save S0 and S1 in the prologue
+        stq     s1, ExIntS1(sp)               // so that Get/SetContext can find
+                                              // the right ones.
         PROLOGUE_END
 
 //
@@ -219,8 +240,6 @@
 // exit if it is not overwritten by the specified context record.
 //
 
-        stq     s0, ExIntS0(sp)         // save nonvolatile integer state
-        stq     s1, ExIntS1(sp)         //
         stq     s2, ExIntS2(sp)         //
         stq     s3, ExIntS3(sp)         //
         stq     s4, ExIntS4(sp)         //
@@ -252,9 +271,12 @@
 // If the raise exception routine returns success, then exit via the exception
 // exit code. Otherwise return to the system service dispatcher.
 //
+        bis     v0, zero, t0            // save v0
+        ldl     t1, TrTrapFrame(fp)     // get old trap frame address
+        GET_CURRENT_THREAD              // get current thread in v0
 
-        ldq     ra, ExIntRa(sp)         // restore return address
-        bne     v0, 10f                 // if ne, dispatch not successful
+        bne     t0, 10f                 // if ne, dispatch not successful
+        stl     t1, ThTrapFrame(v0)     // restore old trap frame address
 
 //
 // Exit the system via exception exit which will restore the nonvolatile
@@ -268,7 +290,9 @@
 // exception was not handled.
 //
 
-10:     lda     sp, ExceptionFrameLength(sp) // deallocate stack frame
+10:
+        ldq     ra, ExIntRa(sp)              // restore return address
+        lda     sp, ExceptionFrameLength(sp) // deallocate stack frame
         ret     zero, (ra)                   // return
 
         .end    NtRaiseException
@@ -280,7 +304,7 @@
 // VOID
 // KiImb (
 //     VOID
-//     ) 
+//     )
 //
 // Routine Description:
 //
@@ -297,13 +321,13 @@
 //
 //--
 
-	LEAF_ENTRY( KiImb )
+        LEAF_ENTRY( KiImb )
 
-	IMB			// flush the icache via PALcode
+        IMB                     // flush the icache via PALcode
 
-	ret	zero, (ra)	// return
+        ret     zero, (ra)      // return
 
-	.end	KiImb
+        .end    KiImb
 
 
         SBTTL("Memory Barrier")
@@ -312,7 +336,7 @@
 // VOID
 // KiImb (
 //     VOID
-//     ) 
+//     )
 //
 // Routine Description:
 //
@@ -329,11 +353,11 @@
 //
 //--
 
-	LEAF_ENTRY( KiMb )
+        LEAF_ENTRY( KiMb )
 
-	mb			// memory barrier
+        mb                      // memory barrier
 
-	ret	zero, (ra)	// return
+        ret     zero, (ra)      // return
 
-	.end	KiMb
+        .end    KiMb
 

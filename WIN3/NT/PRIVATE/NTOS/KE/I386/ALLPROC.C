@@ -124,7 +124,7 @@ Return Value:
     KiBarrierWait = 1;
 
 
-    while (KeNumberProcessors < KeRegisteredProcessors) {
+    while ((ULONG)KeNumberProcessors < KeRegisteredProcessors) {
         //
         //  Build up a processor state for new processor
         //
@@ -137,7 +137,7 @@ Return Value:
         //
 
         _asm {
-            sgdt    fword ptr Descriptor.Limit
+            sgdt    Descriptor.Limit
         }
 
         KiCloneDescriptor (&Descriptor,
@@ -151,7 +151,7 @@ Return Value:
         //
 
         _asm {
-            sidt    fword ptr Descriptor.Limit
+            sidt    Descriptor.Limit
         }
         KiCloneDescriptor (&Descriptor,
                          &ProcessorState.SpecialRegisters.Idtr);
@@ -204,8 +204,7 @@ Return Value:
         //  Allocate a kernel stack and ThreadObject for the new processor
         //
 
-        pStack = (PUCHAR)MmCreateKernelStack ();
-        // bugbug: kenr - hardcoded value
+        pStack = (PUCHAR)MmCreateKernelStack (FALSE);
         pThreadObject = (PUCHAR)ExAllocatePool (NonPagedPool, sizeof(ETHREAD));
 
         //
@@ -278,7 +277,7 @@ Return Value:
             ExFreePool ((PVOID) PCRDesc.Base);
             ExFreePool ((PVOID) pThreadObject);
             ExFreePool ((PVOID) DFStack);
-            MmDeleteKernelStack ((PVOID) pStack);
+            MmDeleteKernelStack ((PVOID) pStack, FALSE);
             break;
         }
 
@@ -298,7 +297,7 @@ Return Value:
     NumberProcessors = KeNumberProcessors;
     KiIpiGenericCall (
         (PKIPI_BROADCAST_WORKER) HalCalibratePerformanceCounter,
-        &NumberProcessors
+        (ULONG)(&NumberProcessors)
     );
 
     //
@@ -396,4 +395,3 @@ Return Value:
 
 
 #endif      // !NT_UP
-

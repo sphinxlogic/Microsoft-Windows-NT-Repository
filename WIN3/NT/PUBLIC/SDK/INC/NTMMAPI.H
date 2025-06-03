@@ -83,12 +83,19 @@ typedef struct _SECTION_IMAGE_INFORMATION {
     ULONG MaximumStackSize;
     ULONG CommittedStackSize;
     ULONG SubSystemType;
-    ULONG SubSystemVersion;
+    union {
+        struct {
+            USHORT SubSystemMinorVersion;
+            USHORT SubSystemMajorVersion;
+        };
+        ULONG SubSystemVersion;
+    };
     ULONG GpValue;
     USHORT ImageCharacteristics;
     USHORT DllCharacteristics;
     USHORT Machine;
-    USHORT Spare1;
+    BOOLEAN ImageContainsCode;
+    BOOLEAN Spare1;
     ULONG LoaderFlags;
     ULONG Reserved[ 2 ];
 } SECTION_IMAGE_INFORMATION, *PSECTION_IMAGE_INFORMATION;
@@ -139,12 +146,14 @@ typedef enum _SECTION_INHERIT {
 #define MEM_FREE            0x10000     // winnt ntddk
 #define MEM_PRIVATE         0x20000     // winnt ntddk
 #define MEM_MAPPED          0x40000     // winnt ntddk
+#define MEM_RESET           0x80000     // winnt ntddk
 #define MEM_TOP_DOWN       0x100000     // winnt ntddk
 #define MEM_LARGE_PAGES  0x20000000     // ntddk
 #define MEM_DOS_LIM      0x40000000
 
 #define SEC_BASED          0x200000
 #define SEC_FILE           0x800000     // winnt
+#define SEC_NO_CHANGE      0x400000
 #define SEC_IMAGE         0x1000000     // winnt
 #define SEC_RESERVE       0x4000000     // winnt ntddk
 #define SEC_COMMIT        0x8000000     // winnt
@@ -154,6 +163,8 @@ typedef enum _SECTION_INHERIT {
 
 #define MAP_PROCESS 1L
 #define MAP_SYSTEM  2L
+
+// begin_ntsrv
 
 NTSYSAPI
 NTSTATUS
@@ -167,6 +178,8 @@ NtCreateSection (
     IN ULONG AllocationAttributes,
     IN HANDLE FileHandle OPTIONAL
     );
+
+// end_ntsrv
 
 NTSYSAPI
 NTSTATUS
@@ -211,6 +224,8 @@ NtExtendSection(
     IN OUT PLARGE_INTEGER NewSectionSize
     );
 
+// begin_ntsrv
+
 NTSYSAPI
 NTSTATUS
 NTAPI
@@ -232,6 +247,8 @@ NtFreeVirtualMemory(
     IN OUT PULONG RegionSize,
     IN ULONG FreeType
     );
+
+// end_ntsrv
 
 NTSYSAPI
 NTSTATUS

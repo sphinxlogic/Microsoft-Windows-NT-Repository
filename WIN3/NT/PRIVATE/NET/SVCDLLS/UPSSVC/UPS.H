@@ -53,16 +53,14 @@ Notes:
 #define UPS_DEBUG
 #endif // DBG
 
-//BUG BUG - ComputerName is hard wired to wchar, since NetAlertRaise()
-//      and UPSNotifyUsers only takes in UNICODE string
-    
 typedef struct _UPS_CONFIG {
-    wchar_t ComputerName[CNLEN+1];    
+    WCHAR   ComputerName[MAX_PATH+1];    
     DWORD   Options;
     DWORD   BatteryLife;        //  in minutes 
     DWORD   RechargeRate;       //  minutes per minute of battery life
     DWORD   FirstMessageDelay;  //  in seconds 
-    DWORD   MessageInterval;    //  in seconds 
+    DWORD   MessageInterval;    //  in seconds
+    DWORD   ShutdownWait;       //  in seconds
     CHAR    Port[ MAX_PATH];    //  e.g. COM1  
 } UPS_CONFIG, *PUPS_CONFIG; 
 
@@ -75,9 +73,11 @@ typedef struct _UPS_TIME{
 #define MODULENAME  "netmsg.dll"
 
 //
-//  2 minutes (120 seconds) is minimum amount of time assumed for a shutdown
+//  2 minutes (120 seconds) is default amount of time assumed for a shutdown
 //
-#define CRITICAL_TIME       120
+#define DEFAULTSHUTDOWNWAIT 120
+#define MINSHUTDOWNWAIT     0
+#define MAXSHUTDOWNWAIT     600
 
 //
 //  30 seconds is max amount of time we wait for shutdown command to complete

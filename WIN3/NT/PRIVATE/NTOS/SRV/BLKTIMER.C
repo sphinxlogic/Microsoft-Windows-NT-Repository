@@ -57,7 +57,7 @@ Return Value:
 
     PAGED_CODE( );
 
-    entry = ExInterlockedPopEntryList( &SrvTimerList, &GLOBAL_SPIN_LOCK(Timer) );
+    entry = ExInterlockedPopEntrySList( &SrvTimerList, &GLOBAL_SPIN_LOCK(Timer) );
     if ( entry == NULL ) {
         timer = ALLOCATE_NONPAGED_POOL( sizeof(SRV_TIMER), BlockTypeTimer );
         if ( timer != NULL ) {
@@ -135,7 +135,7 @@ Return Value:
 VOID
 SrvSetTimer (
     IN PSRV_TIMER Timer,
-    IN ULONG Timeout,
+    IN PLARGE_INTEGER Timeout,
     IN PKDEFERRED_ROUTINE TimeoutHandler,
     IN PVOID Context
     )
@@ -163,7 +163,7 @@ Return Value:
 --*/
 
 {
-    LARGE_INTEGER dueTime;
+    PRKDPC Dpc = &Timer->Dpc;
 
     PAGED_CODE( );
 
@@ -172,12 +172,13 @@ Return Value:
     // that indicates that the timer routine has run.  Set the timer.
     //
 
-    KeInitializeDpc( &Timer->Dpc, TimeoutHandler, Context );
+    KeInitializeDpc( Dpc, TimeoutHandler, Context );
+
+    KeSetTargetProcessorDpc( Dpc, (CCHAR)KeGetCurrentProcessorNumber() );
 
     KeClearEvent( &Timer->Event );
 
-    dueTime.QuadPart = Int32x32To64( Timeout, -1*10*1000 );
-    KeSetTimer( &Timer->Timer, dueTime, &Timer->Dpc );
+    KeSetTimer( &Timer->Timer, *Timeout, Dpc );
 
     return;
 

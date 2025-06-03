@@ -21,6 +21,12 @@
 #define CACHE_READ_THRESHOLD 32*1024
 #define CACHE_ACCESS_THRESHOLD 20
 
+#define DOS_ATTR_MASK  0x0037 // File attribute bits which are the same
+                              // for NT and DOS. See dem\dosdef.h
+
+#define IS_ASCII_PATH_SEPARATOR(ch)     (((ch) == '/') || ((ch) == '\\'))
+
+
 typedef struct _HMAPPEDFILEALIAS {	   /* HMAPPEDFILEALIAS */
     struct  _HMAPPEDFILEALIAS *hpfNext;  // Pointer to Next MappedFileCacheEntry
     HANDLE  hfile32;

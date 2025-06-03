@@ -23,25 +23,28 @@ Revision History:
 #include "bootlib.h"
 
 //
-// Define FAT, HPFS, CDFS, & NTFS context area. ****** temp *****
+// Define generic filesystem context area.
 //
-// Note: HPFS and NTFS are not used in the setupldr environment.
-//
-// N.B. Eventually these will be dynamically allocated. One will exist
-// for each unique FAT & HPFS file system structure. The device id will
-// stored in the structure to identify it.
+// N.B. An FS_STRUCTURE_CONTEXT structure is temporarily used when
+// determining the file system for a volume.  Once the file system
+// is recognized, a file system specific structure is allocated from
+// the heap to retain the file system structure information.
 //
 
-CDFS_STRUCTURE_CONTEXT CdfsStructureTemp;
-FAT_STRUCTURE_CONTEXT  FatStructureTemp;
-HPFS_STRUCTURE_CONTEXT HpfsStructureTemp;
-NTFS_STRUCTURE_CONTEXT NtfsStructureTemp;
-OFS_STRUCTURE_CONTEXT OfsStructureTemp;
+typedef union {
+    CDFS_STRUCTURE_CONTEXT CdfsStructure;
+    FAT_STRUCTURE_CONTEXT FatStructure;
+    HPFS_STRUCTURE_CONTEXT HpfsStructure;
+    NTFS_STRUCTURE_CONTEXT NtfsStructure;
+#if defined(ELTORITO)
+    ETFS_STRUCTURE_CONTEXT EtfsStructure;
+#endif
+#ifdef DBLSPACE_LEGAL
+    DBLS_STRUCTURE_CONTEXT DblsStructure;
+#endif
+} FS_STRUCTURE_CONTEXT, *PFS_STRUCTURE_CONTEXT;
 
 #ifdef DBLSPACE_LEGAL
-
-DBLS_STRUCTURE_CONTEXT DblsStructureTemp;
-
 //
 // Define value controlling whether we transparently
 // find files in \dblspace.000 cvf in fat drives.
@@ -142,30 +145,22 @@ Return Value:
 --*/
 
 {
-    CDFS_STRUCTURE_CONTEXT CdfsStructure;
-    FAT_STRUCTURE_CONTEXT FatStructure;
-    HPFS_STRUCTURE_CONTEXT HpfsStructure;
-    NTFS_STRUCTURE_CONTEXT NtfsStructure;
-    OFS_STRUCTURE_CONTEXT OfsStructure;
+    FS_STRUCTURE_CONTEXT FsStructure;
     PBL_DEVICE_ENTRY_TABLE Table;
 
-    if ((Table = IsFatFileStructure(DeviceId, &FatStructure)) != NULL) {
+    if ((Table = IsFatFileStructure(DeviceId, &FsStructure)) != NULL) {
         return(Table->BootFsInfo);
     }
 
-    if ((Table = IsHpfsFileStructure(DeviceId, &HpfsStructure)) != NULL) {
+    if ((Table = IsHpfsFileStructure(DeviceId, &FsStructure)) != NULL) {
         return(Table->BootFsInfo);
     }
 
-    if ((Table = IsNtfsFileStructure(DeviceId, &NtfsStructure)) != NULL) {
+    if ((Table = IsNtfsFileStructure(DeviceId, &FsStructure)) != NULL) {
         return(Table->BootFsInfo);
     }
 
-    if ((Table = IsOfsFileStructure(DeviceId, &OfsStructure)) != NULL) {
-        return(Table->BootFsInfo);
-    }
-
-    if ((Table = IsCdfsFileStructure(DeviceId, &CdfsStructure)) != NULL) {
+    if ((Table = IsCdfsFileStructure(DeviceId, &FsStructure)) != NULL) {
         return(Table->BootFsInfo);
     }
 
@@ -203,7 +198,7 @@ Return Value:
     //
 
     if ((BlFileTable[FileId].Flags.Open == 1) &&
-        (BlFileTable[FileId].StructureContext == &DblsStructureTemp)) {
+        (BlFileTable[FileId].Flags.DoubleSpace == 1)) {
 
         BlFileTable[ BlFileTable[FileId].DeviceId ].DeviceEntryTable->Close(BlFileTable[FileId].DeviceId);
     }
@@ -296,6 +291,9 @@ Return Value:
 {
 
     ULONG Index;
+    FS_STRUCTURE_CONTEXT FsStructureTemp;
+    PFS_STRUCTURE_CONTEXT FsStructure;
+    ULONG ContextSize;
 
 #ifdef DBLSPACE_LEGAL
     //
@@ -325,7 +323,7 @@ Return Value:
                 //
 
                 if ((BlFileTable[CvfId].DeviceEntryTable =
-                    IsFatFileStructure(DeviceId, &FatStructureTemp)) == NULL) {
+                    IsFatFileStructure(DeviceId, &FsStructureTemp)) == NULL) {
 
                     if(BlAutoDoubleSpace) {
                         goto NonDoubleSpaceOpen;
@@ -334,7 +332,14 @@ Return Value:
                     return EACCES;
                 }
 
-                BlFileTable[CvfId].StructureContext = (PVOID)&FatStructureTemp;
+                FsStructure = BlAllocateHeap(sizeof(FAT_STRUCTURE_CONTEXT));
+                if (FsStructure == NULL) {
+                    return ENOMEM;
+                }
+
+                RtlCopyMemory(FsStructure, &FsStructureTemp, sizeof(FAT_STRUCTURE_CONTEXT));
+
+                BlFileTable[CvfId].StructureContext = FsStructure;
                 BlFileTable[CvfId].DeviceId = DeviceId;
 
                 //
@@ -398,7 +403,7 @@ Return Value:
                 //
 
                 if ((BlFileTable[Index].DeviceEntryTable =
-                    IsDblsFileStructure(CvfId, &DblsStructureTemp)) == NULL) {
+                    IsDblsFileStructure(CvfId, &FsStructureTemp)) == NULL) {
 
                     BlClose(CvfId);
 
@@ -412,9 +417,17 @@ Return Value:
                     return EACCES;
                 }
 
-                BlFileTable[Index].StructureContext = (PVOID)&DblsStructureTemp;
+                FsStructure = BlAllocateHeap(sizeof(DBLS_STRUCTURE_CONTEXT));
+                if (FsStructure == NULL) {
+                    return ENOMEM;
+                }
+
+                RtlCopyMemory(FsStructure, &FsStructureTemp, sizeof(DBLS_STRUCTURE_CONTEXT));
+
+                BlFileTable[Index].StructureContext = FsStructure;
                 *FileId = Index;
                 BlFileTable[Index].DeviceId = CvfId;
+                BlFileTable[FileId].Flags.DoubleSpace = 1;
 
                 //
                 // If we are automounting, then there is no \dblspace.000
@@ -475,29 +488,43 @@ NonDoubleSpaceOpen:
             //
 
             if ((BlFileTable[Index].DeviceEntryTable =
-                IsFatFileStructure(DeviceId, &FatStructureTemp)) != NULL) {
-
-                BlFileTable[Index].StructureContext = (PVOID)&FatStructureTemp;
-
-            } else if ((BlFileTable[Index].DeviceEntryTable =
-                       IsHpfsFileStructure(DeviceId, &HpfsStructureTemp)) != NULL) {
-                BlFileTable[Index].StructureContext = (PVOID)&HpfsStructureTemp;
+                                    IsFatFileStructure(DeviceId, &FsStructureTemp)) != NULL) {
+                ContextSize = sizeof(FAT_STRUCTURE_CONTEXT);
 
             } else if ((BlFileTable[Index].DeviceEntryTable =
-                       IsNtfsFileStructure(DeviceId, &NtfsStructureTemp)) != NULL) {
-                BlFileTable[Index].StructureContext = (PVOID)&NtfsStructureTemp;
+                                    IsHpfsFileStructure(DeviceId, &FsStructureTemp)) != NULL) {
+                ContextSize = sizeof(HPFS_STRUCTURE_CONTEXT);
 
             } else if ((BlFileTable[Index].DeviceEntryTable =
-                       IsOfsFileStructure(DeviceId, &OfsStructureTemp)) != NULL) {
-                BlFileTable[Index].StructureContext = (PVOID)&OfsStructureTemp;
+                                    IsNtfsFileStructure(DeviceId, &FsStructureTemp)) != NULL) {
+                ContextSize = sizeof(NTFS_STRUCTURE_CONTEXT);
 
+#if defined(ELTORITO)
+            //
+            // This must go before the check for Cdfs; otherwise Cdfs will be detected.
+            // Since BIOS calls already set up to use EDDS, reads will succeed, and checks
+            // against ISO will succeed.  We check El Torito-specific fields here as well as ISO
+            //
             } else if ((BlFileTable[Index].DeviceEntryTable =
-                       IsCdfsFileStructure(DeviceId, &CdfsStructureTemp)) != NULL) {
-                BlFileTable[Index].StructureContext = (PVOID)&CdfsStructureTemp;
+                                    IsEtfsFileStructure(DeviceId, &FsStructureTemp)) != NULL) {
+                ContextSize = sizeof(ETFS_STRUCTURE_CONTEXT);
+#endif
+            } else if ((BlFileTable[Index].DeviceEntryTable =
+                                    IsCdfsFileStructure(DeviceId, &FsStructureTemp)) != NULL) {
+                ContextSize = sizeof(CDFS_STRUCTURE_CONTEXT);
 
             } else {
                 return EACCES;
             }
+
+            FsStructure = BlAllocateHeap(ContextSize);
+            if (FsStructure == NULL) {
+                return ENOMEM;
+            }
+
+            RtlCopyMemory(FsStructure, &FsStructureTemp, ContextSize);
+
+            BlFileTable[Index].StructureContext = FsStructure;
 
             //
             // Someone has mounted the volume so now attempt to open the file.

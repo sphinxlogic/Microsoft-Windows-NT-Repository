@@ -187,9 +187,9 @@ Return Value:
 --*/
 
 {
-    DbgPtrAssert( Drive     );
-    DbgPtrAssert( FatSa     );
-    DbgPtrAssert( Message   );
+    DebugPtrAssert( Drive     );
+    DebugPtrAssert( FatSa     );
+    DebugPtrAssert( Message   );
 
     //
     //  Initialize the stuff passed as argument
@@ -232,12 +232,7 @@ Return Value:
     //
     _ClusterFactor  =   1;
 
-    //
-    //  Set the number of clusters per FRS to some nice value.
-    //  4 is used by FORMAT, so that's what we use here.
-    //
-    _ClustersPerFrs =   NTFS_SA::QueryDefaultClustersPerFrs(
-                                       _Drive, _ClusterFactor);
+    _FrsSize = SMALL_FRS_SIZE;
 
     //  Set the default number of clusters per Index Allocation Buffer
     //  to a useful value.
@@ -256,13 +251,15 @@ Return Value:
     //  Allocate space for the file name attribute buffer and initialize
     //  the NTFS superarea and the Bad LCN stack.
     //
-    if( (_FileNameBuffer =
+
+    if( (
+
+        _FileNameBuffer =
          (PFILE_NAME)MALLOC( sizeof(FILE_NAME) +
                              sizeof(WCHAR) * NAMEBUFFERSIZE )) == NULL ||
         !_RootIndexName.Initialize( FileNameIndexNameData ) ||
         !_NtfsSa.Initialize( _Drive, _Message )             ||
         !_BadLcn.Initialize() ) {
-
         _Message->Set( MSG_CONV_NO_MEMORY, ERROR_MESSAGE );
         _Message->Display();
         return FALSE;
@@ -276,7 +273,8 @@ Return Value:
 
 BOOLEAN
 FAT_NTFS::Convert(
-    OUT     PCONVERT_STATUS Status
+    OUT PCONVERT_STATUS Status,
+    IN  BOOLEAN         Pause    
     )
 
 /*++
@@ -298,7 +296,14 @@ Return Value:
 {
     BOOLEAN     Converted;
 
-    DbgPtrAssert( Status );
+    DebugPtrAssert( Status );
+
+#if defined ( _AUTOCONV_ )
+
+    _Message->Set( MSG_CONV_WILL_REBOOT );
+    _Message->Display();
+
+#endif // _AUTOCONV_
 
     //
     //  The conversion from FAT to NTFS consists of a sequence of well-defined
@@ -356,7 +361,7 @@ Return Value:
                             //
                             //    Volume converted, write the boot code
                             //
-                            WriteBoot( ) );
+                            WriteBoot( Pause ) );
 
     *Status = _Status;
 
@@ -427,7 +432,7 @@ Return Value:
 
     if ( !_FatSa->QueryCensusAndRelocate( Census, &HoleStack, &Relocated )) {
 
-        _Message->Set( MSG_CONV_CANNOT_RELOCATE, ERROR_MESSAGE );
+        _Message->Set( MSG_CONV_NO_DISK_SPACE, ERROR_MESSAGE );
         _Message->Display();
         _Status = CONVERT_STATUS_ERROR;
         return FALSE;
@@ -547,7 +552,7 @@ Return Value:
     BOOLEAN                     Converted;
 
 
-    DbgPtrAssert( Directory );
+    DebugPtrAssert( Directory );
 
     _Level = 0;
 
@@ -631,9 +636,9 @@ Return Value:
     LCN                         Lcn;                        //  LCN
 
 
-    DbgPtrAssert( Directory );
-    DbgPtrAssert( DirEntry );
-    DbgPtrAssert( FrsDir );
+    DebugPtrAssert( Directory );
+    DebugPtrAssert( DirEntry );
+    DebugPtrAssert( FrsDir );
 
 
     //
@@ -645,7 +650,9 @@ Return Value:
                             &_VolumeBitmap,
                             FrsDir->GetUpcaseTable(),
                             COLLATION_FILE_NAME,
-                            4,
+                            // 4,                          /* clusters per buffer */
+                            4 * _ClusterFactor * _Drive->QuerySectorSize(),
+                                                        /* buffer size */
                             FrsDir->QueryMaximumAttributeRecordSize() /2,
                             &_RootIndexName
                           )
@@ -740,25 +747,28 @@ Return Value:
 
 {
 
-    FAT_DIRENT                  Entry;                      //  Directory entry
-    HMEM                        HMem;                       //  Memory
-    DSTRING                     DirName;                    //  This dir's name
-    DSTRING                     LongName;                   //  It's associated long name
-    STANDARD_INFORMATION        StandardInformation;        //  Std. Info
-    ULONG                       EntryNumber     =   0;      //  Entry number counter
-    BOOLEAN                     Converted       =   TRUE;   //  FALSE if error
-    NTFS_FILE_RECORD_SEGMENT    Frs;                        //  FRS of each entry
-    VCN                         FileNumber;                 //  File Number of child.
-    LARGE_INTEGER               FatTime, NtfsTime;
+    FAT_DIRENT                  Entry;              //  Directory entry
+    HMEM                        HMem;               //  Memory
+    DSTRING                     DirName;            //  This dir's name
+    DSTRING                     LongName;           //  the associated long name
+    BOOLEAN                     UseLongName;        //  make one name attrib
+    STANDARD_INFORMATION        StandardInformation;//  Std. Info
+    ULONG                       EntryNumber;        //  Entry number counter
+    BOOLEAN                     Converted;          //  FALSE if error
+    NTFS_FILE_RECORD_SEGMENT    Frs;                //  FRS of each entry
+    VCN                         FileNumber;         //  File Number of child.
     USHORT                      FrsFlags;
     PVOID                       DirEntry;
     FILEDIR                     SubDir;
     BOOLEAN                     HasLongName;
 
+    Converted = TRUE;
+    EntryNumber = 0;
 
-    DbgPtrAssert( Directory );
-    DbgPtrAssert( Index );
-    DbgPtrAssert( FrsDir );
+
+    DebugPtrAssert( Directory );
+    DebugPtrAssert( Index );
+    DebugPtrAssert( FrsDir );
 
 
     //
@@ -777,7 +787,7 @@ Return Value:
             _Message->Display();
             _Status = CONVERT_STATUS_ERROR;
             Converted = FALSE;
-            DbgAssert(FALSE);
+            DebugAssert(FALSE);
             break;
         }
 
@@ -792,204 +802,252 @@ Return Value:
         //  Ignore the deleted, the "parent" and the "self" entries, the
         //  volume label and the EA file.
         //
-        if ( !( Entry.IsErased()        ||
-                Entry.IsDot()           ||
-                Entry.IsDotDot()        ||
-                Entry.IsVolumeLabel()   ||
-                Entry.IsLongEntry()     ||
-                (_EAFileFirstCluster != 0 &&
-                 Entry.QueryStartingCluster() == _EAFileFirstCluster) ) ) {
+        if (( Entry.IsErased()        ||
+              Entry.IsDot()           ||
+              Entry.IsDotDot()        ||
+              Entry.IsVolumeLabel()   ||
+              Entry.IsLongEntry()     ||
+              (_EAFileFirstCluster != 0 &&
+               Entry.QueryStartingCluster() == _EAFileFirstCluster) ) ) {
 
-            //  Fill in the standard information for this file or
-            //  directory.  Note that NTFS stores Universal Time,
-            //  whereas FAT stores Local Time, so the time has to
-            //  be converted.
-            //
-            Entry.QueryTimeStamp( &FatTime );
+              EntryNumber++;
+              continue;
+        }
+
+        //  Fill in the standard information for this file or
+        //  directory.  Note that NTFS stores Universal Time,
+        //  whereas FAT stores Local Time, so the time has to
+        //  be converted.
+        //
+
+        LARGE_INTEGER FatTime, NtfsTime;
+
+        Entry.QueryLastWriteTime( &FatTime );
+        RtlLocalTimeToSystemTime( &FatTime, &NtfsTime );
+
+        StandardInformation.LastModificationTime = NtfsTime;
+        StandardInformation.LastChangeTime = NtfsTime;
+
+        if (Entry.IsValidCreationTime()) {
+
+            Entry.QueryCreationTime( &FatTime );
             RtlLocalTimeToSystemTime( &FatTime, &NtfsTime );
+            StandardInformation.CreationTime = NtfsTime;
+        } else {
 
-            StandardInformation.CreationTime =
-                StandardInformation.LastModificationTime =
-                    StandardInformation.LastChangeTime =
-                        StandardInformation.LastAccessTime =
-                            NtfsTime;
+            StandardInformation.CreationTime = StandardInformation.LastChangeTime;
+        }
 
-            StandardInformation.FileAttributes = Entry.QueryAttributeByte();
+        if (Entry.IsValidLastAccessTime()) {
+
+            Entry.QueryLastAccessTime( &FatTime );
+            RtlLocalTimeToSystemTime( &FatTime, &NtfsTime );
+            StandardInformation.LastAccessTime = NtfsTime;
+        } else {
+
+            StandardInformation.LastAccessTime = StandardInformation.LastChangeTime;
+        }
+
+        StandardInformation.FileAttributes = Entry.QueryAttributeByte();
 
 
-            //
-            //  Get the WSTR name of the entry and fill in the FILE_NAME
-            //  structure for the file name attribute.  If this entry
-            //  does not have an associated Long File Name, then its
-            //  name is both a valid DOS and NTFS name; if there is an
-            //  associated Long File Name, then the name is the DOS name
-            //  and the long name is the NTFS name.
-            //
-            //  If the long name is identical to the short name, ignore
-            //  the long name.
-            //
-            Entry.QueryName( &DirName );
+        //
+        //  Get the WSTR name of the entry and fill in the FILE_NAME
+        //  structure for the file name attribute.  If this entry
+        //  does not have an associated Long File Name, then its
+        //  name is both a valid DOS and NTFS name; if there is an
+        //  associated Long File Name, then the name is the DOS name
+        //  and the long name is the NTFS name.
+        //
+        //  If the long name is identical to the short name, ignore
+        //  the long name.
+        //
+        Entry.QueryName( &DirName );
 
-            if( !Directory->QueryLongName( EntryNumber, &LongName ) ) {
+        if( !Directory->QueryLongName( EntryNumber, &LongName ) ) {
 
-                DbgPrintf( "CUFAT: QueryLongName failed.\n" );
+            DebugPrintf( "CUFAT: QueryLongName failed.\n" );
+            _Status = CONVERT_STATUS_ERROR;
+            Converted = FALSE;
+            break;
+        }
+
+        HasLongName = (LongName.QueryChCount() != 0);
+
+        //
+        // If the long name is only a casewise permutation of the
+        // short name, use the long name as the single ntfs name
+        // attribute.
+        //
+
+        UseLongName = (HasLongName &&
+                   0 == NtfsUpcaseCompare( DirName.GetWSTR(),
+                                           DirName.QueryChCount(),
+                                           LongName.GetWSTR(),
+                                           LongName.QueryChCount(),
+                                           FrsDir->GetUpcaseTable(),
+                                           FALSE ));
+                                               
+
+        _FileNameBuffer->ParentDirectory = FrsDir->QuerySegmentReference();
+        _FileNameBuffer->FileNameLength  = (unsigned char)DirName.QueryChCount();
+        if (UseLongName) {
+
+            _FileNameBuffer->Flags = FILE_NAME_NTFS | FILE_NAME_DOS;
+
+            if ( !LongName.QueryWSTR( 0, TO_END, NtfsFileNameGetName(_FileNameBuffer), (NAMEBUFFERSIZE * sizeof(WCHAR)) ) ) {
+                _Message->Set( MSG_CONV_NO_MEMORY, ERROR_MESSAGE );
+                _Message->Display();
                 _Status = CONVERT_STATUS_ERROR;
                 Converted = FALSE;
+                DebugAssert(FALSE);
                 break;
             }
 
-            HasLongName = ( LongName.QueryChCount() != 0 &&
-                            NtfsUpcaseCompare( DirName.GetWSTR(),
-                                               DirName.QueryChCount(),
-                                               LongName.GetWSTR(),
-                                               LongName.QueryChCount(),
-                                               FrsDir->GetUpcaseTable(),
-                                               FALSE ) );
+        } else {
 
-            _FileNameBuffer->ParentDirectory = FrsDir->QuerySegmentReference();
-            _FileNameBuffer->FileNameLength  = (unsigned char)DirName.QueryChCount();
             _FileNameBuffer->Flags = HasLongName ?
-                                         FILE_NAME_DOS :
-                                         FILE_NAME_NTFS | FILE_NAME_DOS;
+                                     FILE_NAME_DOS :
+                                     FILE_NAME_NTFS | FILE_NAME_DOS;
 
             if ( !DirName.QueryWSTR( 0, TO_END, NtfsFileNameGetName(_FileNameBuffer), (NAMEBUFFERSIZE * sizeof(WCHAR)) ) ) {
                 _Message->Set( MSG_CONV_NO_MEMORY, ERROR_MESSAGE );
                 _Message->Display();
                 _Status = CONVERT_STATUS_ERROR;
                 Converted = FALSE;
-                DbgAssert(FALSE);
+                DebugAssert(FALSE);
+                break;
+            }
+        }
+
+        //  Allocate and create the FRS for this file or directory,
+        //  add its file name, and add an appropriate entry to the
+        //  index.
+        //
+        FrsFlags = (Entry.IsDirectory()) ? (USHORT)FILE_FILE_NAME_INDEX_PRESENT : (USHORT)0;
+
+        if ( !_Mft.AllocateFileRecordSegment( &FileNumber, FALSE )  ||
+             !Frs.Initialize( FileNumber, &_Mft )          ||
+             !Frs.Create( &StandardInformation, FrsFlags ) ||
+             !Frs.AddFileNameAttribute( _FileNameBuffer )  ||
+             !Frs.AddSecurityDescriptor( NoAclCannedSd,
+                                         &_VolumeBitmap )  ||
+             !Index->InsertEntry( NtfsFileNameGetLength( _FileNameBuffer ),
+                                  _FileNameBuffer,
+                                  Frs.QuerySegmentReference() ) ) {
+
+            DebugPrint( "Can't create FRS in ConvertDirectory.\n" );
+            Converted = FALSE;
+            break;
+        }
+
+        //  If the file has separate long name, add that entry to the FRS
+        //  and the index.
+        //
+        if( HasLongName && !UseLongName ) {
+
+
+            _FileNameBuffer->ParentDirectory = FrsDir->QuerySegmentReference();
+            _FileNameBuffer->FileNameLength  = (unsigned char)LongName.QueryChCount();
+            _FileNameBuffer->Flags = FILE_NAME_NTFS;
+
+            if ( !LongName.QueryWSTR( 0, TO_END, NtfsFileNameGetName(_FileNameBuffer), (NAMEBUFFERSIZE * sizeof(WCHAR)) ) ) {
+                _Message->Set( MSG_CONV_NO_MEMORY, ERROR_MESSAGE );
+                _Message->Display();
+                _Status = CONVERT_STATUS_ERROR;
+                Converted = FALSE;
+                DebugAssert(FALSE);
                 break;
             }
 
-            //  Allocate and create the FRS for this file or directory,
-            //  add its file name, and add an appropriate entry to the
-            //  index.
+            if( !Frs.AddFileNameAttribute( _FileNameBuffer )  ||
+                !Index->InsertEntry( NtfsFileNameGetLength( _FileNameBuffer ),
+                                     _FileNameBuffer,
+                                     Frs.QuerySegmentReference() ) ) {
+
+                DebugPrint( "Can't create FRS in ConvertDirectory.\n" );
+                Converted = FALSE;
+                break;
+            }
+        }
+
+        if ( _Verbose ) {
+            STATIC CHAR NameDisplayBuffer[128];
+            ULONG NameStart = _Level * 4;
+            PWSTRING Name;
+
+            Name = (HasLongName ? &LongName : &DirName);
+
+            memset(NameDisplayBuffer, ' ', NameStart);
+            Name->QuerySTR( 0, TO_END, NameDisplayBuffer + NameStart,
+                128 - Name->QueryChCount() );
+            NameDisplayBuffer[NameStart + Name->QueryChCount()] = 0;
+            _Message->Set( MSG_ONE_STRING );
+            _Message->Display( "%s", NameDisplayBuffer );
+        }
+
+        //
+        //  Determine if the entry is a directory or a file, and proccess it
+        //  accordingly.
+        //
+        if ( Entry.IsDirectory() ) {
+
             //
-            FrsFlags = (Entry.IsDirectory()) ? (USHORT)FILE_FILE_NAME_INDEX_PRESENT : (USHORT)0;
+            //  Directory
+            //
+            //
+            //  Convert the directory (and all its subdirectories)
+            //
 
-            if ( !_Mft.AllocateFileRecordSegment( &FileNumber, FALSE )  ||
-                 !Frs.Initialize( FileNumber, &_Mft )          ||
-                 !Frs.Create( &StandardInformation, FrsFlags ) ||
-                 !Frs.AddFileNameAttribute( _FileNameBuffer )  ||
-                 !Frs.AddSecurityDescriptor( NoAclCannedSd,
-                                             &_VolumeBitmap )  ||
-                 !Index->InsertEntry( NtfsFileNameGetLength( _FileNameBuffer ),
-                                      _FileNameBuffer,
-                                      Frs.QuerySegmentReference() ) ) {
 
-                DbgPrint( "Can't create FRS in ConvertDirectory.\n" );
+            if ( !HMem.Initialize()     ||
+                 !SubDir.Initialize( &HMem,
+                                     _Drive,
+                                     _FatSa,
+                                     _FatSa->GetFat(),
+                                     Entry.QueryStartingCluster() ) ) {
+
+                _Message->Set( MSG_CONV_NO_MEMORY, ERROR_MESSAGE );
+                _Message->Display();
+                _Status = CONVERT_STATUS_ERROR;
+                DebugAssert(FALSE);
+                return FALSE;
+            }
+
+            if ( !SubDir.Read() ) {
+                _Message->Set( MSG_CONV_CANNOT_READ, ERROR_MESSAGE );
+                _Message->Display( );
+                _Status = CONVERT_STATUS_ERROR;
+                return FALSE;
+            }
+
+            if ( !ConvertDirectory( &SubDir, &Entry, &Frs ) ||
+                 !Frs.Flush( &_VolumeBitmap, Index ) ) {
+
+                _Message->Set( MSG_CONV_CANNOT_CONVERT_DIRECTORY );
+                _Message->Display( "%W", &DirName );
                 Converted = FALSE;
                 break;
             }
 
-            //  If the file has a long name, add that entry to the FRS
-            //  and the index.
-            //
-            if( HasLongName ) {
-
-
-                _FileNameBuffer->ParentDirectory = FrsDir->QuerySegmentReference();
-                _FileNameBuffer->FileNameLength  = (unsigned char)LongName.QueryChCount();
-                _FileNameBuffer->Flags = FILE_NAME_NTFS;
-
-                if ( !LongName.QueryWSTR( 0, TO_END, NtfsFileNameGetName(_FileNameBuffer), (NAMEBUFFERSIZE * sizeof(WCHAR)) ) ) {
-                    _Message->Set( MSG_CONV_NO_MEMORY, ERROR_MESSAGE );
-                    _Message->Display();
-                    _Status = CONVERT_STATUS_ERROR;
-                    Converted = FALSE;
-                    DbgAssert(FALSE);
-                    break;
-                }
-
-                if( !Frs.AddFileNameAttribute( _FileNameBuffer )  ||
-                    !Index->InsertEntry( NtfsFileNameGetLength( _FileNameBuffer ),
-                                         _FileNameBuffer,
-                                         Frs.QuerySegmentReference() ) ) {
-
-                   DbgPrint( "Can't create FRS in ConvertDirectory.\n" );
-                   Converted = FALSE;
-                   break;
-               }
-            }
-
-            if ( _Verbose ) {
-                STATIC CHAR NameDisplayBuffer[128];
-                ULONG NameStart = _Level * 4;
-                PWSTRING Name;
-
-                Name = (HasLongName ? &LongName : &DirName);
-
-                memset(NameDisplayBuffer, ' ', NameStart);
-                Name->QuerySTR( 0, TO_END, NameDisplayBuffer + NameStart,
-                    128 - Name->QueryChCount() );
-                NameDisplayBuffer[NameStart + Name->QueryChCount()] = 0;
-                _Message->Set( MSG_ONE_STRING );
-                _Message->Display( "%s", NameDisplayBuffer );
-            }
+        } else {
 
             //
-            //  Determine if the entry is a directory or a file, and proccess it
-            //  accordingly.
+            //  File
             //
-            if ( Entry.IsDirectory() ) {
+            DebugAssert( !Entry.IsVolumeLabel() );
+            DebugAssert( !Entry.IsLongEntry() );
+            DebugAssert( !_EAFileFirstCluster ||
+                       (Entry.QueryStartingCluster() != _EAFileFirstCluster) );
 
-                //
-                //  Directory
-                //
-                //
-                //  Convert the directory (and all its subdirectories)
-                //
+            //
+            //  Convert the file.
+            //
+            if ( !ConvertFile( &Entry, &Frs ) ||
+                 !Frs.Flush( &_VolumeBitmap, Index ) ) {
 
-
-                if ( !HMem.Initialize()     ||
-                     !SubDir.Initialize( &HMem,
-                                         _Drive,
-                                         _FatSa,
-                                         _FatSa->GetFat(),
-                                         Entry.QueryStartingCluster() ) ) {
-
-                    _Message->Set( MSG_CONV_NO_MEMORY, ERROR_MESSAGE );
-                    _Message->Display();
-                    _Status = CONVERT_STATUS_ERROR;
-                    DbgAssert(FALSE);
-                    return FALSE;
-                }
-
-                if ( !SubDir.Read() ) {
-                    _Message->Set( MSG_CONV_CANNOT_READ, ERROR_MESSAGE );
-                    _Message->Display( );
-                    _Status = CONVERT_STATUS_ERROR;
-                    return FALSE;
-                }
-
-                if ( !ConvertDirectory( &SubDir, &Entry, &Frs ) ||
-                     !Frs.Flush( &_VolumeBitmap, Index ) ) {
-
-                    _Message->Set( MSG_CONV_CANNOT_CONVERT_DIRECTORY );
-                    _Message->Display( "%W", &DirName );
-                    Converted = FALSE;
-                    break;
-                }
-
-            } else {
-
-                //
-                //  File
-                //
-                DbgAssert( !Entry.IsVolumeLabel() );
-                DbgAssert( !Entry.IsLongEntry() );
-                DbgAssert( !_EAFileFirstCluster ||
-                           (Entry.QueryStartingCluster() != _EAFileFirstCluster) );
-
-                //
-                //  Convert the file.
-                //
-                if ( !ConvertFile( &Entry, &Frs ) ||
-                     !Frs.Flush( &_VolumeBitmap, Index ) ) {
-
-                    Converted = FALSE;
-                    break;
-                }
+                Converted = FALSE;
+                break;
             }
         }
 
@@ -1030,8 +1088,8 @@ Return Value:
 {
     USHORT  EaHandle;
 
-    DbgPtrAssert( Dirent );
-    DbgPtrAssert( Frs );
+    DebugPtrAssert( Dirent );
+    DebugPtrAssert( Frs );
 
     EaHandle = Dirent->QueryEaHandle();
 
@@ -1122,7 +1180,7 @@ Return Value:
         _Message->Set( MSG_CONV_NO_MEMORY, ERROR_MESSAGE );
         _Message->Display( );
         _Status = CONVERT_STATUS_ERROR;
-        DbgAssert(FALSE);
+        DebugAssert(FALSE);
         return FALSE;
     }
 
@@ -1229,7 +1287,7 @@ Return Value:
                                      NULL,
                                      0 ) ) {
 
-        DbgPrint( "Cannot initialize resident attribute for EA List.\n" );
+        DebugPrint( "Cannot initialize resident attribute for EA List.\n" );
         FREE( UnpackedEaList );
         return FALSE;
     }
@@ -1286,8 +1344,8 @@ Return Value:
 {
     DSTRING                     FileName;               //  File name
 
-    DbgPtrAssert( Dirent );
-    DbgPtrAssert( File );
+    DebugPtrAssert( Dirent );
+    DebugPtrAssert( File );
 
     Dirent->QueryName( &FileName );
 
@@ -1298,6 +1356,7 @@ Return Value:
          !( !Dirent->QueryEaHandle()                     ||
             ConvertExtendedAttributes( Dirent, File ))
        ) {
+
 
         _Message->Set( MSG_CONV_CANNOT_CONVERT_FILE, ERROR_MESSAGE );
         _Message->Display( "%W", &FileName );
@@ -1344,8 +1403,8 @@ Return Value:
     ULONG               FileSize;               //  File size
     ULONG               SectorsPerFatCluster;   //  Sectors per cluster
 
-    DbgPtrAssert( Dirent );
-    DbgPtrAssert( Frs );
+    DebugPtrAssert( Dirent );
+    DebugPtrAssert( Frs );
 
     //
     //  Get the file size
@@ -1369,7 +1428,7 @@ Return Value:
 
     } else {
 
-        DbgAssert( FileSize > 0 );
+        DebugAssert( FileSize > 0 );
 
         return ConvertFileDataNonResident( Dirent, Frs );
     }
@@ -1416,8 +1475,8 @@ Return Value:
     LCN                 Lcn;                    //  LCN
     PFAT                Fat;                    //  Pointer to FAT
 
-    DbgPtrAssert( Dirent );
-    DbgPtrAssert( Frs );
+    DebugPtrAssert( Dirent );
+    DebugPtrAssert( Frs );
 
     //
     //  Get the file size
@@ -1425,7 +1484,7 @@ Return Value:
     FileSize            = Dirent->QueryFileSize();
     SectorsPerCluster   = _FatSa->QuerySectorsPerCluster();
 
-    DbgAssert( FileSize > 0 );
+    DebugAssert( FileSize > 0 );
 
     //
     //  First we generate an extent list mapping the file's data
@@ -1441,7 +1500,7 @@ Return Value:
         _Message->Set( MSG_CONV_NO_MEMORY, ERROR_MESSAGE );
         _Message->Display( );
         _Status = CONVERT_STATUS_ERROR;
-        DbgAssert(FALSE);
+        DebugAssert(FALSE);
         return FALSE;
     }
 
@@ -1461,7 +1520,7 @@ Return Value:
         Lcn     =   FatClusterToLcn( Cluster );
         Length  =   min( SectorsLeft, SectorsPerCluster );
 
-        //DbgPrintf( "    Extent: Cluster %d Vcn %d Lcn %d Length %d Left %d\n",
+        //DebugPrintf( "    Extent: Cluster %d Vcn %d Lcn %d Length %d Left %d\n",
         //            Cluster, Vcn.GetLowPart(), Lcn.GetLowPart(), Length,
         //            SectorsLeft );
 
@@ -1469,14 +1528,14 @@ Return Value:
             _Message->Set( MSG_CONV_NO_MEMORY, ERROR_MESSAGE );
             _Message->Display( );
             _Status = CONVERT_STATUS_ERROR;
-            DbgAssert(FALSE);
+            DebugAssert(FALSE);
             return FALSE;
         }
 
         Vcn         += Length;
         SectorsLeft -= Length;
 
-        DbgAssert( ( SectorsLeft > 0 ) || Fat->IsEndOfChain( Cluster ));
+        DebugAssert( ( SectorsLeft > 0 ) || Fat->IsEndOfChain( Cluster ));
 
         Cluster = Fat->QueryEntry( Cluster );
     }
@@ -1504,7 +1563,7 @@ Return Value:
         _Message->Set( MSG_CONV_NO_MEMORY, ERROR_MESSAGE );
         _Message->Display( );
         _Status = CONVERT_STATUS_ERROR;
-        DbgAssert(FALSE);
+        DebugAssert(FALSE);
         return FALSE;
     }
 
@@ -1557,8 +1616,8 @@ Return Value:
     NTFS_ATTRIBUTE      DataAttribute;          //  File's $DATA attribute
     ULONG               FileSize;               //  File size
 
-    DbgPtrAssert( Dirent );
-    DbgPtrAssert( Frs );
+    DebugPtrAssert( Dirent );
+    DebugPtrAssert( Frs );
 
     //
     //  Get the file size
@@ -1579,7 +1638,7 @@ Return Value:
             _Message->Set( MSG_CONV_NO_MEMORY, ERROR_MESSAGE );
             _Message->Display( );
             _Status = CONVERT_STATUS_ERROR;
-            DbgAssert(FALSE);
+            DebugAssert(FALSE);
             return FALSE;
         }
 
@@ -1609,7 +1668,7 @@ Return Value:
         _Message->Set( MSG_CONV_NO_MEMORY, ERROR_MESSAGE );
         _Message->Display( );
         _Status = CONVERT_STATUS_ERROR;
-        DbgAssert(FALSE);
+        DebugAssert(FALSE);
         return FALSE;
     }
 
@@ -1690,7 +1749,7 @@ Return Value:
     //  Get the root directory
     //
     RootDir = (PFATDIR)_FatSa->GetRootDir();
-    DbgPtrAssert( RootDir );
+    DebugPtrAssert( RootDir );
 
     //
     //  Locate the EA file. If it exists then remember its starting cluster
@@ -1720,7 +1779,7 @@ Return Value:
             _Message->Set( MSG_CONV_NO_MEMORY, ERROR_MESSAGE );
             _Message->Display();
             _Status = CONVERT_STATUS_ERROR;
-            DbgAssert(FALSE);
+            DebugAssert(FALSE);
             return FALSE;
         }
 
@@ -1732,7 +1791,7 @@ Return Value:
 
 #if DBG
         if ( _Verbose ) {
-            DbgPrintf( "EA file at cluster %X\n", _EAFileFirstCluster );
+            DebugPrintf( "EA file at cluster %X\n", _EAFileFirstCluster );
         }
 #endif
 
@@ -1751,7 +1810,7 @@ Return Value:
 
 #if DBG
         if ( _Verbose ) {
-            DbgPrintf( "The volume contains no EA file\n" );
+            DebugPrintf( "The volume contains no EA file\n" );
         }
 #endif
 
@@ -1815,18 +1874,19 @@ Return Value:
     //  Note that the code assumes that 1 LCN == 1 sector, i.e. that the
     //  cluster factor is 1.
     //
-    DbgAssert( _ClusterFactor == 1 );
+    DebugAssert( _ClusterFactor == 1 );
 
     //
     //  Initialize bitmaps
     //
-    if ( !_VolumeBitmap.Initialize( _Drive->QuerySectors(), FALSE ) ||
-         !_ReservedBitmap.Initialize( _Drive->QuerySectors(), FALSE ) ) {
+    if (!_VolumeBitmap.Initialize(_Drive->QuerySectors() - 1, FALSE, _Drive,
+            _ClusterFactor) ||
+        !_ReservedBitmap.Initialize(_Drive->QuerySectors() - 1, FALSE, NULL, 0)) {
 
         _Message->Set( MSG_CONV_NO_MEMORY, ERROR_MESSAGE );
         _Message->Display();
         _Status = CONVERT_STATUS_ERROR;
-        DbgAssert(FALSE);
+        DebugAssert(FALSE);
         return FALSE;
     }
 
@@ -1926,20 +1986,7 @@ Return Value:
 
     BOOLEAN             Error;
 
-#if DBG
-    if ( _Verbose ) {
-        BIG_INT HoleStart = _Drive->QuerySectors()/2;
-        if ( !_VolumeBitmap.IsFree( HoleStart, SECTORS_IN_EXTRA_BOOT ) ) {
-            DbgPrintf( "ERROR: There is no hole for extra boot! Sector %X size %X\n",
-                        HoleStart.GetLowPart(), SECTORS_IN_EXTRA_BOOT );
-
-        }
-    }
-#endif
-
-    DbgAssert( _VolumeBitmap.IsFree( 0, SECTORS_IN_BOOT ) );
-    DbgAssert( _VolumeBitmap.IsFree( _Drive->QuerySectors()/2, SECTORS_IN_EXTRA_BOOT ));
-
+    DebugAssert( _VolumeBitmap.IsFree( 0, SECTORS_IN_BOOT ) );
 
     //
     //  Get the volume label and create the elementary NTFS structures.
@@ -1949,8 +1996,8 @@ Return Value:
     if ( !_FatSa->QueryLabel( &VolumeLabel )            ||
          !_NtfsSa.CreateElementaryStructures( &_VolumeBitmap,
                                               _ClusterFactor,
-                                              _ClustersPerFrs,
-                                              _ClustersPerIndexBuffer,
+                                              _FrsSize,
+                                              SMALL_INDEX_BUFFER_SIZE,
                                               0,
                                               &_BadLcn,
                                               _Message,
@@ -1973,7 +2020,7 @@ Return Value:
     if ( !_Mft.Initialize( _Drive,
                            _NtfsSa.QueryMftStartingLcn(),
                            _ClusterFactor,
-                           _ClustersPerFrs,
+                           _FrsSize,
                            _NtfsSa.QueryVolumeSectors(),
                            &_VolumeBitmap,
                            NULL )             ||
@@ -1986,6 +2033,12 @@ Return Value:
         return FALSE;
     }
 
+    // Tell the volume bitmap about the new Mft so it can add any
+    // bad clusters it finds to the bad cluster file.
+
+    _VolumeBitmap.SetMftPointer(_Mft.GetMasterFileTable());
+
+
     // Get the upcase table.
     //
     if( !UpcaseFile.Initialize( _Mft.GetMasterFileTable() ) ||
@@ -1993,7 +2046,7 @@ Return Value:
         !UpcaseFile.QueryAttribute( &UpcaseAttribute, &Error, $DATA ) ||
         !_UpcaseTable.Initialize( &UpcaseAttribute ) ) {
 
-        DbgPrint( "Can't get the upcase table.\n" );
+        DebugPrint( "Can't get the upcase table.\n" );
         return FALSE;
     }
 
@@ -2009,7 +2062,7 @@ Return Value:
 
         if ( !_Mft.Extend( _NumberOfFiles + _NumberOfDirectories + 20 ) ) {
 
-            DbgPrintf( "Cannot extend MFT by %d segments\n", _NumberOfFiles + _NumberOfDirectories  );
+            DebugPrintf( "Cannot extend MFT by %d segments\n", _NumberOfFiles + _NumberOfDirectories  );
 
             _Message->Set( MSG_CONV_CANNOT_CREATE_ELEMENTARY, ERROR_MESSAGE );
             _Message->Display();
@@ -2023,7 +2076,7 @@ Return Value:
     //
     if( !_Mft.Flush() ) {
 
-        DbgPrintf( "CONVERT: Cannot flush the MFT\n"  );
+        DebugPrintf( "CONVERT: Cannot flush the MFT\n"  );
 
         _Message->Set( MSG_CONV_CANNOT_CREATE_ELEMENTARY, ERROR_MESSAGE );
         _Message->Display();
@@ -2117,8 +2170,8 @@ Return Value:
 
 #if DBG
     if ( _Verbose ) {
-        DbgPrintf( "Free sectors before conversion: %d\n", _FreeSectorsBefore.GetLowPart() );
-        DbgPrintf( "Free sectors after conversion:  %d\n", _FreeSectorsAfter.GetLowPart() );
+        DebugPrintf( "Free sectors before conversion: %d\n", _FreeSectorsBefore.GetLowPart() );
+        DebugPrintf( "Free sectors after conversion:  %d\n", _FreeSectorsAfter.GetLowPart() );
     }
 #endif
 
@@ -2159,48 +2212,59 @@ Return Value:
     BIG_INT     BootSize;               //  Size of boot code
     BIG_INT     MftSize;                //  Size of MFT
     BIG_INT     MftReflectionSize;      //  Size of MFT reflection
+    ULONG       sectorsize;
+    USHORT      i;
 
 
     //
     //  Initialize the hole stack
     //
+
     if ( !Stack->Initialize() ) {
         _Message->Set( MSG_CONV_NO_MEMORY, ERROR_MESSAGE );
         _Message->Display();
         _Status = CONVERT_STATUS_ERROR;
-        DbgAssert(FALSE);
+        DebugAssert(FALSE);
         return FALSE;
     }
 
     //
     //  The only NTFS structure that needs a fixed location is
-    //  the BOOT backup.
+    //  the BOOT backup.  Push the size and location of this sector
+    //  onto the stack.
+    //
+
+    if ( !Stack->Push( 1 )   ||
+         !Stack->Push( _Drive->QuerySectors() - 1 ) ) {
+
+        _Message->Set( MSG_CONV_NO_MEMORY, ERROR_MESSAGE );
+        _Message->Display();
+        _Status = CONVERT_STATUS_ERROR;
+        DebugAssert(FALSE);
+        return FALSE;
+    }
+
     //
     //  We also want to create a hole big enough for the MFT and
     //  the MFT reflection. These don't need to be in a particular
     //  location, but they have to be contiguous (i.e. occupy a
     //  single "hole").
     //
-    //  For simplicity. we will coalesce the hole for the BOOT backup
-    //  and the MFTs into one big hole.
-    //
 
+    sectorsize = _Drive->QuerySectorSize();
 
-    BootSize          = SECTORS_IN_BOOT * _ClusterFactor;
-    MftSize           = _ClustersPerFrs * _ClusterFactor * FIRST_USER_FILE_NUMBER;
-    MftReflectionSize = _ClustersPerFrs * _ClusterFactor * REFLECTED_MFT_SEGMENTS;
+    MftSize = (_FrsSize * FIRST_USER_FILE_NUMBER + (sectorsize - 1)) / sectorsize;
 
-    HoleSize = BootSize + MftSize + MftReflectionSize;
+    MftReflectionSize = (_FrsSize * REFLECTED_MFT_SEGMENTS + (sectorsize - 1))
+                / sectorsize;
 
-    //
-    //  Determine the location of the hole. It needs to be right in the
-    //  middle of the disk
-    //
-    HoleStart = _Drive->QuerySectors() / 2;
+    HoleSize = MftSize + MftReflectionSize;
+    HoleStart = _Drive->QuerySectors() - 1 - HoleSize;
 
 #if DBG
     if ( _Verbose ) {
-        DbgPrintf( "Hole required: Sector %X, size %X\n", HoleStart.GetLowPart(), HoleSize.GetLowPart() );
+        DebugPrintf( "Hole required: Sector %X, size %X\n",
+                     HoleStart.GetLowPart(), HoleSize.GetLowPart() );
     }
 #endif
 
@@ -2224,7 +2288,7 @@ Return Value:
         _Message->Set( MSG_CONV_NO_MEMORY, ERROR_MESSAGE );
         _Message->Display();
         _Status = CONVERT_STATUS_ERROR;
-        DbgAssert(FALSE);
+        DebugAssert(FALSE);
         return FALSE;
     }
 
@@ -2262,20 +2326,21 @@ Return Value:
     BIG_INT     BytesInIndices;
 
     ULONG       NtfsClusterSize;    //  Size of an NTFS cluster
+    ULONG       sectorsize;
 
     CONST       AverageBytesPerIndexEntry = 128;
 
 
 #if DBG
     if ( _Verbose ) {
-        DbgPrintf( "\n" );
-        DbgPrintf( "---- Volume Census Data ----\n" );
-        DbgPrintf( "Number of dirs:      %d\n", Census->DirEntriesCount );
-        DbgPrintf( "Number of files:     %d\n", Census->FileEntriesCount );
-        DbgPrintf( "Clusters in dirs:    %d\n", Census->DirClusters );
-        DbgPrintf( "Clusters in files:   %d\n", Census->FileClusters );
-        DbgPrintf( "Clusters in EA file: %d\n", Census->EaClusters );
-        DbgPrintf( "\n\n" );
+        DebugPrintf( "\n" );
+        DebugPrintf( "---- Volume Census Data ----\n" );
+        DebugPrintf( "Number of dirs:      %d\n", Census->DirEntriesCount );
+        DebugPrintf( "Number of files:     %d\n", Census->FileEntriesCount );
+        DebugPrintf( "Clusters in dirs:    %d\n", Census->DirClusters );
+        DebugPrintf( "Clusters in files:   %d\n", Census->FileClusters );
+        DebugPrintf( "Clusters in EA file: %d\n", Census->EaClusters );
+        DebugPrintf( "\n\n" );
     }
 #endif
 
@@ -2287,7 +2352,7 @@ Return Value:
     SectorsRequired =
         NTFS_SA::QuerySectorsInElementaryStructures( _Drive,
                                                      _ClusterFactor,
-                                                     _ClustersPerFrs,
+                                                     _FrsSize,
                                                      _ClustersPerIndexBuffer,
                                                      0 );
 
@@ -2299,8 +2364,11 @@ Return Value:
     //  reflect the fact that the average index block will be
     //  half full.)
     //
+
+    sectorsize = _Drive->QuerySectorSize();
+
     SectorsRequired += ( _NumberOfFiles + _NumberOfDirectories ) *
-                            _ClustersPerFrs * _ClusterFactor;
+                            ((_FrsSize + (sectorsize - 1))/sectorsize);
 
     BytesInIndices = ( _NumberOfFiles + _NumberOfDirectories ) *
                          AverageBytesPerIndexEntry * 2;
@@ -2353,7 +2421,7 @@ Return Value:
     LCN         Lcn;
     BIG_INT     Clusters;
 
-    DbgAssert( _ClusterFactor == 1 );
+    DebugAssert( _ClusterFactor == 1 );
 
     Clusters = ((ULONG)_FatSa->QuerySectorsPerCluster()) / _ClusterFactor;
 
@@ -2416,6 +2484,7 @@ Return Value:
 
 BOOLEAN
 FAT_NTFS::WriteBoot (
+    IN  BOOLEAN Pause
     )
 
 /*++
@@ -2428,7 +2497,7 @@ Routine Description:
 
 Arguments:
 
-    None
+    Pause   -   If set, we pause before rebooting the machine
 
 Return Value:
 
@@ -2465,7 +2534,7 @@ Return Value:
                                           &_Mft,
                                           _Message ) ) {
 
-            DbgPrintf( "CONVERT: Error writing messages to BOOTEX.LOG\n" );
+            DebugPrintf( "CONVERT: Error writing messages to BOOTEX.LOG\n" );
         }
 
         _Drive->FlushCache();
@@ -2477,7 +2546,20 @@ Return Value:
 
         DELETE(_Drive);
 
-        IFS_SYSTEM::Reboot();
+        if (Pause) {
+
+            _Message->Set( MSG_CONV_PAUSE_BEFORE_REBOOT );
+            _Message->Display();
+
+            _Message->WaitForUserSignal();
+        }
+
+        //
+        // If we've paused for oem setup, we pass PowerOff = TRUE to
+        // Reboot.
+        //
+
+        IFS_SYSTEM::Reboot( Pause );
     }
 
 #endif

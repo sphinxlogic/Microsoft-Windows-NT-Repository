@@ -1,14 +1,8 @@
 /* defect - defect the enlisted directory from the named project */
 
-#include "slm.h"
-#include "sys.h"
-#include "util.h"
-#include "stfile.h"
-#include "ad.h"
-#include "slmproto.h"
-#include "proto.h"
+#include "precomp.h"
+#pragma hdrstop
 #include "messages.h"
-
 EnableAssert
 
 private F FDefMarked(P1(AD *));
@@ -89,7 +83,7 @@ AD *pad;
 		case fmCopyIn:
 		case fmDelIn:
 			/* check for local version */
-			if (FBroken(pad, pfi, pfs, fTrue) && !(pad->flags&flagKeep) && !FQueryApp("%&C/F has changed and should be deleted", "delete now", pad, pfi))
+                        if ((pad->flags&flagDelete) && FBroken(pad, pfi, pfs, fTrue) && !FQueryApp("%&C/F has changed and should be deleted", "delete now", pad, pfi))
 				return fFalse;
 			pfs->fm = fmDelIn;
 			break;

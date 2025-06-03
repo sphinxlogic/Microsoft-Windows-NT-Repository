@@ -38,7 +38,10 @@ const char *USAGE="-n type -n case\n"
                "     3: Use SetEvent/WaitForSingleObject\n"
                "     4: Use SetEvent/WaitForSingleObject with timeout\n"
                "     5: Use SetEvent/WaitForMultipleObjects\n"
-               "     6: Use SetEvent/WaitForMultipleObjects with timeout\n";
+               "     6: Use SetEvent/WaitForMultipleObjects with timeout\n"
+               "     7: Use SignalObjectAndWait on events\n"
+               "     8: Use SignalObjectAndWait on events w/ timeout\n"
+               ;
 
 
 //
@@ -206,6 +209,53 @@ ULONG Server(ULONG arg)
             CloseHandle(hReplyEvent);
             break;
             }
+
+        case 7:
+        case 8:
+            {
+            ULONG timeout = (Options[1] == 7)?INFINITE:2000;
+            HANDLE hEvent1, hEvent2;
+
+            hEvent1 = CreateEvent(0,
+                                  FALSE,
+                                  FALSE,
+                                  REQUEST_EVENT);
+
+            hEvent2 = CreateEvent(0,
+                                  FALSE,
+                                  FALSE,
+                                  REPLY_EVENT);
+
+            if ( (hEvent1 == 0) || (hEvent2 == 0))
+                {
+                printf("CreateEvent failed - %08x\n", GetLastError());
+                exit(1);
+                }
+
+            status = WaitForSingleObject(hEvent1, INFINITE);
+            if (status != WAIT_OBJECT_0)
+                {
+                printf("Server WaitForSingleObject failed == %08x\n", GetLastError());
+                }
+
+            for(;;)
+                {
+
+                // Wait for clients request
+
+                status = SignalObjectAndWait(hEvent2, hEvent1, timeout, FALSE);
+
+                if (status != WAIT_OBJECT_0)
+                    {
+                    printf("Server SignalObjectAndWait failed -- %08x\n", GetLastError());
+                    return 1;
+                    }
+                }
+            CloseHandle(hEvent1);
+            CloseHandle(hEvent2);
+            break;
+            }
+
         }
     return 0;
 }
@@ -244,7 +294,7 @@ main(int argc, char **argv)
 
         hServer = CreateThread(0,
                                0,
-                               Server,
+                               (LPTHREAD_START_ROUTINE)Server,
                                0,
                                0,
                                &i);
@@ -390,6 +440,66 @@ main(int argc, char **argv)
             CloseHandle(hEvent2);
             break;
             }
+
+        case 7:
+        case 8:
+            {
+            // Win32 events (w/ or w/o a timeout) and SignalObjectAndWait()
+
+            ULONG timeout;
+            char *string;
+            HANDLE hEvent1, hEvent2;
+
+            if ( (Options[1] == 8) )
+                timeout = 2000;
+            else
+                timeout = INFINITE;
+
+            switch(Options[1])
+                {
+                case 7:
+                    string = "SignalObjectAndWait";
+                    break;
+                case 8:
+                    string = "SignalObjectAndWait with timeout";
+                    break;
+                }
+
+
+            hEvent1 = CreateEvent(0,
+                                  FALSE,
+                                  FALSE,
+                                  REQUEST_EVENT);
+
+            hEvent2 = CreateEvent(0,
+                                  FALSE,
+                                  FALSE,
+                                  REPLY_EVENT);
+
+            if ( (hEvent1 == 0) || (hEvent2 == 0))
+                {
+                printf("CreateEvent failed - %08x\n", GetLastError());
+                return 1;
+                }
+
+            StartTime();
+            for(i = 0; i < Iterations; i++)
+                {
+                status = SignalObjectAndWait(hEvent1, hEvent2, timeout, FALSE);
+
+                if (status != WAIT_OBJECT_0)
+                    {
+                    printf("SignalObjectAndWait failed -- %08x\n", GetLastError());
+                    return 1;
+                    }
+                }
+            EndTime(string);
+
+            CloseHandle(hEvent1);
+            CloseHandle(hEvent2);
+            break;
+            }
+
         }   
 
     // Blow off the server thread.

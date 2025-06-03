@@ -31,4 +31,3 @@ Revision History:
 #define byteswap(x)    ((x>>8)+((x&0xFF)<<8))
 
 #endif //_CONVERT_
-

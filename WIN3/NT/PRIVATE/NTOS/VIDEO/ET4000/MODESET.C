@@ -29,6 +29,7 @@ Revision History:
 
 #include "cmdcnst.h"
 
+
 VP_STATUS
 VgaInterpretCmdStream(
     PHW_DEVICE_EXTENSION HwDeviceExtension,
@@ -373,6 +374,7 @@ Return Value:
 
 } // end VgaInterpretCmdStream()
 
+
 
 VP_STATUS
 VgaSetMode(
@@ -412,6 +414,11 @@ Return Value:
     PVIDEOMODE pRequestedMode;
     VP_STATUS status;
     USHORT usDataSet, usTemp, usDataClr;
+    PUSHORT  pBios = NULL;
+    VIDEO_X86_BIOS_ARGUMENTS biosArguments;
+
+
+    VideoDebugPrint((1, "VgaSetMode - entry\n"));
 
     //
     // Check if the size of the data in the input buffer is large enough.
@@ -419,8 +426,28 @@ Return Value:
 
     if (ModeSize < sizeof(VIDEO_MODE)) {
 
+        VideoDebugPrint((1, "VgaSetMode - ERROR_INSUFFICIENT_BUFFER\n"));
         return ERROR_INSUFFICIENT_BUFFER;
 
+    }
+
+    //
+    // Extract the map linear bits.
+    //
+
+    HwDeviceExtension->bInLinearMode = FALSE;
+
+    if (Mode->RequestedMode & VIDEO_MODE_MAP_MEM_LINEAR)
+    {
+        if (!HwDeviceExtension->bLinearModeSupported)
+        {
+            return ERROR_INVALID_PARAMETER;
+        }
+        else
+        {
+            HwDeviceExtension->bInLinearMode = TRUE;
+            Mode->RequestedMode &= ~VIDEO_MODE_MAP_MEM_LINEAR;
+        }
     }
 
     //
@@ -444,377 +471,697 @@ Return Value:
     if ( (Mode->RequestedMode >= NumVideoModes) ||
          (!ModesVGA[Mode->RequestedMode].ValidMode) ) {
 
+        VideoDebugPrint((1, "VgaSetMode - ERROR_INVALID_PARAMETER\n"));
         return ERROR_INVALID_PARAMETER;
 
     }
 
     pRequestedMode = &ModesVGA[Mode->RequestedMode];
 
-#ifdef INT10_MODE_SET
-{
-    PUSHORT  pBios;
-    VIDEO_X86_BIOS_ARGUMENTS biosArguments;
-
     //
-    // If this is our first int10, then force an int10 so we can write to the
-    // "virtual" BIOS area of the server process.
+    // If the chip is a W32 and it's not 16 color so we're using the accelerated
+    // W32 driver.  We don't want stretched scans for that driver, so...
+    // No stretched scans!
     //
 
-    if (HwDeviceExtension->BiosArea == NULL) {
+    if ((HwDeviceExtension->ulChipID >= W32) &&
+        ((pRequestedMode->numPlanes * pRequestedMode->bitsPerPlane) != 4)) {
+
+        pRequestedMode->wbytes = (pRequestedMode->hres *
+                                  pRequestedMode->bitsPerPlane *
+                                  pRequestedMode->numPlanes) >> 3;
+
+        pRequestedMode->CmdStrings = NULL;
+
+    }
+
+    //
+    // Set the vertical refresh frequency
+    //
+
+    //
+    // This code is used to determine if the BIOS call to set frequencies
+    // is available.  If you can, then after the BIOS call AL=12.
+    // See page 233 of the W32p data book for details.
+    //
+
+    VideoPortZeroMemory(&biosArguments, sizeof(VIDEO_X86_BIOS_ARGUMENTS));
+    biosArguments.Eax = 0x1200;
+    biosArguments.Ebx = 0xf1;
+    biosArguments.Ecx = 0x0;
+    status = VideoPortInt10(HwDeviceExtension, &biosArguments);
+
+    if (status != NO_ERROR) {
+
+        VideoDebugPrint((0, "VgaSetMode - VideoPortInt10 failed (%d)\n", __LINE__));
+        return status;
+
+    }
+
+    VideoPortZeroMemory(&biosArguments, sizeof(VIDEO_X86_BIOS_ARGUMENTS));
+    biosArguments.Eax = 0x1200;
+    biosArguments.Ebx = 0xf1;
+    biosArguments.Ecx = 0x1;
+    status = VideoPortInt10(HwDeviceExtension, &biosArguments);
+
+    if (status != NO_ERROR) {
+
+        VideoDebugPrint((0, "VgaSetMode - VideoPortInt10 failed (%d)\n", __LINE__));
+        return status;
+
+    }
+
+    VideoDebugPrint((1, "VgaSetMode - BIOS returned %x in AL\n",
+                    (biosArguments.Eax & 0xff)));
+
+    if ((biosArguments.Eax & 0xff) == 0x12) {
+
+        VideoDebugPrint((1, "VgaSetMode - using BIOS to set refresh rate\n"));
 
         VideoPortZeroMemory(&biosArguments, sizeof(VIDEO_X86_BIOS_ARGUMENTS));
-        biosArguments.Eax = 0x03;
+        biosArguments.Eax = 0x1200;
+
+        switch (pRequestedMode->hres) {
+
+        case 320:
+        case 512:
+        case 640:
+
+            biosArguments.Ebx = 0xf1;
+
+            if (pRequestedMode->Frequency == 60)
+                biosArguments.Ecx = 0x0;
+            else if (pRequestedMode->Frequency == 72)
+                biosArguments.Ecx = 0x1;
+            else if (pRequestedMode->Frequency == 75)
+                biosArguments.Ecx = 0x2;
+            else if (pRequestedMode->Frequency == 85)
+                biosArguments.Ecx = 0x3;
+            else if (pRequestedMode->Frequency == 90)
+                biosArguments.Ecx = 0x4;
+            break;
+
+        case 800:
+
+            biosArguments.Ebx = 0x1f1;
+
+            if (pRequestedMode->Frequency == 56)
+                biosArguments.Ecx = 0x0;
+            else if (pRequestedMode->Frequency == 60)
+                biosArguments.Ecx = 0x1;
+            else if (pRequestedMode->Frequency == 72)
+                biosArguments.Ecx = 0x2;
+            else if (pRequestedMode->Frequency == 75)
+                biosArguments.Ecx = 0x3;
+            else if (pRequestedMode->Frequency == 85)
+                biosArguments.Ecx = 0x4;
+            else if (pRequestedMode->Frequency == 90)
+                biosArguments.Ecx = 0x5;
+            break;
+
+        case 1024:
+
+            biosArguments.Ebx = 0x2f1;
+
+            if (pRequestedMode->Frequency == 45)
+                biosArguments.Ecx = 0x0;
+            else if (pRequestedMode->Frequency == 60)
+                biosArguments.Ecx = 0x1;
+            else if (pRequestedMode->Frequency == 70)
+                biosArguments.Ecx = 0x2;
+
+            // For some BIOS 3 will give us 72 Hz, and
+            // on others, 3 will give us 75
+
+            else if (pRequestedMode->Frequency == 72)
+                biosArguments.Ecx = 0x3;
+            else if (pRequestedMode->Frequency == 75)
+                biosArguments.Ecx = 0x3;
+            break;
+
+        case 1280:
+
+            biosArguments.Ebx = 0x3f1;
+
+            if (pRequestedMode->Frequency == 45)
+                biosArguments.Ecx = 0x0;
+            else if (pRequestedMode->Frequency == 60)
+                biosArguments.Ecx = 0x1;
+            else if (pRequestedMode->Frequency == 70)
+                biosArguments.Ecx = 0x2;
+
+            // For some BIOS 3 will give us 72 Hz, and
+            // on others, 3 will give us 75
+
+            else if (pRequestedMode->Frequency == 72)
+                biosArguments.Ecx = 0x3;
+            else if (pRequestedMode->Frequency == 75)
+                biosArguments.Ecx = 0x3;
+            break;
+
+        default:
+
+            biosArguments.Ebx = 0xf1;
+            biosArguments.Ecx = 0x0;
+            break;
+        }
 
         status = VideoPortInt10(HwDeviceExtension, &biosArguments);
 
-    }
+        if (status != NO_ERROR) {
 
-    //
-    // Get the BiosData area value and save the original value.
-    //
+           VideoDebugPrint((0, "VgaSetMode - VideoPortInt10 failed (%d)\n", __LINE__));
 
-    if (!HwDeviceExtension->BiosArea) {
-
-        switch (HwDeviceExtension->BoardID) {
-
-        case PRODESIGNERIISEISA:
-
-            //
-            // Initialize this to something.
-            // It is not used however, since we always use hardware defaults
-            // for this card.
-            //
-
-            HwDeviceExtension->BiosArea = (PUSHORT)PRODESIGNER_BIOS_INFO;
-
-            break;
-
-        case PRODESIGNER2:
-        case PRODESIGNERIIS:
-
-            HwDeviceExtension->BiosArea = (PUSHORT)PRODESIGNER_BIOS_INFO;
-            HwDeviceExtension->OriginalBiosData = *HwDeviceExtension->BiosArea;
-
-            break;
-
-        case SPEEDSTAR:
-        case SPEEDSTARPLUS:
-        case SPEEDSTAR24:
-        case OTHER:
-        default:
-
-            HwDeviceExtension->BiosArea = (PUSHORT)BIOS_INFO_1;
-            HwDeviceExtension->OriginalBiosData = *HwDeviceExtension->BiosArea;
-
-            break;
         }
+
+        VideoDebugPrint((1, "VgaSetMode - BIOS returned %x in CL\n",
+                        (biosArguments.Ecx & 0xff)));
     }
 
-    pBios = HwDeviceExtension->BiosArea;
+    else if (HwDeviceExtension->BoardID == STEALTH32) {
 
-    //
-    // Set the refresh rates for the various boards
-    //
-
-    switch(HwDeviceExtension->BoardID) {
-
-    case SPEEDSTAR:
-    case SPEEDSTARPLUS:
-    case SPEEDSTAR24:
+        usTemp = 0xffff;  // flag value, this is reserved
 
         switch (pRequestedMode->hres) {
 
         case 640:
-            if (pRequestedMode->Frequency == 72)
-                usDataSet = 2;
-            else usDataSet = 1;
+
+            if (pRequestedMode->Frequency == 90) {
+
+                usTemp = 4;
+
+            } else if (pRequestedMode->Frequency == 75) {
+
+                usTemp = 2;
+
+            } else if (pRequestedMode->Frequency == 72) {
+
+                usTemp = 0;
+
+            } else if (pRequestedMode->Frequency == 60) {
+
+                usTemp = 8;
+
+            }
+
             break;
+
 
         case 800:
-            if (pRequestedMode->Frequency == 72)
-                usDataSet = 2;
-            else if (pRequestedMode->Frequency == 56)
-                usDataSet = 1;
-            else usDataSet = 3;
+
+            if (pRequestedMode->Frequency == 90) {
+
+                usTemp = 4;
+
+            } else if (pRequestedMode->Frequency == 75) {
+
+                usTemp = 2;
+
+            } else if (pRequestedMode->Frequency == 72) {
+
+                usTemp = 1;
+
+            } else if (pRequestedMode->Frequency == 60) {
+
+                usTemp = 0;
+
+            } else if (pRequestedMode->Frequency == 56) {
+
+                usTemp = 8;
+
+            }
+
             break;
 
+
         case 1024:
-            if (pRequestedMode->Frequency == 70)
-                usDataSet = 4;
-            else if (pRequestedMode->Frequency == 45)
-                usDataSet = 1;
-            else usDataSet = 2;
+
+            if (pRequestedMode->Frequency == 75) {
+
+                usTemp = 2;
+
+            } else if (pRequestedMode->Frequency == 72) {
+
+                usTemp = 4;
+
+            } else if (pRequestedMode->Frequency == 70) {
+
+                usTemp = 3;
+
+            } else if (pRequestedMode->Frequency == 60) {
+
+                usTemp = 5;
+
+            } else if (pRequestedMode->Frequency == 43) {
+
+                usTemp = 0;
+
+            }
+
+            break;
+
+        case 1280:
+
+            if (pRequestedMode->Frequency == 75) {
+
+                usTemp = 2;
+
+            } else if (pRequestedMode->Frequency == 72) {
+
+                usTemp = 4;
+
+            } else if (pRequestedMode->Frequency == 60) {
+
+                usTemp = 5;
+
+            } else if (pRequestedMode->Frequency == 43) {
+
+                usTemp = 6;
+
+            }
+
             break;
 
         default:
-            usDataSet = 1;
+
+            //
+            // !!! Reset for DOS modes?
+            //
+
+            // usDataSet = HwDeviceExtension->OriginalBiosData;
+
             break;
 
         }
 
-        //
-        // now we got to unlock the CRTC extension registers!?!
-        //
+        if (usTemp != 0xffff)
+        {
+            USHORT usOldBits;
 
-        UnlockET4000ExtendedRegs(HwDeviceExtension);
-
-        if (HwDeviceExtension->BoardID == SPEEDSTAR24) {
+            UnlockET4000ExtendedRegs(HwDeviceExtension);
 
             //
-            // SpeedSTAR 24 uses 31.0 for LSB select CRTC.31 and read it
+            // select CRTC.31 and write usTemp to bits 3-0
             //
 
             VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
                                     CRTC_ADDRESS_PORT_COLOR, 0x31);
 
-            usTemp = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
-                                            CRTC_DATA_PORT_COLOR) & ~0x01;
+            usOldBits = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
+                                    CRTC_DATA_PORT_COLOR);
 
-            //
-            // CRTC.31 bit 0 is the LSB of the monitor type on SpeedSTAR 24
-            //
+            usTemp    = ((usTemp & 0x0f) | (usOldBits & 0xf0));
 
-            usTemp |= (usDataSet&1);
             VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
                                     CRTC_DATA_PORT_COLOR, (UCHAR)usTemp);
 
-        } else {                    // SpeedSTAR and SpeedSTAR Plus use 37.4 for LSB
-
-            //
-            // select CRTC.37 and read it
-            //
-
-            VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
-                                    CRTC_ADDRESS_PORT_COLOR, 0x37);
-
-            usTemp = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
-                                            CRTC_DATA_PORT_COLOR) & ~0x10;
-
-            //
-            // CRTC.37 bit 4 is the LSB of the monitor type on SpeedSTAR PLUS
-            //
-
-            usTemp |= (usDataSet&1)<<4;
-            VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
-                                    CRTC_DATA_PORT_COLOR, (UCHAR)usTemp);
+            LockET4000ExtendedRegs(HwDeviceExtension);
         }
 
-        LockET4000ExtendedRegs(HwDeviceExtension);
+    } // HwDeviceExtension->BoardID == STEALTH32
+
+#if defined(i386)
+
+    //
+    // Ok, we'll try to stuff the right values in to the bios data
+    // area so that the int10 modeset sets the freq for us.
+    //
+
+    else {
 
         //
-        // these two bits are the rest of the monitor type...
+        // NOTE :
+        //
+        // We assume an int10 was made as some point before we reach this code.
+        // This ensures the BiosData got initialized properly.
         //
 
-        usTemp = *pBios & ~0x6000;
-        usTemp |= (usDataSet&6)<<12;
-        *pBios |= usTemp;
+        //
+        // Get the BiosData area value and save the original value.
+        //
 
-        break;
+        if (!HwDeviceExtension->BiosArea) {
 
-    //
-    // Do nothing for the EISA machine - use the default in the EISA config.
-    //
+            switch (HwDeviceExtension->BoardID) {
 
-    case PRODESIGNERIISEISA:
+            case PRODESIGNERIISEISA:
 
-        break;
+                //
+                // Initialize this to something.
+                // It is not used however, since we always use hardware defaults
+                // for this card.
+                //
 
-    //
-    // The old prodesigner 2 is not able toset refresh rates
-    //
+                HwDeviceExtension->BiosArea = (PUSHORT)PRODESIGNER_BIOS_INFO;
 
-    case PRODESIGNER2:
+                break;
 
-        break;
+            case PRODESIGNER2:
+            case PRODESIGNERIIS:
 
-    case PRODESIGNERIIS:
+                HwDeviceExtension->BiosArea = (PUSHORT)PRODESIGNER_BIOS_INFO;
+                HwDeviceExtension->OriginalBiosData =
+                    VideoPortReadRegisterUshort(HwDeviceExtension->BiosArea);
 
-        switch (pRequestedMode->hres) {
+                break;
 
-        case 640:
+            case SPEEDSTAR:
+            case SPEEDSTARPLUS:
+            case SPEEDSTAR24:
+            case OTHER:
+            default:
 
-            //
-            // Bit 0:  1=72Hz 0=60Hz
-            //
+                HwDeviceExtension->BiosArea = (PUSHORT)BIOS_INFO_1;
+                HwDeviceExtension->OriginalBiosData =
+                    VideoPortReadRegisterUshort(HwDeviceExtension->BiosArea);
 
-            if (pRequestedMode->Frequency == 72) {
+                break;
+            }
+        }
 
-                usDataSet = 0x0001;
+        pBios = HwDeviceExtension->BiosArea;
 
-            } else { // 60 Hz
+        //
+        // Set the refresh rates for the various boards
+        //
 
-                usDataSet = 0x0000;
+        switch(HwDeviceExtension->BoardID) {
+
+        case SPEEDSTAR:
+        case SPEEDSTARPLUS:
+        case SPEEDSTAR24:
+
+            switch (pRequestedMode->hres) {
+
+            case 640:
+                if (pRequestedMode->Frequency == 72)
+                    usDataSet = 2;
+                else usDataSet = 1;
+                break;
+
+            case 800:
+                if (pRequestedMode->Frequency == 72)
+                    usDataSet = 2;
+                else if (pRequestedMode->Frequency == 56)
+                    usDataSet = 1;
+                else usDataSet = 3;
+                break;
+
+            case 1024:
+                if (pRequestedMode->Frequency == 70)
+                    usDataSet = 4;
+                else if (pRequestedMode->Frequency == 45)
+                    usDataSet = 1;
+                else usDataSet = 2;
+                break;
+
+            default:
+                usDataSet = 1;
+                break;
 
             }
 
-            break;
-
-
-        case 800:
-
             //
-            // Bit 1-2: 10=72Hz 01=60Hz 00=56Hz
+            // now we got to unlock the CRTC extension registers!?!
             //
 
-            if (pRequestedMode->Frequency == 72) {
+            UnlockET4000ExtendedRegs(HwDeviceExtension);
 
-                usDataSet = 0x0004;
+            if (HwDeviceExtension->BoardID == SPEEDSTAR24) {
 
-            } else {
+                //
+                // SpeedSTAR 24 uses 31.0 for LSB select CRTC.31 and read it
+                //
 
-                if (pRequestedMode->Frequency == 56) {
+                VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
+                                        CRTC_ADDRESS_PORT_COLOR, 0x31);
 
-                    usDataSet = 0x0000;
+                usTemp = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
+                                                CRTC_DATA_PORT_COLOR) & ~0x01;
 
-                } else {   // 60 Hz
+                //
+                // CRTC.31 bit 0 is the LSB of the monitor type on SpeedSTAR 24
+                //
 
-                    usDataSet = 0x0002;
+                usTemp |= (usDataSet&1);
+                VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
+                                        CRTC_DATA_PORT_COLOR, (UCHAR)usTemp);
 
-                }
+            } else {                    // SpeedSTAR and SpeedSTAR Plus use 37.4 for LSB
+
+                //
+                // select CRTC.37 and read it
+                //
+
+                VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
+                                        CRTC_ADDRESS_PORT_COLOR, 0x37);
+
+                usTemp = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
+                                                CRTC_DATA_PORT_COLOR) & ~0x10;
+
+                //
+                // CRTC.37 bit 4 is the LSB of the monitor type on SpeedSTAR PLUS
+                //
+
+                usTemp |= (usDataSet&1)<<4;
+                VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
+                                        CRTC_DATA_PORT_COLOR, (UCHAR)usTemp);
             }
 
+            LockET4000ExtendedRegs(HwDeviceExtension);
+
+            //
+            // these two bits are the rest of the monitor type...
+            //
+
+            usTemp = VideoPortReadRegisterUshort(pBios) & ~0x6000;
+            usTemp |= (usDataSet&6)<<12;
+            usTemp |= VideoPortReadRegisterUshort(pBios);
+            VideoPortWriteRegisterUshort(pBios,usTemp);
+
             break;
 
+        //
+        // Do nothing for the EISA machine - use the default in the EISA config.
+        //
 
-        case 1024:
+        case PRODESIGNERIISEISA:
 
-            //
-            // Bit 3-4: 10=70Hz 01=60Hz 00=45Hz
-            //
+            break;
 
-            if (pRequestedMode->Frequency == 70) {
+        //
+        // The old prodesigner 2 is not able toset refresh rates
+        //
 
-                usDataSet = 0x0010;
+        case PRODESIGNER2:
 
-            } else {
+            break;
 
-                if (pRequestedMode->Frequency == 45) {
+        case PRODESIGNERIIS:
 
-                    usDataSet = 0x0000;
+            switch (pRequestedMode->hres) {
+
+            case 640:
+
+                //
+                // Bit 0:  1=72Hz 0=60Hz
+                //
+
+                if (pRequestedMode->Frequency == 72) {
+
+                    usDataSet = 0x0001;
 
                 } else { // 60 Hz
 
-                    usDataSet = 0x0008;
+                    usDataSet = 0x0000;
 
                 }
+
+                break;
+
+
+            case 800:
+
+                //
+                // Bit 1-2: 10=72Hz 01=60Hz 00=56Hz
+                //
+
+                if (pRequestedMode->Frequency == 72) {
+
+                    usDataSet = 0x0004;
+
+                } else {
+
+                    if (pRequestedMode->Frequency == 56) {
+
+                        usDataSet = 0x0000;
+
+                    } else {   // 60 Hz
+
+                        usDataSet = 0x0002;
+
+                    }
+                }
+
+                break;
+
+
+            case 1024:
+
+                //
+                // Bit 3-4: 10=70Hz 01=60Hz 00=45Hz
+                //
+
+                if (pRequestedMode->Frequency == 70) {
+
+                    usDataSet = 0x0010;
+
+                } else {
+
+                    if (pRequestedMode->Frequency == 45) {
+
+                        usDataSet = 0x0000;
+
+                    } else { // 60 Hz
+
+                        usDataSet = 0x0008;
+
+                    }
+                }
+
+                break;
+
+            // case 1280
+
+                //
+                // Bit 5  1=45Hz 0=43 Hz
+                //
+
+
+            default:
+
+                //
+                // Reset for DOS modes
+                //
+
+                usDataSet = HwDeviceExtension->OriginalBiosData;
+
+                break;
+
             }
+
+            VideoPortWriteRegisterUshort(pBios,usDataSet);
 
             break;
 
-        // case 1280
 
-            //
-            // Bit 5  1=45Hz 0=43 Hz
-            //
-
-
+        case OTHER:
         default:
 
-            //
-            // Reset for DOS modes
-            //
+            {
 
-            usDataSet = HwDeviceExtension->OriginalBiosData;
+                VideoDebugPrint((2, "### VgaSetMode - hres(%d) freq(%d)\n",
+                                    pRequestedMode->hres,
+                                    pRequestedMode->Frequency
+                ));
+
+
+                VideoDebugPrint((2, "### VgaSetMode - NOT using BIOS to set refresh rate\n"));
+
+                switch (pRequestedMode->hres) {
+
+                case 640:
+
+                    if (pRequestedMode->Frequency == 72) {
+
+                        usDataSet = 0x0040;               // set bit 6
+                        usDataClr = (USHORT)~0;           // no bits to be cleared
+
+                    } else { // 60 Hz
+
+                        usDataSet = 0;                    // no bits to set
+                        usDataClr = (USHORT)~0x0040;      // clear bit 6
+
+                    }
+
+                    break;
+
+
+                case 800:
+
+                    if (pRequestedMode->Frequency == 72) {
+
+                        usDataSet = 0x4020;               // set bits 5 and 14
+                        usDataClr = (USHORT)~0;           // no bits to clear
+
+                    } else {
+
+                        if (pRequestedMode->Frequency == 56) {
+
+                            usDataSet = 0x4000;           // set bit 14
+                            usDataClr = (USHORT)~0x0020;  // clr bit 5
+
+                        } else {   // 60 Hz
+
+                            usDataSet = 0;                // no bits to set
+                            usDataClr = (USHORT)~0x4020;  // clr bits 5 and 14
+
+                        }
+                    }
+
+                    break;
+
+
+                case 1024:
+
+                    if (pRequestedMode->Frequency == 70) {
+
+                        usDataSet = 0x2010;               // set bits 4 and 13
+                        usDataClr = (USHORT)~0;           // no bits to clear
+
+                    } else {
+
+                        if (pRequestedMode->Frequency == 45) { //interlaced
+
+                            usDataSet = 0;                // no bits to set
+                            usDataClr = (USHORT)~0x2010;  // clear bits 4 and 13
+
+                        } else { // 60 Hz
+
+                            usDataSet = 0x2000;           // set bit 13
+                            usDataClr = (USHORT)~0x0010;  // clear bit 4
+
+                        }
+                    }
+
+                    break;
+
+                default:
+
+                    //
+                    // Restore to original Value
+                    //
+
+                    usDataSet = HwDeviceExtension->OriginalBiosData;
+                    usDataClr = 0x0000;
+
+                    break;
+
+                }
+
+                usTemp = VideoPortReadRegisterUshort(pBios) & usDataClr;
+                usTemp |= usDataSet;
+                VideoPortWriteRegisterUshort(pBios,usTemp);
+
+            }
 
             break;
 
         }
-
-        *pBios = usDataSet;
-
-        break;
-
-
-    case OTHER:
-    default:
-
-        switch (pRequestedMode->hres) {
-
-        case 640:
-
-            if (pRequestedMode->Frequency == 72) {
-
-                usDataSet = 0x0040;               // set bit 6
-                usDataClr = (USHORT)~0;           // no bits to be cleared
-
-            } else { // 60 Hz
-
-                usDataSet = 0;                    // no bits to set
-                usDataClr = (USHORT)~0x0040;      // clear bit 6
-
-            }
-
-            break;
-
-
-        case 800:
-
-            if (pRequestedMode->Frequency == 72) {
-
-                usDataSet = 0x4020;               // set bits 5 and 14
-                usDataClr = (USHORT)~0;           // no bits to clear
-
-            } else {
-
-                if (pRequestedMode->Frequency == 56) {
-
-                    usDataSet = 0x4000;           // set bit 14
-                    usDataClr = (USHORT)~0x0020;  // clr bit 5
-
-                } else {   // 60 Hz
-
-                    usDataSet = 0;                // no bits to set
-                    usDataClr = (USHORT)~0x4020;  // clr bits 5 and 14
-
-                }
-            }
-
-            break;
-
-
-        case 1024:
-
-            if (pRequestedMode->Frequency == 70) {
-
-                usDataSet = 0x2010;               // set bits 4 and 13
-                usDataClr = (USHORT)~0;           // no bits to clear
-
-            } else {
-
-                if (pRequestedMode->Frequency == 45) { //interlaced
-
-                    usDataSet = 0;                // no bits to set
-                    usDataClr = (USHORT)~0x2010;  // clear bits 4 and 13
-
-                } else { // 60 Hz
-
-                    usDataSet = 0x2000;           // set bit 13
-                    usDataClr = (USHORT)~0x0010;  // clear bit 4
-
-                }
-            }
-
-            break;
-
-        default:
-
-            //
-            // Restore to original Value
-            //
-
-            usDataSet = HwDeviceExtension->OriginalBiosData;
-            usDataClr = 0x0000;
-
-            break;
-
-        }
-
-        *pBios &= usDataClr;
-        *pBios |= usDataSet;
-
-        break;
 
     }
+
+#endif
 
     VideoPortZeroMemory(&biosArguments, sizeof(VIDEO_X86_BIOS_ARGUMENTS));
 
@@ -824,26 +1171,65 @@ Return Value:
 
     if (status != NO_ERROR) {
 
+        VideoDebugPrint((0, "VgaSetMode - VideoPortInt10 failed (%d)\n", __LINE__));
         return status;
 
     }
 
+    if (HwDeviceExtension->ulChipID == ET4000 &&
+        HwDeviceExtension->AdapterMemorySize < 0x100000) {
+
+        //
+        // ET4000 less than 1 meg set TLI mode in CRTC.36
+        //
+
+        UnlockET4000ExtendedRegs(HwDeviceExtension);
+        VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
+                CRTC_ADDRESS_PORT_COLOR, 0x36);
+
+        usTemp = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
+                CRTC_DATA_PORT_COLOR) | 0x20;
+
+        VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
+                CRTC_DATA_PORT_COLOR, (UCHAR)usTemp);
+        LockET4000ExtendedRegs(HwDeviceExtension);
+
+    }
+
     //
-    // If this is a 16bpp mode, call the bios to switch it from
-    // 8bpp to 16bpp.
+    // If this is a 16bpp or 24bpp mode, call the bios to switch it from
+    // 8bpp to the new mode.
     //
 
     if (pRequestedMode->bitsPerPlane == 16) {
-        
+
         VideoPortZeroMemory(&biosArguments, sizeof(VIDEO_X86_BIOS_ARGUMENTS));
-        
+
         biosArguments.Eax = 0x10F0;
         biosArguments.Ebx = pRequestedMode->Int10ModeNumber;
-        
+
         status = VideoPortInt10(HwDeviceExtension, &biosArguments);
 
         if (status != NO_ERROR) {
 
+            VideoDebugPrint((0, "VgaSetMode - VideoPortInt10 failed (%d)\n", __LINE__));
+            return status;
+
+        }
+    } else if (pRequestedMode->bitsPerPlane == 24) {
+
+        VideoPortZeroMemory(&biosArguments, sizeof(VIDEO_X86_BIOS_ARGUMENTS));
+
+        biosArguments.Eax = 0x10F0;
+        biosArguments.Ebx = pRequestedMode->Int10ModeNumber;
+        biosArguments.Ebx <<= 8;
+        biosArguments.Ebx |= 0xff;
+
+        status = VideoPortInt10(HwDeviceExtension, &biosArguments);
+
+        if (status != NO_ERROR) {
+
+            VideoDebugPrint((0, "VgaSetMode - VideoPortInt10 failed (%d)\n", __LINE__));
             return status;
 
         }
@@ -863,13 +1249,14 @@ Return Value:
     // Do this for all cards except the EISA prodesigner
     //
 
-    if (HwDeviceExtension->BoardID != PRODESIGNERIISEISA) {
-
-        *pBios = HwDeviceExtension->OriginalBiosData;
-
+    if ((pBios != NULL) &&
+        (HwDeviceExtension->BoardID != PRODESIGNERIISEISA))
+    {
+        VideoPortWriteRegisterUshort(pBios,
+                                     HwDeviceExtension->OriginalBiosData);
     }
 
-}
+
 
 {
     UCHAR temp;
@@ -878,61 +1265,98 @@ Return Value:
 
     if (!(pRequestedMode->fbType & VIDEO_MODE_GRAPHICS)) {
 
-            //
-            // Fix to make sure we always set the colors in text mode to be
-            // intensity, and not flashing
-            // For this zero out the Mode Control Regsiter bit 3 (index 0x10
-            // of the Attribute controller).
-            //
+        //
+        // Fix to make sure we always set the colors in text mode to be
+        // intensity, and not flashing
+        // For this zero out the Mode Control Regsiter bit 3 (index 0x10
+        // of the Attribute controller).
+        //
 
-            if (VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
-                    MISC_OUTPUT_REG_READ_PORT) & 0x01) {
+        if (VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
+                MISC_OUTPUT_REG_READ_PORT) & 0x01) {
 
-                bIsColor = TRUE;
+            bIsColor = TRUE;
 
-            } else {
+        } else {
 
-                bIsColor = FALSE;
+            bIsColor = FALSE;
 
-            }
+        }
 
-            if (bIsColor) {
+        if (bIsColor) {
 
-                dummy = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
-                        INPUT_STATUS_1_COLOR);
-            } else {
+            dummy = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
+                    INPUT_STATUS_1_COLOR);
+        } else {
 
-                dummy = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
-                        INPUT_STATUS_1_MONO);
-            }
+            dummy = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
+                    INPUT_STATUS_1_MONO);
+        }
 
-            VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
-                    ATT_ADDRESS_PORT, (0x10 | VIDEO_ENABLE));
-            temp = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
-                    ATT_DATA_READ_PORT);
+        VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
+                ATT_ADDRESS_PORT, (0x10 | VIDEO_ENABLE));
+        temp = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
+                ATT_DATA_READ_PORT);
 
-            temp &= 0xF7;
+        temp &= 0xF7;
 
-            if (bIsColor) {
+        if (bIsColor) {
 
-                dummy = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
-                        INPUT_STATUS_1_COLOR);
-            } else {
+            dummy = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
+                    INPUT_STATUS_1_COLOR);
+        } else {
 
-                dummy = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
-                        INPUT_STATUS_1_MONO);
-            }
+            dummy = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
+                    INPUT_STATUS_1_MONO);
+        }
 
-            VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
-                    ATT_ADDRESS_PORT, (0x10 | VIDEO_ENABLE));
-            VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
-                    ATT_DATA_WRITE_PORT, temp);
+        VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
+                ATT_ADDRESS_PORT, (0x10 | VIDEO_ENABLE));
+        VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
+                ATT_DATA_WRITE_PORT, temp);
     }
 }
 
-#else
-    VgaInterpretCmdStream(HwDeviceExtension, pRequestedMode->CmdStrings);
-#endif
+    //
+    //  Set up the card to use the linear address ranges
+    //
+
+    {
+        UCHAR bits;
+
+        VideoPortGetBusData(HwDeviceExtension,
+                            PCIConfiguration,
+                            HwDeviceExtension->ulSlot,
+                            (PVOID) &bits,
+                            0x40,
+                            1);
+
+        bits &= ~0x6;
+
+        if (HwDeviceExtension->bInLinearMode)
+        {
+            //
+            // set low 4 bits to 1011
+            //
+
+            bits |= 0xb;
+        }
+        else
+        {
+            //
+            // set low 4 bits to 0110
+            //
+
+            bits |= 0x6;
+        }
+
+        VideoPortSetBusData(HwDeviceExtension,
+                            PCIConfiguration,
+                            HwDeviceExtension->ulSlot,
+                            (PVOID) &bits,
+                            0x40,
+                            1);
+    }
 
     //
     // Update the location of the physical frame buffer within video memory.
@@ -941,8 +1365,10 @@ Return Value:
     HwDeviceExtension->PhysicalFrameLength =
             MemoryMaps[pRequestedMode->MemMap].MaxSize;
 
+    HwDeviceExtension->PhysicalFrameBase.HighPart = 0;
     HwDeviceExtension->PhysicalFrameBase.LowPart =
             MemoryMaps[pRequestedMode->MemMap].Start;
+
 
     //
     // Store the new mode value.
@@ -951,6 +1377,7 @@ Return Value:
     HwDeviceExtension->CurrentMode = pRequestedMode;
     HwDeviceExtension->ModeIndex = Mode->RequestedMode;
 
+    VideoDebugPrint((1, "VgaSetMode - exit\n"));
     return NO_ERROR;
 
 } //end VgaSetMode()
@@ -1008,6 +1435,7 @@ Return Value:
             HwDeviceExtension->NumAvailableModes *
             sizeof(VIDEO_MODE_INFORMATION)) ) {
 
+        VideoDebugPrint((0,"VgaQueryAvailableModes: ERROR_INSUFFICIENT_BUFFER\n"));
         return ERROR_INSUFFICIENT_BUFFER;
 
     }
@@ -1034,15 +1462,40 @@ Return Value:
             videoModes->NumberRedBits = 6;
             videoModes->NumberGreenBits = 6;
             videoModes->NumberBlueBits = 6;
+
             videoModes->AttributeFlags = ModesVGA[i].fbType;
             videoModes->AttributeFlags |= ModesVGA[i].Interlaced ?
                  VIDEO_MODE_INTERLACED : 0;
+
+            //
+            // Calculate the VideoMemoryBitmapWidth
+            //
+
+            {
+                LONG x;
+
+                x = videoModes->BitsPerPlane;
+
+                if( x == 15 ) x = 16;
+
+                videoModes->VideoMemoryBitmapWidth =
+                    (videoModes->ScreenStride * 8 ) / x;
+            }
+
+            videoModes->VideoMemoryBitmapHeight =
+                     HwDeviceExtension->AdapterMemorySize / videoModes->ScreenStride;
 
             if (ModesVGA[i].bitsPerPlane == 16) {
 
                 videoModes->RedMask = 0x7c00;
                 videoModes->GreenMask = 0x03e0;
                 videoModes->BlueMask = 0x001f;
+
+            } else if (ModesVGA[i].bitsPerPlane == 24) {
+
+                videoModes->RedMask =   0xff0000;
+                videoModes->GreenMask = 0x00ff00;
+                videoModes->BlueMask =  0x0000ff;
 
             } else {
 
@@ -1119,6 +1572,7 @@ Return Value:
     NumModes->NumModes = HwDeviceExtension->NumAvailableModes;
     NumModes->ModeInformationLength = sizeof(VIDEO_MODE_INFORMATION);
 
+    VideoDebugPrint((0,"NumAvailableModes = %d\n", HwDeviceExtension->NumAvailableModes));
     return NO_ERROR;
 
 } // end VgaGetNumberOfAvailableModes()
@@ -1161,17 +1615,6 @@ Return Value:
 
 {
     //
-    //
-    // check if a mode has been set
-    //
-
-    if (HwDeviceExtension->CurrentMode == NULL) {
-
-        return ERROR_INVALID_FUNCTION;
-
-    }
-
-    //
     // Find out the size of the data to be put in the the buffer and return
     // that in the status information (whether or not the information is
     // there). If the buffer passed in is not large enough return an
@@ -1209,6 +1652,24 @@ Return Value:
     ModeInformation->AttributeFlags |= HwDeviceExtension->CurrentMode->Interlaced ?
              VIDEO_MODE_INTERLACED : 0;
 
+    //
+    // Calculate the VideoMemoryBitmapWidth
+    //
+
+    {
+        LONG x;
+
+        x = ModeInformation->BitsPerPlane;
+
+        if( x == 15 ) x = 16;
+
+        ModeInformation->VideoMemoryBitmapWidth =
+            (ModeInformation->ScreenStride * 8 ) / x;
+    }
+
+    ModeInformation->VideoMemoryBitmapHeight =
+             HwDeviceExtension->AdapterMemorySize / ModeInformation->ScreenStride;
+
     return NO_ERROR;
 
 } // end VgaQueryCurrentMode()
@@ -1236,34 +1697,40 @@ Return Value:
 
 --*/
 {
-    UCHAR temp;
+//    return;
 
-    //
-    // Map font buffer at A0000
-    //
+    {
+        UCHAR temp;
 
-    VgaInterpretCmdStream(HwDeviceExtension, EnableA000Data);
+        VideoDebugPrint((1, "VgaZeroVideoMemory - entry et4000\n"));
 
-    //
-    // Enable all planes.
-    //
-    VideoPortWritePortUchar(HwDeviceExtension->IOAddress + SEQ_ADDRESS_PORT,
-            IND_MAP_MASK);
+        //
+        // Map font buffer at A0000
+        //
 
-    temp = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
-            SEQ_DATA_PORT) | (UCHAR)0x0F;
+        VgaInterpretCmdStream(HwDeviceExtension, EnableA000Data);
 
-    VideoPortWritePortUchar(HwDeviceExtension->IOAddress + SEQ_DATA_PORT,
-            temp);
+        //
+        // Enable all planes.
+        //
+        VideoPortWritePortUchar(HwDeviceExtension->IOAddress + SEQ_ADDRESS_PORT,
+                IND_MAP_MASK);
 
-    //
-    // Zero the memory.
-    //
+        temp = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
+                SEQ_DATA_PORT) | (UCHAR)0x0F;
 
-    VideoPortZeroDeviceMemory(HwDeviceExtension->VideoMemoryAddress, 0xFFFF);
+        VideoPortWritePortUchar(HwDeviceExtension->IOAddress + SEQ_DATA_PORT,
+                temp);
 
-    VgaInterpretCmdStream(HwDeviceExtension, DisableA000Color);
+        //
+        // Zero the memory.
+        //
 
+        VideoPortZeroDeviceMemory(HwDeviceExtension->VideoMemoryAddress, 0xFFFF);
+
+        VgaInterpretCmdStream(HwDeviceExtension, DisableA000Color);
+        VideoDebugPrint((1, "VgaZeroVideoMemory - exit et4000\n"));
+    }
 }
 
 
@@ -1293,31 +1760,185 @@ Return Value:
 
     HwDeviceExtension->NumAvailableModes = 0;
 
+    VideoDebugPrint((2, "NumVideoModes(%d)\n",NumVideoModes));
+
     for (i = 0; i < NumVideoModes; i++) {
 
-        //
-        // Original Pro designer 2 only supports
-        //     640x480x60Hz
-        //     800x600x56Hz
-        //     1024x768x60Hz
-        //
+        if (ModesVGA[i].fbType & VIDEO_MODE_GRAPHICS) {
 
-        if ((HwDeviceExtension->BoardID == PRODESIGNER2) &&
-            (ModesVGA[i].fbType & VIDEO_MODE_GRAPHICS)) {
+#if !defined(i386)
+            if (ModesVGA[i].bitsPerPlane < 8) {
 
-            if (ModesVGA[i].bitsPerPlane >= 16) {
+                //
+                // no 16 color allowed on non x86
+                //
 
                 continue;
 
             }
+#endif
 
-            if ( ((ModesVGA[i].hres == 640) && (ModesVGA[i].Frequency != 60)) ||
-                 ((ModesVGA[i].hres == 800) && (ModesVGA[i].Frequency != 56)) ||
-                 ((ModesVGA[i].hres == 1024) && (ModesVGA[i].Frequency != 60)) ) {
+            switch (HwDeviceExtension->ulChipID) {
 
-                continue;
+                case ET6000:
+
+                //
+                // can do all modes
+                //
+
+                break;
+
+            case W32P:
+
+                //
+                // Can't do 24bpp if banking, which this is.
+                // Can't do modes below 640x480.
+                //
+
+                if ((ModesVGA[i].bitsPerPlane == 24) ||
+                    (ModesVGA[i].vres < 480)) {
+
+                    continue;
+
+                }
+
+                break;
+
+            case W32I:
+            case W32:
+
+                //
+                // Can't do 24bpp if banking, which this is,
+                // or if resolution > 640x480.
+                // Can't do modes below 640x480.
+                //
+
+                //
+                // !!! fix this expression
+                //
+
+                if ((ModesVGA[i].bitsPerPlane == 24) ||
+                    (ModesVGA[i].vres < 480) ||
+                    ((ModesVGA[i].hres > 800) &&
+                     (ModesVGA[i].bitsPerPlane > 8))) {
+
+                    continue;
+
+                }
+
+                break;
+
+            default:
+
+                //
+                // Can't do 1280x1024 or 24bpp.
+                // Can't do modes below 640x480.
+                //
+
+                if ((ModesVGA[i].hres > 1024) ||
+                    (ModesVGA[i].vres < 480) ||
+                    (ModesVGA[i].bitsPerPlane > 16)) {
+
+                    continue;
+
+                }
+
+                //
+                // can't do 16bpp if resolution > 640x480
+                //
+
+                if ((ModesVGA[i].hres > 640) &&
+                    (ModesVGA[i].bitsPerPlane > 8)) {
+
+                    continue;
+
+                }
+
+                break;
 
             }
+
+            if ((HwDeviceExtension->ulChipID != ET6000) &&
+                (HwDeviceExtension->BoardID != STEALTH32)) {
+
+                switch (ModesVGA[i].hres) {
+
+                case 640:
+
+                    if ((ModesVGA[i].Frequency == 90) ||
+                        (ModesVGA[i].Frequency == 85) ||
+                        (ModesVGA[i].Frequency == 75)) {
+
+                         continue;
+
+                    }
+
+                    break;
+
+
+                case 800:
+
+                    if ((ModesVGA[i].Frequency == 90) ||
+                        (ModesVGA[i].Frequency == 85) ||
+                        (ModesVGA[i].Frequency == 75)) {
+
+                         continue;
+
+                    }
+
+                    break;
+
+
+                case 1024:
+
+                    if ((ModesVGA[i].Frequency == 75) ||
+                        (ModesVGA[i].Frequency == 72)) {
+
+                         continue;
+
+                    }
+
+                    break;
+
+
+                case 1280:
+
+                    if ((ModesVGA[i].Frequency == 75) ||
+                        (ModesVGA[i].Frequency == 72)) {
+
+                         continue;
+
+                    }
+
+                    break;
+
+                }
+            }
+
+            if (HwDeviceExtension->BoardID == PRODESIGNER2) {
+
+                //
+                // Original Pro designer 2 only supports
+                //     640x480x60Hz
+                //     800x600x56Hz
+                //     1024x768x60Hz
+                //
+
+                if (ModesVGA[i].bitsPerPlane >= 16) {
+
+                    continue;
+
+                }
+
+                if ( ((ModesVGA[i].hres == 640) && (ModesVGA[i].Frequency != 60)) ||
+                     ((ModesVGA[i].hres == 800) && (ModesVGA[i].Frequency != 56)) ||
+                     ((ModesVGA[i].hres == 1024) && (ModesVGA[i].Frequency != 60)) ) {
+
+                    continue;
+
+                }
+            }
+
         }
 
         //
@@ -1327,6 +1948,7 @@ Return Value:
         if (HwDeviceExtension->BoardID == PRODESIGNERIISEISA) {
 
             ModesVGA[i].Frequency = 1;
+            ModesVGA[i].Interlaced = 0;
 
         }
 
@@ -1336,11 +1958,31 @@ Return Value:
 
         if (HwDeviceExtension->AdapterMemorySize >=
             ModesVGA[i].numPlanes * ModesVGA[i].sbytes) {
-   
+
             ModesVGA[i].ValidMode = TRUE;
             HwDeviceExtension->NumAvailableModes++;
-   
+            VideoDebugPrint((2, "mode[%d] valid\n",i));
+            VideoDebugPrint((2, "         hres(%d)\n",ModesVGA[i].hres));
+            VideoDebugPrint((2, "         bitsPerPlane(%d)\n",ModesVGA[i].bitsPerPlane));
+            VideoDebugPrint((2, "         freq(%d)\n",ModesVGA[i].Frequency));
+            VideoDebugPrint((2, "         interlace(%d)\n",ModesVGA[i].Interlaced));
+            VideoDebugPrint((2, "         numPlanes(%d)\n",ModesVGA[i].numPlanes));
+            VideoDebugPrint((2, "         sbytes(%d)\n",ModesVGA[i].sbytes));
+            VideoDebugPrint((2, "         memory reqd(%d)\n",ModesVGA[i].numPlanes * ModesVGA[i].sbytes));
+            VideoDebugPrint((2, "         memory pres(%d)\n",HwDeviceExtension->AdapterMemorySize));
+
+        } else {
+            VideoDebugPrint((2, "mode[%d] invalid\n",i));
+            VideoDebugPrint((2, "         hres(%d)\n",ModesVGA[i].hres));
+            VideoDebugPrint((2, "         bitsPerPlane(%d)\n",ModesVGA[i].bitsPerPlane));
+            VideoDebugPrint((2, "         freq(%d)\n",ModesVGA[i].Frequency));
+            VideoDebugPrint((2, "         interlace(%d)\n",ModesVGA[i].Interlaced));
+            VideoDebugPrint((2, "         numPlanes(%d)\n",ModesVGA[i].numPlanes));
+            VideoDebugPrint((2, "         sbytes(%d)\n",ModesVGA[i].sbytes));
+            VideoDebugPrint((2, "         memory reqd(%d)\n",ModesVGA[i].numPlanes * ModesVGA[i].sbytes));
+            VideoDebugPrint((2, "         memory pres(%d)\n",HwDeviceExtension->AdapterMemorySize));
         }
 
     }
 }
+

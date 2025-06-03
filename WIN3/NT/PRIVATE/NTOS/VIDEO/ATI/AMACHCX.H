@@ -23,10 +23,53 @@
   
 /**********************       PolyTron RCS Utilities
 
-   $Revision:   1.4  $
-   $Date:   04 May 1994 10:58:48  $
-   $Author:   RWOLFF  $
-   $Log:   S:\source\wnt\ms11\miniport\vcs\amachcx.h  $
+   $Revision:   1.17  $
+   $Date:   15 Apr 1996 16:57:28  $
+   $Author:   RWolff  $
+   $Log:   S:/source/wnt/ms11/miniport/archive/amachcx.h_v  $
+ * 
+ *    Rev 1.17   15 Apr 1996 16:57:28   RWolff
+ * Added definitions for various revisions of the GX and CX ASICs
+ * 
+ *    Rev 1.16   01 Mar 1996 12:09:48   RWolff
+ * VGA Graphics Index and Graphics Data are now handled as separate
+ * registers rather than as offsets into the block of VGA registers.
+ * 
+ *    Rev 1.15   22 Sep 1995 16:47:08   RWolff
+ * Added definitions for AL values of accelerator BIOS functions to
+ * allow switching on the low byte of the function.
+ * 
+ *    Rev 1.14   24 Aug 1995 15:41:12   RWolff
+ * Changed detection of block I/O cards to match Microsoft's
+ * standard for plug-and-play.
+ * 
+ *    Rev 1.13   24 Feb 1995 12:28:36   RWOLFF
+ * Added definitions used for relocatable I/O and 24BPP text banding
+ * 
+ *    Rev 1.12   20 Feb 1995 18:00:34   RWOLFF
+ * Added definition for GX rev. E ASIC.
+ * 
+ *    Rev 1.11   23 Dec 1994 10:48:02   ASHANMUG
+ * ALPHA/Chrontel-DAC
+ * 
+ *    Rev 1.10   18 Nov 1994 11:52:12   RWOLFF
+ * Register name change to CLOCK_CNTL to match latest documents, added
+ * some new bitfield definitions for registers.
+ * 
+ *    Rev 1.9   14 Sep 1994 15:20:58   RWOLFF
+ * Added definitions for all 32BPP colour orderings.
+ * 
+ *    Rev 1.8   31 Aug 1994 16:11:08   RWOLFF
+ * Removed VGA_SLEEP from enumeration of registers used on Mach 64
+ * (we don't access it, and it conflicts with DigiBoard), added
+ * support for BGRx in 32BPP (used by TVP3026 DAC).
+ * 
+ *    Rev 1.7   20 Jul 1994 12:59:38   RWOLFF
+ * Added support for multiple I/O base addresses for accelerator registers.
+ * 
+ *    Rev 1.6   12 May 1994 11:21:22   RWOLFF
+ * Added masks for pitch and pixel depth fields of ECX for BIOS_LOAD_CRTC
+ * call.
  * 
  *    Rev 1.5   05 May 1994 13:40:40   RWOLFF
  * Added definitions for chip identification register fields.
@@ -82,47 +125,59 @@ End of PolyTron RCS section				*****************/
 #define OFFSET_VGA  0x0BFC00
 
 
-// CRTC IO Registers
+/*
+ * Base addresses for Mach 64 accelerator registers.
+ */
+#define M64_STD_BASE_ADDR       0x02EC
+#define M64_ALT_BASE_ADDR_1     0x01C8
+#define M64_ALT_BASE_ADDR_2     0x01CC
+#define NUM_BASE_ADDRESSES      3
 
-#define IO_CRTC_H_TOTAL_DISP    0x02EC
-#define IO_CRTC_H_SYNC_STRT_WID 0x06EC
-#define IO_CRTC_V_TOTAL_DISP    0x0AEC
-#define IO_CRTC_V_SYNC_STRT_WID 0x0EEC
-#define IO_CRTC_CRNT_VLINE      0x12EC
-#define IO_CRTC_OFF_PITCH       0x16EC
-#define IO_CRTC_INT_CNTL        0x1AEC
-#define IO_CRTC_GEN_CNTL        0x1EEC
+/*
+ * CRTC I/O registers. Only the variable portion
+ * of the register is given here. To get the full
+ * register, add the base address.
+ */
 
-#define IO_OVR_CLR              0x22EC
-#define IO_OVR_WID_LEFT_RIGHT   0x26EC
-#define IO_OVR_WID_TOP_BOTTOM   0x2AEC
+#define IO_CRTC_H_TOTAL_DISP    0x0000
+#define IO_CRTC_H_SYNC_STRT_WID 0x0400
+#define IO_CRTC_V_TOTAL_DISP    0x0800
+#define IO_CRTC_V_SYNC_STRT_WID 0x0C00
+#define IO_CRTC_CRNT_VLINE      0x1000
+#define IO_CRTC_OFF_PITCH       0x1400
+#define IO_CRTC_INT_CNTL        0x1800
+#define IO_CRTC_GEN_CNTL        0x1C00
 
-#define IO_CUR_CLR0             0x2EEC
-#define IO_CUR_CLR1             0x32EC
-#define IO_CUR_OFFSET           0x36EC
-#define IO_CUR_HORZ_VERT_POSN   0x3AEC
-#define IO_CUR_HORZ_VERT_OFF    0x3EEC
+#define IO_OVR_CLR              0x2000
+#define IO_OVR_WID_LEFT_RIGHT   0x2400
+#define IO_OVR_WID_TOP_BOTTOM   0x2800
 
-#define IO_SCRATCH_REG0         0x42EC
-#define IO_SCRATCH_REG1         0x46EC
+#define IO_CUR_CLR0             0x2C00
+#define IO_CUR_CLR1             0x3000
+#define IO_CUR_OFFSET           0x3400
+#define IO_CUR_HORZ_VERT_POSN   0x3800
+#define IO_CUR_HORZ_VERT_OFF    0x3C00
 
-#define IO_CLOCK_SEL_CNTL       0x4AEC
+#define IO_SCRATCH_REG0         0x4000
+#define IO_SCRATCH_REG1         0x4400
 
-#define IO_BUS_CNTL             0x4EEC
+#define IO_CLOCK_CNTL           0x4800
 
-#define IO_MEM_CNTL             0x52EC
-#define IO_MEM_VGA_WP_SEL       0x56EC
-#define IO_MEM_VGA_RP_SEL       0x5AEC
+#define IO_BUS_CNTL             0x4C00
 
-#define IO_DAC_REGS             0x5EEC
-#define IO_DAC_CNTL             0x62EC
+#define IO_MEM_CNTL             0x5000
+#define IO_MEM_VGA_WP_SEL       0x5400
+#define IO_MEM_VGA_RP_SEL       0x5800
 
-#define IO_GEN_TEST_CNTL        0x66EC
+#define IO_DAC_REGS             0x5C00
+#define IO_DAC_CNTL             0x6000
 
-#define IO_CONFIG_CNTL          0x6AEC
-#define IO_CONFIG_CHIP_ID       0x6EEC
-#define IO_CONFIG_STAT0         0x72EC
-#define IO_CONFIG_STAT1         0x76EC
+#define IO_GEN_TEST_CNTL        0x6400
+
+#define IO_CONFIG_CNTL          0x6800
+#define IO_CONFIG_CHIP_ID       0x6C00
+#define IO_CONFIG_STAT0         0x7000
+#define IO_CONFIG_STAT1         0x7400
 
 
 // CRTC MEM Registers
@@ -150,7 +205,7 @@ End of PolyTron RCS section				*****************/
 #define MM_SCRATCH_REG0         0x0020
 #define MM_SCRATCH_REG1         0x0021
 
-#define MM_CLOCK_SEL_CNTL       0x0024
+#define MM_CLOCK_CNTL           0x0024
 
 #define MM_BUS_CNTL             0x0028
 
@@ -162,6 +217,15 @@ End of PolyTron RCS section				*****************/
 #define MM_DAC_CNTL             0x0031
 
 #define MM_GEN_TEST_CNTL        0x0034
+
+/*
+ * This register does not exist in memory-mapped form,
+ * but on cards with relocatable I/O, the I/O index of
+ * each register matches its memory-mapped index. This
+ * register was assigned an otherwise unused index for
+ * this purpose.
+ */
+#define MM_CONFIG_CNTL          0x0037
 
 #define MM_CONFIG_CHIP_ID       0x0038
 #define MM_CONFIG_STAT0         0x0039
@@ -264,7 +328,13 @@ End of PolyTron RCS section				*****************/
  */
 #define IO_VGA_SEQ_IND          0x03C4
 #define IO_VGA_SEQ_DATA         0x03C5
-//#define IO_HI_SEQ_ADDR          IO_SEQ_IND       /* Sequencer index/data pair (word) */
+
+/*
+ * VGA Graphics index/data registers (another frequently used
+ * VGA register pair)
+ */
+#define IO_VGA_GRAX_IND         0x03CE
+#define IO_VGA_GRAX_DATA        0x03CF
 
 /*
  * ATI extended registers
@@ -272,24 +342,18 @@ End of PolyTron RCS section				*****************/
 #define IO_reg1CE               0x01CE
 #define IO_reg1CF               0x01CF
 
-/*
- * Offsets for VGA registers from regVGA_BASE_IO_PORT or
- * regVGA_END_BREAK_PORT (depending on which block they're in)
- */
-#define GRAX_IND_OFFSET     0x000E      /* 0x03CE */
-#define GRAX_DATA_OFFSET    0x000F      /* 0x03CF */
-
 
 
 /*
  * Define the registers as subscripts to an array
  */
 enum {
-    VGA_SLEEP=0             ,
-    VGA_BASE_IO_PORT        ,
+    VGA_BASE_IO_PORT=0      ,
     VGA_END_BREAK_PORT      ,
     VGA_SEQ_IND             ,
     VGA_SEQ_DATA            ,
+    VGA_GRAX_IND            ,
+    VGA_GRAX_DATA           ,
     reg1CE                  ,
     reg1CF                  ,
     CRTC_H_TOTAL_DISP       ,
@@ -310,7 +374,7 @@ enum {
     CUR_HORZ_VERT_OFF       ,
     SCRATCH_REG0            ,
     SCRATCH_REG1            ,
-    CLOCK_SEL_CNTL          ,
+    CLOCK_CNTL              ,
     BUS_CNTL                ,
     MEM_CNTL                ,
     MEM_VGA_WP_SEL          ,
@@ -419,6 +483,14 @@ enum {
 #define CRTC_GEN_CNTL_Dep16_565 0x00000400
 #define CRTC_GEN_CNTL_Dep24     0x00000500
 #define CRTC_GEN_CNTL_Dep32     0x00000600
+#define CRTC_GEN_CNTL_ShowVga   0x00000000
+#define CRTC_GEN_CNTL_ShowAcc   0x01000000
+#define CRTC_GEN_CNTL_CrtcEna   0x02000000
+
+/*
+ * Clock control
+ */
+#define CLOCK_CNTL_ClockStrobe  0x00000040
 
 /*
  * Memory Control
@@ -432,10 +504,19 @@ enum {
 #define MEM_CNTL_MemSize8Mb     0x00000005
 #define MEM_CNTL_MemBndryMsk    0x00070000
 #define MEM_CNTL_MemBndryEn     0x00040000
-#define MEM_CNTL_MemBndry256k   0x00040000
-#define MEM_CNTL_MemBndry512k   0x00050000
-#define MEM_CNTL_MemBndry768k   0x00060000
-#define MEM_CNTL_MemBndry1Mb    0x00070000
+#define MEM_CNTL_MemBndry0k     0x00000000
+#define MEM_CNTL_MemBndry256k   0x00010000
+#define MEM_CNTL_MemBndry512k   0x00020000
+#define MEM_CNTL_MemBndry1Mb    0x00030000
+
+/*
+ * DAC control
+ */
+#define DAC_CNTL_ExtSelMask     0x00000003
+#define DAC_CNTL_ExtSelStrip    ~DAC_CNTL_ExtSelMask
+#define DAC_CNTL_ExtSelRS2      0x00000001
+#define DAC_CNTL_ExtSelRS3      0x00000002
+#define DAC_CNTL_VgaAddrEna     0x00002000
 
 /*
  * General and Test control
@@ -467,6 +548,7 @@ enum {
 #define CONFIG_CNTL_VgaApDisab      0x00000000
 #define CONFIG_CNTL_VgaApEnab       0x00000004
 #define CONFIG_CNTL_LinApLocMask    0x00003FF0
+#define CONFIG_CNTL_LinApLocShift       4
 #define CONFIG_CNTL_CardIDMask      0x00070000
 #define CONFIG_CNTL_VgaEnabled      0x00000000
 #define CONFIG_CNTL_VgaDisabled     0x00080000
@@ -477,8 +559,47 @@ enum {
 #define CONFIG_CHIP_ID_TypeMask     0x0000FFFF
 #define CONFIG_CHIP_ID_ClassMask    0x00FF0000
 #define CONFIG_CHIP_ID_RevMask      0xFF000000
+#define CONFIG_CHIP_ID_TypeGX       0x000000D7
+#define CONFIG_CHIP_ID_TypeCX       0x00000057
 #define CONFIG_CHIP_ID_RevC         0x00000000
 #define CONFIG_CHIP_ID_RevD         0x01000000
+#define CONFIG_CHIP_ID_RevE         0x02000000
+#define CONFIG_CHIP_ID_RevF         0x03000000
+#define CONFIG_CHIP_ID_GXRevC       CONFIG_CHIP_ID_TypeGX | CONFIG_CHIP_ID_RevC
+#define CONFIG_CHIP_ID_GXRevD       CONFIG_CHIP_ID_TypeGX | CONFIG_CHIP_ID_RevD
+#define CONFIG_CHIP_ID_GXRevE       CONFIG_CHIP_ID_TypeGX | CONFIG_CHIP_ID_RevE
+#define CONFIG_CHIP_ID_GXRevF       CONFIG_CHIP_ID_TypeGX | CONFIG_CHIP_ID_RevF
+
+/*
+ * Configuration status register 0
+ */
+#define CONFIG_STAT0_BusMask        0x00000007
+#define CONFIG_STAT0_MemTypeMask    0x00000038
+#define CONFIG_STAT0_DRAM256x4      0x00000000
+#define CONFIG_STAT0_VRAM256xAny    0x00000008
+#define CONFIG_STAT0_VRAM256x16ssr  0x00000010
+#define CONFIG_STAT0_DRAM256x16     0x00000018
+#define CONFIG_STAT0_GDRAM256x16    0x00000020
+#define CONFIG_STAT0_EVRAM256xAny   0x00000028
+#define CONFIG_STAT0_EVRAM256x16ssr 0x00000030
+#define CONFIG_STAT0_MemTypeShift       3
+#define CONFIG_STAT0_DualCasEna     0x00000040
+#define CONFIG_STAT0_LocalBusOpt    0x00000180
+#define CONFIG_STAT0_DacTypeMask    0x00000E00
+#define CONFIG_STAT0_DacTypeShift       9
+#define CONFIG_STAT0_CardId         0x00007000
+#define CONFIG_STAT0_NoTristate     0x00008000
+#define CONFIG_STAT0_ExtRomAddr     0x003F0000
+#define CONFIG_STAT0_RomDisab       0x00400000
+#define CONFIG_STAT0_VgaEna         0x00800000
+#define CONFIG_STAT0_VlbCfg         0x01000000
+#define CONFIG_STAT0_ChipEna        0x02000000
+#define CONFIG_STAT0_NoReadDelay    0x04000000
+#define CONFIG_STAT0_RomOption      0x08000000
+#define CONFIG_STAT0_BusOption      0x10000000
+#define CONFIG_STAT0_LBDacWriteEna  0x20000000
+#define CONFIG_STAT0_VlbRdyDisab    0x40000000
+#define CONFIG_STAT0_Ap4GigRange    0x80000000
 
 /*
  * Destination width
@@ -671,8 +792,14 @@ enum {
  * values are bit flags which may be ORed with each other for "write"
  * calls or extracted for "read" calls.
  */
-#define BIOS_PREFIX         0xA000
-#define BIOS_LOAD_CRTC      BIOS_PREFIX | 0x00
+#define BIOS_PREFIX_VGA_ENAB    0xA000  /* Accelerator BIOS prefix with VGA enabled */
+#define BIOS_PREFIX_MAX_DISAB   0xAF00  /* Highest allowed BIOS prefix with VGA disabled */
+#define BIOS_PREFIX_INCREMENT   0x0100  /* Step between BIOS prefixes */
+#define BIOS_PREFIX_UNASSIGNED  0xFF00  /* Flag to show this card's BIOS prefix is not yet known */
+
+
+#define BIOS_LOAD_CRTC_LB       0x00
+#define BIOS_LOAD_CRTC      phwDeviceExtension->BiosPrefix | BIOS_LOAD_CRTC_LB
 
 #define BIOS_DEPTH_MASK         0x00000007
 #define BIOS_DEPTH_4BPP         0x00000001
@@ -681,11 +808,18 @@ enum {
 #define BIOS_DEPTH_16BPP_565    0x00000004
 #define BIOS_DEPTH_24BPP        0x00000005
 #define BIOS_DEPTH_32BPP        0x00000006
+#define BIOS_ORDER_32BPP_MASK   0x00000028
+#define BIOS_DEPTH_ORDER_MASK   BIOS_DEPTH_MASK | BIOS_ORDER_32BPP_MASK
 #define BIOS_ORDER_32BPP_RGBx   0x00000000
-#define BIOS_ORDER_32BPP_xBGR   0x00000008
+#define BIOS_ORDER_32BPP_xRGB   0x00000008
+#define BIOS_ORDER_32BPP_BGRx   0x00000020
+#define BIOS_ORDER_32BPP_xBGR   0x00000028
 #define BIOS_DEPTH_32BPP_RGBx   BIOS_DEPTH_32BPP | BIOS_ORDER_32BPP_RGBx
+#define BIOS_DEPTH_32BPP_xRGB   BIOS_DEPTH_32BPP | BIOS_ORDER_32BPP_xRGB
+#define BIOS_DEPTH_32BPP_BGRx   BIOS_DEPTH_32BPP | BIOS_ORDER_32BPP_BGRx
 #define BIOS_DEPTH_32BPP_xBGR   BIOS_DEPTH_32BPP | BIOS_ORDER_32BPP_xBGR
 #define BIOS_ENABLE_GAMMA       0x00000010  /* Enable gamma correction */
+#define BIOS_PITCH_MASK         0x000000C0
 #define BIOS_PITCH_1024         0x00000000  /* Screen pitch 1024 pixels */
 #define BIOS_PITCH_UNCHANGED    0x00000040  /* Don't change screen pitch */
 #define BIOS_PITCH_HOR_RES      0x00000080  /* Screen pitch is horizontal resolution */
@@ -694,39 +828,50 @@ enum {
 #define BIOS_RES_800x600        0x00006A00
 #define BIOS_RES_1024x768       0x00005500
 #define BIOS_RES_EEPROM         0x00008000  /* Load table from EEPROM */
-#define BIOS_RES_BUFFER         0x00008100  /* Load table from buffer */
+#define BIOS_RES_BUFFER         0x00008100  /* Load table from buffer in first 1M */
+#define BIOS_RES_HIGH_BUFFER    0x00009100  /* Load table from unrestricted buffer */
 #define BIOS_RES_OEM            0x00008200  /* OEM-specific mode */
 #define BIOS_RES_1280x1024      0x00008300
 #define BIOS_RES_1600x1200      0x00008400
 
-#define BIOS_SET_MODE       BIOS_PREFIX | 0x01
+#define BIOS_SET_MODE_LB        0x01
+#define BIOS_SET_MODE       phwDeviceExtension->BiosPrefix | BIOS_SET_MODE_LB
 
 #define BIOS_MODE_VGA           0x00000000
 #define BIOS_MODE_COPROCESSOR   0x00000001
 
-#define BIOS_LOAD_SET       BIOS_PREFIX | 0x02
-#define BIOS_READ_EEPROM    BIOS_PREFIX | 0x03
-#define BIOS_WRITE_EEPROM   BIOS_PREFIX | 0x04
-#define BIOS_APERTURE       BIOS_PREFIX | 0x05
+#define BIOS_LOAD_SET_LB        0x02
+#define BIOS_LOAD_SET       phwDeviceExtension->BiosPrefix | BIOS_LOAD_SET_LB
+#define BIOS_READ_EEPROM_LB     0x03
+#define BIOS_READ_EEPROM    phwDeviceExtension->BiosPrefix | BIOS_READ_EEPROM_LB
+#define BIOS_WRITE_EEPROM_LB    0x04
+#define BIOS_WRITE_EEPROM   phwDeviceExtension->BiosPrefix | BIOS_WRITE_EEPROM_LB
+#define BIOS_APERTURE_LB        0x05
+#define BIOS_APERTURE       phwDeviceExtension->BiosPrefix | BIOS_APERTURE_LB
 
 #define BIOS_DISABLE_APERTURE   0x00000000
 #define BIOS_LINEAR_APERTURE    0x00000001
 #define BIOS_VGA_APERTURE       0x00000004
 
-#define BIOS_SHORT_QUERY    BIOS_PREFIX | 0x06
+#define BIOS_SHORT_QUERY_LB     0x06
+#define BIOS_SHORT_QUERY    phwDeviceExtension->BiosPrefix | BIOS_SHORT_QUERY_LB
 
 #define BIOS_AP_DISABLED        0x00000000
 #define BIOS_AP_4M              0x00000001
 #define BIOS_AP_8M              0x00000002
+#define BIOS_AP_16M             0x00000003
 #define BIOS_AP_SIZEMASK        0x00000003
 #define BIOS_AP_SETTABLE        0x00000000  /* User can set aperture */
 #define BIOS_AP_FIXED           0x00000040  /* Aperture location is fixed */
 #define BIOS_AP_RNG_128M        0x00000000  /* Aperture must be below 128M */
 #define BIOS_AP_RNG_4G          0x00000080  /* Aperture can be anywhere */
 
-#define BIOS_CAP_LIST       BIOS_PREFIX | 0x07
-#define BIOS_GET_QUERY_SIZE BIOS_PREFIX | 0x08
-#define BIOS_QUERY          BIOS_PREFIX | 0x09
+#define BIOS_CAP_LIST_LB        0x07
+#define BIOS_CAP_LIST       phwDeviceExtension->BiosPrefix | BIOS_CAP_LIST_LB
+#define BIOS_GET_QUERY_SIZE_LB  0x08
+#define BIOS_GET_QUERY_SIZE phwDeviceExtension->BiosPrefix | BIOS_GET_QUERY_SIZE_LB
+#define BIOS_QUERY_LB           0x09
+#define BIOS_QUERY          phwDeviceExtension->BiosPrefix | BIOS_QUERY_LB
 
 /*
  * The following values are used for both BIOS_GET_QUERY_SIZE
@@ -735,10 +880,14 @@ enum {
 #define BIOS_QUERY_HEADER       0x00000000  /* Get header information only */
 #define BIOS_QUERY_FULL         0x00000001  /* Also get mode tables */
 
-#define BIOS_GET_CLOCK      BIOS_PREFIX | 0x0A
-#define BIOS_SET_CLOCK      BIOS_PREFIX | 0x0B
-#define BIOS_SET_DPMS       BIOS_PREFIX | 0x0C
-#define BIOS_GET_DPMS       BIOS_PREFIX | 0x0D
+#define BIOS_GET_CLOCK_LB       0x0A
+#define BIOS_GET_CLOCK      phwDeviceExtension->BiosPrefix | BIOS_GET_CLOCK_LB
+#define BIOS_SET_CLOCK_LB       0x0B
+#define BIOS_SET_CLOCK      phwDeviceExtension->BiosPrefix | BIOS_SET_CLOCK_LB
+#define BIOS_SET_DPMS_LB        0x0C
+#define BIOS_SET_DPMS       phwDeviceExtension->BiosPrefix | BIOS_SET_DPMS_LB
+#define BIOS_GET_DPMS_LB        0x0D
+#define BIOS_GET_DPMS       phwDeviceExtension->BiosPrefix | BIOS_GET_DPMS_LB
 
 #define BIOS_DPMS_ACTIVE        0x00000000
 #define BIOS_DPMS_STANDBY       0x00000001
@@ -746,14 +895,21 @@ enum {
 #define BIOS_DPMS_OFF           0x00000003
 #define BIOS_DPMS_BLANK_SCREEN  0x00000004
 
-#define BIOS_SET_PM         BIOS_PREFIX | 0x0E  /* Set and return Graphics Controller's */
-#define BIOS_GET_PM         BIOS_PREFIX | 0x0F  /* Power Management state */
-#define BIOS_RAMDAC_STATE   BIOS_PREFIX | 0x10
+/*
+ * Set and return Graphics Controller's power management state.
+ */
+#define BIOS_SET_PM_LB      0x0E
+#define BIOS_SET_PM         phwDeviceExtension->BiosPrefix | BIOS_SET_PM_LB
+#define BIOS_GET_PM_LB      0x0F
+#define BIOS_GET_PM         phwDeviceExtension->BiosPrefix | BIOS_GET_PM_LB
+#define BIOS_RAMDAC_STATE_LB        0x10
+#define BIOS_RAMDAC_STATE   phwDeviceExtension->BiosPrefix | BIOS_RAMDAC_STATE_LB
 
 #define BIOS_RAMDAC_NORMAL      0x00000000
 #define BIOS_RAMDAC_SLEEP       0x00000001
 
-#define BIOS_STORAGE_INFO   BIOS_PREFIX | 0x11  /* Get external storage device info */
+#define BIOS_STORAGE_INFO_LB        0x11   /* Get external storage device info */
+#define BIOS_STORAGE_INFO   phwDeviceExtension->BiosPrefix | BIOS_STORAGE_INFO_LB
 
 #define BIOS_DEVICE_TYPE        0x0000000F
 #define BIOS_READ_WRITE         0x00000000
@@ -765,5 +921,7 @@ enum {
 #define BIOS_CRTC_TABLE_OFFSET  0x000000FF
 #define BIOS_CRTC_TABLE_SIZE    0x0000FF00
 
-#define BIOS_QUERY_IOBASE   BIOS_PREFIX | 0x12  /* Get I/O base address */
-#define BIOS_DDC_SUPPORT    BIOS_PREFIX | 0x13  /* Get Display Data Channel support information */
+#define BIOS_QUERY_IOBASE_LB        0x12   /* Get I/O base address */
+#define BIOS_QUERY_IOBASE   phwDeviceExtension->BiosPrefix | BIOS_QUERY_IOBASE_LB
+#define BIOS_DDC_SUPPORT_LB     0x13   /* Get Display Data Channel support information */
+#define BIOS_DDC_SUPPORT    phwDeviceExtension->BiosPrefix | BIOS_DDC_SUPPORT_LB

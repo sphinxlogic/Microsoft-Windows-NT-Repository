@@ -49,107 +49,127 @@ static pdombase_t   pVBDom = NULL;
 
 static HDEP     hVBSearch = 0;
 static pdombase_t   pVBSearch = NULL;
+static psearch_t    pNameFirst = NULL;
 
-LOCAL   pnode_t NEAR    PASCAL    AddETConst (pnode_t, OFFSET, CV_typ_t);
-LOCAL   pnode_t NEAR    PASCAL    AddETExpr (pnode_t, CV_typ_t, OFFSET, OFFSET, CV_typ_t);
-LOCAL   pnode_t NEAR    PASCAL    AddETInit (pnode_t, CV_typ_t);
-LOCAL   bool_t  NEAR    PASCAL    AddHSYM (psearch_t, HSYM, PHSL_HEAD, uint);
-LOCAL   SCN_t   NEAR    PASCAL    AddVBList (psymclass_t, pdombase_t FAR *, HDEP FAR *);
-LOCAL   SCN_t   NEAR    PASCAL    AddVBType (pdombase_t FAR *, HDEP FAR *, CV_typ_t);
-LOCAL   ushort  NEAR    PASCAL    AmbFromList (psearch_t);
-LOCAL   bool_t  NEAR    PASCAL    AmbToList (psearch_t);
-LOCAL   HR_t    NEAR    PASCAL    ClAmbToList (psearch_t);
-LOCAL   bool_t  NEAR    PASCAL    DebLoadConst (peval_t, CONSTPTR, HSYM);
-LOCAL   SCN_t   NEAR    PASCAL    DupSymCl (psearch_t);
-LOCAL   SCN_t   NEAR    PASCAL    FindIntro (psearch_t);
-LOCAL   SCN_t   NEAR    PASCAL    GenQualExpr (psearch_t);
-LOCAL   HDEP    NEAR    PASCAL    GenQualName (psearch_t, psymclass_t);
-LOCAL   bool_t  NEAR    PASCAL    GrowTMList (void);
-LOCAL   SCN_t   NEAR    PASCAL    IncrSymBase (void);
-LOCAL   bool_t  NEAR    PASCAL    InitMod (psearch_t);
-LOCAL   DOM_t   NEAR    PASCAL    IsDominated (psymclass_t, psymclass_t);
-LOCAL   bool_t  NEAR    PASCAL    IsIntroVirt (ushort, CV_typ_t, ushort FAR *);
-LOCAL   bool_t  NEAR    PASCAL    LineNumber (psearch_t);
-LOCAL   bool_t  NEAR    PASCAL    MatchArgs (peval_t, psearch_t, CV_fldattr_t, UOFFSET, bool_t);
-LOCAL   HR_t    NEAR    FASTCALL  MatchFunction (psearch_t);
-LOCAL   void    NEAR    PASCAL    MoveSymCl (HDEP hSymCl);
-LOCAL   SCN_t   NEAR    PASCAL    OverloadToAmbList (psearch_t, psymclass_t);
-LOCAL   SCN_t   NEAR    PASCAL    MethodsToAmbList (psearch_t, psymclass_t);
-LOCAL   bool_t  NEAR    PASCAL    ParseRegister (psearch_t);
-LOCAL   void    NEAR    PASCAL    PurgeAmbCl (psearch_t);
-LOCAL   SCN_t   NEAR    PASCAL    RecurseBase (psearch_t, CV_typ_t, CV_typ_t, OFFSET, OFFSET, CV_fldattr_t, bool_t);
-LOCAL   SCN_t   NEAR    PASCAL    RemoveAmb (psearch_t);
-LOCAL   SCN_t   NEAR    PASCAL    SearchBases (psearch_t);
-LOCAL   SCN_t   NEAR    PASCAL    SearchBType (psearch_t);
-LOCAL   SCN_t   NEAR    PASCAL    SearchClassName (psearch_t);
-LOCAL   bool_t  NEAR    PASCAL    SearchQualName (psearch_t, psymclass_t, HDEP, bool_t);
-LOCAL   SCN_t   NEAR    PASCAL    SearchRoot (psearch_t);
-LOCAL   SCN_t   NEAR    PASCAL    SetBase (psearch_t, CV_typ_t, CV_typ_t, OFFSET, OFFSET, CV_fldattr_t, bool_t);
-LOCAL   SCN_t   NEAR    PASCAL    SetBPValue (psearch_t);
-LOCAL   SCN_t   NEAR    PASCAL    SetValue (psearch_t);
-LOCAL   HR_t    NEAR    PASCAL    SymAmbToList (psearch_t);
-LOCAL   bool_t  NEAR    PASCAL    SymToNode (psearch_t);
-LOCAL   bool_t  NEAR    PASCAL    VBSearched (CV_typ_t);
-LOCAL   bool_t  NEAR    PASCAL    VBaseFound (psearch_t);
+LOCAL   pnode_t AddETConst (pnode_t, OFFSET, CV_typ_t);
+LOCAL   pnode_t AddETExpr (pnode_t, CV_typ_t, OFFSET, OFFSET, CV_typ_t);
+LOCAL   pnode_t AddETInit (pnode_t, CV_typ_t);
+LOCAL   bool_t  AddHSYM (psearch_t, HSYM, PHSL_HEAD, uint);
+LOCAL   SCN_t   AddVBList (psymclass_t, pdombase_t *, HDEP *);
+LOCAL   SCN_t   AddVBType (pdombase_t *, HDEP *, CV_typ_t);
+LOCAL   ushort  AmbFromList (psearch_t);
+LOCAL   bool_t  AmbToList (psearch_t);
+LOCAL   HR_t    ClAmbToList (psearch_t);
+LOCAL   bool_t  DebLoadConst (peval_t, CONSTPTR, HSYM);
+LOCAL   SCN_t   DupSymCl (psearch_t);
+LOCAL   SCN_t   FindIntro (psearch_t);
+LOCAL   SCN_t   GenQualExpr (psearch_t);
+LOCAL   HDEP    GenQualName (psearch_t, psymclass_t);
+LOCAL   bool_t  GrowTMList (void);
+LOCAL   SCN_t   IncrSymBase (void);
+LOCAL   bool_t  InitMod (psearch_t);
+LOCAL   DOM_t   IsDominated (psymclass_t, psymclass_t);
+LOCAL   bool_t  IsIntroVirt (ushort, CV_typ_t, ushort *);
+LOCAL   bool_t  LineNumber (psearch_t);
+LOCAL   void    MatchArgs (peval_t, psearch_t, CV_fldattr_t, UOFFSET, bool_t);
+LOCAL   HR_t    __fastcall  MatchFunction (psearch_t);
+LOCAL   void    MoveSymCl (HDEP hSymCl);
+LOCAL   SCN_t   OverloadToAmbList (psearch_t, psymclass_t);
+LOCAL   SCN_t   MethodsToAmbList (psearch_t, psymclass_t);
+LOCAL   bool_t  ParseRegister (psearch_t);
+LOCAL   void    PurgeAmbCl (psearch_t);
+LOCAL   SCN_t   RecurseBase (psearch_t, CV_typ_t, CV_typ_t, OFFSET, OFFSET, CV_fldattr_t, bool_t);
+LOCAL   SCN_t   RemoveAmb (psearch_t);
+LOCAL   SCN_t   SearchBases (psearch_t);
+LOCAL   SCN_t   SearchBType (psearch_t);
+LOCAL   SCN_t   SearchClassName (psearch_t);
+LOCAL   bool_t  SearchQualName (psearch_t, psymclass_t, HDEP, bool_t);
+LOCAL   SCN_t   SearchRoot (psearch_t);
+LOCAL   SCN_t   SetBase (psearch_t, CV_typ_t, CV_typ_t, OFFSET, OFFSET, CV_fldattr_t, bool_t);
+LOCAL   SCN_t   SetBPValue (psearch_t);
+LOCAL   SCN_t   SetValue (psearch_t);
+LOCAL   HR_t    SymAmbToList (psearch_t);
+LOCAL   bool_t  SymToNode (psearch_t);
+LOCAL   bool_t  VBSearched (CV_typ_t);
+LOCAL   bool_t  VBaseFound (psearch_t);
 
-#if !defined (C_ONLY)
-LOCAL   bool_t  NEAR    FASTCALL  InsertThis (psearch_t);
-LOCAL   MTH_t   NEAR    PASCAL    MatchMethod (psearch_t, psymclass_t);
-#endif
+LOCAL CV_typ_t  SkipModifiers(HMOD, CV_typ_t);
+LOCAL bool_t    CheckDupAmb ( psearch_t );
+
+LOCAL   bool_t  __fastcall  InsertThis (psearch_t);
+LOCAL   MTH_t   MatchMethod (psearch_t, psymclass_t);
+
+__inline BOOL
+getBaseDefnFromDecl(
+    CV_typ_t typeIn,
+    peval_t pv,
+    CV_typ_t* ptypeOut)
+{
+    peval_t      pvBase = &pSymClass->symbase[pSymClass->CurIndex].Base;
+    Unreferenced (pv);
+    return getDefnFromDecl (typeIn, pvBase, ptypeOut);
+}
+
+__inline unsigned char
+SkipPad(
+    unsigned char *pb)
+{
+
+    if (*pb >= LF_PAD0) {
+        // there is a pad field
+        return(*pb & 0x0f);
+    }
+
+    return(0);
+}
 
 OPNAME OpName[] = {
-    {"\x004""this"},             //  OP_this
-    {"\x00b""operator->*"},      //  OP_Opmember
-    {"\x00b""operator>>="},      //  OP_Orightequal
-    {"\x00b""operator<<="},      //  OP_Oleftequal
-    {"\x00a""operator()"},       //  OP_Ofunction
-    {"\x00a""operator[]"},       //  OP_Oarray
-    {"\x00a""operator+="},       //  OP_Oplusequal
-    {"\x00a""operator-="},       //  OP_Ominusequal
-    {"\x00a""operator*="},       //  OP_Otimesequal
-    {"\x00a""operator/="},       //  OP_Odivequal
-    {"\x00a""operator%="},       //  OP_Opcentequal
-    {"\x00a""operator&="},       //  OP_Oandequal
-    {"\x00a""operator^="},       //  OP_Oxorequal
-    {"\x00a""operator|="},       //  OP_Oorequal
-    {"\x00a""operator<<"},       //  OP_Oshl
-    {"\x00a""operator>>"},       //  OP_Oshr
-    {"\x00a""operator=="},       //  OP_Oequalequal
-    {"\x00a""operator!="},       //  OP_Obangequal
-    {"\x00a""operator<="},       //  OP_Olessequal
-    {"\x00a""operator>="},       //  OP_Ogreatequal
-    {"\x00a""operator&&"},       //  OP_Oandand
-    {"\x00a""operator||"},       //  OP_Ooror
-    {"\x00a""operator++"},       //  OP_Oincrement
-    {"\x00a""operator--"},       //  OP_Odecrement
-    {"\x00a""operator->"},       //  OP_Opointsto
-    {"\x009""operator+"},        //  OP_Oplus
-    {"\x009""operator-"},        //  OP_Ominus
-    {"\x009""operator*"},        //  OP_Ostar
-    {"\x009""operator/"},        //  OP_Odivide
-    {"\x009""operator%"},        //  OP_Opercent
-    {"\x009""operator^"},        //  OP_Oxor
-    {"\x009""operator&"},        //  OP_Oand
-    {"\x009""operator|"},        //  OP_Oor
-    {"\x009""operator~"},        //  OP_Otilde
-    {"\x009""operator!"},        //  OP_Obang
-    {"\x009""operator="},        //  OP_Oequal
-    {"\x009""operator<"},        //  OP_Oless
-    {"\x009""operator>"},        //  OP_Ogreater
-    {"\x009""operator,"},        //  OP_Ocomma
-    {"\x012""operator new"},     //  OP_Onew
-    {"\x015""operator delete"}   //  OP_Odelete
+    {"\x004""this"},            //  OP_this
+    {"\x00b""operator->*"},     //  OP_Opmember
+    {"\x00b""operator>>="},     //  OP_Orightequal
+    {"\x00b""operator<<="},     //  OP_Oleftequal
+    {"\x00a""operator()"},      //  OP_Ofunction
+    {"\x00a""operator[]"},      //  OP_Oarray
+    {"\x00a""operator+="},      //  OP_Oplusequal
+    {"\x00a""operator-="},      //  OP_Ominusequal
+    {"\x00a""operator*="},      //  OP_Otimesequal
+    {"\x00a""operator/="},      //  OP_Odivequal
+    {"\x00a""operator%="},      //  OP_Opcentequal
+    {"\x00a""operator&="},      //  OP_Oandequal
+    {"\x00a""operator^="},      //  OP_Oxorequal
+    {"\x00a""operator|="},      //  OP_Oorequal
+    {"\x00a""operator<<"},      //  OP_Oshl
+    {"\x00a""operator>>"},      //  OP_Oshr
+    {"\x00a""operator=="},      //  OP_Oequalequal
+    {"\x00a""operator!="},      //  OP_Obangequal
+    {"\x00a""operator<="},      //  OP_Olessequal
+    {"\x00a""operator>="},      //  OP_Ogreatequal
+    {"\x00a""operator&&"},      //  OP_Oandand
+    {"\x00a""operator||"},      //  OP_Ooror
+    {"\x00a""operator++"},      //  OP_Oincrement
+    {"\x00a""operator--"},      //  OP_Odecrement
+    {"\x00a""operator->"},      //  OP_Opointsto
+    {"\x009""operator+"},       //  OP_Oplus
+    {"\x009""operator-"},       //  OP_Ominus
+    {"\x009""operator*"},       //  OP_Ostar
+    {"\x009""operator/"},       //  OP_Odivide
+    {"\x009""operator%"},       //  OP_Opercent
+    {"\x009""operator^"},       //  OP_Oxor
+    {"\x009""operator&"},       //  OP_Oand
+    {"\x009""operator|"},       //  OP_Oor
+    {"\x009""operator~"},       //  OP_Otilde
+    {"\x009""operator!"},       //  OP_Obang
+    {"\x009""operator="},       //  OP_Oequal
+    {"\x009""operator<"},       //  OP_Oless
+    {"\x009""operator>"},       //  OP_Ogreater
+    {"\x009""operator,"},       //  OP_Ocomma
+    {"\x012""operator new"},    //  OP_Onew
+    {"\x015""operator delete"}  //  OP_Odelete
 };
-
-
 
 extern char Suffix;
 
-
-
 //  Symbol searching and search initialization routines
-
-
 
 /**     InitSearchBase - initialize search for base class
  *
@@ -168,8 +188,14 @@ extern char Suffix;
  */
 
 
-void PASCAL InitSearchBase (bnode_t bnOp, CV_typ_t typD, CV_typ_t typB,
-  psearch_t pName, peval_t pv)
+void
+InitSearchBase (
+    bnode_t bnOp,
+    CV_typ_t typD,
+    CV_typ_t typB,
+    psearch_t pName,
+    peval_t pv
+    )
 {
     // set starting context for symbol search to current context
 
@@ -204,7 +230,12 @@ void PASCAL InitSearchBase (bnode_t bnOp, CV_typ_t typD, CV_typ_t typB,
  */
 
 
-void PASCAL InitSearchtDef (psearch_t pName, peval_t pv, ushort scope)
+void
+InitSearchtDef (
+    psearch_t pName,
+    peval_t pv,
+    ushort scope
+    )
 {
     char    NullString = 0;
 
@@ -239,7 +270,10 @@ void PASCAL InitSearchtDef (psearch_t pName, peval_t pv, ushort scope)
  */
 
 
-HSYM PASCAL SearchCFlag (void)
+HSYM
+SearchCFlag (
+    void
+    )
 {
     search_t    Name;
     CXT         CXTTOut;
@@ -255,8 +289,8 @@ HSYM PASCAL SearchCFlag (void)
         SHGetCxtFromHmod (Name.hMod, &Name.CXTT);
         if ((Name.hSym = SHFindNameInContext (Name.hSym, &Name.CXTT,
           (LPSSTR)&Name, pExState->state.fCase,
- Name.pfnCmp,
- FALSE, &CXTTOut)) != 0) {
+            Name.pfnCmp,
+            &CXTTOut)) != 0) {
             return (Name.hSym);
         }
     }
@@ -281,7 +315,10 @@ HSYM PASCAL SearchCFlag (void)
  */
 
 
-CV_ptrmode_e PASCAL SetAmbiant (bool_t isdata)
+CV_ptrmode_e
+SetAmbiant (
+    bool_t isdata
+    )
 {
     HSYM            hCFlag;
     CFLAGPTR        pCFlag;
@@ -338,15 +375,21 @@ CV_ptrmode_e PASCAL SetAmbiant (bool_t isdata)
  */
 
 
-EESTATUS PASCAL GetHSYMList (HDEP FAR *phSYML, PCXT pCxt, ushort mask,
-  uchar FAR *pRE, SHFLAG fEnableProlog)
+EESTATUS
+GetHSYMList (
+    HDEP *phSYML,
+    PCXT pCxt,
+    ushort mask,
+    uchar *pRE,
+    SHFLAG fEnableProlog
+    )
 {
     search_t        Name = {0};
     CXT             CXTTOut;
     HSYM            hSym = 0;
     PHSL_HEAD       pHSLHead;
     HSYML_t         state;
-    HSL_restart_t FAR *pRestart;
+    HSL_restart_t *pRestart;
     bool_t          fRestart;
     bool_t          isprolog;
     bool_t          fCaseSensitive = TRUE;
@@ -367,7 +410,7 @@ EESTATUS PASCAL GetHSYMList (HDEP FAR *phSYML, PCXT pCxt, ushort mask,
         pHSLHead->size = HSYML_SIZE;
         pHSLHead->blockcnt = 1;
         pHSLHead->remaining = HSYML_SIZE - sizeof ( HSL_HEAD );
-        pHSLHead->pHSLList = (PHSL_LIST)(((uchar FAR *)pHSLHead) + sizeof (HSL_HEAD));
+        pHSLHead->pHSLList = (PHSL_LIST)(((uchar *)pHSLHead) + sizeof (HSL_HEAD));
         state = HSYML_lexical;
         Name.initializer = INIT_RE;
         Name.pfnCmp = FNCMP;
@@ -398,9 +441,9 @@ EESTATUS PASCAL GetHSYMList (HDEP FAR *phSYML, PCXT pCxt, ushort mask,
         pHSLHead->blockcnt = 1;
         pHSLHead->symbolcnt = 0;
         pHSLHead->remaining = HSYML_SIZE - sizeof ( HSL_HEAD );
-        pHSLHead->pHSLList = (PHSL_LIST)(((uchar FAR *)pHSLHead) + sizeof (HSL_HEAD));
+        pHSLHead->pHSLList = (PHSL_LIST)(((uchar *)pHSLHead) + sizeof (HSL_HEAD));
         MHMemUnLock (pHSLHead->restart);
-        _fmemset ((uchar FAR *)pHSLHead + sizeof (HSL_HEAD), 0,
+        _fmemset ((uchar *)pHSLHead + sizeof (HSL_HEAD), 0,
           HSYML_SIZE - sizeof (HSL_HEAD));
         AddHSYM (&Name, hSym, pHSLHead, state);
         fRestart = TRUE;
@@ -414,8 +457,7 @@ EESTATUS PASCAL GetHSYMList (HDEP FAR *phSYML, PCXT pCxt, ushort mask,
 
                 while (SHIsCXTBlk (&Name.CXTT)) {
                     while ((hSym = SHFindNameInContext (Name.hSym, &Name.CXTT,
-                      (LPSSTR)&Name, fCaseSensitive, FNCMP, FALSE,
-                      &CXTTOut)) != 0) {
+                      (LPSSTR)&Name, fCaseSensitive, FNCMP, &CXTTOut)) != 0) {
                         if (AddHSYM (&Name, hSym, pHSLHead, HSYMR_lexical) == FALSE) {
                             goto hsyml_exit;
                         }
@@ -446,8 +488,7 @@ EESTATUS PASCAL GetHSYMList (HDEP FAR *phSYML, PCXT pCxt, ushort mask,
                 }
                 while (!SHIsCXTMod (&Name.CXTT) && Name.CXTT.hMod != 0) {
                     while ((hSym = SHFindNameInContext (Name.hSym, &Name.CXTT,
-                      (LPSSTR)&Name, fCaseSensitive, FNCMP, FALSE,
-                      &CXTTOut)) != 0) {
+                      (LPSSTR)&Name, fCaseSensitive, FNCMP, &CXTTOut)) != 0) {
                         if ((isprolog == TRUE) && (fEnableProlog == FALSE)) {
                             // we want to reject bp_relative and register
                             // stuff if we are in the prolog or epilog of
@@ -506,8 +547,7 @@ EESTATUS PASCAL GetHSYMList (HDEP FAR *phSYML, PCXT pCxt, ushort mask,
                 fRestart = FALSE;
                 Name.state = HSYML_module;
                 while ((hSym = SHFindNameInContext (Name.hSym, &Name.CXTT,
-                  (LPSSTR)&Name, fCaseSensitive, Name.pfnCmp, FALSE,
-                  &CXTTOut)) != 0) {
+                  (LPSSTR)&Name, fCaseSensitive, Name.pfnCmp, &CXTTOut)) != 0) {
                     if (AddHSYM (&Name, hSym, pHSLHead, HSYMR_module) == FALSE) {
                         goto hsyml_exit;
                     }
@@ -526,8 +566,7 @@ EESTATUS PASCAL GetHSYMList (HDEP FAR *phSYML, PCXT pCxt, ushort mask,
                 Name.state = HSYML_global;
                 Name.sstr.searchmask |= SSTR_NoHash;
                 while ((hSym = SHFindNameInGlobal (Name.hSym, &Name.CXTT,
-                  (LPSSTR)&Name, fCaseSensitive, Name.pfnCmp, FALSE,
-                  &CXTTOut)) != 0) {
+                  (LPSSTR)&Name, fCaseSensitive, Name.pfnCmp, &CXTTOut)) != 0) {
                     if (AddHSYM (&Name, hSym, pHSLHead, HSYMR_global) == FALSE) {
                        goto hsyml_exit;
                     }
@@ -552,7 +591,6 @@ EESTATUS PASCAL GetHSYMList (HDEP FAR *phSYML, PCXT pCxt, ushort mask,
                                                             (LPSSTR)&Name,
                                                             fCaseSensitive,
                                                             Name.pfnCmp,
-                                                            FALSE,
                                                             &CXTTOut)
                                ) != 0)
                         {
@@ -617,8 +655,13 @@ hsyml_exit:
 
 
 
-LOCAL bool_t NEAR PASCAL AddHSYM (psearch_t pName, HSYM hSym,
-  PHSL_HEAD pHSLHead, uint request)
+LOCAL bool_t
+AddHSYM (
+    psearch_t pName,
+    HSYM hSym,
+    PHSL_HEAD pHSLHead,
+    uint request
+    )
 {
     PHSL_LIST   pHSLList;
 
@@ -633,7 +676,7 @@ LOCAL bool_t NEAR PASCAL AddHSYM (psearch_t pName, HSYM hSym,
             // context has changed
 
             pHSLList->status.complete = TRUE;
-            pHSLHead->pHSLList = (PHSL_LIST)((uchar FAR *)pHSLList +
+            pHSLHead->pHSLList = (PHSL_LIST)((uchar *)pHSLList +
               sizeof ( HSL_LIST ) +
               pHSLList->symbolcnt * sizeof ( HSYM ) );
             pHSLList = pHSLHead->pHSLList;
@@ -660,6 +703,153 @@ LOCAL bool_t NEAR PASCAL AddHSYM (psearch_t pName, HSYM hSym,
 
 
 
+//    search for the base sym of the base pointer
+//
+//    Entry   pName = structure describing the base pointer name
+//
+//    Exit    pName.eval reflects the bound base info
+//
+//    Returns HR_ if base sym found
+
+HR_t
+SearchBasePtrBase (
+    psearch_t pName
+    )
+{
+    search_t lName = *pName;
+    plfPointer      pType;
+    SYMPTR          pSym;
+    unsigned short  lrectyp;
+    eval_t          eval;
+    peval_t         lpv = &eval;
+    ushort          savefEProlog = pExState->state.fEProlog;
+    HR_t            retval = HR_notfound;
+
+    pExState->state.fEProlog = TRUE;    // KLUDGE to get around CXT complications
+    eval = *pName->pv;
+    CLEAR_EVAL_FLAGS (lpv);
+    // an enregistered primitive
+    EVAL_IS_REG (lpv) = EVAL_IS_REG(pName->pv);
+    EVAL_IS_BPREL (lpv) = EVAL_IS_BPREL(pName->pv);
+    lName.hSym = 0;    // start search at beginning of CXT
+    lName.pv = lpv;
+    DASSERT(!CV_IS_PRIMITIVE (EVAL_TYP(lpv)));
+    DASSERT (EVAL_MOD (lpv) != 0);
+
+    EVAL_TYPDEF (lpv) = THGetTypeFromIndex (EVAL_MOD (lpv), EVAL_TYP(lpv));
+    DASSERT (EVAL_TYPDEF (lpv) != 0);
+
+    _fmemset (&lpv->data, 0, sizeof (lpv->data));
+    pType = (plfPointer)(&((TYPPTR)(MHOmfLock (EVAL_TYPDEF(lpv))))->leaf);
+    DASSERT(pType->leaf == LF_POINTER);
+    DASSERT((pType->attr.ptrtype >= CV_PTR_BASE_VAL) &&
+        (pType->attr.ptrtype <= CV_PTR_BASE_SEGADDR));
+
+    pSym = (SYMPTR)(&((plfPointer)pType)->pbase.Sym);
+    PTR_BSYMTYPE (pName->pv) = pSym->rectyp;
+    emiAddr (PTR_ADDR (pName->pv)) = pCxt->addr.emi;
+
+    switch (pSym->rectyp) {
+        case S_BPREL16:
+            lName.sstr.lpName = &((BPRELPTR16)pSym)->name[1];
+            lName.sstr.cb = ((BPRELPTR16)pSym)->name[0];
+            if (SearchSym(&lName) != HR_found) {
+                goto ReturnNotFound;;
+            }
+            PopStack();
+            SetAddrSeg (&PTR_ADDR (pName->pv), 0);
+            pSym = (SYMPTR)MHOmfLock(lName.hSym);
+            if (((BPRELPTR16)pSym)->rectyp == S_BPREL16) {
+                SetAddrOff (&PTR_ADDR (pName->pv), ((BPRELPTR16)pSym)->off);
+                ADDR_IS_OFF32 (PTR_ADDR (pName->pv)) = FALSE;
+                ADDR_IS_FLAT (PTR_ADDR (pName->pv)) = FALSE;
+                ADDR_IS_LI (PTR_ADDR (pName->pv)) = FALSE;
+                PTR_STYPE (pName->pv) = ((BPRELPTR16)pSym)->typind;
+            }
+            else {
+                goto ReturnNotFound;;
+            }
+            pExState->state.bprel = TRUE;
+            break;
+
+        case S_LDATA16:
+        case S_GDATA16:
+            lName.sstr.lpName = &((DATAPTR16)pSym)->name[1];
+            lName.sstr.cb = ((DATAPTR16)pSym)->name[0];
+            lrectyp = pSym->rectyp;
+            do {
+                if (SearchSym(&lName) != HR_found) {
+                    goto ReturnNotFound;;
+                }
+                PopStack();
+                pSym = (SYMPTR)MHOmfLock(lName.hSym);
+            } while (pSym->rectyp != lrectyp);
+            pExState->state.fLData = TRUE;
+            SetAddrSeg (&PTR_ADDR (pName->pv), ((DATAPTR16)pSym)->seg);
+            SetAddrOff (&PTR_ADDR (pName->pv), ((DATAPTR16)pSym)->off);
+            ADDR_IS_OFF32 (PTR_ADDR (pName->pv)) = FALSE;
+            ADDR_IS_FLAT (PTR_ADDR (pName->pv)) = FALSE;
+            ADDR_IS_LI (PTR_ADDR (pName->pv)) = TRUE;
+            PTR_STYPE (pName->pv) = ((DATAPTR16)pSym)->typind;
+            break;
+
+        case S_BPREL32:
+            lName.sstr.lpName = &((BPRELPTR32)pSym)->name[1];
+            lName.sstr.cb = ((BPRELPTR32)pSym)->name[0];
+            if (SearchSym(&lName) != HR_found) {
+                goto ReturnNotFound;;
+            }
+            PopStack();
+            SetAddrSeg (&PTR_ADDR (pName->pv), 0);
+            if (((BPRELPTR32)pSym)->off != 0) {
+                SetAddrOff (&PTR_ADDR (pName->pv), ((BPRELPTR32)pSym)->off);
+                ADDR_IS_OFF32 (PTR_ADDR (pName->pv)) = TRUE;
+                ADDR_IS_FLAT (PTR_ADDR (pName->pv)) = TRUE;
+                ADDR_IS_LI (PTR_ADDR (pName->pv)) = FALSE;
+                PTR_STYPE (pName->pv) = ((BPRELPTR32)pSym)->typind;
+            }
+            else {
+                goto ReturnNotFound;;
+            }
+            pExState->state.bprel = TRUE;
+            break;
+
+        case S_LDATA32:
+        case S_GDATA32:
+        case S_LTHREAD32:
+        case S_GTHREAD32:
+            lName.sstr.lpName = &((DATAPTR32)pSym)->name[1];
+            lName.sstr.cb = ((DATAPTR32)pSym)->name[0];
+            lrectyp = pSym->rectyp;
+            do {
+                if (SearchSym(&lName) != HR_found) {
+                    goto ReturnNotFound;;
+                }
+                PopStack();
+                pSym = (SYMPTR)MHOmfLock(lName.hSym);
+            } while (pSym->rectyp != lrectyp);
+            pExState->state.fLData = TRUE;
+            SetAddrSeg (&PTR_ADDR (pName->pv), ((DATAPTR32)pSym)->seg);
+            SetAddrOff (&PTR_ADDR (pName->pv), ((DATAPTR32)pSym)->off);
+            ADDR_IS_OFF32 (PTR_ADDR (pName->pv)) = TRUE;
+            ADDR_IS_FLAT (PTR_ADDR (pName->pv)) = TRUE;
+            ADDR_IS_LI (PTR_ADDR (pName->pv)) = TRUE;
+            PTR_STYPE (pName->pv) = ((DATAPTR32)pSym)->typind;
+            break;
+
+        case S_REGISTER:
+            break;
+
+        default:
+            DASSERT(FALSE);
+            break;
+        }
+    retval = HR_found;
+
+ReturnNotFound:
+    pExState->state.fEProlog = savefEProlog;
+    return(retval);
+}
 
 
 /**     SearchSym - search for symbol
@@ -676,7 +866,10 @@ LOCAL bool_t NEAR PASCAL AddHSYM (psearch_t pName, HSYM hSym,
  */
 
 
-HR_t PASCAL SearchSym (psearch_t pName)
+HR_t
+SearchSym (
+    psearch_t pName
+    )
 {
     CXT         CXTTOut;
     HSYM        hSym = 0;
@@ -689,7 +882,7 @@ HR_t PASCAL SearchSym (psearch_t pName)
     unsigned char   cbOld = ((LPSSTR) pName)->cb;
     BOOL            SearchWithSuffix;
 
-
+    // NOTE: this routine may be called recursively through MatchFunction
 
     if ((hBPatch != 0) && (pExState->ambiguous != 0) &&
       (pExState->ambiguous == pName->bn)) {
@@ -700,6 +893,7 @@ HR_t PASCAL SearchSym (psearch_t pName)
         return (AmbFromList (pName));
     }
 
+    // If we encounter a lone '.', handle as the CUR PC operator (for any platform).
 
     if ((pName->sstr.cb == 1 ) &&
         *(pName->sstr.lpName) == '.') {
@@ -754,15 +948,17 @@ HR_t PASCAL SearchSym (psearch_t pName)
                      * For line numbers (@linenumber) to be error
                      */
 
-                    if ((*pName->sstr.lpName == '@') &&
-                        isdigit (*(pName->sstr.lpName + 1))) {
+                    if ((pName->scope & ~SCP_class) &&
+                        (*pName->sstr.lpName == '@') &&
+                        (isdigit (*(pName->sstr.lpName + 1)))
+                       ) {
                         return HR_notfound;
                     }
 
                     // error in context so we will allow check for registers
                     return (ParseRegister (pName));
                 }
-                if (*pName->sstr.lpName == '@') {
+                if ((pName->scope & ~SCP_class) && *pName->sstr.lpName == '@') {
                     //search for @register, @linenumber, fastcall routine
 
                     if (isdigit (*(pName->sstr.lpName + 1))) {
@@ -788,7 +984,7 @@ HR_t PASCAL SearchSym (psearch_t pName)
                     // in the locals window
 
                     pName->sstr.lpName++;
-                    hSym = *((HSYM FAR *)(pName->sstr.lpName));
+                    hSym = *((HSYM UNALIGNED *)(pName->sstr.lpName));
                     goto found;
                 }
                 // start normal symbol search
@@ -809,7 +1005,6 @@ HR_t PASCAL SearchSym (psearch_t pName)
                                                     (LPSSTR)pName,
                                                     pExState->state.fCase,
                                                     FNCMP,
-                                                    FALSE,
                                                     &CXTTOut);
 
 
@@ -825,6 +1020,13 @@ HR_t PASCAL SearchSym (psearch_t pName)
                                   (pName->lastsym != S_BPREL32) &&
                                   (pName->lastsym != S_REGISTER)) {
                                     goto foundsave;
+                                }
+                                else {
+                                    // stop the search here: we have
+                                    // already found a symbol, but cannot
+                                    // evaluate it. --caviar #5898
+                                    pExState->err_num = ERR_NOSTACKFRAME;
+                                    return HR_error;
                                 }
                             }
                             else {
@@ -865,7 +1067,8 @@ HR_t PASCAL SearchSym (psearch_t pName)
                             DASSERT (pName->hFound == 0);
                             DASSERT (pName->hAmbCl == 0);
                             if (EVAL_TYP (pName->pv) != T_NOTYPE) {
-                                PushStack (pName->pv);
+                                if (PushStack (pName->pv) == FALSE)
+                                    return (HR_error);
                                 goto nopush;
                             }
                             else {
@@ -877,10 +1080,8 @@ HR_t PASCAL SearchSym (psearch_t pName)
                                 return (HR_error);
                             }
 
-#if !defined (C_ONLY)
                         case SCN_rewrite:
                                 return (HR_rewrite);
-#endif
 
                         case SCN_error:
                             return (HR_error);
@@ -905,7 +1106,7 @@ HR_t PASCAL SearchSym (psearch_t pName)
                 if (pName->scope & SCP_module) {
                     if ((hSym = SHFindNameInContext (pName->hSym, &pName->CXTT,
                       (LPSSTR)pName, pExState->state.fCase, pName->pfnCmp,
-                      FALSE, &CXTTOut)) != 0) {
+                      &CXTTOut)) != 0) {
                         goto foundsave;
                     }
                 }
@@ -913,6 +1114,16 @@ HR_t PASCAL SearchSym (psearch_t pName)
                 pName->hSym = 0;
 
             case SYM_global:
+                // users specified a context on a break point command
+                // we have already searched the module specified so end the search
+                // here
+                // sps - 7/24/92
+                if (pBindBPCxt && pBindBPCxt->hMod &&(pBindBPCxt->hMod != pName->hModCur) &&
+                    (pExState->ambiguous != 0) && (pExState->ambiguous == pName->bn)) {
+
+                    return(HR_end);
+                }
+
                 // search global symbol table
                 if (pName->scope & SCP_global) {
                     hSym = SHFindNameInGlobal( pName->hSym,
@@ -920,7 +1131,6 @@ HR_t PASCAL SearchSym (psearch_t pName)
                                                (LPSSTR)pName,
                                                pExState->state.fCase,
                                                pName->pfnCmp,
-                                               FALSE,
                                                &CXTTOut);
 
                     if ( !hSym && SearchWithSuffix ) {
@@ -933,7 +1143,6 @@ HR_t PASCAL SearchSym (psearch_t pName)
                                                    (LPSSTR)pName,
                                                    pExState->state.fCase,
                                                    pName->pfnCmp,
-                                                   FALSE,
                                                    &CXTTOut );
 
                         ((LPSSTR)pName)->lpName = NameOld;
@@ -964,7 +1173,6 @@ HR_t PASCAL SearchSym (psearch_t pName)
                                                         (LPSSTR)pName,
                                                         pExState->state.fCase,
                                                         pName->pfnCmp,
-                                                        FALSE,
                                                         &CXTTOut);
 
                             if ( !hSym && SearchWithSuffix ) {
@@ -977,7 +1185,6 @@ HR_t PASCAL SearchSym (psearch_t pName)
                                                             (LPSSTR)pName,
                                                             pExState->state.fCase,
                                                             pName->pfnCmp,
-                                                            FALSE,
                                                             &CXTTOut);
 
                                 ((LPSSTR)pName)->lpName = NameOld;
@@ -1041,10 +1248,7 @@ HR_t PASCAL SearchSym (psearch_t pName)
                         // the function names have to be unique in the
                         // publics table.
 
-                        if (pName->possibles > 1) {
-                            return HR_ambiguous;
-                        }
-                        return HR_found;
+                        return HR_end;
 
                     }
                 }
@@ -1128,15 +1332,23 @@ HR_t PASCAL SearchSym (psearch_t pName)
                     }
                     if ( hSym ) {
 
-                        pName->CXTT.addr.emi = (HEMI)pName->hExe;
-                        pName->scope &= ~SCP_global; // NOTENOTE jimsch -- try and get it to stop looping
-                        goto found;
+                        if (hSym == pName->hSym) {
+                            // We found this symbol last call!  There
+                            // are no more to be found (or worth finding).
+                            return HR_notfound;
+                        }
+
+                        goto foundsave;
                     }
 
                 }
-                if (ParseRegister (pName) == HR_found) {
+                if (EVAL_IS_REG (pName->pv)) {
+                    return (HR_notfound);     // found it last time - quite looking
+                }
+                else if ((pName->scope & ~SCP_class) && ParseRegister (pName) == HR_found) {
                     return (HR_found);
                 }
+
                 pExState->err_num = ERR_UNKNOWNSYMBOL;
                 return (HR_notfound);
         }
@@ -1157,7 +1369,8 @@ found:
     if (SymToNode (pName) == FALSE) {
         return (HR_notfound);
     }
-    PushStack (pName->pv);
+    if (PushStack (pName->pv) == FALSE)
+        return (HR_error);
 nopush:
     if (!EVAL_IS_FCN (ST)) {
         // if this symbol is not a function and we have not processed
@@ -1195,12 +1408,15 @@ nopush:
         return (SymAmbToList (pName));
     }
     else {
-        // he found symbol is non-member function.  continue
+        // the found symbol is non-member function.  continue
         // search to end of symbols to find the best function.
         // in the case of a breakpoint with argument list, there
         // must be an exact match on the argument types
 
         EVAL_MOD (pName->pv) = SHHMODFrompCXT (&pName->CXTT);
+        if (pName->scope & SCP_nomatchfn)
+            return (HR_found);
+
         return (MatchFunction (pName));
     }
 }
@@ -1208,7 +1424,10 @@ nopush:
 
 
 
-LOCAL bool_t NEAR PASCAL InitMod (psearch_t pName)
+LOCAL bool_t
+InitMod (
+    psearch_t pName
+    )
 {
     if (((pName->hMod = SHHMODFrompCXT (&pName->CXTT)) == 0) ||
       ((pName->hExe = SHHexeFromHmod (pName->hMod)) == 0)) {
@@ -1237,7 +1456,10 @@ LOCAL bool_t NEAR PASCAL InitMod (psearch_t pName)
  */
 
 
-LOCAL SCN_t NEAR PASCAL SearchClassName (psearch_t pName)
+LOCAL SCN_t
+SearchClassName (
+    psearch_t pName
+    )
 {
     SCN_t           retval;
     ushort          max;
@@ -1318,8 +1540,6 @@ LOCAL SCN_t NEAR PASCAL SearchClassName (psearch_t pName)
                 retval = SetValue (pName);
             }
         }
-#if !defined (C_ONLY)
-
         else if (pName->cFound == 1) {
             // the feature was not found in the most derived class
             // but no other matching feature was found.  Move the feature
@@ -1350,7 +1570,6 @@ LOCAL SCN_t NEAR PASCAL SearchClassName (psearch_t pName)
                 retval = SetValue (pName);
             }
         }
-#endif
     }
     MHMemUnLock (hVBDom);
     MHMemUnLock (hVBSearch);
@@ -1380,10 +1599,16 @@ LOCAL SCN_t NEAR PASCAL SearchClassName (psearch_t pName)
  *      Returns SCN_... enum describing result
  */
 
-
-LOCAL SCN_t NEAR PASCAL RecurseBase (psearch_t pName, CV_typ_t type,
-  CV_typ_t vbptr, OFFSET vbpoff, OFFSET thisadjust, CV_fldattr_t attr,
-  bool_t virtual)
+LOCAL SCN_t
+RecurseBase (
+    psearch_t pName,
+    CV_typ_t type,
+    CV_typ_t vbptr,
+    OFFSET vbpoff,
+    OFFSET thisadjust,
+    CV_fldattr_t attr,
+    bool_t virtual
+    )
 {
     SCN_t       retval;
 
@@ -1392,11 +1617,6 @@ LOCAL SCN_t NEAR PASCAL RecurseBase (psearch_t pName, CV_typ_t type,
     if (SetBase (pName, type, vbptr, vbpoff, thisadjust, attr, virtual) != SCN_found) {
         return (SCN_error);
     }
-#if defined (C_ONLY)
-    Unreferenced( retval);
-
-    return (SearchRoot (pName));
-#else
     if (pName->initializer == INIT_base) {
         retval = SearchBType (pName);
     }
@@ -1440,7 +1660,6 @@ LOCAL SCN_t NEAR PASCAL RecurseBase (psearch_t pName, CV_typ_t type,
         default:
             return (SCN_error);
     }
-#endif
 }
 
 
@@ -1461,8 +1680,10 @@ LOCAL SCN_t NEAR PASCAL RecurseBase (psearch_t pName, CV_typ_t type,
  */
 
 
-#if !defined (C_ONLY)
-LOCAL bool_t NEAR PASCAL VBaseFound (psearch_t pName)
+LOCAL bool_t
+VBaseFound (
+    psearch_t pName
+    )
 {
     psymclass_t     pSymCl;
     HDEP            hSymCl;
@@ -1485,8 +1706,6 @@ LOCAL bool_t NEAR PASCAL VBaseFound (psearch_t pName)
     }
     return (FALSE);
 }
-#endif
-
 
 
 
@@ -1505,8 +1724,10 @@ LOCAL bool_t NEAR PASCAL VBaseFound (psearch_t pName)
  */
 
 
-#if !defined (C_ONLY)
-LOCAL SCN_t NEAR PASCAL RemoveAmb (psearch_t pName)
+LOCAL SCN_t
+RemoveAmb (
+    psearch_t pName
+    )
 {
     psymclass_t     pSymCl;
 
@@ -1568,9 +1789,6 @@ LOCAL SCN_t NEAR PASCAL RemoveAmb (psearch_t pName)
     pName->cFound--;
     return (SCN_found);
 }
-#endif
-
-
 
 
 /***    SearchBases - Search for an element in the bases of a class
@@ -1585,12 +1803,14 @@ LOCAL SCN_t NEAR PASCAL RemoveAmb (psearch_t pName)
  *
  */
 
-#if !defined (C_ONLY)
-LOCAL SCN_t NEAR PASCAL SearchBases (psearch_t pName)
+LOCAL SCN_t
+SearchBases (
+    psearch_t pName
+    )
 {
     ushort          cnt;            // count of number of elements in struct
     HTYPE           hField;         // handle to type record for struct field list
-    char FAR       *pField;         // pointer to field list
+    char       *pField;         // pointer to field list
     uint            fSkip = 0;      // offset in the field list
     SCN_t           retval = SCN_notfound;
     CV_typ_t        newindex;
@@ -1600,7 +1820,6 @@ LOCAL SCN_t NEAR PASCAL SearchBases (psearch_t pName)
     CV_fldattr_t    attr;
     CV_fldattr_t    vattr;
     peval_t         pvBase = &pSymClass->symbase[pSymClass->CurIndex].Base;
-    uchar           pad;
     bool_t          virtual;
 
     // Set to head of type record and search the base classes in order
@@ -1611,13 +1830,10 @@ LOCAL SCN_t NEAR PASCAL SearchBases (psearch_t pName)
         pExState->err_num = ERR_BADOMF;
         return (SCN_error);
     }
-    pField = (char FAR *)(&((TYPPTR)MHOmfLock (hField))->data[0]);
+    pField = (char *)(&((TYPPTR)MHOmfLock (hField))->data[0]);
 
     for (cnt = CLASS_COUNT (pvBase); cnt > 0; cnt--) {
-        if ((pad = *(((char FAR *)pField) + fSkip)) >= LF_PAD0) {
-            // there is a pad field
-            fSkip += pad & 0x0f;
-        }
+        fSkip += SkipPad(((uchar *)pField) + fSkip);
         newindex = 0;
         switch (((plfEasy)(pField + fSkip))->leaf) {
             case LF_INDEX:
@@ -1629,7 +1845,7 @@ LOCAL SCN_t NEAR PASCAL SearchBases (psearch_t pName)
                     pExState->err_num = ERR_INTERNAL;
                     return (SCN_error);
                 }
-                pField = (char FAR *)(&((TYPPTR)MHOmfLock (hField))->data[0]);
+                pField = (char *)(&((TYPPTR)MHOmfLock (hField))->data[0]);
                 fSkip = 0;
                 // the LF_INDEX is not part of the field count
                 cnt++;
@@ -1732,8 +1948,93 @@ foo:
     MHOmfUnLock (hField);
     return (retval);
 }
-#endif
 
+
+
+bool_t
+getDefnFromDecl(
+    CV_typ_t typeIn,
+    peval_t pv,
+    CV_typ_t* ptypeOut)
+{
+    HTYPE   hType;
+    uint    skip;
+    TYPPTR  pType;
+    eval_t  localEval;
+    neval_t nv = &localEval;
+
+    *nv = *pv;
+
+    DASSERT (!CV_IS_PRIMITIVE (typeIn));
+    if ((hType = THGetTypeFromIndex (EVAL_MOD (nv), typeIn)) == 0) {
+        pExState->err_num = ERR_BADOMF;
+        return FALSE;
+    }
+    pType = (TYPPTR)MHOmfLock(hType);
+
+    switch (pType->leaf) {
+        case LF_STRUCTURE:
+        case LF_CLASS:
+            {
+            plfClass pClass = (plfClass)(&pType->leaf);
+            if (pClass->property.fwdref) {
+                skip = offsetof (lfClass, data);
+                RNumLeaf (((char *)(&pClass->leaf)) + skip, &skip);
+                // forward ref - look for the definition of the UDT
+                if ((*ptypeOut = GetUdtDefnTindex (typeIn, nv, ((char *)&(pClass->leaf)) + skip)) == T_NOTYPE) {
+                    goto failed;
+                }
+            }
+            else
+                *ptypeOut = typeIn;
+
+            break;
+            }
+
+        case LF_UNION:
+            {
+            plfUnion pUnion = (plfUnion)(&pType->leaf);
+            if (pUnion->property.fwdref) {
+                skip = offsetof (lfUnion, data);
+                RNumLeaf (((char *)(&pUnion->leaf)) + skip, &skip);
+                // forward ref - look for the definition of the UDT
+                if ((*ptypeOut = GetUdtDefnTindex (typeIn, nv, ((char *)&(pUnion->leaf)) + skip)) == T_NOTYPE) {
+                    goto failed;
+                }
+            }
+            else
+                *ptypeOut = typeIn;
+
+            break;
+            }
+
+        case LF_ENUM:
+            {
+            plfEnum pEnum = (plfEnum)(&pType->leaf);
+            if (pEnum->property.fwdref) {
+                // forward ref - look for the definition of the UDT
+                if ((*ptypeOut = GetUdtDefnTindex (typeIn, nv, (char *) pEnum->Name)) == T_NOTYPE) {
+                    goto failed;
+                }
+            }
+            else
+                *ptypeOut = typeIn;
+
+            break;
+            }
+
+        default:
+            *ptypeOut = typeIn;
+    }
+
+    MHOmfUnLock (hType);
+    return TRUE;
+
+failed:
+    MHOmfUnLock (hType);
+    pExState->err_num = ERR_BADOMF;
+    return FALSE;
+}
 
 
 /***    SearchBType - Search for an base by type
@@ -1753,12 +2054,14 @@ foo:
  */
 
 
-#if !defined (C_ONLY)
-LOCAL SCN_t NEAR PASCAL SearchBType (psearch_t pName)
+LOCAL SCN_t
+SearchBType (
+    psearch_t pName
+    )
 {
     ushort          cnt;            // count of number of elements in struct
     HTYPE           hField;         // handle to type record for struct field list
-    char FAR       *pField;         // pointer to field list
+    char       *pField;         // pointer to field list
     uint            fSkip = 0;      // offset in the field list
     ushort          anchor = 0;     // offset in the field list to start of type
     CV_typ_t        newindex;
@@ -1770,7 +2073,6 @@ LOCAL SCN_t NEAR PASCAL SearchBType (psearch_t pName)
     CV_fldattr_t    attr;
     CV_fldattr_t    vattr;
     peval_t         pvBase = &pSymClass->symbase[pSymClass->CurIndex].Base;
-    uchar           pad;
 
     // set hField to the handle of the field list for the class
 
@@ -1778,15 +2080,12 @@ LOCAL SCN_t NEAR PASCAL SearchBType (psearch_t pName)
         pExState->err_num = ERR_BADOMF;
         return (SCN_error);
     }
-    pField = (char FAR *)(&((TYPPTR)MHOmfLock (hField))->data[0]);
+    pField = (char *)(&((TYPPTR)MHOmfLock (hField))->data[0]);
 
     //  walk field list for the class
 
     for (cnt = CLASS_COUNT (pvBase); cnt > 0; cnt--) {
-        if ((pad = *(((char FAR *)pField) + fSkip)) >= LF_PAD0) {
-            // there is a pad field
-            fSkip += pad & 0x0f;
-        }
+        fSkip += SkipPad(((uchar *)pField) + fSkip);
         switch (((plfEasy)(pField + fSkip))->leaf) {
             case LF_INDEX:
                 // switch to new type record because compiler split it up
@@ -1796,7 +2095,7 @@ LOCAL SCN_t NEAR PASCAL SearchBType (psearch_t pName)
                     pExState->err_num = ERR_INTERNAL;
                     return (SCN_error);
                 }
-                pField = (char FAR *)(&((TYPPTR)MHOmfLock (hField))->data[0]);
+                pField = (char *)(&((TYPPTR)MHOmfLock (hField))->data[0]);
                 fSkip = 0;
                 // the LF_INDEX is not part of the field count
                 cnt++;
@@ -1804,7 +2103,9 @@ LOCAL SCN_t NEAR PASCAL SearchBType (psearch_t pName)
 
             case LF_BCLASS:
                 attr = ((plfBClass)(pField + fSkip))->attr;
-                newindex = ((plfBClass)(pField + fSkip))->index;
+                if (!getBaseDefnFromDecl(((plfBClass)(pField + fSkip))->index, pName->pv, &newindex))
+                    return SCN_error;
+//                newindex = ((plfBClass)(pField + fSkip))->index;
                 fSkip += offsetof (lfBClass, offset[0]);
                 offset = (ushort)RNumLeaf (pField + fSkip, &fSkip);
                 if (pName->typeOut == newindex) {
@@ -1829,7 +2130,9 @@ LOCAL SCN_t NEAR PASCAL SearchBType (psearch_t pName)
 
             case LF_VBCLASS:
                 vattr = ((plfVBClass)(pField + fSkip))->attr;
-                newindex = ((plfVBClass)(pField + fSkip))->index;
+                if (!getBaseDefnFromDecl(((plfVBClass)(pField + fSkip))->index, pName->pv, &newindex))
+                    return SCN_error;
+//                newindex = ((plfVBClass)(pField + fSkip))->index;
                 vbptr = ((plfVBClass)(pField + fSkip))->vbptr;
                 fSkip += offsetof (lfVBClass, vbpoff[0]);
                 vbpoff = (ushort)RNumLeaf (pField + fSkip, &fSkip);
@@ -1865,10 +2168,6 @@ LOCAL SCN_t NEAR PASCAL SearchBType (psearch_t pName)
     MHOmfUnLock (hField);
     return (retval);
 }
-#endif
-
-
-
 
 
 /***    SearchRoot - Search for an element of a class
@@ -1884,11 +2183,14 @@ LOCAL SCN_t NEAR PASCAL SearchBType (psearch_t pName)
  */
 
 
-LOCAL SCN_t NEAR PASCAL SearchRoot (psearch_t pName)
+LOCAL SCN_t
+SearchRoot (
+    psearch_t pName
+    )
 {
     ushort          cnt;            // count of number of elements in struct
     HTYPE           hField;         // handle to type record for struct field list
-    char FAR       *pField;         // pointer to field list
+    char           *pField;         // pointer to field list
     HTYPE           hBase;          // handle to type record for base class
     uint            fSkip = 0;      // offset in the field list
     uint            anchor;         // offset in the field list to start of type
@@ -1897,7 +2199,7 @@ LOCAL SCN_t NEAR PASCAL SearchRoot (psearch_t pName)
     CV_typ_t        newindex;
     CV_typ_t        vbptr;
     ushort          retval = SCN_notfound;
-    char FAR       *pc;
+    char           *pc;
     ulong           value;
     OFFSET          offset;
     OFFSET          vbpoff;
@@ -1907,7 +2209,6 @@ LOCAL SCN_t NEAR PASCAL SearchRoot (psearch_t pName)
     peval_t         pvBase = &pSymClass->symbase[pSymClass->CurIndex].Base;
     CV_typ_t        type;
     peval_t         pvF = &pSymClass->evalP;
-    uchar           pad;
     ushort          vtabind;
     ushort          vbind;
 
@@ -1918,15 +2219,14 @@ LOCAL SCN_t NEAR PASCAL SearchRoot (psearch_t pName)
         pExState->err_num = ERR_BADOMF;
         return (SCN_error);
     }
-    pField = (char FAR *)(&((TYPPTR)MHOmfLock ((HDEP)hField))->data[0]);
+    pField = (char *)(&((TYPPTR)MHOmfLock ((HDEP)hField))->data[0]);
 
     //  walk field list for the class
 
+#if 0
+
     for (cnt = CLASS_COUNT (pvBase); cnt > 0; cnt--) {
-        if ((pad = *(((char FAR *)pField) + fSkip)) >= LF_PAD0) {
-            // there is a pad field
-            fSkip += (pad & 0x0f);
-        }
+        fSkip += SkipPad(((uchar *)pField) + fSkip);
         anchor = fSkip;
         switch (((plfEasy)(pField + fSkip))->leaf) {
             case LF_INDEX:
@@ -1937,7 +2237,7 @@ LOCAL SCN_t NEAR PASCAL SearchRoot (psearch_t pName)
                     pExState->err_num = ERR_BADOMF;
                     return (SCN_error);
                 }
-                pField = (char FAR *)(&((TYPPTR)MHOmfLock ((HDEP)hField))->data[0]);
+                pField = (char *)(&((TYPPTR)MHOmfLock ((HDEP)hField))->data[0]);
                 fSkip = 0;
                 // the LF_INDEX is not part of the field count
                 cnt++;
@@ -2021,7 +2321,7 @@ LOCAL SCN_t NEAR PASCAL SearchRoot (psearch_t pName)
                         pExState->err_num = ERR_BADOMF;
                         return (SCN_error);
                     }
-                    pField = (char FAR *)(&((TYPPTR)MHOmfLock (hBase))->leaf);
+                    pField = (char *)(&((TYPPTR)MHOmfLock (hBase))->leaf);
                     tSkip = offsetof (lfClass, data[0]);
                     RNumLeaf (pField + tSkip, &tSkip);
                     pc = pField + tSkip;
@@ -2044,7 +2344,7 @@ LOCAL SCN_t NEAR PASCAL SearchRoot (psearch_t pName)
                         pSymClass->possibles = 1;
                         pName->possibles++;
                     }
-                    pField = (char FAR *)(&((TYPPTR)MHOmfLock (hField))->data[0]);
+                    pField = (char *)(&((TYPPTR)MHOmfLock (hField))->data[0]);
                 }
                 break;
 
@@ -2065,7 +2365,7 @@ LOCAL SCN_t NEAR PASCAL SearchRoot (psearch_t pName)
                         pExState->err_num = ERR_BADOMF;
                         return (SCN_error);
                     }
-                    pField = (char FAR *)(&((TYPPTR)MHOmfLock (hBase))->leaf);
+                    pField = (char *)(&((TYPPTR)MHOmfLock (hBase))->leaf);
                     tSkip = offsetof (lfClass, data[0]);
                     RNumLeaf (pField + tSkip, &tSkip);
                     pc = pField + tSkip;
@@ -2090,7 +2390,7 @@ LOCAL SCN_t NEAR PASCAL SearchRoot (psearch_t pName)
                         pSymClass->possibles = 1;
                         pName->possibles++;
                     }
-                    pField = (char FAR *)(&((TYPPTR)MHOmfLock (hField))->data[0]);
+                    pField = (char *)(&((TYPPTR)MHOmfLock (hField))->data[0]);
                 }
                 break;
 
@@ -2114,7 +2414,7 @@ LOCAL SCN_t NEAR PASCAL SearchRoot (psearch_t pName)
                         pExState->err_num = ERR_INTERNAL;
                         return (SCN_error);
                     }
-                    pField = (char FAR *)(&((TYPPTR)MHOmfLock (hBase))->data[0]);
+                    pField = (char *)(&((TYPPTR)MHOmfLock (hBase))->data[0]);
                     tSkip = offsetof (lfClass, data[0]);
                     RNumLeaf (pField + tSkip, &tSkip);
                     pc = pField + tSkip;
@@ -2123,7 +2423,7 @@ LOCAL SCN_t NEAR PASCAL SearchRoot (psearch_t pName)
 
                     // reset to original field list
 
-                    pField = (char FAR *)(&((TYPPTR)MHOmfLock (hField))->data[0]);
+                    pField = (char *)(&((TYPPTR)MHOmfLock (hField))->data[0]);
                     if (cmpflag == 0) {
 
                         // element has been found, set result values
@@ -2199,7 +2499,7 @@ LOCAL SCN_t NEAR PASCAL SearchRoot (psearch_t pName)
                                 }
                                 cmpflag = 0;
                             }
-                            pField = (char FAR *)(&((TYPPTR)MHOmfLock (hField))->data[0]);
+                            pField = (char *)(&((TYPPTR)MHOmfLock (hField))->data[0]);
                         }
                         else {
                             // save the type index of the method list, the
@@ -2252,6 +2552,411 @@ LOCAL SCN_t NEAR PASCAL SearchRoot (psearch_t pName)
             break;
         }
     }
+
+#endif
+
+#if 1
+    for (cnt = CLASS_COUNT (pvBase); cnt > 0; cnt--) {
+        fSkip += SkipPad(((uchar *)pField) + fSkip);
+        anchor = fSkip;
+        switch (((plfEasy)(pField + fSkip))->leaf) {
+            case LF_INDEX:
+                // switch to new type record because compiler split it up
+                newindex = ((plfIndex)(pField + fSkip))->index;
+                MHOmfUnLock (hField);
+                if ((hField = THGetTypeFromIndex (EVAL_MOD (pvBase), newindex)) == 0) {
+                    pExState->err_num = ERR_BADOMF;
+                    return (SCN_error);
+                }
+                pField = (char *)(&((TYPPTR)MHOmfLock (hField))->data);
+                fSkip = 0;
+                // the LF_INDEX is not part of the field count
+                cnt++;
+                break;
+
+            case LF_MEMBER:
+                fSkip += offsetof (lfMember, offset);
+                offset = (UOFFSET)RNumLeaf (pField + fSkip, &fSkip);
+                access = ((plfMember)(pField + anchor))->attr;
+                pc = pField + fSkip;
+                fSkip += (*(pField + fSkip) + sizeof (char));
+                if (pName->clsmask & CLS_member) {
+                    if ((cmpflag = fnCmp ((LPSSTR) pName, NULL, pc, pExState->state.fCase)) == 0) {
+                        type = ((plfMember)(pField + anchor))->index;
+                        MHOmfUnLock (hField);
+                        hField = 0;
+                        EVAL_MOD (pvF) = SHHMODFrompCXT (&pName->CXTT);
+                        SetNodeType (pvF, type);
+                        EVAL_STATE (pvF) = EV_lvalue;
+
+                        // save the casting data for the this pointer
+
+                        pSymClass->offset = offset;
+                        pSymClass->access = access;
+                        pSymClass->possibles = 1;
+                        pName->possibles++;
+                    }
+                }
+                break;
+
+            case LF_ENUMERATE:
+                access = ((plfEnumerate)(pField + fSkip))->attr;
+                fSkip += offsetof (lfEnumerate, value);
+                value = (ulong) RNumLeaf (pField + fSkip, &fSkip);
+                pc = pField + fSkip;
+                fSkip += *(pField + fSkip) + sizeof (char);
+                if (pName->clsmask & CLS_enumerate) {
+                    if ((cmpflag = fnCmp ((LPSSTR) pName, NULL, pc, pExState->state.fCase)) == 0) {
+                        pSymClass->possibles = 1;
+                        pName->possibles++;
+                    }
+                }
+                break;
+
+            case LF_STMEMBER:
+                type = ((plfSTMember)(pField + anchor))->index;
+                fSkip += offsetof (lfSTMember, Name);
+                if (pName->clsmask & CLS_member) {
+                    if ((cmpflag = fnCmp ((LPSSTR) pName, NULL, pField + fSkip, pExState->state.fCase)) == 0) {
+                        pSymClass->access =
+                          ((plfSTMember)(pField + anchor))->attr;
+                        MHOmfUnLock (hField);
+                        hField = 0;
+                        EVAL_MOD (pvF) = SHHMODFrompCXT (&pName->CXTT);
+                        SetNodeType (pvF, type);
+                        EVAL_STATE (pvF) = EV_lvalue;
+                        EVAL_IS_STMEMBER (pvF) = TRUE;
+                        pSymClass->possibles = 1;
+                        pName->possibles++;
+                    }
+                }
+                fSkip += *(pField + fSkip) + sizeof (char);
+                break;
+
+            case LF_BCLASS:
+                type = ((plfBClass)(pField + anchor))->index;
+                access = ((plfBClass)(pField + anchor))->attr;
+                fSkip += offsetof (lfBClass, offset);
+                newindex = ((plfBClass)(pField + anchor))->index;
+                offset = (UOFFSET)RNumLeaf (pField + fSkip, &fSkip);
+                if ((pName->clsmask & CLS_bclass) != 0) {
+
+                    // switch to the base class type record to check the name
+
+                    MHOmfUnLock (hField);
+                    if ((hBase = THGetTypeFromIndex (EVAL_MOD (pvBase), newindex)) == 0) {
+                        pExState->err_num = ERR_BADOMF;
+                        return (SCN_error);
+                    }
+                    pField = (char *)(&((TYPPTR)MHOmfLock (hBase))->leaf);
+                    tSkip = offsetof (lfClass, data);
+                    RNumLeaf (pField + tSkip, &tSkip);
+                    pc = pField + tSkip;
+                    cmpflag = fnCmp ((LPSSTR) pName, NULL, pc, pExState->state.fCase);
+                    MHOmfUnLock (hBase);
+
+                    // reset to original field list
+
+                    if (cmpflag == 0) {
+
+                        // element has been found, set result values
+
+                        pSymClass->s.isbase = TRUE;
+                        pSymClass->s.isvbase = FALSE;
+                        pSymClass->offset += offset;
+                        EVAL_MOD (pvF) = SHHMODFrompCXT (&pName->CXTT);
+                        SetNodeType (pvF, type);
+                        EVAL_STATE (pvF) = EV_type;
+                        pSymClass->access = access;
+                        pSymClass->possibles = 1;
+                        pName->possibles++;
+                    }
+                    pField = (char *)(&((TYPPTR)MHOmfLock (hField))->data);
+                }
+                break;
+
+            case LF_VBCLASS:
+                type = ((plfBClass)(pField + anchor))->index;
+                access = ((plfVBClass)(pField + anchor))->attr;
+                newindex = ((plfVBClass)(pField + anchor))->index;
+                vbptr =  ((plfVBClass)(pField + anchor))->vbptr;
+                fSkip += offsetof (lfVBClass, vbpoff);
+                vbpoff = (UOFFSET)RNumLeaf (pField + fSkip, &fSkip);
+                vbind = (short)RNumLeaf (pField + fSkip, &fSkip);
+                if ((pName->clsmask & CLS_bclass) != 0) {
+
+                    // switch to the base class type record to check the name
+
+                    MHOmfUnLock (hField);
+                    if ((hBase = THGetTypeFromIndex (EVAL_MOD (pvBase), newindex)) == 0) {
+                        pExState->err_num = ERR_BADOMF;
+                        return (SCN_error);
+                    }
+                    pField = (char *)(&((TYPPTR)MHOmfLock (hBase))->leaf);
+                    tSkip = offsetof (lfClass, data);
+                    RNumLeaf (pField + tSkip, &tSkip);
+                    pc = pField + tSkip;
+                    cmpflag = fnCmp ((LPSSTR) pName, NULL, pc, pExState->state.fCase);
+                    MHOmfUnLock (hBase);
+
+                    // reset to original field list
+
+                    if (cmpflag == 0) {
+
+                        // element has been found, set result values
+
+                        pSymClass->s.isbase = FALSE;
+                        pSymClass->s.isvbase = TRUE;
+                        pSymClass->vbind = vbind;
+                        pSymClass->vbpoff = vbpoff;
+                        pSymClass->vbptr = vbptr;
+                        EVAL_MOD (pvF) = SHHMODFrompCXT (&pName->CXTT);
+                        SetNodeType (pvF, type);
+                        EVAL_STATE (pvF) = EV_type;
+                        pSymClass->access = access;
+                        pSymClass->possibles = 1;
+                        pName->possibles++;
+                    }
+                    pField = (char *)(&((TYPPTR)MHOmfLock (hField))->data);
+                }
+                break;
+
+            case LF_IVBCLASS:
+                fSkip += offsetof (lfVBClass, vbpoff);
+                RNumLeaf (pField + fSkip, &fSkip);
+                RNumLeaf (pField + fSkip, &fSkip);
+                break;
+
+            case LF_FRIENDCLS:
+                newindex = ((plfFriendCls)(pField + fSkip))->index;
+                fSkip += sizeof (struct lfFriendCls);
+                if ((pName->clsmask & CLS_fclass) != 0) {
+
+                    DASSERT (FALSE);
+
+                    // switch to the base class type record to check the name
+
+                    MHOmfUnLock (hField);
+                    if ((hBase = THGetTypeFromIndex (EVAL_MOD (pvBase), newindex)) == 0) {
+                        pExState->err_num = ERR_INTERNAL;
+                        return (SCN_error);
+                    }
+                    pField = (char *)(&((TYPPTR)MHOmfLock (hBase))->data);
+                    tSkip = offsetof (lfClass, data);
+                    RNumLeaf (pField + tSkip, &tSkip);
+                    pc = pField + tSkip;
+                    cmpflag = fnCmp ((LPSSTR) pName, NULL, pc, pExState->state.fCase);
+                    MHOmfUnLock (hBase);
+
+                    // reset to original field list
+
+                    pField = (char *)(&((TYPPTR)MHOmfLock (hField))->data);
+                    if (cmpflag == 0) {
+
+                        // element has been found, set result values
+
+                        pName->typeOut = newindex;
+                    }
+                }
+                break;
+
+            case LF_FRIENDFCN:
+                newindex = ((plfFriendFcn)(pField + fSkip))->index;
+                fSkip += sizeof (struct lfFriendFcn) +
+                  ((plfFriendFcn)(pField + fSkip))->Name[0];
+                if ((pName->clsmask & CLS_frmethod) != 0) {
+                    DASSERT (FALSE);
+                }
+                break;
+
+            case LF_VFUNCTAB:
+                fSkip += sizeof (struct lfVFuncTab);
+                // save the type of the virtual function pointer
+                vfpType = ((plfVFuncTab)(pField + anchor))->type;
+                pc = vfuncptr;
+                if (pName->clsmask & CLS_vfunc) {
+                    if ((cmpflag = fnCmp ((LPSSTR) pName, NULL, pc, pExState->state.fCase)) == 0) {
+                        MHOmfUnLock (hField);
+                        hField = 0;
+                        EVAL_MOD (pvF) = SHHMODFrompCXT (&pName->CXTT);
+                        SetNodeType (pvF, vfpType);
+                        EVAL_STATE (pvF) = EV_lvalue;
+
+                        // save the casting data for the this pointer
+
+                        if (pName->bnOp != 0) {
+                            pSymClass->offset = 0;
+                            pSymClass->access.access = CV_public;
+                        }
+                        pSymClass->possibles = 1;
+                        pName->possibles++;
+                    }
+                }
+                break;
+
+            case LF_METHOD:
+                count = ((plfMethod)(pField + fSkip))->count;
+                cnt -= count - 1;
+                newindex = ((plfMethod)(pField + fSkip))->mList;
+                pc = pField + anchor + offsetof (lfMethod, Name);
+                fSkip += sizeof (struct lfMethod) + *pc;
+                if (pName->clsmask & CLS_method) {
+                    if ((cmpflag = fnCmp ((LPSSTR) pName, NULL, pc, pExState->state.fCase)) == 0) {
+                        // note that the OMF specifies that the vfuncptr will
+                        // be emitted as the first field after the bases
+
+                        if (pName->clsmask & CLS_virtintro) {
+                            // we are looking for the introducing virtual
+                            // method.    We need to find a method with the
+                            // correct name of the correct type index that
+                            // is introducing.
+
+                            MHOmfUnLock (hField);
+                            if (IsIntroVirt (count, newindex, &vtabind) == FALSE) {
+                                cmpflag = 1;
+                            }
+                            else {
+                                if (FCN_VFPTYPE (pvF) == T_NOTYPE) {
+                                    FCN_VFPTYPE (pvF) = vfpType;
+                                    FCN_VFPTYPE (pName->pv) = vfpType;
+                                    FCN_VTABIND (pvF) = vtabind;
+                                    FCN_VTABIND (pName->pv) = vtabind;
+                                }
+                                cmpflag = 0;
+                            }
+                            pField = (char *)(&((TYPPTR)MHOmfLock (hField))->data);
+                        }
+                        else {
+                            // save the type index of the method list, the
+                            // count of methods overloaded on this name,
+                            // the type index of the vfuncptr.    Also,
+                            // increment the number of possible features by
+                            // the overload count
+
+                            pSymClass->possibles = count;
+                            pName->possibles += count;
+                            pSymClass->mlist = newindex;
+                            pSymClass->vfpType = vfpType;
+                        }
+                    }
+                }
+                break;
+
+            case LF_NESTTYPE:
+                newindex = ((plfNestType)(pField + fSkip))->index;
+                fSkip += offsetof (lfNestType, Name);
+                pc = pField + fSkip;
+                fSkip += *(pField + fSkip) + sizeof (char);
+                if (pName->clsmask & CLS_ntype) {
+                    if ((cmpflag = fnCmp ((LPSSTR) pName, NULL, pc, pExState->state.fCase)) == 0) {
+                        // set type of typedef symbol
+                        pSymClass->possibles = 1;
+                        pName->possibles++;
+                        EVAL_STATE (pvF) = EV_type;
+                        EVAL_TYP(pvF) = newindex;
+                    }
+                    else if (pName->clsmask & CLS_enumerate) {
+                        // check if the nested type is an enum.  if it is
+                        // we gotta search thru its field list for a matching
+                        // enumerate
+                        // sps - 9/14/92
+                        HTYPE       hEnum, hEnumField;  // nested handle
+                        plfEnum     pEnum;
+                        char   *pEnumField;     // field list of the enum record
+                        ushort      enumCount;
+                        uint        fSkip = 0;      // offset in the field list
+                        uint        anchor;         // offset in the field list to start of type
+
+                        if (CV_IS_PRIMITIVE(newindex)) {
+                            break;
+                        }
+
+                        if ((hEnum = THGetTypeFromIndex (EVAL_MOD (pvBase),
+                          newindex)) == 0) {
+                            pExState->err_num = ERR_BADOMF;
+                            return (SCN_error);
+                        }
+                        pEnum = (plfEnum) (&((TYPPTR)MHOmfLock (hEnum))->leaf);
+                           if (pEnum->leaf == LF_ENUM) {
+                            if (pEnum->property.fwdref) {
+                                eval_t        localeval = *pvBase;
+                                neval_t     nv = &localeval;
+
+                                // forward ref - look for the definition of the UDT
+                                if ((newindex = GetUdtDefnTindex (newindex, pvBase, (char *)&(pEnum->Name[0]))) != T_NOTYPE) {
+                                    if ((hEnum = THGetTypeFromIndex (EVAL_MOD (pvBase), newindex)) == 0) {
+                                        pExState->err_num = ERR_BADOMF;
+                                        return (SCN_error);
+                                    }
+                                    pEnum = (plfEnum) (&((TYPPTR)MHOmfLock (hEnum))->leaf);
+                                }
+                                else
+                                    break;    // No Fwd ref found... no CVInfo for nested type... proceed with search [rm]
+                            }
+                            if ((hEnumField = THGetTypeFromIndex (EVAL_MOD (pvBase),
+                                pEnum->field)) == 0) {
+                                if ( BindingBP ) {
+                                    break;
+                                }
+                                else {
+                                    pExState->err_num = ERR_BADOMF;
+                                    return (SCN_error);
+                                }
+                            }
+                               pEnumField = (char *)(&((TYPPTR)MHOmfLock (hEnumField))->data);
+                            for (enumCount = pEnum->count; enumCount > 0; enumCount--) {
+                                fSkip += SkipPad(((uchar *)pEnumField) + fSkip);
+                                anchor = fSkip;
+                                DASSERT ((((plfEasy)(pEnumField + fSkip))->leaf) == LF_ENUMERATE);
+
+                                access = ((plfEnumerate)(pEnumField + fSkip))->attr;
+                                fSkip += offsetof (lfEnumerate, value);
+                                value = (ulong) RNumLeaf (pEnumField + fSkip, &fSkip);
+                                pc = pEnumField + fSkip;
+                                fSkip += *(pEnumField + fSkip) + sizeof (char);
+                                   if ((cmpflag = fnCmp ((LPSSTR) pName, NULL, pc, pExState->state.fCase)) == 0) {
+                                       EVAL_MOD (pvF) = SHHMODFrompCXT (&pName->CXTT);
+                                       SetNodeType (pvF, pEnum->utype);
+                                    EVAL_STATE (pvF) = EV_constant;
+                                    EVAL_LONG (pvF) = value;
+
+                                       // save the casting data for the this pointer
+
+                                       pSymClass->access = access;
+                                       pSymClass->possibles = 1;
+                                       pName->possibles++;
+                                    break;
+                                }
+                            }
+                            MHOmfUnLock (hEnumField);
+                        }
+                        MHOmfUnLock (hEnum);
+                    }
+                }
+                break;
+
+            default:
+                pExState->err_num = ERR_BADOMF;
+                retval = SCN_notfound;
+
+        }
+#ifdef NEVER
+        // if ((cnt == 0) && ************ (pName->tTypeDef != 0)) {
+        if ((cnt == 0) && (pName->tTypeDef != 0)) {
+            // we found a typedef name that was not hidden by
+            // a member or method name
+        }
+#endif
+
+        if (cmpflag == 0) {
+            pSymClass->s.viable = TRUE;
+            retval = SCN_found;
+            break;
+        }
+    }
+
+#endif
+
     if (hField != 0) {
         MHOmfUnLock ((HDEP)hField);
     }
@@ -2278,8 +2983,10 @@ LOCAL SCN_t NEAR PASCAL SearchRoot (psearch_t pName)
  */
 
 
-#if !defined (C_ONLY)
-LOCAL SCN_t NEAR PASCAL SetBPValue (psearch_t pName)
+LOCAL SCN_t
+SetBPValue (
+    psearch_t pName
+    )
 {
     peval_t     pv;
 
@@ -2324,12 +3031,26 @@ LOCAL SCN_t NEAR PASCAL SetBPValue (psearch_t pName)
     *pv = pSymClass->evalP;
     EVAL_ACCESS (pv) = (uchar)(pSymClass->access.access);
     pName->typeOut = EVAL_TYP (pv);
+
+    // save the offset of a class member
+    // (caviar #1756) --gdp 9-10-92
+
+    if (pName->bnOp) {
+        peval_t pvOp = &(pnodeOfbnode(pName->bnOp))->v[0];
+        EVAL_IS_MEMBER(pvOp) = TRUE;
+        MEMBER_OFFSET(pvOp) = pName->initializer == INIT_right ?
+                    pSymClass->offset : 0;
+    }
+
     return (SCN_found);
 }
 
 
-
-LOCAL SCN_t NEAR PASCAL OverloadToAmbList (psearch_t pName, psymclass_t pSymCl)
+LOCAL SCN_t
+OverloadToAmbList (
+    psearch_t pName,
+    psymclass_t pSymCl
+    )
 {
     SCN_t       retval;
 
@@ -2347,6 +3068,12 @@ LOCAL SCN_t NEAR PASCAL OverloadToAmbList (psearch_t pName, psymclass_t pSymCl)
             return (retval);
         }
     }
+
+    if (pExState->ambiguous == 0) {
+        // no instantiated function has been found
+        return (SCN_notfound);
+    }
+
     SymToNode (pName);
     DASSERT (EVAL_TYP (pName->pv) != T_NOTYPE);
     return (SCN_found);
@@ -2370,7 +3097,11 @@ LOCAL SCN_t NEAR PASCAL OverloadToAmbList (psearch_t pName, psymclass_t pSymCl)
  */
 
 
-LOCAL SCN_t NEAR PASCAL MethodsToAmbList (psearch_t pName, psymclass_t pSymCl)
+LOCAL SCN_t
+MethodsToAmbList (
+    psearch_t pName,
+    psymclass_t pSymCl
+    )
 {
     HTYPE           hMethod;
     pmlMethod       pMethod;
@@ -2407,12 +3138,12 @@ LOCAL SCN_t NEAR PASCAL MethodsToAmbList (psearch_t pName, psymclass_t pSymCl)
         // the method list and increment to field for next method
 
         pMethod = (pmlMethod)((&((TYPPTR)MHOmfLock (hMethod))->leaf) + 1);
-        pMethod = (pmlMethod)((uchar FAR *)pMethod + skip);
+        pMethod = (pmlMethod)((uchar *)pMethod + skip);
         attr = pMethod->attr;
         type = pMethod->index;
         skip += sizeof (mlMethod);
         if (pMethod->attr.mprop == CV_MTintro) {
-            vtabind = (short)RNumLeaf (((char FAR *)pMethod) + skip, &skip);
+            vtabind = (short)RNumLeaf (((char *)pMethod) + skip, &skip);
         }
         else {
             vtabind = 0;
@@ -2489,9 +3220,6 @@ LOCAL SCN_t NEAR PASCAL MethodsToAmbList (psearch_t pName, psymclass_t pSymCl)
     }
     return (SCN_found);
 }
-#endif
-
-
 
 
 /**     SetValue - set the result of the class search
@@ -2511,7 +3239,10 @@ LOCAL SCN_t NEAR PASCAL MethodsToAmbList (psearch_t pName, psymclass_t pSymCl)
  */
 
 
-LOCAL SCN_t NEAR PASCAL SetValue (psearch_t pName)
+LOCAL SCN_t
+SetValue (
+    psearch_t pName
+    )
 {
     peval_t     pv;
     peval_t     pvOp;
@@ -2552,7 +3283,6 @@ LOCAL SCN_t NEAR PASCAL SetValue (psearch_t pName)
     // The number of methods must less than 1 + number of elements in the
     // list pName->hAmbCl and must be less than or equal to pName->possibles.
 
-#if !defined C_ONLY
     if (BindingBP == TRUE) {
         // call the set of routines that will process breakpoints on methods
         // of a class, the inheritance tree of the class and the derivation
@@ -2563,7 +3293,6 @@ LOCAL SCN_t NEAR PASCAL SetValue (psearch_t pName)
 
         return (SetBPValue (pName));
     }
-#endif
     // At this point, there must be only one class after dominance resolution,
     // the count of the found items must be zero, and the handle of the found
     // item list must be null.  Otherwise there was a failure in dominance
@@ -2580,7 +3309,6 @@ LOCAL SCN_t NEAR PASCAL SetValue (psearch_t pName)
         pExState->err_num = ERR_NOARGLIST;
         return (SCN_error);
     }
-#if !defined (C_ONLY)
     // if we are processing C++, then we can allow for overloaded methods
     // which is specified by the type index of the method list not being
     // zero.  If this is true, then we select the best of the overloaded
@@ -2609,7 +3337,6 @@ LOCAL SCN_t NEAR PASCAL SetValue (psearch_t pName)
                 break;
         }
     }
-#endif
     // the symbol is a data member of the class (C or C++).  If an
     // explict class was not specified and the current context is
     // implicitly a class (we are in the scope of the method of the class),
@@ -2623,7 +3350,6 @@ LOCAL SCN_t NEAR PASCAL SetValue (psearch_t pName)
         return (SCN_error);
     }
 
-#if !defined (C_ONLY)
     else if ((pName->ExpClass == 0) && (ClassImp != 0) &&
       (pName->initializer != INIT_base)) {
         // if the feature is a member of *this class of a method, then
@@ -2636,7 +3362,6 @@ LOCAL SCN_t NEAR PASCAL SetValue (psearch_t pName)
         InsertThis (pName);
         return (SCN_rewrite);
     }
-#endif
     // the initializer for the search must be INIT_right or INIT_base.
     // by the time we get to here we know that bnOp is the based pointer to
     // the node that will receive the casting expression and pv points
@@ -2679,11 +3404,6 @@ LOCAL SCN_t NEAR PASCAL SetValue (psearch_t pName)
             DASSERT (FALSE);
             return (SCN_error);
     }
-#if defined (C_ONLY)
-    Unreferenced( retval );
-    Unreferenced( hQual );
-    return (GenQualExpr (pName));
-#else
     if (EVAL_IS_STMEMBER (pv) == FALSE) {
         // the feature is not a static data member of the class
         return (GenQualExpr (pName));
@@ -2705,7 +3425,6 @@ LOCAL SCN_t NEAR PASCAL SetValue (psearch_t pName)
         MHMemFree (hQual);
         return (SCN_found);
     }
-#endif
 }
 
 
@@ -2730,12 +3449,17 @@ LOCAL SCN_t NEAR PASCAL SetValue (psearch_t pName)
  */
 
 
-LOCAL pnode_t NEAR PASCAL AddETConst (pnode_t pnP, OFFSET off, CV_typ_t btype)
+LOCAL pnode_t
+AddETConst (
+    pnode_t pnP,
+    OFFSET off,
+    CV_typ_t btype
+    )
 {
     pnode_t     pn;
     padjust_t   pa;
 
-    pn = (pnode_t)(((char FAR *)pTree) + pTree->node_next);
+    pn = (pnode_t)(((char *)pTree) + pTree->node_next);
     pa = (padjust_t)(&pn->v[0]);
     _fmemset (pn, 0, sizeof (node_t) + sizeof (adjust_t));
     NODE_OP (pn) = OP_thisconst;
@@ -2766,12 +3490,16 @@ LOCAL pnode_t NEAR PASCAL AddETConst (pnode_t pnP, OFFSET off, CV_typ_t btype)
  */
 
 
-LOCAL pnode_t NEAR PASCAL AddETInit (pnode_t pnP, CV_typ_t btype)
+LOCAL pnode_t
+AddETInit (
+    pnode_t pnP,
+    CV_typ_t btype
+    )
 {
     pnode_t     pn;
     padjust_t   pa;
 
-    pn = (pnode_t)(((char FAR *)pTree) + pTree->node_next);
+    pn = (pnode_t)(((char *)pTree) + pTree->node_next);
     pa = (padjust_t)(&pn->v[0]);
     _fmemset (pn, 0, sizeof (node_t) + sizeof (adjust_t));
     NODE_OP (pn) = OP_thisinit;
@@ -2811,13 +3539,19 @@ LOCAL pnode_t NEAR PASCAL AddETInit (pnode_t pnP, CV_typ_t btype)
  */
 
 
-LOCAL pnode_t NEAR PASCAL AddETExpr (pnode_t pnP, CV_typ_t vbptr,
-  OFFSET vbpoff, OFFSET vbdisp, CV_typ_t btype)
+LOCAL pnode_t
+AddETExpr (
+    pnode_t pnP,
+    CV_typ_t vbptr,
+    OFFSET vbpoff,
+    OFFSET vbdisp,
+    CV_typ_t btype
+    )
 {
     pnode_t     pn;
     padjust_t   pa;
 
-    pn = (pnode_t)(((char FAR *)pTree) + pTree->node_next);
+    pn = (pnode_t)(((char *)pTree) + pTree->node_next);
     pa = (padjust_t)(&pn->v[0]);
     _fmemset (pn, 0, sizeof (node_t) + sizeof (adjust_t));
     NODE_OP (pn) = OP_thisexpr;
@@ -2850,12 +3584,16 @@ LOCAL pnode_t NEAR PASCAL AddETExpr (pnode_t pnP, CV_typ_t vbptr,
  */
 
 
-#if !defined (C_ONLY)
-LOCAL SCN_t NEAR PASCAL AddVBList (psymclass_t pSymClass, pdombase_t FAR *ppList, HDEP FAR * phList)
+LOCAL SCN_t
+AddVBList (
+    psymclass_t pSymClass,
+    pdombase_t *ppList,
+    HDEP * phList
+    )
 {
     ushort          cnt;            // count of number of elements in struct
     HTYPE           hField;         // handle to type record for struct field list
-    char FAR       *pField;         // pointer to field list
+    char       *pField;         // pointer to field list
     uint            fSkip = 0;      // offset in the field list
     uint            anchor;         // offset in the field list to start of type
     CV_typ_t        newindex;
@@ -2870,12 +3608,12 @@ LOCAL SCN_t NEAR PASCAL AddVBList (psymclass_t pSymClass, pdombase_t FAR *ppList
         pExState->err_num = ERR_BADOMF;
         return (SCN_error);
     }
-    pField = (char FAR *)(&((TYPPTR)MHOmfLock (hField))->data[0]);
+    pField = (char *)(&((TYPPTR)MHOmfLock (hField))->data[0]);
 
     //  walk field list for the class
 
     for (cnt = CLASS_COUNT (pvBase); cnt > 0; cnt--) {
-        if ((pad = *(((char FAR *)pField) + fSkip)) >= LF_PAD0) {
+        if ((pad = *(((char *)pField) + fSkip)) >= LF_PAD0) {
             // there is a pad field
             fSkip += pad & 0x0f;
         }
@@ -2889,7 +3627,7 @@ LOCAL SCN_t NEAR PASCAL AddVBList (psymclass_t pSymClass, pdombase_t FAR *ppList
                     pExState->err_num = ERR_INTERNAL;
                     return (SCN_error);
                 }
-                pField = (char FAR *)(&((TYPPTR)MHOmfLock (hField))->data[0]);
+                pField = (char *)(&((TYPPTR)MHOmfLock (hField))->data[0]);
                 fSkip = 0;
                 // the LF_INDEX is not part of the field count
                 cnt++;
@@ -2924,7 +3662,6 @@ LOCAL SCN_t NEAR PASCAL AddVBList (psymclass_t pSymClass, pdombase_t FAR *ppList
     MHOmfUnLock (hField);
     return (retval);
 }
-#endif
 
 
 
@@ -2943,8 +3680,12 @@ LOCAL SCN_t NEAR PASCAL AddVBList (psymclass_t pSymClass, pdombase_t FAR *ppList
  */
 
 
-#if !defined (C_ONLY)
-LOCAL SCN_t NEAR PASCAL AddVBType (pdombase_t FAR *ppList, HDEP FAR *phList, CV_typ_t type)
+LOCAL SCN_t
+AddVBType (
+    pdombase_t *ppList,
+    HDEP *phList,
+    CV_typ_t type
+    )
 {
     ushort      i;
     bool_t      add = TRUE;
@@ -2975,10 +3716,6 @@ LOCAL SCN_t NEAR PASCAL AddVBType (pdombase_t FAR *ppList, HDEP FAR *phList, CV_
     }
     return (SCN_found);
 }
-#endif
-
-
-
 
 
 /**     AmbFromList - add get next ambiguous symbol from list
@@ -2995,7 +3732,10 @@ LOCAL SCN_t NEAR PASCAL AddVBType (pdombase_t FAR *ppList, HDEP FAR *phList, CV_
  */
 
 
-LOCAL ushort NEAR PASCAL AmbFromList (psearch_t pName)
+LOCAL ushort
+AmbFromList (
+    psearch_t pName
+    )
 {
     psearch_t   pBPatch;
 
@@ -3029,7 +3769,10 @@ LOCAL ushort NEAR PASCAL AmbFromList (psearch_t pName)
  */
 
 
-LOCAL bool_t NEAR PASCAL AmbToList (psearch_t pName)
+LOCAL bool_t
+AmbToList (
+    psearch_t pName
+    )
 {
     HDEP        hBPatch;
     psearch_t   pBPatch;
@@ -3071,7 +3814,10 @@ LOCAL bool_t NEAR PASCAL AmbToList (psearch_t pName)
  */
 
 
-LOCAL HR_t NEAR PASCAL ClAmbToList (psearch_t pName)
+LOCAL HR_t
+ClAmbToList (
+    psearch_t pName
+    )
 {
     HDEP        hSearch;
     psearch_t   pSearch;
@@ -3144,7 +3890,10 @@ LOCAL HR_t NEAR PASCAL ClAmbToList (psearch_t pName)
  */
 
 
-LOCAL SCN_t NEAR PASCAL DupSymCl (psearch_t pName)
+LOCAL SCN_t
+DupSymCl (
+    psearch_t pName
+    )
 {
     HDEP        hSymCl;
     psymclass_t pSymCl;
@@ -3183,8 +3932,10 @@ LOCAL SCN_t NEAR PASCAL DupSymCl (psearch_t pName)
  */
 
 
-#if !defined (C_ONLY)
-LOCAL SCN_t NEAR PASCAL FindIntro (psearch_t pName)
+LOCAL SCN_t
+FindIntro (
+    psearch_t pName
+    )
 {
     ushort      oldmask;
     SCN_t       retval;
@@ -3199,7 +3950,6 @@ LOCAL SCN_t NEAR PASCAL FindIntro (psearch_t pName)
     pName->clsmask = oldmask;
     return (retval);
 }
-#endif
 
 
 
@@ -3217,16 +3967,20 @@ LOCAL SCN_t NEAR PASCAL FindIntro (psearch_t pName)
  */
 
 
-LOCAL HDEP NEAR PASCAL GenQualName (psearch_t pName, psymclass_t pSymCl)
+LOCAL HDEP
+GenQualName (
+    psearch_t pName,
+    psymclass_t pSymCl
+    )
 {
     HDEP        hQual;
-    char FAR   *pQual;
+    char   *pQual;
     uint        buflen = 255;
     uint        len;
     uint        fSkip;
-    char FAR   *pField;         // pointer to field list
+    char   *pField;         // pointer to field list
     HTYPE       hBase;          // handle to type record for base class
-    char FAR   *pc;
+    char   *pc;
     short       i;
     peval_t     pL;
 
@@ -3244,7 +3998,7 @@ LOCAL HDEP NEAR PASCAL GenQualName (psearch_t pName, psymclass_t pSymCl)
         if (CLASS_PROP (&pSymCl->symbase[i].Base).cnested == TRUE) {
             NOTTESTED (FALSE);
         }
-        if (pSymCl->symbase[i].clsmask & CLS_virtintro == TRUE) {
+        if ((pSymCl->symbase[i].clsmask & CLS_virtintro) != 0) {
             // if the search turned into a search for the introducing virtual
             // function, break out of this loop so that the method name is
             // correct
@@ -3260,7 +4014,7 @@ LOCAL HDEP NEAR PASCAL GenQualName (psearch_t pName, psymclass_t pSymCl)
         pExState->err_num = ERR_INTERNAL;
         return (HDEP)(SCN_error);
     }
-    pField = (char FAR *)(&((TYPPTR)MHOmfLock ((HDEP)hBase))->leaf);
+    pField = (char *)(&((TYPPTR)MHOmfLock ((HDEP)hBase))->leaf);
     switch (((plfClass)pField)->leaf) {
         case LF_CLASS:
         case LF_STRUCTURE:
@@ -3311,7 +4065,10 @@ LOCAL HDEP NEAR PASCAL GenQualName (psearch_t pName, psymclass_t pSymCl)
  */
 
 
-bool_t PASCAL pvThisFromST (bnode_t bnOp)
+bool_t
+pvThisFromST (
+    bnode_t bnOp
+    )
 {
     uint        len;
     pnode_t     Parent;
@@ -3369,7 +4126,10 @@ bool_t PASCAL pvThisFromST (bnode_t bnOp)
  */
 
 
-LOCAL SCN_t NEAR PASCAL GenQualExpr (psearch_t pName)
+LOCAL SCN_t
+GenQualExpr (
+    psearch_t pName
+    )
 {
     short       i;
     peval_t     pvOp;
@@ -3393,9 +4153,9 @@ LOCAL SCN_t NEAR PASCAL GenQualExpr (psearch_t pName)
     len = (pSymClass->CurIndex + 2) * (sizeof (node_t) + sizeof (adjust_t));
     pvOp = &(pnodeOfbnode(pName->bnOp)->v[0]);
     if ((diff = pTree->size - pTree->node_next - len) < 0) {
-        if (((char FAR *)(pName->pv) >= (char FAR *)pTree) &&
-          ((char FAR *)(pName->pv) < ((char FAR *)pTree) + pTree->size)) {
-            pvOff = ((char FAR *)pName->pv) - ((char FAR *)pTree);
+        if (((char *)(pName->pv) >= (char *)pTree) &&
+          ((char *)(pName->pv) < ((char *)pTree) + pTree->size)) {
+            pvOff = ((char *)pName->pv) - ((char *)pTree);
         }
         if (!GrowETree ((uint) (-diff))) {
             pExState->err_num = ERR_NOMEMORY;
@@ -3409,7 +4169,7 @@ LOCAL SCN_t NEAR PASCAL GenQualExpr (psearch_t pName)
            pCxt = SHpCXTFrompCXF ((PCXF)&(pnodeOfbnode(bnCxt))->v[0]);
         }
         if (pvOff != 0) {
-            pName->pv = (peval_t)(((char FAR *)pTree) + pvOff);
+            pName->pv = (peval_t)(((char *)pTree) + pvOff);
         }
         pvOp = &(pnodeOfbnode(pName->bnOp)->v[0]);
     }
@@ -3473,7 +4233,12 @@ LOCAL SCN_t NEAR PASCAL GenQualExpr (psearch_t pName)
  */
 
 
-farg_t PASCAL GetArgType (peval_t pvF, short argn, CV_typ_t FAR *type)
+farg_t
+GetArgType (
+    peval_t pvF,
+    short argn,
+    CV_typ_t *type
+    )
 {
     HTYPE           hList;          // handle of the type list
     plfArgList      pList = NULL;
@@ -3545,7 +4310,10 @@ farg_t PASCAL GetArgType (peval_t pvF, short argn, CV_typ_t FAR *type)
  */
 
 
-LOCAL bool_t NEAR PASCAL VBSearched (CV_typ_t type)
+LOCAL bool_t
+VBSearched (
+    CV_typ_t type
+    )
 {
     ushort      i;
 
@@ -3576,7 +4344,10 @@ LOCAL bool_t NEAR PASCAL VBSearched (CV_typ_t type)
  */
 
 
-LOCAL bool_t NEAR PASCAL GrowTMList (void)
+LOCAL bool_t
+GrowTMList(
+    void
+    )
 {
     register bool_t retval = FALSE;
 
@@ -3609,7 +4380,10 @@ LOCAL bool_t NEAR PASCAL GrowTMList (void)
  */
 
 
-LOCAL SCN_t NEAR PASCAL IncrSymBase (void)
+LOCAL SCN_t
+IncrSymBase (
+    void
+    )
 {
     uint        size;
 
@@ -3647,8 +4421,11 @@ LOCAL SCN_t NEAR PASCAL IncrSymBase (void)
  */
 
 
-#if !defined (C_ONLY)
-LOCAL DOM_t NEAR PASCAL IsDominated (psymclass_t pSymBest, psymclass_t pSymTest)
+LOCAL DOM_t
+IsDominated (
+    psymclass_t pSymBest,
+    psymclass_t pSymTest
+    )
 {
     short       i;
     short       j;
@@ -3694,8 +4471,6 @@ LOCAL DOM_t NEAR PASCAL IsDominated (psymclass_t pSymBest, psymclass_t pSymTest)
     }
     return (DOM_keep);
 }
-#endif
-
 
 
 
@@ -3714,9 +4489,11 @@ LOCAL DOM_t NEAR PASCAL IsDominated (psymclass_t pSymBest, psymclass_t pSymTest)
  */
 
 
-#if !defined (C_ONLY)
-LOCAL bool_t NEAR PASCAL IsIntroVirt (ushort count, CV_typ_t mlist,
- ushort FAR *vtabind)
+LOCAL bool_t
+IsIntroVirt (
+    ushort count,
+    CV_typ_t mlist,
+    ushort *vtabind)
 {
     HTYPE           hMethod;
     pmlMethod       pMethod;
@@ -3754,7 +4531,7 @@ LOCAL bool_t NEAR PASCAL IsIntroVirt (ushort count, CV_typ_t mlist,
         type = pMethod->index;
         skip += sizeof (mlMethod);
         if (pMethod->attr.mprop == CV_MTintro) {
-            *vtabind = (short)RNumLeaf (((char FAR *)pMethod) + skip, &skip);
+            *vtabind = (short)RNumLeaf (((char *)pMethod) + skip, &skip);
         }
         else {
             *vtabind = 0;
@@ -3776,8 +4553,35 @@ LOCAL bool_t NEAR PASCAL IsIntroVirt (ushort count, CV_typ_t mlist,
     }
     return (FALSE);
 }
-#endif
 
+
+
+LOCAL CV_typ_t
+SkipModifiers(
+    HMOD mod,
+    CV_typ_t type
+    )
+{
+    HTYPE       hType;
+    plfModifier pType;
+
+    if (!CV_IS_PRIMITIVE (type)) {
+        hType = THGetTypeFromIndex (mod, type);
+        pType = (plfModifier)((&((TYPPTR)MHOmfLock (hType))->leaf));
+        while (pType->leaf == LF_MODIFIER) {
+            type =  pType->type;
+            if (CV_IS_PRIMITIVE (type)) {
+                break;
+            }
+            MHOmfUnLock (hType);
+            hType = THGetTypeFromIndex (mod, type);
+            pType = (plfModifier)((&((TYPPTR)MHOmfLock (hType))->leaf));
+        }
+    }
+
+    MHOmfUnLock (hType);
+    return type;
+}
 
 
 /**     MatchArgs - match a method against argument list
@@ -3802,8 +4606,14 @@ LOCAL bool_t NEAR PASCAL IsIntroVirt (ushort count, CV_typ_t mlist,
  */
 
 
-LOCAL bool_t NEAR PASCAL MatchArgs (peval_t pvM, psearch_t pName,
-  CV_fldattr_t attr, UOFFSET vtabind, bool_t fForce)
+LOCAL void
+MatchArgs (
+    peval_t pvM,
+    psearch_t pName,
+    CV_fldattr_t attr,
+    UOFFSET vtabind,
+    bool_t fForce
+    )
 {
     pnode_t     pnT;
     pargd_t     pa;
@@ -3829,9 +4639,14 @@ LOCAL bool_t NEAR PASCAL MatchArgs (peval_t pvM, psearch_t pName,
     update = FALSE;
     pnT = pnodeOfbnode(bArgList);
 
+    (pName->overloadCount)++;
     if (fForce == TRUE) {
         argmatch = TRUE;
         update = TRUE;
+    }
+    else if (!N_EVAL_IS_FCN(pvM)) {
+        argmatch = TRUE;
+        current.exact = 0;
     }
     else while (TRUE) {
         if (NODE_OP (pnT) == OP_endofargs) {
@@ -3851,16 +4666,21 @@ LOCAL bool_t NEAR PASCAL MatchArgs (peval_t pvM, psearch_t pName,
         switch (GetArgType (pvM, argc, &Ftype)) {
             case FARG_error:
                 DASSERT (FALSE);
-                return (FALSE);
+                return;
 
             case FARG_none:
-                // we have arguments and none are allowed
-                return (FALSE);
+                // special case foo(void)
+                // sps 2/20/92
+                if ((argc == 0) && (pa->actual == T_VOID))  {
+                    argmatch = TRUE;
+                    goto argmatchloop;
+                    }
+                return;
 
             case FARG_vararg:
                 // varargs are allowed unless we are binding breakpoints
                 if (BindingBP == TRUE) {
-                    return (FALSE);
+                    return;
                 }
                 break;
 
@@ -3868,7 +4688,7 @@ LOCAL bool_t NEAR PASCAL MatchArgs (peval_t pvM, psearch_t pName,
                 if ((argc + 1) > FCN_PCOUNT (pvM)) {
                     // we must exactly match the argument count and we
                     // have more arguments
-                    return (FALSE);
+                    return;
                 }
                 break;
 
@@ -3883,6 +4703,148 @@ LOCAL bool_t NEAR PASCAL MatchArgs (peval_t pvM, psearch_t pName,
             current.varargs = argc;
             pa->current = OM_vararg;
         }
+#if 1
+        else {
+            CV_typ_t Atype = pa->actual;
+            eval_t vA, vF;
+            peval_t pvA = &vA;
+            peval_t pvF = &vF;
+
+            if (pa->flags.istype) {
+                // If we have a type want identical type indices
+                // (This helps with class dumps)
+                if (Atype == Ftype) {
+                    current.exact++;
+                    pa->current = OM_exact;
+                    pnT = pnodeOfbnode(NODE_RCHILD (pnT));
+                    continue;
+                }
+                else {
+                    pExState->err_num = ERR_NONE;
+                    break;
+                }
+            }
+
+            Ftype = SkipModifiers(EVAL_MOD(pvM), Ftype);
+            Atype = SkipModifiers(EVAL_MOD(pvM), Atype);
+
+            *pvF = *pvM;
+            if (!SetNodeType(pvF, Ftype)) {
+                // error (not valid type)
+                break;
+            }
+
+            // Update Ftype (SetNodeType must have resolved potential fwd refs)
+            Ftype = EVAL_TYP (pvF);
+
+            // if we are calling a 32 bit func we must promote all const
+            // int2's to int4's
+
+            if (EVAL_SYM_IS32(pvM) &&
+                (EVAL_STATE((peval_t)(&(pnodeOfbnode(NODE_LCHILD (pnT)))->v[0])) == EV_constant) &&
+                ((Atype == T_INT2) || (Atype == T_UINT2))
+            ) {
+                Atype++;
+            }
+
+            *pvA = *pvM;
+            if (!SetNodeType(pvA, Atype)) {
+                // error (not valid type)
+                break;
+            }
+
+
+            if (EVAL_IS_PTR(pvA) && EVAL_IS_REF(pvA)) {
+                Atype = SkipModifiers(EVAL_MOD(pvM), PTR_UTYPE(pvA));
+            }
+
+            if (Atype == Ftype) {
+                current.exact++;
+                pa->current = OM_exact;
+                pnT = pnodeOfbnode(NODE_RCHILD (pnT));
+                continue;
+            }
+
+            if (EVAL_IS_PTR(pvF)) {
+                *pvA = *pvM;
+                if (!SetNodeType(pvA, Atype)) {
+                    // error (not valid type)
+                    break;
+                }
+                if (!EVAL_IS_REF(pvF)) {
+                    if (!EVAL_IS_PTR(pvA))    {
+                        // do not cast a non-pointer to pointer
+                        break;
+                    }
+
+                    PTR_UTYPE(pvA) = SkipModifiers(EVAL_MOD(pvM), PTR_UTYPE(pvA));
+                    PTR_UTYPE(pvF) = SkipModifiers(EVAL_MOD(pvM), PTR_UTYPE(pvF));
+
+                    if (EVAL_PTRTYPE(pvA) == EVAL_PTRTYPE(pvF) &&
+                        PTR_UTYPE(pvA) == PTR_UTYPE(pvF) &&
+                        !EVAL_IS_BASED(pvA) &&
+                        !EVAL_IS_BASED(pvF)) {
+
+                        // we don't match based pointers. if we want to
+                        // do this we must examine additional information
+                        // we allow mathcing a pointer with an array
+                        // however all arrays are considered far
+                        // since codeview information does not distinguish
+                        // between far or near arrays. --gdp 10/16/92
+
+                        current.exact++;
+                        pa->current = OM_exact;
+                        pnT = pnodeOfbnode(NODE_RCHILD (pnT));
+                        continue;
+                    }
+                }
+                else {
+
+                    //
+                    // special handling of a reference
+                    //
+
+                    CV_typ_t Utype;
+
+                    Utype = SkipModifiers(EVAL_MOD(pvM), PTR_UTYPE (pvF));
+                    if (Utype == Atype) {
+                        current.exact++;
+                        pa->current = OM_exact;
+                        pnT = pnodeOfbnode(NODE_RCHILD (pnT));
+                        continue;
+                    }
+                    else {
+                        break;
+                    }
+                }
+            }
+
+
+            // see if we can cast the type of the actual to the type of
+            // the formal if we are not binding breakpoints.  If we are
+            // binding breakpoints, only exact matches are allowed
+
+            *pvArg = *pvM;
+            SetNodeType (pvArg, pa->actual);
+            if (EVAL_IS_BITF (pvArg)) {
+                SetNodeType (pvArg, BITF_UTYPE (pvArg));
+            }
+            if (CastNode (pvArg, Ftype, Ftype)) {
+                pa->current = OM_implicit;
+                current.implicit++;
+            }
+            else {
+                pExState->err_num = ERR_NONE;
+                break;
+            }
+        }
+        pnT = pnodeOfbnode(NODE_RCHILD (pnT));
+    }
+argmatchloop:
+
+#endif
+
+#if 0
         else if (pa->actual == Ftype) {
             current.exact++;
             pa->current = OM_exact;
@@ -3919,8 +4881,8 @@ LOCAL bool_t NEAR PASCAL MatchArgs (peval_t pvM, psearch_t pName,
                     if (pType->leaf == LF_POINTER) {
                         lfPointer * pType2 = (lfPointer *) pType;
 
-                        if ((pType2->u.attr.ptrmode == CV_PTR_MODE_REF) &&
-                            (pType2->u.utype == pa->actual)) {
+                        if ((pType2->attr.ptrmode == CV_PTR_MODE_REF) &&
+                            (pType2->utype == pa->actual)) {
 
                             current.exact++;
                             pa->current = OM_exact;
@@ -3959,12 +4921,15 @@ LOCAL bool_t NEAR PASCAL MatchArgs (peval_t pvM, psearch_t pName,
         pnT = pnodeOfbnode(NODE_RCHILD (pnT));
     }
 
+#endif
+
     if (argmatch == TRUE) {
         // check current against best match
 
         if (pName->best.match == 0) {
             // we have a first time match
             update = TRUE;
+            pName->possibles++;
         }
         else if (fForce == FALSE) {
             // we have already matched on some function so we now
@@ -3983,7 +4948,8 @@ LOCAL bool_t NEAR PASCAL MatchArgs (peval_t pvM, psearch_t pName,
                     update = TRUE;
                     pName->possibles = 1;
                 }
-                else if (current.exact == pName->best.exact) {
+                else if (EVAL_TYP (pvM) != pName->best.match &&
+                    current.exact == pName->best.exact) {
                     // this function is a good as the best one.
                     // this means the call is ambiguous
                     pName->possibles++;
@@ -4007,7 +4973,8 @@ LOCAL bool_t NEAR PASCAL MatchArgs (peval_t pvM, psearch_t pName,
                             update = TRUE;
                             pName->possibles = 1;
                         }
-                        else if (current.exact == pName->best.exact) {
+                        else if (EVAL_TYP (pvM) != pName->best.match &&
+                            current.exact == pName->best.exact) {
                             pName->possibles++;
                         }
                     }
@@ -4022,7 +4989,7 @@ LOCAL bool_t NEAR PASCAL MatchArgs (peval_t pvM, psearch_t pName,
                     pa->best = pa->current;
                 }
                 {       //M00KLUDGE - hack for compiler DS != SS bug
-                    argcounters FAR *pcurrent = &current;
+                    argcounters *pcurrent = &current;
                     pName->best = *pcurrent;
                 }
             }
@@ -4031,10 +4998,6 @@ LOCAL bool_t NEAR PASCAL MatchArgs (peval_t pvM, psearch_t pName,
             pName->best.vtabind = vtabind;
             pName->best.hSym = pName->hSym;
         }
-        return (TRUE);
-    }
-    else {
-        return (FALSE);
     }
 }
 
@@ -4055,10 +5018,16 @@ LOCAL bool_t NEAR PASCAL MatchArgs (peval_t pvM, psearch_t pName,
  */
 
 
-LOCAL HR_t NEAR FASTCALL MatchFunction (psearch_t pName)
+LOCAL HR_t __fastcall
+MatchFunction (
+    psearch_t pName
+    )
 {
     HR_t        retval;
-    CV_fldattr_t attr;
+    CV_fldattr_t attr = {0};
+    CV_typ_t    type;
+    ADDR        addr;
+    bool_t      dupfcn;
 
     if (bArgList == 0) {
         // if there is no argument list, assume we are assigning to a
@@ -4073,19 +5042,38 @@ LOCAL HR_t NEAR FASTCALL MatchFunction (psearch_t pName)
 
     pName->scope &= ~SCP_global;
 
+    // save the function address and type.    Then if a subsequent match has
+    // the same address and type (i.e., comdat code), we can ignore it.
+
+    addr = EVAL_SYM (ST);
+    type = EVAL_TYP (ST);
+
     // pop the entry that SearchSym has added to the evaluation stack
     // the best match will be pushed back on later
+
+    pName->scope |= SCP_nomatchfn;
 
     PopStack ();
     MatchArgs (pName->pv, pName, attr, 0, FALSE);
     while ((retval = SearchSym (pName)) != HR_notfound) {
+        DASSERT (retval != HR_end);
+        dupfcn = FALSE;
         if (retval == HR_found) {
-            MatchArgs (pName->pv, pName, attr, 0, FALSE);
+            if ((EVAL_TYP (ST) == type) &&
+              (_fmemcmp (&addr, &EVAL_SYM (ST), sizeof (addr)) == 0)) {
+                dupfcn = TRUE;
+            }
+            PopStack ();
+            if (dupfcn == FALSE) {
+                MatchArgs (pName->pv, pName, attr, 0, FALSE);
+            }
         }
         else {
             return (retval);
         }
     }
+
+    pName->scope &= ~SCP_nomatchfn;
 
     // clear the symbol not found error from the recursive symbol search
 
@@ -4095,8 +5083,16 @@ LOCAL HR_t NEAR FASTCALL MatchFunction (psearch_t pName)
         return (HR_error);
     }
     else if (pName->possibles > 1) {
+        PushStack (pName->pv);
         pExState->err_num = ERR_AMBIGUOUS;
         EVAL_IS_AMBIGUOUS (ST) = TRUE;
+        return (HR_ambiguous);
+    }
+    else if (pName->overloadCount > 1 && pName->best.implicit > 0) {
+        //
+        // overloaded function that involves implicit casts
+        //
+        pExState->err_num = ERR_AMBIGUOUS;
         return (HR_ambiguous);
     }
     else {
@@ -4105,7 +5101,7 @@ LOCAL HR_t NEAR FASTCALL MatchFunction (psearch_t pName)
             return (HR_notfound);
         }
         else {
-            return (HR_end);
+            return (HR_found);
         }
     }
 }
@@ -4132,8 +5128,11 @@ LOCAL HR_t NEAR FASTCALL MatchFunction (psearch_t pName)
  */
 
 
-#if !defined (C_ONLY)
-LOCAL MTH_t NEAR PASCAL MatchMethod (psearch_t pName, psymclass_t pSymCl)
+LOCAL MTH_t
+MatchMethod (
+    psearch_t pName,
+    psymclass_t pSymCl
+    )
 {
     HTYPE           hMethod;
     pmlMethod       pMethod;
@@ -4153,6 +5152,7 @@ LOCAL MTH_t NEAR PASCAL MatchMethod (psearch_t pName, psymclass_t pSymCl)
 
     pvB = &pSymClass->symbase[pSymClass->CurIndex].Base;
     hMod = EVAL_MOD (pvB);
+    pName->possibles = 0;
 
     // we now walk the list of methods looking for an argument match
     // For now, we require an exact match except that we assume any
@@ -4168,7 +5168,9 @@ LOCAL MTH_t NEAR PASCAL MatchMethod (psearch_t pName, psymclass_t pSymCl)
     // the method list
 
     skip = 0;
-    if ((BindingBP == TRUE) && (bArgList == 0)) {
+//    if ((BindingBP == TRUE) && (bArgList == 0))
+    if (bArgList == 0)
+    {
         if (count == 1) {
             fForce = TRUE;
         }
@@ -4186,12 +5188,12 @@ LOCAL MTH_t NEAR PASCAL MatchMethod (psearch_t pName, psymclass_t pSymCl)
         // the method list and increment to field for next method
 
         pMethod = (pmlMethod)((&((TYPPTR)MHOmfLock (hMethod))->leaf) + 1);
-        pMethod = (pmlMethod)((uchar FAR *)pMethod + skip);
+        pMethod = (pmlMethod)((uchar *)pMethod + skip);
         attr = pMethod->attr;
         type = pMethod->index;
         skip += sizeof (mlMethod);
         if (pMethod->attr.mprop == CV_MTintro) {
-            vtabind = (short)RNumLeaf (((char FAR *)pMethod) + skip, &skip);
+            vtabind = (short)RNumLeaf (((char *)pMethod) + skip, &skip);
         }
         else {
             vtabind = 0;
@@ -4209,10 +5211,7 @@ LOCAL MTH_t NEAR PASCAL MatchMethod (psearch_t pName, psymclass_t pSymCl)
             DASSERT (FALSE);
             return (MTH_error);
         }
-        if (MatchArgs (pvM, pName, attr, vtabind, fForce) == FALSE) {
-            // this method was not a better match
-            pName->possibles--;
-        }
+        MatchArgs (pvM, pName, attr, vtabind, fForce);
     }
 
     // since the name was found at this level, it hides all other methods
@@ -4229,6 +5228,13 @@ LOCAL MTH_t NEAR PASCAL MatchMethod (psearch_t pName, psymclass_t pSymCl)
         EVAL_IS_AMBIGUOUS (pName->pv) = TRUE;
         return (MTH_error);
     }
+    else if (pName->overloadCount > 1 && pName->best.implicit > 0) {
+        // we have an overloaded method
+        // in this case the EE requires exact matches only
+        pExState->err_num = ERR_AMBIGUOUS;
+        EVAL_IS_AMBIGUOUS (pName->pv) = TRUE;
+        return (MTH_error);
+    }
     else {
         // we have found a non-ambiguous match
 
@@ -4238,6 +5244,7 @@ LOCAL MTH_t NEAR PASCAL MatchMethod (psearch_t pName, psymclass_t pSymCl)
             return (MTH_error);
         }
         else {
+            pSymCl->access.access = pName->best.attr.access;
             FCN_ATTR (pvF) = pName->best.attr;
             FCN_VTABIND (pvF) = pName->best.vtabind;
             FCN_VFPTYPE (pvF) = pSymCl->vfpType;
@@ -4263,7 +5270,6 @@ LOCAL MTH_t NEAR PASCAL MatchMethod (psearch_t pName, psymclass_t pSymCl)
         }
     }
 }
-#endif
 
 
 
@@ -4280,7 +5286,10 @@ LOCAL MTH_t NEAR PASCAL MatchMethod (psearch_t pName, psymclass_t pSymCl)
  */
 
 
-LOCAL void NEAR PASCAL MoveSymCl (HDEP hSymCl)
+LOCAL void
+MoveSymCl (
+    HDEP hSymCl
+    )
 {
     psymclass_t pSymCl;
     ushort      max;
@@ -4310,7 +5319,10 @@ LOCAL void NEAR PASCAL MoveSymCl (HDEP hSymCl)
  */
 
 
-LOCAL void NEAR PASCAL PurgeAmbCl (psearch_t pName)
+LOCAL void
+PurgeAmbCl (
+    psearch_t pName
+    )
 {
     psymclass_t pAmbCl;
     HDEP        hNext;
@@ -4345,9 +5357,16 @@ LOCAL void NEAR PASCAL PurgeAmbCl (psearch_t pName)
  */
 
 
-LOCAL SCN_t NEAR PASCAL SetBase (psearch_t pName, CV_typ_t type,
-  CV_typ_t vbptr, OFFSET vbpoff, OFFSET thisadjust, CV_fldattr_t attr,
-  bool_t virtual)
+LOCAL SCN_t
+SetBase (
+    psearch_t pName,
+    CV_typ_t type,
+    CV_typ_t vbptr,
+    OFFSET vbpoff,
+    OFFSET thisadjust,
+    CV_fldattr_t attr,
+    bool_t virtual
+    )
 {
     peval_t     pvB;
 
@@ -4387,13 +5406,17 @@ LOCAL SCN_t NEAR PASCAL SetBase (psearch_t pName, CV_typ_t type,
  */
 
 
-#if !defined (C_ONLY)
-LOCAL bool_t NEAR PASCAL SearchQualName (psearch_t pName, psymclass_t pSymCl,
-  HDEP hQual, bool_t fProc)
+LOCAL bool_t
+SearchQualName (
+    psearch_t pName,
+    psymclass_t pSymCl,
+    HDEP hQual,
+    bool_t fProc
+    )
 {
     HDEP        hTemp;
     psearch_t   pTemp;
-    uchar FAR  *pQual;
+    uchar  *pQual;
     ushort      retval;
 
     if ((hTemp = MHMemAllocate (sizeof (search_t))) == 0) {
@@ -4406,9 +5429,9 @@ LOCAL bool_t NEAR PASCAL SearchQualName (psearch_t pName, psymclass_t pSymCl,
 
     // set pointer to symbol name
 
-    pQual = (uchar FAR *)MHMemLock (hQual);
+    pQual = (uchar *)MHMemLock (hQual);
     pTemp->sstr.lpName = pQual;
-    pTemp->sstr.cb = (uchar)_fstrlen ((char FAR *)pQual);
+    pTemp->sstr.cb = (uchar)_fstrlen ((char *)pQual);
     pTemp->state = SYM_init;
     if (fProc == TRUE) {
         pTemp->scope = SCP_module | SCP_global;
@@ -4416,14 +5439,23 @@ LOCAL bool_t NEAR PASCAL SearchQualName (psearch_t pName, psymclass_t pSymCl,
     }
     else {
         pTemp->scope = SCP_module | SCP_global | SCP_lexical;
-        pTemp->sstr.searchmask |= SSTR_data;
+        // data members may not be overloaded, hence there is
+        // no need for the type to qualify the name.  Furthermore
+        // there are cases where the symbol type doesn't match
+        // the member type exactly (e.g. variable length arrays,
+        // symbol has actual length and member has zero length)
+        // hence this matching is suppressed for data items [rm]
+
+        // pTemp->sstr.searchmask |= SSTR_data;
     }
     pTemp->initializer = INIT_qual;
     pTemp->typeOut = EVAL_TYP (&pSymCl->evalP);
     retval = SearchSym (pTemp);
     MHMemUnLock (hQual);
     if (retval != HR_found) {
-        if (pTemp->FcnBP != 0) {
+#ifdef NEVER    /* CAVIAR #1081 */
+        if ((retval != HR_end) && (pTemp->FcnBP != 0)) {
+//        if (pTemp->FcnBP != 0) {
             // there is another symbol with the same name but a different
             // type.  Since this is set only when we are binding breakpoints,
             // let's go ahead and try it
@@ -4434,29 +5466,63 @@ LOCAL bool_t NEAR PASCAL SearchQualName (psearch_t pName, psymclass_t pSymCl,
             pTemp->typeOut = pTemp->FcnBP;
             retval = SearchSym (pTemp);
         }
+#endif
         if (retval != HR_found) {
             // the only way we can get here is if the method or data
             // is declared in the class but is not defined or
             // is a noninstianted inline method.
             // therefore, we return a special error code
 
+            if (ST == NULL) {
+                // this is a hack to get around the case where the expression
+                //        bp {,foo.c, foo.exe}X::f
+                // and the first function in the module foo is a method.
+                // SearchSym ended up calling the class search routines
+                // because the context is implicitly a class so class is
+                // searched even though it shouldn't be.  Any fix for this
+                // causes problems and we are too close to release to find
+                // a valid fix.  The major result of this fix is that
+                // some breakpoints will not get reset on entry.
+
+                return (FALSE);
+            }
+
             PushStack (ST);
-            if (fProc) {
+            //    if this is a missing static DATA member function then
+            // best.match won't have anything in it at all... we'll need
+            // to pick up what we want from typeOut which will have been
+            // set by a previous non-qualified name search... [rm]
+
+            if (pName->best.match == T_NOTYPE) {
+                SetNodeType (ST, pName->typeOut);
+            }
+            else {
                 SetNodeType (ST, pName->best.match);
+            }
+            if (EVAL_IS_FCN(ST)) {
                 FCN_NOTPRESENT (ST) = TRUE;
             }
+            else {
+                // indicate missing static data member
+                EVAL_HSYM (ST) = 0;
+                pExState->state.fNotPresent = TRUE;
+            }
+//            if (fProc) {
+//                SetNodeType (ST, pName->best.match);
+//                FCN_NOTPRESENT (ST) = TRUE;
+//            }
         }
     }
     // pop off the stack entry that a successful search found.  Move the
     // static data member flag first so that it will not be lost.
 
     EVAL_IS_STMEMBER (ST) = EVAL_IS_STMEMBER (&pSymCl->evalP);
+    EVAL_ACCESS (ST) = (uchar)(pSymCl->access.access);
     pSymCl->evalP = *ST;
     MHMemUnLock (hTemp);
     MHMemFree (hTemp);
     return (PopStack ());
 }
-#endif
 
 
 
@@ -4476,7 +5542,10 @@ LOCAL bool_t NEAR PASCAL SearchQualName (psearch_t pName, psymclass_t pSymCl,
  */
 
 
-LOCAL HR_t NEAR PASCAL SymAmbToList (psearch_t pName)
+LOCAL HR_t
+SymAmbToList (
+    psearch_t pName
+    )
 {
     HDEP        hSearch;
     psearch_t   pSearch;
@@ -4493,6 +5562,7 @@ LOCAL HR_t NEAR PASCAL SymAmbToList (psearch_t pName)
         // so that the first symbol will be set into the breakpoint
         // list.
 
+        pNameFirst = pName;
         pExState->ambiguous = pName->bn;
         if ((hSearch = MHMemAllocate (sizeof (search_t))) == 0) {
             pExState->err_num = ERR_NOMEMORY;
@@ -4506,12 +5576,20 @@ LOCAL HR_t NEAR PASCAL SymAmbToList (psearch_t pName)
         pSearch = MHMemLock (hSearch);
         *pSearch = *pName;
         pSearch->pv = (peval_t)MHMemLock (hevalT);
+        SHGoToParent (&pName->CXTT, &pSearch->CXTT);
+
+        // clear the newly allocated pv
+
+        _fmemset ( pSearch->pv, 0, sizeof (eval_t) );
         retval = SearchSym (pSearch);
         PushStack (pName->pv);
         MHMemUnLock (hSearch);
         MHMemFree (hSearch);
         MHMemUnLock (hevalT);
         MHMemFree (hevalT);
+        if (retval == HR_end) {
+            retval = HR_found;
+        }
         return (retval);
     }
     else if (pExState->ambiguous != pName->bn) {
@@ -4522,15 +5600,63 @@ LOCAL HR_t NEAR PASCAL SymAmbToList (psearch_t pName)
         return (HR_error);
     }
     else {
-        if (AmbToList (pName) == FALSE) {
-            return (HR_error);
+        if (CheckDupAmb (pName) == FALSE) {
+            // the function is not already in the ambiguity list
+
+            if (AmbToList (pName) == FALSE) {
+                return (HR_error);
+            }
         }
+
         // reset search to allow more symbols
         pName->possibles = 0;
         return (SearchSym (pName));
     }
 }
 
+
+
+
+/**     CheckDupAmb - check for duplicate ambiguity entry
+ *
+ *      fSuccess = CheckDupAmb (pName)
+ *
+ *      Entry   pName = pointer to list describing search
+ *
+ *      Exit    none
+ *
+ *      Returns TRUE if duplicate symbol found
+ *              FALSE if duplicate symbol not found
+ */
+
+
+LOCAL bool_t
+CheckDupAmb (
+    psearch_t pName
+    )
+{
+    psearch_t    pN;
+    ushort       i;
+    bool_t       fdup = FALSE;
+
+    if ((EVAL_TYP (pNameFirst->pv) == EVAL_TYP (pName->pv)) &&
+      (_fmemcmp ((void *)&EVAL_SYM (pNameFirst->pv), (void *)&EVAL_SYM (pName->pv),
+      sizeof (ADDR)) == 0)) {
+        return (TRUE);
+    }
+    for (i = 1; i < iBPatch; i++) {
+        pN = (psearch_t) MHMemLock (pTMList[i]);
+        if (pN->typeOut == EVAL_TYP (pName->pv) &&
+          (_fmemcmp ((void *)&pN->addr, (void *)&EVAL_SYM (pName->pv), sizeof (ADDR)) == 0)) {
+            fdup = TRUE;
+        }
+        MHMemUnLock (pTMList[i]);
+        if (fdup == TRUE) {
+            break;
+        }
+    }
+    return (fdup);
+}
 
 
 
@@ -4550,7 +5676,10 @@ LOCAL HR_t NEAR PASCAL SymAmbToList (psearch_t pName)
  */
 
 
-LOCAL bool_t NEAR PASCAL SymToNode (psearch_t pName)
+LOCAL bool_t
+SymToNode (
+    psearch_t pName
+    )
 {
     CV_typ_t    typ;
     ushort      evalstate;
@@ -4558,9 +5687,10 @@ LOCAL bool_t NEAR PASCAL SymToNode (psearch_t pName)
     peval_t     pv = pName->pv;
     PCXT        pCXT = &pName->CXTT;
     SYMPTR      pSym;
+    ushort      cmpThis = 1;
     MEMINFO     mi;
 
-    if ((hSym = pName->hSym) == HNULL) {
+    if ((hSym = pName->hSym) == NULL) {
         // this symbol is found as a class member which means it does
         // not have a symbol.
 
@@ -4576,6 +5706,8 @@ LOCAL bool_t NEAR PASCAL SymToNode (psearch_t pName)
             EVAL_IS_REG (pv) = TRUE;
             EVAL_REG (pv) = ((REGPTR)pSym)->reg;
             typ = ((REGPTR)pSym)->typind;
+            cmpThis = strncmp ( (char *) &((REGPTR)pSym)->name[0],
+              (char *) &OpName[0], ((REGPTR)pSym)->name[0] + 1);
             break;
 
         case S_CONSTANT:
@@ -4593,7 +5725,6 @@ LOCAL bool_t NEAR PASCAL SymToNode (psearch_t pName)
             EVAL_STATE (pv) = EV_type;
             break;
 
-#if defined (ADDR_16) || defined (ADDR_MIXED)
         case S_BLOCK16:
             EVAL_SYM_SEG (pv) = ((BLOCKPTR16)pSym)->seg;
             EVAL_SYM_OFF (pv) = ((BLOCKPTR16)pSym)->off;
@@ -4638,6 +5769,8 @@ LOCAL bool_t NEAR PASCAL SymToNode (psearch_t pName)
             ADDR_IS_LI (EVAL_SYM (pv)) = FALSE;
             typ  = ((BPRELPTR16)pSym)->typind;
             pExState->state.bprel = TRUE;
+            cmpThis = strncmp ( (char *) &((BPRELPTR16)pSym)->name[0],
+                (char *) &OpName[0], ((BPRELPTR16)pSym)->name[0] + 1);
             break;
 
         case S_LDATA16:
@@ -4660,6 +5793,7 @@ LOCAL bool_t NEAR PASCAL SymToNode (psearch_t pName)
             EVAL_SYM_OFF (pv) = ((DATAPTR16)pSym)->off;
             EVAL_SYM_SEG (pv) = ((DATAPTR16)pSym)->seg;
             EVAL_STATE (pv) = EV_lvalue;
+            ADDR_IS_LI (EVAL_SYM (pv)) = TRUE;
             if ((typ = ((DATAPTR16)pSym)->typind) == T_NOTYPE) {
                 // this is a hack to allow breakpoints on untyped symbols
                 MEMINFO mi;
@@ -4678,19 +5812,16 @@ LOCAL bool_t NEAR PASCAL SymToNode (psearch_t pName)
                     EVAL_STATE (pv) = EV_lvalue;
                 }
             }
-            ADDR_IS_LI (EVAL_SYM (pv)) = TRUE;
             EVAL_PTR (pv) = EVAL_SYM (pv);
             break;
-#endif
 
         case S_BLOCK32:
             EVAL_SYM_SEG (pv) = ((BLOCKPTR32)pSym)->seg;
             EVAL_SYM_OFF (pv) = ((BLOCKPTR32)pSym)->off;
+            typ = T_NOTYPE;
             ADDR_IS_LI (EVAL_SYM (pv)) = TRUE;
             ADDR_IS_FLAT (EVAL_SYM (pv)) = TRUE;
             ADDR_IS_OFF32( EVAL_SYM ( pv ) ) = TRUE;
-            typ = T_NOTYPE;
-            NOTTESTED (FALSE);  // not tested
             break;
 
         case S_LPROC32:
@@ -4711,6 +5842,39 @@ LOCAL bool_t NEAR PASCAL SymToNode (psearch_t pName)
                 EVAL_SYM_SEG (pv) = ((PROCPTR32)pSym)->seg;
                 EVAL_SYM_OFF (pv) = ((PROCPTR32)pSym)->off;
             }
+            break;
+
+        case S_LPROCMIPS:
+        case S_GPROCMIPS:
+            ADDR_IS_LI (EVAL_SYM (pv)) = TRUE;
+            ADDR_IS_FLAT (EVAL_SYM (pv)) = TRUE;
+            ADDR_IS_OFF32( EVAL_SYM ( pv ) ) = TRUE;
+            if ((typ = ((PROCPTRMIPS)pSym)->typind) == T_NOTYPE) {
+                // this is a hack to allow breakpoints on untyped symbols
+                typ = T_32PUCHAR;
+                EVAL_SYM_OFF (pv) = ((PROCPTRMIPS)pSym)->off;
+                EVAL_SYM_SEG (pv) = ((PROCPTRMIPS)pSym)->seg;
+                EVAL_PTR (pv) = EVAL_SYM (pv);
+                EVAL_STATE (pv) = EV_rvalue;
+            } else {
+                EVAL_SYM (pv) = *SHpADDRFrompCXT (pCXT);
+                EVAL_SYM_SEG (pv) = ((PROCPTRMIPS)pSym)->seg;
+                EVAL_SYM_OFF (pv) = ((PROCPTRMIPS)pSym)->off;
+            }
+            break;
+
+        case S_REGREL32:
+            EVAL_IS_REGREL (pv) = TRUE;
+            EVAL_SYM_OFF (pv) = ((LPREGREL32)pSym)->off;
+            EVAL_SYM_SEG (pv) = 0;
+            EVAL_REGREL (pv) = ((LPREGREL32)pSym)->reg;
+            typ = ((LPREGREL32)pSym)->typind;
+            ADDR_IS_LI (EVAL_SYM (pv)) = FALSE;
+            ADDR_IS_FLAT (EVAL_SYM (pv)) = TRUE;
+            ADDR_IS_OFF32( EVAL_SYM ( pv ) ) = TRUE;
+            pExState->state.regrel = TRUE;
+            cmpThis = strncmp ( (char *) &((LPREGREL32)pSym)->name[0],
+                (char *) &OpName[0], ((LPREGREL32)pSym)->name[0] + 1);
             break;
 
         case S_LABEL32:
@@ -4735,18 +5899,8 @@ LOCAL bool_t NEAR PASCAL SymToNode (psearch_t pName)
             ADDR_IS_OFF32( EVAL_SYM ( pv ) ) = TRUE;
             pExState->state.bprel = TRUE;
             pExState->state.regrel = TRUE;
-            break;
-
-        case S_REGREL32:
-            EVAL_IS_REGREL (pv) = TRUE;
-            EVAL_SYM_OFF (pv) = ((LPREGREL32)pSym)->off;
-            EVAL_SYM_SEG (pv) = 0;
-            EVAL_REGREL (pv) = ((LPREGREL32)pSym)->reg;
-            typ = ((LPREGREL32)pSym)->typind;
-            ADDR_IS_LI (EVAL_SYM (pv)) = FALSE;
-            ADDR_IS_FLAT (EVAL_SYM (pv)) = TRUE;
-            ADDR_IS_OFF32( EVAL_SYM ( pv ) ) = TRUE;
-            pExState->state.regrel = TRUE;
+            cmpThis = strncmp ( (char *) &((BPRELPTR32)pSym)->name[0],
+                (char *) &OpName[0], ((BPRELPTR32)pSym)->name[0] + 1);
             break;
 
         case S_LTHREAD32:
@@ -4780,6 +5934,12 @@ LOCAL bool_t NEAR PASCAL SymToNode (psearch_t pName)
             ADDR_IS_LI (EVAL_SYM (pv)) = TRUE;
             ADDR_IS_FLAT (EVAL_SYM (pv)) = TRUE;
             ADDR_IS_OFF32( EVAL_SYM ( pv ) ) = TRUE;
+            if (FNtsdEvalType) {
+                FNtsdEvalType = FALSE;
+                EVAL_STATE (pv) = EV_rvalue;
+                EVAL_PTR (pv) = EVAL_SYM (pv);
+                typ = T_32PULONG;
+            }
             break;
 
         case S_PUB32:
@@ -4824,25 +5984,6 @@ LOCAL bool_t NEAR PASCAL SymToNode (psearch_t pName)
             }
             break;
 
-        case S_LPROCMIPS:
-        case S_GPROCMIPS:
-            ADDR_IS_LI (EVAL_SYM (pv)) = TRUE;
-            ADDR_IS_FLAT (EVAL_SYM (pv)) = TRUE;
-            ADDR_IS_OFF32( EVAL_SYM ( pv ) ) = TRUE;
-            if ((typ = ((PROCPTRMIPS)pSym)->typind) == T_NOTYPE) {
-                // this is a hack to allow breakpoints on untyped symbols
-                typ = T_32PUCHAR;
-                EVAL_SYM_OFF (pv) = ((PROCPTRMIPS)pSym)->off;
-                EVAL_SYM_SEG (pv) = ((PROCPTRMIPS)pSym)->seg;
-                EVAL_PTR (pv) = EVAL_SYM (pv);
-                EVAL_STATE (pv) = EV_rvalue;
-            } else {
-                EVAL_SYM (pv) = *SHpADDRFrompCXT (pCXT);
-                EVAL_SYM_SEG (pv) = ((PROCPTRMIPS)pSym)->seg;
-                EVAL_SYM_OFF (pv) = ((PROCPTRMIPS)pSym)->off;
-            }
-            break;
-
         default:
             // these OMF records are no longer supported
             MHOmfUnLock ((HDEP)hSym);
@@ -4850,7 +5991,19 @@ LOCAL bool_t NEAR PASCAL SymToNode (psearch_t pName)
             return (FALSE);
     }
     MHOmfUnLock ((HDEP)hSym);
-    return (SetNodeType (pv, typ));
+    if (SetNodeType (pv, typ) == FALSE) {
+        return (FALSE);
+    }
+    else if (ClassImp != T_NOTYPE) {
+        if (EVAL_IS_PTR (pv) &&
+          memcmp (pName->sstr.lpName, &OpName[0] + 1, pName->sstr.cb) == 0) {
+            PTR_THISADJUST (pv) = ClassThisAdjust;
+        }
+        else if (cmpThis == 0) {
+            PTR_THISADJUST (pv) = ClassThisAdjust;
+        }
+    }
+    return (TRUE);
 }
 
 #if defined (M68K)
@@ -5024,6 +6177,86 @@ struct hreg {
     {"\x003""dr7",  CV_REG_DR7,     T_ULONG},
 #endif  // TARGET_i386
 
+#ifdef TARGET_PPC
+    {"\004""GPR0", CV_PPC_GPR0,T_ULONG},
+    {"\004""GPR1", CV_PPC_GPR1, T_ULONG},
+    {"\004""GPR2", CV_PPC_GPR2, T_ULONG},
+    {"\004""GPR3", CV_PPC_GPR3, T_ULONG},
+    {"\004""GPR4", CV_PPC_GPR4, T_ULONG},
+    {"\004""GPR5", CV_PPC_GPR5, T_ULONG},
+    {"\004""GPR6", CV_PPC_GPR6, T_ULONG},
+    {"\004""GPR7", CV_PPC_GPR7, T_ULONG},
+    {"\004""GPR8", CV_PPC_GPR8, T_ULONG},
+    {"\004""GPR9", CV_PPC_GPR9, T_ULONG},
+    {"\005""GPR10", CV_PPC_GPR10,   T_ULONG},
+    {"\005""GPR11", CV_PPC_GPR11,   T_ULONG},
+    {"\005""GPR12", CV_PPC_GPR12,   T_ULONG},
+    {"\005""GPR13", CV_PPC_GPR13,   T_ULONG},
+    {"\005""GPR14", CV_PPC_GPR14,   T_ULONG},
+    {"\005""GPR15", CV_PPC_GPR15,   T_ULONG},
+    {"\005""GPR16", CV_PPC_GPR16,   T_ULONG},
+    {"\005""GPR17", CV_PPC_GPR17,   T_ULONG},
+    {"\005""GPR18", CV_PPC_GPR18,   T_ULONG},
+    {"\005""GPR19", CV_PPC_GPR19,   T_ULONG},
+    {"\005""GPR20", CV_PPC_GPR20,   T_ULONG},
+    {"\005""GPR21", CV_PPC_GPR21,   T_ULONG},
+    {"\005""GPR22", CV_PPC_GPR22,   T_ULONG},
+    {"\005""GPR23", CV_PPC_GPR23,   T_ULONG},
+    {"\005""GPR24", CV_PPC_GPR24,   T_ULONG},
+    {"\005""GPR25", CV_PPC_GPR25,   T_ULONG},
+    {"\005""GPR30", CV_PPC_GPR30,   T_ULONG},
+    {"\005""GPR26", CV_PPC_GPR26,   T_ULONG},
+    {"\005""GPR27", CV_PPC_GPR27,   T_ULONG},
+    {"\005""GPR28", CV_PPC_GPR28,   T_ULONG},
+    {"\005""GPR29", CV_PPC_GPR29,   T_ULONG},
+    {"\005""GPR31", CV_PPC_GPR31,   T_ULONG},
+
+// floating point registers follow
+
+    {"\004""FPR0", CV_PPC_FPR0, T_REAL64 },
+    {"\004""FPR1", CV_PPC_FPR1, T_REAL64 },
+    {"\004""FPR2", CV_PPC_FPR2, T_REAL64 },
+    {"\004""FPR3", CV_PPC_FPR3, T_REAL64 },
+    {"\004""FPR4", CV_PPC_FPR4, T_REAL64 },
+    {"\004""FPR5", CV_PPC_FPR5, T_REAL64 },
+    {"\004""FPR6", CV_PPC_FPR6, T_REAL64 },
+    {"\004""FPR7", CV_PPC_FPR7, T_REAL64 },
+    {"\004""FPR8", CV_PPC_FPR8, T_REAL64 },
+    {"\004""FPR9", CV_PPC_FPR9, T_REAL64 },
+    {"\005""FPR10", CV_PPC_FPR10,   T_REAL64 },
+    {"\005""FPR11", CV_PPC_FPR11,   T_REAL64 },
+    {"\005""FPR12", CV_PPC_FPR12,   T_REAL64 },
+    {"\005""FPR13", CV_PPC_FPR13,   T_REAL64 },
+    {"\005""FPR14", CV_PPC_FPR14,   T_REAL64 },
+    {"\005""FPR15", CV_PPC_FPR15,   T_REAL64 },
+    {"\005""FPR16", CV_PPC_FPR16,   T_REAL64 },
+    {"\005""FPR17", CV_PPC_FPR17,   T_REAL64 },
+    {"\005""FPR18", CV_PPC_FPR18,   T_REAL64 },
+    {"\005""FPR19", CV_PPC_FPR19,   T_REAL64 },
+    {"\005""FPR20", CV_PPC_FPR20,   T_REAL64 },
+    {"\005""FPR21", CV_PPC_FPR21,   T_REAL64 },
+    {"\005""FPR22", CV_PPC_FPR22,   T_REAL64 },
+    {"\005""FPR23", CV_PPC_FPR23,   T_REAL64 },
+    {"\005""FPR24", CV_PPC_FPR24,   T_REAL64 },
+    {"\005""FPR25", CV_PPC_FPR25,   T_REAL64 },
+    {"\005""FPR26", CV_PPC_FPR26,   T_REAL64 },
+    {"\005""FPR27", CV_PPC_FPR27,   T_REAL64 },
+    {"\005""FPR28", CV_PPC_FPR28,   T_REAL64 },
+    {"\005""FPR29", CV_PPC_FPR29,   T_REAL64 },
+    {"\005""FPR30", CV_PPC_FPR30,   T_REAL64 },
+    {"\005""FPR31", CV_PPC_FPR31,   T_REAL64 },
+
+    {"\005""FPSCR", CV_PPC_FPSCR,   T_ULONG },
+    {"\002""LR", CV_PPC_LR, T_ULONG },
+    {"\002""CR", CV_PPC_CR, T_ULONG },
+    {"\003""CTR", CV_PPC_CTR,   T_ULONG },
+    {"\003""CIA", CV_PPC_PC,   T_ULONG },
+    {"\003""XER", CV_PPC_XER,   T_ULONG },
+    {"\003""MSR", CV_PPC_MSR,   T_ULONG }
+
+#endif //TARGET_PPC
+
+
 #ifdef TARGET_MIPS
     {"\004""ZERO",      CV_M4_IntZERO,     T_ULONG},
     {"\002""AT",        CV_M4_IntAT,       T_ULONG},
@@ -5185,7 +6418,10 @@ struct hreg {
 
 #define REGCNT  (sizeof (hreg_list)/sizeof (struct hreg))
 
-LOCAL bool_t NEAR PASCAL ParseRegister (psearch_t pName)
+LOCAL bool_t
+ParseRegister (
+    psearch_t pName
+    )
 {
     int         i;
     peval_t     pv;
@@ -5220,7 +6456,10 @@ LOCAL bool_t NEAR PASCAL ParseRegister (psearch_t pName)
  *      Returns the CV type of the register
  *              (T_NOTYPE if register not found)
  */
-ushort TypeFromHreg (ushort hreg)
+ushort
+TypeFromHreg (
+    ushort hreg
+    )
 {
     int i;
 
@@ -5236,9 +6475,12 @@ ushort TypeFromHreg (ushort hreg)
 
 
 
-LOCAL bool_t NEAR PASCAL LineNumber (psearch_t pName)
+LOCAL bool_t
+LineNumber (
+    psearch_t pName
+    )
 {
-    uchar FAR  *pb = pName->sstr.lpName + 1;
+    uchar  *pb = pName->sstr.lpName + 1;
     uint        i;
     char        c;
     ulong       val = 0;
@@ -5267,6 +6509,8 @@ LOCAL bool_t NEAR PASCAL LineNumber (psearch_t pName)
         }
         pb++;
     }
+
+    // Make sure we have the right address.
 
     if (!ADDR_IS_LI( *SHpADDRFrompCXT( pCxt ) )) {
         SHUnFixupAddr( SHpADDRFrompCXT( pCxt ) );
@@ -5319,8 +6563,10 @@ LOCAL bool_t NEAR PASCAL LineNumber (psearch_t pName)
  */
 
 
-#if !defined (C_ONLY)
-LOCAL bool_t NEAR FASTCALL InsertThis (psearch_t pName)
+LOCAL bool_t __fastcall
+InsertThis (
+    psearch_t pName
+    )
 {
     ushort      len = 2 * (sizeof (node_t) + sizeof (eval_t));
     ushort      Left;
@@ -5365,20 +6611,18 @@ LOCAL bool_t NEAR FASTCALL InsertThis (psearch_t pName)
     pTree->node_next += len;
     return (TRUE);
 }
-#endif
-
-
-
-
-
 
 
 /*
  * load a constant symbol into a node.
  */
 
-
-LOCAL bool_t NEAR PASCAL DebLoadConst (peval_t pv, CONSTPTR pSym, HSYM hSym)
+LOCAL bool_t
+DebLoadConst (
+    peval_t pv,
+    CONSTPTR pSym,
+    HSYM hSym
+    )
 {
     uint        skip = 0;
     CV_typ_t    type;
@@ -5407,12 +6651,18 @@ LOCAL bool_t NEAR PASCAL DebLoadConst (peval_t pv, CONSTPTR pSym, HSYM hSym)
             pExState->err_num = ERR_BADOMF;
             return (FALSE);
         }
-        type = pEnum->utype;
         MHOmfUnLock ((HDEP)hType);
         pSym = MHOmfLock ((HDEP)hSym);
+        SetNodeType (pv, type);
+        // SetNodeType will resolve forward ref Enums - but we need to get the
+        // utype from the pv when this happens - sps
+        type = ENUM_UTYPE (pv);
     }
+    else {
+        SetNodeType (pv, type);
+    }
+
     EVAL_STATE (pv) = EV_rvalue;
-    SetNodeType (pv, type);
     if ((CV_MODE (type) != CV_TM_DIRECT) || ((CV_TYPE (type) != CV_SIGNED) &&
       (CV_TYPE (type) != CV_UNSIGNED) && (CV_TYPE (type) != CV_INT))) {
         DASSERT (FALSE);

@@ -698,6 +698,8 @@ void LEOle1ClipTest2( void *pv )
 //  Algorithm:
 //
 //  History:    dd-mmm-yy Author    Comment
+//		20-Aug-94 alexgo    updated to cfObjectLink test
+//		16-Jun-94 alexgo    author
 //
 //  Notes:
 //
@@ -766,7 +768,7 @@ HRESULT LEOle1ClipTest2Callback( void )
 	penum->Release();
 	pDO->Release();
 
-	// the OLE1 container compatibility code should put all three
+	// the OLE1 container compatibility code should put
 	// OLE1 formats on the clipboard.  However, they should NOT
 	// be in the enumerator since the stuff was copied from
 	// an OLE2 container.
@@ -792,8 +794,12 @@ HRESULT LEOle1ClipTest2Callback( void )
 		fGotObjectLink = TRUE;
 	}
 
-	// all three formats should be on the clipboard, however
-	if( !(fGotNative && fGotOwnerLink && fGotObjectLink) )
+	// NB!!  only Native and OwnerLink should be on the clipboard
+	// this test puts an OLE2 *embedding* on the clipbaord, which
+	// an OLE1 container cannot link to.  So ObjectLink should not
+	// be available
+
+	if( !(fGotNative && fGotOwnerLink && !fGotObjectLink) )
 	{
 		hresult = ResultFromScode(E_FAIL);
 
@@ -1353,4 +1359,123 @@ HRESULT StressOleSetClipboard(void)
 
 	return NOERROR;
 }
-
+
+//+-------------------------------------------------------------------------
+//
+//  Function: 	TestOleQueryCreateFromDataMFCHack
+//
+//  Synopsis: 	tests the MFC hack put into OleQueryCreateFromData
+//
+//  Effects:
+//
+//  Arguments:	void
+//
+//  Requires: 	
+//
+//  Returns:  	HRESULT
+//
+//  Signals:
+//
+//  Modifies:
+//
+//  Algorithm:	create a data object that offers private data
+//		put on the clipboard and then retrieve the clipboard data
+//		object.
+//		Call OleQueryCreateFromData on clipboard data object--
+//			QI for IPS should not be called
+//		Call OleQueryCreateFromData on generic data object
+//			QI for IPS should be called
+//		set EmbeddedObject on the generic data object
+//		Call OleQueryCreateFromData; should return S_OK
+//
+//  History:    dd-mmm-yy Author    Comment
+//		23-Aug-94 alexgo    author
+//
+//  Notes:
+//
+//--------------------------------------------------------------------------
+
+HRESULT TestOleQueryCreateFromDataMFCHack( void )
+{
+	CGenDataObject *	pgendata;
+	IDataObject *		pdataobj;
+	HRESULT			hresult;
+
+
+	pgendata = new CGenDataObject();
+
+	assert(pgendata);
+
+	pgendata->AddRef();
+
+	pgendata->SetDataFormats(OFFER_TESTSTORAGE);
+
+	hresult = OleSetClipboard(pgendata);
+
+	if( hresult != NOERROR )
+	{
+		return hresult;
+	}
+
+	hresult = OleGetClipboard(&pdataobj);
+
+	if( hresult != NOERROR )
+	{
+		return hresult;
+	}
+
+	hresult = OleQueryCreateFromData(pdataobj);
+
+	// for a clipboard data object, we should not call QueryInterface
+	// for IPersistStorage.
+
+
+	if( hresult != S_FALSE || pgendata->HasQIBeenCalled() == TRUE )
+	{
+		return ResultFromScode(E_FAIL);
+	}
+
+	// for other data objects, if there are no OLE2 formats, then
+	// we should call QI for IPersistStorage
+
+	hresult = OleQueryCreateFromData(pgendata);
+
+	if( hresult != S_FALSE || pgendata->HasQIBeenCalled() == FALSE )
+	{
+		return ResultFromScode(E_FAIL);
+	}
+
+	// now clear the clipboard and continue testing
+	
+	pdataobj->Release();
+	hresult = OleSetClipboard(NULL);
+
+	if( hresult != NOERROR )
+	{
+		return hresult;
+	}
+
+	pgendata->SetDataFormats(OFFER_EMBEDDEDOBJECT);
+
+	hresult = OleQueryCreateFromData(pgendata);
+
+	// we just set OLE2 data on the data object.  OQCFD should return
+	// S_OK
+
+	if( hresult != NOERROR )
+	{
+		return ResultFromScode(E_FAIL);
+	}
+
+	if( pgendata->Release() == 0 )
+	{
+		return NOERROR;
+	}
+	else
+	{
+		return ResultFromScode(E_FAIL);
+	}
+
+}
+
+

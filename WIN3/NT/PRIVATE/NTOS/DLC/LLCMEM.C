@@ -130,39 +130,7 @@ Revision History:
 
 #define DWORD_ROUNDUP(d)    (((d) + 3) & ~3)
 
-//
-// anything we allocate from non-paged pool gets the following header pre-pended
-// to it
-//
-
-typedef struct {
-    ULONG Size;                 // inclusive size of allocated block (inc head+tail)
-    ULONG OriginalSize;         // requested size
-    ULONG Flags;                // IN_USE flag
-    ULONG Signature;            // for checking validity of header
-    LIST_ENTRY GlobalList;      // all blocks allocated on one list
-    LIST_ENTRY PrivateList;     // blocks owned by MemoryUsage
-    PVOID Stack[4];             // stack of return addresses
-} PRIVATE_NON_PAGED_POOL_HEAD, *PPRIVATE_NON_PAGED_POOL_HEAD;
-
-#define MEM_FLAGS_IN_USE    0x00000001
-
-#define SIGNATURE1  0x41434C44  // "DLCA" when viewed via db
-#define SIGNATURE2  0x43494C4C  // "LLOC"  "      "    "  "
-
-//
-// anything we allocate from non-paged pool has the following tail appended to it
-//
-
-typedef struct {
-    ULONG Size;                 // inclusive size; must be same as in header
-    ULONG Signature;            // for checking validity of tail
-    ULONG Pattern1;
-    ULONG Pattern2;
-} PRIVATE_NON_PAGED_POOL_TAIL, *PPRIVATE_NON_PAGED_POOL_TAIL;
-
-#define PATTERN1    0x55AA6699
-#define PATTERN2    0x11EECC33
+#define YES_NO(thing)       ((thing) ? "Yes" : "No")
 
 
 #if DBG
@@ -206,22 +174,34 @@ KSPIN_LOCK MemoryUsageLock;
 
 //BOOLEAN DebugDump = TRUE;
 BOOLEAN DebugDump = FALSE;
-//BOOLEAN DeleteBusyListAnyway = FALSE;
-BOOLEAN DeleteBusyListAnyway = TRUE;
-//BOOLEAN MemoryCheckNotify = TRUE;
-BOOLEAN MemoryCheckNotify = FALSE;
-//BOOLEAN MemoryCheckStop = TRUE;
-BOOLEAN MemoryCheckStop = FALSE;
-//BOOLEAN MaintainPrivateLists = TRUE;
-BOOLEAN MaintainPrivateLists = FALSE;
-//BOOLEAN MaintainGlobalLists = TRUE;
-BOOLEAN MaintainGlobalLists = FALSE;
+
+//BOOLEAN DeleteBusyListAnyway = TRUE;
+BOOLEAN DeleteBusyListAnyway = FALSE;
+
+BOOLEAN MemoryCheckNotify = TRUE;
+//BOOLEAN MemoryCheckNotify = FALSE;
+
+BOOLEAN MemoryCheckStop = TRUE;
+//BOOLEAN MemoryCheckStop = FALSE;
+
+BOOLEAN MaintainPrivateLists = TRUE;
+//BOOLEAN MaintainPrivateLists = FALSE;
+
+BOOLEAN MaintainGlobalLists = TRUE;
+//BOOLEAN MaintainGlobalLists = FALSE;
+
+BOOLEAN ZapDeallocatedPackets = TRUE;
+//BOOLEAN ZapDeallocatedPackets = FALSE;
+
+BOOLEAN ZapFreedMemory = TRUE;
+//BOOLEAN ZapFreedMemory = FALSE;
 
 //
 // DlcGlobalMemoryList - every block that is allocated is linked to this list
 // and removed when deleted. Helps us keep track of who allocated which block
 //
 
+KSPIN_LOCK DlcGlobalMemoryListLock;
 LIST_ENTRY DlcGlobalMemoryList;
 ULONG DlcGlobalMemoryListCount = 0;
 
@@ -313,12 +293,13 @@ Return Value:
     KeInitializeSpinLock(&MemoryAllocatorLock);
     KeInitializeSpinLock(&PoolCreatorLock);
     KeInitializeSpinLock(&MemoryUsageLock);
+    KeInitializeSpinLock(&DlcGlobalMemoryListLock);
     DriverMemoryUsage.OwnerObjectId = DlcDriverObject;
-    DriverMemoryUsage.OwnerInstance = 0x4D; // 'M'
+    DriverMemoryUsage.OwnerInstance = 0x4D454D; // 'MEM'
     InitializeListHead(&DriverMemoryUsage.PrivateList);
     LinkMemoryUsage(&DriverMemoryUsage);
     DriverStringUsage.OwnerObjectId = DlcDriverObject;
-    DriverStringUsage.OwnerInstance = 0x53; // 'S'
+    DriverStringUsage.OwnerInstance = 0x535452; // 'STR'
     InitializeListHead(&DriverStringUsage.PrivateList);
     LinkMemoryUsage(&DriverStringUsage);
     InitializeListHead(&DlcGlobalMemoryList);
@@ -467,7 +448,7 @@ Return Value:
     KeAcquireSpinLock(&pMemoryUsage->SpinLock, &irql);
     if (pMemoryUsage->NonPagedPoolAllocated + Size < pMemoryUsage->NonPagedPoolAllocated) {
         if (MemoryCheckNotify) {
-            DbgPrint("DLC.ChargeNonPagedPoolUsage: Overcharged? Usage @ %08X\n", pMemoryUsage);
+            DbgPrint("DLC.ChargeNonPagedPoolUsage: Overcharged? Usage @ %08x\n", pMemoryUsage);
         }
         if (MemoryCheckStop) {
             DumpMemoryUsage(pMemoryUsage, TRUE);
@@ -527,7 +508,7 @@ Return Value:
     KeAcquireSpinLock(&pMemoryUsage->SpinLock, &irql);
     if (pMemoryUsage->NonPagedPoolAllocated - Size > pMemoryUsage->NonPagedPoolAllocated) {
         if (MemoryCheckNotify) {
-            DbgPrint("DLC.RefundNonPagedPoolUsage: Error: Freeing unallocated memory? Usage @ %08X, %d\n",
+            DbgPrint("DLC.RefundNonPagedPoolUsage: Error: Freeing unallocated memory? Usage @ %08x, %d\n",
                      pMemoryUsage,
                      Size
                      );
@@ -606,7 +587,7 @@ Return Value:
          + sizeof(PRIVATE_NON_PAGED_POOL_HEAD)
          + sizeof(PRIVATE_NON_PAGED_POOL_TAIL);
 
-    pMem = ExAllocatePool(NonPagedPool, (ULONG)Size);
+    pMem = ExAllocatePoolWithTag(NonPagedPool, (ULONG)Size, DLC_POOL_TAG);
     if (pMem) {
         ((PPRIVATE_NON_PAGED_POOL_HEAD)pMem)->Size = Size;
         ((PPRIVATE_NON_PAGED_POOL_HEAD)pMem)->OriginalSize = OriginalSize;
@@ -632,6 +613,8 @@ Return Value:
 
         if (MaintainGlobalLists) {
 
+            KIRQL irql;
+
             //
             // record the caller and add this block to the global list
             //
@@ -639,10 +622,12 @@ Return Value:
             GET_CALLERS_ADDRESS(&((PPRIVATE_NON_PAGED_POOL_HEAD)pMem)->Stack[0],
                                 &((PPRIVATE_NON_PAGED_POOL_HEAD)pMem)->Stack[1]
                                 );
+            KeAcquireSpinLock(&DlcGlobalMemoryListLock, &irql);
             InsertTailList(&DlcGlobalMemoryList,
                            &((PPRIVATE_NON_PAGED_POOL_HEAD)pMem)->GlobalList
                            );
             ++DlcGlobalMemoryListCount;
+            KeReleaseSpinLock(&DlcGlobalMemoryListLock, irql);
         }
         ChargeNonPagedPoolUsage(pMemoryUsage, Size, (PPRIVATE_NON_PAGED_POOL_HEAD)pMem);
         pMem = (PVOID)((PUCHAR)pMem + sizeof(PRIVATE_NON_PAGED_POOL_HEAD));
@@ -720,7 +705,7 @@ Return Value:
         || pHead->GlobalList.Flink == (PVOID)FREED_POOL
         || pHead->GlobalList.Blink == (PVOID)FREED_POOL) {
             if (MemoryCheckNotify) {
-                DbgPrint("DLC.DeallocateMemory: Error: Block already globally freed: %08X\n", pHead);
+                DbgPrint("DLC.DeallocateMemory: Error: Block already globally freed: %08x\n", pHead);
             }
             if (MemoryCheckStop) {
                 DbgBreakPoint();
@@ -766,6 +751,13 @@ Return Value:
         RemoveEntryList(&pHead->GlobalList);
         --DlcGlobalMemoryListCount;
         pHead->GlobalList.Flink = pHead->GlobalList.Flink = NULL;
+    }
+
+    if (ZapFreedMemory) {
+        RtlFillMemoryUlong(pHead + 1,
+                           DWORD_ROUNDUP(pHead->OriginalSize),
+                           ZAP_EX_FREE_VALUE
+                           );
     }
 
     ExFreePool((PVOID)pHead);
@@ -819,7 +811,7 @@ Return Value:
     signature = GetObjectSignature(ObjectType);
     baseSize = GetObjectBaseSize(ObjectType);
     if (baseSize < ObjectSize) {
-        DbgPrint("DLC.AllocateObject: Error: Invalid size %d for ObjectType %08X (should be >= %d)\n",
+        DbgPrint("DLC.AllocateObject: Error: Invalid size %d for ObjectType %08x (should be >= %d)\n",
                 ObjectSize,
                 ObjectType,
                 baseSize
@@ -898,7 +890,7 @@ Return Value:
     if (pObject->Signature != signature
     || pObject->Type != ObjectType
     || pObject->Size != baseSize) {
-        DbgPrint("DLC.ValidateObject: Error: InvalidObject %08X, Type=%08X\n",
+        DbgPrint("DLC.ValidateObject: Error: InvalidObject %08x, Type=%08x\n",
                 pObject,
                 ObjectType
                 );
@@ -957,7 +949,7 @@ Return Value:
         return SIGNATURE_LLC_SAP;
 
     default:
-        DbgPrint("DLC.GetObjectSignature: Error: unknown object type %08X\n", ObjectType);
+        DbgPrint("DLC.GetObjectSignature: Error: unknown object type %08x\n", ObjectType);
         DbgBreakPoint();
     }
 }
@@ -1013,7 +1005,7 @@ Return Value:
         return sizeof(LLC_OBJECT);
 
     default:
-        DbgPrint("DLC.GetObjectBaseSize: Error: unknown object type %08X\n", ObjectType);
+        DbgPrint("DLC.GetObjectBaseSize: Error: unknown object type %08x\n", ObjectType);
         DbgBreakPoint();
     }
 }
@@ -1081,7 +1073,7 @@ Return Value:
 
 #endif
 
-    pMem = ExAllocatePool(NonPagedPool, (ULONG)Size);
+    pMem = ExAllocatePoolWithTag(NonPagedPool, (ULONG)Size, DLC_POOL_TAG);
     if (pMem) {
         LlcZeroMem(pMem, Size);
 
@@ -1111,6 +1103,8 @@ Return Value:
 
         if (MaintainGlobalLists) {
 
+            KIRQL irql;
+
             //
             // record the caller and add this block to the global list
             //
@@ -1118,10 +1112,13 @@ Return Value:
             GET_CALLERS_ADDRESS(&((PPRIVATE_NON_PAGED_POOL_HEAD)pMem)->Stack[0],
                                 &((PPRIVATE_NON_PAGED_POOL_HEAD)pMem)->Stack[1]
                                 );
+
+            KeAcquireSpinLock(&DlcGlobalMemoryListLock, &irql);
             InsertTailList(&DlcGlobalMemoryList,
                            &((PPRIVATE_NON_PAGED_POOL_HEAD)pMem)->GlobalList
                            );
             ++DlcGlobalMemoryListCount;
+            KeReleaseSpinLock(&DlcGlobalMemoryListLock, irql);
         }
         ChargeNonPagedPoolUsage(pMemoryUsage, Size, (PPRIVATE_NON_PAGED_POOL_HEAD)pMem);
         pMem = (PVOID)((PUCHAR)pMem + sizeof(PRIVATE_NON_PAGED_POOL_HEAD));
@@ -1291,7 +1288,7 @@ Return Value:
         LinkMemoryUsage(&pPacketPool->MemoryUsage);
 
         if (DebugDump) {
-            DbgPrint("DLC.CreatePacketPool: %08X\n", pPacketPool);
+            DbgPrint("DLC.CreatePacketPool: %08x\n", pPacketPool);
             DumpPool(pPacketPool);
         }
     } else {
@@ -1378,20 +1375,20 @@ Return Value:
     }
 
 #if DBG
-//    DbgPrint("DLC.DeletePacketPool(%08X)\n", pPacketPool);
+//    DbgPrint("DLC.DeletePacketPool(%08x)\n", pPacketPool);
 //    DumpPool(pPacketPool);
     if (pPacketPool->ClashCount) {
-        DbgPrint("DLC.DeletePacketPool: Error: Memory allocator clash on entry: Pool %08X\n", pPacketPool);
+        DbgPrint("DLC.DeletePacketPool: Error: Memory allocator clash on entry: Pool %08x\n", pPacketPool);
         DbgBreakPoint();
     }
     ++pPacketPool->ClashCount;
 
     if (pPacketPool->Signature != PACKET_POOL_SIGNATURE) {
-        DbgPrint("DLC.DeletePacketPool: Error: Invalid Pool Handle %08X\n", pPacketPool);
+        DbgPrint("DLC.DeletePacketPool: Error: Invalid Pool Handle %08x\n", pPacketPool);
         DbgBreakPoint();
     }
     if (!pPacketPool->Viable) {
-        DbgPrint("DLC.DeletePacketPool: Error: Unviable Packet Pool %08X\n", pPacketPool);
+        DbgPrint("DLC.DeletePacketPool: Error: Unviable Packet Pool %08x\n", pPacketPool);
         DbgBreakPoint();
     }
 #endif
@@ -1413,7 +1410,7 @@ Return Value:
     //
 
     if (pPacketPool->BusyList.Next != NULL) {
-        DbgPrint("DLC.DeletePacketPool: Error: %d packets busy. Pool = %08X\n",
+        DbgPrint("DLC.DeletePacketPool: Error: %d packets busy. Pool = %08x\n",
                  pPacketPool->BusyCount,
                  pPacketPool
                  );
@@ -1437,7 +1434,7 @@ Return Value:
         || pPacketHead->pPacketPool != pPacketPool
         || (pPacketHead->Flags & PACKET_FLAGS_BUSY)
         || !(pPacketHead->Flags & PACKET_FLAGS_FREE)) {
-            DbgPrint("DLC.DeletePacketPool: Error: Bad packet %08X. Pool = %08X\n",
+            DbgPrint("DLC.DeletePacketPool: Error: Bad packet %08x. Pool = %08x\n",
                     pPacketHead,
                     pPacketPool
                     );
@@ -1461,7 +1458,7 @@ Return Value:
             || pPacketHead->pPacketPool != pPacketPool
             || (pPacketHead->Flags & PACKET_FLAGS_FREE)
             || !(pPacketHead->Flags & PACKET_FLAGS_BUSY)) {
-                DbgPrint("DLC.DeletePacketPool: Error: Bad packet %08X. Pool = %08X\n",
+                DbgPrint("DLC.DeletePacketPool: Error: Bad packet %08x. Pool = %08x\n",
                         pPacketHead,
                         pPacketPool
                         );
@@ -1549,7 +1546,7 @@ Return Value:
 
 #if DBG
     if (pPacketPool->ClashCount) {
-        DbgPrint("DLC.AllocatePacket: Error: Memory allocator clash on entry: Pool %08X, Count %d\n",
+        DbgPrint("DLC.AllocatePacket: Error: Memory allocator clash on entry: Pool %08x, Count %d\n",
                 pPacketPool,
                 pPacketPool->ClashCount
                 );
@@ -1562,11 +1559,11 @@ Return Value:
 
 #if DBG
     if (pPacketPool->Signature != PACKET_POOL_SIGNATURE) {
-        DbgPrint("DLC.AllocatePacket: Error: Invalid Pool Handle %08X\n", pPacketPool);
+        DbgPrint("DLC.AllocatePacket: Error: Invalid Pool Handle %08x\n", pPacketPool);
         DbgBreakPoint();
     }
     if (!pPacketPool->Viable) {
-        DbgPrint("DLC.AllocatePacket: Error: Unviable Packet Pool %08X\n", pPacketPool);
+        DbgPrint("DLC.AllocatePacket: Error: Unviable Packet Pool %08x\n", pPacketPool);
         DbgBreakPoint();
     }
 #endif
@@ -1578,7 +1575,7 @@ Return Value:
         --pPacketPool->FreeCount;
         if (pPacketHead->Flags & PACKET_FLAGS_BUSY
         || !(pPacketHead->Flags & PACKET_FLAGS_FREE)) {
-            DbgPrint("DLC.AllocatePacket: Error: BUSY packet %08X on FreeList; Pool=%08X\n",
+            DbgPrint("DLC.AllocatePacket: Error: BUSY packet %08x on FreeList; Pool=%08x\n",
                     pPacketHead,
                     pPacketPool
                     );
@@ -1621,7 +1618,7 @@ Return Value:
 
             GET_CALLERS_ADDRESS(&caller, &callersCaller);
             if (DebugDump) {
-                DbgPrint("DLC.AllocatePacket: Adding new packet %08X to pool %08X. ret=%08X,%08X\n",
+                DbgPrint("DLC.AllocatePacket: Adding new packet %08x to pool %08x. ret=%08x,%08x\n",
                         pPacketHead,
                         pPacketPool,
                         caller,
@@ -1634,7 +1631,7 @@ Return Value:
             ++pPacketPool->CurrentPacketCount;
             DumpPoolStats("AllocatePacket", pPacketPool);
         } else {
-            DbgPrint("DLC.AllocatePacket: Error: couldn't allocate packet for Pool %08X\n",
+            DbgPrint("DLC.AllocatePacket: Error: couldn't allocate packet for Pool %08x\n",
                      pPacketPool
                      );
         }
@@ -1657,7 +1654,9 @@ Return Value:
         PushEntryList(&pPacketPool->BusyList, (PSINGLE_LIST_ENTRY)pPacketHead);
 
 #if DBG
-        GET_CALLERS_ADDRESS(&pPacketHead->CallersAddress, &pPacketHead->CallersCaller);
+        GET_CALLERS_ADDRESS(&pPacketHead->CallersAddress_A,
+                            &pPacketHead->CallersCaller_A
+                            );
         ++pPacketPool->BusyCount;
         ++pPacketPool->Allocations;
         ++pPacketPool->MaxInUse;
@@ -1670,7 +1669,7 @@ Return Value:
 #if DBG
     --pPacketPool->ClashCount;
     if (pPacketPool->ClashCount) {
-        DbgPrint("DLC.AllocatePacket: Error: Memory allocator clash on exit: Pool %08X\n", pPacketPool);
+        DbgPrint("DLC.AllocatePacket: Error: Memory allocator clash on exit: Pool %08x\n", pPacketPool);
         DbgBreakPoint();
     }
 #endif
@@ -1714,7 +1713,7 @@ Return Value:
 
 #if DBG
     if (pPacketPool->ClashCount) {
-        DbgPrint("DLC.DeallocatePacket: Error: Memory allocator clash on entry: Pool %08X\n", pPacketPool);
+        DbgPrint("DLC.DeallocatePacket: Error: Memory allocator clash on entry: Pool %08x\n", pPacketPool);
         DbgBreakPoint();
     }
     ++pPacketPool->ClashCount;
@@ -1724,18 +1723,18 @@ Return Value:
 
 #if DBG
     if (pPacketPool->Signature != PACKET_POOL_SIGNATURE) {
-        DbgPrint("DLC.DeallocatePacket: Error: Invalid Pool Handle %08X\n", pPacketPool);
+        DbgPrint("DLC.DeallocatePacket: Error: Invalid Pool Handle %08x\n", pPacketPool);
         DbgBreakPoint();
     }
     if (!pPacketPool->Viable) {
-        DbgPrint("DLC.DeallocatePacket: Error: Unviable Packet Pool %08X\n", pPacketPool);
+        DbgPrint("DLC.DeallocatePacket: Error: Unviable Packet Pool %08x\n", pPacketPool);
         DbgBreakPoint();
     }
     if (pPacketHead->Signature != PACKET_HEAD_SIGNATURE
     || pPacketHead->pPacketPool != pPacketPool
     || !(pPacketHead->Flags & PACKET_FLAGS_BUSY)
     || pPacketHead->Flags & PACKET_FLAGS_FREE) {
-        DbgPrint("DLC.DeallocatePacket: Error: Invalid Packet Header %08X, Pool = %08X\n",
+        DbgPrint("DLC.DeallocatePacket: Error: Invalid Packet Header %08x, Pool = %08x\n",
                 pPacketHead,
                 pPacketPool
                 );
@@ -1758,7 +1757,7 @@ Return Value:
 
 #if DBG
     if (!p) {
-        DbgPrint("DLC.DeallocatePacket: Error: packet %08X not on BusyList of pool %08X\n",
+        DbgPrint("DLC.DeallocatePacket: Error: packet %08x not on BusyList of pool %08x\n",
                 pPacketHead,
                 pPacketPool
                 );
@@ -1768,6 +1767,19 @@ Return Value:
 #endif
 
     prev->Next = pPacketHead->List.Next;
+
+#if DBG
+    if (ZapDeallocatedPackets) {
+
+        //
+        // fill the deallocated packet with 'Z's. This will quickly tell us if
+        // the packet is still being used after it is deallocated
+        //
+
+        RtlFillMemoryUlong(pPacketHead + 1, pPacketPool->PacketSize, ZAP_DEALLOC_VALUE);
+    }
+#endif
+
     PushEntryList(&pPacketPool->FreeList, (PSINGLE_LIST_ENTRY)pPacketHead);
 
     //
@@ -1781,8 +1793,11 @@ Return Value:
     --pPacketPool->BusyCount;
     ++pPacketPool->Frees;
     --pPacketPool->MaxInUse;
-    pPacketHead->CallersAddress = (PVOID)-1;
-    pPacketHead->CallersCaller = (PVOID)-1;
+//    pPacketHead->CallersAddress_A = (PVOID)-1;
+//    pPacketHead->CallersCaller_A = (PVOID)-1;
+    GET_CALLERS_ADDRESS(&pPacketHead->CallersAddress_D,
+                        &pPacketHead->CallersCaller_D
+                        );
 #endif
 
     KeReleaseSpinLock(&pPacketPool->PoolLock, irql);
@@ -1790,7 +1805,7 @@ Return Value:
 #if DBG
     --pPacketPool->ClashCount;
     if (pPacketPool->ClashCount) {
-        DbgPrint("DLC.DeallocatePacket: Error: Memory allocator clash on exit: Pool %08X\n", pPacketPool);
+        DbgPrint("DLC.DeallocatePacket: Error: Memory allocator clash on exit: Pool %08x\n", pPacketPool);
         DbgBreakPoint();
     }
 #endif
@@ -1943,11 +1958,11 @@ Return Value:
     if (pMemoryUsage->AllocateCount != pMemoryUsage->FreeCount || pMemoryUsage->NonPagedPoolAllocated) {
         if (MemoryCheckNotify) {
             if (pMemoryUsage->AllocateCount != pMemoryUsage->FreeCount) {
-                DbgPrint("DLC.CheckMemoryReturned: Error: AllocateCount != FreeCount. Usage @ %08X\n",
+                DbgPrint("DLC.CheckMemoryReturned: Error: AllocateCount != FreeCount. Usage @ %08x\n",
                          pMemoryUsage
                          );
             } else {
-                DbgPrint("DLC.CheckMemoryReturned: Error: NonPagedPoolAllocated != 0. Usage @ %08X\n",
+                DbgPrint("DLC.CheckMemoryReturned: Error: NonPagedPoolAllocated != 0. Usage @ %08x\n",
                          pMemoryUsage
                          );
             }
@@ -1996,7 +2011,7 @@ Return Value:
 
 
 VOID MemoryAllocationError(PCHAR Routine, PVOID Address) {
-    DbgPrint("DLC.%s: Error: Memory Allocation error in block @ %08X\n", Routine, Address);
+    DbgPrint("DLC.%s: Error: Memory Allocation error in block @ %08x\n", Routine, Address);
     DumpMemoryMetrics();
     DbgBreakPoint();
 }
@@ -2015,7 +2030,7 @@ VOID UpdateCounter(PULONG pCounter, LONG Value) {
 }
 
 VOID MemoryCounterOverflow(PULONG pCounter, LONG Value) {
-    DbgPrint("DLC: Memory Counter Overflow: &Counter=%08X, Count=%d, Value=%d\n",
+    DbgPrint("DLC: Memory Counter Overflow: &Counter=%08x, Count=%d, Value=%d\n",
             pCounter,
             *pCounter,
             Value
@@ -2025,20 +2040,20 @@ VOID MemoryCounterOverflow(PULONG pCounter, LONG Value) {
 
 VOID DumpMemoryMetrics() {
     DbgPrint("DLC Device Driver Non-Paged Pool Usage:\n"
-             "\tNumber Of Good Non-Paged Pool Allocations. . . . : %d\n"
-             "\tNumber Of Bad  Non-Paged Pool Allocations. . . . : %d\n"
-             "\tNumber Of Good Non-Paged Pool Frees. . . . . . . : %d\n"
-             "\tNumber Of Bad  Non-Paged Pool Frees. . . . . . . : %d\n",
+             "\tNumber Of Good Non-Paged Pool Allocations. : %d\n"
+             "\tNumber Of Bad  Non-Paged Pool Allocations. : %d\n"
+             "\tNumber Of Good Non-Paged Pool Frees. . . . : %d\n"
+             "\tNumber Of Bad  Non-Paged Pool Frees. . . . : %d\n",
              GoodNonPagedPoolAllocs,
              BadNonPagedPoolAllocs,
              GoodNonPagedPoolFrees,
              BadNonPagedPoolFrees
              );
-    DbgPrint("\tTotal Non-Paged Pool Currently Requested . . . . : %d\n"
-             "\tTotal Non-Paged Pool Currently Allocated . . . . : %d\n"
-             "\tCumulative Total Non-Paged Pool Requested. . . . : %d\n"
-             "\tCumulative Total Non-Paged Pool Allocated. . . . : %d\n"
-             "\tCumulative Total Non-Paged Pool Freed. . . . . . : %d\n"
+    DbgPrint("\tTotal Non-Paged Pool Currently Requested . : %d\n"
+             "\tTotal Non-Paged Pool Currently Allocated . : %d\n"
+             "\tCumulative Total Non-Paged Pool Requested. : %d\n"
+             "\tCumulative Total Non-Paged Pool Allocated. : %d\n"
+             "\tCumulative Total Non-Paged Pool Freed. . . : %d\n"
              "\n",
              NonPagedPoolRequested,
              NonPagedPoolAllocated,
@@ -2053,17 +2068,17 @@ VOID DumpPoolStats(PCHAR Routine, PPACKET_POOL pPacketPool) {
     if (!DebugDump) {
         return;
     }
-    DbgPrint("DLC.%s: Stats For Pool %08X:\n"
-             "\tPool Owner . . . . . . . . . . . . . . . . . . . : %08X\n"
-             "\tPool Owner Object ID . . . . . . . . . . . . . . : %08X [%s]\n",
+    DbgPrint("DLC.%s: Stats For Pool %08x:\n"
+             "\tPool Owner . . . . . . . . . . . . . . . . . . . : %08x\n"
+             "\tPool Owner Object ID . . . . . . . . . . . . . . : %08x [%s]\n",
              Routine,
              pPacketPool,
              pPacketPool->pMemoryUsage->Owner,
              pPacketPool->pMemoryUsage->OwnerObjectId,
              MapObjectId(pPacketPool->pMemoryUsage->OwnerObjectId)
              );
-    DbgPrint("\tFree List. . . . . . . . . . . . . . . . . . . . : %08X\n"
-             "\tBusy List. . . . . . . . . . . . . . . . . . . . : %08X\n",
+    DbgPrint("\tFree List. . . . . . . . . . . . . . . . . . . . : %08x\n"
+             "\tBusy List. . . . . . . . . . . . . . . . . . . . : %08x\n",
              pPacketPool->FreeList,
              pPacketPool->BusyList
              );
@@ -2162,7 +2177,7 @@ VOID DumpPoolList(PCHAR Name, PSINGLE_LIST_ENTRY List) {
     ULONG count = 0;
 
     if (List->Next) {
-        DbgPrint("\n%s List @ %08X:\n", Name,  List);
+        DbgPrint("\n%s List @ %08x:\n", Name,  List);
         while (List->Next) {
             List = List->Next;
             DumpPacketHead((PPACKET_HEAD)List, ++count);
@@ -2195,13 +2210,15 @@ VOID DumpPacketHead(PPACKET_HEAD pPacketHead, ULONG Number) {
         numbuf[i] = 0;
         Number = 1; // flag
     }
-    DbgPrint("%s\tPACKET_HEAD @ %08X:\n"
-             "\tList . . . . . . . . . . . . . . . . . . . . . . : %08X\n"
-             "\tFlags. . . . . . . . . . . . . . . . . . . . . . : %08X\n"
-             "\tSignature. . . . . . . . . . . . . . . . . . . . : %08X\n"
-             "\tpPacketPool. . . . . . . . . . . . . . . . . . . : %08X\n"
-             "\tCallers Address. . . . . . . . . . . . . . . . . : %08X\n"
-             "\tCallers Caller . . . . . . . . . . . . . . . . . : %08X\n"
+    DbgPrint("%s\tPACKET_HEAD @ %08x:\n"
+             "\tList . . . . . . . . : %08x\n"
+             "\tFlags. . . . . . . . : %08x\n"
+             "\tSignature. . . . . . : %08x\n"
+             "\tpPacketPool. . . . . : %08x\n"
+             "\tCallers Address (A). : %08x\n"
+             "\tCallers Caller (A) . : %08x\n"
+             "\tCallers Address (D). : %08x\n"
+             "\tCallers Caller (D) . : %08x\n"
              "\n",
              Number ? numbuf : "",
              pPacketHead,
@@ -2209,8 +2226,10 @@ VOID DumpPacketHead(PPACKET_HEAD pPacketHead, ULONG Number) {
              pPacketHead->Flags,
              pPacketHead->Signature,
              pPacketHead->pPacketPool,
-             pPacketHead->CallersAddress,
-             pPacketHead->CallersCaller
+             pPacketHead->CallersAddress_A,
+             pPacketHead->CallersCaller_A,
+             pPacketHead->CallersAddress_D,
+             pPacketHead->CallersCaller_D
              );
 }
 
@@ -2224,7 +2243,7 @@ VOID DumpMemoryUsageList() {
     for (pMemoryUsage = MemoryUsageList; pMemoryUsage; pMemoryUsage = pMemoryUsage->List) {
         if (pMemoryUsage->NonPagedPoolAllocated) {
             allocatedMemoryFound = TRUE;
-            DbgPrint("DLC.DumpMemoryUsageList: %08X: %d bytes memory allocated\n",
+            DbgPrint("DLC.DumpMemoryUsageList: %08x: %d bytes memory allocated\n",
                     pMemoryUsage,
                     pMemoryUsage->NonPagedPoolAllocated
                     );
@@ -2241,21 +2260,22 @@ VOID DumpMemoryUsage(PMEMORY_USAGE pMemoryUsage, BOOLEAN Override) {
     if (!DebugDump && !Override) {
         return;
     }
-    DbgPrint("MEMORY_USAGE @ %08X:\n"
-             "\tOwner. . . . . . . . . . . . . . . . . . . . . . : %08X\n"
-             "\tOwner Object ID. . . . . . . . . . . . . . . . . : %08X [%s]\n"
-             "\tOwner Instance . . . . . . . . . . . . . . . . . : %d\n"
-             "\tNon Paged Pool Allocated . . . . . . . . . . . . : %d\n"
-             "\tNumber Of Allocations. . . . . . . . . . . . . . : %d\n"
-             "\tNumber Of Frees. . . . . . . . . . . . . . . . . : %d\n"
-             "\tPrivate Allocation List Flink. . . . . . . . . . : %08X\n"
-             "\tPrivate Allocation List Blink. . . . . . . . . . : %08X\n"
-             "\n",
+    DbgPrint("MEMORY_USAGE @ %08x:\n"
+             "\tOwner. . . . . . . . . . . . . : %08x\n"
+             "\tOwner Object ID. . . . . . . . : %08x [%s]\n"
+             "\tOwner Instance . . . . . . . . : %x\n",
              pMemoryUsage,
              pMemoryUsage->Owner,
              pMemoryUsage->OwnerObjectId,
              MapObjectId(pMemoryUsage->OwnerObjectId),
-             pMemoryUsage->OwnerInstance,
+             pMemoryUsage->OwnerInstance
+             );
+    DbgPrint("\tNon Paged Pool Allocated . . . : %d\n"
+             "\tNumber Of Allocations. . . . . : %d\n"
+             "\tNumber Of Frees. . . . . . . . : %d\n"
+             "\tPrivate Allocation List Flink. : %08x\n"
+             "\tPrivate Allocation List Blink. : %08x\n"
+             "\n",
              pMemoryUsage->NonPagedPoolAllocated,
              pMemoryUsage->AllocateCount,
              pMemoryUsage->FreeCount,
@@ -2319,14 +2339,14 @@ VOID CheckList(PSINGLE_LIST_ENTRY List, ULONG NumberOfElements) {
 
     while (NumberOfElements--) {
         if (List->Next == NULL) {
-            DbgPrint("DLC.CheckList: Error: too few entries on list %08X\n", originalList);
+            DbgPrint("DLC.CheckList: Error: too few entries on list %08x\n", originalList);
             DbgBreakPoint();
         } else {
             List = List->Next;
         }
     }
     if (List->Next != NULL) {
-        DbgPrint("DLC.CheckList: Error: too many entries on list %08X\n", originalList);
+        DbgPrint("DLC.CheckList: Error: too many entries on list %08x\n", originalList);
         DbgBreakPoint();
     }
 }
@@ -2346,34 +2366,36 @@ VOID CheckEntryOnList(PLIST_ENTRY Entry, PLIST_ENTRY List, BOOLEAN Sense) {
     }
     if (found != Sense) {
         if (found) {
-            DbgPrint("DLC.CheckEntryOnList: Error: Entry %08X found on list %08X. Not supposed to be there\n",
+            DbgPrint("DLC.CheckEntryOnList: Error: Entry %08x found on list %08x. Not supposed to be there\n",
                      Entry,
                      List
                      );
         } else {
-            DbgPrint("DLC.CheckEntryOnList: Error: Entry %08X not found on list %08X\n",
+            DbgPrint("DLC.CheckEntryOnList: Error: Entry %08x not found on list %08x\n",
                      Entry,
                      List
                      );
         }
-        DbgBreakPoint();
+        if (MemoryCheckStop) {
+            DbgBreakPoint();
+        }
     }
 }
 
 VOID DumpPrivateMemoryHeader(PPRIVATE_NON_PAGED_POOL_HEAD pHead) {
-    DbgPrint("Private Non Paged Pool Header @ %08X:\n"
-             "\tSize . . . . . . . . . . . . . . . . . . . . . . : %d\n"
-             "\tOriginal Size. . . . . . . . . . . . . . . . . . : %d\n"
-             "\tFlags. . . . . . . . . . . . . . . . . . . . . . : %08X\n"
-             "\tSignature. . . . . . . . . . . . . . . . . . . . : %08X\n"
-             "\tGlobalList.Flink . . . . . . . . . . . . . . . . : %08X\n"
-             "\tGlobalList.Blink . . . . . . . . . . . . . . . . : %08X\n"
-             "\tPrivateList.Flink. . . . . . . . . . . . . . . . : %08X\n"
-             "\tPrivateList.Blink. . . . . . . . . . . . . . . . : %08X\n"
-             "\tStack[0] . . . . . . . . . . . . . . . . . . . . : %08X\n"
-             "\tStack[1] . . . . . . . . . . . . . . . . . . . . : %08X\n"
-             "\tStack[2] . . . . . . . . . . . . . . . . . . . . : %08X\n"
-             "\tStack[3] . . . . . . . . . . . . . . . . . . . . : %08X\n"
+    DbgPrint("Private Non Paged Pool Header @ %08x:\n"
+             "\tSize . . . . . . . : %d\n"
+             "\tOriginal Size. . . : %d\n"
+             "\tFlags. . . . . . . : %08x\n"
+             "\tSignature. . . . . : %08x\n"
+             "\tGlobalList.Flink . : %08x\n"
+             "\tGlobalList.Blink . : %08x\n"
+             "\tPrivateList.Flink. : %08x\n"
+             "\tPrivateList.Blink. : %08x\n"
+             "\tStack[0] . . . . . : %08x\n"
+             "\tStack[1] . . . . . : %08x\n"
+             "\tStack[2] . . . . . : %08x\n"
+             "\tStack[3] . . . . . : %08x\n"
              "\n",
              pHead->Size,
              pHead->OriginalSize,
@@ -2392,20 +2414,24 @@ VOID DumpPrivateMemoryHeader(PPRIVATE_NON_PAGED_POOL_HEAD pHead) {
 
 VOID ReportSwitchSettings(PSTR str) {
     DbgPrint("%s: LLCMEM Switches:\n"
-             "\tDebugDump. . . . . . . : %s\n"
-             "\tDeleteBusyListAnyway . : %s\n"
-             "\tMemoryCheckNotify. . . : %s\n"
-             "\tMemoryCheckStop. . . . : %s\n"
-             "\tMaintainGlobalLists. . : %s\n"
-             "\tMaintainPrivateLists . : %s\n"
+             "\tDebugDump . . . . . . : %s\n"
+             "\tDeleteBusyListAnyway. : %s\n"
+             "\tMemoryCheckNotify . . : %s\n"
+             "\tMemoryCheckStop . . . : %s\n"
+             "\tMaintainGlobalLists . : %s\n"
+             "\tMaintainPrivateLists. : %s\n"
+             "\tZapDeallocatedPackets : %s\n"
+             "\tZapFreedMemory. . . . : %s\n"
              "\n",
              str,
-             DebugDump ? "On" : "Off",
-             DeleteBusyListAnyway ? "On" : "Off",
-             MemoryCheckNotify ? "On" : "Off",
-             MemoryCheckStop ? "On" : "Off",
-             MaintainGlobalLists ? "On" : "Off",
-             MaintainPrivateLists ? "On" : "Off"
+             YES_NO(DebugDump),
+             YES_NO(DeleteBusyListAnyway),
+             YES_NO(MemoryCheckNotify),
+             YES_NO(MemoryCheckStop),
+             YES_NO(MaintainGlobalLists),
+             YES_NO(MaintainPrivateLists),
+             YES_NO(ZapDeallocatedPackets),
+             YES_NO(ZapFreedMemory)
              );
 }
 

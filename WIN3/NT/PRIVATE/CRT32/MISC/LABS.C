@@ -23,9 +23,9 @@
 #include <cruntime.h>
 #include <stdlib.h>
 
-#if	defined(_CRUISER_) || defined(i386) || defined(_M_MRX000)
+#ifdef _MSC_VER
 #pragma function(labs)
-#endif  /* ndef _CRUISER_ */
+#endif
 
 /***
 *long labs(lnumber) - find absolute value of long.

@@ -1,4 +1,3 @@
-
 /****************************************************************************\
  *
  *
@@ -50,6 +49,7 @@
 
 #define ERROR_RET       (-1)                /* returned from main on error  */
 
+PUCHAR uchBuffer;
 
 /****************************************************************************\
  *
@@ -73,8 +73,7 @@
 
 static BOOL  CleanUp(
   LPSTR   lpFileName,               /* File name to be closed      */
-  FILE    *fp,                      /* stream of file to be closed */
-  HANDLE  hMem)                     /* handle of internal buffer   */
+  FILE    *fp)                      /* stream of file to be closed */
 {
   BOOL  bResult = TRUE;             /* assume success until fail   */
 
@@ -83,17 +82,6 @@ static BOOL  CleanUp(
   if (fclose(fp) != 0) {
     printf("Unable to close %s\n", lpFileName);
     bResult = FALSE;
-  }
-
-  /*  Release the internal data buffer.  */
-
-  if (hMem) {
-    GlobalUnlock(hMem);
-
-    if (GlobalFree(hMem) != NULL) {
-      printf("Unable to free internal buffer\n");
-      bResult = FALSE;
-    }
   }
 
   /*  Close/release the floppy drive.  */
@@ -158,8 +146,6 @@ static BOOL  MakeFile(
   char   chFloppyName,
   LPSTR  lpFileName)
 {
-  UCHAR        uchBuffer[BOOTSECT_SIZE];
-  HANDLE       hMem = NULL;
   LPSTR        lpMem;
   DWORD        dwByteCount;
   DWORD        dwIterations;
@@ -189,7 +175,7 @@ static BOOL  MakeFile(
   bResult = OpenFloppy(chFloppyName);
 
   if (bResult == FALSE) {
-    CleanUp(lpFileName, fp, hMem);
+    CleanUp(lpFileName, fp);
     return (FALSE);
   }
 
@@ -200,7 +186,7 @@ static BOOL  MakeFile(
   bResult = ReadFloppy(0, BOOTSECT_SIZE, uchBuffer);
 
   if (bResult == FALSE) {
-    CleanUp(lpFileName, fp, hMem);
+    CleanUp(lpFileName, fp);
     return (FALSE);
   }
 
@@ -211,19 +197,12 @@ static BOOL  MakeFile(
   /*    Obtain an internal data buffer and lock it down for constant use.
    */
 
-  hMem  = GlobalAlloc(GMEM_ZEROINIT, BUFFER_SIZE);
 
-  if (hMem == NULL) {
-    printf("Unable to allocate internal buffer.\n");
-    CleanUp(lpFileName, fp, hMem);
-    return (FALSE);
-  }
-
-  lpMem = GlobalLock(hMem);
+  lpMem = VirtualAlloc( NULL, BUFFER_SIZE, MEM_COMMIT, PAGE_READWRITE );
 
   if (lpMem == NULL) {
     printf("Unable to allocate internal buffer.\n");
-    CleanUp(lpFileName, fp, hMem);
+    CleanUp(lpFileName, fp);
     return (FALSE);
   }
 
@@ -242,7 +221,7 @@ static BOOL  MakeFile(
     bResult = ReadFloppy(dwOffset, BUFFER_SIZE, lpMem);
 
     if (bResult == FALSE) {
-      CleanUp(lpFileName, fp, hMem);
+      CleanUp(lpFileName, fp);
       return (FALSE);
     }
 
@@ -250,7 +229,7 @@ static BOOL  MakeFile(
 
     if (stItems != 1) {
       printf("Unable to write to %s\n", lpFileName);
-      CleanUp(lpFileName, fp, hMem);
+      CleanUp(lpFileName, fp);
       return (FALSE);
     }
   }
@@ -262,7 +241,7 @@ static BOOL  MakeFile(
     bResult = ReadFloppy(dwOffset, dwRemainder, lpMem);
 
     if (bResult == FALSE) {
-      CleanUp(lpFileName, fp, hMem);
+      CleanUp(lpFileName, fp);
       return (FALSE);
     }
 
@@ -270,14 +249,14 @@ static BOOL  MakeFile(
 
     if (stItems != 1) {
       printf("Unable to write to %s\n", lpFileName);
-      CleanUp(lpFileName, fp, hMem);
+      CleanUp(lpFileName, fp);
       return (FALSE);
     }
   }
 
   printf("100%% complete\n");
 
-  return (CleanUp(lpFileName, fp, hMem));
+  return (CleanUp(lpFileName, fp));
 }
 
 
@@ -305,8 +284,6 @@ static BOOL  MakeFloppy(
   LPSTR  lpFileName,
   BOOL   fFormatFloppy)
 {
-  UCHAR        uchBuffer[BOOTSECT_SIZE];
-  HANDLE       hMem = NULL;
   LPSTR        lpMem;
   DWORD        dwByteCount;
   DWORD        dwIterations;
@@ -368,39 +345,31 @@ static BOOL  MakeFloppy(
   bResult = OpenFloppy(chFloppyName);
 
   if (bResult == FALSE) {
-    CleanUp(lpFileName, fp, hMem);
+    CleanUp(lpFileName, fp);
     return (FALSE);
   }
 
   bResult = ReadFloppy(0, BOOTSECT_SIZE, uchBuffer);
 
   if (bResult == FALSE) {
-    CleanUp(lpFileName, fp, hMem);
+    CleanUp(lpFileName, fp);
     return (FALSE);
   }
 
   if (FloppySize((PBOOTSECTOR) uchBuffer) != dwByteCount) {
     printf("Floppy capacity and image file size do not match\n");
-    CleanUp(lpFileName, fp, hMem);
+    CleanUp(lpFileName, fp);
     return (FALSE);
   }
 
   /*    Obtain an internal data buffer and lock it down for constant use.
    */
 
-  hMem  = GlobalAlloc(GMEM_ZEROINIT, BUFFER_SIZE);
-
-  if (hMem == NULL) {
-    printf("Unable to allocate internal buffer.\n");
-    CleanUp(lpFileName, fp, hMem);
-    return (FALSE);
-  }
-
-  lpMem = GlobalLock(hMem);
+  lpMem = VirtualAlloc( NULL, BUFFER_SIZE, MEM_COMMIT, PAGE_READWRITE );
 
   if (lpMem == NULL) {
     printf("Unable to allocate internal buffer.\n");
-    CleanUp(lpFileName, fp, hMem);
+    CleanUp(lpFileName, fp);
     return (FALSE);
   }
 
@@ -413,7 +382,7 @@ static BOOL  MakeFloppy(
 
   if (iResult != 0) {
     printf("Cannot fseek in %s\n", lpFileName);
-    CleanUp(lpFileName, fp, hMem);
+    CleanUp(lpFileName, fp);
     return (FALSE);
   }
 
@@ -433,14 +402,14 @@ static BOOL  MakeFloppy(
 
     if (stItems != 1) {
       printf("Unable to read from %s\n", lpFileName);
-      CleanUp(lpFileName, fp, hMem);
+      CleanUp(lpFileName, fp);
       return (FALSE);
     }
 
     bResult = WriteFloppy(dwOffset, BUFFER_SIZE, lpMem);
 
     if (bResult == FALSE) {
-      CleanUp(lpFileName, fp, hMem);
+      CleanUp(lpFileName, fp);
       return (FALSE);
     }
   }
@@ -453,21 +422,21 @@ static BOOL  MakeFloppy(
 
     if (stItems != 1) {
       printf("Unable to read from %s\n", lpFileName);
-      CleanUp(lpFileName, fp, hMem);
+      CleanUp(lpFileName, fp);
       return (FALSE);
     }
 
     bResult = WriteFloppy(dwOffset, dwRemainder, lpMem);
 
     if (bResult == FALSE) {
-      CleanUp(lpFileName, fp, hMem);
+      CleanUp(lpFileName, fp);
       return (FALSE);
     }
   }
 
   printf("100%% complete\n");
 
-  return (CleanUp(lpFileName, fp, hMem));
+  return (CleanUp(lpFileName, fp));
 }
 
 
@@ -533,6 +502,8 @@ int  _CRTAPI1 main(
   /*    Parse the command line arguments.
    *    There must be 2 or 3 arguments.
    */
+
+  uchBuffer = VirtualAlloc( NULL, BOOTSECT_SIZE, MEM_COMMIT, PAGE_READWRITE );
 
   if ((argc < 3) || (argc > 4)) {
     Usage();
@@ -610,4 +581,3 @@ int  _CRTAPI1 main(
 
   return ((fResult) ? 0 : ERROR_RET);
 }
-

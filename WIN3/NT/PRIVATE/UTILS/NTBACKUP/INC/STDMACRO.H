@@ -50,4 +50,4 @@ Copyright(c) Maynard Electronics, Inc. 1984-89
         UpDiv( (siz), 2L )
 
 #endif
-
+

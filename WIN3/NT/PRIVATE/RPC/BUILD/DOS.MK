@@ -23,10 +23,8 @@ LIBRARIAN     =$(DOS_BIN)\lib
 LINK          =$(DOS_BIN)\link
 MASM          =$(MASM_BIN)\bin\ml -Zm
 ML            =$(MASM_BIN)\bin\ml
-MIDL          =$(SYSTEMROOT)\mstools\midl.exe
-INCLUDES      =$(SYSTEMROOT)\idw\includes.exe
 
-CFLAGSBASE    =$(CFLAGSBASE) -nologo -ALu -Gs2 -Zpe -W2
+CFLAGSBASE    =$(CFLAGSBASE) -nologo -ALw -Zpe -W2
 CINC          =$(CINC) -I$(DOS_INC)
 
 AFLAGS        =$(AFLAGS)
@@ -41,21 +39,20 @@ INCLUDESFLAGS =$(INCLUDESFLAGS) -e -L -S $(CINC)\
 
 !ifdef RELEASE
 
-CFLAGSBASE    =$(CFLAGSBASE) -O1
+CFLAGSBASE    =$(CFLAGSBASE) -O1 -Ob1 -Gsy2
 AFLAGS        =$(AFLAGS)
 
 !else # ! RELEASE
 
-CFLAGSBASE    =$(CFLAGSBASE) -Z7
+CFLAGSBASE    =$(CFLAGSBASE) -Z7 -Gs2 -Gt
 CDEF          =$(CDEF) -DDEBUGRPC
 AFLAGS        =$(AFLAGS) -Zi
 LINKFLAGS     =$(LINKFLAGS) /co
 
 !endif # RELEASE
 
-#CINC          =$(CINC) -I. -I.. -I$(IMPORT)\os212\h -I$(RPC)\runtime\mtrt -I$(RPC)\runtime\mtrt\dos
 CINC          =$(CINC) -I. -I.. -I$(RPC)\runtime\mtrt -I$(RPC)\runtime\mtrt\dos -I$(PUBLIC)\inc
-CDEF          =$(CDEF) -DDOS -D_cdecl=cdecl -D_far=far -DUNALIGNED=  -D_near=near
+CDEF          =$(CDEF) -DDOS -DUNALIGNED=
 
 CFLAGS        =$(CFLAGS) $(CFLAGSBASE) $(CINC) $(CDEF)
 CXXFLAGS      =$(CXXFLAGS)  $(CFLAGSBASE) $(CINC) $(CDEF)

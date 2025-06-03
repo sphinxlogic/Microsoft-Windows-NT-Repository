@@ -1,99 +1,105 @@
 #***
 #
-#makefile.def
+# common.mak
 #
-#This makefile defines the build environments for link.exe, cvtomf.exe,
-#cvtomf.lib.  It is included by other makefiles.
-#
-#Revision History
-#
-#   05-Oct-1992 BrentM put .sbr's into $(TARGET).obj
-#   16-Aug-1992 BrentM added file mapped buffering support
-#   29-Jul-1992 BrentM added verbose flag for !message stuff
+# This makefile defines the build environments for link.exe.  It is
+# included by other makefiles.
 #
 #****************************************************************************
 
-#***
-#
-#default build is targeted for nt
-#
-#****************************************************************************
-
-!ifndef TARGET
-TARGET = nt
+!ifndef ODIR
+!if "$(DEBUG)" != "1"
+ODIR	= ..\release
+!else
+ODIR	= ..\debug
+!endif
 !endif
 
-!ifndef OBJDIR
-!error OBJDIR must be defined (by make.bat)
+!if	!exist($(ODIR))
+!if [md $(ODIR)] != 0
+!error unable to create directory "$(ODIR)"
+!endif
 !endif
 
 #***
 #
-#tool roots
+# Build environment
 #
 #****************************************************************************
 
-!ifndef LANGAPI_DIR
-LANGAPI_DIR = \langapi
+!ifndef LANGAPI
+LANGAPI=\langapi
 !endif
 
-!ifndef PDB_DIR
-PDB_DIR = \pdb
+!if "$(LANG)"=="JAPAN"
+CUSTOM = /DJAPAN $(CUSTOM)
 !endif
 
-#***
-#
-#nt build environment
-#
-#****************************************************************************
-
-!ifdef	TOOL_DIR
-PATH	= $(TOOL_DIR)\bin
-LIB	= $(TOOL_DIR)\lib
-INCLUDE = $(LANGAPI_DIR)\undname;$(LANGAPI_DIR)\include;$(TOOL_DIR)\include
+!if "$(TIMEBOMB)"=="1"
+CUSTOM = /DTIMEBOMB $(CUSTOM)
 !endif
 
-!if	"$(PROCESSOR_ARCHITECTURE)" == "x86"
+!if "$(ILINKLOG)"=="1"
+CUSTOM = /DILINKLOG $(CUSTOM)
+!endif
 
-CC	= cl
+!if	"$(PROCESSOR_ARCHITECTURE)" == "ALPHA"
+
 LINKER	= link
 LIBER	= link -lib
-!if "$(DOLPHIN)" == "1"
-OPTIONS = /D_X86_ /Gfyd /MD /W3 /DINSTRUMENT
-!else
-OPTIONS = /D_X86_ /Gfyz /MD /W3
-!endif
+OPTIONS = /GFy /W3 $(CUSTOM)
 !if "$(DEBUG)" != "1"
-CFLAGS	= $(OPTIONS) /Ox /DDBG=0 /DNDEBUG
+CFLAGS	= $(OPTIONS) /MD /O2 /DDBG=0 /DNDEBUG
 LFLAGS	=
 !else
-CFLAGS	= $(OPTIONS) /Od /Zi /DDBG=1
-LFLAGS	= -debug -debugtype:cv
+CFLAGS	= $(OPTIONS) /MDd /Od /Zi /DDBG=1
+LFLAGS	= /debug
 !endif
 
 !elseif "$(PROCESSOR_ARCHITECTURE)" == "MIPS"
 
-CC	= mcl
-LINKER	= link32 -link
-LIBER	= link32 -lib
-!if "$(DOLPHIN)" == "1"
-OPTIONS = /D_MIPS_ /Gfy /W3 /DINSTRUMENT
-!else
-OPTIONS = /D_MIPS_ /Gfy /W3
-!endif
+LINKER	= link
+LIBER	= link -lib
+OPTIONS = /GFy /W3 $(CUSTOM)
 !if "$(DEBUG)" != "1"
-CFLAGS	= $(OPTIONS) /Ox /DDBG=0 /DNDEBUG
+CFLAGS	= $(OPTIONS) /MD /O2 /DDBG=0 /DNDEBUG
 LFLAGS	=
 !else
-CFLAGS	= $(OPTIONS) /Od /Zi /DDBG=1
-LFLAGS	= -debug -debugtype:cv
+CFLAGS	= $(OPTIONS) /MDd /Od /Zi /DDBG=1
+LFLAGS	= /debug
 !endif
 
+!elseif "$(PROCESSOR_ARCHITECTURE)" == "PPC"
+
+LINKER	= link
+LIBER	= link -lib
+OPTIONS = /GFy /W3 $(CUSTOM)
+!if "$(DEBUG)" != "1"
+CFLAGS	= $(OPTIONS) /MD /O2 /DDBG=0 /DNDEBUG
+LFLAGS	=
+!else
+CFLAGS	= $(OPTIONS) /MDd /Od /Zi /DDBG=1
+LFLAGS	= /debug
 !endif
 
-#  now define TARGET to be the actual object directory (without .obj)
-#
-TARGET	= $(OBJDIR)
+!elseif "$(PROCESSOR_ARCHITECTURE)" == "x86"
+
+LINKER	= link
+LIBER	= link -lib
+OPTIONS = /GFyz /W3 $(CUSTOM)
+!if "$(DEBUG)" != "1"
+CFLAGS	= $(OPTIONS) /MD /O2 /DDBG=0 /DNDEBUG
+LFLAGS	=
+!else
+CFLAGS	= $(OPTIONS) /MDd /Od /Zi /DDBG=1
+LFLAGS	= /debug
+!endif
+
+!else
+
+!error	Unknown PROCESSOR_ARCHITECTURE=$(PROCESSOR_ARCHITECTURE)
+
+!endif
 
 #***
 #
@@ -101,35 +107,21 @@ TARGET	= $(OBJDIR)
 #
 #****************************************************************************
 
-!ifdef VERBOSE
-!message PATH	 = $(PATH)
-!message LIB	 = $(LIB)
-!message INCLUDE = $(INCLUDE)
-!message CC	 = $(CC)
-!message LINKER  = $(LINKER)
-!message LIBER	 = $(LIBER)
-!message DEF	 = $(DEF)
-!message CFLAGS  = $(CFLAGS)
-!message LFLAGS  = $(LFLAGS)
-!message DEBUG	 = $(DEBUG)
-!endif
+CFLAGS = -c $(CFLAGS) -Fo$(ODIR)\ -FR$(ODIR)\ -Fd$(ODIR)\link.pdb -I$(LANGAPI)\include \
+-I$(LANGAPI)\undname
 
-#***
-#
-#object build rules
-#
-#****************************************************************************
+!if	"$(PCH_HDR)" != ""
+CFLAGS = $(CFLAGS) -Fp$(ODIR)\ -Yu$(PCH_HDR)
 
-.c{$(OBJDIR).obj}.obj:
-    $(CC) $(CFLAGS) -Fo$(TARGET).obj\ -FR$(TARGET).obj\ -Fd$(TARGET).obj\link.pdb -c $(MAKEDIR)\$<
+$(PCH_OBJ):
+    if exist $@ del $@
+    $(CC) $(CFLAGS) -Yc$(PCH_HDR) $(PCH_SRC)
 
-.cpp{$(OBJDIR).obj}.obj:
-    $(CC) $(CFLAGS) -Fo$(TARGET).obj\ -FR$(TARGET).obj\ -Fd$(TARGET).obj\link.pdb -c $(MAKEDIR)\$<
+!endif	#"$(PCH_HDR)" != ""
 
-.cxx{$(OBJDIR).obj}.obj:
-    $(CC) $(CFLAGS) -Fo$(TARGET).obj\ -FR$(TARGET).obj\ -Fd$(TARGET).obj\link.pdb -c $(MAKEDIR)\$<
+.cpp{$(ODIR)}.obj:
+    $(CC) $(CFLAGS) $(MAKEDIR)\$<
 
-.rc{$(OBJDIR).obj}.res:
-    rc -r -Fo$@ $<
-
-# return to component makefile
+.rc{$(ODIR)}.res:
+    if exist $@ del $@
+    rc -I$(LANGAPI)\include -r -Fo$@ $<

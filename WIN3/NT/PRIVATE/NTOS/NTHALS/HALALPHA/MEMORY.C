@@ -30,8 +30,10 @@ Environment:
 
 #include "halp.h"
 
+#define __1KB        (1024)
 
 MEMORY_ALLOCATION_DESCRIPTOR    HalpExtraAllocationDescriptor;
+
 
 
 ULONG
@@ -39,7 +41,7 @@ HalpAllocPhysicalMemory(
     IN PLOADER_PARAMETER_BLOCK LoaderBlock,
     IN ULONG MaxPhysicalAddress,
     IN ULONG NoPages,
-    IN BOOLEAN bAlignOn64k
+    IN BOOLEAN AlignOn64k
     )
 /*++
 
@@ -52,8 +54,16 @@ Routine Description:
 
 Arguments:
 
-    MaxPhysicalAddress - The max address where the physical memory can be
-    NoPages - Number of pages to allocate
+    LoaderBlock - Supplies a pointer to the loader parameter block which
+                    contains the system memory descriptors.
+
+    MaxPhysicalAddress - Supplies the maximum address below which the memory 
+                            must be allocated.
+
+    NoPages - Supplies the number of pages to allocate.
+
+    AlignOn64k - Supplies a boolean that specifies if the requested memory
+                    allocation must start on a 64K boundary.
 
 Return Value:
 
@@ -61,11 +71,12 @@ Return Value:
 
 --*/
 {
-    PMEMORY_ALLOCATION_DESCRIPTOR Descriptor;
-    PMEMORY_ALLOCATION_DESCRIPTOR NewDescriptor;
-    PLIST_ENTRY NextMd;
     ULONG AlignmentMask;
     ULONG AlignmentOffset;
+    PMEMORY_ALLOCATION_DESCRIPTOR BestFitDescriptor;
+    ULONG BestFitAlignmentOffset;
+    PMEMORY_ALLOCATION_DESCRIPTOR Descriptor;
+    PLIST_ENTRY NextMd;
     ULONG MaxPageAddress;
     ULONG PhysicalAddress;
 
@@ -73,8 +84,12 @@ Return Value:
 
     AlignmentMask = (__64K >> PAGE_SHIFT) - 1;
 
+    BestFitDescriptor = NULL;
+    BestFitAlignmentOffset = AlignmentMask + 1;
+
     //
-    // Scan the memory allocation descriptors and allocate map buffers
+    // Scan the memory allocation descriptors for an eligible descriptor from
+    // which we can allocate the requested block of memory.
     //
 
     NextMd = LoaderBlock->MemoryDescriptorListHead.Flink;
@@ -83,7 +98,7 @@ Return Value:
                                 MEMORY_ALLOCATION_DESCRIPTOR,
                                 ListEntry);
 
-        if( bAlignOn64k ){
+        if( AlignOn64k ){
 
             AlignmentOffset = 
                 ((Descriptor->BasePage + AlignmentMask) & ~AlignmentMask) - 
@@ -96,7 +111,7 @@ Return Value:
         }
 
         //
-        // Search for a block of memory which is contains a memory chuck
+        // Search for a block of memory which is contains a memory chunk
         // that is greater than size pages, and has a physical address less
         // than MAXIMUM_PHYSICAL_ADDRESS.
         //
@@ -108,81 +123,328 @@ Return Value:
              MaxPageAddress) ) 
         {
 
-                PhysicalAddress = (Descriptor->BasePage + AlignmentOffset) 
-                                  << PAGE_SHIFT;
+            //
+            // Check for a perfect fit where we need not split the descriptor
+            // because AlignmentOffset == 0.  No need to search further if
+            // there is a perfect fit.
+            //
+
+            if( AlignmentOffset == 0 ){
+                BestFitDescriptor = Descriptor;
+                BestFitAlignmentOffset = AlignmentOffset;
                 break;
+            }
+
+            //
+            // If not a perfect fit check for the best fit so far.
+            //
+
+            if( AlignmentOffset < BestFitAlignmentOffset ){
+                BestFitDescriptor = Descriptor;
+                BestFitAlignmentOffset = AlignmentOffset;
+            }
+
         }
 
         NextMd = NextMd->Flink;
     }
 
     //
-    // Use the extra descriptor to define the memory at the end of the
-    // orgial block.
+    // Verify that we have found an eligible descriptor.
     //
 
+    ASSERT( BestFitDescriptor != NULL );
 
-    ASSERT(NextMd != &LoaderBlock->MemoryDescriptorListHead);
-
-    if (NextMd == &LoaderBlock->MemoryDescriptorListHead)
+    if( BestFitDescriptor == NULL ){
         return (ULONG)NULL;
+    }
 
     //
-    // Adjust the memory descriptors.
+    // Compute the physical address of the memory block we have found.
     //
 
-    if (AlignmentOffset == 0) {
+    PhysicalAddress = (BestFitDescriptor->BasePage + BestFitAlignmentOffset) 
+                                  << PAGE_SHIFT;
+    //
+    // Adjust the memory descriptors to account for the memory we have
+    // allocated.
+    //
 
-        Descriptor->BasePage  += NoPages;
-        Descriptor->PageCount -= NoPages;
+    if (BestFitAlignmentOffset == 0) {
 
-        if (Descriptor->PageCount == 0) {
+        BestFitDescriptor->BasePage  += NoPages;
+        BestFitDescriptor->PageCount -= NoPages;
+
+        if (BestFitDescriptor->PageCount == 0) {
 
             //
             // The whole block was allocated,
             // Remove the entry from the list completely.
             //
 
-            RemoveEntryList(&Descriptor->ListEntry);
+            RemoveEntryList(&BestFitDescriptor->ListEntry);
 
         }
 
     } else {
 
-        if (Descriptor->PageCount - NoPages - AlignmentOffset) {
-
-            //
-            //  Currently we only allow one Align64K allocation
-            //
-            ASSERT (HalpExtraAllocationDescriptor.PageCount == 0);
-
-            //
-            // The extra descriptor is needed so intialize it and insert
-            // it in the list.
-            //
-            HalpExtraAllocationDescriptor.PageCount =
-                Descriptor->PageCount - NoPages - AlignmentOffset;
-
-            HalpExtraAllocationDescriptor.BasePage =
-                Descriptor->BasePage + NoPages + AlignmentOffset;
-
-            HalpExtraAllocationDescriptor.MemoryType = MemoryFree;
-            InsertTailList(
-                &Descriptor->ListEntry,
-                &HalpExtraAllocationDescriptor.ListEntry
-                );
-        }
-
-
         //
-        // Use the current entry as the descriptor for the first block.
+        // The descriptor will be split into 3 pieces, the beginning
+        // segment up to our allocation, our allocation, and the trailing
+        // segment.  We have one spare memory descriptor to handle this
+        // case, use it if it is not already used otherwise preserve as
+        // much memory as possible.
         //
 
-        Descriptor->PageCount = AlignmentOffset;
-    }
+        if( (BestFitDescriptor->PageCount - NoPages - BestFitAlignmentOffset) 
+            == 0 ){
+
+            //
+            // The third segment is empty, use the original descriptor to
+            // map the first segment.
+            //
+
+            BestFitDescriptor->PageCount -= NoPages;
+
+        } else {
+
+            if( HalpExtraAllocationDescriptor.PageCount == 0 ){
+
+                //
+                // The extra descriptor can be used to map the third segment.
+                //
+
+                HalpExtraAllocationDescriptor.PageCount =
+                    BestFitDescriptor->PageCount - NoPages - 
+                    BestFitAlignmentOffset;
+
+                HalpExtraAllocationDescriptor.BasePage = 
+                    BestFitDescriptor->BasePage + NoPages + 
+                    BestFitAlignmentOffset;
+
+                HalpExtraAllocationDescriptor.MemoryType = MemoryFree;
+
+                InsertTailList(
+                    &BestFitDescriptor->ListEntry,
+                    &HalpExtraAllocationDescriptor.ListEntry );
+
+                //
+                // Use the original descriptor to map the first segment.
+                //
+
+                BestFitDescriptor->PageCount = BestFitAlignmentOffset;
+
+            } else {
+
+                //
+                // We need to split the original descriptor into 3 segments
+                // but we've already used the spare descriptor.  Use the
+                // original descriptor to map the largest segment.
+                //
+
+                ULONG WastedPages;
+
+                if( (BestFitDescriptor->PageCount - BestFitAlignmentOffset -
+                     NoPages) > BestFitAlignmentOffset ){
+
+                    WastedPages = BestFitAlignmentOffset;
+
+                    //
+                    // Map the third segment using the original descriptor.
+                    //
+
+                    BestFitDescriptor->BasePage += BestFitAlignmentOffset + 
+                                                   NoPages;
+                    BestFitDescriptor->PageCount -= BestFitAlignmentOffset +
+                                                    NoPages;
+
+                } else {
+
+                    WastedPages = BestFitDescriptor->PageCount - 
+                                  BestFitAlignmentOffset - NoPages;
+
+                    //
+                    // Map the first segment using the original descriptor.
+                    //
+
+                    BestFitDescriptor->PageCount = BestFitAlignmentOffset;
+
+                } //end if( (BestFitDescriptor->PageCount - BestFitAlignm ...
+
+                //
+                // Report that we have had to waste pages.
+                //
+
+                DbgPrint( "HalpAllocPhysicalMemory: wasting %d pages\n",
+                          WastedPages );
+
+            } //end if( HalpExtraAllocationDescriptor.PageCount == 0 )
+
+        } //end if( (BestFitDescriptor->PageCount - NoPages - BestFitAlign ...
+
+    } //end if (BestFitAlignmentOffset == 0) 
+
 
     return PhysicalAddress;
 }
+
+ULONGLONG
+HalpGetMemorySize(
+    IN PLOADER_PARAMETER_BLOCK LoaderBlock
+    )
+/*++
+
+Routine Description:
+
+   Computes the size of the memory from the descriptor list.
+
+Arguments:
+
+    LoaderBlock - Supplies a pointer to the loader parameter block.
+
+
+Return Value:
+
+    Size of Memory in Bytes.
+
+--*/
+{
+    PMEMORY_ALLOCATION_DESCRIPTOR Descriptor;
+    PLIST_ENTRY NextMd;
+    ULONG PageCounts = 0;
+
+    //
+    // Scan the memory allocation descriptors and
+    // compute the Total pagecount
+    //
+
+    NextMd = LoaderBlock->MemoryDescriptorListHead.Flink;
+    while (NextMd != &LoaderBlock->MemoryDescriptorListHead) {
+
+        Descriptor = CONTAINING_RECORD(NextMd,
+                                MEMORY_ALLOCATION_DESCRIPTOR,
+                                ListEntry);
+
+        //
+        // ignore bad memory descriptors.
+        //
+        if(Descriptor->MemoryType != LoaderBad){
+            PageCounts += Descriptor->PageCount;
+        }
+
+
+        NextMd = NextMd->Flink;
+    }
+
+    return (PageCounts << PAGE_SHIFT) ;
+
+}
+
+TYPE_OF_MEMORY
+HalpGetMemoryType (
+    IN PLOADER_PARAMETER_BLOCK LoaderBlock,
+    IN ULONG PageAddress,
+    OUT PULONG EndPageAddressInDesc
+    )
+
+/*++
+
+Routine Description:
+
+    This routine checks to see how the specified address is mapped.
+
+Arguments:
+
+    LoaderBlock - Supplies a pointer to the loader parameter block.
+
+    PageAddress - The page address of memory to probe.
+
+Return Value:
+
+    The memory type of the specified address, if it is mapped.  If the
+    address is not mapped, then LoaderMaximum is returned.
+
+--*/
+
+{
+    PMEMORY_ALLOCATION_DESCRIPTOR Descriptor;
+    PLIST_ENTRY NextMd;
+    ULONG PageCounts = 0;
+    TYPE_OF_MEMORY MemoryType = LoaderMaximum;
+
+    NextMd = LoaderBlock->MemoryDescriptorListHead.Flink;
+    while (NextMd != &LoaderBlock->MemoryDescriptorListHead) {
+
+        Descriptor = CONTAINING_RECORD(NextMd,
+                                MEMORY_ALLOCATION_DESCRIPTOR,
+                                ListEntry);
+
+        if ((PageAddress >= Descriptor->BasePage) &&
+            (PageAddress <
+             Descriptor->BasePage + Descriptor->PageCount)) {
+
+            MemoryType = Descriptor->MemoryType;
+            *EndPageAddressInDesc = Descriptor->BasePage + 
+                                        Descriptor->PageCount - 1;
+            break;      // we found the descriptor.
+        }
+
+        NextMd = NextMd->Flink;
+    }
+    return MemoryType;
+}
+
+
+ULONGLONG
+HalpGetContiguousMemorySize(
+    IN PLOADER_PARAMETER_BLOCK LoaderBlock
+    )
+/*++
+
+Routine Description:
+
+   Computes the size of initial contiguous memory from the 
+   descriptor list.  Contiguous memory means, that there is
+   no hole or Bad memory in this range.
+
+Arguments:
+
+    LoaderBlock - Supplies a pointer to the loader parameter block.
+
+
+Return Value:
+
+    Size of Memory in Bytes.
+
+--*/
+{
+    PMEMORY_ALLOCATION_DESCRIPTOR Descriptor;
+    PLIST_ENTRY NextMd;
+    ULONG PageCounts = 0;
+    TYPE_OF_MEMORY MemoryType;
+    ULONG EndPageAddressInDesc = 0;
+
+    //
+    // Start from Page Address 0 and go until we hit a page
+    // with no descriptor or Bad Descriptor.
+    //
+
+    MemoryType = HalpGetMemoryType(LoaderBlock, 
+                            PageCounts,
+                            &EndPageAddressInDesc
+                            );
+    while(MemoryType != LoaderMaximum && MemoryType != LoaderBad){
+        PageCounts = EndPageAddressInDesc + 1;
+        MemoryType = HalpGetMemoryType(LoaderBlock, 
+                            PageCounts,
+                            &EndPageAddressInDesc
+                            );
+    }
+
+    return (PageCounts << PAGE_SHIFT) ;
+
+}
+
 
 #if HALDBG
 

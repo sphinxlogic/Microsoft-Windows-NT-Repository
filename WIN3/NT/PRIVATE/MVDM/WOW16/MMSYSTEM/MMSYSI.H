@@ -141,7 +141,7 @@ HDRVR NEAR PASCAL mmDrvOpen( LPSTR szAlias );
 
 ****************************************************************************/
 
-BOOL NEAR PASCAL JoyInit(void);
+BOOL FAR  PASCAL JoyInit(void);
 BOOL NEAR PASCAL TimeInit(void);
 
 BOOL NEAR PASCAL MCIInit(void);
@@ -418,11 +418,17 @@ typedef struct
 #endif //ifdef DEBUG
 } command_table_type;
 
+#define MCINODE_ISCLOSING       0x00000001   // Lock out all cmd's during close
+#define MCINODE_ISAUTOCLOSING   0x00010000   // Lock out all cmd's during close
+                                             // except internally generated close
+#define MCINODE_ISAUTOOPENED    0x00020000   // Device was auto opened
+#define MCINODE_16BIT_DRIVER    0x80000000   // Device is a 16-bit driver
+
 typedef struct {
     LPSTR   lpstrName;      // The name used in subsequent calls to
                             // mciSendString to refer to the device
     LPSTR   lpstrInstallName;// The device name from system.ini
-    DWORD   dwFlags;        // Flags set on open may be:
+    DWORD   dwMCIOpenFlags; // Flags set on open may be:
     DWORD   lpDriverData;   // DWORD of driver instance data
     DWORD   dwElementID;    // The element ID set by MCI_OPEN_ELEMENT_ID
     YIELDPROC fpYieldProc;  // The current yield procedure if any
@@ -439,10 +445,9 @@ typedef struct {
     HTASK   hCreatorTask;   // The task context the device is in
     HTASK   hOpeningTask;   // The task context which send the open command
     HDRVR   hDrvDriver;     // The installable driver handle
-    BOOL    bIsClosing;     // Set during a close to lock out other commands
-    BOOL    bIsAutoClosing; // Set during an auto-close to lock out other
-                            // commands except an internally generated close
+    DWORD   dwMCIFlags;     // Internal MCI flags
 } MCI_DEVICE_NODE;
+
 typedef MCI_DEVICE_NODE FAR      *LPMCI_DEVICE_NODE;
 typedef MCI_DEVICE_NODE BMCIHEAP *PMCI_DEVICE_NODE;
 
@@ -542,6 +547,9 @@ extern BOOL PASCAL NEAR mciExtractDeviceType (LPCSTR lpstrDeviceName,
 extern UINT NEAR PASCAL mciSetBreakKey (UINT wDeviceID, int nVirtKey, HWND hwndTrap);
 
 extern UINT NEAR PASCAL mciGetDeviceIDInternal (LPCSTR lpstrName, HTASK hTask);
+
+extern BOOL NEAR PASCAL Is16bitDrv(UINT wDeviceID);
+extern BOOL NEAR PASCAL CouldBe16bitDrv(UINT wDeviceID);
 
 // In mci.c
 extern DWORD FAR PASCAL mciRelaySystemString (LPMCI_SYSTEM_MESSAGE lpMessage);

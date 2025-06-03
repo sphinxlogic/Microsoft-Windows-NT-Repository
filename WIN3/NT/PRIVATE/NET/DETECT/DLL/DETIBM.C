@@ -36,6 +36,16 @@ Revision History:
 #include "detect.h"
 
 
+#if DBG
+
+#define	DBGPRINT(x)		DbgPrint x
+
+#else
+
+#define	DBGPRINT(x)
+
+#endif
+
 //
 // Individual card detection routines
 //
@@ -44,7 +54,10 @@ BOOLEAN
 IbmtokCardAt(
     IN INTERFACE_TYPE InterfaceType,
     IN ULONG BusNumber,
-    IN ULONG IoBaseAddress
+    IN ULONG IoBaseAddress,
+	OUT PUCHAR Interrupt,
+	OUT PULONG MemoryAddress,
+	OUT PULONG MemoryLength
     );
 
 
@@ -90,7 +103,24 @@ static ADAPTER_INFO Adapters[] = {
     {
         1000,
         L"IBMTOK",
-        L"IRQ\0002\000100\0IRQTYPE\0002\000100\0IOADDR\0001\000100\0IOADDRLENGTH\0002\000100\0MEMADDR\0002\000100\0MEMADDRLENGTH\0002\000100\0",
+        L"IRQ\0"
+        L"2\0"
+        L"100\0"
+        L"IRQTYPE\0"
+        L"2\0"
+        L"100\0"
+        L"IOADDR\0"
+        L"1\0"
+        L"100\0"
+        L"IOADDRLENGTH\0"
+        L"2\0"
+        L"100\0"
+        L"MEMADDR\0"
+        L"2\0"
+        L"100\0"
+        L"MEMADDRLENGTH\0"
+        L"2\0"
+        L"100\0",
         NULL,
         800
 
@@ -104,11 +134,15 @@ static ADAPTER_INFO Adapters[] = {
 // Structure for holding state of a search
 //
 
-typedef struct _SEARCH_STATE {
-
-    ULONG IoBaseAddress;
-
-} SEARCH_STATE, *PSEARCH_STATE;
+typedef struct _SEARCH_STATE
+{
+    ULONG	IoBaseAddress;
+	UCHAR	Interrupt;
+	ULONG	MemoryAddress;
+	ULONG	MemoryLength;
+}
+	SEARCH_STATE,
+	*PSEARCH_STATE;
 
 #define PRIMARY   0xA20
 #define SECONDARY 0xA24
@@ -125,19 +159,18 @@ static SEARCH_STATE SearchStates[sizeof(Adapters) / sizeof(ADAPTER_INFO)] = {0};
 //
 // Structure for holding a particular adapter's complete information
 //
-typedef struct _IBMTOK_ADAPTER {
-
-    LONG CardType;
-    INTERFACE_TYPE InterfaceType;
-    ULONG BusNumber;
-    ULONG IoBaseAddress;
-
-} IBMTOK_ADAPTER, *PIBMTOK_ADAPTER;
-
-
-
-
-
+typedef struct _IBMTOK_ADAPTER
+{
+    LONG			CardType;
+    INTERFACE_TYPE	InterfaceType;
+    ULONG			BusNumber;
+    ULONG			IoBaseAddress;
+	UCHAR			Interrupt;
+	ULONG			MemoryAddress;
+	ULONG			MemoryLength;
+}
+	IBMTOK_ADAPTER,
+	*PIBMTOK_ADAPTER;
 
 extern
 LONG
@@ -316,70 +349,80 @@ Return Value:
 --*/
 
 {
-    if ((InterfaceType != Isa) &&
-        (InterfaceType != Eisa)) {
+	NETDTECT_RESOURCE	Resource;
 
+    if ((InterfaceType != Isa) && (InterfaceType != Eisa))
+	{
         *lConfidence = 0;
         return(0);
-
     }
 
-    if (lNetcardId != 1000) {
-
+    if (lNetcardId != 1000)
+	{
         *lConfidence = 0;
         return(ERROR_INVALID_PARAMETER);
-
     }
 
     //
     // If fFirst, reset search state
     //
-
-    if (fFirst) {
-
+    if (fFirst)
+	{
         SearchStates[0].IoBaseAddress = PRIMARY;
 
-    } else if (SearchStates[0].IoBaseAddress == SECONDARY) {
-
+		//
+		//	We are the first isa nic so we acquire all
+		//	the isa ranges.
+		//
+		AcquireAllPcmciaResources();
+    }
+	else if (SearchStates[0].IoBaseAddress == SECONDARY)
+	{
         //
         // We've exhausted the possibilities
         //
-
         *lConfidence = 0;
         return(0);
-
-    } else {
-
-        SearchStates[0].IoBaseAddress = SECONDARY;
-
     }
+	else
+	{
+        SearchStates[0].IoBaseAddress = SECONDARY;
+    }
+
 
     //
     // Find an adapter
     //
-
-    if (!IbmtokCardAt(InterfaceType, BusNumber, SearchStates[0].IoBaseAddress)) {
-
+    if (!IbmtokCardAt(
+			InterfaceType,
+			BusNumber,
+			SearchStates[0].IoBaseAddress,
+			&SearchStates[0].Interrupt,
+			&SearchStates[0].MemoryAddress,
+			&SearchStates[0].MemoryLength))
+	{
         //
         // Try again.
         //
-
-        if (SearchStates[0].IoBaseAddress == SECONDARY) {
-
+        if (SearchStates[0].IoBaseAddress == SECONDARY)
+		{
             *lConfidence = 0;
             return(0);
-
         }
 
-        if (!IbmtokCardAt(InterfaceType, BusNumber, SECONDARY)) {
-
+        if (!IbmtokCardAt(
+				InterfaceType,
+				BusNumber,
+				SECONDARY,
+				&SearchStates[0].Interrupt,
+				&SearchStates[0].MemoryAddress,
+				&SearchStates[0].MemoryLength))
+		{
             *lConfidence = 0;
             return(0);
-
         }
 
         SearchStates[0].IoBaseAddress = SECONDARY;
-
     }
 
     //
@@ -394,13 +437,12 @@ Return Value:
     // NOTE: This presumes that there are < 129 buses in the
     // system. Is this reasonable?
     //
-
-    if (InterfaceType == Isa) {
-
+    if (InterfaceType == Isa)
+	{
         *ppvToken = (PVOID)0x8000;
-
-    } else {
-
+    }
+	else
+	{
         *ppvToken = (PVOID)0x0;
     }
 
@@ -448,16 +490,15 @@ Return Value:
     //
     // Get info from the token
     //
-
-    if (((ULONG)pvToken) & 0x8000) {
-
+    if (((ULONG)pvToken) & 0x8000)
+	{
         InterfaceType = Isa;
-
-    } else {
-
-        InterfaceType = Eisa;
-
     }
+	else
+	{
+        InterfaceType = Eisa;
+    }
+
 
     BusNumber = (ULONG)(((ULONG)pvToken >> 8) & 0x7F);
 
@@ -466,22 +507,19 @@ Return Value:
     //
     // Store information
     //
-
-    Handle = (PIBMTOK_ADAPTER)DetectAllocateHeap(
-                                 sizeof(IBMTOK_ADAPTER)
-                                 );
-
-    if (Handle == NULL) {
-
+    Handle = (PIBMTOK_ADAPTER)DetectAllocateHeap(sizeof(IBMTOK_ADAPTER));
+    if (Handle == NULL)
+	{
         return(ERROR_NOT_ENOUGH_MEMORY);
-
     }
 
     //
     // Copy across address
     //
-
     Handle->IoBaseAddress = SearchStates[(ULONG)AdapterNumber].IoBaseAddress;
+    Handle->Interrupt = SearchStates[(ULONG)AdapterNumber].Interrupt;
+    Handle->MemoryAddress = SearchStates[(ULONG)AdapterNumber].MemoryAddress;
+    Handle->MemoryLength = SearchStates[(ULONG)AdapterNumber].MemoryLength;
     Handle->CardType = Adapters[AdapterNumber].Index;
     Handle->InterfaceType = InterfaceType;
     Handle->BusNumber = BusNumber;
@@ -527,49 +565,54 @@ Return Value:
     PIBMTOK_ADAPTER Handle;
     LONG NumberOfAdapters;
     LONG i;
+	NETDTECT_RESOURCE	Resource;
 
-    if ((InterfaceType != Isa) &&
-        (InterfaceType != Eisa)) {
-
+    if ((InterfaceType != Isa) && (InterfaceType != Eisa))
+	{
         return(ERROR_INVALID_PARAMETER);
-
     }
 
     NumberOfAdapters = sizeof(Adapters) / sizeof(ADAPTER_INFO);
 
-    for (i=0; i < NumberOfAdapters; i++) {
-
-        if (Adapters[i].Index == lNetcardId) {
-
+    for (i = 0; i < NumberOfAdapters; i++)
+	{
+        if (Adapters[i].Index == lNetcardId)
+		{
             //
             // Store information
             //
-
-            Handle = (PIBMTOK_ADAPTER)DetectAllocateHeap(
-                                         sizeof(IBMTOK_ADAPTER)
-                                         );
-
-            if (Handle == NULL) {
-
+            Handle = (PIBMTOK_ADAPTER)DetectAllocateHeap(sizeof(IBMTOK_ADAPTER));
+            if (Handle == NULL)
+			{
                 return(ERROR_NOT_ENOUGH_MEMORY);
-
             }
 
             //
             // Copy across memory address
             //
-
             Handle->IoBaseAddress = PRIMARY;
+			Handle->Interrupt = 7;
+
             Handle->CardType = lNetcardId;
             Handle->InterfaceType = InterfaceType;
             Handle->BusNumber = BusNumber;
 
+			//
+			//	Acquire the port.
+			//
+			Resource.InterfaceType = InterfaceType;
+			Resource.BusNumber = BusNumber;
+			Resource.Type = NETDTECT_PORT_RESOURCE;
+			Resource.Value = PRIMARY;
+			Resource.Length = 0x4;
+			Resource.Flags = 0;
+		
+			DetectTemporaryClaimResource(&Resource);
+
             *ppvHandle = (PVOID)Handle;
 
             return(0);
-
         }
-
     }
 
     return(ERROR_INVALID_PARAMETER);
@@ -635,198 +678,14 @@ Return Value:
     PIBMTOK_ADAPTER Adapter = (PIBMTOK_ADAPTER)(pvHandle);
     NTSTATUS NtStatus;
     ULONG IoBaseAddress = 0;
-    UCHAR SwitchRead1;
-    UCHAR BoundaryNeeded;
-    UCHAR TempAddress;
-    UCHAR SharedRamBits;
-    ULONG SharedRamSize;
-    ULONG MemAddress;
-    ULONG MemLength;
-    UCHAR Interrupt;
     LONG OutputLengthLeft = cwchBuffSize;
     LONG CopyLength;
-
     ULONG StartPointer = (ULONG)pwchBuffer;
 
-
-    if ((Adapter->InterfaceType != Isa) &&
-        (Adapter->InterfaceType != Eisa)) {
-
+    if ((Adapter->InterfaceType != Isa) && (Adapter->InterfaceType != Eisa))
+	{
         return(ERROR_INVALID_PARAMETER);
-
     }
-
-    //
-    // Verify the IoBaseAddress
-    //
-
-    if (!IbmtokCardAt(Adapter->InterfaceType,
-                      Adapter->BusNumber,
-                      Adapter->IoBaseAddress
-                     )) {
-
-        if (Adapter->IoBaseAddress == PRIMARY) {
-
-            Adapter->IoBaseAddress = SECONDARY;
-
-        }
-
-        if (!IbmtokCardAt(Adapter->InterfaceType,
-                          Adapter->BusNumber,
-                          Adapter->IoBaseAddress
-                         )) {
-
-            if (cwchBuffSize < 2) {
-
-                return(ERROR_INSUFFICIENT_BUFFER);
-
-            }
-
-            wsprintf(pwchBuffer, L"\0");
-
-            return(0);
-
-        }
-
-    }
-
-    //
-    // Convert to the registry value
-    //
-
-    if (Adapter->IoBaseAddress == PRIMARY) {
-
-        IoBaseAddress = 1;
-
-    } else {
-
-        IoBaseAddress = 2;
-
-    }
-
-    //
-    // Now get the IRQ
-    //
-
-    //
-    // SwitchRead1 contains the interrupt code in the low 2 bits,
-    // and bits 18 through 13 of the MMIO address in the high
-    // 6 bits.
-    //
-
-    NtStatus = DetectReadPortUchar(Adapter->InterfaceType,
-                                   Adapter->BusNumber,
-                                   Adapter->IoBaseAddress,
-                                   &SwitchRead1
-                                  );
-
-    if (NtStatus != STATUS_SUCCESS) {
-
-        return(FALSE);
-
-    }
-
-    //
-    // Get the interrupt level...note that a switch being
-    // "off" shows up as a 1, "on" is 0.
-    //
-
-    switch (SwitchRead1 & 0x03) {
-
-        case 0: Interrupt = 2; break;
-        case 1: Interrupt = 3; break;
-        case 2: Interrupt = 6; break;
-        case 3: Interrupt = 7; break;
-
-    }
-
-
-    //
-    // Now get the MemoryMappedBaseAddress
-    //
-
-    //
-    // To compute MmioAddress, we mask off the low 2 bits of
-    // SwitchRead1, shift it out by 11 (so that the high 6 bits
-    // are moved to the right place), and add in the 19th bit value.
-    //
-
-    TempAddress = ((((SwitchRead1 & 0xfc) >> 1) | 0x80) + 0x02);
-    MemAddress = ((SwitchRead1 & 0xfc) << 11) | (1 << 19);
-
-    // NOTE:  RRR_HIGH                          0x1e01
-
-    NtStatus = DetectReadMappedMemory(Adapter->InterfaceType,
-                                      Adapter->BusNumber,
-                                      MemAddress + 0x1E01,
-                                      1,
-                                      &SharedRamBits
-                                     );
-
-    //
-    // Get memory size
-    //
-
-    SharedRamBits = ((SharedRamBits & 0x0c) >> 2);
-
-    switch (SharedRamBits) {
-
-        case 0:
-        case 1:
-
-            //
-            // 8K or 16K needs a 16K boundary.
-            //
-
-            SharedRamSize = (SharedRamBits == 0) ? 0x2000 : 0x4000;
-            BoundaryNeeded = 0x04;
-            break;
-
-        case 2:
-
-            //
-            // 32K needs a 32K boundary.
-            //
-
-            SharedRamSize = 0x8000;
-            BoundaryNeeded = 0x08;
-            break;
-
-        case 3:
-
-            //
-            // 64K needs a 64K boundary.
-            //
-
-            SharedRamSize = 0x10000;
-            BoundaryNeeded = 0x10;
-            break;
-
-    }
-
-
-    //
-    // If TempAddress is not on the proper boundary, move it
-    // forward until it is.
-    //
-
-    if (TempAddress & (BoundaryNeeded-1)) {
-
-        TempAddress = (UCHAR)
-          ((TempAddress & ~(BoundaryNeeded-1)) + BoundaryNeeded);
-
-    }
-
-    //
-    // Compute the total length
-    //
-
-    MemLength = (((ULONG)TempAddress) << 12) - MemAddress;
-    MemLength += SharedRamSize;
-
-    //
-    // Build resulting buffer
-    //
 
     //
     // First put in memory addr
@@ -835,19 +694,15 @@ Return Value:
     //
     // Copy in the title string
     //
-
     CopyLength = UnicodeStrLen(MemAddrString) + 1;
-
-    if (OutputLengthLeft < CopyLength) {
-
+    if (OutputLengthLeft < CopyLength)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     RtlMoveMemory((PVOID)pwchBuffer,
                   (PVOID)MemAddrString,
-                  (CopyLength * sizeof(WCHAR))
-                 );
+                  (CopyLength * sizeof(WCHAR)));
 
     pwchBuffer = &(pwchBuffer[CopyLength]);
     OutputLengthLeft -= CopyLength;
@@ -855,19 +710,15 @@ Return Value:
     //
     // Copy in the value
     //
-
-    if (OutputLengthLeft < 8) {
-
+    if (OutputLengthLeft < 8)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
-    CopyLength = wsprintf(pwchBuffer,L"0x%x",(ULONG)(MemAddress));
-
-    if (CopyLength < 0) {
-
+    CopyLength = wsprintf(pwchBuffer,L"0x%x", Adapter->MemoryAddress);
+    if (CopyLength < 0)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength++;  // Add in the \0
@@ -882,19 +733,15 @@ Return Value:
     //
     // Copy in the title string
     //
-
     CopyLength = UnicodeStrLen(MemLengthString) + 1;
-
-    if (OutputLengthLeft < CopyLength) {
-
+    if (OutputLengthLeft < CopyLength)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     RtlMoveMemory((PVOID)pwchBuffer,
                   (PVOID)MemLengthString,
-                  (CopyLength * sizeof(WCHAR))
-                 );
+                  (CopyLength * sizeof(WCHAR)));
 
     pwchBuffer = &(pwchBuffer[CopyLength]);
     OutputLengthLeft -= CopyLength;
@@ -902,19 +749,16 @@ Return Value:
     //
     // Copy in the value
     //
-
-    if (OutputLengthLeft < 8) {
-
+    if (OutputLengthLeft < 8)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
-    CopyLength = wsprintf(pwchBuffer,L"0x%x", MemLength);
+    CopyLength = wsprintf(pwchBuffer,L"0x%x", Adapter->MemoryLength);
 
-    if (CopyLength < 0) {
-
+    if (CopyLength < 0)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength++;  // Add in the \0
@@ -929,19 +773,16 @@ Return Value:
     //
     // Copy in the title string
     //
-
     CopyLength = UnicodeStrLen(IoAddrString) + 1;
 
-    if (OutputLengthLeft < CopyLength) {
-
+    if (OutputLengthLeft < CopyLength)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     RtlMoveMemory((PVOID)pwchBuffer,
                   (PVOID)IoAddrString,
-                  (CopyLength * sizeof(WCHAR))
-                 );
+                  (CopyLength * sizeof(WCHAR)));
 
     pwchBuffer = &(pwchBuffer[CopyLength]);
     OutputLengthLeft -= CopyLength;
@@ -949,19 +790,15 @@ Return Value:
     //
     // Copy in the value
     //
-
-    if (OutputLengthLeft < 6) {
-
+    if (OutputLengthLeft < 6)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
-    CopyLength = wsprintf(pwchBuffer,L"0x%x",IoBaseAddress);
-
-    if (CopyLength < 0) {
-
+    CopyLength = wsprintf(pwchBuffer,L"0x%x", ((Adapter->IoBaseAddress == PRIMARY) ? 1 : 2));
+    if (CopyLength < 0)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength++;  // Add in the \0
@@ -976,19 +813,16 @@ Return Value:
     //
     // Copy in the title string
     //
-
     CopyLength = UnicodeStrLen(IoLengthString) + 1;
 
-    if (OutputLengthLeft < CopyLength) {
-
+    if (OutputLengthLeft < CopyLength)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     RtlMoveMemory((PVOID)pwchBuffer,
                   (PVOID)IoLengthString,
-                  (CopyLength * sizeof(WCHAR))
-                 );
+                  (CopyLength * sizeof(WCHAR)));
 
     pwchBuffer = &(pwchBuffer[CopyLength]);
     OutputLengthLeft -= CopyLength;
@@ -996,19 +830,15 @@ Return Value:
     //
     // Copy in the value
     //
-
-    if (OutputLengthLeft < 4) {
-
+    if (OutputLengthLeft < 4)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength = wsprintf(pwchBuffer,L"0x4");
-
-    if (CopyLength < 0) {
-
+    if (CopyLength < 0)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength++;  // Add in the \0
@@ -1016,23 +846,19 @@ Return Value:
     pwchBuffer = &(pwchBuffer[CopyLength]);
     OutputLengthLeft -= CopyLength;
 
-
     //
     // Copy in the title string
     //
-
     CopyLength = UnicodeStrLen(IrqString) + 1;
 
-    if (OutputLengthLeft < CopyLength) {
-
+    if (OutputLengthLeft < CopyLength)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     RtlMoveMemory((PVOID)pwchBuffer,
                   (PVOID)IrqString,
-                  (CopyLength * sizeof(WCHAR))
-                 );
+                  (CopyLength * sizeof(WCHAR)));
 
     pwchBuffer = &(pwchBuffer[CopyLength]);
     OutputLengthLeft -= CopyLength;
@@ -1040,19 +866,16 @@ Return Value:
     //
     // Copy in the value
     //
-
-    if (OutputLengthLeft < 3) {
-
+    if (OutputLengthLeft < 3)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
-    CopyLength = wsprintf(pwchBuffer,L"%d",Interrupt);
+    CopyLength = wsprintf(pwchBuffer,L"%d", Adapter->Interrupt);
 
-    if (CopyLength < 0) {
-
+    if (CopyLength < 0)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength++;  // Add in the \0
@@ -1063,19 +886,16 @@ Return Value:
     //
     // Copy in the title string (IRQTYPE)
     //
-
     CopyLength = UnicodeStrLen(IrqTypeString) + 1;
 
-    if (OutputLengthLeft < CopyLength) {
-
+    if (OutputLengthLeft < CopyLength)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     RtlMoveMemory((PVOID)pwchBuffer,
                   (PVOID)IrqTypeString,
-                  (CopyLength * sizeof(WCHAR))
-                 );
+                  (CopyLength * sizeof(WCHAR)));
 
     pwchBuffer = &(pwchBuffer[CopyLength]);
     OutputLengthLeft -= CopyLength;
@@ -1083,11 +903,9 @@ Return Value:
     //
     // Copy in the value
     //
-
-    if (OutputLengthLeft < 2) {
-
+    if (OutputLengthLeft < 2)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     //
@@ -1096,10 +914,9 @@ Return Value:
     //
     CopyLength = wsprintf(pwchBuffer,L"0");
 
-    if (CopyLength < 0) {
-
+    if (CopyLength < 0)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength++;  // Add in the \0
@@ -1110,11 +927,9 @@ Return Value:
     //
     // Copy in final \0
     //
-
-    if (OutputLengthLeft < 1) {
-
+    if (OutputLengthLeft < 1)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength = (ULONG)pwchBuffer - StartPointer;
@@ -1154,16 +969,15 @@ Return Value:
     ULONG IoBaseAddress;
     WCHAR *Place;
     BOOLEAN Found;
+	NETDTECT_RESOURCE	Resource;
 
-    if ((Adapter->InterfaceType != Isa) &&
-        (Adapter->InterfaceType != Eisa)) {
-
+    if ((Adapter->InterfaceType != Isa) && (Adapter->InterfaceType != Eisa))
+	{
         return(ERROR_INVALID_DATA);
-
     }
 
-    if (Adapter->CardType == 1000) {
-
+    if (Adapter->CardType == 1000)
+	{
         //
         // Parse out the parameter.
         //
@@ -1171,13 +985,10 @@ Return Value:
         //
         // Get the IoBaseAddress
         //
-
         Place = FindParameterString(pwchBuffer, IoAddrString);
-
-        if (Place == NULL) {
-
+        if (Place == NULL)
+		{
             return(ERROR_INVALID_DATA);
-
         }
 
         Place += UnicodeStrLen(IoAddrString) + 1;
@@ -1185,39 +996,59 @@ Return Value:
         //
         // Now parse the thing.
         //
-
         ScanForNumber(Place, &IoBaseAddress, &Found);
-
-        if (Found == FALSE) {
-
+        if (Found == FALSE)
+		{
             return(ERROR_INVALID_DATA);
-
         }
-
-    } else {
-
+    }
+	else
+	{
         //
         // Error!
         //
-
         return(ERROR_INVALID_DATA);
-
     }
 
     //
     // Verify IoAddress
     //
+	if (IoBaseAddress != ((Adapter->IoBaseAddress == PRIMARY) ? (ULONG)1 : (ULONG)2))
+	{
+		UCHAR	Interrupt;
+		ULONG	MemoryAddress;
+		ULONG	MemoryLength;
 
-    if (!IbmtokCardAt(Adapter->InterfaceType,
-                      Adapter->BusNumber,
-                      (IoBaseAddress == 1)?PRIMARY:SECONDARY)) {
+		if (!IbmtokCardAt(Adapter->InterfaceType,
+						  Adapter->BusNumber,
+						  (IoBaseAddress == 1) ? PRIMARY : SECONDARY,
+						  &Interrupt,
+						  &MemoryAddress,
+						  &MemoryLength))
+		{
+			DBGPRINT(("IbmtokVerifyCfgHandler: Unable to find adapter!\n"));
+			return(ERROR_INVALID_DATA);
+		}
 
-        return(ERROR_INVALID_DATA);
+		//
+		//	Release the old io address and acquire the new one.
+		//
+		Resource.InterfaceType = Adapter->InterfaceType;
+		Resource.BusNumber = Adapter->BusNumber;
+		Resource.Type = NETDTECT_PORT_RESOURCE;
+		Resource.Value = Adapter->IoBaseAddress;
+		Resource.Length = 0x4;
+		Resource.Flags = 0;
 
-    }
+		DetectFreeSpecificTemporaryResource(&Resource);
+
+		Resource.Value = (IoBaseAddress == 1) ? PRIMARY : SECONDARY;
+		Adapter->IoBaseAddress = Resource.Value;
+
+		DetectTemporaryClaimResource(&Resource);
+	}
 
     return(0);
-
 }
 
 extern
@@ -1408,7 +1239,10 @@ BOOLEAN
 IbmtokCardAt(
     IN INTERFACE_TYPE InterfaceType,
     IN ULONG BusNumber,
-    IN ULONG IoBaseAddress
+    IN ULONG IoBaseAddress,
+	OUT PUCHAR Interrupt,
+	OUT PULONG MemoryAddress,
+	OUT PULONG MemoryLength
     )
 
 /*++
@@ -1439,7 +1273,7 @@ Return Value:
     //
     // Holds the value read from the SWITCH_READ_1 port.
     //
-    UCHAR SwitchRead1;
+	UCHAR   sfi;   // Note: SUPPORTED_FUNCTION_IDENTIFIERS  0x1FA0
 
     //
     // Holds the physical address of the MMIO region.
@@ -1461,11 +1295,19 @@ Return Value:
     //
     UINT i, j;
 
-    //
     // The values in memory
     //
     UCHAR Memory[48];
 
+	UCHAR				InterruptNumber;
+	NETDTECT_RESOURCE	Resource;
+    UCHAR SwitchRead1;
+    UCHAR BoundaryNeeded;
+    UCHAR TempAddress;
+    UCHAR SharedRamBits;
+    ULONG SharedRamSize;
+    ULONG MemAddress;
+    ULONG MemLength;
 
     //
     // Check for resource conflict
@@ -1473,13 +1315,11 @@ Return Value:
     NtStatus = DetectCheckPortUsage(InterfaceType,
                                     BusNumber,
                                     IoBaseAddress,
-                                    0x4
-                                   );
-
-    if (NtStatus != STATUS_SUCCESS) {
-
+                                    0x4);
+    if (NtStatus != STATUS_SUCCESS)
+	{
+		DBGPRINT(("IbmtokCardAt: Looks like IoBaseAddress 0x%x is already in use.\n"));
         return(FALSE);
-
     }
 
     //
@@ -1487,17 +1327,14 @@ Return Value:
     // and bits 18 through 13 of the MMIO address in the high
     // 6 bits.
     //
-
     NtStatus = DetectReadPortUchar(InterfaceType,
                                    BusNumber,
                                    IoBaseAddress,
-                                   &SwitchRead1
-                                  );
-
-    if (NtStatus != STATUS_SUCCESS) {
-
+                                   &SwitchRead1);
+    if (NtStatus != STATUS_SUCCESS)
+	{
+		DBGPRINT(("IbmtokCardAt: Unable to read SwitchRead1\n"));
         return(FALSE);
-
     }
 
     //
@@ -1505,7 +1342,6 @@ Return Value:
     // SwitchRead1, shift it out by 11 (so that the high 6 bits
     // are moved to the right place), and add in the 19th bit value.
     //
-
     MmioAddress = ((SwitchRead1 & 0xfc) << 11) | (1 << 19);
 
     if ((((MmioAddress & 0xF0000) != 0xC0000) &&
@@ -1520,14 +1356,12 @@ Return Value:
          ((MmioAddress & 0x0F000) != 0x0C000) &&
          ((MmioAddress & 0x0F000) != 0x0E000)) ||
 
-        ((MmioAddress & 0x00FFF) != 0x0)) {
-
+        ((MmioAddress & 0x00FFF) != 0x0))
+	{
         //
         // Definitely NOT!
         //
-
         return(FALSE);
-
     }
 
     //
@@ -1541,13 +1375,11 @@ Return Value:
                                       BusNumber,
                                       MmioAddress + 0x1F30,
                                       48,
-                                      Memory
-                                     );
-
-    if (NtStatus != STATUS_SUCCESS) {
-
+                                      Memory);
+    if (NtStatus != STATUS_SUCCESS)
+	{
+		DBGPRINT(("IbmtokCardAt: Unable to read mapped memory\n"));
         return(FALSE);
-
     }
 
     //
@@ -1557,31 +1389,190 @@ Return Value:
     // in a very odd manner.  There are 48 bytes on the card.  The
     // even numbered bytes contain 4 bits of the card signature.
     //
-
-    for (i=0; i<3; i++) {
-
+    for (i = 0; i < 3; i++)
+	{
         AdapterId[i] = 0;
 
-        for (j=0; j<16; j+=2) {
-
-            AdapterId[i] = (AdapterId[i] << 4) +
-                                 Memory[(i*16 + j)];
-
-
+        for (j = 0; j < 16; j += 2)
+		{
+            AdapterId[i] = (AdapterId[i] << 4) + Memory[(i * 16 + j)];
         }
-
     }
 
-    if ((AdapterId[0] == PcIoBusId[0]) &&
-        (AdapterId[1] == PcIoBusId[1]) &&
-        (AdapterId[2] == PcIoBusId[2])) {
+	if ((AdapterId[0] != PcIoBusId[0]) ||
+		(AdapterId[1] != PcIoBusId[1]) ||
+		(AdapterId[2] != PcIoBusId[2]))
+	{
+		DBGPRINT(("IbmtokCardAt: Invalid AdapterId\n"));
+		return(FALSE);
+	}
 
-        return(TRUE);
+	//
+	// Old, non-auto16/4 ISA cards will have
+	// Support Function Ids values greater than 0x0C.
+	// Any new cards will (such as the Auto16/4 card)
+	// will have value less or equal to 0x0C.
+	//
+	NtStatus = DetectReadMappedMemory(InterfaceType,
+									  BusNumber,
+									  MmioAddress + 0x1FA0,
+									  1,
+									  &sfi);
+	if (NtStatus != STATUS_SUCCESS)
+	{
+		DBGPRINT(("IbmtokCardAt: Failed read the Support Function Id to determine card type\n"));
+		return(FALSE);
+	}
+																	
+	if (sfi <= 0x0C)
+	{
+		//
+		// a sfi value > 0x0C indicates old ISA TR
+		//
+		DBGPRINT(("IbmtokCardAt: Invalid Support Function Id 0x%x\n", sfi));
+		return(FALSE);
+	}
 
+	//
+	//	Acquire the io port
+	//
+	Resource.InterfaceType = InterfaceType;
+	Resource.BusNumber = BusNumber;
+	Resource.Type = NETDTECT_PORT_RESOURCE;
+	Resource.Value = IoBaseAddress;
+	Resource.Length = 0x4;
+	Resource.Flags = 0;
+
+	DetectTemporaryClaimResource(&Resource);
+
+    //
+    // Now get the IRQ
+    //
+	
+    //
+    // SwitchRead1 contains the interrupt code in the low 2 bits,
+    // and bits 18 through 13 of the MMIO address in the high
+    // 6 bits.
+    //
+    NtStatus = DetectReadPortUchar(
+					InterfaceType,
+					BusNumber,
+					IoBaseAddress,
+					&SwitchRead1);
+    if (NtStatus != STATUS_SUCCESS)
+	{
+   		DBGPRINT(("Failed to read the SwitchRead1 (second time)\n"));
+        return(FALSE);
     }
 
-    return(FALSE);
+    //
+    // Get the interrupt level...note that a switch being
+    // "off" shows up as a 1, "on" is 0.
+    //
+    switch (SwitchRead1 & 0x03)
+	{
+		case 0: InterruptNumber = 2; break;
+        case 1: InterruptNumber = 3; break;
+        case 2: InterruptNumber = 6; break;
+        case 3: InterruptNumber = 7; break;
+    }
 
+	//
+	//	Acquire the interrupt.
+	//
+	Resource.Type = NETDTECT_IRQ_RESOURCE;
+	Resource.Value = InterruptNumber;
+	Resource.Length = 0;
+	Resource.Flags = 0;
+
+	DetectTemporaryClaimResource(&Resource);
+
+	*Interrupt = InterruptNumber;
+
+    //
+    // Now get the MemoryMappedBaseAddress
+    //
+
+    //
+    // To compute MmioAddress, we mask off the low 2 bits of
+    // SwitchRead1, shift it out by 11 (so that the high 6 bits
+    // are moved to the right place), and add in the 19th bit value.
+    //
+    TempAddress = ((((SwitchRead1 & 0xfc) >> 1) | 0x80) + 0x02);
+    MemAddress = ((SwitchRead1 & 0xfc) << 11) | (1 << 19);
+
+    // NOTE:  RRR_HIGH                          0x1e01
+
+    NtStatus = DetectReadMappedMemory(InterfaceType,
+                                      BusNumber,
+                                      MemAddress + 0x1E01,
+                                      1,
+                                      &SharedRamBits);
+    //
+    // Get memory size
+    //
+    SharedRamBits = ((SharedRamBits & 0x0c) >> 2);
+
+    switch (SharedRamBits)
+	{
+        case 0:
+        case 1:
+
+            //
+            // 8K or 16K needs a 16K boundary.
+            //
+            SharedRamSize = (SharedRamBits == 0) ? 0x2000 : 0x4000;
+            BoundaryNeeded = 0x04;
+            break;
+
+        case 2:
+
+            //
+            // 32K needs a 32K boundary.
+            //
+            SharedRamSize = 0x8000;
+            BoundaryNeeded = 0x08;
+            break;
+
+        case 3:
+
+            //
+            // 64K needs a 64K boundary.
+            //
+            SharedRamSize = 0x10000;
+            BoundaryNeeded = 0x10;
+            break;
+    }
+
+    //
+    // If TempAddress is not on the proper boundary, move it
+    // forward until it is.
+    //
+    if (TempAddress & (BoundaryNeeded-1))
+	{
+        TempAddress = (UCHAR)((TempAddress & ~(BoundaryNeeded-1)) + BoundaryNeeded);
+    }
+
+    //
+    // Compute the total length
+    //
+    MemLength = (((ULONG)TempAddress) << 12) - MemAddress;
+    MemLength += SharedRamSize;
+
+	//
+	//	Acquire the memory range.
+	//
+	Resource.Type = NETDTECT_MEMORY_RESOURCE;
+	Resource.Value = MemAddress;
+	Resource.Length = MemLength;
+	Resource.Flags = 0;
+
+	DetectTemporaryClaimResource(&Resource);
+
+	*MemoryAddress = MemAddress;
+	*MemoryLength = MemLength;
+
+	return(TRUE);
 }
 
 

@@ -251,6 +251,7 @@ Notes:
 //              SE_AUDITID_AUTH_PACKAGE_LOAD                               //
 //              SE_AUDITID_LOGON_PROC_REGISTER                             //
 //              SE_AUDITID_AUDITS_DISCARDED                                //
+//              SE_AUDITID_NOTIFY_PACKAGE_LOAD                             //
 //                                                                         //
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -403,6 +404,30 @@ Notes:
 //
 #define SE_AUDITID_AUDIT_LOG_CLEARED     ((ULONG)0x00000205L)
 
+//
+//
+// SE_AUDITID_SYSTEM_NOTIFY_PACKAGE_LOAD
+//
+//          Category:  SE_CATEGID_SYSTEM
+//
+// Parameter Strings -
+//
+//          1 - Notification Package Name
+//
+//
+//
+//
+// MessageId: SE_AUDITID_NOTIFY_PACKAGE_LOAD
+//
+// MessageText:
+//
+//  An notification package has been loaded by the Security Account Manager.
+//  This package will be notified of any account or password changes.
+//  %n
+//  Notification Package Name:%t%1
+//
+#define SE_AUDITID_NOTIFY_PACKAGE_LOAD   ((ULONG)0x00000206L)
+
 
 /////////////////////////////////////////////////////////////////////////////
 //                                                                         //
@@ -460,7 +485,8 @@ Notes:
 //  %tLogon ID:%t%t%3%n
 //  %tLogon Type:%t%4%n
 //  %tLogon Process:%t%5%n
-//  %tAuthentication Package:%t%6
+//  %tAuthentication Package:%t%6%n
+//  %tWorkstation Name:%t%7
 //
 #define SE_AUDITID_SUCCESSFUL_LOGON      ((ULONG)0x00000210L)
 
@@ -494,7 +520,8 @@ Notes:
 //  %tDomain:%t%t%2%n
 //  %tLogon Type:%t%3%n
 //  %tLogon Process:%t%4%n
-//  %tAuthentication Package:%t%5
+//  %tAuthentication Package:%t%5%n
+//  %tWorkstation Name:%t%6
 //
 #define SE_AUDITID_UNKNOWN_USER_OR_PWD   ((ULONG)0x00000211L)
 
@@ -528,7 +555,8 @@ Notes:
 //  %tDomain:%t%2%n
 //  %tLogon Type:%t%3%n
 //  %tLogon Process:%t%4%n
-//  %tAuthentication Package:%t%5
+//  %tAuthentication Package:%t%5%n
+//  %tWorkstation Name:%t%6
 //
 #define SE_AUDITID_ACCOUNT_TIME_RESTR    ((ULONG)0x00000212L)
 
@@ -562,7 +590,8 @@ Notes:
 //  %tDomain:%t%t%2%n
 //  %tLogon Type:%t%3%n
 //  %tLogon Process:%t%4%n
-//  %tAuthentication Package:%t%5
+//  %tAuthentication Package:%t%5%n
+//  %tWorkstation Name:%t%6
 //
 #define SE_AUDITID_ACCOUNT_DISABLED      ((ULONG)0x00000213L)
 
@@ -596,7 +625,8 @@ Notes:
 //  %tDomain:%t%t%2%n
 //  %tLogon Type:%t%3%n
 //  %tLogon Process:%t%4%n
-//  %tAuthentication Package:%t%5
+//  %tAuthentication Package:%t%5%n
+//  %tWorkstation Name:%t%6
 //
 #define SE_AUDITID_ACCOUNT_EXPIRED       ((ULONG)0x00000214L)
 
@@ -630,7 +660,8 @@ Notes:
 //  %tDomain:%t%2%n
 //  %tLogon Type:%t%3%n
 //  %tLogon Process:%t%4%n
-//  %tAuthentication Package:%t%5
+//  %tAuthentication Package:%t%5%n
+//  %tWorkstation Name:%t%6
 //
 #define SE_AUDITID_WORKSTATION_RESTR     ((ULONG)0x00000215L)
 
@@ -665,7 +696,8 @@ Notes:
 //  %tDomain:%t%t%2%n
 //  %tLogon Type:%t%3%n
 //  %tLogon Process:%t%4%n
-//  %tAuthentication Package:%t%5
+//  %tAuthentication Package:%t%5%n
+//  %tWorkstation Name:%t%6
 //
 #define SE_AUDITID_LOGON_TYPE_RESTR      ((ULONG)0x00000216L)
 
@@ -699,7 +731,8 @@ Notes:
 //  %tDomain:%t%t%2%n
 //  %tLogon Type:%t%3%n
 //  %tLogon Process:%t%4%n
-//  %tAuthentication Package:%t%5
+//  %tAuthentication Package:%t%5%n
+//  %tWorkstation Name:%t%6
 //
 #define SE_AUDITID_PASSWORD_EXPIRED      ((ULONG)0x00000217L)
 
@@ -733,7 +766,8 @@ Notes:
 //  %tDomain:%t%t%2%n
 //  %tLogon Type:%t%3%n
 //  %tLogon Process:%t%4%n
-//  %tAuthentication Package:%t%5
+//  %tAuthentication Package:%t%5%n
+//  %tWorkstation Name:%t%6
 //
 #define SE_AUDITID_NETLOGON_NOT_STARTED  ((ULONG)0x00000218L)
 
@@ -764,10 +798,11 @@ Notes:
 //  Logon Failure:%n
 //  %tReason:%t%tAn unexpected error occured during logon%n
 //  %tUser Name:%t%1%n
-//  %tDomain:%t%2%n
+//  %tDomain:%t%t%2%n
 //  %tLogon Type:%t%3%n
 //  %tLogon Process:%t%4%n
-//  %tAuthentication Package:%t%5
+//  %tAuthentication Package:%t%5%n
+//  %tWorkstation Name:%t%6
 //
 #define SE_AUDITID_UNSUCCESSFUL_LOGON    ((ULONG)0x00000219L)
 
@@ -832,7 +867,8 @@ Notes:
 //  %tDomain:%t%2%n
 //  %tLogon Type:%t%3%n
 //  %tLogon Process:%t%4%n
-//  %tAuthentication Package:%t%5
+//  %tAuthentication Package:%t%5%n
+//  %tWorkstation Name:%t%6
 //
 #define SE_AUDITID_ACCOUNT_LOCKED        ((ULONG)0x0000021BL)
 
@@ -845,6 +881,8 @@ Notes:
 //   Event IDs:                                                            //
 //              SE_AUDITID_OPEN_HANDLE                                     //
 //              SE_AUDITID_CLOSE_HANDLE                                    //
+//              SE_AUDITID_OPEN_OBJECT_FOR_DELETE                          //
+//              SE_AUDITID_DELETE_OBJECT                                   //
 //                                                                         //
 //                                                                         //
 //                                                                         //
@@ -964,6 +1002,93 @@ Notes:
 //  %tProcess ID:%t%3%n
 //
 #define SE_AUDITID_CLOSE_HANDLE          ((ULONG)0x00000232L)
+
+//
+//
+// SE_AUDITID_OPEN_OBJECT_FOR_DELETE
+//
+//          Category:  SE_CATEGID_OBJECT_ACCESS
+//
+// Parameter Strings -
+//
+//             1 - Object Type string
+//
+//             2 - Object name
+//
+//             3 - New handle ID string
+//
+//             4 - Object server name
+//
+//             5 - Process ID string
+//
+//             6 - Primary user account name
+//
+//             7 - Primary authenticating domain name
+//
+//             8 - Primary logon ID string
+//
+//             9 - Client user account name ("-" if no client)
+//
+//            10 - Client authenticating domain name ("-" if no client)
+//
+//            11 - Client logon ID string ("-" if no client)
+//
+//            12 - Access names
+//
+//
+//
+//
+//
+// MessageId: SE_AUDITID_OPEN_OBJECT_FOR_DELETE
+//
+// MessageText:
+//
+//  Object Open for Delete:%n
+//  %tObject Server:%t%1%n
+//  %tObject Type:%t%2%n
+//  %tObject Name:%t%3%n
+//  %tNew Handle ID:%t%4%n
+//  %tOperation ID:%t{%5,%6}%n
+//  %tProcess ID:%t%7%n
+//  %tPrimary User Name:%t%8%n
+//  %tPrimary Domain:%t%9%n
+//  %tPrimary Logon ID:%t%10%n
+//  %tClient User Name:%t%11%n
+//  %tClient Domain:%t%12%n
+//  %tClient Logon ID:%t%13%n
+//  %tAccesses%t%t%14%n
+//  %tPrivileges%t%t%15%n
+//
+#define SE_AUDITID_OPEN_OBJECT_FOR_DELETE ((ULONG)0x00000233L)
+
+//
+//
+// SE_AUDITID_DELETE_OBJECT
+//
+//          Category:  SE_CATEGID_OBJECT_ACCESS
+//
+// Parameter Strings -
+//
+//             1 - Object server name
+//
+//             2 - Handle ID string
+//
+//             3 - Process ID string
+//
+//
+//
+//
+//
+// MessageId: SE_AUDITID_DELETE_OBJECT
+//
+// MessageText:
+//
+//  Object Deleted:%n
+//  %tObject Server:%t%1%n
+//  %tHandle ID:%t%2%n
+//  %tProcess ID:%t%3%n
+//
+#define SE_AUDITID_DELETE_OBJECT         ((ULONG)0x00000234L)
 
 
 /////////////////////////////////////////////////////////////////////////////
@@ -1682,7 +1807,7 @@ Notes:
 //  %tCaller User Name:%t%4%n
 //  %tCaller Domain:%t%5%n
 //  %tCaller Logon ID:%t%6%n
-//  %Privileges:%t%7%n
+//  %tPrivileges:%t%7%n
 //
 #define SE_AUDITID_USER_PWD_CHANGED      ((ULONG)0x00000273L)
 
@@ -1791,7 +1916,7 @@ Notes:
 //  %tCaller User Name:%t%4%n
 //  %tCaller Domain:%t%5%n
 //  %tCaller Logon ID:%t%6%n
-//  %Privileges:%t%7%n
+//  %tPrivileges:%t%7%n
 //
 #define SE_AUDITID_USER_DELETED          ((ULONG)0x00000276L)
 
@@ -1868,6 +1993,7 @@ Notes:
 //  %tCaller User Name:%t%5%n
 //  %tCaller Domain:%t%6%n
 //  %tCaller Logon ID:%t%7%n
+//  %tPrivileges:%t%8%n
 //
 #define SE_AUDITID_GLOBAL_GROUP_ADD      ((ULONG)0x00000278L)
 
@@ -1907,7 +2033,7 @@ Notes:
 //  %tCaller User Name:%t%5%n
 //  %tCaller Domain:%t%6%n
 //  %tCaller Logon ID:%t%7%n
-//  %Privileges:%t%8%n
+//  %tPrivileges:%t%8%n
 //
 #define SE_AUDITID_GLOBAL_GROUP_REM      ((ULONG)0x00000279L)
 
@@ -2246,7 +2372,7 @@ Notes:
 //  %tCaller User Name:%t%4%n
 //  %tCaller Domain:%t%5%n
 //  %tCaller Logon ID:%t%6%n
-//  %Privileges:%t%7%n
+//  %tPrivileges:%t%7%n
 //
 #define SE_AUDITID_USER_CHANGE           ((ULONG)0x00000282L)
 

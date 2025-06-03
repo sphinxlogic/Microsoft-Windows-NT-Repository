@@ -23,6 +23,7 @@ Revision History:
 
 #define MSG_PERF_MESSAGE  WM_USER
 #define MSG_PERF_MESSAGE2 (WM_USER+1)
+#define MSG_PERF_MESSAGE3 (WM_USER+2)
 
 #define CLASS "MainWClass"
 #define TITLE "WMSG Server"

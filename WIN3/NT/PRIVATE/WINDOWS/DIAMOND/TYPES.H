@@ -26,9 +26,9 @@ typedef unsigned long  DWORD;   /* dw */
 #ifdef _DEBUG
 // don't hide statics from map during debugging
 #define STATIC
-#else // !DEBUG
+#else // !_DEBUG
 #define STATIC static
-#endif // !DEBUG
+#endif // !_DEBUG
 
 #ifndef TRUE
 #define TRUE    1
@@ -57,4 +57,4 @@ typedef unsigned long  DWORD;   /* dw */
 #endif // !NEEDS_ALIGNMENT
 
 #endif // !INCLUDED_TYPES
-
+

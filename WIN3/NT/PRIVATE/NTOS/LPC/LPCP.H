@@ -22,25 +22,25 @@ Revision History:
 #include <zwapi.h>
 
 //
-// Global SpinLock to guard the following fields:
+// Global Mutex to guard the following fields:
 //
 //  ETHREAD.LpcReplyMsg
 //  LPCP_PORT_QUEUE.ReceiveHead
 //
-// Spinlock is never held longer than is necessary to modify or read the field.
-// In some cases the ExInterlocked routines are used instead of acquiring and
-// releasing the spinlock.
+// Mutex is never held longer than is necessary to modify or read the field.
 //
 
-extern KSPIN_LOCK LpcpLock;
+extern FAST_MUTEX LpcpLock;
 LPCP_PORT_ZONE LpcpZone;
-LPCP_PORT_ZONE LpcpSmallZone;
-ULONG LpcpSmallMessageThreshold;
 BOOLEAN LpcpRequestMsgType[];
 ULONG LpcpNextMessageId;
+ULONG LpcpNextCallbackId;
 
 #define LpcpGenerateMessageId() \
     LpcpNextMessageId++;    if (LpcpNextMessageId == 0) LpcpNextMessageId = 1;
+
+#define LpcpGenerateCallbackId() \
+    LpcpNextCallbackId++;    if (LpcpNextCallbackId == 0) LpcpNextCallbackId = 1;
 
 
 #if DEVL
@@ -52,6 +52,16 @@ ULONG LpcpTotalNumberOfMessages;
 //
 
 VOID
+LpcpClosePort(
+    IN PEPROCESS Process OPTIONAL,
+    IN PVOID Object,
+    IN ACCESS_MASK GrantedAccess,
+    IN ULONG ProcessHandleCount,
+    IN ULONG SystemHandleCount
+    );
+
+
+VOID
 LpcpDeletePort(
     IN PVOID Object
     );
@@ -61,14 +71,15 @@ LpcpDeletePort(
 // Entry points defined in lpcqueue.c
 //
 
-VOID
+NTSTATUS
 LpcpInitializePortQueue(
     IN PLPCP_PORT_OBJECT Port
     );
 
 VOID
 LpcpDestroyPortQueue(
-    IN PLPCP_PORT_OBJECT Port
+    IN PLPCP_PORT_OBJECT Port,
+    IN BOOLEAN CleanupAndDestroy
     );
 
 NTSTATUS
@@ -80,7 +91,7 @@ LpcpInitializePortZone(
 
 NTSTATUS
 LpcpExtendPortZone(
-    IN PKIRQL OldIrql
+    VOID
     );
 
 //
@@ -155,25 +166,46 @@ ObReferenceObjectByHandle( (PortHandle),                            \
 PLPCP_MESSAGE
 FASTCALL
 LpcpAllocateFromPortZone(
-    ULONG Size,
-    PKIRQL OldIrql OPTIONAL
+    ULONG Size
     );
 
 VOID
 FASTCALL
 LpcpFreeToPortZone(
     IN PLPCP_MESSAGE Msg,
-    IN BOOLEAN SpinlockOwned
+    IN BOOLEAN MutexOwned
+    );
+
+VOID
+LpcpSaveDataInfoMessage(
+    IN PLPCP_PORT_OBJECT Port,
+    PLPCP_MESSAGE Msg
+    );
+
+VOID
+LpcpFreeDataInfoMessage(
+    IN PLPCP_PORT_OBJECT Port,
+    IN ULONG MessageId,
+    IN ULONG CallbackId
     );
 
 PLPCP_MESSAGE
 LpcpFindDataInfoMessage(
     IN PLPCP_PORT_OBJECT Port,
     IN ULONG MessageId,
-    IN BOOLEAN RemoveFromList
+    IN ULONG CallbackId
     );
 
+
 #if DBG
+#define ENABLE_LPC_TRACING 1
+#else
+#define ENABLE_LPC_TRACING 0
+#endif
+
+#if ENABLE_LPC_TRACING
+BOOLEAN LpcpStopOnReplyMismatch;
+BOOLEAN LpcpTraceMessages;
 
 char *LpcpMessageTypeName[];
 
@@ -188,11 +220,11 @@ LpcpGetCreatorName(
                                  );                                         \
                          DbgPrint _x_
 
-#define LpcpTrace( _x_ ) if (NtGlobalFlag & FLG_LPC_TRACE_MESSAGES) { LpcpPrint( _x_ ); }
+#define LpcpTrace( _x_ ) if (LpcpTraceMessages) { LpcpPrint( _x_ ); }
 
 #else
 
 #define LpcpPrint( _x_ )
 #define LpcpTrace( _x_ )
 
-#endif
+#endif // ENABLE_LPC_TRACING

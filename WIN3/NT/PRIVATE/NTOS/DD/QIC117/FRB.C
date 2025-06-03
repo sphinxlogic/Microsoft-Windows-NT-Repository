@@ -178,6 +178,8 @@ cms_IoCtl(
                     context->DeviceSelected = (UserRequest->hdr.driver_cmd == CMD_SELECT_DEVICE);
 
                 case CMD_REPORT_DEVICE_CFG:
+                case CMD_REPORT_DEVICE_INFO:
+                case CMD_LOCATE_DEVICE:
                 case CMD_LOAD_TAPE:
                 case CMD_UNLOAD_TAPE:
                 case CMD_SET_SPEED:
@@ -700,7 +702,6 @@ cms_GetCmdResult(
                     }
                 }
 
-                KeAcquireSpinLock(&poolLock, &currentIrql);
                 if (!status) {
 
                     CheckedDump(DEBUG_LEVEL1,("cms_GetCmdResult: Queuing as %x\n",ioPending));
@@ -712,7 +713,6 @@ cms_GetCmdResult(
                     //
                     // Fail the request
                     //
-                    KeReleaseSpinLock(&poolLock, currentIrql);
                     ioPending->drv_request.x.adi_hdr.status = status;
                     cms_CompleteRequest(ioPending, ioPending->Irp, STATUS_SUCCESS, FALSE);
 
@@ -721,6 +721,7 @@ cms_GetCmdResult(
                     //
                     //  put item in active list for lower level driver
                     //
+                    KeAcquireSpinLock(&poolLock, &currentIrql);
                     InsertTailList(&topIoActive,&ioPending->IoListEntry);
                     KeReleaseSpinLock(&poolLock, currentIrql);
 
@@ -744,9 +745,15 @@ cms_GetCmdResult(
                         break;
                     }
 
+                    //
+                    // We don't want to be at raised IRQL when we are
+                    // queueing the request (this must be done at PASSIVE_LEVEL)
+                    // So,  release the spin lock,  and queue the request
+                    //
+                    KeReleaseSpinLock(&poolLock, currentIrql);
                     CheckedDump(DEBUG_LEVEL1,("cms_GetCmdResult: Queuing as %x\n",ioPending));
-                    status = q117ReqIO(&ioPending->drv_request, NULL, cms_IoCompletionRoutine, ioPending,  context );
 
+                    status = q117ReqIO(&ioPending->drv_request, NULL, cms_IoCompletionRoutine, ioPending,  context );
                     if (status) {
 
                         //
@@ -754,9 +761,11 @@ cms_GetCmdResult(
                         //
                         ioPending->drv_request.x.adi_hdr.status = status;
                         cms_CompleteRequest(ioPending, ioPending->Irp, STATUS_SUCCESS, FALSE);
+                        KeAcquireSpinLock(&poolLock, &currentIrql);
 
                     } else {
 
+                        KeAcquireSpinLock(&poolLock, &currentIrql);
                         //
                         // Request is now in progress,  so put it on the
                         // Pending queue
@@ -1013,7 +1022,11 @@ dStatus cms_SendAbortRequest(
         // and the user is notified)
         //
         ioPending->drv_request.x.adi_hdr.status = ERROR_ENCODE(ERR_ABORT, FCT_ID, 1);
+
+        // release the spin lock,  complete the request,  and re-aquire spinlock
+        KeReleaseSpinLock(&poolLock, currentIrql);
         cms_CompleteRequest(ioPending, ioPending->Irp, STATUS_SUCCESS, FALSE);
+        KeAcquireSpinLock(&poolLock, &currentIrql);
     }
     KeReleaseSpinLock(&poolLock, currentIrql);
 

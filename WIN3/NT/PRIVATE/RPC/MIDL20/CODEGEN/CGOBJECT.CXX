@@ -26,11 +26,34 @@
 #include "becls.hxx"
 #pragma hdrstop
 #include "buffer.hxx"
+extern "C"
+{
+#include <fcntl.h>
+#include <sys\types.h>
+#include <sys\stat.h>
+#include <io.h>
+#include <errno.h>
+}
+
+#include "szbuffer.h"
+
+// Needed to time out a synchronize write to dlldata.c
+
+void MidlSleep( int time_in_sec);
+
+// number of times (1 sec delay per attempt) before quitting.
+
+#define DLLDATA_OPEN_ATTEMPT_MAX    25
 
 /****************************************************************************
  *  externs
  ***************************************************************************/
 extern  CMD_ARG             *   pCommand;
+
+/****************************************************************************
+ *  global flags
+ ***************************************************************************/
+BOOL			fDllDataDelegating	= FALSE;
 
 
 
@@ -38,15 +61,11 @@ extern  CMD_ARG             *   pCommand;
 
 CG_OBJECT_INTERFACE::CG_OBJECT_INTERFACE(
     node_interface *pI,
-    char        *   pGuid1,
-    char        *   pGuid2,
-    char        *   pGuid3,
-    char        *   pGuid4,
-    char        *   pGuid5,
+    GUID_STRS		GStrs,
     BOOL            fCallbacks,
     BOOL            fMopInfo,
     CG_OBJECT_INTERFACE *   pBCG
-    ) : CG_INTERFACE(pI, pGuid1, pGuid2, pGuid3, pGuid4, pGuid5, fCallbacks, fMopInfo, 0 )
+    ) : CG_INTERFACE(pI, GStrs, fCallbacks, fMopInfo, 0 )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
  Routine Description:
@@ -56,11 +75,7 @@ CG_OBJECT_INTERFACE::CG_OBJECT_INTERFACE(
  Arguments:
 
     pI          - A pointer to the interface node in type graph.
-    pGuid1      - Partial guid string
-    pGuid1      - Partial guid string
-    pGuid3      - Partial guid string
-    pGuid4      - Partial guid string
-    pGuid5      - Partial guid string
+    GStrs       - guid strings
     fCallbacks  - Does the interface have any callbacks ?
     fMopInfo    - Does the interface have any mops ?
     
@@ -74,9 +89,12 @@ CG_OBJECT_INTERFACE::CG_OBJECT_INTERFACE(
     pThisDeclarator = MakePtrIDNodeFromTypeName( "This",
                                                  GetType()->GetSymName() );
     // all object interfaces use the same stub desc name
-    pStubDescName   = "Object" STUB_DESC_STRUCT_VAR_NAME;
+
+    pStubDescName     = "Object" STUB_DESC_STRUCT_VAR_NAME;
     
-    fLocal          = GetType()->FInSummary( ATTR_LOCAL );
+    fLocal            = GetType()->FInSummary( ATTR_LOCAL );
+    fForcedDelegation = FALSE;
+    fVisited          = FALSE;
 
 }
 
@@ -93,12 +111,7 @@ CG_OBJECT_INTERFACE::CG_OBJECT_INTERFACE(
 unsigned long 
 CG_OBJECT_INTERFACE::CountMemberFunctions() 
 {
-    unsigned long count = 0;
-
-    if( pBaseCG )
-        count = pBaseCG->CountMemberFunctions();
-
-    return ((node_interface*)GetType())->GetProcCount() + count;
+    return ((node_interface*)GetType())->GetProcCount();
 }
 
 BOOL                        
@@ -126,19 +139,15 @@ CG_OBJECT_INTERFACE::IsLastObjectInterface()
     // for debugging
     char            *   pName = GetType()->GetSymName();
 
-    do 
+    while ( pNext )
         {
-        if ( !pNext )
-            return TRUE;
-        if ( pNext->IsObject() && 
-             !((CG_OBJECT_INTERFACE*)pNext)->IsLocal() &&
-             pNext->HasMembers() )
+        if ( pNext->IsObject() && !(((CG_OBJECT_INTERFACE*)pNext)->IsLocal() && !pCommand->IsHookOleEnabled()) )
             return FALSE;
+
         pNext = (CG_INTERFACE *) pNext->GetSibling();
         } 
-    while ( TRUE );
 
-    return TRUE; // satisfy the compiler
+    return TRUE;
 }
 
 
@@ -163,10 +172,9 @@ CG_OBJECT_INTERFACE::GenCode(
 
 ----------------------------------------------------------------------------*/
 {
-    ITERATOR            I;
-    CG_PROC         *   pCG;
-    ISTREAM *pStream = pCCB->GetStream();
-    unsigned long       count = 0;
+    CG_ITERATOR      	I;
+    CG_PROC         *	pCG;
+    ISTREAM 		*	pStream = pCCB->GetStream();
 
     //Initialize the CCB for this interface.
     InitializeCCB(pCCB);
@@ -174,18 +182,11 @@ CG_OBJECT_INTERFACE::GenCode(
     // do nothing for local interfaces and types-only base interfaces
 
 
-    if( IsLocal() || !( GetMembers( I ) || GetBaseInterfaceCG() ) )
+    if( (IsLocal() && !pCommand->IsHookOleEnabled())|| !( GetMembers( I ) || GetBaseInterfaceCG() ) )
         {
         return CG_OK;
         }
     
-
-    //If there is a base interface, then we need to fix up the 
-    //ProcNum on the procedure nodes to leave space for the 
-    //inherited member functions.
-    if( pBaseCG )
-        count = pBaseCG->CountMemberFunctions();
-
     Out_StubDescriptorExtern(pCCB);
 
     if ( HasInterpretedProc() )
@@ -206,10 +207,6 @@ CG_OBJECT_INTERFACE::GenCode(
 
     while( ITERATOR_GETNEXT( I, pCG ) )
         {
-        //Fix up the ProcNum
-        pCG->SetProcNum(count);
-        count++;
-
         pCCB->SetCodeGenSide( CGSIDE_CLIENT );
         pCG->GenClientStub( pCCB );
 
@@ -230,7 +227,8 @@ CG_OBJECT_INTERFACE::GenCode(
 
 unsigned long 
 CG_OBJECT_INTERFACE::PrintProxyMemberFunctions(
-    ISTREAM       * pStream) 
+    ISTREAM *   pStream,
+    BOOL        fForcesDelegation ) 
 /*++
 
 Routine Description:
@@ -244,56 +242,94 @@ Arguments:
 
 --*/
 {
-    unsigned long count = 0;
-    CG_PROC *   pProc;
-    char *      pszInterfaceName;
-    char *      pszProcName;
-    ITERATOR    I;
-    CG_OBJECT_INTERFACE *pBaseInterface = GetBaseInterfaceCG();
+    CG_OBJECT_PROC 		*   pProc;
+    CG_ITERATOR    			I;
+    CG_OBJECT_INTERFACE	*	pBaseInterface	= GetBaseInterfaceCG();
 
     if(pBaseInterface)
-        count = pBaseInterface->PrintProxyMemberFunctions(pStream);
-
-    pszInterfaceName = GetType()->GetSymName();
+        pBaseInterface->PrintProxyMemberFunctions(pStream, fForcesDelegation );
+	else 	// special stuff for IUnknown
+		{
+#ifdef OK_TO_HAVE_0_IN_VTABLES
+        pStream->NewLine();
+        pStream->Write( "0 /* QueryInterface */ ," );
+        pStream->NewLine();
+        pStream->Write( "0 /* AddRef */ ," );
+        pStream->NewLine();
+        pStream->Write( "0 /* Release */" );
+#else
+		pStream->NewLine();
+		pStream->Write( "IUnknown_QueryInterface_Proxy," );
+		pStream->NewLine();
+		pStream->Write( "IUnknown_AddRef_Proxy," );
+		pStream->NewLine();
+		pStream->Write( "IUnknown_Release_Proxy" );
+#endif
+		return 0;
+		}
 
     GetMembers( I );
 
-    while( ITERATOR_GETNEXT( I, pProc ) )
+    while( ITERATOR_GETNEXT( I, pProc )  )
         {
-        if(count != 0)
-            pStream->Write(",");
+        pStream->Write( " ," );
 
-        pszProcName = pProc->GetType()->GetSymName();
-
-        if ( pProc->GetCallAsName() )
-            {
-            pszProcName = pProc->GetCallAsName();
-            }
-
-        // [local] procs do need proxys but not stubs
-//      if ( pProc->GetCGID() != ID_CG_LOCAL_OBJECT_PROC )
-            {
-            pStream->NewLine();
-            pStream->Write(pszInterfaceName);
-            pStream->Write("_");
-            pStream->Write(pszProcName);
-            pStream->Write("_Proxy");
-            }
-#if 0
-        else
-            {
-            pStream->NewLine();
-        //  pStream->Write("0");
-// what should vtable have for [local]'s ?
-            pStream->Write(pszInterfaceName);
-            pStream->Write("_");
-            pStream->Write(pszProcName);
-            }
-#endif
-
-        count++;
+        pStream->NewLine();
+        pProc->OutProxyRoutineName( pStream, fForcesDelegation );
         }
-    return count;
+    return 0;
+}
+
+void					
+CG_OBJECT_PROC::OutProxyRoutineName( 
+    ISTREAM *   pStream,
+    BOOL        fForcesDelegation ) 
+{
+    char    *   pszProcName;
+    BOOL        IsStublessProxy;
+
+    IsStublessProxy = ! GetCallAsName() &&
+                      (GetOptimizationFlags() & OPTIMIZE_STUBLESS_CLIENT) &&
+                      (GetOptimizationFlags() & OPTIMIZE_INTERPRETER) &&
+                      (GetProcNum() < 32); 
+
+    //
+    // Delegated and interpreted proxies have their Vtables filled in 
+    // at proxy creation time (see ndr20\factory.c).
+    //
+	if ( IsDelegated () )
+		pStream->Write( "0 /* " );
+
+    if ( IsStublessProxy )
+        {
+        if ( fForcesDelegation  &&  ! IsDelegated() )
+            pStream->Write( "0 /* forced delegation " );
+        else
+            pStream->Write( "(void *)-1 /* " );
+        }
+
+    if ( GetCallAsName() )
+        pszProcName = GetCallAsName();
+	else 
+		pszProcName = GetSymName();
+
+    if ( IsStublessProxy )
+        {
+        // Just a nitpicky different comment for the stubless guys.
+        pStream->Write( GetInterfaceName() );
+	    pStream->Write( "::" );
+	    pStream->Write( pszProcName );
+        }
+    else
+        {
+        pStream->Write( GetInterfaceName() );
+	    pStream->Write( '_' );
+	    pStream->Write( pszProcName );
+	    pStream->Write( "_Proxy" );
+        }
+
+	if ( IsDelegated () || IsStublessProxy )
+		pStream->Write(  " */" );
 }
 
 CG_STATUS
@@ -301,39 +337,171 @@ CG_OBJECT_INTERFACE::GenInterfaceProxy(
     CCB *pCCB, 
     unsigned long index)
 {
-    node_interface *pInterface;
-    char *pszInterfaceName;
-    ISTREAM *pStream = pCCB->GetStream();
-    char        TempBuf[ 300 ];
+    char			*	pszInterfaceName	= GetSymName();
+    ISTREAM			*	pStream 			= pCCB->GetStream();
+	BOOL				fDelegates			= (BOOL) GetDelegatedInterface();
 
-    pInterface = (node_interface *) GetType();
-    pszInterfaceName = pInterface->GetSymName();
+    if ( HasItsOwnStublessProxies() )
+        {
+        pStream->Write( "static const MIDL_STUBLESS_PROXY_INFO " );
+        pStream->Write( pszInterfaceName );
+        pStream->Write( "_ProxyInfo =" );
+        pStream->IndentInc();
+        pStream->NewLine();
+        pStream->Write( "{" );
+        pStream->NewLine();
+
+        // Stub descriptor.
+        pStream->Write( '&' );
+        pStream->Write( GetStubDescName() );
+        pStream->Write( ',' );
+        pStream->NewLine();
+
+        // Proc format string.
+        pStream->Write( PROC_FORMAT_STRING_STRING_FIELD );
+        pStream->Write( ',' );
+        pStream->NewLine();
+
+        // Proc format string offset table.
+        pStream->Write( '&' );
+        pStream->Write( GetSymName() );
+        pStream->Write( FORMAT_STRING_OFFSET_TABLE_NAME );
+        pStream->Write( "[-3]," );
+        pStream->NewLine();
+
+        if (pCommand->IsHookOleEnabled())
+        {
+            // Local type format string.
+            pStream->Write( LOCAL_FORMAT_STRING_STRING_FIELD );
+            pStream->Write( ',' );
+            pStream->NewLine();
+
+            // Local proc format string.
+            pStream->Write( LOCAL_PROC_FORMAT_STRING_STRING_FIELD );
+            pStream->Write( ',' );
+            pStream->NewLine();
+
+            // Local proc format string offset table.
+            pStream->Write( '&' );
+            pStream->Write( GetSymName() );
+            pStream->Write( LOCAL_FORMAT_STRING_OFFSET_TABLE_NAME );
+            pStream->Write( "[-3]" );
+        }
+        else
+        {
+            pStream->Write( "0,");
+            pStream->NewLine();
+            pStream->Write( "0,");
+            pStream->NewLine();
+            pStream->Write( "0");
+        }
+
+        pStream->NewLine();
+        pStream->Write( "};" );
+        pStream->IndentDec();
+        pStream->NewLine();
+        pStream->NewLine();
+        }
     
-    // local interfaces don't need the tables
+    //
+    // Output the interface proxy.
+    //
 
-    //initialize an interface proxy.
-    pStream->NewLine();
-    pStream->Write("const CInterfaceProxyVtbl _");
+    //
+    // If we have to delegate or if we have interpreted methods, then we
+    // can not emit the const because in both of these instances the proxy
+    // Vtable must be modified during proxy creation time (see 
+    // ndr20\factory.c).
+    //
+
+    if ( ! fDelegates && ! HasStublessProxies() )
+    	pStream->Write("const ");
+
+    char TmpBuff[10];
+    long Count = CountMemberFunctions();
+
+    // Use a struct macro for Ansi [] compatibility.
+
+    pStream->Write("CINTERFACE_PROXY_VTABLE(" );
+    sprintf( TmpBuff, "%ld%", Count );
+    pStream->Write( TmpBuff );
+    pStream->Write(") _");
     pStream->Write(pszInterfaceName);
     pStream->Write("ProxyVtbl = ");
     pStream->NewLine();
     pStream->Write("{");
     pStream->IndentInc();
+
+    //
+    // Emit ProxyInfo field for stubless proxies
+    // (NT 3.5 incompatible).
+    //
+
+    BOOL    fForcesDelegation = HasStublessProxies()  &&
+                                ! HasItsOwnStublessProxies()  &&
+                                CountMemberFunctions() > 3;
+
+    if ( fForcesDelegation )
+        SetHasForcedDelegation();
+
+    if ( HasStublessProxies() ) 
+        {
+        // The ProxyInfo.
+        pStream->NewLine();
+
+        if ( HasItsOwnStublessProxies() )   
+            {
+            pStream->Write( '&' );
+            pStream->Write( pszInterfaceName );
+            pStream->Write( "_ProxyInfo" );
+            }
+        else
+            {
+            // In fact, we delegate for empty interfaces or interfaces
+            // with os methods only.
+
+            pStream->Write( '0' );
+            }
+
+        pStream->Write( ',' );
+        }
+    else if ( pCommand->GetNdrVersionControl().HasStublessProxies() )
+        {
+        // Add a dummy 0 for proxy info pointer for a proxy that is
+        // oi or os in the file that has stubles proxies
+
+        pStream->NewLine();
+        pStream->Write( "0,    /* dummy for table ver 2 */" );
+        }
     
     //Write the IID
     pStream->NewLine();
-    sprintf( TempBuf, "&IID_%s,", pszInterfaceName);
-    pStream->Write( TempBuf );
+    pStream->Write( "&IID_" );
+    pStream->Write( pszInterfaceName );
+    pStream->Write( ',' );
+
+    // Write out a dummy entry required on PowerMac platform
+    // This is somewhawt tricky: we add this field as the last part
+    // of the proxy header, but it will be used as an additional,
+    // first vtable entry.
+
+    if ( pCommand->GetEnv() == ENV_MPPC )
+        {
+        pStream->NewLine();
+        pStream->Write( "0, /* dummy vtable entry for Power Mac */" );
+        }
 
     //initialize the vtable
-    PrintProxyMemberFunctions(pStream);
+    PrintProxyMemberFunctions( pStream, fForcesDelegation );
 
     pStream->IndentDec();
     pStream->NewLine();
     pStream->Write("};");
+    pStream->NewLine();
 
     return CG_OK;
 }
+
 unsigned long 
 CG_OBJECT_INTERFACE::PrintStubMemberFunctions(
     ISTREAM       * pStream) 
@@ -352,52 +520,68 @@ Arguments:
 
 --*/
 {
-    unsigned long count = 0;
-    CG_PROC *   pProc;
-    char *      pszInterfaceName;
-    char *      pszProcName;
-    ITERATOR    I;
-    CG_OBJECT_INTERFACE *pBaseInterface = GetBaseInterfaceCG();
+    unsigned long 			count			= 0;
+    CG_OBJECT_PROC *   		pProc;
+    CG_ITERATOR    			I;
+    CG_OBJECT_INTERFACE *	pBaseInterface	= GetBaseInterfaceCG();
 
-    if(pBaseInterface)
+    if ( IsIUnknown() )
+		return 0;
+
+    if ( pBaseInterface )
         count = pBaseInterface->PrintStubMemberFunctions(pStream);
-
-    pszInterfaceName = GetType()->GetSymName();
 
     GetMembers( I );
 
-    while( ITERATOR_GETNEXT( I, pProc ) )
+    for( ; ITERATOR_GETNEXT( I, pProc ); count++ )
         {
         if(count != 0)
-            pStream->Write(",");
+            pStream->Write(',');
 
-        // local procs don't need proxys and stubs
-        if ( pProc->GetCGID() == ID_CG_LOCAL_OBJECT_PROC )
-            {
-            pStream->NewLine();
-            pStream->Write( "0" );
-            count++;
-            continue;
-            }
+		pStream->NewLine();
+		pProc->OutStubRoutineName( pStream );
 
-        if ( pProc->GetOptimizationFlags() & OPTIMIZE_INTERPRETER )
-            {
-            pStream->NewLine();
-            pStream->Write( "NdrStubCall" );
-            count++;
-            continue;
-            }
-
-        pszProcName = pProc->GetType()->GetSymName();
-
-        pStream->NewLine();
-        pStream->Write(pszInterfaceName);
-        pStream->Write("_");
-        pStream->Write(pszProcName);
-        pStream->Write("_Stub");
-        count++;
         }
     return count;
+}
+
+void					
+CG_OBJECT_PROC::OutStubRoutineName( 
+	ISTREAM * pStream )
+{
+    if ( IsDelegated() )
+		{
+		pStream->Write( "STUB_FORWARDING_FUNCTION" );
+		return;
+		}
+
+    // local procs don't need proxys and stubs
+    if ( IsLocal() )
+        {
+        pStream->Write( '0' );
+        return;
+        }
+#ifndef TEMPORARY_OI_SERVER_STUBS
+
+    if ( (GetOptimizationFlags() &
+            (OPTIMIZE_INTERPRETER_V2 | OPTIMIZE_INTERPRETER)) ==
+            (OPTIMIZE_INTERPRETER_V2 | OPTIMIZE_INTERPRETER) )
+        {
+        pStream->Write( S_OBJECT_NDR_CALL_RTN_NAME_V2 );
+        return;
+        }
+    if ( GetOptimizationFlags() & OPTIMIZE_INTERPRETER )
+        {
+        pStream->Write( S_OBJECT_NDR_CALL_RTN_NAME );
+        return;
+        }
+#endif // TEMPORARY_OI_SERVER_STUBS
+
+	pStream->Write( GetInterfaceName() );
+	pStream->Write( '_' );
+	pStream->Write( GetSymName() );
+	pStream->Write( "_Stub" );
+
 }
 
 
@@ -406,50 +590,74 @@ CG_OBJECT_INTERFACE::GenInterfaceStub(
     CCB *pCCB, 
     unsigned long index)
 {
-    node_interface  *   pInterface          = (node_interface *) GetType();
-    char *              pszInterfaceName    = pInterface->GetSymName();
+    node_interface  *   	pInterface          = (node_interface *) GetType();
+    char *              	pszInterfaceName    = pInterface->GetSymName();
 
-    ISTREAM *pStream = pCCB->GetStream();
-    unsigned long count;
-    char        TempBuf[ 256 ];
-    BOOL        fPureInterpreted    = HasOnlyInterpretedMethods();
+    ISTREAM 			*	pStream 			= pCCB->GetStream();
+    unsigned long 			count;
 
-    // local interfaces don't need the tables
+#ifdef TEMPORARY_OI_SERVER_STUBS
+    BOOL        			fPureInterpreted    = FALSE;
+#else // TEMPORARY_OI_SERVER_STUBS
+    BOOL        			fPureInterpreted    = HasOnlyInterpretedMethods();
+#endif // TEMPORARY_OI_SERVER_STUBS
+
+	BOOL					fDelegates			= (BOOL) GetDelegatedInterface();
+
+	// if any of our base interfaces are delegated, we can't be pure interpreted
+	if ( fDelegates )
+		fPureInterpreted = FALSE;
 
     // pure interpreted uses no dispatch table, special invoke function instead
     if ( !fPureInterpreted )
         {
         // Generate the dispatch table
+        pStream->NewLine(2);
+        pStream->Write( "static const PRPC_STUB_FUNCTION " );
+        pStream->Write( pszInterfaceName );
+        pStream->Write( "_table[] =" );
         pStream->NewLine();
-        sprintf(TempBuf, "static const PRPC_STUB_FUNCTION %s_table[] =", pszInterfaceName);
-        pStream->Write( TempBuf );
-        pStream->NewLine();
-        pStream->Write("{");
+        pStream->Write('{');
         pStream->IndentInc();
 
         // Print out the names of all the procedures.
         count = PrintStubMemberFunctions(pStream);
+
+        if ( count == 0 )
+            {
+            // This is possible for an empty interface inheriting
+            // directly from IUnknown. As we don't print first three
+            // entries, the table would be empty.
+            // We add a zero to simplify references.
+
+            pStream->NewLine();
+            pStream->Write( "0    /* a dummy for an empty interface */" );
+            }
 
         pStream->IndentDec();
         pStream->NewLine();
         pStream->Write( "};" );
         pStream->NewLine();
         }
-    else
-        count = CountMemberFunctions();
+
+    count = CountMemberFunctions();
 
     //initialize an interface stub
     pStream->NewLine();
-    sprintf( TempBuf, "const CInterfaceStubVtbl _%sStubVtbl =", pszInterfaceName);
-    pStream->Write( TempBuf );
+    if ( !fDelegates )
+		pStream->Write( "const " );
+    pStream->Write( "CInterfaceStubVtbl _" );
+    pStream->Write( pszInterfaceName );
+    pStream->Write( "StubVtbl =" );
     pStream->NewLine();
-    pStream->Write("{");
+    pStream->Write('{');
     pStream->IndentInc();
 
     //Write the IID
     pStream->NewLine();
-    sprintf( TempBuf, "&IID_%s,", pszInterfaceName);
-    pStream->Write( TempBuf );
+    pStream->Write( "&IID_" );
+    pStream->Write( pszInterfaceName );
+    pStream->Write( "," );
 
     //
     // Interpreter server info fits in the middle here.
@@ -458,20 +666,20 @@ CG_OBJECT_INTERFACE::GenInterfaceStub(
 
     if ( HasInterpretedProc() )
         {
-        pStream->Write( "&" );
+        pStream->Write( '&' );
         pStream->Write( pszInterfaceName );
         pStream->Write( SERVER_INFO_VAR_NAME );
         }
     else
         {
-        pStream->Write( "0" );
+        pStream->Write( '0' );
         }
-    pStream->Write( "," );
+    pStream->Write( ',' );
 
     //Write the count
     pStream->NewLine();
-    sprintf( TempBuf, "%d,", count);
-    pStream->Write( TempBuf );
+    pStream->WriteNumber( "%d", count );
+	pStream->Write(',');
 
     //Write the pointer to dispatch table.
     pStream->NewLine();
@@ -479,31 +687,17 @@ CG_OBJECT_INTERFACE::GenInterfaceStub(
         pStream->Write( "0, /* pure interpreted */" );
     else
         {
+        pStream->Write( '&' );
         pStream->Write( pszInterfaceName );
-        pStream->Write( "_table," );
+        pStream->Write( "_table[-3]," );
         }
 
     //initialize the vtable
     pStream->NewLine();
-    pStream->Write("CStdStubBuffer_QueryInterface,");
-    pStream->NewLine();
-    pStream->Write("CStdStubBuffer_AddRef,");
-    pStream->NewLine();
-    pStream->Write("CStdStubBuffer_Release,");
-    pStream->NewLine();
-    pStream->Write("CStdStubBuffer_Connect,");
-    pStream->NewLine();
-    pStream->Write("CStdStubBuffer_Disconnect,");
-    pStream->NewLine();
-    pStream->Write("CStdStubBuffer_Invoke,");
-    pStream->NewLine();
-    pStream->Write("CStdStubBuffer_IsIIDSupported,");
-    pStream->NewLine();
-    pStream->Write("CStdStubBuffer_CountRefs,");
-    pStream->NewLine();
-    pStream->Write("CStdStubBuffer_DebugServerQueryInterface,");
-    pStream->NewLine();
-    pStream->Write("CStdStubBuffer_DebugServerRelease");
+    if ( fDelegates )
+    	pStream->Write("CStdStubBuffer_DELEGATING_METHODS");
+	else
+    	pStream->Write("CStdStubBuffer_METHODS");
 
     pStream->IndentDec();
     pStream->NewLine();
@@ -540,7 +734,7 @@ CG_INHERITED_OBJECT_INTERFACE::GenCode(
     // Initialize the CCB for this interface.
     InitializeCCB( pCCB );
 
-    if( IsLocal() || !GetMembers( I ) )
+    //if( IsLocal() || !GetMembers( I ) )
         {
         return CG_OK;
         }
@@ -561,7 +755,7 @@ CG_INHERITED_OBJECT_INTERFACE::GenCode(
 
             if ( pProc->NeedsServerThunk( pCCB, CGSIDE_SERVER ) )
                 {
-                ITERATOR    Iterator;
+                CG_ITERATOR    Iterator;
                 CG_PARAM *  pParam;
                 CG_RETURN * pReturn;
                 CG_NDR *    pChild;
@@ -715,10 +909,12 @@ CG_OBJECT_PROC::C_GenProlog(
     // Initialize all [out] unique and interface pointers to 0.
     //
 
-    ITERATOR        Iterator;
+    CG_ITERATOR		Iterator;
     CG_PARAM *      pParam;
     CG_NDR *        pNdr;
+    CG_NDR  *       pTopPtr = 0;
     long            Derefs;
+    expr_node *      pSizeof;
 
     GetMembers( Iterator );
 
@@ -729,69 +925,123 @@ CG_OBJECT_PROC::C_GenProlog(
 
         pNdr = (CG_NDR *) pParam->GetChild();
 
-        if ( ! pNdr->IsPointer() )
+        if ( ! pNdr->IsPointer()  &&  ! pNdr->IsArray() )
             continue;
 
         Derefs = 0;
 
         //
-        // How many ref pointers are there.
+        // Skip the ref pointer(s) to the pointee.
         //
         for ( ; 
               pNdr->IsPointer() && 
               ((CG_POINTER *)pNdr)->GetPtrType() == PTR_REF &&
               pNdr->GetCGID() != ID_CG_INTERFACE_PTR;
               Derefs++, pNdr = (CG_NDR *) pNdr->GetChild() )
-            ;
+            {
+            if( Derefs == 0 )
+                pTopPtr = pNdr;
+            }
 
-        if ( ! Derefs )
+        // No ref, no service.
+
+        if ( ! Derefs  &&  ! pNdr->IsArray() )
             continue;
 
+        // Ready to zero out.
+        // Note, however, that in case where the ref checks are required,
+        // we need to be careful and skip zeroing if ref pointers are null.
+        // This is because we cannot raise exception immediately
+        // as then some of the variables may not be zeroed out yet.
+
         //
-        // Memset a struct or union in case there are embedded unique or 
-        // interface pointers.
+        // Memset a struct, union or an array in case there are
+        // embedded unique, full or interface pointers.
+        // Same for user types of transmit_as, represent_as, user_marshal.
         //
-        if ( pNdr->IsStruct() || pNdr->IsUnion() )
+
+        if ( pNdr->GetCGID() == ID_CG_TRANSMIT_AS )
             {
-            _expr_proc_call *   pCall;
-            _expr_sizeof *      pSizeof;
+            pSizeof = new expr_sizeof( ((CG_TRANSMIT_AS*)pNdr)->GetPresentedType() );
+            }
+        else if ( pNdr->GetCGID() == ID_CG_USER_MARSHAL  &&
+                    ((CG_USER_MARSHAL*)pNdr)->IsFromXmit() )
+            {
+            pSizeof = new expr_sizeof( ((CG_USER_MARSHAL*)pNdr)->GetRepAsType() );
+            }
+        else
+            pSizeof = new expr_sizeof( pNdr->GetType() );
+
+
+        if ( pNdr->IsStruct() || pNdr->IsUnion() || pNdr->IsArray() ||
+             pNdr->IsXmitRepOrUserMarshal() )
+            {
+            if ( pCCB->MustCheckRef() )
+                {
+                Out_If( pCCB,
+                        new expr_variable( pParam->GetType()->GetSymName() ));
+                }
+
+            expr_proc_call *   pCall;
 
             pStream->NewLine();
 
-            pCall = new _expr_proc_call( "memset" );
+            pCall = new expr_proc_call( MIDL_MEMSET_RTN_NAME );
 
             pCall->SetParam( 
-                    new _expr_param( 
-                    new _expr_variable( pParam->GetType()->GetSymName() ) ) );
+                    new expr_param( 
+                    new expr_variable( pParam->GetType()->GetSymName() ) ) );
 
             pCall->SetParam(
-                    new _expr_param( 
-                    new _expr_variable( "0" ) ) );
+                    new expr_param( 
+                    new expr_variable( "0" ) ) );
 
-            pSizeof = new _expr_sizeof( pNdr->GetType() );
+            if( pTopPtr && ((CG_POINTER *)pTopPtr)->IsQualifiedPointer() &&
+                !(pTopPtr->GetCGID() == ID_CG_STRING_PTR) )
+                {
+                _expr_node * pFinalExpr;
+                CGPHASE Ph = pCCB->GetCodeGenPhase();
+                pCCB->SetCodeGenPhase( CGPHASE_MARSHALL );
+
+                pFinalExpr = ((CG_POINTER *)pTopPtr)->FinalSizeExpression( pCCB );
+                pSizeof = new expr_op_binary( OP_STAR, pFinalExpr, pSizeof );
+                pCCB->SetCodeGenPhase( Ph );
+                }
 
             pCall->SetParam(
-                    new _expr_param( pSizeof ) );
+                    new expr_param( pSizeof ) );
 
             pCall->PrintCall( pStream, 0, 0 );
+
+            if ( pCCB->MustCheckRef() )
+                Out_Endif( pCCB );
 
             continue;
             }
 
         //
-        // Are we at a unique or interface pointer now?
+        // Are we at a non ref pointer now?
         //
         if ( ( pNdr->IsPointer() && 
-               (((CG_POINTER *)pNdr)->GetPtrType() == PTR_UNIQUE) ) ||
+                 (((CG_POINTER *)pNdr)->GetPtrType() != PTR_REF) ) ||
              pNdr->GetCGID() == ID_CG_INTERFACE_PTR ) 
             {
+            if ( pCCB->MustCheckRef() )
+                {
+                Out_If( pCCB,
+                        new expr_variable( pParam->GetType()->GetSymName() ));
+                }
+
             pStream->NewLine();
 
             for ( ; Derefs--; )
-                pStream->Write( "*" );
+                pStream->Write( '*' );
 
             pStream->Write( pParam->GetResource()->GetResourceName() );
             pStream->Write( " = 0;" );
+
+            if ( pCCB->MustCheckRef() )
+                Out_Endif( pCCB );
             }
         }
 
@@ -824,8 +1074,8 @@ CG_OBJECT_PROC::C_GenBind(
 {
     ISTREAM     *   pStream         = pCCB->GetStream();
     ITERATOR            BindingParamList;
-    _expr_node      *   pExpr;
-    _expr_proc_call *   pProcCall;
+    expr_node      *   pExpr;
+    expr_proc_call *   pProcCall;
 
     //
     // collect standard arguments to the init procedure.
@@ -878,7 +1128,7 @@ CG_OBJECT_PROC::C_GenBind(
     // Proc num.
     //
     ITERATOR_INSERT( BindingParamList,
-                     new _expr_constant( (long) GetProcNum() ) );
+                     new expr_constant( (long) GetProcNum() ) );
 
 
     //Build the procedure call expression.
@@ -1032,7 +1282,7 @@ CG_OBJECT_PROC::S_GenProlog(
     ITERATOR    TransientList;
     PNAME       ContextHandleTypeName = NULL;
     ISTREAM *pStream = pCCB->GetStream();
-    _expr_proc_call *   pCall;
+    expr_proc_call *   pCall;
 
 
     // Collect all the params and locals into lists ready to print.
@@ -1062,22 +1312,22 @@ CG_OBJECT_PROC::S_GenProlog(
     // Call the NdrStubInitialize routine.
     //
 
-    pCall = new _expr_proc_call( "NdrStubInitialize" );
+    pCall = new expr_proc_call( "NdrStubInitialize" );
 
-    pCall->SetParam( new _expr_param (
-                     new _expr_variable( PRPC_MESSAGE_VAR_NAME ) ) );
+    pCall->SetParam( new expr_param (
+                     new expr_variable( PRPC_MESSAGE_VAR_NAME ) ) );
 
-    pCall->SetParam( new _expr_param (
-                     new _expr_u_address (
-                     new _expr_variable( STUB_MESSAGE_VAR_NAME ) ) ) );
+    pCall->SetParam( new expr_param (
+                     new expr_u_address (
+                     new expr_variable( STUB_MESSAGE_VAR_NAME ) ) ) );
 
-    pCall->SetParam( new _expr_param (
-                     new _expr_u_address (
-                     new _expr_variable( 
+    pCall->SetParam( new expr_param (
+                     new expr_u_address (
+                     new expr_variable( 
                             pCCB->GetInterfaceCG()->GetStubDescName() ) ) ) );
 
-    pCall->SetParam( new _expr_param (
-                     new _expr_variable( "_pRpcChannelBuffer" ) ) );
+    pCall->SetParam( new expr_param (
+                     new expr_variable( "_pRpcChannelBuffer" ) ) );
 
     pCall->PrintCall( pCCB->GetStream(), 0, 0 );
 
@@ -1144,8 +1394,11 @@ CG_OBJECT_PROC::S_PreAllocateResources(
 {
     node_param  *   pInterfaceStubType  = new node_param();
     node_param  *   pChannelType    = new node_param();
+	node_param  *   pDWordType      = new node_param();
+
 
     //pointer to interface stub
+
     pInterfaceStubType->SetSymName( "This" );
     pInterfaceStubType->SetBasicType( (node_skl *)
                                     new node_def ("IRpcStubBuffer *") );
@@ -1164,8 +1417,9 @@ CG_OBJECT_PROC::S_PreAllocateResources(
     pAna->AddParamResource( "_pRpcChannelBuffer",
                             (node_skl *) pChannelType
                           );
-    
-    CG_PROC::S_PreAllocateResources(pAna);
+
+    CG_PROC::S_PreAllocateResources( pAna );
+
 }
 
 
@@ -1197,14 +1451,14 @@ CG_OBJECT_PROC::S_GenCallManager(
 
 ----------------------------------------------------------------------------*/
 {
-    ITERATOR            I;
+    CG_ITERATOR			I;
     PNAME               pName;
-    _expr_proc_call *   pProc;
+    expr_proc_call  *   pProc;
     CG_PARAM        *   pParam;
-    _expr_node      *   pExpr;
-    _expr_node      *   pReturnExpr = 0;
+    expr_node       *   pExpr;
+    expr_node       *   pReturnExpr = 0;
     CG_RETURN       *   pRT;
-    char                Buffer[256];
+    CSzBuffer Buffer;
     ISTREAM         *   pStream = pCCB->GetStream();
 
     if ( GetCallAsName() )
@@ -1220,18 +1474,18 @@ CG_OBJECT_PROC::S_GenCallManager(
     else
         pName   = (PNAME ) GetType()->GetSymName();
 
-    pProc   = new _expr_proc_call( pName );
+    pProc   = new expr_proc_call( pName );
 
 
 
     //implicit this pointer.
-    sprintf( Buffer,
-            "(%s *) ((CStdStubBuffer *)This)->pvServerObject",
-            pCCB->GetInterfaceName() );
+    Buffer.Append("(");
+    Buffer.Append(pCCB->GetInterfaceName());
+    Buffer.Append(" *) ((CStdStubBuffer *)This)->pvServerObject");
 
     pProc->SetParam( 
-        new _expr_param( 
-        new _expr_variable(Buffer)));
+        new expr_param( 
+        new expr_variable(Buffer)));
 
 
     GetMembers( I );
@@ -1247,9 +1501,9 @@ CG_OBJECT_PROC::S_GenCallManager(
             // in the stub.
             //
             if ( pChild->IsArray() )
-                pExpr = new _expr_u_deref( pExpr );
+                pExpr = new expr_u_deref( pExpr );
 
-            pProc->SetParam( new _expr_param( pExpr ) );
+            pProc->SetParam( new expr_param( pExpr ) );
             }
         }
 
@@ -1310,13 +1564,13 @@ CG_OBJECT_PROC::GenNdrInterpretedManagerCall(
 
 ----------------------------------------------------------------------------*/
 {
-    ITERATOR            I;
+    CG_ITERATOR			I;
     PNAME               pName;
-    _expr_proc_call *   pProc;
+    expr_proc_call	*   pProc;
     CG_PARAM        *   pParam;
-    _expr_node      *   pReturnExpr = 0;
+    expr_node		*   pReturnExpr = 0;
     CG_RETURN       *   pRT;
-    char                Buffer[256];
+    CSzBuffer Buffer;
     ISTREAM         *   pStream = pCCB->GetStream();
 
     if ( GetCallAsName() )
@@ -1332,18 +1586,18 @@ CG_OBJECT_PROC::GenNdrInterpretedManagerCall(
     else
         pName   = (PNAME ) GetType()->GetSymName();
 
-    pProc   = new _expr_proc_call( pName );
+    pProc   = new expr_proc_call( pName );
 
 
 
     //implicit this pointer.
-    sprintf( Buffer,
-            "(%s *) pParamStruct->This",
-            pCCB->GetInterfaceName() );
-
+    Buffer.Append("(");
+    Buffer.Append(pCCB->GetInterfaceName());
+    Buffer.Append(" *) pParamStruct->This");
+    
     pProc->SetParam( 
-        new _expr_param( 
-        new _expr_variable(Buffer)));
+        new expr_param( 
+        new expr_variable(Buffer)));
 
 
     GetMembers( I );
@@ -1352,23 +1606,24 @@ CG_OBJECT_PROC::GenNdrInterpretedManagerCall(
         {
         CG_NDR *        pNdr;
         char *          pName;
-        _expr_node *    pExpr;
+        expr_node *     pExpr;
+		char *			pPlainName	= pParam->GetResource()->GetResourceName();
 
         pNdr = (CG_NDR *) pParam->GetChild();
 
-        pName = new char[80];
+        pName = new char[strlen(pPlainName) + strlen("pParamStruct->")+1 ];
 
         strcpy( pName, "pParamStruct->" );
-        strcat( pName, pParam->GetResource()->GetResourceName() );
+        strcat( pName, pPlainName );
 
-        pExpr = new _expr_variable( pName );
+        pExpr = new expr_variable( pName );
 
-        pProc->SetParam( new _expr_param ( pExpr ) );
+        pProc->SetParam( new expr_param ( pExpr ) );
         }
 
     if( pRT = GetReturnType() )
         {
-        pReturnExpr = new _expr_variable( 
+        pReturnExpr = new expr_variable( 
                             "pParamStruct->" RETURN_VALUE_VAR_NAME );
         }
 
@@ -1391,7 +1646,7 @@ CG_OBJECT_PROC::GenNdrInterpretedManagerCall(
 void
 Out_CallCMacroFunction(
     CCB         *   pCCB,
-    _expr_proc_call *   pProcExpr)
+    expr_proc_call *   pProcExpr)
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
  Routine Description:
@@ -1464,6 +1719,9 @@ CG_OBJECT_PROC::GenCMacro(
     ISTREAM         *   pStream = pCCB->GetStream();
     node_proc       *   pProc   = (node_proc *) GetType();
 
+    if ( SupressHeader())
+        return CG_OK;
+
     if ( GetCallAsName() )
         {
         node_call_as    *   pCallAs =   (node_call_as *)
@@ -1477,24 +1735,24 @@ CG_OBJECT_PROC::GenCMacro(
     // construct all these on the stack...
     MEM_ITER            MemIter( pProc );
 
-    _expr_proc_call     Proc( pProc->GetSymName() );
-    _expr_variable      ThisVar( "This" );
-    _expr_param         ThisParam( &ThisVar );
+    expr_proc_call     Proc( pProc->GetSymName() );
+    expr_variable      ThisVar( "This" );
+    expr_param         ThisParam( &ThisVar );
 
     Proc.SetParam( &ThisParam );
 
 
     while( pParam = (node_param *) MemIter.GetNext() )
         {
-        Proc.SetParam( new _expr_param( 
-                            new _expr_variable( pParam->GetSymName() ) ) );
+        Proc.SetParam( new expr_param( 
+                            new expr_variable( pParam->GetSymName() ) ) );
         }
 
     // print out the #define line
     pStream->NewLine();
     pStream->Write("#define ");
     pStream->Write( pCCB->GetInterfaceName() );
-    pStream->Write( "_" );
+    pStream->Write( '_' );
 
     Proc.Print( pStream );
 
@@ -1508,7 +1766,8 @@ CG_OBJECT_PROC::GenCMacro(
 
 void
 CG_PROXY_FILE::Out_ProxyBuffer(
-    CCB *pCCB )
+    CCB *pCCB,
+    char * pFName )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
  Routine Description:
@@ -1524,51 +1783,28 @@ CG_PROXY_FILE::Out_ProxyBuffer(
 
 ----------------------------------------------------------------------------*/
 {
-    ITERATOR            I;
-    CG_NDR          *   pCG;
-    char        Name[ _MAX_FNAME ];
-    ISTREAM *   pStream = pCCB->GetStream();
-    node_interface *pInterface;
-    char *pszInterfaceName;
-    unsigned long count = 0;
-
-    if( !GetMembers( I ) )
-        {
-        return;
-        }
-
-    //Get the IDL file name.
-    pCommand->GetInputFileNameComponents(NULL, NULL, Name, NULL );
+    ITERATOR			&	I		= GetImplementedInterfacesList();
+    CG_OBJECT_INTERFACE	*	pCG;
+    ISTREAM *   			pStream = pCCB->GetStream();
 
     pStream->NewLine();
     pStream->Write("const CInterfaceProxyVtbl * _");
-    pStream->Write(Name);
+    pStream->Write(pFName);
     pStream->Write("_ProxyVtblList[] = ");
     pStream->NewLine();
-    pStream->Write("{");
+    pStream->Write('{');
     pStream->IndentInc();
 
     //list of interface proxies.
     while( ITERATOR_GETNEXT( I, pCG ) )
         {
-        if ( pCG->GetCGID() == ID_CG_OBJECT_INTERFACE )
-            {
-            pInterface = (node_interface *) pCG->GetType();
-            pszInterfaceName = pInterface->GetSymName();
-            
-            if ( pInterface->FInSummary( ATTR_LOCAL ) )
-                continue;
-
-            pStream->NewLine();
-            pStream->Write("( CInterfaceProxyVtbl *) &_");
-            pStream->Write(pszInterfaceName);
-            pStream->Write("ProxyVtbl,");
-            count++;
-            }
+        pStream->NewLine();
+        pStream->Write("( CInterfaceProxyVtbl *) &_");
+        pStream->Write(pCG->GetSymName());
+        pStream->Write("ProxyVtbl,");
         }
     pStream->NewLine();
-    pStream->Write("0");
-    count++;
+    pStream->Write('0');
     pStream->IndentDec();
     pStream->NewLine();
     pStream->Write("};");
@@ -1577,7 +1813,8 @@ CG_PROXY_FILE::Out_ProxyBuffer(
 
 void
 CG_PROXY_FILE::Out_StubBuffer(
-    CCB *pCCB )
+    CCB *pCCB,
+    char * pFName )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
  Routine Description:
@@ -1593,49 +1830,28 @@ CG_PROXY_FILE::Out_StubBuffer(
 
 ----------------------------------------------------------------------------*/
 {
-    ITERATOR            I;
-    CG_NDR          *   pCG;
-    char                Name[ _MAX_FNAME ];
-    ISTREAM *           pStream     = pCCB->GetStream();
-    node_interface *    pInterface;
-    char *              pszInterfaceName;
-    unsigned long       count       = 0;
-
-    if( !GetMembers( I ) )
-        return;
-
-    //Get the IDL file name.
-    pCommand->GetInputFileNameComponents(NULL, NULL, Name, NULL );
+    ITERATOR            &	I		= GetImplementedInterfacesList();
+    CG_OBJECT_INTERFACE	*   pCG;
+    ISTREAM *           	pStream	= pCCB->GetStream();
 
     pStream->NewLine();
     pStream->Write("const CInterfaceStubVtbl * _");
-    pStream->Write(Name);
+    pStream->Write(pFName);
     pStream->Write("_StubVtblList[] = ");
     pStream->NewLine();
-    pStream->Write("{");
+    pStream->Write('{');
     pStream->IndentInc();
 
     //list of interface proxies.
     while( ITERATOR_GETNEXT( I, pCG ) )
         {
-        if ( pCG->GetCGID() == ID_CG_OBJECT_INTERFACE )
-            {
-            pInterface = (node_interface *) pCG->GetType();
-            pszInterfaceName = pInterface->GetSymName();
-            
-            if ( pInterface->FInSummary( ATTR_LOCAL ) )
-                continue;
-
-            pStream->NewLine();
-            pStream->Write("( CInterfaceStubVtbl *) &_");
-            pStream->Write(pszInterfaceName);
-            pStream->Write("StubVtbl,");
-            count++;
-            }
+        pStream->NewLine();
+        pStream->Write("( CInterfaceStubVtbl *) &_");
+        pStream->Write( pCG->GetSymName() );
+        pStream->Write("StubVtbl,");
         }
     pStream->NewLine();
-    pStream->Write("0");
-    count++;
+    pStream->Write('0');
     pStream->IndentDec();
     pStream->NewLine();
     pStream->Write("};");
@@ -1644,7 +1860,8 @@ CG_PROXY_FILE::Out_StubBuffer(
 
 void
 CG_PROXY_FILE::Out_InterfaceNamesList(
-    CCB *pCCB )
+    CCB *pCCB,
+    char * pFName )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
  Routine Description:
@@ -1660,53 +1877,290 @@ CG_PROXY_FILE::Out_InterfaceNamesList(
 
 ----------------------------------------------------------------------------*/
 {
-    ITERATOR            I;
-    CG_NDR          *   pCG;
-    char                Name[ _MAX_FNAME ];
-    ISTREAM *           pStream     = pCCB->GetStream();
-    node_interface *    pInterface;
-    char *              pszInterfaceName;
-    unsigned long       count       = 0;
-
-    if( !GetMembers( I ) )
-        return;
-
-    //Get the IDL file name.
-    pCommand->GetInputFileNameComponents(NULL, NULL, Name, NULL );
+    ITERATOR            &	I		= GetImplementedInterfacesList();
+    CG_OBJECT_INTERFACE	*   pCG;
+    ISTREAM *           	pStream	= pCCB->GetStream();
 
     pStream->NewLine();
-    pStream->Write("PCInterfaceName _");
-    pStream->Write(Name);
+    pStream->Write("PCInterfaceName const _");
+    pStream->Write(pFName);
     pStream->Write("_InterfaceNamesList[] = ");
     pStream->NewLine();
-    pStream->Write("{");
+    pStream->Write('{');
     pStream->IndentInc();
 
     //list of interface proxies.
     while( ITERATOR_GETNEXT( I, pCG ) )
         {
-        if ( pCG->GetCGID() == ID_CG_OBJECT_INTERFACE )
-            {
-            pInterface = (node_interface *) pCG->GetType();
-            pszInterfaceName = pInterface->GetSymName();
-            
-            if ( pInterface->FInSummary( ATTR_LOCAL ) )
-                continue;
-
-            pStream->NewLine();
-            pStream->Write("\"");
-            pStream->Write(pszInterfaceName);
-            pStream->Write("\",");
-            count++;
-            }
+        pStream->NewLine();
+        pStream->Write('\"');
+        pStream->Write(pCG->GetSymName());
+        pStream->Write("\",");
         }
     pStream->NewLine();
-    pStream->Write("0");
-    count++;
+    pStream->Write('0');
     pStream->IndentDec();
     pStream->NewLine();
     pStream->Write("};");
     pStream->NewLine();
+}
+
+void
+CG_PROXY_FILE::Out_BaseIntfsList(
+    CCB *pCCB,
+    char * pFName )
+/*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+ Routine Description:
+
+    Generate a base interface list for the [object] interfaces defined
+    in the IDL file that need delegation
+
+ Arguments:
+    
+    pCCB        - a pointer to the code generation control block.
+
+ Notes:
+
+----------------------------------------------------------------------------*/
+{
+    ITERATOR            	&	I		= GetImplementedInterfacesList();
+    CG_OBJECT_INTERFACE		*	pCG;
+    CG_OBJECT_INTERFACE		*	pBaseCG;
+    ISTREAM *           		pStream	= pCCB->GetStream();
+
+    //list of interface proxies.
+    while( ITERATOR_GETNEXT( I, pCG ) )
+        {
+		
+		// if we needed delegation, add it to the list
+		if ( (pBaseCG = pCG->GetDelegatedInterface())
+             || pCG->HasForcedDelegation())
+			{
+			fDllDataDelegating = TRUE;
+			break;
+			}
+        }
+
+    ITERATOR_INIT( I );
+
+	// if there is no delegating, we don't need this table
+	if ( !fDllDataDelegating )
+		return;
+
+    pStream->NewLine();
+    pStream->Write("const IID *  _");
+    pStream->Write(pFName);
+    pStream->Write("_BaseIIDList[] = ");
+    pStream->NewLine();
+    pStream->Write('{');
+    pStream->IndentInc();
+
+    //list of interface proxies.
+    while( ITERATOR_GETNEXT( I, pCG ) )
+        {
+        pStream->NewLine();
+		
+		// if we needed delegation, add it to the list
+		if ( pBaseCG = pCG->GetDelegatedInterface() ) 
+			{
+			fDllDataDelegating = TRUE;
+            pStream->Write("&IID_");
+            pStream->Write( pBaseCG->GetSymName() );
+            pStream->Write(',');
+			}
+		else if ( pCG->HasForcedDelegation() )
+			{
+			fDllDataDelegating = TRUE;
+            pStream->Write("&IID_");
+            pStream->Write( pCG->GetBaseInterfaceCG()->GetSymName() );
+            pStream->Write(',');
+            pStream->Write("   /* forced */");
+			}
+		else
+			pStream->Write("0,");
+        }
+    pStream->NewLine();
+    pStream->Write('0');
+    pStream->IndentDec();
+    pStream->NewLine();
+    pStream->Write("};");
+    pStream->NewLine();
+}
+
+inline 
+unsigned char
+log2( unsigned long ulVal )
+/*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+ Routine Description:
+
+    Compute the log base 2 (rounded down to integral) of a number
+	Returns 0 for 0 or 1
+
+ Arguments:
+    
+    ulVal        - the value to check on.
+
+ Notes:
+ 	uses binary search to find the highest set bit
+
+	to find the smallest power of 2 >= a number, use 1 << log2( 2n-1 )
+
+----------------------------------------------------------------------------*/
+{
+	unsigned char	result = 0;
+
+	if ( ( ulVal >>16 ) > 0 )
+		{
+		ulVal >>= 16;
+		result = 16;
+		}
+
+	if ( ( ulVal >>8 ) > 0 )
+		{
+		ulVal >>= 8;
+		result += 8;
+		}
+
+	if ( ( ulVal >>4 ) > 0 )
+		{
+		ulVal >>= 4;
+		result += 4;
+		}
+
+	if ( ( ulVal >>2 ) > 0 )
+		{
+		ulVal >>= 2;
+		result += 2;
+		}
+
+	if ( ulVal > 1 )
+		{
+		result++;
+		}
+
+	return result;
+}
+
+void
+CG_PROXY_FILE::Out_InfoSearchRoutine(
+    CCB *pCCB,
+    char * pFName )
+/*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+ Routine Description:
+
+    Generate a search function for the interfaces defined in this proxy file
+
+ Arguments:
+    
+    pCCB        - a pointer to the code generation control block.
+
+ Notes:
+
+----------------------------------------------------------------------------*/
+{
+    ITERATOR            	&	I		= GetImplementedInterfacesList();
+    ISTREAM *        pStream	= pCCB->GetStream();
+	unsigned long    ListSize = I.GetCount();
+	CSzBuffer        CheckIIDName;
+	unsigned long    CurIndex;
+
+	
+	CheckIIDName.Append("_");
+	CheckIIDName.Append( pFName );
+	CheckIIDName.Append( "_CHECK_IID" );
+
+	pStream->NewLine(2);
+	pStream->Write( "#define " );
+	pStream->Write( CheckIIDName );
+	pStream->Write( "(n)\tIID_GENERIC_CHECK_IID( _");
+	pStream->Write( pFName );
+	pStream->Write( ", pIID, n)");
+
+
+	pStream->NewLine( 2 );
+	pStream->Write( "int __stdcall _" );
+	pStream->Write( pFName );
+	pStream->Write( "_IID_Lookup( const IID * pIID, int * pIndex )" );
+	pStream->NewLine();
+	pStream->Write( '{' );
+	pStream->IndentInc();
+	pStream->NewLine();
+
+	if ( ListSize == 0 )
+		{
+		pStream->Write( "return 0;" );
+		}
+	else if ( ListSize < 2 )
+		{
+
+		expr_variable		SetValue( "*pIndex" );
+
+		expr_param			IndexParam( NULL );
+		expr_proc_call		CheckIIDExpr( CheckIIDName );
+
+		CheckIIDExpr.SetParam( &IndexParam );
+
+		expr_u_not			TopExpr( &CheckIIDExpr );
+
+		for ( CurIndex = 0; CurIndex < ListSize; CurIndex++ )
+			{
+			expr_constant		IndexNode( CurIndex );
+
+			IndexParam.SetLeft( &IndexNode );
+
+			Out_If( pCCB, &TopExpr );
+			Out_Assign( pCCB, &SetValue, &IndexNode );
+			pStream->NewLine();
+			pStream->Write( "return 1;" );
+			Out_Endif( pCCB );
+			}
+		
+		pStream->NewLine(2);
+		pStream->Write( "return 0;" );
+		}
+	else
+		{
+		unsigned long		curStep	= 1 << log2( ListSize - 1 );
+
+		pStream->Write( "IID_BS_LOOKUP_SETUP" );
+		pStream->NewLine(2);
+		
+		pStream->Write( "IID_BS_LOOKUP_INITIAL_TEST( _" );
+		pStream->Write( pFName );
+		pStream->Write( ", " );
+		pStream->WriteNumber( "%d", ListSize );
+		pStream->Write( ", " );
+		pStream->WriteNumber( "%d", curStep );
+		pStream->Write( " )" );
+		pStream->NewLine();
+
+		for ( curStep >>= 1 ; curStep > 0 ; curStep >>= 1 )
+			{
+			pStream->Write( "IID_BS_LOOKUP_NEXT_TEST( _" );
+			pStream->Write( pFName );
+			pStream->Write( ", " );
+			pStream->WriteNumber( "%d", curStep );
+			pStream->Write( " )" );
+			pStream->NewLine();
+			}
+		
+		pStream->Write( "IID_BS_LOOKUP_RETURN_RESULT( _" );
+		pStream->Write( pFName );
+		pStream->Write( ", " );
+		pStream->WriteNumber( "%d", ListSize );
+		pStream->Write( ", *pIndex )" );
+		pStream->NewLine();
+
+		}
+
+	pStream->IndentDec();
+	pStream->NewLine();
+	pStream->Write( '}' );
+	pStream->NewLine();
+
 }
 
 
@@ -1732,65 +2186,86 @@ CG_PROXY_FILE::Out_ProxyFileInfo(
 
 ----------------------------------------------------------------------------*/
 {
-    ITERATOR            I;
-    CG_NDR          *   pCG;
+    ITERATOR        &   I		= GetImplementedInterfacesList();
     char                Name[ _MAX_FNAME ];
-    ISTREAM *           pStream = pCCB->GetStream();
-    unsigned long       count = 0;
+    ISTREAM *           pStream	= pCCB->GetStream();
+    unsigned long       count	= 0;
 
-    if( !GetMembers( I ) )
-        return;
+    //Get the IDL file name.
+    pCommand->GetInputFileNameComponents(NULL, NULL, Name, NULL );
 
     //////////////////////////////////////////
     // put out the ancilliary data structures    
-    Out_ProxyBuffer(pCCB);
-    Out_StubBuffer(pCCB);
-    Out_InterfaceNamesList(pCCB);
+    Out_ProxyBuffer(pCCB, Name );
+    Out_StubBuffer(pCCB, Name );
+    Out_InterfaceNamesList(pCCB, Name );
+	Out_BaseIntfsList(pCCB, Name);
+	Out_InfoSearchRoutine( pCCB, Name );
 
     //////////////////////////////////////////
     // put out the ProxyFileInfo struct
 
     //list of interface proxies.
-    while( ITERATOR_GETNEXT( I, pCG ) )
-        {
-        if ( pCG->IsObject() &&
-             !((CG_OBJECT_INTERFACE*)pCG)->IsLocal() &&
-             ( pCG->GetCGID() != ID_CG_INHERITED_OBJECT_INTERFACE ) )
-            count++;
-        }
-
-    //leave room for NULL terminator.
-    count++;
-
-    //Get the IDL file name.
-    pCommand->GetInputFileNameComponents(NULL, NULL, Name, NULL );
+	count = ITERATOR_GETCOUNT( I );
 
     pStream->NewLine();
     pStream->Write("const ExtendedProxyFileInfo ");
     pStream->Write(Name);
     pStream->Write("_ProxyFileInfo = ");
     pStream->NewLine();
-    pStream->Write("{");
+    pStream->Write('{');
     pStream->IndentInc();
 
     //pointer to the proxy buffer
     pStream->NewLine();
     pStream->Write("(PCInterfaceProxyVtblList *) & _");
     pStream->Write(Name);
-    pStream->Write("_ProxyVtblList, ");
+    pStream->Write("_ProxyVtblList,");
 
 
     //pointer to the stub buffer
     pStream->NewLine();
     pStream->Write("(PCInterfaceStubVtblList *) & _");
     pStream->Write(Name);
-    pStream->Write("_StubVtblList, ");
+    pStream->Write("_StubVtblList,");
 
     //pointer to the interface names list
     pStream->NewLine();
-    pStream->Write(" (const PCInterfaceName * ) & _");
+    pStream->Write("(const PCInterfaceName * ) & _");
     pStream->Write(Name);
-    pStream->Write("_InterfaceNamesList ");
+    pStream->Write("_InterfaceNamesList,");
+
+    //pointer to the base iids list
+    pStream->NewLine();
+	// no table if no delegation
+	if ( fDllDataDelegating )
+		{
+	    pStream->Write("(const IID ** ) & _");
+	    pStream->Write(Name);
+	    pStream->Write("_BaseIIDList,");
+		}
+	else
+		{
+		pStream->Write( "0, // no delegation" );
+		}
+
+    // IID lookup routine
+    pStream->NewLine();
+	pStream->Write( "& _" );
+	pStream->Write( Name );
+	pStream->Write( "_IID_Lookup, ");
+
+    // table size
+    pStream->NewLine();
+	pStream->WriteNumber( "%d", count );
+	pStream->Write( ',' );
+
+	// table version
+	pStream->NewLine();
+    if ( pCommand->GetNdrVersionControl().HasStublessProxies() )
+	    pStream->Write( "2" );
+    else
+	    pStream->Write( "1" );
 
     pStream->IndentDec();
     pStream->NewLine();
@@ -1815,8 +2290,12 @@ CG_PROXY_FILE::Out_ProxyFileInfo(
     "   To completely reconstruct this file, delete it and rerun MIDL\n"    \
     "   on all the IDL files in this DLL, specifying this file for the\n"   \
     "   /dlldata command line option\n\n"   \
-    "*********************************************************/\n\n"    \
-    "#include <rpcproxy.h>\n\n" \
+    "*********************************************************/\n\n"
+
+#define DLLDATA_HAS_DELEGATION	"#define PROXY_DELEGATION\n"
+	
+#define DLLDATA_HEADER_INCLUDES     \
+    "\n#include <rpcproxy.h>\n\n" \
     "#ifdef __cplusplus\n"  \
     "extern \"C\"   {\n" \
     "#endif\n"  \
@@ -1859,6 +2338,7 @@ DllDataParse(
 {
     const char *    pStart  = DLLDATA_LIST_START;
     const char *    pEnd    = DLLDATA_LIST_END;
+	const char * 	pDelegating	= DLLDATA_HAS_DELEGATION;
 
     char Input[100];
 
@@ -1867,6 +2347,11 @@ DllDataParse(
         {
         if ( !fgets(    Input, 100, pDllData ) )
             break;
+		if ( !strcmp( Input, pDelegating ) )
+			{
+			fDllDataDelegating = TRUE;
+			continue;
+			}
         if ( !strcmp( Input, pStart ) )
             break;
         }
@@ -1934,6 +2419,11 @@ DllDataEmit(
 
     fputs( DLLDATA_HEADER_COMMENT, pDllData );
 
+	if ( fDllDataDelegating )
+		fputs( DLLDATA_HAS_DELEGATION, pDllData );
+
+    fputs( DLLDATA_HEADER_INCLUDES, pDllData );
+
     // emit extern definitions
     Status = Dict.Dict_Init();
 
@@ -2000,35 +2490,71 @@ CG_PROXY_FILE::UpdateDLLDataFile( CCB * pCCB )
     STRING_DICT     ProxyFileList;
     char            Name[ _MAX_FNAME ];
 
-    // get the dlldata file from cmdana
-    pDllData = fopen( pszDllDataName, "rt" );
+    // Use sopen to make sure there always is a file to process.
+    // (fsopen with "r+" requires an existing file).
+
+    int DllDataHandle = _sopen( pszDllDataName,
+                                (_O_CREAT | _O_RDWR | _O_TEXT),
+                                _SH_DENYRW,
+                                (_S_IREAD | _S_IWRITE ) );
+
+    // if the file exists already and/or is busy, it's ok.
+
+    if ( DllDataHandle == -1  &&
+         (errno != EEXIST  &&  errno != EACCES) )
+        {
+        // unexpected error
+        RpcError((char *)NULL, 0, INPUT_OPEN, pszDllDataName );
+        return;
+        }
+
+    if ( DllDataHandle != -1 )
+        {
+        _close(DllDataHandle);
+        }
+
+    // Attempt to open the file for reading and writing.
+    // Because we can have a race condition when updating this file,
+    // we try several times before quitting.
+
+    for ( int i = 0;
+          (i < DLLDATA_OPEN_ATTEMPT_MAX)  &&
+          !(pDllData = _fsopen( pszDllDataName, "r+t", _SH_DENYRW ));
+          i++ )
+        {
+        printf("waiting for %s ...\n", pszDllDataName);
+        MidlSleep(1);
+        }
+
+    if ( !pDllData )
+        {
+        RpcError((char *)NULL, 0, INPUT_OPEN, pszDllDataName );
+        return;
+        }
 
     //Get the IDL file name.
     pCommand->GetInputFileNameComponents(NULL, NULL, Name, NULL );
 
-    if ( pDllData )
-        {
-        // skip up to the proxyfileinfo stuff and read/make sorted list of files
-        DllDataParse( pDllData, ProxyFileList );
+    // If file is empty, the following is a no op.
+    // skip up to the proxyfileinfo stuff and read/make sorted list of files
 
-        fclose( pDllData );
-        }
+    DllDataParse( pDllData, ProxyFileList );
 
     // insert our file name
     ProxyFileList.Dict_Insert( Name ); 
     
     // re-emit everything
-    pDllData = fopen( pszDllDataName, "wt" );
 
-    if ( !pDllData )
-        {
-        // error
-        return;
-        }
-
-    // write it:
-
+    rewind( pDllData );
     DllDataEmit( pDllData, ProxyFileList );
 
+    // close the file to give others a chance
 
+    if ( fclose( pDllData ))
+        {
+        RpcError((char *)NULL, 0, ERROR_WRITING_FILE, pszDllDataName );
+        }
 }
+
+
+

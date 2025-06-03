@@ -37,8 +37,20 @@ MiFlushDirtyBitsToPfn (
     );
 
 ULONG
+FASTCALL
 MiCheckProtoPtePageState (
-    IN PMMPTE PrototypePte
+    IN PMMPTE PrototypePte,
+    IN ULONG PfnLockHeld
+    );
+
+NTSTATUS
+MiFlushSectionInternal (
+    IN PMMPTE StartingPte,
+    IN PMMPTE FinalPte,
+    IN PSUBSECTION FirstSubsection,
+    IN PSUBSECTION LastSubsection,
+    IN ULONG Synchronize,
+    OUT PIO_STATUS_BLOCK IoStatus
     );
 
 #ifdef ALLOC_PRAGMA
@@ -47,10 +59,6 @@ MiCheckProtoPtePageState (
 #endif
 
 extern POBJECT_TYPE IoFileObjectType;
-
-extern KSPIN_LOCK KiDispatcherLock;
-
-
 
 NTSTATUS
 NtFlushVirtualMemory (
@@ -284,6 +292,7 @@ Return Value:
     PSUBSECTION Subsection;
     PSUBSECTION LastSubsection;
     NTSTATUS Status;
+    ULONG Synchronize;
 
     PAGED_CODE();
 
@@ -417,11 +426,12 @@ Return Value:
         Subsection = MiLocateSubsection (Vad, *BaseAddress);
         LastSubsection = MiLocateSubsection (Vad, EndingAddress);
         FinalPte = MiGetProtoPteAddress (Vad, EndingAddress);
-
         UNLOCK_WS (Process);
         UNLOCK_ADDRESS_SPACE (Process);
+        Synchronize = TRUE;
     } else {
         UNLOCK_WS (Process);
+        Synchronize = FALSE;
     }
 
     //
@@ -431,14 +441,34 @@ Return Value:
     KeDetachProcess();
 
     //
+    //  If we are going to synchronize the flush, then we better
+    //  preacquire the file.
+    //
+
+    if (Synchronize) {
+        FsRtlAcquireFileForCcFlush (ControlArea->FilePointer);
+    }
+
+    //
     // Flush the PTEs from the specified section.
     //
 
-    return MiFlushSectionInternal (PointerPte,
-                                   FinalPte,
-                                   Subsection,
-                                   LastSubsection,
-                                   IoStatus);
+    Status = MiFlushSectionInternal (PointerPte,
+                                     FinalPte,
+                                     Subsection,
+                                     LastSubsection,
+                                     Synchronize,
+                                     IoStatus);
+
+    //
+    //  Release the file if we acquired it.
+    //
+
+    if (Synchronize) {
+        FsRtlReleaseFileForCcFlush (ControlArea->FilePointer);
+    }
+
+    return Status;
 
 ErrorReturn:
     UNLOCK_WS (Process);
@@ -453,7 +483,8 @@ MmFlushSection (
     IN PSECTION_OBJECT_POINTERS SectionObjectPointer,
     IN PLARGE_INTEGER Offset,
     IN ULONG RegionSize,
-    OUT PIO_STATUS_BLOCK IoStatus
+    OUT PIO_STATUS_BLOCK IoStatus,
+    IN ULONG AcquireFile
     )
 
 /*++
@@ -477,6 +508,8 @@ Arguments:
 
     IoStatus - Returns the value of the IoStatus for the last attempted
          I/O operation.
+
+    AcquireFile - Nonzero if the callback should be used to acquire the file
 
 Return Value:
 
@@ -610,11 +643,18 @@ Return Value:
     OldClusterState = CurrentThread->ForwardClusterOnly;
     CurrentThread->ForwardClusterOnly = TRUE;
 
+    if (AcquireFile) {
+        FsRtlAcquireFileForCcFlush (ControlArea->FilePointer);
+    }
     status = MiFlushSectionInternal (PointerPte,
                                    LastPte,
                                    Subsection,
                                    LastSubsection,
+                                   TRUE,
                                    IoStatus);
+    if (AcquireFile) {
+        FsRtlReleaseFileForCcFlush (ControlArea->FilePointer);
+    }
 
     CurrentThread->ForwardClusterOnly = OldClusterState;
 
@@ -640,6 +680,7 @@ MiFlushSectionInternal (
     IN PMMPTE FinalPte,
     IN PSUBSECTION FirstSubsection,
     IN PSUBSECTION LastSubsection,
+    IN ULONG Synchronize,
     OUT PIO_STATUS_BLOCK IoStatus
     )
 
@@ -670,6 +711,9 @@ Arguments:
 
     LastSubsection - Supplies the subsection that contains the
                      FinalPte.
+
+    Synchronize - Supplies TRUE if synchonization with all threads
+                  doing flush operations to this section should occur.
 
     IoStatus - Returns the value of the IoStatus for the last attempted
          I/O operation.
@@ -731,6 +775,28 @@ Return Value:
         return STATUS_SUCCESS;
     }
 
+    while ((Synchronize) && (ControlArea->FlushInProgressCount != 0)) {
+
+        //
+        // Another thread is currently performing a flush operation on
+        // this file.  Wait for that flush to complete.
+        //
+
+        KeEnterCriticalRegion();
+        ControlArea->u.Flags.CollidedFlush = 1;
+        UNLOCK_PFN_AND_THEN_WAIT(OldIrql);
+
+        KeWaitForSingleObject (&MmCollidedFlushEvent,
+                               WrPageOut,
+                               KernelMode,
+                               FALSE,
+                               &MmOneSecond);
+        KeLeaveCriticalRegion();
+        LOCK_PFN (OldIrql);
+    }
+
+    ControlArea->FlushInProgressCount += 1;
+
     for (;;) {
 
         if (LastSubsection != Subsection) {
@@ -754,7 +820,7 @@ Return Value:
         // of 1, they cannot contain any transition or valid PTEs.
         //
 
-        if (!MiCheckProtoPtePageState(PointerPte)) {
+        if (!MiCheckProtoPtePageState(PointerPte, TRUE)) {
             PointerPte = (PMMPTE)(((ULONG)PointerPte | (PAGE_SIZE - 1)) + 1);
         }
 
@@ -766,7 +832,7 @@ Return Value:
                 // We are on a page boundary, make sure this PTE is resident.
                 //
 
-                if (!MiCheckProtoPtePageState(PointerPte)) {
+                if (!MiCheckProtoPtePageState(PointerPte, TRUE)) {
                     PointerPte = (PMMPTE)((ULONG)PointerPte + PAGE_SIZE);
 
                     //
@@ -873,7 +939,7 @@ Return Value:
                     // is I/O in progress.
                     //
 
-                    Pfn1->ReferenceCount += 1;
+                    Pfn1->u3.e2.ReferenceCount += 1;
 
                     *LastPage = PageFrameIndex;
                     LastPage += 1;
@@ -967,6 +1033,13 @@ CheckForWrite:
                                            KernelMode,
                                            FALSE,
                                            (PLARGE_INTEGER)NULL);
+                //
+                //  Otherwise, copy the error to the IoStatus, for error
+                //  handling below.
+                //
+
+                } else {
+                    IoStatus->Status = Status;
                 }
 
                 if (Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA) {
@@ -1025,8 +1098,6 @@ CheckForWrite:
                         Amount += PAGE_SIZE;
                     }
 
-                    UNLOCK_PFN (OldIrql);
-
                     //
                     // Calculate how much was written thus far
                     // and add that to the information field
@@ -1041,7 +1112,7 @@ CheckForWrite:
                         (((LastWritten - StartingPte) << PAGE_SHIFT) -
                                                         Mdl->ByteCount);
 
-                    return IoStatus->Status;
+                    goto ErrorReturn;
                 }
 
                 //
@@ -1072,6 +1143,15 @@ CheckForWrite:
     }  //end for
 
     ASSERT (LastWritten == NULL);
+
+ErrorReturn:
+
+    ControlArea->FlushInProgressCount -= 1;
+    if ((ControlArea->u.Flags.CollidedFlush == 1) &&
+        (ControlArea->FlushInProgressCount == 0)) {
+        ControlArea->u.Flags.CollidedFlush = 0;
+        KePulseEvent (&MmCollidedFlushEvent, 0, FALSE);
+    }
     UNLOCK_PFN (OldIrql);
     return IoStatus->Status;
 }
@@ -1080,7 +1160,8 @@ BOOLEAN
 MmPurgeSection (
     IN PSECTION_OBJECT_POINTERS SectionObjectPointer,
     IN PLARGE_INTEGER Offset,
-    IN ULONG RegionSize
+    IN ULONG RegionSize,
+    IN ULONG IgnoreCacheViews
     )
 
 /*++
@@ -1099,12 +1180,9 @@ Routine Description:
     NOTE:
 
     If there is an I/O operation ongoing for one of the pages,
-    this routine delays 30ms for 20 times waiting for the I/O
-    to complete.  If the I/O has not completed, it skips that
-    page and continues to purge.  This means that after this
-    routine has purged the file, an I/O operation can complete
-    which will write or read from the file where it was supposedly
-    purged.
+    that page is eliminated from the segment and allowed to "float"
+    until the i/o is complete.  Once the share count goes to zero
+    the page will be added to the free page list.
 
 Arguments:
 
@@ -1122,6 +1200,14 @@ Arguments:
 
                  Note: The largest value acceptable for RegionSize is
                  0xFFFF0000;
+
+    IgnoreCacheViews - Supplies FALSE if mapped views in the system
+                 cache should cause the function to return FALSE.
+                 This is the normal case.
+                 Supplies TRUE if mapped views should be ignored
+                 and the flush should occur.  NOTE THAT IF TRUE
+                 IS SPECIFIED AND ANY DATA PURGED IS CURRENTLY MAPPED
+                 AND VALID A BUGCHECK WILL OCCUR!!
 
 Return Value:
 
@@ -1147,6 +1233,7 @@ Return Value:
     LARGE_INTEGER LocalOffset;
     BOOLEAN DeleteSegment = FALSE;
     BOOLEAN LockHeld;
+    BOOLEAN ReturnValue;
 #if DBG
     ULONG LastLocked = 0;
 #endif //DBG
@@ -1185,7 +1272,8 @@ Return Value:
     //  the Cache Manager has a view mapped.
     //
 
-    } else if (ControlArea->NumberOfSystemCacheViews != 0) {
+    } else if ((IgnoreCacheViews == FALSE) &&
+            (ControlArea->NumberOfSystemCacheViews != 0)) {
         UNLOCK_PFN (OldIrql);
         return FALSE;
     }
@@ -1195,7 +1283,6 @@ Return Value:
     // contains the PTEs.
     //
 
-    ControlArea->u.Flags.WasPurged = 1;
     Subsection = (PSUBSECTION)(ControlArea + 1);
 
     if (!ARGUMENT_PRESENT (Offset)) {
@@ -1236,6 +1323,7 @@ Return Value:
         ASSERT (PteOffset < Subsection->PtesInSubsection);
         PointerPte = &Subsection->SubsectionBase[PteOffset];
     }
+
 
     //
     // Locate the address of the last prototype PTE to be flushed.
@@ -1301,9 +1389,11 @@ Return Value:
     //
 
     ControlArea->u.Flags.BeingPurged = 1;
+    ControlArea->u.Flags.WasPurged = 1;
 
     UNLOCK_PFN (OldIrql);
     LockHeld = FALSE;
+    ReturnValue = TRUE;
 
     for (;;) {
 
@@ -1323,11 +1413,42 @@ Return Value:
             LastPte = FinalPte;
         }
 
+        //
+        // If the page table page containing the PTEs is not
+        // resident, then no PTEs can be in the valid or tranition
+        // state!  Skip over the PTEs.
+        //
+
+        if (!MiCheckProtoPtePageState(PointerPte, LockHeld)) {
+            PointerPte = (PMMPTE)(((ULONG)PointerPte | (PAGE_SIZE - 1)) + 1);
+        }
+
         while (PointerPte < LastPte) {
+
+            //
+            // If the page table page containing the PTEs is not
+            // resident, then no PTEs can be in the valid or tranition
+            // state!  Skip over the PTEs.
+            //
+
+            if (!MiCheckProtoPtePageState(PointerPte, LockHeld)) {
+                PointerPte = (PMMPTE)((ULONG)PointerPte + PAGE_SIZE);
+                continue;
+            }
 
             PteContents = *PointerPte;
 
-            ASSERT (PteContents.u.Hard.Valid == 0);
+            if (PteContents.u.Hard.Valid == 1) {
+
+                //
+                // A valid PTE was found, it must be mapped in the
+                // system cache.  Just exit the loop and return FALSE
+                // and let the caller fix this.
+                //
+
+                ReturnValue = FALSE;
+                break;
+            }
 
             if ((PteContents.u.Soft.Prototype == 0) &&
                      (PteContents.u.Soft.Transition == 1)) {
@@ -1345,7 +1466,7 @@ Return Value:
                 ASSERT (Pfn1->OriginalPte.u.Hard.Valid == 0);
 
 #if DBG
-                if ((Pfn1->ReferenceCount != 0) &&
+                if ((Pfn1->u3.e2.ReferenceCount != 0) &&
                     (Pfn1->u3.e1.WriteInProgress == 0)) {
 
                     //
@@ -1369,6 +1490,47 @@ Return Value:
                 }
 #endif //DBG
 
+                //
+                // If the modified page writer has page locked for I/O
+                // wait for the I/O's to be completed and the pages
+                // to be unlocked.  The eliminates a race condition
+                // when the modified page writer locks the pages, then
+                // a purge occurs and completes before the mapped
+                // writer thread runs.
+                //
+
+                if (Pfn1->u3.e1.WriteInProgress == 1) {
+                    ASSERT (ControlArea->ModifiedWriteCount != 0);
+                    ASSERT (Pfn1->u3.e2.ReferenceCount != 0);
+
+                    ControlArea->u.Flags.SetMappedFileIoComplete = 1;
+
+                    KeEnterCriticalRegion();
+                    UNLOCK_PFN_AND_THEN_WAIT(OldIrql);
+
+                    KeWaitForSingleObject(&MmMappedFileIoComplete,
+                                          WrPageOut,
+                                          KernelMode,
+                                          FALSE,
+                                          (PLARGE_INTEGER)NULL);
+                    KeLeaveCriticalRegion();
+                    LOCK_PFN (OldIrql);
+                    MiMakeSystemAddressValidPfn (PointerPte);
+                    continue;
+                }
+
+                if (Pfn1->u3.e1.ReadInProgress == 1) {
+
+                    //
+                    // The page currently is being read in from the
+                    // disk.  Treat this just like a valid PTE and
+                    // return false.
+                    //
+
+                    ReturnValue = FALSE;
+                    break;
+                }
+
                 ASSERT (!((Pfn1->OriginalPte.u.Soft.Prototype == 0) &&
                     (Pfn1->OriginalPte.u.Soft.Transition == 1)));
 
@@ -1383,7 +1545,7 @@ Return Value:
 
                 MI_SET_PFN_DELETED (Pfn1);
 
-                MiDecrementShareCount (Pfn1->u3.e1.PteFrame);
+                MiDecrementShareCount (Pfn1->PteFrame);
 
                 //
                 // If the reference count for the page is zero, insert
@@ -1392,7 +1554,7 @@ Return Value:
                 // the page will go to the free list.
                 //
 
-                if (Pfn1->ReferenceCount == 0) {
+                if (Pfn1->u3.e2.ReferenceCount == 0) {
                     MiReleasePageFileSpace (Pfn1->OriginalPte);
                     MiInsertPageInList (MmPageLocationList[FreePageList],
                                         PteContents.u.Trans.PageFrameNumber);
@@ -1419,7 +1581,7 @@ Return Value:
             LockHeld = FALSE;
         }
 
-        if (LastSubsection != Subsection) {
+        if ((LastSubsection != Subsection) && (ReturnValue)) {
 
             //
             // Get the next subsection in the list.
@@ -1452,7 +1614,7 @@ Return Value:
     //
 
     MiCheckControlArea (ControlArea, NULL, OldIrql);
-    return TRUE;
+    return ReturnValue;
 }
 
 BOOLEAN
@@ -1492,7 +1654,7 @@ Return Value:
 {
     PCONTROL_AREA ControlArea;
     KIRQL OldIrql;
-    BOOLEAN state;
+    ULONG state;
 
     if (FlushType == MmFlushForDelete) {
 
@@ -1525,7 +1687,7 @@ Return Value:
                                       &OldIrql);
 
     if (ControlArea == NULL) {
-        return state;
+        return (BOOLEAN)state;
     }
 
     //
@@ -1576,7 +1738,7 @@ MiFlushDirtyBitsToPfn (
         PteContents = *PointerPte;
 
         if ((PteContents.u.Hard.Valid == 1) &&
-            (PteContents.u.Hard.Dirty == MM_PTE_DIRTY)) {
+            (MI_IS_PTE_DIRTY (PteContents))) {
 
             //
             // Flush the modify bit to the PFN database.
@@ -1585,7 +1747,7 @@ MiFlushDirtyBitsToPfn (
             Pfn1 = MI_PFN_ELEMENT (PteContents.u.Hard.PageFrameNumber);
             Pfn1->u3.e1.Modified = 1;
 
-            PteContents.u.Hard.Dirty = MM_PTE_CLEAN;
+            MI_SET_PTE_CLEAN (PteContents);
 
             //
             // No need to capture the PTE contents as we are going to
@@ -1597,7 +1759,7 @@ MiFlushDirtyBitsToPfn (
                                    FALSE,
                                    SystemCache,
                                    (PHARDWARE_PTE)PointerPte,
-                                   PteContents.u.Hard);
+                                   PteContents.u.Flush);
         }
 
         Va = (PVOID)((ULONG)Va + PAGE_SIZE);
@@ -1652,8 +1814,10 @@ MiGetSystemCacheSubsection (
 
 
 ULONG
+FASTCALL
 MiCheckProtoPtePageState (
-    IN PMMPTE PrototypePte
+    IN PMMPTE PrototypePte,
+    IN ULONG PfnLockHeld
     )
 
 /*++
@@ -1691,9 +1855,7 @@ Return Value:
     if (PteContents.u.Hard.Valid == 1) {
         PageFrameIndex = PteContents.u.Hard.PageFrameNumber;
         Pfn = MI_PFN_ELEMENT (PageFrameIndex);
-        if (Pfn->u2.ShareCount == 1) {
-            return FALSE;
-        } else {
+        if (Pfn->u2.ShareCount != 1) {
             return TRUE;
         }
     } else if ((PteContents.u.Soft.Prototype == 0) &&
@@ -1706,15 +1868,15 @@ Return Value:
         PageFrameIndex = PteContents.u.Trans.PageFrameNumber;
         Pfn = MI_PFN_ELEMENT (PageFrameIndex);
         if (Pfn->u3.e1.PageLocation >= ActiveAndValid) {
-            MiMakeSystemAddressValidPfn (PrototypePte);
+            if (PfnLockHeld) {
+                MiMakeSystemAddressValidPfn (PrototypePte);
+            }
             return TRUE;
-        } else {
-            return FALSE;
         }
     }
 
     //
-    // Page is not resident.
+    // Page is not resident or is on standby / modified list.
     //
 
     return FALSE;

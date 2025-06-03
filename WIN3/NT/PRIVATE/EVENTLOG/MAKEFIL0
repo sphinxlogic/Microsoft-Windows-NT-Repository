@@ -7,21 +7,22 @@
 
 !INCLUDE $(NTMAKEENV)\makefile.plt
 
-ELFIDL = elf
+ELFIDL=elf
 
-SDKINC = \public\sdk\inc
-SDKCRTINC = \public\sdk\inc\crt
-INCS  = -I$(BASEDIR)$(SDKINC)  -I$(BASEDIR)$(SDKCRTINC)
+CLIENT_FILES=elfclnt\$(ELFIDL)_c.c $(ELFIDL).h
+SERVER_FILES=server\$(ELFIDL)_s.c
+LOCAL_FILES=$(ELFIDL)_c.c $(ELFIDL)_s.c
 
-CPP = -cpp_cmd "$(MIDL_CPP)" -cpp_opt "-nologo -E $(MIDL_FLAGS) $(INCS)"
+INCS=   -I$(BASEDIR)\public\sdk\inc -I$(BASEDIR)\public\sdk\inc\crt
+
+ELFMIDLARGS=-oldnames -error allocation -error ref -ms_ext -c_ext \
+            -cpp_cmd "$(MIDL_CPP)" $(MIDL_FLAGS) $(INCS)
 
 #
 # Define Products and Dependencies
 #
 
-all:  elfclnt\$(ELFIDL)_c.c elfclnt\$(ELFIDL)_x.c \
-      server\$(ELFIDL)_y.c  server\$(ELFIDL)_s.c\
-      $(ELFIDL).h del_elf_sources
+all:    $(CLIENT_FILES) $(SERVER_FILES) del_elf_sources
 !IF "$(BUILDMSG)" != ""
     @ech ; $(BUILDMSG) ;
 !ENDIF
@@ -29,18 +30,19 @@ all:  elfclnt\$(ELFIDL)_c.c elfclnt\$(ELFIDL)_x.c \
 clean: delete_source all
 
 delete_source:
-    erase elfclnt\$(ELFIDL)_c.c elfclnt\$(ELFIDL)_x.c server\$(ELFIDL)_y.c server\$(ELFIDL)_s.c $(ELFIDL).h
+    -erase $(CLIENT_FILES) $(SERVER_FILES) $(LOCAL_FILES)
 
 #
 # MIDL COMPILE
 #
 
-elfclnt\$(ELFIDL)_c.c elfclnt\$(ELFIDL)_x.c server\$(ELFIDL)_y.c server\$(ELFIDL)_s.c $(ELFIDL).h : $(ELFIDL).idl
-    midl -oldnames -error allocation -error ref -mode c_port $(CPP) $(ELFIDL).idl $(INCS)
-    IF EXIST $(ELFIDL)_x.c copy $(ELFIDL)_x.c .\elfclnt & del $(ELFIDL)_x.c
-    IF EXIST $(ELFIDL)_c.c copy $(ELFIDL)_c.c .\elfclnt & del  $(ELFIDL)_c.c
-    IF EXIST $(ELFIDL)_y.c copy $(ELFIDL)_y.c .\server & del    $(ELFIDL)_y.c
-    IF EXIST $(ELFIDL)_s.c copy $(ELFIDL)_s.c .\server & del    $(ELFIDL)_s.c
+$(CLIENT_FILES): $(ELFIDL).idl
+    midl -Oi $(ELFMIDLARGS) $(ELFIDL).idl
+    copy $(ELFIDL)_c.c elfclnt\$(ELFIDL)_c.c
+
+$(SERVER_FILES): $(ELFIDL).idl
+    midl -client none $(ELFMIDLARGS) $(ELFIDL).idl
+    copy $(ELFIDL)_s.c server\$(ELFIDL)_s.c
 
 del_elf_sources:
-    -del $(ELFIDL)_x.c $(ELFIDL)_c.c $(ELFIDL)_y.c $(ELFIDL)_s.c 1> NUL 2>NUL
+    -del $(LOCAL_FILES) 1> NUL 2>NUL

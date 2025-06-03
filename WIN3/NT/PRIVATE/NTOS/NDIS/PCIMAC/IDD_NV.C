@@ -4,6 +4,7 @@
 
 #include	<ndis.h>
 #include	<mytypes.h>
+#include	<mydefs.h>
 #include	<disp.h>
 #include	<util.h>
 #include	<opcodes.h>
@@ -21,10 +22,10 @@ nv_clk(IDD *idd, USHORT dat)
 	
     dat &= 1;					/* make sure dat is one bit only */
 
-    idd__outp(idd, 0, (UCHAR)(0x04 | dat));	/* setup data */
-    idd__outp(idd, 0, (UCHAR)(0x06 | dat)); 	/* clock high */
-    idd__outp(idd, 0, (UCHAR)(0x04 | dat));     /* clock low */
-    ret = idd__inp(idd, 0) & 0x01;		/* return out bit */
+    idd->OutToPort(idd, 0, (UCHAR)(0x04 | dat));	/* setup data */
+    idd->OutToPort(idd, 0, (UCHAR)(0x06 | dat)); 	/* clock high */
+    idd->OutToPort(idd, 0, (UCHAR)(0x04 | dat));     /* clock low */
+    ret = idd->InFromPort(idd, 0) & 0x01;		/* return out bit */
 	
     return(ret);
 }
@@ -43,12 +44,12 @@ nv_op(IDD *idd, SHORT op, USHORT addr, USHORT val, USHORT has_val)
 	res_own(idd->res_io, idd);
 
     /* set CS */
-    idd__outp(idd, 0, 0x4);
+    idd->OutToPort(idd, 0, 0x4);
 
     /* if waiting for chip to be done, stay here */
     if ( op < 0 )
     {
-    	while ( !(idd__inp(idd, 0) & 0x01) )
+    	while ( !(idd->InFromPort(idd, 0) & 0x01) )
             ;
 		/* remove ownership of i/o */
 		res_unown(idd->res_io, idd);
@@ -72,7 +73,7 @@ nv_op(IDD *idd, SHORT op, USHORT addr, USHORT val, USHORT has_val)
     }
 	
     /* remove CS */
-    idd__outp(idd, 0, 0x00);
+    idd->OutToPort(idd, 0, 0x00);
 
 	/* remove ownership of i/o */
 	res_unown(idd->res_io, idd);
@@ -84,15 +85,23 @@ nv_op(IDD *idd, SHORT op, USHORT addr, USHORT val, USHORT has_val)
 
 /* read a nvram location */
 USHORT
-idd__nv_read(IDD *idd, USHORT addr)
+IdpNVRead(IDD *idd, USHORT addr)
 {
     /* a basic op */
     return(nv_op(idd, 2, addr, 0, 1));
 }
 
+
+/* read a nvram location */
+USHORT
+AdpNVRead(IDD *idd, USHORT addr)
+{
+	return(AdpGetUShort(idd, ADP_NVRAM_WINDOW + addr));
+}
+
 /* write a nvram location */
 VOID
-idd__nv_write(IDD *idd, USHORT addr, USHORT val)
+IdpNVWrite(IDD *idd, USHORT addr, USHORT val)
 {
     /* enable writes */
     nv_op(idd, 0, 0x30, 0, 0);
@@ -104,9 +113,17 @@ idd__nv_write(IDD *idd, USHORT addr, USHORT val)
     nv_op(idd, -1, 0, 0, 0);
 }
 
+/* write a nvram location */
+VOID
+AdpNVWrite(IDD *idd, USHORT addr, USHORT val)
+{
+	
+}
+
+
 /* erase all nvram */
 VOID
-idd__nv_erase(IDD *idd)
+IdpNVErase(IDD *idd)
 {
     /* enable writes */
     nv_op(idd, 0, 0x30, 0, 0);
@@ -115,4 +132,9 @@ idd__nv_erase(IDD *idd)
     nv_op(idd, 0, 0x20, 0, 0);
 }
 
-
+/* erase all nvram */
+VOID
+AdpNVErase(IDD *idd)
+{
+	
+}

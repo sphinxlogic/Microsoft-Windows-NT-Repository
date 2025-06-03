@@ -19,29 +19,25 @@ Author:
 #include "ulib.hxx"
 #include "wstring.hxx"
 #include "achkmsg.hxx"
+#include "spackmsg.hxx"
 #include "error.hxx"
 #include "ifssys.hxx"
 #include "rtmsg.h"
 #include "ifsentry.hxx"
 #include "convfat.hxx"
-#include "cuhpfs.hxx"
 #include "fatvol.hxx"
-#include "hpfsvol.hxx"
 #include "autoreg.hxx"
 #include "autoentr.hxx"
 #include "arg.hxx"
 #include "rcache.hxx"
-#include "nametab.hxx"
+
+#if INCLUDE_OFS==1
+#include "fatofs.hxx"
+#include "initexcp.hxx"
+#endif  // INCLUDE_OFS
 
 extern "C" BOOLEAN
 InitializeUfat(
-    PVOID DllHandle,
-    ULONG Reason,
-    PCONTEXT Context
-    );
-
-extern "C" BOOLEAN
-InitializeUhpfs(
     PVOID DllHandle,
     ULONG Reason,
     PCONTEXT Context
@@ -80,6 +76,109 @@ FileDelete(
     IN  PCWSTRING FileName
     );
 
+#if INCLUDE_OFS==1
+
+BOOLEAN
+IsRestartFatToOfs( WSTRING const & DriveName,
+                   WSTRING const & CurrentFsName,
+                   WSTRING const & TargetFileSystem )
+{
+
+    DSTRING OfsName;
+    DSTRING FatName;
+
+
+    if ( !OfsName.Initialize( L"OFS" ) )
+        return FALSE;
+
+    if ( CurrentFsName != OfsName || TargetFileSystem != OfsName )
+        return FALSE;
+
+    PWSTR pwszDriveName = DriveName.QueryWSTR();
+
+    BOOLEAN fIsRestart = IsFatToOfsRestart( pwszDriveName );
+    DELETE( pwszDriveName );
+
+    return fIsRestart;
+}
+
+BOOLEAN
+IsFatToOfs( WSTRING const & CurrentFsName, WSTRING const & TargetFsName )
+{
+    DSTRING  FatName;
+    DSTRING  OfsName;
+
+    if ( !FatName.Initialize( L"FAT" ) )
+        return FALSE;
+
+    if ( !OfsName.Initialize( L"OFS" ) )
+        return FALSE;
+
+    return  0 == CurrentFsName.Stricmp(&FatName) &&
+            0 == TargetFsName.Stricmp(&OfsName);
+}
+
+BOOLEAN
+FatToOfs(
+    IN      PCWSTRING           NtDriveName,
+    IN OUT  PMESSAGE            Message,
+    IN      BOOLEAN             Verbose,
+    IN      BOOLEAN             fInSetup,
+    OUT     PCONVERT_STATUS     Status )
+{
+
+    PWSTR pwszNtDriveName = NtDriveName->QueryWSTR();
+    FAT_OFS_CONVERT_STATUS cnvStatus;
+    BOOLEAN fResult= ConvertFatToOfs(
+                            pwszNtDriveName,
+                            Message,
+                            Verbose,
+                            fInSetup,
+                            &cnvStatus );
+
+    DELETE( pwszNtDriveName );
+
+    if ( FAT_OFS_CONVERT_SUCCESS == cnvStatus )
+    {
+        *Status = CONVERT_STATUS_CONVERTED;
+    }
+    else
+    {
+        *Status = CONVERT_STATUS_ERROR;
+    }
+
+    return fResult;
+}
+
+#else
+
+BOOLEAN
+IsRestartFatToOfs( WSTRING const & DriveName, WSTRING const & CurrentFsName,
+                   WSTRING const & TargetFileSystem )
+{
+    return FALSE;
+}
+
+BOOLEAN
+IsFatToOfs( WSTRING const & CurrentFsName, WSTRING const & TargetFsName )
+{
+    return FALSE;
+}
+
+BOOLEAN
+FatToOfs(
+    IN      PCWSTRING           NtDriveName,
+    IN OUT  PMESSAGE            Message,
+    IN      BOOLEAN             Verbose,
+    IN      BOOLEAN             fInSetup,
+    OUT     PCONVERT_STATUS     Status )
+{
+    *Status = CONVERT_STATUS_CONVERSION_NOT_AVAILABLE;
+    return FALSE;
+}
+
+#endif  // INCLUDE_OFS
+
 int _CRTAPI1
 main(
     int     argc,
@@ -99,7 +198,12 @@ Arguments:
                   the drive to check.  The syntax of the autoconv
                   command line is:
 
-    AUTOCONV drive-name /FS:target-file-system [/v] [/NAMETABLE:filename]
+    AUTOCONV drive-name /FS:target-file-system [/v] [/s] [/o] [/NAMETABLE:filename]
+
+        /v -- verbose output
+        /s -- run from setup
+        /o -- pause before the final reboot (oem setup)
+
 
 Return Value:
 
@@ -108,28 +212,28 @@ Return Value:
 
 --*/
 {
+
+#if INCLUDE_OFS==1
+    InitExceptionSystem();
+#endif  // INCLUDE_OFS==1
+
     if (!InitializeUlib( NULL, ! DLL_PROCESS_DETACH, NULL )     ||
         !InitializeIfsUtil(NULL, ! DLL_PROCESS_DETACH, NULL)    ||
         !InitializeUfat(NULL, ! DLL_PROCESS_DETACH, NULL)       ||
-        !InitializeUhpfs(NULL, ! DLL_PROCESS_DETACH, NULL)      ||
-        !InitializeUntfs(NULL, ! DLL_PROCESS_DETACH, NULL)      ||
-        !InitializeCuhpfs(NULL, ! DLL_PROCESS_DETACH, NULL)
+        !InitializeUntfs(NULL, ! DLL_PROCESS_DETACH, NULL)
        ) {
+        DebugPrintf( "Failed to initialize U* Dlls" );
         return 1;
     }
 
 
-    PHPFS_VOL           HpfsVolume;
     PFAT_VOL            FatVolume;
     DP_DRIVE            DpDrive;
-    NAME_LOOKUP_TABLE   NameTable;
-
-    AUTOCHECK_MESSAGE   Message;
+    PAUTOCHECK_MESSAGE  message;
     DSTRING             DriveName;
     DSTRING             FileSystemName;
     DSTRING             CurrentFsName;
     DSTRING             FatName;
-    DSTRING             HpfsName;
     DSTRING             NameTableFileName;
     DSTRING             QualifiedName;
     FSTRING             Backslash;
@@ -139,14 +243,23 @@ Return Value:
     CONVERT_STATUS      Status;
     BOOLEAN             UseNameTable = FALSE;
     int                 i;
+    BOOLEAN             fInSetup = FALSE;
+    BOOLEAN             Pause = FALSE;
 
     LARGE_INTEGER       DelayInterval;
 
-    if (!(perrstk = NEW ERRSTACK)) {
-        return 1;
+    FSTRING             DosDevicesPattern;
+    DSTRING             StrippedDriveName;
+    CHNUM               position;
+
+    DebugPrintf( "Entering autoconv argc=%ld\n", argc );
+    for ( i = 0; i < argc; i++ )
+    {
+        DebugPrintf(" argv[%d] = %s\n", i, argv[i] );
     }
 
-    if (!Message.Initialize()) {
+    if (!(perrstk = NEW ERRSTACK)) {
+        DebugPrintf( "Failed to create the error stack\n" );
         return 1;
     }
 
@@ -163,36 +276,54 @@ Return Value:
     //
     //  First argument is drive
     //
-    if ( !DriveName.Initialize( argv[1] ) ) {
+    if ( !DriveName.Initialize( argv[1] ) ||
+         !StrippedDriveName.Initialize( argv[1] ) ) {
+        DebugPrintf( "Failed to intialize DriveName \n" );
         return 1;
     }
 
-    //
-    //  Second argument is name of file system
-    //
-    if ( (strlen(argv[2]) < 5)                          ||
-         (argv[2][0] != '/' && argv[2][0] != '-')       ||
-         (argv[2][1] != 'f' && argv[2][1] != 'F')       ||
-         (argv[2][2] != 's' && argv[2][2] != 'S')       ||
-         (argv[2][3] != ':')                            ||
-         ( !FileSystemName.Initialize( &(argv[2][4]) ))
-       ) {
-        return 1;
-    }
+    DosDevicesPattern.Initialize( (LPWSTR)L"\\??\\" );
+    position = StrippedDriveName.Strstr( &DosDevicesPattern );
+    if (position == 0)
+         StrippedDriveName.DeleteChAt(0, DosDevicesPattern.QueryChCount() );
 
+    DebugPrintf("drive name: %ws\n", StrippedDriveName.GetWSTR());
 
     //
     //  The rest of the arguments are flags.
     //
-    for( i = 3; i < argc; i++ ) {
+    for( i = 2; i < argc; i++ ) {
 
-        if( stricmp( argv[i], "/V" ) == 0 || stricmp( argv[i], "-V" ) == 0 ) {
+        if ( (strlen(argv[i]) >= 5)                         &&
+             (argv[i][0] == '/' || argv[i][0] == '-')       &&
+             (argv[i][1] == 'f' || argv[i][1] == 'F')       &&
+             (argv[i][2] == 's' || argv[i][2] == 'S')       &&
+             (argv[i][3] == ':') ) {
 
+            if ( 0 != FileSystemName.QueryChCount() ||
+                 !FileSystemName.Initialize( &(argv[i][4]) ) )
+            {
+                DebugPrintf( "Failed to initialize FileSystemName \n" );
+                return 1;
+            }
+        }
+
+        if (0 == _stricmp( argv[i], "/V" ) || 0 == _stricmp( argv[i], "-V" )) {
             Verbose = TRUE;
         }
 
-        if( strnicmp( "/NAMETABLE:", argv[i], strlen("/NAMETABLE:") ) == 0 ||
-            strnicmp( "-NAMETABLE:", argv[i], strlen("-NAMETABLE:") ) == 0 ) {
+        if (0 == _stricmp(argv[i], "/S") || 0 == _stricmp(argv[i], "-S")) {
+            DebugPrintf("Found /s option\n");
+            fInSetup = TRUE;
+        }
+
+        if (0 == _stricmp(argv[i], "/O") || 0 == _stricmp(argv[i], "-O")) {
+            DebugPrintf("Found /o option\n");
+            Pause = TRUE;
+        }
+
+        if( _strnicmp( "/NAMETABLE:", argv[i], strlen("/NAMETABLE:") ) == 0 ||
+            _strnicmp( "-NAMETABLE:", argv[i], strlen("-NAMETABLE:") ) == 0 ) {
 
             UseNameTable = TRUE;
             if( !NameTableFileName.Initialize( &argv[i][strlen("-NAMETABLE:")] ) ) {
@@ -202,11 +333,28 @@ Return Value:
         }
     }
 
-    if (!FatName.Initialize("FAT")) {
+    if ( 0 == FileSystemName.QueryChCount() )
+    {
+        DebugPrintf( "No FileSystem name specified\n" );
         return 1;
     }
 
-    if (!HpfsName.Initialize("HPFS")) {
+    DebugPrintf("AUTOCONV: TargetFileSystem=%ws\n", FileSystemName.GetWSTR() );
+
+    if (fInSetup) {
+        message = NEW SP_AUTOCHECK_MESSAGE;
+        DebugPrintf("Using setup output\n");
+    } else {
+        DebugPrintf("Not using setup output\n");
+        message = NEW AUTOCHECK_MESSAGE;
+    }
+
+    if (NULL == message || !message->Initialize()) {
+        DebugPrintf( "Failed to intitialize message structure\n" );
+        return 1;
+    }
+
+    if (!FatName.Initialize("FAT")) {
         return 1;
     }
 
@@ -215,10 +363,10 @@ Return Value:
     //
     if( IFS_SYSTEM::IsArcSystemPartition( &DriveName, &Error ) ) {
 
-        Message.Set( MSG_CONV_ARC_SYSTEM_PARTITION );
-        Message.Display( );
+        message->Set( MSG_CONV_ARC_SYSTEM_PARTITION );
+        message->Display( );
 
-        SaveMessageLog( &Message, &DriveName );
+        SaveMessageLog( message, &DriveName );
         DeRegister( argc, argv );
         return 1;
     }
@@ -227,41 +375,59 @@ Return Value:
 
     if (!IFS_SYSTEM::QueryFileSystemName( &DriveName, &CurrentFsName )) {
 
-        Message.Set( MSG_FS_NOT_DETERMINED );
-        Message.Display( "%W", &DriveName );
+        message->Set( MSG_FS_NOT_DETERMINED );
+        message->Display( "%W", &StrippedDriveName );
 
-        SaveMessageLog( &Message, &DriveName );
+        SaveMessageLog( message, &DriveName );
         DeRegister( argc, argv );
         return 1;
     }
 
-    Message.Set( MSG_FILE_SYSTEM_TYPE );
-    Message.Display( "%W", &CurrentFsName );
+    message->Set( MSG_FILE_SYSTEM_TYPE );
+    message->Display( "%W", &CurrentFsName );
 
     CurrentFsName.Strupr();
     FileSystemName.Strupr();
 
     if ( CurrentFsName == FileSystemName ) {
 
-        //
-        //  The drive is already in the desired file system, our
-        //  job is done.  Delete the name conversion table (if
-        //  specified) and take ourselves out of the registry.
-        //  Do not save the message log--there's nothing interesting
-        //  in it.
-        //
-        Message.Set( MSG_CONV_ALREADY_CONVERTED );
-        Message.Display( "%W%W", &DriveName, &FileSystemName );
+        int iReturn = 0;
 
-        if( UseNameTable ) {
+        if ( IsRestartFatToOfs( DriveName, CurrentFsName, FileSystemName ) ) {
 
-            FileDelete( &DriveName, &NameTableFileName );
-            // BUGBUG billmc -- delete the name table file.
+            if ( !FatToOfs( &DriveName, message, Verbose, fInSetup, &Status ) ) {
+                iReturn = 1;
+            }
+        }
+        else {
             //
+            //  The drive is already in the desired file system, our
+            //  job is done.  Delete the name conversion table (if
+            //  specified) and take ourselves out of the registry.
+            //  Do not save the message log--there's nothing interesting
+            //  in it.
+            //
+            //  If we're doing oem pre-install (Pause is TRUE) we don't
+            //  want to print this "already converted" message.
+            //
+
+            if (!Pause) {
+
+                message->Set( MSG_CONV_ALREADY_CONVERTED );
+                message->Display( "%W%W", &StrippedDriveName, &FileSystemName );
+            }
+
+            if( UseNameTable ) {
+
+                FileDelete( &DriveName, &NameTableFileName );
+                // BUGBUG billmc -- delete the name table file.
+                //
+            }
         }
 
+        SaveMessageLog( message, &DriveName );
         DeRegister( argc, argv );
-        return 0;
+        return iReturn;
     }
 
     //  Determine whether the target file-system is enabled
@@ -270,10 +436,10 @@ Return Value:
     //
     if( !IFS_SYSTEM::IsFileSystemEnabled( &FileSystemName ) ) {
 
-        Message.Set( MSG_CONVERT_FILE_SYSTEM_NOT_ENABLED );
-        Message.Display( "%W", &FileSystemName );
+        message->Set( MSG_CONVERT_FILE_SYSTEM_NOT_ENABLED );
+        message->Display( "%W", &FileSystemName );
 
-        SaveMessageLog( &Message, &DriveName );
+        SaveMessageLog( message, &DriveName );
         DeRegister( argc, argv );
         return 1;
     }
@@ -292,105 +458,51 @@ Return Value:
     if( CurrentFsName == FatName ) {
 
         if( !(FatVolume = NEW FAT_VOL) ||
-            !FatVolume->Initialize( &DriveName, &Message, TRUE ) ||
-            !FatVolume->ChkDsk( TotalFix, &Message, FALSE, FALSE ) ) {
+            !FatVolume->Initialize( &DriveName, message, TRUE ) ||
+            !FatVolume->ChkDsk( TotalFix, message, FALSE, FALSE ) ) {
 
-            Message.Set( MSG_CONV_CANNOT_AUTOCHK );
-            Message.Display( "%W%W", &DriveName, &FileSystemName );
+            message->Set( MSG_CONV_CANNOT_AUTOCHK );
+            message->Display( "%W%W", &StrippedDriveName, &FileSystemName );
 
-            SaveMessageLog( &Message, &DriveName );
+            SaveMessageLog( message, &DriveName );
             DeRegister( argc, argv );
             return 1;
         }
 
-        Message.Set( MSG_CONV_CONVERTING );
-        Message.Display( "%W%W", &DriveName, &FileSystemName );
+        if ( IsFatToOfs( CurrentFsName, FileSystemName ) ) {
 
-        Converted = ConvertFATVolume( FatVolume,
-                                      &FileSystemName,
-                                      &Message,
-                                      Verbose,
-                                      &Status );
+            DELETE (FatVolume);
 
-        DELETE( FatVolume );
+            message->Set( MSG_CONV_CONVERTING );
+            message->Display( "%W%W", &StrippedDriveName, &FileSystemName );
 
-    } else if( CurrentFsName == HpfsName ) {
-
-        // Check to see if the sector size is bogus or not.
-
-        if (!DpDrive.Initialize(&DriveName, &Message)) {
-
-            Message.Set( MSG_CONV_CANNOT_AUTOCHK );
-            Message.Display( "%W%W", &DriveName, &FileSystemName );
-
-            SaveMessageLog( &Message, &DriveName );
-            DeRegister( argc, argv );
-            return 1;
+            Converted = FatToOfs( &DriveName,
+                                  message,
+                                  Verbose,
+                                  fInSetup,
+                                  &Status );
         }
+        else {
 
-        if (DpDrive.QuerySectorSize() != 512) {
+            message->Set( MSG_CONV_CONVERTING );
+            message->Display( "%W%W", &StrippedDriveName, &FileSystemName );
 
-            Message.Set(MSG_CONVERT_UNSUPPORTED_SECTOR_SIZE);
-            Message.Display("%W", &FileSystemName);
+            Converted = ConvertFATVolume( FatVolume,
+                                          &FileSystemName,
+                                          message,
+                                          Verbose,
+                                          Pause,
+                                          &Status );
 
-            SaveMessageLog( &Message, &DriveName );
-            DeRegister( argc, argv );
-            return 1;
+            DELETE( FatVolume );
         }
-
-        if( UseNameTable ) {
-
-            Backslash.Initialize( L"\\" );
-            if( !QualifiedName.Initialize( &DriveName ) ||
-                !QualifiedName.Strcat( &Backslash )     ||
-                !QualifiedName.Strcat( &NameTableFileName ) ) {
-
-                Message.Set(MSG_CONV_NO_MEMORY);
-                Message.Display( "" );
-
-                SaveMessageLog( &Message, &DriveName );
-                DeRegister( argc, argv );
-                return 1;
-            }
-
-            if( !NameTable.Initialize( &QualifiedName, &Message ) ) {
-
-                SaveMessageLog( &Message, &DriveName );
-                DeRegister( argc, argv );
-                return 1;
-            }
-        }
-
-        if( !(HpfsVolume = NEW HPFS_VOL) ||
-            !HpfsVolume->Initialize( &DriveName, &Message, TRUE ) ||
-            !HpfsVolume->ChkDsk( TotalFix, &Message, FALSE, FALSE ) ) {
-
-            Message.Set( MSG_CONV_CANNOT_AUTOCHK );
-            Message.Display( "%W%W", &DriveName, &FileSystemName );
-
-            SaveMessageLog( &Message, &DriveName );
-            DeRegister( argc, argv );
-            return 1;
-        }
-
-        Message.Set( MSG_CONV_CONVERTING );
-        Message.Display( "%W%W", &DriveName, &FileSystemName );
-
-        Converted = ConvertHPFSVolume( HpfsVolume,
-                                       &FileSystemName,
-                                       UseNameTable ? &NameTable : NULL,
-                                       &Message,
-                                       Verbose,
-                                       &Status );
-
-        DELETE( HpfsVolume );
 
     } else {
 
-        Message.Set( MSG_FS_NOT_SUPPORTED );
-        Message.Display( "%s%W", "AUTOCONV", &CurrentFsName );
+        message->Set( MSG_FS_NOT_SUPPORTED );
+        message->Display( "%s%W", "AUTOCONV", &CurrentFsName );
 
-        SaveMessageLog( &Message, &DriveName );
+        SaveMessageLog( message, &DriveName );
         DeRegister( argc, argv );
         return 1;
     }
@@ -398,8 +510,8 @@ Return Value:
 
     if ( Converted ) {
 
-        Message.Set( MSG_CONV_CONVERSION_COMPLETE );
-        Message.Display();
+        message->Set( MSG_CONV_CONVERSION_COMPLETE );
+        message->Display();
 
     } else {
 
@@ -420,8 +532,8 @@ Return Value:
             //
             //  The conversion DLL does not recognize the target file system.
             //
-            Message.Set( MSG_CONV_INVALID_FILESYSTEM );
-            Message.Display( "%W", &FileSystemName );
+            message->Set( MSG_CONV_INVALID_FILESYSTEM );
+            message->Display( "%W", &FileSystemName );
             break;
 
         case CONVERT_STATUS_CONVERSION_NOT_AVAILABLE:
@@ -429,37 +541,41 @@ Return Value:
             //  The target file system is valid, but the conversion is not
             //  available.
             //
-            Message.Set( MSG_CONV_CONVERSION_NOT_AVAILABLE );
-            Message.Display( "%W", &FileSystemName );
+            message->Set( MSG_CONV_CONVERSION_NOT_AVAILABLE );
+            message->Display( "%W", &FileSystemName );
             break;
 
         case CONVERT_STATUS_CANNOT_LOCK_DRIVE:
 
-            Message.Set( MSG_CONV_CONVERSION_FAILED );
-            Message.Display( "%W%W", &DriveName, &FileSystemName );
+            message->Set( MSG_CONV_CONVERSION_FAILED );
+            message->Display( "%W%W", &StrippedDriveName, &FileSystemName );
             break;
 
         case CONVERT_STATUS_ERROR:
             //
             //  The conversion failed.
             //
-            Message.Set( MSG_CONV_CONVERSION_FAILED );
-            Message.Display( "%W%W", &DriveName, &FileSystemName );
+            message->Set( MSG_CONV_CONVERSION_FAILED );
+            message->Display( "%W%W", &StrippedDriveName, &FileSystemName );
             break;
 
         default:
             //
             //  Invalid status code
             //
-            Message.Set( MSG_CONV_CONVERSION_FAILED );
-            Message.Display( "%W%W", &DriveName, &FileSystemName );
+            message->Set( MSG_CONV_CONVERSION_FAILED );
+            message->Display( "%W%W", &StrippedDriveName, &FileSystemName );
             break;
         }
 
     }
 
-    SaveMessageLog( &Message, &DriveName );
+    SaveMessageLog( message, &DriveName );
     DeRegister( argc, argv );
+
+#if INCLUDE_OFS==1
+    CleanupExceptionSystem();
+#endif  // INCLUDE_OFS==1
 
     return ( Converted ? 0 : 1 );
 }
@@ -619,7 +735,7 @@ Return Value:
     }
 
     UnicodeString.Buffer = (PWSTR)QualifiedName.GetWSTR();
-    UnicodeString.Length = QualifiedName.QueryChCount() * sizeof( WCHAR );
+    UnicodeString.Length = (USHORT)( QualifiedName.QueryChCount() * sizeof( WCHAR ) );
     UnicodeString.MaximumLength = UnicodeString.Length;
 
     InitializeObjectAttributes( &ObjectAttributes,

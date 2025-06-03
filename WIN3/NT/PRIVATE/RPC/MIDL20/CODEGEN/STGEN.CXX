@@ -40,8 +40,8 @@ CG_STATUS
 CG_STRUCT::GenMarshall(
 	CCB		*	pCCB )
 	{
-	_expr_node	*	pSrc	= pCCB->GetSourceExpression();
-	_expr_node	*	pDest	= pCCB->GetDestExpression();
+	expr_node	*	pSrc	= pCCB->GetSourceExpression();
+	expr_node	*	pDest	= pCCB->GetDestExpression();
 	STM_ACTION		Action;
 	CG_NDR		*	pCG;
 
@@ -55,20 +55,20 @@ CG_STRUCT::GenMarshall(
 
 		// Generate a call to the structure marshall off line rtn.
 
-		_expr_node * pStubMsg = pCCB->GetStandardResource(
+		expr_node * pStubMsg = pCCB->GetStandardResource(
 									 ST_RES_STUB_MESSAGE_VARIABLE );
 
 		pStubMsg = MakeAddressExpressionNoMatterWhat( pStubMsg );
 		PNAME pProcName	= MakeRtnName(
 							 0, GetType()->GetSymName(), NC_MARSHALL_RTN_NAME );
 
-		_expr_proc_call * pProc = new _expr_proc_call( pProcName, 0 );
+		expr_proc_call * pProc = new expr_proc_call( pProcName, 0 );
 
 		// Make the call.
 
 		pCCB->GetStream()->NewLine();
-		pProc->SetParam( new _expr_param( pStubMsg ) );
-		pProc->SetParam( new _expr_param( pSrc ));
+		pProc->SetParam( new expr_param( pStubMsg ) );
+		pProc->SetParam( new expr_param( pSrc ));
 		pProc->PrintCall( pCCB->GetStream(), 0, 0);
 
 		}
@@ -82,7 +82,7 @@ CG_STRUCT::GenMarshall(
 		Out_Copy( pCCB,
 				  pDest,
 				  pSrc,
-				  new _expr_constant( GetMemorySize() ),
+				  new expr_constant( GetMemorySize() ),
 				  pDest );
 
 		// Get to the actual final alignment by walking thru each of the fields
@@ -118,8 +118,8 @@ CG_STRUCT::GenSizing(
 
 	if( IsOffline() )
 		{
-		_expr_node	*	pSrc = pCCB->GetSourceExpression();
-		_expr_node	*	pLengthResource =
+		expr_node	*	pSrc = pCCB->GetSourceExpression();
+		expr_node	*	pLengthResource =
 						 pCCB->GetStandardResource( ST_RES_LENGTH_VARIABLE );
 
 		// If a pointer to the structure is not avlbl, make an address
@@ -134,10 +134,10 @@ CG_STRUCT::GenSizing(
 
 		pProcName = MakeRtnName( 0, GetType()->GetSymName(), NC_SIZE_RTN_NAME );
 
-		_expr_proc_call * pProc = new _expr_proc_call( pProcName, 0 );
+		expr_proc_call * pProc = new expr_proc_call( pProcName, 0 );
 
-		pProc->SetParam( new _expr_param( pSrc) );
-		pProc->SetParam( new _expr_param( pLengthResource ) );
+		pProc->SetParam( new expr_param( pSrc) );
+		pProc->SetParam( new expr_param( pLengthResource ) );
 		Out_PlusEquals( pCCB, pLengthResource, pProc );
 
 		}
@@ -188,22 +188,37 @@ CG_COMP::S_GenInitOutLocals(
 		{
 		ITERATOR	I;
 		CG_FIELD	*	pCG;
-		_expr_node	*	pSrc = pCCB->GetSourceExpression();
+		expr_node	*	pSrc = pCCB->GetSourceExpression();
+
+		// Get all the members in the struct which contain pointers. If the
+		// structure has been unrolled by the format string generator, the 
+		// print prefix contains the proper prefixed part of the unrolled path,
+		// we just have to add the field name to it.
 
 		GetPointerMembers( I );
 
 		while( ITERATOR_GETNEXT( I, pCG ) )
 			{
-			_expr_node * pExpr = new _expr_pointsto(
-											 pSrc,
-											 new _expr_variable(
-											 pCG->GetType()->GetSymName(), 0 ));
+			char * pVarName =
+                     new char[ strlen( ((CG_FIELD *)pCG)->GetPrintPrefix())+
+                               strlen( pCG->GetType()->GetSymName())       +
+                               1
+                             ];
 
-			_expr_node * pAss = new _expr_assign(pExpr, new _expr_constant(0L));
+			strcpy( pVarName, ((CG_FIELD *)pCG)->GetPrintPrefix() );
+            strcat( pVarName, pCG->GetType()->GetSymName() );
+
+			expr_node * pExpr = new expr_pointsto(
+											 pSrc,
+											 new expr_variable( pVarName, 0 ));
+			expr_node * pAss = new expr_assign(pExpr, new expr_constant(0L));
 
 			pCCB->GetStream()->NewLine();
 			pAss->PrintCall( pCCB->GetStream(), 0, 0 );
 			pCCB->GetStream()->Write(';');
+
+			// this memory area is no longer useful.
+			delete pVarName;
 			}
 
 
@@ -216,7 +231,7 @@ short
 CG_COMP::GetPointerMembers(
 	ITERATOR&	I )
 	{
-	ITERATOR	M;
+	CG_ITERATOR	M;
 	CG_FIELD	*	pField;
 	short		Count = 0;
 
@@ -235,3 +250,4 @@ CG_COMP::GetPointerMembers(
 		}
 	return Count;
 	}
+

@@ -7,10 +7,32 @@
 
 /**********************       PolyTron RCS Utilities
    
-    $Revision:   1.3  $
-    $Date:   18 May 1994 17:02:58  $
-    $Author:   RWOLFF  $
+    $Revision:   1.9  $
+    $Date:   20 Jul 1995 17:53:30  $
+    $Author:   mgrubac  $
     $Log:   S:/source/wnt/ms11/miniport/vcs/cvtvga.c  $
+ * 
+ *    Rev 1.9   20 Jul 1995 17:53:30   mgrubac
+ * Added support for VDIF files
+ * 
+ *    Rev 1.8   10 Apr 1995 15:55:26   RWOLFF
+ * Updated 640x480 72Hz mode table from version 1.2 to version 1.5 of the
+ * Programmer's Guide to the Mach 32 Registers, added routine to replace
+ * BookValues[] entries where the Mach 64 needs CRT parameters the Mach 8
+ * and Mach 32 can't handle (currently, only 640x480 72Hz falls into
+ * this category).
+ * 
+ *    Rev 1.7   23 Dec 1994 10:47:58   ASHANMUG
+ * ALPHA/Chrontel-DAC
+ * 
+ *    Rev 1.6   18 Nov 1994 11:39:04   RWOLFF
+ * Added comments with function name at the end of each function.
+ * 
+ *    Rev 1.5   31 Aug 1994 16:22:42   RWOLFF
+ * Added support for 1152x864 and 1600x1200 "canned" mode tables.
+ * 
+ *    Rev 1.4   19 Aug 1994 17:09:52   RWOLFF
+ * Added support for non-standard pixel clock generators.
  * 
  *    Rev 1.3   18 May 1994 17:02:58   RWOLFF
  * Interlaced mode tables now report frame rate rather than vertical
@@ -110,17 +132,12 @@ End of PolyTron RCS section                             *****************/
 
 #endif
 
-/*
- * Different include files are needed for the Windows NT device driver
- * and the VIDEO.EXE test program.
- */
-#ifndef MSDOS
 #include "miniport.h"
 #include "video.h"
-#endif
 
 #include "stdtyp.h"
 
+#define INCLUDE_CVTVGA
 #include "amach.h"
 #include "amach1.h"
 #include "cvtvga.h"
@@ -137,30 +154,30 @@ End of PolyTron RCS section                             *****************/
  */
 static struct st_vga_data VgaParmTable_M32[10] =
 {
-    {0x050, 0x000, 0x04F, 0x0DF, 0x0E3, 0x0824, 0x023}, /* Mode 12, VGAP$PS2.ASM */
-    {0x064, 0x000, 0x063, 0x057, 0x0E3, 0x080C, 0x023}, /* m800_36m, VGAP$68A.MAC */
-    {0x064, 0x000, 0x063, 0x057, 0x0E3, 0x0830, 0x023}, /* m800_40mphip, VGAP$68A.MAC */
-    {0x064, 0x000, 0x063, 0x057, 0x0E3, 0x081C, 0x023}, /* m800_45m, VGAP$68A.MAC */
-    {0x064, 0x000, 0x063, 0x057, 0x0E3, 0x0810, 0x023}, /* m800_50mvesa, VGAP$68A.MAC */
-    {0x064, 0x0C0, 0x063, 0x057, 0x0E3, 0x087C, 0x033}, /* m800_36m8514, VGAP$68A.MAC */
-    {0x080, 0x000, 0x07F, 0x0FF, 0x0E3, 0x083C, 0x023}, /* m1024_65m, VGAP$68A.MAC */
-    {0x080, 0x000, 0x07F, 0x0FF, 0x0E3, 0x0838, 0x023}, /* m1024_75mvesa, VGAP$68A.MAC */
-    {0x080, 0x000, 0x07F, 0x0FF, 0x0E3, 0x0838, 0x023}, /* m1024_75m72Hz, VGAP$68A.MAC */
-    {0x080, 0x0C0, 0x07F, 0x0FF, 0x0E3, 0x081C, 0x033}  /* m1024_45m, VGAP$68A.MAC */
+    {0x050, 0x000, 0x04F, 0x0DF, 0x0E3, 0x0800, 0x023, 32000000L},  /* Mode 12, VGAP$PS2.ASM */
+    {0x064, 0x000, 0x063, 0x057, 0x0E3, 0x0800, 0x023, 36000000L},  /* m800_36m, VGAP$68A.MAC */
+    {0x064, 0x000, 0x063, 0x057, 0x0E3, 0x0800, 0x023, 40000000L},  /* m800_40mphip, VGAP$68A.MAC */
+    {0x064, 0x000, 0x063, 0x057, 0x0E3, 0x0800, 0x023, 44900000L},  /* m800_45m, VGAP$68A.MAC */
+    {0x064, 0x000, 0x063, 0x057, 0x0E3, 0x0800, 0x023, 50350000L},  /* m800_50mvesa, VGAP$68A.MAC */
+    {0x064, 0x0C0, 0x063, 0x057, 0x0E3, 0x0800, 0x033, 32500000L},  /* m800_36m8514, VGAP$68A.MAC */
+    {0x080, 0x000, 0x07F, 0x0FF, 0x0E3, 0x0800, 0x023, 65000000L},  /* m1024_65m, VGAP$68A.MAC */
+    {0x080, 0x000, 0x07F, 0x0FF, 0x0E3, 0x0800, 0x023, 75000000L},  /* m1024_75mvesa, VGAP$68A.MAC */
+    {0x080, 0x000, 0x07F, 0x0FF, 0x0E3, 0x0800, 0x023, 75000000L},  /* m1024_75m72Hz, VGAP$68A.MAC */
+    {0x080, 0x0C0, 0x07F, 0x0FF, 0x0E3, 0x0800, 0x033, 44900000L}   /* m1024_45m, VGAP$68A.MAC */
 };
 
 static struct st_vga_data VgaParmTable_M8[10] =
 {
-    {0x050, 0x000, 0x04F, 0x0DF, 0x0E3, 0x0824, 0x023}, /* Mode 12, VGAP$PS2.ASM */
-    {0x064, 0x000, 0x063, 0x02B, 0x0E7, 0x080C, 0x023}, /* m800_36m, VGAP$68A.MAC */
-    {0x064, 0x000, 0x063, 0x02B, 0x0E7, 0x0830, 0x023}, /* m800_40mphip, VGAP$68A.MAC */
-    {0x064, 0x000, 0x063, 0x02B, 0x0E7, 0x081C, 0x023}, /* m800_45m, VGAP$68A.MAC */
-    {0x064, 0x000, 0x063, 0x02B, 0x0E7, 0x0810, 0x023}, /* m800_50mvesa, VGAP$68A.MAC */
-    {0x064, 0x0C0, 0x063, 0x057, 0x0E3, 0x087C, 0x033}, /* m800_36m8514, VGAP$68A.MAC */
-    {0x080, 0x000, 0x07F, 0x0FF, 0x0E3, 0x083C, 0x023}, /* m1024_65m, VGAP$68A.MAC */
-    {0x080, 0x000, 0x07F, 0x0FF, 0x0E3, 0x0838, 0x023}, /* m1024_75mvesa, VGAP$68A.MAC */
-    {0x080, 0x000, 0x07F, 0x0FF, 0x0E3, 0x0838, 0x023}, /* m1024_75m72Hz, VGAP$68A.MAC */
-    {0x080, 0x0C0, 0x07F, 0x0FF, 0x0E3, 0x081C, 0x033}  /* m1024_45m, VGAP$68A.MAC */
+    {0x050, 0x000, 0x04F, 0x0DF, 0x0E3, 0x0800, 0x023, 32000000L},  /* Mode 12, VGAP$PS2.ASM */
+    {0x064, 0x000, 0x063, 0x02B, 0x0E7, 0x0800, 0x023, 36000000L},  /* m800_36m, VGAP$68A.MAC */
+    {0x064, 0x000, 0x063, 0x02B, 0x0E7, 0x0800, 0x023, 40000000L},  /* m800_40mphip, VGAP$68A.MAC */
+    {0x064, 0x000, 0x063, 0x02B, 0x0E7, 0x0800, 0x023, 44900000L},  /* m800_45m, VGAP$68A.MAC */
+    {0x064, 0x000, 0x063, 0x02B, 0x0E7, 0x0800, 0x023, 50350000L},  /* m800_50mvesa, VGAP$68A.MAC */
+    {0x064, 0x0C0, 0x063, 0x057, 0x0E3, 0x0800, 0x033, 32500000L},  /* m800_36m8514, VGAP$68A.MAC */
+    {0x080, 0x000, 0x07F, 0x0FF, 0x0E3, 0x0800, 0x023, 65000000L},  /* m1024_65m, VGAP$68A.MAC */
+    {0x080, 0x000, 0x07F, 0x0FF, 0x0E3, 0x0800, 0x023, 75000000L},  /* m1024_75mvesa, VGAP$68A.MAC */
+    {0x080, 0x000, 0x07F, 0x0FF, 0x0E3, 0x0800, 0x023, 75000000L},  /* m1024_75m72Hz, VGAP$68A.MAC */
+    {0x080, 0x0C0, 0x07F, 0x0FF, 0x0E3, 0x0800, 0x033, 44900000L}   /* m1024_45m, VGAP$68A.MAC */
 };
 
 /*
@@ -168,37 +185,6 @@ static struct st_vga_data VgaParmTable_M8[10] =
  */
 static struct st_vga_data *VgaParmTable;
 
-/*
- * Array of parameters taken from Appendix D of the
- * Programmer's Guide to the Mach 32 Registers.
- *
- * For interlaced modes, the refresh rate field contains the
- * frame rate, not the vertical scan frequency.
- */
-static struct st_book_data BookValues[B1280F60-B640F60+1] =
-{
-    {0x063, 0x04F, 0x052, 0x02C, 0x0418, 0x03BF, 0x03D6, 0x022, 0x023, 0x0850, 60}, /* 640x480 60Hz NI */
-    {0x06A, 0x04F, 0x052, 0x025, 0x040B, 0x03BF, 0x03D4, 0x023, 0x023, 0x0824, 72}, /* 640x480 72Hz NI */
-
-    {0x080, 0x063, 0x065, 0x004, 0x057D, 0x04AB, 0x04C2, 0x02C, 0x033, 0x087C, 44}, /* 800x600 89Hz I */
-    {0x084, 0x063, 0x06D, 0x010, 0x057D, 0x04AB, 0x04C2, 0x00C, 0x033, 0x080C, 47}, /* 800x600 95Hz I */
-    {0x07F, 0x063, 0x066, 0x009, 0x04E0, 0x04AB, 0x04B0, 0x002, 0x023, 0x080C, 56}, /* 800x600 56Hz NI */
-    {0x083, 0x063, 0x068, 0x010, 0x04E3, 0x04AB, 0x04B0, 0x004, 0x023, 0x0830, 60}, /* 800x600 60Hz NI */
-    {0x07D, 0x063, 0x064, 0x012, 0x04F3, 0x04AB, 0x04C0, 0x02C, 0x023, 0x081C, 70}, /* 800x600 70Hz NI */
-    {0x082, 0x063, 0x06A, 0x00F, 0x0537, 0x04AB, 0x04F8, 0x006, 0x023, 0x0810, 72}, /* 800x600 72Hz NI */
-
-    {0x09D, 0x07F, 0x081, 0x016, 0x0660, 0x05FF, 0x0600, 0x008, 0x033, 0x081C, 43}, /* 1024x768 87Hz I */
-    {0x0A7, 0x07F, 0x085, 0x008, 0x063B, 0x05FF, 0x0600, 0x004, 0x023, 0x083C, 60}, /* 1024x768 60Hz NI */
-    {0x0AD, 0x07F, 0x085, 0x016, 0x065B, 0x05FF, 0x060B, 0x004, 0x023, 0x0838, 66}, /* 1024x768 66Hz NI */
-    {0x0A6, 0x07F, 0x083, 0x016, 0x0643, 0x05FF, 0x0601, 0x008, 0x023, 0x0838, 70}, /* 1024x768 70Hz NI */
-    {0x0A1, 0x07F, 0x082, 0x032, 0x0649, 0x05FF, 0x0602, 0x026, 0x023, 0x0838, 72}, /* 1024x768 72Hz NI */
-
-    {0x0AE, 0x08B, 0x095, 0x00F, 0x0659, 0x05DD, 0x05FC, 0x00A, 0x023, 0x082C, 70}, /* 1120x750 70Hz NI */
-
-    {0x0C7, 0x09F, 0x0A9, 0x00A, 0x08F8, 0x07FF, 0x0861, 0x00A, 0x033, 0x082C, 43}, /* 1280x1024 87Hz I */
-    {0x0C7, 0x09F, 0x0A9, 0x00A, 0x0838, 0x07FF, 0x0811, 0x00A, 0x033, 0x082C, 47}, /* 1280x1024 95Hz I */
-    {0x0D6, 0x09F, 0x0A9, 0x02E, 0x0852, 0x07FF, 0x0800, 0x025, 0x023, 0x0828, 60}  /* 1280x1024 60Hz NI */
-};
 
 /*
  * Some of the processing of vertical values is handled differently
@@ -247,7 +233,8 @@ static void GetVertOverflow(unsigned char *Value)
     Scratch = (*Value >> 4) & 0x02;
     *Value = (*Value & 0x01) | Scratch;
     return;
-}
+
+}   /* GetVertOverflow() */
 
 
 
@@ -297,7 +284,8 @@ static unsigned short Gen8514V(union SplitWord INPut, short VgaTblEntry)
     INPut.byte.low |= Scratch.byte.high;
 
     return INPut.word;
-}
+
+}   /* Gen8514V() */
 
 
 
@@ -339,11 +327,7 @@ short XlateVgaTable(PVOID HwDeviceExtension,
      */
     short FudgeFactor = 0;
 
-#ifdef MSDOS
-    static union SplitWord ValueRead;  /* Value read from the EEPROM */
-#else
     union SplitWord ValueRead;  /* Value read from the EEPROM */
-#endif
     
     /*
      * Storage for CRT registers 06, 07 and 11. These registers are either
@@ -370,7 +354,6 @@ short XlateVgaTable(PVOID HwDeviceExtension,
      */
     if (VgaTblEntry == NO_TBL_ENTRY)
         {
-VideoDebugPrint((1, "No table entry found\n"));
         pmode->m_h_overscan = (short) INVALID_WARNING;
         pmode->m_v_overscan = (short) INVALID_WARNING;
         pmode->m_overscan_8b = (short) INVALID_WARNING;
@@ -400,7 +383,6 @@ VideoDebugPrint((1, "No table entry found\n"));
     ValueRead.word = (ee->EEread)((short)(TableOffset+0));
     if ((VgaTblEntry >= USE_BOOK_VALUE) || !(ValueRead.word & CRTC_USAGE))
         {
-VideoDebugPrint((1, "Using book table instead of translating\n"));
         BookVgaTable(BookTblEntry, pmode);
         return 1;
         }
@@ -493,18 +475,14 @@ VideoDebugPrint((1, "Using book table instead of translating\n"));
      */
     ValueRead.byte.low = VgaParmTable[VgaTblEntry].DisplayHgt;
     ValueRead.byte.high = Crt07 >> 1;   /* Overflow in bits 1&6 */
-VideoDebugPrint((1, "Unprocessed Vertical Displayed = 0x%X\n",ValueRead.word));
     GetVertOverflow(&(ValueRead.byte.high));
     ValueRead.word++;
-VideoDebugPrint((1, "Vertical Displayed before Gen8514V = 0x%X\n",ValueRead.word));
     pmode->m_v_disp = Gen8514V(ValueRead, VgaTblEntry);
-VideoDebugPrint((1, "Vertical Displayed after Gen8514V = 0x%X\n",pmode->m_v_disp));
 
     /*
      * Y size is derived by removing bit 2.
      */
     pmode->m_y_size = (((pmode->m_v_disp >> 1) & 0x0FFFC) | (pmode->m_v_disp & 0x03)) + 1;
-VideoDebugPrint((1, "Vertical size = %d\n",pmode->m_y_size));
 
 
     /*
@@ -536,6 +514,7 @@ VideoDebugPrint((1, "Vertical size = %d\n",pmode->m_y_size));
      * Get the clock select and display control values.
      */
     pmode->m_clock_select = VgaParmTable[VgaTblEntry].ClockSel;
+    pmode->ClockFreq = VgaParmTable[VgaTblEntry].ClockFreq;
     pmode->m_disp_cntl = (UCHAR)(VgaParmTable[VgaTblEntry].DispCntl);
 
     /*
@@ -561,7 +540,7 @@ VideoDebugPrint((1, "Vertical size = %d\n",pmode->m_y_size));
      */
     return 1;
 
-}
+}   /* XlateVgaTable() */
 
 
 /*
@@ -594,6 +573,7 @@ void BookVgaTable(short VgaTblEntry, struct st_mode_table *pmode)
     pmode->m_disp_cntl   = BookValues[VgaTblEntry].DispCntl;
 
     pmode->m_clock_select = BookValues[VgaTblEntry].ClockSel;
+    pmode->ClockFreq = BookValues[VgaTblEntry].ClockFreq;
 
     /*
      * Assume 8 FIFO entries for 16 and 24 bit colour.
@@ -617,5 +597,72 @@ void BookVgaTable(short VgaTblEntry, struct st_mode_table *pmode)
     pmode->m_status_flags = 0;
 
     return;
-}
+
+}   /* BookVgaTable() */
+
+
+
+/***************************************************************************
+ *
+ * void SetMach64Tables(void);
+ *
+ * DESCRIPTION:
+ *  Replace "canned" mode tables that differ between Mach 64 and
+ *  Mach 8/Mach 32 parameters with Mach 64 versions. Whenever possible,
+ *  an update to a VESA-compatible parameter table should be done in
+ *  BookValues[] - this routine is only for those cases where the
+ *  Mach 64 requires a pixel clock frequency that the clock generator
+ *  on the Mach 8 or Mach 32 can't produce.
+ *
+ * GLOBALS CHANGED:
+ *  Some entries in BookValues[] table
+ *
+ * CALLED BY:
+ *  QueryMach64()
+ *
+ * AUTHOR:
+ *  Robert Wolff
+ *
+ * CHANGE HISTORY:
+ *
+ * TEST HISTORY:
+ *
+ ***************************************************************************/
+
+void SetMach64Tables(void)
+{
+    #define NUM_TABLES_TO_SWAP  1
+    ULONG TableIndices[NUM_TABLES_TO_SWAP] =
+    {
+        B640F72
+    };
+    struct st_book_data NewTables[NUM_TABLES_TO_SWAP] =
+    {
+        {0x067, 0x04F, 0x052, 0x025, 0x040B, 0x03BF, 0x03D0, 0x023, 0x023,  31200000L, 0x0800, 72}  /* 640x480 72Hz NI */
+    };
+    ULONG LoopCount;
+
+    /*
+     * Go through the list of tables that need to be replaced, setting all
+     * the fields to the Mach 64 values.
+     */
+    for (LoopCount = 0; LoopCount < NUM_TABLES_TO_SWAP; LoopCount++)
+        {
+        BookValues[TableIndices[LoopCount]].HTotal    = NewTables[LoopCount].HTotal;
+        BookValues[TableIndices[LoopCount]].HDisp     = NewTables[LoopCount].HDisp;
+        BookValues[TableIndices[LoopCount]].HSyncStrt = NewTables[LoopCount].HSyncStrt;
+        BookValues[TableIndices[LoopCount]].HSyncWid  = NewTables[LoopCount].HSyncWid;
+        BookValues[TableIndices[LoopCount]].VTotal    = NewTables[LoopCount].VTotal;
+        BookValues[TableIndices[LoopCount]].VDisp     = NewTables[LoopCount].VDisp;
+        BookValues[TableIndices[LoopCount]].VSyncStrt = NewTables[LoopCount].VSyncStrt;
+        BookValues[TableIndices[LoopCount]].VSyncWid  = NewTables[LoopCount].VSyncWid;
+        BookValues[TableIndices[LoopCount]].DispCntl  = NewTables[LoopCount].DispCntl;
+        BookValues[TableIndices[LoopCount]].ClockFreq = NewTables[LoopCount].ClockFreq;
+        BookValues[TableIndices[LoopCount]].ClockSel  = NewTables[LoopCount].ClockSel;
+        BookValues[TableIndices[LoopCount]].Refresh   = NewTables[LoopCount].Refresh;
+        }
+
+    return;
+
+}   /* SetMach64Tables() */
 

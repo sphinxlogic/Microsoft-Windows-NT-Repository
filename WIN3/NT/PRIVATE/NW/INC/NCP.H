@@ -38,7 +38,8 @@ Revision History:
 //  SAP services
 //
 
-#define SAP_SERVICE_TYPE_SERVER  4
+#define SAP_SERVICE_TYPE_SERVER       4
+#define SAP_SERVICE_TYPE_DIR_SERVER 278
 
 ///// IPX driver services:
 
@@ -135,6 +136,8 @@ typedef struct
 #define OT_GROUP        2
 #define OT_PRINT_QUEUE  3
 #define OT_FILESERVER   4
+#define OT_DIRSERVER    0x278
+#define OT_JOBQUEUE     0xA
 
 #define ENCRYPTION_KEY_SIZE            8
 #define OBJECT_ID_SIZE                 4
@@ -184,6 +187,7 @@ typedef struct
 //  Subfunctions of NCP_DIR_FUNCTION
 //
 
+#define NCP_GET_DIRECTORY_PATH          0x01
 #define NCP_GET_VOLUME_NUMBER           0x05
 #define NCP_CREATE_DIRECTORY            0x0A
 #define NCP_DELETE_DIRECTORY            0x0B
@@ -192,6 +196,7 @@ typedef struct
 #define NCP_ALLOCATE_TEMP_DIR_HANDLE    0x13
 #define NCP_DEALLOCATE_DIR_HANDLE       0x14
 #define NCP_GET_VOLUME_STATS            0x15
+#define NCP_GET_VOLUME_INFO             0x2C
 #define NCP_GET_NAME_SPACE_INFO         0x2F
 
 //
@@ -202,6 +207,7 @@ typedef struct
 #define NCP_PLAIN_TEXT_LOGIN            0x14
 #define NCP_GET_LOGIN_KEY               0x17
 #define NCP_ENCRYPTED_LOGIN             0x18
+#define NCP_CHANGE_CONN_AUTH_STATUS     0x1D
 #define NCP_QUERY_OBJECT_ID             0x35
 #define NCP_SCAN_BINDERY_OBJECT         0x37
 #define NCP_QUERY_PROPERTY_VALUE        0x3D
@@ -213,6 +219,13 @@ typedef struct
 #define NCP_CLOSE_FILE_AND_CANCEL_JOB   0x6A
 #define NCP_SUBFUNC_79                  0x79  // BUGBUG
 #define NCP_SUBFUNC_7F                  0x7F  // BUGBUG
+
+//
+// Values for NCP_CHANGE_CONN_AUTH_STATUS
+//
+
+#define NCP_CONN_NOT_LICENSED      0
+#define NCP_CONN_LICENSED          1
 
 //
 //  Subfunctions of NCP_NAME_SPACE_FUNCTION
@@ -253,6 +266,7 @@ typedef struct
 
 #define SEARCH_ALL_DIRECTORIES          0x16
 #define SEARCH_ALL_FILES                0x06
+#define SEARCH_EXEC_ONLY_FILES          0x4E 
 
 //  File Attributes
 
@@ -263,6 +277,7 @@ typedef struct
 #define NW_ATTRIBUTE_SYSTEM         0x04
 #define NW_ATTRIBUTE_HIDDEN         0x02
 #define NW_ATTRIBUTE_READ_ONLY      0x01
+#define NW_ATTRIBUTE_EXEC_ONLY      0x4E
 
 //  Open Flags
 

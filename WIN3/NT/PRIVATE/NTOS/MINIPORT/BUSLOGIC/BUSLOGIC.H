@@ -105,6 +105,12 @@ typedef struct _SGD {
      ULONG Address;
 } SGD, *PSGD;
 
+typedef struct _BL_CONTEXT {
+     ULONG AdapterCount;
+     ULONG PCIDevId;
+} BL_CONTEXT, *PBL_CONTEXT;
+
+
 typedef struct _SDL {
     SGD Sgd[MAX_SG_DESCRIPTORS];
 } SDL, *PSDL;
@@ -176,6 +182,14 @@ typedef struct _CCB {
 #define AC_EXTENDED_SETUP_INFO    0x8D
 #define AC_EXTENDED_FWREV         0x84
 #define AC_MBOX_EXTENDED_INIT     0x81
+#define AC_ISA_COMPATIBLE_SUPPORT 0x95
+#define AC_WIDE_SUPPORT           0x96
+#define AC_PCI_INFO               0x86
+#define AC_INT_GENERATION_STATE   0x25
+
+#define DISABLE_ISA_MAPPING     0x6  // cmd 0x95 above
+#define ENABLE_INTS             0x1  // cmd 0x25 above
+#define DISABLE_INTS            0x0  // cmd 0x25 above
 
 //
 // Host status byte
@@ -380,6 +394,9 @@ typedef struct _CARD_STRUC {
 // CardStruc Flags definitions
 //
 #define TAGGED_QUEUING 0x1000
+#define REINIT_REQUIRED 0x100
+#define WIDE_ENABLED    0x10
+#define OS_SUPPORTS_WIDE 0x200
 
 //
 // Logical unit extension

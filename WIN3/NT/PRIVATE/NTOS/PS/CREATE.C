@@ -19,25 +19,25 @@ Revision History:
 --*/
 
 #include "psp.h"
-#include "zwapi.h"
 
-#if DEVL
-#include "..\mm\mi.h"
-#endif
+//
+// This should really be in MM.H, but it cant be there yet.
+//
+extern PVOID MmWorkingSetList;
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE, NtCreateThread)
 #pragma alloc_text(PAGE, NtCreateProcess)
 #pragma alloc_text(PAGE, PsCreateSystemThread)
-#pragma alloc_text(PAGE, NtWaitForProcessMutant)
 #pragma alloc_text(PAGE, PspCreateThread)
 #pragma alloc_text(PAGE, PsCreateSystemProcess)
 #pragma alloc_text(PAGE, PspCreateProcess)
-#pragma alloc_text(PAGE, NtReleaseProcessMutant)
 #pragma alloc_text(PAGE, PspUserThreadStartup)
 #pragma alloc_text(PAGE, PsLockProcess)
 #pragma alloc_text(PAGE, PsUnlockProcess)
 #endif
+
+extern UNICODE_STRING CmCSDVersionString;
 
 LCID PsDefaultSystemLocaleId;
 LCID PsDefaultThreadLocaleId;
@@ -102,6 +102,7 @@ Return Value:
 
 {
     NTSTATUS st;
+    INITIAL_TEB CapturedInitialTeb;
 
     PAGED_CODE();
 
@@ -121,12 +122,27 @@ Return Value:
 
             ProbeForRead(ThreadContext, sizeof(CONTEXT), CONTEXT_ALIGN);
 
-            ProbeForRead(InitialTeb, sizeof(INITIAL_TEB), sizeof(ULONG));
-
+            ProbeForRead(InitialTeb, sizeof(InitialTeb->OldInitialTeb), sizeof(ULONG));
+            CapturedInitialTeb.OldInitialTeb = InitialTeb->OldInitialTeb;
+            if (CapturedInitialTeb.OldInitialTeb.OldStackBase == NULL &&
+                CapturedInitialTeb.OldInitialTeb.OldStackBase == NULL
+               ) {
+                ProbeForRead(InitialTeb, sizeof(INITIAL_TEB), sizeof(ULONG));
+                CapturedInitialTeb = *InitialTeb;
+            }
         } except(EXCEPTION_EXECUTE_HANDLER) {
             return GetExceptionCode();
         }
+    } else {
+        if (InitialTeb->OldInitialTeb.OldStackBase == NULL &&
+            InitialTeb->OldInitialTeb.OldStackLimit == NULL
+           ) {
+            CapturedInitialTeb = *InitialTeb;
+        } else {
+            CapturedInitialTeb.OldInitialTeb = InitialTeb->OldInitialTeb;
+        }
     }
+
     st = PspCreateThread (
             ThreadHandle,
             DesiredAccess,
@@ -135,7 +151,7 @@ Return Value:
             NULL,
             ClientId,
             ThreadContext,
-            InitialTeb,
+            &CapturedInitialTeb,
             CreateSuspended,
             NULL,
             NULL
@@ -275,6 +291,8 @@ Return Value:
 --*/
 
 {
+
+    HANDLE_ENTRY CidEntry;
     NTSTATUS st;
     PETHREAD Thread;
     PEPROCESS Process;
@@ -325,13 +343,9 @@ Return Value:
         }
     else {
         if ( StartRoutine ) {
-            st = ObReferenceObjectByPointer(
-                    ProcessPointer,
-                    PROCESS_CREATE_THREAD,
-                    PsProcessType,
-                    PreviousMode
-                    );
+            ObReferenceObject(ProcessPointer);
             Process = ProcessPointer;
+            st = STATUS_SUCCESS;
             }
         else {
             st = STATUS_INVALID_HANDLE;
@@ -341,8 +355,18 @@ Return Value:
         return st;
     }
 
+    //
+    // If the previous mode is user and the target process is the system
+    // process, then the operation cannot be performed.
+    //
+
+    if ((PreviousMode != KernelMode) && (Process == PsInitialSystemProcess)) {
+        ObDereferenceObject(Process);
+        return STATUS_INVALID_HANDLE;
+    }
+
     st = ObCreateObject(
-             KeGetPreviousMode(),
+             PreviousMode,
              PsThreadType,
              ObjectAttributes,
              PreviousMode,
@@ -358,7 +382,9 @@ Return Value:
     }
 
     RtlZeroMemory(Thread,sizeof(ETHREAD));
-    Thread->Cid.UniqueThread = ExCreateHandle(PspCidTable,Thread);
+    CidEntry.Object = Thread;
+    CidEntry.Attributes = 0;
+    Thread->Cid.UniqueThread = ExCreateHandle(PspCidTable,&CidEntry);
 
     if ( !Thread->Cid.UniqueThread ) {
         ObDereferenceObject(Process);
@@ -409,7 +435,7 @@ Return Value:
     // Allocate Kernel Stack
     //
 
-    KernelStack = MmCreateKernelStack();
+    KernelStack = MmCreateKernelStack(FALSE);
     if ( !KernelStack ) {
         ObDereferenceObject(Process);
         ObDereferenceObject(Thread);
@@ -419,7 +445,7 @@ Return Value:
 
     st = PsLockProcess(Process,KernelMode,PsLockPollOnTimeout);
     if ( st != STATUS_SUCCESS ) {
-        MmDeleteKernelStack(KernelStack);
+        MmDeleteKernelStack(KernelStack, FALSE);
         ObDereferenceObject(Process);
         ObDereferenceObject(Thread);
 
@@ -433,16 +459,31 @@ Return Value:
     //
 
     if ( !Process->UniqueProcessId ) {
-        Process->UniqueProcessId = ExCreateHandle(PspCidTable,Process);
+        CidEntry.Object = Process;
+        CidEntry.Attributes = 0;
+        Process->UniqueProcessId = ExCreateHandle(PspCidTable,&CidEntry);
         ExSetHandleTableOwner( Process->ObjectTable, Process->UniqueProcessId );
         if (!Process->UniqueProcessId) {
             PsUnlockProcess(Process);
 
-            MmDeleteKernelStack(KernelStack);
+            MmDeleteKernelStack(KernelStack, FALSE);
             ObDereferenceObject(Process);
             ObDereferenceObject(Thread);
 
             return STATUS_UNSUCCESSFUL;
+        }
+
+        if (PspCreateProcessNotifyRoutineCount != 0) {
+            ULONG i;
+
+            for (i=0; i<PSP_MAX_CREATE_PROCESS_NOTIFY; i++) {
+                if (PspCreateProcessNotifyRoutine[i] != NULL) {
+                    (*PspCreateProcessNotifyRoutine[i])( Process->InheritedFromUniqueProcessId,
+                                                         Process->UniqueProcessId,
+                                                         TRUE
+                                                       );
+                }
+            }
         }
     }
     Thread->Cid.UniqueProcess = Process->UniqueProcessId;
@@ -470,6 +511,21 @@ Return Value:
             //
 
             Thread->StartAddress = (PVOID)CONTEXT_TO_PROGRAM_COUNTER(ThreadContext);
+#if defined(_X86_)
+            Thread->Win32StartAddress = (PVOID)ThreadContext->Eax;
+#endif // _X86_
+
+#if defined(_MIPS_)
+            Thread->Win32StartAddress = (PVOID)ThreadContext->XIntA0;
+#endif // _MIPS_
+
+#if defined(_ALPHA_)
+            Thread->Win32StartAddress = (PVOID)ThreadContext->IntA0;
+#endif // _ALPHA_
+
+#if defined(_PPC_)
+            Thread->Win32StartAddress = (PVOID)ThreadContext->Gpr3;
+#endif // _PPC_
 
             (VOID)
             KeInitializeThread(
@@ -492,7 +548,7 @@ Return Value:
 
             PsUnlockProcess(Process);
 
-             MmDeleteKernelStack(KernelStack);
+             MmDeleteKernelStack(KernelStack, FALSE);
              ObDereferenceObject(Thread);
 
              return GetExceptionCode();
@@ -518,6 +574,23 @@ Return Value:
 
     }
 
+    //
+    // Notify registered callout routines of thread creation.
+    //
+
+    if (PspCreateThreadNotifyRoutineCount != 0) {
+        ULONG i;
+
+        for (i=0; i<PSP_MAX_CREATE_THREAD_NOTIFY; i++) {
+            if (PspCreateThreadNotifyRoutine[i] != NULL) {
+                (*PspCreateThreadNotifyRoutine[i])( Thread->Cid.UniqueProcess,
+                                                    Thread->Cid.UniqueThread,
+                                                    TRUE
+                                                   );
+            }
+        }
+    }
+
     PsUnlockProcess(Process);
 
     //
@@ -541,8 +614,8 @@ Return Value:
         (VOID) KeSuspendThread(&Thread->Tcb);
     }
 
-    ObReferenceObjectByPointer(Thread,0,PsThreadType,KernelMode);
-    ObReferenceObjectByPointer(Thread,0,PsThreadType,KernelMode);
+    ObReferenceObject(Thread);
+    ObReferenceObject(Thread);
 
     st = ObInsertObject(
             Thread,
@@ -658,6 +731,9 @@ Return Value:
         if ( !AccessCheck ) {
             Thread->GrantedAccess = 0;
             }
+
+        Thread->GrantedAccess |= (THREAD_TERMINATE | THREAD_SET_INFORMATION | THREAD_QUERY_INFORMATION);
+
         }
     else {
         Thread->GrantedAccess = THREAD_ALL_ACCESS;
@@ -936,13 +1012,6 @@ Return Value:
             }
             return st;
         }
-        if (!((PSECTION)SectionToMap)->u.Flags.Image) {
-            ObDereferenceObject(SectionToMap);
-            if (Parent) {
-                ObDereferenceObject(Parent);
-            }
-            return(STATUS_SECTION_NOT_IMAGE);
-        }
     } else {
         SectionToMap = NULL;
     }
@@ -1048,7 +1117,7 @@ Return Value:
 
     if ( Parent ) {
         Process->DefaultHardErrorProcessing = Parent->DefaultHardErrorProcessing;
-        Process->InheritedFromUniqueProcessId = Parent->InheritedFromUniqueProcessId;
+        Process->InheritedFromUniqueProcessId = Parent->UniqueProcessId;
 
     } else {
         Process->DefaultHardErrorProcessing = 1;
@@ -1141,20 +1210,10 @@ Return Value:
         // Initialize virtual address descriptor root.
         //
 
-        Process->VadRoot = NULL;
-        Process->VadHint = NULL;
-        Process->CloneRoot = NULL;
-        Process->NumberOfPrivatePages = 0;
-        Process->NumberOfLockedPages = 0;
-        Process->AddressSpaceDeleted = 0;
-        Process->VmOperation = 0;
-        Process->VmOperationEvent = NULL;
+        ASSERT (Process->VadRoot == NULL);
         Process->Vm.WorkingSetSize = PsGetCurrentProcess()->Vm.WorkingSetSize;
         KeQuerySystemTime(&Process->Vm.LastTrimTime);
-        Process->Vm.LastTrimFaultCount = 0;
         Process->Vm.VmWorkingSetList = MmWorkingSetList;
-        Process->ForkInProgress = FALSE;
-
     }
 
     Process->Vm.MinimumWorkingSetSize = (USHORT)WorkingSetMinimum;
@@ -1165,8 +1224,9 @@ Return Value:
         BasePriority,
         Affinity,
         &DirectoryTableBase[0],
-        Process->DefaultHardErrorProcessing & PROCESS_HARDERROR_ALIGNMENT_BIT
+        (BOOLEAN)(Process->DefaultHardErrorProcessing & PROCESS_HARDERROR_ALIGNMENT_BIT)
         );
+    Process->Pcb.ThreadQuantum = PspForegroundQuantum[0];
 
     if (Parent) {
 
@@ -1212,37 +1272,6 @@ Return Value:
     //
 
     if ( SectionToMap ) {
-#if DEVL
-        UNICODE_STRING UnicodeString;
-        ULONG n;
-        PWSTR Src;
-        PCHAR Dst;
-
-        UnicodeString = ((PSECTION)SectionToMap)->Segment->ControlArea->FilePointer->FileName;
-        Src = (PWSTR)((PCHAR)UnicodeString.Buffer + UnicodeString.Length);
-        n = 0;
-        if (UnicodeString.Buffer != NULL) {
-            while (Src > UnicodeString.Buffer) {
-                if (*--Src == OBJ_NAME_PATH_SEPARATOR) {
-                    Src++;
-                    break;
-                    }
-                else {
-                    n += 1;
-                    }
-                }
-            }
-        Dst = Process->ImageFileName;
-        if (n >= sizeof( Process->ImageFileName )) {
-            n = sizeof( Process->ImageFileName ) - 1;
-            }
-
-        while (n--) {
-            *Dst++ = (UCHAR)*Src++;
-            }
-        *Dst = '\0';
-#endif
-
         //
         // User Process (New Image Address Space). Dont specify Process to
         // clone, just SectionToMap.
@@ -1255,6 +1284,7 @@ Return Value:
                 );
 
         ObDereferenceObject(SectionToMap);
+        ObInitProcess2(Process);
 
         if ( NT_SUCCESS(st) ) {
             st = PspMapSystemDll(Process,NULL);
@@ -1283,10 +1313,6 @@ Return Value:
                     );
 
             CreatePeb = TRUE;
-
-#if DEVL
-            strcpy( Process->ImageFileName, Parent->ImageFileName );
-#endif
 
         } else {
 
@@ -1359,10 +1385,10 @@ insert_process:
         // for forked processes, uses inhereted PEB
         // with an updated mutant.
 
+        RtlZeroMemory(&InitialPeb, FIELD_OFFSET(INITIAL_PEB, Mutant));
         InitialPeb.Mutant = (HANDLE)0xffffffff;
         if ( SectionToMap ) {
 
-            InitialPeb.InheritedAddressSpace = FALSE;
             try {
                 Process->Peb = MmCreatePeb(Process,&InitialPeb);
             } except(EXCEPTION_EXECUTE_HANDLER) {
@@ -1499,7 +1525,115 @@ insert_process:
     return st;
 
 }
+
+NTSTATUS
+PsSetCreateProcessNotifyRoutine(
+    IN PCREATE_PROCESS_NOTIFY_ROUTINE NotifyRoutine,
+    IN BOOLEAN Remove
+    )
 
+/*++
+
+Routine Description:
+
+    This function allows an installable file system to hook into process
+    creation and deletion to track those events against their own internal
+    data structures.
+
+Arguments:
+
+    NotifyRoutine - Supplies the address of a routine which is called at
+        process creation and deletion. The routine is passed the unique Id
+        of the created or deleted process and the parent process if it was
+        created with the inherit handles option. If it was created without
+        the inherit handle options, then the parent process Id will be NULL.
+        The third parameter passed to the notify routine is TRUE if the process
+        is being created and FALSE if it is being deleted.
+
+        The callout for creation happens just after the first thread in the
+        process has been created. The callout for deletion happens after the
+        last thread in a process has terminated and the address space is about
+        to be deleted. It is possible to get a deletion call without a creation
+        call if the pathological case where a process is created and deleted
+        without a thread ever being created.
+
+    Remove - FALSE specifies to install the callout and TRUE specifies to
+        remove the callout that mat
+
+Return Value:
+
+    STATUS_SUCCESS if successful, and STATUS_INVALID_PARAMETER if not.
+
+--*/
+
+{
+
+    ULONG i;
+
+    for (i=0; i < PSP_MAX_CREATE_PROCESS_NOTIFY; i++) {
+        if (Remove) {
+            if (PspCreateProcessNotifyRoutine[i] == NotifyRoutine) {
+                PspCreateProcessNotifyRoutine[i] = NULL;
+                PspCreateProcessNotifyRoutineCount -= 1;
+                return STATUS_SUCCESS;
+            }
+
+        } else {
+            if (PspCreateProcessNotifyRoutine[i] == NULL) {
+                PspCreateProcessNotifyRoutine[i] = NotifyRoutine;
+                PspCreateProcessNotifyRoutineCount += 1;
+                return STATUS_SUCCESS;
+            }
+        }
+    }
+
+    return Remove ? STATUS_PROCEDURE_NOT_FOUND : STATUS_INVALID_PARAMETER;
+}
+
+NTSTATUS
+PsSetCreateThreadNotifyRoutine(
+    IN PCREATE_THREAD_NOTIFY_ROUTINE NotifyRoutine
+    )
+
+/*++
+
+Routine Description:
+
+    This function allows an installable file system to hook into thread
+    creation and deletion to track those events against their own internal
+    data structures.
+
+Arguments:
+
+    NotifyRoutine - Supplies the address of the routine which is called at
+        thread creation and deletion. The routine is passed the unique Id
+        of the created or deleted thread and the unique Id of the containing
+        process. The third parameter passed to the notify routine is TRUE if
+        the thread is being created and FALSE if it is being deleted.
+
+Return Value:
+
+    STATUS_SUCCESS if successful, and STATUS_INSUFFICIENT_RESOURCES if not.
+
+--*/
+
+{
+
+    ULONG i;
+    NTSTATUS Status;
+
+    Status = STATUS_INSUFFICIENT_RESOURCES;
+    for (i = 0; i < PSP_MAX_CREATE_THREAD_NOTIFY; i += 1) {
+        if (PspCreateThreadNotifyRoutine[i] == NULL) {
+            PspCreateThreadNotifyRoutine[i] = NotifyRoutine;
+            PspCreateThreadNotifyRoutineCount += 1;
+            Status = STATUS_SUCCESS;
+            break;
+        }
+    }
+
+    return Status;
+}
 
 VOID
 PspUserThreadStartup(
@@ -1567,7 +1701,20 @@ Return Value:
             Thread->Tcb.ApcState.UserApcPending = TRUE;
         }
     } else {
-        Thread->DeadThread = TRUE;
+
+        if ( !Thread->DeadThread ) {
+
+            //
+            // If DeadThread is not set, then it means the thread was terminated before
+            // it started, but creation was ok. Need to let debuggers see these threads
+            // for an instant because if they are the last to exit, the exitprocess
+            // message gets nuked
+            //
+
+            KeLowerIrql(0);
+            DbgkCreateThread(StartContext);
+
+            }
         PspExitThread(STATUS_THREAD_IS_TERMINATING);
     }
 
@@ -1633,112 +1780,24 @@ Return Value:
 
 {
 
+        PETHREAD Thread;
+
         MmAllowWorkingSetExpansion();
 
         KeLowerIrql(0);
 
+        Thread = PsGetCurrentThread();
+
         try {
-            (StartRoutine)(StartContext);
+            if ( !Thread->DeadThread && !Thread->HasTerminated ) {
+                (StartRoutine)(StartContext);
+                }
             }
         except (PspUnhandledExceptionInSystemThread(GetExceptionInformation())) {
             KeBugCheck(KMODE_EXCEPTION_NOT_HANDLED);
             }
         PspExitThread(STATUS_SUCCESS);
 
-}
-
-
-NTSTATUS
-NtWaitForProcessMutant(
-    VOID
-    )
-
-/*++
-
-Routine Description:
-
-    This function is used during the loader startup sequence
-    to establish who the initial thread of a process is and to let
-    that thread do all of the process initialization.
-
-Arguments:
-
-    None. User-Mode and Current Process is implied.
-
-Return Value:
-
-    TBS
-
---*/
-
-{
-
-    KPROCESSOR_MODE PreviousMode;
-
-    PAGED_CODE();
-
-    PreviousMode = KeGetPreviousMode();
-    if (PreviousMode != KernelMode) {
-        return KeWaitForSingleObject(
-                    &PsGetCurrentProcess()->ProcessMutant,
-                    WrUserRequest,
-                    UserMode,
-                    FALSE,
-                    NULL
-                    );
-        }
-    else {
-        return STATUS_ACCESS_DENIED;
-        }
-}
-
-NTSTATUS
-NtReleaseProcessMutant(
-    VOID
-    )
-
-/*++
-
-Routine Description:
-
-    This function is used during the loader startup sequence
-    to establish who the initial thread of a process is and to let
-    that thread do all of the process initialization.
-
-Arguments:
-
-    None. User-Mode and Current Process is implied.
-
-Return Value:
-
-    TBS
-
---*/
-
-{
-
-    KPROCESSOR_MODE PreviousMode;
-
-    PAGED_CODE();
-
-    PreviousMode = KeGetPreviousMode();
-    if (PreviousMode != KernelMode) {
-        try {
-            KeReleaseMutant(
-                &PsGetCurrentProcess()->ProcessMutant,
-                MUTANT_INCREMENT,
-                FALSE,
-                FALSE
-                );
-            }
-        except (EXCEPTION_EXECUTE_HANDLER) {
-            return GetExceptionCode();
-            }
-        return STATUS_SUCCESS;
-        }
-    else {
-        return STATUS_ACCESS_DENIED;
-        }
 }
 
 NTSTATUS
@@ -1952,7 +2011,7 @@ retry:
         //
 
         if (Thread->Tcb.FreezeCount != 0 &&
-            Thread->Tcb.KernelApcDisable == (UCHAR) -1 ) {
+            Thread->Tcb.KernelApcDisable == (ULONG) -1 ) {
             PsUnlockProcess(Process);
             goto retry;
         }
@@ -2016,4 +2075,43 @@ Return Value:
     ExReleaseFastMutexUnsafe(&PspProcessLockMutex);
     KeLeaveCriticalRegion();
     return;
+}
+
+
+HANDLE
+PsGetCurrentProcessId( VOID )
+{
+    return PsGetCurrentThread()->Cid.UniqueProcess;
+}
+
+HANDLE
+PsGetCurrentThreadId( VOID )
+{
+    return PsGetCurrentThread()->Cid.UniqueThread;
+}
+
+BOOLEAN
+PsGetVersion(
+    PULONG MajorVersion OPTIONAL,
+    PULONG MinorVersion OPTIONAL,
+    PULONG BuildNumber OPTIONAL,
+    PUNICODE_STRING CSDVersion OPTIONAL
+    )
+{
+    if (ARGUMENT_PRESENT(MajorVersion)) {
+        *MajorVersion = NtMajorVersion;
+    }
+
+    if (ARGUMENT_PRESENT(MinorVersion)) {
+        *MinorVersion = NtMinorVersion;
+    }
+
+    if (ARGUMENT_PRESENT(BuildNumber)) {
+        *BuildNumber = NtBuildNumber & 0x3FFF;
+    }
+
+    if (ARGUMENT_PRESENT(CSDVersion)) {
+        *CSDVersion = CmCSDVersionString;
+    }
+    return (NtBuildNumber >> 28) == 0xC;
 }

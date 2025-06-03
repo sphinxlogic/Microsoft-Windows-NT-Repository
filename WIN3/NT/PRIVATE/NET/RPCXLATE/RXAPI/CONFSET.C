@@ -40,7 +40,7 @@ Revision History:
 #include <apinums.h>    // API_ equates.
 #include <lmconfig.h>   // LPCONFIG_INFO_0, etc.
 #include <lmerr.h>      // NO_ERROR, NERR_, and ERROR_ equates.
-#include <netdebug.h>   // NetpDbgPrint(), FORMAT_ equates, etc.
+#include <netdebug.h>   // NetpKdPrint(()), FORMAT_ equates, etc.
 #include <prefix.h>     // PREFIX_ equates.
 #include <remdef.h>     // REM16_, REM32_, REMSmb_ equates.
 #include <rx.h>         // RxRemoteApi().
@@ -115,9 +115,9 @@ Return Value:
     }
 
     IF_DEBUG(CONFIG) {
-        NetpDbgPrint( PREFIX_NETAPI "RxNetConfigSet: starting, server="
+        NetpKdPrint(( PREFIX_NETAPI "RxNetConfigSet: starting, server="
                 FORMAT_LPTSTR ", component=" FORMAT_LPTSTR ".\n",
-                UncServerName, Component );
+                UncServerName, Component ));
     }
 
     //

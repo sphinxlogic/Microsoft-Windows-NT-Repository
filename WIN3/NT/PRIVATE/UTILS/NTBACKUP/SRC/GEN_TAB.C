@@ -63,6 +63,7 @@ FUNC_LIST GENFuncTab = {
 
      NULL,                  /* GEN_AttachToDLE, */
      NULL,                  /* GEN_DetachDLE,   */
+     NULL,                  /* GEN_EndOperationOnDLE */
 
      GEN_ProcessDDB,
      NULL,                  /* GEN_GetCurrentDDB, */

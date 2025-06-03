@@ -24,32 +24,14 @@ Revision History:
         Rewrote parts of it, added comments, and generally cleaned it up.
 
 --*/
-
-#include <string.h>
-
-#include <sysinc.h>
-#include <rpc.h>
-#include <rpcdcep.h>
-#include <rpcerrp.h>
-#include <rpcssp.h>
+#include <precomp.hxx>
 #include <rpctran.h>
-#include <util.hxx>
-#include <rpcuuid.hxx>
-#include <mutex.hxx>
-#include <binding.hxx>
-#include <linklist.hxx>
-#include <handle.hxx>
-#include <threads.hxx>
 #include <osfpcket.hxx>
-#include <sdict.hxx>
 #include <sdict2.hxx>
 #include <bitset.hxx>
-#include <interlck.hxx>
-#include <secclnt.hxx>
 #include <osfclnt.hxx>
 #include <tranclnt.hxx>
 #include <dgpkt.hxx>
-#include <dgtranc.h>
 #include <conv.h>
 #include <dgclnt.hxx>
 
@@ -61,8 +43,10 @@ TRANS_CCONNECTION::TRANS_CCONNECTION (
     IN RPC_CHAR * NetworkOptions,
     IN RPC_CHAR * RpcProtocolSequence,
     OUT RPC_STATUS PAPI * ErrorCode,
-    IN unsigned int Timeout
+    IN unsigned int Timeout,
+    CLIENT_AUTH_INFO * ClientAuthInfo
     )
+    : OSF_CCONNECTION(ClientAuthInfo, ErrorCode)
 /*++
 
 Routine Description:
@@ -131,18 +115,38 @@ Return Value:
 --*/
 {
     ALLOCATE_THIS_PLUS(TRANS_CCONNECTION, RpcClientInfo->SizeOfConnection,
-		       ErrorCode, RPC_S_OUT_OF_MEMORY);
+               ErrorCode, RPC_S_OUT_OF_MEMORY);
 
     ConnectionClosedFlag = 1;
     ClientInfo = RpcClientInfo;
     PreviousPacketLength = InqMaximumFragmentLength();
 
+    if (*ErrorCode)
+        {
+        return;
+        }
+
     ASSERT(NetworkAddress != 0);
     ASSERT(Endpoint != 0);
 
-    *ErrorCode = ClientInfo->Open(InqRpcTransportConnection(),
+#ifdef NTENV
+    RpcTryExcept
+        {
+#endif
+        *ErrorCode = ClientInfo->Open(InqRpcTransportConnection(),
             NetworkAddress, Endpoint, NetworkOptions, 0,
             RpcProtocolSequence, Timeout);
+#ifdef NTENV
+        }
+    RpcExcept( EXCEPTION_EXECUTE_HANDLER )
+        {
+#if DBG
+        PrintToDebugger("RPC: exception in Open\n") ;
+#endif
+        *ErrorCode = RPC_S_OUT_OF_MEMORY ;
+        }
+    RpcEndExcept
+#endif
 
     // If an error occurs in opening the connection, we go ahead and
     // delete the memory for the connection, and return zero (setting
@@ -156,7 +160,9 @@ Return Value:
            || (*ErrorCode == RPC_S_SERVER_TOO_BUSY)
            || (*ErrorCode == RPC_S_INVALID_NETWORK_OPTIONS)
            || (*ErrorCode == RPC_S_INVALID_ENDPOINT_FORMAT)
-           || (*ErrorCode == RPC_S_ACCESS_DENIED));
+           || (*ErrorCode == RPC_S_INVALID_NET_ADDR)
+           || (*ErrorCode == RPC_S_ACCESS_DENIED)
+           || (*ErrorCode == RPC_S_INTERNAL_ERROR));
 
     if ( *ErrorCode == RPC_S_OK )
         {
@@ -181,8 +187,24 @@ Routine Description:
 
     if ( ConnectionClosedFlag == 0 )
         {
-        RpcStatus = ClientInfo->Close(InqRpcTransportConnection());
-        ASSERT( RpcStatus == RPC_S_OK );
+#ifdef NTENV
+        RpcTryExcept
+            {
+#endif
+            RpcStatus = ClientInfo->Close(InqRpcTransportConnection());
+            ASSERT( RpcStatus == RPC_S_OK );
+#ifdef NTENV
+            }
+        RpcExcept( EXCEPTION_EXECUTE_HANDLER )
+            {
+#if DBG
+            PrintToDebugger("RPC: exception in Close\n") ;
+#endif
+            RpcStatus = RPC_S_OUT_OF_MEMORY ;
+            }
+        RpcEndExcept
+#endif
+
         ConnectionClosedFlag = 1;
         }
 }
@@ -280,7 +302,8 @@ Return Value:
         PendingAlert = TRUE;
         }
 
-    if ( RpcStatus == RPC_P_RECEIVE_FAILED )
+    if ( (RpcStatus == RPC_P_RECEIVE_FAILED)
+        || (RpcStatus == RPC_P_CONNECTION_SHUTDOWN))
         {
         ConnectionClosedFlag = 1;
         }
@@ -290,7 +313,8 @@ Return Value:
            || (RpcStatus == RPC_S_OUT_OF_RESOURCES)
            || (RpcStatus == RPC_P_RECEIVE_ALERTED)
            || (RpcStatus == RPC_P_TIMEOUT)
-           || (RpcStatus == RPC_P_RECEIVE_FAILED));
+           || (RpcStatus == RPC_P_RECEIVE_FAILED)
+           || (RpcStatus == RPC_P_CONNECTION_SHUTDOWN)) ;
 
     return(RpcStatus);
 }
@@ -379,11 +403,11 @@ Return Value:
     ASSERT(   (RpcStatus == RPC_S_OK)
            || (RpcStatus == RPC_S_OUT_OF_MEMORY)
            || (RpcStatus == RPC_S_OUT_OF_RESOURCES)
-           || (RpcStatus == RPC_P_SEND_FAILED)
-           || (RpcStatus == RPC_P_CONNECTION_SHUTDOWN));
+           || (RpcStatus == RPC_P_SEND_FAILED)) ;
 
     return(RpcStatus);
 }
+
 
 RPC_STATUS
 TRANS_CCONNECTION::TransSendReceive (
@@ -486,7 +510,134 @@ Return Value:
            || (RpcStatus == RPC_S_OUT_OF_MEMORY)
            || (RpcStatus == RPC_S_OUT_OF_RESOURCES)
            || (RpcStatus == RPC_P_RECEIVE_FAILED)
-           || (RpcStatus == RPC_P_RECEIVE_ALERTED)
+           || (RpcStatus == RPC_S_CALL_CANCELLED)
+           || (RpcStatus == RPC_P_SEND_FAILED)
+           || (RpcStatus == RPC_P_CONNECTION_SHUTDOWN));
+
+        return(RpcStatus);
+}
+
+
+RPC_STATUS
+TRANS_CCONNECTION::TransSendReceiveWithTimeout (
+    IN void PAPI * SendBuffer,
+    IN unsigned int SendBufferLength,
+    OUT void PAPI * PAPI * ReceiveBuffer,
+    OUT unsigned int PAPI * ReceiveBufferLength,
+    IN DWORD dwTimeout
+    )
+/*++
+
+Routine Description:
+
+Arguments:
+
+    SendBuffer - Supplies a packet to be sent to the server.
+
+    SendBufferLength - Supplies the length of the send buffer in bytes.
+
+    ReceiveBuffer - Returns a packet received from the transport.
+
+    ReceiveBufferLength - Returns the length of the receive buffer in bytes.
+
+Return Value:
+
+    RPC_S_OK - The packet was successfully sent to the server, and we
+        successfully received one from the server.
+
+    RPC_S_OUT_OF_MEMORY - Insufficient memory is available to perform
+        the operation.  This will be the result of a failure in the
+        transport.
+
+    RPC_S_OUT_OF_RESOURCES - Insufficient resources are available to
+        perform the operation.  This will be the result of a failure
+        in the transport.
+
+    RPC_P_CONNECTION_CLOSED - The connection has been closed.
+
+    RPC_P_RECEIVE_FAILED - The receive failed from some reason.
+
+    RPC_P_SEND_FAILED - The send failed for some reason.
+
+--*/
+{
+    RPC_STATUS RpcStatus;
+
+    if ( ConnectionClosedFlag != 0 )
+        {
+        return(RPC_P_CONNECTION_CLOSED);
+        }
+
+    DceSecurityInfo.SendSequenceNumber += 1;
+    // DceSecurityInfo.ReceiveSequenceNumber += 1;
+
+    *ReceiveBufferLength = GuessPacketLength();
+//    *ReceiveBufferLength = ClientInfo->MaximumPacketSize;
+    RpcStatus = TransGetBuffer(ReceiveBuffer, *ReceiveBufferLength);
+    if ( RpcStatus != RPC_S_OK )
+        {
+        ASSERT( RpcStatus == RPC_S_OUT_OF_MEMORY );
+        return(RpcStatus);
+        }
+
+
+    if (ClientInfo->SendReceiveWithTimeout != 0)
+        {
+        RpcStatus = ClientInfo->SendReceiveWithTimeout(InqRpcTransportConnection(),
+                SendBuffer, SendBufferLength, ReceiveBuffer,
+                ReceiveBufferLength, dwTimeout);
+        }
+    else if (ClientInfo->ReceiveWithTimeout != 0)
+        {
+        RpcStatus = ClientInfo->Send(InqRpcTransportConnection(), SendBuffer,
+                SendBufferLength);
+        if ( RpcStatus == RPC_S_OK )
+            {
+            RpcStatus = ClientInfo->ReceiveWithTimeout(InqRpcTransportConnection(),
+                    ReceiveBuffer, ReceiveBufferLength, dwTimeout);
+            }
+        }
+    else if ( ClientInfo->SendReceive != 0 )
+        {
+        RpcStatus = ClientInfo->SendReceive(InqRpcTransportConnection(),
+                SendBuffer, SendBufferLength, ReceiveBuffer,
+                ReceiveBufferLength);
+        }
+    else
+        {
+        RpcStatus = ClientInfo->Send(InqRpcTransportConnection(), SendBuffer,
+                SendBufferLength);
+        if ( RpcStatus == RPC_S_OK )
+            {
+            RpcStatus = ClientInfo->Receive(InqRpcTransportConnection(),
+                    ReceiveBuffer, ReceiveBufferLength);
+            }
+        }
+
+    PreviousPacketLength = *ReceiveBufferLength;
+
+    if ( RpcStatus != RPC_S_OK )
+        {
+        TransFreeBuffer(*ReceiveBuffer);
+        }
+
+    if (RpcStatus == RPC_P_RECEIVE_ALERTED)
+        {
+        PendingAlert = TRUE;
+        }
+
+    if (   (RpcStatus == RPC_P_SEND_FAILED)
+        || (RpcStatus == RPC_P_RECEIVE_FAILED)
+        || (RpcStatus == RPC_P_CONNECTION_SHUTDOWN))
+        {
+        ConnectionClosedFlag = 1;
+        }
+
+    ASSERT(   (RpcStatus == RPC_S_OK)
+           || (RpcStatus == RPC_S_OUT_OF_MEMORY)
+           || (RpcStatus == RPC_S_OUT_OF_RESOURCES)
+           || (RpcStatus == RPC_P_RECEIVE_FAILED)
+           || (RpcStatus == RPC_S_CALL_CANCELLED)
            || (RpcStatus == RPC_P_SEND_FAILED)
            || (RpcStatus == RPC_P_CONNECTION_SHUTDOWN));
 
@@ -552,6 +703,12 @@ Return Value:
     void PAPI * NewBuffer;
     RPC_STATUS RpcStatus;
 
+    if(OldBufferLength > NewBufferLength)
+       {
+       ASSERT(!"Old buffer length > new buffer length");
+       return RPC_S_OUT_OF_MEMORY;
+       }
+
     RpcStatus = InqTransCConnection(ThisConnection)->TransGetBuffer(
             &NewBuffer, NewBufferLength);
     if ( RpcStatus != RPC_S_OK )
@@ -590,6 +747,31 @@ Arguments:
    return InqTransCConnection(ThisConnection)->InqMaximumFragmentLength();
 }
 
+
+RPC_STATUS RPC_ENTRY
+I_RpcTransPingServer(
+    IN RPC_TRANSPORT_CONNECTION ThisConnection
+    )
+/*++
+
+Routine Description:
+
+    Pings the server to see if it is alive
+Arguments:
+
+    ThisConnection - Supplies the connection for which we are returning
+    the maximum fragment size.
+
+--*/
+{
+    return InqTransCConnection(ThisConnection)->PingServer() ;
+}
+
+
+#if defined(NTENV) || defined(WIN96)
+#define MAX_PROTSEQ_LENGTH MAX_DLLNAME_LENGTH
+#endif
+
 
 class CLIENT_LOADABLE_TRANSPORT
 /*++
@@ -620,6 +802,9 @@ private:
 
     RPC_CLIENT_TRANSPORT_INFO * RpcClientInfo;
     RPC_CHAR DllName[MAX_DLLNAME_LENGTH + 1];
+#if defined(NTENV) || defined(WIN96)
+    RPC_CHAR RpcProtocolSequence[MAX_PROTSEQ_LENGTH + 1];
+#endif
 
 public:
 
@@ -629,6 +814,19 @@ public:
 
 #endif // WIN
 
+#if defined(NTENV) || defined(WIN96)
+    CLIENT_LOADABLE_TRANSPORT (
+        IN RPC_CLIENT_TRANSPORT_INFO * RpcClientInfo,
+        IN RPC_CHAR * DllName,
+        IN RPC_CHAR PAPI * ProtocolSequence
+        );
+
+    int
+    IsTransportInterfaceSupported (
+        IN RPC_CHAR * DllName,
+        IN RPC_CHAR PAPI * ProtocolSequence
+        );
+#else
     CLIENT_LOADABLE_TRANSPORT (
         IN RPC_CLIENT_TRANSPORT_INFO * RpcClientInfo,
         IN RPC_CHAR * DllName
@@ -637,17 +835,27 @@ public:
     IsTransportInterfaceSupported (
         IN RPC_CHAR * DllName
         );
+#endif
 
     RPC_CLIENT_TRANSPORT_INFO *
     InqRpcClientInfo (
         );
 };
 
+#if defined(NTENV) || defined(WIN96)
+
+CLIENT_LOADABLE_TRANSPORT::CLIENT_LOADABLE_TRANSPORT (
+    IN RPC_CLIENT_TRANSPORT_INFO * RpcClientInfo,
+    IN RPC_CHAR * DllName,
+    IN RPC_CHAR PAPI * ProtocolSequence
+    )
+#else
 
 CLIENT_LOADABLE_TRANSPORT::CLIENT_LOADABLE_TRANSPORT (
     IN RPC_CLIENT_TRANSPORT_INFO * RpcClientInfo,
     IN RPC_CHAR * DllName
     )
+#endif
 /*++
 
 Routine Description:
@@ -671,15 +879,31 @@ Arguments:
         *String = *DllName;
     *String = 0;
 
+#if defined(NTENV) || defined(WIN96)
+    for (String = this->RpcProtocolSequence;
+       *ProtocolSequence != 0; ProtocolSequence++, String++)
+       *String = *ProtocolSequence;
+    *String = 0;
+#endif
+
     this->RpcClientInfo = RpcClientInfo;
 
 }
 
+#if defined(NTENV) || defined(WIN96)
+
+inline int
+CLIENT_LOADABLE_TRANSPORT::IsTransportInterfaceSupported (
+    IN RPC_CHAR * DllName,
+    IN RPC_CHAR PAPI * ProtocolSequence
+    )
+#else
 
 inline int
 CLIENT_LOADABLE_TRANSPORT::IsTransportInterfaceSupported (
     IN RPC_CHAR * DllName
     )
+#endif
 /*++
 
 Routine Description:
@@ -701,7 +925,13 @@ Return Value:
 
 --*/
 {
+#if defined(NTENV) || defined(WIN96)
+    return(((RpcpStringCompare(DllName, this->DllName) == 0) &&
+              (RpcpStringCompare(ProtocolSequence, this->RpcProtocolSequence) == 0)
+              ? 1 : 0));
+#else
     return((RpcpStringCompare(DllName, this->DllName) == 0 ? 1 : 0));
+#endif
 }
 
 inline RPC_CLIENT_TRANSPORT_INFO *
@@ -774,7 +1004,7 @@ Return Value:
     RPC_CLIENT_TRANSPORT_INFO PAPI * RpcClientInfo;
     CLIENT_LOADABLE_TRANSPORT * ClientLoadableTransport;
     TRANS_CLIENT_INIT_ROUTINE TransClientInitRoutine;
-#ifndef DOSWIN32RPC
+#if !defined(MAC) && (!defined(DOSWIN32RPC) || defined(WIN96))
     PDG_ENDPOINT_MANAGER EndpointManager = 0;
 #endif
     DLL * LoadableTransportDll;
@@ -784,6 +1014,8 @@ Return Value:
     static RPC_STATUS NearStatus;
 #endif // WIN
 
+    ASSERT(*Status == 0);
+
     // To begin with, check to see if the transport is already loaded.
     // If so, all we have got to do is to return a pointer to it.
 
@@ -792,8 +1024,13 @@ Return Value:
     while ((ClientLoadableTransport = LoadedLoadableTransports->Next())
             != 0)
         {
+#if defined(NTENV) || defined(WIN96)
+        if (ClientLoadableTransport->IsTransportInterfaceSupported(
+                DllName, RpcProtocolSequence))
+#else
         if (ClientLoadableTransport->IsTransportInterfaceSupported(
                 DllName))
+#endif
             {
             ClearGlobalMutex();
             return(ClientLoadableTransport->InqRpcClientInfo());
@@ -804,16 +1041,23 @@ Return Value:
     // specified loadable transport DLL.
 
 #ifdef WIN
+    NearStatus = 0;
     LoadableTransportDll = new DLL(DllName, &NearStatus);
     *Status = NearStatus;
 #else // WIN
     LoadableTransportDll = new DLL(DllName, Status);
 #endif // WIN
-    if (   ( LoadableTransportDll == 0 )
-        || ( *Status != RPC_S_OK ) )
+
+    if (LoadableTransportDll == 0)
+        {
+        *Status = RPC_S_OUT_OF_MEMORY;
+        }
+
+    if (*Status != RPC_S_OK)
         {
         ClearGlobalMutex();
         delete LoadableTransportDll;
+        VALIDATE((*Status, RPC_S_OUT_OF_MEMORY, RPC_S_INVALID_ARG, RPC_S_OK, 0));
         if ( *Status != RPC_S_OUT_OF_MEMORY )
             {
             ASSERT( *Status == RPC_S_INVALID_ARG );
@@ -870,9 +1114,9 @@ Return Value:
     //  to the rpc_client_info
     //
 
-    // We don\'t do this for Chicago
+    // We don\'t do this for Chicago & Mac
 
-#ifndef DOSWIN32RPC
+#if !defined(MAC) && (!defined(DOSWIN32RPC) || defined(WIN96))
     if (RpcpMemoryCompare(RpcProtocolSequence,
                     RPC_CONST_STRING("ncadg_"), 6*sizeof(RPC_CHAR)) == 0)
        {
@@ -946,13 +1190,18 @@ Return Value:
 #else
                                                      RpcClientInfo,
 #endif
+#if defined(NTENV) || defined(WIN96)
+                                                     DllName,
+                                                     RpcProtocolSequence
+#else
                                                      DllName
+#endif
                                                      );
     if ( ClientLoadableTransport == 0 )
         {
         ClearGlobalMutex();
         delete LoadableTransportDll;
-#ifndef DOSWIN32RPC
+#if !defined(MAC) && (!defined(DOSWIN32RPC) || defined(WIN96))
         if (EndpointManager != 0)
            {
            delete EndpointManager;
@@ -970,7 +1219,7 @@ Return Value:
         ClearGlobalMutex();
         delete LoadableTransportDll;
         delete ClientLoadableTransport;
-#ifndef DOSWIN32RPC
+#if !defined(MAC) && (!defined(DOSWIN32RPC) || defined(WIN96))
         if ( EndpointManager != 0 )
             {
             delete EndpointManager;

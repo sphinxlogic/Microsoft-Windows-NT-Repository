@@ -65,8 +65,10 @@ enum StateMachineOperMode {
     DLC_TOKEN_COMMAND | a )
 #define DLC_REJ_RESPONSE( a ) uchSendId = \
     (UCHAR)(DLC_REJ_TOKEN | DLC_TOKEN_RESPONSE) | (UCHAR)a
-//#define DLC_REJ_COMMAND( a ) uchSendId = \
-//    (UCHAR)(DLC_REJ_TOKEN | DLC_TOKEN_COMMAND) | (UCHAR)a
+#if 0
+#define DLC_REJ_COMMAND( a ) uchSendId = \
+	 (UCHAR)(DLC_REJ_TOKEN | DLC_TOKEN_COMMAND) | (UCHAR)a
+#endif	// 0
 #define DLC_RNR_RESPONSE( a ) uchSendId = \
     (UCHAR)(DLC_RNR_TOKEN | DLC_TOKEN_RESPONSE) | (UCHAR)a
 #define DLC_RNR_COMMAND( a )  uchSendId = \
@@ -865,13 +867,13 @@ Return Value:
     case 66:
             TimerStop(&pLink->T2);
     case 89:
-        label_89_1:
+//		 label_89_1:
             TimerStop(&pLink->T1);
             goto label_53_1;
     case 67:
             TimerStop(&pLink->T2);
     case 90:
-        label_90_1:
+//		 label_90_1:
             TimerStop(&pLink->T1);
             goto label_54_1;
     case 68:
@@ -883,7 +885,7 @@ Return Value:
     case 69:
             TimerStop(&pLink->T2);
     case 92:
-        label_92_1:
+//		 label_92_1:
             TimerStop(&pLink->T1);
             goto label_56_1;
     case 70:
@@ -926,7 +928,7 @@ Return Value:
             pLink->Ir_Ct=pLink->N3;
             TimerStop(&pLink->T2);
     case 111:
-        label_111_1:
+//		 label_111_1:
             DLC_RR_RESPONSE(1);
             goto label_75_1;
     case 78:
@@ -1121,7 +1123,7 @@ Return Value:
     case 121:
             TimerStop(&pLink->T2);
     case 156:
-        label_156_1:
+//		 label_156_1:
             EVENT_INDICATION(INDICATE_DM_DISC_RECEIVED);
             pLink->State=1;
             TimerStart(&pLink->Ti);
@@ -1162,7 +1164,7 @@ Return Value:
             AdjustWw(pLink);
             pLink->Is_Ct=pLink->N2;
     case 129:
-        label_129_1:
+//		 label_129_1:
             pLink->Ir_Ct=pLink->N3;
             TimerStop(&pLink->T2);
         label_128_2:
@@ -1249,7 +1251,7 @@ Return Value:
     case 145:
             AdjustWw(pLink);
     case 146:
-        label_146_1:
+//		 label_146_1:
             pLink->Vb=STATE_REMOTE_BUSY;
         label_145_2:
             pLink->Is_Ct=pLink->N2;
@@ -1324,7 +1326,7 @@ Return Value:
             AdjustWw(pLink);
             pLink->Is_Ct=pLink->N2;
     case 164:
-        label_164_1:
+//		 label_164_1:
             DLC_RNR_RESPONSE(1);
             goto label_168_1;
     case 165:
@@ -1431,7 +1433,7 @@ Return Value:
     case 193:
             AdjustWw(pLink);
     case 194:
-        label_194_1:
+//		 label_194_1:
             pLink->Vb=STATE_REMOTE_BUSY;
         label_193_2:
             pLink->Is_Ct=pLink->N2;
@@ -1669,7 +1671,7 @@ Return Value:
     case 240:
             DLC_RR_RESPONSE(1);
     case 242:
-        label_242_1:
+//		 label_242_1:
             pLink->State=7;
             UpdateVa(pLink);
             goto label_208_3;
@@ -1796,7 +1798,7 @@ Return Value:
     case 273:
             pLink->Is_Ct=pLink->N2;
     case 274:
-        label_274_1:
+//		 label_274_1:
             UpdateVaChkpt(pLink),TimerStart(&pLink->T1),pLink->Vp=pLink->Vs;
             goto label_272_1;
     case 275:

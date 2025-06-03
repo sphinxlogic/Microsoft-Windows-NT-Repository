@@ -40,8 +40,8 @@ Revision History:
 ////////////////////////////////////////////////////////////////////////
 
 //
-// The following define controls the diagnostic capabilities that     
-// are built into SAM.                                                
+// The following define controls the diagnostic capabilities that
+// are built into SAM.
 //
 
 #if DBG
@@ -76,7 +76,7 @@ Revision History:
 #define SampDiagPrint( FlagName, _Text_ )                               \
     IF_SAMP_GLOBAL( FlagName )                                          \
         DbgPrint _Text_
-    
+
 
 #else
 
@@ -268,7 +268,7 @@ UnexpectedProblem( VOID );
 //
 
 typedef struct _GTB_TWO_THREE_LEAF {
-    
+
     //
     // Sort order list links
     //
@@ -297,7 +297,7 @@ typedef struct _GTB_TWO_THREE_NODE {
 
     //
     //  Pointers to child nodes.
-    // 
+    //
     //    1) If a pointer is null, then this node does not have
     //       that child.  In this case, the control value MUST
     //       indicate that the children are leaves.
@@ -402,7 +402,7 @@ typedef struct _RTL_GENERIC_TABLE2 {
     PRTL_GENERIC_2_COMPARE_ROUTINE  Compare;
     PRTL_GENERIC_2_ALLOCATE_ROUTINE Allocate;
     PRTL_GENERIC_2_FREE_ROUTINE     Free;
-    
+
 
 } RTL_GENERIC_TABLE2, *PRTL_GENERIC_TABLE2;
 
@@ -589,6 +589,7 @@ RtlIsGenericTable2Empty (
 #define SAMP_MINOR_REVISION_V1_0A      (0x00000002)
 #define SAMP_MINOR_REVISION            (0x00000002)
 #define SAMP_REVISION                  (SAMP_MAJOR_REVISION + SAMP_MINOR_REVISION)
+#define SAMP_SERVER_REVISION           (SAMP_REVISION + 1)
 
 
 //
@@ -611,7 +612,7 @@ RtlIsGenericTable2Empty (
 // After this, opens will be rejected with INSUFFICIENT_RESOURCES
 //
 
-#define SAMP_MAXIMUM_ACTIVE_CONTEXTS   (256)
+#define SAMP_MAXIMUM_ACTIVE_CONTEXTS   (2048)
 
 
 //
@@ -638,6 +639,15 @@ RtlIsGenericTable2Empty (
 
 #define SAMP_MAXIMUM_PASSWORD_HISTORY_LENGTH    1024
 
+//
+// The default group attributes to return when anybody asks for them.
+// This saves the expense of looking at the user object every time.
+//
+
+
+#define SAMP_DEFAULT_GROUP_ATTRIBUTES ( SE_GROUP_MANDATORY | \
+                                        SE_GROUP_ENABLED | \
+                                        SE_GROUP_ENABLED_BY_DEFAULT )
 
 /////////////////////////////////////////////////////////////////////////
 //                                                                     //
@@ -1254,7 +1264,7 @@ typedef struct _SAMP_V1_0A_FIXED_LENGTH_DOMAIN {
     LARGE_INTEGER   LockoutObservationWindow;
     LARGE_INTEGER   ModifiedCountAtLastPromotion;
 
-    
+
     ULONG           NextRid;
     ULONG           PasswordProperties;
 
@@ -1308,9 +1318,20 @@ typedef struct _SAMP_V1_FIXED_LENGTH_GROUP {
 
     ULONG RelativeId;
     ULONG Attributes;
-    BOOLEAN AdminGroup;
+    UCHAR AdminGroup;
 
 } SAMP_V1_FIXED_LENGTH_GROUP, *PSAMP_V1_FIXED_LENGTH_GROUP;
+
+typedef struct _SAMP_V1_0A_FIXED_LENGTH_GROUP {
+
+    ULONG Revision;
+    ULONG RelativeId;
+    ULONG Attributes;
+    ULONG Unused1;
+    UCHAR AdminCount;
+    UCHAR OperatorCount;
+
+} SAMP_V1_0A_FIXED_LENGTH_GROUP, *PSAMP_V1_0A_FIXED_LENGTH_GROUP;
 
 
 //
@@ -1345,6 +1366,11 @@ typedef struct _SAMP_V1_FIXED_LENGTH_ALIAS {
 //       a Version 1 format or later format.
 
 
+//
+// This is the fixed length user from NT3.51 QFE and SUR
+//
+
+
 typedef struct _SAMP_V1_0A_FIXED_LENGTH_USER {
 
     ULONG           Revision;
@@ -1365,12 +1391,45 @@ typedef struct _SAMP_V1_0A_FIXED_LENGTH_USER {
     USHORT          BadPasswordCount;
     USHORT          LogonCount;
     USHORT          AdminCount;
-
+    USHORT          Unused2;
+    USHORT          OperatorCount;
 
 } SAMP_V1_0A_FIXED_LENGTH_USER, *PSAMP_V1_0A_FIXED_LENGTH_USER;
 
+//
+// This is the fixed length user from NT3.5 and NT3.51
+//
+
 
 typedef struct _SAMP_V1_0_FIXED_LENGTH_USER {
+
+    ULONG           Revision;
+    ULONG           Unused1;
+
+    LARGE_INTEGER   LastLogon;
+    LARGE_INTEGER   LastLogoff;
+    LARGE_INTEGER   PasswordLastSet;
+    LARGE_INTEGER   AccountExpires;
+    LARGE_INTEGER   LastBadPasswordTime;
+
+    ULONG           UserId;
+    ULONG           PrimaryGroupId;
+    ULONG           UserAccountControl;
+
+    USHORT          CountryCode;
+    USHORT          CodePage;
+    USHORT          BadPasswordCount;
+    USHORT          LogonCount;
+    USHORT          AdminCount;
+
+} SAMP_V1_0_FIXED_LENGTH_USER, *PSAMP_V1_0_FIXED_LENGTH_USER;
+
+
+//
+// This is the fixed length user from NT3.1
+//
+
+typedef struct _SAMP_V1_FIXED_LENGTH_USER {
 
     LARGE_INTEGER LastLogon;
     LARGE_INTEGER LastLogoff;
@@ -1388,7 +1447,7 @@ typedef struct _SAMP_V1_0_FIXED_LENGTH_USER {
     USHORT AdminCount;
 
 
-} SAMP_V1_0_FIXED_LENGTH_USER, *PSAMP_V1_0_FIXED_LENGTH_USER;
+} SAMP_V1_FIXED_LENGTH_USER, *PSAMP_V1_FIXED_LENGTH_USER;
 
 
 //
@@ -2080,7 +2139,7 @@ typedef struct _SAMP_ON_DISK_GROUP_OBJECT {
     // This field contains the fixed length attributes of the object
     //
 
-    SAMP_V1_FIXED_LENGTH_GROUP V1Fixed;
+    SAMP_V1_0A_FIXED_LENGTH_GROUP V1Fixed;
 
 
 #if SAMP_GROUP_STORED_SEPARATELY
@@ -2154,8 +2213,18 @@ typedef struct _SAMP_ON_DISK_ALIAS_OBJECT {
 
 
 
+
+///////////////////////////////////////////////////////////////////////////////
+//                                                                           //
+// Enumerated types for manipulating group memberships                       //
+//                                                                           //
+///////////////////////////////////////////////////////////////////////////////
 
-
+typedef enum _SAMP_MEMBERSHIP_DELTA {
+    AddToAdmin,
+    NoChange,
+    RemoveFromAdmin
+} SAMP_MEMBERSHIP_DELTA, *PSAMP_MEMBERSHIP_DELTA;
 
 
 
@@ -2478,13 +2547,13 @@ SampCreateAccountSid(
 NTSTATUS
 SampRetrieveGroupV1Fixed(
     IN PSAMP_OBJECT GroupContext,
-    IN PSAMP_V1_FIXED_LENGTH_GROUP V1Fixed
+    IN PSAMP_V1_0A_FIXED_LENGTH_GROUP V1Fixed
     );
 
 NTSTATUS
 SampReplaceGroupV1Fixed(
     IN PSAMP_OBJECT Context,
-    IN PSAMP_V1_FIXED_LENGTH_GROUP V1Fixed
+    IN PSAMP_V1_0A_FIXED_LENGTH_GROUP V1Fixed
     );
 
 NTSTATUS
@@ -2509,20 +2578,23 @@ SampRetrieveGroupMembers(
 NTSTATUS
 SampChangeAccountOperatorAccessToMember(
     IN PRPC_SID MemberSid,
-    IN BOOLEAN ChangingToAdmin
+    IN SAMP_MEMBERSHIP_DELTA ChangingToAdmin,
+    IN SAMP_MEMBERSHIP_DELTA ChangingToOperator
     );
 
 NTSTATUS
 SampChangeOperatorAccessToUser(
     IN ULONG UserRid,
-    IN BOOLEAN ChangingToAdmin
+    IN SAMP_MEMBERSHIP_DELTA ChangingToAdmin,
+    IN SAMP_MEMBERSHIP_DELTA ChangingToOperator
     );
 
 NTSTATUS
 SampChangeOperatorAccessToUser2(
     IN PSAMP_OBJECT                    UserContext,
     IN PSAMP_V1_0A_FIXED_LENGTH_USER   V1aFixed,
-    IN BOOLEAN                         AddingToAdmin
+    IN SAMP_MEMBERSHIP_DELTA           AddingToAdmin,
+    IN SAMP_MEMBERSHIP_DELTA           AddingToOperator
     );
 
 //
@@ -2539,6 +2611,62 @@ SampValidateObjectAccess(
 VOID
 SampAuditOnClose(
     IN PSAMP_OBJECT Context
+    );
+
+
+NTSTATUS
+SampCreateNullToken(
+    );
+
+//
+// Authenticated RPC and SPX support services
+//
+
+
+ULONG
+SampSecureRpcInit(
+    PVOID Ignored
+    );
+
+BOOLEAN
+SampStartNonNamedPipeTransports(
+    );
+
+
+//
+// Notification package routines.
+//
+
+NTSTATUS
+SampPasswordChangeNotify(
+    PUNICODE_STRING UserName,
+    ULONG RelativeId,
+    PUNICODE_STRING NewPassword
+    );
+
+NTSTATUS
+SampPasswordChangeFilter(
+    IN PUNICODE_STRING UserName,
+    IN PUNICODE_STRING FullName,
+    IN PUNICODE_STRING NewPassword,
+    IN BOOLEAN SetOperation
+    );
+
+
+
+NTSTATUS
+SampLoadNotificationPackages(
+    );
+
+NTSTATUS
+SampDeltaChangeNotify(
+    IN PSID DomainSid,
+    IN SECURITY_DB_DELTA_TYPE DeltaType,
+    IN SECURITY_DB_OBJECT_TYPE ObjectType,
+    IN ULONG ObjectRid,
+    IN PUNICODE_STRING ObjectName,
+    IN PLARGE_INTEGER ModifiedCount,
+    IN PSAM_DELTA_DATA DeltaData OPTIONAL
     );
 
 
@@ -2572,6 +2700,14 @@ SampGetObjectSD(
     );
 
 
+NTSTATUS
+SampModifyAccountSecurity(
+    IN SAMP_OBJECT_TYPE ObjectType,
+    IN BOOLEAN Admin,
+    IN PSECURITY_DESCRIPTOR OldDescriptor,
+    OUT PSECURITY_DESCRIPTOR *NewDescriptor,
+    OUT PULONG DescriptorLength
+    );
 
 
 //
@@ -2710,7 +2846,8 @@ SampAddGroupToUserMembership(
     IN ULONG GroupRid,
     IN ULONG Attributes,
     IN ULONG UserRid,
-    IN BOOLEAN AdminGroup,
+    IN SAMP_MEMBERSHIP_DELTA AdminGroup,
+    IN SAMP_MEMBERSHIP_DELTA OperatorGroup,
     OUT PBOOLEAN UserActive
     );
 
@@ -2725,7 +2862,8 @@ NTSTATUS
 SampRemoveMembershipUser(
     IN ULONG GroupRid,
     IN ULONG UserRid,
-    IN BOOLEAN AdminGroup,
+    IN SAMP_MEMBERSHIP_DELTA AdminGroup,
+    IN SAMP_MEMBERSHIP_DELTA OperatorGroup,
     OUT PBOOLEAN UserActive
     );
 
@@ -2807,6 +2945,11 @@ SampWriteEventLog (
 NTSTATUS
 SampGetAccountDomainInfo(
     PPOLICY_ACCOUNT_DOMAIN_INFO *PolicyAccountDomainInfo
+    );
+
+NTSTATUS
+SampUpgradeSamDatabase(
+    ULONG Revision
     );
 
 
@@ -3009,6 +3152,15 @@ SampRtlWellKnownPrivilegeCheck(
     IN OPTIONAL PCLIENT_ID ClientId
     );
 
+//
+// Functions to upgrade the SAM database and fix SAM bugs
+//
+
+NTSTATUS
+SampUpgradeSamDatabase(
+    ULONG Revision
+    );
+
 /////////////////////////////////////////////////////////////////////////
 //                                                                     //
 // 2-3 tree generic table routines                                     //
@@ -3138,6 +3290,11 @@ extern LONG SampFlushThreadMinWaitSeconds;
 extern LONG SampFlushThreadMaxWaitSeconds;
 extern LONG SampFlushThreadExitDelaySeconds;
 
+//
+// Warning: these SIDs are only defined during the first boot of setup,
+// when the code in bldsam3.c for building the SAM database, has been
+// run. On a normal build they are both NULL.
+//
 
 extern PSID SampBuiltinDomainSid;
 extern PSID SampAccountDomainSid;
@@ -3146,7 +3303,11 @@ extern PSID SampWorldSid;
 extern PSID SampAnonymousSid;
 extern PSID SampAdministratorUserSid;
 extern PSID SampAdministratorsAliasSid;
-
+extern HANDLE SampNullSessionToken;
+extern BOOLEAN SampNetwareServerInstalled;
+extern BOOLEAN SampIpServerInstalled;
+extern BOOLEAN SampAppletalkServerInstalled;
+extern BOOLEAN SampVinesServerInstalled;
 
 #if SAMP_DIAGNOSTICS
 

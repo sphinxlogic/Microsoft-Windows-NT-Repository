@@ -34,8 +34,9 @@ Revision History:
 #define ALLOC 1
 #define FREE 2
 #define DIFF 3
-#define USED 4
-#define BYTES 5
+#define BYTES 4
+#define EACH 5
+#define LIGHT 6
 
 
 #define NONPAGED 0
@@ -50,7 +51,12 @@ UCHAR LargeBuffer1[BUFFER_SIZE];
 UCHAR LargeBuffer2[BUFFER_SIZE];
 
 typedef struct _POOLMON_OUT {
-    ULONG Tag;
+    union {
+        UCHAR Tag[4];
+        ULONG TagUlong;
+    };
+    UCHAR NullByte;
+    BOOLEAN Changed;
     ULONG Type;
     ULONG Allocs;
     ULONG AllocsDiff;
@@ -59,6 +65,7 @@ typedef struct _POOLMON_OUT {
     ULONG Allocs_Frees;
     ULONG Used;
     ULONG UsedDiff;
+    ULONG Each;
 } POOLMON_OUT, *PPOOLMON_OUT;
 
 POOLMON_OUT OutBuffer[1000];
@@ -66,14 +73,33 @@ POOLMON_OUT OutBuffer[1000];
 ULONG DisplayType = BOTH;
 ULONG SortBy = TAG;
 ULONG Paren;
+
+ULONG DelayTimeMsec = 5000;
+
+BOOLEAN Interactive;
+ULONG NumberOfInputRecords;
+INPUT_RECORD InputRecord;
+HANDLE InputHandle;
+HANDLE OriginalOutputHandle;
+HANDLE OutputHandle;
+DWORD OriginalInputMode;
+WORD NormalAttribute;
+WORD HighlightAttribute;
+ULONG NumberOfCols;
+ULONG NumberOfRows;
+ULONG NumberOfDetailLines;
+ULONG FirstDetailLine;
+CONSOLE_SCREEN_BUFFER_INFO OriginalConsoleInfo;
+ULONG NoHighlight;
+
 BOOLEAN DisplayTotals = FALSE;
 POOLMON_OUT Totals[2];
 
-int UserSpecifiedLineLimit = INT_MAX;
-BOOLEAN LimitMaxLines = TRUE;
-
 typedef struct _FILTER {
-    ULONG Tag;
+    union {
+        UCHAR Tag[4];
+        ULONG TagUlong;
+    };
     BOOLEAN Exclude;
 } FILTER, *PFILTER;
 
@@ -81,10 +107,8 @@ typedef struct _FILTER {
 FILTER Filter[MAX_FILTER];
 ULONG FilterCount = 0;
 
-typedef struct _STRING_HACK {
-    ULONG String1;
-    ULONG Pad;
-} STRING_HACK, *PSTRING_HACK;
+VOID
+ShowHelpPopup( VOID );
 
 int _CRTAPI1
 ulcomp(const void *e1,const void *e2);
@@ -135,7 +159,6 @@ ulcomp(const void *e1,const void *e2)
             return (u1);
             break;
 
-        case USED:
         case BYTES:
             if (Paren & 1) {
                 u1 = ((PPOOLMON_OUT)e2)->UsedDiff -
@@ -150,6 +173,12 @@ ulcomp(const void *e1,const void *e2)
         case DIFF:
                 u1 = ((PPOOLMON_OUT)e2)->Allocs_Frees -
                         ((PPOOLMON_OUT)e1)->Allocs_Frees;
+            return (u1);
+            break;
+
+        case EACH:
+                u1 = ((PPOOLMON_OUT)e2)->Each -
+                        ((PPOOLMON_OUT)e1)->Each;
             return (u1);
             break;
 
@@ -208,8 +237,7 @@ CheckFilters (
         pass = FALSE;
     }
 
-    tag = (PCHAR)&TagInfo->Tag;
-
+    tag = TagInfo->Tag;
     for ( i = 0; i < FilterCount; i++ ) {
         if ( CheckSingleFilter( tag, (PCHAR)&Filter[i].Tag ) ) {
             pass = !Filter[i].Exclude;
@@ -235,7 +263,7 @@ AddFilter (
     }
 
     f = &Filter[FilterCount];
-    p = (PCHAR)&f->Tag;
+    p = f->Tag;
 
     for ( i = 0; i < 4; i++ ) {
         if ( *FilterString == 0 ) break;
@@ -292,6 +320,7 @@ ParseArgs (
             case 'a':
                 SortBy = ALLOC;
                 break;
+            case 'u':
             case 'b':
                 SortBy = BYTES;
                 break;
@@ -301,6 +330,13 @@ ParseArgs (
             case 'd':
                 SortBy = DIFF;
                 break;
+            case 'm':
+                SortBy = EACH;
+
+            case 'l':
+                NoHighlight = 1 - NoHighlight;
+                break;
+
             case 'p':
                 DisplayType += 1;
                 if (DisplayType > BOTH) {
@@ -310,18 +346,6 @@ ParseArgs (
             case '(':
             case ')':
                 Paren += 1;
-                break;
-            case 'l':
-                p++;
-                if (*p == 0) {
-                    LimitMaxLines = FALSE;
-                } else {
-                    LimitMaxLines = TRUE;
-                    UserSpecifiedLineLimit = atol( p );
-                    if (UserSpecifiedLineLimit == 0) {
-                        UserSpecifiedLineLimit = INT_MAX;
-                    }
-                }
                 break;
             default:
                 printf( "unknown switch: %s\n", p );
@@ -336,6 +360,54 @@ ParseArgs (
     return;
 }
 
+BOOL
+WriteConsoleLine(
+    HANDLE OutputHandle,
+    WORD LineNumber,
+    LPSTR Text,
+    BOOL Highlight
+    )
+{
+    COORD WriteCoord;
+    DWORD NumberWritten;
+    DWORD TextLength;
+
+    WriteCoord.X = 0;
+    WriteCoord.Y = LineNumber;
+    if (!FillConsoleOutputCharacter( OutputHandle,
+                                     ' ',
+                                     NumberOfCols,
+                                     WriteCoord,
+                                     &NumberWritten
+                                   )
+       ) {
+        return FALSE;
+        }
+
+    if (!FillConsoleOutputAttribute( OutputHandle,
+                                     (WORD)((Highlight && !NoHighlight) ? HighlightAttribute : NormalAttribute),
+                                     NumberOfCols,
+                                     WriteCoord,
+                                     &NumberWritten
+                                   )
+       ) {
+        return FALSE;
+        }
+
+
+    if (Text == NULL || (TextLength = strlen( Text )) == 0) {
+        return TRUE;
+        }
+    else {
+        return WriteConsoleOutputCharacter( OutputHandle,
+                                            Text,
+                                            TextLength,
+                                            WriteCoord,
+                                            &NumberWritten
+                                          );
+        }
+}
+
 int
 _CRTAPI1 main( argc, argv )
 int argc;
@@ -343,137 +415,104 @@ char *argv[];
 {
 
     NTSTATUS Status;
-    ULONG DelayTimeMsec;
-    ULONG DelayTimeTicks;
     ULONG LastCount = 0;
-    COORD cp;
+    SYSTEM_BASIC_INFORMATION BasicInfo;
     SYSTEM_PERFORMANCE_INFORMATION PerfInfo;
     PSYSTEM_POOLTAG_INFORMATION PoolInfo;
     PSYSTEM_POOLTAG_INFORMATION PoolInfoOld;
-    COORD originalCp;
-
-    int MaxLines = INT_MAX;
-
-
-
     PUCHAR PreviousBuffer;
     PUCHAR CurrentBuffer;
     PUCHAR TempBuffer;
-    ULONG Hint;
-    ULONG Offset1;
-    ULONG DoHelp;
-    int num;
+    BOOLEAN DoHelp;
+    BOOLEAN DoQuit;
+    int NumberOfPoolTags;
     int i;
-    int lastnum = 0;
-    SYSTEM_BASIC_INFORMATION BasicInfo;
-    INPUT_RECORD InputRecord;
-    HANDLE InputHandle;
-    HANDLE OutputHandle;
-    DWORD NumRead;
-    UCHAR lastkey;
+    UCHAR LastKey;
     PPOOLMON_OUT Out;
-    CONSOLE_SCREEN_BUFFER_INFO ConsoleInfo;
-    STRING_HACK String = {0,0};
+    LONG ScrollDelta;
+    WORD DisplayLine, LastDetailRow;
+    CHAR OutputBuffer[ 512 ];
+
+    DoHelp = FALSE;
+    DoQuit = FALSE;
+    Interactive = TRUE;
 
     ParseArgs( argc, argv );
 
-    if ( GetPriorityClass(GetCurrentProcess()) == NORMAL_PRIORITY_CLASS) {
-        SetPriorityClass(GetCurrentProcess(),HIGH_PRIORITY_CLASS);
-        }
+    InputHandle = GetStdHandle( STD_INPUT_HANDLE );
+    OriginalOutputHandle = GetStdHandle( STD_OUTPUT_HANDLE );
+    if (Interactive) {
+        if (InputHandle == NULL ||
+            OriginalOutputHandle == NULL ||
+            !GetConsoleMode( InputHandle, &OriginalInputMode )
+           ) {
+            Interactive = FALSE;
+        } else {
+            OutputHandle = CreateConsoleScreenBuffer( GENERIC_READ | GENERIC_WRITE,
+                                                      FILE_SHARE_WRITE,
+                                                      NULL,
+                                                      CONSOLE_TEXTMODE_BUFFER,
+                                                      NULL
+                                                    );
+            if (OutputHandle == NULL ||
+                !GetConsoleScreenBufferInfo( OriginalOutputHandle, &OriginalConsoleInfo ) ||
+                !SetConsoleScreenBufferSize( OutputHandle, OriginalConsoleInfo.dwSize ) ||
+                !SetConsoleActiveScreenBuffer( OutputHandle ) ||
+                !SetConsoleMode( InputHandle, 0 )
+               ) {
+                if (OutputHandle != NULL) {
+                    CloseHandle( OutputHandle );
+                    OutputHandle = NULL;
+                }
 
-    InputHandle = GetStdHandle (STD_INPUT_HANDLE);
-#if 0
-    if (InputHandle == NULL) {
-        printf("Error obtaining input handle, error was: 0x%lx\n",
-                GetLastError());
-        return 0;
-    }
-#endif
-
-    OutputHandle = GetStdHandle (STD_OUTPUT_HANDLE);
-#if 0
-    if (OutputHandle == NULL) {
-        printf("Error obtaining output handle, error was: 0x%lx\n",
-                GetLastError());
-        return 0;
-    }
-#endif
-
-    Status = NtQuerySystemInformation(
-                SystemBasicInformation,
-                &BasicInfo,
-                sizeof(BasicInfo),
-                NULL
-                );
-
-    Status = NtQuerySystemInformation(
-                SystemPerformanceInformation,
-                &PerfInfo,
-                sizeof(PerfInfo),
-                NULL
-                );
-
-    DelayTimeMsec = 10;
-    DelayTimeTicks = DelayTimeMsec * 10000;
-
-    if (OutputHandle != NULL) {
-        if (GetConsoleScreenBufferInfo(OutputHandle, &ConsoleInfo)) {
-//            MaxLines = ConsoleInfo.srWindow.Bottom - ConsoleInfo.srWindow.Top + 1;
-            originalCp = ConsoleInfo.dwCursorPosition;
-            MaxLines = ConsoleInfo.srWindow.Bottom - ConsoleInfo.srWindow.Top;
-            for (i = 0; i < MaxLines; i++) {
-                printf("\n");
+                Interactive = FALSE;
+            } else {
+                NormalAttribute = 0x1F;
+                HighlightAttribute = 0x71;
+                NumberOfCols = OriginalConsoleInfo.dwSize.X;
+                NumberOfRows = OriginalConsoleInfo.dwSize.Y;
+                NumberOfDetailLines = NumberOfRows;
             }
-            GetConsoleScreenBufferInfo(OutputHandle, &ConsoleInfo);
-            cp = ConsoleInfo.dwCursorPosition;
-            cp.Y = cp.Y - MaxLines;
-
         }
     }
 
-    PreviousBuffer = &LargeBuffer1[0];
-    CurrentBuffer = &LargeBuffer2[0];
+    NtQuerySystemInformation( SystemBasicInformation,
+                              &BasicInfo,
+                              sizeof(BasicInfo),
+                              NULL
+                            );
 
-//retry0:
-    Status = NtQuerySystemInformation(
-                SystemPoolTagInformation,
-                PreviousBuffer,
-                BUFFER_SIZE,
-                NULL
-                );
-
-    if ( !NT_SUCCESS(Status) ) {
-        printf("Query Failed %lx\n",Status);
-        return(Status);
+    if (GetPriorityClass(GetCurrentProcess()) == NORMAL_PRIORITY_CLASS) {
+        SetPriorityClass(GetCurrentProcess(),HIGH_PRIORITY_CLASS);
     }
 
-    Sleep(DelayTimeMsec);
-
-    DelayTimeMsec = 5000;
-    DelayTimeTicks = DelayTimeMsec * 10000;
-
-//retry01:
-
-    Status = NtQuerySystemInformation(
-                SystemPoolTagInformation,
-                CurrentBuffer,
-                BUFFER_SIZE,
-                NULL
-                );
-
-    if ( !NT_SUCCESS(Status) ) {
-        printf("Query Failed %lx\n",Status);
-        return(Status);
-    }
+    PreviousBuffer = NULL;
+    CurrentBuffer = LargeBuffer1;
 
     while(TRUE) {
-        COORD newcp;
+        Status = NtQuerySystemInformation(
+                    SystemPerformanceInformation,
+                    &PerfInfo,
+                    sizeof(PerfInfo),
+                    NULL
+                    );
 
-        SetConsoleCursorPosition( OutputHandle, cp );
+        if ( !NT_SUCCESS(Status) ) {
+            printf("Query perf Failed %lx\n",Status);
+            break;
+        }
 
-        if (GetConsoleScreenBufferInfo(OutputHandle, &ConsoleInfo)) {
-//            MaxLines = ConsoleInfo.srWindow.Bottom - ConsoleInfo.srWindow.Top + 1;
-            MaxLines = ConsoleInfo.srWindow.Bottom - ConsoleInfo.srWindow.Top;
+
+        Status = NtQuerySystemInformation(
+                    SystemPoolTagInformation,
+                    CurrentBuffer,
+                    BUFFER_SIZE,
+                    NULL
+                    );
+
+        if ( !NT_SUCCESS(Status) ) {
+            printf("Query pooltags Failed %lx\n",Status);
+            break;
         }
 
         //
@@ -481,34 +520,52 @@ char *argv[];
         //
         //
 
-        Offset1 = 0;
-        num = 0;
-        Hint = 0;
         PoolInfo = (PSYSTEM_POOLTAG_INFORMATION)CurrentBuffer;
         i = PoolInfo->Count;
         PoolInfoOld = (PSYSTEM_POOLTAG_INFORMATION)PreviousBuffer;
 
-    printf( " Memory:%8ldK Avail:%8ldK  PageFlts:%6ld   InRam Krnl:%5ldK P:%5ldK\n",
-                                  BasicInfo.NumberOfPhysicalPages*(BasicInfo.PageSize/1024),
-                                  PerfInfo.AvailablePages*(BasicInfo.PageSize/1024),
-                                  PerfInfo.PageFaultCount - LastCount,
-                                  (PerfInfo.ResidentSystemCodePage + PerfInfo.ResidentSystemDriverPage)*(BasicInfo.PageSize/1024),
-                                  (PerfInfo.ResidentPagedPoolPage)*(BasicInfo.PageSize/1024)
-                                  );
-                        LastCount = PerfInfo.PageFaultCount;
-    printf( " Commit:%7ldK Limit:%7ldK Peak:%7ldK            Pool N:%5ldK P:%5ldK\n",
-                                  PerfInfo.CommittedPages*(BasicInfo.PageSize/1024),
-                                  PerfInfo.CommitLimit*(BasicInfo.PageSize/1024),
-                                  PerfInfo.PeakCommitment*(BasicInfo.PageSize/1024),
-                                  PerfInfo.NonPagedPoolPages*(BasicInfo.PageSize/1024),
-                                  PerfInfo.PagedPoolPages*(BasicInfo.PageSize/1024));
+        DisplayLine = 0;
+        sprintf( OutputBuffer,
+                 " Memory:%8ldK Avail:%8ldK  PageFlts:%6ld   InRam Krnl:%5ldK P:%5ldK",
+                 BasicInfo.NumberOfPhysicalPages*(BasicInfo.PageSize/1024),
+                 PerfInfo.AvailablePages*(BasicInfo.PageSize/1024),
+                 PerfInfo.PageFaultCount - LastCount,
+                 (PerfInfo.ResidentSystemCodePage + PerfInfo.ResidentSystemDriverPage)*(BasicInfo.PageSize/1024),
+                 (PerfInfo.ResidentPagedPoolPage)*(BasicInfo.PageSize/1024)
+               );
+        WriteConsoleLine( OutputHandle,
+                          DisplayLine++,
+                          OutputBuffer,
+                          FALSE
+                        );
 
-    printf( " Tag  Type     Allocs            Frees            Diff   Bytes      Per Alloc  \n");
-    printf( "                                                                               \n");
+        LastCount = PerfInfo.PageFaultCount;
+        sprintf( OutputBuffer,
+                 " Commit:%7ldK Limit:%7ldK Peak:%7ldK            Pool N:%5ldK P:%5ldK",
+                 PerfInfo.CommittedPages*(BasicInfo.PageSize/1024),
+                 PerfInfo.CommitLimit*(BasicInfo.PageSize/1024),
+                 PerfInfo.PeakCommitment*(BasicInfo.PageSize/1024),
+                 PerfInfo.NonPagedPoolPages*(BasicInfo.PageSize/1024),
+                 PerfInfo.PagedPoolPages*(BasicInfo.PageSize/1024)
+               );
+        WriteConsoleLine( OutputHandle,
+                          DisplayLine++,
+                          OutputBuffer,
+                          FALSE
+                        );
 
+        WriteConsoleLine( OutputHandle,
+                          DisplayLine++,
+                          " Tag  Type     Allocs            Frees            Diff   Bytes      Per Alloc",
+                          FALSE
+                        );
+        WriteConsoleLine( OutputHandle,
+                          DisplayLine++,
+                          NULL,
+                          FALSE
+                        );
 
         Out = &OutBuffer[0];
-
         if (DisplayTotals) {
             RtlZeroMemory( Totals, sizeof(POOLMON_OUT)*2 );
         }
@@ -527,18 +584,29 @@ char *argv[];
                 Out->Used = PoolInfo->TagInfo[i].NonPagedUsed;
                 Out->Allocs_Frees = PoolInfo->TagInfo[i].NonPagedAllocs -
                                 PoolInfo->TagInfo[i].NonPagedFrees;
-                Out->Tag = PoolInfo->TagInfo[i].Tag;
+                Out->TagUlong = PoolInfo->TagInfo[i].TagUlong;
                 Out->Type = NONPAGED;
+                Out->Changed = FALSE;
+                Out->NullByte = '\0';
 
-                if (PoolInfoOld->TagInfo[i].Tag == PoolInfo->TagInfo[i].Tag) {
+                if (PoolInfoOld != NULL &&
+                    PoolInfoOld->TagInfo[i].TagUlong == PoolInfo->TagInfo[i].TagUlong
+                   ) {
                     Out->AllocsDiff = PoolInfo->TagInfo[i].NonPagedAllocs - PoolInfoOld->TagInfo[i].NonPagedAllocs;
                     Out->FreesDiff = PoolInfo->TagInfo[i].NonPagedFrees - PoolInfoOld->TagInfo[i].NonPagedFrees;
                     Out->UsedDiff = PoolInfo->TagInfo[i].NonPagedUsed - PoolInfoOld->TagInfo[i].NonPagedUsed;
+                    if (Out->AllocsDiff != 0 ||
+                        Out->FreesDiff != 0 ||
+                        Out->UsedDiff != 0
+                       ) {
+                        Out->Changed = TRUE;
+                    }
                 } else {
                     Out->AllocsDiff = 0;
                     Out->UsedDiff = 0;
                     Out->FreesDiff = 0;
                 }
+                Out->Each =  Out->Used / (Out->Allocs_Frees?Out->Allocs_Frees:1);
                 if (DisplayTotals) {
                     Totals[NONPAGED].Allocs += Out->Allocs;
                     Totals[NONPAGED].AllocsDiff += Out->AllocsDiff;
@@ -559,18 +627,29 @@ char *argv[];
                 Out->Used = PoolInfo->TagInfo[i].PagedUsed;
                 Out->Allocs_Frees = PoolInfo->TagInfo[i].PagedAllocs -
                                 PoolInfo->TagInfo[i].PagedFrees;
-                Out->Tag = PoolInfo->TagInfo[i].Tag;
+                Out->TagUlong = PoolInfo->TagInfo[i].TagUlong;
                 Out->Type = PAGED;
+                Out->Changed = FALSE;
+                Out->NullByte = '\0';
 
-                if (PoolInfoOld->TagInfo[i].Tag == PoolInfo->TagInfo[i].Tag) {
+                if (PoolInfoOld != NULL &&
+                    PoolInfoOld->TagInfo[i].TagUlong == PoolInfo->TagInfo[i].TagUlong
+                   ) {
                     Out->AllocsDiff = PoolInfo->TagInfo[i].PagedAllocs - PoolInfoOld->TagInfo[i].PagedAllocs;
                     Out->FreesDiff = PoolInfo->TagInfo[i].PagedFrees - PoolInfoOld->TagInfo[i].PagedFrees;
                     Out->UsedDiff = PoolInfo->TagInfo[i].PagedUsed - PoolInfoOld->TagInfo[i].PagedUsed;
+                    if (Out->AllocsDiff != 0 ||
+                        Out->FreesDiff != 0 ||
+                        Out->UsedDiff != 0
+                       ) {
+                        Out->Changed = TRUE;
+                    }
                 } else {
                     Out->AllocsDiff = 0;
                     Out->UsedDiff = 0;
                     Out->FreesDiff = 0;
                 }
+                Out->Each =  Out->Used / (Out->Allocs_Frees?Out->Allocs_Frees:1);
                 if (DisplayTotals) {
                     Totals[PAGED].Allocs += Out->Allocs;
                     Totals[PAGED].AllocsDiff += Out->AllocsDiff;
@@ -588,255 +667,301 @@ char *argv[];
         // Sort the running working set buffer
         //
 
-        num = Out - &OutBuffer[0];
+        NumberOfPoolTags = Out - &OutBuffer[0];
         qsort((void *)&OutBuffer,
-              (size_t)num,
+              (size_t)NumberOfPoolTags,
               (size_t)sizeof(POOLMON_OUT),
               ulcomp);
 
-        if (LimitMaxLines) {
-            if (UserSpecifiedLineLimit < num ) num = UserSpecifiedLineLimit;
-            if (DisplayTotals) {
-                if (DisplayType == BOTH ) {
-                    if (num > MaxLines - 7) num = MaxLines - 7;
-                } else {
-                    if (num > MaxLines - 6) num = MaxLines - 6;
-                }
-            } else {
-                if (num > MaxLines - 3) num = MaxLines - 3;
+        LastDetailRow = (WORD)(NumberOfRows - (DisplayTotals ? (DisplayType == BOTH ? 3 : 2) : 0));
+        for (i = FirstDetailLine; i < NumberOfPoolTags; i++) {
+            if (DisplayLine >= LastDetailRow) {
+                break;
             }
-            if (num < 0) num = 0;
-        }
 
-        for (i = 0; i < num; i++) {
-            COORD linecp = cp;
-            String.String1 = OutBuffer[i].Tag;
-
-            linecp.Y = cp.Y+i+4;
-            SetConsoleCursorPosition( OutputHandle, linecp );
-
-            printf(" %4s %5s %9ld (%4ld) %9ld (%4ld) %8ld %7ld (%6ld) %6ld ",
-                    &String,
-                    PoolType[OutBuffer[i].Type],
-                    OutBuffer[i].Allocs,
-                    OutBuffer[i].AllocsDiff,
-                    OutBuffer[i].Frees,
-                    OutBuffer[i].FreesDiff,
-                    OutBuffer[i].Allocs_Frees,
-                    OutBuffer[i].Used,
-                    OutBuffer[i].UsedDiff,
-                    OutBuffer[i].Used / (OutBuffer[i].Allocs_Frees?OutBuffer[i].Allocs_Frees:1)
+            sprintf( OutputBuffer,
+                     " %4s %5s %9ld (%4ld) %9ld (%4ld) %8ld %7ld (%6ld) %6ld",
+                     OutBuffer[i].Tag,
+                     PoolType[OutBuffer[i].Type],
+                     OutBuffer[i].Allocs,
+                     OutBuffer[i].AllocsDiff,
+                     OutBuffer[i].Frees,
+                     OutBuffer[i].FreesDiff,
+                     OutBuffer[i].Allocs_Frees,
+                     OutBuffer[i].Used,
+                     OutBuffer[i].UsedDiff,
+                     OutBuffer[i].Each
                    );
+            WriteConsoleLine( OutputHandle,
+                              DisplayLine++,
+                              OutputBuffer,
+                              OutBuffer[i].Changed
+                            );
+            OutBuffer[i].Changed = FALSE;
         }
-        if (DisplayTotals) {
-            COORD linecp = cp;
-            printf( "                                                                               ");
-            num++;
-            for (i = 0; i < 2; i++) {
-                linecp.Y = cp.Y+4+num;
-                SetConsoleCursorPosition( OutputHandle, linecp );
 
+        if (DisplayTotals) {
+            WriteConsoleLine( OutputHandle,
+                              DisplayLine++,
+                              NULL,
+                              FALSE
+                            );
+            for (i = 0; i < 2; i++) {
                 if ( (int)DisplayType == i || DisplayType == BOTH ) {
-                    printf("Total %5s %9ld (%4ld) %9ld (%4ld) %8ld %7ld (%6ld) %6ld ",
-                            PoolType[i],
-                            Totals[i].Allocs,
-                            Totals[i].AllocsDiff,
-                            Totals[i].Frees,
-                            Totals[i].FreesDiff,
-                            Totals[i].Allocs_Frees,
-                            Totals[i].Used,
-                            Totals[i].UsedDiff,
-                            Totals[i].Used / (Totals[i].Allocs_Frees?Totals[i].Allocs_Frees:1)
+                    sprintf( OutputBuffer,
+                             "Total %5s %9ld (%4ld) %9ld (%4ld) %8ld %7ld (%6ld) %6ld",
+                             PoolType[i],
+                             Totals[i].Allocs,
+                             Totals[i].AllocsDiff,
+                             Totals[i].Frees,
+                             Totals[i].FreesDiff,
+                             Totals[i].Allocs_Frees,
+                             Totals[i].Used,
+                             Totals[i].UsedDiff,
+                             Totals[i].Each
                            );
-                    num++;
+                    WriteConsoleLine( OutputHandle,
+                                      DisplayLine++,
+                                      OutputBuffer,
+                                      FALSE
+                                    );
                 }
             }
-
-            linecp.Y = cp.Y+4+num;
-            SetConsoleCursorPosition( OutputHandle, linecp );
-            printf( "                                                                               ");
-            num++;
         }
 
-        i = 0;
-
-        while (lastnum > num) {
-            COORD linecp = cp;
-
-            linecp.Y = cp.Y+4+num+i;
-            SetConsoleCursorPosition( OutputHandle, linecp );
-
-            lastnum -= 1;
-            printf( "                                                                               ");
-
-            i+= 1;
+        if (PreviousBuffer == NULL) {
+            PreviousBuffer = LargeBuffer2;
         }
-
-        lastnum = num;
-
         TempBuffer = PreviousBuffer;
         PreviousBuffer = CurrentBuffer;
         CurrentBuffer = TempBuffer;
 
-        newcp.X = cp.X;
-        newcp.Y = cp.Y + MaxLines;
+        while (WaitForSingleObject( InputHandle, DelayTimeMsec ) == STATUS_WAIT_0) {
+            //
+            // Check for input record
+            //
+            if (ReadConsoleInput( InputHandle, &InputRecord, 1, &NumberOfInputRecords ) &&
+                InputRecord.EventType == KEY_EVENT &&
+                InputRecord.Event.KeyEvent.bKeyDown
+               ) {
+                LastKey = InputRecord.Event.KeyEvent.uChar.AsciiChar;
+                if (LastKey < ' ') {
+                    ScrollDelta = 0;
+                    if (LastKey == 'C'-'A'+1) {
+                        DoQuit = TRUE;
+                    } else switch (InputRecord.Event.KeyEvent.wVirtualKeyCode) {
+                        case VK_ESCAPE:
+                            DoQuit = TRUE;
+                            break;
 
-        SetConsoleCursorPosition( OutputHandle, newcp );
+                        case VK_PRIOR:
+                            ScrollDelta = -(LONG)(InputRecord.Event.KeyEvent.wRepeatCount * NumberOfDetailLines);
+                            break;
 
-retry1:
-        Sleep(DelayTimeMsec);
-        lastkey = 0;
-        DoHelp = 0;
+                        case VK_NEXT:
+                            ScrollDelta = InputRecord.Event.KeyEvent.wRepeatCount * NumberOfDetailLines;
+                            break;
 
-        while (PeekConsoleInput (InputHandle, &InputRecord, 1, &NumRead) && NumRead != 0) {
-            if (!ReadConsoleInput (InputHandle, &InputRecord, 1, &NumRead)) {
-                break;
-            }
-            if (InputRecord.EventType == KEY_EVENT) {
+                        case VK_UP:
+                            ScrollDelta = -InputRecord.Event.KeyEvent.wRepeatCount;
+                            break;
 
-                //
-                // Ignore control characters.
-                //
+                        case VK_DOWN:
+                            ScrollDelta = InputRecord.Event.KeyEvent.wRepeatCount;
+                            break;
 
-                if ((InputRecord.Event.KeyEvent.uChar.AsciiChar >= ' ') &&
-                    (InputRecord.Event.KeyEvent.uChar.AsciiChar != lastkey)) {
+                        case VK_HOME:
+                            FirstDetailLine = 0;
+                            break;
 
-                    lastkey = InputRecord.Event.KeyEvent.uChar.AsciiChar;
-                    switch (tolower(InputRecord.Event.KeyEvent.uChar.AsciiChar)) {
+                        case VK_END:
+                            FirstDetailLine = NumberOfPoolTags - NumberOfDetailLines;
+                            break;
+                    }
 
-                        case 'q':
+                    if (ScrollDelta != 0) {
+                        if (ScrollDelta < 0) {
+                            if (FirstDetailLine <= (ULONG)-ScrollDelta) {
+                                FirstDetailLine = 0;
+                            } else {
+                                FirstDetailLine += ScrollDelta;
+                            }
+                        } else {
+                            FirstDetailLine += ScrollDelta;
+                            if (FirstDetailLine >= (NumberOfPoolTags - NumberOfDetailLines)) {
+                                FirstDetailLine = NumberOfPoolTags - NumberOfDetailLines;
+                            }
+                        }
+                    }
+                } else {
+                    switch (toupper( LastKey )) {
+                        case 'Q':
                             //
                             //  Go to the bottom of the current screen when
                             //  we quit.
                             //
-
-                            cp.Y = originalCp.Y + MaxLines;
-
-                            SetConsoleCursorPosition( OutputHandle, cp );
-
-                            ExitProcess(0);
+                            DoQuit = TRUE;
                             break;
-                        case 't':
+
+                        case 'T':
                             SortBy = TAG;
+                            FirstDetailLine = 0;
                             break;
 
-                        case 'a':
+                        case 'A':
                             SortBy = ALLOC;
+                            FirstDetailLine = 0;
                             break;
 
-                        case 'b':
+                        case 'U':
+                        case 'B':
                             SortBy = BYTES;
+                            FirstDetailLine = 0;
                             break;
 
-                        case 'f':
+                        case 'F':
                             SortBy = FREE;
+                            FirstDetailLine = 0;
                             break;
 
-                        case 'd':
+                        case 'D':
                             SortBy = DIFF;
+                            FirstDetailLine = 0;
                             break;
 
-                        case 'u':
-                            SortBy = USED;
+                        case 'M':
+                            SortBy = EACH;
+                            FirstDetailLine = 0;
                             break;
 
-                        case 'p':
+                        case 'L':
+
+                            NoHighlight = 1 - NoHighlight;
+                            break;
+
+                        case 'P':
                             DisplayType += 1;
                             if (DisplayType > BOTH) {
                                 DisplayType = NONPAGED;
                             }
+                            FirstDetailLine = 0;
                             break;
 
-                        case 'x':
+                        case 'X':
                         case '(':
                         case ')':
 
                             Paren += 1;
                             break;
 
-                        case 'e':
+                        case 'E':
                             DisplayTotals = !DisplayTotals;
+                            FirstDetailLine = 0;
                             break;
 
-                        case 'h':
+                        case 'H':
                         case '?':
-
-                            DoHelp = 1;
+                            DoHelp = TRUE;
                             break;
 
-                        default:
-                            break;
                     }
                 }
-                //FlushConsoleInputBuffer(InputHandle);
+
+                break;
             }
         }
 
+        if (DoQuit) {
+            break;
+        }
+
         if (DoHelp) {
-            SetConsoleCursorPosition( OutputHandle, cp );
-            printf("                                                                               \n");
-            printf("                Poolmon Help                                                   \n");
-            printf("                                                                               \n");
-            printf(" columns:                                                                      \n");
-            printf("   Tag is the 4 byte tag given to the pool allocation                          \n");
-            printf("   Type is paged or nonp(aged)                                                 \n");
-            printf("   Allocs is count of all alloctions                                           \n");
-            printf("   (   ) is difference in Allocs column from last update                       \n");
-            printf("   Frees is count of all frees                                                 \n");
-            printf("   (   ) difference in Frees column from last update                           \n");
-            printf("   Diff is (Allocs - Frees)                                                    \n");
-            printf("   Bytes is the total bytes consumed in pool                                   \n");
-            printf("   (   ) difference in Bytes column from last update                           \n");
-            printf("   Per Alloc is (Bytes / Diff)                                                 \n");
-            printf("                                                                               \n");
-            printf(" switches:                                                                     \n");
-            printf("   ? or h - gives this help                                                    \n");
-            printf("   q - quits                                                                   \n");
-            printf("   p - toggles default pool display between both, paged, and nonpaged          \n");
-            printf("   e - toggles totals lines on and off                                         \n");
-            printf("                                                                               \n");
-            printf(" sorting switches:                                                             \n");
-            printf("   t - tag    a - allocations                                                  \n");
-            printf("   f - frees  d - difference                                                   \n");
-            printf("   b - bytes                                                                   \n");
-            printf("                                                                               \n");
-            printf("   ) - toggles sort between primary tag and value in (  )                      \n");
-            printf("                                                                               \n");
-            printf(" command line switches                                                         \n");
-            printf("   -i<tag> - list only matching tags                                           \n");
-            printf("   -x<tag> - list everything except matching tags                              \n");
-            printf("           <tag> can include * and ?                                           \n");
-            printf("   -m<n> - limit display to <n> lines. omit <n> to override window size limit  \n");
-            printf("   -petafdb) - as listed above                                                 \n");
-            printf("                                                                               \n");
-            printf("                                                                               \n");
-            goto retry1;
-        }
-
-        Status = NtQuerySystemInformation(
-                    SystemPoolTagInformation,
-                    CurrentBuffer,
-                    BUFFER_SIZE,
-                    NULL
-                    );
-
-        if ( !NT_SUCCESS(Status) ) {
-            printf("Query Failed %lx\n",Status);
-            return(Status);
-        }
-
-        Status = NtQuerySystemInformation(
-                    SystemPerformanceInformation,
-                    &PerfInfo,
-                    sizeof(PerfInfo),
-                    NULL
-                    );
-
-        if ( !NT_SUCCESS(Status) ) {
-            printf("Query perf Failed %lx\n",Status);
-            return(Status);
+            DoHelp = FALSE;
+            ShowHelpPopup();
         }
     }
+
+    if (Interactive) {
+        SetConsoleActiveScreenBuffer( OriginalOutputHandle );
+        SetConsoleMode( InputHandle, OriginalInputMode );
+        CloseHandle( OutputHandle );
+        }
+
+    ExitProcess( 0 );
     return 0;
 }
-
+
+
+VOID
+ShowHelpPopup( VOID )
+{
+    HANDLE PopupHandle;
+    WORD n;
+
+    PopupHandle = CreateConsoleScreenBuffer( GENERIC_READ | GENERIC_WRITE,
+                                             FILE_SHARE_WRITE,
+                                             NULL,
+                                             CONSOLE_TEXTMODE_BUFFER,
+                                             NULL
+                                           );
+    if (PopupHandle == NULL) {
+        return;
+        }
+
+    SetConsoleActiveScreenBuffer( PopupHandle );
+
+    n = 0;
+
+    WriteConsoleLine( PopupHandle, n++, NULL, FALSE );
+    WriteConsoleLine( PopupHandle, n++, "                Poolmon Help", FALSE );
+    WriteConsoleLine( PopupHandle, n++, NULL, FALSE );
+    WriteConsoleLine( PopupHandle, n++, " columns:", FALSE );
+    WriteConsoleLine( PopupHandle, n++, "   Tag is the 4 byte tag given to the pool allocation", FALSE );
+    WriteConsoleLine( PopupHandle, n++, "   Type is paged or nonp(aged)", FALSE );
+    WriteConsoleLine( PopupHandle, n++, "   Allocs is count of all alloctions", FALSE );
+    WriteConsoleLine( PopupHandle, n++, "   (   ) is difference in Allocs column from last update", FALSE );
+    WriteConsoleLine( PopupHandle, n++, "   Frees is count of all frees", FALSE );
+    WriteConsoleLine( PopupHandle, n++, "   (   ) difference in Frees column from last update", FALSE );
+    WriteConsoleLine( PopupHandle, n++, "   Diff is (Allocs - Frees)", FALSE );
+    WriteConsoleLine( PopupHandle, n++, "   Bytes is the total bytes consumed in pool", FALSE );
+    WriteConsoleLine( PopupHandle, n++, "   (   ) difference in Bytes column from last update", FALSE );
+    WriteConsoleLine( PopupHandle, n++, "   Per Alloc is (Bytes / Diff)", FALSE );
+    WriteConsoleLine( PopupHandle, n++, NULL, FALSE );
+    WriteConsoleLine( PopupHandle, n++, " switches:                                                                     ", FALSE );
+    WriteConsoleLine( PopupHandle, n++, "   ? or h - gives this help", FALSE );
+    WriteConsoleLine( PopupHandle, n++, "   q - quits", FALSE );
+    WriteConsoleLine( PopupHandle, n++, "   p - toggles default pool display between both, paged, and nonpaged", FALSE );
+    WriteConsoleLine( PopupHandle, n++, "   e - toggles totals lines on and off", FALSE );
+    WriteConsoleLine( PopupHandle, n++, "   l - toggles highlighting of changed lines on and off", FALSE );
+    WriteConsoleLine( PopupHandle, n++, NULL, FALSE );
+    WriteConsoleLine( PopupHandle, n++, " sorting switches:", FALSE );
+    WriteConsoleLine( PopupHandle, n++, "   t - tag    a - allocations", FALSE );
+    WriteConsoleLine( PopupHandle, n++, "   f - frees  d - difference", FALSE );
+    WriteConsoleLine( PopupHandle, n++, "   b - bytes  m - per alloc", FALSE );
+    WriteConsoleLine( PopupHandle, n++, "   (u is the same as b)", FALSE );
+    WriteConsoleLine( PopupHandle, n++, NULL, FALSE );
+    WriteConsoleLine( PopupHandle, n++, "   ) - toggles sort between primary tag and value in (  )", FALSE );
+    WriteConsoleLine( PopupHandle, n++, NULL, FALSE );
+    WriteConsoleLine( PopupHandle, n++, " command line switches", FALSE );
+    WriteConsoleLine( PopupHandle, n++, "   -i<tag> - list only matching tags", FALSE );
+    WriteConsoleLine( PopupHandle, n++, "   -x<tag> - list everything except matching tags", FALSE );
+    WriteConsoleLine( PopupHandle, n++, "           <tag> can include * and ?", FALSE );
+    WriteConsoleLine( PopupHandle, n++, "   -peltafdbum) - as listed above", FALSE );
+    WriteConsoleLine( PopupHandle, n++, NULL, FALSE );
+    WriteConsoleLine( PopupHandle, n++, NULL, FALSE );
+
+    while (TRUE) {
+        if (WaitForSingleObject( InputHandle, DelayTimeMsec ) == STATUS_WAIT_0 &&
+            ReadConsoleInput( InputHandle, &InputRecord, 1, &NumberOfInputRecords ) &&
+            InputRecord.EventType == KEY_EVENT &&
+            InputRecord.Event.KeyEvent.bKeyDown &&
+            InputRecord.Event.KeyEvent.wVirtualKeyCode == VK_ESCAPE
+           ) {
+            break;
+        }
+    }
+
+    SetConsoleActiveScreenBuffer( OutputHandle );
+    CloseHandle( PopupHandle );
+    return;
+}

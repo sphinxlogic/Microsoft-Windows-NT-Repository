@@ -7,10 +7,66 @@
 
 /**********************       PolyTron RCS Utilities
    
-    $Revision:   1.11  $
-    $Date:   30 Jun 1994 18:21:06  $
-    $Author:   RWOLFF  $
-    $Log:   S:/source/wnt/ms11/miniport/vcs/query_m.c  $
+    $Revision:   1.24  $
+    $Date:   01 May 1996 14:11:40  $
+    $Author:   RWolff  $
+    $Log:   S:/source/wnt/ms11/miniport/archive/query_m.c_v  $
+ * 
+ *    Rev 1.24   01 May 1996 14:11:40   RWolff
+ * Locked out 24BPP on Alpha.
+ * 
+ *    Rev 1.23   23 Apr 1996 17:27:24   RWolff
+ * Expanded lockout of 800x600 16BPP 72Hz to all Mach 32 cards, since
+ * some VRAM cards are also affected.
+ * 
+ *    Rev 1.22   12 Apr 1996 16:16:36   RWolff
+ * Now rejects 24BPP modes if linear aperture is not present, since new
+ * source stream display driver can't do 24BPP in a paged aperture. This
+ * rejection should be done in the display driver (the card still supports
+ * the mode, but the display driver doesn't want to handle it), but at
+ * the point where the display driver must decide to either accept or reject
+ * modes, it doesn't have access to the aperture information.
+ * 
+ *    Rev 1.21   10 Apr 1996 17:02:04   RWolff
+ * Locked out 800x600 16BPP 72Hz on DRAM cards, fix for checking
+ * resolution-dependent special cases against a value which is
+ * only set if the mode is installed.
+ * 
+ * 
+ *    Rev 1.20   23 Jan 1996 11:48:12   RWolff
+ * Eliminated level 3 warnings, protected against false values of
+ * TARGET_BUILD, added debug print statements, now assumes DEC Alpha
+ * has a 2M card since the memory size check routine generates a
+ * false value (4M) on this platform.
+ * 
+ *    Rev 1.19   11 Jan 1996 19:37:10   RWolff
+ * Added maximum pixel clock rate to all calls to SetFixedModes().
+ * This is required as part of a Mach 64 fix.
+ * 
+ *    Rev 1.18   20 Jul 1995 17:58:56   mgrubac
+ * Added support for VDIF files.
+ * 
+ *    Rev 1.17   31 Mar 1995 11:52:36   RWOLFF
+ * Changed from all-or-nothing debug print statements to thresholds
+ * depending on importance of the message.
+ * 
+ *    Rev 1.16   14 Mar 1995 15:59:58   ASHANMUG
+ * Check wait for idle status before continuing block write test.
+ * This fixes an Intel AX problem where the engine was hanging.
+ * 
+ *    Rev 1.15   23 Dec 1994 10:47:42   ASHANMUG
+ * ALPHA/Chrontel-DAC
+ * 
+ *    Rev 1.14   18 Nov 1994 11:44:22   RWOLFF
+ * Now detects STG1702/1703 DACs in native mode, added support for
+ * split rasters.
+ * 
+ *    Rev 1.13   19 Aug 1994 17:13:16   RWOLFF
+ * Added support for SC15026 DAC, Graphics Wonder, non-standard pixel
+ * clock generators, and 1280x1024 70Hz and 74Hz.
+ * 
+ *    Rev 1.12   22 Jul 1994 17:48:24   RWOLFF
+ * Merged with Richard's non-x86 code stream.
  * 
  *    Rev 1.11   30 Jun 1994 18:21:06   RWOLFF
  * Removed routine IsApertureConflict_m() (moved to SETUP_M.C), no longer
@@ -277,14 +333,9 @@ End of PolyTron RCS section                             *****************/
 #include <string.h>
 
 #include "dderror.h"
-/*
- * Different include files are needed for the Windows NT device driver
- * and the VIDEO.EXE test program.
- */
-#ifndef MSDOS
 #include "miniport.h"
+#include "ntddvdeo.h"
 #include "video.h"
-#endif
 
 #include "stdtyp.h"
 
@@ -307,19 +358,12 @@ End of PolyTron RCS section                             *****************/
  */
 #define APERTURE_TEST       "ATI"
 #define APERTURE_TEST_LEN   4
-#ifdef MSDOS
-char TestBuffer[APERTURE_TEST_LEN]; /* Place to save memory overwritten by read/write test string */
-#endif
 
 //  
 // HACK to remove call to exallocate pool
 //  
 
 UCHAR gBiosRaw[QUERYSIZE];
-
-#ifdef MSDOS
-static struct st_mode_table    ThisRes;    /* Mode table for the given resolution */
-#endif
 
 //----------------------------------------------------------------------
 //  Local  Prototyping statements
@@ -331,6 +375,7 @@ static UCHAR BrooktreeOrATT_m(void);
 static void ClrDacCmd_m(BOOL ReadIndex);
 static BOOL ChkATTDac_m(BYTE MaskVal);
 static UCHAR ThompsonOrATT_m(void);
+static UCHAR SierraOrThompson_m(void);
 short GetTrueMemSize_m(void);
 void SetupRestoreEngine_m(int DesiredStatus);
 USHORT ReadPixel_m(short XPos, short YPos);
@@ -352,6 +397,7 @@ void SetupRestoreVGAPaging_m(int DesiredStatus);
 #pragma alloc_text(PAGE_M, ChkATTDac_m)
 #pragma alloc_text(PAGE_M, ClrDacCmd_m)
 #pragma alloc_text(PAGE_M, ThompsonOrATT_m)
+#pragma alloc_text(PAGE_M, SierraOrThompson_m)
 #pragma alloc_text(PAGE_M, GetTrueMemSize_m)
 #pragma alloc_text(PAGE_M, SetupRestoreEngine_m)
 #pragma alloc_text(PAGE_M, ReadPixel_m)
@@ -380,13 +426,10 @@ VP_STATUS Query8514Ultra (struct query_structure *query)
 
 struct st_eeprom_data *ee = phwDeviceExtension->ee;
 BOOL    is800, is1280;
-WORD    jj, kk, ee_word;
-BYTE    bhigh, blow;
+WORD    jj, kk;
 struct st_mode_table *pmode;    /* CRT table parameters */
 long    MemAvail;   /* Bytes of memory available for the accelerator */
-#ifndef MSDOS
 struct st_mode_table    ThisRes;    /* Mode table for the given resolution */
-#endif
 
 
     query->q_structure_rev      = 0;
@@ -454,6 +497,7 @@ struct st_mode_table    ThisRes;    /* Mode table for the given resolution */
     jj = (ee->EEread) (3);      /* Composite and Vfifo */
     kk = (ee->EEread) (4);      /* Clock select and divisor */
     ThisRes.m_clock_select = ((jj & 0x1F) << 8) | ((kk & 0x003F) << 2);
+    ThisRes.ClockFreq = GetFrequency((BYTE)((ThisRes.m_clock_select & 0x007C) >> 2));
 
     /*
      * The COMPOSITE_SYNC bit of the m_clock_select field is set up
@@ -554,6 +598,7 @@ struct st_mode_table    ThisRes;    /* Mode table for the given resolution */
         kk = (ee->EEread) (20);                  // clock select and divisor
         ThisRes.m_clock_select = ((jj & 0x1F) << 8) | ((kk & 0x003F) << 2);
         ThisRes.m_clock_select ^= 0x1000;
+        ThisRes.ClockFreq = GetFrequency((BYTE)((ThisRes.m_clock_select & 0x007C) >> 2));
     
         kk = (ee->EEread) (30);                  // H_total
         ThisRes.m_h_total = kk & 0xFF;
@@ -645,6 +690,7 @@ struct st_mode_table    ThisRes;    /* Mode table for the given resolution */
         kk = (ee->EEread) (4);                  /* Clock select and divisor */
         ThisRes.m_clock_select = (jj & 0x1F00) | ((kk & 0x3F00) >> 6);
         ThisRes.m_clock_select ^= 0x1000;
+        ThisRes.ClockFreq = GetFrequency((BYTE)((ThisRes.m_clock_select & 0x007C) >> 2));
 
         kk = (ee->EEread) (17);                 // H_total
         ThisRes.m_h_total = (kk >> 8) & 0xFF;
@@ -712,6 +758,7 @@ struct st_mode_table    ThisRes;    /* Mode table for the given resolution */
         kk = (ee->EEread) (20);                 // clock select and divisor
         pmode->m_clock_select = (jj & 0x1F00) | ((kk & 0x3F00) >> 6);
         pmode->m_clock_select ^= 0x1000;
+        ThisRes.ClockFreq = GetFrequency((BYTE)((ThisRes.m_clock_select & 0x007C) >> 2));
     
         kk = (ee->EEread) (30);                 // H_total
         pmode->m_h_total = (kk >> 8) & 0xFF;
@@ -783,9 +830,7 @@ short   VgaTblEntry;    /* VGA parameter table entry to use if translation neede
 short   BookTblEntry;   /* Appendix D parameter table entry to use if parameters not in EEPROM */
 long    NumPixels;  /* Number of pixels at the selected resolution */
 long    MemAvail;   /* Bytes of memory available for the accelerator */
-#ifndef MSDOS
 struct st_mode_table    ThisRes;    /* Mode table for the given resolution */
-#endif
 BYTE    VgaMem;     /* Code for amount of VGA memory on board */
 
 
@@ -1154,7 +1199,6 @@ static void short_query_m (struct query_structure *query, struct st_eeprom_data 
 WORD    kk;
 BYTE    bhigh, blow;
 WORD    ApertureLocation;   /* Aperture location, in megabytes */
-WORD    config_status_1;    /* Value read from CONFIG_STATUS_1 register */
 
     
     /*
@@ -1185,6 +1229,13 @@ WORD    config_status_1;    /* Value read from CONFIG_STATUS_1 register */
         query->q_DAC_type = ThompsonOrATT_m();
 
     /*
+     * The SC15021 and STG1702/1703 are yet another pair of DACs that
+     * share a reporting code.
+     */
+    else if (query->q_DAC_type == DAC_SC15021)
+        query->q_DAC_type = SierraOrThompson_m();
+
+    /*
      * Chip subfamily is stored in bits 0-9 of ASIC_ID. Each subfamily
      * starts the revision counter over from 0.
      */
@@ -1203,10 +1254,16 @@ WORD    config_status_1;    /* Value read from CONFIG_STATUS_1 register */
          * 68800-6 stores a "2" in the top 4 bits.
          */
         case 0x2F7:
+            VideoDebugPrint(( DEBUG_DETAIL, "ASIC_ID = 0x%X\n", INPW(ASIC_ID) ));
             if ((INPW(ASIC_ID) & 0x0F000) == 0x2000)
+                {
                 query->q_asic_rev = CI_68800_6;
+                }
             else
+                {
                 query->q_asic_rev = CI_68800_UNKNOWN;
+                VideoDebugPrint(( DEBUG_ERROR, "*/n*/n* ASIC_ID has invalid value/n*/n*/n"));
+                }
             break;
 
         /*
@@ -1221,6 +1278,7 @@ WORD    config_status_1;    /* Value read from CONFIG_STATUS_1 register */
          */
         default:
             query->q_asic_rev = CI_68800_UNKNOWN;
+            VideoDebugPrint((DEBUG_ERROR, "*/n*/n* Unknown Mach 32 ASIC type/n*/n*/n"));
             break;
         }
 
@@ -1258,16 +1316,23 @@ WORD    config_status_1;    /* Value read from CONFIG_STATUS_1 register */
     	ApertureLocation = (INPW(MEM_CFG) & 0xFF00) >> 8;
         }
 
-#if defined (ALPHA) || defined (_ALPHA_)
+#if !defined (i386) && !defined (_i386_)
+
+    //RKE: MEM_CFG expect aperture location in <4:15> for PCI and <8:15>
+    //     for VLB.
+    kk = (query->q_system_bus_type == PCIBus)? 4:8;
+#if defined (ALPHA)
+    kk = 4; // Problem with alpha
+#endif
 
     /*
      * Force aperture location to a fixed address.
      * Since there is no BIOS on Alpha, can't depend on MEM_CFG being preset.
      */
     ApertureLocation = 0x78;   // 120 Mb
-    OUTPW(MEM_CFG, ((ApertureLocation << 4) | 0x02));
-    VideoDebugPrint(( 0, "ATI.SYS: MEM_CFG = %x (%x)\n", 
-                    (INPW(MEM_CFG)), ((ApertureLocation << 4) | 0x02) ));
+    OUTPW(MEM_CFG, ((ApertureLocation << kk) | 0x02));
+    VideoDebugPrint(( DEBUG_DETAIL, "ATI.SYS: MEM_CFG = %x (%x)\n", 
+                    (INPW(MEM_CFG)), ((ApertureLocation << kk) | 0x02) ));
 
 #endif  /* defined Alpha */
     query->q_aperture_addr = ApertureLocation;
@@ -1287,10 +1352,11 @@ WORD    config_status_1;    /* Value read from CONFIG_STATUS_1 register */
      * than 1M of memory, indicate that a 1M aperture could be
      * used, otherwise indicate that a 4M aperture is needed.
      *
-     * In either case, enable a 4M aperture (no address space will
-     * be wasted, because we will only ask NT to use a block the
-     * size of the installed video memory) and set memory use
-     * to shared VGA/coprocessor.
+     * In either case, set memory use to shared VGA/coprocessor.
+     * When the aperture is enabled later in the execution of the
+     * miniport, we will always use a 4M aperture. No address space
+     * will be wasted, because we will only ask NT to use a block the
+     * size of the installed video memory.
      *
      * The format of data in bits 2-15 of MEM_CFG differs
      * between various Mach 32 cards. To avoid having to identify
@@ -1302,16 +1368,8 @@ WORD    config_status_1;    /* Value read from CONFIG_STATUS_1 register */
             query->q_aperture_cfg = 1;
         else
             query->q_aperture_cfg = 2;
-#ifndef MSDOS
-//        ApertureData = INPW(MEM_CFG) & 0x0fffc;     /* Preserve bits 2-15 */
-//
-//// 68800AX w. 68860 DAC ONLY
-////ApertureData >>= 4;
-//        ApertureData |= 0x0002;                     /* 4M aperture        */
-//        OUTPW(MEM_CFG, ApertureData);
 
         OUTP(MEM_BNDRY,0);
-#endif
         }
 
     return;
@@ -1325,16 +1383,13 @@ VP_STATUS   QueryMach32 (struct query_structure *query, BOOL ForceShared)
 {
 struct st_eeprom_data *ee = phwDeviceExtension->ee;
 struct st_mode_table *pmode;
-BOOL    looking;
 short   jj, kk, ee_word;
 WORD    pitch, ee_value, table_offset, config_status_1, current_mode;
 short   VgaTblEntry;  /* VGA parameter table entry to use if translation needed */
 short   BookTblEntry;   /* Appendix D parameter table entry to use if parameters not in EEPROM */
 long    NumPixels;  /* Number of pixels at the selected resolution */
 long    MemAvail;   /* Bytes of memory available for the accelerator */
-#ifndef MSDOS
 struct st_mode_table    ThisRes;    /* Mode table for the given resolution */
-#endif
 PUCHAR   BiosRaw;       /* Storage for information retrieved by BIOS call */
 short   CurrentRes;     /* Array index based on current resolution. */
 UCHAR   Scratch;        /* Scratch variable */
@@ -1342,6 +1397,9 @@ short   StartIndex;     /* First mode for SetFixedModes() to set up */
 short   EndIndex;       /* Last mode for SetFixedModes() to set up */
 BOOL    ModeInstalled;  /* Is this resolution configured? */
 WORD    Multiplier;     /* Pixel clock multiplier */
+short MaxModes;         /* Maximum number of modes possible */
+short FreeTables;        /* Number of remaining free mode tables */
+
 
 
     /*
@@ -1355,14 +1413,17 @@ WORD    Multiplier;     /* Pixel clock multiplier */
      * 640x480      4,8,16,24           HWD,60,72               12
      * 800x600      4,8,16,24           HWD,56,60,70,72,89,95   28
      * 1024x768     4,8,16              HWD,60,66,70,72,87      18
-     * 1280x1024    4,8                 HWD,60,87,95            8
+     * 1280x1024    4,8                 HWD,60,70,74,87,95      12
      *
      * HWD = hardware default refresh rate (rate set by INSTALL)
      *
-     * Total: 66 modes
+     * Total: 70 modes
      */
-    if (QUERYSIZE < (66 * sizeof(struct st_mode_table) + sizeof(struct query_structure)))
+    if (QUERYSIZE < (70 * sizeof(struct st_mode_table) + sizeof(struct query_structure)))
         return ERROR_INSUFFICIENT_BUFFER;
+    MaxModes = (QUERYSIZE - sizeof(struct query_structure)) /
+                                          sizeof(struct st_mode_table); 
+
     query->q_structure_rev      = 0;
     query->q_mode_offset        = sizeof(struct query_structure);
     query->q_sizeof_mode        = sizeof(struct st_mode_table);
@@ -1390,21 +1451,25 @@ WORD    Multiplier;     /* Pixel clock multiplier */
         case  MEM_SIZE_512K:
             jj = VRAM_512k;
             MemAvail = HALF_MEG;
+            VideoDebugPrint((DEBUG_NORMAL, "MISC_OPTIONS register reports 512k of video memory\n"));
             break;
 
         case  MEM_SIZE_1M:
             jj = VRAM_1mb;
             MemAvail = ONE_MEG;
+            VideoDebugPrint((DEBUG_NORMAL, "MISC_OPTIONS register reports 1M of video memory\n"));
             break;
 
         case  MEM_SIZE_2M:
             jj = VRAM_2mb;
             MemAvail = 2*ONE_MEG;
+            VideoDebugPrint((DEBUG_NORMAL, "MISC_OPTIONS register reports 2M of video memory\n"));
             break;
 
         case  MEM_SIZE_4M:
             jj = VRAM_4mb;
             MemAvail = 4*ONE_MEG;
+            VideoDebugPrint((DEBUG_NORMAL, "MISC_OPTIONS register reports 4M of video memory\n"));
             break;
         }
 
@@ -1420,7 +1485,17 @@ WORD    Multiplier;     /* Pixel clock multiplier */
      * only report 512k).
      *
      * On these cards (DRAM only), get the true memory size.
+     *
+     * On non-x86 platforms, GetTrueMemSize_m() may either hang
+     * (MIPS) or report a false value (Alpha) (on the Power PC,
+     * we only support Mach 64). Since we can't rely on the value
+     * in MISC_OPTIONS being correct either (the video BIOS may
+     * not be executed properly on startup, or we may have a card
+     * that reports 1M instead of the true size), assume that
+     * non-x86 machines have 2M of video memory available.
      */
+#if defined (i386) || defined (_i386_)
+
     if (((query->q_asic_rev == CI_68800_6) || (query->q_asic_rev == CI_68800_AX)) &&
         (query->q_VGA_type == 1) &&
         ((query->q_memory_type == VMEM_DRAM_256Kx4) ||
@@ -1431,12 +1506,11 @@ WORD    Multiplier;     /* Pixel clock multiplier */
         MemAvail = jj * QUARTER_MEG;
         }
 
-// ALPHA - Hard code until get memory size code from BIOS ROM
-//         GetTrueMemSize_m() is an engine-only routine - should work
-//         on the ALPHA (not yet tested)
-#if defined(ALPHA) || defined(_ALPHA_)
+#else   /* non-x86 system */
+
     jj = VRAM_2mb;
     MemAvail = 2*ONE_MEG;
+
 #endif
 
     query->q_memory_size = (UCHAR)jj;
@@ -1589,7 +1663,16 @@ WORD    Multiplier;     /* Pixel clock multiplier */
                 case 10:
                     CurrentRes = RES_1280;
                     StartIndex = B1280F87;
-                    EndIndex = B1280F60;
+                    /*
+                     * 1280x1024 modes above 60Hz noninterlaced
+                     * are only available on VRAM cards.
+                     */
+                    if ((query->q_memory_type == VMEM_DRAM_256Kx4) ||
+                        (query->q_memory_type == VMEM_DRAM_256Kx16) ||
+                        (query->q_memory_type == VMEM_DRAM_256Kx4_GRAP))
+                        EndIndex = B1280F60;
+                    else
+                        EndIndex = B1280F74;
                     break;
                 }
             }
@@ -1628,9 +1711,12 @@ WORD    Multiplier;     /* Pixel clock multiplier */
                     EndIndex = B640F72;
 
                     // 1024 pitch ONLY if NO aperture on a Mach32
+#if !defined (SPLIT_RASTERS)
                     if (query->q_aperture_cfg == 0)
                         ThisRes.m_screen_pitch = 1024;  
-                    else    ThisRes.m_screen_pitch = 640;  
+                    else
+#endif
+                        ThisRes.m_screen_pitch = 640;  
 
                     NumPixels = (long) ThisRes.m_screen_pitch * 480;
                     if (ModeInstalled)
@@ -1654,6 +1740,9 @@ WORD    Multiplier;     /* Pixel clock multiplier */
                     StartIndex = B800F89;
                     EndIndex = B800F72;
 
+#if defined (SPLIT_RASTERS)
+                    if ((query->q_asic_rev == CI_68800_3) ||
+#else
                     // 1024 pitch ONLY if NO aperture on a Mach32
                     if (query->q_aperture_cfg == 0)
                         ThisRes.m_screen_pitch = 1024;
@@ -1661,6 +1750,7 @@ WORD    Multiplier;     /* Pixel clock multiplier */
                     // with deep colour if screen pitch not
                     // divisible by 128.
                     else if ((query->q_asic_rev == CI_68800_3) ||
+#endif
                             (query->q_bus_type == BUS_PCI))
                         ThisRes.m_screen_pitch = 896;
                     else
@@ -1754,7 +1844,16 @@ WORD    Multiplier;     /* Pixel clock multiplier */
                     CurrentRes = RES_1280;
                     ThisRes.m_screen_pitch = 1280;  
                     StartIndex = B1280F87;
-                    EndIndex = B1280F60;
+                    /*
+                     * 1280x1024 modes above 60Hz noninterlaced
+                     * are only available on VRAM cards.
+                     */
+                    if ((query->q_memory_type == VMEM_DRAM_256Kx4) ||
+                        (query->q_memory_type == VMEM_DRAM_256Kx16) ||
+                        (query->q_memory_type == VMEM_DRAM_256Kx4_GRAP))
+                        EndIndex = B1280F60;
+                    else
+                        EndIndex = B1280F74;
                     NumPixels = (long) ThisRes.m_screen_pitch * 1024;
 
                     // 68800-3 cannot support 4 bpp with 1 meg ram.
@@ -1832,14 +1931,33 @@ WORD    Multiplier;     /* Pixel clock multiplier */
                 }
 
             /*
+             * Some DAC and card types don't support 1280x1024 noninterlaced.
+             */
+            if ((CurrentRes == RES_1280) &&
+                ((query->q_DAC_type == DAC_BT48x) ||
+                 (query->q_DAC_type == DAC_ATT491) ||
+                 (query->q_DAC_type == DAC_SC15026) ||
+                 (query->q_DAC_type == DAC_ATI_68830) ||
+                 (query->q_GraphicsWonder == TRUE)))
+                EndIndex = B1280F95;
+
+            /*
              * Add "canned" mode tables
              */
+
+            if ((FreeTables = MaxModes - query->q_number_modes) <= 0)
+                {
+                VideoDebugPrint((DEBUG_ERROR, "Exceeded maximum allowable number of modes - aborting query\n"));
+                return ERROR_INSUFFICIENT_BUFFER;
+                }
             query->q_number_modes += SetFixedModes(StartIndex,
-                                                    EndIndex,
-                                                    CLOCK_SINGLE,
-                                                    4,
-                                                    ThisRes.m_screen_pitch,
-                                                    &pmode);
+                                                   EndIndex,
+                                                   CLOCK_SINGLE,
+                                                   4,
+                                                   ThisRes.m_screen_pitch,
+                                                   FreeTables,
+                                                   BookValues[EndIndex].ClockFreq,
+                                                   &pmode);
             }
         if (NumPixels <= MemAvail)
             {
@@ -1852,14 +1970,33 @@ WORD    Multiplier;     /* Pixel clock multiplier */
                 }
 
             /*
+             * Some DAC and card types don't support 1280x1024 noninterlaced.
+             */
+            if ((CurrentRes == RES_1280) &&
+                ((query->q_DAC_type == DAC_BT48x) ||
+                 (query->q_DAC_type == DAC_ATT491) ||
+                 (query->q_DAC_type == DAC_SC15026) ||
+                 (query->q_DAC_type == DAC_ATI_68830) ||
+                 (query->q_GraphicsWonder == TRUE)))
+                EndIndex = B1280F95;
+
+            /*
              * Add "canned" mode tables
              */
+
+            if ((FreeTables = MaxModes - query->q_number_modes) <= 0)
+                {
+                VideoDebugPrint((DEBUG_ERROR, "Exceeded maximum allowable number of modes - aborting query\n"));
+                return ERROR_INSUFFICIENT_BUFFER;
+                }
             query->q_number_modes += SetFixedModes(StartIndex,
-                                                    EndIndex,
-                                                    CLOCK_SINGLE,
-                                                    8,
-                                                    ThisRes.m_screen_pitch,
-                                                    &pmode);
+                                                   EndIndex,
+                                                   CLOCK_SINGLE,
+                                                   8,
+                                                   ThisRes.m_screen_pitch,
+                                                   FreeTables,
+                                                   BookValues[EndIndex].ClockFreq,
+                                                   &pmode);
             }
 
         /*
@@ -1881,14 +2018,15 @@ WORD    Multiplier;     /* Pixel clock multiplier */
             (MaxDepth[query->q_DAC_type][CurrentRes] >= 16))
             {
             if ((query->q_DAC_type == DAC_BT48x) ||
+                (query->q_DAC_type == DAC_SC15026) ||
                 (query->q_DAC_type == DAC_ATT491))
                 {
                 Multiplier = CLOCK_DOUBLE;
-                if (ThisRes.m_x_size == 640)
+                if (CurrentRes == RES_640)
                     {
                     Scratch = (UCHAR)fill_mode_table_m(0x49, pmode, ee);
                     }
-                else if (ThisRes.m_x_size == 800)
+                else if (CurrentRes == RES_800)
                     {
                     Scratch = (UCHAR)fill_mode_table_m(0x67, pmode, ee);
                     EndIndex = B800F60;     /* 70 Hz and up not supported at 16BPP */
@@ -1924,27 +2062,109 @@ WORD    Multiplier;     /* Pixel clock multiplier */
                     pmode++;    /* ptr to next mode table */
                     query->q_number_modes++;
                     }
+
+                /*
+                 * If this is a Graphics Wonder with a TI34075 DAC
+                 * (only other DAC is BT48x, which is handled in
+                 * "if" section above), 70 Hz and up are not
+                 * supported in 800x600 16BPP.
+                 *
+                 * On some but not all non-Graphics Wonder cards, 800x600
+                 * 16BPP 72Hz will overdrive the DAC (cards with fast
+                 * RAM are less likely to be affected than cards with
+                 * slow RAM, VRAM or DRAM does not seem to make a
+                 * difference). Since we have no way to tell whether
+                 * or not any given card is affected, we must lock out
+                 * this mode for all non-Graphics Wonder cards (this
+                 * mode and a number of others are already locked out
+                 * on the Graphics Wonder).
+                 */
+                if ((query->q_GraphicsWonder) && (CurrentRes == RES_800))
+                    {
+                    EndIndex = B800F60;
+                    }
+                else if (CurrentRes == RES_800)
+                    {
+                    EndIndex = B800F70;
+                    }
+
                 }
 
             /*
              * Add "canned" mode tables
              */
+
+            if ((FreeTables = MaxModes - query->q_number_modes) <= 0)
+                {
+                VideoDebugPrint((DEBUG_ERROR, "Exceeded maximum allowable number of modes - aborting query\n"));
+                return ERROR_INSUFFICIENT_BUFFER;
+                }
             query->q_number_modes += SetFixedModes(StartIndex,
-                                                    EndIndex,
-                                                    Multiplier,
-                                                    16,
-                                                    ThisRes.m_screen_pitch,
-                                                    &pmode);
+                                                   EndIndex,
+                                                   Multiplier,
+                                                   16,
+                                                   ThisRes.m_screen_pitch,
+                                                   FreeTables,
+                                                   BookValues[EndIndex].ClockFreq,
+                                                   &pmode);
+            }
+
+
+        /*
+         * Our new source stream display driver needs a linear aperture
+         * in order to handle 24BPP. Since the display driver doesn't
+         * have access to the aperture information when it is deciding
+         * which modes to pass on to the display applet, it can't make
+         * the decision to reject 24BPP modes for cards with only a
+         * VGA aperture. This decision must therefore be made in the
+         * miniport, so in a paged aperture configuration there are no
+         * 24BPP modes for the display driver to accept or reject.
+         *
+         * On the Alpha, we can't use dense space on the Mach 32 LFB,
+         * so we treat it as a no-aperture case.
+         */
+        if (query->q_aperture_cfg == 0)
+            {
+            VideoDebugPrint((DEBUG_DETAIL, "24BPP not available because we don't have a linear aperture\n"));
+            continue;
+            }
+
+#if defined(ALPHA)
+        VideoDebugPrint((DEBUG_DETAIL, "24BPP not available in sparse space on Alpha\n"));
+        continue;
+#endif
+
+        /*
+         * 800x600 24BPP exhibits screen tearing unless the pitch
+         * is a multiple of 128 (only applies to Rev. 6, since Rev. 3
+         * and PCI implementations already have a pitch of 896).
+         * Other pixel depths are not affected, and other resolutions
+         * are already a multiple of 128 pixels wide.
+         *
+         * Expand the 800x600 pitch to 896 here, rather than for
+         * all pixel depths, because making the change for all
+         * pixel depths would disable 16BPP (which doesn't have
+         * the problem) on 1M cards. The screen pitch will only
+         * be 800 on cards which will exhibit this problem - don't
+         * check for a resolution of 800x600 because we don't want
+         * to cut the pitch from 1024 down to 896 if SPLIT_RASTERS
+         * is not defined.
+         */
+        if (ThisRes.m_screen_pitch == 800)
+            {
+            ThisRes.m_screen_pitch = 896;
+            NumPixels = (long) ThisRes.m_screen_pitch * 600;
             }
 
         if ((NumPixels*3 <= MemAvail) &&
             (MaxDepth[query->q_DAC_type][CurrentRes] >= 24))
             {
             if ((query->q_DAC_type == DAC_BT48x) ||
+                (query->q_DAC_type == DAC_SC15026) ||
                 (query->q_DAC_type == DAC_ATT491))
                 {
                 Multiplier = CLOCK_TRIPLE;
-                if (ThisRes.m_x_size == 640)
+                if (CurrentRes == RES_640)
                     {
                     EndIndex = B640F60; /* Only refresh rate supported at 24BPP */
                     Scratch = (UCHAR)fill_mode_table_m(0x58, pmode, ee);
@@ -1987,19 +2207,24 @@ WORD    Multiplier;     /* Pixel clock multiplier */
                     Scratch = DoubleClock(Scratch);
                     pmode->m_clock_select &= 0x0FF83;
                     pmode->m_clock_select |= (Scratch << 2);
+                    pmode->ClockFreq <<= 1;
                     }
-                else if (query->q_DAC_type == DAC_SC15021)
+                else if ((query->q_DAC_type == DAC_SC15021) ||
+                    (query->q_DAC_type == DAC_STG1702) ||
+                    (query->q_DAC_type == DAC_STG1703))
                     {
                     Multiplier = CLOCK_THREE_HALVES;
                     Scratch = (UCHAR)(pmode->m_clock_select & 0x007C) >> 2;
                     Scratch = ThreeHalvesClock(Scratch);
                     pmode->m_clock_select &= 0x0FF83;
                     pmode->m_clock_select |= (Scratch << 2);
+                    pmode->ClockFreq *= 3;
+                    pmode->ClockFreq >>= 1;
                     }
                 else
                     {
                     Multiplier = CLOCK_SINGLE;
-                    if ((query->q_DAC_type == DAC_TI34075) && (ThisRes.m_x_size == 800))
+                    if ((query->q_DAC_type == DAC_TI34075) && (CurrentRes == RES_800))
                         EndIndex = B800F70;
                     }
 
@@ -2013,17 +2238,36 @@ WORD    Multiplier;     /* Pixel clock multiplier */
                     pmode++;    /* ptr to next mode table */
                     query->q_number_modes++;
                     }
+
+                /*
+                 * If this is a Graphics Wonder with a TI34075 DAC
+                 * (only other DAC is BT48x, which is handled in
+                 * "if" section above), 72 Hz is not supported in
+                 * 640x480 24BPP.
+                 */
+                if ((query->q_GraphicsWonder) && (CurrentRes == RES_640))
+                    {
+                    EndIndex = B640F60;
+                    }
                 }
 
             /*
              * Add "canned" mode tables
              */
+
+            if ((FreeTables = MaxModes - query->q_number_modes) <= 0)
+                {
+                VideoDebugPrint((DEBUG_ERROR, "Exceeded maximum allowable number of modes - aborting query\n"));
+                return ERROR_INSUFFICIENT_BUFFER;
+                }
             query->q_number_modes += SetFixedModes(StartIndex,
-                                                    EndIndex,
-                                                    Multiplier,
-                                                    24,
-                                                    ThisRes.m_screen_pitch,
-                                                    &pmode);
+                                                   EndIndex,
+                                                   Multiplier,
+                                                   24,
+                                                   ThisRes.m_screen_pitch,
+                                                   FreeTables,
+                                                   BookValues[EndIndex].ClockFreq,
+                                                   &pmode);
             }
 
         }   /* end for (list of resolutions) */
@@ -2111,6 +2355,7 @@ short fill_mode_table_m(WORD table_offset, struct st_mode_table *pmode,
 
     pmode->m_status_flags = ((ee->EEread) ((WORD)(table_offset+10)) >> 8) & 0xC0;
     pmode->m_clock_select = (ee->EEread)  ((WORD)(table_offset+9));
+    pmode->ClockFreq = GetFrequency((BYTE)((pmode->m_clock_select & 0x007C) >> 2));
 
     kk = (ee->EEread) ((WORD)(table_offset+2));
     pmode->m_vfifo_24 = (kk >> 8) & 0xFF;
@@ -2166,9 +2411,11 @@ struct st_mode_table *BiosMode;     /* Pointer to first mode table returned by B
             /*
              * 1024 pitch ONLY if NO aperture on a Mach32
              */
+#if !defined (SPLIT_RASTERS)
             if (QueryPtr->q_aperture_cfg == 0)
                 OutputTable->m_screen_pitch = 1024;  
             else
+#endif
                 OutputTable->m_screen_pitch = 640;
             NumPixels = (long) OutputTable->m_screen_pitch * 480;
             break;
@@ -2179,6 +2426,9 @@ struct st_mode_table *BiosMode;     /* Pointer to first mode table returned by B
             /*
              * 1024 pitch ONLY if NO aperture on a Mach32
              */
+#if defined (SPLIT_RASTERS)
+            if (QueryPtr->q_asic_rev != CI_68800_3)
+#else
             if (QueryPtr->q_aperture_cfg == 0)
                 OutputTable->m_screen_pitch = 1024;
             /*
@@ -2186,6 +2436,7 @@ struct st_mode_table *BiosMode;     /* Pointer to first mode table returned by B
              * if screen pitch not divisible by 128.
              */
             else if (QueryPtr->q_asic_rev != CI_68800_3)
+#endif
                 OutputTable->m_screen_pitch = 896;
             else
                 OutputTable->m_screen_pitch = 800;
@@ -2269,6 +2520,7 @@ struct st_mode_table *BiosMode;     /* Pointer to first mode table returned by B
     OutputTable->m_v_sync_wid = BiosMode->m_v_sync_wid;
     OutputTable->m_disp_cntl = BiosMode->m_disp_cntl;
     OutputTable->m_clock_select = BiosMode->m_clock_select;
+    OutputTable->ClockFreq = GetFrequency((BYTE)((OutputTable->m_clock_select & 0x007C) >> 2));
     OutputTable->m_h_overscan = BiosMode->m_h_overscan;
     OutputTable->m_v_overscan = BiosMode->m_v_overscan;
     OutputTable->m_overscan_8b = BiosMode->m_overscan_8b;
@@ -2289,13 +2541,14 @@ struct st_mode_table *BiosMode;     /* Pointer to first mode table returned by B
 /*
  * static UCHAR BrooktreeOrATT_m(void);
  *
- * Function to determine whether the DAC is a BT48x
- * or an AT&T 49x. These two DAC families are incompatible,
- * but CONFIG_STATUS_1 contains the same value for both.
+ * Function to determine whether the DAC is a BT48x, a SC15026,
+ * or an AT&T 49x. These three DAC families are incompatible,
+ * but CONFIG_STATUS_1 contains the same value for all.
  *
  * Returns:
  *  DAC_BT48x if Brooktree DAC found
  *  DAC_ATT491 if AT&T 49[123] DAC found
+ *  DAC_SC15026 if Sierra SC15026 DAC found
  *
  * NOTE: Results are undefined if called after CONFIG_STATUS_1
  *       reports a DAC that does not belong to either of these
@@ -2310,7 +2563,44 @@ static UCHAR BrooktreeOrATT_m(void)
 
     /*
      * Get the DAC to a known state and get the original value
-     * from the VGA DAC_MASK register. Initially assume AT&T DAC.
+     * from the VGA DAC_MASK register.
+     */
+    ClrDacCmd_m(TRUE);
+    OriginalMask = LioInp(regVGA_END_BREAK_PORT, 6);    /* VGA DAC_MASK */
+
+    /*
+     * Re-clear the DAC state, and set the extended register
+     * programming flag in the DAC command register.
+     */
+    ClrDacCmd_m(TRUE);
+    Scratch = (BYTE)((OriginalMask & 0x00FF) | 0x10);
+    LioOutp(regVGA_END_BREAK_PORT, Scratch, 6);     /* VGA DAC_MASK */
+
+    /*
+     * Select ID register byte #1, and read its contents.
+     */
+    LioOutp(regVGA_END_BREAK_PORT, 0x09, 7);        /* Look-up table read index */
+    Scratch = LioInp(regVGA_END_BREAK_PORT, 8);     /* Look-up table write index */
+
+    /*
+     * Put the DAC back in a known state and restore
+     * the original pixel mask value.
+     */
+    ClrDacCmd_m(TRUE);
+    LioOutp(regVGA_END_BREAK_PORT, OriginalMask, 6);    /* VGA DAC_MASK */
+
+    /*
+     * Sierra SC15026 DACs will have 0x53 in ID register byte 1.
+     */
+    if (Scratch == 0x53)
+        {
+        VideoDebugPrint((DEBUG_DETAIL, "BrooktreeOrATT_m() - SC15026 found\n"));
+        return DAC_SC15026;
+        }
+
+    /*
+     * Get the DAC to a known state and get the original value
+     * from the VGA DAC_MASK register. Assume AT&T DAC.
      */
     ClrDacCmd_m(FALSE);
     OriginalMask = LioInp(regVGA_END_BREAK_PORT, 6);    /* VGA DAC_MASK */
@@ -2341,7 +2631,7 @@ static UCHAR BrooktreeOrATT_m(void)
      */
     if (RetVal == DAC_ATT491)
         {
-        VideoDebugPrint((DEBUG_SWITCH, "BrooktreeOrATT_m() - AT&T 491 found\n"));
+        VideoDebugPrint((DEBUG_DETAIL, "BrooktreeOrATT_m() - AT&T 491 found\n"));
         return (UCHAR)RetVal;
         }
 
@@ -2366,12 +2656,12 @@ static UCHAR BrooktreeOrATT_m(void)
     LioOutp(regVGA_END_BREAK_PORT, 0, 6);           /* VGA_DAC_MASK */
     if (ValueRead == 0x0E000)
         {
-        VideoDebugPrint((DEBUG_SWITCH, "BrooktreeOrATT_m() - AT&T 490 found\n"));
+        VideoDebugPrint((DEBUG_DETAIL, "BrooktreeOrATT_m() - AT&T 490 found\n"));
         return DAC_ATT491;
         }
     else
         {
-        VideoDebugPrint((DEBUG_SWITCH, "BrooktreeOrATT_m() - BT48x found\n"));
+        VideoDebugPrint((DEBUG_DETAIL, "BrooktreeOrATT_m() - BT48x found\n"));
         /*
          * The test to find an AT&T 491 scrambles the DAC_MASK register
          * on a BT48x. Simply resetting this register doesn't work -
@@ -2491,7 +2781,7 @@ static UCHAR ThompsonOrATT_m(void)
     BYTE Scratch;       /* Temporary variable */
     UCHAR DacType;      /* Type of DAC we are dealing with */
 
-    VideoDebugPrint((DEBUG_SWITCH, "ThompsonOrATT_m() entry\n"));
+    VideoDebugPrint((DEBUG_NORMAL, "ThompsonOrATT_m() entry\n"));
     /*
      * The extended registers hidden behind DAC_MASK on the AT&T 498
      * and STG1700 are accessed by making a specified number of reads
@@ -2516,17 +2806,17 @@ static UCHAR ThompsonOrATT_m(void)
     Scratch = INP(DAC_MASK);
     if (Scratch != 0x84)
         {
-        VideoDebugPrint((0, "STG1700 found\n"));
+        VideoDebugPrint((DEBUG_DETAIL, "STG1700 found\n"));
         DacType = DAC_STG1700;
         }
     Scratch = INP(DAC_MASK);
     if (Scratch != 0x98)
         {
-        VideoDebugPrint((0, "STG1700 found\n"));
+        VideoDebugPrint((DEBUG_DETAIL, "STG1700 found\n"));
         DacType = DAC_STG1700;
         }
 
-    VideoDebugPrint((DEBUG_SWITCH, "If no STG1700 message, AT&T498 found\n"));
+    VideoDebugPrint((DEBUG_DETAIL, "If no STG1700 message, AT&T498 found\n"));
     /*
      * Reset the read counter so subsequent accesses to DAC_MASK don't
      * accidentally write a hidden register.
@@ -2535,6 +2825,99 @@ static UCHAR ThompsonOrATT_m(void)
     return DacType;
 
 }   /* ThompsonOrATT_m() */
+    
+
+
+/***************************************************************************
+ *
+ * static UCHAR SierraOrThompson_m(void);
+ *
+ * DESCRIPTION:
+ *  Checks the first 2 bytes of the Sierra SC15021 device
+ *  identification register to determine whether we are dealing
+ *  with an SC15021 or a STG1702/1703 in native mode (STG170x
+ *  can also be strapped to emulate the STG1700, but this DAC
+ *  has different capabilities, and so strapped STG170x DACs won't
+ *  be reported as SC15021).
+ *
+ * RETURN VALUE:
+ *  DAC_STG1702 if S.G. Thompson 1702/1703 DAC found
+ *  DAC_SC15021 if Sierra SC15021 DAC found
+ *
+ * NOTE:
+ *  Results are undefined if called after CONFIG_STATUS_1 reports
+ *  a DAC that does not belong to either of these two families.
+ *
+ * GLOBALS CHANGED:
+ *  none
+ *
+ * CALLED BY:
+ *  short_query_m()
+ *
+ * AUTHOR:
+ *  Robert Wolff
+ *
+ * CHANGE HISTORY:
+ *
+ * TEST HISTORY:
+ *
+ ***************************************************************************/
+
+static UCHAR SierraOrThompson_m(void)
+{
+    BYTE Scratch;       /* Temporary variable */
+    UCHAR DacType;      /* Type of DAC we are dealing with */
+
+    VideoDebugPrint((DEBUG_NORMAL, "SierraOrThompson_m() entry\n"));
+    /*
+     * The extended registers hidden behind DAC_MASK on the SC15021
+     * and STG1702/1703 are accessed by making a specified number of
+     * reads from the DAC_MASK register. Read from another register
+     * to reset the read counter to 0.
+     */
+    Scratch = INP(DAC_W_INDEX);
+
+    /*
+     * Set the extended register programming flag in the DAC command
+     * register so we don't need to hit the "magic" reads for each
+     * register access. Initially assume that a SC15021 is present.
+     */
+    DacType = DAC_SC15021;
+    Scratch = INP(DAC_MASK);
+    Scratch = INP(DAC_MASK);
+    Scratch = INP(DAC_MASK);
+    Scratch = INP(DAC_MASK);
+    OUTP(DAC_MASK, 0x10);
+
+    /*
+     * Check the ID registers. If either of them doesn't match the
+     * values for the SC15021, we are dealing with a STG1702/1703.
+     */
+    OUTP(DAC_R_INDEX, 0x09);
+    Scratch = INP(DAC_W_INDEX);
+    if (Scratch != 0x53)
+        {
+        VideoDebugPrint((DEBUG_DETAIL, "STG1702/1703 found\n"));
+        DacType = DAC_STG1702;
+        }
+    OUTP(DAC_R_INDEX, 0x0A);
+    Scratch = INP(DAC_W_INDEX);
+    if (Scratch != 0x3A)
+        {
+        VideoDebugPrint((DEBUG_DETAIL, "STG1702/1703 found\n"));
+        DacType = DAC_STG1702;
+        }
+
+    VideoDebugPrint((DEBUG_DETAIL, "If no STG1702/1703 message, SC15021 found\n"));
+    /*
+     * Clear the ERPF and reset the read counter so subsequent accesses
+     * to DAC_MASK don't accidentally write a hidden register.
+     */
+    OUTP(DAC_MASK, 0);
+    Scratch = INP(DAC_W_INDEX);
+    return DacType;
+
+}   /* SierraOrThompson_m() */
     
 
 
@@ -2594,6 +2977,7 @@ short GetTrueMemSize_m(void)
         /*
          * This is a 4M card. Restore the pixel and the graphics engine.
          */
+        VideoDebugPrint((DEBUG_NORMAL, "GetTrueMemSize_m() found 4M card\n"));
         WritePixel_m(0, 1024, SavedPixel);
         SetupRestoreEngine_m(RESTORE_ENGINE);
         return VRAM_4mb;
@@ -2625,6 +3009,7 @@ short GetTrueMemSize_m(void)
             /*
              * This is a 2M card. Restore the pixel and the graphics engine.
              */
+            VideoDebugPrint((DEBUG_NORMAL, "GetTrueMemSize_m() found 2M card\n"));
             WritePixel_m(3, 0, SavedPixel);
             SetupRestoreEngine_m(RESTORE_ENGINE);
             return VRAM_2mb;
@@ -2645,6 +3030,7 @@ short GetTrueMemSize_m(void)
         /*
          * This is a 1M card. Restore the pixel and the graphics engine.
          */
+        VideoDebugPrint((DEBUG_NORMAL, "GetTrueMemSize_m() found 1M card\n"));
         WritePixel_m(1, 0, SavedPixel);
         SetupRestoreEngine_m(RESTORE_ENGINE);
         return VRAM_1mb;
@@ -2653,6 +3039,7 @@ short GetTrueMemSize_m(void)
     /*
      * This is a 512k card.
      */
+    VideoDebugPrint((DEBUG_NORMAL, "GetTrueMemSize_m() found 512k card\n"));
     SetupRestoreEngine_m(RESTORE_ENGINE);
     return VRAM_512k;
 
@@ -2975,7 +3362,12 @@ BOOL BlockWriteAvail_m(struct query_structure *Query)
         OUTPW(DEST_X_START, 0);
         OUTPW(DEST_X_END, 512);
         OUTPW(DEST_Y_END, 1);
-        WaitForIdle_m();
+
+        if(!WaitForIdle_m())
+            {
+            RetVal = FALSE;
+            break;
+            }
 
         /*
          * Set up the engine to read colour data from the screen.
@@ -3011,6 +3403,7 @@ BOOL BlockWriteAvail_m(struct query_structure *Query)
                 }
             }
         }
+
 
     /*
      * If block write is unavailable, turn off the block write bit.
@@ -3066,17 +3459,16 @@ BOOL IsMioBug_m(struct query_structure *Query)
          (Query->q_bus_type == BUS_LB_386DX) ||
          (Query->q_bus_type == BUS_LB_486)))
         {
-        VideoDebugPrint((DEBUG_SWITCH, "MIO bug found\n"));
+        VideoDebugPrint((DEBUG_DETAIL, "MIO bug found\n"));
         return TRUE;
         }
     else
         {
-        VideoDebugPrint((DEBUG_SWITCH, "MIO bug not found\n"));
+        VideoDebugPrint((DEBUG_DETAIL, "MIO bug not found\n"));
         return FALSE;
         }
 
 }   /* IsMioBug_m() */
 
 //********************   end  of  QUERY_M.C   ***************************
-
 

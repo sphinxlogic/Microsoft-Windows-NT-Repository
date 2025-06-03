@@ -127,7 +127,7 @@ char *p;
                 return TRUE;
 
         if (nWildSpecs < MAXSPEC) {
-            wildSpecs[ nWildSpecs++ ]  = strdup (namebuf);
+            wildSpecs[ nWildSpecs++ ]  = _strdup (namebuf);
             return TRUE;
             }
         else
@@ -150,7 +150,7 @@ struct findType *srctype;
         fileext( src, temp );
 
         for (i = 0; i< numexcl; i++) {
-            if( !strcmpi( exclude[i], temp ) ) {
+            if( !_strcmpi( exclude[i], temp ) ) {
                 return( FALSE );
             }
         }
@@ -300,7 +300,7 @@ char *p;
 {
     upper (p) ;
     if (numexcl < MAXFIL)
-        exclude [numexcl++]  = strdup (p);
+        exclude [numexcl++]  = _strdup (p);
 }
 
 
@@ -374,15 +374,15 @@ char *v[];
             p = strbskip(p, " ");
             }
 
-        if (!stricmp (argv[0], "rem")) continue;
-        if (!stricmp (argv[0], "echo"))
+        if (!_stricmp (argv[0], "rem")) continue;
+        if (!_stricmp (argv[0], "echo"))
         {
-            if      (!stricmp (argv[1], "on" ))
+            if      (!_stricmp (argv[1], "on" ))
             {
                 fVerbose = TRUE;
                 printf ("Verbose On\n");
             }
-            else if (!stricmp (argv[1], "off"))
+            else if (!_stricmp (argv[1], "off"))
                  {
                      fVerbose = FALSE;
                      printf ("Verbose Off\n");
@@ -563,4 +563,3 @@ char *v[];
     if (!fInGetfile)
         return( (int)fErrorExit ? (int)fNoSrc : fAnyUpd );
 }
-

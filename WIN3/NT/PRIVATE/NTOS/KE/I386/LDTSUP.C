@@ -24,7 +24,7 @@ Revision History:
 --*/
 
 #include "ki.h"
-
+
 //
 // Low level assembler support procedures
 //
@@ -45,22 +45,25 @@ KiFlushDescriptors(
 
 VOID
 Ki386LoadTargetLdtr (
-    IN PVOID Argument,
-    IN PVBOOLEAN ReadyFlag
+    IN PKIPI_CONTEXT SignalDone,
+    IN PVOID Parameter1,
+    IN PVOID Parameter2,
+    IN PVOID Parameter3
     );
 
 VOID
 Ki386FlushTargetDescriptors (
-    IN PVOID Argument,
-    IN PVBOOLEAN ReadyFlag
+    IN PKIPI_CONTEXT SignalDone,
+    IN PVOID Parameter1,
+    IN PVOID Parameter2,
+    IN PVOID Parameter3
     );
-
 
 VOID
 Ke386SetLdtProcess (
-    PKPROCESS   Process,
-    PLDT_ENTRY  Ldt,
-    ULONG       Limit
+    IN PKPROCESS Process,
+    IN PLDT_ENTRY Ldt,
+    IN ULONG Limit
     )
 /*++
 
@@ -103,12 +106,12 @@ Return Value:
 --*/
 
 {
-    KIRQL   OldIrql;
-    BOOLEAN LocalProcessor;
-    KAFFINITY TargetProcessors;
-    KAFFINITY CurrentProcessor;
-    PKPRCB  Prcb;
+
     KGDTENTRY LdtDescriptor;
+    BOOLEAN LocalProcessor;
+    KIRQL OldIrql;
+    PKPRCB Prcb;
+    KAFFINITY TargetProcessors;
 
     //
     // Compute the contents of the Ldt descriptor
@@ -142,10 +145,10 @@ Return Value:
         //  Set the limit and base
         //
 
-        LdtDescriptor.LimitLow = Limit - 1;
-        LdtDescriptor.BaseLow = (ULONG)Ldt & 0xffff;
-        LdtDescriptor.HighWord.Bytes.BaseMid = ((ULONG)Ldt & 0xff0000) >> 16;
-        LdtDescriptor.HighWord.Bytes.BaseHi = ((ULONG)Ldt & 0xff000000) >> 24;
+        LdtDescriptor.LimitLow = (USHORT) ((ULONG) Limit - 1);
+        LdtDescriptor.BaseLow = (USHORT)  ((ULONG) Ldt & 0xffff);
+        LdtDescriptor.HighWord.Bytes.BaseMid = (UCHAR) (((ULONG)Ldt & 0xff0000) >> 16);
+        LdtDescriptor.HighWord.Bytes.BaseHi =  (UCHAR) (((ULONG)Ldt & 0xff000000) >> 24);
 
         //
         //  Type is LDT, DPL = 0
@@ -163,16 +166,13 @@ Return Value:
     }
 
     //
-    // We raise to IPI_LEVEL-1 so we don't deadlock with device interrupts.
-    // Lock the distpather database, and take the FreezeExecutionLock
+    // Acquire the context swap lock so a context switch cannot occur.
     //
 
-    KeRaiseIrql (IPI_LEVEL-1, &OldIrql);
-    KiAcquireSpinLock (&KiDispatcherLock);
-    KiAcquireSpinLock (&KiFreezeExecutionLock);
+    KiLockContextSwap(&OldIrql);
 
     //
-    // Set the Ldt fields in the process object
+    // Set the Ldt fields in the process object.
     //
 
     Process->LdtDescriptor = LdtDescriptor;
@@ -181,30 +181,25 @@ Return Value:
     // Tell all processors active for this process to reload their LDTs
     //
 
+#ifdef NT_UP
+
+    KiLoadLdtr();
+
+#else
+
     Prcb = KeGetCurrentPrcb();
-    TargetProcessors = Process->ActiveProcessors;
-    CurrentProcessor = Prcb->SetMember;
-
-    LocalProcessor = FALSE;
-    if ((TargetProcessors & CurrentProcessor) != 0) {
-
-        //
-        // This processor is included in the set
-        //
-
-        TargetProcessors = TargetProcessors & (KAFFINITY)~CurrentProcessor;
-        LocalProcessor = TRUE;
-    }
-
+    TargetProcessors = Process->ActiveProcessors & ~Prcb->SetMember;
     if (TargetProcessors != 0) {
-        KiIpiSendPacket(TargetProcessors, Ki386LoadTargetLdtr);
+        KiIpiSendPacket(TargetProcessors,
+                        Ki386LoadTargetLdtr,
+                        NULL,
+                        NULL,
+                        NULL);
     }
 
-    if (LocalProcessor) {
-        KiLoadLdtr();
-    }
-
+    KiLoadLdtr();
     if (TargetProcessors != 0) {
+
         //
         //  Stall until target processor(s) release us
         //
@@ -212,19 +207,22 @@ Return Value:
         KiIpiStallOnPacketTargets();
     }
 
+#endif
+
     //
-    // Restore IRQL and unlock the dispatcher database
+    // Restore IRQL and release the context swap lock.
     //
-    KiReleaseSpinLock(&KiFreezeExecutionLock);
-    KiReleaseSpinLock(&KiDispatcherLock);
-    KeLowerIrql(OldIrql);
+
+    KiUnlockContextSwap(OldIrql);
     return;
 }
 
 VOID
 Ki386LoadTargetLdtr (
-    IN PVOID Argument,
-    OUT PVBOOLEAN ReadyFlag
+    IN PKIPI_CONTEXT SignalDone,
+    IN PVOID Parameter1,
+    IN PVOID Parameter2,
+    IN PVOID Parameter3
     )
 /*++
 
@@ -243,25 +241,21 @@ Return Value:
 
 --*/
 {
+
     //
     // Reload the LDTR register from currently active process object
     //
 
     KiLoadLdtr();
-
-    //
-    // Tell caller we are done
-    //
-
-    *ReadyFlag = TRUE;
+    KiIpiSignalPacketDone(SignalDone);
     return;
 }
 
 VOID
 Ke386SetDescriptorProcess (
-    PKPROCESS   Process,
-    ULONG       Offset,
-    LDT_ENTRY   LdtEntry
+    IN PKPROCESS Process,
+    IN ULONG Offset,
+    IN LDT_ENTRY LdtEntry
     )
 /*++
 
@@ -295,15 +289,13 @@ Return Value:
     none.
 
 --*/
+
 {
-    KIRQL   OldIrql;
-    volatile KIRQL Temporary;
-    PKPRCB   Prcb;
+
+    PLDT_ENTRY Ldt;
+    KIRQL OldIrql;
+    PKPRCB Prcb;
     KAFFINITY TargetProcessors;
-    KAFFINITY CurrentProcessor;
-    BOOLEAN LocalProcessor;
-    PLDT_ENTRY  Ldt;
-    BOOLEAN     Present;
 
     //
     // Compute address of descriptor to edit.
@@ -315,119 +307,71 @@ Return Value:
          ((Process->LdtDescriptor.HighWord.Bytes.BaseMid << 16) & 0xff0000) |
          (Process->LdtDescriptor.BaseLow & 0xffff));
     Offset = Offset / 8;
+    MmLockPagedPool(&Ldt[Offset], sizeof(LDT_ENTRY));
+    KiLockContextSwap(&OldIrql);
+
+#ifdef NT_UP
 
     //
-    // Loop until target page is present while we're at DISPATCH_LEVEL
-    //
-
-    do {
-
-        //
-        // Touch page to force it present.
-        // N.B.  We use OldIrql to prevent compiler from throwing the following
-        //       instruction away when /Ox is specified.
-        //
-
-        Temporary = (KIRQL)Ldt[Offset].LimitLow;
-
-        //
-        // Raise IRQL to DISPATCH_LEVEL and lock the dispatcher database
-        //
-
-        KiLockDispatcherDatabase(&OldIrql);
-
-        //
-        // Did page stay present?
-        //
-
-        Present = MmIsAddressValid((PVOID)&Ldt[Offset]);
-
-        //
-        // No, unlock, lower IRQL, and have another go.
-        //
-
-        if (Present == FALSE) {
-            KiUnlockDispatcherDatabase(OldIrql);
-        }
-
-    } while (Present == FALSE);
-
-
-    //
-    // Stall all active processors for the process except for us.
-    //
-
-    KeRaiseIrql(IPI_LEVEL-1, &Temporary);
-    KiAcquireSpinLock (&KiFreezeExecutionLock);
-
-    Prcb = KeGetCurrentPrcb();
-    TargetProcessors = Process->ActiveProcessors;
-    CurrentProcessor = Prcb->SetMember;
-
-    LocalProcessor = FALSE;
-    if ((TargetProcessors & CurrentProcessor) != 0) {
-
-        //
-        // This processor is included in the set
-        //
-
-        TargetProcessors = TargetProcessors & (KAFFINITY)~CurrentProcessor;
-        LocalProcessor = TRUE;
-    }
-
-    if (TargetProcessors != 0) {
-        KiIpiPacket.Arguments.FlushDescriptors.ReverseStall =
-                            (PVULONG) &Prcb->IpiReverseStall;
-        KiIpiSendPacket(TargetProcessors, Ki386FlushTargetDescriptors);
-        KiIpiStallOnPacketTargets();
-    }
-
-    //
-    // Other processors are now stalled.  Edit the Ldt.
+    // Edit the Ldt.
     //
 
     Ldt[Offset] = LdtEntry;
 
-    //
-    // Release stalled processors
-    //
+#else
 
-    Prcb->IpiReverseStall++;
-
-    //
-    // Wait for stalled processors to report they've flushed
-    // (This is necessary so that when we return all processors are using
-    //  new value, so old value may be safely destroyed.)
-    //
-
+    Prcb = KeGetCurrentPrcb();
+    TargetProcessors = Process->ActiveProcessors & ~Prcb->SetMember;
     if (TargetProcessors != 0) {
+        KiIpiSendPacket(TargetProcessors,
+                        Ki386FlushTargetDescriptors,
+                        (PVOID)&Prcb->ReverseStall,
+                        NULL,
+                        NULL);
+
         KiIpiStallOnPacketTargets();
     }
 
+    //
+    // All target processors have flushed the segment descriptors and
+    // are waiting to proceed. Edit the ldt on the current processor,
+    // then continue the execution of target processors.
+    //
+
+    Ldt[Offset] = LdtEntry;
+    if (TargetProcessors != 0) {
+        Prcb->ReverseStall += 1;
+    }
+
+#endif
 
     //
-    // Restore IRQL and unlock the dispatcher database
+    // Restore IRQL and release the context swap lock.
     //
-    KiReleaseSpinLock(&KiFreezeExecutionLock);
-    KiUnlockDispatcherDatabase(OldIrql);
 
+    KiUnlockContextSwap(OldIrql);
+    MmUnlockPagedPool(&Ldt[Offset], sizeof(LDT_ENTRY));
     return;
 }
 
 VOID
 Ki386FlushTargetDescriptors (
-    IN PVOID Argument,
-    OUT PVBOOLEAN ReadyFlag
+    IN PKIPI_CONTEXT SignalDone,
+    IN PVOID Proceed,
+    IN PVOID Parameter2,
+    IN PVOID Parameter3
     )
+
 /*++
 
 Routine Description:
 
-    Reload local Ldt register and clear signal bit in TargetProcessor mask
+    This function flushes the segment descriptors on the current processor.
 
 Arguments:
 
     Argument - pointer to a _KIPI_FLUSH_DESCRIPTOR structure.
+
     ReadyFlag - pointer to flag to syncroize with
 
 Return Value:
@@ -435,38 +379,14 @@ Return Value:
     none.
 
 --*/
+
 {
-    PKIPI_FLUSH_DESCRIPTORS ArgumentPointer = Argument;
-    ULONG   ReverseStall;
-
-    ReverseStall = *ArgumentPointer->ReverseStall;
-
     //
-    // Tell caller we're here and stalled
-    //
-
-    *ReadyFlag = TRUE;
-
-    //
-    // Stall while caller edits descriptor
-    //
-
-    while (ReverseStall == *ArgumentPointer->ReverseStall)
-                { };
-
-    //
-    // We've been released from the stall.  Now "flush" the segment
-    // registers (thus reloading descriptors).
+    // Flush the segment descriptors on the current processor and signal that
+    // the descriptors have been flushed.
     //
 
     KiFlushDescriptors();
-
-    //
-    // Tell caller we're done.
-    //
-
-    *ReadyFlag = TRUE;
-
+    KiIpiSignalPacketDoneAndStall (SignalDone, Proceed);
     return;
 }
-

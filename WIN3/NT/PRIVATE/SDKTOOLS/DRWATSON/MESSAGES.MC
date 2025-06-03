@@ -215,49 +215,7 @@ MessageId=0x101C
 Severity=Informational
 SymbolicName=MSG_SYSINFO_PROC_TYPE
 Language=English
-        Processor Type: %0
-.
-
-MessageId=0x101D
-Severity=Informational
-SymbolicName=MSG_SYSINFO_I386
-Language=English
-Intel 386
-.
-
-MessageId=0x101E
-Severity=Informational
-SymbolicName=MSG_SYSINFO_I486
-Language=English
-Intel 486
-.
-
-MessageId=0x101F
-Severity=Informational
-SymbolicName=MSG_SYSINFO_PENTIUM
-Language=English
-Intel Pentium
-.
-
-MessageId=0x1021
-Severity=Informational
-SymbolicName=MSG_SYSINFO_R3000
-Language=English
-Mips R3000
-.
-
-MessageId=0x1022
-Severity=Informational
-SymbolicName=MSG_SYSINFO_R4000
-Language=English
-Mips R4000
-.
-
-MessageId=0x1023
-Severity=Informational
-SymbolicName=MSG_SYSINFO_A21064
-Language=English
-Alpha 21064
+        Processor Type: %1!s!
 .
 
 MessageId=0x1024
@@ -278,8 +236,8 @@ MessageId=0x1026
 Severity=Informational
 SymbolicName=MSG_BANNER
 Language=English
-Microsoft (R) Windows NT (TM) Version 3.1 DrWtsn32
-Copyright (C) 1985-1993 Microsoft Corp. All rights reserved.
+Microsoft (R) Windows NT (TM) Version 4.00 DrWtsn32
+Copyright (C) 1985-1996 Microsoft Corp. All rights reserved.
 .
 
 MessageId=0x1027
@@ -340,19 +298,18 @@ Language=English
         Registered Owner: %1!s!
 .
 
-
 MessageId=0x1035
 Severity=Informational
 SymbolicName=MSG_USAGE
 Language=English
 
-Microsoft(R) Windows NT DrWtsn32 Version 3.1
-(C) 1989-1993 Microsoft Corp. All rights reserved
+Microsoft(R) Windows NT DrWtsn32 Version 4.00
+(C) 1989-1996 Microsoft Corp. All rights reserved
 
 Usage: drwtsn32 [-i] [-g] [-p pid] [-e event] [-?]
 
     -i          Install DrWtsn32 as the default application error debugger
-    -g          Ignored but provided as compatibility with WINDBG & NTSD
+    -g          Ignored but provided as compatibility with WINDBG and NTSD
     -p pid      Process id to debug
     -e event    Event to signal for process attach completion
     -?          This screen

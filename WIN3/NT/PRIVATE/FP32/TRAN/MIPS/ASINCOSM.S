@@ -41,9 +41,9 @@
 #define pio2     1.57079632679489661923
 #define pi       3.14159265358979323846
 
-.text
 
 #define FSIZE   48
+.text .text$asincosm
 .globl acos
 .ent acos
 acos:
@@ -94,6 +94,7 @@ acosx:
 .end acos
 
 
+.text .text$asincosm
 .globl asin
 .ent asin
 asin:

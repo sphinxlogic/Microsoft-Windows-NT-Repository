@@ -59,6 +59,9 @@ Revision History:
 #include "port1632.h"
 #include "netascii.h"
 
+#include <apperr2.h>
+#include <lui.h>
+
 extern _cdecl WriteToCon(LPTSTR, ...);
 
 //
@@ -161,7 +164,23 @@ MGetHelpFileName(
     )
 {
 
-    return(MGetFileName(HelpFileName, BufferLength, TEXT("NET.HLP")));
+    TCHAR LocalizedFileName[MAX_PATH];
+    DWORD LocalizedFileNameID;
+    switch(GetConsoleOutputCP()) {
+	case 932:
+	case 936:
+	case 949:
+	case 950:
+        LocalizedFileNameID = APE2_FE_NETCMD_HELP_FILE;
+	default:
+        LocalizedFileNameID = APE2_US_NETCMD_HELP_FILE;
+    }
+
+    if (LUI_GetMsg(LocalizedFileName, DIMENSION(LocalizedFileName),
+                    LocalizedFileNameID))
+	    return(MGetFileName(HelpFileName, BufferLength, TEXT("NET.HLP")));
+    else
+        return (MGetFileName(HelpFileName, BufferLength, LocalizedFileName));
 
 }
 

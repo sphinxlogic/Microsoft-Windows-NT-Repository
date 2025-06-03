@@ -1,41 +1,149 @@
-; 
-;  Wait Reason Enumerated Type Values
-; 
+
+;
+; Wait Reason and Wait Type Enumerated Type Values
+;
 
 WrExecutive equ 00H
-; 
-;  Exception Record Offset, Flag, and Enumerated Type Definitions
-; 
+
+;
+; Bug Check Code Definitions
+;
+
+APC_INDEX_MISMATCH equ 01H
+DATA_BUS_ERROR equ 02EH
+DATA_COHERENCY_EXCEPTION equ 055H
+HAL1_INITIALIZATION_FAILED equ 061H
+INSTRUCTION_BUS_ERROR equ 02FH
+INSTRUCTION_COHERENCY_EXCEPTION equ 056H
+INTERRUPT_EXCEPTION_NOT_HANDLED equ 03DH
+INTERRUPT_UNWIND_ATTEMPTED equ 03CH
+INVALID_AFFINITY_SET equ 03H
+INVALID_DATA_ACCESS_TRAP equ 04H
+IRQL_GT_ZERO_AT_SYSTEM_SERVICE equ 04AH
+IRQL_NOT_LESS_OR_EQUAL equ 0AH
+KMODE_EXCEPTION_NOT_HANDLED equ 01EH
+NMI_HARDWARE_FAILURE equ 080H
+NO_USER_MODE_CONTEXT equ 0EH
+PAGE_FAULT_WITH_INTERRUPTS_OFF equ 049H
+PANIC_STACK_SWITCH equ 02BH
+SPIN_LOCK_INIT_FAILURE equ 081H
+SYSTEM_EXIT_OWNED_MUTEX equ 039H
+SYSTEM_SERVICE_EXCEPTION equ 03BH
+SYSTEM_UNWIND_PREVIOUS_USER equ 03AH
+TRAP_CAUSE_UNKNOWN equ 012H
+UNEXPECTED_KERNEL_MODE_TRAP equ 07FH
+
+;
+; Breakpoint type definitions
+;
+
+DBG_STATUS_CONTROL_C equ 01H
+
+;
+; Exception Record Offset, Flag, and Enumerated Type Definitions
+;
 
 EXCEPTION_NONCONTINUABLE equ 01H
 EXCEPTION_UNWINDING equ 02H
 EXCEPTION_EXIT_UNWIND equ 04H
 EXCEPTION_STACK_INVALID equ 08H
 EXCEPTION_NESTED_CALL equ 010H
-
-; Values returned from 'C' language exception filters
-
+EXCEPTION_TARGET_UNWIND equ 020H
+EXCEPTION_COLLIDED_UNWIND equ 040H
+EXCEPTION_UNWIND equ 066H
 EXCEPTION_EXECUTE_HANDLER equ 01H
 EXCEPTION_CONTINUE_SEARCH equ 00H
 EXCEPTION_CONTINUE_EXECUTION equ 0FFFFFFFFH
-
-; Registration chain termination marker
-
 EXCEPTION_CHAIN_END equ 0FFFFFFFFH
 
-; 
-;  Large Integer Structure Offset Definitions
-; 
+ExceptionContinueExecution equ 00H
+ExceptionContinueSearch equ 01H
+ExceptionNestedException equ 02H
+ExceptionCollidedUnwind equ 03H
+
+ErExceptionCode equ 00H
+ErExceptionFlags equ 04H
+ErExceptionRecord equ 08H
+ErExceptionAddress equ 0CH
+ErNumberParameters equ 010H
+ErExceptionInformation equ 014H
+ExceptionRecordLength equ 050H
+
+;
+; Fast Mutex Structure Offset Definitions
+;
+
+FmCount equ 00H
+FmOwner equ 04H
+FmContention equ 08H
+FmEvent equ 0CH
+FmOldIrql equ 01CH
+
+;
+; Interrupt Priority Request Level Definitions
+;
+
+APC_LEVEL equ 01H
+DISPATCH_LEVEL equ 02H
+CLOCK1_LEVEL equ 01CH
+CLOCK2_LEVEL equ 01CH
+IPI_LEVEL equ 01DH
+POWER_LEVEL equ 01EH
+PROFILE_LEVEL equ 01BH
+HIGH_LEVEL equ 01FH
+SYNCH_LEVEL equ 01CH
+
+;
+; Large Integer Structure Offset Definitions
+;
 
 LiLowPart equ 00H
 LiHighPart equ 04H
 
-; 
-;  List Entry Structure Offset Definitions
-; 
+;
+; List Entry Structure Offset Definitions
+;
 
 LsFlink equ 00H
 LsBlink equ 04H
+
+;
+; String Structure Offset Definitions
+;
+
+StrLength equ 00H
+StrMaximumLength equ 02H
+StrBuffer equ 04H
+
+;
+; System Time Structure Offset Definitions
+;
+
+StLowTime equ 00H
+StHigh1Time equ 04H
+StHigh2Time equ 08H
+
+;
+; Time Structure Offset Definitions
+;
+
+TmLowTime equ 00H
+TmHighTime equ 04H
+
+;
+; DPC object Structure Offset Definitions
+;
+
+DpType equ 00H
+DpNumber equ 02H
+DpImportance equ 03H
+DpDpcListEntry equ 04H
+DpDeferredRoutine equ 0CH
+DpDeferredContext equ 010H
+DpSystemArgument1 equ 014H
+DpSystemArgument2 equ 018H
+DpLock equ 01CH
+DpcObjectLength equ 020H
 
 ; 
 ;  Processor Control Registers Structure Offset Definitions
@@ -113,9 +221,10 @@ KgdtBaseHi equ 07H
 KgdtLimitHi equ 06H
 KgdtLimitLow equ 00H
 
-; 
-;  Processor Block Structure Offset Definitions
-; 
+
+;
+; Processor Block Structure Offset Definitions
+;
 
 PbCurrentThread equ 04H
 PbNextThread equ 08H
@@ -125,46 +234,8 @@ PbSetMember equ 014H
 PbCpuID equ 019H
 PbCpuType equ 018H
 PbCpuStep equ 01AH
-PbHal equ 017CH
+PbHalReserved equ 017CH
 PbProcessorState equ 01CH
-
-; 
-;  System Time Structure Offset Definitions
-; 
-
-TmLowTime equ 00H
-TmHighTime equ 04H
-
-; 
-;  DPC object Structure Offset Definitions
-; 
-
-DpType equ 00H
-DpSize equ 02H
-DpDpcListEntry equ 04H
-DpDeferredRoutine equ 0CH
-DpDeferredContext equ 010H
-DpSystemArgument1 equ 014H
-DpSystemArgument2 equ 018H
-DpLock equ 01CH
-
-; 
-;  Fast Mutex Offset Definitions
-; 
-
-FmCount equ 00H
-FmOwner equ 04H
-FmContention equ 08H
-FmEvent equ 0CH
-FmOldIrql equ 01CH
-
-;
-;  System Time (KSYSTEM_TIME) Structure Offset Definitions
-;
-
-StLowTime equ 00H
-StHigh1Time equ 04H
-StHigh2Time equ 08H
 ;
 ;
 ;  Time Fields (TIME_FIELDS) Structure Offset Definitions
@@ -178,36 +249,6 @@ TfDay equ 04H
 TfMonth equ 02H
 TfYear equ 00H
 TfMilliseconds equ 0CH
-
-; 
-;  Interrupt Priority Request Level Definitions
-; 
-
-APC_LEVEL equ 01H
-DISPATCH_LEVEL equ 02H
-CLOCK1_LEVEL equ 01CH
-CLOCK2_LEVEL equ 01CH
-IPI_LEVEL equ 01DH
-POWER_LEVEL equ 01EH
-HIGH_LEVEL equ 01FH
-PROFILE_LEVEL equ 01BH
-
-; 
-;  Bug Check Code Definitions
-; 
-
-APC_INDEX_MISMATCH equ 01H
-NO_USER_MODE_CONTEXT equ 0EH
-INVALID_DATA_ACCESS_TRAP equ 04H
-TRAP_CAUSE_UNKNOWN equ 012H
-SYSTEM_EXIT_OWNED_MUTEX equ 039H
-KMODE_EXCEPTION_NOT_HANDLED equ 01EH
-PAGE_FAULT_WITH_INTERRUPTS_OFF equ 049H
-IRQL_GT_ZERO_AT_SYSTEM_SERVICE equ 04AH
-IRQL_NOT_LESS_OR_EQUAL equ 0AH
-UNEXPECTED_KERNEL_MODE_TRAP equ 07FH
-NMI_HARDWARE_FAILURE equ 080H
-SPIN_LOCK_INIT_FAILURE equ 081H
 
 ; 
 ;  constants for system irql and IDT vector conversion
@@ -234,6 +275,19 @@ CR0_NW equ 020000000H
 CR0_AM equ 040000H
 CR0_WP equ 010000H
 CR0_NE equ 020H
+
+; 
+;  Flags in the CR4 register
+; 
+
+CR4_VME equ 01H
+CR4_PVI equ 02H
+CR4_TSD equ 04H
+CR4_DE equ 08H
+CR4_PSE equ 010H
+CR4_PAE equ 020H
+CR4_MCE equ 040H
+CR4_PGE equ 080H
 ; 
 ;  Miscellaneous Definitions
 ; 
@@ -376,13 +430,6 @@ ProcessorStateLength equ 0120H
 MACHINE_TYPE_ISA equ 00H
 MACHINE_TYPE_EISA equ 01H
 MACHINE_TYPE_MCA equ 02H
-;
-;  KeI386NtFeatureBits defines
-;
-
-KF_V86_VIS equ 01H
-KF_RDTSC equ 02H
-KF_MACHINE_CHECK equ 04H
 ;
 ;  LoaderParameterBlock offsets relative to base
 ;

@@ -1,6 +1,6 @@
 /*++ BUILD Version: 0010    // Increment this if a change has global effects
 
-Copyright (c) 1993  Microsoft Corporation
+Copyright (c) 1995-1996  Microsoft Corporation
 
 Module Name:
 
@@ -10,21 +10,9 @@ Abstract:
 
     Header file for the Service Control Manager
 
-Author:
-
-    Dan Lafferty (danl) 19-Jan-1992
-
 Environment:
 
     User Mode - Win32
-
-Revision History:
-
-    05-Nov-1992     danl
-        Added Display Names
-
-    19-Jan-1992     danl
-        Created
 
 --*/
 #ifndef _WINSVC_

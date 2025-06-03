@@ -105,12 +105,12 @@ BOOL   CheckIfWantUpdate(TCHAR *dev, TCHAR *resource) ;
 VOID   WNetErrorExit(ULONG err);
 WCHAR  *GetLanmanProviderName(void) ;
 TCHAR   *MapWildCard(TCHAR *dev, TCHAR *startdev) ;
-USHORT  MprUseEnum(DWORD  *num_read, 
-                   NET_USE_INFO **NetUseInfoBuffer, 
+USHORT  MprUseEnum(DWORD  *num_read,
+                   NET_USE_INFO **NetUseInfoBuffer,
                    USHORT *NetUseInfoCount) ;
-USHORT LanmanUseAugment(DWORD num_read, 
+USHORT LanmanUseAugment(DWORD num_read,
                         NET_USE_INFO *NetUseInfoBuffer) ;
-USHORT UnavailUseAugment(DWORD *num_read, 
+USHORT UnavailUseAugment(DWORD *num_read,
                          NET_USE_INFO **NetUseInfoBuffer,
                          USHORT *NetUseInfoCount) ;
 VOID   MprUseDisplay(TCHAR *dev) ;
@@ -133,7 +133,7 @@ extern int YorN_Switch;
 #define USE_STATUS_UNKNOWN          ( USE_STATUS_UNAVAIL + 1 )
 #endif
 
-#define USE_REMEMBERED              0xFFFE 
+#define USE_REMEMBERED              0xFFFE
 
 static MESSAGE UseStatusList[] =
 {
@@ -235,8 +235,8 @@ VOID use_display_all(VOID)
     if (i == num_read)
         EmptyExit();    // loop reached limit, so no entries to display
 
-    NetISort(NetUseInfoBuffer, 
-             num_read, 
+    NetISort(NetUseInfoBuffer,
+             num_read,
              sizeof(NET_USE_INFO), CmpUseInfo);
 
     GetMessageList(NUM_STATUS_MSGS, UseStatusList, &maxLen);
@@ -246,7 +246,7 @@ VOID use_display_all(VOID)
     PrintLine();
 
     for (i = 0, pNetUseInfo = NetUseInfoBuffer;
-         i < num_read; 
+         i < num_read;
          i++, pNetUseInfo++)
     {
         TCHAR *status_string ;
@@ -284,18 +284,39 @@ VOID use_display_all(VOID)
                 break;
         }
 
-        if (msgno != -1) 
+        if (msgno != -1)
             status_string = UseStatusList[msgno].msg_text ;
-        else 
+        else
             status_string = TEXT("") ;
 
-        WriteToCon(TEXT("%-12.12s %-9.9Fs %-25.25s %Fs\n"), 
-                   status_string,
-                   pNetUseInfo->lpLocalName, 
-                   pNetUseInfo->lpRemoteName,
-                   pNetUseInfo->lpProviderName);
+#if defined(DBCS)
+        {
+            TCHAR Buffer1[13],Buffer2[10],Buffer3[25];
+
+            WriteToCon(TEXT("%Fs %Fs %Fs %Fs\r\n"),
+                       PaddedString(12,status_string,Buffer1),
+                       PaddedString( 9,pNetUseInfo->lpLocalName,Buffer2),
+                       PaddedString(25,pNetUseInfo->lpRemoteName,Buffer3),
+                       pNetUseInfo->lpProviderName);
+        }
+#else
+        if( wcslen( pNetUseInfo->lpRemoteName ) <= 25 ) {
+            WriteToCon(TEXT("%-12.12s %-9.9Fs %-25.25s %Fs\r\n"),
+                       status_string,
+                       pNetUseInfo->lpLocalName,
+                       pNetUseInfo->lpRemoteName,
+                       pNetUseInfo->lpProviderName);
+        } else {
+            WriteToCon(TEXT("%-12.12s %-9.9Fs %s\r\n%-12.12s %-9.9Fs %-25.25s %Fs\r\n"),
+                        status_string,
+                        pNetUseInfo->lpLocalName,
+                        pNetUseInfo->lpRemoteName,
+                        "","","",
+                        pNetUseInfo->lpProviderName);
+        }
+#endif // defined(DBCS)
     }
- 
+
     MFreeMem((LPBYTE)NetUseInfoBuffer) ;
     InfoSuccess();
 
@@ -312,7 +333,7 @@ VOID use_display_all(VOID)
  *      0 - success
  *      exit(2) - command failed
  */
-USHORT LanmanUseAugment(DWORD num_read, 
+USHORT LanmanUseAugment(DWORD num_read,
                         NET_USE_INFO *NetUseInfoBuffer)
 {
     USHORT                  err;                /* API return status */
@@ -335,7 +356,7 @@ USHORT LanmanUseAugment(DWORD num_read,
         return(NERR_Success) ;
 
     //
-    // for all MPR returned entries that are Lanman uses, 
+    // for all MPR returned entries that are Lanman uses,
     // augment with extra info if we have it.
     //
     for (i = 0;  i < num_read; i++, pNetUseInfo++)
@@ -345,7 +366,7 @@ USHORT LanmanUseAugment(DWORD num_read,
         //
         if (!(pNetUseInfo->fIsLanman))
             continue ;
- 
+
         //
         // lets find it in the NetUseEnum return data
         //
@@ -353,18 +374,18 @@ USHORT LanmanUseAugment(DWORD num_read,
             j < numLMread; j++, use_entry++)
         {
             //
-            // look for match. if device names are present & match, we've found 
+            // look for match. if device names are present & match, we've found
             // one. else we match only if remote names match *and* both device
             // names are not present.
             //
-            TCHAR *local = use_entry->ui1_local ; 
-            TCHAR *remote = use_entry->ui1_remote ; 
+            TCHAR *local = use_entry->ui1_local ;
+            TCHAR *remote = use_entry->ui1_remote ;
 
 
             if ( (local && *local && !_tcsicmp(pNetUseInfo->lpLocalName,local))
                  ||
-                 ( (!local || !*local) && 
-                   !*(pNetUseInfo->lpLocalName) && 
+                 ( (!local || !*local) &&
+                   !*(pNetUseInfo->lpLocalName) &&
                    !stricmpf(pNetUseInfo->lpRemoteName,remote)
                  )
                )
@@ -396,18 +417,18 @@ USHORT LanmanUseAugment(DWORD num_read,
  *      0 - success
  *      exit(2) - command failed
  */
-USHORT MprUseEnum(DWORD *num_read, 
-                  NET_USE_INFO **NetUseInfoBuffer, 
-                  USHORT *NetUseInfoCount) 
+USHORT MprUseEnum(DWORD *num_read,
+                  NET_USE_INFO **NetUseInfoBuffer,
+                  USHORT *NetUseInfoCount)
 {
     DWORD        EntriesRead = 0 ;
-    LPBYTE       Buffer ; 
+    LPBYTE       Buffer ;
     DWORD        dwErr ;
     HANDLE       EnumHandle ;
     DWORD        BufferSize, Count ;
     USHORT       err ;
     static TCHAR *NullString = TEXT("") ;
- 
+
     //
     // initialize
     //
@@ -459,20 +480,20 @@ USHORT MprUseEnum(DWORD *num_read,
             lpNetUseInfo = *NetUseInfoBuffer + EntriesRead ;
 
             //
-            // stick the entries into the NetUseInfoBuffer 
+            // stick the entries into the NetUseInfoBuffer
             //
-            for ( i = 0; 
-                  i < Count; 
+            for ( i = 0;
+                  i < Count;
                   i++,EntriesRead++,lpNetUseInfo++,lpNetResource++ )
             {
-                lpNetUseInfo->lpLocalName = lpNetResource->lpLocalName ? 
+                lpNetUseInfo->lpLocalName = lpNetResource->lpLocalName ?
                     lpNetResource->lpLocalName : NullString ;
-                lpNetUseInfo->lpRemoteName = lpNetResource->lpRemoteName ? 
+                lpNetUseInfo->lpRemoteName = lpNetResource->lpRemoteName ?
                     lpNetResource->lpRemoteName : NullString ;
-                lpNetUseInfo->lpProviderName = lpNetResource->lpProvider ? 
+                lpNetUseInfo->lpProviderName = lpNetResource->lpProvider ?
                     lpNetResource->lpProvider : NullString ;
                 lpNetUseInfo->dwType = lpNetResource->dwType ;
-                lpNetUseInfo->fIsLanman = 
+                lpNetUseInfo->fIsLanman =
                     (_tcscmp(lpNetResource->lpProvider,LanmanProviderName)==0) ;
                 lpNetUseInfo->dwStatus = 0xFFFFFFFF ;
                 lpNetUseInfo->dwRefCount =
@@ -514,17 +535,17 @@ USHORT MprUseEnum(DWORD *num_read,
  *      0 - success
  *      exit(2) - command failed
  */
-USHORT UnavailUseAugment(DWORD *NumRead, 
+USHORT UnavailUseAugment(DWORD *NumRead,
                          NET_USE_INFO **NetUseInfoBuffer,
-                         USHORT *NetUseInfoCount) 
+                         USHORT *NetUseInfoCount)
 {
-    LPBYTE       Buffer ; 
+    LPBYTE       Buffer ;
     DWORD        dwErr ;
     HANDLE       EnumHandle ;
     DWORD        BufferSize, Count, InitialUseInfoCount ;
     USHORT       err ;
     static TCHAR *NullString = TEXT("") ;
- 
+
     InitialUseInfoCount = *NumRead ;
 
     //
@@ -556,8 +577,8 @@ USHORT UnavailUseAugment(DWORD *NumRead,
             //
             // for each entry, see if it is an unavail one
             //
-            for ( i = 0; 
-                  i < Count; 
+            for ( i = 0;
+                  i < Count;
                   i++,lpNetResource++ )
             {
                 lpNetUseInfo =  *NetUseInfoBuffer ;
@@ -565,8 +586,8 @@ USHORT UnavailUseAugment(DWORD *NumRead,
                 //
                 // search thru the ones we already have
                 //
-                for (j = 0; 
-                     j < InitialUseInfoCount; 
+                for (j = 0;
+                     j < InitialUseInfoCount;
                      j++, ++lpNetUseInfo)
                 {
                     if (lpNetUseInfo->lpLocalName &&
@@ -592,7 +613,7 @@ USHORT UnavailUseAugment(DWORD *NumRead,
                 }
 
                 //
-                // if we broke out early, this is already connected, so 
+                // if we broke out early, this is already connected, so
                 // we dont bother add an 'unavailable' entry.
                 //
                 if (j < InitialUseInfoCount)
@@ -617,12 +638,12 @@ USHORT UnavailUseAugment(DWORD *NumRead,
                 }
 
                 lpNetUseInfo = *NetUseInfoBuffer + *NumRead ;
-               
-                lpNetUseInfo->lpLocalName = lpNetResource->lpLocalName ? 
+
+                lpNetUseInfo->lpLocalName = lpNetResource->lpLocalName ?
                     lpNetResource->lpLocalName : NullString ;
-                lpNetUseInfo->lpRemoteName = lpNetResource->lpRemoteName ? 
+                lpNetUseInfo->lpRemoteName = lpNetResource->lpRemoteName ?
                     lpNetResource->lpRemoteName : NullString ;
-                lpNetUseInfo->lpProviderName = lpNetResource->lpProvider ? 
+                lpNetUseInfo->lpProviderName = lpNetResource->lpProvider ?
                     lpNetResource->lpProvider : NullString ;
                 lpNetUseInfo->dwType = lpNetResource->dwType ;
                 lpNetUseInfo->fIsLanman = FALSE ;   // no more info of interest
@@ -716,7 +737,7 @@ VOID use_unc(TCHAR * name)
                              1,
                              (LPBYTE *) &use_entry))
     {
-        // 
+        //
         // hit an error, so just add it
         //
         NetApiBufferFree((LPBYTE) use_entry);
@@ -762,7 +783,7 @@ VOID use_display_dev(TCHAR * dev)
     if (err = MNetUseGetInfo(NULL,
                              dev,
                              1,
-                             (LPBYTE *) &use_entry)) 
+                             (LPBYTE *) &use_entry))
     {
         //
         // Lanman failed, so try MPR
@@ -779,10 +800,10 @@ VOID use_display_dev(TCHAR * dev)
     }
 }
 
-VOID   MprUseDisplay(TCHAR *dev) 
+VOID   MprUseDisplay(TCHAR *dev)
 {
     USHORT                  err ;
-    DWORD                   i, num_read;           
+    DWORD                   i, num_read;
     USHORT                  NetUseInfoCount = 0 ;
     NET_USE_INFO           *NetUseInfoBuffer = NULL ;
     NET_USE_INFO           *pNetUseInfo ;
@@ -802,7 +823,7 @@ VOID   MprUseDisplay(TCHAR *dev)
     {
         if (_tcsicmp(dev,pNetUseInfo->lpLocalName)==0)
         {
-            // found it 
+            // found it
             switch(pNetUseInfo->dwType)
             {
                 case RESOURCETYPE_DISK:
@@ -815,31 +836,34 @@ VOID   MprUseDisplay(TCHAR *dev)
                     type   = APE2_GEN_UNKNOWN;
                     break;
             }
-        
+
             UseMsgList[USE_TYPE_TBD].msg_number = type;
-        
+
             GetMessageList(NUM_USE_MSGS, UseMsgList, &maxLen);
             len = maxLen + (USHORT) 5;
-        
-            WriteToCon(fmtPSZ, len, len, UseMsgList[USE_MSG_LOCAL].msg_text,
-                pNetUseInfo->lpLocalName);
-        
-            WriteToCon(fmtPSZ, len, len, UseMsgList[USE_MSG_REMOTE].msg_text,
-                pNetUseInfo->lpRemoteName);
-        
-            WriteToCon(fmtNPSZ, len, len, UseMsgList[USE_MSG_TYPE].msg_text,
-                UseMsgList[USE_TYPE_TBD].msg_text);
 
-            return ; 
+            WriteToCon(fmtPSZ,0,len,
+                       PaddedString(len,UseMsgList[USE_MSG_LOCAL].msg_text,NULL),
+                       pNetUseInfo->lpLocalName);
+
+            WriteToCon(fmtPSZ,0,len,
+                       PaddedString(len,UseMsgList[USE_MSG_REMOTE].msg_text,NULL),
+                       pNetUseInfo->lpRemoteName);
+
+            WriteToCon(fmtNPSZ,0,len,
+                       PaddedString(len,UseMsgList[USE_MSG_TYPE].msg_text,NULL),
+                       UseMsgList[USE_TYPE_TBD].msg_text);
+
+            return ;
         }
     }
 
     //
-    // reached end and not found it. 
+    // reached end and not found it.
     //
     ErrorExit(NERR_UseNotFound);
 }
-        
+
 
 /***
  *  use_add()
@@ -870,6 +894,7 @@ VOID use_add(TCHAR * dev, TCHAR * name, TCHAR * pass, int comm, int print_ok)
     LPWSTR                  pw_username = NULL;
     LPWSTR                  pw_pass     = NULL;
     TCHAR                   *devicename = dev ;
+    BOOL                    fExitCodeIsDrive = FALSE ;
 
     // unreferenced
     (void) comm ;
@@ -882,8 +907,14 @@ VOID use_add(TCHAR * dev, TCHAR * name, TCHAR * pass, int comm, int print_ok)
     // deal with any wild card Device specification
     if (devicename)
     {
+        // If the devicname is a '?', then the exit code should be the ASCII
+        // value of the drive that we connect.
+        if (IsQuestionMark(devicename))
+        {
+            fExitCodeIsDrive = TRUE;
+        }
         devicename = MapWildCard(devicename, NULL) ;
-        if (!devicename) 
+        if (!devicename)
         {
             // this can omly happen if no drives left
             ErrorExit(APE_UseWildCardNoneLeft) ;
@@ -1031,8 +1062,12 @@ VOID use_add(TCHAR * dev, TCHAR * name, TCHAR * pass, int comm, int print_ok)
                     }
                     InfoSuccess();
                 }
+                if (fExitCodeIsDrive)
+                {
+                    MyExit((int)devicename[0]);
+                }
                 return;
-    
+
             case WN_BAD_PASSWORD:
             case WN_ACCESS_DENIED:
             case ERROR_LOGON_FAILURE:
@@ -1049,14 +1084,14 @@ VOID use_add(TCHAR * dev, TCHAR * name, TCHAR * pass, int comm, int print_ok)
                 // Get another drive letter
                 (devicename[0])++;
                 devicename = MapWildCard(TEXT("*"), devicename) ;
-                if (!devicename) 
+                if (!devicename)
                 {
                     // this can only happen if no drives left
                     ErrorExit(APE_UseWildCardNoneLeft) ;
                 }
                 netresource.lpLocalName = devicename ;
                 break;
-    
+
             case WN_BAD_NETNAME:
                 if (is_admin_dollar(name))
                     ErrorExit(APE_BadAdminConfig);
@@ -1066,7 +1101,7 @@ VOID use_add(TCHAR * dev, TCHAR * name, TCHAR * pass, int comm, int print_ok)
                 WNetErrorExit(ulErr);
         }
 
-    } while ( ulErr == ERROR_ALREADY_ASSIGNED ); 
+    } while ( ulErr == ERROR_ALREADY_ASSIGNED );
 
 
 /***
@@ -1111,6 +1146,10 @@ VOID use_add(TCHAR * dev, TCHAR * name, TCHAR * pass, int comm, int print_ok)
             InfoPrintIns(APE_UseWildCardSuccess, 2) ;
         }
         InfoSuccess();
+    }
+    if (fExitCodeIsDrive)
+    {
+         MyExit((int)devicename[0]);
     }
 }
 
@@ -1258,8 +1297,8 @@ VOID use_del_all()
             break;
     }
 
-    NetISort(NetUseInfoBuffer, 
-             num_read, 
+    NetISort(NetUseInfoBuffer,
+             num_read,
              sizeof(NET_USE_INFO), CmpUseInfo);
 
     if (i != num_read)
@@ -1267,20 +1306,20 @@ VOID use_del_all()
         InfoPrint(APE_KillDevList);
 
         for (i = 0, pNetUseInfo = NetUseInfoBuffer;
-             i < num_read; 
+             i < num_read;
              i++, pNetUseInfo++)
         {
             if (pNetUseInfo->lpLocalName[0] != NULLC)
-                WriteToCon(TEXT("    %-15.15Fws %Fws\n"),
-                           pNetUseInfo->lpLocalName,
+                WriteToCon(TEXT("    %Fws %Fws\r\n"),
+                           PaddedString(15,pNetUseInfo->lpLocalName,NULL),
                            pNetUseInfo->lpRemoteName);
             else if ((pNetUseInfo->lpLocalName[0] == NULLC) &&
                      ((pNetUseInfo->dwUseCount != 0) ||
                      (pNetUseInfo->dwRefCount != 0)))
-                WriteToCon(TEXT("    %-15.15Fws %Fws\n"),
-                           pNetUseInfo->lpLocalName,
+                WriteToCon(TEXT("    %Fws %Fws\r\n"),
+                           PaddedString(15,pNetUseInfo->lpLocalName,NULL),
                            pNetUseInfo->lpRemoteName);
-                           
+
         }
 
         InfoPrint(APE_KillCancel);
@@ -1294,7 +1333,7 @@ VOID use_del_all()
     ulFirstErr = NO_ERROR;
 
     for (i = 0, pNetUseInfo = NetUseInfoBuffer;
-         i < num_read; 
+         i < num_read;
          i++, pNetUseInfo++)
     {
         /* delete both local and UNC uses */
@@ -1369,7 +1408,7 @@ VOID use_del_all()
             ulFirstErr = ulErr;
         }
     }
- 
+
     MFreeMem((LPBYTE)NetUseInfoBuffer) ;
 
     if (ulFirstErr != NO_ERROR)
@@ -1442,23 +1481,29 @@ VOID NEAR LanmanDisplayUse(struct use_info_1 FAR * use_entry)
     GetMessageList(NUM_USE_MSGS, UseMsgList, &maxLen);
     len = maxLen + (USHORT) 5;
 
-    WriteToCon(fmtPSZ, len, len, UseMsgList[USE_MSG_LOCAL].msg_text,
-        use_entry->ui1_local);
+    WriteToCon(fmtPSZ,0,len,
+               PaddedString(len, UseMsgList[USE_MSG_LOCAL].msg_text, NULL),
+               use_entry->ui1_local);
 
-    WriteToCon(fmtPSZ, len, len, UseMsgList[USE_MSG_REMOTE].msg_text,
-        use_entry->ui1_remote);
+    WriteToCon(fmtPSZ,0,len,
+               PaddedString(len, UseMsgList[USE_MSG_REMOTE].msg_text, NULL),
+               use_entry->ui1_remote);
 
-    WriteToCon(fmtNPSZ, len, len, UseMsgList[USE_MSG_TYPE].msg_text,
-        UseMsgList[USE_TYPE_TBD].msg_text);
+    WriteToCon(fmtNPSZ,0,len,
+               PaddedString(len, UseMsgList[USE_MSG_TYPE].msg_text, NULL),
+               UseMsgList[USE_TYPE_TBD].msg_text);
 
-    WriteToCon(fmtNPSZ, len, len, UseMsgList[USE_MSG_STATUS].msg_text,
-        UseMsgList[USE_STATUS_TBD].msg_text);
+    WriteToCon(fmtNPSZ,0,len,
+               PaddedString(len, UseMsgList[USE_MSG_STATUS].msg_text, NULL),
+               UseMsgList[USE_STATUS_TBD].msg_text);
 
-    WriteToCon(fmtUSHORT, len, len, UseMsgList[USE_MSG_OPEN_COUNT].msg_text,
-        use_entry->ui1_refcount);
+    WriteToCon(fmtUSHORT,0,len,
+               PaddedString(len, UseMsgList[USE_MSG_OPEN_COUNT].msg_text, NULL),
+               use_entry->ui1_refcount);
 
-    WriteToCon(fmtUSHORT, len, len, UseMsgList[USE_MSG_USE_COUNT].msg_text,
-        use_entry->ui1_usecount);
+    WriteToCon(fmtUSHORT,0,len,
+               PaddedString(len, UseMsgList[USE_MSG_USE_COUNT].msg_text, NULL),
+               use_entry->ui1_usecount);
 }
 
 /***
@@ -1480,7 +1525,7 @@ TCHAR *Pass;
 {
     USHORT                   Err;                   /* API return status */
     TCHAR                     HomeDir[PATHLEN];
-    TCHAR                     Server[UNCLEN + 1];
+    TCHAR                     Server[MAX_PATH + 1];
     TCHAR FAR                *SubPath;
     ULONG                    Type;
     TCHAR                     User[UNLEN + 1];
@@ -1553,7 +1598,7 @@ TCHAR *Pass;
     if (DeviceName)
     {
         DeviceName = MapWildCard(DeviceName, NULL) ;
-        if (!DeviceName) 
+        if (!DeviceName)
         {
             // this can only happen if no drives left
             ErrorExit(APE_UseWildCardNoneLeft) ;
@@ -1600,7 +1645,7 @@ UseInit(VOID)
 {
 
     LanmanProviderName = GetLanmanProviderName() ;
-    if (LanmanProviderName == NULL) 
+    if (LanmanProviderName == NULL)
         LanmanProviderName = TEXT("") ;
 }
 
@@ -1674,6 +1719,9 @@ VOID WNetErrorExit(ULONG ulWNetErr)
             break ;
 
         case WN_NO_NET_OR_BAD_PATH :
+            err = ERROR_BAD_NET_NAME ;
+            break ;
+
         case WN_NO_NETWORK :
             err = NERR_WkstaNotStarted ;
             break ;
@@ -1721,7 +1769,7 @@ VOID WNetErrorExit(ULONG ulWNetErr)
 
                 IStrings[0] = ultow(ulExtendedError, buf, 10);
                 ErrorPrint(APE_OS2Error,1) ;
-                WriteToCon(TEXT("%ws\n"), w_ErrorText) ;
+                WriteToCon(TEXT("%ws\r\n"), w_ErrorText) ;
                 MyExit(2) ;
             }
 
@@ -1812,7 +1860,7 @@ BOOL   CheckIfWantUpdate(TCHAR *dev, TCHAR *resource)
 
 
 
-#define PROVIDER_NAME_LEN    256 
+#define PROVIDER_NAME_LEN    256
 #define PROVIDER_NAME_VALUE  L"Name"
 #define PROVIDER_NAME_KEY    L"System\\CurrentControlSet\\Services\\LanmanWorkstation\\NetworkProvider"
 
@@ -1830,7 +1878,7 @@ BOOL   CheckIfWantUpdate(TCHAR *dev, TCHAR *resource)
  *      NULL if cannot read registry
  *	ErrorExit() for other errors.
  */
-WCHAR *GetLanmanProviderName(void) 
+WCHAR *GetLanmanProviderName(void)
 {
     LONG   Nerr;
     USHORT err ;
@@ -1856,7 +1904,7 @@ WCHAR *GetLanmanProviderName(void)
         // we cannot get to this.
         return NULL ;
     }
- 
+
     Nerr = RegQueryValueExW(hKey,
                            PROVIDER_NAME_VALUE,
                            0L,
@@ -1890,7 +1938,7 @@ WCHAR *GetLanmanProviderName(void)
         return(NULL) ;  // treat as cannot read
     }
 
-                  
+
     return ( (WCHAR *) buffer ) ;
 }
 
@@ -1910,8 +1958,8 @@ TCHAR *MapWildCard(TCHAR *dev, TCHAR *startdev)
 {
     static TCHAR new_dev[DEVLEN+1] ;
 
-    // 
-    // if not the wold card char, just return it unchanged 
+    //
+    // if not the wold card char, just return it unchanged
     //
     if (!IsWildCard(dev))
         return dev ;
@@ -1928,18 +1976,41 @@ TCHAR *MapWildCard(TCHAR *dev, TCHAR *startdev)
 
     while ( TRUE )
     {
-         if (GetDriveType(new_dev) == 1)	// 1 means root not found
-         {
-             new_dev[2] = 0 ;
-             return (new_dev) ;
-         }
-         if ( new_dev[0] == 'z' || new_dev[0] == 'Z' )
-             break;
+        if (GetDriveType(new_dev) == 1)	// 1 means root not found
+        {
+            //
+            // check if it's a remembered connection
+            //
+            DWORD status;
+            TCHAR remote_name[40];  // length doesn't matter since we
+                                    // check for WN_MORE_DATA
+            DWORD length = sizeof(remote_name)/sizeof(TCHAR);
 
-         ++new_dev[0] ;
+            new_dev[2] = 0 ;
+
+            status = WNetGetConnection(new_dev, remote_name, &length);
+            if (status == WN_CONNECTION_CLOSED ||
+                status == WN_MORE_DATA ||
+                status == WN_SUCCESS)
+            {
+                //
+                // it's a remembered connection; try the next drive
+                //
+                new_dev[2] = TEXT('\\');
+            }
+            else
+            {
+                return (new_dev) ;
+            }
+        }
+
+        if ( new_dev[0] == 'z' || new_dev[0] == 'Z' )
+            break;
+
+        ++new_dev[0] ;
     }
 
-    // 
+    //
     // if we got here, there were no drives left
     //
     return NULL ;

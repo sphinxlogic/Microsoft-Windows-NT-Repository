@@ -21,16 +21,21 @@
 
 #include <mvdm.h>
 #include <bop.h>
+#ifndef NOEXTERNS
 #include <softpc.h>
+#endif
 #include <wownt32.h>
 
 #ifdef i386
+#ifndef DEBUG     // should be DEBUG_OR_WOWPROFILE, but
+                  // that won't work for assembler as things are.
 
 //
 // Flag to control enable/disable W32TryCall function.
 //
 
 #define NO_W32TRYCALL 1
+#endif
 #endif
 
 /* WOW constants
@@ -54,7 +59,7 @@
 #define LOG(l,args)
 #define SETREQLOG(l)
 #else
-#define SETREQLOG(l) iReqLogLevel = l
+#define SETREQLOG(l) iReqLogLevel = (l)
 #define LOG(l,args)  {SETREQLOG(l) ; logprintf args;}
 #endif
 #define MODNAME(module)
@@ -368,6 +373,8 @@ typedef struct _VDMFRAME {  /* vf */
     WORD    wAX;        //
     WORD    wDX;        // keep DX right after AX!!!
     WORD    wAppDS;     // app DS at time of call
+    WORD    wGS;
+    WORD    wFS;
     WORD    wCX;        // REMOVE LATER
     WORD    wES;        // REMOVE LATER
     WORD    wBX;        // REMOVE LATER
@@ -839,6 +846,29 @@ typedef struct _DEVMODE16 {     /* dm16 */
 } DEVMODE16;
 typedef DEVMODE16 UNALIGNED *PDEVMODE16;
 typedef VPVOID VPDEVMODE16;
+
+typedef struct _DEVMODE31 {     /* dm31 */
+    CHAR    dmDeviceName[32];
+    WORD    dmSpecVersion;
+    WORD    dmDriverVersion;
+    WORD    dmSize;
+    WORD    dmDriverExtra;
+    DWORD   dmFields;
+    SHORT   dmOrientation;
+    SHORT   dmPaperSize;
+    SHORT   dmPaperLength;
+    SHORT   dmPaperWidth;
+    SHORT   dmScale;
+    SHORT   dmCopies;
+    SHORT   dmDefaultSource;
+    SHORT   dmPrintQuality;
+    SHORT   dmColor;
+    SHORT   dmDuplex;
+    SHORT   dmYResolution;
+    SHORT   dmTTOption;
+} DEVMODE31;
+typedef DEVMODE31 UNALIGNED *PDEVMODE31;
+typedef VPVOID VPDEVMODE31;
 
 typedef struct _CREATESTRUCT16 {    /* cws16 */
     VPBYTE  vpCreateParams;
@@ -1407,28 +1437,17 @@ typedef VPVOID VPOLDCURSORICONRESOURCE16;
 
 #define RET_ENUMPROPSPROC   35
 
-#define RET_MIDIINFUNC       36 // IN:all
-                                // OUT:DX:AX=wndproc return cod
+#define RET_FORCESEGMENTFAULT 36 //  Make a segment present
 
-#define RET_MIDIOUTFUNC      37 // IN:all
-                                // OUT:DX:AX=wndproc return cod
-
-#define RET_IOPROC           38 // IN:all
-                                // OUT:DX:AX=wndproc return cod
-
-#define RET_TIMEFUNC         39 // IN:all
-                                // OUT:DX:AX=wndproc return cod
-
-#define RET_WAVEINFUNC       40 // IN:all
-                                // OUT:DX:AX=wndproc return cod
-
-#define RET_WAVEOUTFUNC      41 // IN:all
-                                // OUT:DX:AX=wndproc return cod
+                                //  37 FREE
+                                //  38 FREE
+                                //  39 FREE
+                                //  40 FREE
+                                //  41 FREE
 
 #define RET_GETEXEPTR        42 // Call KRNL286:GetExePtr
 
-
-#define RET_GETMODULEUSAGE   43 // Call KRNL286:GetModuleUsage
+                                //  43 FREE
 
 #define RET_FORCETASKFAULT   44 // Force a Fault
 #define RET_GETEXPWINVER     45 // Call KRNL286:GetExpWinVer
@@ -1514,7 +1533,7 @@ typedef VPVOID VPOLDCURSORICONRESOURCE16;
  */
 
 /* ASM
-Thunk       macro   mod,func,callfirst,args,val
+Thunk       macro   mod,func,callfirst,args,val,emptybuf
     ifidni  <args>,<abs>
     public func
     ifb    <val>
@@ -1560,6 +1579,18 @@ Thunk       macro   mod,func,callfirst,args,val
             cBegin <nogen>
         endif
         endif
+    endif
+
+    ; Make the passed in buffer into an empty string by writing null
+    ; to the first position. Win 3.1 IGetWindowText does this, and
+    ; WinFax Pro depends on this behaviour.
+    ifnb   <emptybuf>
+        push    bp
+        mov     bp, sp
+        mov     bx, [bp+8]
+        mov     es, [bp+0Ah]
+        mov     byte ptr es:[bx], 0
+        pop     bp
     endif
 
     ifdifi <callfirst>,<0>
@@ -1623,6 +1654,10 @@ PDUserThunk  macro func,callfirst,args,val
     Thunk   DUSER,func,callfirst,args,val
 endm
 
+EUserThunk  macro func,args,val
+    Thunk   USER,func,0,args,val,0
+endm
+
 GDIThunk    macro func,args,val
     Thunk   GDI,func,0,args,val
 endm
@@ -1664,4 +1699,3 @@ CommdlgThunk macro func,args,val
 endm
 
  */
-

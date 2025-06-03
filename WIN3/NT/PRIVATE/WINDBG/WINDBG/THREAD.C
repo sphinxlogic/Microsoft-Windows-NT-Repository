@@ -346,7 +346,7 @@ Return Value:
             ThEmptyList();
             return TRUE;
 
-        case IDHELP:
+        case IDWINDBGHELP:
             Dbg( WinHelp( hDlg, szHelpFileName, HELP_CONTEXT, ID_THREAD_HELP ));
             return TRUE;
 

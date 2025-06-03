@@ -28,6 +28,7 @@ NullSrvInit()
     UNICODE_STRING Name;
     OBJECT_ATTRIBUTES ObjA;
     HANDLE h, NullSrvApiConnectionPort;
+    DWORD id;
 
     RtlInitUnicodeString( &Name, L"\\NullSrv" );
     InitializeObjectAttributes( &ObjA, &Name, 0, NULL, NULL );
@@ -37,52 +38,38 @@ NullSrvInit()
             &ObjA,
             0L,
             sizeof(NULLAPIMSG),
-            sizeof(NULLAPIMSG) * 32,
-            TRUE
+            sizeof(NULLAPIMSG) * 32
             );
-    ASSERT( NT_SUCCESS(st) );
+    if ( !NT_SUCCESS(st) ) {
+        printf("NtCreatePort failed %x\n",st);
+        ExitProcess(1);
+        }
 
-    st = RtlCreateUserThread(
-            NtCurrentProcess(),
+    h = CreateThread(
             NULL,
-            FALSE,
-            0L,
-            0L,
-            0L,
+            0,
             NullSrvApiLoop,
             (PVOID) NullSrvApiConnectionPort,
-            NULL,
-            NULL
+            0,
+            &id
             );
-    ASSERT( NT_SUCCESS(st) );
+    if ( !h ) {
+        printf("CreateThread failed %d\n",GetLastError());
+        ExitProcess(1);
+        }
 
-    st = RtlCreateUserThread(
-            NtCurrentProcess(),
+    h = CreateThread(
             NULL,
-            FALSE,
-            0L,
-            0L,
-            0L,
+            0,
             NullSrvApiLoop,
             (PVOID) NullSrvApiConnectionPort,
-            NULL,
-            NULL
+            0,
+            &id
             );
-    ASSERT( NT_SUCCESS(st) );
-
-    st = RtlCreateUserThread(
-            NtCurrentProcess(),
-            NULL,
-            FALSE,
-            0L,
-            0L,
-            0L,
-            NullSrvListenLoop,
-            (PVOID) NullSrvApiConnectionPort,
-            NULL,
-            NULL
-            );
-    ASSERT( NT_SUCCESS(st) );
+    if ( !h ) {
+        printf("CreateThread failed %d\n",GetLastError());
+        ExitProcess(1);
+        }
 
     return( st );
 }

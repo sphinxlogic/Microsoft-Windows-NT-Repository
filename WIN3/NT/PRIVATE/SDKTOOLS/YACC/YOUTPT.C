@@ -58,7 +58,7 @@ void output(void)
                         fprintf( foutput,
                         "\n%d: reduce/reduce conflict (red'ns %d and %d ) on %s",
                         i, -temp1[k], lastred, symnam(k) );
-                     if( -temp1[k] > lastred ) temp1[k] = -lastred;
+                     if( -temp1[k] > lastred ) temp1[k] = -lastred;
                      ++zzrrconf;
                      }
                   else

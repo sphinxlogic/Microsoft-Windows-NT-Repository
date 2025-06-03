@@ -3491,31 +3491,6 @@ cBegin
         mov     cx, owner
 ifdef WOW
 
-        push    ds
-        SetKernelDS
-        test    WinFlags,WF_CPU286
-        jnz     dont_do_it
-.386
-        mov     ax,fs
-        and     ax, not 7           ; remove ring bits
-        push    bx
-        and     bx, not 7           ; remove ring bits
-        cmp     ax,bx
-        pop     bx
-        jnz     dont_do_it
-
-        xor     ax,ax               ; QuatroPro passes around FS which is
-        mov     fs,ax               ; about to be made not present.  Since we
-                                    ; can't live with not present selectors
-                                    ; in segment registers, we just blow it
-                                    ; away
-
-; BUGBUG should do the same for GS
-.286p
-
-dont_do_it:
-        pop     ds
-
         smov    es, ss
         lea     di, DscBuf
         DPMICALL 000Bh                  ; Get current descriptor
@@ -4141,6 +4116,22 @@ cBegin
     ; Not used in krnl286
         xor     ax,ax
         xor     dx,dx
+cEnd
+
+cProc   RestoreDib,<PUBLIC,NEAR>
+        parmW   selector
+        parmW   flags
+        parmD   address
+cBegin
+    ; Not used in krnl286
+        xor     ax,ax
+        xor     dx,dx
+cEnd
+
+cProc   DibRealloc,<PUBLIC,FAR>
+        parmW   Selector
+        parmW   NewSize
+cBegin
 cEnd
 
 endif

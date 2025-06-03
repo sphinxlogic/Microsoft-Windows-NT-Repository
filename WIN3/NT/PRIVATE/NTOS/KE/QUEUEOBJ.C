@@ -34,7 +34,7 @@ Revision History:
 
 VOID
 KeInitializeQueue (
-    IN PKQUEUE Queue,
+    IN PRKQUEUE Queue,
     IN ULONG Count OPTIONAL
     )
 
@@ -66,7 +66,7 @@ Return Value:
     //
 
     Queue->Header.Type = QueueObject;
-    Queue->Header.Size = sizeof(KQUEUE);
+    Queue->Header.Size = sizeof(KQUEUE) / sizeof(LONG);
     Queue->Header.SignalState = 0;
     InitializeListHead(&Queue->Header.WaitListHead);
 
@@ -90,7 +90,7 @@ Return Value:
 
 LONG
 KeReadStateQueue (
-    IN PKQUEUE Queue
+    IN PRKQUEUE Queue
     )
 
 /*++
@@ -122,7 +122,7 @@ Return Value:
 
 LONG
 KeInsertQueue (
-    IN PKQUEUE Queue,
+    IN PRKQUEUE Queue,
     IN PLIST_ENTRY Entry
     )
 
@@ -154,6 +154,7 @@ Return Value:
     LONG OldState;
 
     ASSERT_QUEUE(Queue);
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
 
     //
     // Raise IRQL to dispatcher level and lock dispatcher database.
@@ -165,7 +166,64 @@ Return Value:
     // Insert the specified entry in the queue object entry list.
     //
 
-    OldState = KiInsertQueue(Queue, Entry);
+    OldState = KiInsertQueue(Queue, Entry, FALSE);
+
+    //
+    // Unlock the dispather database, lower IRQL to the previous level, and
+    // return signal state of Queue object.
+    //
+
+    KiUnlockDispatcherDatabase(OldIrql);
+    return OldState;
+}
+
+LONG
+KeInsertHeadQueue (
+    IN PRKQUEUE Queue,
+    IN PLIST_ENTRY Entry
+    )
+
+/*++
+
+Routine Description:
+
+    This function inserts the specified entry in the queue object entry
+    list and attempts to satisfy the wait of a single waiter.
+
+    N.B. The wait discipline for Queue object is LIFO.
+
+Arguments:
+
+    Queue - Supplies a pointer to a dispatcher object of type Queue.
+
+    Entry - Supplies a pointer to a list entry that is inserted in the
+        queue object entry list.
+
+Return Value:
+
+    The previous signal state of the Queue object.
+
+--*/
+
+{
+
+    KIRQL OldIrql;
+    LONG OldState;
+
+    ASSERT_QUEUE(Queue);
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
+
+    //
+    // Raise IRQL to dispatcher level and lock dispatcher database.
+    //
+
+    KiLockDispatcherDatabase(&OldIrql);
+
+    //
+    // Insert the specified entry in the queue object entry list.
+    //
+
+    OldState = KiInsertQueue(Queue, Entry, TRUE);
 
     //
     // Unlock the dispather database, lower IRQL to the previous level, and
@@ -178,7 +236,7 @@ Return Value:
 
 PLIST_ENTRY
 KeRemoveQueue (
-    IN PKQUEUE Queue,
+    IN PRKQUEUE Queue,
     IN KPROCESSOR_MODE WaitMode,
     IN PLARGE_INTEGER Timeout OPTIONAL
     )
@@ -216,15 +274,17 @@ Return Value:
 
     LARGE_INTEGER NewTime;
     PLIST_ENTRY Entry;
-    PKTHREAD NextThread;
+    PRKTHREAD NextThread;
     KIRQL OldIrql;
-    PKQUEUE OldQueue;
-    PKTHREAD Thread;
-    PKTIMER Timer;
-    PKWAIT_BLOCK WaitBlock;
+    PRKQUEUE OldQueue;
+    PLARGE_INTEGER OriginalTime;
+    PRKTHREAD Thread;
+    PRKTIMER Timer;
+    PRKWAIT_BLOCK WaitBlock;
     NTSTATUS WaitStatus;
 
     ASSERT_QUEUE(Queue);
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
 
     //
     // If the dispatcher database lock is not already held, then set the wait
@@ -246,8 +306,8 @@ Return Value:
     // the new queue is the same as the old queue.
     //
 
-    OldQueue = (PKQUEUE)Thread->SuspendApc.NormalContext;
-    (PKQUEUE)Thread->SuspendApc.NormalContext = Queue;
+    OldQueue = Thread->Queue;
+    Thread->Queue = Queue;
     if (Queue != OldQueue) {
 
         //
@@ -256,7 +316,7 @@ Return Value:
         // activate another thread.
         //
 
-        Entry = (PLIST_ENTRY)(&Thread->SuspendApc.SystemArgument1);
+        Entry = &Thread->QueueListEntry;
         if (OldQueue != NULL) {
             RemoveEntryList(Entry);
             KiActivateWaiterQueue(OldQueue);
@@ -293,6 +353,7 @@ Return Value:
     // to be inserted in the queue.
     //
 
+    OriginalTime = Timeout;
     do {
 
         //
@@ -314,7 +375,11 @@ Return Value:
             Queue->Header.SignalState -= 1;
             Queue->CurrentCount += 1;
             if ((Entry->Flink == NULL) || (Entry->Blink == NULL)) {
-                DbgBreakPoint();
+                KeBugCheckEx(INVALID_WORK_QUEUE_ITEM,
+                             (ULONG)Entry,
+                             (ULONG)Queue,
+                             (ULONG)&ExWorkerQueue[0],
+                             (ULONG)((PWORK_QUEUE_ITEM)Entry)->WorkerRoutine);
             }
 
             RemoveEntryList(Entry);
@@ -374,7 +439,7 @@ Return Value:
 
                 Thread->WaitStatus = (NTSTATUS)0;
                 WaitBlock = &Thread->WaitBlock[0];
-                WaitBlock->Object = Queue;
+                WaitBlock->Object = (PVOID)Queue;
                 WaitBlock->WaitKey = (CSHORT)(STATUS_SUCCESS);
                 WaitBlock->WaitType = WaitAny;
                 WaitBlock->Thread = Thread;
@@ -438,19 +503,12 @@ Return Value:
                 // state to Waiting, and insert the thread in the wait list.
                 //
 
-                KeWaitReason[WrQueue] += 1;
                 Thread->Alertable = FALSE;
                 Thread->WaitMode = WaitMode;
                 Thread->WaitReason = WrQueue;
                 Thread->WaitTime = KiQueryLowTickCount();
                 Thread->State = Waiting;
-                InsertTailList(&KiWaitInListHead, &Thread->WaitListEntry);
-
-                //
-                // Select next thread to execute.
-                //
-
-                NextThread = KiSelectNextThread(Thread);
+                KiInsertWaitList(WaitMode, Thread);
 
                 //
                 // Switch context to selected thread.
@@ -461,7 +519,7 @@ Return Value:
                 ASSERT(KeIsExecutingDpc() == FALSE);
                 ASSERT(Thread->WaitIrql <= DISPATCH_LEVEL);
 
-                WaitStatus = KiSwapContext(NextThread, FALSE);
+                WaitStatus = KiSwapThread();
 
                 //
                 // If the thread was not awakened to deliver a kernel mode APC,
@@ -479,7 +537,7 @@ Return Value:
                     // Reduce the amount of time remaining before timeout occurs.
                     //
 
-                    Timeout = KiComputeWaitInterval(Timer, &NewTime);
+                    Timeout = KiComputeWaitInterval(Timer, OriginalTime, &NewTime);
                 }
             }
 
@@ -506,7 +564,7 @@ Return Value:
 
 PLIST_ENTRY
 KeRundownQueue (
-    IN PKQUEUE Queue
+    IN PRKQUEUE Queue
     )
 
 /*++
@@ -538,6 +596,7 @@ Return Value:
     PKTHREAD Thread;
 
     ASSERT_QUEUE(Queue);
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
 
     //
     // Raise IRQL to dispatch level and lock the dispatcher database.
@@ -567,8 +626,8 @@ Return Value:
 
     while (Queue->ThreadListHead.Flink != &Queue->ThreadListHead) {
         Entry = Queue->ThreadListHead.Flink;
-        Thread = CONTAINING_RECORD(Entry, KTHREAD, SuspendApc.SystemArgument1);
-        Thread->SuspendApc.NormalContext = NULL;
+        Thread = CONTAINING_RECORD(Entry, KTHREAD, QueueListEntry);
+        Thread->Queue = NULL;
         RemoveEntryList(Entry);
     }
 
@@ -584,7 +643,7 @@ Return Value:
 VOID
 FASTCALL
 KiActivateWaiterQueue (
-    IN PKQUEUE Queue
+    IN PRKQUEUE Queue
     )
 
 /*++
@@ -610,10 +669,10 @@ Return Value:
 
 {
 
-    PLIST_ENTRY Entry;
-    PKTHREAD Thread;
-    PKWAIT_BLOCK WaitBlock;
-    PLIST_ENTRY WaitEntry;
+    PRLIST_ENTRY Entry;
+    PRKTHREAD Thread;
+    PRKWAIT_BLOCK WaitBlock;
+    PRLIST_ENTRY WaitEntry;
 
     //
     // Decrement the current count of active threads and check if another
@@ -625,7 +684,6 @@ Return Value:
     //
 
     Queue->CurrentCount -= 1;
-
     if (Queue->CurrentCount < Queue->MaximumCount) {
         Entry = Queue->EntryListHead.Flink;
         WaitEntry = Queue->Header.WaitListHead.Blink;
@@ -646,8 +704,9 @@ Return Value:
 LONG
 FASTCALL
 KiInsertQueue (
-    IN PKQUEUE Queue,
-    IN PLIST_ENTRY Entry
+    IN PRKQUEUE Queue,
+    IN PLIST_ENTRY Entry,
+    IN BOOLEAN Head
     )
 
 /*++
@@ -666,6 +725,10 @@ Arguments:
     Entry - Supplies a pointer to a list entry that is inserted in the
         queue object entry list.
 
+    Head - Supplies a boolean value that determines whether the queue
+        entry is inserted at the head or tail of the queue if it can
+        not be immediately dispatched.
+
 Return Value:
 
     The previous signal state of the Queue object.
@@ -675,7 +738,7 @@ Return Value:
 {
 
     LONG OldState;
-    PKTHREAD Thread;
+    PRKTHREAD Thread;
     PKTIMER Timer;
     PKWAIT_BLOCK WaitBlock;
     PLIST_ENTRY WaitEntry;
@@ -699,7 +762,7 @@ Return Value:
     WaitEntry = Queue->Header.WaitListHead.Blink;
     if ((WaitEntry != &Queue->Header.WaitListHead) &&
         (Queue->CurrentCount < Queue->MaximumCount) &&
-        (((PKQUEUE)Thread->SuspendApc.NormalContext != Queue) ||
+        ((Thread->Queue != Queue) ||
         (Thread->WaitReason != WrQueue))) {
 
         //
@@ -710,12 +773,6 @@ Return Value:
         RemoveEntryList(WaitEntry);
         WaitBlock = CONTAINING_RECORD(WaitEntry, KWAIT_BLOCK, WaitListEntry);
         Thread = WaitBlock->Thread;
-
-        //
-        // Decrement the number of threads waiting for the specified reason.
-        //
-
-        KeWaitReason[WrQueue] -= 1;
 
         //
         // Set the wait completion status, remove the thread from its wait
@@ -733,7 +790,7 @@ Return Value:
         //
 
         Timer = &Thread->Timer;
-        if (Timer->Inserted == TRUE) {
+        if (Timer->Header.Inserted == TRUE) {
             KiRemoveTreeTimer(Timer);
         }
 
@@ -745,7 +802,12 @@ Return Value:
 
     } else {
         Queue->Header.SignalState += 1;
-        InsertTailList(&Queue->EntryListHead, Entry);
+        if (Head != FALSE) {
+            InsertHeadList(&Queue->EntryListHead, Entry);
+
+        } else {
+            InsertTailList(&Queue->EntryListHead, Entry);
+        }
     }
 
     return OldState;

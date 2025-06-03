@@ -54,7 +54,24 @@ HOOKSTATEDATA vaHookStateData[] = {
            0, FALSE, 0, NULL, (HKPROC)WU32SubStdHookProc12,0, 0, 0, NULL,
            0, FALSE, 0, NULL, (HKPROC)WU32SubStdHookProc13,0, 0, 0, NULL,
            0, FALSE, 0, NULL, (HKPROC)WU32SubStdHookProc14,0, 0, 0, NULL,
-           0, FALSE, 0, NULL, (HKPROC)WU32SubStdHookProc15,0, 0, 0, NULL
+           0, FALSE, 0, NULL, (HKPROC)WU32SubStdHookProc15,0, 0, 0, NULL,
+           0, FALSE, 0, NULL, (HKPROC)WU32SubStdHookProc16,0, 0, 0, NULL,
+           0, FALSE, 0, NULL, (HKPROC)WU32SubStdHookProc17,0, 0, 0, NULL,
+           0, FALSE, 0, NULL, (HKPROC)WU32SubStdHookProc18,0, 0, 0, NULL,
+           0, FALSE, 0, NULL, (HKPROC)WU32SubStdHookProc19,0, 0, 0, NULL,
+           0, FALSE, 0, NULL, (HKPROC)WU32SubStdHookProc20,0, 0, 0, NULL,
+           0, FALSE, 0, NULL, (HKPROC)WU32SubStdHookProc21,0, 0, 0, NULL,
+           0, FALSE, 0, NULL, (HKPROC)WU32SubStdHookProc22,0, 0, 0, NULL,
+           0, FALSE, 0, NULL, (HKPROC)WU32SubStdHookProc23,0, 0, 0, NULL,
+           0, FALSE, 0, NULL, (HKPROC)WU32SubStdHookProc24,0, 0, 0, NULL,
+           0, FALSE, 0, NULL, (HKPROC)WU32SubStdHookProc25,0, 0, 0, NULL,
+           0, FALSE, 0, NULL, (HKPROC)WU32SubStdHookProc26,0, 0, 0, NULL,
+           0, FALSE, 0, NULL, (HKPROC)WU32SubStdHookProc27,0, 0, 0, NULL,
+           0, FALSE, 0, NULL, (HKPROC)WU32SubStdHookProc28,0, 0, 0, NULL,
+           0, FALSE, 0, NULL, (HKPROC)WU32SubStdHookProc29,0, 0, 0, NULL,
+           0, FALSE, 0, NULL, (HKPROC)WU32SubStdHookProc30,0, 0, 0, NULL,
+           0, FALSE, 0, NULL, (HKPROC)WU32SubStdHookProc31,0, 0, 0, NULL,
+           0, FALSE, 0, NULL, (HKPROC)WU32SubStdHookProc32,0, 0, 0, NULL
           };
 
 
@@ -148,6 +165,74 @@ LONG APIENTRY WU32SubStdHookProc14(INT nCode, LONG wParam, LONG lParam)
 LONG APIENTRY WU32SubStdHookProc15(INT nCode, LONG wParam, LONG lParam)
 {
     return WU32StdHookProc(nCode, wParam, lParam, 0x0f);
+}
+LONG APIENTRY WU32SubStdHookProc16(INT nCode, LONG wParam, LONG lParam)
+{
+    return WU32StdHookProc(nCode, wParam, lParam, 0x10);
+}
+LONG APIENTRY WU32SubStdHookProc17(INT nCode, LONG wParam, LONG lParam)
+{
+    return WU32StdHookProc(nCode, wParam, lParam, 0x11);
+}
+LONG APIENTRY WU32SubStdHookProc18(INT nCode, LONG wParam, LONG lParam)
+{
+    return WU32StdHookProc(nCode, wParam, lParam, 0x12);
+}
+LONG APIENTRY WU32SubStdHookProc19(INT nCode, LONG wParam, LONG lParam)
+{
+    return WU32StdHookProc(nCode, wParam, lParam, 0x13);
+}
+LONG APIENTRY WU32SubStdHookProc20(INT nCode, LONG wParam, LONG lParam)
+{
+    return WU32StdHookProc(nCode, wParam, lParam, 0x14);
+}
+LONG APIENTRY WU32SubStdHookProc21(INT nCode, LONG wParam, LONG lParam)
+{
+    return WU32StdHookProc(nCode, wParam, lParam, 0x15);
+}
+LONG APIENTRY WU32SubStdHookProc22(INT nCode, LONG wParam, LONG lParam)
+{
+    return WU32StdHookProc(nCode, wParam, lParam, 0x16);
+}
+LONG APIENTRY WU32SubStdHookProc23(INT nCode, LONG wParam, LONG lParam)
+{
+    return WU32StdHookProc(nCode, wParam, lParam, 0x17);
+}
+LONG APIENTRY WU32SubStdHookProc24(INT nCode, LONG wParam, LONG lParam)
+{
+    return WU32StdHookProc(nCode, wParam, lParam, 0x18);
+}
+LONG APIENTRY WU32SubStdHookProc25(INT nCode, LONG wParam, LONG lParam)
+{
+    return WU32StdHookProc(nCode, wParam, lParam, 0x19);
+}
+LONG APIENTRY WU32SubStdHookProc26(INT nCode, LONG wParam, LONG lParam)
+{
+    return WU32StdHookProc(nCode, wParam, lParam, 0x1a);
+}
+LONG APIENTRY WU32SubStdHookProc27(INT nCode, LONG wParam, LONG lParam)
+{
+    return WU32StdHookProc(nCode, wParam, lParam, 0x1b);
+}
+LONG APIENTRY WU32SubStdHookProc28(INT nCode, LONG wParam, LONG lParam)
+{
+    return WU32StdHookProc(nCode, wParam, lParam, 0x1c);
+}
+LONG APIENTRY WU32SubStdHookProc29(INT nCode, LONG wParam, LONG lParam)
+{
+    return WU32StdHookProc(nCode, wParam, lParam, 0x1d);
+}
+LONG APIENTRY WU32SubStdHookProc30(INT nCode, LONG wParam, LONG lParam)
+{
+    return WU32StdHookProc(nCode, wParam, lParam, 0x1e);
+}
+LONG APIENTRY WU32SubStdHookProc31(INT nCode, LONG wParam, LONG lParam)
+{
+    return WU32StdHookProc(nCode, wParam, lParam, 0x1f);
+}
+LONG APIENTRY WU32SubStdHookProc32(INT nCode, LONG wParam, LONG lParam)
+{
+    return WU32StdHookProc(nCode, wParam, lParam, 0x20);
 }
 
 //*****************************************************************************
@@ -385,8 +470,13 @@ LONG APIENTRY WU32StdHookProc(INT nCode, LONG wParam, LONG lParam, INT iFunc)
     // USER can call us even if we have GP Faulted - so just ignore the input
     //
 
-    if (CURRENTPTD()->gfIgnoreInput) {
+    if (CURRENTPTD()->dwFlags & TDF_IGNOREINPUT) {
         LOGDEBUG(LOG_ALWAYS,("WU32StdHookProc Ignoring Input\n"));
+        WOW32ASSERTMSG(!gfIgnoreInputAssertGiven,
+                       "WCD32CommonDialogProc: TDF_IGNOREINPUT hack was used, shouldn't be, "
+                       "please email DaveHart with repro instructions.  Hit 'g' to ignore this "
+                       "and suppress this assertion from now on.\n");
+        gfIgnoreInputAssertGiven = TRUE;
         return FALSE;
     }
 
@@ -603,12 +693,15 @@ LONG ThunkCbtHook(INT nCode, LONG wParam, LONG lParam,
             // wParam = HWND, lParam = LPCBT_CREATEWND
 
             wm32mpex.fThunk = THUNKMSG;
-            wm32mpex.hwnd = 0;
+            wm32mpex.hwnd = (HWND)wParam;
             wm32mpex.uMsg = 0;
             wm32mpex.uParam = 0;
             wm32mpex.lParam = (LONG)((LPCBT_CREATEWND)lParam)->lpcs;
-            wm32mpex.pww = (PWW)NULL;
-            if (!WM32Create(&wm32mpex))
+            wm32mpex.pww = (PWW)GetWindowLong((HWND)wParam, GWL_WOWWORDS);
+            /*
+             * WM32Create now requires that pww be initialized
+             */
+            if (!wm32mpex.pww || !WM32Create(&wm32mpex))
                 return FALSE;
             vpcs16 = wm32mpex.Parm16.WndProc.lParam;
             lReturn = wm32mpex.lReturn;
@@ -779,6 +872,8 @@ LONG ThunkKeyBoardHook(INT nCode, LONG wParam, LONG lParam,
 //                                 WH_MSGFILTER -
 //                                 WH_SYSMSGFILTER -
 //
+//     WARNING: May cause 16-bit memory movement, invalidating flat pointers.
+//
 //     Return type is BOOL.
 //
 //*****************************************************************************
@@ -811,7 +906,7 @@ LONG ThunkMsgFilterHook(INT nCode, LONG wParam, LPMSG lpMsg,
 
     fMessageNeedsThunking =  (lpMsg->message < 0x400) &&
                                   (aw32Msg[lpMsg->message].lpfnM32 != WM32NoThunking);
-    fFreeDDElParam = FALSE;
+    fThunkDDEmsg = FALSE;
 
     if (fMessageNeedsThunking) {
         LOGDEBUG(3,("%04X (%s)\n", CURRENTPTD()->htask16,
@@ -831,7 +926,7 @@ LONG ThunkMsgFilterHook(INT nCode, LONG wParam, LPMSG lpMsg,
         }
     }
 
-    fFreeDDElParam = TRUE;
+    fThunkDDEmsg = TRUE;
 
     //
     // Check to see if we've recursed into this routine. If so and the message
@@ -925,7 +1020,7 @@ LONG ThunkMsgFilterHook(INT nCode, LONG wParam, LPMSG lpMsg,
     FREEVDMPTR(pMsg16);
     GETMISCPTR(vp, pMsg16);
 
-    fFreeDDElParam = FALSE;
+    fThunkDDEmsg = FALSE;
 
     // Theoretically an app can change the lpMsg and return a totall different
     // data altogether. In practice most apps don't do anything so it is pretty
@@ -954,6 +1049,15 @@ LONG ThunkMsgFilterHook(INT nCode, LONG wParam, LPMSG lpMsg,
         mpex.Parm16.WndProc.lParam = pMsg16->lParam,
         mpex.iMsgThunkClass = WOWCLASS_UNKNOWN;
         hwnd32 = ThunkMsg16(&mpex);
+
+        //
+        // Free the 32 pointer to 16 bit args and get it again in case
+        // underlying memory movement occured.
+        //
+
+        FREEVDMPTR(pMsg16);
+        GETMISCPTR(vp, pMsg16);
+
         // reset flag if message thunking failed.
 
         if (!hwnd32)
@@ -964,12 +1068,20 @@ LONG ThunkMsgFilterHook(INT nCode, LONG wParam, LPMSG lpMsg,
 
         wm32mpex.fThunk = UNTHUNKMSG;
         (wm32mpex.lpfnM32)(&wm32mpex);
+
+        //
+        // Free the 32 pointer to 16 bit args and get it again in case
+        // underlying memory movement occured.
+        //
+
+        FREEVDMPTR(pMsg16);
+        GETMISCPTR(vp, pMsg16);
     }
 
-    fFreeDDElParam = TRUE;
+    fThunkDDEmsg = TRUE;
 
     if (fHookModifiedLpMsg) {
-        lpMsg->hwnd = hwnd32;
+	lpMsg->hwnd = hwnd32;
         lpMsg->message = mpex.uMsg;
         lpMsg->wParam =  mpex.uParam;
         lpMsg->lParam =  mpex.lParam;
@@ -1042,7 +1154,7 @@ LONG ThunkJournalHook(INT nCode, LONG wParam, LPEVENTMSG lpEventMsg,
         GETMISCPTR(vp, pEventMsg16);
 
         if (lpHSData->iHook == WH_JOURNALPLAYBACK) {
-            GETEVENTMSG16(pEventMsg16, lpEventMsg);
+            GetEventMessage16(pEventMsg16, lpEventMsg);
 
 #ifdef  DEBUG
             if (MessageNeedsThunking(lpEventMsg->message)) {
@@ -1058,7 +1170,7 @@ LONG ThunkJournalHook(INT nCode, LONG wParam, LPEVENTMSG lpEventMsg,
             // (rather than copying it every time we only copy it if the
             // app change the message)
             if (FETCHWORD(pEventMsg16->message) != lpEventMsg->message) {
-                GETEVENTMSG16(pEventMsg16, lpEventMsg);
+                GetEventMessage16(pEventMsg16, lpEventMsg);
             }
         }
 
@@ -1254,6 +1366,7 @@ BOOL W32FreeOwnedHooks(INT iTaskId)
 // W32StdDefHookProc: (Standard Def Hook Proc)
 //
 //     WU32DefHookProc is called here.
+//     WARNING: May cause 16-bit memory movement, invalidating flat pointers.
 //     Return value is the new lParam.
 //
 //*****************************************************************************
@@ -1332,7 +1445,10 @@ LONG ThunkCallWndProcHook16(INT nCode, LONG wParam, VPVOID  vpCwpStruct,
     mpex.Parm16.WndProc.wParam = pCwpStruct16->wParam;
     mpex.Parm16.WndProc.lParam = pCwpStruct16->lParam,
     mpex.iMsgThunkClass = WOWCLASS_UNKNOWN;
+
     mpex.hwnd = ThunkMsg16(&mpex);
+    // memory may have moved
+    FREEVDMPTR(pCwpStruct16);
 
     CwpStruct.message = mpex.uMsg;
     CwpStruct.wParam  = mpex.uParam;
@@ -1347,8 +1463,6 @@ LONG ThunkCallWndProcHook16(INT nCode, LONG wParam, VPVOID  vpCwpStruct,
         mpex.lParam = CwpStruct.lParam;
         (mpex.lpfnUnThunk16)(&mpex);
     }
-
-    FREEVDMPTR(pCwpStruct16);
 
     return mpex.lReturn;
 }
@@ -1379,6 +1493,23 @@ LONG ThunkCbtHook16(INT nCode, LONG wParam, VPVOID lParam,
     CBTACTIVATESTRUCT    CbtAStruct;
     CBT_CREATEWND        CbtCWnd;
 
+    // SudeepB 28-May-1996
+    //
+    // Some apps like SureTrack project management package are passing
+    // corrupted values in lParam. GETMISCPTR returns 0 for such an lParam.
+    // Using this 0 on X86 causes corruption of IVT and on RISC causes an
+    // AV in wow32 as zero is not a valid linear address.  Such apps get
+    // away from such criminal acts on win3.1/Win95 as no thunking is needed
+    // there. The below check separates out such cases and handles them in
+    // the simplest possible way without any thunking.
+
+    GETMISCPTR(lParam, pCbtCWnd16);
+    if (!pCbtCWnd16 ) {
+        lReturn = CallNextHookEx(lpHSData->hHook, nCode,
+                                 wParam, (LPARAM)lParam);
+        return (LONG)(BOOL)LOWORD(lReturn);
+    }
+
     wParamNew = wParam;
     lParamNew = lParam;
 
@@ -1407,17 +1538,23 @@ LONG ThunkCbtHook16(INT nCode, LONG wParam, VPVOID lParam,
         case HCBT_CREATEWND:
             // wParam = HWND, lParam = LPCBT_CREATEWND
 
-
             lParamNew = (LPARAM)&CbtCWnd;
 
-            GETMISCPTR(lParam, pCbtCWnd16);
-
-            mpex.Parm16.WndProc.hwnd = 0;
+            mpex.Parm16.WndProc.hwnd = LOWORD(wParam);
             mpex.Parm16.WndProc.wMsg = WM_CREATE;
             mpex.Parm16.WndProc.wParam = 0;
             mpex.Parm16.WndProc.lParam = FETCHDWORD(pCbtCWnd16->vpcs);
             mpex.iMsgThunkClass = 0;
+
             ThunkMsg16(&mpex);
+
+            //
+            // Memory movement can occur on the 16-bit side.
+            //
+
+            FREEVDMPTR(pCbtCWnd16);
+            GETMISCPTR(lParam, pCbtCWnd16);
+
             (LONG)CbtCWnd.lpcs = mpex.lParam;
 
             wParamNew = (WPARAM)HWND32(wParam);
@@ -1590,16 +1727,24 @@ LONG ThunkMsgFilterHook16(INT nCode, LONG wParam, VPVOID vpMsg,
 
     GETMISCPTR(vpMsg, pMsg16);
 
-    fFreeDDElParam = FALSE;
+    fThunkDDEmsg = FALSE;
 
     mpex.Parm16.WndProc.hwnd = pMsg16->hwnd;
     mpex.Parm16.WndProc.wMsg = pMsg16->message;
     mpex.Parm16.WndProc.wParam = pMsg16->wParam;
     mpex.Parm16.WndProc.lParam = pMsg16->lParam;
     mpex.iMsgThunkClass = 0;
+
     ThunkMsg16(&mpex);
 
-    fFreeDDElParam = TRUE;
+    //
+    // Memory movement can occur on the 16-bit side.
+    //
+
+    FREEVDMPTR(pMsg16);
+    GETMISCPTR(vpMsg, pMsg16);
+
+    fThunkDDEmsg = TRUE;
 
     Msg.message   = mpex.uMsg;
     Msg.wParam    = mpex.uParam;
@@ -1620,6 +1765,7 @@ LONG ThunkMsgFilterHook16(INT nCode, LONG wParam, VPVOID vpMsg,
         mpex.uParam = Msg.wParam;
         mpex.lParam = Msg.lParam;
         (mpex.lpfnUnThunk16)(&mpex);
+	GETMISCPTR(vpMsg, pMsg16);
     }
 
     STORELONG(pMsg16->time, Msg.time);
@@ -1662,7 +1808,7 @@ LONG ThunkJournalHook16(INT nCode, LONG wParam, VPVOID vpEventMsg,
 
         if (lpHSData->iHook == WH_JOURNALRECORD) {
             GETMISCPTR(vpEventMsg, pEventMsg16);
-            GETEVENTMSG16(pEventMsg16, &EventMsg);
+            GetEventMessage16(pEventMsg16, &EventMsg);
             EventMsg.hwnd = (HWND)0;
             FREEVDMPTR(pEventMsg16);
         }
@@ -1825,4 +1971,27 @@ DWORD  W32GetHookDDEMsglParam()
     return lParam;
 
 }
-
+
+//*****************************************************************************
+// GetEventMessage16:
+//
+//*****************************************************************************
+
+
+VOID GetEventMessage16(PEVENTMSG16 pEventMsg16, LPEVENTMSG  lpEventMsg)
+{
+    lpEventMsg->message   = FETCHWORD(pEventMsg16->message);
+    lpEventMsg->time      = FETCHLONG(pEventMsg16->time);
+    if ((lpEventMsg->message >= WM_KEYFIRST) && (lpEventMsg->message <= WM_KEYLAST)) {
+        // Key event
+        lpEventMsg->paramL =  FETCHWORD(pEventMsg16->paramL);
+        lpEventMsg->paramH =  FETCHWORD(pEventMsg16->paramH) & 0x8000;
+        lpEventMsg->paramH |= (lpEventMsg->paramL & 0xFF00) >> 8;
+        lpEventMsg->paramL &= 0xFF;
+    }
+    else {
+        // Mouse event
+        lpEventMsg->paramL = FETCHWORD(pEventMsg16->paramL);
+        lpEventMsg->paramH = FETCHWORD(pEventMsg16->paramH);
+    }
+}

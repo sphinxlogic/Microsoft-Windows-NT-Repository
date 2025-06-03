@@ -16,10 +16,6 @@
 *
 \***************************************************************************/
 
-#include <string.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <memory.h>
 #include "ddemlp.h"
 #include "verddeml.h"
 
@@ -36,11 +32,13 @@ char        szNull[]         = "";
 char        szT[20];
 WORD        cMonitor         = 0;       // number of registered monitors
 FARPROC     prevHook         = NULL;    // used for hook links
+ATOM        gatomDDEMLMom    = 0;
+ATOM        gatomDMGClass    = 0;
 DWORD       ShutdownTimeout;
 DWORD       ShutdownRetryTimeout;
 LPMQL       gMessageQueueList = NULL;   // see PostDdeMessage();
 #ifdef DEBUG
-BYTE        bDbgFlags        = 0;
+int         bDbgFlags        = 0;
 #endif
 
 /****** class strings ******/
@@ -89,18 +87,45 @@ DWORD aulmapType[] = {
 
 
 
-WORD EXPENTRY DdeInitialize(
+UINT EXPENTRY DdeInitialize(
 LPDWORD pidInst,
 PFNCALLBACK pfnCallback,
 DWORD afCmd,
 DWORD ulRes)
 {
-    if (ulRes != 0L) {
-        return(DMLERR_INVALIDPARAMETER);
+    WORD wRet;
+
+#ifdef DEBUG
+    if (!hheapDmg) {
+        bDbgFlags = GetProfileInt("DDEML", "DebugFlags", 0);
     }
-    return(Register(pidInst, pfnCallback, afCmd));
+#endif
+    TRACEAPIIN((szT, "DdeInitialize(%lx(->%lx), %lx, %lx, %lx)\n",
+            pidInst, *pidInst, pfnCallback, afCmd, ulRes));
+
+    if (ulRes != 0L) {
+        wRet = DMLERR_INVALIDPARAMETER;
+    } else {
+        wRet = Register(pidInst, pfnCallback, afCmd);
+    }
+    TRACEAPIOUT((szT, "DdeInitialize:%x\n", wRet));
+    return(wRet);
 }
 
+
+DWORD Myatodw(LPCSTR psz)
+{
+    DWORD dwRet = 0;
+
+    if (psz == NULL) {
+        return(0);
+    }
+    while (*psz) {
+        dwRet = (dwRet << 1) + (dwRet << 3) + (*psz - '0');
+        psz++;
+    }
+    return(dwRet);
+}
 
 
 WORD Register(
@@ -133,17 +158,19 @@ DWORD afCmd)
     }
 
     if (!hheapDmg) {
+#ifdef MSG
         extern VOID dbz(VOID);
+#endif
 
         // Read in any alterations to the zombie terminate timeouts
-
-        GetProfileString("DDEML", "ShutdownTimeout", "30000", szT, 20);
-        ShutdownTimeout = (DWORD)atol(szT);
+        GetProfileString("DDEML", "ShutdownTimeout", "3000", szT, 20);
+        ShutdownTimeout = Myatodw(szT);
         if (!ShutdownTimeout) {
             ShutdownTimeout = 3000;
         }
+
         GetProfileString("DDEML", "ShutdownRetryTimeout", "30000", szT, 20);
-        ShutdownRetryTimeout = (DWORD)atol(szT);
+        ShutdownRetryTimeout = Myatodw(szT);
         if (!ShutdownRetryTimeout) {
             ShutdownRetryTimeout = 30000;
         }
@@ -152,9 +179,10 @@ DWORD afCmd)
         aProgmanHack = GlobalAddAtom("Progman");
 
         /* UTTER GREASE to fool the pile routines into making a local pile */
-        hheapDmg = (WORD)GlobalHandle(HIWORD((LPVOID)(&pDataInfoPile)));
+        hheapDmg = HIWORD((LPVOID)(&pDataInfoPile));
+#ifdef MSG
         dbz();
-
+#endif
         RegisterClasses();
     }
 
@@ -213,6 +241,10 @@ DWORD afCmd)
 
     *pidInst = (DWORD)MAKELONG((WORD)pai, pai->instCheck);
 
+    // NB We pass a pointer to pai in this CreateWindow because
+    // 32bit MFC has a habit of subclassing our dde windows so this
+    // param ends up getting thunked and since it's not really
+    // a pointer things get a bit broken by the thunks.
 
     if ((pai->hwndDmg = CreateWindow(
             SZDMGCLASS,
@@ -222,7 +254,7 @@ DWORD afCmd)
             (HWND)NULL,
             (HMENU)NULL,
             hInstance,
-            (void FAR*)pai)) == 0L) {
+            &pai)) == 0L) {
         goto Abort;
     }
 
@@ -237,7 +269,7 @@ DWORD afCmd)
                 (HWND)NULL,
                 (HMENU)NULL,
                 hInstance,
-                (void FAR*)pai)) == 0L) {
+                &pai)) == 0L) {
             goto Abort;
         }
 
@@ -259,7 +291,7 @@ DWORD afCmd)
                 (HWND)NULL,
                 (HMENU)NULL,
                 hInstance,
-                (void FAR*)pai)) == 0L) {
+                &pai)) == 0L) {
             goto Abort;
         }
     }
@@ -326,8 +358,11 @@ DWORD idInst)
     MSG msg;
     extern VOID DumpGlobalLogs(VOID);
 
+    TRACEAPIIN((szT, "DdeUninitialize(%lx)\n", idInst));
+
     pai = (PAPPINFO)LOWORD(idInst);
     if (pai == NULL || pai->instCheck != HIWORD(idInst)) {
+        TRACEAPIOUT((szT, "DdeUninitialize:0\n"));
         return(FALSE);
     }
     pai->LastError = DMLERR_NO_ERROR;
@@ -338,6 +373,7 @@ DWORD idInst)
      */
     pai->wFlags |= AWF_UNINITCALLED;
     if (pai->wFlags & AWF_INSYNCTRANSACTION) {
+        TRACEAPIOUT((szT, "DdeUninitialize:1\n"));
         return(TRUE);
     }
 
@@ -382,9 +418,11 @@ DWORD idInst)
 
         hiTimeout = HIWORD(ShutdownTimeout);
         SetTimer(pai->hwndDmg, TID_SHUTDOWN, LOWORD(ShutdownTimeout), NULL);
-        TRACETERM((szT, "DdeUninitialize: Entering terminate modal loop with %d zombies.\n",
-                ((LPAPPINFO)pai)->cZombies));
-        while (pai->cZombies) {
+        TRACETERM((szT, "DdeUninitialize: Entering terminate modal loop. cZombies=%d[%x:%x]\n",
+                ((LPAPPINFO)pai)->cZombies,
+                HIWORD(&((LPAPPINFO)pai)->cZombies),
+                LOWORD(&((LPAPPINFO)pai)->cZombies)));
+        while (pai->cZombies > 0) {
             Yield();        // give other apps a chance to post terminates.
             GetMessage(&msg, (HWND)NULL, 0, 0xffff);
             if (msg.message == WM_TIMER && msg.wParam == TID_SHUTDOWN &&
@@ -398,19 +436,31 @@ DWORD idInst)
                     if (!pai->cZombies) {
                         break;
                     }
-                    lpfn = MakeProcInstance((FARPROC)TermDlgProc, hInstance);
-                    wRet = DialogBox(hInstance, "TermDialog", (HWND)NULL, lpfn);
-                    FreeProcInstance(lpfn);
-                    if (wRet == IDABORT || wRet == -1) {
-                        pai->cZombies = 0;
-                        break;      // ignore zombies!
+
+                    TRACETERM((szT,
+                        "DdeUninitialize Zombie hangup: pai=%x:%x\n",
+                        HIWORD((LPAPPINFO)pai), (WORD)(pai)));
+                    /*
+                     * If the partner window died in any remaining zombie
+                     * windows, get them shut down.
+                     */
+                    ChildMsg(pai->hwndDmg, UM_DISCONNECT, ST_CHECKPARTNER, 0L, FALSE);
+
+                    if (pai->cZombies > 0) {
+                        lpfn = MakeProcInstance((FARPROC)TermDlgProc, hInstance);
+                        wRet = DialogBox(hInstance, "TermDialog", (HWND)NULL, lpfn);
+                        FreeProcInstance(lpfn);
+                        if (wRet == IDABORT || wRet == -1) {
+                            pai->cZombies = 0;
+                            break;      // ignore zombies!
+                        }
+                        if (wRet == IDRETRY) {
+                            hiTimeout = HIWORD(ShutdownRetryTimeout);
+                            SetTimer(pai->hwndDmg, TID_SHUTDOWN,
+                                    LOWORD(ShutdownRetryTimeout), NULL);
+                        }
+                        // IDIGNORE - loop forever!
                     }
-                    if (wRet == IDRETRY) {
-                        hiTimeout = HIWORD(ShutdownRetryTimeout);
-                        SetTimer(pai->hwndDmg, TID_SHUTDOWN,
-                                LOWORD(ShutdownRetryTimeout), NULL);
-                    }
-                    // IDIGNORE - loop forever!
                 }
             }
             // app should already be shut-down so we don't bother with
@@ -477,7 +527,7 @@ DWORD idInst)
         DestroyPile(pLostAckPile);
         pDataInfoPile = NULL;
         pLostAckPile = NULL;
-        AssertF(cAtoms == 0, "DdeUninitialize() - leftover atoms");
+        AssertFW(cAtoms == 0, "DdeUninitialize() - leftover atoms");
 
         // PROGMAN HACK!!!!
         GlobalDeleteAtom(aProgmanHack);
@@ -488,6 +538,7 @@ DWORD idInst)
     DumpGlobalLogs();
 #endif
 
+    TRACEAPIOUT((szT, "DdeUninitialize:1\n"));
     return(TRUE);
 }
 
@@ -509,16 +560,21 @@ PCONVCONTEXT pCC)
     PCLIENTINFO         pciOld, pciNew;
 
 
+    TRACEAPIIN((szT, "DdeConnectList(%lx, %lx, %lx, %lx, %lx)\n",
+            idInst, hszSvcName, hszTopic, hConvList, pCC));
+
     pai = (PAPPINFO)idInst;
     if (pai == NULL || pai->instCheck != HIWORD(idInst)) {
-        return(FALSE);
+        TRACEAPIOUT((szT, "DdeConnectList:0\n"));
+        return(0L);
     }
 
     pai->LastError = DMLERR_NO_ERROR;
 
     if (hConvList && !ValidateHConv(hConvList)) {
         SETLASTERROR(pai, DMLERR_INVALIDPARAMETER);
-        return(0);
+        TRACEAPIOUT((szT, "DdeConnectList:0\n"));
+        return(0L);
     }
 
     /*
@@ -545,8 +601,9 @@ PCONVCONTEXT pCC)
             pai->hwndDmg,
             (HMENU)NULL,
             hInstance,
-            (void FAR*)pai)) == NULL) {
+            &pai)) == NULL) {
         SETLASTERROR(pai, DMLERR_SYS_ERROR);
+        TRACEAPIOUT((szT, "DdeConnectList:0\n"));
         return(0L);
     }
 
@@ -563,6 +620,7 @@ PCONVCONTEXT pCC)
             SendMessage((HWND)hConvList, UM_DISCONNECT,
                     ST_PERM2DIE, 0L);
             SETLASTERROR(pai, DMLERR_NO_CONV_ESTABLISHED);
+            TRACEAPIOUT((szT, "DdeConnectList:0\n"));
             return(NULL);
         }
         // else just return old list (- dead convs)
@@ -570,6 +628,7 @@ PCONVCONTEXT pCC)
             DestroyWindow(hConvListNew);
             SETLASTERROR(pai, DMLERR_NO_CONV_ESTABLISHED);
         }
+        TRACEAPIOUT((szT, "DdeConnectList:%lx\n", hConvList));
         return(hConvList);
     }
 
@@ -627,8 +686,10 @@ PCONVCONTEXT pCC)
     if (GetWindow(hConvListNew, GW_CHILD) == NULL) {
         SendMessage(hConvListNew, UM_DISCONNECT, ST_PERM2DIE, 0L);
         SETLASTERROR(pai, DMLERR_NO_CONV_ESTABLISHED);
+        TRACEAPIOUT((szT, "DdeConnectList:0\n"));
         return(NULL);
     } else {
+        TRACEAPIOUT((szT, "DdeConnectList:%lx\n", MAKEHCONV(hConvListNew)));
         return(MAKEHCONV(hConvListNew));
     }
 }
@@ -645,11 +706,15 @@ HCONV hConvPrev)
     HWND hwndMaybe;
     PAPPINFO pai;
 
+    TRACEAPIIN((szT, "DdeQueryNextServer(%lx, %lx)\n",
+            hConvList, hConvPrev));
+
     if (!ValidateHConv(hConvList)) {
         pai = NULL;
         while (pai = GetCurrentAppInfo(pai)) {
             SETLASTERROR(pai, DMLERR_INVALIDPARAMETER);
         }
+        TRACEAPIOUT((szT, "DdeQueryNextServer:0\n"));
         return NULL;
     }
 
@@ -657,14 +722,18 @@ HCONV hConvPrev)
     pai->LastError = DMLERR_NO_ERROR;
 
     if (hConvPrev == NULL) {
+        TRACEAPIOUT((szT, "DdeQueryNextServer:%lx\n",
+            MAKEHCONV(GetWindow((HWND)hConvList, GW_CHILD))));
         return MAKEHCONV(GetWindow((HWND)hConvList, GW_CHILD));
     } else {
         if (!ValidateHConv(hConvPrev)) {
             SETLASTERROR(pai, DMLERR_INVALIDPARAMETER);
+            TRACEAPIOUT((szT, "DdeQueryNextServer:0\n"));
             return NULL;
         }
         hwndMaybe = GetWindow((HWND)hConvPrev, GW_HWNDNEXT);
         if (!hwndMaybe) {
+            TRACEAPIOUT((szT, "DdeQueryNextServer:0\n"));
             return NULL;
         }
 
@@ -672,8 +741,10 @@ HCONV hConvPrev)
         // ### maybe this code can go - I'm not sure how GW_HWNDNEXT acts. SS
         if (GetParent(hwndMaybe) == (HWND)hConvList &&
                 hwndMaybe != GetWindow((HWND)hConvList, GW_CHILD)) {
+            TRACEAPIOUT((szT, "DdeQueryNextServer:%lx\n", MAKEHCONV(hwndMaybe)));
             return MAKEHCONV(hwndMaybe);
         }
+        TRACEAPIOUT((szT, "DdeQueryNextServer:0\n"));
         return NULL;
     }
 }
@@ -688,17 +759,21 @@ HCONVLIST hConvList)
 {
     PAPPINFO pai;
 
+    TRACEAPIIN((szT, "DdeDisconnectList(%lx)\n", hConvList));
+
     if (!ValidateHConv(hConvList)) {
         pai = NULL;
         while (pai = GetCurrentAppInfo(pai)) {
             SETLASTERROR(pai, DMLERR_INVALIDPARAMETER);
         }
+        TRACEAPIOUT((szT, "DdeDisconnectList:0\n"));
         return(FALSE);
     }
     pai = EXTRACTHCONVLISTPAI(hConvList);
     pai->LastError = DMLERR_NO_ERROR;
 
     SendMessage((HWND)hConvList, UM_DISCONNECT, ST_PERM2DIE, 0L);
+    TRACEAPIOUT((szT, "DdeDisconnectList:1\n"));
     return(TRUE);
 }
 
@@ -715,14 +790,19 @@ PCONVCONTEXT pCC)
     PAPPINFO pai;
     HWND hwnd;
 
+    TRACEAPIIN((szT, "DdeConnect(%lx, %lx, %lx, %lx)\n",
+            idInst, hszSvcName, hszTopic, pCC));
+
     pai = (PAPPINFO)idInst;
     if (pai == NULL || pai->instCheck != HIWORD(idInst)) {
+        TRACEAPIOUT((szT, "DdeConnect:0\n"));
         return(FALSE);
     }
     pai->LastError = DMLERR_NO_ERROR;
 
     if (pCC && pCC->cb != sizeof(CONVCONTEXT)) {
         SETLASTERROR(pai, DMLERR_INVALIDPARAMETER);
+        TRACEAPIOUT((szT, "DdeConnect:0\n"));
         return(0);
     }
 
@@ -734,6 +814,7 @@ PCONVCONTEXT pCC)
         SETLASTERROR(pai, DMLERR_NO_CONV_ESTABLISHED);
     }
 
+    TRACEAPIOUT((szT, "DdeConnect:%lx\n", MAKEHCONV(hwnd)));
     return(MAKEHCONV(hwnd));
 }
 
@@ -747,11 +828,14 @@ HCONV hConv)
     PAPPINFO pai;
     PCLIENTINFO pci;
 
+    TRACEAPIIN((szT, "DdeDisconnect(%lx)\n", hConv));
+
     if (!ValidateHConv(hConv)) {
         pai = NULL;
         while (pai = GetCurrentAppInfo(pai)) {
             SETLASTERROR(pai, DMLERR_NO_CONV_ESTABLISHED);
         }
+        TRACEAPIOUT((szT, "DdeDisconnect:0\n"));
         return(FALSE);
     }
     pai = EXTRACTHCONVPAI(hConv);
@@ -760,11 +844,13 @@ HCONV hConv)
         // do asynchronously if this is called within a callback
         if (!PostMessage((HWND)hConv, UM_DISCONNECT, ST_PERM2DIE, (LONG)pci)) {
             SETLASTERROR(pai, DMLERR_SYS_ERROR);
+            TRACEAPIOUT((szT, "DdeDisconnect:0\n"));
             return(FALSE);
         }
     } else {
         Disconnect((HWND)hConv, ST_PERM2DIE, pci);
     }
+    TRACEAPIOUT((szT, "DdeDisconnect:1\n"));
     return(TRUE);
 }
 
@@ -779,11 +865,14 @@ HCONV hConv)
     PAPPINFO pai;
     PCLIENTINFO pci;
 
+    TRACEAPIIN((szT, "DdeReconnect(%lx)\n", hConv));
+
     if (!ValidateHConv(hConv)) {
         pai = NULL;
         while (pai = GetCurrentAppInfo(pai)) {
             SETLASTERROR(pai, DMLERR_NO_CONV_ESTABLISHED);
         }
+        TRACEAPIOUT((szT, "DdeReconnect:0\n"));
         return(FALSE);
     }
     pai = EXTRACTHCONVPAI(hConv);
@@ -794,6 +883,7 @@ HCONV hConv)
 
     if (!(pci->ci.fs & ST_CLIENT)) {
         SETLASTERROR(pai, DMLERR_INVALIDPARAMETER);
+        TRACEAPIOUT((szT, "DdeReconnect:0\n"));
         return(FALSE);
     }
 
@@ -802,6 +892,7 @@ HCONV hConv)
 
     if (hwnd == 0) {
         SETLASTERROR(pai, DMLERR_NO_CONV_ESTABLISHED);
+        TRACEAPIOUT((szT, "DdeReconnect:0\n"));
         return(FALSE);
     }
 
@@ -821,7 +912,7 @@ HCONV hConv)
                 XFERINFO xi;
 
                 xi.pulResult = &result;
-                xi.ulTimeout = TIMEOUT_ASYNC;
+                xi.ulTimeout = (DWORD)TIMEOUT_ASYNC;
                 xi.wType = XTYP_ADVSTART |
                        (pali->fsStatus & (XTYPF_NODATA | XTYPF_ACKREQ));
                 xi.wFmt = pali->wFmt;
@@ -835,12 +926,13 @@ HCONV hConv)
         }
     }
 
+    TRACEAPIOUT((szT, "DdeReconnect:%lx\n", MAKEHCONV(hwnd)));
     return(MAKEHCONV(hwnd));
 }
 
 
 
-WORD EXPENTRY DdeQueryConvInfo(
+UINT EXPENTRY DdeQueryConvInfo(
 HCONV hConv,
 DWORD idTransaction,
 PCONVINFO pConvInfo)
@@ -855,12 +947,16 @@ PCONVINFO pConvInfo)
 
     SEMCHECKOUT();
 
+    TRACEAPIIN((szT, "DdeQueryConvInfo(%lx, %lx, %lx(->cb=%lx))\n",
+        hConv, idTransaction, pConvInfo, pConvInfo->cb));
+
     if (!ValidateHConv(hConv) ||
             !(pci = (PCLIENTINFO)GetWindowLong((HWND)hConv, GWL_PCI))) {
         pai = NULL;
         while (pai = GetCurrentAppInfo(pai)) {
             SETLASTERROR(pai, DMLERR_NO_CONV_ESTABLISHED);
         }
+        TRACEAPIOUT((szT, "DdeQueryConvInfo:0\n"));
         return(FALSE);
     }
     pai = pci->ci.pai;
@@ -885,6 +981,7 @@ PCONVINFO pConvInfo)
             pxad = &pqd->xad;
         } else {
             SETLASTERROR(pai, DMLERR_UNFOUND_QUEUE_ID);
+            TRACEAPIOUT((szT, "DdeQueryConvInfo:0\n"));
             return(FALSE);
         }
     }
@@ -920,9 +1017,10 @@ PCONVINFO pConvInfo)
     ci.hwnd = (HWND)hConv;
     ci.hwndPartner = (HWND)pci->ci.hConvPartner;
 
-    _fmemmove((LPBYTE)pConvInfo, (LPBYTE)&ci, cb);
+    hmemcpy((LPBYTE)pConvInfo, (LPBYTE)&ci, cb);
     pConvInfo->cb = cb;
     SEMLEAVE();
+    TRACEAPIOUT((szT, "DdeQueryConvInfo:%x\n", cb));
     return(cb);
 }
 
@@ -941,11 +1039,15 @@ DWORD hUser)
     PXADATA pxad;
     PCQDATA pqd;
 
+    TRACEAPIIN((szT, "DdeSetUserHandle(%lx, %lx, %lx)\n",
+            hConv, id, hUser));
+
     if (!ValidateHConv(hConv)) {
         pai = NULL;
         while (pai = GetCurrentAppInfo(pai)) {
             SETLASTERROR(pai, DMLERR_INVALIDPARAMETER);
         }
+        TRACEAPIOUT((szT, "DdeSetUserHandle:0\n"));
         return(FALSE);
     }
     pai = EXTRACTHCONVPAI(hConv);
@@ -957,6 +1059,7 @@ DWORD hUser)
     if (!pci) {
 Error:
         SETLASTERROR(pai, DMLERR_INVALIDPARAMETER);
+        TRACEAPIOUT((szT, "DdeSetUserHandle:0\n"));
         return(FALSE);
     }
     pxad = &pci->ci.xad;
@@ -968,10 +1071,12 @@ Error:
             pxad = &pqd->xad;
         } else {
             SETLASTERROR(pai, DMLERR_UNFOUND_QUEUE_ID);
+            TRACEAPIOUT((szT, "DdeSetUserHandle:0\n"));
             return(FALSE);
         }
     }
     pxad->hUser = hUser;
+    TRACEAPIOUT((szT, "DdeSetUserHandle:1\n"));
     return(TRUE);
 }
 
@@ -989,14 +1094,19 @@ HSZ hszItem)
     register PADVLI pali;
     PADVLI paliPrev, paliEnd, paliMove;
 
+    TRACEAPIIN((szT, "DdePostAdvise(%lx, %lx, %lx)\n",
+            idInst, hszTopic, hszItem));
+
     pai = (PAPPINFO)idInst;
     if (pai == NULL || pai->instCheck != HIWORD(idInst)) {
+        TRACEAPIOUT((szT, "DdePostAdvise:0\n"));
         return(FALSE);
     }
 
     pai->LastError = DMLERR_NO_ERROR;
     if (pai->afCmd & APPCMD_CLIENTONLY) {
         SETLASTERROR(pai, DMLERR_DLL_USAGE);
+        TRACEAPIOUT((szT, "DdePostAdvise:0\n"));
         return(FALSE);
     }
 
@@ -1091,6 +1201,7 @@ NextLink:
         paliPrev = pali;
         pali = (PADVLI)pali->next;
     }
+    TRACEAPIOUT((szT, "DdePostAdvise:1\n"));
     return(TRUE);
 }
 
@@ -1104,8 +1215,8 @@ LPBYTE pData,
 DWORD cbData,
 HCONV hConv,
 HSZ hszItem,
-WORD wFmt,
-WORD wType,
+UINT wFmt,
+UINT wType,
 DWORD ulTimeout,
 LPDWORD pulResult)
 {
@@ -1114,6 +1225,9 @@ LPDWORD pulResult)
     HDDEDATA hData, hDataBack, hRet = 0;
 
     SEMCHECKOUT();
+
+    TRACEAPIIN((szT, "DdeClientTransaction(%lx, %lx, %lx, %lx, %x, %x, %lx, %lx)\n",
+            pData, cbData, hConv, hszItem, wFmt, wType, ulTimeout, pulResult));
 
     if (!ValidateHConv(hConv)) {
         pai = NULL;
@@ -1170,6 +1284,7 @@ FreeErrExit:
                     !(LOWORD((DWORD)pData) & HDATA_APPOWNED)) {
                 FREEEXTHDATA(pData);
             }
+            TRACEAPIOUT((szT, "DdeClientTransaction:0\n"));
             return(0);
         }
     }
@@ -1188,14 +1303,16 @@ FreeErrExit:
                 FREEEXTHDATA(pData);
             }
             if (!(hData = DllEntry(&pci->ci, hData))) {
+                TRACEAPIOUT((szT, "DdeClientTransaction:0\n"));
                 return(0);
             }
             pData = (LPBYTE)hData;  // place onto stack for pass on to ClientXferReq.
 
         } else {    // pointer given, create handle from it.
 
-            if (!(pData = (LPBYTE)PutData(pData, cbData, 0, wFmt ? LOWORD(hszItem) : 0, wFmt, 0, pai))) {
+            if (!(pData = (LPBYTE)PutData(pData, cbData, 0, LOWORD(hszItem), wFmt, 0, pai))) {
                 SETLASTERROR(pai, DMLERR_MEMORY_ERROR);
+                TRACEAPIOUT((szT, "DdeClientTransaction:0\n"));
                 return(0);
             }
         }
@@ -1207,11 +1324,13 @@ FreeErrExit:
     case XTYP_ADVSTART | XTYPF_ACKREQ:
         if (wType != XTYP_EXECUTE && !hszItem) {
             SETLASTERROR(pai, DMLERR_INVALIDPARAMETER);
+            TRACEAPIOUT((szT, "DdeClientTransaction:0\n"));
             return(0);
         }
     case XTYP_ADVSTART | XTYPF_NODATA | XTYPF_ACKREQ:
         if (wType != XTYP_EXECUTE && !wFmt) {
             SETLASTERROR(pai, DMLERR_INVALIDPARAMETER);
+            TRACEAPIOUT((szT, "DdeClientTransaction:0\n"));
             return(0);
         }
     case XTYP_ADVSTOP:
@@ -1256,6 +1375,7 @@ ReturnPoint:
         pai->wFlags &= ~AWF_UNINITCALLED;
         DdeUninitialize(MAKELONG((WORD)pai, pai->instCheck));
     }
+    TRACEAPIOUT((szT, "DdeClientTransaction:%lx\n", hRet));
     return(hRet);
 }
 
@@ -1278,21 +1398,26 @@ ReturnPoint:
 * History:
 *   Created     12/14/88    Sanfords
 \***************************************************************************/
-WORD EXPENTRY DdeGetLastError(
+UINT EXPENTRY DdeGetLastError(
 DWORD idInst)
 {
     register PAPPINFO pai;
     register WORD err = DMLERR_DLL_NOT_INITIALIZED;
 
+    TRACEAPIIN((szT, "DdeGetLastError(%lx)\n", idInst));
+
     pai = (PAPPINFO)idInst;
 
     if (pai) {
         if (pai->instCheck != HIWORD(idInst)) {
+            TRACEAPIOUT((szT, "DdeGetLastError:%x [bad instance]\n",
+                    DMLERR_INVALIDPARAMETER));
             return(DMLERR_INVALIDPARAMETER);
         }
         err = pai->LastError;
         pai->LastError = DMLERR_NO_ERROR;
     }
+    TRACEAPIOUT((szT, "DdeGetLastError:%x\n", err));
     return(err);
 }
 
@@ -1378,20 +1503,25 @@ LPBYTE pSrc,
 DWORD cb,
 DWORD cbOff,
 HSZ hszItem,
-WORD wFmt,
-WORD afCmd)
+UINT wFmt,
+UINT afCmd)
 {
     PAPPINFO pai;
     HDDEDATA hData;
 
+    TRACEAPIIN((szT, "DdeCreateDataHandle(%lx, %lx, %lx, %lx, %lx, %x, %x)\n",
+            idInst, pSrc, cb, cbOff, hszItem, wFmt, afCmd));
+
     pai = (PAPPINFO)idInst;
     if (pai == NULL || pai->instCheck != HIWORD(idInst)) {
+        TRACEAPIOUT((szT, "DdeCreateDataHandle:0\n"));
         return(0);
     }
     pai->LastError = DMLERR_NO_ERROR;
 
     if (afCmd & ~(HDATA_APPOWNED)) {
         SETLASTERROR(pai, DMLERR_INVALIDPARAMETER);
+        TRACEAPIOUT((szT, "DdeCreateDataHandle:0\n"));
         return(0L);
     }
 
@@ -1407,6 +1537,7 @@ WORD afCmd)
         }
         hData = (HDDEDATA)(DWORD)pedi;
     }
+    TRACEAPIOUT((szT, "DdeCreateDataHandle:%lx\n", hData));
     return(hData);
 }
 
@@ -1426,6 +1557,12 @@ DWORD cbOff)
     HANDLE      hd, hNewData;
     LPEXTDATAINFO pedi;
 
+    TRACEAPIIN((szT, "DdeAddData(%lx, %lx, %lx, %lx)\n",
+            hData, pSrc, cb, cbOff));
+
+    if (!hData)
+        goto DdeAddDataError;
+
     pedi = (LPEXTDATAINFO)hData;
     pai = pedi->pai;
     pai->LastError = DMLERR_NO_ERROR;
@@ -1434,7 +1571,9 @@ DWORD cbOff)
     /* if the datahandle is bogus, abort */
     hd = hNewData = HIWORD(hData);
     if (!hd || (LOWORD(hData) & HDATA_READONLY)) {
+DdeAddDataError:
         SETLASTERROR(pai, DMLERR_INVALIDPARAMETER);
+        TRACEAPIOUT((szT, "DdeAddData:0\n"));
         return(0L);
     }
 
@@ -1446,6 +1585,7 @@ DWORD cbOff)
     phData = (HDDEDATA FAR *)FindPileItem(pai->pHDataPile, CmpHIWORD, (LPBYTE)&hData, 0);
     if (!phData || LOWORD(*phData) & HDATA_READONLY) {
         SETLASTERROR(pai, DMLERR_INVALIDPARAMETER);
+        TRACEAPIOUT((szT, "DdeAddData:0\n"));
         return(0L);
     }
 
@@ -1460,7 +1600,7 @@ DWORD cbOff)
         /*
          * need to grow the block before putting new data in...
          */
-        if (!(hNewData = GlobalReAlloc(hd, cb + cbOff, GMEM_MOVEABLE))) {
+        if (!(hNewData = GLOBALREALLOC(hd, cb + cbOff, GMEM_MOVEABLE))) {
             /*
              * We can't grow the seg. Try allocating a new one.
              */
@@ -1468,12 +1608,13 @@ DWORD cbOff)
                 cb + cbOff))) {
                 /* failed.... die */
                 SETLASTERROR(pai, DMLERR_MEMORY_ERROR);
+                TRACEAPIOUT((szT, "DdeAddData:0\n"));
                 return(0);
             } else {
                 /*
                  * got a new block, now copy data and trash old one
                  */
-                CopyHugeBlock(GLOBALLOCK(hd), GLOBALLOCK(hNewData), GlobalSize(hd));
+                CopyHugeBlock(GLOBALPTR(hd), GLOBALPTR(hNewData), GlobalSize(hd));
                 GLOBALFREE(hd);  // objects flow through - no need to free.
             }
         }
@@ -1505,6 +1646,7 @@ DWORD cbOff)
         CopyHugeBlock(pSrc, HugeOffset(GLOBALLOCK(HIWORD(hData)), cbOff), cb);
     }
     pedi->hData = hData;
+    TRACEAPIOUT((szT, "DdeAddData:%lx\n", pedi));
     return((HDDEDATA)pedi);
 }
 
@@ -1521,6 +1663,20 @@ DWORD cbOff;
     DWORD   cbSize;
     BOOL fExec = TRUE;
 
+    TRACEAPIIN((szT, "DdeGetData(%lx, %lx, %lx, %lx)\n",
+            hData, pDst, cbMax, cbOff));
+
+    //
+    // Check for NULL.
+    // Packard Bell Navigator passes NULL at startup.  In 3.1 we'd
+    // maybe trash our local heap using ds:0.  But now touching pai will
+    // fault since it's a far pointer and 0:0 is bad.
+    //
+    // Also makes your system stabler.
+    //
+    if (!hData)
+        goto DdeGetDataError;
+
     pai = EXTRACTHDATAPAI(hData);
     pai->LastError = DMLERR_NO_ERROR;
     hData = ((LPEXTDATAINFO)hData)->hData;
@@ -1535,18 +1691,22 @@ DWORD cbOff;
         fExec = FALSE;
     }
 
-
-    if (cbOff >= cbSize) {
+    if (cbOff >= cbSize)
+    {
+DdeGetDataError:
         SETLASTERROR(pai, DMLERR_INVALIDPARAMETER);
+        TRACEAPIOUT((szT, "DdeGetData:0\n"));
         return(0L);
     }
 
     cbMax = min(cbMax, cbSize - cbOff);
     if (pDst == NULL) {
+        TRACEAPIOUT((szT, "DdeGetData:%lx\n", fExec ? cbSize : cbSize - 4));
         return(fExec ? cbSize : cbSize - 4);
     } else {
         CopyHugeBlock(HugeOffset(GLOBALLOCK(HIWORD(hData)), cbOff),
                 pDst, cbMax);
+        TRACEAPIOUT((szT, "DdeGetData:%lx\n", cbMax));
         return(cbMax);
     }
 }
@@ -1559,12 +1719,19 @@ LPDWORD pcbDataSize)
 {
     PAPPINFO pai;
     DWORD    offset;
+    LPBYTE   lpRet;
+
+    TRACEAPIIN((szT, "DdeAccessData(%lx, %lx)\n",
+            hData, pcbDataSize));
+
+    if (!hData)
+        goto DdeAccessDataError;
 
     pai = EXTRACTHDATAPAI(hData);
     pai->LastError = DMLERR_NO_ERROR;
     hData = ((LPEXTDATAINFO)hData)->hData;
 
-    if (HIWORD(hData) && (HIWORD(hData) != 0xFFFF)) {
+    if (HIWORD(hData) && (HIWORD(hData) != 0xFFFF) ) {
         /* screw around here getting past the first two words, which
          * aren't even there if this is execute data
          */
@@ -1572,9 +1739,14 @@ LPDWORD pcbDataSize)
         if (pcbDataSize) {
             *pcbDataSize = GlobalSize(HIWORD(hData)) - offset;
         }
-        return((LPBYTE)GLOBALLOCK(HIWORD(hData)) + offset);
+        lpRet = (LPBYTE)GLOBALLOCK(HIWORD(hData)) + offset;
+        TRACEAPIOUT((szT, "DdeAccessData:%lx\n", lpRet));
+        return(lpRet);
     }
+
+DdeAccessDataError:
     SETLASTERROR(pai, DMLERR_INVALIDPARAMETER);
+    TRACEAPIOUT((szT, "DdeAccessData:0\n"));
     return(0L);
 }
 
@@ -1586,32 +1758,76 @@ HDDEDATA hData)
 {
     PAPPINFO pai;
 
-    pai = EXTRACTHDATAPAI(hData);
-    pai->LastError = DMLERR_NO_ERROR;
-    GLOBALUNLOCK(HIWORD(((LPEXTDATAINFO)hData)->hData));
+    TRACEAPIIN((szT, "DdeUnaccessData(%lx)\n", hData));
+
+    //
+    // BOGUS -- we should set last error and RIP also.
+    //
+    if (hData)
+    {
+        pai = EXTRACTHDATAPAI(hData);
+        pai->LastError = DMLERR_NO_ERROR;
+    }
+    TRACEAPIOUT((szT, "DdeUnaccessData:1\n"));
     return(TRUE);
 }
 
 
+// Diamond Multimedia Kit 5000 creates a non-app-owned data handle,
+// uses it in a client transaction (which free's it) and then
+// calls DDEFreeDataHandle which can fault (depending on what junk
+// gets left behind). To handle this we validate the data handle
+// before doing anything else.
+BOOL HDdeData_Validate(HDDEDATA hData)
+{
+    WORD wSaveDS;
+    UINT nRet;
+
+    wSaveDS = SwitchDS(HIWORD(hData));
+
+    // Use the validation layer to check the handle
+    // We can call LocalSize with the near ptr as the handle because:
+    //  1. The HDDEDATA was allocated with LPTR (LMEM_FIXED | LMEM_ZEROINIT)
+    //  2. Local mem that is alloc'd LMEM_FIXED, the offset is the handle
+    //  3. We don't want to call LocalHandle to get the handle because it has
+    //     no parameter vailidation & blows up for bad handles
+    nRet = LocalSize((HANDLE)LOWORD(hData));
+
+    SwitchDS(wSaveDS);
+
+#ifdef DEBUG
+    if (!nRet) {
+        OutputDebugString("DDEML: Invalid HDDEDATA.\n\r");
+    }
+#endif
+
+    return nRet;
+}
 
 BOOL EXPENTRY DdeFreeDataHandle(
 HDDEDATA hData)
 {
     PAPPINFO pai;
+    LPEXTDATAINFO pedi;
 
-    LPEXTDATAINFO pedi = (LPEXTDATAINFO)hData;
-    pai = EXTRACTHDATAPAI(hData);
-    pai->LastError = DMLERR_NO_ERROR;
+    TRACEAPIIN((szT, "DdeFreeDataHandle(%lx)\n", hData));
 
-    if (hData == 0) {
+    pedi = (LPEXTDATAINFO)hData;
+
+    if ( !pedi || !HDdeData_Validate(hData) ) {
+        TRACEAPIOUT((szT, "DdeFreeDataHandle:1\n"));
         return(TRUE);
     }
+
+    pai = EXTRACTHDATAPAI(hData);
+    pai->LastError = DMLERR_NO_ERROR;
 
     if (!(LOWORD(pedi->hData) & HDATA_NOAPPFREE)) {
         FreeDataHandle(pedi->pai, pedi->hData, FALSE);
         FarFreeMem((LPSTR)pedi);
     }
 
+    TRACEAPIOUT((szT, "DdeFreeDataHandle:1\n"));
     return(TRUE);
 }
 
@@ -1672,12 +1888,17 @@ int iCodePage)
 #define pai ((PAPPINFO)idInst)
     ATOM a;
 
+    TRACEAPIIN((szT, "DdeCreateStringHandle(%lx, %s, %x)\n",
+            idInst, psz, iCodePage));
+
     if (pai == NULL | pai->instCheck != HIWORD(idInst)) {
+        TRACEAPIOUT((szT, "DdeCreateStringHandle:0\n"));
         return(0);
     }
     pai->LastError = DMLERR_NO_ERROR;
 
     if (psz == NULL || *psz == '\0') {
+        TRACEAPIOUT((szT, "DdeCreateStringHandle:0\n"));
         return(0);
     }
     if (iCodePage == 0 || iCodePage == CP_WINANSI || iCodePage == GetKBCodePage()) {
@@ -1690,9 +1911,11 @@ int iCodePage)
             SETLASTERROR(pai, DMLERR_MEMORY_ERROR);
             a = 0;
         }
+        TRACEAPIOUT((szT, "DdeCreateStringHandle:%x\n", a));
         return((HSZ)a);
     } else {
         SETLASTERROR(pai, DMLERR_INVALIDPARAMETER);
+        TRACEAPIOUT((szT, "DdeCreateStringHandle:0\n"));
         return(0);
     }
 #undef pai
@@ -1706,16 +1929,23 @@ HSZ hsz)
 {
     PAPPINFO pai;
     ATOM a = LOWORD(hsz);
+    BOOL fRet;
+
+    TRACEAPIIN((szT, "DdeFreeStringHandle(%lx, %lx)\n",
+            idInst, hsz));
 
     pai = (PAPPINFO)idInst;
     if (pai == NULL || pai->instCheck != HIWORD(idInst)) {
+        TRACEAPIOUT((szT, "DdeFreeStringHandle:0\n"));
         return(FALSE);
     }
     pai->LastError = DMLERR_NO_ERROR;
 
     MONHSZ(a, MH_DELETE, pai->hTask);
     FindPileItem(pai->pHszPile, CmpWORD, (LPBYTE)&a, FPI_DELETE);
-    return(FreeHsz(a));
+    fRet = FreeHsz(a);
+    TRACEAPIOUT((szT, "DdeFreeStringHandle:%x\n", fRet));
+    return(fRet);
 }
 
 
@@ -1726,15 +1956,22 @@ HSZ hsz)
 {
     PAPPINFO pai;
     ATOM a = LOWORD(hsz);
+    BOOL fRet;
+
+    TRACEAPIIN((szT, "DdeKeepStringHandle(%lx, %lx)\n",
+            idInst, hsz));
 
     pai = (PAPPINFO)idInst;
     if (pai == NULL || pai->instCheck != HIWORD(idInst)) {
+        TRACEAPIOUT((szT, "DdeKeepStringHandle:0\n"));
         return(FALSE);
     }
     pai->LastError = DMLERR_NO_ERROR;
     MONHSZ(a, MH_KEEP, pai->hTask);
     AddPileItem(pai->pHszPile, (LPBYTE)&a, NULL);
-    return(IncHszCount(a));
+    fRet = IncHszCount(a);
+    TRACEAPIOUT((szT, "DdeKeepStringHandle:%x\n", fRet));
+    return(fRet);
 }
 
 
@@ -1749,9 +1986,14 @@ DWORD cchMax,
 int iCodePage)
 {
     PAPPINFO pai;
+    DWORD dwRet;
+
+    TRACEAPIIN((szT, "DdeQueryString(%lx, %lx, %lx, %lx, %x)\n",
+            idInst, hsz, psz, cchMax, iCodePage));
 
     pai = (PAPPINFO)idInst;
     if (pai == NULL || pai->instCheck != HIWORD(idInst)) {
+        TRACEAPIOUT((szT, "DdeQueryString:0\n"));
         return(FALSE);
     }
     pai->LastError = DMLERR_NO_ERROR;
@@ -1759,18 +2001,25 @@ int iCodePage)
     if (iCodePage == 0 || iCodePage == CP_WINANSI || iCodePage == GetKBCodePage()) {
         if (psz) {
             if (hsz) {
-                return(QueryHszName(hsz, psz, (WORD)cchMax));
+                dwRet = QueryHszName(hsz, psz, (WORD)cchMax);
+                TRACEAPIOUT((szT, "DdeQueryString:%lx(%s)\n", dwRet, psz));
+                return(dwRet);
             } else {
                 *psz = '\0';
+                TRACEAPIOUT((szT, "DdeQueryString:0\n"));
                 return(0);
             }
         } else if (hsz) {
-            return(QueryHszLength(hsz));
+            dwRet = QueryHszLength(hsz);
+            TRACEAPIOUT((szT, "DdeQueryString:%lx\n", dwRet));
+            return(dwRet);
         } else {
+            TRACEAPIOUT((szT, "DdeQueryString:0\n"));
             return(0);
         }
     } else {
         SETLASTERROR(pai, DMLERR_INVALIDPARAMETER);
+        TRACEAPIOUT((szT, "DdeQueryString:0\n"));
         return(0);
     }
 }
@@ -1781,13 +2030,20 @@ int EXPENTRY DdeCmpStringHandles(
 HSZ hsz1,
 HSZ hsz2)
 {
+    int iRet;
+
+    TRACEAPIIN((szT, "DdeCmpStringHandles(%lx, %lx)\n",
+            hsz1, hsz2));
+
     if (hsz2 > hsz1) {
-        return(-1);
+        iRet = -1;
     } else if (hsz2 < hsz1) {
-        return(1);
+        iRet = 1;
     } else {
-        return(0);
+        iRet = 0;
     }
+    TRACEAPIOUT((szT, "DdeCmpStringHandles:%x\n", iRet));
+    return(iRet);
 }
 
 
@@ -1800,14 +2056,19 @@ DWORD idTransaction)
 {
     PAPPINFO pai;
 
+    TRACEAPIIN((szT, "DdeAbandonTransaction(%lx, %lx, %lx)\n",
+            idInst, hConv, idTransaction));
+
     pai = (PAPPINFO)idInst;
     if (pai == NULL || pai->instCheck != HIWORD(idInst)) {
+        TRACEAPIOUT((szT, "DdeAbandonTransaction:0\n"));
         return(FALSE);
     }
     pai->LastError = DMLERR_NO_ERROR;
 
     if ((hConv && !ValidateHConv(hConv)) || idTransaction == QID_SYNC) {
         SETLASTERROR(pai, DMLERR_INVALIDPARAMETER);
+        TRACEAPIOUT((szT, "DdeAbandonTransaction:0\n"));
         return(FALSE);
     }
     if (hConv == NULL) {
@@ -1818,6 +2079,7 @@ DWORD idTransaction)
         register HWND hwndLast;
 
         if (!(hwnd = GetWindow(pai->hwndDmg, GW_CHILD))) {
+            TRACEAPIOUT((szT, "DdeAbandonTransaction:1\n"));
             return(TRUE);
         }
         hwndLast = GetWindow(hwnd, GW_HWNDLAST);
@@ -1829,8 +2091,13 @@ DWORD idTransaction)
             hwnd = GetWindow(hwnd, GW_HWNDNEXT);
         } while (TRUE);
     } else {
-        return(AbandonTransaction((HWND)hConv, pai, idTransaction, TRUE));
+        BOOL fRet;
+
+        fRet = AbandonTransaction((HWND)hConv, pai, idTransaction, TRUE);
+        TRACEAPIOUT((szT, "DdeAbandonTransaction:%x\n", fRet));
+        return(fRet);
     }
+    TRACEAPIOUT((szT, "DdeAbandonTransaction:1\n"));
     return(TRUE);
 }
 
@@ -1911,12 +2178,17 @@ failExit:
 BOOL EXPENTRY DdeEnableCallback(
 DWORD idInst,
 HCONV hConv,
-WORD wCmd)
+UINT wCmd)
 {
     PAPPINFO pai;
+    BOOL fRet;
+
+    TRACEAPIIN((szT, "DdeEnableCallback(%lx, %lx, %x)\n",
+            idInst, hConv, wCmd));
 
     pai = (PAPPINFO)idInst;
     if (pai == NULL || pai->instCheck != HIWORD(idInst)) {
+        TRACEAPIOUT((szT, "DdeEnableCallback:0\n"));
         return(FALSE);
     }
     pai->LastError = DMLERR_NO_ERROR;
@@ -1925,6 +2197,7 @@ WORD wCmd)
             (wCmd & ~(EC_ENABLEONE | EC_ENABLEALL |
             EC_DISABLE | EC_QUERYWAITING))) {
         SETLASTERROR(pai, DMLERR_INVALIDPARAMETER);
+        TRACEAPIOUT((szT, "DdeEnableCallback:0\n"));
         return(FALSE);
     }
 
@@ -1943,7 +2216,9 @@ WORD wCmd)
             }
         }
         SEMLEAVE();
-        return(cWaiting > 1 || (cWaiting == 1 && pai->cInProcess == 0));
+        fRet = cWaiting > 1 || (cWaiting == 1 && pai->cInProcess == 0);
+        TRACEAPIOUT((szT, "DdeEnableCallback:%x\n", fRet));
+        return(fRet);
     }
 
     /*
@@ -1966,12 +2241,14 @@ WORD wCmd)
 
         if (pai->cInProcess) {
             SETLASTERROR(pai, DMLERR_REENTRANCY);
+            TRACEAPIOUT((szT, "DdeEnableCallback:0\n"));
             return(FALSE);
         }
 
         SendMessage(pai->hwndDmg, UM_CHECKCBQ, 0, (DWORD)(LPSTR)pai);
     }
 
+    TRACEAPIOUT((szT, "DdeEnableCallback:1\n"));
     return(TRUE); // TRUE implies the callback queue is free of unblocked calls.
 }
 
@@ -1981,13 +2258,17 @@ HDDEDATA EXPENTRY DdeNameService(
 DWORD idInst,
 HSZ hsz1,
 HSZ hsz2,
-WORD afCmd)
+UINT afCmd)
 {
     PAPPINFO pai;
     PPILE panp;
 
+    TRACEAPIIN((szT, "DdeNameService(%lx, %lx, %lx, %x)\n",
+            idInst, hsz1, hsz2, afCmd));
+
     pai = (PAPPINFO)idInst;
     if (pai == NULL || pai->instCheck != HIWORD(idInst)) {
+        TRACEAPIOUT((szT, "DdeNameService:0\n"));
         return(FALSE);
     }
     pai->LastError = DMLERR_NO_ERROR;
@@ -2004,6 +2285,7 @@ WORD afCmd)
 
         if (pai->afCmd & APPCMD_CLIENTONLY) {
             SETLASTERROR(pai, DMLERR_DLL_USAGE);
+            TRACEAPIOUT((szT, "DdeNameService:0\n"));
             return(FALSE);
         }
 
@@ -2015,6 +2297,7 @@ WORD afCmd)
                  * registering NULL is not allowed!
                  */
                 SETLASTERROR(pai, DMLERR_INVALIDPARAMETER);
+                TRACEAPIOUT((szT, "DdeNameService:0\n"));
                 return(FALSE);
             }
             /*
@@ -2029,6 +2312,7 @@ WORD afCmd)
                 RegisterService(FALSE, (GATOM)hsz1, pai->hwndFrame);
                 FreeHsz(LOWORD(hsz1));
             }
+            TRACEAPIOUT((szT, "DdeNameService:1\n"));
             return(TRUE);
         }
 
@@ -2050,13 +2334,9 @@ WORD afCmd)
             FreeHsz(LOWORD(hsz1));
         }
 
+        TRACEAPIOUT((szT, "DdeNameService:1\n"));
         return(TRUE);
     }
+    TRACEAPIOUT((szT, "DdeNameService:0\n"));
     return(0L);
 }
-
-
-
-
-
-

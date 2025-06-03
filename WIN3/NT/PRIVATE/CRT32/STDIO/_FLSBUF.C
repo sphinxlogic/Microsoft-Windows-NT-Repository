@@ -134,7 +134,7 @@ int _CRTAPI1 _flswbuf (
 #endif /* _UNICODE */
 
 {
-#ifdef _NTSUBSET_
+#if defined _NTSUBSET_ && !defined _POSIX_
         str->_flag |= _IOERR;
         return(_TEOF);
 #else

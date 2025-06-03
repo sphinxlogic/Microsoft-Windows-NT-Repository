@@ -226,11 +226,7 @@ static VOID clock_routine( VOID )
       num_min = ST_GetBSElapsedMinutes( &op_stats );
       num_seconds = ST_GetBSElapsedSeconds( &op_stats );
 
-#ifndef UNICODE
       yprintf( TEXT("%2.2d%c%2.2d\r"), num_min, UI_GetTimeSeparator(), num_seconds );
-#else //UNICODE
-      yprintf( TEXT("%2.2d%wc%2.2d\r"), num_min, UI_GetTimeSeparator(), num_seconds );
-#endif //UNICODE
 
       JobStatusBackupRestore( JOB_STATUS_ELAPSED_TIME );
    }
@@ -291,11 +287,7 @@ TPOS_PTR  tpos, ... )
                case BT_DDB:
                     UI_BuildDelimitedPathFromDDB( &path_buf, fsh, dblk_ptr, delimiter, FALSE );
 
-#ifndef UNICODE
                     yprintf( TEXT("%s"), path_buf );
-#else //UNICODE
-                    yprintf( TEXT("%ws"), path_buf );
-#endif //UNICODE
                     JobStatusBackupRestore( JOB_STATUS_DIRECTORY_NAMES );
 
                     lresprintf( LOGGING_FILE, LOG_DIRECTORY, SES_ENG_MSG, RES_DIRECTORY, path_buf );
@@ -402,11 +394,7 @@ TPOS_PTR  tpos, ... )
                num_bytes = ST_GetBSBytesProcessed ( &op_stats );
                U64_Litoa( num_bytes, numeral, (UINT16)10 , &stat );
                UI_BuildNumeralWithCommas( numeral );
-#ifndef UNICODE
                yprintf(TEXT("%s\r"),numeral );
-#else //UNICODE
-               yprintf(TEXT("%ws\r"),numeral );
-#endif //UNICODE
                JobStatusBackupRestore( JOB_STATUS_BYTES_PROCESSED );
 
           }
@@ -467,11 +455,7 @@ TPOS_PTR  tpos, ... )
                /* volume name of disk drive */
                if ( UI_AllocPathBuffer( &path_buf, UI_MAX_PATH_LENGTH ) != NULL ) {
                     DLE_GetVolName( BSD_GetDLE( bsd_ptr ), path_buf );
-#ifndef UNICODE
                     yprintf(TEXT("%s\r"),path_buf );
-#else //UNICODE
-                    yprintf(TEXT("%ws\r"),path_buf );
-#endif //UNICODE
                     JobStatusBackupRestore( JOB_STATUS_SOURCE_NAME );
 
                     /* clear the destination name */
@@ -589,11 +573,7 @@ TPOS_PTR  tpos, ... )
                     
                     case BT_DDB:
                          UI_BuildDelimitedPathFromDDB( &path_buf, fsh, dblk_ptr, delimiter, FALSE );
-#ifndef UNICODE     
                          yprintf( TEXT("%s"), path_buf );
-#else //UNICODE     
-                         yprintf( TEXT("%ws"), path_buf );
-#endif //UNICODE
                          yresprintf( (INT16) RES_DIRECTORY_NOT_DELETED, path_buf );
                          JobStatusBackupRestore( (WORD) JOB_STATUS_LISTBOX );
                

@@ -300,7 +300,7 @@ Return Value:
 
     }
 
-    if (strcmpi(szTypeCur, szInfType)) {
+    if (_strcmpi(szTypeCur, szInfType)) {
 
         //
         // File is not correct type
@@ -743,7 +743,7 @@ Return Value:
     // Find out the infs we will look for in this list
     //
     while( pDeviceTypeToInf->szDeviceType != NULL ) {
-        if( !strcmpi(pDeviceTypeToInf->szDeviceType, szInfType)) {
+        if( !_strcmpi(pDeviceTypeToInf->szDeviceType, szInfType)) {
             szSystemInf    =  pDeviceTypeToInf->szSystemInf;
             szOemInfPrefix =  pDeviceTypeToInf->szOemInfPrefix;
             cbOemInfPrefix =  lstrlen( szOemInfPrefix );
@@ -777,8 +777,8 @@ Return Value:
     //
     for( ; *pszFiles; pszFiles += strlen(pszFiles) + 1) {
 
-        if ( strcmpi(pszFiles, szSystemInf) &&
-             strnicmp(pszFiles, szOemInfPrefix, cbOemInfPrefix)) {
+        if ( _strcmpi(pszFiles, szSystemInf) &&
+             _strnicmp(pszFiles, szOemInfPrefix, cbOemInfPrefix)) {
 
             continue;
         }
@@ -951,4 +951,3 @@ Return Value:
 }
 
 #endif
-

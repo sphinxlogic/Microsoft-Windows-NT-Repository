@@ -4,12 +4,11 @@
 
 #include	<ndis.h>
 #include	<mytypes.h>
+#include	<mydefs.h>
 #include	<disp.h>
 #include	<util.h>
 #include	<idd.h>
-
-extern	CHAR    def_tbl[IDD_DEF_SIZE];  /* init definition database */
-extern	INT	    def_len;				/* length of definition database */
+#include	<res.h>
 
 /* a port descriptor */
 typedef struct
@@ -19,21 +18,21 @@ typedef struct
 } PORT;
 
 /* port tables */
-static PORT api_rx_port_tbl[] = 
+static PORT api_rx_port_tbl[] =
 {
     { "b1_rx   ", 1 },
     { "b2_rx   ", 1 },
-    { "uart_rx ", 1 },
+    { "uart_rx ", 0 },
     { "tdat    ", 1 },
     { "Cm.0    ", 1 },
     { "Cm.1    ", 0 },
     { NULL }
 };
-static PORT api_tx_port_tbl[] = 
+static PORT api_tx_port_tbl[] =
 {
     { "b1_tx   ", 1 },
     { "b2_tx   ", 1 },
-    { "uart_tx ", 1 },
+    { "uart_tx ", 0 },
     { "cmd     ", 1 },
     { "Q931.0  ", 1 },
     { "Q931.1  ", 0 },
@@ -42,21 +41,17 @@ static PORT api_tx_port_tbl[] =
 
 /* partition queue table */
 
-static INT api_tx_partq_tbl[] = 
+static INT api_tx_partq_tbl[] =
 {
 	0, 1, 2, 3, 3, 3
 };
 
 /* local prototypes */
-INT	load_code(IDD* idd);
 INT	api_setup(IDD* idd);
 INT	api_map_ports(IDD* idd);
 INT	api_bind_ports(IDD* idd);
-INT  api_setup_partq(IDD* idd);
-INT  api_alloc_partq(IDD* idd);
-INT	api_bind_port(IDD* idd, USHORT port, USHORT bitpatt);
-INT	reset_board(IDD* idd);
-
+INT	api_setup_partq(IDD* idd);
+INT	api_alloc_partq(IDD* idd);
 
 #pragma NDIS_INIT_FUNCTION(idd_startup)
 
@@ -74,14 +69,14 @@ idd_startup(VOID *idd_1)
     /* mark starting */
     idd->state = IDD_S_STARTUP;
 
-    /* setup pointers into shared memory */
-    idd->stat = (USHORT*)(idd->vhw.vmem + 0x800);    
-    idd->cmd = (IDD_CMD*)(idd->vhw.vmem + 0x810);
+	if (idd->btype != IDD_BT_DATAFIREU)
+		while(!GetResourceSem (idd->res_mem));
 
     /* do the startup */
-    if ( (ret = load_code(idd)) != IDD_E_SUCC )
+    if ( (ret = idd->LoadCode(idd)) != IDD_E_SUCC )
 	{
 		/* release idd */
+		FreeResourceSem (idd->res_mem);
 		NdisReleaseSpinLock(&idd->lock);
 		D_LOG(D_EXIT, ("idd_startup: error exit, ret=0x%x", ret));
 		return(ret);
@@ -89,12 +84,13 @@ idd_startup(VOID *idd_1)
 	}
 
 	/* initialize api level - talks to memory! */
-	idd__cpage(idd, 0);
     ret = api_setup(idd);
-	idd__cpage(idd, IDD_PAGE_NONE);
 
     /* change state */
     idd->state = IDD_S_RUN;
+
+	if (idd->btype != IDD_BT_DATAFIREU)
+		FreeResourceSem (idd->res_mem);
 
     /* release idd */
     NdisReleaseSpinLock(&idd->lock);
@@ -113,51 +109,55 @@ idd_shutdown(VOID *idd_1)
 
     idd->state = IDD_S_SHUTDOWN;
 
-    reset_board(idd);
-    
-    return(IDD_E_SUCC);
-} 
+    idd->ResetAdapter(idd);
 
-#pragma NDIS_INIT_FUNCTION(load_code)
+    return(IDD_E_SUCC);
+}
+
+#pragma NDIS_INIT_FUNCTION(IdpLoadCode)
 
 /* load idp code in & run it */
 INT
-load_code(IDD *idd)
+IdpLoadCode(IDD *idd)
 {
-	ULONG		CurrentTime, StartTime;
-	USHORT		TimeOut = 0;
+	ULONG		CurrentTime = 0, TimeOut = 0;
     USHORT      bank, page, n, NumberOfBanks;
-    char        *fbin_data, *env;
+    UCHAR		*fbin_data;
     NDIS_STATUS stat;
-	UCHAR		status;
+	UCHAR		status = IDP_S_PEND;
 	NDIS_PHYSICAL_ADDRESS	pa = NDIS_PHYSICAL_ADDRESS_CONST(0xffffffff, 0xffffffff);
 			
     D_LOG(D_ENTRY, ("load_code: entry, idd=0x%p", idd));
 
+    /* setup pointers into shared memory */
+    idd->IdpStat = (USHORT*)(idd->vhw.vmem + IDP_STS_WINDOW);
+    idd->IdpCmd = (IDP_CMD*)(idd->vhw.vmem + IDP_CMD_WINDOW);
+    idd->IdpEnv = (UCHAR*)(idd->vhw.vmem + IDP_ENV_WINDOW);
+
     /* setup base memory address registers */
-	idd->set_basemem(idd, idd->phw.base_mem);
-    
+	idd->SetBasemem(idd, idd->phw.base_mem);
+
     /* while in reset, clear all idp banks/pages */
     for ( bank = 0 ; bank < 3 ; bank++ )
     {
         /* setup bank */
-		idd->set_bank(idd, (UCHAR)bank, 0);
+		idd->SetBank(idd, (UCHAR)bank, 0);
 
         /* loop on pages */
         for ( page = 0 ; page < 4 ; page++ )
         {
             /* setup page */
-			idd__cpage (idd, (UCHAR)page);
+			idd->ChangePage (idd, (UCHAR)page);
 
 			/* zero out (has to be a word fill!) */
-            idd__memwset((USHORT*)idd->vhw.vmem, 0, 0x4000);
+            IdpMemset((UCHAR*)idd->vhw.vmem, 0, 0x4000);
         }
     }
 	//free page
-	idd__cpage (idd, (UCHAR)IDD_PAGE_NONE);
+	idd->ChangePage (idd, (UCHAR)IDD_PAGE_NONE);
 
     /* set idp to code bank, keep in reset */
-	idd->set_bank(idd, IDD_BANK_CODE, 0);
+	idd->SetBank(idd, IDD_BANK_CODE, 0);
 
     /* map file data in */
     NdisMapFile(&stat, (PVOID*)&fbin_data, idd->phw.fbin);
@@ -178,71 +178,226 @@ load_code(IDD *idd)
 	{
 		/* copy data in (must be a word operation) */
 		for ( page = 0 ; page < 4 ; page++ )
-		{        
-			idd__cpage(idd, (UCHAR)page);
-        
-			idd__memwcpy((USHORT*)idd->vhw.vmem,
-                     (USHORT*)(fbin_data + (page * 0x4000) + (n * 0x10000)), 0x4000);
+		{
+			idd->ChangePage(idd, (UCHAR)page);
+
+			IdpMemcpy((UCHAR*)idd->vhw.vmem,
+                     (UCHAR*)(fbin_data + (page * 0x4000) + (n * 0x10000)), 0x4000);
 
 //			DbgPrint ("Load: Src: 0x%p, Dst: 0x%p, Page: %d\n",
 //					(fbin_data + (page*0x4000) + (n * 0x10000)), idd->vhw.vmem, page);
 
-		}                     
+		}
 		
 		/* set idp to data bank, keep in reset */
-		idd->set_bank(idd, IDD_BANK_DATA, 0);
+		idd->SetBank(idd, IDD_BANK_DATA, 0);
 	}
 
     /* map file data out */
     NdisUnmapFile(idd->phw.fbin);
 
     /* switch back to buffer bank */
-	idd__cpage(idd, 0);
-	idd->set_bank(idd, IDD_BANK_BUF, 0);
+	idd->ChangePage(idd, 0);
+	idd->SetBank(idd, IDD_BANK_BUF, 0);
 
     /* add 'no_uart' definition */
-    NdisMoveToMappedMemory(def_tbl + def_len, "no_uart\0any\0", 12);
-	def_len += 12;
+    NdisMoveMemory(idd->DefinitionTable + idd->DefinitionTableLength,
+	                "no_uart\0any\0",
+                   12);
+
+	idd->DefinitionTableLength += 12;
 
     /* load initial environment */
-    env = (char*)idd->cmd + 0x100;
-    NdisMoveToMappedMemory(env, def_tbl, def_len);
-  
+    NdisMoveToMappedMemory((PVOID)idd->IdpEnv, (PVOID)idd->DefinitionTable, idd->DefinitionTableLength);
+
     /* install startup byte signal */
-    NdisWriteRegisterUchar((UCHAR *)&idd->cmd->status, 0xff);
+	NdisMoveToMappedMemory((PVOID)&idd->IdpCmd->status, (PVOID)&status, sizeof(UCHAR));
 
     /* start idp running, wait for 1 second to complete */
-	idd->set_bank(idd, IDD_BANK_BUF, 1);
-
-	StartTime = ut_time_now();
+	idd->SetBank(idd, IDD_BANK_BUF, 1);
 
 	while ( !TimeOut )
 	{
-		NdisReadRegisterUchar((UCHAR *)&idd->cmd->status, &status);
+		NdisMoveFromMappedMemory((PVOID)&status, (PVOID)&idd->IdpCmd->status, sizeof(UCHAR));
 
 		if ( !status )
 			break;
 
-		NdisStallExecution(100);
-		CurrentTime = ut_time_now();
-		if ( (CurrentTime - StartTime) > 5)
+		//
+		// stall for a 1 millisecond
+		//
+		NdisStallExecution(1000L);
+
+		//
+		// add 1 millisecond to timeout counter
+		//
+		CurrentTime += 1;
+
+		//
+		// if timeout counter is greater the 2 seconds we have a problem
+		//
+		if ( CurrentTime > 2000)
 			TimeOut = 1;
 	}
 
 	if (TimeOut)
     {
         D_LOG(D_ALWAYS, ("load_code: idp didn't start!"));
+
+		idd->state = IDD_S_SHUTDOWN;
+
 		/* unset page, free memory window */
-		idd__cpage(idd, IDD_PAGE_NONE);
+		idd->ChangePage(idd, IDD_PAGE_NONE);
+
         return(IDD_E_RUNERR);
     }
 
 
 	/* unset page, free memory window */
-	idd__cpage(idd, IDD_PAGE_NONE);
+	idd->ChangePage(idd, IDD_PAGE_NONE);
 
     /* if here, idp runs now! */
     D_LOG(D_EXIT, ("load_code: exit, idp running"));
+    return(IDD_E_SUCC);
+}
+
+
+#pragma NDIS_INIT_FUNCTION(AdpLoadCode)
+
+/* load idp code in & run it */
+INT
+AdpLoadCode(IDD *idd)
+{
+	UCHAR	*Zero;
+	UCHAR	*fbin_data, status;
+    NDIS_STATUS stat;
+	ADP_BIN_HEADER	*Header;
+	ADP_BIN_BLOCK	*Block, *FirstBlock;
+	ULONG	CurrentTime = 0, TimeOut = 0;
+	USHORT	BlockCount = 0;
+	ULONG	n;
+
+    NDIS_PHYSICAL_ADDRESS   HighestAcceptableMax = NDIS_PHYSICAL_ADDRESS_CONST(-1, -1);
+
+    D_LOG(D_ENTRY, ("AdpLoadCode: entry, idd: 0x%p", idd));
+
+	//
+	// reset the adapter
+	//
+	AdpWriteControlBit(idd, ADP_RESET_BIT, 1);
+
+	//
+	// clear adapter memory
+	//
+    D_LOG(D_ENTRY, ("AdpLoadCode: Clear Memory"));
+
+    NdisAllocateMemory((PVOID*)&Zero,
+	                   0xFFFF,
+					   0,
+					   HighestAcceptableMax);
+
+
+	NdisZeroMemory(Zero, 1024);
+
+	for (n = 0; n < ADP_RAM_SIZE; n += 0xFFFF)
+		AdpPutBuffer(idd, n, Zero, (USHORT)0xFFFF);
+
+	NdisFreeMemory(Zero, 0xFFFF, 0);
+
+	//
+	// map file data into memory
+	//
+    NdisMapFile(&stat, (PVOID*)&fbin_data, idd->phw.fbin);
+
+    if ( stat != NDIS_STATUS_SUCCESS )
+    {
+        D_LOG(D_ALWAYS, ("AdpLoadCode: file mapping failed!, stat: 0x%x", stat));
+        return(IDD_E_FMAPERR);
+    }
+
+	//
+	// Get bin file header
+	//
+	(UCHAR*)Header = fbin_data;
+
+	if (Header->Format != ADP_BIN_FORMAT)
+        return(IDD_E_FMAPERR);
+
+	//
+	// Check file size
+	//
+	if (Header->ImageSize > ADP_RAM_SIZE)
+        return(IDD_E_FMAPERR);
+
+	BlockCount = Header->BlockCount;
+	(UCHAR*)FirstBlock = fbin_data + sizeof(ADP_BIN_HEADER);
+
+	for (n = 0; n < BlockCount; n++)
+	{
+		Block = FirstBlock + n;
+
+		AdpPutBuffer(idd, Block->Address, Block->Data, ADP_BIN_BLOCK_SIZE);
+	}
+
+	//
+	// unmap file data
+	//
+    NdisUnmapFile(idd->phw.fbin);
+
+	//
+	// add initial enviornment
+	//
+    /* add 'no_uart' definition */
+    NdisMoveMemory(idd->DefinitionTable + idd->DefinitionTableLength, "no_uart\0any\0", 12);
+	idd->DefinitionTableLength += 12;
+
+    D_LOG(D_ENTRY, ("AdpLoadCode: Add Enviornment"));
+
+    AdpPutBuffer(idd, ADP_ENV_WINDOW, idd->DefinitionTable, idd->DefinitionTableLength);
+
+	//
+	// write startup byte
+	//
+	AdpWriteCommandStatus(idd, ADP_S_PEND);
+
+	//
+	// release processor from reset
+	//
+	AdpWriteControlBit(idd, ADP_RESET_BIT, 0);
+
+	while ( !TimeOut )
+	{
+		status = AdpReadCommandStatus(idd);
+
+		if ( !status )
+			break;
+
+		//
+		// stall for a 1 millisecond
+		//
+		NdisStallExecution(1000L);
+
+		//
+		// add 1 millisecond to timeout counter
+		//
+		CurrentTime += 1;
+
+		//
+		// if timeout counter is greater the 2 seconds we have a problem
+		//
+		if ( CurrentTime > 2000)
+			TimeOut = 1;
+	}
+
+	if (TimeOut)
+    {
+        D_LOG(D_ALWAYS, ("AdpLodeCode: Adp didn't start!"));
+        return(IDD_E_RUNERR);
+    }
+
+    /* if here, Adp runs now! */
+    D_LOG(D_EXIT, ("AdpLoadCode: exit, Adp running"));
+
     return(IDD_E_SUCC);
 }
 
@@ -254,10 +409,10 @@ INT
 api_setup(IDD *idd)
 {
     INT     ret;
-    
+
     D_LOG(D_ENTRY, ("api_setup: entry, idd: 0x%p", idd));
 
-    /* map port names */       
+    /* map port names */
     if ( (ret = api_map_ports(idd)) != IDD_E_SUCC )
         return(ret);
 	
@@ -274,6 +429,7 @@ api_setup(IDD *idd)
         return(ret);
 	
     D_LOG(D_EXIT, ("api_setup: exit, success"));
+
     return(IDD_E_SUCC);
 }
 
@@ -283,31 +439,39 @@ api_setup(IDD *idd)
 INT
 api_map_ports(IDD *idd)
 {
-    USHORT      api_get_port();
     INT		n;
 
     D_LOG(D_ENTRY, ("api_map_ports: entry, idd: 0x%p", idd));
-    
+
     /* map rx ports */
     for ( n = 0 ; api_rx_port_tbl[n].name ; n++ )
-    	if ( !(idd->rx_port[n] = api_get_port(idd, api_rx_port_tbl[n].name)) )
-            if ( api_rx_port_tbl[n].must )
-            {
-                D_LOG(D_ALWAYS, ("api_map_ports: failed to map rx port [%s]", \
+	{
+		idd->rx_port[n] = idd->ApiGetPort(idd, api_rx_port_tbl[n].name);
+
+		D_LOG(D_ALWAYS, ("api_map_ports: RxPorts: PortName: %s, PortId: 0x%x", api_rx_port_tbl[n].name, idd->rx_port[n]));
+		
+    	if ( !idd->rx_port[n] && api_rx_port_tbl[n].must )
+        {
+			D_LOG(D_ALWAYS, ("api_map_ports: failed to map rx port [%s]", \
                                                 api_rx_port_tbl[n].name));
-                return(IDD_E_PORTMAPERR);
-            }
+			return(IDD_E_PORTMAPERR);
+		}
+	}
 	
     /* map tx ports */
     for ( n = 0 ; api_tx_port_tbl[n].name ; n++ )
-    	if ( !(idd->tx_port[n] = api_get_port(idd, api_tx_port_tbl[n].name)) )
-            if ( api_tx_port_tbl[n].must )
-            {
-                D_LOG(D_ALWAYS, ("api_map_ports: failed to map tx port [%s]", \
-                                                api_tx_port_tbl[n].name));
-                return(IDD_E_PORTMAPERR);
-            }
+	{
+		idd->tx_port[n] = idd->ApiGetPort(idd, api_tx_port_tbl[n].name);
 
+		D_LOG(D_ALWAYS, ("api_map_ports: TxPorts: PortName: %s, PortId: 0x%x", api_tx_port_tbl[n].name, idd->tx_port[n]));
+		
+    	if ( !idd->tx_port[n] && api_tx_port_tbl[n].must )
+		{
+			D_LOG(D_ALWAYS, ("api_map_ports: failed to map tx port [%s]", \
+										api_tx_port_tbl[n].name));
+			return(IDD_E_PORTMAPERR);
+		}
+	}
     return(IDD_E_SUCC);
 }
 
@@ -322,13 +486,16 @@ api_bind_ports(IDD *idd)
     D_LOG(D_ENTRY, ("api_bind_ports: entry, idd: 0x%p", idd));
 
     /* bind rx ports */
-    for ( n = 0 ; idd->rx_port[n] ; n++ )
-	if ( api_bind_port(idd, idd->rx_port[n], (USHORT)(1 << n)) < 0 )
+    for ( n = 0 ; api_rx_port_tbl[n].name; n++ )
 	{
-            D_LOG(D_ALWAYS, ("api_bind_ports: failed to bind status bit on port [%s]", \
-                                                    api_rx_port_tbl[n].name));
-            return(IDD_E_PORTBINDERR);
-        }
+		if (idd->rx_port[n])
+			if ( idd->ApiBindPort(idd, idd->rx_port[n], (USHORT)(1 << n)) < 0 )
+			{
+				D_LOG(D_ALWAYS, ("api_bind_ports: failed to bind status bit on port [%s]", \
+													api_rx_port_tbl[n].name));
+				return(IDD_E_PORTBINDERR);
+			}
+	}
 
     return(IDD_E_SUCC);
 }
@@ -357,7 +524,6 @@ INT
 api_alloc_partq(IDD *idd)
 {
     INT     n, part;
-    long	api_alloc_buf(IDD*, INT);
 
     D_LOG(D_ENTRY, ("api_alloc_partq: entry, idd: 0x%p", idd));
 	
@@ -365,95 +531,247 @@ api_alloc_partq(IDD *idd)
     for ( n = 0 ; n < IDD_TX_PORTS ; n++ )
 	if ( !idd->tx_buf[part = api_tx_partq_tbl[n]] )
 	{
-    	    if ( !(idd->tx_buf[part] = api_alloc_buf(idd, part)) )
+    	    if ( !(idd->tx_buf[part] = idd->ApiAllocBuffer(idd, part)) )
     	    {
-                D_LOG(D_ALWAYS, ("api_alloc_partq: failed to alloc initial buffer, part: %d",\
-                                                                                    part));
+                D_LOG(D_ALWAYS, ("api_alloc_partq: failed to alloc initial buffer, part: %d", part));
+                DbgPrint("api_alloc_partq: failed to alloc initial buffer, part: %d\n", part);
                 return(IDD_E_PARTQINIT);
     	    }
+#if	DBG
+			ASSERT(!idd->BufferStuff[part].Buffer[0]);
+			idd->BufferStuff[part].Buffer[0] = idd->tx_buf[part];
+			idd->BufferStuff[part].Count++;
+			idd->BufferStuff[part].Put++;
+			idd->BufferStuff[part].Get = 0;
+			ASSERT(idd->BufferStuff[part].Count < 32);
+#endif
     	}
 
     return(IDD_E_SUCC);    	
 }
 
-#pragma NDIS_INIT_FUNCTION(api_get_port)
+#pragma NDIS_INIT_FUNCTION(IdpGetPort)
 
 /* get port id from a name */
-USHORT 
-api_get_port(IDD *idd, CHAR name[8])
+USHORT
+IdpGetPort(IDD *idd, CHAR name[8])
 {
 	UCHAR	status;
 	USHORT	port_id;
 
-    D_LOG(D_ENTRY, ("api_get_port: entry, idd: 0x%p, name: [%s]", idd, name));
+    D_LOG(D_ENTRY, ("IdpGetPort: entry, idd: 0x%p, name: [%s]", idd, name));
+
+	idd->ChangePage(idd, 0);
 
     /* install target name & execute a map */
-	NdisMoveToMappedMemory ((CHAR *)idd->cmd->port_name, (CHAR *)name, 8);
-    idd__exec(idd, IDP_L_MAP);
-    
-    /* return port or fail */
-	NdisReadRegisterUchar((UCHAR *)&idd->cmd->status, &status);
-	if ( status != IDP_S_OK )
-		return(0);
-	NdisReadRegisterUshort((USHORT*)&idd->cmd->port_id, &port_id);
-    D_LOG(D_EXIT, ("api_get_port: exit, port_id: 0x%x", port_id));
-	return(port_id);
+	NdisMoveToMappedMemory ((CHAR *)idd->IdpCmd->port_name, (CHAR *)name, 8);
+
+    status = idd->Execute(idd, IDP_L_MAP);
+
+	NdisMoveFromMappedMemory((PVOID)&port_id, (PVOID)&idd->IdpCmd->port_id, sizeof(USHORT));
+
+	idd->ChangePage(idd, IDD_PAGE_NONE);
+
+    D_LOG(D_EXIT, ("IdpGetPort: exit, port_id: 0x%x", port_id));
+
+    return( (status == IDP_S_OK) ? port_id : 0);
 }
 
-#pragma NDIS_INIT_FUNCTION(api_bind_port)
+#pragma NDIS_INIT_FUNCTION(AdpGetPort)
+
+/* get port id from a name */
+USHORT
+AdpGetPort(IDD *idd, CHAR name[8])
+{
+	UCHAR	status;
+    D_LOG(D_ENTRY, ("AdpGetPort: entry, idd: 0x%p, name: [%s]", idd, name));
+
+	//
+	// clear command structure
+	//
+	NdisZeroMemory(&idd->AdpCmd, sizeof(ADP_CMD));
+
+	//
+	// put port name in command structure
+	//
+	NdisMoveMemory((PVOID)&idd->AdpCmd.port_name, name, 8);
+
+	//
+	// execute command
+	//
+	status = idd->Execute(idd, ADP_L_MAP);
+
+	//
+	// check return status
+	//
+	if (status != ADP_S_OK)
+		return(0);
+
+    D_LOG(D_ALWAYS, ("AdpGetPort: PortId: 0x%x", idd->AdpCmd.port_id));
+	//
+	// return port
+	//
+	return(idd->AdpCmd.port_id);
+}
+
+
+#pragma NDIS_INIT_FUNCTION(IdpBindPort)
 
 /* bind a port to a status bit */
 INT
-api_bind_port(IDD *idd, USHORT port, USHORT bitpatt)
+IdpBindPort(IDD *idd, USHORT port, USHORT bitpatt)
 {
 	UCHAR	status;
 
-    D_LOG(D_ENTRY, ("api_bind_port: entry, idd: 0x%p, port: 0x%x, bitpatt: 0x%x",
+    D_LOG(D_ENTRY, ("IdpBindPort: entry, idd: 0x%p, port: 0x%x, bitpatt: 0x%x",
                                                                     idd, port, bitpatt));
 
-    /* fillup cmd & execute a bind */
-    NdisWriteRegisterUshort((USHORT *)&idd->cmd->port_id, port);
-    NdisWriteRegisterUshort((USHORT*)&idd->cmd->port_bitpatt, bitpatt);
-    idd__exec(idd, IDP_L_BIND);
+	idd->ChangePage(idd, 0);
 
-    /* return status */
-	NdisReadRegisterUchar((UCHAR *)&idd->cmd->status, &status);
+    /* fillup cmd & execute a bind */
+	NdisMoveToMappedMemory((PVOID)&idd->IdpCmd->port_id, (PVOID)&port, sizeof(USHORT));
+	NdisMoveToMappedMemory((PVOID)&idd->IdpCmd->port_bitpatt, (PVOID)&bitpatt, sizeof(USHORT));
+
+    status = idd->Execute(idd, IDP_L_BIND);
+
+	idd->ChangePage(idd, IDD_PAGE_NONE);
+
     return( (status == IDP_S_OK) ? 0 : -1 );
 }
 
-#pragma NDIS_INIT_FUNCTION(api_alloc_buf)
+#pragma NDIS_INIT_FUNCTION(AdpBindPort)
+
+/* bind a port to a status bit */
+INT
+AdpBindPort(IDD *idd, USHORT port, USHORT bitpatt)
+{
+	UCHAR	status;
+
+    D_LOG(D_ENTRY, ("AdpBindPort: entry, idd: 0x%p, port: 0x%x, bitpatt: 0x%x",
+                                                                    idd, port, bitpatt));
+	//
+	// clear command structure
+	//
+	NdisZeroMemory(&idd->AdpCmd, sizeof(ADP_CMD));
+
+	//
+	// fill port id and status bit
+	//
+	idd->AdpCmd.port_id = port;
+	idd->AdpCmd.port_bitpatt = bitpatt;
+
+	//
+	// execute command
+	//
+	status = idd->Execute(idd, ADP_L_BIND);
+
+    D_LOG(D_ALWAYS, ("AdpBindPort: ExecuteStatus: 0x%x", status));
+
+	if (status != ADP_S_OK)
+		return(1);
+
+	return(0);
+}
+
+
+#pragma NDIS_INIT_FUNCTION(IdpAllocBuf)
 
 /* allocate a buffer off a partition */
-long 
-api_alloc_buf(IDD *idd, INT part)
+ULONG
+IdpAllocBuf(IDD *idd, INT part)
 {
 	UCHAR	status;
 	ULONG	msg_bufptr;
 	ULONG	temp;
 
-    D_LOG(D_ENTRY, ("api_alloc_buf: entry, idd: 0x%p, part: %d", idd, part));
+    D_LOG(D_ENTRY, ("IdpAllocBuf: entry, idd: 0x%p, part: %d", idd, part));
+
+	idd->ChangePage(idd, 0);
 
     /* fillup & execute */
-
 	temp = (ULONG)(part + 4);
-	NdisMoveToMappedMemory ((PVOID)&idd->cmd->msg_param, (PVOID)&temp, sizeof (ULONG));
-    idd__exec(idd, IDP_L_GET_WBUF);
-    
-    /* return status */
-	NdisReadRegisterUchar((UCHAR*)&idd->cmd->status, &status);
 
-	NdisMoveFromMappedMemory((PVOID)&msg_bufptr, (PVOID)&idd->cmd->msg_bufptr, (ULONG)sizeof (ULONG));
+	NdisMoveToMappedMemory ((PVOID)&idd->IdpCmd->msg_param, (PVOID)&temp, sizeof (ULONG));
+
+    status = idd->Execute(idd, IDP_L_GET_WBUF);
+
+	NdisMoveFromMappedMemory((PVOID)&msg_bufptr, (PVOID)&idd->IdpCmd->msg_bufptr, (ULONG)sizeof (ULONG));
+
+	idd->ChangePage(idd, IDD_PAGE_NONE);
+
     return( (status == IDP_S_OK) ? msg_bufptr : 0 );
+}
+
+#pragma NDIS_INIT_FUNCTION(AdpAllocBuf)
+
+/* allocate a buffer off a partition */
+ULONG
+AdpAllocBuf(IDD *idd, INT part)
+{
+	UCHAR	status;
+
+    D_LOG(D_ENTRY, ("AdpAllocBuf: entry, idd: 0x%p, part: %d", idd, part));
+
+	//
+	// clear command structure
+	//
+	NdisZeroMemory(&idd->AdpCmd, sizeof(ADP_CMD));
+
+	//
+	// fill port id and status bit
+	//
+	idd->AdpCmd.msg_param = (UCHAR)part + 4;
+	//
+	// execute command
+	//
+	status = idd->Execute(idd, ADP_L_GET_WBUF);
+
+    D_LOG(D_ALWAYS, ("AdpAllocBuf: status: 0x%x, BufPtr: 0x%x", status, idd->AdpCmd.msg_bufptr));
+
+	return ((status == ADP_S_OK) ? (ULONG)idd->AdpCmd.msg_bufptr : 0);
 }
 
 /* reset idp board */
 INT
-reset_board(IDD *idd)
+IdpResetBoard(IDD *idd)
 {
+    USHORT      bank, page;
     D_LOG(D_ENTRY, ("reset_board: entry, idd: 0x%p", idd));
 
-	idd->set_bank(idd, IDD_BANK_BUF, 0);
+    /* while in reset, clear all idp banks/pages */
+    for ( bank = 0 ; bank < 3 ; bank++ )
+    {
+        /* setup bank */
+		idd->SetBank(idd, (UCHAR)bank, 0);
+
+        /* loop on pages */
+        for ( page = 0 ; page < 4 ; page++ )
+        {
+            /* setup page */
+			idd->ChangePage (idd, (UCHAR)page);
+
+			/* zero out (has to be a word fill!) */
+            IdpMemset((UCHAR*)idd->vhw.vmem, 0, 0x4000);
+        }
+    }
+
+	idd->SetBank(idd, IDD_BANK_CODE, 0);
+
+	//free page
+	idd->ChangePage (idd, (UCHAR)IDD_PAGE_NONE);
 
     return(IDD_E_SUCC);
 }
-
+
+/* reset idp board */
+INT
+AdpResetBoard(IDD *idd)
+{
+	//
+	// reset the adapter
+	//
+	AdpWriteControlBit(idd, ADP_RESET_BIT, 1);
+
+	return(IDD_E_SUCC);
+}
+

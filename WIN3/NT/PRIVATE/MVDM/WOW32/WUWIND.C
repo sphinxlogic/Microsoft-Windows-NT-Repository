@@ -817,7 +817,7 @@ ULONG FASTCALL W32CreateWindow(PVDMFRAME pFrame)
     else
         hmenu32 = (HMENU32(parg16->hMenu));
 
-    if (stricmp(pszClass, "MDIClient")) {
+    if (_stricmp(pszClass, "MDIClient")) {
         vpparam = (LPVOID)DWORD32(parg16->vpParam);
     } else {
         GETCLIENTCREATESTRUCT16(parg16->vpParam, &clientcreatestruct );
@@ -832,53 +832,58 @@ ULONG FASTCALL W32CreateWindow(PVDMFRAME pFrame)
     //
     pwc = FindClass16(pszClass, parg16->hInstance);
 
-    if (iClass = GetStdClassNumber(pszClass)) {
-        ww.iClass       = iClass;
-        ww.vpfnWndProc  = 0;
-    }
-    else {
-        // Look to see if the 16:16 proc is a thunk for a 32-bit proc.
-        // QUICKEN: registers wow class with 16bit listboxwndproc
-        //          We treat this window as a WOWCLASS and therfore all
-        //          LB_* messages remain unthunked (they remained > WM_USER).
-        //
-        //          The following code checks for such a wndproc and
-        //          sets the system class appropriately.
+    if (pwc) {
 
-        if (HIWORD(pwc->vpfnWndProc) == gUser16CS) {
-            LOGDEBUG(LOG_WARNING,("Creating Private Class window with System WndProc\n"));
-            IsThunkWindowProc((DWORD)pwc->vpfnWndProc, &iClass);
+        if (iClass = GetStdClassNumber(pszClass)) {
             ww.iClass       = iClass;
+            ww.vpfnWndProc  = 0;
         }
         else {
-            ww.iClass       = WOWCLASS_WIN16;
+            // Look to see if the 16:16 proc is a thunk for a 32-bit proc.
+            // QUICKEN: registers wow class with 16bit listboxwndproc
+            //          We treat this window as a WOWCLASS and therfore all
+            //          LB_* messages remain unthunked (they remained > WM_USER).
+            //
+            //          The following code checks for such a wndproc and
+            //          sets the system class appropriately.
+
+            if (HIWORD(pwc->vpfnWndProc) == gUser16CS) {
+                LOGDEBUG(LOG_WARNING,("Creating Private Class window with System WndProc\n"));
+                IsThunkWindowProc((DWORD)pwc->vpfnWndProc, &iClass);
+                ww.iClass       = iClass;
+            }
+            else {
+                ww.iClass       = WOWCLASS_WIN16;
+            }
+
+            ww.vpfnWndProc  = pwc->vpfnWndProc;
         }
+        ww.vpfnDlgProc  = 0;
+        ww.flState      = WWSTATE_ICLASSISSET;
 
-        ww.vpfnWndProc  = pwc->vpfnWndProc;
+
+
+        hwnd32 = (pfnOut.pfnCsCreateWindowEx)(
+                   dwExStyle,
+                   pszClass,
+                   psz2,
+                   dwStyle,
+                   INT32DEFAULT(parg16->x),
+                   INT32DEFAULT(parg16->y),
+                   INT32DEFAULT(parg16->cx),
+                   INT32DEFAULT(parg16->cy),
+                   HWND32(parg16->hwndParent),
+                   hmenu32,
+                   HMODINST32(parg16->hInstance),
+                   vpparam,
+                   CW_FLAGS_ANSI,
+                   (LPDWORD)&ww);
+
+    } else {        // The class doesn't exist.
+
+        hwnd32 = NULL;
+
     }
-    ww.vpfnDlgProc  = 0;
-    ww.flState      = WWSTATE_ICLASSISSET;
-
-
-//    Parm16.WndProc.wParam = parg16->hInstance;
-//    CallBack16(RET_GETEXPWINVER, &Parm16, 0, &ul );
-
-    hwnd32 = (pfnOut.pfnCsCreateWindowEx)(
-               dwExStyle,
-               pszClass,
-               psz2,
-               dwStyle,
-               INT32DEFAULT(parg16->x),
-               INT32DEFAULT(parg16->y),
-               INT32DEFAULT(parg16->cx),
-               INT32DEFAULT(parg16->cy),
-               HWND32(parg16->hwndParent),
-               hmenu32,
-               HMODINST32(parg16->hInstance),
-               vpparam,
-               CW_FLAGS_ANSI,
-               (LPDWORD)&ww);
-
 
 #ifdef DEBUG
     if (hwnd32) {
@@ -937,7 +942,7 @@ ULONG FASTCALL WU32DeferWindowPos(PVDMFRAME pFrame)
     INT32(parg16->f5),
     INT32(parg16->f6),
     INT32(parg16->f7),
-    WORD32(parg16->f8)
+    WORD32(parg16->f8) & SWP_VALID
     );
 
     if (ul != (ULONG) h32) {
@@ -1082,17 +1087,16 @@ ULONG FASTCALL WU32EnableWindow(PVDMFRAME pFrame)
 
 ULONG FASTCALL WU32EndDeferWindowPos(PVDMFRAME pFrame)
 {
+    ULONG ul;
     register PENDDEFERWINDOWPOS16 parg16;
 
     GETARGPTR(pFrame, sizeof(ENDDEFERWINDOWPOS16), parg16);
 
-    EndDeferWindowPos(
-    HDWP32(parg16->f1)
-    );
+    ul = (ULONG)EndDeferWindowPos(HDWP32(parg16->f1));
     FREEHDWP16(parg16->f1);
 
     FREEARGPTR(parg16);
-    RETURN(0);
+    RETURN(ul);
 }
 
 
@@ -1397,11 +1401,12 @@ ULONG FASTCALL WU32FindWindow(PVDMFRAME pFrame)
     //
 
     // Some apps send WM_SYSCOMMAND - SC_CLOSE messages to program manager
-    // with the shift key down to get it to save its settings.	They do
+    // with the shift key down to get it to save its settings.  They do
     // this by 1st finding the program manager window...
 
-    if (((pszClass) && !(strcmpi (pszClass, "progman"))) ||
-         ((psz2) && !(strcmpi (psz2, "program manager")))) {
+    if ((pszClass && !_stricmp (pszClass, "progman")) ||
+        (psz2 && !_stricmp (psz2, "program manager"))) {
+
         ul = GETHWND16(FindWindow("progman", NULL));
 
         // Some apps send WM_SYSCOMMAND - SC_CLOSE messages to program manager
@@ -1515,13 +1520,26 @@ ULONG FASTCALL WU32GetActiveWindow(PVDMFRAME pFrame)
     // have access to the foreground window.
     //
     //                                              - Dave Hart
+    //
+    // When GetForegroundWindow() returns null, now we return wowexec's
+    // window handle. This theoretically could have some strange effects
+    // since it is a hidden window. It might be better to return, say,
+    // the desktop window. However, for reasons currently unknown, 
+    // this screws a shutdown scenario with Micrografix Designer (it
+    // gpfaults).
+    //                                              - Neil Sandlin
 
     if (ul == (ULONG)NULL) {
         ul = (ULONG)GetForegroundWindow();
     }
 
+    if (ul == (ULONG)NULL) {
+        ul = (ULONG)ghwndShell;
+    }
+
     ul = GETHWND16(ul);
 
+    WOW32ASSERT(ul);
     RETURN(ul);
 }
 
@@ -1716,6 +1734,22 @@ ULONG FASTCALL WU32GetWindowLong(PVDMFRAME pFrame)
             }
             break;
 
+        case GWL_EXSTYLE:
+            // Lotus Approach needs the WS_EX_TOPMOST bit cleared on
+            // GetWindowLong of NETDDE AGENT window.
+            ul = GetWindowLong(HWND32(parg16->f1), iOffset);
+            if (CURRENTPTD()->dwWOWCompatFlags & WOWCF_GWLCLRTOPMOST) {
+                char szBuf[40];
+
+                if (GetClassName(HWND32(parg16->f1), szBuf, sizeof(szBuf))) {
+                    if (!_stricmp(szBuf, "NDDEAgnt")) {
+                        ul &= !WS_EX_TOPMOST;
+                    }
+                }
+            }
+
+            break;
+
 defgwl:
         default:
 
@@ -1732,7 +1766,7 @@ defgwl:
                     char Buffer[40];
 
                     if (GetClassName (HWND32(parg16->f1), Buffer, sizeof(Buffer))) {
-                        if (!(lstrcmpi (Buffer, "PaList"))) {
+                        if (!_stricmp (Buffer, "PaList")) {
                             iOffset = 4;
                         }
                     }
@@ -1792,32 +1826,27 @@ defgwl:
 
 ULONG FASTCALL WU32GetWindowTask(PVDMFRAME pFrame)
 {
-    ULONG ul;
-    PTD ptd;
     register PGETWINDOWTASK16 parg16;
+    DWORD dwThreadID, dwProcessID;
+    PTD ptd;
 
     GETARGPTR(pFrame, sizeof(GETWINDOWTASK16), parg16);
 
-    ul = (ULONG)GetWindowTask(HWND32(parg16->f1));
+    dwThreadID = GetWindowThreadProcessId(HWND32(parg16->f1), &dwProcessID);
 
     //
     // return corresponding htask16 if window belongs to a WOW thread
-    // else return zero.
+    // else return WowExec's htask.
     //
 
-    if (ptd = ThreadID32toPTD((DWORD)ul)) {
-        ul = (ULONG)ptd->htask16;
-    }
-    else {
-        ul = 0;
-        ptd = Htask16toPTD( ghShellTDB );
-        if ( ptd != NULL ) {
-            ul = (ULONG)ptd->htask16;
-        }
+    ptd = ThreadProcID32toPTD(dwThreadID, dwProcessID);
+
+    if (ptd == NULL) {
+        ptd = gptdShell;
     }
 
     FREEARGPTR(parg16);
-    RETURN(ul);
+    return (ULONG)ptd->htask16;
 }
 
 
@@ -1865,7 +1894,7 @@ ULONG FASTCALL WU32GetWindowText(PVDMFRAME pFrame)
         WORD32(parg16->f3)
     ));
 
-    FLUSHVDMPTR(parg16->f2, ul+1, psz2);
+    FLUSHVDMPTR(parg16->f2, (USHORT)ul+1, psz2);
     FREEVDMPTR(psz2);
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -1946,6 +1975,10 @@ ULONG FASTCALL WU32GetWindowWord(PVDMFRAME pFrame)
     INT iOffset;
     PWW pww;
     PGETWINDOWWORD16 parg16;
+    DWORD dwThreadID32, dwProcessID32;
+    HTASK16 htask16;
+    PWOAINST pWOA;
+    PTD ptd;
 
     GETARGPTR(pFrame, sizeof(GETWINDOWWORD16), parg16);
 
@@ -1993,23 +2026,41 @@ ULONG FASTCALL WU32GetWindowWord(PVDMFRAME pFrame)
             // we return 16bit user.exe hinstance in all such cases.
             //
 
-            ul = (ul) ? gUser16hInstance : ul;
-            if (cHtaskAliasCount != 0 ) {
+            dwProcessID32 = (DWORD)-1;
+            dwThreadID32 = GetWindowThreadProcessId( hwnd, &dwProcessID32 );
 
-                DWORD dwThreadID32;
-                HTASK16 htask16;
+            //
+            // Check if this window belongs to a task we spawned via
+            // WinOldAp, if so, return WinOldAp's hmodule.
+            //
 
-                //
-                // Must be some 32-bit process, not a wow app's window
-                //
-                dwThreadID32 = GetWindowThreadProcessId( hwnd, NULL );
+            ptd = CURRENTPTD();
+            pWOA = ptd->pWOAList;
+            while (pWOA && pWOA->dwChildProcessID != dwProcessID32) {
+                pWOA = pWOA->pNext;
+            }
 
-                if ( dwThreadID32 != 0 ) {
+            if (pWOA) {
+                ul = pWOA->ptdWOA->hInst16;
+                LOGDEBUG(LOG_ALWAYS, ("WOW32 GetWindowWord(0x%x, GWW_HINSTANCE) returning 0x%04x\n",
+                                      hwnd, ul));
+            } else {
 
-                    htask16 = FindHtaskAlias( dwThreadID32 );
+                ul = (ul) ? gUser16hInstance : ul;
 
-                    if ( htask16 != 0 ) {
-                        ul = (ULONG)htask16;
+                if (cHtaskAliasCount != 0 ) {
+
+                    //
+                    // Must be some 32-bit process, not a wow app's window
+                    //
+
+                    if ( dwThreadID32 != 0 ) {
+
+                        htask16 = FindHtaskAlias( dwThreadID32 );
+
+                        if ( htask16 != 0 ) {
+                            ul = (ULONG)htask16;
+                        }
                     }
                 }
             }
@@ -2137,12 +2188,38 @@ ULONG FASTCALL WU32MoveWindow(PVDMFRAME pFrame)
 
     GETARGPTR(pFrame, sizeof(MOVEWINDOW16), parg16);
 
+    if (CURRENTPTD()->dwWOWCompatFlags & WOWCF_DBASEHANDLEBUG) {
+        RECT ParentRect;
+        RECT ScreenRect;
+
+        GetWindowRect(GetDesktopWindow(), &ScreenRect);
+        if ((INT32(parg16->f2) > ScreenRect.right) ||
+            (INT32(parg16->f3) > ScreenRect.bottom) ||
+            (INT32(parg16->f4) > ScreenRect.right) ||
+            (INT32(parg16->f5) > ScreenRect.bottom)) {
+            int x, y, cx, cy;
+
+            GetWindowRect(GetParent(HWND32(parg16->f1)), &ParentRect);
+            x  = ParentRect.left;
+            y  = ParentRect.top;
+            cx = ParentRect.right - ParentRect.left;
+            cy = ParentRect.bottom - ParentRect.top;
+
+
+            ul = GETBOOL16(MoveWindow(HWND32(parg16->f1), x, y, cx, cy,
+                                      BOOL32(parg16->f6)));
+            FREEARGPTR(parg16);
+            RETURN(ul);
+        }
+    }
+
     ul = GETBOOL16(MoveWindow(HWND32(parg16->f1),
                               INT32(parg16->f2),
                               INT32(parg16->f3),
                               INT32(parg16->f4),
                               INT32(parg16->f5),
                               BOOL32(parg16->f6)));
+
 
     FREEARGPTR(parg16);
 
@@ -2343,11 +2420,10 @@ ULONG FASTCALL WU32SetParent(PVDMFRAME pFrame)
     the <nIndex> parameter, starting at zero for the first four-byte value in
     the extra space, 4 for the next four-byte value and so on.
 --*/
-
 ULONG FASTCALL WU32SetWindowLong(PVDMFRAME pFrame)
 {
     ULONG ul;
-    INT iOffset;
+    INT iOffset, iClass;
     register PWW pww;
     register PSETWINDOWLONG16 parg16;
 
@@ -2374,7 +2450,7 @@ ULONG FASTCALL WU32SetWindowLong(PVDMFRAME pFrame)
             DWORD dwWndProc32New;
 
             // Look to see if the new 16:16 proc is a thunk for a 32-bit proc.
-            dwWndProc32New = IsThunkWindowProc(LONG32(parg16->f3), NULL );
+            dwWndProc32New = IsThunkWindowProc(LONG32(parg16->f3), &iClass );
 
             if ( dwWndProc32New != 0 ) {
                 //
@@ -2390,6 +2466,8 @@ ULONG FASTCALL WU32SetWindowLong(PVDMFRAME pFrame)
                     goto SWL_Cleanup;
 
                 SETWL(HWND32(parg16->f1), GWL_WOWvpfnWndProc, 0 );
+                SETWL(HWND32(parg16->f1), GWL_WOWiClassAndflState,
+                      MAKECLASSANDSTATE(iClass, pww->flState | WWSTATE_ICLASSISSET));
             } else {
                 //
                 // They are attempting to set it to a real 16:16 proc.
@@ -2519,7 +2597,7 @@ defswp:
                 char Buffer[40];
 
                 if (GetClassName (HWND32(parg16->f1), Buffer, sizeof(Buffer))) {
-                    if (!(lstrcmpi (Buffer, "PaList"))) {
+                    if (!_stricmp (Buffer, "PaList")) {
                         iOffset = 4;
                     }
                 }
@@ -2629,7 +2707,7 @@ ULONG FASTCALL WU32SetWindowPos(PVDMFRAME pFrame)
                                 INT32(parg16->f4),
                                 INT32(parg16->f5),
                                 INT32(parg16->f6),
-                                WORD32(parg16->f7)));
+                                WORD32(parg16->f7) & SWP_VALID));
 
     FREEARGPTR(parg16);
 
@@ -2658,14 +2736,30 @@ ULONG FASTCALL WU32SetWindowText(PVDMFRAME pFrame)
 {
     PSZ psz2;
     register PSETWINDOWTEXT16 parg16;
+    HANDLE handle;
 
     GETARGPTR(pFrame, sizeof(SETWINDOWTEXT16), parg16);
     GETPSZPTR(parg16->f2, psz2);
+    handle = HWND32(parg16->f1);
 
-    SetWindowText(
-    HWND32(parg16->f1),
-    psz2
-    );
+    if (NULL != psz2) {
+        AddParamMap((DWORD)psz2, FETCHDWORD(parg16->f2));
+    }
+
+    if (CURRENTPTD()->dwWOWCompatFlags & WOWCF_DBASEHANDLEBUG) {
+
+        if (NULL == handle) {
+            handle = (HANDLE) ((PTDB)SEGPTR(pFrame->wTDB,0))->TDB_CompatHandle;
+        }
+    }
+
+    SetWindowText(handle, psz2);
+
+    // if we used param map successfully - then nuke there
+
+    if (NULL != psz2) {
+        DeleteParamMap((DWORD)psz2, PARAM_32, NULL);
+    }
 
     FREEPSZPTR(psz2);
     FREEARGPTR(parg16);
@@ -2996,5 +3090,3 @@ ULONG FASTCALL WU32WindowFromPoint(PVDMFRAME pFrame)
     FREEARGPTR(parg16);
     RETURN(ul);
 }
-
-

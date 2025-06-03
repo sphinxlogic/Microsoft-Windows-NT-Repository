@@ -52,8 +52,7 @@ Auto Wrapper produces the following files:\n\
 \t\n\
 \tWAPI.C\t\tYour WrapperDLLInit, APIPrelude and APIPostlude implementation\n\
 \n\
-IMPORTANT NOTE:  The WrapIt routine on AXP is not saving away QuadWords.  Instead it\n\
-saves away DWORDs.  This is because both MIPS and x86 use DWORD aligned\n\
-argument stacks.  Making AXP non-DWORD aligned would mean that the code\n\
-in the pre/postlude functions that manipulate stack arguments would need\n\
-to be platform specific."
+IMPORTANT NOTE:  The stack on the AXP platform is saved as QWORDS.  Pre/Postlude\n\
+code that manipulates the argument stack should be written with this in mind.\n\
+Both MIPS and x86 use DWORD alignment for their argument stacks.  You must\n\
+define ALPHA when building the ALPHA libraries."

@@ -1,16 +1,4 @@
 #include "cmd.h"
-#include "cmdproto.h"
-
-/* The following are definitions of the debugging group and level bits
- * for the code in this file.
- */
-
-#define CTGRP   0x2000  /* Common tools group           */
-#define SFLVL   0x1000  /* ScanFSpec() level            */
-#define SSLVL   0x2000  /* SetAndSaveDir() level        */
-#define TSLVL   0x4000  /* TokStr() level               */
-#define FPLVL   0x8000  /* FullPath level               */
-
 
 extern unsigned tywild; /* type is wild flag */
 extern TCHAR CurDrvDir[], *SaveDir, PathChar, Delimiters[] ;
@@ -23,7 +11,9 @@ extern TCHAR TmpBuf[] ;
 
 extern unsigned DosErr ;
 
-extern BOOLEAN CtrlCSeen;
+extern BOOL CtrlCSeen;
+
+static TCHAR szNull[] = TEXT("");
 
 
 /***    TokStr - tokenize argument strings
@@ -85,7 +75,7 @@ unsigned tsflags ;
         DEBUG((CTGRP, TSLVL, "TOKSTR: Making copy str of len %d",(mystrlen(src)*2+2))) ;
 
     if (src == NULL) {
-        return(TEXT("\0"));   // This routine returns a doubly null terminated string
+        return(szNull);   // This routine returns a doubly null terminated string
         } else {
         ts = tscpy = gmkstr((mystrlen(src)*2+2)*sizeof(TCHAR)) ;  /*WARNING*/
 
@@ -144,14 +134,14 @@ unsigned tsflags ;
             } ;
 
            *ts++ = *src ;
-	    if ( *src == QUOTE ) {
-	       do {
-	            *ts++ = *(++src);
-	       } while ( src[0] && src[0] != QUOTE && src[1] );
-	       if ( !src[0] ) {
-	          src--;
-	       }
-	    }
+            if ( *src == QUOTE ) {
+               do {
+                    *ts++ = *(++src);
+               } while ( src[0] && src[0] != QUOTE && src[1] );
+               if ( !src[0] ) {
+                  src--;
+               }
+            }
 
             lctdelim = FALSE ;
         } ;
@@ -197,20 +187,20 @@ TCHAR *argstr ;
 PLOOP_THROUGH_ARGS_ROUTINE func ;
 int ltaflags ;
            {
-            TCHAR *tas ;		/* Tokenized argument string       */
-            TCHAR fspec[MAX_PATH] ;	/* Holds filespec when expanding   */
+            TCHAR *tas ;                /* Tokenized argument string       */
+            TCHAR fspec[MAX_PATH] ;     /* Holds filespec when expanding   */
             WIN32_FIND_DATA buf ;       /* Use for ffirst/fnext            */
-	    HANDLE hnFirst ;
+            HANDLE hnFirst ;
             struct cpyinfo fsinfo ;
             int catspot ;      /* Fspec index where fname should be added  */
             unsigned final_code = SUCCESS;
             unsigned error_code = SUCCESS;
             int multargs = FALSE;
-	    unsigned attr;/* attribute for ffirst for because of TYPE wild */
+            unsigned attr;/* attribute for ffirst for because of TYPE wild */
             unsigned taslen;
 
 
-	    tywild = FALSE;              /* global type wild card flag ret */
+            tywild = FALSE;              /* global type wild card flag ret */
 
             GetDir(CurDrvDir, GD_DEFAULT);
 
@@ -222,7 +212,7 @@ int ltaflags ;
                   return((*func)( stripit(tas) )) ;
                }
 
-	       PutStdErr(MSG_BAD_SYNTAX, NOARGS);
+               PutStdErr(MSG_BAD_SYNTAX, NOARGS);
                return(FAILURE) ;
             }
 
@@ -241,12 +231,12 @@ int ltaflags ;
 
                if (ltaflags & LTA_EXPAND)
                {
-	          if (cmdfound == TYTYP)   /* if TYPE cmd then only files   */
-	          {
+                  if (cmdfound == TYTYP)   /* if TYPE cmd then only files   */
+                  {
                      attr = A_RO|A_A;      /* find Read-only, arch & hidden */
                   }
-	          else                     /* else                          */
-	          {
+                  else                     /* else                          */
+                  {
                      attr = A_AEV;         /* find all                      */
                   }
                   //
@@ -254,7 +244,7 @@ int ltaflags ;
                   // find file. It is set in ffirst
                   //
                   DosErr = 0;
-	  	  if (!ffirst(tas, attr, &buf, &hnFirst))
+                  if (!ffirst(tas, attr, &buf, &hnFirst))
                   {
                      //
                      // Check that failure was not do to some system error such
@@ -277,11 +267,11 @@ int ltaflags ;
                         if ( error_code = ((*func)(tas)) )
                         {
                            final_code = FAILURE;
-	                   if (multargs)     /* if cmd  failed then  (TYPE)*/
-	                   {                 /* display arg failed msg too */
-	                      PutStdErr(MSG_ERR_PROC_ARG, ONEARG,
-	                                argstr1(TEXT("%s"), (unsigned long)((int)tas)));
-	                   }
+                           if (multargs)     /* if cmd  failed then  (TYPE)*/
+                           {                 /* display arg failed msg too */
+                              PutStdErr(MSG_ERR_PROC_ARG, ONEARG,
+                                        argstr1(TEXT("%s"), (unsigned long)((int)tas)));
+                           }
                         }
                         if ( error_code && !(ltaflags & LTA_CONT))
                         {
@@ -292,16 +282,16 @@ int ltaflags ;
                            continue;
                         }
                      }
-	             PutStdErr(((DosErr == ERROR_PATH_NOT_FOUND) ?
+                     PutStdErr(((DosErr == ERROR_PATH_NOT_FOUND) ?
                                  MSG_REN_INVAL_PATH_FILENAME :
                                  ERROR_FILE_NOT_FOUND),
                                  NOARGS);
                      return(FAILURE) ;
                   }
 
-	          if (buf.dwFileAttributes & A_D)
+                  if (buf.dwFileAttributes & A_D)
                     {
-	             PutStdErr(MSG_REN_INVAL_PATH_FILENAME, NOARGS);
+                     PutStdErr(MSG_REN_INVAL_PATH_FILENAME, NOARGS);
                      return(FAILURE) ;
                   }
 
@@ -313,7 +303,7 @@ int ltaflags ;
                   do
                   {
                      fspec[catspot] = NULLC ;
-	             tywild |= multargs;      /* if multiple args or wild then wild for TYPE */
+                     tywild |= multargs;      /* if multiple args or wild then wild for TYPE */
                      if ( error_code = ((*func)(mystrcat(fspec, buf.cFileName))) )
                      {
                         final_code = FAILURE;
@@ -322,13 +312,13 @@ int ltaflags ;
                      {
                         return(FAILURE) ;
                      }
-		  } while(fnext(&buf, attr, hnFirst));
+                  } while(fnext(&buf, attr, hnFirst));
 
-        		  findclose(hnFirst) ;
+                          findclose(hnFirst) ;
                }
                else
                {
-	          tywild |= multargs;         /* if multiple args or wild then wild for TYPE */
+                  tywild |= multargs;         /* if multiple args or wild then wild for TYPE */
         /*        if ( error_code = ((*func)(mystrcpy(fspec,tas))) )   */
                   if ( error_code = ((*func)(tas)) )
                   {
@@ -353,7 +343,7 @@ int ltaflags ;
 
 BOOLEAN
 IsDriveNameOnly (
-    IN	PTCHAR psz
+    IN  PTCHAR psz
     )
 {
 
@@ -362,9 +352,9 @@ IsDriveNameOnly (
     // has a ':' it must be a drive
     //
     if (!mystrrchr(psz,PathChar)) {
-	if ((mystrlen(psz) == 2) && psz[1] == COLON) {
-	    return( TRUE );
-	}
+        if ((mystrlen(psz) == 2) && psz[1] == COLON) {
+            return( TRUE );
+        }
     }
     return( FALSE );
 }
@@ -404,11 +394,11 @@ struct cpyinfo *cis ;
         TCHAR *sds = &VolSrch[2] ;      /* "\*.*" Added to dir's    */
 
         TCHAR *fspec ;          /* Work Vars - Holds filespec              */
-        TCHAR *wptr ;		/*           - General string pointer      */
-        TCHAR c ;		/*           - Temp byte holder            */
-	TCHAR c2 = NULLC ;	/* Another if two are needed   */
+        TCHAR *wptr ;           /*           - General string pointer      */
+        TCHAR c ;               /*           - Temp byte holder            */
+        TCHAR c2 = NULLC ;      /* Another if two are needed   */
         int cbPath,             /*           - Length of incoming fspec    */
-        dirflag = FALSE ;       /* 	     - FSpec is directory flag     */
+        dirflag = FALSE ;       /*           - FSpec is directory flag     */
         CRTHANDLE hn;
         PWIN32_FIND_DATA pfdSave;
 
@@ -419,39 +409,37 @@ struct cpyinfo *cis ;
         cbPath = mystrlen(cis->fspec) ;  /* Get length of filespec          */
 
         if (*(wptr = lastc(cis->fspec)) == COLON && cbPath > 2) {
-	    *wptr-- = NULLC ;       /* Zap colon if device name      */
+            *wptr-- = NULLC ;       /* Zap colon if device name      */
 
-	    OldErrorMode = SetErrorMode( 0 );
-	    hn = Copen(cis->fspec,
-	    O_RDONLY|O_BINARY );
-	    if ((hn == BADHANDLE) || (!FileIsDevice(hn) && !FileIsPipe(hn))) {
-		*++wptr = COLON;
-		if (cmdfound == CPYTYP) {
-		    if (cpydest == FALSE) {
-			PutStdErr(MSG_CMD_NOT_RECOGNIZED,
-			ONEARG, cis->fspec);
-		    }
-		    cdevfail = TRUE;
-		}
-		else {
-		    PutStdErr(MSG_CMD_NOT_RECOGNIZED,
-		    ONEARG, cis->fspec);
-		}
-		if (hn != BADHANDLE) {
-		    Cclose( hn );
-		}
+            OldErrorMode = SetErrorMode( 0 );
+            hn = Copen(cis->fspec, O_RDONLY|O_BINARY );
+            if ((hn == BADHANDLE) || (!FileIsDevice(hn) && !FileIsPipe(hn))) {
+                *++wptr = COLON;
+                if (cmdfound == CPYTYP) {
+                    if (cpydest == FALSE) {
+                        PutStdErr(MSG_CMD_NOT_RECOGNIZED,
+                        ONEARG, cis->fspec);
+                    }
+                    cdevfail = TRUE;
+                }
+                else {
+                    PutStdErr(MSG_CMD_NOT_RECOGNIZED,
+                    ONEARG, cis->fspec);
+                }
+                if (hn != BADHANDLE) {
+                    Cclose( hn );
+                }
 
-	    }
-	    else {
-		if (FileIsDevice(hn)) {
-		    Cclose( hn );
-		}
-	    }
-	    SetErrorMode( OldErrorMode );
-	}
+            }
+            else {
+                if ( FileIsDevice(hn) || FileIsPipe(hn) ) {
+                    Cclose( hn );
+                }
+            }
+            SetErrorMode( OldErrorMode );
+        }
 
-	cis->buf = (PWIN32_FIND_DATA)
-	gmkstr(sizeof(WIN32_FIND_DATA)) ;        /*WARNING*/
+        cis->buf = (PWIN32_FIND_DATA)gmkstr(sizeof(WIN32_FIND_DATA)) ;        /*WARNING*/
 
 /* First it must be determined if this is a file or directory and if directory
  * a "\*.*" appended.  Filespec's that are "." or "\" or those ending in "\",
@@ -543,21 +531,21 @@ struct cpyinfo *cis ;
 #endif
              {
               sds = &VolSrch[3] ;          /* ...add only "*.*" */
-	     }
+             }
 
-	   //
-	   // If was a drive then don't put wild card stuff on end or
-	   // dir c: will be the same as dir c:\*
-	   // Otherwise append wild card spec.
-	   //
-	   if (!IsDriveNameOnly(cis->fspec)) {
-	      cis->fspec = mystrcpy(gmkstr((cbPath+5)*sizeof(TCHAR)), cis->fspec) ;
-	      mystrcat(cis->fspec, sds) ;
+           //
+           // If was a drive then don't put wild card stuff on end or
+           // dir c: will be the same as dir c:\*
+           // Otherwise append wild card spec.
+           //
+           if (!IsDriveNameOnly(cis->fspec)) {
+              cis->fspec = mystrcpy(gmkstr((cbPath+5)*sizeof(TCHAR)), cis->fspec) ;
+              mystrcat(cis->fspec, sds) ;
            }
 
            cis->buf->dwFileAttributes = A_D ;    /* Fixup attribute           */
-	   DEBUG((CTGRP, SFLVL, "SCANFSPEC: changed fspec to fspec = `%ws'",cis->fspec)) ;
-	  }
+           DEBUG((CTGRP, SFLVL, "SCANFSPEC: changed fspec to fspec = `%ws'",cis->fspec)) ;
+          }
 
 
 /* Get a pointer to the end of the path in fspec.  Everytime a PathChar or
@@ -566,10 +554,10 @@ struct cpyinfo *cis ;
  */
 
         for (cbPath=1,wptr=NULL,fspec=cis->fspec; c=*fspec; fspec++,cbPath++) {
-	    if (c == PathChar || (c == COLON && cbPath == 2)) {
-		wptr = fspec ;
-	    }
-	}
+            if (c == PathChar || (c == COLON && cbPath == 2)) {
+                wptr = fspec ;
+            }
+        }
 
         cis->pathend = wptr ;
 
@@ -629,10 +617,10 @@ TCHAR *fspec ;
         TCHAR *buftemp;
         TCHAR  buft[MAX_PATH];
 
-        TCHAR *pathend ;	/* Ptr to the end of the path in fspec  */
-        TCHAR c ;		/* Work variable                        */
+        TCHAR *pathend ;        /* Ptr to the end of the path in fspec  */
+        TCHAR c ;               /* Work variable                        */
         struct cpyinfo *fsinfo ;/* Filespec information struct  */
-        unsigned attr;		/* work variable                */
+        unsigned attr;          /* work variable                */
         PWIN32_FIND_DATA pfdSave;
 
 
@@ -642,7 +630,7 @@ TCHAR *fspec ;
 
         ScanFSpec(fsinfo) ;
 
-        pfdSave = fsinfo->buf;		/* save original find buffer */
+        pfdSave = fsinfo->buf;          /* save original find buffer */
         fspec = fsinfo->fspec ;
         pathend = fsinfo->pathend ;
         DEBUG((CTGRP, SSLVL, "SFSSD: pathend = `%ws'  fnptr = `%ws'",
@@ -687,9 +675,9 @@ TCHAR *fspec ;
            }
         }
 
-        ScanFSpec(fsinfo) ;	/* re-scan in case quotes disappeared */
-        fsinfo->buf = pfdSave; 	/* reset original find buffer */
-				/* the original is not freed, because */
-				/* it will be freed by command cleanup */
+        ScanFSpec(fsinfo) ;     /* re-scan in case quotes disappeared */
+        fsinfo->buf = pfdSave;  /* reset original find buffer */
+                                /* the original is not freed, because */
+                                /* it will be freed by command cleanup */
         return(fsinfo) ;
 }

@@ -21,14 +21,16 @@ Revision History:
 #include "obp.h"
 
 #ifdef ALLOC_PRAGMA
-#pragma alloc_text(PAGE,ObCreateObject)
-#pragma alloc_text(PAGE,ObpCaptureObjectCreateInfo)
-#pragma alloc_text(PAGE,ObpCaptureObjectName)
-#pragma alloc_text(PAGE,ObpAllocateObject)
-#pragma alloc_text(PAGE,ObpFreeObject)
+#pragma alloc_text(PAGE, ObCreateObject)
+#pragma alloc_text(PAGE, ObDeleteCapturedInsertInfo)
+#pragma alloc_text(PAGE, ObpCaptureObjectCreateInformation)
+#pragma alloc_text(PAGE, ObpCaptureObjectName)
+#pragma alloc_text(PAGE, ObpAllocateObject)
+#pragma alloc_text(PAGE, ObpFreeObject)
 #endif
 
 BOOLEAN ObEnableQuotaCharging = TRUE;
+BOOLEAN ObpShowAllocAndFree;
 
 NTSTATUS
 ObCreateObject(
@@ -48,7 +50,7 @@ ObCreateObject(
 Routine Description:
 
     This functions allocates space for an NT Object from either
-    Paged or NonPaged pool.  It captures the optional name and
+    Paged or NonPaged pool. It captures the optional name and
     SECURITY_DESCRIPTOR parameters for later use when the object is
     inserted into an object table.  No quota is charged at this time.
     That occurs when the object is inserted into an object table.
@@ -74,6 +76,7 @@ Return Value:
 --*/
 
 {
+
     UNICODE_STRING CapturedObjectName;
     POBJECT_CREATE_INFORMATION ObjectCreateInfo;
     POBJECT_HEADER ObjectHeader;
@@ -82,99 +85,122 @@ Return Value:
     PAGED_CODE();
 
     //
-    // Capture the object attributes, quality of service, and object name,
-    // if specified. Otherwise, initialize the captured object name, the
-    // security quality of service, and the create attributes to default
-    // values.
+    // Allocate a buffer to capture the object creation information.
     //
 
-    Status = ObpCaptureObjectCreateInfo( ObjectType,
-                                         ProbeMode,
-                                         ObjectAttributes,
-                                         &CapturedObjectName,
-                                         &ObjectCreateInfo
-                                       );
+    ObjectCreateInfo = ObpAllocateObjectCreateInfoBuffer();
+    if (ObjectCreateInfo == NULL) {
+        Status = STATUS_INSUFFICIENT_RESOURCES;
 
-    //
-    // If the object attributes are not valid, then free the object
-    // name and security quality of service memory, if allocated, and
-    // return an error.
-    //
-    // N.B. If an error occurs during the capture of the object attributes,
-    //      then all pertinent data structures are freed.
-    //
+    } else {
 
-    if (!NT_SUCCESS( Status )) {
-        return Status;
-        }
+        //
+        // Capture the object attributes, quality of service, and object
+        // name, if specified. Otherwise, initialize the captured object
+        // name, the security quality of service, and the create attributes
+        // to default values.
+        //
 
-    if (ObjectType->TypeInfo.InvalidAttributes & ObjectCreateInfo->Attributes) {
-        ObpFreeObjectCreateInfo( ObjectCreateInfo );
-        return STATUS_INVALID_PARAMETER;
-        }
+        Status = ObpCaptureObjectCreateInformation(ObjectType,
+                                                   ProbeMode,
+                                                   ObjectAttributes,
+                                                   &CapturedObjectName,
+                                                   ObjectCreateInfo,
+                                                   FALSE);
 
-    //
-    // Allocate code needs to know request pool charges.  It will update them
-    // with the actual charge to reflect the cost of the object manager headers.
-    //
+        if (NT_SUCCESS(Status)) {
 
-    if (PagedPoolCharge == 0) {
-        PagedPoolCharge = ObjectType->TypeInfo.DefaultPagedPoolCharge;
-        }
-    if (NonPagedPoolCharge == 0) {
-        NonPagedPoolCharge = ObjectType->TypeInfo.DefaultNonPagedPoolCharge;
-        }
+            //
+            // If the creation attributes are invalid, then return an error
+            // status.
+            //
 
-    ObjectCreateInfo->PagedPoolCharge = PagedPoolCharge;
-    ObjectCreateInfo->NonPagedPoolCharge = NonPagedPoolCharge;
+            if (ObjectType->TypeInfo.InvalidAttributes & ObjectCreateInfo->Attributes) {
+                Status = STATUS_INVALID_PARAMETER;
 
-    //
-    // Allocate and initialize the object.
-    //
-    // N.B. If an error occurs during the allocation of the object, then
-    //      all pertinent data structures are freed.
-    //
+            } else {
 
-    Status = ObpAllocateObject( ObjectCreateInfo,
-                                OwnershipMode,
-                                ObjectType,
-                                &CapturedObjectName,
-                                ObjectBodySize,
-                                &ObjectHeader
-                              );
-    if (!NT_SUCCESS(Status)) {
-        ObpFreeObjectCreateInfo( ObjectCreateInfo );
-        return Status;
-        }
+                //
+                // Set the paged and nonpaged pool quota charges for the
+                // object allocation.
+                //
 
-    *Object = &ObjectHeader->Body;
+                if (PagedPoolCharge == 0) {
+                    PagedPoolCharge = ObjectType->TypeInfo.DefaultPagedPoolCharge;
+                }
 
-    //
-    // If a permanent object is being created, then check if the caller
-    // has the appropriate privilege.
-    //
+                if (NonPagedPoolCharge == 0) {
+                    NonPagedPoolCharge = ObjectType->TypeInfo.DefaultNonPagedPoolCharge;
+                }
 
-    if (ObjectHeader->Flags & OB_FLAG_PERMANENT_OBJECT) {
-        if (!SeSinglePrivilegeCheck( SeCreatePermanentPrivilege, ProbeMode )) {
-            ObpFreeObject(*Object);
-            return STATUS_PRIVILEGE_NOT_HELD;
+                ObjectCreateInfo->PagedPoolCharge = PagedPoolCharge;
+                ObjectCreateInfo->NonPagedPoolCharge = NonPagedPoolCharge;
+
+                //
+                // Allocate and initialize the object.
+                //
+
+                Status = ObpAllocateObject(ObjectCreateInfo,
+                                           OwnershipMode,
+                                           ObjectType,
+                                           &CapturedObjectName,
+                                           ObjectBodySize,
+                                           &ObjectHeader);
+
+                if (NT_SUCCESS(Status)) {
+
+                    //
+                    // If a permanent object is being created, then check if
+                    // the caller has the appropriate privilege.
+                    //
+
+                    *Object = &ObjectHeader->Body;
+                    if (ObjectHeader->Flags & OB_FLAG_PERMANENT_OBJECT) {
+                        if (!SeSinglePrivilegeCheck(SeCreatePermanentPrivilege,
+                                                    ProbeMode)) {
+
+                            ObpFreeObject(*Object);
+                            Status = STATUS_PRIVILEGE_NOT_HELD;
+                        }
+                    }
+
+                    return Status;
+                }
+            }
+
+            //
+            // Free the create information.
+            //
+
+            ObpReleaseObjectCreateInformation(ObjectCreateInfo);
+            if (CapturedObjectName.Buffer != NULL) {
+                ObpFreeObjectNameBuffer(&CapturedObjectName);
             }
         }
 
-    return STATUS_SUCCESS;
+        //
+        // Free object creation information buffer.
+        //
+
+        ObpFreeObjectCreateInfoBuffer(ObjectCreateInfo);
+    }
+
+    return Status;
 }
 
 
 NTSTATUS
-ObpCaptureObjectCreateInfo(
+ObpCaptureObjectCreateInformation(
     IN POBJECT_TYPE ObjectType OPTIONAL,
     IN KPROCESSOR_MODE ProbeMode,
     IN POBJECT_ATTRIBUTES ObjectAttributes,
-    OUT PUNICODE_STRING CapturedObjectName,
-    OUT POBJECT_CREATE_INFORMATION *ReturnedObjectCreateInfo
+    IN OUT PUNICODE_STRING CapturedObjectName,
+    IN POBJECT_CREATE_INFORMATION ObjectCreateInfo,
+    IN LOGICAL UseLookaside
     )
+
 {
-    POBJECT_CREATE_INFORMATION ObjectCreateInfo;
+
     PUNICODE_STRING ObjectName;
     PSECURITY_DESCRIPTOR SecurityDescriptor;
     PSECURITY_QUALITY_OF_SERVICE SecurityQos;
@@ -183,46 +209,31 @@ ObpCaptureObjectCreateInfo(
 
     PAGED_CODE();
 
-    *ReturnedObjectCreateInfo = NULL;
-
-    //
-    // Allocate space for OBJECT_CREATE_INFORMATION structure.
-    //
-
-    ObjectCreateInfo = ExAllocatePoolWithTag( PagedPool,
-                                              sizeof( *ObjectCreateInfo ),
-                                              'iCbO'
-                                            );
-    if (ObjectCreateInfo == NULL) {
-        return STATUS_INSUFFICIENT_RESOURCES;
-        }
-    RtlZeroMemory( ObjectCreateInfo, sizeof( *ObjectCreateInfo ) );
-
     //
     // Capture the object attributes, the security quality of service, if
     // specified, and object name, if specified.
     //
 
     Status = STATUS_SUCCESS;
+    RtlZeroMemory(ObjectCreateInfo, sizeof(OBJECT_CREATE_INFORMATION));
     try {
-        if (ARGUMENT_PRESENT( ObjectAttributes )) {
+        if (ARGUMENT_PRESENT(ObjectAttributes)) {
+
             //
             // Probe the object attributes if necessary.
             //
 
             if (ProbeMode != KernelMode) {
-                ProbeForRead( ObjectAttributes,
-                              sizeof(OBJECT_ATTRIBUTES),
-                              sizeof(ULONG)
-                            );
-                }
+                ProbeForRead(ObjectAttributes,
+                             sizeof(OBJECT_ATTRIBUTES),
+                             sizeof(ULONG));
+            }
 
-            if (ObjectAttributes->Length != sizeof( OBJECT_ATTRIBUTES ) ||
-                (ObjectAttributes->Attributes & ~OBJ_VALID_ATTRIBUTES)
-               ) {
+            if (ObjectAttributes->Length != sizeof(OBJECT_ATTRIBUTES) ||
+                (ObjectAttributes->Attributes & ~OBJ_VALID_ATTRIBUTES)) {
                 Status = STATUS_INVALID_PARAMETER;
                 goto failureExit;
-                }
+            }
 
             //
             // Capture the object attributes.
@@ -233,49 +244,52 @@ ObpCaptureObjectCreateInfo(
             ObjectName = ObjectAttributes->ObjectName;
             SecurityDescriptor = ObjectAttributes->SecurityDescriptor;
             SecurityQos = ObjectAttributes->SecurityQualityOfService;
+            if (ARGUMENT_PRESENT(SecurityDescriptor)) {
+                Status = SeCaptureSecurityDescriptor(SecurityDescriptor,
+                                                     ProbeMode,
+                                                     PagedPool,
+                                                     TRUE,
+                                                     &ObjectCreateInfo->SecurityDescriptor);
 
-            if (ARGUMENT_PRESENT( SecurityDescriptor )) {
-                Status = SeCaptureSecurityDescriptor( SecurityDescriptor,
-                                                      ProbeMode,
-                                                      PagedPool,
-                                                      FALSE,
-                                                      &ObjectCreateInfo->SecurityDescriptor
-                                                    );
-                if (!NT_SUCCESS( Status )) {
-#if DBG
-                    DbgPrint( "OB: Failed to capture security descriptor at %08x - Status == %08x\n",
+                if (!NT_SUCCESS(Status)) {
+                    KdPrint(( "OB: Failed to capture security descriptor at %08x - Status == %08x\n",
                               SecurityDescriptor,
-                              Status
-                            );
-                    DbgBreakPoint();
-#endif
-                    goto failureExit;
-                    }
+                              Status));
 
-                SeComputeQuotaInformationSize( ObjectCreateInfo->SecurityDescriptor,
-                                               &Size
-                                             );
-                ObjectCreateInfo->SecurityDescriptorCharge = SeComputeSecurityQuota( Size );
-                ObjectCreateInfo->ProbeMode = ProbeMode;
+                    //
+                    // The cleanup routine depends on this being NULL if it isn't
+                    // allocated.  SeCaptureSecurityDescriptor may modify this
+                    // parameter even if it fails.
+                    //
+
+                    ObjectCreateInfo->SecurityDescriptor = NULL;
+                    goto failureExit;
                 }
 
-            if (ARGUMENT_PRESENT( SecurityQos )) {
+                SeComputeQuotaInformationSize(ObjectCreateInfo->SecurityDescriptor,
+                                              &Size);
+
+                ObjectCreateInfo->SecurityDescriptorCharge = SeComputeSecurityQuota( Size );
+                ObjectCreateInfo->ProbeMode = ProbeMode;
+            }
+
+            if (ARGUMENT_PRESENT(SecurityQos)) {
                 if (ProbeMode != KernelMode) {
-                    ProbeForRead( SecurityQos, sizeof( *SecurityQos ), sizeof( ULONG ) );
-                    }
+                    ProbeForRead( SecurityQos, sizeof(*SecurityQos), sizeof(ULONG));
+                }
 
                 ObjectCreateInfo->SecurityQualityOfService = *SecurityQos;
                 ObjectCreateInfo->SecurityQos = &ObjectCreateInfo->SecurityQualityOfService;
-                }
             }
-        else {
+
+        } else {
             ObjectName = NULL;
-            }
         }
-    except (ExSystemExceptionFilter()) {
+
+    } except (ExSystemExceptionFilter()) {
         Status = GetExceptionCode();
         goto failureExit;
-        }
+    }
 
     //
     // If an object name is specified, then capture the object name.
@@ -283,21 +297,20 @@ ObpCaptureObjectCreateInfo(
     // an incorrectly specified root directory.
     //
 
-    if (ARGUMENT_PRESENT( ObjectName )) {
-        Status = ObpCaptureObjectName( ProbeMode,
-                                       ObjectName,
-                                       CapturedObjectName
-                                     );
+    if (ARGUMENT_PRESENT(ObjectName)) {
+        Status = ObpCaptureObjectName(ProbeMode,
+                                      ObjectName,
+                                      CapturedObjectName,
+                                      UseLookaside);
 
-        }
-    else {
+    } else {
         CapturedObjectName->Buffer = NULL;
         CapturedObjectName->Length = 0;
         CapturedObjectName->MaximumLength = 0;
-        if (ARGUMENT_PRESENT( ObjectCreateInfo->RootDirectory )) {
+        if (ARGUMENT_PRESENT(ObjectCreateInfo->RootDirectory)) {
             Status = STATUS_OBJECT_NAME_INVALID;
-            }
         }
+    }
 
     //
     // If the completion status is not successful, and a security quality
@@ -305,13 +318,10 @@ ObpCaptureObjectCreateInfo(
     // of service memory.
     //
 
-    if (!NT_SUCCESS( Status )) {
 failureExit:
-        ObpFreeObjectCreateInfo( ObjectCreateInfo );
-        }
-    else {
-        *ReturnedObjectCreateInfo = ObjectCreateInfo;
-        }
+    if (!NT_SUCCESS(Status)) {
+        ObpReleaseObjectCreateInformation(ObjectCreateInfo);
+    }
 
     return Status;
 }
@@ -321,15 +331,16 @@ NTSTATUS
 ObpCaptureObjectName(
     IN KPROCESSOR_MODE ProbeMode,
     IN PUNICODE_STRING ObjectName,
-    IN OUT PUNICODE_STRING CapturedObjectName
+    IN OUT PUNICODE_STRING CapturedObjectName,
+    IN LOGICAL UseLookaside
     )
 
 {
 
     PWCH FreeBuffer;
     UNICODE_STRING InputObjectName;
-    USHORT Length;
-    USHORT Maximum;
+    ULONG Length;
+    NTSTATUS Status;
 
     PAGED_CODE();
 
@@ -341,7 +352,7 @@ ObpCaptureObjectName(
     CapturedObjectName->Buffer = NULL;
     CapturedObjectName->Length = 0;
     CapturedObjectName->MaximumLength = 0;
-    FreeBuffer = NULL;
+    Status = STATUS_SUCCESS;
     try {
 
         //
@@ -349,16 +360,16 @@ ObpCaptureObjectName(
         // name string, if necessary.
         //
 
+        FreeBuffer = NULL;
         if (ProbeMode != KernelMode) {
-            InputObjectName = ProbeAndReadUnicodeString( ObjectName );
-            ProbeForRead( InputObjectName.Buffer,
-                          InputObjectName.Length,
-                          sizeof(WCHAR)
-                        );
-            }
-        else {
+            InputObjectName = ProbeAndReadUnicodeString(ObjectName);
+            ProbeForRead(InputObjectName.Buffer,
+                         InputObjectName.Length,
+                         sizeof(WCHAR));
+
+        } else {
             InputObjectName = *ObjectName;
-            }
+        }
 
         //
         // If the length of the string is not zero, then capture the string.
@@ -368,69 +379,218 @@ ObpCaptureObjectName(
 
             //
             // If the length of the string is not an even multiple of the
-            // size of a UNICODE character, then return an error.
+            // size of a UNICODE character or cannot be zero terminated,
+            // then return an error.
             //
 
             Length = InputObjectName.Length;
-            if ((Length & (sizeof( WCHAR ) - 1)) != 0) {
-                return STATUS_OBJECT_NAME_INVALID;
+            if (((Length & (sizeof(WCHAR) - 1)) != 0) ||
+                (Length == (MAXUSHORT - sizeof(WCHAR) + 1))) {
+                Status = STATUS_OBJECT_NAME_INVALID;
+
+            } else {
+
+                //
+                // Allocate a buffer for the specified name string.
+                //
+                // N.B. The name buffer allocation routine adds one
+                //      UNICODE character to the length and initializes
+                //      the string descriptor.
+                //
+
+                FreeBuffer = ObpAllocateObjectNameBuffer(Length,
+                                                         UseLookaside,
+                                                         CapturedObjectName);
+
+                if (FreeBuffer == NULL) {
+                    Status = STATUS_INSUFFICIENT_RESOURCES;
+
+                } else {
+
+                    //
+                    // Copy the specified name string to the destination
+                    // buffer.
+                    //
+
+                    RtlMoveMemory(FreeBuffer, InputObjectName.Buffer, Length);
+
+                    //
+                    // Zero terminate the name string and initialize the
+                    // string descriptor.
+                    //
+
+                    FreeBuffer[Length / sizeof(WCHAR)] = UNICODE_NULL;
                 }
-
-            //
-            // Allocate a buffer for the specified name string.
-            //
-
-            Maximum = (USHORT)(Length + sizeof(WCHAR));
-            FreeBuffer = ExAllocatePoolWithTag( PagedPool, Maximum, 'mNbO' );
-            if (FreeBuffer == NULL) {
-                return STATUS_INSUFFICIENT_RESOURCES;
-                }
-
-            //
-            // Copy the specified name string to the destination buffer.
-            //
-
-            RtlMoveMemory( FreeBuffer, InputObjectName.Buffer, Length );
-
-            //
-            // Zero terminate the name string and initialize the string
-            // descriptor.
-            //
-
-            FreeBuffer[ Length / sizeof( WCHAR ) ] = UNICODE_NULL;
-            CapturedObjectName->Length = Length;
-            CapturedObjectName->MaximumLength = Maximum;
-            CapturedObjectName->Buffer = FreeBuffer;
             }
         }
-    except( ExSystemExceptionFilter() ) {
+
+    } except(ExSystemExceptionFilter()) {
+        Status = GetExceptionCode();
         if (FreeBuffer != NULL) {
             ExFreePool(FreeBuffer);
-            }
-
-        return GetExceptionCode();
         }
+    }
 
-    return STATUS_SUCCESS;
+    return Status;
 }
 
+PWCHAR
+ObpAllocateObjectNameBuffer(
+    IN ULONG Length,
+    IN LOGICAL UseLookaside,
+    IN OUT PUNICODE_STRING ObjectName
+    )
+
+/*++
+
+Routine Description:
+
+    This function allocates an object name buffer.
+
+    N.B. This function is nonpageable.
+
+Arguments:
+
+    Maximum - Supplies the length of the required buffer in bytes.
+
+    UseLookaside - Supplies a logical variable that determines whether an
+        attempt is made to allocate the name buffer from the lookaside list.
+
+    ObjectName - Supplies a pointer to a name buffer string descriptor.
+
+Return Value:
+
+    If the allocation is successful, then name buffer string descriptor
+    is initialized and the address of the name buffer is returned as the
+    function value. Otherwise, a value of NULL is returned.
+
+--*/
+
+{
+
+    PVOID Buffer;
+    ULONG Maximum;
+    KIRQL OldIrql;
+    PKPRCB Prcb;
+
+    //
+    // If allocation from the lookaside lists is specified and the buffer
+    // size is less than the size of lookaside list entries, then attempt
+    // to allocate the name buffer from the lookaside lists. Otherwise,
+    // attempt to allocate the name buffer from nonpaged pool.
+    //
+
+    Maximum = Length + sizeof(WCHAR);
+    if ((UseLookaside == FALSE) || (Maximum > OBJECT_NAME_BUFFER_SIZE)) {
+
+        //
+        // Attempt to allocate the buffer from nonpaged pool.
+        //
+
+        Buffer = ExAllocatePoolWithTag(NonPagedPool, Maximum, 'mNbO');
+
+    } else {
+
+        //
+        // Attempt to allocate the name buffer from the lookaside list. If
+        // the allocation attempt fails, then attempt to allocate the name
+        // buffer from pool.
+        //
+
+        Maximum = OBJECT_NAME_BUFFER_SIZE;
+        Buffer = ExAllocateFromNPagedLookasideList(&ObpNameBufferLookasideList);
+    }
+
+    //
+    // Initialize the string descriptor and return the buffer address.
+    //
+
+    ObjectName->Length = (USHORT)Length;
+    ObjectName->MaximumLength = (USHORT)Maximum;
+    ObjectName->Buffer = Buffer;
+    return (PWCHAR)Buffer;
+}
 
 VOID
-ObpFreeObjectCreateInfo(
-    IN POBJECT_CREATE_INFORMATION ObjectCreateInfo
+FASTCALL
+ObpFreeObjectNameBuffer(
+    OUT PUNICODE_STRING ObjectName
     )
-{
-    if (ObjectCreateInfo->SecurityDescriptor != NULL) {
-        SeReleaseSecurityDescriptor( ObjectCreateInfo->SecurityDescriptor,
-                                     ObjectCreateInfo->ProbeMode,
-                                     FALSE
-                                   );
-        ObjectCreateInfo->SecurityDescriptor = NULL;
-        }
 
-    ExFreePool( ObjectCreateInfo );
+/*++
+
+Routine Description:
+
+    This function frees an object name buffer.
+
+    N.B. This function is nonpageable.
+
+Arguments:
+
+    ObjectName - Supplies a pointer to a name buffer string descriptor.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+
+    PVOID Buffer;
+    KIRQL OldIrql;
+    PKPRCB Prcb;
+
+    //
+    // If the size of the buffer is not equal to the size of lookaside list
+    // entries, then  free the buffer to pool. Otherwise, free the buffer to
+    // the lookaside list.
+    //
+
+    Buffer = ObjectName->Buffer;
+    if (ObjectName->MaximumLength != OBJECT_NAME_BUFFER_SIZE) {
+        ExFreePool(Buffer);
+
+    } else {
+        ExFreeToNPagedLookasideList(&ObpNameBufferLookasideList, Buffer);
+    }
+
+    return;
 }
 
+NTKERNELAPI
+VOID
+ObDeleteCapturedInsertInfo(
+    IN PVOID Object
+    )
+
+{
+
+    POBJECT_HEADER ObjectHeader;
+
+    PAGED_CODE();
+
+    //
+    // Get the address of the object header and free the object create
+    // information object if the object is being created.
+    //
+
+    ObjectHeader = OBJECT_TO_OBJECT_HEADER(Object);
+    if (ObjectHeader->Flags & OB_FLAG_NEW_OBJECT) {
+        if (ObjectHeader->ObjectCreateInfo != NULL) {
+            ObpFreeObjectCreateInformation(ObjectHeader->ObjectCreateInfo);
+            ObjectHeader->ObjectCreateInfo = NULL;
+        }
+    }
+
+    return;
+}
+
+ULONG ObpObjectsCreated;
+ULONG ObpObjectsWithPoolQuota;
+ULONG ObpObjectsWithHandleDB;
+ULONG ObpObjectsWithName;
+ULONG ObpObjectsWithCreatorInfo;
 
 NTSTATUS
 ObpAllocateObject(
@@ -443,8 +603,8 @@ ObpAllocateObject(
     )
 
 {
+
     ULONG HeaderSize;
-    PNONPAGED_OBJECT_HEADER NonPagedObjectHeader;
     POBJECT_HEADER ObjectHeader;
     NTSTATUS Status;
     PVOID ZoneSegment;
@@ -457,8 +617,11 @@ ObpAllocateObject(
     POBJECT_HEADER_HANDLE_INFO HandleInfo;
     POBJECT_HEADER_NAME_INFO NameInfo;
     POBJECT_HEADER_CREATOR_INFO CreatorInfo;
+    POOL_TYPE PoolType;
 
     PAGED_CODE();
+
+    ObpObjectsCreated += 1;
 
     //
     // Compute the sizes of the optional object header components.
@@ -473,9 +636,11 @@ ObpAllocateObject(
     else {
         if (ObjectCreateInfo->PagedPoolCharge != ObjectType->TypeInfo.DefaultPagedPoolCharge ||
             ObjectCreateInfo->NonPagedPoolCharge != ObjectType->TypeInfo.DefaultNonPagedPoolCharge ||
-            ObjectCreateInfo->SecurityDescriptorCharge > SE_DEFAULT_SECURITY_QUOTA
+            ObjectCreateInfo->SecurityDescriptorCharge > SE_DEFAULT_SECURITY_QUOTA ||
+            (ObjectCreateInfo->Attributes & OBJ_EXCLUSIVE)
            ) {
             QuotaInfoSize = sizeof( OBJECT_HEADER_QUOTA_INFO );
+            ObpObjectsWithPoolQuota += 1;
             }
         else {
             QuotaInfoSize = 0;
@@ -483,6 +648,7 @@ ObpAllocateObject(
 
         if (ObjectType->TypeInfo.MaintainHandleCount) {
             HandleInfoSize = sizeof( OBJECT_HEADER_HANDLE_INFO );
+            ObpObjectsWithHandleDB += 1;
             }
         else {
             HandleInfoSize = 0;
@@ -490,6 +656,7 @@ ObpAllocateObject(
 
         if (ObjectName->Buffer != NULL) {
             NameInfoSize = sizeof( OBJECT_HEADER_NAME_INFO );
+            ObpObjectsWithName += 1;
             }
         else {
             NameInfoSize = 0;
@@ -497,6 +664,7 @@ ObpAllocateObject(
 
         if (ObjectType->TypeInfo.MaintainTypeList) {
             CreatorInfoSize = sizeof( OBJECT_HEADER_CREATOR_INFO );
+            ObpObjectsWithCreatorInfo += 1;
             }
         else {
             CreatorInfoSize = 0;
@@ -513,82 +681,44 @@ ObpAllocateObject(
     // Allocate and initialize the object.
     //
     // If the object type is not specified or specifies nonpaged pool,
-    // then allocate the object with one allocation from nonpaged pool.
-    // Otherwise, allocate the nonpaged object header from the nonpaged
-    // header zone and the object header and object body from paged pool.
+    // then allocate the object from nonpaged pool.
+    // Otherwise, allocate the object from paged pool.
     //
 
     if ((ObjectType == NULL) || (ObjectType->TypeInfo.PoolType == NonPagedPool)) {
-        NonPagedObjectHeader = ExAllocatePoolWithTag( NonPagedPool,
-                                                      sizeof( *NonPagedObjectHeader ) +
-                                                        HeaderSize + ObjectBodySize,
-                                                      ObjectType == NULL ? 'TjbO' : ObjectType->Key
-                                                    );
-        if (NonPagedObjectHeader == NULL) {
-            return STATUS_INSUFFICIENT_RESOURCES;
-            }
-
-#if DBG && defined(i386)
-        CreatorBackTraceIndex = ExGetPoolBackTraceIndex( NonPagedObjectHeader );
-#else
-        CreatorBackTraceIndex = 0;
-#endif // defined(i386)
-
-        ObjectHeader = (POBJECT_HEADER)(NonPagedObjectHeader + 1);
+        PoolType = NonPagedPool;
         }
     else {
-        while ((NonPagedObjectHeader = ExInterlockedAllocateFromZone( &ObpZone,
-                                                                      &ObpZoneLock )) == NULL) {
-
-            ZoneSegment = ExAllocatePoolWithTag( NonPagedPool,
-                                                 ObpZoneSegmentSize,
-                                                 'nZbO'
-                                               );
-            if (ZoneSegment == NULL) {
-                Status = STATUS_INSUFFICIENT_RESOURCES;
-                }
-            else {
-                Status = ExInterlockedExtendZone( &ObpZone,
-                                                  ZoneSegment,
-                                                  ObpZoneSegmentSize,
-                                                  &ObpZoneLock
-                                                );
-                }
-
-            if (!NT_SUCCESS(Status)) {
-                return STATUS_INSUFFICIENT_RESOURCES;
-                }
-            }
-
-        ObjectHeader = ExAllocatePoolWithTag( PagedPool,
-                                              HeaderSize + ObjectBodySize,
-                                              ObjectType == NULL ? 'tjbO' : ObjectType->Key
-                                            );
-        if (ObjectHeader == NULL) {
-            ExInterlockedFreeToZone(&ObpZone, NonPagedObjectHeader, &ObpZoneLock);
-            return STATUS_INSUFFICIENT_RESOURCES;
-            }
-
-#if DBG && defined(i386)
-        CreatorBackTraceIndex = ExGetPoolBackTraceIndex( ObjectHeader );
-#else
-        CreatorBackTraceIndex = 0;
-#endif // defined(i386)
+        PoolType = PagedPool;
         }
+
+    ObjectHeader = ExAllocatePoolWithTag( PoolType,
+                                          HeaderSize + ObjectBodySize,
+                                          (ObjectType == NULL ? 'TjbO' : ObjectType->Key) |
+                                            PROTECTED_POOL
+                                        );
+    if (ObjectHeader == NULL) {
+        return STATUS_INSUFFICIENT_RESOURCES;
+        }
+
+#if i386 && !FPO
+    CreatorBackTraceIndex = ExGetPoolBackTraceIndex( ObjectHeader );
+#else
+    CreatorBackTraceIndex = 0;
+#endif // i386 && !FPO
 
     if (QuotaInfoSize != 0) {
         QuotaInfo = (POBJECT_HEADER_QUOTA_INFO)ObjectHeader;
         QuotaInfo->PagedPoolCharge = ObjectCreateInfo->PagedPoolCharge;
         QuotaInfo->NonPagedPoolCharge = ObjectCreateInfo->NonPagedPoolCharge;
         QuotaInfo->SecurityDescriptorCharge = ObjectCreateInfo->SecurityDescriptorCharge;
+        QuotaInfo->ExclusiveProcess = NULL;
         ObjectHeader = (POBJECT_HEADER)(QuotaInfo + 1);
         }
 
     if (HandleInfoSize != 0) {
         HandleInfo = (POBJECT_HEADER_HANDLE_INFO)ObjectHeader;
-        HandleInfo->HandleCountDataBase = &HandleInfo->SingleEntryHandleCountDataBase;
-        HandleInfo->SingleEntryHandleCountDataBase.CountEntries = 1;
-        HandleInfo->SingleEntryHandleCountDataBase.HandleCountEntries[ 0 ].HandleCount = 0;
+        HandleInfo->SingleEntry.HandleCount = 0;
         ObjectHeader = (POBJECT_HEADER)(HandleInfo + 1);
         }
 
@@ -628,23 +758,19 @@ ObpAllocateObject(
         ObjectHeader->NameInfoOffset = 0;
         }
 
+    ObjectHeader->Flags = OB_FLAG_NEW_OBJECT;
+
     if (CreatorInfoSize != 0) {
-        ObjectHeader->CreatorInfoOffset = (UCHAR)(CreatorInfoSize);
-        }
-    else {
-        ObjectHeader->CreatorInfoOffset = 0;
+        ObjectHeader->Flags |= OB_FLAG_CREATOR_INFO;
         }
 
-    //
-    // Initialize the nonpaged object header.
-    //
-    // N.B. All fields in the nonpaged header are initialized.
-    //
+    if (HandleInfoSize != 0) {
+        ObjectHeader->Flags |= OB_FLAG_SINGLE_HANDLE_ENTRY;
+        }
 
-    NonPagedObjectHeader->Object = &ObjectHeader->Body;
-    NonPagedObjectHeader->PointerCount = 1;
-    NonPagedObjectHeader->HandleCount = 0;
-    NonPagedObjectHeader->Type = ObjectType;
+    ObjectHeader->PointerCount = 1;
+    ObjectHeader->HandleCount = 0;
+    ObjectHeader->Type = ObjectType;
 
     //
     // Initialize the object header.
@@ -657,9 +783,6 @@ ObpAllocateObject(
     //      attributes, object ownership, and parse context.
     //
 
-    ObjectHeader->Size = ObjectBodySize;
-    ObjectHeader->Flags = OB_FLAG_NEW_OBJECT;
-
     if (OwnershipMode == KernelMode) {
         ObjectHeader->Flags |= OB_FLAG_KERNEL_OBJECT;
         }
@@ -670,10 +793,14 @@ ObpAllocateObject(
         ObjectHeader->Flags |= OB_FLAG_PERMANENT_OBJECT;
         }
 
-    ObjectHeader->NonPagedObjectHeader = NonPagedObjectHeader;
+    if ((ObjectCreateInfo != NULL) &&
+        (ObjectCreateInfo->Attributes & OBJ_EXCLUSIVE)
+       ) {
+        ObjectHeader->Flags |= OB_FLAG_EXCLUSIVE_OBJECT;
+        }
+
     ObjectHeader->ObjectCreateInfo = ObjectCreateInfo;
     ObjectHeader->SecurityDescriptor = NULL;
-    ObjectHeader->ExclusiveProcess = NULL;
 
     if (ObjectType != NULL) {
         ObjectType->TotalNumberOfObjects += 1;
@@ -730,10 +857,10 @@ ObpAllocateObject(
 #endif // DBG
 
 #if DBG
-    if (NtGlobalFlag & FLG_SHOW_OB_ALLOC_AND_FREE) {
+    if (ObpShowAllocAndFree) {
         DbgPrint( "OB: Alloc %lx (%lx) %04lu",
                   ObjectHeader,
-                  NonPagedObjectHeader,
+                  ObjectHeader,
                   ObjectBodySize
                 );
 
@@ -753,13 +880,13 @@ ObpAllocateObject(
 
 
 VOID
+FASTCALL
 ObpFreeObject(
     IN PVOID Object
     )
 
 {
 
-    PNONPAGED_OBJECT_HEADER NonPagedObjectHeader;
     POBJECT_HEADER ObjectHeader;
     POBJECT_TYPE ObjectType;
     POBJECT_HEADER_QUOTA_INFO QuotaInfo;
@@ -773,13 +900,11 @@ ObpFreeObject(
     PAGED_CODE();
 
     //
-    // Get the address of the object body header, the nonpaged object header,
-    // and the object header.
+    // Get the address of the object header.
     //
 
     ObjectHeader = OBJECT_TO_OBJECT_HEADER(Object);
-    NonPagedObjectHeader = ObjectHeader->NonPagedObjectHeader;
-    ObjectType = NonPagedObjectHeader->Type;
+    ObjectType = ObjectHeader->Type;
 
     FreeBuffer = ObjectHeader;
     CreatorInfo = OBJECT_HEADER_TO_CREATOR_INFO( ObjectHeader );
@@ -823,10 +948,10 @@ ObpFreeObject(
 #endif // DBG
 
 #if DBG
-    if (NtGlobalFlag & FLG_SHOW_OB_ALLOC_AND_FREE) {
+    if (ObpShowAllocAndFree) {
         DbgPrint( "OB: Free  %lx (%lx) - Type: %wZ\n",
                   ObjectHeader,
-                  NonPagedObjectHeader,
+                  ObjectHeader,
                   &ObjectType->Name
                 );
         }
@@ -837,7 +962,7 @@ ObpFreeObject(
 
     if (ObjectHeader->Flags & OB_FLAG_NEW_OBJECT) {
         if (ObjectHeader->ObjectCreateInfo != NULL) {
-            ObpFreeObjectCreateInfo( ObjectHeader->ObjectCreateInfo );
+            ObpFreeObjectCreateInformation( ObjectHeader->ObjectCreateInfo );
             ObjectHeader->ObjectCreateInfo = NULL;
             }
         }
@@ -862,8 +987,8 @@ ObpFreeObject(
             }
         }
 
-    if (HandleInfo != NULL &&
-        HandleInfo->HandleCountDataBase != &HandleInfo->SingleEntryHandleCountDataBase
+    if ((HandleInfo != NULL) &&
+        ((ObjectHeader->Flags & OB_FLAG_SINGLE_HANDLE_ENTRY) == 0)
        ) {
         //
         // If a handle database has been allocated, then free the memory.
@@ -883,27 +1008,16 @@ ObpFreeObject(
         }
 
     //
-    // Zero out pointer fields so we dont get far if we attempt to
+    // Trash type field so we don't get far if we attempt to
     // use a stale object pointer to this object.
     //
 
-    NonPagedObjectHeader->Type = NULL;
-    NonPagedObjectHeader->Object = NULL;
+    ObjectHeader->Type = (PVOID)0xBAD0B0B0;
 
-    //
-    // If the object type is not specified or specifies nonpaged pool, then
-    // the object was allocated with a single allocation. Otherwise, the
-    // nonpaged object header was allocated from the nonpaged header zone
-    // and the object header and object body was allocated from paged pool.
-    //
-
-    if (ObjectType == NULL || ObjectType->TypeInfo.PoolType == NonPagedPool) {
-        ExFreePool( NonPagedObjectHeader );
-        }
-    else {
-        ExInterlockedFreeToZone( &ObpZone, NonPagedObjectHeader, &ObpZoneLock );
-        ExFreePool( FreeBuffer );
-        }
+    ExFreePoolWithTag( FreeBuffer,
+                       (ObjectType == NULL ? 'TjbO' : ObjectType->Key) |
+                            PROTECTED_POOL
+                     );
 
     return;
 }

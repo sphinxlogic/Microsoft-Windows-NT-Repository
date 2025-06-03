@@ -255,13 +255,18 @@ DATA_FRAGMENT_PTR frag_ptr )
           opened_in_use = TRUE ;
           break;
 
+     case FS_BAD_ATTACH_TO_SERVER:
      case FS_ACCESS_DENIED:
+
+          if ( return_status == FS_ACCESS_DENIED ) {
+               return_status = LP_ACCESS_DENIED_ERROR ;
+          }
 
           LP_MsgError( lp->lis_ptr->pid,
                          lp->lis_ptr->curr_bsd_ptr,
                          lp->curr_fsys,
                          &lp->tpos,
-                         LP_ACCESS_DENIED_ERROR,
+                         return_status,
                          lp->curr_ddb,
                          blk_ptr,
                          STRM_INVALID ) ;
@@ -277,6 +282,7 @@ DATA_FRAGMENT_PTR frag_ptr )
 
      case FS_IN_USE_ERROR:
           if( BEC_GetSkipOpenFiles( cfg ) == BEC_SKIP_OPEN_FILES ) {
+
                LP_MsgBlockSkipped( pid, bsd_ptr, fsh, &lp->tpos, blk_ptr, lp->curr_ddb ) ;
                bytes_skipped = FS_GetDisplaySizeFromDBLK( fsh, blk_ptr ) ;
                LP_MsgBytesSkipped( pid, bsd_ptr, fsh, &lp->tpos, bytes_skipped ) ;
@@ -308,15 +314,31 @@ DATA_FRAGMENT_PTR frag_ptr )
           break ;
 
      case FS_COMM_FAILURE:
-                    LP_MsgCommFailure( pid,
-                                   bsd_ptr,
-                                   fsh,
-                                   &lp->tpos,
-                                   lp->curr_ddb,
-                                   blk_ptr,
-                                   0L );
+
+          if ( DLE_GetDeviceType( BSD_GetDLE( bsd_ptr) ) == FS_EMS_DRV ) {
+               LP_MsgError( pid, 
+                            bsd_ptr, 
+                            fsh, 
+                            &lp->tpos,
+                            FS_COMM_FAILURE,
+                            lp->curr_ddb,
+                            blk_ptr,
+                            0L ) ;
+               return SUCCESS ;
+
+          } else {
+
+               LP_MsgCommFailure( pid,
+                                  bsd_ptr,
+                                  fsh,
+                                  &lp->tpos,
+                                  lp->curr_ddb,
+                                  blk_ptr,
+                                  0L );
+
                
-                    return (return_status) ;
+               return (return_status) ;
+          }
 
 
      case FS_NOT_FOUND:
@@ -378,9 +400,12 @@ DATA_FRAGMENT_PTR frag_ptr )
                     amount_read            = ( frag_ptr->buffer_size - frag_ptr->buffer_used ) ;
                     frag_ptr->buffer_used  = 0 ;
                }
-          }
+               return_status = SUCCESS ;
+               lp->read_size = 0 ;
+          } else {
 
-          return_status = FS_ReadObj( lp->file_hand, lp->buf_start, &lp->read_size, &lp->blk_size, &lp->rr.stream ) ;
+               return_status = FS_ReadObj( lp->file_hand, lp->buf_start, &lp->read_size, &lp->blk_size, &lp->rr.stream ) ;
+          }
 
           if ( lp->rr.stream.id != STRM_INVALID ) {
 
@@ -389,6 +414,21 @@ DATA_FRAGMENT_PTR frag_ptr )
                if ( BEC_GetProcChecksumStrm( cfg ) ) {
                     insertChecksum = TRUE ;
                     lp->rr.stream.tf_attrib |= STREAM_CHECKSUMED ;
+               }
+
+               // lets log the stream header name
+               switch( lp->rr.stream.id ) {
+                    case STRM_EMS_MONO_DB:
+                    case STRM_EMS_MONO_LOG:
+                         {
+                              CHAR strm_name[256] ;
+                              UINT16 size = (UINT16)sizeof(strm_name) ;
+
+                              EMS_GetStreamName( lp->file_hand, (BYTE_PTR)strm_name, &size ) ;
+                              LP_MsgLogStream( pid, bsd_ptr, fsh, &lp->tpos, strm_name ) ;
+
+                              break ;
+                         }
                }
           }
          
@@ -471,7 +511,8 @@ DATA_FRAGMENT_PTR frag_ptr )
                          return_status = LP_SendDataEnd( lp ) ;
                          break;
 
-                    } else if ( return_status == FS_OBJECT_CORRUPT ) {
+                    } else if ( ( return_status == FS_OBJECT_CORRUPT ) ||
+                                ( return_status == FS_COMM_FAILURE ) ) {
                          LP_SendDataEnd( lp ) ;
                          if ( lp->corrupt_file == FALSE ) {
                               FS_SetDefaultDBLK( fsh, CFDB_ID, ( CREATE_DBLK_PTR )lp->rr.cfdb_data_ptr ) ;
@@ -485,7 +526,9 @@ DATA_FRAGMENT_PTR frag_ptr )
                          return_status = SUCCESS ;
 
                     } else if ( return_status != SUCCESS ) {
-                         space_fwd = lp->blk_size - frag_ptr->buffer_used ;
+
+                         space_fwd = frag_ptr->buffer_size - frag_ptr->buffer_used ;
+
                          LP_PadData( frag_ptr->buffer + frag_ptr->buffer_used, space_fwd );
                          FS_SeekObj( lp->file_hand, &space_fwd );
                          amount_read += (UINT16)space_fwd ;
@@ -497,7 +540,7 @@ DATA_FRAGMENT_PTR frag_ptr )
                               lp->corrupt_file = TRUE ;
                               LP_MsgBlockBad( pid, bsd_ptr, fsh, &lp->tpos, blk_ptr, lp->curr_ddb ) ;
                          }
-                         frag_ptr->buffer_used = frag_ptr->buffer_size ;
+                         frag_ptr->buffer_used += (UINT16)space_fwd ;
                     }
       
 
@@ -574,10 +617,45 @@ DATA_FRAGMENT_PTR frag_ptr )
                }
 
           } else if( ( return_status == FS_OBJECT_CORRUPT ) ||
+               ( return_status == FS_IN_USE_ERROR ) ||
                ( return_status == FS_COMM_FAILURE ) ) {
+
 
                LP_SendDataEnd( lp ) ;
                if( lp->corrupt_file == FALSE ) {
+                    FS_SetDefaultDBLK( fsh, CFDB_ID, ( CREATE_DBLK_PTR )lp->rr.cfdb_data_ptr ) ;
+                    lp->rr.cfdb_data_ptr->std_data.dblk  = lp->rr.cfdb_ptr ;
+                    lp->rr.cfdb_data_ptr->corrupt_offset = file_offset ;
+                    FS_CreateGenCFDB( fsh, lp->rr.cfdb_data_ptr ) ;
+                    if ( return_status == FS_IN_USE_ERROR ) {
+                        LP_MsgBlockInuse( pid, bsd_ptr, fsh, &lp->tpos, blk_ptr, lp->curr_ddb ) ;
+                    } else {
+                         LP_MsgBlockBad( pid, bsd_ptr, fsh, &lp->tpos, blk_ptr, lp->curr_ddb ) ;
+                    }
+               }
+
+               return_status  = SUCCESS ;
+               lp->corrupt_file   = TRUE ;
+
+
+          } else if( ((return_status == FS_ACCESS_DENIED) || (return_status == FS_BAD_ATTACH_TO_SERVER)) &&
+                     (DLE_GetDeviceType( BSD_GetDLE( bsd_ptr) ) == FS_EMS_DRV ) ) {
+
+               if ( return_status == FS_ACCESS_DENIED ) {
+                    return_status = LP_ACCESS_DENIED_ERROR ;
+               }
+
+               LP_SendDataEnd( lp ) ;
+               if( lp->corrupt_file == FALSE ) {
+                    LP_MsgError( lp->lis_ptr->pid,
+                            lp->lis_ptr->curr_bsd_ptr,
+                            lp->curr_fsys,
+                            &lp->tpos,
+                            return_status,
+                            lp->curr_ddb,
+                            blk_ptr,
+                            STRM_INVALID ) ;
+
                     FS_SetDefaultDBLK( fsh, CFDB_ID, ( CREATE_DBLK_PTR )lp->rr.cfdb_data_ptr ) ;
                     lp->rr.cfdb_data_ptr->std_data.dblk  = lp->rr.cfdb_ptr ;
                     lp->rr.cfdb_data_ptr->corrupt_offset = file_offset ;
@@ -587,6 +665,7 @@ DATA_FRAGMENT_PTR frag_ptr )
 
                return_status  = SUCCESS ;
                lp->corrupt_file   = TRUE ;
+
 
           } else if( return_status != SUCCESS ) {
 

@@ -26,31 +26,30 @@ Author:
 
 !ENDIF
 
-DLLENTRY=     DllEntryPoint
+DLLENTRY=     _DllMainCRTStartup
 
 DLLBASE=@$(BASEDIR)\PUBLIC\SDK\LIB\coffbase.txt,usermode
 
 
 !include      ..\..\..\daytona.inc
 
-INCLUDES=     ..\;..\..\..\oleprx32\daytona;..\..\..\common;..\..\..\..\..\cinc;
+INCLUDES=     ;..;$(OLEBALLSDIR)\common;
+INCLUDES=     $(INCLUDES);$(OLEUTESTDIR)\balls\oleprx32\daytona
 
 UMTYPE=       windows
 UMAPPL=
 UMTEST=
 
 LINKLIBS=     \
-	      ..\..\..\oleprx32\daytona\obj\*\uuid.lib	      \
+	      ..\..\..\oleprx32\uuid\daytona\obj\*\uuid.lib	      \
 	      ..\..\..\common\daytona\obj\*\servers.lib       \
-	      $(BASEDIR)\private\cairole\com\port\daytona\obj\*\port.lib	\
-	      $(BASEDIR)\private\cairole\common\daytona\obj\*\common.lib	\
+	      $(BASEDIR)\private\ole32\common\daytona\obj\*\common.lib	\
 	      $(BASEDIR)\public\sdk\lib\*\uuid.lib	      \
 	      $(BASEDIR)\public\sdk\lib\*\ole32.lib	      \
               $(BASEDIR)\public\sdk\lib\*\gdi32.lib           \
               $(BASEDIR)\public\sdk\lib\*\kernel32.lib        \
               $(BASEDIR)\public\sdk\lib\*\user32.lib          \
-              $(BASEDIR)\public\sdk\lib\*\advapi32.lib        \
-              $(BASEDIR)\public\sdk\lib\*\crtdll.lib
+              $(BASEDIR)\public\sdk\lib\*\advapi32.lib
 
 !IF $(386)
 NTTARGETFILE0=$(DLLDEF:*=i386)

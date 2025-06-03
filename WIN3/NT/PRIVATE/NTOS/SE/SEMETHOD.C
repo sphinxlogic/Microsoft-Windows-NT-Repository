@@ -428,6 +428,7 @@ Return Value:
 
     PACL NewDacl;
     PACL NewSacl;
+    PACL ServerDacl;
 
     ULONG NewDaclSize;
     ULONG NewSaclSize;
@@ -436,6 +437,16 @@ Return Value:
     ULONG AllocationSize;
 
     SECURITY_SUBJECT_CONTEXT SubjectContext;
+
+    BOOLEAN ServerObject;
+    BOOLEAN DaclUntrusted;
+    BOOLEAN ServerDaclAllocated = FALSE;
+
+    PSID SubjectContextOwner;
+    PSID SubjectContextGroup;
+    PSID SubjectContextServerOwner;
+    PSID SubjectContextServerGroup;
+    PACL SubjectContextDacl;
 
 
     //
@@ -473,25 +484,30 @@ Return Value:
     }
 
     //
+    // Check to see if we need to edit the passed acl
+    // either because we're creating a server object, or because
+    // we were passed an untrusted ACL.
+    //
+
+    if ( SepAreControlBitsSet(IModificationDescriptor, SE_SERVER_SECURITY)) {
+        ServerObject = TRUE;
+    } else {
+        ServerObject = FALSE;
+    }
+
+    if ( SepAreControlBitsSet(IModificationDescriptor, SE_DACL_UNTRUSTED)) {
+        DaclUntrusted = TRUE;
+    } else {
+        DaclUntrusted = FALSE;
+    }
+
+    //
     //  The basic algorithm of setting a security descriptor is to
     //  figure out where each component of the object's resultant
     //  security descriptor is to come from: the original security
     //  descriptor, or the new one.
     //
 
-    //
-    // Copy the Group SID if specified
-    //
-
-    if (((*SecurityInformation) & GROUP_SECURITY_INFORMATION)) {
-
-        NewGroup = SepGroupAddrSecurityDescriptor( IModificationDescriptor );
-        NewGroupPresent = TRUE;
-
-    } else {
-
-        NewGroup = SepGroupAddrSecurityDescriptor( IObjectsSecurityDescriptor );
-    }
 
     //
     // Copy the system acl if specified
@@ -516,11 +532,40 @@ Return Value:
         NewDacl = SepDaclAddrSecurityDescriptor( IModificationDescriptor );
         NewDaclPresent = TRUE;
 
+        if (ServerObject) {
+
+            SeCaptureSubjectContext( &SubjectContext );
+        
+            SepGetDefaultsSubjectContext(
+                &SubjectContext,
+                &SubjectContextOwner,
+                &SubjectContextGroup,
+                &SubjectContextServerOwner,
+                &SubjectContextServerGroup,
+                &SubjectContextDacl
+                );
+
+            Status = SepCreateServerAcl(
+                         NewDacl,
+                         DaclUntrusted,
+                         SubjectContextServerOwner,
+                         &ServerDacl,
+                         &ServerDaclAllocated
+                         );
+
+            SeReleaseSubjectContext( &SubjectContext );
+
+            if (!NT_SUCCESS( Status )) {
+                return( Status );
+            }
+
+            NewDacl = ServerDacl;
+        }
+
     } else {
 
         NewDacl = SepDaclAddrSecurityDescriptor( IObjectsSecurityDescriptor );
     }
-
 
     //
     // Copy the Owner SID if specified
@@ -538,7 +583,7 @@ Return Value:
         NewOwner = SepOwnerAddrSecurityDescriptor( IModificationDescriptor );
         NewOwnerPresent = TRUE;
 
-        if (!SepValidOwnerSubjectContext( &SubjectContext, NewOwner) ) {
+        if (!SepValidOwnerSubjectContext( &SubjectContext, NewOwner, ServerObject ) ) {
 
             SeReleaseSubjectContext( &SubjectContext );
             return( STATUS_INVALID_OWNER );
@@ -693,9 +738,10 @@ Return Value:
         NewDescriptor->Sacl = NULL;
 
     } else {
-        SepApplyAclToObject( (PACL)NewSacl, GenericMapping );
+
         RtlMoveMemory( Field, NewSacl, NewSacl->AclSize );
         NewDescriptor->Sacl = (PACL)RtlPointerToOffset(Base,Field);
+        SepApplyAclToObject( (PACL)Field, GenericMapping );
         Field += NewSaclSize;
     }
 
@@ -725,8 +771,6 @@ Return Value:
 
     }
 
-
-
     //
     // Fill in Dacl field in new SD
     //
@@ -735,9 +779,10 @@ Return Value:
         NewDescriptor->Dacl = NULL;
 
     } else {
-        SepApplyAclToObject( (PACL)NewDacl, GenericMapping );
+
         RtlMoveMemory( Field, NewDacl, NewDacl->AclSize );
         NewDescriptor->Dacl = (PACL)RtlPointerToOffset(Base,Field);
+        SepApplyAclToObject( (PACL)Field, GenericMapping );
         Field += NewDaclSize;
     }
 
@@ -763,6 +808,14 @@ Return Value:
             SE_DACL_DEFAULTED | SE_DACL_PRESENT
             );
 
+    }
+
+    //
+    // If we allocated memory for a server acl, we can free it now.
+    //
+
+    if (ServerDaclAllocated) {
+        ExFreePool( NewDacl );
     }
 
     //

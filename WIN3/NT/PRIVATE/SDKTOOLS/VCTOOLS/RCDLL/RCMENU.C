@@ -7,8 +7,7 @@
 /*                                                                          */
 /****************************************************************************/
 
-#include "prerc.h"
-#pragma hdrstop
+#include "rc.h"
 
 
 extern KEY  keyList[];
@@ -17,7 +16,7 @@ extern BOOL CheckStr(PWCHAR pStr);
 
 WORD    wEndPOPUP[]     = { 1, BEGIN };
 WORD    wEndMENUITEM[]  = { 3, TKPOPUP, TKMENUITEM, END };
-WORD    wEndMENU[]      = { 1, BEGIN };
+WORD    wEndMENU[]      = { 0 };
 
 BYTE    bParmsPOPUP[]   = { 5, PT_TEXT, PTO_DWORD, PTO_DWORD, PTO_DWORD, PTO_DWORD };
 BYTE    bParmsMENUITEM[]= { 4, PT_TEXT, PTO_DWORD, PTO_DWORD, PTO_DWORD };
@@ -50,6 +49,10 @@ typedef enum
 BOOL EndParcel(WORD *pwEnd)
 {
     WORD i;
+
+    if (!*pwEnd)
+        return(TRUE);
+    
     for (i = *pwEnd; i > 0; i--)
         if (token.type == pwEnd[i])
             return(TRUE);
@@ -155,12 +158,21 @@ BOOL MyGetExpression(DWORD *pdwExp, BOOL fRecursed)
 
     while (TRUE)    // break out as appropriate
     {
-
-        if (token.type == NUMLIT && token.longval < 0)
+        if (token.type == NUMLIT)
         {
-            *pdwExp += token.longval;
-            GetToken(TOKEN_NOEXPRESSION);
-            continue;
+            if (token.longval < 0)
+            {
+                *pdwExp += token.longval;
+                GetToken(TOKEN_NOEXPRESSION);
+                continue;
+            }
+            //
+            // This is a hack to fix the problem of a space after a minus sign.
+            //    - for example 10 - 5
+            //    - if this is a problem, please speak to Jeff Bogden
+            //
+            if (token.longval == 0 && tokenbuf[0] == L'-' && tokenbuf[1] == L'\0')
+                token.type = TKMINUS;
         }
 
         switch (token.type)
@@ -300,7 +312,7 @@ ErrMissingParm:
 
         GetToken(TOKEN_NOEXPRESSION);
 
-	WriteSymbolUse(&token.sym);
+        WriteSymbolUse(&token.sym);
     }
 
     if (!EndParcel(par.pwEnd))

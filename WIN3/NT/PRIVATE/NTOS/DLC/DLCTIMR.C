@@ -89,7 +89,8 @@ Return Value:
     // (0x0a insted of TIMER_ERROR)
     //
 
-    pDlcCommand = (PDLC_COMMAND)AllocatePacket(pFileContext->hPacketPool);
+    pDlcCommand = (PDLC_COMMAND)ALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool);
+
     if (pDlcCommand ==  NULL) {
         return DLC_STATUS_NO_MEMORY;
     }
@@ -373,7 +374,9 @@ Return Value:
             pDlcCommand->pIrp->Overlay.AsynchronousParameters.UserApcContext = NULL;
             CompleteAsyncCommand(pFileContext, CancelStatus, pDlcCommand->pIrp, pNextCcb, FALSE);
             pNextCcb = *ppCcbLink;
-            DeallocatePacket(pFileContext->hPacketPool, pDlcCommand);
+
+            DEALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool, pDlcCommand);
+
         } else {
 
             //

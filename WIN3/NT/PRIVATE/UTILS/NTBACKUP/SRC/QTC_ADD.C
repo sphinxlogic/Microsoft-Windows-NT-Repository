@@ -805,7 +805,7 @@ INT xtra_size )
       //
       // Example 3:
       // LAST:    \MIKE\JUNK
-      // NEW:     \
+      // NEW:     \  
       // Set process_level to 0, and add another root to the catalogs.
       // Note this case is automaticly handled for you.
 

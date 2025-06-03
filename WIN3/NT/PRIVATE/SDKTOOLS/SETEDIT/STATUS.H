@@ -19,4 +19,4 @@ void StatusLineReady (HWND hWnd) ;
 void StatusUpdateIcons (HWND hWndStatus) ;
 
 
-
+

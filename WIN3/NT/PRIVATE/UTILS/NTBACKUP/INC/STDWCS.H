@@ -79,21 +79,21 @@ Initial Revision (UNICODE)
 #  define fprintf                fwprintf
 #  define vfprintf               vfwprintf
 
-#  if !__STDC__
+//#  if !__STDC__
 #     define _strrev(x)             wcsrev( (x) )
 #     define _stricmp(x,y)          wcsicmp( (x), (y) )
 #     define _strnicmp(x,y,z)       wcsnicmp( (x), (y), (z) )
-//#     define _strlwr(x)             wcslwr( (x) )
-//#     define _strupr(x)             wcsupr( (x) )
+#     define _strlwr(x)             wcslwr( (x) )
+#     define _strupr(x)             wcsupr( (x) )
 #     define _strcmpi               stricmp
-#  else
+//#  else
 #     define strrev(x)              wcsrev( (x) )
 #     define stricmp(x,y)           wcsicmp( (x), (y) )
 #     define strnicmp(x,y,z)        wcsnicmp( (x), (y), (z) )
-//#     define strlwr(x)              wcslwr( (x) )
-//#     define strupr(x)              wcsupr( (x) )
+#     define strlwr(x)              wcslwr( (x) )
+#     define strupr(x)              wcsupr( (x) )
 #     define strcmpi                stricmp
-#  endif //__STDC__
+//#  endif //__STDC__
 
 #endif  //STRING REMAPPING
 

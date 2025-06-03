@@ -165,13 +165,13 @@ DosFileIO(
                     ) {
 
                     //
-                    // The usage of Key : A combination of KEY == 0 and EXCLUSIVE == TRUE
-                    // in NtLockFile() let us NtReadFile()/NtWriteFile() on that region
-                    // with KEY == NULL from the same process but neither from another process.
-                    // A combination of KEY == pid and EXCLUSIVE == FALSE in NtLockFile()
-                    // let us NtReadFile() with KEY == NULL from every process, and doesn't
-                    // let us NtWriteFile() with KEY == NULL from any process, incuding
-                    // the owner of the locked region.
+                    // The usage of Key: A combination of KEY == NULL and EXCLUSIVE == TRUE
+                    // in NtLockFile() let us NtReadFile()/NtWriteFile() on that
+                    // region with KEY == NULL from the same process but not from
+                    // another process. A combination of KEY == pid and EXCLUSIVE == FALSE
+                    // in NtLockFile() let us NtReadFile() with KEY == NULL from every
+                    // process, and doesn't let us NtWriteFile() with KEY == NULL from any
+                    // process, incuding the owner of the locked region.
                     //
 
                     TmpLarge = RtlConvertUlongToLargeInteger(pLockRec->cbStart);
@@ -223,12 +223,21 @@ DosFileIO(
                                 &IoStatus,
                                 &TmpLarge,
                                 &TmpLarge2,
-                                Key
+                                (ULONG) NULL    // try it once with key == NULL
                                );
+                    if (!(NT_SUCCESS(Status))) {
+                        Status = NtUnlockFile(
+                                    NtFileHandle,
+                                    &IoStatus,
+                                    &TmpLarge,
+                                    &TmpLarge2,
+                                    Key         // try it again with key == pid
+                                   );
+                    }
 #if DBG
     IF_OS2_DEBUG( FILESYS ) {
                 DbgPrint("DosFileIO: unlocked file from 0x%lX, length 0x%lX\n",
-                            pLockRec->cbStart, pLockRec->cbLength);
+                            pUnlockRec->cbStart, pUnlockRec->cbLength);
                 DbgPrint("           IoStatus.Status %u, Status %u\n", IoStatus.Status, Status);
     }
 #endif
@@ -1166,7 +1175,7 @@ Od2ConvertFEAtoFEA2(
             /* Copy name */
             strcpy(pFEA2->szName, (char *)pFEA + sizeof(FEA));
             /* For OS/2 1.x compatibility */
-            strupr(pFEA2->szName);
+            _strupr(pFEA2->szName);
             /* Copy data */
             memcpy((char *)(pFEA2->szName) + pFEA2->cbName + 1,
                    (char *)pFEA + sizeof(FEA) + pFEA->cbName + 1,
@@ -1316,7 +1325,7 @@ Od2ConvertGEAtoGEA2(
            /* Copy name */
            strcpy(pGEA2->szName, pGEA->szName);
            /* For OS/2 1.x compatibility */
-           strupr(pGEA2->szName);
+           _strupr(pGEA2->szName);
 
            if (i < (num_GEAs-1))   /* Not last entry */
            {
@@ -1464,7 +1473,7 @@ Od2ConvertFEA2toFEA(
            strcpy((char *)pFEA + sizeof(FEA),
                   pFEA2->szName);
            /* Convert to uppercase, for OS/2 1.x compatibility */
-           strupr((char *)pFEA + sizeof(FEA));
+           _strupr((char *)pFEA + sizeof(FEA));
            /* Copy data */
            memcpy((char *)pFEA + sizeof(FEA) + pFEA->cbName + 1,
                   (char *)(pFEA2->szName) + pFEA2->cbName + 1,
@@ -1558,7 +1567,7 @@ Od2ConvertCruiserDena1ListtoDena1List16(
             strcpy(pdena1_16->szName,
                     pdena1->szName);
             /* For OS/2 1.x compatibility */
-            strupr(pdena1_16->szName);
+            _strupr(pdena1_16->szName);
 
             number_converted++;
             if (pdena1->oNextEntryOffset != 0)
@@ -1670,7 +1679,7 @@ Od2SetEmptyFEAListfromGEA2List(
         strcpy((PBYTE)pFEA + sizeof(FEA),
                pGEA2->szName);
         /* For OS/2 1.x compatibility */
-        strupr((PBYTE)pFEA + sizeof(FEA));
+        _strupr((PBYTE)pFEA + sizeof(FEA));
 
         total_FEA_size += sizeof(FEA) + pFEA->cbName + 1;
 
@@ -5166,4 +5175,3 @@ Dos16SetFileInfo(
     else
         return ERROR_INVALID_LEVEL;
 }
-

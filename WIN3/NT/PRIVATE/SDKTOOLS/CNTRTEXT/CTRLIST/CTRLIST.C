@@ -20,6 +20,8 @@ Revision History:
     HonWah Chan Oct 18, 93 - added check for perflib version.
             Old version --> get names from registry
             New version --> get names from PerfLib thru HKEY_PERFORMANCE_DATA
+    Bob Watson (a-robw) 1 Dec 95    added new counter types
+
 --*/
 #define UNICODE 1
 #include <nt.h>
@@ -48,7 +50,6 @@ const LPWSTR VersionName = L"Version";
 const LPWSTR CounterName = L"Counter ";
 const LPWSTR HelpName = L"Explain ";
 
-
 #define RESERVED    0L
 #define INITIAL_SIZE     1024L
 #define EXTEND_SIZE      4096L
@@ -58,35 +59,82 @@ const LPWSTR HelpName = L"Explain ";
 typedef LPVOID  LPMEMORY;
 typedef HGLOBAL HMEMORY;
 
-CHAR  PerfCounterCounter[]       = "PERF_COUNTER_COUNTER";
-CHAR  PerfCounterTimer[]         = "PERF_COUNTER_TIMER";
-CHAR  PerfCounterQueueLen[]      = "PERF_COUNTER_QUEUELEN_TYPE";
-CHAR  PerfCounterBulkCount[]     = "PERF_COUNTER_BULK_COUNT";
-CHAR  PerfCounterText[]          = "PERF_COUNTER_TEXT";
-CHAR  PerfCounterRawcount[]      = "PERF_COUNTER_RAWCOUNT";
-CHAR  PerfCounterLargeRawcount[] = "PERF_COUNTER_LARGE_RAWCOUNT";
-CHAR  PerfSampleFraction[]       = "PERF_SAMPLE_FRACTION";
-CHAR  PerfSampleCounter[]        = "PERF_SAMPLE_COUNTER";
-CHAR  PerfCounterNodata[]        = "PERF_COUNTER_NODATA";
-CHAR  PerfCounterTimerInv[]      = "PERF_COUNTER_TIMER_INV";
-CHAR  PerfSampleBase[]           = "PERF_SAMPLE_BASE";
-CHAR  PerfAverageTimer[]         = "PERF_AVERAGE_TIMER";
-CHAR  PerfAverageBase[]          = "PERF_AVERAGE_BASE";
-CHAR  PerfAverageBulk[]          = "PERF_AVERAGE_BULK";
-CHAR  Perf100nsecTimer[]         = "PERF_100NSEC_TIMER";
-CHAR  Perf100nsecTimerInv[]      = "PERF_100NSEC_TIMER_INV";
-CHAR  PerfCounterMultiTimer[]    = "PERF_COUNTER_MULTI_TIMER";
-CHAR  PerfCounterMultiTimerInv[] = "PERF_COUNTER_MULTI_TIMER_INV";
-CHAR  PerfCounterMultiBase[]     = "PERF_COUNTER_MULTI_BASE";
-CHAR  Perf100nsecMultiTimer[]    = "PERF_100NSEC_MULTI_TIMER";
-CHAR  Perf100nsecMultiTimerInv[] = "PERF_100NSEC_MULTI_TIMER_INV";
-CHAR  PerfRawFraction[]          = "PERF_RAW_FRACTION";
-CHAR  PerfRawBase[]              = "PERF_RAW_BASE";
-CHAR  PerfElapsedTime[]          = "PERF_ELAPSED_TIME";
-CHAR  PerfCounterHistogramType[] = "PERF_COUNTER_HISTOGRAM_TYPE";
-CHAR  NotDefineCounterType[]     = " ";
+#define MemoryAllocate(x)   ((LPMEMORY)GlobalAlloc(GPTR, x))
+#define MemoryFree(x)       ((VOID)GlobalFree(x))
+#define MemorySize(x)       ((x != NULL) ? (DWORD)GlobalSize(x) : (DWORD)0)
+#define MemoryResize(x,y)   ((LPMEMORY)GlobalReAlloc(x,y,GMEM_MOVEABLE));
 
-LPSTR GetCounterType(DWORD CounterType)
+
+TCHAR  szComputerName[MAX_COMPUTERNAME_LENGTH+1];
+
+const CHAR  PerfCounterCounter[]       = "PERF_COUNTER_COUNTER";
+const CHAR  PerfCounterTimer[]         = "PERF_COUNTER_TIMER";
+const CHAR  PerfCounterQueueLen[]      = "PERF_COUNTER_QUEUELEN_TYPE";
+const CHAR  PerfCounterLargeQueueLen[] = "PERF_COUNTER_LARGE_QUEUELEN_TYPE";
+const CHAR  PerfCounterBulkCount[]     = "PERF_COUNTER_BULK_COUNT";
+const CHAR  PerfCounterText[]          = "PERF_COUNTER_TEXT";
+const CHAR  PerfCounterRawcount[]      = "PERF_COUNTER_RAWCOUNT";
+const CHAR  PerfCounterLargeRawcount[] = "PERF_COUNTER_LARGE_RAWCOUNT";
+const CHAR  PerfSampleFraction[]       = "PERF_SAMPLE_FRACTION";
+const CHAR  PerfSampleCounter[]        = "PERF_SAMPLE_COUNTER";
+const CHAR  PerfCounterNodata[]        = "PERF_COUNTER_NODATA";
+const CHAR  PerfCounterTimerInv[]      = "PERF_COUNTER_TIMER_INV";
+const CHAR  PerfSampleBase[]           = "PERF_SAMPLE_BASE";
+const CHAR  PerfAverageTimer[]         = "PERF_AVERAGE_TIMER";
+const CHAR  PerfAverageBase[]          = "PERF_AVERAGE_BASE";
+const CHAR  PerfAverageBulk[]          = "PERF_AVERAGE_BULK";
+const CHAR  Perf100nsecTimer[]         = "PERF_100NSEC_TIMER";
+const CHAR  Perf100nsecTimerInv[]      = "PERF_100NSEC_TIMER_INV";
+const CHAR  PerfCounterMultiTimer[]    = "PERF_COUNTER_MULTI_TIMER";
+const CHAR  PerfCounterMultiTimerInv[] = "PERF_COUNTER_MULTI_TIMER_INV";
+const CHAR  PerfCounterMultiBase[]     = "PERF_COUNTER_MULTI_BASE";
+const CHAR  Perf100nsecMultiTimer[]    = "PERF_100NSEC_MULTI_TIMER";
+const CHAR  Perf100nsecMultiTimerInv[] = "PERF_100NSEC_MULTI_TIMER_INV";
+const CHAR  PerfRawFraction[]          = "PERF_RAW_FRACTION";
+const CHAR  PerfRawBase[]              = "PERF_RAW_BASE";
+const CHAR  PerfElapsedTime[]          = "PERF_ELAPSED_TIME";
+const CHAR  PerfCounterHistogramType[] = "PERF_COUNTER_HISTOGRAM_TYPE";
+const CHAR  PerfCounterDelta[]         = "PERF_COUNTER_DELTA";
+const CHAR  PerfCounterLargeDelta[]    = "PERF_COUNTER_LARGE_DELTA";
+const CHAR  NotDefineCounterType[]     = " ";
+
+BOOL    bFormatCSV  = FALSE;
+//
+//  Object Record Fields are:
+//      Record Type = "O" for Object Record
+//      Object name string ID
+//      Object Name in selected language
+//      Object Detail Level string (in english)
+//      has Instance Records [1= yes, 0= no]
+//      Object Instance Code Page [0 = unicode]
+//      Help text ID
+//      Help text
+//
+const CHAR  fmtObjectRecord[] =
+    "\n\"O\",\"%d\",\"%ws\",\"%s\",\"%d\",\"%d\",\"%d\",\"%ws\"";
+//
+//  Counter Record Fields are:
+//      Record Type = "C" for Counter Record
+//      Object name string ID               { these fields are used as links
+//      Object Name in selected language    {   to object info records
+//      Counter name string ID
+//      Counter name text in selected language
+//      Counter Detail Level string (in english)
+//      Counter Type value as a HEX string
+//      Counter Type Name
+//      Counter Data field size in bytes
+//      Counter Visibility [1= listed in list box, 0=hidden]
+//      Counter Help text ID
+//      Counter Help text
+//
+const CHAR  fmtCounterRecord[] =
+    "\n\"C\",\"%d\",\"%ws\",\"%d\",\"%ws\",\"%s\",\"0x%8.8x\",\"%s\",\"%d\",\"%d\",\"%d\",\"%ws\"";
+
+
+LPCSTR
+GetCounterType(
+    DWORD CounterType
+)
 {
     switch (CounterType) {
          case PERF_COUNTER_COUNTER:
@@ -99,6 +147,10 @@ LPSTR GetCounterType(DWORD CounterType)
 
          case PERF_COUNTER_QUEUELEN_TYPE:
                return (PerfCounterQueueLen);
+               break;
+
+         case PERF_COUNTER_LARGE_QUEUELEN_TYPE:
+               return (PerfCounterLargeQueueLen);
                break;
 
          case PERF_COUNTER_BULK_COUNT:
@@ -193,24 +245,37 @@ LPSTR GetCounterType(DWORD CounterType)
                return (PerfCounterHistogramType);
                break;
 
+         case PERF_COUNTER_DELTA:
+                return (PerfCounterDelta);
+                break;
+
+         case PERF_COUNTER_LARGE_DELTA:
+                return (PerfCounterLargeDelta);
+                break;
+
          default:
                return (NotDefineCounterType);
                break;
 
     }
 }
-
 
-void DisplayUsage (void)
+void
+DisplayUsage (
+    void
+)
 {
 
     printf("\nCtrList - Lists all the objects and counters installed in\n");
     printf("          the system for the given language ID\n");
-    printf("\nUsage:  ctrlist [LangID] > <filename>\n");
+    printf("\nUsage:  ctrlist [/c] [LangID] [\\\\machine] > <filename>\n");
+    printf("\n -c prints data in a CSV format");
     printf("   LangID  - 009 for English (default)\n");
     printf("           - 007 for German\n");
     printf("           - 00A for Spanish\n");
-    printf("           - 00C for French\n\n");
+    printf("           - 00C for French\n");
+    printf("   \\\\machine may be specified to list counters on a\n");
+    printf("           remote system\n\n");
     printf("   Example - \"ctrlist 00C > french.lst\" will get all the\n");
     printf("   objects and counters for the French system and put\n");
     printf("   them in the file french.lst\n");
@@ -219,84 +284,6 @@ void DisplayUsage (void)
     return;
 
 } /* DisplayUsage() */
-
-
-LPMEMORY
-MemoryAllocate (
-    DWORD dwSize
-)
-{  // MemoryAllocate
-    HMEMORY        hMemory ;
-    LPMEMORY       lpMemory ;
-
-    hMemory = GlobalAlloc (GHND, dwSize);
-    if (!hMemory)
-        return (NULL);
-    lpMemory = GlobalLock (hMemory);
-    if (!lpMemory)
-        GlobalFree (hMemory);
-    return (lpMemory);
-}  // MemoryAllocate
-
-
-VOID
-MemoryFree (
-    LPMEMORY lpMemory
-)
-{  // MemoryFree
-    HMEMORY        hMemory ;
-
-    if (!lpMemory)
-        return ;
-
-    hMemory = GlobalHandle (lpMemory);
-
-    if (hMemory)
-        {  // if
-        GlobalUnlock (hMemory);
-        GlobalFree (hMemory);
-        }  // if
-}  // MemoryFree
-   
-DWORD
-MemorySize (
-    LPMEMORY lpMemory
-)
-{
-    HMEMORY        hMemory ;
-
-    hMemory = GlobalHandle (lpMemory);
-    if (!hMemory)
-        return (0L);
-
-    return (GlobalSize (hMemory));
-}
-
-LPMEMORY
-MemoryResize (
-    LPMEMORY lpMemory,
-    DWORD dwNewSize
-)
-{
-    HMEMORY        hMemory ;
-    LPMEMORY       lpNewMemory ;
-
-    hMemory = GlobalHandle (lpMemory);
-    if (!hMemory)
-        return (NULL);
-
-    GlobalUnlock (hMemory); 
-
-    hMemory = GlobalReAlloc (hMemory, dwNewSize, GHND);
-
-    if (!hMemory)
-        return (NULL);
-
-
-    lpNewMemory = GlobalLock (hMemory);
-
-    return (lpNewMemory);
-}  // MemoryResize
 
 LPWSTR
 *BuildNameTable(
@@ -455,7 +442,13 @@ Return Value:
             KEY_READ,
             &hKeyNames);
     } else {
-        hKeyNames = HKEY_PERFORMANCE_DATA;
+        if (szComputerName[0] == 0) {
+            hKeyNames = HKEY_PERFORMANCE_DATA;
+        } else {
+            lWin32Status = RegConnectRegistry (szComputerName,
+                HKEY_PERFORMANCE_DATA,
+                &hKeyNames);
+        }
         lstrcpy (CounterNameBuffer, CounterName);
         lstrcat (CounterNameBuffer, lpszLangId);
 
@@ -591,7 +584,7 @@ Return Value:
 
     MemoryFree ((LPVOID)lpValueNameString);
     RegCloseKey (hKeyValue);
-    if (dwSystemVersion == OLD_VERSION)
+//    if (dwSystemVersion == OLD_VERSION)
         RegCloseKey (hKeyNames);
 
     return lpReturnValue;
@@ -611,8 +604,9 @@ BNT_BAILOUT:
     
     if (hKeyValue) RegCloseKey (hKeyValue);
 
-    if (dwSystemVersion == OLD_VERSION &&
-        hKeyNames) RegCloseKey (hKeyNames);
+//    if (dwSystemVersion == OLD_VERSION &&
+//        hKeyNames) 
+       RegCloseKey (hKeyNames);
 
 
     return NULL;
@@ -714,8 +708,7 @@ NextCounter(
     return (PERF_COUNTER_DEFINITION *)
                ((PCHAR) pCounterDef + pCounterDef->ByteLength);
 }
-
-
+
 LONG
 PrintHelpText(
     DWORD   Indent,
@@ -785,8 +778,6 @@ PrintHelpText(
 
     return dwLinesUsed;
 }
-
-
 
 int
 _CRTAPI1 main(
@@ -794,7 +785,8 @@ _CRTAPI1 main(
     char *argv[]
     )
 {
-   
+    int     ArgNo;
+
     LPWSTR  *lpCounterText;
 
     DWORD   dwLastElement;
@@ -811,10 +803,13 @@ _CRTAPI1 main(
     CHAR    LangID[10];
     WCHAR   wLangID[10];
     BOOL    UseDefaultID = FALSE;
+    LPSTR   szComputerNameArg;
 
     PPERF_OBJECT_TYPE   pThisObject;
     PPERF_COUNTER_DEFINITION pThisCounter;
 
+    HKEY    hKeyMachine = HKEY_LOCAL_MACHINE;
+    HKEY    hKeyPerformance = HKEY_PERFORMANCE_DATA;
 
     dwDisplayLevel = PERF_DETAIL_WIZARD;
     
@@ -827,12 +822,40 @@ _CRTAPI1 main(
             return 0;
         }
 
-        // get the lang ID
-        LangID[0] = argv[1][0];        
-        LangID[1] = argv[1][1];        
-        LangID[2] = argv[1][2];        
-        LangID[3] = '\0';
-        mbstowcs(wLangID, LangID, 4);
+        if (argv[1][0] != '\\') {
+            if ((argv[1][0] == '-') || (argv[1][0] == '/')) {
+                // then this is a command switch
+                if ((argv[1][1] == 'c') || (argv[1][1] == 'C')) {
+                    // then format is a CSV
+                    bFormatCSV = TRUE;
+                }
+                ArgNo = 2;
+            } else {
+                ArgNo = 1;
+            }
+            if (argc > ArgNo) {
+                // get the lang ID
+                LangID[0] = argv[ArgNo][0];        
+                LangID[1] = argv[ArgNo][1];        
+                LangID[2] = argv[ArgNo][2];        
+                LangID[3] = '\0';
+                mbstowcs(wLangID, LangID, 4);
+                if (argc > (++ArgNo)) {
+                    // see if the next arg is a computer name
+                    if (argv[ArgNo][0] == '\\') {
+                        mbstowcs (szComputerName, argv[ArgNo],
+                            MAX_COMPUTERNAME_LENGTH);
+                        szComputerNameArg = argv[ArgNo];
+                    } else {
+                        szComputerName[0] = 0;
+                    }
+                }
+            }
+        } else {
+            // 1st arg is a computer name
+            mbstowcs (szComputerName, argv[1], MAX_COMPUTERNAME_LENGTH);
+            szComputerNameArg = argv[1];
+        }
 
 #if 0
         // get user level from command line
@@ -853,10 +876,26 @@ _CRTAPI1 main(
 
     } else {
         UseDefaultID = TRUE;
+        szComputerName[0] = 0;
+    }
+
+    if (szComputerName[0] != 0) {
+        if (RegConnectRegistry (szComputerName, HKEY_LOCAL_MACHINE,
+            &hKeyMachine) != ERROR_SUCCESS) {
+            printf ("\nUnable to connect to %s", szComputerNameArg);
+            return 0;
+        }
+        if (RegConnectRegistry (szComputerName, HKEY_PERFORMANCE_DATA,
+            &hKeyPerformance) != ERROR_SUCCESS) {
+            printf ("\nUnable to connect to %s", szComputerNameArg);
+            return 0;
+        }
+    } else {
+        // use default initializations
     }
 
     lpCounterText = BuildNameTable (
-        HKEY_LOCAL_MACHINE,
+        hKeyMachine,
         UseDefaultID ? DefaultLangId : wLangID,
         &dwLastElement);
 
@@ -870,7 +909,7 @@ _CRTAPI1 main(
     pDataBlock = 0;
 
     for (dwIndex = 0; (bError = GetEnumPerfData (  
-        HKEY_PERFORMANCE_DATA,
+        hKeyPerformance,
         dwIndex,
         &pDataBlock) == ERROR_SUCCESS); dwIndex++) {
 
@@ -880,53 +919,95 @@ _CRTAPI1 main(
 
             if (pThisObject->DetailLevel <= dwDisplayLevel) {
 
-                printf ("\nObject: \"%ws\"  [%3.3d] \n",
-                    lpCounterText[pThisObject->ObjectNameTitleIndex],
-                    pThisObject->ObjectNameTitleIndex);
-                printf ("   Detail Level: %s\n",
-                    pThisObject->DetailLevel <= MAX_LEVEL ?
-                    DetailLevelStr[pThisObject->DetailLevel/100-1] :
-                    "<N\\A>");
+                if (!bFormatCSV) {
+                    printf ("\nObject: \"%ws\"  [%3.3d] \n",
+                        lpCounterText[pThisObject->ObjectNameTitleIndex],
+                        pThisObject->ObjectNameTitleIndex);
+                    printf ("   Detail Level: %s\n",
+                        pThisObject->DetailLevel <= MAX_LEVEL ?
+                        DetailLevelStr[pThisObject->DetailLevel/100-1] :
+                        "<N\\A>");
 
-                PrintHelpText (9,
-                    pThisObject->ObjectHelpTitleIndex,
-                    lpCounterText[pThisObject->ObjectHelpTitleIndex]);
+                    PrintHelpText (9,
+                        pThisObject->ObjectHelpTitleIndex,
+                        lpCounterText[pThisObject->ObjectHelpTitleIndex]);
+                } else {
+                    printf (fmtObjectRecord,
+                        pThisObject->ObjectNameTitleIndex,
+                        lpCounterText[pThisObject->ObjectNameTitleIndex],
+                        pThisObject->DetailLevel <= MAX_LEVEL ?
+                            DetailLevelStr[pThisObject->DetailLevel/100-1] :
+                            "<N\\A>",
+                        pThisObject->NumInstances == PERF_NO_INSTANCES ?
+                            0 : 1,
+                        pThisObject->CodePage,
+                        pThisObject->ObjectHelpTitleIndex,
+                        lpCounterText[pThisObject->ObjectHelpTitleIndex]);
+                }
 
                 for (dwThisCounter = 0, pThisCounter = FirstCounter(pThisObject);
                     dwThisCounter < pThisObject->NumCounters;
                     dwThisCounter++, pThisCounter = NextCounter(pThisCounter)) {
 
-                    if (pThisCounter->DetailLevel <= dwDisplayLevel) {
+                    try {
+                        if (pThisCounter->DetailLevel <= dwDisplayLevel) {
+                            if (!bFormatCSV) {
+                                printf ("\n    <%ws> [%3.3d]",
+                                    lpCounterText[pThisCounter->CounterNameTitleIndex],
+                                    pThisCounter->CounterNameTitleIndex);
+                                printf ("\n          Default Scale: %d",
+                                    pThisCounter->DefaultScale);
+                                printf ("\n          Detail Level: %s",
+                                    ((pThisCounter->DetailLevel <= MAX_LEVEL)  &&
+                                    (pThisCounter->DetailLevel > 0 ))?
+                                    DetailLevelStr[pThisCounter->DetailLevel/100-1] :
+                                    "<N\\A>");
+                                printf ("\n          Counter Type: 0x%x, %s",
+                                    pThisCounter->CounterType,
+                                    GetCounterType(pThisCounter->CounterType));
+                                printf ("\n          Counter Size: %d bytes",
+                                    pThisCounter->CounterSize);
 
-                        printf ("\n    <%ws> [%3.3d]",
-                            lpCounterText[pThisCounter->CounterNameTitleIndex],
-                            pThisCounter->CounterNameTitleIndex);
-                        printf ("\n          Default Scale: %d",
-                            pThisCounter->DefaultScale);
-                        printf ("\n          Detail Level: %s",
-                            pThisCounter->DetailLevel <= MAX_LEVEL ?
-                            DetailLevelStr[pThisCounter->DetailLevel/100-1] :
-                            "<N\\A>");
-                        printf ("\n          Counter Type: 0x%x, %s",
-                            pThisCounter->CounterType,
-                            GetCounterType(pThisCounter->CounterType));
-                        printf ("\n          Counter Size: %d bytes",
-                            pThisCounter->CounterSize);
-
-                        printf ("\n");
-                        PrintHelpText (16,
-                            pThisCounter->CounterHelpTitleIndex,
-                            lpCounterText[pThisCounter->CounterHelpTitleIndex]);
-
+                                printf ("\n");
+                                PrintHelpText (16,
+                                    pThisCounter->CounterHelpTitleIndex,
+                                    lpCounterText[pThisCounter->CounterHelpTitleIndex]);
+                            } else {
+                                printf (fmtCounterRecord,
+                                    pThisObject->ObjectNameTitleIndex,
+                                    lpCounterText[pThisObject->ObjectNameTitleIndex],
+                                    pThisCounter->CounterNameTitleIndex,
+                                    lpCounterText[pThisCounter->CounterNameTitleIndex],
+                                    ((pThisCounter->DetailLevel <= MAX_LEVEL)  &&
+                                        (pThisCounter->DetailLevel > 0 )) ?
+                                        DetailLevelStr[pThisCounter->DetailLevel/100-1] :
+                                        "<N\\A>",
+                                    pThisCounter->CounterType,
+                                    GetCounterType(pThisCounter->CounterType),
+                                    pThisCounter->CounterSize,
+                                    (pThisCounter->CounterType & PERF_DISPLAY_NOSHOW) ?
+                                        0 : 1,
+                                    pThisCounter->CounterHelpTitleIndex,
+                                    lpCounterText[pThisCounter->CounterHelpTitleIndex]);
+                            }
+                        }
+                    } except (EXCEPTION_EXECUTE_HANDLER) {
+                        if (!bFormatCSV) {
+                            printf ("\n          Error (%d) reading this counter",
+                                GetExceptionCode());
+                        }
                     }
                 }
                 printf ("\n");
             }
         }
-    RegCloseKey (HKEY_PERFORMANCE_DATA);
+        RegCloseKey (hKeyPerformance);
+        if (szComputerName[0] != 0) {
+            RegCloseKey (hKeyMachine);
+
+        }
     }
 
     return 0;
 }
 
-

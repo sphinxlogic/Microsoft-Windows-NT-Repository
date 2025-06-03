@@ -34,9 +34,6 @@
 #include <tchar.h>
 #include "itsybits.h"
 
-#define     GlobalAllocPtr(flags, cb)        \
-                (GlobalLock(GlobalAlloc((flags), (cb))))
-
 // CAPTIONXY is the default size of the system menu icon.  This
 // determines the height/width of the caption.
 //
@@ -98,7 +95,7 @@ BOOL NEAR PASCAL GetIconRect( HWND hWnd, LPRECT lprc ) ;
 BOOL NEAR PASCAL GetButtonRect( HWND hWnd, UINT nPos, LPRECT lprc ) ;
 BOOL NEAR PASCAL GetMinButtonRect( HWND hWnd, LPRECT lprc ) ;
 BOOL NEAR PASCAL GetMaxButtonRect( HWND hWnd, LPRECT lprc ) ;
-BOOL NEAR PASCAL DrawCaption( HDC hDC, HWND hWnd, LPRECT lprc,
+BOOL NEAR PASCAL MyDrawCaption( HDC hDC, HWND hWnd, LPRECT lprc,
                               BOOL fVert, BOOL fSysMenu,
                               BOOL fMin, BOOL fMax, BOOL fActive ) ;
 VOID NEAR PASCAL DrawSysMenu( HDC hDC, HWND hWnd, BOOL fInvert ) ;
@@ -516,7 +513,7 @@ LRESULT WINAPI ibDefWindowProc( HWND hWnd, UINT uiMsg, WPARAM wParam, LPARAM lPa
                 else
                     fActive = wParam ;
 
-                DrawCaption( hDC, hWnd, &rcCap,
+                MyDrawCaption( hDC, hWnd, &rcCap,
                                         TestWinStyle(hWnd, IBS_VERTCAPTION),
                                         TestWinStyle(hWnd, WS_SYSMENU),
                                         TestWinStyle(hWnd, WS_MINIMIZEBOX),
@@ -632,7 +629,7 @@ BOOL NEAR PASCAL DepressMinMaxButton( HWND hWnd, UINT uiHT, LPRECT lprc )
 
 } // DepressMinMaxButton()
 
-// DrawCaption( HDC hDC, HWND hWnd, LPRECT lprc,
+// MyDrawCaption( HDC hDC, HWND hWnd, LPRECT lprc,
 //                   BOOL fVert, BOOL fSysMenu, BOOL fActive )
 //
 //    This function draws an itsy bitsy caption bar with or
@@ -640,7 +637,7 @@ BOOL NEAR PASCAL DepressMinMaxButton( HWND hWnd, UINT uiHT, LPRECT lprc )
 //    caption is drawn to fit within the lprc RECT and is
 //    drawn//withOut/ borders.
 //
-BOOL NEAR PASCAL DrawCaption( HDC hDC, HWND hWnd, LPRECT lprc,
+BOOL NEAR PASCAL MyDrawCaption( HDC hDC, HWND hWnd, LPRECT lprc,
                               BOOL fVert, BOOL fSysMenu, BOOL fMin,
                               BOOL fMax, BOOL fActive )
 {
@@ -750,11 +747,11 @@ BOOL NEAR PASCAL DrawCaption( HDC hDC, HWND hWnd, LPRECT lprc,
         int            cy ;
         SIZE           Size ;
 
-        if (lpsz = GlobalAllocPtr( GHND, ui + 2 ))
+        if (lpsz = LocalAlloc( LPTR, (ui + 2) * sizeof(TCHAR) ))
         {
             UINT    nBkMode ;
 
-            GetWindowText( hWnd, lpsz, ui + 1 ) ;
+            GetWindowText( hWnd, lpsz, (ui + 1) * sizeof(TCHAR) ) ;
             nBkMode = SetBkMode( hDC, TRANSPARENT ) ;
             rgbText = SetTextColor( hDC, rgbText ) ;
 
@@ -839,7 +836,7 @@ BOOL NEAR PASCAL DrawCaption( HDC hDC, HWND hWnd, LPRECT lprc,
             rgbText = SetTextColor( hDC, rgbText ) ;
             SetBkMode( hDC, nBkMode ) ;
 
-            GlobalFreePtr( lpsz ) ;
+            LocalFree( lpsz ) ;
         }
     }
 
@@ -854,7 +851,7 @@ BOOL NEAR PASCAL DrawCaption( HDC hDC, HWND hWnd, LPRECT lprc,
 
     return TRUE ;
 
-} // DrawCaption()
+} // MyDrawCaption()
 
 
 // DrawSysMenu( HDC hDC, hWnd, BOOL fInvert )
@@ -1486,4 +1483,4 @@ BOOL FAR PASCAL ibInit( HANDLE hInstance )
 // End of File: itsybits.c
 /////////////////////////////////////////////////////////////////////////
 
-
+

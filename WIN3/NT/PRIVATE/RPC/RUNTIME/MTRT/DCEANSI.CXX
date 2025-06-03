@@ -22,18 +22,7 @@ Revision History:
 
 --*/
 
-#include <string.h>
-
-#include <sysinc.h>
-#include <rpc.h>
-#include <rpcdcep.h>
-#include <util.hxx>
-#include <rpcuuid.hxx>
-#include <binding.hxx>
-#include <linklist.hxx>
-#include <threads.hxx>
-#include <mutex.hxx>
-#include <handle.hxx>
+#include <precomp.hxx>
 
 
 RPC_STATUS
@@ -591,10 +580,11 @@ Routine Description:
 
 
 RPC_STATUS RPC_ENTRY
-RpcServerUseProtseqA (
+RpcServerUseProtseqExA (
     IN unsigned char PAPI * Protseq,
     IN unsigned int MaxCalls,
-    IN void PAPI * SecurityDescriptor OPTIONAL
+    IN void PAPI * SecurityDescriptor,
+    IN PRPC_POLICY Policy
     )
 /*++
 
@@ -614,12 +604,17 @@ Return Value:
 
     InitializeIfNecessary();
 
+    if (Policy->Length < sizeof(RPC_POLICY))
+        {
+        return RPC_S_INVALID_BOUND ;
+        }
+
     RpcStatus = AnsiToUnicodeString(Protseq, &UnicodeString);
     if (RpcStatus != RPC_S_OK)
         return(RpcStatus);
 
-    RpcStatus = RpcServerUseProtseqW(UnicodeString.Buffer, MaxCalls,
-            SecurityDescriptor);
+    RpcStatus = RpcServerUseProtseqExW(UnicodeString.Buffer, MaxCalls,
+            SecurityDescriptor, Policy);
 
     RtlFreeUnicodeString(&UnicodeString);
 
@@ -628,11 +623,29 @@ Return Value:
 
 
 RPC_STATUS RPC_ENTRY
-RpcServerUseProtseqEpA (
+RpcServerUseProtseqA (
+    IN unsigned char PAPI * Protseq,
+    IN unsigned int MaxCalls,
+    IN void PAPI * SecurityDescriptor OPTIONAL
+    )
+{
+    RPC_POLICY Policy ;
+
+    Policy.Length = sizeof(RPC_POLICY) ;
+    Policy.EndpointFlags = 0;
+    Policy.NICFlags = 0;
+
+    return RpcServerUseProtseqExA (Protseq,MaxCalls,SecurityDescriptor, &Policy) ;
+}
+
+
+RPC_STATUS RPC_ENTRY
+RpcServerUseProtseqEpExA (
     IN unsigned char PAPI * Protseq,
     IN unsigned int MaxCalls,
     IN unsigned char PAPI * Endpoint,
-    IN void PAPI * SecurityDescriptor OPTIONAL
+    IN void PAPI * SecurityDescriptor,
+    IN PRPC_POLICY Policy
     )
 /*++
 
@@ -653,6 +666,11 @@ Return Value:
 
     InitializeIfNecessary();
 
+    if (Policy->Length < sizeof(RPC_POLICY))
+        {
+        return RPC_S_INVALID_BOUND ;
+        }
+
     RpcStatus = AnsiToUnicodeString(Protseq, &UnicodeProtseq);
     if (RpcStatus != RPC_S_OK)
         return(RpcStatus);
@@ -664,8 +682,9 @@ Return Value:
         return(RpcStatus);
         }
 
-    RpcStatus = RpcServerUseProtseqEpW(UnicodeProtseq.Buffer, MaxCalls,
-            UnicodeEndpoint.Buffer, SecurityDescriptor);
+    RpcStatus = RpcServerUseProtseqEpExW(UnicodeProtseq.Buffer, MaxCalls,
+                        UnicodeEndpoint.Buffer, SecurityDescriptor,
+                        Policy);
 
     RtlFreeUnicodeString(&UnicodeProtseq);
     RtlFreeUnicodeString(&UnicodeEndpoint);
@@ -675,11 +694,31 @@ Return Value:
 
 
 RPC_STATUS RPC_ENTRY
-RpcServerUseProtseqIfA (
+RpcServerUseProtseqEpA (
+    IN unsigned char PAPI * Protseq,
+    IN unsigned int MaxCalls,
+    IN unsigned char PAPI * Endpoint,
+    IN void PAPI * SecurityDescriptor
+    )
+{
+    RPC_POLICY Policy ;
+
+    Policy.Length = sizeof(RPC_POLICY) ;
+    Policy.EndpointFlags = 0;
+    Policy.NICFlags = 0;
+
+    return  RpcServerUseProtseqEpExA (Protseq, MaxCalls, Endpoint,
+                    SecurityDescriptor, &Policy) ;
+}
+
+
+RPC_STATUS RPC_ENTRY
+RpcServerUseProtseqIfExA (
     IN unsigned char PAPI * Protseq,
     IN unsigned int MaxCalls,
     IN RPC_IF_HANDLE IfSpec,
-    IN void PAPI * SecurityDescriptor OPTIONAL
+    IN void PAPI * SecurityDescriptor,
+    IN PRPC_POLICY Policy
     )
 /*++
 
@@ -699,18 +738,42 @@ Return Value:
 
     InitializeIfNecessary();
 
+    if (Policy->Length < sizeof(RPC_POLICY))
+        {
+        return RPC_S_INVALID_BOUND ;
+        }
+
     RpcStatus = AnsiToUnicodeString(Protseq, &UnicodeString);
     if ( RpcStatus != RPC_S_OK )
         {
         return(RpcStatus);
         }
 
-    RpcStatus = RpcServerUseProtseqIfW(UnicodeString.Buffer, MaxCalls,
-            IfSpec, SecurityDescriptor);
+    RpcStatus = RpcServerUseProtseqIfExW(UnicodeString.Buffer, MaxCalls,
+                        IfSpec, SecurityDescriptor, Policy);
 
     RtlFreeUnicodeString(&UnicodeString);
 
     return(RpcStatus);
+}
+
+
+RPC_STATUS RPC_ENTRY
+RpcServerUseProtseqIfA (
+    IN unsigned char PAPI * Protseq,
+    IN unsigned int MaxCalls,
+    IN RPC_IF_HANDLE IfSpec,
+    IN void PAPI * SecurityDescriptor
+    )
+{
+    RPC_POLICY Policy ;
+
+    Policy.Length = sizeof(RPC_POLICY) ;
+    Policy.EndpointFlags = 0;
+    Policy.NICFlags = 0;
+
+    return RpcServerUseProtseqIfExA ( Protseq, MaxCalls, IfSpec,
+                SecurityDescriptor, &Policy) ;
 }
 
 
@@ -981,9 +1044,60 @@ Return Value:
 
     InitializeIfNecessary();
 
-    RpcStatus = RpcBindingInqAuthInfoW(Binding,
+    return( RpcBindingInqAuthInfoExA (
+                     Binding,
+                     ServerPrincName,
+                     AuthnLevel,
+                     AuthnSvc,
+                     AuthIdentity,
+                     AuthzSvc,
+                     0,
+                     0
+                     ) );
+                                
+}
+
+
+RPC_STATUS RPC_ENTRY
+RpcBindingInqAuthInfoExA (
+    IN RPC_BINDING_HANDLE Binding,
+    OUT unsigned char PAPI * PAPI * ServerPrincName, OPTIONAL
+    OUT unsigned long PAPI * AuthnLevel, OPTIONAL
+    OUT unsigned long PAPI * AuthnSvc, OPTIONAL
+    OUT RPC_AUTH_IDENTITY_HANDLE PAPI * AuthIdentity, OPTIONAL
+    OUT unsigned long PAPI * AuthzSvc, OPTIONAL
+    IN  unsigned long RpcSecurityQosVersion,
+    OUT RPC_SECURITY_QOS * SecurityQOS
+    )
+/*++
+
+Routine Description:
+
+    This routine is the ansi thunk for RpcBindingInqAuthInfoW.
+
+Return Value:
+
+    RPC_S_OUT_OF_MEMORY - If we can not allocate space to convert the
+        unicode server principal name into unicode, we will return this
+        value.
+
+--*/
+{
+    RPC_STATUS RpcStatus;
+    RPC_CHAR * WideCharString;
+
+    InitializeIfNecessary();
+
+    RpcStatus = RpcBindingInqAuthInfoExW(
+            Binding,
             (ARGUMENT_PRESENT(ServerPrincName) ? &WideCharString : 0),
-            AuthnLevel, AuthnSvc, AuthIdentity, AuthzSvc);
+            AuthnLevel, 
+            AuthnSvc, 
+            AuthIdentity, 
+            AuthzSvc,
+            RpcSecurityQosVersion,
+            SecurityQOS
+            );
 
     if ( RpcStatus != RPC_S_OK )
         {
@@ -1000,13 +1114,40 @@ Return Value:
 
 
 RPC_STATUS RPC_ENTRY
-RpcBindingSetAuthInfoA (
+RpcBindingSetAuthInfoA(
     IN RPC_BINDING_HANDLE Binding,
     IN unsigned char PAPI * ServerPrincName,
     IN unsigned long AuthnLevel,
     IN unsigned long AuthnSvc,
     IN RPC_AUTH_IDENTITY_HANDLE AuthIdentity, OPTIONAL
     IN unsigned long AuthzSvc
+    )
+{
+
+
+    return ( RpcBindingSetAuthInfoExA(
+                          Binding,
+                          ServerPrincName,
+                          AuthnLevel,
+                          AuthnSvc,
+                          AuthIdentity,
+                          AuthzSvc,
+                          0
+                          ) );
+
+}
+
+
+
+RPC_STATUS RPC_ENTRY
+RpcBindingSetAuthInfoExA (
+    IN RPC_BINDING_HANDLE Binding,
+    IN unsigned char PAPI * ServerPrincName,
+    IN unsigned long AuthnLevel,
+    IN unsigned long AuthnSvc,
+    IN RPC_AUTH_IDENTITY_HANDLE AuthIdentity, OPTIONAL
+    IN unsigned long AuthzSvc,
+    IN RPC_SECURITY_QOS * SecurityQOS
     )
 /*++
 
@@ -1033,8 +1174,8 @@ Return Value:
         return(RpcStatus);
         }
 
-    RpcStatus = RpcBindingSetAuthInfoW(Binding, UnicodeString.Buffer,
-            AuthnLevel, AuthnSvc, AuthIdentity, AuthzSvc);
+    RpcStatus = RpcBindingSetAuthInfoExW(Binding, UnicodeString.Buffer,
+            AuthnLevel, AuthnSvc, AuthIdentity, AuthzSvc, SecurityQOS);
 
     RtlFreeUnicodeString(&UnicodeString);
 

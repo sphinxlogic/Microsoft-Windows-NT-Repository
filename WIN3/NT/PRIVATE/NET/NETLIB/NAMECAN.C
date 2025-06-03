@@ -21,6 +21,8 @@ Revision History:
 --*/
 
 #include "nticanon.h"
+#include <netlibnt.h> // NetpNtStatusToApiStatus
+
 
 //
 // data
@@ -178,7 +180,7 @@ Return Value:
             MaxNameLen = LM20_CNLEN;
             UpperCase = TRUE;
         } else {
-            MaxNameLen = CNLEN;
+            MaxNameLen = MAX_PATH-1;    // allow for null
         }
         break;
 
@@ -215,9 +217,9 @@ Return Value:
     case NAMETYPE_NET:
 //#if DBG
 //        DbgPrint("NAMETYPE_NET being used. Please notify rfirth. Hit 'i' to continue\n");
-//        ASSERT(FALSE);
+//       ASSERT(FALSE);
 //#endif
-        MaxNameLen = NETBIOS_NAME_LEN;
+        MaxNameLen = MAX_PATH - 1;  // allow for NULL
         UpperCase = TRUE;
         break;
 
@@ -247,12 +249,12 @@ Return Value:
 //        DbgPrint("NAMETYPE_MESSAGE being used. Please notify rfirth. Hit 'i' to continue\n");
 //        ASSERT(FALSE);
 //#endif
-        MaxNameLen = (NETBIOS_NAME_LEN - 1);
+        MaxNameLen = (MAX_PATH - 1);
         UpperCase = TRUE;
         break;
 
     case NAMETYPE_MESSAGEDEST:
-        MaxNameLen = NETBIOS_NAME_LEN;
+        MaxNameLen = MAX_PATH - 1;  // allow for NULL
         UpperCase = TRUE;
         break;
 
@@ -325,7 +327,7 @@ Return Value:
         RtlInitUnicodeString(&stringIn, Name);
         stringOut.Buffer = Outbuf;
         stringOut.Length = 0;
-        stringOut.MaximumLength = OutbufLen;
+        stringOut.MaximumLength = (USHORT)OutbufLen;
         status = RtlUpcaseUnicodeString(&stringOut, &stringIn, FALSE);
         if (!NT_SUCCESS(status)) {
             return NetpNtStatusToApiStatus(status);

@@ -1726,4 +1726,4 @@ CHAR near GetDBCSsecond()
     return chDBCS2;
 }
 #endif /* DBCS */
-
+

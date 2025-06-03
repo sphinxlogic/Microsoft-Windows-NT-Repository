@@ -103,6 +103,8 @@ BOOL fInternal)
     DDEPOKE FAR *pDdeMem;
     WORD fmt;
 
+    TRACEAPIIN((szT, "FreeDataHandle(%lx, %lx, %d)\n", pai, hData, fInternal));
+
     // appowned data handles are not freed till their count reaches 0.
 
     if ((LOWORD(hData) & HDATA_APPOWNED) &&
@@ -110,11 +112,15 @@ BOOL fInternal)
 
         // don't internally free if in the context of the owner
 
-        if (fInternal && (pDip->hTask == pai->hTask))
+        if (fInternal && (pDip->hTask == pai->hTask)) {
+            TRACEAPIOUT((szT, "FreeDataHandle: Internal and of this task - not freed.\n"));
             return;
+        }
 
-        if (--pDip->cCount != 0)
+        if (--pDip->cCount != 0) {
+            TRACEAPIOUT((szT, "FreeDataHandle: Ref count not 0 - not freed.\n"));
             return;
+        }
 
         FindPileItem(pDataInfoPile, CmpWORD, PHMEM(hData), FPI_DELETE);
         fRelease = TRUE;
@@ -125,14 +131,17 @@ BOOL fInternal)
      * multiple frees by an app. (my arnt we nice)
      */
     if (!HIWORD(hData) ||
-            !FindPileItem(pai->pHDataPile, CmpHIWORD, (LPBYTE)&hData, FPI_DELETE))
+            !FindPileItem(pai->pHDataPile, CmpHIWORD, (LPBYTE)&hData, FPI_DELETE)) {
+        TRACEAPIOUT((szT, "FreeDataHandle: Not in local list - not freed.\n"));
         return;
+    }
 
     if (LOWORD(hData) & HDATA_EXEC) {
         fRelease |= !(LOWORD(hData) & HDATA_APPOWNED);
     } else {
         pDdeMem = (DDEPOKE FAR *)GLOBALLOCK(HIWORD(hData));
         if (pDdeMem == NULL) {
+            TRACEAPIOUT((szT, "FreeDataHandle: Lock failed - not freed.\n"));
             return;
         }
         fRelease |= pDdeMem->fRelease;
@@ -146,6 +155,7 @@ BOOL fInternal)
         else
             FreeDDEData(HIWORD(hData), fmt);
     }
+    TRACEAPIOUT((szT, "FreeDataHandle: freed.\n"));
 }
 
 
@@ -258,8 +268,7 @@ HANDLE hMem)
         return(0);
     }
     hMem = GLOBALALLOC(GMEM_DDESHARE, cb);
-    CopyHugeBlock(pMem, GLOBALLOCK(hMem), cb);
-    GLOBALUNLOCK(hMem);
+    CopyHugeBlock(pMem, GLOBALPTR(hMem), cb);
     return(hMem);
 }
 
@@ -388,6 +397,12 @@ HDDEDATA hData)
                     }
                     GLOBALUNLOCK((HANDLE)lpdded->wData);
                 }
+                break;
+#ifdef CF_ENHMETAFILE
+            case CF_ENHMETAFILE:
+                lpdded->wData = (WORD)CopyEnhMetaFile(*((HENHMETAFILE FAR *)(&lpdded->wData)), NULL);
+                break;
+#endif   // bad because it makes chicago and NT binaries different.
             }
             GLOBALUNLOCK(hMem);
         }
@@ -450,18 +465,23 @@ WORD wFmt)
              * are allocated by the app.  DDEML knows not their history.
              */
 
-            hmfPict = *(HANDLE FAR *)(&pDdeData->Value);
-            pmfPict = (LPMETAFILEPICT)GlobalLock(hmfPict);
-            if (pmfPict != NULL) {
-                DeleteMetaFile(pmfPict->hMF);
-                GlobalUnlock(hmfPict);
-            }
-            GlobalFree(hmfPict);
+        hmfPict = *(HANDLE FAR *)(&pDdeData->Value);
+        pmfPict = (LPMETAFILEPICT)GlobalLock(hmfPict);
+        if (pmfPict != NULL) {
+            DeleteMetaFile(pmfPict->hMF);
+        }
+        GlobalUnlock(hmfPict);
+        GlobalFree(hmfPict);
         }
         break;
+
+#ifdef CF_ENHMETAFILE
+    case CF_ENHMETAFILE:
+        DeleteEnhMetaFile(*(HENHMETAFILE FAR *)(&pDdeData->Value));
+        break;
+#endif  // This is bad - it forces different binaries for chicago and NT!
     }
 
     GLOBALUNLOCK(hMem);
     GLOBALFREE(hMem);
 }
-

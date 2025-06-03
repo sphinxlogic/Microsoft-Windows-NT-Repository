@@ -1,16 +1,17 @@
 /***    types.h  - Common defines for FCI/FDI stuff -- goes into FCI/FDI.H
  *
- *      Microsoft Confidential
- *      Copyright (C) Microsoft Corporation 1993-1994
- *      All Rights Reserved.
+ *  Microsoft Confidential
+ *  Copyright (C) Microsoft Corporation 1993-1994
+ *  All Rights Reserved.
  *
- *      History:
- *          03-Mar-1993 chuckst Merged from other files
- *          08-Mar-1994 bens    Changed symbol to control recursive include
- *          09-Mar-1994 bens    Cleanups for RESERVE modifications
- *          16-Mar-1994 bens    Nuke padlong()
- *          21-Mar-1994 bens    Spruce up comments
- *          22-Mar-1994 bens    Add BIT16 test so we can build 16 or 32 bit!
+ *  History:
+ *      03-Mar-1993 chuckst Merged from other files
+ *      08-Mar-1994 bens    Changed symbol to control recursive include
+ *      09-Mar-1994 bens    Cleanups for RESERVE modifications
+ *      16-Mar-1994 bens    Nuke padlong()
+ *      21-Mar-1994 bens    Spruce up comments
+ *      22-Mar-1994 bens    Add BIT16 test so we can build 16 or 32 bit!
+ *      26-May-1994 bens    Added Quantum compression definitions
  */
 
 #ifndef INCLUDED_TYPES_FCI_FDI
@@ -48,13 +49,18 @@
 
 
 //** Specify structure packing explicitly for clients of FDI
-#include "pshpack4.h"
+#include <pshpack4.h>
 
+//** Don't redefine types defined in Win16 WINDOWS.H (_INC_WINDOWS)
+//   or Win32 WINDOWS.H (_WINDOWS_)
+//
+#if !defined(_INC_WINDOWS) && !defined(_WINDOWS_)
 typedef int            BOOL;     /* f */
 typedef unsigned char  BYTE;     /* b */
-typedef unsigned short USHORT;   /* us */
 typedef unsigned int   UINT;     /* ui */
+typedef unsigned short USHORT;   /* us */
 typedef unsigned long  ULONG;    /* ul */
+#endif   // _INC_WINDOWS
 
 typedef unsigned long  CHECKSUM; /* csum */
 
@@ -94,7 +100,7 @@ typedef ERF FAR *PERF;  /* perf */
 
 #ifdef _DEBUG
 // don't hide statics from map during debugging
-#define STATIC      
+#define STATIC
 #else // !DEBUG
 #define STATIC static
 #endif // !DEBUG
@@ -134,26 +140,58 @@ typedef void (FAR DIAMONDAPI *PFNFREE)(void HUGE *pv); /* pfnf */
  *
  *  These are passed to FCIAddFile(), and are also stored in the CFFOLDER
  *  structures in cabinet files.
+ *
+ *  NOTE: We reserve bits for the TYPE, QUANTUM_LEVEL, and QUANTUM_MEM
+ *        to provide room for future expansion.  Since this value is stored
+ *        in the CFDATA records in the cabinet file, we don't want to
+ *        have to change the format for existing compression configurations
+ *        if we add new ones in the future.  This will allows us to read
+ *        old cabinet files in the future.
  */
-#define tcompNONE           0x0000   // Uncompressed
-#define tcompMSZIP          0x0001   // MSZIP
 
-#define tcompIS_QUANTUM     0x0010   // Bit set => Quantum compressor
-#define tcompQUANTUM_MASK   0x000F   // Mask to retrieve Quantum level
-#define tcompQUANTUM1       0x0011   // Quantum level 1
-#define tcompQUANTUM2       0x0012   // Quantum level 2
-#define tcompQUANTUM3       0x0013   // Quantum level 3
-#define tcompQUANTUM4       0x0014   // Quantum level 4
+typedef unsigned short TCOMP; /* tcomp */
 
-#define tcompBAD            -1       // For internal use (none selected)
+#define tcompMASK_TYPE          0x000F  // Mask for compression type
+#define tcompTYPE_NONE          0x0000  // No compression
+#define tcompTYPE_MSZIP         0x0001  // MSZIP
+#define tcompTYPE_QUANTUM       0x0002  // Quantum
+#define tcompBAD                0x000F  // Unspecified compression type
+
+#define tcompMASK_QUANTUM_LEVEL 0x00F0  // Mask for Quantum Compression Level
+#define tcompQUANTUM_LEVEL_LO   0x0010  // Lowest Quantum Level (1)
+#define tcompQUANTUM_LEVEL_HI   0x0070  // Highest Quantum Level (7)
+#define tcompSHIFT_QUANTUM_LEVEL     4  // Amount to shift over to get int
+
+#define tcompMASK_QUANTUM_MEM   0x1F00  // Mask for Quantum Compression Memory
+#define tcompQUANTUM_MEM_LO     0x0A00  // Lowest Quantum Memory (10)
+#define tcompQUANTUM_MEM_HI     0x1500  // Highest Quantum Memory (21)
+#define tcompSHIFT_QUANTUM_MEM       8  // Amount to shift over to get int
+
+#define tcompMASK_RESERVED      0xE000  // Reserved bits (high 3 bits)
+
+
+
+#define CompressionTypeFromTCOMP(tc) \
+            ((tc) & tcompMASK_TYPE)
+
+#define CompressionLevelFromTCOMP(tc) \
+            (((tc) & tcompMASK_QUANTUM_LEVEL) >> tcompSHIFT_QUANTUM_LEVEL)
+
+#define CompressionMemoryFromTCOMP(tc) \
+            (((tc) & tcompMASK_QUANTUM_MEM) >> tcompSHIFT_QUANTUM_MEM)
+
+#define TCOMPfromTypeLevelMemory(t,l,m)           \
+            (((m) << tcompSHIFT_QUANTUM_MEM  ) |  \
+             ((l) << tcompSHIFT_QUANTUM_LEVEL) |  \
+             ( t                             ))
 
 
 //** Revert to default structure packing
-#include "poppack.h"
+#include <poppack.h>
 
 #endif // !INCLUDED_TYPES_FCI_FDI
 /***    fdi_int.h - Diamond File Decompression Interface definitions
- *                      
+ *
  *      Microsoft Confidential
  *      Copyright (C) Microsoft Corporation 1993-1994
  *      All Rights Reserved.
@@ -174,6 +212,15 @@ typedef void (FAR DIAMONDAPI *PFNFREE)(void HUGE *pv); /* pfnf */
  *      11-Apr-1994 bens    Add more guidance on how to respond to FDI errors.
  *      13-Apr-1994 bens    Add date & time & attribs to fdintCOPY_FILE
  *      18-Apr-1994 bens    Changed CDECL to DIAMONDAPI
+ *      05-May-1994 bens    Clarified error handling (billhu/alanr/migueldc)
+ *      11-May-1994 bens    Added setId/iCabinet to fdintNEXT_CABINET
+ *      07-Jul-1994 bens    Support Quantum virtual file -- PLEASE note the
+ *                              comments about PFNOPEN/PFNCLOSE changes, and
+ *                              about reserving memory, if necessary, before
+ *                              calling FDICreate()!
+ *      19-Aug-1994 bens    Add cpuType parameter to FDICreate().
+ *      03-Apr-1995 jeffwe  Added chaining indicators to FDICABINETINFO
+ *
  *
  *  ATTENTION:
  *      This is the only documentation on the Diamond File Decompression
@@ -190,7 +237,13 @@ typedef void (FAR DIAMONDAPI *PFNFREE)(void HUGE *pv); /* pfnf */
  *      A folder can span one (or more) cabinet boundaries, and by implication
  *      a file can also span one (or more) cabinet boundaries.  Indeed, more
  *      than one file can span a cabinet boundary, since Diamond concatenates
- *      files together into a single data stream before compressing.
+ *      files together into a single data stream before compressing (actually,
+ *      at most one file will span any one cabinet boundary, but Diamond does
+ *      not know which file this is, since the mapping from uncompressed bytes
+ *      to compressed bytes is pretty obscure.  Also, since Diamond compresses
+ *      in blocks of 32K (at present), any files with data in a 32K block that
+ *      spans a cabinet boundary require Diamond to read both cabinet files
+ *      to get the two halves of the compressed block).
  *
  *  Overview:
  *      The File Decompression Interface is used to simplify the reading of
@@ -207,12 +260,12 @@ typedef void (FAR DIAMONDAPI *PFNFREE)(void HUGE *pv); /* pfnf */
  *
  *      main(...)
  *      {
- *          // Read INF file to construct list of desired files.   
+ *          // Read INF file to construct list of desired files.
  *          //  Ideally, these would be sorted in the same order as the
  *          //  files appear in the cabinets, so that you can just walk
  *          //  down the list in response to fdintCOPY_FILE notifications.
  *
- *          // Construct list of required cabinets. 
+ *          // Construct list of required cabinets.
  *
  *          hfdi = FDICreate(...);          // Create FDI context
  *          For (cabinet in List of Cabinets) {
@@ -222,7 +275,7 @@ typedef void (FAR DIAMONDAPI *PFNFREE)(void HUGE *pv); /* pfnf */
  *          ...
  *      }
  *
- *      // Notification callback function 
+ *      // Notification callback function
  *      fdiNotify(fdint,...)
  *      {
  *          If (User Aborted)               // Permit cancellation
@@ -231,7 +284,7 @@ typedef void (FAR DIAMONDAPI *PFNFREE)(void HUGE *pv); /* pfnf */
  *              return -1;
  *          switch (fdint) {
  *              case fdintCOPY_FILE:        // File to copy, maybe
- *                  // Check file against list of desired files 
+ *                  // Check file against list of desired files
  *                  if want to copy file
  *                      open destination file and return handle
  *                  else
@@ -241,7 +294,17 @@ typedef void (FAR DIAMONDAPI *PFNFREE)(void HUGE *pv); /* pfnf */
  *                  set date, time, and attributes
  *
  *              case fdintNEXT_CABINET:
- *                  return cabinet name and disk label for next cabinet
+ *                  if not an error callback
+ *                      Tell FDI to use suggested directory name
+ *                  else
+ *                      Tell user what the problem was, and prompt
+ *                          for a new disk and/or path.
+ *                      if user aborts
+ *                          Tell FDI to abort
+ *                      else
+ *                          return to FDI to try another cabinet
+ *                  //NOTE: Be sure to see the (sample) code in EXTRACT.C
+ *                  //      for an example of how to do this!
  *              ...
  *      }
  *
@@ -261,13 +324,37 @@ typedef void (FAR DIAMONDAPI *PFNFREE)(void HUGE *pv); /* pfnf */
  *      For very specific errors (CORRUPT_CABINET, for example), FDI returns
  *      very specific error codes.
  *
- *      If the client can figure out what corrective action to take, then
- *      the client may take that action and then call FDICopy() again and
- *      attempt to "pick up where it left off."  See FDIERROR for details
- *      on the FDI error codes and recommended actions.
+ *      THE BEST POLICY IS FOR YOUR CALLBACK ROUTINES TO AVOID RETURNING
+ *      ERRORS TO FDI!
  *
- *      FDICopy() frees all resources allocated by it, and closes all file
- *      handles.
+ *      Examples:
+ *          (1) If the disk is getting full, instead of returning an error
+ *              from your PFNWRITE function, you should -- inside your
+ *              PFNWRITE function -- put up a dialog telling the user to free
+ *              some disk space.
+ *          (2) When you get the fdintNEXT_CABINET notification, you should
+ *              verify that the cabinet you return is the correct one (call
+ *              FDIIsCabinet(), and make sure the setID matches the one for
+ *              the current cabinet specified in the fdintCABINET_INFO, and
+ *              that the disk number is one greater.
+ *
+ *              NOTE: FDI will continue to call fdintNEXT_CABINET until it
+ *                    gets the cabinet it wants, or until you return -1
+ *                    to abort the FDICopy() call.
+ *
+ *      The documentation below on the FDI error codes provides explicit
+ *      guidance on how to avoid each error.
+ *
+ *      If you find you must return a failure to FDI from one of your
+ *      callback functions, then FDICopy() frees all resources it allocated
+ *      and closes all files.  If you can figure out how to overcome the
+ *      problem, you can call FDICopy() again on the last cabinet, and
+ *      skip any files that you already copied.  But, note that FDI does
+ *      *not* maintain any state between FDICopy() calls, other than possibly
+ *      memory allocated for the decompressor.
+ *
+ *      See FDIERROR for details on FDI error codes and recommended actions.
+ *
  *
  *  Progress Indicator Suggestions:
  *      As above, all of the file I/O functions are supplied by you.  So,
@@ -283,7 +370,7 @@ typedef void (FAR DIAMONDAPI *PFNFREE)(void HUGE *pv); /* pfnf */
 #define INCLUDED_FDI    1
 
 //** Specify structure packing explicitly for clients of FDI
-#include "pshpack4.h"
+#include <pshpack4.h>
 
 
 /***    FDIERROR - Error codes returned in erf.erfOper field
@@ -403,21 +490,28 @@ typedef enum {
 
     FDIERROR_WRONG_CABINET,
         // Description: Cabinet returned on fdintNEXT_CABINET is incorrect
-        // Cause:       Each cabinet has a 16-bit setID and a 16-bit cabinet
-        //              index (identifying its place withing the set).  The
-        //              setID is computed by Diamond when the cabinet set is
-        //              created.  FDI saves the setID and cabinet index for
-        //              the cabinet passed to FDICopy(), and if FDI needs to
-        //              call fdintNEXT_CABINET to get a continuation cabinet,
-        //              it checks the setID and cabinet index in this next
-        //              cabinet to make sure it is the correct cabinet.
-        // Response:    To prevent this error, keep track of the setId and
-        //              cabinet index returned on the fdintCABINET_INFO
-        //              notifications, and when an fdintNEXT_CABINET calls
-        //              occurs, call FDIIsCabinet() with the proposed new
-        //              cabinet file and check that the setID matches and that
-        //              the cabinet index is one more than the current cabinet
-        //              index.
+        // Cause:       NOTE: THIS ERROR IS NEVER RETURNED BY FDICopy()!
+        //              Rather, FDICopy() keeps calling the fdintNEXT_CABINET
+        //              callback until either the correct cabinet is specified,
+        //              or you return ABORT.
+        //              When FDICopy() is extracting a file that crosses a
+        //              cabinet boundary, it calls fdintNEXT_CABINET to ask
+        //              for the path to the next cabinet.  Not being very
+        //              trusting, FDI then checks to make sure that the
+        //              correct continuation cabinet was supplied!  It does
+        //              this by checking the "setID" and "iCabinet" fields
+        //              in the cabinet.  When DIAMOND.EXE creates a set of
+        //              cabinets, it constructs the "setID" using the sum
+        //              of the bytes of all the destination file names in
+        //              the cabinet set.  FDI makes sure that the 16-bit
+        //              setID of the continuation cabinet matches the
+        //              cabinet file just processed.  FDI then checks that
+        //              the cabinet number (iCabinet) is one more than the
+        //              cabinet number for the cabinet just processed.
+        // Response:    You need code in your fdintNEXT_CABINET (see below)
+        //              handler to do retries if you get recalled with this
+        //              error.  See the sample code (EXTRACT.C) to see how
+        //              this should be handled.
 
     FDIERROR_USER_ABORT,
         // Description: FDI aborted.
@@ -445,6 +539,8 @@ typedef struct {
     USHORT      setID;                  // Cabinet set ID
     USHORT      iCabinet;               // Cabinet number in set (0 based)
     BOOL        fReserve;               // TRUE => RESERVE present in cabinet
+    BOOL        hasprev;                // TRUE => Cabinet is chained prev
+    BOOL        hasnext;                // TRUE => Cabinet is chained next
 } FDICABINETINFO; /* fdici */
 typedef FDICABINETINFO FAR *PFDICABINETINFO; /* pfdici */
 
@@ -579,6 +675,12 @@ typedef FDIDECRYPT FAR *PFDIDECRYPT; /* pfdid */
  *              the first portion on the first call, then you can decrypt the
  *              second portion now.  If you ignored the first call, then you
  *              can decrypt the entire buffer.
+ *              NOTE: pbData points to the second portion of the split data
+ *                    block in this case, *not* the entire data block.  If
+ *                    you want to wait until the second piece to decrypt the
+ *                    *entire* block, pbData-cbPartial is the address of the
+ *                    start of the whole block, and cbData+cbPartial is its
+ *                    size.
  */
 typedef int (FAR DIAMONDAPI *PFNFDIDECRYPT)(PFDIDECRYPT pfdid); /* pfnfdid */
 #define FNFDIDECRYPT(fn) int FAR DIAMONDAPI fn(PFDIDECRYPT pfdid)
@@ -594,7 +696,7 @@ typedef struct {
     long      cb;
     char FAR *psz1;
     char FAR *psz2;
-    char FAR *psz3;
+    char FAR *psz3;                     // Points to a 256 character buffer
     void FAR *pv;                       // Value for client
 
 // int fields
@@ -695,10 +797,16 @@ typedef struct {
  *          pfdin->date    = file date
  *          pfdin->time    = file time
  *          pfdin->attribs = file attributes
+ *          pfdin->cb      = Run After Extract (0 - don't run, 1 Run)
  *      Exit-Success:
  *          Returns TRUE
  *      Exit-Failure:
  *          Returns FALSE, or -1 to abort;
+ *
+ *              IMPORTANT NOTE IMPORTANT:
+ *                  pfdin->cb is overloaded to no longer be the size of
+ *                  the file but to be a binary indicated run or not
+ *
  *              IMPORTANT NOTE:
  *                  FDI assumes that the target file was closed, even if this
  *                  callback returns failure.  FDI will NOT attempt to use
@@ -724,15 +832,39 @@ typedef struct {
  *        a file in the current cabinet that is continued to a subsequent
  *        cabinet file.  It is important that the cabinet path name (psz3)
  *        be validated before returning!  This function should ensure that
- *        the cabinet exists and is readable before returning.  So, this is
+ *        the cabinet exists and is readable before returning.  So, this
  *        is the function that should, for example, issue a disk change
  *        prompt and make sure the cabinet file exists.
+ *
+ *        When this function returns to FDI, FDI will check that the setID
+ *        and iCabinet match the expected values for the next cabinet.
+ *        If not, FDI will continue to call this function until the correct
+ *        cabinet file is specified, or until this function returns -1 to
+ *        abort the FDICopy() function.  pfdin->fdie is set to
+ *        FDIERROR_WRONG_CABINET to indicate this case.
+ *
+ *        If you *haven't* ensured that the cabinet file is present and
+ *        readable, or the cabinet file has been damaged, pfdin->fdie will
+ *        receive other appropriate error codes:
+ *
+ *              FDIERROR_CABINET_NOT_FOUND
+ *              FDIERROR_NOT_A_CABINET
+ *              FDIERROR_UNKNOWN_CABINET_VERSION
+ *              FDIERROR_CORRUPT_CABINET
+ *              FDIERROR_BAD_COMPR_TYPE
+ *              FDIERROR_RESERVE_MISMATCH
+ *              FDIERROR_WRONG_CABINET
+ *
  *      Entry:
  *          pfdin->psz1 = name of next cabinet where current file is continued
  *          pfdin->psz2 = name of next disk where current file is continued
  *          pfdin->psz3 = cabinet path name; FDI concatenates psz3 with psz1
  *                          to produce the fully-qualified path for the cabinet
- *                          file.  psz3 may be modified, but psz1 may not.
+ *                          file.  The 256-byte buffer pointed at by psz3 may
+ *                          be modified, but psz1 may not!
+ *          pfdin->fdie = FDIERROR_WRONG_CABINET if the previous call to
+ *                        fdintNEXT_CABINET specified a cabinet file that
+ *                        did not match the setID/iCabinet that was expected.
  *      Exit-Success:
  *          Return anything but -1
  *      Exit-Failure:
@@ -771,6 +903,33 @@ typedef int (FAR DIAMONDAPI *PFNFDINOTIFY)(FDINOTIFICATIONTYPE fdint,
  *  As long as you faithfully copy these aspects, you can supply
  *  any functions you like!
  *
+ *
+ *  SPECIAL NOTE FOR QUANTUM DECOMPRESSION:
+ *      When using Quantum compression, at compress time (with Diamond)
+ *      you specify how much memory Quantum requires at *decompress* time
+ *      to store the decompression history buffer.  This can be as large
+ *      as *2Mb*, and in an MS-DOS environment, for example, this much
+ *      memory may not be available (certainly not under 640K!).  To permit
+ *      large CompressionMemory settings on any machine, the Quantum
+ *      decompressor will attempt to create a "spill file" if there is not
+ *      sufficient memory available.
+ *
+ *      For PFNOPEN, a special pszFile parameter is passed to indicate that
+ *      a temporary "spill file" is requested.  The name passed is "*", and
+ *      you should cast the pszFile parameter to an FDISPILLFILE pointer,
+ *      and get the requested file size.  You then need to create a file
+ *      of the specified size with read/write access, save the file name and
+ *      handle for later use by PFNCLOSE, and then return the handle.  If
+ *      you cannot create the file of the specified size, you should return
+ *      an error (-1).  This file should be placed on a fast local hard disk,
+ *      to maximize the speed of decompression.
+ *
+ *      For PFNCLOSE, you should check the handle to see if it the spill file
+ *      created previously by PFNOPEN (FDI will create at most one spill file
+ *      per FDICreate() call).  If it is the spill file handle, you should
+ *      close the handle and then delete the file, using the file name you
+ *      saved when you created the spill file in PFNOPEN.
+ *
  *  WARNING: You should never assume you know what file is being
  *           opened at any one point in time!  FDI will usually
  *           stick to opening cabinet files, but it is possible
@@ -795,16 +954,58 @@ typedef int  (FAR DIAMONDAPI *PFNCLOSE)(int hf);
 typedef long (FAR DIAMONDAPI *PFNSEEK) (int hf, long dist, int seektype);
 
 
+#pragma pack (1)
+
+/** FDISPILLFILE - Pass as pszFile on PFNOPEN to create spill file
+ *
+ *  ach    - A two byte string to signal to PFNOPEN that a spill file is
+ *           requested.  Value is '*','\0'.
+ *  cbFile - Required spill file size, in bytes.
+ */
+typedef struct {
+    char    ach[2];                 // Set to { '*', '\0' }
+    long    cbFile;                 // Required spill file size
+} FDISPILLFILE; /* fdisf */
+typedef FDISPILLFILE *PFDISPILLFILE; /* pfdisf */
+
+#pragma pack ()
+
+
+/*** cpuType values for FDICreate()
+ *
+ *  WARNING: For 16-bit Windows applications, the CPU detection may not
+ *           correctly detect 286 CPUs.  Instead, use the following code:
+ *
+ *              DWORD   flags;
+ *              int     cpuType;
+ *
+ *              flags = GetWinFlags();
+ *              if (flags & WF_CPU286)
+ *                  cpuType = cpu80286;
+ *              else
+ *                  cpuType = cpu80386;
+ *
+ *              hfdi = FDICreate(....,cpuType,...);
+ */
+#define     cpuUNKNOWN         (-1)    /* FDI does detection */
+#define     cpu80286           (0)     /* '286 opcodes only */
+#define     cpu80386           (1)     /* '386 opcodes used */
+
+
 /***    FDICreate - Create an FDI context
  *
  *  Entry:
  *      pfnalloc
  *      pfnfree
  *      pfnopen
- *      pfnlseek
  *      pfnread
  *      pfnwrite
  *      pfnclose
+ *      pfnlseek
+ *      cpuType  - Select CPU type (auto-detect, 286, or 386+)
+ *                 WARNING: Don't use auto-detect from a 16-bit Windows
+ *                          application!  Use GetWinFlags()!
+ *                 NOTE: For the 32-bit FDI.LIB, this parameter is ignored!
  *      perf
  *
  *  Exit-Success:
@@ -812,6 +1013,15 @@ typedef long (FAR DIAMONDAPI *PFNSEEK) (int hf, long dist, int seektype);
  *
  *  Exit-Failure:
  *      Returns NULL; perf filled in with error code
+ *
+ *  Special notes for Quantum Decompression:
+ *      If you have used a high setting for CompressionMemory in creating
+ *      the cabinet file(s), then FDI will attempt to allocate a lot of
+ *      memory (as much as 2Mb, if you specified 21 for CompressionMemory).
+ *      Therefore, if you plan to allocate additional memory *after* the
+ *      FDICreate() call, you should reserve some memory *prior* to calling
+ *      FDICreate(), and then free it up afterwards (or do all your allocation
+ *      before calling FDICreate().
  */
 HFDI FAR DIAMONDAPI FDICreate(PFNALLOC pfnalloc,
                               PFNFREE  pfnfree,
@@ -820,6 +1030,7 @@ HFDI FAR DIAMONDAPI FDICreate(PFNALLOC pfnalloc,
                               PFNWRITE pfnwrite,
                               PFNCLOSE pfnclose,
                               PFNSEEK  pfnseek,
+                              int      cpuType,
                               PERF     perf);
 
 
@@ -893,7 +1104,7 @@ BOOL FAR DIAMONDAPI FDIDestroy(HFDI hfdi);
 
 
 //** Revert to default structure packing
-#include "poppack.h"
+#include <poppack.h>
 
 #endif //!INCLUDED_FDI
-
+

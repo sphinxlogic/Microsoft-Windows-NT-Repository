@@ -41,12 +41,19 @@ BOOL gfOutputWin;
 BOOL gfOutputCom1;
 BOOL gfOutputFile;
 HFILE gfhFile;
+#ifdef JAPAN    // DBCS_FIX
+HANDLE gfhCom1;
+#endif
 CHAR gszFile[MAXSTRING];
 INT gcxBorder;
 INT gcyBorder;
 BOOL gfMsgsUser;                        // TRUE to spy on all WM_USER messages.
 BOOL gfMsgsUnknown;                     // TRUE to spy on all unknown msgs.
 CHAR gszAppName[] = SPYAPPNAME;
+#ifdef JAPAN
+// BUGBUG Should the Japan code be the standard? FloydR
+UCHAR gszWindowName[40];
+#endif
 WINDOWPLACEMENT gwndpl;
 
 
@@ -196,6 +203,10 @@ SpyInit(
         }
     }
 
+#ifdef JAPAN
+    lstrcpy(gszWindowName,LoadResourceString(IDS_APPLICATION_NAME));
+#endif
+
     wc.hCursor        = LoadCursor(NULL, IDC_ARROW);
     wc.hIcon          = LoadIcon(hInstance, gszAppName);
     wc.lpszMenuName   = gszAppName;
@@ -210,9 +221,15 @@ SpyInit(
     if (!RegisterClass(&wc))
         return FALSE;
 
+#ifdef JAPAN
+    ghwndSpyApp = CreateWindow(gszSpyClassName, gszWindowName,
+        WS_OVERLAPPEDWINDOW, 0, 0, 0, 0,
+        NULL, NULL, hInstance, NULL);
+#else
     ghwndSpyApp = CreateWindow(gszSpyClassName, gszAppName,
         WS_OVERLAPPEDWINDOW, 0, 0, 0, 0,
         NULL, NULL, hInstance, NULL);
+#endif
 
     if (!ghwndSpyApp)
         return FALSE;
@@ -278,6 +295,10 @@ SpyWndProc(
         case WM_CLOSE:
             SetSpyHook(FALSE);
 
+#ifdef JAPAN    // DBCS_FIX
+            if (gfhCom1 != INVALID_HANDLE_VALUE)
+                CloseHandle(gfhCom1);
+#endif
             if (gfhFile)
                 _lclose(gfhFile);
 
@@ -409,7 +430,7 @@ SpyCommand(
             {
                 hmenu = GetMenu(hwnd);
                 ModifyMenu(hmenu, MENUPOS_STARTSTOP, MF_BYPOSITION | MF_STRING,
-                    MENU_STOP, "S&top!");
+                    MENU_STOP, LoadResourceString(IDS_MENU_STOP));
                 DrawMenuBar(hwnd);
 
                 SetSpyCaption();
@@ -422,7 +443,7 @@ SpyCommand(
             {
                 hmenu = GetMenu(hwnd);
                 ModifyMenu(hmenu, MENUPOS_STARTSTOP, MF_BYPOSITION | MF_STRING,
-                    MENU_START, "S&tart!");
+                    MENU_START, LoadResourceString(IDS_MENU_START));
                 DrawMenuBar(hwnd);
 
                 SetSpyCaption();

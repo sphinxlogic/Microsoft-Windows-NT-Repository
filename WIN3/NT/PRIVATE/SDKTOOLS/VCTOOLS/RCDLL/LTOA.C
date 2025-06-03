@@ -45,4 +45,4 @@ int zltoa(long aval, register WCHAR *buf, int base)
                 ++size;
         return(size);
         }
-
+

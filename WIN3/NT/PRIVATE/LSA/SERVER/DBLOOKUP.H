@@ -110,7 +110,7 @@ typedef struct _LSAP_DB_LOOKUP_WORK_ITEM {
     LIST_ENTRY Links;
     LSAP_DB_LOOKUP_WORK_ITEM_STATE State;
     ULONG Properties;
-    PLSAPR_TRUST_INFORMATION TrustInformation;
+    LSAPR_TRUST_INFORMATION TrustInformation;
     LONG DomainIndex;
     ULONG UsedCount;
     ULONG MaximumCount;
@@ -200,6 +200,8 @@ typedef enum _LSAP_WELL_KNOWN_SID_INDEX {
     LsapLocalSidIndex,
     LsapCreatorOwnerSidIndex,
     LsapCreatorGroupSidIndex,
+    LsapCreatorOwnerServerSidIndex,
+    LsapCreatorGroupServerSidIndex,
     LsapNtAuthoritySidIndex,
     LsapDialupSidIndex,
     LsapNetworkSidIndex,
@@ -211,6 +213,7 @@ typedef enum _LSAP_WELL_KNOWN_SID_INDEX {
     LsapLocalSystemSidIndex,
     LsapAliasAdminsSidIndex,
     LsapAnonymousSidIndex,
+    LsapServerSidIndex,
     LsapDummyLastSidIndex
 
 } LSAP_WELL_KNOWN_SID_INDEX, *PLSAP_WELL_KNOWN_SID_INDEX;
@@ -226,6 +229,8 @@ typedef enum _LSAP_WELL_KNOWN_SID_INDEX {
 #define LsapLocalSid              WellKnownSids[LsapLocalSidIndex].Sid
 #define LsapCreatorOwnerSid       WellKnownSids[LsapCreatorOwnerSidIndex].Sid
 #define LsapCreatorGroupSid       WellKnownSids[LsapCreatorGroupSidIndex].Sid
+#define LsapCreatorOwnerServerSid WellKnownSids[LsapCreatorOwnerServerSidIndex].Sid
+#define LsapCreatorGroupServerSid WellKnownSids[LsapCreatorGroupServerSidIndex].Sid
 
 //
 // Sids defined by NT
@@ -244,6 +249,7 @@ typedef enum _LSAP_WELL_KNOWN_SID_INDEX {
 #define LsapAliasAdminsSid        WellKnownSids[LsapAliasAdminsSidIndex].Sid
 
 #define LsapAnonymousSid          WellKnownSids[LsapAnonymousSidIndex].Sid
+#define LsapServerSid          WellKnownSids[LsapServerSidIndex].Sid
 
 //
 // Well known LUIDs

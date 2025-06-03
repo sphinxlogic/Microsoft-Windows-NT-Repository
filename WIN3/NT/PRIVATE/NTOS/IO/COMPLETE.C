@@ -34,6 +34,7 @@ Revision History:
 #pragma alloc_text(PAGE, NtOpenIoCompletion)
 #pragma alloc_text(PAGE, NtQueryIoCompletion)
 #pragma alloc_text(PAGE, NtRemoveIoCompletion)
+#pragma alloc_text(PAGE, NtSetIoCompletion)
 #endif
 
 NTSTATUS
@@ -265,6 +266,7 @@ Return Value:
 
     return Status;
 }
+
 
 NTSTATUS
 NtQueryIoCompletion (
@@ -400,6 +402,90 @@ Return Value:
 
     return Status;
 }
+
+
+NTSTATUS
+NtSetIoCompletion (
+    IN HANDLE IoCompletionHandle,
+    IN ULONG KeyContext,
+    IN PVOID ApcContext,
+    IN NTSTATUS IoStatus,
+    IN ULONG IoStatusInformation
+    )
+/*++
+
+Routine Description:
+
+    This function allows the caller to queue an Irp to an I/O completion
+    port and specify all of the information that is returned out the other
+    end using NtRemoveIoCompletion.
+
+Arguments:
+
+    IoCompletionHandle - Supplies a handle to the io completion port
+        that the caller intends to queue a completion packet to
+
+    KeyContext - Supplies the key context that is returned during a call
+        to NtRemoveIoCompletion
+
+    ApcContext - Supplies the apc context that is returned during a call
+        to NtRemoveIoCompletion
+
+    IoStatus - Supplies the IoStatus->Status data that is returned during
+        a call to NtRemoveIoCompletion
+
+    IoStatusInformation - Supplies the IoStatus->Information data that
+        is returned during a call to NtRemoveIoCompletion
+
+Return Value:
+
+    STATUS_SUCCESS is returned if the function is success. Otherwise, an
+    error status is returned.
+
+--*/
+
+{
+    PVOID IoCompletion;
+    PIOP_MINI_COMPLETION_PACKET MiniPacket;
+    NTSTATUS Status;
+
+    PAGED_CODE();
+
+    Status = ObReferenceObjectByHandle(IoCompletionHandle,
+                                       IO_COMPLETION_MODIFY_STATE,
+                                       IoCompletionObjectType,
+                                       KeGetPreviousMode(),
+                                       &IoCompletion,
+                                       NULL);
+
+    if (NT_SUCCESS(Status)) {
+        MiniPacket = NULL;
+        try {
+            MiniPacket = ExAllocatePoolWithQuotaTag( NonPagedPool, sizeof(*MiniPacket),' pcI' );
+            }
+        except(EXCEPTION_EXECUTE_HANDLER) {
+            NOTHING;
+            }
+        if ( MiniPacket ) {
+
+            MiniPacket->TypeFlag = 0xffffffff;
+            MiniPacket->KeyContext = KeyContext;
+            MiniPacket->ApcContext = ApcContext;
+            MiniPacket->IoStatus = IoStatus;
+            MiniPacket->IoStatusInformation = IoStatusInformation;
+
+            KeInsertQueue( (PKQUEUE) IoCompletion,&MiniPacket->ListEntry );
+            }
+        else {
+            Status = STATUS_INSUFFICIENT_RESOURCES;
+            }
+
+        ObDereferenceObject(IoCompletion);
+        }
+    return Status;
+
+}
+
 
 NTSTATUS
 NtRemoveIoCompletion (
@@ -453,6 +539,7 @@ Return Value:
     PVOID LocalApcContext;
     PVOID LocalKeyContext;
     IO_STATUS_BLOCK LocalIoStatusBlock;
+    PIOP_MINI_COMPLETION_PACKET MiniPacket;
 
     //
     // Establish an exception handler, probe the I/O context, the I/O
@@ -532,14 +619,25 @@ Return Value:
 
                 Status = STATUS_SUCCESS;
                 try {
-                    Irp = CONTAINING_RECORD(Entry, IRP, Tail.Overlay.ListEntry);
+                    MiniPacket = (PIOP_MINI_COMPLETION_PACKET)Entry;
+                    if ( MiniPacket->TypeFlag != 0xffffffff ) {
+                        Irp = CONTAINING_RECORD(Entry, IRP, Tail.Overlay.ListEntry);
 
-                    LocalApcContext = Irp->Overlay.AsynchronousParameters.UserApcContext;
-                    LocalKeyContext = (PVOID)Irp->Tail.CompletionKey;
-                    LocalIoStatusBlock = Irp->IoStatus;
+                        LocalApcContext = Irp->Overlay.AsynchronousParameters.UserApcContext;
+                        LocalKeyContext = (PVOID)Irp->Tail.CompletionKey;
+                        LocalIoStatusBlock = Irp->IoStatus;
 
-                    IoFreeIrp(Irp);
+                        IoFreeIrp(Irp);
 
+                    } else {
+
+                        LocalApcContext = MiniPacket->ApcContext;
+                        LocalKeyContext = (PVOID)MiniPacket->KeyContext;
+                        LocalIoStatusBlock.Status = MiniPacket->IoStatus;
+                        LocalIoStatusBlock.Information = MiniPacket->IoStatusInformation;
+
+                        ExFreePool(MiniPacket);
+                    }
                     *ApcContext = LocalApcContext;
                     *KeyContext = LocalKeyContext;
                     *IoStatusBlock = LocalIoStatusBlock;
@@ -601,6 +699,7 @@ Return Value:
     PLIST_ENTRY FirstEntry;
     PIRP Irp;
     PLIST_ENTRY NextEntry;
+    PIOP_MINI_COMPLETION_PACKET MiniPacket;
 
     //
     // Rundown threads associated with the I/O completion object and get
@@ -611,9 +710,14 @@ Return Value:
     if (FirstEntry != NULL) {
         NextEntry = FirstEntry;
         do {
-            Irp = CONTAINING_RECORD(NextEntry, IRP, Tail.Overlay.ListEntry);
+            MiniPacket = (PIOP_MINI_COMPLETION_PACKET)NextEntry;
             NextEntry = NextEntry->Flink;
-            IoFreeIrp(Irp);
+            if ( MiniPacket->TypeFlag != 0xffffffff ) {
+                Irp = CONTAINING_RECORD(MiniPacket, IRP, Tail.Overlay.ListEntry);
+                IoFreeIrp(Irp);
+            } else {
+                ExFreePool(MiniPacket);
+            }
         } while (FirstEntry != NextEntry);
     }
 

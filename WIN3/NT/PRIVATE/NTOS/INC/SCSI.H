@@ -26,6 +26,8 @@ Revision History:
 
 #include "srb.h"
 
+// begin_ntminitape
+
 //
 // Command Descriptor Block. Passed by SCSI controller chip over the SCSI bus
 //
@@ -176,6 +178,65 @@ typedef union _CDB {
     } SUBCHANNEL, *PSUBCHANNEL;
 
     //
+    // Read CD. Used by Atapi for raw sector reads.
+    //
+
+    struct _READ_CD {
+        UCHAR OperationCode;
+        UCHAR Reserved0 : 2;
+        UCHAR ExpectedSectorType : 3;
+        UCHAR Reserved1 : 3;
+        UCHAR StartingLBA[4];
+        UCHAR TransferBlocks[3];
+        UCHAR Reserved2 : 1;
+        UCHAR ErrorFlags : 2;
+        UCHAR IncludeEDC : 1;
+        UCHAR IncludeUserData : 1;
+        UCHAR HeaderCode : 2;
+        UCHAR IncludeSyncData : 1;
+        UCHAR SubChannelSelection : 3;
+        UCHAR Reserved3 : 5;
+        UCHAR Reserved4;
+    } READ_CD, *PREAD_CD;
+
+    //
+    // Plextor Read CD-DA
+    //
+
+    struct _PLXTR_READ_CDDA {
+        UCHAR OperationCode;
+        UCHAR Reserved0 : 5;
+        UCHAR LogicalUnitNumber :3;
+        UCHAR LogicalBlockByte0;
+        UCHAR LogicalBlockByte1;
+        UCHAR LogicalBlockByte2;
+        UCHAR LogicalBlockByte3;
+        UCHAR TransferBlockByte0;
+        UCHAR TransferBlockByte1;
+        UCHAR TransferBlockByte2;
+        UCHAR TransferBlockByte3;
+        UCHAR SubCode;
+        UCHAR Control;
+    } PLXTR_READ_CDDA, *PPLXTR_READ_CDDA;
+
+    //
+    // NEC Read CD-DA
+    //
+
+    struct _NEC_READ_CDDA {
+        UCHAR OperationCode;
+        UCHAR Reserved0;
+        UCHAR LogicalBlockByte0;
+        UCHAR LogicalBlockByte1;
+        UCHAR LogicalBlockByte2;
+        UCHAR LogicalBlockByte3;
+        UCHAR Reserved1;
+        UCHAR TransferBlockByte0;
+        UCHAR TransferBlockByte1;
+        UCHAR Control;
+    } NEC_READ_CDDA, *PNEC_READ_CDDA;
+
+    //
     // Mode sense
     //
 
@@ -192,6 +253,19 @@ typedef union _CDB {
         UCHAR Control;
     } MODE_SENSE, *PMODE_SENSE;
 
+    struct _MODE_SENSE10 {
+        UCHAR OperationCode;
+        UCHAR Reserved1 : 3;
+        UCHAR Dbd : 1;
+        UCHAR Reserved2 : 1;
+        UCHAR LogicalUnitNumber : 3;
+        UCHAR PageCode : 6;
+        UCHAR Pc : 2;
+        UCHAR Reserved3[4];
+        UCHAR AllocationLength[2];
+        UCHAR Control;
+    } MODE_SENSE10, *PMODE_SENSE10;
+
     //
     // Mode select
     //
@@ -206,6 +280,17 @@ typedef union _CDB {
         UCHAR ParameterListLength;
         UCHAR Control;
     } MODE_SELECT, *PMODE_SELECT;
+
+    struct _MODE_SELECT10 {
+        UCHAR OperationCode;
+        UCHAR SPBit : 1;
+        UCHAR Reserved1 : 3;
+        UCHAR PFBit : 1;
+        UCHAR LogicalUnitNumber : 3;
+        UCHAR Reserved2[5];
+        UCHAR ParameterListLength[2];
+        UCHAR Control;
+    } MODE_SELECT10, *PMODE_SELECT10;
 
     struct _LOCATE {
         UCHAR OperationCode;
@@ -377,6 +462,30 @@ typedef union _CDB {
         UCHAR VendorUnique : 2;
      } CDB6READWRITETAPE, *PCDB6READWRITETAPE;
 
+    //
+    // Atapi 2.5 Changer 12-byte CDBs
+    //
+
+    struct _LOAD_UNLOAD {
+        UCHAR OperationCode;
+        UCHAR Immediate : 1;
+        UCHAR Reserved1 : 7;
+        UCHAR Reserved2[2];
+        UCHAR Start : 1;
+        UCHAR LoadEject : 1;
+        UCHAR Reserved3: 6;
+        UCHAR Reserved4[3];
+        UCHAR Slot;
+        UCHAR Reserved5[3];
+    } LOAD_UNLOAD, *PLOAD_UNLOAD;
+
+    struct _MECH_STATUS {
+        UCHAR OperationCode;
+        UCHAR Reserved1[7];
+        UCHAR AllocationLength[2];
+        UCHAR Reserved2[2];
+    } MECH_STATUS, *PMECH_STATUS;
+
 } CDB, *PCDB;
 
 //
@@ -385,6 +494,7 @@ typedef union _CDB {
 
 #define CDB6GENERIC_LENGTH                   6
 #define CDB10GENERIC_LENGTH                  10
+#define CDB12GENERIC_LENGTH                  12
 
 #define SETBITON                             1
 #define SETBITOFF                            0
@@ -411,6 +521,7 @@ typedef union _CDB {
 #define MODE_PAGE_DEVICE_CONFIG         0x10
 #define MODE_PAGE_MEDIUM_PARTITION      0x11
 #define MODE_PAGE_DATA_COMPRESS         0x0f
+#define MODE_PAGE_CAPABILITIES          0x2A
 
 //
 // SCSI CDB operation codes
@@ -481,6 +592,11 @@ typedef union _CDB {
 #define SCSIOP_PAUSE_RESUME        0x4B
 #define SCSIOP_LOG_SELECT          0x4C
 #define SCSIOP_LOG_SENSE           0x4D
+#define SCSIOP_MODE_SELECT10       0x55
+#define SCSIOP_MODE_SENSE10        0x5A
+#define SCSIOP_LOAD_UNLOAD_SLOT    0xA6
+#define SCSIOP_MECHANISM_STATUS    0xBD
+#define SCSIOP_READ_CD             0xBE
 
 //
 // If the IMMED bit is 1, status is returned as soon
@@ -491,6 +607,8 @@ typedef union _CDB {
 
 #define CDB_RETURN_ON_COMPLETION   0
 #define CDB_RETURN_IMMEDIATE       1
+
+// end_ntminitape
 
 //
 // CDB Force media access used in extended read and write commands.
@@ -611,6 +729,8 @@ typedef struct _SCSI_EXTENDED_MESSAGE {
 
 #define START_UNIT_CODE 0x01
 #define STOP_UNIT_CODE  0x00
+
+// begin_ntminitape
 
 //
 // Inquiry buffer structure. This is the data returned from the target
@@ -768,6 +888,8 @@ typedef struct _SENSE_DATA {
 #define SCSI_SENSEQ_END_OF_MEDIA_DETECTED 0x02
 #define SCSI_SENSEQ_BEGINNING_OF_MEDIA_DETECTED 0x04
 
+// end_ntminitape
+
 //
 // SCSI IO Device Control Codes
 //
@@ -777,6 +899,23 @@ typedef struct _SENSE_DATA {
 #define IOCTL_SCSI_EXECUTE_IN   ((FILE_DEVICE_SCSI << 16) + 0x0011)
 #define IOCTL_SCSI_EXECUTE_OUT  ((FILE_DEVICE_SCSI << 16) + 0x0012)
 #define IOCTL_SCSI_EXECUTE_NONE ((FILE_DEVICE_SCSI << 16) + 0x0013)
+
+//
+// SMART support in atapi
+//
+
+#define IOCTL_SCSI_MINIPORT_SMART_VERSION           ((FILE_DEVICE_SCSI << 16) + 0x0500)
+#define IOCTL_SCSI_MINIPORT_IDENTIFY                ((FILE_DEVICE_SCSI << 16) + 0x0501)
+#define IOCTL_SCSI_MINIPORT_READ_SMART_ATTRIBS      ((FILE_DEVICE_SCSI << 16) + 0x0502)
+#define IOCTL_SCSI_MINIPORT_READ_SMART_THRESHOLDS   ((FILE_DEVICE_SCSI << 16) + 0x0503)
+#define IOCTL_SCSI_MINIPORT_ENABLE_SMART            ((FILE_DEVICE_SCSI << 16) + 0x0504)
+#define IOCTL_SCSI_MINIPORT_DISABLE_SMART           ((FILE_DEVICE_SCSI << 16) + 0x0505)
+#define IOCTL_SCSI_MINIPORT_RETURN_STATUS           ((FILE_DEVICE_SCSI << 16) + 0x0506)
+#define IOCTL_SCSI_MINIPORT_ENABLE_DISABLE_AUTOSAVE ((FILE_DEVICE_SCSI << 16) + 0x0507)
+#define IOCTL_SCSI_MINIPORT_SAVE_ATTRIBUTE_VALUES   ((FILE_DEVICE_SCSI << 16) + 0x0508)
+#define IOCTL_SCSI_MINIPORT_EXECUTE_OFFLINE_DIAGS   ((FILE_DEVICE_SCSI << 16) + 0x0509)
+
+// begin_ntminitape
 
 //
 // Read Capacity Data - returned in Big Endian format
@@ -800,6 +939,7 @@ typedef struct _READ_BLOCK_LIMITS {
     UCHAR BlockMinimumSize[2];
 } READ_BLOCK_LIMITS_DATA, *PREAD_BLOCK_LIMITS_DATA;
 
+
 //
 // Mode data structures.
 //
@@ -814,6 +954,14 @@ typedef struct _MODE_PARAMETER_HEADER {
     UCHAR DeviceSpecificParameter;
     UCHAR BlockDescriptorLength;
 }MODE_PARAMETER_HEADER, *PMODE_PARAMETER_HEADER;
+
+typedef struct _MODE_PARAMETER_HEADER10 {
+    UCHAR ModeDataLength[2];
+    UCHAR MediumType;
+    UCHAR DeviceSpecificParameter;
+    UCHAR Reserved[2];
+    UCHAR BlockDescriptorLength[2];
+}MODE_PARAMETER_HEADER10, *PMODE_PARAMETER_HEADER10;
 
 #define MODE_FD_SINGLE_SIDE     0x01
 #define MODE_FD_DOUBLE_SIDE     0x02
@@ -985,12 +1133,76 @@ typedef struct _MODE_READ_WRITE_RECOVERY_PAGE {
 } MODE_READ_WRITE_RECOVERY_PAGE, *PMODE_READ_WRITE_RECOVERY_PAGE;
 
 //
+// Define read recovery page - cdrom
+//
+
+typedef struct _MODE_READ_RECOVERY_PAGE {
+
+    UCHAR PageCode : 6;
+    UCHAR Reserved1 : 1;
+    UCHAR PSBit : 1;
+    UCHAR PageLength;
+    UCHAR DCRBit : 1;
+    UCHAR DTEBit : 1;
+    UCHAR PERBit : 1;
+    UCHAR Reserved2 : 1;
+    UCHAR RCBit : 1;
+    UCHAR TBBit : 1;
+    UCHAR Reserved3 : 2;
+    UCHAR ReadRetryCount;
+    UCHAR Reserved4[4];
+
+} MODE_READ_RECOVERY_PAGE, *PMODE_READ_RECOVERY_PAGE;
+
+//
+// Define CD-ROM Capabilities and Mechanical Status Page.
+//
+
+typedef struct _MODE_CAPABILITIES_PAGE2 {
+    UCHAR PageCode : 6;
+    UCHAR Reserved1 : 1;
+    UCHAR PSBit : 1;
+    UCHAR PageLength;
+    UCHAR Reserved2[2];
+    UCHAR Capabilities[4];
+    UCHAR MaximumSpeedSupported[2];
+    UCHAR Reserved3;
+    UCHAR NumberVolumeLevels;
+    UCHAR BufferSize[2];
+    UCHAR CurrentSpeed[2];
+    UCHAR Reserved4;
+    UCHAR Reserved5 : 1;
+    UCHAR DigitalOutput : 4;
+    UCHAR Reserved6 : 3;
+    UCHAR Reserved7[2];
+} MODE_CAPABILITIES_PAGE2, *PMODE_CAPABILITIES_PAGE2;
+
+//
+// Bit definitions of Capabilites and DigitalOutput
+//
+
+#define AUDIO_PLAY_SUPPORTED    0x01
+#define MODE2_FORM1_SUPPORTED   0x10
+#define MODE2_FORM2_SUPPORTED   0x20
+#define MULTI_SESSION_SUPPORTED 0x40
+
+#define READ_CD_SUPPORTED       0x01
+
+#define MEDIA_LOCKING_SUPPORTED 0x01
+#define CURRENT_LOCK_STATE      0x02
+#define SOFTWARE_EJECT_SUPPORT  0x08
+
+#define DISC_PRESENT_REPORTING 0x04
+
+//
 // Mode parameter list block descriptor -
 // set the block length for reading/writing
 //
 //
 
 #define MODE_BLOCK_DESC_LENGTH               8
+#define MODE_HEADER_LENGTH                   4
+#define MODE_HEADER_LENGTH10                 8
 
 typedef struct _MODE_PARM_READ_WRITE {
 
@@ -998,6 +1210,8 @@ typedef struct _MODE_PARM_READ_WRITE {
    MODE_PARAMETER_BLOCK   ParameterListBlock;   // List Block Descriptor
 
 } MODE_PARM_READ_WRITE_DATA, *PMODE_PARM_READ_WRITE_DATA;
+
+// end_ntminitape
 
 //
 // CDROM audio control (0x0E)
@@ -1042,6 +1256,36 @@ typedef struct _AUDIO_OUTPUT {
 
 #define GET_LAST_SESSION 0x01
 #define GET_SESSION_DATA 0x02;
+
+//
+// Atapi 2.5 changer
+//
+
+typedef struct _MECHANICAL_STATUS_INFORMATION_HEADER {
+    UCHAR CurrentSlot : 5;
+    UCHAR ChangerState : 2;
+    UCHAR Fault : 1;
+    UCHAR Reserved : 5;
+    UCHAR MechanismState : 3;
+    UCHAR CurrentLogicalBlockAddress[3];
+    UCHAR NumberAvailableSlots;
+    UCHAR SlotTableLength[2];
+} MECHANICAL_STATUS_INFORMATION_HEADER, *PMECHANICAL_STATUS_INFORMATION_HEADER;
+
+typedef struct _SLOT_TABLE_INFORMATION {
+    UCHAR DiscChanged : 1;
+    UCHAR Reserved : 6;
+    UCHAR DiscPresent : 1;
+    UCHAR Reserved2[3];
+} SLOT_TABLE_INFORMATION, *PSLOT_TABLE_INFORMATION;
+
+typedef struct _MECHANICAL_STATUS {
+    MECHANICAL_STATUS_INFORMATION_HEADER MechanicalStatusHeader;
+    SLOT_TABLE_INFORMATION SlotTableInfo[1];
+} MECHANICAL_STATUS, *PMECHANICAL_STATUS;
+
+
+// begin_ntminitape
 
 //
 // Tape definitions
@@ -1099,5 +1343,7 @@ typedef struct _FOUR_BYTE {
         }                                           \
     }                                               \
 }
+
+// end_ntminitape
 
 #endif

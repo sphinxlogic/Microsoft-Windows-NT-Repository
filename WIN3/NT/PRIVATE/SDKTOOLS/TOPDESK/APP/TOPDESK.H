@@ -26,6 +26,9 @@
 /****** Resource IDs *****/
 
 #define IDR_TOPDESK             10
+#define IDR_ACCEL               11
+#define IDR_ICON                12
+#define IDR_MENU                13
 
 /****** String table IDs *****/
 
@@ -190,7 +193,7 @@
 /* limits */
 
 #define MAX_CHILDREN            100
-#define MAX_REMEMBER            50
+#define MAX_REMEMBER            1000
 #define MAX_SZTITLE             64
 #define MAX_SZCLASS             32
 #define MAX_SZSTARTUP           MAX_PATH
@@ -205,11 +208,11 @@
 #define SG_PARTIAL              1
 #define SG_ALL                  2
 
-#define WSF_FIXED               0x1
-#define WSF_VISIBLE             0x2
-#define WSF_LINKED              0x8
+#define WISF_FIXED               0x1
+#define WISF_VISIBLE             0x2
+#define WISF_LINKED              0x8
 
-#define WSF_CUSTOMSTYLES        (WSF_FIXED | WSF_LINKED)
+#define WISF_CUSTOMSTYLES        (WISF_FIXED | WISF_LINKED)
 #define WS_TRACKEDSTYLES        (WS_MINIMIZE | WS_MAXIMIZE)
 #define MD_FRAMESTYLES          (WS_THICKFRAME | WS_SYSMENU | WS_MAXIMIZEBOX | WS_MINIMIZEBOX)
 
@@ -336,7 +339,6 @@ extern  LPTSTR          pszTopmost                  ;
 extern  LPTSTR          pszData                     ;
 extern  TCHAR           pszFullPath[_MAX_PATH]      ;
 extern  LPTSTR          pszHelpFileName             ;
-extern  LPTSTR          pszMenu                     ;
 extern  LPTSTR          pszProfile                  ;
 extern  LPTSTR          pszStartupInfo              ;
 extern  LPTSTR          pszTitle                    ;
@@ -460,4 +462,4 @@ BOOL APIENTRY NavDlgProc(HWND hwnd, WORD msg, WPARAM wParam, LPARAM lParam);
 BOOL APIENTRY StartupDlgProc(HWND hwnd, WORD msg, WPARAM wParam, LPARAM lParam);
 BOOL APIENTRY AboutDlgProc(HWND hwnd, WORD msg, WPARAM wParam, LPARAM lParam);
 BOOL APIENTRY ConfigDlgProc(HWND hwnd, WORD msg, WPARAM wParam, LPARAM lParam);
-
+

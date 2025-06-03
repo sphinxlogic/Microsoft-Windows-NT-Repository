@@ -79,4 +79,4 @@ BOOL ToggleGraphRefresh (HWND hWnd) ;
 BOOL GraphRefresh (HWND hWnd) ;
 
 
-
+

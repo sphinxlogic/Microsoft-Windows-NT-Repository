@@ -101,7 +101,7 @@ MapResourceName(
 
 NET_API_STATUS NET_API_FUNCTION
 RxNetAccessAdd(
-    IN  LPTSTR  ServerName,
+    IN  LPCWSTR  ServerName,
     IN  DWORD   Level,
     IN  LPBYTE  Buffer,
     OUT LPDWORD ParmError OPTIONAL
@@ -141,7 +141,7 @@ Return Value:
     DWORD   count;
     DWORD   len;
     PACCESS_LIST    aclptr;
-    TCHAR   mappedName[LM20_RMLEN + LM20_PATHLEN + 1];
+    TCHAR   mappedName[MAX_PATH];
     LPACCESS_INFO_1 infoPtr = NULL;
 
     //
@@ -235,7 +235,7 @@ Return Value:
     }
 
     rc = RxRemoteApi(API_WAccessAdd,                // API #
-                    ServerName,                     // where it will run
+                    (LPWSTR) ServerName,            // where it will run
                     REMSmb_NetAccessAdd_P,          // parameter descriptor
                     REM16_access_info_1,            // Data descriptor/16-bit
                     REM32_access_info_1,            // Data descriptor/32-bit
@@ -278,8 +278,8 @@ Return Value:
 
 NET_API_STATUS NET_API_FUNCTION
 RxNetAccessDel(
-    IN  LPTSTR  ServerName,
-    IN  LPTSTR  ResourceName
+    IN  LPCWSTR  ServerName,
+    IN  LPCWSTR  ResourceName
     )
 
 /*++
@@ -304,7 +304,7 @@ Return Value:
 --*/
 
 {
-    TCHAR   mappedName[LM20_RMLEN + LM20_PATHLEN + 1];
+    TCHAR   mappedName[MAX_PATH];
 
 
 
@@ -324,11 +324,11 @@ Return Value:
         return ERROR_INVALID_PARAMETER;
     }
 
-    if (MapResourceName(ResourceName, mappedName)) {
+    if (MapResourceName((LPWSTR)ResourceName, mappedName)) {
         ResourceName = mappedName;
     }
     return RxRemoteApi(API_WAccessDel,      // API #
-                    ServerName,             // where it will run
+                    (LPWSTR) ServerName,    // where it will run
                     REMSmb_NetAccessDel_P,  // parameter descriptor
                     NULL,                   // Data descriptor/16-bit
                     NULL,                   // Data descriptor/32-bit
@@ -345,8 +345,8 @@ Return Value:
 
 NET_API_STATUS NET_API_FUNCTION
 RxNetAccessEnum(
-    IN  LPTSTR  ServerName,
-    IN  LPTSTR  BasePath,
+    IN  LPCWSTR  ServerName,
+    IN  LPCWSTR  BasePath,
     IN  DWORD   Recursive,
     IN  DWORD   Level,
     OUT LPBYTE* Buffer,
@@ -395,7 +395,7 @@ Return Value:
     LPDESC  pDescSmb;
     LPBYTE  ourbuf;
     DWORD   infolen, entries_read, total_avail;
-    TCHAR   mappedName[LM20_RMLEN + LM20_PATHLEN + 1];
+    TCHAR   mappedName[MAX_PATH];
 
 
     UNREFERENCED_PARAMETER(PrefMaxLen);
@@ -449,11 +449,11 @@ Return Value:
     //
 
     ourbuf = NULL;
-    if (MapResourceName(BasePath, mappedName)) {
+    if (MapResourceName((LPWSTR)BasePath, mappedName)) {
         BasePath = mappedName;
     }
     rc = RxRemoteApi(API_WAccessEnum,       // API number
-                    ServerName,             // where it will run
+                    (LPWSTR) ServerName,    // where it will run
                     REMSmb_NetAccessEnum_P, // parameter descriptor
                     pDesc16,                // Data descriptor/16-bit
                     pDesc32,                // Data descriptor/32-bit
@@ -486,8 +486,8 @@ Return Value:
 
 NET_API_STATUS NET_API_FUNCTION
 RxNetAccessGetInfo(
-    IN  LPTSTR  ServerName,
-    IN  LPTSTR  ResourceName,
+    IN  LPCWSTR  ServerName,
+    IN  LPCWSTR  ResourceName,
     IN  DWORD   Level,
     OUT LPBYTE* Buffer
     )
@@ -529,7 +529,7 @@ Return Value:
     LPBYTE  ourbuf;         // buffer we allocate, fill, and give to the caller
     DWORD   total_avail;    // 32-bit total available if supplied buffer too small
     DWORD   infolen;        // 32-bit place to store size of required buffer
-    TCHAR   mappedName[LM20_RMLEN + LM20_PATHLEN + 1];
+    TCHAR   mappedName[MAX_PATH];
 
 
 
@@ -594,11 +594,11 @@ Return Value:
         return rc;
     }
 
-    if (MapResourceName(ResourceName, mappedName)) {
+    if (MapResourceName((LPWSTR)ResourceName, mappedName)) {
         ResourceName = mappedName;
     }
     rc = RxRemoteApi(API_WAccessGetInfo,
-                    ServerName,                 // where it will happen
+                    (LPWSTR) ServerName,        // where it will happen
                     REMSmb_NetAccessGetInfo_P,  // parameter descriptor
                     pDesc16,                    // Data descriptor/16-bit
                     pDesc32,                    // Data descriptor/32-bit
@@ -636,9 +636,9 @@ Return Value:
 
 NET_API_STATUS NET_API_FUNCTION
 RxNetAccessGetUserPerms(
-    IN  LPTSTR  ServerName,
-    IN  LPTSTR  UserName,
-    IN  LPTSTR  ResourceName,
+    IN  LPCWSTR  ServerName,
+    IN  LPCWSTR  UserName,
+    IN  LPCWSTR  ResourceName,
     OUT LPDWORD Perms
     )
 
@@ -666,7 +666,7 @@ Return Value:
 --*/
 
 {
-    TCHAR   mappedName[LM20_RMLEN + LM20_PATHLEN + 1];
+    TCHAR   mappedName[MAX_PATH];
 
 
     //
@@ -693,11 +693,11 @@ Return Value:
     if (!VALID_STRING(UserName) || !VALID_STRING(ResourceName)) {
         return ERROR_INVALID_PARAMETER;
     }
-    if (MapResourceName(ResourceName, mappedName)) {
+    if (MapResourceName( (LPWSTR) ResourceName, mappedName)) {
         ResourceName = mappedName;
     }
     return RxRemoteApi(API_WAccessGetUserPerms,         // API #
-                        ServerName,                     // where it will run
+                        (LPWSTR) ServerName,            // where it will run
                         REMSmb_NetAccessGetUserPerms_P, // parameter descriptor
                         NULL,                           // Data descriptor/16-bit
                         NULL,                           // Data descriptor/32-bit
@@ -716,8 +716,8 @@ Return Value:
 
 NET_API_STATUS NET_API_FUNCTION
 RxNetAccessSetInfo(
-    IN  LPTSTR  ServerName,
-    IN  LPTSTR  ResourceName,
+    IN  LPCWSTR  ServerName,
+    IN  LPCWSTR  ResourceName,
     IN  DWORD   Level,
     IN  LPBYTE  Buffer,
     OUT LPDWORD ParmError OPTIONAL
@@ -749,7 +749,7 @@ Return Value:
 
 {
     DWORD   parmnum;
-    TCHAR   mappedName[LM20_RMLEN + LM20_PATHLEN + 1];
+    TCHAR   mappedName[MAX_PATH];
 
     UNREFERENCED_PARAMETER(ParmError);
 
@@ -793,12 +793,12 @@ Return Value:
     //
 
     parmnum = (Level == 1) ? PARMNUM_ALL : ACCESS_ATTR_PARMNUM;
-    if (MapResourceName(ResourceName, mappedName)) {
+    if (MapResourceName( (LPWSTR) ResourceName, mappedName)) {
         ResourceName = mappedName;
     }
     return RxRemoteApi(
                 API_WAccessSetInfo,             // API #
-                ServerName,                     // where it will run
+                (LPWSTR) ServerName,                     // where it will run
                 REMSmb_NetAccessSetInfo_P,      // parameter descriptor
                 REM16_access_info_1_setinfo,    // Data descriptor/16-bit
                 REM32_access_info_1_setinfo,    // Data descriptor/32-bit
@@ -877,7 +877,7 @@ Return Value:
     //
 
     default:
-        NetpDbgPrint("%s.%u Unknown Level parameter: %u\n", __FILE__, __LINE__, level);
+        NetpKdPrint(("%s.%u Unknown Level parameter: %u\n", __FILE__, __LINE__, level));
 #endif
     }
 }

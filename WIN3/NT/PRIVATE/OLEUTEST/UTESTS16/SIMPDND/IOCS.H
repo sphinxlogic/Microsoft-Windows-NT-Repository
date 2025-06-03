@@ -18,13 +18,13 @@ interface COleClientSite : public IOleClientSite
 	CSimpleSite FAR * m_pSite;
 
 	COleClientSite(CSimpleSite FAR * pSite) {
-		OutputDebugString("In IOCS's constructor\r\n");
+		TestDebugOut("In IOCS's constructor\r\n");
 		m_pSite = pSite;
 		m_nCount = 0;
 		}
 
 	~COleClientSite() {
-		OutputDebugString("In IOCS's destructor\r\n");
+		TestDebugOut("In IOCS's destructor\r\n");
 		assert(m_nCount == 0);
 		}
 

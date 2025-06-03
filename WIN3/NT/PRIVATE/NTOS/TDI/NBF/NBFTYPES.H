@@ -35,7 +35,8 @@ typedef struct _NBF_NETBIOS_ADDRESS {
     USHORT NetbiosNameType;
 } NBF_NETBIOS_ADDRESS, *PNBF_NETBIOS_ADDRESS;
 
-typedef UCHAR NAME, UNALIGNED *PNAME;
+typedef UCHAR NAME;
+typedef NAME UNALIGNED *PNAME;
 
 
 //
@@ -149,6 +150,20 @@ typedef struct _TP_REQUEST {
 
 } TP_REQUEST, *PTP_REQUEST;
 
+#ifdef _PNP_POWER
+//
+// in nbfdrvr.c
+//
+
+extern UNICODE_STRING NbfRegistryPath;
+
+//
+// We need the driver object to create device context structures.
+//
+
+extern PDRIVER_OBJECT NbfDriverObject;
+
+#endif // _PNP_POWER
 #if DBG
 extern KSPIN_LOCK NbfGlobalHistoryLock;
 extern LIST_ENTRY NbfGlobalRequestList;
@@ -715,6 +730,12 @@ extern LIST_ENTRY NbfGlobalConnectionList;
                                                    // session confirm
 #define CONNECTION_FLAGS2_INDICATING    0x00800000 // connection was manipulated while
                                                    // indication was in progress
+
+#define CONNECTION_FLAGS2_LDISC         0x01000000 // Local disconnect req.
+#ifdef RASAUTODIAL
+#define CONNECTION_FLAGS2_AUTOCONNECTING 0x02000000 // RAS autodial in progress
+#define CONNECTION_FLAGS2_AUTOCONNECTED  0x04000000 // RAS autodial done
+#endif // RASAUTODIAL
 
 #define CONNECTION_FLAGS_STARVED (     \
             CONNECTION_FLAGS_SEND_SI | \
@@ -1376,6 +1397,13 @@ extern LIST_ENTRY NbfGlobalLinkList;
 #endif
 
 
+typedef struct _NBF_POOL_LIST_DESC {
+    NDIS_HANDLE PoolHandle;
+    USHORT   NumElements;
+    USHORT   TotalElements;
+    struct _NBF_POOL_LIST_DESC *Next;
+} NBF_POOL_LIST_DESC, *PNBF_POOL_LIST_DESC;
+
 typedef struct _DEVICE_CONTEXT {
 
     DEVICE_OBJECT DeviceObject;         // the I/O system's device object.
@@ -1773,9 +1801,11 @@ typedef struct _DEVICE_CONTEXT {
     // allocating storage.
     //
 
-    NDIS_HANDLE SendPacketPoolHandle;
-    NDIS_HANDLE ReceivePacketPoolHandle;
-    NDIS_HANDLE NdisBufferPoolHandle;
+    KSPIN_LOCK SendPoolListLock;            // protects these values
+    PNBF_POOL_LIST_DESC SendPacketPoolDesc;
+    KSPIN_LOCK RcvPoolListLock;            // protects these values
+    PNBF_POOL_LIST_DESC ReceivePacketPoolDesc;
+    NDIS_HANDLE NdisBufferPool;
 
     //
     // These are kept around for error logging.
@@ -1816,6 +1846,10 @@ typedef struct _DEVICE_CONTEXT {
     //
 
     UCHAR ReservedNetBIOSAddress[NETBIOS_NAME_LENGTH];
+#ifdef _PNP_POWER
+    HANDLE TdiDeviceHandle;
+    HANDLE ReservedAddressHandle;
+#endif
 
     //
     // These are used while initializing the MAC driver.

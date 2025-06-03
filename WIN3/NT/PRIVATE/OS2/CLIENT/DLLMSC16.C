@@ -72,8 +72,8 @@ VOID Od216ApiPrint(
     ((POD2_THREAD)(NtCurrentTeb()->EnvironmentPointer))->ApiIndex = ApiNumber-4;
     //
     // The current thread is in 32bit now. This flag will be used by
-    // implementation of critical section and thread suspend. During signal processing 
-    // this flag isn't changed     
+    // implementation of critical section and thread suspend. During signal processing
+    // this flag isn't changed
     //
     if (!(Od2SigHandAlreadyInProgress && Od2CurrentThreadId() == 1) ) {
         ((POD2_THREAD)(NtCurrentTeb()->EnvironmentPointer))->Os2Tib.
@@ -290,7 +290,8 @@ DosGetMachineMode(
     //
 
     try {
-        *pMachMode = OS2_MODE;
+        *pMachMode = /* OS2_MODE */ 1; // YOSEFD Apr-1-1996 This define was removed
+                                       // from stdlib.h (\public\sdk\inc\crt).
     }
     except( EXCEPTION_EXECUTE_HANDLER ) {
        Od2ExitGP();

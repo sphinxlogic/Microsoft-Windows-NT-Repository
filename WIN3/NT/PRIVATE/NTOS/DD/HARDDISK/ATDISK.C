@@ -82,12 +82,6 @@ Notes:
         have fatal bugs.  We will implement block mode in this driver
         once controller manufacturers notify us of a method for
         determining which controllers can *correctly* do block mode.
-        BUGBUG FUTURE Note that the driver includes the variable
-        BytesPerInterrupt to help make this work; however, simply
-        multiplying the sectors per interrupt by the bytes per sector
-        and putting the value in BytesPerInterrupt will not work.  This
-        driver does not take care of the case where the last interrupt
-        moves less than a full block.
 
         In AT PIO mode, bus transfers are performed by 16-bit I/O space
         instructions.  An interrupt is generated for each sector (512
@@ -324,7 +318,7 @@ Notes:
             packet is restarted via AtDiskStartIo(), PacketIsBeingRetried
             will be set to TRUE.  AtDiskStartIo() will see this and
             increment IrpRetryCount.  AtDiskDeferredProcedure() checks
-            IrpRetryCount before restarting the packet, and returns the
+            IrpRetryCounu before restarting the packet, and returns the
             packet with error if it has reached RETRY_IRP_MAXIMUM_COUNT.
 
             SequenceNumber is a value that is incremented each time
@@ -513,6 +507,26 @@ Revision History:
 #if DBG
 extern ULONG AtDebugLevel = 0;
 #endif
+
+#ifdef POOL_TAGGING
+#ifdef ExAllocatePool
+#undef ExAllocatePool
+#endif
+#define ExAllocatePool(a,b) ExAllocatePoolWithTag(a,b,' DtA')
+#endif
+
+VOID
+AtReWriteDeviceMap(
+    IN ULONG ControllerNumber,
+    IN ULONG DiskNumber,
+    IN ULONG ApparentHeads,
+    IN ULONG ApparentCyl,
+    IN ULONG ApparentSec,
+    IN ULONG ActualHeads,
+    IN ULONG ActualCyl,
+    IN ULONG ActualSec
+    );
+
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(INIT,DriverEntry)
 #pragma alloc_text(INIT,AtInitializeController)
@@ -520,6 +534,7 @@ extern ULONG AtDebugLevel = 0;
 #pragma alloc_text(INIT,AtGetTranslatedMemory)
 #pragma alloc_text(INIT,AtReportUsage)
 #pragma alloc_text(INIT,AtDiskControllerInfo)
+#pragma alloc_text(INIT,AtDiskIsPcmcia)
 #endif
 
 NTSTATUS
@@ -550,6 +565,11 @@ AtDiskUpdateDeviceObjects(
     IN PIRP Irp
     );
 
+VOID
+AtFinishPacket(
+    IN PDISK_EXTENSION DiskExtension,
+    IN NTSTATUS NtStatus
+    );
 
 BOOLEAN
 AtDiskWriteWithSync(
@@ -565,6 +585,13 @@ typedef struct _BAD_PCI_BLOCK {
     PVOID DiskExtension;
     PVOID Buffer;
     } BAD_PCI_BLOCK,*PBAD_PCI_BLOCK;
+
+VOID
+AtMarkSkew(
+    IN ULONG ControllerNumber,
+    IN ULONG DiskNumber,
+    IN ULONG Skew
+    );
 
 #define MAX_SEC_TO_TRANS (128)
 
@@ -926,6 +953,7 @@ Return Value:
         sizeof(CONTROLLER_EXTENSION)
         );
 
+    controllerExtension->ControllerNumber = ControllerNumber;
     controllerExtension->BadPciAdapter =
         ConfigData->Controller[ControllerNumber].BadPciAdapter;
 
@@ -1203,6 +1231,8 @@ Return Value:
     NTSTATUS ntStatus;
     ULONG partitionNumber = 0;               // which partition we're working on
     BOOLEAN timerWasStarted = FALSE;         // TRUE when IoStartTimer called
+    BOOLEAN HookerGeometry;                  // Set if we find a hooker we need to
+                                             // do geometry calcs with.
 
     //
     // Create a permanent object directory for partitions, then make it
@@ -1378,9 +1408,6 @@ Return Value:
     //
     // Fill in device-specific numbers that were obtained from the
     // configuration manager.
-    // BUGBUG Dragon Master is working on a method to verify these numbers; may
-    // involve reading from disk, may involve guessing.  We should override
-    // CM's numbers with those obtained by Andy's method.
     //
 
     diskExtension->PretendNumberOfCylinders =
@@ -1434,14 +1461,15 @@ Return Value:
     // Determine the size of partition 0 (the whole disk).
     //
 
-    diskExtension->Pi.StartingOffset = RtlConvertLongToLargeInteger( 0 );
+    diskExtension->Pi.StartingOffset.QuadPart = 0;
 
-    diskExtension->Pi.PartitionLength = RtlExtendedIntegerMultiply(
-        RtlExtendedIntegerMultiply(
-            RtlEnlargedIntegerMultiply( diskExtension->SectorsPerTrack,
-                diskExtension->BytesPerSector ),
-            diskExtension->NumberOfCylinders ),
-        diskExtension->TracksPerCylinder );
+    diskExtension->Pi.PartitionLength.QuadPart =
+        (UInt32x32To64(
+             diskExtension->SectorsPerTrack,
+             diskExtension->BytesPerSector
+             ) *
+        diskExtension->NumberOfCylinders) *
+        diskExtension->TracksPerCylinder;
 
     //
     // Given the sector size, figure out how many times we have to shift
@@ -1634,34 +1662,6 @@ Return Value:
 
     }
 
-    if (ControllerExtension->BadPciAdapter) {
-#if 0
-        //
-        // Some initial intel pci adapters interrupt at the most
-        // inappropriate times.  We have code later to get around
-        // this.  Let the user know that they have bad stuff.
-        //
-
-        AtLogError(
-            deviceObject,
-            0,
-            0,
-            0,
-            20,
-            STATUS_SUCCESS,
-            IO_WRN_BAD_FIRMWARE,
-            ERROR_LOG_TYPE_TIMEOUT,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0
-            );
-#endif
-
-    }
 
     //
     // Set up drive parameters.  This will cause an interrupt.
@@ -1753,6 +1753,157 @@ Return Value:
 
     }
 
+    //
+    // See if this is a large disk that was partitioned by an MBR hooker.
+    // If so for the appropriate versions of DM we have to skew
+    // all IO by 63 sectors.  If we find DM then we have to
+    //
+    // 1) Recalc the size of the drive that we present to utilities.
+    //
+    // 2) For EZDrive we don't care.  Partition code take care of things.
+    // (We still have to do the gometry though.
+    //
+
+    {
+
+        PULONG Skew;
+
+        HookerGeometry = FALSE;
+        HalExamineMBR(
+            diskExtension->DeviceObject,
+            ConfigData->Controller[ControllerNum].Disk[DiskNum].BytesPerSector,
+            (ULONG)0x54,
+            &Skew
+            );
+
+        if (Skew) {
+
+            diskExtension->DMSkew = *Skew;
+            diskExtension->DMControl = TRUE;
+            AtMarkSkew(
+                ControllerNum,
+                DiskNum,
+                0x54
+                );
+            ExFreePool(Skew);
+            HookerGeometry = TRUE;
+
+        } else {
+
+            diskExtension->DMSkew = 0;
+            diskExtension->DMControl = FALSE;
+            diskExtension->DMByteSkew.QuadPart = 0;
+
+            //
+            // Look for EZDrive
+            //
+
+            HalExamineMBR(
+                diskExtension->DeviceObject,
+                ConfigData->Controller[ControllerNum].Disk[DiskNum].BytesPerSector,
+                (ULONG)0x55,
+                &Skew
+                );
+
+            if (Skew) {
+
+                //
+                // EZdrive found.
+                //
+
+                ExFreePool(Skew);
+                AtMarkSkew(
+                    ControllerNum,
+                    DiskNum,
+                    0x55
+                    );
+                HookerGeometry = TRUE;
+
+            }
+
+        }
+
+    }
+
+    if (HookerGeometry) {
+
+        //
+        //
+        //
+
+        ULONG numberOfHeads = ConfigData->Controller[ControllerNum].Disk[DiskNum].IdentifyTracksPerCylinder;
+        ULONG numberOfCyl = ConfigData->Controller[ControllerNum].Disk[DiskNum].IdentifyNumberOfCylinders;
+
+        while (numberOfCyl > 1024) {
+
+            numberOfHeads = numberOfHeads*2;
+            numberOfCyl = numberOfCyl/2;
+
+        }
+
+        //
+        // int 13 values are always 1 less.
+        //
+
+        numberOfHeads -= 1;
+        numberOfCyl -= 1;
+
+        //
+        // DM/EZDrive reserves the CE cylinder
+        //
+
+        numberOfCyl -= 1;
+
+        diskExtension->PretendNumberOfCylinders = (USHORT)numberOfCyl + 1;
+        diskExtension->PretendTracksPerCylinder = (USHORT)numberOfHeads + 1;
+        diskExtension->NumberOfCylinders = ConfigData->Controller[ControllerNum].Disk[DiskNum].IdentifyNumberOfCylinders;
+        diskExtension->TracksPerCylinder = ConfigData->Controller[ControllerNum].Disk[DiskNum].TracksPerCylinder;
+
+        AtDump(
+            ATINIT,
+            ("ATDISK: Controller %d Disk %d Geometry: ***DM/EZ*** adjusted\n"
+             "        Appa Cyl: %x\n"
+             "        Appa Hea: %x\n"
+             "        Appa Sec: %x\n"
+             "             Cyl: %x\n"
+             "             Hea: %x\n"
+             "             Sec: %x\n",
+             ControllerNum,
+             DiskNum,
+             diskExtension->PretendNumberOfCylinders,
+             diskExtension->PretendTracksPerCylinder,
+             diskExtension->PretendSectorsPerTrack,
+             diskExtension->NumberOfCylinders,
+             diskExtension->TracksPerCylinder,
+             diskExtension->SectorsPerTrack)
+            );
+
+        diskExtension->Pi.PartitionLength.QuadPart =
+                (UInt32x32To64(
+                     diskExtension->SectorsPerTrack,
+                     diskExtension->BytesPerSector
+                     ) *
+                 diskExtension->NumberOfCylinders) *
+                diskExtension->TracksPerCylinder;
+
+        diskExtension->DMByteSkew.QuadPart =
+            UInt32x32To64(
+                diskExtension->DMSkew,
+                diskExtension->BytesPerSector
+                );
+
+        AtReWriteDeviceMap(
+            ControllerNum,
+            DiskNum,
+            diskExtension->PretendTracksPerCylinder,
+            diskExtension->PretendNumberOfCylinders,
+            diskExtension->PretendSectorsPerTrack,
+            diskExtension->TracksPerCylinder,
+            diskExtension->NumberOfCylinders,
+            diskExtension->SectorsPerTrack
+            );
+
+    }
     //
     // Turn off the timer whether we succeeded or not - we don't have the
     // controller object, so we don't want the timer to expire yet.  It
@@ -2029,6 +2180,7 @@ Return Value:
 {
     PPARTITION_EXTENSION partitionExtension;
     PDISK_EXTENSION diskExtension;
+    PCONTROLLER_EXTENSION controllerExtension;
     PIO_STACK_LOCATION irpSp;
     NTSTATUS ntStatus;
     CCHAR ioIncrement = IO_NO_INCREMENT;          // assume no I/O will be done
@@ -2039,6 +2191,7 @@ Return Value:
 
     partitionExtension = DeviceObject->DeviceExtension;
     diskExtension = partitionExtension->Partition0;
+    controllerExtension = diskExtension->ControllerExtension;
     irpSp = IoGetCurrentIrpStackLocation( Irp );
 
     //
@@ -2052,6 +2205,176 @@ Return Value:
     //
 
     switch ( irpSp->Parameters.DeviceIoControl.IoControlCode ) {
+
+        case SMART_GET_VERSION:
+
+            //
+            // Returns the version information and mask describing this drive
+            // to a SMART application.
+            //
+
+            if (irpSp->Parameters.DeviceIoControl.OutputBufferLength <
+                     sizeof(GETVERSIONINPARAMS)) {
+
+                Irp->IoStatus.Status = STATUS_INVALID_PARAMETER;
+
+            } else {
+
+                PGETVERSIONINPARAMS versionParameters = (PGETVERSIONINPARAMS)Irp->AssociatedIrp.SystemBuffer;
+                ULONG controllerNumber,deviceNumber;
+
+                //
+                // Version and revision per SMART 1.03
+                //
+
+                versionParameters->bVersion = 1;
+                versionParameters->bRevision = 1;
+
+                //
+                // Indicate that support for IDE IDENTIFY and SMART commands. Atapi
+                // is not supported by this driver.
+                //
+
+                versionParameters->fCapabilities = (CAP_ATA_ID_CMD | CAP_SMART_CMD);
+
+                //
+                // NOTE: This will not give back atapi devices and will only set the bit
+                // corresponding to this drive's device object.
+                // The bit mask is as follows:
+                //
+                //     Sec Pri
+                //     S M S M
+                //     3 2 1 0
+                //
+
+                controllerNumber = diskExtension->ControllerExtension->ControllerNumber;
+                deviceNumber = (diskExtension->DeviceUnit == DRIVE_1) ? 0 : 1;
+                versionParameters->bIDEDeviceMap = 1 << deviceNumber;
+                versionParameters->bIDEDeviceMap <<= (controllerNumber * 2);
+
+                Irp->IoStatus.Status = STATUS_SUCCESS;
+                Irp->IoStatus.Information = sizeof(GETVERSIONINPARAMS);
+
+            }
+            break;
+
+        case SMART_RCV_DRIVE_DATA:
+
+            //
+            // Returns Identify data or SMART thresholds / attributes to
+            // an application.
+            //
+
+            if ( irpSp->Parameters.DeviceIoControl.InputBufferLength <
+                sizeof(SENDCMDINPARAMS) - 1) {
+
+                Irp->IoStatus.Status = STATUS_INVALID_PARAMETER;
+
+            } else if (irpSp->Parameters.DeviceIoControl.OutputBufferLength <
+                        sizeof(SENDCMDOUTPARAMS) + 512 -1) {
+
+                Irp->IoStatus.Status = STATUS_INVALID_PARAMETER;
+            } else {
+
+                SENDCMDINPARAMS cmdInParameters = *((PSENDCMDINPARAMS)Irp->AssociatedIrp.SystemBuffer);
+
+                if (cmdInParameters.irDriveRegs.bCommandReg == ID_CMD) {
+
+                    ntStatus = AtDiskDispatchReadWrite( DeviceObject, Irp );
+                    return ntStatus;
+
+                } else if (cmdInParameters.irDriveRegs.bCommandReg == SMART_CMD) {
+
+                    switch (cmdInParameters.irDriveRegs.bFeaturesReg) {
+                        case READ_ATTRIBUTES:
+                        case READ_THRESHOLDS:
+
+                            ntStatus = AtDiskDispatchReadWrite( DeviceObject, Irp );
+                            return ntStatus;
+
+                        default:
+                            Irp->IoStatus.Status = STATUS_INVALID_PARAMETER;
+                            break;
+                    }
+
+                } else {
+
+                    //
+                    // Don't allow anything, except for Identify and SMART_CMD
+                    //
+
+                    Irp->IoStatus.Status = STATUS_INVALID_PARAMETER;
+                }
+
+            }
+
+            break;
+
+        case SMART_SEND_DRIVE_COMMAND:
+
+            //
+            // Allows an application to enable or disable SMART on this drive.
+            //
+
+            if ( irpSp->Parameters.DeviceIoControl.InputBufferLength <
+                sizeof(SENDCMDINPARAMS) - 1) {
+
+                Irp->IoStatus.Status = STATUS_INVALID_PARAMETER;
+
+            } else if (irpSp->Parameters.DeviceIoControl.OutputBufferLength <
+                        sizeof(SENDCMDOUTPARAMS) - 1) {
+
+                Irp->IoStatus.Status = STATUS_INVALID_PARAMETER;
+            } else {
+
+                SENDCMDINPARAMS cmdInParameters = *((PSENDCMDINPARAMS)Irp->AssociatedIrp.SystemBuffer);
+
+                //
+                // Only allow the SMART_CMD command to go through.
+                //
+
+                if (cmdInParameters.irDriveRegs.bCommandReg == SMART_CMD) {
+
+                    switch (cmdInParameters.irDriveRegs.bFeaturesReg) {
+
+                        case RETURN_SMART_STATUS:
+
+                            if (irpSp->Parameters.DeviceIoControl.OutputBufferLength <
+                                (sizeof(SENDCMDOUTPARAMS) - 1 + sizeof(IDEREGS))) {
+
+                                Irp->IoStatus.Status = STATUS_INVALID_PARAMETER;
+                                break;
+                            }
+
+                        case ENABLE_DISABLE_AUTOSAVE:
+                        case ENABLE_SMART:
+                        case DISABLE_SMART:
+                        case SAVE_ATTRIBUTE_VALUES:
+                        case EXECUTE_OFFLINE_DIAGS:
+
+                            ntStatus = AtDiskDispatchReadWrite( DeviceObject, Irp );
+                            return ntStatus;
+
+                        default:
+
+                            AtDump(ATERRORS,
+                                  ("ATDISK: Invalid SMART Sub-command (%x)\n",
+                                  cmdInParameters.irDriveRegs.bFeaturesReg));
+
+                            Irp->IoStatus.Status = STATUS_INVALID_PARAMETER;
+                            break;
+                    }
+                } else {
+
+                    AtDump(ATERRORS,
+                          ("ATDISK: Invalid SMART Command (%x)\n",
+                          cmdInParameters.irDriveRegs.bCommandReg));
+
+                    Irp->IoStatus.Status = STATUS_INVALID_PARAMETER;
+                }
+            }
+
+            break;
 
         case IOCTL_DISK_GET_DRIVE_GEOMETRY: {
 
@@ -2073,8 +2396,8 @@ Return Value:
                 outputBuffer = ( PDISK_GEOMETRY )
                     Irp->AssociatedIrp.SystemBuffer;
                 outputBuffer->MediaType = FixedMedia;
-                outputBuffer->Cylinders = RtlConvertUlongToLargeInteger(
-                    diskExtension->PretendNumberOfCylinders );
+                outputBuffer->Cylinders.QuadPart =
+                    diskExtension->PretendNumberOfCylinders;
                 outputBuffer->TracksPerCylinder =
                     diskExtension->PretendTracksPerCylinder;
                 outputBuffer->SectorsPerTrack =
@@ -2375,12 +2698,32 @@ Return Value:
                     &diskExtension->ControllerExtension->MappedAddressList;
                 dumpPointers->PortConfiguration = NULL;
                 dumpPointers->CommonBufferVa = NULL;
-                dumpPointers->CommonBufferPa = LiFromUlong(0);
+                dumpPointers->CommonBufferPa.QuadPart = 0;
                 dumpPointers->CommonBufferSize = 0;
 
                 Irp->IoStatus.Status = STATUS_SUCCESS;
                 Irp->IoStatus.Information = sizeof(DUMP_POINTERS);
             }
+            break;
+
+        case IOCTL_DISK_CONTROLLER_NUMBER:
+            if ( irpSp->Parameters.DeviceIoControl.OutputBufferLength <
+                sizeof( DISK_CONTROLLER_NUMBER ) ) {
+
+                Irp->IoStatus.Status = STATUS_BUFFER_TOO_SMALL;
+            } else {
+                PDISK_CONTROLLER_NUMBER controllerNumber =
+                    (PDISK_CONTROLLER_NUMBER) Irp->AssociatedIrp.SystemBuffer;
+                controllerNumber->ControllerNumber =
+                    diskExtension->ControllerExtension->ControllerNumber;
+                controllerNumber->DiskNumber =
+                    diskExtension->DeviceUnit == DRIVE_1 ? 0 : 1;
+
+                Irp->IoStatus.Status = STATUS_SUCCESS;
+                Irp->IoStatus.Information = sizeof(DISK_CONTROLLER_NUMBER);
+            }
+
+
             break;
 
         default: {
@@ -2453,6 +2796,7 @@ Return Value:
     PDISK_EXTENSION diskExtension;
     PIO_STACK_LOCATION irpSp;
     ULONG firstSectorOfRequest;
+    BOOLEAN isSmartIoctl = FALSE;
 
     //
     // Set up necessary object and extension pointers.
@@ -2462,41 +2806,68 @@ Return Value:
     diskExtension = partitionExtension->Partition0;
     irpSp = IoGetCurrentIrpStackLocation( Irp );
 
-    //
-    // Check for invalid parameters.  It is an error for the starting offset
-    // + length to go past the end of the partition, or for the length to
-    // not be a proper multiple of the sector size.
-    //
-    // Others are possible, but we don't check them since we trust the
-    // file system and they aren't deadly.
-    //
+    if (irpSp->MajorFunction == IRP_MJ_DEVICE_CONTROL) {
+        ULONG controlCode = irpSp->Parameters.DeviceIoControl.IoControlCode;
 
-    if ( RtlLargeIntegerGreaterThan(
-        RtlLargeIntegerAdd( irpSp->Parameters.Read.ByteOffset,
-        RtlConvertUlongToLargeInteger( irpSp->Parameters.Read.Length ) ),
-        partitionExtension->Pi.PartitionLength ) ||
-        ( irpSp->Parameters.Read.Length &
-            ( diskExtension->BytesPerSector - 1 ) ) ) {
+        if ((controlCode == SMART_GET_VERSION) ||
+            (controlCode == SMART_SEND_DRIVE_COMMAND) ||
+            (controlCode == SMART_RCV_DRIVE_DATA)) {
 
-        //
-        // Do not give an I/O boost for parameter errors.
-        //
-
-        Irp->IoStatus.Status = STATUS_INVALID_PARAMETER;
-        IoCompleteRequest( Irp, IO_NO_INCREMENT );
-
-        return STATUS_INVALID_PARAMETER;
+            isSmartIoctl = TRUE;
+        }
     }
 
-    //
-    // The offset passed in is relative to the start of the partition.
-    // We always work from partition 0 (the whole disk) so adjust the
-    // offset.
-    //
+    if (!isSmartIoctl) {
 
-    irpSp->Parameters.Read.ByteOffset = RtlLargeIntegerAdd(
-        irpSp->Parameters.Read.ByteOffset,
-        partitionExtension->Pi.StartingOffset );
+        //
+        // Check for invalid parameters.  It is an error for the starting offset
+        // + length to go past the end of the partition, or for the length to
+        // not be a proper multiple of the sector size.
+        //
+        // Others are possible, but we don't check them since we trust the
+        // file system and they aren't deadly.
+        //
+
+        if (((irpSp->Parameters.Read.ByteOffset.QuadPart +
+              irpSp->Parameters.Read.Length) >
+              partitionExtension->Pi.PartitionLength.QuadPart ) ||
+            ( irpSp->Parameters.Read.Length &
+                ( diskExtension->BytesPerSector - 1 ) ) ) {
+
+            //
+            // Do not give an I/O boost for parameter errors.
+            //
+
+            Irp->IoStatus.Status = STATUS_INVALID_PARAMETER;
+            IoCompleteRequest( Irp, IO_NO_INCREMENT );
+
+            return STATUS_INVALID_PARAMETER;
+        }
+
+        //
+        // The offset passed in is relative to the start of the partition.
+        // We always work from partition 0 (the whole disk) so adjust the
+        // offset.
+        //
+        // Take care - if this is a dm controlled partition then we need
+        // to skew by the skew amount.
+        //
+
+        if (diskExtension->DMControl) {
+
+            irpSp->Parameters.Read.ByteOffset.QuadPart +=
+                diskExtension->DMByteSkew.QuadPart;
+
+        }
+
+        irpSp->Parameters.Read.ByteOffset.QuadPart +=
+            partitionExtension->Pi.StartingOffset.QuadPart;
+
+        firstSectorOfRequest = (ULONG)(irpSp->Parameters.Read.ByteOffset.QuadPart >>
+                                       diskExtension->ByteShiftToSector);
+    } else {
+        firstSectorOfRequest = diskExtension->SequenceNumber;
+    }
 
     //
     // Mark Irp pending and queue packet, passing sector number for C-SCAN
@@ -2504,9 +2875,6 @@ Return Value:
 
     IoMarkIrpPending( Irp );
 
-    firstSectorOfRequest = RtlLargeIntegerShiftRight(
-        irpSp->Parameters.Read.ByteOffset,
-        diskExtension->ByteShiftToSector ).LowPart;
 
     IoStartPacket(
         diskExtension->DeviceObject,
@@ -2563,6 +2931,7 @@ Return Value:
 {
     PDISK_EXTENSION diskExtension;
     PIO_STACK_LOCATION irpSp;
+    BOOLEAN            isSmartIoctl = FALSE;
 
     //
     // Set up necessary object and extension pointers.
@@ -2572,6 +2941,17 @@ Return Value:
     diskExtension->SequenceNumber++;
     irpSp = IoGetCurrentIrpStackLocation( Irp );
 
+    if (irpSp->MajorFunction == IRP_MJ_DEVICE_CONTROL) {
+        ULONG controlCode = irpSp->Parameters.DeviceIoControl.IoControlCode;
+
+        if ((controlCode == SMART_GET_VERSION) ||
+            (controlCode == SMART_SEND_DRIVE_COMMAND) ||
+            (controlCode == SMART_RCV_DRIVE_DATA)) {
+
+            isSmartIoctl = TRUE;
+        }
+    }
+
     //
     // Copy the operation type (READ or WRITE, or IOCTL which means VERIFY)
     // and the total byte length of the operation from the IRP stack
@@ -2579,50 +2959,69 @@ Return Value:
     //
 
     diskExtension->OperationType = irpSp->MajorFunction;
-    diskExtension->RemainingRequestLength = irpSp->Parameters.Read.Length;
 
-    //
-    // Calculate starting sector and length of the transfer.
-    //
+    if (!isSmartIoctl) {
+        diskExtension->RemainingRequestLength = irpSp->Parameters.Read.Length;
 
-    diskExtension->FirstSectorOfTransfer = RtlLargeIntegerShiftRight(
-        irpSp->Parameters.Read.ByteOffset,
-        diskExtension->ByteShiftToSector ).LowPart;
+        //
+        // Calculate starting sector and length of the transfer.
+        //
 
-    //
-    // The first sector of each transfer of a request is greater than the
-    // previous one, so the following test will only happen when we're
-    // working on the first transfer of a request (since the completion
-    // of the previous request set FirstSectorOfRequest to MAXULONG).  That's
-    // when we want to save the first sector of the request so that
-    // IoStartNextPacketByKey will get the next packet for C-SCAN.
-    //
+        diskExtension->FirstSectorOfTransfer = (ULONG)
+           (irpSp->Parameters.Read.ByteOffset.QuadPart >>
+            diskExtension->ByteShiftToSector);
 
-    if ( diskExtension->FirstSectorOfTransfer <
-        diskExtension->FirstSectorOfRequest ) {
+        //
+        // The first sector of each transfer of a request is greater than the
+        // previous one, so the following test will only happen when we're
+        // working on the first transfer of a request (since the completion
+        // of the previous request set FirstSectorOfRequest to MAXULONG).  That's
+        // when we want to save the first sector of the request so that
+        // IoStartNextPacketByKey will get the next packet for C-SCAN.
+        //
 
-        diskExtension->FirstSectorOfRequest =
-            diskExtension->FirstSectorOfTransfer;
-    }
+        if ( diskExtension->FirstSectorOfTransfer <
+            diskExtension->FirstSectorOfRequest ) {
 
-    //
-    // If possible, this transfer should be the same length as the
-    // request.  However, it is limited to MAX_SEC_TO_TRANS sectors.
-    //
+            diskExtension->FirstSectorOfRequest =
+                diskExtension->FirstSectorOfTransfer;
+        }
 
-    if ( diskExtension->RemainingRequestLength >
-        ( ULONG )( diskExtension->BytesPerSector * MAX_SEC_TO_TRANS ) ) {
+        //
+        // If possible, this transfer should be the same length as the
+        // request.  However, it is limited to MAX_SEC_TO_TRANS sectors.
+        //
 
-        diskExtension->TotalTransferLength =
-            diskExtension->BytesPerSector * MAX_SEC_TO_TRANS;
+        if ( diskExtension->RemainingRequestLength >
+            ( ULONG )( diskExtension->BytesPerSector * MAX_SEC_TO_TRANS ) ) {
+
+            diskExtension->TotalTransferLength =
+                diskExtension->BytesPerSector * MAX_SEC_TO_TRANS;
+
+        } else {
+
+            diskExtension->TotalTransferLength =
+                diskExtension->RemainingRequestLength;
+        }
+
+        diskExtension->RemainingTransferLength = diskExtension->TotalTransferLength;
 
     } else {
 
-        diskExtension->TotalTransferLength =
-            diskExtension->RemainingRequestLength;
-    }
+        //
+        // Determine if this is a data xfer SMART command.
+        // The possibly ones are inquiry, read attributes, and read thresholds.
+        //
 
-    diskExtension->RemainingTransferLength = diskExtension->TotalTransferLength;
+        if (irpSp->Parameters.DeviceIoControl.IoControlCode == SMART_RCV_DRIVE_DATA) {
+            diskExtension->RemainingRequestLength = diskExtension->BytesPerSector;
+        } else {
+            diskExtension->RemainingRequestLength = 0;
+        }
+
+        diskExtension->TotalTransferLength = diskExtension->RemainingRequestLength;
+        diskExtension->RemainingTransferLength = diskExtension->TotalTransferLength;
+    }
 
     //
     // Generally, we're not resetting the controller so the retry count
@@ -2657,6 +3056,10 @@ Return Value:
 
         diskExtension->CurrentAddress = MmGetSystemAddressForMdl(
             Irp->MdlAddress );
+    } else if (isSmartIoctl) {
+        if (irpSp->Parameters.DeviceIoControl.IoControlCode == SMART_RCV_DRIVE_DATA) {
+            diskExtension->CurrentAddress = Irp->AssociatedIrp.SystemBuffer;
+        }
     }
 
     AtDump(
@@ -2822,6 +3225,9 @@ Return Value:
     NTSTATUS ntStatus;
     ULONG loopCount = 0;
     UCHAR controllerStatus;
+    PIRP irp;
+    PIO_STACK_LOCATION irpSp;
+    BOOLEAN isSmartIoctl = FALSE;
 
     //
     // Set up necessary object and extension pointers.
@@ -2912,64 +3318,255 @@ Return Value:
     // Program the operation on the controller.
     //
 
-    WRITE_CONTROLLER(
-        controllerExtension->ControllerAddress + SECTOR_COUNT_REGISTER,
-        ( diskExtension->TotalTransferLength /
-            diskExtension->BytesPerSector ) );
+    irp = diskExtension->DeviceObject->CurrentIrp;
+    irpSp = IoGetCurrentIrpStackLocation( irp );
 
-    if (diskExtension->UseLBAMode &&
-        ((diskExtension->FirstSectorOfTransfer & 0xf0000000) == 0) &&
-        !diskExtension->IrpRetryCount) {
+    if (diskExtension->OperationType == IRP_MJ_DEVICE_CONTROL) {
+        ULONG controlCode = irpSp->Parameters.DeviceIoControl.IoControlCode;
 
-        WRITE_CONTROLLER(
-            controllerExtension->ControllerAddress + SECTOR_NUMBER_REGISTER,
-            (UCHAR)(diskExtension->FirstSectorOfTransfer & 0xff)
-            );
+        if ((controlCode == SMART_GET_VERSION) ||
+            (controlCode == SMART_SEND_DRIVE_COMMAND) ||
+            (controlCode == SMART_RCV_DRIVE_DATA)) {
 
-        WRITE_CONTROLLER(
-            controllerExtension->ControllerAddress + CYLINDER_LOW_REGISTER,
-            (UCHAR)((diskExtension->FirstSectorOfTransfer >> 8) & 0xff)
-            );
-
-        WRITE_CONTROLLER(
-            controllerExtension->ControllerAddress + CYLINDER_HIGH_REGISTER,
-            (UCHAR)((diskExtension->FirstSectorOfTransfer >> 16) & 0xff)
-            );
-
-        WRITE_CONTROLLER(
-            controllerExtension->ControllerAddress + DRIVE_HEAD_REGISTER,
-            (UCHAR)(((diskExtension->FirstSectorOfTransfer >> 24) & 0x0f) |
-                     (diskExtension->DeviceUnit | 0x40))
-            );
-
-    } else {
-
-        WRITE_CONTROLLER(
-            controllerExtension->ControllerAddress + SECTOR_NUMBER_REGISTER,
-            ( ( diskExtension->FirstSectorOfTransfer %
-                diskExtension->SectorsPerTrack ) + 1 ) );
-
-        WRITE_CONTROLLER(
-            controllerExtension->ControllerAddress + CYLINDER_LOW_REGISTER,
-            ( diskExtension->FirstSectorOfTransfer /
-                ( diskExtension->SectorsPerTrack *
-                diskExtension->TracksPerCylinder ) ) );
-
-        WRITE_CONTROLLER(
-            controllerExtension->ControllerAddress + CYLINDER_HIGH_REGISTER,
-            ( diskExtension->FirstSectorOfTransfer /
-                ( diskExtension->SectorsPerTrack *
-                diskExtension->TracksPerCylinder ) >> 8 ) );
-
-        WRITE_CONTROLLER(
-            controllerExtension->ControllerAddress + DRIVE_HEAD_REGISTER,
-                ( CCHAR ) ( ( ( diskExtension->FirstSectorOfTransfer /
-                    diskExtension->SectorsPerTrack ) %
-                    diskExtension->TracksPerCylinder ) |
-                    diskExtension->DeviceUnit ) );
-
+            isSmartIoctl = TRUE;
+        }
     }
 
+    if (!isSmartIoctl) {
+
+        WRITE_CONTROLLER(
+            controllerExtension->ControllerAddress + SECTOR_COUNT_REGISTER,
+            ( diskExtension->TotalTransferLength /
+                diskExtension->BytesPerSector ) );
+
+        if (diskExtension->UseLBAMode &&
+            ((diskExtension->FirstSectorOfTransfer & 0xf0000000) == 0) &&
+            !diskExtension->IrpRetryCount) {
+
+            WRITE_CONTROLLER(
+                controllerExtension->ControllerAddress + SECTOR_NUMBER_REGISTER,
+                (UCHAR)(diskExtension->FirstSectorOfTransfer & 0xff)
+                );
+
+            WRITE_CONTROLLER(
+                controllerExtension->ControllerAddress + CYLINDER_LOW_REGISTER,
+                (UCHAR)((diskExtension->FirstSectorOfTransfer >> 8) & 0xff)
+                );
+
+            WRITE_CONTROLLER(
+                controllerExtension->ControllerAddress + CYLINDER_HIGH_REGISTER,
+                (UCHAR)((diskExtension->FirstSectorOfTransfer >> 16) & 0xff)
+                );
+
+            WRITE_CONTROLLER(
+                controllerExtension->ControllerAddress + DRIVE_HEAD_REGISTER,
+                (UCHAR)(((diskExtension->FirstSectorOfTransfer >> 24) & 0x0f) |
+                         (diskExtension->DeviceUnit | 0x40))
+                );
+
+        } else {
+
+            WRITE_CONTROLLER(
+                controllerExtension->ControllerAddress + SECTOR_NUMBER_REGISTER,
+                ( ( diskExtension->FirstSectorOfTransfer %
+                    diskExtension->SectorsPerTrack ) + 1 ) );
+
+            WRITE_CONTROLLER(
+                controllerExtension->ControllerAddress + CYLINDER_LOW_REGISTER,
+                ( diskExtension->FirstSectorOfTransfer /
+                    ( diskExtension->SectorsPerTrack *
+                    diskExtension->TracksPerCylinder ) ) );
+
+            WRITE_CONTROLLER(
+                controllerExtension->ControllerAddress + CYLINDER_HIGH_REGISTER,
+                ( diskExtension->FirstSectorOfTransfer /
+                    ( diskExtension->SectorsPerTrack *
+                    diskExtension->TracksPerCylinder ) >> 8 ) );
+
+            WRITE_CONTROLLER(
+                controllerExtension->ControllerAddress + DRIVE_HEAD_REGISTER,
+                    ( CCHAR ) ( ( ( diskExtension->FirstSectorOfTransfer /
+                        diskExtension->SectorsPerTrack ) %
+                        diskExtension->TracksPerCylinder ) |
+                        diskExtension->DeviceUnit ) );
+
+        }
+    } else {
+
+        switch (irpSp->Parameters.DeviceIoControl.IoControlCode) {
+            case SMART_RCV_DRIVE_DATA: {
+
+                //
+                // Returns Identify data or SMART thresholds / attributes to
+                // an application.
+                //
+
+                PSENDCMDOUTPARAMS cmdOutParameters = (PSENDCMDOUTPARAMS)irp->AssociatedIrp.SystemBuffer;
+                SENDCMDINPARAMS cmdInParameters = *((PSENDCMDINPARAMS)irp->AssociatedIrp.SystemBuffer);
+                PIDEREGS        regs = &cmdInParameters.irDriveRegs;
+                ULONG i;
+                UCHAR statusByte;
+
+                RtlZeroMemory(cmdOutParameters, sizeof(SENDCMDOUTPARAMS) -1);
+
+                if (cmdInParameters.irDriveRegs.bCommandReg == ID_CMD) {
+
+                    //
+                    // Select disk 0 or 1.
+                    //
+
+                    WRITE_CONTROLLER(controllerExtension->ControllerAddress + DRIVE_HEAD_REGISTER, diskExtension->DeviceUnit);
+
+                    //
+                    // Send IDENTIFY command.
+                    //
+
+                    WRITE_CONTROLLER(controllerExtension->ControllerAddress + COMMAND_REGISTER,
+                                     IDENTIFY_COMMAND);
+
+                } else if (cmdInParameters.irDriveRegs.bCommandReg == SMART_CMD) {
+
+                    switch (cmdInParameters.irDriveRegs.bFeaturesReg) {
+                        case READ_ATTRIBUTES:
+                        case READ_THRESHOLDS:
+
+                            //
+                            // Select disk 0 or 1.
+                            //
+
+                            WRITE_CONTROLLER(controllerExtension->ControllerAddress + DRIVE_HEAD_REGISTER, diskExtension->DeviceUnit);
+
+                            //
+                            // Jam the task file regs with that values provided.
+                            //
+
+                            WRITE_CONTROLLER(controllerExtension->ControllerAddress + DRIVE_HEAD_REGISTER,
+                                             diskExtension->DeviceUnit);
+
+                            WRITE_CONTROLLER(controllerExtension->ControllerAddress + WRITE_PRECOMP_REGISTER,
+                                             regs->bFeaturesReg);
+
+                            WRITE_CONTROLLER(controllerExtension->ControllerAddress + SECTOR_COUNT_REGISTER,
+                                             regs->bSectorCountReg);
+
+                            WRITE_CONTROLLER(controllerExtension->ControllerAddress + SECTOR_NUMBER_REGISTER,
+                                             regs->bSectorNumberReg);
+
+                            WRITE_CONTROLLER(controllerExtension->ControllerAddress + CYLINDER_LOW_REGISTER,
+                                             regs->bCylLowReg);
+
+                            WRITE_CONTROLLER(controllerExtension->ControllerAddress + CYLINDER_HIGH_REGISTER,
+                                             regs->bCylHighReg);
+
+                            WRITE_CONTROLLER(controllerExtension->ControllerAddress + COMMAND_REGISTER,
+                                             regs->bCommandReg);
+
+                            break;
+
+                        default:
+
+                            AtDump(
+                                ATBUGCHECK,
+                                ("AtDisk ERROR:  invalid operation type %x\n",
+                                diskExtension->OperationType ));
+                            break;
+                    }
+
+                } else {
+
+                    //
+                    // Don't allow anything, except for Identify and SMART_CMD
+                    //
+
+                    AtDump(
+                        ATBUGCHECK,
+                        ("AtDisk ERROR:  invalid operation type %x\n",
+                        diskExtension->OperationType ));
+                    break;
+                }
+
+                break;
+            }
+
+            case SMART_SEND_DRIVE_COMMAND: {
+
+                PSENDCMDOUTPARAMS cmdOutParameters = (PSENDCMDOUTPARAMS)irp->AssociatedIrp.SystemBuffer;
+                SENDCMDINPARAMS cmdInParameters = *((PSENDCMDINPARAMS)irp->AssociatedIrp.SystemBuffer);
+                UCHAR           statusByte;
+
+                //
+                // Only allow the SMART_CMD command to go through.
+                //
+
+                if (cmdInParameters.irDriveRegs.bCommandReg == SMART_CMD) {
+
+                    //
+                    // Get the parameters from the system buffer to a local, as
+                    // the buffer is also the output.
+                    //
+
+                    PIDEREGS regs = &cmdInParameters.irDriveRegs;
+
+                    switch (cmdInParameters.irDriveRegs.bFeaturesReg) {
+
+                        case SAVE_ATTRIBUTE_VALUES:
+                        case RETURN_SMART_STATUS:
+                        case ENABLE_DISABLE_AUTOSAVE:
+                        case ENABLE_SMART:
+                        case DISABLE_SMART:
+                        case EXECUTE_OFFLINE_DIAGS:
+
+                            //
+                            // Select disk 0 or 1.
+                            //
+
+                            WRITE_CONTROLLER(controllerExtension->ControllerAddress + DRIVE_HEAD_REGISTER, diskExtension->DeviceUnit);
+
+                            //
+                            // Jam the task file regs with that values provided.
+                            //
+
+                            WRITE_CONTROLLER(controllerExtension->ControllerAddress + WRITE_PRECOMP_REGISTER,
+                                             regs->bFeaturesReg);
+
+                            WRITE_CONTROLLER(controllerExtension->ControllerAddress + SECTOR_COUNT_REGISTER,
+                                             regs->bSectorCountReg);
+
+                            WRITE_CONTROLLER(controllerExtension->ControllerAddress + SECTOR_NUMBER_REGISTER,
+                                             regs->bSectorNumberReg);
+
+                            WRITE_CONTROLLER(controllerExtension->ControllerAddress + CYLINDER_LOW_REGISTER,
+                                             regs->bCylLowReg);
+
+                            WRITE_CONTROLLER(controllerExtension->ControllerAddress + CYLINDER_HIGH_REGISTER,
+                                             regs->bCylHighReg);
+
+                            WRITE_CONTROLLER(controllerExtension->ControllerAddress + COMMAND_REGISTER,
+                                             regs->bCommandReg);
+
+
+                            break;
+
+                        default:
+                            AtDump(
+                                ATBUGCHECK,
+                                ("AtDisk ERROR:  invalid operation type %x\n",
+                                diskExtension->OperationType ));
+                            break;
+                    }
+                } else {
+
+                    AtDump(
+                        ATBUGCHECK,
+                        ("AtDisk ERROR:  invalid operation type %x\n",
+                        diskExtension->OperationType ));
+                }
+            }
+
+            break;
+
+        }
+    }
     switch ( diskExtension->OperationType ) {
 
         case IRP_MJ_READ: {
@@ -2988,10 +3585,11 @@ Return Value:
             // ioctl called AtDiskDispatchReadWrite().
             //
 
-            WRITE_CONTROLLER(
-                controllerExtension->ControllerAddress + COMMAND_REGISTER,
-                diskExtension->VerifyCommand );
-
+            if (!isSmartIoctl) {
+                WRITE_CONTROLLER(
+                    controllerExtension->ControllerAddress + COMMAND_REGISTER,
+                    diskExtension->VerifyCommand );
+            }
             break;
         }
 
@@ -3128,7 +3726,9 @@ Return Value:
     PCONTROLLER_EXTENSION controllerExtension;
     PDEVICE_OBJECT whichDeviceObject;
     PDISK_EXTENSION diskExtension;
+    PIO_STACK_LOCATION irpSp;
     UCHAR controllerStatus;
+    BOOLEAN isSmartIoctl = FALSE;
 
     UNREFERENCED_PARAMETER( Interrupt );
 
@@ -3167,25 +3767,40 @@ Return Value:
     whichDeviceObject = controllerExtension->WhichDeviceObject;
     controllerExtension->WhichDeviceObject = NULL;
 
+
     diskExtension = whichDeviceObject->DeviceExtension;
 
     if ( ( diskExtension->OperationType == IRP_MJ_DEVICE_CONTROL ) &&
         ( controllerExtension->ResettingController == RESET_NOT_RESETTING ) ) {
 
-        //
-        // The VERIFY command only gives one interrupt per transfer,
-        // rather than one interrupt per sector.  Adjust the transfer
-        // length so that the DPC will end the transfer, and adjust
-        // the request length so that the DPC will end up reducing
-        // the request length by the total transfer length.
-        //
+        ULONG controlCode;
 
-        ASSERT(diskExtension->BytesPerInterrupt == 512);
-        diskExtension->RemainingRequestLength -=
-            ( diskExtension->RemainingTransferLength -
-            diskExtension->BytesPerInterrupt );
-        diskExtension->RemainingTransferLength =
-            diskExtension->BytesPerInterrupt;
+        irpSp = IoGetCurrentIrpStackLocation(whichDeviceObject->CurrentIrp);
+        controlCode = irpSp->Parameters.DeviceIoControl.IoControlCode;
+
+        if ((controlCode == SMART_GET_VERSION) ||
+            (controlCode == SMART_SEND_DRIVE_COMMAND) ||
+            (controlCode == SMART_RCV_DRIVE_DATA)) {
+
+            isSmartIoctl = TRUE;
+
+        } else {
+            //
+            // The VERIFY command only gives one interrupt per transfer,
+            // rather than one interrupt per sector.  Adjust the transfer
+            // length so that the DPC will end the transfer, and adjust
+            // the request length so that the DPC will end up reducing
+            // the request length by the total transfer length.
+            //
+
+            ASSERT(diskExtension->BytesPerInterrupt == 512);
+            diskExtension->RemainingRequestLength -=
+                ( diskExtension->RemainingTransferLength -
+                diskExtension->BytesPerInterrupt );
+            diskExtension->RemainingTransferLength =
+                diskExtension->BytesPerInterrupt;
+
+        }
     }
 
     //
@@ -3346,7 +3961,9 @@ Return Value:
     UCHAR controllerStatus;
     BOOLEAN expectingAnInterrupt = FALSE;  // TRUE iff we fill/empty the cache
     BOOLEAN logTheError = TRUE;
+    BOOLEAN isSmartIoctl = FALSE;
     ULONG loopCount = 0;
+    UCHAR codeValue;
     //
     // We capture into the following controller values for logging when
     // there is an error.
@@ -3422,6 +4039,17 @@ Return Value:
     if ( irp != NULL ) {
 
         irpSp = IoGetCurrentIrpStackLocation( irp );
+
+        if (irpSp->MajorFunction == IRP_MJ_DEVICE_CONTROL) {
+            ULONG controlCode = irpSp->Parameters.DeviceIoControl.IoControlCode;
+
+            if ((controlCode == SMART_GET_VERSION) ||
+                (controlCode == SMART_SEND_DRIVE_COMMAND) ||
+                (controlCode == SMART_RCV_DRIVE_DATA)) {
+
+                isSmartIoctl = TRUE;
+            }
+        }
     }
 
     //
@@ -3984,35 +4612,44 @@ Return Value:
 
         ASSERT(diskExtension->BytesPerInterrupt == 512);
 
-        if ((!diskExtension->RemainingTransferLength) ||
-            (!diskExtension->RemainingRequestLength)) {
+        if (!isSmartIoctl) {
+            if ((!diskExtension->RemainingTransferLength) ||
+                (!diskExtension->RemainingRequestLength)) {
 
-            AtLogError(
-                deviceObject,
-                ((irp)?(diskExtension->SequenceNumber):(0)),
-                (UCHAR)((irp)?(irpSp->MajorFunction):(0)),
-                diskExtension->IrpRetryCount,
-                12,
-                STATUS_SUCCESS,
-                IO_ERR_DRIVER_ERROR,
-                ERROR_LOG_TYPE_ERROR,
-                errorReg,
-                driveHead,
-                cylHigh,
-                cylLow,
-                sectorNumber,
-                sectorCount,
-                controllerStatus );
-            logTheError = FALSE;
-            controllerStatus |= ERROR_STATUS;
-            goto ResetCodePath;
+                AtLogError(
+                    deviceObject,
+                    ((irp)?(diskExtension->SequenceNumber):(0)),
+                    (UCHAR)((irp)?(irpSp->MajorFunction):(0)),
+                    diskExtension->IrpRetryCount,
+                    12,
+                    STATUS_SUCCESS,
+                    IO_ERR_DRIVER_ERROR,
+                    ERROR_LOG_TYPE_ERROR,
+                    errorReg,
+                    driveHead,
+                    cylHigh,
+                    cylLow,
+                    sectorNumber,
+                    sectorCount,
+                    controllerStatus );
+                logTheError = FALSE;
+                controllerStatus |= ERROR_STATUS;
+                goto ResetCodePath;
 
+            }
+
+            diskExtension->RemainingTransferLength -=
+                diskExtension->BytesPerInterrupt;
+
+            diskExtension->RemainingRequestLength -=
+                diskExtension->BytesPerInterrupt;
+        } else {
+            if (irpSp->Parameters.DeviceIoControl.IoControlCode == SMART_RCV_DRIVE_DATA) {
+                diskExtension->RemainingTransferLength = 0;
+                diskExtension->RemainingRequestLength = 0;
+            }
         }
-        diskExtension->RemainingTransferLength -=
-            diskExtension->BytesPerInterrupt;
 
-        diskExtension->RemainingRequestLength -=
-            diskExtension->BytesPerInterrupt;
 
         //
         // If there's more to the current transfer, servicing the
@@ -4055,6 +4692,177 @@ Return Value:
     //
 
     switch ( diskExtension->OperationType ) {
+
+        case IRP_MJ_DEVICE_CONTROL: {
+
+            PVOID BufferToReadTo;
+            ULONG controlCode = irpSp->Parameters.DeviceIoControl.IoControlCode;
+
+            if ((controlCode == SMART_GET_VERSION) ||
+                (controlCode == SMART_SEND_DRIVE_COMMAND) ||
+                (controlCode == SMART_RCV_DRIVE_DATA)) {
+
+                //
+                // Extract the code from the IOCTL value. Used in case of errors.
+                //
+
+                codeValue = (UCHAR)((controlCode >> 2) & 0xFF);
+
+                //
+                // If this was an enable or disable, there is no data to transfer.
+                // Simply break and finish up processing of the request.
+                //
+
+                if (controlCode == SMART_SEND_DRIVE_COMMAND) {
+                    break;
+                }
+
+                ASSERT(diskExtension->BytesPerInterrupt == 512);
+                if ( !( controllerStatus & ERROR_STATUS ) ) {
+
+                    BufferToReadTo = diskExtension->CurrentAddress;
+
+                    BufferToReadTo = ((PSENDCMDOUTPARAMS)BufferToReadTo)->bBuffer;
+                    diskExtension->CurrentAddress +=
+                        diskExtension->BytesPerInterrupt;
+                } else {
+
+                    BufferToReadTo = &controllerExtension->GarbageCan[0];
+                }
+
+                //
+                // Wait for DRQ assertion if necessary.
+                //
+
+                while ( ( !( READ_CONTROLLER(
+                    controllerExtension->ControllerAddress + STATUS_REGISTER ) &
+                        DATA_REQUEST_STATUS ) ) &&
+                    ( loopCount++ < 5000 ) ) {
+
+                    //
+                    // Wait for 10us each time; 5000 times will be 50ms.
+                    //
+
+                    KeStallExecutionProcessor( 10L );
+                }
+
+                if ( loopCount >= 5000 ) {
+
+
+                    AtDump(
+                        ATERRORS,
+                        ( "AtDisk ERROR:  Controller not setting DRQ\n" ));
+                    controllerStatus &= ERROR_STATUS;
+                    AtLogError(
+                        deviceObject,
+                        ((irp)?(diskExtension->SequenceNumber):(0)),
+                        (UCHAR)((irp)?(irpSp->MajorFunction):(0)),
+                        diskExtension->IrpRetryCount,
+                        20,
+                        STATUS_SUCCESS,
+                        IO_ERR_CONTROLLER_ERROR,
+                        ERROR_LOG_TYPE_ERROR,
+                        errorReg,
+                        driveHead,
+                        cylHigh,
+                        cylLow,
+                        0,
+                        codeValue,
+                        controllerStatus );
+                    logTheError = FALSE;
+                    controllerStatus |= ERROR_STATUS;
+                    goto ResetCodePath;
+
+                }
+
+                //
+                // Some broken PCI adapters cause us to do the io
+                // with int's "disabled".
+                //
+
+                if (controllerExtension->BadPciAdapter) {
+                    BAD_PCI_BLOCK context;
+                    context.DiskExtension = diskExtension;
+                    context.Buffer = BufferToReadTo;
+                    KeSynchronizeExecution(
+                        controllerExtension->InterruptObject,
+                        AtDiskReadWithSync,
+                        &context
+                        );
+                } else {
+
+                    READ_CONTROLLER_BUFFER(
+                        controllerExtension->ControllerAddress + DATA_REGISTER,
+                        BufferToReadTo,
+                        diskExtension->BytesPerInterrupt
+                        );
+
+                }
+
+                if (NT_SUCCESS(AtWaitControllerReady(controllerExtension,
+                                   10,
+                                   5000
+                                   ))) {
+
+                    if (READ_CONTROLLER(
+                            controllerExtension->ControllerAddress + STATUS_REGISTER ) &
+                            DATA_REQUEST_STATUS ) {
+
+                        AtLogError(
+                            deviceObject,
+                            ((irp)?(diskExtension->SequenceNumber):(0)),
+                            (UCHAR)((irp)?(irpSp->MajorFunction):(0)),
+                            diskExtension->IrpRetryCount,
+                            21,
+                            STATUS_SUCCESS,
+                            IO_ERR_OVERRUN_ERROR,
+                            ERROR_LOG_TYPE_ERROR,
+                            errorReg,
+                            driveHead,
+                            cylHigh,
+                            cylLow,
+                            0,
+                            codeValue,
+                            controllerStatus );
+                        logTheError = FALSE;
+                        controllerStatus |= ERROR_STATUS;
+                        goto ResetCodePath;
+                    }
+
+                } else {
+
+                    AtLogError(
+                        deviceObject,
+                        ((irp)?(diskExtension->SequenceNumber):(0)),
+                        (UCHAR)((irp)?(irpSp->MajorFunction):(0)),
+                        diskExtension->IrpRetryCount,
+                        22,
+                        STATUS_SUCCESS,
+                        IO_ERR_CONTROLLER_ERROR,
+                        ERROR_LOG_TYPE_ERROR,
+                        errorReg,
+                        driveHead,
+                        cylHigh,
+                        cylLow,
+                        0,
+                        codeValue,
+                        controllerStatus );
+                    logTheError = FALSE;
+                    controllerStatus |= ERROR_STATUS;
+                    goto ResetCodePath;
+
+                }
+
+                break;
+            } else {
+
+                //
+                // This is a VERIFY ioctl.  There's nothing to do.
+                //
+
+                break;
+            }
+        }
 
         case IRP_MJ_READ: {
 
@@ -4332,14 +5140,6 @@ Return Value:
             break;
         }
 
-        case IRP_MJ_DEVICE_CONTROL: {
-
-            //
-            // This is a VERIFY ioctl.  There's nothing to do.
-            //
-
-            break;
-        }
     }
 
     //
@@ -4377,6 +5177,7 @@ Return Value:
     // If there was a non-correctable error, then log it and make sure
     // we return the error status.
     //
+
 ResetCodePath:;
     returnStatus = STATUS_SUCCESS;
 
@@ -4577,8 +5378,52 @@ ResetCodePath:;
             // Success.  Note that all of the data was transferred.
             //
 
-            deviceObject->CurrentIrp->IoStatus.Information =
-                irpSp->Parameters.Read.Length;
+            if (!isSmartIoctl) {
+                deviceObject->CurrentIrp->IoStatus.Information =
+                    irpSp->Parameters.Read.Length;
+            } else {
+
+                ULONG controlCode = irpSp->Parameters.DeviceIoControl.IoControlCode;
+
+                //
+                // If this was a 'receive data command' update the Information field.
+                // otherwise it was enable/disable so should be the sizeof the output buffer.
+                //
+
+                if (controlCode == SMART_SEND_DRIVE_COMMAND) {
+
+                    PSENDCMDINPARAMS cmdInParameters = ((PSENDCMDINPARAMS)irp->AssociatedIrp.SystemBuffer);
+
+                    codeValue = cmdInParameters->irDriveRegs.bFeaturesReg;
+
+                    if (codeValue == RETURN_SMART_STATUS) {
+
+                        PSENDCMDOUTPARAMS cmdOutParameters = ((PSENDCMDOUTPARAMS)irp->AssociatedIrp.SystemBuffer);
+                        PIDEREGS ideRegs = (PIDEREGS)cmdOutParameters->bBuffer;
+
+                        deviceObject->CurrentIrp->IoStatus.Information =
+                            sizeof(SENDCMDOUTPARAMS) - 1 + sizeof(IDEREGS);
+
+                        //
+                        // Fill in the ide regs structure.
+                        //
+
+                        ideRegs->bFeaturesReg = RETURN_SMART_STATUS;
+                        ideRegs->bSectorCountReg= READ_PORT_UCHAR(controllerExtension->ControllerAddress + SECTOR_COUNT_REGISTER);
+                        ideRegs->bSectorNumberReg = READ_PORT_UCHAR(controllerExtension->ControllerAddress + SECTOR_NUMBER_REGISTER);
+                        ideRegs->bCylLowReg= READ_PORT_UCHAR(controllerExtension->ControllerAddress + CYLINDER_LOW_REGISTER);
+                        ideRegs->bCylHighReg= READ_PORT_UCHAR(controllerExtension->ControllerAddress + CYLINDER_HIGH_REGISTER);
+                        ideRegs->bDriveHeadReg= READ_PORT_UCHAR(controllerExtension->ControllerAddress + DRIVE_HEAD_REGISTER);
+                        ideRegs->bCommandReg= SMART_CMD;
+
+                    } else {
+                        deviceObject->CurrentIrp->IoStatus.Information = sizeof(SENDCMDOUTPARAMS) - 1;
+                    }
+                } else {
+                    deviceObject->CurrentIrp->IoStatus.Information = (512 + sizeof(SENDCMDOUTPARAMS) - 1);
+                }
+            }
+
 
         } else {
 
@@ -4597,11 +5442,10 @@ ResetCodePath:;
 
             deviceObject->CurrentIrp->IoStatus.Information =
 
-                ( ( diskExtension->FirstSectorOfTransfer -
-                RtlLargeIntegerShiftRight(
-                    irpSp->Parameters.Read.ByteOffset,
-                    diskExtension->ByteShiftToSector ).LowPart ) >>
-                diskExtension->ByteShiftToSector ) +
+                ((diskExtension->FirstSectorOfTransfer -
+                  ((ULONG)(irpSp->Parameters.Read.ByteOffset.QuadPart >>
+                           diskExtension->ByteShiftToSector))) <<
+                 diskExtension->ByteShiftToSector) +
 
                 ( diskExtension->TotalTransferLength -
                 ( READ_CONTROLLER( controllerExtension->ControllerAddress +
@@ -6323,7 +7167,8 @@ AtBuildDeviceMap(
     IN PHYSICAL_ADDRESS ControllerAddress,
     IN KIRQL Irql,
     IN PDRIVE_DATA Disk,
-    IN PIDENTIFY_DATA DiskData
+    IN PIDENTIFY_DATA DiskData,
+    IN BOOLEAN PCCard
     )
 
 /*++
@@ -6426,6 +7271,22 @@ Return Value:
         REG_DWORD,
         &tempLong,
         sizeof(ULONG));
+
+    //
+    // Indicate if the controller is a PCCARD
+    //
+
+    if (PCCard) {
+        RtlInitUnicodeString(&name, L"PCCARD");
+        tempLong = 1;
+        status = ZwSetValueKey(
+            controllerKey,
+            &name,
+            0,
+            REG_DWORD,
+            &tempLong,
+            sizeof(ULONG));
+    }
 
     //
     // Create a key entry for the disk.
@@ -6727,6 +7588,320 @@ Return Value:
         REG_DWORD,
         &tempLong,
         sizeof(ULONG));
+
+    ZwClose(diskKey);
+    ZwClose(controllerKey);
+
+    return;
+}
+
+VOID
+AtReWriteDeviceMap(
+    IN ULONG ControllerNumber,
+    IN ULONG DiskNumber,
+    IN ULONG ApparentHeads,
+    IN ULONG ApparentCyl,
+    IN ULONG ApparentSec,
+    IN ULONG ActualHeads,
+    IN ULONG ActualCyl,
+    IN ULONG ActualSec
+    )
+
+/*++
+
+Routine Description:
+
+    The routine puts vendor and model information from the IDENTIFY
+    command into the device map in the registry.
+
+Arguments:
+
+    ControllerNumber - Supplies the current controller number.
+
+    DiskNumber - Supplies the current disk on the controller.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+
+    UNICODE_STRING name;
+    UNICODE_STRING unicodeString;
+    ANSI_STRING ansiString;
+    HANDLE key;
+    HANDLE controllerKey;
+    HANDLE diskKey;
+    OBJECT_ATTRIBUTES objectAttributes;
+    NTSTATUS status;
+    ULONG disposition;
+    ULONG tempLong;
+    PCHAR junkPtr;
+
+
+    RtlInitUnicodeString(
+        &name,
+        L"\\Registry\\Machine\\Hardware\\DeviceMap\\AtDisk"
+        );
+
+    //
+    // Initialize the object for the key.
+    //
+
+    InitializeObjectAttributes( &objectAttributes,
+                                &name,
+                                OBJ_CASE_INSENSITIVE,
+                                NULL,
+                                (PSECURITY_DESCRIPTOR) NULL );
+
+    //
+    // Create the key or open it.
+    //
+
+    status = ZwCreateKey(&key,
+                        KEY_READ | KEY_WRITE,
+                        &objectAttributes,
+                        0,
+                        (PUNICODE_STRING) NULL,
+                        REG_OPTION_VOLATILE,
+                        &disposition );
+
+    if (!NT_SUCCESS(status)) {
+        return;
+    }
+
+    status = AtCreateNumericKey(key, ControllerNumber, L"Controller ", &controllerKey);
+    ZwClose(key);
+
+    if (!NT_SUCCESS(status)) {
+        return;
+    }
+
+    //
+    // Create a key entry for the disk.
+    //
+
+    status = AtCreateNumericKey(controllerKey, DiskNumber, L"Disk ", &diskKey);
+
+    if (!NT_SUCCESS(status)) {
+        ZwClose(controllerKey);
+        return;
+    }
+
+    //
+    // Write the apparent geometry data.
+    //
+
+    //
+    // Write number of cylinders to registry.
+    //
+
+    RtlInitUnicodeString(&name, L"Apparent - Number of cylinders");
+
+    tempLong = ApparentCyl;
+
+    status = ZwSetValueKey(
+        diskKey,
+        &name,
+        0,
+        REG_DWORD,
+        &tempLong,
+        sizeof(ULONG));
+
+    //
+    // Write number of heads to registry.
+    //
+
+    RtlInitUnicodeString(&name, L"Apparent - Number of heads");
+
+    tempLong = ApparentHeads;
+
+    status = ZwSetValueKey(
+        diskKey,
+        &name,
+        0,
+        REG_DWORD,
+        &tempLong,
+        sizeof(ULONG));
+
+    //
+    // Write track size to registry.
+    //
+
+    RtlInitUnicodeString(&name, L"Apparent - Sectors per track");
+
+    tempLong = ApparentSec;
+
+    status = ZwSetValueKey(
+        diskKey,
+        &name,
+        0,
+        REG_DWORD,
+        &tempLong,
+        sizeof(ULONG));
+
+    //
+    // Write the actual geometry data.
+    //
+
+    //
+    // Write number of cylinders to registry.
+    //
+
+    RtlInitUnicodeString(&name, L"Actual - Number of cylinders");
+
+    tempLong = ActualCyl;
+
+    status = ZwSetValueKey(
+        diskKey,
+        &name,
+        0,
+        REG_DWORD,
+        &tempLong,
+        sizeof(ULONG));
+
+    //
+    // Write number of heads to registry.
+    //
+
+    RtlInitUnicodeString(&name, L"Actual - Number of heads");
+
+    tempLong = ActualHeads;
+
+    status = ZwSetValueKey(
+        diskKey,
+        &name,
+        0,
+        REG_DWORD,
+        &tempLong,
+        sizeof(ULONG));
+
+    //
+    // Write track size to registry.
+    //
+
+    RtlInitUnicodeString(&name, L"Actual - Sectors per track");
+
+    tempLong = ActualSec;
+
+    status = ZwSetValueKey(
+        diskKey,
+        &name,
+        0,
+        REG_DWORD,
+        &tempLong,
+        sizeof(ULONG));
+
+    ZwClose(diskKey);
+    ZwClose(controllerKey);
+
+    return;
+}
+
+VOID
+AtMarkSkew(
+    IN ULONG ControllerNumber,
+    IN ULONG DiskNumber,
+    IN ULONG Skew
+    )
+
+/*++
+
+Routine Description:
+
+    This routine puts out the skew if factor for the drive.
+
+Arguments:
+
+    ControllerNumber - Supplies the current controller number.
+
+    DiskNumber - Supplies the current disk on the controller.
+
+    Skew - The number of sectors skewed.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+
+    UNICODE_STRING name;
+    UNICODE_STRING unicodeString;
+    ANSI_STRING ansiString;
+    HANDLE key;
+    HANDLE controllerKey;
+    HANDLE diskKey;
+    OBJECT_ATTRIBUTES objectAttributes;
+    NTSTATUS status;
+    ULONG disposition;
+    ULONG tempLong;
+    PCHAR junkPtr;
+
+
+    RtlInitUnicodeString(
+        &name,
+        L"\\Registry\\Machine\\Hardware\\DeviceMap\\AtDisk"
+        );
+
+    //
+    // Initialize the object for the key.
+    //
+
+    InitializeObjectAttributes( &objectAttributes,
+                                &name,
+                                OBJ_CASE_INSENSITIVE,
+                                NULL,
+                                (PSECURITY_DESCRIPTOR) NULL );
+
+    //
+    // Create the key or open it.
+    //
+
+    status = ZwCreateKey(&key,
+                        KEY_READ | KEY_WRITE,
+                        &objectAttributes,
+                        0,
+                        (PUNICODE_STRING) NULL,
+                        REG_OPTION_VOLATILE,
+                        &disposition );
+
+    if (!NT_SUCCESS(status)) {
+        return;
+    }
+
+    status = AtCreateNumericKey(key, ControllerNumber, L"Controller ", &controllerKey);
+    ZwClose(key);
+
+    if (!NT_SUCCESS(status)) {
+        return;
+    }
+
+
+    //
+    // Create a key entry for the disk.
+    //
+
+    status = AtCreateNumericKey(controllerKey, DiskNumber, L"Disk ", &diskKey);
+
+    if (!NT_SUCCESS(status)) {
+        ZwClose(controllerKey);
+        return;
+    }
+
+
+    RtlInitUnicodeString(&name, L"Hook");
+
+    status = ZwSetValueKey(
+        diskKey,
+        &name,
+        0,
+        REG_DWORD,
+        &Skew,
+        sizeof(Skew));
 
     ZwClose(diskKey);
     ZwClose(controllerKey);
@@ -7337,8 +8512,8 @@ Return Value:
     BOOLEAN found;
 
     //
-    // BUGBUG: WINDISK has a bug where it is setting up the partition
-    // count incorrectly. This accounts for that bug.
+    // Works with a WINDISK has a feature where it is setting up the partition
+    // count "not as well as one would hope". This accounts for that feature.
     //
 
     partitionCount =
@@ -7381,7 +8556,7 @@ Return Value:
         // Check if this partition is not currently being used.
         //
 
-        if (LiEqlZero(partitionExtension->Pi.PartitionLength)) {
+        if (partitionExtension->Pi.PartitionLength.QuadPart == 0) {
            continue;
         }
 
@@ -7407,7 +8582,7 @@ Return Value:
             //
 
             if (partitionEntry->PartitionType == PARTITION_ENTRY_UNUSED ||
-                partitionEntry->PartitionType == PARTITION_EXTENDED) {
+                IsContainerPartition(partitionEntry->PartitionType)) {
                 continue;
             }
 
@@ -7421,8 +8596,8 @@ Return Value:
             // Check if new partition starts where this partition starts.
             //
 
-            if (LiNeq(partitionEntry->StartingOffset,
-                      partitionExtension->Pi.StartingOffset)) {
+            if (partitionEntry->StartingOffset.QuadPart !=
+                partitionExtension->Pi.StartingOffset.QuadPart) {
                 continue;
             }
 
@@ -7430,8 +8605,8 @@ Return Value:
             // Check if partition length is the same.
             //
 
-            if (LiEql(partitionEntry->PartitionLength,
-                      partitionExtension->Pi.PartitionLength)) {
+            if (partitionEntry->PartitionLength.QuadPart ==
+                partitionExtension->Pi.PartitionLength.QuadPart) {
 
                 AtDump(
                     ATUPDATEDEVICE,
@@ -7477,7 +8652,7 @@ Return Value:
                  partitionExtension->Pi.PartitionNumber)
                 );
 
-            partitionExtension->Pi.PartitionLength = LiFromUlong(0);
+            partitionExtension->Pi.PartitionLength.QuadPart = 0;
         }
     }
 
@@ -7504,7 +8679,7 @@ Return Value:
         //
 
         if (partitionEntry->PartitionType == PARTITION_ENTRY_UNUSED ||
-            partitionEntry->PartitionType == PARTITION_EXTENDED) {
+            IsContainerPartition(partitionEntry->PartitionType)) {
             continue;
         }
 
@@ -7548,7 +8723,7 @@ Return Value:
             // A device object is free if the partition length is set to zero.
             //
 
-            if (LiEqlZero(partitionExtension->Pi.PartitionLength)) {
+            if (partitionExtension->Pi.PartitionLength.QuadPart == 0) {
                 partitionNumber = partitionExtension->Pi.PartitionNumber;
                 break;
             }
@@ -7833,3 +9008,161 @@ Return Value:
         }
     }
 }
+
+
+BOOLEAN
+AtDiskIsPcmcia(
+    PPHYSICAL_ADDRESS Address,
+    PKIRQL Irql
+    )
+
+/*++
+
+Routine Description:
+
+    Look to see if this controller is described by the PCMCIA resource
+    tree in the registry.
+
+Arguments:
+
+    ControllerData - Structure defining controller.
+
+Return Value:
+
+    TRUE if found in the PCMCIA registry informaion.
+    FALSE otherwise.
+
+--*/
+
+{
+    UNICODE_STRING    unicodeName;
+    OBJECT_ATTRIBUTES objectAttributes;
+    ULONG             times;
+    HANDLE            handle;
+    ULONG             size;
+    PWCHAR            wchar;
+    PUCHAR            buffer;
+    NTSTATUS          status;
+    ULONG             rangeNumber;
+    ULONG             index;
+    BOOLEAN           match;
+    PKEY_VALUE_FULL_INFORMATION     keyValueInformation;
+    PCM_FULL_RESOURCE_DESCRIPTOR    fullResource;
+    PCM_PARTIAL_RESOURCE_DESCRIPTOR partialData;
+
+    buffer = ExAllocatePool(NonPagedPool, 2048);
+    if (!buffer) {
+        return FALSE;
+    }
+
+    unicodeName.Buffer = (PWSTR) buffer;
+    unicodeName.MaximumLength = (2048 / sizeof(WCHAR));
+
+    RtlInitUnicodeString(&unicodeName,
+        L"\\Registry\\Machine\\Hardware\\Description\\System\\PCMCIA PCCARDs");
+    InitializeObjectAttributes(&objectAttributes,
+                               &unicodeName,
+                               OBJ_CASE_INSENSITIVE,
+                               NULL,
+                               NULL);
+    //
+    // Check for entry in DeviceMap
+    //
+
+    if (!NT_SUCCESS(ZwOpenKey(&handle, MAXIMUM_ALLOWED, &objectAttributes))) {
+
+        //
+        // Nothing there
+        //
+
+        ExFreePool(buffer);
+        return FALSE;
+    }
+
+    //
+    // See if key value for this driver is present
+    //
+
+    keyValueInformation = (PKEY_VALUE_FULL_INFORMATION) ExAllocatePool(NonPagedPool,
+                                                                       2048);
+    if (!keyValueInformation) {
+        ZwClose(handle);
+        ExFreePool(buffer);
+        return FALSE;
+    }
+
+    times = 2;
+    while (times) {
+        if (times == 2) {
+            RtlInitUnicodeString(&unicodeName, L"AtDisk");
+        } else {
+            RtlInitUnicodeString(&unicodeName, L"AtDisk1");
+        }
+        times--;
+        status = ZwQueryValueKey(handle,
+                                 &unicodeName,
+                                 KeyValueFullInformation,
+                                 keyValueInformation,
+                                 2048,
+                                 &size);
+
+        if ((!NT_SUCCESS(status)) || (!keyValueInformation->DataLength)) {
+
+            //
+            // No value present
+            //
+
+            break;
+        }
+
+        //
+        // Check to see if I/O port match.
+        //
+
+        fullResource = (PCM_FULL_RESOURCE_DESCRIPTOR)
+           ((PUCHAR)keyValueInformation + keyValueInformation->DataOffset);
+
+        rangeNumber = 0;
+        match = FALSE;
+
+        for (index = 0; index < fullResource->PartialResourceList.Count; index++) {
+            partialData = &fullResource->PartialResourceList.PartialDescriptors[index];
+
+            switch (partialData->Type) {
+            case CmResourceTypePort:
+
+                if (partialData->u.Port.Start.LowPart == (ULONG) Address->LowPart) {
+                    match = TRUE;
+                }
+                break;
+            }
+        }
+        if (match) {
+
+            //
+            // Search for the IRQL
+            //
+
+            for (index = 0; index < fullResource->PartialResourceList.Count; index++) {
+                partialData = &fullResource->PartialResourceList.PartialDescriptors[index];
+                switch (partialData->Type) {
+                case CmResourceTypeInterrupt:
+                    *Irql = (UCHAR) partialData->u.Interrupt.Vector;
+                    break;
+
+                default:
+                    break;
+                }
+            }
+            ZwClose(handle);
+            ExFreePool(buffer);
+            ExFreePool(keyValueInformation);
+            return TRUE;
+        }
+    }
+    ZwClose(handle);
+    ExFreePool(buffer);
+    ExFreePool(keyValueInformation);
+    return FALSE;
+}
+

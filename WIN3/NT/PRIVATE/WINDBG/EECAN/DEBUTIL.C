@@ -3,12 +3,9 @@
  */
 
 
-
-
-
-LOCAL void   NEAR PASCAL CheckFcnArgs (neval_t, HTYPE FAR *, CV_call_e);
-bool_t NEAR PASCAL GrowStack (uint);
-LOCAL void   NEAR PASCAL SetDPtr (neval_t, HTYPE FAR *);
+LOCAL void   CheckFcnArgs (neval_t, HTYPE *, CV_call_e);
+      bool_t GrowStack (uint);
+LOCAL void   SetDPtr (neval_t, HTYPE *);
 
 char size_special[8] =  { 0,  2,  2,  0,  8,  0,  0,  0};
 char size_special2[8] = { 0,  0,  0,  0,  0,  0,  0,  0};
@@ -16,7 +13,6 @@ char size_integral[8] = { 1,  2,  4,  8,  0,  0,  0,  0};
 char size_real[8] =     { 4,  8, 10, 16,  3,  0,  0,  0};
 char size_ptr[8] =      { 0,  2,  4,  4,  4,  6,  0,  0};
 char size_int[8] =      { 1,  2,  2,  2,  4,  4,  8,  8};
-
 
 
 /**     PushStack - push bind data onto stack
@@ -31,16 +27,16 @@ char size_int[8] =      { 1,  2,  2,  2,  4,  4,  8,  8};
  *              FALSE if error in push
  */
 
-bool_t PASCAL PushStack (peval_t pv)
+bool_t PushStack (peval_t pv)
 {
     uint        len;
     pelem_t     pEL;
     pelem_t     pELP;
 
-    DASSERT ((ST == NULL) || (((char FAR *) ST > (char FAR *) pEStack) &&
-                              ((char FAR *)ST < (char FAR *)pEStack + (uint)StackOffset)));
+    DASSERT ((ST == NULL) || (((char *) ST > (char *) pEStack) &&
+                              ((char *)ST < (char *)pEStack + (uint)StackOffset)));
     DASSERT ((STP == NULL) ||
-             (((char FAR *) STP > (char FAR *) pEStack) && (STP < ST)));
+             (((char *) STP > (char *) pEStack) && (STP < ST)));
     len = sizeof (elem_t) +
       max (EVAL_VALLEN (pv), sizeof (val_t)) - sizeof (val_t);
 
@@ -59,8 +55,8 @@ bool_t PASCAL PushStack (peval_t pv)
         pEL->pe = UINT_MAX;
     }
     else {
-        pEL = (pelem_t)((uchar FAR *)pEStack + (uint)StackOffset);
-        pELP = (pelem_t)((char FAR *)ST - (offsetof (elem_t, se) -
+        pEL = (pelem_t)((uchar *)pEStack + (uint)StackOffset);
+        pELP = (pelem_t)((char *)ST - (offsetof (elem_t, se) -
                                            offsetof (elem_t, pe)));
         pEL->pe = belemOfpelem(pELP);
     }
@@ -75,9 +71,9 @@ bool_t PASCAL PushStack (peval_t pv)
     ST = (peval_t)&pEL->se;
     *ST = *pv;
     DASSERT ((ST == NULL) || ((ST > (peval_t) pEStack) &&
-                              ((char FAR *)ST < (char FAR *)pEStack + (uint)StackOffset)));
+                              ((char *)ST < (char *)pEStack + (uint)StackOffset)));
     DASSERT ((STP == NULL) ||
-             (((char FAR *) STP > (char FAR *)pEStack) && (STP < ST)));
+             (((char *) STP > (char *)pEStack) && (STP < ST)));
     return (TRUE);
 }
 
@@ -97,16 +93,16 @@ bool_t PASCAL PushStack (peval_t pv)
  */
 
 
-bool_t PASCAL PopStack ()
+bool_t PopStack ()
 {
     pelem_t     pEL;
     uint        bELP;
 
     DASSERT (ST != NULL);
     DASSERT ((ST == NULL) || ((ST > (peval_t) pEStack) &&
-                              ((char FAR *)ST < (char FAR *)pEStack + (uint)StackOffset)));
+                              ((char *)ST < (char *)pEStack + (uint)StackOffset)));
     DASSERT ((STP == NULL) ||
-             (((char FAR *) STP > (char FAR *) pEStack) && (STP < ST)));
+             (((char *) STP > (char *) pEStack) && (STP < ST)));
     if (ST == NULL) {
         pExState->err_num = ERR_INTERNAL;
         return (FALSE);
@@ -116,9 +112,9 @@ bool_t PASCAL PopStack ()
           // reset the stack offset to the beginning of the top stack element
 
             if (STP != NULL) {
-                DASSERT (((char FAR *) STP > (char FAR *) pEStack) && (STP < ST));
+                DASSERT (((char *) STP > (char *) pEStack) && (STP < ST));
             }
-        pEL = (pelem_t)((char FAR *)ST - offsetof (elem_t, se));
+        pEL = (pelem_t)((char *)ST - offsetof (elem_t, se));
 
         // set the based pointer to the previous stack element
 
@@ -133,19 +129,19 @@ bool_t PASCAL PopStack ()
         else if (bELP == 0) {
             // we are popping to the last stack element
 
-              StackOffset = (char FAR *)pEL - (char FAR *)pEStack;
+              StackOffset = (char *)pEL - (char *)pEStack;
             STP = NULL;
             ST = (peval_t)&((pelem_t)pEStack)->se;
         }
         else {
-            StackOffset = (char FAR *)pEL - (char FAR *)pEStack;
+            StackOffset = (char *)pEL - (char *)pEStack;
             ST = STP;
-            pEL = (pelem_t)((char FAR *)ST - offsetof (elem_t, se));
+            pEL = (pelem_t)((char *)ST - offsetof (elem_t, se));
             bELP = (uint)pEL->pe;
             STP = (peval_t)&((pelemOfbelem(bELP))->se);
         }
         DASSERT ((ST == NULL) || ((ST > (peval_t) pEStack) &&
-                                  ((char FAR *)ST < (char FAR *)pEStack + (uint)StackOffset)));
+                                  ((char *)ST < (char *)pEStack + (uint)StackOffset)));
         DASSERT ((STP == NULL) || ((STP > (peval_t) pEStack) && (STP < ST)));
         return (TRUE);
     }
@@ -166,7 +162,7 @@ bool_t PASCAL PopStack ()
  */
 
 
-void PASCAL CkPointStack (void)
+void CkPointStack (void)
 {
     StackCkPoint = StackOffset;
 }
@@ -187,7 +183,7 @@ void PASCAL CkPointStack (void)
  */
 
 
-bool_t PASCAL ResetStack (void)
+bool_t ResetStack (void)
 {
     while (StackOffset > StackCkPoint) {
         if (PopStack () == FALSE) {
@@ -216,7 +212,7 @@ bool_t PASCAL ResetStack (void)
  */
 
 
-bool_t NEAR PASCAL GrowStack (uint len)
+bool_t GrowStack (uint len)
 {
     uint        bST = UINT_MAX;
     uint        bSTP = UINT_MAX;
@@ -227,10 +223,10 @@ bool_t NEAR PASCAL GrowStack (uint len)
     // convert current stack pointers to based form
 
       if (ST != NULL) {
-          bST = (uchar FAR *)ST - (uchar FAR *)pEStack - offsetof (elem_t, se);
+          bST = (uchar *)ST - (uchar *)pEStack - offsetof (elem_t, se);
       }
     if (STP != NULL) {
-        bSTP = (uchar FAR *)STP - (uchar FAR *)pEStack - offsetof (elem_t, se);
+        bSTP = (uchar *)STP - (uchar *)pEStack - offsetof (elem_t, se);
     }
 
     // allocate new evaluation stack and copy old to new
@@ -243,8 +239,8 @@ bool_t NEAR PASCAL GrowStack (uint len)
     }
     else {
         pNS = MHMemLock (hNS);
-        _fmemcpy (pNS, pEStack, (char FAR *)pelemOfbelem(StackOffset) -
-                  (char FAR *)pEStack);
+        memcpy (pNS, pEStack, (char *)pelemOfbelem(StackOffset) -
+                  (char *)pEStack);
 
         // if old stack was not the standard fixed buffer, release it
 
@@ -253,10 +249,10 @@ bool_t NEAR PASCAL GrowStack (uint len)
         hEStack = hNS;
         pEStack = pNS;
         if (bST != UINT_MAX) {
-            ST = (peval_t)&((pelem_t)(((char FAR *)pEStack) + bST))->se;
+            ST = (peval_t)&((pelem_t)(((char *)pEStack) + bST))->se;
         }
         if (bSTP != UINT_MAX) {
-            STP = (peval_t)&((pelem_t)(((char FAR *)pEStack) + bSTP))->se;
+            STP = (peval_t)&((pelem_t)(((char *)pEStack) + bSTP))->se;
         }
         StackLen = size;
         return (TRUE);
@@ -274,7 +270,7 @@ bool_t NEAR PASCAL GrowStack (uint len)
  */
 
 
-ulong PASCAL RNumLeaf (void FAR *pleaf, uint FAR *skip)
+ulong RNumLeaf (void *pleaf, uint *skip)
 {
     ushort  val;
 
@@ -310,7 +306,7 @@ ulong PASCAL RNumLeaf (void FAR *pleaf, uint FAR *skip)
 
 
 
-SHFLAG PASCAL FAR LOADDS
+SHFLAG
 fnCmp (
     LPSSTR lpsstr,
     LPV    lpv,
@@ -357,15 +353,15 @@ Return Value:
 
             // this is regular expression search
             char buffer [256];
-            char FAR * lpBuffer = buffer;
+            char * lpBuffer = buffer;
 
             // stName is a length prefixed string.  convert to a
             // null terminated string
-            _fstrncpy ( lpBuffer, stName+1, (unsigned char)stName[0] );
+            strncpy ( lpBuffer, stName+1, (unsigned char)stName[0] );
             lpBuffer [ (unsigned char)stName[0] ] = '\0';
 
             // do the compare using lpBuffer
-            return SHCompareRE ( lpBuffer, (char FAR *)pName->sstr.pRE, fCase);
+            return SHCompareRE ( lpBuffer, (char *)pName->sstr.pRE, fCase);
         }
     }
 
@@ -382,9 +378,9 @@ Return Value:
             CV_typ_t type;
 
             if (fCase == TRUE) {
-                cmpflag = _fstrncmp ((char FAR *)pName->sstr.lpName, stName, pName->sstr.cb);
+                cmpflag = strncmp ((char *)pName->sstr.lpName, stName, pName->sstr.cb);
             } else {
-                cmpflag = _fstrnicmp ((char FAR *)pName->sstr.lpName, stName, pName->sstr.cb);
+                cmpflag = _strnicmp ((char *)pName->sstr.lpName, stName, pName->sstr.cb);
             }
             if (cmpflag != 0) {
                 // we did not have a name match
@@ -433,29 +429,23 @@ Return Value:
 
             switch (pSym->rectyp) {
 
-#if defined (ADDR_16) || defined (ADDR_MIXED)
-
               case S_GDATA16:
                 if (((DATAPTR16)pSym)->typind != pName->typeOut) {
                     return (1);
                 }
                 break;
-#endif
-
-#if defined (ADDR_32) || defined (ADDR_MIXED)
 
               case S_GDATA32:
                 if (((DATAPTR32)pSym)->typind != pName->typeOut) {
                     return (1);
                 }
                 break;
-#endif
             }
         }
         if (fCase == TRUE) {
-            return (_fstrncmp ((char FAR *)pName->sstr.lpName, stName, pName->sstr.cb));
+            return (strncmp ((char *)pName->sstr.lpName, stName, pName->sstr.cb));
         } else {
-            return (_fstrnicmp ((char FAR *)pName->sstr.lpName, stName, pName->sstr.cb));
+            return (_strnicmp ((char *)pName->sstr.lpName, stName, pName->sstr.cb));
         }
     }
 
@@ -502,9 +492,9 @@ Return Value:
         if ((pch != NULL) && (strchr(&pName->sstr.lpName[idx], '@') == NULL)) {
             if ((pch-stName-idx) == pName->sstr.cb-idx) {
                 if (fCase == TRUE) {
-                    return _fstrncmp(&pName->sstr.lpName[idx], &stName[idx], pch-stName-idx);
+                    return strncmp(&pName->sstr.lpName[idx], &stName[idx], pch-stName-idx);
                 } else {
-                    return _fstrnicmp(&pName->sstr.lpName[idx], &stName[idx], pch-stName-idx);
+                    return _strnicmp(&pName->sstr.lpName[idx], &stName[idx], pch-stName-idx);
                 }
             }
         }
@@ -521,7 +511,7 @@ Return Value:
  *
  *      Compares the type described by the hInfo packet with a typedef symbol
  *
- *      fFlag = tdCmp (psearch_t pName, SYMPTR pSym, char far *stName, int fCase);
+ *      fFlag = tdCmp (psearch_t pName, SYMPTR pSym, char *stName, int fCase);
  *
  *      Entry   pName = pointer to psearch_t packet describing name
  *              pSym = pointer to symbol structure (NULL if internal call)
@@ -534,7 +524,13 @@ Return Value:
  */
 
 
-SHFLAG PASCAL FAR LOADDS tdCmp (LPSSTR lpsstr, LPV lpv, char FAR *stName, SHFLAG fCase)
+SHFLAG
+tdCmp (
+    LPSSTR lpsstr,
+    LPV lpv,
+    char *stName,
+    SHFLAG fCase
+    )
 {
     psearch_t   pName = (psearch_t) lpsstr;
     SYMPTR      pSym = (SYMPTR) lpv;
@@ -561,7 +557,7 @@ SHFLAG PASCAL FAR LOADDS tdCmp (LPSSTR lpsstr, LPV lpv, char FAR *stName, SHFLAG
  *
  *      Compares the type described by the hInfo packet with a compile symbol
  *
- *      fFlag = csCmp (psearch_t pName, SYMPTR pSym, char far *stName, int fCase);
+ *      fFlag = csCmp (psearch_t pName, SYMPTR pSym, char *stName, int fCase);
  *
  *      Entry   pName = pointer to psearch_t packet describing name
  *              pSym = pointer to symbol structure (NULL if internal call)
@@ -574,7 +570,13 @@ SHFLAG PASCAL FAR LOADDS tdCmp (LPSSTR lpsstr, LPV lpv, char FAR *stName, SHFLAG
  */
 
 
-SHFLAG PASCAL FAR LOADDS csCmp (LPSSTR lpsstr, LPV lpv, char FAR *stName, SHFLAG fCase)
+SHFLAG
+csCmp (
+    LPSSTR lpsstr,
+    LPV lpv,
+    char *stName,
+    SHFLAG fCase
+    )
 {
     psearch_t   pName = (psearch_t) lpsstr;
     SYMPTR      pSym = (SYMPTR) lpv;
@@ -614,7 +616,7 @@ SHFLAG PASCAL FAR LOADDS csCmp (LPSSTR lpsstr, LPV lpv, char FAR *stName, SHFLAG
  */
 
 
-bool_t PASCAL InsertNode ()
+bool_t InsertNode ()
 {
     return (FALSE);
 }
@@ -639,7 +641,7 @@ bool_t PASCAL InsertNode ()
  */
 
 
-void PASCAL RemoveIndir (peval_t pv)
+void RemoveIndir (peval_t pv)
 {
     CV_typ_t    typ;
 
@@ -690,6 +692,17 @@ void PASCAL RemoveIndir (peval_t pv)
 }
 
 
+__inline HTYPE
+GetHTypeFromTindex (
+    neval_t nv,
+    CV_typ_t type
+    )
+{
+    N_EVAL_TYPDEF (nv) = THGetTypeFromIndex (N_EVAL_MOD (nv), type);
+//    DASSERT (N_EVAL_TYPDEF (nv) != 0);
+    return (N_EVAL_TYPDEF (nv));
+}
+
 
 
 /***    SetNodeType - set node flags for a type index
@@ -710,123 +723,174 @@ void PASCAL RemoveIndir (peval_t pv)
 eval_t  evalN;
 neval_t nv = &evalN;
 
-bool_t PASCAL SetNodeType (peval_t pv, CV_typ_t type)
+bool_t SetNodeType (peval_t pv, CV_typ_t type)
 {
     plfEasy         pType;
     uint            skip;
     bool_t          retflag = TRUE;
     HTYPE           hType;
     CV_typ_t        oldType;
-    ushort          call;
+    CV_call_e       call;
     CV_modifier_t   cvol;
     CV_ptrmode_e    mode;
     SYMPTR          pSym;
     static  uchar   cvptr[5] = {CV_PTR_NEAR, CV_PTR_FAR, CV_PTR_HUGE, CV_PTR_NEAR32, CV_PTR_FAR32};
+    search_t        Name;
+    psearch_t       pName = &Name;
+    eval_t          eval, savedeval;
+    peval_t         lpv     = &eval;
+    peval_t         lpsaved = &savedeval;
+    ushort          iregSav;
+    bool_t          hibyteSav;
+
+    // save static data on stack because of possible
+    // recursion while calling SearchSym
+
+    *lpsaved = *nv;
 
     // copy the node to near memory to save code space
 
-      *nv = *pv;
+    *nv = *pv;
     N_CLEAR_EVAL_FLAGS (nv);
     if (EVAL_IS_REG (pv)) {
-
         // an enregistered primitive
-          N_EVAL_IS_REG (nv) = TRUE;
+        N_EVAL_IS_REG (nv) = TRUE;
+        // save register information before clearing data
+        iregSav = EVAL_REG(pv);
+        hibyteSav = EVAL_IS_HIBYTE (pv);
     }
     else if (EVAL_IS_BPREL (pv)) {
         N_EVAL_IS_BPREL (nv) = TRUE;
-    } else if (EVAL_IS_REGREL (pv)) {
+    }
+    else if (EVAL_IS_LABEL (pv)) {    // CUDA #4067: must preserve islabel bit
+        N_EVAL_IS_LABEL (nv) = TRUE;
+    }
+    else if (EVAL_IS_REGREL (pv)) {
         N_EVAL_IS_REGREL (nv) = TRUE;
-    } else if (EVAL_IS_TLSREL( pv )) {
+    }
+    else if (EVAL_IS_TLSREL( pv )) {
         N_EVAL_IS_TLSREL (nv) = TRUE;
     }
 
-  modifier:
+modifier:
+
     oldType = N_EVAL_TYP (nv);
     N_EVAL_TYP (nv) = type;
     if (!CV_IS_PRIMITIVE (type)) {
         DASSERT (N_EVAL_MOD (nv) != 0);
-        N_EVAL_TYPDEF (nv) = THGetTypeFromIndex (N_EVAL_MOD (nv), type);
-        DASSERT (N_EVAL_TYPDEF (nv) != 0);
-        if ((hType = N_EVAL_TYPDEF (nv)) == 0) {
-            //  if the typedef handle is zero, then cannot set this data
-              return (FALSE);
+        if ((hType = GetHTypeFromTindex (nv, type)) == 0) {
+            return FALSE;
         }
     }
 
     // from this point, it is assumed that a value of FALSE is zero and
-      // the memset of the node set all bit values to FALSE
+    // the memset of the node set all bit values to FALSE
 
-        if ((type == T_NCVPTR) || (type == T_FCVPTR) || (type == T_HCVPTR)) {
-            // we are creating a special pointer to class type
+    if (CV_IS_INTERNAL_PTR (type)) {
+        // we are creating a special pointer to class type
 
-              if (oldType == T_NOTYPE) {
-                  DASSERT (FALSE);
-                  return (FALSE);
-              }
-            N_EVAL_IS_ADDR (nv) = TRUE;
-            N_EVAL_IS_PTR (nv) = TRUE;
-            N_EVAL_IS_DPTR (nv) = TRUE;
-            // N_EVAL_IS_CONST (nv) = FALSE;
-            // N_EVAL_IS_VOLATILE (nv) = FALSE;
-            // N_EVAL_IS_REF (nv) = FALSE;
-            N_PTR_UTYPE (nv) = oldType;
-
-            // The following code assumes that the ordering of the
-              // pointer modes is the same as the ordering of the CV created
-                // pointer types
-
-                  N_EVAL_PTRTYPE (nv) = cvptr[CV_MODE (type) - CV_TM_NPTR];
+        if (oldType == T_NOTYPE) {
+            DASSERT (FALSE);
+            return (FALSE);
         }
-        else if (CV_IS_PRIMITIVE (type)) {
+        N_EVAL_IS_ADDR (nv) = TRUE;
+        N_EVAL_IS_PTR (nv) = TRUE;
+        N_EVAL_IS_DPTR (nv) = TRUE;
+        // N_EVAL_IS_CONST (nv) = FALSE;
+        // N_EVAL_IS_VOLATILE (nv) = FALSE;
+        // N_EVAL_IS_REF (nv) = FALSE;
+        N_PTR_UTYPE (nv) = oldType;
 
-            //  If the type is primitive then it must reference data
+        // The following code assumes that the ordering of the
+        // pointer modes is the same as the ordering of the CV created
+        // pointer types
 
-            N_EVAL_IS_DATA (nv) = TRUE;
-            N_EVAL_IS_DPTR (nv) = TRUE;
-            if (CV_MODE (N_EVAL_TYP (nv)) != CV_TM_DIRECT) {
+        N_EVAL_PTRTYPE (nv) = cvptr[CV_MODE (type) - CV_TM_NPTR];
+    }
+    else if (CV_IS_PRIMITIVE (type)) {
 
-                //
+        //  If the type is primitive then it must reference data
+
+        N_EVAL_IS_DATA (nv) = TRUE;
+        N_EVAL_IS_DPTR (nv) = TRUE;
+
+        if (CV_TYP_IS_PTR (type)) {
+
+            // can't cast from 32 bit ptr to a 16 or vice versa
+
+            if ( EVAL_IS_PTR (pv) ) {
+                if (EVAL_PTRTYPE(pv) == CV_PTR_NEAR32 ||
+                    EVAL_PTRTYPE(pv) == CV_PTR_FAR32) {
+                    if (CV_MODE (type) < CV_TM_NPTR32) {
+                        return (FALSE);
+                    }
+                }
+                else {
+                    if (CV_MODE (type) >= CV_TM_NPTR32) {
+                        return (FALSE);
+                    }
+                }
+            }
+            else if (EVAL_IS_REG (nv) ) {
+
                 // At this point, the data union believes that this is a REG
                 // This code converts it to be a pointer
+
+                eval_t nvCopy;
+                nvCopy = *nv;
+
+                //
+                // Clear out the register fields
+                //
+                N_EVAL_REG (nv) = 0;
+
+                //
+                // Set up the pointer fields
                 //
 
-                if (EVAL_IS_REG (nv) ) {
-
-                    eval_t nvCopy;
-                    nvCopy = *nv;
-
-                    //
-                    // Clear out the register fields
-                    //
-                    N_EVAL_REG (nv) = 0;
-
-                    //
-                    // Set up the pointer fields
-                    //
-
-                    N_PTR_REG_IREG (nv) = N_EVAL_REG (&nvCopy);
-
-                }
-
-                N_EVAL_IS_PTR (nv) = TRUE;
-                N_EVAL_IS_ADDR (nv) = TRUE;
-
-                // The following code assumes that the ordering of the
-                // pointer modes is the same as the ordering of the CV created
-                // pointer types
-
-                N_EVAL_PTRTYPE (nv) = cvptr[CV_MODE (type) - CV_TM_NPTR];
+                N_PTR_REG_IREG (nv) = N_EVAL_REG (&nvCopy);
+                N_PTR_REG_HIBYTE (nv) = EVAL_IS_HIBYTE (&nvCopy);
             }
+            N_EVAL_IS_PTR (nv) = TRUE;
+            N_EVAL_IS_ADDR (nv) = TRUE;
+
+            // The following code assumes that the ordering of the
+            // pointer modes is the same as the ordering of the CV created
+            // pointer types
+
+            N_EVAL_PTRTYPE (nv) = cvptr[CV_MODE (type) - CV_TM_NPTR];
+            N_PTR_UTYPE (nv) = CV_NEWMODE(type, CV_TM_DIRECT);
         }
-        else {
-            _fmemset (&nv->data, 0, sizeof (nv->data));
-            pType = (plfEasy)(&((TYPPTR)(MHOmfLock (hType)))->leaf);
-            switch (pType->leaf) {
-              case LF_NULL:
+    }
+    else {
+        memset (&nv->data, 0, sizeof (nv->data));
+        pType = (plfEasy)(&((TYPPTR)(MHOmfLock (hType)))->leaf);
+        switch (pType->leaf) {
+            case LF_NULL:
                 break;
 
-              case LF_CLASS:
-              case LF_STRUCTURE:
+            case LF_CLASS:
+            case LF_STRUCTURE:
+                if (((plfClass)pType)->property.fwdref) {
+                    skip = offsetof (lfClass, data);
+                    RNumLeaf (((char *)(&pType->leaf)) + skip, &skip);
+                    // forward ref - look for the definition of the UDT
+                    if ((type = GetUdtDefnTindex (type, nv, ((char *)&(pType->leaf)) + skip)) == T_NOTYPE) {
+                        retflag = FALSE;
+                        break;
+                    }
+                    MHOmfUnLock (hType);
+                    if ((hType = GetHTypeFromTindex (nv, type)) == 0) {
+                        retflag = FALSE;
+                        break;
+                    }
+                    pType = (plfEasy)(&((TYPPTR)(MHOmfLock (hType)))->leaf);
+                    N_EVAL_TYP (nv) = type;
+                }
+                if (((plfClass)pType)->property.fwdref) {
+                    retflag = FALSE;
+                    break;
+                }
                 N_EVAL_IS_DATA (nv) = TRUE;
                 N_EVAL_IS_CLASS (nv) = TRUE;
                 N_CLASS_COUNT (nv) = ((plfClass)pType)->count;
@@ -835,20 +899,58 @@ bool_t PASCAL SetNodeType (peval_t pv, CV_typ_t type)
                 N_CLASS_VTSHAPE (nv) = ((plfClass)pType)->vshape;
                 N_CLASS_PROP (nv) = ((plfClass)pType)->property;
                 skip = offsetof (lfClass, data[0]);
-                N_CLASS_LEN (nv) = (ushort)RNumLeaf (((char FAR *)(&pType->leaf)) + skip, &skip);
+                N_CLASS_LEN (nv) = (ushort)RNumLeaf (((char *)(&pType->leaf)) + skip, &skip);
                 break;
 
-              case LF_UNION:
+            case LF_UNION:
+                if (((plfUnion)pType)->property.fwdref) {
+                    skip = offsetof (lfUnion, data);
+                    RNumLeaf (((char *)(&pType->leaf)) + skip, &skip);
+                    // forward ref - look for the definition of the UDT
+                    if ((type = GetUdtDefnTindex (type, nv, ((char *)&(pType->leaf)) + skip)) == T_NOTYPE) {
+                        retflag = FALSE;
+                        break;
+                    }
+                    MHOmfUnLock (hType);
+                    if ((hType = GetHTypeFromTindex (nv, type)) == 0) {
+                        retflag = FALSE;
+                        break;
+                    }
+                    pType = (plfEasy)(&((TYPPTR)(MHOmfLock (hType)))->leaf);
+                    N_EVAL_TYP (nv) = type;
+                }
+                if (((plfUnion)pType)->property.fwdref) {
+                    retflag = FALSE;
+                    break;
+                }
                 N_EVAL_IS_DATA (nv) = TRUE;
                 N_EVAL_IS_CLASS (nv) = TRUE;
                 N_CLASS_COUNT (nv) = ((plfUnion)pType)->count;
                 N_CLASS_FIELD (nv) = ((plfUnion)pType)->field;
                 N_CLASS_PROP (nv) = ((plfClass)pType)->property;
                 skip = offsetof (lfUnion, data[0]);
-                N_CLASS_LEN (nv) = (ushort)RNumLeaf (((char FAR *)(&pType->leaf)) + skip, &skip);
+                N_CLASS_LEN (nv) = (ushort)RNumLeaf (((char *)(&pType->leaf)) + skip, &skip);
                 break;
 
-              case LF_ENUM:
+            case LF_ENUM:
+                if (((plfEnum)pType)->property.fwdref) {
+                    // forward ref - look for the definition of the UDT
+                    if ((type = GetUdtDefnTindex (type, nv, (char *)&(((plfEnum)pType)->Name[0]))) == T_NOTYPE) {
+                        retflag = FALSE;
+                        break;
+                    }
+                    MHOmfUnLock (hType);
+                    if ((hType = GetHTypeFromTindex (nv, type)) == 0) {
+                        retflag = FALSE;
+                        break;
+                    }
+                    pType = (plfEasy)(&((TYPPTR)(MHOmfLock (hType)))->leaf);
+                    N_EVAL_TYP (nv) = type;
+                }
+                if (((plfEnum)pType)->property.fwdref) {
+                    retflag = FALSE;
+                    break;
+                }
                 N_EVAL_IS_ENUM (nv) = TRUE;
                 N_ENUM_COUNT (nv) = ((plfEnum)pType)->count;
                 N_ENUM_FIELD (nv) = ((plfEnum)pType)->field;
@@ -857,180 +959,153 @@ bool_t PASCAL SetNodeType (peval_t pv, CV_typ_t type)
                 break;
 
 
-              case LF_BITFIELD:
+            case LF_BITFIELD:
                 N_EVAL_IS_DATA (nv) = TRUE;
                 N_EVAL_IS_BITF (nv) = TRUE;
                 skip = 1;
 
                 // read number of bits in field
 
-                  N_BITF_LEN (nv) = ((plfBitfield)pType)->length;
+                N_BITF_LEN (nv) = ((plfBitfield)pType)->length;
                 N_BITF_POS (nv) = ((plfBitfield)pType)->position;
                 N_BITF_UTYPE (nv) = ((plfBitfield)pType)->type;
                 skip = sizeof (lfBitfield);
                 break;
 
 
-              case LF_POINTER:
-
+            case LF_POINTER:
                 if (EVAL_IS_REG (pv)) {
                     // an en-registered pointer
                     N_PTR_REG_IREG (nv) = EVAL_REG (pv);
+                    N_PTR_REG_HIBYTE (nv) = EVAL_IS_HIBYTE (pv);
                 }
                 N_EVAL_IS_ADDR (nv) = TRUE;
                 N_EVAL_IS_PTR (nv) = TRUE;
-                N_EVAL_IS_CONST (nv) = ((plfPointer)pType)->u.attr.isconst;
-                N_EVAL_IS_VOLATILE (nv) = ((plfPointer)pType)->u.attr.isvolatile;
-                mode = ((plfPointer)pType)->u.attr.ptrmode;
-                N_PTR_UTYPE (nv) = ((plfPointer)&(pType->leaf))->u.utype;
-                switch (N_EVAL_PTRTYPE (nv) = ((plfPointer)pType)->u.attr.ptrmode) {
-                  case CV_PTR_MODE_PTR:
-                    break;
-
-                  case CV_PTR_MODE_REF:
-                    N_EVAL_IS_REF (nv) = TRUE;
-                    break;
-
-                  case CV_PTR_MODE_PMEM:
-                    N_EVAL_IS_PMEMBER (nv) = TRUE;
-                    N_PTR_PMCLASS (nv) = ((plfPointer)pType)->pbase.pm.pmclass;
-                    N_PTR_PMENUM (nv) = ((plfPointer)pType)->pbase.pm.pmenum;
-                    break;
-
-                  case CV_PTR_MODE_PMFUNC:
-                    N_EVAL_IS_PMETHOD (nv) = TRUE;
-                    N_PTR_PMCLASS (nv) = ((plfPointer)pType)->pbase.pm.pmclass;
-                    N_PTR_PMENUM (nv) = ((plfPointer)pType)->pbase.pm.pmenum;
-                    break;
-
-                  default:
-                    pExState->err_num = ERR_BADOMF;
-                    retflag = FALSE;
-                    break;
-
+                N_EVAL_IS_CONST (nv) = ((plfPointer)pType)->attr.isconst;
+                N_EVAL_IS_VOLATILE (nv) = ((plfPointer)pType)->attr.isvolatile;
+                mode = ((plfPointer)pType)->attr.ptrmode;
+                N_PTR_UTYPE (nv) = ((plfPointer)&(pType->leaf))->utype;
+                if (!CV_IS_PRIMITIVE (N_PTR_UTYPE (nv))) {
+                    // Avoid leaving unresolved forward references in the
+                    // evaluation node, in order to work around context-related
+                    // problems. Resolving a fwd ref requires a symbol search
+                    // and the appropriate context may be unavailable at a later
+                    // time.
+                    CV_typ_t newindex;
+                    if (getDefnFromDecl(N_PTR_UTYPE (nv), nv, &newindex)) {
+                        N_PTR_UTYPE (nv) = newindex;
+                    }
                 }
-                switch (N_EVAL_PTRTYPE (nv) = ((plfPointer)pType)->u.attr.ptrtype) {
-                  case CV_PTR_BASE_SEG:
-                    // based on a segment.  Use the segment value from the leaf
-                      N_PTR_BSEG (nv) = ((plfPointer)pType)->pbase.bseg;
-                    break;
-
-                  case CV_PTR_BASE_VAL:
-                  case CV_PTR_BASE_SEGVAL:
-                  case CV_PTR_BASE_ADDR:
-                  case CV_PTR_BASE_SEGADDR:
-                    pSym = (SYMPTR)(&((plfPointer)pType)->pbase.Sym[0]);
-                    N_PTR_BSYMTYPE (nv) = pSym->rectyp;
-                    emiAddr (N_PTR_ADDR (nv)) = pCxt->addr.emi;
-                    switch (pSym->rectyp) {
-#if defined (ADDR_16) || defined (ADDR_MIXED)
-                      case S_BPREL16:
-                        SetAddrSeg (&N_PTR_ADDR (nv), 0);
-                        if (((BPRELPTR16)pSym)->off != 0) {
-                            SetAddrOff (&N_PTR_ADDR (nv), ((BPRELPTR16)pSym)->off);
-                            ADDR_IS_FLAT (N_PTR_ADDR (nv)) = FALSE;
-                            ADDR_IS_LI (N_PTR_ADDR (nv)) = FALSE;
-                            N_PTR_STYPE (nv) = ((BPRELPTR16)pSym)->typind;
-                        }
-                        else {
-                            // a based pointer based on a local symbol
-                              // with a BP offset of 0 means the variable
-                                // was assigned to a register and the
-                                  // expression cannot be evaluated because
-                                    // we do not know the register.
-
-                                      pExState->err_num = ERR_NOTEVALUATABLE;
-                            retflag = FALSE;
-                        }
-                        pExState->state.bprel = TRUE;
+                switch (N_EVAL_PTRTYPE (nv) = ((plfPointer)pType)->attr.ptrmode) {
+                    case CV_PTR_MODE_PTR:
                         break;
 
-                      case S_LDATA16:
-                        pExState->state.fLData = TRUE;
-                        SetAddrSeg (&N_PTR_ADDR (nv), ((DATAPTR16)pSym)->seg);
-                        SetAddrOff (&N_PTR_ADDR (nv), ((BPRELPTR16)pSym)->off);
-                        ADDR_IS_FLAT (N_PTR_ADDR (nv)) = FALSE;
-                        ADDR_IS_LI (N_PTR_ADDR (nv)) = TRUE;
-                        N_PTR_STYPE (nv) = ((DATAPTR16)pSym)->typind;
+                    case CV_PTR_MODE_REF:
+                        N_EVAL_IS_REF (nv) = TRUE;
                         break;
 
-                      case S_GDATA16:
-                        pExState->state.fGData = TRUE;
-                        SetAddrSeg (&N_PTR_ADDR (nv), ((DATAPTR16)pSym)->seg);
-                        SetAddrOff (&N_PTR_ADDR (nv), ((BPRELPTR16)pSym)->off);
-                        ADDR_IS_FLAT (N_PTR_ADDR (nv)) = FALSE;
-                        ADDR_IS_LI (N_PTR_ADDR (nv)) = TRUE;
-                        N_PTR_STYPE (nv) = ((DATAPTR16)pSym)->typind;
-                        break;
-#endif
-
-                      case S_BPREL32:
-                        SetAddrSeg (&N_PTR_ADDR (nv), 0);
-                        if (((BPRELPTR32)pSym)->off != 0) {
-                            SetAddrOff (&N_PTR_ADDR (nv), ((BPRELPTR32)pSym)->off);
-                            ADDR_IS_FLAT (N_PTR_ADDR (nv)) = TRUE;
-                            ADDR_IS_LI (N_PTR_ADDR (nv)) = FALSE;
-                            N_PTR_STYPE (nv) = ((BPRELPTR32)pSym)->typind;
-                        }
-                        else {
-                            // a based pointer based on a local symbol
-                              // with a BP offset of 0 means the variable
-                                // was assigned to a register and the
-                                  // expression cannot be evaluated because
-                                    // we do not know the register.
-
-                                      pExState->err_num = ERR_NOTEVALUATABLE;
-                            retflag = FALSE;
-                        }
-                        pExState->state.bprel = TRUE;
+                    case CV_PTR_MODE_PMEM:
+                        N_EVAL_IS_PMEMBER (nv) = TRUE;
+                        N_PTR_PMCLASS (nv) = ((plfPointer)pType)->pbase.pm.pmclass;
+                        N_PTR_PMENUM (nv) = ((plfPointer)pType)->pbase.pm.pmenum;
                         break;
 
-                      case S_LDATA32:
-                        pExState->state.fLData = TRUE;
-                        SetAddrSeg (&N_PTR_ADDR (nv), ((DATAPTR32)pSym)->seg);
-                        SetAddrOff (&N_PTR_ADDR (nv), ((BPRELPTR32)pSym)->off);
-                        ADDR_IS_FLAT (N_PTR_ADDR (nv)) = TRUE;
-                        ADDR_IS_LI (N_PTR_ADDR (nv)) = TRUE;
-                        N_PTR_STYPE (nv) = ((DATAPTR32)pSym)->typind;
+                    case CV_PTR_MODE_PMFUNC:
+                        N_EVAL_IS_PMETHOD (nv) = TRUE;
+                        N_PTR_PMCLASS (nv) = ((plfPointer)pType)->pbase.pm.pmclass;
+                        N_PTR_PMENUM (nv) = ((plfPointer)pType)->pbase.pm.pmenum;
                         break;
 
-                      case S_GDATA32:
-                        pExState->state.fGData = TRUE;
-                        SetAddrSeg (&N_PTR_ADDR (nv), ((DATAPTR32)pSym)->seg);
-                        SetAddrOff (&N_PTR_ADDR (nv), ((BPRELPTR32)pSym)->off);
-                        ADDR_IS_FLAT (N_PTR_ADDR (nv)) = TRUE;
-                        ADDR_IS_LI (N_PTR_ADDR (nv)) = TRUE;
-                        N_PTR_STYPE (nv) = ((DATAPTR32)pSym)->typind;
-                        break;
-
-                      case S_REGISTER:
-                        break;
-
-                      default:
+                    default:
                         pExState->err_num = ERR_BADOMF;
                         retflag = FALSE;
                         break;
-                    }
-                    break;
+                }
+                switch (N_EVAL_PTRTYPE (nv) = ((plfPointer)pType)->attr.ptrtype) {
+                    case CV_PTR_NEAR32:
+                    case CV_PTR_FAR32:
+                        // can't cast from 32 bit ptr to a 16 or vice versa
+                        if (EVAL_IS_PTR (pv) &&
+                            (EVAL_PTRTYPE(pv) != CV_PTR_NEAR32) &&
+                            (EVAL_PTRTYPE(pv) != CV_PTR_FAR32)
+                            ) {
+                            retflag = FALSE;
+                        }
+                        break;
 
-                  case CV_PTR_BASE_TYPE:
-                    N_PTR_BTYPE (nv) = ((plfPointer)pType)->pbase.btype.index;
-                    break;
+                    default:
+                        if (EVAL_IS_PTR (pv) &&
+                            ((EVAL_PTRTYPE(pv) == CV_PTR_NEAR32) ||
+                            (EVAL_PTRTYPE(pv) == CV_PTR_FAR32))
+                            ) {
+                            retflag = FALSE;
+                            break;
+                        }
 
-                  default:
-                    break;
+                        switch (N_EVAL_PTRTYPE (nv)) {
+                            case CV_PTR_BASE_SEG:
+                                // based on a segment.  Use the segment value from the leaf
+                                N_PTR_BSEG (nv) = ((plfPointer)pType)->pbase.bseg;
+                                break;
 
+                            case CV_PTR_BASE_VAL:
+                            case CV_PTR_BASE_SEGVAL:
+                            case CV_PTR_BASE_ADDR:
+                            case CV_PTR_BASE_SEGADDR:
+                                // We need to do an extra symbol search to find
+                                // the symbol on which the pointer is based.
+                                // The copy of the symbol record in the type
+                                // section is not good. We need to do the
+                                // extra search even if the base is bp-relative
+                                // The compiler no longer sets the correct offset
+                                // in copy of the symbol record found in the type
+                                // section.
+
+                                memset (pName, 0, sizeof (*pName));
+
+                                // initialize search_t struct
+                                // M00KLUDGE: We use the context stored
+                                // in the TM during the bind phase. This
+                                // does not work properly If the actual
+                                // base is shadowed by a local variable
+
+                                pName->pfnCmp = (PFNCMP) FNCMP;
+                                pName->pv = (peval_t) nv;
+                                pName->scope = SCP_lexical | SCP_module | SCP_global;
+                                pName->clsmask = 0;
+                                pName->CXTT = *pCxt;
+                                pName->bn = 0;
+                                pName->bnOp = 0;
+                                pName->state = SYM_init;
+
+                                pSym = (SYMPTR)(&((plfPointer)pType)->pbase.Sym);
+                                N_PTR_BSYMTYPE (nv) = pSym->rectyp;
+                                emiAddr (N_PTR_ADDR (nv)) = pCxt->addr.emi;
+
+                                if (SearchBasePtrBase(pName) != HR_found) {
+                                    pExState->err_num = ERR_NOTEVALUATABLE;
+                                    return FALSE;
+                                }
+
+                            case CV_PTR_BASE_TYPE:
+                                N_PTR_BTYPE (nv) = ((plfPointer)pType)->pbase.btype.index;
+                                break;
+
+                            default:
+                                break;
+                        }
                 }
                 SetDPtr (nv, &hType);
                 break;
 
-              case LF_ARRAY:
+            case LF_ARRAY:
                 // The CodeView information doesn't tell us whether arrays
                 // are near or far, so we always make them far.
 
                 if (EVAL_IS_REG (pv)) {
                     // an en-registered pointer
                     N_PTR_REG_IREG (nv) = EVAL_REG (pv);
+                    N_PTR_REG_HIBYTE (nv) = EVAL_IS_HIBYTE (pv);
                 }
                 N_EVAL_IS_DATA (nv) = TRUE;
                 N_EVAL_IS_ADDR (nv) = TRUE;
@@ -1038,8 +1113,19 @@ bool_t PASCAL SetNodeType (peval_t pv, CV_typ_t type)
                 N_EVAL_IS_ARRAY (nv) = TRUE;
                 N_EVAL_PTRTYPE (nv) = ADDR_IS_OFF32(*SHpADDRFrompCXT(pCxt)) ? CV_PTR_NEAR32 : CV_PTR_FAR;
                 N_PTR_UTYPE (nv) = ((plfArray)pType)->elemtype;
+                if (!CV_IS_PRIMITIVE (N_PTR_UTYPE (nv))) {
+                    // Avoid leaving unresolved forward references in the
+                    // evaluation node, in order to work around context-related
+                    // problems. Resolving a fwd ref requires a symbol search
+                    // and the appropriate context may be unavailable at a later
+                    // time.
+                    CV_typ_t newindex;
+                    if (getDefnFromDecl(N_PTR_UTYPE (nv), nv, &newindex)) {
+                        N_PTR_UTYPE (nv) = newindex;
+                    }
+                }
                 skip = offsetof (lfArray, data[0]);
-                N_PTR_ARRAYLEN (nv) = RNumLeaf (((char FAR *)(&pType->leaf)) + skip, &skip);
+                N_PTR_ARRAYLEN (nv) = RNumLeaf (((char *)(&pType->leaf)) + skip, &skip);
                 break;
 
             case LF_PROCEDURE:
@@ -1056,7 +1142,6 @@ bool_t PASCAL SetNodeType (peval_t pv, CV_typ_t type)
                 CheckFcnArgs (nv, &hType, call);
                 break;
 
-#if !defined (C_ONLY)
             case LF_MFUNCTION:
                 N_EVAL_IS_ADDR (nv) = TRUE;
                 N_EVAL_IS_FCN (nv) = TRUE;
@@ -1074,7 +1159,7 @@ bool_t PASCAL SetNodeType (peval_t pv, CV_typ_t type)
                 skip = sizeof (lfMFunc);
                 CheckFcnArgs (nv, &hType, call);
                 break;
-#endif
+
             case LF_MODIFIER:
                 cvol = ((plfModifier)pType)->attr;
                 type = ((plfModifier)pType)->type;
@@ -1106,7 +1191,16 @@ bool_t PASCAL SetNodeType (peval_t pv, CV_typ_t type)
             MHOmfUnLock (hType);
         }
     }
+
+    if (EVAL_IS_REG (nv) && EVAL_IS_PTR (nv)) {
+        // an enregistered pointer
+        // restore register information
+        N_PTR_REG_IREG (nv) = iregSav;
+        N_PTR_REG_HIBYTE (nv) = hibyteSav;
+    }
+
     *pv = *nv;
+    *nv = *lpsaved;
     return (retflag);
 }
 
@@ -1128,10 +1222,10 @@ bool_t PASCAL SetNodeType (peval_t pv, CV_typ_t type)
  */
 
 
-LOCAL void NEAR PASCAL
+LOCAL void
 CheckFcnArgs (
     neval_t nv,
-    HTYPE FAR *phType,
+    HTYPE *phType,
     CV_call_e call
     )
 {
@@ -1139,7 +1233,6 @@ CheckFcnArgs (
     ushort      skip = 0;
 
     switch(call) {
-
 
       case CV_CALL_NEAR_C:
 
@@ -1198,6 +1291,10 @@ CheckFcnArgs (
         // N_FCN_CALLERPOP (nv) = FALSE;
         break;
 
+      case CV_CALL_PPCCALL:
+        N_FCN_CALL (nv) = FCN_PPC;
+        break;
+
       case CV_CALL_MIPSCALL:
         N_FCN_CALL (nv) = FCN_MIPS;
         break;
@@ -1240,6 +1337,7 @@ CheckFcnArgs (
     }
 
     if ((N_FCN_CALL (nv) != FCN_C)      &&
+        (N_FCN_CALL (nv) != FCN_PPC)    &&
         (N_FCN_CALL (nv) != FCN_MIPS)   &&
         (N_FCN_CALL (nv) != FCN_ALPHA)  &&
         (FCN_PINDEX (nv) == T_VOID)) {
@@ -1297,7 +1395,7 @@ CheckFcnArgs (
  */
 
 
-LOCAL void NEAR PASCAL SetDPtr (neval_t nv, HTYPE FAR *phType)
+LOCAL void SetDPtr (neval_t nv, HTYPE *phType)
 {
     if (!CV_IS_PRIMITIVE (N_PTR_UTYPE (nv))) {
         MHOmfUnLock (*phType);
@@ -1330,7 +1428,7 @@ LOCAL void NEAR PASCAL SetDPtr (neval_t nv, HTYPE FAR *phType)
  */
 
 
-bool_t PASCAL LoadVal (peval_t pv)
+bool_t LoadVal (peval_t pv)
 {
     DASSERT (EVAL_STATE (pv) == EV_lvalue);
 
@@ -1351,7 +1449,7 @@ bool_t PASCAL LoadVal (peval_t pv)
  */
 
 
-long PASCAL TypeSize (peval_t pv)
+long TypeSize (peval_t pv)
 {
     if (CV_IS_PRIMITIVE (EVAL_TYP (pv))) {
         // primitive type
@@ -1370,7 +1468,7 @@ long PASCAL TypeSize (peval_t pv)
  *  Returns size in bytes of a non-primitive type.
  */
 
-long PASCAL TypeDefSize (peval_t pv)
+long TypeDefSize (peval_t pv)
 {
     long    retval;
 
@@ -1448,7 +1546,7 @@ long PASCAL TypeDefSize (peval_t pv)
  */
 
 
-int PASCAL TypeSizePrim (CV_typ_t itype)
+int TypeSizePrim (CV_typ_t itype)
 {
     if (itype == T_NOTYPE) {
         /*
@@ -1509,7 +1607,7 @@ int PASCAL TypeSizePrim (CV_typ_t itype)
  */
 
 
-bool_t PASCAL UpdateMem (peval_t pv)
+bool_t UpdateMem (peval_t pv)
 {
     SHREG   reg;
     ushort  cbVal;
@@ -1529,10 +1627,10 @@ bool_t PASCAL UpdateMem (peval_t pv)
         if (EVAL_IS_PTR (pv) && (EVAL_IS_FPTR (pv) || EVAL_IS_HPTR (pv))) {
             dummy[0] = (OFF16) EVAL_PTR_OFF (pv);
             dummy[1] = EVAL_PTR_SEG (pv);
-            return (PutDebuggeeBytes (addr, cbVal, (char FAR *)dummy, EVAL_TYP(pv)) == (UINT)cbVal);
+            return (PutDebuggeeBytes (addr, cbVal, (char *)dummy, EVAL_TYP(pv)) == (UINT)cbVal);
         }
         else {
-            return (PutDebuggeeBytes (addr, cbVal, (char FAR *)&EVAL_VAL (pv), EVAL_TYP(pv)) == (UINT)cbVal);
+            return (PutDebuggeeBytes (addr, cbVal, (char *)&EVAL_VAL (pv), EVAL_TYP(pv)) == (UINT)cbVal);
         }
     }
 
@@ -1568,7 +1666,7 @@ bool_t PASCAL UpdateMem (peval_t pv)
         // Won't work on a big-endian machine.
         //
 
-#ifdef _ALPHA_
+#if defined(TARGET_ALPHA) || defined(TARGET_PPC)
         if ( EVAL_TYP(pv) == T_REAL32 ) {
              //
              // Can't do a memory copy here because the
@@ -1581,13 +1679,13 @@ bool_t PASCAL UpdateMem (peval_t pv)
 
              f1 = EVAL_FLOAT(pv);
              d1 = f1;
-             *((ULONGLONG UNALIGNED *)&reg.u.Byte8) = *((PULONGLONG)&d1);
+             *((ULONGLONG UNALIGNED *)&reg.Byte8) = *((PULONGLONG)&d1);
         } else
 #endif
                {
              cbVal = TypeSizePrim(EVAL_TYP (pv));
 
-             memcpy(&reg.u.Byte1, &EVAL_CHAR (pv), cbVal);
+             memcpy(&reg.Byte1, &EVAL_CHAR (pv), cbVal);
         }
 
    } else if (EVAL_IS_PTR (pv) ) {
@@ -1598,7 +1696,7 @@ bool_t PASCAL UpdateMem (peval_t pv)
         // where pointers can be different lengths.
         //
 
-        memcpy(&reg.u.Byte1, &EVAL_CHAR (pv), sizeof (long));
+        memcpy(&reg.Byte1, &EVAL_CHAR (pv), sizeof (long));
 
     } else {
 
@@ -1638,10 +1736,10 @@ bool_t PASCAL UpdateMem (peval_t pv)
  *
  *      Returns nothing
  */
-void FlipBytes (uchar FAR *pval, CV_typ_t type)
+void FlipBytes (uchar *pval, CV_typ_t type)
 {
     int cbSize;
-    uchar FAR *pb, bT;
+    uchar *pb, bT;
 
     DASSERT(CV_IS_PRIMITIVE(type));
 
@@ -1680,23 +1778,23 @@ void FlipBytes (uchar FAR *pval, CV_typ_t type)
  *      This layer only exists for big-endian-target builds.
  *      (Presently, if M68K is defined.)
  */
-UINT GetDebuggeeBytes (ADDR addr, UINT cb, void FAR *pv, CV_typ_t type)
+UINT GetDebuggeeBytes (ADDR addr, UINT cb, void *pv, CV_typ_t type)
 {
     UINT retval;
 
     retval = (*pCVF->pDHGetDebuggeeBytes)(addr, cb, pv);
-    FlipBytes((uchar FAR *)pv, type);
+    FlipBytes((uchar *)pv, type);
 
     return(retval);
 }
 
-UINT PutDebuggeeBytes (ADDR addr, UINT cb, void FAR *pv, CV_typ_t type)
+UINT PutDebuggeeBytes (ADDR addr, UINT cb, void *pv, CV_typ_t type)
 {
     UINT retval;
 
-    FlipBytes((uchar FAR *)pv, type);
+    FlipBytes((uchar *)pv, type);
     retval = (*pCVF->pDHPutDebuggeeBytes)(addr, cb, pv);
-    FlipBytes((uchar FAR *)pv, type);
+    FlipBytes((uchar *)pv, type);
 
     return(retval);
 }
@@ -1724,6 +1822,205 @@ PSHREG SetReg (PSHREG pshreg, PCXT pcxt)
 
 #endif
 
+
+LOCAL __inline CV_prop_t
+GetProperty(
+    CV_typ_t type,
+    neval_t nv)
+{
+    HTYPE hType;
+    plfEasy pType;
+    CV_prop_t retval = {0};
+
+    if ((hType = GetHTypeFromTindex (nv, type)) == 0) {
+        DASSERT(FALSE);
+        return retval;
+    }
+    pType = (plfEasy)(&((TYPPTR)(MHOmfLock (hType)))->leaf);
+
+    switch (pType->leaf) {
+        case LF_CLASS:
+        case LF_STRUCTURE:
+            retval = ((plfClass)pType)->property;
+            break;
+
+        case LF_UNION:
+            retval = ((plfUnion)pType)->property;
+            break;
+
+        case LF_ENUM:
+            retval = ((plfEnum)pType)->property;
+            break;
+
+        default:
+            DASSERT(FALSE);
+    }
+
+    MHOmfUnLock(hType);
+    return retval;
+}
+
+CV_typ_t
+GetUdtDefnTindex (
+    CV_typ_t TypeIn,
+    neval_t nv,
+    char *lpStr)
+{
+    static BOOL fIn = FALSE;
+    search_t    Name;
+    eval_t      localEval = *nv;
+    CV_typ_t    tiResult = T_NOTYPE;
+    CV_prop_t   propIn, propSeek;
+
+    // recursion check
+    if (fIn)
+        return FALSE;
+    fIn = TRUE;    // set recursion guard
+
+    EVAL_TYP (&localEval) = 0;
+    EVAL_ITOK (&localEval) = 0;
+    EVAL_CBTOK (&localEval) = 0;
+
+    memset (&Name, 0, sizeof (search_t));
+    Name.initializer = INIT_sym;
+    Name.pfnCmp = (PFNCMP) FNCMP;
+    Name.pv = &localEval;
+    // Look in all scopes except class scope: if we are in a member
+    // fn of the current class, this will lead to infinite recursion
+    // as we look for class X in the scope of class X in the ...
+    Name.scope = SCP_all & ~SCP_class;
+    Name.clsmask = CLS_enumerate | CLS_ntype;
+    Name.CXTT = *pCxt;
+    Name.bn = 0;
+    Name.bnOp = 0;
+    Name.sstr.lpName = (uchar *) lpStr + 1;
+    Name.sstr.cb = *lpStr;
+    Name.state = SYM_init;
+
+    // modify search to look only for UDTs
+
+    Name.sstr.searchmask = SSTR_symboltype;
+    Name.sstr.symtype = S_UDT;
+
+    propIn = GetProperty(TypeIn, nv);
+
+    while (SearchSym (&Name) == HR_found) {
+        PopStack ();
+        if (EVAL_STATE (&localEval) == EV_type) {
+            propSeek = GetProperty(EVAL_TYP(&localEval), &localEval);
+            if ((propIn.isnested == propSeek.isnested) &&
+                (propIn.scoped == propSeek.scoped)) {
+                tiResult = EVAL_TYP (&localEval);
+                break;
+            }
+        }
+    }
+
+    fIn = FALSE; // clear recursion guard
+    return tiResult;
+}
+
+/**     GetHSYMCodeFromHSYM - Get HSYM encoded form from HSYM value
+ *
+ *      lsz = GetHSYMFromHSYMCode (hSym)
+ *
+ *      Entry   hSm = hSym to be encoded
+ *
+ *      Exit    none
+ *
+ *      Returns pointer to static buffer containing a string
+ *              representation of hSym. The encoding is merely
+ *              a conversion to a string that expresses the
+ *              hSym value in hex notation.
+ *
+ */
+
+char *
+GetHSYMCodeFromHSYM(
+    HSYM hSym)
+{
+    static char buf[HSYM_CODE_LEN + 1];
+    sprintf(buf, "%08.08lx\0", (ulong)hSym);
+    return (char *)buf;
+}
+
+/**     GetHSYMFromHSYMCode - Get HSYM from encoded HSYM string
+ *
+ *      hSym = GetHSYMFromHSYMCode (lsz)
+ *
+ *      Entry   lsz = pointer to encoded HSYM string
+ *
+ *      Exit    none
+ *
+ *      Returns hSym value
+ */
+
+HSYM
+GetHSYMFromHSYMCode(
+    char *lsz)
+{
+    unsigned long ul = 0;
+    char ch;
+    int digit;
+    int i;
+    for (i=0; i < HSYM_CODE_LEN; i++) {
+        DASSERT (isdigit (*lsz));
+        ch = *lsz++;
+        if (isdigit (ch))
+            digit = ch - '0';
+        else
+            digit = toupper(ch) - 'A' + 10;
+        ul <<= 4;
+        ul += digit;
+    }
+    return (HSYM) ul;
+}
+
+/**     fCanSubtractPtrs - Check if ptrs can be subtracted
+ *
+ *      flag = fCanSubtractPtrs (pvleft, pvright)
+ *
+ *      Entry   pvleft, pvRight = pointers to corresponding
+ *                      evaluation nodes.
+ *
+ *      Exit    none
+ *
+ *      Returns TRUE if ptr subtraction is allowed for the
+ *                      corresponding pointer types.
+ */
+
+bool_t
+fCanSubtractPtrs (
+    peval_t pvleft,
+    peval_t pvright)
+{
+    bool_t      retval = FALSE;
+    eval_t      evalL;
+    eval_t      evalR;
+    peval_t     pvL = &evalL;
+    peval_t     pvR = &evalR;
+
+    DASSERT (EVAL_IS_PTR (pvleft) && EVAL_IS_PTR (pvright));
+    DASSERT (!EVAL_IS_REF (pvleft) && !EVAL_IS_REF (pvright));
+
+    if (EVAL_TYP (pvleft) == EVAL_TYP (pvright)) {
+        retval = TRUE;
+    }
+    else if ( EVAL_PTRTYPE (pvleft) == EVAL_PTRTYPE (pvright) ) {
+        *pvL = *pvleft;
+        *pvR = *pvright;
+
+        // check the underlying types
+        // RemoveIndir will resolve fwd. references and
+        // skip modifier nodes.
+        RemoveIndir (pvL);
+        RemoveIndir (pvR);
+
+        retval = ( EVAL_TYP (pvL) == EVAL_TYP (pvR) );
+    }
+
+    return retval;
+}
 
 #if MEMDBG
 

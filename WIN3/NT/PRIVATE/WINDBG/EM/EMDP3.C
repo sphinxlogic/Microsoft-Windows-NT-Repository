@@ -36,26 +36,31 @@ extern const unsigned CRgfd;
 // in a list bound to the hprc.
 //
 static EXCEPTION_DESCRIPTION DefaultExceptionList[] = {
-    {EXCEPTION_ACCESS_VIOLATION,        efdStop,  "Access Violation"},
-    {EXCEPTION_DATATYPE_MISALIGNMENT,   efdStop,  "Data Misalignment"},
-    {EXCEPTION_ARRAY_BOUNDS_EXCEEDED,   efdStop,  "Array Bounds Exceeded"},
-    {EXCEPTION_FLT_DENORMAL_OPERAND,    efdStop,  "FP Denormal Operand"},
-    {EXCEPTION_FLT_DIVIDE_BY_ZERO,      efdStop,  "FP Divide by Zero"},
-    {EXCEPTION_FLT_INEXACT_RESULT,      efdStop,  "FP Inexact Result"},
-    {EXCEPTION_FLT_INVALID_OPERATION,   efdStop,  "FP Invalid Operation"},
-    {EXCEPTION_FLT_OVERFLOW,            efdStop,  "FP Overflow"},
-    {EXCEPTION_FLT_STACK_CHECK,         efdStop,  "FP Stack Check"},
-    {EXCEPTION_FLT_UNDERFLOW,           efdStop,  "FP Underflow"},
-    {EXCEPTION_INT_DIVIDE_BY_ZERO,      efdStop,  "Int Divide by zero"},
-    {EXCEPTION_INT_OVERFLOW,            efdStop,  "Int Overflow"},
-    {EXCEPTION_PRIV_INSTRUCTION,        efdStop,  "Insufficient Privilege"},
-    {EXCEPTION_IN_PAGE_ERROR,           efdStop,  "I/O Error in Paging"},
-    {EXCEPTION_ILLEGAL_INSTRUCTION,     efdStop,  "Illegal Instruction"},
-    {EXCEPTION_NONCONTINUABLE_EXCEPTION,efdStop,  "Noncontinuable Exception"},
-    {EXCEPTION_STACK_OVERFLOW,          efdStop,  "Stack Overflow"},
-    {EXCEPTION_INVALID_DISPOSITION,     efdStop,  "Invalid Disposition"},
-    {DBG_CONTROL_C,                     efdStop,  "Control-C break"},
-    {(DWORD)NULL,                       efdStop,  "Unknown"},
+    {EXCEPTION_ACCESS_VIOLATION,        efdStop,   "Access Violation"},
+    {EXCEPTION_DATATYPE_MISALIGNMENT,   efdStop,   "Data Misalignment"},
+    {EXCEPTION_ARRAY_BOUNDS_EXCEEDED,   efdStop,   "Array Bounds Exceeded"},
+    {EXCEPTION_FLT_DENORMAL_OPERAND,    efdStop,   "FP Denormal Operand"},
+    {EXCEPTION_FLT_DIVIDE_BY_ZERO,      efdStop,   "FP Divide by Zero"},
+    {EXCEPTION_FLT_INEXACT_RESULT,      efdStop,   "FP Inexact Result"},
+    {EXCEPTION_FLT_INVALID_OPERATION,   efdStop,   "FP Invalid Operation"},
+    {EXCEPTION_FLT_OVERFLOW,            efdStop,   "FP Overflow"},
+    {EXCEPTION_FLT_STACK_CHECK,         efdStop,   "FP Stack Check"},
+    {EXCEPTION_FLT_UNDERFLOW,           efdStop,   "FP Underflow"},
+    {EXCEPTION_INT_DIVIDE_BY_ZERO,      efdStop,   "Int Divide by zero"},
+    {EXCEPTION_INT_OVERFLOW,            efdStop,   "Int Overflow"},
+    {EXCEPTION_PRIV_INSTRUCTION,        efdStop,   "Insufficient Privilege"},
+    {EXCEPTION_IN_PAGE_ERROR,           efdStop,   "I/O Error in Paging"},
+    {EXCEPTION_ILLEGAL_INSTRUCTION,     efdStop,   "Illegal Instruction"},
+    {EXCEPTION_NONCONTINUABLE_EXCEPTION,efdStop,   "Noncontinuable Exception"},
+    {EXCEPTION_STACK_OVERFLOW,          efdStop,   "Stack Overflow"},
+    {EXCEPTION_INVALID_DISPOSITION,     efdStop,   "Invalid Disposition"},
+    {RPC_S_OUT_OF_RESOURCES,            efdNotify, "RPC Out Of Resources"},
+    {RPC_S_SERVER_UNAVAILABLE,          efdNotify, "RPC Server Unavailable"},
+    {RPC_S_SERVER_TOO_BUSY,             efdNotify, "RPC Server Too Busy"},
+    {DBG_CONTROL_C,                     efdStop,   "Control-C break"},
+    {0xE06d7363,                        efdNotify, "Microsoft C++ EH Exception"},
+    {(DWORD)STATUS_NO_MEMORY,           efdStop,   "No Memory"},
+    {(DWORD)NULL,                       efdStop,   "Unknown"},
 };
 
 
@@ -277,11 +282,11 @@ Return Value:
           //
           // Invalidate cache for some items:
           //
+          case mtrcProcessorType:
+          case mtrcProcessorLevel:
           case mtrcOSVersion:
             lpprc->fDmiCache = FALSE;
 
-          case mtrcProcessorType:
-          case mtrcProcessorLevel:
           case mtrcEndian:
           case mtrcThreads:
           case mtrcAsync:
@@ -373,6 +378,8 @@ Return Value:
 
 #if defined(TARGET_i386)
         *( (LPDWORD) lpl) = TRUE;
+#elif defined(TARGET_PPC)
+        *( (LPDWORD) lpl) = FALSE;
 #elif defined(TARGET_MIPS)
         *( (LPDWORD) lpl) = FALSE;
 #elif defined(TARGET_ALPHA)
@@ -836,7 +843,7 @@ GetModuleList(
             //
             _splitpath( Name, NULL, NULL, ModName, ModExt );
 
-            if (stricmp(WantedName, ModName) || stricmp(WantedExt, ModExt) ) {
+            if (_stricmp(WantedName, ModName) || _stricmp(WantedExt, ModExt) ) {
                 continue;
             }
         }
@@ -1018,7 +1025,7 @@ DoCustomCommand(
     *p = '\0';
 
     //
-    // this is where you would stricmp() for your custom em command
+    // this is where you would _stricmp() for your custom em command
     // otherwise it is passed to the dm
     //
 

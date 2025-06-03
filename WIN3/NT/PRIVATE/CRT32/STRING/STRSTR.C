@@ -11,6 +11,7 @@
 *			copyright.
 *	08-14-90   SBM	Removed now redundant #include <stddef.h>
 *	10-02-90   GJF	New-style function declarator.
+*	03-14-94   GJF	If string2 is empty, return string1.
 *
 *******************************************************************************/
 
@@ -44,6 +45,9 @@ char * _CALLTYPE1 strstr (
 {
 	char *cp = (char *) str1;
 	char *s1, *s2;
+
+	if ( !*str2 )
+	    return(str1);
 
 	while (*cp)
 	{

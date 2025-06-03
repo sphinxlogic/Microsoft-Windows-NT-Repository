@@ -58,7 +58,7 @@ PWSTR StrServerDevice = SERVER_DEVICE_NAME;
 PSTR StrLogonProcessName = "LAN Manager Server";
 PSTR StrLogonPackageName = MSV1_0_PACKAGE_NAME;
 
-PWSTR StrStarDotStar = L"*.*";
+WCHAR StrStarDotStar[] = L"*.*";
 
 PSTR StrTransportAddress = TdiTransportAddress;
 PSTR StrConnectionContext = TdiConnectionContext;
@@ -81,8 +81,18 @@ PWSTR StrRegOsVersionPath = L"\\Registry\\Machine\\Software\\Microsoft\\Windows 
 PWSTR StrRegVersionKeyName = L"CurrentVersion";
 
 PWSTR StrRegSrvParameterPath = L"\\Registry\\Machine\\System\\CurrentControlSet\\Services\\LanmanServer\\Parameters";
+PWSTR StrRegExtendedCharsInPath = L"\\Registry\\Machine\\System\\CurrentControlSet\\Control\\FileSystem";
+PWSTR StrRegExtendedCharsInPathValue = L"NtfsAllowExtendedCharacterIn8dot3Name";
 PWSTR StrRegNullSessionPipes = L"NullSessionPipes";
 PWSTR StrRegNullSessionShares = L"NullSessionShares";
+PWSTR StrRegPipesNeedLicense = L"PipesNeedLicense";
+
+#ifdef  SRV_PNP_POWER
+PWSTR StrRegSrvBindingsPath  = L"\\Registry\\Machine\\System\\CurrentControlSet\\Services\\LanmanServer\\Linkage";
+PWSTR StrRegTransportBindingList = L"Bind";
+#endif
+
+PWSTR StrRegErrorLogIgnore = L"ErrorLogIgnore";
 
 //
 // Pipes that are accessible by the NULL session.
@@ -109,6 +119,78 @@ PWSTR StrDefaultNullSessionShares[] = {
     NULL
 };
 
+//
+// DOS device names that can not be accessed by clients
+//
+UNICODE_STRING SrvDosDevices[] = {
+    { 8, 8, L"LPT1"},
+    { 8, 8, L"LPT2"},
+    { 8, 8, L"LPT3"},
+    { 8, 8, L"LPT4"},
+    { 8, 8, L"LPT5"},
+    { 8, 8, L"LPT6"},
+    { 8, 8, L"LPT7"},
+    { 8, 8, L"LPT8"},
+    { 8, 8, L"LPT9"},
+    { 8, 8, L"COM1"},
+    { 8, 8, L"COM2"},
+    { 8, 8, L"COM3"},
+    { 8, 8, L"COM4"},
+    { 8, 8, L"COM5"},
+    { 8, 8, L"COM6"},
+    { 8, 8, L"COM7"},
+    { 8, 8, L"COM8"},
+    { 8, 8, L"COM9"},
+    { 6, 6, L"PRN" },
+    { 6, 6, L"AUX" },
+    { 6, 6, L"NUL" },
+    { 6, 6, L"CON" },
+    { 12, 12, L"CLOCK$" },
+    {0}
+};
+
+//
+// Pipes that require a license from the license server.
+//
+STATIC
+PWSTR StrDefaultPipesNeedLicense[] = {
+    L"spoolss",
+    NULL
+};
+
+//
+// Error codes that should not be logged
+//
+STATIC
+PWSTR StrDefaultErrorLogIgnore[] = {
+    L"C0000001",    //STATUS_UNSUCCESSFUL
+    L"C000013B",    //STATUS_LOCAL_DISCONNECT
+    L"C000013C",    //STATUS_REMOTE_DISCONNECT
+    L"C000013E",    //STATUS_LINK_FAILED
+    L"C000013F",    //STATUS_LINK_TIMEOUT
+    L"C00000B0",    //STATUS_PIPE_DISCONNECTED
+    L"C00000B1",    //STATUS_PIPE_CLOSING
+    L"C0000121",    //STATUS_CANNOT_DELETE
+    L"C00000B5",    //STATUS_IO_TIMEOUT
+    L"C0000120",    //STATUS_CANCELLED
+    L"C0000034",    //STATUS_OBJECT_NAME_NOT_FOUND
+    L"C000003A",    //STATUS_OBJECT_PATH_NOT_FOUND
+    L"C0000022",    //STATUS_ACCESS_DENIED
+    L"C000013B",    //STATUS_LOCAL_DISCONNECT
+    L"C000013C",    //STATUS_REMOTE_DISCONNECT
+    L"C000013E",    //STATUS_LINK_FAILED
+    L"C000020C",    //STATUS_CONNECTION_DISCONNECTED
+    L"C0000241",    //STATUS_CONNECTION_ABORTED
+    L"C0000140",    //STATUS_INVALID_CONNECTION
+    L"C000023A",    //STATUS_CONNECTION_INVALID
+    L"C000020D",    //STATUS_CONNECTION_RESET
+    L"C00000B5",    //STATUS_IO_TIMEOUT
+    L"C000023C",    //STATUS_NETWORK_UNREACHABLE
+    L"C0000120",    //STATUS_CANCELLED
+    L"C000013F",    //STATUS_LINK_TIMEOUT
+    L"C0000008",    //STATUS_INVALID_HANDLE
+    0
+};
 
 //
 // StrDialects[] holds ASCII strings corresponding to the dialects
@@ -119,9 +201,7 @@ PWSTR StrDefaultNullSessionShares[] = {
 
 STATIC
 PSTR StrDialects[] = {
-#ifdef _CAIRO_
     CAIROX,                         // Cairo
-#endif // _CAIRO_
     NTLANMAN,                       // NT LanMan
     LANMAN21,                       // OS/2 LanMan 2.1
     DOSLANMAN21,                    // DOS LanMan 2.1
@@ -132,7 +212,7 @@ PSTR StrDialects[] = {
     MSNET103,                       // Limited subset of LanMan extensions
     PCLAN1,                         // Alternate original protocol
     PCNET1,                         // Original protocol
-    "ILLEGAL"
+    "ILLEGAL",
 };
 
 //
@@ -141,9 +221,7 @@ PSTR StrDialects[] = {
 
 STATIC
 PWSTR StrClientTypes[] = {
-#ifdef _CAIRO_
     L"Cairo",
-#endif // _CAIRO_
     L"NT",
     L"OS/2 LM 2.1",
     L"DOS LM 2.1",
@@ -158,18 +236,18 @@ PWSTR StrClientTypes[] = {
 PWSTR StrWriteAndX = L"WriteAndX";
 #endif
 
-PWSTR StrQuestionMarks = L"????????.???";
+WCHAR StrQuestionMarks[] = L"????????.???";
 
 PWSTR StrFsCdfs = FS_CDFS;
 PWSTR StrFsFat = FS_FAT;
 
 PWSTR StrNativeOsPrefix =         L"Windows NT ";
 
-PWSTR StrDefaultNativeOs =        L"Windows NT 3.50";
-PSTR  StrDefaultNativeOsOem =      "Windows NT 3.50";
+PWSTR StrDefaultNativeOs =        L"Windows NT 4.0";
+PSTR  StrDefaultNativeOsOem =      "Windows NT 4.0";
 
-PWSTR StrNativeLanman =         L"NT LAN Manager 3.5";
-PSTR  StrNativeLanmanOem =       "NT LAN Manager 3.5";
+PWSTR StrNativeLanman =         L"NT LAN Manager 4.0";
+PSTR  StrNativeLanmanOem =       "NT LAN Manager 4.0";
 
 //
 // Table of service name strings.  This table corresponds to the

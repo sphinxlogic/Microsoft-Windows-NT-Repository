@@ -76,10 +76,7 @@ typedef char *va_list;
 #define va_arg(ap,t)    ( *(t *)((ap += _INTSIZEOF(t)) - _INTSIZEOF(t)) )
 #define va_end(ap) ap = (va_list)0
 
-#endif
-
-
-#ifdef _M_MRX000
+#elif defined(_M_MRX000)
 
 #define va_dcl int va_alist;
 #define va_start(list) list = (char *) &va_alist
@@ -94,7 +91,39 @@ typedef char *va_list;
     use a pointer for array types
     +++++++++++++++++++++++++++++++++++++++++++ */
 
-#endif
+#elif defined(_M_PPC)
+
+/*
+ * define a macro to compute the size of a type, variable or expression,
+ * rounded up to the nearest multiple of sizeof(int). This number is its
+ * size as function argument (PPC architecture). Note that the macro
+ * depends on sizeof(int) being a power of 2!
+ */
+/* this is for LITTLE-ENDIAN PowerPC */
+
+/* bytes that a type occupies in the argument list */
+#define _INTSIZEOF(n)   ( (sizeof(n) + sizeof(int) - 1) & ~(sizeof(int) - 1) )
+/* return 'ap' adjusted for type 't' in arglist */
+#define	_ALIGNIT(ap,t) \
+	((((int)(ap))+(sizeof(t)<8?3:7)) & (sizeof(t)<8?~3:~7))
+
+#define va_dcl va_list va_alist;
+#define va_start(ap) ap = (va_list)&va_alist
+#define va_arg(ap,t)    ( *(t *)((ap = (char *) (_ALIGNIT(ap, t) + _INTSIZEOF(t))) - _INTSIZEOF(t)) )
+#define va_end(ap) ap = (va_list)0
+
+#else
+
+/* A guess at the proper definitions for other platforms */
+
+#define _INTSIZEOF(n)	 ( (sizeof(n) + sizeof(int) - 1) & ~(sizeof(int) - 1) )
+
+#define va_dcl va_list va_alist;
+#define va_start(ap) ap = (va_list)&va_alist
+#define va_arg(ap,t) ( *(t *)((ap += _INTSIZEOF(t)) - _INTSIZEOF(t)) )
+#define va_end(ap) ap = (va_list)0
+
+#endif  // MIPS/X86/PPC
 
 
 #endif  /* _M_ALPHA */

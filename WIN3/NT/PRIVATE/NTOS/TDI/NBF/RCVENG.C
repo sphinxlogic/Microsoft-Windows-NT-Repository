@@ -271,6 +271,7 @@ Return Value:
             );
 
     } else {
+        KIRQL cancelIrql;
 
         if (EndOfMessage) {
 
@@ -289,6 +290,7 @@ Return Value:
             // completed.
             //
 
+            IoAcquireCancelSpinLock(&cancelIrql);
             ACQUIRE_DPC_SPIN_LOCK (Connection->LinkSpinLock);
 
             Connection->DeferredFlags |=
@@ -321,6 +323,7 @@ Return Value:
 
             ActivateReceive (Connection);
 
+            IoAcquireCancelSpinLock(&cancelIrql);
             ACQUIRE_DPC_SPIN_LOCK (Connection->LinkSpinLock);
 
         }
@@ -346,6 +349,14 @@ Return Value:
 
             ASSERT ((Connection->Flags2 & CONNECTION_FLAGS2_STOPPING) != 0);
 
+            //
+            // Release the cancel spinlock out of order. Since we were
+            // already at DPC level when it was acquired, there is no
+            // need to swap irqls.
+            //
+            ASSERT(cancelIrql == DISPATCH_LEVEL);
+            IoReleaseCancelSpinLock(cancelIrql);
+
         } else {
 
             Connection->Flags &= ~CONNECTION_FLAGS_ACTIVE_RECEIVE;
@@ -364,12 +375,15 @@ Return Value:
             p = RemoveHeadList (&Connection->ReceiveQueue);
             Irp = CONTAINING_RECORD (p, IRP, Tail.Overlay.ListEntry);
 
-            //
-            // OK to do this without the cancel lock because we
-            // hold the connection lock, which synchronizes us.
-            //
+            IoSetCancelRoutine(Irp, NULL);
 
-            Irp->CancelRoutine = (PDRIVER_CANCEL)NULL;
+            //
+            // Release the cancel spinlock out of order. Since we were
+            // already at DPC level when it was acquired, there is no
+            // need to swap irqls.
+            //
+            ASSERT(cancelIrql == DISPATCH_LEVEL);
+            IoReleaseCancelSpinLock(cancelIrql);
 
             //
             // If this request should generate no back traffic, then
@@ -416,6 +430,9 @@ Return Value:
 #endif
             ++Connection->ReceivedTsdus;
 
+            //
+            // This can be called with locks held.
+            //
             NbfCompleteReceiveIrp(
                 Irp,
                 EndOfMessage ? STATUS_SUCCESS : STATUS_BUFFER_OVERFLOW,
@@ -423,9 +440,6 @@ Return Value:
 
         }
 
-        //
-        // NOTE: The connection lock is held here.
-        //
 
         //
         // If NOT_Q is still set, that means that the deferred ack was

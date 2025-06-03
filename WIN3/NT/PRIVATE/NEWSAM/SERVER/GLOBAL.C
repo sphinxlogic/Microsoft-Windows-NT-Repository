@@ -268,3 +268,37 @@ LONG   SampFlushThreadExitDelaySeconds;
 
 PSID SampBuiltinDomainSid = NULL;
 PSID SampAccountDomainSid = NULL;
+
+//
+// Null token handle.  This is used when clients connect via unauthenticated
+// RPC instead of authenticated RPC or named pipes.  Since they can't be
+// authenticated, we impersonate this pre-built Null sesssion token.
+//
+
+HANDLE SampNullSessionToken;
+
+//
+// Flag indicating whether Netware server installed.
+//
+
+BOOLEAN SampNetwareServerInstalled = FALSE;
+
+//
+// Flag indicating whether to start listening on TCP/IP
+//
+
+BOOLEAN SampIpServerInstalled = FALSE;
+
+//
+// Flag indicating whether to start listening on apple talk
+//
+
+BOOLEAN SampAppletalkServerInstalled = FALSE;
+
+//
+// Flag indicating whether to start listening on Vines
+//
+
+BOOLEAN SampVinesServerInstalled = FALSE;
+
+

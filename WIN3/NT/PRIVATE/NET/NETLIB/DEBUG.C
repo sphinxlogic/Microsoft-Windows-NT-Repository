@@ -57,7 +57,6 @@ Revision History:
 
 #if !DBG
 #undef NetpAssertFailed
-#undef NetpDbgPrint
 #undef NetpHexDump
 #endif
 
@@ -70,11 +69,13 @@ NetpAssertFailed(
     )
 
 {
+#if DBG
     RtlAssert(
             FailedAssertion,
             FileName,
             (ULONG) LineNumber,
             (PCHAR) Message);
+#endif
     /* NOTREACHED */
 
 } // NetpAssertFailed

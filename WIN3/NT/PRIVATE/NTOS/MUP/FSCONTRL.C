@@ -100,8 +100,14 @@ Return Value:
 
         default:
 
-            MupCompleteRequest( Irp, STATUS_INVALID_PARAMETER );
-            status = STATUS_INVALID_PARAMETER;
+            if (MupEnableDfs) {
+                status = DfsFsdFileSystemControl(
+                            (PDEVICE_OBJECT) MupDeviceObject,
+                            Irp);
+            } else {
+                status = STATUS_INVALID_PARAMETER;
+                MupCompleteRequest(Irp, STATUS_INVALID_PARAMETER);
+            }
 
         }
 

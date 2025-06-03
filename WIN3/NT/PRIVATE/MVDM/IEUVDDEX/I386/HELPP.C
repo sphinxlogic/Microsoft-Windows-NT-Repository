@@ -64,11 +64,6 @@ Return Value:
     (*Print)("\tCauses profiling to start\n");
     (*Print)("pstop\n");
     (*Print)("\tCauses profiling to stop\n");
-    (*Print)("sel <selector number> [number of selectors]\n");
-    (*Print)("\tDumps contents of LDT selectors starting with\n");
-    (*Print)("\t<selector number>.  If [number of selectors] is specified\n");
-    (*Print)("\tthat number of selectors is dumped.  If not, 10h selectors\n");
-    (*Print)("\tare dumped\n");
     (*Print)("vdmtib [address]\n");
     (*Print)("\tIf [address] is present, it is used as the address of the\n");
     (*Print)("\tVdmTib.  If not, the address of the VdmTib is looked up\n");

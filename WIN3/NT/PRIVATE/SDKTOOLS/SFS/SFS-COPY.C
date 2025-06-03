@@ -58,6 +58,11 @@
   extern QUAD OneFrameSize;
   extern BYTE FrameIndex;
   extern BYTE CreateFlag;
+  extern HANDLE LastReadHandle;
+  extern ULONG  LastReadOffset;
+  extern ULONG  LastReadCount;
+  extern BYTE   LastReadName[];
+  extern BYTE   DebugBuffer[];
 
   static FCB_File * FCB_FileChainEntryPoint;
   static FCB_File * FCB_FileTrackPointer;
@@ -331,7 +336,9 @@
            NotifyAndActAsProper ( ErrorCloseHandle );
         }
       else
-	f -> FileStatus ^= FileOpen;
+        {
+          f -> FileStatus ^= FileOpen;
+        }
 
       return;
    }
@@ -346,38 +353,38 @@
       c = ( CCB_CollateFile * ) h;
 
       if ( f = SfsOpenFile ( c -> FileExtrinsicKey ) )
-	{
-	   if ( c -> RecordSize )
-	     RecordSize = c -> RecordSize;
-	   else
-	     if ( f -> RecordSize )
-	       RecordSize = f -> RecordSize;
-	     else
-	       RecordSize = K;
+        {
+           if ( c -> RecordSize )
+             RecordSize = c -> RecordSize;
+           else
+             if ( f -> RecordSize )
+               RecordSize = f -> RecordSize;
+             else
+               RecordSize = K;
 
-	     if ( RecordSize > OneFrameSize )
-	       NotifyAndActAsProper ( ErrorImproperRecordSpan );
+             if ( RecordSize > OneFrameSize )
+               NotifyAndActAsProper ( ErrorImproperRecordSpan );
 
-	     f -> BytesToBeRead = RecordSize;
-	     f -> FileSpanRead = Zero;
+             f -> BytesToBeRead = RecordSize;
+             f -> FileSpanRead = Zero;
 
-	     PatternIndex = c -> PatternIndex;
-	     CreateRecords ( PatternIndex, RecordSize );
+             PatternIndex = c -> PatternIndex;
+             CreateRecords ( PatternIndex, RecordSize );
 
-	     while ( Set )
-	       {
+             while ( Set )
+               {
                   SfsReadFile ( f );
-		  if ( f -> BytesRead )
-		    {
-		       CreateNextRecord ();
-		       CollateRecords ();
-		    }
-		  else
-		    break;
-	       }
+                  if ( f -> BytesRead )
+                    {
+                       CreateNextRecord ();
+                       CollateRecords ();
+                    }
+                  else
+                    break;
+               }
 
-	   CloseFile ( f );
-	}
+           CloseFile ( f );
+        }
       return;
    }
 
@@ -391,67 +398,67 @@
       c = ( CCB_Utility * ) h;
 
       if ( s = SfsOpenFile ( c -> SourceExtrinsicKey ) )
-	{
+        {
            if ( t = SfsOpenFile ( c -> TargetExtrinsicKey ) )
-	     {
-		if ( c -> RecordSize )
-		  RecordSize = c -> RecordSize;
-		else if ( s -> RecordSize )
-		  RecordSize = s -> RecordSize;
-		else if ( t -> RecordSize )
-		  RecordSize = t -> RecordSize;
-		else
-		  RecordSize = K;
+             {
+                if ( c -> RecordSize )
+                  RecordSize = c -> RecordSize;
+                else if ( s -> RecordSize )
+                  RecordSize = s -> RecordSize;
+                else if ( t -> RecordSize )
+                  RecordSize = t -> RecordSize;
+                else
+                  RecordSize = K;
 
-		if ( RecordSize > OneFrameSize )
-		  NotifyAndActAsProper ( ErrorImproperRecordSpan );
+                if ( RecordSize > OneFrameSize )
+                  NotifyAndActAsProper ( ErrorImproperRecordSpan );
 
-		s -> BytesToBeRead = RecordSize;
-		t -> BytesToBeRead = RecordSize;
+                s -> BytesToBeRead = RecordSize;
+                t -> BytesToBeRead = RecordSize;
 
-		s -> FileSpanRead = Zero;
-		t -> FileSpanRead = Zero;
+                s -> FileSpanRead = Zero;
+                t -> FileSpanRead = Zero;
 
-		CreateFlagStatus = CreateFlag;
-		CreateFlag = Reset;
+                CreateFlagStatus = CreateFlag;
+                CreateFlag = Reset;
 
-		while ( Set )
-		  {
+                while ( Set )
+                  {
                      SfsReadFile ( s );
                      SfsReadFile ( t );
 
-		     if ( s -> BytesRead == t -> BytesRead )
-		       {
-			  if ( s -> BytesRead )
-			    CollateRecords ();
-			  else
-			    break;
-		       }
-		     else
-		       if ( s -> BytesRead > t -> BytesRead )
-			 {
-			    NotifyAndActAsProper ( ErrorSourceFileLonger );
-			    if ( t -> BytesRead )
-			      CollateRecords ();
-			    while ( s -> BytesRead )
+                     if ( s -> BytesRead == t -> BytesRead )
+                       {
+                          if ( s -> BytesRead )
+                            CollateRecords ();
+                          else
+                            break;
+                       }
+                     else
+                       if ( s -> BytesRead > t -> BytesRead )
+                         {
+                            NotifyAndActAsProper ( ErrorSourceFileLonger );
+                            if ( t -> BytesRead )
+                              CollateRecords ();
+                            while ( s -> BytesRead )
                               SfsReadFile ( s );
-			    break;
-			 }
-		       else
-			 {
-			    NotifyAndActAsProper ( ErrorTargetFileLonger );
-			    if ( s -> BytesRead )
-			      CollateRecords ();
-			    while ( t -> BytesRead )
+                            break;
+                         }
+                       else
+                         {
+                            NotifyAndActAsProper ( ErrorTargetFileLonger );
+                            if ( s -> BytesRead )
+                              CollateRecords ();
+                            while ( t -> BytesRead )
                               SfsReadFile ( t );
-			    break;
-			 }
-		  }
-		CreateFlag = CreateFlagStatus;
-		CloseFile ( t );
-	     }
-	   CloseFile ( s );
-	}
+                            break;
+                         }
+                  }
+                CreateFlag = CreateFlagStatus;
+                CloseFile ( t );
+             }
+           CloseFile ( s );
+        }
       return;
    }
 
@@ -465,43 +472,43 @@
       c = ( CCB_Utility * ) h;
 
       if ( s = SfsOpenFile ( c -> SourceExtrinsicKey ) )
-	{
+        {
            if ( t = SfsOpenFile ( c -> TargetExtrinsicKey ) )
-	     {
-		if ( c -> RecordSize )
-		  RecordSize = c -> RecordSize;
-		else if ( s -> RecordSize )
-		  RecordSize = s -> RecordSize;
-		else if ( t -> RecordSize )
-		  RecordSize = t -> RecordSize;
-		else
-		  RecordSize = K;
+             {
+                if ( c -> RecordSize )
+                  RecordSize = c -> RecordSize;
+                else if ( s -> RecordSize )
+                  RecordSize = s -> RecordSize;
+                else if ( t -> RecordSize )
+                  RecordSize = t -> RecordSize;
+                else
+                  RecordSize = K;
 
-		if ( RecordSize > OneFrameSize )
-		  NotifyAndActAsProper ( ErrorImproperRecordSpan );
+                if ( RecordSize > OneFrameSize )
+                  NotifyAndActAsProper ( ErrorImproperRecordSpan );
 
-		Count = c -> Count;
+                Count = c -> Count;
 
-		CreateFlagStatus = CreateFlag;
-		CreateFlag = Reset;
+                CreateFlagStatus = CreateFlag;
+                CreateFlag = Reset;
 
-		SetCollateFilesBoundaries ( s, t );
+                SetCollateFilesBoundaries ( s, t );
 
-		if ( Records )
-		  while ( Count -- )
-		    {
-		       GetReadyForNextFileRecords ( s, t );
+                if ( Records )
+                  while ( Count -- )
+                    {
+                       GetReadyForNextFileRecords ( s, t );
                        SfsReadFile ( s );
                        SfsReadFile ( t );
-		       CollateRecords ();
-		    }
-		else
-		  NotifyAndActAsProper ( ErrorNothingToCollate );
-		CreateFlag = CreateFlagStatus;
-		CloseFile ( t );
-	     }
-	   CloseFile ( s );
-	}
+                       CollateRecords ();
+                    }
+                else
+                  NotifyAndActAsProper ( ErrorNothingToCollate );
+                CreateFlag = CreateFlagStatus;
+                CloseFile ( t );
+             }
+           CloseFile ( s );
+        }
       return;
    }
 
@@ -515,38 +522,38 @@
       c = ( CCB_CollateFile * ) h;
 
       if ( f = SfsOpenFile ( c -> FileExtrinsicKey ) )
-	{
-	   if ( c -> RecordSize )
-	     RecordSize = c -> RecordSize;
-	   else
-	     if ( f -> RecordSize )
-	       RecordSize = f -> RecordSize;
-	     else
-	       RecordSize = K;
+        {
+           if ( c -> RecordSize )
+             RecordSize = c -> RecordSize;
+           else
+             if ( f -> RecordSize )
+               RecordSize = f -> RecordSize;
+             else
+               RecordSize = K;
 
-	   if ( RecordSize > OneFrameSize )
-	     NotifyAndActAsProper ( ErrorImproperRecordSpan );
+           if ( RecordSize > OneFrameSize )
+             NotifyAndActAsProper ( ErrorImproperRecordSpan );
 
-	   Count = c -> Count;
+           Count = c -> Count;
 
-	   SetCollateFileBoundaries ( f );
+           SetCollateFileBoundaries ( f );
 
-	   PatternIndex = c -> PatternIndex;
-	   CreateRecords ( PatternIndex, RecordSize );
+           PatternIndex = c -> PatternIndex;
+           CreateRecords ( PatternIndex, RecordSize );
 
-	   if ( Records )
-	     while ( Count -- )
-	       {
-		  GetReadyForNextFileRecord ( f );
+           if ( Records )
+             while ( Count -- )
+               {
+                  GetReadyForNextFileRecord ( f );
                   SfsReadFile ( f );
-		  CreateRecord ( NewRecord + 1 );
-		  CollateRecords ();
-	       }
-	   else
-	     NotifyAndActAsProper ( ErrorNothingToCollate );
+                  CreateRecord ( NewRecord + 1 );
+                  CollateRecords ();
+               }
+           else
+             NotifyAndActAsProper ( ErrorNothingToCollate );
 
-	   CloseFile ( f );
-	}
+           CloseFile ( f );
+        }
       return;
    }
 
@@ -560,44 +567,44 @@
       c = ( CCB_Utility * ) h;
 
       if ( s = SfsOpenFile ( c -> SourceExtrinsicKey ) )
-	{
+        {
            if ( t = SfsOpenFile ( c -> TargetExtrinsicKey ) )
-	     {
-		if ( c -> RecordSize )
-		  RecordSize = c -> RecordSize;
-		else if ( s -> RecordSize )
-		  RecordSize = s -> RecordSize;
-		else if ( t -> RecordSize )
-		  RecordSize = t -> RecordSize;
-		else
-		  RecordSize = K;
+             {
+                if ( c -> RecordSize )
+                  RecordSize = c -> RecordSize;
+                else if ( s -> RecordSize )
+                  RecordSize = s -> RecordSize;
+                else if ( t -> RecordSize )
+                  RecordSize = t -> RecordSize;
+                else
+                  RecordSize = K;
 
-		if ( RecordSize > OneFrameSize )
-		  NotifyAndActAsProper ( ErrorImproperRecordSpan );
+                if ( RecordSize > OneFrameSize )
+                  NotifyAndActAsProper ( ErrorImproperRecordSpan );
 
-		s -> BytesToBeRead = RecordSize;
-		t -> BytesToBeWritten = RecordSize;
+                s -> BytesToBeRead = RecordSize;
+                t -> BytesToBeWritten = RecordSize;
 
-		s -> FileSpanRead = Zero;
-		t -> FileSpanWritten = Zero;
+                s -> FileSpanRead = Zero;
+                t -> FileSpanWritten = Zero;
 
-		CreateFlagStatus = CreateFlag;
-		CreateFlag = Reset;
+                CreateFlagStatus = CreateFlag;
+                CreateFlag = Reset;
 
-		while ( Set )
-		  {
+                while ( Set )
+                  {
                      SfsReadFile ( s );
-		     if ( t -> BytesToBeWritten = s -> BytesRead )
+                     if ( t -> BytesToBeWritten = s -> BytesRead )
                        SfsWriteFile ( t );
-		     else
-		       break;
-		  }
+                     else
+                       break;
+                  }
 
-		CreateFlag = CreateFlagStatus;
-		CloseFile ( t );
-	     }
-	   CloseFile ( s );
-	}
+                CreateFlag = CreateFlagStatus;
+                CloseFile ( t );
+             }
+           CloseFile ( s );
+        }
       return;
    }
 
@@ -612,34 +619,34 @@
       c = ( CCB_Record * ) h;
 
       if ( f = FindFileControlBlock ( c -> FileExtrinsicKey ) )
-	{
-	   if ( !( f -> FileStatus & FileOpen ) )
+        {
+           if ( !( f -> FileStatus & FileOpen ) )
              SfsOpenFile ( c -> FileExtrinsicKey );
 
-	   if ( CreateFlag )
-	     r = CreateControlPointer;
-	   else
-	     r = FrameControlBlocks + FrameIndex;
-	   if ( r -> FrameStatus & FlagFrameValid )
-	     {
-		if ( c -> RecordSize )
-		  RecordSize = c -> RecordSize;
-		else
-		  if ( f -> RecordSize )
-		    RecordSize = f -> RecordSize;
-		  else
-		    RecordSize = K;
+           if ( CreateFlag )
+             r = CreateControlPointer;
+           else
+             r = FrameControlBlocks + FrameIndex;
+           if ( r -> FrameStatus & FlagFrameValid )
+             {
+                if ( c -> RecordSize )
+                  RecordSize = c -> RecordSize;
+                else
+                  if ( f -> RecordSize )
+                    RecordSize = f -> RecordSize;
+                  else
+                    RecordSize = K;
 
-		r -> FrameUser = f -> FileExtrinsicKey;
-		f -> SpanToBeCopied = r -> RecordSpan;
-		f -> WriteBufferPointer = r -> FramePointer;
+                r -> FrameUser = f -> FileExtrinsicKey;
+                f -> SpanToBeCopied = r -> RecordSpan;
+                f -> WriteBufferPointer = r -> FramePointer;
 
-		while ( f -> SpanToBeCopied )
-		  {
-		     if ( f -> SpanToBeCopied > RecordSize )
-		       f -> BytesToBeWritten = RecordSize;
-		     else
-		       f -> BytesToBeWritten = f -> SpanToBeCopied;
+                while ( f -> SpanToBeCopied )
+                  {
+                     if ( f -> SpanToBeCopied > RecordSize )
+                       f -> BytesToBeWritten = RecordSize;
+                     else
+                       f -> BytesToBeWritten = f -> SpanToBeCopied;
 
                      if( ! WriteFile( f -> FileHandle,
                                       f -> WriteBufferPointer,
@@ -651,18 +658,18 @@
                           NotifyAndActAsProper ( ErrorWriteFile );
                        }
 
-		     if ( f -> BytesWritten < f -> BytesToBeWritten )
-		       NotifyAndActAsProper ( ErrorRecordWrittenPartly );
+                     if ( f -> BytesWritten < f -> BytesToBeWritten )
+                       NotifyAndActAsProper ( ErrorRecordWrittenPartly );
 
-		     f -> SpanToBeCopied -= f -> BytesWritten;
-		     f -> WriteBufferPointer += f -> BytesWritten;
-		  }
-	     }
-	   else
-	     NotifyAndActAsProper ( ErrorImproperWriteAttempt );
-	}
+                     f -> SpanToBeCopied -= f -> BytesWritten;
+                     f -> WriteBufferPointer += f -> BytesWritten;
+                  }
+             }
+           else
+             NotifyAndActAsProper ( ErrorImproperWriteAttempt );
+        }
       else
-	NotifyAndActAsProper ( ErrorFCB_FileNotFound );
+        NotifyAndActAsProper ( ErrorFCB_FileNotFound );
       return;
    }
 
@@ -671,12 +678,12 @@
 /*---------------------------------------------------------------------------------*/
    {
       do {
-	    NewRecord = rand () * ( Records - 1 );
-	    NewRecord /= RAND_MAX;
-	    if ( Records == 1 )
-	      break;
-	 }
-	    while ( NewRecord == OldRecord );
+            NewRecord = rand () * ( Records - 1 );
+            NewRecord /= RAND_MAX;
+            if ( Records == 1 )
+              break;
+         }
+            while ( NewRecord == OldRecord );
 
       OldRecord = NewRecord;
 
@@ -688,8 +695,8 @@
       f -> BytesToBeRead = RecordSize;
 
       if ( NewRecord == Records - 1 )
-	if ( TailSize )
-	  f -> BytesToBeRead = TailSize;
+        if ( TailSize )
+          f -> BytesToBeRead = TailSize;
 
       return;
    }
@@ -699,12 +706,12 @@
 /*---------------------------------------------------------------------------------*/
    {
       do {
-	    NewRecord = rand () * ( Records - 1 );
-	    NewRecord /= RAND_MAX;
-	    if ( Records == 1 )
-	      break;
-	 }
-	    while ( NewRecord == OldRecord );
+            NewRecord = rand () * ( Records - 1 );
+            NewRecord /= RAND_MAX;
+            if ( Records == 1 )
+              break;
+         }
+            while ( NewRecord == OldRecord );
 
       OldRecord = NewRecord;
 
@@ -721,11 +728,11 @@
       t -> BytesToBeRead = RecordSize;
 
       if ( NewRecord == Records - 1 )
-	if ( TailSize )
-	  {
-	     s -> BytesToBeRead = TailSize;
-	     t -> BytesToBeRead = TailSize;
-	  }
+        if ( TailSize )
+          {
+             s -> BytesToBeRead = TailSize;
+             t -> BytesToBeRead = TailSize;
+          }
 
       return;
    }
@@ -739,19 +746,19 @@
       HANDLE NewHandle;
 
       if ( f = FindFileControlBlock ( SearchKey ) )
-	{
-	   FCB_FileTrackPointer = f;
+        {
+           FCB_FileTrackPointer = f;
 
-	   if ( f -> FileStatus & FileOpen )
-	     CloseFile ( f );
-	   else
-	     {
-	       if ( ! ( f -> FileStatus & FileOpenEver ) )
-		 if ( p = FindPrototypeControlBlock ( 1 ) )
-		   CopyParametersFromPrototype ( f, p );
-		 else
-		   NotifyAndActAsProper ( ErrorPrototypeNotFound );
-	     }
+           if ( f -> FileStatus & FileOpen )
+             CloseFile ( f );
+           else
+             {
+               if ( ! ( f -> FileStatus & FileOpenEver ) )
+                 if ( p = FindPrototypeControlBlock ( 1 ) )
+                   CopyParametersFromPrototype ( f, p );
+                 else
+                   NotifyAndActAsProper ( ErrorPrototypeNotFound );
+             }
 
            NewHandle = CreateFile( f -> FileNamePointer,
                                    f -> FileDesiredAccess,
@@ -766,19 +773,19 @@
                 f -> ReturnCode = GetLastError();
                 NotifyAndActAsProper ( ErrorCreateFile );
              }
-	   else
+           else
              {
                 f -> FileHandle = NewHandle;
-		f -> FileStatus |= FileOpen;
-		f -> FileStatus |= FileOpenEver;
-		f -> FileStatus &= ~FileDeleted;
+                f -> FileStatus |= FileOpen;
+                f -> FileStatus |= FileOpenEver;
+                f -> FileStatus &= ~FileDeleted;
 
-		f -> FileOffset = Zero;
-		return f;
-	     }
-	}
+                f -> FileOffset = Zero;
+                return f;
+             }
+        }
       else
-	NotifyAndActAsProper ( ErrorFCB_FileNotFound );
+        NotifyAndActAsProper ( ErrorFCB_FileNotFound );
 
       return NULL;
    }
@@ -824,7 +831,7 @@
       r -> FrameUser = Zero;
 
       if ( f -> BytesToBeRead > OneFrameSize )
-	NotifyAndActAsProper ( ErrorImproperReadSpan );
+        NotifyAndActAsProper ( ErrorImproperReadSpan );
 
       QueryCurrentFilePointer ( f ); // new
 
@@ -842,6 +849,11 @@
       f -> FileSpanRead += r -> RecordSpan;
       r -> FrameStatus |= FlagFrameValid;
 
+      LastReadHandle = f -> FileHandle;
+      LastReadOffset = f -> FileNewPointer;
+      LastReadCount  = r -> RecordSpan;
+      strcpy( LastReadName, f -> FileNamePointer );
+
       return;
    }
 
@@ -857,10 +869,10 @@
       Records = f -> FileEndPointer / RecordSize;
       TailSize = f -> FileEndPointer - Records * RecordSize;
       if ( TailSize )
-	Records ++ ;
+        Records ++ ;
 
       if ( !( Records ) )
-	NotifyAndActAsProper ( ErrorNothingToCollate );
+        NotifyAndActAsProper ( ErrorNothingToCollate );
 
       OldRecord = Records;
       return;
@@ -881,25 +893,25 @@
       t -> FileEndPointer = t -> FileNewPointer;
 
       if ( s -> FileEndPointer == t -> FileEndPointer )
-	FileSpanToUse = s -> FileEndPointer;
+        FileSpanToUse = s -> FileEndPointer;
       else
-	if ( s -> FileEndPointer > t -> FileEndPointer )
-	  {
-	     FileSpanToUse = t -> FileEndPointer;
-	     NotifyAndActAsProper ( ErrorSourceFileLonger );
-	  }
-	else
-	  {
-	     FileSpanToUse = s -> FileEndPointer;
-	     NotifyAndActAsProper ( ErrorTargetFileLonger );
-	  }
+        if ( s -> FileEndPointer > t -> FileEndPointer )
+          {
+             FileSpanToUse = t -> FileEndPointer;
+             NotifyAndActAsProper ( ErrorSourceFileLonger );
+          }
+        else
+          {
+             FileSpanToUse = s -> FileEndPointer;
+             NotifyAndActAsProper ( ErrorTargetFileLonger );
+          }
       Records = FileSpanToUse / RecordSize;
       TailSize = FileSpanToUse - Records * RecordSize;
       if ( TailSize )
-	Records ++ ;
+        Records ++ ;
 
       if ( !( Records ) )
-	NotifyAndActAsProper ( ErrorNothingToCollate );
+        NotifyAndActAsProper ( ErrorNothingToCollate );
 
       OldRecord = Records;
       return;
@@ -912,17 +924,17 @@
       FCB_Frame * r;
 
       if ( CreateFlag )
-	r = CreateControlPointer;
+        r = CreateControlPointer;
       else
-	r = FrameControlBlocks + FrameIndex;
+        r = FrameControlBlocks + FrameIndex;
 
       FCB_FileTrackPointer = f;
       if ( r -> FrameStatus & FlagFrameValid )
-	{
-	   r -> FrameUser = f -> FileExtrinsicKey;
+        {
+           r -> FrameUser = f -> FileExtrinsicKey;
 
-	   if ( f -> BytesToBeWritten > r -> RecordSpan )
-	     NotifyAndActAsProper ( ErrorImproperWriteSpan );
+           if ( f -> BytesToBeWritten > r -> RecordSpan )
+             NotifyAndActAsProper ( ErrorImproperWriteSpan );
 
            if( ! WriteFile ( f -> FileHandle,
                              r -> FramePointer,
@@ -934,12 +946,12 @@
                 NotifyAndActAsProper ( ErrorWriteFile );
              }
 
-	   f -> FileSpanWritten += f -> BytesWritten;
-	   if ( f -> BytesWritten < f -> BytesToBeWritten )
-	     NotifyAndActAsProper ( ErrorRecordWrittenPartly );
-	}
+           f -> FileSpanWritten += f -> BytesWritten;
+           if ( f -> BytesWritten < f -> BytesToBeWritten )
+             NotifyAndActAsProper ( ErrorRecordWrittenPartly );
+        }
       else
-	NotifyAndActAsProper ( ErrorImproperWriteAttempt );
+        NotifyAndActAsProper ( ErrorImproperWriteAttempt );
 
       return;
    }
@@ -956,28 +968,28 @@
        {
           case ErrorCreateFile:
             printf ( "\r\n.. Error executing CreateFile on file" );
-	    printf ( " %s", f -> FileNamePointer );
+            printf ( " %s", f -> FileNamePointer );
             printf ( "\r\n.. CreateFile Return Code is %u.\r\n", f -> ReturnCode );
-	    break;
+            break;
 
           case ErrorReadFile:
-	    printf ( "\r\n.. Error reading file %s", f -> FileNamePointer );
+            printf ( "\r\n.. Error reading file %s", f -> FileNamePointer );
             printf ( "\r\n.. ReadFile Return Code is %u.\r\n", f -> ReturnCode );
-	    break;
+            break;
 
           case ErrorWriteFile:
-	    printf ( "\r\n.. Error writing file %s", f -> FileNamePointer );
+            printf ( "\r\n.. Error writing file %s", f -> FileNamePointer );
             printf ( "\r\n.. WriteFile Return Code is %u.\r\n", f -> ReturnCode );
-	    break;
+            break;
 
-	  case ErrorEndOfFile:
-	    printf ( "\r\n.. End of file %s", f -> FileNamePointer );
-	    printf ( " has been reached.\r\n" );
-	    break;
+          case ErrorEndOfFile:
+            printf ( "\r\n.. End of file %s", f -> FileNamePointer );
+            printf ( " has been reached.\r\n" );
+            break;
 
-	  default:
-	    printf ( "\r\n.. Error Descriptor is %u.\r\n", ErrorDescriptor );
-	    break;
+          default:
+            printf ( "\r\n.. Error Descriptor is %u.\r\n", ErrorDescriptor );
+            break;
        }
      if ( ErrorDescriptor > DosErrorLowerLimit )
        if ( f -> ReturnCode == ERROR_VC_DISCONNECTED )

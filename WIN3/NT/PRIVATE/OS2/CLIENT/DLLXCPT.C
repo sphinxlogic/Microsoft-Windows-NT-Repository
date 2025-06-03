@@ -35,7 +35,7 @@ extern  PVOID __cdecl Od2JumpTo16SignalDispatch(ULONG address, ULONG regs,
 
 VOID
 Od2PrepareEnterToSignalHandler(
-                PCONTEXT Context,                    
+                PCONTEXT Context,
                 POD2_CONTEXT_SAVE_AREA pSaveArea
                 );
 VOID
@@ -412,7 +412,7 @@ Od2SignalDeliverer (
     OD2_CONTEXT_SAVE_AREA SaveArea;
 
     Od2PrepareEnterToSignalHandler(pContext, &SaveArea);
-    
+
 #if DBG
     IF_OD2_DEBUG( EXCEPTIONS ) {
         DbgPrint("[%d]entering Od2SignalDeliverer with Signal %ld\n",
@@ -458,37 +458,37 @@ Od2SignalDeliverer (
             //
             DosExit(0, 0);
         }
+	}
 
-        if (SigHandlerRec.action[sig - 1] == SIGA_ACKNOWLEDGE ||
-            SigHandlerRec.fholdenable) {
-            //
-            // See if we already are holding an unacknowleged signal or a hold
-            // signal
-            //
-            if (SigHandlerRec.outstandingsig[sig - 1].sighandleraddr != 0) {
-                Od2Process->Pib.SignalWasntDelivered = FALSE;
-                Od2ExitFromSignalHandler(pContext, &SaveArea);
-            }
-            //
-            // Save this signal till other is processed
-            //
-            SigHandlerRec.outstandingsig[sig - 1].usFlagNum = (USHORT) sig;
-            SigHandlerRec.outstandingsig[sig - 1].usFlagArg = 0;
-            SigHandlerRec.outstandingsig[sig - 1].pidProcess =
-                                (ULONG) Od2Process->Pib.ProcessId;
-            SigHandlerRec.outstandingsig[sig - 1].routine =
-                                (ULONG) _Od2ProcessSignal16;
-            SigHandlerRec.outstandingsig[sig - 1].sighandleraddr =
-                                (ULONG) &SigHandlerRec;
+    if (SigHandlerRec.action[sig - 1] == SIGA_ACKNOWLEDGE ||
+        SigHandlerRec.fholdenable) {
+        //
+        // See if we already are holding an unacknowleged signal or a hold
+        // signal
+        //
+        if (SigHandlerRec.outstandingsig[sig - 1].sighandleraddr != 0) {
             Od2Process->Pib.SignalWasntDelivered = FALSE;
             Od2ExitFromSignalHandler(pContext, &SaveArea);
         }
-
         //
-        // Disable this signal till we get a SIGA_ACKNOWLEDGE
+        // Save this signal till other is processed
         //
-        SigHandlerRec.action[sig - 1] = SIGA_ACKNOWLEDGE;
+        SigHandlerRec.outstandingsig[sig - 1].usFlagNum = (USHORT) sig;
+        SigHandlerRec.outstandingsig[sig - 1].usFlagArg = 0;
+        SigHandlerRec.outstandingsig[sig - 1].pidProcess =
+                            (ULONG) Od2Process->Pib.ProcessId;
+        SigHandlerRec.outstandingsig[sig - 1].routine =
+                            (ULONG) _Od2ProcessSignal16;
+        SigHandlerRec.outstandingsig[sig - 1].sighandleraddr =
+                            (ULONG) &SigHandlerRec;
+        Od2Process->Pib.SignalWasntDelivered = FALSE;
+        Od2ExitFromSignalHandler(pContext, &SaveArea);
     }
+
+    //
+    // Disable this signal till we get a SIGA_ACKNOWLEDGE
+    //
+    SigHandlerRec.action[sig - 1] = SIGA_ACKNOWLEDGE;
 
     Od2Process->Pib.SignalWasntDelivered = FALSE;
     Od2MakeSignalHandlerContext(&stack);

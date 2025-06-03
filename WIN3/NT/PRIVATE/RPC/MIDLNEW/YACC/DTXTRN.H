@@ -26,19 +26,21 @@
 /* sizes and limits */
 
 #ifdef HUGETAB              /* defined for a 32 bit machine */
+#pragma message ("using HUGETAB")
 #define ACTSIZE 12000
 #define MEMSIZE 12000
-#define NSTATES 750
+#define NSTATES 1000        /* original value 750 */
 #define NTERMS 512          /* original value 127 */
 #define NPROD 600
 #define NNONTERM 300
 #define TEMPSIZE 1200
-#define CNAMSZ 6000
+#define CNAMSZ 10000         /* original value 6000 then 8000*/
 #define LSETSIZE 600
 #define WSETSIZE 350
 #endif
 
 #ifdef MEDTAB           /* defined for a 16 bit machine */
+#pragma message ("using MEDTAB")
     #if 0
         #define ACTSIZE 4000
         #define MEMSIZE 5200
@@ -65,6 +67,7 @@
 #endif
 
 #ifdef SMALLTAB
+#pragma message ("using SMALLTAB")
 #define ACTSIZE 1000
 #define MEMSIZE 1500
 #define NSTATES 450

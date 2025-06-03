@@ -29,10 +29,10 @@ typedef VOID *LPMEMORY ;
 //======================================//
 
 
-typedef PERF_DATA_BLOCK *PPERFDATA ;
-typedef PERF_OBJECT_TYPE *PPERFOBJECT ;
-typedef PERF_COUNTER_DEFINITION *PPERFCOUNTERDEF ;
-typedef PERF_INSTANCE_DEFINITION *PPERFINSTANCEDEF ;
+typedef PERF_DATA_BLOCK UNALIGNED *PPERFDATA ;
+typedef PERF_OBJECT_TYPE UNALIGNED *PPERFOBJECT ;
+typedef PERF_COUNTER_DEFINITION UNALIGNED *PPERFCOUNTERDEF ;
+typedef PERF_INSTANCE_DEFINITION UNALIGNED *PPERFINSTANCEDEF ;
 
 
 
@@ -149,6 +149,7 @@ typedef struct _LINESTRUCT
 
    struct _PERF_INSTANCE_DEFINITION lnInstanceDef;
    LPTSTR                          lnInstanceName;
+   DWORD                           dwInstanceIndex;
 
    LPTSTR                          lnPINName;
    LPTSTR                          lnParentObjName;
@@ -739,6 +740,7 @@ typedef struct COLUMNGROUPSTRUCT
    int            xWidth ;
    int            yFirstLine ;
    int            ColumnNumber ;  // start from 0
+   DWORD          dwInstanceIndex;
    } COLUMNGROUP ;
 
 
@@ -902,5 +904,5 @@ typedef struct DISKWORKSPACESTRUCT
    } DISKWORKSPACE ;
 
 
-
-
+
+

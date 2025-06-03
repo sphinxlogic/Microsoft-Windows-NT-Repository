@@ -147,6 +147,7 @@ static VOID OpenLog( INT index )
      CDS_PTR   conf_ptr                   = CDS_GetCopy( );
      BOOLEAN   append                     = CDS_GetLogMode( conf_ptr );
      CHAR      open_mode[ 2 ];
+     INT       open_mode_UNI ;
 
      msassert( index < NUM_DEST_TYPES );
 
@@ -173,8 +174,12 @@ static VOID OpenLog( INT index )
         // According to Steve, microsoft wants it to always append. mikep 12/12/93
 
         strcpy( open_mode, TEXT("a") );
+        open_mode_UNI = _O_TEXT|_O_APPEND ;
 #else
         strcpy( open_mode, ( append ? TEXT("a"):TEXT("w") ) );
+        if ( append ) {
+            open_mode_UNI = _O_TEXT|_O_APPEND ;
+        }
 #endif
 
         CDS_SetLogMode( conf_ptr, 1 );          /* set runtime config to append mode */
@@ -185,8 +190,10 @@ static VOID OpenLog( INT index )
 
         if ( output_dest[index].mode == LOG_APPEND ) {
            strcpy( open_mode, TEXT("a") );
+           open_mode_UNI = _O_TEXT|_O_APPEND ;
         }
         else {
+           open_mode_UNI = _O_TEXT;
            strcpy( open_mode, TEXT("w") );
         }
      }
@@ -202,7 +209,7 @@ static VOID OpenLog( INT index )
 
      zprintf( DEBUG_USER_INTERFACE, RES_OPENING_LOG_NAME, log_name, open_mode[0] );
 
-     if ( ( output_dest[index].fh = fopen( log_name, open_mode ) ) == NULL ) {
+     if ( ( output_dest[index].fh = UNI_fopen( log_name, open_mode_UNI ) ) == NULL ) {
         eresprintf( RES_OPEN_LOG_ERROR, log_name );
      }
 
@@ -232,6 +239,7 @@ VOID lresprintf( INT index, INT message, ... )
      static BOOLEAN OS_flag   = TRUE;               /* indicate how to build file details */
      CHAR text[ MAX_UI_RESOURCE_SIZE ];
      CHAR title[ MAX_UI_RESOURCE_SIZE ];
+     CHAR_PTR       stream_name ;
 
      msassert( index < NUM_DEST_TYPES );
 
@@ -300,12 +308,19 @@ VOID lresprintf( INT index, INT message, ... )
           } else if ( CDS_GetLogLevel( conf_ptr ) == LOG_DETAIL ) {
                /* log filenames and detail also */
                UI_BuildFileDetail( buffer, fsh, dblk_ptr, OS_flag );
-#ifndef UNICODE
                lprintf( index, TEXT("%s"), buffer );
-#else //UNICODE
-               lprintf( index, TEXT("%ws"), buffer );
-#endif //UNICODE
           }
+          break;
+
+     case LOG_STREAM:
+          fsh = va_arg( arg_ptr, FSYS_HAND );
+          stream_name = va_arg( arg_ptr, CHAR_PTR );
+          if( CDS_GetLogLevel( conf_ptr ) == LOG_DETAIL ) {
+
+               lprintf ( index, stream_name );
+               lprintf ( index, TEXT("\n") );
+          }
+
           break;
 
      case LOG_MSG:
@@ -468,8 +483,24 @@ va_list   arg_ptr )
      if ( output_dest[index].fh != NULL && gb_logging_error != TRUE ) {
 
           gb_logging = NOW_LOGGING;
+          if (IS_JAPAN() ) {
+              CHAR  wBuff[MAX_UI_RESOURCE_SIZE];
+              char  aBuff[MAX_UI_RESOURCE_SIZE*2];
+              BOOL  fDefCharUsed;
+              int   iRet;
+	  
+              wvsprintf( wBuff, fmt, arg_ptr );
+              iRet = WideCharToMultiByte(CP_ACP, 0, (WCHAR *)wBuff, -1, aBuff,
+	         MAX_UI_RESOURCE_SIZE*2, NULL, &fDefCharUsed );
+              if( !iRet ) {
+                   gb_logging_error = TRUE;
+              } else{
+                   fwrite(aBuff, 1, iRet, output_dest[index].fh);
+              }
 
-          vfprintf( output_dest[index].fh, fmt, arg_ptr );
+          } else {
+              vfprintf( output_dest[index].fh, fmt, arg_ptr );
+          }
 
           if ( ferror( output_dest[index].fh ) ) {
 

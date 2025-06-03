@@ -95,7 +95,7 @@ Return Value:
     wndclass.hInstance      = hInst;
     wndclass.hIcon          = LoadIcon( hInst, MAKEINTRESOURCE(APPICON) );
     wndclass.hCursor        = LoadCursor( NULL, IDC_ARROW );
-    wndclass.hbrBackground  = (HBRUSH) (COLOR_WINDOW + 1);
+    wndclass.hbrBackground  = (HBRUSH) (COLOR_APPWORKSPACE);
     wndclass.lpszMenuName   = NULL;
     wndclass.lpszClassName  = "GetDbgDialog";
     RegisterClass( &wndclass );
@@ -247,12 +247,16 @@ Return Value:
 
         case WU_AS_DONE:
             lpas = (LPADDSERVERS) lParam;
+
+            //  Shut off all threads
+            if (lpas->hThreadWait)
+            {
+                TerminateThread (lpas->hThreadWait, 0);
+            }
+            TerminateThread (lpas->hThread, 0);
+
             if (lpas->rc == 0) {
-                if (lpas->hThreadWait) {
-                    TerminateThread( lpas->hThreadWait, 0 );
-                }
                 DestroyWindow( lpas->hwndWait );
-                free( lpas );
                 if (ImmediateCopy) {
                     DisableControls( hwnd );
                     lpci = CopyFiles( FilesType, DestinationDir, hwnd );
@@ -265,7 +269,6 @@ Return Value:
                             "Debugger Copy",
                             MB_OK | MB_ICONINFORMATION );
                 DestroyWindow( lpas->hwndWait );
-                free( lpas );
                 if (ImmediateCopy) {
                     SendMessage( hwnd, WM_CLOSE, 0, 0 );
                     return 0;
@@ -279,6 +282,7 @@ Return Value:
                 AddServersToListBox( lpServer, lpShare, FilesType, hwnd );
             }
             SetFocus( GetDlgItem( hwnd, ID_SERVERS ) );
+            free( lpas );
             return 0;
 
         case WM_ACTIVATEAPP:

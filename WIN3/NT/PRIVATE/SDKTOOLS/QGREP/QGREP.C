@@ -55,6 +55,8 @@
 #define DEBUG           0x20            /* Print debugging output */
 #define TIMER           0x40            /* Time execution */
 #define SEEKOFF         0x80            /* Print seek offsets */
+#define ZLINENOS        0x100           /* Print MEP style line numbers */
+#define DOQUOTES        0x200           /* Handle quoted strings in -f search file */
 
 
 /*
@@ -83,9 +85,9 @@ typedef PARM            *PPARM;         /* Pointer to generic parameter */
 char                    filbuf[FILBUFLEN*2L + 12];
 char                    outbuf[OUTBUFLEN*2];
 char                    td1[TRTABLEN] = { 0 };
-unsigned                cchmin = -1;    /* Minimum string length */
+unsigned                cchmin = (DWORD)-1; /* Minimum string length */
 unsigned                chmax = 0;      /* Maximum character */
-unsigned                chmin = -1;     /* Minimum character */
+unsigned                chmin = (DWORD)-1; /* Minimum character */
 char                    transtab[TRTABLEN] = { 0 };
 STRINGNODE              *stringlist[TRTABLEN/2];
 int                     casesen = 1;    /* Assume case-sensitivity */
@@ -634,13 +636,13 @@ int                     openfile( char *name )
   {
     int                 fd;             /* File descriptor */
 
-    if((fd = open( name, 0 ) ) == -1)
+    if((fd = _open( name, 0 ) ) == -1)
                                         /* If error opening file */
       {
         fprintf(stderr,"%s: Cannot open %s\n",program,name);
                                         /* Print error message */
       }
-    setmode(fd,O_BINARY);               /* Set file to binary mode */
+    _setmode(fd,O_BINARY);               /* Set file to binary mode */
     return( fd );                       /* Return file descriptor */
   }
 
@@ -669,7 +671,7 @@ void            thread2()       /* Read thread */
   {
     for(;;)                             /* Loop while there is work to do */
       {
-        if((WaitForSingleObject(readpending,-1L) != NO_ERROR)
+        if((WaitForSingleObject(readpending, (DWORD)-1L) != NO_ERROR)
         || (ResetEvent(readpending)              != TRUE))
           {
             break;                      /* Exit loop if event error */
@@ -686,7 +688,7 @@ void            thread3()       /* Write thread */
   {
     for(;;)                             /* Loop while there is work to do */
       {
-        if((WaitForSingleObject(writepending,-1L) != NO_ERROR)
+        if((WaitForSingleObject(writepending,(DWORD)-1L) != NO_ERROR)
         || (ResetEvent(writepending)              != TRUE))
           {
             break;              /* Exit loop if event error */
@@ -703,7 +705,7 @@ void                    startread( HANDLE fd, char *buffer, int buflen)
   {
     if( asyncio )                               /* If asynchronous I/O */
       {
-        if((WaitForSingleObject(readdone,-1L) != NO_ERROR)
+        if((WaitForSingleObject(readdone,(DWORD)-1L) != NO_ERROR)
         || (ResetEvent(readdone)              != TRUE))
           {
             error("read synch error");  /* Die if we fail to get semaphore */
@@ -725,7 +727,7 @@ int                     finishread()
   {
     if(asyncio)                         /* If asynchronous I/O */
       {
-        if( WaitForSingleObject( readdone, -1L ) != NO_ERROR )
+        if( WaitForSingleObject( readdone, (DWORD)-1L ) != NO_ERROR )
           {
             error("read wait error");   /* Die if wait fails */
           }
@@ -738,7 +740,7 @@ void                    startwrite( HANDLE fd, char *buffer, int buflen)
   {
     if(asyncio)                         /* If asynchronous I/O */
       {
-        if((WaitForSingleObject(writedone,-1L) != NO_ERROR)
+        if((WaitForSingleObject(writedone,(DWORD)-1L) != NO_ERROR)
         || (ResetEvent(writedone)              != TRUE))
           {
             error("write synch error"); /* Die if we fail to get semaphore */
@@ -760,7 +762,7 @@ int                     finishwrite()
   {
     if(asyncio)                         /* If asynchronous I/O */
       {
-        if( WaitForSingleObject( writedone, -1L ) != NO_ERROR )
+        if( WaitForSingleObject( writedone, (DWORD)-1L ) != NO_ERROR )
           {
             error("write wait error");  /* Die if wait fails */
           }
@@ -778,7 +780,7 @@ void                    write1nobuf( char *buffer, int buflen )
     if(!WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),(PVOID)buffer,buflen, &cb, NULL)
     ||  (cb != (CBIO)buflen))
 #else
-    if( write( 1, buffer, buflen ) != buflen )
+    if( _write( 1, buffer, buflen ) != buflen )
 #endif
       {
         error("Write error");           /* Die if write fails */
@@ -795,7 +797,7 @@ void                    write1buf( char *buffer, int buflen )
 #ifndef ASYNCIO
         if((cb = ocnt) == 0)            /* If buffer full */
           {
-            if(write(1,outbuf,OUTBUFLEN*2) != OUTBUFLEN*2)
+            if(_write(1,outbuf,OUTBUFLEN*2) != OUTBUFLEN*2)
               error("Write error");     /* Die if write fails */
             cb = ocnt = OUTBUFLEN*2;    /* Reset count and pointer */
             optr = outbuf;
@@ -831,19 +833,19 @@ void                    write1buf( char *buffer, int buflen )
   }
 
 
-void                    flush1nobuf()
+void flush1nobuf(void)
   {
   }
 
 
-void                    flush1buf()
+void flush1buf(void)
   {
     register int        cb;             /* Byte count */
 
 #ifndef ASYNCIO
     if((cb = OUTBUFLEN*2 - ocnt) > 0)   /* If buffer not empty */
       {
-        if(write(1,outbuf,cb) != cb) error("Write error");
+        if(_write(1,outbuf,cb) != cb) error("Write error");
                                         /* Die if write failed */
       }
 #else
@@ -898,7 +900,10 @@ int                     grepbuffer( char *startbuf, char *endbuf, char *name )
           {
             if(namlen == 0)             /* If name not formatted yet */
               {
-                namlen = sprintf(nambuf,"%s:",name);
+                if (flags & ZLINENOS)
+                    namlen = sprintf(nambuf,"%s",name);
+                else
+                    namlen = sprintf(nambuf,"%s:",name);
                                         /* Format name if not done already */
               }
             (*write1)(nambuf,namlen);   /* Show name */
@@ -907,7 +912,10 @@ int                     grepbuffer( char *startbuf, char *endbuf, char *name )
           {
             lineno += countlines(lastmatch,cp);
                                         /* Count lines since last match */
-            (*write1)(lnobuf,sprintf(lnobuf,"%u:",lineno));
+            if (flags & ZLINENOS)
+                (*write1)(lnobuf,sprintf(lnobuf,"(%u) : ",lineno));
+            else
+                (*write1)(lnobuf,sprintf(lnobuf,"%u:",lineno));
                                         /* Print line number */
             lastmatch = cp;             /* New last match */
           }
@@ -943,7 +951,10 @@ void                    showv( char *name, char *startbuf, char *lastmatch, char
               {
                 if(namlen == 0)         /* If name not formatted yet */
                   {
-                    namlen = sprintf(nambuf,"%s:",name);
+                    if (flags & ZLINENOS)
+                        namlen = sprintf(nambuf,"%s",name);
+                    else
+                        namlen = sprintf(nambuf,"%s:",name);
                                         /* Format name if not done already */
                   }
                 (*write1)(nambuf,namlen);
@@ -951,7 +962,10 @@ void                    showv( char *name, char *startbuf, char *lastmatch, char
               }
             if(flags & LINENOS)         /* If line numbers wanted */
               {
-                (*write1)(lnobuf,sprintf(lnobuf,"%u:",lineno++));
+                if (flags & ZLINENOS)
+                    (*write1)(lnobuf,sprintf(lnobuf,"(%u) : ",lineno++));
+                else
+                    (*write1)(lnobuf,sprintf(lnobuf,"%u:",lineno++));
                                         /* Print the line number */
               }
             if(flags & SEEKOFF)         /* If seek offsets wanted */
@@ -1022,7 +1036,7 @@ void                    qgrep( int (*grep)( char *, char *, char * ), char *name
     lineno = 1;                         /* File starts on line 1 */
     taillen = 0;                        /* No buffer tail yet */
     cp = filbuf + 4;                    /* Initialize buffer pointer */
-    while((cb = read(fd,cp,(filbuflen*2 - taillen) &
+    while((cb = _read(fd,cp,(filbuflen*2 - taillen) &
       (~0 << LG2SECLEN))) + taillen > 0)
       {                                 /* While search incomplete */
         if(cb == 0)                     /* If buffer tail is all that's left */
@@ -1119,6 +1133,7 @@ void                    usage( char *errmes)
         "-X - treat search strings as regular expressions (grep)",
         "-l - print only file name if file contains match",
         "-n - print line number before each matching line",
+        "-z - print matching lines in MSC error message format",
         "-v - print only lines not containing a match",
         "-x - print lines that match exactly (-BE)",
         "-y - treat upper and lower case as equivalent",
@@ -1134,7 +1149,7 @@ void                    usage( char *errmes)
 
     if(errmes != NULL) fprintf(stderr,"%s: %s\n",program,errmes);
                                         /* Print error message */
-    fprintf(stderr,"usage: %s [-?BELOXlnvxy][-e string][-f file][-i file][strings][files]\n",
+    fprintf(stderr,"usage: %s [-?BELOXlnzvxy][-e string][-f file][-i file][strings][files]\n",
       program);                         /* Print command line format */
     if(errmes == NULL)                  /* If verbose message wanted */
       {
@@ -1193,7 +1208,7 @@ int                     _CRTAPI1 main( int argc, char **argv)
     for(i = 1; i < argc && argv[i][0] == '-'; ++i)
       {
         if(argv[i][1] == '\0' ||
-          strchr("?BELNOSXdlntvxy",argv[i][1]) == NULL) break;
+          strchr("?BELNOSXdlntvxyz",argv[i][1]) == NULL) break;
                                         /* Break if unrecognized switch */
         for(cp = &argv[i][1]; *cp != '\0'; ++cp)
           {
@@ -1244,6 +1259,10 @@ int                     _CRTAPI1 main( int argc, char **argv)
                   flags |= LINENOS;
                   break;
 
+                case 'z':
+                  flags |= ZLINENOS | LINENOS;
+                  break;
+
                 case 't':
                   flags |= TIMER;
                   break;
@@ -1280,23 +1299,14 @@ int                     _CRTAPI1 main( int argc, char **argv)
                                         /* Add string "as is" */
                   continue;
 
+                case 'F':
+                  flags |= DOQUOTES;    /* Handle quoted patterns in file */
                 case 'f':               /* Patterns in file */
                 case 'i':               /* Names of files to search in file */
                   if(i == argc - 1) usage("Argument missing after switch");
                                         /* Argument missing */
                   if(argv[i++][1] == 'i') inpfile = argv[i];
                   else strfile = argv[i];
-                  continue;
-
-                case 'F':
-                  if(++i == argc) usage("Argument missing after -F");
-                                        /* Argument missing after -F */
-                  if((filbuflen = atoi(argv[i])*SECTORLEN) < 2*SECTORLEN ||
-                    filbuflen > FILBUFLEN) filbuflen = FILBUFLEN;
-                                        /* Set buffer length */
-                  fprintf(stderr,"Reading %d bytes at a time\n",filbuflen);
-                                        /* Print size */
-                  flags |= TIMER;       /* Turn timer on */
                   continue;
               }
           }
@@ -1335,7 +1345,7 @@ int                     _CRTAPI1 main( int argc, char **argv)
                                         /* Die if thread creation fails */
       }
 #endif
-    setmode(fileno(stdout),O_BINARY);   /* No linefeed translation on output */
+    _setmode(_fileno(stdout),O_BINARY);   /* No linefeed translation on output */
 #ifdef ASYNCIO
     bufptr[0][-1] = bufptr[1][-1] = '\n';
                                         /* Mark beginnings with newline */
@@ -1349,7 +1359,7 @@ int                     _CRTAPI1 main( int argc, char **argv)
     filbuf[3] = '\n';                   /* Mark beginning with newline */
 #endif
 
-    if(isatty(fileno(stdout)))          /* If stdout is a device */
+    if(_isatty(_fileno(stdout)))          /* If stdout is a device */
       {
         write1 = write1nobuf;           /* Use unbuffered output */
         flush1 = flush1nobuf;
@@ -1379,17 +1389,17 @@ int                     _CRTAPI1 main( int argc, char **argv)
       {
         if(strcmp(strfile,"-") != 0)    /* If strings not from std. input */
           {
-            if((fd = open(strfile,0)) == -1)
+            if((fd = _open(strfile,0)) == -1)
               {                         /* If open fails */
                 fprintf(stderr,"%s: Cannot read strings from %s\n",
                   program,strfile);     /* Print message */
                 exit(2);                /* Die */
               }
           }
-        else fd = fileno(stdin);        /* Else use std. input */
-        setmode(fd,O_BINARY);           /* Set file to binary mode */
+        else fd = _fileno(stdin);        /* Else use std. input */
+        _setmode(fd,O_BINARY);           /* Set file to binary mode */
         qgrep(addstrings,"\r\n",fd);    /* Do the work */
-        if(fd != fileno(stdin)) close(fd);
+        if(fd != _fileno(stdin)) _close(fd);
                                         /* Close strings file */
       }
 
@@ -1492,7 +1502,7 @@ int                     _CRTAPI1 main( int argc, char **argv)
 #endif
             qgrep(grep,filnam,fd);      /* Do the work */
 #ifndef ASYNCIO
-            close(fd);                  /* Close the file */
+            _close(fd);                  /* Close the file */
 #else
             CloseHandle( fd );
 #endif
@@ -1503,8 +1513,8 @@ int                     _CRTAPI1 main( int argc, char **argv)
       {
         flags &= ~(NAMEONLY | SHOWNAME);
 #ifndef ASYNCIO
-        setmode(fileno(stdin),O_BINARY);
-        qgrep(grep,NULL,fileno(stdin));
+        _setmode(_fileno(stdin),O_BINARY);
+        qgrep(grep,NULL,_fileno(stdin));
 #else
         qgrep( grep, NULL, GetStdHandle( STD_INPUT_HANDLE ) );
 #endif
@@ -1512,14 +1522,14 @@ int                     _CRTAPI1 main( int argc, char **argv)
     if(argc > i + 1) flags |= SHOWNAME;
     for(; i < argc; ++i)
       {
-        strlwr(argv[i]);
+        _strlwr(argv[i]);
 #ifndef ASYNCIO
         if((fd = openfile(argv[i])) == -1)
           {
             continue;
           }
         qgrep(grep,argv[i],fd);
-        close(fd);
+        _close(fd);
 #else
         if((fd = openfile(argv[i])) == (HANDLE)-1)
           {
@@ -1680,7 +1690,7 @@ char                    *findsubi( unsigned char *buffer, char *bufend )
                 return(buffer);         /* Check for 1-byte match */
             for(cp = buffer + 1; ; )    /* Loop to search list */
               {
-                if((i = memicmp(cp,s_text(s),s->s_must)) == 0)
+                if((i = _memicmp(cp,s_text(s),s->s_must)) == 0)
                   {                     /* If portions match */
                     cp += s->s_must;    /* Skip matching portion */
                     if((s = s->s_suf) == 0)
@@ -1736,7 +1746,7 @@ void                    matchstrings( char *s1, char *s2, int len, int *nmatched
     register char       *cp;            /* Char pointer */
     register int (_CRTAPI1 *cmp)(const char*,const char*, size_t);       /* Comparison function pointer */
 
-    cmp = casesen? strncmp: strnicmp;
+    cmp = casesen? strncmp: _strnicmp;
                                         /* Set pointer */
     if((*leg = (*cmp)(s1,s2,len)) != 0) /* If strings don't match */
       {
@@ -1746,4 +1756,3 @@ void                    matchstrings( char *s1, char *s2, int len, int *nmatched
       }
     else *nmatched = len;               /* Else all matched */
   }
-

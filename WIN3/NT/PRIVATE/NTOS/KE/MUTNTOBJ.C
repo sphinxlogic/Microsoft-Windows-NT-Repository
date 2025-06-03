@@ -38,7 +38,7 @@ Revision History:
 
 VOID
 KeInitializeMutant (
-    IN PKMUTANT Mutant,
+    IN PRKMUTANT Mutant,
     IN BOOLEAN InitialOwner
     )
 
@@ -64,7 +64,7 @@ Return Value:
 {
 
     PLIST_ENTRY ListEntry;
-    PKTHREAD Thread;
+    PRKTHREAD Thread;
 
     //
     // Initialize standard dispatcher object header, set the owner thread to
@@ -73,7 +73,7 @@ Return Value:
     //
 
     Mutant->Header.Type = MutantObject;
-    Mutant->Header.Size = sizeof(KMUTANT);
+    Mutant->Header.Size = sizeof(KMUTANT) / sizeof(LONG);
     if (InitialOwner == TRUE) {
         Thread = KeGetCurrentThread();
         Mutant->Header.SignalState = 0;
@@ -94,7 +94,7 @@ Return Value:
 
 VOID
 KeInitializeMutex (
-    IN PKMUTANT Mutant,
+    IN PRKMUTANT Mutant,
     IN ULONG Level
     )
 
@@ -130,7 +130,7 @@ Return Value:
     //
 
     Mutant->Header.Type = MutantObject;
-    Mutant->Header.Size = sizeof(KMUTANT);
+    Mutant->Header.Size = sizeof(KMUTANT) / sizeof(LONG);
     Mutant->Header.SignalState = 1;
     InitializeListHead(&Mutant->Header.WaitListHead);
     Mutant->OwnerThread = (PKTHREAD)NULL;
@@ -141,7 +141,7 @@ Return Value:
 
 LONG
 KeReadStateMutant (
-    IN PKMUTANT Mutant
+    IN PRKMUTANT Mutant
     )
 
 /*++
@@ -173,7 +173,7 @@ Return Value:
 
 LONG
 KeReleaseMutant (
-    IN PKMUTANT Mutant,
+    IN PRKMUTANT Mutant,
     IN KPRIORITY Increment,
     IN BOOLEAN Abandoned,
     IN BOOLEAN Wait
@@ -214,25 +214,23 @@ Return Value:
 
     KIRQL OldIrql;
     LONG OldState;
-    PKTHREAD Thread;
+    PRKTHREAD Thread;
 
 
     ASSERT_MUTANT(Mutant);
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
 
     //
     // Raise IRQL to dispatcher level and lock dispatcher database.
     //
 
-    Thread = KeGetCurrentThread();
     KiLockDispatcherDatabase(&OldIrql);
 
     //
-    // Capture the current signal state of the mutant object and set the
-    // wait next value.
+    // Capture the current signal state of the mutant object.
     //
 
     OldState = Mutant->Header.SignalState;
-    Thread->WaitNext = Wait;
 
     //
     // If the Abandoned parameter is TRUE, then force the release of the
@@ -244,7 +242,8 @@ Return Value:
     // list is not empty.
     //
 
-    if (Abandoned == TRUE) {
+    Thread = KeGetCurrentThread();
+    if (Abandoned != FALSE) {
         Mutant->Header.SignalState = 1;
         Mutant->Abandoned = TRUE;
 
@@ -259,7 +258,7 @@ Return Value:
         if (Mutant->OwnerThread != Thread) {
             KiUnlockDispatcherDatabase(OldIrql);
             ExRaiseStatus(Mutant->Abandoned ?
-                           STATUS_ABANDONED : STATUS_MUTANT_NOT_OWNED);
+                          STATUS_ABANDONED : STATUS_MUTANT_NOT_OWNED);
         }
 
         Mutant->Header.SignalState += 1;
@@ -277,7 +276,7 @@ Return Value:
         }
 
         Mutant->OwnerThread = (PKTHREAD)NULL;
-        if (IsListEmpty(&Mutant->Header.WaitListHead) != TRUE) {
+        if (IsListEmpty(&Mutant->Header.WaitListHead) == FALSE) {
             KiWaitTest(Mutant, Increment);
         }
     }
@@ -289,7 +288,8 @@ Return Value:
     // its previous value.
     //
 
-    if (Wait == TRUE) {
+    if (Wait != FALSE) {
+        Thread->WaitNext = Wait;
         Thread->WaitIrql = OldIrql;
 
     } else {
@@ -305,7 +305,7 @@ Return Value:
 
 LONG
 KeReleaseMutex (
-    IN PKMUTANT Mutex,
+    IN PRKMUTANT Mutex,
     IN BOOLEAN Wait
     )
 
@@ -342,4 +342,3 @@ Return Value:
 
     return KeReleaseMutant(Mutex, 1, FALSE, Wait);
 }
-

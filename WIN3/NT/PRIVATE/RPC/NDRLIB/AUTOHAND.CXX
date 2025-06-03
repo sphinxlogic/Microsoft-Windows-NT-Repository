@@ -225,4 +225,3 @@ I_RpcReBindBuffer(
     RpcRaiseException(RPC_S_INTERNAL_ERROR);
     return(0);
 }
-

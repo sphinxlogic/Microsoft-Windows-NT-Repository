@@ -252,7 +252,12 @@ SearchLineBack(
 
             xCur = *xStart;
 
+#ifdef DBCS
+            for (; xCur < xLimit;
+                IsDBCSLeadByte(line[xCur]) ? xCur+=2 : xCur++) {
+#else
             for (; xCur < xLimit; xCur++) {
+#endif
 
                 if (xCur + limit > elLen)
                     break;
@@ -260,7 +265,21 @@ SearchLineBack(
                 //Select type of comparison according to user choice
                 k = 0;
                 while (k < limit && line[xCur + k] == findWhat[k]) {
+#ifdef DBCS
+                {
+                    if (IsDBCSLeadByte(line[xCur + k])) {
+                        if (xCur + k + 1 >= xLimit)
+                            break;
+                        if (line[xCur + k + 1] != findWhat[k + 1])
+                            break;
+                        k += 2;
+                    } else {
+                        k++;
+                    }
+                }
+#else   // !DBCS
                     k++;
+#endif
                 }
 
                 if (k == limit) {
@@ -270,7 +289,25 @@ SearchLineBack(
                     if (findReplace.wholeWord) {
                         BOOL separator;
 
+#ifdef DBCS
+                        BOOL bDBCS = FALSE;
+                        int  i;
+
+                        for (i = 0; i < xCur; i++) {
+                            if (IsDBCSLeadByte(line[i])) {
+                                bDBCS = TRUE;
+                                i++;
+                            } else {
+                                bDBCS = FALSE;
+                            }
+                        }
+#endif  // DBCS
                         if (xCur > 0) {
+#ifdef DBCS
+                            if (bDBCS)
+                                separator = TRUE;
+                            else
+#endif
                             separator = !CHARINALPHASET(line[xCur - 1]);
                         } else {
                             separator = TRUE;
@@ -480,7 +517,12 @@ SearchLineForw(
             AnsiUpper((LPSTR)line);
         }
 
+#ifdef DBCS
+        for (; xCur < xLimit;
+            IsDBCSLeadByte(line[xCur]) ? xCur+=2 : xCur++) {
+#else
         for (; xCur < xLimit; xCur++) {
+#endif
 
             if (xCur + limit > elLen) {
                 break;
@@ -489,7 +531,21 @@ SearchLineForw(
             //Select type of comparison according to user choice
             k = 0;
             while (k < limit && line[xCur + k] == findWhat[k]) {
+#ifdef DBCS
+            {
+                if (IsDBCSLeadByte(line[xCur + k])) {
+                    if (xCur + k + 1 >= xLimit)
+                        break;
+                    if (line[xCur + k + 1] != findWhat[k + 1])
+                        break;
+                    k += 2;
+                } else {
+                    k++;
+                }
+            }
+#else   // !DBCS
                 k++;
+#endif
             }
 
             if (k == limit) {
@@ -504,8 +560,25 @@ SearchLineForw(
 
                 } else {
                     BOOL separator;
+#ifdef DBCS
+                    BOOL bDBCS = FALSE;
+                    int  i;
 
+                    for (i = 0; i < xCur; i++) {
+                        if (IsDBCSLeadByte(line[i])) {
+                            bDBCS = TRUE;
+                            i++;
+                        } else {
+                            bDBCS = FALSE;
+                        }
+                    }
+#endif  // DBCS
                     if (xCur > 0) {
+#ifdef DBCS
+                        if (bDBCS)
+                            separator = TRUE;
+                        else
+#endif
                         separator = !CHARINALPHASET(line[xCur - 1]);
                     } else {
                         separator = TRUE;
@@ -868,7 +941,7 @@ Replace(
                 if (msg.message == WM_KEYDOWN && msg.wParam == VK_F1) {
                     Dbg(PostMessage(frMem.hDlgConfirmWnd,
                                     WM_COMMAND,
-                                    IDHELP,
+                                    IDWINDBGHELP,
                                     0L));
                 }
 
@@ -991,7 +1064,7 @@ void FAR PASCAL Find(void)
             ProcessQCQPMessage(&msg);
         } else if (IsDialogMessage(frMem.hDlgFindNextWnd, &msg)) {
             if (msg.message == WM_KEYDOWN && msg.wParam == VK_F1) {
-                PostMessage(frMem.hDlgFindNextWnd, WM_COMMAND, IDHELP, 0L);
+                PostMessage(frMem.hDlgFindNextWnd, WM_COMMAND, IDWINDBGHELP, 0L);
             }
         } else {
             ProcessQCQPMessage(&msg);
@@ -1147,4 +1220,4 @@ RemoveFromPick(
 
     findReplace.nbInPick[type]--;
 }
-
+

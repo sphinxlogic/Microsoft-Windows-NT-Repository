@@ -21,15 +21,8 @@ Environment:
 
 --*/
 
-#include <nt.h>
-#include <ntrtl.h>
-#include <nturtl.h>
-
-#include <stdio.h>
-#include "rdisk.h"
-#include "dialogs.h"
-#include "resource.h"
-#include "gauge.h"
+#include "precomp.h"
+#pragma hdrstop
 
 #define SYSTEM_HIVE             (LPWSTR)L"system"
 #define SOFTWARE_HIVE           (LPWSTR)L"software"
@@ -37,7 +30,9 @@ Environment:
 #define SAM_HIVE                (LPWSTR)L"sam"
 #define DEFAULT_USER_HIVE       (LPWSTR)L".default"
 #define DEFAULT_USER_HIVE_FILE  (LPWSTR)L"default"
+#define NTUSER_HIVE_FILE        (LPWSTR)L"ntuser.dat"
 #define REPAIR_DIRECTORY        (LPWSTR)L"\\repair"
+#define PROFILES_DIRECTORY      (LPWSTR)L"\\profiles"
 #define SETUP_LOG_FILE          (LPWSTR)L"setup.log"
 
 #define SYSTEM_COMPRESSED_FILE_NAME     ( LPWSTR )L"system._"
@@ -46,6 +41,7 @@ Environment:
 #define SECURITY_COMPRESSED_FILE_NAME   ( LPWSTR )L"security._"
 #define SAM_COMPRESSED_FILE_NAME        ( LPWSTR )L"sam._"
 #define DEFAULT_COMPRESSED_FILE_NAME    ( LPWSTR )L"default._"
+#define NTUSER_COMPRESSED_FILE_NAME     ( LPWSTR )L"ntuser.da_"
 #define AUTOEXEC_NT_FILE_NAME           ( LPWSTR )L"autoexec.nt"
 #define CONFIG_NT_FILE_NAME             ( LPWSTR )L"config.nt"
 
@@ -103,14 +99,14 @@ NotifyCB(
     return(TRUE);
 }
 
-ULONG
+DWORD
 SaveOneHive(
     IN     LPWSTR DirectoryName,
     IN     LPWSTR HiveName,
     IN     HKEY   hkey,
     IN     HWND   hWnd,
-    IN OUT PULONG GaugePosition,
-    IN     ULONG  GaugeDeltaUnit
+    IN OUT PDWORD GaugePosition,
+    IN     DWORD  GaugeDeltaUnit
     )
 
 /*++
@@ -140,13 +136,13 @@ Arguments:
 
 Return Value:
 
-    ULONG - Return ERROR_SUCCESS if the hive was saved. Otherwise, it returns
+    DWORD - Return ERROR_SUCCESS if the hive was saved. Otherwise, it returns
             an error code.
 
 --*/
 
 {
-    ULONG Status;
+    DWORD Status;
     WCHAR SaveFilename[ MAX_PATH + 1 ];
     WCHAR CompressPath[ MAX_PATH + 1 ];
     CHAR SaveFilenameAnsi[ MAX_PATH + 1 ];
@@ -158,8 +154,8 @@ Return Value:
     // uncompressed hive.
     //
 
-    swprintf( SaveFilename, ( LPWSTR )L"%ls\\$$hive$$.tmp", DirectoryName );
-    sprintf( SaveFilenameAnsi, ( LPSTR )"%ls\\$$hive$$.tmp", DirectoryName );
+    wsprintf(SaveFilename,L"%ls\\$$hive$$.tmp",DirectoryName);
+    wsprintfA(SaveFilenameAnsi,"%ls\\$$hive$$.tmp",DirectoryName);
 
     //
     // Delete the file just in case, because RegSaveKey will fail if the file
@@ -179,7 +175,7 @@ Return Value:
     *GaugePosition += GaugeDeltaUnit * COST_SAVE_HIVE;
     SendDlgItemMessage( hWnd,
                         ID_BAR,
-                        BAR_SETPOS,
+                        PBM_SETPOS,
                         *GaugePosition,
                         0L
                       );
@@ -194,16 +190,8 @@ Return Value:
         // Form the name of the file into which the saved hive file is
         // to be compressed.
         //
-
-        swprintf( CompressPath,
-                  ( LPWSTR )L"%ls\\%ls._",
-                  DirectoryName,
-                  HiveName );
-
-        sprintf( CompressPathAnsi,
-                 ( LPSTR )"%ls\\%ls._",
-                 DirectoryName,
-                 HiveName );
+        wsprintf(CompressPath,L"%ls\\%ls._",DirectoryName,HiveName);
+        wsprintfA(CompressPathAnsi,"%ls\\%ls._",DirectoryName,HiveName );
 
         //
         // Delete the destination file just in case.
@@ -232,7 +220,7 @@ Return Value:
     *GaugePosition += GaugeDeltaUnit * COST_COMPRESS_HIVE;
     SendDlgItemMessage( hWnd,
                         ID_BAR,
-                        BAR_SETPOS,
+                        PBM_SETPOS,
                         *GaugePosition,
                         0L
                       );
@@ -280,23 +268,28 @@ Return Value:
 --*/
 
 {
-    ULONG    i;
+    DWORD    i;
     HKEY     hkey;
-    BOOLEAN  EnabledPrivilege;
-    BOOLEAN  OldState;
-    BOOLEAN  ErrorOccurred;
-    NTSTATUS NtStatus;
+    BOOL     ErrorOccurred;
+    CHAR     SourceUserHivePathAnsi[ MAX_PATH + 1 ];
+    CHAR     CompressedUserHivePathAnsi[ MAX_PATH + 1 ];
+    WCHAR    ProfilesDirectory[ MAX_PATH + 1 ];
     WCHAR    RepairDirectory[ MAX_PATH + 1 ];
     WCHAR    SystemDirectory[ MAX_PATH + 1 ];
     WCHAR    Source[ MAX_PATH + 1 ];
     WCHAR    Target[ MAX_PATH + 1 ];
-    ULONG    GaugeDeltaUnit;
-    ULONG    GaugePosition;
-    ULONG    NumberOfHivesToSave;
-    ULONG    NumberOfVdmFiles;
+    DWORD    GaugeDeltaUnit;
+    DWORD    GaugePosition;
+    DWORD    NumberOfHivesToSave;
+    DWORD    NumberOfUserHivesToSave;
+    DWORD    NumberOfVdmFiles;
     HWND     hWnd;
-    ULONG    Error;
-    ULONG    Status;
+    DWORD    Error;
+    DWORD    Status;
+    HANDLE Token;
+    BOOL b;
+    TOKEN_PRIVILEGES NewPrivileges;
+    LUID Luid;
 
     //
     //  The array below contains the location and name of all hives that
@@ -338,10 +331,12 @@ Return Value:
     NumberOfHivesToSave = ( _SilentMode )?
                               sizeof( HiveList ) / sizeof( HIVE_INFO ) :
                               (sizeof( HiveList ) / sizeof( HIVE_INFO ))-3;
+    NumberOfUserHivesToSave = 1;
     NumberOfVdmFiles = sizeof( VdmFiles ) / sizeof( PWSTR );
 
     GaugeDeltaUnit = GAUGE_BAR_RANGE / (   (COST_SAVE_HIVE * NumberOfHivesToSave)
                                          + (COST_COMPRESS_HIVE * NumberOfHivesToSave)
+                                         + (COST_COMPRESS_HIVE * NumberOfUserHivesToSave)
                                          + (COST_SAVE_VDM_FILE * NumberOfVdmFiles));
 
     GaugePosition = 0;
@@ -349,22 +344,25 @@ Return Value:
     //
     //  Enable BACKUP privilege
     //
+    if(OpenProcessToken(GetCurrentProcess(),TOKEN_ADJUST_PRIVILEGES,&Token)) {
 
-    EnabledPrivilege = TRUE;
-    NtStatus = RtlAdjustPrivilege( SE_BACKUP_PRIVILEGE,
-                                   TRUE,
-                                   FALSE,
-                                   &OldState
-                                 );
-    if(!NT_SUCCESS(NtStatus)) {
-        EnabledPrivilege = FALSE;
+        if(LookupPrivilegeValue(NULL,SE_BACKUP_NAME,&Luid)) {
+
+            NewPrivileges.PrivilegeCount = 1;
+            NewPrivileges.Privileges[0].Luid = Luid;
+            NewPrivileges.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+
+            AdjustTokenPrivileges(Token,FALSE,&NewPrivileges,0,NULL,NULL);
+        }
     }
-    EnabledPrivilege = TRUE;
 
     GetWindowsDirectory( RepairDirectory, sizeof( RepairDirectory ) / sizeof( WCHAR ) );
-    wcscat( RepairDirectory, REPAIR_DIRECTORY );
+    lstrcpy( ProfilesDirectory, RepairDirectory );
+    lstrcat( RepairDirectory, REPAIR_DIRECTORY );
+    lstrcat( ProfilesDirectory, PROFILES_DIRECTORY );
 
     GetSystemDirectory( SystemDirectory, sizeof( SystemDirectory ) / sizeof( WCHAR ) );
+
     //
     //  Make sure that the repair directory already exists.
     //  If it doesn't exist, then create one.
@@ -444,12 +442,50 @@ Return Value:
         }
 
         //
+        //  Save the hive for the Default User
+        //
+
+        wsprintfA(SourceUserHivePathAnsi,"%ls\\%ls\\%ls",ProfilesDirectory,L"Default User",NTUSER_HIVE_FILE);
+        wsprintfA(CompressedUserHivePathAnsi,"%ls\\%ls",RepairDirectory,NTUSER_COMPRESSED_FILE_NAME);
+
+        //
+        // Delete the destination file just in case.
+        //
+        SetFileAttributesA(CompressedUserHivePathAnsi,FILE_ATTRIBUTE_NORMAL);
+        DeleteFileA(CompressedUserHivePathAnsi);
+
+        //
+        // Compress the hive into the destination file.
+        //
+        Status = DiamondCompressFile(
+                    SourceUserHivePathAnsi,
+                    CompressedUserHivePathAnsi,
+                    GaugePosition,
+                    GaugeDeltaUnit * COST_COMPRESS_HIVE,
+                    hWnd
+                    );
+        if( Status != ERROR_SUCCESS ) {
+            if( Error == ERROR_SUCCESS ) {
+               Error = Status;
+            }
+        }
+
+        GaugePosition += GaugeDeltaUnit * COST_COMPRESS_HIVE;
+        SendDlgItemMessage( hWnd,
+                            ID_BAR,
+                            PBM_SETPOS,
+                            GaugePosition,
+                            0L
+                          );
+
+
+        //
         // Now that the hives are saved, save the vdm files
         //
 
         for( i = 0; i < NumberOfVdmFiles; i++ ) {
-            swprintf( Source, ( LPWSTR )L"%ls\\%ls", SystemDirectory, VdmFiles[i] );
-            swprintf( Target, ( LPWSTR )L"%ls\\%ls", RepairDirectory, VdmFiles[i] );
+            wsprintf(Source,L"%ls\\%ls",SystemDirectory,VdmFiles[i]);
+            wsprintf(Target,L"%ls\\%ls",RepairDirectory,VdmFiles[i]);
             if( !CopyFile( Source, Target, FALSE ) ) {
                 Status = GetLastError();
                 if( Error != ERROR_SUCCESS ) {
@@ -470,23 +506,8 @@ Return Value:
     // At this point, the operation was completed (successfully, or not).
     // So update the gas gauge to 100%
     //
+    SendMessage(hWnd,AP_UPDATE_GAUGE,GAUGE_BAR_RANGE,0L);
 
-    SendMessage( ( HWND )hWnd,
-                 AP_UPDATE_GAUGE,
-                 GAUGE_BAR_RANGE,
-                 0L );
-
-    //
-    // Restore BACKUP privilege state
-    //
-
-    if(EnabledPrivilege && (OldState == FALSE)) {
-        RtlAdjustPrivilege( SE_BACKUP_PRIVILEGE,
-                            FALSE,
-                            FALSE,
-                            &OldState
-                          );
-    }
     if( Error != ERROR_SUCCESS && !_SilentMode ) {
         DisplayMsgBox(hWnd,
                       IDS_CANT_SAVE_CONFIGURATION,
@@ -541,8 +562,8 @@ Return Value:
     WCHAR    Buffer[ MAX_PATH + 1 ];
     WCHAR    Source[ MAX_PATH + 1 ];
     WCHAR    Target[ MAX_PATH + 1 ];
-    ULONG    i;
-    ULONG    GaugePosition = 0;
+    DWORD    i;
+    DWORD    GaugePosition = 0;
     BOOLEAN  AllFilesCopied = TRUE;
     DWORD    Error;
 
@@ -553,11 +574,12 @@ Return Value:
                            SECURITY_COMPRESSED_FILE_NAME,
                            SAM_COMPRESSED_FILE_NAME,
                            DEFAULT_COMPRESSED_FILE_NAME,
+                           NTUSER_COMPRESSED_FILE_NAME,
                            AUTOEXEC_NT_FILE_NAME,
                            CONFIG_NT_FILE_NAME
                          };
 
-    ULONG    DeltaCompleted = GAUGE_BAR_RANGE / ( sizeof( FileNames )/sizeof( PWSTR ) );
+    DWORD    DeltaCompleted = GAUGE_BAR_RANGE / ( sizeof( FileNames )/sizeof( PWSTR ) );
 
     hWnd = Arguments->hWnd;
     Drive = Arguments->DriveLetter;
@@ -567,8 +589,8 @@ Return Value:
          i < ( sizeof( FileNames )/sizeof( PWCHAR ) );
          i++) {
 
-        swprintf( Source,( LPWSTR )L"%ls\\repair\\%ls", Buffer, FileNames[i] );
-        swprintf( Target, ( LPWSTR )L"%wc:\\%ls", Drive, FileNames[i] );
+        wsprintf(Source,L"%ls\\repair\\%ls",Buffer,FileNames[i] );
+        wsprintf(Target,L"%wc:\\%ls",Drive,FileNames[i]);
 
         if( !CopyFile( Source, Target, FALSE ) ) {
             AllFilesCopied = FALSE;
@@ -588,7 +610,7 @@ Return Value:
                );
 
     if( !AllFilesCopied && !_SilentMode ) {
-        ULONG   MsgId;
+        DWORD   MsgId;
 
         if( Error == ERROR_FILE_NOT_FOUND ) {
             MsgId = IDS_FILE_NOT_FOUND;
@@ -648,16 +670,11 @@ Return Value:
         PPROGRESS_PARAMETERS    Parameters;
 
         Parameters = ( PPROGRESS_PARAMETERS )lParam;
+
         //
         // set up range for percentage (0-100) display
         //
-
-        SendDlgItemMessage( hdlg,
-                            ID_BAR,
-                            BAR_SETRANGE,
-                            GAUGE_BAR_RANGE,
-                            0L
-                          );
+        SendDlgItemMessage(hdlg,ID_BAR,PBM_SETRANGE,0,MAKELPARAM(0,GAUGE_BAR_RANGE));
 
         //
         // Set the caption
@@ -709,7 +726,7 @@ Return Value:
     case AP_UPDATE_GAUGE:
         SendDlgItemMessage( hdlg,
                             ID_BAR,
-                            BAR_SETPOS,
+                            PBM_SETPOS,
                             wParam,
                             0L );
         break;
@@ -720,7 +737,7 @@ Return Value:
 
         SendDlgItemMessage( hdlg,
                             ID_BAR,
-                            BAR_SETPOS,
+                            PBM_SETPOS,
                             GAUGE_BAR_RANGE,
                             0L );
         MessagePosted = FALSE;
@@ -813,7 +830,7 @@ Return Value:
     WIN32_FIND_DATA FindData;
     WCHAR           RepairDirectory[ MAX_PATH + 1];
     WCHAR           FileName[ MAX_PATH + 1];
-    ULONG           i;
+    DWORD           i;
     BOOLEAN         AtLeastOneFilePresent = FALSE;
 
     LPWSTR  ConfigurationFiles[] = { AUTOEXEC_NT_FILE_NAME,
@@ -822,7 +839,8 @@ Return Value:
                                      SOFTWARE_COMPRESSED_FILE_NAME,
                                      SECURITY_COMPRESSED_FILE_NAME,
                                      SAM_COMPRESSED_FILE_NAME,
-                                     DEFAULT_COMPRESSED_FILE_NAME
+                                     DEFAULT_COMPRESSED_FILE_NAME,
+                                     NTUSER_COMPRESSED_FILE_NAME
                                    };
 
     GetWindowsDirectory( RepairDirectory, sizeof( RepairDirectory ) / sizeof( WCHAR ) );
@@ -830,10 +848,7 @@ Return Value:
     for( i = 0;
          i < sizeof( ConfigurationFiles ) / sizeof( PWSTR );
          i++ ) {
-        swprintf( FileName,
-                  (LPWSTR)L"%ls\\%ls",
-                  RepairDirectory,
-                  ConfigurationFiles[i] );
+        wsprintf(FileName,L"%ls\\%ls",RepairDirectory,ConfigurationFiles[i]);
 
         if( ( Handle = FindFirstFile(FileName, &FindData) ) != INVALID_HANDLE_VALUE ) {
             AtLeastOneFilePresent = TRUE;
@@ -890,4 +905,4 @@ Return Value:
     }
     return( Result );
 }
-
+

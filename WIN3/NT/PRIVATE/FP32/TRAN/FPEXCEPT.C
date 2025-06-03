@@ -13,10 +13,12 @@
 *   3-20-92	GDP	major changes, reorganized code
 *   3-31-92	GDP	new interface, use internal fp control functions
 *   07-16-93    SRW     ALPHA Merge
+*   10-02-94    BWT     PPC merge
 *
 *******************************************************************************/
 
 #if _NTSUBSET_
+#define _NTSYSTEM_
 #include <nt.h>
 #include <ntrtl.h>
 #include <nturtl.h>
@@ -441,7 +443,7 @@ void _raise_exc( _FPIEEE_RECORD *prec,
 #endif
 
 
-#if defined(MIPS) || defined(_ALPHA_)
+#if	defined(_M_MRX000) || defined(_M_ALPHA) || defined(_M_PPC)
     prec->Precision = _FpPrecision53;
 #endif
 

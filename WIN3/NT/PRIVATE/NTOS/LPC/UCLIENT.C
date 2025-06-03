@@ -144,7 +144,7 @@ main(
     RtlInitUnicodeString( &PortName, PORT_NAME );
     fprintf( stderr, "Creating Port Memory Section" );
 
-    MaximumSize = RtlConvertUlongToLargeInteger( 0x4000 * NumberOfThreads );
+    MaximumSize.QuadPart = 0x4000 * NumberOfThreads;
     Status = NtCreateSection( &ClientView.SectionHandle,
                               SECTION_MAP_READ | SECTION_MAP_WRITE,
                               NULL,

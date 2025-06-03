@@ -1,45 +1,60 @@
-/****************************** Module Header ******************************\
-* Module Name: getloc.c
-*
-* Copyright (c) 1991, Microsoft Corporation
-*
-* This file is for API functions that get information about a locale.
-*
-* APIs found in this file:
-*    IsValidLocale
-*    ConvertDefaultLocale
-*    GetThreadLocale
-*    SetThreadLocale
-*    GetSystemDefaultLangID
-*    GetUserDefaultLangID
-*    GetSystemDefaultLCID
-*    GetUserDefaultLCID
-*    VerLanguageNameW
-*    VerLanguageNameA
-*    GetLocaleInfoW
-*    SetLocaleInfoW
-*
-* 05-31-91    JulieB    Created.
-\***************************************************************************/
+/*++
+
+Copyright (c) 1991-1996,  Microsoft Corporation  All rights reserved.
+
+Module Name:
+
+    getloc.c
+
+Abstract:
+
+    This file contains functions that get information about a locale.
+
+    APIs found in this file:
+      IsValidLocale
+      ConvertDefaultLocale
+      GetThreadLocale
+      SetThreadLocale
+      GetSystemDefaultLangID
+      GetUserDefaultLangID
+      GetSystemDefaultLCID
+      GetUserDefaultLCID
+      VerLanguageNameW
+      VerLanguageNameA
+      GetLocaleInfoW
+      SetLocaleInfoW
+
+Revision History:
+
+    05-31-91    JulieB    Created.
+
+--*/
 
 
-#include <string.h>
+
+//
+//  Include Files.
+//
+
 #include "nls.h"
 
 
 
-/*
- *  Allow this file to build without warnings when the DUnicode switch
- *  is turned off.
- */
+
+//
+//  Allow this file to build without warnings when the DUnicode switch
+//  is turned off.
+//
 #undef MAKEINTRESOURCE
 #define MAKEINTRESOURCE MAKEINTRESOURCEW
 
 
 
-/*
- *  Forward Declarations.
- */
+
+//
+//  Forward Declarations.
+//
+
 int
 GetLocalizedLanguageName(
     LANGID Language,
@@ -50,346 +65,382 @@ GetLocalizedCountryName(
     LANGID Language,
     LPWSTR *ppCtryName);
 
+BOOL
+SetUserInfo(
+    LPWSTR pValue,
+    LPWSTR pCacheString,
+    LPWSTR pData,
+    ULONG DataLength);
+
+BOOL
+SetMultipleUserInfo(
+    DWORD dwFlags,
+    int cchData,
+    LPCWSTR pPicture,
+    LPCWSTR pSeparator,
+    LPCWSTR pOrder,
+    LPCWSTR pTLZero,
+    LPCWSTR pTimeMarkPosn);
 
 
 
-/***************************************************************************\
-* IsValidLocale
-*
-* Determines whether or not a locale is installed in the system if the
-* LCID_INSTALLED flag is set, or whether or not a locale is supported in
-* the system if the LCID_SUPPORTED flag is set.
-*
-* 07-26-93    JulieB    Created.
-\***************************************************************************/
+
+
+//-------------------------------------------------------------------------//
+//                             API ROUTINES                                //
+//-------------------------------------------------------------------------//
+
+
+////////////////////////////////////////////////////////////////////////////
+//
+//  IsValidLocale
+//
+//  Determines whether or not a locale is installed in the system if the
+//  LCID_INSTALLED flag is set, or whether or not a locale is supported in
+//  the system if the LCID_SUPPORTED flag is set.
+//
+//  07-26-93    JulieB    Created.
+////////////////////////////////////////////////////////////////////////////
 
 BOOL WINAPI IsValidLocale(
     LCID Locale,
     DWORD dwFlags)
 {
-    /*
-     *  Invalid Parameter Check:
-     *     - flags other than valid ones
-     *     - more than one of either supported or installed
-     *     - invalid locale
-     */
+    //
+    //  Invalid Parameter Check:
+    //     - flags other than valid ones
+    //     - more than one of either supported or installed
+    //     - invalid locale
+    //
     if ( (dwFlags & IVL_INVALID_FLAG) ||
-         (MORE_THAN_ONE( dwFlags, IVL_SINGLE_FLAG )) ||
-         (IS_INVALID_LOCALE( Locale )) )
+         (MORE_THAN_ONE(dwFlags, IVL_SINGLE_FLAG)) ||
+         (IS_INVALID_LOCALE(Locale)) )
     {
-        return ( FALSE );
+        return (FALSE);
     }
 
-    /*
-     *  See if the LOCALE information is in the system for the
-     *  given locale.
-     */
-    if (GetLocHashNode( Locale ) == NULL)
+    //
+    //  See if the LOCALE information is in the system for the
+    //  given locale.
+    //
+    if (GetLocHashNode(Locale) == NULL)
     {
-        /*
-         *  Return failure.
-         */
-        return ( FALSE );
+        //
+        //  Return failure.
+        //
+        return (FALSE);
     }
 
 
-    /*
-     *  If the INSTALLED flag is set, see if the LANGUAGE information
-     *  is in the system for the given locale.
-     */
-    if ((dwFlags & LCID_INSTALLED) && (GetLangHashNode( Locale ) == NULL))
+    //
+    //  If the INSTALLED flag is set, see if the LANGUAGE information
+    //  is in the system for the given locale.
+    //
+    if ((dwFlags & LCID_INSTALLED) && (GetLangHashNode(Locale, 0) == NULL))
     {
-        /*
-         *  Return failure.
-         */
-        return ( FALSE );
+        //
+        //  Return failure.
+        //
+        return (FALSE);
     }
 
-    /*
-     *  Return success.
-     */
-    return ( TRUE );
+    //
+    //  Return success.
+    //
+    return (TRUE);
 }
 
 
-/***************************************************************************\
-* ConvertDefaultLocale
-*
-* Converts any of the special case locale values to an actual locale id.
-* If none of the special case locales was given, the given locale id
-* is returned.
-*
-* 09-01-93    JulieB    Created.
-\***************************************************************************/
+////////////////////////////////////////////////////////////////////////////
+//
+//  ConvertDefaultLocale
+//
+//  Converts any of the special case locale values to an actual locale id.
+//  If none of the special case locales was given, the given locale id
+//  is returned.
+//
+//  09-01-93    JulieB    Created.
+////////////////////////////////////////////////////////////////////////////
 
 LCID WINAPI ConvertDefaultLocale(
     LCID Locale)
 {
-    /*
-     *  Check for the special locale values.
-     */
-    CHECK_SPECIAL_LOCALES( Locale );
+    //
+    //  Check for the special locale values.
+    //
+    CHECK_SPECIAL_LOCALES(Locale);
 
-    /*
-     *  Return the locale id.
-     */
-    return ( Locale );
+    //
+    //  Return the locale id.
+    //
+    return (Locale);
 }
 
 
-/***************************************************************************\
-* GetThreadLocale
-*
-* Returns the locale id for the current thread.
-*
-* 03-11-93    JulieB    Moved from base\client.
-\***************************************************************************/
+////////////////////////////////////////////////////////////////////////////
+//
+//  GetThreadLocale
+//
+//  Returns the locale id for the current thread.
+//
+//  03-11-93    JulieB    Moved from base\client.
+////////////////////////////////////////////////////////////////////////////
 
 LCID WINAPI GetThreadLocale()
 {
-    /*
-     *  Return the locale id stored in the TEB.
-     */
-    return ( (LCID)(NtCurrentTeb()->CurrentLocale) );
+    //
+    //  Return the locale id stored in the TEB.
+    //
+    return ((LCID)(NtCurrentTeb()->CurrentLocale));
 }
 
 
-/***************************************************************************\
-* SetThreadLocale
-*
-* Resets the locale id for the current thread.  Any locale-dependent
-* functions will reflect the new locale.  If the locale passed in is
-* not a valid locale id, then FALSE is returned.
-*
-* 03-11-93    JulieB    Moved from base\client; Added Locale Validation.
-\***************************************************************************/
+////////////////////////////////////////////////////////////////////////////
+//
+//  SetThreadLocale
+//
+//  Resets the locale id for the current thread.  Any locale-dependent
+//  functions will reflect the new locale.  If the locale passed in is
+//  not a valid locale id, then FALSE is returned.
+//
+//  03-11-93    JulieB    Moved from base\client; Added Locale Validation.
+////////////////////////////////////////////////////////////////////////////
 
 BOOL WINAPI SetThreadLocale(
     LCID Locale)
 {
-    PLOC_HASH pHashN;             /* ptr to hash node */
+    PLOC_HASH pHashN;             // ptr to hash node
 
 
-    /*
-     *  Validate locale id.
-     */
-    VALIDATE_LANGUAGE( Locale, pHashN );
+    //
+    //  Validate locale id.
+    //
+    VALIDATE_LANGUAGE(Locale, pHashN, 0);
     if (pHashN == NULL)
     {
-        SetLastError( ERROR_INVALID_PARAMETER );
-        return ( FALSE );
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return (FALSE);
     }
 
-    /*
-     *  Set the locale id in the TEB.
-     */
+    //
+    //  Set the locale id in the TEB.
+    //
     NtCurrentTeb()->CurrentLocale = (ULONG)Locale;
 
-    /*
-     *  Return success.
-     */
-    return ( TRUE );
+    //
+    //  Return success.
+    //
+    return (TRUE);
 }
 
 
-/***************************************************************************\
-* GetSystemDefaultLangID
-*
-* Returns the default language for the system.  If the registry value is
-* not readable, then the chosen default language is used
-* (NLS_DEFAULT_LANGID).
-*
-* 05-31-91    JulieB    Created.
-\***************************************************************************/
+////////////////////////////////////////////////////////////////////////////
+//
+//  GetSystemDefaultLangID
+//
+//  Returns the default language for the system.  If the registry value is
+//  not readable, then the chosen default language is used
+//  (NLS_DEFAULT_LANGID).
+//
+//  05-31-91    JulieB    Created.
+////////////////////////////////////////////////////////////////////////////
 
 LANGID WINAPI GetSystemDefaultLangID()
 {
-    /*
-     *  Get the language id from the locale id stored in the cache
-     *  and return it.
-     */
-    return ( LANGIDFROMLCID( gSystemLocale ) );
+    //
+    //  Get the language id from the locale id stored in the cache
+    //  and return it.
+    //
+    return (LANGIDFROMLCID(gSystemLocale));
 }
 
 
-/***************************************************************************\
-* GetUserDefaultLangID
-*
-* Returns the default language for the current user.  If the current user's
-* language is not set, then the system default language id is returned.
-*
-* 05-31-91    JulieB    Created.
-\***************************************************************************/
+////////////////////////////////////////////////////////////////////////////
+//
+//  GetUserDefaultLangID
+//
+//  Returns the default language for the current user.  If the current user's
+//  language is not set, then the system default language id is returned.
+//
+//  05-31-91    JulieB    Created.
+////////////////////////////////////////////////////////////////////////////
 
 LANGID WINAPI GetUserDefaultLangID()
 {
-    /*
-     *  Get the language id from the locale id stored in the cache
-     *  and return it.
-     */
-    return ( LANGIDFROMLCID( gUserLocale ) );
+    //
+    //  Get the language id from the locale id stored in the cache
+    //  and return it.
+    //
+    return (LANGIDFROMLCID(pNlsUserInfo->UserLocaleId));
 }
 
 
-/***************************************************************************\
-* GetSystemDefaultLCID
-*
-* Returns the default locale for the system.
-*
-* 05-31-91    JulieB    Created.
-\***************************************************************************/
+////////////////////////////////////////////////////////////////////////////
+//
+//  GetSystemDefaultLCID
+//
+//  Returns the default locale for the system.
+//
+//  05-31-91    JulieB    Created.
+////////////////////////////////////////////////////////////////////////////
 
 LCID WINAPI GetSystemDefaultLCID()
 {
-    /*
-     *  Return the locale id stored in the cache.
-     */
-    return ( gSystemLocale );
+    //
+    //  Return the locale id stored in the cache.
+    //
+    return (gSystemLocale);
 }
 
 
-/***************************************************************************\
-* GetUserDefaultLCID
-*
-* Returns the default locale for the current user.  If current user's locale
-* is not set, then the system default locale id is returned.
-*
-* 05-31-91    JulieB    Created.
-\***************************************************************************/
+////////////////////////////////////////////////////////////////////////////
+//
+//  GetUserDefaultLCID
+//
+//  Returns the default locale for the current user.  If current user's locale
+//  is not set, then the system default locale id is returned.
+//
+//  05-31-91    JulieB    Created.
+////////////////////////////////////////////////////////////////////////////
 
 LCID WINAPI GetUserDefaultLCID()
 {
-    /*
-     *  Return the locale id stored in the cache.
-     */
-    return ( gUserLocale );
+    //
+    //  Return the locale id stored in the cache.
+    //
+    return (pNlsUserInfo->UserLocaleId);
 }
 
 
-/***************************************************************************\
-* VerLanguageNameW
-*
-* Returns the language name of the given language id in the language of
-* the current user.
-*
-* 05-31-91    JulieB    Moved and Rewrote from Version Library.
-\***************************************************************************/
+////////////////////////////////////////////////////////////////////////////
+//
+//  VerLanguageNameW
+//
+//  Returns the language name of the given language id in the language of
+//  the current user.
+//
+//  05-31-91    JulieB    Moved and Rewrote from Version Library.
+////////////////////////////////////////////////////////////////////////////
 
 #define IDS_UNKNOWN 0
 
 DWORD WINAPI VerLanguageNameW(
-	DWORD wLang,
-	LPWSTR szLang,
-	DWORD wSize)
+    DWORD wLang,
+    LPWSTR szLang,
+    DWORD wSize)
 {
-    DWORD Length;            /* length of string */
-    LPWSTR pString;          /* pointer to string */
+    DWORD Length;            // length of string
+    LPWSTR pString;          // pointer to string
 
 
-    /*
-     *  Try to get the localized language name for the given ID.
-     */
-    if (!(Length = GetLocalizedLanguageName( (LANGID)wLang,
-                                             &pString )))
+    //
+    //  Try to get the localized language name for the given ID.
+    //
+    if (!(Length = GetLocalizedLanguageName((LANGID)wLang, &pString)))
     {
-        /*
-         *  Can't get the name of the language id passed in, so get
-         *  the "language neutral" name.
-         */
-        Length = GetLocalizedLanguageName( IDS_UNKNOWN,
-                                           &pString );
+        //
+        //  Can't get the name of the language id passed in, so get
+        //  the "language neutral" name.
+        //
+        Length = GetLocalizedLanguageName(IDS_UNKNOWN, &pString);
     }
 
-    /*
-     *  If the length is too big for the buffer, then reset the length
-     *  to the size of the given buffer.
-     */
+    //
+    //  If the length is too big for the buffer, then reset the length
+    //  to the size of the given buffer.
+    //
     if (Length >= wSize)
     {
         Length = wSize - 1;
     }
 
-    /*
-     *  Copy the string to the buffer and zero terminate it.
-     */
-    wcsncpy( szLang, pString, Length );
+    //
+    //  Copy the string to the buffer and zero terminate it.
+    //
+    wcsncpy(szLang, pString, Length);
     szLang[Length] = 0;
 
-    /*
-     *  Return the number of characters in the string, NOT including
-     *  the null termination.
-     */
-    return ( Length );
+    //
+    //  Return the number of characters in the string, NOT including
+    //  the null termination.
+    //
+    return (Length);
 }
 
 
-/***************************************************************************\
-* VerLanguageNameA
-*
-* Returns the language name of the given language id in the language of
-* the current user.
-*
-* 05-31-91    JulieB    Moved from Version Library.
-\***************************************************************************/
+////////////////////////////////////////////////////////////////////////////
+//
+//  VerLanguageNameA
+//
+//  Returns the language name of the given language id in the language of
+//  the current user.
+//
+//  05-31-91    JulieB    Moved from Version Library.
+////////////////////////////////////////////////////////////////////////////
 
 DWORD WINAPI VerLanguageNameA(
     DWORD wLang,
     LPSTR szLang,
     DWORD wSize)
 {
-    UNICODE_STRING Language;           /* unicode string buffer */
-    ANSI_STRING AnsiString;            /* ansi string buffer */
-    DWORD Status;                      /* return status */
+    UNICODE_STRING Language;           // unicode string buffer
+    ANSI_STRING AnsiString;            // ansi string buffer
+    DWORD Status;                      // return status
 
 
-    /*
-     *  Allocate Unicode string structure and set the fields with the
-     *  given parameters.
-     */
+    //
+    //  Allocate Unicode string structure and set the fields with the
+    //  given parameters.
+    //
     Language.Buffer = RtlAllocateHeap( RtlProcessHeap(),
                                        0,
                                        sizeof(WCHAR) * wSize );
-    Language.Length = Language.MaximumLength = (USHORT)(sizeof(WCHAR) * wSize);
 
-    /*
-     *  Make sure the allocation succeeded.
-     */
+    Language.MaximumLength = (USHORT)(wSize * sizeof(WCHAR));
+
+    //
+    //  Make sure the allocation succeeded.
+    //
     if (Language.Buffer == NULL)
     {
-        return ( FALSE );
+        return (FALSE);
     }
 
-    /*
-     *  Get the language name (in Unicode).
-     */
+    //
+    //  Get the language name (in Unicode).
+    //
     Status = VerLanguageNameW( wLang,
                                Language.Buffer,
                                wSize );
 
-    /*
-     *  Convert unicode string to ansi.
-     */
+    Language.Length = (USHORT)(Status * sizeof(WCHAR));
+
+    //
+    //  Convert unicode string to ansi.
+    //
     AnsiString.Buffer = szLang;
     AnsiString.Length = AnsiString.MaximumLength = (USHORT)wSize;
-    RtlUnicodeStringToAnsiString( &AnsiString, &Language, FALSE );
-    RtlFreeUnicodeString( &Language );
+    RtlUnicodeStringToAnsiString(&AnsiString, &Language, FALSE);
+    Status = AnsiString.Length;
+    RtlFreeUnicodeString(&Language);
 
-    /*
-     *  Return the value returned from VerLanguageNameW.
-     */
-    return ( Status );
+    //
+    //  Return the value returned from VerLanguageNameW.
+    //
+    return (Status);
 }
 
 
-/***************************************************************************\
-* GetLocaleInfoW
-*
-* Returns one of the various pieces of information about a particular
-* locale by querying the configuration registry.  This call also indicates
-* how much memory is necessary to contain the desired information.
-*
-* 05-31-91    JulieB    Created.
-\***************************************************************************/
+////////////////////////////////////////////////////////////////////////////
+//
+//  GetLocaleInfoW
+//
+//  Returns one of the various pieces of information about a particular
+//  locale by querying the configuration registry.  This call also indicates
+//  how much memory is necessary to contain the desired information.
+//
+//  05-31-91    JulieB    Created.
+////////////////////////////////////////////////////////////////////////////
 
 int WINAPI GetLocaleInfoW(
     LCID Locale,
@@ -397,82 +448,90 @@ int WINAPI GetLocaleInfoW(
     LPWSTR lpLCData,
     int cchData)
 {
-    PLOC_HASH pHashN;                       /* ptr to LOC hash node */
-    int Length = 0;                         /* length of info string */
-    LPWSTR pString;                         /* ptr to the info string */
-    PKEY_VALUE_FULL_INFORMATION pValFull;   /* ptr to query information */
-    BYTE pStatic[MAX_KEY_VALUE_FULLINFO];   /* ptr to static buffer */
-    LPWORD pStart;                          /* ptr to starting point */
-    BOOL UserOverride = TRUE;               /* use user override */
-    BOOL IfAlloc = FALSE;                   /* if buffer allocated */
-    LPWSTR pTmp;                            /* tmp ptr to info string */
-    int Repeat;                             /* # repetitions of same letter */
-    HANDLE hKey = NULL;                     /* handle to registry key */
+    PLOC_HASH pHashN;                       // ptr to LOC hash node
+    int Length = 0;                         // length of info string
+    LPWSTR pString;                         // ptr to the info string
+    LPWORD pStart;                          // ptr to starting point
+    BOOL UserOverride = TRUE;               // use user override
+    BOOL ReturnNum = FALSE;                 // return number instead of string
+    LPWSTR pTmp;                            // tmp ptr to info string
+    int Repeat;                             // # repetitions of same letter
+    WCHAR pTemp[MAX_REG_VAL_SIZE];          // temp buffer
+    UNICODE_STRING ObUnicodeStr;            // value string
+    int Base = 0;                           // base for str to int conversion
 
 
-    /*
-     *  Invalid Parameter Check:
-     *    - validate LCID
-     *    - count is negative
-     *    - NULL data pointer AND count is not zero
-     *
-     *  NOTE: invalid type is checked in the switch statement below.
-     */
-    VALIDATE_LOCALE( Locale, pHashN );
+    //
+    //  Invalid Parameter Check:
+    //    - validate LCID
+    //    - count is negative
+    //    - NULL data pointer AND count is not zero
+    //
+    //  NOTE: invalid type is checked in the switch statement below.
+    //
+    VALIDATE_LOCALE(Locale, pHashN);
     if ( (pHashN == NULL) ||
          (cchData < 0) ||
          ((lpLCData == NULL) && (cchData != 0)) )
     {
-        SetLastError( ERROR_INVALID_PARAMETER );
-        return ( 0 );
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return (0);
     }
 
-    /*
-     *  Set the base value to add to in order to get the variable
-     *  length strings.
-     */
+    //
+    //  Set the base value to add to in order to get the variable
+    //  length strings.
+    //
     pStart = (LPWORD)(pHashN->pLocaleHdr);
 
-    /*
-     *  Check for NO USER OVERRIDE flag and remove the USE CP ACP flag.
-     */
+    //
+    //  Check for NO USER OVERRIDE flag and remove the USE CP ACP flag.
+    //
     if (LCType & LOCALE_NOUSEROVERRIDE)
     {
-        /*
-         *  Flag is set, so set the boolean value and remove the flag
-         *  from the LCType parameter (for switch statement).
-         */
+        //
+        //  Flag is set, so set the boolean value and remove the flag
+        //  from the LCType parameter (for switch statement).
+        //
         UserOverride = FALSE;
     }
-    LCType &= (~(LOCALE_NOUSEROVERRIDE | LOCALE_USE_CP_ACP));
+    if (LCType & LOCALE_RETURN_NUMBER)
+    {
+        //
+        //  Flag is set, so set the boolean value and remove the flag
+        //  from the LCType parameter (for switch statement).
+        //
+        ReturnNum = TRUE;
+    }
+    LCType &= (~(LOCALE_NOUSEROVERRIDE | LOCALE_USE_CP_ACP | LOCALE_RETURN_NUMBER));
 
-    /*
-     *  Return the appropriate information for the given LCTYPE.
-     *  If user information exists for the given LCTYPE, then
-     *  the user default is returned instead of the system default.
-     */
-    pValFull = (PKEY_VALUE_FULL_INFORMATION)pStatic;
+    //
+    //  Return the appropriate information for the given LCTYPE.
+    //  If user information exists for the given LCTYPE, then
+    //  the user default is returned instead of the system default.
+    //
     switch (LCType)
     {
         case ( LOCALE_ILANGUAGE ) :
         {
+            Base = 16;
             pString = pHashN->pLocaleFixed->szILanguage;
             break;
         }
         case ( LOCALE_SLANGUAGE ) :
         {
-            /*
-             *  Get the information from the RC file.
-             *
-             *  The pString pointer is set when GetLocalizedLanguageName
-             *  is called.
-             */
+            //
+            //  Get the information from the RC file.
+            //
+            //  The pString pointer is set when GetLocalizedLanguageName
+            //  is called.
+            //
             Length = GetLocalizedLanguageName( LANGIDFROMLCID(Locale),
                                                &pString );
             if (Length == 0)
             {
-                SetLastError( ERROR_INVALID_PARAMETER );
-                return ( 0 );
+                SetLastError(ERROR_INVALID_PARAMETER);
+                return (0);
             }
             break;
         }
@@ -484,20 +543,22 @@ int WINAPI GetLocaleInfoW(
         case ( LOCALE_SABBREVLANGNAME ) :
         {
             if (UserOverride &&
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_SLANGUAGE,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+                GetUserInfo( Locale,
+                             pNlsUserInfo->sAbbrevLangName,
+                             pTemp,
+                             TRUE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
             }
             else
             {
                 pString = pStart + pHashN->pLocaleHdr->SAbbrevLang;
             }
+            break;
+        }
+        case ( LOCALE_SISO639LANGNAME ) :
+        {
+            pString = pStart + pHashN->pLocaleHdr->SAbbrevLangISO;
             break;
         }
         case ( LOCALE_SNATIVELANGNAME ) :
@@ -507,16 +568,14 @@ int WINAPI GetLocaleInfoW(
         }
         case ( LOCALE_ICOUNTRY ) :
         {
+            Base = 10;
             if (UserOverride &&
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_ICOUNTRY,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+                GetUserInfo( Locale,
+                             pNlsUserInfo->iCountry,
+                             pTemp,
+                             TRUE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
             }
             else
             {
@@ -526,35 +585,27 @@ int WINAPI GetLocaleInfoW(
         }
         case ( LOCALE_SCOUNTRY ) :
         {
-            if (UserOverride && 
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_SCOUNTRY,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+            if (UserOverride &&
+                GetUserInfo( Locale,
+                             pNlsUserInfo->sCountry,
+                             pTemp,
+                             TRUE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
             }
             else
             {
-                /*
-                 *  Get the information from the RC file.
-                 *
-                 *  The pString pointer is set when GetLocalizedCountryName
-                 *  is called.
-                 */
+                //
+                //  Get the information from the RC file.
+                //
+                //  The pString pointer is set when GetLocalizedCountryName
+                //  is called.
+                //
                 if (!GetLocalizedCountryName( LANGIDFROMLCID(Locale),
                                               &pString ))
                 {
-                    SetLastError( ERROR_INVALID_PARAMETER );
-                    if (IfAlloc)
-                    {
-                        NLS_FREE_MEM( pValFull );
-                    }
-                    CLOSE_REG_KEY( hKey );
-                    return ( 0 );
+                    SetLastError(ERROR_INVALID_PARAMETER);
+                    return (0);
                 }
             }
             break;
@@ -569,6 +620,11 @@ int WINAPI GetLocaleInfoW(
             pString = pStart + pHashN->pLocaleHdr->SAbbrevCtry;
             break;
         }
+        case ( LOCALE_SISO3166CTRYNAME ) :
+        {
+            pString = pStart + pHashN->pLocaleHdr->SAbbrevCtryISO;
+            break;
+        }
         case ( LOCALE_SNATIVECTRYNAME ) :
         {
             pString = pStart + pHashN->pLocaleHdr->SNativeCtry;
@@ -576,36 +632,67 @@ int WINAPI GetLocaleInfoW(
         }
         case ( LOCALE_IDEFAULTLANGUAGE ) :
         {
+            Base = 16;
             pString = pHashN->pLocaleFixed->szIDefaultLang;
             break;
         }
         case ( LOCALE_IDEFAULTCOUNTRY ) :
         {
+            Base = 10;
             pString = pHashN->pLocaleFixed->szIDefaultCtry;
             break;
         }
         case ( LOCALE_IDEFAULTANSICODEPAGE ) :
         {
+            if (ReturnNum)
+            {
+                if (cchData < 2)
+                {
+                    if (cchData == 0)
+                    {
+                        //
+                        //  DWORD is needed for this option (2 WORDS),
+                        //  so return 2.
+                        //
+                        return (2);
+                    }
+
+                    SetLastError(ERROR_INSUFFICIENT_BUFFER);
+                    return (0);
+                }
+
+                //
+                //  Copy the value to lpLCData and return 2
+                //  (2 WORDS = 1 DWORD).
+                //
+                *((LPDWORD)lpLCData) = (DWORD)(pHashN->pLocaleFixed->DefaultACP);
+                return (2);
+            }
+
             pString = pHashN->pLocaleFixed->szIDefaultACP;
             break;
         }
         case ( LOCALE_IDEFAULTCODEPAGE ) :
         {
+            Base = 10;
             pString = pHashN->pLocaleFixed->szIDefaultOCP;
+            break;
+        }
+        case ( LOCALE_IDEFAULTMACCODEPAGE ) :
+        {
+            Base = 10;
+            pString = pHashN->pLocaleFixed->szIDefaultMACCP;
             break;
         }
         case ( LOCALE_SLIST ) :
         {
-            if (UserOverride && 
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_SLIST,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+            if (UserOverride &&
+                GetUserInfo( Locale,
+                             pNlsUserInfo->sList,
+                             pTemp,
+                             FALSE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
             }
             else
             {
@@ -615,16 +702,14 @@ int WINAPI GetLocaleInfoW(
         }
         case ( LOCALE_IMEASURE ) :
         {
-            if (UserOverride && 
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_IMEASURE,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+            Base = 10;
+            if (UserOverride &&
+                GetUserInfo( Locale,
+                             pNlsUserInfo->iMeasure,
+                             pTemp,
+                             TRUE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
             }
             else
             {
@@ -635,15 +720,12 @@ int WINAPI GetLocaleInfoW(
         case ( LOCALE_SDECIMAL ) :
         {
             if (UserOverride &&
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_SDECIMAL,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+                GetUserInfo( Locale,
+                             pNlsUserInfo->sDecimal,
+                             pTemp,
+                             FALSE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
             }
             else
             {
@@ -653,16 +735,13 @@ int WINAPI GetLocaleInfoW(
         }
         case ( LOCALE_STHOUSAND ) :
         {
-            if (UserOverride && 
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_STHOUSAND,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+            if (UserOverride &&
+                GetUserInfo( Locale,
+                             pNlsUserInfo->sThousand,
+                             pTemp,
+                             FALSE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
             }
             else
             {
@@ -672,16 +751,13 @@ int WINAPI GetLocaleInfoW(
         }
         case ( LOCALE_SGROUPING ) :
         {
-            if (UserOverride && 
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_SGROUPING,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+            if (UserOverride &&
+                GetUserInfo( Locale,
+                             pNlsUserInfo->sGrouping,
+                             pTemp,
+                             TRUE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
             }
             else
             {
@@ -691,16 +767,14 @@ int WINAPI GetLocaleInfoW(
         }
         case ( LOCALE_IDIGITS ) :
         {
-            if (UserOverride && 
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_IDIGITS,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+            Base = 10;
+            if (UserOverride &&
+                GetUserInfo( Locale,
+                             pNlsUserInfo->iDigits,
+                             pTemp,
+                             TRUE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
             }
             else
             {
@@ -710,16 +784,14 @@ int WINAPI GetLocaleInfoW(
         }
         case ( LOCALE_ILZERO ) :
         {
-            if (UserOverride && 
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_ILZERO,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+            Base = 10;
+            if (UserOverride &&
+                GetUserInfo( Locale,
+                             pNlsUserInfo->iLZero,
+                             pTemp,
+                             TRUE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
             }
             else
             {
@@ -729,16 +801,14 @@ int WINAPI GetLocaleInfoW(
         }
         case ( LOCALE_INEGNUMBER ) :
         {
-            if (UserOverride && 
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_INEGNUMBER,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+            Base = 10;
+            if (UserOverride &&
+                GetUserInfo( Locale,
+                             pNlsUserInfo->iNegNumber,
+                             pTemp,
+                             TRUE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
             }
             else
             {
@@ -753,16 +823,13 @@ int WINAPI GetLocaleInfoW(
         }
         case ( LOCALE_SCURRENCY ) :
         {
-            if (UserOverride && 
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_SCURRENCY,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+            if (UserOverride &&
+                GetUserInfo( Locale,
+                             pNlsUserInfo->sCurrency,
+                             pTemp,
+                             FALSE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
             }
             else
             {
@@ -777,16 +844,13 @@ int WINAPI GetLocaleInfoW(
         }
         case ( LOCALE_SMONDECIMALSEP ) :
         {
-            if (UserOverride && 
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_SMONDECIMALSEP,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+            if (UserOverride &&
+                GetUserInfo( Locale,
+                             pNlsUserInfo->sMonDecSep,
+                             pTemp,
+                             FALSE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
             }
             else
             {
@@ -796,16 +860,13 @@ int WINAPI GetLocaleInfoW(
         }
         case ( LOCALE_SMONTHOUSANDSEP ) :
         {
-            if (UserOverride && 
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_SMONTHOUSANDSEP,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+            if (UserOverride &&
+                GetUserInfo( Locale,
+                             pNlsUserInfo->sMonThouSep,
+                             pTemp,
+                             FALSE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
             }
             else
             {
@@ -815,16 +876,13 @@ int WINAPI GetLocaleInfoW(
         }
         case ( LOCALE_SMONGROUPING ) :
         {
-            if (UserOverride && 
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_SMONGROUPING,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+            if (UserOverride &&
+                GetUserInfo( Locale,
+                             pNlsUserInfo->sMonGrouping,
+                             pTemp,
+                             TRUE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
             }
             else
             {
@@ -834,16 +892,14 @@ int WINAPI GetLocaleInfoW(
         }
         case ( LOCALE_ICURRDIGITS ) :
         {
-            if (UserOverride && 
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_ICURRDIGITS,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+            Base = 10;
+            if (UserOverride &&
+                GetUserInfo( Locale,
+                             pNlsUserInfo->iCurrDigits,
+                             pTemp,
+                             TRUE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
             }
             else
             {
@@ -853,21 +909,20 @@ int WINAPI GetLocaleInfoW(
         }
         case ( LOCALE_IINTLCURRDIGITS ) :
         {
+            Base = 10;
             pString = pHashN->pLocaleFixed->szIIntlCurrDigits;
             break;
         }
         case ( LOCALE_ICURRENCY ) :
         {
-            if (UserOverride && 
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_ICURRENCY,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+            Base = 10;
+            if (UserOverride &&
+                GetUserInfo( Locale,
+                             pNlsUserInfo->iCurrency,
+                             pTemp,
+                             TRUE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
             }
             else
             {
@@ -877,16 +932,14 @@ int WINAPI GetLocaleInfoW(
         }
         case ( LOCALE_INEGCURR ) :
         {
-            if (UserOverride && 
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_INEGCURR,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+            Base = 10;
+            if (UserOverride &&
+                GetUserInfo( Locale,
+                             pNlsUserInfo->iNegCurr,
+                             pTemp,
+                             TRUE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
             }
             else
             {
@@ -896,16 +949,13 @@ int WINAPI GetLocaleInfoW(
         }
         case ( LOCALE_SPOSITIVESIGN ) :
         {
-            if (UserOverride && 
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_SPOSITIVESIGN,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+            if (UserOverride &&
+                GetUserInfo( Locale,
+                             pNlsUserInfo->sPosSign,
+                             pTemp,
+                             FALSE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
             }
             else
             {
@@ -915,16 +965,13 @@ int WINAPI GetLocaleInfoW(
         }
         case ( LOCALE_SNEGATIVESIGN ) :
         {
-            if (UserOverride && 
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_SNEGATIVESIGN,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+            if (UserOverride &&
+                GetUserInfo( Locale,
+                             pNlsUserInfo->sNegSign,
+                             pTemp,
+                             FALSE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
             }
             else
             {
@@ -934,35 +981,33 @@ int WINAPI GetLocaleInfoW(
         }
         case ( LOCALE_IPOSSIGNPOSN ) :
         {
-            /*
-             *  Since there is no positive sign in any of the ICURRENCY
-             *  options, use the INEGCURR options instead.  All known
-             *  locales would use the positive sign in the same position
-             *  as the negative sign.
-             *
-             *  NOTE:  For the 2 options that use parenthesis, put the
-             *         positive sign at the beginning of the string
-             *         (where the opening parenthesis is).
-             *
-             *      1  =>  4, 5, 8, 15
-             *      2  =>  3, 11
-             *      3  =>  0, 1, 6, 9, 13, 14
-             *      4  =>  2, 7, 10, 12
-             */
-            if (UserOverride && 
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_INEGCURR,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+            //
+            //  Since there is no positive sign in any of the ICURRENCY
+            //  options, use the INEGCURR options instead.  All known
+            //  locales would use the positive sign in the same position
+            //  as the negative sign.
+            //
+            //  NOTE:  For the 2 options that use parenthesis, put the
+            //         positive sign at the beginning of the string
+            //         (where the opening parenthesis is).
+            //
+            //      1  =>  4, 5, 8, 15
+            //      2  =>  3, 11
+            //      3  =>  0, 1, 6, 9, 13, 14
+            //      4  =>  2, 7, 10, 12
+            //
+            Base = 10;
+            if (UserOverride &&
+                GetUserInfo( Locale,
+                             pNlsUserInfo->iNegCurr,
+                             pTemp,
+                             TRUE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
 
-                /*
-                 *  Set the appropriate value in pString.
-                 */
+                //
+                //  Set the appropriate value in pString.
+                //
                 switch (*pString)
                 {
                     case ( L'4' ) :
@@ -996,7 +1041,7 @@ int WINAPI GetLocaleInfoW(
                     }
                     case ( L'1' ) :
                     {
-                        switch ( *(pString + 1) )
+                        switch (*(pString + 1))
                         {
                             case ( 0 ) :
                             case ( L'3' ) :
@@ -1044,30 +1089,28 @@ int WINAPI GetLocaleInfoW(
         }
         case ( LOCALE_INEGSIGNPOSN ) :
         {
-            /*
-             *  Use the INEGCURR value from the user portion of the
-             *  registry, if it exists.
-             *
-             *      0  =>  0, 4, 14, 15
-             *      1  =>  5, 8
-             *      2  =>  3, 11
-             *      3  =>  1, 6, 9, 13
-             *      4  =>  2, 7, 10, 12
-             */
-            if (UserOverride && 
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_INEGCURR,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+            //
+            //  Use the INEGCURR value from the user portion of the
+            //  registry, if it exists.
+            //
+            //      0  =>  0, 4, 14, 15
+            //      1  =>  5, 8
+            //      2  =>  3, 11
+            //      3  =>  1, 6, 9, 13
+            //      4  =>  2, 7, 10, 12
+            //
+            Base = 10;
+            if (UserOverride &&
+                GetUserInfo( Locale,
+                             pNlsUserInfo->iNegCurr,
+                             pTemp,
+                             TRUE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
 
-                /*
-                 *  Set the appropriate value in pString.
-                 */
+                //
+                //  Set the appropriate value in pString.
+                //
                 switch (*pString)
                 {
                     case ( L'0' ) :
@@ -1106,7 +1149,7 @@ int WINAPI GetLocaleInfoW(
                     }
                     case ( L'1' ) :
                     {
-                        switch ( *(pString + 1) )
+                        switch (*(pString + 1))
                         {
                             case ( 0 ) :
                             case ( L'3' ) :
@@ -1154,27 +1197,25 @@ int WINAPI GetLocaleInfoW(
         }
         case ( LOCALE_IPOSSYMPRECEDES ) :
         {
-            /*
-             *  Use the ICURRENCY value from the user portion of the
-             *  registry, if it exists.
-             *
-             *      0  =>  1, 3
-             *      1  =>  0, 2
-             */
-            if (UserOverride && 
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_ICURRENCY,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+            //
+            //  Use the ICURRENCY value from the user portion of the
+            //  registry, if it exists.
+            //
+            //      0  =>  1, 3
+            //      1  =>  0, 2
+            //
+            Base = 10;
+            if (UserOverride &&
+                GetUserInfo( Locale,
+                             pNlsUserInfo->iCurrency,
+                             pTemp,
+                             TRUE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
 
-                /*
-                 *  Set the appropriate value in pString.
-                 */
+                //
+                //  Set the appropriate value in pString.
+                //
                 switch (*pString)
                 {
                     case ( L'1' ) :
@@ -1206,27 +1247,25 @@ int WINAPI GetLocaleInfoW(
         }
         case ( LOCALE_IPOSSEPBYSPACE ) :
         {
-            /*
-             *  Use the ICURRENCY value from the user portion of the
-             *  registry, if it exists.
-             *
-             *      0  =>  0, 1
-             *      1  =>  2, 3
-             */
-            if (UserOverride && 
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_ICURRENCY,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+            //
+            //  Use the ICURRENCY value from the user portion of the
+            //  registry, if it exists.
+            //
+            //      0  =>  0, 1
+            //      1  =>  2, 3
+            //
+            Base = 10;
+            if (UserOverride &&
+                GetUserInfo( Locale,
+                             pNlsUserInfo->iCurrency,
+                             pTemp,
+                             TRUE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
 
-                /*
-                 *  Set the appropriate value in pString.
-                 */
+                //
+                //  Set the appropriate value in pString.
+                //
                 switch (*pString)
                 {
                     case ( L'0' ) :
@@ -1258,27 +1297,25 @@ int WINAPI GetLocaleInfoW(
         }
         case ( LOCALE_INEGSYMPRECEDES ) :
         {
-            /*
-             *  Use the INEGCURR value from the user portion of the
-             *  registry, if it exists.
-             *
-             *      0  =>  4, 5, 6, 7, 8, 10, 13, 15
-             *      1  =>  0, 1, 2, 3, 9, 11, 12, 14
-             */
-            if (UserOverride && 
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_INEGCURR,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+            //
+            //  Use the INEGCURR value from the user portion of the
+            //  registry, if it exists.
+            //
+            //      0  =>  4, 5, 6, 7, 8, 10, 13, 15
+            //      1  =>  0, 1, 2, 3, 9, 11, 12, 14
+            //
+            Base = 10;
+            if (UserOverride &&
+                GetUserInfo( Locale,
+                             pNlsUserInfo->iNegCurr,
+                             pTemp,
+                             TRUE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
 
-                /*
-                 *  Set the appropriate value in pString.
-                 */
+                //
+                //  Set the appropriate value in pString.
+                //
                 switch (*pString)
                 {
                     case ( L'4' ) :
@@ -1302,9 +1339,9 @@ int WINAPI GetLocaleInfoW(
                     }
                     case ( L'1' ) :
                     {
-                        if ( (*(pString + 1) == L'0') ||
-                             (*(pString + 1) == L'3') ||
-                             (*(pString + 1) == L'5') )
+                        if ((*(pString + 1) == L'0') ||
+                            (*(pString + 1) == L'3') ||
+                            (*(pString + 1) == L'5'))
                         {
                             *pString = L'0';
                             *(pString + 1) = 0;
@@ -1331,27 +1368,25 @@ int WINAPI GetLocaleInfoW(
         }
         case ( LOCALE_INEGSEPBYSPACE ) :
         {
-            /*
-             *  Use the INEGCURR value from the user portion of the
-             *  registry, if it exists.
-             *
-             *      0  =>  0, 1, 2, 3, 4, 5, 6, 7
-             *      1  =>  8, 9, 10, 11, 12, 13, 14, 15
-             */
-            if (UserOverride && 
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_INEGCURR,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+            //
+            //  Use the INEGCURR value from the user portion of the
+            //  registry, if it exists.
+            //
+            //      0  =>  0, 1, 2, 3, 4, 5, 6, 7
+            //      1  =>  8, 9, 10, 11, 12, 13, 14, 15
+            //
+            Base = 10;
+            if (UserOverride &&
+                GetUserInfo( Locale,
+                             pNlsUserInfo->iNegCurr,
+                             pTemp,
+                             TRUE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
 
-                /*
-                 *  Set the appropriate value in pString.
-                 */
+                //
+                //  Set the appropriate value in pString.
+                //
                 switch (*pString)
                 {
                     case ( L'0' ) :
@@ -1402,16 +1437,13 @@ int WINAPI GetLocaleInfoW(
         }
         case ( LOCALE_STIMEFORMAT ) :
         {
-            if (UserOverride && 
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_STIMEFORMAT,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+            if (UserOverride &&
+                GetUserInfo( Locale,
+                             pNlsUserInfo->sTimeFormat,
+                             pTemp,
+                             TRUE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
             }
             else
             {
@@ -1421,16 +1453,13 @@ int WINAPI GetLocaleInfoW(
         }
         case ( LOCALE_STIME ) :
         {
-            if (UserOverride && 
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_STIME,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+            if (UserOverride &&
+                GetUserInfo( Locale,
+                             pNlsUserInfo->sTime,
+                             pTemp,
+                             TRUE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
             }
             else
             {
@@ -1440,16 +1469,14 @@ int WINAPI GetLocaleInfoW(
         }
         case ( LOCALE_ITIME ) :
         {
-            if (UserOverride && 
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_ITIME,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+            Base = 10;
+            if (UserOverride &&
+                GetUserInfo( Locale,
+                             pNlsUserInfo->iTime,
+                             pTemp,
+                             TRUE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
             }
             else
             {
@@ -1459,16 +1486,14 @@ int WINAPI GetLocaleInfoW(
         }
         case ( LOCALE_ITLZERO ) :
         {
-            if (UserOverride && 
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_ITLZERO,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+            Base = 10;
+            if (UserOverride &&
+                GetUserInfo( Locale,
+                             pNlsUserInfo->iTLZero,
+                             pTemp,
+                             TRUE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
             }
             else
             {
@@ -1478,16 +1503,14 @@ int WINAPI GetLocaleInfoW(
         }
         case ( LOCALE_ITIMEMARKPOSN ) :
         {
-            if (UserOverride && 
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_ITIMEMARKPOSN,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+            Base = 10;
+            if (UserOverride &&
+                GetUserInfo( Locale,
+                             pNlsUserInfo->iTimeMarkPosn,
+                             pTemp,
+                             TRUE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
             }
             else
             {
@@ -1497,16 +1520,13 @@ int WINAPI GetLocaleInfoW(
         }
         case ( LOCALE_S1159 ) :
         {
-            if (UserOverride && 
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_S1159,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+            if (UserOverride &&
+                GetUserInfo( Locale,
+                             pNlsUserInfo->s1159,
+                             pTemp,
+                             FALSE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
             }
             else
             {
@@ -1516,16 +1536,13 @@ int WINAPI GetLocaleInfoW(
         }
         case ( LOCALE_S2359 ) :
         {
-            if (UserOverride && 
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_S2359,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+            if (UserOverride &&
+                GetUserInfo( Locale,
+                             pNlsUserInfo->s2359,
+                             pTemp,
+                             FALSE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
             }
             else
             {
@@ -1535,16 +1552,13 @@ int WINAPI GetLocaleInfoW(
         }
         case ( LOCALE_SSHORTDATE ) :
         {
-            if (UserOverride && 
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_SSHORTDATE,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+            if (UserOverride &&
+                GetUserInfo( Locale,
+                             pNlsUserInfo->sShortDate,
+                             pTemp,
+                             TRUE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
             }
             else
             {
@@ -1554,16 +1568,13 @@ int WINAPI GetLocaleInfoW(
         }
         case ( LOCALE_SDATE ) :
         {
-            if (UserOverride && 
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_SDATE,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+            if (UserOverride &&
+                GetUserInfo( Locale,
+                             pNlsUserInfo->sDate,
+                             pTemp,
+                             TRUE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
             }
             else
             {
@@ -1573,16 +1584,14 @@ int WINAPI GetLocaleInfoW(
         }
         case ( LOCALE_IDATE ) :
         {
-            if (UserOverride && 
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_IDATE,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+            Base = 10;
+            if (UserOverride &&
+                GetUserInfo( Locale,
+                             pNlsUserInfo->iDate,
+                             pTemp,
+                             TRUE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
             }
             else
             {
@@ -1592,39 +1601,37 @@ int WINAPI GetLocaleInfoW(
         }
         case ( LOCALE_ICENTURY ) :
         {
-            /*
-             *  Use the short date picture to get this information.
-             */
-            if (UserOverride && 
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_SSHORTDATE,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+            //
+            //  Use the short date picture to get this information.
+            //
+            Base = 10;
+            if (UserOverride &&
+                GetUserInfo( Locale,
+                             pNlsUserInfo->sShortDate,
+                             pTemp,
+                             TRUE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
 
-                /*
-                 *  Find out how many y's in string.
-                 *  No need to ignore quotes in short date.
-                 */
+                //
+                //  Find out how many y's in string.
+                //  No need to ignore quotes in short date.
+                //
                 pTmp = pString;
-                while ( (*pTmp) &&
-                        (*pTmp != L'y') )
+                while ((*pTmp) &&
+                       (*pTmp != L'y'))
                 {
                     pTmp++;
                 }
 
-                /*
-                 *  Set the appropriate value in pString.
-                 */
+                //
+                //  Set the appropriate value in pString.
+                //
                 if (*pTmp == L'y')
                 {
-                    /*
-                     *  Get the number of 'y' repetitions in the format string.
-                     */
+                    //
+                    //  Get the number of 'y' repetitions in the format string.
+                    //
                     pTmp++;
                     for (Repeat = 0; (*pTmp == L'y'); Repeat++, pTmp++)
                         ;
@@ -1634,9 +1641,9 @@ int WINAPI GetLocaleInfoW(
                         case ( 0 ) :
                         case ( 1 ) :
                         {
-                            /*
-                             *  Two-digit century with leading zero.
-                             */
+                            //
+                            //  Two-digit century with leading zero.
+                            //
                             *pString = L'0';
                             *(pString + 1) = 0;
 
@@ -1647,9 +1654,9 @@ int WINAPI GetLocaleInfoW(
                         case ( 3 ) :
                         default :
                         {
-                            /*
-                             *  Full century.
-                             */
+                            //
+                            //  Full century.
+                            //
                             *pString = L'1';
                             *(pString + 1) = 0;
 
@@ -1661,48 +1668,46 @@ int WINAPI GetLocaleInfoW(
                 }
             }
 
-            /*
-             *  Use the system default value.
-             */
+            //
+            //  Use the system default value.
+            //
             pString = pHashN->pLocaleFixed->szICentury;
 
             break;
         }
         case ( LOCALE_IDAYLZERO ) :
         {
-            /*
-             *  Use the short date picture to get this information.
-             */
-            if (UserOverride && 
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_SSHORTDATE,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+            //
+            //  Use the short date picture to get this information.
+            //
+            Base = 10;
+            if (UserOverride &&
+                GetUserInfo( Locale,
+                             pNlsUserInfo->sShortDate,
+                             pTemp,
+                             TRUE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
 
-                /*
-                 *  Find out how many d's in string.
-                 *  No need to ignore quotes in short date.
-                 */
+                //
+                //  Find out how many d's in string.
+                //  No need to ignore quotes in short date.
+                //
                 pTmp = pString;
-                while ( (*pTmp) &&
-                        (*pTmp != L'd') )
+                while ((*pTmp) &&
+                       (*pTmp != L'd'))
                 {
                     pTmp++;
                 }
 
-                /*
-                 *  Set the appropriate value in pString.
-                 */
+                //
+                //  Set the appropriate value in pString.
+                //
                 if (*pTmp == L'd')
                 {
-                    /*
-                     *  Get the number of 'd' repetitions in the format string.
-                     */
+                    //
+                    //  Get the number of 'd' repetitions in the format string.
+                    //
                     pTmp++;
                     for (Repeat = 0; (*pTmp == L'd'); Repeat++, pTmp++)
                         ;
@@ -1711,9 +1716,9 @@ int WINAPI GetLocaleInfoW(
                     {
                         case ( 0 ) :
                         {
-                            /*
-                             *  No leading zero.
-                             */
+                            //
+                            //  No leading zero.
+                            //
                             *pString = L'0';
                             *(pString + 1) = 0;
 
@@ -1723,9 +1728,9 @@ int WINAPI GetLocaleInfoW(
                         case ( 1 ) :
                         default :
                         {
-                            /*
-                             *  Use leading zero.
-                             */
+                            //
+                            //  Use leading zero.
+                            //
                             *pString = L'1';
                             *(pString + 1) = 0;
 
@@ -1737,48 +1742,46 @@ int WINAPI GetLocaleInfoW(
                 }
             }
 
-            /*
-             *  Use the system default value.
-             */
+            //
+            //  Use the system default value.
+            //
             pString = pHashN->pLocaleFixed->szIDayLZero;
 
             break;
         }
         case ( LOCALE_IMONLZERO ) :
         {
-            /*
-             *  Use the short date picture to get this information.
-             */
-            if (UserOverride && 
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_SSHORTDATE,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+            //
+            //  Use the short date picture to get this information.
+            //
+            Base = 10;
+            if (UserOverride &&
+                GetUserInfo( Locale,
+                             pNlsUserInfo->sShortDate,
+                             pTemp,
+                             TRUE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
 
-                /*
-                 *  Find out how many M's in string.
-                 *  No need to ignore quotes in short date.
-                 */
+                //
+                //  Find out how many M's in string.
+                //  No need to ignore quotes in short date.
+                //
                 pTmp = pString;
-                while ( (*pTmp) &&
-                        (*pTmp != L'M') )
+                while ((*pTmp) &&
+                       (*pTmp != L'M'))
                 {
                     pTmp++;
                 }
 
-                /*
-                 *  Set the appropriate value in pString.
-                 */
+                //
+                //  Set the appropriate value in pString.
+                //
                 if (*pTmp == L'M')
                 {
-                    /*
-                     *  Get the number of 'M' repetitions in the format string.
-                     */
+                    //
+                    //  Get the number of 'M' repetitions in the format string.
+                    //
                     pTmp++;
                     for (Repeat = 0; (*pTmp == L'M'); Repeat++, pTmp++)
                         ;
@@ -1787,9 +1790,9 @@ int WINAPI GetLocaleInfoW(
                     {
                         case ( 0 ) :
                         {
-                            /*
-                             *  No leading zero.
-                             */
+                            //
+                            //  No leading zero.
+                            //
                             *pString = L'0';
                             *(pString + 1) = 0;
 
@@ -1799,9 +1802,9 @@ int WINAPI GetLocaleInfoW(
                         case ( 1 ) :
                         default :
                         {
-                            /*
-                             *  Use leading zero.
-                             */
+                            //
+                            //  Use leading zero.
+                            //
                             *pString = L'1';
                             *(pString + 1) = 0;
 
@@ -1813,25 +1816,22 @@ int WINAPI GetLocaleInfoW(
                 }
             }
 
-            /*
-             *  Use the system default value.
-             */
+            //
+            //  Use the system default value.
+            //
             pString = pHashN->pLocaleFixed->szIMonLZero;
 
             break;
         }
         case ( LOCALE_SLONGDATE ) :
         {
-            if (UserOverride && 
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_SLONGDATE,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+            if (UserOverride &&
+                GetUserInfo( Locale,
+                             pNlsUserInfo->sLongDate,
+                             pTemp,
+                             TRUE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
             }
             else
             {
@@ -1841,55 +1841,53 @@ int WINAPI GetLocaleInfoW(
         }
         case ( LOCALE_ILDATE ) :
         {
-            /*
-             *  Use the long date picture to get this information.
-             */
-            if (UserOverride && 
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_SLONGDATE,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+            //
+            //  Use the long date picture to get this information.
+            //
+            Base = 10;
+            if (UserOverride &&
+                GetUserInfo( Locale,
+                             pNlsUserInfo->sLongDate,
+                             pTemp,
+                             TRUE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
 
-                /*
-                 *  Find out if d, M, or y is first, but ignore quotes.
-                 *  Also, if "ddd" or "dddd" is found, then skip it.  Only
-                 *  want "d" or "dd".
-                 */
+                //
+                //  Find out if d, M, or y is first, but ignore quotes.
+                //  Also, if "ddd" or "dddd" is found, then skip it.  Only
+                //  want "d" or "dd".
+                //
                 pTmp = pString;
-                while (pTmp = wcspbrk( pTmp, L"dMy'" ))
+                while (pTmp = wcspbrk(pTmp, L"dMy'"))
                 {
-                    /*
-                     *  Check special cases.
-                     */
+                    //
+                    //  Check special cases.
+                    //
                     if (*pTmp == L'd')
                     {
-                        /*
-                         *  Check for d's.  Ignore more than 2 d's.
-                         */
+                        //
+                        //  Check for d's.  Ignore more than 2 d's.
+                        //
                         for (Repeat = 0; (*pTmp == L'd'); Repeat++, pTmp++)
                             ;
 
                         if (Repeat < 3)
                         {
-                            /*
-                             *  Break out of while loop.  Found "d" or "dd".
-                             */
+                            //
+                            //  Break out of while loop.  Found "d" or "dd".
+                            //
                             pTmp--;
                             break;
                         }
                     }
-                    else if (*pTmp == L'\'')
+                    else if (*pTmp == NLS_CHAR_QUOTE)
                     {
-                        /*
-                         *  Ignore quotes.
-                         */
+                        //
+                        //  Ignore quotes.
+                        //
                         pTmp++;
-                        while ((*pTmp) && (*pTmp != L'\''))
+                        while ((*pTmp) && (*pTmp != NLS_CHAR_QUOTE))
                         {
                             pTmp++;
                         }
@@ -1897,17 +1895,17 @@ int WINAPI GetLocaleInfoW(
                     }
                     else
                     {
-                        /*
-                         *  Found one of the values, so break out of
-                         *  while loop.
-                         */
+                        //
+                        //  Found one of the values, so break out of
+                        //  while loop.
+                        //
                         break;
                     }
                 }
 
-                /*
-                 *  Set the appropriate value in pString.
-                 */
+                //
+                //  Set the appropriate value in pString.
+                //
                 if (pTmp)
                 {
                     switch (*pTmp)
@@ -1929,34 +1927,32 @@ int WINAPI GetLocaleInfoW(
                         }
                     }
 
-                    /*
-                     *  Null terminate the string.
-                     */
+                    //
+                    //  Null terminate the string.
+                    //
                     *(pString + 1) = 0;
 
                     break;
                 }
             }
 
-            /*
-             *  Use the default value.
-             */
+            //
+            //  Use the default value.
+            //
             pString = pHashN->pLocaleFixed->szILDate;
 
             break;
         }
         case ( LOCALE_ICALENDARTYPE ) :
         {
-            if (UserOverride && 
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_ICALENDARTYPE,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+            Base = 10;
+            if (UserOverride &&
+                GetUserInfo( Locale,
+                             pNlsUserInfo->iCalType,
+                             pTemp,
+                             TRUE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
             }
             else
             {
@@ -1966,22 +1962,21 @@ int WINAPI GetLocaleInfoW(
         }
         case ( LOCALE_IOPTIONALCALENDAR ) :
         {
+            Base = 10;
             pString = pStart + pHashN->pLocaleHdr->IOptionalCal;
             pString = ((POPT_CAL)pString)->pCalStr;
             break;
         }
         case ( LOCALE_IFIRSTDAYOFWEEK ) :
         {
-            if (UserOverride && 
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_IFIRSTDAYOFWEEK,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+            Base = 10;
+            if (UserOverride &&
+                GetUserInfo( Locale,
+                             pNlsUserInfo->iFirstDay,
+                             pTemp,
+                             TRUE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
             }
             else
             {
@@ -1991,16 +1986,14 @@ int WINAPI GetLocaleInfoW(
         }
         case ( LOCALE_IFIRSTWEEKOFYEAR ) :
         {
-            if (UserOverride && 
-                GetRegUserInfo( &hKey,
-                                Locale,
-                                NLS_VALUE_IFIRSTWEEKOFYEAR,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
+            Base = 10;
+            if (UserOverride &&
+                GetUserInfo( Locale,
+                             pNlsUserInfo->iFirstWeek,
+                             pTemp,
+                             TRUE ))
             {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pTemp;
             }
             else
             {
@@ -2208,486 +2201,525 @@ int WINAPI GetLocaleInfoW(
             pString = pStart + pHashN->pLocaleHdr->SAbbrevMonthName13;
             break;
         }
-        
+        case ( LOCALE_FONTSIGNATURE ) :
+        {
+            //
+            //  Check cchData for size of given buffer.
+            //
+            if (cchData == 0)
+            {
+                return (MAX_FONTSIGNATURE);
+            }
+            else if (cchData < MAX_FONTSIGNATURE)
+            {
+                SetLastError(ERROR_INSUFFICIENT_BUFFER);
+                return (0);
+            }
+
+            //
+            //  This string does NOT get zero terminated.
+            //
+            pString = pHashN->pLocaleFixed->szFontSignature;
+
+            //
+            //  Copy the string to lpLCData and return the number of
+            //  characters copied.
+            //
+            RtlMoveMemory(lpLCData, pString, MAX_FONTSIGNATURE * sizeof(WCHAR));
+            return (MAX_FONTSIGNATURE);
+
+            break;
+        }
         default :
         {
-            SetLastError( ERROR_INVALID_FLAGS );
-            return ( 0 );
+            SetLastError(ERROR_INVALID_FLAGS);
+            return (0);
         }
     }
 
-    /*
-     *  Get the length (in characters) of the string to copy.
-     */
+    //
+    //  See if the caller wants the value in the form of a number instead
+    //  of a string.
+    //
+    if (ReturnNum)
+    {
+        //
+        //  Make sure the flags are valid and there is enough buffer
+        //  space.
+        //
+        if (Base == 0)
+        {
+            SetLastError(ERROR_INVALID_FLAGS);
+            return (0);
+        }
+        if (cchData < 2)
+        {
+            if (cchData == 0)
+            {
+                //
+                //  DWORD is needed for this option (2 WORDS), so return 2.
+                //
+                return (2);
+            }
+
+            SetLastError(ERROR_INSUFFICIENT_BUFFER);
+            return (0);
+        }
+
+        //
+        //  Convert the string to an int and return 2 (1 DWORD = 2 WORDS).
+        //
+        RtlInitUnicodeString(&ObUnicodeStr, pString);
+        if (RtlUnicodeStringToInteger(&ObUnicodeStr, Base, (LPDWORD)lpLCData))
+        {
+            SetLastError(ERROR_INVALID_FLAGS);
+            return (0);
+        }
+        return (2);
+    }
+
+    //
+    //  Get the length (in characters) of the string to copy.
+    //
     if (Length == 0)
     {
-        Length = NlsStrLenW( pString );
+        Length = NlsStrLenW(pString);
     }
 
-    /*
-     *  Add one for the null termination.  All strings should be null
-     *  terminated.
-     */
+    //
+    //  Add one for the null termination.  All strings should be null
+    //  terminated.
+    //
     Length++;
 
-    /*
-     *  Close the registry key.
-     */
-    CLOSE_REG_KEY( hKey );
-
-    /*
-     *  Check cchData for size of given buffer.
-     */
+    //
+    //  Check cchData for size of given buffer.
+    //
     if (cchData == 0)
     {
-        /*
-         *  If cchData is 0, then we can't use lpLCData.  In this
-         *  case, we simply want to return the length (in characters) of
-         *  the string to be copied.
-         */
-        if (IfAlloc)
-        {
-            NLS_FREE_MEM( pValFull );
-        }
-        return ( Length );
+        //
+        //  If cchData is 0, then we can't use lpLCData.  In this
+        //  case, we simply want to return the length (in characters) of
+        //  the string to be copied.
+        //
+        return (Length);
     }
     else if (cchData < Length)
     {
-        /*
-         *  The buffer is too small for the string, so return an error
-         *  and zero bytes written.
-         */
-        if (IfAlloc)
-        {
-            NLS_FREE_MEM( pValFull );
-        }
-        SetLastError( ERROR_INSUFFICIENT_BUFFER );
-        return ( 0 );
+        //
+        //  The buffer is too small for the string, so return an error
+        //  and zero bytes written.
+        //
+        SetLastError(ERROR_INSUFFICIENT_BUFFER);
+        return (0);
     }
-        
-    /*
-     *  Copy the string to lpLCData and null terminate it.
-     *  Return the number of characters copied.
-     */
-    wcsncpy( lpLCData, pString, Length - 1 );
+
+    //
+    //  Copy the string to lpLCData and null terminate it.
+    //  Return the number of characters copied.
+    //
+    wcsncpy(lpLCData, pString, Length - 1);
     lpLCData[Length - 1] = 0;
-    if (IfAlloc)
-    {
-        NLS_FREE_MEM( pValFull );
-    }
-    return ( Length );
+    return (Length);
 }
 
 
-/***************************************************************************\
-* SetLocaleInfoW
-*
-* Sets one of the various pieces of information about a particular
-* locale by making an entry in the user's portion of the configuration
-* registry.  This will only affect the user override portion of the locale
-* settings.  The system defaults will never be reset.
-*
-* 07-14-93    JulieB    Created.
-\***************************************************************************/
+////////////////////////////////////////////////////////////////////////////
+//
+//  SetLocaleInfoW
+//
+//  Sets one of the various pieces of information about a particular
+//  locale by making an entry in the user's portion of the configuration
+//  registry.  This will only affect the user override portion of the locale
+//  settings.  The system defaults will never be reset.
+//
+//  07-14-93    JulieB    Created.
+////////////////////////////////////////////////////////////////////////////
 
 BOOL WINAPI SetLocaleInfoW(
     LCID Locale,
     LCTYPE LCType,
     LPCWSTR lpLCData)
 {
-    PLOC_HASH pHashN;                       /* ptr to LOC hash node */
-    LPWSTR pString;                         /* ptr to info string to change */
-    LPWSTR pPos;                            /* ptr to position in info string */
-    LPWSTR pPos2;                           /* ptr to position in info string */
-    WCHAR pTemp[MAX_PATH_LEN];              /* ptr to temp storage buffer */
-    PKEY_VALUE_FULL_INFORMATION pValFull;   /* ptr to query information */
-    BYTE pStatic[MAX_KEY_VALUE_FULLINFO];   /* ptr to static buffer */
-    BOOL IfAlloc = FALSE;                   /* if buffer allocated */
-    int cchData;                            /* length of lpLCData */
-    HANDLE hKeyGet = NULL;                  /* handle to registry key (read) */
-    HANDLE hKeySet = NULL;                  /* handle to registry key (write) */
+    PLOC_HASH pHashN;                       // ptr to LOC hash node
+    int cchData;                            // length of lpLCData
+    LPWSTR pString;                         // ptr to info string to change
+    LPWSTR pPos;                            // ptr to position in info string
+    LPWSTR pPos2;                           // ptr to position in info string
+    LPWSTR pSep;                            // ptr to separator string
+    WCHAR pTemp[MAX_PATH_LEN];              // ptr to temp storage buffer
+    WCHAR pOutput[MAX_REG_VAL_SIZE];        // ptr to output for GetInfo call
+    WCHAR pOutput2[MAX_REG_VAL_SIZE];       // ptr to output for GetInfo call
+    UINT Order;                             // ptr to order buffer
+    UINT TLZero;                            // ptr to time leading zero buffer
+    UINT TimeMarkPosn;                      // ptr to time mark position buffer
+    WCHAR pFind[3];                         // ptr to chars to find
+    int SepLen;                             // length of separator string
 
 
-    /*
-     *  Invalid Parameter Check:
-     *    - validate LCID
-     *    - NULL data pointer
-     *
-     *  NOTE: invalid type is checked in the switch statement below.
-     */
-    VALIDATE_LOCALE( Locale, pHashN );
-    if ( (pHashN == NULL) ||
-         (lpLCData == NULL) )
+    //
+    //  Invalid Parameter Check:
+    //    - validate LCID
+    //    - NULL data pointer
+    //
+    //  NOTE: invalid type is checked in the switch statement below.
+    //
+    VALIDATE_LOCALE(Locale, pHashN);
+    if ((pHashN == NULL) || (lpLCData == NULL))
     {
-        SetLastError( ERROR_INVALID_PARAMETER );
-        return ( FALSE );
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return (FALSE);
     }
 
-    /*
-     *  Get the length of the buffer.
-     */
-    cchData = NlsStrLenW( lpLCData ) + 1;
+    //
+    //  Get the length of the buffer.
+    //
+    cchData = NlsStrLenW(lpLCData) + 1;
 
-    /*
-     *  Set the appropriate user information for the given LCTYPE.
-     */
-    switch (LCType & (~LOCALE_USE_CP_ACP))
+    //
+    //  Set the appropriate user information for the given LCTYPE.
+    //
+    LCType &= (~LOCALE_USE_CP_ACP);
+    switch (LCType)
     {
         case ( LOCALE_SLIST ) :
         {
-            /*
-             *  Validate the new value.  It should be no longer than
-             *  MAX_SLIST wide characters in length.
-             */
+            //
+            //  Validate the new value.  It should be no longer than
+            //  MAX_SLIST wide characters in length.
+            //
             if (cchData > MAX_SLIST)
             {
-                SetLastError( ERROR_INVALID_PARAMETER );
-                return ( FALSE );
+                SetLastError(ERROR_INVALID_PARAMETER);
+                return (FALSE);
             }
 
-            /*
-             *  Set the registry with the new SLIST string.
-             */
-            if ( SetRegValue( &hKeySet,
-                              NLS_VALUE_SLIST,
-                              (LPWSTR)lpLCData,
-                              cchData * sizeof(WCHAR) ) )
-            {
-                return ( FALSE );
-            }
+            //
+            //  Set the registry with the new SLIST string.
+            //
+            return (SetUserInfo( NLS_VALUE_SLIST,
+                                 pNlsUserInfo->sList,
+                                 (LPWSTR)lpLCData,
+                                 cchData ));
             break;
         }
         case ( LOCALE_IMEASURE ) :
         {
-            /*
-             *  Validate the new value.  It should be no longer than
-             *  MAX_IMEASURE wide characters in length.
-             *  It should be between 0 and MAX_VALUE_IMEASURE.
-             */
-            if ( (cchData > 1) &&
-                 ( (cchData > MAX_IMEASURE) ||
-                   (*lpLCData < NLS_CHAR_ZERO) ||
-                   (*lpLCData > MAX_CHAR_IMEASURE) ) )
+            //
+            //  Validate the new value.  It should be no longer than
+            //  MAX_IMEASURE wide characters in length.
+            //  It should be between 0 and MAX_VALUE_IMEASURE.
+            //
+            //  NOTE: The string may not be NULL, so it must be at least
+            //        2 chars long (includes null).
+            //
+            //        Optimized - since MAX_IMEASURE is 2.
+            //
+            if ((cchData != MAX_IMEASURE) ||
+                (*lpLCData < NLS_CHAR_ZERO) ||
+                (*lpLCData > MAX_CHAR_IMEASURE))
             {
-                SetLastError( ERROR_INVALID_PARAMETER );
-                return ( FALSE );
+                SetLastError(ERROR_INVALID_PARAMETER);
+                return (FALSE);
             }
 
-            /*
-             *  Set the registry with the new IMEASURE string.
-             */
-            if ( SetRegValue( &hKeySet,
-                              NLS_VALUE_IMEASURE,
-                              (LPWSTR)lpLCData,
-                              cchData * sizeof(WCHAR) ) )
-            {
-                return ( FALSE );
-            }
+            //
+            //  Set the registry with the new IMEASURE string.
+            //
+            return (SetUserInfo( NLS_VALUE_IMEASURE,
+                                 pNlsUserInfo->iMeasure,
+                                 (LPWSTR)lpLCData,
+                                 cchData ));
             break;
         }
         case ( LOCALE_SDECIMAL ) :
         {
-            /*
-             *  Validate the new value.  It should be no longer than
-             *  MAX_SDECIMAL wide characters in length and should not
-             *  contain any integer values (L'0' thru L'9').
-             */
+            //
+            //  Validate the new value.  It should be no longer than
+            //  MAX_SDECIMAL wide characters in length and should not
+            //  contain any integer values (L'0' thru L'9').
+            //
             if (!IsValidSeparatorString( lpLCData,
                                          MAX_SDECIMAL,
                                          FALSE ))
             {
-                SetLastError( ERROR_INVALID_PARAMETER );
-                return ( FALSE );
+                SetLastError(ERROR_INVALID_PARAMETER);
+                return (FALSE);
             }
 
-            /*
-             *  Set the registry with the new SDECIMAL string.
-             */
-            if ( SetRegValue( &hKeySet,
-                              NLS_VALUE_SDECIMAL,
-                              (LPWSTR)lpLCData,
-                              cchData * sizeof(WCHAR) ) )
-            {
-                return ( FALSE );
-            }
+            //
+            //  Set the registry with the new SDECIMAL string.
+            //
+            return (SetUserInfo( NLS_VALUE_SDECIMAL,
+                                 pNlsUserInfo->sDecimal,
+                                 (LPWSTR)lpLCData,
+                                 cchData ));
             break;
         }
         case ( LOCALE_STHOUSAND ) :
         {
-            /*
-             *  Validate the new value.  It should be no longer than
-             *  MAX_STHOUSAND wide characters in length and should not
-             *  contain any integer values (L'0' thru L'9').
-             */
+            //
+            //  Validate the new value.  It should be no longer than
+            //  MAX_STHOUSAND wide characters in length and should not
+            //  contain any integer values (L'0' thru L'9').
+            //
             if (!IsValidSeparatorString( lpLCData,
                                          MAX_STHOUSAND,
                                          FALSE ))
             {
-                SetLastError( ERROR_INVALID_PARAMETER );
-                return ( FALSE );
+                SetLastError(ERROR_INVALID_PARAMETER);
+                return (FALSE);
             }
 
-            /*
-             *  Set the registry with the new STHOUSAND string.
-             */
-            if ( SetRegValue( &hKeySet,
-                              NLS_VALUE_STHOUSAND,
-                              (LPWSTR)lpLCData,
-                              cchData * sizeof(WCHAR) ) )
-            {
-                return ( FALSE );
-            }
+            //
+            //  Set the registry with the new STHOUSAND string.
+            //
+            return (SetUserInfo( NLS_VALUE_STHOUSAND,
+                                 pNlsUserInfo->sThousand,
+                                 (LPWSTR)lpLCData,
+                                 cchData ));
             break;
         }
         case ( LOCALE_SGROUPING ) :
         {
-            /*
-             *  Validate the new value.  It should be exactly
-             *  MAX_SGROUPING (4) wide characters in length.
-             *  The 1st value should be between 0 and MAX_VALUE_SGROUPING.
-             *  The 2nd char should be a semicolon and the 3rd char
-             *  should be integer 0.
-             */
-            if ( (cchData > 1) &&
-                 ( (cchData != MAX_SGROUPING) ||
-                   (*lpLCData < NLS_CHAR_ZERO) ||
-                   (*lpLCData > MAX_CHAR_SGROUPING) ||
-                   (*(lpLCData + 1) != NLS_CHAR_SEMICOLON) ||
-                   (*(lpLCData + 2) != NLS_CHAR_ZERO) ) )
+            //
+            //  Validate the new value.  It should be exactly
+            //  MAX_SGROUPING (4) wide characters in length.
+            //  The 1st value should be between 0 and MAX_VALUE_SGROUPING.
+            //  The 2nd char should be a semicolon and the 3rd char
+            //  should be integer 0.
+            //
+            //  NOTE: The string may not be NULL, so it must be at least
+            //        2 chars long (includes null).
+            //
+            if ((cchData != MAX_SGROUPING) ||
+                (*lpLCData < NLS_CHAR_ZERO) ||
+                (*lpLCData > MAX_CHAR_SGROUPING) ||
+                (*(lpLCData + 1) != NLS_CHAR_SEMICOLON) ||
+                (*(lpLCData + 2) != NLS_CHAR_ZERO))
             {
-                SetLastError( ERROR_INVALID_PARAMETER );
-                return ( FALSE );
+                SetLastError(ERROR_INVALID_PARAMETER);
+                return (FALSE);
             }
 
-            /*
-             *  Set the registry with the new SGROUPING string.
-             */
-            if ( SetRegValue( &hKeySet,
-                              NLS_VALUE_SGROUPING,
-                              (LPWSTR)lpLCData,
-                              cchData * sizeof(WCHAR) ) )
-            {
-                return ( FALSE );
-            }
+            //
+            //  Set the registry with the new SGROUPING string.
+            //
+            return (SetUserInfo( NLS_VALUE_SGROUPING,
+                                 pNlsUserInfo->sGrouping,
+                                 (LPWSTR)lpLCData,
+                                 cchData ));
             break;
         }
         case ( LOCALE_IDIGITS ) :
         {
-            /*
-             *  Validate the new value.  It should be no longer than
-             *  MAX_IDIGITS wide characters in length.
-             *  The value should be between 0 and MAX_VALUE_IDIGITS.
-             */
-            if ( (cchData > 1) &&
-                 ( (cchData > MAX_IDIGITS) ||
-                   (*lpLCData < NLS_CHAR_ZERO) ||
-                   (*lpLCData > MAX_CHAR_IDIGITS) ) )
+            //
+            //  Validate the new value.  It should be no longer than
+            //  MAX_IDIGITS wide characters in length.
+            //  The value should be between 0 and MAX_VALUE_IDIGITS.
+            //
+            //  NOTE: The string may not be NULL, so it must be at least
+            //        2 chars long (includes null).
+            //
+            //        Optimized - since MAX_IDIGITS is 2.
+            //
+            if ((cchData != MAX_IDIGITS) ||
+                (*lpLCData < NLS_CHAR_ZERO) ||
+                (*lpLCData > MAX_CHAR_IDIGITS))
             {
-                SetLastError( ERROR_INVALID_PARAMETER );
-                return ( FALSE );
+                SetLastError(ERROR_INVALID_PARAMETER);
+                return (FALSE);
             }
 
-            /*
-             *  Set the registry with the new IDIGITS string.
-             */
-            if ( SetRegValue( &hKeySet,
-                              NLS_VALUE_IDIGITS,
-                              (LPWSTR)lpLCData,
-                              cchData * sizeof(WCHAR) ) )
-            {
-                return ( FALSE );
-            }
+            //
+            //  Set the registry with the new IDIGITS string.
+            //
+            return (SetUserInfo( NLS_VALUE_IDIGITS,
+                                 pNlsUserInfo->iDigits,
+                                 (LPWSTR)lpLCData,
+                                 cchData ));
             break;
         }
         case ( LOCALE_ILZERO ) :
         {
-            /*
-             *  Validate the new value.  It should be no longer than
-             *  MAX_ILZERO wide characters in length.
-             *  The value should be between 0 and MAX_VALUE_ILZERO.
-             */
-            if ( (cchData > 1) &&
-                 ( (cchData > MAX_ILZERO) ||
-                   (*lpLCData < NLS_CHAR_ZERO) ||
-                   (*lpLCData > MAX_CHAR_ILZERO) ) )
+            //
+            //  Validate the new value.  It should be no longer than
+            //  MAX_ILZERO wide characters in length.
+            //  The value should be between 0 and MAX_VALUE_ILZERO.
+            //
+            //  NOTE: The string may not be NULL, so it must be at least
+            //        2 chars long (includes null).
+            //
+            //        Optimized - since MAX_ILZERO is 2.
+            //
+            if ((cchData != MAX_ILZERO) ||
+                (*lpLCData < NLS_CHAR_ZERO) ||
+                (*lpLCData > MAX_CHAR_ILZERO))
             {
-                SetLastError( ERROR_INVALID_PARAMETER );
-                return ( FALSE );
+                SetLastError(ERROR_INVALID_PARAMETER);
+                return (FALSE);
             }
 
-            /*
-             *  Set the registry with the new ILZERO string.
-             */
-            if ( SetRegValue( &hKeySet,
-                              NLS_VALUE_ILZERO,
-                              (LPWSTR)lpLCData,
-                              cchData * sizeof(WCHAR) ) )
-            {
-                return ( FALSE );
-            }
+            //
+            //  Set the registry with the new ILZERO string.
+            //
+            return (SetUserInfo( NLS_VALUE_ILZERO,
+                                 pNlsUserInfo->iLZero,
+                                 (LPWSTR)lpLCData,
+                                 cchData ));
             break;
         }
         case ( LOCALE_INEGNUMBER ) :
         {
-            /*
-             *  Validate the new value.  It should be no longer than
-             *  MAX_INEGNUMBER wide characters in length.
-             *  The value should be between 0 and MAX_VALUE_INEGNUMBER.
-             */
-            if ( (cchData > 1) &&
-                 ( (cchData > MAX_INEGNUMBER) ||
-                   (*lpLCData < NLS_CHAR_ZERO) ||
-                   (*lpLCData > MAX_CHAR_INEGNUMBER) ) )
+            //
+            //  Validate the new value.  It should be no longer than
+            //  MAX_INEGNUMBER wide characters in length.
+            //  The value should be between 0 and MAX_VALUE_INEGNUMBER.
+            //
+            //  NOTE: The string may not be NULL, so it must be at least
+            //        2 chars long (includes null).
+            //
+            //        Optimized - since MAX_INEGNUMBER is 2.
+            //
+            if ((cchData != MAX_INEGNUMBER) ||
+                (*lpLCData < NLS_CHAR_ZERO) ||
+                (*lpLCData > MAX_CHAR_INEGNUMBER))
             {
-                SetLastError( ERROR_INVALID_PARAMETER );
-                return ( FALSE );
+                SetLastError(ERROR_INVALID_PARAMETER);
+                return (FALSE);
             }
 
-            /*
-             *  Set the registry with the new INEGNUMBER string.
-             */
-            if ( SetRegValue( &hKeySet,
-                              NLS_VALUE_INEGNUMBER,
-                              (LPWSTR)lpLCData,
-                              cchData * sizeof(WCHAR) ) )
-            {
-                return ( FALSE );
-            }
+            //
+            //  Set the registry with the new INEGNUMBER string.
+            //
+            return (SetUserInfo( NLS_VALUE_INEGNUMBER,
+                                 pNlsUserInfo->iNegNumber,
+                                 (LPWSTR)lpLCData,
+                                 cchData ));
             break;
         }
         case ( LOCALE_SCURRENCY ) :
         {
-            /*
-             *  Validate the new value.  It should be no longer than
-             *  MAX_SCURRENCY wide characters in length and should not
-             *  contain any integer values (L'0' thru L'9').
-             */
+            //
+            //  Validate the new value.  It should be no longer than
+            //  MAX_SCURRENCY wide characters in length and should not
+            //  contain any integer values (L'0' thru L'9').
+            //
             if (!IsValidSeparatorString( lpLCData,
                                          MAX_SCURRENCY,
                                          FALSE ))
             {
-                SetLastError( ERROR_INVALID_PARAMETER );
-                return ( FALSE );
+                SetLastError(ERROR_INVALID_PARAMETER);
+                return (FALSE);
             }
 
-            /*
-             *  Set the registry with the new SCURRENCY string.
-             */
-            if ( SetRegValue( &hKeySet,
-                              NLS_VALUE_SCURRENCY,
-                              (LPWSTR)lpLCData,
-                              cchData * sizeof(WCHAR) ) )
-            {
-                return ( FALSE );
-            }
+            //
+            //  Set the registry with the new SCURRENCY string.
+            //
+            return (SetUserInfo( NLS_VALUE_SCURRENCY,
+                                 pNlsUserInfo->sCurrency,
+                                 (LPWSTR)lpLCData,
+                                 cchData ));
             break;
         }
         case ( LOCALE_SMONDECIMALSEP ) :
         {
-            /*
-             *  Validate the new value.  It should be no longer than
-             *  MAX_SMONDECSEP wide characters in length and should not
-             *  contain any integer values (L'0' thru L'9').
-             */
+            //
+            //  Validate the new value.  It should be no longer than
+            //  MAX_SMONDECSEP wide characters in length and should not
+            //  contain any integer values (L'0' thru L'9').
+            //
             if (!IsValidSeparatorString( lpLCData,
                                          MAX_SMONDECSEP,
                                          FALSE ))
             {
-                SetLastError( ERROR_INVALID_PARAMETER );
-                return ( FALSE );
+                SetLastError(ERROR_INVALID_PARAMETER);
+                return (FALSE);
             }
 
-            /*
-             *  Set the registry with the new SMONDECIMALSEP string.
-             */
-            if ( SetRegValue( &hKeySet,
-                              NLS_VALUE_SMONDECIMALSEP,
-                              (LPWSTR)lpLCData,
-                              cchData * sizeof(WCHAR) ) )
-            {
-                return ( FALSE );
-            }
+            //
+            //  Set the registry with the new SMONDECIMALSEP string.
+            //
+            return (SetUserInfo( NLS_VALUE_SMONDECIMALSEP,
+                                 pNlsUserInfo->sMonDecSep,
+                                 (LPWSTR)lpLCData,
+                                 cchData ));
             break;
         }
         case ( LOCALE_SMONTHOUSANDSEP ) :
         {
-            /*
-             *  Validate the new value.  It should be no longer than
-             *  MAX_SMONTHOUSEP wide characters in length and should not
-             *  contain any integer values (L'0' thru L'9').
-             */
+            //
+            //  Validate the new value.  It should be no longer than
+            //  MAX_SMONTHOUSEP wide characters in length and should not
+            //  contain any integer values (L'0' thru L'9').
+            //
             if (!IsValidSeparatorString( lpLCData,
                                          MAX_SMONTHOUSEP,
                                          FALSE ))
             {
-                SetLastError( ERROR_INVALID_PARAMETER );
-                return ( FALSE );
+                SetLastError(ERROR_INVALID_PARAMETER);
+                return (FALSE);
             }
 
-            /*
-             *  Set the registry with the new SMONTHOUSANDSEP string.
-             */
-            if ( SetRegValue( &hKeySet,
-                              NLS_VALUE_SMONTHOUSANDSEP,
-                              (LPWSTR)lpLCData,
-                              cchData * sizeof(WCHAR) ) )
-            {
-                return ( FALSE );
-            }
+            //
+            //  Set the registry with the new SMONTHOUSANDSEP string.
+            //
+            return (SetUserInfo( NLS_VALUE_SMONTHOUSANDSEP,
+                                 pNlsUserInfo->sMonThouSep,
+                                 (LPWSTR)lpLCData,
+                                 cchData ));
             break;
         }
         case ( LOCALE_SMONGROUPING ) :
         {
-            /*
-             *  Validate the new value.  It should be exactly
-             *  MAX_SMONGROUPING (4) wide characters in length.
-             *  The 1st value should be between 0 and MAX_VALUE_SMONGROUPING.
-             *  The 2nd char should be a semicolon and the 3rd char
-             *  should be integer 0.
-             */
-            if ( (cchData > 1) &&
-                 ( (cchData != MAX_SMONGROUPING) ||
-                   (*lpLCData < NLS_CHAR_ZERO) ||
-                   (*lpLCData > MAX_CHAR_SMONGROUPING) ||
-                   (*(lpLCData + 1) != NLS_CHAR_SEMICOLON) ||
-                   (*(lpLCData + 2) != NLS_CHAR_ZERO) ) )
+            //
+            //  Validate the new value.  It should be exactly
+            //  MAX_SMONGROUPING (4) wide characters in length.
+            //  The 1st value should be between 0 and MAX_VALUE_SMONGROUPING.
+            //  The 2nd char should be a semicolon and the 3rd char
+            //  should be integer 0.
+            //
+            //  NOTE: The string may not be NULL, so it must be at least
+            //        2 chars long (includes null).
+            //
+            if ((cchData != MAX_SMONGROUPING) ||
+                (*lpLCData < NLS_CHAR_ZERO) ||
+                (*lpLCData > MAX_CHAR_SMONGROUPING) ||
+                (*(lpLCData + 1) != NLS_CHAR_SEMICOLON) ||
+                (*(lpLCData + 2) != NLS_CHAR_ZERO))
             {
-                SetLastError( ERROR_INVALID_PARAMETER );
-                return ( FALSE );
+                SetLastError(ERROR_INVALID_PARAMETER);
+                return (FALSE);
             }
 
-            /*
-             *  Set the registry with the new SMONGROUPING string.
-             */
-            if ( SetRegValue( &hKeySet,
-                              NLS_VALUE_SMONGROUPING,
-                              (LPWSTR)lpLCData,
-                              cchData * sizeof(WCHAR) ) )
-            {
-                return ( FALSE );
-            }
+            //
+            //  Set the registry with the new SMONGROUPING string.
+            //
+            return (SetUserInfo( NLS_VALUE_SMONGROUPING,
+                                 pNlsUserInfo->sMonGrouping,
+                                 (LPWSTR)lpLCData,
+                                 cchData ));
             break;
         }
         case ( LOCALE_ICURRDIGITS ) :
         {
-            /*
-             *  Validate the new value.  It should be no longer than
-             *  MAX_ICURRDIGITS wide characters in length.
-             *  The value should be between 0 and MAX_VALUE_ICURRDIGITS.
-             */
+            //
+            //  Validate the new value.  It should be no longer than
+            //  MAX_ICURRDIGITS wide characters in length.
+            //  The value should be between 0 and MAX_VALUE_ICURRDIGITS.
+            //
+            //  NOTE: The string may not be NULL, so it must be at least
+            //        2 chars long (includes null).
+            //
             switch (cchData)
             {
-                case ( 1 ) :
-                {
-                    break;
-                }
                 case ( 2 ) :
                 {
                     if ((*lpLCData < NLS_CHAR_ZERO) ||
                         (*lpLCData > NLS_CHAR_NINE))
                     {
-                        SetLastError( ERROR_INVALID_PARAMETER );
-                        return ( FALSE );
+                        SetLastError(ERROR_INVALID_PARAMETER);
+                        return (FALSE);
                     }
 
                     break;
@@ -2699,80 +2731,78 @@ BOOL WINAPI SetLocaleInfoW(
                         (*(lpLCData + 1) < NLS_CHAR_ZERO) ||
                         (*(lpLCData + 1) > MAX_CHAR_ICURRDIGITS_2))
                     {
-                        SetLastError( ERROR_INVALID_PARAMETER );
-                        return ( FALSE );
+                        SetLastError(ERROR_INVALID_PARAMETER);
+                        return (FALSE);
                     }
 
                     break;
                 }
                 case ( 0 ) :
+                case ( 1 ) :
                 default :
                 {
-                    SetLastError( ERROR_INVALID_PARAMETER );
-                    return ( FALSE );
+                    SetLastError(ERROR_INVALID_PARAMETER);
+                    return (FALSE);
                 }
             }
 
-            /*
-             *  Set the registry with the new ICURRDIGITS string.
-             */
-            if ( SetRegValue( &hKeySet,
-                              NLS_VALUE_ICURRDIGITS,
-                              (LPWSTR)lpLCData,
-                              cchData * sizeof(WCHAR) ) )
-            {
-                return ( FALSE );
-            }
+            //
+            //  Set the registry with the new ICURRDIGITS string.
+            //
+            return (SetUserInfo( NLS_VALUE_ICURRDIGITS,
+                                 pNlsUserInfo->iCurrDigits,
+                                 (LPWSTR)lpLCData,
+                                 cchData ));
             break;
         }
         case ( LOCALE_ICURRENCY ) :
         {
-            /*
-             *  Validate the new value.  It should be no longer than
-             *  MAX_ICURRENCY wide characters in length.
-             *  The value should be between 0 and MAX_VALUE_ICURRENCY.
-             */
-            if ( (cchData > 1) &&
-                 ( (cchData > MAX_ICURRENCY) ||
-                   (*lpLCData < NLS_CHAR_ZERO) ||
-                   (*lpLCData > MAX_CHAR_ICURRENCY) ) )
+            //
+            //  Validate the new value.  It should be no longer than
+            //  MAX_ICURRENCY wide characters in length.
+            //  The value should be between 0 and MAX_VALUE_ICURRENCY.
+            //
+            //  NOTE: The string may not be NULL, so it must be at least
+            //        2 chars long (includes null).
+            //
+            //        Optimized - since MAX_ICURRENCY is 2.
+            //
+            if ((cchData != MAX_ICURRENCY) ||
+                (*lpLCData < NLS_CHAR_ZERO) ||
+                (*lpLCData > MAX_CHAR_ICURRENCY))
             {
-                SetLastError( ERROR_INVALID_PARAMETER );
-                return ( FALSE );
+                SetLastError(ERROR_INVALID_PARAMETER);
+                return (FALSE);
             }
 
-            /*
-             *  Set the registry with the new ICURRENCY string.
-             */
-            if ( SetRegValue( &hKeySet,
-                              NLS_VALUE_ICURRENCY,
-                              (LPWSTR)lpLCData,
-                              cchData * sizeof(WCHAR) ) )
-            {
-                return ( FALSE );
-            }
+            //
+            //  Set the registry with the new ICURRENCY string.
+            //
+            return (SetUserInfo( NLS_VALUE_ICURRENCY,
+                                 pNlsUserInfo->iCurrency,
+                                 (LPWSTR)lpLCData,
+                                 cchData ));
             break;
         }
         case ( LOCALE_INEGCURR ) :
         {
-            /*
-             *  Validate the new value.  It should be no longer than
-             *  MAX_INEGCURR wide characters in length.
-             *  The value should be between 0 and MAX_VALUE_INEGCURR.
-             */
+            //
+            //  Validate the new value.  It should be no longer than
+            //  MAX_INEGCURR wide characters in length.
+            //  The value should be between 0 and MAX_VALUE_INEGCURR.
+            //
+            //  NOTE: The string may not be NULL, so it must be at least
+            //        2 chars long (includes null).
+            //
             switch (cchData)
             {
-                case ( 1 ) :
-                {
-                    break;
-                }
                 case ( 2 ) :
                 {
                     if ((*lpLCData < NLS_CHAR_ZERO) ||
                         (*lpLCData > NLS_CHAR_NINE))
                     {
-                        SetLastError( ERROR_INVALID_PARAMETER );
-                        return ( FALSE );
+                        SetLastError(ERROR_INVALID_PARAMETER);
+                        return (FALSE);
                     }
 
                     break;
@@ -2784,263 +2814,191 @@ BOOL WINAPI SetLocaleInfoW(
                         (*(lpLCData + 1) < NLS_CHAR_ZERO) ||
                         (*(lpLCData + 1) > MAX_CHAR_INEGCURR_2))
                     {
-                        SetLastError( ERROR_INVALID_PARAMETER );
-                        return ( FALSE );
+                        SetLastError(ERROR_INVALID_PARAMETER);
+                        return (FALSE);
                     }
 
                     break;
                 }
                 case ( 0 ) :
+                case ( 1 ) :
                 default :
                 {
-                    SetLastError( ERROR_INVALID_PARAMETER );
-                    return ( FALSE );
+                    SetLastError(ERROR_INVALID_PARAMETER);
+                    return (FALSE);
                 }
             }
 
-            /*
-             *  Set the registry with the new INEGCURR string.
-             */
-            if ( SetRegValue( &hKeySet,
-                              NLS_VALUE_INEGCURR,
-                              (LPWSTR)lpLCData,
-                              cchData * sizeof(WCHAR) ) )
-            {
-                return ( FALSE );
-            }
+            //
+            //  Set the registry with the new INEGCURR string.
+            //
+            return (SetUserInfo( NLS_VALUE_INEGCURR,
+                                 pNlsUserInfo->iNegCurr,
+                                 (LPWSTR)lpLCData,
+                                 cchData ));
             break;
         }
         case ( LOCALE_SPOSITIVESIGN ) :
         {
-            /*
-             *  Validate the new value.  It should be no longer than
-             *  MAX_SPOSSIGN wide characters in length and should not
-             *  contain any integer values (L'0' thru L'9').
-             */
+            //
+            //  Validate the new value.  It should be no longer than
+            //  MAX_SPOSSIGN wide characters in length and should not
+            //  contain any integer values (L'0' thru L'9').
+            //
             if (!IsValidSeparatorString( lpLCData,
                                          MAX_SPOSSIGN,
                                          FALSE ))
             {
-                SetLastError( ERROR_INVALID_PARAMETER );
-                return ( FALSE );
+                SetLastError(ERROR_INVALID_PARAMETER);
+                return (FALSE);
             }
 
-            /*
-             *  Set the registry with the new SPOSITIVESIGN string.
-             */
-            if ( SetRegValue( &hKeySet,
-                              NLS_VALUE_SPOSITIVESIGN,
-                              (LPWSTR)lpLCData,
-                              cchData * sizeof(WCHAR) ) )
-            {
-                return ( FALSE );
-            }
+            //
+            //  Set the registry with the new SPOSITIVESIGN string.
+            //
+            return (SetUserInfo( NLS_VALUE_SPOSITIVESIGN,
+                                 pNlsUserInfo->sPosSign,
+                                 (LPWSTR)lpLCData,
+                                 cchData ));
             break;
         }
         case ( LOCALE_SNEGATIVESIGN ) :
         {
-            /*
-             *  Validate the new value.  It should be no longer than
-             *  MAX_SNEGSIGN wide characters in length and should not
-             *  contain any integer values (L'0' thru L'9').
-             */
+            //
+            //  Validate the new value.  It should be no longer than
+            //  MAX_SNEGSIGN wide characters in length and should not
+            //  contain any integer values (L'0' thru L'9').
+            //
             if (!IsValidSeparatorString( lpLCData,
                                          MAX_SNEGSIGN,
                                          FALSE ))
             {
-                SetLastError( ERROR_INVALID_PARAMETER );
-                return ( FALSE );
+                SetLastError(ERROR_INVALID_PARAMETER);
+                return (FALSE);
             }
 
-            /*
-             *  Set the registry with the new SNEGATIVESIGN string.
-             */
-            if ( SetRegValue( &hKeySet,
-                              NLS_VALUE_SNEGATIVESIGN,
-                              (LPWSTR)lpLCData,
-                              cchData * sizeof(WCHAR) ) )
-            {
-                return ( FALSE );
-            }
+            //
+            //  Set the registry with the new SNEGATIVESIGN string.
+            //
+            return (SetUserInfo( NLS_VALUE_SNEGATIVESIGN,
+                                 pNlsUserInfo->sNegSign,
+                                 (LPWSTR)lpLCData,
+                                 cchData ));
             break;
         }
         case ( LOCALE_STIMEFORMAT ) :
         {
-            /*
-             *  Validate the new value.  It should be no longer than
-             *  MAX_STIMEFORMAT wide characters in length.
-             */
+            //
+            //  Validate the new value.  It should be no longer than
+            //  MAX_STIMEFORMAT wide characters in length.
+            //
+            //  NOTE: The string may not be NULL, so it must be at least
+            //        2 chars long (includes null).  This is checked below
+            //        in the check for whether or not there is an hour
+            //        delimeter.
+            //
             if (cchData > MAX_STIMEFORMAT)
             {
-                SetLastError( ERROR_INVALID_PARAMETER );
-                return ( FALSE );
+                SetLastError(ERROR_INVALID_PARAMETER);
+                return (FALSE);
             }
 
-            /*
-             *  NOTE: Must link the STIME, ITIME, ITLZERO, and
-             *        ITIMEMARKPOSN values in the registry.
-             */
+            //
+            //  NOTE: Must link the STIME, ITIME, ITLZERO, and
+            //        ITIMEMARKPOSN values in the registry.
+            //
 
-            /*
-             *  Search for H or h, so that iTime and iTLZero can be
-             *  set.  If no H or h exists, return an error.
-             */
-            pPos = wcspbrk( lpLCData, L"Hh" );
+            //
+            //  Search for H or h, so that iTime and iTLZero can be
+            //  set.  If no H or h exists, return an error.
+            //
+            pPos = wcspbrk(lpLCData, L"Hh");
             if (!pPos)
             {
-                SetLastError( ERROR_INVALID_PARAMETER );
-                return ( FALSE );
+                SetLastError(ERROR_INVALID_PARAMETER);
+                return (FALSE);
             }
 
-            /*
-             *  Set the registry with the new STIMEFORMAT string.
-             */
-            if ( SetRegValue( &hKeySet,
-                              NLS_VALUE_STIMEFORMAT,
-                              (LPWSTR)lpLCData,
-                              cchData * sizeof(WCHAR) ) )
-            {
-                return ( FALSE );
-            }
+            //
+            //  Get the appropriate ITIME value.
+            //
+            Order = (*pPos == L'h') ? 0 : 1;
 
-            /*
-             *  Set the registry with the appropriate ITIME string.
-             */
-            switch (*pPos)
-            {
-                case ( L'h' ) :
-                {
-                    /*
-                     *  Set the registry with the new ITIME string.
-                     */
-                    if ( SetRegValue( &hKeySet,
-                                      NLS_VALUE_ITIME,
-                                      L"0",
-                                      2 * sizeof(WCHAR) ) )
-                    {
-                        return ( FALSE );
-                    }
+            //
+            //  Get the appropriate ITLZERO value.
+            //
+            TLZero = ((*(pPos + 1) != L'h') && (*(pPos + 1) != L'H')) ? 0 : 1;
 
-                    break;
-                }
-
-                case ( L'H' ) :
-                {
-                    /*
-                     *  Set the registry with the new ITIME string.
-                     */
-                    if ( SetRegValue( &hKeySet,
-                                      NLS_VALUE_ITIME,
-                                      L"1",
-                                      2 * sizeof(WCHAR) ) )
-                    {
-                        return ( FALSE );
-                    }
-
-                    break;
-                }
-            }
-
-            /*
-             *  Set the registry with the appropriate ITLZERO string.
-             */
-            if ( (*(pPos + 1) != L'h') && (*(pPos + 1) != L'H') )
-            {
-                if ( SetRegValue( &hKeySet,
-                                  NLS_VALUE_ITLZERO,
-                                  L"0",
-                                  2 * sizeof(WCHAR) ) )
-                {
-                    return ( FALSE );
-                }
-            }
-            else
-            {
-                if ( SetRegValue( &hKeySet,
-                                  NLS_VALUE_ITLZERO,
-                                  L"1",
-                                  2 * sizeof(WCHAR) ) )
-                {
-                    return ( FALSE );
-                }
-            }
-
-            /*
-             *  Search for tt, so that ITIMEMARKPOSN can be
-             *  set.  If no tt exists, do not change the value.
-             */
+            //
+            //  Search for tt, so that ITIMEMARKPOSN can be
+            //  set.  If no tt exists, do not change the value.
+            //
             pPos = (LPWSTR)lpLCData;
-            while ((pPos = wcspbrk( pPos, L"t" )) && (*(pPos + 1) != L't'))
+            while ((pPos = wcspbrk(pPos, L"t")) && (*(pPos + 1) != L't'))
             {
                 pPos++;
             }
             if (pPos)
             {
-                /*
-                 *  Set the registry with the new ITIMEMARKPOSN string.
-                 */
-                pPos2 = wcspbrk( lpLCData, L"Hhmst" );
-                if ( SetRegValue( &hKeySet,
-                                  NLS_VALUE_ITIMEMARKPOSN,
-                                  (pPos == pPos2) ? L"1" : L"0",
-                                  2 * sizeof(WCHAR) ) )
-                {
-                    return ( FALSE );
-                }
+                //
+                //  Get the appropriate ITIMEMARKPOSN value.
+                //
+                pPos2 = wcspbrk(lpLCData, L"Hhmst");
+                TimeMarkPosn = (pPos == pPos2) ? 1 : 0;
             }
 
-            /*
-             *  Find the time separator so that STIME can be set.
-             */
+            //
+            //  Find the time separator so that STIME can be set.
+            //
             pPos = (LPWSTR)lpLCData;
-            while (pPos = wcspbrk( pPos, L"Hhms" ))
+            while (pPos = wcspbrk(pPos, L"Hhms"))
             {
-                /*
-                 *  Go to next position past sequence of H, h, m, or s.
-                 */
+                //
+                //  Go to next position past sequence of H, h, m, or s.
+                //
                 pPos++;
-                while ( (*pPos) && (wcschr( L"Hhms", *pPos )) )
+                while ((*pPos) && (wcschr( L"Hhms", *pPos )))
                 {
                     pPos++;
                 }
 
                 if (*pPos)
                 {
-                    /*
-                     *  Find the end of the separator string.
-                     */
-                    pPos2 = wcspbrk( pPos, L"Hhmst" );
+                    //
+                    //  Find the end of the separator string.
+                    //
+                    pPos2 = wcspbrk(pPos, L"Hhmst");
                     if (pPos2)
                     {
                         if (*pPos2 == L't')
                         {
-                            /*
-                             *  Found a time marker, so need to start over
-                             *  in search for separator.  There are no
-                             *  separators around the time marker.
-                             */
+                            //
+                            //  Found a time marker, so need to start over
+                            //  in search for separator.  There are no
+                            //  separators around the time marker.
+                            //
                             pPos = pPos2 + 1;
                         }
                         else
                         {
-                            /*
-                             *  Found end of separator, so break out of
-                             *  while loop.
-                             */
+                            //
+                            //  Found end of separator, so break out of
+                            //  while loop.
+                            //
                             break;
                         }
                     }
                 }
             }
 
-            /*
-             *  Set the registry with the appropriate STIME string.
-             */
+            //
+            //  Get the appropriate STIME string.
+            //
             if (pPos)
             {
-                /*
-                 *  Copy to temp buffer so that it's zero terminated.
-                 */
+                //
+                //  Copy to temp buffer so that it's zero terminated.
+                //
                 pString = pTemp;
                 while (pPos != pPos2)
                 {
@@ -3049,163 +3007,173 @@ BOOL WINAPI SetLocaleInfoW(
                     pString++;
                 }
                 *pString = 0;
-
-                /*
-                 *  Write the STIME string to the registry.
-                 */
-                if ( SetRegValue( &hKeySet,
-                                  NLS_VALUE_STIME,
-                                  pTemp,
-                                  (pString - pTemp + 1) * sizeof(WCHAR) ) )
-                {
-                    return ( FALSE );
-                }
             }
             else
             {
-                /*
-                 *  There is no time separator, so write a NULL to the
-                 *  registry.
-                 */
-                if ( SetRegValue( &hKeySet,
-                                  NLS_VALUE_STIME,
-                                  L"",
-                                  1 * sizeof(WCHAR) ) )
-                {
-                    return ( FALSE );
-                }
+                //
+                //  There is no time separator, so use NULL.
+                //
+                *pTemp = 0;
             }
 
+            //
+            //  Call the server to set the registry.
+            //
+            return (SetMultipleUserInfo( LCType,
+                                         cchData,
+                                         lpLCData,
+                                         pTemp,
+                                         (Order == 0) ? L"0" : L"1",
+                                         (TLZero == 0) ? L"0" : L"1",
+                                         (TimeMarkPosn == 0) ? L"0" : L"1" ));
             break;
         }
         case ( LOCALE_STIME ) :
         {
-            /*
-             *  NOTE: Must link the STIMEFORMAT value in the registry.
-             */
+            //
+            //  NOTE: Must link the STIMEFORMAT value in the registry.
+            //
 
-            /*
-             *  Validate the new value.  It should be no longer than
-             *  MAX_STIME wide characters in length and should not
-             *  contain any integer values (L'0' thru L'9').
-             */
+            //
+            //  Validate the new value.  It should be no longer than
+            //  MAX_STIME wide characters in length and should not
+            //  contain any integer values (L'0' thru L'9').
+            //
+            //  NOTE: The string may not be NULL, so it must be at least
+            //        2 chars long (includes null).
+            //
             if (!IsValidSeparatorString( lpLCData,
                                          MAX_STIME,
-                                         FALSE ))
+                                         TRUE ))
             {
-                SetLastError( ERROR_INVALID_PARAMETER );
-                return ( FALSE );
+                SetLastError(ERROR_INVALID_PARAMETER);
+                return (FALSE);
             }
 
-            /*
-             *  Make sure that the time separator does NOT contain any
-             *  of the special time picture characters - h, H, m, s, t.
-             */
-            if (pPos = wcspbrk( lpLCData, L"Hhmst" ))
+            //
+            //  Make sure that the time separator does NOT contain any
+            //  of the special time picture characters - h, H, m, s, t, '.
+            //
+            if (wcspbrk(lpLCData, L"Hhmst'"))
             {
-                SetLastError( ERROR_INVALID_PARAMETER );
-                return ( FALSE );
+                SetLastError(ERROR_INVALID_PARAMETER);
+                return (FALSE);
             }
 
-            /*
-             *  Set the registry with the new STIME string.
-             */
-            if ( SetRegValue( &hKeySet,
-                              NLS_VALUE_STIME,
-                              (LPWSTR)lpLCData,
-                              cchData * sizeof(WCHAR) ) )
+            //
+            //  Get the current setting for STIMEFORMAT.
+            //
+            if (GetUserInfo( Locale,
+                             pNlsUserInfo->sTimeFormat,
+                             pOutput,
+                             TRUE ))
             {
-                return ( FALSE );
-            }
-
-            /*
-             *  Get the current setting for STIMEFORMAT.
-             */
-            pValFull = (PKEY_VALUE_FULL_INFORMATION)pStatic;
-            if (GetRegUserInfo( &hKeyGet,
-                                Locale,
-                                NLS_VALUE_STIMEFORMAT,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
-            {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pOutput;
             }
             else
             {
                 pString = (LPWORD)(pHashN->pLocaleHdr) +
                           pHashN->pLocaleHdr->STimeFormat;
             }
-            CLOSE_REG_KEY( hKeyGet );
 
-            /*
-             *  Find the time separator in the STIMEFORMAT string and
-             *  replace it with the new time separator.
-             *
-             *  The new separator may be a different length than
-             *  the old one, so must use a static buffer for the new
-             *  time format string.
-             */
-            pPos = pTemp;
-            while (pPos2 = wcspbrk( pString, L"Hhms" ))
+            //
+            //  Get the current setting for STIME.
+            //
+            if (GetUserInfo( Locale,
+                             pNlsUserInfo->sTime,
+                             pOutput2,
+                             TRUE ))
             {
-                /*
-                 *  Copy format string up to pPos2.
-                 */
-                while (pString <= pPos2)
+                pSep = pOutput2;
+            }
+            else
+            {
+                pSep = (LPWORD)(pHashN->pLocaleHdr) +
+                       pHashN->pLocaleHdr->STime;
+            }
+
+            //
+            //  Get the length of the separator string.
+            //
+            SepLen = NlsStrLenW(pSep);
+
+            //
+            //  Setup the string containing the characters to find in
+            //  the timeformat string.
+            //
+            pFind[0] = NLS_CHAR_QUOTE;
+            pFind[1] = *pSep;
+            pFind[2] = 0;
+
+            //
+            //  Find the time separator in the STIMEFORMAT string and
+            //  replace it with the new time separator.
+            //
+            //  The new separator may be a different length than
+            //  the old one, so must use a static buffer for the new
+            //  time format string.
+            //
+            pPos = pTemp;
+            while (pPos2 = wcspbrk(pString, pFind))
+            {
+                //
+                //  Copy format string up to pPos2.
+                //
+                while (pString < pPos2)
                 {
                     *pPos = *pString;
                     pPos++;
                     pString++;
                 }
 
-                /*
-                 *  Go to next position past sequence of H, h, m, or s.
-                 */
-                while ( (*pString) && (wcschr( L"Hhms", *pString )) )
+                switch (*pPos2)
                 {
-                    *pPos = *pString;
-                    pPos++;
-                    pString++;
-                }
-
-                if (*pString)
-                {
-                    /*
-                     *  Find the end of the separator string, if it exists.
-                     */
-                    pPos2 = wcspbrk( pString, L"Hhmst" );
-                    if (pPos2)
+                    case ( NLS_CHAR_QUOTE ) :
                     {
-                        /*
-                         *  Found one of the time picture values.
-                         */
-                        if (*pPos2 == L't')
+                        //
+                        //  Copy the quote.
+                        //
+                        *pPos = *pString;
+                        pPos++;
+                        pString++;
+
+                        //
+                        //  Copy what's inside the quotes.
+                        //
+                        while ((*pString) && (*pString != NLS_CHAR_QUOTE))
                         {
-                            /*
-                             *  Found a time marker, so just copy up to
-                             *  and including the time marker.  There are
-                             *  no separators around the time marker.
-                             */
-                            while (pString <= pPos2)
-                            {
-                                *pPos = *pString;
-                                pPos++;
-                                pString++;
-                            }
+                            *pPos = *pString;
+                            pPos++;
+                            pString++;
                         }
-                        else
+
+                        //
+                        //  Copy the end quote.
+                        //
+                        *pPos = NLS_CHAR_QUOTE;
+                        pPos++;
+                        if (*pString)
                         {
-                            /*
-                             *  Found end of separator.
-                             *  Reset the pointer to skip over the old one.
-                             */
-                            pString = pPos2;
-                            
-                            /*
-                             *  Copy the new separator.
-                             */
+                            pString++;
+                        }
+
+                        break;
+                    }
+                    default :
+                    {
+                        //
+                        //  Make sure it's the old separator.
+                        //
+                        if (NlsStrNEqualW(pString, pSep, SepLen))
+                        {
+                            //
+                            //  Adjust pointer to skip over old separator.
+                            //
+                            pString += SepLen;
+
+                            //
+                            //  Copy the new separator.
+                            //
                             pPos2 = (LPWSTR)lpLCData;
                             while (*pPos2)
                             {
@@ -3214,13 +3182,24 @@ BOOL WINAPI SetLocaleInfoW(
                                 pPos2++;
                             }
                         }
+                        else
+                        {
+                            //
+                            //  Copy the code point and continue.
+                            //
+                            *pPos = *pString;
+                            pPos++;
+                            pString++;
+                        }
+
+                        break;
                     }
                 }
             }
 
-            /*
-             *  Copy to the end of the string and null terminate it.
-             */
+            //
+            //  Copy to the end of the string and null terminate it.
+            //
             while (*pString)
             {
                 *pPos = *pString;
@@ -3229,90 +3208,68 @@ BOOL WINAPI SetLocaleInfoW(
             }
             *pPos = 0;
 
-            /*
-             *  Set the registry with the new STIMEFORMAT string.
-             */
-            if ( SetRegValue( &hKeySet,
-                              NLS_VALUE_STIMEFORMAT,
-                              (LPWSTR)pTemp,
-                              (pPos - pTemp + 1) * sizeof(WCHAR) ) )
-            {
-                if (IfAlloc)
-                {
-                    NLS_FREE_MEM( pValFull );
-                }
-                return ( FALSE );
-            }
-
-            if (IfAlloc)
-            {
-                NLS_FREE_MEM( pValFull );
-            }
-
+            //
+            //  Call the server to set the registry.
+            //
+            return (SetMultipleUserInfo( LCType,
+                                         cchData,
+                                         pTemp,
+                                         lpLCData,
+                                         NULL,
+                                         NULL,
+                                         NULL ));
             break;
         }
         case ( LOCALE_ITIME ) :
         {
-            /*
-             *  NOTE: Must link the STIMEFORMAT value in the registry.
-             */
+            //
+            //  NOTE: Must link the STIMEFORMAT value in the registry.
+            //
 
-            /*
-             *  Validate the new value.  It should be no longer than
-             *  MAX_ITIME wide characters in length.
-             *  The value should be either 0 or MAX_VALUE_ITIME.
-             */
-            if ( (cchData > 1) &&
-                 ( (cchData > MAX_ITIME) ||
-                   (*lpLCData < NLS_CHAR_ZERO) ||
-                   (*lpLCData > MAX_CHAR_ITIME) ) )
+            //
+            //  Validate the new value.  It should be no longer than
+            //  MAX_ITIME wide characters in length.
+            //  The value should be either 0 or MAX_VALUE_ITIME.
+            //
+            //  NOTE: The string may not be NULL, so it must be at least
+            //        2 chars long (includes null).
+            //
+            //        Optimized - since MAX_ITIME is 2.
+            //
+            if ((cchData != MAX_ITIME) ||
+                (*lpLCData < NLS_CHAR_ZERO) ||
+                (*lpLCData > MAX_CHAR_ITIME))
             {
-                SetLastError( ERROR_INVALID_PARAMETER );
-                return ( FALSE );
+                SetLastError(ERROR_INVALID_PARAMETER);
+                return (FALSE);
             }
 
-            /*
-             *  Set the registry with the new ITIME string.
-             */
-            if ( SetRegValue( &hKeySet,
-                              NLS_VALUE_ITIME,
-                              (LPWSTR)lpLCData,
-                              cchData * sizeof(WCHAR) ) )
+            //
+            //  Get the current setting for STIMEFORMAT.
+            //
+            if (GetUserInfo( Locale,
+                             pNlsUserInfo->sTimeFormat,
+                             pOutput,
+                             TRUE ))
             {
-                return ( FALSE );
-            }
-
-            /*
-             *  Get the current setting for STIMEFORMAT.
-             */
-            pValFull = (PKEY_VALUE_FULL_INFORMATION)pStatic;
-            if (GetRegUserInfo( &hKeyGet,
-                                Locale,
-                                NLS_VALUE_STIMEFORMAT,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
-            {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pOutput;
             }
             else
             {
-                /*
-                 *  Copy system default to temp buffer.
-                 */
+                //
+                //  Copy system default to temp buffer.
+                //
                 NlsStrCpyW( pTemp,
                             (LPWORD)(pHashN->pLocaleHdr) +
                               pHashN->pLocaleHdr->STimeFormat );
                 pString = pTemp;
             }
-            CLOSE_REG_KEY( hKeyGet );
 
-            /*
-             *  Search down the STIMEFORMAT string.
-             *  If iTime = 0, then H -> h.
-             *  If iTime = 1, then h -> H.
-             */
+            //
+            //  Search down the STIMEFORMAT string.
+            //  If iTime = 0, then H -> h.
+            //  If iTime = 1, then h -> H.
+            //
             pPos = pString;
             if (*lpLCData == NLS_CHAR_ZERO)
             {
@@ -3337,194 +3294,143 @@ BOOL WINAPI SetLocaleInfoW(
                 }
             }
 
-            /*
-             *  Set the registry with the new STIMEFORMAT string.
-             */
-            if ( SetRegValue( &hKeySet,
-                              NLS_VALUE_STIMEFORMAT,
-                              (LPWSTR)pString,
-                              (pPos - pString + 1) * sizeof(WCHAR) ) )
-            {
-                if (IfAlloc)
-                {
-                    NLS_FREE_MEM( pValFull );
-                }
-                return ( FALSE );
-            }
-
-            if (IfAlloc)
-            {
-                NLS_FREE_MEM( pValFull );
-            }
-
+            //
+            //  Call the server to set the registry.
+            //
+            return (SetMultipleUserInfo( LCType,
+                                         cchData,
+                                         pString,
+                                         NULL,
+                                         lpLCData,
+                                         NULL,
+                                         NULL ));
             break;
         }
         case ( LOCALE_S1159 ) :
         {
-            /*
-             *  Validate the new value.  It should be no longer than
-             *  MAX_S1159 wide characters in length.
-             */
+            //
+            //  Validate the new value.  It should be no longer than
+            //  MAX_S1159 wide characters in length.
+            //
             if (cchData > MAX_S1159)
             {
-                SetLastError( ERROR_INVALID_PARAMETER );
-                return ( FALSE );
+                SetLastError(ERROR_INVALID_PARAMETER);
+                return (FALSE);
             }
 
-            /*
-             *  Set the registry with the new S1159 string.
-             */
-            if ( SetRegValue( &hKeySet,
-                              NLS_VALUE_S1159,
-                              (LPWSTR)lpLCData,
-                              cchData * sizeof(WCHAR) ) )
-            {
-                return ( FALSE );
-            }
+            //
+            //  Set the registry with the new S1159 string.
+            //
+            return (SetUserInfo( NLS_VALUE_S1159,
+                                 pNlsUserInfo->s1159,
+                                 (LPWSTR)lpLCData,
+                                 cchData ));
             break;
         }
         case ( LOCALE_S2359 ) :
         {
-            /*
-             *  Validate the new value.  It should be no longer than
-             *  MAX_S2359 wide characters in length.
-             */
+            //
+            //  Validate the new value.  It should be no longer than
+            //  MAX_S2359 wide characters in length.
+            //
             if (cchData > MAX_S2359)
             {
-                SetLastError( ERROR_INVALID_PARAMETER );
-                return ( FALSE );
+                SetLastError(ERROR_INVALID_PARAMETER);
+                return (FALSE);
             }
 
-            /*
-             *  Set the registry with the new S2359 string.
-             */
-            if ( SetRegValue( &hKeySet,
-                              NLS_VALUE_S2359,
-                              (LPWSTR)lpLCData,
-                              cchData * sizeof(WCHAR) ) )
-            {
-                return ( FALSE );
-            }
+            //
+            //  Set the registry with the new S2359 string.
+            //
+            return (SetUserInfo( NLS_VALUE_S2359,
+                                 pNlsUserInfo->s2359,
+                                 (LPWSTR)lpLCData,
+                                 cchData ));
             break;
         }
         case ( LOCALE_SSHORTDATE ) :
         {
-            /*
-             *  Validate the new value.  It should be no longer than
-             *  MAX_SSHORTDATE wide characters in length.
-             */
+            //
+            //  Validate the new value.  It should be no longer than
+            //  MAX_SSHORTDATE wide characters in length.
+            //
+            //  NOTE: The string may not be NULL, so it must be at least
+            //        2 chars long (includes null).  This is checked below
+            //        in the check for whether or not there is a date,
+            //        month, or year delimeter.
+            //
             if (cchData > MAX_SSHORTDATE)
             {
-                SetLastError( ERROR_INVALID_PARAMETER );
-                return ( FALSE );
+                SetLastError(ERROR_INVALID_PARAMETER);
+                return (FALSE);
             }
 
-            /*
-             *  NOTE: Must link the IDATE and SDATE values in the registry.
-             */
+            //
+            //  NOTE: Must link the IDATE and SDATE values in the registry.
+            //
 
-            /*
-             *  Search for the 'd' or 'M' or 'y' sequence in the date format
-             *  string to set the new IDATE value.
-             *
-             *  If none of these symbols exist in the date format string,
-             *  then return an error.
-             */
-            pPos = wcspbrk( lpLCData, L"dMy" );
+            //
+            //  Search for the 'd' or 'M' or 'y' sequence in the date format
+            //  string to set the new IDATE value.
+            //
+            //  If none of these symbols exist in the date format string,
+            //  then return an error.
+            //
+            pPos = wcspbrk(lpLCData, L"dMy");
             if (!pPos)
             {
-                SetLastError( ERROR_INVALID_PARAMETER );
-                return ( FALSE );
+                SetLastError(ERROR_INVALID_PARAMETER);
+                return (FALSE);
             }
 
-            /*
-             *  Set the registry with the new SSHORTDATE string.
-             */
-            if ( SetRegValue( &hKeySet,
-                              NLS_VALUE_SSHORTDATE,
-                              (LPWSTR)lpLCData,
-                              cchData * sizeof(WCHAR) ) )
-            {
-                return ( FALSE );
-            }
-
-            /*
-             *  Set the registry with the appropriate IDATE string.
-             */
+            //
+            //  Set the registry with the appropriate IDATE string.
+            //
             switch (*pPos)
             {
                 case ( L'M' ) :
                 {
-                    /*
-                     *  Set the registry with the new IDATE string.
-                     */
-                    if ( SetRegValue( &hKeySet,
-                                      NLS_VALUE_IDATE,
-                                      L"0",
-                                      2 * sizeof(WCHAR) ) )
-                    {
-                        return ( FALSE );
-                    }
-
+                    Order = 0;
                     break;
                 }
 
                 case ( L'd' ) :
                 {
-                    /*
-                     *  Set the registry with the new IDATE string.
-                     */
-                    if ( SetRegValue( &hKeySet,
-                                      NLS_VALUE_IDATE,
-                                      L"1",
-                                      2 * sizeof(WCHAR) ) )
-                    {
-                        return ( FALSE );
-                    }
-
+                    Order = 1;
                     break;
                 }
 
                 case ( L'y' ) :
                 {
-                    /*
-                     *  Set the registry with the new IDATE string.
-                     */
-                    if ( SetRegValue( &hKeySet,
-                                      NLS_VALUE_IDATE,
-                                      L"2",
-                                      2 * sizeof(WCHAR) ) )
-                    {
-                        return ( FALSE );
-                    }
-
+                    Order = 2;
                     break;
                 }
             }
 
-            /*
-             *  Set the registry with the appropriate SDATE string.
-             *
-             *  The ptr "pPos" is pointing at either d, M, or y.
-             *  Go to the next position past sequence of d, M, or y.
-             */
+            //
+            //  Set the registry with the appropriate SDATE string.
+            //
+            //  The ptr "pPos" is pointing at either d, M, or y.
+            //  Go to the next position past sequence of d, M, or y.
+            //
             pPos++;
-            while ( (*pPos) && (wcschr( L"dMy", *pPos )) )
+            while ((*pPos) && (wcschr( L"dMy", *pPos )))
             {
                 pPos++;
             }
 
+            *pTemp = 0;
             if (*pPos)
             {
-                /*
-                 *  Find the end of the separator string.
-                 */
-                pPos2 = wcspbrk( pPos, L"dMy" );
+                //
+                //  Find the end of the separator string.
+                //
+                pPos2 = wcspbrk(pPos, L"dMy");
                 if (pPos2)
                 {
-                    /*
-                     *  Copy to temp buffer so that it's zero terminated.
-                     */
+                    //
+                    //  Copy to temp buffer so that it's zero terminated.
+                    //
                     pString = pTemp;
                     while (pPos != pPos2)
                     {
@@ -3533,160 +3439,194 @@ BOOL WINAPI SetLocaleInfoW(
                         pString++;
                     }
                     *pString = 0;
-
-                    /*
-                     *  Write the SDATE string to the registry.
-                     */
-                    if ( SetRegValue( &hKeySet,
-                                      NLS_VALUE_SDATE,
-                                      pTemp,
-                                      (pString - pTemp + 1) * sizeof(WCHAR) ) )
-                    {
-                        return ( FALSE );
-                    }
-
-                    break;
                 }
             }
 
-            /*
-             *  There is no date separator, so store null as date
-             *  separator.
-             */
-            if ( SetRegValue( &hKeySet,
-                              NLS_VALUE_SDATE,
-                              L"",
-                              1 * sizeof(WCHAR) ) )
-            {
-                return ( FALSE );
-            }
-
+            //
+            //  Call the server to set the registry.
+            //
+            return (SetMultipleUserInfo( LCType,
+                                         cchData,
+                                         lpLCData,
+                                         pTemp,
+                                         (Order == 0) ? L"0" :
+                                             ((Order == 1) ? L"1" : L"2"),
+                                         NULL,
+                                         NULL ));
             break;
         }
         case ( LOCALE_SDATE ) :
         {
-            /*
-             *  NOTE: Must link the SSHORTDATE value in the registry.
-             */
+            //
+            //  NOTE: Must link the SSHORTDATE value in the registry.
+            //
 
-            /*
-             *  Validate the new value.  It should be no longer than
-             *  MAX_SDATE wide characters in length and should not
-             *  contain any integer values (L'0' thru L'9').
-             */
+            //
+            //  Validate the new value.  It should be no longer than
+            //  MAX_SDATE wide characters in length and should not
+            //  contain any integer values (L'0' thru L'9').
+            //
+            //  NOTE: The string may not be NULL, so it must be at least
+            //        2 chars long (includes null).
+            //
             if (!IsValidSeparatorString( lpLCData,
                                          MAX_SDATE,
-                                         FALSE ))
+                                         TRUE ))
             {
-                SetLastError( ERROR_INVALID_PARAMETER );
-                return ( FALSE );
+                SetLastError(ERROR_INVALID_PARAMETER);
+                return (FALSE);
             }
 
-            /*
-             *  Make sure that the date separator does NOT contain any
-             *  of the special date picture characters - d, M, y.
-             */
-            pPos = (LPWSTR)lpLCData;
-            if (pPos = wcspbrk( lpLCData, L"dMy" ))
+            //
+            //  Make sure that the date separator does NOT contain any
+            //  of the special date picture characters - d, M, y, g, '.
+            //
+            if (wcspbrk(lpLCData, L"dMyg'"))
             {
-                SetLastError( ERROR_INVALID_PARAMETER );
-                return ( FALSE );
+                SetLastError(ERROR_INVALID_PARAMETER);
+                return (FALSE);
             }
 
-            /*
-             *  Set the registry with the new SDATE string.
-             */
-            if ( SetRegValue( &hKeySet,
-                              NLS_VALUE_SDATE,
-                              (LPWSTR)lpLCData,
-                              cchData * sizeof(WCHAR) ) )
+            //
+            //  Get the current setting for SSHORTDATE.
+            //
+            if (GetUserInfo( Locale,
+                             pNlsUserInfo->sShortDate,
+                             pOutput,
+                             TRUE ))
             {
-                return ( FALSE );
-            }
-
-            /*
-             *  Get the current setting for SSHORTDATE.
-             */
-            pValFull = (PKEY_VALUE_FULL_INFORMATION)pStatic;
-            if (GetRegUserInfo( &hKeyGet,
-                                Locale,
-                                NLS_VALUE_SSHORTDATE,
-                                &pValFull,
-                                MAX_KEY_VALUE_FULLINFO,
-                                &IfAlloc,
-                                FALSE ))
-            {
-                pString = GET_VALUE_DATA_PTR( pValFull );
+                pString = pOutput;
             }
             else
             {
                 pString = (LPWORD)(pHashN->pLocaleHdr) +
                           pHashN->pLocaleHdr->SShortDate;
             }
-            CLOSE_REG_KEY( hKeyGet );
 
-            /*
-             *  Find the date separator in the SSHORTDATE string and
-             *  replace it with the new date separator.
-             *
-             *  The new separator may be a different length than
-             *  the old one, so must use a static buffer for the new
-             *  short date format string.
-             */
-            pPos = pTemp;
-            while (pPos2 = wcspbrk( pString, L"dMy" ))
+            //
+            //  Get the current setting for SDATE.
+            //
+            if (GetUserInfo( Locale,
+                             pNlsUserInfo->sDate,
+                             pOutput2,
+                             TRUE ))
             {
-                /*
-                 *  Copy format string up to pPos2.
-                 */
-                while (pString <= pPos2)
+                pSep = pOutput2;
+            }
+            else
+            {
+                pSep = (LPWORD)(pHashN->pLocaleHdr) +
+                       pHashN->pLocaleHdr->SDate;
+            }
+
+            //
+            //  Get the length of the separator string.
+            //
+            SepLen = NlsStrLenW(pSep);
+
+            //
+            //  Setup the string containing the characters to find in
+            //  the shortdate string.
+            //
+            pFind[0] = NLS_CHAR_QUOTE;
+            pFind[1] = *pSep;
+            pFind[2] = 0;
+
+            //
+            //  Find the date separator in the SSHORTDATE string and
+            //  replace it with the new date separator.
+            //
+            //  The new separator may be a different length than
+            //  the old one, so must use a static buffer for the new
+            //  short date format string.
+            //
+            pPos = pTemp;
+            while (pPos2 = wcspbrk(pString, pFind))
+            {
+                //
+                //  Copy format string up to pPos2.
+                //
+                while (pString < pPos2)
                 {
                     *pPos = *pString;
                     pPos++;
                     pString++;
                 }
 
-                /*
-                 *  Go to next position past sequence of d, M, or y.
-                 */
-                while ( (*pString) && (wcschr( L"dMy", *pString )) )
+                switch (*pPos2)
                 {
-                    *pPos = *pString;
-                    pPos++;
-                    pString++;
-                }
-
-                if (*pString)
-                {
-                    /*
-                     *  Find the end of the separator string, if it exists.
-                     */
-                    pPos2 = wcspbrk( pString, L"dMy" );
-                    if (pPos2)
+                    case ( NLS_CHAR_QUOTE ) :
                     {
-                        /*
-                         *  Found end of separator.
-                         *  Reset the pointer to skip over the old one.
-                         */
-                        pString = pPos2;
-                            
-                        /*
-                         *  Copy the new separator.
-                         */
-                        pPos2 = (LPWSTR)lpLCData;
-                        while (*pPos2)
+                        //
+                        //  Copy the quote.
+                        //
+                        *pPos = *pString;
+                        pPos++;
+                        pString++;
+
+                        //
+                        //  Copy what's inside the quotes.
+                        //
+                        while ((*pString) && (*pString != NLS_CHAR_QUOTE))
                         {
-                            *pPos = *pPos2;
+                            *pPos = *pString;
                             pPos++;
-                            pPos2++;
+                            pString++;
                         }
+
+                        //
+                        //  Copy the end quote.
+                        //
+                        *pPos = NLS_CHAR_QUOTE;
+                        pPos++;
+                        if (*pString)
+                        {
+                            pString++;
+                        }
+
+                        break;
+                    }
+                    default :
+                    {
+                        //
+                        //  Make sure it's the old separator.
+                        //
+                        if (NlsStrNEqualW(pString, pSep, SepLen))
+                        {
+                            //
+                            //  Adjust pointer to skip over old separator.
+                            //
+                            pString += SepLen;
+
+                            //
+                            //  Copy the new separator.
+                            //
+                            pPos2 = (LPWSTR)lpLCData;
+                            while (*pPos2)
+                            {
+                                *pPos = *pPos2;
+                                pPos++;
+                                pPos2++;
+                            }
+                        }
+                        else
+                        {
+                            //
+                            //  Copy the code point and continue.
+                            //
+                            *pPos = *pString;
+                            pPos++;
+                            pString++;
+                        }
+
+                        break;
                     }
                 }
             }
 
-            /*
-             *  Copy to the end of the string and null terminate it.
-             */
+            //
+            //  Copy to the end of the string and null terminate it.
+            //
             while (*pString)
             {
                 *pPos = *pString;
@@ -3695,239 +3635,232 @@ BOOL WINAPI SetLocaleInfoW(
             }
             *pPos = 0;
 
-            /*
-             *  Set the registry with the new SSHORTDATE string.
-             */
-            if ( SetRegValue( &hKeySet,
-                              NLS_VALUE_SSHORTDATE,
-                              (LPWSTR)pTemp,
-                              (pPos - pTemp + 1) * sizeof(WCHAR) ) )
-            {
-                if (IfAlloc)
-                {
-                    NLS_FREE_MEM( pValFull );
-                }
-                return ( FALSE );
-            }
-
-            if (IfAlloc)
-            {
-                NLS_FREE_MEM( pValFull );
-            }
-
+            //
+            //  Call the server to set the registry.
+            //
+            return (SetMultipleUserInfo( LCType,
+                                         cchData,
+                                         pTemp,
+                                         lpLCData,
+                                         NULL,
+                                         NULL,
+                                         NULL ));
             break;
         }
         case ( LOCALE_SLONGDATE ) :
         {
-            /*
-             *  Validate the new value.  It should be no longer than
-             *  MAX_SLONGDATE wide characters in length.
-             */
+            //
+            //  Validate the new value.  It should be no longer than
+            //  MAX_SLONGDATE wide characters in length.
+            //
+            //  NOTE: The string may not be NULL, so it must be at least
+            //        2 chars long (includes null).  This is checked below
+            //        in the check for whether or not there is a date,
+            //        month, or year delimeter.
+            //
             if (cchData > MAX_SLONGDATE)
             {
-                SetLastError( ERROR_INVALID_PARAMETER );
-                return ( FALSE );
+                SetLastError(ERROR_INVALID_PARAMETER);
+                return (FALSE);
             }
 
-            /*
-             *  Make sure one of 'd' or 'M' or 'y' exists in the date
-             *  format string.  If it does not, then return an error.
-             */
-            pPos = wcspbrk( lpLCData, L"dMy" );
+            //
+            //  Make sure one of 'd' or 'M' or 'y' exists in the date
+            //  format string.  If it does not, then return an error.
+            //
+            pPos = wcspbrk(lpLCData, L"dMy");
             if (!pPos)
             {
-                SetLastError( ERROR_INVALID_PARAMETER );
-                return ( FALSE );
+                SetLastError(ERROR_INVALID_PARAMETER);
+                return (FALSE);
             }
 
-            /*
-             *  Set the registry with the new SLONGDATE string.
-             */
-            if ( SetRegValue( &hKeySet,
-                              NLS_VALUE_SLONGDATE,
-                              (LPWSTR)lpLCData,
-                              cchData * sizeof(WCHAR) ) )
-            {
-                return ( FALSE );
-            }
+            //
+            //  Set the registry with the new SLONGDATE string.
+            //
+            return (SetUserInfo( NLS_VALUE_SLONGDATE,
+                                 pNlsUserInfo->sLongDate,
+                                 (LPWSTR)lpLCData,
+                                 cchData ));
             break;
         }
         case ( LOCALE_ICALENDARTYPE ) :
         {
-            /*
-             *  Validate the new value.  It should be no longer than
-             *  MAX_ICALTYPE wide characters in length.
-             */
-            if ( (cchData > 1) &&
-                 (!IsValidCalendarTypeStr( pHashN,
-                                           lpLCData )) )
+            //
+            //  Validate the new value.  It should be no longer than
+            //  MAX_ICALTYPE wide characters in length.
+            //
+            //
+            //  NOTE: The string may not be NULL, so it must be at least
+            //        2 chars long (includes null).
+            //
+            //        Optimized - since MAX_ICALTYPE is 2.
+            //
+            if ((cchData != MAX_ICALTYPE) ||
+                (!IsValidCalendarTypeStr( pHashN,
+                                          lpLCData )))
             {
-                SetLastError( ERROR_INVALID_PARAMETER );
-                return ( FALSE );
+                SetLastError(ERROR_INVALID_PARAMETER);
+                return (FALSE);
             }
 
-            /*
-             *  Set the registry with the new ICALENDARTYPE string.
-             */
-            if ( SetRegValue( &hKeySet,
-                              NLS_VALUE_ICALENDARTYPE,
-                              (LPWSTR)lpLCData,
-                              cchData * sizeof(WCHAR) ) )
-            {
-                return ( FALSE );
-            }
+            //
+            //  Set the registry with the new ICALENDARTYPE string.
+            //
+            return (SetUserInfo( NLS_VALUE_ICALENDARTYPE,
+                                 pNlsUserInfo->iCalType,
+                                 (LPWSTR)lpLCData,
+                                 cchData ));
             break;
         }
         case ( LOCALE_IFIRSTDAYOFWEEK ) :
         {
-            /*
-             *  Validate the new value.  It should be no longer than
-             *  MAX_IFIRSTDAY wide characters in length.
-             *  The value should be between 0 and MAX_VALUE_IFIRSTDAY.
-             */
-            if ( (cchData > 1) &&
-                 ( (cchData > MAX_IFIRSTDAY) ||
-                   (*lpLCData < NLS_CHAR_ZERO) ||
-                   (*lpLCData > MAX_CHAR_IFIRSTDAY) ) )
+            //
+            //  Validate the new value.  It should be no longer than
+            //  MAX_IFIRSTDAY wide characters in length.
+            //  The value should be between 0 and MAX_VALUE_IFIRSTDAY.
+            //
+            //  NOTE: The string may not be NULL, so it must be at least
+            //        2 chars long (includes null).
+            //
+            //        Optimized - since MAX_IFIRSTDAY is 2.
+            //
+            if ((cchData != MAX_IFIRSTDAY) ||
+                (*lpLCData < NLS_CHAR_ZERO) ||
+                (*lpLCData > MAX_CHAR_IFIRSTDAY))
             {
-                SetLastError( ERROR_INVALID_PARAMETER );
-                return ( FALSE );
+                SetLastError(ERROR_INVALID_PARAMETER);
+                return (FALSE);
             }
 
-            /*
-             *  Set the registry with the new IFIRSTDAYOFWEEK string.
-             */
-            if ( SetRegValue( &hKeySet,
-                              NLS_VALUE_IFIRSTDAYOFWEEK,
-                              (LPWSTR)lpLCData,
-                              cchData * sizeof(WCHAR) ) )
-            {
-                return ( FALSE );
-            }
+            //
+            //  Set the registry with the new IFIRSTDAYOFWEEK string.
+            //
+            return (SetUserInfo( NLS_VALUE_IFIRSTDAYOFWEEK,
+                                 pNlsUserInfo->iFirstDay,
+                                 (LPWSTR)lpLCData,
+                                 cchData ));
             break;
         }
         case ( LOCALE_IFIRSTWEEKOFYEAR ) :
         {
-            /*
-             *  Validate the new value.  It should be no longer than
-             *  MAX_IFIRSTWEEK wide characters in length.
-             *  The value should be between 0 and MAX_VALUE_IFIRSTWEEK.
-             */
-            if ( (cchData > 1) &&
-                 ( (cchData > MAX_IFIRSTWEEK) ||
-                   (*lpLCData < NLS_CHAR_ZERO) ||
-                   (*lpLCData > MAX_CHAR_IFIRSTWEEK) ) )
+            //
+            //  Validate the new value.  It should be no longer than
+            //  MAX_IFIRSTWEEK wide characters in length.
+            //  The value should be between 0 and MAX_VALUE_IFIRSTWEEK.
+            //
+            //  NOTE: The string may not be NULL, so it must be at least
+            //        2 chars long (includes null).
+            //
+            //        Optimized - since MAX_IFIRSTWEEK is 2.
+            //
+            if ((cchData != MAX_IFIRSTWEEK) ||
+                (*lpLCData < NLS_CHAR_ZERO) ||
+                (*lpLCData > MAX_CHAR_IFIRSTWEEK))
             {
-                SetLastError( ERROR_INVALID_PARAMETER );
-                return ( FALSE );
+                SetLastError(ERROR_INVALID_PARAMETER);
+                return (FALSE);
             }
 
-            /*
-             *  Set the registry with the new IFIRSTWEEKOFYEAR string.
-             */
-            if ( SetRegValue( &hKeySet,
-                              NLS_VALUE_IFIRSTWEEKOFYEAR,
-                              (LPWSTR)lpLCData,
-                              cchData * sizeof(WCHAR) ) )
-            {
-                return ( FALSE );
-            }
+            //
+            //  Set the registry with the new IFIRSTWEEKOFYEAR string.
+            //
+            return (SetUserInfo( NLS_VALUE_IFIRSTWEEKOFYEAR,
+                                 pNlsUserInfo->iFirstWeek,
+                                 (LPWSTR)lpLCData,
+                                 cchData ));
             break;
         }
-        
+
         default :
         {
-            SetLastError( ERROR_INVALID_FLAGS );
-            return ( FALSE );
+            SetLastError(ERROR_INVALID_FLAGS);
+            return (FALSE);
         }
     }
 
-    /*
-     *  Close the registry key.
-     */
-    CLOSE_REG_KEY( hKeySet );
-
-    /*
-     *  Return success.
-     */
-    return ( TRUE );
+    //
+    //  Return success.
+    //
+    return (TRUE);
 }
 
 
 
 
-/*-------------------------------------------------------------------------*\
- *                           INTERNAL ROUTINES                             *
-\*-------------------------------------------------------------------------*/
+//-------------------------------------------------------------------------//
+//                           INTERNAL ROUTINES                             //
+//-------------------------------------------------------------------------//
 
 
-/***************************************************************************\
-* GetLocalizedLanguageName
-*
-* Returns the localized version of the language name for the given language
-* id.  It gets the information from the resource file in the language that
-* the current user is using.
-*
-* 05-31-91    JulieB    Created.
-\***************************************************************************/
+////////////////////////////////////////////////////////////////////////////
+//
+//  GetLocalizedLanguageName
+//
+//  Returns the localized version of the language name for the given language
+//  id.  It gets the information from the resource file in the language that
+//  the current user is using.
+//
+//  05-31-91    JulieB    Created.
+////////////////////////////////////////////////////////////////////////////
 
 int GetLocalizedLanguageName(
     LANGID Language,
     LPWSTR *ppLangName)
 {
-    HANDLE hFindRes;                   /* handle from find resource */
-    HANDLE hLoadRes;                   /* handle from load resource */
-    LANGID LangId;                     /* language id */
-    LPWSTR pSearch;                    /* ptr to search for correct string */
-    int cch = 0;                       /* count of characters */
+    HANDLE hFindRes;                   // handle from find resource
+    HANDLE hLoadRes;                   // handle from load resource
+    LANGID LangId;                     // language id
+    LPWSTR pSearch;                    // ptr to search for correct string
+    int cch = 0;                       // count of characters
 
 
-    /*
-     *  String Tables are broken up into 16 string segments.  Find the
-     *  resource containing the string we want.
-     */
-    LangId = LANGIDFROMLCID( gUserLocale );
-    if ( (!(hFindRes = FindResourceExW(
-                                 hModule,
-                                 RT_STRING,
-                                 (LPWSTR)((LONG)(((USHORT)Language >> 4) + 1)),
-                                 (WORD)LangId ))) )
+    //
+    //  String Tables are broken up into 16 string segments.  Find the
+    //  resource containing the string we want.
+    //
+    LangId = LANGIDFROMLCID(pNlsUserInfo->UserLocaleId);
+    if ((!(hFindRes = FindResourceExW(
+                                hModule,
+                                RT_STRING,
+                                (LPWSTR)((LONG)(((USHORT)Language >> 4) + 1)),
+                                (WORD)LangId ))))
     {
-        /*
-         *   Could not find resource.  Try NEUTRAL language id.
-         */
-        if ( (!(hFindRes = FindResourceExW(
-                                 hModule,
-                                 RT_STRING,
-                                 (LPWSTR)((LONG)(((USHORT)Language >> 4) + 1)),
-                                 (WORD)0 ))) )
+        //
+        //   Could not find resource.  Try NEUTRAL language id.
+        //
+        if ((!(hFindRes = FindResourceExW(
+                                hModule,
+                                RT_STRING,
+                                (LPWSTR)((LONG)(((USHORT)Language >> 4) + 1)),
+                                (WORD)0 ))))
         {
-            /*
-             *  Could not find resource.  Return 0.
-             */
-            return ( cch );
+            //
+            //  Could not find resource.  Return 0.
+            //
+            return (cch);
         }
     }
-        
-    /*
-     *  Load the resource.
-     */
-    hLoadRes = LoadResource( hModule, hFindRes );
 
-    /*
-     *  Lock the resource.
-     */
-    if (pSearch = (LPWSTR)LockResource( hLoadRes ))
+    //
+    //  Load the resource.
+    //
+    hLoadRes = LoadResource(hModule, hFindRes);
+
+    //
+    //  Lock the resource.
+    //
+    if (pSearch = (LPWSTR)LockResource(hLoadRes))
     {
-        /*
-         *  Move past the other strings in this segment.
-         *     (16 strings in a segment -> & 0x0F)
-         */
+        //
+        //  Move past the other strings in this segment.
+        //     (16 strings in a segment -> & 0x0F)
+        //
         Language &= 0x0F;
 
-        /*
-         *  Find the correct string in this segment.
-         */
+        //
+        //  Find the correct string in this segment.
+        //
         while (TRUE)
         {
             cch = *((WORD *)pSearch++);
@@ -3936,81 +3869,402 @@ int GetLocalizedLanguageName(
             pSearch += cch;
         }
 
-        /*
-         *  Store the found pointer in the given language name pointer.
-         */
+        //
+        //  Store the found pointer in the given language name pointer.
+        //
         *ppLangName = pSearch;
     }
 
-    /*
-     *  Return the number of characters in the string.
-     */
-    return ( cch );
+    //
+    //  Return the number of characters in the string.
+    //
+    return (cch);
 }
 
 
-/***************************************************************************\
-* GetLocalizedCountryName
-*
-* Returns the localized version of the country name for the given language
-* id.  It gets the information from the resource file in the language that
-* the current user is using.
-*
-* 05-31-91    JulieB    Created.
-\***************************************************************************/
+////////////////////////////////////////////////////////////////////////////
+//
+//  GetLocalizedCountryName
+//
+//  Returns the localized version of the country name for the given language
+//  id.  It gets the information from the resource file in the language that
+//  the current user is using.
+//
+//  05-31-91    JulieB    Created.
+////////////////////////////////////////////////////////////////////////////
 
 BOOL GetLocalizedCountryName(
     LANGID Language,
     LPWSTR *ppCtryName)
 {
-    HANDLE hFindRes;                   /* handle from find resource */
-    HANDLE hLoadRes;                   /* handle from load resource */
-    LANGID LangId;                     /* language id */
+    HANDLE hFindRes;                   // handle from find resource
+    HANDLE hLoadRes;                   // handle from load resource
+    LANGID LangId;                     // language id
 
 
-    /*
-     *  Find the resource.
-     */
-    LangId = LANGIDFROMLCID( gUserLocale );
-    if ( (!(hFindRes = FindResourceExW( hModule,
-                                        RT_RCDATA,
-                                        MAKEINTRESOURCEW( Language ),
-                                        (WORD)LangId ))) )
+    //
+    //  Find the resource.
+    //
+    LangId = LANGIDFROMLCID(pNlsUserInfo->UserLocaleId);
+    if ((!(hFindRes = FindResourceExW( hModule,
+                                       RT_RCDATA,
+                                       MAKEINTRESOURCEW(Language),
+                                       (WORD)LangId ))))
     {
-        /*
-         *   Could not find resource.  Try NEUTRAL language id.
-         */
-        if ( (!(hFindRes = FindResourceExW( hModule,
-                                            RT_RCDATA,
-                                            MAKEINTRESOURCEW( Language ),
-                                            (WORD)0 ))) )
+        //
+        //   Could not find resource.  Try NEUTRAL language id.
+        //
+        if ((!(hFindRes = FindResourceExW( hModule,
+                                           RT_RCDATA,
+                                           MAKEINTRESOURCEW(Language),
+                                           (WORD)0 ))))
         {
-            /*
-             *  Could not find resource.  Return failure.
-             */
-            return ( FALSE );
+            //
+            //  Could not find resource.  Return failure.
+            //
+            return (FALSE);
         }
     }
 
-    /*
-     *  Load the resource.
-     */
-    if (hLoadRes = LoadResource( hModule, hFindRes ))
+    //
+    //  Load the resource.
+    //
+    if (hLoadRes = LoadResource(hModule, hFindRes))
     {
-        /*
-         *  Lock the resource.  Store the found pointer in the given
-         *  country name pointer.
-         */
-        if (*ppCtryName = (LPWSTR)LockResource( hLoadRes ))
+        //
+        //  Lock the resource.  Store the found pointer in the given
+        //  country name pointer.
+        //
+        if (*ppCtryName = (LPWSTR)LockResource(hLoadRes))
         {
-            return ( TRUE );
+            return (TRUE);
         }
     }
 
-    /*
-     *  Return failure.
-     */
-    return ( FALSE );
+    //
+    //  Return failure.
+    //
+    return (FALSE);
 }
 
-
+
+////////////////////////////////////////////////////////////////////////////
+//
+//  SetUserInfo
+//
+//  This routine sets the given value in the registry with the given data.
+//  All values must be of the type REG_SZ.
+//
+//  NOTE: The handle to the registry key must be closed by the CALLER if
+//        the return value is NO_ERROR.
+//
+//  07-14-93    JulieB    Created.
+////////////////////////////////////////////////////////////////////////////
+
+BOOL SetUserInfo(
+    LPWSTR pValue,
+    LPWSTR pCacheString,
+    LPWSTR pData,
+    ULONG DataLength)
+{
+    ULONG ValueLength;            // length of value string
+
+    BASE_API_MSG m;
+    PBASE_NLS_SET_USER_INFO_MSG a = &m.u.NlsSetUserInfo;
+    PCSR_CAPTURE_HEADER CaptureBuffer;
+
+
+    //
+    //  Get the length of the value string.
+    //
+    ValueLength = (NlsStrLenW(pValue) + 1) * sizeof(WCHAR);
+    DataLength *= sizeof(WCHAR);
+
+    //
+    //  Get the capture buffer for the strings.
+    //
+    CaptureBuffer = CsrAllocateCaptureBuffer( 2,
+                                              0,
+                                              ValueLength + DataLength );
+
+    CsrCaptureMessageBuffer( CaptureBuffer,
+                             (PCHAR)pValue,
+                             ValueLength,
+                             (PVOID *)&a->pValue );
+
+    CsrCaptureMessageBuffer( CaptureBuffer,
+                             (PCHAR)pData,
+                             DataLength,
+                             (PVOID *)&a->pData );
+
+    //
+    //  Save the pointer to the cache string.
+    //
+    a->pCacheString = pCacheString;
+
+    //
+    //  Save the length of the data in the msg structure.
+    //
+    a->DataLength = DataLength;
+
+    //
+    //  Call the server to set the registry value.
+    //
+    CsrClientCallServer( (PCSR_API_MSG)&m,
+                         CaptureBuffer,
+                         CSR_MAKE_API_NUMBER(BASESRV_SERVERDLL_INDEX,
+                                             BasepNlsSetUserInfo),
+                         sizeof(*a) );
+
+    //
+    //  Free the capture buffer.
+    //
+    if (CaptureBuffer != NULL)
+    {
+        CsrFreeCaptureBuffer(CaptureBuffer);
+    }
+
+    //
+    //  Check to see if the "set" operation succeeded.
+    //
+    if (!NT_SUCCESS(m.ReturnValue))
+    {
+        SetLastError(ERROR_INVALID_ACCESS);
+        return (FALSE);
+    }
+
+    //
+    //  Return success.
+    //
+    return (TRUE);
+}
+
+
+////////////////////////////////////////////////////////////////////////////
+//
+//  SetMultipleUserInfo
+//
+//  This routine calls the server to set multiple registry values.  This way,
+//  only one client/server transition is necessary.
+//
+//  08-19-94    JulieB    Created.
+////////////////////////////////////////////////////////////////////////////
+
+BOOL SetMultipleUserInfo(
+    DWORD dwFlags,
+    int cchData,
+    LPCWSTR pPicture,
+    LPCWSTR pSeparator,
+    LPCWSTR pOrder,
+    LPCWSTR pTLZero,
+    LPCWSTR pTimeMarkPosn)
+{
+    ULONG CaptureLength;          // length of capture buffer
+    ULONG Length;                 // temp storage for length of string
+
+    BASE_API_MSG m;
+    PBASE_NLS_SET_MULTIPLE_USER_INFO_MSG a = &m.u.NlsSetMultipleUserInfo;
+    PCSR_CAPTURE_HEADER CaptureBuffer;
+
+
+    //
+    //  Initialize the msg structure to NULL.
+    //
+    RtlZeroMemory(a, sizeof(BASE_NLS_SET_MULTIPLE_USER_INFO_MSG));
+
+    //
+    //  Save the flags and the length of the data in the msg structure.
+    //
+    a->Flags = dwFlags;
+    a->DataLength = cchData * sizeof(WCHAR);
+
+    //
+    //  Save the appropriate strings in the msg structure.
+    //
+    switch (dwFlags)
+    {
+        case ( LOCALE_STIMEFORMAT ) :
+        {
+            //
+            //  Get the length of the capture buffer.
+            //
+            Length = NlsStrLenW(pSeparator) + 1;
+            CaptureLength = (cchData + Length + 2 + 2 + 2) * sizeof(WCHAR);
+
+            //
+            //  Get the capture buffer for the strings.
+            //
+            CaptureBuffer = CsrAllocateCaptureBuffer( 5,
+                                                      0,
+                                                      CaptureLength );
+            CsrCaptureMessageBuffer( CaptureBuffer,
+                                     (PCHAR)pPicture,
+                                     cchData * sizeof(WCHAR),
+                                     (PVOID *)&a->pPicture );
+
+            CsrCaptureMessageBuffer( CaptureBuffer,
+                                     (PCHAR)pSeparator,
+                                     Length * sizeof(WCHAR),
+                                     (PVOID *)&a->pSeparator );
+
+            CsrCaptureMessageBuffer( CaptureBuffer,
+                                     (PCHAR)pOrder,
+                                     2 * sizeof(WCHAR),
+                                     (PVOID *)&a->pOrder );
+
+            CsrCaptureMessageBuffer( CaptureBuffer,
+                                     (PCHAR)pTLZero,
+                                     2 * sizeof(WCHAR),
+                                     (PVOID *)&a->pTLZero );
+
+            CsrCaptureMessageBuffer( CaptureBuffer,
+                                     (PCHAR)pTimeMarkPosn,
+                                     2 * sizeof(WCHAR),
+                                     (PVOID *)&a->pTimeMarkPosn );
+
+            break;
+        }
+        case ( LOCALE_STIME ) :
+        {
+            //
+            //  Get the length of the capture buffer.
+            //
+            Length = NlsStrLenW(pPicture) + 1;
+            CaptureLength = (Length + cchData) * sizeof(WCHAR);
+
+            //
+            //  Get the capture buffer for the strings.
+            //
+            CaptureBuffer = CsrAllocateCaptureBuffer( 2,
+                                                      0,
+                                                      CaptureLength );
+            CsrCaptureMessageBuffer( CaptureBuffer,
+                                     (PCHAR)pPicture,
+                                     Length * sizeof(WCHAR),
+                                     (PVOID *)&a->pPicture );
+
+            CsrCaptureMessageBuffer( CaptureBuffer,
+                                     (PCHAR)pSeparator,
+                                     cchData * sizeof(WCHAR),
+                                     (PVOID *)&a->pSeparator );
+
+            break;
+        }
+        case ( LOCALE_ITIME ) :
+        {
+            //
+            //  Get the length of the capture buffer.
+            //
+            Length = NlsStrLenW(pPicture) + 1;
+            CaptureLength = (Length + cchData) * sizeof(WCHAR);
+
+            //
+            //  Get the capture buffer for the strings.
+            //
+            CaptureBuffer = CsrAllocateCaptureBuffer( 2,
+                                                      0,
+                                                      CaptureLength );
+            CsrCaptureMessageBuffer( CaptureBuffer,
+                                     (PCHAR)pPicture,
+                                     Length * sizeof(WCHAR),
+                                     (PVOID *)&a->pPicture );
+
+            CsrCaptureMessageBuffer( CaptureBuffer,
+                                     (PCHAR)pOrder,
+                                     cchData * sizeof(WCHAR),
+                                     (PVOID *)&a->pOrder );
+
+            break;
+        }
+        case ( LOCALE_SSHORTDATE ) :
+        {
+            //
+            //  Get the length of the capture buffer.
+            //
+            Length = NlsStrLenW(pSeparator) + 1;
+            CaptureLength = (cchData + Length + 2) * sizeof(WCHAR);
+
+            //
+            //  Get the capture buffer for the strings.
+            //
+            CaptureBuffer = CsrAllocateCaptureBuffer( 3,
+                                                      0,
+                                                      CaptureLength );
+            CsrCaptureMessageBuffer( CaptureBuffer,
+                                     (PCHAR)pPicture,
+                                     cchData * sizeof(WCHAR),
+                                     (PVOID *)&a->pPicture );
+
+            CsrCaptureMessageBuffer( CaptureBuffer,
+                                     (PCHAR)pSeparator,
+                                     Length * sizeof(WCHAR),
+                                     (PVOID *)&a->pSeparator );
+
+            CsrCaptureMessageBuffer( CaptureBuffer,
+                                     (PCHAR)pOrder,
+                                     2 * sizeof(WCHAR),
+                                     (PVOID *)&a->pOrder );
+
+            break;
+        }
+        case ( LOCALE_SDATE ) :
+        {
+            //
+            //  Get the length of the capture buffer.
+            //
+            Length = NlsStrLenW(pPicture) + 1;
+            CaptureLength = (Length + cchData) * sizeof(WCHAR);
+
+            //
+            //  Get the capture buffer for the strings.
+            //
+            CaptureBuffer = CsrAllocateCaptureBuffer( 2,
+                                                      0,
+                                                      CaptureLength );
+            CsrCaptureMessageBuffer( CaptureBuffer,
+                                     (PCHAR)pPicture,
+                                     Length * sizeof(WCHAR),
+                                     (PVOID *)&a->pPicture );
+
+            CsrCaptureMessageBuffer( CaptureBuffer,
+                                     (PCHAR)pSeparator,
+                                     cchData * sizeof(WCHAR),
+                                     (PVOID *)&a->pSeparator );
+
+            break;
+        }
+    }
+
+    //
+    //  Call the server to set the registry values.
+    //
+    CsrClientCallServer( (PCSR_API_MSG)&m,
+                         CaptureBuffer,
+                         CSR_MAKE_API_NUMBER( BASESRV_SERVERDLL_INDEX,
+                                              BasepNlsSetMultipleUserInfo ),
+                         sizeof(*a) );
+
+    //
+    //  Free the capture buffer.
+    //
+    if (CaptureBuffer != NULL)
+    {
+        CsrFreeCaptureBuffer(CaptureBuffer);
+    }
+
+    //
+    //  Check to see if the "set" operation succeeded.
+    //
+    if (!NT_SUCCESS(m.ReturnValue))
+    {
+        SetLastError(ERROR_INVALID_ACCESS);
+        return (FALSE);
+    }
+
+    //
+    //  Return success.
+    //
+    return (TRUE);
+}
+
+

@@ -11,5 +11,5 @@ BOOL APIENTRY LogOptionsHookProc (HWND hDlg,
                                   WPARAM wParam, 
                                   LPARAM lParam) ;
 
-
-
+
+

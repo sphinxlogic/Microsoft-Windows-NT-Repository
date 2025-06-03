@@ -828,4 +828,3 @@ extern HWND   hParentWw;
         }
     EnableWindow(hParentWw, fEnable);
 }
-

@@ -922,7 +922,7 @@ void MakeMap(bitmap bm, LPSTR str)
 void AndMaps(bitmap res, bitmap a, bitmap b)
 {   int i;
     for (i=0; i<32; ++i)
-        res[i] = a[i] & b[i];
+        res[i] = (char)(a[i] & b[i]);
 }
 
 /* OrMaps
@@ -932,7 +932,7 @@ void AndMaps(bitmap res, bitmap a, bitmap b)
 void OrMaps(bitmap res, bitmap a, bitmap b)
 {   int i;
     for (i=0; i<32; ++i)
-        res[i] = a[i] | b[i];
+        res[i] = (char)(a[i] | b[i]);
 }
 
 /* BitsInMap

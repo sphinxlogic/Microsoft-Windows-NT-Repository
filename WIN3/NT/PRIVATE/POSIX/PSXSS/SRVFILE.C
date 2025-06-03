@@ -44,8 +44,7 @@ FilesAreIdentical(
 		sizeof(infoB), FileInternalInformation);
 	ASSERT(NT_SUCCESS(Status));
 
-	return RtlLargeIntegerEqualTo(infoA.IndexNumber,
-		infoB.IndexNumber);
+	return infoA.IndexNumber.QuadPart == infoB.IndexNumber.QuadPart;
 }
 
 BOOLEAN
@@ -451,7 +450,26 @@ Return Value:
 		FileDispositionInformation);
 
 	if (!NT_SUCCESS(Status)) {
-		m->Error = PsxStatusToErrno(Status);
+
+	    if (STATUS_CANNOT_DELETE == Status) {
+	        
+	        //
+	        // 1003.1-90 (5.5.2.2) : If the named directory is the root
+	        // directory or the current working directory of any process, it
+	        // is unspecified whether the function succeeds or whether it fails
+	        // and sets /errno/ to [EBUSY].
+	        //
+	        // NT is going to fail with STATUS_CANNOT_DELETE here, and so we
+	        // want posix to return EBUSY.  (The standard posix mapping is to
+	        // ETXTBUSY.)
+	        //
+
+	        m->Error = EBUSY;
+
+	    } else {
+            m->Error = PsxStatusToErrno(Status);
+        }
+
 	}
    
 	Status = NtClose(FileHandle);
@@ -918,7 +936,12 @@ PsxLink(
 
 	Status = NtQueryInformationFile(FileHandle, &Iosb, &SerialNumber,
 		sizeof(SerialNumber), FileInternalInformation);
-	ASSERT(NT_SUCCESS(Status));
+
+    if (!NT_SUCCESS(Status)) {
+        NtClose(FileHandle);
+        m->Error = PsxStatusToErrno(Status);
+        return TRUE;
+    }
 
 	EndImpersonation();
 	NtClose(FileHandle);

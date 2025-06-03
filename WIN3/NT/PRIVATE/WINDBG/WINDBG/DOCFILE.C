@@ -371,7 +371,7 @@ BOOL NEAR PASCAL LoadFile(int doc)
     int lineLen;
     BYTE prevLength; //Previous line size
     HCURSOR hSaveCursor;
-    struct stat fileStat;
+    struct _stat fileStat;
     WORD res;
     WORD nbLines = 0;
     OFSTRUCT of;
@@ -390,7 +390,7 @@ BOOL NEAR PASCAL LoadFile(int doc)
 
     //Store file date
 
-    if (fstat(rd_fh, &fileStat) == 0)
+    if (_fstat(rd_fh, &fileStat) == 0)
           d->time = fileStat.st_mtime;
     else
           time(&d->time);
@@ -859,7 +859,8 @@ Return Value:
 
         return view;
 
-    }
+    } else if (mode == MODE_RELOAD)
+        view = Docs[doc].FirstView;
 
     /*
      *  First search a free entry for the document
@@ -895,7 +896,7 @@ Return Value:
 
                 for (n = 0; n < MAX_DOCUMENTS; n++) {
                     if (Docs[n].FirstView != -1
-                        && strcmpi(Docs[n].FileName, d->FileName) == 0) {
+                        && _strcmpi(Docs[n].FileName, d->FileName) == 0) {
 
                         StatusText(ERR_File_Already_Loaded, STATUS_INFOTEXT, TRUE, FileName);
                         MessageBeep(0);
@@ -925,7 +926,7 @@ Return Value:
                     CreateUntitled(d->FileName, i + 1);
                     for (j = 0; j < MAX_DOCUMENTS; j++) {
                         if (j != doc &&
-                            strcmpi (d->FileName, Docs[j].FileName) == 0) {
+                            _strcmpi (d->FileName, Docs[j].FileName) == 0) {
                             break;
                         }
                     }
@@ -1178,8 +1179,24 @@ BOOL FAR PASCAL SaveDocument(int doc, LPSTR FileName)
 
         //Remove trailing blanks
         len = (WORD) (pl->Length - LHD);
+#ifdef DBCS
+        {
+            TCHAR *pch1;
+
+            pch1 = pl->Text + (pl->Length - LHD);
+
+            while (pch1 > pl->Text) {
+                pch1 = CharPrev(pl->Text, pch1);
+                if (*pch1 != ' ' && *pch1 != TAB) {
+                    break;
+                }
+                len --;
+            }
+        }
+#else   // !DBCS
         while (len && (pl->Text[len - 1] == ' ' || pl->Text[len - 1] == TAB))
               len --;
+#endif
 
         //Write line
         i = 0;

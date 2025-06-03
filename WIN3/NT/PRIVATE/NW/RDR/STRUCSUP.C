@@ -27,6 +27,17 @@ GetLongNameSpaceForVolume(
     OUT PCHAR VolumeNumber
     );
 
+CHAR
+GetNewDriveNumber (
+    IN PSCB Scb
+    );
+
+VOID
+FreeDriveNumber(
+    IN PSCB Scb,
+    IN CHAR DriveNumber
+    );
+
 #define Dbg                              (DEBUG_TRACE_STRUCSUP)
 
 #ifdef ALLOC_PRAGMA
@@ -44,13 +55,27 @@ GetLongNameSpaceForVolume(
 #pragma alloc_text( PAGE, NwFindVcb )
 #pragma alloc_text( PAGE, NwCreateVcb )
 #pragma alloc_text( PAGE, NwReopenVcbHandlesForScb )
+#pragma alloc_text( PAGE, NwReopenVcbHandle )
+#ifdef NWDBG
+#pragma alloc_text( PAGE, NwReferenceVcb )
+#endif
 #pragma alloc_text( PAGE, NwDereferenceVcb )
 #pragma alloc_text( PAGE, NwCleanupVcb )
 #pragma alloc_text( PAGE, GetLongNameSpaceForVolume )
 #pragma alloc_text( PAGE, IsFatNameValid )
+#pragma alloc_text( PAGE, GetNewDriveNumber )
+#pragma alloc_text( PAGE, FreeDriveNumber )
 
+#ifndef QFE_BUILD
 #pragma alloc_text( PAGE1, NwInvalidateAllHandles )
 #pragma alloc_text( PAGE1, NwCloseAllVcbs )
+#endif
+
+#endif
+
+#if 0  // Not pageable
+
+// see ifndef QFE_BUILD above
 
 #endif
 
@@ -287,6 +312,7 @@ Return Value:
     //
     // Acquire the lock to protect the ICB list.
     //
+    DebugTrace( 0, DEBUG_TRACE_ICBS, "NwDeleteIcb, Icb = %08lx\n", (ULONG)Icb);
 
     NwAcquireExclusiveRcb( &NwRcb, TRUE );
 
@@ -337,18 +363,41 @@ Return Value:
         FREE_POOL( Icb->UQueryTemplate.Buffer );
     }
 
-    if ((Scb->pNpScb->Reference == 1) &&
-        ( Icb->NodeTypeCode == NW_NTC_ICB_SCB ) &&
-        ( IrpContext != NULL )) {
+    //
+    // Try and gracefully catch a 16 bit app closing a
+    // handle to the server and wipe the connection as
+    // soon as possible.  This only applies to bindery
+    // authenticated connections because in NDS land,
+    // we handle the licensing of the connection
+    // dynamically.
+    //
 
-        //
-        //  Probably a 16 bit app disconnecting. Remove the
-        //  connection as soon as possible.
-        //
+    if ( ( Scb->pNpScb->Reference == 1 ) &&
+         ( Icb->NodeTypeCode == NW_NTC_ICB_SCB ) &&
+         ( !Icb->IsTreeHandle ) &&
+         ( IrpContext != NULL ) &&
+         ( Scb->UserName.Length != 0 ) )
+    {
+        LARGE_INTEGER Now;
+        KeQuerySystemTime( &Now );
+
+        DebugTrace( 0, Dbg, "Quick disconnecting 16-bit app.\n", 0 );
+
+        NwAppendToQueueAndWait( IrpContext );
+
+        if ( Scb->OpenFileCount == 0 &&
+             Scb->pNpScb->State != SCB_STATE_RECONNECT_REQUIRED &&
+             !Scb->PreferredServer ) {
+
+            NwLogoffAndDisconnect( IrpContext, Scb->pNpScb);
+        }
+
+        Now.QuadPart += ( NwOneSecond * DORMANT_SCB_KEEP_TIME );
 
         NwDequeueIrpContext( IrpContext, FALSE );
         NwDereferenceScb( Scb->pNpScb );
-        CleanupScbs();
+        DisconnectTimedOutScbs(Now) ;
+        CleanupScbs(Now);
 
     } else {
 
@@ -423,7 +472,8 @@ Return Value:
 
 ULONG
 NwInvalidateAllHandles (
-    PLARGE_INTEGER Uid OPTIONAL
+    PLARGE_INTEGER Uid OPTIONAL,
+    PIRP_CONTEXT IrpContext OPTIONAL
     )
 
 /*++
@@ -438,6 +488,9 @@ Arguments:
 
     Uid - Supplies the userid of the handles to close or NULL if all
             handles to be invalidated.
+    IrpContext - The Irpcontext to be used for the NwLogoffAndDisconnect
+            call, if appropriate.  If this is NULL, it indicates a RAS
+            transition.
 
 Return Value:
 
@@ -454,7 +507,6 @@ Return Value:
 
     PAGED_CODE();
 
-    NwAcquireExclusiveRcb( &NwRcb, TRUE );
     KeAcquireSpinLock( &ScbSpinLock, &OldIrql );
 
     for (ScbQueueEntry = ScbQueue.Flink ;
@@ -475,11 +527,53 @@ Return Value:
             KeReleaseSpinLock( &ScbSpinLock, OldIrql );
 
             if ((Uid == NULL) ||
-                (LiEql( pScb->UserUid, *Uid))) {
+                ( pScb->UserUid.QuadPart == (*Uid).QuadPart)) {
 
-                pNpScb->State = SCB_STATE_ATTACHING;
 
+                NwAcquireExclusiveRcb( &NwRcb, TRUE );
                 FilesClosed += NwInvalidateAllHandlesForScb( pScb );
+                NwReleaseRcb( &NwRcb );
+
+                if ( IrpContext ) {
+
+                    IrpContext->pNpScb = pNpScb;
+                    NwLogoffAndDisconnect( IrpContext , pNpScb);
+                    NwDequeueIrpContext( IrpContext, FALSE );
+
+                } else {
+
+                    //
+                    // No IrpContext means that a RAS transition has occurred.
+                    // Let's try to keep our Netware servers happy if the net
+                    // is still attached.
+                    //
+
+                    PIRP_CONTEXT LocalIrpContext;
+                    if (NwAllocateExtraIrpContext(&LocalIrpContext, pNpScb)) {
+
+                        //  Lock down so that we can send a packet.
+                        NwReferenceUnlockableCodeSection();
+
+                        LocalIrpContext->pNpScb = pNpScb;
+                        NwLogoffAndDisconnect( LocalIrpContext, pNpScb);
+
+                        NwAppendToQueueAndWait( LocalIrpContext );
+
+                        NwDequeueIrpContext( LocalIrpContext, FALSE );
+                        NwDereferenceUnlockableCodeSection ();
+                        NwFreeExtraIrpContext( LocalIrpContext );
+
+                    }
+
+                    //
+                    // Clear the LIP data speed.
+                    //
+
+                    pNpScb->LipDataSpeed = 0;
+                    pNpScb->State = SCB_STATE_ATTACHING;
+
+                }
+
 
             }
 
@@ -492,7 +586,6 @@ Return Value:
     }
 
     KeReleaseSpinLock( &ScbSpinLock, OldIrql );
-    NwReleaseRcb( &NwRcb );
 
     return( FilesClosed );
 }
@@ -541,6 +634,10 @@ Return Value:
           VcbQueueEntry = VcbQueueEntry->Flink ) {
 
         pVcb = CONTAINING_RECORD( VcbQueueEntry, VCB, VcbListEntry );
+
+        if ( !BooleanFlagOn( pVcb->Flags, VCB_FLAG_PRINT_QUEUE ) ) {
+            pVcb->Specific.Disk.Handle = (CHAR)-1;
+        }
 
         //
         //  Walk the list of FCBs and DCSs for this VCB
@@ -744,8 +841,32 @@ Return Value:
         //  Set the long name bit if necessary
         //
 
-        if ( Fcb->Vcb->Specific.Disk.LongNameSpace != -1 && !IsFatNameValid( &Fcb->RelativeFileName )  ) {
-            SetFlag( Fcb->Flags, FCB_FLAGS_LONG_NAME );
+        if ( Fcb->Vcb->Specific.Disk.LongNameSpace != LFN_NO_OS2_NAME_SPACE ) {
+
+            //
+            // OBSCURE CODE POINT
+            //
+            // By default FavourLongNames is not set and we use DOS name
+            // space unless we know we have to use LFN. Reason is if we
+            // start using LFN then DOS apps that dont handle longnames
+            // will give us short names and we are hosed because we are
+            // using LFN NCPs that dont see the short names. Eg. without
+            // the check below, the following will fail (assume mv.exe is
+            // DOS app).
+            //
+            // cd public\longnamedir
+            // mv foo bar
+            //
+            // This is because we will get call with public\longname\foo
+            // and the truncated dir name is not accepted. If user values
+            // case sensitivity, they can set this reg value and we will
+            // use LFN even for short names. They sacrifice the scenario
+            // above.
+            //
+            if ( FavourLongNames || !IsFatNameValid( &Fcb->RelativeFileName ) ) {
+
+                SetFlag( Fcb->Flags, FCB_FLAGS_LONG_NAME );
+            }
         }
 
     } finally {
@@ -916,6 +1037,8 @@ Return Value:
 
 {
     PNONPAGED_FCB NpFcb;
+    PLIST_ENTRY listEntry, nextListEntry;
+    PNW_FILE_LOCK pFileLock;
 
     PAGED_CODE();
 
@@ -930,8 +1053,51 @@ Return Value:
         NpFcb = Fcb->NonPagedFcb;
 
         ASSERT( IsListEmpty( &Fcb->IcbList ) );
-        ASSERT( IsListEmpty( &NpFcb->FileLockList ) );
-        ASSERT( IsListEmpty( &NpFcb->PendingLockList ) );
+
+        //
+        // If there are outstanding locks, clean them up.  This
+        // happens when something causes a remote handle to get
+        // closed before the cleanup routine is called by the
+        // ios on the regular close path.
+        //
+
+        if ( !IsListEmpty( &NpFcb->FileLockList ) ) {
+
+            DebugTrace( 0, Dbg, "Freeing stray locks on FCB %08lx\n", NpFcb );
+
+            for ( listEntry = NpFcb->FileLockList.Flink;
+                  listEntry != &NpFcb->FileLockList;
+                  listEntry = nextListEntry ) {
+
+                nextListEntry = listEntry->Flink;
+
+                pFileLock = CONTAINING_RECORD( listEntry,
+                                               NW_FILE_LOCK,
+                                               ListEntry );
+
+                RemoveEntryList( listEntry );
+                FREE_POOL( pFileLock );
+            }
+        }
+
+        if ( !IsListEmpty( &NpFcb->PendingLockList ) ) {
+
+            DebugTrace( 0, Dbg, "Freeing stray pending locks on FCB %08lx\n", NpFcb );
+
+            for ( listEntry = NpFcb->PendingLockList.Flink;
+                  listEntry != &NpFcb->PendingLockList;
+                  listEntry = nextListEntry ) {
+
+                nextListEntry = listEntry->Flink;
+
+                pFileLock = CONTAINING_RECORD( listEntry,
+                                               NW_FILE_LOCK,
+                                               ListEntry );
+
+                RemoveEntryList( listEntry );
+                FREE_POOL( pFileLock );
+            }
+        }
 
         //
         //  Delete the file now, if it is delete pending.
@@ -955,7 +1121,7 @@ Return Value:
         //
 
         RemoveEntryList( &Fcb->FcbListEntry );
-        NwDereferenceVcb( Fcb->Vcb, IrpContext );
+        NwDereferenceVcb( Fcb->Vcb, IrpContext, TRUE );
 
         //
         //  Delete the resource variable for the FCB.
@@ -999,14 +1165,23 @@ NwFindVcb (
 Routine Description:
 
     This routine looks for a VCB structure.  If one is found, it
-    is referenced and a pointer is returned.  If no DCB is found, an
-    attempt is made to connect to the named volume and to create a DCB.
+    is referenced and a pointer is returned.  If no VCB is found, an
+    attempt is made to connect to the named volume and to create a VCB.
 
 Arguments:
 
     IrpContext - A pointer to the IRP context block for this request.
 
-    VolumeName - The minimum name of the volume. (i.e. X:\SERVER\SHARE )
+    VolumeName - The minimum name of the volume.  This will be in one of
+        the following forms:
+
+        \SERVER\SHARE              UNC open server volume
+        \TREE\VOLUME               UNC open tree volume in current context
+        \TREE\PATH.TO.VOLUME       UNC open distinguished tree volume
+
+        \X:\SERVER\SHARE           tree connect server volume
+        \X:\TREE\VOLUME            tree connect tree volume in current context
+        \X:\TREE\PATH.TO.VOLUME    tree connect distinguished tree volume
 
     ShareType - The type of the share to find.
 
@@ -1019,7 +1194,7 @@ Arguments:
 
 Return Value:
 
-    DCB - Pointer to a found or newly created VCB.
+    VCB - Pointer to a found or newly created VCB.
 
 --*/
 {
@@ -1064,7 +1239,7 @@ Return Value:
             //
 
             if ((Vcb != NULL) &&
-                (!LiEql(IrpContext->Specific.Create.UserUid, Vcb->Scb->UserUid ))) {
+                (IrpContext->Specific.Create.UserUid.QuadPart != Vcb->Scb->UserUid.QuadPart )) {
 
                 ExRaiseStatus( STATUS_ACCESS_DENIED );
             }
@@ -1094,7 +1269,7 @@ Return Value:
         if ( Vcb != NULL ) {
 
             //
-            //  If this is an explicit use to a UNC path, we may find a
+            //  If this is an explicit use to a UNC path, we may find an
             //  existing VCB structure.  Mark this structure, and reference it.
             //
 
@@ -1115,6 +1290,39 @@ Return Value:
             NwReferenceVcb( Vcb );
             DebugTrace(0, Dbg, "Found existing VCB = %08lx\n", Vcb);
 
+            //
+            // If this VCB is queued to a different SCB as may
+            // happen when we are resolving NDS UNC names, we
+            // need to re-point the irpcontext at the correct SCB.
+            // We can't hold the RCB or the open lock while we do
+            // this!
+            //
+            // It is ok to release the open lock since we know
+            // that we have an already created VCB and that we're
+            // not creating a new vcb.
+            //
+
+            if ( Vcb->Scb != IrpContext->pScb ) {
+
+               NwReferenceScb( Vcb->Scb->pNpScb );
+
+               NwReleaseOpenLock( );
+
+               NwReleaseRcb( &NwRcb );
+               OwnRcb = FALSE;
+
+               NwDequeueIrpContext( IrpContext, FALSE );
+               NwDereferenceScb( IrpContext->pNpScb );
+
+               IrpContext->pScb = Vcb->Scb;
+               IrpContext->pNpScb = Vcb->Scb->pNpScb;
+
+               NwAppendToQueueAndWait( IrpContext );
+
+               NwAcquireOpenLock( );
+
+           }
+
         } else if ( !FindExisting ) {
 
             //
@@ -1132,7 +1340,19 @@ Return Value:
                       DriveLetter,
                       ExplicitConnection );
 
-            DebugTrace(0, Dbg, "Created new VCB = %08lx\n", Vcb);
+            if ( Vcb ) {
+                DebugTrace(0, Dbg, "Created new VCB = %08lx\n", Vcb);
+            }
+
+        } else {
+
+            //
+            // If we didn't find anything and don't want
+            // to do a create, make sure the caller doesn't
+            // try to process the nds path.
+            //
+
+            IrpContext->Specific.Create.NeedNdsData = FALSE;
         }
 
     } finally {
@@ -1197,13 +1417,16 @@ Return Value:
     PVCB Vcb;
     PWCH VolumeNameBuffer;
     PWCH ShareNameBuffer;
+    PWCH ConnectNameBuffer;
     UCHAR DirectoryHandle;
     ULONG QueueId;
+    BYTE *pbQueue, *pbRQueue;
     BOOLEAN PrintQueue = FALSE;
     NTSTATUS Status;
     CHAR LongNameSpace = LFN_NO_OS2_NAME_SPACE;
     CHAR VolumeNumber = -1;
-    USHORT PreludeLength;
+    CHAR DriveNumber = 0;
+    USHORT PreludeLength, ConnectNameLength;
     PNONPAGED_SCB NpScb = Scb->pNpScb;
 
     UNICODE_STRING ShareName;
@@ -1212,6 +1435,9 @@ Return Value:
 
     BOOLEAN InsertedColon;
     BOOLEAN LongName = FALSE;
+    BOOLEAN LicensedConnection = FALSE;
+
+    PUNICODE_STRING puConnectName;
 
     PAGED_CODE();
 
@@ -1222,6 +1448,33 @@ Return Value:
 
     Vcb = NULL;
     ShareName.Buffer = NULL;
+
+    if ( IrpContext != NULL &&
+         IrpContext->Specific.Create.NdsCreate ) {
+
+        //
+        // If we don't have the NDS data for this create, bail out
+        // and have the create thread get the data before re-attempting
+        // the create.  This is kind of weird, but we have to do it
+        // so that we handle the open lock correctly and prevent
+        // duplicate creates.
+        //
+
+        if ( IrpContext->Specific.Create.NeedNdsData ) {
+            DebugTrace( -1, Dbg, "NwCreateVcb: Need NDS data to continue.\n", 0 );
+            return NULL;
+        }
+
+        ConnectNameLength = IrpContext->Specific.Create.UidConnectName.Length;
+        puConnectName = &IrpContext->Specific.Create.UidConnectName;
+
+    } else {
+
+       puConnectName = VolumeName;
+       ConnectNameLength = 0;
+    }
+
+    DebugTrace( 0, Dbg, " ->ConnectName              = %wZ\n", puConnectName );
 
     if ( IrpContext != NULL) {
 
@@ -1267,24 +1520,37 @@ Return Value:
         //  Quick check for bogus volume name.
         //
 
-        if ( VolumeName->Length <= PreludeLength ) {
+        if ( puConnectName->Length <= PreludeLength ) {
             ExRaiseStatus( STATUS_BAD_NETWORK_PATH );
         }
 
-        ShareName.Length = VolumeName->Length - PreludeLength;
+        //
+        // Clip the NDS share name at the appropriate spot.
+        //
+
+        if ( IrpContext->Specific.Create.NdsCreate ) {
+            ShareName.Length = (USHORT)IrpContext->Specific.Create.dwNdsShareLength;
+        } else {
+            ShareName.Length = puConnectName->Length - PreludeLength;
+        }
+
         ShareName.Buffer = ALLOCATE_POOL_EX( PagedPool, ShareName.Length + sizeof(WCHAR) );
 
         RtlMoveMemory(
             ShareName.Buffer,
-            VolumeName->Buffer + PreludeLength / sizeof(WCHAR),
+            puConnectName->Buffer + PreludeLength / sizeof(WCHAR),
             ShareName.Length );
+
+        ShareName.MaximumLength = ShareName.Length;
+
+        DebugTrace( 0, Dbg, " ->ServerShare              = %wZ\n", &ShareName );
 
         //
         //  Create a long share name.
         //
 
-        LongShareName.Length = VolumeName->Length - PreludeLength;
-        LongShareName.Buffer = VolumeName->Buffer + PreludeLength / sizeof(WCHAR);
+        LongShareName.Length = ShareName.Length;
+        LongShareName.Buffer = puConnectName->Buffer + PreludeLength / sizeof(WCHAR);
 
         //
         //  Now scan the share name for the 1st slash.
@@ -1316,6 +1582,26 @@ Return Value:
                 ShareType == RESOURCETYPE_DISK ||
                 ShareType == RESOURCETYPE_PRINT );
 
+        //
+        // If there are no vcb's and no nds streams connected to this scb and
+        // this is a Netware 4.x server that is NDS authenticated, then we
+        // haven't yet licensed this connection and we should do so.
+        //
+
+        if ( ( IrpContext->pScb->MajorVersion > 3 ) &&
+             ( IrpContext->pScb->UserName.Length == 0 ) &&
+             ( IrpContext->pScb->VcbCount == 0 ) &&
+             ( IrpContext->pScb->OpenNdsStreams == 0 ) ) {
+
+                Status = NdsLicenseConnection( IrpContext );
+
+                if ( !NT_SUCCESS( Status ) ) {
+                    ExRaiseStatus( STATUS_REMOTE_SESSION_LIMIT );
+                }
+
+                LicensedConnection = TRUE;
+        }
+
         if ( ShareType == RESOURCETYPE_ANY ||
              ShareType == RESOURCETYPE_DISK ) {
 
@@ -1326,18 +1612,31 @@ Return Value:
                 &VolumeNumber );
 
             //
+            // BUGBUG: If this is the deref of a directory map, the path we have
+            // been provided is the short name space path.  We have to get the
+            // long name path to connect up the long name space for the user!
+            //
+
+            if ( ( IrpContext->Specific.Create.NdsCreate ) &&
+                 ( IrpContext->Specific.Create.dwNdsObjectType == NDS_OBJECTTYPE_DIRMAP ) ) {
+                LongNameSpace = LFN_NO_OS2_NAME_SPACE;
+            }
+
+            //
             //  Try to get a permanent handle to the volume.
             //
 
             if ( LongNameSpace == LFN_NO_OS2_NAME_SPACE ) {
 
+                DriveNumber = GetNewDriveNumber(Scb);
+
                 Status = ExchangeWithWait (
                              IrpContext,
                              SynchronousResponseCallback,
-                             "SbbU",
+                             "SbbJ",
                              NCP_DIR_FUNCTION, NCP_ALLOCATE_DIR_HANDLE,
                              0,
-                             0,
+                             DriveNumber,
                              &ShareName );
 
                 if ( NT_SUCCESS( Status ) ) {
@@ -1347,6 +1646,10 @@ Return Value:
                                   IrpContext->ResponseLength,
                                   "Nb",
                                   &DirectoryHandle );
+                }
+
+                if ( !NT_SUCCESS( Status ) ) {
+                    FreeDriveNumber( Scb, DriveNumber );
                 }
 
             } else {
@@ -1373,7 +1676,10 @@ Return Value:
                                   &DirectoryHandle );
                 }
 
-                if ( !IsFatNameValid( &LongShareName ) ) {
+                //
+                // WARNING. See comment towards end of NwCreateFcb() !!!
+                //
+                if ( FavourLongNames || !IsFatNameValid( &LongShareName ) ) {
                     LongName = TRUE;
                 }
             }
@@ -1385,8 +1691,17 @@ Return Value:
                 //  Asked for disk and it failed. If its ANY, then try print.
                 //
 
+                if (DriveNumber) {
+                    FreeDriveNumber( Scb, DriveNumber );
+                }
+
                 FREE_POOL( ShareName.Buffer );
-                ExRaiseStatus( STATUS_BAD_NETWORK_PATH );
+
+                if ( LicensedConnection ) {
+                    NdsUnlicenseConnection( IrpContext );
+                }
+
+                ExRaiseStatus( STATUS_BAD_NETWORK_NAME );
                 return( NULL );
             }
 
@@ -1396,40 +1711,74 @@ Return Value:
              ( ShareType == RESOURCETYPE_ANY && !NT_SUCCESS( Status ) ) ) {
 
             //
-            //  Try to connect to a print queue.
+            // Try to connect to a print queue.  If this is a bindery
+            // server or an nds server with bindery emulation, we scan
+            // the bindery for the QueueId.  Otherwise, the QueueId is
+            // simply the ds object id with the byte ordering reversed.
             //
 
             ShareName.Length -= sizeof(WCHAR);
 
-            Status = ExchangeWithWait(
-                         IrpContext,
-                         SynchronousResponseCallback,
-                         "SdwU",                // Format string
-                         NCP_ADMIN_FUNCTION, NCP_SCAN_BINDERY_OBJECT,
-                         -1,                    // Previous ID
-                         OT_PRINT_QUEUE,
-                         &ShareName );          // Queue Name
+            if ( ( Scb->MajorVersion < 4 ) ||
+                 ( !( IrpContext->Specific.Create.NdsCreate ) ) ) {
 
-            if ( NT_SUCCESS( Status ) ) {
-                Status = ParseResponse(
-                              IrpContext,
-                              IrpContext->rsp,
-                              IrpContext->ResponseLength,
-                              "Nd",
-                              &QueueId );
-            }
+                Status = ExchangeWithWait(
+                             IrpContext,
+                             SynchronousResponseCallback,
+                             "SdwJ",                // Format string
+                             NCP_ADMIN_FUNCTION, NCP_SCAN_BINDERY_OBJECT,
+                             -1,                    // Previous ID
+                             OT_PRINT_QUEUE,
+                             &ShareName );          // Queue Name
 
-            if ( !NT_SUCCESS( Status ) ) {
-                FREE_POOL( ShareName.Buffer );
-                ExRaiseStatus( STATUS_BAD_NETWORK_PATH );
-                return( NULL );
+                if ( NT_SUCCESS( Status ) ) {
+                    Status = ParseResponse(
+                                 IrpContext,
+                                 IrpContext->rsp,
+                                 IrpContext->ResponseLength,
+                                 "Nd",
+                                 &QueueId );
+                }
+
+            } else {
+
+                if ( IrpContext->Specific.Create.dwNdsObjectType == NDS_OBJECTTYPE_QUEUE ) {
+
+                    DebugTrace( 0, Dbg, "Mapping NDS print queue %08lx\n",
+                                IrpContext->Specific.Create.dwNdsOid );
+
+                    pbQueue = (BYTE *)&IrpContext->Specific.Create.dwNdsOid;
+                    pbRQueue = (BYTE *)&QueueId;
+
+                    pbRQueue[0] = pbQueue[3];
+                    pbRQueue[1] = pbQueue[2];
+                    pbRQueue[2] = pbQueue[1];
+                    pbRQueue[3] = pbQueue[0];
+
+                    Status = STATUS_SUCCESS;
+
+                } else {
+
+                    DebugTrace( 0, Dbg, "Nds object is not a print queue.\n", 0 );
+                    Status = STATUS_UNSUCCESSFUL;
+                }
             }
 
             PrintQueue = TRUE;
         }
 
         if ( !NT_SUCCESS( Status ) ) {
+
+            if (DriveNumber) {
+                FreeDriveNumber( Scb, DriveNumber );
+            }
+
             FREE_POOL( ShareName.Buffer );
+
+            if ( LicensedConnection ) {
+                NdsUnlicenseConnection( IrpContext );
+            }
+
             ExRaiseStatus( STATUS_BAD_NETWORK_PATH );
             return( NULL );
         }
@@ -1438,24 +1787,29 @@ Return Value:
         DirectoryHandle = 1;
     }
 
+    //
+    //  Allocate and initialize structures.
+    //
+
     try {
 
-        //
-        //  Allocate and initialize structures.
-        //
-
-        Vcb = ALLOCATE_POOL_EX(
-                  PagedPool,
-                  sizeof( VCB ) + VolumeName->Length + ShareName.Length );
+        Vcb = ALLOCATE_POOL_EX( PagedPool, sizeof( VCB ) +           // vcb
+                                           VolumeName->Length +      // volume name
+                                           ShareName.Length +        // share name
+                                           ConnectNameLength );      // connect name
 
         RtlZeroMemory( Vcb, sizeof( VCB ) );
         Vcb->NodeTypeCode = NW_NTC_VCB;
-        Vcb->NodeByteSize = sizeof( VCB ) + VolumeName->Length + ShareName.Length;
+        Vcb->NodeByteSize = sizeof( VCB ) +
+                            VolumeName->Length +
+                            ShareName.Length +
+                            ConnectNameLength;
 
         InitializeListHead( &Vcb->FcbList );
 
         VolumeNameBuffer = (PWCH)(Vcb + 1);
         ShareNameBuffer = (PWCH)((PCHAR)VolumeNameBuffer + VolumeName->Length);
+        ConnectNameBuffer = (PWCH)((PCHAR)ShareNameBuffer + ShareName.Length);
 
         Vcb->Reference = 1;
 
@@ -1479,9 +1833,20 @@ Return Value:
             Vcb->ShareName.Length = ShareName.Length;
             Vcb->ShareName.Buffer = ShareNameBuffer;
 
-        } else {
+        }
 
-            RtlInitUnicodeString( &Vcb->ShareName, NULL );
+        //
+        //  Copy the connect name
+        //
+
+        if ( ConnectNameLength ) {
+
+            RtlCopyMemory( ConnectNameBuffer,
+                           IrpContext->Specific.Create.UidConnectName.Buffer,
+                           IrpContext->Specific.Create.UidConnectName.Length );
+            Vcb->ConnectName.MaximumLength = IrpContext->Specific.Create.UidConnectName.Length;
+            Vcb->ConnectName.Length = IrpContext->Specific.Create.UidConnectName.Length;
+            Vcb->ConnectName.Buffer = ConnectNameBuffer;
 
         }
 
@@ -1556,21 +1921,57 @@ Return Value:
         }
 
         if ( !PrintQueue) {
+
+            PLIST_ENTRY VcbQueueEntry;
+            PVCB pVcb;
+
             Vcb->Specific.Disk.Handle = DirectoryHandle;
             Vcb->Specific.Disk.LongNameSpace = LongNameSpace;
             Vcb->Specific.Disk.VolumeNumber = VolumeNumber;
+            Vcb->Specific.Disk.DriveNumber = DriveNumber;
+
+            //
+            //  Appears that some servers can reuse the same permanent drive handle.
+            //  if this happens we want to make the old handle invalid otherwise
+            //  we will keep on using the new volume as if its the old one.
+            //
+
+            for ( VcbQueueEntry = Scb->ScbSpecificVcbQueue.Flink;
+                  VcbQueueEntry != &Scb->ScbSpecificVcbQueue;
+                  VcbQueueEntry = pVcb->VcbListEntry.Flink ) {
+
+                pVcb = CONTAINING_RECORD( VcbQueueEntry, VCB, VcbListEntry );
+
+                if ( !BooleanFlagOn( pVcb->Flags, VCB_FLAG_PRINT_QUEUE ) ) {
+
+                    if (( pVcb->Specific.Disk.Handle == DirectoryHandle ) &&
+                        ( pVcb->Specific.Disk.VolumeNumber != VolumeNumber )) {
+                        //  Invalidate the old handle
+                        pVcb->Specific.Disk.Handle = (CHAR)-1;
+
+                        //  We could assume that the new one is correct but I don't think we will....
+                        Vcb->Specific.Disk.Handle = (CHAR)-1;
+                        break;
+                    }
+                }
+            }
+
         } else {
             SetFlag( Vcb->Flags, VCB_FLAG_PRINT_QUEUE );
-
             Vcb->Specific.Print.QueueId = QueueId;
         }
-
 
         NwReleaseRcb( &NwRcb );
 
     } finally {
+
         if ( AbnormalTermination() ) {
+
             if ( Vcb != NULL ) FREE_POOL( Vcb );
+
+            if ( LicensedConnection ) {
+                NdsUnlicenseConnection( IrpContext );
+            }
         }
 
         if ( ShareName.Buffer != NULL ) {
@@ -1619,8 +2020,6 @@ Return Value:
     PICB pIcb;
 
     NTSTATUS Status;
-    CHAR DirectoryHandle;
-    ULONG QueueId;
 
     PAGED_CODE();
 
@@ -1671,41 +2070,15 @@ Return Value:
                                   IrpContext->rsp,
                                   IrpContext->ResponseLength,
                                   "Nd",
-                                  &QueueId );
+                                  &pVcb->Specific.Print.QueueId );
                 }
 
             } else {
 
-                Status = ExchangeWithWait (
-                             IrpContext,
-                             SynchronousResponseCallback,
-                             "SbbU",
-                             NCP_DIR_FUNCTION, NCP_ALLOCATE_DIR_HANDLE,
-                             0,
-                             0,
-                             &pVcb->ShareName );
+                NwReopenVcbHandle( IrpContext, pVcb);
 
-                if ( NT_SUCCESS( Status ) ) {
-
-                    Status = ParseResponse(
-                                  IrpContext,
-                                  IrpContext->rsp,
-                                  IrpContext->ResponseLength,
-                                  "Nb",
-                                  &DirectoryHandle );
-
-                }
             }
 
-            if ( NT_SUCCESS( Status ) ) {
-                if ( BooleanFlagOn( pVcb->Flags, VCB_FLAG_PRINT_QUEUE )  ) {
-                    pVcb->Specific.Print.QueueId = QueueId;
-                } else {
-                    pVcb->Specific.Disk.Handle = DirectoryHandle;
-                }
-            } else {
-                pVcb->Specific.Disk.Handle = (CHAR)-1;
-            }
 
             //
             // Setup for the next loop iteration.
@@ -1749,7 +2122,7 @@ Return Value:
         NextVcbQueueEntry = VcbQueueEntry->Flink;
 
         if ( pVcb->Specific.Disk.Handle != 1 ) {
-            NwDereferenceVcb( pVcb, NULL );
+            NwDereferenceVcb( pVcb, NULL, TRUE );
         }
 
     }
@@ -1757,11 +2130,191 @@ Return Value:
     NwReleaseRcb( &NwRcb );
 }
 
+VOID
+NwReopenVcbHandle(
+    IN PIRP_CONTEXT IrpContext,
+    IN PVCB Vcb
+    )
+
+/*++
+
+Routine Description:
+
+    This routine reopens a VCB handle after it appears that the server
+    may have dismounted and remounted the volume.
+
+    ***  This IrpContext must already be at the head of the SCB queue.
+
+Arguments:
+
+    IrpContext - A pointer to IRP context information.
+
+    Vcb - A pointer to the VCB for this volume.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    NTSTATUS Status;
+
+    PAGED_CODE();
+
+    ASSERT( Vcb->Scb->pNpScb->Requests.Flink == &IrpContext->NextRequest );
+
+    if ( Vcb->Specific.Disk.LongNameSpace == LFN_NO_OS2_NAME_SPACE ) {
+
+        Status = ExchangeWithWait (
+                     IrpContext,
+                     SynchronousResponseCallback,
+                     "SbbJ",
+                     NCP_DIR_FUNCTION, NCP_ALLOCATE_DIR_HANDLE,
+                     0,
+                     Vcb->Specific.Disk.DriveNumber,
+                     &Vcb->ShareName );
+
+    } else {
+        UNICODE_STRING Name;
+
+        PWCH thisChar, lastChar;
+
+        Status = DuplicateUnicodeStringWithString (
+                    &Name,
+                    &Vcb->ShareName,
+                    PagedPool);
+
+        if ( !NT_SUCCESS( Status ) ) {
+            //  Not much we can do now.
+            return;
+        }
+
+        thisChar = Name.Buffer;
+        lastChar = &Name.Buffer[ Name.Length / sizeof(WCHAR) ];
+
+        //
+        //  Change the : to a backslash so that FormatMessage works
+        //
+
+        while ( thisChar < lastChar ) {
+            if (*thisChar == L':' ) {
+                *thisChar = L'\\';
+                break;
+            }
+            thisChar++;
+        }
+
+        Status = ExchangeWithWait (
+                     IrpContext,
+                     SynchronousResponseCallback,
+                     "LbbWbDbC",
+                     NCP_LFN_ALLOCATE_DIR_HANDLE,
+                     Vcb->Specific.Disk.LongNameSpace,
+                     0,
+                     0,      // Mode = permanent
+                     Vcb->Specific.Disk.VolumeNumber,
+                     LFN_FLAG_SHORT_DIRECTORY,
+                     0xFF,   // Flag
+                     &Name );
+
+        if ( Name.Buffer != NULL ) {
+            FREE_POOL( Name.Buffer );
+        }
+
+    }
+
+
+    if ( NT_SUCCESS( Status ) ) {
+        Status = ParseResponse(
+                      IrpContext,
+                      IrpContext->rsp,
+                      IrpContext->ResponseLength,
+                      "Nb",
+                      &Vcb->Specific.Disk.Handle );
+    }
+
+    if ( !NT_SUCCESS( Status ) ) {
+        Vcb->Specific.Disk.Handle = (CHAR)-1;
+    } else {
+
+        PLIST_ENTRY VcbQueueEntry;
+        PVCB pVcb;
+
+        //
+        //  Appears that some servers can reuse the same permanent drive handle.
+        //  if this happens we want to make the old handle invalid otherwise
+        //  we will keep on using the new volume as if its the old one.
+        //
+        //  Note that we reach the scb pointer from the npscb pointer because
+        //  the scb pointer isn't always valid.  These few cases where only one
+        //  pointer is set should be found and fixed.
+        //
+
+        for ( VcbQueueEntry = IrpContext->pNpScb->pScb->ScbSpecificVcbQueue.Flink;
+              VcbQueueEntry != &IrpContext->pNpScb->pScb->ScbSpecificVcbQueue;
+              VcbQueueEntry = pVcb->VcbListEntry.Flink ) {
+
+            pVcb = CONTAINING_RECORD( VcbQueueEntry, VCB, VcbListEntry );
+
+            if ( !BooleanFlagOn( pVcb->Flags, VCB_FLAG_PRINT_QUEUE ) ) {
+
+                if (( pVcb->Specific.Disk.Handle == Vcb->Specific.Disk.Handle ) &&
+                    ( pVcb->Specific.Disk.VolumeNumber != Vcb->Specific.Disk.VolumeNumber )) {
+                    //  Invalidate the old handle
+                    pVcb->Specific.Disk.Handle = (CHAR)-1;
+
+                    //  We could assume that the new one is correct but I don't think we will....
+                    Vcb->Specific.Disk.Handle = (CHAR)-1;
+                    break;
+                }
+            }
+        }
+    }
+
+}
+#ifdef NWDBG
+
+VOID
+NwReferenceVcb (
+    IN PVCB Vcb
+    )
+/*++
+
+Routine Description:
+
+    This routine increments the FCB count for a VCB.
+
+Arguments:
+
+    VCB - A pointer to an VCB.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+
+    PAGED_CODE();
+
+    DebugTrace(+1, Dbg, "NwReferenceVcb %08lx\n", Vcb);
+    DebugTrace(0, Dbg, "Current Reference count = %d\n", Vcb->Reference );
+
+    ASSERT( NodeType( Vcb ) == NW_NTC_VCB );
+
+    ++Vcb->Reference;
+
+}
+#endif
+
 
 VOID
 NwDereferenceVcb (
     IN PVCB Vcb,
-    IN PIRP_CONTEXT IrpContext OPTIONAL
+    IN PIRP_CONTEXT IrpContext OPTIONAL,
+    IN BOOLEAN OwnRcb
     )
 /*++
 
@@ -1770,6 +2323,10 @@ Routine Description:
     This routine decrement the FCB count for a VCB.
     If the count goes to zero, we record the time.  The scavenger
     thread will cleanup delete the VCB if it remains idle.
+
+    This routine may be called with the RCB owned and the irpcontext
+    at the head of the queue.  Be careful when dequeueing the irp
+    context or acquiring any resources!
 
 Arguments:
 
@@ -1783,13 +2340,69 @@ Return Value:
 
 {
     PSCB Scb = Vcb->Scb;
+    PNONPAGED_SCB pOrigNpScb = NULL;
+
+#ifdef NWDBG
+    BOOLEAN OwnRcbExclusive = FALSE;
+#endif
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NwDereferenceVcb\n", 0);
-    DebugTrace(0, Dbg, "Current Reference count = %d\n", Vcb->Reference );
+    DebugTrace(+1, Dbg, "NwDereferenceVcb %08lx\n", Vcb);
 
     ASSERT( NodeType( Vcb ) == NW_NTC_VCB );
+
+#ifdef NWDBG
+
+    //
+    // A little extra lock checking.
+    //
+
+    OwnRcbExclusive = ExIsResourceAcquiredExclusiveLite( &(NwRcb.Resource) );
+
+    if ( OwnRcb ) {
+        ASSERT( OwnRcbExclusive );
+    } else {
+        ASSERT( !OwnRcbExclusive );
+    }
+
+#endif
+
+    //
+    // We have to get to the right scb queue before doing this
+    // so that CleanupVcb unlicenses the correct connection.
+    //
+
+    if ( ( IrpContext ) &&
+         ( IrpContext->pNpScb->pScb->MajorVersion > 3 ) &&
+         ( IrpContext->pNpScb != Scb->pNpScb ) ) {
+
+        if ( OwnRcb ) {
+            NwReleaseRcb( &NwRcb );
+        }
+
+        pOrigNpScb = IrpContext->pNpScb;
+        ASSERT( pOrigNpScb != NULL );
+
+        NwDequeueIrpContext( IrpContext, FALSE );
+
+        IrpContext->pScb = Scb;
+        IrpContext->pNpScb = Scb->pNpScb;
+
+        NwAppendToQueueAndWait( IrpContext );
+
+        //
+        // If the caller owned the RCB, we have to make sure
+        // we re-acquire the RCB reference that we freed for
+        // them so that they don't lose access to the resource
+        // too early.
+        //
+
+        if ( OwnRcb ) {
+            NwAcquireExclusiveRcb( &NwRcb, TRUE );
+        }
+
+    }
 
     //
     // Acquire the lock to protect the Reference count.
@@ -1797,6 +2410,7 @@ Return Value:
 
     NwAcquireExclusiveRcb( &NwRcb, TRUE );
 
+    DebugTrace(0, Dbg, "Current Reference count = %d\n", Vcb->Reference );
     --Vcb->Reference;
 
     if ( Vcb->Reference == 0 ) {
@@ -1828,6 +2442,36 @@ Return Value:
         NwReleaseRcb( &NwRcb );
     }
 
+    //
+    // At this point, we've released our acquisition of the RCB, but
+    // the caller may still own the RCB.  To prevent a deadlock, we
+    // have to be careful when we put this irpcontext back on the
+    // original server.
+    //
+
+    if ( pOrigNpScb ) {
+
+        if ( OwnRcb ) {
+            NwReleaseRcb( &NwRcb );
+        }
+
+        NwDequeueIrpContext( IrpContext, FALSE );
+
+        IrpContext->pNpScb = pOrigNpScb;
+        IrpContext->pScb = pOrigNpScb->pScb;
+
+        NwAppendToQueueAndWait( IrpContext );
+
+        //
+        // Re-acquire for the caller.
+        //
+
+        if ( OwnRcb ) {
+            NwAcquireExclusiveRcb( &NwRcb, TRUE );
+        }
+
+    }
+
     DebugTrace(-1, Dbg, "NwDereferenceVcb\n", 0);
 
 }
@@ -1842,10 +2486,13 @@ NwCleanupVcb(
 
 Routine Description:
 
-    This routine cleanups up and frees a VCB.
+    This routine cleans up and frees a VCB.
 
-    ***  To call this routine with the RCB held, the caller must own
-         the IRP context at the head of the SCB queue.
+    This routine must be called with the RCB held to
+    protect the drive map tables and unicode prefix
+    tables.  The caller must own the IRP context at
+    the head of the SCB queue.  This routine will
+    free the RCB and dequeue the irp context.
 
 Arguments:
 
@@ -1861,7 +2508,7 @@ Return Value:
     CHAR Handle;
     BOOLEAN CallDeleteScb = FALSE;
     PSCB pScb = pVcb->Scb;
-    PNONPAGED_SCB pNpScb;
+    PNONPAGED_SCB pNpScb = pScb->pNpScb;
 
     PAGED_CODE();
 
@@ -1873,12 +2520,9 @@ Return Value:
 
     DebugTrace(0, Dbg, "Cleaning Vcb %08lx\n", pVcb);
 
-    Handle = pVcb->Specific.Disk.Handle;
-
-    ASSERT ( !BooleanFlagOn( pVcb->Flags, VCB_FLAG_EXPLICIT_CONNECTION ));
-
     //
-    //  Remove the VCB from the drive map table.
+    //  Remove the VCB from the drive map table.  The RCB is owned, so
+    //  the drive map table and vcb lists are protected.
     //
 
     if ( pVcb->DriveLetter != 0 ) {
@@ -1886,6 +2530,10 @@ Return Value:
             DriveMapTable[pVcb->DriveLetter - L'A'] = NULL;
         } else {
             DriveMapTable[MAX_DISK_REDIRECTIONS + pVcb->DriveLetter - L'1'] = NULL;
+        }
+
+        if ( !BooleanFlagOn( pVcb->Flags, VCB_FLAG_PRINT_QUEUE )  ) {
+            FreeDriveNumber( pVcb->Scb, pVcb->Specific.Disk.DriveNumber );
         }
     }
 
@@ -1909,28 +2557,47 @@ Return Value:
 
     --pScb->VcbCount;
 
-    NwDereferenceScb( pScb->pNpScb );
-    NwReleaseRcb( &NwRcb );
-
     //
-    //  Remove the volume handle.
+    // There is no server jumping allowed!!  We should have
+    // pre-located the correct server to avoid deadlock problems.
     //
 
-    IrpContext->pNpScb = pVcb->Scb->pNpScb;
+    ASSERT( IrpContext->pNpScb == pNpScb );
 
-    Status = ExchangeWithWait (
-                 IrpContext,
-                 SynchronousResponseCallback,
-                 "Sb",
-                 NCP_DIR_FUNCTION, NCP_DEALLOCATE_DIR_HANDLE,
-                 Handle );
+    //
+    // If we are cleaning up the last vcb on an NDS server and
+    // there are no open streams, we can unlicense the connection.
+    //
 
-    if ( NT_SUCCESS( Status )) {
-        Status = ParseResponse(
+    if ( ( pScb->MajorVersion > 3 ) &&
+         ( pScb->UserName.Length == 0 ) &&
+         ( pScb->VcbCount == 0 ) &&
+         ( pScb->OpenNdsStreams == 0 ) ) {
+        NdsUnlicenseConnection( IrpContext );
+    }
+
+    //
+    //  If this is a VCB for a share, remove the volume handle.
+    //
+
+    if ( !BooleanFlagOn( pVcb->Flags, VCB_FLAG_PRINT_QUEUE )  ) {
+
+        Handle = pVcb->Specific.Disk.Handle;
+
+        Status = ExchangeWithWait (
                      IrpContext,
-                     IrpContext->rsp,
-                     IrpContext->ResponseLength,
-                     "N" );
+                     SynchronousResponseCallback,
+                     "Sb",
+                     NCP_DIR_FUNCTION, NCP_DEALLOCATE_DIR_HANDLE,
+                     Handle );
+
+        if ( NT_SUCCESS( Status )) {
+            Status = ParseResponse(
+                         IrpContext,
+                         IrpContext->rsp,
+                         IrpContext->ResponseLength,
+                         "N" );
+        }
     }
 
     //
@@ -1940,40 +2607,32 @@ Return Value:
     FREE_POOL( pVcb );
 
     //
-    //  If there are no handles open (and hence no explicit
-    //  connections) then we should logout and  disconnect
-    //  from this server.  This is most important when a user
-    //  has a login count on a server set to 1 and wants to
-    //  access the server from another machine.
+    //  If there are no handles open (and hence no explicit connections)
+    //  and this is a bindery login, then we should logout and disconnect
+    //  from this server.  This is most important when a user has a
+    //  login count on a server set to 1 and wants to access the server
+    //  from another machine.
+    //
+    //  Release the RCB in case we get off the head of the queue in
+    //  NwLogoffAndDisconnect.
     //
 
-    pNpScb = pScb->pNpScb;
+    NwReleaseRcb( &NwRcb );
 
-    NwAppendToQueueAndWait( IrpContext );
-    ClearFlag( IrpContext->Flags, IRP_FLAG_RECONNECTABLE );
+    if ( ( pScb->IcbCount == 0 ) &&
+         ( pScb->OpenFileCount == 0 ) &&
+         ( pNpScb->State == SCB_STATE_IN_USE ) &&
+         ( pScb->UserName.Length != 0 ) ) {
 
-    NwAcquireExclusiveRcb( &NwRcb, TRUE );
-
-    if ( ( pScb->OpenFileCount == 0 ) &&
-         ( pNpScb->State == SCB_STATE_IN_USE ) ) {
-
-        //
-        //  Logoff and disconnect from the server now.
-        //  First release the RCB (but hold unto the SCB lock.
-        //  This prevents another thread from trying to access
-        //  SCB will this thread is logging off.
-        //
-
-        NwReleaseRcb( &NwRcb );
         NwLogoffAndDisconnect( IrpContext, pNpScb );
-
-    } else {
-
-        NwReleaseRcb( &NwRcb );
-
     }
 
+    //
+    // We might need to restore the server pointers.
+    //
+
     NwDequeueIrpContext( IrpContext, FALSE );
+    NwDereferenceScb( pScb->pNpScb );
 
     DebugTrace(-1, Dbg, "NwCleanupVcb exit\n", 0);
     return;
@@ -2009,7 +2668,6 @@ Return Value:
 
     PAGED_CODE();
 
-    NwAcquireExclusiveRcb( &NwRcb, TRUE );
     KeAcquireSpinLock( &ScbSpinLock, &OldIrql );
 
     for (ScbQueueEntry = ScbQueue.Flink ;
@@ -2025,12 +2683,18 @@ Return Value:
         }
 
         NwReferenceScb( pNpScb );
-
-        //
-        //  Release the SCB spin lock as we are about to touch nonpaged pool.
-        //
-
         KeReleaseSpinLock( &ScbSpinLock, OldIrql );
+
+        //
+        // Get to the head of the SCB queue so that we don't deadlock
+        // if we need to send packets in NwCleanupVcb().
+        //
+
+        pIrpContext->pNpScb = pNpScb;
+        pIrpContext->pScb = pNpScb->pScb;
+
+        NwAppendToQueueAndWait( pIrpContext );
+        NwAcquireExclusiveRcb( &NwRcb, TRUE );
 
         //
         //  NwCleanupVcb releases the RCB, but we can't be guaranteed
@@ -2082,10 +2746,16 @@ Return Value:
                 }
 
                 if ( pVcb->Reference == 0 ) {
-                    pIrpContext->pNpScb = pNpScb;
+
                     NwCleanupVcb( pVcb, pIrpContext );
 
+                    //
+                    // Get back to the head of the queue.
+                    //
+
+                    NwAppendToQueueAndWait( pIrpContext );
                     NwAcquireExclusiveRcb( &NwRcb, TRUE );
+
                     VcbDeleted = TRUE;
                     break;
 
@@ -2096,12 +2766,17 @@ Return Value:
             }
         }
 
-        NwDereferenceScb( pNpScb );
+        //
+        // Get off the head of this SCB and move on.
+        //
+
         KeAcquireSpinLock( &ScbSpinLock, &OldIrql );
+        NwDequeueIrpContext( pIrpContext, TRUE );
+        NwReleaseRcb( &NwRcb );
+        NwDereferenceScb( pNpScb );
     }
 
     KeReleaseSpinLock( &ScbSpinLock, OldIrql );
-    NwReleaseRcb( &NwRcb );
 
 }
 
@@ -2140,7 +2815,7 @@ Return Value:
     char *ptr;
     int i;
     char length;
-    CHAR LongNameSpace;
+    BOOLEAN LongNameSpace;
     CHAR NumberOfNameSpaces, NumberOfInfoRecords;
 
     PAGED_CODE();
@@ -2241,45 +2916,19 @@ Return Value:
     DebugTrace( 0, Dbg, "Number of name spaces = %d\n", NumberOfNameSpaces );
 
     ptr = &IrpContext->rsp[ 9 ];
-    LongNameSpace = -1;
+    LongNameSpace = FALSE;
+
+    //
+    //  Skip the loaded name space list.
+    //
 
     for ( i = 0 ; i < NumberOfNameSpaces ; i++ ) {
-
-        OEM_STRING str;
-
         length = *ptr++;
-
-        DebugTrace( 0, Dbg, "Name space length = %d\n", length);
-
-        str.Length = str.MaximumLength = length;
-        str.Buffer = ptr;
-
-        DebugTrace( 0, Dbg, "Name space = %S\n", &str );
-
-        if ( length == 3 && RtlCompareMemory( ptr, "OS2", 3 ) == 3 ) {
-
-            //
-            //  Remember the index of the long names.
-            //
-
-            LongNameSpace = i;
-        }
-
         ptr += length;
     }
 
     //
-    //  Bail now if the server doesn't support the OS2 name space.
-    //
-
-    if ( LongNameSpace == LFN_NO_OS2_NAME_SPACE ) {
-        DebugTrace( 0, Dbg, "No OS2 name space support\n", 0);
-        DebugTrace(-1, Dbg, "GetLongNameSpaceForVolume -> -1\n", 0);
-        return( FALSE );
-    }
-
-    //
-    //  Skip the name space info list.
+    //  Skip the supported data streams list.
     //
 
     NumberOfInfoRecords = *ptr++;
@@ -2291,26 +2940,31 @@ Return Value:
     }
 
     //
-    //  Skip the loaded name space list.
+    //  Skip the supported data streams ordinal list.
     //
 
     length = *ptr;
     ptr += length + 1;
 
     //
-    //  See if this volume supports OS2 names.
+    //  See if this volume supports long names.
     //
 
     length = *ptr++;
     for ( i = 0; i < length ; i++ ) {
-        if ( *ptr++ == LongNameSpace ) {
-            *VolumeLongNameSpace = LongNameSpace;
+        if ( *ptr++ == LONG_NAME_SPACE_ORDINAL ) {
+            LongNameSpace = TRUE;
+            *VolumeLongNameSpace = LONG_NAME_SPACE_ORDINAL;
         }
     }
 
-    DebugTrace(-1, Dbg, "GetLongNameSpaceForVolume -> STATUS_SUCCESS\n", 0 );
+    if ( LongNameSpace ) {
+        DebugTrace(-1, Dbg, "GetLongNameSpaceForVolume -> STATUS_SUCCESS\n", 0 );
+    } else {
+        DebugTrace(-1, Dbg, "No long name space for volume.\n", 0 );
+    }
 
-    return( TRUE );
+    return( LongNameSpace );
 }
 
 BOOLEAN
@@ -2324,7 +2978,8 @@ Routine Description:
     This routine checks if the specified file name is conformant to the
     Fat 8.3 file naming rules.
 
-    This routine was stolen from NTFS.
+    FIXFIX Either get a wide version of FsRtlIsFatDbcsLegal or keep the OemString
+    FIXFIX version around for the packet we'll eventually create.
 
 Arguments:
 
@@ -2337,41 +2992,59 @@ Return Value:
 --*/
 
 {
-    BOOLEAN Results;
     STRING DbcsName;
-    USHORT i;
+    int i;
 
     PAGED_CODE();
 
     //
-    //  We will do some extra checking ourselves because we really want to be
-    //  fairly restrictive of what an 8.3 name contains.  That way
-    //  we will then generate an 8.3 name for some nomially valid 8.3
-    //  names (e.g., names that contain DBCS characters).  The extra characters
-    //  we'll filter off are those characters less than and equal to the space
-    //  character and those beyond lowercase z.
+    //  Build up the dbcs string to call the fsrtl routine to check
+    //  for legal 8.3 formation
     //
-
-    for (i = 0; i < FileName->Length / 2; i += 1) {
-
-        WCHAR wc;
-
-        wc = FileName->Buffer[i];
-
-        if ((wc <= 0x0020) || (wc >= 0x007f) || (wc == 0x007c)) { return FALSE; }
-    }
-
-    //
-    //  The characters match up okay so now build up the dbcs string to call
-    //  the fsrtl routine to check for legal 8.3 formation
-    //
-
-    Results = FALSE;
 
     if (NT_SUCCESS(RtlUnicodeStringToCountedOemString( &DbcsName, FileName, TRUE))) {
 
+        for ( i = 0; i < DbcsName.Length; i++ ) {
+
+            if ( FsRtlIsLeadDbcsCharacter( DbcsName.Buffer[i] ) ) {
+
+                //
+                //  Ignore lead bytes and trailing bytes
+                //
+
+                i++;
+
+            } else {
+
+                //
+                // disallow:
+                //  '*' + 0x80 alt-170 (0xAA)
+                //  '.' + 0x80 alt-174 (0xAE),
+                //  '?' + 0x80 alt-191 (0xBF) the same as Dos clients.
+                //
+                //  May need to add 229(0xE5) too.
+                //
+                // We also disallow spaces as valid FAT chars since
+                // NetWare treats them as part of the OS2 name space.
+                //
+
+                if ((DbcsName.Buffer[i] == 0xAA) ||
+                    (DbcsName.Buffer[i] == 0xAE) ||
+                    (DbcsName.Buffer[i] == 0xBF) ||
+                    (DbcsName.Buffer[i] == ' ')) {
+
+                    RtlFreeOemString( &DbcsName );
+                    return FALSE;
+                }
+            }
+        }
+
         if (FsRtlIsFatDbcsLegal( DbcsName, FALSE, TRUE, TRUE )) {
-            Results = TRUE;
+
+            RtlFreeOemString( &DbcsName );
+
+            return TRUE;
+
         }
 
         RtlFreeOemString( &DbcsName );
@@ -2381,6 +3054,74 @@ Return Value:
     //  And return to our caller
     //
 
-    return Results;
+    return FALSE;
 }
 
+CHAR
+GetNewDriveNumber (
+    IN PSCB Scb
+    )
+/*++
+
+Routine Description:
+
+    Portable NetWare needs us to give a different drive letter each time
+    we ask for a permanent handle. If we use the same one then:
+
+        net use s: \\port\sys
+        net use v: \\port\vol1
+        dir s:
+        <get contents of \\port\vol1 !!!!>
+
+
+Arguments:
+
+    Scb
+
+Return Value:
+
+    Letter assigned.
+
+--*/
+
+{
+
+    ULONG result = RtlFindClearBitsAndSet( &Scb->DriveMapHeader, 1, 0 );
+
+    PAGED_CODE();
+
+    if (result == 0xffffffff) {
+        return(0);  //  All used!
+    } else {
+        return('A' + (CHAR)(result & 0x00ff) );
+    }
+}
+
+VOID
+FreeDriveNumber(
+    IN PSCB Scb,
+    IN CHAR DriveNumber
+    )
+/*++
+
+Routine Description:
+
+    This routine releases the appropriate Drivehandles bit.
+
+Arguments:
+
+    FileName - Supplies the name to check.
+
+Return Value:
+
+    BOOLEAN - TRUE if the name is valid, FALSE otherwise.
+
+--*/
+
+{
+    PAGED_CODE();
+
+    if (DriveNumber) {
+        RtlClearBits( &Scb->DriveMapHeader, (DriveNumber - 'A') & 0x00ff, 1);
+    }
+}

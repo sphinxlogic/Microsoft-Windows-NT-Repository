@@ -8,8 +8,8 @@ Module Name :
 
 Abtract :
 
-    Contains private definitions for Ndr files in this directory.  This 
-	file is included by all source files in this directory.
+    Contains private definitions for Ndr files in this directory.  This
+    file is included by all source files in this directory.
 
 Author :
 
@@ -23,17 +23,44 @@ Revision History :
 #define _NDRP_
 
 #include <sysinc.h>
+
+#if defined(_MPPC_)
+#ifndef RPC_NO_WINDOWS_H
+#include <windows.h>
+#endif // RPC_NO_WINDOWS_H
+#endif
+
 #include "rpc.h"
 #include "rpcndr.h"
 #include "ndrtypes.h"
 
-#include "dosdefs.h"
+#if defined(WIN32) || defined(_MPPC_)
+// NT and Chicago and PowerMac  but not 16bit nor Mac.
+
+#define NDR_SERVER_SUPPORT 1
+#endif
+
+#if defined(_MPPC_)
+#define _int64  double
+#endif
+
+//
+// The MIDL version is contained in the stub descriptor starting with
+// MIDL version 2.00.96 (pre NT 3.51 Beta 2, 2/95) and can be used for a finer
+// granularity of compatability checking.  The MIDL version was zero before
+// MIDL version 2.00.96.  The MIDL version number is converted into
+// an integer long using the following expression :
+//     ((Major << 24) | (Minor << 16) | Revision)
+//
+#define MIDL_NT_3_51           ((2UL << 24) | (0UL << 16) | 102UL)
+#define MIDL_VERSION_3_0_39    ((3UL << 24) | (0UL << 16) |  39UL)
+
 
 // Shortcut typedefs.
-typedef unsigned char	uchar;
-typedef unsigned short	ushort;
-typedef unsigned long	ulong;
-typedef unsigned int	uint;
+typedef unsigned char   uchar;
+typedef unsigned short  ushort;
+typedef unsigned long   ulong;
+typedef unsigned int    uint;
 
 #include "mrshlp.h"
 #include "unmrshlp.h"
@@ -41,57 +68,49 @@ typedef unsigned int	uint;
 #include "memsizep.h"
 #include "freep.h"
 #include "endianp.h"
-#include "srvoutp.h"
 #include "fullptr.h"
 
 #ifdef NEWNDR_INTERNAL
 
+#include <assert.h>
 #include <stdio.h>
 
-void	
-NdrAssert(
-	BOOL			Expr,
-	char __RPC_FAR *			Str,
-	char __RPC_FAR *			File,
-	unsigned int	Line
-	);
-
-#define	NDR_ASSERT( Expr, S ) 	NdrAssert( Expr, S, __FILE__, __LINE__ )
+#define NDR_ASSERT( Expr, S )   assert( (Expr) || ! (S) )
 
 #else
 
-#define	NDR_ASSERT( Expr, S ) 	ASSERT( (Expr) || ! (S) )
+#define NDR_ASSERT( Expr, S )   ASSERT( (Expr) || ! (S) )
 
 #endif
 
-uchar __RPC_FAR *
-NdrpMemoryIncrement( 
-	PMIDL_STUB_MESSAGE	pStubMsg,
-    uchar __RPC_FAR *   pMemory,
-    PFORMAT_STRING    	pFormat 
-	);
-
-long
-NdrpArrayDimensions( 
-	PFORMAT_STRING 		pFormat,
-	BOOL				fIgnoreStringArrays 
-	);
-
-long
-NdrpArrayElements( 
-	PMIDL_STUB_MESSAGE	pStubMsg,
+uchar *
+NdrpMemoryIncrement(
+    PMIDL_STUB_MESSAGE  pStubMsg,
     uchar *             pMemory,
-	PFORMAT_STRING 		pFormat
-	);
+    PFORMAT_STRING      pFormat
+    );
+
+long
+NdrpArrayDimensions(
+    PFORMAT_STRING      pFormat,
+    BOOL                fIgnoreStringArrays
+    );
+
+long
+NdrpArrayElements(
+    PMIDL_STUB_MESSAGE  pStubMsg,
+    uchar *             pMemory,
+    PFORMAT_STRING      pFormat
+    );
 
 void
-NdrpArrayVariance( 
-	PMIDL_STUB_MESSAGE	pStubMsg,
+NdrpArrayVariance(
+    PMIDL_STUB_MESSAGE  pStubMsg,
     uchar *             pMemory,
-	PFORMAT_STRING 		pFormat,
+    PFORMAT_STRING      pFormat,
     long *              pOffset,
     long *              pLength
-	);
+    );
 
 PFORMAT_STRING
 NdrpSkipPointerLayout(
@@ -100,9 +119,17 @@ NdrpSkipPointerLayout(
 
 long
 NdrpStringStructLen(
-    uchar *     pMemory,
-    long        ElementSize
+    uchar *             pMemory,
+    long                ElementSize
     );
+
+void
+NdrpCheckBound(
+    ulong               Bound,
+    int                 Type
+    );
+
+#define CHECK_BOUND( Bound, Type )  NdrpCheckBound( Bound, (int)(Type) )
 
 #define NdrpComputeSwitchIs( pStubMsg, pMemory, pFormat )   \
             NdrpComputeConformance( pStubMsg,   \
@@ -114,12 +141,15 @@ NdrpStringStructLen(
                                     pMemory,    \
                                     pFormat )
 
+//
+// Defined in global.c
+//
 extern const unsigned char SimpleTypeAlignment[];
 extern const unsigned char SimpleTypeBufferSize[];
 extern const unsigned char SimpleTypeMemorySize[];
-extern const unsigned char NdrTypeFlags[];
+extern const unsigned long NdrTypeFlags[];
 
-#define PTR_MEM_SIZE	                sizeof( void * )
+#define PTR_MEM_SIZE                    sizeof( void * )
 
 #define IGNORED(Param)
 
@@ -130,83 +160,86 @@ extern const unsigned char NdrTypeFlags[];
 
 #define HAS_RPCFLAGS(Flags)             ((Flags) & Oi_HAS_RPCFLAGS)
 
-#define DONT_HANDLE_EXCEPTION(Flags)	((Flags) & Oi_IGNORE_OBJECT_EXCEPTION_HANDLING)
+#define DONT_HANDLE_EXCEPTION(Flags)    \
+                    ((Flags) & Oi_IGNORE_OBJECT_EXCEPTION_HANDLING)
 
 //
-// Macro for single call server mechanism which saves context handles.
+// Alignment macros.
 //
-#define DEFAULT_NUMBER_OF_CTXT_HANDLES  8
 
-//
-// Alignment macro.  
-//
 #define ALIGN( pStuff, cAlign ) \
-				pStuff = (uchar *)((ulong)((pStuff) + (cAlign)) & ~ (cAlign))
+                pStuff = (uchar *)((ulong)((pStuff) + (cAlign)) & ~ (cAlign))
 
 #define LENGTH_ALIGN( Length, cAlign ) \
-				Length = (((Length) + (cAlign)) & ~ (cAlign))
+                Length = (((Length) + (cAlign)) & ~ (cAlign))
 
 //
-// Routine index macros.
+// Routine index macro.
 //
-#define INVALID_ROUTINE_INDEX(FormatChar)	(FormatChar < FC_RP)
-
-#define ROUTINE_INDEX(FormatChar)			(FormatChar - FC_RP)
+#define ROUTINE_INDEX(FC)       ((FC) & 0x7f)
 
 //
 // Simple type alignment and size lookup macros.
 //
-#define SIMPLE_TYPE_ALIGNMENT(FormatChar)	SimpleTypeAlignment[FormatChar]
+#define SIMPLE_TYPE_ALIGNMENT(FormatChar)   SimpleTypeAlignment[FormatChar]
 
-#define SIMPLE_TYPE_BUFSIZE(FormatChar)		SimpleTypeBufferSize[FormatChar]
+#define SIMPLE_TYPE_BUFSIZE(FormatChar)     SimpleTypeBufferSize[FormatChar]
 
-#define SIMPLE_TYPE_MEMSIZE(FormatChar)		SimpleTypeMemorySize[FormatChar]
+#define SIMPLE_TYPE_MEMSIZE(FormatChar)     SimpleTypeMemorySize[FormatChar]
+
+//
+// Format character attribute bits used in global NdrTypesFlags defined in
+// global.c.
+//
+#define     _SIMPLE_TYPE_       0x0001L
+#define     _POINTER_           0x0002L
+#define     _STRUCT_            0x0004L
+#define     _ARRAY_             0x0008L
+#define     _STRING_            0x0010L
+#define     _UNION_             0x0020L
+#define     _XMIT_AS_           0x0040L
+
+#define     _BY_VALUE_          0x0080L
+
+#define     _HANDLE_            0x0100L
+
+#define     _BASIC_POINTER_     0x0200L
 
 //
 // Format character query macros.
 //
-#define IS_SIMPLE_TYPE(FmtChar)     ((FmtChar) < FC_RP)
+#define IS_SIMPLE_TYPE(FC)     (NdrTypeFlags[(FC)] & _SIMPLE_TYPE_)
 
-#define IS_POINTER_TYPE(FmtChar)	( (((FmtChar) >= FC_RP) && \
-							    	   ((FmtChar) <= FC_FP)) || \
-                                      ((FmtChar) == FC_IP) )
+#define IS_POINTER_TYPE(FC)    (NdrTypeFlags[(FC)] & _POINTER_)
 
-#define IS_ARRAY(FmtChar)	        ( ((FmtChar) >= FC_CARRAY) && \
-				                      ((FmtChar) <= FC_BOGUS_ARRAY) )
+#define IS_BASIC_POINTER(FC)   (NdrTypeFlags[(FC)] & _BASIC_POINTER_)
 
-#define IS_STRUCT(FmtChar)          ( ((FmtChar) >= FC_STRUCT) && \
-					                  ((FmtChar) <= FC_BOGUS_STRUCT) )
+#define IS_ARRAY(FC)           (NdrTypeFlags[(FC)] & _ARRAY_)
 
-#define IS_UNION(FmtChar)           ( ((FmtChar) == FC_ENCAPSULATED_UNION) || \
-                                      ((FmtChar) == FC_NON_ENCAPSULATED_UNION) )
+#define IS_STRUCT(FC)          (NdrTypeFlags[(FC)] & _STRUCT_)
 
-#define IS_HANDLE(FmtChar)          ( ((FmtChar) <= FC_AUTO_HANDLE) && \
-                                      ((FmtChar) >= FC_BIND_CONTEXT) )
+#define IS_UNION(FC)           (NdrTypeFlags[(FC)] & _UNION_)
 
-#define IS_STRING(FmtChar)          ( ((FmtChar) >= FC_C_CSTRING) && \
-                                      ((FmtChar) <= FC_WSTRING) )
+#define IS_STRING(FC)          (NdrTypeFlags[(FC)] & _STRING_)
 
-#define IS_CONFORMANT_STRING(FmtChar)   ( ((FmtChar) >= FC_C_CSTRING) && \
-                                          ((FmtChar) < FC_CSTRING) )
+#define IS_ARRAY_OR_STRING(FC) (NdrTypeFlags[(FC)] & (_STRING_ | _ARRAY_))
 
-#define IS_ARRAY_OR_STRING(FmtChar) ( ((FmtChar) >= FC_CARRAY) && \
-                                      ((FmtChar) <= FC_WSTRING) )
+#define IS_XMIT_AS(FC)         (NdrTypeFlags[(FC)] & _XMIT_AS_)
 
-#define IS_XMIT_AS(FmtChar)         ( ((FmtChar) == FC_TRANSMIT_AS) || \
-                                      ((FmtChar) == FC_REPRESENT_AS) )
+#define IS_BY_VALUE(FC)        (NdrTypeFlags[(FC)] & _BY_VALUE_)
 
-#define IS_BY_VALUE(FmtChar)        ( NdrTypeFlags[FmtChar] )
+#define IS_HANDLE(FC)          (NdrTypeFlags[(FC)] & _HANDLE_)
 
 //
 // Pointer attribute extraction and querying macros.
 //
-#define ALLOCATE_ALL_NODES( FC )	((FC) & FC_ALLOCATE_ALL_NODES)
+#define ALLOCATE_ALL_NODES( FC )    ((FC) & FC_ALLOCATE_ALL_NODES)
 
-#define DONT_FREE( FC )				((FC) & FC_DONT_FREE)
+#define DONT_FREE( FC )             ((FC) & FC_DONT_FREE)
 
-#define ALLOCED_ON_STACK( FC )		((FC) & FC_ALLOCED_ON_STACK)
+#define ALLOCED_ON_STACK( FC )      ((FC) & FC_ALLOCED_ON_STACK)
 
-#define SIMPLE_POINTER( FC )		((FC) & FC_SIMPLE_POINTER)
+#define SIMPLE_POINTER( FC )        ((FC) & FC_SIMPLE_POINTER)
 
 #define POINTER_DEREF( FC )         ((FC) & FC_POINTER_DEREF)
 
@@ -219,9 +252,50 @@ extern const unsigned char NdrTypeFlags[];
 
 #define IS_HANDLE_OUT( FC )         ((FC) & HANDLE_PARAM_IS_OUT)
 
+#define IS_HANDLE_RETURN( FC )      ((FC) & HANDLE_PARAM_IS_RETURN)
+
 //
-// Union hack helper.
+// Union hack helper. (used to be MAGIC_UNION_BYTE 0x80)
 //
-#define MAGIC_UNION_BYTE			0x80
+#define IS_MAGIC_UNION_BYTE(pFmt) \
+    ((*(unsigned short *)pFmt & (unsigned short)0xff00) == MAGIC_UNION_SHORT)
+
+// User marshal marker on wire.
+
+#define USER_MARSHAL_MARKER     0x72657355
+
+//
+// Environment dependent macros
+//
+#if !defined(__RPC_DOS__) && !defined(__RPC_WIN16__) && !defined(__RPC_MAC__)
+
+#define SIMPLE_TYPE_BUF_INCREMENT(Len, FC)      Len += 16
+
+#define EXCEPTION_FLAG  \
+            ( (!(RpcFlags & RPCFLG_ASYNCHRONOUS)) &&        \
+              (!InterpreterFlags.IgnoreObjectException) &&  \
+              (StubMsg.dwStubPhase != PROXY_SENDRECEIVE) )
+
+#else
+
+#define SIMPLE_TYPE_BUF_INCREMENT(Len, FC)    \
+            LENGTH_ALIGN(Len, SIMPLE_TYPE_ALIGNMENT(FC)); \
+            Len += SIMPLE_TYPE_BUFSIZE(FC)
+
+#ifndef TRUE
+#define TRUE    (1)
+#define FALSE   (0)
+
+typedef unsigned short BOOL;
+#endif
+
+#define EXCEPTION_FLAG      1
+
+#if ! defined( UNALIGNED )
+#define UNALIGNED
+#endif
 
 #endif
+
+#endif
+

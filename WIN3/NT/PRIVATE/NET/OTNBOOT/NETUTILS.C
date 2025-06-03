@@ -66,7 +66,7 @@ GetRealToolSourcePath (
 /*++
 
 Routine Description:
-    
+
     checks the path in to see if it's a tool tree, if not, then it checks
         to see if it's a client tree with a tool tree in it and returns
         the name of the tool path found (if any) or an error message ID and
@@ -79,7 +79,7 @@ Arguments:
 
     OUT LPTSTR szOutPath
         resulting tool path or empty string if no path found
-    
+
 Return Value:
 
     0 if success
@@ -100,7 +100,7 @@ Return Value:
         lstrcpy (szOutPath, szInPath);
         nResult = 0;
     } else {
-        nFirstResult = nResult; // save for later 
+        nFirstResult = nResult; // save for later
         // the "in" path is NOT a server tools path, so see if it's
         // a client tree
         if ((nResult = ValidSharePath(szInPath)) == 0) {
@@ -695,7 +695,7 @@ Return Value:
 
     // get source path for client files
     if (*pAppInfo->szDistShowPath == 0) {
-        // load default values if an existing sourc dir doesn't exist
+        // load default values if an existing source dir doesn't exist
         if (GetDistributionPath (hwndDlg, FDT_TOOLS_TREE,
             szDlgDistPath, MAX_PATH, &dwShareType) == ERROR_FILE_NOT_FOUND) {
             // tool tree not found so try client tree
@@ -705,8 +705,12 @@ Return Value:
         //then initialize with a default value
         lstrcpy (pAppInfo->szDistShowPath, szDlgDistPath);
     } else {
-        if (GetRealToolSourcePath (pAppInfo->szDistShowPath,
-            pAppInfo->szDistPath) == 0) {
+        // on entry into the dialog box only shared TOOL dirs are allowed
+        // if the user wants to use the root client dir rather than the
+        // actual tool dir later, that's OK, but here it's got to be the
+        // real thing!
+        if (ValidSrvToolsPath (pAppInfo->szDistShowPath) == 0) {
+            lstrcpy (pAppInfo->szDistPath, pAppInfo->szDistShowPath);
             // a valid path is already loaded
             if (IsUncPath(pAppInfo->szDistShowPath)) {
                 dwShareType = NCDU_LOCAL_SHARE_PATH;
@@ -1380,22 +1384,17 @@ Return Value:
                                 goto IDOK_ExitClicked;
                             }
                             // there's clients selected, now see if they'll fit
-                            if (!IsUncPath(pAppInfo->szDestPath)) {
-                                if (ComputeFreeSpace(pAppInfo->szDestPath) < dwBytesToCopy) {
-                                    DisplayMessageBox (
-                                        hwndDlg,
-                                        NCDU_INSUFFICIENT_DISK_SPACE,
-                                        0,
-                                        MB_OK_TASK_EXCL);
-                                    SetFocus (GetDlgItem(hwndDlg, NCDU_DESTINATION_PATH));
-                                    SendDlgItemMessage (hwndDlg, NCDU_DESTINATION_PATH,
-                                        EM_SETSEL, (WPARAM)0, (LPARAM)-1);
+                            if (ComputeFreeSpace(pAppInfo->szDestPath) < dwBytesToCopy) {
+                                DisplayMessageBox (
+                                    hwndDlg,
+                                    NCDU_INSUFFICIENT_DISK_SPACE,
+                                    0,
+                                    MB_OK_TASK_EXCL);
+                                SetFocus (GetDlgItem(hwndDlg, NCDU_DESTINATION_PATH));
+                                SendDlgItemMessage (hwndDlg, NCDU_DESTINATION_PATH,
+                                    EM_SETSEL, (WPARAM)0, (LPARAM)-1);
 
-                                    goto IDOK_ExitClicked;
-                                }
-                            } else {
-                                // unable to compute space on UNC path, so
-                                // hope for the best
+                                goto IDOK_ExitClicked;
                             }
                             // so there should be enough free space
                             if (CopyFilesFromDistToDest (hwndDlg)) {
@@ -1790,4 +1789,3 @@ Return Value:
 }
 
 
-

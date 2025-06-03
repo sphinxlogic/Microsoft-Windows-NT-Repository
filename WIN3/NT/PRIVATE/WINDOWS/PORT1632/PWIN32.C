@@ -372,7 +372,7 @@ BOOL APIENTRY MGetWindowOrg(HDC hdc, INT * px, INT * py)
 
 WORD APIENTRY MGetDriveType(INT nDrive)
 {
-  LPSTR lpPath = "A:\\";
+  CHAR lpPath[] = "A:\\";
 
   lpPath[0] = (char)(nDrive + 'A');
   return((WORD)GetDriveType((LPSTR)lpPath));
@@ -404,8 +404,7 @@ LPSTR APIENTRY MGetDOSEnvironment(VOID)
     // no way to make this work on NT.  TO BE CANNED!!
 
     // For now, just use an empty string.
-
-    char szNULL[] = "";
+    static char szNULL[] = "";
 
     return(szNULL);
 }
@@ -482,4 +481,4 @@ HFILE APIENTRY MDupHandle(HFILE h)
     }
     return((HFILE)-1);
 }
-
+

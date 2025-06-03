@@ -253,10 +253,18 @@ double pow(double x, double y)
 
 	newexp = _get_exp(bigz) + mprim;
 	if (newexp > MAXEXP + IEEE_ADJUST) {
+#ifdef _M_PPC
+	    return _except2(FP_O | FP_P, OP_POW, savedx, y, _copysign(D_INF, sign), savedcw);
+#else
 	    return _except2(FP_O | FP_P, OP_POW, savedx, y, _copysign(D_INF, bigz), savedcw);
+#endif
 	}
 	if (newexp < MINEXP - IEEE_ADJUST) {
+#ifdef _M_PPC
+	    return _except2(FP_U | FP_P, OP_POW, savedx, y, sign*0.0, savedcw);
+#else
 	    return _except2(FP_U | FP_P, OP_POW, savedx, y, bigz*0.0, savedcw);
+#endif
 	}
 
     }

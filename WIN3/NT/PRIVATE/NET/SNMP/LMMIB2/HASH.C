@@ -1,52 +1,31 @@
-//-------------------------- MODULE DESCRIPTION ----------------------------
-//  
-//  hash.c
-//  
-//  Copyright 1992 Technology Dynamics, Inc.
-//  
-//  All Rights Reserved!!!
-//  
-//	This source code is CONFIDENTIAL and PROPRIETARY to Technology 
-//	Dynamics. Unauthorized distribution, adaptation or use may be 
-//	subject to civil and criminal penalties.
-//
-//  All Rights Reserved!!!
-//
-//---------------------------------------------------------------------------
-//  
-//  Hash Table and support functions.
-//
-//  Project:  Implementation of an SNMP Agent for Microsoft's NT Kernel
-//
-//  $Revision:   1.0  $
-//  $Date:   20 May 1992 15:10:24  $
-//  $Author:   mlk  $
-//
-//  $Log:   N:/lmmib2/vcs/hash.c_v  $
-//  
-//     Rev 1.0   20 May 1992 15:10:24   mlk
-//  Initial revision.
-//  
-//     Rev 1.2   02 May 1992 19:09:08   todd
-//  code cleanup
-//  
-//     Rev 1.1   23 Apr 1992 17:57:36   todd
-//  
-//     Rev 1.0   22 Apr 1992 17:07:30   todd
-//  Initial revision.
-//
-//---------------------------------------------------------------------------
+/*++
 
-//--------------------------- VERSION INFO ----------------------------------
+Copyright (c) 1992-1996  Microsoft Corporation
 
-static char *vcsid = "@(#) $Logfile:   N:/lmmib2/vcs/hash.c_v  $ $Revision:   1.0  $";
+Module Name:
 
+    hash.c
+
+Abstract:
+
+    Hash Table and support functions.
+
+Environment:
+
+    User Mode - Win32
+
+Revision History:
+
+    10-May-1996 DonRyan
+        Removed banner from Technology Dynamics, Inc.
+
+--*/
+ 
 //--------------------------- WINDOWS DEPENDENCIES --------------------------
 
 //--------------------------- STANDARD DEPENDENCIES -- #include<xxxxx.h> ----
 
 #include <stdio.h>
-#include <malloc.h>
 
 //--------------------------- MODULE DEPENDENCIES -- #include"xxxxx.h" ------
 
@@ -122,7 +101,7 @@ SNMPAPI   nResult;
       if ( MIB_HashTable[HashRes] == NULL )
          {
 	 // Allocate first node in bucket
-	 MIB_HashTable[HashRes] = malloc( sizeof(HASH_NODE) );
+         MIB_HashTable[HashRes] = SnmpUtilMemAlloc( sizeof(HASH_NODE) );
 	 if ( MIB_HashTable[HashRes] == NULL )
 	    {
 	    SetLastError( SNMP_MEM_ALLOC_ERROR );
@@ -144,7 +123,7 @@ SNMPAPI   nResult;
 	    }
 
 	 // Alloc space for next node
-	 ht_ptr->Next = malloc( sizeof(HASH_NODE) );
+         ht_ptr->Next = SnmpUtilMemAlloc( sizeof(HASH_NODE) );
 	 if ( ht_ptr->Next == NULL )
 	    {
 	    SetLastError( SNMP_MEM_ALLOC_ERROR );
@@ -229,7 +208,7 @@ UINT      HashPos;
    ht_ptr = MIB_HashTable[HashPos];
    while ( ht_ptr != NULL )
       {
-      if ( !SNMP_oidcmp(Oid, &ht_ptr->MibEntry->Oid) )
+      if ( !SnmpUtilOidCmp(Oid, &ht_ptr->MibEntry->Oid) )
          {
 	 pResult = ht_ptr->MibEntry;
 	 goto Exit;
@@ -268,7 +247,7 @@ ULONG Sum;
 ULONG Count;
 
 
-   printf( "\nHash Performance Report\n\n" );
+   SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: Hash Performance Report\n" );
 
    LargestBucket = 0;
    Count         = 0;
@@ -287,7 +266,7 @@ ULONG Count;
 
       if ( BucketSize )
          {
-	 printf( "   %d -- Bucket Size:  %d\n", I, BucketSize );
+	 SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2:   %d -- Bucket Size:  %d\n", I, BucketSize ));
 
          Sum += BucketSize;
 	 Count ++;
@@ -296,14 +275,13 @@ ULONG Count;
 	 }
       }
 
-   printf( "\n   Number of Buckets:  %d\n", HT_SIZE );
-   printf( "   Number of MIB Var:  %d\n", MIB_num_variables );
-   printf( "   Hashing Radix    :  %d\n", HashRadix );
+   SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2:   Number of Buckets:  %d\n", HT_SIZE ));
+   SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2:   Number of MIB Var:  %d\n", MIB_num_variables ));
+   SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2:   Hashing Radix    :  %d\n", HashRadix ));
 
-   printf( "\n   Used bucket Count:  %d\n", Count );
-   printf( "   Avg. Bucket Size :  %d\n", Sum / Count );
-   printf( "   Larg. bucket Size:  %d\n", LargestBucket );
+   SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2:   Used bucket Count:  %d\n", Count ));
+   SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2:   Avg. Bucket Size :  %d\n", Sum / Count ));
+   SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2:   Larg. bucket Size:  %d\n", LargestBucket ));
 } // MIB_HashPerformance
 #endif
 //-------------------------------- END --------------------------------------
-

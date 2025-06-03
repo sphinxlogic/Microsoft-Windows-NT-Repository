@@ -61,7 +61,6 @@ _CRTAPI1 main(
             Parameters[ 1 ] = (ULONG)Status;
             }
         else {
-#if DEVL
             SYSTEM_FLAGS_INFORMATION FlagInfo;
 
             NtQuerySystemInformation( SystemFlagsInformation,
@@ -69,19 +68,28 @@ _CRTAPI1 main(
                                       sizeof( FlagInfo ),
                                       NULL
                                     );
-            if (FlagInfo.Flags & FLG_DEBUG_INITIAL_COMMAND) {
+            if (FlagInfo.Flags & (FLG_DEBUG_INITIAL_COMMAND | FLG_DEBUG_INITIAL_COMMAND_EX) ) {
                 DebugInitialCommand.MaximumLength = InitialCommand.Length + 64;
                 DebugInitialCommand.Length = 0;
                 DebugInitialCommand.Buffer = RtlAllocateHeap( RtlProcessHeap(),
-                                                              0,
+                                                              MAKE_TAG( INIT_TAG ),
                                                               DebugInitialCommand.MaximumLength
                                                             );
-		RtlAppendUnicodeToString( &DebugInitialCommand, L"ntsd -p -1 -d " );
+                if (FlagInfo.Flags & FLG_ENABLE_CSRDEBUG) {
+                    RtlAppendUnicodeToString( &DebugInitialCommand, L"ntsd -p -1 -d " );
+                    }
+                else {
+                    RtlAppendUnicodeToString( &DebugInitialCommand, L"ntsd -d " );
+                    }
+
+                if (FlagInfo.Flags & FLG_DEBUG_INITIAL_COMMAND_EX ) {
+                    RtlAppendUnicodeToString( &DebugInitialCommand, L"-g -x " );
+                    }
+
                 RtlAppendUnicodeStringToString( &DebugInitialCommand, &InitialCommand );
                 InitialCommand = DebugInitialCommand;
                 }
 
-#endif
             Status = SmpExecuteInitialCommand( &InitialCommand, &ProcessHandles[ 1 ] );
             if (NT_SUCCESS( Status )) {
                 Status = NtWaitForMultipleObjects( 2,
@@ -181,11 +189,7 @@ SmpUnhandledExceptionFilter(
     struct _EXCEPTION_POINTERS *ExceptionInfo
     )
 {
-    NTSTATUS Status;
-    ULONG Parameters[ 4 ];
-    ULONG Response;
-
-#if DEVL
+#if DBG
     DbgPrint( "SMSS: Unhandled exception - Status == %x  IP == %x\n",
               ExceptionInfo->ExceptionRecord->ExceptionCode,
               ExceptionInfo->ExceptionRecord->ExceptionAddress
@@ -197,26 +201,6 @@ SmpUnhandledExceptionFilter(
 
     DbgBreakPoint();
 #endif
-
-    Parameters[ 0 ] = (ULONG)ExceptionInfo->ExceptionRecord->ExceptionCode;
-    Parameters[ 1 ] = (ULONG)ExceptionInfo->ExceptionRecord->ExceptionAddress;
-    if ( ExceptionInfo->ExceptionRecord->ExceptionCode == STATUS_IN_PAGE_ERROR ) {
-        Parameters[ 2 ] = ExceptionInfo->ExceptionRecord->ExceptionInformation[ 2 ];
-        }
-    else {
-        Parameters[ 2 ] = ExceptionInfo->ExceptionRecord->ExceptionInformation[ 0 ];
-        }
-
-    Parameters[ 3 ] = ExceptionInfo->ExceptionRecord->ExceptionInformation[ 1 ];
-
-
-    Status = NtRaiseHardError( STATUS_UNHANDLED_EXCEPTION,
-                               4,
-                               1,
-                               Parameters,
-                               OptionShutdownSystem,
-                               &Response
-                             );
 
     return EXCEPTION_EXECUTE_HANDLER;
 }

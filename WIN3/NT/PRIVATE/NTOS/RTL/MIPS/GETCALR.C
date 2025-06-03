@@ -88,7 +88,7 @@ Note:
     //
 
     RtlCaptureContext(&ContextRecord);
-    NextPc = ContextRecord.IntRa;
+    NextPc = (ULONG)ContextRecord.XIntRa;
 
     //
     // Get the high and low limits of the current thread's stack.
@@ -108,7 +108,7 @@ Note:
         // to the caller of this routine (C).
         //
 
-        NextPc = RtlVirtualUnwind(NextPc,
+        NextPc = RtlVirtualUnwind(NextPc | 1,
                                   FunctionEntry,
                                   &ContextRecord,
                                   &InFunction,
@@ -120,7 +120,7 @@ Note:
         //
 
         FunctionEntry = RtlLookupFunctionEntry(NextPc);
-        if ((FunctionEntry != NULL) && (ContextRecord.IntSp < HighLimit)) {
+        if ((FunctionEntry != NULL) && ((ULONG)ContextRecord.XIntSp < HighLimit)) {
 
             //
             // A function table entry was found for the caller of the caller
@@ -128,7 +128,7 @@ Note:
             // caller of this routine (B).
             //
 
-            NextPc = RtlVirtualUnwind(NextPc,
+            NextPc = RtlVirtualUnwind(NextPc | 1,
                                       FunctionEntry,
                                       &ContextRecord,
                                       &InFunction,
@@ -143,7 +143,7 @@ Note:
             //
 
             FunctionEntry = RtlLookupFunctionEntry(NextPc);
-            if ((FunctionEntry != NULL) && (ContextRecord.IntSp < HighLimit)) {
+            if ((FunctionEntry != NULL) && ((ULONG)ContextRecord.XIntSp < HighLimit)) {
 
                 //
                 // A function table entry was found for the caller of the
@@ -152,7 +152,7 @@ Note:
                 // (A).
                 //
 
-                NextPc = RtlVirtualUnwind(NextPc,
+                NextPc = RtlVirtualUnwind(NextPc | 1,
                                           FunctionEntry,
                                           &ContextRecord,
                                           &InFunction,

@@ -52,7 +52,7 @@ Return Value:
 
 {
     Context->AdapterInfo = ExAllocatePool(NonPagedPool,
-                                sizeof(*Context->AdapterInfo));
+				sizeof(*Context->AdapterInfo));
 
     if (Context->AdapterInfo == NULL) {
         return STATUS_INSUFFICIENT_RESOURCES;
@@ -71,8 +71,12 @@ Return Value:
     Context->IoRequest = NULL;
     Context->CurrentTape.MediaInfo = NULL;
 
-    if (q117AllocateBuffers(Context)) {
-        return STATUS_INSUFFICIENT_RESOURCES;
+    if (!Context->Parameters.DetectOnly) {
+
+        if (q117AllocateBuffers(Context)) {
+            return STATUS_INSUFFICIENT_RESOURCES;
+        }
+
     }
 
     return STATUS_SUCCESS;
@@ -101,40 +105,60 @@ Return Value:
 --*/
 
 {
+    NTSTATUS ntStatus;
+
     //
     // Allocate I/O Request array for packets sent to q117i
     //
     Context->IoRequest = ExAllocatePool(
-        NonPagedPool,
-        UNIX_MAXBFS * sizeof(IO_REQUEST));
+	NonPagedPool,
+	UNIX_MAXBFS * sizeof(IO_REQUEST));
 
     //
     // Allocate current header info
     //
 
     Context->CurrentTape.TapeHeader = ExAllocatePool(
-                                        NonPagedPool,
-                                        sizeof(TAPE_HEADER));
+					NonPagedPool,
+					sizeof(TAPE_HEADER));
 
+    //
+    // Init the bad sector map pointer to the old QIC40 location
+    // This will be changed to the proper location by format.c or
+    // init.c when a tape is formatted, or read.
+    //
     Context->CurrentTape.BadMapPtr = &(Context->CurrentTape.TapeHeader->BadMap);
     Context->CurrentTape.BadSectorMapSize = sizeof(BAD_MAP);
+    Context->CurrentTape.CurBadListIndex = 0;
 
     //
     // Allocate tape info structure
     //
     Context->CurrentTape.MediaInfo = ExAllocatePool(
-                                        NonPagedPool,
-                                        sizeof(*Context->CurrentTape.MediaInfo));
+					NonPagedPool,
+					sizeof(*Context->CurrentTape.MediaInfo));
+
+	 // Zero media info buffer and init block size.  This should not be
+	 // necessary,  but HCT tests rely on info here to be valid even in
+	 // error case.
+	 RtlZeroMemory(Context->CurrentTape.MediaInfo, sizeof(*Context->CurrentTape.MediaInfo));
+	 Context->CurrentTape.MediaInfo->BlockSize = BLOCK_SIZE;
+
+    // Create the minimum mark table
+    Context->MarkArray.MarksAllocated = 0;
+    Context->MarkArray.TotalMarks = 0;
+    Context->MarkArray.MarkEntry = NULL;
+    ntStatus = q117MakeMarkArrayBigger(Context, 0);
 
     if ( Context->CurrentTape.TapeHeader == NULL ||
-            Context->IoRequest == NULL ||
-            Context->CurrentTape.MediaInfo == NULL ) {
+	    Context->IoRequest == NULL ||
+	    Context->CurrentTape.MediaInfo == NULL || !NT_SUCCESS(ntStatus)) {
 
-        //
-        // Free anything that was allocated
-        //
-        q117FreeTemporaryMemory(Context);
-        return ERROR_ENCODE(ERR_NO_MEMORY, FCT_ID, 1);
+	//
+	// Free anything that was allocated
+	//
+	q117FreeTemporaryMemory(Context);
+	return ERROR_ENCODE(ERR_NO_MEMORY, FCT_ID, 1);
 
     }
 
@@ -170,24 +194,33 @@ Return Value:
     // Free I/O request buffer array
     //
     if (Context->IoRequest) {
-        ExFreePool(Context->IoRequest);
-        Context->IoRequest = NULL;
+	ExFreePool(Context->IoRequest);
+	Context->IoRequest = NULL;
     }
 
     //
     // Free tape header buffer
     //
     if (Context->CurrentTape.TapeHeader) {
-        ExFreePool(Context->CurrentTape.TapeHeader);
-        Context->CurrentTape.TapeHeader = NULL;
+	ExFreePool(Context->CurrentTape.TapeHeader);
+	Context->CurrentTape.TapeHeader = NULL;
     }
 
     //
     // Free tape information buffer
     //
     if (Context->CurrentTape.MediaInfo) {
-        ExFreePool(Context->CurrentTape.MediaInfo);
-        Context->CurrentTape.MediaInfo = NULL;
+	ExFreePool(Context->CurrentTape.MediaInfo);
+	Context->CurrentTape.MediaInfo = NULL;
+    }
+
+    //
+    // Free the mark array
+    //
+    Context->MarkArray.MarksAllocated = 0;
+    if (Context->MarkArray.MarkEntry) {
+	ExFreePool(Context->MarkArray.MarkEntry);
+	Context->MarkArray.MarkEntry = NULL;
     }
 
     //
@@ -218,25 +251,29 @@ q117AllocateBuffers (
 
         if ((Context->SegmentBuffer[i].logical =
             HalAllocateCommonBuffer(Context->AdapterInfo->AdapterObject,
-                                    BLOCKS_PER_SEGMENT * BYTES_PER_SECTOR,
-                                    &Context->SegmentBuffer[i].physical,
-                                    FALSE)) == NULL) {
+                        BLOCKS_PER_SEGMENT * BYTES_PER_SECTOR,
+                        &Context->SegmentBuffer[i].physical,
+                        FALSE)) == NULL) {
             break;
         }
 
         ++totalBuffs;
 
-        CheckedDump(QIC117SHOWTD,("q117:  buffer %x ",i,Context->SegmentBuffer[i].logical));
+        CheckedDump(QIC117INFO,("q117:  buffer %x ",i,Context->SegmentBuffer[i].logical));
 
-        CheckedDump(QIC117SHOWTD,("Logical: %x%08x   Virtual: %x\n",
-                    Context->SegmentBuffer[i].physical, Context->SegmentBuffer[i].logical));
+        CheckedDump(QIC117INFO,("Logical: %x%08x   Virtual: %x\n",
+                Context->SegmentBuffer[i].physical, Context->SegmentBuffer[i].logical));
+
     }
+
     Context->SegmentBuffersAvailable = totalBuffs;
 
     //
     // We need at least two buffers to stream
     //
     if (totalBuffs < 2) {
+
+        CheckedDump(QIC117DBGP,("Fatal error - Insufficient buffers available from HalAllocateCommonBuffer()\n"));
 
         q117FreeTemporaryMemory(Context);
         return ERROR_ENCODE(ERR_NO_MEMORY, FCT_ID, 2);

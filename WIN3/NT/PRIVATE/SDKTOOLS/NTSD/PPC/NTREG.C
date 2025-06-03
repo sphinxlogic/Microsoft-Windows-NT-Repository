@@ -14,6 +14,8 @@
 *                                 may require some stuff to be moved back
 *                                 here since we are doing X86 kernel stuff
 *                                 even on MIPS.  See me if problems, BobDay.
+*        19-Aug-1994 Tom Wood   Sketched the code to deal with indirect
+*                                 function table entries.
 *
 *************************************************************************/
 
@@ -51,51 +53,30 @@ extern  ulong   EXPRLastDump;           // from module ntcmd.c
         GetMemDword(&tempaddr,&dest);   \
         ADDR32(&tempaddr,addr+4);       \
         GetMemDword(&tempaddr,(&dest)+1);
-
-#define _PPCKD_SYMBOL_SEARCH_   TRUE
-#define KERNEL_DEBUGGER
-#define RtlLookupFunctionEntry(Pc)      LookupFunctionEntry(Pc)
 #endif
 
+ULONG fnStackTrace2(void);
 
 PUCHAR  UserRegs[10] = {0};
 
 BOOLEAN UserRegTest(ULONG);
 
-PCONTEXT GetRegContext(void);
-#ifdef  KERNEL
-void    ChangeKdRegContext(PVOID);
-void    UpdateFirCache(PADDR);
-void    InitFirCache(ULONG, PUCHAR);
-#endif
-ULONG   GetRegValue(ULONG);
-ULONG   GetRegFlagValue(ULONG);
-void    SetRegValue(ULONG, ULONG);
-void    SetRegFlagValue(ULONG, ULONG);
-ULONG   GetRegName(void);
-ULONG   GetRegString(PUCHAR);
-void    GetRegPCValue(PADDR);
-PADDR   GetRegFPValue(void);
-void    SetRegPCValue(PADDR);
-void    OutputAllRegs(void);
-void    OutputOneReg(ULONG);
 BOOLEAN fDelayInstruction(void);
 void    OutputHelp(void);
+void    UpdateFirCache(PADDR);
+void    InitFirCache(ULONG, PUCHAR);
 
 #ifdef  KERNEL
 BOOLEAN fTraceFlag;
 BOOLEAN GetTraceFlag(void);
 #endif
 
-PUCHAR  RegNameFromIndex(ULONG);
-
 ULONG   cbBrkptLength = 4L;
 ULONG   trapInstr = 0x0FE00016;
-#if     !defined(KERNEL) && defined(i386)
-ULONG   ContextType = CONTEXT_CONTROL | CONTEXT_INTEGER | CONTEXT_SEGMENTS
-                                      | CONTEXT_DEBUG_REGISTERS;
-#else
+#ifdef  KERNEL
 ULONG   ContextType = CONTEXT_CONTROL | CONTEXT_INTEGER;
+#else
+ULONG   ContextType = CONTEXT_FULL;
 #endif
 
 #ifdef  KERNEL
@@ -199,6 +180,42 @@ UCHAR   szR29[] = "r29";
 UCHAR   szR30[] = "r30";
 UCHAR   szR31[] = "r31";
 
+// MIPS register naming conventions
+UCHAR   szMR0[]  = "t0";
+UCHAR   szMR1[]  = "rsp";
+UCHAR   szMR2[]  = "toc";
+UCHAR   szMR3[]  = "a0";
+UCHAR   szMR4[]  = "a1";
+UCHAR   szMR5[]  = "a2";
+UCHAR   szMR6[]  = "a3";
+UCHAR   szMR7[]  = "a4";
+UCHAR   szMR8[]  = "a5";
+UCHAR   szMR9[]  = "a6";
+UCHAR   szMR10[] = "a7";
+UCHAR   szMR11[] = "t1";
+UCHAR   szMR12[] = "t2";
+UCHAR   szMR13[] = "s0";
+UCHAR   szMR14[] = "s1";
+UCHAR   szMR15[] = "s2";
+UCHAR   szMR16[] = "s3";
+UCHAR   szMR17[] = "s4";
+UCHAR   szMR18[] = "s5";
+UCHAR   szMR19[] = "s6";
+UCHAR   szMR20[] = "s7";
+UCHAR   szMR21[] = "s8";
+UCHAR   szMR22[] = "s9";
+UCHAR   szMR23[] = "s10";
+UCHAR   szMR24[] = "s11";
+UCHAR   szMR25[] = "s12";
+UCHAR   szMR26[] = "s13";
+UCHAR   szMR27[] = "s14";
+UCHAR   szMR28[] = "s15";
+UCHAR   szMR29[] = "s16";
+UCHAR   szMR30[] = "s17";
+UCHAR   szMR31[] = "s18";
+UCHAR   szMREGIP[] = "fir";
+UCHAR   szMLR[]  = "ra";
+
 UCHAR   szSR0[]  = "sr0";
 UCHAR   szSR1[]  = "sr1";
 UCHAR   szSR2[]  = "sr2";
@@ -233,7 +250,7 @@ UCHAR   szMQ[]   = "mq";
 UCHAR   szXER[]  = "xer";
 UCHAR   szRTCU[] = "rtcu";
 UCHAR   szRTCL[] = "rtcl";
-UCHAR   szDEC[]  = "dec";
+UCHAR   szPPCDEC[]  = "dec";
 UCHAR   szLR[]   = "lr";
 UCHAR   szCTR[]  = "ctr";
 UCHAR   szDSISR[]= "dsisr";
@@ -271,7 +288,27 @@ UCHAR   szDBAT5[]  = "dbat2l";
 UCHAR   szDBAT6[]  = "dbat3u";
 UCHAR   szDBAT7[]  = "dbat3l";
 
+// 603 specific Special Purpose Registers (used for unassemble only)
+UCHAR   szDMISS[]  = "dmiss";
+UCHAR   szDCMP[]   = "dcmp";
+UCHAR   szHASH1[]  = "hash1";
+UCHAR   szHASH2[]  = "hash2";
+UCHAR   szIMISS[]  = "imiss";
+UCHAR   szICMP[]   = "icmp";
+UCHAR   szRPA[]    = "rpa";
+UCHAR   szIABR[]   = "iabr";
+
+
 UCHAR   szNULL[]   = "";
+
+PUCHAR  pszMReg[] = {
+    szMR0,  szMR1,  szMR2,  szMR3,  szMR4,  szMR5,  szMR6,  szMR7,
+    szMR8,  szMR9,  szMR10, szMR11, szMR12, szMR13, szMR14, szMR15,
+    szMR16, szMR17, szMR18, szMR19, szMR20, szMR21, szMR22, szMR23,
+    szMR24, szMR25, szMR26, szMR27, szMR28, szMR29, szMR30, szMR31,
+
+    szCr,  szXER, szMsr, szMREGIP, szMLR
+    };
 
 PUCHAR  pszReg[] = {
     szF0,  szNULL,  szF1,  szNULL,  szF2,  szNULL,  szF3,  szNULL,
@@ -299,7 +336,9 @@ PUCHAR  pszReg[] = {
 
     szHID0,  szHID1,  szHID2,  szHID5,
 
-    szMQ,    szEAR,   szPVR,  szRTCU,  szRTCL,  szRTCU,  szRTCL, szDEC, szDEC,
+    szDMISS, szDCMP,  szHASH1, szHASH2, szIMISS, szICMP, szRPA, szIABR,
+
+    szMQ,    szEAR,   szPVR,  szRTCU,  szRTCL,  szRTCU,  szRTCL, szPPCDEC, szPPCDEC,
 
     szCR0,  szCR1,  szCR2,  szCR3,  szCR4,  szCR5,  szCR6,  szCR7,
 
@@ -350,6 +389,14 @@ ULONG  SubRegSPR[] = {
     0x23F,                               // 10001 11111 HID1
     0x25F,                               // 10010 11111 HID2
     0x2BF,                               // 10101 11111 HID5
+    0x21E,                               // 10000 11110 DMISS
+    0x23E,                               // 10001 11110 DCMP
+    0x25E,                               // 10010 11110 HASH1
+    0x27E,                               // 10011 11110 HASH2
+    0x29E,                               // 10100 11110 IMISS
+    0x2BE,                               // 10101 11110 ICMP
+    0x2DE,                               // 10110 11110 RPA
+    0x25F,                               // 10010 11111 IABR
     0x0,                                 // 00000 xxxxx MQ
     0x368,                               // 11011 01000 EAR
     0x3E8,                               // 11111 01000 PVR
@@ -501,18 +548,21 @@ PCONTEXT GetRegContext (void)
 *
 *************************************************************************/
 
-ULONG GetRegFlagValue (ULONG regnum)
+ULONGLONG
+GetRegFlagValue (
+    ULONG regnum
+    )
 {
 
-    ULONG value;
+    ULONGLONG value;
 
-    if (regnum < FLAGBASE || regnum >= PREGBASE)
+    if (regnum < FLAGBASE || regnum >= PREGBASE) {
         value = GetRegValue(regnum);
-    else {
+    } else {
         regnum -= FLAGBASE;
         value = GetRegValue(subregname[regnum].regindex);
         value = (value >> subregname[regnum].shift) & subregname[regnum].mask;
-        }
+    }
     return value;
 }
 
@@ -530,7 +580,10 @@ ULONG GetRegFlagValue (ULONG regnum)
 *
 *************************************************************************/
 
-ULONG GetRegValue (ULONG regnum)
+ULONGLONG
+GetRegValue (
+    ULONG regnum
+    )
 {
 #ifdef  KERNEL
     NTSTATUS NtStatus;
@@ -545,7 +598,7 @@ ULONG GetRegValue (ULONG regnum)
             case PREGEXP:
                 return EXPRLastExpression;
             case PREGRA:
-// FIX THIS     return fnStackTrace2(1, NULL, NULL, TRUE);
+                return fnStackTrace2();
             case PREGP:
                 return EXPRLastDump;
             case PREGU0:
@@ -558,21 +611,18 @@ ULONG GetRegValue (ULONG regnum)
             case PREGU7:
             case PREGU8:
             case PREGU9:
-                return (ULONG)UserRegs[regnum - PREGU0];
-            }
+                return (LONG)UserRegs[regnum - PREGU0];
         }
+    }
 
 #ifdef  KERNEL
     if (regnum != REGIP && contextState == CONTEXTFIR) {
-        NtStatus = DbgKdGetContext(NtsdCurrentProcessor, &RegisterContext);
-        if (!NT_SUCCESS(NtStatus)) {
-            dprintf("DbgKdGetContext failed\n");
-            exit(1);
-            }
-        contextState = CONTEXTVALID;
+        if (regnum < GPR0) {
+            RegisterContext.ContextFlags = CONTEXT_FULL;
         }
+        GetRegContext();
+    }
 #endif
-//  return *(&(ULONG)RegisterContext.Fpr0 + regnum);    Original for PPCKD
     return *(((PULONG)&RegisterContext.Fpr0) + regnum);
 }
 
@@ -598,10 +648,14 @@ ULONG GetRegValue (ULONG regnum)
 *
 *************************************************************************/
 
-void SetRegFlagValue (ULONG regnum, ULONG regvalue)
+VOID
+SetRegFlagValue (
+    ULONG regnum,
+    LONGLONG regvalue
+    )
 {
     ULONG   regindex;
-    ULONG   newvalue;
+    ULONGLONG   newvalue;
     PUCHAR  szValue;
     ULONG   index;
 
@@ -612,16 +666,18 @@ void SetRegFlagValue (ULONG regnum, ULONG regvalue)
         while (szValue[index] >= ' ')
             index++;
         szValue[index] = 0;
-        if (szValue = UserRegs[regnum - PREGU0])
+        if (szValue = UserRegs[regnum - PREGU0]) {
             free(szValue);
+            }
         szValue = UserRegs[regnum - PREGU0] =
                                 malloc(strlen((PUCHAR)regvalue) + 1);
         if (szValue)
             strcpy(szValue, (PUCHAR)regvalue);
         }
 
-    else if (regnum < FLAGBASE)
+    else if (regnum < FLAGBASE) {
         SetRegValue(regnum, regvalue);
+        }
     else if (regnum < PREGBASE) {
         regnum -= FLAGBASE;
         if (regvalue > subregname[regnum].mask)
@@ -649,7 +705,11 @@ void SetRegFlagValue (ULONG regnum, ULONG regvalue)
 *
 *************************************************************************/
 
-void SetRegValue (ULONG regnum, ULONG regvalue)
+VOID
+SetRegValue (
+    ULONG regnum,
+    LONGLONG regvalue
+    )
 {
 #ifdef  KERNEL
     UCHAR   fUpdateCache = FALSE;
@@ -668,8 +728,7 @@ void SetRegValue (ULONG regnum, ULONG regvalue)
         contextState = CONTEXTDIRTY;
         }
 #endif
-//  *(&(ULONG)RegisterContext.Fpr0 + regnum) = regvalue;        ppckd
-    *(((PULONG)&RegisterContext.Fpr0) + regnum) = regvalue;
+    *(((PULONG)&RegisterContext.Fpr0) + regnum) = (ULONG)regvalue;
 #ifdef  KERNEL
     if (fUpdateCache) {
         ADDR TempAddr;
@@ -704,7 +763,7 @@ ULONG GetRegName (void)
     while (ch == '$' || ch >= 'a' && ch <= 'z'
                      || ch >= '0' && ch <= '9' || ch == '.') {
         if (count == 8)
-            return -1;
+            return (ULONG)-1;
         szregname[count++] = ch;
         ch = (UCHAR)tolower(*pchCommand); pchCommand++;
         }
@@ -724,12 +783,12 @@ ULONG GetRegString (PUCHAR pszString)
     for (count = PREGEA ; count < FPSCRFX; count++)
         if (!strcmp(pszString, pszReg[count]))
             return count;
-    return -1;
+    return (ULONG)-1;
 }
 
 void GetRegPCValue (PADDR Address)
 {
-    ADDR32(Address, GetRegValue(REGIP) );
+    ADDR32(Address, (ULONG)GetRegValue(REGIP) );
     return;
 }
 
@@ -737,14 +796,14 @@ PADDR GetRegFPValue (void)
 {
 static ADDR addrFP;
 
-    // BUG! BUG! Need to investigate this.
-    ADDR32(&addrFP, GetRegValue(GPR1) );
+    ADDR32(&addrFP, (ULONG)GetRegValue(GPR1) );
     return &addrFP;
 }
 
 void SetRegPCValue (PADDR paddr)
 {
-    SetRegValue(REGIP, Flat(*paddr));
+    // sign extend!!
+    SetRegValue(REGIP, (LONG)Flat(*paddr));
 }
 
 /*** OutputAllRegs - output all registers and present instruction
@@ -763,7 +822,10 @@ void SetRegPCValue (PADDR paddr)
 *
 *************************************************************************/
 
-void OutputAllRegs(void)
+VOID
+OutputAllRegs(
+    BOOL Show64
+    )
 {
     int     regindex;
 
@@ -771,17 +833,51 @@ void OutputAllRegs(void)
             if (strlen(pszReg[regindex + REGBASE]) < 3)
                 dprintf(" ");
             dprintf("%s=%08lx", pszReg[regindex + REGBASE],
-                               GetRegValue(regindex + REGBASE));
+                               (ULONG)GetRegValue(regindex + REGBASE));
             if (((regindex+1) % 6) == 0)
                 dprintf("\n");
             else
                 dprintf(" ");
     }
     dprintf("\n");
+}
 
-    // BUG! BUG! When I determine which flags we will typically be
-    // interested in I will dump some of the key flags by name. Until
-    // then I will just dump the register in hex.
+/*** printFloatReg - output floating point registers
+*
+*   Purpose:
+*       To output the current floating point register state.
+*
+*   Input:
+*       None.
+*
+*   Output:
+*       None.
+*
+*************************************************************************/
+
+void printFloatReg(void)
+{
+    int     regindex;
+
+    for (regindex = FPR0; regindex < GPR0; regindex+=2) {
+            if (strlen(pszReg[regindex]) < 5) {
+                dprintf(" ");
+            }
+            if (strlen(pszReg[regindex]) < 4) {
+                dprintf(" ");
+            }
+            if (strlen(pszReg[regindex]) < 3) {
+                dprintf(" ");
+            }
+            dprintf("%s=%08lx%08lx", pszReg[regindex],
+                        (ULONG)GetRegValue(regindex+1), (ULONG)GetRegValue(regindex));
+            if (((regindex+2) % 6) == 0) {
+                dprintf("\n");
+            } else {
+                dprintf(" ");
+            }
+    }
+    dprintf("\n");
 }
 
 /*** OutputOneReg - output one register value
@@ -799,15 +895,24 @@ void OutputAllRegs(void)
 *
 *************************************************************************/
 
-void OutputOneReg (ULONG regnum)
+VOID
+OutputOneReg (
+    ULONG regnum,
+    BOOL Show64
+    )
 {
-    ULONG value;
+    ULONGLONG value;
 
+    if (regnum < GPR0) {
+        value = GetRegFlagValue(regnum+1);
+        dprintf("%08lx", (ULONG)value);
+    }
     value = GetRegFlagValue(regnum);
-    if (regnum < FLAGBASE)
-        dprintf("%08lx\n", value);
-    else
-        dprintf("%lx\n", value);
+    if (regnum < FLAGBASE) {
+        dprintf("%08lx\n", (ULONG)value);
+    } else {
+        dprintf("%lx\n", (ULONG)value);
+    }
 }
 
 BOOLEAN fDelayInstruction (void)
@@ -930,111 +1035,29 @@ void SetTraceFlag (void)
 #endif
 }
 
-PIMAGE_FUNCTION_ENTRY
-LookupFunctionEntry (
-    IN ULONG ControlPc
-    )
-
-/*++
-
-Routine Description:
-
-    This function searches the currently active function tables for an entry
-    that corresponds to the specified PC value.
-
-Arguments:
-
-    ControlPc - Supplies the address of an instruction within the specified
-        function.
-
-Return Value:
-
-    If there is no entry in the function table for the specified PC, then
-    NULL is returned. Otherwise, the address of the function table entry
-    that corresponds to the specified PC is returned.
-
---*/
-
-{
-
-    PIMAGE_FUNCTION_ENTRY FunctionEntry;
-    PIMAGE_FUNCTION_ENTRY FunctionTable;
-    LONG                  High;
-    LONG                  Low;
-    LONG                  Middle;
-    PIMAGE_INFO           pImage;
-
-    //
-    // locate the image in the image table
-    //
-    pImage = GetImageInfoFromOffset( ControlPc );
-    if (!pImage) {
-        return NULL;
-    }
-
-    //
-    // if symbols have not been loaded then do so
-    //
-    if (!pImage->fSymbolsLoaded) {
-        if (EnsureOffsetSymbolsLoaded( ControlPc )) {
-            return NULL;
-        }
-    }
-
-    if (!pImage->FunctionTable) {
-        return NULL;
-    }
-
-    //
-    // Initialize search indicies.
-    //
-
-    FunctionTable = pImage->FunctionTable;
-    Low = 0;
-    High = pImage->NumberOfFunctions - 1;
-
-    //
-    // Perform binary search on the function table for a function table
-    // entry that subsumes the specified PC.
-    //
-
-    while (High >= Low) {
-
-        //
-        // Compute next probe index and test entry. If the specified PC
-        // is greater than of equal to the beginning address and less
-        // than the ending address of the function table entry, then
-        // return the address of the function table entry. Otherwise,
-        // continue the search.
-        //
-
-        Middle = (Low + High) >> 1;
-        FunctionEntry = &FunctionTable[Middle];
-        if (ControlPc < FunctionEntry->StartingAddress) {
-            High = Middle - 1;
-
-        } else if (ControlPc >= FunctionEntry->EndingAddress) {
-            Low = Middle + 1;
-
-        } else {
-            return FunctionEntry;
-        }
-    }
-
-    //
-    // A function table entry for the specified PC was not found.
-    //
-
-    return NULL;
-}
-
 PUCHAR RegNameFromIndex (ULONG index)
 {
     return pszReg[index];
 }
 
+void ToggleRegisterNames(void)
+{
+   PUCHAR pszHold;
+   ULONG  i;
+
+   for (i=GPR0;i < SPRCTR;i++) {
+       pszHold = pszReg[i];
+       pszReg[i] = pszMReg[i-GPR0];
+       pszMReg[i-GPR0] = pszHold;
+   }
+}
+
 #ifdef  KERNEL
-void ChangeKdRegContext(PVOID firAddr)
+void
+ChangeKdRegContext(
+    PVOID firAddr,
+    PVOID unused
+    )
 {
     NTSTATUS NtStatus;
 
@@ -1088,4 +1111,64 @@ void RestoreProcessorState(void)
     contextState = SavedContextState;
 }
 #endif
-
+
+/*** fnStackTrace2 - stack trace to obtain the return address
+*
+*   Purpose:
+*       The link register is contained in the context, but for nested
+*       procedures this may not always contain the return address.
+*       Unwind 1 frame to obtain the return address.
+*
+*   Input:
+*       None.
+*
+*   Output:
+*       Return Address
+*
+*************************************************************************/
+ULONG fnStackTrace2(void)
+{
+    LPSTACKFRAME  StackFrames;
+    ULONG         ReturnAddress;
+
+    StackFrames = malloc( sizeof(STACKFRAME) * 1 );
+    if (!StackFrames) {
+        dprintf( "could not allocate memory for stack trace\n" );
+        return  (ULONG)GetRegValue(SPRLR);
+    }
+
+    StackTrace( 0, 0, 0, StackFrames, 1, 0 );
+
+    ReturnAddress = StackFrames[0].AddrReturn.Offset;
+
+    free( StackFrames );
+
+    return ReturnAddress;
+}
+
+BOOL
+DbgGetThreadContext(
+    THREADORPROCESSOR TorP,
+    PCONTEXT Context
+    )
+{
+#ifdef KERNEL
+    return NT_SUCCESS(DbgKdGetContext(TorP, Context));
+#else  // KERNEL
+    return GetThreadContext(TorP, Context);
+#endif // KERNEL
+}
+
+
+BOOL
+DbgSetThreadContext(
+    THREADORPROCESSOR TorP,
+    PCONTEXT Context
+    )
+{
+#ifdef KERNEL
+    return NT_SUCCESS(DbgKdSetContext(TorP, Context));
+#else  // KERNEL
+    return SetThreadContext(TorP, Context);
+#endif // KERNEL
+}

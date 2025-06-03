@@ -7,10 +7,23 @@
 
 /**********************       PolyTron RCS Utilities
    
-  $Revision:   1.2  $
-      $Date:   31 Mar 1994 15:05:38  $
-	$Author:   RWOLFF  $
-	   $Log:   S:/source/wnt/ms11/miniport/vcs/init_cx.h  $
+  $Revision:   1.6  $
+      $Date:   15 May 1996 16:35:10  $
+	$Author:   RWolff  $
+	   $Log:   S:/source/wnt/ms11/miniport/archive/init_cx.h_v  $
+ * 
+ *    Rev 1.6   15 May 1996 16:35:10   RWolff
+ * Updated prototype for SetCurrentMode_cx() to allow reporting
+ * of failure on mode set.
+ * 
+ *    Rev 1.5   03 Feb 1995 15:16:24   RWOLFF
+ * Added prototypes for functions used in DCI support.
+ * 
+ *    Rev 1.4   11 Jan 1995 14:02:48   RWOLFF
+ * Added prototype for RestoreMemSize_cx().
+ * 
+ *    Rev 1.3   12 May 1994 11:14:36   RWOLFF
+ * Definitions and data structures used by new routine SetModeFromTable_cx()
  * 
  *    Rev 1.2   31 Mar 1994 15:05:38   RWOLFF
  * Added prototype for SetPowerManagement_cx().
@@ -39,11 +52,14 @@ extern VP_STATUS MapVideoMemory_cx(PVIDEO_REQUEST_PACKET RequestPacket, struct q
 extern VP_STATUS QueryPublicAccessRanges_cx(PVIDEO_REQUEST_PACKET RequestPacket);
 extern VP_STATUS QueryCurrentMode_cx(PVIDEO_REQUEST_PACKET RequestPacket, struct query_structure *QueryPtr);
 extern VP_STATUS QueryAvailModes_cx(PVIDEO_REQUEST_PACKET RequestPacket, struct query_structure *QueryPtr);
-extern void SetCurrentMode_cx(struct query_structure *QueryPtr, struct st_mode_table *CrtTable);
+extern VP_STATUS SetCurrentMode_cx(struct query_structure *QueryPtr, struct st_mode_table *CrtTable);
 extern void SetPalette_cx(PULONG lpPalette, USHORT StartIndex, USHORT Count);
 extern void IdentityMapPalette_cx(void);
 extern void ResetDevice_cx(void);
 extern VP_STATUS SetPowerManagement_cx(ULONG DpmsState);
+extern void RestoreMemSize_cx(void);
+extern VP_STATUS ShareVideoMemory_cx(PVIDEO_REQUEST_PACKET RequestPacket, struct query_structure *QueryPtr);
+extern void BankMap_cx(LONG BankRead, LONG BankWrite, PVOID Context);
 
 #ifdef INCLUDE_INIT_CX
 /*

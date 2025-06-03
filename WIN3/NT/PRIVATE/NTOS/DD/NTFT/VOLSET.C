@@ -29,6 +29,13 @@ Revision History:
 #include "ntddk.h"
 #include "ftdisk.h"
 
+#ifdef POOL_TAGGING
+#ifdef ExAllocatePool
+#undef ExAllocatePool
+#endif
+#define ExAllocatePool(a,b) ExAllocatePoolWithTag(a,b,' VtF')
+#endif
+
 #define FTDUP_IRP 1
 
 //
@@ -65,8 +72,9 @@ Return Value:
     LARGE_INTEGER     logicalEnd = extension->FtUnion.Identity.PartitionLength;
     LARGE_INTEGER     ioStart    = *IoOffset;
     LARGE_INTEGER     offset     = *IoOffset;
-    LARGE_INTEGER     ioEnd      = LiAdd(ioStart,
-                                         LiFromUlong(*Length));
+    LARGE_INTEGER     ioEnd;
+
+    ioEnd.QuadPart = ioStart.QuadPart + *Length;
 
     //
     // The list of partitions that comprise the volume set is searched
@@ -101,7 +109,7 @@ Return Value:
         // then the I/O occurs here.
         //
 
-        if (LiGeq(logicalEnd, ioEnd)) {
+        if (logicalEnd.QuadPart >= ioEnd.QuadPart) {
 
             *DeviceExtension = extension;
             *IoOffset = offset;
@@ -118,7 +126,7 @@ Return Value:
         // partition then the I/O is in the next partition.
         //
 
-        if (LiGeq(ioStart, logicalEnd)) {
+        if (ioStart.QuadPart >= logicalEnd.QuadPart) {
 
             //
             // I/O does not start in this partition.
@@ -126,8 +134,7 @@ Return Value:
             // position to the next partition.
             //
 
-            offset = LiSub(offset,
-                           extension->FtUnion.Identity.PartitionLength);
+            offset.QuadPart -= extension->FtUnion.Identity.PartitionLength.QuadPart;
 
             //
             // Move to the next member of the volume set.  If it is null
@@ -145,8 +152,7 @@ Return Value:
                 // the size of this partition.
                 //
 
-                logicalEnd = LiAdd(logicalEnd,
-                                    extension->FtUnion.Identity.PartitionLength);
+                logicalEnd.QuadPart += extension->FtUnion.Identity.PartitionLength.QuadPart;
             }
             continue;
         }
@@ -157,7 +163,7 @@ Return Value:
 
         *DeviceExtension = extension;
         *IoOffset = offset;
-        *Length =  LiSub(logicalEnd, ioStart).LowPart;
+        *Length =  (ULONG) (logicalEnd.QuadPart - ioStart.QuadPart);
         return TRUE;
     }
     return FALSE;
@@ -200,6 +206,7 @@ Return Value:
     PIO_STACK_LOCATION ftIrpStack      = IoGetNextIrpStackLocation(Irp);
     ULONG              ioLength        = irpStack->Parameters.Write.Length;
     LARGE_INTEGER      offset          = irpStack->Parameters.Write.ByteOffset;
+    LARGE_INTEGER      zero;
 
     Irp->IoStatus.Status = STATUS_SUCCESS;
     Irp->IoStatus.Information = 0;
@@ -340,10 +347,11 @@ Return Value:
         // Allocate and set up a new Irp.
         //
 
+        zero.QuadPart = 0;
         newIrp = FtpDuplicatePartialIrp(deviceExtension->DeviceObject,
                                         Irp,
                                         dataBuffer,
-                                        RtlConvertUlongToLargeInteger(0),
+                                        zero,
                                         ioLength);
 
         DebugPrint((3,
@@ -400,7 +408,7 @@ Return Value:
 --*/
 
 {
-    INTERLOCKED_RESULT irpCount;
+    LONG irpCount;
     PDEVICE_EXTENSION  deviceExtension = (PDEVICE_EXTENSION) Context;
     PIO_STACK_LOCATION irpStack  = IoGetCurrentIrpStackLocation(Irp);
     PIRP               masterIrp = (PIRP) irpStack->FtLowIrpMasterIrp;
@@ -432,9 +440,10 @@ Return Value:
     }
 
     //
-    // BUGBUG:  Problem is the second I/O will continue, meaning a portion of
-    //          the I/O request will complete that will not be notified to
-    //          the caller.  This is different from the normal one device case.
+    // NOTE:    If the first I/O fails the second I/O will continue, meaning
+    //          a portion of the I/O request will complete that will not be
+    //          notified to the caller.  This is different from the normal one
+    //          device case.
     //
 
     if (NT_SUCCESS(masterIrp->IoStatus.Status)) {
@@ -457,10 +466,9 @@ Return Value:
     }
 
     IoFreeIrp(Irp);
-    irpCount = ExInterlockedDecrementLong((PLONG) &masterIrpStack->FtOrgIrpCount,
-                                          &deviceExtension->IrpCountSpinLock);
+    irpCount = InterlockedDecrement((PLONG) &masterIrpStack->FtOrgIrpCount);
 
-    if (irpCount == ResultZero) {
+    if (irpCount == 0) {
 
         //
         // I/O processing is complete.  Return the master IRP.

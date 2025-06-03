@@ -67,7 +67,7 @@ int FAR WINAPI AboutDlgProc (HWND hDlg,
             deltax = 0 ;
 
          deltay += 5 ;
-         if (deltay > 35)
+         if (deltay > 60)
             deltay = 0 ;
 
          WindowInvalidate (DialogControl (hDlg, 524)) ;
@@ -411,5 +411,5 @@ void PrepareMenu (HMENU hMenu)
 
 
 
-
-
+
+

@@ -163,6 +163,19 @@ ReadRegistry(
         if (gfhFile == (HFILE)-1)        //BUGBUG put up a message here.
             gfhFile = 0;
     }
+#ifdef JAPAN    // DBCS_FIX
+    if (gfOutputCom1)
+    {
+        gfhCom1 = CreateFile(
+                "com1",
+                GENERIC_WRITE,
+                0,                    // exclusive access
+                NULL,                 // no security attrs
+                OPEN_EXISTING,
+                FILE_ATTRIBUTE_NORMAL,
+                NULL);
+    }
+#endif
 }
 
 
@@ -188,13 +201,19 @@ WriteRegistry(
 
     if (ghkeySpy)
     {
-        GetWindowPlacement(ghwndSpyApp, &wndpl);
-        RegSetValueEx(ghkeySpy, gszKeyPosition, 0, REG_BINARY,
-            (LPBYTE)&wndpl, sizeof(wndpl));
+        wndpl.length = sizeof(wndpl);
 
-        GetObject(ghfontPrintf, sizeof(lf), &lf);
-        RegSetValueEx(ghkeySpy, gszKeyFont, 0, REG_BINARY,
-            (LPBYTE)&lf, sizeof(lf));
+        if (GetWindowPlacement(ghwndSpyApp, &wndpl)) {
+            RegSetValueEx(ghkeySpy, gszKeyPosition, 0, REG_BINARY,
+                (LPBYTE)&wndpl, sizeof(wndpl));
+        } else
+            GetLastError();
+
+        if (GetObject(ghfontPrintf, sizeof(lf), &lf) != 0) {
+            RegSetValueEx(ghkeySpy, gszKeyFont, 0, REG_BINARY,
+                (LPBYTE)&lf, sizeof(lf));
+        } else
+            GetLastError();
 
         memset(abMsgs, 0, sizeof(abMsgs));
         for (i = 0; i < gcMessages; i++)
@@ -264,7 +283,12 @@ Message(
 
     va_start(marker, pszFormat);
     wvsprintf(szT, pszFormat, marker);
+#ifdef JAPAN
+    // BUGBUG Should the Japan change be the standard? FloydR
+    RetCode = MessageBox(ghwndSpyApp, szT, gszWindowName, fuStyle|MB_TASKMODAL);
+#else
     RetCode = MessageBox(ghwndSpyApp, szT, gszAppName, fuStyle | MB_TASKMODAL);
+#endif
     va_end(marker);
 
     return RetCode;
@@ -292,17 +316,33 @@ SetSpyCaption(
     {
         GetWindowName(ghwndSpyingOn, szTemp);
 
+#ifdef JAPAN
+        if (lstrlen(gszWindowName) + lstrlen(szTemp) + 3 > MAXSTRING)
+#else
         if (lstrlen(gszAppName) + lstrlen(szTemp) + 3 > MAXSTRING)
+#endif
             szTemp[MAXSTRING - 3 - lstrlen(szTemp)] = 0;
 
-        if (gfSpyOn)
+	if (gfSpyOn)
+#ifdef JAPAN
+            wsprintf(szText, "%s - %s", gszWindowName, szTemp);
+#else
             wsprintf(szText, "%s - %s", gszAppName, szTemp);
+#endif
         else
+#ifdef JAPAN
+            wsprintf(szText, "<%s - %s>", gszWindowName, szTemp);
+#else
             wsprintf(szText, "<%s - %s>", gszAppName, szTemp);
+#endif
     }
     else
     {
+#ifdef JAPAN
+        lstrcpy(szText, gszWindowName);
+#else
         lstrcpy(szText, gszAppName);
+#endif
     }
 
     SetWindowText(ghwndSpyApp, szText);
@@ -399,6 +439,18 @@ StripExtension(
     while (*p)
         p++;
 
+#ifdef DBCS
+    while (p > pszFileName && *p != '\\' && *p != ':') {
+        p = CharPrev(pszFileName, p);
+        if (*p == '.') {
+            *p = 0;
+        }
+    }
+    if (*p == '\\' || *p == ':') {
+        p++;
+    }
+    return p;
+#else
     while (p >= pszFileName && *p != '\\')
     {
         if (*p == '.')
@@ -408,4 +460,27 @@ StripExtension(
     }
 
     return ++p;
+#endif
+}
+
+/*****************************************************************************\
+* LoadResourceString
+*
+*   Loads a resource string from SPY and returns a pointer to the string.
+*
+* Arguments:
+*   wId        - resource string id
+*
+* Returns:
+*   Returns a pointer to the string.
+*
+\*****************************************************************************/
+LPTSTR
+LoadResourceString( UINT wId )
+{
+    static TCHAR lpBuf[1024];
+
+    LoadString( GetModuleHandle(NULL), wId, lpBuf, sizeof(lpBuf) );
+
+    return lpBuf;
 }

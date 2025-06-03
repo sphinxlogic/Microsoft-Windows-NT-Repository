@@ -22,6 +22,7 @@
 #include <kxmips.h>
 
 .rdata
+	.align	3
 .globl _sqrttable
 _sqrttable:
 	.word 83599
@@ -57,13 +58,12 @@ _sqrttable:
 	.word 75992
 	.word 85215
 
-.text
-
+.text .text$xsqrt
 .globl _fsqrt
 .ent _fsqrt
 _fsqrt:
 	.frame	sp, 0, ra
-    .prologue 0
+	.prologue 0
 
 	/* 64 or so cycles in common code */
 	mfc1	t0, $f13
@@ -206,10 +206,11 @@ _fsqrt:
 	j	ra
 .end _fsqrt
 
+.text .text$xsqrt
 .ent denorm_sqrt
 denorm_sqrt:
 	.frame	sp, 0, t8
-    .prologue 0
+	.prologue 0
 	li	t1, ((1023+1022)<<20)
 	mtc1	t1, $f1
 	mtc1	$0, $f0

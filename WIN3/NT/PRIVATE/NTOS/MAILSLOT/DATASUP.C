@@ -112,7 +112,7 @@ Return Value:
     // raise status.
     //
 
-    ObReferenceObjectByPointer( Process, 0, NULL, KernelMode );
+    ObReferenceObject( Process );
     PsChargePoolQuota( Process, PagedPool, Quota );
 
     //

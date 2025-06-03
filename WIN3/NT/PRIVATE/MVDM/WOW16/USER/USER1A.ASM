@@ -15,7 +15,7 @@
 
     .286p
 
-;    .xlist
+    .xlist
     include wow.inc
     include wowusr.inc
     include cmacros.inc
@@ -56,16 +56,14 @@ FUN_WOWDIALOGBOXPARAM EQU FUN_DIALOGBOXPARAM
     UserThunk   DLGDIRLISTCOMBOBOX
     UserThunk   DLGDIRSELECT
     UserThunk   DLGDIRSELECTCOMBOBOX
-    DUserThunk  DRAGDETECT
+    UserThunk   DRAGDETECT
     UserThunk   DRAGOBJECT
     UserThunk   DRAWFOCUSRECT
     UserThunk   DRAWICON
     UserThunk   DRAWMENUBAR
         UserThunk   DRAWTEXT
 ;   DUserThunk  DUMPICON            ; LOCALAPI in rmload.c
-ifndef WOWEDIT
-;;; UserThunk   EDITWNDPROC         ;LOCALAPI in wsubcls.c
-endif
+;   UserThunk   EDITWNDPROC         ; LOCALAPI in wsubcls.c
     DUserThunk  EMPTYCLIPBOARD,0
     DUserThunk  ENABLEHARDWAREINPUT
     DUserThunk  ENABLEOEMLAYER

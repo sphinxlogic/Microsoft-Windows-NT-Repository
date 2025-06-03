@@ -20,12 +20,18 @@ Revision History:
 
 #define THEAP
 #include "..\heap.c"
+#include "..\heapdll.c"
+#include "..\heapdbg.c"
 #include "..\trace.c"
 #include <windows.h>
 
 #include <stdlib.h>
 
-ULONG NtGlobalFlag = 0x69100008;
+ULONG NtGlobalFlag = FLG_HEAP_ENABLE_TAIL_CHECK |
+                     FLG_HEAP_ENABLE_FREE_CHECK |
+                     FLG_HEAP_VALIDATE_PARAMETERS |
+                     FLG_HEAP_VALIDATE_ALL |
+                     FLG_HEAP_ENABLE_TAGGING;
 
 BOOLEAN
 NtdllOkayToLockRoutine(
@@ -57,7 +63,6 @@ RtlAreLogging(
 RTL_HEAP_PARAMETERS HeapParameters;
 
 ULONG RtlpHeapValidateOnCall;
-ULONG RtlpHeapStopOnAllocate;
 ULONG RtlpHeapStopOnFree;
 ULONG RtlpHeapStopOnReAlloc;
 
@@ -86,8 +91,13 @@ main(
     ULONG i, n;
     PTEST_HEAP_ENTRY p;
     BOOLEAN Result;
+    NTSTATUS Status;
+    RTL_HEAP_USAGE Usage;
+    PRTL_HEAP_USAGE_ENTRY pEntries;
+    ULONG TagBaseIndex, Tag;
 
     RtlInitializeHeapManager();
+    memset( &Usage, 0, sizeof( Usage ) );
 
 #if 0
     HeapParameters.Length = sizeof( HeapParameters );
@@ -113,6 +123,71 @@ main(
         exit( 1 );
         }
     fprintf( stderr, "THEAP: Created heap at %x\n", Heap );
+    DbgBreakPoint();
+    TagBaseIndex = RtlCreateTagHeap( Heap, 0, L"THEAP!",
+                                     L"!HeapName\0"
+                                     L"Tag1\0"
+                                     L"Tag2\0"
+                                     L"Tag3\0"
+                                     L"Tag4\0"
+                                     L"Tag5\0"
+                                     L"Tag6\0"
+                                     L"Tag7\0"
+                                     L"Tag8\0"
+                                     L"Tag9\0"
+                                     L"Tag10\0"
+                                     L"Tag11\0"
+                                     L"Tag12\0"
+                                     L"Tag13\0"
+                                     L"Tag14\0"
+                                     L"Tag15\0"
+                                     L"Tag16\0"
+                                     L"Tag17\0"
+                                     L"Tag18\0"
+                                     L"Tag19\0"
+                                     L"Tag20\0"
+                                     L"Tag21\0"
+                                     L"Tag22\0"
+                                     L"Tag23\0"
+                                     L"Tag24\0"
+                                     L"Tag25\0"
+                                     L"Tag26\0"
+                                     L"Tag27\0"
+                                     L"Tag28\0"
+                                     L"Tag29\0"
+                                     L"Tag30\0"
+                                     L"Tag31\0"
+                                     L"Tag32\0"
+                                     L"Tag33\0"
+                                     L"Tag34\0"
+                                     L"Tag35\0"
+                                     L"Tag36\0"
+                                     L"Tag37\0"
+                                     L"Tag38\0"
+                                     L"Tag39\0"
+                                     L"Tag40\0"
+                                     L"Tag41\0"
+                                     L"Tag42\0"
+                                     L"Tag43\0"
+                                     L"Tag44\0"
+                                     L"Tag45\0"
+                                     L"Tag46\0"
+                                     L"Tag47\0"
+                                     L"Tag48\0"
+                                     L"Tag49\0"
+                                     L"Tag50\0"
+                                     L"Tag51\0"
+                                     L"Tag52\0"
+                                     L"Tag53\0"
+                                     L"Tag54\0"
+                                     L"Tag55\0"
+                                     L"Tag56\0"
+                                     L"Tag57\0"
+                                     L"Tag58\0"
+                                     L"Tag59\0"
+                                     L"Tag60\0"
+                                   );
+
     NumberOfHeapEntries = 1000;
     HeapEntries = VirtualAlloc( NULL,
                                 NumberOfHeapEntries * sizeof( *HeapEntries ),
@@ -135,9 +210,51 @@ main(
         else {
             n = RtlUniform( &Seed ) % MAX_HEAP_ALLOC;
             }
+
+        Usage.Length = sizeof( Usage );
+        Status = RtlUsageHeap( Heap, HEAP_USAGE_ALLOCATED_BLOCKS , &Usage );
+        if (NT_SUCCESS( Status )) {
+            if (Status == STATUS_MORE_ENTRIES) {
+                pEntries = Usage.AddedEntries;
+                while (pEntries) {
+                    fprintf( stderr,
+                             "Added: %08x %06x\n",
+                             pEntries->Address,
+                             pEntries->Size
+                           );
+                    pEntries = pEntries->Next;
+                    }
+
+                pEntries = Usage.RemovedEntries;
+                while (pEntries) {
+                    fprintf( stderr,
+                             "Freed: %08x %06x\n",
+                             pEntries->Address,
+                             pEntries->Size
+                           );
+                    pEntries = pEntries->Next;
+                    }
+                }
+
+            fprintf( stderr, "%08x  %08x  %08x  %08x  ",
+                             Usage.BytesAllocated, Usage.BytesCommitted,
+                             Usage.BytesReserved, Usage.BytesReservedMaximum
+                   );
+            }
+        else {
+            fprintf( stderr, "RtlUsageHeap failed with status %x\n", Status );
+            DebugBreak();
+            }
+
+        if (i < 60) {
+            Tag = (TagBaseIndex + i + 1) << 16;
+            }
+        else {
+            Tag = 0;
+            }
         p = &HeapEntries[ i ];
         if (p->AllocatedBlock == NULL) {
-            p->AllocatedBlock = RtlAllocateHeap( Heap, 0, n );
+            p->AllocatedBlock = RtlAllocateHeap( Heap, Tag, n );
             fprintf( stderr, "Allocated %06x bytes at %08x\n", n, p->AllocatedBlock );
             if (p->AllocatedBlock != NULL) {
                 p->Size = n;
@@ -148,13 +265,13 @@ main(
             }
         else
         if (RtlUniform( &Seed ) & 1) {
-            AllocatedBlock = RtlReAllocateHeap( Heap, 0, p->AllocatedBlock, n );
+            AllocatedBlock = RtlReAllocateHeap( Heap, Tag, p->AllocatedBlock, n );
             fprintf( stderr, "ReAlloced %06x bytes at %08x to %06x bytes at %08x\n",
-                    p->Size,
-                    p->AllocatedBlock,
-                    n,
-                    AllocatedBlock
-                  );
+                     p->Size,
+                     p->AllocatedBlock,
+                     n,
+                     AllocatedBlock
+                   );
             if (AllocatedBlock != NULL) {
                 p->AllocatedBlock = AllocatedBlock;
                 p->Size = n;
@@ -165,10 +282,10 @@ main(
             }
         else {
             Result = RtlFreeHeap( Heap, 0, p->AllocatedBlock );
-            fprintf( stderr, "Freeed    %06x bytes at %08x\n",
-                    p->Size,
-                    p->AllocatedBlock
-                  );
+            fprintf( stderr, "Freed     %06x bytes at %08x\n",
+                     p->Size,
+                     p->AllocatedBlock
+                   );
             if (Result) {
                 p->AllocatedBlock = NULL;
                 p->Size = 0;
@@ -177,6 +294,7 @@ main(
                 DebugBreak();
                 }
             }
+
         }
 
     return 0;

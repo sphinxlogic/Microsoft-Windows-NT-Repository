@@ -4,18 +4,18 @@
 *                                                                             *
 *               OLE Version 2.0                                               *
 *                                                                             *
-*               Copyright (c) 1992-1993, Microsoft Corp. All rights reserved. *
+*               Copyright (c) 1992-1995, Microsoft Corp. All rights reserved. *
 *                                                                             *
 \*****************************************************************************/
 
 /* this file is the master definition of all GUIDs for the component object
-   model and is included in compobj.h.  Some GUIDs for moinkers and storage 
-   appear here as well.  All of these GUIDs are OLE GUIDs only in the sense 
-   that part of the GUID range owned by OLE was used to define them.  
-   
+   model and is included in compobj.h.  Some GUIDs for moinkers and storage
+   appear here as well.  All of these GUIDs are OLE GUIDs only in the sense
+   that part of the GUID range owned by OLE was used to define them.
+
    NOTE: The second byte of all of these GUIDs is 0.
 */
-   
+
 
 DEFINE_GUID(GUID_NULL, 0L, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 

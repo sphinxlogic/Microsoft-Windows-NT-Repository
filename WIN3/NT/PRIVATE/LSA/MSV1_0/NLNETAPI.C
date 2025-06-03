@@ -32,6 +32,13 @@ Revision History:
 #include "msp.h"
 #include "nlp.h"
 
+typedef NTSTATUS
+            (*PI_NETNOTIFYNETLOGONDLLHANDLE) (
+                IN PHANDLE Role
+            );
+
+PI_NETNOTIFYNETLOGONDLLHANDLE pI_NetNotifyNetlogonDllHandle = NULL;
+
 
 
 VOID
@@ -166,14 +173,14 @@ Arguments:
 
 Return Value:
 
-    None.  If successful, NlpNetlogonDllLoaded is set to TRUE and function
+    None.  If successful, NlpNetlogonDllHandle is set to non-NULL and function
     pointers are setup.
 
 
 --*/
 
 {
-    HANDLE hModule;
+    HANDLE hModule = NULL;
 
 
 
@@ -220,6 +227,14 @@ Return Value:
         goto Cleanup;
     }
 
+    //
+    // Find the address of the I_NetNotifyNetlogonDllHandle procedure.
+    //  This is an optional procedure so don't complain about its absence.
+    //
+
+    pI_NetNotifyNetlogonDllHandle = (PI_NETNOTIFYNETLOGONDLLHANDLE)
+        GetProcAddress( hModule, "I_NetNotifyNetlogonDllHandle" );
+
 
 
 
@@ -227,9 +242,21 @@ Return Value:
     // Found all the functions needed, so indicate success.
     //
 
-    NlpNetlogonDllLoaded = TRUE;
+    NlpNetlogonDllHandle = hModule;
+    hModule = NULL;
+
+    //
+    // Notify Netlogon that we've loaded it.
+    //
+
+    if ( pI_NetNotifyNetlogonDllHandle != NULL ) {
+        (VOID) (*pI_NetNotifyNetlogonDllHandle)( &NlpNetlogonDllHandle );
+    }
 
 Cleanup:
+    if ( hModule != NULL ) {
+        FreeLibrary( hModule );
+    }
 
     return;
 

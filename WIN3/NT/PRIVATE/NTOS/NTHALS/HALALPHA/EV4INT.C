@@ -31,6 +31,12 @@ HalpUpdate21064PriorityTable(
     VOID
     );
 
+VOID
+HalpCachePcrValues(
+    VOID
+    );
+
+
 
 VOID
 HalpInitialize21064Interrupts(
@@ -151,13 +157,13 @@ Return Value:
     // entry that could be asserted for the mask entry and is enabled.
     // The priority is determined first by Irql level, higher Irql
     // indicates higher priority, and then, if there are multiple
-    // enabled, asserted interrupts of the same Irql, by a relative 
-    // priority that was assigned by the caller when the interrupt 
+    // enabled, asserted interrupts of the same Irql, by a relative
+    // priority that was assigned by the caller when the interrupt
     // was enabled.
     //
 
-    for( InterruptMask=0; 
-         InterruptMask < IRQLMASK_HDW_SUBTABLE_21064_ENTRIES; 
+    for( InterruptMask=0;
+         InterruptMask < IRQLMASK_HDW_SUBTABLE_21064_ENTRIES;
          InterruptMask++ ){
 
         Vector = PASSIVE_VECTOR;
@@ -197,7 +203,7 @@ Return Value:
 
         IrqlMaskIndex = IRQLMASK_HDW_SUBTABLE_21064 + InterruptMask;
         PCR->IrqlMask[IrqlMaskIndex].IrqlTableIndex = Irql;
-        PCR->IrqlMask[IrqlMaskIndex].IDTIndex = Vector;
+        PCR->IrqlMask[IrqlMaskIndex].IDTIndex = (USHORT)Vector;
     }
 }
 
@@ -237,7 +243,7 @@ Return Value:
     IrqlIndex = PASSIVE_LEVEL;
 
     //
-    // Update the enable table for all the Irqls such that the interrupt 
+    // Update the enable table for all the Irqls such that the interrupt
     // is disabled.
     //
 
@@ -429,7 +435,7 @@ Return Value:
     IrqlIndex = PASSIVE_LEVEL;
 
     //
-    // Update the enable table for all the Irqls such that the interrupt 
+    // Update the enable table for all the Irqls such that the interrupt
     // is disabled.
     //
 
@@ -506,7 +512,7 @@ Return Value:
     IrqlIndex = PASSIVE_LEVEL;
 
     //
-    // Update the enable table for all the Irqls such that the interrupt 
+    // Update the enable table for all the Irqls such that the interrupt
     // is disabled.
     //
 
@@ -755,7 +761,7 @@ Routine Description:
 
 Arguments:
 
-    Vector - Supplies the vector of the performance counter interrupt that is 
+    Vector - Supplies the vector of the performance counter interrupt that is
              enabled.
 
     Irql - Supplies the Irql of the performance counter interrupt.
@@ -949,6 +955,59 @@ Return Value:
     //
 
     *Irql = 0;
-    return 0;            
+    return 0;
 
 }
+
+
+ULONG
+HalpGet21064CorrectableVector(
+    IN ULONG BusInterruptLevel,
+    OUT PKIRQL Irql
+    )
+
+/*++
+
+Routine Description:
+
+    This function returns the system interrupt vector and IRQL level
+    corresponding to the specified correctable interrupt.
+
+Arguments:
+
+    BusInterruptLevel - Supplies the performance counter number.
+
+    Irql - Returns the system request priority.
+
+Return Value:
+
+    Returns the system interrupt vector corresponding to the specified device.
+
+--*/
+
+{
+  //
+  // Get the correctable interrupt vector.
+  //
+
+  if (BusInterruptLevel == 5) {
+
+    //
+    // Correctable error interrupt was sucessfully recognized.
+    //
+
+    *Irql = DEVICE_LEVEL;
+    return CORRECTABLE_VECTOR;
+
+
+  } else {
+
+    //
+    // Unrecognized.
+    //
+
+    *Irql = 0;
+    return 0;
+  }
+}
+

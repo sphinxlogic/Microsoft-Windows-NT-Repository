@@ -1,5 +1,7 @@
 //+-------------------------------------------------------------------
 //
+// Copyright (C) 1995, Microsoft Corporation.
+//
 //  File:        daclwrap.cxx
 //
 //  Contents:    class encapsulating file security.
@@ -69,7 +71,17 @@ ULONG CDaclWrap::SetAccess(ULONG option, WCHAR *Name, WCHAR *System, ULONG acces
     {
         return(ERROR_NOT_ENOUGH_MEMORY);
     }
-    _aaa[_ccaa].option = option;
+
+    // to fix the bug where someone asks to both grant and deny under
+    // the /p option (the deny is thru access = N)
+
+    if ((GENERIC_NONE == access) && (OPTION_REPLACE == option))
+    {
+	_aaa[_ccaa].option = OPTION_DENY;
+    } else
+    {
+	_aaa[_ccaa].option = option;
+    }
 
     SID *psid;
 
@@ -628,4 +640,3 @@ ULONG CDaclWrap::_FillNewAcl(ACL *pnewdacl, ACL *poldacl, BOOL fdir)
 
     return(ERROR_SUCCESS);
 }
-

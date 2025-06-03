@@ -679,11 +679,27 @@ CheckAndAddName(
 
     GetSystemInfo(&sysinfo);                    // Get system info
 
-    //
-    // if the processortype ends in 86, set type to x86, otherwise mips.
-    //
-    //newRec.MachineType=sysinfo.dwProcessorType%100==86?'X':'M');
-    CPU_TYPE(sysinfo.dwProcessorType,newRec.MachineType);
+    switch(sysinfo.wProcessorArchitecture) {
+        case PROCESSOR_ARCHITECTURE_INTEL:
+            newRec.MachineType=X86_CPU;
+            break;
+
+        case PROCESSOR_ARCHITECTURE_MIPS:
+            newRec.MachineType=MIP_CPU;
+            break;
+
+        case PROCESSOR_ARCHITECTURE_ALPHA:
+            newRec.MachineType=AXP_CPU;
+            break;
+
+        case PROCESSOR_ARCHITECTURE_PPC:
+            newRec.MachineType=PPC_CPU;
+            break;
+
+        default:
+            newRec.MachineType=UNKNOWN_CPU;
+            break;
+    };
 
     dwVersion=GetVersion();
     sprintf(newRec.Build, "%3ld", dwVersion>>16);

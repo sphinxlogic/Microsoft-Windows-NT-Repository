@@ -3,7 +3,7 @@
  */
 
 #include	<ndis.h>
-#include    <ndismini.h>
+//#include	<ndismini.h>
 #include	<ndiswan.h>
 #include	<mydefs.h>
 #include	<mytypes.h>
@@ -45,7 +45,7 @@ WanLineup(VOID *cm_1, NDIS_HANDLE Endpoint)
 	//
 	// fill send windows
 	//
-	ISDNLineUp.SendWindow = ISDN_WINDOW_SIZE;
+	ISDNLineUp.SendWindow = MAX_WANPACKET_XMITS;
 
 	//
 	// fill the connection wrapper id
@@ -72,12 +72,12 @@ WanLineup(VOID *cm_1, NDIS_HANDLE Endpoint)
 	// We have a new link speed, frame size, quality of service.
 	//
 	NdisMIndicateStatus(
-		(NDIS_HANDLE)Adapter->AdapterHandle,
+		(NDIS_HANDLE)Adapter->Handle,
 		NDIS_STATUS_WAN_LINE_UP,		// General Status
 		(PVOID)&ISDNLineUp,				// Specific Status (baud rate in 100bps)
 		sizeof(ISDNLineUp));
 
-	NdisMIndicateStatusComplete(Adapter->AdapterHandle);
+	NdisMIndicateStatusComplete(Adapter->Handle);
 
 	//
 	// save new link handle
@@ -99,18 +99,23 @@ WanLinedown(VOID *cm_1)
 
 	ISDNLineDown.NdisLinkContext = mtl->LinkHandle;
 
+	NdisMIndicateStatus(
+		(NDIS_HANDLE)Adapter->Handle,
+		NDIS_STATUS_WAN_LINE_DOWN,		// General Status
+		(PVOID)&ISDNLineDown,			// Specific Status (baud rate in 100bps)
+		sizeof(ISDNLineDown));				
+
+	NdisMIndicateStatusComplete(Adapter->Handle);
+
 	//
 	// clear out link handles
 	//
 	cm->LinkHandle = mtl->LinkHandle = NULL;
 
-	NdisMIndicateStatus(
-		(NDIS_HANDLE)Adapter->AdapterHandle,
-		NDIS_STATUS_WAN_LINE_DOWN,		// General Status
-		(PVOID)&ISDNLineDown,			// Specific Status (baud rate in 100bps)
-		sizeof(ISDNLineDown));				
-
-	NdisMIndicateStatusComplete(Adapter->AdapterHandle);
+	//
+	// flush the mtl's wan packet queue
+	//
+	MtlFlushWanPacketTxQueue(mtl);
 
 	return(CM_E_SUCC);
 }

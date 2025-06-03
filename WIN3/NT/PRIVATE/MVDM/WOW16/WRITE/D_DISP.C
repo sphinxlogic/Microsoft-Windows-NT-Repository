@@ -1813,4 +1813,4 @@ ClearInsertLine()
  if ( vfInsertOn) DrawInsertLine();
 #endif
 }
-
+

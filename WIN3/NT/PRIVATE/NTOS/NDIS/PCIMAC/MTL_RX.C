@@ -3,7 +3,7 @@
  */
 
 #include	<ndis.h>
-#include    <ndismini.h>
+//#include	<ndismini.h>
 #include	<ndiswan.h>
 #include	<mytypes.h>
 #include	<mydefs.h>
@@ -29,21 +29,27 @@ mtl__rx_bchan_handler
     MTL_HDR     hdr;
     MTL_AS      *as;
 	USHORT		FragmentFlags, CopyLen;
-
+	MTL_RX_TBL	*RxTable;
     D_LOG(D_ENTRY, ("mtl__rx_bchan_handler: chan: 0x%p, bchan: %d, msg: 0x%p", chan, bchan, msg));
 
     /* assigned mtl using back pointer */
     mtl = chan->mtl;
-    D_LOG(D_ENTRY, ("mtl__rx_bchan_handler: mtl: 0x%p, buflen: %d, bufptr: 0x%p", \
-                                                            mtl, msg->buflen, msg->bufptr));
+
+	//
+	// acquire the lock fot this mtl
+	//
+	NdisAcquireSpinLock(&mtl->lock);
 
     /* if not connected, ignore */
     if ( !mtl->is_conn )
     {
         D_LOG(D_ALWAYS, ("mtl__rx_bchan_handler: packet on non connected mtl, ignored"));
-        return;
+		goto exit_code;
     }
 
+	RxTable = &mtl->rx_tbl;
+    D_LOG(D_ENTRY, ("mtl__rx_bchan_handler: mtl: 0x%p, buflen: %d, bufptr: 0x%p", \
+                                                            mtl, msg->buflen, msg->bufptr));
 	//
 	// if we are in detect mode
 	//
@@ -52,24 +58,34 @@ mtl__rx_bchan_handler
 		UCHAR	DetectData[3];
 
 		/* extract header, check for fields */
-		NdisMoveFromMappedMemory ((PUCHAR)&hdr, (PUCHAR)msg->bufptr, sizeof(MTL_HDR));
+		IddGetDataFromAdapter(chan->idd,
+		                      (PUCHAR)&hdr,
+							  (PUCHAR)msg->bufptr,
+							  sizeof(MTL_HDR));
+
+//		NdisMoveMemory ((PUCHAR)&hdr, (PUCHAR)msg->bufptr, sizeof(MTL_HDR));
 
 		//
 		// this is used for inband signalling - ignore it
 		//
 		if (hdr.sig_tot == 0x50)
-			return;
+			goto exit_code;
 
 		//
 		// if this is dkf we need offset of zero for detection to work
 		//
 		if ( ((hdr.sig_tot & 0xF0) == 0x50) && (hdr.ofs != 0) )
-			return;
+			goto exit_code;
 
 		//
 		// extract some data from the frame
 		//
-		NdisMoveFromMappedMemory((PUCHAR)&DetectData, (PUCHAR)&msg->bufptr[4], 2);
+		IddGetDataFromAdapter(chan->idd,
+		                      (PUCHAR)&DetectData,
+							  (PUCHAR)&msg->bufptr[4],
+							  2);
+
+//		NdisMoveMemory((PUCHAR)&DetectData, (PUCHAR)&msg->bufptr[4], 2);
 	
 		D_LOG(D_ALWAYS, ("mtl__rx_bchan_handler: hdr: 0x%x 0x%x 0x%x", hdr.sig_tot, \
 																	 hdr.seq, hdr.ofs));
@@ -82,6 +98,7 @@ mtl__rx_bchan_handler
 		{
 			mtl->RecvFramingBits = PPP_FRAMING;
 			mtl->SendFramingBits = PPP_FRAMING;
+			RxTable->NextFree = 0;
 		}
 		else
 		{
@@ -94,7 +111,7 @@ mtl__rx_bchan_handler
 		//
 		// don't pass up detected frame for now
 		//
-		return;
+		goto exit_code;
 	}
 
 	if (IddRxFrameType & IDD_FRAME_DKF)
@@ -105,11 +122,15 @@ mtl__rx_bchan_handler
 		if ( msg->buflen < sizeof(hdr) )
 		{
 			D_LOG(D_ALWAYS, ("mtl__rx_bchan_handler: packet size too small, ignored"));
-			return;
+			RxTable->DKFReceiveError1++;
+			goto exit_code;
 		}
 	
 		/* extract header, check for fields */
-		NdisMoveFromMappedMemory ((PUCHAR)&hdr, (PUCHAR)msg->bufptr, sizeof(MTL_HDR));
+		IddGetDataFromAdapter(chan->idd,
+		                      (PUCHAR)&hdr,
+							  (PUCHAR)msg->bufptr,
+							  sizeof(MTL_HDR));
 
 		D_LOG(D_ALWAYS, ("mtl__rx_bchan_handler: hdr: 0x%x 0x%x 0x%x", hdr.sig_tot, \
 																	 hdr.seq, hdr.ofs));
@@ -121,19 +142,38 @@ mtl__rx_bchan_handler
 		if ( (hdr.sig_tot & 0xF0) != 0x50 || hdr.sig_tot == 0x50)
 		{
 			D_LOG(D_ALWAYS, ("mtl__rx_bchan_handler: bad header signature, ignored"));
-			return;
+			D_LOG(D_ALWAYS, ("mtl__rx_bchan_handler: mtl: 0x%p, [0]: 0x%x", mtl, hdr.sig_tot));
+			RxTable->DKFReceiveError2++;
+			goto exit_code;
 		}
 	
 		if ( (hdr.ofs >= MTL_MAC_MTU) || ((hdr.ofs + msg->buflen - sizeof(hdr)) > MTL_MAC_MTU) )
 		{
 			D_LOG(D_ALWAYS, ("mtl__rx_bchan_handler: bad offset/buflen, ignored"));
-			return;
+			D_LOG(D_ALWAYS, ("mtl: 0x%p, Offset: %d, BufferLength: %d", mtl, hdr.ofs, msg->buflen));
+			RxTable->DKFReceiveError3++;
+			goto exit_code;
 		}
 	
-		/* build pointer to assembly descriptor & lock it */
-		as = mtl->rx_tbl + (hdr.seq % MTL_RX_BUFS);
+		NdisAcquireSpinLock(&RxTable->lock);
 
-		NdisAcquireSpinLock(&as->lock);
+		/* build pointer to assembly descriptor & lock it */
+		as = RxTable->as_tbl + (hdr.seq % MTL_RX_BUFS);
+
+		//
+		// if this assembly pointer is not free (queued) then
+		// just drop this fragment
+		//
+		if (as->Queued)
+		{
+			D_LOG(D_ALWAYS, ("DKFRx: AssemblyQueue Overrun! mtl: 0x%p, as: 0x%p, seq: %d", \
+			         mtl, as, hdr.seq));
+
+			RxTable->DKFReceiveError4++;
+			as->QueueOverRun++;
+			NdisReleaseSpinLock(&RxTable->lock);
+			goto exit_code;
+		}
 	
 		/* check for new slot */
 		if ( !as->tot )
@@ -149,14 +189,18 @@ mtl__rx_bchan_handler
 	
 			/* copy received data into buffer */
 			copy_data:
-			NdisMoveFromMappedMemory (as->buf + hdr.ofs, msg->bufptr + sizeof(hdr), msg->buflen - sizeof(hdr));
+			IddGetDataFromAdapter(chan->idd,
+			                      (PUCHAR)as->buf + hdr.ofs,
+								  (PUCHAR)msg->bufptr + sizeof(hdr),
+								  (USHORT)(msg->buflen - sizeof(hdr)));
+//			NdisMoveMemory (as->buf + hdr.ofs, msg->bufptr + sizeof(hdr), msg->buflen - sizeof(hdr));
 		}
 		else if ( as->seq == hdr.seq )
 		{
 			/* same_seq: */
 	
 			/* same sequence number, accumulate */
-			as->num++;                      /* one more fragment received */
+			as->num++;
 			as->len += (msg->buflen - sizeof(hdr));
 	
 			goto copy_data;
@@ -170,8 +214,13 @@ mtl__rx_bchan_handler
 			* sequence number. this indicates a wrap-around in as_tbl. prev
 			* entry is freed and then this fragment is recorded as first
 			*/
-	
-		goto new_slot;
+			D_LOG(D_ALWAYS, ("DKFRx: Bad Fragment! mtl: 0x%p, as: 0x%p, as->seq: %d, seq: %d", \
+			         mtl, as, as->seq, hdr.seq));
+
+			D_LOG(D_ALWAYS, ("as->tot: %d, as->num: %d", as->tot, as->num));
+
+			RxTable->DKFReceiveError5++;
+			goto new_slot;
 		}
 	
 		/* if all fragments recieved for packet, time to mail it up */
@@ -180,24 +229,43 @@ mtl__rx_bchan_handler
 			D_LOG(D_ALWAYS, ("mtl__rx_bchan_handler: pkt mailed up, buf: 0x%p, len: 0x%x", \
 												as->buf, as->len));
 
-			IndicateRxToWrapper (mtl, as);
+			QueueDescriptorForRxIndication(mtl, as);
 
-			/* mark as free now */
-			as->tot = 0;
-	
+			//
+			// mark this guy as being queued
+			//
+			as->Queued = 1;
 		}
 	
 		/* release assembly descriptor */
-		NdisReleaseSpinLock(&as->lock);
+		NdisReleaseSpinLock(&RxTable->lock);
 	}
-	else
+	else if (IddRxFrameType & IDD_FRAME_PPP)
 	{
         D_LOG(D_ALWAYS, ("mtl__rx_bchan_handler: Received IddFrameType: PPP"));
 
-		/* build pointer to assembly descriptor & lock it */
-		as = mtl->rx_tbl;
+		NdisAcquireSpinLock(&RxTable->lock);
 
-		NdisAcquireSpinLock(&as->lock);
+		/* build pointer to assembly descriptor & lock it */
+		as = RxTable->as_tbl + (RxTable->NextFree % MTL_RX_BUFS);
+
+		//
+		// if this assembly pointer is not free (queued) then
+		// just drop this fragment
+		//
+		if (as->Queued)
+		{
+			D_LOG(D_ALWAYS, ("PPPRx: AssemblyQueue Overrun! mtl: 0x%p, as: 0x%p, NextFree: %d", \
+			         mtl, as, RxTable->NextFree));
+
+			as->QueueOverRun++;
+
+			RxTable->PPPReceiveError1++;
+
+			NdisReleaseSpinLock(&RxTable->lock);
+
+			goto exit_code;
+		}
 
 		FragmentFlags = msg->FragmentFlags;
 
@@ -209,11 +277,16 @@ mtl__rx_bchan_handler
 				if (FragmentFlags & H_RX_N_BEG)
 					break;
 
+				as->MissCount++;
+
 				//
 				// missed an end buffer
 				//
-				as->MissCount++;
-				D_LOG(D_ALWAYS, ("mtl__rx_bchan_handler: Miss in State: %d, MissCount: %d\n",as->State, as->MissCount));
+				D_LOG(D_ALWAYS, ("mtl__rx_bchan_handler: mtl: 0x%p, Miss in State: %d, FragmentFlags: 0x%x, MissCount: %d", \
+				              mtl, as->State, FragmentFlags, as->MissCount));
+
+				RxTable->PPPReceiveError2++;
+
 				goto clearbuffer;
 
 				break;
@@ -225,8 +298,13 @@ mtl__rx_bchan_handler
 					//
 					// missed a begining buffer
 					//
-					D_LOG(D_ALWAYS, ("mtl__rx_bchan_handler: Miss in State: %d, MissCount: %d\n",as->State, as->MissCount));
 					as->MissCount++;
+
+					D_LOG(D_ALWAYS, ("mtl__rx_bchan_handler: mtl: 0x%p, Miss in State: %d, FragmentFlags: 0x%x, MissCount: %d", \
+				              mtl, as->State, FragmentFlags, as->MissCount));
+
+					RxTable->PPPReceiveError3++;
+
 					goto done;
 				}
 clearbuffer:
@@ -254,6 +332,26 @@ clearbuffer:
 				// set time to live
 				//
 				as->ttl = 1000;
+
+				//
+				// there is always only one fragment with PPP
+				// maybe a big one but still only one
+				//
+				as->tot = 1;
+
+				break;
+
+			default:
+				D_LOG(D_ALWAYS, ("Invalid PPP Rx State! mtl: 0x%p, as: 0x%p State: 0x%x", \
+				          mtl, as, as->State));
+
+				as->State = RX_BEGIN;
+
+				as->tot = 0;
+
+				as->MissCount++;
+
+				goto done;
 
 				break;
 		}
@@ -324,10 +422,12 @@ clearbuffer:
 
 			as->MissCount++;
 
+			RxTable->PPPReceiveError4++;
+
 			/* mark as free now */
 			as->tot = 0;
 
-			D_LOG(D_ALWAYS, ("mtl__rx_bchan_handler: RxToLarge: RxSize: %d, MissCount: %d\n", CopyLen, as->MissCount));
+			D_LOG(D_ALWAYS, ("mtl__rx_bchan_handler: mtl: 0x%p, RxToLarge: RxSize: %d, MissCount: %d", mtl, CopyLen, as->MissCount));
 			goto done;
 		}
 
@@ -340,19 +440,25 @@ clearbuffer:
 			//
 			as->State = RX_BEGIN;
 
+			RxTable->PPPReceiveError5++;
+
 			as->MissCount++;
 
 			/* mark as free now */
 			as->tot = 0;
 
-			D_LOG(D_ALWAYS, ("mtl__rx_bchan_handler: AssembledRxToLarge: AsRxSize: %d, MissCount: %d\n", as->len, as->MissCount));
+			D_LOG(D_ALWAYS, ("mtl__rx_bchan_handler: AssembledRxToLarge: mtl: 0x%p, AsRxSize: %d, MissCount: %d", mtl, as->len, as->MissCount));
 			goto done;
 		}
 
 		//
 		// copy the data to rx descriptor
 		//
-		NdisMoveFromMappedMemory(as->DataPtr, msg->bufptr, CopyLen);
+		IddGetDataFromAdapter(chan->idd,
+		                      (PUCHAR)as->DataPtr,
+							  (PUCHAR)msg->bufptr,
+							  CopyLen);
+//		NdisMoveMemory(as->DataPtr, msg->bufptr, CopyLen);
 
 		//
 		// update data ptr
@@ -368,116 +474,273 @@ done_copy:
 			//
 			as->State = RX_END;
 
-			IndicateRxToWrapper (mtl, as);
+			RxTable->NextFree++;
 
-			/* mark as free now */
-			as->tot = 0;
+			QueueDescriptorForRxIndication(mtl, as);
+
+			//
+			// mark this guy as being queued
+			//
+			as->Queued = 1;
 		}
 
 done:
 		/* release assembly descriptor */
-		NdisReleaseSpinLock(&as->lock);
+		NdisReleaseSpinLock(&RxTable->lock);
 	}
-}
+	else
+        D_LOG(D_ALWAYS, ("mtl__rx_bchan_handler: Received IddFrameType: ??????!!!!!!"));
 
+	//
+	// exit code
+	// release spinlock and return
+	//
+    exit_code:
+
+	NdisReleaseSpinLock(&mtl->lock);
+}
 
 VOID
 IndicateRxToWrapper(
-	MTL	*mtl,
-	MTL_AS	*as
+	MTL	*mtl
 	)
 {
 	UCHAR	*BufferPtr;
 	USHORT	BufferLength = 0;
 	NDIS_STATUS	Status = NDIS_STATUS_SUCCESS;
-	ADAPTER	*Adapter = mtl->Adapter;
+	ADAPTER	*Adapter;
+	MTL_AS	*as;
+	MTL_RX_TBL	*RxTable;
 
-	//
-	// if this is an old ras frame then we must strip off
-	// the mac header Dst[6] + Src[6] + Length[2]
-	//
-	if (mtl->RecvFramingBits & RAS_FRAMING)
-	{
-		//
-		// pass over the mac header - tommyd does not want to see this
-		//
-		BufferPtr = as->buf + 14;
+	NdisAcquireSpinLock(&mtl->lock);
 
-		//
-		// indicate with the size of the ethernet packet not the received size
-		// this takes care of the old driver that does padding on small frames
-		//
-		BufferLength = as->buf[12];
-		BufferLength = BufferLength << 8;
-		BufferLength += as->buf[13];
-        D_LOG(D_ALWAYS, ("IndicateRxToWrapper: WrapperFrameType: RAS"));
-        D_LOG(D_ALWAYS, ("IndicateRxToWrapper: BufPtr: 0x%p, BufLen: %d", BufferPtr, BufferLength));
-	}
-	else if (mtl->RecvFramingBits & PPP_FRAMING)
+	Adapter = mtl->Adapter;
+	RxTable = &mtl->rx_tbl;
+
+	while (!IsRxIndicationFifoEmpty(mtl))
 	{
-		//
-		// the received buffer is the data that needs to be inidcated
-		//
-		BufferPtr = as->buf;
+		NdisAcquireSpinLock(&RxTable->lock);
 
 		//
-		// the received length is the length that needs to be indicated
+		// get the next completed rx assembly
 		//
-		BufferLength = as->len;
-        D_LOG(D_ALWAYS, ("IndicateRxToWrapper: WrapperFrameType: PPP"));
-        D_LOG(D_ALWAYS, ("IndicateRxToWrapper: BufPtr: 0x%p, BufLen: %d", BufferPtr, BufferLength));
-	}
-	else
-	{
+   		as = GetAssemblyFromRxIndicationFifo(mtl);
+
+		if (!as)
+		{
+			D_LOG(D_ALWAYS, ("IndicateRx: Got a NULL as from queue! mtl: 0x%p", mtl));
+			RxTable->IndicateReceiveError1++;
+			NdisReleaseSpinLock(&RxTable->lock);
+			goto exit_code;
+		}
+
+
+		//
+		// if this is an old ras frame then we must strip off
+		// the mac header Dst[6] + Src[6] + Length[2]
+		//
+		if (mtl->RecvFramingBits & RAS_FRAMING)
+		{
+			//
+			// pass over the mac header - tommyd does not want to see this
+			//
+			BufferPtr = as->buf + 14;
+	
+			//
+			// indicate with the size of the ethernet packet not the received size
+			// this takes care of the old driver that does padding on small frames
+			//
+			BufferLength = as->buf[12];
+			BufferLength = BufferLength << 8;
+			BufferLength += as->buf[13];
+			D_LOG(D_ALWAYS, ("IndicateRxToWrapper: WrapperFrameType: RAS"));
+			D_LOG(D_ALWAYS, ("IndicateRxToWrapper: BufPtr: 0x%p, BufLen: %d", BufferPtr, BufferLength));
+		}
+		else if (mtl->RecvFramingBits & PPP_FRAMING)
+		{
+			//
+			// the received buffer is the data that needs to be inidcated
+			//
+			BufferPtr = as->buf;
+	
+			//
+			// the received length is the length that needs to be indicated
+			//
+			BufferLength = as->len;
+			D_LOG(D_ALWAYS, ("IndicateRxToWrapper: WrapperFrameType: PPP"));
+			D_LOG(D_ALWAYS, ("IndicateRxToWrapper: BufPtr: 0x%p, BufLen: %d", BufferPtr, BufferLength));
+		}
+		else
+		{
 			//
 			// unknown framing - what to do what to do
 			// throw it away
 			//
-			D_LOG(D_ALWAYS, ("IndicateRxToWrapper: Unknown WrapperFramming: 0x%x", mtl->RecvFramingBits));
-			return;
-	}
+			D_LOG(D_ALWAYS, ("IndicateRxToWrapper: mtl: 0x%p, Unknown WrapperFramming: 0x%x", mtl, mtl->RecvFramingBits));
+			RxTable->IndicateReceiveError2++;
+			as->tot = 0;
+			as->Queued = 0;
+			NdisReleaseSpinLock(&RxTable->lock);
+			goto exit_code;
+		}
+	
+		if (BufferLength > MTL_MAC_MTU)
+		{
+			D_LOG(D_ALWAYS, ("IndicateRxToWrapper: mtl: 0x%p, ReceiveLength > MAX ALLOWED (1514):  RxLength: %d", mtl, as->len));
+			RxTable->IndicateReceiveError3++;
+			as->tot = 0;
+			as->Queued = 0;
+			NdisReleaseSpinLock(&RxTable->lock);
+			goto exit_code;
+		}
 
-	if (BufferLength > MTL_MAC_MTU)
-	{
-		D_LOG(D_ALWAYS, ("IndicateRxToWrapper: ReceiveLength > MAX ALLOWED (1514):  RxLength: %d", as->len));
-		return;
+		//
+		// send frame up
+		//
+		if (mtl->LinkHandle)
+		{
+			/* release assembly descriptor */
+			NdisReleaseSpinLock(&RxTable->lock);
+
+			NdisReleaseSpinLock(&mtl->lock);
+
+			NdisMWanIndicateReceive(&Status,
+									Adapter->Handle,
+									mtl->LinkHandle,
+									BufferPtr,
+									BufferLength);
+
+			NdisAcquireSpinLock(&mtl->lock);
+
+			NdisAcquireSpinLock(&RxTable->lock);
+
+			mtl->RecvCompleteScheduled = 1;
+		}
+	
+	
+		/* mark as free now */
+		as->tot = 0;
+
+		//
+		// mark this guy as being free
+		//
+		as->Queued = 0;
+
+		/* release assembly descriptor */
+		NdisReleaseSpinLock(&RxTable->lock);
 	}
 
 	//
-	// send frame up
+	// exit code
+	// release spinlock and return
 	//
-	NdisMWanIndicateReceive(&Status,
-							Adapter->AdapterHandle,
-	                        mtl->LinkHandle,
-							BufferPtr,
-							BufferLength);
+    exit_code:
 
-	if (!mtl->RecvCompleteScheduled)
+	NdisReleaseSpinLock(&mtl->lock);
+}
+
+//
+// this function checks all of the mtl's on this adapter to see if
+// the protocols need to be given a chance to do some work
+//
+VOID
+MtlRecvCompleteFunction(
+	ADAPTER *Adapter
+	)
+{
+	ULONG	n;
+
+	for ( n = 0; n < MAX_MTL_PER_ADAPTER; n++)
 	{
-		mtl->RecvCompleteScheduled = 1;
-		NdisMSetTimer(&mtl->RecvCompleteTimer, 0);
+		MTL	*mtl = Adapter->MtlTbl[n] ;
+
+		//
+		// if this is a valid mtl
+		//
+		if (mtl)
+		{
+			//
+			// get lock for this mtl
+			//
+			NdisAcquireSpinLock(&mtl->lock);
+
+			//
+			// is a receive complete scheduled on a valid link?
+			//
+			if (mtl->RecvCompleteScheduled && mtl->LinkHandle)
+			{
+				//
+				// release the lock
+				//
+				NdisReleaseSpinLock(&mtl->lock);
+	
+				NdisMWanIndicateReceiveComplete(Adapter->Handle,
+													mtl->LinkHandle);
+	
+				//
+				// reaquire the lock
+				//
+				NdisAcquireSpinLock(&mtl->lock);
+
+				//
+				// clear the schedule flag
+				//
+				mtl->RecvCompleteScheduled = 0;
+			}
+
+			//
+			// release the lock
+			//
+			NdisReleaseSpinLock(&mtl->lock);
+		}
 	}
+}
+
+BOOLEAN
+IsRxIndicationFifoEmpty(
+	MTL	*mtl)
+{
+	BOOLEAN	Ret = 0;
+
+	NdisAcquireSpinLock(&mtl->RxIndicationFifo.lock);
+
+	Ret = IsListEmpty(&mtl->RxIndicationFifo.head);
+
+	NdisReleaseSpinLock(&mtl->RxIndicationFifo.lock);
+
+	return(Ret);
+		
+}
+
+MTL_AS*
+GetAssemblyFromRxIndicationFifo(
+	MTL	*mtl
+	)
+{
+	MTL_AS	*as = NULL;
+
+	NdisAcquireSpinLock(&mtl->RxIndicationFifo.lock);
+
+	if (!IsListEmpty(&mtl->RxIndicationFifo.head))
+		as = (MTL_AS*)RemoveHeadList(&mtl->RxIndicationFifo.head);
+
+	NdisReleaseSpinLock(&mtl->RxIndicationFifo.lock);
+
+	return(as);
 }
 
 VOID
-MtlRecvCompleteFunction(
-	VOID	*a1,
-	MTL		*mtl,
-	VOID	*a2,
-	VOID	*a3
+QueueDescriptorForRxIndication(
+	MTL	*mtl,
+	MTL_AS	*as
 	)
 {
-	ADAPTER	*Adapter = mtl->Adapter;
-		
-	//
-	// let the protocol do some work
-	//
-	NdisMWanIndicateReceiveComplete(Adapter->AdapterHandle, mtl->LinkHandle);
+	NdisAcquireSpinLock(&mtl->RxIndicationFifo.lock);
 
-	mtl->RecvCompleteScheduled = 0;
+	InsertTailList(&mtl->RxIndicationFifo.head, &as->link);
+
+	NdisReleaseSpinLock(&mtl->RxIndicationFifo.lock);
 }
-
-
 
 /* do timer tick processing for rx side */
 VOID
@@ -485,21 +748,72 @@ mtl__rx_tick(MTL *mtl)
 {
     INT         n;
     MTL_AS      *as;
+	MTL_RX_TBL	*RxTable = &mtl->rx_tbl;
+
+	//
+	// see if there are any receives to give to wrapper
+	//
+	IndicateRxToWrapper(mtl);
+
+	NdisAcquireSpinLock(&mtl->lock);
+
+	NdisAcquireSpinLock(&RxTable->lock);
 
     /* scan assembly table */
-    for ( n = 0, as = mtl->rx_tbl ; n < MTL_RX_BUFS ; n++, as++ )
+    for ( n = 0, as = RxTable->as_tbl ; n < MTL_RX_BUFS ; n++, as++ )
     {
-        /* lock */
-        NdisAcquireSpinLock(&as->lock);
-
         /* update ttl & check */
-        if ( as->tot && !(as->ttl -= 50) )
+        if ( as->tot && !(as->ttl -= 25) )
         {
-			D_LOG(D_ALWAYS, ("mtl__rx_bchan_handler: Pkt Kill ttl = 0: Slot: %d, mtl: 0x%p\n", n, mtl));
-            as->tot = 0;
-        }
+			D_LOG(D_ALWAYS, ("mtl__rx_bchan_handler: Pkt Kill ttl = 0: Slot: %d, mtl: 0x%p", n, mtl));
 
-        /* unlock */
-        NdisReleaseSpinLock(&as->lock);
+			D_LOG(D_ALWAYS, ("AS Timeout! mtl: 0x%p, as: 0x%p, as->seq: 0x%x", mtl, as, as->seq));
+			D_LOG(D_ALWAYS, ("as->tot: %d, as->num: %d", as->tot, as->num));
+
+			RxTable->TimeOutReceiveError1++;
+
+			//
+			// if this guy was queued for indication to wrapper
+			// and was not indicated within a second something is wrong
+			//
+			if (as->Queued)
+			{
+				D_LOG(D_ALWAYS, ("AS Timeout while queued for indication! mtl: 0x%p, as: 0x%p", mtl, as));
+#if	DBG
+				DbgBreakPoint();
+#endif
+			}
+
+            as->tot = 0;
+
+			//
+			// mark this guy as being free
+			//
+			as->Queued = 0;
+        }
     }
+
+	NdisReleaseSpinLock(&RxTable->lock);
+
+	NdisReleaseSpinLock(&mtl->lock);
 }
+
+//
+// see if there are any receives to give to wrapper
+//
+VOID
+TryToIndicateMtlReceives(
+	ADAPTER *Adapter
+	)
+{
+	ULONG	n;
+
+	for (n = 0; n < MAX_MTL_PER_ADAPTER; n++)
+	{
+		MTL	*mtl = Adapter->MtlTbl[n];
+
+		if (mtl)
+			IndicateRxToWrapper(mtl);
+	}
+}
+

@@ -1,9 +1,3 @@
-#undef MIPS
-#undef _MIPS_
-#undef i386
-#define ALPHA 1
-#define _ALPHA_ 1
-#define _GENALPHA 1
 /*++
   Copyright (c) 1990  Microsoft Corporation
   Copyright (c) 1992, 1993  Digital Equipment Corporation
@@ -32,51 +26,58 @@ Revision History:
 
 --*/
 
-#define const
-
+#include "ki.h"
+#pragma hdrstop
+#define HEADER_FILE
 #include "excpt.h"
 #include "ntdef.h"
-#include "ntstatus.h"
 #include "ntkeapi.h"
 #include "ntalpha.h"
-
+#include "ntimage.h"
 #include "ntseapi.h"
 #include "ntobapi.h"
-#include "ntimage.h"
-#include "ntldr.h"
-#include "ntpsapi.h"
-#include "ntxcapi.h"
 #include "ntlpcapi.h"
 #include "ntioapi.h"
-#include "ntexapi.h"
 #include "ntmmapi.h"
-#include "ntconfig.h"
-
-#include "stdarg.h"
+#include "ntldr.h"
+#include "ntpsapi.h"
+#include "ntexapi.h"
 #include "ntnls.h"
-
-#include "ntrtl.h"
 #include "nturtl.h"
 #include "ntcsrmsg.h"
 #include "ntcsrsrv.h"
-#include "ntosdef.h"
-#include "ntmp.h"
-#include "alpha.h"
+#include "ntxcapi.h"
 #include "arc.h"
-#include "ke.h"
-#include "ki.h"
-#include "ex.h"
-#include "ps.h"
-#include "bugcodes.h"
-#include "stdio.h"
+#include "ntstatus.h"
+#include "kxalpha.h"
+#include "stdarg.h"
 #include "setjmp.h"
 
 //
-// Define HEADER_FILE so kxalpha.h does not emit any assembler pseudo-ops.
+// Define architecture specific generation macros.
 //
 
-#define HEADER_FILE
-#include "kxalpha.h"
+#define genAlt(Name, Type, Member) \
+    dumpf("#define " #Name " 0x%lx\n", OFFSET(Type, Member))
+
+#define genCom(Comment)        \
+    dumpf("\n");               \
+    dumpf("//\n");             \
+    dumpf("// " Comment "\n"); \
+    dumpf("//\n");             \
+    dumpf("\n")
+
+#define genDef(Prefix, Type, Member) \
+    dumpf("#define " #Prefix #Member " 0x%lx\n", OFFSET(Type, Member))
+
+#define genVal(Name, Value)    \
+    dumpf("#define " #Name " 0x%lx\n", Value)
+
+#define genSpc() dumpf("\n");
+
+//
+// Define member offset computation macro.
+//
 
 #define OFFSET(type, field) ((LONG)(&((type *)0)->field))
 
@@ -86,16 +87,22 @@ FILE *HalAlpha;
 //
 // EnableInc(a) - Enable output to go to specified include file
 //
+
 #define EnableInc(a)  OutputEnabled |= a;
 
 //
 // DisableInc(a) - Disable out from going to specified include file
 //
+
 #define DisableInc(a) OutputEnabled &= ~a;
 
 ULONG OutputEnabled;
+
 #define KSALPHA 0x1
 #define HALALPHA 0x2
+
+#define KERNEL KSALPHA
+#define HAL HALALPHA
 
 VOID
 GenerateCallPalNames( VOID );
@@ -217,215 +224,19 @@ main (argc, argv)
     dumpf("#include \"kxalpha.h\"\n");
   DisableInc( HALALPHA );
 
-
     //
-    // Process state enumerated type definitions.
-    //
-
-    dumpf("\n");
-    dumpf("//\n");
-    dumpf("// Process State Enumerated Type Values\n");
-    dumpf("//\n");
-    dumpf("\n");
-
-    dumpf("#define ProcessInMemory 0x%lx\n", ProcessInMemory);
-    dumpf("#define ProcessOutOfMemory 0x%lx\n", ProcessOutOfMemory);
-    dumpf("#define ProcessInTransition 0x%lx\n", ProcessInTransition);
-
-    //
-    // Thread state enumerated type definitions.
+    // Include architecture independent definitions.
     //
 
-    dumpf("\n");
-    dumpf("//\n");
-    dumpf("// Thread State Enumerated Type Values\n");
-    dumpf("//\n");
-    dumpf("\n");
-
-    dumpf("#define Initialized 0x%lx\n", Initialized);
-    dumpf("#define Ready 0x%lx\n", Ready);
-    dumpf("#define Running 0x%lx\n", Running);
-    dumpf("#define Standby 0x%lx\n", Standby);
-    dumpf("#define Terminated 0x%lx\n", Terminated);
-    dumpf("#define Waiting 0x%lx\n", Waiting);
+#include "..\genxx.inc"
 
     //
-    // Wait Reason enumerated type definitions.
-    //
-
-    dumpf("\n");
-    dumpf("//\n");
-    dumpf("// Wait Reason Enumerated Type Values\n");
-    dumpf("//\n");
-    dumpf("\n");
-
-    dumpf("#define WrEventPair 0x%lx\n", WrEventPair);
-
-    //
-    // APC state structure offset definitions.
-    //
-
-    dumpf("\n");
-    dumpf("//\n");
-    dumpf("// Apc State Structure Offset Definitions\n");
-    dumpf("//\n");
-    dumpf("\n");
-
-    dumpf("#define AsApcListHead 0x%lx\n", OFFSET(KAPC_STATE, ApcListHead[0]));
-    dumpf("#define AsProcess 0x%lx\n", OFFSET(KAPC_STATE, Process));
-    dumpf("#define AsKernelApcInProgress 0x%lx\n",
-                                    OFFSET(KAPC_STATE, KernelApcInProgress));
-    dumpf("#define AsKernelApcPending 0x%lx\n", OFFSET(KAPC_STATE, KernelApcPending));
-    dumpf("#define AsUserApcPending 0x%lx\n", OFFSET(KAPC_STATE, UserApcPending));
-
-    //
-    // Define critical section structure offset definitions.
-    //
-
-    dumpf("\n");
-    dumpf("//\n");
-    dumpf("// Critical Section Structure Offset Definitions\n");
-    dumpf("//\n");
-    dumpf("\n");
-
-    dumpf("#define CsLockCount 0x%lx\n",
-            OFFSET(RTL_CRITICAL_SECTION, LockCount));
-
-    dumpf("#define CsRecursionCount 0x%lx\n",
-            OFFSET(RTL_CRITICAL_SECTION, RecursionCount));
-
-    dumpf("#define CsOwningThread 0x%lx\n",
-            OFFSET(RTL_CRITICAL_SECTION, OwningThread));
-
-    //
-    // Exception dispatcher context structure offset definitions.
-    //
-
-    dumpf("\n");
-    dumpf("//\n");
-    dumpf("// Dispatcher Context Structure Offset Definitions\n");
-    dumpf("//\n");
-    dumpf("\n");
-
-    dumpf("#define DcControlPc 0x%lx\n", OFFSET(DISPATCHER_CONTEXT, ControlPc));
-    dumpf("#define DcFunctionEntry 0x%lx\n", OFFSET(DISPATCHER_CONTEXT, FunctionEntry));
-    dumpf("#define DcEstablisherFrame 0x%lx\n", OFFSET(DISPATCHER_CONTEXT, EstablisherFrame));
-    dumpf("#define DcContextRecord 0x%lx\n", OFFSET(DISPATCHER_CONTEXT, ContextRecord));
-
-
-    //
-    // Exception record offset, flag, and enumerated type definitions.
-    //
-
-  EnableInc( HALALPHA );
-    dumpf("\n");
-    dumpf("//\n");
-    dumpf("// Exception Record Offset, Flag, and Enumerated Type Definitions\n");
-    dumpf("//\n");
-    dumpf("\n");
-
-    dumpf("#define EXCEPTION_NONCONTINUABLE 0x%lx\n", EXCEPTION_NONCONTINUABLE);
-    dumpf("#define EXCEPTION_UNWINDING 0x%lx\n", EXCEPTION_UNWINDING);
-    dumpf("#define EXCEPTION_EXIT_UNWIND 0x%lx\n", EXCEPTION_EXIT_UNWIND);
-    dumpf("#define EXCEPTION_STACK_INVALID 0x%lx\n", EXCEPTION_STACK_INVALID);
-    dumpf("#define EXCEPTION_NESTED_CALL 0x%lx\n", EXCEPTION_NESTED_CALL);
-    dumpf("#define EXCEPTION_TARGET_UNWIND 0x%lx\n", EXCEPTION_TARGET_UNWIND);
-    dumpf("#define EXCEPTION_COLLIDED_UNWIND 0x%lx\n", EXCEPTION_COLLIDED_UNWIND);
-    dumpf("#define EXCEPTION_UNWIND 0x%lx\n", EXCEPTION_UNWIND);
-    dumpf("\n");
-    dumpf("#define ExceptionContinueExecution 0x%lx\n", ExceptionContinueExecution);
-    dumpf("#define ExceptionContinueSearch 0x%lx\n", ExceptionContinueSearch);
-    dumpf("#define ExceptionNestedException 0x%lx\n", ExceptionNestedException);
-    dumpf("#define ExceptionCollidedUnwind 0x%lx\n", ExceptionCollidedUnwind);
-    dumpf("\n");
-    dumpf("#define ErExceptionCode 0x%lx\n", OFFSET(EXCEPTION_RECORD,
-                                                ExceptionCode));
-    dumpf("#define ErExceptionFlags 0x%lx\n", OFFSET(EXCEPTION_RECORD,
-                                                ExceptionFlags));
-    dumpf("#define ErExceptionRecord 0x%lx\n", OFFSET(EXCEPTION_RECORD,
-                                                ExceptionRecord));
-    dumpf("#define ErExceptionAddress 0x%lx\n", OFFSET(EXCEPTION_RECORD,
-                                                ExceptionAddress));
-    dumpf("#define ErNumberParameters 0x%lx\n", OFFSET(EXCEPTION_RECORD,
-                                                NumberParameters));
-    dumpf("#define ErExceptionInformation 0x%lx\n", OFFSET(EXCEPTION_RECORD,
-                                                ExceptionInformation[0]));
-    dumpf("#define ExceptionRecordLength 0x%lx\n",
-                                    (sizeof(EXCEPTION_RECORD) + 15) & (~15));
-
-    //
-    // Fast Mutex structure offset definitions.
-    //
-
-  DisableInc (HALALPHA);
-
-    dumpf("\n");
-    dumpf("//\n");
-    dumpf("// Fast Mutex Structure Offset Definitions\n");
-    dumpf("//\n");
-    dumpf("\n");
-
-    dumpf("#define FmCount 0x%lx\n",
-          OFFSET(FAST_MUTEX, Count));
-
-    dumpf("#define FmOwner 0x%lx\n",
-          OFFSET(FAST_MUTEX, Owner));
-
-    dumpf("#define FmContention 0x%lx\n",
-          OFFSET(FAST_MUTEX, Contention));
-
-    dumpf("#define FmEvent 0x%lx\n",
-          OFFSET(FAST_MUTEX, Event));
-
-    dumpf("#define FmOldIrql 0x%lx\n",
-          OFFSET(FAST_MUTEX, OldIrql));
-
-  EnableInc( HALALPHA );
-
-    //
-    // Large integer structure offset definitions.
-    //
-
-    dumpf("\n");
-    dumpf("//\n");
-    dumpf("// Large Integer Structure Offset Definitions\n");
-    dumpf("//\n");
-    dumpf("\n");
-
-    dumpf("#define LiLowPart 0x%lx\n", OFFSET(LARGE_INTEGER, LowPart));
-    dumpf("#define LiHighPart 0x%lx\n", OFFSET(LARGE_INTEGER, HighPart));
-
-    //
-    // List entry structure offset definitions.
-    //
-
-    dumpf("\n");
-    dumpf("//\n");
-    dumpf("// List Entry Structure Offset Definitions\n");
-    dumpf("//\n");
-    dumpf("\n");
-
-    dumpf("#define LsFlink 0x%lx\n", OFFSET(LIST_ENTRY, Flink));
-    dumpf("#define LsBlink 0x%lx\n", OFFSET(LIST_ENTRY, Blink));
-
-    //
-    // String structure offset definitions.
-    //
-
-    dumpf("\n");
-    dumpf("//\n");
-    dumpf("// String Structure Offset Definitions\n");
-    dumpf("//\n");
-    dumpf("\n");
-
-    dumpf("#define StrLength 0x%lx\n", OFFSET(STRING, Length));
-    dumpf("#define StrMaximumLength 0x%lx\n", OFFSET(STRING, MaximumLength));
-    dumpf("#define StrBuffer 0x%lx\n", OFFSET(STRING, Buffer));
-
-
+    // Generate architecture dependent definitions.
     //
     // Processor control register structure definitions.
     //
+
+    EnableInc(HAL);
 
     dumpf("\n");
     dumpf("//\n");
@@ -562,23 +373,17 @@ main (argc, argv)
     dumpf("#define PcReservedVectors 0x%lx\n",
             OFFSET(KPCR, ReservedVectors));
 
-    dumpf("#define PcProfileListHead 0x%lx\n",
-            OFFSET(KPCR, ProfileListHead));
-
-    dumpf("#define PcProfileInterval 0x%lx\n",
-            OFFSET(KPCR, ProfileInterval));
-
-    dumpf("#define PcProfileCount 0x%lx\n",
-            OFFSET(KPCR, ProfileCount));
-
     dumpf("#define PcMachineCheckError 0x%lx\n",
             OFFSET(KPCR, MachineCheckError));
 
     dumpf("#define PcDpcStack 0x%lx\n",
             OFFSET(KPCR, DpcStack));
 
-    dumpf("#define PcDpcRoutineActive 0x%lx\n",
-            OFFSET(KPCR, DpcRoutineActive));
+    dumpf("#define PcNotMember 0x%lx\n",
+            OFFSET(KPCR, NotMember));
+
+    dumpf("#define PcCurrentPid 0x%lx\n",
+            OFFSET(KPCR, CurrentPid));
 
     dumpf("#define PcSystemServiceDispatchStart 0x%lx\n",
             OFFSET(KPCR, SystemServiceDispatchStart));
@@ -667,9 +472,6 @@ main (argc, argv)
     dumpf("#define PbIpiFrozen 0x%lx\n",
             OFFSET(KPRCB, IpiFrozen));
 
-    dumpf("#define PbRequestPacket 0x%lx\n",
-            OFFSET(KPRCB, RequestPacket));
-
     dumpf("#define PbIpiCounts 0x%lx\n",
             OFFSET(KPRCB, IpiCounts));
 
@@ -703,17 +505,11 @@ main (argc, argv)
     dumpf("#define PbSystemCalls 0x%lx\n",
             OFFSET(KPRCB, KeSystemCalls));
 
-    dumpf("#define PbCurrentPacket 0x%lx\n",
-            OFFSET(KPRCB, CurrentPacket));
-
-    dumpf("#define PbWorkerRoutine 0x%lx\n",
-            OFFSET(KPRCB, WorkerRoutine));
-
-    dumpf("#define PbRequestSummary 0x%lx\n",
-            OFFSET(KPRCB, RequestSummary));
-
-    dumpf("#define PbSignalDone 0x%lx\n",
-            OFFSET(KPRCB, SignalDone));
+    genDef(Pb, KPRCB, CurrentPacket);
+    genDef(Pb, KPRCB, TargetSet);
+    genDef(Pb, KPRCB, WorkerRoutine);
+    genDef(Pb, KPRCB, RequestSummary);
+    genDef(Pb, KPRCB, SignalDone);
 
     dumpf("#define PbDpcListHead 0x%lx\n",
             OFFSET(KPRCB, DpcListHead));
@@ -724,11 +520,50 @@ main (argc, argv)
     dumpf("#define PbDpcCount 0x%lx\n",
             OFFSET(KPRCB, DpcCount));
 
+    dumpf("#define PbLastDpcCount 0x%lx\n",
+            OFFSET(KPRCB, LastDpcCount));
+
     dumpf("#define PbQuantumEnd 0x%lx\n",
             OFFSET(KPRCB, QuantumEnd));
 
     dumpf("#define PbStartCount 0x%lx\n",
             OFFSET(KPRCB, StartCount));
+
+    dumpf("#define PbSoftwareInterrupts 0x%lx\n",
+            OFFSET(KPRCB, SoftwareInterrupts));
+
+    dumpf("#define PbInterruptActive 0x%lx\n",
+            OFFSET(KPRCB, InterruptActive));
+
+    dumpf("#define PbDpcRoutineActive 0x%lx\n",
+            OFFSET(KPRCB, DpcRoutineActive));
+
+    dumpf("#define PbDpcQueueDepth 0x%lx\n",
+            OFFSET(KPRCB, DpcQueueDepth));
+
+    dumpf("#define PbDpcRequestRate 0x%lx\n",
+            OFFSET(KPRCB, DpcRequestRate));
+
+    dumpf("#define PbDpcBypassCount 0x%lx\n",
+            OFFSET(KPRCB, DpcBypassCount));
+
+    dumpf("#define PbApcBypassCount 0x%lx\n",
+            OFFSET(KPRCB, ApcBypassCount));
+
+    dumpf("#define PbDispatchInterruptCount 0x%lx\n",
+            OFFSET(KPRCB, DispatchInterruptCount));
+
+    dumpf("#define PbDpcInterruptRequested 0x%lx\n",
+            OFFSET(KPRCB, DpcInterruptRequested));
+
+    dumpf("#define PbMaximumDpcQueueDepth 0x%lx\n",
+            OFFSET(KPRCB, MaximumDpcQueueDepth));
+
+    dumpf("#define PbMinimumDpcRate 0x%lx\n",
+            OFFSET(KPRCB, MinimumDpcRate));
+
+    dumpf("#define PbAdjustDpcThreshold 0x%lx\n",
+            OFFSET(KPRCB, AdjustDpcThreshold));
 
     dumpf("#define ProcessorBlockLength 0x%lx\n",
             ((sizeof(KPRCB) + 15) & ~15));
@@ -790,526 +625,6 @@ main (argc, argv)
 
     dumpf("#define IcFlushIoBuffers 0x%lx\n",
            OFFSET(KIPI_COUNTS, FlushIoBuffers) );
-
-    //
-    // Thread environment block structure offset definitions.
-    //
-
-    dumpf("\n");
-    dumpf("//\n");
-    dumpf("// Thread Environment Block Structure Offset Definitions\n");
-    dumpf("//\n");
-    dumpf("\n");
-
-    dumpf("#define TeStackBase 0x%lx\n",
-            OFFSET(TEB, NtTib) + OFFSET(NT_TIB, StackBase));
-
-    dumpf("#define TeStackLimit 0x%lx\n",
-            OFFSET(TEB, NtTib) + OFFSET(NT_TIB, StackLimit));
-
-    dumpf("#define TeEnvironmentPointer 0x%lx\n",
-            OFFSET(TEB, EnvironmentPointer));
-
-    dumpf("#define TeClientId 0x%lx\n",
-            OFFSET(TEB, ClientId));
-
-    dumpf("#define TeActiveRpcHandle 0x%lx\n",
-             OFFSET(TEB, ActiveRpcHandle));
-
-    dumpf("#define TeThreadLocalStoragePointer 0x%lx\n",
-            OFFSET(TEB, ThreadLocalStoragePointer));
-
-    dumpf("#define TePeb 0x%lx\n",
-            OFFSET(TEB, ProcessEnvironmentBlock));
-
-    dumpf("#define TeSoftFpcr 0x%lx\n",
-            OFFSET(TEB, FpSoftwareStatusRegister));
-
-    dumpf("#define TeCsrQlpcStack 0x%lx\n",
-            OFFSET(TEB, CsrQlpcStack));
-
-    dumpf("#define TeGdiClientPID 0x%lx\n",
-            OFFSET(TEB, GdiClientPID));
-
-    dumpf("#define TeGdiClientTID 0x%lx\n",
-            OFFSET(TEB, GdiClientTID));
-
-    dumpf("#define TeGdiThreadLocalInfo 0x%lx\n",
-            OFFSET(TEB, GdiThreadLocalInfo));
-
-    dumpf("#define TeglDispatchTable 0x%lx\n",
-          OFFSET(TEB, glDispatchTable));
-
-    dumpf("#define TeglSectionInfo 0x%lx\n",
-          OFFSET(TEB, glSectionInfo));
-
-    dumpf("#define TeglSection 0x%lx\n",
-          OFFSET(TEB, glSection));
-
-    dumpf("#define TeglTable 0x%lx\n",
-          OFFSET(TEB, glTable));
-
-    dumpf("#define TeglCurrentRC 0x%lx\n",
-          OFFSET(TEB, glCurrentRC));
-
-    dumpf("#define TeglContext 0x%lx\n",
-          OFFSET(TEB, glContext));
-
-    //
-    // Time structure offset definitions.
-    //
-
-  EnableInc( HALALPHA );
-    dumpf("\n");
-    dumpf("//\n");
-    dumpf("// Time Structure Offset Definitions\n");
-    dumpf("//\n");
-    dumpf("\n");
-
-    dumpf("#define TmLowTime 0x%lx\n", OFFSET(LARGE_INTEGER, LowPart));
-    dumpf("#define TmHighTime 0x%lx\n", OFFSET(LARGE_INTEGER , HighPart));
-
-  DisableInc( HALALPHA );
-
-    dumpf("\n");
-    dumpf("//\n");
-    dumpf("// APC object Structure Offset Definitions\n");
-    dumpf("//\n");
-    dumpf("\n");
-
-    dumpf("#define ApType 0x%lx\n", OFFSET(KAPC, Type));
-    dumpf("#define ApSize 0x%lx\n", OFFSET(KAPC, Size));
-    dumpf("#define ApThread 0x%lx\n", OFFSET(KAPC, Thread));
-    dumpf("#define ApApcListEntry 0x%lx\n", OFFSET(KAPC, ApcListEntry));
-    dumpf("#define ApKernelRoutine 0x%lx\n", OFFSET(KAPC, KernelRoutine));
-    dumpf("#define ApRundownRoutine 0x%lx\n", OFFSET(KAPC, RundownRoutine));
-    dumpf("#define ApNormalRoutine 0x%lx\n", OFFSET(KAPC, NormalRoutine));
-    dumpf("#define ApNormalContext 0x%lx\n", OFFSET(KAPC, NormalContext));
-    dumpf("#define ApSystemArgument1 0x%lx\n", OFFSET(KAPC, SystemArgument1));
-    dumpf("#define ApSystemArgument2 0x%lx\n", OFFSET(KAPC, SystemArgument2));
-    dumpf("#define ApApcStateIndex 0x%lx\n", OFFSET(KAPC, ApcStateIndex));
-    dumpf("#define ApApcMode 0x%lx\n", OFFSET(KAPC, ApcMode));
-    dumpf("#define ApInserted 0x%lx\n", OFFSET(KAPC, Inserted));
-
-  EnableInc( HALALPHA );
-    dumpf("\n");
-    dumpf("//\n");
-    dumpf("// DPC object Structure Offset Definitions\n");
-    dumpf("//\n");
-    dumpf("\n");
-
-    dumpf("#define DpType 0x%lx\n", OFFSET(KDPC, Type));
-    dumpf("#define DpSize 0x%lx\n", OFFSET(KDPC, Size));
-    dumpf("#define DpDpcListEntry 0x%lx\n", OFFSET(KDPC, DpcListEntry));
-    dumpf("#define DpDeferredRoutine 0x%lx\n", OFFSET(KDPC, DeferredRoutine));
-    dumpf("#define DpDeferredContext 0x%lx\n", OFFSET(KDPC, DeferredContext));
-    dumpf("#define DpSystemArgument1 0x%lx\n", OFFSET(KDPC, SystemArgument1));
-    dumpf("#define DpSystemArgument2 0x%lx\n", OFFSET(KDPC, SystemArgument2));
-    dumpf("#define DpLock 0x%lx\n", OFFSET(KDPC, Lock));
-  DisableInc( HALALPHA );
-
-    dumpf("\n");
-    dumpf("//\n");
-    dumpf("// Device object Structure Offset Definitions\n");
-    dumpf("//\n");
-    dumpf("\n");
-
-    dumpf("#define DvType 0x%lx\n", OFFSET(KDEVICE_QUEUE, Type));
-    dumpf("#define DvSize 0x%lx\n", OFFSET(KDEVICE_QUEUE, Size));
-    dumpf("#define DvDeviceListHead 0x%lx\n", OFFSET(KDEVICE_QUEUE, DeviceListHead));
-    dumpf("#define DvSpinLock 0x%lx\n", OFFSET(KDEVICE_QUEUE, Lock));
-    dumpf("#define DvBusy 0x%lx\n", OFFSET(KDEVICE_QUEUE, Busy));
-
-    dumpf("\n");
-    dumpf("//\n");
-    dumpf("// Device queue entry Structure Offset Definitions\n");
-    dumpf("//\n");
-    dumpf("\n");
-
-    dumpf("#define DeDeviceListEntry 0x%lx\n", OFFSET(KDEVICE_QUEUE_ENTRY,
-           DeviceListEntry));
-    dumpf("#define DeSortKey 0x%lx\n", OFFSET(KDEVICE_QUEUE_ENTRY, SortKey));
-    dumpf("#define DeInserted 0x%lx\n", OFFSET(KDEVICE_QUEUE_ENTRY, Inserted));
-
-    dumpf("\n");
-    dumpf("//\n");
-    dumpf("// Event Structure Offset Definitions\n");
-    dumpf("//\n");
-    dumpf("\n");
-
-    dumpf("#define EvType 0x%lx\n",
-          OFFSET(DISPATCHER_HEADER, Type));
-
-    dumpf("#define EvSize 0x%lx\n",
-          OFFSET(DISPATCHER_HEADER, Size));
-
-    dumpf("#define EvSignalState 0x%lx\n",
-          OFFSET(KEVENT, Header.SignalState));
-
-    dumpf("#define EvWaitListHead 0x%lx\n",
-          OFFSET(KEVENT, Header.WaitListHead));
-
-    dumpf("\n");
-    dumpf("//\n");
-    dumpf("// Event Pair Structure Offset Definitions\n");
-    dumpf("//\n");
-    dumpf("\n");
-
-    dumpf("#define EpType 0x%lx\n",
-          OFFSET(KEVENT_PAIR, Type));
-
-    dumpf("#define EpSize 0x%lx\n",
-          OFFSET(KEVENT_PAIR, Size));
-
-    dumpf("#define EpEventLow 0x%lx\n",
-          OFFSET(KEVENT_PAIR, EventLow));
-
-    dumpf("#define EpEventHigh 0x%lx\n",
-          OFFSET(KEVENT_PAIR, EventHigh));
-
-    dumpf("\n");
-    dumpf("//\n");
-    dumpf("// Interrupt Object Structure Offset Definitions\n");
-    dumpf("//\n");
-    dumpf("\n");
-
-    dumpf("#define InType 0x%lx\n", OFFSET(KINTERRUPT, Type));
-    dumpf("#define InSize 0x%lx\n", OFFSET(KINTERRUPT, Size));
-    dumpf("#define InInterruptListEntry 0x%lx\n", OFFSET(KINTERRUPT, InterruptListEntry));
-    dumpf("#define InServiceRoutine 0x%lx\n", OFFSET(KINTERRUPT, ServiceRoutine));
-    dumpf("#define InServiceContext 0x%lx\n", OFFSET(KINTERRUPT, ServiceContext));
-    dumpf("#define InSpinLock 0x%lx\n", OFFSET(KINTERRUPT, SpinLock));
-    dumpf("#define InActualLock 0x%lx\n", OFFSET(KINTERRUPT, ActualLock));
-    dumpf("#define InDispatchAddress 0x%lx\n", OFFSET(KINTERRUPT, DispatchAddress));
-    dumpf("#define InVector 0x%lx\n", OFFSET(KINTERRUPT, Vector));
-    dumpf("#define InIrql 0x%lx\n", OFFSET(KINTERRUPT, Irql));
-    dumpf("#define InSynchronizeIrql 0x%lx\n", OFFSET(KINTERRUPT, SynchronizeIrql));
-    dumpf("#define InMode 0x%lx\n", OFFSET(KINTERRUPT, Mode));
-    dumpf("#define InNumber 0x%lx\n", OFFSET(KINTERRUPT, Number));
-    dumpf("#define InFloatingSave 0x%lx\n", OFFSET(KINTERRUPT, FloatingSave));
-    dumpf("#define InConnected 0x%lx\n", OFFSET(KINTERRUPT, Connected));
-    dumpf("#define InDispatchCode 0x%lx\n", OFFSET(KINTERRUPT, DispatchCode[0]));
-    dumpf("#define InLevelSensitive 0x%lx\n", LevelSensitive);
-    dumpf("#define InLatched 0x%lx\n", Latched);
-
-    //
-    // Process object structure offset definitions
-    //
-
-    dumpf("\n");
-    dumpf("//\n");
-    dumpf("// Process Object Structure Offset Definitions\n");
-    dumpf("//\n");
-    dumpf("\n");
-
-    dumpf("#define PrProfileListHead 0x%lx\n",
-          OFFSET(KPROCESS, ProfileListHead));
-
-    dumpf("#define PrReadyListHead 0x%lx\n",
-          OFFSET(KPROCESS, ReadyListHead));
-
-    dumpf("#define PrSwapListEntry 0x%lx\n",
-          OFFSET(KPROCESS, SwapListEntry));
-
-    dumpf("#define PrThreadListHead 0x%lx\n",
-          OFFSET(KPROCESS, ThreadListHead));
-
-    dumpf("#define PrKernelTime 0x%lx\n",
-          OFFSET(KPROCESS, KernelTime));
-
-    dumpf("#define PrUserTime 0x%lx\n",
-          OFFSET(KPROCESS, UserTime));
-
-    dumpf("#define PrDirectoryTableBase 0x%lx\n",
-          OFFSET(KPROCESS, DirectoryTableBase[0]));
-
-    dumpf("#define PrActiveProcessors 0x%lx\n",
-            OFFSET(KPROCESS, ActiveProcessors));
-
-    dumpf("#define PrAffinity 0x%lx\n",
-            OFFSET(KPROCESS, Affinity));
-
-    dumpf("#define PrProcessPid 0x%lx\n",
-            OFFSET(KPROCESS, ProcessPid));
-
-    dumpf("#define PrProcessSequence 0x%lx\n",
-            OFFSET(KPROCESS, ProcessSequence));
-
-    dumpf("#define PrStackCount 0x%lx\n",
-            OFFSET(KPROCESS, StackCount));
-
-    dumpf("#define PrAutoAlignment 0x%lx\n",
-            OFFSET(KPROCESS, AutoAlignment));
-
-    dumpf("#define PrBasePriority 0x%lx\n",
-            OFFSET(KPROCESS, BasePriority));
-
-    dumpf("#define PrState 0x%lx\n",
-            OFFSET(KPROCESS, State));
-
-    dumpf("#define PrThreadQuantum 0x%lx\n",
-            OFFSET(KPROCESS, ThreadQuantum));
-
-    dumpf("#define ProcessObjectLength 0x%lx\n", ((sizeof(KPROCESS) + 15) & ~15));
-
-    //
-    // Queue object structure offset definitions
-    //
-
-    dumpf("\n");
-    dumpf("//\n");
-    dumpf("// Queue Object Structure Offset Definitions\n");
-    dumpf("//\n");
-    dumpf("\n");
-
-    dumpf("#define QuEntryListHead 0x%lx\n",
-            OFFSET(KQUEUE, EntryListHead));
-
-    dumpf("#define QuThreadListHead 0x%lx\n",
-            OFFSET(KQUEUE, EntryListHead));
-
-    dumpf("#define QuCurrentCount 0x%lx\n",
-            OFFSET(KQUEUE, CurrentCount));
-
-    dumpf("#define QuMaximumCount 0x%lx\n",
-            OFFSET(KQUEUE, MaximumCount));
-
-    //
-    // Profile object structure offset definitions
-    //
-
-    dumpf("\n");
-    dumpf("//\n");
-    dumpf("// Profile Object Structure Offset Definitions\n");
-    dumpf("//\n");
-    dumpf("\n");
-
-    dumpf("#define PfType 0x%lx\n", OFFSET(KPROFILE, Type));
-    dumpf("#define PfSize 0x%lx\n", OFFSET(KPROFILE, Size));
-    dumpf("#define PfProfileListEntry 0x%lx\n", OFFSET(KPROFILE, ProfileListEntry));
-    dumpf("#define PfProcess 0x%lx\n", OFFSET(KPROFILE, Process));
-    dumpf("#define PfRangeBase 0x%lx\n", OFFSET(KPROFILE, RangeBase));
-    dumpf("#define PfRangeLimit 0x%lx\n", OFFSET(KPROFILE, RangeLimit));
-    dumpf("#define PfBucketShift 0x%lx\n", OFFSET(KPROFILE, BucketShift));
-    dumpf("#define PfBuffer 0x%lx\n", OFFSET(KPROFILE, Buffer));
-    dumpf("#define PfStarted 0x%lx\n", OFFSET(KPROFILE, Started));
-
-    //
-    // Thread object structure offset definitions
-    //
-
-    dumpf("\n");
-    dumpf("//\n");
-    dumpf("// Thread Object Structure Offset Definitions\n");
-    dumpf("//\n");
-    dumpf("\n");
-
-    dumpf("#define EeKernelEventPair 0x%lx\n",
-            OFFSET(EEVENT_PAIR, KernelEventPair));
-
-    dumpf("#define EtEventPair 0x%lx\n",
-            OFFSET(ETHREAD, EventPair));
-
-    dumpf("#define EtPerformanceCountLow 0x%lx\n",
-          OFFSET(ETHREAD, PerformanceCountLow));
-
-    dumpf("#define EtPerformanceCountHigh 0x%lx\n",
-          OFFSET(ETHREAD, PerformanceCountHigh));
-
-    dumpf("#define EtEthreadLength 0x%lx\n",
-          ((sizeof(ETHREAD) + 15) & ~15));
-
-    dumpf("#define ThMutantListHead 0x%lx\n",
-          OFFSET(KTHREAD, MutantListHead));
-
-    dumpf("#define ThThreadListEntry 0x%lx\n",
-          OFFSET(KTHREAD, ThreadListEntry));
-
-    dumpf("#define ThWaitListEntry 0x%lx\n",
-          OFFSET(KTHREAD, WaitListEntry));
-
-    dumpf("#define ThKernelTime 0x%lx\n",
-          OFFSET(KTHREAD, KernelTime));
-
-    dumpf("#define ThUserTime 0x%lx\n",
-          OFFSET(KTHREAD, UserTime));
-
-    dumpf("#define ThTimer 0x%lx\n",
-          OFFSET(KTHREAD, Timer));
-
-    dumpf("#define ThSuspendApc 0x%lx\n",
-          OFFSET(KTHREAD, SuspendApc));
-
-    dumpf("#define ThSuspendSemaphore 0x%lx\n",
-          OFFSET(KTHREAD, SuspendSemaphore));
-
-    dumpf("#define ThWaitBlock 0x%lx\n",
-          OFFSET(KTHREAD, WaitBlock[0]));
-
-    dumpf("#define ThApcState 0x%lx\n",
-          OFFSET(KTHREAD, ApcState));
-
-    dumpf("#define ThSavedApcState 0x%lx\n",
-          OFFSET(KTHREAD, SavedApcState));
-
-    dumpf("#define ThApcStatePointer 0x%lx\n",
-          OFFSET(KTHREAD, ApcStatePointer[0]));
-
-    dumpf("#define ThInitialStack 0x%lx\n",
-          OFFSET(KTHREAD, InitialStack));
-
-    dumpf("#define ThKernelStack 0x%lx\n",
-          OFFSET(KTHREAD, KernelStack));
-
-    dumpf("#define ThTeb 0x%lx\n",
-          OFFSET(KTHREAD, Teb));
-
-    dumpf("#define ThContextSwitches 0x%lx\n",
-            OFFSET(KTHREAD, ContextSwitches));
-
-    dumpf("#define ThWaitTime 0x%lx\n",
-          OFFSET(KTHREAD, WaitTime));
-
-    dumpf("#define ThAffinity 0x%lx\n",
-          OFFSET(KTHREAD, Affinity));
-
-    dumpf("#define ThWaitBlockList 0x%lx\n",
-          OFFSET(KTHREAD, WaitBlockList));
-
-    dumpf("#define ThWaitStatus 0x%lx\n",
-          OFFSET(KTHREAD, WaitStatus));
-
-    dumpf("#define ThAlertable 0x%lx\n",
-          OFFSET(KTHREAD, Alertable));
-
-    dumpf("#define ThAlerted 0x%lx\n",
-          OFFSET(KTHREAD, Alerted[0]));
-
-    dumpf("#define ThApcQueueable 0x%lx\n",
-          OFFSET(KTHREAD, ApcQueueable));
-
-    dumpf("#define ThAutoAlignment 0x%lx\n",
-          OFFSET(KTHREAD, AutoAlignment));
-
-    dumpf("#define ThDebugActive 0x%lx\n",
-          OFFSET(KTHREAD, DebugActive));
-
-    dumpf("#define ThPreempted 0x%lx\n",
-          OFFSET(KTHREAD, Preempted));
-
-    dumpf("#define ThProcessReadyQueue 0x%lx\n",
-          OFFSET(KTHREAD, ProcessReadyQueue));
-
-    dumpf("#define ThKernelStackResident 0x%lx\n",
-          OFFSET(KTHREAD, KernelStackResident));
-
-    dumpf("#define ThWaitNext 0x%lx\n",
-          OFFSET(KTHREAD, WaitNext));
-
-    dumpf("#define ThApcStateIndex 0x%lx\n",
-          OFFSET(KTHREAD, ApcStateIndex));
-
-    dumpf("#define ThDecrementCount 0x%lx\n",
-          OFFSET(KTHREAD, DecrementCount));
-
-    dumpf("#define ThNextProcessor 0x%lx\n",
-          OFFSET(KTHREAD, NextProcessor));
-
-    dumpf("#define ThPriority 0x%lx\n",
-          OFFSET(KTHREAD, Priority));
-
-    dumpf("#define ThState 0x%lx\n",
-          OFFSET(KTHREAD, State));
-
-    dumpf("#define ThFreezeCount 0x%lx\n",
-          OFFSET(KTHREAD, FreezeCount));
-
-    dumpf("#define ThSuspendCount 0x%lx\n",
-          OFFSET(KTHREAD, SuspendCount));
-
-    dumpf("#define ThWaitIrql 0x%lx\n",
-          OFFSET(KTHREAD, WaitIrql));
-
-    dumpf("#define ThWaitMode 0x%lx\n",
-          OFFSET(KTHREAD, WaitMode));
-
-    dumpf("#define ThWaitReason 0x%lx\n",
-          OFFSET(KTHREAD, WaitReason));
-
-    dumpf("#define ThPreviousMode 0x%lx\n",
-          OFFSET(KTHREAD, PreviousMode));
-
-    dumpf("#define ThBasePriority 0x%lx\n",
-          OFFSET(KTHREAD, BasePriority));
-
-    dumpf("#define ThPriorityDecrement 0x%lx\n",
-          OFFSET(KTHREAD, PriorityDecrement));
-
-    dumpf("#define ThKernelApcDisable 0x%lx\n",
-          OFFSET(KTHREAD, KernelApcDisable));
-
-    dumpf("#define ThQuantum 0x%lx\n",
-          OFFSET(KTHREAD, Quantum));
-
-    dumpf("#define ThreadObjectLength 0x%lx\n", ((sizeof(KTHREAD) + 15) & ~15));
-
-    dumpf("#define EVENT_WAIT_BLOCK_OFFSET 0x%lx\n",
-            OFFSET(KTHREAD, WaitBlock) +
-            (sizeof(KWAIT_BLOCK) * EVENT_WAIT_BLOCK) );
-
-    //
-    // Timer object structure offset definitions
-    //
-
-    dumpf("\n");
-    dumpf("//\n");
-    dumpf("// Timer object Structure Offset Definitions\n");
-    dumpf("//\n");
-    dumpf("\n");
-
-    dumpf("#define TiDueTime 0x%lx\n",
-           OFFSET(KTIMER, DueTime));
-
-    dumpf("#define TiTimerListEntry 0x%lx\n",
-           OFFSET(KTIMER, TimerListEntry));
-
-    dumpf("#define TiDpc 0x%lx\n",
-           OFFSET(KTIMER, Dpc));
-
-    dumpf("#define TiInserted 0x%lx\n",
-           OFFSET(KTIMER, Inserted));
-
-    dumpf("#define TIMER_TABLE_SIZE 0x%lx\n",
-            TIMER_TABLE_SIZE);
-
-
-    //
-    // Wait block structure offset definitions
-    //
-
-    dumpf("\n");
-    dumpf("//\n");
-    dumpf("// Wait Block Structure Offset Definitions\n");
-    dumpf("//\n");
-    dumpf("\n");
-
-    dumpf("#define WbWaitListEntry 0x%lx\n",
-           OFFSET(KWAIT_BLOCK, WaitListEntry));
-
-    dumpf("#define WbThread 0x%lx\n",
-           OFFSET(KWAIT_BLOCK, Thread));
-
-    dumpf("#define WbObject 0x%lx\n",
-           OFFSET(KWAIT_BLOCK, Object));
-
-    dumpf("#define WbNextWaitBlock 0x%lx\n",
-           OFFSET(KWAIT_BLOCK, NextWaitBlock));
-
-    dumpf("#define WbWaitKey 0x%lx\n",
-           OFFSET(KWAIT_BLOCK, WaitKey));
-
-    dumpf("#define WbWaitType 0x%lx\n",
-           OFFSET(KWAIT_BLOCK, WaitType));
 
     //
     // Context frame offset definitions and flag definitions.
@@ -1547,7 +862,52 @@ main (argc, argv)
     dumpf("#define TrOldIrql 0x%lx\n", OFFSET(KTRAP_FRAME, OldIrql));
     dumpf("#define TrPreviousMode 0x%lx\n", OFFSET(KTRAP_FRAME, PreviousMode));
     dumpf("#define TrIntRa 0x%lx\n", OFFSET(KTRAP_FRAME, IntRa));
+    dumpf("#define TrTrapFrame 0x%lx\n",OFFSET(KTRAP_FRAME, TrapFrame));
     dumpf("#define TrapFrameLength 0x%lx\n", (sizeof(KTRAP_FRAME) + 15) & (~15));
+
+    //
+    // Usermode callout frame definitions
+    //
+  DisableInc(HALALPHA);
+    genCom("Usermode callout frame definitions");
+
+    genDef(Cu, KCALLOUT_FRAME, F2);
+    genDef(Cu, KCALLOUT_FRAME, F3);
+    genDef(Cu, KCALLOUT_FRAME, F4);
+    genDef(Cu, KCALLOUT_FRAME, F5);
+    genDef(Cu, KCALLOUT_FRAME, F6);
+    genDef(Cu, KCALLOUT_FRAME, F7);
+    genDef(Cu, KCALLOUT_FRAME, F8);
+    genDef(Cu, KCALLOUT_FRAME, F9);
+    genDef(Cu, KCALLOUT_FRAME, S0);
+    genDef(Cu, KCALLOUT_FRAME, S1);
+    genDef(Cu, KCALLOUT_FRAME, S2);
+    genDef(Cu, KCALLOUT_FRAME, S3);
+    genDef(Cu, KCALLOUT_FRAME, S4);
+    genDef(Cu, KCALLOUT_FRAME, S5);
+    genDef(Cu, KCALLOUT_FRAME, FP);
+    genDef(Cu, KCALLOUT_FRAME, CbStk);
+    genDef(Cu, KCALLOUT_FRAME, InStk);
+    genDef(Cu, KCALLOUT_FRAME, TrFr);
+    genDef(Cu, KCALLOUT_FRAME, TrFir);
+    genDef(Cu, KCALLOUT_FRAME, Ra);
+    genDef(Cu, KCALLOUT_FRAME, A0);
+    genDef(Cu, KCALLOUT_FRAME, A1);
+    dumpf("#define CuFrameLength 0x%lx\n", sizeof(KCALLOUT_FRAME));
+
+    //
+    // Usermode callout user frame definitions.
+    //
+
+    genCom("Usermode callout user frame definitions");
+
+    genDef(Ck, UCALLOUT_FRAME, Buffer);
+    genDef(Ck, UCALLOUT_FRAME, Length);
+    genDef(Ck, UCALLOUT_FRAME, ApiNumber);
+    genDef(Ck, UCALLOUT_FRAME, Sp);
+    genDef(Ck, UCALLOUT_FRAME, Ra);
+
+  EnableInc(HALALPHA);
 
 
     //
@@ -1666,37 +1026,6 @@ main (argc, argv)
             OFFSET(LOADER_PARAMETER_BLOCK, u.Alpha.PalBaseAddress));
 
   DisableInc( HALALPHA );
-
-    //
-    // Define Client/Server data structure definitions.
-    //
-
-    dumpf("\n");
-    dumpf("//\n");
-    dumpf("// Client/Server data structure definitions.\n");
-    dumpf("//\n");
-    dumpf("\n");
-
-    //
-    // Define Client ID structure.
-    //
-
-    dumpf("#define CidUniqueProcess 0x%lx\n",
-            OFFSET(CLIENT_ID, UniqueProcess));
-
-    dumpf("#define CidUniqueThread 0x%lx\n",
-            OFFSET(CLIENT_ID, UniqueThread));
-
-    //
-    // Client/server LPC structure.
-    //
-
-    dumpf("#define CsrlClientThread 0x%lx\n",
-            OFFSET(CSR_QLPC_TEB, ClientThread));
-
-    dumpf("#define CsrlMessageStack 0x%lx\n",
-            OFFSET(CSR_QLPC_TEB, MessageStack));
-
 
     //
     // Restart Block Structure and Alpha Save Area Structure.
@@ -2121,45 +1450,7 @@ main (argc, argv)
     dumpf("#define PAGE_SHIFT 0x%lx\n", PAGE_SHIFT);
     dumpf("#define PDI_SHIFT 0x%lx\n", PDI_SHIFT);
     dumpf("#define PTI_SHIFT 0x%lx\n", PTI_SHIFT);
-
-    //
-    // Interrupt priority request level definitions
-    //
-
-    dumpf("\n");
-    dumpf("//\n");
-    dumpf("// Interrupt Priority Request Level Definitions\n");
-    dumpf("//\n");
-    dumpf("\n");
-    dumpf("#define APC_LEVEL 0x%lx\n", APC_LEVEL);
-    dumpf("#define DISPATCH_LEVEL 0x%lx\n", DISPATCH_LEVEL);
-    dumpf("#define IPI_LEVEL 0x%lx\n", IPI_LEVEL);
-    dumpf("#define POWER_LEVEL 0x%lx\n", POWER_LEVEL);
-    dumpf("#define HIGH_LEVEL 0x%lx\n", HIGH_LEVEL);
   DisableInc( HALALPHA );
-
-    //
-    // Bug check code definitions
-    //
-
-    dumpf("\n");
-    dumpf("//\n");
-    dumpf("// Bug Check Code Definitions\n");
-    dumpf("//\n");
-    dumpf("\n");
-
-    dumpf("#define DATA_BUS_ERROR 0x%lx\n", DATA_BUS_ERROR);
-    dumpf("#define INSTRUCTION_BUS_ERROR 0x%lx\n", INSTRUCTION_BUS_ERROR);
-    dumpf("#define INTERRUPT_EXCEPTION_NOT_HANDLED 0x%lx\n", INTERRUPT_EXCEPTION_NOT_HANDLED);
-    dumpf("#define INTERRUPT_UNWIND_ATTEMPTED 0x%lx\n", INTERRUPT_UNWIND_ATTEMPTED);
-    dumpf("#define INVALID_DATA_ACCESS_TRAP 0x%lx\n", INVALID_DATA_ACCESS_TRAP);
-    dumpf("#define IRQL_NOT_LESS_OR_EQUAL 0x%lx\n", IRQL_NOT_LESS_OR_EQUAL);
-    dumpf("#define NO_USER_MODE_CONTEXT 0x%lx\n", NO_USER_MODE_CONTEXT);
-    dumpf("#define PANIC_STACK_SWITCH 0x%lx\n", PANIC_STACK_SWITCH);
-    dumpf("#define SYSTEM_EXIT_OWNED_MUTEX 0x%lx\n", SYSTEM_EXIT_OWNED_MUTEX);
-    dumpf("#define SYSTEM_SERVICE_EXCEPTION 0x%lx\n", SYSTEM_SERVICE_EXCEPTION);
-    dumpf("#define SYSTEM_UNWIND_PREVIOUS_USER 0x%lx\n", SYSTEM_UNWIND_PREVIOUS_USER);
-    dumpf("#define TRAP_CAUSE_UNKNOWN 0x%lx\n", TRAP_CAUSE_UNKNOWN);
 
     //
     // Breakpoint instruction definitions
@@ -2202,90 +1493,6 @@ main (argc, argv)
     dumpf("#define GENTRAP_FLOATING_INVALID_OPERAND 0x%lx\n", GENTRAP_FLOATING_INVALID_OPERAND);
     dumpf("#define GENTRAP_FLOATING_INEXACT_RESULT 0x%lx\n", GENTRAP_FLOATING_INEXACT_RESULT);
 
-    // Status code definitions
-    //
-
-    dumpf("\n");
-    dumpf("//\n");
-    dumpf("// Status Code Definitions\n");
-    dumpf("//\n");
-    dumpf("\n");
-
-    dumpf("#define STATUS_SUCCESS 0x%lx\n",
-            STATUS_SUCCESS);
-
-    dumpf("#define STATUS_ALPHA_MACHINE_CHECK 0x%lx\n",
-            (DATA_BUS_ERROR | 0xdfff0000) );
-
-    dumpf("#define STATUS_ACCESS_VIOLATION 0x%lx\n",
-            STATUS_ACCESS_VIOLATION);
-
-    dumpf("#define STATUS_GUARD_PAGE_VIOLATION 0x%lx\n",
-            STATUS_GUARD_PAGE_VIOLATION);
-
-    dumpf("#define STATUS_STACK_OVERFLOW 0x%lx\n",
-            STATUS_STACK_OVERFLOW);
-
-    dumpf("#define STATUS_IN_PAGE_ERROR 0x%lx\n",
-            STATUS_IN_PAGE_ERROR);
-
-    dumpf("#define STATUS_DATATYPE_MISALIGNMENT 0x%lx\n",
-            STATUS_DATATYPE_MISALIGNMENT);
-
-    dumpf("#define STATUS_INVALID_OWNER 0x%lx\n",
-            STATUS_INVALID_OWNER);
-
-    dumpf("#define STATUS_INVALID_SYSTEM_SERVICE 0x%lx\n",
-            STATUS_INVALID_SYSTEM_SERVICE);
-
-    dumpf("#define STATUS_ILLEGAL_INSTRUCTION 0x%lx\n",
-            STATUS_ILLEGAL_INSTRUCTION);
-
-    dumpf("#define STATUS_KERNEL_APC 0x%lx\n",
-            STATUS_KERNEL_APC);
-
-    dumpf("#define STATUS_BREAKPOINT 0x%lx\n",
-            STATUS_BREAKPOINT);
-
-    dumpf("#define STATUS_SINGLE_STEP 0x%lx\n",
-            STATUS_SINGLE_STEP);
-
-    dumpf("#define STATUS_INTEGER_OVERFLOW 0x%lx\n",
-            STATUS_INTEGER_OVERFLOW);
-
-    dumpf("#define STATUS_INVALID_LOCK_SEQUENCE 0x%lx\n",
-            STATUS_INVALID_LOCK_SEQUENCE);
-
-    dumpf("#define STATUS_INSTRUCTION_MISALIGNMENT 0x%lx\n",
-            STATUS_INSTRUCTION_MISALIGNMENT);
-
-    dumpf("#define STATUS_FLOAT_STACK_CHECK 0x%lx\n",
-            STATUS_FLOAT_STACK_CHECK);
-
-    dumpf("#define STATUS_NO_EVENT_PAIR 0x%lx\n",
-            STATUS_NO_EVENT_PAIR );
-
-    dumpf("#define STATUS_INTEGER_DIVIDE_BY_ZERO 0x%lx\n",
-            STATUS_INTEGER_DIVIDE_BY_ZERO);
-
-    dumpf("#define STATUS_INVALID_PARAMETER_1 0x%lx\n",
-            STATUS_INVALID_PARAMETER_1);
-
-    dumpf("#define STATUS_UNWIND 0x%lx\n",
-            STATUS_UNWIND);
-
-    dumpf("#define STATUS_ALPHA_FLOATING_NOT_IMPLEMENTED 0x%lx\n",
-            STATUS_ALPHA_FLOATING_NOT_IMPLEMENTED);
-
-    dumpf("#define STATUS_ALPHA_ARITHMETIC_EXCEPTION 0x%lx\n",
-            STATUS_ALPHA_ARITHMETIC_EXCEPTION);
-
-    dumpf("#define STATUS_ALPHA_GENTRAP 0x%lx\n",
-            STATUS_ALPHA_GENTRAP);
-
-    dumpf("#define STATUS_ALPHA_BAD_VIRTUAL_ADDRESS 0x%lx\n",
-            STATUS_ALPHA_BAD_VIRTUAL_ADDRESS);
-
     //
     // Miscellaneous definitions
     //
@@ -2318,11 +1525,29 @@ main (argc, argv)
     dumpf("#define KERNEL_STACK_SIZE 0x%lx\n",
           KERNEL_STACK_SIZE);
 
+    dumpf("#define KERNEL_LARGE_STACK_COMMIT 0x%lx\n",
+          KERNEL_LARGE_STACK_COMMIT);
+
     dumpf("#define SET_LOW_WAIT_HIGH 0x%lx\n",
             SET_LOW_WAIT_HIGH);
 
     dumpf("#define SET_HIGH_WAIT_LOW 0x%lx\n",
             SET_HIGH_WAIT_LOW);
+
+    dumpf("#define CLOCK_QUANTUM_DECREMENT 0x%lx\n",
+          CLOCK_QUANTUM_DECREMENT);
+
+    dumpf("#define READY_SKIP_QUANTUM 0x%lx\n",
+          READY_SKIP_QUANTUM);
+
+    dumpf("#define THREAD_QUANTUM 0x%lx\n",
+          THREAD_QUANTUM);
+
+    dumpf("#define WAIT_QUANTUM_DECREMENT 0x%lx\n",
+          WAIT_QUANTUM_DECREMENT);
+
+    dumpf("#define ROUND_TRIP_DECREMENT_COUNT 0x%lx\n",
+          ROUND_TRIP_DECREMENT_COUNT);
 
     //
     // Generate processor type definitions.
@@ -2606,7 +1831,9 @@ GenerateCallPalNames( VOID )
 
 VOID
 dumpf( const char *format, ... )
+
 {
+
     va_list(arglist);
 
     va_start(arglist, format);
@@ -2620,5 +1847,4 @@ dumpf( const char *format, ... )
     }
 
     va_end(arglist);
-
 }

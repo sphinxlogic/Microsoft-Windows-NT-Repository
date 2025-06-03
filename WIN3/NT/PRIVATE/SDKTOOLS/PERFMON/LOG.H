@@ -109,4 +109,4 @@ BOOL LogWriteCounterName (HWND hWnd,
 
 void LogWriteSystemCounterNames (HWND hWnd, PLOG pLog) ;
 
-
+

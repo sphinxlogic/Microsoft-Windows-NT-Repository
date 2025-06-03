@@ -69,6 +69,68 @@ VOID
     VOID
     );
 
+//
+// Profile source types
+//
+typedef enum _KPROFILE_SOURCE {
+    ProfileTime,
+    ProfileAlignmentFixup,
+    ProfileTotalIssues,
+    ProfilePipelineDry,
+    ProfileLoadInstructions,
+    ProfilePipelineFrozen,
+    ProfileBranchInstructions,
+    ProfileTotalNonissues,
+    ProfileDcacheMisses,
+    ProfileIcacheMisses,
+    ProfileCacheMisses,
+    ProfileBranchMispredictions,
+    ProfileStoreInstructions,
+    ProfileFpInstructions,
+    ProfileIntegerInstructions,
+    Profile2Issue,
+    Profile3Issue,
+    Profile4Issue,
+    ProfileSpecialInstructions,
+    ProfileTotalCycles,
+    ProfileIcacheIssues,
+    ProfileDcacheAccesses,
+    ProfileMemoryBarrierCycles,
+    ProfileLoadLinkedIssues,
+    ProfileMaximum
+} KPROFILE_SOURCE;
+
 // end_ntddk end_ntifs
+
+//
+// User mode callback return.
+//
+
+NTSYSAPI
+NTSTATUS
+NTAPI
+NtCallbackReturn (
+    IN PVOID OutputBuffer OPTIONAL,
+    IN ULONG OutputLength,
+    IN NTSTATUS Status
+    );
+
+NTSYSAPI
+NTSTATUS
+NTAPI
+NtW32Call (
+    IN ULONG ApiNumber,
+    IN PVOID InputBuffer,
+    IN ULONG InputLength,
+    OUT PVOID *OutputBuffer,
+    OUT PULONG OutputLength
+    );
+
+NTSYSAPI
+NTSTATUS
+NTAPI
+NtYieldExecution (
+    VOID
+    );
 
 #endif  // _NTKEAPI_

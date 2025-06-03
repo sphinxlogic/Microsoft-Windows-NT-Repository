@@ -1,13 +1,62 @@
 #include "cmd.h"
-#include "cmdproto.h"
 
-/* The following are definitions of the debugging group and level bits
- * for the code in this file.
- */
+/*
+                NT Command Interpreter
 
-#define PAGRP   0x0004  /* Parser           */
-#define PALVL   0x0001  /* Parsing          */
-#define DPLVL   0x0008  /* Dump parse tree      */
+   This file contains all of the routines which make up Command's
+   parser.  The main routines below have names like ParseXXX where
+   XXX refers to the name of the production that routine is supposed
+   to parse.
+
+   None of the routines in this file, except Parser, will return if
+   they detect a syntax error.  Instead, they will all call PSError() or
+   PError().  These routines do a longjmp() back to Parser.
+
+    Command Language Grammar:
+
+    statement -> s0
+              s0 -> s1 "&" s0 | s1
+              s1 -> s2 "||" s1 | s2
+              s2 -> s3 "&&" s2 | s3
+              s3 -> s4 "|" s3 | s4
+              s4 -> redir s5 | s5 redir | s5
+              s5 -> "(" statement ")" |
+                    FOR var IN "(" arglist ")" DO s1 |
+                    IF condition statement ELSE statement |
+                    IF condition statement |
+                    cmd arglist
+
+             var -> "%"c | "%%"c
+               c -> any-character
+         arglist -> (arg)*
+             arg -> any-string
+       condition -> NOT cond | cond
+            cond -> ERRORLEVEL n | arg == arg | EXIST fname
+               n -> any-number
+           fname -> any-file-name
+             cmd -> internal-command | external-command
+
+           redir -> in out | out in
+              in -> "<" arg | epsilon
+             out -> ( ">" | ">>" ) arg | epsilon
+
+
+        Operator precedence from lowest to highest:
+            &       Command Separator
+            ||      Or Operator
+            &&      And Operator
+            |       Pipe Operator
+            < > >>  I/O Redirectors
+            ()      Command Grouper
+
+        Examples:
+            x & y | z   =>  x & (y | z)
+     x | y & z   =>  (x | y) & z
+     x || y | z  =>  x || (y | z)
+     a & b || c && d | e || f    =>  a & ((b || (c && (d | e))) || f)
+
+*/
+
 
 extern jmp_buf CmdJBuf1 ;    /* Used by setjmp() and longjmp() */
 
@@ -28,9 +77,14 @@ extern TCHAR Fmt14[] ;
 extern TCHAR Delimiters[] ;                                      /* M022    */
 
 /* Command strings */
-extern TCHAR ForStr[], IfStr[], DetStr[], DetachStr[], InStr[], DoStr[], ElseStr[], ErrStr[] ;
+extern TCHAR ForStr[], IfStr[], DetStr[], InStr[], DoStr[], ElseStr[], ErrStr[] ;
 extern TCHAR ForHelpStr[], IfHelpStr[], RemHelpStr[];
+extern TCHAR ForLoopStr[];
+extern TCHAR ForDirTooStr[];
+extern TCHAR ForParseStr[];
+extern TCHAR ForRecurseStr[];
 extern TCHAR ExsStr[], NotStr[] ;
+extern TCHAR CmdExtVerStr[], DefinedStr[] ;
 extern TCHAR RemStr[] ;                                          /* M002    */
 extern TCHAR ExtprocStr[] ;                                      /* M023    */
 extern TCHAR CrLf[] ;                                            /* M018    */
@@ -67,7 +121,6 @@ DumpParseTree( struct node *n, int pad)
         struct cmdnode *c ;         /* All node ptrs are used to display that node type */
         struct fornode *f ;
         struct ifnode *i ;
-        struct detnode *d ;
         int j ;                     /* Used to pad output   */
 
         if (!((DebGroup & PAGRP) && (DebLevel & DPLVL)))
@@ -116,7 +169,7 @@ DumpParseTree( struct node *n, int pad)
                 case IFTYP:
                         i = (struct ifnode *) n ;
                         cmd_printf(TEXT("%s\n"), i->cmdline) ;    /* M010 */
-                        DumpParseTree(i->cond, pad) ;
+                        DumpParseTree((struct node *)i->cond, pad) ;
                         DumpParseTree(i->ifbody, pad) ;
                         if (i->elsebody) {
                         for (j = 0 ; j < pad-2 ; j++)
@@ -126,16 +179,10 @@ DumpParseTree( struct node *n, int pad)
                         } ;
                         break ;
 
-                case DETTYP:
-                        d = (struct detnode *) n ;
-                        cmd_printf(TEXT("%s\n"), d->cmdline) ;    /* M010 */
-                        DumpParseTree(d->body, pad) ;
-                        break ;
-
                 case NOTTYP:
                         c = (struct cmdnode *) n ;
                         cmd_printf(TEXT("%s\n"), c->cmdline) ;    /* M010 */
-                        DumpParseTree(c->argptr, pad) ;
+                        DumpParseTree((struct node *)c->argptr, pad) ;
                         break ;
 
                 case REMTYP:            /* M002 - New REM type             */
@@ -143,11 +190,13 @@ DumpParseTree( struct node *n, int pad)
                 case ERRTYP:
                 case EXSTYP:
                 case STRTYP:
+                case CMDVERTYP:
+                case DEFTYP:
                         c = (struct cmdnode *) n ;
-                        cmd_printf( TEXT("Cmd: %s  Type: %x "), c->cmdline, c->type) ;     /* M010 */
+                        // cmd_printf( TEXT("Cmd: %s  Type: %x "), c->cmdline, c->type) ;     /* M010 */
                         if (c->argptr)
-                        cmd_printf( TEXT("Args: `%s' "), c->argptr) ;      /* M010 */
-                        DuRd(c) ;
+                        // cmd_printf( TEXT("Args: `%s' "), c->argptr) ;      /* M010 */
+                        DuRd((struct node *)c) ;
                         break ;
 
                 default:
@@ -283,6 +332,7 @@ int fsarg ;
  */
 
 extern int AtIsToken;  /* @@4 */
+extern int ColonIsToken;
 
 struct node *ParseStatement()
 {
@@ -307,7 +357,6 @@ struct node *ParseStatement()
         }
 #endif
 }
-
 
 
 
@@ -338,6 +387,7 @@ struct node *ParseFor()
         struct fornode *n ;    /* Holds ptr to the for node to be built and filled */
         struct cmdnode *LoadNodeTC() ;
         BOOL Help=FALSE;
+        TCHAR *s;
 
         DEBUG((PAGRP, PALVL, "PFOR: Entered.")) ;
 
@@ -360,11 +410,73 @@ struct node *ParseFor()
             GeToken(GT_NORMAL) ;
         }
 
-        if (TokBufCheckHelp( TokBuf, MSG_HELP_FOR ) )  {
+        if (TokBufCheckHelp( TokBuf, FORTYP ) )  {
             n->type = HELPTYP ;
             n->cmdline = NULL;
             return((struct node *) n) ;
             //Abort();
+        }
+
+        n->flag = 0;
+        //
+        // If extensions are enabled, check for additional forms of the FOR
+        // statement, all identified by a switch character after the FOR
+        // keyword.
+        //
+        if (fEnableExtensions) {
+            while (TRUE) {
+                if (_tcsicmp(ForLoopStr, TokBuf) == 0) {
+                    //
+                    // FOR /L %i in (start,step,end) do
+                    //
+                    n->flag |= FOR_LOOP;
+                    GeToken(GT_NORMAL) ;
+                } else
+                if (_tcsicmp(ForDirTooStr, TokBuf) == 0) {
+                    //
+                    // FOR /D %i in (set) do
+                    //
+                    n->flag |= FOR_MATCH_DIRONLY;
+                    GeToken(GT_NORMAL) ;
+                } else
+                if (_tcsicmp(ForParseStr, TokBuf) == 0) {
+                    //
+                    // FOR /P ["parse options"] %i in (set) do
+                    //
+                    n->flag |= FOR_MATCH_PARSE;
+                    GeToken(GT_NORMAL) ;
+                    //
+                    // If next token does not begin with % then must be
+                    // parse options
+                    //
+                    if (*TokBuf != PERCENT) {
+                        n->parseOpts = gmkstr((TokLen+3)*sizeof(TCHAR)) ;
+                        mystrcpy(n->parseOpts, TokBuf) ;
+                        GeToken(GT_NORMAL) ;
+                    }
+                } else
+                if (_tcsicmp(ForRecurseStr, TokBuf) == 0) {
+                    //
+                    // FOR /R [directoryPath] %i in (set) do
+                    //
+                    n->flag |= FOR_MATCH_RECURSE;
+                    GeToken(GT_NORMAL) ;
+                    //
+                    // If next token does not begin with % then must be
+                    // directory path to start recursive walk from
+                    //
+                    if (*TokBuf != PERCENT) {
+                        n->recurseDir = gmkstr((TokLen+3)*sizeof(TCHAR)) ;
+                        mystrcpy(n->recurseDir, TokBuf) ;
+                        s = lastc(n->recurseDir);
+                        if (*++s != BSLASH)
+                            *s++ = BSLASH;
+                        *s = NULLC;
+                        GeToken(GT_NORMAL) ;
+                    }
+                } else
+                    break;
+            }
         }
 
         if (*TokBuf != PERCENT ||
@@ -418,6 +530,7 @@ struct node *ParseIf()
         struct cmdnode *ParseCond() ;
         unsigned Lex() ;
         BOOL Help=FALSE;
+        int fIgnoreCase;
 
         DEBUG((PAGRP, PALVL, "PIF: Entered.")) ;
 
@@ -441,13 +554,21 @@ struct node *ParseIf()
         //
         // Check for help flag
         //
-        if (TokBufCheckHelp(TokBuf, MSG_HELP_IF)) {
+        if (TokBufCheckHelp(TokBuf, IFTYP)) {
             n->type = HELPTYP ;
             n->cmdline = NULL;
             return((struct node *) n) ;
             // Abort();
 
         } else {
+            fIgnoreCase = FALSE;
+            //
+            // If extensions are enabled, check for the /I switch which
+            // specifies case insensitive comparison.
+            //
+            if (fEnableExtensions && !_tcsicmp(TokBuf, TEXT("/I"))) {
+                fIgnoreCase = TRUE;
+            } else
             //
             // if no help flag then put it all back and
             // have ParseCond refetch token
@@ -455,6 +576,12 @@ struct node *ParseIf()
             Lex(LX_UNGET,0) ;
         }
         n->cond = ParseCond(PC_NOTS) ;
+
+        if (n->cond && fIgnoreCase)
+            if (n->cond->type != NOTTYP)
+                n->cond->flag = CMDNODE_FLAG_IF_IGNCASE;
+            else
+                ((struct cmdnode *)(n->cond->argptr))->flag = CMDNODE_FLAG_IF_IGNCASE;
 
         if (!(n->ifbody = ParseStatement()))
                 PSError() ;
@@ -474,55 +601,6 @@ struct node *ParseIf()
         } ;
 
         DEBUG((PAGRP, PALVL, "PIF: Entered.")) ;
-        return((struct node *) n) ;
-}
-
-
-
-
-/***    ParseDetach - parse detach statements
- *
- *  Purpose:
- *      Parse a DETACH statement.
- *
- *  struct node *ParseDetach()
- *
- *  Returns:
- *      A pointer to a parsed DETACH statement or PARSERROR.
- *
- */
-
-struct node *ParseDetach()
-{
-        struct detnode *n ;    /* Holds ptr to detach node to be built and filled */
-
-        DEBUG((PAGRP, PALVL, "PDET: Entered.")) ;
-
-        //
-        // Detach is not part of NT Windows but make go in later.
-        // Removing it would change a great deal of code and quite
-        // a bit of logic flow. I am giving this error here instead of
-        // actually removing the command in case it has to go in
-        // later.
-        //
-        PutStdErr(MSG_DIR_BAD_COMMAND_OR_FILE, NOARGS);
-        PError();
-
-        n = (struct detnode *) LoadNodeTC(DETTYP) ;
-
-/*  M024 - Disallow nested DETach commands
- */
-        GeToken(GT_NORMAL) ;                    /* Get next token          */
-
-        if (_tcsicmp(DetStr, TokBuf) == 0 || _tcsicmp(DetachStr, TokBuf) == 0)
-                PSError() ;                     /* Doesn't return          */
-
-        Lex(LX_UNGET,0) ;                       /* Not DET, unget token    */
-
-        if (!(n->body = ParseStatement()))
-                PSError() ;
-
-        DEBUG((PAGRP, PALVL, "PDET: Exited.")) ;
         return((struct node *) n) ;
 }
 
@@ -576,7 +654,7 @@ struct node *ParseRem()
         // Check for help flag
         //
 
-        if (TokBufCheckHelp(TokBuf, MSG_HELP_REM)) {
+        if (TokBufCheckHelp(TokBuf, REMTYP)) {
             n->type = HELPTYP ;
             n->cmdline = NULL;
             return((struct node *) n) ;
@@ -647,7 +725,14 @@ struct node *ParseS0()
         } ;
 /*  M004 ends   */
 
-        return(BinaryOperator(CSSTR, CSTYP, ParseS0, ParseS1)) ;
+        if (!ColonIsToken && TokTyp == TEXTOKEN && TokBuf[0] == COLON) {
+            do {
+                GeToken(GT_NORMAL) ;
+            } while (TokBuf[0] != NULLC && TokBuf[0] != NLN);
+            return NULL;
+        }
+
+        return(BinaryOperator(CSSTR, CSTYP, (PPARSE_ROUTINE)ParseS0, (PPARSE_ROUTINE)ParseS1)) ;
 }
 
 
@@ -670,7 +755,7 @@ struct node *ParseS1()
         struct node *ParseS2(void) ;
 
         DEBUG((PAGRP, PALVL, "PS1: Entered.")) ;
-        return(BinaryOperator(ORSTR, ORTYP, ParseS1, ParseS2)) ;
+        return(BinaryOperator(ORSTR, ORTYP, (PPARSE_ROUTINE)ParseS1, (PPARSE_ROUTINE)ParseS2)) ;
 }
 
 
@@ -693,7 +778,7 @@ struct node *ParseS2()
         struct node *ParseS3(void) ;
 
         DEBUG((PAGRP, PALVL, "PS2: Entered.")) ;
-        return(BinaryOperator(ANDSTR, ANDTYP, ParseS2, ParseS3)) ;
+        return(BinaryOperator(ANDSTR, ANDTYP, (PPARSE_ROUTINE)ParseS2, (PPARSE_ROUTINE)ParseS3)) ;
 }
 
 
@@ -716,7 +801,7 @@ struct node *ParseS3()
         struct node *ParseS4(void) ;
 
         DEBUG((PAGRP, PALVL, "PS3: Entered.")) ;
-        return(BinaryOperator(PIPSTR, PIPTYP, ParseS3, ParseS4)) ;
+        return(BinaryOperator(PIPSTR, PIPTYP, (PPARSE_ROUTINE)ParseS3, (PPARSE_ROUTINE)ParseS4)) ;
 }
 
 
@@ -744,9 +829,9 @@ struct node *ParseS4()
         struct node *n ;   /* Node ptr to add redir info to       */
         struct node *ParseS5(void) ;
         struct relem *io = NULL ;
-        struct relem *tmpio ; 
-	int flg = 0;
-	int i ;
+        struct relem *tmpio ;
+        int flg = 0;
+        int i ;
         unsigned Lex() ;
 
         DEBUG((PAGRP, PALVL, "PS4: Entered.")) ;
@@ -773,7 +858,7 @@ struct node *ParseS4()
  * them, giving priority to the later one by forcing them to be in
  * chronological order (io becomes n->rio and n->rio is appended).
  *
- * NOTE: FOR, IF and DETACH nodes are explicitly barred from having leading
+ * NOTE: FOR and IF nodes are explicitly barred from having leading
  * redirection (use will result in a Syntax Error).  This restriction may
  * later be removed by inserting code to walk the parse tree and insert
  * the leading redirection in the first non-IF/FOR/DET node.
@@ -783,10 +868,9 @@ struct node *ParseS4()
                 DEBUG((PAGRP,PALVL,"PS4: Have leading redirection.")) ;
 
                 if (n->type == FORTYP ||
-                    n->type == IFTYP ||
-                    n->type == DETTYP) {
+                    n->type == IFTYP) {
 
-                        DEBUG((PAGRP,PALVL,"PS4: n=IF/FOR/DET !!ERROR!!")) ;
+                        DEBUG((PAGRP,PALVL,"PS4: n=IF/FOR !!ERROR!!")) ;
 
                         mystrcpy(TokBuf,((struct cmdnode *)n)->cmdline) ;
                         PSError() ;
@@ -901,8 +985,7 @@ struct node *ParseS5()
 {
         struct node *n ;   /* Ptr to paren group node to build and fill */
         struct node *ParseFor(),        /* M012 - Added declarations...    */
-                *ParseIf(),             /* ...for FOR, IF, DETACH...       */
-                *ParseDetach(),         /* ...and REM.  Originally...      */
+                *ParseIf(),             /* ...for FOR, IF ...              */
                 *ParseRem(),            /* ...done in ParseStatement       */
                 *ParseCmd(),
                 *ParseStatement(),
@@ -911,7 +994,7 @@ struct node *ParseS5()
 
         DEBUG((PAGRP, PALVL, "PS5: Entered, TokTyp = %04x", TokTyp)) ;
 
-/*  M012 - Moved functionality for parsing FOR, IF, DETACH and REM to
+/*  M012 - Moved functionality for parsing FOR, IF and REM to
  *         ParseS5 from ParseStatement to give these four commands a
  *         lower precedence than the operators.
  */
@@ -923,10 +1006,6 @@ struct node *ParseS5()
                 else if ((_tcsicmp(IfStr, TokBuf) == 0) ||
                          (_tcsicmp(IfHelpStr, TokBuf) == 0))
                         return(ParseIf()) ;
-
-                else if (_tcsicmp(DetStr, TokBuf) == 0 ||
-                         _tcsicmp(DetachStr, TokBuf) == 0)
-                        return(ParseDetach()) ;
 
 /*  M002 - Treat REM as unique command
  */
@@ -950,6 +1029,11 @@ struct node *ParseS5()
         } else if (*TokBuf == LPOP || *TokBuf == SILOP) {       /* M015    */
 
                 n = mknode() ;
+
+                if (n == NULL) {
+                    Abort();
+                }
+
                 if (*TokBuf == LPOP) {                          /* M015    */
                         n->type = PARTYP ;
                         ParenFlag++ ;
@@ -960,7 +1044,6 @@ struct node *ParseS5()
                                 GeToken(GT_NORMAL) ;
                         } while (*TokBuf == NLN) ;
                         Lex(LX_UNGET,0) ;       /* M011 - Was UnGeToken    */
-
 /*  M004 ends   */
                 } else {                                        /* M015    */
                         n->type = SILTYP ;                      /* M015    */
@@ -1041,8 +1124,14 @@ unsigned pcflag ;
 
         if (_tcsicmp(ExsStr, TokBuf) == 0)           /* Exist */
                 n->type = EXSTYP ;
+        else
+        if (fEnableExtensions && _tcsicmp(CmdExtVerStr, TokBuf) == 0)   /* CMDEXTVERSION */
+                n->type = CMDVERTYP ;
+        else
+        if (fEnableExtensions && _tcsicmp(DefinedStr, TokBuf) == 0)     /* DEFINED */
+                n->type = DEFTYP ;
 
-        if (n->type != 0) {                         /* Errorlevel & Exist */
+        if (n->type != 0) {                         /* Errorlevel, Exist, CmdExtVersion or Defined */
                 n->argptr = TokStr(GeTexTok(GT_NORMAL), NULL, TS_NOFLAGS) ;
 
         } else if (_tcsicmp(NotStr, TokBuf) == 0) { /* Not */
@@ -1086,12 +1175,15 @@ unsigned pcflag ;
 void ParseArgEqArg(n)
 struct cmdnode *n ;
 {
-		ULONG i ;			 /* Work variable						 */
+        ULONG i ;                        /* Work variable                                                */
         TCHAR *s ;  /* Ptr to th string comparison string   */
 
+
         for (i = 0, s = TokBuf ; *s ; s++, i++)
-                if (*s == EQ && *(s+1) == EQ)
-                        break ;
+            if (*s == EQ)
+                if (*(s+1) == EQ)
+                    break ;
+
         s = TokBuf ;
 
         DEBUG((PAGRP, PALVL, "PARG: Entered, i = %d", i)) ;
@@ -1120,6 +1212,34 @@ struct cmdnode *n ;
                         mystrcpy(s, s+2) ;
                         n->argptr = s ;
                         DEBUG((PAGRP, PALVL, "PARG: s1 ==s2")) ;
+
+                } else if (fEnableExtensions) {
+                        //
+                        // If extensions are enabled, then more comparison operators
+                        // are allowed, although the must be preceeded and followed
+                        // by a space, so parsing is easier than the above noise.
+                        //
+                        if (!_tcscmp(s, TEXT("EQU")))
+                            n->cmdarg = CMDNODE_ARG_IF_EQU;
+                        else
+                        if (!_tcscmp(s, TEXT("NEQ")))
+                            n->cmdarg = CMDNODE_ARG_IF_NEQ;
+                        else
+                        if (!_tcscmp(s, TEXT("LSS")))
+                            n->cmdarg = CMDNODE_ARG_IF_LSS;
+                        else
+                        if (!_tcscmp(s, TEXT("LEQ")))
+                            n->cmdarg = CMDNODE_ARG_IF_LEQ;
+                        else
+                        if (!_tcscmp(s, TEXT("GTR")))
+                            n->cmdarg = CMDNODE_ARG_IF_GTR;
+                        else
+                        if (!_tcscmp(s, TEXT("GEQ")))
+                            n->cmdarg = CMDNODE_ARG_IF_GEQ;
+                        else
+                            PSError() ;
+                        n->type = CMPTYP;
+                        n->argptr = GeTexTok(GT_NORMAL) ;
 
                 } else
                         PSError() ;
@@ -1439,6 +1559,11 @@ PPARSE_ROUTINE leftprodfunc ;
 
                 DEBUG((PAGRP, PALVL, "BINOP: Found %ws", opstr)) ;
                 n = mknode() ;
+
+                if (n == NULL) {
+                    Abort();
+                }
+
                 n->type = optype ;
                 n->lhs = leftside ;
                 GeToken(GT_LPOP) ;      /* M000 - Was GT_NORMAL            */
@@ -1477,13 +1602,8 @@ TCHAR *BuildArgList()
         int done = 0 ;                  /* Flag, nonzero if done            */
 
         DEBUG((PAGRP, PALVL, "BARGL: Entered.")) ;
-/*  M000 - Following deleted
- *      GetCheckStr(LEFTPSTR) ;
- *  and replaced by:
- */
         if(GeToken(GT_LPOP) != LPOP)
                 PSError() ;
-/* M000 ends    */
 
         for ( ; !done ; ) {
                 switch (GeToken(GT_RPOP)) {     /* M000 - Was GT_NORMAL    */
@@ -1650,7 +1770,13 @@ int type ;
         struct cmdnode *n ;    /* Ptr to the cmdnode to build and fill */
 
         n = (struct cmdnode *) mknode() ;
+
+        if (n == NULL) {
+            Abort();
+        }
+
         n->type = type ;
+        n->flag = 0 ;
         n->cmdline = gmkstr(TokLen*sizeof(TCHAR)) ;   /*WARNING*/
         mystrcpy(n->cmdline, TokBuf) ;
 
@@ -1716,7 +1842,7 @@ void PSError( )
              }
            else
              {
-/*@@4*/ 	  if (*TokBuf != NULLC) 		   /* @@J1 if no data wrong then */
+/*@@4*/           if (*TokBuf != NULLC)                    /* @@J1 if no data wrong then */
 /*@@4*/         {                             /* @@J1 do not give message   */
                  PutStdErr(MSG_SYNERR_GENL, ONEARG, argstr1(TEXT("%s"), (unsigned long)((int)TokBuf)));
 /*@@4*/         }                             /* @@J1                       */

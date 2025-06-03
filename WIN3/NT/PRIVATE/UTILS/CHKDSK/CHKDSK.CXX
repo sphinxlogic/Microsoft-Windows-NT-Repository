@@ -39,11 +39,6 @@ Routine Description:
                             (Note that HPFS ignores file-name parameters).
         /c                  Check only if dirty bit is set
 
-        /filesystem:fsname  assume that the file system on volume is fsname
-                            (only on checked builds)
-
-
-
 --*/
 {
     DSTRING         CurrentDirectory;
@@ -53,12 +48,14 @@ Routine Description:
     DSTRING         CurrentDrive;
     DSTRING         NtDriveName;
     PWSTRING        p;
-	HANDLE		    FsUtilityHandle;
+   HANDLE          FsUtilityHandle;
     DSTRING         ChkdskString;
     DSTRING         Colon;
-	CHKDSK_FN		Chkdsk = NULL;
+   CHKDSK_FN      Chkdsk = NULL;
     PWSTRING        pwstring;
     BOOLEAN         fix;
+    BOOLEAN         resize_logfile;
+    ULONG           logfile_size;
     FSTRING         acolon, bcolon;
     ULONG           exit_status;
 
@@ -69,6 +66,8 @@ Routine Description:
     FLAG_ARGUMENT       ArgumentFix;
     FLAG_ARGUMENT       ArgumentVerbose;
     FLAG_ARGUMENT       ArgumentRecover;
+    FLAG_ARGUMENT       ArgumentResize;
+    LONG_ARGUMENT       ArgumentResizeLong;
     STRING_ARGUMENT     ArgumentProgramName;
     PATH_ARGUMENT       ArgumentPath;
 
@@ -97,14 +96,16 @@ Routine Description:
     // parsing machinery.  Then put the potential arguments
     // into the argument array,
 
-    if( !ArgumentArray.Initialize( 5, 1 )           ||
+    if( !ArgumentArray.Initialize( 5, 1 )               ||
         !EmptyArray.Initialize( 5, 1 )                  ||
-        !Lexemizer.Initialize( &EmptyArray )    ||
+        !Lexemizer.Initialize( &EmptyArray )            ||
         !ArgumentHelp.Initialize( "/?" )                ||
         !ArgumentFix.Initialize( "/F" )                 ||
         !ArgumentVerbose.Initialize( "/V" )             ||
-        !ArgumentRecover.Initialize( "/R" )||
-        !ArgumentProgramName.Initialize( "*" )  ||
+        !ArgumentRecover.Initialize( "/R" )             ||
+        !ArgumentResize.Initialize( "/L" )              ||
+        !ArgumentResizeLong.Initialize( "/L:*" )        ||
+        !ArgumentProgramName.Initialize( "*" )          ||
         !ArgumentPath.Initialize( "*", FALSE ) ) {
 
         Message.Set( MSG_CHK_NO_MEMORY );
@@ -120,7 +121,9 @@ Routine Description:
         !ArgumentArray.Put( &ArgumentHelp )         ||
         !ArgumentArray.Put( &ArgumentFix )          ||
         !ArgumentArray.Put( &ArgumentVerbose )      ||
-        !ArgumentArray.Put( &ArgumentRecover ) ||
+        !ArgumentArray.Put( &ArgumentRecover )      ||
+        !ArgumentArray.Put( &ArgumentResize )       ||
+        !ArgumentArray.Put( &ArgumentResizeLong )   ||
         !ArgumentArray.Put( &ArgumentPath ) ) {
 
         Message.Set( MSG_CHK_NO_MEMORY );
@@ -175,8 +178,12 @@ Routine Description:
         return CHKDSK_EXIT_COULD_NOT_CHK;
     }
 
-    if (ArgumentPath.IsValueSet() &&
-        (p = ArgumentPath.GetPath()->QueryDevice())) {
+    if (ArgumentPath.IsValueSet()) {
+        if (!(p = ArgumentPath.GetPath()->QueryDevice())) {
+            Message.Set(MSG_CHK_BAD_DRIVE_PATH_FILENAME);
+            Message.Display( "" );
+            return CHKDSK_EXIT_COULD_NOT_CHK;
+        }
 
         if (!DosDriveName.Initialize(p) ||
             !DosDriveName.Strupr()) {
@@ -192,7 +199,6 @@ Routine Description:
             return CHKDSK_EXIT_COULD_NOT_CHK;
         }
     }
-
 
     // Make sure that drive is of a correct type.
 
@@ -229,6 +235,9 @@ Routine Description:
 
 
     // Determine the type of the file system.
+    // Ask the volume what file system it has.  The
+    // IFS utilities for file system xxxx are in Uxxxx.DLL.
+    //
 
     if (!IFS_SYSTEM::QueryFileSystemName(&NtDriveName,
                                          &FsName,
@@ -253,13 +262,6 @@ Routine Description:
         return CHKDSK_EXIT_COULD_NOT_CHK;
     }
 
-
-    // If the /FS: switch is specified, use that as the name of
-    // the file system on the volume; otherwise, ask the volume
-    // what file system it has.  The IFS utilities for file
-    // system xxxx are in Uxxxx.DLL.
-
-
     Message.Set( MSG_FILE_SYSTEM_TYPE );
     Message.Display( "%W", &FsName );
 
@@ -271,7 +273,6 @@ Routine Description:
         Message.Display( "" );
         return CHKDSK_EXIT_COULD_NOT_CHK;
     }
-
 
     if (fix && (CurrentDrive == DosDriveName)) {
 
@@ -289,10 +290,49 @@ Routine Description:
 
         // Fall through so that the lock fails and then the
         // run autochk on reboot logic kicks in.
+        //
     }
 
+    // Does the user want to resize the logfile?  This is only sensible
+    // for NTFS.  If she specified a size of zero, print an error message
+    // because that's a poor choice and will confuse the untfs code,
+    // which assumes that zero means resize to the default size.
+    //
 
-    if( (Chkdsk =
+    resize_logfile = ArgumentResize.IsValueSet() || ArgumentResizeLong.IsValueSet();
+
+    if (resize_logfile) {
+
+        DSTRING ntfs_name;
+
+        if (!ntfs_name.Initialize( "ntfs" )) {
+
+            return CHKDSK_EXIT_COULD_NOT_CHK;
+        }
+        if (0 != FsName.Stricmp( &ntfs_name )) {
+
+            Message.Set(MSG_CHK_LOGFILE_NOT_NTFS);
+            Message.Display();
+            return CHKDSK_EXIT_COULD_NOT_CHK;
+        }
+
+        if (ArgumentResizeLong.IsValueSet()) {
+        
+            if (ArgumentResizeLong.QueryLong() <= 0) {
+            
+                Message.Set(MSG_CHK_WONT_ZERO_LOGFILE);
+                Message.Display();
+                return CHKDSK_EXIT_COULD_NOT_CHK;
+            }
+
+            logfile_size = ArgumentResizeLong.QueryLong() * 1024;
+        } else {
+
+            logfile_size = 0;
+        }
+    } 
+
+    if ((Chkdsk =
         (CHKDSK_FN)SYSTEM::QueryLibraryEntryPoint( &LibraryName,
                                                    &ChkdskString,
                                                    &FsUtilityHandle )) !=
@@ -311,10 +351,16 @@ Routine Description:
                     FALSE,
                     ArgumentRecover.QueryFlag(),
                     ArgumentPath.IsValueSet() ? ArgumentPath.GetPath() : NULL,
+                    FALSE,                  /* extend */
+                    resize_logfile,
+                    logfile_size,
                     &exit_status );
         } else {
 
-            try {
+//disable C4509 warning about nonstandard ext: SEH + destructor
+#pragma warning(disable:4509)
+
+            __try {
                 Chkdsk( &NtDriveName,
                         &Message,
                         fix,
@@ -322,8 +368,11 @@ Routine Description:
                         FALSE,
                         ArgumentRecover.QueryFlag(),
                         ArgumentPath.IsValueSet() ? ArgumentPath.GetPath() : NULL,
+                        FALSE,              /* extend */
+                        resize_logfile,
+                        logfile_size,
                         &exit_status );
-            } except (EXCEPTION_EXECUTE_HANDLER) {
+            } __except (EXCEPTION_EXECUTE_HANDLER) {
 
                 // If we get an access violation during read-only mode
                 // CHKDSK then it's because the file system is partying

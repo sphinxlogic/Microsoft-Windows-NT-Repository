@@ -34,6 +34,7 @@ Revision History:
 #include "ntlsa.h"
 #include "lmcons.h"                                    // LM20_PWLEN
 #include "msaudite.h"
+#include <nlrepl.h>                   // I_NetNotifyMachineAccount prototype
 
 
 
@@ -900,15 +901,12 @@ Return Value:
                 ( DomainInformation->Password.PasswordHistoryLength >
                 SAMP_MAXIMUM_PASSWORD_HISTORY_LENGTH ) ||
 
-                ( RtlLargeIntegerGreaterThanZero(
-                    DomainInformation->Password.MinPasswordAge ) ) ||
+                ( DomainInformation->Password.MinPasswordAge.QuadPart > 0) ||
 
-                ( RtlLargeIntegerGreaterThanZero(
-                    DomainInformation->Password.MaxPasswordAge ) ) ||
+                ( DomainInformation->Password.MaxPasswordAge.QuadPart > 0) ||
 
-                ( RtlLargeIntegerGreaterThanOrEqualTo(
-                    DomainInformation->Password.MaxPasswordAge,
-                    DomainInformation->Password.MinPasswordAge ) ) ||
+                ( DomainInformation->Password.MaxPasswordAge.QuadPart >=
+                    DomainInformation->Password.MinPasswordAge.QuadPart) ||
 
                 ( ( Domain->UnmodifiedFixed.UasCompatibilityRequired ) &&
                 ( DomainInformation->Password.MinPasswordLength > LM20_PWLEN ) )
@@ -999,11 +997,9 @@ Return Value:
                 // by the promotion increment.
                 //
 
-                SampDefinedDomains[SampTransactionDomainIndex].CurrentFixed.ModifiedCount =
-                    RtlLargeIntegerAdd(
-                        SampDefinedDomains[SampTransactionDomainIndex].CurrentFixed.ModifiedCount,
-                        PromotionIncrement
-                        );
+                SampDefinedDomains[SampTransactionDomainIndex].CurrentFixed.ModifiedCount.QuadPart =
+                    SampDefinedDomains[SampTransactionDomainIndex].CurrentFixed.ModifiedCount.QuadPart +
+                    PromotionIncrement.QuadPart;
 
                 Domain->CurrentFixed.ModifiedCountAtLastPromotion =
                     Domain->CurrentFixed.ModifiedCount;
@@ -1059,11 +1055,9 @@ Return Value:
         case DomainLockoutInformation:
 
             if (
-                ( RtlLargeIntegerGreaterThanZero(
-                    DomainInformation->Lockout.LockoutDuration ) ) ||
+                ( DomainInformation->Lockout.LockoutDuration.QuadPart > 0) ||
 
-                ( RtlLargeIntegerGreaterThanZero(
-                    DomainInformation->Lockout.LockoutObservationWindow ) )
+                ( DomainInformation->Lockout.LockoutObservationWindow.QuadPart > 0 )
 
                ) {
 
@@ -1079,13 +1073,13 @@ Return Value:
             } else {
 
 #if DBG
-                TmpTime = RtlLargeIntegerNegate( Domain->CurrentFixed.LockoutObservationWindow );
+                TmpTime.QuadPart = -Domain->CurrentFixed.LockoutObservationWindow.QuadPart;
                 RtlTimeToElapsedTimeFields( &TmpTime, &DT1 );
-                TmpTime = RtlLargeIntegerNegate( Domain->CurrentFixed.LockoutDuration );
+                TmpTime.QuadPart = -Domain->CurrentFixed.LockoutDuration.QuadPart;
                 RtlTimeToElapsedTimeFields( &TmpTime, &DT2 );
-                TmpTime = RtlLargeIntegerNegate( DomainInformation->Lockout.LockoutObservationWindow );
+                TmpTime.QuadPart = -DomainInformation->Lockout.LockoutObservationWindow.QuadPart;
                 RtlTimeToElapsedTimeFields( &TmpTime, &DT3 );
-                TmpTime = RtlLargeIntegerNegate( DomainInformation->Lockout.LockoutDuration );
+                TmpTime.QuadPart = -DomainInformation->Lockout.LockoutDuration.QuadPart;
                 RtlTimeToElapsedTimeFields( &TmpTime, &DT4 );
 
                 SampDiagPrint( DISPLAY_LOCKOUT,
@@ -1314,14 +1308,22 @@ Return Value:
     ULONG                   NewAccountRid, NewSecurityDescriptorLength;
     UNICODE_STRING          KeyName;
     PSECURITY_DESCRIPTOR    NewSecurityDescriptor;
-    SAMP_V1_FIXED_LENGTH_GROUP  V1Fixed;
+    SAMP_V1_0A_FIXED_LENGTH_GROUP  V1Fixed;
+    PRIVILEGE_SET           PrivilegeSet;
 
 
     if (GroupHandle == NULL) {
         return(STATUS_INVALID_PARAMETER);
     }
 
+    //
+    // Initialize the privilege set.
+    //
 
+    PrivilegeSet.PrivilegeCount = 0;
+    PrivilegeSet.Control = PRIVILEGE_SET_ALL_NECESSARY;
+    PrivilegeSet.Privilege[0].Luid = RtlConvertLongToLuid(0L);
+    PrivilegeSet.Privilege[0].Attributes = 0;
 
     //
     // Make sure a name was provided
@@ -1490,6 +1492,13 @@ Return Value:
 
                                 NtStatus = STATUS_ACCESS_DENIED;
                             }
+
+                        } else {
+
+                            PrivilegeSet.PrivilegeCount = 1;
+                            PrivilegeSet.Control = PRIVILEGE_SET_ALL_NECESSARY;
+                            PrivilegeSet.Privilege[0].Luid = RtlConvertLongToLuid(SE_SECURITY_PRIVILEGE);
+                            PrivilegeSet.Privilege[0].Attributes = 0;
                         }
                     }
 
@@ -1535,7 +1544,9 @@ Return Value:
                 V1Fixed.RelativeId = NewAccountRid;
                 V1Fixed.Attributes = (SE_GROUP_MANDATORY |
                                       SE_GROUP_ENABLED_BY_DEFAULT);
-                V1Fixed.AdminGroup = FALSE;
+                V1Fixed.AdminCount = 0;
+                V1Fixed.OperatorCount = 0;
+                V1Fixed.Revision = SAMP_REVISION;
 
                 NtStatus = SampSetFixedAttributes(
                                GroupContext,
@@ -1702,7 +1713,7 @@ Return Value:
                     (PUNICODE_STRING) AccountName,         // Account Name
                     &Domain->ExternalName,                 // Domain
                     &GroupContext->TypeBody.User.Rid,      // Account Rid
-                    NULL                                   // Privileges used
+                    &PrivilegeSet                          // Privileges used
                     );
             }
         }
@@ -1974,13 +1985,21 @@ Return Value:
     UNICODE_STRING          KeyName;
     PSECURITY_DESCRIPTOR    NewSecurityDescriptor;
     SAMP_V1_FIXED_LENGTH_ALIAS V1Fixed;
+    PRIVILEGE_SET           Privileges;
 
 
     if (AliasHandle == NULL) {
         return(STATUS_INVALID_PARAMETER);
     }
 
+    //
+    // Initialize the privilege set.
+    //
 
+    Privileges.PrivilegeCount = 0;
+    Privileges.Control = PRIVILEGE_SET_ALL_NECESSARY;
+    Privileges.Privilege[0].Luid = RtlConvertLongToLuid(0L);
+    Privileges.Privilege[0].Attributes = 0;
 
     //
     // Make sure a name was provided
@@ -2144,6 +2163,13 @@ Return Value:
 
                                 NtStatus = STATUS_ACCESS_DENIED;
                             }
+
+                        } else {
+
+                            Privileges.PrivilegeCount = 1;
+                            Privileges.Control = PRIVILEGE_SET_ALL_NECESSARY;
+                            Privileges.Privilege[0].Luid = RtlConvertLongToLuid(SE_SECURITY_PRIVILEGE);
+                            Privileges.Privilege[0].Attributes = 0;
                         }
                     }
 
@@ -2331,7 +2357,7 @@ Return Value:
                     (PUNICODE_STRING)AccountName,        // Account Name
                     &Domain->ExternalName,               // Domain
                     &AliasContext->TypeBody.User.Rid,    // Account Rid
-                    NULL                                 // Privileges used
+                    &Privileges                          // Privileges used
                     );
             }
         }
@@ -2885,7 +2911,7 @@ Return Values:
     PSAMP_DEFINED_DOMAINS
         Domain;
 
-    SAMP_V1_FIXED_LENGTH_GROUP
+    SAMP_V1_0A_FIXED_LENGTH_GROUP
         GroupV1Fixed;
 
     ULONG
@@ -3262,7 +3288,10 @@ Return Values:
                 V1aFixed.CodePage            = 0;
                 V1aFixed.BadPasswordCount    = 0;
                 V1aFixed.LogonCount          = 0;
-                V1aFixed.AdminCount          = 0;
+                V1aFixed.AdminCount          = (GroupV1Fixed.AdminCount != 0) ? 1 : 0;
+                V1aFixed.OperatorCount       = (GroupV1Fixed.OperatorCount != 0) ? 1 : 0;
+                V1aFixed.Unused1             = 0;
+                V1aFixed.Unused2             = 0;
                 V1aFixed.UserAccountControl  = (USER_PASSWORD_NOT_REQUIRED |
                                                 AccountType);
                 //
@@ -3300,7 +3329,8 @@ Return Values:
 
                 NtStatus = SampGetNewAccountSecurity(
                                SampUserObjectType,
-                               GroupV1Fixed.AdminGroup,
+                               (BOOLEAN) (((GroupV1Fixed.AdminCount != 0) ||
+                                         (GroupV1Fixed.OperatorCount != 0)) ? TRUE : FALSE),
                                DomainContext->TrustedClient,
                                PrivilegedMachineAccountCreate,
                                NewAccountRid,
@@ -3558,6 +3588,7 @@ Return Values:
 
             if (NT_SUCCESS(NtStatus)) {
 
+
                 NtStatus = SampAddUserToGroup( DOMAIN_GROUP_RID_USERS, NewAccountRid );
             }
 
@@ -3657,7 +3688,7 @@ Return Values:
                     Privileges.Control = 0;
                     ASSERT(ANYSIZE_ARRAY >= 1);
                     Privileges.Privilege[0].Attributes = SE_PRIVILEGE_USED_FOR_ACCESS;
-                    Privileges.Privilege[0].Luid = RtlConvertUlongToLargeInteger( SE_MACHINE_ACCOUNT_PRIVILEGE);
+                    Privileges.Privilege[0].Luid = RtlConvertUlongToLuid( SE_MACHINE_ACCOUNT_PRIVILEGE);
                     PPrivileges = &Privileges;
                 }
 
@@ -3673,6 +3704,27 @@ Return Values:
                     &NewAccountRid,                 // Account Rid
                     PPrivileges                     // Privileges used
                     );
+            }
+
+            //
+            // Notify netlogon if a machine account was created.
+            //
+
+            if ( ( V1aFixed.UserAccountControl &
+                USER_MACHINE_ACCOUNT_MASK ) != 0 ) {
+
+                //
+                // This was a machine account.  Let
+                // NetLogon know of the change.
+                //
+
+                IgnoreStatus = I_NetNotifyMachineAccount(
+                                   NewAccountRid,
+                                   SampDefinedDomains[SampTransactionDomainIndex].Sid,
+                                   0,
+                                   V1aFixed.UserAccountControl,
+                                   (PUNICODE_STRING)AccountName
+                                   );
             }
 
             //
@@ -4143,9 +4195,9 @@ Return Values:
                                0
                                );
                 SampFreeUnicodeString( &KeyName );
-        
+
                 if (NT_SUCCESS(NtStatus)) {
-        
+
                     UnMappedCount  -= 1;
                     Use->Element[i] = SidTypeGroup;
                     KeyValueLength  = 0;
@@ -4162,21 +4214,21 @@ Return Values:
                         goto unexpected_error;
                     }
                     ASSERT(KeyValueLength == 0);
-        
-        
+
+
                 } else {
-        
+
                     //
                     // Search the aliases for a match
                     //
-        
+
                     NtStatus = SampBuildAccountKeyName(
                                    SampAliasObjectType,
                                    &KeyName,
                                    (PUNICODE_STRING)&Names[i]
                                    );
                     if (NT_SUCCESS(NtStatus)) {
-        
+
                         InitializeObjectAttributes(
                             &ObjectAttributes,
                             &KeyName,
@@ -4191,9 +4243,9 @@ Return Values:
                                        0
                                        );
                         SampFreeUnicodeString( &KeyName );
-            
+
                         if (NT_SUCCESS(NtStatus)) {
-            
+
                             UnMappedCount  -= 1;
                             Use->Element[i] = SidTypeAlias;
                             KeyValueLength  = 0;
@@ -4210,21 +4262,21 @@ Return Values:
                                 goto unexpected_error;
                             }
                             ASSERT(KeyValueLength == 0);
-            
-            
+
+
                         } else {
-            
+
                             //
                             // Search the user for a match
                             //
-            
+
                             NtStatus = SampBuildAccountKeyName(
                                            SampUserObjectType,
                                            &KeyName,
                                            (PUNICODE_STRING)&Names[i]
                                            );
                             if (NT_SUCCESS(NtStatus)) {
-            
+
                                 InitializeObjectAttributes(
                                     &ObjectAttributes,
                                     &KeyName,
@@ -4239,9 +4291,9 @@ Return Values:
                                                0
                                                );
                                 SampFreeUnicodeString( &KeyName );
-                
+
                                 if (NT_SUCCESS(NtStatus)) {
-                
+
                                     UnMappedCount  -= 1;
                                     Use->Element[i] = SidTypeUser;
                                     KeyValueLength  = 0;
@@ -4252,14 +4304,13 @@ Return Values:
                                                    &KeyValueLength,
                                                    &IgnoreTimeStamp
                                                    );
+                                    IgnoreStatus = NtClose( TempHandle );
+                                    ASSERT( NT_SUCCESS(IgnoreStatus) );
                                     if (!NT_SUCCESS(NtStatus)) {
                                         goto unexpected_error;
                                     }
                                     ASSERT(KeyValueLength == 0);
-                
-                                    NtStatus = NtClose( TempHandle );
-                                    ASSERT( NT_SUCCESS(NtStatus) );
-                
+
                                 } else if(NtStatus == STATUS_OBJECT_NAME_NOT_FOUND) {
 
                                     //
@@ -6179,16 +6230,13 @@ Return Value:
             // it here so that it ends up at the right value.
             //
 
-            LargeOne = RtlConvertUlongToLargeInteger( (ULONG) 1 );
 
-            AdjustedModifiedCount = RtlLargeIntegerSubtract(
-                                     *ModifiedCount,
-                                     LargeOne );
+            AdjustedModifiedCount.QuadPart = ModifiedCount->QuadPart - 1 ;
 
             Domain->CurrentFixed.ModifiedCount = AdjustedModifiedCount;
         }
 
-        if ( !RtlLargeIntegerEqualToZero( *ModifiedCount ) ||
+        if ( !( ModifiedCount->QuadPart == 0) ||
              !StartOfFullSync ) {
 
             //
@@ -6932,7 +6980,6 @@ Return Value:
 
 --*/
 {
-
 #if SAM_SERVER_TESTS
 
     LARGE_INTEGER ModifiedCount1;
@@ -7494,24 +7541,12 @@ Return Value:
                                            USER_ALL_READ_ACCOUNT_MASK     |
                                            USER_ALL_READ_PREFERENCES_MASK |
                                            USER_ALL_READ_TRUSTED_MASK) ) ||
-                    ( !RtlLargeIntegerEqualTo(
-                        All->LastLogon,
-                        All2->LastLogon ) ) ||
-                    ( !RtlLargeIntegerEqualTo(
-                        All->LastLogoff,
-                        All2->LastLogoff ) ) ||
-                    ( !RtlLargeIntegerEqualTo(
-                        All->PasswordLastSet,
-                        All2->PasswordLastSet ) ) ||
-                    ( !RtlLargeIntegerEqualTo(
-                        All->AccountExpires,
-                        All2->AccountExpires ) ) ||
-                    ( !RtlLargeIntegerEqualTo(
-                        All->PasswordCanChange,
-                        All2->PasswordCanChange ) ) ||
-                    ( RtlLargeIntegerEqualTo(
-                        All->PasswordMustChange,
-                        All2->PasswordMustChange ) ) ||
+                    ( !(All->LastLogon.QuadPart == All2->LastLogon.QuadPart) ) ||
+                    ( !(All->LastLogoff.QuadPart == All2->LastLogoff.QuadPart) ) ||
+                    ( !(All->PasswordLastSet.QuadPart == All2->PasswordLastSet.QuadPart) ) ||
+                    ( !(All->AccountExpires.QuadPart == All2->AccountExpires.QuadPart) ) ||
+                    ( !(All->PasswordCanChange.QuadPart == All2->PasswordCanChange.QuadPart) ) ||
+                    (  (All->PasswordMustChange.QuadPart == All2->PasswordMustChange.QuadPart) ) ||
                     (RtlCompareUnicodeString(
                         &(All->UserName),
                         &(All2->UserName),

@@ -1,30 +1,8 @@
 //      XCOOKIE.C  - delta cookie handling routines
 
-#if defined(DOS) || defined(OS2)
-#define INCL_DOS
-#define INCL_DOSERRORS
-#include <os2.h>
-#endif
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <fcntl.h>
-#include <ctype.h>
-#include <time.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <share.h>
-
-#include "slm.h"
-#include "sys.h"
-#include "util.h"
-#include "stfile.h"
-#include "ad.h"
-#include "cookie.h"
-#include "proto.h"
+#include "precomp.h"
+#pragma hdrstop
 #include "messages.h"
-
 EnableAssert
 
 #define OPEN_MAXTRIES   5   // for DosOpen against cookie file
@@ -58,7 +36,7 @@ int add_cookie_lock(AD *pad, char *Lockbuf, int Locktype, F fAutotype)
     if ((hfCookieFile = open_cookie()) == -1)
         FatalError(szCookieOpen, pszCookieFile, SzForEn(_doserrno));
 
-    while ((cb = read(hfCookieFile, LFreadbuf, (LINE_LEN/2)-1)) > 0)
+    while ((cb = _read(hfCookieFile, LFreadbuf, (LINE_LEN/2)-1)) > 0)
         {
         char *cp;
         char c;
@@ -77,7 +55,7 @@ int add_cookie_lock(AD *pad, char *Lockbuf, int Locktype, F fAutotype)
                         (strncmp(LFlock,"WRITE",5) != 0) &&
                          strncmp(LFlock,"READ-BLOCK",10) != 0))
                     {
-                    close_cookie(hfCookieFile);
+                    _close(hfCookieFile);
                     FatalError(szCookieCorrupt, pszCookieFile);
                     }
                 else
@@ -88,7 +66,7 @@ int add_cookie_lock(AD *pad, char *Lockbuf, int Locktype, F fAutotype)
                                 (strncmp(LFlock,"WRITE",5) == 0) ||
                                 fAutotype)
                             {
-                            close_cookie(hfCookieFile);
+                            _close(hfCookieFile);
                             return (OP_DENY);
                             }
                         else if (strcmp(LFlock,"READ")==0)
@@ -101,12 +79,12 @@ int add_cookie_lock(AD *pad, char *Lockbuf, int Locktype, F fAutotype)
                            !(strcmp(LFname,szLockName) == 0 &&
                              strcmp(LFlock,"READ-BLOCK") == 0))
                         {
-                        close_cookie(hfCookieFile);
+                        _close(hfCookieFile);
                         return (OP_DENY);
                         }
                     if ((Locktype == RB_LOCK) && (strcmp(LFlock,"READ") != 0))
                         {
-                        close_cookie(hfCookieFile);
+                        _close(hfCookieFile);
                         return (OP_DENY);
                         }
                     }
@@ -123,7 +101,7 @@ int add_cookie_lock(AD *pad, char *Lockbuf, int Locktype, F fAutotype)
 
     if ((TotReads > 1) && (Locktype == WRITE_LOCK))
         {
-        close_cookie(hfCookieFile);
+        _close(hfCookieFile);
         return (OP_DENY);
         }
 
@@ -134,25 +112,25 @@ int add_cookie_lock(AD *pad, char *Lockbuf, int Locktype, F fAutotype)
 
     if ((Locktype == WRITE_LOCK) && (TotLocks > 0))
         {
-        if (chsize(hfCookieFile, 0) != 0)
+        if (_chsize(hfCookieFile, 0) != 0)
             {
             err = errno;
-            close_cookie(hfCookieFile);
+            _close(hfCookieFile);
             FatalError(szCookieTrunc, pszCookieFile, SzForEn(err));
             }
         }
 
-    if (lseek(hfCookieFile, 0, 2) == -1)
+    if (_lseek(hfCookieFile, 0, 2) == -1)
         {
         err = errno;
-        close_cookie(hfCookieFile);
+        _close(hfCookieFile);
         FatalError(szCookieSeek, pszCookieFile, SzForEn(err));
         }
 
     cb = strlen(Lockbuf);
     while (cb)
         {
-        cbWritten = write(hfCookieFile, Lockbuf, cb);
+        cbWritten = _write(hfCookieFile, Lockbuf, cb);
 
         // write shouldn't ever return 0, but just in case...
         if (-1 == cbWritten || 0 == cbWritten)
@@ -161,7 +139,7 @@ int add_cookie_lock(AD *pad, char *Lockbuf, int Locktype, F fAutotype)
                 continue;
             else
                 {
-                close_cookie(hfCookieFile);
+                _close(hfCookieFile);
                 return (OP_SYSERR);
                 }
             }
@@ -170,7 +148,7 @@ int add_cookie_lock(AD *pad, char *Lockbuf, int Locktype, F fAutotype)
         Lockbuf += cbWritten;
         }
 
-    close_cookie(hfCookieFile);
+    _close(hfCookieFile);
     return (OP_OK);
 }
 
@@ -241,19 +219,6 @@ int open_cookie(void)
         }
 
     return (hfCookieFile);
-}
-
-
-//============================================================================
-//
-//                        close_cookie
-//
-//  Close the cookie file given the file handle number
-//
-//============================================================================
-void close_cookie(int hfCookieFile)
-{
-    close(hfCookieFile);
 }
 
 

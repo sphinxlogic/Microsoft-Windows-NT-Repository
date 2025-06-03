@@ -25,9 +25,6 @@ Revision History:
 --*/
 
 #include "iop.h"
-#include "ntseapi.h"
-#include "zwapi.h"
-#include "stdio.h"
 
 //
 // Define procedures local to this module.
@@ -317,6 +314,8 @@ Return Value:
                                  &ioStatusBlock,
                                  TRUE,
                                  0 );
+
+            RtlFreeUnicodeString( &deviceNameUnicodeString );
 
             if (NT_SUCCESS( status )) {
 

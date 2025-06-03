@@ -34,6 +34,22 @@ Revision History:
 #define Dbg                              (DEBUG_TRACE_READ)
 
 //
+//  Define stack overflow read threshhold.  For the x86 we'll use a smaller
+//  threshold that for a risc platform.
+//
+
+#if defined(_M_IX86)
+#if DBG
+#define OVERFLOW_READ_THRESHHOLD         (0xE00)
+#else
+#define OVERFLOW_READ_THRESHHOLD         (0xA00)
+#endif // DBG
+#else
+#define OVERFLOW_READ_THRESHHOLD         (0x1000)
+#endif // defined(_M_IX86)
+
+
+//
 //  The following procedures handles read stack overflow operations.
 //
 
@@ -52,7 +68,8 @@ FatPostStackOverflowRead (
 
 VOID
 FatOverflowPagingFileRead (
-    IN PPAGING_FILE_OVERFLOW_PACKET Packet
+    IN PVOID Context,
+    IN PKEVENT Event
     );
 
 //
@@ -74,6 +91,22 @@ FatOverflowPagingFileRead (
          FatRaiseStatus( IrpContext, STATUS_INVALID_USER_BUFFER ); \
     }                                                              \
 }
+
+//
+//  Macro to increment appropriate performance counters.
+//
+
+#define CollectReadStats(VCB,OPEN_TYPE,BYTE_COUNT) {                                    \
+    PFILESYSTEM_STATISTICS Stats = &(VCB)->Statistics[KeGetCurrentProcessorNumber()];   \
+    if (((OPEN_TYPE) == UserFileOpen)) {                                                \
+        Stats->UserFileReads += 1;                                                      \
+        Stats->UserFileReadBytes += (ULONG)(BYTE_COUNT);                                \
+    } else if (((OPEN_TYPE) == VirtualVolumeFile || ((OPEN_TYPE) == DirectoryFile))) {  \
+        Stats->MetaDataReads += 1;                                                      \
+        Stats->MetaDataReadBytes += (ULONG)(BYTE_COUNT);                                \
+    }                                                                                   \
+}
+
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE, FatStackOverflowRead)
@@ -147,21 +180,23 @@ Return Value:
         //  read to the overflow queue.
         //
 
-        if (GetRemainingStackSize(Status) < 0xe00) {
+        if (IoGetRemainingStackSize() < OVERFLOW_READ_THRESHHOLD) {
 
-            PPAGING_FILE_OVERFLOW_PACKET Packet;
+            KEVENT Event;
+            PAGING_FILE_OVERFLOW_PACKET Packet;
 
-            Packet = FsRtlAllocatePool( NonPagedPoolMustSucceed,
-                                        sizeof( PAGING_FILE_OVERFLOW_PACKET ) );
+            Packet.Irp = Irp;
+            Packet.Fcb = Fcb;
 
-            Packet->Irp = Irp;
-            Packet->Fcb = Fcb;
+            KeInitializeEvent( &Event, NotificationEvent, FALSE );
 
-            ExInitializeWorkItem( &Packet->Item,
-                                  FatOverflowPagingFileRead,
-                                  Packet );
+            FsRtlPostPagingFileStackOverflow( &Packet, &Event, FatOverflowPagingFileRead );
 
-            ExQueueWorkItem( &Packet->Item, HyperCriticalWorkQueue );
+            //
+            //  And wait for the worker thread to complete the item
+            //
+
+            (VOID) KeWaitForSingleObject( &Event, Executive, KernelMode, FALSE, NULL );
 
         } else {
 
@@ -209,7 +244,7 @@ Return Value:
         //  isn't enough then we will pass the request off to the stack overflow thread.
         //
 
-        if ((GetRemainingStackSize(Status) < 0xe00) &&
+        if ((IoGetRemainingStackSize() < OVERFLOW_READ_THRESHHOLD) &&
             ((NodeType(Fcb) == FAT_NTC_FCB) ||
              (NodeType(Fcb) == FAT_NTC_DCB) ||
              (NodeType(Fcb) == FAT_NTC_ROOT_DCB))) {
@@ -443,7 +478,7 @@ Return Value:
 
     //
     //  Set the stack overflow item's event to tell the original
-    //  thread that we're done and then go get another work item.
+    //  thread that we're done.
     //
 
     KeSetEvent( Event, 0, FALSE );
@@ -581,6 +616,21 @@ Return Value:
     TypeOfRead = FatDecodeFileObject(FileObject, &Vcb, &FcbOrDcb, &Ccb);
 
     //
+    // Collect interesting statistics.  The FLAG_USER_IO bit will indicate
+    // what type of io we're doing in the FatNonCachedIo function.
+    //
+
+    if (PagingIo) {
+        CollectReadStats(Vcb, TypeOfRead, ByteCount);
+
+        if (TypeOfRead == UserFileOpen) {
+            SetFlag(IrpContext->Flags, IRP_CONTEXT_FLAG_USER_IO);
+        } else {
+            ClearFlag(IrpContext->Flags, IRP_CONTEXT_FLAG_USER_IO);
+        }
+    }
+
+    //
     //  If there is a previous STACK FatIoContext pointer, NULL it.
     //
 
@@ -677,8 +727,34 @@ Return Value:
                 SetFlag( Ccb->Flags, CCB_FLAG_DASD_FLUSH_DONE );
             }
 
+            if (!FlagOn( Ccb->Flags, CCB_FLAG_ALLOW_EXTENDED_DASD_IO )) {
+
+                ULONG VolumeSize;
+
+                //
+                //  Make sure we don't try to read past end of volume,
+                //  reducing the byte count if necessary.
+                //
+
+                VolumeSize = Vcb->Bpb.BytesPerSector *
+                             (Vcb->Bpb.Sectors != 0 ? Vcb->Bpb.Sectors :
+                                                      Vcb->Bpb.LargeSectors);
+
+                if (StartingVbo >= VolumeSize) {
+
+                    Irp->IoStatus.Information = 0;
+                    FatCompleteRequest( IrpContext, Irp, STATUS_END_OF_FILE );
+                    return STATUS_END_OF_FILE;
+                }
+
+                if (ByteCount > VolumeSize - StartingVbo) {
+
+                    ByteCount = VolumeSize - StartingVbo;
+                }
+            }
+
             //
-            // For DASD we have to probe and lock the user's buffer
+            //  For DASD we have to probe and lock the user's buffer
             //
 
             FatLockUserBuffer( IrpContext, Irp, IoWriteAccess, ByteCount );
@@ -708,6 +784,14 @@ Return Value:
                 }
             }
 
+
+        } else {
+
+            //
+            //  Virtual volume file open -- increment performance counters.
+            //
+
+            Vcb->Statistics[KeGetCurrentProcessorNumber()].MetaDataDiskReads += 1;
 
         }
 
@@ -782,6 +866,15 @@ Return Value:
         FatVerifyFcb( IrpContext, FcbOrDcb );
 
         //
+        //  If for any reason the Mcb was reset, re-initialize it.
+        //
+
+        if (FcbOrDcb->Header.AllocationSize.LowPart == 0xffffffff) {
+
+            FatLookupFileAllocationSize( IrpContext, FcbOrDcb );
+        }
+
+        //
         //  Do the usual STATUS_PENDING things.
         //
 
@@ -823,31 +916,39 @@ Return Value:
 
             //
             //  If this is a noncached transfer and is not a paging I/O, and
-            //  the file has been opened cached, then we will do a flush here
+            //  the file has a data section, then we will do a flush here
             //  to avoid stale data problems.  Note that we must flush before
             //  acquiring the Fcb shared since the write may try to acquire
             //  it exclusive.
             //
-            //  We also flush page faults if not originating from the cache
-            //  manager to avoid stale data problems.
-            //  For example, if we are faulting in a page of an executable
-            //  that was just written, there are two seperate sections, so
-            //  we must flush the Data section so that we fault the correct
-            //  data into the Image section.
-            //
 
-            if (NonCachedIo && (!PagingIo ||
-                                (!MmIsRecursiveIoFault() &&
-                                 (FileObject->SectionObjectPointer->ImageSectionObject != NULL)))
+            if (!PagingIo && NonCachedIo
 
                     &&
 
                 (FileObject->SectionObjectPointer->DataSectionObject != NULL)) {
 
+                //
+                //  We hold the main resource exclusive here because the flush
+                //  may generate a recursive write in this thread.  The PagingIo
+                //  resource is held shared so the drop-and-release serialization
+                //  below will work.
+                //
+
+                if (!FatAcquireExclusiveFcb( IrpContext, FcbOrDcb )) {
+
+                    try_return( PostIrp = TRUE );
+                }
+
+                ExAcquireResourceShared( FcbOrDcb->Header.PagingIoResource, TRUE );
+
                 CcFlushCache( FileObject->SectionObjectPointer,
                               &StartingByte,
                               ByteCount,
                               &Irp->IoStatus );
+
+                ExReleaseResource( FcbOrDcb->Header.PagingIoResource );
+                FatReleaseFcb( IrpContext, FcbOrDcb );
 
                 if (!NT_SUCCESS( Irp->IoStatus.Status)) {
 
@@ -855,14 +956,13 @@ Return Value:
                 }
 
                 //
-                //  Acquiring and immeidately dropping the resource serializes
+                //  Acquiring and immediately dropping the resource serializes
                 //  us behind any other writes taking place (either from the
                 //  lazy writer or modified page writer).
                 //
 
                 ExAcquireResourceExclusive( FcbOrDcb->Header.PagingIoResource, TRUE );
                 ExReleaseResource( FcbOrDcb->Header.PagingIoResource );
-
             }
 
             //
@@ -1025,6 +1125,11 @@ Return Value:
                 //  Start by zeroing any part of the read after Valid Data
                 //
 
+                if (ValidDataLength < FcbOrDcb->ValidDataToDisk) {
+
+                    ValidDataLength = FcbOrDcb->ValidDataToDisk;
+                }
+
                 if ( StartingVbo + ByteCount > ValidDataLength ) {
 
                     SystemBuffer = FatMapUserBuffer( IrpContext, Irp );
@@ -1073,7 +1178,7 @@ Return Value:
                 SectorSize = (ULONG)Vcb->Bpb.BytesPerSector;
 
                 //
-                //  Round up to a sector boundry, and remember if we are
+                //  Round up to a sector boundary, and remember if we are
                 //  reading extra bytes.
                 //
 
@@ -1093,7 +1198,7 @@ Return Value:
                 }
 
                 //
-                //  Just to help alieve confusion.  At this point:
+                //  Just to help alleviate confusion.  At this point:
                 //
                 //  RequestedByteCount - is the number of bytes originally
                 //                       taken from the Irp, but constrained
@@ -1109,8 +1214,8 @@ Return Value:
 
                 //
                 //  If this request is not properly aligned, or extending
-                //  to a sector boundry would overflow the buffer, send it off
-                //  on a special case path.
+                //  to a sector boundary would overflow the buffer, send it off
+                //  on a special-case path.
                 //
 
                 if ( (StartingVbo & (SectorSize - 1)) ||
@@ -1531,7 +1636,8 @@ Return Value:
 
 VOID
 FatOverflowPagingFileRead (
-    IN PPAGING_FILE_OVERFLOW_PACKET Packet
+    IN PVOID Context,
+    IN PKEVENT Event
     )
 
 /*++
@@ -1555,10 +1661,18 @@ Return Value:
 --*/
 
 {
+    PPAGING_FILE_OVERFLOW_PACKET Packet = Context;
+
     FatPagingFileIo( Packet->Irp, Packet->Fcb );
 
-    ExFreePool( Packet );
+    //
+    //  Set the stack overflow item's event to tell the original
+    //  thread that we're done.
+    //
+
+    KeSetEvent( Event, 0, FALSE );
 
     return;
 }
+
 

@@ -88,6 +88,16 @@ class COMP  : public PROGRAM {
 
     private:
 
+#ifdef DBCS  // v-junm - 08/30/93
+
+        BOOLEAN
+        CharEqual(
+            PUCHAR,
+            PUCHAR
+            );
+
+#endif
+
         NONVIRTUAL
         VOID
         DoCompare(
@@ -116,3 +126,4 @@ class COMP  : public PROGRAM {
 
 
 #endif // _BINARY_COMP_
+

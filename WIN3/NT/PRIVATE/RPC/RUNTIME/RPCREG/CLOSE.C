@@ -19,7 +19,7 @@ Revision History:
 --*/
 
 #include <rpc.h>
-#include <regapi.h>
+#include "regapi.h"
 #include <stdio.h>
 #include <malloc.h>
 

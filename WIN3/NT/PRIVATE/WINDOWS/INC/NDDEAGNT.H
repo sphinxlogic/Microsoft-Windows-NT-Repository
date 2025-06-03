@@ -35,4 +35,4 @@ typedef struct {
     WCHAR awchNames[64];
 } NETDDE_PIPE_MESSAGE, *PNETDDE_PIPE_MESSAGE;
 
-
+

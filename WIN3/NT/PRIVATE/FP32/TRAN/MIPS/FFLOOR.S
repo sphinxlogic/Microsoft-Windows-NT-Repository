@@ -17,8 +17,7 @@
 
 #include <kxmips.h>
 
-.text
-
+.text .text$ffloor
 .globl ftrunc
 .globl truncf
 .ent ftrunc
@@ -26,7 +25,7 @@
 ftrunc:
 truncf:
 	.frame	sp, 0, ra
-    .prologue 0
+	.prologue 0
 	mfc1	t0, $f12
 	srl	t2, t0, 23
 	and	t2, 0xFF
@@ -45,6 +44,7 @@ ftrunc2:
 	j	ra
 .end ftrunc
 
+.text .text$ffloor
 .globl ffloor
 .globl floorf
 .ent ffloor
@@ -52,7 +52,7 @@ ftrunc2:
 ffloor:
 floorf:
 	.frame	sp, 0, t3
-    .prologue 0
+	.prologue 0
 	move	t3, ra
 	bal	ftrunc
 	sub.s	$f2, $f12, $f0
@@ -65,6 +65,7 @@ floorf:
 1:	j	t3
 .end ffloor
 
+.text .text$ffloor
 .globl fceil
 .globl ceilf
 .ent fceil
@@ -72,7 +73,7 @@ floorf:
 fceil:
 ceilf:
 	.frame	sp, 0, t3
-    .prologue 0
+	.prologue 0
 	move	t3, ra
 	bal	ftrunc
 	sub.s	$f2, $f12, $f0

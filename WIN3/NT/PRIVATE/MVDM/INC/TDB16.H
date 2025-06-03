@@ -67,13 +67,16 @@ typedef struct TDB  {       /* tdb16 */
      DWORD TDB_INTVECS[numTaskInts] ;   // Task specfic harare interrupts
      WORD TDB_CompatFlags ;     // Compatibility flags
      WORD TDB_CompatFlags2 ;        // Upper 16 bits
-     BYTE TDB_Free[9] ;         // Filler to keep TDB size unchanged
+     WORD TDB_CompatHandle ;    // for dBase bug
+     WORD TDB_WOWCompatFlagsEx ;     // More WOW Compatibility flags
+     WORD TDB_WOWCompatFlagsEx2 ;        // Upper 16 bits  
+     BYTE TDB_Free[3] ;         // Filler to keep TDB size unchanged
      BYTE TDB_cLibrary    ;     // tracks  add/del of ALL libs in system EMS
      DWORD TDB_PHT        ; // (HANDLE:OFFSET) to private handle table
      WORD TDB_PDB         ; // MSDOS Process Data Block (PDB)
      DWORD TDB_DTA        ; // MSDOS Disk Transfer Address
      BYTE TDB_Drive  ;      // MSDOS current drive
-     BYTE TDB_Directory[65] ;       // MSDOS current directory
+     BYTE TDB_Directory[65] ;       // *** not used starting with win95
      WORD TDB_Validity    ;     // initial AX to be passed to a task
      WORD TDB_Yield_to    ;     // DirectedYield arg stored here
      WORD TDB_LibInitSeg      ; // segment address of libraries to init
@@ -87,6 +90,7 @@ typedef struct TDB  {       /* tdb16 */
      WORD  TDB_WOWCompatFlags;  // WOW Compatibility flags
      WORD  TDB_WOWCompatFlags2; // WOW Compatibility flags
      DWORD TDB_vpfnAbortProc;   // printer AbortProc
+     BYTE TDB_LFNDirectory[260]; // Long directory name
 
 } TDB;
 typedef TDB UNALIGNED *PTDB;
@@ -101,5 +105,3 @@ typedef TDB UNALIGNED *PTDB;
 /* XLATOFF */
 #pragma pack()
 /* XLATON */
-
-

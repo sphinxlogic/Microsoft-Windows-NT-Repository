@@ -4,33 +4,23 @@
  * This module processes all recursive and wildcard pathname arguments.
  */
 
-#if defined(OS2)
-#define INCL_DOSFILEMGR
-#include <os2.h>
-#endif
+#include "precomp.h"
+#pragma hdrstop
+EnableAssert
 
-#include "slm.h"
-#include "sys.h"
-#include "util.h"
-#include "stfile.h"
-#include "ad.h"
-#include "dir.h"
-#include "de.h"
-#include "proto.h"
+char szStar[] = "*.*";
 
 private F FRecurseFiles(P1(AD *));
 private F FRecDir(P2(AD *pad, NE *pneFiles));
 private F FDoNe(P2(AD *, NE *));
 private F FCallCmd(P1(AD *));
 private F FMatched(P0());
-private F FDoFile(P3(AD *, NE *, TD *));
+private F FDoFile(AD *, NE *, TD *, BOOL);
 private F FDoPending(P1(AD *));
 private F FWild(P3(AD *, char *, TD *));
 private NE *PneMatch(P5(AD *, char *, F, F, F));
 private F FGetStatus(P1(AD *));
 private void FlushCachedStatus(P1(AD *));
-
-EnableAssert
 
 F fLocal;    /* Match wildcards against local files? */
 
@@ -48,6 +38,9 @@ GlobArgs(
     pad->pneFiles = 0;
     PthCopy(pad->pthFiles, "");
     pad->pthGlobSubDir = pad->pthUSubDir + CchOfPth(pad->pthUSubDir);
+
+    if (pad->flags&flagAll|| pad->pecmd->gl&fglAll)
+        CreatePeekThread(pad);
 
     /* If we are matching wildcard files, directories do not apply.
      * For instance, consider delfile -r sub vs. delfile -r foo* sub.
@@ -102,10 +95,8 @@ GlobArgs(
         FDoPending(pad);        /* Flush last files. */
 
     FlushCachedStatus(pad);
+
 }
-
-
-#define szStar          "*.*"
 
 
 /* Recursively process all files in and under the current directory.
@@ -183,7 +174,7 @@ FDoNe(
     NE *pne;
 
     ForEachNe(pne, pneList) {
-        if (!FDoFile(pad, pne, &pad->tdMin))
+        if (!FDoFile(pad, pne, &pad->tdMin, FALSE))
             return fFalse;
         }
     return fTrue;
@@ -213,8 +204,15 @@ FCallCmd(
     }
 
     if (!FPthExists(PthForStatus(pad, pth), fFalse)) {
-        Error("%&/C is not a directory of SLM installation %&/S, project %&P\n", pad, pad, pad);
-        return fFalse;
+        UINT ulSleepTime = 10;
+
+        Warn("%&/C is not a directory of SLM installation %&/S, project %&P\n", pad, pad, pad);
+        SleepCsecs(ulSleepTime);
+        if (!FPthExists(PthForStatus(pad, pth), fFalse)) {
+            Warn("%&/C is not a directory of SLM installation %&/S, project %&P - skipping\n", pad, pad, pad);
+            return fTrue;
+        }
+        PrErr("Proceeding\n");
     }
 
     FlushCachedStatus(pad);
@@ -230,7 +228,9 @@ private F
 FDoFile(
     AD *pad,
     NE *pneFile,
-    TD *ptd)
+    TD *ptd,
+    BOOL fWild
+    )
 {
     F fOk = fTrue;
     NE *pne;
@@ -251,6 +251,7 @@ FDoFile(
     /* Append copy of NE to end of pad->pneFiles. */
     pne = PneCopy(pneFile);
     pne->u.tdNe = *ptd;
+    pne->fWild = fWild;
     AppendNe(&ppneLast, pne);
 
     return fOk;
@@ -394,6 +395,9 @@ FWild(
         }
     }
 
+    if (!strcmp(szWild, "*"))
+        szWild = szStar;
+
     pneFiles = PneMatch(pad, szWild, fLocal, fTrue, fTrue);
 
     /* If the file doesn't necessarily exist (i.e. a log argument, etc.),
@@ -413,7 +417,7 @@ FWild(
     fOk = fTrue;
     ForEachNeWhileF(pne, pneFiles, fOk) {
         if (!FDirNe(pne)) {
-            fOk = FDoFile(pad, pne, ptd);
+            fOk = FDoFile(pad, pne, ptd, TRUE);
             continue;
         }
 
@@ -428,7 +432,7 @@ FWild(
         }
 
         if ((pad->pecmd->gl&(fglTopDown|fglDirsToo)) == (fglTopDown|fglDirsToo))
-            fOk = FDoFile(pad, pne, ptd);
+            fOk = FDoFile(pad, pne, ptd, TRUE);
 
         if (fOk && pad->flags&flagRecursive) {
             ChngDir(pad, SzOfNe(pne));
@@ -437,7 +441,7 @@ FWild(
         }
 
         if (fOk && (pad->pecmd->gl&(fglTopDown|fglDirsToo)) == fglDirsToo)
-            fOk = FDoFile(pad, pne, ptd);
+            fOk = FDoFile(pad, pne, ptd, TRUE);
     }
 
     /* Clean up. */
@@ -490,6 +494,22 @@ PneMatch(
         FI far *pfiMac;
         char sz[cchFileMax+1];
 
+        //
+        // If using IED Caching (log, status and ssync) and not in root
+        // directory (so lckNil works) try to load status file
+        // quickly using IED cache, which justed reads the SH, FI, 1 ED and
+        // 1 FS array.  If that does not succeed go the slow way.
+        //
+        if (pad->pneArgs == 0 &&
+            pad->flags&flagCacheIed &&
+            !FTopUDir(pad) &&
+            (FlushCachedStatus(pad), FLoadStatus(pad, lckNil, flsNone))) {
+            //
+            // Status file is loaded for both PneMatch and log/status/ssync routines.
+            //
+            pad->fStatusAlreadyLoaded = fTrue;
+        }
+        else
         if (!FGetStatus(pad))
             return (NE *)0;
 
@@ -503,7 +523,8 @@ PneMatch(
              */
             if (FMatch(sz, szPattern) &&
                 (fDir && fDirs || !fDir && fFiles) &&
-                !(pfi->fDeleted && fDir))
+                ((pad->pecmd->cmd == cmdLog && pad->flags&flagLogDelDirToo) ||
+                 !(pfi->fDeleted && fDir)))
                     AppendNe(&ppneLast,
                              PneNewNm(pfi->nmFile, cchFileMax,
                                       (FA)(fDir ? faDir

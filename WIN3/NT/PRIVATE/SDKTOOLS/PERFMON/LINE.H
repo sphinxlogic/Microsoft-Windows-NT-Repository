@@ -70,4 +70,4 @@ PPERFINSTANCEDEF LineFindInstance (PPERFDATA pPerfData,
                                    PPERFOBJECT pObject,
                                    PLINE pLine) ;
 
-
+

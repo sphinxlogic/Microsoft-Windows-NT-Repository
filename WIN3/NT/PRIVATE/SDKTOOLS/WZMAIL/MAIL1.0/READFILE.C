@@ -637,7 +637,7 @@ VOID PASCAL INTERNAL readProc ( HW hWnd, INT command, WDATA data )
     case CLOSE :
         fclose ( FT->fhRead );
         if ( FT->fDeleteRead )
-            unlink ( FT->fileRead );
+            _unlink ( FT->fileRead );
         ZMfree ( FT->fileRead );
         ZMfree ( FT->pages );
         ZMfree ( FT );

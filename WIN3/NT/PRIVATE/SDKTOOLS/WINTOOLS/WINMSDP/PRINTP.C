@@ -332,6 +332,11 @@ if(!ValidateString(Data)){
 		lstrcpy(ValueName,TEXT(""));
                         break;
 
+        // OSVer
+		case IDC_EDIT_CSD_NUMBER:
+        lstrcpy(ValueName,TEXT("Service Pack: "));
+			break;
+
 		default:
 		lstrcpy(ValueName,TEXT("......."));
 			break;
@@ -516,11 +521,6 @@ lstrcpy(xData,TEXT(""));
 			break;
 		case IDC_EDIT_PROCESSOR_TYPE:
 		lstrcpy(ValueName,TEXT("Processor Type: "));
-			break;
-
-                // OSVer
-		case IDC_EDIT_CSD_NUMBER:
-		lstrcpy(ValueName,TEXT("CSD Version: "));
 			break;
 
 		//memory
@@ -762,7 +762,7 @@ Return Value:
   BOOL    Done, fDefCharUsed;
 
     nBytes = WideCharToMultiByte (CP_ACP, 0, (LPWSTR) lpBuffer, nChars, NULL, 0, NULL, &fDefCharUsed);
-    if (!(lpAnsi = (LPSTR) LocalAlloc (LPTR, nBytes + 1)))
+    if (!(lpAnsi = (LPSTR) LocalAlloc (LPTR, nBytes + 3)))
     {
        MessageBox (GetFocus (), NULL, NULL, MB_OK);
        return (FALSE);

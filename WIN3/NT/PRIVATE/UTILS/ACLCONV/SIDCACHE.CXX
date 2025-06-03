@@ -87,7 +87,7 @@ Return Value:
 
     _NumberOfEntries = 0;
     _NextSlot = 0;
-    DELETE( _Cache );
+    delete[] _Cache;
 }
 
 
@@ -253,7 +253,7 @@ Arguments:
 --*/
 {
 
-    DbgAssert( _NextSlot < _NumberOfEntries );
+    DebugAssert( _NextSlot < _NumberOfEntries );
 
     _Cache[_NextSlot].InUse = FALSE;
 

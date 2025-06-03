@@ -4,7 +4,7 @@
 
 #define IDA_REPAIR_UTILITY             110      // Accelerators
 #define IDM_REPAIR_UTILITY             100      // Menu
-#define IDI_REPAIR_UTILITY          200      // Icon
+#define IDI_REPAIR_UTILITY             200      // Icon
 
 
 
@@ -43,6 +43,7 @@
 #define IDS_RETRYFORMATREPAIRDISK      7020
 #define IDS_ALLDATAWILLBELOST          7021
 #define IDS_CANTINITFLOPPYSUP          7022
+#define IDS_HUGEFLOPPYNOTSUPPORTED     7023
 
 #define IDS_COPYING_FILES              7030
 #define IDS_SAVING_CONFIGURATION       7031

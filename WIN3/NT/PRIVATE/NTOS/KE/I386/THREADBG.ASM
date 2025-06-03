@@ -69,6 +69,10 @@ _TEXT$00   SEGMENT DWORD PUBLIC 'CODE'
 
 cPublicProc _KiThreadStartup    ,1
 
+        xor     ebx,ebx             ; clear registers
+        xor     esi,esi             ;
+        xor     edi,edi             ;
+        xor     ebp,ebp             ;
         mov     ecx, APC_LEVEL
         fstCall KfLowerIrql         ; KeLowerIrql(APC_LEVEL)
 

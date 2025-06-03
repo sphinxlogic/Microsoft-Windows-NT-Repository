@@ -31,6 +31,7 @@
 #include "midlnode.hxx"
 #include "attrlist.hxx"
 #include "nodeskl.hxx"
+#include "optprop.hxx"
 
 /****************************************************************************
  *	local data
@@ -58,6 +59,7 @@ class SEM_ANALYSIS_CTXT;
 
 #define	STR_NO_STRING		0x00
 #define STR_STRING			0x01
+#define STR_BSTRING			0x02
 
 #define	FA_NONE					0x00
 #define FA_CONFORMANT			0x01
@@ -97,6 +99,26 @@ public:
 						pIIDIsExpr	=
 						pFirstIsExpr	=
 						pLastIsExpr		= NULL;
+						StringKind		= STR_NO_STRING;
+						Kind			= FA_NONE;
+						}
+
+					FIELD_ATTR_INFO( expr_node * pSizeExpr,
+									 expr_node * pMinExpr	= NULL,
+									 expr_node * pMaxExpr	= NULL,
+									 expr_node * pLengthExpr	= NULL,
+									 expr_node * pFirstExpr	= NULL,
+									 expr_node * pLastExpr	= NULL,
+									 expr_node * pIIDExpr 	= NULL )
+						{
+						Control			= 0;
+						pSizeIsExpr		= pSizeExpr;
+						pMinIsExpr		= pMinExpr;
+						pMaxIsExpr		= pMaxExpr;
+						pLengthIsExpr	= pLengthExpr;
+						pIIDIsExpr		= pIIDExpr;
+						pFirstIsExpr	= pFirstExpr;
+						pLastIsExpr		= pLastExpr;
 						StringKind		= STR_NO_STRING;
 						Kind			= FA_NONE;
 						}
@@ -170,6 +192,143 @@ public:
 						StringKind	= STR_STRING;
 						Kind		|= FA_STRING;
 						}
+
+	void			SetBString()
+						{
+						StringKind	= STR_BSTRING;
+						Kind		|= FA_STRING;
+						}
+
+	};
+
+
+class CG_NDR;
+
+class XLAT_SIZE_INFO
+	{
+private:
+	unsigned short		MemAlign;
+	unsigned short		WireAlign;
+	unsigned long		MemSize;
+	unsigned long		WireSize;
+	unsigned long		MemOffset;
+	unsigned long		WireOffset;
+	unsigned short		ZeePee;
+
+public:
+						XLAT_SIZE_INFO()
+							{
+							ClearSizes();
+							}
+
+						XLAT_SIZE_INFO( unsigned short	MA,
+										unsigned short	WA,
+										unsigned long	MS = 0,
+										unsigned long	WS = 0,
+										unsigned short  ZP = 8,
+										unsigned long	MO = 0,
+										unsigned long	WO = 0
+										 )
+							{
+							ZeePee		= 8;
+							MemAlign	= MA;
+							WireAlign	= WA;
+							MemSize		= MS;
+							WireSize	= WS;
+							MemOffset	= 0;
+							WireOffset	= 0;
+							}
+
+						XLAT_SIZE_INFO(	XLAT_SIZE_INFO * pCtxt )
+							{
+							ClearSizes();
+							ZeePee = pCtxt->ZeePee;
+							}
+
+   						XLAT_SIZE_INFO( CG_NDR * pCG );
+
+
+	void				ClearSizes()
+							{
+							MemAlign		= 1;
+							MemSize			= 0;
+							MemOffset		= 0;
+							WireAlign		= 1;
+							WireSize		= 0;
+							WireOffset		= 0;
+							}
+						
+	unsigned short	&	GetMemAlign()
+							{
+							return MemAlign;
+							}
+
+	unsigned long	&	GetMemSize()
+							{
+							return MemSize;
+							}
+
+	unsigned long	&	GetMemOffset()
+							{
+							return MemOffset;
+							}
+
+	unsigned short	&	GetWireAlign()
+							{
+							return WireAlign;
+							}
+
+	ALIGNMENT_PROPERTY	GetWireAlignProperty()
+							{
+							return CvtAlignToAlignProperty(WireAlign);
+							}
+
+	unsigned long	&	GetWireSize()
+							{
+							return WireSize;
+							}
+
+	unsigned long	&	GetWireOffset()
+							{
+							return WireOffset;
+							}
+
+	unsigned short	&	GetZeePee()
+							{
+							return ZeePee;
+							}
+
+ 	BOOL				SameOffsets()
+							{
+							return ( MemOffset == WireOffset );
+							}
+
+ 	//
+	// size etc calculation routines
+	//
+
+	void				ReturnSize( XLAT_SIZE_INFO & pCtxt );
+	void				ReturnConfSize( XLAT_SIZE_INFO & pCtxt );
+	void				ReturnUnionSize( XLAT_SIZE_INFO & pCtxt );
+	void				BaseTypeSizes( node_skl * pNode );
+	void				EnumTypeSizes( node_skl * pNode, BOOL Enum32 );
+	void				ContextHandleSizes( node_skl * pNode );
+	void				ArraySize( node_skl * pNode, FIELD_ATTR_INFO * pFA );
+	void				GetOffset( XLAT_SIZE_INFO & pInfo );
+	void				AlignOffset();
+	void				AlignConfOffset();
+	void				AlignEmbeddedUnion();
+	void				AdjustForZP();
+	void				AdjustSize();
+	void				AdjustConfSize();
+	void				AdjustTotalSize();
+	void				FixMemSizes( node_skl * pNode );
+	void				IgnoredPtrSizes();
+	void				ReturnOffset( XLAT_SIZE_INFO & pInfo )
+							{
+							GetOffset( pInfo );
+							}
+		
 	};
 
 

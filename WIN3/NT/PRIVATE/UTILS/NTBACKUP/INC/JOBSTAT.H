@@ -84,6 +84,7 @@ Initial revision.
 #define JOB_STATUS_ABORT_DISABLE            ((WORD)28)
 #define JOB_STATUS_ABORT_CHECK              ((WORD)29)
 #define JOB_STATUS_CREATE_SMALL_DIALOG      ((WORD)30)
+#define JOB_STATUS_FS_TYPE                  ((WORD)31)
 
 #define JOB_TENSION_CREATE_DIALOG           ((WORD)1)
 #define JOB_TENSION_DESTROY_DIALOG          ((WORD)2)

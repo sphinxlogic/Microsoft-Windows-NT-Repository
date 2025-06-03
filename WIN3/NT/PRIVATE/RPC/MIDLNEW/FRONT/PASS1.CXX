@@ -565,4 +565,3 @@ SetAttributeVector(
 	SET_ATTR( pVector, A );
 
 	}
-

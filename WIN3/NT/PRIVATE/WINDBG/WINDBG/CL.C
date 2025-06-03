@@ -108,6 +108,10 @@ char * CLGetParams ( PHTM phtm, FRAME *pframe, int *pcbMax, char *pch )
     EEHSTR      hName;
     uint        strIndex;
 
+#ifdef DBCS
+        char *pchOrg = pch;
+#endif
+
     if ( EEcParamTM ( phtm, &cParm, &shflag ) == EENOERROR ) {
 
         *pch++ = '('; // )
@@ -145,9 +149,19 @@ char * CLGetParams ( PHTM phtm, FRAME *pframe, int *pcbMax, char *pch )
             *pcbMax -= 3;
         }
 
+#ifdef DBCS
+        do {
+            pch = CharPrev(pchOrg, pch);
+            if (*pch != ' ' && *pch != ',') {
+                pch = CharNext(pch);
+                break;
+            }
+        } while (pch > pchOrg);
+#else
         while (( *( pch - 1 ) == ' ' ) || ( *( pch - 1 ) == ',' ) ) {
             pch--;
         }
+#endif
         *pch++ = ')';
     }
 

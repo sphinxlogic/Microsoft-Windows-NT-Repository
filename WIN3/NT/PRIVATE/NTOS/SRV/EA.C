@@ -249,12 +249,10 @@ Return Value:
     // somebody screwed up.
     //
 
-#ifndef _CAIRO_
     // bugbug - Davemont - no assert in Cairo (as it was in SrvGetOs2FeaOffsetOfError)
     // because OFS does not correctly return offset of failed EA in iosb.information,
     // because of stuff in the object store handler (see RobertFe).
-    ASSERT( NtGetEa == offsetLocation );
-#endif // _CAIRO_
+//    ASSERT( NtGetEa == offsetLocation );
 
     return (USHORT)( (PCHAR)gea - (PCHAR)GeaList );
 

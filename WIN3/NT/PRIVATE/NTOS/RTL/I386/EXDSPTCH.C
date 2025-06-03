@@ -63,6 +63,8 @@ RtlpExecuteHandlerForUnwind (
     IN OUT PVOID DispatcherContext,
     IN PEXCEPTION_ROUTINE ExceptionRoutine
     );
+
+
 
 BOOLEAN
 RtlDispatchException (
@@ -138,6 +140,9 @@ Return Value:
             return FALSE;
         } else {
 
+#if !defined(WX86_i386)
+
+            ULONG Index;
             //
             // The handler must be executed by calling another routine
             // that is written in assembler. This is required because
@@ -145,12 +150,31 @@ Return Value:
             // when a nested exception is encountered.
             //
 
+            if (NtGlobalFlag & FLG_ENABLE_EXCEPTION_LOGGING) {
+                Index = RtlpLogExceptionHandler(
+                                ExceptionRecord,
+                                ContextRecord,
+                                0,
+                                (PULONG)RegistrationPointer,
+                                4 * sizeof(ULONG));
+                        // can't use sizeof(EXCEPTION_REGISTRATION_RECORD
+                        // because we need the 2 dwords above it.
+            }
+#endif
+
             Disposition = RtlpExecuteHandlerForException(
                 ExceptionRecord,
                 (PVOID)RegistrationPointer,
                 ContextRecord,
                 (PVOID)&DispatcherContext,
                 (PEXCEPTION_ROUTINE)RegistrationPointer->Handler);
+
+#if !defined(WX86_i386)
+            if (NtGlobalFlag & FLG_ENABLE_EXCEPTION_LOGGING) {
+                RtlpLogLastExceptionDisposition(Index, Disposition);
+            }
+#endif
+
 
             //
             // If the current scan is within a nested context and the frame
@@ -230,14 +254,7 @@ Return Value:
             // invalid exception stack, otherwise go on to the next one.
             //
 
-// BUGBUG - make compiled code work bryanwi 10jan91
-//          if ((RegistrationPointer->Next != EXCEPTION_CHAIN_END) &&
-//              (RegistrationPointer->Next <= RegistrationPointer)) {
-//              ExceptionRecord->ExceptionFlags |= EXCEPTION_STACK_INVALID;
-//              return FALSE;
-//          } else {
-                RegistrationPointer = RegistrationPointer->Next;
-//          }
+            RegistrationPointer = RegistrationPointer->Next;
         }
     }
     return FALSE;
@@ -488,17 +505,6 @@ Return Value:
             // exception.
             //
 
-
-// BUGBUG - make compiled code work
-//
-//          if ( (RegistrationPointer != EXCEPTION_CHAIN_END) &&
-//               (RegistrationPointer <= PriorPointer) ) {
-//              ExceptionRecord2.ExceptionCode = STATUS_BAD_STACK;
-//              ExceptionRecord2.ExceptionFlags = EXCEPTION_NONCONTINUABLE;
-//              ExceptionRecord2.ExceptionRecord = ExceptionRecord;
-//              ExceptionRecord2.NumberParameters = 0;
-//              RtlRaiseException(&ExceptionRecord2);
-//          }
         }
     }
 

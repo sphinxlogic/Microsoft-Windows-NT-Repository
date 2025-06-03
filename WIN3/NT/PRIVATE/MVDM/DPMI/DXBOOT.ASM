@@ -2101,7 +2101,12 @@ NoHPBios:
 endif
 
 endif
-        mov     HwIntHandlers[8*8],offset DXPMCODE:PMIntr70
+; The target of the following instruction used to be "es:[70h*8].offDest",
+; but DaveH can't remember why he changed it to HwIntHandlers. I remember
+; reviewing the change, and there was a legitimate reason having to do
+; with some unusual platform (like atari or something). Maybe Dave or I will
+; remember one of these days. - NeilSa
+        mov     word ptr HwIntHandlers[8*8],offset DXPMCODE:PMIntr70
 ifdef WOW
         .386p
         xor     di,di

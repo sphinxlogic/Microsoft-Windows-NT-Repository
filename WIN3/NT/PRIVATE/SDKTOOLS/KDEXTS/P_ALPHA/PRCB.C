@@ -59,7 +59,7 @@ Return Value:
     //
     ReadControlSpace(
                (USHORT)Processor,
-               (PVOID)DEBUG_CONTROL_SPACE_PRCB,
+               DEBUG_CONTROL_SPACE_PRCB,
                (PVOID)&Address,
                sizeof(PKPRCB) );
 

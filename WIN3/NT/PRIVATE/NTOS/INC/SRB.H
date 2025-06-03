@@ -38,6 +38,8 @@ Revision History:
 #define SCSI_MAXIMUM_LOGICAL_UNITS 8
 #define SCSI_MAXIMUM_TARGETS_PER_BUS 32
 #define SCSI_MAXIMUM_BUSES 8
+#define SCSI_MINIMUM_PHYSICAL_BREAKS  16
+#define SCSI_MAXIMUM_PHYSICAL_BREAKS 255
 
 //
 // This constant is for backward compatibility.
@@ -46,7 +48,11 @@ Revision History:
 
 #define SCSI_MAXIMUM_TARGETS 8
 
+// begin_ntminitape
+
 #define MAXIMUM_CDB_SIZE 12
+
+// end_ntminitape
 
 typedef PHYSICAL_ADDRESS SCSI_PHYSICAL_ADDRESS, *PSCSI_PHYSICAL_ADDRESS;
 
@@ -272,6 +278,33 @@ typedef struct _PORT_CONFIGURATION_INFORMATION {
 
     ULONG SlotNumber;
 
+    //
+    // Interrupt information for a second IRQ.
+    //
+
+    ULONG BusInterruptLevel2;
+    ULONG BusInterruptVector2;
+    KINTERRUPT_MODE InterruptMode2;
+
+    //
+    // DMA information for a second channel.
+    //
+
+    ULONG DmaChannel2;
+    ULONG DmaPort2;
+    DMA_WIDTH DmaWidth2;
+    DMA_SPEED DmaSpeed2;
+
+    //
+    // Fields added to allow for the miniport
+    // to update these sizes based on requirements
+    // for large transfers ( > 64K);
+    //
+
+    ULONG DeviceExtensionSize;
+    ULONG SpecificLuExtensionSize;
+    ULONG SrbExtensionSize;
+
 } PORT_CONFIGURATION_INFORMATION, *PPORT_CONFIGURATION_INFORMATION;
 
 //
@@ -293,6 +326,8 @@ typedef struct _PORT_CONFIGURATION_INFORMATION {
 
 #define SRBEV_BUS_RESET               0x0001
 #define SRBEV_SCSI_ASYNC_NOTIFICATION 0x0002
+
+// begin_ntminitape
 
 //
 // SCSI I/O Request Block
@@ -411,6 +446,8 @@ typedef struct _SCSI_REQUEST_BLOCK {
 #define SRB_SIMPLE_TAG_REQUEST              0x20
 #define SRB_HEAD_OF_QUEUE_TAG_REQUEST       0x21
 #define SRB_ORDERED_QUEUE_TAG_REQUEST       0x22
+
+// end_ntminitape
 
 //
 // SCSI Adapter Dependent Routines
@@ -639,11 +676,15 @@ typedef struct _HW_INITIALIZATION_DATA {
 
 } HW_INITIALIZATION_DATA, *PHW_INITIALIZATION_DATA;
 
+// begin_ntminitape
+
 #ifndef _NTDDK_
 #define SCSIPORT_API DECLSPEC_IMPORT
 #else
 #define SCSIPORT_API
 #endif
+
+// end_ntminitape
 
 //
 // Port driver routines called by miniport driver
@@ -1000,6 +1041,8 @@ ScsiPortValidateRange(
     IN BOOLEAN InIoSpace
     );
 
+// begin_ntminitape
+
 SCSIPORT_API
 VOID
 ScsiDebugPrint(
@@ -1007,5 +1050,7 @@ ScsiDebugPrint(
     PCCHAR DebugMessage,
     ...
     );
+
+// end_ntminitape
 
 #endif //

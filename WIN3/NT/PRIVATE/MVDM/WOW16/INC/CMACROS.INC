@@ -4,6 +4,9 @@ cmacros - assembly macros for interfacing to hlls
 $
 .xcref
 .xcref ??_out
+ifndef ?QUIET
+?QUIET  equ 1
+endif
 ??_out macro t
 ifndef ?QUIET
 %out t

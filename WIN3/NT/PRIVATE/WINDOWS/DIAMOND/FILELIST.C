@@ -35,7 +35,8 @@
 #include "mem.h"
 
 #include "filelist.h"
-#include "filelist.msg"
+
+#include "filelist.msg" // LOCALIZED for EXTRACT.EXE -- specify "cl /Ipath"
 
 
 typedef struct FILESPEC_t {
@@ -121,7 +122,7 @@ HFILESPEC FLAddFile(HFILELIST hflist,char *pszSrc,char *pszDst,PERROR perr)
     pfspec->grp        = grpNONE;       // Assume no group
     pfspec->pfspecNext = NULL;          // Always last on list
     pfspec->pfspecPrev = pflist->pfspecTail; // Always points to last file spec
-    
+
     if (pflist->pfspecHead == NULL) {   // File list is empty
         pflist->pfspecHead = pfspec;
         pflist->pfspecTail = pfspec;
@@ -130,11 +131,11 @@ HFILESPEC FLAddFile(HFILELIST hflist,char *pszSrc,char *pszDst,PERROR perr)
         AssertFSpec(pflist->pfspecTail);
         pflist->pfspecTail->pfspecNext = pfspec;  // Add to end of list
         pflist->pfspecTail = pfspec;            // New tail
-    }        
-    
+    }
+
     // Success
     return HFSfromPFS(pfspec);
-    
+
 error:
     if (!pfspec) {
         if (!(pfspec->pszSrc)) {

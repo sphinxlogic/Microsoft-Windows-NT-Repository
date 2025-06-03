@@ -55,10 +55,12 @@ BOP macro BopNumber
     db  0C4h, 0C4h, BopNumber
         endm
 
-IFNDEF WOW
+IFNDEF WOW_x86
 FBOP macro BopNumber,BopMinorNumber,FastBopEntry
     BOP BopNumber
+ifnb <BopMinorNumber>
     db  BopMinorNumber
+endif
     endm
 ELSE
 FBOP macro BopNumber,BopMinorNumber,FastBopEntry

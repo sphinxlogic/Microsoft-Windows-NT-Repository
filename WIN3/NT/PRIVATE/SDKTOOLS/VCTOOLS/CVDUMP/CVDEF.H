@@ -1,20 +1,35 @@
-typedef unsigned char uchar;
-typedef unsigned short ushort;
-typedef unsigned long   ulong;
-typedef ushort bool_t;
-typedef ushort	typ_t;
-typedef unsigned short WORD;
-typedef unsigned long DWORD;
+/***********************************************************************
+* Microsoft (R) Debugging Information Dumper
+*
+* Copyright (C) Microsoft Corp 1987-1995. All rights reserved.
+*
+* File: cvdef.h
+*
+* File Comments:
+*
+***********************************************************************/
 
-typedef ulong uoffs32_t;
-typedef  long	offs32_t;
-typedef ushort uoffset_t;
-typedef  short	offset_t;
+typedef unsigned char	BYTE;
+typedef int		BOOL;
+typedef unsigned short	WORD;
+typedef unsigned long	DWORD;
 
-typedef ushort uoff16_t;
-typedef short	off16_t;
-typedef ulong  uoff32_t;
-typedef long	off32_t;
+typedef BYTE uchar;
+typedef WORD ushort;
+typedef DWORD ulong;
 
-#define TRUE		1
-#define FALSE		0
+typedef DWORD uoffs32_t;
+typedef long offs32_t;
+typedef WORD uoffset_t;
+typedef short offset_t;
+
+typedef WORD uoff16_t;
+typedef short off16_t;
+typedef DWORD uoff32_t;
+typedef long off32_t;
+
+typedef WORD bool_t;
+typedef WORD typ_t;
+
+#define TRUE	1
+#define FALSE	0

@@ -22,7 +22,7 @@ Revision History:
 
 
 #ifdef ALLOC_PRAGMA
-#pragma alloc_text(PAGE,ObCreateObjectType)
+#pragma alloc_text(INIT,ObCreateObjectType)
 #pragma alloc_text(PAGE,ObGetObjectInformation)
 #endif
 
@@ -108,14 +108,14 @@ ObCreateObjectType(
         (!ObjectTypeInitializer->UseDefaultObject &&
             PoolType != NonPagedPool
         )
-       ) {
+      ) {
         return( STATUS_INVALID_PARAMETER );
         }
 
     s = TypeName->Buffer;
     i = TypeName->Length / sizeof( WCHAR );
     while (i--) {
-        if (*s == OBJ_NAME_PATH_SEPARATOR) {
+        if (*s++ == OBJ_NAME_PATH_SEPARATOR) {
             return( STATUS_OBJECT_NAME_INVALID );
             }
         }
@@ -141,7 +141,7 @@ ObCreateObjectType(
     // Allocate a buffer for the type name.
     //
 
-    ObjectName.Buffer = ExAllocatePoolWithTag( NonPagedPool,
+    ObjectName.Buffer = ExAllocatePoolWithTag( PagedPool,
                                         (ULONG)TypeName->MaximumLength,
                                         'mNbO'
                                       );
@@ -184,8 +184,7 @@ ObCreateObjectType(
                  );
     if (!ObpTypeObjectType) {
         ObpTypeObjectType = NewObjectType;
-        NewObjectTypeHeader->NonPagedObjectHeader->Type =
-            ObpTypeObjectType;
+        NewObjectTypeHeader->Type = ObpTypeObjectType;
         NewObjectType->TotalNumberOfObjects = 1;
 #ifdef POOL_TAGGING
         NewObjectType->Key = 'TjbO';
@@ -208,7 +207,7 @@ ObCreateObjectType(
 
     NewObjectType->TypeInfo = *ObjectTypeInitializer;
     NewObjectType->TypeInfo.PoolType = PoolType;
-    if (NtGlobalFlag & FLG_HEAP_TRACE_ALLOCS) {
+    if (NtGlobalFlag & FLG_MAINTAIN_OBJECT_TYPELIST) {
         NewObjectType->TypeInfo.MaintainTypeList = TRUE;
         }
 
@@ -225,7 +224,7 @@ ObCreateObjectType(
                               : 0
                            );
     if ( PoolType == NonPagedPool ) {
-        NewObjectType->TypeInfo.DefaultNonPagedPoolCharge += (StandardHeaderCharge + sizeof(NONPAGED_OBJECT_HEADER));
+        NewObjectType->TypeInfo.DefaultNonPagedPoolCharge += StandardHeaderCharge;
         }
     else {
         NewObjectType->TypeInfo.DefaultPagedPoolCharge += StandardHeaderCharge;
@@ -275,11 +274,7 @@ ObCreateObjectType(
        ) {
 
         if (ObpTypeDirectoryObject) {
-            ObReferenceObjectByPointer( ObpTypeDirectoryObject,
-                                        0,
-                                        ObpDirectoryObjectType,
-                                        KernelMode
-                                      );
+            ObReferenceObject( ObpTypeDirectoryObject );
             }
 
         if (ObpTypeDirectoryObject) {
@@ -291,7 +286,7 @@ ObCreateObjectType(
         }
     else {
         ObpLeaveRootDirectoryMutex();
-        return( STATUS_NO_MEMORY );
+        return( STATUS_INSUFFICIENT_RESOURCES );
         }
 }
 
@@ -308,7 +303,6 @@ ObEnumerateObjectsByType(
     POBJECT_HEADER_CREATOR_INFO CreatorInfo;
     POBJECT_HEADER_NAME_INFO NameInfo;
     POBJECT_HEADER ObjectHeader;
-    PNONPAGED_OBJECT_HEADER NonPagedObjectHeader;
 
     ObpEnterObjectTypeMutex( ObjectType );
 
@@ -330,11 +324,10 @@ ObEnumerateObjectsByType(
             RtlZeroMemory( &ObjectName, sizeof( ObjectName ) );
             }
 
-        NonPagedObjectHeader = ObjectHeader->NonPagedObjectHeader;
-        if (!(EnumerationRoutine)( NonPagedObjectHeader->Object,
+        if (!(EnumerationRoutine)( &ObjectHeader->Body,
                                    &ObjectName,
-                                   NonPagedObjectHeader->HandleCount,
-                                   NonPagedObjectHeader->PointerCount,
+                                   ObjectHeader->HandleCount,
+                                   ObjectHeader->PointerCount,
                                    Parameter
                                  )
            ) {
@@ -365,7 +358,6 @@ ObGetObjectInformation(
     POBJECT_HEADER ObjectHeader;
     POBJECT_HEADER_CREATOR_INFO CreatorInfo;
     POBJECT_HEADER_QUOTA_INFO QuotaInfo;
-    PNONPAGED_OBJECT_HEADER NonPagedObjectHeader;
     PVOID Object;
     BOOLEAN FirstObjectForType;
     PSYSTEM_OBJECTTYPE_INFORMATION TypeInfo;
@@ -390,7 +382,7 @@ ObGetObjectInformation(
                                          TypeList
                                        );
         ObjectTypeHeader = (POBJECT_HEADER)(CreatorInfo+1);
-        ObjectType = ObjectTypeHeader->NonPagedObjectHeader->Object;
+        ObjectType = (POBJECT_TYPE)&ObjectTypeHeader->Body;
         if (ObjectType != ObpTypeObjectType) {
             FirstObjectForType = TRUE;
             Head1 = &ObjectType->TypeList;
@@ -401,8 +393,7 @@ ObGetObjectInformation(
                                                  TypeList
                                                );
                 ObjectHeader = (POBJECT_HEADER)(CreatorInfo+1);
-                NonPagedObjectHeader = ObjectHeader->NonPagedObjectHeader;
-                Object = NonPagedObjectHeader->Object;
+                Object = &ObjectHeader->Body;
                 if (FirstObjectForType) {
                     FirstObjectForType = FALSE;
                     if (TypeInfo != NULL && TotalSize < Length) {
@@ -471,17 +462,16 @@ ObGetObjectInformation(
                     ObjectInfo->Object = Object;
                     ObjectInfo->CreatorUniqueProcess = CreatorInfo->CreatorUniqueProcess;
                     ObjectInfo->CreatorBackTraceIndex = CreatorInfo->CreatorBackTraceIndex;
-                    ObjectInfo->PointerCount = NonPagedObjectHeader->PointerCount;
-                    ObjectInfo->HandleCount = NonPagedObjectHeader->HandleCount;
+                    ObjectInfo->PointerCount = ObjectHeader->PointerCount;
+                    ObjectInfo->HandleCount = ObjectHeader->HandleCount;
                     ObjectInfo->Flags = (USHORT)ObjectHeader->Flags;
-                    ObjectInfo->ExclusiveProcessId = ObjectHeader->ExclusiveProcess != NULL ?
-                                                        ObjectHeader->ExclusiveProcess->UniqueProcessId :
-                                                        NULL;
-
                     QuotaInfo = OBJECT_HEADER_TO_QUOTA_INFO( ObjectHeader );
                     if (QuotaInfo != NULL) {
                         ObjectInfo->PagedPoolCharge = QuotaInfo->PagedPoolCharge;
                         ObjectInfo->NonPagedPoolCharge = QuotaInfo->NonPagedPoolCharge;
+                        if (QuotaInfo->ExclusiveProcess != NULL) {
+                            ObjectInfo->ExclusiveProcessId = QuotaInfo->ExclusiveProcess->UniqueProcessId;
+                            }
                         }
                     else {
                         ObjectInfo->PagedPoolCharge = ObjectType->TypeInfo.DefaultPagedPoolCharge;

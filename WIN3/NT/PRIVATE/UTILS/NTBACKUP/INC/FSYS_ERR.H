@@ -132,11 +132,17 @@ Copyright(c) Maynard Electronics, Inc. 1984-89
 #define FS_SKIP_OBJECT            (FS_ERR_BASE +56)    /* Don't process this object */
 #define FS_PATH_TOO_LONG          (FS_ERR_BASE +57)    /* Cannot create object because path is too deep */
 
+#define FS_EMS_CIRC_LOG           (FS_ERR_BASE +58)
+#define FS_EMS_NO_LOG_BKUP        (FS_ERR_BASE +59)
+#define FS_EMS_NO_PUBLIC          (FS_ERR_BASE +60)
+#define FS_EMS_NO_PRIVATE         (FS_ERR_BASE +61)
+
 /*  File System warnings */
 
 #define FS_DONT_WANT_STREAM       (FS_WARN_BASE + 1)   /* Skip a particular data substream */
 #define FS_BUSY                   (FS_WARN_BASE + 2)   /* Can't do something now, worth a retry */
 #define FS_NO_SECURITY            (FS_WARN_BASE + 3)   /* Expected to get security info but didn't */
 #define FS_RESTORED_ACTIVE        (FS_WARN_BASE + 4)   /* Restored over an active (running) file */
+#define FS_COMPRES_RESET_FAIL     (FS_WARN_BASE + 5)   /* failed to reset compression mode */
 
 #endif

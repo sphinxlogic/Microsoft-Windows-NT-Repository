@@ -13,7 +13,7 @@
 *  Issues:
 *
 *   Initialization
-*       The WhenLoaded routine is called. Since it has full access to all Z
+*       The WhenLoaded routine is called. Since it has full _access to all Z
 *       functions, it's entry-point table needs to be defined beforehand.
 *
 *       Solved by having the entry-point table statically defined and
@@ -93,36 +93,14 @@ E_GetLine (
     char *buf,
     PFILE    pFile
     ) {
-    int i;
+
+        int      i;
     flagType fTabsSave = fRealTabs;
 
     fRealTabs = FALSE;
         i = GetLine (line, buf, pFile);
     fRealTabs = fTabsSave;
 
-    return i;
-}
-
-int
-X_GetLine (
-    LINE     line,
-    char *buf,
-    PFILE    pFile
-    ) {
-    char tempbuf[BUFLEN];
-    int i;
-    flagType fTabsSave = fRealTabs;
-
-    fRealTabs = FALSE;
-        i = GetLine (line, tempbuf, pFile);
-    fRealTabs = fTabsSave;
-
-    if (i >= 251) {
-        i = 250;
-        strncpy(buf, tempbuf, i);
-    } else {
-        strcpy(buf, tempbuf);
-    }
     return i;
 }
 
@@ -761,9 +739,6 @@ load (
      * less than we support.
      */
     memmove (&pExt->CallBack, &et.CallBack, pExt->cbStruct);
-    if (pExt->version > LOWVERSION) {
-        pExt->CallBack.GetLine = X_GetLine;
-    }
 
     /*
      * Now that we know the extension will be staying, set up the appropriate

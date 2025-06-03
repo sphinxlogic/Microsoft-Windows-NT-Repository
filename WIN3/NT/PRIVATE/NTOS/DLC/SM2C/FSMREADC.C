@@ -67,7 +67,7 @@ PLINK_FILE FsmReadCFile( FILE *fd )
     
                 for (i = 0; aFsmCTokens[i].pszToken != NULL; i++)
                 {
-                    if (!stricmp( aFsmCTokens[i].pszToken, pszToken ))
+                    if (!_stricmp( aFsmCTokens[i].pszToken, pszToken ))
                     {
                         pFile->usState = aFsmCTokens[i].usToken;
                         boolOldFsmCode = TRUE;

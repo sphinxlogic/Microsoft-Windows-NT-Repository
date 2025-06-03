@@ -925,6 +925,14 @@ WINDOWPROC CustomWndProc(
                 GetClientRect(hwnd, &rc);
                 Rectangle(hDC, rc.left, rc.top, rc.right, rc.bottom);
                 GetWindowText(hwnd, szText, CCHTEXTMAX);
+#ifdef JAPAN
+		{
+		    TCHAR   szTmp[CCHTEXTMAX];
+
+		    KDExpandCopy(szTmp, szText, CCHTEXTMAX);
+		    lstrcpy(szText, szTmp);
+		}
+#endif
                 SetBkMode(hDC, TRANSPARENT);
 
                 if (gcd.hFont)
@@ -1555,4 +1563,3 @@ VOID WriteCustomProfile(VOID)
         }
     }
 }
-

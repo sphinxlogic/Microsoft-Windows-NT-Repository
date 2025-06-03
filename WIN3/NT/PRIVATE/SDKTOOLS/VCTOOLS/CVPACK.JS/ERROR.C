@@ -159,4 +159,4 @@ char *FormatIndex (CV_typ_t index)
     sprintf (IndexBuf, "0x%04x", index);
     return (IndexBuf);
 }
-
+

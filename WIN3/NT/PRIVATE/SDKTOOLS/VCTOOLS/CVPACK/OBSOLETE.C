@@ -76,7 +76,7 @@ void ConvertObsolete (ushort OldIndex)
 	CV_typ_t	forward;
 
 	OldEntry = GetTypeEntry (OldIndex, &forward);
-	DASSERT (!OldEntry->flags.IsNewFormat);
+	DASSERT(!OldEntry->flags.IsNewFormat);
 
 	TypeString = OldEntry->TypeString; // get the string
 	type = TypeString[3];
@@ -132,7 +132,7 @@ LOCAL void C6CnvtPtrType (TENTRY *OldEntry)
 			break;
 
 		default:
-			DASSERT (FALSE);
+			DASSERT(FALSE);
 			break;
 	}
 	NewType.attr.ptrmode = CV_PTR_MODE_PTR;
@@ -141,12 +141,12 @@ LOCAL void C6CnvtPtrType (TENTRY *OldEntry)
 	NewType.attr.isflat32 = ptr32;
 	NewType.attr.unused = 0;
 
-	DASSERT (pchTypeStr[5] == OLF_INDEX);
+	DASSERT(pchTypeStr[5] == OLF_INDEX);
 	NewType.utype = *((ushort *)(pchTypeStr + 6));
 
 
 	// Just make sure that the string isn't longer than we expect
-	DASSERT (usNewLength <= (*((ushort *)(pchTypeStr + 1)) + 1));
+	DASSERT(usNewLength <= (*((ushort UNALIGNED *)(pchTypeStr + 1)) + 1));
 
 	// Copy the new symbol over the old one
 	*((ushort *)(pchTypeStr))++ = usNewLength;
@@ -154,7 +154,7 @@ LOCAL void C6CnvtPtrType (TENTRY *OldEntry)
 		*pchTypeStr++ = *pchNew++;
 	}
 
-	DASSERT (pchTypeStr == OldEntry->TypeString + usNewLength + LNGTHSZ);
+	DASSERT(pchTypeStr == OldEntry->TypeString + usNewLength + LNGTHSZ);
 }
 
 
@@ -177,12 +177,12 @@ LOCAL void C6CnvtBasePtrType (TENTRY *OldEntry)
 
 	OldEntry->flags.IsNewFormat = TRUE;
 	pchTypeStr = OldEntry->TypeString; // get the string
-	usOldLen = *((ushort *)(pchTypeStr + 1));
+	usOldLen = *((ushort UNALIGNED *)(pchTypeStr + 1));
 
 	// Set constant fields
 	NewType.leaf = LF_POINTER;
-	DASSERT (pchTypeStr[4] == OLF_INDEX);
-	NewType.utype = *((ushort *)(pchTypeStr + 5));
+	DASSERT(pchTypeStr[4] == OLF_INDEX);
+	NewType.utype = *((ushort UNALIGNED *)(pchTypeStr + 5));
 
 	switch (pchTypeStr[7]) {			// get old based type
 		case OLF_BASESEG :
@@ -213,7 +213,7 @@ LOCAL void C6CnvtBasePtrType (TENTRY *OldEntry)
 
 		case OLF_BASETYPE :
 			NewType.attr.ptrtype = CV_PTR_BASE_TYPE;
-			DASSERT (*((ushort *)(pchTypeStr + 8)) == 0);
+			DASSERT(*((ushort *)(pchTypeStr + 8)) == 0);
 			// Change to old T_VOID value, then let cnvtprim convert it
 			*((ushort *)chVarData + usVarOff) = 0x80 + 0x1C;
 			usVarOff += 2;
@@ -226,7 +226,7 @@ LOCAL void C6CnvtBasePtrType (TENTRY *OldEntry)
 			break;
 
 		default:
-			DASSERT (FALSE);
+			DASSERT(FALSE);
 			break;
 	}
 	if (usfSymbolBased) {
@@ -270,7 +270,7 @@ LOCAL void C6CnvtBasePtrType (TENTRY *OldEntry)
 		*pchDest++ = *pchSrc++;
 	}
 
-	DASSERT (pchDest == OldEntry->TypeString + usNewLength + LNGTHSZ);
+	DASSERT(pchDest == OldEntry->TypeString + usNewLength + LNGTHSZ);
 }
 
 
@@ -302,7 +302,7 @@ LOCAL void C6CnvtStructType (TENTRY *OldEntry)
 
 	OldEntry->flags.IsNewFormat = TRUE;
 	TypeString = OldEntry->TypeString;
-	usOldLen = *((ushort *)(TypeString + 1));
+	usOldLen = *((ushort UNALIGNED *)(TypeString + 1));
 
 	AddNewSymbols = TRUE; //???????
 	OldString = TypeString;
@@ -383,7 +383,7 @@ LOCAL void C6CnvtStructType (TENTRY *OldEntry)
 		*pchDest++ = *pchSrc++;
 	}
 
-	DASSERT (pchDest == OldEntry->TypeString + usNewLength + LNGTHSZ);
+	DASSERT(pchDest == OldEntry->TypeString + usNewLength + LNGTHSZ);
 
 }
 
@@ -414,7 +414,7 @@ LOCAL void C6CnvtBArrayType (TENTRY *OldEntry)
 	NewType.leaf = LF_BARRAY;
 	pchTypeStr += 4;
 
-	DASSERT (*pchTypeStr == OLF_INDEX);
+	DASSERT(*pchTypeStr == OLF_INDEX);
 	pchTypeStr++;
 	NewType.utype = *((ushort *)(pchTypeStr))++;
 
@@ -481,16 +481,16 @@ LOCAL void C6CnvtArrayType (TENTRY *OldEntry)
 
 	// Convert to new style Numeric
 	cbVarNew = C7StoreLWordAsNumeric (pchVarData, ulLength);
-	DASSERT (cbVarNew <= MAXNUMERICLEN);
+	DASSERT(cbVarNew <= MAXNUMERICLEN);
 
-	DASSERT (*pchTypeStr == OLF_INDEX);
+	DASSERT(*pchTypeStr == OLF_INDEX);
 	pchTypeStr++;
 	NewType.elemtype = *((ushort *)(pchTypeStr))++;
 
 	// Copy the index type if one was supplied
-	usOldLen = *((ushort *)(pchTypeStrStart + 1));
+	usOldLen = *((ushort UNALIGNED *)(pchTypeStrStart + 1));
 	if (usOldLen > (ushort)4 + cbVarOld) {
-		DASSERT (*pchTypeStr == OLF_INDEX);
+		DASSERT(*pchTypeStr == OLF_INDEX);
 		pchTypeStr++;
 		NewType.idxtype = *((ushort *)(pchTypeStr))++;
 	}
@@ -565,7 +565,7 @@ LOCAL void C6CnvtFString (TENTRY *OldEntry)
 			pchTypeStr += 5;
 			ulLength = C6GetLWordFromNumeric (&pchTypeStr, &cbVarOld);
 			cbVarNew = C7StoreLWordAsNumeric (pchVarData, ulLength);
-			DASSERT (cbVarNew <= MAXNUMERICLEN);
+			DASSERT(cbVarNew <= MAXNUMERICLEN);
 			NewType.leaf = LF_ARRAY;
 			NewType.elemtype = T_CHAR;
 			NewType.idxtype = T_USHORT;
@@ -596,7 +596,7 @@ LOCAL void C6CnvtFString (TENTRY *OldEntry)
 
 		default:
 			// unrecognized tag
-			DASSERT (FALSE);
+			DASSERT(FALSE);
 			break;
 	}
 
@@ -664,7 +664,7 @@ LOCAL void C6CnvtProcType (TENTRY *OldEntry)
 			break;
 
 		default:
-			DASSERT (FALSE);
+			DASSERT(FALSE);
 			break;
 	}
 	NewType.reserved = 0;
@@ -672,7 +672,7 @@ LOCAL void C6CnvtProcType (TENTRY *OldEntry)
 	ulCount = C6GetLWordFromNumeric (&pchTypeStr, NULL);
 
 	NewType.parmcount = (ulCount <= 0xFFFFL) ? (ushort)ulCount : (ushort)0xFFFF;
-	DASSERT (*pchTypeStr == OLF_INDEX);
+	DASSERT(*pchTypeStr == OLF_INDEX);
 	pchTypeStr++;
 
 	if (NewType.parmcount) {
@@ -684,7 +684,7 @@ LOCAL void C6CnvtProcType (TENTRY *OldEntry)
 		NewType.arglist = ZEROARGTYPE;	  // Reference our own internal predefined type
 	}
 
-	if (usNewLength <= *((ushort *)(pchTypeStr + 1)) + 3 - LNGTHSZ) {
+	if (usNewLength <= *((ushort UNALIGNED *)(pchTypeStr + 1)) + 3 - LNGTHSZ) {
 		pchDest = OldEntry->TypeString;
 	}
 	else {
@@ -693,7 +693,7 @@ LOCAL void C6CnvtProcType (TENTRY *OldEntry)
 	*((ushort *)(pchDest))++ = usNewLength;
 	*((lfProc *)(pchDest))++ = NewType;
 
-	DASSERT (pchDest == OldEntry->TypeString + usNewLength + LNGTHSZ);
+	DASSERT(pchDest == OldEntry->TypeString + usNewLength + LNGTHSZ);
 }
 
 
@@ -762,8 +762,8 @@ LOCAL ushort MergeLists (ushort tList, ushort nList, ushort Count)
 
 	*((ushort *)ScratchString)++ = LF_FIELDLIST;
 	for (; Count > 0; Count --) {
-		DASSERT (*NameOffsetString == OLF_NAME);
-		DASSERT (*TypeIndexString == OLF_INDEX);
+		DASSERT(*NameOffsetString == OLF_NAME);
+		DASSERT(*TypeIndexString == OLF_INDEX);
 		NameOffsetString ++;		// skip OLF_NAME
 		*((ushort *)ScratchString)++ = LF_MEMBER;
 		*((ushort *)ScratchString)++ = getindex (TypeIndexString);
@@ -793,7 +793,7 @@ LOCAL ushort MergeLists (ushort tList, ushort nList, ushort Count)
 	NameOffsetString = NameEntry->TypeString;
 
 	FinalLength = ScratchString - ScratchSave;
-	DASSERT (FinalLength <= Length);
+	DASSERT(FinalLength <= Length);
 	*((ushort *)(ScratchSave)) = FinalLength - LNGTHSZ;
 
 	// Allocate memory and copy the type string into it
@@ -824,14 +824,14 @@ LOCAL void C6CnvtArgList (ushort usArgList, ushort usCount)
 	CV_typ_t	forward;
 
 	OldEntry = GetTypeEntry ((CV_typ_t)(usArgList - 512), &forward);
-	if (OldEntry->flags.IsNewFormat == TRUE) {
+	if (OldEntry->flags.IsNewFormat) {
 	    return;
 	}
 
 	OldEntry->flags.IsNewFormat = TRUE;
 	pchTypeStr = OldEntry->TypeString; // get the string
 	pchTypeStrBase = pchTypeStr;
-	DASSERT ((pchTypeStr[3] == OLF_LIST) || (pchTypeStr[3] == OLF_ARGLIST) ||
+	DASSERT((pchTypeStr[3] == OLF_LIST) || (pchTypeStr[3] == OLF_ARGLIST) ||
 	  ((usCount != 0) && (pchTypeStr[3] == OLF_NIL)));
 
 	// calculate new length
@@ -870,13 +870,13 @@ LOCAL void C6CnvtArgList (ushort usArgList, ushort usCount)
 	if (usfInTmp) {
 		// Copy the new string over the old one
 		memcpy (OldEntry->TypeString, pchDestBase, usNewLength + LNGTHSZ);
-		DASSERT (pchDest == pchDestBase + usNewLength + LNGTHSZ);
+		DASSERT(pchDest == pchDestBase + usNewLength + LNGTHSZ);
 	}
 	else {
 		FreeAllocStrings (OldEntry);
 		OldEntry->flags.IsMalloced = TRUE;
 		OldEntry->TypeString = pchDestBase;
-		DASSERT (pchDest == OldEntry->TypeString + usNewLength + LNGTHSZ);
+		DASSERT(pchDest == OldEntry->TypeString + usNewLength + LNGTHSZ);
 	}
 }
 
@@ -885,7 +885,7 @@ LOCAL void C6CnvtNilType (TENTRY *OldEntry)
 {
 	uchar *		pchTypeStr;
 
-	DASSERT (!OldEntry->flags.IsNewFormat);
+	DASSERT(!OldEntry->flags.IsNewFormat);
 
 	OldEntry->flags.IsNewFormat = TRUE;
 	pchTypeStr = OldEntry->TypeString; // get the string
@@ -900,7 +900,7 @@ LOCAL void C6CnvtNotTranType (TENTRY *OldEntry)
 {
 	uchar *		pchTypeStr;
 
-	DASSERT (!OldEntry->flags.IsNewFormat);
+	DASSERT(!OldEntry->flags.IsNewFormat);
 
 //M00BUG - Should add a warning that a type wasn't translated.
 
@@ -922,7 +922,7 @@ LOCAL void C6CnvtLabelType (TENTRY *OldEntry)
 	ushort		usNTotal;			// New length of symbol including length field
 	ushort		usNewLength;		// New paded length excluding length field.
 
-	DASSERT (!OldEntry->flags.IsNewFormat);
+	DASSERT(!OldEntry->flags.IsNewFormat);
 
 	OldEntry->flags.IsNewFormat = TRUE;
 	pchTypeStr = OldEntry->TypeString; // get the string
@@ -944,7 +944,7 @@ LOCAL void C6CnvtLabelType (TENTRY *OldEntry)
 
 	// 0x73 == old LF_FAR, 0x74 == old LF_NEAR
 	//Make sure the code label is one of the two types
-	DASSERT (*(pchTypeStr + 5) == 0x73 || *(pchTypeStr + 5) == 0x74);
+	DASSERT(*(pchTypeStr + 5) == 0x73 || *(pchTypeStr + 5) == 0x74);
 
 	// Get the new type
 	if (*(pchTypeStr + 5) == 0x73) {
@@ -962,7 +962,7 @@ LOCAL void C6CnvtLabelType (TENTRY *OldEntry)
 	OldEntry->flags.IsMalloced = TRUE;
 	OldEntry->TypeString = pchDestBase;
 
-	DASSERT (pchDest == OldEntry->TypeString + *((ushort *)(OldEntry->TypeString)) + LNGTHSZ);
+	DASSERT(pchDest == OldEntry->TypeString + *((ushort *)(OldEntry->TypeString)) + LNGTHSZ);
 }
 
 
@@ -1000,8 +1000,8 @@ LOCAL void C6CnvtBitfieldType (TENTRY *OldEntry)
 	// Copy the base type
 	// Note that 0x7c was UNSINT and 0x7d was SGNINT, in CV3 days.
 
-	DASSERT (*pchTypeStr == 0x7c || *pchTypeStr == 0x7d);
-	DASSERT (pNewType->length <= 32);
+	DASSERT(*pchTypeStr == 0x7c || *pchTypeStr == 0x7d);
+	DASSERT(pNewType->length <= 32);
 	if (pNewType->length <= 16) {
 		 pNewType->type = (*pchTypeStr++ == 0x7d) ? T_SHORT : T_USHORT;
 	}
@@ -1020,7 +1020,7 @@ LOCAL void C6CnvtBitfieldType (TENTRY *OldEntry)
 
 	pchDest += LNGTHSZ + sizeof (lfBitfield);
 
-	DASSERT (pchDest == OldEntry->TypeString + *((ushort *)(OldEntry->TypeString)) + LNGTHSZ);
+	DASSERT(pchDest == OldEntry->TypeString + *((ushort *)(OldEntry->TypeString)) + LNGTHSZ);
 }
 
 
@@ -1072,7 +1072,7 @@ LOCAL void C6CnvtCobTypeRef (TENTRY *OldEntry)
 	ushort		usNewLength;		// New paded length excluding length field.
 	plfCobol0	pNewType;
 
-	DASSERT (!OldEntry->flags.IsNewFormat);
+	DASSERT(!OldEntry->flags.IsNewFormat);
 	IsMFCobol = TRUE;
 	OldEntry->flags.IsNewFormat = TRUE;
 	pchTypeStr = OldEntry->TypeString;
@@ -1080,7 +1080,7 @@ LOCAL void C6CnvtCobTypeRef (TENTRY *OldEntry)
 	// calculate new length.  Since all we are doing is copying the old
 	// data, we just increase the length by to allow for large record type
 
-	usNTotal = LNGTHSZ + *((ushort *)(pchTypeStr + 1)) + 1;
+	usNTotal = LNGTHSZ + *((ushort UNALIGNED *)(pchTypeStr + 1)) + 1;
 	usNewLength = usNTotal - LNGTHSZ;
 
 	// Get memory for new type
@@ -1093,7 +1093,7 @@ LOCAL void C6CnvtCobTypeRef (TENTRY *OldEntry)
 
 	*((ushort *)pchDest) = usNewLength;
 	pNewType->leaf = LF_COBOL0;
-	memmove (&pNewType->type, pchTypeStr + 4, *((ushort *)(pchTypeStr + 1)) - 1);
+	memmove (&pNewType->type, pchTypeStr + 4, *((ushort UNALIGNED *)(pchTypeStr + 1)) - 1);
 
 	// Change entry to point to the new string
 
@@ -1112,7 +1112,7 @@ LOCAL void C6CnvtCobol (TENTRY *OldEntry)
 	ushort		usNewLength;		// New paded length excluding length field.
 	plfCobol1	pNewType;
 
-	DASSERT (!OldEntry->flags.IsNewFormat);
+	DASSERT(!OldEntry->flags.IsNewFormat);
 	IsMFCobol = TRUE;
 	OldEntry->flags.IsNewFormat = TRUE;
 	pchTypeStr = OldEntry->TypeString;
@@ -1120,7 +1120,7 @@ LOCAL void C6CnvtCobol (TENTRY *OldEntry)
 	// calculate new length.  Since all we are doing is copying the old
 	// data, we just increase the length by to allow for large record type
 
-	usNTotal = LNGTHSZ + *((ushort *)(pchTypeStr + 1)) + 1;
+	usNTotal = LNGTHSZ + *((ushort UNALIGNED *)(pchTypeStr + 1)) + 1;
 	usNewLength = usNTotal - LNGTHSZ;
 
 	// Get memory for new type
@@ -1133,7 +1133,7 @@ LOCAL void C6CnvtCobol (TENTRY *OldEntry)
 
 	*((ushort *)pchDest) = usNewLength;
 	pNewType->leaf = LF_COBOL1;
-	memmove (&pNewType->data, pchTypeStr + 4, *((ushort *)(pchTypeStr + 1)) - 1);
+	memmove (&pNewType->data, pchTypeStr + 4, *((ushort UNALIGNED *)(pchTypeStr + 1)) - 1);
 
 	// Change entry to point to the new string
 

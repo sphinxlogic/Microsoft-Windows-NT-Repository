@@ -10,7 +10,8 @@ C_DEFINES=    \
               -D_UNICODE            \
               -DINC_OLE2            \
               -DNOEXCEPTIONS        \
-              -DCAIROLE_DISTRIBUTED \
+	      -DCAIROLE_DISTRIBUTED \
+	      -DMULTI_THREADING     \
               $(TRACELOG)
 
 

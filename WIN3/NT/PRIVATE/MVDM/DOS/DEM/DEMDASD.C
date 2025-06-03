@@ -10,7 +10,6 @@
 #include "dem.h"
 #include "stdio.h"
 #include "windows.h"
-#include "winioctl.h"
 #include "demdasd.h"
 #include "softpc.h"
 
@@ -126,7 +125,6 @@ VOID demAbsReadWrite(BOOL IsWrite)
     PDISKIO DiskIo;
     DWORD    SectorsReturned;
     PBDS    pBDS;
-    HANDLE  fd;
     WORD    BufferOff, BufferSeg;
 
     Drive = getAL();
@@ -222,7 +220,7 @@ DWORD demDasdRead(
 	return 0 ;
     }
     SectorSize = pbds->bpb.SectorSize;
-    LargeInteger = RtlEnlargedIntegerMultiply(Sectors, SectorSize);
+    LargeInteger.QuadPart = Int32x32To64(Sectors, SectorSize);
     // size must fit in ulong
     if (LargeInteger.HighPart != 0) {
 	SetLastError(ERROR_SECTOR_NOT_FOUND);
@@ -233,8 +231,8 @@ DWORD demDasdRead(
     Buffer = (PBYTE) GetVDMAddr(BufferSeg, BufferOff);
 
     if (pbds->Flags & NON_REMOVABLE) {
-	LargeInteger = RtlEnlargedIntegerMultiply(StartSector, SectorSize);
-	SizeReturned = nt_fdisk_read(
+        LargeInteger.QuadPart  = Int32x32To64(StartSector, SectorSize);
+        SizeReturned = nt_fdisk_read(
 				    pbds->DrivePhys,
 				    &LargeInteger,
 				    Size,
@@ -302,7 +300,7 @@ DWORD demDasdWrite(
 	return 0 ;
     }
     SectorSize = pbds->bpb.SectorSize;
-    LargeInteger = RtlEnlargedIntegerMultiply(Sectors, SectorSize);
+    LargeInteger.QuadPart  = Int32x32To64(Sectors, SectorSize);
     // size must fit in ulong
     if (LargeInteger.HighPart != 0) {
 	SetLastError(ERROR_SECTOR_NOT_FOUND);
@@ -313,7 +311,7 @@ DWORD demDasdWrite(
 
 
     if (pbds->Flags & NON_REMOVABLE) {
-	LargeInteger = RtlEnlargedIntegerMultiply(StartSector, SectorSize);
+        LargeInteger.QuadPart  = Int32x32To64(StartSector, SectorSize);
 	SizeReturned = nt_fdisk_write(
 				      pbds->DrivePhys,
 				      &LargeInteger,
@@ -383,7 +381,6 @@ BOOL demDasdFormat(PBDS pbds, DWORD Head, DWORD Cylinder, MEDIA_TYPE * Media)
 
 BOOL demDasdVerify(PBDS pbds, DWORD Head, DWORD Cylinder)
 {
-    PBYTE   Buffer;
     DWORD   Size, StartSector;
     LARGE_INTEGER LargeInteger;
 
@@ -400,7 +397,7 @@ BOOL demDasdVerify(PBDS pbds, DWORD Head, DWORD Cylinder)
     // hard disk needs special care because of their size
     Size = pbds->bpb.TrackSize * pbds->bpb.SectorSize;
     StartSector = pbds->bpb.TrackSize * (Cylinder *  pbds->bpb.Heads + Head) + 1;
-    LargeInteger = RtlEnlargedIntegerMultiply(StartSector, pbds->bpb.SectorSize);
+    LargeInteger.QuadPart  = Int32x32To64(StartSector, pbds->bpb.SectorSize);
     return (nt_fdisk_verify(pbds->DrivePhys,
 			    &LargeInteger,
 				Size
@@ -420,7 +417,6 @@ BOOL demGetBPB(PBDS pbds)
 {
     PBOOTSECTOR pbs;
     BYTE    SectorBuffer[BYTES_PER_SECTOR];
-    ULONG   TotalSectors, Offset;
 
     // when RETURN_FAKE_BPB is set(set by Set Device Parameter IOCTL,
     // the appplication has set a new BPB, we simply return it
@@ -490,14 +486,14 @@ DWORD demBiosDiskIoRW(
     TrackSize = pbds->bpb.TrackSize;
     Heads = pbds->bpb.Heads;
     SectorsRead = 0;
-    CurSector = (StartSector % TrackSize) + 1;
-    CurTrack  = StartSector / TrackSize;
+    CurSector = (BYTE) ((StartSector % TrackSize) + 1);
+    CurTrack  = (WORD) (StartSector / TrackSize);
     CurHead   = CurTrack  % Heads;
     CurTrack /= Heads;
     SectorsToRead = TrackSize - CurSector + 1;
     while (Sectors != 0) {
 	if (Sectors < SectorsToRead)
-	    SectorsToRead = Sectors;
+            SectorsToRead = (BYTE) Sectors;
 	// low byte:  bit 6 and 7 are high bits of track,
 	//	      bit 0 - 5 are sector number
 	// high byte: bit 0 - bit 7 ->track lower 8 bits
@@ -524,7 +520,7 @@ BiosRetry:
 		CurHead = 0;
 		CurTrack++;
 	    }
-	    SectorsToRead = TrackSize;
+            SectorsToRead = (BYTE) TrackSize;
 	}
 	else {
 	    BiosErrorCode = getAH();
@@ -641,51 +637,44 @@ WORD demWinErrorToDosError(DWORD LastError)
 
 VOID demFdiskInit(VOID)
 {
-    DWORD  DriveMask;
-    PBOOTSECTOR pbs;
     PBDS    pbds;
-    CHAR   Drive = 0;
-    CHAR   achRoot[] = "A:\\";
+    UCHAR   Drive;
     DISK_GEOMETRY  DiskGeometry;
-    LARGE_INTEGER Offset;
     BPB    bpb;
 
-    DriveMask = GetLogicalDrives();
-    while (DriveMask != 0) {
-	// first, the drive must be valid
-	if (DriveMask & 1) {
-	    achRoot[0] = Drive + 'A';
-	    // second, the drive must be a hard disk(fixed)
-	    if (GetDriveType(achRoot) == DRIVE_FIXED &&
-		// third, the drive must be a FAT
-		nt_fdisk_init(Drive, &bpb, &DiskGeometry)) {
-		pbds = (PBDS) malloc(sizeof(BDS));
-		if (pbds != NULL) {
-		    pbds->bpb = bpb;
-		    pbds->rbpb = bpb;
-		    pbds->DrivePhys = NumberOfFdisk++;
-		    pbds->DriveLog = Drive;
-		    pbds->DriveType = DRIVETYPE_FDISK;
-		    pbds->FormFactor = FF_FDISK;
-		    pbds->TotalSectors = (bpb.Sectors) ?
-					      bpb.Sectors :
-					      bpb.BigSectors;
-		    pbds->Cylinders = DiskGeometry.Cylinders.LowPart;
-		    pbds->Next = demBDS;
-		    pbds->Flags = NON_REMOVABLE | PHYS_OWNER;
-		    demBDS = pbds;
-		 }
-	    }
-	}
-	DriveMask >>= 1;
-	Drive++;
-    }
+    Drive = 0;
+    do {
+          // first, the drive must be valid
+          // second, the drive must be a hard disk(fixed)
+          // third, the drive must be a FAT
+      if (demGetPhysicalDriveType(Drive) == DRIVE_FIXED &&
+          nt_fdisk_init(Drive, &bpb, &DiskGeometry)) {
+          pbds = (PBDS) malloc(sizeof(BDS));
+          if (pbds != NULL) {
+              pbds->bpb = bpb;
+              pbds->rbpb = bpb;
+              pbds->DrivePhys = NumberOfFdisk++;
+              pbds->DriveLog = Drive;
+              pbds->DriveType = DRIVETYPE_FDISK;
+              pbds->FormFactor = FF_FDISK;
+              pbds->TotalSectors = (bpb.Sectors) ?
+                                        bpb.Sectors :
+                                        bpb.BigSectors;
+              pbds->Cylinders = (WORD) DiskGeometry.Cylinders.LowPart;
+              pbds->Next = demBDS;
+              pbds->Flags = NON_REMOVABLE | PHYS_OWNER;
+              demBDS = pbds;
+           }
+      }
+
+   } while (++Drive < 26);
+
 }
 
 VOID demFloppyInit(VOID)
 {
 
-    WORD    AX, BX, CX, DX, DI, MSW, ES;
+    WORD    AX, BX, CX, DX, DI, ES;
     BYTE    i, NumberOfFloppy;
     PBDS    pbds;
     BYTE    DriveType;

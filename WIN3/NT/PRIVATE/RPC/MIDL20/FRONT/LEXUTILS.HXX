@@ -56,3 +56,39 @@ extern short handle_import;
 #define MULT       '*'
 #define ASSIGN     '='
 #define OR         '|'
+
+
+extern short		curr_line_G;
+extern FILE		*	hFile_G;
+
+// chCached allows us to look two characters ahead instead
+// of one.  If NewCCPutbackc is called once, the character
+// is put in chCached.  If it's called twice, the character
+// that was previously in chCached is pushed back into the
+// stream and the second character is put into chCached.
+// Behavior is undefined if it's called a third time in succession.
+extern int chCached;
+
+// #define NewCCGetch() (char) (pImportCntrl->GetChar())
+inline
+char NewCCGetch()
+    {
+    char ch;
+    if(ch = chCached)
+    {
+        chCached = 0;
+    }
+    else
+    {
+        if( ( (ch=getc(hFile_G)) == EOF ) && feof(hFile_G) )
+        return 0;
+    }
+    if ( ch == '\n' )
+        curr_line_G++;
+    return ch;
+    }
+
+//#define NewCCputbackc(c) (char )(pImportCntrl->UnGetChar(c))
+extern
+char NewCCputbackc( char ch );
+

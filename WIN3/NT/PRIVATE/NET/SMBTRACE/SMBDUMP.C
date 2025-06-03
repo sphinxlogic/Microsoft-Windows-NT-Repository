@@ -359,7 +359,7 @@ SmbDumpAccess (
 {
     USHORT value = SmbGetUshort( (PUSHORT)Field );
     USHORT share = (USHORT)(value & SMB_DA_SHARE_MASK);
-    USHORT access = (USHORT)(value & SMB_DA_ACCESS_MASK);
+    USHORT _access = (USHORT)(value & SMB_DA_ACCESS_MASK);
 
     Context; Result; UnicodeStrings;
 
@@ -371,7 +371,7 @@ SmbDumpAccess (
         printf( "WriteThrough, " );
     }
 
-    switch ( access ) {
+    switch ( _access ) {
 
     case SMB_DA_ACCESS_READ:
         printf( "Read Access, " );
@@ -1231,7 +1231,7 @@ SmbDumpOpenFunction (
 
 {
     USHORT value = SmbGetUshort( (PUSHORT)Field );
-    USHORT open = (USHORT)(value & SMB_OFUN_OPEN_MASK);
+    USHORT _open = (USHORT)(value & SMB_OFUN_OPEN_MASK);
     USHORT create = (USHORT)(value & SMB_OFUN_CREATE_MASK);
 
     Context; Result; UnicodeStrings;
@@ -1257,7 +1257,7 @@ SmbDumpOpenFunction (
 
     printf( "Open: " );
 
-    switch ( open ) {
+    switch ( _open ) {
 
     case SMB_OFUN_OPEN_FAIL:
         printf( "Fail" );

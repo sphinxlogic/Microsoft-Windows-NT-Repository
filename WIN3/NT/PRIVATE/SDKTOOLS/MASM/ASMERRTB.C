@@ -139,4 +139,4 @@ short FAR msgnum[] = { /* this table must be in the same order as the
         ER_FPO1,
         ER_FPO2
         };
-
+

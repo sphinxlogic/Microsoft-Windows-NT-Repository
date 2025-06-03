@@ -57,4 +57,3 @@ void            UpdateResultIcon(LPCHANGEICON, HWND, UINT);
 
 
 #endif //_ICON_H_
-

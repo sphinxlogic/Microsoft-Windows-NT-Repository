@@ -94,7 +94,6 @@ PKTHREAD
 FASTCALL
 KiFindReadyThread (
     IN ULONG Processor,
-    IN KPRIORITY HighPriority,
     IN KPRIORITY LowPriority
     )
 
@@ -110,9 +109,6 @@ Arguments:
 
     Processor - Supplies the number of the processor to find a thread for.
 
-    HighPriority - Supplies the highest priority dispatcher ready queue to
-        examine.
-
     LowPriority - Supplies the lowest priority dispatcher ready queue to
         examine.
 
@@ -126,31 +122,22 @@ Return Value:
 
 {
 
-    PLIST_ENTRY ListHead;
-    PLIST_ENTRY NextEntry;
+    ULONG HighPriority;
+    PRLIST_ENTRY ListHead;
+    PRLIST_ENTRY NextEntry;
     ULONG PrioritySet;
     KAFFINITY ProcessorSet;
-    PKTHREAD Thread;
-    PKTHREAD Thread1;
+    PRKTHREAD Thread;
+    PRKTHREAD Thread1;
     ULONG TickLow;
     ULONG WaitTime;
-
-    ASSERT(HighPriority <= HIGH_PRIORITY);
-    ASSERT(LowPriority <= HighPriority);
-
-#if defined(NT_UP)
-
-    ASSERT(((~(((1 << HighPriority) - 1) | (1 << HighPriority))) & KiReadySummary) == 0);
-
-#endif
 
     //
     // Compute the set of priority levels that should be scanned in an attempt
     // to find a thread that can run on the specified processor.
     //
 
-    PrioritySet = (((1 << HighPriority) - 1) | (1 << HighPriority)) &
-                                  (~((1 << LowPriority) - 1)) & KiReadySummary;
+    PrioritySet = (~((1 << LowPriority) - 1)) & KiReadySummary;
 
 #if !defined(NT_UP)
 
@@ -158,43 +145,59 @@ Return Value:
 
 #endif
 
+    FindFirstSetLeftMember(PrioritySet, &HighPriority);
     ListHead = &KiDispatcherReadyListHead[HighPriority];
-    do {
+    PrioritySet <<= (31 - HighPriority);
+    while (PrioritySet != 0) {
 
         //
-        // If the next bit in the priority set is a one, then scan the
+        // If the next bit in the priority set is a one, then examine the
         // corresponding dispatcher ready queue.
         //
 
-        if ((PrioritySet >> HighPriority) != 0) {
-            PrioritySet -= (1 << HighPriority);
+        if ((LONG)PrioritySet < 0) {
             NextEntry = ListHead->Flink;
+
+            ASSERT(NextEntry != ListHead);
+
+#if defined(NT_UP)
+
+            Thread = CONTAINING_RECORD(NextEntry, KTHREAD, WaitListEntry);
+            RemoveEntryList(&Thread->WaitListEntry);
+            if (IsListEmpty(ListHead)) {
+                ClearMember(HighPriority, KiReadySummary);
+            }
+
+            return (PKTHREAD)Thread;
+
+#else
+
+            //
+            // Scan the specified dispatcher ready queue for a suitable
+            // thread to execute.
+            //
+
             while (NextEntry != ListHead) {
                 Thread = CONTAINING_RECORD(NextEntry, KTHREAD, WaitListEntry);
                 NextEntry = NextEntry->Flink;
-
-                //
-                // If the thread can execute on the specified processor, then
-                // remove it from the dispatcher ready queue and return the
-                // address of the thread as the function value.
-                //
-
-#if !defined(NT_UP)
-
                 if (Thread->Affinity & ProcessorSet) {
 
                     //
                     // If the found thread ran on the specified processor
-                    // last, has been waiting for longer than a quantum,
-                    // or its priority is greater than low realtime plus
-                    // 8, then the selected thread is returned. Otherwise,
+                    // last, the processor is the ideal processor for the
+                    // thread, the thread has been waiting for longer than
+                    // a quantum, or its priority is greater than low realtime
+                    // plus 8, then the selected thread is returned. Otherwise,
                     // an attempt is made to find a more appropriate thread.
                     //
 
                     TickLow = KiQueryLowTickCount();
                     WaitTime = TickLow - Thread->WaitTime;
-                    if (((ULONG)Thread->NextProcessor != Processor) &&
-                        (WaitTime < THREAD_QUANTUM) &&
+                    if ((KiThreadSelectNotifyRoutine ?
+                        (KiThreadSelectNotifyRoutine(((PETHREAD)Thread)->Cid.UniqueThread) == FALSE) :
+                        (((ULONG)Thread->NextProcessor != Processor) &&
+                        ((ULONG)Thread->IdealProcessor != Processor))) &&
+                        (WaitTime < (READY_SKIP_QUANTUM + 1)) &&
                         (HighPriority < (LOW_REALTIME_PRIORITY + 9))) {
 
                         //
@@ -210,19 +213,25 @@ Return Value:
 
                             NextEntry = NextEntry->Flink;
                             if ((Thread1->Affinity & ProcessorSet) &&
-                                ((ULONG)Thread1->NextProcessor == Processor)) {
+                                (KiThreadSelectNotifyRoutine ?
+                                (KiThreadSelectNotifyRoutine(((PETHREAD)Thread)->Cid.UniqueThread) != FALSE) :
+                                (((ULONG)Thread1->NextProcessor == Processor) ||
+                                ((ULONG)Thread1->IdealProcessor == Processor)))) {
                                 Thread = Thread1;
                                 break;
                             }
 
-                            WaitTime = TickLow - Thread->WaitTime;
-                            if (WaitTime >= THREAD_QUANTUM) {
+                            WaitTime = TickLow - Thread1->WaitTime;
+                            if (WaitTime >= (READY_SKIP_QUANTUM + 1)) {
                                 break;
                             }
                         }
                     }
 
-                    if (Processor == (ULONG)Thread->NextProcessor) {
+                    if (Processor == (ULONG)Thread->IdealProcessor) {
+                        KiIncrementSwitchCounter(FindIdeal);
+
+                    } else if (Processor == (ULONG)Thread->NextProcessor) {
                         KiIncrementSwitchCounter(FindLast);
 
                     } else {
@@ -231,28 +240,23 @@ Return Value:
 
                     Thread->NextProcessor = (CCHAR)Processor;
 
-#endif
-
                     RemoveEntryList(&Thread->WaitListEntry);
                     if (IsListEmpty(ListHead)) {
                         ClearMember(HighPriority, KiReadySummary);
                     }
 
-
-                    return Thread;
-
-#if !defined(NT_UP)
-
+                    return (PKTHREAD)Thread;
                 }
+            }
 
 #endif
 
-            }
         }
 
         HighPriority -= 1;
         ListHead -= 1;
-    } while (PrioritySet != 0);
+        PrioritySet <<= 1;
+    };
 
     //
     // No thread could be found, return a null pointer.
@@ -264,7 +268,7 @@ Return Value:
 VOID
 FASTCALL
 KiReadyThread (
-    IN PKTHREAD Thread
+    IN PRKTHREAD Thread
     )
 
 /*++
@@ -291,22 +295,14 @@ Return Value:
 
 {
 
-    ULONG BasePriority;
-    ULONG FirstBitRight;
-    KAFFINITY CurrentProcessor;
-    ULONG CurrentNumber;
-    LONG Index;
-    KAFFINITY LastProcessor;
-    PKPRCB Prcb;
+    PRKPRCB Prcb;
     BOOLEAN Preempted;
     KPRIORITY Priority;
-    ULONG PrioritySet;
-    PKPROCESS Process;
+    PRKPROCESS Process;
     ULONG Processor;
-    KAFFINITY ProcessorSet;
-    ULONG TestByte;
     KPRIORITY ThreadPriority;
-    PKTHREAD Thread1;
+    PRKTHREAD Thread1;
+    KAFFINITY IdleSet;
 
     //
     // Save value of thread's preempted flag, set thread preempted FALSE,
@@ -360,188 +356,96 @@ Return Value:
 
     } else {
 
+        //
+        // If there is an idle processor, then schedule the thread on an
+        // idle processor giving preference to the processor the thread
+        // last ran on. Otherwise, try to preempt either a thread in the
+        // standby or running state.
+        //
+
 #if defined(NT_UP)
 
-        //
-        // This is a unit processor configuration, and the current processor
-        // only need be examined to determine if a thread can be preempted.
-        // If the idle thread is currently executing, then preempt the idle
-        // thread. Else try to preempt either a thread in the standby or
-        // running state.
-        //
-
         Prcb = KiProcessorBlock[0];
-        if (KiIdleSummary) {
+        if (KiIdleSummary != 0) {
             KiIdleSummary = 0;
-            Prcb->NextThread = Thread;
-            Thread->State = Standby;
-            return;
-
-        } else if (Prcb->NextThread != NULL) {
-            Thread1 = Prcb->NextThread;
-            if (ThreadPriority > Thread1->Priority) {
-                Thread1->Preempted = TRUE;
-                Prcb->NextThread = Thread;
-                Thread->State = Standby;
-                KiReadyThread(Thread1);
-                return;
-            }
-
-        } else {
-            Thread1 = Prcb->CurrentThread;
-            if (ThreadPriority > Thread1->Priority) {
-                Thread1->Preempted = TRUE;
-                Prcb->NextThread = Thread;
-                Thread->State = Standby;
-                return;
-            }
-        }
+            KiIncrementSwitchCounter(IdleLast);
 
 #else
 
-        //
-        // This is a multiprocessor processor configuration. If there is an
-        // idle processor that the thread can execute on, then select that
-        // processor. Otherwise scan the active matrix backwards from zero
-        // up to the priority of the thread in an attempt to find a thread
-        // to preempt. In selecting a processor to preempt, preference is
-        // given to the processor on which the thread last executed.
-        //
+        IdleSet = KiIdleSummary & Thread->Affinity;
+        if (IdleSet != 0) {
+            Processor = Thread->IdealProcessor;
+            if ((IdleSet & (1 << Processor)) == 0) {
+                Processor = Thread->NextProcessor;
+                if ((IdleSet & (1 << Processor)) == 0) {
+                    Prcb = KeGetCurrentPrcb();
+                    if ((IdleSet & Prcb->SetMember) == 0) {
+                        FindFirstSetLeftMember(IdleSet, &Processor);
+                        KiIncrementSwitchCounter(IdleAny);
 
-        CurrentNumber = KeGetCurrentPrcb()->Number;
-        CurrentProcessor = (KAFFINITY)(1 << CurrentNumber);
-        LastProcessor = (KAFFINITY)(1 << Thread->NextProcessor);
-        ProcessorSet = Thread->Affinity & KiIdleSummary;
-        if (ProcessorSet != 0) {
-
-            //
-            // The thread can preempt an idle processor.
-            //
-            // The selection priorty is:
-            //
-            //     1. The processor on which the thread last ran.
-            //     2. The current processor.
-            //     3. Any other processor.
-            //
-
-            if ((LastProcessor & ProcessorSet) == 0) {
-                if ((CurrentProcessor & ProcessorSet) == 0) {
-                    FindFirstSetLeftMember(ProcessorSet, &Thread->NextProcessor);
-                    KiIncrementSwitchCounter(IdleAny);
+                    } else {
+                        Processor = Prcb->Number;
+                        KiIncrementSwitchCounter(IdleCurrent);
+                    }
 
                 } else {
-                    Thread->NextProcessor = (CCHAR)CurrentNumber;
-                    KiIncrementSwitchCounter(IdleCurrent);
+                    KiIncrementSwitchCounter(IdleLast);
                 }
 
             } else {
-                KiIncrementSwitchCounter(IdleLast);
+                KiIncrementSwitchCounter(IdleIdeal);
             }
 
-            Processor = Thread->NextProcessor;
-            Prcb = KiProcessorBlock[Processor];
+            Thread->NextProcessor = (CCHAR)Processor;
             ClearMember(Processor, KiIdleSummary);
+            Prcb = KiProcessorBlock[Processor];
+
+#endif
+
             Prcb->NextThread = Thread;
             Thread->State = Standby;
-            InsertActiveMatrix(Processor, ThreadPriority);
             return;
 
         } else {
 
-            //
-            // Compute the set of priority classes that should be scanned
-            // in an attempt to find a thread to preempt. If the set is not
-            // empty, then scan the set from right to left.
-            //
+#if !defined(NT_UP)
 
-            PrioritySet = ((1 << ThreadPriority) - 1) & KiActiveSummary;
-            if (PrioritySet) {
+            Processor = Thread->IdealProcessor;
+            if ((Thread->Affinity & (1 << Processor)) == 0) {
+                Processor = Thread->NextProcessor;
+                if ((Thread->Affinity & (1 << Processor)) == 0) {
+                    FindFirstSetLeftMember(Thread->Affinity, &Processor);
+                }
+            }
 
-                //
-                // Scan the priority set one byte at a time right to left.
-                //
+            Thread->NextProcessor = (CCHAR)Processor;
+            Prcb = KiProcessorBlock[Processor];
 
-                for (Index = 0; Index < 4; Index += 1) {
+#endif
 
-                    //
-                    // If there are any members of the byte set, then compute
-                    // the actual priority, clear the respective member from
-                    // set, and form the intersection of the set of processors
-                    // that are available at the priority with the thread
-                    // affinity. If the resultant set is not empty, then a
-                    // processor has been found that can be preempted.
-                    //
+            if (Prcb->NextThread != NULL) {
+                Thread1 = Prcb->NextThread;
+                if (ThreadPriority > Thread1->Priority) {
+                    Thread1->Preempted = TRUE;
+                    Prcb->NextThread = Thread;
+                    Thread->State = Standby;
+                    KiReadyThread(Thread1);
+                    KiIncrementSwitchCounter(PreemptLast);
+                    return;
+                }
 
-                    BasePriority = Index * 8;
-                    TestByte = (PrioritySet >> BasePriority) & 0xff;
-                    while (TestByte != 0) {
-                        FirstBitRight = KiFindFirstSetRightMember(TestByte);
-                        ClearMember((KPRIORITY)FirstBitRight, TestByte);
-                        Priority = (KPRIORITY)(BasePriority + FirstBitRight);
-                        ProcessorSet = Thread->Affinity & KiActiveMatrix[Priority];
-                        if (ProcessorSet != 0) {
-
-                            //
-                            // The thread can preempt a thread.
-                            //
-                            // The selection priorty is:
-                            //
-                            //     1. The processor on which the thread last ran.
-                            //     2. The current processor.
-                            //     3. Any other processor.
-                            //
-
-                            if ((LastProcessor & ProcessorSet) == 0) {
-                                if ((CurrentProcessor & ProcessorSet) == 0) {
-                                    FindFirstSetLeftMember(ProcessorSet, &Thread->NextProcessor);
-                                    KiIncrementSwitchCounter(PreemptAny);
-
-                                } else {
-                                    Thread->NextProcessor = (CCHAR)CurrentNumber;
-                                    KiIncrementSwitchCounter(PreemptCurrent);
-                                }
-
-                            } else {
-                                    KiIncrementSwitchCounter(PreemptLast);
-                            }
-
-                            Processor = Thread->NextProcessor;
-                            Prcb = KiProcessorBlock[Processor];
-
-                            //
-                            // If there is a thread in the standby state, then
-                            // that is the thread that is preempted. Otherwise
-                            // preempt currently running thread.
-                            //
-
-                            if (Prcb->NextThread != NULL) {
-                                Thread1 = Prcb->NextThread;
-                                Thread1->Preempted = TRUE;
-                                RemoveActiveMatrix(Processor, Thread1->Priority);
-                                Thread->State = Standby;
-                                Prcb->NextThread = Thread;
-                                InsertActiveMatrix(Processor, ThreadPriority);
-                                KiReadyThread(Thread1);
-                                return;
-
-                            } else {
-                                Thread1 = Prcb->CurrentThread;
-                                Thread1->Preempted = TRUE;
-                                RemoveActiveMatrix(Processor, Thread1->Priority);
-                                Thread->State = Standby;
-                                Prcb->NextThread = Thread;
-                                InsertActiveMatrix(Processor, ThreadPriority);
-                                KiRequestDispatchInterrupt(Processor);
-                                return;
-                            }
-                        }
-                    }
+            } else {
+                Thread1 = Prcb->CurrentThread;
+                if (ThreadPriority > Thread1->Priority) {
+                    Thread1->Preempted = TRUE;
+                    Prcb->NextThread = Thread;
+                    Thread->State = Standby;
+                    KiRequestDispatchInterrupt(Thread->NextProcessor);
+                    KiIncrementSwitchCounter(PreemptLast);
+                    return;
                 }
             }
         }
-
-#endif //NT_UP
-
     }
 
     //
@@ -552,7 +456,7 @@ Return Value:
     //
 
     Thread->State = Ready;
-    if ((Preempted != FALSE) && (ThreadPriority >= LOW_REALTIME_PRIORITY)) {
+    if (Preempted != FALSE) {
         InsertHeadList(&KiDispatcherReadyListHead[ThreadPriority],
                        &Thread->WaitListEntry);
 
@@ -565,10 +469,10 @@ Return Value:
     return;
 }
 
-PKTHREAD
+PRKTHREAD
 FASTCALL
 KiSelectNextThread (
-    IN PKTHREAD Thread
+    IN PRKTHREAD Thread
     )
 
 /*++
@@ -591,9 +495,9 @@ Return Value:
 
 {
 
-    PKPRCB Prcb;
-    CHAR Processor;
-    PKTHREAD Thread1;
+    PRKPRCB Prcb;
+    ULONG Processor;
+    PRKTHREAD Thread1;
 
     //
     // Get the processor number and the address of the processor control block.
@@ -615,43 +519,31 @@ Return Value:
     // then return that thread as the selected thread.
     //
 
-    if (Prcb->NextThread) {
-        Thread1 = Prcb->NextThread;
+    if ((Thread1 = Prcb->NextThread) != NULL) {
         Prcb->NextThread = (PKTHREAD)NULL;
 
     } else {
 
         //
-        // Remove the specified thread from the active matrix and attempt to
-        // find a ready thread to run.
+        // Attempt to find a ready thread to run.
         //
 
 #if !defined(NT_UP)
 
-        RemoveActiveMatrix(Processor, Thread->Priority);
-        Thread1 = KiFindReadyThread(Processor, Thread->Priority, 0);
+        Thread1 = KiFindReadyThread(Processor, 0);
 
 #else
 
-        Thread1 = KiFindReadyThread(0, Thread->Priority, 0);
+        Thread1 = KiFindReadyThread(0, 0);
 
 #endif
 
         //
-        // If a thread was found, then insert the thread in the active matrix.
-        // Else select the idle thread and set the processor member in the idle
-        // summary.
+        // If a thread was not found, then select the idle thread and
+        // set the processor member in the idle summary.
         //
 
-        if (Thread1) {
-
-#if !defined(NT_UP)
-
-            InsertActiveMatrix(Processor, Thread1->Priority);
-
-#endif
-
-        } else {
+        if (Thread1 == NULL) {
             KiIncrementSwitchCounter(SwitchToIdle);
             Thread1 = Prcb->IdleThread;
 
@@ -677,7 +569,7 @@ Return Value:
 VOID
 FASTCALL
 KiSetPriorityThread (
-    IN PKTHREAD Thread,
+    IN PRKTHREAD Thread,
     IN KPRIORITY Priority
     )
 
@@ -704,10 +596,10 @@ Return Value:
 
 {
 
-    PKPRCB Prcb;
+    PRKPRCB Prcb;
     ULONG Processor;
     KPRIORITY ThreadPriority;
-    PKTHREAD Thread1;
+    PRKTHREAD Thread1;
 
     ASSERT(Priority <= HIGH_PRIORITY);
 
@@ -759,13 +651,10 @@ Return Value:
             break;
 
             //
-            // Standby case - Remove the thread from the active matrix. If the
-            // thread's priority is being raised, then reinsert the thread in the
-            // active matrix at its new priority. Else attempt to find another
-            // thread to execute that is between the old priority and the new
-            // priority plus one. If a new thread is found, then put the new
-            // thread in the standby state, and reready the old thread. Else
-            // reinsert the thread in the active matrix at its new priority.
+            // Standby case - If the thread's priority is being lowered, then
+            // attempt to find another thread to execute. If a new thread is
+            // found, then put the new thread in the standby state, and reready
+            // the old thread.
             //
 
         case Standby:
@@ -773,7 +662,6 @@ Return Value:
 #if !defined(NT_UP)
 
             Processor = Thread->NextProcessor;
-            RemoveActiveMatrix(Processor, ThreadPriority);
 
 #endif
 
@@ -781,19 +669,15 @@ Return Value:
 
 #if !defined(NT_UP)
 
-                Thread1 = KiFindReadyThread(Processor,
-                                            ThreadPriority,
-                                            (KPRIORITY)(Priority + 1));
+                Thread1 = KiFindReadyThread(Processor, Priority);
 
 #else
 
-                Thread1 = KiFindReadyThread(0,
-                                            ThreadPriority,
-                                            (KPRIORITY)(Priority + 1));
+                Thread1 = KiFindReadyThread(0, Priority);
 
 #endif
 
-                if (Thread1) {
+                if (Thread1 != NULL) {
 
 #if !defined(NT_UP)
 
@@ -807,29 +691,18 @@ Return Value:
 
                     Thread1->State = Standby;
                     Prcb->NextThread = Thread1;
-                    InsertActiveMatrix(Processor, Thread1->Priority);
                     KiReadyThread(Thread);
-
-                } else {
-                    InsertActiveMatrix(Processor, Priority);
                 }
-
-            } else {
-                InsertActiveMatrix(Processor, Priority);
             }
 
             break;
 
             //
             // Running case - If there is not a thread in the standby state
-            // on the thread's processor, then remove the thread from the
-            // active matrix. If the thread's priority is being raised, then
-            // reinsert the thread in the active matrix at its new priority.
-            // Else attempt to find another thread to execute that is between
-            // the old priority and the new priority plus one. If a new thread
-            // is found, then put the new thread in the standby state, and
-            // request a redispatch on the thread's processor. Else reinsert
-            // the thread in the active matrix at its new priority.
+            // on the thread's processor and the thread's priority is being
+            // lowered, then attempt to find another thread to execute. If
+            // a new thread is found, then put the new thread in the standby
+            // state, and request a redispatch on the thread's processor.
             //
 
         case Running:
@@ -845,41 +718,30 @@ Return Value:
 
 #endif
 
-            if (!Prcb->NextThread) {
-                RemoveActiveMatrix(Processor, ThreadPriority);
+            if (Prcb->NextThread == NULL) {
                 if (Priority < ThreadPriority) {
 
 #if !defined(NT_UP)
 
-                    Thread1 = KiFindReadyThread(Processor,
-                                                ThreadPriority,
-                                                (KPRIORITY)(Priority + 1));
+                    Thread1 = KiFindReadyThread(Processor, Priority);
 
 #else
 
-                    Thread1 = KiFindReadyThread(0,
-                                                ThreadPriority,
-                                                (KPRIORITY)(Priority + 1));
+                    Thread1 = KiFindReadyThread(0, Priority);
 
 #endif
 
-                    if (Thread1) {
+                    if (Thread1 != NULL) {
                         Thread1->State = Standby;
                         Prcb->NextThread = Thread1;
 
 #if !defined(NT_UP)
 
-                        InsertActiveMatrix(Processor, Thread1->Priority);
                         KiRequestDispatchInterrupt(Processor);
 
 #endif
 
-                    } else {
-                        InsertActiveMatrix(Processor, Priority);
                     }
-
-                } else {
-                    InsertActiveMatrix(Processor, Priority);
                 }
             }
 
@@ -928,7 +790,7 @@ Return Value:
 
 {
 
-    PKTHREAD Thread;
+    PRKTHREAD Thread;
 
     //
     // Get the address of the current thread object and Wait nonalertable on
@@ -936,111 +798,15 @@ Return Value:
     //
 
     Thread = KeGetCurrentThread();
-    KeWaitForSingleObject(&Thread->SuspendSemaphore, Suspended, KernelMode,
-                          FALSE, (PLARGE_INTEGER)NULL);
+    KeWaitForSingleObject(&Thread->SuspendSemaphore,
+                          Suspended,
+                          KernelMode,
+                          FALSE,
+                          (PLARGE_INTEGER)NULL);
+
     return;
 }
 #if 0
-
-VOID
-KiVerifyActiveMatrix (
-    VOID
-    )
-
-/*++
-
-Routine Description:
-
-    This function verifies the correctness of the active matrix in an MP
-    system.
-
-Arguments:
-
-    None.
-
-Return Value:
-
-    None.
-
---*/
-
-{
-
-#if !defined(NT_UP)
-
-    ULONG Count;
-    ULONG Idle;
-    ULONG Index;
-    ULONG Row;
-    ULONG Summary;
-
-    extern ULONG InitializationPhase;
-
-    //
-    // If initilization has been completed, then check the active matrix.
-    //
-
-    if (InitializationPhase == 2) {
-
-        //
-        // Scan the active matrix and count up the number of bits and form
-        // a duplicate of the active summary.
-        //
-
-        Count = 0;
-        Summary = 0;
-        for (Index = 0; Index < MAXIMUM_PROCESSORS; Index += 1) {
-            Row = KiActiveMatrix[Index];
-            if (Row != 0) {
-                Summary |= (1 << Index);
-                do {
-                    if ((Row & 1) != 0) {
-                        Count += 1;
-                    }
-
-                    Row >>= 1;
-                } while (Row != 0);
-            }
-        }
-
-        //
-        // If the computed summary does not agree with the current active
-        // summary, then break into the debugger.
-        //
-
-        if (Summary != KiActiveSummary) {
-            DbgBreakPoint();
-        }
-
-        //
-        // Compute the number of idle processors.
-        //
-
-        Idle = 0;
-        Row = KiIdleSummary;
-        while (Row != 0) {
-            if ((Row & 1) != 0) {
-                Idle += 1;
-            }
-
-            Row >>= 1;
-        }
-
-        //
-        // If the number of active processors plus the number of idle
-        // processors does not equal the number of processors, then
-        // break into the debugger.
-        //
-
-        if ((Idle + Count) != KeNumberProcessors) {
-            DbgBreakPoint();
-        }
-    }
-
-#endif
-
-    return;
-}
 
 VOID
 KiVerifyReadySummary (

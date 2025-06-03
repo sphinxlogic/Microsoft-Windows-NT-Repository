@@ -16,4 +16,4 @@ void ToolbarDepressButton (HWND hWndTB,
 void OnToolbarHit (WPARAM wParam, 
                    LPARAM lParam) ;
 
-
+

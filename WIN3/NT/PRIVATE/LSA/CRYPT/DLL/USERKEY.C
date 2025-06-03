@@ -26,6 +26,7 @@ Revision History:
 
 #include <nt.h>
 #include <ntrtl.h>
+#include <nturtl.h>
 #include <ntddnfs.h>
 #include <rpc.h>
 #include <rpcndr.h>
@@ -432,7 +433,7 @@ Return Values:
                          FILE_READ_DATA, // access required to get connection info
                          &Attributes,
                          &IoStatusBlock,
-                         FILE_SHARE_READ,
+                         FILE_SHARE_READ | FILE_SHARE_WRITE,
                          FILE_CREATE_TREE_CONNECTION );
     //
     // We're finished with the ipc filename
@@ -829,4 +830,3 @@ Return Values:
 
     return(Status);
 }
-

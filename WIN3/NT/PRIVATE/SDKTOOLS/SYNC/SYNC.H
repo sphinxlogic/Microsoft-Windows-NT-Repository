@@ -21,6 +21,7 @@ Revision History:
 #include <nt.h>
 #include <ntrtl.h>
 #include <nturtl.h>
+#include <ntdddisk.h>
 #include <windows.h>
 #include <assert.h>
 #include <stdio.h>
@@ -35,4 +36,4 @@ ProcessParameters(
     );
 
 void
-SyncVolume( CHAR c );
+SyncVolume( PCHAR DrivePath, BOOLEAN EjectMedia );

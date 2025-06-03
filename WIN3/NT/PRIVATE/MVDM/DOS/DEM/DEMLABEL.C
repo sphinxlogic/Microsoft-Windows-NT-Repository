@@ -15,7 +15,6 @@
 #include <softpc.h>
 
 #include <winbase.h>
-#include <winioctl.h>
 
 USHORT demDeleteLabel(BYTE Drive)
 {

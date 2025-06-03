@@ -85,12 +85,15 @@ Revision History:
                                                     // special access rules
                                                     // privilege required
 
+#define REG_OPTION_OPEN_LINK        (0x00000008L)   // Open symbolic link
+
 #define REG_LEGAL_OPTION            \
                 (REG_OPTION_RESERVED            |\
                  REG_OPTION_NON_VOLATILE        |\
                  REG_OPTION_VOLATILE            |\
                  REG_OPTION_CREATE_LINK         |\
-                 REG_OPTION_BACKUP_RESTORE)
+                 REG_OPTION_BACKUP_RESTORE      |\
+                 REG_OPTION_OPEN_LINK)
 
 //
 // Key creation/open disposition
@@ -105,6 +108,7 @@ Revision History:
 
 #define REG_WHOLE_HIVE_VOLATILE     (0x00000001L)   // Restore whole hive volatile
 #define REG_REFRESH_HIVE            (0x00000002L)   // Unwind changes to last flush
+#define REG_NO_LAZY_FLUSH           (0x00000004L)   // Never lazy flush this hive
 
 // end_ntddk end_nthal
 
@@ -204,11 +208,19 @@ typedef struct _KEY_VALUE_PARTIAL_INFORMATION {
     UCHAR   Data[1];            // Variable size
 } KEY_VALUE_PARTIAL_INFORMATION, *PKEY_VALUE_PARTIAL_INFORMATION;
 
+typedef struct _KEY_VALUE_ENTRY {
+    PUNICODE_STRING ValueName;
+    ULONG           DataLength;
+    ULONG           DataOffset;
+    ULONG           Type;
+} KEY_VALUE_ENTRY, *PKEY_VALUE_ENTRY;
+
 typedef enum _KEY_VALUE_INFORMATION_CLASS {
     KeyValueBasicInformation,
     KeyValueFullInformation,
     KeyValuePartialInformation
 } KEY_VALUE_INFORMATION_CLASS;
+
 
 // end_ntddk end_nthal
 //
@@ -328,6 +340,15 @@ NtLoadKey(
 NTSYSAPI
 NTSTATUS
 NTAPI
+NtLoadKey2(
+    IN POBJECT_ATTRIBUTES TargetKey,
+    IN POBJECT_ATTRIBUTES SourceFile,
+    IN ULONG Flags
+    );
+
+NTSYSAPI
+NTSTATUS
+NTAPI
 NtOpenKey(
     OUT PHANDLE KeyHandle,
     IN ACCESS_MASK DesiredAccess,
@@ -357,6 +378,17 @@ NtQueryValueKey(
     OUT PULONG ResultLength
     );
 
+NTSYSAPI
+NTSTATUS
+NTAPI
+NtQueryMultipleValueKey(
+    IN HANDLE KeyHandle,
+    IN PKEY_VALUE_ENTRY ValueEntries,
+    IN ULONG EntryCount,
+    OUT PVOID ValueBuffer,
+    IN OUT PULONG BufferLength,
+    OUT OPTIONAL PULONG RequiredBufferLength
+    );
 
 NTSYSAPI
 NTSTATUS

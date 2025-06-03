@@ -184,7 +184,7 @@ Return Value:
 
 {
     NTSTATUS status;
-    PIRP_CONTEXT pIrpContext;
+    PIRP_CONTEXT pIrpContext = NULL;
     BOOLEAN TopLevel;
 
     PAGED_CODE();
@@ -205,21 +205,39 @@ Return Value:
 
     } except(NwExceptionFilter( Irp, GetExceptionInformation() )) {
 
-        //
-        // We had some trouble trying to perform the requested
-        // operation, so we'll abort the I/O request with
-        // the error status that we get back from the
-        // execption code.
-        //
+        if ( pIrpContext == NULL ) {
 
-        status = NwProcessException( pIrpContext, GetExceptionCode() );
+            //
+            //  If we couldn't allocate an irp context, just complete
+            //  irp without any fanfare.
+            //
+
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            Irp->IoStatus.Status = status;
+            Irp->IoStatus.Information = 0;
+            IoCompleteRequest ( Irp, IO_NETWORK_INCREMENT );
+
+        } else {
+
+            //
+            //  We had some trouble trying to perform the requested
+            //  operation, so we'll abort the I/O request with
+            //  the error Status that we get back from the
+            //  execption code
+            //
+
+            status = NwProcessException( pIrpContext, GetExceptionCode() );
+        }
     }
 
-    if ( status != STATUS_PENDING ) {
-        NwDequeueIrpContext( pIrpContext, FALSE );
-    }
+    if ( pIrpContext ) {
 
-    NwCompleteRequest( pIrpContext, status );
+        if ( status != STATUS_PENDING ) {
+            NwDequeueIrpContext( pIrpContext, FALSE );
+        }
+
+        NwCompleteRequest( pIrpContext, status );
+    }
 
     if ( TopLevel ) {
         NwSetTopLevelIrp( NULL );
@@ -261,7 +279,7 @@ Return Value:
 --*/
 {
     NTSTATUS status;
-    PIRP_CONTEXT pIrpContext;
+    PIRP_CONTEXT pIrpContext = NULL;
     BOOLEAN TopLevel;
 
     PAGED_CODE();
@@ -282,21 +300,40 @@ Return Value:
 
     } except(NwExceptionFilter( Irp, GetExceptionInformation() )) {
 
-        //
-        // We had some trouble trying to perform the requested
-        // operation, so we'll abort the I/O request with
-        // the error status that we get back from the
-        // execption code.
-        //
+        if ( pIrpContext == NULL ) {
 
-        status = NwProcessException( pIrpContext, GetExceptionCode() );
+            //
+            //  If we couldn't allocate an irp context, just complete
+            //  irp without any fanfare.
+            //
+
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            Irp->IoStatus.Status = status;
+            Irp->IoStatus.Information = 0;
+            IoCompleteRequest ( Irp, IO_NETWORK_INCREMENT );
+
+        } else {
+
+            //
+            //  We had some trouble trying to perform the requested
+            //  operation, so we'll abort the I/O request with
+            //  the error Status that we get back from the
+            //  execption code
+            //
+
+            status = NwProcessException( pIrpContext, GetExceptionCode() );
+        }
+
     }
 
-    if ( status != STATUS_PENDING ) {
-        NwDequeueIrpContext( pIrpContext, FALSE );
-    }
+    if ( pIrpContext ) {
 
-    NwCompleteRequest( pIrpContext, status );
+        if ( status != STATUS_PENDING ) {
+            NwDequeueIrpContext( pIrpContext, FALSE );
+        }
+
+        NwCompleteRequest( pIrpContext, status );
+    }
 
     if ( TopLevel ) {
         NwSetTopLevelIrp( NULL );
@@ -460,10 +497,7 @@ Return Value:
 
         case FileBasicInformation:
 
-            pIrpContext->Specific.QueryFileInformation.SavedStatus = STATUS_SUCCESS;
             length -= sizeof( FILE_BASIC_INFORMATION );
-            pIrpContext->Specific.QueryFileInformation.Length = length;
-
             status = NwQueryBasicInfo( pIrpContext, icb, buffer );
 
             break;
@@ -478,13 +512,7 @@ Return Value:
             //  Remember the buffer length, and status to return.
             //
 
-            pIrpContext->Specific.QueryFileInformation.SavedStatus = STATUS_SUCCESS;
             length -= sizeof( FILE_STANDARD_INFORMATION );
-            pIrpContext->Specific.QueryFileInformation.Length = length;
-
-            pIrpContext->Specific.QueryFileInformation.InformationClass =
-                FileStandardInformation;
-
             status = NwQueryStandardInfo( pIrpContext, icb, buffer );
             break;
 
@@ -721,9 +749,11 @@ Return Value:
     NTSTATUS Status;
     ULONG Attributes;
     USHORT CreationDate;
+    USHORT CreationTime = DEFAULT_TIME;
     USHORT LastAccessDate;
     USHORT LastModifiedDate;
     USHORT LastModifiedTime;
+    BOOLEAN FirstTime = TRUE;
 
     DebugTrace(0, Dbg, "QueryBasicInfo...\n", 0);
 
@@ -755,7 +785,7 @@ Return Value:
 
         Buffer->CreationTime = NwDateTimeToNtTime(
                                    Fcb->CreationDate,
-                                   DEFAULT_TIME
+                                   Fcb->CreationTime
                                    );
 
         Buffer->LastAccessTime = NwDateTimeToNtTime(
@@ -772,6 +802,7 @@ Return Value:
         DebugTrace(0, Dbg, "LastModifiedDate %x\n", Fcb->LastModifiedDate);
         DebugTrace(0, Dbg, "LastModifiedTime %x\n", Fcb->LastModifiedTime);
         DebugTrace(0, Dbg, "CreationDate     %x\n", Fcb->CreationDate );
+        DebugTrace(0, Dbg, "CreationTime     %x\n", Fcb->CreationTime );
         DebugTrace(0, Dbg, "LastAccessDate   %x\n", Fcb->LastAccessDate );
 
         Buffer->FileAttributes = Fcb->NonPagedFcb->Attributes;
@@ -807,17 +838,15 @@ Return Value:
         NwReleaseFcb( Fcb->NonPagedFcb );
 
         IrpContext->pNpScb = Fcb->Scb->pNpScb;
-
+Retry:
         if ( !BooleanFlagOn( Fcb->Flags, FCB_FLAGS_LONG_NAME ) ) {
 
             DebugTrace(0, Dbg, "QueryBasic short %wZ\n", &Fcb->RelativeFileName);
 
-            IrpContext->Specific.QueryFileInformation.LongFileName = FALSE;
-
             Status = ExchangeWithWait (
                          IrpContext,
                          SynchronousResponseCallback,
-                         "FwbbU",
+                         "FwbbJ",
                          NCP_SEARCH_FILE,
                          -1,
                          Fcb->Vcb->Specific.Disk.Handle,
@@ -841,8 +870,6 @@ Return Value:
 
         } else {
 
-            IrpContext->Specific.QueryFileInformation.LongFileName = TRUE;
-
             DebugTrace(0, Dbg, "QueryBasic long %wZ\n", &Fcb->RelativeFileName);
 
             Status = ExchangeWithWait (
@@ -855,7 +882,8 @@ Return Value:
                           Fcb->NodeTypeCode == NW_NTC_FCB ?
                             SEARCH_ALL_FILES : SEARCH_ALL_DIRECTORIES,
                           LFN_FLAG_INFO_ATTRIBUTES |
-                              LFN_FLAG_INFO_MODIFY_TIME,
+                          LFN_FLAG_INFO_MODIFY_TIME |
+                          LFN_FLAG_INFO_CREATION_TIME,
                           Fcb->Vcb->Specific.Disk.VolumeNumber,
                           Fcb->Vcb->Specific.Disk.Handle,
                           0,
@@ -866,10 +894,11 @@ Return Value:
                              IrpContext,
                              IrpContext->rsp,
                              IrpContext->ResponseLength,
-                             "N_e_x_xx_x",
+                             "N_e_xx_xx_x",
                              4,
                              &Attributes,
-                             14,
+                             12,
+                             &CreationTime,
                              &CreationDate,
                              4,
                              &LastModifiedTime,
@@ -888,7 +917,7 @@ Return Value:
 
             Buffer->CreationTime = NwDateTimeToNtTime(
                                        CreationDate,
-                                       DEFAULT_TIME
+                                       CreationTime
                                        );
 
             Buffer->LastAccessTime = NwDateTimeToNtTime(
@@ -902,6 +931,7 @@ Return Value:
                                         );
 
             DebugTrace(0, Dbg, "CreationDate     %x\n", CreationDate );
+            DebugTrace(0, Dbg, "CreationTime     %x\n", CreationTime );
             DebugTrace(0, Dbg, "LastAccessDate   %x\n", LastAccessDate );
             DebugTrace(0, Dbg, "LastModifiedDate %x\n", LastModifiedDate);
             DebugTrace(0, Dbg, "LastModifiedTime %x\n", LastModifiedTime);
@@ -912,6 +942,19 @@ Return Value:
                 Buffer->FileAttributes = FILE_ATTRIBUTE_NORMAL;
             }
 
+        } else if ((Status == STATUS_INVALID_HANDLE) &&
+            (FirstTime)) {
+
+            //
+            //  Check to see if Volume handle is invalid. Caused when volume
+            //  is unmounted and then remounted.
+            //
+
+            FirstTime = FALSE;
+
+            NwReopenVcbHandle( IrpContext, Fcb->Vcb );
+
+            goto Retry;
         }
 
         return( Status );
@@ -989,7 +1032,7 @@ Return Value:
 
     Buffer->CreationTime = NwDateTimeToNtTime(
                                Fcb->CreationDate,
-                               DEFAULT_TIME
+                               Fcb->CreationTime
                                );
 
     Buffer->LastAccessTime = NwDateTimeToNtTime(
@@ -1006,6 +1049,7 @@ Return Value:
     DebugTrace(0, Dbg, "LastModifiedDate %x\n", Fcb->LastModifiedDate);
     DebugTrace(0, Dbg, "LastModifiedTime %x\n", Fcb->LastModifiedTime);
     DebugTrace(0, Dbg, "CreationDate     %x\n", Fcb->CreationDate );
+    DebugTrace(0, Dbg, "CreationTime     %x\n", Fcb->CreationTime );
     DebugTrace(0, Dbg, "LastAccessDate   %x\n", Fcb->LastAccessDate );
 
     Buffer->FileAttributes = Fcb->NonPagedFcb->Attributes;
@@ -1053,6 +1097,7 @@ Return Value:
     NTSTATUS Status;
     PFCB Fcb;
     ULONG FileSize;
+    BOOLEAN FirstTime = TRUE;
 
     PAGED_CODE();
 
@@ -1094,8 +1139,8 @@ Return Value:
             //  Allow 'cd \' to work.
             //
 
-            Buffer->AllocationSize = LiFromUlong( 0 );
-            Buffer->EndOfFile = LiFromUlong( 0 );
+            Buffer->AllocationSize.QuadPart = 0;
+            Buffer->EndOfFile.QuadPart = 0;
 
             return STATUS_SUCCESS;
 
@@ -1105,7 +1150,7 @@ Return Value:
             //  No open handle for this file.  Use a path based NCP
             //  to get the file size.
             //
-
+Retry:
             IrpContext->pNpScb = Fcb->Scb->pNpScb;
 
             if ( !BooleanFlagOn( Icb->SuperType.Fcb->Flags, FCB_FLAGS_LONG_NAME ) ) {
@@ -1113,7 +1158,7 @@ Return Value:
                 Status = ExchangeWithWait (
                              IrpContext,
                              SynchronousResponseCallback,
-                             "FwbbU",
+                             "FwbbJ",
                              NCP_SEARCH_FILE,
                              -1,
                              Fcb->Vcb->Specific.Disk.Handle,
@@ -1158,13 +1203,23 @@ Return Value:
 
            }
 
-           //
-           //  We're done with this request.  Dequeue the IRP context from
-           //  SCB.
-           //
+           if ((Status == STATUS_INVALID_HANDLE) &&
+               (FirstTime)) {
 
-           Buffer->AllocationSize = LiFromUlong( FileSize );
-           Buffer->EndOfFile = LiFromUlong( FileSize );
+               //
+               //  Check to see if Volume handle is invalid. Caused when volume
+               //  is unmounted and then remounted.
+               //
+
+               FirstTime = FALSE;
+
+               NwReopenVcbHandle( IrpContext, Fcb->Vcb );
+
+               goto Retry;
+           }
+
+           Buffer->AllocationSize.QuadPart = FileSize;
+           Buffer->EndOfFile.QuadPart = FileSize;
 
         }
 
@@ -1175,6 +1230,11 @@ Return Value:
         //
 
         IrpContext->pNpScb = Fcb->Scb->pNpScb;
+
+        if ( Fcb->NodeTypeCode == NW_NTC_FCB ) {
+            AcquireFcbAndFlushCache( IrpContext, Fcb->NonPagedFcb );
+        }
+
         Status = ExchangeWithWait(
                      IrpContext,
                      SynchronousResponseCallback,
@@ -1202,8 +1262,8 @@ Return Value:
             //  Fill in Allocation size and EOF, based on the response.
             //
 
-            Buffer->AllocationSize = LiFromUlong( FileSize );
-            Buffer->EndOfFile = Buffer->AllocationSize;
+            Buffer->AllocationSize.QuadPart = FileSize;
+            Buffer->EndOfFile.QuadPart = Buffer->AllocationSize.QuadPart;
 
         }
     }
@@ -1270,8 +1330,8 @@ Return Value:
     if ( Fcb->NodeTypeCode == NW_NTC_DCB ||
          FlagOn( Fcb->Vcb->Flags, VCB_FLAG_PRINT_QUEUE ) ) {
 
-        Buffer->AllocationSize = LiFromUlong( 0 );
-        Buffer->EndOfFile = LiFromUlong( 0 );
+        Buffer->AllocationSize.QuadPart = 0;
+        Buffer->EndOfFile.QuadPart = 0;
 
         Buffer->NumberOfLinks = 1;
         Buffer->DeletePending = (BOOLEAN)FlagOn( Fcb->Flags, FCB_FLAGS_DELETE_ON_CLOSE );
@@ -1505,10 +1565,15 @@ Return Value:
     DebugTrace(0, Dbg, "QueryPositionInfo...\n", 0);
 
     //
-    // Return the current byte offset.
+    // Return the current byte offset.  This info is totally
+    // bogus for asynchronous files.  Also note that we don't
+    // use the FilePosition member of the ICB for anything.
     //
 
-    Buffer->CurrentByteOffset = LiFromUlong( Icb->FilePosition );
+    if ( Icb->FileObject ) {
+        Buffer->CurrentByteOffset.QuadPart = Icb->FileObject->CurrentByteOffset.QuadPart;
+    }
+
     return STATUS_SUCCESS;
 }
 
@@ -1552,8 +1617,6 @@ Return Value:
 
     Fcb = Icb->SuperType.Fcb;
 
-    pIrpContext->Specific.SetFileInformation.Buffer = Buffer;
-    pIrpContext->Specific.SetFileInformation.Fcb = Fcb;
     pIrpContext->pNpScb = Fcb->Scb->pNpScb;
 
     //
@@ -1571,7 +1634,7 @@ Return Value:
 
     SetFlag( pIrpContext->Flags, IRP_FLAG_RECONNECTABLE );
 
-    if (LiNeqZero(*(PLARGE_INTEGER)&Buffer->CreationTime)) {
+    if (Buffer->CreationTime.QuadPart != 0) {
 
         //
         //  Modify the creation time.
@@ -1591,7 +1654,7 @@ Return Value:
         LfnFlag |= LFN_FLAG_SET_INFO_CREATE_DATE | LFN_FLAG_SET_INFO_CREATE_TIME;
     }
 
-    if (LiNeqZero(*(PLARGE_INTEGER)&Buffer->LastAccessTime)) {
+    if (Buffer->LastAccessTime.QuadPart != 0) {
 
         USHORT Dummy;
 
@@ -1611,9 +1674,14 @@ Return Value:
 
         SetTime = TRUE;
         LfnFlag |= LFN_FLAG_SET_INFO_LASTACCESS_DATE;
+
+        // Set the last access flag in the ICB so that we update
+        // last access time for real when we close this handle!
+
+        Icb->UserSetLastAccessTime = TRUE;
     }
 
-    if (LiNeqZero(*(PLARGE_INTEGER)&Buffer->LastWriteTime)) {
+    if (Buffer->LastWriteTime.QuadPart != 0) {
 
         //
         //  Modify the last write time
@@ -1644,6 +1712,17 @@ Return Value:
         //
 
         Status = STATUS_SUCCESS;
+    }
+
+    if ( Fcb->NodeTypeCode == NW_NTC_FCB ) {
+
+        //
+        // Call plain FlushCache - we don't want to acquire and
+        // release the NpFcb. We are already at the front and have the Fcb
+        // exclusive.
+        //
+
+        FlushCache( pIrpContext, Fcb->NonPagedFcb );
     }
 
     if ( BooleanFlagOn( Fcb->Flags, FCB_FLAGS_LONG_NAME ) ) {
@@ -1864,7 +1943,7 @@ Return Value:
     Icb = pIrpContext->Icb;
     Fcb = Icb->SuperType.Fcb;
 
-#if 0  // BUGBUG Was I on drugs?  Below seems to be false, remove the check
+#if 0 // BUGBUG Was I on drugs?  Below seems to be false, remove the check
     ASSERT ( BooleanFlagOn( Fcb->Flags, FCB_FLAGS_ATTRIBUTES_ARE_VALID ) );
 
     //
@@ -1908,7 +1987,7 @@ Return Value:
             Status = ExchangeWithWait(
                         pIrpContext,
                          SynchronousResponseCallback,
-                        "FbbU",
+                        "FbbJ",
                         NCP_DELETE_FILE,
                         Fcb->Vcb->Specific.Disk.Handle,
                         SEARCH_ALL_FILES,
@@ -1938,7 +2017,7 @@ Return Value:
             Status = ExchangeWithWait(
                         pIrpContext,
                          SynchronousResponseCallback,
-                        "SbbU",
+                        "SbbJ",
                         NCP_DIR_FUNCTION, NCP_DELETE_DIRECTORY,
                         Fcb->Vcb->Specific.Disk.Handle,
                         SEARCH_ALL_DIRECTORIES,
@@ -1961,11 +2040,25 @@ Return Value:
     }
 
     if ( NT_SUCCESS( Status )) {
+
         Status = ParseResponse(
                      pIrpContext,
                      pIrpContext->rsp,
                      pIrpContext->ResponseLength,
                      "N" );
+
+    } else {
+
+        //
+        // We can map all failures to STATUS_NO_SUCH_FILE
+        // except ACCESS_DENIED, which happens with a read
+        // only file.
+        //
+
+       if ( Status != STATUS_ACCESS_DENIED ) {
+           Status = STATUS_NO_SUCH_FILE;
+       }
+
     }
 
     return Status;
@@ -2182,7 +2275,7 @@ Return Value:
                 Status2 = ExchangeWithWait(
                               IrpContext,
                               SynchronousResponseCallback,
-                              "Fb-U",
+                              "Fb-J",
                               NCP_DELETE_FILE,
                               TargetFcb->Vcb->Specific.Disk.Handle,
                               &TargetFcb->RelativeFileName );
@@ -2222,7 +2315,7 @@ Return Value:
                 Status = ExchangeWithWait (
                             IrpContext,
                             SynchronousResponseCallback,
-                            "SbbU",   // NCP Allocate temporary directory handle
+                            "SbbJ",   // NCP Allocate temporary directory handle
                             NCP_DIR_FUNCTION, NCP_ALLOCATE_TEMP_DIR_HANDLE,
                             Fcb->Vcb->Specific.Disk.Handle,
                             '[',
@@ -2257,7 +2350,7 @@ Return Value:
 
                     Status = ExchangeWithWait (  IrpContext,
                                     SynchronousResponseCallback,
-                                    "SbUU",
+                                    "SbJJ",
                                     NCP_DIR_FUNCTION, NCP_RENAME_DIRECTORY,
                                     Handle,
                                     &OldFileName,
@@ -2303,7 +2396,7 @@ Return Value:
                 Status = ExchangeWithWait (
                              IrpContext,
                              SynchronousResponseCallback,
-                             "FbbUbU",
+                             "FbbJbJ",
                              NCP_RENAME_FILE,
                              Handle,
                              SEARCH_ALL_FILES,
@@ -2526,7 +2619,9 @@ Return Value:
 
     ASSERT( Buffer->CurrentByteOffset.HighPart == 0 );
 
-    Icb->FilePosition = Buffer->CurrentByteOffset.LowPart;
+    if ( Icb->FileObject ) {
+        Icb->FileObject->CurrentByteOffset.QuadPart = Buffer->CurrentByteOffset.QuadPart;
+    }
 
     return( STATUS_SUCCESS );
 }
@@ -2562,24 +2657,56 @@ Return Value:
     NTSTATUS Status;
     PIRP irp;
     PIO_STACK_LOCATION irpSp;
+    PFCB fcb = (PFCB)Icb->SuperType.Fcb;
+    PULONG pFileSize;
 
     PAGED_CODE();
 
     ASSERT( Buffer->AllocationSize.HighPart == 0);
 
-    IrpContext->pNpScb = Icb->SuperType.Fcb->Scb->pNpScb;
+    if ( fcb->NodeTypeCode == NW_NTC_FCB ) {
 
-    if ( BooleanFlagOn( Icb->SuperType.Fcb->Vcb->Flags, VCB_FLAG_PRINT_QUEUE ) ) {
-        Status = STATUS_SUCCESS;
-    } else if ( !Icb->HasRemoteHandle ) {
+        pFileSize = &Icb->NpFcb->Header.FileSize.LowPart;
+
+        IrpContext->pNpScb = fcb->Scb->pNpScb;
+
+        if (BooleanFlagOn( fcb->Vcb->Flags, VCB_FLAG_PRINT_QUEUE ) ) {
+
+            return STATUS_SUCCESS;
+
+        }
+
+    } else if ( fcb->NodeTypeCode == NW_NTC_SCB ) {
+
+        pFileSize = &Icb->FileSize;
+
+        IrpContext->pNpScb = ((PSCB)fcb)->pNpScb;
+
+    } else {
+
+        DebugTrace(0, Dbg, "Not a file or a server\n", 0);
+
+        DebugTrace( 0, Dbg, "NwSetAllocationInfo -> %08lx\n", STATUS_INVALID_PARAMETER );
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    NwAppendToQueueAndWait( IrpContext );
+
+    if ( !Icb->HasRemoteHandle ) {
+
         Status = STATUS_INVALID_PARAMETER;
+
+    } else if ( Buffer->AllocationSize.LowPart == *pFileSize ) {
+
+        Status = STATUS_SUCCESS;
+
     } else {
 
         irp = IrpContext->pOriginalIrp;
         irpSp = IoGetCurrentIrpStackLocation( irp );
 
 #ifndef QFE_BUILD
-        if ( Buffer->AllocationSize.LowPart < Icb->NpFcb->Header.FileSize.LowPart ) {
+        if ( Buffer->AllocationSize.LowPart < *pFileSize ) {
 
             //
             //  Before we actually truncate, check to see if the purge
@@ -2594,18 +2721,24 @@ Return Value:
         }
 #endif
 
-        Status = Exchange(
+        if ( fcb->NodeTypeCode == NW_NTC_FCB ) {
+            AcquireFcbAndFlushCache( IrpContext, fcb->NonPagedFcb );
+        }
+
+        Status = ExchangeWithWait(
                      IrpContext,
-                     AsynchResponseCallback,
+                     SynchronousResponseCallback,
                      "F-rd=",
                      NCP_WRITE_FILE,
                      &Icb->Handle, sizeof( Icb->Handle ),
                      Buffer->AllocationSize.LowPart );
 
         if ( NT_SUCCESS( Status ) ) {
-            Icb->NpFcb->Header.FileSize.LowPart = Buffer->AllocationSize.LowPart;
+            *pFileSize = Buffer->AllocationSize.LowPart;
         }
     }
+
+    NwDequeueIrpContext( IrpContext, FALSE );
 
     return( Status );
 }
@@ -2640,24 +2773,57 @@ Return Value:
     NTSTATUS Status;
     PIRP irp;
     PIO_STACK_LOCATION irpSp;
+    PFCB fcb = (PFCB)Icb->SuperType.Fcb;
+    PULONG pFileSize;
 
     PAGED_CODE();
 
     ASSERT( Buffer->EndOfFile.HighPart == 0);
 
-    IrpContext->pNpScb = Icb->SuperType.Fcb->Scb->pNpScb;
+    if ( fcb->NodeTypeCode == NW_NTC_FCB ) {
 
-    if ( BooleanFlagOn( Icb->SuperType.Fcb->Vcb->Flags, VCB_FLAG_PRINT_QUEUE ) ) {
-        Status = STATUS_SUCCESS;
-    } else if ( !Icb->HasRemoteHandle ) {
+        pFileSize = &Icb->NpFcb->Header.FileSize.LowPart;
+
+        IrpContext->pNpScb = fcb->Scb->pNpScb;
+
+        if (BooleanFlagOn( fcb->Vcb->Flags, VCB_FLAG_PRINT_QUEUE ) ) {
+
+            return STATUS_SUCCESS;
+
+        }
+
+    } else if ( fcb->NodeTypeCode == NW_NTC_SCB ) {
+
+        pFileSize = &Icb->FileSize;
+
+        IrpContext->pNpScb = ((PSCB)fcb)->pNpScb;
+
+    } else {
+
+        DebugTrace(0, Dbg, "Not a file or a server\n", 0);
+
+        DebugTrace( 0, Dbg, "NwSetAllocationInfo -> %08lx\n", STATUS_INVALID_PARAMETER );
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    NwAppendToQueueAndWait( IrpContext );
+
+    if ( !Icb->HasRemoteHandle ) {
+
         Status = STATUS_INVALID_PARAMETER;
+
+    } else if ( Buffer->EndOfFile.LowPart == *pFileSize ) {
+
+        Status = STATUS_SUCCESS;
+
     } else {
 
         irp = IrpContext->pOriginalIrp;
         irpSp = IoGetCurrentIrpStackLocation( irp );
 
 #ifndef QFE_BUILD
-        if ( Buffer->EndOfFile.LowPart < Icb->NpFcb->Header.FileSize.LowPart ) {
+
+        if ( Buffer->EndOfFile.LowPart < *pFileSize ) {
 
             //
             //  Before we actually truncate, check to see if the purge
@@ -2672,18 +2838,24 @@ Return Value:
         }
 #endif
 
-        Status = Exchange(
+        if ( fcb->NodeTypeCode == NW_NTC_FCB ) {
+            AcquireFcbAndFlushCache( IrpContext, fcb->NonPagedFcb );
+        }
+
+        Status = ExchangeWithWait(
                      IrpContext,
-                     AsynchResponseCallback,
+                     SynchronousResponseCallback,
                      "F-rd=",
                      NCP_WRITE_FILE,
                      &Icb->Handle, sizeof( Icb->Handle ),
                      Buffer->EndOfFile.LowPart );
 
         if ( NT_SUCCESS( Status ) ) {
-            Icb->NpFcb->Header.FileSize.LowPart = Buffer->EndOfFile.LowPart;
+            *pFileSize = Buffer->EndOfFile.LowPart;
         }
     }
+
+    NwDequeueIrpContext( IrpContext, FALSE );
 
     return( Status );
 }
@@ -2731,4 +2903,3 @@ Return Value:
 
     return( count );
 }
-

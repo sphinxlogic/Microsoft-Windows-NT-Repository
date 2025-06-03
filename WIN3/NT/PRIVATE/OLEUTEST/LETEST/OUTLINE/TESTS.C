@@ -47,6 +47,7 @@
 
 void StartClipboardTest1( LPOUTLINEAPP lpOutlineApp)
 {
+        static char FileName[] = "letest12.olc";
 	BOOL fStatus;
 	HRESULT	hresult = ResultFromScode(E_FAIL);
 
@@ -57,7 +58,7 @@ void StartClipboardTest1( LPOUTLINEAPP lpOutlineApp)
 	}
 
 	fStatus = OutlineDoc_LoadFromFile(lpOutlineApp->m_lpDoc,
-			"letest12.olc");
+			FileName);
 
 	if( !fStatus )
 	{
@@ -131,4 +132,3 @@ void ContinueClipboardTest1( LPOUTLINEAPP lpOutlineApp )
 	PostMessage(lpOutlineApp->m_hWndApp, WM_SYSCOMMAND, SC_CLOSE, 0L);
 }
 
-

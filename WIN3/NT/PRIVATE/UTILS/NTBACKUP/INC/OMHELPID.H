@@ -4,7 +4,7 @@ Copyright(c) Maynard, an Archive Company. 1991
      Name:          OMHELPIDS.H
 
      Description:   This header file contains helpids for the
-                    help manager.
+		    help manager.
 
      $Log:   G:/UI/LOGFILES/OMHELPID.H_V  $
 
@@ -84,6 +84,9 @@ Initial revision.
 #define IDH_MENU_OPERATIONSEXIT       107
 #define IDH_MENU_OPERATIONSCATALOG    108
 #define IDH_MENU_OPERATIONSFORMAT     109
+#ifdef OEM_EMS
+#define IDH_MENU_OPERATIONSEXCHANGE   110
+#endif
 
 #define IDH_MENU_TREEEXPANDONE        200
 #define IDH_MENU_TREEEXPANDBRANCH     201
@@ -98,7 +101,7 @@ Initial revision.
 #define IDH_MENU_VIEWSTATUS           305
 #define IDH_MENU_VIEWTOOLBAR          306
 #define IDH_MENU_VIEWFONT             2410    // Was 307. Microsoft wants the dialog 
-#define IDH_MENU_VIEWSPLIT            308  	 
+#define IDH_MENU_VIEWSPLIT            308        
 
 #define IDH_MENU_SELECTCHECK          400
 #define IDH_MENU_SELECTUNCHECK        401
@@ -131,9 +134,16 @@ Initial revision.
 #define IDH_DB_TAPEREWOUND            2070  // Tape is rewound
 #define IDH_DB_CATNOTAVAILABLE        2080  // Catalog not available
 #define IDH_DB_HARDWARESETUP          2090  // Hardware config.
-#define IDH_DB_VIEWFONT					  2410  // Font dialog.
-#define IDH_DB_FORMAT 					  2415  // Font dialog.
+#define IDH_DB_VIEWFONT                                   2410  // Font dialog.
+#define IDH_DB_FORMAT                                     2415  // Font dialog.
 #define IDH_DB_BATCHHELP                       2420  // batch command help
+
+#ifdef OEM_EMS
+#define IDH_DB_XCHG_BACKUPSET           3001 // Exchange Backup set
+#define IDH_DB_XCHG_RESTORESET          3011 // Exchange Restore set
+#define IDH_DB_XCHG_CONNECT           2430   // Exchange Connect dialog
+#define IDH_DB_XCHG_BROWSE            2431   // Exchange connect browse
+#endif
 
 
 // THE FOLLOWING HELP IDs ARE NOT USED IN THE MICROSOFT NT BACKUP.EXE
@@ -241,6 +251,9 @@ Initial revision.
 #define HELPID_OPERATIONSHARDWARE   IDH_MENU_OPERATIONSHARDWARE
 #define HELPID_OPERATIONSEXIT       IDH_MENU_OPERATIONSEXIT
 #define HELPID_OPERATIONSFORMAT     IDH_MENU_OPERATIONSFORMAT
+#ifdef OEM_EMS
+#define HELPID_OPERATIONSEXCHANGE   IDH_MENU_OPERATIONSEXCHANGE
+#endif
 
 #define HELPID_TREEEXPANDONE        IDH_MENU_TREEEXPANDONE
 #define HELPID_TREEEXPANDBRANCH     IDH_MENU_TREEEXPANDBRANCH
@@ -324,4 +337,3 @@ Initial revision.
 #define HELPID_LAUNCHSCHEDDELAY         IDH_LAUNCHSCHEDDELAY
 
 #endif
-

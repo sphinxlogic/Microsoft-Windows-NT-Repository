@@ -16,10 +16,9 @@ Author:
 
 Revision History:
     barats  3-13-92 Changed to new spec.
-
     barats  5-10-92 Midl related bugbug removerd
-
     mariogo 6-08-94 Changed to full pointers.
+    mariogo 4-24-96 Added local interface for local runtime <-> rpcss calls.
 
 --*/
 
@@ -50,6 +49,20 @@ interface epmp
 {
 import "nbase.idl";
 
+/*
+    Well known endpoint mapper constants
+*/
+
+const unsigned32 ep_max_annotation_size     = 64;
+const unsigned32 EP_S_SUCCESS               = 0x00000000;
+const unsigned32 EP_S_CANT_PERFORM_OP       = 0x16c9a0cd;
+const unsigned32 EP_S_DATABASE_INVALID      = 0x16c9a0cf;
+const unsigned32 EP_S_CANT_CREATE           = 0x16c9a0d0;
+const unsigned32 EP_S_CANT_ACCESS           = 0x16c9a0d1;
+const unsigned32 EP_S_BAD_ENTRY             = 0x16c9a0d3;
+const unsigned32 EP_S_UPDATA_FAILED         = 0x16c9a0d4;
+const unsigned32 EP_S_NOT_REGISTERED        = 0x16c9a0d6;
+const unsigned32 EP_S_SERVER_UNAVAILABLE    = 0x16c9a0d7;
 /*
     User Defind Types
 */
@@ -155,3 +168,83 @@ ept_mgmt_delete (
 
 }
 
+#if NTENV
+
+[
+uuid(0b0a6584-9e0f-11cf-a3cf-00805f68cb1b),
+version(1.0)
+]
+interface localepmp
+{
+
+    typedef [context_handle] void *HPROCESS;
+
+    //
+    // Must be called to call the local endpoint mapper at all.
+    //
+    error_status_t
+    OpenEndpointMapper([in]  handle_t hServer,
+                       [out] HPROCESS *pProcessHandle);
+
+    //
+    // For machines on networks with port restrictions due to firewalls
+    // we need to centrally (for a system) manage port allocation.
+    //
+    // Regardless of the general policy for the network, applications
+    // either want a "standard" port which is not available from an
+    // external network (system services usually) or want a "restricted"
+    // port because their service needs to be avaiable to both internal
+    // and external users.
+    // The endpoint mapper manages ranges of both kinds of ports and
+    // will return "restricted" (if fRestricted) or "standard" ports
+    // as required by applications.
+    // If *pPort is zero then any port maybe used.
+    //
+
+    typedef [v1_enum] enum {
+        PORT_INTERNET = 1,
+        PORT_INTRANET,
+        PORT_DEFAULT
+        } PORT_TYPE;
+
+    error_status_t
+    AllocateReservedIPPort(
+        [in] HPROCESS hProcess,
+        [in] PORT_TYPE DesiredPort,
+        [out] long *pAllocationStatus,
+        [out] unsigned short *pPort);
+
+#if 0
+    //
+    // We only allocate local processes to register and delete
+    // bindings from the endpoint mapper.  The remote version
+    // always fails with access denided.
+    //
+    // The context handle parameter is used to allow the endpoint
+    // mapper to cleanup entries in the endpoint mapper database
+    // when a process dies.
+    //
+
+    void
+    ept_insert(
+        [in] handle_t hServer,
+        [in] HPROCESS hProcess,
+        [in] unsigned32 num_ents,
+        [in, size_is(num_ents)] ept_entry_t entries[],
+        [in] unsigned long replace,
+        [out] error_status *status
+        );
+
+    void
+    ept_delete (
+        [in] handle_t hServer,
+        [in] HPROCESS hProcess,
+        [in] unsigned32 num_ents,
+        [in, size_is(num_ents)] ept_entry_t entries[],
+        [out] error_status *status
+        );
+#endif
+
+}
+
+#endif

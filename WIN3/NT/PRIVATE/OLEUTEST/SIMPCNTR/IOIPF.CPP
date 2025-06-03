@@ -44,7 +44,7 @@
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      CSimpleApp::QueryInterface  APP.CPP
 //
 //
@@ -52,7 +52,7 @@
 
 STDMETHODIMP COleInPlaceFrame::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 {
-    OutputDebugString(TEXT("In IOIPF::QueryInterface\r\n"));
+    TestDebugOut(TEXT("In IOIPF::QueryInterface\r\n"));
 
     // delegate to the application Object
     return m_pApp->QueryInterface(riid, ppvObj);
@@ -80,7 +80,7 @@ STDMETHODIMP COleInPlaceFrame::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      CSimpleApp::AddRef          APP.CPP
 //
 //
@@ -88,7 +88,7 @@ STDMETHODIMP COleInPlaceFrame::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 
 STDMETHODIMP_(ULONG) COleInPlaceFrame::AddRef()
 {
-    OutputDebugString(TEXT("In IOIPF::AddRef\r\n"));
+    TestDebugOut(TEXT("In IOIPF::AddRef\r\n"));
 
     // delegate to the application Object
     return m_pApp->AddRef();
@@ -116,7 +116,7 @@ STDMETHODIMP_(ULONG) COleInPlaceFrame::AddRef()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      CSimpleApp::Release         APP.CPP
 //
 //
@@ -124,7 +124,7 @@ STDMETHODIMP_(ULONG) COleInPlaceFrame::AddRef()
 
 STDMETHODIMP_(ULONG) COleInPlaceFrame::Release()
 {
-    OutputDebugString(TEXT("In IOIPF::Release\r\n"));
+    TestDebugOut(TEXT("In IOIPF::Release\r\n"));
 
     // delegate to the document object
     return m_pApp->Release();
@@ -150,7 +150,7 @@ STDMETHODIMP_(ULONG) COleInPlaceFrame::Release()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      ResultFromScode             OLE API
 //
 //
@@ -158,7 +158,7 @@ STDMETHODIMP_(ULONG) COleInPlaceFrame::Release()
 
 STDMETHODIMP COleInPlaceFrame::GetWindow (HWND FAR* lphwnd)
 {
-    OutputDebugString(TEXT("In IOIPF::GetWindow\r\n"));
+    TestDebugOut(TEXT("In IOIPF::GetWindow\r\n"));
     *lphwnd = m_pApp->m_hAppWnd;
     return ResultFromScode(S_OK);
 }
@@ -182,7 +182,7 @@ STDMETHODIMP COleInPlaceFrame::GetWindow (HWND FAR* lphwnd)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      ResultFromScode             OLE API
 //
 // Comments:
@@ -193,7 +193,7 @@ STDMETHODIMP COleInPlaceFrame::GetWindow (HWND FAR* lphwnd)
 
 STDMETHODIMP COleInPlaceFrame::ContextSensitiveHelp (BOOL fEnterMode)
 {
-    OutputDebugString(TEXT("In IOIPF::ContextSensitiveHelp\r\n"));
+    TestDebugOut(TEXT("In IOIPF::ContextSensitiveHelp\r\n"));
 
     m_pApp->m_fMenuMode = fEnterMode;
 
@@ -220,7 +220,7 @@ STDMETHODIMP COleInPlaceFrame::ContextSensitiveHelp (BOOL fEnterMode)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      GetClientRect               Windows API
 //      CopyRect                    Windows API
 //      ResultFromScode             OLE API
@@ -232,7 +232,7 @@ STDMETHODIMP COleInPlaceFrame::GetBorder (LPRECT lprectBorder)
 {
     RECT rect;
 
-    OutputDebugString(TEXT("In IOIPF::GetBorder\r\n"));
+    TestDebugOut(TEXT("In IOIPF::GetBorder\r\n"));
 
     // get the rect for the entire frame.
     GetClientRect(m_pApp->m_hAppWnd, &rect);
@@ -263,7 +263,7 @@ STDMETHODIMP COleInPlaceFrame::GetBorder (LPRECT lprectBorder)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      ResultFromScode             OLE API
 //
 // Comments:
@@ -276,7 +276,7 @@ STDMETHODIMP COleInPlaceFrame::GetBorder (LPRECT lprectBorder)
 STDMETHODIMP COleInPlaceFrame::RequestBorderSpace (LPCBORDERWIDTHS
                                                          lpborderwidths)
 {
-    OutputDebugString(TEXT("In IOIPF::RequestBorderSpace\r\n"));
+    TestDebugOut(TEXT("In IOIPF::RequestBorderSpace\r\n"));
 
     // always approve the request
     return ResultFromScode(S_OK);
@@ -304,7 +304,7 @@ STDMETHODIMP COleInPlaceFrame::RequestBorderSpace (LPCBORDERWIDTHS
 //      Function                        Location
 //
 //      CSimpleApp::AddFrameLevelTools  APP.CPP
-//      OutputDebugString               Windows API
+//      TestDebugOut               Windows API
 //      GetClientRect                   Windows API
 //      MoveWindow                      Windows API
 //      ResultFromScode                 Windows API
@@ -320,7 +320,7 @@ STDMETHODIMP COleInPlaceFrame::RequestBorderSpace (LPCBORDERWIDTHS
 STDMETHODIMP COleInPlaceFrame::SetBorderSpace (LPCBORDERWIDTHS lpborderwidths)
 {
 
-    OutputDebugString(TEXT("In IOIPF::SetBorderSpace\r\n"));
+    TestDebugOut(TEXT("In IOIPF::SetBorderSpace\r\n"));
 
     if (lpborderwidths == NULL)
         m_pApp->AddFrameLevelTools();
@@ -364,7 +364,7 @@ STDMETHODIMP COleInPlaceFrame::SetBorderSpace (LPCBORDERWIDTHS lpborderwidths)
 // Function Calls:
 //      Function                            Location
 //
-//      OutputDebugString                   Windows API
+//      TestDebugOut                   Windows API
 //      IOleInPlaceActiveObject::AddRef     Object
 //      IOleInPlaceActiveObject::Release    Object
 //      ResultFromScode                     OLE API
@@ -376,7 +376,7 @@ STDMETHODIMP COleInPlaceFrame::SetActiveObject (LPOLEINPLACEACTIVEOBJECT
                                         lpActiveObject, LPCOLESTR lpszObjName)
 {
 
-    OutputDebugString(TEXT("In IOIPF::SetActiveObject\r\n"));
+    TestDebugOut(TEXT("In IOIPF::SetActiveObject\r\n"));
 
     // AddRef() it and save it...
     if (lpActiveObject)
@@ -422,7 +422,7 @@ STDMETHODIMP COleInPlaceFrame::SetActiveObject (LPOLEINPLACEACTIVEOBJECT
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      AppendMenu                  Windows API
 //      ResultFromScode             OLE API
 //
@@ -432,7 +432,7 @@ STDMETHODIMP COleInPlaceFrame::SetActiveObject (LPOLEINPLACEACTIVEOBJECT
 STDMETHODIMP COleInPlaceFrame::InsertMenus (HMENU hmenuShared,
                                             LPOLEMENUGROUPWIDTHS lpMenuWidths)
 {
-    OutputDebugString(TEXT("In IOIPF::InsertMenus\r\n"));
+    TestDebugOut(TEXT("In IOIPF::InsertMenus\r\n"));
 
     AppendMenu(hmenuShared, MF_BYPOSITION | MF_POPUP,
                (UINT) m_pApp->m_lpDoc->m_hFileMenu, TEXT("&File"));
@@ -471,7 +471,7 @@ STDMETHODIMP COleInPlaceFrame::InsertMenus (HMENU hmenuShared,
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      SetMenu                     Windows API
 //      OleSetMenuDescriptor        OLE API
 //
@@ -482,7 +482,7 @@ STDMETHODIMP COleInPlaceFrame::SetMenu (HMENU hmenuShared, HOLEMENU holemenu,
                                         HWND hwndActiveObject)
 {
 
-    OutputDebugString(TEXT("In IOIPF::SetMenu\r\n"));
+    TestDebugOut(TEXT("In IOIPF::SetMenu\r\n"));
 
     HMENU hMenu = m_pApp->m_lpDoc->m_hMainMenu;
 
@@ -519,7 +519,7 @@ STDMETHODIMP COleInPlaceFrame::SetMenu (HMENU hmenuShared, HOLEMENU holemenu,
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      GetMenuItemCount            Windows API
 //      RemoveMenu                  Windows API
 //      ResultFromScode             OLE API
@@ -531,7 +531,7 @@ STDMETHODIMP COleInPlaceFrame::RemoveMenus (HMENU hmenuShared)
 {
     int retval;
 
-    OutputDebugString(TEXT("In IOIPF::RemoveMenus\r\n"));
+    TestDebugOut(TEXT("In IOIPF::RemoveMenus\r\n"));
 
     while ((retval = GetMenuItemCount(hmenuShared)) && (retval != -1))
         RemoveMenu(hmenuShared, 0, MF_BYPOSITION);
@@ -558,7 +558,7 @@ STDMETHODIMP COleInPlaceFrame::RemoveMenus (HMENU hmenuShared)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -569,7 +569,7 @@ STDMETHODIMP COleInPlaceFrame::RemoveMenus (HMENU hmenuShared)
 
 STDMETHODIMP COleInPlaceFrame::SetStatusText (LPCOLESTR lpszStatusText)
 {
-    OutputDebugString(TEXT("In IOIPF::SetStatusText\r\n"));
+    TestDebugOut(TEXT("In IOIPF::SetStatusText\r\n"));
     return ResultFromScode(E_FAIL);
 }
 
@@ -592,7 +592,7 @@ STDMETHODIMP COleInPlaceFrame::SetStatusText (LPCOLESTR lpszStatusText)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -603,7 +603,7 @@ STDMETHODIMP COleInPlaceFrame::SetStatusText (LPCOLESTR lpszStatusText)
 
 STDMETHODIMP COleInPlaceFrame::EnableModeless (BOOL fEnable)
 {
-    OutputDebugString(TEXT("In IOIPF::EnableModeless\r\n"));
+    TestDebugOut(TEXT("In IOIPF::EnableModeless\r\n"));
     return ResultFromScode(S_OK);
 }
 
@@ -627,14 +627,14 @@ STDMETHODIMP COleInPlaceFrame::EnableModeless (BOOL fEnable)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 //
 //********************************************************************
 
 STDMETHODIMP COleInPlaceFrame::TranslateAccelerator (LPMSG lpmsg, WORD wID)
 {
-    OutputDebugString(TEXT("In IOIPF::TranslateAccelerator\r\n"));
+    TestDebugOut(TEXT("In IOIPF::TranslateAccelerator\r\n"));
     return ::TranslateAccelerator(m_pApp->m_hAppWnd, m_pApp->m_hAccel, lpmsg)
         ? ResultFromScode(S_OK)
         : ResultFromScode(S_FALSE);

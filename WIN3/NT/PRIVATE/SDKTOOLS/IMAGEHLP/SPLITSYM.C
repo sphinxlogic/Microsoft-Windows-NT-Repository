@@ -24,14 +24,8 @@ Revision History:
 
 --*/
 
-#include <assert.h>
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-#include <memory.h>
-#include <ctype.h>
-#include <windows.h>
-#include <imagehlp.h>
+#include <private.h>
+
 
 BOOL fVerbose;
 BOOL fRecurse;

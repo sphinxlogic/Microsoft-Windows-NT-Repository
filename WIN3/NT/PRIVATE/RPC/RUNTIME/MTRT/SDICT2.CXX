@@ -10,23 +10,24 @@ History :
 
 -------------------------------------------------------------------- */
 
-#include <sysinc.h>
-#include <rpc.h>
-#include <util.hxx>
+#include <precomp.hxx>
 #include <sdict2.hxx>
 
 SIMPLE_DICT2::SIMPLE_DICT2 (
     )
 {
     int iDictSlots;
-    
+
     ALLOCATE_THIS(SIMPLE_DICT2);
-    
+
     cDictSlots = INITIALDICT2SLOTS;
     DictKeys = InitialDictKeys;
     DictItems = InitialDictItems;
     for (iDictSlots = 0; iDictSlots < cDictSlots; iDictSlots++)
-        DictKeys[iDictSlots] = (void *) 0;
+        {
+        DictKeys [iDictSlots] = (void *) 0;
+        DictItems[iDictSlots] = (void *) 0;
+        }
 }
 
 SIMPLE_DICT2::~SIMPLE_DICT2 (
@@ -35,7 +36,7 @@ SIMPLE_DICT2::~SIMPLE_DICT2 (
     if (DictKeys != InitialDictKeys)
         {
         ASSERT(DictItems != InitialDictItems);
-        
+
         delete DictKeys;
         delete DictItems;
         }
@@ -50,7 +51,7 @@ SIMPLE_DICT2::Insert (
     int iDictSlots;
     void * * NewDictKeys;
     void * * NewDictItems;
-    
+
     for (iDictSlots = 0; iDictSlots < cDictSlots; iDictSlots++)
         {
         if (DictKeys[iDictSlots] == (void *) 0)
@@ -61,9 +62,9 @@ SIMPLE_DICT2::Insert (
             }
         }
     // Otherwise, we need to expand the size of the dictionary.
-    NewDictKeys = (void * *) 
+    NewDictKeys = (void * *)
                     new unsigned char [sizeof(void *) * cDictSlots * 2];
-    NewDictItems = (void * *) 
+    NewDictItems = (void * *)
                     new unsigned char [sizeof(void *) * cDictSlots * 2];
     if (NewDictKeys == (void *) 0)
         return(-1);
@@ -85,11 +86,11 @@ SIMPLE_DICT2::Insert (
     if (DictKeys != InitialDictKeys)
         {
         ASSERT(DictItems != InitialDictItems);
-        
+
         delete DictKeys;
         delete DictItems;
         }
-    
+
     DictKeys = NewDictKeys;
     DictItems = NewDictItems;
     return(0);
@@ -101,13 +102,17 @@ SIMPLE_DICT2::Delete (
     )
 {
     int iDictSlots;
-    
+
     for (iDictSlots = 0; iDictSlots < cDictSlots; iDictSlots++)
         {
         if (DictKeys[iDictSlots] == Key)
             {
-            DictKeys[iDictSlots] = (void *) 0;
-            return(DictItems[iDictSlots]);
+            void * Item = DictItems[iDictSlots];
+
+            DictKeys [iDictSlots] = (void *) 0;
+            DictItems[iDictSlots] = (void *) 0;
+
+            return Item;
             }
         }
     return((void *) 0);
@@ -119,7 +124,7 @@ SIMPLE_DICT2::Find (
     )
 {
     int iDictSlots;
-    
+
     for (iDictSlots = 0; iDictSlots < cDictSlots; iDictSlots++)
         {
         if (DictKeys[iDictSlots] == Key)

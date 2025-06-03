@@ -710,7 +710,7 @@ Return Value:
     }
 #endif
 
-    status = RxpTransactSmb(uncName,
+    status = RxpTransactSmb((LPTSTR)uncName,
 
                             //
                             // BUGBUG - transport name?

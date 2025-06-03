@@ -190,7 +190,7 @@ Return Value:
     }
 
     if (DeviceSpecificData) {
-        // BUGBUG Add a check for maximum size of data.
+        // Should add a check for maximum size of data.
         Partial = &Descriptor->PartialDescriptors[Index];
         Partial->Type = CmResourceTypeDeviceSpecific;
         Partial->ShareDisposition = CmResourceShareDeviceExclusive;

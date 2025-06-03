@@ -25,8 +25,6 @@ extern NSI_INTERFACE_ID_T NilNsiIfIdOnWire;
 CDEF
 #include "nsisvr.h"
 
-defModule
-
 
 void
 nsi_binding_export(
@@ -98,19 +96,19 @@ Returns:
     // If there is a object vector, Copy it to an array of objects.
 
     if (ObjectVector && ObjectVector->count) {
-        int i,j,NewCount=1;
+        unsigned int i, j, NewCount = 1;
 
         //First weed out any duplicates found
-        
+
         for (i = 1; i < ObjectVector->count; i++)
           {
             for (j=0; j < NewCount; j++)
               {
                 if (!memcmp(ObjectVector->uuid[i], ObjectVector->uuid[j],
-                            sizeof(NSI_UUID_T) ) ) 
+                            sizeof(NSI_UUID_T) ) )
                 break;
               }
-             if (j == NewCount) 
+             if (j == NewCount)
                {
 
                 if (i > NewCount)
@@ -121,7 +119,7 @@ Returns:
           }
 
         ObjectVector->count = NewCount;
-  
+
         ObjectDA = UUID_ARRAY(ObjectVector->count);
 
         NS_UUID ** pGID = (NS_UUID **) ObjectVector->uuid;
@@ -140,7 +138,7 @@ Returns:
 
 /*
 
-     If Interface or bindingvector ar null, the call is just adding 
+     If Interface or bindingvector ar null, the call is just adding
      Object Uuid vectors and we should ignore both If and BVs in that case
 
 
@@ -152,7 +150,7 @@ Returns:
 */
 
         if (!*status)
-            *status = InsertServerEntry(&Entry, (ENTRY_SERVER_ITEM *)NULL, 
+            *status = InsertServerEntry(&Entry, (ENTRY_SERVER_ITEM *)NULL,
                                         &ObjectDA);
 
         ObjectDA.Free();
@@ -162,7 +160,8 @@ Returns:
     // create a new interface node in the DICT tree if there is none
 
 
-    for (int Index = 0; Index < BindingVector->count && *status == NSI_S_OK;
+    for (unsigned int Index = 0;
+        Index < BindingVector->count && *status == NSI_S_OK;
         Index++) {
 
         ENTRY_SERVER_ITEM *ServerItem = new ENTRY_SERVER_ITEM(LocalItemType,
@@ -183,7 +182,7 @@ Returns:
 
 
 
-void 
+void
 I_nsi_binding_update_local(
     IN UNSIGNED32           EntryNameSyntax,
     IN STRING_T             EntryName,
@@ -192,7 +191,7 @@ I_nsi_binding_update_local(
     IN NSI_UUID_VECTOR_P_T  ObjectVector, OPT
     IN UNSIGNED16         * status
     )
- 
+
 {
   nsi_binding_export(
           EntryNameSyntax,
@@ -356,23 +355,23 @@ Returns:
     // Remove the any objects from the entry last.
 
     if (ObjectVector && (ObjectVector->count != 0)
-        && *status == NSI_S_OK 
-        && (pEntry = (ENTRY_SERVER_NODE *)EntryDict->Find(&Entry))) 
+        && *status == NSI_S_OK
+        && (pEntry = (ENTRY_SERVER_NODE *)EntryDict->Find(&Entry)))
        {
 
-        int i,j,NewCount=1;
+        unsigned int i, j, NewCount = 1;
 
         //First weed out any duplicates found
-        
+
         for (i = 1; i < ObjectVector->count; i++)
           {
             for (j=0; j < NewCount; j++)
               {
                 if (!memcmp(ObjectVector->uuid[i], ObjectVector->uuid[j],
-                            sizeof(NSI_UUID_T) ) ) 
+                            sizeof(NSI_UUID_T) ) )
                 break;
               }
-             if (j == NewCount) 
+             if (j == NewCount)
                {
 
                 if (i > NewCount)
@@ -490,7 +489,7 @@ Returns:
        {
          Interface = (NSI_INTERFACE_ID_T *)NULL;
        }
-           
+
 
     if (EntryNameSyntax != RPC_C_NS_SYNTAX_DCE) {
         *status = NSI_S_UNSUPPORTED_NAME_SYNTAX;
@@ -626,10 +625,10 @@ Returns:
 
     BindingVector->count = 0;
     *BindingVectorOut = BindingVector;
-    
+
     ASSERT(AssertHeap());
 
-    while ( BindingVector->count < ReplyServer->TheVectorSize()  
+    while ( BindingVector->count < ReplyServer->TheVectorSize()
            && (EntryServer = ReplyServer->NextBindingAndObject(&Object)) )
          {
 
@@ -651,7 +650,7 @@ Returns:
 
         ASSERT(AssertHeap());
 
-	BindingVector->binding[BindingVector->count].string =
+    BindingVector->binding[BindingVector->count].string =
             new UICHAR [SizeBinding];
 
         ASSERT(AssertHeap());
@@ -669,10 +668,10 @@ Returns:
               (Object)? ObjectBuffer: NIL),
               EntryServer->TheStringBinding().pCur());
 
-	BindingVector->binding[BindingVector->count].entry_name =
+    BindingVector->binding[BindingVector->count].entry_name =
             EntryServer->TheEntry().CopyName();
 
-	if (!BindingVector->binding[BindingVector->count].entry_name) {
+    if (!BindingVector->binding[BindingVector->count].entry_name) {
             delete BindingVector->binding[BindingVector->count].string;
             *status = NSI_S_OUT_OF_MEMORY;
             return;
@@ -753,7 +752,7 @@ Returns:
     CLAIM_MUTEX Update(pESaccess);
 
     if (ReplyBase->AssertHandle())
-	delete ReplyBase;
+    delete ReplyBase;
     else
         *status = NSI_S_INVALID_NS_HANDLE;
 

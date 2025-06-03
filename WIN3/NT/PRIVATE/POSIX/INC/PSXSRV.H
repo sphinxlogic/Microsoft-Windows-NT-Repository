@@ -1062,12 +1062,13 @@ CloseProcessFileTable(
     );
 
 //
-// Per Device Type Io structures, types...  Filesystems
+// Per-Device Type Io structures, types...  Filesystems
 // are numbered 'A'..'Z'.
 //
 
-#define PSX_LOCAL_PIPE 1
+#define PSX_LOCAL_PIPE  1
 #define PSX_CONSOLE_DEV 2
+#define PSX_NULL_DEV    3
 
 //
 // Local Pipes
@@ -1105,6 +1106,12 @@ extern PSXIO_VECTORS FileVectors;
 //
 
 extern PSXIO_VECTORS ConVectors;
+
+//
+// Null device
+//
+
+extern PSXIO_VECTORS NullVectors;
 
 NTSTATUS
 PsxApiHandleConnectionRequest(
@@ -1587,6 +1594,12 @@ PsxUnlink(
     );
 
 BOOLEAN
+PsxFtruncate(
+    IN PPSX_PROCESS p,
+    IN PPSX_API_MSG m
+    );
+
+BOOLEAN
 PsxNull(
     IN PPSX_PROCESS p,
     IN PPSX_API_MSG m
@@ -1816,6 +1829,14 @@ OpenTty(
 	ULONG DesiredAccess,
 	ULONG Flags,
 	BOOLEAN NewOpen
+	);
+
+ULONG
+OpenDevNull(
+	PPSX_PROCESS p,
+	PFILEDESCRIPTOR Fd,
+	ULONG DesiredAccess,
+	ULONG Flags
 	);
 
 dev_t

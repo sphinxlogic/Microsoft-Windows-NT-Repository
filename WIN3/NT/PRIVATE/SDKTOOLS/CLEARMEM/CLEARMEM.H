@@ -107,4 +107,3 @@
 #define LAZY_DELAY		   5000L   // Lazy Writer delay
 
 #define NUM_FILES		      3    // Number of flush files
-

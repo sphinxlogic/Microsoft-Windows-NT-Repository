@@ -18,75 +18,11 @@ Revision History:
 
 
 --*/
-#include "dpmi32p.h"
-VOID
-DpmiInitDosx(
-    VOID
-    )
-/*++
 
-Routine Description:
-
-    This routine handle the initialization bop for the dos extender.
-    It get the addresses of the structures that the dos extender and
-    32 bit code share.
-
-Arguments:
-
-    None
-
-Return Value:
-
-    None.
-
---*/
-{
-    PUCHAR SharedData;
-
-    ASSERT((getMSW() & MSW_PE));
-
-    SharedData = Sim32GetVDMPointer(
-        ((getDS() << 16) | getSI()),
-        2,
-        TRUE
-        );
-
-    DosxStackSegment = *((PUSHORT)SharedData);
-
-    SmallXlatBuffer = Sim32GetVDMPointer(
-        *((PULONG)(SharedData + 2)),
-        4,
-        TRUE
-        );
-
-    LargeXlatBuffer = Sim32GetVDMPointer(
-        *((PULONG)(SharedData + 6)),
-        4,
-        TRUE
-        );
-
-    DosxStackFramePointer = (PUSHORT)((PULONG)Sim32GetVDMPointer(
-        *((PULONG)(SharedData + 10)),
-        4,
-        TRUE
-        ));
-
-    DosxStackFrameSize = *((PUSHORT)(SharedData + 14));
-
-    RmBopFe = *((PULONG)(SharedData + 16));
-
-    DosxRmCodeSegment = *((PUSHORT)(SharedData + 20));
-
-    DosxDtaBuffer = Sim32GetVDMPointer(
-        *(PULONG)(SharedData + 22),
-        4,
-        TRUE
-        );
-
-    DosxPmDataSelector = *(PUSHORT)(SharedData + 26);
-    DosxRmCodeSelector = *(PUSHORT)(SharedData + 28);
-    DosxSegmentToSelector = *(PULONG)(SharedData + 30);
-}
+#include "precomp.h"
+#pragma hdrstop
+#include "softpc.h"
+#include "stdio.h"
 
 VOID
 DpmiDpmiInUse(

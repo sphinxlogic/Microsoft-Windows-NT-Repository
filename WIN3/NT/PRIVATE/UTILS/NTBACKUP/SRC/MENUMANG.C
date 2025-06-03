@@ -227,7 +227,15 @@ HMENU hMenu )  // I - handle of the menu to be initialized
           wStatus     = MF_ENABLED;
           pdsWinInfo  = WM_GetInfoPtr ( WM_GetActiveDoc () );
           dwMenuState = pdsWinInfo->dwMenuState;
-          wWinType    = pdsWinInfo->wType;
+          if (pdsWinInfo ) {
+               wWinType    = pdsWinInfo->wType;
+               if ( ( wWinType == WMTYPE_DISKTREE ) ||
+                    ( wWinType == WMTYPE_TAPETREE ) ) {
+                    
+                    dwMenuState = pdsWinInfo->dwMenuState ;
+               }
+          }
+          
      }
      else {
           wStatus = MF_GRAYED;
@@ -332,8 +340,16 @@ WORD  wStatus,           // I - enabled or disabled status
 DWORD dwMenuState )      // I - MDI Document menu state bit mask
 
 {
+     PDS_WMINFO info_ptr ;
+
      WORD wPassedStatus = wStatus;
-     WORD wType = WMDS_GetWinType ( WM_GetInfoPtr ( WM_GetActiveDoc () ) );
+     WORD wType ;
+
+     info_ptr =  WM_GetInfoPtr ( WM_GetActiveDoc () ) ;
+
+     if (!info_ptr) return ;
+
+     wType = WMDS_GetWinType ( info_ptr ) ;
 
      // Uncheck all the View Menu Items.
 
@@ -449,7 +465,11 @@ DWORD dwMenuState )      // I - MDI Document menu state bit mask
      if ( ( wPassedStatus == MF_ENABLED ) &&
           ( !IsIconic ( WM_GetActiveDoc () ) )  &&
           ( wType == WMTYPE_TAPES    || wType == WMTYPE_DISKTREE ||
-            wType == WMTYPE_TAPETREE || wType == WMTYPE_SERVERS     ) ) {
+            wType == WMTYPE_TAPETREE || wType == WMTYPE_SERVERS    
+#ifdef OEM_EMS
+            || wType == WMTYPE_EXCHANGE
+#endif
+          ) ) {
 
           wStatus = MF_ENABLED;
      }
@@ -472,6 +492,10 @@ DWORD dwMenuState )      // I - MDI Document menu state bit mask
 
 ******************************************************************************/
 
+#ifdef FS_EMS
+extern HINSTANCE JetApi ;
+#endif
+
 VOID MM_InitOperationsMenu (
 
 HMENU hMenu,             // I - handle of the menu to be initialized
@@ -482,11 +506,16 @@ WORD  wType )            // I - window type
 {
      WORD wTempStatus;
      WORD wTapeStatus;
+     WORD wTapeFmtStatus;
 
      // Set the temp status based on the currently active window.
 
      if ( wType == WMTYPE_DISKS || wType == WMTYPE_DISKTREE || wType == WMTYPE_SERVERS ||
-          wType == WMTYPE_TAPES || wType == WMTYPE_TAPETREE || wType == WMTYPE_SEARCH ) {
+          wType == WMTYPE_TAPES || wType == WMTYPE_TAPETREE || wType == WMTYPE_SEARCH 
+#ifdef OEM_EMS
+          || wType == WMTYPE_EXCHANGE
+#endif
+        ) {
 
           wTempStatus = wStatus;
      }
@@ -495,6 +524,7 @@ WORD  wType )            // I - window type
      }
 
      wTapeStatus = ( MUI_IsTapeInDrive () ) ? wTempStatus : (WORD)MF_GRAYED;
+     wTapeFmtStatus = ( MUI_IsTapeInDrive () ) ? MF_ENABLED : (WORD)MF_GRAYED;
 
      // OK, so maybe we could use the ribbon states.  But,
      // a better way is to use a state table - maybe we will do this
@@ -575,7 +605,7 @@ WORD  wType )            // I - window type
 #    if defined ( OS_WIN32 )
      {
           if ( thw_list && gfHWInitialized && ( thw_list->drv_info.drv_features & TDI_FORMAT ) ) {
-               EnableMenuItem ( hMenu, IDM_OPERATIONSFORMAT, wTempStatus );
+               EnableMenuItem ( hMenu, IDM_OPERATIONSFORMAT, wTapeFmtStatus );
           }
           else {
                EnableMenuItem ( hMenu, IDM_OPERATIONSFORMAT, (WORD)MF_GRAYED );
@@ -622,6 +652,36 @@ WORD  wType )            // I - window type
                          );
 
           EnableMenuItem ( hMenu, IDM_OPERATIONSEXIT, wStatus );
+
+#         ifdef FS_EMS
+          if ( !JetApi ) {
+               JetApi = LoadLibrary( TEXT("edbbcli.dll")) ;
+          }
+
+          EnableMenuItem ( hMenu, IDM_OPERATIONSEXCHANGE, (WORD)MF_GRAYED );
+
+          if ( JetApi ) {
+               static first_time = TRUE ;
+               if (first_time ) {
+                    InsertMenu ( hMenu,
+                         IDM_OPERATIONSEXCHANGE,
+                         MF_BYCOMMAND | MF_SEPARATOR | wStatus,
+                         0,
+                         (LPSTR)NULL
+                         );
+                    first_time = FALSE ;
+               }
+
+               EnableMenuItem ( hMenu, IDM_OPERATIONSEXCHANGE, wStatus );
+          } else {
+               static first_time = TRUE ;
+               if (first_time ) {
+                    RemoveMenu( hMenu, IDM_OPERATIONSEXCHANGE, MF_BYCOMMAND) ;
+                    first_time = FALSE ;
+               }
+          }
+
+#         endif         
      }
 
 #    endif
@@ -658,7 +718,11 @@ WORD  wType )            // I - window type
 #    endif // !defined ( OEM_MSOFT )
 
      if ( ! ( wType == WMTYPE_DISKS || wType == WMTYPE_DISKTREE || wType == WMTYPE_SERVERS ||
-              wType == WMTYPE_TAPES || wType == WMTYPE_TAPETREE || wType == WMTYPE_SEARCH ) ) {
+              wType == WMTYPE_TAPES || wType == WMTYPE_TAPETREE || wType == WMTYPE_SEARCH 
+#ifdef OEM_EMS
+              || wType == WMTYPE_EXCHANGE
+#endif
+            ) ) {
 
           wTempStatus = MF_GRAYED;
      }
@@ -1202,6 +1266,10 @@ WORD wID )     // ID of control which generated the WM_COMMAND
      case IDM_OPERATIONSFORMAT:
 #endif // OS_WIN32
 
+#ifdef OEM_EMS
+     case IDM_OPERATIONSEXCHANGE:
+#endif // OEM_EMS
+
           MUI_StartOperation ( wID, TRUE );
 
           break;
@@ -1430,6 +1498,9 @@ WORD wID )     // ID of the menu item for displaying status help
      case IDM_OPERATIONSHARDWARE:
      case IDM_OPERATIONSEXIT:
      case IDM_OPERATIONSFORMAT:
+#ifdef OEM_EMS
+     case IDM_OPERATIONSEXCHANGE:
+#endif
 
      case IDM_TREEEXPANDONE:
      case IDM_TREEEXPANDBRANCH:

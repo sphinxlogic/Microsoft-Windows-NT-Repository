@@ -57,6 +57,7 @@ extern BOOLEAN SrvEnableRawMode;
 //
 
 extern CLONG SrvReceiveBufferLength;
+extern CLONG SrvReceiveBufferSize;
 
 extern CLONG SrvInitialReceiveWorkItemCount;
 extern CLONG SrvMaxReceiveWorkItemCount;
@@ -65,6 +66,9 @@ extern CLONG SrvInitialRawModeWorkItemCount;
 extern CLONG SrvMaxRawModeWorkItemCount;
 
 extern CCHAR SrvReceiveIrpStackSize;
+extern CLONG SrvReceiveIrpSize;
+extern CLONG SrvReceiveMdlSize;
+extern CLONG SrvMaxMdlSize;
 
 //
 // Minimum and maximum number of free connections for an endpoint.  When
@@ -120,12 +124,23 @@ extern BOOLEAN SrvRestrictNullSessionAccess;
 extern BOOLEAN SrvEnableWfW311DirectIpx;
 
 //
-// Thread counts.
+// The maximum number of threads allowed on each work queue.  The
+//  server tries to minimize the number of threads -- this value is
+//  just to keep the threads from getting out of control.
 //
+// Since the blocking work queue is not per-processor, the max thread
+//  count for the blocking work queue is the following value times the
+//  number of processors in the system.
+//
+extern ULONG SrvMaxThreadsPerQueue;
 
-extern ULONG SrvNonblockingThreads;
-extern ULONG SrvBlockingThreads;
-extern ULONG SrvCriticalThreads;
+//
+// Load balancing variables
+//
+extern ULONG SrvPreferredAffinity;
+extern ULONG SrvOtherQueueAffinity;
+extern ULONG SrvBalanceCount;
+extern LARGE_INTEGER SrvQueueCalc;
 
 //
 // Scavenger thread idle wait time.
@@ -160,11 +175,36 @@ extern CLONG SrvMaxNumberVcs;
 extern CLONG SrvMinReceiveQueueLength;
 
 //
+// The number of freed RFCBs that we keep internally, per processor
+//
+extern CLONG SrvMaxFreeRfcbs;
+
+//
+// The number of freed MFCBs that we keep internally, per processor
+//
+extern CLONG SrvMaxFreeMfcbs;
+
+//
+// Enforced maximum size of a saved pool chunk per processor
+//
+extern CLONG SrvMaxPagedPoolChunkSize;
+
+//
+// Enforced maximum size of a saved non paged pool chunk per processor
+//
+extern CLONG SrvMaxNonPagedPoolChunkSize;
+
+//
 // The minimum number of free receive work items available before
 // the server will start processing a potentially blocking SMB.
 //
 
 extern CLONG SrvMinFreeWorkItemsBlockingIo;
+
+//
+// The number of cached directory names per connection
+//
+extern CLONG SrvMaxCachedDirectory;
 
 //
 // Size of the shared memory section used for communication between the
@@ -263,11 +303,33 @@ extern ULONG SrvDiskConfiguration;
 extern PWSTR *SrvNullSessionPipes;
 extern PWSTR *SrvNullSessionShares;
 
+#ifdef  SRV_PNP_POWER
+//
+// List of the transports we'd like to bind to
+//
+extern PWSTR *SrvTransportBindingList;
+#endif
+
+//
+// List of error codes that we do not log to the error log
+//
+extern NTSTATUS SrvErrorLogIgnore[ SRVMAXERRLOGIGNORE + 1 ];
+
+//
+// List of pipes that require a license from the license server
+//
+extern PWSTR *SrvPipesNeedLicense;
+
 //
 // Interval at which SMB statistics are calculated.
 //
 
 #define STATISTICS_SMB_INTERVAL 16
+
+//
+// Interval at which each thread determines the current system time
+//
+#define TIME_SMB_INTERVAL   16
 
 //
 // Delay and number of retries for opens returning sharing violation
@@ -281,6 +343,7 @@ extern LARGE_INTEGER SrvSharingViolationDelay;
 //
 
 extern ULONG SrvLockViolationDelay;
+extern LARGE_INTEGER SrvLockViolationDelayRelative;
 extern ULONG SrvLockViolationOffset;
 
 //
@@ -296,11 +359,32 @@ extern ULONG SrvMaxOpenSearches;
 extern ULONG SrvMdlReadSwitchover;
 extern ULONG SrvMpxMdlReadSwitchover;
 
+
+//
+// maximum length of buffers to copy, rather than take the whole buffer.
+// currently this is only enabled for WRITE_MPX on direct host IPX.
+//
+
+extern ULONG SrvMaxCopyLength;
+
+//
+// Kerberos realm name
+//
+
+extern
+UNICODE_STRING KerberosRealm;
+
 //
 // Number of open files that can be cached after close.
 //
 
 extern ULONG SrvCachedOpenLimit;
+
+//
+// Does the server support the bulk SMBs?
+//
+extern BOOLEAN SrvSupportsBulkTransfer;
+extern BOOLEAN SrvSupportsCompression;
 
 //
 // *** Change the following defines to limit WinNT (vs. NTAS) parameters.
@@ -310,9 +394,7 @@ extern ULONG SrvCachedOpenLimit;
 
 #define MAX_USERS_WKSTA                 10
 #define MAX_MAXWORKITEMS_WKSTA          64
-#define MAX_NONBLOCKINGTHREADS_WKSTA     8
-#define MAX_BLOCKINGTHREADS_WKSTA        4
-#define MAX_CRITICALTHREADS_WKSTA        1
+#define MAX_THREADS_WKSTA                5
 
 #endif // def _SRVCONFG_
 

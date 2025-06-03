@@ -17,6 +17,15 @@ Author:
 
 Revision History:
 
+    Ram Cherala (RamC) 31-Aug-95 Added a try/except around the code which
+                                 calls the post routine in SendAddNcbToDriver
+                                 function. Currently if there is an exception
+                                 in the post routine this thread will die
+                                 before it has a chance to call the
+                                 "AddNameThreadExit" function to decrement
+                                 the trhead count. This will result in not
+                                 being able to shut down the machine without
+                                 hitting the reset switch.
 --*/
 
 /*
@@ -129,7 +138,7 @@ NTSTATUS StartNB(
 
 Routine Description:
 
-    This routine is a worker function of Netbios. It will try to start NB 
+    This routine is a worker function of Netbios. It will try to start NB
     service.
 
 Arguments:
@@ -214,6 +223,12 @@ Notes:
         return NRC_BADDR;
     }
 
+
+#if DBG
+    //  Log when request presented to Netbios
+    pncbi->ncb_reserved = (WORD)(GetTickCount() / 1000);
+#endif
+
     //  Conform to Netbios 3.0 specification by flagging request in progress
     pncbi->ncb_retcode = pncbi->ncb_cmd_cplt = NRC_PENDING;
 
@@ -242,7 +257,7 @@ Notes:
             if (! NT_SUCCESS(ntstatus)) {
                 // Load the driver
 
-#if 0               
+#if 0
 
                 NTSTATUS Status = 0;
                 ULONG Privileges = SE_LOAD_DRIVER_PRIVILEGE;
@@ -460,7 +475,7 @@ Notes:
                     pncbi->ncb_event,
                     TRUE,
                     NULL );
-             
+
             } while ( (ntstatus == STATUS_USER_APC) ||
                       (ntstatus == STATUS_ALERTED) );
 
@@ -1148,101 +1163,107 @@ Return Value:
     char * buffer;
     unsigned short length;
 
-    command = pncb->ncb_command;
-    post = pncb->ncb_post;
-    event = pncb->ncb_event;
+    try {
+        command = pncb->ncb_command;
+        post = pncb->ncb_post;
+        event = pncb->ncb_event;
 
-    ntstatus = NtCreateEvent( &LocalEvent,
-        EVENT_ALL_ACCESS,
-        NULL,
-        SynchronizationEvent,
-        FALSE );
+        ntstatus = NtCreateEvent( &LocalEvent,
+            EVENT_ALL_ACCESS,
+            NULL,
+            SynchronizationEvent,
+            FALSE );
 
-    if ( !NT_SUCCESS(ntstatus) ) {
-        pncb->ncb_retcode = NRC_NORES;
-        NbPrintf(( "Could not create event\n" ));
-        pncb->u.ncb_iosb.Status = STATUS_SUCCESS;
-        PostRoutineCaller( pncb, &pncb->u.ncb_iosb, 0);
-        AddNameThreadExit();
-        return 0;
-    }
-
-    //
-    //  While the NCB is submitted the driver can modify the contents
-    //  of the NCB. We will ensure that this thread waits until the addname
-    //  completes before it exits.
-    //
-
-    pncb->ncb_command = pncb->ncb_command  & ~ASYNCH;
-
-    if ( pncb->ncb_command == NCBASTAT ) {
-
-        buffer = pncb->ncb_buffer;
-        length = pncb->ncb_length;
-
-    } else {
-
-        ASSERT( (pncb->ncb_command == NCBADDNAME) ||
-                (pncb->ncb_command == NCBADDGRNAME) ||
-                (pncb->ncb_command == NCBASTAT) );
-
-        buffer = NULL;
-        length = 0;
-    }
-
-    NbPrintf(( "Addname/Astat Worker thread submitting %x\n", pncb));
-
-    ntstatus = NtDeviceIoControlFile(
-                    NB,
-                    LocalEvent,
-                    NULL,               //  APC Routine
-                    NULL,               //  APC Context
-                    &pncb->u.ncb_iosb,  //  IO Status block
-                    IOCTL_NB_NCB,
-                    pncb,               //  InputBuffer
-                    sizeof(NCB),
-                    buffer,             //  Outputbuffer
-                    length );
-
-    if ((ntstatus != STATUS_SUCCESS) &&
-        (ntstatus != STATUS_PENDING) &&
-        (ntstatus != STATUS_HANGUP_REQUIRED)) {
-        NbPrintf(( "The Netbios NtDeviceIoControlFile failed: %X\n", ntstatus ));
-
-        if ( ntstatus == STATUS_ACCESS_VIOLATION ) {
-            pncb->ncb_retcode = NRC_BUFLEN;
-        } else {
-            pncb->ncb_retcode = NRC_SYSTEM;
+        if ( !NT_SUCCESS(ntstatus) ) {
+            pncb->ncb_retcode = NRC_NORES;
+            NbPrintf(( "Could not create event\n" ));
+            pncb->u.ncb_iosb.Status = STATUS_SUCCESS;
+            PostRoutineCaller( pncb, &pncb->u.ncb_iosb, 0);
+            AddNameThreadExit();
+            return 0;
         }
-    } else {
-        do {
-            ntstatus = NtWaitForSingleObject(
-                          LocalEvent,
-                          TRUE,
-                          NULL );
 
-        } while ( (ntstatus == STATUS_USER_APC) ||
-                  (ntstatus == STATUS_ALERTED) );
+        //
+        //  While the NCB is submitted the driver can modify the contents
+        //  of the NCB. We will ensure that this thread waits until the addname
+        //  completes before it exits.
+        //
 
-        ASSERT(ntstatus == STATUS_SUCCESS);
-    }
+        pncb->ncb_command = pncb->ncb_command  & ~ASYNCH;
 
-    NbPrintf(( "Addname/Astat Worker thread returning %x, %x\n", pncb, pncb->ncb_retcode));
+        if ( pncb->ncb_command == NCBASTAT ) {
 
-    pncb->ncb_command = command;
+            buffer = pncb->ncb_buffer;
+            length = pncb->ncb_length;
 
-    //  Set the flag that indicates that the NCB is now completed.
-    pncb->ncb_cmd_cplt = pncb->ncb_retcode;
+        } else {
 
-    //  Allow application/worker thread to proceed.
-    if ( event != NULL ) {
-        NtSetEvent( event, NULL );
-    }
+            ASSERT( (pncb->ncb_command == NCBADDNAME) ||
+                    (pncb->ncb_command == NCBADDGRNAME) ||
+                    (pncb->ncb_command == NCBASTAT) );
 
-    //  If the user supplied a post routine then call it.
-    if (( post != NULL ) &&
-        ( (command & ASYNCH) != 0 )) {
-        (*(post))( (PNCB)pncb );
+            buffer = NULL;
+            length = 0;
+        }
+
+        NbPrintf(( "Addname/Astat Worker thread submitting %x\n", pncb));
+
+        ntstatus = NtDeviceIoControlFile(
+                        NB,
+                        LocalEvent,
+                        NULL,               //  APC Routine
+                        NULL,               //  APC Context
+                        &pncb->u.ncb_iosb,  //  IO Status block
+                        IOCTL_NB_NCB,
+                        pncb,               //  InputBuffer
+                        sizeof(NCB),
+                        buffer,             //  Outputbuffer
+                        length );
+
+        if ((ntstatus != STATUS_SUCCESS) &&
+            (ntstatus != STATUS_PENDING) &&
+            (ntstatus != STATUS_HANGUP_REQUIRED)) {
+            NbPrintf(( "The Netbios NtDeviceIoControlFile failed: %X\n", ntstatus ));
+
+            if ( ntstatus == STATUS_ACCESS_VIOLATION ) {
+                pncb->ncb_retcode = NRC_BUFLEN;
+            } else {
+                pncb->ncb_retcode = NRC_SYSTEM;
+            }
+        } else {
+            do {
+                ntstatus = NtWaitForSingleObject(
+                              LocalEvent,
+                              TRUE,
+                              NULL );
+
+            } while ( (ntstatus == STATUS_USER_APC) ||
+                      (ntstatus == STATUS_ALERTED) );
+
+            ASSERT(ntstatus == STATUS_SUCCESS);
+        }
+
+        NbPrintf(( "Addname/Astat Worker thread returning %x, %x\n", pncb, pncb->ncb_retcode));
+
+        pncb->ncb_command = command;
+
+        //  Set the flag that indicates that the NCB is now completed.
+        pncb->ncb_cmd_cplt = pncb->ncb_retcode;
+
+        //  Allow application/worker thread to proceed.
+        if ( event != NULL ) {
+            NtSetEvent( event, NULL );
+        }
+
+        //  If the user supplied a post routine then call it.
+        if (( post != NULL ) &&
+            ( (command & ASYNCH) != 0 )) {
+            (*(post))( (PNCB)pncb );
+        }
+
+    } except (EXCEPTION_EXECUTE_HANDLER) {
+        NbPrintf(( "Netbios: Access Violation post processing NCB %lx\n", pncb ));
+        NbPrintf(( "Netbios: Probable application error\n" ));
     }
 
     NtClose( LocalEvent );

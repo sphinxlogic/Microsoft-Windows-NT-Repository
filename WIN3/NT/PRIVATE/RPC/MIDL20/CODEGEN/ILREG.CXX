@@ -32,6 +32,7 @@
 // #define trace_reuse
 
 REUSE_DICT				*	pReUseDict;
+REUSE_DICT				*	pLocalReUseDict;
 
 
 REUSE_DICT::REUSE_DICT()

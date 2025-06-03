@@ -118,6 +118,15 @@ Return Value:
 
     ExInitializeResource( &BowserDataResource );
 
+#ifdef _PNP_POWER_
+    //
+    // This driver doesn't talk directly to a device, and isn't
+    // otherwise concerned about power management.
+    //
+
+    DeviceObject->DeviceObjectExtension->PowerControlNeeded = FALSE;
+#endif
+
     //
     // Save the device object address for this file system driver.
     //

@@ -25,7 +25,7 @@
  *  04-Aug-87   danl    DoBug: test for Compose and Read windows
  *  04-Aug-87   danl    DoGet: records/uses last idocBold
  *  05-Aug-87   danl    DoForward: add -s switch, F => no indent f => RFAIndent
- *  13-Aug-87   danl    DoEditMsg: unlink *.bak too
+ *  13-Aug-87   danl    DoEditMsg: _unlink *.bak too
  *  21-Aug-1987 mz      Change references from MAXARG to MAXLINELEN
  *  24-Aug-1987 mz      Add new string constant for "ALL"
  *  25-Aug-87   danl    DoExpunge: don't set headerText to all
@@ -537,7 +537,7 @@ VOID PASCAL INTERNAL DoEditMsg ( HW hWnd, PSTR p, INT operation )
                 */
                 *(pTmpFN + strlen(pTmpFN) - 3) = '\0'; //remove extension
                 pTmpFN = AppendStr ( pTmpFN, "bak", NULL, TRUE );
-                unlink ( pTmpFN );
+                _unlink ( pTmpFN );
                 }
             ZMfree ( pTmpFN );
             }
@@ -704,7 +704,7 @@ VOID PASCAL INTERNAL DoForward ( HW hWnd, PSTR p, INT operation )
         }
     }
     if ( pFwdFN ) {
-        unlink ( pFwdFN );
+        _unlink ( pFwdFN );
         ZMfree ( pFwdFN );
     }
     if ( fSend )
@@ -765,7 +765,7 @@ VOID PASCAL INTERNAL DoGet ( HW hWnd, PSTR p, INT operation )
         else {
             putfolder ( fhNew );
             swchng ( strTOOLSINI, strWZMAILTMP, mboxName,
-                itoa ( mpInoteIdoc [ inoteBold ], buf, 10 ), TRUE );
+                _itoa ( mpInoteIdoc [ inoteBold ], buf, 10 ), TRUE );
 
         }
     }

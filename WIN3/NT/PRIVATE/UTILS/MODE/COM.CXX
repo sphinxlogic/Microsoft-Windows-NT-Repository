@@ -149,8 +149,8 @@ Notes:
 	PPATH	DevicePath;		//	Name of Device
 	BOOLEAN Served = TRUE;	//	TRUE if request served OK.
 
-	DbgPtrAssert( Request );
-	DbgAssert( Request->DeviceType == DEVICE_TYPE_COM );
+	DebugPtrAssert( Request );
+	DebugAssert( Request->DeviceType == DEVICE_TYPE_COM );
 
 	//
 	//	Make sure that the device exists, and at the same time get its
@@ -167,13 +167,13 @@ Notes:
 
             DisplayMessageAndExit( MODE_ERROR_INVALID_DEVICE_NAME,
                                    DevicePath->GetPathString(),
-                                   EXIT_ERROR );
+                                   (ULONG)EXIT_ERROR );
 
         } else if ( !IsAValidDevice( Request->DeviceType, Request->DeviceNumber, NULL  ) ) {
 
             DisplayMessageAndExit( MODE_ERROR_DEVICE_UNAVAILABLE,
                                    DevicePath->GetPathString(),
-                                   EXIT_ERROR );
+                                   (ULONG)EXIT_ERROR );
 
         }
     }
@@ -201,7 +201,7 @@ Notes:
 
 	default:
 
-		DbgAssert( FALSE );
+		DebugAssert( FALSE );
 
 	}
 
@@ -243,8 +243,8 @@ Notes:
     BOOLEAN                 OpenError;
     BOOLEAN                 Status;
 
-	DbgPtrAssert( DevicePath );
-	DbgPtrAssert( Request );
+	DebugPtrAssert( DevicePath );
+	DebugPtrAssert( Request );
 
 	//
 	//	Initialize the Comm object
@@ -293,7 +293,7 @@ Notes:
             break;
 
         default:
-            DbgAssert( FALSE );
+            DebugAssert( FALSE );
         }
 
         DisplayMessage( MODE_MESSAGE_STATUS_PARITY, &Data );
@@ -324,7 +324,7 @@ Notes:
             break;
 
         default:
-            DbgAssert( FALSE );
+            DebugAssert( FALSE );
         }
 
         DisplayMessage( MODE_MESSAGE_STATUS_STOP, &Data );
@@ -488,15 +488,15 @@ Notes:
     BOOLEAN                 OpenError;
     DSTRING                 Number;
 
-	DbgPtrAssert( DevicePath );
-	DbgPtrAssert( Request );
+	DebugPtrAssert( DevicePath );
+	DebugPtrAssert( Request );
 
 	//
 	//	Initialize the Comm object
 	//
 	CommDevice = NEW COMM_DEVICE;
 	if ( !CommDevice ) {
-		DisplayMessageAndExit( MODE_ERROR_NO_MEMORY, NULL, EXIT_ERROR );
+		DisplayMessageAndExit( MODE_ERROR_NO_MEMORY, NULL, (ULONG)EXIT_ERROR );
 	}
     Status = CommDevice->Initialize( DevicePath, &OpenError );
 	if ( Status ) {
@@ -648,14 +648,14 @@ Notes:
             DisplayMessage( MODE_ERROR_SERIAL_OPTIONS_NOT_SUPPORTED, NULL );
             DisplayMessageAndExit( MODE_MESSAGE_COM_NO_CHANGE,
 								   NULL,
-								   EXIT_ERROR );
+								   (ULONG)EXIT_ERROR );
 		}
 
     } else if ( !OpenError ) {
 
         DisplayMessageAndExit( MODE_ERROR_CANNOT_ACCESS_DEVICE,
                                DevicePath->GetPathString(),
-                               EXIT_ERROR );
+                               (ULONG)EXIT_ERROR );
     }
 
 	DELETE( CommDevice );

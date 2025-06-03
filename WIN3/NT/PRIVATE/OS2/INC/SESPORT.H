@@ -43,6 +43,8 @@ typedef UCHAR     *PBYTE;
  * #include <ntlpcapi.h>
  */
 
+#define U_OS2_SS_INITIALIZATION_EVENT L"OS2SSINITIALIZATIONEVENT"
+
 /*
  *  os2srv port to accept all requests (CON and API) from clients
  */
@@ -655,4 +657,3 @@ typedef struct _OS2SESREQUESTMSG {
 #define PORT_MSG_ZERO_INIT(m)  ((m).h.u2.ZeroInit)
 
 #endif  // _SESPORT_
-

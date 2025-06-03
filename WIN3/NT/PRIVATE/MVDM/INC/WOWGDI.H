@@ -467,7 +467,7 @@ typedef struct _CREATECOMPATIBLEDC16 {      /* g52 */
 typedef CREATECOMPATIBLEDC16 UNALIGNED *PCREATECOMPATIBLEDC16;
 
 typedef struct _CREATEDC16 {            /* g53 */
-    VPDEVMODE16 f4;
+    VPDEVMODE31 f4;
     VPSZ f3;
     VPSZ f2;
     VPSZ f1;
@@ -566,7 +566,7 @@ typedef struct _CREATEHATCHBRUSH16 {        /* g58 */
 typedef CREATEHATCHBRUSH16 UNALIGNED *PCREATEHATCHBRUSH16;
 
 typedef struct _CREATEIC16 {            /* g153 */
-    VPSTR f4;
+    VPDEVMODE31 f4;
     VPSZ f3;
     VPSZ f2;
     VPSZ f1;
@@ -669,17 +669,17 @@ typedef DEVICEMODE16 UNALIGNED *PDEVICEMODE16;
 typedef struct _EXTDEVICEMODE16 {       /* g453 */
     SHORT   f8;
     VPSZ    f7;
-    VPSZ    f6;
+    VPDEVMODE31 f6;
     VPSZ    f5;
     VPSZ    f4;
-    VPSZ    f3;
+    VPDEVMODE31 f3;
     HAND16  f2;
     HWND16  f1;
 } EXTDEVICEMODE16;
 typedef EXTDEVICEMODE16 UNALIGNED *PEXTDEVICEMODE16;
 
 typedef struct _DEVICECAPABILITIES16 {  /* g454 */
-    VPSZ    f5;
+    VPDEVMODE31 f5;
     VPSZ    f4;
     SHORT   f3;
     VPSZ    f2;
@@ -1901,6 +1901,25 @@ typedef struct _WRITEDIALOG16 {  /* g242 */
 } WRITEDIALOG16;
 typedef WRITEDIALOG16 UNALIGNED *PWRITEDIALOG16;
 
+typedef struct _DMBITBLT16 {  /* g201 */
+    VPSZ    pdrawmode;
+    VPSZ    pbrush;
+    LONG    rop;
+    WORD    exty;
+    WORD    extx;
+    WORD    srcy;
+    WORD    srcx;
+    VPSZ    pbitmapsrc;
+    WORD    desty;
+    WORD    destx;
+    VPSZ    pbitmapdest;
+} DMBITBLT16;
+typedef DMBITBLT16 UNALIGNED *PDMBITBLT16;
+
+typedef struct _GETCURLOGFONT16 {        /* g411 */
+    HAND16 hDC;
+} GETCURLOGFONT16;
+typedef GETCURLOGFONT16 UNALIGNED *PGETCURLOGFONT16;
 
 /* XLATOFF */
 #pragma pack()

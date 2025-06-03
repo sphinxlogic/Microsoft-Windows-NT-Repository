@@ -1963,4 +1963,4 @@ Return Value:
 
     return (BitIo->cbBBInitial)-(BitIo->cbBB);
 }
-
+

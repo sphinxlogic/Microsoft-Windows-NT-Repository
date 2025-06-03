@@ -87,9 +87,9 @@ typedef struct _CARD_CONTROL {
     Count |= ScsiPortReadPortUchar(&((ChipAddr)->IoChannel)); }
 
 #define SCSI_WRITE_TRANSFER_COUNT(ChipAddr, Count) {                       \
-    SCSI_WRITE(ChipAddr, TransferCountMsb, Count >> 16);                   \
-    ScsiPortWritePortUchar(&((ChipAddr)->IoChannel), Count >> 8);          \
-    ScsiPortWritePortUchar(&((ChipAddr)->IoChannel), Count); }
+    SCSI_WRITE(ChipAddr, TransferCountMsb, (UCHAR)(Count >> 16));          \
+    ScsiPortWritePortUchar(&((ChipAddr)->IoChannel), (UCHAR)(Count >> 8)); \
+    ScsiPortWritePortUchar(&((ChipAddr)->IoChannel), (UCHAR)Count); }
 
 #define SCSI_RESET_BUS(DeviceExtension) {  CARD_CONTROL CardControl;              \
    *((PUCHAR) &CardControl) = 0; CardControl.ResetScsiBus = 1;             \

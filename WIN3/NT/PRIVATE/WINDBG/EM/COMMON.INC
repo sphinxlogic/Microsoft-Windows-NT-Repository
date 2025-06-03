@@ -34,7 +34,6 @@ WRAPPEDCOBJECTS = \
 $(WRAPPEDCOBJECTS:*=i386): $(SRCDIR)\$$(@B).c
 $(WRAPPEDCOBJECTS:*=mips): $(SRCDIR)\$$(@B).c
 $(WRAPPEDCOBJECTS:*=alpha): $(SRCDIR)\$$(@B).c
+$(WRAPPEDCOBJECTS:*=ppc): $(SRCDIR)\$$(@B).c
 
-obj\alpha\emdp.obj: regs.h flags.h strings.h
-obj\i386\emdp.obj: regs.h flags.h strings.h
-obj\mips\emdp.obj: regs.h flags.h strings.h
+obj\$(TARET_DIRECTORY)\emdp.obj: regs.h flags.h strings.h

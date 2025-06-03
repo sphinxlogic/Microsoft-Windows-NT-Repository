@@ -1,6 +1,7 @@
 #ifndef CDEBUG
+#ifndef WIN32
     #define WIN32
-    #define WIN32_WORKAROUND
+#endif
 #endif
 
 /*++
@@ -64,7 +65,7 @@ Revision History:
 
 #include <align.h>      // ROUND_UP_POINTER(), ALIGN_WORST.
 #include <debuglib.h>   // IF_DEBUG().
-#include <netdebug.h>   // NetpAssert(), NetpDbgPrint(), FORMAT_ equates.
+#include <netdebug.h>   // NetpAssert(), NetpKdPrint(()), FORMAT_ equates.
 #include <netlib.h>     // My prototypes, NetpMoveMemory().
 #include <prefix.h>     // PREFIX_ equates.
 #ifdef CDEBUG
@@ -212,9 +213,9 @@ Return Value:
     NetpAssert( ROUND_UP_POINTER( OldAddress, ALIGN_WORST) == OldAddress);
 
     IF_DEBUG( MEMALLOC ) {
-        NetpDbgPrint( PREFIX_NETLIB "NetpMemoryReallocate: called with ptr "
+        NetpKdPrint(( PREFIX_NETLIB "NetpMemoryReallocate: called with ptr "
                 FORMAT_LPVOID " and size " FORMAT_DWORD ".\n",
-                (LPVOID) OldAddress, NewSize );
+                (LPVOID) OldAddress, NewSize ));
     }
 
     // Special cases: something into nothing, or nothing into something.
@@ -229,62 +230,23 @@ Return Value:
 
     } else {  // must be realloc of something to something else.
 
-#ifdef WIN32_WORKAROUND
-
-        //
-        // BUGBUG: We would use LocalReAlloc here, but that seems to be
-        // bugbug the second or third time around.  So, let's do a workaround
-        // which avoids calling LocalReAlloc.
-        //
-        HANDLE hOldMem;
-        DWORD OldSize;
-
-        // Need size of old area to continue...
-
-        hOldMem = LocalHandle( (LPSTR) OldAddress );
-        NetpAssert( hOldMem != NULL );
-
-        OldSize = LocalSize( hOldMem );
-
-        NetpAssert( OldSize > 0 );
-
-        if (OldSize == NewSize) {
-            NewAddress = OldAddress;            // Another special case.
-        } else {
-
-            // Normal case (something into something else).  Alloc new area.
-            HANDLE hNewMem;
-            hNewMem = LocalAlloc(
-                        NETLIB_LOCAL_ALLOCATION_FLAGS,
-                        NewSize);               // size in bytes
-            NewAddress = (LPVOID) hNewMem;
-
-            if (NewAddress != NULL) {
-
-                // Copy lesser of old and new sizes.
-                NetpMoveMemory(
-                        NewAddress,             // dest
-                        OldAddress,             // src
-                        (NewSize < OldSize) ? NewSize : OldSize);   // len
-
-                if (LocalFree(OldAddress) != NULL) {
-                    NetpAssert(FALSE);
-                }
-            }
-        }
-
-#elif defined(WIN32)
+#if defined(WIN32)
 
         HANDLE hNewMem;                     // handle for new (may = old handle)
+        HANDLE hOldMem;
 
+#ifdef notdef // LocalHandle returns 0 for LMEM_FIXED block
         hOldMem = LocalHandle( (LPSTR) OldAddress);
+#else
+        hOldMem = (HANDLE) OldAddress;
+#endif // notdef
         NetpAssert(hOldMem != NULL);
 
         hNewMem = LocalReAlloc(
                 hOldMem,                        // old handle
                 NewSize,                        // new size in bytes
-                LOCAL_ALLOCATION_FLAGS |        // flags
-                    LMEM_MOVEABLE);             //  (motion okay)
+                LMEM_MOVEABLE);                 // OK if new block is in new location
+
         if (hNewMem == NULL) {
             // BUGBUG: call GetLastError, could be out of memory or error.
             return (NULL);
@@ -327,8 +289,8 @@ Return Value:
     } // must be realloc of something to something else
 
     IF_DEBUG( MEMALLOC ) {
-        NetpDbgPrint( PREFIX_NETLIB "NetpMemoryReallocate: new address is "
-                FORMAT_LPVOID ".\n", (LPVOID) OldAddress );
+        NetpKdPrint(( PREFIX_NETLIB "NetpMemoryReallocate: new address is "
+                FORMAT_LPVOID ".\n", (LPVOID) OldAddress ));
     }
 
     NetpAssert( ROUND_UP_POINTER( NewAddress, ALIGN_WORST) == NewAddress);

@@ -79,6 +79,11 @@ LOCAL   int     CchStringMax;
 LOCAL   bool_t  FPrototype = TRUE;
 LOCAL   bool_t  FInScope = FALSE;
 
+typedef struct {
+    HDR_TYPE Hdr;
+    char Buf[256];
+} FORMATBUF;
+
 
 /**     DoGetCXTL - Gets a list of symbols and contexts for expression
  *
@@ -558,43 +563,44 @@ LOCAL   bool_t  NEAR    FASTCALL
 WalkCast (bnode_t bn)
 {
     peval_t     pv = &pnodeOfbnode(NODE_LCHILD(pnodeOfbnode(bn)))->v[0];
-    char        rgch[256];
+    FORMATBUF   fb;
     char *      pch;
     unsigned int cch;
-    HDR_TYPE    hdr;
 
-    pch = rgch;
-    cch = sizeof(rgch);
-    FormatType(pv, &pch, &cch, NULL, FPrototype, &hdr);
+    pch = fb.Buf;
+    cch = sizeof(fb.Buf);
+    FormatType(pv, &pch, &cch, NULL, FPrototype, &fb.Hdr);
 
     do {
         pch--;
     } while (*pch == ' ');
 
-    return WalkAppendString("(", 1) && WalkAppendString(rgch, pch-rgch+1) &&
-      WalkAppendString(")", 1) && WalkRChild(bn);
+    return WalkAppendString("(", 1) &&
+           WalkAppendString(fb.Buf, pch-fb.Buf+1) &&
+           WalkAppendString(")", 1) &&
+           WalkRChild(bn);
 }
 
 LOCAL   bool_t  NEAR    FASTCALL
 WalkCastBin (bnode_t bn)
 {
     peval_t     pv = &pnodeOfbnode(NODE_LCHILD(pnodeOfbnode(bn)))->v[0];
-    char        rgch[256];
+    FORMATBUF   fb;
     char *      pch;
     unsigned int cch;
-    HDR_TYPE    hdr;
     bool_t      f;
 
-    pch = rgch;
-    cch = sizeof(rgch);
-    FormatType(pv, &pch, &cch, NULL, FPrototype, &hdr);
+    pch = fb.Buf;
+    cch = sizeof(fb.Buf);
+    FormatType(pv, &pch, &cch, NULL, FPrototype, &fb.Hdr);
 
     do {
         pch--;
     } while (*pch == ' ');
 
-    f = WalkAppendString("(", 1) && WalkAppendString(rgch, pch-rgch+1) &&
-      WalkAppendString(")", 1);
+    f = WalkAppendString("(", 1) &&
+        WalkAppendString(fb.Buf, pch-fb.Buf+1) &&
+        WalkAppendString(")", 1);
 
     if (!f) {
         return f;
@@ -809,7 +815,7 @@ WalkSymbol (bnode_t bn)
     SYMPTR      pSym;
     int         len;
     EEHSTR      hStr = 0;
-    char        rgch[256];
+    FORMATBUF   fb;
     CV_typ_t    rvtype;
     CV_typ_t    mclass;
     CV_typ_t    call;
@@ -822,7 +828,6 @@ WalkSymbol (bnode_t bn)
     char *      pch2;
     char *      pch3;
     char        ch;
-    HDR_TYPE    hdrType;
 
     if (EVAL_HSYM(pv) == 0) {
         return WalkAppendString(pExStr + EVAL_ITOK(pv), EVAL_CBTOK(pv));
@@ -907,15 +912,15 @@ WalkSymbol (bnode_t bn)
             cparam = ((plfProc)pType)->parmcount;
             paramtype = ((plfProc)pType)->arglist;
             MHOmfUnLock((HDEP)hType);
-            pch2 = rgch;
+            pch2 = fb.Buf;
             pch3 = pch + len;
             ch = *pch3;
             *pch3 = 0;
-            cch = sizeof(rgch);
+            cch = sizeof(fb.Buf);
             FormatProc(pv, &pch2, &cch, &pch, rvtype, mclass, call,
-                       cparam, paramtype, 1, &hdrType);
-            len = pch2 - rgch;
-            pch = rgch;
+                       cparam, paramtype, 1, &fb.Hdr);
+            len = pch2 - fb.Buf;
+            pch = fb.Buf;
             *pch3 = ch;
             break;
 
@@ -940,12 +945,12 @@ WalkSymbol (bnode_t bn)
             } else {
                 pch2 = pch;
             }
-            pch = rgch;
-            cch = sizeof(rgch);
+            pch = fb.Buf;
+            cch = sizeof(fb.Buf);
             FormatProc (pv, &pch, &cch, &pch2, rvtype, mclass, call,
-                        cparam, paramtype, 1, &hdrType);
-            len = pch - rgch;
-            pch = rgch;
+                        cparam, paramtype, 1, &fb.Hdr);
+            len = pch - fb.Buf;
+            pch = fb.Buf;
             *pch3 = ch;
             break;
 #endif
@@ -963,16 +968,15 @@ LOCAL   bool_t  NEAR    FASTCALL
 WalkTypestr (bnode_t bn)
 {
     peval_t     pv = &pnodeOfbnode(NODE_LCHILD(pnodeOfbnode(bn)))->v[0];
-    char        rgch[256];
+    FORMATBUF   fb;
     char *      pch;
     unsigned int cch;
-    HDR_TYPE    hdr;
 
-    pch = rgch;
-    cch = sizeof(rgch);
-    FormatType(pv, &pch, &cch, NULL, FPrototype, &hdr);
+    pch = fb.Buf;
+    cch = sizeof(fb.Buf);
+    FormatType(pv, &pch, &cch, NULL, FPrototype, &fb.Hdr);
 
-    return WalkAppendString(rgch, pch-rgch);
+    return WalkAppendString(fb.Buf, pch-fb.Buf);
 }                               /* WalkTypestr() */
 
 LOCAL   bool_t  NEAR    FASTCALL

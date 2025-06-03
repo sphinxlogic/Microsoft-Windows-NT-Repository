@@ -11,7 +11,7 @@
 extern UCHAR            Buffer[];
 extern PDISPLAY_ITEM    Calc1, Calc2;
 extern PDISPLAY_ITEM    PerfGraphList;
-extern UCHAR            NumberOfProcessors;
+extern ULONG            NumberOfProcessors;
 extern BOOL             LazyOp;
 
 VOID AssignCalcId (PDISPLAY_ITEM pPerf);
@@ -226,3 +226,4 @@ SnapSum (
             p1->CurrentDataPoint[i+1] + p2->CurrentDataPoint[i+1];
     }
 }
+

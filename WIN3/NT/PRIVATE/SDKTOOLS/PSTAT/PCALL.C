@@ -28,6 +28,8 @@ Revision History:
 #include <string.h>
 #include <ctype.h>
 
+#define NUMBER_SERVICE_TABLES 2
+
 //
 // Define forward referenced routine prototypes.
 //
@@ -43,195 +45,7 @@ SortUlongData (
 #define DELAY_TIME 1000
 #define TOP_CALLS 15
 
-UCHAR *CallTable[] = {
-   "AcceptConnectPort",
-   "AccessCheck",
-   "AccessCheckAndAuditAlarm",
-   "AdjustGroupsToken",
-   "AdjustPrivilegesToken",
-   "AlertResumeThread",
-   "AlertThread",
-   "AllocateLocallyUniqueId",
-   "AllocateVirtualMemory",
-   "CancelIoFile",
-   "CancelTimer",
-   "ClearEvent",
-   "Close",
-   "CloseObjectAuditAlarm",
-   "CompleteConnectPort",
-   "ConnectPort",
-   "Continue",
-   "CreateDirectoryObject",
-   "CreateEvent",
-   "CreateEventPair",
-   "CreateFile",
-   "CreateIoCompletion",
-   "CreateKey",
-   "CreateMailslotFile",
-   "CreateMutant",
-   "CreateNamedPipeFile",
-   "CreatePagingFile",
-   "CreatePort",
-   "CreateProcess",
-   "CreateProfile",
-   "CreateSection",
-   "CreateSemaphore",
-   "CreateSymbolicLinkObject",
-   "CreateThread",
-   "CreateTimer",
-   "CreateToken",
-   "DelayExecution",
-   "DeleteFile",
-   "DeleteKey",
-   "DeleteValueKey",
-   "DeviceIoControlFile",
-   "DisplayString",
-   "DuplicateObject",
-   "DuplicateToken",
-   "EnumerateKey",
-   "EnumerateValueKey",
-   "ExtendSection",
-   "FlushBuffersFile",
-   "FlushInstructionCache",
-   "FlushKey",
-   "FlushVirtualMemory",
-   "FlushWriteBuffer",
-   "FreeVirtualMemory",
-   "FsControlFile",
-   "GetContextThread",
-   "GetTickCount",
-   "ImpersonateClientOfPort",
-   "ImpersonateThread",
-   "InitializeRegistry",
-   "ListenPort",
-   "LoadDriver",
-   "LoadKey",
-   "LockFile",
-   "LockVirtualMemory",
-   "MakeTemporaryObject",
-   "MapViewOfSection",
-   "NotifyChangeDirectoryFile",
-   "NotifyChangeKey",
-   "OpenDirectoryObject",
-   "OpenEvent",
-   "OpenEventPair",
-   "OpenFile",
-   "OpenIoCompletion",
-   "OpenKey",
-   "OpenMutant",
-   "OpenObjectAuditAlarm",
-   "OpenProcess",
-   "OpenProcessToken",
-   "OpenSection",
-   "OpenSemaphore",
-   "OpenSymbolicLinkObject",
-   "OpenThread",
-   "OpenThreadToken",
-   "OpenTimer",
-   "PrivilegeCheck",
-   "PrivilegedServiceAuditAlarm",
-   "PrivilegeObjectAuditAlarm",
-   "ProtectVirtualMemory",
-   "PulseEvent",
-   "QueryAttributesFile",
-   "QueryDefaultLocale",
-   "QueryDirectoryFile",
-   "QueryDirectoryObject",
-   "QueryEaFile",
-   "QueryEvent",
-   "QueryInformationFile",
-   "QueryIoCompletion",
-   "QueryInformationPort",
-   "QueryInformationProcess",
-   "QueryInformationThread",
-   "QueryInformationToken",
-   "QueryIntervalProfile",
-   "QueryKey",
-   "QueryMutant",
-   "QueryObject",
-   "QueryPerformanceCounter",
-   "QuerySection",
-   "QuerySecurityObject",
-   "QuerySemaphore",
-   "QuerySymbolicLinkObject",
-   "QuerySystemEnvironmentValue",
-   "QuerySystemInformation",
-   "QuerySystemTime",
-   "QueryTimer",
-   "QueryTimerResolution",
-   "QueryValueKey",
-   "QueryVirtualMemory",
-   "QueryVolumeInformationFile",
-   "RaiseException",
-   "RaiseHardError",
-   "ReadFile",
-   "ReadRequestData",
-   "ReadVirtualMemory",
-   "RegisterThreadTerminatePort",
-   "ReleaseMutant",
-   "ReleaseProcessMutant",
-   "ReleaseSemaphore",
-   "RemoveIoCompletion",
-   "ReplaceKey",
-   "ReplyPort",
-   "ReplyWaitReceivePort",
-   "ReplyWaitReplyPort",
-   "RequestPort",
-   "RequestWaitReplyPort",
-   "ResetEvent",
-   "RestoreKey",
-   "ResumeThread",
-   "SaveKey",
-   "SetContextThread",
-   "SetDefaultHardErrorPort",
-   "SetDefaultLocale",
-   "SetEaFile",
-   "SetEvent",
-   "SetHighEventPair",
-   "SetHighWaitLowEventPair",
-   "SetHighWaitLowThread",
-   "SetInformationFile",
-   "SetInformationKey",
-   "SetInformationObject",
-   "SetInformationProcess",
-   "SetInformationThread",
-   "SetInformationToken",
-   "SetIntervalProfile",
-   "SetLdtEntries",
-   "SetLowEventPair",
-   "SetLowWaitHighEventPair",
-   "SetLowWaitHighThread",
-   "SetSecurityObject",
-   "SetSystemEnvironmentValue",
-   "SetSystemInformation",
-   "SetSystemTime",
-   "SetTimer",
-   "SetTimerResolution",
-   "SetValueKey",
-   "SetVolumeInformationFile",
-   "ShutdownSystem",
-   "StartProfile",
-   "StopProfile",
-   "SuspendThread",
-   "SystemDebugControl",
-   "TerminateProcess",
-   "TerminateThread",
-   "TestAlert",
-   "UnloadDriver",
-   "UnloadKey",
-   "UnlockFile",
-   "UnlockVirtualMemory",
-   "UnmapViewOfSection",
-   "VdmControl",
-   "WaitForMultipleObjects",
-   "WaitForSingleObject",
-   "WaitForProcessMutant",
-   "WaitHighEventPair",
-   "WaitLowEventPair",
-   "WriteFile",
-   "WriteRequestData",
-   "WriteVirtualMemory"
-};
+extern UCHAR *CallTable[];
 
 ULONG Index[BUFFER_SIZE];
 ULONG CountBuffer1[BUFFER_SIZE];
@@ -261,10 +75,17 @@ char *argv[];
     HANDLE ScreenHandle;
     DWORD NumRead;
     SMALL_RECT Window;
+    PSYSTEM_CALL_COUNT_INFORMATION CallCountInfo[2];
     PSYSTEM_CALL_COUNT_INFORMATION CurrentCallCountInfo;
     PSYSTEM_CALL_COUNT_INFORMATION PreviousCallCountInfo;
+    PULONG CallCountTable[2];
+    PULONG CurrentCallCountTable;
+    PULONG PreviousCallCountTable;
+    PSYSTEM_CONTEXT_SWITCH_INFORMATION SwitchInfo[2];
     PSYSTEM_CONTEXT_SWITCH_INFORMATION CurrentSwitchInfo;
     PSYSTEM_CONTEXT_SWITCH_INFORMATION PreviousSwitchInfo;
+    ULONG Current;
+    ULONG Previous;
     LARGE_INTEGER TimeDifference;
     ULONG ContextSwitches;
     ULONG FindAny;
@@ -280,13 +101,29 @@ char *argv[];
     ULONG SleepTime=1000;
     BOOLEAN ConsoleMode=TRUE;
     ULONG TopCalls=TOP_CALLS;
-    ULONG TripCount;
+    BOOLEAN LoopMode = FALSE;
+    BOOLEAN ShowSwitches = TRUE;
+    PULONG p;
+    ULONG NumberOfCounts;
 
-    TripCount = 0;
-    if (argc > 1) {
-        SleepTime = atoi(argv[1]) * 1000;
+    while (argc > 1) {
+        argv++;
+        if (_stricmp(argv[0],"-l") == 0) {
+            LoopMode = TRUE;
+            ConsoleMode = FALSE;
+            TopCalls = BUFFER_SIZE;
+            argc--;
+            continue;
+        }
+        if (_stricmp(argv[0],"-s") == 0) {
+            ShowSwitches = FALSE;
+            argc--;
+            continue;
+        }
+        SleepTime = atoi(argv[0]) * 1000;
         ConsoleMode = FALSE;
-        TopCalls = sizeof(CallTable) / sizeof(PUCHAR);
+        TopCalls = BUFFER_SIZE;
+        argc--;
     }
 
     SetBasePriority = (KPRIORITY)12;
@@ -297,6 +134,94 @@ char *argv[];
         (PVOID) &SetBasePriority,
         sizeof(SetBasePriority)
         );
+
+    Current = 0;
+    Previous = 1;
+
+    CallCountInfo[0] = (PVOID)CountBuffer1;
+    CallCountInfo[1] = (PVOID)CountBuffer2;
+    CallCountTable[0] = (PULONG)(CallCountInfo[0] + 1) + NUMBER_SERVICE_TABLES;
+    CallCountTable[1] = (PULONG)(CallCountInfo[1] + 1) + NUMBER_SERVICE_TABLES;
+    SwitchInfo[0] = &SystemSwitchInformation1;
+    SwitchInfo[1] = &SystemSwitchInformation2;
+
+    Current = 0;
+    Previous = 1;
+    CurrentCallCountInfo = CallCountInfo[0];
+    CurrentCallCountTable = CallCountTable[0];
+    CurrentSwitchInfo = SwitchInfo[0];
+    PreviousCallCountInfo = CallCountInfo[1];
+    PreviousCallCountTable = CallCountTable[1];
+    PreviousSwitchInfo = SwitchInfo[1];
+
+    //
+    // Query system information and get the initial call count data.
+    //
+
+    status = NtQuerySystemInformation(SystemCallCountInformation,
+                                      (PVOID)PreviousCallCountInfo,
+                                      BUFFER_SIZE * sizeof(ULONG),
+                                      NULL);
+
+    if (NT_SUCCESS(status) == FALSE) {
+        printf("Query count information failed %lx\n",status);
+        return(status);
+    }
+
+    //
+    // Make sure that the number of tables reported by the kernel matches
+    // our list.
+    //
+
+    if (PreviousCallCountInfo->NumberOfTables != NUMBER_SERVICE_TABLES) {
+        printf("System call table count (%d) doesn't match PCALL's count (%d)\n",
+                PreviousCallCountInfo->NumberOfTables, NUMBER_SERVICE_TABLES);
+        return STATUS_UNSUCCESSFUL;
+    }
+
+    //
+    // Make sure call count information is available for base services.
+    //
+
+    p = (PULONG)(PreviousCallCountInfo + 1);
+
+    if (p[0] == 0) {
+        printf("No system call count information available for base services\n");
+        return STATUS_UNSUCCESSFUL;
+    }
+
+    //
+    // If there is a hole in the count information (i.e., one set of services
+    // doesn't have counting enabled, but a subsequent one does, then our
+    // indexes will be off, and we'll display the wrong service names.
+    //
+
+    for ( i = 2; i < NUMBER_SERVICE_TABLES; i++ ) {
+        if ((p[i] != 0) && (p[i-1] == 0)) {
+            printf("One or more call count tables empty.  PCALL can't run\n");
+            return STATUS_UNSUCCESSFUL;
+        }
+    }
+
+    NumberOfCounts = (PreviousCallCountInfo->Length
+                        - sizeof(SYSTEM_CALL_COUNT_INFORMATION)
+                        - NUMBER_SERVICE_TABLES * sizeof(ULONG)) / sizeof(ULONG);
+
+    //
+    // Query system information and get the performance data.
+    //
+
+    if (ShowSwitches) {
+        status = NtQuerySystemInformation(SystemContextSwitchInformation,
+                                          (PVOID)PreviousSwitchInfo,
+                                          sizeof(SYSTEM_CONTEXT_SWITCH_INFORMATION),
+                                          NULL);
+
+        if (NT_SUCCESS(status) == FALSE) {
+            printf("Query context switch information failed %lx\n",status);
+            return(status);
+        }
+    }
 
     if (ConsoleMode) {
         GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &sbi);
@@ -350,14 +275,13 @@ char *argv[];
     Sm.Bottom    = 22;
 
     ScreenHandle = GetStdHandle(STD_INPUT_HANDLE);
-    CurrentCallCountInfo = (PVOID)&CountBuffer1[0];
-    PreviousCallCountInfo = (PVOID)&CountBuffer2[0];
-    CurrentSwitchInfo = &SystemSwitchInformation1;
-    PreviousSwitchInfo = &SystemSwitchInformation2;
 
     Active = TRUE;
     CountSort = TRUE;
     while(TRUE) {
+
+        Sleep(SleepTime);
+
         while (PeekConsoleInput (ScreenHandle, &InputRecord, 1, &NumRead) && NumRead != 0) {
             if (!ReadConsoleInput (ScreenHandle, &InputRecord, 1, &NumRead)) {
                 break;
@@ -426,14 +350,16 @@ char *argv[];
         // Query system information and get the performance data.
         //
 
-        status = NtQuerySystemInformation(SystemContextSwitchInformation,
-                                          (PVOID)CurrentSwitchInfo,
-                                          sizeof(SYSTEM_CONTEXT_SWITCH_INFORMATION),
-                                          NULL);
+        if (ShowSwitches) {
+            status = NtQuerySystemInformation(SystemContextSwitchInformation,
+                                              (PVOID)CurrentSwitchInfo,
+                                              sizeof(SYSTEM_CONTEXT_SWITCH_INFORMATION),
+                                              NULL);
 
-        if (NT_SUCCESS(status) == FALSE) {
-            printf("Query context switch information failed %lx\n",status);
-            return(status);
+            if (NT_SUCCESS(status) == FALSE) {
+                printf("Query context switch information failed %lx\n",status);
+                return(status);
+            }
         }
 
         //
@@ -442,10 +368,8 @@ char *argv[];
         //
 
         TotalSystemCalls = 0;
-        for (i = 0; i < CurrentCallCountInfo->TotalCalls; i += 1) {
-            CallData[i] = CurrentCallCountInfo->NumberOfCalls[i] -
-                                        PreviousCallCountInfo->NumberOfCalls[i];
-
+        for (i = 0; i < NumberOfCounts; i += 1) {
+            CallData[i] = CurrentCallCountTable[i] - PreviousCallCountTable[i];
             TotalSystemCalls += CallData[i];
         }
 
@@ -453,45 +377,46 @@ char *argv[];
         // Sort the system call data.
         //
 
-        SortUlongData(CurrentCallCountInfo->TotalCalls,
-                     Index,
-                     CallData);
+        SortUlongData(NumberOfCounts, Index, CallData);
 
         //
         // Compute context switch information.
         //
 
-        ContextSwitches =
-            CurrentSwitchInfo->ContextSwitches - PreviousSwitchInfo->ContextSwitches;
+        if (ShowSwitches) {
+            ContextSwitches =
+                CurrentSwitchInfo->ContextSwitches - PreviousSwitchInfo->ContextSwitches;
 
-        FindAny = CurrentSwitchInfo->FindAny - PreviousSwitchInfo->FindAny;
-        FindLast = CurrentSwitchInfo->FindLast - PreviousSwitchInfo->FindLast;
-        IdleAny = CurrentSwitchInfo->IdleAny - PreviousSwitchInfo->IdleAny;
-        IdleCurrent = CurrentSwitchInfo->IdleCurrent - PreviousSwitchInfo->IdleCurrent;
-        IdleLast = CurrentSwitchInfo->IdleLast - PreviousSwitchInfo->IdleLast;
-        PreemptAny = CurrentSwitchInfo->PreemptAny - PreviousSwitchInfo->PreemptAny;
-        PreemptCurrent = CurrentSwitchInfo->PreemptCurrent - PreviousSwitchInfo->PreemptCurrent;
-        PreemptLast = CurrentSwitchInfo->PreemptLast - PreviousSwitchInfo->PreemptLast;
-        SwitchToIdle = CurrentSwitchInfo->SwitchToIdle - PreviousSwitchInfo->SwitchToIdle;
+            FindAny = CurrentSwitchInfo->FindAny - PreviousSwitchInfo->FindAny;
+            FindLast = CurrentSwitchInfo->FindLast - PreviousSwitchInfo->FindLast;
+            IdleAny = CurrentSwitchInfo->IdleAny - PreviousSwitchInfo->IdleAny;
+            IdleCurrent = CurrentSwitchInfo->IdleCurrent - PreviousSwitchInfo->IdleCurrent;
+            IdleLast = CurrentSwitchInfo->IdleLast - PreviousSwitchInfo->IdleLast;
+            PreemptAny = CurrentSwitchInfo->PreemptAny - PreviousSwitchInfo->PreemptAny;
+            PreemptCurrent = CurrentSwitchInfo->PreemptCurrent - PreviousSwitchInfo->PreemptCurrent;
+            PreemptLast = CurrentSwitchInfo->PreemptLast - PreviousSwitchInfo->PreemptLast;
+            SwitchToIdle = CurrentSwitchInfo->SwitchToIdle - PreviousSwitchInfo->SwitchToIdle;
+        }
 
         //
         // Display the top services.
         //
 
-        if (((ConsoleMode == FALSE) && (TripCount != 0)) || (ConsoleMode != FALSE)) {
-            printf("\n");
-            for (i = 0; i < TopCalls; i += 1) {
-                if (CallData[Index[i]] == 0) {
-                    break;
-                }
-
-                printf("%8ld    %s\n",
-                       CallData[Index[i]],
-                       CallTable[Index[i]]);
+        printf("\n");
+        for (i = 0; i < TopCalls; i += 1) {
+            if (CallData[Index[i]] == 0) {
+                break;
             }
 
-            printf("\n");
-            printf("Total System Calls            %6ld\n", TotalSystemCalls);
+            printf("%8ld    %s\n",
+                   CallData[Index[i]],
+                   CallTable[Index[i]]);
+        }
+
+        printf("\n");
+        printf("Total System Calls            %6ld\n", TotalSystemCalls);
+
+        if (ShowSwitches) {
             printf("\n");
             printf("Context Switch Information\n");
             printf("    Find any processor        %6ld\n", FindAny);
@@ -516,68 +441,18 @@ char *argv[];
             _flushall();
         }
 
-        if ((ConsoleMode == FALSE) && (TripCount != 0)) {
+        if ((ConsoleMode == FALSE) && (LoopMode == FALSE)) {
             ExitProcess(0);
-
-        } else {
-            TripCount += 1;
-            Sleep(SleepTime);
-            if ((PVOID)CurrentCallCountInfo == (PVOID)&CountBuffer1[0]) {
-                CurrentCallCountInfo = (PVOID)&CountBuffer2[0];
-                PreviousCallCountInfo = (PVOID)&CountBuffer1[0];
-                CurrentSwitchInfo = &SystemSwitchInformation2;
-                PreviousSwitchInfo = &SystemSwitchInformation1;
-
-            } else {
-                CurrentCallCountInfo = (PVOID)&CountBuffer1[0];
-                PreviousCallCountInfo = (PVOID)&CountBuffer2[0];
-                CurrentSwitchInfo = &SystemSwitchInformation1;
-                PreviousSwitchInfo = &SystemSwitchInformation2;
-            }
         }
+
+        Current = 1 - Current;
+        Previous = 1 - Previous;
+        CurrentCallCountInfo = CallCountInfo[Current];
+        CurrentCallCountTable = CallCountTable[Current];
+        CurrentSwitchInfo = SwitchInfo[Current];
+        PreviousCallCountInfo = CallCountInfo[Previous];
+        PreviousCallCountTable = CallCountTable[Previous];
+        PreviousSwitchInfo = SwitchInfo[Previous];
     }
 }
 
-VOID
-SortUlongData (
-    IN ULONG Count,
-    IN ULONG Index[],
-    IN ULONG Data[]
-    )
-
-{
-
-    LONG i;
-    LONG j;
-    ULONG k;
-
-    //
-    // Initialize the index array.
-    //
-
-    i = 0;
-    do {
-        Index[i] = i;
-        i += 1;
-    } while (i < Count);
-
-    //
-    // Perform an indexed bubble sort on long data.
-    //
-
-    i = 0;
-    do {
-        for (j = i; j >= 0; j -= 1) {
-            if (Data[Index[j]] >= Data[Index[j + 1]]) {
-                break;
-            }
-
-            k = Index[j];
-            Index[j] = Index[j + 1];
-            Index[j + 1] = k;
-        }
-
-        i += 1;
-    } while (i < (Count - 1));
-    return;
-}

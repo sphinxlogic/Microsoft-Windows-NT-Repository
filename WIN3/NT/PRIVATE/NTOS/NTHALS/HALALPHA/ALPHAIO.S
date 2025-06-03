@@ -751,6 +751,7 @@ Revision History:
 
         zap     a0, 0xf0, a0            // clear <63:32>
 
+        bic     a0, QVA_ENABLE,a0       // clear QVA fields so shift is correct
         sll     a0, IO_BIT_SHIFT, t0    // t0 contains VA<33:0>
         ldiq    t4, -0x4000             // t4=ffff ffff ffff c000
         sll     t4, 28, t4              // t4=ffff fc00 0000 0000
@@ -820,6 +821,7 @@ Revision History:
 // Dense space access: QVA is an offset into dense space
 // Set IO address in t0
 //
+        ldil    t8, 1                   // DENSE FLAG
         zap     a0, 0xf0, a0            // clear <63:32>
         ldiq    t0, PCI_DENSE_BASE_PHYSICAL_SUPERPAGE
         or      a0, t0, t0              // superpage mode: add offset to base
@@ -836,6 +838,7 @@ Revision History:
 //
 
 1:
+        ldil    t8, 0                   // SPARSE FLAG
         zap     a0, 0xf0, a0            // clear <63:32>
         bic     a0, QVA_ENABLE,a0       // clear QVA fields so shift is correct
         sll     a0, IO_BIT_SHIFT, t0    // t0 contains VA<33:0>
@@ -875,8 +878,13 @@ Revision History:
 
 10:     
         beq     a2, 60f                 // if count == 0 goto 60f (return)
-
+        beq     t8, 11f                 // if not DENSE goto 11f
+        bic     t0, 3, t9               // clear bits <1:0> of src
+        ldl     v0, 0(t9)               // get the longword
+        br      zero, 12f
+11:
         ldl     v0, 0(t0)               // get the longword
+12:
         subl    a2, 1, a2               // decrement count
         extbl   v0, t3,v0               // get the correct byte
         stb     v0, (a1)                // cheat and let the assembler do it
@@ -911,8 +919,14 @@ Revision History:
         and     a2, 3, a2               // remaining Bytes to copy
         beq     a2, 60f                 // if count == 0 goto 60f
 
-50:                                      
+50:
+        beq     t8, 51f                 // if not DENSE goto 51f
+        bic     t0, 3, t9               // clear bits <1:0> of src
+        ldl     v0, 0(t9)               // get the longword
+        br      zero, 52f
+51:                                      
         ldl     v0, 0(t0)               // get the longword
+52:
         subl    a2, 1, a2               // decrement count
         extbl   v0, t3,v0               // get the correct byte
         stb     v0, (a1)                // cheat and let the assembler do it
@@ -943,8 +957,13 @@ Revision History:
 
 80:
        beq     a2, 130f                 // if count == 0 goto 130f (return)
-
+       beq     t8, 81f                  // if not DENSE goto 81f
+       bic     t0, 3, t9                // clear bits <1:0> of src
+       ldl     v0, 0(t9)                // get the longword
+       br      zero, 82f
+81:
        ldl     v0, 0(t0)                // get the longword
+82:
        subl    a2, 1, a2                // decrement count
        extbl   v0, t3,v0                // get the correct byte
        stb     v0, (a1)                 // cheat and let the assembler do it
@@ -1006,8 +1025,14 @@ Revision History:
         and     a2, 7, a2               // remaining bytes to copy
         beq     a2, 130f                // if count == 0 goto 130f (return)
 
-120:                                      
+120:
+        beq     t8, 121f                // if not DENSE goto 121f
+        bic     t0, 3, t9               // clear bits <1:0> of src
+        ldl     v0, 0(t9)               // get the longword
+        br      zero, 122f
+121:                                      
         ldl     v0, 0(t0)               // get the longword
+122:
         subl    a2, 1, a2               // decrement count
         extbl   v0, t3,v0               // get the correct byte
         stb     v0, (a1)                // cheat and let the assembler do it
@@ -1021,6 +1046,7 @@ Revision History:
         ret     zero, (ra)              // return
 
         .end    READ_REGISTER_BUFFER_ULONG // end for UCHAR & USHORT
+        
 
 
         SBTTL( "Write Buffer to PCI Memory Space in Uchars")
@@ -1068,7 +1094,8 @@ Revision History:
 // Dense space access: QVA is an offset into dense space
 // Set IO address in t0
 //
-
+	
+	ldil    t7, 1                   // DENSE FLAG
         zap     a0, 0xf0, a0            // clear <63:32>
         ldiq    t0, PCI_DENSE_BASE_PHYSICAL_SUPERPAGE
         or      a0, t0, t0              // superpage mode: add offset to base
@@ -1085,6 +1112,7 @@ Revision History:
 //
 
 1:
+	ldil	t7, 0			// SPARSE FLAG
         zap     a0, 0xf0, a0            // clear <63:32>
         bic     a0, QVA_ENABLE,a0       // clear QVA fields so shift is correct
         sll     a0, IO_BIT_SHIFT, t0    // t0 contains VA<33:0>
@@ -1129,7 +1157,27 @@ Revision History:
         extbl   t1, a1, t1              // extract appropriate byte
         addl    a1, 1, a1               // increment buffer pointer
         insbl   t1, t3, t1              // get proper lane
+
+        beq     t7, 11f                 // if not DENSE goto 11f
+
+//
+// Read\modify\write for DENSE space I/O
+//	
+        bic     t0, 3, t9               // clear bits <1:0> of dest
+        ldl     t10, 0(t9)              // read dest long
+        mskbl   t10, t3, t10            // poke out the byte we will write
+        bis     t10, t1, t1             // merge in our byte
+        stl     t1, 0(t9)               // commit it
+
+        br      zero, 12f
+
+//		
+// We're in SPARSE space, so simply perform the write
+//
+11:		
         stl     t1, 0(t0)               // store byte to buffer (BYTE ENABLED)
+	
+12:	
         addq    t0, a3, t0              // increment I/O buffer
         addl    t3, 1, t3               // increment bytelane
         and     t3, 3, t3               // longwords only
@@ -1167,7 +1215,27 @@ Revision History:
         extbl   t1, a1, t1              // extract appropriate byte
         addl    a1, 1, a1               // increment buffer pointer
         insbl   t1, t3, t1              // get proper lane
+
+        beq     t7, 51f                 // if not DENSE goto 51f
+
+//
+// Read\modify\write for DENSE space I/O
+//
+        bic     t0, 3, t9               // clear bits <1:0> of dest
+        ldl     t10, 0(t9)              // read dest long
+        mskbl   t10, t3, t10            // poke out the byte we will write
+        bis     t10, t1, t1             // merge in our byte
+        stl     t1, 0(t9)               // commit it
+
+        br      zero, 52f
+
+//
+// We're in SPARSE space, so simply perform the write
+//
+51:		
         stl     t1, 0(t0)               // store to buffer
+
+52:	
         addq    t0, a3, t0              // increment I/O buffer
         addl    t3, 1, t3               // increment bytelane
         and     t3, 3, t3               // longwords only
@@ -1197,7 +1265,27 @@ Revision History:
         ldq_u   t1, 0(a1)               // get quad surrounding byte
         extbl   t1, a1, t1              // extract appropriate byte
         insbl   t1, t3, t1              // get proper lane
+
+	beq	t7, 81f			// if not DENSE goto 81f
+
+//
+// Read\modify\write for DENSE space I/O
+//
+	bic	t0, 3, t9		// clear bits <1:0> of dest
+	ldl	t10, 0(t9)		// read dest long
+	mskbl	t10, t3, t10		// poke out the byte we will write
+	bis	t10, t1, t1		// merge in our byte
+	stl	t1, 0(t9)		// commit it
+
+	br	zero, 82f
+
+//
+// We're in SPARSE space, so simply perform the write
+//	
+81:
         stl     t1, 0(t0)               // store byte to buffer (BYTE ENABLED)
+
+82:	
         subl    a2, 1, a2               // decrement count
         addl    a1, 1, a1               // increment buffer pointer
         addq    t0, a3, t0              // increment I/O buffer
@@ -1245,7 +1333,27 @@ Revision History:
         extbl   t1, a1, t1              // extract appropriate byte
         addl    a1, 1, a1               // increment buffer pointer
         insbl   t1, t3, t1              // get proper lane
+
+        beq     t7, 121f                 // if not DENSE goto 122f
+
+//
+// Read\modify\write for DENSE space I/O
+//
+        bic     t0, 3, t9               // clear bits <1:0> of dest
+        ldl     t10, 0(t9)              // read dest long
+        mskbl   t10, t3, t10            // poke out the byte we will write
+        bis     t10, t1, t1             // merge in our byte
+        stl     t1, 0(t9)               // commit it
+
+	br      zero, 122f
+
+//
+// We're in SPARSE space, so simply perform the write
+//
+121:
         stl     t1, 0(t0)               // store byte to buffer (BYTE ENABLED)
+
+122:
         addq    t0, a3, t0              // increment I/O buffer
         addl    t3, 1, t3               // increment bytelane
         and     t3, 3, t3               // longwords only
@@ -1256,3 +1364,5 @@ Revision History:
         ret     zero, (ra)              // return
 
         .end    WRITE_REGISTER_BUFFER_ULONG // end for UCHAR & USHORT
+
+

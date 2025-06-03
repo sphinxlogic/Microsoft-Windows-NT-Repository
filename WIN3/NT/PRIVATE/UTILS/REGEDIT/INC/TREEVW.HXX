@@ -27,9 +27,7 @@ Environment:
 #include "ulib.hxx"
 #include "uapp.hxx"
 #include "window.hxx"
-extern "C" {
 #include "sedapi.h"
-}
 
 DECLARE_CLASS( REGEDIT_NODE );
 DECLARE_CLASS( REGEDIT_INTERNAL_REGISTRY );

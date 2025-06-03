@@ -360,4 +360,3 @@ typedef CVF_LAYOUT *PCVF_LAYOUT;
 }
 
 #endif // _CVF_
-

@@ -42,6 +42,11 @@ Revision History:
     ASSERT((E)->Header.Type == ThreadObject); \
 }
 
+//
+// Our notion of alignment is different, so force use of ours
+//
+#undef  ALIGN_UP
+#undef  ALIGN_DOWN
 #define ALIGN_DOWN(address,amt) ((ULONG)(address) & ~(( amt ) - 1))
 #define ALIGN_UP(address,amt) (ALIGN_DOWN( (address + (amt) - 1), (amt) ))
 
@@ -116,6 +121,7 @@ Return Value:
     PULONG PStartRoutine;
     PULONG PStartContext;
     PULONG PUserContextFlag;
+    ULONG  ContextFlags;
     CONTEXT Context2;
     PCONTEXT ContextFrame2 = NULL;
 
@@ -128,6 +134,7 @@ Return Value:
 
         RtlMoveMemory(&Context2, ContextFrame, sizeof(CONTEXT));
         ContextFrame2 = &Context2;
+        ContextFlags = CONTEXT_CONTROL;
 
         //
         // The 80387 save area is at the very base of the kernel stack.
@@ -147,13 +154,30 @@ Return Value:
         ContextFrame2->FloatSave.ErrorSelector = 0;
         ContextFrame2->FloatSave.DataOffset    = 0;
         ContextFrame2->FloatSave.DataSelector  = 0;
+
+
         if (KeI386NpxPresent) {
-	        ContextFrame2->FloatSave.Cr0NpxState = 0;
-	        NpxFrame->Cr0NpxState = 0;
+            ContextFrame2->FloatSave.Cr0NpxState = 0;
+            NpxFrame->Cr0NpxState = 0;
+            ContextFlags |= CONTEXT_FLOATING_POINT;
+
+            //
+            // Threads NPX state is not in the coprocessor.
+            //
+
+            Thread->NpxState = NPX_STATE_NOT_LOADED;
+
         } else {
-	        ContextFrame2->FloatSave.Cr0NpxState = CR0_EM;
-	        NpxFrame->Cr0NpxState = CR0_EM;
-	    }
+            NpxFrame->Cr0NpxState = CR0_EM;
+
+            //
+            // Threads NPX state is not in the coprocessor.
+            // In the emulator case, do not set the CR0_EM bit as their
+            // emulators may not want exceptions on FWAIT instructions.
+            //
+
+            Thread->NpxState = NPX_STATE_NOT_LOADED & ~CR0_MP;
+        }
 
         //
         // Force debug registers off.  They won't work anyway from an
@@ -200,8 +224,8 @@ Return Value:
         //
 
         KeContextToKframes(TrFrame, NULL, ContextFrame2,
-                           ContextFrame2->ContextFlags |
-                           (CONTEXT_CONTROL|CONTEXT_FLOATING_POINT), UserMode);
+                           ContextFrame2->ContextFlags | ContextFlags,
+                           UserMode);
 
         TrFrame->HardwareSegSs |= RPL_MASK;
         TrFrame->SegDs |= RPL_MASK;
@@ -236,15 +260,6 @@ Return Value:
 
         Thread->PreviousMode = UserMode;
 
-        //
-        // Threads NPX state is not in the coprocessor
-        //
-
-        if (KeI386NpxPresent) {
-            Thread->NpxState = NPX_STATE_NOT_LOADED;
-        } else {
-            Thread->NpxState = NPX_STATE_EMULATED;
-        }
 
     } else {
 
@@ -257,8 +272,26 @@ Return Value:
         NpxFrame = (PFLOATING_SAVE_AREA)(((ULONG)(Thread->InitialStack) -
                     sizeof(FLOATING_SAVE_AREA)));
 
-	    NpxFrame->Cr0NpxState = 0;
 
+        //
+        // Load up an initial NPX state.
+        //
+
+        NpxFrame->ControlWord   = 0x27f;  // like fpinit but 64bit mode
+        NpxFrame->StatusWord    = 0;
+        NpxFrame->TagWord       = 0xffff;
+        NpxFrame->ErrorOffset   = 0;
+        NpxFrame->ErrorSelector = 0;
+        NpxFrame->DataOffset    = 0;
+        NpxFrame->DataSelector  = 0;
+
+        NpxFrame->Cr0NpxState   = 0;
+
+        //
+        // Threads NPX state is not in the coprocessor.
+        //
+
+        Thread->NpxState = NPX_STATE_NOT_LOADED;
 
         //
         //  Space for arguments to KiThreadStartup.
@@ -289,11 +322,6 @@ Return Value:
         //
 
         Thread->PreviousMode = KernelMode;
-
-        //
-        // Threads NPX state is not in the coprocessor
-        //
-        Thread->NpxState = NPX_STATE_NOT_LOADED;
     }
 
     //
@@ -328,10 +356,6 @@ Return Value:
     }
 #endif
 
-    SwitchFrame->Ebp = 0;
-    SwitchFrame->Esi = 0;
-    SwitchFrame->Edi = 0;
-    SwitchFrame->Ebx = 0;
     SwitchFrame->ExceptionList = (ULONG)(EXCEPTION_CHAIN_END);
 
     //
@@ -439,21 +463,30 @@ Return Value:
     BOOLEAN Previous;
     PKAPC Apc;
     PKEVENT Event;
-    KIRQL Irql;
+    KIRQL OldIrql;
 
     ASSERT_THREAD(Thread);
 
     //
-    // Set the specified data alignment mode and return the previous
-    // data alignment handling mode for the specified thread.
+    // Raise IRQL to dispatcher level and lock dispatcher database.
     //
 
-    KeRaiseIrql(DISPATCH_LEVEL, &Irql);
+    KiLockDispatcherDatabase(&OldIrql);
+
+    //
+    // Capture the previous data alignment handling mode and set the
+    // specified data alignment mode.
+    //
 
     Previous = Thread->AutoAlignment;
     Thread->AutoAlignment = Enable;
 
-    KeLowerIrql(Irql);
+    //
+    // Unlock dispatcher database and lower IRQL to its previous value.
+    //
+
+    KiUnlockDispatcherDatabase(OldIrql);
+
 #if 0
     Apc = ExAllocatePool(NonPagedPoolMustSucceed, sizeof(KAPC));
     Event = ExAllocatePool(NonPagedPoolMustSucceed, sizeof(KEVENT));

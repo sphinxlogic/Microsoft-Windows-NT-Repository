@@ -13,18 +13,8 @@
 *          around and going to physical BOT
 *
 * HISTORY:
-*		$Log:   J:\se.vcs\driver\q117cd\src\0x11019.c  $
-*	
-*	   Rev 1.2   17 Feb 1994 11:36:54   KEVINKES
-*	Added an extra parameter to WaitCC.
+*      $Log:   J:\se.vcs\driver\q117cd\src\0x11019.c  $
 *
-*	   Rev 1.1   08 Nov 1993 14:02:46   KEVINKES
-*	Removed all bit-field structures, removed all enumerated types, changed
-*	all defines to uppercase, and removed all signed data types wherever
-*	possible.
-*
-*	   Rev 1.0   18 Oct 1993 17:23:04   KEVINKES
-*	Initial Revision.
 *
 *****************************************************************************/
 #define FCT_ID 0x11019
@@ -41,11 +31,13 @@ dStatus cqd_CmdRetension
 (
 /* INPUT PARAMETERS:  */
 
-   CqdContextPtr cqd_context
+   CqdContextPtr cqd_context,
 
 /* UPDATE PARAMETERS: */
 
 /* OUTPUT PARAMETERS: */
+
+   dUDWordPtr  segments_per_track
 
 )
 /* COMMENTS: *****************************************************************
@@ -55,7 +47,8 @@ dStatus cqd_CmdRetension
 
 /* DATA: ********************************************************************/
 
-	dStatus status;	/* dStatus or error condition.*/
+   dStatus  status;   /* dStatus or error condition.*/
+   dUDWord  time_out;  /* time to wait for retension to finish */
 
 /* CODE: ********************************************************************/
 
@@ -65,9 +58,23 @@ dStatus cqd_CmdRetension
 
    }
 
+   /*
+    * Get the correct time out depending on the tape length.  Short load
+    * point tapes are a special condition (either 205 or 425 foot tape).  If
+    * a short load point tape is entered, assume it is a 425 foot tape.
+    */
+   if  (cqd_context->floppy_tape_parms.tape_status.length != QIC_SHORT)  {
+      time_out = cqd_context->floppy_tape_parms.time_out[PHYSICAL];
+   } else {
+      if  (cqd_context->device_descriptor.drive_class == QIC40_DRIVE)  {
+         time_out = kdi_wt125s;  /* wait longer to support alien drives */
+      } else {
+         time_out = kdi_wt250s;
+      }
+   }
    if ((status = cqd_WaitCommandComplete(
             cqd_context,
-            cqd_context->floppy_tape_parms.time_out[PHYSICAL], dFALSE))
+            time_out, dFALSE))
             != DONT_PANIC) {
 
       return status;
@@ -80,16 +87,84 @@ dStatus cqd_CmdRetension
 
    }
 
-   if ((status = cqd_WaitCommandComplete(
-            cqd_context,
-            cqd_context->floppy_tape_parms.time_out[PHYSICAL], dFALSE))
-            != DONT_PANIC) {
+   /*
+    * Retension must return the number of segments per track during a format
+    * if the inserted tape is a short load point length tape (30") and is a
+    * short (205 ft) tape.  If the load point length is not short then
+    * do the wait as normal.
+    */
+   if  (cqd_context->floppy_tape_parms.tape_status.length != QIC_SHORT)  {
 
-      return status;
+      if ((status = cqd_WaitCommandComplete(
+               cqd_context,
+               cqd_context->floppy_tape_parms.time_out[PHYSICAL], dFALSE))
+               != DONT_PANIC) {
 
+         return status;
+
+      }
+
+   } else {
+      /*
+       * Do a short wait to see if a short (205 ft) or extra long (425 ft) tape
+       * is in the  drive.  The CQD will default to the extra long tape, so the
+       * segments per track need to be set only for a short (205 ft) tape.
+       */
+      if ((status = cqd_WaitCommandComplete(
+               cqd_context,
+               kdi_wt055s, dFALSE))
+               != DONT_PANIC) {
+
+         /*
+          * Had an error, check for a time out error.  If timeout, this is a
+          * long tape.  Don't set segments, the default setting is correct.
+          * Just do another WaitCC to let the command really finish this time.
+          */
+         if (kdi_GetErrorType(status) == ERR_KDI_TO_EXPIRED) {
+            if  (cqd_context->device_descriptor.drive_class == QIC40_DRIVE)  {
+               time_out = kdi_wt125s;
+            } else {
+               time_out = kdi_wt090s;
+            }
+            if ((status = cqd_WaitCommandComplete(
+                     cqd_context,
+                     time_out-kdi_wt055s, dFALSE))
+                     != DONT_PANIC) {
+         		/*
+         		 * Had another error, check for a time out error again.  If
+         		 * timeout, this is a 1000 foot tape.  Just do another WaitCC
+         		 * to let the command really finish this time. (We hope).
+		          */
+         		if (kdi_GetErrorType(status) == ERR_KDI_TO_EXPIRED) {
+               	*segments_per_track = SEG_TTRK_80EX;
+            		if ((status = cqd_WaitCommandComplete(
+                     		cqd_context,
+                     		kdi_wt150s, dFALSE))
+                     		!= DONT_PANIC) {
+               		return status;
+               	}
+               }
+            }
+         } else {
+            return status;
+         }
+
+      } else {
+         /*
+          * No error on a short wait, must be a 205 ft tape.  Find out the
+          * drive type and set the segments per track accordingly.
+          */
+         if  (segments_per_track != dNULL_PTR)  {
+            if  (cqd_context->device_descriptor.drive_class == QIC40_DRIVE)  {
+               *segments_per_track = SEG_TTRK_40;
+            } else {
+               *segments_per_track = SEG_TTRK_80;
+            }
+         }
+      }
    }
 
    cqd_context->operation_status.current_segment = 0;
 
-	return DONT_PANIC;
+   return DONT_PANIC;
 }

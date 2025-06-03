@@ -1112,7 +1112,7 @@ Return Value:
 
     NDIS_STATUS Status;
     ULONG PacketFilter;
-
+    ULONG LookAheadBufferSize;
     //
     // Now check for the most common OIDs
     //
@@ -1202,8 +1202,31 @@ Return Value:
 
     case OID_GEN_CURRENT_LOOKAHEAD:
 
+        if (InformationBufferLength != 4) {
+
+            *BytesNeeded = 4;
+            Status = NDIS_STATUS_INVALID_LENGTH;
+            break;
+
+        }
+
         *BytesRead = 4;
-        Status = NDIS_STATUS_SUCCESS;
+
+        NdisMoveMemory(&LookAheadBufferSize,
+                       InformationBuffer,
+                       sizeof(ULONG));
+
+
+
+        if (LookAheadBufferSize <= (MAXIMUM_ETHERNET_PACKET_SIZE - ELNK_HEADER_SIZE)) {
+
+            Status = NDIS_STATUS_SUCCESS;
+
+        } else {
+
+            Status = NDIS_STATUS_INVALID_DATA;
+        }
+
         break;
 
     case OID_GEN_PROTOCOL_OPTIONS:
@@ -1325,8 +1348,7 @@ NDIS_OID ElnkGlobalSupportedOids[] = {
     OID_802_3_RCV_OVERRUN,
     OID_802_3_XMIT_UNDERRUN,
     OID_802_3_XMIT_HEARTBEAT_FAILURE,
-    OID_802_3_XMIT_TIMES_CRS_LOST,
-    OID_802_3_XMIT_LATE_COLLISIONS
+    OID_802_3_XMIT_TIMES_CRS_LOST
     };
 
 static

@@ -8,10 +8,20 @@
 
 /**********************       PolyTron RCS Utilities
 
- $Revision:   1.0  $
-     $Date:   31 Jan 1994 11:08:26  $
-   $Author:   RWOLFF  $
-      $Log:   S:/source/wnt/ms11/miniport/vcs/eevga.c  $
+ $Revision:   1.3  $
+     $Date:   23 Jan 1996 11:46:08  $
+   $Author:   RWolff  $
+      $Log:   S:/source/wnt/ms11/miniport/archive/eevga.c_v  $
+ * 
+ *    Rev 1.3   23 Jan 1996 11:46:08   RWolff
+ * Eliminated level 3 warnings.
+ * 
+ *    Rev 1.2   23 Dec 1994 10:47:10   ASHANMUG
+ * ALPHA/Chrontel-DAC
+ * 
+ *    Rev 1.1   07 Feb 1994 14:07:44   RWOLFF
+ * Added alloc_text() pragmas to allow miniport to be swapped out when
+ * not needed.
  * 
  *    Rev 1.0   31 Jan 1994 11:08:26   RWOLFF
  * Initial revision.
@@ -104,15 +114,9 @@ since they ONLY had a 1k eeprom == 64 words.
 #include <conio.h>
 #include <dos.h>
 
-/*
- * Different include files are needed for the Windows NT device driver
- * and the VIDEO.EXE test program.
- */
-#ifndef MSDOS
 #include "miniport.h"
 #include "video.h"
 #include "ntddvdeo.h"
-#endif
 
 #include "stdtyp.h"
 #include "amach.h"
@@ -221,7 +225,6 @@ extern void ee_wait(void);
  */
 WORD ee_read_vga(short iIndex)
 {
-    unsigned short uiBuildPar;  /* Used in building Read_ee() parameter */
     unsigned short uiRetVal;    /* Value returned by Read_ee() */
 
     setscrn(OFF);           /* Disable the video card */
@@ -428,42 +431,19 @@ static unsigned short Read_ee(void)
  */
 static void ee_sel_vga(void)
 {
-#ifdef MSDOS
-    union SplitWord zStatus;    /* Status of the video card. */
-#endif
-
 
     if (vga_chip <= '2')
         {
         /*
          * Get the video card's status.
          */
-#ifdef MSDOS
-        _disable();
-        OUTP(ati_reg, SYNC_I);
-        zStatus.byte.high = INP(ati_reg + 1);
-        zStatus.byte.low = SYNC_I;
-
-        /*
-         * Preserve the status so ee_deselect_vga() can restore it.
-         */
-        zOrigStat.word = zStatus.word;
-
-        /*
-         * Unlock the EEPROM to allow reading/writing.
-         */
-        zStatus.byte.high &= ~L_ALL;
-        OUTPW(ati_reg, zStatus.word);
-        _enable();
-#else
         VideoPortSynchronizeExecution(phwDeviceExtension,
                                       VpHighPriority,
                                       (PMINIPORT_SYNCHRONIZE_ROUTINE)
                                           ee_sel_eeprom,
                                       phwDeviceExtension);
-#endif
 
-	OUTPW(HI_SEQ_ADDR, 0x0100);
+        OUTPW(HI_SEQ_ADDR, 0x0100);
         }
     else{
         EE_control(EEPROM);
@@ -500,18 +480,10 @@ void ee_cmd_vga(unsigned short uiInstruct)
      * Get the initial value for the I/O register which
      * will have its bits forced to specific values.
      */
-#ifdef MSDOS
-    _disable();
-    zEepromIOPort.byte.low = EE_WREG;
-    OUTP(ati_reg, zEepromIOPort.byte.low);
-    zEepromIOPort.byte.high = INP(ati_reg + 1);
-    _enable();
-#else
     VideoPortSynchronizeExecution(phwDeviceExtension,
                                   VpHighPriority,
                                   (PMINIPORT_SYNCHRONIZE_ROUTINE) ee_init_io,
                                   phwDeviceExtension);
-#endif
 
     ee_clock_vga();
     zEepromIOPort.byte.high &= (~EE_DI);
@@ -560,7 +532,6 @@ void ee_cmd_vga(unsigned short uiInstruct)
 }
 
 
-#ifndef MSDOS
 BOOLEAN
 ee_sel_eeprom (
     PVOID Context
@@ -645,7 +616,6 @@ Return Value:
     return TRUE;
 
 }
-#endif
 
 
 

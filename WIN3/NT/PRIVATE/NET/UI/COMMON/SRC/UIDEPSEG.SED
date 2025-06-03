@@ -1,3 +1,0 @@
-/^::BEGIN_COMMENT/,/^::END_COMMENT/d
-/^::BEGIN_OPTSEG/d
-/^::END_OPTSEG/d

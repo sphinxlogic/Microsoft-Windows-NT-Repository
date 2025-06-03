@@ -1,19 +1,10 @@
-#include "slm.h"
-#include "sys.h"
-#include "util.h"
-#include "stfile.h"
-#include "ad.h"
-#include "log.h"
-#include "proto.h"
-#include <fcntl.h>
-#include <sys/types.h>
-#include <sys/stat.h>
+#include "precomp.h"
+#pragma hdrstop
+EnableAssert
 
 private void ParseLe(LE *);
 private char *SzLField(char * *, char *, int);
 private void FileField(char **, LE *);
-
-EnableAssert
 
 char szFileLog[] = "%ld;%s;%s;%s;%s;%s@v%d;%s;%.320s\n";
 
@@ -26,10 +17,9 @@ char rgbLog[cbLogPage+1];/* assume that all log records are smaller than this */
 char *pbLog;    /* either 0 or points to current record */
 char *pbMac;    /* if non-zero, file position is here in buffer */
 
-#if defined(_WIN32)
 F fMappedLog;   /* If fTrue, then log file mapped into memory */
+F fSetPosDone;  /* If fTrue, then FGetLe gets current not next*/
 char *pbBase;   /* If mapped into memory, this variable points to first byte */
-#endif /* _WIN32 */
 
 /* append info to current log file which must be open */
 void
@@ -57,7 +47,6 @@ WrLogInfo(
     char *szComment)
 {
     register char *pch;
-    long time();
 
     pbMac = pbLog = 0;
 
@@ -101,6 +90,13 @@ WrLogInfo(
 
 POS posEnd = 0;
 
+TIME dtLogLastWrite;    /* Date/Time of last write to log file.  Used */
+                        /* to validate bogus times in log file        */
+
+TIME dtLogPrevRecord;   /* Date/Time from previous log record.  Used  */
+                        /* if currect log record has a bogus time     */
+
+
 /* open log file for reading or writing; we start out backwards */
 void
 OpenLog(
@@ -114,10 +110,16 @@ OpenLog(
     pmfLog = PmfOpen(PthForLog(pad, pthCurLog), fRW ? omAAppend:omAReadOnly,
                  fRW ? fxGlobal : fxNil);
 
+    //
+    // Use current time as upper bound on log file times
+    //
+    dtLogLastWrite = time(NULL);
+    dtLogPrevRecord = dtLogLastWrite;
+
     fForwards = fFalse;
-#if defined(_WIN32)
     if (pad->flags&flagMappedIO && (pbBase = MapMf(pmfLog, ReadWrite)) != NULL) {
         fMappedLog = fTrue;
+        fSetPosDone = fFalse;
         posEnd = SeekMf(pmfLog, 0, 2);
         pbMac = pbBase + posEnd;
         if (!fRW) {
@@ -130,7 +132,6 @@ OpenLog(
     }
     else {
         fMappedLog = fFalse;
-#endif /* _WIN32 */
         pbMac = pbLog = rgbLog;
 
         /* Seek to end of file (but ahead of trailing spaces) */
@@ -139,9 +140,7 @@ OpenLog(
             FatalError("error creating %!@T; probably wrong redirector\n",
                        pmfLog);
         posEnd = pos;
-#if defined(_WIN32)
     }
-#endif
 }
 
 
@@ -154,22 +153,26 @@ FGetLe(
     LE *ple)
 {
     register char *pb;
-#if defined(_WIN32)
     char *pb1;
-#endif
     int cbAdj;  /* adjustment to find last record when reading back */
+    int cbLimit;
 
     AssertF(pmfLog != 0);
     AssertF(pbLog != 0 && pbMac != 0);
 
-#if defined(_WIN32)
     if (fMappedLog) {
+        AssertF(pbBase != 0);
+        if (fSetPosDone) {
+            fSetPosDone = fFalse;
+        }
+        else
         if (fForwards) {
             while(pbLog < pbMac && *pbLog++ != '\n')
                 ;
 
             if (pbLog == pbMac)
                 return fFalse;
+
         }
         else {
             if (pbLog == pbBase)
@@ -182,11 +185,18 @@ FGetLe(
 
         pb = rgbLog;
         pb1 = pbLog;
-        while ((*pb++ = *pb1++) != '\n')
-            ;
+        cbLimit = cbLogPage;
+        if (cbLimit > (pbMac-pbLog))
+            cbLimit = (pbMac-pbLog);
+
+        while (cbLimit-- && (*pb = *pb1++) != '\n')
+            if (*pb != '\0')
+                pb++;
+
+        if (*pb != '\n')
+            *++pb = '\n';
     }
     else
-#endif /* _WIN32 */
     if (fForwards) {
         /* pbLog points to last read record in buffer */
         while(pbLog < pbMac && *pbLog++ != '\n')
@@ -387,10 +397,10 @@ PosOfLog(
 {
     AssertF(pmfLog != 0);
 
-#if defined(_WIN32)
-    if (fMappedLog)
+    if (fMappedLog) {
+        AssertF(pbBase != 0);
         return pbLog - pbBase;
-#endif
+    }
 
     return SeekMf(pmfLog, (POS)0, 1) - (pbMac - pbLog);
 }
@@ -430,6 +440,20 @@ ParseLe(
         }
         timeLog = timeLog*10 + (*pb - '0');
     }
+
+    //
+    // Validate the time and if bogus use last good time from "previous"
+    // record.
+    //
+
+    if (timeLog < 0 || timeLog > dtLogLastWrite) {
+        timeLog = dtLogPrevRecord;
+        ple->chTimeHacked = '!';
+    } else {
+        dtLogPrevRecord = timeLog;
+        ple->chTimeHacked = ' ';
+    }
+
     ple->timeLog = timeLog;
 }
 
@@ -450,6 +474,7 @@ FreeLe(
         *index(ple->szLogOp, '\0') = ple->chLogOp;
         *index(ple->szUser, '\0') = ple->chUser;
         *index(ple->szTimeLog, '\0') = ple->chTimeLog;
+        ple->chTimeHacked = ' ';
 
         ple->szTimeLog = 0;
     }
@@ -467,13 +492,13 @@ CloseLog()
         FreeMf(pmfLog);
         pmfLog = 0;
     }
-#if defined(_WIN32)
+
     if (fMappedLog) {
+        AssertF(pbBase != 0);
         UnmapViewOfFile(pbBase);
         fMappedLog = fFalse;
         pbBase = NULL;
     }
-#endif /* _WIN32 */
 }
 
 
@@ -492,12 +517,13 @@ SetLogPos(
 
     fForwards = fForw;
 
-#if defined(_WIN32)
     if (fMappedLog) {
+        AssertF(pbBase != 0);
         pbLog = pbBase + pos;
+        fSetPosDone = fForw;
         return;
     }
-#endif /* _WIN32 */
+
     pbMac = pbLog = rgbLog;
     SeekMf(pmfLog, pos, 0);
 }

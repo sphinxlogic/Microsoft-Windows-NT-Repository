@@ -46,7 +46,7 @@ BOOL LoadIconCursorFile(
     LPBITMAPINFO lpBitmapInfo;
     HANDLE hDIB;                    // Handle to DIB bits.
     OFSTRUCT OfStruct;
-    struct stat FileStatus;
+    struct _stat FileStatus;
     ICOCURSORHDR hdr;               // Header structure of icon/cursor file.
     INT nImages;
     PICOCURSORDESC aIcoCurDesc;     // Array of ico/cur descriptors.
@@ -60,7 +60,7 @@ BOOL LoadIconCursorFile(
         return FALSE;
     }
 
-    fstat(HFILE2INT(hf, O_RDONLY), &FileStatus);
+    _fstat(HFILE2INT(hf, O_RDONLY), &FileStatus);
     dwFileSize = (DWORD)FileStatus.st_size;
 
     ImageLinkFreeList();
@@ -292,9 +292,12 @@ BOOL IsValidDIB(
      * Check the size field in the header.  This must be either zero
      * or a valid size.
      */
-    if (pDIB->bmiHeader.biSizeImage &&
-            pDIB->bmiHeader.biSizeImage != cbXORMask + cbANDMask)
-        return FALSE;
+// Disabled because Win95 icons seem to have the wrong value here and
+// nobody noticed (oops!)
+//
+//    if (pDIB->bmiHeader.biSizeImage &&
+//            pDIB->bmiHeader.biSizeImage != cbXORMask + cbANDMask)
+//        return FALSE;
 
     if (cbDIBSize != sizeof(BITMAPINFOHEADER) + cbColorTable +
             cbXORMask + cbANDMask)

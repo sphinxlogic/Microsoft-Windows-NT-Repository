@@ -16,6 +16,8 @@
 extern "C" {
 #endif
 
+#ifndef _LANGUAGE_ASSEMBLY
+
 
 /*
  * Conditional macro definition for function calling type and variable type
@@ -46,12 +48,12 @@ extern "C" {
 
 #ifndef _EXCEPTION_DEFINED
 struct _exception {
-	int type;               /* exception type - see below */
-	char *name;             /* name of function where error occured */
-	double arg1;            /* first argument to function */
-	double arg2;            /* second argument (if any) to function */
-	double retval;          /* value to be returned by function */
-	} ;
+        int type;               /* exception type - see below */
+        char *name;             /* name of function where error occured */
+        double arg1;            /* first argument to function */
+        double arg2;            /* second argument (if any) to function */
+        double retval;          /* value to be returned by function */
+        } ;
 
 #if !__STDC__
 /* Non-ANSI name for compatibility */
@@ -68,8 +70,8 @@ struct _exception {
 
 #ifndef _COMPLEX_DEFINED
 struct _complex {
-	double x,y;     /* real and imaginary parts */
-	} ;
+        double x,y;     /* real and imaginary parts */
+        } ;
 
 #if !__STDC__
 /* Non-ANSI name for compatibility */
@@ -78,6 +80,8 @@ struct _complex {
 
 #define _COMPLEX_DEFINED
 #endif
+
+#endif  /* _LANGUAGE_ASSEMBLY */
 
 
 /* Constant definitions for the exception type passed in the _exception struct
@@ -98,17 +102,20 @@ struct _complex {
  * for a value returned in case of error by a number of the floating point
  * math routines
  */
+#ifndef _LANGUAGE_ASSEMBLY
 #ifdef  _DLL
 #define _HUGE   (*_HUGE_dll)
 extern double * _HUGE_dll;
 #else
 extern double _HUGE;
 #endif
+#endif  /* _LANGUAGE_ASSEMBLY */
 
 #define HUGE_VAL _HUGE
 
 /* function prototypes */
 
+#ifndef _LANGUAGE_ASSEMBLY
 int     _CRTAPI1 abs(int);
 double  _CRTAPI1 acos(double);
 double  _CRTAPI1 asin(double);
@@ -143,44 +150,45 @@ double  _CRTAPI1 tanh(double);
 double  _CRTAPI1 _y0(double);
 double  _CRTAPI1 _y1(double);
 double  _CRTAPI1 _yn(int, double);
-
 #ifdef _M_MRX000
 
-/* MIPS fast LIBM prototypes for float */
+/* MIPS fast prototypes for float */
 /* ANSI C, 4.5 Mathematics             */
 
 /* 4.5.2 Trigonometric functions */
 
-float  _CRTAPI1 acosf( float );
-float  _CRTAPI1 asinf( float );
-float  _CRTAPI1 atanf( float );
-float  _CRTAPI1 atan2f( float , float );
-float  _CRTAPI1 cosf( float );
-float  _CRTAPI1 sinf( float );
-float  _CRTAPI1 tanf( float );
+float  __cdecl acosf( float );
+float  __cdecl asinf( float );
+float  __cdecl atanf( float );
+float  __cdecl atan2f( float , float );
+float  __cdecl cosf( float );
+float  __cdecl sinf( float );
+float  __cdecl tanf( float );
 
 /* 4.5.3 Hyperbolic functions */
-float  _CRTAPI1 coshf( float );
-float  _CRTAPI1 sinhf( float );
-float  _CRTAPI1 tanhf( float );
+float  __cdecl coshf( float );
+float  __cdecl sinhf( float );
+float  __cdecl tanhf( float );
 
 /* 4.5.4 Exponential and logarithmic functions */
-float  _CRTAPI1 expf( float );
-float  _CRTAPI1 logf( float );
-float  _CRTAPI1 log10f( float );
-float  _CRTAPI1 modff( float , float* );
+float  __cdecl expf( float );
+float  __cdecl logf( float );
+float  __cdecl log10f( float );
+float  __cdecl modff( float , float* );
 
 /* 4.5.5 Power functions */
-float  _CRTAPI1 powf( float , float );
-float  _CRTAPI1 sqrtf( float );
+float  __cdecl powf( float , float );
+float  __cdecl sqrtf( float );
 
 /* 4.5.6 Nearest integer, absolute value, and remainder functions */
-float  _CRTAPI1 ceilf( float );
-float  _CRTAPI1 fabsf( float );
-float  _CRTAPI1 floorf( float );
-float  _CRTAPI1 fmodf( float , float );
+float  __cdecl ceilf( float );
+float  __cdecl fabsf( float );
+float  __cdecl floorf( float );
+float  __cdecl fmodf( float , float );
 
 #endif /* _M_MRX000 */
+
+#endif  /* _LANGUAGE_ASSEMBLY */
 
 #if !__STDC__
 /* Non-ANSI names for compatibility */
@@ -194,7 +202,7 @@ float  _CRTAPI1 fmodf( float , float );
 
 #define matherr         _matherr
 
-#define HUGE _HUGE
+#define HUGE    _HUGE
 
 #define cabs            _cabs
 #define hypot           _hypot

@@ -775,4 +775,4 @@ VOID FAR PASCAL ResizeWindows(HWND hwndParent,WORD dxWindow, WORD dyWindow)
         dxWindow - split - dxFrame + dyBorder, dy, TRUE);
     }
 }
-
+

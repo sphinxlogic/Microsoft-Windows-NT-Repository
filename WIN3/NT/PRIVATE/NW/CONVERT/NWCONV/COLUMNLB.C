@@ -478,11 +478,8 @@ LRESULT CALLBACK ColumnLBClass_WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
                 LPTSTR lpColStart,lpTab;
                 LPTSTR lpStringBuffer;
                 int i;
-                DWORD tsize;
 
-                tsize = sizeof(COLRECORD) + sizeof(LPTSTR) * lpColumnLB->nColumns;
-                lpRecord = (LPCOLRECORD) AllocMemory(tsize);
-//                lpRecord = (LPCOLRECORD)GlobalAllocPtr(GPTR, sizeof(COLRECORD) + sizeof(LPTSTR) * lpColumnLB->nColumns);
+                lpRecord = (LPCOLRECORD)GlobalAllocPtr(GPTR, sizeof(COLRECORD) + sizeof(LPTSTR) * lpColumnLB->nColumns);
                 lpStringBuffer = (LPTSTR) GlobalAllocPtr(GPTR, (lstrlen((LPTSTR)lParam) * sizeof(TCHAR)) + sizeof(TCHAR));
 
                 if ((lpRecord) && (lpStringBuffer))

@@ -46,7 +46,7 @@
 *	11-19-91  ETC   Added support for _wsprintf, _vwsprintf with WPRFLAG;
 *			added %tc %ts (generic string handling).
 *	12-05-91  GDP	Bug fix: va_arg was used inconsistently for double
-*	12-19-91  ETC   Added some comments on wsprintf optimization, undones; 
+*	12-19-91  ETC   Added some comments on wsprintf optimization, undones;
 *			check return on malloc.
 *	03-25-92  DJM	POSIX support
 *	04-16-92  KRS	Support new ISO {s|f}wprintf with Unicode format string.
@@ -61,7 +61,7 @@
 *******************************************************************************/
 
 /* temporary hack to minimize changes. This should go into fltintrn.h */
-#if defined(MIPS) || defined(_ALPHA_)
+#if	defined(_M_MRX000) || defined(_M_ALPHA) || defined(_M_PPC)
 #define DOUBLE double
 #endif
 
@@ -82,7 +82,7 @@
 
 /* inline keyword is non-ANSI C7 extension */
 /* CONSIDER: move to cruntime.h! */
-#if defined(_MIPS_) || defined(_ALPHA_) || defined(__STDC__) || (_MSC_VER <= 600)
+#if	!defined(_MSC_VER) || defined(__STDC__)
 #define __inline static
 #else
 /* UNDONE: compiler is broken */

@@ -221,10 +221,10 @@ RdrpInitializeFsp(
     VOID
     );
 
-VOID
-RdrpUninitializeFsp(
-    VOID
-    );
+#define RdrpUninitializeFsp( ) {                                \
+    RdrUninitializeWorkQueue(&RdrDeviceObject->IrpWorkQueue);   \
+    RdrUninitializeIrpContext();                                \
+    }
 
 //
 //      Other redirector routines
@@ -273,11 +273,14 @@ RdrUninitializeWorkQueue(
     IN PWORK_QUEUE WorkQueue
     );
 
-NTSTATUS
-RdrSetMaximumThreadsWorkQueue(
-    IN PWORK_QUEUE WorkQueue,
-    IN ULONG MaximumNumberOfThreads
-    );
+// NTSTATUS
+// RdrSetMaximumThreadsWorkQueue(
+//     IN PWORK_QUEUE WorkQueue,
+//     IN ULONG MaximumNumberOfThreads
+//     );
+
+#define RdrSetMaximumThreadsWorkQueue( _WorkQueue, _MaximumNumberOfThreads )    \
+    (_WorkQueue)->MaximumThreads = (_MaximumNumberOfThreads);
 
 VOID
 RdrSpinUpWorkQueue (
@@ -309,15 +312,16 @@ RdrAllocateIrpContext(
         ExInterlockedInsertTailList(&IrpContextList, (PLIST_ENTRY)(_irpcontext), \
                                     &IrpContextInterlock)
 
-VOID
-RdrInitializeIrpContext(
-    VOID
-    );
+#define RdrInitializeIrpContext( ) {                \
+    KeInitializeSpinLock(&IrpContextInterlock);     \
+    InitializeListHead(&IrpContextList);            \
+    }
 
-VOID
-RdrUninitializeIrpContext(
-    VOID
-    );
+#define RdrUninitializeIrpContext( )                                                \
+    while (!IsListEmpty(&IrpContextList)) {                                         \
+        PIRP_CONTEXT IrpContext = (PIRP_CONTEXT)RemoveHeadList(&IrpContextList);    \
+        FREE_POOL(IrpContext);                                                      \
+    }                                                                               \
 
 
 VOID

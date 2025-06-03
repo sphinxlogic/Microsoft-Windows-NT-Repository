@@ -1,5 +1,3 @@
-
-
 .xlist
 include kernel.inc
 include newexe.inc
@@ -32,6 +30,9 @@ externW hExeHead
 externW WinFlags
 externW hGDI
 externW hUser
+ifdef WOW
+externW OFContinueSearch
+endif
 externD pMBoxProc
 externD pGetFreeSystemResources
 externD dressed_for_success
@@ -50,6 +51,8 @@ if ROM
 externW selROMTOC
 endif
 
+; Look for module in Module Compatibilty section of win.ini
+szModuleCompatibility   DB  'ModuleCompatibility',0
 DataEnd
 
 if ROM and PMODE32
@@ -88,6 +91,7 @@ externFP Far_genter
 externFP AllocSelector
 externFP FreeSelector
 externFP LongPtrAdd
+externFP GetProfileInt
 
 if ROM
 externFP ChangeROMHandle
@@ -103,6 +107,7 @@ externFP StartWOWTask
 externFP WowIsKnownDLL
 externFP LongPtrAddWOW
 externFP AllocSelectorWOW
+externFP WOWLoadModule
 endif
 
 ifdef DBCS
@@ -801,10 +806,14 @@ ifdef WOW
         LocalD  pszKnownDLLPath
         LocalW  fKnownDLLOverride
         localW  RefSelector
+        localW  LMHadPEDLL
 endif
         localD  FileOffset              ; offset to start of ExeHdr
 	localW	OnHardDisk		; don't cache FH if on floppy
 	localV	namebuf,136		; SIZE OPENSTRUC + 127
+    localW  fModCompatFlags     ; used by LMRamNMods
+
+
 cBegin
 	SetKernelDSNRES
 
@@ -817,8 +826,8 @@ cBegin
 
 	;** Log this entry only if in diagnostic mode
 	mov	ax, fDiagMode		; Only log if booting and diag mode
-    and al, fBooting
-    jz  @F
+        and al, fBooting
+        jz  @F
 
 	;** Write out the string
 	mov     ax,dataOFFSET szLoadStart ; Write the string
@@ -827,10 +836,15 @@ cBegin
 	push    WORD PTR lpModuleName[0]
 	cCall   DiagOutput
 	mov     ax,dataOFFSET szCRLF
-	cCall   DiagOutput, <ds,ax>
+        cCall   DiagOutput, <ds,ax>
 
 ; Zero out flags and handles
-@@:	xor	ax,ax
+@@:
+ifdef WOW
+        mov     LMHadPEDLL,0
+lm_restart:
+endif
+        xor     ax,ax
 ;	mov	hExe,ax
 	mov	pExe,ax
 	mov	abortresult,ax		; default 0 == out of memory
@@ -853,7 +867,7 @@ endif
 	mov	SavePDB, ax
 
 ; First, see if we were passed in a handle in the filename
-	les	si,lpModuleName 	; point to the file name
+        les     si,lpModuleName         ; point to the file name
 	mov	ax,es
 	or	ax,ax			; Was a  handle passed in low word?
 	jnz	@F
@@ -861,20 +875,22 @@ endif
 	or	ax, ax
 	jnz	prev_instance
 	mov	al, LME_FNF		; call this file not found??
-	jmps	ilm_ret
+        jmp     ilm_ret
 
 ; No handle, see if filename is already loaded
-@@:	call	LMAlreadyLoaded		; es:si -> modname on stack
+@@:     call    LMAlreadyLoaded         ; es:si -> modname on stack
 	cmp	ax, LME_MAXERR
 	jb	@F			; Not found, try to load it
 prev_instance:
 	call	LMPrevInstance
-	jmps	ilm_ret
+        jmp     ilm_ret
 
 ; Wasn't loaded, see if we can load it
-@@:	call	LMLoadExeFile		; fh in DI, AX = 0 or error code
-	or	ax, ax
-	jnz	ilm_ret 		; can't find it - return error
+@@:     call    LMLoadExeFile           ; fh in DI, AX = 0 or error code
+        or      ax, ax
+        jz      @F
+        jmp     ilm_ret                 ; can't find it - return error
+@@:
 
 if ROM
 	mov	ax, di
@@ -900,8 +916,44 @@ else
 ; Here to deal with a new library or task module.
 ; We found the file, now load and scan the header
 @@:	lea	si,namebuf
-	cCall	LoadExeHeader,<di,di,ss,si>
-	cmp	ax,LME_MAXERR
+        cCall   LoadExeHeader,<di,di,ss,si>
+ifdef WOW
+        cmp     ax,LME_PE
+        jne     @F
+; If we find the module is a Win32 binary (PE), check to see
+; if we're trying to load a task or DLL.  If it's a DLL
+; we will continue searching for a Win16 copy of this DLL
+; on the path.  If we're unsuccessful we'll eventually
+; munge the file not found error code back to LME_PE.
+
+        mov     ax,lpPBlock.off
+        and     ax,lpPBlock.sel
+        inc     ax
+        mov     ax,LME_PE
+        jnz     @F  ; have a PBlock, must be doing LoadModule
+        cmp     LMHadPEDLL,0
+        je      lm_retry_pe
+        mov     LMHadPEDLL,0
+        mov     OFContinueSearch,0
+        KernelLogError  <DBF_WARNING>,ERR_LOADMODULE,"Found Win32 DLL again after continuing search."
+        jmps    ilm_ret
+@@:     jmps    @F
+lm_retry_pe:
+; Tell OpenFile to restart last search at next search location.
+        mov     OFContinueSearch,1
+        mov     LMHadPEDLL,1
+        KernelLogError  <DBF_WARNING>,ERR_LOADMODULE,"Found Win32 DLL, continuing search for Win16 copy."
+; Close open Win32 DLL file handle
+        cCall   My_lclose,<fh>
+; Switch back to caller's PDB
+        mov     si, -1
+        xchg    si, SavePDB
+        mov     Win_PDB, si
+        or      fh, -1
+        jmp     lm_restart
+@@:
+endif
+        cmp     ax,LME_MAXERR
 	jb	ilm_ret
 
 endif
@@ -931,7 +983,7 @@ endif
 
 ; Everyone comes through ILM_RET - we free the fastload block, etc
 ilm_ret:
-	call	LMCleanUp
+        call    LMCleanUp
 	jmp	LoadModuleEnd
 
 
@@ -1138,7 +1190,7 @@ endif
 	cmp	namebuf[di][-4],'D.'
         jne     @f
 
-        jmp     gotadrv
+        jmp     short gotadrv
 
 checkfornoext:
    ;     int     3
@@ -1164,7 +1216,7 @@ checkfornoext:
 	lea	cx,winspool		;
 	mov	lpModuleName.lo,cx
         pop     cx
-        jmp     @f
+        jmp     short @f
 
 gotadrv:
 	push	es
@@ -1230,7 +1282,6 @@ al_end:
 ;-----------------------------------------------------------------------
 ; if here then not yet loaded, see if we can open the file
 LMLoadExeFile:
-
 if ROM
 	cCall	<far ptr FindROMExe>,<ss,si>	; Module exist in ROM?
 	mov	selROMHdr,ax			; selector mapping ROM
@@ -1526,8 +1577,34 @@ endif
 	mov	ax, LME_RMODE		; no, die you pig
 	retn
 
+ifdef WOW
+@@:
+        ;
+        ; if WOA invoked by app (not fWOA) fail it
+        ;
+        cmp     fWOA,0                  ; fWOA
+        jnz     @F
+
+        cld
+        push    si
+        push    di
+        mov     di, es:[ne_restab]
+        inc     di
+        mov     si, dataOffset WOAName
+        mov     cx, 4
+        repe    cmpsw
+        pop     di
+        pop     si
+        jnz     @F
+        mov     ax, LME_WOAWOW32
+        retn
+endif
+
 ; Are we dynalinking to a task?
-@@:	test	es:[ne_flags],NENOTP
+@@:
+
+
+        test    es:[ne_flags],NENOTP
 	jnz	ch_not_a_process
 	or	es:[ne_flags],NEINST	; for safety sake
 	mov	ax,lpPBlock.off
@@ -1550,7 +1627,7 @@ ch_ok:
 
 ; Create environment for new application task.
 ch_new_application:
-	call	LMCheckHeap
+        call    LMCheckHeap
 	or	ax,ax
 	jz	@F
 	cCall	OpenApplEnv,<lpPBlock,pExe,fWOA>
@@ -1588,7 +1665,68 @@ LMRamNMods:
 	pop	bx
 	jmp	abort_load_B		; clean this up
 
-@@:     mov	bx, -1
+@@:
+        cmp     es:[ne_expver],400h
+        jae     rm_skip_modulecompat
+
+    ; Look for Module in ModuleCompatibilty section
+    ; and get its compat flags
+    push    es          ; save es
+    push    ds
+    push    dataoffset szModuleCompatibility
+    push    es
+    mov bx,es:[ne_restab]   ; module name is 1st rsrc
+    inc bx          ; Skip length byte
+    push    bx
+    xor ax, ax
+    push    ax          ; default = 0
+    call    GetProfileInt
+@@:
+    pop es          ; restore es
+        ; Set the module's patch bit if the INI file says to.
+if KDEBUG
+        test    es:[ne_flagsothers], NEHASPATCH
+        jz      @F
+        push    ax
+        mov     ax, es:[ne_restab]
+        inc     ax
+        krDebugOut  DEB_TRACE,"ILoadModule: module patch bit for @es:ax already set, clearing it"
+        pop     ax
+@@:
+endif
+        and     es:[ne_flagsothers], not NEHASPATCH     ; clear module patch bit
+ifdef WOW_x86
+        test    ax, MCF_MODPATCH + MCF_MODPATCH_X86
+else
+        test    ax, MCF_MODPATCH + MCF_MODPATCH_RISC
+endif
+        jz      rm_after_modpatch
+if KDEBUG
+        push    ax
+        mov     ax, es:[ne_restab]
+        inc     ax
+        krDebugOut  DEB_WARN,"ILoadModule: setting module patch bit for @es:ax"
+        pop     ax
+endif
+        or      es:[ne_flagsothers], NEHASPATCH
+rm_after_modpatch:
+
+        ; See if we need to make the module's segments not discardable
+        test    ax, MCF_NODISCARD
+        jz      rm_after_nodiscard
+
+        mov     cx, es:[ne_cseg]                ; cx = number of segs
+        jcxz    rm_after_nodiscard
+        mov     bx, es:[ne_segtab]              ; es:bx = seg table start
+rm_loop:
+        and     es:[bx].ns_flags, not NSDISCARD ; clear the discard flag
+        add     bx, SIZE NEW_SEG1               ; es:bx = seg table next entry
+        loop    rm_loop
+rm_after_nodiscard:
+
+rm_skip_modulecompat:
+
+    mov bx, -1
 if ROM
 	cmp	bx,fh
 	jz	@F
@@ -1642,7 +1780,7 @@ rm_no_segs_to_alloc:
 
 	test	es:[bx].ne_flags,NENOTP ; only test apps, not libraries.
 	jnz	lm_ret_ok
-	mov	ax,exe_type		; UNKNOWN may be OS/2 in disguise.
+        mov     ax,exe_type             ; UNKNOWN may be OS/2 in disguise.
 	cmp	al,NE_UNKNOWN
 	jnz	@F
 	push	ds
@@ -2142,7 +2280,33 @@ pi_app:
 	or	ax, ax
 	jnz	@F
 	mov	ax, LME_MEM		; Out of (gdi/user) memory
-	retn
+        retn
+@@:
+
+ifdef WOW
+        ;
+        ; if WOA invoked by app (not fWOA) fail it
+        ;
+        cmp     fWOA,0                  ; fWOA
+        jnz      pi_not_multiple_data
+
+        cld
+        push    si
+        push    di
+        mov     di, es:[ne_restab]
+        inc     di
+        mov     si, dataOffset WOAName
+        mov     cx, 4
+        repe    cmpsw
+        pop     di
+        pop     si
+        jnz     @F
+        mov     ax, LME_WOAWOW32
+        retn
+@@:
+endif
+
+
 
 ; We refuse to load multiple instances of apps that have
 ;  multiple data segments.  This is because we cannot do
@@ -2152,9 +2316,7 @@ pi_app:
 ;  of read-only data segments we make an exception since
 ;  what does it matter who the segments belong to?
 
-@@:	cmp	fWOA,0			; winoldap 386 is scum!
-	jnz	pi_not_multiple_data
-	mov	ax, 2			; if we have >= 2 dsegs we die
+        mov     ax, 2                   ; if we have >= 2 dsegs we die
 	mov	es,si
 	mov	cx,es:[ne_cseg]
 	mov	bx,es:[ne_segtab]
@@ -2223,6 +2385,15 @@ pi_end:
 ;
 ;-----------------------------------------------------------------------
 LMCleanUp:
+ifdef WOW
+        cmp     LMHadPEDLL,0
+        je      @F
+        cmp     ax, LME_MAXERR
+        jae     @F
+        mov     ax,LME_PE               ; Reflect real error we tried to mask
+        KernelLogError  <DBF_WARNING>,ERR_LOADMODULE,"Could not find Win16 copy of Win32 DLL, returning LME_PE."
+@@:
+endif
 	push	ax			; save status for future
 	cmp	ax, LME_MAXERR
 	jae	@F
@@ -2257,18 +2428,17 @@ endif
 	pop	ax
 	cmp	ax,LME_MAXERR
 	jae	@F
-	cmp	ax, LME_INVEXE		; invalid format (WinOldAp)
+if KDEBUG
+        cmp     ax, LME_INVEXE          ; invalid format (WinOldAp)
 	jz	cu_fred
 	cmp	ax, LME_PE		; Win32 Portable Exe - try to load it
 	jz	cu_fred
-if KDEBUG
         push    ax
 	push	bx
 	push	es
 	les	bx, lpModuleName
-        KernelLogError  <DBF_WARNING>,ERR_LOADMODULE,"Error #ax loading @ES:BX"
-;       krDebugOut <DEB_WARN or DEB_krLoadMod>, "Error #ax loading @ES:BX"
-	pop	es
+        KernelLogError  <DBF_WARNING>,ERR_LOADMODULE,"Error 0x#ax loading @ES:BX"
+        pop     es
 	pop	bx
         pop     ax
 endif
@@ -2369,24 +2539,44 @@ LM_NoDiagExit:
 ;	shr	dx, cl
 ;	retn
 
-LoadModuleEnd:				; jmp here to clean up stack and RET
+LoadModuleEnd:                          ; jmp here to clean up stack and RET
 
 ifdef WOW
+        cmp     ax, LME_MAXERR
+        jb      @F
+lmntex:
+        jmp     LoadModuleExit
+@@:
+
 ;
 ;   Exec For Non 16 Bit Windows Apps
 ;
-	cmp	ax,LME_PE		; WIN 32S App ?
-	je	LM_NTLoadModule 	;  yes -> let NT load it
+        ;
+        ; WIN 32S App ?  yes -> let NT load it
+        ;
+        cmp     ax,LME_PE
+        je      LM_NTLoadModule
 
-	cmp	ax,LME_RMODE		; We are interested in Errors 11-15
-        jb      lmnt2
-        jmp     @F                      ; Yes -> Don't Try to do 32bit Exec
-lmnt2:
 
-	cmp	ax,LME_VERS
-        ja      lmnt3
-        jmp     @F
-lmnt3:
+        ;
+        ; if an app is spawning WOA (NOT our internal load-fWOA),
+        ; Patch lpModuleName to -1 let NT load it
+        ;
+        cmp     ax,LME_WOAWOW32
+        jne     @F
+        mov     word ptr lpModuleName[2], -1    ; patch lpModuleName
+        mov     word ptr lpModuleName[0], -1
+        jmp short LM_NTLoadModule
+@@:
+
+        ; Errors 11-15 -> let NT load it
+        cmp     ax,LME_RMODE
+        jae     lmntex
+
+        cmp     ax,LME_VERS
+        jbe     lmntex
+
+
         public  LM_NTLoadModule
 LM_NTLoadModule:
 ;
@@ -2401,87 +2591,65 @@ LM_NTLoadModule:
         and     ax,lpPBlock.sel
         inc     ax
         pop     ax
-        jnz     lmnt4
-        jmp     @F
-lmnt4:
-        cld
-        sub     sp,256                  ; make room for command line
-        smov    es,ss
-        mov     di,sp
-        add     di,2                    ; CreateTask needs length
-        lds     si,lpPBlock
-        lds     si,ds:[si].lpcmdline    ; copy parameter string
-        mov     cx, 254                 ; leave room for terminators
-;Parameter string could be PASCAL, don't copy count byte if it is.
-        mov     bl,ds:[si]              ; get count byte
-        add     bx,si
-        inc     bx
-        mov     al,ds:[bx]
-        cmp     al,0Dh                  ; parameter string could be PASCAL
-        jne short build_cmd1
-        inc     si                      ; don't copy count byte
-build_cmd1:
-        lodsb
-        stosb
-        cmp     al,0
-        je short build_cmd2
-        cmp     al,0Dh                  ; parameter string could be PASCAL
-        je short build_cmd2
-        loop    build_cmd1
-        mov     al,0                    ; too long, terminate with null
-        stosb
-        jmp short build_cmd4
+        jz      LoadModuleExit
 
-build_cmd2:
-        mov     al, 0                   ; always replace the potential
-        dec     di                      ;  the potential CR
-        stosb                           ;  with null
-        inc     cl                      ; the parameter string fits
-        lds     si,lpModuleName         ; copy executable file name
+;
+; This is an EXE, but the LME_PE failure code might have come from
+; an implicitly linked DLL.  If so, we don't want to try having
+; Win32 lauch the win16 EXE, as it will just come back to us.
+;
+        cmp     ax,LME_PE
+        jne     @F
+        cmp     ax,hDepFail
+        je      short LoadModuleExit
+@@:
+        sub     sp, 80                  ; alloc space for cmdline
+        mov     di, sp
+        smov    es, ss
+        mov     word ptr es:[di], 0     ; set WindOldApp CmdLine to NULL
+        regptr  esdi,es,di
+        cCall   WowLoadModule,<lpModuleName, lpPBlock, esdi>
 
-build_cmd3:                             
-        lodsb
-        cmp     al, 0
-        je short build_cmd4
-        stosb
-        loop    build_cmd3
+        ;
+        ;  if ax < 33 an error occurred
+        ;
+        cmp     ax, 33
+        jb      ex8
 
-build_cmd4:
-        mov     al, 10                  ; terminate with line feed
-        stosb
-        mov     ax,di                   ; calculate length for CreateTask
-        sub     ax,sp
-        sub     ax,2                    ; don't include length in length calc
-        mov     di,sp                   ; point to start of command line
-        mov     ds:[di], ax             ; write length
-        mov     bx,es
-        push    ds
-        call    MapDStoDATA
-        smov    es, ds
-        pop     ds
-        ReSetKernelDS es
-        or      es:Kernel_flags[1],KF1_WINOLDAP
-        lds     si,lpPBlock
-        mov     ds:[si].lpcmdline.off,di
-        mov     ds:[si].lpcmdline.sel,bx
-        mov     dx,dataOffset WOAName
-        regptr  esdx,es,dx
+        or      Kernel_flags[1],KF1_WINOLDAP
+        mov     ax, ss
+        les     si,lpPBlock
+        mov     es:[si].lpcmdline.off,di
+        mov     es:[si].lpcmdline.sel,ax
+        mov     si,dataOffset WOAName
         regptr  dssi,ds,si
-        cCall   LoadModule,<esdx,dssi>
-        assumes es, nothing
-        add     sp,256
+        cCall   LoadModule,<dssi, lpPBlock>
         cmp     ax,32                   ; check for error...
         jae     ex8
+
+        ;
+        ; LoadModule of WinOldApp failed
+        ; Call WowLoadModule to clean up process handle
+        ;
+        push    ax
+        mov     ax, ss
+        regptr  axdi,ax,di
+        cCall   WowLoadModule,<0, lpPBlock, axdi>
+        pop     ax
+
         cmp     ax,2                    ; file not found?
         jnz     ex7                     ; no, return error
-        mov     al,23                   ; flag WINOLDAP error
+        mov     al, LME_WOAWOW32        ; flag WINOLDAP error
 ex7:
         or      ax,ax                   ; out of memory?
         jnz     ex8
         mov     ax,8h                   ; yes, return proper error code
 ex8:
-@@:
+        add     sp,80                   ; free space for cmdline
 endif; WOW
+
+LoadModuleExit:
+
 cEnd
 
 ?DOS5	=	?SAV5

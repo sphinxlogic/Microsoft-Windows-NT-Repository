@@ -25,8 +25,16 @@ Author:
 
 #include "secrun.hxx"
 
+#if defined ( _AUTOCHECK_ )
+#define UFAT_EXPORT
+#elif defined ( _UFAT_MEMBER_ )
+#define UFAT_EXPORT    __declspec(dllexport)
+#else
+#define UFAT_EXPORT    __declspec(dllimport)
+#endif
+
 //
-//	Forward references
+//      Forward references
 //
 
 DECLARE_CLASS( FAT );
@@ -37,9 +45,9 @@ CONST   MaxNumClusForSmallFat   = 4085;
 
 class FAT : public SECRUN {
 
-	public:
+    public:
 
-		DECLARE_CONSTRUCTOR(FAT);
+        DECLARE_CONSTRUCTOR(FAT);
 
         VIRTUAL
         ~FAT(
@@ -55,32 +63,32 @@ class FAT : public SECRUN {
             IN      USHORT              NumSectors  DEFAULT 0
             );
 
-		NONVIRTUAL
-		USHORT
-		QueryEntry(
-			IN  USHORT  ClusterNumber
-			) CONST;
+        NONVIRTUAL
+        USHORT
+        QueryEntry(
+            IN  USHORT  ClusterNumber
+            ) CONST;
 
-		NONVIRTUAL
+        NONVIRTUAL
         VOID
-		SetEntry(
-			IN  USHORT  ClusterNumber,
-			IN  USHORT  Value
-			);
+        SetEntry(
+            IN  USHORT  ClusterNumber,
+            IN  USHORT  Value
+            );
 
-		NONVIRTUAL
-		BOOLEAN
-		IsInRange(
-			IN  USHORT  ClusterNumber
-			) CONST;
+        NONVIRTUAL
+        BOOLEAN
+        IsInRange(
+            IN  USHORT  ClusterNumber
+            ) CONST;
 
-		NONVIRTUAL
-		BOOLEAN
-		IsClusterFree(
-			IN  USHORT  ClusterNumber
-			) CONST;
+        NONVIRTUAL
+        BOOLEAN
+        IsClusterFree(
+            IN  USHORT  ClusterNumber
+            ) CONST;
 
-		NONVIRTUAL
+        NONVIRTUAL
         VOID
         SetClusterFree(
             IN  USHORT  ClusterNumber
@@ -130,7 +138,7 @@ class FAT : public SECRUN {
 
         NONVIRTUAL
         UCHAR
-		QueryMediaByte(
+            QueryMediaByte(
             ) CONST;
 
         NONVIRTUAL
@@ -149,6 +157,13 @@ class FAT : public SECRUN {
             ) CONST;
 
         NONVIRTUAL
+        UFAT_EXPORT
+        USHORT
+        QueryAllocatedClusters(
+            ) CONST;
+
+        NONVIRTUAL
+        UFAT_EXPORT
         USHORT
         QueryNthCluster(
             IN  USHORT  StartingCluster,
@@ -156,6 +171,7 @@ class FAT : public SECRUN {
             ) CONST;
 
         NONVIRTUAL
+        UFAT_EXPORT
         USHORT
         QueryLengthOfChain(
             IN  USHORT  StartingCluster,
@@ -163,7 +179,7 @@ class FAT : public SECRUN {
             ) CONST;
 
         NONVIRTUAL
-		USHORT
+        USHORT
         QueryLengthOfChain(
             IN  USHORT  StartingCluster,
             IN  USHORT  EndingCluster
@@ -205,6 +221,7 @@ class FAT : public SECRUN {
             ) CONST;
 
         NONVIRTUAL
+        UFAT_EXPORT
         USHORT
         AllocChain(
             IN  USHORT  Length,
@@ -220,6 +237,7 @@ class FAT : public SECRUN {
             );
 
         NONVIRTUAL
+        UFAT_EXPORT
         VOID
         FreeChain(
             IN  USHORT  StartOfChain
@@ -247,12 +265,12 @@ class FAT : public SECRUN {
             IN  USHORT  Cluster
             );
 
- 	private:
+    private:
 
-		NONVIRTUAL
- 		VOID
- 		Construct (
-			);
+        NONVIRTUAL
+        VOID
+        Construct(
+                );
 
         NONVIRTUAL
         VOID
@@ -266,6 +284,7 @@ class FAT : public SECRUN {
             ) CONST;
 
         NONVIRTUAL
+        UFAT_EXPORT
         USHORT
         Index12(
             IN  USHORT  ClusterNumber
@@ -285,6 +304,7 @@ class FAT : public SECRUN {
             );
 
         NONVIRTUAL
+        UFAT_EXPORT
         VOID
         Set12(
             IN  USHORT  ClusterNumber,
@@ -346,19 +366,20 @@ FAT::Index16(
 
 Routine Description:
 
-	This routine indexes the FAT as 16 bit little endian entries.
+        This routine indexes the FAT as 16 bit little endian entries.
 
 Arguments:
 
-	ClusterNumber   - Supplies the FAT entry desired.
+        ClusterNumber   - Supplies the FAT entry desired.
 
 Return Value:
 
-	The value of the FAT entry at ClusterNumber.
+        The value of the FAT entry at ClusterNumber.
 
 --*/
 {
-    DbgAssert(IsInRange(ClusterNumber));
+    DebugAssert(IsInRange(ClusterNumber));
+
     return ((PUSHORT) _fat)[ClusterNumber];
 }
 
@@ -372,15 +393,15 @@ FAT::Index(
 
 Routine Description:
 
-	This routine indexes the FAT as 16 bit or 12 bit little endian entries.
+        This routine indexes the FAT as 16 bit or 12 bit little endian entries.
 
 Arguments:
 
-	ClusterNumber   - Supplies the FAT entry desired.
+        ClusterNumber   - Supplies the FAT entry desired.
 
 Return Value:
 
-	The value of the FAT entry at ClusterNumber.
+        The value of the FAT entry at ClusterNumber.
 
 --*/
 {
@@ -411,7 +432,7 @@ Return Value:
 
 --*/
 {
-    DbgAssert(IsInRange(ClusterNumber));
+    DebugAssert(IsInRange(ClusterNumber));
     ((PUSHORT) _fat)[ClusterNumber] = Value;
 }
 
@@ -729,7 +750,7 @@ Return Value:
 
     p = (PUCHAR) _fat;
 
-    DbgAssert(p);
+    DebugAssert(p);
 
     return (p[2] == 0xFF && p[1] == 0xFF &&
             (_is_big ? p[3] == 0xFF : TRUE)) ? p[0] : 0;
@@ -763,7 +784,7 @@ Return Value:
 
     p = (PUCHAR) _fat;
 
-    DbgAssert(p);
+    DebugAssert(p);
 
     p[0] = MediaByte;
     p[1] = p[2] = 0xFF;

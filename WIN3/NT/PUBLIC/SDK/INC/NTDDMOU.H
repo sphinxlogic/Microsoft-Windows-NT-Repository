@@ -50,7 +50,7 @@ Revision History:
 typedef struct _MOUSE_INPUT_DATA {
 
     //
-    // Unit number.  E.g., for \Device\PointerPort0  the unit is '0', 
+    // Unit number.  E.g., for \Device\PointerPort0  the unit is '0',
     // for \Device\PointerPort1 the unit is '1', and so on.
     //
 
@@ -66,7 +66,14 @@ typedef struct _MOUSE_INPUT_DATA {
     // The transition state of the mouse buttons.
     //
 
-    ULONG Buttons;
+    union {
+        ULONG Buttons;
+        struct  {
+            USHORT  ButtonFlags;
+            USHORT  ButtonData;
+        };
+    };
+
 
     //
     // The raw state of the mouse buttons.
@@ -117,6 +124,8 @@ typedef struct _MOUSE_INPUT_DATA {
 #define MOUSE_BUTTON_5_DOWN     0x0100
 #define MOUSE_BUTTON_5_UP       0x0200
 
+#define MOUSE_WHEEL             0x0400
+
 //
 // Define the mouse indicator flags.
 //
@@ -162,11 +171,13 @@ typedef struct _MOUSE_ATTRIBUTES {
 // Define the mouse identifier types.
 //
 
-#define MOUSE_INPORT_HARDWARE     0x0001
-#define MOUSE_I8042_HARDWARE      0x0002
-#define MOUSE_SERIAL_HARDWARE     0x0004
-#define BALLPOINT_I8042_HARDWARE  0x0008
-#define BALLPOINT_SERIAL_HARDWARE 0x0010
+#define MOUSE_INPORT_HARDWARE       0x0001
+#define MOUSE_I8042_HARDWARE        0x0002
+#define MOUSE_SERIAL_HARDWARE       0x0004
+#define BALLPOINT_I8042_HARDWARE    0x0008
+#define BALLPOINT_SERIAL_HARDWARE   0x0010
+#define WHEELMOUSE_I8042_HARDWARE   0x0020
+#define WHEELMOUSE_SERIAL_HARDWARE  0x0040
 
 //
 // Generic NtDeviceIoControlFile Input Buffer record structure for
@@ -176,7 +187,7 @@ typedef struct _MOUSE_ATTRIBUTES {
 typedef struct _MOUSE_UNIT_ID_PARAMETER {
 
     //
-    // Unit identifier.  Specifies the device unit for which this 
+    // Unit identifier.  Specifies the device unit for which this
     // request is intended.
     //
 

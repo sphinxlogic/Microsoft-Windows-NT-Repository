@@ -1,1 +1,0 @@
-#include <..\soundsys\config.c>

@@ -483,7 +483,7 @@ void CDropTarget::DrawDragFeedback( POINTL pointl )
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      CSimpleDoc::QueryInterface  DOC.CPP
 //
 //
@@ -491,7 +491,7 @@ void CDropTarget::DrawDragFeedback( POINTL pointl )
 
 STDMETHODIMP CDropTarget::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 {
-    OutputDebugString("In IDT::QueryInterface\r\n");
+    TestDebugOut("In IDT::QueryInterface\r\n");
 
     // delegate to the document
     return m_pDoc->QueryInterface(riid, ppvObj);
@@ -521,14 +521,14 @@ STDMETHODIMP CDropTarget::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 //      Function                    Location
 //
 //      CSimpleDoc::AddReff         DOC.CPP
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 //
 //********************************************************************
 
 STDMETHODIMP_(ULONG) CDropTarget::AddRef()
 {
-    OutputDebugString("In IDT::AddRef\r\n");
+    TestDebugOut("In IDT::AddRef\r\n");
 
     // delegate to the document Object
     return m_pDoc->AddRef();
@@ -557,14 +557,14 @@ STDMETHODIMP_(ULONG) CDropTarget::AddRef()
 //      Function                    Location
 //
 //      CSimpleDoc::Release         DOC.CPP
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 //
 //********************************************************************
 
 STDMETHODIMP_(ULONG) CDropTarget::Release()
 {
-    OutputDebugString("In IDT::Release\r\n");
+    TestDebugOut("In IDT::Release\r\n");
 
     // delegate to the document object
     return m_pDoc->Release();
@@ -598,7 +598,7 @@ STDMETHODIMP_(ULONG) CDropTarget::Release()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      OleQueryCreateFromData      OLE2 API
 //      DoDragScroll                IDT.CPP
 //      QueryDrop                   IDT.CPP
@@ -614,7 +614,7 @@ STDMETHODIMP_(ULONG) CDropTarget::Release()
 STDMETHODIMP CDropTarget::DragEnter(LPDATAOBJECT pDataObj, DWORD grfKeyState,
                                      POINTL pointl, LPDWORD pdwEffect)
 {
-    OutputDebugString("In IDT::DragEnter\r\n");
+    TestDebugOut("In IDT::DragEnter\r\n");
 
     /* Determine if the drag source data object offers a data format
     **  that we understand. we accept only creating embedded objects.
@@ -631,6 +631,25 @@ STDMETHODIMP CDropTarget::DragEnter(LPDATAOBJECT pDataObj, DWORD grfKeyState,
     if (QueryDrop(grfKeyState,pointl,fDragScroll,pdwEffect))
     {
         DrawDragFeedback( pointl );
+    }
+
+    // with our drag drop optimization, pDataObj will actually be a
+    // wrapper data object.  QueryGetData calls (currently) will be
+    // propogated to the drag source (whereas EnumFormatetc is handled
+    // locally).  Make sure we can do a QueryGetData.
+
+    FORMATETC formatetc;
+    formatetc.cfFormat = CF_METAFILEPICT;
+    formatetc.tymed = TYMED_MFPICT;
+    formatetc.ptd = NULL;
+    formatetc.lindex = -1;
+    formatetc.dwAspect = DVASPECT_CONTENT;
+
+    // E_FAIL is usually returned if we could not get the drag source
+    // data object.
+    if( pDataObj->QueryGetData(&formatetc) == E_FAIL )
+    {
+	TestDebugOut("WARNING! QueryGetData failed!");
     }
 
     return NOERROR;
@@ -665,7 +684,7 @@ STDMETHODIMP CDropTarget::DragEnter(LPDATAOBJECT pDataObj, DWORD grfKeyState,
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      DoDragScroll                IDT.CPP
 //      QueryDrop                   IDT.CPP
 //      DrawDragFeedback            IDT.CPP
@@ -681,7 +700,7 @@ STDMETHODIMP CDropTarget::DragEnter(LPDATAOBJECT pDataObj, DWORD grfKeyState,
 STDMETHODIMP CDropTarget::DragOver (DWORD grfKeyState, POINTL pointl,
                                     LPDWORD pdwEffect)
 {
-    OutputDebugString("In IDT::DragOver\r\n");
+    TestDebugOut("In IDT::DragOver\r\n");
 
     BOOL fDragScroll = DoDragScroll ( pointl );
 
@@ -717,7 +736,7 @@ STDMETHODIMP CDropTarget::DragOver (DWORD grfKeyState, POINTL pointl,
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      UndrawDragFeedback          IDT.CPP
 //      ResultFromScode             OLE2 API
 //
@@ -726,7 +745,7 @@ STDMETHODIMP CDropTarget::DragOver (DWORD grfKeyState, POINTL pointl,
 
 STDMETHODIMP CDropTarget::DragLeave ()
 {
-    OutputDebugString("In IDT::DragLeave\r\n");
+    TestDebugOut("In IDT::DragLeave\r\n");
 
     UndrawDragFeedback();
 
@@ -761,7 +780,7 @@ STDMETHODIMP CDropTarget::DragLeave ()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      CSimpleSite::Create         SITE.CPP
 //      CSimpleSite::InitObject     SITE.CPP
 //      OleCreateFromData           OLE2 API
@@ -785,7 +804,7 @@ STDMETHODIMP CDropTarget::Drop (LPDATAOBJECT pDataObj, DWORD grfKeyState,
 	 FORMATETC fmtetc;
     SCODE sc = S_OK;
 	
-    OutputDebugString("In IDT::Drop\r\n");
+    TestDebugOut("In IDT::Drop\r\n");
 
     UndrawDragFeedback();
 
@@ -830,4 +849,3 @@ STDMETHODIMP CDropTarget::Drop (LPDATAOBJECT pDataObj, DWORD grfKeyState,
 
     return ResultFromScode(sc);
 }
-

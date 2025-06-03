@@ -80,7 +80,7 @@ Return Value:
     ULONG   i;
 
     for (i = 0; i < _num_blocks; i++) {
-        DELETE(_buffer[i]);
+        FREE(_buffer[i]);
     }
     DELETE(_buffer);
 

@@ -1,5 +1,4 @@
 #include "cmd.h"
-#include "cmdproto.h"
 
 PHANDLE FFhandles = NULL;
 unsigned FFhndlsaved = 0;
@@ -27,18 +26,6 @@ BOOL    IsNtAttribMatch( PWIN32_FIND_DATA, ULONG );
 int     findclose( HANDLE );
 
 //
-// The following are definitions of the debugging group and level bits
-// for the code in this file.
-//
-
-#define CTGRP	0x2000	/* Common tools group		*/
-#define BFLVL	0x0800	/* BuildFSpec() level		*/
-#define SFLVL	0x1000	/* ScanFSpec() level		*/
-#define SSLVL	0x2000	/* SetAndSaveDir() level	*/
-#define TSLVL	0x4000	/* TokStr() level		*/
-#define COLVL	0x8000	/* Common tools level		*/
-
-//
 //  Under OS/2, we always return entries that are normal, archived or
 //  read-only (god knows why).
 //
@@ -46,30 +33,30 @@ int     findclose( HANDLE );
 //
 #define SRCHATTR    (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM | FILE_ATTRIBUTE_DIRECTORY)
 
-/***	IsDosAttribMatch - Simulates the attribute matching from OS/2
+/***    IsDosAttribMatch - Simulates the attribute matching from OS/2
  *
  *  Purpose:
- *	This function determines if the passed in find file buffer has a
- *	match under the OS/2 find file rules.
+ *      This function determines if the passed in find file buffer has a
+ *      match under the OS/2 find file rules.
  *
  *  Args:
- *		ffbuf:	Buffer returned from FileFirst or Findnext
- *		attr:	Attributes to qualify search
+ *              ffbuf:  Buffer returned from FileFirst or Findnext
+ *              attr:   Attributes to qualify search
  *
  *  Returns:
- *		TRUE:	if buffer has a attribute match
- *		FALSE:	if not
+ *              TRUE:   if buffer has a attribute match
+ *              FALSE:  if not
  */
 
 BOOL
 IsDosAttribMatch(
     IN  PWIN32_FIND_DATA    pffBuf,
     IN  ULONG               attr
-	) {
+        ) {
 
     //
-    //	We emulate the OS/2 behaviour of attribute matching. The semantics
-    //	are evil, so I provide no explanation.
+    //  We emulate the OS/2 behaviour of attribute matching. The semantics
+    //  are evil, so I provide no explanation.
     //
     pffBuf->dwFileAttributes &= (0x000000FF & ~(FILE_ATTRIBUTE_NORMAL));
 
@@ -84,7 +71,7 @@ BOOL
 IsNtAttribMatch(
         PWIN32_FIND_DATA    pffBuf,
         ULONG               attr
-	) {
+        ) {
 
     UNREFERENCED_PARAMETER( pffBuf );
     UNREFERENCED_PARAMETER( attr );
@@ -95,23 +82,75 @@ IsNtAttribMatch(
     return( TRUE );
 }
 
-
-/***	ffirst - find first file/directory and set up find handles
- *
- *  Purpose:
- *	This function opens a find first handle. I also returns the first
- *	qualified file/directory. It simulates the DosFindFirst behavior.
+/***    f_how_many - find how many files are there per fspec with given attr
  *
  *  Args:
- *		fspec:	String pointer to file specification.
- *		attr:	Attributes to qualify search
- *		ffbuf:	Buffer to hold inforation on found file/directory
- *		handle: Find first handle
+ *              fspec:  String pointer to file specification.
+ *              attr:   Attributes to qualify search
  *
  *  Returns:
- *		TRUE:	If match found
- *		FALSE:	if not
- *		DosErr: Contains return code if FALSE function return
+ *              number of files found or -1 if a file is a directory.
+ */
+
+int
+f_how_many(
+        PTCHAR           fspec,
+        ULONG            attr
+    ) {
+
+#define f_RET_DIR      -1
+
+    WIN32_FIND_DATA    ffBuf;
+    PWIN32_FIND_DATA   pffBuf;
+    PHANDLE            phandle;
+    HANDLE             hnFirst ;
+    unsigned           rc;
+    int                cnt=0;
+
+    pffBuf = &ffBuf;
+
+
+    if ( ! ffirst (fspec, attr, pffBuf, &hnFirst ))  {
+
+       if ( ! ffirst (fspec, A_D, pffBuf, &hnFirst ))  {
+           return (0);
+       }
+       else {
+           findclose(hnFirst);
+           return (f_RET_DIR);
+       }
+    }
+
+
+    do  {
+        cnt++;
+    } while ( fnext (pffBuf, attr, hnFirst ));
+
+
+    findclose(hnFirst) ;
+
+    return (cnt);
+
+}
+
+
+
+/***    ffirst - find first file/directory and set up find handles
+ *
+ *  Purpose:
+ *      This function opens a find first handle. I also returns the first
+ *      qualified file/directory. It simulates the DosFindFirst behavior.
+ *
+ *  Args:
+ *              fspec:  String pointer to file specification.
+ *              attr:   Attributes to qualify search
+ *              ffbuf:  Buffer to hold inforation on found file/directory
+ *              handle: Find first handle
+ *
+ *  Returns:
+ *              TRUE:   If match found
+ *              FALSE:  if not
+ *              DosErr: Contains return code if FALSE function return
  */
 
 BOOLEAN
@@ -121,7 +160,7 @@ FindFirst(
     IN  ULONG            attr,
     IN  PWIN32_FIND_DATA pffBuf,
     OUT PHANDLE phandle
-	) {
+        ) {
 
     BOOLEAN rcode = FALSE;
 
@@ -156,17 +195,15 @@ FindFirst(
         //
         if (FFhandles == NULL) {
 
-            FFhandles = (PHANDLE)malloc(5 * sizeof(PHANDLE));
+            FFhandles = (PHANDLE)HeapAlloc(GetProcessHeap(), 0, 5 * sizeof(PHANDLE));
 
         } else {
 
             //
             // Check if we have space to hold new handle entry
             //
-            if (((FFhndlsaved + 1)* sizeof(PHANDLE)) > _msize((void*)FFhandles)) {
-
-                FFhandles = (PHANDLE)realloc((void*)FFhandles, (FFhndlsaved+1)*sizeof(PHANDLE));
-
+            if (((FFhndlsaved + 1)* sizeof(PHANDLE)) > HeapSize(GetProcessHeap(), 0, FFhandles)) {
+                FFhandles = (PHANDLE)HeapReAlloc(GetProcessHeap(), 0, (void*)FFhandles, (FFhndlsaved+1)*sizeof(PHANDLE));
             }
          }
         if (FFhandles != NULL) {
@@ -199,7 +236,7 @@ ffirst(
         PTCHAR           fspec,
         ULONG            attr,
         PWIN32_FIND_DATA pffBuf,
-	PHANDLE phandle
+        PHANDLE phandle
         )
 {
 
@@ -208,29 +245,29 @@ ffirst(
 }
 
 
-/***	fnext - find next file/directory
+/***    fnext - find next file/directory
  *
  *  Purpose:
- *	This function search for the next qualified file or directory.
- *	ffirst should have been called first and the returned file handle
- *	should be passed into fnext.
+ *      This function search for the next qualified file or directory.
+ *      ffirst should have been called first and the returned file handle
+ *      should be passed into fnext.
 
  *  Args:
- *		handle: Find first handle
- *		attr:	Attributes to qualify search
- *		ffbuf:	Buffer to hold information on found file/directory
+ *              handle: Find first handle
+ *              attr:   Attributes to qualify search
+ *              ffbuf:  Buffer to hold information on found file/directory
  *
  *  Returns:
- *		TRUE:	If match found
- *		FALSE:	if not
- *		DosErr: Contains return code if FALSE function return
+ *              TRUE:   If match found
+ *              FALSE:  if not
+ *              DosErr: Contains return code if FALSE function return
  */
 
 BOOLEAN
 FindNextNt (
     IN  PWIN32_FIND_DATA pffBuf,
     IN  HANDLE           handle
-	) {
+        ) {
 
     //
     // attributes are ignored for this kind of call
@@ -243,7 +280,7 @@ fnext (
     IN  PWIN32_FIND_DATA pffBuf,
     IN  ULONG            attr,
     IN  HANDLE           handle
-	) {
+        ) {
 
     return( FindNext( IsDosAttribMatch, pffBuf, attr, handle) );
 }
@@ -254,7 +291,7 @@ FindNext (
     IN  PWIN32_FIND_DATA pffBuf,
     IN  ULONG            attr,
     IN  HANDLE           handle
-	) {
+        ) {
 
     //
     // Loop through looking for a file that matching attributes
@@ -299,8 +336,8 @@ HANDLE hn;
         // BUGBUG: this is also allocated in ffirst.c. Combine management
         //                 of this into one module.
         //
-        if (_msize((void*)FFhandles) > 5*sizeof(PHANDLE)) {
-            FFhandles = (PHANDLE)realloc((void*)FFhandles,FFhndlsaved*sizeof(PHANDLE));
+        if (HeapSize(GetProcessHeap(), 0, FFhandles) > 5*sizeof(PHANDLE)) {
+            FFhandles = (PHANDLE)HeapReAlloc(GetProcessHeap(), 0, (void*)FFhandles,FFhndlsaved*sizeof(PHANDLE));
         }
     }
 

@@ -27,17 +27,43 @@ SmpDisplayString( char *s );
 
 // #define SMP_SHOW_REGISTRY_DATA 1
 
+
 #define MAX_PAGING_FILES 16
+
+
+//
+// Protection mode flags
+//
+
+#define SMP_NO_PROTECTION           (0x0)
+#define SMP_STANDARD_PROTECTION     (0x1)
+
+#define SMP_PROTECTION_REQUIRED        \
+            (SMP_STANDARD_PROTECTION)
+
 
 ULONG CountPageFiles;
 LONG PageFileMinSizes[ MAX_PAGING_FILES ];
 LONG PageFileMaxSizes[ MAX_PAGING_FILES ];
 UNICODE_STRING PageFileSpecs[ MAX_PAGING_FILES ];
 PSECURITY_DESCRIPTOR SmpPrimarySecurityDescriptor;
+SECURITY_DESCRIPTOR SmpPrimarySDBody;
+PSECURITY_DESCRIPTOR SmpLiberalSecurityDescriptor;
+SECURITY_DESCRIPTOR SmpLiberalSDBody;
+PSECURITY_DESCRIPTOR SmpKnownDllsSecurityDescriptor;
+SECURITY_DESCRIPTOR SmpKnownDllsSDBody;
+PSECURITY_DESCRIPTOR SmpApiPortSecurityDescriptor;
+SECURITY_DESCRIPTOR SmpApiPortSDBody;
+ULONG SmpProtectionMode = 0;
 
-#if DEVL
-WCHAR InitialCommandBuffer[ 256 ];
+#if DBG
+BOOLEAN SmpEnableDots = FALSE;
+#else
+BOOLEAN SmpEnableDots = TRUE;
 #endif
+
+
+WCHAR InitialCommandBuffer[ 256 ];
 
 UNICODE_STRING SmpDebugKeyword;
 UNICODE_STRING SmpASyncKeyword;
@@ -50,6 +76,7 @@ typedef struct _SMP_REGISTRY_VALUE {
     LIST_ENTRY Entry;
     UNICODE_STRING Name;
     UNICODE_STRING Value;
+    LPSTR AnsiValue;
 } SMP_REGISTRY_VALUE, *PSMP_REGISTRY_VALUE;
 
 LIST_ENTRY SmpBootExecuteList;
@@ -57,14 +84,26 @@ LIST_ENTRY SmpPagingFileList;
 LIST_ENTRY SmpDosDevicesList;
 LIST_ENTRY SmpFileRenameList;
 LIST_ENTRY SmpKnownDllsList;
+LIST_ENTRY SmpExcludeKnownDllsList;
 LIST_ENTRY SmpSubSystemList;
 LIST_ENTRY SmpSubSystemsToLoad;
 LIST_ENTRY SmpSubSystemsToDefer;
 LIST_ENTRY SmpExecuteList;
 
+
+NTSTATUS
+SmpCreateSecurityDescriptors(
+    IN BOOLEAN InitialCall
+    );
+
 NTSTATUS
 SmpLoadDataFromRegistry(
     OUT PUNICODE_STRING InitialCommand
+    );
+
+NTSTATUS
+SmpCreateDynamicEnvironmentVariables(
+    VOID
     );
 
 PSMP_REGISTRY_VALUE
@@ -91,6 +130,17 @@ SmpDumpQuery(
     IN ULONG ValueLength
     );
 #endif
+
+
+NTSTATUS
+SmpConfigureProtectionMode(
+    IN PWSTR ValueName,
+    IN ULONG ValueType,
+    IN PVOID ValueData,
+    IN ULONG ValueLength,
+    IN PVOID Context,
+    IN PVOID EntryContext
+    );
 
 NTSTATUS
 SmpConfigureObjectDirectories(
@@ -153,6 +203,16 @@ SmpConfigureKnownDlls(
     );
 
 NTSTATUS
+SmpConfigureExcludeKnownDlls(
+    IN PWSTR ValueName,
+    IN ULONG ValueType,
+    IN PVOID ValueData,
+    IN ULONG ValueLength,
+    IN PVOID Context,
+    IN PVOID EntryContext
+    );
+
+NTSTATUS
 SmpConfigureSubSystems(
     IN PWSTR ValueName,
     IN ULONG ValueType,
@@ -174,17 +234,30 @@ SmpConfigureEnvironment(
 
 RTL_QUERY_REGISTRY_TABLE SmpRegistryConfigurationTable[] = {
 
+    //
+    // Note that the SmpConfigureProtectionMode entry should preceed others
+    // to ensure we set up the right protection for use by the others.
+    //
+
+    {SmpConfigureProtectionMode, 0,
+     L"ProtectionMode",          NULL,
+     REG_DWORD, (PVOID)0, 0},
+
     {SmpConfigureObjectDirectories, 0,
      L"ObjectDirectories",          NULL,
-     REG_MULTI_SZ, (PVOID)L"\\Windows\0\\DosDevices\0\\RPC Control\0", 0},
+     REG_MULTI_SZ, (PVOID)L"\\Windows\0\\RPC Control\0", 0},
 
     {SmpConfigureExecute,       0,
      L"BootExecute",            &SmpBootExecuteList,
      REG_MULTI_SZ, L"autocheck \\SystemRoot\\Windows\\System32\\AutoChk.exe *\0", 0},
 
-    {SmpConfigureFileRenames,   RTL_QUERY_REGISTRY_SUBKEY | RTL_QUERY_REGISTRY_DELETE,
-     L"FileRenameOperations",   &SmpFileRenameList,
+    {SmpConfigureFileRenames,   RTL_QUERY_REGISTRY_DELETE,
+     L"PendingFileRenameOperations",   &SmpFileRenameList,
      REG_NONE, NULL, 0},
+
+    {SmpConfigureExcludeKnownDlls, 0,
+     L"ExcludeFromKnownDlls",   &SmpExcludeKnownDllsList,
+     REG_MULTI_SZ, L"\0", 0},
 
     {NULL,                      RTL_QUERY_REGISTRY_SUBKEY,
      L"Memory Management",      NULL,
@@ -216,6 +289,10 @@ RTL_QUERY_REGISTRY_TABLE SmpRegistryConfigurationTable[] = {
 
     {SmpConfigureSubSystems,    RTL_QUERY_REGISTRY_NOEXPAND,
      L"Optional",               &SmpSubSystemList,
+     REG_NONE, NULL, 0},
+
+    {SmpConfigureSubSystems,    0,
+     L"Kmode",                  &SmpSubSystemList,
      REG_NONE, NULL, 0},
 
     {SmpConfigureExecute,       RTL_QUERY_REGISTRY_TOPKEY,
@@ -303,6 +380,170 @@ SmpCreatePagingFile(
 NTSTATUS
 SmpCreatePagingFiles( VOID );
 
+VOID
+SmpTranslateSystemPartitionInformation( VOID );
+
+#define VALUE_BUFFER_SIZE (sizeof(KEY_VALUE_PARTIAL_INFORMATION) + 256 * sizeof(WCHAR))
+
+//
+// local Macros
+//
+
+//
+// VOID
+// SmpSetDaclDefaulted(
+//      IN  POBJECT_ATTRIBUTES              ObjectAttributes,
+//      OUT PSECURITY_DESCRIPTOR_CONTROL    CurrentSdControl
+//      )
+//
+// Description:
+//
+//      This routine will set the DaclDefaulted flag of the DACL passed
+//      via the ObjectAttributes parameter.  If the ObjectAttributes do
+//      not include a SecurityDescriptor, then no action is taken.
+//
+// Parameters:
+//
+//      ObjectAttributes - The object attributes whose security descriptor is
+//          to have its DaclDefaulted flag set.
+//
+//      CurrentSdControl - Receives the current value of the security descriptor's
+//          control flags.  This may be used in a subsequent call to
+//          SmpRestoreDaclDefaulted() to restore the flag to its original state.
+//
+
+#define SmpSetDaclDefaulted( OA, SDC )                                          \
+    if( (OA)->SecurityDescriptor != NULL) {                                     \
+        (*SDC) = ((PISECURITY_DESCRIPTOR)((OA)->SecurityDescriptor))->Control &  \
+                    SE_DACL_DEFAULTED;                                          \
+        ((PISECURITY_DESCRIPTOR)((OA)->SecurityDescriptor))->Control |=         \
+            SE_DACL_DEFAULTED;                                                  \
+    }
+
+
+//
+// VOID
+// SmpRestoreDaclDefaulted(
+//      IN  POBJECT_ATTRIBUTES              ObjectAttributes,
+//      IN  SECURITY_DESCRIPTOR_CONTROL     OriginalSdControl
+//      )
+//
+// Description:
+//
+//      This routine will set the DaclDefaulted flag of the DACL back to
+//      a prior state (indicated by the value in OriginalSdControl).
+//
+// Parameters:
+//
+//      ObjectAttributes - The object attributes whose security descriptor is
+//          to have its DaclDefaulted flag restored.  If the object attributes
+//          have no security descriptor, then no action is taken.
+//
+//      OriginalSdControl - The original value of the security descriptor's
+//          control flags.  This typically is obtained via a prior call to
+//          SmpSetDaclDefaulted().
+//
+
+#define SmpRestoreDaclDefaulted( OA, SDC )                                      \
+    if( (OA)->SecurityDescriptor != NULL) {                                     \
+        ((PISECURITY_DESCRIPTOR)((OA)->SecurityDescriptor))->Control =          \
+            (((PISECURITY_DESCRIPTOR)((OA)->SecurityDescriptor))->Control  &    \
+             ~SE_DACL_DEFAULTED)    |                                           \
+            (SDC & SE_DACL_DEFAULTED);                                          \
+    }
+
+//
+// routines
+//
+
+
+
+BOOLEAN
+SmpQueryRegistrySosOption(
+    VOID
+    )
+
+/*++
+
+Routine Description:
+
+    This function queries the registry to determine if the loadoptions
+    boot environment variable contains the string "SOS".
+
+    HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control:SystemStartOptions
+
+Arguments:
+
+    None.
+
+Return Value:
+
+    TRUE if "SOS" was set.  Otherwise FALSE.
+
+--*/
+
+{
+
+    NTSTATUS Status;
+    UNICODE_STRING KeyName;
+    UNICODE_STRING ValueName;
+    OBJECT_ATTRIBUTES ObjectAttributes;
+    HANDLE Key;
+    WCHAR ValueBuffer[VALUE_BUFFER_SIZE];
+    PKEY_VALUE_PARTIAL_INFORMATION KeyValueInfo;
+    ULONG ValueLength;
+
+    //
+    // Open the registry key.
+    //
+
+    KeyValueInfo = (PKEY_VALUE_PARTIAL_INFORMATION)ValueBuffer;
+    RtlInitUnicodeString(&KeyName,
+                         L"\\Registry\\Machine\\System\\CurrentControlSet\\Control");
+
+    InitializeObjectAttributes(&ObjectAttributes,
+                               &KeyName,
+                               OBJ_CASE_INSENSITIVE,
+                               NULL,
+                               NULL);
+
+    Status = NtOpenKey(&Key, KEY_READ, &ObjectAttributes);
+    if (!NT_SUCCESS(Status)) {
+        KdPrint(("SMSS: can't open control key: 0x%x\n", Status));
+        return FALSE;
+    }
+
+    //
+    // Query the key value.
+    //
+
+    RtlInitUnicodeString(&ValueName, L"SystemStartOptions");
+    Status = NtQueryValueKey(Key,
+                             &ValueName,
+                             KeyValuePartialInformation,
+                             (PVOID)KeyValueInfo,
+                             VALUE_BUFFER_SIZE,
+                             &ValueLength);
+
+    ASSERT(ValueLength < VALUE_BUFFER_SIZE);
+
+    NtClose(Key);
+    if (!NT_SUCCESS(Status)) {
+        KdPrint(("SMSS: can't query value key: 0x%x\n", Status));
+        return FALSE;
+    }
+
+    //
+    // Check is "sos" or "SOS" ois specified.
+    //
+
+    if (NULL != wcsstr((PWCHAR)&KeyValueInfo->Data, L"SOS") ||
+        NULL != wcsstr((PWCHAR)&KeyValueInfo->Data, L"sos")) {
+        return TRUE;
+    }
+
+    return FALSE;
+}
 
 NTSTATUS
 SmpSaveRegistryValue(
@@ -316,6 +557,7 @@ SmpSaveRegistryValue(
     PSMP_REGISTRY_VALUE p;
     UNICODE_STRING UnicodeName;
     UNICODE_STRING UnicodeValue;
+    ANSI_STRING AnsiString;
 
     RtlInitUnicodeString( &UnicodeName, Name );
     RtlInitUnicodeString( &UnicodeValue, Value );
@@ -333,7 +575,7 @@ SmpSaveRegistryValue(
                      !RtlCompareUnicodeString( &p->Value, &UnicodeValue, TRUE )
                     )
                    ) {
-                    return( STATUS_SUCCESS );
+                    return( STATUS_OBJECT_NAME_EXISTS );
                     }
 
                 break;
@@ -348,7 +590,7 @@ SmpSaveRegistryValue(
         }
 
     if (p == NULL) {
-        p = RtlAllocateHeap( RtlProcessHeap(), 0, sizeof( *p ) + UnicodeName.MaximumLength );
+        p = RtlAllocateHeap( RtlProcessHeap(), MAKE_TAG( INIT_TAG ), sizeof( *p ) + UnicodeName.MaximumLength );
         if (p == NULL) {
             return( STATUS_NO_MEMORY );
             }
@@ -370,7 +612,7 @@ SmpSaveRegistryValue(
         }
 
     if (ARGUMENT_PRESENT( Value )) {
-        p->Value.Buffer = (PWSTR)RtlAllocateHeap( RtlProcessHeap(), 0,
+        p->Value.Buffer = (PWSTR)RtlAllocateHeap( RtlProcessHeap(), MAKE_TAG( INIT_TAG ),
                                                   UnicodeValue.MaximumLength
                                                 );
         if (p->Value.Buffer == NULL) {
@@ -385,6 +627,21 @@ SmpSaveRegistryValue(
                        UnicodeValue.Buffer,
                        UnicodeValue.MaximumLength
                      );
+        p->AnsiValue = (LPSTR)RtlAllocateHeap( RtlProcessHeap(),
+                                               MAKE_TAG( INIT_TAG ),
+                                               (UnicodeValue.Length / sizeof( WCHAR )) + 1
+                                             );
+        if (p->AnsiValue == NULL) {
+            RtlFreeHeap( RtlProcessHeap(), 0, p->Value.Buffer );
+            RemoveEntryList( &p->Entry );
+            RtlFreeHeap( RtlProcessHeap(), 0, p );
+            return( STATUS_NO_MEMORY );
+            }
+
+        AnsiString.Buffer = p->AnsiValue;
+        AnsiString.Length = 0;
+        AnsiString.MaximumLength = (UnicodeValue.Length / sizeof( WCHAR )) + 1;
+        RtlUnicodeStringToAnsiString( &AnsiString, &UnicodeValue, FALSE );
         }
     else {
         RtlInitUnicodeString( &p->Value, NULL );
@@ -435,6 +692,13 @@ SmpInit(
     NTSTATUS Status;
     ULONG HardErrorMode;
 
+    SmBaseTag = RtlCreateTagHeap( RtlProcessHeap(),
+                                  0,
+                                  L"SMSS!",
+                                  L"INIT\0"
+                                  L"DBG\0"
+                                  L"SM\0"
+                                );
     //
     // Make sure we specify hard error popups
     //
@@ -459,39 +723,15 @@ SmpInit(
     SmpDbgSsLoaded = FALSE;
 
     //
-    // Following code is direct from Jimk. Why is there a 1k constant
+    // Initialize security descriptors to grant wide access
+    // (protection mode not yet read in from registry).
     //
 
-    SmpPrimarySecurityDescriptor = RtlAllocateHeap( RtlProcessHeap(), 0, 1024 );
-    if ( !SmpPrimarySecurityDescriptor ) {
-#if DEVL
-        DbgPrint( "SMSS: Unable to allocate primary security descriptor.\n" );
-#endif
-        return STATUS_NO_MEMORY;
+    st = SmpCreateSecurityDescriptors( TRUE );
+    if ( !NT_SUCCESS(st) ) {
+        return(st);
         }
 
-    Status = RtlCreateSecurityDescriptor (
-                 SmpPrimarySecurityDescriptor,
-                 SECURITY_DESCRIPTOR_REVISION1
-                 );
-    if ( !NT_SUCCESS(Status) ){
-#if DEVL
-        DbgPrint( "SMSS: Unable to create primary security descriptor - Status == %x\n", Status );
-#endif
-        return Status;
-        }
-    Status = RtlSetDaclSecurityDescriptor (
-                 SmpPrimarySecurityDescriptor,
-                 TRUE,                  //DaclPresent,
-                 NULL,                  //Dacl OPTIONAL,  // No protection
-                 FALSE                  //DaclDefaulted OPTIONAL
-                 );
-    if ( !NT_SUCCESS(Status) ){
-#if DEVL
-        DbgPrint( "SMSS: Unable to Set Dacl for primary security descriptor - Status == %x\n", Status );
-#endif
-        return Status;
-        }
 
 
     InitializeListHead(&NativeProcessList);
@@ -499,7 +739,7 @@ SmpInit(
     SmpHeap = RtlProcessHeap();
 
     RtlInitUnicodeString( &Unicode, L"\\SmApiPort" );
-    InitializeObjectAttributes( &ObjA, &Unicode, 0, NULL, SmpPrimarySecurityDescriptor);
+    InitializeObjectAttributes( &ObjA, &Unicode, 0, NULL, SmpApiPortSecurityDescriptor);
 
     st = NtCreatePort(
             &SmpApiConnectionPort,
@@ -544,7 +784,6 @@ SmpInit(
     // Configure the system
     //
 
-
     Status = SmpLoadDataFromRegistry( InitialCommand );
 
     if (NT_SUCCESS( Status )) {
@@ -553,6 +792,142 @@ SmpInit(
     return( Status );
 }
 
+typedef struct _SMP_ACQUIRE_STATE {
+    HANDLE Token;
+    PTOKEN_PRIVILEGES OldPrivileges;
+    PTOKEN_PRIVILEGES NewPrivileges;
+    UCHAR OldPrivBuffer[ 1024 ];
+} SMP_ACQUIRE_STATE, *PSMP_ACQUIRE_STATE;
+
+NTSTATUS
+SmpAcquirePrivilege(
+    ULONG Privilege,
+    PVOID *ReturnedState
+    )
+{
+    PSMP_ACQUIRE_STATE State;
+    ULONG cbNeeded;
+    LUID LuidPrivilege;
+    NTSTATUS Status;
+
+    //
+    // Make sure we have access to adjust and to get the old token privileges
+    //
+
+    *ReturnedState = NULL;
+    State = RtlAllocateHeap( RtlProcessHeap(),
+                             MAKE_TAG( INIT_TAG ),
+                             sizeof(SMP_ACQUIRE_STATE) +
+                             sizeof(TOKEN_PRIVILEGES) +
+                                (1 - ANYSIZE_ARRAY) * sizeof(LUID_AND_ATTRIBUTES)
+                           );
+    if (State == NULL) {
+        return STATUS_NO_MEMORY;
+        }
+    Status = NtOpenProcessToken(
+                NtCurrentProcess(),
+                TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY,
+                &State->Token
+                );
+
+    if ( !NT_SUCCESS( Status )) {
+        RtlFreeHeap( RtlProcessHeap(), 0, State );
+        return Status;
+        }
+
+    State->NewPrivileges = (PTOKEN_PRIVILEGES)(State+1);
+    State->OldPrivileges = (PTOKEN_PRIVILEGES)(State->OldPrivBuffer);
+
+    //
+    // Initialize the privilege adjustment structure
+    //
+
+    LuidPrivilege = RtlConvertUlongToLuid(Privilege);
+    State->NewPrivileges->PrivilegeCount = 1;
+    State->NewPrivileges->Privileges[0].Luid = LuidPrivilege;
+    State->NewPrivileges->Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+
+    //
+    // Enable the privilege
+    //
+
+    cbNeeded = sizeof( State->OldPrivBuffer );
+    Status = NtAdjustPrivilegesToken( State->Token,
+                                      FALSE,
+                                      State->NewPrivileges,
+                                      cbNeeded,
+                                      State->OldPrivileges,
+                                      &cbNeeded
+                                    );
+
+
+
+    if (Status == STATUS_BUFFER_TOO_SMALL) {
+        State->OldPrivileges = RtlAllocateHeap( RtlProcessHeap(), MAKE_TAG( INIT_TAG ), cbNeeded );
+        if (State->OldPrivileges  == NULL) {
+            Status = STATUS_NO_MEMORY;
+            }
+        else {
+            Status = NtAdjustPrivilegesToken( State->Token,
+                                              FALSE,
+                                              State->NewPrivileges,
+                                              cbNeeded,
+                                              State->OldPrivileges,
+                                              &cbNeeded
+                                            );
+            }
+        }
+
+    //
+    // STATUS_NOT_ALL_ASSIGNED means that the privilege isn't
+    // in the token, so we can't proceed.
+    //
+    // This is a warning level status, so map it to an error status.
+    //
+
+    if (Status == STATUS_NOT_ALL_ASSIGNED) {
+        Status = STATUS_PRIVILEGE_NOT_HELD;
+        }
+
+
+    if (!NT_SUCCESS( Status )) {
+        if (State->OldPrivileges != (PTOKEN_PRIVILEGES)(State->OldPrivBuffer)) {
+            RtlFreeHeap( RtlProcessHeap(), 0, State->OldPrivileges );
+            }
+
+        NtClose( State->Token );
+        RtlFreeHeap( RtlProcessHeap(), 0, State );
+        return Status;
+        }
+
+    *ReturnedState = State;
+    return STATUS_SUCCESS;
+}
+
+
+VOID
+SmpReleasePrivilege(
+    PVOID StatePointer
+    )
+{
+    PSMP_ACQUIRE_STATE State = (PSMP_ACQUIRE_STATE)StatePointer;
+
+    NtAdjustPrivilegesToken( State->Token,
+                             FALSE,
+                             State->OldPrivileges,
+                             0,
+                             NULL,
+                             NULL
+                           );
+
+    if (State->OldPrivileges != (PTOKEN_PRIVILEGES)(State->OldPrivBuffer)) {
+        RtlFreeHeap( RtlProcessHeap(), 0, State->OldPrivileges );
+        }
+
+    NtClose( State->Token );
+    RtlFreeHeap( RtlProcessHeap(), 0, State );
+    return;
+}
 
 
 NTSTATUS
@@ -581,6 +956,7 @@ Return Value:
     NTSTATUS Status;
     PLIST_ENTRY Head, Next;
     PSMP_REGISTRY_VALUE p;
+    PVOID OriginalEnvironment;
 
     RtlInitUnicodeString( &SmpDebugKeyword, L"debug" );
     RtlInitUnicodeString( &SmpASyncKeyword, L"async" );
@@ -591,6 +967,7 @@ Return Value:
     InitializeListHead( &SmpDosDevicesList );
     InitializeListHead( &SmpFileRenameList );
     InitializeListHead( &SmpKnownDllsList );
+    InitializeListHead( &SmpExcludeKnownDllsList );
     InitializeListHead( &SmpSubSystemList );
     InitializeListHead( &SmpSubSystemsToLoad );
     InitializeListHead( &SmpSubSystemsToDefer );
@@ -598,31 +975,35 @@ Return Value:
 
     Status = RtlCreateEnvironment( TRUE, &SmpDefaultEnvironment );
     if (!NT_SUCCESS( Status )) {
-#if DEVL
-        DbgPrint("SMSS: Unable to allocate default environment - Status == %X\n", Status );
-#endif // DEVL
+        KdPrint(("SMSS: Unable to allocate default environment - Status == %X\n", Status ));
         return( Status );
         }
 
+    //
+    // In order to track growth in smpdefaultenvironment, make it sm's environment
+    // while doing the registry groveling and then restore it
+    //
+
+    OriginalEnvironment = NtCurrentPeb()->ProcessParameters->Environment;
+    NtCurrentPeb()->ProcessParameters->Environment = SmpDefaultEnvironment;
     Status = RtlQueryRegistryValues( RTL_REGISTRY_CONTROL,
                                      L"Session Manager",
                                      SmpRegistryConfigurationTable,
                                      NULL,
-                                     SmpDefaultEnvironment
+                                     NULL
                                    );
 
+    SmpDefaultEnvironment = NtCurrentPeb()->ProcessParameters->Environment;
+    NtCurrentPeb()->ProcessParameters->Environment = OriginalEnvironment;
+
     if (!NT_SUCCESS( Status )) {
-#if DEVL
-        DbgPrint( "SMSS: RtlQueryRegistryValues failed - Status == %lx\n", Status );
-#endif
+        KdPrint(( "SMSS: RtlQueryRegistryValues failed - Status == %lx\n", Status ));
         return( Status );
         }
 
     Status = SmpInitializeDosDevices();
     if (!NT_SUCCESS( Status )) {
-#if DEVL
-        DbgPrint( "SMSS: Unable to initialize DosDevices configuration - Status == %lx\n", Status );
-#endif
+        KdPrint(( "SMSS: Unable to initialize DosDevices configuration - Status == %lx\n", Status ));
         return( Status );
         }
 
@@ -644,9 +1025,7 @@ Return Value:
 
     Status = SmpInitializeKnownDlls();
     if (!NT_SUCCESS( Status )) {
-#if DEVL
-        DbgPrint( "SMSS: Unable to initialize KnownDll configuration - Status == %lx\n", Status );
-#endif
+        KdPrint(( "SMSS: Unable to initialize KnownDll configuration - Status == %lx\n", Status ));
         return( Status );
         }
 
@@ -681,6 +1060,17 @@ Return Value:
 
     NtInitializeRegistry(FALSE);
 
+    Status = SmpCreateDynamicEnvironmentVariables( );
+    if (!NT_SUCCESS( Status )) {
+        return Status;
+        }
+
+    //
+    // Translate the system partition information stored during IoInitSystem into
+    // a DOS path and store in Win32-standard location.
+    //
+
+    SmpTranslateSystemPartitionInformation();
 
     Head = &SmpSubSystemList;
     while (!IsListEmpty( Head )) {
@@ -689,6 +1079,38 @@ Return Value:
                                SMP_REGISTRY_VALUE,
                                Entry
                              );
+        if ( !_wcsicmp( p->Name.Buffer, L"Kmode" )) {
+            BOOLEAN TranslationStatus;
+            UNICODE_STRING FileName;
+
+            TranslationStatus = RtlDosPathNameToNtPathName_U(
+                                    p->Value.Buffer,
+                                    &FileName,
+                                    NULL,
+                                    NULL
+                                    );
+
+            if ( TranslationStatus ) {
+                PVOID State;
+
+                Status = SmpAcquirePrivilege( SE_LOAD_DRIVER_PRIVILEGE, &State );
+                if (NT_SUCCESS( Status )) {
+                    Status = NtSetSystemInformation(
+                                SystemExtendServiceTableInformation,
+                                (PVOID)&FileName,
+                                sizeof(FileName)
+                                );
+                    RtlFreeHeap(RtlProcessHeap(), 0, FileName.Buffer);
+                    SmpReleasePrivilege( State );
+                    if ( !NT_SUCCESS(Status) ) {
+                        Status = STATUS_SUCCESS;
+                        }
+                    }
+                }
+            else {
+                Status = STATUS_OBJECT_PATH_SYNTAX_BAD;
+                }
+            }
 #ifdef SMP_SHOW_REGISTRY_DATA
         DbgPrint( "SMSS: Unused SubSystem( %wZ = %wZ )\n", &p->Name, &p->Value );
 #endif
@@ -705,7 +1127,7 @@ Return Value:
 #ifdef SMP_SHOW_REGISTRY_DATA
         DbgPrint( "SMSS: Loaded SubSystem( %wZ = %wZ )\n", &p->Name, &p->Value );
 #endif
-        if (!wcsicmp( p->Name.Buffer, L"debug" )) {
+        if (!_wcsicmp( p->Name.Buffer, L"debug" )) {
             SmpExecuteCommand( &p->Value, SMP_SUBSYSTEM_FLAG | SMP_DEBUG_FLAG );
             }
         else {
@@ -725,7 +1147,6 @@ Return Value:
         RemoveEntryList( &p->Entry );
         *InitialCommand = p->Name;
 
-#if DEVL
         //
         // This path is only taken when people want to run ntsd -p -1 winlogon
         //
@@ -740,18 +1161,15 @@ Return Value:
 
             {
                 LARGE_INTEGER DelayTime;
-                DelayTime = RtlEnlargedIntegerMultiply( 5000, -10000 );
+                DelayTime.QuadPart = Int32x32To64( 5000, -10000 );
                 NtDelayExecution(
                     FALSE,
                     &DelayTime
                     );
             }
-#endif // DEVL
-
         }
     else {
         RtlInitUnicodeString( InitialCommand, L"winlogon.exe" );
-#if DEVL
         InitialCommandBuffer[ 0 ] = UNICODE_NULL;
         LdrQueryImageFileExecutionOptions( InitialCommand,
                                            L"Debugger",
@@ -764,9 +1182,8 @@ Return Value:
             wcscat( InitialCommandBuffer, L" " );
             wcscat( InitialCommandBuffer, InitialCommand->Buffer );
             RtlInitUnicodeString( InitialCommand, InitialCommandBuffer );
-            DbgPrint( "SMSS: InitialCommand == '%wZ'\n", InitialCommand );
+            KdPrint(( "SMSS: InitialCommand == '%wZ'\n", InitialCommand ));
             }
-#endif
         }
 
     while (!IsListEmpty( Head )) {
@@ -788,6 +1205,275 @@ Return Value:
     return( Status );
 }
 
+
+NTSTATUS
+SmpCreateDynamicEnvironmentVariables(
+    VOID
+    )
+{
+    NTSTATUS Status;
+    SYSTEM_BASIC_INFORMATION SystemInfo;
+    SYSTEM_PROCESSOR_INFORMATION ProcessorInfo;
+    OBJECT_ATTRIBUTES ObjectAttributes;
+    UNICODE_STRING KeyName;
+    UNICODE_STRING ValueName;
+    PWSTR ValueData;
+    WCHAR ValueBuffer[ 256 ];
+    WCHAR ValueBuffer1[ 256 ];
+    PKEY_VALUE_PARTIAL_INFORMATION KeyValueInfo;
+    ULONG ValueLength;
+    HANDLE Key, Key1;
+
+    Status = NtQuerySystemInformation( SystemBasicInformation,
+                                       &SystemInfo,
+                                       sizeof( SystemInfo ),
+                                       NULL
+                                     );
+    if (!NT_SUCCESS( Status )) {
+        KdPrint(( "SMSS: Unable to query system basic information - %x\n", Status ));
+        return Status;
+        }
+
+    Status = NtQuerySystemInformation( SystemProcessorInformation,
+                                       &ProcessorInfo,
+                                       sizeof( ProcessorInfo ),
+                                       NULL
+                                     );
+    if (!NT_SUCCESS( Status )) {
+        KdPrint(( "SMSS: Unable to query system processor information - %x\n", Status ));
+        return Status;
+        }
+
+    RtlInitUnicodeString( &KeyName, L"\\Registry\\Machine\\System\\CurrentControlSet\\Control\\Session Manager\\Environment" );
+    InitializeObjectAttributes( &ObjectAttributes,
+                                &KeyName,
+                                OBJ_CASE_INSENSITIVE,
+                                NULL,
+                                NULL
+                              );
+    Status = NtOpenKey( &Key, GENERIC_WRITE, &ObjectAttributes );
+    if (!NT_SUCCESS( Status )) {
+        KdPrint(( "SMSS: Unable to open %wZ - %x\n", &KeyName, Status ));
+        return Status;
+        }
+
+    RtlInitUnicodeString( &ValueName, L"OS" );
+    ValueData = L"Windows_NT";
+    Status = NtSetValueKey( Key,
+                            &ValueName,
+                            0,
+                            REG_SZ,
+                            ValueData,
+                            (wcslen( ValueData ) + 1) * sizeof( WCHAR )
+                          );
+    if (!NT_SUCCESS( Status )) {
+        KdPrint(( "SMSS: Failed writing %wZ environment variable - %x\n", &ValueName, Status ));
+        goto failexit;
+        }
+
+    RtlInitUnicodeString( &ValueName, L"PROCESSOR_ARCHITECTURE" );
+    switch( ProcessorInfo.ProcessorArchitecture ) {
+    case PROCESSOR_ARCHITECTURE_INTEL:
+        ValueData = L"x86";
+        break;
+
+    case PROCESSOR_ARCHITECTURE_MIPS:
+        ValueData = L"MIPS";
+        break;
+
+    case PROCESSOR_ARCHITECTURE_ALPHA:
+        ValueData = L"ALPHA";
+        break;
+
+    case PROCESSOR_ARCHITECTURE_PPC:
+        ValueData = L"PPC";
+        break;
+
+    default:
+        ValueData = L"Unknown";
+        break;
+    }
+
+    Status = NtSetValueKey( Key,
+                            &ValueName,
+                            0,
+                            REG_SZ,
+                            ValueData,
+                            (wcslen( ValueData ) + 1) * sizeof( WCHAR )
+                          );
+    if (!NT_SUCCESS( Status )) {
+        KdPrint(( "SMSS: Failed writing %wZ environment variable - %x\n", &ValueName, Status ));
+        goto failexit;
+        }
+
+    RtlInitUnicodeString( &ValueName, L"PROCESSOR_LEVEL" );
+    switch( ProcessorInfo.ProcessorArchitecture ) {
+    case PROCESSOR_ARCHITECTURE_MIPS:
+        //
+        // Multiple MIPS level by 1000 so 4 becomes 4000
+        //
+        swprintf( ValueBuffer, L"%u", ProcessorInfo.ProcessorLevel * 1000 );
+        break;
+
+    case PROCESSOR_ARCHITECTURE_PPC:
+        //
+        // Just output the ProcessorLevel in decimal.
+        //
+        swprintf( ValueBuffer, L"%u", ProcessorInfo.ProcessorLevel );
+        break;
+
+    case PROCESSOR_ARCHITECTURE_INTEL:
+    case PROCESSOR_ARCHITECTURE_ALPHA:
+    default:
+        //
+        // All others use a single level number
+        //
+        swprintf( ValueBuffer, L"%u", ProcessorInfo.ProcessorLevel );
+        break;
+    }
+    Status = NtSetValueKey( Key,
+                            &ValueName,
+                            0,
+                            REG_SZ,
+                            ValueBuffer,
+                            (wcslen( ValueBuffer ) + 1) * sizeof( WCHAR )
+                          );
+    if (!NT_SUCCESS( Status )) {
+        KdPrint(( "SMSS: Failed writing %wZ environment variable - %x\n", &ValueName, Status ));
+        goto failexit;
+        }
+
+    RtlInitUnicodeString( &KeyName, L"\\Registry\\Machine\\Hardware\\Description\\System\\CentralProcessor\\0" );
+    InitializeObjectAttributes( &ObjectAttributes,
+                                &KeyName,
+                                OBJ_CASE_INSENSITIVE,
+                                NULL,
+                                NULL
+                              );
+    Status = NtOpenKey( &Key1, KEY_READ, &ObjectAttributes );
+    if (!NT_SUCCESS( Status )) {
+        KdPrint(( "SMSS: Unable to open %wZ - %x\n", &KeyName, Status ));
+        goto failexit;
+        }
+    RtlInitUnicodeString( &ValueName, L"Identifier" );
+    KeyValueInfo = (PKEY_VALUE_PARTIAL_INFORMATION)ValueBuffer;
+    Status = NtQueryValueKey( Key1,
+                              &ValueName,
+                              KeyValuePartialInformation,
+                              (PVOID)KeyValueInfo,
+                              sizeof( ValueBuffer ),
+                              &ValueLength
+                             );
+    if (!NT_SUCCESS( Status )) {
+        NtClose( Key1 );
+        KdPrint(( "SMSS: Unable to read %wZ\\%wZ - %x\n", &KeyName, &ValueName, Status ));
+        goto failexit;
+        }
+
+    ValueData = (PWSTR)KeyValueInfo->Data;
+    RtlInitUnicodeString( &ValueName, L"VendorIdentifier" );
+    KeyValueInfo = (PKEY_VALUE_PARTIAL_INFORMATION)ValueBuffer1;
+    Status = NtQueryValueKey( Key1,
+                              &ValueName,
+                              KeyValuePartialInformation,
+                              (PVOID)KeyValueInfo,
+                              sizeof( ValueBuffer1 ),
+                              &ValueLength
+                             );
+    NtClose( Key1 );
+    if (NT_SUCCESS( Status )) {
+        swprintf( ValueData + wcslen( ValueData ),
+                  L", %ws",
+                  (PWSTR)KeyValueInfo->Data
+                );
+        }
+
+    RtlInitUnicodeString( &ValueName, L"PROCESSOR_IDENTIFIER" );
+    Status = NtSetValueKey( Key,
+                            &ValueName,
+                            0,
+                            REG_SZ,
+                            ValueData,
+                            (wcslen( ValueData ) + 1) * sizeof( WCHAR )
+                          );
+    if (!NT_SUCCESS( Status )) {
+        KdPrint(( "SMSS: Failed writing %wZ environment variable - %x\n", &ValueName, Status ));
+        goto failexit;
+        }
+
+    RtlInitUnicodeString( &ValueName, L"PROCESSOR_REVISION" );
+    switch( ProcessorInfo.ProcessorArchitecture ) {
+    case PROCESSOR_ARCHITECTURE_INTEL:
+        if ((ProcessorInfo.ProcessorRevision >> 8) == 0xFF) {
+            //
+            // Intel 386/486 are An stepping format
+            //
+            swprintf( ValueBuffer, L"%02x",
+                      ProcessorInfo.ProcessorRevision & 0xFF
+                    );
+            _wcsupr( ValueBuffer );
+            break;
+            }
+
+        // Fall through for Cyrix/NextGen 486 and Pentium processors.
+
+    case PROCESSOR_ARCHITECTURE_PPC:
+        //
+        // Intel and PowerPC use fixed point binary number
+        // Output is 4 hex digits, no formatting.
+        //
+        swprintf( ValueBuffer, L"%04x", ProcessorInfo.ProcessorRevision );
+        break;
+
+    case PROCESSOR_ARCHITECTURE_ALPHA:
+        swprintf( ValueBuffer, L"Model %c, Pass %u",
+                  'A' + (ProcessorInfo.ProcessorRevision >> 8),
+                  ProcessorInfo.ProcessorRevision & 0xFF
+                );
+        swprintf( ValueBuffer, L"%u", ProcessorInfo.ProcessorRevision );
+        break;
+
+    case PROCESSOR_ARCHITECTURE_MIPS:
+    default:
+        //
+        // All others use a single revision number
+        //
+        swprintf( ValueBuffer, L"%u", ProcessorInfo.ProcessorRevision );
+        break;
+    }
+
+    Status = NtSetValueKey( Key,
+                            &ValueName,
+                            0,
+                            REG_SZ,
+                            ValueBuffer,
+                            (wcslen( ValueBuffer ) + 1) * sizeof( WCHAR )
+                          );
+    if (!NT_SUCCESS( Status )) {
+        KdPrint(( "SMSS: Failed writing %wZ environment variable - %x\n", &ValueName, Status ));
+        goto failexit;
+        }
+
+    RtlInitUnicodeString( &ValueName, L"NUMBER_OF_PROCESSORS" );
+    swprintf( ValueBuffer, L"%u", SystemInfo.NumberOfProcessors );
+    Status = NtSetValueKey( Key,
+                            &ValueName,
+                            0,
+                            REG_SZ,
+                            ValueBuffer,
+                            (wcslen( ValueBuffer ) + 1) * sizeof( WCHAR )
+                          );
+    if (!NT_SUCCESS( Status )) {
+        KdPrint(( "SMSS: Failed writing %wZ environment variable - %x\n", &ValueName, Status ));
+        goto failexit;
+        }
+
+failexit:
+    NtClose( Key );
+    return Status;
+}
+
+
 NTSTATUS
 SmpInitializeDosDevices( VOID )
 {
@@ -797,38 +1483,28 @@ SmpInitializeDosDevices( VOID )
     UNICODE_STRING UnicodeString;
     OBJECT_ATTRIBUTES ObjectAttributes;
     HANDLE LinkHandle;
+    SECURITY_DESCRIPTOR_CONTROL OriginalSdControl;
 
     //
-    // Do DosDevices initialization
+    // Do DosDevices initialization - the directory object is created in I/O init
     //
 
-    RtlInitUnicodeString( &UnicodeString, L"\\DosDevices" );
+    RtlInitUnicodeString( &UnicodeString, L"\\??" );
     InitializeObjectAttributes( &ObjectAttributes,
                                 &UnicodeString,
                                 OBJ_CASE_INSENSITIVE | OBJ_OPENIF | OBJ_PERMANENT,
                                 NULL,
-                                SmpPrimarySecurityDescriptor
+                                NULL
                               );
-    Status = NtCreateDirectoryObject( &SmpDosDevicesObjectDirectory,
-                                      DIRECTORY_ALL_ACCESS,
-                                      &ObjectAttributes
+    Status = NtOpenDirectoryObject( &SmpDosDevicesObjectDirectory,
+                                    DIRECTORY_ALL_ACCESS,
+                                    &ObjectAttributes
                                     );
     if (!NT_SUCCESS( Status )) {
-#if DEVL
-        DbgPrint( "SMSS: Unable to create %wZ directory - Status == %lx\n", &UnicodeString, Status );
-#endif
+        KdPrint(( "SMSS: Unable to open %wZ directory - Status == %lx\n", &UnicodeString, Status ));
         return( Status );
         }
 
-    if (Status == STATUS_OBJECT_NAME_EXISTS) {
-        Status = NtSetSecurityObject( SmpDosDevicesObjectDirectory,
-                                      DACL_SECURITY_INFORMATION,
-                                      SmpPrimarySecurityDescriptor
-                                    );
-        if (!NT_SUCCESS( Status )) {
-            DbgPrint( "SMSS: Unable to reset DACL on DosDevices directory - Status == %08X\n", Status );
-            }
-        }
 
     //
     // Process the list of defined DOS devices and create their
@@ -851,7 +1527,7 @@ SmpInitializeDosDevices( VOID )
                                     SmpDosDevicesObjectDirectory,
                                     SmpPrimarySecurityDescriptor
                                   );
-
+        SmpSetDaclDefaulted( &ObjectAttributes, &OriginalSdControl );  //Use inheritable protection if available
         Status = NtCreateSymbolicLinkObject( &LinkHandle,
                                              SYMBOLIC_LINK_ALL_ACCESS,
                                              &ObjectAttributes,
@@ -873,15 +1549,14 @@ SmpInitializeDosDevices( VOID )
                 Status = STATUS_SUCCESS;
                 }
             }
+        SmpRestoreDaclDefaulted( &ObjectAttributes, OriginalSdControl );
 
         if (!NT_SUCCESS( Status )) {
-#if DEVL
-            DbgPrint( "SMSS: Unable to create %wZ => %wZ symbolic link object - Status == 0x%lx\n",
+            KdPrint(( "SMSS: Unable to create %wZ => %wZ symbolic link object - Status == 0x%lx\n",
                       &p->Name,
                       &p->Value,
                       Status
-                    );
-#endif // DEVL
+                   ));
             return( Status );
             }
 
@@ -893,17 +1568,91 @@ SmpInitializeDosDevices( VOID )
 }
 
 
+VOID
+SmpProcessModuleImports(
+    IN PVOID Parameter,
+    IN PCHAR ModuleName
+    )
+{
+    NTSTATUS Status;
+    WCHAR NameBuffer[ DOS_MAX_PATH_LENGTH ];
+    UNICODE_STRING UnicodeString;
+    ANSI_STRING AnsiString;
+    PWSTR Name, Value;
+    ULONG n;
+    PWSTR s;
+    PSMP_REGISTRY_VALUE p;
+
+    //
+    // Skip NTDLL.DLL as it is implicitly added to KnownDll list by kernel
+    // before SMSS.EXE is started.
+    //
+    if (!_stricmp( ModuleName, "ntdll.dll" )) {
+        return;
+        }
+
+    RtlInitAnsiString( &AnsiString, ModuleName );
+    UnicodeString.Buffer = NameBuffer;
+    UnicodeString.Length = 0;
+    UnicodeString.MaximumLength = sizeof( NameBuffer );
+
+    Status = RtlAnsiStringToUnicodeString( &UnicodeString, &AnsiString, FALSE );
+    if (!NT_SUCCESS( Status )) {
+        return;
+        }
+    UnicodeString.MaximumLength = (USHORT)(UnicodeString.Length + sizeof( UNICODE_NULL ));
+
+    s = UnicodeString.Buffer;
+    n = 0;
+    while (n < UnicodeString.Length) {
+        if (*s == L'.') {
+            break;
+            }
+        else {
+            n += sizeof( WCHAR );
+            s += 1;
+            }
+        }
+
+    Value = UnicodeString.Buffer;
+    Name = UnicodeString.Buffer + (UnicodeString.MaximumLength / sizeof( WCHAR ));
+    n = n / sizeof( WCHAR );
+    wcsncpy( Name, Value, n );
+    Name[ n ] = UNICODE_NULL;
+
+    Status = SmpSaveRegistryValue( (PLIST_ENTRY)&SmpKnownDllsList,
+                                   Name,
+                                   Value,
+                                   TRUE
+                                 );
+    if (Status == STATUS_OBJECT_NAME_EXISTS || !NT_SUCCESS( Status )) {
+        return;
+        }
+
+    p = CONTAINING_RECORD( (PLIST_ENTRY)Parameter,
+                           SMP_REGISTRY_VALUE,
+                           Entry
+                         );
+    KdPrint(( "SMSS: %wZ added %ws to KnownDlls\n", &p->Value, Value ));
+
+    return;
+}
+
+
 NTSTATUS
 SmpInitializeKnownDlls( VOID )
 {
     NTSTATUS Status;
     PLIST_ENTRY Head, Next;
     PSMP_REGISTRY_VALUE p;
+    PSMP_REGISTRY_VALUE pExclude;
     UNICODE_STRING UnicodeString;
     OBJECT_ATTRIBUTES ObjectAttributes;
     HANDLE LinkHandle, FileHandle, SectionHandle;
     IO_STATUS_BLOCK IoStatusBlock;
     UNICODE_STRING FileName;
+    SECURITY_DESCRIPTOR_CONTROL OriginalSdControl;
+    USHORT ImageCharacteristics;
 
     //
     // Create \KnownDlls object directory
@@ -914,20 +1663,16 @@ SmpInitializeKnownDlls( VOID )
                                 &UnicodeString,
                                 OBJ_CASE_INSENSITIVE | OBJ_OPENIF | OBJ_PERMANENT,
                                 NULL,
-                                SmpPrimarySecurityDescriptor
+                                SmpKnownDllsSecurityDescriptor
                               );
     Status = NtCreateDirectoryObject( &SmpKnownDllObjectDirectory,
                                       DIRECTORY_ALL_ACCESS,
                                       &ObjectAttributes
                                     );
     if (!NT_SUCCESS( Status )) {
-#if DEVL
-        DbgPrint( "SMSS: Unable to create %wZ directory - Status == %lx\n", &UnicodeString, Status );
-#endif
+        KdPrint(( "SMSS: Unable to create %wZ directory - Status == %lx\n", &UnicodeString, Status ));
         return( Status );
         }
-
-
 
     //
     // Open a handle to the file system directory that contains all the
@@ -940,9 +1685,7 @@ SmpInitializeKnownDlls( VOID )
                                        NULL
                                      )
        ) {
-#if DEVL
-        DbgPrint( "SMSS: Unable to to convert %wZ to an Nt path\n", &SmpKnownDllPath );
-#endif
+        KdPrint(( "SMSS: Unable to to convert %wZ to an Nt path\n", &SmpKnownDllPath ));
         return( STATUS_OBJECT_NAME_INVALID );
         }
 
@@ -967,11 +1710,9 @@ SmpInitializeKnownDlls( VOID )
                        );
 
     if (!NT_SUCCESS( Status )) {
-#if DEVL
-        DbgPrint( "SMSS: Unable to open a handle to the KnownDll directory (%wZ) - Status == %lx\n",
+        KdPrint(( "SMSS: Unable to open a handle to the KnownDll directory (%wZ) - Status == %lx\n",
                   &SmpKnownDllPath, Status
-                );
-#endif
+               ));
         return Status;
         }
 
@@ -982,48 +1723,66 @@ SmpInitializeKnownDlls( VOID )
                                 SmpKnownDllObjectDirectory,
                                 SmpPrimarySecurityDescriptor
                               );
+    SmpSetDaclDefaulted( &ObjectAttributes, &OriginalSdControl );   //Use inheritable protection if available
     Status = NtCreateSymbolicLinkObject( &LinkHandle,
                                          SYMBOLIC_LINK_ALL_ACCESS,
                                          &ObjectAttributes,
                                          &SmpKnownDllPath
                                        );
+    SmpRestoreDaclDefaulted( &ObjectAttributes, OriginalSdControl );
     if (!NT_SUCCESS( Status )) {
-#if DEVL
-        DbgPrint( "SMSS: Unable to create %wZ symbolic link - Status == %lx\n",
+        KdPrint(( "SMSS: Unable to create %wZ symbolic link - Status == %lx\n",
                   &UnicodeString, Status
-                );
-#endif
+               ));
         return( Status );
         }
 
     Head = &SmpKnownDllsList;
-    while (!IsListEmpty( Head )) {
-        Next = RemoveHeadList( Head );
+    Next = Head->Flink;
+    while (Next != Head) {
+        HANDLE ObjectDirectory;
+
+        ObjectDirectory = NULL;
         p = CONTAINING_RECORD( Next,
                                SMP_REGISTRY_VALUE,
                                Entry
                              );
+        pExclude = SmpFindRegistryValue( &SmpExcludeKnownDllsList, p->Name.Buffer );
+        if (pExclude == NULL) {
+            pExclude = SmpFindRegistryValue( &SmpExcludeKnownDllsList, p->Value.Buffer );
+            }
+
+        if (pExclude != NULL) {
+            KdPrint(( "Excluding %wZ from KnownDlls\n", &p->Value ));
+            Status = STATUS_OBJECT_NAME_NOT_FOUND;
+            }
+        else {
 #ifdef SMP_SHOW_REGISTRY_DATA
-        DbgPrint( "SMSS: KnownDll( %wZ = %wZ )\n", &p->Name, &p->Value );
+            DbgPrint( "SMSS: KnownDll( %wZ = %wZ )\n", &p->Name, &p->Value );
 #endif
-        InitializeObjectAttributes( &ObjectAttributes,
-                                    &p->Value,
-                                    OBJ_CASE_INSENSITIVE,
-                                    SmpKnownDllFileDirectory,
-                                    NULL
-                                  );
+            InitializeObjectAttributes( &ObjectAttributes,
+                                        &p->Value,
+                                        OBJ_CASE_INSENSITIVE,
+                                        SmpKnownDllFileDirectory,
+                                        NULL
+                                      );
 
-        Status = NtOpenFile( &FileHandle,
-                             SYNCHRONIZE | FILE_EXECUTE,
-                             &ObjectAttributes,
-                             &IoStatusBlock,
-                             FILE_SHARE_READ | FILE_SHARE_DELETE,
-                             FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT
-                           );
+            Status = NtOpenFile( &FileHandle,
+                                 SYNCHRONIZE | FILE_EXECUTE,
+                                 &ObjectAttributes,
+                                 &IoStatusBlock,
+                                 FILE_SHARE_READ | FILE_SHARE_DELETE,
+                                 FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT
+                               );
+            }
+
         if (NT_SUCCESS( Status )) {
-
-            Status = LdrVerifyImageMatchesChecksum(FileHandle);
-
+            ObjectDirectory = SmpKnownDllObjectDirectory;
+            Status = LdrVerifyImageMatchesChecksum(FileHandle,
+                                                   SmpProcessModuleImports,
+                                                   Next,
+                                                   &ImageCharacteristics
+                                                  );
             if ( Status == STATUS_IMAGE_CHECKSUM_MISMATCH ) {
 
                 ULONG ErrorParameters;
@@ -1033,7 +1792,7 @@ SmpInitializeKnownDlls( VOID )
                 // Hard error time. One of the know DLL's is corrupt !
                 //
 
-                ErrorParameters = &p->Value;
+                ErrorParameters = (ULONG)(&p->Value);
 
                 NtRaiseHardError(
                     Status,
@@ -1043,43 +1802,58 @@ SmpInitializeKnownDlls( VOID )
                     OptionOk,
                     &ErrorResponse
                     );
-
-
                 }
-
-            InitializeObjectAttributes( &ObjectAttributes,
-                                        &p->Value,
-                                        OBJ_CASE_INSENSITIVE | OBJ_PERMANENT,
-                                        SmpKnownDllObjectDirectory,
-                                        SmpPrimarySecurityDescriptor
-                                      );
-            Status = NtCreateSection( &SectionHandle,
-                                      SECTION_ALL_ACCESS,
-                                      &ObjectAttributes,
-                                      NULL,
-                                      PAGE_EXECUTE,
-                                      SEC_IMAGE,
-                                      FileHandle
-                                    );
-            NtClose( FileHandle );
-            if (!NT_SUCCESS( Status )) {
-#if DEVL
-	        DbgPrint("SMSS: CreateSection for KnownDll %wZ failed - Status == %lx\n",
-                    &p->Value,
-                    Status
-                    );
-#endif
+            else
+            if (ImageCharacteristics & IMAGE_FILE_DLL) {
+                InitializeObjectAttributes( &ObjectAttributes,
+                                            &p->Value,
+                                            OBJ_CASE_INSENSITIVE | OBJ_PERMANENT,
+                                            ObjectDirectory,
+                                            SmpLiberalSecurityDescriptor
+                                          );
+                SmpSetDaclDefaulted( &ObjectAttributes, &OriginalSdControl );  //use inheritable protection if available
+                Status = NtCreateSection( &SectionHandle,
+                                          SECTION_ALL_ACCESS,
+                                          &ObjectAttributes,
+                                          NULL,
+                                          PAGE_EXECUTE,
+                                          SEC_IMAGE,
+                                          FileHandle
+                                        );
+                SmpRestoreDaclDefaulted( &ObjectAttributes, OriginalSdControl );
+                if (!NT_SUCCESS( Status )) {
+                    KdPrint(("SMSS: CreateSection for KnownDll %wZ failed - Status == %lx\n",
+                            &p->Value,
+                            Status
+                           ));
+                    }
+                else {
+                    NtClose(SectionHandle);
+                    }
                 }
             else {
-                NtClose(SectionHandle);
+                KdPrint(( "SMSS: Ignoring %wZ as KnownDll since it is not a DLL\n", &p->Value ));
                 }
+
+            NtClose( FileHandle );
             }
+
+        Next = Next->Flink;
 
         //
         // Note that section remains open. This will keep it around.
         // Maybe this should be a permenent section ?
         //
+        }
 
+    Head = &SmpKnownDllsList;
+    Next = Head->Flink;
+    while (Next != Head) {
+        p = CONTAINING_RECORD( Next,
+                               SMP_REGISTRY_VALUE,
+                               Entry
+                             );
+        Next = Next->Flink;
         RtlFreeHeap( RtlProcessHeap(), 0, p );
         }
 }
@@ -1162,7 +1936,7 @@ SmpProcessFileRenames( VOID )
                     SetInfoLength -= sizeof( UNICODE_NULL );
                     }
 
-                SetInfoBuffer = RtlAllocateHeap( RtlProcessHeap(), 0,
+                SetInfoBuffer = RtlAllocateHeap( RtlProcessHeap(), MAKE_TAG( INIT_TAG ),
                                                  SetInfoLength
                                                );
 
@@ -1280,11 +2054,17 @@ SmpConfigureObjectDirectories(
 {
     PWSTR s;
     UNICODE_STRING UnicodeString;
+    UNICODE_STRING RpcControl;
+    UNICODE_STRING Windows;
     NTSTATUS Status;
     OBJECT_ATTRIBUTES ObjectAttributes;
     HANDLE DirectoryHandle;
+    PSECURITY_DESCRIPTOR SecurityDescriptor;
+
     UNREFERENCED_PARAMETER( Context );
 
+    RtlInitUnicodeString( &RpcControl, L"\\RPC Control");
+    RtlInitUnicodeString( &Windows, L"\\Windows");
 #ifdef SMP_SHOW_REGISTRY_DATA
     SmpDumpQuery( "ObjectDirectories", ValueName, ValueType, ValueData, ValueLength );
 #else
@@ -1295,21 +2075,31 @@ SmpConfigureObjectDirectories(
     s = (PWSTR)ValueData;
     while (*s) {
         RtlInitUnicodeString( &UnicodeString, s );
+
+        //
+        // This is NOT how I would choose to do this if starting from
+        // scratch, but we are very close to shipping Daytona and I
+        // needed to get the right protection on these objects.
+        //
+
+        SecurityDescriptor = SmpPrimarySecurityDescriptor;
+        if (RtlEqualString( (PSTRING)&UnicodeString, (PSTRING)&RpcControl, TRUE ) ||
+            RtlEqualString( (PSTRING)&UnicodeString, (PSTRING)&Windows, TRUE)  ) {
+            SecurityDescriptor = SmpLiberalSecurityDescriptor;
+        }
+
         InitializeObjectAttributes( &ObjectAttributes,
                                     &UnicodeString,
                                     OBJ_CASE_INSENSITIVE | OBJ_OPENIF | OBJ_PERMANENT,
                                     NULL,
-                                    SmpPrimarySecurityDescriptor
+                                    SecurityDescriptor
                                   );
         Status = NtCreateDirectoryObject( &DirectoryHandle,
                                           DIRECTORY_ALL_ACCESS,
                                           &ObjectAttributes
                                         );
         if (!NT_SUCCESS( Status )) {
-#if DEVL
-            DbgPrint( "SMSS: Unable to create %wZ object directory - Status == %lx\n", &UnicodeString, Status );
-#endif
-            break;
+            KdPrint(( "SMSS: Unable to create %wZ object directory - Status == %lx\n", &UnicodeString, Status ));
             }
         else {
             NtClose( DirectoryHandle );
@@ -1391,20 +2181,41 @@ SmpConfigureFileRenames(
     IN PVOID EntryContext
     )
 {
-    UNREFERENCED_PARAMETER( Context );
+    NTSTATUS Status;
+    static PWSTR OldName = NULL;
 
+    UNREFERENCED_PARAMETER( Context );
 #ifdef SMP_SHOW_REGISTRY_DATA
     SmpDumpQuery( "FileRenameOperation", ValueName, ValueType, ValueData, ValueLength );
 #else
     UNREFERENCED_PARAMETER( ValueType );
-    UNREFERENCED_PARAMETER( ValueLength );
 #endif
-    return (SmpSaveRegistryValue( (PLIST_ENTRY)EntryContext,
-                                  ValueName,
-                                  ValueData,
-                                  TRUE
-                                )
-           );
+
+    //
+    // This routine gets called for each string in the MULTI_SZ. The
+    // first string we get is the old name, the next string is the new name.
+    //
+    if (OldName == NULL) {
+        //
+        // Save a pointer to the old name, we'll need it on the next
+        // callback.
+        //
+        OldName = ValueData;
+        return(STATUS_SUCCESS);
+    } else {
+        Status = SmpSaveRegistryValue((PLIST_ENTRY)EntryContext,
+                                      OldName,
+                                      ValueData,
+                                      FALSE);
+        if (!NT_SUCCESS(Status)) {
+#ifdef SMP_SHOW_REGISTRY_DATA
+            DbgPrint("SMSS: SmpSaveRegistryValue returned %08lx for FileRenameOperation\n", Status);
+            DbgPrint("SMSS:     %ws %ws\n", OldName, ValueData);
+#endif
+        }
+        OldName = NULL;
+        return(Status);
+    }
 }
 
 NTSTATUS
@@ -1450,8 +2261,8 @@ SmpConfigureKnownDlls(
 #else
     UNREFERENCED_PARAMETER( ValueType );
 #endif
-    if (!wcsicmp( ValueName, L"DllDirectory" )) {
-        SmpKnownDllPath.Buffer = RtlAllocateHeap( RtlProcessHeap(), 0,
+    if (!_wcsicmp( ValueName, L"DllDirectory" )) {
+        SmpKnownDllPath.Buffer = RtlAllocateHeap( RtlProcessHeap(), MAKE_TAG( INIT_TAG ),
                                                   ValueLength
                                                 );
         if (SmpKnownDllPath.Buffer == NULL) {
@@ -1477,6 +2288,46 @@ SmpConfigureKnownDlls(
 }
 
 NTSTATUS
+SmpConfigureExcludeKnownDlls(
+    IN PWSTR ValueName,
+    IN ULONG ValueType,
+    IN PVOID ValueData,
+    IN ULONG ValueLength,
+    IN PVOID Context,
+    IN PVOID EntryContext
+    )
+{
+    NTSTATUS Status;
+    UNREFERENCED_PARAMETER( Context );
+
+#ifdef SMP_SHOW_REGISTRY_DATA
+    SmpDumpQuery( "ExcludeKnownDlls", ValueName, ValueType, ValueData, ValueLength );
+#else
+    UNREFERENCED_PARAMETER( ValueType );
+#endif
+    if (ValueType == REG_MULTI_SZ || ValueType == REG_SZ) {
+        PWSTR s;
+
+        s = (PWSTR)ValueData;
+        while (*s != UNICODE_NULL) {
+            Status = SmpSaveRegistryValue( (PLIST_ENTRY)EntryContext,
+                                           s,
+                                           NULL,
+                                           TRUE
+                                         );
+            if (!NT_SUCCESS( Status ) || ValueType == REG_SZ) {
+                return Status;
+                }
+
+            while (*s++ != UNICODE_NULL) {
+                }
+            }
+        }
+
+    return( STATUS_SUCCESS );
+}
+
+NTSTATUS
 SmpConfigureEnvironment(
     IN PWSTR ValueName,
     IN ULONG ValueType,
@@ -1497,30 +2348,39 @@ SmpConfigureEnvironment(
     UNREFERENCED_PARAMETER( ValueType );
 #endif
 
+
     RtlInitUnicodeString( &Name, ValueName );
     RtlInitUnicodeString( &Value, ValueData );
 
-    Status = RtlSetEnvironmentVariable( &SmpDefaultEnvironment,
-					&Name,
-					&Value
-				      );
+    Status = RtlSetEnvironmentVariable( NULL,
+                                        &Name,
+                                        &Value
+                                      );
 
     if (!NT_SUCCESS( Status )) {
-#if DEVL
-        DbgPrint( "SMSS: 'SET %wZ = %wZ' failed - Status == %lx\n",
+        KdPrint(( "SMSS: 'SET %wZ = %wZ' failed - Status == %lx\n",
                   &Name, &Value, Status
-                );
-#endif // DEVL
+               ));
         return( Status );
         }
 
-    if (!wcsicmp( ValueName, L"Path" )) {
+    if (!_wcsicmp( ValueName, L"Path" )) {
+
+        SmpDefaultLibPathBuffer = RtlAllocateHeap(
+                                    RtlProcessHeap(),
+                                    MAKE_TAG( INIT_TAG ),
+                                    ValueLength
+                                    );
+        if ( !SmpDefaultLibPathBuffer ) {
+            return ( STATUS_NO_MEMORY );
+            }
+
         RtlMoveMemory( SmpDefaultLibPathBuffer,
                        ValueData,
                        ValueLength
                      );
-        RtlInitUnicodeString( &SmpDefaultLibPath, SmpDefaultLibPathBuffer );
 
+        RtlInitUnicodeString( &SmpDefaultLibPath, SmpDefaultLibPathBuffer );
         }
 
     return( STATUS_SUCCESS );
@@ -1536,6 +2396,7 @@ SmpConfigureSubSystems(
     IN PVOID EntryContext
     )
 {
+
     UNREFERENCED_PARAMETER( Context );
 
 #ifdef SMP_SHOW_REGISTRY_DATA
@@ -1544,7 +2405,7 @@ SmpConfigureSubSystems(
     UNREFERENCED_PARAMETER( ValueLength );
 #endif
 
-    if (!wcsicmp( ValueName, L"Required" ) || !wcsicmp( ValueName, L"Optional" )) {
+    if (!_wcsicmp( ValueName, L"Required" ) || !_wcsicmp( ValueName, L"Optional" )) {
         if (ValueType == REG_MULTI_SZ) {
             //
             // Here if processing Required= or Optional= values, since they are
@@ -1567,7 +2428,7 @@ SmpConfigureSubSystems(
                     // defered.
                     //
 
-                    if (!wcsicmp( ValueName, L"Required" ) ) {
+                    if (!_wcsicmp( ValueName, L"Required" ) ) {
                         InsertTailList( &SmpSubSystemsToLoad, &p->Entry );
                         }
                     else {
@@ -1575,9 +2436,7 @@ SmpConfigureSubSystems(
                         }
                     }
                 else {
-#if DEVL
-                    DbgPrint( "SMSS: Invalid subsystem name - %ws\n", s );
-#endif
+                    KdPrint(( "SMSS: Invalid subsystem name - %ws\n", s ));
                     }
 
                 while (*s++ != UNICODE_NULL) {
@@ -1638,7 +2497,7 @@ SmpParseToken(
         }
 
     if (cb > 0) {
-        Token->Buffer = RtlAllocateHeap( RtlProcessHeap(), 0, cb + sizeof( UNICODE_NULL ) );
+        Token->Buffer = RtlAllocateHeap( RtlProcessHeap(), MAKE_TAG( INIT_TAG ), cb + sizeof( UNICODE_NULL ) );
         if (Token->Buffer == NULL) {
             return( STATUS_NO_MEMORY );
             }
@@ -1670,10 +2529,44 @@ SmpParseCommandLine(
     UNICODE_STRING PathVariableValue;
     PWSTR DosFilePart;
     WCHAR FullDosPathBuffer[ DOS_MAX_PATH_LENGTH ];
-
+    ULONG SpResult;
 
     RtlInitUnicodeString( ImageFileName, NULL );
     RtlInitUnicodeString( Arguments, NULL );
+
+    //
+    // make sure lib path has systemroot\system32. Otherwise, the system will
+    // not boot properly
+    //
+
+    if ( !SmpSystemRoot.Length ) {
+        UNICODE_STRING NewLibString;
+
+        RtlInitUnicodeString( &SmpSystemRoot,USER_SHARED_DATA->NtSystemRoot );
+
+
+        NewLibString.Length = 0;
+        NewLibString.MaximumLength =
+            SmpSystemRoot.MaximumLength +
+            20 +                          // length of \system32;
+            SmpDefaultLibPath.MaximumLength;
+
+        NewLibString.Buffer = RtlAllocateHeap(
+                                RtlProcessHeap(),
+                                MAKE_TAG( INIT_TAG ),
+                                NewLibString.MaximumLength
+                                );
+
+        if ( NewLibString.Buffer ) {
+            RtlAppendUnicodeStringToString(&NewLibString,&SmpSystemRoot );
+            RtlAppendUnicodeToString(&NewLibString,L"\\system32;");
+            RtlAppendUnicodeStringToString(&NewLibString,&SmpDefaultLibPath );
+
+            RtlFreeHeap(RtlProcessHeap(), 0, SmpDefaultLibPath.Buffer );
+
+            SmpDefaultLibPath = NewLibString;
+            }
+        }
 
     Input = *CommandLine;
     while (TRUE) {
@@ -1702,40 +2595,70 @@ SmpParseCommandLine(
                 }
             }
 
+        SpResult = 0;
         RtlInitUnicodeString( &PathVariableName, L"Path" );
         PathVariableValue.Length = 0;
         PathVariableValue.MaximumLength = 4096;
-        PathVariableValue.Buffer = RtlAllocateHeap( RtlProcessHeap(), 0,
+        PathVariableValue.Buffer = RtlAllocateHeap( RtlProcessHeap(), MAKE_TAG( INIT_TAG ),
                                                     PathVariableValue.MaximumLength
                                                   );
         Status = RtlQueryEnvironmentVariable_U( SmpDefaultEnvironment,
                                                 &PathVariableName,
                                                 &PathVariableValue
                                               );
+        if ( Status == STATUS_BUFFER_TOO_SMALL ) {
+            PathVariableValue.MaximumLength = PathVariableValue.Length + 2;
+            PathVariableValue.Length = 0;
+            PathVariableValue.Buffer = RtlAllocateHeap( RtlProcessHeap(), MAKE_TAG( INIT_TAG ),
+                                                        PathVariableValue.MaximumLength
+                                                      );
+            Status = RtlQueryEnvironmentVariable_U( SmpDefaultEnvironment,
+                                                    &PathVariableName,
+                                                    &PathVariableValue
+                                                  );
+            }
         if (!NT_SUCCESS( Status )) {
-#if DEVL
-            DbgPrint( "SMSS: %wZ environment variable not defined.\n", &PathVariableName );
-#endif
+            KdPrint(( "SMSS: %wZ environment variable not defined.\n", &PathVariableName ));
             Status = STATUS_OBJECT_NAME_NOT_FOUND;
             }
         else
         if (!ARGUMENT_PRESENT( Flags ) ||
-            !RtlDosSearchPath_U( PathVariableValue.Buffer,
+            !(SpResult = RtlDosSearchPath_U( PathVariableValue.Buffer,
                                  Token.Buffer,
                                  L".exe",
                                  sizeof( FullDosPathBuffer ),
                                  FullDosPathBuffer,
                                  &DosFilePart
-                               )
+                               ))
            ) {
             if (!ARGUMENT_PRESENT( Flags )) {
                 wcscpy( FullDosPathBuffer, Token.Buffer );
                 }
             else {
-                *Flags |= SMP_IMAGE_NOT_FOUND;
-                *ImageFileName = Token;
-                RtlFreeHeap( RtlProcessHeap(), 0, PathVariableValue.Buffer );
-                return( STATUS_SUCCESS );
+
+                if ( !SpResult ) {
+
+                    //
+                    // The search path call failed. Now try the call again using
+                    // the default lib path. This always has systemroot\system32
+                    // at the front.
+                    //
+
+                    SpResult = RtlDosSearchPath_U(
+                                 SmpDefaultLibPath.Buffer,
+                                 Token.Buffer,
+                                 L".exe",
+                                 sizeof( FullDosPathBuffer ),
+                                 FullDosPathBuffer,
+                                 &DosFilePart
+                               );
+                    }
+                if ( !SpResult ) {
+                    *Flags |= SMP_IMAGE_NOT_FOUND;
+                    *ImageFileName = Token;
+                    RtlFreeHeap( RtlProcessHeap(), 0, PathVariableValue.Buffer );
+                    return( STATUS_SUCCESS );
+                    }
                 }
             }
 
@@ -1747,11 +2670,9 @@ SmpParseCommandLine(
                                            NULL
                                          )
            ) {
-#if DEVL
-            DbgPrint( "SMSS: Unable to translate %ws into an NT File Name\n",
+            KdPrint(( "SMSS: Unable to translate %ws into an NT File Name\n",
                       FullDosPathBuffer
-                    );
-#endif
+                   ));
             Status = STATUS_OBJECT_PATH_INVALID;
             }
 
@@ -1834,9 +2755,7 @@ Return Value:
     PWSTR ArgSave, Arg2;
 
     if (CountPageFiles == MAX_PAGING_FILES) {
-#if DEVL
-        DbgPrint( "SMSS: Too many paging files specified - %d\n", CountPageFiles );
-#endif // DEVL
+        KdPrint(( "SMSS: Too many paging files specified - %d\n", CountPageFiles ));
         return( STATUS_TOO_MANY_PAGING_FILES );
         }
 
@@ -1847,9 +2766,7 @@ Return Value:
                                   &Arguments
                                 );
     if (!NT_SUCCESS( Status )) {
-#if DEVL
-        DbgPrint( "SMSS: SmpParseCommand( %wZ ) failed - Status == %lx\n", PagingFileSpec, Status );
-#endif // DEVL
+        KdPrint(( "SMSS: SmpParseCommand( %wZ ) failed - Status == %lx\n", PagingFileSpec, Status ));
         return( Status );
         }
 
@@ -2013,20 +2930,15 @@ SmpCreatePagingFile(
                                                  SizeInfo.BytesPerSector
                                                );
     if (FileSizeInfoValid) {
-        AvailableBytes = RtlLargeIntegerAdd( AvailableBytes,
-                                             FileSizeInfo.AllocationSize
-                                           );
+        AvailableBytes.QuadPart += FileSizeInfo.AllocationSize.QuadPart;
         }
 
-    if (LiLeq( AvailableBytes, MinPagingFileSize )) {
+    if ( AvailableBytes.QuadPart <= MinPagingFileSize.QuadPart ) {
         Status = STATUS_DISK_FULL;
         }
     else {
-        MinimumSlop = RtlConvertLongToLargeInteger( 2 * 1024 * 1024 );
-        AvailableBytes = RtlLargeIntegerSubtract( AvailableBytes,
-                                                  MinimumSlop
-                                                );
-        if (LiLeq( AvailableBytes, MinPagingFileSize )) {
+        AvailableBytes.QuadPart -= ( 2 * 1024 * 1024 );
+        if ( AvailableBytes.QuadPart <= MinPagingFileSize.QuadPart ) {
             Status = STATUS_DISK_FULL;
             }
         else {
@@ -2069,11 +2981,10 @@ SmpCreatePagingFile(
                                             FileDispositionInformation
                                           );
 
-#if DBG
             if (NT_SUCCESS( Status1 )) {
-                DbgPrint( "SMSS: Deleted stale paging file - %wZ\n", PageFileSpec );
+                KdPrint(( "SMSS: Deleted stale paging file - %wZ\n", PageFileSpec ));
                 }
-#endif
+
             NtClose(Handle);
             }
         }
@@ -2107,12 +3018,12 @@ SmpCreatePagingFiles( VOID )
                 continue;
                 }
 retry:
-            MinPagingFileSize = RtlEnlargedIntegerMultiply( PageFileMinSizes[ i ],
-                                                            0x100000
-                                                          );
-            MaxPagingFileSize = RtlEnlargedIntegerMultiply( PageFileMaxSizes[ i ],
-                                                            0x100000
-                                                          );
+            MinPagingFileSize.QuadPart = Int32x32To64( PageFileMinSizes[ i ],
+                                                       0x100000
+                                                     );
+            MaxPagingFileSize.QuadPart = Int32x32To64( PageFileMaxSizes[ i ],
+                                                       0x100000
+                                                     );
             Status = SmpCreatePagingFile( &PageFileSpecs[ i ],
                                           MinPagingFileSize,
                                           MaxPagingFileSize
@@ -2244,6 +3155,7 @@ Return Value:
         ProcessInformation = &MyProcessInformation;
         }
 
+
     Status = RtlCreateProcessParameters( &ProcessParameters,
                                          ImageFileName,
                                          (SmpDefaultLibPath.Length == 0 ?
@@ -2284,12 +3196,10 @@ Return Value:
     RtlDestroyProcessParameters( ProcessParameters );
 
     if ( !NT_SUCCESS( Status ) ) {
-#if DEVL
-	DbgPrint( "SMSS: Failed load of %wZ - Status  == %lx\n",
-		  ImageFileName,
+        KdPrint(( "SMSS: Failed load of %wZ - Status  == %lx\n",
+                  ImageFileName,
                   Status
-                );
-#endif // DEVL
+               ));
         return( Status );
         }
 
@@ -2303,9 +3213,7 @@ Return Value:
             NtWaitForSingleObject( ProcessInformation->Thread, FALSE, NULL );
             NtClose( ProcessInformation->Thread );
             NtClose( ProcessInformation->Process );
-#if DEVL
-	    DbgPrint( "SMSS: Not an NT image - %wZ\n", ImageFileName );
-#endif // DEVL
+            KdPrint(( "SMSS: Not an NT image - %wZ\n", ImageFileName ));
             return( STATUS_INVALID_IMAGE_FORMAT );
             }
 
@@ -2369,9 +3277,7 @@ Return Value:
                                   &Arguments
                                 );
     if (!NT_SUCCESS( Status )) {
-#if DEVL
-        DbgPrint( "SMSS: SmpParseCommand( %wZ ) failed - Status == %lx\n", CommandLine, Status );
-#endif // DEVL
+        KdPrint(( "SMSS: SmpParseCommand( %wZ ) failed - Status == %lx\n", CommandLine, Status ));
         return( Status );
         }
 
@@ -2384,9 +3290,7 @@ Return Value:
         }
     else {
         if (Flags & SMP_IMAGE_NOT_FOUND) {
-#if DEVL
-            DbgPrint( "SMSS: Image file (%wZ) not found\n", &ImageFileName );
-#endif
+            KdPrint(( "SMSS: Image file (%wZ) not found\n", &ImageFileName ));
             Status = STATUS_OBJECT_NAME_NOT_FOUND;
             }
         else {
@@ -2410,11 +3314,9 @@ Return Value:
         RtlFreeHeap( RtlProcessHeap(), 0, Arguments.Buffer );
         }
 
-#if DEVL
     if (!NT_SUCCESS( Status )) {
-        DbgPrint( "SMSS: Command '%wZ' failed - Status == %x\n", CommandLine, Status );
+        KdPrint(( "SMSS: Command '%wZ' failed - Status == %x\n", CommandLine, Status ));
         }
-#endif
 
     return( Status );
 }
@@ -2456,19 +3358,36 @@ SmpInvokeAutoChk(
     PMESSAGE_RESOURCE_ENTRY MessageEntry;
     PSZ CheckingString = NULL;
 
-    RtlInitUnicodeString(&NtDllName, L"ntdll");
+    //
+    // Query the system environment variable "osloadoptions" to determine
+    // if SOS is specified.
+    //
 
+    if (SmpQueryRegistrySosOption() != FALSE) {
+        SmpEnableDots = FALSE;
+    }
+
+    RtlInitUnicodeString(&NtDllName, L"ntdll");
     Status = LdrGetDllHandle(
                 NULL,
                 NULL,
                 &NtDllName,
                 &NtDllHandle
                 );
+
     if ( NT_SUCCESS(Status) ) {
         Status = RtlFindMessage(
                     NtDllHandle,
                     11,
+#if defined(DBCS) // SmpInvokeAutoChk()
+    //
+    // We have to use ENGLISH resource anytime instead of default resource. Because
+    // We can only display ASCII character onto Blue Screen via HalDisplayString()
+    //
+                    MAKELANGID(LANG_ENGLISH,SUBLANG_ENGLISH_US),
+#else
                     0,
+#endif // defined(DBCS)
                     STATUS_CHECKING_FILE_SYSTEM,
                     &MessageEntry
                     );
@@ -2581,11 +3500,18 @@ SmpInvokeAutoChk(
                                  &DirInfo->Name
                                );
 
-                        RtlInitAnsiString( &AnsiDisplayString, DisplayBuffer );
+                        if (SmpEnableDots != FALSE) {
+                            RtlInitAnsiString( &AnsiDisplayString, "." );
+
+                        } else {
+                            RtlInitAnsiString( &AnsiDisplayString, DisplayBuffer );
+                        }
+
                         Status = RtlAnsiStringToUnicodeString( &DisplayString,
                                                                &AnsiDisplayString,
-                        					   TRUE
+                                                               TRUE
                                                              );
+
                         if (NT_SUCCESS( Status )) {
                             NtDisplayString( &DisplayString );
                             RtlFreeUnicodeString( &DisplayString );
@@ -2596,6 +3522,9 @@ SmpInvokeAutoChk(
                         if (ForceAutoChk) {
                             RtlAppendUnicodeToString( &CmdLine, L"/p " );
                             }
+                        RtlAppendUnicodeToString( &CmdLine, L" /d" );
+                        RtlAppendUnicodeToString( &CmdLine, DirInfo->Name.Buffer );
+                        RtlAppendUnicodeToString( &CmdLine, L" " );
                         RtlAppendUnicodeStringToString( &CmdLine, &LinkTarget );
                         SmpExecuteImage( ImageFileName,
                                          CurrentDirectory,
@@ -2652,9 +3581,7 @@ Return Value:
 
 
     if (Flags & SMP_IMAGE_NOT_FOUND) {
-#if DEVL
-        DbgPrint( "SMSS: Unable to find subsystem - %wZ\n", ImageFileName );
-#endif
+        KdPrint(( "SMSS: Unable to find subsystem - %wZ\n", ImageFileName ));
         return( STATUS_OBJECT_NAME_NOT_FOUND );
         }
 
@@ -2669,7 +3596,7 @@ Return Value:
         return( Status );
         }
 
-    KnownSubSys = RtlAllocateHeap( SmpHeap, 0, sizeof( SMPKNOWNSUBSYS ) );
+    KnownSubSys = RtlAllocateHeap( SmpHeap, MAKE_TAG( INIT_TAG ), sizeof( SMPKNOWNSUBSYS ) );
     KnownSubSys->Process = ProcessInformation.Process;
     KnownSubSys->InitialClientId = ProcessInformation.ClientId;
     KnownSubSys->ImageType = (ULONG)0xFFFFFFFF;
@@ -2801,9 +3728,7 @@ SmpExecuteInitialCommand(
                             &SmApiPort
                           );
     if (!NT_SUCCESS( Status )) {
-#if DEVL
-        DbgPrint( "SMSS: Unable to connect to SM - Status == %lx\n", Status );
-#endif // DEVL
+        KdPrint(( "SMSS: Unable to connect to SM - Status == %lx\n", Status ));
         return( Status );
         }
 
@@ -2815,16 +3740,12 @@ SmpExecuteInitialCommand(
                                   &Arguments
                                 );
     if (Flags & SMP_IMAGE_NOT_FOUND) {
-#if DEVL
-        DbgPrint( "SMSS: Initial command image (%wZ) not found\n", &ImageFileName );
-#endif
+        KdPrint(( "SMSS: Initial command image (%wZ) not found\n", &ImageFileName ));
         return( STATUS_OBJECT_NAME_NOT_FOUND );
         }
 
     if (!NT_SUCCESS( Status )) {
-#if DEVL
-        DbgPrint( "SMSS: SmpParseCommand( %wZ ) failed - Status == %lx\n", InitialCommand, Status );
-#endif // DEVL
+        KdPrint(( "SMSS: SmpParseCommand( %wZ ) failed - Status == %lx\n", InitialCommand, Status ));
         return( Status );
         }
 
@@ -2848,11 +3769,9 @@ SmpExecuteInitialCommand(
                               );
 
     if (!NT_SUCCESS(Status) ) {
-#if DEVL
-        DbgPrint( "SMSS: DupObject Failed. Status == %lx\n",
+        KdPrint(( "SMSS: DupObject Failed. Status == %lx\n",
                   Status
-                );
-#endif
+               ));
         NtTerminateProcess( ProcessInformation.Process, Status );
         NtResumeThread( ProcessInformation.Thread, NULL );
         NtClose( ProcessInformation.Thread );
@@ -2866,11 +3785,9 @@ SmpExecuteInitialCommand(
                       );
 
     if (!NT_SUCCESS( Status )) {
-#if DEVL
-        DbgPrint( "SMSS: SmExecPgm Failed. Status == %lx\n",
+        KdPrint(( "SMSS: SmExecPgm Failed. Status == %lx\n",
                   Status
-                );
-#endif
+               ));
         return( Status );
         }
 
@@ -2939,3 +3856,839 @@ SmpLoadDeferedSubsystem(
         }
     return STATUS_OBJECT_NAME_NOT_FOUND;
 }
+
+
+NTSTATUS
+SmpConfigureProtectionMode(
+    IN PWSTR ValueName,
+    IN ULONG ValueType,
+    IN PVOID ValueData,
+    IN ULONG ValueLength,
+    IN PVOID Context,
+    IN PVOID EntryContext
+    )
+/*++
+
+Routine Description:
+
+    This function is a dispatch routine for the QueryRegistry call
+    (see SmpRegistryConfigurationTable[] earlier in this file).
+
+    The purpose of this routine is to read the Base Object Protection
+    Mode out of the registry.  This information is kept in
+
+    Key Name: \\Hkey_Local_Machine\System\CurrentControlSet\SessionManager
+    Value:    ProtectionMode [REG_DWORD]
+
+    The value is a flag word, with the following flags defined:
+
+        SMP_NO_PROTECTION  - No base object protection
+        SMP_STANDARD_PROTECTION - Apply standard base
+            object protection
+
+    This information will be placed in the global variable
+    SmpProtectionMode.
+
+    No value, or an invalid value length or type results in no base
+    object protection being applied.
+
+Arguments:
+
+    None.
+
+Return Value:
+
+
+--*/
+{
+
+
+#ifdef SMP_SHOW_REGISTRY_DATA
+    SmpDumpQuery( "BaseObjectsProtection", ValueName, ValueType, ValueData, ValueLength );
+#else
+    UNREFERENCED_PARAMETER( ValueName );
+    UNREFERENCED_PARAMETER( ValueType );
+#endif
+
+
+
+    if (ValueLength != sizeof(ULONG)) {
+
+        //
+        // Key value not valid, set to run without base object protection.
+        // This is how we initialized, so no need to set up new
+        // security descriptors.
+        //
+
+        SmpProtectionMode = 0;
+
+    } else {
+
+
+        SmpProtectionMode = (*((PULONG)(ValueData)));
+
+        //
+        // Change the security descriptors
+        //
+
+        (VOID)SmpCreateSecurityDescriptors( FALSE );
+    }
+
+    return( STATUS_SUCCESS );
+}
+
+
+NTSTATUS
+SmpCreateSecurityDescriptors(
+    IN BOOLEAN InitialCall
+    )
+
+/*++
+
+Routine Description:
+
+    This function allocates and initializes security descriptors
+    used in SM.
+
+    The security descriptors include:
+
+        SmpPrimarySecurityDescriptor - (global variable) This is
+            used to assign protection to objects created by
+            SM that need to be accessed by others, but not modified.
+            This descriptor grants the following access:
+
+                    Grant:  World:   Execute | Read  (Inherit)
+                    Grant:  Admin:   All Access      (Inherit)
+                    Grant:  Owner:   All Access      (Inherit Only)
+
+        SmpLiberalSecurityDescriptor = (globalVariable) This is used
+            to assign protection objects created by SM that need
+            to be modified by others (such as writing to a shared
+            memory section).
+            This descriptor grants the following access:
+
+                    Grant:  World:   Execute | Read | Write (Inherit)
+                    Grant:  Admin:   All Access             (Inherit)
+                    Grant:  Owner:   All Access             (Inherit Only)
+
+        SmpKnownDllsSecurityDescriptor = (globalVariable) This is used
+            to assign protection to the \KnownDlls object directory.
+            This descriptor grants the following access:
+
+                    Grant:  World:   Execute                (No Inherit)
+                    Grant:  Admin:   All Access             (Inherit)
+                    Grant:  World:   Execute | Read | Write (Inherit Only)
+
+
+        Note that System is an administrator, so granting Admin an
+        access also grants System that access.
+
+Arguments:
+
+    InitialCall - Indicates whether this routine is being called for
+        the first time, or is being called to change the security
+        descriptors as a result of a protection mode change.
+
+            TRUE - being called for first time.
+            FALSE - being called a subsequent time.
+
+    (global variables:  SmpBaseObjectsUnprotected)
+
+Return Value:
+
+    STATUS_SUCCESS - The security descriptor(s) have been allocated
+        and initialized.
+
+    STATUS_NO_MEMORY - couldn't allocate memory for a security
+        descriptor.
+
+--*/
+
+{
+    NTSTATUS
+        Status;
+
+    PSID
+        WorldSid,
+        AdminSid,
+        OwnerSid;
+
+    SID_IDENTIFIER_AUTHORITY
+        WorldAuthority = SECURITY_WORLD_SID_AUTHORITY,
+        NtAuthority = SECURITY_NT_AUTHORITY,
+        CreatorAuthority = SECURITY_CREATOR_SID_AUTHORITY;
+
+    ACCESS_MASK
+        AdminAccess = (GENERIC_ALL),
+        WorldAccess  = (GENERIC_EXECUTE | GENERIC_READ),
+        OwnerAccess  = (GENERIC_ALL);
+
+    UCHAR
+        InheritOnlyFlags = (OBJECT_INHERIT_ACE           |
+                               CONTAINER_INHERIT_ACE     |
+                               INHERIT_ONLY_ACE);
+
+    ULONG
+        AceIndex,
+        AclLength;
+
+    PACL
+        Acl;
+
+    PACE_HEADER
+        Ace;
+
+    BOOLEAN
+        ProtectionRequired = FALSE,
+        WasEnabled;
+
+
+    if (InitialCall) {
+
+        //
+        // Now init the security descriptors for no protection.
+        // If told to, we will change these to have protection.
+        //
+
+        // Primary
+
+        SmpPrimarySecurityDescriptor = &SmpPrimarySDBody;
+        Status = RtlCreateSecurityDescriptor (
+                    SmpPrimarySecurityDescriptor,
+                    SECURITY_DESCRIPTOR_REVISION
+                    );
+        ASSERT( NT_SUCCESS(Status) );
+        Status = RtlSetDaclSecurityDescriptor (
+                     SmpPrimarySecurityDescriptor,
+                     TRUE,                  //DaclPresent,
+                     NULL,                  //Dacl (no protection)
+                     FALSE                  //DaclDefaulted OPTIONAL
+                     );
+        ASSERT( NT_SUCCESS(Status) );
+
+
+        // Liberal
+
+        SmpLiberalSecurityDescriptor = &SmpLiberalSDBody;
+        Status = RtlCreateSecurityDescriptor (
+                    SmpLiberalSecurityDescriptor,
+                    SECURITY_DESCRIPTOR_REVISION
+                    );
+        ASSERT( NT_SUCCESS(Status) );
+        Status = RtlSetDaclSecurityDescriptor (
+                     SmpLiberalSecurityDescriptor,
+                     TRUE,                  //DaclPresent,
+                     NULL,                  //Dacl (no protection)
+                     FALSE                  //DaclDefaulted OPTIONAL
+                     );
+        ASSERT( NT_SUCCESS(Status) );
+
+        // KnownDlls
+
+        SmpKnownDllsSecurityDescriptor = &SmpKnownDllsSDBody;
+        Status = RtlCreateSecurityDescriptor (
+                    SmpKnownDllsSecurityDescriptor,
+                    SECURITY_DESCRIPTOR_REVISION
+                    );
+        ASSERT( NT_SUCCESS(Status) );
+        Status = RtlSetDaclSecurityDescriptor (
+                     SmpKnownDllsSecurityDescriptor,
+                     TRUE,                  //DaclPresent,
+                     NULL,                  //Dacl (no protection)
+                     FALSE                  //DaclDefaulted OPTIONAL
+                     );
+        ASSERT( NT_SUCCESS(Status) );
+
+
+        // ApiPort
+
+        SmpApiPortSecurityDescriptor = &SmpApiPortSDBody;
+        Status = RtlCreateSecurityDescriptor (
+                    SmpApiPortSecurityDescriptor,
+                    SECURITY_DESCRIPTOR_REVISION
+                    );
+        ASSERT( NT_SUCCESS(Status) );
+        Status = RtlSetDaclSecurityDescriptor (
+                     SmpApiPortSecurityDescriptor,
+                     TRUE,                  //DaclPresent,
+                     NULL,                  //Dacl (no protection)
+                     FALSE                  //DaclDefaulted OPTIONAL
+                     );
+        ASSERT( NT_SUCCESS(Status) );
+    }
+
+
+
+    if ((SmpProtectionMode & SMP_PROTECTION_REQUIRED) != 0) {
+        ProtectionRequired = TRUE;
+    }
+
+    if (!InitialCall && !ProtectionRequired) {
+        return(STATUS_SUCCESS);
+    }
+
+
+
+    if (InitialCall || ProtectionRequired) {
+
+        //
+        // We need to set up the ApiPort protection, and maybe
+        // others.
+        //
+
+        Status = RtlAllocateAndInitializeSid(
+                     &WorldAuthority,
+                     1,
+                     SECURITY_WORLD_RID,
+                     0, 0, 0, 0, 0, 0, 0,
+                     &WorldSid
+                     );
+
+        if (NT_SUCCESS( Status )) {
+
+            Status = RtlAllocateAndInitializeSid(
+                         &NtAuthority,
+                         2,
+                         SECURITY_BUILTIN_DOMAIN_RID,
+                         DOMAIN_ALIAS_RID_ADMINS,
+                         0, 0, 0, 0, 0, 0,
+                         &AdminSid
+                         );
+
+            if (NT_SUCCESS( Status )) {
+
+                Status = RtlAllocateAndInitializeSid(
+                             &CreatorAuthority,
+                             1,
+                             SECURITY_CREATOR_OWNER_RID,
+                             0, 0, 0, 0, 0, 0, 0,
+                             &OwnerSid
+                             );
+
+                if (NT_SUCCESS( Status )) {
+
+                    //
+                    // Build the ApiPort security descriptor only
+                    // if this is the initial call
+                    //
+
+                    if (InitialCall) {
+
+                        WorldAccess  = GENERIC_EXECUTE | GENERIC_READ | GENERIC_READ;
+                        AdminAccess = GENERIC_ALL;
+
+                        AclLength = sizeof( ACL )                       +
+                                    2 * sizeof( ACCESS_ALLOWED_ACE )    +
+                                    (RtlLengthSid( WorldSid ))          +
+                                    (RtlLengthSid( AdminSid ));
+
+                        Acl = RtlAllocateHeap( RtlProcessHeap(), MAKE_TAG( INIT_TAG ), AclLength );
+
+                        if (Acl == NULL) {
+                            Status = STATUS_NO_MEMORY;
+                        }
+
+                        if (NT_SUCCESS(Status)) {
+
+                            //
+                            // Create the ACL, then add each ACE
+                            //
+
+                            Status = RtlCreateAcl (Acl, AclLength, ACL_REVISION2 );
+                            ASSERT( NT_SUCCESS(Status) );
+
+                            //
+                            // Only Non-inheritable ACEs in this ACL
+                            //      World
+                            //      Admin
+                            //
+
+                            Status = RtlAddAccessAllowedAce ( Acl, ACL_REVISION2, WorldAccess, WorldSid );
+                            ASSERT( NT_SUCCESS(Status) );
+
+                            Status = RtlAddAccessAllowedAce ( Acl, ACL_REVISION2, AdminAccess, AdminSid );
+                            ASSERT( NT_SUCCESS(Status) );
+
+
+                            Status = RtlSetDaclSecurityDescriptor (
+                                         SmpApiPortSecurityDescriptor,
+                                         TRUE,                  //DaclPresent,
+                                         Acl,                   //Dacl
+                                         FALSE                  //DaclDefaulted OPTIONAL
+                                         );
+                            ASSERT( NT_SUCCESS(Status) );
+                        }
+                    }
+
+                    //
+                    // The remaining security descriptors are only
+                    // built if we are running with the correct in
+                    // protection mode set.  Notice that we only
+                    // put protection on if standard protection is
+                    // also specified.   Otherwise, there is no protection
+                    // on the objects, and nothing should fail.
+                    //
+
+                    if (SmpProtectionMode & SMP_STANDARD_PROTECTION) {
+
+                        //
+                        // Build the primary Security descriptor
+                        //
+
+                        WorldAccess  = GENERIC_EXECUTE | GENERIC_READ;
+                        AdminAccess  = GENERIC_ALL;
+                        OwnerAccess  = GENERIC_ALL;
+
+                        AclLength = sizeof( ACL )                       +
+                                    5 * sizeof( ACCESS_ALLOWED_ACE )    +
+                                    (2*RtlLengthSid( WorldSid ))        +
+                                    (2*RtlLengthSid( AdminSid ))        +
+                                    RtlLengthSid( OwnerSid );
+
+                        Acl = RtlAllocateHeap( RtlProcessHeap(), MAKE_TAG( INIT_TAG ), AclLength );
+
+                        if (Acl == NULL) {
+                            Status = STATUS_NO_MEMORY;
+                        }
+
+                        if (NT_SUCCESS(Status)) {
+
+                            //
+                            // Create the ACL, then add each ACE
+                            //
+
+                            Status = RtlCreateAcl (Acl, AclLength, ACL_REVISION2 );
+                            ASSERT( NT_SUCCESS(Status) );
+
+                            //
+                            // Non-inheritable ACEs first
+                            //      World
+                            //      Admin
+                            //
+
+                            AceIndex = 0;
+                            Status = RtlAddAccessAllowedAce ( Acl, ACL_REVISION2, WorldAccess, WorldSid );
+                            ASSERT( NT_SUCCESS(Status) );
+
+                            AceIndex++;
+                            Status = RtlAddAccessAllowedAce ( Acl, ACL_REVISION2, AdminAccess, AdminSid );
+                            ASSERT( NT_SUCCESS(Status) );
+
+                            //
+                            // Inheritable ACEs at end of ACE
+                            //      World
+                            //      Admin
+                            //      Owner
+
+                            AceIndex++;
+                            Status = RtlAddAccessAllowedAce ( Acl, ACL_REVISION2, WorldAccess, WorldSid );
+                            ASSERT( NT_SUCCESS(Status) );
+                            Status = RtlGetAce( Acl, AceIndex, (PVOID)&Ace );
+                            ASSERT( NT_SUCCESS(Status) );
+                            Ace->AceFlags = InheritOnlyFlags;
+
+                            AceIndex++;
+                            Status = RtlAddAccessAllowedAce ( Acl, ACL_REVISION2, AdminAccess, AdminSid );
+                            ASSERT( NT_SUCCESS(Status) );
+                            Status = RtlGetAce( Acl, AceIndex, (PVOID)&Ace );
+                            ASSERT( NT_SUCCESS(Status) );
+                            Ace->AceFlags = InheritOnlyFlags;
+
+                            AceIndex++;
+                            Status = RtlAddAccessAllowedAce ( Acl, ACL_REVISION2, OwnerAccess, OwnerSid );
+                            ASSERT( NT_SUCCESS(Status) );
+                            Status = RtlGetAce( Acl, AceIndex, (PVOID)&Ace );
+                            ASSERT( NT_SUCCESS(Status) );
+                            Ace->AceFlags = InheritOnlyFlags;
+
+
+
+                            Status = RtlSetDaclSecurityDescriptor (
+                                         SmpPrimarySecurityDescriptor,
+                                         TRUE,                  //DaclPresent,
+                                         Acl,                   //Dacl
+                                         FALSE                  //DaclDefaulted OPTIONAL
+                                         );
+                            ASSERT( NT_SUCCESS(Status) );
+                        }
+
+
+
+
+                        //
+                        // Build the liberal security descriptor
+                        //
+
+
+                        AdminAccess = GENERIC_ALL;
+                        WorldAccess  = GENERIC_EXECUTE | GENERIC_READ | GENERIC_WRITE;
+
+                        AclLength = sizeof( ACL )                    +
+                                    5 * sizeof( ACCESS_ALLOWED_ACE ) +
+                                    (2*RtlLengthSid( WorldSid ))     +
+                                    (2*RtlLengthSid( AdminSid ))     +
+                                    RtlLengthSid( OwnerSid );
+
+                        Acl = RtlAllocateHeap( RtlProcessHeap(), MAKE_TAG( INIT_TAG ), AclLength );
+
+                        if (Acl == NULL) {
+                            Status = STATUS_NO_MEMORY;
+                        }
+
+                        if (NT_SUCCESS(Status)) {
+
+                            //
+                            // Create the ACL
+                            //
+
+                            Status = RtlCreateAcl (Acl, AclLength, ACL_REVISION2 );
+                            ASSERT( NT_SUCCESS(Status) );
+
+                            //
+                            // Add the non-inheritable ACEs first
+                            //      World
+                            //      Admin
+                            //
+
+                            AceIndex = 0;
+                            Status = RtlAddAccessAllowedAce ( Acl, ACL_REVISION2, WorldAccess, WorldSid );
+                            ASSERT( NT_SUCCESS(Status) );
+
+                            AceIndex++;
+                            Status = RtlAddAccessAllowedAce ( Acl, ACL_REVISION2, AdminAccess, AdminSid );
+                            ASSERT( NT_SUCCESS(Status) );
+
+                            //
+                            // Put the inherit only ACEs at at the end
+                            //      World
+                            //      Admin
+                            //      Owner
+                            //
+
+                            AceIndex++;
+                            Status = RtlAddAccessAllowedAce ( Acl, ACL_REVISION2, WorldAccess, WorldSid );
+                            ASSERT( NT_SUCCESS(Status) );
+                            Status = RtlGetAce( Acl, AceIndex, (PVOID)&Ace );
+                            ASSERT( NT_SUCCESS(Status) );
+                            Ace->AceFlags = InheritOnlyFlags;
+
+                            AceIndex++;
+                            Status = RtlAddAccessAllowedAce ( Acl, ACL_REVISION2, AdminAccess, AdminSid );
+                            ASSERT( NT_SUCCESS(Status) );
+                            Status = RtlGetAce( Acl, AceIndex, (PVOID)&Ace );
+                            ASSERT( NT_SUCCESS(Status) );
+                            Ace->AceFlags = InheritOnlyFlags;
+
+                            AceIndex++;
+                            Status = RtlAddAccessAllowedAce ( Acl, ACL_REVISION2, OwnerAccess, OwnerSid );
+                            ASSERT( NT_SUCCESS(Status) );
+                            Status = RtlGetAce( Acl, AceIndex, (PVOID)&Ace );
+                            ASSERT( NT_SUCCESS(Status) );
+                            Ace->AceFlags = InheritOnlyFlags;
+
+
+                            //
+                            // Put the Acl in the security descriptor
+                            //
+
+                            Status = RtlSetDaclSecurityDescriptor (
+                                         SmpLiberalSecurityDescriptor,
+                                         TRUE,                  //DaclPresent,
+                                         Acl,                  //Dacl
+                                         FALSE                  //DaclDefaulted OPTIONAL
+                                         );
+                            ASSERT( NT_SUCCESS(Status) );
+                        }
+
+
+                        //
+                        // Build the KnownDlls security descriptor
+                        //
+
+
+                        AdminAccess = GENERIC_ALL;
+
+                        AclLength = sizeof( ACL )                    +
+                                    4 * sizeof( ACCESS_ALLOWED_ACE ) +
+                                    (2*RtlLengthSid( WorldSid ))     +
+                                    (2*RtlLengthSid( AdminSid ));
+
+                        Acl = RtlAllocateHeap( RtlProcessHeap(), MAKE_TAG( INIT_TAG ), AclLength );
+
+                        if (Acl == NULL) {
+                            Status = STATUS_NO_MEMORY;
+                        }
+
+                        if (NT_SUCCESS(Status)) {
+
+                            //
+                            // Create the ACL
+                            //
+
+                            Status = RtlCreateAcl (Acl, AclLength, ACL_REVISION2 );
+                            ASSERT( NT_SUCCESS(Status) );
+
+                            //
+                            // Add the non-inheritable ACEs first
+                            //      World
+                            //      Admin
+                            //
+
+                            AceIndex = 0;
+                            WorldAccess  = GENERIC_EXECUTE;
+                            Status = RtlAddAccessAllowedAce ( Acl, ACL_REVISION2, WorldAccess, WorldSid );
+                            ASSERT( NT_SUCCESS(Status) );
+
+                            AceIndex++;
+                            Status = RtlAddAccessAllowedAce ( Acl, ACL_REVISION2, AdminAccess, AdminSid );
+                            ASSERT( NT_SUCCESS(Status) );
+
+                            //
+                            // Put the inherit only ACEs at at the end
+                            //      World
+                            //      Admin
+                            //
+
+                            AceIndex++;
+                            WorldAccess  = GENERIC_EXECUTE | GENERIC_READ | GENERIC_WRITE;
+                            Status = RtlAddAccessAllowedAce ( Acl, ACL_REVISION2, WorldAccess, WorldSid );
+                            ASSERT( NT_SUCCESS(Status) );
+                            Status = RtlGetAce( Acl, AceIndex, (PVOID)&Ace );
+                            ASSERT( NT_SUCCESS(Status) );
+                            Ace->AceFlags = InheritOnlyFlags;
+
+                            AceIndex++;
+                            Status = RtlAddAccessAllowedAce ( Acl, ACL_REVISION2, AdminAccess, AdminSid );
+                            ASSERT( NT_SUCCESS(Status) );
+                            Status = RtlGetAce( Acl, AceIndex, (PVOID)&Ace );
+                            ASSERT( NT_SUCCESS(Status) );
+                            Ace->AceFlags = InheritOnlyFlags;
+
+
+                            //
+                            // Put the Acl in the security descriptor
+                            //
+
+                            Status = RtlSetDaclSecurityDescriptor (
+                                         SmpKnownDllsSecurityDescriptor,
+                                         TRUE,                  //DaclPresent,
+                                         Acl,                   //Dacl
+                                         FALSE                  //DaclDefaulted OPTIONAL
+                                         );
+                            ASSERT( NT_SUCCESS(Status) );
+                        }
+
+
+                    }
+
+
+                    //
+                    // No more security descriptors to build
+                    //
+
+                    RtlFreeHeap( RtlProcessHeap(), 0, OwnerSid );
+                }
+                RtlFreeHeap( RtlProcessHeap(), 0, AdminSid );
+            }
+            RtlFreeHeap( RtlProcessHeap(), 0, WorldSid );
+        }
+    }
+
+    return( Status );
+
+}
+
+
+VOID
+SmpTranslateSystemPartitionInformation( VOID )
+
+/*++
+
+Routine Description:
+
+    This routine translates the NT device path for the system partition (stored
+    during IoInitSystem) into a DOS path, and stores the resulting REG_SZ 'BootDir'
+    value under HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Setup
+
+Arguments:
+
+    None.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    NTSTATUS Status;
+    UNICODE_STRING UnicodeString;
+    OBJECT_ATTRIBUTES ObjectAttributes;
+    HANDLE Key;
+    UCHAR ValueBuffer[ VALUE_BUFFER_SIZE ];
+    ULONG ValueLength;
+    UNICODE_STRING SystemPartitionString;
+    POBJECT_DIRECTORY_INFORMATION DirInfo;
+    UCHAR DirInfoBuffer[ sizeof(OBJECT_DIRECTORY_INFORMATION) + (256 + sizeof("SymbolicLink")) * sizeof(WCHAR) ];
+    UNICODE_STRING LinkTypeName;
+    BOOLEAN RestartScan;
+    ULONG Context;
+    HANDLE SymbolicLinkHandle;
+    WCHAR UnicodeBuffer[ MAXIMUM_FILENAME_LENGTH ];
+    UNICODE_STRING LinkTarget;
+
+    //
+    // Retrieve 'SystemPartition' value stored under HKLM\SYSTEM\Setup
+    //
+
+    RtlInitUnicodeString(&UnicodeString, L"\\Registry\\Machine\\System\\Setup");
+    InitializeObjectAttributes(&ObjectAttributes,
+                               &UnicodeString,
+                               OBJ_CASE_INSENSITIVE,
+                               NULL,
+                               NULL
+                              );
+
+    Status = NtOpenKey(&Key, KEY_READ, &ObjectAttributes);
+    if (!NT_SUCCESS(Status)) {
+        KdPrint(("SMSS: can't open system setup key for reading: 0x%x\n", Status));
+        return;
+    }
+
+    RtlInitUnicodeString(&UnicodeString, L"SystemPartition");
+    Status = NtQueryValueKey(Key,
+                             &UnicodeString,
+                             KeyValuePartialInformation,
+                             ValueBuffer,
+                             sizeof(ValueBuffer),
+                             &ValueLength
+                            );
+
+    NtClose(Key);
+
+    if (!NT_SUCCESS(Status)) {
+        KdPrint(("SMSS: can't query SystemPartition value: 0x%x\n", Status));
+        return;
+    }
+
+    RtlInitUnicodeString(&SystemPartitionString,
+                         (PWSTR)(((PKEY_VALUE_PARTIAL_INFORMATION)ValueBuffer)->Data)
+                        );
+
+    //
+    // Next, examine objects in the DosDevices directory, looking for one that's a symbolic link
+    // to the system partition.
+    //
+
+    LinkTarget.Buffer = UnicodeBuffer;
+
+    DirInfo = (POBJECT_DIRECTORY_INFORMATION)DirInfoBuffer;
+    RestartScan = TRUE;
+    RtlInitUnicodeString(&LinkTypeName, L"SymbolicLink");
+
+    while (TRUE) {
+
+        Status = NtQueryDirectoryObject(SmpDosDevicesObjectDirectory,
+                                        DirInfo,
+                                        sizeof(DirInfoBuffer),
+                                        TRUE,
+                                        RestartScan,
+                                        &Context,
+                                        NULL
+                                       );
+
+        if (!NT_SUCCESS(Status)) {
+            break;
+        }
+
+        if (RtlEqualUnicodeString(&DirInfo->TypeName, &LinkTypeName, TRUE) &&
+            (DirInfo->Name.Length == 2 * sizeof(WCHAR)) &&
+            (DirInfo->Name.Buffer[1] == L':')) {
+
+            //
+            // We have a drive letter--check the NT device name it's linked to.
+            //
+
+            InitializeObjectAttributes(&ObjectAttributes,
+                                       &DirInfo->Name,
+                                       OBJ_CASE_INSENSITIVE,
+                                       SmpDosDevicesObjectDirectory,
+                                       NULL
+                                      );
+
+            Status = NtOpenSymbolicLinkObject(&SymbolicLinkHandle,
+                                              SYMBOLIC_LINK_ALL_ACCESS,
+                                              &ObjectAttributes
+                                             );
+
+            if (NT_SUCCESS(Status)) {
+
+                LinkTarget.Length = 0;
+                LinkTarget.MaximumLength = sizeof(UnicodeBuffer);
+
+                Status = NtQuerySymbolicLinkObject(SymbolicLinkHandle,
+                                                   &LinkTarget,
+                                                   NULL
+                                                  );
+                NtClose(SymbolicLinkHandle);
+
+                if (NT_SUCCESS(Status) &&
+                    RtlEqualUnicodeString(&SystemPartitionString, &LinkTarget, TRUE)) {
+
+                    //
+                    // We've found the drive letter corresponding to the system partition.
+                    //
+
+                    break;
+                }
+            }
+        }
+
+        RestartScan = FALSE;
+    }
+
+    if (!NT_SUCCESS(Status)) {
+        KdPrint(("SMSS: can't find drive letter for system partition\n"));
+        return;
+    }
+
+    //
+    // Now write out the DOS path for the system partition to
+    // HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Setup
+    //
+
+    RtlInitUnicodeString(&UnicodeString, L"\\Registry\\Machine\\Software\\Microsoft\\Windows\\CurrentVersion\\Setup");
+    InitializeObjectAttributes(&ObjectAttributes,
+                               &UnicodeString,
+                               OBJ_CASE_INSENSITIVE,
+                               NULL,
+                               NULL
+                              );
+
+    Status = NtOpenKey(&Key, KEY_ALL_ACCESS, &ObjectAttributes);
+    if (!NT_SUCCESS(Status)) {
+        KdPrint(("SMSS: can't open software setup key for writing: 0x%x\n", Status));
+        return;
+    }
+
+    wcsncpy(UnicodeBuffer, DirInfo->Name.Buffer, 2);
+    UnicodeBuffer[2] = L'\\';
+    UnicodeBuffer[3] = L'\0';
+
+    RtlInitUnicodeString(&UnicodeString, L"BootDir");
+
+    Status = NtSetValueKey(Key,
+                           &UnicodeString,
+                           0,
+                           REG_SZ,
+                           UnicodeBuffer,
+                           4 * sizeof(WCHAR)
+                          );
+
+    if (!NT_SUCCESS(Status)) {
+        KdPrint(("SMSS: couldn't write BootDir value: 0x%x\n", Status));
+    }
+
+    NtClose(Key);
+}
+

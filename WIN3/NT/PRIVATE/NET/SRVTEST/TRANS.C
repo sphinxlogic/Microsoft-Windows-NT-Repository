@@ -127,7 +127,7 @@ TransactionController(
                     );
 
         (VOID)NtQuerySystemTime( (PLARGE_INTEGER)&endTime );
-        elapsedTime = RtlLargeIntegerSubtract( endTime, startTime );
+        elapsedTime.QuadPart = endTime.QuadPart - startTime.QuadPart;
         elapsedMs = RtlExtendedMagicDivide( elapsedTime, magic10000, 13 );
         printf( "Transaction %ld: elapsed ms %ld, rate %ld msgs/sec\n",
                     i, elapsedMs.LowPart,
@@ -189,7 +189,7 @@ NtIoctl(
     action = Redir->argv[1];
     actionLength = strlen( action );
 
-    if ( strnicmp( action, "TransactNamedPipe", strlen(action) ) == 0 ) {
+    if ( _strnicmp( action, "TransactNamedPipe", strlen(action) ) == 0 ) {
         inParameterCount = outParameterCount = 20;
         inDataCount = outDataCount = 20;
         functionCode = FSCTL_PIPE_TRANSCEIVE;

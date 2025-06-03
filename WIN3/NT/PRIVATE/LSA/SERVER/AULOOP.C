@@ -87,7 +87,7 @@ LONG LsapAuCallsToProcess;
 //
 // This event is used to signal the AU Server thread manager that
 // there are additional server threads needed.
-// 
+//
 
 
 HANDLE LsapAuThreadManagementEvent;
@@ -150,7 +150,10 @@ LsapAuInterlockedRead(
     );
 
 
-
+NTSTATUS
+LsapAuCreatePortSD(
+    PSECURITY_DESCRIPTOR * SecurityDescriptor
+    );
 
 
 
@@ -168,7 +171,8 @@ Routine Description:
 
     When such a connection is received, the caller is validated as
     being a logon process.  A logon process is a process with the
-    SeTcbPrivilege.
+    SeTcbPrivilege.  If the connect request message is all zeroes,
+    than an untrusted connection is created.
 
 Arguments:
 
@@ -235,20 +239,25 @@ DbgPrint("New: 0x%lx\n", LogonProcessContext);
 
     if ( Accept ) {
 
+
+        LogonProcessContext->CommPort = CommPort;
+
+
         //
-        // Add this context to our list of valid logon process contexts
+        // Add this context to our list of valid logon process contexts.
+        // This has to happen before the call to complete the port because
+        // calls may come in while the port is being completed.
         //
 
         LsapAuAddClientContext(LogonProcessContext);
+
 
         //
         // And complete the connection.
         //
 
         Status = NtCompleteConnectPort(CommPort);
-        LogonProcessContext->CommPort = CommPort;
         ASSERT( NT_SUCCESS(Status) );
-
 
         //
         // We don't need to access the context any more, so
@@ -314,7 +323,8 @@ Return Value:
 
     BOOLEAN
         ContextFound,
-        InvalidateContext;
+        InvalidateContext,
+        TrustedClient;
 
 
 #if LSAP_DIAGNOSTICS
@@ -459,7 +469,8 @@ if (Request.PortMessage.u2.s2.Type != LPC_CONNECTION_REQUEST) {
 
                 ContextFound = LsapAuReferenceClientContext(
                                   &ClientRequest,
-                                  TRUE);            // Remove context
+                                  TRUE,            // Remove context
+                                  &TrustedClient );
 
                 if (ContextFound) {
 
@@ -497,7 +508,7 @@ if (Request.PortMessage.u2.s2.Type != LPC_CONNECTION_REQUEST) {
         //
 
         LsapAuProvideWorkerThreads();
-        
+
 
 
 
@@ -538,7 +549,8 @@ if (Request.PortMessage.u2.s2.Type != LPC_CONNECTION_REQUEST) {
 
             ContextFound = LsapAuReferenceClientContext(
                               &ClientRequest,
-                              TRUE);            // Remove context
+                              TRUE,            // Remove context
+                              &TrustedClient );
 
             if (ContextFound) {
 
@@ -593,7 +605,8 @@ if (Request.PortMessage.u2.s2.Type != LPC_CONNECTION_REQUEST) {
 
             ContextFound = LsapAuReferenceClientContext(
                               &ClientRequest,
-                              InvalidateContext);
+                              InvalidateContext,
+                              &TrustedClient);
 
             if (ContextFound) {
 
@@ -626,17 +639,21 @@ if (Request.PortMessage.u2.s2.Type != LPC_CONNECTION_REQUEST) {
 
                 } else {
 
+
                     //
                     // Valid API number other than deregister - dispatch it
                     //
 
                     Status = (LsapAuApiDispatch[Request.ApiNumber])(
-                                  &ClientRequest
+                                  &ClientRequest,
+                                  TrustedClient
                                   );
 
 
                     Reply = &Request;
                     Reply->ReturnedStatus = Status;
+
+
 
                 }
 
@@ -772,7 +789,15 @@ Return Value:
     UNICODE_STRING UnicodePortName;
     DWORD Ignore;
     HANDLE Thread;
+    PSECURITY_DESCRIPTOR PortSD = NULL;
 
+    Status = LsapAuCreatePortSD(
+                &PortSD
+                );
+
+    if (!NT_SUCCESS(Status)) {
+        return(FALSE);
+    }
 
     //
     // Create the LPC port
@@ -786,7 +811,7 @@ Return Value:
         &UnicodePortName,
         0,
         NULL,
-        NULL
+        PortSD
         );
 
     Status = NtCreatePort(
@@ -814,7 +839,7 @@ Return Value:
     LsapDiagPrint( AU_TRACK_THREADS,
                    ("Lsa (au): Thread management event created. (0x%lx)\n",
                    Status));
-    ASSERT(NT_SUCCESS(Status));                    
+    ASSERT(NT_SUCCESS(Status));
 
 
     //
@@ -837,7 +862,7 @@ Return Value:
     // Set up the dynamic thread controls based upon our product type.
     // Workstations have lower limits than servers.
     //
-    
+
     RtlInitializeResource(&LsapAuThreadCountLock);
 
     LsapAuActiveThreads  = 1;       // 1 assumes we will create the
@@ -943,7 +968,7 @@ Return Value:
 {
     LONG
         CreateCount;
-        
+
     //
     // Acquire the interlock
     //
@@ -1006,8 +1031,8 @@ Return Value:
         FreeGoal,
         Active,
         MaximumThreads;
-        
-        
+
+
     //
     // Acquire the interlock
     //
@@ -1093,12 +1118,12 @@ Routine Description:
     it checks to see if any worker threads need to be created
     and, if so, creates them.
 
-    Worker thread creation use to be done in the main AU loop 
-    just after receiving an LPC message.  This ended up causing a 
+    Worker thread creation use to be done in the main AU loop
+    just after receiving an LPC message.  This ended up causing a
     deadlock if CSR was making a remote file access.
 
 
-Arguments: 
+Arguments:
 
     ThreadParameter - Not used.
 
@@ -1343,4 +1368,133 @@ Return Value:
     return(ReturnValue);
 
 
+}
+
+
+
+NTSTATUS
+LsapAuCreatePortSD(
+    PSECURITY_DESCRIPTOR * SecurityDescriptor
+    )
+/*++
+
+Routine Description:
+
+    This function creates a security descriptor for the LSA LPC port.  It
+    grants World PORT_CONNECT access and local system GENERIC_ALL and
+    Administrators GENERIC_READ, GENERIC_EXECUTE, and READ_CONTROL access.
+
+Arguments:
+
+    SecurityDescriptor - Receives a pointer to the new security descriptor.
+
+Return Value:
+
+    None.
+
+
+--*/
+{
+    NTSTATUS
+        Status;
+
+    ULONG
+        AclLength;
+
+    PACL
+        PortDacl = NULL;
+
+
+    //
+    // Set up a default ACLs
+    //
+    //    Public: WORLD:execute, SYSTEM:all, ADMINS:(read|execute|read_control)
+    //    System: SYSTEM:all, ADMINS:(read|execute|read_control)
+
+    AclLength = (ULONG)sizeof(ACL) +
+                   (3*((ULONG)sizeof(ACCESS_ALLOWED_ACE))) +
+                   RtlLengthSid( LsapLocalSystemSid ) +
+                   RtlLengthSid( LsapAliasAdminsSid ) +
+                   RtlLengthSid( LsapWorldSid );
+
+
+    PortDacl = (PACL) LsapAllocateLsaHeap( AclLength );
+    if (PortDacl == NULL) {
+        return( STATUS_INSUFFICIENT_RESOURCES );
+    }
+
+    *SecurityDescriptor = (PSECURITY_DESCRIPTOR)
+        LsapAllocateLsaHeap( sizeof(SECURITY_DESCRIPTOR) );
+
+    if (*SecurityDescriptor == NULL) {
+        LsapFreeLsaHeap( PortDacl );
+        return( STATUS_INSUFFICIENT_RESOURCES );
+    }
+
+
+    Status = RtlCreateAcl( PortDacl, AclLength, ACL_REVISION2);
+
+    //
+    // WORLD access
+    //
+
+    Status = RtlAddAccessAllowedAce (
+                 PortDacl,
+                 ACL_REVISION2,
+                 PORT_CONNECT,
+                 LsapWorldSid
+                 );
+    ASSERT( NT_SUCCESS(Status) );
+
+
+    //
+    // SYSTEM access
+
+    //
+
+    Status = RtlAddAccessAllowedAce (
+                 PortDacl,
+                 ACL_REVISION2,
+                 GENERIC_ALL,
+                 LsapLocalSystemSid
+                 );
+    ASSERT( NT_SUCCESS(Status) );
+
+
+    //
+    // ADMINISTRATORS access
+    //
+
+    Status = RtlAddAccessAllowedAce (
+                 PortDacl,
+                 ACL_REVISION2,
+                 GENERIC_READ | GENERIC_EXECUTE | READ_CONTROL,
+                 LsapAliasAdminsSid
+                 );
+    ASSERT( NT_SUCCESS(Status) );
+
+
+
+    //
+    // Now initialize security descriptors
+    // that export this protection
+    //
+
+
+
+    Status = RtlCreateSecurityDescriptor(
+                 *SecurityDescriptor,
+                 SECURITY_DESCRIPTOR_REVISION1
+                 );
+    ASSERT( NT_SUCCESS(Status) );
+    Status = RtlSetDaclSecurityDescriptor(
+                 *SecurityDescriptor,
+                 TRUE,                       // DaclPresent
+                 PortDacl,
+                 FALSE                       // DaclDefaulted
+                 );
+    ASSERT( NT_SUCCESS(Status) );
+
+
+    return( STATUS_SUCCESS );
 }

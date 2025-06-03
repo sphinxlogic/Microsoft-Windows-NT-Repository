@@ -942,3 +942,34 @@ Environment:
 	/*
 	 *The user or group account specified cannot be found.
 	 */
+
+/*
+ * FPNW related errors
+ */
+
+#define APE_CannotEnableNW			(APPERR_BASE + 465)
+	/*
+	 *The user was added but could not be enabled for File and Print
+     *Services for NetWare.
+	 */
+
+#define APE_FPNWNotInstalled	    (APPERR_BASE + 466)
+	/*
+	 *File and Print Services for NetWare is not installed.
+	 */
+
+#define APE_CannotSetNW			    (APPERR_BASE + 467)
+	/*
+	 *Cannot set user properties for File and Print Services for NetWare.
+	 */
+
+#define APE_RandomPassword			    (APPERR_BASE + 468)
+	/*
+	 *Password for %1 is: %2
+	 */
+
+#define APE_NWCompat			    (APPERR_BASE + 469)
+	/*
+	 *NetWare compatible logon
+	 */
+

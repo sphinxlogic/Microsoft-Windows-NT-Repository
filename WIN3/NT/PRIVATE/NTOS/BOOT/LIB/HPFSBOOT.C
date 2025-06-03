@@ -1182,9 +1182,9 @@ Return Value:
 
         ReadNewDirDiskBuffer = FALSE;
 
-        for ( Dirent = GetFirstDirent( DirDiskBuffer );
+        for ( Dirent = (PPBDIRENT)GetFirstDirent( DirDiskBuffer );
               !ReadNewDirDiskBuffer;
-              Dirent = GetNextDirent( Dirent )) {
+              Dirent = (PPBDIRENT)GetNextDirent( Dirent )) {
 
             STRING String;
             COMPARISON_RESULTS CompareResults;
@@ -1513,4 +1513,3 @@ Return Value:
 
     return EIO;
 }
-

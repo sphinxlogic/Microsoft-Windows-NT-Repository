@@ -17,18 +17,14 @@ Environment:
 
 Revision History:
 
-
 --*/
 
 
+#if !defined _PPC_
+#if !defined _MIPS_
 #define INT10_MODE_SET
-
-//---------------------------------------------------------------------------
-
-#ifndef INT10_MODE_SET
-#error !!ERROR: int10_mode_set not defined!
 #endif
-
+#endif
 
 //
 // Do full save and restore.
@@ -44,6 +40,13 @@ Revision History:
 #define ONE_64K_BANK             0
 #define TWO_32K_BANKS            1
 #define MULTIPLE_REFRESH_TABLES  0
+
+
+//
+// Treat CL-GD5434_6 (rev 0xHH) as CL-GD5434 if requested.
+//
+
+#define CL5434_6_SPECIAL_REQUEST 0
 
 //---------------------------------------------------------------------------
 //
@@ -63,24 +66,68 @@ Revision History:
 // memory when loading a font, which is done with the VGA mapped at A0000.
 //
 
-#ifdef _X86_
-
 #define MEM_VGA      0xA0000
 #define MEM_VGA_SIZE 0x20000
 
-#else
+#define MEM_LINEAR      0x0
+#define MEM_LINEAR_SIZE 0x0
 
+// #ifdef _ALPHA_
 //
-// For MIPS NEC machine only
+//     #define PHY_AD_20_23 0x060       // Value for SR7 to map video memory
+//     #define PHY_VGA      0x0600000   // put it at 6 megabytes for Alpha (for now)
+//     #define PHY_VGA_SIZE 0x0100000   // allocate a megabyte of space there
+//
+// #endif
 //
 
-#define LA_MASK      0x1
-#define MEM_VGA      (LA_MASK << 20)
-#define MEM_VGA_SIZE 0x100000
+#ifdef _PPC_
+
+    //
+    // For PPC SandleFoot, may work on blackhawk and commet too.
+    //
+
+    #undef MEM_LINEAR
+    #undef MEM_LINEAR_SIZE
+
+    #define LA_MASK         0x1
+    #define MEM_LINEAR      (LA_MASK << 24)
+    #define MEM_LINEAR_SIZE 0x100000
 
 #endif
+
+#ifdef _MIPS_
+
+    //
+    // For MIPS NEC machine only
+    //
+
+    #undef MEM_LINEAR
+    #undef MEM_LINEAR_SIZE
+
+    #define LA_MASK         0xE
+
+    #define MEM_LINEAR      (LA_MASK << 20)
+    #define MEM_LINEAR_SIZE 0x100000
+    #define MEM_SNI_LINEAR_SIZE 0x200000
+
+#endif
+
 //
-// Port definitions for filling the ACCSES_RANGES structure in the miniport
+// For Siemens Nixdorf Mips box
+//
+
+#define RM200_ONBOARD_ISA_IO_PHYS      0x16000000
+#define RM200_ONBOARD_VIDEO_MEM_PHYS   0x1E000000
+
+//
+// For memory mapped IO
+//
+
+#define MEMORY_MAPPED_IO_OFFSET (0xB8000 - 0xA0000)
+
+//
+// Port definitions for filling the ACCESS_RANGES structure in the miniport
 // information, defines the range of I/O ports the VGA spans.
 // There is a break in the IO ports - a few ports are used for the parallel
 // port. Those cannot be defined in the ACCESS_RANGE, but are still mapped
@@ -93,55 +140,52 @@ Revision History:
 #define VGA_MAX_IO_PORT       0x000003DF
 
 //
-// VGA port-related definitions.
-//
-
-//
 // VGA register definitions
 //
-                                            // ports in monochrome mode
-#define CRTC_ADDRESS_PORT_MONO      0x0004  // CRT Controller Address and
-#define CRTC_DATA_PORT_MONO         0x0005  // Data registers in mono mode
-#define FEAT_CTRL_WRITE_PORT_MONO   0x000A  // Feature Control write port
+
+#define CRTC_ADDRESS_PORT_MONO      0x03B4  // CRT Controller Address and
+#define CRTC_DATA_PORT_MONO         0x03B5  // Data registers in mono mode
+#define FEAT_CTRL_WRITE_PORT_MONO   0x03BA  // Feature Control write port
                                             // in mono mode
-#define INPUT_STATUS_1_MONO         0x000A  // Input Status 1 register read
+#define INPUT_STATUS_1_MONO         0x03BA  // Input Status 1 register read
                                             // port in mono mode
 #define ATT_INITIALIZE_PORT_MONO    INPUT_STATUS_1_MONO
                                             // Register to read to reset
                                             // Attribute Controller index/data
-#define ATT_ADDRESS_PORT            0x0010  // Attribute Controller Address and
-#define ATT_DATA_WRITE_PORT         0x0010  // Data registers share one port
+#define ATT_ADDRESS_PORT            0x03C0  // Attribute Controller Address and
+#define ATT_DATA_WRITE_PORT         0x03C0  // Data registers share one port
                                             // for writes, but only Address is
                                             // readable at 0x010
-#define ATT_DATA_READ_PORT          0x0011  // Attribute Controller Data reg is
+#define ATT_DATA_READ_PORT          0x03C1  // Attribute Controller Data reg is
                                             // readable here
-#define MISC_OUTPUT_REG_WRITE_PORT  0x0012  // Miscellaneous Output reg write
+#define MISC_OUTPUT_REG_WRITE_PORT  0x03C2  // Miscellaneous Output reg write
                                             // port
-#define INPUT_STATUS_0_PORT         0x0012  // Input Status 0 register read
+#define INPUT_STATUS_0_PORT         0x03C2  // Input Status 0 register read
                                             // port
-#define VIDEO_SUBSYSTEM_ENABLE_PORT 0x0013  // Bit 0 enables/disables the
+#define VIDEO_SUBSYSTEM_ENABLE_PORT 0x03C3  // Bit 0 enables/disables the
                                             // entire VGA subsystem
-#define SEQ_ADDRESS_PORT            0x0014  // Sequence Controller Address and
-#define SEQ_DATA_PORT               0x0015  // Data registers
-#define DAC_PIXEL_MASK_PORT         0x0016  // DAC pixel mask reg
-#define DAC_ADDRESS_READ_PORT       0x0017  // DAC register read index reg,
+#define SEQ_ADDRESS_PORT            0x03C4  // Sequence Controller Address and
+#define SEQ_DATA_PORT               0x03C5  // Data registers
+#define DAC_PIXEL_MASK_PORT         0x03C6  // DAC pixel mask reg
+#define DAC_ADDRESS_READ_PORT       0x03C7  // DAC register read index reg,
                                             // write-only
-#define DAC_STATE_PORT              0x0017  // DAC state (read/write),
+#define DAC_STATE_PORT              0x03C7  // DAC state (read/write),
                                             // read-only
-#define DAC_ADDRESS_WRITE_PORT      0x0018  // DAC register write index reg
-#define DAC_DATA_REG_PORT           0x0019  // DAC data transfer reg
-#define FEAT_CTRL_READ_PORT         0x001A  // Feature Control read port
-#define MISC_OUTPUT_REG_READ_PORT   0x001C  // Miscellaneous Output reg read
+#define DAC_ADDRESS_WRITE_PORT      0x03C8  // DAC register write index reg
+#define DAC_DATA_REG_PORT           0x03C9  // DAC data transfer reg
+#define FEAT_CTRL_READ_PORT         0x03CA  // Feature Control read port
+#define MISC_OUTPUT_REG_READ_PORT   0x03CC  // Miscellaneous Output reg read
                                             // port
-#define GRAPH_ADDRESS_PORT          0x001E  // Graphics Controller Address
-#define GRAPH_DATA_PORT             0x001F  // and Data registers
+#define GRAPH_ADDRESS_PORT          0x03CE  // Graphics Controller Address
+#define GRAPH_DATA_PORT             0x03CF  // and Data registers
 
                                             // ports in color mode
-#define CRTC_ADDRESS_PORT_COLOR     0x0024  // CRT Controller Address and
-#define CRTC_DATA_PORT_COLOR        0x0025  // Data registers in color mode
-#define FEAT_CTRL_WRITE_PORT_COLOR  0x002A  // Feature Control write port
-#define INPUT_STATUS_1_COLOR        0x002A  // Input Status 1 register read
+#define CRTC_ADDRESS_PORT_COLOR     0x03D4  // CRT Controller Address and
+#define CRTC_DATA_PORT_COLOR        0x03D5  // Data registers in color mode
+#define FEAT_CTRL_WRITE_PORT_COLOR  0x03DA  // Feature Control write port
+#define INPUT_STATUS_1_COLOR        0x03DA  // Input Status 1 register read
                                             // port in color mode
+
 #define ATT_INITIALIZE_PORT_COLOR   INPUT_STATUS_1_COLOR
                                             // Register to read to reset
                                             // Attribute Controller index/data
@@ -163,7 +207,7 @@ Revision History:
 #define GRAPH_ADDRESS_OFFSET          0x1E
 #define CRTC_ADDRESS_COLOR_OFFSET     0x24
 #define FEAT_CTRL_WRITE_COLOR_OFFSET  0x2A
-                                                                     
+
                                             // toggle in color mode
 //
 // VGA indexed register indexes.
@@ -172,8 +216,10 @@ Revision History:
 // CL-GD542x specific registers:
 //
 #define IND_CL_EXTS_ENB         0x06    // index in Sequencer to enable exts
+#define IND_NORD_SCRATCH_PAD    0x09    // index in Seq of Nordic scratch pad
 #define IND_CL_SCRATCH_PAD      0x0A    // index in Seq of 542x scratch pad
 #define IND_ALP_SCRATCH_PAD     0x15    // index in Seq of Alpine scratch pad
+#define IND_CL_REV_REG          0x25    // index in CRTC of ID Register
 #define IND_CL_ID_REG           0x27    // index in CRTC of ID Register
 //
 #define IND_CURSOR_START        0x0A    // index in CRTC of the Cursor Start
@@ -184,6 +230,8 @@ Revision History:
                                         //  End register, which has the bit
                                         //  that protects/unprotects CRTC
                                         //  index registers 0-7
+#define IND_CR2C                0x2C    // Nordic LCD Interface Register
+#define IND_CR2D                0x2D    // Nordic LCD Display Control
 #define IND_SET_RESET_ENABLE    0x01    // index of Set/Reset Enable reg in GC
 #define IND_DATA_ROTATE         0x03    // index of Data Rotate reg in GC
 #define IND_READ_MAP            0x04    // index of Read Map reg in Graph Ctlr
@@ -197,11 +245,12 @@ Revision History:
                                         //  CRTC
 #define IND_CRTC_COMPAT         0x34    // index of CRTC Compatibility reg
                                         //  in CRTC
+#define IND_PERF_TUNING         0x16    // index of performance tuning in Seq
 #define START_SYNC_RESET_VALUE  0x01    // value for Sync Reset reg to start
                                         //  synchronous reset
 #define END_SYNC_RESET_VALUE    0x03    // value for Sync Reset reg to end
                                         //  synchronous reset
- 
+
 //
 // Value to write to Extensions Control register values extensions.
 //
@@ -214,7 +263,7 @@ Revision History:
 #define CL6340_ENABLE_READBACK_REGISTER   0xE0
 #define CL6340_ENABLE_READBACK_ALLSEL_VALUE 0xF0
 #define CL6340_ENABLE_READBACK_OFF_VALUE  0x00
-#define CL6340_IDENTIFICATION_REGISTER    0xE9     
+#define CL6340_IDENTIFICATION_REGISTER    0xE9
 //
 // Values for Attribute Controller Index register to turn video off
 // and on, by setting bit 5 to 0 (off) or 1 (on).
@@ -222,6 +271,8 @@ Revision History:
 
 #define VIDEO_DISABLE 0
 #define VIDEO_ENABLE  0x20
+
+#define INDEX_ENABLE_AUTO_START 0x31
 
 // Masks to keep only the significant bits of the Graphics Controller and
 // Sequencer Address registers. Masking is necessary because some VGAs, such
@@ -281,8 +332,7 @@ Revision History:
 typedef enum _VIDEO_MEMORY_MAP {
     MemMap_Mono,
     MemMap_CGA,
-    MemMap_VGA,
-    MemMap_LINEAR
+    MemMap_VGA
 } VIDEO_MEMORY_MAP, *PVIDEO_MEMORY_MAP;
 
 //
@@ -291,7 +341,7 @@ typedef enum _VIDEO_MEMORY_MAP {
 
 typedef struct {
     ULONG   MaxSize;        // Maximum addressable size of memory
-    ULONG   Offset;          // Start address of display memory
+    ULONG   Offset;         // Start address of display memory
 } MEMORYMAPS;
 
 //
@@ -312,36 +362,93 @@ typedef enum _BANK_TYPE {
 
 typedef enum _BOARD_TYPE {
     SPEEDSTARPRO = 1,
+    SIEMENS_ONBOARD_CIRRUS,
+    NEC_ONBOARD_CIRRUS,
     OTHER
 } BOARD_TYPE;
 
 
-#define  CL6410   0x0001
-#define  CL6420   0x0002
-#define  CL542x   0x0004
-#define  CL543x   0x0008
+//
+// The chip ID is returned to the display driver in the
+// DriverSpecificAttributeFlags field during processing of
+// the IOCTL_VIDEO_QUERY_CURRENT_MODE.
+//
 
-// bitfields for the DisplayType 
+#define  CL6410       0x0001
+#define  CL6420       0x0002
+#define  CL542x       0x0004
+#define  CL543x       0x0008
+#define  CL5434       0x0010
+#define  CL5434_6     0x0020
+
+#define  CL5436       0x0100
+#define  CL5446       0x0200
+#define  CL54UM36     0x0400
+
+#define  CL754x       0x1000
+#define  CL755x       0x2000
+#define  CL756x       0x4000
+
+//
+// Actual Revision IDs for certain cirrus chips
+//
+
+#define  CL5429_ID    0x27
+#define  CL5428_ID    0x26
+#define  CL5430_ID    0x28
+#define  CL5434_ID    0x2A
+#define  CL5436_ID    0x2B
+#define  CL5446_ID    0x2E
+
+//
+// Driver Specific Attribute Flags
+//
+
+#define CAPS_NO_HOST_XFER       0x00000002   // Do not use host xfers to
+                                             //   the blt engine.
+#define CAPS_SW_POINTER         0x00000004   // Use software pointer.
+#define CAPS_TRUE_COLOR         0x00000008   // Set upper color registers.
+#define CAPS_MM_IO              0x00000010   // Use memory mapped IO.
+#define CAPS_BLT_SUPPORT        0x00000020   // BLTs are supported
+#define CAPS_IS_542x            0x00000040   // This is a 542x
+#define CAPS_IS_5436            0x00000080   // This is a 5436
+#define CAPS_CURSOR_VERT_EXP    0x00000100   // Flag set if 8x6 panel,
+                                             //   but 6x4 resolution
+#define CAPS_DSTN_PANEL         0x00000200   // DSTN panel in use
+
+// bitfields for the DisplayType
 #define  crt      0x0001
 #define  panel    0x0002
-#define  simulscan 0x0004        // this means both, but is unused for now.
+
+#define  panel8x6  0x0004
+#define  panel10x7 0x0008
+
+#define  TFT_LCD   0x0100
+#define  STN_LCD   0x0200
+#define  Mono_LCD   0x0400
+#define  Color_LCD   0x0800
+#define  Single_LCD   0x1000
+#define  Dual_LCD   0x2000
+
+//
+// Indexes into array of mode table pointers
+//
+
+#define pCL6410_crt   0
+#define pCL6410_panel 1
+#define pCL6420_crt   2
+#define pCL6420_panel 3
+#define pCL542x       4
+#define pCL543x       5
+#define pStretchScan  6
+#define pNEC_CL543x   7
+#define NUM_CHIPTYPES 8
 
 typedef struct {
-    PUSHORT pCL6410_crt;
-    PUSHORT pCL6410_panel;
-    PUSHORT pCL6420_crt;
-    PUSHORT pCL6420_panel;
-    PUSHORT pCL542x;
-    PUSHORT pCL543x;
-    PUSHORT pStretchScan;
-} CLCMD, *PCLCMD;
-
-typedef struct {
-    USHORT BiosModeCL6410;       // bios modes are different across the 
+    USHORT BiosModeCL6410;       // bios modes are different across the
     USHORT BiosModeCL6420;       // products. that's why we need multiple
     USHORT BiosModeCL542x;       // values.
 } CLMODE, *PCLMODE;
-
 
 //
 // Structure used to describe each video mode in ModesVGA[].
@@ -364,22 +471,25 @@ typedef struct {
     ULONG   MonTypeAX;         // Sets the desired horizontal freq in an int10
     ULONG   MonTypeBX;
     ULONG   MonTypeCX;
+    BOOLEAN HWCursorEnable;    // Flag to disable cursor if necessary
     BANK_TYPE banktype;        // NoBanking, NormalBanking, PlanarHCBanking
     VIDEO_MEMORY_MAP   MemMap; // index from VIDEO_MEMORY_MAP of memory
                                //  mapping used by this mode
     USHORT     ChipType;       // flags that say which chipset runs this mode
     USHORT     DisplayType;    // display type this mode runs on(crt or panel)
     BOOLEAN    ValidMode;      // TRUE if mode valid, FALSE if not
+    BOOLEAN    LinearSupport;  // TRUE if this mode can have its memory
+                               //  mapped in linearly.
 
     CLMODE     BiosModes;
-                              
+
 //
-// the mode will be TRUE if there is enough video memory to support the 
+// the mode will be TRUE if there is enough video memory to support the
 // mode, and the display type(it could be a panel), will support the mode.
-// PANELS only support 640x480 for now. 
+// PANELS only support 640x480 for now.
 //
-    CLCMD CmdStrings;   // pointer to array of register-setting commands to 
-                        //  set up mode
+    PUSHORT CmdStrings[NUM_CHIPTYPES];   // pointer to array of register-setting commands to
+                                         //  set up mode
 } VIDEOMODE, *PVIDEOMODE;
 
 //
@@ -413,7 +523,7 @@ typedef struct _VGA_VALIDATOR_DATA {
 //
 
 #define VGA_PLANE_SIZE 0x10000
- 
+
 //
 // Number of each type of indexed register in a standard VGA, used by
 // validator and state save/restore functions.
@@ -466,7 +576,7 @@ typedef struct _VGA_VALIDATOR_DATA {
 #define EXT_NUM_ATTRIB_CONT_PORTS   0
 #define EXT_NUM_DAC_ENTRIES         0
 
-#else 
+#else
 
 #define EXT_NUM_GRAPH_CONT_PORTS    0
 #define EXT_NUM_SEQUENCER_PORTS     0
@@ -474,7 +584,7 @@ typedef struct _VGA_VALIDATOR_DATA {
 #define EXT_NUM_ATTRIB_CONT_PORTS   0
 #define EXT_NUM_DAC_ENTRIES         0
 
-#endif        
+#endif
 
 //
 // These constants determine the offsets within the
@@ -538,6 +648,12 @@ typedef struct _VGA_VALIDATOR_DATA {
 
 typedef struct _HW_DEVICE_EXTENSION {
 
+    PHYSICAL_ADDRESS PhysicalVideoMemoryBase; // physical memory address and
+    PHYSICAL_ADDRESS PhysicalFrameOffset;     // physical memory address and
+    ULONG PhysicalVideoMemoryLength;          // length of display memory
+    ULONG PhysicalFrameLength;                // length of display memory for
+                                              // the current mode.
+
     PUCHAR  IOAddress;            // base I/O address of VGA ports
     PUCHAR  VideoMemoryAddress;   // base virtual memory address of VGA memory
     ULONG   NumAvailableModes;    // number of available modes this session
@@ -548,24 +664,36 @@ typedef struct _HW_DEVICE_EXTENSION {
     USHORT  FontPelColumns;          // Width of the font in pels
     USHORT  FontPelRows;          // height of the font in pels
 
+    USHORT  cursor_vert_exp_flag;
+
     VIDEO_CURSOR_POSITION CursorPosition;  // current cursor position
 
-                                 
+
     UCHAR CursorEnable;           // whether cursor is enabled or not
     UCHAR CursorTopScanLine;      // Cursor Start register setting (top scan)
     UCHAR CursorBottomScanLine;   // Cursor End register setting (bottom scan)
+
 // add HW cursor data here
-    PHYSICAL_ADDRESS PhysicalVideoMemoryBase; // physical memory address and
-    ULONG PhysicalVideoMemoryLength;          // length of display memory
-    PHYSICAL_ADDRESS PhysicalFrameOffset;   // physical memory address and
-    ULONG PhysicalFrameLength;            // length of display memory for the
-                                          // current mode.
+    BOOLEAN VideoPointerEnabled;  // Whether HW Cursor is supported
 
     USHORT ChipType;                      // CL6410, CL6420, CL542x, or CL543x
     USHORT ChipRevision;                  // chip revision value
-    USHORT DisplayType;                   // crt, panel or simulscan
+    INTERFACE_TYPE BusType;               // isa, pci, etc.
+    USHORT DisplayType;                   // crt, panel or panel8x6
     USHORT BoardType;                     // Diamond, etc ...
     ULONG AdapterMemorySize;              // amount of installed video ram
+    BOOLEAN LinearMode;                   // TRUE if memory is mapped linear
+    BOOLEAN BiosGT130;                    // Do we have a 1.30 or higher bios
+    BOOLEAN BIOSPresent;                  // Indicates whether a bios is present
+    BOOLEAN AutoFeature;                  // Autostart on 54x6
+
+    //
+    // The following two values are used to pass information to the
+    // IO Callback called by IOWaitDisplEnableThenWrite.
+    //
+
+    ULONG DEPort;                         // stores the port address to write to
+    UCHAR DEValue;                        // stores the value to write
 
     //
     // These 4 fields must be at the end of the device extension and must be
@@ -678,7 +806,7 @@ extern MEMORYMAPS MemoryMaps[];
 extern ULONG NumVideoModes;
 extern VIDEOMODE ModesVGA[];
 
-#define NUM_VGA_ACCESS_RANGES  3
+#define NUM_VGA_ACCESS_RANGES  4
 extern VIDEO_ACCESS_RANGE VgaAccessRange[];
 
 #define VGA_NUM_EMULATOR_ACCESS_ENTRIES     6
@@ -689,3 +817,25 @@ extern VIDEO_ACCESS_RANGE MinimalVgaValidatorAccessRange[];
 
 #define NUM_FULL_VGA_VALIDATOR_ACCESS_RANGE 2
 extern VIDEO_ACCESS_RANGE FullVgaValidatorAccessRange[];
+
+//
+// sr754x (NORDIC) prototypes
+//
+
+VP_STATUS
+NordicSaveRegs(
+    PHW_DEVICE_EXTENSION HwDeviceExtension,
+    PUSHORT NordicSaveArea
+    );
+
+VP_STATUS
+NordicRestoreRegs(
+    PHW_DEVICE_EXTENSION HwDeviceExtension,
+    PUSHORT NordicSaveArea
+    );
+
+ULONG
+GetAttributeFlags(
+    PHW_DEVICE_EXTENSION HwDeviceExtension
+    );
+

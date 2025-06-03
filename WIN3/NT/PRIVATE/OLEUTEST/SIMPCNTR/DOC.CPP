@@ -131,14 +131,14 @@ error:
 //
 //      CSimpleSite::CloseOleObject SITE.CPP
 //      ShowWindow                  Windows API
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 //
 //********************************************************************
 
 void CSimpleDoc::Close(void)
 {
-    OutputDebugString(TEXT("In CSimpleDoc::Close\r\n"));
+    TestDebugOut(TEXT("In CSimpleDoc::Close\r\n"));
 
     ShowWindow(m_hDocWnd, SW_HIDE);  // Hide the window
 
@@ -172,7 +172,7 @@ void CSimpleDoc::Close(void)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      GetMenu                     Windows API
 //      GetSubMenu                  Windows API
 //
@@ -181,7 +181,7 @@ void CSimpleDoc::Close(void)
 
 CSimpleDoc::CSimpleDoc(CSimpleApp FAR * lpApp,HWND hWnd)
 {
-    OutputDebugString(TEXT("In CSimpleDoc's Constructor\r\n"));
+    TestDebugOut(TEXT("In CSimpleDoc's Constructor\r\n"));
     m_lpApp = lpApp;
     m_lpSite = NULL;
     m_nCount = 0;
@@ -219,7 +219,7 @@ CSimpleDoc::CSimpleDoc(CSimpleApp FAR * lpApp,HWND hWnd)
 // Function Calls:
 //      Function                     Location
 //
-//      OutputDebugString            Windows API
+//      TestDebugOut            Windows API
 //      CSimpleSite::UnloadOleObject SITE.CPP
 //      CSimpleSite::Release         SITE.CPP
 //      IStorage::Release            OLE API
@@ -233,7 +233,7 @@ CSimpleDoc::CSimpleDoc(CSimpleApp FAR * lpApp,HWND hWnd)
 
 CSimpleDoc::~CSimpleDoc()
 {
-    OutputDebugString(TEXT("In CSimpleDoc's Destructor\r\n"));
+    TestDebugOut(TEXT("In CSimpleDoc's Destructor\r\n"));
 
     // Release all pointers we hold to the OLE object. also release
     // the ref count added in CSimpleSite::Create. this will make
@@ -286,7 +286,7 @@ CSimpleDoc::~CSimpleDoc()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      ResultFromScode             OLE API
 //
 // Comments:
@@ -300,7 +300,7 @@ CSimpleDoc::~CSimpleDoc()
 
 STDMETHODIMP CSimpleDoc::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 {
-    OutputDebugString(TEXT("In CSimpleDoc::QueryInterface\r\n"));
+    TestDebugOut(TEXT("In CSimpleDoc::QueryInterface\r\n"));
 
     *ppvObj = NULL;     // must set out pointer parameters to NULL
 
@@ -327,14 +327,14 @@ STDMETHODIMP CSimpleDoc::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 //
 //********************************************************************
 
 STDMETHODIMP_(ULONG) CSimpleDoc::AddRef()
 {
-    OutputDebugString(TEXT("In CSimpleDoc::AddRef\r\n"));
+    TestDebugOut(TEXT("In CSimpleDoc::AddRef\r\n"));
     return ++m_nCount;
 }
 
@@ -357,14 +357,14 @@ STDMETHODIMP_(ULONG) CSimpleDoc::AddRef()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 //
 //********************************************************************
 
 STDMETHODIMP_(ULONG) CSimpleDoc::Release()
 {
-    OutputDebugString(TEXT("In CSimpleDoc::Release\r\n"));
+    TestDebugOut(TEXT("In CSimpleDoc::Release\r\n"));
 
     if (--m_nCount == 0)
     {
@@ -422,7 +422,7 @@ void CSimpleDoc::InsertObject()
     {
        /* memory allocation problem! cannot carry on.
         */
-       OutputDebugString(TEXT("Memory allocation error!\n"));
+       TestDebugOut(TEXT("Memory allocation error!\n"));
        return;
     }
 
@@ -549,7 +549,7 @@ long CSimpleDoc::lAddVerbs(void)
                            0,
                            &m_hCascadeMenu))
         {
-           OutputDebugString(TEXT("Fail in OleUIAddVerbMenu"));
+           TestDebugOut(TEXT("Fail in OleUIAddVerbMenu"));
         }
 
         m_fModifiedMenu = TRUE;
@@ -626,4 +626,3 @@ void CSimpleDoc::DisableInsertObject(void)
     // Disable InsertObject menu choice
     EnableMenuItem( m_hEditMenu, 0, MF_BYPOSITION | MF_DISABLED | MF_GRAYED);
 }
-

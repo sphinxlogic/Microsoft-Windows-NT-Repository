@@ -115,6 +115,7 @@ INT         cm__initiate_conn(CM* cm);
 INT         cm__disc_rq(CM_CHAN* chan);
 INT         cm__est_rq(CM_CHAN* chan);
 INT         cm__est_rsp(CM_CHAN* chan);
+INT         cm__est_ignore(PVOID idd, USHORT cid, USHORT lterm);
 INT         cm__deactivate_conn(CM* cm, BOOL by_idle_timer);
 INT         cm__activate_conn(CM* cm, ULONG CompressionFlag);
 INT         cm__bchan_ctrl(CM_CHAN* chan, BOOL turn_on);
@@ -159,4 +160,3 @@ VOID		CmPollFunction(VOID *a1, ADAPTER *Adapter, VOID *a3, VOID *a4);
 VOID		CmSetSwitchStyle(CHAR *SwitchStyle);
 
 #endif		/* _CM_ */
-

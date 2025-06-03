@@ -31,10 +31,6 @@ Revision History:
 #include "precomp.h"
 #pragma hdrstop
 
-#ifdef _CAIRO_
-#include <ntdddfs.h>
-#endif // _CAIRO_
-
 DBGSTATIC
 NTSTATUS
 StartRedirector (
@@ -271,7 +267,24 @@ StopSmbTrace (
     IN PIO_STACK_LOCATION IrpSp
     );
 
-#ifdef _CAIRO_
+NTSTATUS
+GetDfsReferral(
+    IN PIRP Irp,
+    IN PICB Icb,
+    IN PCHAR InputBuffer,
+    IN ULONG InputBufferLength,
+    IN PUCHAR OutputBuffer,
+    IN ULONG OutputBufferLength
+    );
+
+NTSTATUS
+ReportDfsInconsistency(
+    IN PIRP Irp,
+    IN PICB Icb,
+    IN PCHAR InputBuffer,
+    IN ULONG InputBufferLength
+    );
+
 DBGSTATIC
 NTSTATUS
 RdrIssueNtIoctl(
@@ -285,7 +298,18 @@ RdrIssueNtIoctl(
     IN PUCHAR OutputBuffer,
     IN OUT PULONG OutputBufferLength
     );
-#endif
+
+#ifdef RASAUTODIAL
+VOID
+RdrAcdBind(
+    VOID
+    );
+
+VOID
+RdrAcdUnbind(
+    VOID
+    );
+#endif // RASAUTODIAL
 
 #ifdef  ALLOC_PRAGMA
 #pragma alloc_text(PAGE, RdrFsdFsControlFile)
@@ -426,8 +450,6 @@ Return Value:
     ULONG OutputBufferLength;
     ULONG FsControlCode = IrpSp->Parameters.FileSystemControl.FsControlCode;
 
-#ifdef _CAIRO_
-
     //
     // For cairo, if when we post a method 3 fsctl, we don't convert it to
     // type 2. Instead, in the FSP, we attach to the originating process
@@ -439,7 +461,6 @@ Return Value:
     BOOLEAN fAttached = FALSE;
     BOOLEAN fHandledMethod3 = FALSE;
 
-#endif // _CAIRO_
 
     PAGED_CODE();
     try {
@@ -579,7 +600,11 @@ Return Value:
                 break;
 
             case FSCTL_LMR_BIND_TO_TRANSPORT:
+#ifdef RDR_PNP_POWER
+                Status = RdrRegisterForPnpNotifications();
+#else
                 Status = BindToTransport(Wait, InFsd, ICB_OF(IrpSp), InputBuffer, InputBufferLength);
+#endif
                 break;
 
             case FSCTL_LMR_UNBIND_FROM_TRANSPORT:
@@ -622,9 +647,26 @@ Return Value:
                 Status = StopSmbTrace(Wait, InFsd, Irp, IrpSp);
                 break;
 
+            case FSCTL_DFS_GET_REFERRALS:
+                Status = GetDfsReferral(
+                            Irp,
+                            ICB_OF(IrpSp),
+                            InputBuffer,
+                            InputBufferLength,
+                            OutputBuffer,
+                            OutputBufferLength);
+                break;
+
+            case FSCTL_DFS_REPORT_INCONSISTENCY:
+                Status = ReportDfsInconsistency(
+                            Irp,
+                            ICB_OF(IrpSp),
+                            InputBuffer,
+                            InputBufferLength);
+                break;
+
             default:
 
-#ifdef _CAIRO_
                 // Everything else is remoted
 
                 //
@@ -684,10 +726,6 @@ Return Value:
                 }
 
                 break;
-#else  // !_CAIRO_
-                Status = STATUS_NOT_IMPLEMENTED;
-                break;
-#endif // _CAIRO_ Note: delete the following 2 lines when
 
             }
         } else {
@@ -700,15 +738,10 @@ Return Value:
 
             ASSERT (InFsd);
 
-#ifdef _CAIRO_
 
             if (fHandledMethod3) {
                 Status = STATUS_SUCCESS;
-            } else
-
-#endif // _CAIRO_
-
-            if ((FsControlCode & 3) == METHOD_NEITHER) {
+            } else if ((FsControlCode & 3) == METHOD_NEITHER) {
                 Status = RdrConvertType3FsControlToType2FsControl(Irp, IrpSp);
             }
 
@@ -772,8 +805,11 @@ NTSTATUS
     BOOLEAN SecurityInitialized = FALSE;
     BOOLEAN TimerInitialized = FALSE;
 
-
     PAGED_CODE();
+
+    UNREFERENCED_PARAMETER(Wait);
+    UNREFERENCED_PARAMETER(InFsd);
+    UNREFERENCED_PARAMETER(InputBufferLength);
 
 //    DbgBreakPoint();
 
@@ -856,7 +892,7 @@ NTSTATUS
         //  Initialize the size of the redirector SMB buffer cache and Mpx table.
         //
 
-        RdrData.MaximumCommands = (USHORT)WkstaBuffer->wki502_max_cmds;
+        MaximumCommands = (USHORT)WkstaBuffer->wki502_max_cmds;
 
         //
         //  Initialize the dormant connection timeout value.
@@ -940,11 +976,7 @@ NTSTATUS
         //  maximum.
         //
 
-        if (!NT_SUCCESS(Status = RdrSetMaximumThreadsWorkQueue(&DeviceObject->IrpWorkQueue,
-                                            RdrData.MaximumNumberOfThreads))) {
-            try_return(Status);
-        }
-
+        RdrSetMaximumThreadsWorkQueue(&DeviceObject->IrpWorkQueue, RdrData.MaximumNumberOfThreads);
 
         if (!NT_SUCCESS(Status = RdrpInitializeSmbExchange())) {
             try_return(Status);
@@ -985,7 +1017,9 @@ NTSTATUS
         ComputerName.MaximumLength = (USHORT )InputBuffer->Parameters.Start.RedirectorNameLength;
         ComputerName.Buffer = InputBuffer->Parameters.Start.RedirectorName;
 
-        Status = RdrBuildTransportAddress(RdrData.ComputerName, &ComputerName);
+        Status = RdrBuildNetbiosAddress((PTRANSPORT_ADDRESS)RdrData.ComputerName,
+                                           sizeof( TA_NETBIOS_ADDRESS ) + NETBIOS_NAME_LEN,
+                                           &ComputerName);
 
         if (!NT_SUCCESS(Status)) {
             try_return(Status);
@@ -1020,6 +1054,22 @@ NTSTATUS
         if (!NT_SUCCESS(Status)) {
             try_return(Status);
         }
+
+#ifdef RASAUTODIAL
+        //
+        // Bind with the automatic connection driver.
+        //
+        RdrAcdBind();
+#endif // RASAUTODIAL
+
+        //
+        // Lastly, register with the security subsystem to notify us when
+        // logon sessions are terminated
+        //
+
+        SeRegisterLogonSessionTerminatedRoutine(
+            (PSE_LOGON_SESSION_TERMINATED_ROUTINE)
+                RdrHandleLogonSessionTermination);
 
         RdrData.Initialized = RdrStarted;
 
@@ -1059,14 +1109,15 @@ try_exit:NOTHING;
     }
 
     return Status;
-    UNREFERENCED_PARAMETER(Wait);
-    UNREFERENCED_PARAMETER(InFsd);
-    UNREFERENCED_PARAMETER(InputBufferLength);
 }
 
 
 
-DBGSTATIC
+
+
+#ifndef RDR_PNP_POWER
+
+DBGSTATIC
 NTSTATUS
 BindToTransport (
     IN BOOLEAN Wait,
@@ -1096,6 +1147,9 @@ NTSTATUS
 {
     NTSTATUS Status;
     UNICODE_STRING TransportName;
+
+    UNREFERENCED_PARAMETER(Wait);
+    UNREFERENCED_PARAMETER(InputBufferLength);
 
     dprintf(DPRT_FSCTL, ("NtFsControlFile: Bind to transport "));
 
@@ -1153,10 +1207,9 @@ NTSTATUS
 ReturnStatus:
 
     return Status;
-
-    UNREFERENCED_PARAMETER(Wait);
-    UNREFERENCED_PARAMETER(InputBufferLength);
 }
+
+#endif
 
 DBGSTATIC
 NTSTATUS
@@ -1195,6 +1248,9 @@ NTSTATUS
     ULONG ForceLevel;
 
     PAGED_CODE();
+
+    UNREFERENCED_PARAMETER(Wait);
+    UNREFERENCED_PARAMETER(InputBufferLength);
 
     dprintf(DPRT_FSCTL, ("NtFsControlFile: Unbind from transport "));
 
@@ -1274,9 +1330,6 @@ NTSTATUS
     RdrDereferenceDiscardableCode(RdrVCDiscardableSection);
     return Status;
 
-    UNREFERENCED_PARAMETER(Wait);
-    UNREFERENCED_PARAMETER(InputBufferLength);
-
 }
 
 DBGSTATIC
@@ -1316,6 +1369,8 @@ NTSTATUS
 
     PAGED_CODE();
 
+    UNREFERENCED_PARAMETER(InFsd);
+
     dprintf(DPRT_FSCTL, ("NtFsControlFile: Enumerate Transports "));
 
 
@@ -1346,8 +1401,6 @@ NTSTATUS
 
     return RdrEnumerateTransports(Wait, InputBuffer, InputBufferLength, OutputBuffer, OutputBufferLength, OutputBufferDisplacement);
 
-
-    UNREFERENCED_PARAMETER(InFsd);
 }
 
 
@@ -1387,6 +1440,8 @@ NTSTATUS
     NTSTATUS Status;
 
     PAGED_CODE();
+
+    UNREFERENCED_PARAMETER(InFsd);
 
     dprintf(DPRT_FSCTL, ("NtFsControlFile: SetConfigInformation "));
 
@@ -1436,10 +1491,7 @@ NTSTATUS
     //  maximum.
     //
 
-    if (!NT_SUCCESS(Status = RdrSetMaximumThreadsWorkQueue(&DeviceObject->IrpWorkQueue,
-                                            WkstaBuffer->wki502_max_threads))) {
-        goto ReturnStatus;
-    }
+    RdrSetMaximumThreadsWorkQueue(&DeviceObject->IrpWorkQueue, WkstaBuffer->wki502_max_threads);
 
     //
     //  Otherwise, update the relevant information.
@@ -1514,8 +1566,6 @@ ReturnStatus:
     ExReleaseResource(&RdrDataResource);
 
     return Status;
-
-    UNREFERENCED_PARAMETER(InFsd);
 }
 
 
@@ -1554,6 +1604,8 @@ NTSTATUS
     NTSTATUS Status;
 
     PAGED_CODE();
+
+    UNREFERENCED_PARAMETER(InFsd);
 
     dprintf(DPRT_FSCTL, ("NtFsControlFile: GetConfigInfo "));
 
@@ -1597,7 +1649,7 @@ NTSTATUS
 
         WkstaBuffer->wki502_keep_conn = RdrData.DormantConnectionTimeout;
 
-        WkstaBuffer->wki502_max_cmds = (ULONG )RdrData.MaximumCommands;
+        WkstaBuffer->wki502_max_cmds = (ULONG)MaximumCommands;
 
         WkstaBuffer->wki502_max_threads = RdrData.MaximumNumberOfThreads;
 
@@ -1677,8 +1729,6 @@ ReturnStatus:
 
     return Status;
 
-    UNREFERENCED_PARAMETER(InFsd);
-
 }
 
 
@@ -1726,6 +1776,9 @@ Note:
 //    LUID LogonId;
 
     PAGED_CODE();
+
+    UNREFERENCED_PARAMETER(Wait);
+    UNREFERENCED_PARAMETER(InFsd);
 
     dprintf(DPRT_FSCTL, ("NtFsControlFile: GetConnectInfo "));
 
@@ -1853,9 +1906,6 @@ try_exit:NOTHING;
     }
 
     return Status;
-
-    UNREFERENCED_PARAMETER(Wait);
-    UNREFERENCED_PARAMETER(InFsd);
 }
 
 DBGSTATIC
@@ -1901,6 +1951,8 @@ NTSTATUS
     PLIST_ENTRY NextServer;
 
     PAGED_CODE();
+
+    UNREFERENCED_PARAMETER(InFsd);
 
     dprintf(DPRT_FSCTL, ("NtFsControlFile: EnumerateConnections "));
 
@@ -2013,7 +2065,7 @@ NTSTATUS
             //  database mutex.
             //
 
-            if ((Se = RdrFindSecurityEntry(Sle, &LogonId, NULL)) == NULL) {
+            if ((Se = RdrFindSecurityEntry(NULL, Sle, &LogonId, NULL)) == NULL) {
 
                 //
                 //  Re-acquire the database mutex before we go back
@@ -2209,7 +2261,6 @@ try_exit:NOTHING;
     }
 
     return Status;
-    UNREFERENCED_PARAMETER(InFsd);
 }
 
 DBGSTATIC
@@ -2253,6 +2304,9 @@ Note:
     UNICODE_STRING TransactionName;
 
     PAGED_CODE();
+
+    UNREFERENCED_PARAMETER(Wait);
+    UNREFERENCED_PARAMETER(InFsd);
 
     try {
         if ((InputBuffer->Type != TRANSACTION_REQUEST) ||
@@ -2309,9 +2363,6 @@ try_exit:NOTHING;
     }
 
     return Status;
-
-    UNREFERENCED_PARAMETER(Wait);
-    UNREFERENCED_PARAMETER(InFsd);
 }
 
 DBGSTATIC
@@ -2350,6 +2401,8 @@ NTSTATUS
     PLMR_GET_PRINT_QUEUE OutputBuffer;
 
     PAGED_CODE();
+
+    UNREFERENCED_PARAMETER(InFsd);
 
     dprintf(DPRT_FSCTL, ("NtFsControlFile: EnumeratePrintQueue\n"));
 
@@ -2400,8 +2453,6 @@ try_exit:NOTHING;
     dprintf(DPRT_FSCTL, ("NtFsControlFile: EnumeratePrintQueue Status %X\n", Status));
 
     return Status;
-
-    UNREFERENCED_PARAMETER(InFsd);
 }
 
 DBGSTATIC
@@ -2440,6 +2491,8 @@ NTSTATUS
     NTSTATUS Status;
 
     PAGED_CODE();
+
+    UNREFERENCED_PARAMETER(InFsd);
 
     dprintf(DPRT_FSCTL, ("NtFsControlFile: EnumeratePrintQueue\n"));
 
@@ -2485,8 +2538,6 @@ try_exit:NOTHING;
     dprintf(DPRT_FSCTL, ("NtFsControlFile: EnumeratePrintQueue Status %X\n", Status));
 
     return Status;
-
-    UNREFERENCED_PARAMETER(InFsd);
 }
 DBGSTATIC
 NTSTATUS
@@ -2524,6 +2575,9 @@ NTSTATUS
     ULONG Level;
 
     PAGED_CODE();
+
+    UNREFERENCED_PARAMETER(Wait);
+    UNREFERENCED_PARAMETER(InFsd);
 
     dprintf(DPRT_FSCTL, ("NtFsControlFile: DeleteConnection "));
 
@@ -2565,9 +2619,6 @@ NTSTATUS
                                            Icb->Se, Level);
 
     return Status;
-
-    UNREFERENCED_PARAMETER(Wait);
-    UNREFERENCED_PARAMETER(InFsd);
 }
 
 NTSTATUS
@@ -2651,8 +2702,6 @@ Note: This must be called in the FSD.
 
 
 
-
-
 BOOLEAN
 PackConnectEntry (
     IN ULONG Level,
@@ -2696,13 +2745,12 @@ Return Value:
 --*/
 
 {
-    WCHAR ConnectName[RMLEN+1];        // Buffer to hold the packed name.
+    PWCHAR ConnectName;          // Buffer to hold the packed name
     ULONG NameLength;
     ULONG BufferSize;
     PLMR_CONNECTION_INFO_3 ConnectionInfo = (PLMR_CONNECTION_INFO_3)*BufferStart;
 
     PAGED_CODE();
-
 
     switch (Level) {
     case 0:
@@ -2720,6 +2768,13 @@ Return Value:
     default:
         return FALSE;
     }
+
+    ConnectName = ALLOCATE_POOL(NonPagedPool, MAX_PATH * sizeof( *ConnectName ), POOL_COMPUTERNAME);
+
+    if( ConnectName == NULL ) {
+        return FALSE;
+    }
+
 
     *BufferStart = ((PUCHAR)*BufferStart) + BufferSize;
 
@@ -2761,6 +2816,7 @@ Return Value:
     *TotalBytesNeeded += NameLength + BufferSize;
 
     if (*BufferStart > *BufferEnd) {
+        FREE_POOL( ConnectName );
         return FALSE;
     }
 
@@ -2864,13 +2920,23 @@ Return Value:
         if (Level > 1) {
             ConnectionInfo->UserName.Length = 0;
         }
+        FREE_POOL( ConnectName );
         return FALSE;
     }
 
     if (Level > 1) {
+        //
+        // Get the user name
+        //
         WCHAR UserName[UNLEN+1];
         PWSTR UserPointer = UserName;
+        UNICODE_STRING DomainName;
         NTSTATUS Status;
+
+        RtlInitUnicodeString(
+            &DomainName,
+            NULL
+            );
 
         Status = RdrCopyUnicodeUserName(&UserPointer, Se);
 
@@ -2884,9 +2950,33 @@ Return Value:
         RtlInitUnicodeString(&ConnectionInfo->UserName, UserName);
 
         if (!RdrPackNtString(&ConnectionInfo->UserName, BufferDisplacment, *BufferStart, BufferEnd)) {
+            FREE_POOL( ConnectName );
             return FALSE;
         }
 
+        //
+        // Get the domain name.  If there is no associated domain name, set
+        //  the information to a null string.  We need to pass a stack
+        //  address because RdrGetUnicodeDomainName does a KeAttachProcess.
+        //
+
+        RdrGetUnicodeDomainName( &DomainName, Se );
+
+        ConnectionInfo->DomainName = DomainName;
+        if( DomainName.Length != 0 ) {
+
+            PUSHORT p = ConnectionInfo->DomainName.Buffer;
+
+            *TotalBytesNeeded += ConnectionInfo->DomainName.Length;
+
+            if( !RdrPackNtString( &ConnectionInfo->DomainName, BufferDisplacment, *BufferStart, BufferEnd) ) {
+                FREE_POOL( ConnectName );
+                FREE_POOL( p );
+                return FALSE;
+            }
+
+            FREE_POOL( p );
+        }
     }
 
     if (Level > 2) {
@@ -2927,6 +3017,7 @@ Return Value:
 
             if (!RdrPackNtString(&ConnectionInfo->TransportName, BufferDisplacment, *BufferStart, BufferEnd)) {
                 RdrDereferenceTransportConnection(Cle->Server);
+                FREE_POOL( ConnectName );
                 return FALSE;
             }
 
@@ -2939,6 +3030,7 @@ Return Value:
 
     }
 
+    FREE_POOL( ConnectName );
     return TRUE;
 }
 
@@ -2981,6 +3073,8 @@ NTSTATUS
 
     PAGED_CODE();
 
+    Wait;DeviceObject;IrpSp;Irp;
+
     if (RdrData.Initialized != RdrStarted) {
         dprintf(DPRT_FSCTL, ("Redirector not started\n"));
         return (Status = STATUS_REDIRECTOR_NOT_STARTED);
@@ -3015,6 +3109,14 @@ NTSTATUS
     //  ourselves from ALL of our bound transports.
     //
 
+#ifdef RDR_PNP_POWER
+    Status = RdrDeRegisterForPnpNotifications();
+
+    if( !NT_SUCCESS( Status ) ) {
+        return Status;
+    }
+#endif
+
     Status = RdrUnbindFromAllTransports(Irp);
 
     if (!NT_SUCCESS(Status)) {
@@ -3022,6 +3124,10 @@ NTSTATUS
     }
 
     IoStopTimer((PDEVICE_OBJECT )DeviceObject);
+
+    SeUnregisterLogonSessionTerminatedRoutine(
+        (PSE_LOGON_SESSION_TERMINATED_ROUTINE)
+            RdrHandleLogonSessionTermination);
 
     //
     //  Next unregister the redirector with the multiple UNC provider.
@@ -3040,9 +3146,7 @@ NTSTATUS
     //  Now get rid of the structures associated with exchanging SMBs.
     //
 
-    if (!NT_SUCCESS(Status = RdrpUninitializeSmbExchange())) {
-        return(Status);
-    }
+    RdrpUninitializeSmbExchange();
 
     //
     //  And clean up our security stuff.
@@ -3065,6 +3169,13 @@ NTSTATUS
     FREE_POOL(RdrPrimaryDomain.Buffer);
 
     RdrData.Initialized = RdrStopped;
+
+#ifdef RASAUTODIAL
+    //
+    // Unbind with the automatic connection driver.
+    //
+    RdrAcdUnbind();
+#endif // RASAUTODIAL
 
     //
     //  If there is one Fcb and one Icb then tell the caller that the
@@ -3091,7 +3202,6 @@ NTSTATUS
     KeReleaseMutex(&RdrDatabaseMutex, FALSE);
 
     return Status;
-    Wait;DeviceObject;IrpSp;Irp;
 }
 
 
@@ -3129,8 +3239,9 @@ NTSTATUS
 
     PAGED_CODE();
 
-    return Status;
     Wait;DeviceObject;IrpSp;Irp;
+
+    return Status;
 }
 
 NTSTATUS
@@ -3310,6 +3421,7 @@ Return Value:
             BOOLEAN OpeningMailslotFile;
             ULONG ConnectDisposition = FILE_OPEN_IF;
             ULONG ConnectionType;
+            BOOLEAN bConn;
 
             qpRequest = InputBuffer;
 
@@ -3328,7 +3440,8 @@ Return Value:
                                                 &OpeningMailslotFile,
                                                 &ConnectDisposition,
                                                 &ConnectionType,
-                                                NULL);
+                                                NULL,
+                                                &bConn);
 
             if ( NT_SUCCESS(Status) ) {
                 qpResponse = OutputBuffer;
@@ -3418,6 +3531,8 @@ NTSTATUS
     NTSTATUS Status;
     KIRQL OldIrql;
 
+    UNREFERENCED_PARAMETER(InFsd);
+
     RdrReferenceDiscardableCode(RdrVCDiscardableSection);
 
     DISCARDABLE_CODE(RdrVCDiscardableSection);
@@ -3466,8 +3581,6 @@ ReturnStatus:
         Irp->IoStatus.Information = 0;
     }
     return Status;
-
-    UNREFERENCED_PARAMETER(InFsd);
 }
 
 
@@ -3545,27 +3658,35 @@ NTSTATUS
     }
 
     //
-    // Create shared memory, create events, start SmbTrace thread,
-    // and indicate that this is the redirector
+    // Initialize SmbTrace.  This is a no-op if it's already been done.
     //
 
-    Status = SmbTraceStart(
-                InputBufferLength,
-                OutputBufferLength,
-                InputBuffer,
-                IrpSp->FileObject,
-                SMBTRACE_REDIRECTOR
-                );
-
+    Status = SmbTraceInitialize(SMBTRACE_REDIRECTOR);
     if ( NT_SUCCESS(Status) ) {
 
         //
-        // Record the length of the return information, which is
-        // simply the length of the output buffer, validated by
-        // SmbTraceStart.
+        // Create shared memory, create events, start SmbTrace thread,
+        // and indicate that this is the redirector
         //
 
-        Irp->IoStatus.Information = OutputBufferLength;
+        Status = SmbTraceStart(
+                    InputBufferLength,
+                    OutputBufferLength,
+                    InputBuffer,
+                    IrpSp->FileObject,
+                    SMBTRACE_REDIRECTOR
+                    );
+
+        if ( NT_SUCCESS(Status) ) {
+
+            //
+            // Record the length of the return information, which is
+            // simply the length of the output buffer, validated by
+            // SmbTraceStart.
+            //
+
+            Irp->IoStatus.Information = OutputBufferLength;
+        }
     }
 
     return Status;
@@ -3618,8 +3739,184 @@ NTSTATUS - STATUS_SUCCESS or STATUS_UNSUCCESSFUL
 
 
 
-#ifdef _CAIRO_
+NTSTATUS
+GetDfsReferral(
+    IN PIRP Irp,
+    IN PICB Icb,
+    IN PCHAR InputBuffer,
+    IN ULONG InputBufferLength,
+    IN PUCHAR OutputBuffer,
+    IN ULONG OutputBufferLength
+)
+/*++
 
+Routine Description:
+
+    This routine sends a trans2 SMB to retrieve a Dfs referral.
+
+Arguments:
+
+    IN PIRP Irp -- Irp to use
+    IN PICB Icb -- The Icb to use. Should be an open of IPC$ on some server
+    IN PCHAR InputBuffer -- Should be a DFS_GET_REFERRALS_INPUT_ARG
+    IN ULONG InputBufferLength -- Length in bytes of InputBuffer
+    IN PUCHAR OutputBuffer -- On return, a DFS_GET_REFERRALS_OUTPUT_BUFFER
+    IN OUT PULONG OutputBufferLength -- Length in bytes of OutputBuffer
+
+Return Value:
+
+    NTSTATUS
+
+--*/
+{
+    NTSTATUS Status;
+    USHORT GetReferralSetup = TRANS2_GET_DFS_REFERRAL;
+    ULONG OutParameter, OutSetup, OutData;
+
+    RdrReferenceDiscardableCode(RdrFileDiscardableSection);
+
+    OutParameter = 0;
+    OutSetup = 0;
+    OutData = OutputBufferLength;
+
+    if (!(Icb->Fcb->Connection->Server->Capabilities & DF_DFSAWARE)) {
+
+        Status = STATUS_DFS_UNAVAILABLE;
+
+        Irp->IoStatus.Information = 0;
+
+    } else {
+
+        Status = RdrTransact(
+                    Irp,
+                    Icb->Fcb->Connection,
+                    Icb->Se,
+                    (PVOID) &GetReferralSetup,
+                    sizeof(GetReferralSetup),
+                    &OutSetup,
+                    NULL,
+                    InputBuffer,
+                    InputBufferLength,
+                    &OutParameter,
+                    NULL,
+                    0,
+                    OutputBuffer,
+                    &OutData,
+                    &Icb->FileId,
+                    0,
+                    0,
+                    0,
+                    NULL,
+                    NULL);
+
+        Irp->IoStatus.Information = OutData;
+
+    }
+
+    RdrDereferenceDiscardableCode(RdrFileDiscardableSection);
+
+    return( Status );
+
+}
+
+
+NTSTATUS
+ReportDfsInconsistency(
+    IN PIRP Irp,
+    IN PICB Icb,
+    IN PCHAR InputBuffer,
+    IN ULONG InputBufferLength
+)
+/*++
+
+Routine Description:
+
+    This routine sends a trans2 SMB to report a Dfs inconsistency.
+
+Arguments:
+
+    IN PIRP Irp -- Irp to use
+    IN PICB Icb -- The Icb to use. Should be an open of IPC$ on some server
+    IN PCHAR InputBuffer -- Should be a DFS_GET_REFERRALS_INPUT_ARG
+    IN ULONG InputBufferLength -- Length in bytes of InputBuffer
+
+Return Value:
+
+    NTSTATUS
+
+--*/
+{
+    NTSTATUS Status;
+    USHORT GetReferralSetup = TRANS2_GET_DFS_REFERRAL;
+    ULONG InParameter, OutParameter, OutSetup, OutData;
+    PWCHAR pwsz;
+
+    RdrReferenceDiscardableCode(RdrFileDiscardableSection);
+
+    //
+    // The input buffer from Dfs contains the path name with the inconsistency
+    // followed by the DFS_REFERRAL_V1 that has the inconsistency. The
+    // path name is sent in the Parameter section, and the DFS_REFERRAL_V1 is
+    // passed in the Data section. So, parse these two things out.
+    //
+
+    for (pwsz = (PWCHAR) InputBuffer; *pwsz != UNICODE_NULL; pwsz++) {
+        NOTHING;
+    }
+
+    pwsz++;                                      // Get past the NULL char
+
+    InParameter = (ULONG) (((PCHAR) pwsz) - ((PCHAR) InputBuffer));
+
+    if (InParameter >= InputBufferLength) {
+        return( STATUS_INVALID_PARAMETER );
+    }
+
+    OutParameter = 0;
+    OutSetup = 0;
+    OutData = 0;
+
+    if (!(Icb->Fcb->Connection->Server->Capabilities & DF_DFSAWARE)) {
+
+        Status = STATUS_DFS_UNAVAILABLE;
+
+        Irp->IoStatus.Information = 0;
+
+    } else {
+
+        Status = RdrTransact(
+                    Irp,
+                    Icb->Fcb->Connection,
+                    Icb->Se,
+                    (PVOID) &GetReferralSetup,
+                    sizeof(GetReferralSetup),
+                    &OutSetup,
+                    NULL,
+                    InputBuffer,
+                    InputBufferLength,
+                    &OutParameter,
+                    (PVOID) pwsz,
+                    InputBufferLength - InParameter,
+                    NULL,
+                    &OutData,
+                    &Icb->FileId,
+                    0,
+                    0,
+                    0,
+                    NULL,
+                    NULL);
+
+        Irp->IoStatus.Information = 0;
+
+    }
+
+    RdrDereferenceDiscardableCode(RdrFileDiscardableSection);
+
+    return( Status );
+
+}
+
+
 DBGSTATIC
 NTSTATUS
 RdrIssueNtIoctl(
@@ -3666,36 +3963,108 @@ NTSTATUS
     ULONG OutCount = sizeof(Setup);
     ULONG ParCount = 0;
 
-    Setup.IsFlags = 0;
-
     if (Icb->Fcb->Connection == NULL) {
         Status = STATUS_INVALID_PARAMETER;
     } else if (!Wait) {
         DbgBreakPoint();
         Status = STATUS_UNEXPECTED_NETWORK_ERROR;
     } else {
+
+        if( FlagOn( Icb->Flags, ICB_DEFERREDOPEN ) ) {
+
+            RdrAcquireFcbLock(Icb->Fcb, ExclusiveLock, TRUE);
+
+            if (FlagOn(Icb->Flags, ICB_DEFERREDOPEN) ) {
+
+                Status = RdrCreateFile(
+                            Irp,
+                            Icb,
+                            Icb->u.d.OpenOptions,
+                            Icb->u.d.ShareAccess,
+                            Icb->u.d.FileAttributes,
+                            Icb->u.d.DesiredAccess,
+                            Icb->u.d.Disposition,
+                            NULL,
+                            FALSE);
+
+                if (!NT_SUCCESS(Status)) {
+                    RdrReleaseFcbLock( Icb->Fcb );
+                    return(Status);
+                }
+            }
+
+            RdrReleaseFcbLock( Icb->Fcb );
+        }
+
         Setup.IsFsctl = TRUE;
-        // Setup.IsFlags = UseInOut;
-        Setup.IsFlags = 0;
+
         SmbPutAlignedUlong(&Setup.FunctionCode, Function);
 
-        // Check if the Fcb is for the tree connect or for a real file. If
-        // a tree connect, we send over the TID instead of the FID and set
-        // IsTID to let the srv know (note that we don't have a FID for
-        // such an object, which is why we use the TID).This is here for DFS which
-        // wants to do a tree connect and then use that handle for all of its
-        // FSCTL operations (this sort of assumes that the srv has a handle
-        // or an object pointer for the underlying share directory. If it
-        // does not, then this may be costly, but it is still possible for
-        // the srv to support it).
+        Setup.IsFlags = 0;
 
-        if (Icb->NonPagedFcb->Type == TreeConnect ) {
-            dprintf(DPRT_FSCTL, ("Name Resolve to tree root\n"));
-            SmbPutAlignedUshort(&Setup.Fid, Icb->Fcb->Connection->TreeId);
-            Setup.IsFlags |= IsTID;
-        } else {
-            SmbPutAlignedUshort(&Setup.Fid, Icb->FileId);
+        //
+        // If this is an FSCTL on a file that was pseudo-opened, we
+        // can't send the FSCTL because we don't have a file handle.
+        //
+
+        if (!FlagOn(Icb->Flags, ICB_HASHANDLE)) {
+
+            FILE_COMPRESSION_INFORMATION LocalBuffer;
+            ULONG Length;
+
+            //
+            // We can special-case FSCTL_GET_COMPRESSION because
+            // there is a path-based SMB that we can use to get
+            // the required information.
+            //
+
+            if (Function != FSCTL_GET_COMPRESSION) {
+                return STATUS_NOT_IMPLEMENTED;
+            }
+            if (!ARGUMENT_PRESENT(OutputBuffer)) {
+                return STATUS_INVALID_USER_BUFFER;
+            }
+            if (*OutputBufferLength < sizeof(USHORT)) {
+                return STATUS_INVALID_PARAMETER;
+            }
+            Length = sizeof(LocalBuffer);
+            Status = RdrQueryNtPathInformation(
+                        NULL,
+                        Icb,
+                        SMB_QUERY_FILE_COMPRESSION_INFO,
+                        &LocalBuffer,
+                        &Length
+                        );
+            if (NT_SUCCESS(Status)) {
+                Length = sizeof(USHORT);
+                try {
+                    *(PUSHORT)OutputBuffer = LocalBuffer.CompressionFormat;
+                } except (EXCEPTION_EXECUTE_HANDLER) {
+                    Status = GetExceptionCode();
+                    Length = 0;
+                }
+            } else {
+
+                Length = 0;
+
+                //
+                // If the remote filesystem returned STATUS_INVALID_PARAMETER
+                // to our QueryInformationFile, meaning that it doesn't
+                // support compression, we need to translate that to the
+                // status the filesystem would return to the FSCTL --
+                // STATUS_INVALID_DEVICE_REQUEST.
+                //
+
+                if (Status == STATUS_INVALID_PARAMETER) {
+                    Status = STATUS_INVALID_DEVICE_REQUEST;
+                }
+            }
+            *OutputBufferLength = Length;
+            return Status;
+
         }
+
+        SmbPutAlignedUshort(&Setup.Fid, Icb->FileId);
 
         RdrReferenceDiscardableCode(RdrFileDiscardableSection);
 
@@ -3726,5 +4095,5 @@ NTSTATUS
     return(Status);
 }   // RdrIssueNtIoctl
 
-#endif // _CAIRO_
+
 

@@ -182,7 +182,7 @@ Return Values:
     ULONG ConflictingAccountRid;
     LARGE_INTEGER StartTime, TimeAfterThis100Users, TimeAfterPrevious100Users;
     LARGE_INTEGER TimeForThis100Users, TimeForThis100UsersInMs, TotalTime, TenThousand;
-    LARGE_INTEGER Remainder;
+    
 
     //
     // Open the local SAM Accounts Domain
@@ -395,21 +395,14 @@ Return Values:
                     break;
                 }
 
-                TimeForThis100Users = RtlLargeIntegerSubtract(
-                                          TimeAfterThis100Users,
-                                          TimeAfterPrevious100Users
-                                          );
+                TimeForThis100Users.QuadPart = TimeAfterThis100Users.QuadPart -
+                                               TimeAfterPrevious100Users.QuadPart;
 
-                TimeForThis100UsersInMs = RtlLargeIntegerDivide(
-                                             TimeForThis100Users,
-                                             TenThousand,
-                                             &Remainder
-                                             );
+                TimeForThis100UsersInMs = TimeForThis100Users.QuadPart /
+                                          TenThousand.QuadPart;
 
-                TotalTime = RtlLargeIntegerSubtract(
-                                TimeAfterThis100Users,
-                                StartTime
-                                );
+                TotalTime = TimeAfterThis100Users.QuadPart -
+                            StartTime.QuadPart;
 
                 KdPrint(("%d Accounts Created\n", AccountNumber));
                 KdPrint(("Last 100 users took %d millisecs to create\n", TimeForThis100UsersInMs.LowPart));

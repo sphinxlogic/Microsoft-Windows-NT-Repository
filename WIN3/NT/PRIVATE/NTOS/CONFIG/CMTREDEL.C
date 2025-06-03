@@ -67,7 +67,7 @@ Return Value:
     HCELL_INDEX ptr1;
     HCELL_INDEX ptr2;
     HCELL_INDEX parent;
-    PCELL_DATA pdata;
+    PCM_KEY_NODE Node;
 
     CMLOG(CML_MAJOR, CMS_SAVRES) {
         KdPrint(("CmpDeleteTree:\n"));
@@ -78,21 +78,21 @@ Return Value:
 
     while(TRUE) {
 
-        pdata = HvGetCell(Hive, ptr1);
-        count = pdata->u.KeyNode.SubKeyCounts[Stable] +
-                pdata->u.KeyNode.SubKeyCounts[Volatile];
-        parent = pdata->u.KeyNode.Parent;
+        Node = (PCM_KEY_NODE)HvGetCell(Hive, ptr1);
+        count = Node->SubKeyCounts[Stable] +
+                Node->SubKeyCounts[Volatile];
+        parent = Node->Parent;
 
         if (count > 0) {                // ptr1->count > 0?
 
             //
             // subkeys exist, find and delete them
             //
-            ptr2 = CmpFindSubKeyByNumber(Hive, ptr1, 0);
+            ptr2 = CmpFindSubKeyByNumber(Hive, Node, 0);
 
-            pdata = HvGetCell(Hive, ptr2);
-            count = pdata->u.KeyNode.SubKeyCounts[Stable] +
-                    pdata->u.KeyNode.SubKeyCounts[Volatile];
+            Node = (PCM_KEY_NODE)HvGetCell(Hive, ptr2);
+            count = Node->SubKeyCounts[Stable] +
+                    Node->SubKeyCounts[Volatile];
 
             if (count > 0) {            // ptr2->count > 0?
 
@@ -186,7 +186,12 @@ Return Value:
 
 
     if (Unlink == TRUE) {
-        CmpRemoveSubKey(Hive, ptarget->u.KeyNode.Parent, Cell);
+        BOOLEAN Success;
+
+        Success = CmpRemoveSubKey(Hive, ptarget->u.KeyNode.Parent, Cell);
+        if (!Success) {
+            return STATUS_INSUFFICIENT_RESOURCES;
+        }
         pparent = HvGetCell(Hive, ptarget->u.KeyNode.Parent);
         if ( (pparent->u.KeyNode.SubKeyCounts[Stable] +
               pparent->u.KeyNode.SubKeyCounts[Volatile]) == 0)

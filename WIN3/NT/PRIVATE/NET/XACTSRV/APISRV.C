@@ -27,6 +27,7 @@ Revision History:
 #include "XactSrvP.h"
 #include <lmbrowsr.h>       // Definition of I_BrowserServerEnum
 
+
 //
 // Declaration of descriptor strings.
 //
@@ -104,8 +105,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetServer: NetServerDiskEnum failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetServer: NetServerDiskEnum failed: "
+                          "%X\n", status ));
         }
 
         Header->Status = (WORD)status;
@@ -143,7 +144,7 @@ Return Value:
 
         for ( i = 0; i < entriesFilled; i++ ) {
 
-            NetpCopyTStrToStr( entryOut, entryIn );
+            NetpCopyWStrToStrDBCS( entryOut, entryIn );
             entryOut += ( strlen( entryOut ) + 1 );
             entryIn += ( STRLEN( entryIn ) + 1 );
 
@@ -207,10 +208,10 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(SERVER) {
-        NetpDbgPrint( "XsNetServerEnum2: header at %lx, params at %lx, "
+        NetpKdPrint(( "XsNetServerEnum2: header at %lx, params at %lx, "
                       "level %ld, buf size %ld\n",
                       Header, parameters, SmbGetUshort( &parameters->Level ),
-                      SmbGetUshort( &parameters->BufLen ));
+                      SmbGetUshort( &parameters->BufLen )));
     }
 
     //
@@ -252,8 +253,8 @@ Return Value:
 
         if ( !XsApiSuccess( status ) ) {
             IF_DEBUG(API_ERRORS) {
-                NetpDbgPrint( "XsNetServerEnum2: NetServerEnum failed: %X\n",
-                              status );
+                NetpKdPrint(( "XsNetServerEnum2: NetServerEnum failed: %X\n",
+                              status ));
             }
             Header->Status = (WORD)status;
             goto cleanup;
@@ -287,6 +288,7 @@ Return Value:
 
                  SmbGetUlong( &parameters->ServerType ),
                  nativeDomain,
+                 NULL,
 
                  &Header->Converter
 
@@ -295,7 +297,7 @@ Return Value:
 
         if (!XsApiSuccess( Header->Status )) {
             IF_DEBUG(API_ERRORS) {
-                NetpDbgPrint( "XsNetServerEnum2: I_BrowserServerEnum failed: %d\n", Header->Status);
+                NetpKdPrint(( "XsNetServerEnum2: I_BrowserServerEnum failed: %d\n", Header->Status));
             }
             goto cleanup;
         }
@@ -336,6 +338,185 @@ cleanup:
     return STATUS_SUCCESS;
 
 } // XsNetServerEnum2
+
+
+NTSTATUS
+XsNetServerEnum3 (
+    API_HANDLER_PARAMETERS
+    )
+
+/*++
+
+Routine Description:
+
+    This routine handles a call to NetServerEnum.
+
+Arguments:
+
+    API_HANDLER_PARAMETERS - information about the API call. See
+        XsTypes.h for details.
+
+    Transport - The name of the transport provided to the API.
+
+Return Value:
+
+    NTSTATUS - STATUS_SUCCESS or reason for failure.
+
+--*/
+
+{
+    NET_API_STATUS status = NERR_Success;
+
+    PXS_NET_SERVER_ENUM_3 parameters = Parameters;
+    LPTSTR nativeDomain = NULL;             // Native parameters
+    LPTSTR nativeFirstNameToReturn = NULL;  // Native parameters
+    LPVOID outBuffer= NULL;
+    DWORD entriesRead;
+    DWORD totalEntries;
+    LPTSTR clientTransportName = NULL;
+    LPTSTR clientName = NULL;
+
+    DWORD entriesFilled;                    // Conversion variables
+
+    API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
+
+    IF_DEBUG(SERVER) {
+        NetpKdPrint(( "XsNetServerEnum3: header at %lx, params at %lx, "
+                      "level %ld, buf size %ld\n",
+                      Header, parameters, SmbGetUshort( &parameters->Level ),
+                      SmbGetUshort( &parameters->BufLen )));
+    }
+
+    //
+    // Translate parameters, check for errors.
+    //
+
+    if ( XsWordParamOutOfRange( parameters->Level, 0, 1 )) {
+
+        Header->Status = ERROR_INVALID_LEVEL;
+        goto cleanup;
+    }
+
+    XsConvertTextParameter(
+        nativeDomain,
+        (LPSTR)SmbGetUlong( &parameters->Domain )
+        );
+
+    XsConvertTextParameter(
+        nativeFirstNameToReturn,
+        (LPSTR)SmbGetUlong( &parameters->FirstNameToReturn )
+        );
+
+    clientTransportName = Header->ClientTransportName;
+
+    clientName = Header->ClientMachineName;
+
+    //
+    // Get the actual server information from the local 32-bit call. The
+    // native level is 100 or 101.
+    //
+
+    if (clientTransportName == NULL) {
+        status = NetServerEnumEx(
+                        NULL,
+                        100 + (DWORD)SmbGetUshort( &parameters->Level ),
+                        (LPBYTE *)&outBuffer,
+                        XsNativeBufferSize( SmbGetUshort( &parameters->BufLen )),
+                        &entriesRead,
+                        &totalEntries,
+                        SmbGetUlong( &parameters->ServerType ),
+                        nativeDomain,
+                        nativeFirstNameToReturn
+                        );
+
+        if ( !XsApiSuccess( status ) ) {
+            IF_DEBUG(API_ERRORS) {
+                NetpKdPrint(( "XsNetServerEnum3: NetServerEnum failed: %X\n",
+                              status ));
+            }
+            Header->Status = (WORD)status;
+            goto cleanup;
+        }
+
+        Header->Status = XsConvertServerEnumBuffer(
+                              outBuffer,
+                              entriesRead,
+                              &totalEntries,
+                              SmbGetUshort( &parameters->Level ),
+                              (LPVOID)SmbGetUlong( &parameters->Buffer ),
+                              SmbGetUshort( &parameters->BufLen ),
+                              &entriesFilled,
+                              &Header->Converter);
+
+    } else {
+
+        Header->Status = I_BrowserServerEnumForXactsrv(
+                 clientTransportName,
+                 clientName,
+
+                 100 + SmbGetUshort( &parameters->Level ),
+                 SmbGetUshort( &parameters->Level ),
+
+                 (PVOID)SmbGetUlong( &parameters->Buffer ),
+                 SmbGetUshort( &parameters->BufLen ),
+                 XsNativeBufferSize( SmbGetUshort( &parameters->BufLen ) ),
+
+                 &entriesFilled,
+                 &totalEntries,
+
+                 SmbGetUlong( &parameters->ServerType ),
+                 nativeDomain,
+                 nativeFirstNameToReturn,
+
+                 &Header->Converter
+
+                 );
+
+
+        if (!XsApiSuccess( Header->Status )) {
+            IF_DEBUG(API_ERRORS) {
+                NetpKdPrint(( "XsNetServerEnum3: I_BrowserServerEnum failed: %d\n", Header->Status));
+            }
+            goto cleanup;
+        }
+    }
+
+    if ( entriesFilled == 0 ) {
+        SmbPutUshort( &parameters->BufLen, 0 );
+    }
+
+    //
+    // Set up the response parameters.
+    //
+
+    SmbPutUshort( &parameters->EntriesRead, (WORD)entriesFilled );
+    SmbPutUshort( &parameters->TotalAvail, (WORD)totalEntries );
+
+cleanup:
+
+    if ( outBuffer != NULL ) {
+        NetApiBufferFree( outBuffer );
+    }
+    NetpMemoryFree( nativeDomain );
+    NetpMemoryFree( nativeFirstNameToReturn );
+
+    //
+    // Determine return buffer size.
+    //
+
+    XsSetDataCount(
+        &parameters->BufLen,
+        SmbGetUshort( &parameters->Level ) == 0 ?
+                    Desc16_server_info_0 :
+                    Desc16_server_info_1,
+        Header->Converter,
+        entriesFilled,
+        Header->Status
+        );
+
+    return STATUS_SUCCESS;
+
+} // XsNetServerEnum3
 
 
 USHORT
@@ -381,8 +562,8 @@ Return Value:
     PCHAR StructureDesc;
 
     IF_DEBUG(SERVER) {
-        NetpDbgPrint( "XsConvertServerEnumBuffer: received %ld entries at %lx\n",
-                      EntriesRead, ServerEnumBuffer );
+        NetpKdPrint(( "XsConvertServerEnumBuffer: received %ld entries at %lx\n",
+                      EntriesRead, ServerEnumBuffer ));
     }
 
     //
@@ -426,10 +607,10 @@ Return Value:
         );
 
     IF_DEBUG(SERVER) {
-        NetpDbgPrint( "32-bit data at %lx, 16-bit data at %lx, %ld BR,"
+        NetpKdPrint(( "32-bit data at %lx, 16-bit data at %lx, %ld BR,"
                       " Entries %ld of %ld\n",
                       ServerEnumBuffer, ClientBuffer ,
-                      bytesRequired, *EntriesFilled, *TotalEntries );
+                      bytesRequired, *EntriesFilled, *TotalEntries ));
     }
 
     //
@@ -442,9 +623,9 @@ Return Value:
         (*TotalEntries) -= invalidEntries;
 #if DBG
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetServerEnum: %d invalid entries removed."
+            NetpKdPrint(( "XsNetServerEnum: %d invalid entries removed."
                           " Total entries now %d, entries filled %d.\n",
-                          invalidEntries, *TotalEntries, *EntriesFilled );
+                          invalidEntries, *TotalEntries, *EntriesFilled ));
         }
 #endif
     }
@@ -514,20 +695,23 @@ Return Value:
     LPDESC nativeStructureDesc;
     PSERVER_16_INFO_3 returnStruct;
     BOOLEAN bufferTooSmall = FALSE;
+    LPWSTR ServerName = NULL;
+    UCHAR serverNameBuf[ 2 + NETBIOS_NAME_LEN + 1 ];
+    PUCHAR p;
 
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(SERVER) {
-        NetpDbgPrint( "XsNetServerGetInfo: header at %lx, "
+        NetpKdPrint(( "XsNetServerGetInfo: header at %lx, "
                       "params at %lx, level %ld\n",
-                      Header, parameters, SmbGetUshort( &parameters->Level ) );
+                      Header, parameters, SmbGetUshort( &parameters->Level ) ));
     }
 
     //
     // Check for errors.
     //
 
-    if ( XsWordParamOutOfRange( parameters->Level, 0, 3 )) {
+    if ( XsWordParamOutOfRange( parameters->Level, 0, 3 ) ) {
 
         Header->Status = ERROR_INVALID_LEVEL;
         goto cleanup;
@@ -567,6 +751,7 @@ Return Value:
         StructureDesc = Desc16_server_info_3;
         localLevel = 102;
         break;
+
     }
 
     //
@@ -582,26 +767,38 @@ Return Value:
     if ( SmbGetUshort( &parameters->BufLen ) < sizeOfFixedStructure ) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetServerGetInfo: Buffer too small.\n" );
+            NetpKdPrint(( "XsNetServerGetInfo: Buffer too small.\n" ));
         }
 
         bufferTooSmall = TRUE;
     }
 
+    serverNameBuf[0] = serverNameBuf[1] = '\\';
+    memcpy( &serverNameBuf[2], Header->ServerName, NETBIOS_NAME_LEN );
+    for( p = &serverNameBuf[ NETBIOS_NAME_LEN + 1 ]; p > serverNameBuf && *p == ' '; p-- )
+        ;
+    *(p+1) = '\0';
+
+    ServerName = XsDupStrToWStr( serverNameBuf );
+
+    if( ServerName == NULL ) {
+        Header->Status = NERR_NoRoom;
+        goto cleanup;
+    }
+
     //
     // Do the actual local call.
     //
-
     status = NetServerGetInfo(
-                 NULL,
+                 ServerName,
                  localLevel,
                  (LPBYTE *)&nativeStruct
                  );
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetServerGetInfo: NetServerGetInfo failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetServerGetInfo: NetServerGetInfo failed: "
+                          "%X\n", status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
@@ -616,15 +813,15 @@ Return Value:
     if ( localLevel == 102 ) {
 
         status = NetServerGetInfo(
-                     NULL,
+                     ServerName,
                      502,
                      (LPBYTE *)&secondaryNativeStruct
                      );
 
         if ( !XsApiSuccess( status )) {
             IF_DEBUG(API_ERRORS) {
-                NetpDbgPrint( "XsNetServerGetInfo: NetServerGetInfo failed: "
-                              "%X\n", status );
+                NetpKdPrint(( "XsNetServerGetInfo: NetServerGetInfo failed: "
+                              "%X\n", status ));
             }
             Header->Status = (WORD)status;
             goto cleanup;
@@ -667,8 +864,8 @@ Return Value:
 
     if ( status != NERR_Success ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetServerGetInfo: RapConvertSingleEntry failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetServerGetInfo: RapConvertSingleEntry failed: "
+                          "%X\n", status ));
         }
 
         Header->Status = NERR_InternalError;
@@ -696,14 +893,14 @@ Return Value:
 
     case 3:
 
-        bytesRequired += STRLEN( DEF16_sv_autopath ) + 1;
+        bytesRequired += NetpUnicodeToDBCSLen( DEF16_sv_autopath ) + 1;
 
     case 2:
 
-        bytesRequired += ( STRLEN( DEF16_sv_alerts )
-                               + STRLEN( DEF16_sv_srvheuristics )
-                               + STRLEN( nativeStruct->sv102_comment )
-                               + STRLEN( nativeStruct->sv102_userpath )
+        bytesRequired += ( NetpUnicodeToDBCSLen( DEF16_sv_alerts )
+                               + NetpUnicodeToDBCSLen( DEF16_sv_srvheuristics )
+                               + NetpUnicodeToDBCSLen( nativeStruct->sv102_comment )
+                               + NetpUnicodeToDBCSLen( nativeStruct->sv102_userpath )
                                + 4 );
     }
 
@@ -778,7 +975,7 @@ Return Value:
     if ( bytesRequired > (DWORD)SmbGetUshort( &parameters-> BufLen )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "NetServerGetInfo: More data available.\n" );
+            NetpKdPrint(( "NetServerGetInfo: More data available.\n" ));
         }
         Header->Status = ERROR_MORE_DATA;
         goto cleanup;
@@ -853,6 +1050,10 @@ Return Value:
     }
 
 cleanup:
+
+    if( ServerName != NULL ) {
+        NetpMemoryFree( ServerName );
+    }
 
     //
     // Set up the response parameters.
@@ -998,7 +1199,7 @@ Return Value:
 
         if ( buffer == NULL ) {
             IF_DEBUG(ERRORS) {
-                NetpDbgPrint( "XsNetServerSetInfo: failed to create buffer" );
+                NetpKdPrint(( "XsNetServerSetInfo: failed to create buffer" ));
             }
             Header->Status = NERR_NoRoom;
             goto cleanup;
@@ -1006,8 +1207,8 @@ Return Value:
         }
 
         IF_DEBUG(SERVER) {
-            NetpDbgPrint( "XsNetServerSetInfo: buffer of %ld bytes at %lx\n",
-                          bufferSize, buffer );
+            NetpKdPrint(( "XsNetServerSetInfo: buffer of %ld bytes at %lx\n",
+                          bufferSize, buffer ));
         }
 
         //
@@ -1034,8 +1235,8 @@ Return Value:
 
         if ( status != NERR_Success ) {
             IF_DEBUG(ERRORS) {
-                NetpDbgPrint( "XsNetServerSetInfo: RapConvertSingleEntry "
-                              "failed: %X\n", status );
+                NetpKdPrint(( "XsNetServerSetInfo: RapConvertSingleEntry "
+                              "failed: %X\n", status ));
             }
 
             Header->Status = NERR_InternalError;
@@ -1071,7 +1272,7 @@ Return Value:
 
         if ( comment == NULL ) {
             IF_DEBUG(ERRORS) {
-                NetpDbgPrint( "XsNetServerSetInfo: failed to create buffer" );
+                NetpKdPrint(( "XsNetServerSetInfo: failed to create buffer" ));
             }
             Header->Status = NERR_NoRoom;
             goto cleanup;
@@ -1162,8 +1363,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetServerSetInfo: NetServerSetInfo failed: %X\n",
-                          status );
+            NetpKdPrint(( "XsNetServerSetInfo: NetServerSetInfo failed: %X\n",
+                          status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;

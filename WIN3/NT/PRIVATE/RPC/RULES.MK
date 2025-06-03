@@ -21,17 +21,27 @@ TARGETDIR=$(TARGETDIRBASE)\win
 !else ifdef MAC
 
 !include $(RPCBUILD)\mac.mk
+!message Building MAC
 TARGETDIR=$(TARGETDIRBASE)\mac
+
+!else ifdef WIN32C
+
+!include $(RPCBUILD)\win32c.mk
+TARGETDIR=$(TARGETDIRBASE)\win32c
+
+!else ifdef MPPC
+!include $(RPCBUILD)\mppc.mk
+!message Building MPPC
+TARGETDIR=$(TARGETDIRBASE)\mppc
 
 !else ifdef ALL
 !else
-!error DOS, WIN, MAC or ALL must be set in the local makefile.
+!error DOS, WIN, MAC, WIN32C or ALL must be set in the local makefile.
 !endif
 
 # Build platform-specific variables
 !if "$(BLD)"=="nt"
-CLIENT_SUBDIRS	=DOS WIN
-# -- MACBUGBUG -- CLIENT_SUBDIRS	=DOS WIN MAC
+CLIENT_SUBDIRS=DOS WIN MAC MPPC
 !else
 !error	- Build Platform must by NT
 !endif

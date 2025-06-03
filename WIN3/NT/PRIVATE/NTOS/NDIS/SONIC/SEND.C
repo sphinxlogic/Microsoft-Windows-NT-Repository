@@ -600,7 +600,7 @@ Return Value:
     //
     // The virtual address of the current ndis buffer.
     //
-    PVOID BufferVirtualAddress;
+    UINT BufferOffset;
 
     //
     // The length in bytes of the current ndis buffer.
@@ -680,9 +680,9 @@ Return Value:
 
     while (CurrentBuffer) {
 
-        NdisQueryBuffer(
+        NdisQueryBufferOffset(
             CurrentBuffer,
-            &BufferVirtualAddress,
+            &BufferOffset,
             &BufferVirtualLength
             );
 
@@ -716,8 +716,8 @@ Return Value:
             // not longword-aligned.
             //
 
-            if (((ULONG)BufferVirtualAddress & 0x03)  &&
-                (((ULONG)BufferVirtualAddress + BufferVirtualLength) & 0x03)) {
+            if (((ULONG)BufferOffset & 0x03)  &&
+                (((ULONG)BufferOffset + BufferVirtualLength) & 0x03)) {
 
                 //
                 // Now see if this piece is large enough to
@@ -725,7 +725,7 @@ Return Value:
                 //
 
                 if (BufferVirtualLength >
-                    (UINT)(4 - ((ULONG)BufferVirtualAddress & 0x03) +
+                    (UINT)(4 - ((ULONG)BufferOffset & 0x03) +
                         (2*SONIC_MIN_FRAGMENT_SIZE))) {
 
                     //
@@ -773,7 +773,7 @@ Return Value:
             // bytes before a page boundary.
             //
 
-            if (PAGE_SIZE - ((ULONG)BufferVirtualAddress & (PAGE_SIZE-1)) <
+            if (PAGE_SIZE - ((ULONG)BufferOffset & (PAGE_SIZE-1)) <
                         SONIC_MIN_FRAGMENT_SIZE) {
                 ViolatedConstraints = TRUE;
                 goto DoneExamining;
@@ -784,7 +784,7 @@ Return Value:
             // bytes after a page boundary.
             //
 
-            if (((ULONG)BufferVirtualAddress + BufferVirtualLength) & (PAGE_SIZE-1) <
+            if (((ULONG)BufferOffset + BufferVirtualLength) & (PAGE_SIZE-1) <
                     SONIC_MIN_FRAGMENT_SIZE) {
                 ViolatedConstraints = TRUE;
                 goto DoneExamining;

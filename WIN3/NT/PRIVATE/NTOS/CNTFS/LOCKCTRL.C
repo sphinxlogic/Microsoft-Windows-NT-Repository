@@ -69,12 +69,13 @@ Return Value:
     NTSTATUS Status = STATUS_SUCCESS;
     PIRP_CONTEXT IrpContext = NULL;
 
-    UNREFERENCED_PARAMETER( VolumeDeviceObject );
     ASSERT_IRP( Irp );
+
+    UNREFERENCED_PARAMETER( VolumeDeviceObject );
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsFsdLockControl\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsFsdLockControl\n") );
 
     //
     //  Call the common Lock Control routine
@@ -130,7 +131,7 @@ Return Value:
     //  And return to our caller
     //
 
-    DebugTrace(-1, Dbg, "NtfsFsdLockControl -> %08lx\n", Status);
+    DebugTrace( -1, Dbg, ("NtfsFsdLockControl -> %08lx\n", Status) );
 
     return Status;
 }
@@ -188,9 +189,11 @@ Return Value:
     PFCB Fcb;
     BOOLEAN ResourceAcquired = FALSE;
 
+    UNREFERENCED_PARAMETER( DeviceObject );
+
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsFastLock\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsFastLock\n") );
 
     //
     //  Decode the type of file object we're being asked to process and
@@ -202,7 +205,7 @@ Return Value:
         IoStatus->Status = STATUS_INVALID_PARAMETER;
         IoStatus->Information = 0;
 
-        DebugTrace(-1, Dbg, "NtfsFastLock -> TRUE (STATUS_INVALID_PARAMETER)\n", 0);
+        DebugTrace( -1, Dbg, ("NtfsFastLock -> TRUE (STATUS_INVALID_PARAMETER)\n") );
         return TRUE;
     }
 
@@ -242,7 +245,7 @@ Return Value:
         //
 
         if (Scb->ScbType.Data.FileLock == NULL
-            && !NtfsCreateFileLock( NULL, Scb, FALSE )) {
+            && !NtfsCreateFileLock( Scb, FALSE )) {
 
             try_return( Results = FALSE );
         }
@@ -265,10 +268,17 @@ Return Value:
                                      FALSE )) {
 
             //
-            //  Set the flag indicating if Fast I/O is possible
+            //  Set the flag indicating if Fast I/O is questionable.  We
+            //  only change this flag is the current state is possible.
+            //  Retest again after synchronizing on the header.
             //
 
-            Scb->Header.IsFastIoPossible = FastIoIsQuestionable;
+            if (Scb->Header.IsFastIoPossible == FastIoIsPossible) {
+
+                NtfsAcquireFsrtlHeader( Scb );
+                Scb->Header.IsFastIoPossible = NtfsIsFastIoPossible( Scb );
+                NtfsReleaseFsrtlHeader( Scb );
+            }
         }
 
     try_exit:  NOTHING;
@@ -286,7 +296,7 @@ Return Value:
 
         FsRtlExitFileSystem();
 
-        DebugTrace(-1, Dbg, "NtfsFastLock -> %08lx\n", Results);
+        DebugTrace( -1, Dbg, ("NtfsFastLock -> %08lx\n", Results) );
     }
 
     return Results;
@@ -337,9 +347,11 @@ Return Value:
     PSCB Scb;
     BOOLEAN ResourceAcquired = FALSE;
 
+    UNREFERENCED_PARAMETER( DeviceObject );
+
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsFastUnlockSingle\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsFastUnlockSingle\n") );
 
     IoStatus->Information = 0;
 
@@ -352,7 +364,7 @@ Return Value:
 
         IoStatus->Status = STATUS_INVALID_PARAMETER;
 
-        DebugTrace(-1, Dbg, "NtfsFastUnlockSingle -> TRUE (STATUS_INVALID_PARAMETER)\n", 0);
+        DebugTrace( -1, Dbg, ("NtfsFastUnlockSingle -> TRUE (STATUS_INVALID_PARAMETER)\n") );
         return TRUE;
     }
 
@@ -391,7 +403,7 @@ Return Value:
         //
 
         if (Scb->ScbType.Data.FileLock == NULL
-            && !NtfsCreateFileLock( NULL, Scb, FALSE )) {
+            && !NtfsCreateFileLock( Scb, FALSE )) {
 
             try_return( Results = FALSE );
         }
@@ -412,10 +424,18 @@ Return Value:
                                                   FALSE );
 
         //
-        //  Set the flag indicating if Fast I/O is possible
+        //  Set the flag indicating if Fast I/O is possible.  We are
+        //  only concerned if there are no longer any filelocks on this
+        //  file.
         //
 
-        Scb->Header.IsFastIoPossible = NtfsIsFastIoPossible( Scb );
+        if (!FsRtlAreThereCurrentFileLocks( Scb->ScbType.Data.FileLock ) &&
+            (Scb->Header.IsFastIoPossible != FastIoIsPossible)) {
+
+            NtfsAcquireFsrtlHeader( Scb );
+            Scb->Header.IsFastIoPossible = NtfsIsFastIoPossible( Scb );
+            NtfsReleaseFsrtlHeader( Scb );
+        }
 
     try_exit:  NOTHING;
     } finally {
@@ -432,7 +452,7 @@ Return Value:
 
         FsRtlExitFileSystem();
 
-        DebugTrace(-1, Dbg, "NtfsFastUnlockSingle -> %08lx\n", Results);
+        DebugTrace( -1, Dbg, ("NtfsFastUnlockSingle -> %08lx\n", Results) );
     }
 
     return Results;
@@ -475,10 +495,13 @@ Return Value:
     PVCB Vcb;
     PFCB Fcb;
     PSCB Scb;
+    PCCB Ccb;
+
+    UNREFERENCED_PARAMETER( DeviceObject );
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsFastUnlockAll\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsFastUnlockAll\n") );
 
     IoStatus->Information = 0;
 
@@ -487,14 +510,14 @@ Return Value:
     //  make sure that is is only a user file open.
     //
 
-    TypeOfOpen = NtfsDecodeFileObject( &IrpContext, FileObject, &Vcb, &Fcb, &Scb, NULL, FALSE );
+    TypeOfOpen = NtfsDecodeFileObject( &IrpContext, FileObject, &Vcb, &Fcb, &Scb, &Ccb, FALSE );
 
-    if ((TypeOfOpen != UserFileOpen) && (TypeOfOpen != UserOpenFileById)) {
+    if (TypeOfOpen != UserFileOpen) {
 
         IoStatus->Status = STATUS_INVALID_PARAMETER;
         IoStatus->Information = 0;
 
-        DebugTrace(-1, Dbg, "NtfsFastUnlockAll -> TRUE (STATUS_INVALID_PARAMETER)\n", 0);
+        DebugTrace( -1, Dbg, ("NtfsFastUnlockAll -> TRUE (STATUS_INVALID_PARAMETER)\n") );
         return TRUE;
     }
 
@@ -529,7 +552,7 @@ Return Value:
         //
 
         if (Scb->ScbType.Data.FileLock == NULL
-            && !NtfsCreateFileLock( FALSE, Scb, FALSE )) {
+            && !NtfsCreateFileLock( Scb, FALSE )) {
 
             try_return( Results = FALSE );
         }
@@ -549,7 +572,9 @@ Return Value:
         //  Set the flag indicating if Fast I/O is possible
         //
 
+        NtfsAcquireFsrtlHeader( Scb );
         Scb->Header.IsFastIoPossible = NtfsIsFastIoPossible( Scb );
+        NtfsReleaseFsrtlHeader( Scb );
 
     try_exit:  NOTHING;
     } finally {
@@ -564,7 +589,7 @@ Return Value:
 
         FsRtlExitFileSystem();
 
-        DebugTrace(-1, Dbg, "NtfsFastUnlockAll -> %08lx\n", Results);
+        DebugTrace( -1, Dbg, ("NtfsFastUnlockAll -> %08lx\n", Results) );
     }
 
     return Results;
@@ -610,10 +635,13 @@ Return Value:
     PVCB Vcb;
     PFCB Fcb;
     PSCB Scb;
+    PCCB Ccb;
+
+    UNREFERENCED_PARAMETER( DeviceObject );
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsFastUnlockAllByKey\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsFastUnlockAllByKey\n") );
 
     IoStatus->Information = 0;
 
@@ -622,14 +650,14 @@ Return Value:
     //  make sure that is is only a user file open.
     //
 
-    TypeOfOpen = NtfsDecodeFileObject( &IrpContext, FileObject, &Vcb, &Fcb, &Scb, NULL, FALSE );
+    TypeOfOpen = NtfsDecodeFileObject( &IrpContext, FileObject, &Vcb, &Fcb, &Scb, &Ccb, FALSE );
 
-    if ((TypeOfOpen != UserFileOpen) && (TypeOfOpen != UserOpenFileById)) {
+    if (TypeOfOpen != UserFileOpen) {
 
         IoStatus->Status = STATUS_INVALID_PARAMETER;
         IoStatus->Information = 0;
 
-        DebugTrace(-1, Dbg, "NtfsFastUnlockAllByKey -> TRUE (STATUS_INVALID_PARAMETER)\n", 0);
+        DebugTrace( -1, Dbg, ("NtfsFastUnlockAllByKey -> TRUE (STATUS_INVALID_PARAMETER)\n") );
         return TRUE;
     }
 
@@ -664,7 +692,7 @@ Return Value:
         //
 
         if (Scb->ScbType.Data.FileLock == NULL
-            && !NtfsCreateFileLock( NULL, Scb, FALSE )) {
+            && !NtfsCreateFileLock( Scb, FALSE )) {
 
             try_return( Results = FALSE );
         }
@@ -685,7 +713,9 @@ Return Value:
         //  Set the flag indicating if Fast I/O is possible
         //
 
+        NtfsAcquireFsrtlHeader( Scb );
         Scb->Header.IsFastIoPossible = NtfsIsFastIoPossible( Scb );
+        NtfsReleaseFsrtlHeader( Scb );
 
     try_exit:  NOTHING;
     } finally {
@@ -700,7 +730,7 @@ Return Value:
 
         FsRtlExitFileSystem();
 
-        DebugTrace(-1, Dbg, "NtfsFastUnlockAllByKey -> %08lx\n", Results);
+        DebugTrace( -1, Dbg, ("NtfsFastUnlockAllByKey -> %08lx\n", Results) );
     }
 
     return Results;
@@ -755,10 +785,10 @@ Return Value:
 
     IrpSp = IoGetCurrentIrpStackLocation( Irp );
 
-    DebugTrace(+1, Dbg, "NtfsCommonLockControl\n", 0);
-    DebugTrace( 0, Dbg, "IrpContext    = %08lx\n", IrpContext);
-    DebugTrace( 0, Dbg, "Irp           = %08lx\n", Irp);
-    DebugTrace( 0, Dbg, "MinorFunction = %08lx\n", IrpSp->MinorFunction);
+    DebugTrace( +1, Dbg, ("NtfsCommonLockControl\n") );
+    DebugTrace( 0, Dbg, ("IrpContext    = %08lx\n", IrpContext) );
+    DebugTrace( 0, Dbg, ("Irp           = %08lx\n", Irp) );
+    DebugTrace( 0, Dbg, ("MinorFunction = %08lx\n", IrpSp->MinorFunction) );
 
     //
     //  Extract and decode the type of file object we're being asked to process
@@ -772,11 +802,11 @@ Return Value:
     //  as an invalid parameter
     //
 
-    if ((TypeOfOpen != UserFileOpen) && (TypeOfOpen != UserOpenFileById)) {
+    if (TypeOfOpen != UserFileOpen) {
 
         NtfsCompleteRequest( &IrpContext, &Irp, STATUS_INVALID_PARAMETER );
 
-        DebugTrace(-1, Dbg, "NtfsCommonLockControl -> STATUS_INVALID_PARAMETER\n", 0);
+        DebugTrace( -1, Dbg, ("NtfsCommonLockControl -> STATUS_INVALID_PARAMETER\n") );
         return STATUS_INVALID_PARAMETER;
     }
 
@@ -821,7 +851,7 @@ Return Value:
 
         if (Scb->ScbType.Data.FileLock == NULL) {
 
-            NtfsCreateFileLock( IrpContext, Scb, TRUE );
+            NtfsCreateFileLock( Scb, TRUE );
         }
 
         //
@@ -835,7 +865,9 @@ Return Value:
         //  Set the flag indicating if Fast I/O is possible
         //
 
+        NtfsAcquireFsrtlHeader( Scb );
         Scb->Header.IsFastIoPossible = NtfsIsFastIoPossible( Scb );
+        NtfsReleaseFsrtlHeader( Scb );
 
     try_exit: NOTHING;
     } finally {
@@ -860,7 +892,7 @@ Return Value:
             NtfsCompleteRequest( &IrpContext, NULL, 0 );
         }
 
-        DebugTrace(-1, Dbg, "NtfsCommonLockControl -> %08lx\n", Status);
+        DebugTrace( -1, Dbg, ("NtfsCommonLockControl -> %08lx\n", Status) );
     }
 
     return Status;

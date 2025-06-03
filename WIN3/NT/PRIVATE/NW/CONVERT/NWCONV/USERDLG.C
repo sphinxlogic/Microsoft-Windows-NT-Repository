@@ -31,6 +31,9 @@
 #include "userdlg.h"
 #include "transfer.h"
 #include "ntnetapi.h"
+#include "map.h"
+
+#define togmap 1
 
 // Utility Macros for Advanced >> button
 #define SetStyleOn(hWnd, Style) SetWindowLong(hWnd, GWL_STYLE, Style | GetWindowLong(hWnd, GWL_STYLE));
@@ -42,11 +45,14 @@ static CONVERT_OPTIONS cvoDefault;
 static CONVERT_OPTIONS *CurrentConvertOptions;
 static LPTSTR SourceServ;
 static LPTSTR DestServ;
-
+static SOURCE_SERVER_BUFFER *SServ;
+static DEST_SERVER_BUFFER *DServ;
+static BOOL FPNWChk;
+static short TabSelection;
 
 /*+-------------------------------------------------------------------------+
-  | UserOptionsDefaultsSet()                                                |
-  |                                                                         |
+  | UserOptionsDefaultsSet()
+  |
   +-------------------------------------------------------------------------+*/
 void UserOptionsDefaultsSet(void *cvto) {
    memcpy((void *) &cvoDefault, cvto, sizeof(CONVERT_OPTIONS));
@@ -55,8 +61,8 @@ void UserOptionsDefaultsSet(void *cvto) {
 
 
 /*+-------------------------------------------------------------------------+
-  | UserOptionsDefaultsReset()                                              |
-  |                                                                         |
+  | UserOptionsDefaultsReset()
+  |
   +-------------------------------------------------------------------------+*/
 void UserOptionsDefaultsReset() {
    memset(&cvoDefault, 0, sizeof(CONVERT_OPTIONS));
@@ -65,14 +71,15 @@ void UserOptionsDefaultsReset() {
    cvoDefault.ForcePasswordChange = TRUE;
    cvoDefault.SupervisorDefaults = TRUE;
    cvoDefault.AdminAccounts = FALSE;
+   cvoDefault.NetWareInfo = FALSE;
    cvoDefault.GroupNameOption = 1;
 
 } // UserOptionsDefaultsReset
 
 
 /*+-------------------------------------------------------------------------+
-  | UserOptionsInit()                                                       |
-  |                                                                         |
+  | UserOptionsInit()
+  |
   +-------------------------------------------------------------------------+*/
 void UserOptionsInit(void **lpcvto) {
    CONVERT_OPTIONS *cvto;
@@ -94,8 +101,8 @@ void UserOptionsInit(void **lpcvto) {
 
 
 /*+-------------------------------------------------------------------------+
-  | UserOptionsLoad()                                                       |
-  |                                                                         |
+  | UserOptionsLoad()
+  |
   +-------------------------------------------------------------------------+*/
 void UserOptionsLoad(HANDLE hFile, void **lpcvto) {
    CONVERT_OPTIONS *cvto;
@@ -118,8 +125,8 @@ void UserOptionsLoad(HANDLE hFile, void **lpcvto) {
 
 
 /*+-------------------------------------------------------------------------+
-  | UserOptionsSave()                                                       |
-  |                                                                         |
+  | UserOptionsSave()
+  |
   +-------------------------------------------------------------------------+*/
 void UserOptionsSave(HANDLE hFile, void *pcvto) {
    CONVERT_OPTIONS *cvto;
@@ -147,8 +154,8 @@ void UserOptionsSave(HANDLE hFile, void *pcvto) {
 
 
 /*+-------------------------------------------------------------------------+
-  | Passwords_Toggle()                                                      |
-  |                                                                         |
+  | Passwords_Toggle()
+  |
   +-------------------------------------------------------------------------+*/
 void Passwords_Toggle(HWND hDlg, BOOL Toggle) {
    HWND hCtrl;
@@ -157,6 +164,10 @@ void Passwords_Toggle(HWND hDlg, BOOL Toggle) {
    hCtrl = GetDlgItem(hDlg, IDC_CHKUSERS);
    if (SendMessage(hCtrl, BM_GETCHECK, 0, 0) == 0)
       MainToggle = FALSE;
+
+   hCtrl = GetDlgItem(hDlg, IDC_CHKPWFORCE);
+   ShowWindow(hCtrl, Toggle);
+   EnableWindow(hCtrl, MainToggle);
 
 #ifdef togmap
    hCtrl = GetDlgItem(hDlg, IDC_CHKMAPPING);
@@ -180,16 +191,12 @@ void Passwords_Toggle(HWND hDlg, BOOL Toggle) {
    ShowWindow(hCtrl, Toggle);
    EnableWindow(hCtrl, MainToggle);
 
-   hCtrl = GetDlgItem(hDlg, IDC_CHKPWFORCE);
-   ShowWindow(hCtrl, Toggle);
-   EnableWindow(hCtrl, MainToggle);
-
 } // Passwords_Toggle
 
 
 /*+-------------------------------------------------------------------------+
-  | DuplicateUsers_Toggle()                                                 |
-  |                                                                         |
+  | DuplicateUsers_Toggle()
+  |
   +-------------------------------------------------------------------------+*/
 void DuplicateUsers_Toggle(HWND hDlg, BOOL Toggle) {
    HWND hCtrl;
@@ -232,8 +239,8 @@ void DuplicateUsers_Toggle(HWND hDlg, BOOL Toggle) {
 
 
 /*+-------------------------------------------------------------------------+
-  | DuplicateGroups_Toggle()                                                |
-  |                                                                         |
+  | DuplicateGroups_Toggle()
+  |
   +-------------------------------------------------------------------------+*/
 void DuplicateGroups_Toggle(HWND hDlg, BOOL Toggle) {
    HWND hCtrl;
@@ -272,8 +279,8 @@ void DuplicateGroups_Toggle(HWND hDlg, BOOL Toggle) {
 
 
 /*+-------------------------------------------------------------------------+
-  | Defaults_Toggle()                                                       |
-  |                                                                         |
+  | Defaults_Toggle()
+  |
   +-------------------------------------------------------------------------+*/
 void Defaults_Toggle(HWND hDlg, BOOL Toggle) {
    HWND hCtrl;
@@ -291,12 +298,19 @@ void Defaults_Toggle(HWND hDlg, BOOL Toggle) {
    EnableWindow(hCtrl, MainToggle);
    ShowWindow(hCtrl, Toggle);
 
+   hCtrl = GetDlgItem(hDlg, IDC_CHKFPNW);
+   if (FPNWChk)
+      EnableWindow(hCtrl, MainToggle);
+   else
+      EnableWindow(hCtrl, FALSE);
+
+   ShowWindow(hCtrl, Toggle);
 } // Defaults_Toggle
 
 
 /*+-------------------------------------------------------------------------+
-  | Mapping_Toggle()                                                        |
-  |                                                                         |
+  | Mapping_Toggle()
+  |
   +-------------------------------------------------------------------------+*/
 void Mapping_Toggle(HWND hDlg, BOOL Toggle) {
    HWND hCtrl;
@@ -305,6 +319,8 @@ void Mapping_Toggle(HWND hDlg, BOOL Toggle) {
    hCtrl = GetDlgItem(hDlg, IDC_MAPPINGFILE);
    EnableWindow(hCtrl, !Toggle);
    hCtrl = GetDlgItem(hDlg, IDC_BTNMAPPINGFILE);
+   EnableWindow(hCtrl, !Toggle);
+   hCtrl = GetDlgItem(hDlg, IDC_BTNMAPPINGEDIT);
    EnableWindow(hCtrl, !Toggle);
 
 #ifdef togmap
@@ -320,11 +336,21 @@ void Mapping_Toggle(HWND hDlg, BOOL Toggle) {
    EnableWindow(hCtrl, Toggle);
    hCtrl = GetDlgItem(hDlg, IDC_RADIO6);
    EnableWindow(hCtrl, Toggle);
+   hCtrl = GetDlgItem(hDlg, IDC_RADIO7);
+   EnableWindow(hCtrl, Toggle);
+   hCtrl = GetDlgItem(hDlg, IDC_RADIO8);
+   EnableWindow(hCtrl, Toggle);
+   hCtrl = GetDlgItem(hDlg, IDC_RADIO9);
+   EnableWindow(hCtrl, Toggle);
+   hCtrl = GetDlgItem(hDlg, IDC_RADIO10);
+   EnableWindow(hCtrl, Toggle);
    hCtrl = GetDlgItem(hDlg, IDC_CHKPWFORCE);
    EnableWindow(hCtrl, Toggle);
    hCtrl = GetDlgItem(hDlg, IDC_PWCONST);
    EnableWindow(hCtrl, Toggle);
    hCtrl = GetDlgItem(hDlg, IDC_USERCONST);
+   EnableWindow(hCtrl, Toggle);
+   hCtrl = GetDlgItem(hDlg, IDC_GROUPCONST);
    EnableWindow(hCtrl, Toggle);
 #endif
 
@@ -332,8 +358,8 @@ void Mapping_Toggle(HWND hDlg, BOOL Toggle) {
 
 
 /*+-------------------------------------------------------------------------+
-  | UserDialogToggle()                                                      |
-  |                                                                         |
+  | UserDialogToggle()
+  |
   +-------------------------------------------------------------------------+*/
 void UserDialogToggle(HWND hDlg, BOOL Toggle) {
    HWND hCtrl;
@@ -351,12 +377,20 @@ void UserDialogToggle(HWND hDlg, BOOL Toggle) {
       EnableWindow(hCtrl, Toggle);
       hCtrl = GetDlgItem(hDlg, IDC_BTNMAPPINGFILE);
       EnableWindow(hCtrl, Toggle);
+      hCtrl = GetDlgItem(hDlg, IDC_BTNMAPPINGEDIT);
+      EnableWindow(hCtrl, Toggle);
    }
 
    hCtrl = GetDlgItem(hDlg, IDC_CHKSUPER);
    EnableWindow(hCtrl, Toggle);
    hCtrl = GetDlgItem(hDlg, IDC_CHKADMIN);
    EnableWindow(hCtrl, Toggle);
+
+   hCtrl = GetDlgItem(hDlg, IDC_CHKFPNW);
+   if (FPNWChk)
+      EnableWindow(hCtrl, Toggle);
+   else
+      EnableWindow(hCtrl, FALSE);
 
    // Check the Advanced Trusted domain check and toggle controls appropriatly
    hCtrl = GetDlgItem(hDlg, IDC_CHKTRUSTED);
@@ -379,13 +413,13 @@ void UserDialogToggle(HWND hDlg, BOOL Toggle) {
 
 
 /*+-------------------------------------------------------------------------+
-  | UserDialogSave()                                                        |
-  |                                                                         |
+  | UserDialogSave()
+  |
   +-------------------------------------------------------------------------+*/
 void UserDialogSave(HWND hDlg) {
    HWND hCtrl;
    DWORD dwIndex;
-   TCHAR TrustedDomain[MAX_PATH];
+   TCHAR TrustedDomain[MAX_PATH + 1];
 
    hCtrl = GetDlgItem(hDlg, IDC_CHKUSERS);
    if (SendMessage(hCtrl, BM_GETCHECK, 0, 0) == 1)
@@ -463,7 +497,7 @@ void UserDialogSave(HWND hDlg) {
    SendMessage(hCtrl, EM_GETLINE, 0, (LPARAM) CurrentConvertOptions->GroupConstant);
 
 
-   // Defaults page stuff--------------------------------------------------------
+   // Defaults page stuff------------------------------------------------------
    hCtrl = GetDlgItem(hDlg, IDC_CHKSUPER);
    if (SendMessage(hCtrl, BM_GETCHECK, 0, 0) == 1)
       CurrentConvertOptions->SupervisorDefaults = TRUE;
@@ -476,8 +510,17 @@ void UserDialogSave(HWND hDlg) {
    else
       CurrentConvertOptions->AdminAccounts = FALSE;
 
+   if (FPNWChk) {
+      hCtrl = GetDlgItem(hDlg, IDC_CHKFPNW);
+      if (SendMessage(hCtrl, BM_GETCHECK, 0, 0) == 1)
+         CurrentConvertOptions->NetWareInfo = TRUE;
+      else
+         CurrentConvertOptions->NetWareInfo = FALSE;
+   } else
+      CurrentConvertOptions->NetWareInfo = FALSE;
 
-   // Advanced >> button stuff---------------------------------------------------
+
+   // Advanced >> button stuff-------------------------------------------------
    hCtrl = GetDlgItem(hDlg, IDC_CHKTRUSTED);
    if (SendMessage(hCtrl, BM_GETCHECK, 0, 0) == 1) {
       CurrentConvertOptions->UseTrustedDomain = TRUE;
@@ -507,8 +550,8 @@ void UserDialogSave(HWND hDlg) {
 
 
 /*+-------------------------------------------------------------------------+
-  | UserDialogVerify()                                                      |
-  |                                                                         |
+  | UserDialogVerify()
+  |
   +-------------------------------------------------------------------------+*/
 BOOL UserDialogVerify(HWND hDlg) {
    HWND hCtrl;
@@ -516,11 +559,10 @@ BOOL UserDialogVerify(HWND hDlg) {
    static char FileNameA[MAX_PATH + 1];
    static char CmdLine[MAX_PATH + 1 + 12];    // Editor + file
    TCHAR drive[MAX_DRIVE + 1];
-   TCHAR dir[MAX_PATH];
+   TCHAR dir[MAX_PATH + 1];
    TCHAR fname[MAX_PATH + 1];
    TCHAR ext[_MAX_EXT + 1];
    HANDLE hFile;
-   UINT uReturn;
 
    // Check trusted domain...
 
@@ -552,42 +594,20 @@ BOOL UserDialogVerify(HWND hDlg) {
 
          lstrcpy(CurrentConvertOptions->MappingFile, MappingFile);
 
-         wcstombs(FileNameA, MappingFile, lstrlen(MappingFile)+1);
-         hFile = CreateFileA( FileNameA, GENERIC_WRITE, 0,
-                        NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL );
+         WideCharToMultiByte(CP_ACP, 0, MappingFile, -1, FileNameA, sizeof(FileNameA), NULL, NULL);
+         hFile = CreateFileA( FileNameA, GENERIC_READ, 0,
+                        NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL );
 
          if (hFile == INVALID_HANDLE_VALUE) {
-            // Couldn't open it so it may exist, see if we can open it for reading..
-            hFile = CreateFileA( FileNameA, GENERIC_READ, 0,
-                           NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL );
-
-            if (hFile == INVALID_HANDLE_VALUE) {
-               MessageBox(hDlg, Lids(IDS_NOREADMAP), Lids(IDS_TXTWARNING), MB_OK | MB_ICONEXCLAMATION);
-               hCtrl = GetDlgItem(hDlg, IDC_MAPPINGFILE);
-               SetFocus(hCtrl);
-               return FALSE;
-            } else
-               CloseHandle(hFile);
-
-         } else {
-            // Could create a new file so create mapping file...
+            MessageBox(hDlg, Lids(IDS_NOREADMAP), Lids(IDS_TXTWARNING), MB_OK | MB_ICONEXCLAMATION);
+            hCtrl = GetDlgItem(hDlg, IDC_MAPPINGFILE);
+            SetFocus(hCtrl);
+            return FALSE;
+         } else
             CloseHandle(hFile);
-            DeleteFileA(FileNameA);
-            CursorHourGlass();
-            if (MapFileCreate(MappingFile, SourceServ)) {
-               CursorNormal();
-               if (MessageBox(hDlg, Lids(IDS_MAPCREATED), Lids(IDS_APPNAME), MB_YESNO | MB_ICONQUESTION) == IDYES) {
-                  wsprintfA(CmdLine, "Notepad %s", FileNameA);
-                  uReturn = WinExec(CmdLine, SW_SHOW);
-               }
-            } else {
-               CursorNormal();
-               MessageBox(hDlg, Lids(IDS_MAPCREATEFAIL), Lids(IDS_TXTWARNING), MB_OK);
-               return FALSE;
-            }
-         }
+
       }
-   }
+   } // mapping file
 
    return TRUE;
 
@@ -595,8 +615,8 @@ BOOL UserDialogVerify(HWND hDlg) {
 
 
 /*+-------------------------------------------------------------------------+
-  | UserDialogSetup()                                                       |
-  |                                                                         |
+  | UserDialogSetup()
+  |
   +-------------------------------------------------------------------------+*/
 void UserDialogSetup(HWND hDlg) {
    HWND hCtrl;
@@ -658,6 +678,15 @@ void UserDialogSetup(HWND hDlg) {
    else
       SendMessage(hCtrl, BM_SETCHECK, 0, 0);
 
+   if (FPNWChk) {
+      hCtrl = GetDlgItem(hDlg, IDC_CHKFPNW);
+      if (CurrentConvertOptions->NetWareInfo)
+         SendMessage(hCtrl, BM_SETCHECK, 1, 0);
+      else
+         SendMessage(hCtrl, BM_SETCHECK, 0, 0);
+   } else
+      SendMessage(hCtrl, BM_SETCHECK, 0, 0);
+
    // Now for the Advanced >> area..
    hCtrl = GetDlgItem(hDlg, IDC_CHKTRUSTED);
    if (CurrentConvertOptions->UseTrustedDomain)
@@ -670,8 +699,8 @@ void UserDialogSetup(HWND hDlg) {
 
 
 /*+-------------------------------------------------------------------------+
-  | ShowArea()                                                              |
-  |                                                                         |
+  | ShowArea()
+  |
   +-------------------------------------------------------------------------+*/
 void ShowArea(BOOL fShowDefAreaOnly, HWND hDlg, HWND hWndDefArea) {
    RECT rcDlg, rcDefArea;
@@ -727,8 +756,8 @@ void ShowArea(BOOL fShowDefAreaOnly, HWND hDlg, HWND hWndDefArea) {
 
 
 /*+-------------------------------------------------------------------------+
-  | UserFileGet()                                                           |
-  |                                                                         |
+  | UserFileGet()
+  |
   +-------------------------------------------------------------------------+*/
 DWORD UserFileGet(HWND hwnd, LPTSTR FilePath) {
    OPENFILENAME ofn;
@@ -799,8 +828,8 @@ DWORD UserFileGet(HWND hwnd, LPTSTR FilePath) {
 
 
 /*+-------------------------------------------------------------------------+
-  | DlgUsers_TrustedSetup()                                                 |
-  |                                                                         |
+  | DlgUsers_TrustedSetup()
+  |
   +-------------------------------------------------------------------------+*/
 void DlgUsers_TrustedSetup(HWND hDlg) {
    HWND hCtrl;
@@ -828,17 +857,21 @@ void DlgUsers_TrustedSetup(HWND hDlg) {
 
       hCtrl = GetDlgItem(hDlg, IDC_TRUSTED);
       EnableWindow(hCtrl, TRUE);
+      SetFocus(GetDlgItem(hDlg, IDC_CHKTRUSTED));
    } else {
       hCtrl = GetDlgItem(hDlg, IDC_CHKTRUSTED);
       EnableWindow(hCtrl, FALSE);
 
       hCtrl = GetDlgItem(hDlg, IDC_TRUSTED);
       EnableWindow(hCtrl, FALSE);
+      SetFocus(GetDlgItem(hDlg, IDHELP));
    }
+
 
    if ((TList == NULL) || (TList->Count = 0)) {
       EnableWindow(GetDlgItem(hDlg, IDC_CHKTRUSTED), FALSE);
       EnableWindow(GetDlgItem(hDlg, IDC_TRUSTED), FALSE);
+      SetFocus(GetDlgItem(hDlg, IDHELP));
    } else {
       // Select the trusted domain (or first one if none currently selected)
       if (CurrentConvertOptions->TrustedDomain != NULL)
@@ -862,16 +895,105 @@ void DlgUsers_TrustedSetup(HWND hDlg) {
 
 
 /*+-------------------------------------------------------------------------+
-  | DlgUsers()                                                              |
-  |                                                                         |
+  | MappingFileEdit()
+  |
+  +-------------------------------------------------------------------------+*/
+BOOL MappingFileEdit(HWND hDlg) {
+   HWND hCtrl;
+   static TCHAR MappingFile[MAX_PATH + 1];
+   static char FileNameA[MAX_PATH + 1];
+   static char CmdLine[MAX_PATH + 1 + 12];    // Editor + file
+   TCHAR drive[MAX_DRIVE + 1];
+   TCHAR dir[MAX_PATH + 1];
+   TCHAR fname[MAX_PATH + 1];
+   TCHAR ext[_MAX_EXT + 1];
+   HANDLE hFile;
+   UINT uReturn;
+   BOOL ret = TRUE;
+   BOOL Browse = FALSE;
+
+   do {
+      // First check filename
+      hCtrl = GetDlgItem(hDlg, IDC_MAPPINGFILE);
+      * (WORD *)MappingFile = sizeof(MappingFile);
+      SendMessage(hCtrl, EM_GETLINE, 0, (LPARAM) MappingFile);
+      lsplitpath(MappingFile, drive, dir, fname, ext);
+
+      // Make sure a file name is specified
+      if (Browse || (lstrlen(fname) == 0)) {
+         // No name was specified, so let the user browse for a file
+         if (!UserFileGet(hDlg, MappingFile)) {
+            hCtrl = GetDlgItem(hDlg, IDC_MAPPINGFILE);
+            SendMessage(hCtrl, WM_SETTEXT, 0, (LPARAM) MappingFile);
+            SetFocus(hCtrl);
+            lsplitpath(MappingFile, drive, dir, fname, ext);
+         } else
+            return FALSE;
+      }
+
+      Browse = FALSE;
+
+      // remake path so it is fully qualified
+      if ((drive[0] == TEXT('\0')) && (dir[0] == TEXT('\0')))
+         lstrcpy(dir, ProgPath);
+
+      if (ext[0] == TEXT('\0'))
+         lstrcpy(ext, Lids(IDS_S_36));
+
+      lmakepath(MappingFile, drive, dir, fname, ext);
+
+      // Now make sure the file exists and is accessible
+
+      WideCharToMultiByte(CP_ACP, 0, MappingFile, -1, FileNameA, sizeof(FileNameA), NULL, NULL);
+
+      hFile = CreateFileA( FileNameA, GENERIC_READ, 0,
+                     NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL );
+
+      if (hFile == INVALID_HANDLE_VALUE) {
+         // Couldn't open the file, report to user
+         if (MessageBox(hDlg, Lids(IDS_NOEDITMAP), Lids(IDS_TXTWARNING), MB_YESNO | MB_ICONQUESTION) == IDYES)
+            Browse = TRUE;
+         else {
+            // get out of loop as nothing more to do
+            hCtrl = GetDlgItem(hDlg, IDC_MAPPINGFILE);
+            SetFocus(hCtrl);
+            ret = FALSE;
+         }
+      } else {
+         // Could create a new file so make the mapping file...
+         CloseHandle(hFile);
+         CursorHourGlass();
+         wsprintfA(CmdLine, "Notepad %s", FileNameA);
+         uReturn = WinExec(CmdLine, SW_SHOW);
+         CursorNormal();
+      }
+
+   } while (Browse);
+
+   // Check mapping file check-box, if it's not check'd then do so
+   if (ret) {
+      hCtrl = GetDlgItem(hDlg, IDC_CHKMAPPING);
+      if (SendMessage(hCtrl, BM_GETCHECK, 0, 0) != 1)
+         SendMessage(hCtrl, BM_SETCHECK, 1, 0);
+   }
+
+   return ret;
+
+} // MappingFileEdit
+
+
+/*+-------------------------------------------------------------------------+
+  | DlgUsers()
+  |
   +-------------------------------------------------------------------------+*/
 LRESULT CALLBACK DlgUsers(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam) {
    HWND hCtrl;
    int wmId, wmEvent;
    static short UserNameTab, GroupNameTab, PasswordsTab, DefaultsTab;
-   TCHAR tmpFileName[MAX_PATH + 1];
-   short selection;
    static BOOL TrustedEnabled;
+   TCHAR TrustedDomain[MAX_PATH + 1];
+   static TCHAR MappingFile[MAX_PATH + 1];
+   DWORD dwIndex;
 
    switch (message) {
 
@@ -918,39 +1040,33 @@ LRESULT CALLBACK DlgUsers(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 
          return (TRUE);
 
-#ifdef Ctl3d
-      case WM_SYSCOLORCHANGE:
-         Ctl3dColorChange();
-         break;
-#endif
-
       case BTN_SELCHANGE:
 
          hCtrl = GetDlgItem( hDlg, IDC_TABUSERS );
-         selection = BookTab_GetCurSel(hCtrl);
+         TabSelection = BookTab_GetCurSel(hCtrl);
 
-         if (selection == UserNameTab) {
+         if (TabSelection == UserNameTab) {
             Passwords_Toggle(hDlg, FALSE);
             Defaults_Toggle(hDlg, FALSE);
             DuplicateGroups_Toggle(hDlg, FALSE);
             DuplicateUsers_Toggle(hDlg, TRUE);
          }
 
-         if (selection == GroupNameTab) {
+         if (TabSelection == GroupNameTab) {
             Passwords_Toggle(hDlg, FALSE);
             Defaults_Toggle(hDlg, FALSE);
             DuplicateUsers_Toggle(hDlg, FALSE);
             DuplicateGroups_Toggle(hDlg, TRUE);
          }
 
-         if (selection == PasswordsTab) {
+         if (TabSelection == PasswordsTab) {
             DuplicateUsers_Toggle(hDlg, FALSE);
             Defaults_Toggle(hDlg, FALSE);
             DuplicateGroups_Toggle(hDlg, FALSE);
             Passwords_Toggle(hDlg, TRUE);
          }
 
-         if (selection == DefaultsTab) {
+         if (TabSelection == DefaultsTab) {
             Passwords_Toggle(hDlg, FALSE);
             DuplicateUsers_Toggle(hDlg, FALSE);
             DuplicateGroups_Toggle(hDlg, FALSE);
@@ -978,7 +1094,7 @@ LRESULT CALLBACK DlgUsers(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
             return (TRUE);
             break;
 
-         case IDC_HELP:
+         case IDHELP:
             if (TrustedEnabled)
                WinHelp(hDlg, HELP_FILE, HELP_CONTEXT, (DWORD) IDC_HELP_USERADV);
             else
@@ -990,7 +1106,6 @@ LRESULT CALLBACK DlgUsers(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
          case IDC_ADVANCED:
             TrustedEnabled = TRUE;
             DlgUsers_TrustedSetup(hDlg);
-            SetFocus(GetDlgItem(hDlg, IDC_CHKTRUSTED));
             return (TRUE);
             break;
 
@@ -1020,21 +1135,81 @@ LRESULT CALLBACK DlgUsers(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
             if (SendMessage(hCtrl, BM_GETCHECK, 0, 0) == 1) {
                hCtrl = GetDlgItem(hDlg, IDC_TRUSTED);
                EnableWindow(hCtrl, TRUE);
+
+               // Get trusted domain
+               dwIndex = SendMessage(hCtrl, CB_GETCURSEL, 0, 0);
+               if (dwIndex != CB_ERR) {
+                  // Get the domain name and then try to add it to our lists
+                  SendMessage(hCtrl, CB_GETLBTEXT, (WPARAM) dwIndex, (LPARAM) TrustedDomain);
+                  CurrentConvertOptions->TrustedDomain = NTTrustedDomainSet(hDlg, DestServ, TrustedDomain);
+                  CurrentConvertOptions->UseTrustedDomain = TRUE;
+               } else
+                  CurrentConvertOptions->UseTrustedDomain = FALSE;
+
             } else {
                hCtrl = GetDlgItem(hDlg, IDC_TRUSTED);
                EnableWindow(hCtrl, FALSE);
+               CurrentConvertOptions->UseTrustedDomain = FALSE;
+            }
+
+            // Toggled trust relationship so setup FPNW info accordingly
+            FPNWChk = IsFPNW(UserServerNameGet(DServ, CurrentConvertOptions));
+            if (TabSelection == DefaultsTab)
+               Defaults_Toggle(hDlg, TRUE);
+
+            return (TRUE);
+            break;
+
+         case IDC_TRUSTED:
+            if (wmEvent == CBN_SELCHANGE) {
+               // A new trusted domain was selected, update FPNW flag
+               hCtrl = GetDlgItem(hDlg, IDC_TRUSTED);
+               EnableWindow(hCtrl, TRUE);
+
+               // Get trusted domain
+               dwIndex = SendMessage(hCtrl, CB_GETCURSEL, 0, 0);
+               if (dwIndex != CB_ERR) {
+                  // Get the domain name and then try to add it to our lists
+                  SendMessage(hCtrl, CB_GETLBTEXT, (WPARAM) dwIndex, (LPARAM) TrustedDomain);
+                  CurrentConvertOptions->TrustedDomain = NTTrustedDomainSet(hDlg, DestServ, TrustedDomain);
+                  CurrentConvertOptions->UseTrustedDomain = TRUE;
+               } else
+                  CurrentConvertOptions->UseTrustedDomain = FALSE;
+
+               FPNWChk = IsFPNW(UserServerNameGet(DServ, CurrentConvertOptions));
+               CurrentConvertOptions->NetWareInfo = FPNWChk;
+
+               if (TabSelection == DefaultsTab)
+                  Defaults_Toggle(hDlg, TRUE);
+
+            }
+            break;
+
+         case IDC_BTNMAPPINGFILE:
+            // Get anything in the text box
+            hCtrl = GetDlgItem(hDlg, IDC_MAPPINGFILE);
+            * (WORD *)MappingFile = sizeof(MappingFile);
+            SendMessage(hCtrl, EM_GETLINE, 0, (LPARAM) MappingFile);
+
+            // invoke the creation routine
+            MapFileCreate(hDlg, MappingFile, SourceServ);
+
+            // reset edit-box to whatever the returned filename is
+            SendMessage(hCtrl, WM_SETTEXT, 0, (LPARAM) MappingFile);
+   
+            if (SendMessage(hCtrl, EM_LINELENGTH, 0, 0)) {
+               hCtrl = GetDlgItem(hDlg, IDC_CHKMAPPING);
+               SendMessage(hCtrl, BM_SETCHECK, 1, 0);
+            } else {
+               hCtrl = GetDlgItem(hDlg, IDC_CHKMAPPING);
+               SendMessage(hCtrl, BM_SETCHECK, 0, 0);
             }
 
             return (TRUE);
             break;
 
-         case IDC_BTNMAPPINGFILE:
-            if (!UserFileGet(hDlg, tmpFileName)) {
-               hCtrl = GetDlgItem(hDlg, IDC_MAPPINGFILE);
-               SendMessage(hCtrl, WM_SETTEXT, 0, (LPARAM) tmpFileName);
-                 SetFocus(hCtrl);
-            }
-
+         case IDC_BTNMAPPINGEDIT:
+            MappingFileEdit(hDlg);
             return (TRUE);
             break;
 
@@ -1071,17 +1246,21 @@ LRESULT CALLBACK DlgUsers(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 
 
 /*+-------------------------------------------------------------------------+
-  | ConfigureDialog()                                                       |
-  |                                                                         |
+  | UserOptions_Do()
+  |
   +-------------------------------------------------------------------------+*/
-void UserOptions_Do(HWND hDlg, void *ConvOptions, LPTSTR SourceServer, LPTSTR DestServer) {
+void UserOptions_Do(HWND hDlg, void *ConvOptions, SOURCE_SERVER_BUFFER *SourceServer, DEST_SERVER_BUFFER *DestServer) {
    DLGPROC lpfnDlg;
 
-   SourceServ = SourceServer;
-   DestServ = DestServer;
+   SServ = SourceServer;
+   DServ = DestServer;
+   SourceServ = SourceServer->Name;
+   DestServ = DestServer->Name;
 
+   FPNWChk = DServ->IsFPNW;
    CurrentConvertOptions = (CONVERT_OPTIONS *) ConvOptions;
    lpfnDlg = MakeProcInstance((DLGPROC)DlgUsers, hInst);
    DialogBox(hInst, TEXT("DlgNewUsers"), hDlg, lpfnDlg) ;
    FreeProcInstance(lpfnDlg);
 } // UserOptions_Do
+

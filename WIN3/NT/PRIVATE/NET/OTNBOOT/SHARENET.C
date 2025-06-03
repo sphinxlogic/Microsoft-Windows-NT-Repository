@@ -51,7 +51,7 @@ static  BOOL    bShareNotCopy;          // select default button mode
 //  these variables are used to remember the contents of the edit controls
 //  that are disabled and/or blanked
 //
-static  TCHAR   szShareName1[MAX_PATH]; 
+static  TCHAR   szShareName1[MAX_PATH];
 static  TCHAR   szDestPath[MAX_PATH];
 static  TCHAR   szShareName2[MAX_PATH];
 static  TCHAR   szServerName[MAX_PATH];
@@ -378,13 +378,13 @@ Return Value:
     bUseExistingPath =
         (BOOL)(IsDlgButtonChecked(hwndDlg, NCDU_USE_DIST_PATH) == CHECKED);
 
-    bShareFiles = 
+    bShareFiles =
         (BOOL)(IsDlgButtonChecked(hwndDlg, NCDU_USE_EXISTING_SHARE) == CHECKED);
 
-    bCopyAndShare = 
+    bCopyAndShare =
         (BOOL)(IsDlgButtonChecked(hwndDlg, NCDU_COPY_AND_MAKE_SHARE) == CHECKED);
 
-    bUseExistingShare = 
+    bUseExistingShare =
         (BOOL)(IsDlgButtonChecked(hwndDlg, NCDU_FILES_ALREADY_SHARED) == CHECKED);
 
     bEnablePath = !bUseExistingShare;
@@ -708,7 +708,7 @@ Return Value:
     SetDlgItemText (hwndDlg, NCDU_SHARE_NAME_1, szShareName1);
     SetDlgItemText (hwndDlg, NCDU_DESTINATION_PATH, szDestPath);
     SetDlgItemText (hwndDlg, NCDU_SHARE_NAME_2, szShareName2);
-                 
+
     // set dialog state to appropriate value
     bShareNotCopy = (dwShareType == NCDU_CDROM_PATH ? FALSE : TRUE);
     if (pAppInfo->bUseExistingPath) {
@@ -731,9 +731,9 @@ Return Value:
                     EM_SETSEL, (WPARAM)0, (LPARAM)-1);
                 SetFocus (GetDlgItem(hwndDlg, NCDU_DISTRIBUTION_PATH));
                 break;
-         
+
             case NCDU_HARD_DRIVE_PATH:
-                // path found on hard drive so default is to share 
+                // path found on hard drive so default is to share
                 CheckRadioButton (hwndDlg,
                     NCDU_USE_DIST_PATH,
                     NCDU_FILES_ALREADY_SHARED,
@@ -797,7 +797,7 @@ Return Value:
     PostMessage (GetParent(hwndDlg), NCDU_REGISTER_DLG,
         NCDU_SHARE_NET_SW_DLG, (LPARAM)hwndDlg);
 
-    SetCursor(LoadCursor(NULL, IDC_ARROW)); 
+    SetCursor(LoadCursor(NULL, IDC_ARROW));
 
     FREE_IF_ALLOC (szDlgDistPath);
     return FALSE;
@@ -882,7 +882,7 @@ Routine Description:
         shared on the local machine.
 
         The validation consists of the following:
-        
+
         FILES_ALREADY_SHARED: (bottom button)
             Get Server Name
                 must be non blank
@@ -904,7 +904,7 @@ Routine Description:
                     must not be in use
                     signal if > DOS compatible name length
                     Signal if name is in currently in use
-                        user may either use current name or change 
+                        user may either use current name or change
 
             COPY AND SHARE:
                 Get Destination Path
@@ -1337,22 +1337,17 @@ Return Value:
                                 goto IDOK_ExitClicked;
                             }
                             // there's clients selected, now see if they'll fit
-                            if (!IsUncPath(pAppInfo->szDestPath)) {
-                                if (ComputeFreeSpace(pAppInfo->szDestPath) < dwBytesToCopy) {
-                                    DisplayMessageBox (
-                                        hwndDlg,
-                                        NCDU_INSUFFICIENT_DISK_SPACE,
-                                        0,
-                                        MB_OK_TASK_EXCL);
-                                    SetFocus (GetDlgItem(hwndDlg, NCDU_DESTINATION_PATH));
-                                    SendDlgItemMessage (hwndDlg, NCDU_DESTINATION_PATH,
-                                        EM_SETSEL, (WPARAM)0, (LPARAM)-1);
+                            if (ComputeFreeSpace(pAppInfo->szDestPath) < dwBytesToCopy) {
+                                DisplayMessageBox (
+                                    hwndDlg,
+                                    NCDU_INSUFFICIENT_DISK_SPACE,
+                                    0,
+                                    MB_OK_TASK_EXCL);
+                                SetFocus (GetDlgItem(hwndDlg, NCDU_DESTINATION_PATH));
+                                SendDlgItemMessage (hwndDlg, NCDU_DESTINATION_PATH,
+                                    EM_SETSEL, (WPARAM)0, (LPARAM)-1);
 
-                                    goto IDOK_ExitClicked;
-                                }
-                            } else {
-                                // unable to compute space on UNC path, so
-                                // hope for the best
+                                goto IDOK_ExitClicked;
                             }
                             // so there should be enough free space
                             if (CopyFilesFromDistToDest (hwndDlg)) {
@@ -1424,8 +1419,8 @@ Return Value:
                         // if this is for the Make Over The Net boot disk
                         // then this must be a shared path
                         //
-                        // at this point we can assume the path is VALID and a 
-                        // distribution tree. Now see if it's visible over 
+                        // at this point we can assume the path is VALID and a
+                        // distribution tree. Now see if it's visible over
                         // the network if it's needed for an OTN install disk
                         if (pAppInfo->itInstall == OverTheNetInstall) {
                             if (IsUncPath (pAppInfo->szDistShowPath)) {
@@ -1454,7 +1449,7 @@ Return Value:
                                     } else {
                                         // it's not shared on this or any other
                                         // machine so there's no point in continuing
-                                        // with an OTN install disk. 
+                                        // with an OTN install disk.
                                         DisplayMessageBox (
                                             hwndDlg,
                                             NCDU_EXIT_SHARE_PATH,
@@ -1465,7 +1460,7 @@ Return Value:
                                 } // end if lookup remote drive
                             } // end if UNC path name
                         } else {
-                            // there's no reason to require the path be 
+                            // there's no reason to require the path be
                             // shared just to make some floppy disks so
                             // continue
                             lstrcpy (pAppInfo->szDistPath, pAppInfo->szDistShowPath);
@@ -1806,4 +1801,3 @@ Return Value:
         default:            return FALSE;
     }
 }
-

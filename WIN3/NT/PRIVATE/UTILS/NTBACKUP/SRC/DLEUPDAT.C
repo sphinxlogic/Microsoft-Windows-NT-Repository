@@ -118,7 +118,6 @@ BE_CFG_PTR cfg )           /* I - config to use to modify drive list */
 }
 
 
-
 void GEN_FlushDLEs( DLE_HAND dle_hand, UINT8 flush_dle_type )
 {
     GENERIC_DLE_PTR dle;

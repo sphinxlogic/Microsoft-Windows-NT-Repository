@@ -70,7 +70,7 @@ main(int argc, char **argv)
         buffer2 = RtlAllocateHeap(RtlProcessHeap(),0,Options[2]);
 
         // For string tests
-        for(i = 0; i < Options[1]; i++)
+        for(i = 0; i < (unsigned long)Options[1]; i++)
             buffer[i] = 'M';
 
         printf("Start size, end size: %d, %d\n", Options[1], Options[2]);
@@ -100,7 +100,7 @@ main(int argc, char **argv)
             while(size < Options[2])
                 {
                 printf("Lenght: % 6d : ", size);
-                for(i = 0; i < size-1; i++)
+                for(i = 0; i < (unsigned long)size-1; i++)
                     buffer[i] = 'A';
                 buffer[size-1] = '\0';
 
@@ -119,7 +119,7 @@ main(int argc, char **argv)
             while(size < Options[2])
                 {
                 printf("Lenght: % 6d : ", size);
-                for(i = 0; i < size-1; i++)
+                for(i = 0; i < (unsigned long)size-1; i++)
                     buffer[i] = 'A';
                 buffer[size-1] = '\0';
 

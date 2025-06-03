@@ -96,11 +96,11 @@ High Level Description:
             the registry and flushing the data to disk.  The presence of
             the "Log" value and data imply that a commit is in progress.
 
-            All necessary changes are applied, the "Log" value and its   
-            data are deleted, and in-memory data structres are freed,    
+            All necessary changes are applied, the "Log" value and its
+            data are deleted, and in-memory data structres are freed,
             thereby changing the state to no-transaction.
-                                                                         
-                                                                             
+
+
     The package also includes a service which must be called upon server
     startup.  This service checks to make sure the state of the sub-tree
     is NO_TRANSACTION.  If it is not, then one of the actions below is
@@ -136,30 +136,30 @@ Detailed Description:
     RXact Context
     -------------
 
-    A call to RtlInitializeRXact will return a pointer to an 
+    A call to RtlInitializeRXact will return a pointer to an
     RTL_RXACT_CONTEXT structure.  This structure contains:
 
-    (1) the passed RootRegistryKey (eg, key to "Sam"), 
+    (1) the passed RootRegistryKey (eg, key to "Sam"),
 
-    (2) a handle to the top of the RXact subtree (eg, key to 
-        "Sam\RXACT"), 
+    (2) a handle to the top of the RXact subtree (eg, key to
+        "Sam\RXACT"),
 
-    (3) a flag indicating if handles stored in the log are 
-        valid, 
+    (3) a flag indicating if handles stored in the log are
+        valid,
 
-    (4) a pointer to the current RXactLog.  
+    (4) a pointer to the current RXactLog.
 
-    The subsystem calling RtlInitializeRXact must keep this returned 
-    pointer and pass it back to RXact in all subsequent calls.  
+    The subsystem calling RtlInitializeRXact must keep this returned
+    pointer and pass it back to RXact in all subsequent calls.
 
 
     Operation Log
     -------------
 
     The operation log of a registry sub-tree transaction is kept as sequence
-    of "operation log entries".  
+    of "operation log entries".
 
-    An in-memory log is a block of heap memory allocted by RtlStartRXact.  
+    An in-memory log is a block of heap memory allocted by RtlStartRXact.
     It has a header which contains:
 
     (1) The count of operations in the log.
@@ -174,7 +174,7 @@ Detailed Description:
     Operation Log Entries
     ---------------------
 
-    An operation log entry is described by the following structure: 
+    An operation log entry is described by the following structure:
 
     typedef struct _RXACT_LOG_ENTRY {
         ULONG LogEntrySize;
@@ -187,15 +187,15 @@ Detailed Description:
         PVOID NewKeyValue;               // Contains offset to data from start of log
     } RXACT_LOG_ENTRY, *PRXACT_LOG_ENTRY;
 
-    The log entry contains all of the information passed in during a call 
+    The log entry contains all of the information passed in during a call
     to RtlAddActionToRXact or RtlAddAttributeActionToRXact.
 
-    The UNICODE_STRING structures contain an offset to the string data 
+    The UNICODE_STRING structures contain an offset to the string data
     rather than a pointer.  These offsets are relative to the start of
     the log data, and are adjusted in place as each log entry is commited.
 
-    The KeyHandle is valid if it is not equal to INVALID_HANDLE_VALUE and 
-    if the HandlesValid flag in the RXactContext structure is TRUE.  This 
+    The KeyHandle is valid if it is not equal to INVALID_HANDLE_VALUE and
+    if the HandlesValid flag in the RXactContext structure is TRUE.  This
     is so that we do not attempt to use the handles if the log has been
     read from disk after a reboot.
 
@@ -205,7 +205,11 @@ Detailed Description:
 
 
 #include "ntrtlp.h"
-#include <windows.h>           // for INVALID_HANDLE_VALUE
+
+//
+// Cannot include <windows.h> from kernel code
+//
+#define INVALID_HANDLE_VALUE (HANDLE)-1
 
 
 
@@ -665,15 +669,15 @@ Return Value:
             // The commit was successful.  Clean up.
             // Delete the log file value and data
             //
-        
+
             Status = NtDeleteValueKey( RXactKey, &ValueName );
-        
+
             //
             // This should never fail
             //
-        
+
             ASSERT( NT_SUCCESS( Status ));
-        
+
             //
             // Get rid of the in memory data structures.  Abort
             // will free the RXactLog, so put what we want
@@ -683,11 +687,11 @@ Return Value:
             (*RXactContext)->RXactLog = (PRTL_RXACT_LOG)FullInformation;
 
             Status = RtlAbortRXact( *RXactContext );
-                                              
+
             //
             // This should never fail
             //
-        
+
             ASSERT( NT_SUCCESS( Status ));
 
         } else {
@@ -703,7 +707,7 @@ Return Value:
 
         return( STATUS_SUCCESS );
     }
-                                 
+
 }
 
 
@@ -879,9 +883,9 @@ Return Value:
     // Reinitialize the RXactContext structure with the same initial data.
     //
 
-    RXactInitializeContext( 
-        RXactContext, 
-        RXactContext->RootRegistryKey, 
+    RXactInitializeContext(
+        RXactContext,
+        RXactContext->RootRegistryKey,
         RXactContext->RXactKey
         );
 
@@ -915,7 +919,7 @@ Routine Description:
     This routine differs from RtlAddActionToRXact in that it takes an Attribute
     Name parameter, rather than using the default ("NULL") Attribute of the
     specified key.
-    
+
 
 Arguments:
 
@@ -932,11 +936,11 @@ Arguments:
         is relative to the Root of the Registry transaction sub-tree
         and must NOT start with a delimiter character ("\").
 
-    KeyHandle - Optionally supplies a handle to the target key.  If 
-        not specified, the name passed for SubKeyName will determine 
-        the target key.  
+    KeyHandle - Optionally supplies a handle to the target key.  If
+        not specified, the name passed for SubKeyName will determine
+        the target key.
 
-    AttributeName - Supplies the name of the key attribute to be 
+    AttributeName - Supplies the name of the key attribute to be
         modified.
 
     NewKeyValueType - (Optional) Contains the KeyValueType to assign
@@ -956,10 +960,10 @@ Return Value:
 
     STATUS_SUCCESS - Indicates the request completed successfully..
 
-    STATUS_INVALID_PARAMETER - Indicates that an unknown Operation 
+    STATUS_INVALID_PARAMETER - Indicates that an unknown Operation
         was requested.
 
-    STATUS_NO_MEMORY - Insufficient memeory was available to complete 
+    STATUS_NO_MEMORY - Insufficient memeory was available to complete
         this operation.
 
     STATUS_UNKNOWN_REVISION - Indicates that a transaction state
@@ -993,8 +997,8 @@ Return Value:
     // Compute the total size of the new data
     //
 
-    LogEntrySize = sizeof( RXACT_LOG_ENTRY )               + 
-                   DwordAlign( SubKeyName->Length )        + 
+    LogEntrySize = sizeof( RXACT_LOG_ENTRY )               +
+                   DwordAlign( SubKeyName->Length )        +
                    DwordAlign( AttributeName->Length )     +
                    DwordAlign( NewValueLength );
 
@@ -1005,7 +1009,7 @@ Return Value:
     // append this to the end.
     //
 
-    if ( RXactContext->RXactLog->LogSizeInUse + LogEntrySize > 
+    if ( RXactContext->RXactLog->LogSizeInUse + LogEntrySize >
                                    RXactContext->RXactLog->LogSize ) {
 
         //
@@ -1052,15 +1056,15 @@ Return Value:
     // the end.
     //
 
-    Base = (PRXACT_LOG_ENTRY)((PCHAR)(RXactContext->RXactLog) + 
+    Base = (PRXACT_LOG_ENTRY)((PCHAR)(RXactContext->RXactLog) +
                              (RXactContext->RXactLog->LogSizeInUse));
 
 
     //
-    // Append each parameter to the end of the log.  Unicode string data   
-    // will be appended to the end of the entry.  The Buffer field in the  
-    // Unicode string structure will contain the offset to the Buffer,     
-    // relative to the beginning of the log file.                          
+    // Append each parameter to the end of the log.  Unicode string data
+    // will be appended to the end of the entry.  The Buffer field in the
+    // Unicode string structure will contain the offset to the Buffer,
+    // relative to the beginning of the log file.
     //
 
     Base->LogEntrySize      = LogEntrySize;
@@ -1069,13 +1073,10 @@ Return Value:
     Base->AttributeName     = *AttributeName;
     Base->NewKeyValueType   = NewValueType;
     Base->NewKeyValueLength = NewValueLength;
-
-    // BUGBUG make sure our callers pass in INVALID_HANDLE_VALUE;
-
     Base->KeyHandle         = KeyHandle;
 
     //
-    // Fill in the variable length data: SubKeyName, AttributeName, 
+    // Fill in the variable length data: SubKeyName, AttributeName,
     // and NewKeyValue
     //
 
@@ -1085,7 +1086,7 @@ Return Value:
     // following the structure we just filled in above.
     //
 
-    End = (ULONG)((PCHAR)(RXactContext->RXactLog->LogSizeInUse) + 
+    End = (ULONG)((PCHAR)(RXactContext->RXactLog->LogSizeInUse) +
                  sizeof( *Base ));
 
 
@@ -1093,10 +1094,10 @@ Return Value:
     // Append SubKeyName information to the log file
     //
 
-    RtlMoveMemory ( 
-        (PCHAR)(RXactContext->RXactLog) + End, 
-        SubKeyName->Buffer, 
-        SubKeyName->Length 
+    RtlMoveMemory (
+        (PCHAR)(RXactContext->RXactLog) + End,
+        SubKeyName->Buffer,
+        SubKeyName->Length
         );
 
     Base->SubKeyName.Buffer = (PWSTR)End;
@@ -1109,10 +1110,10 @@ Return Value:
     //
 
 
-    RtlMoveMemory( 
-        (PCHAR)(RXactContext->RXactLog) + End, 
-        AttributeName->Buffer, 
-        AttributeName->Length 
+    RtlMoveMemory(
+        (PCHAR)(RXactContext->RXactLog) + End,
+        AttributeName->Buffer,
+        AttributeName->Length
         );
 
     Base->AttributeName.Buffer = (PWSTR)End;
@@ -1121,17 +1122,17 @@ Return Value:
 
 
     //
-    // Append NewKeyValue information (if present) to the log file 
+    // Append NewKeyValue information (if present) to the log file
     //
 
     if ( Operation == RtlRXactOperationSetValue ) {
 
-        RtlMoveMemory( 
-            (PCHAR)(RXactContext->RXactLog) + End, 
-            NewValue, 
-            NewValueLength 
+        RtlMoveMemory(
+            (PCHAR)(RXactContext->RXactLog) + End,
+            NewValue,
+            NewValueLength
             );
-    
+
         Base->NewKeyValue = (PVOID)End;
         End += DwordAlign( NewValueLength );
     }
@@ -1227,7 +1228,7 @@ Return Value:
                  );
 
     return( Status );
-                                                       
+
 
 }
 
@@ -1322,7 +1323,7 @@ Return Value:
 
         return( Status );
     }
-                           
+
     //
     // The log is safe, now execute what is in it
     //
@@ -1341,7 +1342,7 @@ Return Value:
 
         return( Status );
     }
-                                       
+
     //
     // Delete the log file value and data
     //
@@ -1360,7 +1361,7 @@ Return Value:
     //
 
     Status = RtlAbortRXact( RXactContext );
-                                      
+
     //
     // This should never fail
     //
@@ -1496,7 +1497,7 @@ Return Value:
 
     NTSTATUS Status = STATUS_SUCCESS;
     NTSTATUS TmpStatus = STATUS_SUCCESS;
-    BOOL CloseTargetKey;
+    BOOLEAN CloseTargetKey;
 
     //
     // Extract information from the RXactContext to simplify
@@ -1554,9 +1555,9 @@ Return Value:
                 // Open the target key and delete it.
                 // The name is relative to the RootRegistryKey.
                 //
-    
+
                 if ( ((RXactLogEntry->KeyHandle == INVALID_HANDLE_VALUE) || !HandlesValid) ) {
-    
+
                     Status = RXactpOpenTargetKey(
                                  RootRegistryKey,
                                  RtlRXactOperationDelete,
@@ -1585,7 +1586,7 @@ Return Value:
                     CloseTargetKey = TRUE;
 
                 } else {
-    
+
                     TargetKey = RXactLogEntry->KeyHandle;
                     CloseTargetKey = FALSE;
                 }
@@ -1598,9 +1599,9 @@ Return Value:
                 //
 
                 Status = NtDeleteKey( TargetKey );
-                                       
 
-                //  
+
+                //
                 // Only close the target key if we opened it
                 //
 
@@ -1621,7 +1622,7 @@ Return Value:
                 if (!NT_SUCCESS(Status)) {
                     return(Status);
                 }
-    
+
                 break;
 
             case RtlRXactOperationSetValue:
@@ -1630,9 +1631,9 @@ Return Value:
                 // Open the target key.
                 // The name is relative to the RootRegistryKey.
                 //
-    
+
                 if ( ((RXactLogEntry->KeyHandle == INVALID_HANDLE_VALUE) || !HandlesValid) ) {
-    
+
                     Status = RXactpOpenTargetKey(
                                  RootRegistryKey,
                                  RtlRXactOperationSetValue,
@@ -1645,13 +1646,13 @@ Return Value:
                     }
 
                     CloseTargetKey = TRUE;
-        
+
                 } else {
-    
+
                     TargetKey = RXactLogEntry->KeyHandle;
                     CloseTargetKey = FALSE;
                 }
-    
+
                 //
                 // Assign to the target key's new value
                 //
@@ -1663,8 +1664,8 @@ Return Value:
                                         RXactLogEntry->NewKeyValue,
                                         RXactLogEntry->NewKeyValueLength
                                         );
-    
-                //  
+
+                //
                 // Only close the target key if we opened it
                 //
 
@@ -1672,13 +1673,13 @@ Return Value:
 
                     TmpStatus = NtClose( TargetKey );
                     ASSERT(NT_SUCCESS(TmpStatus));        // safe to ignore, but curious...
-        
+
                 }
-    
+
                 if ( !NT_SUCCESS(Status) ) {
                     return(Status);
                 }
-    
+
                 break;
 
 
@@ -1690,7 +1691,7 @@ Return Value:
                 //
 
                 ASSERT( FALSE );
-    
+
                 return(STATUS_INVALID_PARAMETER);
 
         }
@@ -1873,7 +1874,7 @@ Return Value:
 //                            NewKeyValue,
 //                            NewKeyValueLength
 //                            );
-// 
+//
 //
 //    return( Status );
 //}

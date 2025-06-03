@@ -168,7 +168,7 @@ void (*rtn)();
     pat = strend (buf);
 
     strcpy (pat, fbuf->fbuf.cFileName);
-    strlwr (pat);
+    _strlwr (pat);
     findclose (fbuf);
     (*rtn) (buf, fbuf);
 
@@ -249,15 +249,15 @@ char *v[];
             p = strbskip(p, " ");
             }
 
-        if (!stricmp (argv[0], "rem")) continue;
-        if (!stricmp (argv[0], "echo"))
+        if (!_stricmp (argv[0], "rem")) continue;
+        if (!_stricmp (argv[0], "echo"))
         {
-            if      (!stricmp (argv[1], "on"))
+            if      (!_stricmp (argv[1], "on"))
             {
                 fVerbose = TRUE;
                 printf ("Verbose On\n");
             }
-            else if (!stricmp (argv[1], "off"))
+            else if (!_stricmp (argv[1], "off"))
                  {
                      fVerbose = FALSE;
                      printf ("Verbose Off\n");
@@ -381,4 +381,3 @@ char *v[];
     if (!fInGetfile)
         return( (int)fErrorExit ? (int)fNoSrc : fAnyUpd );
 }
-

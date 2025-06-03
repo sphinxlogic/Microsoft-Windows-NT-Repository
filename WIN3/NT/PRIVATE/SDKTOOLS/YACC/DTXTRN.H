@@ -117,7 +117,7 @@
 
 /* macros for getting associativity and precedence levels */
 
-#define ASSOC(i) ((i)&03)
+#define ASSOC(i) ((i)&03)
 #define PLEVEL(i) (((i)>>4)&077)
 #define TYPE(i)  ((i>>10)&077)
 
@@ -182,7 +182,7 @@ struct wset
    };
 
 #ifndef y2imp
-/* token information */
+/* token information */
 extern int ntokens ;    /* number of tokens */
 extern struct toksymb tokset[];
 extern int toklev[];    /* vector with the precedence of the terminals */
@@ -260,7 +260,7 @@ extern int zzsrconf ;
 extern char *pszPrefix;
 #endif
 
-/* define functions with strange types... */
+/* define functions with strange types... */
 extern char *cstash();
 extern struct looksets *flset();
 extern char *symnam();

@@ -111,6 +111,9 @@ typedef union _MIPS_INSTRUCTION {
 #define BLEZL_OP 0x16                   // branch less than or equal likely
 #define BGTZL_OP 0x17                   // branch greater than likely
 
+#define LDL_OP 0x1a                     // load double left integer
+#define LDR_OP 0x1b                     // load double right integer
+
 #define LB_OP 0x20                      // load byte signed integer
 #define LH_OP 0x21                      // load halfword signed integer
 #define LWL_OP 0x22                     // load word left integer
@@ -119,25 +122,35 @@ typedef union _MIPS_INSTRUCTION {
 #define LBU_OP 0x24                     // load byte unsigned integer
 #define LHU_OP 0x25                     // load halfword unsigned integer
 #define LWR_OP 0x26                     // load word right integer
-#define LD_OP 0x27                      // load double integer
+#define LWU_OP 0x27                     // load word unsigned integer
 
 #define SB_OP 0x28                      // store byte integer
 #define SH_OP 0x29                      // store halfword integer
 #define SWL_OP 0x2a                     // store word left integer
 #define SW_OP 0x2b                      // store word integer register
 
+#define SDL_OP 0x2c                     // store double left integer
+#define SDR_OP 0x2d                     // store double right integer
 #define SWR_OP 0x2e                     // store word right integer
-#define SD_OP 0x2f                      // store double integer register
+#define CACHE_OP 0x2f                   // cache operation
 
 #define LL_OP 0x30                      // load linked integer register
-
 #define LWC1_OP 0x31                    // load word floating
+#define LWC2_OP 0x32                    // load word coprocessor 2
+
+#define LLD_OP 0x34                     // load locked double integer
 #define LDC1_OP 0x35                    // load word double floating
+#define LDC2_OP 0x36                    // load double coprocessor 2
+#define LD_OP 0x37                      // load double integer
 
-#define SC_OP 0x38                      // store conditional integer register
-
+#define SC_OP 0x38                      // store conditional word integer
 #define SWC1_OP 0x39                    // store word floating
+#define SWC2_OP 0x3a                    // store double coprocessor 2
+
+#define SDC_OP 0x3c                     // store conditional double integer
 #define SDC1_OP 0x3d                    // store double floating
+#define SDC2_OP 0x3e                    // store double copreocessor 2
+#define SD_OP 0x3f                      // store double integer register
 
 //
 // Define special function subopcodes.
@@ -215,6 +228,11 @@ typedef union _MIPS_INSTRUCTION {
 #define FLOAT_MOVE 6                    // floating move
 #define FLOAT_NEGATE 7                  // floating negate
 
+#define FLOAT_ROUND_QUADWORD 8          // floating round to longword
+#define FLOAT_TRUNC_QUADWORD 9          // floating truncate to longword
+#define FLOAT_CEIL_QUADWORD 10          // floating ceiling
+#define FLOAT_FLOOR_QUADWORD 11         // floating floor
+
 #define FLOAT_ROUND_LONGWORD 12         // floating round to longword
 #define FLOAT_TRUNC_LONGWORD 13         // floating truncate to longword
 #define FLOAT_CEIL_LONGWORD 14          // floating ceiling
@@ -228,7 +246,8 @@ typedef union _MIPS_INSTRUCTION {
 #define FLOAT_CONVERT_SINGLE 32         // floating convert to single
 #define FLOAT_CONVERT_DOUBLE 33         // floating convert to double
 
-#define FLOAT_CONVERT_LONGWORD 36       // floating convert to integer
+#define FLOAT_CONVERT_LONGWORD 36       // floating convert to longword integer
+#define FLOAT_CONVERT_QUADWORD 37       // floating convert to quadword integer
 
 #define FLOAT_COMPARE 48                // starting floating compare code
 
@@ -238,7 +257,8 @@ typedef union _MIPS_INSTRUCTION {
 
 #define FORMAT_SINGLE 0                 // single floating format
 #define FORMAT_DOUBLE 1                 // double floating format
-#define FORMAT_WORD 4                   // integer format
+#define FORMAT_LONGWORD 4               // longword integer format
+#define FORMAT_QUADWORD 5               // quadword integer format
 
 //
 // Define jump indirect return address register.
@@ -266,6 +286,7 @@ typedef union _MIPS_INSTRUCTION {
 // Define the largest single and double values;
 //
 
+#define DOUBLE_MAXIMUM_VALUE 0x7fefffffffffffff
 #define DOUBLE_MAXIMUM_VALUE_LOW 0xffffffff
 #define DOUBLE_MAXIMUM_VALUE_HIGH 0x7fefffff
 #define SINGLE_MAXIMUM_VALUE 0x7f7fffff
@@ -279,12 +300,14 @@ typedef union _MIPS_INSTRUCTION {
 #define DOUBLE_SIGNAL_NAN 0x7fffffff
 #define SINGLE_QUIET_NAN 0x7fbfffff
 #define SINGLE_SIGNAL_NAN 0x7fffffff
-#define INTEGER_NAN 0x7fffffff
+#define DOUBLE_INTEGER_NAN 0x7fffffffffffffff
+#define SINGLE_INTEGER_NAN 0x7fffffff
 
 //
 // Define positive single and double infinity values.
 //
 
+#define DOUBLE_INFINITY_VALUE 0x7ff0000000000000
 #define DOUBLE_INFINITY_VALUE_LOW 0x0
 #define DOUBLE_INFINITY_VALUE_HIGH 0x7ff00000
 #define SINGLE_INFINITY_VALUE 0x7f800000
@@ -299,4 +322,3 @@ typedef union _MIPS_INSTRUCTION {
 #define ROUND_TO_MINUS_INFINITY 3       // round toward minus infinity
 
 #endif // MIPSINST
-

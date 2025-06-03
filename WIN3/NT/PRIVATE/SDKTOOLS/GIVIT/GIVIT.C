@@ -16,7 +16,6 @@ USHORT NtsdCurrentProcessor;
 USHORT DefaultProcessor;
 DBGKD_WAIT_STATE_CHANGE StateChange;
 char Buffer[256];
-USHORT ProcessorType;
 ULONG NumberProcessors = 1;
 
 void _CRTAPI1 main (int Argc, PUCHAR *Argv)
@@ -55,7 +54,6 @@ void _CRTAPI1 main (int Argc, PUCHAR *Argv)
             printf("kd: DbgKdWaitStateChange failed: %08lx\n", st);
             exit(1);
             }
-        ProcessorType = StateChange.ProcessorType;
         NtsdCurrentProcessor = StateChange.Processor;
         NumberProcessors = StateChange.NumberProcessors;
         if (StateChange.NewState == DbgKdExceptionStateChange) {

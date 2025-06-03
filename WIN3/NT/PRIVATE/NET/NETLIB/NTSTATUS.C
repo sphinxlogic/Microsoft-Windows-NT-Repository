@@ -48,7 +48,7 @@ Revision History:
 
 #include <debuglib.h>           // IF_DEBUG().
 #include <lmerr.h>              // NERR_ and ERROR_ equates.
-#include <netdebug.h>           // FORMAT_NTSTATUS, NetpDbgPrint().
+#include <netdebug.h>           // FORMAT_NTSTATUS, NetpKdPrint(()).
 #include <ntstatus.h>           // STATUS_ equates.
 #include <ntrtl.h>
 
@@ -78,7 +78,7 @@ Return Value:
     NET_API_STATUS error;
 
     IF_DEBUG(NTSTATUS) {
-        NetpDbgPrint( "   NT status is " FORMAT_NTSTATUS "\n", NtStatus );
+        NetpKdPrint(( "   NT status is " FORMAT_NTSTATUS "\n", NtStatus ));
     }
 
     //
@@ -173,6 +173,9 @@ Return Value:
 
         case STATUS_PASSWORD_RESTRICTION:
                 return NERR_PasswordTooShort;
+
+        case STATUS_ALREADY_DISCONNECTED:
+                return NERR_Success;
 
         default:
 

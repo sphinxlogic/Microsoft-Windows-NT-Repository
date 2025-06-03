@@ -17,6 +17,16 @@ Author:
 
 Revision History:
 
+    04-Apr-1995     MarkBl
+        Resets the file archive attribute on log write. The backup caller
+        clears it.
+    29-Aug-1994     Danl
+        We no longer grow log files in place.  Therefore, the ExtendSize
+        function will allocate a block that is as large as the old size plus
+        the size of the new block that must be added.  If this allocation
+        succeeds, then it will free up the old block.  If a failure occurs,
+        we continue to use the old block as if we have already grown as much
+        as we can.
     22-Jul-1994     Danl
         ValidFilePos:  Changed test for pEndRecordLen > PhysicalEOF
         so that it uses >=.  In the case where pEndRecordLen == PhysicalEOF,
@@ -41,6 +51,29 @@ Revision History:
 
 #define OVERWRITE_AS_NEEDED 0x00000000
 #define NEVER_OVERWRITE     0xffffffff
+
+#if DBG
+#define ELF_ERR_OUT(txt,code,pLogFile) (ElfErrorOut(txt,code,pLogFile))
+#else
+#define ELF_ERR_OUT(txt,code,pLogFile)
+#endif
+
+//
+// Prototypes
+//
+BOOL
+IsPositionWithinRange(
+    PVOID Position,
+    PVOID BeginningRecord,
+    PVOID EndingRecord);
+
+#if DBG
+VOID
+ElfErrorOut(
+    LPSTR       ErrorText,
+    DWORD       StatusCode,
+    PLOGFILE    pLogFile);
+#endif // DBG
 
 
 VOID
@@ -80,7 +113,7 @@ Note:
 
    LARGE_INTEGER NewSize;
    NTSTATUS Status;
-   PVOID Address;
+   PVOID BaseAddress;
    ULONG Size;
    IO_STATUS_BLOCK IoStatusBlock;
 
@@ -97,11 +130,15 @@ Note:
        //
        // We can't grow it by the full amount we need.  Grow
        // it to the max size and let file wrap take over.
+       // If there isn't any room to grow, then return;
        //
 
        SpaceNeeded = pLogFile->ConfigMaxFileSize -
            pLogFile->ActualMaxFileSize;
 
+       if (SpaceNeeded == 0) {
+           return;
+       }
    }
 
    NewSize = RtlConvertUlongToLargeInteger (pLogFile->ActualMaxFileSize
@@ -118,99 +155,105 @@ Note:
                  sizeof(NewSize),
                  FileEndOfFileInformation);
 
-   if (NT_SUCCESS(Status)) {
-       Status = NtExtendSection(pLogFile->SectionHandle, &NewSize);
+
+   if (!NT_SUCCESS(Status)) {
+       ElfDbgPrintNC(("[EVENTLOG]ElfExtendFile: NtSetInformationFile "
+        "failed 0x%lx\n",Status));
+       goto ErrorExit;
    }
 
-   if (NT_SUCCESS(Status)) {
+   Status = NtExtendSection(pLogFile->SectionHandle, &NewSize);
 
-       //
-       // Now that the section is extended, we need to map the new section.
-       // First we need to release the next 64K of what we initially
-       // reserved at file open time.  This was done to guarantee that we
-       // would be able to increase the size of the view without having
-       // to grow the page table (which could fail due to quota limits)
-       // or run up against something else already having used the
-       // addresses we want to grow into.  This call should never fail.
-       //
+   if (!NT_SUCCESS(Status)) {
+        goto ErrorExit;
+   }
 
-       Address = (PBYTE) pLogFile->BaseAddress + pLogFile->ViewSize;
-       Size = SpaceNeeded;
+   //
+   // Now that the section is extended, we need to map the new section.
+   //
 
-       Status = NtFreeVirtualMemory(
+    //
+    // Map a view of the entire section (with the extension).
+    // Allow the allocator to tell us where it is located, and
+    // what the size is.
+    //
+    BaseAddress = NULL;
+    Size = 0;
+    Status = NtMapViewOfSection(
+                   pLogFile->SectionHandle,
                    NtCurrentProcess(),
-                   &Address,
+                   &BaseAddress,
+                   0,
+                   0,
+                   NULL,
                    &Size,
-                   MEM_RELEASE);
+                   ViewUnmap,
+                   0,
+                   PAGE_READWRITE);
 
-       ASSERT(NT_SUCCESS(Status));
+    if (!NT_SUCCESS(Status)) {
+        //
+        // If this fails, just exit, and we will continue with the
+        // view that we have.
+        //
+        ELF_ERR_OUT("ElfExtendFile:NtMapViewOfSection Failed",
+            Status, pLogFile);
+        goto ErrorExit;
+    }
 
-       //
-       // Unmap the old section and remap it at the same address
-       //
+   //
+   // Unmap the old section.
+   //
 
-       Status = NtUnmapViewOfSection(
-           NtCurrentProcess(),
-           pLogFile->BaseAddress);
+   Status = NtUnmapViewOfSection(
+       NtCurrentProcess(),
+       pLogFile->BaseAddress);
 
-       ASSERT(NT_SUCCESS(Status));
-
-       Size = 0;
-       Status = NtMapViewOfSection(
-                       pLogFile->SectionHandle,
-                       NtCurrentProcess(),
-                       &pLogFile->BaseAddress,
-                       0,
-                       0,
-                       NULL,
-                       &Size,
-                       ViewUnmap,
-                       0,
-                       PAGE_READWRITE);
-
-       //
-       // Since we reserved the necessary address space at file open
-       // time, the MapView call should NEVER fail, since we've got the
-       // page tables already built, and we reserved the address space.
-       //
-
-       ASSERT(NT_SUCCESS(Status));
-
-       //
-       // We managed to extend the file, update the actual size
-       // and space available and press on.
-       //
-
-       pLogFile->ViewSize += SpaceNeeded;
-       pLogFile->ActualMaxFileSize += SpaceNeeded;
-       *SpaceAvail += SpaceNeeded;
-
-       //
-       // If we were wrapped, turn off the bit since now we're in a state
-       // that is unwrapped, except there may be some dead space after the
-       // header, but before the start of the first full record.  This will
-       // be reclaimed when the file really wraps again.
-       //
-
-       pLogFile->Flags &= ~ELF_LOGFILE_HEADER_WRAP;
-
-       //
-       // Now flush this to disk to commit it
-       //
-
-       Address = pLogFile->BaseAddress;
-       Size = FILEHEADERBUFSIZE;
-
-       Status = NtFlushVirtualMemory(
-                       NtCurrentProcess(),
-                       &Address,
-                       &Size,
-                       &IoStatusBlock
-                       );
-
-       return;
+   if (!NT_SUCCESS(Status)) {
+       ELF_ERR_OUT("ElfExtendFile:NtUnmapViewOfSection Failed",
+           Status, pLogFile);
    }
+    pLogFile->BaseAddress = BaseAddress;
 
+   //
+   // We managed to extend the file, update the actual size
+   // and space available and press on.
+   //
+
+   pLogFile->ViewSize += SpaceNeeded;
+   pLogFile->ActualMaxFileSize += SpaceNeeded;
+   *SpaceAvail += SpaceNeeded;
+
+   //
+   // If we were wrapped, turn off the bit since now we're in a state
+   // that is unwrapped, except there may be some dead space after the
+   // header, but before the start of the first full record.  This will
+   // be reclaimed when the file really wraps again.
+   //
+
+   pLogFile->Flags &= ~ELF_LOGFILE_HEADER_WRAP;
+
+   //
+   // Now flush this to disk to commit it
+   //
+
+   BaseAddress = pLogFile->BaseAddress;
+   Size = FILEHEADERBUFSIZE;
+
+   Status = NtFlushVirtualMemory(
+                   NtCurrentProcess(),
+                   &BaseAddress,
+                   &Size,
+                   &IoStatusBlock
+                   );
+
+   if (!NT_SUCCESS(Status)) {
+       ELF_ERR_OUT("ElfExtendFile:NtFlushVirtualMemory Failed",
+           Status, pLogFile);
+   }
+   return;
+
+ErrorExit:
    //
    // Couldn't extend the section for some reason.  Just wrap the file now.
    // Cap the file at this size, so we don't try and extend the section on
@@ -219,6 +262,8 @@ Note:
    //
    // Generate an Alert here - BUGBUG
    //
+   ELF_ERR_OUT("ElfExtendFile:Couldn't extend the File",
+       Status, pLogFile);
 
    pLogFile->ConfigMaxFileSize = pLogFile->ActualMaxFileSize;
 
@@ -487,18 +532,9 @@ Note:
         // Verify that the pointer is within the range of BEGINNING->END
         //
 
-        if (EndingRecord > BeginningRecord) {
-            if ((Position >= BeginningRecord) && (Position <= EndingRecord))
-                fValid = TRUE;
-
-        } else if (EndingRecord < BeginningRecord) {
-            if ((Position >= BeginningRecord) || (Position <= EndingRecord))
-                fValid = TRUE;
-
-        } else {
-            fValid = FALSE;
-
-        }
+        fValid = IsPositionWithinRange(Position,
+                                       BeginningRecord,
+                                       EndingRecord);
 
         //
         // If the offset looks OK, then examine the lengths at the beginning
@@ -552,6 +588,30 @@ Note:
 }
 
 
+BOOL
+IsPositionWithinRange(
+        PVOID Position,
+        PVOID BeginningRecord,
+        PVOID EndingRecord)
+{
+    //
+    // Verify that the pointer is within the range of BEGINNING->END
+    //
+
+    if (EndingRecord > BeginningRecord) {
+        if ((Position >= BeginningRecord) && (Position <= EndingRecord))
+            return(TRUE);
+
+    } else if (EndingRecord < BeginningRecord) {
+        if ((Position >= BeginningRecord) || (Position <= EndingRecord))
+            return(TRUE);
+
+    } else {
+        return(FALSE);
+    }
+}
+
+
 PVOID
 FindStartOfNextRecord (
         PVOID Position,
@@ -595,6 +655,7 @@ Note:
 
     PULONG ptr;
     PULONG EndOfBlock;
+    PULONG EndOfFile;
     PVOID pRecord;
     ULONG Size;
     BOOL StillLooking = TRUE;
@@ -604,7 +665,7 @@ Note:
     //
 
     ptr = (PULONG) Position;
-    EndOfBlock = (PULONG) PhysicalEOF - 1;
+    EndOfBlock = EndOfFile = (PULONG) PhysicalEOF - 1;
 
     while (StillLooking) {
 
@@ -673,7 +734,15 @@ Note:
         ptr++;
 
         if (ptr >= EndOfBlock) {
-            if (EndOfBlock == (PULONG) Position) {
+
+            //
+            // Need the second test on this condition in case Position
+            // happens to equal PhysicalEOF - 1 (EndOfBlock initial value);
+            // without this, this loop would terminate prematurely.
+            //
+
+            if ((EndOfBlock == (PULONG) Position) &&
+                ((PULONG) Position != EndOfFile)) {
 
                 //
                 // This was the top half, so we're done
@@ -916,6 +985,52 @@ Note:
                                 PhysStart
                                 );
                 }
+                else {
+                    //
+                    // This *really* cheesy check exists to handle the case
+                    // where Position could be on an ELF_SKIP_DWORD pad
+                    // dword at end of the file.
+                    //
+                    // NB:  Must be prepared to handle an exception since
+                    //      a somewhat unknown pointer is dereferenced.
+                    //
+                    // BUGBUG:  The eventlog code needs to handle exceptions
+                    //          in *many* more cases!
+                    //
+
+                    NTSTATUS Status = STATUS_SUCCESS;
+
+                    try {
+                        if (IsPositionWithinRange(Position,
+                                                  BeginRecord,
+                                                  EndRecord))
+                        {
+                            //
+                            // If this is a ELF_SKIP_DWORD, skip to the
+                            // top of the file.
+                            //
+
+                            if (*(PDWORD) Position == ELF_SKIP_DWORD) {
+                                Position = PhysStart;
+                            }
+                        } else {
+                            //
+                            // More likely the caller's handle was invalid
+                            // if the position was not within range.
+                            //
+
+                            Status = STATUS_INVALID_HANDLE;
+                        }
+                    }
+                    except (EXCEPTION_EXECUTE_HANDLER) {
+                        Status = STATUS_EVENTLOG_FILE_CORRUPT;
+                    }
+
+                    if (!NT_SUCCESS(Status)) {
+                        *ReadPosition = NULL;
+                        return(Status);
+                    }
+                }
             }
 
         } else {    // READ backwards
@@ -1048,7 +1163,7 @@ Note:
         // Take care of file wrap
         //
 
-        if (Position > PhysEOF) {
+        if (Position >= PhysEOF) {
 
             Position = (PVOID)((PBYTE)PhysStart +
                                   ((PBYTE) Position - (PBYTE) PhysEOF));
@@ -1188,8 +1303,6 @@ Note:
 
     if (NT_SUCCESS (Status) ) {
 
-        RecordSize = *((PULONG)ReadPosition);
-
         //
         // Make sure the record is valid
         //
@@ -1205,9 +1318,11 @@ Note:
             Request->Pkt.ReadPkt->BytesRead = 0;
             Request->Pkt.ReadPkt->RecordsRead = 0;
 
-            return (STATUS_EVENTLOG_FILE_CORRUPT);
+            return (STATUS_INVALID_HANDLE);
 
         }
+
+        RecordSize = *((PULONG)ReadPosition);
 
         if (!NT_SUCCESS(Status)) {
             return(Status);
@@ -1465,6 +1580,11 @@ Note:
 
 
 
+WCHAR wszAltDosDevices[] = L"\\DosDevices\\";
+WCHAR wszDosDevices[] = L"\\??\\";
+#define DOSDEVICES_LEN  ((sizeof(wszDosDevices) / sizeof(WCHAR)) - 1)
+#define ALTDOSDEVICES_LEN  ((sizeof(wszAltDosDevices) / sizeof(WCHAR)) - 1)
+
 
 VOID
 WriteToLog (
@@ -1509,6 +1629,7 @@ Note:
     LARGE_INTEGER ByteOffset;
     IO_STATUS_BLOCK IoStatusBlock;
     PVOID BaseAddress;
+    LPWSTR pwszLogFileName;
 
     BytesToCopy = min (PhysEOF - *Destination, BufSize);
 
@@ -1574,6 +1695,43 @@ Note:
 
     *Destination = NewDestination;          // Return new destination
 
+    //
+    // Providing all succeeded above, if not set, set the archive file
+    // attribute on this log.
+    //
+
+    if (NT_SUCCESS(Status) && !(pLogFile->Flags & ELF_LOGFILE_ARCHIVE_SET)) {
+
+        //
+        // Advance past prefix string, '\??\' or '\DosDevices\'
+        //
+
+        if ((pLogFile->LogFileName->Length / 2) >= DOSDEVICES_LEN &&
+            !_wcsnicmp(wszDosDevices, pLogFile->LogFileName->Buffer,
+                        DOSDEVICES_LEN)) {
+            pwszLogFileName = pLogFile->LogFileName->Buffer + DOSDEVICES_LEN;
+        }
+        else
+        if ((pLogFile->LogFileName->Length / 2) >= ALTDOSDEVICES_LEN &&
+            !_wcsnicmp(wszAltDosDevices, pLogFile->LogFileName->Buffer,
+                        ALTDOSDEVICES_LEN)) {
+            pwszLogFileName = pLogFile->LogFileName->Buffer + ALTDOSDEVICES_LEN;
+        }
+        else {
+            pwszLogFileName = pLogFile->LogFileName->Buffer;
+        }
+
+        if (SetFileAttributes(pwszLogFileName, FILE_ATTRIBUTE_ARCHIVE)) {
+            pLogFile->Flags |= ELF_LOGFILE_ARCHIVE_SET;
+        }
+        else {
+            ElfDbgPrintNC(("[ELF] SetFileAttributes on file (%ws) failed, "
+                           "WIN32 error = 0x%lx\n",
+                           pwszLogFileName,
+                           GetLastError()));
+        }
+    }
+
 } // WriteToLog
 
 
@@ -1624,6 +1782,9 @@ Note:
     PEVENTLOGRECORD pEventLogRecord;
     PDWORD FillDword;
     ULONG OverwrittenEOF = 0;
+#ifdef _CAIRO_
+    BOOL    fRaiseAlert  = FALSE;
+#endif // _CAIRO_
 
     pLogFile = Request->LogFile;          // Set local variable
 
@@ -1716,9 +1877,6 @@ Note:
 
     Status = STATUS_SUCCESS;        // Initialize for return to caller
 
-    EventRecord = (PEVENTLOGRECORD)((PBYTE) pLogFile->BaseAddress +
-        pLogFile->BeginRecord);
-
     //
     // Check to see if the file hasn't reached it's maximum allowable
     // size yet, and also hasn't wrapped.  If not, grow it by as much as
@@ -1737,7 +1895,6 @@ Note:
         //
 
         ElfExtendFile(pLogFile, SpaceNeeded, &SpaceAvail);
-
     }
 
     //
@@ -1776,6 +1933,8 @@ Note:
         pLogFile->Flags |= ELF_LOGFILE_HEADER_WRAP;
     }
 
+    EventRecord = (PEVENTLOGRECORD)((PBYTE) pLogFile->BaseAddress +
+        pLogFile->BeginRecord);
 
     while ( SpaceNeeded > SpaceAvail ) {
 
@@ -1823,6 +1982,12 @@ Note:
 
                     ElfExtendFile(pLogFile, SpaceNeeded, &SpaceAvail);
 
+                    //
+                    // Since extending the file will cause it to be moved, we
+                    // need to re-establish the address for the EventRecord.
+                    //
+                    EventRecord = (PEVENTLOGRECORD)((PBYTE) pLogFile->BaseAddress +
+                        DeletedRecordOffset);
                 }
             }
 
@@ -1878,21 +2043,33 @@ Note:
 
                     pLogFile->Flags |= ELF_LOGFILE_LOGFULL_WRITTEN;
 
-                    ElfpCreateElfEvent(EVENT_LOG_FULL,
-                                       EVENTLOG_ERROR_TYPE,
-                                       0,                    // EventCategory
-                                       1,                    // NumberOfStrings
-                   &Request->LogFile->LogModuleName->Buffer, // Strings
-                                       NULL,                 // Data
-                                       0,                    // Datalength
-                                       ELF_FORCE_OVERWRITE   // Overwrite if necc.
-                                       );
+                    //
+                    // Per bug #4960, it is considered a C2 security breach
+                    // if a "security log full" message is posted to the
+                    // system log *and* the current user's console. An admin
+                    // alert is OK.
+                    //
 
+                    if (_wcsicmp(pLogFile->LogModuleName->Buffer,
+                                ELF_SECURITY_MODULE_NAME) != 0) {
+
+                        ElfpCreateElfEvent(
+                            EVENT_LOG_FULL,
+                            EVENTLOG_ERROR_TYPE,
+                            0,                      // EventCategory
+                            1,                      // NumberOfStrings
+                            &Request->LogFile->LogModuleName->
+                                Buffer,             // Strings
+                            NULL,                   // Data
+                            0,                      // Datalength
+                            ELF_FORCE_OVERWRITE);   // Overwrite if necc.
+
+                        ElfpCreateQueuedMessage(ALERT_ELF_LogOverflow, 1,
+                            &Request->Module->LogFile->LogModuleName->Buffer);
+                    }
 
                     LastAlertWritten = CurrentTime;
                     ElfpCreateQueuedAlert(ALERT_ELF_LogOverflow, 1,
-                        &Request->Module->LogFile->LogModuleName->Buffer);
-                    ElfpCreateQueuedMessage(ALERT_ELF_LogOverflow, 1,
                         &Request->Module->LogFile->LogModuleName->Buffer);
                 }
             }
@@ -1952,6 +2129,36 @@ Note:
         pLogFile->CurrentRecordNumber++;
 
         //
+        // If the dirty bit is not set, then this is the first time that
+        // we have written to the file since we started. In that case,
+        // set the dirty bit in the file header as well so that we will
+        // know that the contents have changed.
+        //
+
+        if ( !(pLogFile->Flags & ELF_LOGFILE_HEADER_DIRTY) ) {
+            ULONG HeaderSize;
+
+            pLogFile->Flags |= ELF_LOGFILE_HEADER_DIRTY;
+
+            pFileHeader = (PELF_LOGFILE_HEADER)(pLogFile->BaseAddress);
+            pFileHeader->Flags |= ELF_LOGFILE_HEADER_DIRTY;
+
+            //
+            // Now flush this to disk to commit it
+            //
+
+            BaseAddress = pLogFile->BaseAddress;
+            HeaderSize = FILEHEADERBUFSIZE;
+
+            Status = NtFlushVirtualMemory(
+                            NtCurrentProcess(),
+                            &BaseAddress,
+                            &HeaderSize,
+                            &IoStatusBlock
+                            );
+        }
+
+        //
         // Now write out the record
         //
 
@@ -1995,34 +2202,6 @@ Note:
                      FILEHEADERBUFSIZE
                    );
 
-        //
-        // If the dirty bit is not set, then this is the first time that
-        // we have written to the file since we started. In that case,
-        // set the dirty bit in the file header as well so that we will
-        // know that the contents have changed.
-        //
-
-        if ( !(pLogFile->Flags & ELF_LOGFILE_HEADER_DIRTY) ) {
-
-            pLogFile->Flags |= ELF_LOGFILE_HEADER_DIRTY;
-
-            pFileHeader = (PELF_LOGFILE_HEADER)(pLogFile->BaseAddress);
-            pFileHeader->Flags |= ELF_LOGFILE_HEADER_DIRTY;
-
-            //
-            // Now flush this to disk to commit it
-            //
-
-            BaseAddress = pLogFile->BaseAddress;
-            RecordSize = FILEHEADERBUFSIZE;
-
-            Status = NtFlushVirtualMemory(
-                            NtCurrentProcess(),
-                            &BaseAddress,
-                            &RecordSize,
-                            &IoStatusBlock
-                            );
-        }
 
         //
         // If we had just written a logfull record, turn the bit off.
@@ -2039,6 +2218,27 @@ Note:
         //
 
         NotifyChange(pLogFile);
+
+#ifdef _CAIRO_
+        //
+        //                    ** NEW FOR CAIRO **
+        //
+        // Test if this event should be raised as a Cairo alert. Notice this
+        // test is performed within logfile resource exclusion while actual
+        // raise of the event as a Cairo alert is performed outside of
+        // it - there is no need to serialize access to the logfile while
+        // raising the event as an alert.
+        //
+        // Raise *only* events written to the System log.
+        //
+
+        if (_wcsicmp(ELF_SYSTEM_MODULE_NAME,
+                    Request->LogFile->LogModuleName->Buffer) == 0)
+        {
+            fRaiseAlert = TestFilter(pEventLogRecord->EventType,
+                                     Request->Module->AlertSeverity);
+        }
+#endif // _CAIRO_
     }
 
     //
@@ -2053,6 +2253,27 @@ Note:
 
     RtlReleaseResource ( &pLogFile->Resource );
 
+#ifdef _CAIRO_
+    //
+    //                        ** NEW FOR CAIRO **
+    //
+    // Raise the event as a Cairo alert to the local computer distributor
+    // object if the filter match test succeeded above.
+    //
+    // Note: this is done outside of log resource exclusion since raise has
+    // nothing to do with the log and its data structures.
+    //
+
+    if (fRaiseAlert)
+    {
+        //
+        // Don't care if this fails right now.
+        //
+
+        RaiseCairoAlert(Request->Module, pEventLogRecord);
+    }
+#endif // _CAIRO_
+
 } // PerformWriteRequest
 
 
@@ -2065,9 +2286,6 @@ Routine Description:
 
     This routine will optionally back up the log file specified, and will
     delete it.
-    This routine impersonates the client in order to ensure that the correct
-    access control is used. If the client does not have permission to clear
-    the file, the operation will fail.
 
 Arguments:
 
@@ -2111,11 +2329,6 @@ Note:
     //
     // We have exclusive access to the file.
     //
-    // Now, close the file, impersonate the client, reopen the file
-    // as the client, rename the file, close the file and revert to
-    // the service process. This will ensure that the client has the
-    // correct access to delete the file.
-    //
     // We force the file to be closed, and store away the ref count
     // so that we can set it back when we reopen the file.
     // This is a little *sleazy* but we have exclusive access to the
@@ -2126,157 +2339,144 @@ Note:
     ElfpCloseLogFile ( Request->LogFile, ELF_LOG_CLOSE_FORCE );
     Request->LogFile->FileHandle = NULL;        // For use later
 
-    Status = ElfImpersonateClient ();
+    //
+    // Open the file with delete access in order to rename it.
+    //
 
-    if (NT_SUCCESS (Status)) {
+    InitializeObjectAttributes(
+                    &ObjectAttributes,
+                    Request->LogFile->LogFileName,
+                    OBJ_CASE_INSENSITIVE,
+                    NULL,
+                    NULL
+                    );
 
-        //
-        // Open the file with delete access in order to rename it.
-        //
-
-        InitializeObjectAttributes(
+    Status = NtOpenFile(&ClearHandle,
+                        GENERIC_READ | DELETE | SYNCHRONIZE,
                         &ObjectAttributes,
-                        Request->LogFile->LogFileName,
-                        OBJ_CASE_INSENSITIVE,
-                        NULL,
-                        NULL
+                        &IoStatusBlock,
+                        FILE_SHARE_DELETE,
+                        FILE_SYNCHRONOUS_IO_NONALERT
                         );
 
-        Status = NtOpenFile(&ClearHandle,
-                            GENERIC_READ | DELETE | SYNCHRONIZE,
-                            &ObjectAttributes,
-                            &IoStatusBlock,
-                            FILE_SHARE_DELETE,
-                            FILE_SYNCHRONOUS_IO_NONALERT
-                            );
+    if (NT_SUCCESS(Status)) {
 
-        if (NT_SUCCESS(Status)) {
+        // If the backup file name has been specified and is not NULL,
+        // then we move the current file to the new file. If that fails,
+        // then fail the whole operation.
+        //
 
-            // If the backup file name has been specified and is not NULL,
-            // then we move the current file to the new file. If that fails,
-            // then fail the whole operation.
+        if (  (Request->Pkt.ClearPkt->BackupFileName != NULL)
+           && (Request->Pkt.ClearPkt->BackupFileName->Length != 0)) {
+
+            FileName =  Request->Pkt.ClearPkt->BackupFileName;
+
+            //
+            // Set up the rename information structure with the new name
             //
 
-            if (  (Request->Pkt.ClearPkt->BackupFileName != NULL)
-               && (Request->Pkt.ClearPkt->BackupFileName->Length != 0)) {
-
-                FileName =  Request->Pkt.ClearPkt->BackupFileName;
-
-                //
-                // Set up the rename information structure with the new name
-                //
-
-                NewName = ElfpAllocateBuffer(
-                    FileName->Length + sizeof(WCHAR) + sizeof(*NewName));
-                if (NewName) {
-                    RtlMoveMemory( NewName->FileName,
-                                   FileName->Buffer,
-                                   FileName->Length
-                                 );
-
-                    //
-                    // Guarantee that it's NULL terminated
-                    //
-
-                    NewName->FileName[FileName->Length / sizeof(WCHAR)] = L'\0';
-
-                    NewName->ReplaceIfExists = FALSE;
-                    NewName->RootDirectory = NULL;
-                    NewName->FileNameLength = FileName->Length;
-
-                    Status = NtSetInformationFile(
-                                ClearHandle,
-                                &IoStatusBlock,
-                                NewName,
-                                FileName->Length+sizeof(*NewName),
-                                FileRenameInformation
-                                );
-
-                    if (Status == STATUS_NOT_SAME_DEVICE) {
-
-                        //
-                        // They want the backup file to be on a different
-                        // device.  We need to copy this one, and then delete
-                        // it.
-                        //
-
-                        ElfDbgPrint(("[ELF] Copy log file\n"));
-
-                        Status = ElfpCopyFile(ClearHandle, FileName);
-
-                        if (NT_SUCCESS(Status)) {
-                            ElfDbgPrint(("[ELF] Deleting log file\n"));
-
-                            Status = NtSetInformationFile(
-                                        ClearHandle,
-                                        &IoStatusBlock,
-                                        &DeleteInfo,
-                                        sizeof(DeleteInfo),
-                                        FileDispositionInformation
-                                        );
-
-                            if ( !NT_SUCCESS (Status) ) {
-                                ElfDbgPrintNC(("[ELF] Delete failed 0x%lx\n",
-                                    Status));
-                            }
-                        }
-                    }
-                    else if ( NT_SUCCESS (Status) ) {
-                        FileRenamed = TRUE;
-                    }
-
-                    if (!NT_SUCCESS(Status)) {
-                        ElfDbgPrintNC(("[ELF] Rename/Copy failed 0x%lx\n", Status));
-                    }
-                } else {
-                    Status = STATUS_NO_MEMORY;
-                }
-            } else { // No backup to done
+            NewName = ElfpAllocateBuffer(
+                FileName->Length + sizeof(WCHAR) + sizeof(*NewName));
+            if (NewName) {
+                RtlMoveMemory( NewName->FileName,
+                               FileName->Buffer,
+                               FileName->Length
+                             );
 
                 //
-                // No backup name was specified. Just delete the log file
-                // (i.e. "clear it"). We can just delete it since we know
-                // that the first time anything is written to a log file,
-                // if that file does not exist, it is created and a header
-                // is written to it. By deleting it here, we make it cleaner
-                // to manage log files, and avoid having zero-length files all
-                // over the disk.
+                // Guarantee that it's NULL terminated
                 //
 
-                ElfDbgPrint(("[ELF] Deleting log file\n"));
+                NewName->FileName[FileName->Length / sizeof(WCHAR)] = L'\0';
+
+                NewName->ReplaceIfExists = FALSE;
+                NewName->RootDirectory = NULL;
+                NewName->FileNameLength = FileName->Length;
 
                 Status = NtSetInformationFile(
                             ClearHandle,
                             &IoStatusBlock,
-                            &DeleteInfo,
-                            sizeof(DeleteInfo),
-                            FileDispositionInformation
+                            NewName,
+                            FileName->Length+sizeof(*NewName),
+                            FileRenameInformation
                             );
 
-                if ( !NT_SUCCESS (Status) ) {
-                    ElfDbgPrintNC(("[ELF] Delete failed 0x%lx\n", Status));
+                if (Status == STATUS_NOT_SAME_DEVICE) {
 
+                    //
+                    // They want the backup file to be on a different
+                    // device.  We need to copy this one, and then delete
+                    // it.
+                    //
+
+                    ElfDbgPrint(("[ELF] Copy log file\n"));
+
+                    Status = ElfpCopyFile(ClearHandle, FileName);
+
+                    if (NT_SUCCESS(Status)) {
+                        ElfDbgPrint(("[ELF] Deleting log file\n"));
+
+                        Status = NtSetInformationFile(
+                                    ClearHandle,
+                                    &IoStatusBlock,
+                                    &DeleteInfo,
+                                    sizeof(DeleteInfo),
+                                    FileDispositionInformation
+                                    );
+
+                        if ( !NT_SUCCESS (Status) ) {
+                            ElfDbgPrintNC(("[ELF] Delete failed 0x%lx\n",
+                                Status));
+                        }
+                    }
+                }
+                else if ( NT_SUCCESS (Status) ) {
+                    FileRenamed = TRUE;
                 }
 
+                if (!NT_SUCCESS(Status)) {
+                    ElfDbgPrintNC(("[ELF] Rename/Copy failed 0x%lx\n", Status));
+                }
+            } else {
+                Status = STATUS_NO_MEMORY;
+            }
+        } else { // No backup to done
 
-            } // Backup and/or Delete
+            //
+            // No backup name was specified. Just delete the log file
+            // (i.e. "clear it"). We can just delete it since we know
+            // that the first time anything is written to a log file,
+            // if that file does not exist, it is created and a header
+            // is written to it. By deleting it here, we make it cleaner
+            // to manage log files, and avoid having zero-length files all
+            // over the disk.
+            //
 
-            IStatus = NtClose (ClearHandle);    // Discard status
-            ASSERT (NT_SUCCESS (IStatus));
+            ElfDbgPrint(("[ELF] Deleting log file\n"));
 
-        } else { // The open-for-delete failed.
+            Status = NtSetInformationFile(
+                        ClearHandle,
+                        &IoStatusBlock,
+                        &DeleteInfo,
+                        sizeof(DeleteInfo),
+                        FileDispositionInformation
+                        );
 
-            ElfDbgPrintNC(("[ELF] Open-for-delete failed 0x%lx\n", Status));
-        }
+            if ( !NT_SUCCESS (Status) ) {
+                ElfDbgPrintNC(("[ELF] Delete failed 0x%lx\n", Status));
 
-        //
-        // Undo the impersonation.
-        //
+            }
 
-        IStatus = ElfRevertToSelf ();
+
+        } // Backup and/or Delete
+
+        IStatus = NtClose (ClearHandle);    // Discard status
         ASSERT (NT_SUCCESS (IStatus));
 
-    }   // Impersonation failed
+    } else { // The open-for-delete failed.
+
+        ElfDbgPrintNC(("[ELF] Open-for-delete failed 0x%lx\n", Status));
+    }
 
     //
     // Now pick up any new size value that was set before but
@@ -2721,7 +2921,22 @@ Return Value:
         }
 
         //
+        // Clear the LogFile flag archive bit, assuming the caller will
+        // clear (or has cleared) this log's archive file attribute.
+        // Note: No big deal if the caller didn't clear the archive
+        // attribute.
+        //
+        // The next write to this log tests the LogFile flag archive bit.
+        // If the bit is clear, the archive file attribute is set on the
+        // log file.
+        //
+
+        Request->LogFile->Flags &= ~ELF_LOGFILE_ARCHIVE_SET;
+
+        //
         // Close the output file
+        //
+        // BUGBUG : markbl (4/6/95) shouldn't close be done on error also?
         //
 
         NtClose(BackupHandle);
@@ -2878,5 +3093,25 @@ Note:
 
 } // ElfPerformRequest
 
+#if DBG
+VOID
+ElfErrorOut(
+    LPSTR       ErrorText,
+    DWORD       StatusCode,
+    PLOGFILE    pLogFile)
+{
+    DbgPrint("\n[EVENTLOG]: %s,0x%lx, \n\t%ws Log:\n"
+        "\tConfigMaxSize = 0x%lx, ActualMax = 0x%lx, BaseAddr = 0x%lx\n"
+        "\tViewSize      = 0x%lx, EndRec    = 0x%lx\n",
+        ErrorText,
+        StatusCode,
+        pLogFile->LogModuleName->Buffer,
+        pLogFile->ConfigMaxFileSize,
+        pLogFile->ActualMaxFileSize,
+        pLogFile->BaseAddress,
+        pLogFile->ViewSize,
+        pLogFile->EndRecord);
 
-
+    //DebugBreak();
+}
+#endif //DBG

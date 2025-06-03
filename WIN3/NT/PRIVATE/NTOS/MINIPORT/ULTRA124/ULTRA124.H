@@ -393,4 +393,4 @@ typedef struct _SCSI_4_BYTE {
     (ScsiFour)->S3 = (IntelFour)->Byte3;                \
 }
 
-
+

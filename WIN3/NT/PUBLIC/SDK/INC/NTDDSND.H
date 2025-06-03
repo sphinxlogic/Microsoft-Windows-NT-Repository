@@ -38,4 +38,4 @@ Revision History:
 #define SOUND_MAX_DEVICE_NAME 80    // BUGBUG this is a wild guess
 #define SOUND_MAX_DEVICES     100   // Max no of devices of a given type
 #endif // _NTDDSND_
-
+

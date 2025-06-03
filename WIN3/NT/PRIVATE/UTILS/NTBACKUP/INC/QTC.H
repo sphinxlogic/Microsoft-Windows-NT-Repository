@@ -260,7 +260,7 @@ extern VM_PTR v_tape_item;
 #if defined( OS_DOS )
      #define  QTC_BUF_SIZE   512
 #else
-     #define  QTC_BUF_SIZE   512
+     #define  QTC_BUF_SIZE   1024
 #endif
 
 
@@ -595,6 +595,10 @@ typedef struct _QTC_BUILD {
     QTC_RECORD record;         // used during building
 
     BOOLEAN end_of_media;      // did we hit end of media
+
+    UINT32 num_dirs;          // number of dirs
+    UINT32 num_files;         // number of files
+    UINT32 num_corrupt_files; // number of corrupt files
 
 } QTC_BUILD;
 

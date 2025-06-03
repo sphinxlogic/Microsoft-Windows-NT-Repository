@@ -121,8 +121,10 @@ DWORD  dwTime;
 /* Don't need to call KillTimer(), because SetTimer will reset the right one */
         SetTimer(hWnd, nID, 50, (TIMERPROC)lpArrowProc);
         return(0);
+#if 0
         wMsg = wMsg;
         dwTime = dwTime;
+#endif
 }
 
 

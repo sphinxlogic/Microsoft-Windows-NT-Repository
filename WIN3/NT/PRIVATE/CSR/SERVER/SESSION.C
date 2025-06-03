@@ -43,7 +43,7 @@ CsrAllocateNtSession(
 {
     PCSR_NT_SESSION Session;
 
-    Session = RtlAllocateHeap( CsrHeap, 0, sizeof( CSR_NT_SESSION ) );
+    Session = RtlAllocateHeap( CsrHeap, MAKE_TAG( PROCESS_TAG ), sizeof( CSR_NT_SESSION ) );
     ASSERT( Session != NULL );
 
     if (Session != NULL) {

@@ -258,7 +258,9 @@ void OnVBarCreate (HWND hWnd)
 
 
 
-void static OnPaint (HWND hWnd)
+void static OnPaint (
+    HWND hWnd,
+    BOOL bEraseBackground)
 /*
    Effect:        Paint the invalid surface of hWnd. Draw each label, each
                   recessed value box, and each value.
@@ -273,7 +275,8 @@ void static OnPaint (HWND hWnd)
    PLINESTRUCT    pLine;
 
    hDC = BeginPaint (hWnd, &ps) ;
-   SetBkMode (hDC, TRANSPARENT) ;
+   SetBkMode (hDC, (bEraseBackground ? OPAQUE : TRANSPARENT)) ;
+   SetBkColor (hDC, ColorBtnFace) ;
 
    GetClientRect (hWnd, &rectClient) ;
    HLine (hDC, GetStockObject (BLACK_PEN),
@@ -445,7 +448,7 @@ LRESULT APIENTRY GraphStatusWndProc (HWND hWnd,
 
 
       case WM_PAINT:
-         OnPaint (hWnd) ;
+         OnPaint (hWnd, TRUE) ;
          break ;
 
       case WM_DESTROY:
@@ -543,7 +546,8 @@ BOOL GraphStatusInitializeApplication (void)
    wc.cbWndExtra     = iGraphStatusWindowExtra ;
    wc.hIcon          = NULL ;
    wc.hCursor        = LoadCursor (NULL, IDC_ARROW) ;
-   wc.hbrBackground  = hbLightGray ;
+//   wc.hbrBackground  = hbLightGray ;
+   wc.hbrBackground  = hBrushFace;
    wc.lpszMenuName   = NULL ;
    wc.lpszClassName  = szGraphStatusClass ;
 
@@ -552,4 +556,4 @@ BOOL GraphStatusInitializeApplication (void)
 
 
 
-
+

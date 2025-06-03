@@ -82,6 +82,10 @@ static VOID unimpregnatePath( CHAR_PTR pPath, INT16 nPathSize, CHAR cDelimiter )
      Notes:        The excluded files are :
 
 *****************************************************************************/
+
+static TCHAR szPlaceHolder1[] = TEXT("Placehol.der");
+static TCHAR szPlaceHolder2[] = TEXT("Placehol.der");
+
 INT16 UI_ExcludeInternalFiles( INT16 oper )
 {
      BSD_HAND        temp_bsd_list ;
@@ -102,7 +106,7 @@ INT16 UI_ExcludeInternalFiles( INT16 oper )
      CDS_PTR         cfg = CDS_GetPerm();
 
 #ifdef OS_WIN32
-     INT	  bytes;
+     INT          bytes;
      CHAR  nt_drive[ 4 ];
      CHAR  nt_windows[ 256 ];
 #endif
@@ -118,11 +122,11 @@ INT16 UI_ExcludeInternalFiles( INT16 oper )
           TEXT("") } ;
 
      static CHAR_PTR ver_exclude_list[ ]  = {
-          TEXT("placehol.der"),   //will be replaced with job file
+          szPlaceHolder1,   //will be replaced with job file
           TEXT("") } ;
 
      static CHAR_PTR ver_last_exclude_list[ ]  = {
-          TEXT("placehol.der"),   //will be replaced with schedule file
+          szPlaceHolder2,   //will be replaced with schedule file
           TEXT("") } ;
 
      static CHAR_PTR empty_exclude_list[ ] = {
@@ -209,7 +213,7 @@ INT16 UI_ExcludeInternalFiles( INT16 oper )
             }
 #           else
             {
-	            // NT special excludes
+                    // NT special excludes
 
 #              if defined ( OS_WIN32 )
                {
@@ -295,7 +299,7 @@ INT16 UI_ExcludeInternalFiles( INT16 oper )
                     tbrparse( &cfg, dle_list, temp_bsd_list, path, TBACKUP, bsd ) ;
                     DLE_SetDefaultDrive( dle_list, dle ) ;
 
-               } 
+               }
 
                /* exclude the Windows swap file names */
 
@@ -361,45 +365,45 @@ INT16 UI_ExcludeInternalFiles( INT16 oper )
      }
 
 #if defined( OS_WIN32 )
-	{
-		/* Exclude EVENT (*.EVT) files from verify operation */
+        {
+                /* Exclude EVENT (*.EVT) files from verify operation */
 
-		if ( ( oper == VERIFY_OPER ) || 
+                if ( ( oper == VERIFY_OPER ) ||
                ( oper == VERIFY_LAST_BACKUP_OPER ) ||
                ( oper == VERIFY_LAST_RESTORE_OPER ) ) {
 
-		CHAR		szPath[ MAX_PATH ] ;
-		UINT16	index ;		// used, not important except setting it to 0
-		CHAR_PTR	pPath ;		// address of special files path
-		INT16	nPathSize ;	// size of NULL impregnated path
-		CHAR_PTR	pFname ;		// !used 
+                CHAR            szPath[ MAX_PATH ] ;
+                UINT16  index ;         // used, not important except setting it to 0
+                CHAR_PTR        pPath ;         // address of special files path
+                INT16   nPathSize ;     // size of NULL impregnated path
+                CHAR_PTR        pFname ;                // !used
 
-			bsd = BSD_GetFirst( temp_bsd_list ) ;
+                        bsd = BSD_GetFirst( temp_bsd_list ) ;
 
-			while ( bsd != NULL ) {
-				dle   = BSD_GetDLE( bsd ) ;
-				index = 0 ;
+                        while ( bsd != NULL ) {
+                                dle   = BSD_GetDLE( bsd ) ;
+                                index = 0 ;
 
-				if ( FS_EnumSpecialFiles( dle, &index, &pPath, &nPathSize, &pFname ) == SUCCESS ) {
-				INT16	deviceLeng = DLE_GetDeviceNameLeng( dle ) ;
+                                if ( FS_EnumSpecialFiles( dle, &index, &pPath, &nPathSize, &pFname ) == SUCCESS ) {
+                                INT16   deviceLeng = DLE_GetDeviceNameLeng( dle ) ;
 
-					// get the device name, unimpregnate the path and append to device name
+                                        // get the device name, unimpregnate the path and append to device name
 
-					strncpy( szPath, DLE_GetDeviceName( dle ), deviceLeng ) ;
-					memmove( &szPath[ deviceLeng/sizeof(CHAR) ], pPath, nPathSize ) ;
-					unimpregnatePath( szPath, (INT16)(nPathSize + deviceLeng), TEXT('\\') ) ;
-					
-					CreateExclude( szPath, TEXT("*.EVT"), dle, USE_WILD_CARD, &fse ) ;
+                                        strncpy( szPath, DLE_GetDeviceName( dle ), deviceLeng ) ;
+                                        memmove( &szPath[ deviceLeng/sizeof(CHAR) ], pPath, nPathSize ) ;
+                                        unimpregnatePath( szPath, (INT16)(nPathSize + deviceLeng), TEXT('\\') ) ;
 
-					if ( fse != NULL ) {
-						BSD_AddFSE( bsd, fse ) ;
-					}
-				}
+                                        CreateExclude( szPath, TEXT("*.EVT"), dle, USE_WILD_CARD, &fse ) ;
 
-				bsd = BSD_GetNext( bsd ) ;
-			}
-		}
-	}
+                                        if ( fse != NULL ) {
+                                                BSD_AddFSE( bsd, fse ) ;
+                                        }
+                                }
+
+                                bsd = BSD_GetNext( bsd ) ;
+                        }
+                }
+        }
 #endif // OS_WIN32
 
      /* setup the default exclude list */
@@ -661,7 +665,7 @@ INT16 UI_ExcludeInternalFiles( INT16 oper )
 #              endif
           }
      }
-     
+
 
      return( ret_val ) ;
 }
@@ -680,11 +684,11 @@ INT16 UI_ExcludeInternalFiles( INT16 oper )
 
 *****************************************************************************/
 VOID CreateExclude(
-CHAR_PTR	path ,	   /* I - path from root of device    */
-CHAR_PTR	file ,	   /* I - file name to exclude	      */
-GENERIC_DLE_PTR drive ,	   /* I - device to exclude from      */
-BOOLEAN 	wild_flag , /* I - if file contains wild cards */
-FSE_PTR 	*fse )	   /* O - fse created		      */
+CHAR_PTR        path ,     /* I - path from root of device    */
+CHAR_PTR        file ,     /* I - file name to exclude        */
+GENERIC_DLE_PTR drive ,    /* I - device to exclude from      */
+BOOLEAN         wild_flag , /* I - if file contains wild cards */
+FSE_PTR         *fse )     /* O - fse created                 */
 {
      GENERIC_DLE_PTR temp_dle ;
      CHAR            base_path[ MAX_UI_PATH_SIZE ] ;
@@ -779,7 +783,7 @@ FSE_PTR 	*fse )	   /* O - fse created		      */
                               sub_flag = TRUE ;
                          }
 
-                         if ( BSD_CreatFSE( fse, EXCLUDE, (INT8_PTR)p, 
+                         if ( BSD_CreatFSE( fse, EXCLUDE, (INT8_PTR)p,
                                             (INT16)(size * sizeof (CHAR)),
                                             (INT8_PTR)file,
                                             (INT16)strsize(file),
@@ -802,11 +806,11 @@ FSE_PTR 	*fse )	   /* O - fse created		      */
 
 
 /*****************************************************************************
-	Name:	unimpregnatePath
-	Desc:	Accepts a NULL impregnated path and the path's size and replaces
-			all impregnated NULLs with the delimiter character and NULL
-			terminates the path before ending.
-	Date:	04/01/93
+        Name:   unimpregnatePath
+        Desc:   Accepts a NULL impregnated path and the path's size and replaces
+                        all impregnated NULLs with the delimiter character and NULL
+                        terminates the path before ending.
+        Date:   04/01/93
 *****************************************************************************/
 
 VOID unimpregnatePath(
@@ -815,11 +819,11 @@ INT16 nPathSize,    /* I    size of path          */
 CHAR cDelimiter )   /* I    path delimiter char   */
 {
      nPathSize /= 2 ;
-	for ( ; nPathSize; pPath++, nPathSize-- ) {
-		if ( *pPath == TEXT('\0') ) {
-			*pPath = cDelimiter ;
-		}
-	}
+        for ( ; nPathSize; pPath++, nPathSize-- ) {
+                if ( *pPath == TEXT('\0') ) {
+                        *pPath = cDelimiter ;
+                }
+        }
 
-	*pPath = TEXT('\0') ;
+        *pPath = TEXT('\0') ;
 }

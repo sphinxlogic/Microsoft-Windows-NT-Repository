@@ -64,110 +64,116 @@ DEFINE_CONSTRUCTOR( SORT, PROGRAM );
 
 BOOLEAN
 SORT::Initialize(
-        )
+    )
 
 /*++
 
 Routine Description:
 
-        Initializes a SORT object.
-        The  initialization consists of:
-                .Initialization of STREAM_MESSAGE object;
-                .Parse the command line;
-                .Display the help message if the argument /? was present in the
-                 command line;
-                .Initialize the flag that indicates if the sort is to be performed
-                 in ascending or descending order;
-                .Initialize the variable that indicates the position in the string
-                 that is to be sorted.
+    Initializes a SORT object.
+    The  initialization consists of:
+            .Initialization of STREAM_MESSAGE object;
+            .Parse the command line;
+            .Display the help message if the argument /? was present in the
+             command line;
+            .Initialize the flag that indicates if the sort is to be performed
+             in ascending or descending order;
+            .Initialize the variable that indicates the position in the string
+             that is to be sorted.
 
 Arguments:
 
-        None.
+    None.
 
 Return Value:
 
-        BOOLEAN - Returns TRUE if the initialization succeeded and the sort
-                          is to be performed. Returns FALSE otherwise (invalid argument,
-                          or /? found in the command line)
+    BOOLEAN - Returns TRUE if the initialization succeeded and the sort
+                      is to be performed. Returns FALSE otherwise (invalid argument,
+                      or /? found in the command line)
 
 
 --*/
 
 
 {
-        ARGUMENT_LEXEMIZER      ArgLex;
-        ARRAY                           LexArray;
-        ARRAY                           ArgumentArray;
-        STRING_ARGUMENT         ProgramNameArgument;
-        FLAG_ARGUMENT           FlagReverseSortOrder;
-        LONG_ARGUMENT           Column;
-        FLAG_ARGUMENT           FlagDisplayHelp;
-        STREAM_MESSAGE          Message;
+    ARGUMENT_LEXEMIZER      ArgLex;
+    ARRAY                           LexArray;
+    ARRAY                           ArgumentArray;
+    STRING_ARGUMENT         ProgramNameArgument;
+    FLAG_ARGUMENT           FlagReverseSortOrder;
+    LONG_ARGUMENT           Column;
+    FLAG_ARGUMENT           FlagDisplayHelp;
 
 
-        _Standard_Output_Stream = Get_Standard_Output_Stream();
-        _Standard_Input_Stream = Get_Standard_Input_Stream();
+    _Standard_Output_Stream = Get_Standard_Output_Stream();
+    _Standard_Input_Stream = Get_Standard_Input_Stream();
+    _Standard_Error_Stream = Get_Standard_Error_Stream();
 
-        Message.Initialize( _Standard_Output_Stream,_Standard_Input_Stream );
-
-        if ( !LexArray.Initialize( ) ) {
-                DbgAbort( "LexArray.Initialize() failed \n" );
-                return( FALSE );
+    if (NULL == (_Message = NEW STREAM_MESSAGE)) {
+        DebugAbort( "Operator new failed.\n" );
+        return( FALSE );
     }
-        if ( !ArgLex.Initialize( &LexArray ) ) {
-                DbgAbort( "ArgLex.Initialize() failed \n" );
-                return( FALSE );
+
+    _Message->Initialize( _Standard_Output_Stream, _Standard_Input_Stream,
+        _Standard_Error_Stream );
+
+    if ( !LexArray.Initialize( ) ) {
+        DebugAbort( "LexArray.Initialize() failed \n" );
+        return( FALSE );
     }
-        ArgLex.PutSwitches( "/" );
-        ArgLex.SetCaseSensitive( FALSE );
-        if( !ArgLex.PrepareToParse() ) {
-                DbgAbort( "ArgLex.PrepareToParse() failed \n" );
-                return( FALSE );
-        }
+    if ( !ArgLex.Initialize( &LexArray ) ) {
+        DebugAbort( "ArgLex.Initialize() failed \n" );
+        return( FALSE );
+    }
+    ArgLex.PutSwitches( "/" );
+    ArgLex.SetCaseSensitive( FALSE );
+    if( !ArgLex.PrepareToParse() ) {
+        DebugAbort( "ArgLex.PrepareToParse() failed \n" );
+        return( FALSE );
+    }
 
-        if ( !ArgumentArray.Initialize() ) {
-                DbgAbort( "ArgumentArray.Initialize() failed \n" );
-                return( FALSE );
-        }
-        if( !ProgramNameArgument.Initialize("*") ||
-                !FlagReverseSortOrder.Initialize( "/R" ) ||
-                !Column.Initialize( "/+*" ) ||
-                !FlagDisplayHelp.Initialize( "/?" )) {
-                DbgAbort( "Unable to initialize flag or string arguments \n" );
-                return( FALSE );
-        }
-        if( !ArgumentArray.Put( &ProgramNameArgument ) ||
-                !ArgumentArray.Put( &FlagReverseSortOrder ) ||
-                !ArgumentArray.Put( &Column ) ||
-                !ArgumentArray.Put( &FlagDisplayHelp ) ) {
-                DbgAbort( "ArgumentArray.Put() failed \n" );
-                return( FALSE );
-        }
-        if( !ArgLex.DoParsing( &ArgumentArray ) ) {
-                Message.Set( MSG_SORT_INVALID_SWITCH );
-                Message.Display( " " );
-                return( FALSE );
-        }
-        if( FlagDisplayHelp.QueryFlag() ) {
-                Message.Set( MSG_SORT_HELP_MESSAGE );
-                Message.Display( " " );
-                return( FALSE );
-        }
+    if ( !ArgumentArray.Initialize() ) {
+        DebugAbort( "ArgumentArray.Initialize() failed \n" );
+        return( FALSE );
+    }
+    if( !ProgramNameArgument.Initialize("*") ||
+        !FlagReverseSortOrder.Initialize( "/R" ) ||
+        !Column.Initialize( "/+*" ) ||
+        !FlagDisplayHelp.Initialize( "/?" )) {
+        DebugAbort( "Unable to initialize flag or string arguments \n" );
+        return( FALSE );
+    }
+    if( !ArgumentArray.Put( &ProgramNameArgument ) ||
+        !ArgumentArray.Put( &FlagReverseSortOrder ) ||
+        !ArgumentArray.Put( &Column ) ||
+        !ArgumentArray.Put( &FlagDisplayHelp ) ) {
+        DebugAbort( "ArgumentArray.Put() failed \n" );
+        return( FALSE );
+    }
+    if( !ArgLex.DoParsing( &ArgumentArray ) ) {
+        _Message->Set( MSG_SORT_INVALID_SWITCH, ERROR_MESSAGE );
+        _Message->Display( " " );
+        return( FALSE );
+    }
+    if( FlagDisplayHelp.QueryFlag() ) {
+        _Message->Set( MSG_SORT_HELP_MESSAGE );
+        _Message->Display( " " );
+        return( FALSE );
+    }
 
-        _AscendingOrder = !FlagReverseSortOrder.QueryFlag();
-        _Position = ( Column.IsValueSet() ) ?   Column.QueryLong() : 1;
-        if( _Position <= 0 ) {
-                Message.Set( MSG_SORT_VALUE_NOT_IN_RANGE );
-                Message.Display( " " );
-                return( FALSE );
-        }
-        if( !_EndOfLineString.Initialize( (LPWSTR)L"\r\n" ) ) {
-            DbgPrint( "_EndOfLineString.Initialize() failed" );
-            return( FALSE );
-        }
-        _Position--;
-        return( TRUE );
+    _AscendingOrder = !FlagReverseSortOrder.QueryFlag();
+    _Position = ( Column.IsValueSet() ) ?   Column.QueryLong() : 1;
+    if( _Position <= 0 ) {
+        _Message->Set( MSG_SORT_VALUE_NOT_IN_RANGE, ERROR_MESSAGE );
+        _Message->Display( " " );
+        return( FALSE );
+    }
+    if( !_EndOfLineString.Initialize( (LPWSTR)L"\r\n" ) ) {
+        DebugPrint( "_EndOfLineString.Initialize() failed" );
+        return( FALSE );
+    }
+    _Position--;
+    return( TRUE );
 }
 
 
@@ -175,58 +181,57 @@ Return Value:
 
 BOOLEAN
 SORT::ReadSortAndWriteStrings(
-        )
+    )
 
 /*++
 
 Routine Description:
 
-        Sorts and displays all strings read from standard input.
-        The following steps are executed:
-                .initialize the array that will contain the strings to be sorted;
-                .read all the strings from standard input and save the in the
-                 array;
-                .sort the strings;
-                .write them to the standard output.
+    Sorts and displays all strings read from standard input.
+    The following steps are executed:
+        .initialize the array that will contain the strings to be sorted;
+        .read all the strings from standard input and save the in the
+         array;
+        .sort the strings;
+        .write them to the standard output.
 
 Arguments:
 
-        None.
+    None.
 
 Return Value:
 
-        BOOLEAN - return always TRUE.
+    BOOLEAN - return always TRUE.
 
 
 --*/
 
 {
-        PWSTRING                String;
-        PWSTRING                StringToWrite;
-        WCHAR                   Wchar;
-        PITERATOR               Iterator;
-        STRING_ARRAY    StringArray;
-        CHNUM                   Length;
-        CHNUM                   l;
+    PWSTRING        String;
+    PWSTRING        StringToWrite;
+    WCHAR           Wchar;
+    PITERATOR       Iterator;
+    STRING_ARRAY    StringArray;
+    CHNUM           Length;
+    CHNUM           l;
 
-	if( !StringArray.Initialize( _Position ) ) {
-		DbgAbort( "ArgumentArray.Put() failed \n" );
-		return( FALSE );
-	}
-	while( !_Standard_Input_Stream->IsAtEnd() ) {
-        if( ( String = NEW( DSTRING ) ) == NULL ) {
-            DbgAbort( "NEW( DSTRING ) failed \n" );
-			return( FALSE );
-		}
-		if( !String->Initialize( "" ) ) {
-			DELETE( String );
-			DbgAbort( "String->Initialize() failed \n" );
-			return( FALSE );
-		}
-		if( !_Standard_Input_Stream->ReadLine( String ) ) {
-			DELETE( String );
-			DbgAbort( "ReadString() failed \n" );
-			return( FALSE );
+    if( !StringArray.Initialize( _Position ) ) {
+        DebugAbort( "ArgumentArray.Put() failed \n" );
+        return( FALSE );
+    }
+    while( !_Standard_Input_Stream->IsAtEnd() ) {
+        if( ( String = NEW( DSTRING ) ) == NULL || !String->Initialize( "" ) ) {
+            _Message->Set( MSG_INSUFFICIENT_MEMORY, ERROR_MESSAGE );
+            _Message->Display();
+            DebugAbort( "String->Initialize() failed \n" );
+            return( FALSE );
+        }
+        if( !_Standard_Input_Stream->ReadLine( String ) ) {
+            DELETE( String );
+            _Message->Set( MSG_INSUFFICIENT_MEMORY, ERROR_MESSAGE );
+            _Message->Display();
+            DebugAbort( "ReadString() failed \n" );
+            return( FALSE );
         }
 
         // Don't count a null string if IsAtEnd is true
@@ -248,6 +253,8 @@ Return Value:
 
             if (l != 0) {
                 if (!StringArray.Put(String)) {
+                    _Message->Set( MSG_INSUFFICIENT_MEMORY, ERROR_MESSAGE );
+                    _Message->Display();
                     return FALSE;
                 }
             }
@@ -256,24 +263,30 @@ Return Value:
         }
 
         if( StringArray.Put( String ) == NULL ) {
-                DbgAbort( "StringArray.Put() failed \n" );
-                return( FALSE );
+
+            _Message->Set( MSG_INSUFFICIENT_MEMORY, ERROR_MESSAGE );
+            _Message->Display();
+
+            DebugAbort( "StringArray.Put() failed \n" );
+            return( FALSE );
         }
     }
 
     if( !StringArray.Sort( _AscendingOrder ) ) {
-        DbgAbort( "StringArray.Sort() failed \n" );
+        DebugAbort( "StringArray.Sort() failed \n" );
         return( FALSE );
     }
     if( ( Iterator = StringArray.QueryIterator() ) == NULL ) {
-        DbgAbort( "StringArray.QueryIterator() failed \n" );
+        DebugAbort( "StringArray.QueryIterator() failed \n" );
+        _Message->Set( MSG_INSUFFICIENT_MEMORY, ERROR_MESSAGE );
+        _Message->Display();
         return( FALSE );
     }
     while( ( StringToWrite = ( PWSTRING )Iterator->GetNext() ) != NULL ) {
         StringToWrite->Strcat( &_EndOfLineString );
         Length = StringToWrite->QueryChCount();
         if( !_Standard_Output_Stream->WriteString( StringToWrite, 0, Length ) ) {
-            DbgAbort( "_Standard_Output_Stream->WriteString() failed \n" );
+            DebugAbort( "_Standard_Output_Stream->WriteString() failed \n" );
             return( FALSE );
         }
     }
@@ -286,17 +299,17 @@ ULONG _CRTAPI1
 main()
 
 {
-        DEFINE_CLASS_DESCRIPTOR( SORT );
+    DEFINE_CLASS_DESCRIPTOR( SORT );
 
-        {
-                SORT    Sort;
+    {
+        SORT    Sort;
 
-                perrstk = NEW ERRSTACK;
+        perrstk = NEW ERRSTACK;
 
-                if( Sort.Initialize() ) {
-                        Sort.ReadSortAndWriteStrings();
-                }
-                DELETE( perrstk );
+        if( Sort.Initialize() ) {
+            Sort.ReadSortAndWriteStrings();
         }
-        return( 0 );
+        DELETE( perrstk );
+    }
+    return( 0 );
 }

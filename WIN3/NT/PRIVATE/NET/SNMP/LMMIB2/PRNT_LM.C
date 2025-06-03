@@ -1,89 +1,26 @@
-//-------------------------- MODULE DESCRIPTION ----------------------------
-//
-//  prnt_lm.c
-//
-//  Copyright 1992 Technology Dynamics, Inc.
-//
-//  All Rights Reserved!!!
-//
-//	This source code is CONFIDENTIAL and PROPRIETARY to Technology
-//	Dynamics. Unauthorized distribution, adaptation or use may be
-//	subject to civil and criminal penalties.
-//
-//  All Rights Reserved!!!
-//
-//---------------------------------------------------------------------------
-//
-//  This file contains the routines which actually call Lan Manager and
-//  retrieve the contents of the print queue table, including cacheing.
-//
-//  Project:  Implementation of an SNMP Agent for Microsoft's NT Kernel
-//
-//  $Revision:   1.8  $
-//  $Date:   03 Jul 1992 13:20:24  $
-//  $Author:   ChipS  $
-//
-//  $Log:   N:/lmmib2/vcs/prnt_lm.c_v  $
-//
-//     Rev 1.8   03 Jul 1992 13:20:24   ChipS
-//  Final Unicode Changes
-//
-//     Rev 1.7   03 Jul 1992 12:18:36   ChipS
-//  Enable Unicode
-//
-//     Rev 1.6   07 Jun 1992 17:16:18   ChipS
-//  Turn off unicode.
-//
-//     Rev 1.5   07 Jun 1992 16:11:50   ChipS
-//  Fix cast problem
-//
-//     Rev 1.4   07 Jun 1992 15:53:26   ChipS
-//  Fix include file order
-//
-//     Rev 1.3   07 Jun 1992 15:21:50   ChipS
-//  Initial unicode changes
-//
-//     Rev 1.2   01 Jun 1992 12:35:34   todd
-//  Added 'dynamic' field to octet string
-//
-//     Rev 1.1   21 May 1992 15:43:10   todd
-//  Added return codes to lmget
-//
-//     Rev 1.0   20 May 1992 15:10:38   mlk
-//  Initial revision.
-//
-//     Rev 1.8   03 May 1992 16:56:22   Chip
-//  No change.
-//
-//     Rev 1.7   02 May 1992 19:07:28   todd
-//  Code Cleanup
-//
-//     Rev 1.6   01 May 1992 15:40:32   Chip
-//  Get rid of warnings.
-//
-//     Rev 1.5   30 Apr 1992 23:54:20   Chip
-//  Added code to free complex structures.
-//
-//     Rev 1.4   30 Apr 1992 22:52:44   unknown
-//  No change.
-//
-//     Rev 1.3   30 Apr 1992  9:57:00   Chip
-//  Added cacheing.
-//
-//     Rev 1.2   29 Apr 1992 12:48:18   Chip
-//  Todd corrected fn name.
-//
-//     Rev 1.1   29 Apr 1992 11:31:22   Chip
-//  Fix some screw up where I didn't check it out of VCS.
-//
-//     Rev 1.0   27 Apr 1992 11:02:36   Chip
-//  Initial revision.
-//
-//---------------------------------------------------------------------------
+/*++
 
-//--------------------------- VERSION INFO ----------------------------------
+Copyright (c) 1992-1996  Microsoft Corporation
 
-static char *vcsid = "@(#) $Logfile:   N:/lmmib2/vcs/prnt_lm.c_v  $ $Revision:   1.8  $";
+Module Name:
+
+    prnt_lm.c
+
+Abstract:
+
+    This file contains the routines which actually call Lan Manager and
+    retrieve the contents of the print queue table, including cacheing.
+
+Environment:
+
+    User Mode - Win32
+
+Revision History:
+
+    10-May-1996 DonRyan
+        Removed banner from Technology Dynamics, Inc.
+
+--*/
 
 //--------------------------- WINDOWS DEPENDENCIES --------------------------
 
@@ -98,12 +35,10 @@ static char *vcsid = "@(#) $Logfile:   N:/lmmib2/vcs/prnt_lm.c_v  $ $Revision:  
 #include <winspool.h>
 #endif
 
-#include <malloc.h>
 #include <string.h>
 #include <search.h>
 #include <stdlib.h>
 #include <time.h>
-#include <uniconv.h>
 //--------------------------- MODULE DEPENDENCIES -- #include"xxxxx.h" ------
 
 
@@ -119,7 +54,7 @@ static char *vcsid = "@(#) $Logfile:   N:/lmmib2/vcs/prnt_lm.c_v  $ $Revision:  
 //--------------------------- PRIVATE CONSTANTS -----------------------------
 
 #define SafeBufferFree(x)	if(NULL != x) NetApiBufferFree( x )
-#define SafeFree(x)		if(NULL != x) free( x )
+#define SafeFree(x)             if(NULL != x) SnmpUtilMemFree( x )
 
 //--------------------------- PRIVATE STRUCTS -------------------------------
 
@@ -128,7 +63,7 @@ static char *vcsid = "@(#) $Logfile:   N:/lmmib2/vcs/prnt_lm.c_v  $ $Revision:  
 //--------------------------- PRIVATE PROTOTYPES ----------------------------
 
 #ifdef UNICODE
-#define Tstrlen strlen_W
+#define Tstrlen SnmpUtilStrlenW
 #else
 #define Tstrlen strlen
 #endif
@@ -137,8 +72,8 @@ static char *vcsid = "@(#) $Logfile:   N:/lmmib2/vcs/prnt_lm.c_v  $ $Revision:  
 
 
 int _CRTAPI1 prnt_entry_cmp(
-       IN PRINTQ_ENTRY *A,
-       IN PRINTQ_ENTRY *B
+       IN const PRINTQ_ENTRY *A,
+       IN const PRINTQ_ENTRY *B
        ) ;
 
 void build_prnt_entry_oids( );
@@ -208,7 +143,7 @@ SNMPAPI nResult = SNMPAPI_NOERROR;
      for(i=0; i<MIB_PrintQTable.Len ;i++)
      {
      	// free any alloc'ed elements of the structure
-     	SNMP_oidfree(&(MIB_PrintQTableElement->Oid));
+     	SnmpUtilOidFree(&(MIB_PrintQTableElement->Oid));
      	SafeFree(MIB_PrintQTableElement->svPrintQName.stream);
      	
 	MIB_PrintQTableElement ++ ;  // increment table entry
@@ -236,7 +171,7 @@ SNMPAPI nResult = SNMPAPI_NOERROR;
 	NetShareEnum( 	"",			// local server
 	2,			// level 2, no admin priv.
 	&bufptr,		// data structure to return
-	4096,
+	MAX_PREFERRED_LENGTH,
 	&entriesread,
 	&totalentries,
 	NULL
@@ -258,13 +193,13 @@ SNMPAPI nResult = SNMPAPI_NOERROR;
 
 
 
-    bufptr = malloc(bytesNeeded); // malloc the buffer
+    bufptr = SnmpUtilMemAlloc(bytesNeeded); // SnmpUtilMemAlloc the buffer
     if(NULL==bufptr) goto Exit ;      // error, get out with 0 table
 
 #if 0
     if( !result ){
         i = GetLastError();
-        printf("LastError after EnumPrinters = %u",i);
+        SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: LastError after EnumPrinters = %u\n", i ));
     }
 
     if( result && (ERROR_INSUFFICIENT_BUFFER == GetLastError()) ) {
@@ -319,7 +254,7 @@ SNMPAPI nResult = SNMPAPI_NOERROR;
    	
    	if(0 == MIB_PrintQTable.Len) {  // 1st time, alloc the whole table
    		// alloc the table space
-   		MIB_PrintQTable.Table = malloc(entriesread *
+                MIB_PrintQTable.Table = SnmpUtilMemAlloc(entriesread *
    						sizeof(PRINTQ_ENTRY) );
    	}
 	
@@ -334,14 +269,14 @@ SNMPAPI nResult = SNMPAPI_NOERROR;
    		// Stuff the data into each item in the table
    		
    		// client name
-   		MIB_PrintQTableElement->svPrintQName.stream = malloc (
+                MIB_PrintQTableElement->svPrintQName.stream = SnmpUtilMemAlloc (
    				Tstrlen( DataTable->pPrinterName ) + 1 ) ;
    		MIB_PrintQTableElement->svPrintQName.length =
    				Tstrlen( DataTable->pPrinterName ) ;
    		MIB_PrintQTableElement->svPrintQName.dynamic = TRUE;
    		
 		#ifdef UNICODE
-		convert_uni_to_ansi(
+		SnmpUtilUnicodeToAnsi(
 			&MIB_PrintQTableElement->svPrintQName.stream,
    			DataTable->pPrinterName,
 			FALSE);
@@ -364,7 +299,7 @@ SNMPAPI nResult = SNMPAPI_NOERROR;
    	
    	// free all of the printer enum data
     if(NULL!=bufptr)                // free the table
-    	free( bufptr ) ;
+        SnmpUtilMemFree( bufptr ) ;
 	
    	
 
@@ -413,13 +348,14 @@ Exit:
 //    None.
 //
 int _CRTAPI1 prnt_entry_cmp(
-       IN PRINTQ_ENTRY *A,
-       IN PRINTQ_ENTRY *B
+       IN const PRINTQ_ENTRY *A,
+       IN const PRINTQ_ENTRY *B
        )
 
 {
    // Compare the OID's
-   return SNMP_oidcmp( &A->Oid, &B->Oid );
+   return SnmpUtilOidCmp( (AsnObjectIdentifier *)&A->Oid,
+                       (AsnObjectIdentifier *)&B->Oid );
 } // MIB_prnt_cmp
 
 
@@ -441,7 +377,7 @@ PrintQEntry = MIB_PrintQTable.Table ;
 for( i=0; i<MIB_PrintQTable.Len ; i++)  {
    // for each entry in the session table
 
-   OSA.stream = &PrintQEntry->svPrintQName.stream ;
+   OSA.stream = PrintQEntry->svPrintQName.stream ;
    OSA.length =  PrintQEntry->svPrintQName.length ;
    OSA.dynamic = TRUE;
 

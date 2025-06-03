@@ -12,4 +12,4 @@ DWORD  APIENTRY GetFreeDiskSpace(WORD);
 DWORD  APIENTRY GetTotalDiskSpace(WORD);
 INT    APIENTRY GetVolumeLabel(INT, LPSTR, BOOL);
 INT    APIENTRY MySetVolumeLabel(INT, BOOL, LPSTR);
-
+

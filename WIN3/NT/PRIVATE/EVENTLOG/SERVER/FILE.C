@@ -16,6 +16,9 @@ Author:
 
 Revision History:
 
+    29-Aug-1994     Danl
+        We no longer grow log files in place.  So there is no need to
+        reserve the MaxConfigSize block of memory.
 
 --*/
 
@@ -292,7 +295,9 @@ Note:
         pLogFileHeader->EndOffset   = pLogFile->EndRecord;
         pLogFileHeader->CurrentRecordNumber = pLogFile->CurrentRecordNumber;
         pLogFileHeader->OldestRecordNumber = pLogFile->OldestRecordNumber;
-        pLogFile->Flags &= ~ELF_LOGFILE_HEADER_DIRTY;   // Remove dirty bit from structure
+        pLogFile->Flags &= ~(ELF_LOGFILE_HEADER_DIRTY |
+                                ELF_LOGFILE_ARCHIVE_SET);   // Remove dirty &
+                                                            // archive bits
         pLogFileHeader->Flags = pLogFile->Flags;
     }
 
@@ -314,18 +319,6 @@ Note:
                 NtCurrentProcess(),
                 pLogFile->BaseAddress
                 );
-
-        if (pLogFile->ConfigMaxFileSize > pLogFile->ViewSize) {
-            BaseAddress = (PBYTE) pLogFile->BaseAddress +
-                pLogFile->ViewSize;
-            Size = 0;
-            NtFreeVirtualMemory(
-                NtCurrentProcess(),
-                &BaseAddress,
-                &Size,
-                MEM_RELEASE);
-
-        }
 
         if (pLogFile->SectionHandle)
             NtClose ( pLogFile->SectionHandle );
@@ -415,8 +408,9 @@ Note:
             // Log has already wrapped, go looking for the first valid record
             //
 
-            for (pSignature = (PDWORD) Start; pSignature++;
-                (PVOID) pSignature < End) {
+            for (pSignature = (PDWORD) Start; (PVOID)pSignature < End;
+                    pSignature++) {
+
                     if (*pSignature == ELF_LOG_FILE_SIGNATURE) {
 
                         //
@@ -659,7 +653,7 @@ Note:
 
 --*/
 {
-    NTSTATUS    Status;
+    NTSTATUS    Status = STATUS_SUCCESS;
     OBJECT_ATTRIBUTES ObjectAttributes;
     IO_STATUS_BLOCK IoStatusBlock;
     LARGE_INTEGER MaximumSizeOfSection;
@@ -672,8 +666,6 @@ Note:
     ULONG SectionPageProtection;
     ULONG CreateOptions;
     ULONG CreateDisposition;
-    ULONG FreeRegionSize;
-    PVOID FreeRegionAddress;
 
     //
     // File header in a new file has the "Start" and "End" pointers the
@@ -751,7 +743,6 @@ Note:
         pLogFile->Flags = 0;
         pLogFile->BaseAddress = NULL;
         pLogFile->SectionHandle = NULL;
-        FreeRegionAddress = NULL;
 
 
         //
@@ -860,34 +851,6 @@ Note:
             }
         }
 
-
-        if (LogType != ElfBackupLog) {
-
-            //
-            // Allocate all the address space required for the view of the
-            // file.  This is so we can be guaranteed to be able to grow it
-            // without having to change the base address, and without hitting
-            // a quota limit because we needed to grow the page tables
-            //
-            // Since the backup log file can't grow, you don't need to
-            // reserve any additional address space
-            //
-
-            Status = NtAllocateVirtualMemory(
-                        NtCurrentProcess(),
-                        &pLogFile->BaseAddress,
-                        0,  // Hi order bits in address that must be 0
-                        &pLogFile->ConfigMaxFileSize,
-                        MEM_RESERVE,
-                        SectionPageProtection);
-
-            if (!NT_SUCCESS(Status)) {
-                ElfDbgPrint(("[ELF] Could not allocate enough "
-                    "address space for log - 0x%lx\n", Status));
-                goto cleanup;
-            }
-        }
-
         //
         // Create a section mapped to the Log File just opened
         //
@@ -905,38 +868,9 @@ Note:
 
         if (!NT_SUCCESS(Status)) {
 
-            ElfDbgPrint(("[ELF] Log Mem Section Create Failed 0x%lx\n",
+            ElfDbgPrintNC(("[ELF] Log Mem Section Create Failed 0x%lx\n",
                 Status));
             goto cleanup;
-        }
-
-        //
-        // Free up the first chunk of the reserved address space and
-        // map a view using it (not required for a backup file).
-        //
-
-        if (LogType != ElfBackupLog) {
-
-            FreeRegionAddress = pLogFile->BaseAddress;
-            FreeRegionSize = pLogFile->ActualMaxFileSize;
-
-            Status = NtFreeVirtualMemory(
-                        NtCurrentProcess(),
-                        &FreeRegionAddress,
-                        &FreeRegionSize,
-                        MEM_RELEASE);
-
-            if (!NT_SUCCESS(Status)) {
-                ElfDbgPrint(("[ELF] Could not free commited "
-                    "address space for log - 0x%lx\n", Status));
-                goto cleanup;
-            }
-
-            // if we need to free it
-            FreeRegionAddress =
-                (PBYTE) FreeRegionAddress + FreeRegionSize;
-            FreeRegionSize = 0;
-
         }
 
         //
@@ -959,7 +893,7 @@ Note:
 
         if (!NT_SUCCESS(Status)) {
 
-            ElfDbgPrint(("[ELF] Log Mem Sect Map View failed 0x%lx\n",
+            ElfDbgPrintNC(("[ELF] Log Mem Sect Map View failed 0x%lx\n",
                 Status));
             goto cleanup;
         }
@@ -1143,14 +1077,6 @@ cleanup:
 
     if (pLogFile->SectionHandle) {
         NtClose(pLogFile->SectionHandle);
-    }
-
-    if (FreeRegionAddress) {
-       NtFreeVirtualMemory(
-                   NtCurrentProcess(),
-                   &FreeRegionAddress,
-                   &FreeRegionSize,
-                   MEM_RELEASE);
     }
 
     if (pLogFile->FileHandle) {

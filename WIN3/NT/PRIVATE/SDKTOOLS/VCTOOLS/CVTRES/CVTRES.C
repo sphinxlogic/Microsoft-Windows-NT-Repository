@@ -36,10 +36,9 @@ Revision History:
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <wcstr.h>
 
-#include "rc.h"
 #include "cvtres.h"
+#include "rc.h"
 #include "getmsg.h"
 #include "msg.h"
 
@@ -53,7 +52,8 @@ PUCHAR  ResTable;
 
 CHAR padding[] = "\0\0\0\0";
 
-CHAR    *pTypeName[] = {
+
+const char * const rgszTypeName[] = {
     NULL,               /* 0 */
     "CURSOR",           /* 1 */
     "BITMAP",           /* 2 */
@@ -71,7 +71,10 @@ CHAR    *pTypeName[] = {
     "GROUP_ICON",       /* 14 */
     NULL,               /* 15 */
     "VERSION",          /* 16 */
-    "DLGINCLUDE"        /* 17 */
+    "DLGINCLUDE",       /* 17 */
+    NULL,               /* 18 */
+    "PLUGPLAY",         /* 19 */
+    "VXD",              /* 20 */
 };
 
 
@@ -144,32 +147,42 @@ USHORT   NumberOfLanguages = 0;
 // Default headers
 //
 
-IMAGE_FILE_HEADER fhdr = {      // main coff file header
-    IMAGE_FILE_MACHINE_UNKNOWN, // TargetMachine
-    2,                          // NumberOfSections
-    0,                          // TimeDateStamp
-    0,                          // PointerToSymbolTable
-    1,                          // NumberOfSymbols;
-    0,                          // SizeOfOptionHeader
-    IMAGE_FILE_32BIT_MACHINE    // Characteristics
+IMAGE_FILE_HEADER fhdr = {          // main coff file header
+    IMAGE_FILE_MACHINE_UNKNOWN,     // TargetMachine
+    3,                              // NumberOfSections
+    0,                              // TimeDateStamp
+    0,                              // PointerToSymbolTable
+    2,                              // NumberOfSymbols;
+    0,                              // SizeOfOptionHeader
+    IMAGE_FILE_32BIT_MACHINE        // Characteristics
 };
 
-IMAGE_SYMBOL symtbl = {
-    { ".rsrc$02" },             // N.ShortName
-    0,                          // Value
-    2,                          // SectionNumber
-    IMAGE_SYM_TYPE_NULL,        // Type
-    IMAGE_SYM_CLASS_STATIC,     // StorageClass
-    0,                          // NumberOfAuxiliarySymbols
+IMAGE_SECTION_HEADER shdr1 = {      // CodeView symbols
+    ".debug$S",                     // Name
+    0,                              // PhysicalAddress
+    0,                              // VirtualAddress
+    0,                              // SizeOfRawData
+    0,                              // PointerToRawData
+    0,                              // PointerToRelocations
+    0,                              // PointerToLinenumbers
+    0,                              // NumberOfRelocations
+    0,                              // NumberOfLinenumbers
+    IMAGE_SCN_CNT_INITIALIZED_DATA  // Characteristics
+       | IMAGE_SCN_MEM_READ
+       | IMAGE_SCN_MEM_DISCARDABLE
+       | IMAGE_SCN_ALIGN_1BYTES
 };
 
-IMAGE_RELOCATION reloc = {
-    0,
-    0,
-    IMAGE_REL_I386_DIR32
+IMAGE_SYMBOL sym1 = {
+    { ".debug$S" },                 // N.ShortName
+    0,                              // Value
+    1,                              // SectionNumber
+    IMAGE_SYM_TYPE_NULL,            // Type
+    IMAGE_SYM_CLASS_STATIC,         // StorageClass
+    0,                              // NumberOfAuxiliarySymbols
 };
 
-IMAGE_SECTION_HEADER shdr1 = {      // Resource section
+IMAGE_SECTION_HEADER shdr2 = {      // Resource section
     ".rsrc$01",                     // Name (Group table header at beginning)
     0,                              // PhysicalAddress
     0,                              // VirtualAddress
@@ -183,7 +196,13 @@ IMAGE_SECTION_HEADER shdr1 = {      // Resource section
       | IMAGE_SCN_MEM_READ
 };
 
-IMAGE_SECTION_HEADER shdr2 = {      // Resource section
+IMAGE_RELOCATION reloc = {
+    0,                              // VirtualAddress
+    1,                              // SymbolTableIndex
+    IMAGE_REL_I386_DIR32            // Type
+};
+
+IMAGE_SECTION_HEADER shdr3 = {      // Resource section
     ".rsrc$02",                     // Name (Resource Data after table)
     0,                              // PhysicalAddress
     0,                              // VirtualAddress
@@ -196,6 +215,67 @@ IMAGE_SECTION_HEADER shdr2 = {      // Resource section
     IMAGE_SCN_CNT_INITIALIZED_DATA  // Characteristics
       | IMAGE_SCN_MEM_READ
 };
+
+IMAGE_SYMBOL sym2 = {
+    { ".rsrc$02" },                 // N.ShortName
+    0,                              // Value
+    3,                              // SectionNumber
+    IMAGE_SYM_TYPE_NULL,            // Type
+    IMAGE_SYM_CLASS_STATIC,         // StorageClass
+    0,                              // NumberOfAuxiliarySymbols
+};
+
+
+typedef struct CVSIG
+{
+    DWORD dwSignature;
+} CVSIG;
+
+static const CVSIG CvSig =
+{
+    1
+};
+
+typedef struct CVOBJNAME
+{
+    WORD wLen;
+    WORD wRecType;
+    DWORD dwPchSignature;
+
+    // Length prefixed object filename is here
+} CVOBJNAME;
+
+static CVOBJNAME CvObjName =
+{
+    0,                                 // Filled in at run time
+    0x0009,                            // S_OBJNAME
+    0
+};
+
+static const char szCvtresVer[] = "Microsoft CVTRES " VER_PRODUCTVERSION_STR;
+
+typedef struct CVCOMPILE
+{
+    WORD wLen;
+    WORD wRecType;
+    BYTE bMachine;
+    BYTE bLanguage;
+    BYTE bFlags1;
+    BYTE bFlags2;
+
+    // Length prefixed linker version is here
+} CVCOMPILE;
+
+static CVCOMPILE CvCompile =
+{
+    0,                                 // Filled in at run time
+    0x0001,                            // S_COMPILE
+    0,                                 // Filled in at run time
+    8,                                 // UNDONE: CV_CFL_CVTRES
+    0x00,
+    0x08
+};
+
 
 //
 // ProtoTypes
@@ -400,31 +480,32 @@ AddResource(
         while ((pName = *ppName) != NULL) {
             if (pAdditional->LanguageId == pName->pAdditional->LanguageId) {
                 printf(get_err(MSG_ERROR), 1100, ' ');
+
                 if (Type->discriminant == IS_STRING) {
                     printf(get_err(ERR_DUPRES1), Type->szStr, ' ');
-                }
-                else {
-                    if (Type->Ordinal <= 17)
-                        printf(get_err(ERR_DUPRES2), pTypeName[Type->Ordinal], ' ');
-                    else
-                        printf(get_err(ERR_DUPRESID), Type->Ordinal, ' ');
+                } else if ((Type->Ordinal <= 20) && (rgszTypeName[Type->Ordinal] != NULL)) {
+                    printf(get_err(ERR_DUPRES2), rgszTypeName[Type->Ordinal], ' ');
+                } else {
+                    printf(get_err(ERR_DUPRESID), Type->Ordinal, ' ');
                 }
 
                 if (Name->discriminant == IS_STRING) {
                     printf(get_err(ERR_NAMESTR), Name->szStr, pAdditional->LanguageId);
-                }
-                else {
+                } else {
                     printf(get_err(ERR_NAMEID), Name->Ordinal, pAdditional->LanguageId);
                 }
 
                 exit(1);
                 break;
             }
+
             if (pAdditional->LanguageId < pName->pAdditional->LanguageId)
                 break;
+
             if (pName != pNameMatch && pName->NumberOfLanguages != 0)
                 break;
-        ppName = &(pName->pnext);
+
+            ppName = &(pName->pnext);
         }
     }
 
@@ -476,7 +557,8 @@ CvtRes(
     IN FILE *fhIn,
     IN FILE *fhOut,
     IN ULONG cbInFile,
-    IN BOOL fWritable
+    IN BOOL fWritable,
+    IN ULONG timeDate
     )
 
 /*++
@@ -521,7 +603,6 @@ Return Value:
     ULONG       offDataEntries;
     ULONG       offStringTable;
     ULONG       cbRes;
-    ULONG       timeDate;
     ULONG       cLanguages;
     ULONG       cbResTable;
     RESADDITIONAL       *pAdditional;
@@ -533,17 +614,14 @@ Return Value:
     PIMAGE_RESOURCE_DIRECTORY_ENTRY     ResourceTypeDirectoryEntry;
     PIMAGE_RESOURCE_DIRECTORY_ENTRY     ResourceNameDirectoryEntry;
     PIMAGE_RESOURCE_DIRECTORY_ENTRY     ResourceLangDirectoryEntry;
+    BYTE cchObjName;
+    BYTE cchCvtresVer;
 
-    if (fWritable) {
-        shdr1.Characteristics |= IMAGE_SCN_MEM_WRITE;
-        shdr2.Characteristics |= IMAGE_SCN_MEM_WRITE;
-    }
 
     //
     // Build up Type and Name directories
     //
 
-    timeDate = (ULONG)time(NULL);
     offHere = 0;
     pNextName = NULL;
     while (offHere < cbInFile) {
@@ -591,21 +669,18 @@ Return Value:
 
         if (Type->discriminant == IS_STRING ||
             !(Type->Ordinal == (INT)RT_DLGINCLUDE)) {
-            if (fDebug)  {
+            if (fVerbose) {
                 if (Type->discriminant == IS_STRING) {
                     printf(get_err(INFO_ADDRESOURCE1), Type->szStr, ' ');
-                }
-                else {
-                    if (Type->Ordinal <= 17)
-                        printf(get_err(INFO_ADDRESOURCE2), pTypeName[Type->Ordinal], ' ');
-                    else
-                        printf(get_err(INFO_ADDRESOURCE3), Type->Ordinal, ' ');
+                } else if ((Type->Ordinal <= 20) && (rgszTypeName[Type->Ordinal] != NULL)) {
+                    printf(get_err(INFO_ADDRESOURCE2), rgszTypeName[Type->Ordinal], ' ');
+                } else {
+                    printf(get_err(INFO_ADDRESOURCE3), Type->Ordinal, ' ');
                 }
 
                 if (Name->discriminant == IS_STRING) {
                     printf(get_err(INFO_NAME1), Name->szStr, ' ');
-                }
-                else {
+                } else {
                     printf(get_err(INFO_NAME2), Name->Ordinal, ' ');
                 }
 
@@ -659,7 +734,7 @@ Return Value:
                 (sizeof(IMAGE_RESOURCE_DATA_ENTRY) * NumberOfResources);
 
 #if DBG
-    if (fVerbose && fDebug) {
+    if (fDebug) {
         printf("Offsets\tTypeDir\tNameDir\tLangDir\tData\tString\n");
         printf("\t0x%lx\t0x%lx\t0x%lx\t0x%lx\t0x%lx\n",
                 offTypeDir,
@@ -669,6 +744,7 @@ Return Value:
                 offStringTable);
     }
 #endif /* DBG */
+
     cbRes = offStringTable + cbStringTable;
     cbResTable = ((cbRes + TABLE_ALIGN-1) / TABLE_ALIGN) * TABLE_ALIGN;
 
@@ -678,7 +754,7 @@ Return Value:
 
     ResourceTypeDirectory = (PIMAGE_RESOURCE_DIRECTORY)ResTable;
 #if DBG
-    if (fVerbose && fDebug) {
+    if (fDebug) {
         printf("Main directory - ");
     }
 #endif /* DBG */
@@ -700,7 +776,7 @@ Return Value:
         ResourceTypeDirectoryEntry++;
 
 #if DBG
-        if (fVerbose && fDebug) {
+        if (fDebug) {
             printf("\tName directory - ");
         }
 #endif /* DBG */
@@ -713,7 +789,7 @@ Return Value:
         pName = pType->NameHeadName;
         while (pName) {
 #if DBG
-            if (fVerbose && fDebug) {
+            if (fDebug) {
                 printf("\t\tLanguage directory - ");
             }
 #endif /* DBG */
@@ -751,7 +827,7 @@ Return Value:
         pName = pType->NameHeadID;
         while (pName) {
 #if DBG
-            if (fVerbose && fDebug) {
+            if (fDebug) {
                 printf("\t\tLanguage directory - ");
             }
 #endif /* DBG */
@@ -796,7 +872,7 @@ Return Value:
         ResourceTypeDirectoryEntry++;
 
 #if DBG
-        if (fVerbose && fDebug) {
+        if (fDebug) {
             printf("\tName directory - ");
         }
 #endif /* DBG */
@@ -808,7 +884,7 @@ Return Value:
         pName = pType->NameHeadName;
         while (pName) {
 #if DBG
-            if (fVerbose && fDebug) {
+            if (fDebug) {
                 printf("\t\tLanguage directory - ");
             }
 #endif /* DBG */
@@ -846,7 +922,7 @@ Return Value:
         pName = pType->NameHeadID;
         while (pName) {
 #if DBG
-            if (fVerbose && fDebug) {
+            if (fDebug) {
                 printf("\t\tLanguage directory - ");
             }
 #endif /* DBG */
@@ -887,11 +963,10 @@ Return Value:
     // Fill in the string table
     //
 
-    pstring=StringHead;
+    pstring = StringHead;
     while (pstring) {
-        //
         // Copy the string and include the length preceding the string
-        //
+
         ResourceStringEntry->Length = pstring->cbsz;
         memcpy(ResourceStringEntry, &pstring->cbsz, pstring->cbData);
         ResourceStringEntry = (PIMAGE_RESOURCE_DIRECTORY_STRING)
@@ -903,7 +978,6 @@ Return Value:
         pstring = pstring->pn;
     }
 
-
     //
     // Fill in the file header
     //
@@ -911,38 +985,73 @@ Return Value:
     fhdr.TimeDateStamp = timeDate;
     fhdr.Machine = targetMachine;
 
+    if (fWritable) {
+        shdr2.Characteristics |= IMAGE_SCN_MEM_WRITE;
+        shdr3.Characteristics |= IMAGE_SCN_MEM_WRITE;
+    }
+
     //
     // Fill in the section header values that we know so far
     //
 
-    shdr1.PointerToRawData = sizeof(fhdr) + sizeof(shdr1) + sizeof(shdr2);
-    shdr1.NumberOfRelocations = NumberOfResources;
-    shdr1.SizeOfRawData = cbResTable;
-    shdr1.PointerToRelocations = shdr1.PointerToRawData + cbResTable;
-    shdr2.PointerToRawData = shdr1.PointerToRelocations +
-        shdr1.NumberOfRelocations * sizeof(IMAGE_RELOCATION);
-    if (shdr2.PointerToRawData & 2)
-        shdr2.PointerToRawData += 2;
-    shdr2.VirtualAddress = shdr1.SizeOfRawData;
+    shdr1.PointerToRawData = sizeof(fhdr) + sizeof(shdr1) + sizeof(shdr2) + sizeof(shdr3);
 
     //
-    // Seek to resource data section
+    // Write the CodeView symbols
     //
 
-    MySeek(fhOut, shdr2.PointerToRawData, SEEK_SET);
+    MySeek(fhOut, shdr1.PointerToRawData, SEEK_SET);
+
+    MyWrite(fhOut, (PUCHAR) &CvSig, sizeof(CvSig));
+
+    cchObjName = (BYTE) strlen(szOutFile);
+    CvObjName.wLen = (WORD) (sizeof(CvObjName) + sizeof(BYTE) + cchObjName - sizeof(WORD));
+
+    MyWrite(fhOut, (PUCHAR) &CvObjName, sizeof(CvObjName));
+    MyWrite(fhOut, (PUCHAR) &cchObjName, sizeof(BYTE));
+    MyWrite(fhOut, (PUCHAR) szOutFile, (DWORD) cchObjName);
+
+    cchCvtresVer = (BYTE) strlen(szCvtresVer);
+    CvCompile.wLen = (WORD) (sizeof(CvCompile) + sizeof(BYTE) + cchCvtresVer - sizeof(WORD));
+
+    MyWrite(fhOut, (PUCHAR) &CvCompile, sizeof(CvCompile));
+    MyWrite(fhOut, (PUCHAR) &cchCvtresVer, sizeof(BYTE));
+    MyWrite(fhOut, (PUCHAR) szCvtresVer, (DWORD) cchCvtresVer);
+
+    shdr1.SizeOfRawData = MySeek(fhOut, 0L, SEEK_CUR) - shdr1.PointerToRawData;
+
+    if (shdr1.SizeOfRawData & 1) {
+        // Pad section to even byte boundary
+
+        MyWrite(fhOut, padding, 1);
+    }
 
     //
-    // write resource data
+    // Build header for resource table
     //
 
-    pName=ResHead;
+    shdr2.PointerToRawData = MySeek(fhOut, 0L, SEEK_CUR);
+    shdr2.NumberOfRelocations = NumberOfResources;
+    shdr2.SizeOfRawData = cbResTable;
+    shdr2.PointerToRelocations = shdr2.PointerToRawData + cbResTable;
+
+    //
+    // Write resource data
+    //
+
+    shdr3.PointerToRawData = shdr2.PointerToRelocations +
+                             shdr2.NumberOfRelocations * sizeof(IMAGE_RELOCATION);
+
+    MySeek(fhOut, shdr3.PointerToRawData, SEEK_SET);
+
+    pName = ResHead;
     while (pName) {
         offHere = MySeek(fhIn, pName->OffsetToData, SEEK_SET);
         while (offHere & 3)
             offHere = MySeek(fhIn, 1, SEEK_CUR);
 
         pName->OffsetToData = MySeek(fhOut, 0L, SEEK_CUR) -
-            shdr2.PointerToRawData;
+            shdr3.PointerToRawData;
 
         MyCopy(fhIn, fhOut, pName->pAdditional->DataSize);
 
@@ -959,18 +1068,27 @@ Return Value:
         pName = pName->pnextRes;
     }
 
-    //
-    // calculate size of section
-    //
+    shdr3.SizeOfRawData = MySeek(fhOut, 0L, SEEK_CUR) - shdr3.PointerToRawData;
 
-    fhdr.PointerToSymbolTable = MySeek(fhOut, 0L, SEEK_CUR);
-    shdr2.SizeOfRawData = fhdr.PointerToSymbolTable - shdr2.PointerToRawData;
+    if (shdr3.SizeOfRawData & 1) {
+        // Pad section to even byte boundary
+
+        MyWrite(fhOut, padding, 1);
+    }
 
     //
     // Output the symbol table
     //
 
-    MyWrite(fhOut, (PUCHAR)&symtbl, sizeof(IMAGE_SYMBOL));
+    fhdr.PointerToSymbolTable = MySeek(fhOut, 0L, SEEK_CUR);
+
+    MyWrite(fhOut, (PUCHAR) &sym1, sizeof(IMAGE_SYMBOL));
+    MyWrite(fhOut, (PUCHAR) &sym2, sizeof(IMAGE_SYMBOL));
+
+    //
+    // Output the string table
+    //
+
     MyWrite(fhOut, padding, sizeof(ULONG));
 
     //
@@ -984,27 +1102,29 @@ Return Value:
     //
 
     MySeek(fhOut, 0L, SEEK_SET);
-    MyWrite(fhOut, (PUCHAR)&fhdr, sizeof(fhdr));
-    MyWrite(fhOut, (PUCHAR)&shdr1, sizeof(shdr1));
-    MyWrite(fhOut, (PUCHAR)&shdr2, sizeof(shdr2));
+    MyWrite(fhOut, (PUCHAR) &fhdr, sizeof(fhdr));
+    MyWrite(fhOut, (PUCHAR) &shdr1, sizeof(shdr1));
+    MyWrite(fhOut, (PUCHAR) &shdr2, sizeof(shdr2));
+    MyWrite(fhOut, (PUCHAR) &shdr3, sizeof(shdr3));
 
     //
     // write the resource table
     //
 
+    MySeek(fhOut, shdr2.PointerToRawData, SEEK_SET);
     MyWrite(fhOut, ResTable, cbResTable);
 
     //
     // write out the relocation records for the resource data entries
     //
 
-    MySeek(fhOut, shdr1.PointerToRelocations, SEEK_SET);
+    MySeek(fhOut, shdr2.PointerToRelocations, SEEK_SET);
     reloc.Type = targetRelocType;
 
-    pName=ResHead;
+    pName = ResHead;
     while (pName) {
         reloc.VirtualAddress = pName->OffsetToDataEntry;
-        MyWrite(fhOut, (PUCHAR)&reloc, sizeof(IMAGE_RELOCATION));
+        MyWrite(fhOut, (PUCHAR) &reloc, sizeof(IMAGE_RELOCATION));
         pName = pName->pnextRes;
     }
 
@@ -1023,7 +1143,7 @@ VOID InitializeDir(
     )
 {
 #if DBG
-    if (fVerbose && fDebug) {
+    if (fDebug) {
         printf("@ 0x%lx - %d names, %d ordinals\n", (ULONG)pResDir-(ULONG)ResTable, (LONG)cNames, (LONG)cID);
     }
 #endif /* DBG */
@@ -1045,7 +1165,7 @@ VOID InitializeData(
     )
 {
 #if DBG
-    if (fVerbose && fDebug) {
+    if (fDebug) {
         printf("\t\t\tData at 0x%lx\n", (ULONG)pResData-(ULONG)ResTable);
     }
 #endif /* DBG */

@@ -19,7 +19,6 @@ Revision History:
 --*/
 
 #include "obp.h"
-#include <zwapi.h>
 
 GENERIC_MAPPING ObpTypeMapping = {
     STANDARD_RIGHTS_READ,
@@ -46,20 +45,51 @@ GENERIC_MAPPING ObpSymbolicLinkMapping = {
         SYMBOLIC_LINK_QUERY,
     STANDARD_RIGHTS_WRITE,
     STANDARD_RIGHTS_EXECUTE |
-	SYMBOLIC_LINK_QUERY,
+        SYMBOLIC_LINK_QUERY,
     SYMBOLIC_LINK_ALL_ACCESS
 };
 
+NTSTATUS
+ObpCreateDosDevicesDirectory( VOID );
+
+NTSTATUS
+ObpGetDosDevicesProtection(
+    PSECURITY_DESCRIPTOR SecurityDescriptor
+    );
+
+VOID
+ObpFreeDosDevicesProtection(
+    PSECURITY_DESCRIPTOR SecurityDescriptor
+    );
+
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(INIT,ObInitSystem)
+#pragma alloc_text(INIT,ObpCreateDosDevicesDirectory)
+#pragma alloc_text(INIT,ObpGetDosDevicesProtection)
+#pragma alloc_text(INIT,ObpFreeDosDevicesProtection)
 #pragma alloc_text(PAGE,ObKillProcess)
 #endif
 
 extern EPROCESS_QUOTA_BLOCK PspDefaultQuotaBlock;
 KMUTANT ObpInitKillMutant;
 
+//
+// CurrentControlSet values set by code in config\cmdat3.c at system load time
+//
+
+ULONG ObpProtectionMode;
+ULONG ObpAuditBaseDirectories;
+ULONG ObpAuditBaseObjects;
+
+
+UNICODE_STRING ObpDosDevicesShortName;
+ULONGLONG ObpDosDevicesShortNamePrefix;
+
 BOOLEAN
-ObInitSystem( VOID )
+ObInitSystem(
+    VOID
+    )
+
 /*++
 
 Routine Description:
@@ -83,16 +113,21 @@ Return Value:
     - insufficient memory
 
 --*/
+
 {
+
+    USHORT CreateInfoMaxDepth;
+    USHORT NameBufferMaxDepth;
+    ULONG RegionSegmentSize;
     OBJECT_TYPE_INITIALIZER ObjectTypeInitializer;
     UNICODE_STRING TypeTypeName;
     UNICODE_STRING SymbolicLinkTypeName;
+    UNICODE_STRING DosDevicesDirectoryName;
     UNICODE_STRING DirectoryTypeName;
     UNICODE_STRING RootDirectoryName;
     UNICODE_STRING TypeDirectoryName;
     NTSTATUS Status;
     OBJECT_ATTRIBUTES ObjectAttributes;
-    PVOID ZoneSegment;
     HANDLE RootDirectoryHandle;
     HANDLE TypeDirectoryHandle;
     PLIST_ENTRY Next, Head;
@@ -100,6 +135,12 @@ Return Value:
     POBJECT_HEADER_CREATOR_INFO CreatorInfo;
     POBJECT_HEADER_NAME_INFO NameInfo;
     MM_SYSTEMSIZE SystemSize;
+    SECURITY_DESCRIPTOR AuditSd;
+    PSECURITY_DESCRIPTOR EffectiveSd;
+    PACL    AuditAllAcl;
+    UCHAR   AuditAllBuffer[250];  // Ample room for the ACL
+    ULONG   AuditAllLength;
+    PACE_HEADER Ace;
 
     //
     // PHASE 0 Initialization
@@ -107,12 +148,50 @@ Return Value:
 
     if (InitializationPhase == 0) {
 
-        if (sizeof( NONPAGED_OBJECT_HEADER ) < sizeof( WORK_QUEUE_ITEM )) {
-            KdPrint(( "OB: %3u - sizeof( NONPAGED_OBJECT_HEADER )\n", sizeof( NONPAGED_OBJECT_HEADER ) ));
-            KdPrint(( "OB: %3u - sizeof( OBJECT_HEADER )\n",         sizeof( OBJECT_HEADER ) ));
-            KdPrint(( "OB: NONPAGED_OBJECT_HEADER structure too small.\n" ));
-            return( FALSE );
+        //
+        // Determine the the size of the object creation and the name buffer
+        // lookaside lists.
+        //
+
+        SystemSize = MmQuerySystemSize();
+        if (SystemSize == MmLargeSystem) {
+            if (MmIsThisAnNtAsSystem()) {
+                CreateInfoMaxDepth = 64;
+                NameBufferMaxDepth = 32;
+
+            } else {
+                CreateInfoMaxDepth = 32;
+                NameBufferMaxDepth = 16;
             }
+
+        } else {
+            CreateInfoMaxDepth = 3;
+            NameBufferMaxDepth = 3;
+        }
+
+        //
+        // Initialize the object creation lookaside list.
+        //
+
+        ExInitializeNPagedLookasideList(&ObpCreateInfoLookasideList,
+                                        NULL,
+                                        NULL,
+                                        0,
+                                        sizeof(OBJECT_CREATE_INFORMATION),
+                                        'iCbO',
+                                        CreateInfoMaxDepth);
+
+        //
+        // Initialize the name buffer lookaside list.
+        //
+
+        ExInitializeNPagedLookasideList(&ObpNameBufferLookasideList,
+                                        NULL,
+                                        NULL,
+                                        0,
+                                        OBJECT_NAME_BUFFER_SIZE,
+                                        'mNbO',
+                                        NameBufferMaxDepth);
 
         InitializeListHead( &ObpRemoveObjectQueue );
 
@@ -140,41 +219,15 @@ Return Value:
 
         PsGetCurrentProcess()->QuotaBlock = &PspDefaultQuotaBlock;
 
-        SystemSize = MmQuerySystemSize();
-
-        switch ( SystemSize ) {
-
-            case MmSmallSystem :
-                ObpZoneSegmentSize = OBP_SMALL_ZONE_SEGMENT_SIZE;
-                break;
-
-            case MmMediumSystem :
-                ObpZoneSegmentSize = OBP_MEDIUM_ZONE_SEGMENT_SIZE;
-                break;
-
-            case MmLargeSystem :
-                ObpZoneSegmentSize = OBP_LARGE_ZONE_SEGMENT_SIZE;
-                break;
-            }
-
-
-
-
-        ZoneSegment = ExAllocatePoolWithTag( NonPagedPool, ObpZoneSegmentSize, 'nZbO' );
-        Status = ExInitializeZone( &ObpZone,
-                                   sizeof( NONPAGED_OBJECT_HEADER ),
-                                   ZoneSegment,
-                                   ObpZoneSegmentSize
-                                 );
-        KeInitializeSpinLock( &ObpZoneLock );
-
         PsGetCurrentProcess()->ObjectTable =
             ExCreateHandleTable( NULL,
-                                 0,0,
-                                 LOG_OBJECT_TABLE_ENTRY_SIZE
+                                 0,
+                                 0
                                );
+
         RtlZeroMemory( &ObjectTypeInitializer, sizeof( ObjectTypeInitializer ) );
         ObjectTypeInitializer.Length = sizeof( ObjectTypeInitializer );
+        ObjectTypeInitializer.InvalidAttributes = OBJ_OPENLINK;
         ObjectTypeInitializer.PoolType = NonPagedPool;
 
         RtlInitUnicodeString( &TypeTypeName, L"Type" );
@@ -204,6 +257,7 @@ Return Value:
         ObjectTypeInitializer.DefaultNonPagedPoolCharge = sizeof( OBJECT_SYMBOLIC_LINK );
         ObjectTypeInitializer.ValidAccessMask = SYMBOLIC_LINK_ALL_ACCESS;
         ObjectTypeInitializer.GenericMapping = ObpSymbolicLinkMapping;
+        ObjectTypeInitializer.DeleteProcedure = ObpDeleteSymbolicLink;
         ObjectTypeInitializer.ParseProcedure = ObpParseSymbolicLink;
         ObCreateObjectType( &SymbolicLinkTypeName,
                             &ObjectTypeInitializer,
@@ -213,6 +267,11 @@ Return Value:
 
         ExInitializeResourceLite( &ObpRootDirectoryMutex );
 
+#if i386 && !FPO
+        ObpCurCachedGrantedAccessIndex = 0;
+        ObpMaxCachedGrantedAccessIndex = PAGE_SIZE / sizeof( ACCESS_MASK );
+        ObpCachedGrantedAccesses = ExAllocatePoolWithTag( NonPagedPool, PAGE_SIZE, 'gAbO' );
+#endif // i386 && !FPO
 
 #if DBG
         ObpCreateObjectEventId = RtlCreateEventId( NULL,
@@ -251,6 +310,76 @@ Return Value:
     if (InitializationPhase == 1) {
 
 
+        EffectiveSd = SePublicDefaultSd;
+
+        //
+        // This code is only executed if base auditing is turned on.
+        //
+
+        if ((ObpAuditBaseDirectories != 0) || (ObpAuditBaseObjects != 0)) {
+
+            //
+            // build an SACL to audit
+            //
+            AuditAllAcl = (PACL)AuditAllBuffer;
+            AuditAllLength = (ULONG)sizeof(ACL) +
+                               ((ULONG)sizeof(SYSTEM_AUDIT_ACE)) +
+                               SeLengthSid(SeWorldSid);
+            ASSERT( sizeof(AuditAllBuffer)   >   AuditAllLength );
+            Status = RtlCreateAcl( AuditAllAcl, AuditAllLength, ACL_REVISION2);
+            ASSERT( NT_SUCCESS(Status) );
+            Status = RtlAddAuditAccessAce (
+                         AuditAllAcl,
+                         ACL_REVISION2,
+                         GENERIC_ALL,
+                         SeWorldSid,
+                         TRUE,  TRUE        //Audit success and failure
+                         );
+            ASSERT( NT_SUCCESS(Status) );
+
+            Status = RtlGetAce( AuditAllAcl, 0,  (PVOID)&Ace );
+            ASSERT( NT_SUCCESS(Status) );
+
+            if (ObpAuditBaseDirectories != 0) {
+                Ace->AceFlags |= (CONTAINER_INHERIT_ACE | INHERIT_ONLY_ACE);
+                }
+
+            if (ObpAuditBaseObjects != 0) {
+                Ace->AceFlags |= (OBJECT_INHERIT_ACE    |
+                                  CONTAINER_INHERIT_ACE |
+                                  INHERIT_ONLY_ACE);
+                }
+
+
+
+            //
+            // Now create a security descriptor that looks just like
+            // the public default, but has auditing in it as well.
+
+            EffectiveSd = (PSECURITY_DESCRIPTOR)&AuditSd;
+            Status = RtlCreateSecurityDescriptor( EffectiveSd,
+                                                  SECURITY_DESCRIPTOR_REVISION1 );
+            ASSERT( NT_SUCCESS(Status) );
+
+            Status = RtlSetDaclSecurityDescriptor( EffectiveSd,
+                                                   TRUE,        // DaclPresent
+                                                   SePublicDefaultDacl,
+                                                   FALSE        // DaclDefaulted
+                                                   );
+            ASSERT( NT_SUCCESS(Status) );
+            Status = RtlSetSaclSecurityDescriptor( EffectiveSd,
+                                                   TRUE,        // DaclPresent
+                                                   AuditAllAcl,
+                                                   FALSE        // DaclDefaulted
+                                                   );
+            ASSERT( NT_SUCCESS(Status) );
+            }
+
+
+        //
+        // We only need to use the EffectiveSd on the root.  The SACL
+        // will be inherited by all other objects.
+        //
 
         RtlInitUnicodeString( &RootDirectoryName, L"\\" );
         InitializeObjectAttributes( &ObjectAttributes,
@@ -258,7 +387,7 @@ Return Value:
                                     OBJ_CASE_INSENSITIVE |
                                     OBJ_PERMANENT,
                                     NULL,
-                                    SePublicDefaultSd
+                                    EffectiveSd
                                   );
         Status = NtCreateDirectoryObject( &RootDirectoryHandle,
                                           DIRECTORY_ALL_ACCESS,
@@ -334,7 +463,7 @@ Return Value:
                                             )
                    ) {
                     ObpInsertDirectoryEntry( ObpTypeDirectoryObject,
-                                             ObjectTypeHeader->NonPagedObjectHeader->Object
+                                             &ObjectTypeHeader->Body
                                            );
                     }
                 }
@@ -343,61 +472,63 @@ Return Value:
             }
 
         ObpLeaveRootDirectoryMutex();
-        }             // End of Phase 1 Initialization
 
-    return( TRUE );
+        //
+        // Create \DosDevices object directory for drive letters and Win32 device names
+        //
+        Status = ObpCreateDosDevicesDirectory();
+        if (!NT_SUCCESS( Status )) {
+            return FALSE;
+            }
+        }
+
+    return TRUE;
 }
 
 
 BOOLEAN
 ObDupHandleProcedure(
+    PEPROCESS Process,
     PVOID HandleTableEntry
     )
 {
-    PNONPAGED_OBJECT_HEADER NonPagedObjectHeader;
+    NTSTATUS Status;
     POBJECT_TABLE_ENTRY ObjectTableEntry = HandleTableEntry;
-
-    if (!(ObjectTableEntry->NonPagedObjectHeader & OBJ_INHERIT)) {
-        return( FALSE );
-        }
-
-    NonPagedObjectHeader = (PNONPAGED_OBJECT_HEADER)
-        (ObjectTableEntry->NonPagedObjectHeader & ~OBJ_HANDLE_ATTRIBUTES);
-
-    ObpIncrPointerCount( NonPagedObjectHeader );
-    return( TRUE );
-}
-
-
-BOOLEAN
-ObEnumNewHandleProcedure(
-    PVOID HandleTableEntry,
-    PVOID HandleId,
-    PVOID EnumParameter
-    )
-{
-    POBJECT_TABLE_ENTRY ObjectTableEntry = HandleTableEntry;
-    PNONPAGED_OBJECT_HEADER NonPagedObjectHeader;
+    POBJECT_HEADER ObjectHeader;
     PVOID Object;
     ACCESS_STATE AccessState;
 
+    if (!(ObjectTableEntry->Attributes & OBJ_INHERIT)) {
+        return( FALSE );
+        }
 
-    NonPagedObjectHeader = (PNONPAGED_OBJECT_HEADER)
-        (ObjectTableEntry->NonPagedObjectHeader & ~OBJ_HANDLE_ATTRIBUTES);
+    ObjectHeader = (POBJECT_HEADER)
+        (ObjectTableEntry->Attributes & ~OBJ_HANDLE_ATTRIBUTES);
 
-    Object = NonPagedObjectHeader->Object;
+    Object = &ObjectHeader->Body;
+#if i386 && !FPO
+    if (NtGlobalFlag & FLG_KERNEL_STACK_TRACE_DB) {
+        AccessState.PreviouslyGrantedAccess = ObpTranslateGrantedAccessIndex( ObjectTableEntry->GrantedAccessIndex );
+        }
+    else
+#endif // i386 && !FPO
     AccessState.PreviouslyGrantedAccess = ObjectTableEntry->GrantedAccess;
-    ObpIncrementHandleCount( ObInheritHandle,
-                             (PEPROCESS)EnumParameter,
-                             Object,
-                             NonPagedObjectHeader->Type,
-                             &AccessState,
-                             KernelMode,     // BUGBUG this is probably wrong
-                             0
-                           );
+    Status = ObpIncrementHandleCount( ObInheritHandle,
+                                      Process,
+                                      Object,
+                                      ObjectHeader->Type,
+                                      &AccessState,
+                                      KernelMode,     // BUGBUG this is probably wrong
+                                      0
+                                    );
+    if (!NT_SUCCESS( Status )) {
+        return( FALSE );
+        }
 
-    return( FALSE );
+    ObpIncrPointerCount( ObjectHeader );
+    return( TRUE );
 }
+
 
 
 BOOLEAN
@@ -436,7 +567,7 @@ Return Value:
     PSE_PROCESS_AUDIT_INFO ProcessAuditInfo = EnumParameter;
     POBJECT_TABLE_ENTRY ObjectTableEntry = HandleTableEntry;
 
-    if (!(ObjectTableEntry->NonPagedObjectHeader & OBJ_AUDIT_OBJECT_CLOSE)) {
+    if (!(ObjectTableEntry->Attributes & OBJ_AUDIT_OBJECT_CLOSE)) {
         return( FALSE );
     }
 
@@ -484,8 +615,8 @@ Return Value:
 
 --*/
 {
-    PVOID OldObjectTable;
-    PVOID NewObjectTable;
+    PHANDLE_TABLE OldObjectTable;
+    PHANDLE_TABLE NewObjectTable;
     ULONG PoolCharges[ MaxPoolType ];
     SE_PROCESS_AUDIT_INFO ProcessAuditInfo;
 
@@ -511,20 +642,12 @@ Return Value:
     else {
         OldObjectTable = NULL;
         NewObjectTable = ExCreateHandleTable( NewProcess,
-                                              0, 0,
-                                              LOG_OBJECT_TABLE_ENTRY_SIZE
+                                              0,
+                                              0
                                             );
         }
 
     if (NewObjectTable) {
-        if (OldObjectTable) {
-            ExEnumHandleTable( NewObjectTable,
-                               ObEnumNewHandleProcedure,
-                               NewProcess,
-                               (PHANDLE)NULL
-                             );
-            }
-
         NewProcess->ObjectTable = NewObjectTable;
 
         if ( SeDetailedAuditing ) {
@@ -550,8 +673,42 @@ Return Value:
         if ( OldObjectTable ) {
             KeReleaseMutant(&ObpInitKillMutant,0,FALSE,FALSE);
             }
-        return( STATUS_NO_MEMORY );
+        return( STATUS_INSUFFICIENT_RESOURCES );
         }
+}
+
+
+VOID
+ObInitProcess2(
+    PEPROCESS NewProcess
+    )
+/*++
+
+Routine Description:
+
+    This function is called after an image file has been mapped into the address
+    space of a newly created process.  Allows the object manager to set LIFO/FIFO
+    ordering for handle allocation based on the SubSystemVersion number in the
+    image.
+
+Arguments:
+
+    NewProcess - pointer to the process object being initialized.
+
+Return Value:
+
+    None.
+
+--*/
+{
+
+    //
+    // Set LIFO ordering of handles for images <= SubSystemVersion 3.50
+    //
+
+    if (NewProcess->ObjectTable) {
+        ExSetHandleTableOrder( NewProcess->ObjectTable, (BOOLEAN)(NewProcess->SubSystemVersion <= 0x332) );
+    }
 }
 
 
@@ -625,5 +782,528 @@ Return Value:
         KeReleaseMutant( &ObpInitKillMutant, 0, FALSE, FALSE );
         }
 
+    return;
+}
+
+
+typedef struct _OBP_FIND_HANDLE_DATA {
+    POBJECT_HEADER ObjectHeader;
+    POBJECT_TYPE ObjectType;
+    POBJECT_HANDLE_INFORMATION HandleInformation;
+} OBP_FIND_HANDLE_DATA, *POBP_FIND_HANDLE_DATA;
+
+BOOLEAN
+ObpEnumFindHandleProcedure(
+    PVOID HandleTableEntry,
+    PVOID HandleId,
+    PVOID EnumParameter
+    )
+
+/*++
+
+Routine Description:
+
+    Call back routine when enumerating an object table to find a handle
+    for a particular object and/or
+
+Arguments:
+
+    argument-name - Supplies | Returns description of argument.
+    .
+    .
+
+Return Value:
+
+    Returns TRUE if a match is found and the enumeration should stop.  Returns FALSE
+    otherwise, so the enumeration will continue.
+
+--*/
+{
+    POBJECT_TABLE_ENTRY ObjectTableEntry = HandleTableEntry;
+    POBJECT_HEADER ObjectHeader;
+    ACCESS_MASK GrantedAccess;
+    ULONG HandleAttributes;
+    POBP_FIND_HANDLE_DATA MatchCriteria = EnumParameter;
+
+    ObjectHeader = (POBJECT_HEADER)((ULONG)ObjectTableEntry->ObjectHeader & ~OBJ_HANDLE_ATTRIBUTES);
+    if (MatchCriteria->ObjectHeader != NULL &&
+        MatchCriteria->ObjectHeader != ObjectHeader
+       ) {
+        return FALSE;
+        }
+
+    if (MatchCriteria->ObjectType != NULL &&
+        MatchCriteria->ObjectType != ObjectHeader->Type
+       ) {
+        return FALSE;
+        }
+
+    if (ARGUMENT_PRESENT( MatchCriteria->HandleInformation )) {
+#if i386 && !FPO
+        if (NtGlobalFlag & FLG_KERNEL_STACK_TRACE_DB) {
+            GrantedAccess = ObpTranslateGrantedAccessIndex( ObjectTableEntry->GrantedAccessIndex );
+            }
+        else
+#endif // i386 && !FPO
+        GrantedAccess = ObjectTableEntry->GrantedAccess;
+        HandleAttributes = (ULONG)ObjectTableEntry->ObjectHeader & OBJ_HANDLE_ATTRIBUTES;
+        if (MatchCriteria->HandleInformation->HandleAttributes != HandleAttributes ||
+            MatchCriteria->HandleInformation->GrantedAccess != GrantedAccess
+           ) {
+            return FALSE;
+            }
+        }
+
+    return TRUE;
+}
+
+
+BOOLEAN
+ObFindHandleForObject(
+    IN PEPROCESS Process,
+    IN PVOID Object OPTIONAL,
+    IN POBJECT_TYPE ObjectType OPTIONAL,
+    IN POBJECT_HANDLE_INFORMATION HandleInformation OPTIONAL,
+    OUT PHANDLE Handle
+    )
+
+/*++
+
+Routine Description:
+
+    This routine searchs the handle table for the specified process,
+    looking for a handle table entry that matches the passed parameters.
+    If an an Object pointer is specified it must match.  If an
+    ObjectType is specified it must match.  If HandleInformation is
+    specified, then both the HandleAttributes and GrantedAccess mask
+    must match.  If all three match parameters are NULL, then will
+    match the first allocated handle for the specified process that
+    matches the specified object pointer.
+
+Arguments:
+
+    Process - Specifies the process whose object table is to be searched.
+
+    Object - Specifies the object pointer to look for.
+
+    ObjectType - Specifies the object type to look for.
+
+    HandleInformation - Specifies additional match criteria to look for.
+
+    Handle - Specifies the location to receive the handle value whose handle
+        entry matches the supplied object pointer and optional match criteria.
+
+Return Value:
+
+    TRUE if a match was found and FALSE otherwise.
+
+--*/
+
+{
+    OBJECT_TABLE_ENTRY ObjectTableEntry;
+    OBP_FIND_HANDLE_DATA EnumParameter;
+    BOOLEAN Result;
+
+    Result = FALSE;
+    KeWaitForSingleObject( &ObpInitKillMutant,
+                           Executive,
+                           KernelMode,
+                           FALSE,
+                           NULL
+                         );
+
+    if (Process->ObjectTable != NULL) {
+        if (ARGUMENT_PRESENT( Object )) {
+            EnumParameter.ObjectHeader = OBJECT_TO_OBJECT_HEADER( Object );
+            }
+        else {
+            EnumParameter.ObjectHeader = NULL;
+            }
+        EnumParameter.ObjectType = ObjectType;
+        EnumParameter.HandleInformation = HandleInformation;
+        if (ExEnumHandleTable( Process->ObjectTable,
+                               ObpEnumFindHandleProcedure,
+                               &EnumParameter,
+                               Handle
+                             )
+           ) {
+            *Handle = MAKE_OBJECT_HANDLE( *Handle );
+            Result = TRUE;
+            }
+        }
+
+    KeReleaseMutant( &ObpInitKillMutant, 0, FALSE, FALSE );
+    return Result;
+}
+
+
+NTSTATUS
+ObpCreateDosDevicesDirectory( VOID )
+{
+    NTSTATUS Status;
+    UNICODE_STRING NameString;
+    OBJECT_ATTRIBUTES ObjectAttributes;
+    HANDLE Handle;
+    SECURITY_DESCRIPTOR DosDevicesSD;
+
+    //
+    // Create the root directory object for the \DosDevices directory.
+    //
+
+    Status = ObpGetDosDevicesProtection( &DosDevicesSD );
+    if (NT_SUCCESS( Status )) {
+        RtlInitUnicodeString( &NameString, L"\\??" );
+        InitializeObjectAttributes( &ObjectAttributes,
+                                    &NameString,
+                                    OBJ_PERMANENT,
+                                    (HANDLE) NULL,
+                                    &DosDevicesSD
+                                  );
+
+        Status = NtCreateDirectoryObject( &Handle,
+                                          DIRECTORY_ALL_ACCESS,
+                                          &ObjectAttributes
+                                        );
+        if (NT_SUCCESS( Status )) {
+            Status = ObReferenceObjectByHandle( Handle,
+                                                0,
+                                                ObpDirectoryObjectType,
+                                                KernelMode,
+                                                (PVOID *)&ObpDosDevicesDirectoryObject,
+                                                NULL
+                                              );
+            if (!NT_SUCCESS( Status )) {
+                return( Status );
+                }
+            NtClose( Handle );
+
+            ObpDosDevicesShortName.Buffer = (PWSTR)&ObpDosDevicesShortNamePrefix;
+            ObpDosDevicesShortName.Length = 0;
+            ObpDosDevicesShortName.MaximumLength = sizeof( ObpDosDevicesShortNamePrefix );
+            RtlCopyUnicodeString( &ObpDosDevicesShortName, &NameString );
+            ObpDosDevicesShortName.Buffer[ 3 ] = UNICODE_NULL;
+
+            RtlCreateUnicodeString( &NameString, L"\\DosDevices" );
+            InitializeObjectAttributes( &ObjectAttributes,
+                                        &NameString,
+                                        OBJ_PERMANENT,
+                                        (HANDLE) NULL,
+                                        &DosDevicesSD
+                                      );
+            Status = NtCreateSymbolicLinkObject( &Handle,
+                                                 SYMBOLIC_LINK_ALL_ACCESS,
+                                                 &ObjectAttributes,
+                                                 &ObpDosDevicesShortName
+                                               );
+            if (NT_SUCCESS( Status )) {
+                NtClose( Handle );
+                }
+
+            ObpDosDevicesShortName.Buffer[ 3 ] = OBJ_NAME_PATH_SEPARATOR;
+            ObpDosDevicesShortName.Length += sizeof( OBJ_NAME_PATH_SEPARATOR );
+            }
+
+        ObpFreeDosDevicesProtection( &DosDevicesSD );
+        }
+
+    return Status;
+}
+
+
+NTSTATUS
+ObpGetDosDevicesProtection(
+    PSECURITY_DESCRIPTOR SecurityDescriptor
+    )
+
+/*++
+
+Routine Description:
+
+    This routine builds a security descriptor for use in creating
+    the \DosDevices object directory.  The protection of \DosDevices
+    must establish inheritable protection which will dictate how
+    dos devices created via the DefineDosDevice() and
+    IoCreateUnprotectedSymbolicLink() apis can be managed.
+
+    The protection assigned is dependent upon an administrable registry
+    key:
+
+        Key: \hkey_local_machine\System\CurrentControlSet\Control\Session Manager
+        Value: [REG_DWORD] ProtectionMode
+
+    If this value is 0x1, then
+
+            Administrators may control all Dos devices,
+            Anyone may create new Dos devices (such as net drives
+                or additional printers),
+            Anyone may use any Dos device,
+            The creator of a Dos device may delete it.
+            Note that this protects system-defined LPTs and COMs so that only
+                administrators may redirect them.  However, anyone may add
+                additional printers and direct them to wherever they would
+                like.
+
+           This is achieved with the following protection for the DosDevices
+           Directory object:
+
+                    Grant:  World:   Execute | Read | Write (No Inherit)
+                    Grant:  System:  All Access             (No Inherit)
+                    Grant:  World:   Execute                (Inherit Only)
+                    Grant:  Admins:  All Access             (Inherit Only)
+                    Grant:  System:  All Access             (Inherit Only)
+                    Grant:  Owner:   All Access             (Inherit Only)
+
+    If this value is 0x0, or not present, then
+
+            Administrators may control all Dos devices,
+            Anyone may create new Dos devices (such as net drives
+                or additional printers),
+            Anyone may use any Dos device,
+            Anyone may delete Dos devices created with either DefineDosDevice()
+                or IoCreateUnprotectedSymbolicLink().  This is how network drives
+                and LPTs are created (but not COMs).
+
+           This is achieved with the following protection for the DosDevices
+           Directory object:
+
+                    Grant:  World:   Execute | Read | Write (No Inherit)
+                    Grant:  System:  All Access             (No Inherit)
+                    Grant:  World:   All Access             (Inherit Only)
+
+
+Arguments:
+
+    SecurityDescriptor - The address of a security descriptor to be
+        initialized and filled in.  When this security descriptor is no
+        longer needed, you should call ObpFreeDosDevicesProtection() to
+        free the protection information.
+
+
+Return Value:
+
+    Returns one of the following status codes:
+
+        STATUS_SUCCESS - normal, successful completion.
+
+        STATUS_NO_MEMORY - not enough memory
+
+
+--*/
+
+{
+    NTSTATUS Status;
+    ULONG aceIndex, aclLength;
+    PACL dacl;
+    PACE_HEADER ace;
+    ACCESS_MASK accessMask;
+
+    UCHAR inheritOnlyFlags = (OBJECT_INHERIT_ACE    |
+                              CONTAINER_INHERIT_ACE |
+                              INHERIT_ONLY_ACE
+                             );
+
+    //
+    // NOTE:  This routine expects the value of ObpProtectionMode to have been set
+    //
+
+    Status = RtlCreateSecurityDescriptor( SecurityDescriptor, SECURITY_DESCRIPTOR_REVISION );
+    ASSERT( NT_SUCCESS( Status ) );
+
+    if (ObpProtectionMode & 0x00000001) {
+
+        //
+        // Dacl:
+        //          Grant:  World:   Execute | Read | Write (No Inherit)
+        //          Grant:  System:  All Access             (No Inherit)
+        //          Grant:  World:   Execute                (Inherit Only)
+        //          Grant:  Admins:  All Access             (Inherit Only)
+        //          Grant:  System:  All Access             (Inherit Only)
+        //          Grant:  Owner:   All Access             (Inherit Only)
+        //
+
+        aclLength = sizeof( ACL )                           +
+                    6 * sizeof( ACCESS_ALLOWED_ACE )        +
+                    (2*RtlLengthSid( SeWorldSid ))          +
+                    (2*RtlLengthSid( SeLocalSystemSid ))    +
+                    RtlLengthSid( SeAliasAdminsSid )        +
+                    RtlLengthSid( SeCreatorOwnerSid );
+
+        dacl = (PACL)ExAllocatePool(PagedPool, aclLength );
+        if (dacl == NULL) {
+            return STATUS_NO_MEMORY;
+        }
+
+        Status = RtlCreateAcl( dacl, aclLength, ACL_REVISION2);
+        ASSERT( NT_SUCCESS( Status ) );
+
+        //
+        // Non-inheritable ACEs first
+        //      World
+        //      System
+        //
+
+        aceIndex = 0;
+        accessMask = (GENERIC_READ | GENERIC_WRITE | GENERIC_EXECUTE);
+        Status = RtlAddAccessAllowedAce ( dacl, ACL_REVISION2, accessMask, SeWorldSid );
+        ASSERT( NT_SUCCESS( Status ) );
+
+        aceIndex++;
+        accessMask = (GENERIC_ALL);
+        Status = RtlAddAccessAllowedAce ( dacl, ACL_REVISION2, accessMask, SeLocalSystemSid );
+        ASSERT( NT_SUCCESS( Status ) );
+
+        //
+        // Inheritable ACEs at the end of the ACL
+        //          World
+        //          Admins
+        //          System
+        //          Owner
+        //
+
+        aceIndex++;
+        accessMask = (GENERIC_EXECUTE);
+        Status = RtlAddAccessAllowedAce ( dacl, ACL_REVISION2, accessMask, SeWorldSid );
+        ASSERT( NT_SUCCESS( Status ) );
+        Status = RtlGetAce( dacl, aceIndex, (PVOID)&ace );
+        ASSERT( NT_SUCCESS( Status ) );
+        ace->AceFlags |= inheritOnlyFlags;
+
+        aceIndex++;
+        accessMask = (GENERIC_ALL);
+        Status = RtlAddAccessAllowedAce ( dacl, ACL_REVISION2, accessMask, SeAliasAdminsSid );
+        ASSERT( NT_SUCCESS( Status ) );
+        Status = RtlGetAce( dacl, aceIndex, (PVOID)&ace );
+        ASSERT( NT_SUCCESS( Status ) );
+        ace->AceFlags |= inheritOnlyFlags;
+
+        aceIndex++;
+        accessMask = (GENERIC_ALL);
+        Status = RtlAddAccessAllowedAce ( dacl, ACL_REVISION2, accessMask, SeLocalSystemSid );
+        ASSERT( NT_SUCCESS( Status ) );
+        Status = RtlGetAce( dacl, aceIndex, (PVOID)&ace );
+        ASSERT( NT_SUCCESS( Status ) );
+        ace->AceFlags |= inheritOnlyFlags;
+
+        aceIndex++;
+        accessMask = (GENERIC_ALL);
+        Status = RtlAddAccessAllowedAce ( dacl, ACL_REVISION2, accessMask, SeCreatorOwnerSid );
+        ASSERT( NT_SUCCESS( Status ) );
+        Status = RtlGetAce( dacl, aceIndex, (PVOID)&ace );
+        ASSERT( NT_SUCCESS( Status ) );
+        ace->AceFlags |= inheritOnlyFlags;
+
+        Status = RtlSetDaclSecurityDescriptor (
+                     SecurityDescriptor,
+                     TRUE,                  //DaclPresent,
+                     dacl,                  //Dacl
+                     FALSE                  //!DaclDefaulted
+                     );
+        ASSERT( NT_SUCCESS( Status ) );
+
+
+
+    } else {
+
+        //
+        // DACL:
+        //          Grant:  World:   Execute | Read | Write (No Inherit)
+        //          Grant:  System:  All Access             (No Inherit)
+        //          Grant:  World:   All Access             (Inherit Only)
+        //
+
+        aclLength = sizeof( ACL )                           +
+                    3 * sizeof( ACCESS_ALLOWED_ACE )        +
+                    (2*RtlLengthSid( SeWorldSid ))          +
+                    RtlLengthSid( SeLocalSystemSid );
+
+        dacl = (PACL)ExAllocatePool(PagedPool, aclLength );
+        if (dacl == NULL) {
+            return STATUS_NO_MEMORY;
+        }
+
+        Status = RtlCreateAcl( dacl, aclLength, ACL_REVISION2);
+        ASSERT( NT_SUCCESS( Status ) );
+
+        //
+        // Non-inheritable ACEs first
+        //      World
+        //      System
+        //
+
+        aceIndex = 0;
+        accessMask = (GENERIC_READ | GENERIC_WRITE | GENERIC_EXECUTE);
+        Status = RtlAddAccessAllowedAce ( dacl, ACL_REVISION2, accessMask, SeWorldSid );
+        ASSERT( NT_SUCCESS( Status ) );
+
+        aceIndex++;
+        accessMask = (GENERIC_ALL);
+        Status = RtlAddAccessAllowedAce ( dacl, ACL_REVISION2, accessMask, SeLocalSystemSid );
+        ASSERT( NT_SUCCESS( Status ) );
+
+        //
+        // Inheritable ACEs at the end of the ACL
+        //          World
+        //
+
+        aceIndex++;
+        accessMask = (GENERIC_ALL);
+        Status = RtlAddAccessAllowedAce ( dacl, ACL_REVISION2, accessMask, SeWorldSid );
+        ASSERT( NT_SUCCESS( Status ) );
+        Status = RtlGetAce( dacl, aceIndex, (PVOID)&ace );
+        ASSERT( NT_SUCCESS( Status ) );
+        ace->AceFlags |= inheritOnlyFlags;
+
+        Status = RtlSetDaclSecurityDescriptor (
+                     SecurityDescriptor,
+                     TRUE,                  //DaclPresent,
+                     dacl,                  //Dacl
+                     FALSE                  //!DaclDefaulted
+                     );
+        ASSERT( NT_SUCCESS( Status ) );
+    }
+
+    return STATUS_SUCCESS;
+}
+
+VOID
+ObpFreeDosDevicesProtection(
+    PSECURITY_DESCRIPTOR SecurityDescriptor
+    )
+
+/*++
+
+Routine Description:
+
+    This routine frees memory allocated via ObpGetDosDevicesProtection().
+
+
+Arguments:
+
+    SecurityDescriptor - The address of a security descriptor initialized by
+        ObpGetDosDevicesProtection().
+
+
+Return Value:
+
+    None.
+
+
+--*/
+
+{
+    NTSTATUS Status;
+    PACL Dacl;
+    BOOLEAN DaclPresent, Defaulted;
+
+    Status = RtlGetDaclSecurityDescriptor ( SecurityDescriptor,
+                                            &DaclPresent,
+                                            &Dacl,
+                                            &Defaulted
+                                          );
+    ASSERT( NT_SUCCESS( Status ) );
+    ASSERT( DaclPresent );
+    ASSERT( Dacl != NULL );
+
+    ExFreePool( (PVOID)Dacl );
     return;
 }

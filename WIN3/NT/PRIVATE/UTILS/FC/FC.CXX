@@ -222,14 +222,10 @@ WARNING:
 #include "system.hxx"
 #include "wstring.hxx"
 
-extern "C" {
-
-    #include <malloc.h>
-    #include <process.h>
-    #include <stdlib.h>
-    #include <math.h>
-}
-
+#include <malloc.h>
+#include <process.h>
+#include <stdlib.h>
+#include <math.h>
 
 
 /**************************************************************************/
@@ -314,18 +310,18 @@ FC::ParseArguments(
 
     ARGUMENT_LEXEMIZER  ArgLex;
     ARRAY               LexArray;
-        ARRAY                           ArrayOfArg;
+    ARRAY               ArrayOfArg;
 
-        PATH_ARGUMENT           ProgramName;
-        FLAG_ARGUMENT           FlagAbbreviate;
-        FLAG_ARGUMENT           FlagAsciiCompare;
-        FLAG_ARGUMENT           FlagBinaryCompare;
-        FLAG_ARGUMENT           FlagCaseInsensitive;
-        FLAG_ARGUMENT           FlagCompression;
-        FLAG_ARGUMENT           FlagExpansion;
-        FLAG_ARGUMENT           FlagLineNumber;
-        FLAG_ARGUMENT           FlagRequestHelp;
-        FLAG_ARGUMENT           FlagUnicode;
+    PATH_ARGUMENT       ProgramName;
+    FLAG_ARGUMENT       FlagAbbreviate;
+    FLAG_ARGUMENT       FlagAsciiCompare;
+    FLAG_ARGUMENT       FlagBinaryCompare;
+    FLAG_ARGUMENT       FlagCaseInsensitive;
+    FLAG_ARGUMENT       FlagCompression;
+    FLAG_ARGUMENT       FlagExpansion;
+    FLAG_ARGUMENT       FlagLineNumber;
+    FLAG_ARGUMENT       FlagRequestHelp;
+    FLAG_ARGUMENT       FlagUnicode;
     LONG_ARGUMENT       LongBufferSize;
 #ifdef DEBUG
     FLAG_ARGUMENT       FlagDebug;
@@ -339,82 +335,85 @@ FC::ParseArguments(
 
 
     if( !LexArray.Initialize() ) {
-                DbgAbort( "LexArray.Initialize() Failed!\n" );
-                return( FALSE );
+        DebugAbort( "LexArray.Initialize() Failed!\n" );
+        return( FALSE );
     }
     if( !ArgLex.Initialize(&LexArray) ) {
-                DbgAbort( "ArgLex.Initialize() Failed!\n" );
-                return( FALSE );
+        DebugAbort( "ArgLex.Initialize() Failed!\n" );
+        return( FALSE );
     }
 
     // Allow only the '/' as a valid switch
     ArgLex.PutSwitches("/");
     ArgLex.SetCaseSensitive( FALSE );
 
+    ArgLex.PutStartQuotes("\"");
+    ArgLex.PutEndQuotes("\"");
+    ArgLex.PutSeparators(" \t");
+
     if( !ArgLex.PrepareToParse() ) {
-                DbgAbort( "ArgLex.PrepareToParse() Failed!\n" );
-                return( FALSE );
+        DebugAbort( "ArgLex.PrepareToParse() Failed!\n" );
+        return( FALSE );
     }
 
-        if( !ProgramName.Initialize("*")                        ||
-                !FlagAbbreviate.Initialize("/A")                ||
-                !FlagAsciiCompare.Initialize("/L")              ||
+    if( !ProgramName.Initialize("*")            ||
+        !FlagAbbreviate.Initialize("/A")        ||
+        !FlagAsciiCompare.Initialize("/L")      ||
         !FlagBinaryCompare.Initialize("/B")     ||
-                !FlagCaseInsensitive.Initialize("/C")   ||
-                !FlagCompression.Initialize("/W")               ||
+        !FlagCaseInsensitive.Initialize("/C")   ||
+        !FlagCompression.Initialize("/W")       ||
         !FlagExpansion.Initialize("/T")         ||
-                !FlagLineNumber.Initialize("/N")                ||
+        !FlagLineNumber.Initialize("/N")        ||
         !FlagRequestHelp.Initialize("/?")       ||
-        !FlagUnicode.Initialize("/U")             ||
+        !FlagUnicode.Initialize("/U")           ||
 #ifdef DEBUG
         !FlagDebug.Initialize("/D")             ||
 #endif
         !LongBufferSize.Initialize("/LB#")      ||
         !LongMatch.Initialize("/*")             ||
-                !InFile1.Initialize("*")                                ||
-                !InFile2.Initialize("*") ) {
+        !InFile1.Initialize("*")                ||
+        !InFile2.Initialize("*") ) {
 
-                DbgAbort( "Unable to Initialize some or all of the Arguments!\n" );
-                return( FALSE );
+        DebugAbort( "Unable to Initialize some or all of the Arguments!\n" );
+        return( FALSE );
     }
 
 
     if( !ArrayOfArg.Initialize() ) {
-                DbgAbort( "ArrayOfArg.Initialize() Failed\n" );
-                return( FALSE );
+        DebugAbort( "ArrayOfArg.Initialize() Failed\n" );
+        return( FALSE );
     }
 
-        if( !ArrayOfArg.Put(&ProgramName)                       ||
-                !ArrayOfArg.Put(&FlagAbbreviate)                ||
-                !ArrayOfArg.Put(&FlagAsciiCompare)              ||
-                !ArrayOfArg.Put(&FlagBinaryCompare)     ||
-                !ArrayOfArg.Put(&FlagCaseInsensitive)   ||
-                !ArrayOfArg.Put(&FlagCompression)               ||
-                !ArrayOfArg.Put(&FlagExpansion)                 ||
-                !ArrayOfArg.Put(&FlagLineNumber)                ||
+    if( !ArrayOfArg.Put(&ProgramName)           ||
+        !ArrayOfArg.Put(&FlagAbbreviate)        ||
+        !ArrayOfArg.Put(&FlagAsciiCompare)      ||
+        !ArrayOfArg.Put(&FlagBinaryCompare)     ||
+        !ArrayOfArg.Put(&FlagCaseInsensitive)   ||
+        !ArrayOfArg.Put(&FlagCompression)       ||
+        !ArrayOfArg.Put(&FlagExpansion)         ||
+        !ArrayOfArg.Put(&FlagLineNumber)        ||
         !ArrayOfArg.Put(&FlagRequestHelp)       ||
-        !ArrayOfArg.Put(&FlagUnicode)                           ||
+        !ArrayOfArg.Put(&FlagUnicode)           ||
 #ifdef DEBUG
         !ArrayOfArg.Put(&FlagDebug)             ||
 #endif
         !ArrayOfArg.Put(&LongBufferSize)        ||
         !ArrayOfArg.Put(&LongMatch)             ||
-                !ArrayOfArg.Put(&InFile1)                               ||
-                !ArrayOfArg.Put(&InFile2) ) {
+        !ArrayOfArg.Put(&InFile1)               ||
+        !ArrayOfArg.Put(&InFile2) ) {
 
-                DbgAbort( "ArrayOfArg.Put() Failed!\n" );
-                return( FALSE );
-
+        DebugAbort( "ArrayOfArg.Put() Failed!\n" );
+        return( FALSE );
     }
 
 
     if( !( ArgLex.DoParsing( &ArrayOfArg ) ) ) {
-                // For each incorrect command line parameter, FC displays the
-                // following message:
-                //
-                //      FC: Invalid Switch
-                //
-                // It does *not* die if a parameter is unrecognized...(Dos does...)
+        // For each incorrect command line parameter, FC displays the
+        // following message:
+        //
+        //      FC: Invalid Switch
+        //
+        // It does *not* die if a parameter is unrecognized...(Dos does...)
         //
         DisplayMessage( MSG_FC_INVALID_SWITCH, ERROR_MESSAGE, "" );
         // return( FALSE );
@@ -425,22 +424,22 @@ FC::ParseArguments(
     //
     // It should now be safe to test the arguments for their values...
     //
-        if( FlagRequestHelp.QueryFlag() ) {
+    if( FlagRequestHelp.QueryFlag() ) {
         DisplayMessage( MSG_FC_HELP_MESSAGE, NORMAL_MESSAGE, "" );
-                return( FALSE );
+        return( FALSE );
     }
 
-        if( FlagBinaryCompare.QueryFlag() &&
-                ( FlagAsciiCompare.QueryFlag() || FlagLineNumber.QueryFlag() ) ) {
+    if( FlagBinaryCompare.QueryFlag() &&
+        ( FlagAsciiCompare.QueryFlag() || FlagLineNumber.QueryFlag() ) ) {
 
         DisplayMessage( MSG_FC_INCOMPATIBLE_SWITCHES, ERROR_MESSAGE, "" );
-                return( FALSE );
-        }
+        return( FALSE );
+    }
 
-        if( !InFile1.IsValueSet() ||
-                !InFile2.IsValueSet() ) {
+    if( !InFile1.IsValueSet() ||
+        !InFile2.IsValueSet() ) {
         DisplayMessage( MSG_FC_INSUFFICIENT_FILES, ERROR_MESSAGE, "" );
-                return( FALSE );
+        return( FALSE );
     }
 
 
@@ -521,7 +520,7 @@ FC::ParseArguments(
                 fCmp = MBSTR::Strcmpis;
             }
         } else {
-    
+
             if (fCase) {
                 fCmp = MBSTR::Strcmp;
             } else {
@@ -536,7 +535,7 @@ FC::ParseArguments(
                 fCmp_U = WSTRING::Strcmpis;
             }
         } else {
-    
+
             if (fCase) {
                 fCmp_U = WSTRING::Strcmp;
             } else {
@@ -703,7 +702,7 @@ BOOLEAN FC::compare (int l1, register int s1, int l2, register int s2, int ct)
 {
 #ifdef  DEBUG
   if (fDebug)
-    DbgPrintf ("compare (%d, %d, %d, %d, %d)\n", l1, s1, l2, s2, ct);
+    DebugPrintf ("compare (%d, %d, %d, %d, %d)\n", l1, s1, l2, s2, ct);
 #endif
 
   if (ct <= 0 || s1+ct > l1 || s2+ct > l2)
@@ -714,23 +713,23 @@ BOOLEAN FC::compare (int l1, register int s1, int l2, register int s2, int ct)
 
 #ifdef  DEBUG
     if (fDebug)
-      DbgPrintf ("'%s' == '%s'? ", buffer1[s1].text, buffer2[s2].text);
+      DebugPrintf ("'%s' == '%s'? ", buffer1[s1].text, buffer2[s2].text);
 #endif
   if(!fUnicode) {
         if ((*fCmp)(buffer1[s1++].text, buffer2[s2++].text)) {
-    
+
 #ifdef  DEBUG
           if (fDebug)
-            DbgPrintf ("No\n");
+            DebugPrintf ("No\n");
 #endif
           return (FALSE);
         }
   } else {
         if ((*fCmp_U)(buffer1[s1++].wtext, buffer2[s2++].wtext)) {
-    
+
 #ifdef  DEBUG
           if (fDebug)
-            DbgPrintf ("No\n");
+            DebugPrintf ("No\n");
 #endif
           return (FALSE);
         }
@@ -739,7 +738,7 @@ BOOLEAN FC::compare (int l1, register int s1, int l2, register int s2, int ct)
 
 #ifdef  DEBUG
   if (fDebug)
-    DbgPrintf ("Yes\n");
+    DebugPrintf ("Yes\n");
 #endif
 
   return (TRUE);
@@ -842,7 +841,7 @@ l0:
 
 #ifdef  DEBUG
     if (fDebug) {
-        DbgPrintf ("At scan beginning\n");
+        DebugPrintf ("At scan beginning\n");
     }
 #endif
 
@@ -883,7 +882,7 @@ l0:
 
 #ifdef  DEBUG
     if (fDebug) {
-        DbgPrintf ("buffers are adjusted, %d, %d remain\n", l1, l2);
+        DebugPrintf ("buffers are adjusted, %d, %d remain\n", l1, l2);
     }
 #endif
 
@@ -895,7 +894,7 @@ l6:
 
 #ifdef  DEBUG
     if (fDebug) {
-        DbgPrintf ("Trying resync %d,%d  %d,%d\n", xc, xp, yc, yp);
+        DebugPrintf ("Trying resync %d,%d  %d,%d\n", xc, xp, yc, yp);
     }
 #endif
 
@@ -986,14 +985,14 @@ FC::xfill (struct lineType *pl, PSTREAM Stream, int ct, int *plnum)
 
 #ifdef  DEBUG
   if (fDebug)
-    DbgPrintf ("xfill (%04x, %04x)\n", pl, fh);
+    DebugPrintf ("xfill (%04x, %04x)\n", pl, fh);
 #endif
 
   i = 0;
 
   if (!fUnicode) {
     while ( ct-- && !Stream->IsAtEnd() && Stream->ReadMbLine( pl->text, MAXLINESIZE, &StrSize, fExpandTabs, 8 ) ) {
-  
+
       if (fIgnore && !MBSTR::Strcmps(pl->text, "")) {
 
         pl->text[0] = 0;
@@ -1030,7 +1029,7 @@ FC::xfill (struct lineType *pl, PSTREAM Stream, int ct, int *plnum)
 
 #ifdef  DEBUG
   if (fDebug)
-    DbgPrintf ("xfill returns %d\n", i);
+    DebugPrintf ("xfill returns %d\n", i);
 #endif
 
   return (i);
@@ -1056,7 +1055,7 @@ FC::xfill (struct lineType *pl, PSTREAM Stream, int ct, int *plnum)
 
 #ifdef  DEBUG
   if (fDebug)
-    DbgPrintf ("xfill returns %d\n", i);
+    DebugPrintf ("xfill returns %d\n", i);
 #endif
 
   return (i);
@@ -1074,9 +1073,9 @@ FC::adjust (struct lineType *pl, int ml, int lt)
 {
 #ifdef  DEBUG
   if (fDebug)
-    DbgPrintf ("adjust (%04x, %d, %d) = ", pl, ml, lt);
+    DebugPrintf ("adjust (%04x, %d, %d) = ", pl, ml, lt);
   if (fDebug)
-    DbgPrintf ("%d\n", ml-lt);
+    DebugPrintf ("%d\n", ml-lt);
 #endif
 
   if (ml <= lt)
@@ -1084,7 +1083,7 @@ FC::adjust (struct lineType *pl, int ml, int lt)
 
 #ifdef  DEBUG
   if (fDebug)
-    DbgPrintf ("move (%04x, %04x, %04x)\n", &pl[lt], &pl[0], sizeof (*pl)*(ml-lt));
+    DebugPrintf ("move (%04x, %04x, %04x)\n", &pl[lt], &pl[0], sizeof (*pl)*(ml-lt));
 #endif
 
   // Move((char  *)&pl[lt], (char  *)&pl[0], sizeof (*pl)*(ml-lt));
@@ -1136,17 +1135,17 @@ void FC::pline (struct lineType *pl)
 {
   if (!fUnicode) {
     if (fNumb)
-      DisplayMessage( MSG_FC_NUMBERED_DATA, NORMAL_MESSAGE, "%5d%s", 
+      DisplayMessage( MSG_FC_NUMBERED_DATA, NORMAL_MESSAGE, "%5d%s",
                       pl->line, pl->text );
     else
       DisplayMessage( MSG_FC_DATA, NORMAL_MESSAGE, "%s", pl->text );
   } else {
     FSTRING f;
     if (fNumb)
-      DisplayMessage( MSG_FC_NUMBERED_DATA, NORMAL_MESSAGE, "%5d%W", 
+      DisplayMessage( MSG_FC_NUMBERED_DATA, NORMAL_MESSAGE, "%5d%W",
                       pl->line, f.Initialize(pl->wtext) );
     else
-      DisplayMessage( MSG_FC_DATA, NORMAL_MESSAGE, "%W", 
+      DisplayMessage( MSG_FC_DATA, NORMAL_MESSAGE, "%W",
                       f.Initialize(pl->wtext) );
   }
 }

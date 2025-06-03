@@ -1,10 +1,10 @@
 /*++ BUILD Version: 0001    // Increment this if a change has global effects
 
-Copyright (c) 1993, Microsoft Corporation
+Copyright (c) 1995-1996, Microsoft Corporation
 
 Module Name:
 
-    ntwow16.h
+    wownt16.h
 
 Abstract:
 
@@ -13,8 +13,8 @@ Abstract:
 
 --*/
 
-#ifndef _NTWOW16_
-#define _NTWOW16_
+#ifndef _WOWNT16_
+#define _WOWNT16_
 
 //
 // 16:16 -> 0:32 Pointer translation.
@@ -112,9 +112,9 @@ DWORD FAR PASCAL FreeLibrary32W(DWORD hLibModule);
 // dwResult = CallProcEx32W( CPEX_DEST_CDECL | 1, 0, dwfn32, p1 );
 //
 
-DWORD FAR CallProcEx32W( DWORD, DWORD, DWORD, ... );
+DWORD FAR CDECL CallProcEx32W( DWORD, DWORD, DWORD, ... );
 
 #define CPEX_DEST_STDCALL   0x00000000L
 #define CPEX_DEST_CDECL     0x80000000L
 
-#endif /* !_NTWOW16_ */
+#endif /* !_WOWNT16_ */

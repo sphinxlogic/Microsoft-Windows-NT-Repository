@@ -27,6 +27,9 @@ Environment:
 #include "precomp.h"
 #pragma hdrstop
 
+#ifdef FE_IME
+#include <ime.h>
+#endif
 
 
 
@@ -35,6 +38,7 @@ Environment:
 /************************** Internal Prototypes *************************/
 
 int DsmGetBackAddress(void);
+void DisasmAlignInstr(ADDR *);
 
 /************************** Data declaration    *************************/
 
@@ -348,14 +352,16 @@ Return Value:
             char rgchSymbol[60];
             ADDR        addrT = sds.addr;
             LPCH        lpchSymbol;
-            long        disp;
+            ODR         odr;
 
             addrT.emi = 0;
             ADDR_IS_LI(addrT) = FALSE;
             SYUnFixupAddr(&addrT);
 
-            lpchSymbol = SHGetSymbol(&addrT, sopNone, &addrT2, rgchSymbol, &disp);
-            if ((lpchSymbol != NULL) && (disp == 0)) {
+            odr.lszName = rgchSymbol;
+
+            lpchSymbol = SHGetSymbol(&addrT, &addrT2, sopNone, &odr);
+            if ((lpchSymbol != NULL) && (odr.dwDeltaOff == 0)) {
                 x = strlen(rgchSymbol);
                 InsertBlock(doc, 0, y, x, rgchSymbol);
                 InsertBlock(doc, x, y, 3, ":\r\n");
@@ -729,7 +735,12 @@ Return Value:
     case SB_THUMBPOSITION:
         memcpy(&addr, &AddrDisasm, sizeof(ADDR));
         SYFixupAddr(&addr);
-        addr.addr.off = UlBaseOff + HIWORD(wParam);
+        // align the offset to 32 bit machine word as PPC/MIPS/ALPHA
+        // instructions are 32 bits wide each
+        // It does not matter to the x86 as it always disasm -0x100
+        // ahead to get in sync.
+        addr.addr.off = (UlBaseOff + HIWORD(wParam)) & ~0x3;
+        DisasmAlignInstr(&addr); // realign starting address in x86 case
         Unreferenced( lParam );
         ViewDisasm(&addr, disasmForce);
         return;
@@ -901,6 +912,14 @@ DisasmEditProc(
         }
         return FALSE;
 
+#ifdef FE_IME
+      case WM_IME_REPORT:
+        if (IR_STRING == wParam) {
+            return TRUE;
+        }
+        break;
+#endif
+
     case WM_CHAR:
         return FALSE;
 
@@ -948,7 +967,7 @@ int DsmGetBackAddress()
     ADDR        addr2;
     ADDR        addrT2;
     char        rgchSymbol[60];
-    int         cbDisp;
+    ODR         odr;
     char *      lpchSymbol;
 
     sdi.addr = AddrDisasm;
@@ -972,6 +991,7 @@ int DsmGetBackAddress()
     }
 
     addr = sdi.addr;
+    odr.lszName = rgchSymbol;
     for (i=0; TRUE; i++) {
         if (sdi.addr.addr.off >= AddrDisasm.addr.off) {
             AddrDisasm = addr;
@@ -981,8 +1001,8 @@ int DsmGetBackAddress()
         addr2.emi = 0;
         ADDR_IS_LI(addr2) = FALSE;
         SYUnFixupAddr(&addr2);
-        lpchSymbol = SHGetSymbol(&addr2, sopNone, &addrT2, rgchSymbol, &cbDisp);
-        if ((lpchSymbol != NULL) && (cbDisp == 0)) {
+        lpchSymbol = SHGetSymbol(&addr2, &addrT2, sopNone, &odr);
+        if ((lpchSymbol != NULL) && (odr.dwDeltaOff == 0)) {
             i += 1;
         }
 
@@ -993,4 +1013,50 @@ int DsmGetBackAddress()
     Assert(FALSE);
     return( 0 );
 }                                       /* DsmGetBackAddress() */
+
+/***    DisasmAlignInstr
+**
+**  Synopsis:
+**      DisasmAlignInstr
+**
+**  Entry:
+**      Starting address
+**
+**  Returns:
+**      None
+**
+**  Description:
+**      Modify address offset to match instructions boundary if necessary.
+*/
+
+void DisasmAlignInstr(ADDR *curraddr)
+{
+    SDI         sdi;
+    int         i;
+
+    sdi.addr = *curraddr;
+    sdi.dop = 0;
+    if (sdi.addr.addr.off < 0x100) {
+        curraddr->addr.off = 0;
+        return;
+    } else {
+        sdi.addr.addr.off -= 0x100;
+
+        /*
+         **  disassemble 10 instructions in an attempt to syncronize with
+         **  the true code stream
+         */
+
+        for (i=0;i<0x100;i++) {
+            if (OSDUnassemble(LppdCur->hpid, LptdCur->htid, &sdi) == xosdNone) {
+            } else {
+                Assert(FALSE);
+            }
+            if (sdi.addr.addr.off >= curraddr->addr.off) {
+               *curraddr = sdi.addr;
+               return;
+            }
+        }
+    }
+}
 

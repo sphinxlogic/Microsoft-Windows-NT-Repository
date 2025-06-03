@@ -6,16 +6,21 @@
  *  from the same directory, with my name as the first argument.
  */
 
+#include "precomp.h"
+#pragma hdrstop
+EnableAssert
+
 #include <windows.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stdio.h>
 
 char    szSlm[] = "slm.exe";
 
 BOOL WINAPI Handler(ULONG CtrlType);
 
-int main(int argc, char **argv)
+int __cdecl
+main(
+    int argc,
+    char *argv []
+    )
 {
     char                *szCmd, *pbSpace, *pb;
     PROCESS_INFORMATION ProcessInfo;
@@ -55,7 +60,7 @@ int main(int argc, char **argv)
         while (*pb)
             *pb++ = ' ';
         }
-    strlwr(szMyCmd);
+    _strlwr(szMyCmd);
     if (pbSpace)
         *pbSpace = ' ';
 

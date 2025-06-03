@@ -7,11 +7,11 @@ REM their build environment.
 REM
 REM This is where to find the projects
 REM
-SET IMPORT=d:\import
 SET PUBLIC=d:\nt\public\sdk
 SET RPC=d:\nt\private\rpc
-REM
+SET IMPORT=%RPC%\import
 SET LOGFILE=%RPC%\log.out
+SET CHICODEV=d:\win\dev
 REM
 REM Set this to create a release tree
 REM SET DIST=\dist
@@ -42,6 +42,7 @@ goto TARGETHOST
 if "%2"=="dos" goto DOSTRG
 if "%2"=="win" goto WINTRG
 if "%2"=="mac" goto MACTRG
+if "%2"=="mppc" goto MPPCTRG
 if "%2"=="win32c" goto WIN32CTRG
 if "%2"=="nt"  goto NTTRG
 if "%2"=="all" goto ALLTRG
@@ -55,6 +56,9 @@ set TRG=WIN
 goto END
 :MACTRG
 set TRG=MAC
+goto END
+:MPPCTRG
+set TRG=MPPC
 goto end
 :WIN32CTRG
 set TRG=WIN32C
@@ -67,4 +71,10 @@ set TRG=ALL
 goto END
 :END
 echo Your built target is %2.
+alias -f %rpc%\build\rpcalias.txt
+echo RPC aliases loaded
+if not exist %RPC%\build\private.txt goto noprivate
+alias -f %rpc%\build\private.txt
+echo Private aliases loaded
+:noprivate
 

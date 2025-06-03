@@ -19,7 +19,7 @@ Revision History:
 
 --*/
 
-#include    "ntos.h"
+#include    "ki.h"
 
 VOID
 KiInitializeMachineType (
@@ -34,11 +34,14 @@ KiInitializeMachineType (
 #endif
 
 
+KIRQL   KiProfileIrql = PROFILE_LEVEL;
 ULONG   KeI386MachineType = 0;
 BOOLEAN KeI386NpxPresent;
+ULONG   KeI386ForceNpxEmulation;
 ULONG   KeI386CpuType;
 ULONG   KeI386CpuStep;
 PVOID   Ki387RoundModeTable;    // R3 emulators RoundingMode vector table
+ULONG   KiBootFeatureBits;
 
 #if DBG
 UCHAR   MsgDpcTrashedEsp[] = "\n*** DPC routine %lx trashed ESP\n";
@@ -51,8 +54,6 @@ ULONG   KiISRTimeout       = 55;
 ULONG   KiISROverflow      = 5500;
 ULONG   KiSpinlockTimeout  = 55;
 #endif
-
-
 
 
 
@@ -112,20 +113,16 @@ Return Value:
     KiInitializeGdtEntry(&Gdt[KGDT_NULL], 0, 0, 0, 0, GRAN_PAGE);
 
     KiInitializeGdtEntry(
-        &Gdt[KGDT_R0_CODE], 0, -1, TYPE_CODE, DPL_SYSTEM, GRAN_PAGE);
+        &Gdt[KGDT_R0_CODE], 0, (ULONG)-1, TYPE_CODE, DPL_SYSTEM, GRAN_PAGE);
 
     KiInitializeGdtEntry(
-        &Gdt[KGDT_R0_DATA], 0, -1, TYPE_DATA, DPL_SYSTEM, GRAN_PAGE);
-
-//  BUGBUG bryanwi 23feb90  Wrong limits for user mode segments
-//      4gig is not what we want, because we don't want kernel stacks
-//      to be visible, and their pages must be marked user readable
+        &Gdt[KGDT_R0_DATA], 0, (ULONG)-1, TYPE_DATA, DPL_SYSTEM, GRAN_PAGE);
 
     KiInitializeGdtEntry(&Gdt[KGDT_R3_CODE], 0,
-        -1, TYPE_CODE, DPL_USER, GRAN_PAGE);
+        (ULONG)-1, TYPE_CODE, DPL_USER, GRAN_PAGE);
 
     KiInitializeGdtEntry(&Gdt[KGDT_R3_DATA], 0,
-        -1, TYPE_DATA, DPL_USER, GRAN_PAGE);
+        (ULONG)-1, TYPE_DATA, DPL_USER, GRAN_PAGE);
 
     KiInitializeGdtEntry(
         &Gdt[KGDT_TSS], (ULONG)Tss, TssLimit-1,

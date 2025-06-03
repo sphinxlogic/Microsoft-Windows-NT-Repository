@@ -307,12 +307,15 @@ Return Value:
     // is used per page locked
     //
 
-    pHeaderPool = CREATE_PACKET_POOL_FILE(DlcBufferPoolObject,
+    pHeaderPool = CREATE_BUFFER_POOL_FILE(DlcBufferPoolObject,
                                           sizeof(DLC_BUFFER_HEADER),
                                           8
                                           );
+
     if (!pHeaderPool) {
+
         FREE_MEMORY_DRIVER(pBufferPool);
+
         return DLC_STATUS_NO_MEMORY;
     }
 
@@ -379,7 +382,11 @@ Return Value:
     // returns an error.
     //
 
+#if DBG
+    status = BufferPoolExpand(pFileContext, pBufferPool);
+#else
     status = BufferPoolExpand(pBufferPool);
+#endif
     if (status != STATUS_SUCCESS) {
 
         //
@@ -420,6 +427,9 @@ Return Value:
 
 NTSTATUS
 BufferPoolExpand(
+#if DBG
+    IN PDLC_FILE_CONTEXT pFileContext,
+#endif
     IN PDLC_BUFFER_POOL pBufferPool
     )
 
@@ -488,7 +498,7 @@ Return Value:
             //
 
             if (!pBufferPool->pUnlockedEntryList
-            || !(pBuffer = AllocatePacket(pBufferPool->hHeaderPool))) {
+            || !(pBuffer = ALLOCATE_PACKET_DLC_BUF(pBufferPool->hHeaderPool))) {
                 status = DLC_STATUS_NO_MEMORY;
                 break;
             }
@@ -532,6 +542,9 @@ Return Value:
                 pBuffer->Header.pGlobalVa = MmGetSystemAddressForMdl(pBuffer->Header.pMdl);
                 pBuffer->Header.FreeSegments = MAX_DLC_BUFFER_SEGMENT / MIN_DLC_BUFFER_SEGMENT;
                 status = AllocateBufferHeader(
+#if DBG
+                            pFileContext,
+#endif
                             pBufferPool,
                             pBuffer,
                             MAX_DLC_BUFFER_SEGMENT / MIN_DLC_BUFFER_SEGMENT,
@@ -562,7 +575,9 @@ Return Value:
                 }
                 pBufferPool->BufferHeaders[FreeSlotIndex] = pBufferPool->pUnlockedEntryList;
                 pBufferPool->pUnlockedEntryList = (PDLC_BUFFER_HEADER)&(pBufferPool->BufferHeaders[FreeSlotIndex]);
-                DeallocatePacket(pBufferPool->hHeaderPool, pBuffer);
+
+                DEALLOCATE_PACKET_DLC_BUF(pBufferPool->hHeaderPool, pBuffer);
+
                 break;
             }
 
@@ -600,6 +615,9 @@ Return Value:
 
 VOID
 BufferPoolFreeExtraPages(
+#if DBG
+    IN PDLC_FILE_CONTEXT pFileContext,
+#endif
     IN PDLC_BUFFER_POOL pBufferPool
     )
 
@@ -652,7 +670,11 @@ Return Value:
 
         if ((UINT)(pBuffer->Header.FreeSegments == (MAX_DLC_BUFFER_SEGMENT / MIN_DLC_BUFFER_SEGMENT))) {
             pNextBuffer = pBuffer->Header.pNextHeader;
+#if DBG
+            DeallocateBuffer(pFileContext, pBufferPool, pBuffer);
+#else
             DeallocateBuffer(pBufferPool, pBuffer);
+#endif
             pBufferPool->FreeSpace -= MAX_DLC_BUFFER_SEGMENT;
             pBufferPool->UncommittedSpace -= MAX_DLC_BUFFER_SEGMENT;
             pBufferPool->BufferPoolSize -= MAX_DLC_BUFFER_SEGMENT;
@@ -663,11 +685,15 @@ Return Value:
     }
 
     UNLOCK_BUFFER_POOL();
+
 }
 
 
 VOID
 DeallocateBuffer(
+#if DBG
+    IN PDLC_FILE_CONTEXT pFileContext,
+#endif
     IN PDLC_BUFFER_POOL pBufferPool,
     IN PDLC_BUFFER_HEADER pBuffer
     )
@@ -732,7 +758,7 @@ Return Value:
 
         DBG_INTERLOCKED_DECREMENT(AllocatedMdlCount);
 
-        DeallocatePacket(pBufferPool->hHeaderPool, pSegment);
+        DEALLOCATE_PACKET_DLC_BUF(pBufferPool->hHeaderPool, pSegment);
     }
 
     //
@@ -744,12 +770,17 @@ Return Value:
     pBufferPool->pUnlockedEntryList = (PDLC_BUFFER_HEADER)&(pBufferPool->BufferHeaders[FreeSlotIndex]);
     UnlockAndFreeMdl(pBuffer->Header.pMdl);
     LlcRemoveEntryList(pBuffer);
-    DeallocatePacket(pBufferPool->hHeaderPool, pBuffer);
+
+    DEALLOCATE_PACKET_DLC_BUF(pBufferPool->hHeaderPool, pBuffer);
+
 }
 
 
 NTSTATUS
 AllocateBufferHeader(
+#if DBG
+    IN PDLC_FILE_CONTEXT pFileContext,
+#endif
     IN PDLC_BUFFER_POOL pBufferPool,
     IN PDLC_BUFFER_HEADER pParent,
     IN UCHAR Size,
@@ -785,7 +816,7 @@ Return Value:
 
     ASSUME_IRQL(DISPATCH_LEVEL);
 
-    if (!(pBuffer = AllocatePacket(pBufferPool->hHeaderPool))) {
+    if (!(pBuffer = ALLOCATE_PACKET_DLC_BUF(pBufferPool->hHeaderPool))) {
         return DLC_STATUS_NO_MEMORY;
     }
 
@@ -797,7 +828,9 @@ Return Value:
                                              NULL
                                              );
     if (pBuffer->FreeBuffer.pMdl == NULL) {
-        DeallocatePacket(pBufferPool->hHeaderPool, pBuffer);
+
+        DEALLOCATE_PACKET_DLC_BUF(pBufferPool->hHeaderPool, pBuffer);
+
         return DLC_STATUS_NO_MEMORY;
     }
 
@@ -822,6 +855,9 @@ Return Value:
 
 NTSTATUS
 BufferPoolAllocate(
+#if DBG
+    IN PDLC_FILE_CONTEXT pFileContext,
+#endif
     IN PDLC_BUFFER_POOL pBufferPool,
     IN UINT BufferSize,
     IN UINT FrameHeaderSize,
@@ -1054,6 +1090,9 @@ Return Value:
                             //
 
                             Status = AllocateBufferHeader(
+#if DBG
+                                            pFileContext,
+#endif
                                             pBufferPool,
                                             pNew->FreeBuffer.pParent,
                                             pNew->FreeBuffer.Size,
@@ -1437,6 +1476,7 @@ Return Value:
     } while (pNextFrameBuffer && (pNextFrameBuffer != pBufferList));
 
     UNLOCK_BUFFER_POOL();
+
 }
 
 
@@ -1685,7 +1725,9 @@ Return Value:
         }
     }
     if (BufferPoolIsLocked == TRUE) {
+
         UNLOCK_BUFFER_POOL();
+
     }
 
     pPacket->Node.pNextSegment = pPrevBuffer;
@@ -1751,7 +1793,9 @@ Return Value:
 
     if (pXmitNode != NULL) {
         if (pBufferPool != NULL) {
+
             LOCK_BUFFER_POOL();
+
         }
         pBuffer = pXmitNode->Node.pNextSegment;
         for (pMdl = pXmitNode->Node.pMdl; pMdl != NULL; pMdl = pNextMdl) {
@@ -1850,7 +1894,9 @@ Return Value:
             }
         }
         if (pBufferPool != NULL) {
+
             UNLOCK_BUFFER_POOL();
+
         }
     }
 }
@@ -1999,26 +2045,35 @@ Return Value:
 
         UNLOCK_BUFFER_POOL();
 
-        for (
-            pBufferHeader = (PDLC_BUFFER_HEADER)pBufferPool->PageHeaders.Flink;
-            !IsListEmpty(&pBufferPool->PageHeaders);
-            pBufferHeader = pNextHeader) {
+        for (pBufferHeader = (PDLC_BUFFER_HEADER)pBufferPool->PageHeaders.Flink;
+             !IsListEmpty(&pBufferPool->PageHeaders);
+             pBufferHeader = pNextHeader) {
+
             pNextHeader = pBufferHeader->Header.pNextHeader;
+#if DBG
+            DeallocateBuffer(pFileContext, pBufferPool, pBufferHeader);
+#else
             DeallocateBuffer(pBufferPool, pBufferHeader);
+#endif
+
         }
-        DELETE_PACKET_POOL_FILE(&pBufferPool->hHeaderPool);
+
+        DELETE_BUFFER_POOL_FILE(&pBufferPool->hHeaderPool);
+
         FREE_MEMORY_DRIVER(pBufferPool);
+
     } else {
 
-#if LLC_DBG
+#if DBG
 
-        DbgPrint("Buffer pool not released, reference count: %u!!!\n",
+        DbgPrint("Buffer pool not released, reference count = %d\n",
                  pBufferPool->ReferenceCount
                  );
 
 #endif
 
         UNLOCK_BUFFER_POOL();
+
     }
 }
 
@@ -2092,6 +2147,7 @@ Return Value:
         *phOpaqueHandle = (PVOID)pBufferPool;
 
         UNLOCK_BUFFER_POOL();
+
     }
     return Status;
 }

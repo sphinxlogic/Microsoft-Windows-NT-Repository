@@ -13,7 +13,7 @@ Abstract:
 
 Author:
 
-    Brian Andrew    [BrianAn]   02-Jan-1991
+    Brian Andrew    [BrianAn]   01-July-1995
 
 Revision History:
 
@@ -22,38 +22,44 @@ Revision History:
 #include "CdProcs.h"
 
 //
+//  The Bug check file id for this module
+//
+
+#define BugCheckFileId                   (CDFS_BUG_CHECK_CACHESUP)
+
+//
 //  Local debug trace level
 //
 
-#define Dbg                              (DEBUG_TRACE_CACHESUP)
-
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE, CdCompleteMdl)
-#pragma alloc_text(PAGE, CdOpenStreamFile)
-#pragma alloc_text(PAGE, CdSyncUninitializeCacheMap)
+#pragma alloc_text(PAGE, CdCreateInternalStream)
+#pragma alloc_text(PAGE, CdDeleteInternalStream)
+#pragma alloc_text(PAGE, CdPurgeVolume)
 #endif
 
 
 VOID
-CdOpenStreamFile (
+CdCreateInternalStream (
     IN PIRP_CONTEXT IrpContext,
-    IN PDCB Dcb
+    IN PVCB Vcb,
+    IN PFCB Fcb
     )
 
 /*++
 
 Routine Description:
 
-    This function creates and attaches a cache file object to the
-    Dcb for interaction with the cache package.
-    A Dcb will always have information about the directory location
-    but may not have the information about the file size.  In that
-    case we need to get the self directory entry before creating
-    the cache file.
+    This function creates an internal stream file for interaction
+    with the cache manager.  The Fcb here can be for either a
+    directory stream or for a path table stream.
 
 Arguments:
 
-    Dcb - Pointer to the DCB structure for this file.
+    Vcb - Vcb for this volume.
+
+    Fcb - Points to the Fcb for this file.  It is either an Index or
+        Path Table Fcb.
 
 Return Value:
 
@@ -62,239 +68,319 @@ Return Value:
 --*/
 
 {
-    PFILE_OBJECT NewCacheFile;
+    PFILE_OBJECT StreamFile = NULL;
+    BOOLEAN DecrementReference = FALSE;
+
+    BOOLEAN CleanupDirContext = FALSE;
+    BOOLEAN UpdateFcbSizes = FALSE;
 
     DIRENT Dirent;
-    PBCB Bcb;
-
-    BOOLEAN FindSelfEntry;
-
-    //
-    //  The following values are used to unwind in case of error.
-    //
-
-    BOOLEAN UnwindInitialDcbValues = FALSE;
-    BOOLEAN UnwindCreateStreamFile = FALSE;
+    DIRENT_ENUM_CONTEXT DirContext;
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "CdOpenStreamFile:  Entered -> Fcb = %08lx\n", Dcb);
+    ASSERT_IRP_CONTEXT( IrpContext );
+    ASSERT_FCB( Fcb );
 
-    Bcb = NULL;
-    FindSelfEntry = FALSE;
+    //
+    //  We may only have the Fcb shared.  Lock the Fcb and do a
+    //  safe test to see if we need to really create the file object.
+    //
+
+    CdLockFcb( IrpContext, Fcb );
+
+    if (Fcb->FileObject != NULL) {
+
+        CdUnlockFcb( IrpContext, Fcb );
+        return;
+    }
+
+    //
+    //  Use a try-finally to facilitate cleanup.
+    //
 
     try {
 
         //
-        //  If the cache file now exists, then we are done.
+        //  Create the internal stream.  The Vpb should be pointing at our volume
+        //  device object at this point.
         //
 
-        if (Dcb->Specific.Dcb.StreamFile != NULL) {
+        StreamFile = IoCreateStreamFileObject( NULL, Vcb->Vpb->RealDevice );
 
-            DebugTrace(0, Dbg, "CdOpenStreamFile:  Someone else created cache\n", 0);
-            try_return( NOTHING );
-        }
+        if (StreamFile == NULL) {
 
-        //
-        //  We must read the self entry from the disk.
-        //
-
-        if (!FlagOn( Dcb->FcbState, FCB_STATE_READ_SELF_ENTRY )) {
-
-            DebugTrace(0, Dbg, "CdOpenStreamFile:  Finding Dcb self entry\n", 0);
-
-            FindSelfEntry = TRUE;
-
-            Dcb->FileSize = PAGE_SIZE;
-
-            //
-            //  Now we update the fields in the common fsrtl header.
-            //
-
-            Dcb->NonPagedFcb->Header.AllocationSize = LiFromUlong( PAGE_SIZE );
-            Dcb->NonPagedFcb->Header.FileSize = LiFromUlong( Dcb->FileSize );
-            Dcb->NonPagedFcb->Header.ValidDataLength = CdMaxLarge;
-
-            UnwindInitialDcbValues = TRUE;
-        }
-
-        if ((NewCacheFile = IoCreateStreamFileObject( NULL, Dcb->Vcb->Mvcb->Vpb->RealDevice )) == NULL ) {
-
-            DebugTrace(0, Dbg, "CdOpenStreamFile:  Unable to create stream file\n", 0);
             CdRaiseStatus( IrpContext, STATUS_INSUFFICIENT_RESOURCES );
         }
 
-        UnwindCreateStreamFile = TRUE;
+        //
+        //  Initialize the fields of the file object.
+        //
 
-        NewCacheFile->SectionObjectPointer = &Dcb->NonPagedFcb->SegmentObject;
+        StreamFile->ReadAccess = TRUE;
+        StreamFile->WriteAccess = FALSE;
+        StreamFile->DeleteAccess = FALSE;
 
-        NewCacheFile->ReadAccess = TRUE;
-        NewCacheFile->WriteAccess = TRUE;
-        NewCacheFile->DeleteAccess = TRUE;
+        StreamFile->SectionObjectPointer = &Fcb->FcbNonpaged->SegmentObject;
 
-        CdSetFileObject( NewCacheFile,
+        //
+        //  Set the file object type and increment the Vcb counts.
+        //
+
+        CdSetFileObject( IrpContext,
                          StreamFile,
-                         Dcb,
+                         StreamFileOpen,
+                         Fcb,
                          NULL );
 
-        CcInitializeCacheMap( NewCacheFile,
-                              (PCC_FILE_SIZES)&Dcb->NonPagedFcb->Header.AllocationSize,
+        //
+        //  We will reference the current Fcb twice to keep it from going
+        //  away in the error path.  Otherwise if we dereference it
+        //  below in the finally clause a close could cause the Fcb to
+        //  be deallocated.
+        //
+
+        CdLockVcb( IrpContext, Vcb );
+        CdIncrementReferenceCounts( IrpContext, Fcb, 2, 0 );
+        CdUnlockVcb( IrpContext, Vcb );
+        DecrementReference = TRUE;
+
+        //
+        //  Initialize the cache map for the file.
+        //
+
+        CcInitializeCacheMap( StreamFile,
+                              (PCC_FILE_SIZES)&Fcb->AllocationSize,
                               TRUE,
                               &CdData.CacheManagerCallbacks,
-                              NULL );
+                              Fcb );
 
-        Dcb->Specific.Dcb.StreamFile = NewCacheFile;
-        Dcb->Specific.Dcb.StreamFileOpenCount += 1;
+        //
+        //  Go ahead and store the stream file into the Fcb.
+        //
 
-        if (FindSelfEntry) {
+        Fcb->FileObject = StreamFile;
+        StreamFile = NULL;
 
-            STRING SelfName;
-            BOOLEAN MatchedVersion;
+        //
+        //  If this is the first file object for a directory then we need to
+        //  read the self entry for this directory and update the sizes
+        //  in the Fcb.  We know that the Fcb has been initialized so
+        //  that we have a least one sector available to read.
+        //
+
+        if (!FlagOn( Fcb->FcbState, FCB_STATE_INITIALIZED )) {
+
+            ULONG NewDataLength;
 
             //
-            //  We now call this routine recursively to find the self
-            //  directory entry for this file.  If the entry isn't found
-            //  then this disk is corrupt.
+            //  Initialize the search structures.
             //
 
-            RtlInitString( &SelfName, "." );
+            CdInitializeDirContext( IrpContext, &DirContext );
+            CdInitializeDirent( IrpContext, &Dirent );
+            CleanupDirContext = TRUE;
 
-            if (!CdLocateFileDirent( IrpContext,
-                                     Dcb,
-                                     &SelfName,
-                                     FALSE,
-                                     Dcb->Specific.Dcb.DirSectorOffset,
-                                     TRUE,
-                                     &MatchedVersion,
-                                     &Dirent,
-                                     &Bcb )) {
+            //
+            //  Read the dirent from disk and transfer the data to the
+            //  in-memory dirent.
+            //
 
-                DebugTrace(0, Dbg, "CdLocateFileDirent:  Unable to find self directory entry\n", 0);
-                CdRaiseStatus( IrpContext, STATUS_DISK_CORRUPT_ERROR );
+            CdLookupDirent( IrpContext,
+                            Fcb,
+                            Fcb->StreamOffset,
+                            &DirContext );
+
+            CdUpdateDirentFromRawDirent( IrpContext, Fcb, &DirContext, &Dirent );
+
+            //
+            //  Verify that this really for the self entry.  We do this by
+            //  updating the name in the dirent and then checking that it matches
+            //  one of the hard coded names.
+            //
+
+            CdUpdateDirentName( IrpContext, &Dirent, FALSE );
+
+            if (Dirent.CdFileName.FileName.Buffer != CdUnicodeSelfArray) {
+
+                CdRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR );
             }
 
             //
-            //  Verify that this is a directory and corresponds to the
-            //  data already in the Dcb.
+            //  If the data sizes are different then update the header
+            //  and Mcb for this Fcb.
             //
 
-            if (!CdCheckDiskDirentForDir( IrpContext, Dirent )) {
+            NewDataLength = BlockAlign( Vcb, Dirent.DataLength + Fcb->StreamOffset );
 
-                DebugTrace(0, Dbg, "CdLocateFileDirent:  Dirent describes non-dir\n", 0);
-                CdRaiseStatus( IrpContext, STATUS_DISK_CORRUPT_ERROR );
+            if (NewDataLength == 0) {
+
+                CdRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR );
+            }
+
+            if (NewDataLength != Fcb->FileSize.QuadPart) {
+
+                Fcb->AllocationSize.QuadPart =
+                Fcb->FileSize.QuadPart =
+                Fcb->ValidDataLength.QuadPart = NewDataLength;
+
+                CcSetFileSizes( Fcb->FileObject, (PCC_FILE_SIZES) &Fcb->AllocationSize );
+
+                CdTruncateAllocation( IrpContext, Fcb, 0 );
+                CdAddAllocation( IrpContext,
+                                 Fcb,
+                                 Dirent.StartingOffset,
+                                 NewDataLength );
+
+                UpdateFcbSizes = TRUE;
             }
 
             //
-            //  Update the Dcb with the information from the disk dirent.
+            //  Check for the existence flag and transform to hidden.
             //
 
-            CdConvertCdTimeToNtTime( IrpContext, Dirent.CdTime, Dcb->NtTime );
+            if (FlagOn( Dirent.DirentFlags, CD_ATTRIBUTE_HIDDEN )) {
 
-            Dcb->Flags = Dirent.Flags;
-
-            //
-            //  Compute the directory size and location.
-            //
-
-            Dcb->DiskOffset = (Dirent.LogicalBlock + Dirent.XarBlocks)
-                              << Dcb->Vcb->LogOfBlockSize;
-
-            Dcb->Specific.Dcb.DirSectorOffset = Dcb->DiskOffset & (CD_SECTOR_SIZE - 1);
-
-            Dcb->FileSize = Dirent.DataLength + Dcb->Specific.Dcb.DirSectorOffset;
-
-            Dcb->DiskOffset &= ~(CD_SECTOR_SIZE - 1);
-
-            Dcb->DirentOffset = Dirent.DirentOffset;
-
-            CdUnpinBcb( IrpContext, Bcb );
-
-            //
-            //  Now we update the fields in the common fsrtl header.
-            //
-
-            Dcb->NonPagedFcb->Header.AllocationSize =
-                LiFromUlong( CD_ROUND_UP_TO_SECTOR( Dcb->FileSize ));
-
-            Dcb->NonPagedFcb->Header.FileSize =
-                LiFromUlong( Dcb->FileSize );
-
-            Dcb->NonPagedFcb->Header.ValidDataLength = CdMaxLarge;
-
-            //
-            //  If the allocation size has changed, we need to extend
-            //  the cache size.
-            //
-
-            if (CD_ROUND_UP_TO_SECTOR( Dcb->FileSize ) > PAGE_SIZE) {
-
-                if (!IrpContext->Wait) {
-
-                    DebugTrace(0, Dbg, "CdLocateFileDirent:  Can't wait to extend cache\n", 0);
-                    CdRaiseStatus( IrpContext, STATUS_CANT_WAIT );
-                }
-
-                CcSetFileSizes( NewCacheFile,
-                                (PCC_FILE_SIZES)&Dcb->NonPagedFcb->Header.AllocationSize );
+                SetFlag( Fcb->FileAttributes, FILE_ATTRIBUTE_HIDDEN );
             }
 
-            SetFlag( Dcb->FcbState, FCB_STATE_READ_SELF_ENTRY );
+            //
+            //  Convert the time to NT time.
+            //
+
+            CdConvertCdTimeToNtTime( IrpContext,
+                                     Dirent.CdTime,
+                                     (PLARGE_INTEGER) &Fcb->CreationTime );
+
+            //
+            //  Update the Fcb flags to indicate we have read the
+            //  self entry.
+            //
+
+            SetFlag( Fcb->FcbState, FCB_STATE_INITIALIZED );
+
+            //
+            //  If we updated the sizes then we want to purge the file.  Go
+            //  ahead and unpin and then purge the first page.
+            //
+
+            CdCleanupDirContext( IrpContext, &DirContext );
+            CdCleanupDirent( IrpContext, &Dirent );
+            CleanupDirContext = FALSE;
+
+            if (UpdateFcbSizes) {
+
+                CcPurgeCacheSection( &Fcb->FcbNonpaged->SegmentObject,
+                                     NULL,
+                                     0,
+                                     FALSE );
+            }
         }
 
-        //
-        //  If an error occurs after this point, it is alright.  The
-        //  Dcb contains valid data and can be cleaned up with the Dcb.
-        //
-
-        UnwindInitialDcbValues = FALSE;
-        UnwindCreateStreamFile = FALSE;
-
-        //
-        //  Increment the cachefile open count in the Mvcb.
-        //
-
-        Dcb->Vcb->Mvcb->StreamFileOpenCount += 1;
-
-    try_exit: NOTHING;
     } finally {
 
-        if (AbnormalTermination()) {
+        //
+        //  Cleanup any dirent structures we may have used.
+        //
 
-            DebugTrace(0, Dbg, "CdOpenStreamFile:  Abnormal termination\n", 0);
+        if (CleanupDirContext) {
 
-            if (UnwindInitialDcbValues) {
-
-                Dcb->FileSize = 0;
-
-                //
-                //  Now we update the fields in the common fsrtl header.
-                //
-
-                Dcb->NonPagedFcb->Header.AllocationSize = CdLargeZero;
-                Dcb->NonPagedFcb->Header.FileSize = CdLargeZero;
-                Dcb->NonPagedFcb->Header.ValidDataLength = CdLargeZero;
-            }
-
-            if (UnwindCreateStreamFile) {
-
-                Dcb->Specific.Dcb.StreamFile = NULL;
-                Dcb->Specific.Dcb.StreamFileOpenCount -= 1;
-
-                CdSetFileObject( NewCacheFile,
-                                 UnopenedFileObject,
-                                 NULL,
-                                 NULL );
-
-                ObDereferenceObject( NewCacheFile );
-            }
+            CdCleanupDirContext( IrpContext, &DirContext );
+            CdCleanupDirent( IrpContext, &Dirent );
         }
 
-        if (Bcb != NULL) {
+        //
+        //  If we raised then we need to dereference the file object.
+        //
 
-            CdUnpinBcb( IrpContext, Bcb );
+        if (StreamFile != NULL) {
+
+            ObDereferenceObject( StreamFile );
+            Fcb->FileObject = NULL;
         }
 
-        DebugTrace(-1, Dbg, "CdOpenStreamFile:  Exit\n", 0);
+        //
+        //  Dereference and unlock the Fcb.
+        //
+
+        if (DecrementReference) {
+
+            CdLockVcb( IrpContext, Vcb );
+            CdDecrementReferenceCounts( IrpContext, Fcb, 1, 0 );
+            CdUnlockVcb( IrpContext, Vcb );
+        }
+
+        CdUnlockFcb( IrpContext, Fcb );
+    }
+
+    return;
+}
+
+
+VOID
+CdDeleteInternalStream (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB Fcb
+    )
+
+/*++
+
+Routine Description:
+
+    This function creates an internal stream file for interaction
+    with the cache manager.  The Fcb here can be for either a
+    directory stream or for a path table stream.
+
+Arguments:
+
+    Fcb - Points to the Fcb for this file.  It is either an Index or
+        Path Table Fcb.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    PFILE_OBJECT FileObject;
+
+    PAGED_CODE();
+
+    ASSERT_IRP_CONTEXT( IrpContext );
+    ASSERT_FCB( Fcb );
+
+    //
+    //  Lock the Fcb.
+    //
+
+    CdLockFcb( IrpContext, Fcb );
+
+    //
+    //  Capture the file object.
+    //
+
+    FileObject = Fcb->FileObject;
+    Fcb->FileObject = NULL;
+
+    //
+    //  It is now safe to unlock the Fcb.
+    //
+
+    CdUnlockFcb( IrpContext, Fcb );
+
+    //
+    //  Dereference the file object if present.
+    //
+
+    if (FileObject != NULL) {
+
+        if (FileObject->PrivateCacheMap != NULL) {
+
+            CcUninitializeCacheMap( FileObject, NULL, NULL );
+        }
+
+        ObDereferenceObject( FileObject );
     }
 
     return;
@@ -320,7 +406,7 @@ Arguments:
 
 Return Value:
 
-    NTSTATUS - Will always be STATUS_PENDING or STATUS_SUCCESS.
+    NTSTATUS - Will always be STATUS_SUCCESS.
 
 --*/
 
@@ -328,10 +414,6 @@ Return Value:
     PFILE_OBJECT FileObject;
 
     PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "CdCompleteMdl\n", 0 );
-    DebugTrace( 0, Dbg, "IrpContext = %08lx\n", IrpContext );
-    DebugTrace( 0, Dbg, "Irp        = %08lx\n", Irp );
 
     //
     // Do completion processing.
@@ -353,55 +435,212 @@ Return Value:
 
     CdCompleteRequest( IrpContext, Irp, STATUS_SUCCESS );
 
-    DebugTrace(-1, Dbg, "CdCompleteMdl -> STATUS_SUCCESS\n", 0 );
-
     return STATUS_SUCCESS;
 }
 
 
-VOID
-CdSyncUninitializeCacheMap (
+NTSTATUS
+CdPurgeVolume (
     IN PIRP_CONTEXT IrpContext,
-    IN PFILE_OBJECT FileObject
+    IN PVCB Vcb,
+    IN BOOLEAN DismountUnderway
     )
 
 /*++
 
 Routine Description:
 
-    The routine performs a CcUnitializeCacheMap to LargeZero synchronously.  That
-    is it waits on the Cc event.  This call is useful when we want to be certain
-    when a close will actually some in.
+    This routine is called to purge the volume.  The purpose is to make all the stale file
+    objects in the system go away in order to lock the volume.
+
+    The Vcb is already acquired exclusively.  We will lock out all file operations by
+    acquiring the global file resource.  Then we will walk through all of the Fcb's and
+    perform the purge.
+
+Arguments:
+
+    Vcb - Vcb for the volume to purge.
+
+    DismountUnderway - Indicates that we are trying to delete all of the objects.
+        We will purge the Path Table and VolumeDasd and dereference all
+        internal streams.
 
 Return Value:
 
-    None.
+    NTSTATUS - The first failure of the purge operation.
 
 --*/
 
 {
-    CACHE_UNINITIALIZE_EVENT UninitializeCompleteEvent;
-    NTSTATUS WaitStatus;
+    NTSTATUS Status = STATUS_SUCCESS;
+
+    PVOID RestartKey = NULL;
+    PFCB ThisFcb = NULL;
+    PFCB NextFcb;
+
+    BOOLEAN RemovedFcb;
 
     PAGED_CODE();
 
-    KeInitializeEvent( &UninitializeCompleteEvent.Event,
-                       SynchronizationEvent,
-                       FALSE);
-
-    CcUninitializeCacheMap( FileObject, &CdLargeZero, &UninitializeCompleteEvent );
-
     //
-    //  Now wait for the cache manager to finish purging the file.
-    //  This will garentee that Mm gets the purge before we
-    //  delete the Vcb.
+    //  Force any remaining Fcb's in the delayed close queue to be closed.
     //
 
-    WaitStatus = KeWaitForSingleObject( &UninitializeCompleteEvent.Event,
-                                        Executive,
-                                        KernelMode,
-                                        FALSE,
-                                        NULL);
+    CdFspClose( Vcb );
 
-    ASSERT (NT_SUCCESS(WaitStatus));
+    //
+    //  Acquire the global file resource.
+    //
+
+    CdAcquireAllFiles( IrpContext, Vcb );
+
+    //
+    //  Loop through each Fcb in the Fcb Table and perform the flush.
+    //
+
+    while (TRUE) {
+
+        //
+        //  Lock the Vcb to lookup the next Fcb.
+        //
+
+        CdLockVcb( IrpContext, Vcb );
+        NextFcb = CdGetNextFcb( IrpContext, Vcb, &RestartKey );
+
+        //
+        //  Reference the NextFcb if present.
+        //
+
+        if (NextFcb != NULL) {
+
+            NextFcb->FcbReference += 1;
+        }
+
+        //
+        //  If the last Fcb is present then decrement reference count and call teardown
+        //  to see if it should be removed.
+        //
+
+        if (ThisFcb != NULL) {
+
+            ThisFcb->FcbReference -= 1;
+
+            CdUnlockVcb( IrpContext, Vcb );
+
+            CdTeardownStructures( IrpContext, ThisFcb, &RemovedFcb );
+
+        } else {
+
+            CdUnlockVcb( IrpContext, Vcb );
+        }
+
+        //
+        //  Break out of the loop if no more Fcb's.
+        //
+
+        if (NextFcb == NULL) {
+
+            break;
+        }
+
+        //
+        //  Move to the next Fcb.
+        //
+
+        ThisFcb = NextFcb;
+
+        //
+        //  If there is a image section then see if that can be closed.
+        //
+
+        if (ThisFcb->FcbNonpaged->SegmentObject.ImageSectionObject != NULL) {
+
+            MmFlushImageSection( &ThisFcb->FcbNonpaged->SegmentObject, MmFlushForWrite );
+        }
+
+        //
+        //  If there is a data section then purge this.  If there is an image
+        //  section then we won't be able to.  Remember this if it is our first
+        //  error.
+        //
+
+        if ((ThisFcb->FcbNonpaged->SegmentObject.DataSectionObject != NULL) &&
+            !CcPurgeCacheSection( &ThisFcb->FcbNonpaged->SegmentObject,
+                                   NULL,
+                                   0,
+                                   FALSE ) &&
+            (Status == STATUS_SUCCESS)) {
+
+            Status = STATUS_UNABLE_TO_DELETE_SECTION;
+        }
+
+        //
+        //  Dereference the internal stream if dismounting.
+        //
+
+        if (DismountUnderway &&
+            (SafeNodeType( ThisFcb ) != CDFS_NTC_FCB_DATA) &&
+            (ThisFcb->FileObject != NULL)) {
+
+            CdDeleteInternalStream( IrpContext, ThisFcb );
+        }
+    }
+
+    //
+    //  Now look at the path table and volume Dasd Fcb's.
+    //
+
+    if (DismountUnderway) {
+
+        if (Vcb->PathTableFcb != NULL) {
+
+            ThisFcb = Vcb->PathTableFcb;
+            InterlockedIncrement( &Vcb->PathTableFcb->FcbReference );
+
+            if ((ThisFcb->FcbNonpaged->SegmentObject.DataSectionObject != NULL) &&
+                !CcPurgeCacheSection( &ThisFcb->FcbNonpaged->SegmentObject,
+                                       NULL,
+                                       0,
+                                       FALSE ) &&
+                (Status == STATUS_SUCCESS)) {
+
+                Status = STATUS_UNABLE_TO_DELETE_SECTION;
+            }
+
+            CdDeleteInternalStream( IrpContext, ThisFcb );
+
+            InterlockedDecrement( &ThisFcb->FcbReference );
+
+            CdTeardownStructures( IrpContext, ThisFcb, &RemovedFcb );
+        }
+
+        if (Vcb->VolumeDasdFcb != NULL) {
+
+            ThisFcb = Vcb->VolumeDasdFcb;
+            InterlockedIncrement( &ThisFcb->FcbReference );
+
+            if ((ThisFcb->FcbNonpaged->SegmentObject.DataSectionObject != NULL) &&
+                !CcPurgeCacheSection( &ThisFcb->FcbNonpaged->SegmentObject,
+                                       NULL,
+                                       0,
+                                       FALSE ) &&
+                (Status == STATUS_SUCCESS)) {
+
+                Status = STATUS_UNABLE_TO_DELETE_SECTION;
+            }
+
+            InterlockedDecrement( &ThisFcb->FcbReference );
+
+            CdTeardownStructures( IrpContext, ThisFcb, &RemovedFcb );
+        }
+    }
+
+    //
+    //  Release all of the files.
+    //
+
+    CdReleaseAllFiles( IrpContext, Vcb );
+
+    return Status;
 }
+

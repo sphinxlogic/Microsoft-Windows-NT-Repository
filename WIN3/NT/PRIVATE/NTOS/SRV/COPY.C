@@ -80,10 +80,8 @@ Return Value:
 
     IO_STATUS_BLOCK ioStatusBlock;
     FILE_EA_INFORMATION eaInfo;
-    FILE_BASIC_INFORMATION sourceBasicInfo;
-    FILE_BASIC_INFORMATION targetBasicInfo;
-    FILE_STANDARD_INFORMATION sourceStandardInfo;
-    FILE_STANDARD_INFORMATION targetStandardInfo;
+    SRV_NETWORK_OPEN_INFORMATION sourceNetworkOpenInformation;
+    SRV_NETWORK_OPEN_INFORMATION targetNetworkOpenInformation;
     FILE_POSITION_INFORMATION positionInfo;
     FILE_ALLOCATION_INFORMATION allocationInfo;
     LARGE_INTEGER fileOffset;
@@ -247,11 +245,11 @@ Return Value:
     // These are used later on to set attributes of the target file.
     //
 
-    status = SrvQueryBasicAndStandardInformation(
+    status = SrvQueryNetworkOpenInformation(
                                             SourceHandle,
                                             NULL,
-                                            &sourceBasicInfo,
-                                            &sourceStandardInfo
+                                            &sourceNetworkOpenInformation,
+                                            FALSE
                                             );
 
     if ( !NT_SUCCESS(status) ) {
@@ -275,11 +273,11 @@ Return Value:
 
     if ( append ) {
 
-        status = SrvQueryBasicAndStandardInformation(
+        status = SrvQueryNetworkOpenInformation(
                                                 TargetHandle,
                                                 NULL,
-                                                &targetBasicInfo,
-                                                &targetStandardInfo
+                                                &targetNetworkOpenInformation,
+                                                FALSE
                                                 );
 
         if ( !NT_SUCCESS(status) ) {
@@ -301,11 +299,11 @@ Return Value:
         // such that this character will be overwritten.
         //
 
-        if ( targetIsAscii && (targetStandardInfo.EndOfFile.QuadPart > 0) ) {
+        if ( targetIsAscii && (targetNetworkOpenInformation.EndOfFile.QuadPart > 0) ) {
 
             LARGE_INTEGER fileOffset;
 
-            fileOffset.QuadPart = targetStandardInfo.EndOfFile.QuadPart - 1;
+            fileOffset.QuadPart = targetNetworkOpenInformation.EndOfFile.QuadPart - 1;
 
             status = NtReadFile(
                          TargetHandle,
@@ -333,11 +331,11 @@ Return Value:
             }
 
             if ( lastByte == EOF ) {
-                targetStandardInfo.EndOfFile = fileOffset;
+                targetNetworkOpenInformation.EndOfFile = fileOffset;
             }
         }
 
-        positionInfo.CurrentByteOffset = targetStandardInfo.EndOfFile;
+        positionInfo.CurrentByteOffset = targetNetworkOpenInformation.EndOfFile;
         status = NtSetInformationFile(
                      TargetHandle,
                      &ioStatusBlock,
@@ -367,10 +365,10 @@ Return Value:
 
     if ( append ) {
         allocationInfo.AllocationSize.QuadPart =
-            targetStandardInfo.EndOfFile.QuadPart +
-            sourceStandardInfo.EndOfFile.QuadPart;
+            targetNetworkOpenInformation.EndOfFile.QuadPart +
+            sourceNetworkOpenInformation.EndOfFile.QuadPart;
     } else {
-        allocationInfo.AllocationSize = sourceStandardInfo.EndOfFile;
+        allocationInfo.AllocationSize = sourceNetworkOpenInformation.EndOfFile;
     }
 
     if ( 0 ) {
@@ -632,11 +630,19 @@ Return Value:
 
     if ( ActionTaken == FILE_CREATED || ActionTaken == FILE_SUPERSEDED ) {
 
+        FILE_BASIC_INFORMATION basicInfo;
+
+        basicInfo.CreationTime = sourceNetworkOpenInformation.CreationTime;
+        basicInfo.LastAccessTime = sourceNetworkOpenInformation.LastAccessTime;
+        basicInfo.LastWriteTime = sourceNetworkOpenInformation.LastWriteTime;
+        basicInfo.ChangeTime = sourceNetworkOpenInformation.ChangeTime;
+        basicInfo.FileAttributes = sourceNetworkOpenInformation.FileAttributes;
+
         status = NtSetInformationFile(
                      TargetHandle,
                      &ioStatusBlock,
-                     &sourceBasicInfo,
-                     sizeof(sourceBasicInfo),
+                     &basicInfo,
+                     sizeof(basicInfo),
                      FileBasicInformation
                      );
 

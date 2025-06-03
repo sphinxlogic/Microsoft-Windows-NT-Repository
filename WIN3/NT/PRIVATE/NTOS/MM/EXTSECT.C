@@ -20,7 +20,6 @@ Revision History:
 --*/
 
 #include "mi.h"
-#include "zwapi.h"
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE,NtExtendSection)
@@ -300,6 +299,17 @@ Return Value:
     }
 
     //
+    // Find the last subsection.
+    //
+
+    LastSubsection = (PSUBSECTION)(ControlArea + 1);
+
+    while (LastSubsection->NextSubsection != NULL ) {
+        ASSERT (LastSubsection->UnusedPtes == 0);
+        LastSubsection = LastSubsection->NextSubsection;
+    }
+
+    //
     // Does the structure need extended?
     //
 
@@ -312,7 +322,16 @@ Return Value:
 
         Section->SizeOfSection = *NewSectionSize;
         if (Section->Segment->SizeOfSegment.QuadPart < NewSectionSize->QuadPart) {
+
+            //
+            // Only update if it is really bigger.
+            //
+
             Section->Segment->SizeOfSegment = *NewSectionSize;
+            LastSubsection->EndingSector = (ULONG)(NewSectionSize->QuadPart >>
+                                                  MMSECTOR_SHIFT);
+            LastSubsection->u.SubsectionFlags.SectorEndOffset =
+                                        NewSectionSize->LowPart & MMSECTOR_MASK;
         }
         goto ReleaseAndReturnSuccess;
     }
@@ -323,14 +342,7 @@ Return Value:
     //
 
     RequiredPtes = NumberOfPtes - Section->Segment->TotalNumberOfPtes;
-
-    LastSubsection = (PSUBSECTION)(ControlArea + 1);
     PtesUsed = 0;
-
-    while (LastSubsection->NextSubsection != NULL ) {
-        ASSERT (LastSubsection->UnusedPtes == 0);
-        LastSubsection = LastSubsection->NextSubsection;
-    }
 
     if (RequiredPtes < LastSubsection->UnusedPtes) {
 
@@ -417,8 +429,8 @@ Return Value:
         LastSubsection->EndingSector =
                    ControlArea->Segment->TotalNumberOfPtes <<
                         (PAGE_SHIFT - MMSECTOR_SHIFT);
-        LastSubsection->u.SubsectionFlags.SectorEndOffset = 0;
 
+        ExtendedSubsection->u.LongFlags = 0;
         ExtendedSubsection->NextSubsection = NULL;
         ExtendedSubsection->UnusedPtes = (AllocationSize / sizeof(MMPTE)) -
                                                     RequiredPtes;
@@ -434,8 +446,8 @@ Return Value:
         ExtendedSubsection->u.SubsectionFlags.SectorEndOffset =
                                     NewSectionSize->LowPart & MMSECTOR_MASK;
 
+
         ExtendedSubsection->SubsectionBase = ExtendedPtes;
-        ExtendedSubsection->u.LongFlags = 0;
 
         PointerPte = ExtendedPtes;
         LastPte = ExtendedPtes + (AllocationSize / sizeof(MMPTE));
@@ -446,6 +458,7 @@ Return Value:
 
         TempPte.u.Soft.Protection = ControlArea->Segment->SegmentPteTemplate.u.Soft.Protection;
         TempPte.u.Soft.Prototype = 1;
+        ExtendedSubsection->u.SubsectionFlags.Protection = TempPte.u.Soft.Protection;
 
         while (PointerPte < LastPte) {
             *PointerPte = TempPte;
@@ -463,17 +476,6 @@ Return Value:
 
     ControlArea->Segment->SizeOfSegment = *NewSectionSize;
     Section->SizeOfSection = *NewSectionSize;
-
-#if DBG
-    if (NtGlobalFlag & FLG_TRACE_PAGING_INFO) {
-        DbgPrint("$$$SECTION EXTEND: %lx Section: %lx Size %lx PP: %lx:%lx\n",
-            PsGetCurrentProcess(),
-            SectionToExtend,
-            NewSectionSize->LowPart,
-            ExtendedPtes,
-            ((ULONG)ExtendedPtes + AllocationSize));
-    }
-#endif //DBG
 
 ReleaseAndReturnSuccess:
 
@@ -613,10 +615,10 @@ Return Value:
     ControlArea = Vad->ControlArea;
     Subsection = (PSUBSECTION)(ControlArea + 1);
 
-    if (Subsection->NextSubsection == NULL) {
+    if (Subsection->NextSubsection == NULL) {
 
         //
-        // There is only one subsection, don't look any further.
+        // There is only one subsection, don't look any further.
         //
 
         return Subsection;
@@ -642,9 +644,9 @@ Return Value:
     // How many PTEs beyond this subsection must we go?
     //
 
-    PteOffset = ((((ULONG)VirtualAddress - (ULONG)Vad->StartingVa) >>
+    PteOffset = ((((ULONG)VirtualAddress - (ULONG)Vad->StartingVa) >>
                         PAGE_SHIFT) +
-         (ULONG)(Vad->FirstPrototypePte - Subsection->SubsectionBase));
+         (ULONG)(Vad->FirstPrototypePte - Subsection->SubsectionBase));
 
     ASSERT (PteOffset < 0xF0000000);
 

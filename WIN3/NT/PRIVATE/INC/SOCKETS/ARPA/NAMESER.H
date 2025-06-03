@@ -67,6 +67,10 @@ Notes:
  *	@(#)nameser.h	5.24 (Berkeley) 6/1/90
  */
 
+#ifndef _NAMESER_INCLUDED
+#define _NAMESER_INCLUDED
+
+
 /*
  * Define constants based on rfc883
  */
@@ -104,7 +108,9 @@ Notes:
 /*
  * Currently defined response codes
  */
+#ifndef NOERROR
 #define NOERROR		0		/* no error */
+#endif
 #define FORMERR		1		/* format error */
 #define SERVFAIL	2		/* server failure */
 #define NXDOMAIN	3		/* non existent domain */
@@ -288,3 +294,5 @@ extern	unsigned long	_getlong();
 	(cp)[0] = l >> 8; \
 	(cp) += sizeof(unsigned long); \
 }
+
+#endif  // _NAMESER_INCLUDED

@@ -15,7 +15,43 @@
 *
 * HISTORY:
 *		$Log:   J:\se.vcs\driver\q117cd\src\0x11029.c  $
-*	
+*
+*	   Rev 1.14   24 Jan 1996 10:59:46   BOBLEHMA
+*	Added wide tape support for the 3010 and 3020.
+*
+*	   Rev 1.13   14 Nov 1995 16:32:30   boblehma
+*	Ignore the comment in 1.12.
+*	The code is back with the SEG_TTRK_30x0 constants, but the constants are
+*	now set for 1000 ft tapes.  This is needed because of retensioning
+*	unreferenced tapes.
+*
+*	   Rev 1.12   14 Nov 1995 15:40:44   boblehma
+*	Temporarily changed default number of segments for Eagle and Buzzard
+*	(3020 and 3010) drives to 1000 ft lengths.  This is because of a bug
+*	in CBW95 1.5 where a new tape is being issued.  Timeouts are set to
+*	400 ft lengths, so we get timeout errors until we reread the header.
+*
+*	   Rev 1.11   15 May 1995 10:47:22   GaryKiwi
+*	Phoenix merge from CBW95s
+*
+*	   Rev 1.10.1.0   11 Apr 1995 18:04:02   garykiwi
+*	PHOENIX pass #1
+*
+*	   Rev 1.11   26 Jan 1995 14:59:40   BOBLEHMA
+*	Added recognition of the Phoenix drive.  Moved the setting of the tape_type
+*	field from cqd_CmdSetTapeParms to this function.
+*
+*	   Rev 1.10   29 Aug 1994 12:06:34   BOBLEHMA
+*	Moved code that set the tape_cfg and floppy_tape_parameter data to the
+*	cqd_CmdSetTapeParms function.  Set up the number of segments and call
+*	the function.
+*
+*	   Rev 1.9   09 Aug 1994 09:18:52   BOBLEHMA
+*	Subtract one from the maximum number of floppy tracks.  The number the CQD
+*	uses is the total number of floppy tracks which includes the 0th track.  The
+*	spec wants the largest track number not the total number of tracks.  This
+*	is an error for all tapes, but just fix for 3010/3020 for now.
+*
 *	   Rev 1.8   27 Jan 1994 15:59:04   KEVINKES
 *	Updated FTK_FSEG defines.
 *
@@ -92,6 +128,9 @@ dStatus cqd_GetTapeParameters
                   READ_BYTE,
                   dNULL_PTR)) != DONT_PANIC) {
 
+      /*
+       * Only old drives will ever go down this path.
+       */
 		/* the drive does not support the report tape status command,
 		 * use the report drive config command to determine the tape
 		 * format and length */
@@ -148,12 +187,20 @@ dStatus cqd_GetTapeParameters
 
 		/* Check for unknown tape format. This will occur with an
 		 * unreferenced tape.  Default the tape format to the drive type. */
-      if (cqd_context->floppy_tape_parms.tape_status.format == 0) {
+      if (cqd_context->floppy_tape_parms.tape_status.format == 0  ||
+         /*
+          * On some unreferenced tapes, the format code will be 3020 but
+          * the tape is a 550 Oe tape.  If the format code is something
+          * that is not possible, use the drive_class default.
+          */
+         (cqd_context->floppy_tape_parms.tape_status.format == QIC_3020  &&
+         (cqd_context->floppy_tape_parms.tape_status.length & 7) != QIC_FLEXIBLE_900)){
 			switch (cqd_context->device_descriptor.drive_class) {
 			case QIC40_DRIVE:
       		cqd_context->floppy_tape_parms.tape_status.format = QIC_40;
 				break;
 			case QIC80_DRIVE:
+			case QIC80W_DRIVE:
       		cqd_context->floppy_tape_parms.tape_status.format = QIC_80;
 				break;
 			case QIC3010_DRIVE:
@@ -182,80 +229,31 @@ dStatus cqd_GetTapeParameters
       cqd_context->tape_cfg.num_tape_tracks = (dUWord)NUM_TTRK_40;
 		cqd_context->floppy_tape_parms.tape_rates = XFER_250Kbps | XFER_500Kbps;
 
-		switch (cqd_context->floppy_tape_parms.tape_status.length) {
+		if  (segments_per_track == 0)  {
+			switch (cqd_context->floppy_tape_parms.tape_status.length) {
 
-		case QIC_SHORT:
+			case QIC_SHORT:
+				/*
+				 * Set to extra long tape since these will be
+				 * the most common tapes
+				 */
+				segments_per_track = SEG_TTRK_40XL;
+         	cqd_context->floppy_tape_parms.tape_type = QIC40_XLONG;
+				break;
 
-			kdi_CheckedDump(
-				QIC117INFO,
-				"Q117i: Tape Type QIC40_SHORT\n", 0l);
-         cqd_context->floppy_tape_parms.tape_type = QIC40_SHORT;
-         cqd_context->tape_cfg.seg_tape_track = SEG_TTRK_40;
-         cqd_context->floppy_tape_parms.ftrack_fside = FTK_FSD_40;
-         cqd_context->floppy_tape_parms.fsect_fside =
-				(dUDWord)FSC_FTK *
-				(dUDWord)FTK_FSD_40;
-         cqd_context->floppy_tape_parms.log_sectors =
-				(dUDWord)FSC_SEG *
-				(dUDWord)cqd_context->tape_cfg.seg_tape_track *
-				(dUDWord)NUM_TTRK_40;
-         cqd_context->floppy_tape_parms.fsect_ttrack =
-				(dUDWord)FSC_SEG *
-				(dUDWord)cqd_context->tape_cfg.seg_tape_track;
-         cqd_context->floppy_tape_parms.time_out[L_SLOW] = kdi_wt130s;
-         cqd_context->floppy_tape_parms.time_out[L_FAST] = kdi_wt065s;
-         cqd_context->floppy_tape_parms.time_out[PHYSICAL] = kdi_wt065s;
-			break;
+			case QIC_LONG:
+				segments_per_track = SEG_TTRK_40L;
+	         cqd_context->floppy_tape_parms.tape_type = QIC40_LONG;
+				break;
 
-		case QIC_LONG:
+			case QICEST:
+				segments_per_track = SEG_TTRK_QICEST_40;
+	         cqd_context->floppy_tape_parms.tape_type = QICEST_40;
+				break;
 
-			kdi_CheckedDump(
-				QIC117INFO,
-				"Q117i: Tape Type QIC40_LONG\n", 0l);
-         cqd_context->floppy_tape_parms.tape_type = QIC40_LONG;
-         cqd_context->tape_cfg.seg_tape_track = SEG_TTRK_40L;
-         cqd_context->floppy_tape_parms.ftrack_fside = FTK_FSD_40L;
-         cqd_context->floppy_tape_parms.fsect_fside =
-				(dUDWord)FSC_FTK *
-				(dUDWord)FTK_FSD_40L;
-         cqd_context->floppy_tape_parms.log_sectors =
-				(dUDWord)FSC_SEG *
-				(dUDWord)cqd_context->tape_cfg.seg_tape_track *
-				(dUDWord)NUM_TTRK_40;
-         cqd_context->floppy_tape_parms.fsect_ttrack =
-				(dUDWord)FSC_SEG *
-				(dUDWord)cqd_context->tape_cfg.seg_tape_track;
-         cqd_context->floppy_tape_parms.time_out[L_SLOW] = kdi_wt200s;
-         cqd_context->floppy_tape_parms.time_out[L_FAST] = kdi_wt100s;
-         cqd_context->floppy_tape_parms.time_out[PHYSICAL] = kdi_wt100s;
-			break;
-
-		case QICEST:
-
-			kdi_CheckedDump(
-				QIC117INFO,
-				"Q117i: Tape Type QICEST_40\n", 0l);
-         cqd_context->floppy_tape_parms.tape_type = QICEST_40;
-         cqd_context->tape_cfg.seg_tape_track = SEG_TTRK_QICEST_40;
-  			cqd_context->floppy_tape_parms.ftrack_fside = FTK_FSD_QICEST_40;
-   		cqd_context->floppy_tape_parms.fsect_fside =
-				(dUDWord)FSC_FTK * 
-				(dUDWord)FTK_FSD_QICEST_40;
-         cqd_context->floppy_tape_parms.log_sectors =
-				(dUDWord)FSC_SEG *
-            (dUDWord)cqd_context->tape_cfg.seg_tape_track *
-            (dUDWord)NUM_TTRK_40;
-         cqd_context->floppy_tape_parms.fsect_ttrack =
-				(dUDWord)FSC_SEG *
-				(dUDWord)cqd_context->tape_cfg.seg_tape_track;
-         cqd_context->floppy_tape_parms.time_out[L_SLOW] =   kdi_wt700s;
-         cqd_context->floppy_tape_parms.time_out[L_FAST] =   kdi_wt350s;
-         cqd_context->floppy_tape_parms.time_out[PHYSICAL] = kdi_wt350s;
-			break;
-
-		default:
-
-			status = kdi_Error(ERR_UNKNOWN_TAPE_LENGTH, FCT_ID, ERR_SEQ_1);
+			default:
+				status = kdi_Error(ERR_UNKNOWN_TAPE_LENGTH, FCT_ID, ERR_SEQ_1);
+			}
 
 		}
 		break;
@@ -266,80 +264,37 @@ dStatus cqd_GetTapeParameters
       cqd_context->tape_cfg.num_tape_tracks = (dUWord)NUM_TTRK_80;
 		cqd_context->floppy_tape_parms.tape_rates = XFER_500Kbps | XFER_1Mbps;
 
-		switch (cqd_context->floppy_tape_parms.tape_status.length) {
+		if  (segments_per_track == 0)  {
 
-		case QIC_SHORT:
+			switch (cqd_context->floppy_tape_parms.tape_status.length) {
 
-			kdi_CheckedDump(
-				QIC117INFO,
-				"Q117i: Tape Type QIC80_SHORT\n", 0l);
-         cqd_context->floppy_tape_parms.tape_type = QIC80_SHORT;
-         cqd_context->tape_cfg.seg_tape_track = SEG_TTRK_80;
-         cqd_context->floppy_tape_parms.ftrack_fside = FTK_FSD_80;
-         cqd_context->floppy_tape_parms.fsect_fside =
-				(dUDWord)FSC_FTK *
-				(dUDWord)FTK_FSD_80;
-         cqd_context->floppy_tape_parms.log_sectors =
-				(dUDWord)FSC_SEG *
-            (dUDWord)cqd_context->tape_cfg.seg_tape_track *
-            (dUDWord)NUM_TTRK_80;
-         cqd_context->floppy_tape_parms.fsect_ttrack =
-				(dUDWord)FSC_SEG *
-				(dUDWord)cqd_context->tape_cfg.seg_tape_track;
-         cqd_context->floppy_tape_parms.time_out[L_SLOW] =   kdi_wt100s;
-         cqd_context->floppy_tape_parms.time_out[L_FAST] =   kdi_wt050s;
-         cqd_context->floppy_tape_parms.time_out[PHYSICAL] = kdi_wt050s;
-			break;
+			case QIC_SHORT:
+				/*
+				 * Set to extra long tape since these will be
+				 * the most common tapes
+				 */
+				segments_per_track = SEG_TTRK_80XL;
+         	cqd_context->floppy_tape_parms.tape_type = QIC80_XLONG;
+				break;
 
-		case QIC_LONG:
+			case QIC_LONG:
+				segments_per_track = SEG_TTRK_80L;
+	         cqd_context->floppy_tape_parms.tape_type = QIC80_LONG;
+				break;
 
-			kdi_CheckedDump(
-				QIC117INFO,
-				"Q117i: Tape Type QIC80_LONG\n", 0l);
-         cqd_context->floppy_tape_parms.tape_type = QIC80_LONG;
-         cqd_context->tape_cfg.seg_tape_track = SEG_TTRK_80L;
-         cqd_context->floppy_tape_parms.ftrack_fside = FTK_FSD_80L;
-         cqd_context->floppy_tape_parms.fsect_fside =
-				(dUDWord)FSC_FTK *
-				(dUDWord)FTK_FSD_80L;
-         cqd_context->floppy_tape_parms.log_sectors =
-				(dUDWord)FSC_SEG *
-            (dUDWord)cqd_context->tape_cfg.seg_tape_track *
-            (dUDWord)NUM_TTRK_80;
-         cqd_context->floppy_tape_parms.fsect_ttrack =
-				(dUDWord)FSC_SEG *
-				(dUDWord)cqd_context->tape_cfg.seg_tape_track;
-         cqd_context->floppy_tape_parms.time_out[L_SLOW] = kdi_wt130s;
-         cqd_context->floppy_tape_parms.time_out[L_FAST] = kdi_wt065s;
-         cqd_context->floppy_tape_parms.time_out[PHYSICAL] = kdi_wt065s;
-			break;
+			case QICEST:
+				segments_per_track = SEG_TTRK_QICEST_80;
+	      	cqd_context->floppy_tape_parms.tape_type = QICEST_80;
+				break;
 
-		case QICEST:
+			case QIC_FLEXIBLE_550_WIDE:
+				segments_per_track = SEG_TTRK_80W;
+	      	cqd_context->floppy_tape_parms.tape_type = QICFLX_80W;
+				break;
 
-			kdi_CheckedDump(
-				QIC117INFO,
-				"Q117i: Tape Type QICEST_80\n", 0l);
-      	cqd_context->floppy_tape_parms.tape_type = QICEST_80;
-      	cqd_context->tape_cfg.seg_tape_track = SEG_TTRK_QICEST_80;
-  			cqd_context->floppy_tape_parms.ftrack_fside = FTK_FSD_QICEST_80;
-   		cqd_context->floppy_tape_parms.fsect_fside =
-				(dUDWord)FSC_FTK * 
-				(dUDWord)FTK_FSD_QICEST_80;
-      	cqd_context->floppy_tape_parms.log_sectors =
-				(dUDWord)FSC_SEG *
-         	(dUDWord)cqd_context->tape_cfg.seg_tape_track *
-         	(dUDWord)NUM_TTRK_80;
-      	cqd_context->floppy_tape_parms.fsect_ttrack =
-				(dUDWord)FSC_SEG *
-				(dUDWord)cqd_context->tape_cfg.seg_tape_track;
-      	cqd_context->floppy_tape_parms.time_out[L_SLOW] = kdi_wt475s;
-      	cqd_context->floppy_tape_parms.time_out[L_FAST] = kdi_wt250s;
-      	cqd_context->floppy_tape_parms.time_out[PHYSICAL] = kdi_wt250s;
-			break;
-
-		default:
-
-			status = kdi_Error(ERR_UNKNOWN_TAPE_LENGTH, FCT_ID, ERR_SEQ_2);
+			default:
+				status = kdi_Error(ERR_UNKNOWN_TAPE_LENGTH, FCT_ID, ERR_SEQ_2);
+			}
 
 		}
 		break;
@@ -352,25 +307,18 @@ dStatus cqd_GetTapeParameters
 
 		switch (cqd_context->floppy_tape_parms.tape_status.length) {
 
-		case QIC_FLEXIBLE:
-
-			kdi_CheckedDump(
-				QIC117INFO,
-				"Q117i: Tape Type QICFLX_3010\n", 0l);
+		case QIC_FLEXIBLE_900:
          cqd_context->floppy_tape_parms.tape_type = QICFLX_3010;
 			if (segments_per_track == 0) {
-
-         	(dVoid)cqd_CmdSetTapeParms(cqd_context, SEG_TTRK_3010);
-
-			} else {
-
-         	(dVoid)cqd_CmdSetTapeParms(cqd_context, segments_per_track);
-
+				segments_per_track = SEG_TTRK_3010;
 			}
-  			cqd_context->floppy_tape_parms.ftrack_fside = FTK_FSD_3010;
-   		cqd_context->floppy_tape_parms.fsect_fside =
-				(dUDWord)FSC_FTK * 
-				(dUDWord)FTK_FSD_3010;
+			break;
+
+		case QIC_FLEXIBLE_900_WIDE:
+         cqd_context->floppy_tape_parms.tape_type = QICFLX_3010_WIDE;
+			if (segments_per_track == 0) {
+				segments_per_track = SEG_TTRK_3010;
+			}
 			break;
 
 		default:
@@ -387,25 +335,18 @@ dStatus cqd_GetTapeParameters
 
 		switch (cqd_context->floppy_tape_parms.tape_status.length) {
 
-		case QIC_FLEXIBLE:
-
-			kdi_CheckedDump(
-				QIC117INFO,
-				"Q117i: Tape Type QICEST_3020\n", 0l);
+		case QIC_FLEXIBLE_900:
          cqd_context->floppy_tape_parms.tape_type = QICFLX_3020;
 			if (segments_per_track == 0) {
-
-         	(dVoid)cqd_CmdSetTapeParms(cqd_context, SEG_TTRK_3020);
-
-			} else {
-
-         	(dVoid)cqd_CmdSetTapeParms(cqd_context, segments_per_track);
-
+				segments_per_track = SEG_TTRK_3020;
 			}
-  			cqd_context->floppy_tape_parms.ftrack_fside = FTK_FSD_3020;
-   		cqd_context->floppy_tape_parms.fsect_fside =
-				(dUDWord)FSC_FTK * 
-				(dUDWord)FTK_FSD_3020;
+			break;
+
+		case QIC_FLEXIBLE_900_WIDE:
+         cqd_context->floppy_tape_parms.tape_type = QICFLX_3020_WIDE;
+			if (segments_per_track == 0) {
+				segments_per_track = SEG_TTRK_3020;
+			}
 			break;
 
 		default:
@@ -421,74 +362,9 @@ dStatus cqd_GetTapeParameters
 
 	}
 
-   /* Determine the Tape Format Code */
-
-	switch (cqd_context->floppy_tape_parms.tape_status.length) {
-
-	case QICEST:
-
-		kdi_CheckedDump(
-			QIC117INFO,
-			"Q117i: Tape Format Code QICEST_FORMAT\n", 0l);
-      cqd_context->tape_cfg.tape_format_code = QICEST_FORMAT;
-
-      if  ( cqd_context->device_descriptor.vendor == VENDOR_WANGTEK) {
-
-         cqd_context->drive_parms.seek_mode = SEEK_SKIP_EXTENDED;
-
-      }
-
-      if (!cqd_context->pegasus_supported) {
-
-			status = kdi_Error(ERR_FW_INVALID_MEDIA, FCT_ID, ERR_SEQ_1);
-
-      }
-
-		break;
-
-	case QIC_FLEXIBLE:
-
-		kdi_CheckedDump(
-			QIC117INFO,
-			"Q117i: Tape Format Code QICFLX_FORMAT\n", 0l);
-      cqd_context->tape_cfg.tape_format_code = QICFLX_FORMAT;
-
-		break;
-
-	default:
-
-		kdi_CheckedDump(
-			QIC117INFO,
-			"Q117i: Tape Format Code QIC_FORMAT\n", 0l);
-      cqd_context->tape_cfg.tape_format_code = QIC_FORMAT;
+	if  (status == DONT_PANIC)  {
+     	status = cqd_CmdSetTapeParms(cqd_context, segments_per_track, dNULL_PTR);
 	}
-
-   cqd_CalcFmtSegmentsAndTracks( cqd_context );
-
-   cqd_context->tape_cfg.log_segments =
-      cqd_context->tape_cfg.num_tape_tracks *
-      cqd_context->tape_cfg.seg_tape_track;
-
-	if (cqd_context->floppy_tape_parms.ftrack_fside != 0){
-
-		temp_sides = cqd_context->tape_cfg.log_segments /
-			(SEG_FTK * cqd_context->floppy_tape_parms.ftrack_fside);
-
-		if  (( cqd_context->tape_cfg.log_segments %
-				(SEG_FTK * cqd_context->floppy_tape_parms.ftrack_fside) ) == 0)  {
-
-	    	--temp_sides;
-
-		}
-
-		cqd_context->tape_cfg.max_floppy_side = (dUByte)temp_sides;
-
-		cqd_context->tape_cfg.max_floppy_track =
-			(dUByte)cqd_context->floppy_tape_parms.ftrack_fside;
-
-		cqd_context->tape_cfg.max_floppy_sector = FSC_FTK;
-	}
-
 
 	return status;
 }

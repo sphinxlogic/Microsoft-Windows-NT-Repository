@@ -24,6 +24,7 @@ Revision History:
 --*/
 
 #include "csrdll.h"
+#include "ldrp.h"
 
 BOOLEAN
 CsrDllInitialize(
@@ -185,7 +186,7 @@ Return Value:
         }
 
     if (ARGUMENT_PRESENT( CallbackInformation )) {
-        CsrLoadedClientDll[ ServerDllIndex ] = RtlAllocateHeap( CsrHeap, 0, sizeof(CSR_CALLBACK_INFO) );
+        CsrLoadedClientDll[ ServerDllIndex ] = RtlAllocateHeap( CsrHeap, MAKE_TAG( CSR_TAG ), sizeof(CSR_CALLBACK_INFO) );
         CsrLoadedClientDll[ ServerDllIndex ]->ApiNumberBase =
                 CallbackInformation->ApiNumberBase;
         CsrLoadedClientDll[ ServerDllIndex ]->MaxApiNumber =
@@ -243,26 +244,6 @@ Return Value:
                         );
         ASSERT(NT_SUCCESS(Status));
 
-        RtlInitString(&ProcedureName,"CsrpProcessApiRequest");
-        Status = LdrGetProcedureAddress(
-                        CsrServerModuleHandle,
-                        &ProcedureName,
-                        0L,
-                        (PVOID *)&CsrpProcessApiRequest
-                        );
-        ASSERT(NT_SUCCESS(Status));
-
-
-        RtlInitString(&ProcedureName,"CsrpInitializeDlls");
-        Status = LdrGetProcedureAddress(
-                        CsrServerModuleHandle,
-                        &ProcedureName,
-                        0L,
-                        (PVOID *)&CsrpInitializeDlls
-                        );
-        ASSERT(NT_SUCCESS(Status));
-
-
         RtlInitString(&ProcedureName, "CsrLocateThreadInProcess");
         Status = LdrGetProcedureAddress(
                         CsrServerModuleHandle,
@@ -274,6 +255,12 @@ Return Value:
 
         ASSERT (CsrPortHeap==NULL);
         CsrPortHeap = RtlProcessHeap();
+
+        CsrPortBaseTag = RtlCreateTagHeap( CsrPortHeap,
+                                           0,
+                                           L"CSRPORT!",
+                                           L"CAPTURE\0"
+                                         );
 
         if (ARGUMENT_PRESENT(CalledFromServer)) {
             *CalledFromServer = CsrServerProcess;
@@ -345,6 +332,35 @@ Return Value:
     return( Status );
 }
 
+BOOLEAN
+xProtectHandle(
+    HANDLE hObject
+    )
+{
+    NTSTATUS Status;
+    OBJECT_HANDLE_FLAG_INFORMATION HandleInfo;
+
+    Status = NtQueryObject( hObject,
+                            ObjectHandleFlagInformation,
+                            &HandleInfo,
+                            sizeof( HandleInfo ),
+                            NULL
+                          );
+    if (NT_SUCCESS( Status )) {
+        HandleInfo.ProtectFromClose = TRUE;
+
+        Status = NtSetInformationObject( hObject,
+                                         ObjectHandleFlagInformation,
+                                         &HandleInfo,
+                                         sizeof( HandleInfo )
+                                       );
+        if (NT_SUCCESS( Status )) {
+            return TRUE;
+            }
+        }
+
+    return FALSE;
+}
 
 NTSTATUS
 CsrpConnectToServer(
@@ -371,7 +387,7 @@ CsrpConnectToServer(
         sizeof( CSR_API_PORT_NAME );
     CsrPortName.Length = 0;
     CsrPortName.MaximumLength = (USHORT)n;
-    CsrPortName.Buffer = RtlAllocateHeap( CsrHeap, 0, n );
+    CsrPortName.Buffer = RtlAllocateHeap( CsrHeap, MAKE_TAG( CSR_TAG ), n );
     if (CsrPortName.Buffer == NULL) {
         return( STATUS_NO_MEMORY );
         }
@@ -453,6 +469,7 @@ CsrpConnectToServer(
 
         return( Status );
         }
+    xProtectHandle(CsrPortHandle);
 
     NtCurrentPeb()->ReadOnlySharedMemoryBase = ConnectionInformation.SharedSectionBase;
     NtCurrentPeb()->ReadOnlySharedMemoryHeap = ConnectionInformation.SharedSectionHeap;
@@ -493,6 +510,13 @@ CsrpConnectToServer(
 
         return( STATUS_NO_MEMORY );
         }
+
+    CsrPortBaseTag = RtlCreateTagHeap( CsrPortHeap,
+                                       0,
+                                       L"CSRPORT!",
+                                       L"!CSRPORT\0"
+                                       L"CAPTURE\0"
+                                     );
 
     return( STATUS_SUCCESS );
 }

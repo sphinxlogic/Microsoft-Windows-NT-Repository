@@ -24,6 +24,7 @@
 
 #include "ntsdp.h"
 #include "ntreg.h"
+#include <ppcinst.h>
 #include "ntdis.h"
 #include <stddef.h>
 #include <string.h>
@@ -34,11 +35,6 @@
 
 #define OPSTART   35
 #define MSKSTART  63
-#define branchabs 0x00000002
-#define branchlnk 0x00000001
-#define RCset     0x00000001
-#define BREAKPOINT_INSTRUCTION 0x0FE00000
-#define DEBUG_UNLOAD_SYMBOLS_BREAKPOINT 0x18
 
 UCHAR   pszBreak[]    = "break";
 
@@ -48,9 +44,9 @@ struct  instrmask {
    ULONG shift;
 };
 struct instrmask maskfield;
-ULONG   disinstr;
-ULONG   EAaddr = 0;
-ULONG   tempinstr;
+PPC_INSTRUCTION  disinstr;
+ULONG            EAaddr = 0;
+PPC_INSTRUCTION  tempinstr;
 
 BOOLEAN dispmsk32 = FALSE;
 BOOLEAN dispmsk64 = FALSE;
@@ -68,7 +64,6 @@ UCHAR HexDigit[16] = {
  *  Table of operand masks and shift counts indexed by operand type
  *
  *****************************************************************/
-
 static struct {
     unsigned long opnd_mask;
     unsigned long shift_count;
@@ -124,7 +119,6 @@ static struct {
     0x03E00000,21,               // procopTO
     0x0000F000,16,               // procopU
     0x0000FFFF, 0,               // procopUI
-    0x0000F800, 0,               // procopBABB
     0x00007FFE, 0,               // procopMASK32
     0x00007E00, 5,               // procopMASK64L
     0x00007E00, 5,               // procopMASK64R
@@ -138,7 +132,6 @@ static struct {
     0x0000FFFE, 0,               // procopBP64
     0x0000FFFE, 0,               // procopMB32
     0x0000FFFE, 0,               // procopNB64
-    0x0000FFFE, 0,               // procopRSRB
     0x001FF800, 0,               // procopTBfrom
     0x001FF800, 0,               // procopTBto
     0x00000000, 0,               // procopBS
@@ -153,7 +146,7 @@ static struct {
     0x00000000, 0,               // procopMX
     0x00000000, 0,               // procopMXC
     0x00000000, 0,               // procopMXCT
-    0x00000000,0                 // procopIGNORE
+    0x00000000, 0                // procopIGNORE
     };
 
 static int num_possibilities =
@@ -177,31 +170,6 @@ void OutputSReg(ULONG regnum);
 void OutputSPRReg(ULONG regnum);
 
 void GetNextOffset(PADDR, BOOLEAN);
-
-//
-// This structure is filled in by locating the addresses for the save register
-// millicode procedures. Eventually, this may initialized with the absolute
-// addresses. It's used to identify targets of branch[-and-link][absolute]
-// instructions as being register saving millicode, and describes the
-// characteristics of such routines.
-//
-//
-//#define GPRNonvolatile  13
-//#define GPRSave         19
-//#define FPRNonvolatile  14
-//#define FPRSave         18
-//
-//struct {
-//    ULONG  Count;       // Number of entries, to control binary search
-//    struct {
-//        ULONG  EntryAddress;    // Address of entry point to millicode
-//        UCHAR  Restore;         // 1 => restore, 0 => save
-//        UCHAR  Fpr;             // 1 => float reg, 0 => general reg
-//        UCHAR  UsesReg12;       // 1 => r.12 is base, 0 => stack ptr is base
-//        UCHAR  RegNum;          // Number of register being saved, 13..31
-//    } Info[GPRSave+FPRSave];    // Array of structs, 1 per entry point
-//} RtlSaveRestore;
-
 
 /**** disasm - disassemble an 80x86/80x87 instruction
 *
@@ -234,55 +202,85 @@ BOOLEAN disasm (PADDR poffset, PUCHAR bufptr, BOOLEAN fEAout)
     int         opndcnt;
     UCHAR       chSuffix = '\0';
     UCHAR       EAsize = 0;
+    BOOLEAN     match;
 
     pBufStart = pBuf = bufptr;
     InstrOffset = Flat(*poffset);
     OutputHex(InstrOffset, 8, FALSE, FALSE);       //  output hex offset
     *pBuf++ = ' ';
-    if (!GetMemDword(poffset, &disinstr)) {
+    if (!GetMemDword(poffset, &disinstr.Long)) {
         OutputString("???????? ????\n");
         *pBuf = '\0';
         return FALSE;
         }
-    OutputHex(disinstr, 8, FALSE, FALSE);          //  output hex contents
+    OutputHex(disinstr.Long, 8, FALSE, FALSE);     //  output hex contents
     *pBuf++ = ' ';
 
-    //  isolate the instruction opcode.
-    opcode = disinstr & 0xFC000000;
+    // isolate the instructions primary opcode.
+    opcode = disinstr.Primary_Op;
 
+    // if the instruction is a branch eliminate the branch prediction bit
+    // during the instruction search
+    if (opcode == 0x10 ||
+        (opcode == 0x13 && ((disinstr.XLform_XO == BCLR_OP) ||
+                            (disinstr.XLform_XO == BCCTR_OP)))) {
+       disinstr.Long = disinstr.Long & 0xFFDFFFFF;
+    }
 
     for (opcnt=0;opcnt<num_ops;opcnt++) {
 
        // Locate a matching opcode in the machine_ops table
-       if (!((machine_ops[opcode_index[opcnt].op_index].template & 0xFC000000) ^ opcode)) {
+       if (machine_ops[opcode_index[opcnt].op_index].template.Primary_Op == opcode) {
 
           //  search for an instruction template to match current instruction.
           for (count=opcode_index[opcnt].op_index;count<opcode_index[opcnt+1].op_index;count++) {
 
-             opcode = disinstr & machine_ops[count].inst_mask;
-             if (!(machine_ops[count].template ^ opcode)) {
+             //
+             // Since the PowerPC extended opcode field varies in location
+             // depending on the instruction type the instruction is XOR'd with
+             // a mask after a primary opcode is found to determine the
+             // actual instruction.
+             //
+             match = FALSE;
+             opcode = disinstr.Long & machine_ops[count].inst_mask;
+             if ((machine_ops[count].template.Long ^ opcode) == 0) {
+                if ((machine_ops[count].arch_flags & OPT_Simplified) == 0) {
+                    match = TRUE;
+                } else if (((machine_ops[count].arch_flags & OPT_crbA_eq_crbB) != 0) &&
+                           (disinstr.XLform_BA == disinstr.XLform_BB)) {
+                    match = TRUE;
+                } else if (((machine_ops[count].arch_flags & OPT_rS_eq_rB) != 0) &&
+                           (disinstr.Xform_RS == disinstr.Xform_RB)) {
+                    match = TRUE;
+                }
+             }
 
-                // Instruction template found for specified instruction.
+             if (match) {
+
+                // Located the instruction. Output the opcode string.
                 OutputString(machine_ops[count].name);
 
+                // Special opcode processing can go here.
                 // Opcode end with '.'
-                if ((machine_ops[count].arch_flags & OPT_RC) && (disinstr & RCset)) {
+                if ((machine_ops[count].arch_flags & OPT_RC) && disinstr.Xform_RC) {
                    OutputString(".");
                 }
 
                 BlankFill(OPSTART);
 
-                // Special opcode processing can go here.
-                // e.g. - '.' suffix instructions.
-
+                //
+                // Process any potential operands.
+                //
                 if (machine_ops[count].count) {
 
+                   //
                    // Process specified operands in instruction template
+                   //
                    for (opndcnt=0;opndcnt<machine_ops[count].count;opndcnt++) {
                       operand = (ULONG) machine_ops[count].arg_types[opndcnt];
-                      tempinstr = disinstr & possibilities[operand-1].opnd_mask;
+                      tempinstr.Long = disinstr.Long & possibilities[operand-1].opnd_mask;
                       if (possibilities[operand-1].shift_count) {
-                         tempinstr >>= possibilities[operand-1].shift_count;
+                         tempinstr.Long >>= possibilities[operand-1].shift_count;
                       }
 
 /*** Operand Processing **************************************************
@@ -292,7 +290,9 @@ BOOLEAN disasm (PADDR poffset, PUCHAR bufptr, BOOLEAN fEAout)
 *       value into the output buffer.
 *
 *   Input:
-*       Operand mask.
+*       The instruction being disassembled with an operand mask and
+*       shifted by the value represented by shift count for the operand
+*       type.
 *
 *   Output:
 *       Text representation of operand placed into ouput buffer.
@@ -312,35 +312,35 @@ BOOLEAN disasm (PADDR poffset, PUCHAR bufptr, BOOLEAN fEAout)
                          case opSH32:
                          case opTO:
                          case opU:
-                            OutputDec(tempinstr,FALSE);
+                            OutputDec(tempinstr.Long,FALSE);
                             break;
 
                          case opBD:
-                            bdisp = (((LONG) (tempinstr << 16)) >> 16) + InstrOffset;
+                            bdisp = ((LONG)(tempinstr.Bform_BD) << 2) + InstrOffset;
                             OutputDisSymbol(bdisp);
                             break;
 
                          case opBDA:
-                            bdisp = (((LONG) (tempinstr << 16)) >> 16);
+                            bdisp = ((LONG)(tempinstr.Bform_BD) << 2);
                             OutputDisSymbol(bdisp);
                             break;
 
                          case opBFcr:
                          case opBFAcr:
-                            OutputCReg(tempinstr);
+                            OutputCReg (tempinstr.Long);
                             break;
 
                          case opDBATL:
                          case opDBATU:
                          case opIBATL:
                          case opIBATU:
-                            OutputSPRReg(tempinstr);
+                            OutputSPRReg(tempinstr.Long);
                             break;
 
                          case opFLM:
                             dispmsk32 = TRUE;
-                            maskfield.low = 0xF0000000 >> (tempinstr * 4);
-                            OutputDec(tempinstr, FALSE);
+                            maskfield.low = 0xF0000000 >> (tempinstr.Long * 4);
+                            OutputHex(tempinstr.Long, 1, FALSE, TRUE);
                             break;
 
                          case opFRA:
@@ -348,35 +348,33 @@ BOOLEAN disasm (PADDR poffset, PUCHAR bufptr, BOOLEAN fEAout)
                          case opFRC:
                          case opFRS:
                          case opFRT:
-                            OutputFReg(tempinstr);
+                            OutputFReg(tempinstr.Long);
                             break;
 
                          case opFXM:
-                            dispmsk32 = TRUE;
-                            maskfield.low = 0xF0000000 >> (tempinstr * 4);
-                            OutputCReg (tempinstr);
+                            OutputHex(tempinstr.Long,2,TRUE,FALSE);
                             break;
 
                          case opLI:
-                            bdisp = (((LONG) (tempinstr << 6)) >> 6) + InstrOffset;
+                            bdisp = ((LONG)(tempinstr.Iform_LI) << 2) + InstrOffset;
                             OutputDisSymbol(bdisp);
                             break;
 
                          case opLIA:
-                            bdisp = (((LONG) (tempinstr << 6)) >> 6);
+                            bdisp = ((LONG)(tempinstr.Iform_LI) << 2);
                             OutputDisSymbol(bdisp);
                             break;
 
                          case opMB32:
                             dispmsk32 = TRUE;
                             maskfield.low = 0xFFFFFFFF;
-                            OutputDec (tempinstr,FALSE);
-                            maskfield.low >>= tempinstr;
+                            OutputDec (tempinstr.Long,FALSE);
+                            maskfield.low >>= tempinstr.Long;
                             break;
 
                          case opMB64:
                             dispmsk64 = TRUE;
-                            maskbegin = tempinstr;
+                            maskbegin = tempinstr.Long;
                             OutputDec (maskbegin,FALSE);
                             if (maskbegin < 32) {
                                maskfield.low = 0xFFFFFFFF;
@@ -390,8 +388,8 @@ BOOLEAN disasm (PADDR poffset, PUCHAR bufptr, BOOLEAN fEAout)
 
                          case opME32:
                             tempmask = 0x80000000;
-                            OutputDec (tempinstr,FALSE);
-                            tempmask >>= tempinstr;
+                            OutputDec (tempinstr.Long,FALSE);
+                            tempmask >>= tempinstr.Long;
                             if (maskfield.low & tempmask) {
                                maskfield.low &= tempmask;       // MB <= ME
                             } else {
@@ -401,7 +399,7 @@ BOOLEAN disasm (PADDR poffset, PUCHAR bufptr, BOOLEAN fEAout)
 
                          case opME64:
                             dispmsk64 = TRUE;
-                            maskend = tempinstr;
+                            maskend = tempinstr.Long;
                             OutputDec (maskend,FALSE);
                             if (maskend > 31) {
                                masktemph = 0xFFFFFFFF;
@@ -419,55 +417,46 @@ BOOLEAN disasm (PADDR poffset, PUCHAR bufptr, BOOLEAN fEAout)
                          case opRB:
                          case opRS:
                          case opRT:
-                            OutputReg(tempinstr);
+                            OutputReg(tempinstr.Long);
                             break;
 
                          case opSH64:
-                            maskfield.shift = ((tempinstr >> 1) & 0x00000001) << 5;
-                            maskfield.shift |= tempinstr >> 11;
+                            maskfield.shift = ((tempinstr.Long >> 1) & 0x00000001) << 5;
+                            maskfield.shift |= tempinstr.Long >> 11;
                             OutputDec (maskfield.shift,FALSE);
                             break;
 
                          case opSI:
                          case opUI:
                          case opSIign:
-//                          signimmed = (SHORT) (tempinstr);
-//                          OutputDec (signimmed,TRUE);
-                            signimmed = (USHORT) (tempinstr);
+                            signimmed = (USHORT) (tempinstr.Long);
                             OutputHex (signimmed,4,TRUE,FALSE);
                             break;
 
                          case opSIneg:
                          case opSInegign:
                             signimmed = 0;
-                            signimmed -= (SHORT) (tempinstr);
-                            OutputDec (signimmed,TRUE);
+                            signimmed -= (SHORT) (tempinstr.Long);
+                            OutputHex (signimmed,4, TRUE, TRUE);
                             break;
 
                          case opSPR:
                          case opSPRG:
-                            OutputSPRReg (tempinstr);
+                            OutputSPRReg (tempinstr.Long);
                             break;
 
                          case opSR:
-                            OutputSReg (tempinstr);
-                            break;
-
-                         case opBABB:
-                            special = (((disinstr & 0x001F0000) >> 16) == ((disinstr & 0x0000F800) >> 11));
-                            if (special) {
-                               OutputDec ((ULONG) (disinstr & 0x001F0000) >> 16,FALSE);
-                            }
+                            OutputSReg (tempinstr.Long);
                             break;
 
                          case opMASK64L:
                             dispmsk64 = TRUE;
                             maskfield.low = 1;
                             maskfield.high= 0;
-                            maskbegin = tempinstr;
+                            maskbegin = tempinstr.Long;
                             OutputDec (maskbegin,FALSE);
                             if (maskbegin < 32) {
-                               maskfield.low = -1;
+                               maskfield.low = (ULONG)-1;
                                maskfield.high = 1 << (31-maskbegin);
                             }
                             else {
@@ -479,10 +468,10 @@ BOOLEAN disasm (PADDR poffset, PUCHAR bufptr, BOOLEAN fEAout)
                             dispmsk64 = TRUE;
                             maskfield.low = 0;
                             maskfield.high= 0x80000000;
-                            maskend = tempinstr;
+                            maskend = tempinstr.Long;
                             OutputDec (maskend,FALSE);
                             if (maskend > 31) {
-                               maskfield.high = -1;
+                               maskfield.high = (ULONG)-1;
                                maskfield.low = 0x80000000 >> (maskend-32);
                             }
                             else {
@@ -517,11 +506,12 @@ BOOLEAN disasm (PADDR poffset, PUCHAR bufptr, BOOLEAN fEAout)
                             maskfield.high &= masktemph;
                             break;
 
+                         case opBDISP14:        // intentionally fall through
+                            tempinstr.Long = tempinstr.Long & 0xFFFFFFFC;
                          case opBDISP:
-                         case opBDISP14:
-                            dispreg = (tempinstr) >> 16;
-                            dispimmed = (((LONG) (tempinstr << 16)) >> 16);
-                            OutputDec (dispimmed,TRUE);
+                            dispreg = tempinstr.DSform_RA;
+                            dispimmed = (LONG)(tempinstr.Dform_D);
+                            OutputHex (dispimmed,4,FALSE,TRUE);
                             OutputString("(");
                             OutputReg (dispreg);
                             OutputString(")");
@@ -538,7 +528,6 @@ BOOLEAN disasm (PADDR poffset, PUCHAR bufptr, BOOLEAN fEAout)
                          case opBP64:
                          case opNB32:
                          case opNB64:
-                         case opRSRB:
                          case opTBfrom:
                          case opTBto:
                          case opBS:
@@ -588,12 +577,12 @@ BOOLEAN disasm (PADDR poffset, PUCHAR bufptr, BOOLEAN fEAout)
 
     //  check for "twi   31,0,#" where # < DEBUG_UNLOAD_SYMBOLS_BREAKPOINT
     //  display as break instruction
-    if ((disinstr >= BREAKPOINT_INSTRUCTION) &&
-        (disinstr <= (BREAKPOINT_INSTRUCTION | DEBUG_UNLOAD_SYMBOLS_BREAKPOINT))) {
+    if ((disinstr.Long >= BREAK_INSTR) &&
+        (disinstr.Long <= (BREAK_INSTR | DEBUG_UNLOAD_SYMBOLS_BREAKPOINT))) {
        pBuf = pBufStart + 18;
        OutputString(pszBreak);
        BlankFill(OPSTART);
-       OutputBreakOp(disinstr & 0x0000FFFF);
+       OutputBreakOp(disinstr.Dform_SI);
     }
 
     Off(*poffset) += sizeof(ULONG);
@@ -649,7 +638,7 @@ void OutputHex(ULONG outvalue, ULONG length, BOOLEAN fSigned, BOOLEAN trunc0s)
 
     if (fSigned && (long)outvalue < 0) {
         *pBuf++ = '-';
-        outvalue = - outvalue;
+        outvalue = ~outvalue + 1;
         }
     if (fSigned) {
         *pBuf++ = '0';
@@ -692,7 +681,7 @@ void OutputDec (ULONG outvalue, BOOLEAN fSigned)
 
     if (fSigned && (long)outvalue < 0) {
         *pBuf++ = '-';
-        outvalue = - outvalue;
+        outvalue = ~outvalue + 1;
         }
     do {
         digit[index++] = (UCHAR)('0' + outvalue % 10);
@@ -792,7 +781,7 @@ void OutputDisSymbol (ULONG offset)
     PUCHAR  pszTemp;
     UCHAR   ch;
 
-    GetSymbol(offset, chAddrBuffer, &displacement);
+    GetSymbolStdCall(offset, chAddrBuffer, &displacement, NULL);
 
     if (chAddrBuffer[0]) {
         pszTemp = chAddrBuffer;
@@ -809,6 +798,23 @@ void OutputDisSymbol (ULONG offset)
         *pBuf++ = ')';
 }
 
+//
+// Conditional Branch Options Structure
+// (BranchOp0-3) correspond to the PowerPC Architecture Book Names.
+//
+typedef union _BRANCHOPS {
+        ULONG   BranchOps;
+        struct {
+            ULONG   Pred: 1;
+            ULONG   Op3 : 1;
+            ULONG   Op2 : 1;
+            ULONG   Op1 : 1;
+            ULONG   Op0 : 1;
+            ULONG   bit0_26  :27;
+        } Branch;
+    }       BRANCHOPS;
+
+
 /*** GetNextOffset - compute offset for trace or step
 *
 *   Purpose:
@@ -824,109 +830,90 @@ void OutputDisSymbol (ULONG offset)
 *       -1 returned for trace flag to be used
 *
 *************************************************************************/
-
 void GetNextOffset (PADDR pcaddr, BOOLEAN fStep)
 {
-    ULONG   returnvalue;
-    ULONG   opcode;
+    LONG    returnvalue;
     ULONG   firaddr;
     ADDR    fir;
-    ULONG   BranchOp;
-    ULONG   BranchOp1;
-    ULONG   BranchOp2;
-    ULONG   BranchOp3;
-    ULONG   CondBit;
+    BRANCHOPS BranchOp;
+    ULONG   CondBit = 0x80000000;
     ULONG   Counter;
     ULONG   CondReg;
 
-    firaddr = GetRegValue(REGIP);
+    firaddr = (ULONG)GetRegValue(REGIP);
     ADDR32( &fir, firaddr );
-    GetMemDword(&fir, &disinstr);
+    GetMemDword(&fir, &disinstr.Long);
     returnvalue = firaddr + sizeof(ULONG);  //  assume delay slot
 
-    switch((disinstr & 0xFC000000))
+    switch(disinstr.Primary_Op)
     {
-       case 0x44000002:                            // sc
+       case 0x11:                               // sc   0x44xxxxxx
         // stepping over a syscall instruction must set the breakpoint
         // at the caller's return address, not the inst after the syscall
-        returnvalue = GetRegValue(SPRLR);
+        returnvalue = (ULONG)GetRegValue(SPRLR);
 
-       case 0x4C000000:                            // bclr, bclrl, bcctr, bcctrl
-          if (!((fStep) && ((disinstr & 0x00000001) != 0))) { // !(Step and LR)
-              BranchOp = (disinstr & 0x03C00000) >> 22; // BO without prediction
-              CondBit = (disinstr & 0x001F0000) >> 16;
-              CondReg = GetRegValue(REGCR);
-              Counter = GetRegValue(SPRCTR);
-              if (CondBit == 31) {
-                 CondBit = CondReg & 1L;
-              } else if (CondBit == 0) {
-                 CondBit = (ULONG)((CondReg & 0x80000000) != 0);
-              } else {
-                CondBit = (ULONG)(((1L << (31-CondBit)) & CondReg) != 0);
+       case 0x13:                               // bclr, bclrl, bcctr, bcctrl
+                                                // 0x4Cxxxxxx
+          if (!((fStep) && disinstr.Bform_LK)) { // !(Step and LR)
+              BranchOp.BranchOps = disinstr.Bform_BO; // Branch Cond. Options
+              CondReg = (ULONG)GetRegValue(REGCR);
+              Counter = (ULONG)GetRegValue(SPRCTR);
+              if (disinstr.Bform_BI != 0) {
+                 CondBit = 0x80000000 >> disinstr.Bform_BI;
               }
-              if ((disinstr & 0xFC0007FE) == 0x4C000420) {   // bcctr, bcctrl
-                  BranchOp1 = ((ULONG)((BranchOp & 4L) != 0)) ^ 1L;
-                  BranchOp = (ULONG)((BranchOp & 8L) != 0);
-                  if ((CondBit ^ BranchOp1) || BranchOp) {
+              CondBit = ((CondBit & CondReg) != 0);
+              if ((disinstr.Long & 0xFC0007FE) == 0x4C000420) { // bcctr, bcctrl
+                  if ((CondBit ^ (BranchOp.Branch.Op1 ^ 1L)) ||
+                                           BranchOp.Branch.Op0) {
                      returnvalue = Counter & 0xFFFFFFFC;
                   }
-              } else if ((disinstr & 0xFC0007FE) == 0x4C000020) { // bclr, bclrl
-                  BranchOp1 = ((ULONG)((BranchOp & 4L) != 0)) ^ 1L;
-                  BranchOp2 = ((ULONG)((BranchOp & 2L) != 0));
-                  BranchOp3 = ((ULONG)((BranchOp & 1L) != 0));
-                  BranchOp = (ULONG)((BranchOp & 8L) != 0);
-                  if (!BranchOp2) {
+              } else if ((disinstr.Long & 0xFC0007FE) == 0x4C000020) { // bclr, bclrl
+                  if (!BranchOp.Branch.Op2) {
                      Counter -= 1;
                   }
-                  if (((Counter != 0) ^ (BranchOp3)) || BranchOp2) {
-                      if ((CondBit ^ BranchOp1) || BranchOp) {
-                         returnvalue = GetRegValue(SPRLR) & 0xFFFFFFFC;
+                  if (((Counter != 0) ^ (BranchOp.Branch.Op3)) ||
+                                                  BranchOp.Branch.Op2) {
+                      if ((CondBit ^ BranchOp.Branch.Op1) ||
+                                              BranchOp.Branch.Op0) {
+                         returnvalue = (ULONG)GetRegValue(SPRLR) & 0xFFFFFFFC;
                       }
                   }
               }
           }
           break;
 
-       case 0x48000000:                            // b, ba, bl, bla
-          if (!((fStep) && ((disinstr & 0x00000001) != 0))) { // !(Step and LR)
-              if (disinstr & 0x00000002) {             // absolute
-                  returnvalue = (LONG)(((LONG)((disinstr & 0x03FFFFFC) << 6)) >> 6);
-              } else {                                 // relative to CIA
-                  returnvalue = (LONG)(((LONG)((disinstr & 0x03FFFFFC) << 6)) >> 6)
-                                                                     + firaddr;
+       case 0x12:                                  // b, ba, bl, bla
+                                                   // 0x48xxxxxx
+          if (!((fStep) && disinstr.Bform_LK)) {   // !(Step and LR)
+              if (disinstr.Bform_AA) {             // absolute
+                  returnvalue = (LONG)(disinstr.Iform_LI << 2);
+              } else {                             // relative to CIA
+                  returnvalue = (LONG)(disinstr.Iform_LI << 2) + firaddr;
               }
           }
           break;
 
-       case 0x40000000:                            // bc, bca, bcl, bcla
-          if (!((fStep) && ((disinstr & 0x00000001) != 0))) { // !(Step and LR)
-              BranchOp = (disinstr & 0x03C00000) >> 22; // BO without prediction
-              CondBit = (disinstr & 0x001F0000) >> 16;
-              CondReg = GetRegValue(REGCR);
-              Counter = GetRegValue(SPRCTR);
-              if (CondBit == 31) {
-                 CondBit = CondReg & 1L;
-              } else if (CondBit == 0) {
-                 CondBit = (ULONG)((CondReg & 0x80000000) != 0);
-              } else {
-                CondBit = (ULONG)(((1L << (31-CondBit)) & CondReg) != 0);
+       case 0x10:                                  // bc, bca, bcl, bcla
+                                                   // 0x40xxxxxx
+          if (!((fStep) && disinstr.Bform_LK)) {   // !(Step and LR)
+              BranchOp.BranchOps = disinstr.Bform_BO; // Branch Cond. Options
+              CondReg = (ULONG)GetRegValue(REGCR);
+              Counter = (ULONG)GetRegValue(SPRCTR);
+              if (disinstr.Bform_BI != 0) {
+                 CondBit = 0x80000000 >> disinstr.Bform_BI;
               }
-              BranchOp1 = ((ULONG)((BranchOp & 4L) != 0)) ^ 1L;
-              BranchOp2 = ((ULONG)((BranchOp & 2L) != 0));
-              BranchOp3 = ((ULONG)((BranchOp & 1L) != 0));
-              BranchOp = (ULONG)((BranchOp & 8L) != 0);
-              if (!BranchOp2) {
+              CondBit = ((CondBit & CondReg) != 0);
+              if (!BranchOp.Branch.Op2) {
                  Counter -= 1;
               }
-              if (((Counter != 0) ^ (BranchOp3)) || BranchOp2) {
-                  if ((CondBit ^ BranchOp1) || BranchOp) {
-                      if (disinstr & 0x00000002) {         // absolute
-                          returnvalue =
-                          (LONG)(((LONG)((disinstr & 0x0000FFFC) << 16)) >> 16);
-                      } else {                             // relative to CIA
-                          returnvalue =
-                          (LONG)(((LONG)((disinstr & 0x0000FFFC) << 16)) >> 16)
-                                                                     + firaddr;
+              if (((Counter != 0) ^ (BranchOp.Branch.Op3)) ||
+                                              BranchOp.Branch.Op2) {
+                  if ((CondBit ^ (BranchOp.Branch.Op1 ^ 1L)) ||
+                                           BranchOp.Branch.Op0) {
+                      if (disinstr.Bform_AA) {     // absolute
+                          returnvalue = (LONG)(disinstr.Bform_BD << 2);
+                      } else {                     // relative to CIA
+                          returnvalue = (LONG)(disinstr.Bform_BD << 2) + firaddr;
                       }
                   }
               }
@@ -939,4 +926,3 @@ void GetNextOffset (PADDR pcaddr, BOOLEAN fStep)
 
     ADDR32( pcaddr, returnvalue );
 }
-

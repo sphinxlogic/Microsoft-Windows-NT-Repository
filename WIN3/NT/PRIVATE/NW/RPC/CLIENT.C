@@ -42,7 +42,7 @@ Revision History:
 #include <windows.h>    // win32 typedefs
 #include <rpc.h>        // rpc prototypes
 
-#include <wcstr.h>      // for wcscpy wcscat
+#include <stdlib.h>     // for wcscpy wcscat
 #include <tstr.h>       // WCSSIZE
 
 #include <nwrpcp.h>
@@ -97,7 +97,7 @@ Return Value:
 
     if (ServerName != NULL) {
         if (GetComputerNameW(ComputerName,&bufLen)) {
-            if (wcsicmp(ComputerName,&(ServerName[2]))==0) {
+            if (_wcsicmp(ComputerName,&(ServerName[2]))==0) {
                 NewServerName = NULL;
             }
             else {

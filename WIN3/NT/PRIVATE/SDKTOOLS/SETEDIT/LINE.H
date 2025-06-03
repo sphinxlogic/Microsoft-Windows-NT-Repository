@@ -57,4 +57,4 @@ HPEN LineCreatePen (HDC hDC,
                     PLINEVISUAL pVisual,
                     BOOL bForPrint) ;
 
-
+

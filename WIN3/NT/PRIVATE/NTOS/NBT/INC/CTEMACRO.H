@@ -66,6 +66,84 @@ Routine Description:
 #endif
 
 
+#ifndef VXD
+/*++
+    This macro verifies that an IRP passed to IoCallDriver() is
+    set up to call the CompletionRoutine in all cases.
+--*/
+#if DBG
+#define CHECK_COMPLETION(__pIrp)\
+            {\
+                PIO_STACK_LOCATION __pIrpSp = IoGetNextIrpStackLocation(__pIrp);\
+                BOOL CompletionWillBeCalled =\
+                    ( __pIrpSp->Control & ( SL_INVOKE_ON_SUCCESS | SL_INVOKE_ON_ERROR | SL_INVOKE_ON_CANCEL ) )\
+                    == ( SL_INVOKE_ON_SUCCESS | SL_INVOKE_ON_ERROR | SL_INVOKE_ON_CANCEL );\
+                ASSERT ( CompletionWillBeCalled );\
+            }
+#else   // DBG
+#define CHECK_COMPLETION(__pIrp)
+#endif  // DBG
+#endif  // VXD
+
+//
+// Macros
+//
+
+//++
+//
+// LARGE_INTEGER
+// CTEConvertMillisecondsTo100ns(
+//     IN LARGE_INTEGER MsTime
+//     );
+//
+// Routine Description:
+//
+//     Converts time expressed in hundreds of nanoseconds to milliseconds.
+//
+// Arguments:
+//
+//     MsTime - Time in milliseconds.
+//
+// Return Value:
+//
+//     Time in hundreds of nanoseconds.
+//
+//--
+
+#define CTEConvertMillisecondsTo100ns(MsTime) \
+            RtlExtendedIntegerMultiply(MsTime, 10000)
+
+
+//++
+//
+// LARGE_INTEGER
+// CTEConvert100nsToMilliseconds(
+//     IN LARGE_INTEGER HnsTime
+//     );
+//
+// Routine Description:
+//
+//     Converts time expressed in hundreds of nanoseconds to milliseconds.
+//
+// Arguments:
+//
+//     HnsTime - Time in hundreds of nanoseconds.
+//
+// Return Value:
+//
+//     Time in milliseconds.
+//
+//--
+
+    // Used in the conversion of 100ns times to milliseconds.
+static LARGE_INTEGER Magic10000 = {0xe219652c, 0xd1b71758};
+
+#define SHIFT10000 13
+extern LARGE_INTEGER Magic10000;
+
+#define CTEConvert100nsToMilliseconds(HnsTime) \
+            RtlExtendedMagicDivide((HnsTime), Magic10000, SHIFT10000)
+
 //----------------------------------------------------------------------------
 //
 //  CTELockHandle
@@ -80,37 +158,6 @@ Routine Description:
     #define CTELockHandle               KIRQL
 #endif
 
-//----------------------------------------------------------------------------
-//  VOID
-//  GetCurrentPrcb(
-//        )
-
-/*++
-Routine Description:
-
-    This Routine gets the current Prcb so we can get the processor number
-    on an MP machine.  We can't use the definition in i386.h since it will
-    be optimized to the UP case and always return the prcb for processor
-    zero!!
-
-
---*/
-#if DBG
-#ifndef VXD
-
-#ifdef _X86_
-#pragma warning(disable:4035)               // re-enable below
-__inline PKPRCB GetCurrentPrcb (VOID)
-{
-    _asm {  mov eax, fs:[0] KPCR.Prcb     }
-}
-#pragma warning(default:4035)
-#else
-#define GetCurrentPrcb() KeGetCurrentPrcb()
-#endif
-
-#endif
-#endif
 //----------------------------------------------------------------------------
 //  VOID
 //  CTESpinLock(
@@ -342,47 +389,6 @@ Return Value:
 //----------------------------------------------------------------------------
 //
 //  VOID
-//  CTEGetDgramTracker(
-//      OUT  PLIST_ENTRY   *pEntry,
-//        )
-/*++
-Routine Description:
-
-    This Routine gets a free dgram tracker buffer
-
-Arguments:
-
-    pEntry - the entry returned
-
-Return Value:
-
-    ptr to list entry or a return out of the procedure
-
---*/
-
-#define CTEGetTracker(_pListEntry)                                 \
-{                                                                  \
-    NTSTATUS    __status;                                          \
-    if (!IsListEmpty(&NbtConfig.DgramTrackerFreeQ))                \
-    {                                                              \
-        *(_pListEntry) = RemoveHeadList(&NbtConfig.DgramTrackerFreeQ);   \
-    }                                                              \
-    else                                                           \
-    {                                                              \
-        __status = NbtGetBuffer(                                    \
-                        &NbtConfig.DgramTrackerFreeQ,              \
-                        (_pListEntry),                             \
-                        eNBT_DGRAM_TRACKER);                       \
-                                                                   \
-        if (!NT_SUCCESS(__status))                                 \
-            return(__status);                                      \
-                                                                   \
-    }                                                              \
-}
-
-//----------------------------------------------------------------------------
-//
-//  VOID
 //      CTEIoComplete( IN  CTE_IRP       * pIrp,
 //                     IN  NTSTATUS        StatusCompletion,
 //                     IN  ULONG           cbBytes
@@ -463,6 +469,34 @@ Return Value:
 #define CTEMemCmp( S1, S2, Length ) VxdRtlCompareMemory( (S1), (S2), (Length) )
 #endif
 
+//----------------------------------------------------------------------------
+//
+//  LOGICAL
+//      CTEMemEqu( PVOID S1, PVOID S2, ULONG Length )
+//
+/*++
+Routine Description:
+
+    Compares two memory regions and returns a value of TRUE is the regions
+    match. Otherwise, FALSE is returned.
+
+Arguments:
+
+    S1, S2 - Memory source 1 and 2 to compare
+    Length - Count of bytes to compare
+
+Return Value:
+
+--*/
+
+#ifndef VXD
+#define CTEMemEqu( S1, S2, Length ) RtlEqualMemory( (S1), (S2), (Length) )
+#else
+//
+//  Same thing as RtlEqualMemory except avoid standard call decoration
+//
+#define CTEMemEqu( S1, S2, Length ) ( VxdRtlCompareMemory( (S1), (S2), (Length) ) == (Length) )
+#endif
 
 //----------------------------------------------------------------------------
 //
@@ -508,6 +542,7 @@ Return Value:
 
 #ifndef VXD
 #ifdef POOL_TAGGING
+#undef ExAllocatePool
 #define ExAllocatePool(a,b) ExAllocatePoolWithTag(a,b,' tbN')
 #ifdef DBGMEMNBT
 #undef CTEAllocMem
@@ -518,11 +553,38 @@ Return Value:
 #endif
 #endif
 
+#ifndef VXD
+#ifdef POOL_TAGGING
+#define NBT_TAG(x) (((x)<<24)|'\0tbN')
+#define NbtAllocMem(size,__tag__) ExAllocatePoolWithTag(NonPagedPool,(size),(__tag__))
+#else  // POOL_TAGGING
+#define NBT_TAG(x) 0
+#define NbtAllocMem(size,__tag__) ExAllocatePool(NonPagedPool,(size))
+#endif // POOL_TAGGING
+#else  // POOL_TAGGING
+#define NBT_TAG(x) 0
+#define NbtAllocMem(size,__tag__) CTEAllocMem((size))
+#endif // VXD
+
+#ifdef VXD
+#ifdef DEBUG
+#undef CTEAllocMem
+#define CTEAllocMem DbgAllocMem
+#undef CTEFreeMem
+#define CTEFreeMem  DbgFreeMem
+#undef CTEMemFree
+#define CTEMemFree  DbgFreeMem
+PVOID DbgAllocMem( DWORD ReqSize );
+VOID DbgFreeMem( PVOID  pBufferToFree );
+VOID DbgMemCopy( PVOID pDestBuf, PVOID pSrcBuf, ULONG Length );
+#endif
+#endif
+
 //----------------------------------------------------------------------------
 /*++
 PVOID
 CTEAllocInitMem(
-        USHORT  Size
+        ULONG  Size
         )
 Routine Description:
 
@@ -565,22 +627,12 @@ Return Value:
 
 --*/
 #ifndef VXD
-#ifdef i386
-#define CTEMemFree(pMem)    \
-{                             \
-    IF_DBG(NBT_DEBUG_MEMFREE)     \
-    KdPrint(("pmemfree = %X,lin %d in file %s\n",pMem,__LINE__,__FILE__)); \
-    ASSERT((ULONG)pMem > 0xf0000000); \
-    CTEFreeMem(pMem);  \
-}
-#else
 #define CTEMemFree(pMem)    \
 {                             \
     IF_DBG(NBT_DEBUG_MEMFREE)     \
     KdPrint(("pmemfree = %X,lin %d in file %s\n",pMem,__LINE__,__FILE__)); \
     CTEFreeMem(pMem);  \
 }
-#endif
 #endif
 
 //----------------------------------------------------------------------------
@@ -705,8 +757,7 @@ Return Value:
     IF_DBG(NBT_DEBUG_REF)                                 \
     KdPrint(("Nbt:LowerConn Reference= %X, Incrementing...\n",\
         _pLowerConn->RefCount));                          \
-    ExInterlockedIncrementLong(&_pLowerConn->RefCount,    \
-                               &_pLowerConn->SpinLock);   \
+    InterlockedIncrement(&_pLowerConn->RefCount);         \
 }
 
 //----------------------------------------------------------------------------
@@ -732,8 +783,7 @@ Return Value:
     IF_DBG(NBT_DEBUG_REF)                               \
     KdPrint(("Nbt:LowerConn Reference= %X, Decrementing...\n",\
         _pLowerConn->RefCount));                         \
-    ExInterlockedDecrementLong(&_pLowerConn->RefCount,   \
-                               &_pLowerConn->SpinLock);  \
+    InterlockedDecrement(&_pLowerConn->RefCount);        \
 }
 
 //----------------------------------------------------------------------------
@@ -864,7 +914,8 @@ extern unsigned char  Loc;
 // CTEQueueForNonDispProcessing( pTracker,
 //                               pClientContext,
 //                               ClientCompletion,
-//                               CallBackRoutine ) ;
+//                               CallBackRoutine
+//                               pDeviceContext) ;
 //
 /*++
 Routine Description:
@@ -892,61 +943,19 @@ Return Value:
 #define CTEQueueForNonDispProcessing( pTracker,                             \
                                       pClientContext,                       \
                                       ClientCompletion,                     \
-                                      CallBackRoutine )                     \
+                                      CallBackRoutine,                      \
+                                      pDeviceContext)                       \
     NTQueueToWorkerThread( pTracker, pClientContext, ClientCompletion,      \
-                           CallBackRoutine )
+                           CallBackRoutine, pDeviceContext )
 #else
 #define CTEQueueForNonDispProcessing( pTracker,                             \
                                       pClientContext,                       \
                                       ClientCompletion,                     \
-                                      CallBackRoutine )                     \
-    VxdScheduleDelayedCall( pTracker, pClientContext, ClientCompletion, CallBackRoutine )
+                                      CallBackRoutine,                      \
+                                      pDeviceContext)                       \
+    VxdScheduleDelayedCall( pTracker, pClientContext, ClientCompletion,     \
+                           CallBackRoutine, pDeviceContext )
 #endif
-
-//----------------------------------------------------------------------------
-//
-// CTELmHostQueueRequest( pTracker,
-//                               pClientContext,
-//                               ClientCompletion,
-//                               CallBackRoutine ) ;
-//
-/*++
-Routine Description:
-
-    This macro queues a request for Lmhost processing. It ensures that not more
-    one executive worker thread can be used by queuing concurrent requests
-    in an Nbt structure.
-
-    As a VxD, we schedule an event that calls the specified routine.
-
-Arguments:
-
-    pTracker - pointer to a tDGRAM_SEND_TRACKING structure (or NULL).
-    pClietContext - Context to pass to CallBackRoutine
-    ClientCompletion -
-    CallBackRoutine - Procedure to call at outside the current context
-
-Return Value:
-
-    STATUS_SUCCESS if successful, error code otherwise
-
---*/
-#ifndef VXD
-#define CTELmHostQueueRequest( pTracker,                             \
-                               pClientContext,                       \
-                               ClientCompletion,                     \
-                               CallBackRoutine )                     \
-    LmHostQueueRequest( pTracker, pClientContext, ClientCompletion,  \
-                        CallBackRoutine )
-#else
-#define CTELmHostQueueRequest( pTracker,                             \
-                               pClientContext,                       \
-                               ClientCompletion,                     \
-                               CallBackRoutine )                     \
-    VxdScheduleDelayedCall( pTracker, pClientContext, ClientCompletion, CallBackRoutine )
-#endif
-
-
 
 //----------------------------------------------------------------------------
 //
@@ -1006,6 +1015,12 @@ Return Value:
 #define CTEPagedCode() PAGED_CODE()
 #else
 #define CTEPagedCode()
+#ifdef CHICAGO
+#ifdef DEBUG
+#undef CTEPagedCode
+#define CTEPagedCode() _Debug_Flags_Service(DFS_TEST_REENTER+DFS_TEST_BLOCK)
+#endif
+#endif
 #endif
 
 
@@ -1027,12 +1042,14 @@ Return Value:
 
     NONE
 --*/
-#ifndef VXD
 #define CTEMakePageable( _Page, _Routine )  \
     alloc_text(_Page,_Routine)
-#else
-#define CTEMakePageable( _Page, _Routine )
-#endif
+
+#ifdef CHICAGO
+#define ALLOC_PRAGMA
+#define INIT _ITEXT
+// #define PAGE _PTEXT  "vmm.h" has a macro for this.  We override it later.
+#endif // CHICAGO
 
 
 //----------------------------------------------------------------------------
@@ -1056,6 +1073,7 @@ Return Value:
 #ifdef VXD
 #define NTSetCancelRoutine(_pIrp,_CancelRoutine,_pDeviceContext)   (0)
 #define NTCheckSetCancelRoutine(_pIrp,_CancelRoutine,_pDeviceContext) (0)
+#define NTClearContextCancel(pWiContext) (0)
 #endif
 
 //----------------------------------------------------------------------------
@@ -1103,7 +1121,7 @@ Return Value:
 {                                       \
     LARGE_INTEGER   _Timeout;                \
     ULONG           Remainder;              \
-    _Timeout = RtlLargeIntegerNegate(*(PLARGE_INTEGER)pTimeout);\
+    _Timeout.QuadPart = -(((PLARGE_INTEGER)pTimeout)->QuadPart); \
     _Timeout = RtlExtendedLargeIntegerDivide(_Timeout,MILLISEC_TO_100NS,&Remainder);\
     *pRetTime = (ULONG)_Timeout.LowPart; \
 }
@@ -1134,10 +1152,10 @@ Return Value:
 #ifndef VXD
 #define CTEAttachFsp(_pAttached)      \
 {                           \
-    if ((PEPROCESS)PsGetCurrentProcess() != NbtFspProcess) \
+    if (PsGetCurrentProcess() != NbtFspProcess) \
     {                                           \
-        KeAttachProcess(&NbtFspProcess->Pcb);          \
-        *_pAttached = TRUE;                      \
+        KeAttachProcess(&NbtFspProcess->Pcb);   \
+        *_pAttached = TRUE;                     \
     }                                           \
 }
 #else
@@ -1448,4 +1466,3 @@ Return Value:
 
 
 #endif // _CTEMACRO_H_
-

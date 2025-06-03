@@ -146,7 +146,7 @@ BOOL WINAPI Handler(ULONG CtrlType)
     (void)CtrlType;
 
     /* Close ALL files. */
-    fcloseall();
+    _fcloseall();
 
     exit(1);
     return 1;

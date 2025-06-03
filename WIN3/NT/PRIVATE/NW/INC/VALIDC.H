@@ -52,7 +52,7 @@ Revision History:
 //
 
 #define ILLEGAL_CHARS       CTRL_CHARS_STR ILLEGAL_CHARS_STR
-#define ILLEGAL_NAME_CHARS_STR  L"\"/\\[]:|<>+=;,?" CTRL_CHARS_STR
+#define ILLEGAL_NAME_CHARS_STR  L"\"/\\[]:|<>+;,?" CTRL_CHARS_STR  // "=" removed for NDS
 
 #define STANDARD_ILLEGAL_CHARS  ILLEGAL_NAME_CHARS_STR L"*"
 #define SERVER_ILLEGAL_CHARS    STANDARD_ILLEGAL_CHARS SPACE_STR
@@ -60,7 +60,7 @@ Revision History:
 //
 // Characters which may not appear in a canonicalized FAT filename are:
 //
-//  0x00 - 0x1f " * + , / : ; < = > ? [ \ ] |
+//  0x00 - 0x1f " * + , / : ; < = > ? [ \ ] |      
 //
 
 #define ILLEGAL_FAT_CHARS   CTRL_CHARS_STR L"\"*+,/:;<=>?[\\]|"

@@ -17,6 +17,14 @@ ULONG demClientErrorEx (HANDLE hFile, CHAR chDrive, BOOL bSetRegs);
 extern DOSWOWDATA DosWowData;
 extern PWORD16 pCurTDB, pCurDirOwner;
 
+//
+// This is our local array of current directory strings. A particular entry
+// is only used if the directory becomes longer than the old MS-DOS limit
+// of 67 characters.
+//
+#define MAX_DOS_DRIVES 26
+LPSTR CurDirs[MAX_DOS_DRIVES] = {NULL};
+
 
 /* GetCurrentDir - Updatess current dir in CDS structure
  *
@@ -30,7 +38,7 @@ extern PWORD16 pCurTDB, pCurDirOwner;
  */
 BOOL GetCurrentDir (PCDS pcds, UCHAR Drive)
 {
-    CHAR  EnvVar[] = "=?:";
+    static CHAR  EnvVar[] = "=?:";
     DWORD EnvVarLen;
     BOOL bStatus = TRUE;
     UCHAR FixedCount;
@@ -79,8 +87,19 @@ BOOL GetCurrentDir (PCDS pcds, UCHAR Drive)
         }
 
         if (EnvVarLen > MAXIMUM_VDM_CURRENT_DIR+3) {
-            bStatus = FALSE;
+            //
+            // The current directory on this drive is too long to fit in the
+            // cds. That's ok for a win16 app in general, since it won't be
+            // using the cds in this case. But just to be more robust, put
+            // a valid directory in the cds instead of just truncating it on
+            // the off chance that it gets used.
+            //
+            pcds->CurDir_Text[0] = EnvVar[1];
+            pcds->CurDir_Text[1] = ':';
+            pcds->CurDir_Text[2] = '\\';
+            pcds->CurDir_Text[3] = 0;
         }
+
         pcds->CurDir_Flags &= 0xFFFF - CURDIR_TOSYNC;
         pcds->CurDir_End = 2;
 
@@ -109,7 +128,7 @@ BOOL GetCurrentDir (PCDS pcds, UCHAR Drive)
 
 BOOL SetCurrentDir (LPSTR lpBuf, UCHAR Drive)
 {
-    CHAR EnvVar[] = "=?:";
+    static CHAR EnvVar[] = "=?:";
     CHAR chDrive = Drive + 'A';
     BOOL bRet = FALSE;
 
@@ -147,8 +166,8 @@ BOOL QueryCurrentDir (PCDS pcds, UCHAR Drive)
 {
     DWORD dw;
     CHAR  chDrive;
-    CHAR  pPath[]="?:\\";
-    CHAR  EnvVar[] = "=?:";
+    static CHAR  pPath[]="?:\\";
+    static CHAR  EnvVar[] = "=?:";
 
     // validate media
     chDrive = Drive + 'A';
@@ -225,7 +244,7 @@ VOID strcpyCDS (PCDS source, LPSTR dest)
 PCDS GetCDSFromDrv (UCHAR Drive)
 {
     PCDS  pCDS = NULL;
-    CHAR  pPath[]="?:\\";
+    static CHAR  pPath[]="?:\\";
     CHAR  chDrive;
      //
     // Is Drive valid?
@@ -321,7 +340,7 @@ ULONG DosWowSetDefaultDrive(UCHAR Drive)
  *
  * Entry -
  *    Drive - Drive number for directory request
- *    pszDir- pointer to receive directory
+ *    pszDir- pointer to receive directory (MUST BE OF SIZE MAX_PATH)
  *
  * Exit
  *     SUCCESS
@@ -344,6 +363,15 @@ ULONG DosWowGetCurrentDirectory(UCHAR Drive, LPSTR pszDir)
         Drive = *(PUCHAR)DosWowData.lpCurDrv;
     } else {
         Drive--;
+    }
+
+    //
+    // If the path has grown larger than the old MS-DOS path size, then
+    // get the directory from our own private array.
+    //
+    if ((Drive<MAX_DOS_DRIVES) && CurDirs[Drive]) {
+        strcpy(pszDir, CurDirs[Drive]);
+        return 0;
     }
 
     if (NULL != (pCDS = GetCDSFromDrv (Drive))) {
@@ -385,26 +413,53 @@ ULONG DosWowSetCurrentDirectory(LPSTR pszDir)
     UCHAR Drive;
     LPTSTR pLast;
     PSTR lpDirName;
-    UCHAR szPath[MAXIMUM_VDM_CURRENT_DIR+3];
+    UCHAR szPath[MAX_PATH];
     DWORD dwRet = 0xFFFF0003;       // assume error
-    CHAR  EnvVar[] = "=?:";
+    static CHAR  EnvVar[] = "=?:";
     BOOL  ItsANamedPipe = FALSE;
 
     if (':' == pszDir[1]) {
         Drive = toupper(pszDir[0]) - 'A';
     } else {
+        if (IS_ASCII_PATH_SEPARATOR(pszDir[0]) &&
+            IS_ASCII_PATH_SEPARATOR(pszDir[1])) {
+            return dwRet;       // can't update dos curdir with UNC
+        }
         Drive = *(PUCHAR)DosWowData.lpCurDrv;
     }
+
 
     if (NULL != (pCDS = GetCDSFromDrv (Drive))) {
 
         lpDirName = NormalizeDosPath(pszDir, Drive, &ItsANamedPipe);
 
-        GetFullPathName(lpDirName, MAXIMUM_VDM_CURRENT_DIR+3, szPath, &pLast);
+        GetFullPathNameOem(lpDirName, MAX_PATH, szPath, &pLast);
 
         if (SetCurrentDir(szPath, Drive)) {
             PTDB pTDB;
-            strcpy(&pCDS->CurDir_Text[0], szPath);
+
+            //
+            // If the directory is growing larger than the old MS-DOS max,
+            // then remember the path in our own array. If it is shrinking,
+            // then free up the string we allocated earlier.
+            //
+            if (strlen(szPath) > MAXIMUM_VDM_CURRENT_DIR+3) {
+                if ((!CurDirs[Drive]) &&
+                    (NULL == (CurDirs[Drive] = malloc_w(MAX_PATH)))) {
+                    return dwRet;
+                }
+                strcpy(CurDirs[Drive], &szPath[3]);
+                // put a valid directory in cds just for robustness' sake
+                strncpy(&pCDS->CurDir_Text[0], szPath, 3);
+                pCDS->CurDir_Text[3] = 0;
+            } else {
+                if (CurDirs[Drive]) {
+                    free_w(CurDirs[Drive]);
+                    CurDirs[Drive] = NULL;
+                }
+                strcpy(&pCDS->CurDir_Text[0], szPath);
+            }
+
             dwRet = 0;
 
             //
@@ -419,7 +474,7 @@ ULONG DosWowSetCurrentDirectory(LPSTR pszDir)
                     if ((pTDB->TDB_Drive&TDB_DIR_VALID) &&
                         (*(PUCHAR)DosWowData.lpCurDrv == Drive) &&
                         ((Drive != (pTDB->TDB_Drive & ~TDB_DIR_VALID)) ||
-                            (strcmp(&szPath[2], pTDB->TDB_Directory)))) {
+                            (strcmp(&szPath[2], pTDB->TDB_LFNDirectory)))) {
                         pTDB->TDB_Drive &= ~TDB_DIR_VALID;
                     }
                 }
@@ -438,14 +493,14 @@ ULONG DosWowSetCurrentDirectory(LPSTR pszDir)
 // Entry -
 //    fDir - specifies which directory should be updated
 //
-// Exit - 
+// Exit -
 //    TRUE if the update was successful, FALSE otherwise
 //
 // Notes:
 //
 // There are actually three different current directories:
 // - The WIN32 current directory (this is really the one that counts)
-// - The DOS current directory, kept on a per drive basis 
+// - The DOS current directory, kept on a per drive basis
 // - The TASK current directory, kept in the TDB of a win16 task
 //
 // It is the responsibility of this routine to effectively copy the contents
@@ -463,9 +518,9 @@ BOOL UpdateDosCurrentDirectory(UDCDFUNC fDir)
 
         case DIR_DOS_TO_NT: {
 
-            UCHAR szPath[MAXIMUM_VDM_CURRENT_DIR+5] = "?:\\";
+            UCHAR szPath[MAX_PATH] = "?:\\";
             PTDB pTDB;
-           
+
             WOW32ASSERT(DosWowData.lpCurDrv != (ULONG) NULL);
 
             if ((*pCurTDB) && (*pCurDirOwner != *pCurTDB)) {
@@ -476,7 +531,7 @@ BOOL UpdateDosCurrentDirectory(UDCDFUNC fDir)
                     (pTDB->TDB_Drive & TDB_DIR_VALID)) {
 
                     szPath[0] = 'A' + (pTDB->TDB_Drive & ~TDB_DIR_VALID);
-                    strcpy(&szPath[2], pTDB->TDB_Directory);
+                    strcpy(&szPath[2], pTDB->TDB_LFNDirectory);
 
                     SetCurrentDirectoryOem(szPath);
                     break;          // EXIT case
@@ -485,7 +540,13 @@ BOOL UpdateDosCurrentDirectory(UDCDFUNC fDir)
 
 
             szPath[0] = *(PUCHAR)DosWowData.lpCurDrv + 'A';
-            
+
+            if (CurDirs[*(PUCHAR)DosWowData.lpCurDrv]) {
+                SetCurrentDirectoryOem(CurDirs[*(PUCHAR)DosWowData.lpCurDrv]);
+                lReturn = TRUE;
+                break;
+            }
+
             if (DosWowGetCurrentDirectory(0, &szPath[3])) {
                 LOGDEBUG(LOG_ERROR, ("DowWowGetCurrentDirectory failed\n"));
             } else {
@@ -497,22 +558,21 @@ BOOL UpdateDosCurrentDirectory(UDCDFUNC fDir)
 
         case DIR_NT_TO_DOS: {
 
-            UCHAR szPath[MAXIMUM_VDM_CURRENT_DIR+5];
-           
-            if (((GetCurrentDirectoryOem(0, NULL)+1) > MAXIMUM_VDM_CURRENT_DIR+5)||
-                (!GetCurrentDirectoryOem(MAXIMUM_VDM_CURRENT_DIR+5, &szPath[0]))) {
-           
+            UCHAR szPath[MAX_PATH];
+
+            if (!GetCurrentDirectoryOem(MAX_PATH, szPath)) {
+
                 LOGDEBUG(LOG_ERROR, ("DowWowSetCurrentDirectory failed\n"));
-           
+
             } else {
-           
+
                 LOGDEBUG(LOG_WARNING, ("UpdateDosCurrentDirectory: %s\n", &szPath[0]));
                 if (szPath[1] == ':') {
                     DosWowSetDefaultDrive((UCHAR) (szPath[0] - 'A'));
                     DosWowSetCurrentDirectory(szPath);
                     lReturn = TRUE;
                 }
-           
+
             }
             break;
         }
@@ -574,14 +634,16 @@ ULONG FASTCALL WK32SetCurrentDirectory(PVDMFRAME pFrame)
 
     PWOWSETCURRENTDIRECTORY16   parg16;
     LPSTR pszDir;
+    ULONG dwRet;
 
     GETARGPTR(pFrame, sizeof(WOWSETCURRENTDIRECTORY16), parg16);
-
-    pszDir = GetPModeVDMPointer(FETCHDWORD(parg16->lpCurDir), 4);
-
+    GETVDMPTR(parg16->lpCurDir, 4, pszDir);
     FREEARGPTR(parg16);
 
-    return (DosWowSetCurrentDirectory (pszDir));
+    dwRet = DosWowSetCurrentDirectory (pszDir);
+
+    FREEVDMPTR(pszDir);
+    return(dwRet);
 
 }
 
@@ -591,15 +653,16 @@ ULONG FASTCALL WK32SetCurrentDirectory(PVDMFRAME pFrame)
  *
  * Entry -
  *    DWORD lpDosData    = pointer to DosWowData structure in DOS
- *    parg16->lpDosDirectory - pointer to real mode DOS pdb variable
- *    parg16->wNewDirectory  - 16-bit pmode selector for new Directory
+ *    parg16->lpCurDir  - pointer to buffer to receive directory
+ *    parg16->wDriveNum - Drive number requested
+ *                        Upper bit (0x80) is set if the caller wants long path
  *
  * Exit
  *     SUCCESS
  *       0
  *
  *     FAILURE
- *       system status code
+ *       DOS error code (000f)
  *
  */
 ULONG FASTCALL WK32GetCurrentDirectory(PVDMFRAME pFrame)
@@ -607,16 +670,44 @@ ULONG FASTCALL WK32GetCurrentDirectory(PVDMFRAME pFrame)
     PWOWGETCURRENTDIRECTORY16   parg16;
     LPSTR pszDir;
     UCHAR Drive;
+    ULONG dwRet;
 
     GETARGPTR(pFrame, sizeof(WOWGETCURRENTDIRECTORY16), parg16);
-
-    pszDir = GetPModeVDMPointer(FETCHDWORD(parg16->lpCurDir), 4);
-
+    GETVDMPTR(parg16->lpCurDir, 4, pszDir);
     Drive = (UCHAR) parg16->wDriveNum;
-
     FREEARGPTR(parg16);
 
-    return (DosWowGetCurrentDirectory (Drive, pszDir));
+    if (Drive<0x80) {
+        UCHAR ChkDrive;
+
+        //
+        // Normal GetCurrentDirectory call.
+        // If the path has grown larger than the old MS-DOS path size, then
+        // return error, just like on win95.
+        //
+
+        if (Drive == 0) {
+            ChkDrive = *(PUCHAR)DosWowData.lpCurDrv;
+        } else {
+            ChkDrive = Drive-1;
+        }
+        if ((Drive<MAX_DOS_DRIVES) && CurDirs[ChkDrive]) {
+            return 0xFFFF000F;
+        }
+
+    } else {
+
+        //
+        // the caller wants the long path path
+        //
+
+        Drive &= 0x7f;
+    }
+
+    dwRet = DosWowGetCurrentDirectory (Drive, pszDir);
+
+    FREEVDMPTR(pszDir);
+    return(dwRet);
 
 }
 
@@ -646,6 +737,12 @@ ULONG FASTCALL WK32GetCurrentDate(PVDMFRAME pFrame)
 }
 
 
+#if 0
+/* The following routine will probably never be used because we allow
+   WOW apps to set a local time within the WOW. So we really want apps
+   that read the time with int21 to go down to DOS where this local time
+   is kept. But if we ever want to return the win32 time, then this
+   routine will do it. */
 /* WK32GetCurrentTime - Emulate DOS Get current Time call
  *
  *
@@ -670,6 +767,7 @@ ULONG FASTCALL WK32GetCurrentTime(PVDMFRAME pFrame)
                      ));
 
 }
+#endif
 
 /* WK32DeviceIOCTL - Emulate misc. DOS IOCTLs
  *
@@ -688,7 +786,7 @@ ULONG FASTCALL WK32DeviceIOCTL(PVDMFRAME pFrame)
     UCHAR Cmd;
     DWORD dwReturn = 0xFFFF0001;        // error invalid function
     UINT uiDriveStatus;
-    CHAR  pPath[]="?:\\";
+    static CHAR  pPath[]="?:\\";
 
     GETARGPTR(pFrame, sizeof(WOWDEVICEIOCTL16), parg16);
 

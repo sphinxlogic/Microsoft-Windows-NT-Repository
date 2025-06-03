@@ -39,7 +39,7 @@ typedef struct TDIObjectID {
 	ulong		toi_id;
 } TDIObjectID;
 
-#define	MAX_TDI_ENTITIES			32
+#define	MAX_TDI_ENTITIES			512
 
 #define	INFO_CLASS_GENERIC			0x100
 #define	INFO_CLASS_PROTOCOL			0x200
@@ -138,4 +138,3 @@ typedef struct tcp_request_set_information_ex
 
 #endif // TDI_INFO_INCLUDED
 
-

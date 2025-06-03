@@ -56,7 +56,7 @@ Return Value:
     KPCR Kpcr;
     PKPCR Pkpcr;
     ULONG ProcessorNumber = 0;
-    ULONG ProcessorType;
+    ULONG ProcessorLevel;
     ULONG ProcessorRevision;
 
     //jnfix - get processor number, may require changes in the stub too
@@ -72,24 +72,24 @@ Return Value:
         return;
     }
 
-    ProcessorType = Kpcr.ProcessorType;
+    ProcessorLevel = Kpcr.ProcessorType;
     ProcessorRevision = Kpcr.ProcessorRevision;
 
-    dprintf( "Processor %d : Type = %d, Revision = %d\n",
-             ProcessorNumber, ProcessorType, ProcessorRevision );
+    dprintf( "Processor %d : Level = %d, Revision = %d\n",
+             ProcessorNumber, ProcessorLevel, ProcessorRevision );
 
     //
     // Read and format the internal processor data based upon the type
     // of the processor.
     //
 
-    switch( ProcessorType ){
+    switch( ProcessorLevel ){
 
         //
         // 21064 a.k.a. EV4
         //
 
-        case PROCESSOR_ALPHA_21064:
+        case 21064:
             DumpCounters21064( ProcessorNumber, ProcessorRevision );
             break;
 
@@ -142,7 +142,7 @@ Return Value:
     //
 
     ReadControlSpace((USHORT)Processor,
-                     (PVOID)DEBUG_CONTROL_SPACE_COUNTERS,
+                     DEBUG_CONTROL_SPACE_COUNTERS,
                      (PVOID)&Counters,
                      sizeof(COUNTERS_21064) );
 
@@ -366,12 +366,9 @@ Return Value:
             Counters.Misc2Count.HighPart,
             Counters.Misc2Count.LowPart );
 
-    dprintf( "%12s: 0x%08lx%08lx    %12s: 0x%08lx%08lx\n",
+    dprintf( "%12s: 0x%08lx%08lx\n",
             "misc3",
             Counters.Misc3Count.HighPart,
-            Counters.Misc3Count.LowPart,
-            "misc4",
-            Counters.Misc4Count.HighPart,
-            Counters.Misc4Count.LowPart );
+            Counters.Misc3Count.LowPart);
     return;
 }

@@ -34,40 +34,48 @@
 #endif
 
 #ifdef JAPAN
+static char tzstd[11] = { "JST" };
+static char tzdst[11] = { "\0\0\0" };
+#else
+static char tzstd[11] = { "PST" };
+static char tzdst[11] = { "PDT" };
+#endif
 
-long _VARTYPE1 _timezone = (-9)*3600L;	/* Japanese Time */
-int _VARTYPE1 _daylight = 0;		/* no Daylight Savings Time */
-char * _VARTYPE1 _tzname[2] = {
-	"JST", "\0\0\0"};
+
+#ifdef JAPAN
+
+long _timezone = (-9)*3600L;	/* Japanese Time */
+int  _daylight = 0;		/* no Daylight Savings Time */
 
 #else /* JAPAN */
 #ifdef IBMC2
 
-long _VARTYPE1 _timezone = 5*3600L;	/* Eastern Time */
-int _VARTYPE1 _daylight = 1;		/* Daylight Savings Time */
+long _timezone = 5*3600L;	/* Eastern Time */
+int  _daylight = 1;		/* Daylight Savings Time */
 					/* when appropriate */
-char * _VARTYPE1 _tzname[2] = {"EST", "EDT"};
-
 #else /* IBMC2 */
 
-long _VARTYPE1 _timezone = 8*3600L;	/* Pacific Time */
-int _VARTYPE1 _daylight = 1;		/* Daylight Savings Time */
+long _timezone = 8*3600L;	/* Pacific Time */
+int  _daylight = 1;		/* Daylight Savings Time */
 					/* when appropriate */
-char * _VARTYPE1 _tzname[2] = {"PST", "PDT"};
-
 #endif /* IBMC2 */
 #endif /* JAPAN */
 
+char * _tzname[2] = {tzstd, tzdst };
+
 #else /* _POSIX_ */
 
-long _VARTYPE1 _timezone = 8*3600L;	/* Pacific Time */
-int _VARTYPE1 _daylight = 1;		/* Daylight Savings Time */
+long _timezone = 8*3600L;	/* Pacific Time */
+int  _daylight = 1;		/* Daylight Savings Time */
 					/* when appropriate */
 
-char _VARTYPE1 *tzname[2] = { "PST\0\0\0\0\0\0\0\0",
-			      "PDT\0\0\0\0\0\0\0\0" };
-char _VARTYPE1 *_rule;
-long _VARTYPE1 _dstoffset = 3600L;
+static char tzstd[11] = { "PST" };
+static char tzdst[11] = { "PDT" };
+
+char * tzname[2] = {tzstd, tzdst };
+
+char *_rule;
+long _dstoffset = 3600L;
 
 #endif /* _POSIX_ */
 

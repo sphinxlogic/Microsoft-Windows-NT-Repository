@@ -27,6 +27,7 @@ Revision History:
 
 #include "precomp.h"
 #pragma hdrstop
+#include "stdarg.h"
 
 NTSTATUS
 RdrProcessDeleteOnClose(
@@ -92,7 +93,7 @@ Return Value:
 
     FsRtlEnterFileSystem();
 
-    RdrLog( "cleanup", &Fcb->FileName, 0, 0 );
+    //RdrLog(( "cleanup", &Fcb->FileName, 0 ));
 
     dprintf(DPRT_CLEANUP|DPRT_DISPATCH, ("RdrFsdCleanup: FileObject: %lx File: %lx (%wZ)\n", FileObject, Fcb, &Fcb->FileName));
 
@@ -156,7 +157,7 @@ Return Value:
     }
 
     if ((Icb->Type == Directory) &&
-        FlagOn(Icb->Fcb->Connection->Server->Capabilities, DF_NT_SMBS)) {
+        FlagOn(Fcb->Connection->Server->Capabilities, DF_NT_SMBS)) {
 
         //
         //  Mark the file as being forced closed in case a posted notify
@@ -213,9 +214,8 @@ Return Value:
 
             KeQuerySystemTime(&CurrentTime);
 
-            Icb->Fcb->LastWriteTime = CurrentTime;
-
-            Icb->Fcb->ChangeTime = CurrentTime;
+            Fcb->LastWriteTime = CurrentTime;
+            Fcb->ChangeTime = CurrentTime;
         }
 
     }
@@ -313,7 +313,7 @@ Return Value:
         //  make sure they are unlocked.
         //
 
-        (VOID) FsRtlFastUnlockAll( &Icb->Fcb->FileLock,
+        (VOID) FsRtlFastUnlockAll( &Fcb->FileLock,
                                    FileObject,
                                    IoGetRequestorProcess( Irp ),
                                    Icb );
@@ -323,6 +323,17 @@ Return Value:
         //
 
         RdrWaitForAndXBehindOperation(&Icb->u.f.AndXBehind);
+
+        //
+        //  Set the CLEANUP_COMPLETE flag so that we don't try to
+        //  reinitialize the cache map.  If a read or write initializes
+        //  the cache map after we uninitialize it below, the
+        //  reinitialized cache map will hang around forever, and maybe
+        //  cause a crash in the cache manager after the file object
+        //  disappears.
+        //
+
+        FileObject->Flags |= FO_CLEANUP_COMPLETE;
 
         //
         //  If the file is cached, remove it from the cache.
@@ -343,9 +354,11 @@ Return Value:
                 if (!NT_SUCCESS(Status)) {
 
 #if MAGIC_BULLET
-                    RdrSendMagicBullet(NULL);
-                    DbgPrint( "RDR: About to raise close behind hard error for IRP %x\n", Irp );
-                    DbgBreakPoint();
+                    if ( RdrEnableMagic ) {
+                        RdrSendMagicBullet(NULL);
+                        DbgPrint( "RDR: About to raise close behind hard error for IRP %x\n", Irp );
+                        DbgBreakPoint();
+                    }
 #endif
                     IoRaiseInformationalHardError(Status, NULL, Irp->Tail.Overlay.Thread);
 
@@ -363,7 +376,7 @@ Return Value:
                 //
 
                 RdrWaitForWriteBehindOperation(Icb);
-                RdrLog( "clean2", &Fcb->FileName, 0, 0 );
+                //RdrLog(( "clean2", &Fcb->FileName, 0 ));
 
             }
 
@@ -381,7 +394,7 @@ Return Value:
 
             if ((Icb->u.f.Flags & ICBF_OPLOCKED) &&
                 (Icb->u.f.OplockLevel == SMB_OPLOCK_LEVEL_BATCH) &&
-                (Icb->Fcb->SharingCheckFcb == NULL)) {
+                (Icb->NonPagedFcb->SharingCheckFcb == NULL)) {
 
                 dprintf(DPRT_CACHE, ("Removing file %lx (Fcb %lx) from the cache (soft)\n", FileObject, Fcb));
 
@@ -392,7 +405,7 @@ Return Value:
                 //  Delete" logic.
                 //
 
-                RdrLog( "ccunini2", &Icb->Fcb->FileName, 0xffffffff, 0 );
+                //RdrLog(( "ccunini2", &Fcb->FileName, 1, 0xffffffff ));
                 CcUninitializeCacheMap(FileObject, NULL, NULL);
 
             } else {
@@ -401,7 +414,7 @@ Return Value:
                 //  Flush the file from the cache.
                 //
 
-                RdrLog( "rdflshc2", &Icb->Fcb->FileName, 0, 0 );
+                //RdrLog(( "rdflshc2", &Fcb->FileName, 0 ));
                 RdrFlushFileObjectForClose(Irp, FileObject, Icb);
 
                 //
@@ -417,7 +430,7 @@ Return Value:
                     //  WARNING: This will release and re-acquire the FCB lock
                     //
 
-                    RdrLog( "rdunini2", &Fcb->FileName, 0, 0 );
+                    //RdrLog(( "rdunini2", &Fcb->FileName, 0 ));
                     RdrUninitializeCacheMap(FileObject, &RdrZero);
 
                 } else {
@@ -434,7 +447,7 @@ Return Value:
                     //  WARNING: This will release and re-acquire the FCB lock
                     //
 
-                    RdrLog( "rdunini3", &Fcb->FileName, 0xffffffff, 0 );
+                    //RdrLog(( "rdunini3", &Fcb->FileName, 1, 0xffffffff ));
                     RdrUninitializeCacheMap(FileObject, NULL);
                 }
 
@@ -447,7 +460,7 @@ Return Value:
                 //  if the executable in question is still running.
                 //
 
-                RdrLog( "mmflush2", &Fcb->FileName, MmFlushForWrite, 0 );
+                //RdrLog(( "mmflush2", &Fcb->FileName, 1, MmFlushForWrite ));
                 MmFlushImageSection(&Fcb->NonPagedFcb->SectionObjectPointer,
                                     MmFlushForWrite);
 
@@ -457,7 +470,7 @@ Return Value:
                 //  section closed to make sure that they are cleaned up.
                 //
 
-                RdrLog( "mmforce2", &Fcb->FileName, TRUE, 0 );
+                //RdrLog(( "mmforce2", &Fcb->FileName, 1, TRUE ));
                 MmForceSectionClosed(&Fcb->NonPagedFcb->SectionObjectPointer, TRUE);
             }
         } else {
@@ -477,7 +490,7 @@ Return Value:
             //  WARNING: This will release and re-acquire the FCB lock
             //
 
-            RdrLog( "rdunini3", &Fcb->FileName, 0, 0 );
+            //RdrLog(( "rdunini3", &Fcb->FileName, 0 ));
             RdrUninitializeCacheMap(FileObject, &RdrZero);
         }
 
@@ -498,13 +511,13 @@ Return Value:
         (Icb->Type != PrinterFile) &&
         (Icb->Type != Com)) {
 
-        if (Icb->Fcb->SharingCheckFcb != NULL) {
-            ShareAccess = &Icb->Fcb->SharingCheckFcb->ShareAccess;
+        if (Icb->NonPagedFcb->SharingCheckFcb != NULL) {
+            ShareAccess = &Icb->NonPagedFcb->SharingCheckFcb->ShareAccess;
         } else {
             ShareAccess = &Icb->Fcb->ShareAccess;
         }
 
-        dprintf(DPRT_CLEANUP, ("Removing share access for file object %08lx, Fcb = %08lx, ShareAccess=%08lx\n", FileObject, Icb->Fcb, ShareAccess));
+        dprintf(DPRT_CLEANUP, ("Removing share access for file object %08lx, Fcb = %08lx, ShareAccess=%08lx\n", FileObject, Fcb, ShareAccess));
 
         RdrRemoveShareAccess(FileObject, ShareAccess);
     }
@@ -569,15 +582,17 @@ RdrFlushFileObjectForClose(
         //  First flush the file's dirty data from the cache.
         //
 
-        RdrLog( "ccflush3", &Fcb->FileName, 0xffffffff, 0 );
+        //RdrLog(( "ccflush3", &Fcb->FileName, 1, 0xffffffff ));
         CcFlushCache(FileObject->SectionObjectPointer, NULL, 0, &IoSb);
 
         if (!NT_SUCCESS(IoSb.Status)) {
 
 #if MAGIC_BULLET
-            RdrSendMagicBullet(NULL);
-            DbgPrint( "RDR: About to raise close behind lost data hard error for IRP %x\n", Irp );
-            DbgBreakPoint();
+            if ( RdrEnableMagic ) {
+                RdrSendMagicBullet(NULL);
+                DbgPrint( "RDR: About to raise close behind lost data hard error for IRP %x\n", Irp );
+                DbgBreakPoint();
+            }
 #endif
             IoRaiseInformationalHardError(IoSb.Status, NULL,
                                           Irp->Tail.Overlay.Thread);
@@ -592,7 +607,16 @@ RdrFlushFileObjectForClose(
                                 NULL,
                                 0
                                 );
+        } else {
+
+            //
+            // Serialize behind paging I/O to ensure flush is done.
+            //
+
+            ExAcquireResourceExclusive(Icb->Fcb->Header.PagingIoResource, TRUE);
+            ExReleaseResource(Icb->Fcb->Header.PagingIoResource);
         }
+
     }
 }
 
@@ -655,7 +679,7 @@ close has finally completed.
 
     FsRtlEnterFileSystem();
 
-    RdrLog( "close", &Fcb->FileName, 0, 0 );
+    //RdrLog(( "close", &Fcb->FileName, 0 ));
 
     Se = Icb->Se;
 
@@ -717,18 +741,29 @@ close has finally completed.
 
             if (Icb->Flags & ICB_HASHANDLE ) {
                 LONG NumberOfOpenFiles = 0;
+                LONG TotalNumberOfFiles = 0;
                 PLIST_ENTRY IcbEntry;
 
+
+
+#ifdef _CAIRO_  //  OFS STORAGE
+                //
+                //  Release any pending searches.  We do this on all file
+                //  and dir handles since OFS supports enumeration of embeddings
+                //  through file handles
+                //
+
+                Status = RdrFindClose (Irp, Icb, Icb->u.d.Scb);
+#else
                 //
                 //  If this is a directory, close any outstanding searches on
                 //  the file.
                 //
 
                 if (Icb->Type == Directory) {
-                    Status = RdrFindClose(Irp, Icb, Icb->u.d.Scb);
+                  Status = RdrFindClose(Irp, Icb, Icb->u.d.Scb);
                 }
-
-
+#endif
                 //
                 //  Count the number of ICB's associated with this FCB that have
                 //  the same file id as the one we are trying to close.  If it is the
@@ -750,6 +785,12 @@ close has finally completed.
                         (IcbToFlush->FileId == Icb->FileId)) {
 
                             NumberOfOpenFiles += 1;
+                    }
+
+                    if (IcbToFlush->Flags & ICB_HASHANDLE) {
+
+                        TotalNumberOfFiles += 1;
+
                     }
                 }
 
@@ -798,6 +839,10 @@ close has finally completed.
 
                     Status = RdrCloseFile(Irp, Icb, FileObject, TRUE);
 
+                    if ((TotalNumberOfFiles == 1) &&
+                            (FlagOn(Fcb->NonPagedFcb->Flags,FCB_DELETEONCLOSE))) {
+                        RdrProcessDeleteOnClose( Irp, Icb );
+                    }
 #ifdef NOTIFY
                     //
                     //  We call the notify package to report that the
@@ -1018,10 +1063,14 @@ RdrProcessDeleteOnClose(
 
     if (!FlagOn(fcb->NonPagedFcb->Flags, FCB_DOESNTEXIST)) {
         if (Icb->Type == DiskFile) {
-            status = RdrDeleteFile(Irp, &fcb->FileName, fcb->Connection, Icb->Se);
+            status = RdrDeleteFile(
+                        Irp, &fcb->FileName,
+                        BooleanFlagOn(Icb->NonPagedFcb->Flags, FCB_DFSFILE),
+                        fcb->Connection, Icb->Se);
         } else if (Icb->Type == Directory) {
             status = RdrGenericPathSmb(Irp,
                                         SMB_COM_DELETE_DIRECTORY,
+                                        BooleanFlagOn(Icb->NonPagedFcb->Flags, FCB_DFSFILE),
                                         &fcb->FileName,
                                         fcb->Connection,
                                         Icb->Se);
@@ -1050,32 +1099,39 @@ RdrProcessDeleteOnClose(
     return status;
 }
 
-#if RDRDBG_LOG
-#define RDR_LOG_MAX 1024
+#if DBG || RDRDBG_LOG
+#define RDR_LOG_MAX 2048
 #define RDR_LOG_EVENT_LENGTH 8
-#define RDR_LOG_TEXT_LENGTH 40
+#define RDR_LOG_DWORDS_LENGTH 12
+#define RDR_LOG_TEXT_LENGTH 4
 
 ULONG RdrLogIndex = 0;
 typedef struct {
     UCHAR Event[RDR_LOG_EVENT_LENGTH];
-    ULONG Dword1;
-    ULONG Dword2;
+    ULONG Dwords[RDR_LOG_DWORDS_LENGTH];
     WCHAR Text[RDR_LOG_TEXT_LENGTH];
 } RDR_LOG, *PRDR_LOG;
 RDR_LOG RdrLogBuffer[RDR_LOG_MAX] = {0};
 
+BOOLEAN RdrLogDisabled = FALSE;
+
 VOID
-RdrLog (
+RdrLog2 (
     IN PSZ Event,
     IN PUNICODE_STRING Text,
-    IN ULONG Dword1,
-    IN ULONG Dword2
+    IN ULONG DwordCount,
+    ...
     )
 {
     PRDR_LOG log;
     KIRQL oldIrql;
     PWCH buff;
     ULONG len;
+    ULONG index;
+    PULONG dword;
+    va_list arglist;
+
+    if (RdrLogDisabled) return;
 
     KeRaiseIrql( DISPATCH_LEVEL, &oldIrql );
     log = &RdrLogBuffer[RdrLogIndex];
@@ -1087,6 +1143,7 @@ RdrLog (
     RtlZeroMemory( log, sizeof(RDR_LOG) );
 
     strncpy( log->Event, Event, RDR_LOG_EVENT_LENGTH );
+
     if ( Text != NULL ) {
         buff = Text->Buffer;
         len = Text->Length/sizeof(WCHAR);
@@ -1096,8 +1153,12 @@ RdrLog (
         }
         wcsncpy( log->Text, buff, len );
     }
-    log->Dword1 = Dword1;
-    log->Dword2 = Dword2;
+
+    va_start( arglist, DwordCount );
+    dword = log->Dwords;
+    for ( index = 0; index < MIN(DwordCount,RDR_LOG_DWORDS_LENGTH); index++ ) {
+        *dword++ = va_arg( arglist, ULONG );
+    }
 
     return;
 }

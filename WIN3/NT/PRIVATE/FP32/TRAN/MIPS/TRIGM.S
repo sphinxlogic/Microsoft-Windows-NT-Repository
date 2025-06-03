@@ -16,13 +16,14 @@
 /* $Header: trig.s,v 3000.3.1.2 91/06/10 15:18:21 karen Exp $ */
 /* Algorithm from 4.3bsd */
 
+/*
+ * Original fcsr is saved in t6.  Do not use t6 as a temp register!
+ */
 
-
-.globl sin	/* double sin(double x) */
-.globl cos	/* double cos(double x) */
-.globl tan	/* double tan(double x) */
 
 #include <kxmips.h>
+#include "trans.h"
+#include "fpieee.h"
 
 #define	PIo4	 7.8539816339744828E-1
 #define OoPIo2	 6.3661977236758138E-1
@@ -32,6 +33,7 @@
 #define half	 0.5
 #define one	 1.0
 #define thresh	 5.2234479296242364e-01
+#define Ymax     2.98156826864790199324e8; /* 2^(53/2)*PI/2 */
 
 
 #define S0	-1.6666666666666463126E-1
@@ -48,17 +50,29 @@
 #define C4	 2.0873958177697780076E-9
 #define C5	-1.1250289076471311557E-11
 
+#undef	FSIZE
+#define	FSIZE	16
+
+.text .text$trigm
+.globl cos	/* double cos(double x) */
 .ent cos
 cos:
-	.frame	sp, 0, ra
-    .prologue 0
+	.frame	sp, FSIZE, ra
+	subu	sp, FSIZE
+	sw	ra, FSIZE-4(sp)
+	.prologue 1
 	cfc1	t6, $31		// t6 original fcsr
 	ctc1	$0, $31		// set round to zero, no traps
 	li	t7, 1
 
-	/* reduce to [-PI/4,+PI/4] */
-	li.d	$f10, PIo4
+	// if |x| >= 2^63 generate _TLOSS and return indefinite
+	li.d	$f16, Ymax
 	abs.d	$f0, $f12
+	c.olt.d	$f0, $f16
+	li.d	$f10, PIo4
+	bc1f	cos_err
+
+	/* reduce to [-PI/4,+PI/4] */
 	c.olt.d	$f0, $f10
 	li.d	$f16, Xmax
 	bc1t	cos1		// in range, no reduction necessary
@@ -128,23 +142,46 @@ cos:
 	addu	t7, t0
 	b	1b
 
+cos_err:
+	// |x| >= 2^63
+	ctc1	t6, $31		// restore original fcsr
+	li	a1, OP_COS	// operation code (funtion name index)
+	jal	set_trigm_err
+	b cosret1
+
 9:	/* x is NaN or Infinity */
-	ctc1	t6, $31
-	sub.d	$f0, $f12, $f12
+	/* sub.d	$f0, $f12, $f12 */
+ 	mov.d   $f0, $f12
+
+cosret:
+	ctc1	t6, $31		// restore original fcsr
+cosret1:
+	lw	ra, FSIZE-4(sp)
+	addu	sp, FSIZE
 	j	ra
 .end cos
 
+
+.text .text$trigm
+.globl sin	/* double sin(double x) */
 .ent sin
 sin:
-	.frame	sp, 0, ra
-    .prologue 0
+	.frame	sp, FSIZE, ra
+	subu	sp, FSIZE
+	sw	ra, FSIZE-4(sp)
+	.prologue 1
 	cfc1	t6, $31		// t6 original fcsr
 	ctc1	$0, $31		// set round to zero, no traps
 	li	t7, 0
 
-	/* reduce to [-PI/4,+PI/4] */
-	li.d	$f10, PIo4
+	// if |x| >= 2^63 generate _TLOSS and return indefinite
+	li.d	$f16, Ymax
 	abs.d	$f0, $f12
+	c.olt.d	$f0, $f16
+	li.d	$f10, PIo4
+	bc1f	sin_err
+
+	/* reduce to [-PI/4,+PI/4] */
 	c.olt.d	$f0, $f10
 	li.d	$f16, Xmax
 	bc1t	sin1		// in range, no reduction necessary
@@ -199,9 +236,8 @@ sin1:	/* compute sin(x) for x in [-PI/4,PI/4] */
 	add.d	$f0, $f4
 	mul.d	$f0, $f8
 	mul.d	$f0, $f12
-	ctc1	t6, $31		// restore original fcsr
 	add.d	$f0, $f12
-	j	ra
+	b	sinret
 
 cos1:	/* compute cos(x) for x in [-PI/4,PI/4] */
 	/* z = x*x, c = z*z*(C0+z*(C1+z*(C2+z*(C3+z*(C4+z*C5))))) */
@@ -239,12 +275,11 @@ cos1:	/* compute cos(x) for x in [-PI/4,PI/4] */
 	sub.d	$f8, $f14, $f0
 5:
 	and	t0, t7, 2
-	ctc1	t6, $31
 	bne	t0, 0, 6f
 	sub.d	$f0, $f16, $f8
-	j	ra
+	b	sinret
 6:	sub.d	$f0, $f8, $f16
-	j	ra
+	b	sinret
 
 8:	/* |round(x/(PI/2))| > 2^26 or x is NaN */
 	mfc1	t0, $f13
@@ -282,23 +317,47 @@ cos1:	/* compute cos(x) for x in [-PI/4,PI/4] */
 	addu	t7, t0
 	b	1b
 
+sin_err:
+	// |x| >= 2^63
+	ctc1	t6, $31		// restore original fcsr
+	li	a1, OP_SIN	// operation code (funtion name index)
+	jal	set_trigm_err
+	b sinret1
+
 9:	/* x is NaN or Infinity */
-	ctc1	t6, $31
-	sub.d	$f0, $f12, $f12
+	/* sub.d	$f0, $f12, $f12 */
+	mov.d	$f0,$f12
+
+sinret:
+	ctc1	t6, $31		// restore original fcsr
+sinret1:
+	lw	ra, FSIZE-4(sp)
+	addu	sp, FSIZE
 	j	ra
 .end sin
 
+
+/* leave tan in its own section */
+.text
+.globl tan	/* double tan(double x) */
 .ent tan
 tan:
-	.frame	sp, 0, ra
-    .prologue 0
+	.frame	sp, FSIZE, ra
+	subu	sp, FSIZE
+	sw	ra, FSIZE-4(sp)
+	.prologue 1
 	cfc1	t6, $31		// t6 original fcsr
 	ctc1	$0, $31		// set round to zero, no exceptions
 	li	t7, 0
 
-	/* reduce to [-PI/4,+PI/4] */
-	li.d	$f10, PIo4
+	// if |x| >= 2^63 generate _TLOSS and return indefinite
+	li.d	$f16, Ymax
 	abs.d	$f0, $f12
+	c.olt.d	$f0, $f16
+	li.d	$f10, PIo4
+	bc1f	tan_err
+
+	/* reduce to [-PI/4,+PI/4] */
 	c.olt.d	$f0, $f10
 	li.d	$f16, Xmax
 	bc1t	3f
@@ -400,16 +459,14 @@ tan:
 	sub.d	$f0, $f14, $f4
 	mul.d	$f0, $f12
 	div.d	$f0, $f6
-	ctc1	t6, $31
 	add.d	$f0, $f12
-	j	ra
+	b	tanret
 
 6:	/* tan(x) = c/(x+x*ss) */
 	mul.d	$f2, $f12
 	add.d	$f2, $f12
-	ctc1	t6, $31
 	div.d	$f0, $f6, $f2
-	j	ra
+	b	tanret
 
 8:	/* |round(x/(PI/2))| > 2^26 or x is NaN */
 	mfc1	t0, $f13
@@ -447,9 +504,50 @@ tan:
 	addu	t7, t0
 	b	1b
 
+tan_err:
+	// |x| >= 2^63
+	ctc1	t6, $31		// restore original fcsr
+	li	a1, OP_TAN	// operation code (funtion name index)
+	jal	set_trigm_err
+	b	tanret1
+
+// REVIEW is this correct?
 9:	/* x is NaN or Infinity */
-	ctc1	t6, $31
 	sub.d	$f0, $f12, $f12
 	mov.d	$f2, $f0
+
+tanret:
+	ctc1	t6, $31		// restore original fcsr
+tanret1:
+	lw	ra, FSIZE-4(sp)
+	addu	sp, FSIZE
 	j	ra
 .end tan
+
+.extern _except1
+
+.text .text$trigm
+.ent set_trigm_err
+set_trigm_err:
+#undef FSIZE
+#define FSIZE 48
+	.frame  sp, FSIZE, ra
+	.mask   0x80000000, -4
+	subu    sp, FSIZE
+	sw      ra, FSIZE-4(sp)
+	.prologue 1
+	li	a0, (FP_TLOSS | FP_I)	// exception mask
+	// a1 passed by caller = operation code (funtion name index)
+	mfc1.d	a2, $f12		// arg1 
+	li.d    $f0, 0.0		// generate a NaN
+	div.d   $f0, $f0
+	s.d	$f0, 16(sp)		// default result
+	cfc1    t7, $31			// fp control/status register
+	xor     t7, t7, 0xf80		// inverse exception enable bits
+	sw	t7, 24(sp)		// goes on parameter stack
+	jal  	_except1
+	lw      ra, FSIZE-4(sp)
+	addu    sp, FSIZE
+	j	ra
+#undef FSIZE
+.end set_trigm_err

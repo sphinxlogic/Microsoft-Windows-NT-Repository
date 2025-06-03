@@ -28,8 +28,9 @@ MAX_SEARCH      EQU     4
 else
 DT_SYS16DIR     EQU     3
 DT_SYSDIR       EQU     4
-DT_APPDIR       EQU     5
-MAX_SEARCH      EQU     5
+DT_SYSWX86DIR   EQU     5
+DT_APPDIR       EQU     6
+MAX_SEARCH      EQU     6
 endif
 
 
@@ -65,6 +66,8 @@ staticW myofint24,0
 ifdef WOW
 externD lpSystem16Dir
 externW cBytesSys16Dir
+externD lpSystemWx86Dir
+externW cBytesSysWx86Dir
 endif
 
 ;** Directory table for different search orders.  Pgm Management-aware!!
@@ -96,8 +99,11 @@ ifdef WOW                          ; Search 16-bit system dir (\windir\system)
         DB      DT_SYS16DIR
 endif
         DB      DT_SYSDIR
+ifdef WOW                          ; Search Wx86 system dir (\windir\system32\Wx86)
+        DB      DT_SYSWX86DIR
+endif
         DB      DT_APPDIR
-	DB      0
+        DB      0
 	public BootOrder, DefaultOrder
 
         ;** Static variables
@@ -105,6 +111,13 @@ szCurDir        DB      128 DUP (0)     ;Points to fully qualified current dir
 pCurDirName     DW      0               ;Points to 8.3 filename
 wCurDirLen      DW      0               ;Length of path minus 8.3 filename
         public pCurDirName, wCurDirLen, szCurDir
+
+ifdef WOW
+LastOFSearchEntry DW    0               ;Addr of last search table entry used
+                                        ;for continuing the search.
+OFContinueSearch DW     0               ;1 means continue last search
+        public LastOFSearchEntry, OFContinueSearch
+endif
 
 DataEnd
 
@@ -194,6 +207,14 @@ cBegin
         jmp     IOF_End                 ;Done
 IOF_NoReopen:
 
+ifdef WOW
+        ; Reset LastOFSearchEntry if we're not continuing an earlier search
+        cmp     OFContinueSearch,0
+        jne     @F
+        mov     LastOFSearchEntry,0
+@@:
+endif
+
         ;** Get a pointer into the OFSTRUCT
         mov     di,WORD PTR lpOFStruct[0] ;Point to structure
         lea     di,[di].opFile          ;Point to string
@@ -240,17 +261,48 @@ endif
         mov     di,dataOFFSET dtDirTable ;Point to the start of the DirTable
         cCall   GetPath, <DT_CURDIR,di,es,bx> ;Dest dir returned in ES:BX
         cCall   OpenCall, <es,bx,wFlags> ;Try to open it
-        jnc     IOF_Success             ;File was found
-        jmp     SHORT IOF_Error         ;File found but problem opening
+        jc      @F
+        jmp     IOF_Success
+@@:     jmp     IOF_Error         ;File found but problem opening
 
         ;** Point to the proper search order
 IOF_InitSearch:
         SetKernelDS
+ifdef WOW
+        cmp     OFContinueSearch,0
+        je      @F
+        mov     OFContinueSearch,0      ;consumed the flag, reset it
+        mov     si,LastOFSearchEntry
+        or      si,si                   ;Were we searching at all?
+        jnz     IOF_WereSearching       ;Yes
+        jmp     short IOF_FileNotFound  ;No searching, so give up now.
+IOF_WereSearching:
+        cmp     si,-1                   ;Already tried SearchPath?
+        jne     IOF_RestartSearch       ;No, pick up where we left off in order
+IOF_FileNotFound:
+        mov     ax,2                    ;SearchPath found it last time, so
+        jmp     IOF_Error               ;it won't find a different one this
+                                        ;time, se we return File not found
+IOF_RestartSearch:
+        inc     si
+        mov     LastOFSearchEntry,si
+        mov     al,[si]
+        cbw
+        or      al,al
+        mov     di,dataOFFSET dtDirTable;Point to the start of the DirTable
+        jnz     IOF_SearchLoop          ;Pick up with next in search order
+        jmp     short IOF_SearchPath    ;Restarting after last in search
+                                        ;order, so try DOS/Novell path.
+@@:
+endif
         mov     si,dataOFFSET DefaultOrder
         cmp     fBooting,0              ;Booting?
         jz      IOF_DoSearch            ;No
         mov     si,dataOFFSET BootOrder
 IOF_DoSearch:
+ifdef WOW
+        mov     LastOFSearchEntry,si
+endif
         mov     al,[si]                 ;Get the first search code
         cbw
         mov     di,dataOFFSET dtDirTable ;Point to the start of the DirTable
@@ -275,12 +327,21 @@ IOF_SearchLoop:
 IOF_Continue:
         add     di,SIZE DIRTABLE        ;Bump to next DirTable entry
         inc     si                      ;Bump to next code in list
+ifdef WOW
+        mov     LastOFSearchEntry,si
+endif
         mov     al,[si]                 ;Get this code
         cbw                             ;Make it a WORD
         or      al,al                   ;Done?
         jnz     IOF_SearchLoop          ;No
 
         ;** Try the DOS/Novell path next
+ifdef WOW
+IOF_SearchPath:
+        xor     si,si
+        dec     si
+        mov     LastOFSearchEntry,si
+endif
         les     di,lpDestDir            ;Point to the dest dir
         mov     si,pCurDirName          ;Point to the 8.3 name
         cCall   SearchFullPath, <ds,si,es,di,wFlags>
@@ -510,6 +571,8 @@ else
         jz      GT_SYS16DIR
         dec     ax                      ;DT_SYSDIR?
         jz      GT_SYSDIR
+        dec     ax                      ;DT_SYSWX86DIR?
+        jz      GT_SYSWX86DIR
 endif
         ; Must be DT_APPDIR
 
@@ -581,7 +644,12 @@ ifdef WOW
 GT_SYS16DIR:
         les     bx,lpSystem16Dir        ;Point to sys16dir
         mov     cx,cBytesSys16Dir
-;       jmp     SHORT GT_Done
+        jmp     SHORT GT_Done
+
+GT_SYSWX86DIR:
+        les     bx,lpSystemWx86Dir
+        mov     cx,cBytesSysWx86Dir
+        ;jmp     SHORT GT_Done
 endif ;WOW
 
 GT_Done:
@@ -1710,7 +1778,7 @@ gp1b:
 gp2:
 	or	al,al
         jnz     gp002
-        jmp     gpx
+        jmp     short gpx
 
 gp002:
 	cmp	al,' '

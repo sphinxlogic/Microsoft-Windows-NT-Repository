@@ -228,7 +228,7 @@ SetFileList (
             //  if filename is preceded by -t, then prepend a -t to the
             //  file list
             //
-            strlwr (*pArgs);
+            _strlwr (*pArgs);
             if (!strcmp ("t", *pArgs+1) && cArgs >= 2) {
                 strcpy (buf, "/t ");
                 pBufAdd = buf+3;

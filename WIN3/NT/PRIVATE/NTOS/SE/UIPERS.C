@@ -192,103 +192,103 @@ DisplayPrivilegeName(
     // First we should probably spec and write RtlLookupPrivilegeName.
     //
 
-    if ( RtlLargeIntegerEqualTo((*Privilege), CreateTokenPrivilege))  {
+    if ( ((*Privilege)QuadPart == CreateTokenPrivilege.QuadPart))  {
         printf("SeCreateTokenPrivilege         ");
         return(TRUE);
     }
 
-    if ( RtlLargeIntegerEqualTo((*Privilege), AssignPrimaryTokenPrivilege))  {
+    if ( ((*Privilege).QuadPart == AssignPrimaryTokenPrivilege.QuadPart))  {
         printf("SeAssignPrimaryTokenPrivilege  ");
         return(TRUE);
     }
 
-    if ( RtlLargeIntegerEqualTo((*Privilege), LockMemoryPrivilege))  {
+    if ( ((*Privilege).QuadPart == LockMemoryPrivilege.QuadPart))  {
         printf("SeLockMemoryPrivilege          ");
         return(TRUE);
     }
 
-    if ( RtlLargeIntegerEqualTo((*Privilege), IncreaseQuotaPrivilege))  {
+    if ( ((*Privilege).QuadPart == IncreaseQuotaPrivilege.QuadPart))  {
         printf("SeIncreaseQuotaPrivilege       ");
         return(TRUE);
     }
 
-    if ( RtlLargeIntegerEqualTo((*Privilege), UnsolicitedInputPrivilege))  {
+    if ( ((*Privilege).QuadPart == UnsolicitedInputPrivilege.QuadPart))  {
         printf("SeUnsolicitedInputPrivilege    ");
         return(TRUE);
     }
 
-    if ( RtlLargeIntegerEqualTo((*Privilege), TcbPrivilege))  {
+    if ( ((*Privilege).QuadPart == TcbPrivilege.QuadPart))  {
         printf("SeTcbPrivilege                 ");
         return(TRUE);
     }
 
-    if ( RtlLargeIntegerEqualTo((*Privilege), SecurityPrivilege))  {
+    if ( ((*Privilege).QuadPart == SecurityPrivilege.QuadPart))  {
         printf("SeSecurityPrivilege (Security Operator)  ");
         return(TRUE);
     }
 
 
-    if ( RtlLargeIntegerEqualTo((*Privilege), TakeOwnershipPrivilege)) {
+    if ( ((*Privilege).QuadPart == TakeOwnershipPrivilege.QuadPart)) {
         printf("SeTakeOwnershipPrivilege              ");
         return(TRUE);
     }
 
-    if ( RtlLargeIntegerEqualTo((*Privilege), LpcReplyBoostPrivilege)) {
+    if ( ((*Privilege).QuadPart == LpcReplyBoostPrivilege.QuadPart)) {
         printf("SeLpcReplyBoostPrivilege              ");
         return(TRUE);
     }
 
-    if ( RtlLargeIntegerEqualTo((*Privilege), CreatePagefilePrivilege)) {
+    if ( ((*Privilege).QuadPart == CreatePagefilePrivilege.QuadPart)) {
         printf("SeCreatePagefilePrivilege              ");
         return(TRUE);
     }
 
-    if ( RtlLargeIntegerEqualTo((*Privilege), IncreaseBasePriorityPrivilege)) {
+    if ( ((*Privilege).QuadPart == IncreaseBasePriorityPrivilege.QuadPart)) {
         printf("SeIncreaseBasePriorityPrivilege              ");
         return(TRUE);
     }
 
-    if ( RtlLargeIntegerEqualTo((*Privilege), SystemProfilePrivilege)) {
+    if ( ((*Privilege).QuadPart == SystemProfilePrivilege.QuadPart)) {
         printf("SeSystemProfilePrivilege              ");
         return(TRUE);
     }
 
-    if ( RtlLargeIntegerEqualTo((*Privilege), SystemtimePrivilege)) {
+    if ( ((*Privilege).QuadPart == SystemtimePrivilege.QuadPart)) {
         printf("SeSystemtimePrivilege              ");
         return(TRUE);
     }
 
-    if ( RtlLargeIntegerEqualTo((*Privilege), ProfileSingleProcessPrivilege)) {
+    if ( ((*Privilege).QuadPart == ProfileSingleProcessPrivilege.QuadPart)) {
         printf("SeProfileSingleProcessPrivilege              ");
         return(TRUE);
     }
 
-    if ( RtlLargeIntegerEqualTo((*Privilege), CreatePermanentPrivilege)) {
+    if ( ((*Privilege).QuadPart == CreatePermanentPrivilege.QuadPart)) {
         printf("SeCreatePermanentPrivilege              ");
         return(TRUE);
     }
 
-    if ( RtlLargeIntegerEqualTo((*Privilege), BackupPrivilege)) {
+    if ( ((*Privilege).QuadPart == BackupPrivilege.QuadPart)) {
         printf("SeBackupPrivilege              ");
         return(TRUE);
     }
 
-    if ( RtlLargeIntegerEqualTo((*Privilege), RestorePrivilege)) {
+    if ( ((*Privilege).QuadPart == RestorePrivilege.QuadPart)) {
         printf("SeRestorePrivilege              ");
         return(TRUE);
     }
 
-    if ( RtlLargeIntegerEqualTo((*Privilege), ShutdownPrivilege)) {
+    if ( ((*Privilege).QuadPart == ShutdownPrivilege.QuadPart)) {
         printf("SeShutdownPrivilege             ");
         return(TRUE);
     }
 
-    if ( RtlLargeIntegerEqualTo((*Privilege), DebugPrivilege)) {
+    if ( ((*Privilege).QuadPart == DebugPrivilege.QuadPart)) {
         printf("SeDebugPrivilege                ");
         return(TRUE);
     }
 
-    if ( RtlLargeIntegerEqualTo((*Privilege), SystemEnvironmentPrivilege)) {
+    if ( ((*Privilege).QuadPart == SystemEnvironmentPrivilege.QuadPart)) {
         printf("SeSystemEnvironmentPrivilege    ");
         return(TRUE);
     }

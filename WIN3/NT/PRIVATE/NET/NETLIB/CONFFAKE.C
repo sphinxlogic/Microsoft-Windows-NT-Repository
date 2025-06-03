@@ -50,7 +50,7 @@ Revision History:
 #include <configp.h>            // Global variables, my prototypes, etc.
 #include <confname.h>           // SECT_NT_ equates.
 #include <debuglib.h>           // IF_DEBUG().
-#include <netdebug.h>           // NetpDbgPrint().
+#include <netdebug.h>           // NetpKdPrint(()).
 #include <strarray.h>           // LPTSTR_ARRAY, etc.
 #include <tstring.h>            // STRICMP().
 
@@ -63,13 +63,13 @@ NetpInitWin32ConfigData(
     VOID
     )
 {
-    
+
 #if 0
 
     HKEY SystemKey, ServicesKey, SectionKey;
     // HKEY ParamKey;
 
-    NetpDbgPrint("NetpInitWin32ConfigData: Setting up Win32 config stuff...\n");
+    NetpKdPrint(("NetpInitWin32ConfigData: Setting up Win32 config stuff...\n"));
 
 #define MAKE_SURE_NODE_EXISTS( ParentKey, ChildKey, ChildName ) \
     { \
@@ -86,9 +86,9 @@ NetpInitWin32ConfigData(
                 NULL /* don't need disp */ \
                 ); \
         IF_DEBUG(CONFIG) { \
-            NetpDbgPrint( "NetpInitWin32ConfigData: RegCreateKeyEx(subkey '" \
+            NetpKdPrint(( "NetpInitWin32ConfigData: RegCreateKeyEx(subkey '" \
                     FORMAT_LPTSTR "') ret " FORMAT_LONG ".\n", \
-                    ChildName, Error ); \
+                    ChildName, Error )); \
         } \
         /* NetpAssert( Error == ERROR_SUCCESS ); */  /* BUGBUG */ \
     }
@@ -129,10 +129,10 @@ NetpInitWin32ConfigData(
                 ValueString, /* data */ \
                 STRSIZE( ValueString ) );  /* data byte count */ \
         IF_DEBUG(CONFIG) { \
-            NetpDbgPrint( "NetpInitWin32ConfigData: RegSetValue(subkey '" \
+            NetpKdPrint(( "NetpInitWin32ConfigData: RegSetValue(subkey '" \
                     FORMAT_LPTSTR "' value '" FORMAT_LPTSTR "') ret " \
                     FORMAT_LONG ".\n", \
-                    ParamName, ValueString, Error ); \
+                    ParamName, ValueString, Error )); \
         } \
         /* NetpAssert( Error == ERROR_SUCCESS ); */  /* BUGBUG */ \
     }
@@ -176,7 +176,7 @@ NetpInitWin32ConfigData(
 
 #endif // 0
 
-    NetpDbgPrint( "NetpInitWin32ConfigData: Done setting up...\n" );
+    NetpKdPrint(( "NetpInitWin32ConfigData: Done setting up...\n" ));
 
 } // NetpInitWin32ConfigData
 
@@ -213,9 +213,9 @@ NetpFindFakeConfigSection (
 
     if (SectionsLeft == 0) {
         IF_DEBUG(CONFIG) {
-            NetpDbgPrint( "NetpFindFakeConfigSection: no sections, "
+            NetpKdPrint(( "NetpFindFakeConfigSection: no sections, "
                     "so can't find '" FORMAT_LPTSTR "'.\n",
-                    SectionNameWanted );
+                    SectionNameWanted ));
         }
 
         return (NULL);
@@ -229,9 +229,9 @@ NetpFindFakeConfigSection (
         if (STRICMP( ThisSectionName, SectionNameWanted) == 0) {  // Match!
 
             IF_DEBUG(CONFIG) {
-                NetpDbgPrint( "NetpFindFakeConfigSection: found '"
+                NetpKdPrint(( "NetpFindFakeConfigSection: found '"
                         FORMAT_LPTSTR "' at " FORMAT_LPVOID ".\n",
-                        SectionNameWanted, (LPVOID) ThisSection );
+                        SectionNameWanted, (LPVOID) ThisSection ));
             }
 
             return (ThisSection);       // Found!
@@ -243,8 +243,8 @@ NetpFindFakeConfigSection (
     }
 
     IF_DEBUG(CONFIG) {
-        NetpDbgPrint( "NetpFindFakeConfigSection: searched array, "
-                "but no match on '" FORMAT_LPTSTR "'.\n",  SectionNameWanted );
+        NetpKdPrint(( "NetpFindFakeConfigSection: searched array, "
+                "but no match on '" FORMAT_LPTSTR "'.\n",  SectionNameWanted ));
     }
     return (NULL);                      // Not found.
 
@@ -284,7 +284,7 @@ NetpInitFakeConfigData(
     VOID
     )
 {
-    NetpDbgPrint("NetpInitFakeConfigData: Setting up fake config stuff...\n");
+    NetpKdPrint(("NetpInitFakeConfigData: Setting up fake config stuff...\n"));
 
     NetpFakeRWSectionCount = 0;
 
@@ -296,7 +296,7 @@ NetpInitFakeConfigData(
 
     NetpAssert( NetpFakePerProcessRWConfigLock != NULL );
 
-    NetpDbgPrint("NetpInitFakeConfigData: Done setting up fake config data.\n");
+    NetpKdPrint(("NetpInitFakeConfigData: Done setting up fake config data.\n"));
 
 } // NetpInitFakeConfigData
 

@@ -1,6 +1,6 @@
 /*++
 
-Copyright (c) 1992  Microsoft Corporation
+Copyright (c) 1992-1996  Microsoft Corporation
 
 Module Name:
 
@@ -20,6 +20,7 @@ Revision History:
     --------    --------    ----------------------------------------------
     t-kinh      8/20/92     Created.
     vladimv     1992        Big reorgs.  Make it look like a real service.
+    ericb       10/25/95    fix bug 8133 - make shutdown wait configurable
 
 Notes:
 
@@ -61,6 +62,8 @@ UpsGetKeyValue(
 #define REGISTRY_COMPUTER_NAME_DIRECTORY \
         "System\\CurrentControlSet\\Control\\ComputerName\\ComputerName"
 
+#define REGISTRY_SHUTDOWN_WAIT          "ShutdownWait"
+
 
 VOID
 UpsAlertRaise(
@@ -88,7 +91,7 @@ Notes:
 --*/
  
 {
-    CHAR                buff[ (sizeof(ADMIN_OTHER_INFO) + 2 * (CNLEN+1))];
+    CHAR                buff[ (sizeof(ADMIN_OTHER_INFO) + 2 * (MAX_PATH+1))];
     LPTSTR              CompName;
     LPADMIN_OTHER_INFO  OInfo;
     DWORD               status;
@@ -105,10 +108,10 @@ Notes:
         ); 
 
     status = NetAlertRaiseEx(
-            (LPTSTR)L"ADMIN",           //  alert type
+            L"ADMIN",                   //  alert type
             buff,                       //  info buffer
             sizeof(buff),               //  info size
-            (LPTSTR)L"UPS"              //  service name
+            L"UPS"                      //  service name
             );
     if ( status != 0) {
         //  This occurs if for example alerter service has not been started.
@@ -315,6 +318,30 @@ Return Value:
     }
     UpsGlobalConfig.MessageInterval = value;    //  MessageInterval
 
+    //
+    // configurable shutdown wait interval
+    //
+    size = sizeof(value);
+    status = RegQueryValueEx(RegistryKey, 
+                             REGISTRY_SHUTDOWN_WAIT,
+                             NULL,
+                             NULL,             
+                             (LPBYTE)&value,
+                             &size);
+    if (status != ERROR_SUCCESS)
+    {   // if a value is not stored in the registry, use the default;
+        value = DEFAULTSHUTDOWNWAIT;
+    }
+    else
+    {
+        if (MAXSHUTDOWNWAIT < value)
+        {
+            value = MAXSHUTDOWNWAIT;
+        }
+    }
+    UpsGlobalConfig.ShutdownWait = value;
+    KdPrint(("[UPS] ShutdownWait set to %d\n", value));
+
     size = sizeof(temp);
     status = RegQueryValueEx(
             RegistryKey,
@@ -382,8 +409,8 @@ Return Value:
             (LPBYTE)&temp,
             &size
             );
-    if (strlen(temp) > CNLEN) {
-        KdPrint(("[UPS] Computer name greater than %ld\n", CNLEN));
+    if (strlen(temp) > sizeof( UpsGlobalConfig.ComputerName ) / sizeof( UpsGlobalConfig.ComputerName[0])) {
+        KdPrint(("[UPS] Computer name too long\n"));
         return( FALSE);
     }
 
@@ -393,7 +420,7 @@ Return Value:
             temp,
             strlen(temp)+1, //copy null char also
             (LPWSTR) UpsGlobalConfig.ComputerName,
-            CNLEN+1)) {
+            sizeof(UpsGlobalConfig.ComputerName)/sizeof(UpsGlobalConfig.ComputerName[0]))) {
         KdPrint(("[UPS]CompName not translated to Unicode, %ld\n",
               GetLastError()));
         return( FALSE);

@@ -121,20 +121,37 @@ Revision History:
 
 #define IOCTL_LMDR_START                    _BROWSER_CONTROL_CODE(0x001, METHOD_NEITHER, FILE_ANY_ACCESS)
 #define IOCTL_LMDR_STOP                     _BROWSER_CONTROL_CODE(0x002, METHOD_NEITHER, FILE_ANY_ACCESS)
+
 #define IOCTL_LMDR_ADD_NAME                 _BROWSER_CONTROL_CODE(0x003, METHOD_BUFFERED, FILE_ANY_ACCESS)
 #define IOCTL_LMDR_DELETE_NAME              _BROWSER_CONTROL_CODE(0x004, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define IOCTL_LMDR_ADD_NAME_DOM             _BROWSER_CONTROL_CODE(0x003, METHOD_NEITHER, FILE_ANY_ACCESS)
+#define IOCTL_LMDR_DELETE_NAME_DOM          _BROWSER_CONTROL_CODE(0x004, METHOD_NEITHER, FILE_ANY_ACCESS)
+
 #define IOCTL_LMDR_ENUMERATE_NAMES          _BROWSER_CONTROL_CODE(0x005, METHOD_NEITHER, FILE_ANY_ACCESS)
 #define IOCTL_LMDR_ENUMERATE_SERVERS        _BROWSER_CONTROL_CODE(0x006, METHOD_NEITHER, FILE_ANY_ACCESS)
+
 #define IOCTL_LMDR_BIND_TO_TRANSPORT        _BROWSER_CONTROL_CODE(0x007, METHOD_BUFFERED, FILE_ANY_ACCESS)
-#define IOCTL_LMDR_UNBIND_FROM_TRANSPORT    _BROWSER_CONTROL_CODE(0x008, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define IOCTL_LMDR_BIND_TO_TRANSPORT_DOM    _BROWSER_CONTROL_CODE(0x007, METHOD_NEITHER, FILE_ANY_ACCESS)
+
 #define IOCTL_LMDR_ENUMERATE_TRANSPORTS     _BROWSER_CONTROL_CODE(0x008, METHOD_NEITHER, FILE_ANY_ACCESS)
+
+#define IOCTL_LMDR_UNBIND_FROM_TRANSPORT    _BROWSER_CONTROL_CODE(0x008, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define IOCTL_LMDR_UNBIND_FROM_TRANSPORT_DOM _BROWSER_CONTROL_CODE(0x009, METHOD_NEITHER, FILE_ANY_ACCESS)
+
+// Begin Never Used
 #define IOCTL_LMDR_GET_HINT_SIZE            _BROWSER_CONTROL_CODE(0x009, METHOD_BUFFERED, FILE_ANY_ACCESS)
 #define IOCTL_LMDR_GET_LOGONSTATUS_REQUEST  _BROWSER_CONTROL_CODE(0x00A, METHOD_OUT_DIRECT, FILE_ANY_ACCESS)
+// End Never Used
+
 #define IOCTL_LMDR_GET_BROWSER_SERVER_LIST  _BROWSER_CONTROL_CODE(0x00C, METHOD_NEITHER, FILE_ANY_ACCESS)
 #define IOCTL_LMDR_GET_MASTER_NAME          _BROWSER_CONTROL_CODE(0x00D, METHOD_BUFFERED, FILE_ANY_ACCESS)
 #define IOCTL_LMDR_BECOME_BACKUP            _BROWSER_CONTROL_CODE(0x00E, METHOD_BUFFERED, FILE_ANY_ACCESS)
 #define IOCTL_LMDR_BECOME_MASTER            _BROWSER_CONTROL_CODE(0x00F, METHOD_BUFFERED, FILE_ANY_ACCESS)
+
+// Begin Never Used
 #define IOCTL_LMDR_WAIT_FOR_BROWSER_REQUEST _BROWSER_CONTROL_CODE(0x010, METHOD_BUFFERED, FILE_ANY_ACCESS)
+// End Never Used
+
 #define IOCTL_LMDR_WAIT_FOR_MASTER_ANNOUNCE _BROWSER_CONTROL_CODE(0x011, METHOD_BUFFERED, FILE_ANY_ACCESS)
 #define IOCTL_LMDR_WRITE_MAILSLOT           _BROWSER_CONTROL_CODE(0x012, METHOD_IN_DIRECT, FILE_ANY_ACCESS)
 #define IOCTL_LMDR_UPDATE_STATUS            _BROWSER_CONTROL_CODE(0x013, METHOD_NEITHER, FILE_ANY_ACCESS)
@@ -146,6 +163,7 @@ Revision History:
 #define IOCTL_LMDR_NETLOGON_MAILSLOT_READ   _BROWSER_CONTROL_CODE(0x019, METHOD_OUT_DIRECT, FILE_ANY_ACCESS)
 #define IOCTL_LMDR_NETLOGON_MAILSLOT_ENABLE _BROWSER_CONTROL_CODE(0x020, METHOD_BUFFERED, FILE_ANY_ACCESS)
 #define IOCTL_LMDR_IP_ADDRESS_CHANGED       _BROWSER_CONTROL_CODE(0x021, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define IOCTL_LMDR_ENABLE_DISABLE_TRANSPORT _BROWSER_CONTROL_CODE(0x022, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
 //
 // Identifies the data structure type for Buffer 2 of each IoCtl
@@ -169,7 +187,8 @@ typedef enum _DGRECEIVER_NAME_TYPE {
     BrowserElection,            // Election name (domain name, signature 1e), group
     BrowserServer,              // Server name (signature 20)
     DomainName,                 // DC Domain name (domain name, signature 1c)
-    PrimaryDomainBrowser        // PDC Browser name (domain name, signature 1b), unique
+    PrimaryDomainBrowser,       // PDC Browser name (domain name, signature 1b), unique
+    AlternateComputerName       // Computer name (signature 0), unique
 } DGRECEIVER_NAME_TYPE, *PDGRECEIVER_NAME_TYPE;
 
 
@@ -181,6 +200,7 @@ typedef enum _DGRECEIVER_NAME_TYPE {
 // Additional input or output of each IoCtl is found in Buffer 2.
 //
 
+#define LMDR_REQUEST_PACKET_VERSION_DOM  0x00000007L // Structure version.
 #define LMDR_REQUEST_PACKET_VERSION  0x00000006L // Structure version.
 
 typedef struct _LMDR_REQUEST_PACKET {
@@ -191,6 +211,7 @@ typedef struct _LMDR_REQUEST_PACKET {
     LUID LogonId;                       // User logon session identifier
 
     UNICODE_STRING TransportName;
+    UNICODE_STRING EmulatedDomainName;
 
     union {
 
@@ -249,6 +270,7 @@ typedef struct _LMDR_REQUEST_PACKET {
             WCHAR TransportName[1];     // Name of transport provider
         } Unbind;                       // IN
 
+// Begin Never Used
         struct {
             ULONG ServerInfoHintSize;   // Number of bytes needed for buffer
                                         //   to enumerate servers.
@@ -263,6 +285,7 @@ typedef struct _LMDR_REQUEST_PACKET {
             WCHAR SenderName[1];        // Null terminated name of logon
                                         //    request sender
         } LogonRequest;                 // OUT
+// End Never Used
 
         struct {
             ULONG EntriesRead;          // OUT Number of entries returned
@@ -275,6 +298,7 @@ typedef struct _LMDR_REQUEST_PACKET {
             WCHAR DomainName[1];        // IN Name of domain to retreive domain for
         } GetBrowserServerList;
 
+// Begin Never Used
         struct {
             LARGE_INTEGER TimeReceived; //  Time request was received.
             LARGE_INTEGER TimeQueued;   //  Time request was queued.
@@ -284,6 +308,7 @@ typedef struct _LMDR_REQUEST_PACKET {
             USHORT RequestedCount;      // Number of entries requested.
             WCHAR Name[1];              // IN Name of transport, OUT name of requestor
         } WaitForBrowserServerRequest;
+// End Never Used
 
         struct {
             ULONG MasterNameLength;     // Length of name requesting list
@@ -309,7 +334,9 @@ typedef struct _LMDR_REQUEST_PACKET {
             ULONG NumberOfServersInTable;
             BOOLEAN IsLanmanNt;
             BOOLEAN IsPrimaryDomainController;
+// Begin Never Used
             BOOLEAN IsMemberDomain;
+// End Never Used
             BOOLEAN IsDomainMaster;
             BOOLEAN MaintainServerList;
         } UpdateStatus;
@@ -323,12 +350,17 @@ typedef struct _LMDR_REQUEST_PACKET {
             BOOL  OpenLog;              // IN True if we should open log file
             BOOL  CloseLog;             // IN True if we should close log file
             BOOL  TruncateLog;          // IN True if we should truncate log
-            WCHAR TraceFileName[];      // IN If OpenLog, LogFileName (NT file)
+            WCHAR TraceFileName[1];     // IN If OpenLog, LogFileName (NT file)
         } Debug;
 
         struct {
             DWORD MaxMessageCount;      // IN number of netlogon messages to queue
         } NetlogonMailslotEnable;       // Use 0 to disable queuing
+
+        struct {
+            BOOL EnableTransport;       // IN True if we should enable transport
+            BOOL PreviouslyEnabled;     // Returns if the transport was previously enabled
+        } EnableDisableTransport;
 
     } Parameters;
 
@@ -338,6 +370,22 @@ typedef struct _LMDR_REQUEST_PACKET {
 // The NETLOGON_MAILSLOT structure describes a mailslot messages received by
 // the browser's IOCTL_LMDR_NETLOGON_MAILSLOT_READ
 //
+// A NETLOGON_MAILSLOT message is also returned to Netlogon when an
+// interesting PNP event occurs.  In that case, the fields will be set as
+// follows:
+//
+// MailslotNameSize: 0 indicating this is a PNP event.
+// MailslotNameOffset: One of the NETLOGON_PNP_OPCODEs indicating the
+//  event being notified.
+// TransportName*: Name of transport being affected.
+//
+
+typedef enum _NETLOGON_PNP_OPCODE {
+    NlPnpMailslotMessage,
+    NlPnpTransportBind,
+    NlPnpTransportUnbind,
+    NlPnpNewIpAddress
+} NETLOGON_PNP_OPCODE, *PNETLOGON_PNP_OPCODE;
 
 typedef struct {
     LARGE_INTEGER TimeReceived;
@@ -347,7 +395,10 @@ typedef struct {
     DWORD TransportNameOffset;
     DWORD MailslotMessageSize;// Actual mailslot message
     DWORD MailslotMessageOffset;
+    DWORD DestinationNameSize;// Unicode name of computer or domain message was received on
+    DWORD DestinationNameOffset;
 } NETLOGON_MAILSLOT, *PNETLOGON_MAILSLOT;
+
 
 //
 //      The DGRECEIVE structure describes the list of names that have been

@@ -23,5 +23,5 @@ FLOAT Counter_Elapsed_Time (PLINESTRUCT pLineStruct);
 
 FLOAT Counter_Null(PLINESTRUCT pline);
 
-
-
+
+

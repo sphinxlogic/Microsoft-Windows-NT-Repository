@@ -14,7 +14,7 @@
 
 typedef HANDLE HAND32;
 
-
+#define _WALIAS_
 #include "wspool.h"
 #include "wowuserp.h"
 
@@ -67,40 +67,6 @@ typedef struct _WC {        /* wcd */
 
 #define SETWC(hwnd, nIndex, l)  SetClassLong(hwnd, nIndex, l)
 
-
-//
-// The WW structure is present in every WND in the system, although
-// USER32 defines it as an array of 4 DWORDs, followed by some
-// other fields we're interested in.
-//
-// FindPWW(hwnd) returns a read-only pointer to this structure for
-// a given window.  To change elements of this structure, use
-// SETWW (== SetWindowLong) with the appropriate GWL_WOW* offset
-// defined below.
-//
-
-typedef struct _WW {        /* ww */
-    WORD      iClass;       // WOW class index
-    WORD      flState;      // state of the alias
-    VPWNDPROC vpfnWndProc;  // associated 16-bit function address
-    VPWNDPROC vpfnDlgProc;  // 16-bit dialog function
-
-    //
-    // NOTE: We're cheating a little bit here.  UserSrv defines
-    // ----  the above fields as adwWOW[4] in the WND structure.
-    //       We define several more fields for quick access that
-    //       MUST MATCH the definition of WND in usersrv.h.
-    //       Also note that we don't change these fields using
-    //       SETWW() and SetWL as we do the fields above.
-    //
-
-    DWORD     dwUserSrvState; // UserSrv calls this state.
-    DWORD     dwExStyle;
-    DWORD     dwStyle;        // UserSrv calls this style.
-    HANDLE    hInstance;      // UserSrv calls this hModule.
-
-} WW, *PWW, **PPWW;
-
 #define GWL_WOWiClassAndflState         GWL_WOWDWORD1
 #define GWL_WOWvpfnWndProc              GWL_WOWDWORD2
 #define GWL_WOWvpfnDlgProc              GWL_WOWDWORD3
@@ -122,20 +88,7 @@ typedef struct _HDW {
 
 /* Handle mapping macros
  */
-//#define ISTASK16(h32)            (((INT)(h32) & 0xFFFF0000) == 0)
-//#define HTASK32(h16)             ((HANDLE)(h16))
-//#define GETHTASK16(h32)          ((HAND16)(INT)(h32))
-//#define THREADID32(htask16)      ((PTDB)SEGPTR((htask16),0))->TDB_ThreadID
 
-//
-// NOTE : The hiword of wow tasks's hInstance is 0xF00D
-//    leave it that way or else, hell will break loose.
-//
-// If you have to change it, please come and talk to me.
-// ChandanC 6/20/92.
-
-//
-//  Well, we are changing it.
 //
 //  The 32-bit hInstance for a 16-bit task will be hMod / hInst.
 //  The hModule/hInstnace for a 32-bit entity will be xxxx / 0000.
@@ -151,9 +104,28 @@ typedef struct _HDW {
 // Most other functions don't need alias detection and it is too late
 // to test with the more general.
 //
-#define THREADID32(htask16)        ((htask16) ? ((PTDB)SEGPTR((htask16),0))->TDB_ThreadID : 0)
 
-//BUGBUG, make it more generic, POSTBETA 2
+#ifdef DEBUG
+
+//
+// Check for task aliases that will cause us to fault if we dereference the NULL
+// pointer returned by SEGPTR(htask16,0).
+//
+
+#define THREADID32(htask16)                                                   \
+        ((htask16)                                                            \
+             ? (ISTASKALIAS(htask16)                                          \
+                    ? (WOW32ASSERTMSGF(FALSE,                                 \
+                           ("WOW32 ERROR %s line %d Task alias "              \
+                            "to THREADID32, use HTASK32 instead.\n",          \
+                            szModule, __LINE__)), 0)                          \
+                    : ((PTDB)SEGPTR((htask16),0))->TDB_ThreadID)              \
+             : 0)
+#else
+#define THREADID32(htask16)  ((htask16)                                       \
+                                  ? ((PTDB)SEGPTR((htask16),0))->TDB_ThreadID \
+                                  : 0)
+#endif
 
 #define HTASK32(htask16)           (Htask16toThreadID32(htask16))
 #define GETHTASK16(htask32)        (ThreadID32toHtask16((DWORD)htask32))
@@ -211,8 +183,12 @@ typedef struct _HDW {
 #define HMENU32(h16)               USER32(h16)
 #define GETHMENU16(h32)            USER16(h32)
 
-#define GDI32(h16)                 ((HANDLE)((h16)>>2))
-#define GDI16(h32)                 ((HAND16)((DWORD)(h32)<<2))
+
+#define SERVERHANDLE(h)            (HIWORD(h))
+
+#define GDI32(h16)                 (HANDLE) hConvert16to32(h16)
+#define GDI16(h32)                 (HAND16) (((DWORD) (h32)) << 2)
+
 #define HGDI16(hobj32)             GDI16((HAND32)(hobj32))
 
 #define HDC32(hdc16)               GDI32((HAND16)(hdc16))
@@ -322,17 +298,7 @@ VOID    FreeWinsock16 (HAND16 h16);
 
 BOOL    MessageNeedsThunking (UINT uMsg);
 
-VOID DestroyClasses16(HAND16 hModule16, BOOL fDll );
-
-// This function is exported by GDI client. It converts a 16 bit GDI handle
-// to a 32 bit GDI handle.
-//
-// ChandanC 2/23/92
-//
-
-HANDLE GdiCvtHnd (DWORD);
-
-
+DWORD   Htask16toThreadID32(HTASK16 htask16);
 
 /* Dialog function data
  */
@@ -342,6 +308,14 @@ typedef struct _DLGDATA {   /* dlgdata */
     DWORD   dwUserInitParam;    // user init param, if any
 } DLGDATA, *PDLGDATA;
 
+
+/* Data structure used in thunking LB_GETTEXT special case
+ */
+
+typedef struct _THUNKTEXTDWORD  {
+    BOOL               fDWORD;     // dword used or text
+    DWORD              dwDataItem; // dword 
+} THUNKTEXTDWORD, *PTHUNKTEXTDWORD;
 
 typedef union _MSGTHUNKBUFFER {
     MSG                msg;
@@ -365,6 +339,7 @@ typedef union _MSGTHUNKBUFFER {
                                sizeof(CLIENTCREATESTRUCT)]; // FinishThunking...
     BYTE               calcsz[sizeof(NCCALCSIZE_PARAMS) +
                                         sizeof(WINDOWPOS)];
+    THUNKTEXTDWORD     thkdword;                            // LB_GETTEXT w/no HASSTRINGS
 } MSGTHUNKBUFFER, *LPMSGTHUNKBUFFER;
 
 typedef struct _MSGPARAMEX *LPMSGPARAMEX;
@@ -402,6 +377,40 @@ typedef struct _MSGPARAMEX {
 #define VALIDHMOD(h32) (((h32) && !(WORD)(h32)) ? BOGUSGDT : (WORD)(h32))
 
 
+
+// For DEVMODE struct handling
+// We add a little extra to devmode sizes that we return to 16-bit apps
+// including a signature "DM31" at the end of the driver extra stuff
+// See notes in wstruc.c
+
+typedef struct _WOWDM31 {
+    DWORD dwWOWSig;
+    WORD  dmSpecVersion;
+    WORD  dmSize;
+    WORD  dmDriverExtra;
+    WORD  reserved;        // pad to even DWORD (required for ptr arithmetic)
+} WOWDM31;
+typedef WOWDM31 UNALIGNED *PWOWDM31;
+
+// WOW DEVMODE magic signature
+#define WOW_DEVMODE31SIG 0x444d3331   // "DM31"
+
+// Win3.1 DEVMODE spec
+#define WOW_DEVMODE31SPEC  0x30A
+
+// Constant we add to Win3.1 DevMode->DriverExtra to account for the NT Devmode
+// fields not in the Win3.1 devmode & the WOW thunk info we add to the end
+#define WOW_DEVMODEEXTRA  ((sizeof(DEVMODE)-sizeof(DEVMODE31))+sizeof(WOWDM31))
+
+
+
 extern WORD gUser16hInstance;
 ULONG GetGCL_HMODULE(HWND hwnd);
-
+
+#define ISFUNCID(dwcallid)  (!((DWORD)(dwcallid) & 0xffff0000))
+#define POSTMSG(dwLocal)    (ISFUNCID(dwLocal =  \
+                                      FRAMEPTR(CURRENTPTD()->vpStack)->wCallID) ?         \
+                                        (aw32WOW[dwLocal].lpfnW32 == WU32PostMessage) :   \
+                                        (dwLocal == (DWORD) WU32PostMessage))
+
+ULONG WOW32FaxHandler(UINT iFun, LPSTR lpIn);

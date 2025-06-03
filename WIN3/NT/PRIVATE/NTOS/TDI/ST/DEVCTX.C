@@ -51,9 +51,7 @@ Return Value:
 {
     ASSERT (DeviceContext->ReferenceCount > 0);    // not perfect, but...
 
-    (VOID)ExInterlockedIncrementLong (
-              &DeviceContext->ReferenceCount,
-              &DeviceContext->Interlock);
+    (VOID)InterlockedIncrement (&DeviceContext->ReferenceCount);
 
 } /* StRefDeviceContext */
 
@@ -83,15 +81,13 @@ Return Value:
 --*/
 
 {
-    INTERLOCKED_RESULT result;
+    LONG result;
 
-    result = ExInterlockedDecrementLong (
-                 &DeviceContext->ReferenceCount,
-                 &DeviceContext->Interlock);
+    result = InterlockedDecrement (&DeviceContext->ReferenceCount);
 
-    ASSERT (result != ResultNegative);
+    ASSERT (result >= 0);
 
-    if (result == ResultZero) {
+    if (result == 0) {
         StDestroyDeviceContext (DeviceContext);
     }
 

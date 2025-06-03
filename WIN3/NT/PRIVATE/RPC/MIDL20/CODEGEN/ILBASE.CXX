@@ -44,6 +44,7 @@
 extern CMD_ARG				*	pCommand;
 extern BOOL 					IsTempName( char *);
 extern REUSE_DICT			*	pReUseDict;
+extern REUSE_DICT			*	pLocalReUseDict;
 
 /****************************************************************************
  *	definitions
@@ -100,33 +101,30 @@ printf("..node_base_type\n");
 	if ( pContext->ExtractAttribute( ATTR_CONTEXT ) )
 		{
 		pContext->FixMemSizes( this );
-		pCG = new CG_CONTEXT_HANDLE( this, NULL, pContext->GetMemSize() );
+		pCG = new CG_CONTEXT_HANDLE( this, NULL, *pContext );
 		}
 
 	switch ( NodeKind() )
 		{
 		case NODE_HANDLE_T:
 			{
-			pCG = new CG_PRIMITIVE_HANDLE( this, NULL, pContext->GetMemSize() );
+			pCG = new CG_PRIMITIVE_HANDLE( this, NULL, *pContext );
 			break;
 			}
 		case NODE_VOID:
 			{
 			// VOID should only occur as as a single VOID param;
 			// return NULL here, then the PARAM returns NULL as well
-			return NULL;
+			if (!pContext->AnyAncestorBits(IL_IN_LIBRARY) && !pContext->AnyAncestorBits(IL_IN_LOCAL) && !pCommand->IsHookOleEnabled())
+			    return NULL;
 			}
 		default:
 			{
-			pCG = new CG_BASETYPE( this, pContext->GetWireSize() );
+			pCG = new CG_BASETYPE( this, *pContext );
 			break;
 			}
 		};
 	
-	pCG->SetMemoryAlignment( pContext->GetMemAlign() );
-	pCG->SetMemorySize( pContext->GetMemSize() );
-	pCG->SetWireSize( pContext->GetWireSize() );
-	pCG->SetWireAlignment( pContext->GetWireAlignProperty() );
 #ifdef trace_cg
 printf("..node_base_type return \n");
 #endif
@@ -147,6 +145,10 @@ printf("..node_base_type return \n");
 CG_CLASS *
 node_label::ILxlate( XLAT_CTXT * pContext )
 {
+    pContext->ExtractAttribute(ATTR_IDLDESCATTR);
+    pContext->ExtractAttribute(ATTR_VARDESCATTR);
+    pContext->ExtractAttribute(ATTR_ID);
+    pContext->ExtractAttribute(ATTR_HIDDEN);
 
 #ifdef trace_cg
 printf("..node_label\n");
@@ -185,11 +187,7 @@ printf("..node_e_status_t\n");
 
 	pContext->ReturnSize( MyContext );
 
-	pCG = new CG_ERROR_STATUS_T( this );
-	pCG->SetMemoryAlignment( MyContext.GetMemAlign() );
-	pCG->SetMemorySize( MyContext.GetMemSize() );
-	pCG->SetWireSize( MyContext.GetWireSize() );
-	pCG->SetWireAlignment( MyContext.GetWireAlignProperty() );
+	pCG = new CG_ERROR_STATUS_T( this, MyContext );
 	return pCG;
 };
 
@@ -215,11 +213,7 @@ printf("..node_wchar_t\n");
 
 	pContext->BaseTypeSizes( this );
 
-	pCG = new CG_BASETYPE( this, pContext->GetWireSize() );
-	pCG->SetMemoryAlignment(pContext->GetMemAlign() );
-	pCG->SetMemorySize( pContext->GetMemSize() );
-	pCG->SetWireSize( pContext->GetWireSize() );
-	pCG->SetWireAlignment( pContext->GetWireAlignProperty() );
+	pCG = new CG_BASETYPE( this, *pContext );
 	return pCG;
 };
 

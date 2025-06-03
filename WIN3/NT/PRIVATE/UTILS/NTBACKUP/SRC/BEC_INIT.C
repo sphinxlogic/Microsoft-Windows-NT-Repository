@@ -167,6 +167,7 @@ BE_CFG uw_min_cfg = {
      0,        /* hidden_flg */
      0,        /* special_flg */
      0,        /* set_archive_flg */
+     0,        /* modified_only_flg */
      0,        /* proc_empty_flg */
      0,        /* exist_flg */
      0,        /* prompt_flg */
@@ -222,7 +223,10 @@ BE_CFG uw_min_cfg = {
      0,        /* TCP port for resource listener thread   */
 #endif /* OS_NLM */
      FALSE,    /* Process special files */
-SYPL_ECC_OFF   /* Process Sytron ECC */
+SYPL_ECC_OFF,  /* Process Sytron ECC */
+     FALSE,    /* ems public private */
+     FALSE,    /* EMS kick restore */
+     FALSE     /* ems clean restore */
                } ;
 
 BE_CFG uw_max_cfg = {
@@ -242,6 +246,7 @@ BE_CFG uw_max_cfg = {
      1,        /* hidden_flg */
      1,        /* special_flg */
      1,        /* set_archive_flg */
+     1,        /* modified_only_flg */
      1,        /* proc_empty_flg */
      2,        /* exist_flg */
      1,        /* prompt_flg */
@@ -305,7 +310,10 @@ BE_CFG uw_max_cfg = {
      0xffff,   /* TCP port for resource listener thread           */
 #endif /* OS_NLM */
      TRUE,     /* Process special files */
-SYPL_ECC_AUTO  /* Process Sytron ECC */
+SYPL_ECC_AUTO, /* Process Sytron ECC */
+BEC_EMS_BOTH,  /* ems PUBLIC private */
+     TRUE,     /* ems Kick restore */
+     TRUE      /* clean restore */  
                } ;
 
 /**/
@@ -349,6 +357,4 @@ VOID BEC_Close( VOID )
      }
 }
 
-
-
-
+

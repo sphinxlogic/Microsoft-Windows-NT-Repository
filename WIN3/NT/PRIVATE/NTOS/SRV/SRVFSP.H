@@ -57,31 +57,38 @@ SrvCreateWorkerThreads (
     VOID
     );
 
-typedef struct _TERMINATION_WORK_ITEM {
-    QUEUEABLE_BLOCK_HEADER ;
-    PWORK_QUEUE WorkQueue;
-} TERMINATION_WORK_ITEM, *PTERMINATION_WORK_ITEM;
+VOID SRVFASTCALL
+SrvTerminateWorkerThread (
+    IN OUT PWORK_CONTEXT SpecialWorkItem
+    );
 
 VOID
-SrvTerminateWorkerThread (
-    IN OUT PTERMINATION_WORK_ITEM WorkItem
+SrvBalanceLoad (
+    IN OUT PCONNECTION connection
     );
+
+#ifdef  SRV_PNP_POWER
+
+//
+// PNP functions
+//
+VOID SRVFASTCALL
+SrvPnpProcessor (
+    IN OUT PWORK_CONTEXT WorkContext
+    );
+
+#endif
 
 //
 // Work queue functions.
 //
 
-VOID
+VOID SRVFASTCALL
 SrvQueueWorkToBlockingThread (
     IN OUT PWORK_CONTEXT WorkContext
     );
 
-VOID
-SrvQueueWorkToCriticalThread (
-    IN OUT PWORK_CONTEXT WorkContext
-    );
-
-VOID
+VOID SRVFASTCALL
 SrvQueueWorkToFsp (
     IN OUT PWORK_CONTEXT WorkContext
     );
@@ -100,7 +107,7 @@ SrvQueueWorkToFsp (
 #define QUEUE_WORK_TO_FSP(_work) {                  \
     (_work)->ProcessingCount++;                     \
     SrvInsertWorkQueueTail(                         \
-        &SrvWorkQueue,                              \
+        _work->CurrentWorkQueue,                    \
         (PQUEUEABLE_BLOCK_HEADER)(_work)            \
         );                                          \
 }
@@ -116,7 +123,7 @@ SrvCaptureScavengerTimeout (
     );
 
 VOID
-SrvUpdateStatisticsFromShadow (
+SrvUpdateStatisticsFromQueues (
     OUT PSRV_STATISTICS CapturedSrvStatistics OPTIONAL
     );
 

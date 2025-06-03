@@ -61,7 +61,7 @@ PPERFDATA DataFromIndex (PLOGINDEX pLogIndex,
                          LPTSTR lpszSystemName)
    {
    PPERFDATA pPerfData;
-   TCHAR     szLoggedComputerName[MAX_COMPUTERNAME_LENGTH + 3] ;
+   TCHAR     szLoggedComputerName[MAX_PATH + 3] ;
    int       iNumSystem ;
 
    // Note: NULL lpszSystemName means return first logged system name
@@ -505,6 +505,7 @@ BOOL LogPositionSystemTime (PLOGPOSITION pLP, SYSTEMTIME *pSystemTime)
       return (FALSE) ;
 
    *pSystemTime = pLogIndex->SystemTime ;
+   return TRUE;
    }  // LogPositionSystemTime
 
 
@@ -521,7 +522,8 @@ int LogPositionIntervalSeconds (PLOGPOSITION pLPStart,
 
    if (LogPositionSystemTime (pLPStart, &SystemTimeStart) &&
        LogPositionSystemTime (pLPStop, &SystemTimeStop))
-      return (SystemTimeDifference (&SystemTimeStart, &SystemTimeStop)) ;
+      return (SystemTimeDifference (&SystemTimeStart,
+            &SystemTimeStop, TRUE)) ;
    else
       return (0) ;
    }  // LogPositionIntervalSeconds
@@ -540,7 +542,7 @@ void BuildLogComputerList (HWND hDlg, int DlgID)
    int       iNumSystem ;
    HWND      hListBox = GetDlgItem (hDlg, DlgID) ;
    PLOGINDEX pLogIndex ;
-   TCHAR     szLoggedComputerName[MAX_COMPUTERNAME_LENGTH + 3] ;
+   TCHAR     szLoggedComputerName[MAX_PATH + 3] ;
    int       Index ;
 
    pLogIndex = IndexFromPosition (&(PlaybackLog.StartIndexPos)) ;
@@ -577,7 +579,8 @@ void BuildLogComputerList (HWND hDlg, int DlgID)
 
 void  PlaybackAddCounterName (PLOGINDEX pIndex)
 {
-   PLOGCOUNTERNAME      pLogCounterName, pListCounterName ;
+   PLOGCOUNTERNAME      pLogCounterName = NULL,
+                        pListCounterName = NULL;
    PLOGFILECOUNTERNAME  pDiskCounterName ;
    PVOID                pCounterData ;
    BOOL                 bExist = FALSE ;
@@ -785,5 +788,5 @@ ERROR_EXIT:
 } // LogBuildNameTable
 
     
-
-
+
+

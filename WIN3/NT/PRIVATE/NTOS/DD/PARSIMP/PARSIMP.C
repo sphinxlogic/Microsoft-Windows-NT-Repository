@@ -423,8 +423,7 @@ Return Value:
 
     KeInitializeTimer(&extension->AllocTimer);
     KeInitializeDpc(&extension->AllocTimerDpc, ParAllocTimerDpc, extension);
-    extension->AllocTimeout = RtlLargeIntegerNegate(
-                              RtlConvertUlongToLargeInteger(5*1000*10000));
+    extension->AllocTimeout.QuadPart = -(5*1000*10000);
     extension->CurrentIrpRefCount = 0;
     KeInitializeSpinLock(&extension->ControlLock);
 
@@ -1425,4 +1424,3 @@ Return Value:
         IoDeleteDevice(currentDevice);
     }
 }
-

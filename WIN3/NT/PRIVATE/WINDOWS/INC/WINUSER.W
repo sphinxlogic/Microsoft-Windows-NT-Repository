@@ -2,13 +2,13 @@
 *                                                                           *
 * winuser.h -- USER procedure declarations, constant definitions and macros *
 *                                                                           *
-* Copyright (c) 1985-1994, Microsoft Corp. All rights reserved.             *
+* Copyright (c) 1985-1996, Microsoft Corp. All rights reserved.             *
 *                                                                           *
 ****************************************************************************/
 
 /*++ BUILD Version: 0003    // Increment this if a change has global effects ;internal_NT
                                                                          ;internal_NT
-Copyright (c) 1985-91, Microsoft Corporation                             ;internal_NT
+Copyright (c) 1985-95, Microsoft Corporation                             ;internal_NT
                                                                          ;internal_NT
 Module Name:                                                             ;internal_NT
                                                                          ;internal_NT
@@ -44,9 +44,10 @@ extern "C" {
 #endif /* __cplusplus */
 ;end_both
 
+
 #ifndef WINVER
-#define WINVER  0x0400      /* version 4.0 */ ;public_win40
-#define WINVER  0x030A      /* version 3.1 */ ;public_NT_35
+#define WINVER  0x040a      /* version 4.1 */ ;public_win40a
+#define WINVER  0x0400      /* version 4.0 */ ;public_NT
 #endif /* !WINVER */
 
 #include <stdarg.h>
@@ -113,8 +114,6 @@ typedef PROPENUMPROCEXA      PROPENUMPROCEX;
 typedef EDITWORDBREAKPROCA   EDITWORDBREAKPROC;
 #endif /* UNICODE */
 
-;begin_internal
-
 #ifdef STRICT
 
 typedef BOOL (CALLBACK* NAMEENUMPROCA)(LPSTR, LPARAM);
@@ -143,8 +142,6 @@ typedef DESKTOPENUMPROCW    DESKTOPENUMPROC;
 typedef WINSTAENUMPROCA     WINSTAENUMPROC;
 typedef DESKTOPENUMPROCA    DESKTOPENUMPROC;
 #endif /* UNICODE */
-
-;end_internal
 
 #define MAKEINTRESOURCE%(i) (LPTSTR%)((DWORD)((WORD)(i)))
 
@@ -176,8 +173,10 @@ typedef DESKTOPENUMPROCA    DESKTOPENUMPROC;
 ;begin_winver_400
 #define RT_PLUGPLAY     MAKEINTRESOURCE(19)
 #define RT_VXD          MAKEINTRESOURCE(20)
+#define RT_ANICURSOR    MAKEINTRESOURCE(21)
+#define RT_ANIICON      MAKEINTRESOURCE(22)
 ;end_winver_400
-#define RT_LAST         MAKEINTRESOURCE(20)     ;internal
+#define RT_LAST         MAKEINTRESOURCE(22)    ;internal
 #define RT_AFXFIRST     MAKEINTRESOURCE(0xF0)   // reserved: AFX     ;internal
 #define RT_AFXLAST      MAKEINTRESOURCE(0xFF)   // reserved: AFX     ;internal
 
@@ -228,6 +227,8 @@ WINUSERAPI int WINAPIV wsprintf%(LPTSTR%, LPCTSTR%, ...);
 
 #ifndef NOSHOWWINDOW
 
+// begin_r_winuser
+
 /*
  * ShowWindow() Commands
  */
@@ -245,11 +246,6 @@ WINUSERAPI int WINAPIV wsprintf%(LPTSTR%, LPCTSTR%, ...);
 #define SW_RESTORE          9
 #define SW_SHOWDEFAULT      10
 #define SW_MAX              10
-;begin_public_cairo
-#undef SW_MAX
-#define SW_RESTORENA  11
-#define SW_MAX        11
-;end_public_cairo
 
 /*
  * Old ShowWindow() Commands
@@ -268,6 +264,8 @@ WINUSERAPI int WINAPIV wsprintf%(LPTSTR%, LPCTSTR%, ...);
 #define SW_PARENTOPENING    3
 #define SW_OTHERUNZOOM      4
 
+// end_r_winuser
+
 #endif /* !NOSHOWWINDOW */
 
 /*
@@ -282,9 +280,12 @@ WINUSERAPI int WINAPIV wsprintf%(LPTSTR%, LPCTSTR%, ...);
 
 #ifndef NOVIRTUALKEYCODES
 
+// begin_r_winuser
+
 /*
  * Virtual Keys, Standard Set
  */
+#define VK_NONE           0x00    ;internal_NT
 #define VK_LBUTTON        0x01
 #define VK_RBUTTON        0x02
 #define VK_CANCEL         0x03
@@ -301,6 +302,14 @@ WINUSERAPI int WINAPIV wsprintf%(LPTSTR%, LPCTSTR%, ...);
 #define VK_MENU           0x12
 #define VK_PAUSE          0x13
 #define VK_CAPITAL        0x14
+
+;begin_internal
+#define VK_KANA           0x15
+#define VK_HANGEUL        0x15
+#define VK_JUNJA          0x17
+#define VK_HANJA          0x19
+#define VK_KANJI          0x19
+;end_internal
 
 #define VK_ESCAPE         0x1B
 
@@ -385,6 +394,10 @@ WINUSERAPI int WINAPIV wsprintf%(LPTSTR%, LPCTSTR%, ...);
 #define VK_LMENU          0xA4
 #define VK_RMENU          0xA5
 
+;begin_winver_400
+#define VK_PROCESSKEY     0xE5
+;end_winver_400
+
 #define VK_ATTN           0xF6
 #define VK_CRSEL          0xF7
 #define VK_EXSEL          0xF8
@@ -394,6 +407,8 @@ WINUSERAPI int WINAPIV wsprintf%(LPTSTR%, LPCTSTR%, ...);
 #define VK_NONAME         0xFC
 #define VK_PA1            0xFD
 #define VK_OEM_CLEAR      0xFE
+
+// end_r_winuser
 
 #endif /* !NOVIRTUALKEYCODES */
 
@@ -418,12 +433,15 @@ WINUSERAPI int WINAPIV wsprintf%(LPTSTR%, LPCTSTR%, ...);
 #define WH_FOREGROUNDIDLE  11
 ;begin_winver_400
 #define WH_CALLWNDPROCRET  12
-#define WH_MAX             12   ;public_win40
+;end_winver_400
+#if(WINVER >= 0x0400)
+#define WH_MAX             12
+#else
+#define WH_MAX             11
+#endif
 #define WH_MINHOOK         WH_MIN
 #define WH_MAXHOOK         WH_MAX
 #define WH_CHOOKS          (WH_MAXHOOK - WH_MINHOOK + 1)    ;internal
-;end_winver_400
-#define WH_MAX             11   ;public_NT_35
 
 /*
  * Hook Codes
@@ -496,7 +514,21 @@ typedef struct tagCBTACTIVATESTRUCT
 #define HSHELL_REDRAW               6
 #define HSHELL_TASKMAN              7
 #define HSHELL_LANGUAGE             8
+#define HSHELL_SYSMENU              9      ;internal
+#define HSHELL_HIGHBIT            0x8000   ;internal
+#define HSHELL_FLASH              (HSHELL_REDRAW|HSHELL_HIGHBIT)  ;internal
+#define HSHELL_RUDEAPPACTIVATED (HSHELL_WINDOWACTIVATED|HSHELL_HIGHBIT)  ;internal
 ;end_winver_400
+
+;begin_internal_NT
+// This needs to be internal until the shell catches up
+typedef struct
+{
+    HWND    hwnd;
+    RECT    rc;
+} SHELLHOOKINFO, *LPSHELLHOOKINFO;
+;end_internal_NT
+
 /*
  * Message Structure used in Journaling
  */
@@ -567,26 +599,12 @@ typedef struct tagHARDWAREHOOKSTRUCT {
 ;end_winver_400
 #endif /* !NOWH */
 
-;begin_winver_400
-typedef struct tagCHARSETINFO {
-    UINT    ciCharset;
-    UINT    ciACP;
-    DWORD   ciSigCP[2];
-    DWORD   ciSigU[4];
-    } CHARSETINFO, *PCHARSETINFO, NEAR *NPCHARSETINFO, FAR *LPCHARSETINFO;
-
-WINUSERAPI BOOL WINAPI TranslateCharsetInfo( DWORD FAR *lpSrc, LPCHARSETINFO lpCs, DWORD dwFlags);
-
-#define TCI_SRCCHARSET  1
-#define TCI_SRCCODEPAGE 2
-#define TCI_SRCFONTSIG  3
-;end_winver_400
-
 /*
  * Keyboard Layout API
  */
 #define HKL_PREV            0
 #define HKL_NEXT            1
+
 
 #define KLF_ACTIVATE        0x00000001
 #define KLF_SUBSTITUTE_OK   0x00000002
@@ -596,6 +614,8 @@ WINUSERAPI BOOL WINAPI TranslateCharsetInfo( DWORD FAR *lpSrc, LPCHARSETINFO lpC
 #define KLF_REPLACELANG     0x00000010
 #define KLF_NOTELLSHELL     0x00000080
 ;end_winver_400
+#define KLF_SETFORPROCESS   0x00000100     ;internal_NT
+#define KLF_RESET           0x40000000     ;internal_NT
 #define KLF_INITTIME        0x80000000     ;internal_NT
 
 /*
@@ -610,13 +630,47 @@ LoadKeyboardLayout%(
     LPCTSTR% pwszKLID,
     UINT Flags);
 
+;begin_internal_NT
+
 WINUSERAPI
-BOOL       ;public_NT
-HKL        ;public_chicago
+HKL
+WINAPI
+LoadKeyboardLayoutEx(
+    HKL hkl,
+    LPCWSTR pwszKLID,
+    UINT Flags);
+
+;end_internal_NT
+
+#if(WINVER >= 0x0400)
+WINUSERAPI
+HKL
 WINAPI
 ActivateKeyboardLayout(
     HKL hkl,
     UINT Flags);
+#else
+WINUSERAPI
+BOOL
+WINAPI
+ActivateKeyboardLayout(
+    HKL hkl,
+    UINT Flags);
+#endif /* WINVER >= 0x0400 */
+
+;begin_winver_400
+WINUSERAPI
+int
+WINAPI
+ToUnicodeEx(
+    UINT wVirtKey,
+    UINT wScanCode,
+    PBYTE lpKeyState,
+    LPWSTR pwszBuff,
+    int cchBuff,
+    UINT wFlags,
+    HKL dwhkl);
+;end_winver_400
 
 WINUSERAPI
 BOOL
@@ -631,6 +685,13 @@ GetKeyboardLayoutName%(
     LPTSTR% pwszKLID);
 
 ;begin_winver_400
+WINUSERAPI
+int
+WINAPI
+GetKeyboardLayoutList(
+        int nBuff,
+        HKL FAR *lpList);
+
 WINUSERAPI
 HKL
 WINAPI
@@ -651,12 +712,86 @@ GetKeyboardLayout(
 #define DESKTOP_JOURNALPLAYBACK     0x0020L
 #define DESKTOP_ENUMERATE           0x0040L
 #define DESKTOP_WRITEOBJECTS        0x0080L
+#define DESKTOP_SWITCHDESKTOP       0x0100L
+
+/*
+ * Desktop-specific control flags
+ */
+#define DF_ALLOWOTHERACCOUNTHOOK    0x0001L
+
+#ifdef _WINGDI_
+#ifndef NOGDI
+
+WINUSERAPI
+HDESK
+WINAPI
+CreateDesktop%(
+    LPTSTR% lpszDesktop,
+    LPTSTR% lpszDevice,
+    LPDEVMODE% pDevmode,
+    DWORD dwFlags,
+    DWORD dwDesiredAccess,
+    LPSECURITY_ATTRIBUTES lpsa);
+
+#endif /* NOGDI */
+#endif /* _WINGDI_ */
+
+WINUSERAPI
+HDESK
+WINAPI
+OpenDesktop%(
+    LPTSTR% lpszDesktop,
+    DWORD dwFlags,
+    BOOL fInherit,
+    DWORD dwDesiredAccess);
+
+WINUSERAPI
+HDESK
+WINAPI
+OpenInputDesktop(
+    DWORD dwFlags,
+    BOOL fInherit,
+    DWORD dwDesiredAccess);
+
+WINUSERAPI
+BOOL
+WINAPI
+EnumDesktops%(
+    HWINSTA hwinsta,
+    DESKTOPENUMPROC% lpEnumFunc,
+    LPARAM lParam);
+
+WINUSERAPI
+BOOL
+WINAPI
+EnumDesktopWindows(
+    HDESK hDesktop,
+    WNDENUMPROC lpfn,
+    LPARAM lParam);
+
+WINUSERAPI
+BOOL
+WINAPI
+SwitchDesktop(
+    HDESK hDesktop);
+
+WINUSERAPI
+BOOL
+WINAPI
+SetThreadDesktop(
+    HDESK hDesktop);
+
+WINUSERAPI
+BOOL
+WINAPI
+CloseDesktop(
+    HDESK hDesktop);
 
 WINUSERAPI
 HDESK
 WINAPI
 GetThreadDesktop(
-    DWORD);
+    DWORD dwThreadId);
 
 #endif  /* !NODESKTOP */
 
@@ -673,6 +808,47 @@ GetThreadDesktop(
 #define WINSTA_EXITWINDOWS          0x0040L
 #define WINSTA_ENUMERATE            0x0100L
 #define WINSTA_READSCREEN           0x0200L
+
+/*
+ * Windowstation-specific attribute flags
+ */
+#define WSF_VISIBLE                 0x0001L
+
+WINUSERAPI
+HWINSTA
+WINAPI
+CreateWindowStation%(
+    LPTSTR% lpwinsta,
+    DWORD dwReserved,
+    DWORD dwDesiredAccess,
+    LPSECURITY_ATTRIBUTES lpsa);
+
+WINUSERAPI
+HWINSTA
+WINAPI
+OpenWindowStation%(
+    LPTSTR% lpszWinSta,
+    BOOL fInherit,
+    DWORD dwDesiredAccess);
+
+WINUSERAPI
+BOOL
+WINAPI
+EnumWindowStations%(
+    WINSTAENUMPROC% lpEnumFunc,
+    LPARAM lParam);
+
+WINUSERAPI
+BOOL
+WINAPI
+CloseWindowStation(
+    HWINSTA hWinSta);
+
+WINUSERAPI
+BOOL
+WINAPI
+SetProcessWindowStation(
+    HWINSTA hWinSta);
 
 WINUSERAPI
 HWINSTA
@@ -700,6 +876,36 @@ GetUserObjectSecurity(
     PSECURITY_DESCRIPTOR pSID,
     DWORD nLength,
     LPDWORD lpnLengthNeeded);
+
+#define UOI_FLAGS       1
+#define UOI_NAME        2
+#define UOI_TYPE        3
+#define UOI_USER_SID    4
+
+typedef struct tagUSEROBJECTFLAGS {
+    BOOL fInherit;
+    BOOL fReserved;
+    DWORD dwFlags;
+} USEROBJECTFLAGS, *PUSEROBJECTFLAGS;
+
+WINUSERAPI
+BOOL
+WINAPI
+GetUserObjectInformation%(
+    HANDLE hObj,
+    int nIndex,
+    PVOID pvInfo,
+    DWORD nLength,
+    LPDWORD lpnLengthNeeded);
+
+WINUSERAPI
+BOOL
+WINAPI
+SetUserObjectInformation%(
+    HANDLE hObj,
+    int nIndex,
+    PVOID pvInfo,
+    DWORD nLength);
 
 #endif  /* !NOSECURITY */
 
@@ -735,17 +941,25 @@ typedef struct tagWNDCLASS% {
     LPCTSTR%    lpszClassName;
 } WNDCLASS%, *PWNDCLASS%, NEAR *NPWNDCLASS%, FAR *LPWNDCLASS%;
 
-
 ;begin_internal_NT
+
+/*
+ *    Private API, originally for Cairo Shell, which calls FHungApp
+ *    based on the hwnd supplied.  Used for fake system menus on the
+ *    shell tray.
+ */
+
+BOOL IsHungAppWindow(HWND hwnd);
+
 BOOL WowWaitForMsgAndEvent(HANDLE hevent);
-#define RST_DONTATTACHQUEUE     0x00000001
-#define RST_DONTJOURNALATTACH   0x00000002
 ;end_internal_NT
 
 ;begin_internal
 WINUSERAPI VOID WINAPI RegisterSystemThread(DWORD flags, DWORD reserved);
 #define RST_DONTATTACHQUEUE       0x00000001
 #define RST_DONTJOURNALATTACH     0x00000002
+#define RST_ALWAYSFOREGROUNDABLE  0x00000004
+#define RST_FAULTTHREAD           0x00000008
 ;end_internal
 
 #ifndef NOMSG
@@ -816,6 +1030,8 @@ typedef struct tagMSG {
 
 #ifndef NOWINMESSAGES
 
+// begin_r_winuser
+
 /*
  * Window Messages
  */
@@ -853,10 +1069,8 @@ typedef struct tagMSG {
 #define WM_ENDSESSION                   0x0016
 #define WM_SYSTEMERROR                  0x0017  ;internal
 #define WM_SHOWWINDOW                   0x0018
-#define WM_SETTINGCHANGE                0x001A  ;public_win40
-#define WM_WININICHANGE                 WM_SETTINGCHANGE        ;public_win40
-#define WM_WININICHANGE                 0x001A  ;public_NT_35
-
+#define WM_WININICHANGE                 0x001A
+#define WM_SETTINGCHANGE                WM_WININICHANGE ;public_winver_400
 
 ;begin_internal_NT
 /*
@@ -877,6 +1091,7 @@ typedef struct tagMSG {
 #define WM_QUEUESYNC                    0x0023
 
 #define WM_GETMINMAXINFO                0x0024
+// end_r_winuser
 /*
  * Struct pointed to by WM_GETMINMAXINFO lParam
  */
@@ -888,14 +1103,7 @@ typedef struct tagMINMAXINFO {
     POINT ptMaxTrackSize;
 } MINMAXINFO, *PMINMAXINFO, *LPMINMAXINFO;
 
-;begin_public_cairo
-#define MMI_MINSIZE                 0   /* Minimized width, height */
-#define MMI_MAXSIZE                 1   /* Maximized width, height */
-#define MMI_MAXPOS                  2   /* Maximized top left corner */
-#define MMI_MINTRACK                3   /* Minimum size for normal window */
-#define MMI_MAXTRACK                4   /* Maximum size for normal window */
-;end_public_cairo
-
+// begin_r_winuser
 #define WM_LOGOFF                       0x0025  ;internal
 #define WM_PAINTICON                    0x0026
 #define WM_ICONERASEBKGND               0x0027
@@ -912,7 +1120,13 @@ typedef struct tagMINMAXINFO {
 #define WM_SETHOTKEY                    0x0032
 #define WM_GETHOTKEY                    0x0033
 #define WM_FILESYSCHANGE                0x0034  ;internal
+                                                ;internal
 #define WM_SHELLNOTIFY                  0x0034  ;internal
+#define SHELLNOTIFY_DISKFULL            0x0001  ;internal
+#define SHELLNOTIFY_OLELOADED           0x0002  ;internal
+#define SHELLNOTIFY_OLEUNLOADED         0x0003  ;internal
+#define SHELLNOTIFY_WALLPAPERCHANGED    0x0004  ;internal
+                                                ;internal
 #define WM_ISACTIVEICON                 0x0035  ;internal
 #define WM_QUERYPARKICON                0x0036  ;internal_NT
 #define WM_QUERYDRAGICON                0x0037
@@ -945,6 +1159,9 @@ typedef struct tagMINMAXINFO {
 #define WM_COPYDATA                     0x004A
 #define WM_CANCELJOURNAL                0x004B
 #define WM_LOGONNOTIFY                  0x004C  ;internal
+
+// end_r_winuser
+
 /*
  * lParam of WM_COPYDATA message points to...
  */
@@ -953,6 +1170,8 @@ typedef struct tagCOPYDATASTRUCT {
     DWORD cbData;
     PVOID lpData;
 } COPYDATASTRUCT, *PCOPYDATASTRUCT;
+
+// begin_r_winuser
 
 ;begin_winver_400
 #define WM_KEYF1                        0x004D      ;internal
@@ -963,7 +1182,13 @@ typedef struct tagCOPYDATASTRUCT {
 #define WM_TCARD                        0x0052
 #define WM_HELP                         0x0053
 #define WM_USERCHANGED                  0x0054
-#define WM_SETCURSORINFO                0x0079     ;public_cairo
+#define WM_NOTIFYFORMAT                 0x0055
+
+#define NFR_ANSI                             1
+#define NFR_UNICODE                          2
+#define NF_QUERY                             3
+#define NF_REQUERY                           4
+
 #define WM_CONTEXTMENU                  0x007B
 #define WM_STYLECHANGING                0x007C
 #define WM_STYLECHANGED                 0x007D
@@ -975,13 +1200,6 @@ typedef struct tagCOPYDATASTRUCT {
 
 #define WM_FINALDESTROY                 0x0070  /* really destroy (window not locked) */  ;internal
 #define WM_MEASUREITEM_CLIENTDATA       0x0071  /* WM_MEASUREITEM bug clientdata thunked already */  ;internal
-;begin_public_cairo
-#define WM_TASKACTIVATED                0x0072
-#define WM_TASKDEACTIVATED              0x0073
-#define WM_TASKCREATED                  0x0074
-#define WM_TASKDESTROYED                0x0075
-#define WM_TASKUICHANGED                0x0076
-;end_public_cairo
 #define WM_NCCREATE                     0x0081
 #define WM_NCDESTROY                    0x0082
 #define WM_NCCALCSIZE                   0x0083
@@ -992,6 +1210,9 @@ typedef struct tagCOPYDATASTRUCT {
 #define WM_SYNCPAINT                    0x0088  ;internal
 #define WM_SYNCTASK                     0x0089  ;internal
 
+;begin_internal_cairo
+#define WM_KLUDGEMINRECT                0x008B
+;end_internal_cairo
 #define WM_NCMOUSEMOVE                  0x00A0
 #define WM_NCLBUTTONDOWN                0x00A1
 #define WM_NCLBUTTONUP                  0x00A2
@@ -1012,11 +1233,19 @@ typedef struct tagCOPYDATASTRUCT {
 #define WM_SYSKEYUP                     0x0105
 #define WM_SYSCHAR                      0x0106
 #define WM_SYSDEADCHAR                  0x0107
+#define WM_CONVERTREQUESTEX             0x0108  ;internal
 #define WM_YOMICHAR                     0x0108  ;internal
 #define WM_KEYLAST                      0x0108
 #define WM_CONVERTREQUEST               0x010A  ;internal
 #define WM_CONVERTRESULT                0x010B  ;internal
 #define WM_INTERIM                      0x010C  ;internal
+
+;begin_winver_400
+#define WM_IME_STARTCOMPOSITION         0x010D
+#define WM_IME_ENDCOMPOSITION           0x010E
+#define WM_IME_COMPOSITION              0x010F
+#define WM_IME_KEYLAST                  0x010F
+;end_winver_400
 
 #define WM_INITDIALOG                   0x0110
 #define WM_COMMAND                      0x0111
@@ -1030,6 +1259,7 @@ typedef struct tagCOPYDATASTRUCT {
 #define WM_MENUSELECT                   0x011F
 #define WM_MENUCHAR                     0x0120
 #define WM_ENTERIDLE                    0x0121
+#define WM_MENURBUTTONUP                0x0122  ;public_win40a
 #define WM_LBTRACKPOINT                 0x0131  ;internal
 
 #define WM_CTLCOLORMSGBOX               0x0132
@@ -1070,14 +1300,25 @@ typedef struct tagCOPYDATASTRUCT {
 #define WM_MBUTTONDOWN                  0x0207
 #define WM_MBUTTONUP                    0x0208
 #define WM_MBUTTONDBLCLK                0x0209
+#define WM_MOUSEWHEEL                   0x020A  ;public_sur
+#if (_WIN32_WINNT < 0x0400)
 #define WM_MOUSELAST                    0x0209
+#else
+#define WM_MOUSELAST                    0x020A
+#endif /* if (_WIN32_WINNT < 0x0400) */
+
+#define WHEEL_DELTA                     120     /* Value for rolling one detent */ ;public_sur
+#define WHEEL_PAGESCROLL                (UINT_MAX) /* Scroll one page */ ;public_sur
 
 #define WM_PARENTNOTIFY                 0x0210
+#define MENULOOP_WINDOW                 0
+#define MENULOOP_POPUP                  1
 #define WM_ENTERMENULOOP                0x0211
 #define WM_EXITMENULOOP                 0x0212
 
 ;begin_winver_400
 #define WM_NEXTMENU                     0x0213
+// end_r_winuser
 
 typedef struct tagMDINEXTMENU
 {
@@ -1086,12 +1327,22 @@ typedef struct tagMDINEXTMENU
     HWND    hwndNext;
 } MDINEXTMENU, * PMDINEXTMENU, FAR * LPMDINEXTMENU;
 
+// begin_r_winuser
 #define WM_SIZING                       0x0214
 #define WM_CAPTURECHANGED               0x0215
 #define WM_MOVING                       0x0216
-#define WM_DEVICEBROADCAST              0x0217  ;public_cairo
 #define WM_POWERBROADCAST               0x0218
 #define WM_DEVICECHANGE                 0x0219
+
+#define WM_IME_SETCONTEXT               0x0281
+#define WM_IME_NOTIFY                   0x0282
+#define WM_IME_CONTROL                  0x0283
+#define WM_IME_COMPOSITIONFULL          0x0284
+#define WM_IME_SELECT                   0x0285
+#define WM_IME_CHAR                     0x0286
+#define WM_IME_SYSTEM                   0x0287  ;internal
+#define WM_IME_KEYDOWN                  0x0290
+#define WM_IME_KEYUP                    0x0291
 ;end_winver_400
 
 #define WM_MDICREATE                    0x0220
@@ -1114,13 +1365,20 @@ typedef struct tagMDINEXTMENU
 #define WM_DRAGMOVE                     0x022F  ;internal
 
 #define WM_MDISETMENU                   0x0230
-#define WM_ENTERSIZEMOVE                0x0231  ;internal
-#define WM_EXITSIZEMOVE                 0x0232  ;internal
+#define WM_ENTERSIZEMOVE                0x0231
+#define WM_EXITSIZEMOVE                 0x0232
 #define WM_DROPFILES                    0x0233
 #define WM_MDIREFRESHMENU               0x0234
 
 #define WM_KANJIFIRST                   0x0280  ;internal
 #define WM_KANJILAST                    0x029F  ;internal
+
+;begin_sur
+#define WM_TRACKMOUSEEVENT_FIRST        0x02A0  ;internal
+#define WM_MOUSEHOVER                   0x02A1
+#define WM_MOUSELEAVE                   0x02A3
+#define WM_TRACKMOUSEEVENT_LAST         0x02AF  ;internal
+;end_sur
 
 #define WM_CUT                          0x0300
 #define WM_COPY                         0x0301
@@ -1151,6 +1409,7 @@ typedef struct tagMDINEXTMENU
 #define WM_WAKETHREAD                   0x0316  ;internal
 #define WM_PRINT                        0x0317
 #define WM_PRINTCLIENT                  0x0318
+#define WM_NOTIFYWOW                    0x0340  ;internal_NT
 
 #define WM_HANDHELDFIRST                0x0358
 #define WM_HANDHELDLAST                 0x035F
@@ -1192,7 +1451,11 @@ typedef struct tagMDINEXTMENU
 #define WM_USER                         0x0400
 
 ;begin_winver_400
+/* wParam for WM_NOTIFYWOW message  */  ;internal_NT
+#define WMNW_UPDATEFINDREPLACE  0       ;internal_NT
+
 /*  wParam for WM_SIZING message  */
+#define WMSZ_KEYSIZE        0          ;internal
 #define WMSZ_LEFT           1
 #define WMSZ_RIGHT          2
 #define WMSZ_TOP            3
@@ -1248,7 +1511,6 @@ typedef struct tagMDINEXTMENU
 #define HTCLOSE             20
 #define HTHELP              21
 ;end_winver_400
-#define HTPROJECT           22  ;public_cairo
 
 /*
  * SendMessageTimeout values
@@ -1257,6 +1519,7 @@ typedef struct tagMDINEXTMENU
 #define SMTO_BLOCK          0x0001
 #define SMTO_ABORTIFHUNG    0x0002
 #define SMTO_BROADCAST      0x0004  ;internal
+#define SMTO_NOTIMEOUTIFNOTHUNG 0x0008  ;internal
 
 #endif /* !NONCMESSAGES */
 
@@ -1268,11 +1531,22 @@ typedef struct tagMDINEXTMENU
 #define MA_NOACTIVATE       3
 #define MA_NOACTIVATEANDEAT 4
 
+/*
+ * WM_SETICON / WM_GETICON Type Codes
+ */
+#define ICON_SMALL          0
+#define ICON_BIG            1
+#define ICON_RECREATE       2   ;internal
+
+// end_r_winuser
+
 WINUSERAPI
 UINT
 WINAPI
 RegisterWindowMessage%(
     LPCTSTR% lpString);
+
+// begin_r_winuser
 
 /*
  * WM_SIZE message wParam values
@@ -1292,6 +1566,7 @@ RegisterWindowMessage%(
 #define SIZEZOOMSHOW        SIZE_MAXSHOW
 #define SIZEZOOMHIDE        SIZE_MAXHIDE
 
+// end_r_winuser
 /*
  * WM_WINDOWPOSCHANGING/CHANGED struct pointed to by lParam
  */
@@ -1313,6 +1588,7 @@ typedef struct tagNCCALCSIZE_PARAMS {
     PWINDOWPOS lppos;
 } NCCALCSIZE_PARAMS, *LPNCCALCSIZE_PARAMS;
 
+// begin_r_winuser
 /*
  * WM_NCCALCSIZE "window valid rect" return values
  */
@@ -1342,9 +1618,44 @@ typedef struct tagNCCALCSIZE_PARAMS {
 
 #endif /* !NOKEYSTATES */
 
+;begin_sur
+#ifndef NOTRACKMOUSEEVENT
+
+#define TME_HOVER       0x00000001
+#define TME_LEAVE       0x00000002
+#define TME_QUERY       0x40000000
+#define TME_CANCEL      0x80000000
+
+#define TME_VALID (TME_HOVER | TME_LEAVE | TME_QUERY | TME_CANCEL) ;internal
+
+#define HOVER_DEFAULT   0xFFFFFFFF
+// end_r_winuser
+
+typedef struct tagTRACKMOUSEEVENT {
+    DWORD cbSize;
+    DWORD dwFlags;
+    HWND  hwndTrack;
+    DWORD dwHoverTime;
+} TRACKMOUSEEVENT, *LPTRACKMOUSEEVENT;
+
+WINUSERAPI
+BOOL
+WINAPI
+TrackMouseEvent(
+    LPTRACKMOUSEEVENT lpEventTrack);
+
+// begin_r_winuser
+
+#endif /* !NOTRACKMOUSEEVENT */
+;end_sur
+
+// end_r_winuser
+
 #endif /* !NOWINMESSAGES */
 
 #ifndef NOWINSTYLES
+
+// begin_r_winuser
 
 /*
  * Window Styles
@@ -1417,21 +1728,18 @@ typedef struct tagNCCALCSIZE_PARAMS {
 /*
  * Extended Window Styles
  */
-#define WS_EX_DLGMODALFRAME  0x00000001L
-#define WS_EX_DRAGOBJECT     0x00000002L  ;internal
-#define WS_EX_NOPARENTNOTIFY 0x00000004L
-#define WS_EX_TOPMOST        0x00000008L
-#define WS_EX_ACCEPTFILES    0x00000010L
-#define WS_EX_TRANSPARENT    0x00000020L
+#define WS_EX_DLGMODALFRAME     0x00000001L
+#define WS_EX_DRAGOBJECT        0x00000002L  ;internal
+#define WS_EX_NOPARENTNOTIFY    0x00000004L
+#define WS_EX_TOPMOST           0x00000008L
+#define WS_EX_ACCEPTFILES       0x00000010L
+#define WS_EX_TRANSPARENT       0x00000020L
 ;begin_winver_400
 #define WS_EX_MDICHILD          0x00000040L
-#define WS_EX_SMCAPTION         0x00000080L
-
+#define WS_EX_TOOLWINDOW        0x00000080L
 #define WS_EX_WINDOWEDGE        0x00000100L
 #define WS_EX_CLIENTEDGE        0x00000200L
-#define WS_EX_EDGEMASK          (WS_EX_WINDOWEDGE | WS_EX_CLIENTEDGE)
 #define WS_EX_CONTEXTHELP       0x00000400L
-#define WS_EX_TOOLWINDOW        0x00000800L
 
 #define WS_EX_RIGHT             0x00001000L
 #define WS_EX_LEFT              0x00000000L
@@ -1442,11 +1750,12 @@ typedef struct tagNCCALCSIZE_PARAMS {
 
 #define WS_EX_CONTROLPARENT     0x00010000L
 #define WS_EX_STATICEDGE        0x00020000L
+#define WS_EX_APPWINDOW         0x00040000L
 
 #define WS_EX_ANSICREATOR       0x80000000L    ;internal
 
 #define WS_EX_OVERLAPPEDWINDOW  (WS_EX_WINDOWEDGE | WS_EX_CLIENTEDGE)
-#define WS_EX_PALETTEWINDOW     (WS_EX_WINDOWEDGE | WS_EX_SMCAPTION | WS_EX_TOPMOST)
+#define WS_EX_PALETTEWINDOW     (WS_EX_WINDOWEDGE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST)
 
 ;end_winver_400
 
@@ -1463,7 +1772,6 @@ typedef struct tagNCCALCSIZE_PARAMS {
 
 #define WS_EX_VALID40        (WS_EX_VALID          | \
                               WS_EX_MDICHILD       | \
-                              WS_EX_SMCAPTION      | \
                               WS_EX_WINDOWEDGE     | \
                               WS_EX_CLIENTEDGE     | \
                               WS_EX_CONTEXTHELP    | \
@@ -1473,8 +1781,10 @@ typedef struct tagNCCALCSIZE_PARAMS {
                               WS_EX_RTLREADING     | \
                               WS_EX_LEFTSCROLLBAR  | \
                               WS_EX_CONTROLPARENT  | \
-                              WS_EX_STATICEDGE)
+                              WS_EX_STATICEDGE     | \
+                              WS_EX_APPWINDOW)
 ;end_internal_NT
+
 
 /*
  * Class styles
@@ -1496,6 +1806,10 @@ typedef struct tagNCCALCSIZE_PARAMS {
 #define CS_GLOBALCLASS      0x4000
 #define CS_SYSTEM           0x8000  ;internal
 
+;begin_winver_400
+#define CS_IME              0x00010000
+;end_winver_400
+
 ;begin_internal_NT
 #define CS_VALID            (CS_VREDRAW           | \
                              CS_HREDRAW           | \
@@ -1514,8 +1828,10 @@ typedef struct tagNCCALCSIZE_PARAMS {
 ;end_internal_NT
 ;begin_internal_cairo
 #define CS_VALID31            0x0800ffef
-#define CS_VALID40            0x0800feeb
+#define CS_VALID40            0x0801feeb
 ;end_internal_cairo
+
+// end_r_winuser
 
 #endif /* !NOWINSTYLES */
 ;begin_winver_400
@@ -1538,7 +1854,7 @@ typedef struct tagNCCALCSIZE_PARAMS {
 #define BDR_RAISED      0x0005
 #define BDR_SUNKEN      0x000a
 
-#define BDR_VALID       0x000F          ;internal
+#define BDR_VALID       0x000F      ;internal
 
 #define EDGE_RAISED     (BDR_RAISEDOUTER | BDR_RAISEDINNER)
 #define EDGE_SUNKEN     (BDR_SUNKENOUTER | BDR_SUNKENINNER)
@@ -1573,10 +1889,18 @@ typedef struct tagNCCALCSIZE_PARAMS {
 #define BF_FLAT         0x4000  /* For flat rather than 3D borders */
 #define BF_MONO         0x8000  /* For monochrome borders */
 
-#define BF_VALID        0xF81F  ;internal_cairo
+#define BF_VALID       (BF_MIDDLE |  \  ;internal_cairo
+                        BF_SOFT   |  \  ;internal_cairo
+                        BF_ADJUST |  \  ;internal_cairo
+                        BF_FLAT   |  \  ;internal_cairo
+                        BF_MONO   |  \  ;internal_cairo
+                        BF_LEFT   |  \  ;internal_cairo
+                        BF_TOP    |  \  ;internal_cairo
+                        BF_RIGHT  |  \  ;internal_cairo
+                        BF_BOTTOM |  \  ;internal_cairo
+                        BF_DIAGONAL)    ;internal_cairo
 
 WINUSERAPI BOOL WINAPI DrawEdge(HDC hdc, LPRECT qrc, UINT edge, UINT grfFlags);
-
 
 /* flags for DrawFrameControl */
 
@@ -1597,6 +1921,7 @@ WINUSERAPI BOOL WINAPI DrawEdge(HDC hdc, LPRECT qrc, UINT edge, UINT grfFlags);
 #define DFCS_MENUARROW          0x0000
 #define DFCS_MENUCHECK          0x0001
 #define DFCS_MENUBULLET         0x0002
+#define DFCS_MENUARROWRIGHT     0x0004
 
 #define DFCS_SCROLLMIN          0x0000                      ;internal
 #define DFCS_SCROLLVERT         0x0000                      ;internal
@@ -1610,6 +1935,7 @@ WINUSERAPI BOOL WINAPI DrawEdge(HDC hdc, LPRECT qrc, UINT edge, UINT grfFlags);
 #define DFCS_SCROLLRIGHT        0x0003
 #define DFCS_SCROLLCOMBOBOX     0x0005
 #define DFCS_SCROLLSIZEGRIP     0x0008
+#define DFCS_SCROLLSIZEGRIPRIGHT 0x0010
 
 #define DFCS_BUTTONCHECK        0x0000
 #define DFCS_BUTTONRADIOIMAGE   0x0001
@@ -1632,29 +1958,47 @@ WINUSERAPI BOOL    WINAPI DrawFrameControl(HDC, LPRECT, UINT, UINT);
 
 
 /* flags for DrawCaption */
-
 #define DC_ACTIVE           0x0001
-#define DC_SMALLCAP         0x0004
-#define DC_NOSENDMSG        0x2000 ;internal
-#define DC_INBUTTON         0x4000 ;internal
+#define DC_SMALLCAP         0x0002
+#define DC_ICON             0x0004
+#define DC_TEXT             0x0008
+#define DC_INBUTTON         0x0010
+#define DC_NOVISIBLE        0x0800  ;internal
+#define DC_BUTTONS          0x1000  ;internal
+#define DC_NOSENDMSG        0x2000  ;internal
+#define DC_CENTER           0x4000  ;internal
+#define DC_FRAME            0x8000  ;internal
+#define DC_CAPTION          (DC_ICON | DC_TEXT | DC_BUTTONS) ;internal
+#define DC_NC               (DC_CAPTION | DC_FRAME)          ;internal
 
 WINUSERAPI BOOL    WINAPI DrawCaption(HWND, HDC, CONST RECT *, UINT);
-WINUSERAPI BOOL    WINAPI DrawCaptionTemp%(HWND, HDC, LPRECT, HFONT, HICON, LPTSTR%, UINT); ;internal_chicago
-WINUSERAPI BOOL    WINAPI _DrawCaptionTemp%(HWND, HDC, LPRECT, HFONT, HICON, LPTSTR%, UINT); ;internal_NT
+WINUSERAPI BOOL    WINAPI DrawCaptionTemp%(HWND, HDC, LPRECT, HFONT, HICON, LPTSTR%, UINT); ;internal
 
 #define IDANI_OPEN          1
 #define IDANI_CLOSE         2
-WINUSERAPI BOOL    WINAPI DrawAnimatedRects(int idAni, CONST RECT * lprcFrom, CONST RECT * lprcTo, CONST RECT * lprcClip);
+#define IDANI_CAPTION       3
 
-WINUSERAPI BOOL    WINAPI PlaySoundEvent(int idSound);
+#define PAS_IN          0x0001  ;internal
+#define PAS_OUT         0x0002  ;internal
+#define PAS_LEFT        0x0004  ;internal
+#define PAS_RIGHT       0x0008  ;internal
+#define PAS_UP          0x0010  ;internal
+#define PAS_DOWN        0x0020  ;internal
+#define PAS_HORZ        (PAS_LEFT | PAS_RIGHT)               ;internal
+#define PAS_VERT        (PAS_UP | PAS_DOWN)                  ;internal
+
+WINUSERAPI BOOL    WINAPI DrawAnimatedRects(HWND hwnd, int idAni, CONST RECT * lprcFrom, CONST RECT * lprcTo);
 
 ;end_winver_400
 
 #ifndef NOCLIPBOARD
 
+// begin_r_winuser
+
 /*
  * Predefined Clipboard Formats
  */
+#define CF_FIRST            0   ;internal
 #define CF_TEXT             1
 #define CF_BITMAP           2
 #define CF_METAFILEPICT     3
@@ -1692,6 +2036,8 @@ WINUSERAPI BOOL    WINAPI PlaySoundEvent(int idSound);
  */
 #define CF_GDIOBJFIRST      0x0300
 #define CF_GDIOBJLAST       0x03FF
+
+// end_r_winuser
 
 #endif /* !NOCLIPBOARD */
 
@@ -1747,16 +2093,14 @@ typedef WINDOWPLACEMENT *PWINDOWPLACEMENT, *LPWINDOWPLACEMENT;
 #define WPF_SETMINPOSITION      0x0001
 #define WPF_RESTORETOMAXIMIZED  0x0002
 ;begin_winver_400
-//***** Control Notification support *********************  ;internal
-// REVIEW: should this be marked internal?              //  ;internal
-typedef struct tagNMHDR                                 //
-{                                                       //
-    HWND  hwndFrom;                                     //
-    UINT  idFrom;                                       //
-    UINT  code;                                         //
-}   NMHDR;                                              //
-typedef NMHDR FAR * LPNMHDR;                            //
-                                                        //
+typedef struct tagNMHDR
+{
+    HWND  hwndFrom;
+    UINT  idFrom;
+    UINT  code;         // NM_ code
+}   NMHDR;
+typedef NMHDR FAR * LPNMHDR;
+
 typedef struct tagSTYLESTRUCT
 {
     DWORD   styleOld;
@@ -1948,6 +2292,9 @@ UnregisterHotKey(
 #define MOD_ALT         0x0001
 #define MOD_CONTROL     0x0002
 #define MOD_SHIFT       0x0004
+#define MOD_WIN         0x0008
+
+#define MOD_VALID           (MOD_ALT|MOD_CONTROL|MOD_SHIFT|MOD_WIN)  ; internal_NT
 
 #define IDHOT_SNAPWINDOW        (-1)    /* SHIFT-PRINTSCRN  */
 #define IDHOT_SNAPDESKTOP       (-2)    /* PRINTSCRN        */
@@ -1965,13 +2312,15 @@ UnregisterHotKey(
 #define EW_RESTARTWINDOWS    0x0042L
 #define EW_REBOOTSYSTEM      0x0043L
 #define EW_EXITANDEXECAPP    0x0044L
+
+#define ENDSESSION_LOGOFF    0x80000000
 ;end_winver_400
 
 #define EWX_LOGOFF   0
 #define EWX_SHUTDOWN 1
 #define EWX_REBOOT   2
 #define EWX_FORCE    4
-#define EWX_REALLYLOGOFF 0x8000000    ;internal
+#define EWX_REALLYLOGOFF ENDSESSION_LOGOFF    ;internal
 #define EWX_POWEROFF 8
 
 #define EWX_SYSTEM_CALLER           0x0100  ; internal_NT
@@ -1981,6 +2330,7 @@ UnregisterHotKey(
 #define EWX_WINLOGON_OLD_REBOOT     0x1000  ; internal_NT
 #define EWX_WINLOGON_API_SHUTDOWN   0x2000  ; internal_NT
 #define EWX_WINLOGON_OLD_POWEROFF   0x4000  ; internal_NT
+#define EWX_NOTIFY                  0x8000  ; internal_NT
 
 #define ExitWindows(dwReserved, Code) ExitWindowsEx(EWX_LOGOFF, 0xFFFFFFFF)
 
@@ -2065,13 +2415,16 @@ SendMessageCallback%(
     DWORD dwData);
 
 ;begin_winver_400
-WINUSERAPI long  WINAPI  BroadcastSystemMessage(DWORD, LPDWORD, UINT, WPARAM, LPARAM);
+WINUSERAPI long  WINAPI  BroadcastSystemMessage%(DWORD, LPDWORD, UINT, WPARAM, LPARAM);
 //Broadcast Special Message Recipient list
 #define BSM_ALLCOMPONENTS       0x00000000
 #define BSM_VXDS                0x00000001
 #define BSM_NETDRIVER           0x00000002
 #define BSM_INSTALLABLEDRIVERS  0x00000004
 #define BSM_APPLICATIONS        0x00000008
+#define BSM_ALLDESKTOPS         0x00000010
+#define BSM_COMPONENTS          0x0000000F     ;internal
+#define BSM_VALID               0x0000001F     ;internal
 
 //Broadcast Special Message Flags
 #define BSF_QUERY               0x00000001
@@ -2080,7 +2433,10 @@ WINUSERAPI long  WINAPI  BroadcastSystemMessage(DWORD, LPDWORD, UINT, WPARAM, LP
 #define BSF_NOHANG              0x00000008
 #define BSF_POSTMESSAGE         0x00000010
 #define BSF_FORCEIFHUNG         0x00000020
-#define BSF_SYSTEMSHUTDOWN      0x80000000      ;internal
+#define BSF_NOTIMEOUTIFNOTHUNG  0x00000040
+#define BSF_SYSTEMSHUTDOWN      0x40000000      ;internal
+#define BSF_MSGSRV32OK          0x80000000      ;internal
+#define BSF_VALID               0x0000007F      ;internal
 
 typedef struct tagBROADCASTSYSMSG
 {
@@ -2091,7 +2447,7 @@ typedef struct tagBROADCASTSYSMSG
 } BROADCASTSYSMSG;
 typedef BROADCASTSYSMSG  FAR *LPBROADCASTSYSMSG;
 
-#define DBWF_LPARAMPOINTER  0x8000
+#define BROADCAST_QUERY_DENY         0x424D5144  // Return this value to deny a query.
 ;end_winver_400
 
 WINUSERAPI
@@ -2237,7 +2593,7 @@ RegisterClassEx%(CONST WNDCLASSEX% *);
 WINUSERAPI
 BOOL
 WINAPI
-GetClassInfoEx%(HINSTANCE, LPTSTR%, LPWNDCLASSEX%);
+GetClassInfoEx%(HINSTANCE, LPCTSTR%, LPWNDCLASSEX%);
 
 ;end_winver_400
 
@@ -2348,69 +2704,6 @@ MoveWindow(
     int nHeight,
     BOOL bRepaint);
 
-;begin_public_cairo
-WINUSERAPI
-BOOL
-WINAPI
-SetWindowRegion(
-    HWND hwnd,
-    HRGN hrgn);
-
-DECLARE_HANDLE(HPROJECT);
-
-WINUSERAPI
-HPROJECT
-WINAPI
-CreateProject(
-    HBRUSH hbrush);
-
-WINUSERAPI
-BOOL
-WINAPI
-SetWindowProject(
-    HWND hwnd,
-    HPROJECT hproject);
-
-WINUSERAPI
-BOOL
-WINAPI
-SetCursorInfoText%(
-    LPTSTR% pstr,
-    BOOL fLatent);
-
-WINUSERAPI
-BOOL
-WINAPI
-SetCursorInfoBitmap(
-    HBITMAP hbitmap,
-    BOOL fLatent);
-
-WINUSERAPI
-DWORD
-WINAPI
-GetInfoTypes(void);
-
-WINUSERAPI
-DWORD
-WINAPI
-GetInfoFormats(void);
-
-#define INFO_ALL              0x01
-#define INFO_DRAGDROP         0x02
-#define INFO_TOOLBAR          0x04
-#define INFO_FOLDERRACK       0x08
-#define INFO_CLIPPEDCONTROL   0x10
-#define INFO_SCOPEPANESYMBOL  0x20
-#define INFO_FILECOMMENT      0x40
-
-#define INFOFORMAT_NAME               0
-#define INFOFORMAT_PREVIEW            1
-#define INFOFORMAT_TYPEANDSIZE        2
-#define INFOFORMAT_LASTMODIFICATION   3
-#define INFOFORMAT_COMMENT            4
-
-;end_public_cairo
-
 WINUSERAPI
 BOOL
 WINAPI
@@ -2510,6 +2803,7 @@ IsZoomed(
 #define SWP_HIDEWINDOW      0x0080
 #define SWP_NOCOPYBITS      0x0100
 #define SWP_NOOWNERZORDER   0x0200  /* Don't do owner Z ordering */
+#define SWP_NOSENDCHANGING  0x0400  /* Don't send WM_WINDOWPOSCHANGING */
 
 #define SWP_DRAWFRAME       SWP_FRAMECHANGED
 #define SWP_NOREPOSITION    SWP_NOOWNERZORDER
@@ -2523,10 +2817,8 @@ IsZoomed(
 ;begin_internal
 #define SWP_NOCLIENTSIZE    0x0800  /* Client didn't resize */
 #define SWP_NOCLIENTMOVE    0x1000  /* Client didn't move   */
-#define SWP_NOSENDCHANGING  0x0400  /* Don't send WM_WINDOWPOSCHANGING */
 
 #define SWP_DEFERDRAWING    0x2000
-#define SWP_SETREGION       0x10000  ;public_cairo
 
 #define SWP_CHANGEMASK      (SWP_NOSIZE | SWP_NOMOVE | SWP_NOZORDER | SWP_FRAMECHANGED | SWP_SHOWWINDOW | SWP_HIDEWINDOW | SWP_NOCLIENTSIZE | SWP_NOCLIENTMOVE)
 
@@ -2536,10 +2828,20 @@ IsZoomed(
 #define SWP_VALID2          (SWP_SHOWWINDOW | SWP_HIDEWINDOW | SWP_NOCOPYBITS | SWP_NOOWNERZORDER | SWP_NOCLIENTSIZE | SWP_NOCLIENTMOVE | SWP_NOSENDCHANGING | SWP_ASYNCWINDOWPOS | SWP_DEFERDRAWING)
 #define SWP_VALID           (SWP_VALID1 | SWP_VALID2)
 ;end_internal
-#undef SWP_VALID                     ;internal_cairo
-#define SWP_VALID       0x67ff       ;internal_cairo
-
-
+#undef SWP_VALID                                        ;internal_cairo
+#define SWP_VALID           (SWP_DEFERERASE      | \    ;internal_cairo
+                             SWP_ASYNCWINDOWPOS  | \    ;internal_cairo
+                             SWP_NOCOPYBITS      | \    ;internal_cairo
+                             SWP_NOOWNERZORDER   | \    ;internal_cairo
+                             SWP_NOSENDCHANGING  | \    ;internal_cairo
+                             SWP_NOSIZE          | \    ;internal_cairo
+                             SWP_NOMOVE          | \    ;internal_cairo
+                             SWP_NOZORDER        | \    ;internal_cairo
+                             SWP_NOREDRAW        | \    ;internal_cairo
+                             SWP_NOACTIVATE      | \    ;internal_cairo
+                             SWP_FRAMECHANGED    | \    ;internal_cairo
+                             SWP_SHOWWINDOW      | \    ;internal_cairo
+                             SWP_HIDEWINDOW)            ;internal_cairo
 
 #define HWND_TOP        ((HWND)0)
 #define HWND_BOTTOM     ((HWND)1)
@@ -2555,7 +2857,7 @@ IsZoomed(
  * The following structures must NOT be DWORD padded because they are
  * followed by strings, etc that do not have to be DWORD aligned.
  */
-#include "pshpack2.h"
+#include <pshpack2.h>
 
 /*
  * original NT 32 bit dialog template:
@@ -2573,6 +2875,13 @@ typedef DLGTEMPLATE *LPDLGTEMPLATE%;
 typedef CONST DLGTEMPLATE *LPCDLGTEMPLATE%;
 
 ;begin_internal_NT
+/*
+ * WARNING:
+ * The following structures must NOT be DWORD padded because they are
+ * followed by strings, etc that do not have to be DWORD aligned.
+ */
+#include <pshpack2.h>
+
 /*
  * Chicago dialog template
  */
@@ -2623,9 +2932,10 @@ typedef struct {
 typedef DLGITEMTEMPLATE2 *PDLGITEMTEMPLATE2%;
 typedef DLGITEMTEMPLATE2 *LPDLGITEMTEMPLATE2%;
 
+#include <poppack.h> /* Resume normal packing */
 ;end_internal_NT
 
-#include "poppack.h" /* Resume normal packing */
+#include <poppack.h> /* Resume normal packing */
 
 WINUSERAPI
 HWND
@@ -2998,6 +3308,25 @@ CharPrev%(
     LPCTSTR% lpszStart,
     LPCTSTR% lpszCurrent);
 
+;begin_winver_400
+WINUSERAPI
+LPSTR
+WINAPI
+CharNextExA(
+     WORD CodePage,
+     LPCSTR lpCurrentChar,
+     DWORD dwFlags);
+
+WINUSERAPI
+LPSTR
+WINAPI
+CharPrevExA(
+     WORD CodePage,
+     LPCSTR lpStart,
+     LPCSTR lpCurrentChar,
+     DWORD dwFlags);
+;end_winver_400
+
 /*
  * Compatibility defines for character translation routines
  */
@@ -3154,9 +3483,10 @@ VkKeyScan%(
 
 ;begin_winver_400
 WINUSERAPI
+SHORT
 WINAPI VkKeyScanEx%(
     TCHAR%  ch,
-    DWORD   dwhkl);
+    HKL   dwhkl);
 ;end_winver_400
 #define KEYEVENTF_EXTENDEDKEY 0x0001
 #define KEYEVENTF_KEYUP       0x0002
@@ -3177,6 +3507,7 @@ keybd_event(
 #define MOUSEEVENTF_RIGHTUP     0x0010 /* right button up */
 #define MOUSEEVENTF_MIDDLEDOWN  0x0020 /* middle button down */
 #define MOUSEEVENTF_MIDDLEUP    0x0040 /* middle button up */
+#define MOUSEEVENTF_WHEEL       0x0800 /* wheel button rolled */
 #define MOUSEEVENTF_ABSOLUTE    0x8000 /* absolute move */
 
 WINUSERAPI
@@ -3186,7 +3517,7 @@ mouse_event(
     DWORD dwFlags,
     DWORD dx,
     DWORD dy,
-    DWORD cButtons,
+    DWORD dwData,
     DWORD dwExtraInfo);
 
 WINUSERAPI
@@ -3203,7 +3534,7 @@ WINAPI
 MapVirtualKeyEx%(
     UINT uCode,
     UINT uMapType,
-    DWORD dwhkl);
+    HKL dwhkl);
 ;end_winver_400
 
 WINUSERAPI
@@ -3246,51 +3577,83 @@ MsgWaitForMultipleObjects(
     DWORD dwMilliseconds,
     DWORD dwWakeMask);
 
+WINUSERAPI
+DWORD
+WINAPI
+MsgWaitForMultipleObjectsEx(
+    DWORD nCount,
+    LPHANDLE pHandles,
+    DWORD dwMilliseconds,
+    DWORD dwWakeMask,
+    DWORD dwFlags);
+
+#define MWMO_WAITALL      0x0001
+#define MWMO_ALERTABLE    0x0002
+#define MWMO_VALID        0x0003  ;internal
+
 /*
  * Queue status flags for GetQueueStatus() and MsgWaitForMultipleObjects()
  */
-#define QS_KEY           0x01
-#define QS_MOUSEMOVE     0x02
-#define QS_MOUSEBUTTON   0x04
-#define QS_POSTMESSAGE   0x08
-#define QS_TIMER         0x10
-#define QS_PAINT         0x20
-#define QS_SENDMESSAGE   0x40
-#define QS_HOTKEY        0x80
+#define QS_KEY              0x0001
+#define QS_MOUSEMOVE        0x0002
+#define QS_MOUSEBUTTON      0x0004
+#define QS_POSTMESSAGE      0x0008
+#define QS_TIMER            0x0010
+#define QS_PAINT            0x0020
+#define QS_SENDMESSAGE      0x0040
+#define QS_HOTKEY           0x0080
+#define QS_ALLPOSTMESSAGE   0x0100
+;begin_internal_NT
+#define QS_SMSREPLY         0x0200
+#define QS_SYSEXPUNGE       0x0400
+#define QS_THREADATTACHED   0x0800
+#define QS_EXCLUSIVE        0x1000      // wait for these events only!!
+#define QS_EVENT            0x2000      // signifies event message
+;end_internal_NT
+#define QS_TRANSFER         0x4000      // Input was transfered from another thread ;internal
 
-#define QS_MOUSE        (QS_MOUSEMOVE     | \
-                         QS_MOUSEBUTTON)
 
-#define QS_INPUT        (QS_MOUSE         | \
-                         QS_KEY)
 
-#define QS_ALLEVENTS    (QS_INPUT         | \
-                         QS_POSTMESSAGE   | \
-                         QS_TIMER         | \
-                         QS_PAINT         | \
-                         QS_HOTKEY)
+#define QS_MOUSE           (QS_MOUSEMOVE     | \
+                            QS_MOUSEBUTTON)
 
-#define QS_ALLINPUT     (QS_SENDMESSAGE   | \
-                         QS_PAINT         | \
-                         QS_TIMER         | \
-                         QS_POSTMESSAGE   | \
-                         QS_MOUSEBUTTON   | \
-                         QS_MOUSEMOVE     | \
-                         QS_HOTKEY        | \
-                         QS_KEY)
+#define QS_INPUT           (QS_MOUSE         | \
+                            QS_KEY)
+
+#define QS_ALLEVENTS       (QS_INPUT         | \
+                            QS_POSTMESSAGE   | \
+                            QS_TIMER         | \
+                            QS_PAINT         | \
+                            QS_HOTKEY)
+
+#define QS_ALLINPUT        (QS_INPUT         | \
+                            QS_POSTMESSAGE   | \
+                            QS_TIMER         | \
+                            QS_PAINT         | \
+                            QS_HOTKEY        | \
+                            QS_SENDMESSAGE)
 
 ;begin_internal_NT
-#define QS_TRANSFER     0x4000      // Input was transfered from another thread
-#define QS_VALID        (QS_KEY           | \
-                         QS_MOUSEMOVE     | \
-                         QS_MOUSEBUTTON   | \
-                         QS_POSTMESSAGE   | \
-                         QS_TIMER         | \
-                         QS_PAINT         | \
-                         QS_SENDMESSAGE   | \
-                         QS_TRANSFER      | \
-                         QS_HOTKEY)
+#define QS_VALID           (QS_KEY           | \
+                            QS_MOUSEMOVE     | \
+                            QS_MOUSEBUTTON   | \
+                            QS_POSTMESSAGE   | \
+                            QS_TIMER         | \
+                            QS_PAINT         | \
+                            QS_SENDMESSAGE   | \
+                            QS_TRANSFER      | \
+                            QS_HOTKEY        | \
+                            QS_ALLPOSTMESSAGE)
 
+/*
+ * QS_EVENT is used to clear the QS_EVENT bit, QS_EVENTSET is used to
+ * set the bit.
+ *
+ * Include QS_SENDMESSAGE because the queue events
+ * match what a win3.1 app would see as the QS_SENDMESSAGE bit. Plus 16 bit
+ * apps don't even know about QS_EVENT.
+ */
+#define QS_EVENTSET        (QS_EVENT | QS_SENDMESSAGE)
 ;end_internal_NT
 
 /*
@@ -3383,10 +3746,8 @@ TranslateAccelerator%(
 #define SM_CYCAPTION            4
 #define SM_CXBORDER             5
 #define SM_CYBORDER             6
-#define SM_CXFIXEDFRAME         7  /* ;win40: Name changed from SM_CXDLGFRAME */ ;public_win40
-#define SM_CYFIXEDFRAME         8  /* ;win40: Name changed from SM_CYDLGFRAME */ ;public_win40
-#define SM_CXDLGFRAME           7  ;public_NT_35
-#define SM_CYDLGFRAME           8  ;public_NT_35
+#define SM_CXDLGFRAME           7
+#define SM_CYDLGFRAME           8
 #define SM_CYVTHUMB             9
 #define SM_CXHTHUMB             10
 #define SM_CXICON               11
@@ -3410,10 +3771,8 @@ TranslateAccelerator%(
 #define SM_CYMIN                29
 #define SM_CXSIZE               30
 #define SM_CYSIZE               31
-#define SM_CXSIZEFRAME          32 /* ;win40: Name changed from SM_CXFRAME */ ;public_win40
-#define SM_CYSIZEFRAME          33 /* ;win40: Name changed from SM_CYFRAME */ ;public_win40
-#define SM_CXFRAME              32  ;public_NT_35
-#define SM_CYFRAME              33  ;public_NT_35
+#define SM_CXFRAME              32
+#define SM_CYFRAME              33
 #define SM_CXMINTRACK           34
 #define SM_CYMINTRACK           35
 #define SM_CXDOUBLECLK          36
@@ -3424,7 +3783,13 @@ TranslateAccelerator%(
 #define SM_PENWINDOWS           41
 #define SM_DBCSENABLED          42
 #define SM_CMOUSEBUTTONS        43
+
 ;begin_winver_400
+#define SM_CXFIXEDFRAME           SM_CXDLGFRAME  /* ;win40 name change */
+#define SM_CYFIXEDFRAME           SM_CYDLGFRAME  /* ;win40 name change */
+#define SM_CXSIZEFRAME            SM_CXFRAME     /* ;win40 name change */
+#define SM_CYSIZEFRAME            SM_CYFRAME     /* ;win40 name change */
+
 #define SM_SECURE               44
 #define SM_CXEDGE               45
 #define SM_CYEDGE               46
@@ -3438,44 +3803,40 @@ TranslateAccelerator%(
 #define SM_CXMENUSIZE           54
 #define SM_CYMENUSIZE           55
 #define SM_ARRANGE              56
-#define SM_USERTYPE             57
-#define SM_XWORKAREA            58
-#define SM_YWORKAREA            59
-#define SM_CXWORKAREA           60
-#define SM_CYWORKAREA           61
-#define SM_CYCAPTIONICON        62
-#define SM_CYSMCAPTIONICON      63
-#define SM_CXMINIMIZED          64
-#define SM_CYMINIMIZED          65
-#define SM_CXMAXTRACK           66
-#define SM_CYMAXTRACK           67
-#define SM_CXMAXIMIZED          68
-#define SM_CYMAXIMIZED          69
-#define SM_KEYBOARDPREF         71
-#define SM_HIGHCONTRAST         72
-#define SM_SCREENREADER         73
-#define SM_CURSORSIZE           74   /* Obsolete Going Away */ ;internal
-#define SM_CLEANBOOT            75
-#define SM_CXDRAG               76
-#define SM_CYDRAG               77
-#define SM_NETWORK              78
-#define SM_CXMENUCHECK          79   /* Use instead of GetMenuCheckMarkDimensions()! */
-#define SM_CYMENUCHECK          80
-#define SM_SLOWMACHINE          81
-#define SM_MAX                  81  ;internal_win40
-#define SM_CMETRICS             82  ;public_win40
-
-#define SM_CXDLGFRAME           SM_CXFIXEDFRAME    /* ;win40 name change */ ;public_win40
-#define SM_CYDLGFRAME           SM_CYFIXEDFRAME    /* ;win40 name change */ ;public_win40
-#define SM_CXFRAME              SM_CXSIZEFRAME     /* ;win40 name change */ ;public_win40
-#define SM_CYFRAME              SM_CYSIZEFRAME     /* ;win40 name change */ ;public_win40
-
+#define SM_CXMINIMIZED          57
+#define SM_CYMINIMIZED          58
+#define SM_CXMAXTRACK           59
+#define SM_CYMAXTRACK           60
+#define SM_CXMAXIMIZED          61
+#define SM_CYMAXIMIZED          62
+#define SM_NETWORK              63
+#define SM_UNUSED_64            64  ;internal
+#define SM_UNUSED_65            65  ;internal
+#define SM_UNUSED_66            66  ;internal
+#define SM_CLEANBOOT            67
+#define SM_CXDRAG               68
+#define SM_CYDRAG               69
 ;end_winver_400
-
 #define SM_SHOWSOUNDS           70
+;begin_winver_400
+#define SM_CXMENUCHECK          71   /* Use instead of GetMenuCheckMarkDimensions()! */
+#define SM_CYMENUCHECK          72
+#define SM_SLOWMACHINE          73
+#define SM_MIDEASTENABLED       74
+;end_winver_400
+#define SM_MOUSEWHEELPRESENT    75  ;public_sur
+#if (_WIN32_WINNT < 0x0400)
+#define SM_CMETRICS             75
+#else
+#define SM_CMETRICS             76
+#endif
 
-#define SM_MAX                  70 ;internal_NT_35
-#define SM_CMETRICS             71 ;public_NT_35
+#define SM_MAX                  75  ;internal
+
+#define SM_CXWORKAREA           SM_CXSCREEN     // BOGUS TEMPORARY  ;internal
+#define SM_CYWORKAREA           SM_CYSCREEN     // BOGUS TEMPORARY  ;internal
+#define SM_XWORKAREA            SM_CXBORDER     // BOGUS TEMPORARY  ;internal
+#define SM_YWORKAREA            SM_CYBORDER     // BOGUS TEMPORARY  ;internal
 
 WINUSERAPI
 int
@@ -3712,14 +4073,67 @@ typedef struct tagTPMPARAMS
 typedef TPMPARAMS FAR *LPTPMPARAMS;
 
 WINUSERAPI BOOL    WINAPI TrackPopupMenuEx(HMENU, UINT, int, int, HWND, LPTPMPARAMS);
+;end_winver_400
 
+;begin_winver_40a
+#define MNS_NOCHECK     0x00000001
+#define MNS_VALID       0x00000001           ;internal
+#define MFNOCHECK       0x08                 ;internal
+
+#define SIZEOFMENUITEMINFO95 0x2C            ;internal
+
+#define MIM_MAXHEIGHT   0x00000001
+#define MIM_BACKGROUND  0x00000002
+#define MIM_HELPID      0x00000004
+#define MIM_MENUDATA    0x00000008
+#define MIM_STYLE       0x00000010
+#define MIM_MASK        0x0000001F           ;internal
+
+typedef struct tagMENUINFO
+{
+    DWORD   cbSize;
+    DWORD   fMask;
+    DWORD   dwStyle;
+    UINT    cyMax;
+    HBRUSH  hbrBack;
+    DWORD   dwContextHelpID;
+    DWORD   dwMenuData;
+}   MENUINFO, FAR *LPMENUINFO;
+typedef const MENUINFO FAR *LPCMENUINFO;
+
+WINUSERAPI
+BOOL
+WINAPI
+GetMenuInfo(
+             HMENU,
+             LPMENUINFO);
+
+WINUSERAPI
+BOOL
+WINAPI
+SetMenuInfo(
+             HMENU,
+             LPCMENUINFO);
+;end_winver_40a
+
+;begin_winver_400
 #define MIIM_STATE       0x00000001
 #define MIIM_ID          0x00000002
 #define MIIM_SUBMENU     0x00000004
 #define MIIM_CHECKMARKS  0x00000008
 #define MIIM_TYPE        0x00000010
 #define MIIM_DATA        0x00000020
+;end_winver_400
 
+;begin_winver_40a
+#define MIIM_STRING      0x00000040
+#define MIIM_BITMAP      0x00000080
+#define MIIM_FTYPE       0x00000100
+#define MIIM_MASK        0x000001FF                     ;Internal
+#define HBM_BITMAPCALLBACK  (HBITMAP)(-1)
+;end_winver_40a
+
+;begin_winver_400
 typedef struct tagMENUITEMINFO%
 {
     UINT    cbSize;
@@ -3733,8 +4147,9 @@ typedef struct tagMENUITEMINFO%
     DWORD   dwItemData;     // used if MIIM_DATA
     LPTSTR% dwTypeData;     // used if MIIM_TYPE
     UINT    cch;            // used if MIIM_TYPE
-}   MENUITEMINFO%, FAR *LPMENUITEMINFO%, CONST FAR *LPCMENUITEMINFO%;
-
+    HBITMAP hbmpItem;       // used if MIIM_BITMAP   ;public_win40a
+}   MENUITEMINFO%, FAR *LPMENUITEMINFO%;
+typedef MENUITEMINFO% CONST FAR *LPCMENUITEMINFO%;
 
 WINUSERAPI
 BOOL
@@ -3766,6 +4181,7 @@ SetMenuItemInfo%(
     LPCMENUITEMINFO%
     );
 
+
 #define GMDI_USEDISABLED    0x0001L
 #define GMDI_GOINTOPOPUPS   0x0002L
 
@@ -3774,8 +4190,8 @@ WINUSERAPI BOOL    WINAPI SetMenuDefaultItem(HMENU hMenu, UINT uItem, UINT fByPo
 
 WINUSERAPI BOOL    WINAPI GetMenuItemRect(HWND hWnd, HMENU hMenu, UINT uItem, LPRECT lprcItem);
 WINUSERAPI int     WINAPI MenuItemFromPoint(HWND hWnd, HMENU hMenu, POINT ptScreen);
-
 ;end_winver_400
+
 /*
  * Flags for TrackPopupMenu
  */
@@ -3793,21 +4209,32 @@ WINUSERAPI int     WINAPI MenuItemFromPoint(HWND hWnd, HMENU hMenu, POINT ptScre
 #define TPM_VERTICAL        0x0040L     /* Vert alignment matters more */
 #define TPM_NONOTIFY        0x0080L     /* Don't send any notification msgs */
 #define TPM_RETURNCMD       0x0100L
-
+#define TPM_SYSMENU         0x0200L     ;internal
 ;end_winver_400
-;begin_internal_NT_35
-#define TPM_VALID      (TPM_LEFTBUTTON  | \
-                        TPM_RIGHTBUTTON | \
-                        TPM_LEFTALIGN   | \
-                        TPM_CENTERALIGN | \
-                        TPM_RIGHTALIGN)
-;end_internal_NT_35
-;begin_internal_cairo
-#define TPM_VALID      (TPM_LEFTBUTTON  | \
-                        TPM_RIGHTBUTTON | \
-                        TPM_LEFTALIGN   | \
-                        TPM_CENTERALIGN | \
-                        TPM_RIGHTALIGN  | \
+#define TPM_RECURSE         0X0001L     ;public_winver_40a
+
+;begin_internal
+#if(WINVER >= 0x040a)
+
+#define TPM_VALID      (TPM_LEFTBUTTON   | \
+                        TPM_RIGHTBUTTON  | \
+                        TPM_LEFTALIGN    | \
+                        TPM_CENTERALIGN  | \
+                        TPM_RIGHTALIGN   | \
+                        TPM_TOPALIGN     | \
+                        TPM_VCENTERALIGN | \
+                        TPM_BOTTOMALIGN  | \
+                        TPM_HORIZONTAL   | \
+                        TPM_VERTICAL     | \
+                        TPM_NONOTIFY     | \
+                        TPM_RECURSE      | \
+                        TPM_RETURNCMD)
+#else /* (WINVER == 0x040a) */
+#define TPM_VALID      (TPM_LEFTBUTTON   | \
+                        TPM_RIGHTBUTTON  | \
+                        TPM_LEFTALIGN    | \
+                        TPM_CENTERALIGN  | \
+                        TPM_RIGHTALIGN   | \
                         TPM_TOPALIGN     | \
                         TPM_VCENTERALIGN | \
                         TPM_BOTTOMALIGN  | \
@@ -3815,7 +4242,9 @@ WINUSERAPI int     WINAPI MenuItemFromPoint(HWND hWnd, HMENU hMenu, POINT ptScre
                         TPM_VERTICAL     | \
                         TPM_NONOTIFY     | \
                         TPM_RETURNCMD)
-;end_internal_cairo
+
+#endif /* (WINVER == 0x040a) */
+;end_internal
 
 #endif /* !NOMENUS */
 
@@ -3900,7 +4329,10 @@ DrawIcon(
 #define DT_END_ELLIPSIS     0x00008000
 #define DT_MODIFYSTRING     0x00010000
 #define DT_RTLREADING       0x00020000
-#define DT_VALID            0x0003ffff      /* union of all others */ ;internal_win40
+#define DT_WORD_ELLIPSIS    0x00040000
+
+#define DT_VALID            0x0007ffff  /* union of all others */ ;internal_win40
+
 
 typedef struct tagDRAWTEXTPARAMS
 {
@@ -3912,10 +4344,26 @@ typedef struct tagDRAWTEXTPARAMS
 } DRAWTEXTPARAMS, FAR *LPDRAWTEXTPARAMS;
 ;end_winver_400
 
-#define DT_CALCRECT2        0x00040000      ;public_cairo
-#define DT_DRAWFULLRECT     0x00080000      ;public_cairo
-#undef DT_VALID                             ;internal_cairo
-#define DT_VALID            0x000fffff      ;internal_cairo
+#undef DT_VALID                                         ;internal_cairo
+#define DT_VALID           (DT_CENTER          | \      ;internal_cairo
+                            DT_RIGHT           | \      ;internal_cairo
+                            DT_VCENTER         | \      ;internal_cairo
+                            DT_BOTTOM          | \      ;internal_cairo
+                            DT_WORDBREAK       | \      ;internal_cairo
+                            DT_SINGLELINE      | \      ;internal_cairo
+                            DT_EXPANDTABS      | \      ;internal_cairo
+                            DT_TABSTOP         | \      ;internal_cairo
+                            DT_NOCLIP          | \      ;internal_cairo
+                            DT_EXTERNALLEADING | \      ;internal_cairo
+                            DT_CALCRECT        | \      ;internal_cairo
+                            DT_NOPREFIX        | \      ;internal_cairo
+                            DT_INTERNAL        | \      ;internal_cairo
+                            DT_EDITCONTROL     | \      ;internal_cairo
+                            DT_PATH_ELLIPSIS   | \      ;internal_cairo
+                            DT_END_ELLIPSIS    | \      ;internal_cairo
+                            DT_MODIFYSTRING    | \      ;internal_cairo
+                            DT_RTLREADING      | \      ;internal_cairo
+                            DT_WORD_ELLIPSIS)           ;internal_cairo
 
 ;begin_internal_NT_35
 #define DT_CTABS            0xff00
@@ -3954,7 +4402,7 @@ DrawText%(
 WINUSERAPI
 int
 WINAPI
-DrawTextEx%(HDC, LPCTSTR%, int, LPRECT, UINT, LPDRAWTEXTPARAMS);
+DrawTextEx%(HDC, LPTSTR%, int, LPRECT, UINT, LPDRAWTEXTPARAMS);
 ;end_winver_400
 
 #endif /* !NODRAWTEXT */
@@ -3992,6 +4440,7 @@ GrayString%(
 #define DSS_DISABLED    0x0020
 #define DSS_DEFAULT     0x0040  ;internal
 #define DSS_MONO        0x0080
+#define DSS_RIGHT       0x8000
 
 WINUSERAPI BOOL WINAPI DrawState%(HDC, HBRUSH, DRAWSTATEPROC, LPARAM, WPARAM, int, int, int, int, UINT);
 ;end_winver_400
@@ -4041,7 +4490,7 @@ GetForegroundWindow(
 ;begin_winver_400
 WINUSERAPI BOOL WINAPI PaintDesktop(HDC hdc);
 
-WINUSERAPI VOID WINAPI SwitchToThisWindow(HWND hwnd, BOOL fUnknown);
+WINUSERAPI VOID WINAPI SwitchToThisWindow(HWND hwnd, BOOL fUnknown); ;internal
 ;end_winver_400
 
 WINUSERAPI
@@ -4103,22 +4552,26 @@ GetDCEx(
 #define DCX_NOCLIPCHILDREN   0x00080000L
 
 #define DCX_NORECOMPUTE      0x00100000L
+
+#define DCX_CREATEDC         0x00800000L
 ;end_internal
 
 ;begin_internal_NT
+
 #define DCX_OWNDC            0x00008000L
+
 #define DCX_DESTROYTHIS      0x00400000L
 
 #define DCX_PWNDORGINVISIBLE    0x10000000L
-
 #define DCX_DONTRIPONDESTROY    0x80000000L
 
-#define DCX_MATCHMASK       (DCX_WINDOW       | \
-                             DCX_CACHE        | \
-                             DCX_CLIPCHILDREN | \
-                             DCX_CLIPSIBLINGS | \
-                             DCX_NORESETATTRS | \
-                             DCX_LOCKWINDOWUPDATE)
+#define DCX_MATCHMASK       (DCX_WINDOW           | \
+                             DCX_CACHE            | \
+                             DCX_CLIPCHILDREN     | \
+                             DCX_CLIPSIBLINGS     | \
+                             DCX_NORESETATTRS     | \
+                             DCX_LOCKWINDOWUPDATE | \
+                             DCX_CREATEDC)
 
 #define DCX_VALID           (DCX_WINDOW           | \
                              DCX_CACHE            | \
@@ -4141,7 +4594,8 @@ GetDCEx(
                              DCX_NOCLIPCHILDREN   | \
                              DCX_NORECOMPUTE      | \
                              DCX_VALIDATE         | \
-                             DCX_DESTROYTHIS)
+                             DCX_DESTROYTHIS      | \
+                             DCX_CREATEDC)
 ;end_internal_NT
 
 WINUSERAPI
@@ -4186,6 +4640,21 @@ GetUpdateRgn(
     HWND hWnd,
     HRGN hRgn,
     BOOL bErase);
+
+WINUSERAPI
+int
+WINAPI
+SetWindowRgn(
+    HWND hWnd,
+    HRGN hRgn,
+    BOOL bRedraw);
+
+WINUSERAPI
+int
+WINAPI
+GetWindowRgn(
+    HWND hWnd,
+    HRGN hRgn);
 
 WINUSERAPI
 int
@@ -4259,6 +4728,7 @@ RedrawWindow(
 #define RDW_SUBTRACTSELF        0x2000  /* Subtract self from hrgn   */
 
 #define RDW_COPYRGN             0x4000  /* Copy the passed-in region */
+#define RDW_IGNOREUPDATEDIRTY   0x8000  /* Ignore WFUPDATEDIRTY      */
 ;end_internal
 
 ;begin_internal_NT
@@ -4370,19 +4840,6 @@ GetScrollRange(
     int nBar,
     LPINT lpMinPos,
     LPINT lpMaxPos);
-
-;begin_winver_400
-WINUSERAPI
-int
-WINAPI
-SetScrollPage(HWND, int, int, BOOL);
-
-WINUSERAPI
-int
-WINAPI
-GetScrollPage(HWND, int);
-
-;end_winver_400
 
 WINUSERAPI
 BOOL
@@ -4561,10 +5018,17 @@ typedef struct {
 #define MB_YESNO                    0x00000004L
 #define MB_RETRYCANCEL              0x00000005L
 
+
 #define MB_ICONHAND                 0x00000010L
 #define MB_ICONQUESTION             0x00000020L
 #define MB_ICONEXCLAMATION          0x00000030L
 #define MB_ICONASTERISK             0x00000040L
+
+;begin_winver_400
+#define MB_USERICON                 0x00000080L
+#define MB_ICONWARNING              MB_ICONEXCLAMATION
+#define MB_ICONERROR                MB_ICONHAND
+;end_winver_400
 
 #define MB_ICONINFORMATION          MB_ICONASTERISK
 #define MB_ICONSTOP                 MB_ICONHAND
@@ -4586,13 +5050,28 @@ typedef struct {
 #define MB_NOFOCUS                  0x00008000L
 #define MB_SETFOREGROUND            0x00010000L
 #define MB_DEFAULT_DESKTOP_ONLY     0x00020000L
-#define MB_SERVICE_NOTIFICATION     0x00040000L
-#define MB_NOACTIVATE               0x00080000L   ;public_cairo
+
+;begin_winver_400
+#define MB_TOPMOST                  0x00040000L
+#define MB_RIGHT                    0x00080000L
+#define MB_RTLREADING               0x00100000L
+
+#define MBEX_VALIDL                 0xf3f7 ;internal
+#define MBEX_VALIDH                 1      ;internal
+
+;end_winver_400
+
+
+#ifdef _WIN32_WINNT
+#if (_WIN32_WINNT >= 0x0400)
+#define MB_SERVICE_NOTIFICATION          0x00200000L
+#else
+#define MB_SERVICE_NOTIFICATION          0x00040000L
+#endif
+#define MB_SERVICE_NOTIFICATION_NT3X     0x00040000L
+#endif
 
 #define MB_TYPEMASK                 0x0000000FL
-;begin_winver_400
-#define MB_USERICON                 0x00000080L
-;end_winver_400
 #define MB_ICONMASK                 0x000000F0L
 #define MB_DEFMASK                  0x00000F00L
 #define MB_MODEMASK                 0x00003000L
@@ -4618,10 +5097,6 @@ MessageBoxEx%(
     WORD wLanguageId);
 
 ;begin_winver_400
-#define MB_TOPMOST          0x00040000L
-
-#define MBEX_VALIDL         0xf3f7 ;internal
-#define MBEX_VALIDH         1      ;internal
 
 typedef void (CALLBACK *MSGBOXCALLBACK)(LPHELPINFO lpHelpInfo);
 
@@ -4690,15 +5165,18 @@ WINUSERAPI int     WINAPI MessageBoxIndirect%(LPMSGBOXPARAMS%);
                                     MB_SYSTEMMODAL          | \
                                     MB_TASKMODAL            | \
                                     MB_HELP                 | \
+                                    MB_TOPMOST              | \
+                                    MB_RIGHT                | \
+                                    MB_RTLREADING           | \
                                     MB_NOFOCUS              | \
                                     MB_SETFOREGROUND        | \
                                     MB_DEFAULT_DESKTOP_ONLY | \
+                                    MB_SERVICE_NOTIFICATION | \
                                     MB_TYPEMASK             | \
                                     MB_USERICON             | \
                                     MB_ICONMASK             | \
                                     MB_DEFMASK              | \
                                     MB_MODEMASK             | \
-                                    MB_NOACTIVATE           | \
                                     MB_MISCMASK)
 ;end_internal_cairo
 
@@ -4846,7 +5324,7 @@ ChildWindowFromPoint(
 #define CWP_SKIPINVISIBLE   0x0001
 #define CWP_SKIPDISABLED    0x0002
 #define CWP_SKIPTRANSPARENT 0x0004
-#define CWP_VALID           0x0007                          ;internal
+#define CWP_VALID           (CWP_SKIPINVISIBLE | CWP_SKIPDISABLED | CWP_SKIPTRANSPARENT)       ;internal
 
 WINUSERAPI HWND    WINAPI ChildWindowFromPointEx(HWND, POINT, UINT);
 ;end_winver_400
@@ -4866,8 +5344,7 @@ WINUSERAPI HWND    WINAPI ChildWindowFromPointEx(HWND, POINT, UINT);
 #define CTLCOLOR_MAX            7
 
 #define COLOR_SCROLLBAR         0
-#define COLOR_DESKTOP           1       ;public_win40
-#define COLOR_BACKGROUND        1       ;public_NT_35
+#define COLOR_BACKGROUND        1
 #define COLOR_ACTIVECAPTION     2
 #define COLOR_INACTIVECAPTION   3
 #define COLOR_MENU              4
@@ -4881,33 +5358,28 @@ WINUSERAPI HWND    WINAPI ChildWindowFromPointEx(HWND, POINT, UINT);
 #define COLOR_APPWORKSPACE      12
 #define COLOR_HIGHLIGHT         13
 #define COLOR_HIGHLIGHTTEXT     14
-#define COLOR_3DFACE            15  ;public_win40
-#define COLOR_BTNFACE           15  ;public_NT_35
-#define COLOR_3DSHADOW          16  ;public_win40
-#define COLOR_BTNSHADOW         16  ;public_NT_35
+#define COLOR_BTNFACE           15
+#define COLOR_BTNSHADOW         16
 #define COLOR_GRAYTEXT          17
 #define COLOR_BTNTEXT           18
 #define COLOR_INACTIVECAPTIONTEXT 19
-#define COLOR_3DHILIGHT         20  ;public_win40
-#define COLOR_BTNHIGHLIGHT      20  ;public_NT_35
+#define COLOR_BTNHIGHLIGHT      20
 
 ;begin_winver_400
 #define COLOR_3DDKSHADOW        21
 #define COLOR_3DLIGHT           22
-#define COLOR_MSGBOX            23
-#define COLOR_MSGBOXTEXT        24
-#define COLOR_INFOTEXT          25  ;public_cairo
-#define COLOR_INFOBK            26  ;public_cairo
+#define COLOR_INFOTEXT          23
+#define COLOR_INFOBK            24
+
+#define COLOR_DESKTOP           COLOR_BACKGROUND
+#define COLOR_3DFACE            COLOR_BTNFACE
+#define COLOR_3DSHADOW          COLOR_BTNSHADOW
+#define COLOR_3DHIGHLIGHT       COLOR_BTNHIGHLIGHT
+#define COLOR_3DHILIGHT         COLOR_BTNHIGHLIGHT
+#define COLOR_BTNHILIGHT        COLOR_BTNHIGHLIGHT
 ;end_winver_400
 
-#define COLOR_BACKGROUND        COLOR_DESKTOP   ;public_win40
-#define COLOR_BTNFACE           COLOR_3DFACE    ;public_win40
-#define COLOR_BTNSHADOW         COLOR_3DSHADOW  ;public_win40
-#define COLOR_BTNHIGHLIGHT      COLOR_3DHILIGHT ;public_win40
-
-#define COLOR_ENDCOLORS         24                      ;internal_chicago
-#define COLOR_ENDCOLORS         COLOR_BTNHIGHLIGHT      ;internal_NT_35
-#define COLOR_ENDCOLORS         COLOR_INFOBK            ;internal_cairo
+#define COLOR_ENDCOLORS         COLOR_INFOBK            ;internal
 #define COLOR_MAX               (COLOR_ENDCOLORS+1)     ;internal
 
 WINUSERAPI
@@ -5128,6 +5600,26 @@ WINAPI
 SetDeskWallpaper(
     LPCSTR lpString);
 
+WINUSERAPI HWND WINAPI CreateDialogIndirectParamAorW(
+    HANDLE hmod,
+    LPCDLGTEMPLATE lpDlgTemplate,
+    HWND hwndOwner,
+    DLGPROC lpDialogFunc,
+    LPARAM dwInitParam,
+    UINT fAnsi);
+
+WINUSERAPI int WINAPI DialogBoxIndirectParamAorW(
+    HINSTANCE hmod,
+    LPCDLGTEMPLATEW lpDlgTemplate,
+    HWND hwndOwner,
+    DLGPROC lpDialogFunc,
+    LPARAM dwInitParam,
+    UINT fAnsiFlags);
+
+WINUSERAPI void LoadLocalFonts(void);
+
+WINUSERAPI UINT UserRealizePalette(HDC hdc);
+
 ;end_internal_NT
 
 WINUSERAPI
@@ -5161,9 +5653,20 @@ FindWindow%(
 ;begin_winver_400
 WINUSERAPI HWND    WINAPI FindWindowEx%(HWND, HWND, LPCTSTR%, LPCTSTR%);
 
-WINUSERAPI HWND    WINAPI  GetShellWindow(void);   ;internal
-WINUSERAPI BOOL    WINAPI  SetShellWindow(HWND);   ;internal
+WINUSERAPI HWND    WINAPI  GetShellWindow(void);         ;internal
+WINUSERAPI BOOL    WINAPI  SetShellWindow(HWND);         ;internal
+WINUSERAPI BOOL    WINAPI  SetShellWindowEx(HWND, HWND); ;internal
 ;end_winver_400
+
+;begin_internal_cairo
+WINUSERAPI HWND    WINAPI  GetProgmanWindow(void);
+WINUSERAPI BOOL    WINAPI  SetProgmanWindow(HWND);
+WINUSERAPI HWND    WINAPI  GetTaskmanWindow(void);
+WINUSERAPI BOOL    WINAPI  SetTaskmanWindow(HWND);
+WINUSERAPI BOOL    WINAPI  RegisterShellHookWindow(HWND);
+WINUSERAPI BOOL    WINAPI  DeregisterShellHookWindow(HWND);
+
+;end_internal_cairo
 
 WINUSERAPI
 BOOL
@@ -5305,6 +5808,8 @@ CallNextHookEx(
 
 #ifndef NOMENUS
 
+// begin_r_winuser
+
 /* ;win40  -- A lot of MF_* flags have been renamed as MFT_* and MFS_* flags */
 /*
  * Menu flags for Add/Check/EnableMenuItem()
@@ -5318,31 +5823,33 @@ CallNextHookEx(
 #define MF_BYCOMMAND        0x00000000L
 #define MF_BYPOSITION       0x00000400L
 
-#define MF_SEPARATOR        0x00000800L  ;public_NT_35
+#define MF_SEPARATOR        0x00000800L
 
-#define MF_ENABLED          0x00000000L  ;public_NT_35
+#define MF_ENABLED          0x00000000L
 #define MF_GRAYED           0x00000001L
 #define MF_DISABLED         0x00000002L
 
-#define MF_UNCHECKED        0x00000000L  ;public_NT_35
-#define MF_CHECKED          0x00000008L  ;public_NT_35
+#define MF_UNCHECKED        0x00000000L
+#define MF_CHECKED          0x00000008L
 #define MF_USECHECKBITMAPS  0x00000200L
 
-#define MF_STRING           0x00000000L  ;public_NT_35
-#define MF_BITMAP           0x00000004L  ;public_NT_35
-#define MF_OWNERDRAW        0x00000100L  ;public_NT_35
+#define MF_STRING           0x00000000L
+#define MF_BITMAP           0x00000004L
+#define MF_OWNERDRAW        0x00000100L
 
 #define MF_POPUP            0x00000010L
-#define MF_MENUBARBREAK     0x00000020L  ;public_NT_35
-#define MF_MENUBREAK        0x00000040L  ;public_NT_35
+#define MF_MENUBARBREAK     0x00000020L
+#define MF_MENUBREAK        0x00000040L
 
-#define MF_UNHILITE         0x00000000L  ;public_NT_35
-#define MF_HILITE           0x00000080L  ;public_NT_35
+#define MF_UNHILITE         0x00000000L
+#define MF_HILITE           0x00000080L
 
-#define MF_SYSMENU          0x00002000L  /* Passed back during WM_MENUSELECT */
+#define MF_DEFAULT          0x00001000L ;public_winver_400
+#define MF_SYSMENU          0x00002000L
 #define MF_HELP             0x00004000L
-#define MF_MOUSESELECT      0x00008000L  /* Passed back during WM_MENUSELECT */
+#define MF_RIGHTJUSTIFY     0x00004000L ;public_winver_400
 
+#define MF_MOUSESELECT      0x00008000L
 ;begin_winver_400
 #define MF_END              0x00000080L  /* Obsolete -- only used by old RES files */
 ;end_winver_400
@@ -5376,96 +5883,49 @@ CallNextHookEx(
                            MF_HELP            | \
                            MF_MOUSESELECT)
 
-
-/* fType field */
-
-#define MFT_STRING          0x00000000L
-#define MFT_BITMAP          0x00000004L
-#define MFT_MENUBARBREAK    0x00000020L
-#define MFT_MENUBREAK       0x00000040L
-#define MFT_OWNERDRAW       0x00000100L
-#define MFT_RADIOCHECK      0x00000200L // new
-#define MFT_SEPARATOR       0x00000800L
-#define MFT_RIGHTJUSTIFY    0x00004000L // new
-#define MFT_MASK            0x00004B64L
-
-/* fState field */
-
-#define MFS_GRAYED          0x00000003L // MF_GRAYED | MF_DISABLED
-#define MFS_DISABLED        0x00000002L
-#define MFS_CHECKED         0x00000008L
-#define MFS_HILITE          0x00000080L
-#define MFS_ENABLED         0x00000000L
-#define MFS_UNCHECKED       0x00000000L
-#define MFS_UNHILITE        0x00000000L
-#define MFS_DEFAULT         0x00001000L
-#define MFS_MASK            0x0000108BL
-
-/* bResInfo field */
-
-#define MFR_POPUP           0x01   // = MF_POPUP >> 1
-#define MFR_END             0x80   // = MF_END
 ;end_internal_NT
 
-#define MFT_STRING          0x00000000L  ;public_win40
-#define MFT_BITMAP          0x00000004L  ;public_win40
-#define MFT_MENUBARBREAK    0x00000020L  ;public_win40
-#define MFT_MENUBREAK       0x00000040L  ;public_win40
-#define MFT_OWNERDRAW       0x00000100L  ;public_win40
-#define MFT_RADIOCHECK      0x00000200L  ;public_win40
-#define MFT_SEPARATOR       0x00000800L  ;public_win40
-#define MFT_RIGHTJUSTIFY    0x00004000L  ;public_win40
-#define MFT_OBJECTICON      0x00010000L  ;public_cairo
-#define MFT_OBJECTBITMAP    0x00020000L  ;public_cairo
-#undef  MFT_MASK                         ;internal_cairo
+;begin_winver_400
+#define MFT_STRING          MF_STRING                             ;public_NT
+#define MFT_STRING          -1   /* Obsolete - use MIIM_STRING */ ;public_win40a
+#define MFT_BITMAP          MF_BITMAP
+#define MFT_MENUBARBREAK    MF_MENUBARBREAK
+#define MFT_MENUBREAK       MF_MENUBREAK
+#define MFT_OWNERDRAW       MF_OWNERDRAW
+#define MFT_RADIOCHECK      0x00000200L
+#define MFT_SEPARATOR       MF_SEPARATOR
+#define MFT_RIGHTORDER      0x00002000L
+#define MFT_RIGHTJUSTIFY    MF_RIGHTJUSTIFY
 #define MFT_MASK            0x00034B64L  ;internal_cairo
+///* Define for MEMPHIS_MENUS */           ;internal_win40a
+#undef MFT_MASK                            ;internal_win40a
+#define MFT_MASK            0x00034B65L  ;internal_win40a
 
-/* Menu flags for Add/Check/EnableMenuItem() */ ;public_win40
-#define MFS_GRAYED          0x00000003L  ;public_win40
-#define MFS_DISABLED        0x00000002L  ;public_win40
-#define MFS_CHECKED         0x00000008L  ;public_win40
-#define MFS_HILITE          0x00000080L  ;public_win40
-#define MFS_ENABLED         0x00000000L  ;public_win40
-#define MFS_UNCHECKED       0x00000000L  ;public_win40
-#define MFS_UNHILITE        0x00000000L  ;public_win40
-#define MFS_DEFAULT         0x00001000L  ;public_win40
+/* Menu flags for Add/Check/EnableMenuItem() */
+#define MFS_GRAYED          0x00000003L
+#define MFS_DISABLED        MFS_GRAYED
+#define MFS_CHECKED         MF_CHECKED
+#define MFS_HILITE          MF_HILITE
+#define MFS_ENABLED         MF_ENABLED
+#define MFS_UNCHECKED       MF_UNCHECKED
+#define MFS_UNHILITE        MF_UNHILITE
+#define MFS_DEFAULT         MF_DEFAULT
 #define MFS_MASK            0x0000108BL  ;internal
 
 
-#define MFR_POPUP           0x01    ;internal
-#define MFR_END             0x80    ;internal
+#define MFR_POPUP           0x01         ;internal
+#define MFR_END             0x80         ;internal
+
 #define MFT_OLDAPI_MASK     0x00004B64L  ;internal
-#define MFS_OLDAPI_MASK     0x0000108BL  ;internal
+#define MFS_OLDAPI_MASK     0x0000008BL  ;internal
+#define MFT_NONSTRING       0x00000904L  ;internal
+#define MFT_BREAK           0x00000060L  ;internal
+;end_winver_400
 
-//#define MFT_MASK            0x00000904L  ;internal (not including those below)
-//#define MFS_MASK            0x000040EBL  ;internal
-
-#define MFT_NONSTRING       0x00000904L  // MF_BITMAP | MF_OWNERDRAW | MF_SEPARATOR ;internal
-#define MFT_BREAK           0x00000060L  // MF_MENUBREAK | MF_MENUBARBREAK          ;internal
-#define MFS_GRAYEDOUT       0x00000003L  // MF_DISABLED | MF_GRAYED                 ;internal
-
-
-/* old names for menu types & states */         ;public_win40
-#define MF_SEPARATOR        MFT_SEPARATOR       ;public_win40
-
-#define MF_CHECKED          MFS_CHECKED ;public_win40
-#define MF_ENABLED          MFS_ENABLED ;public_win40
-#define MF_UNCHECKED        MFS_UNCHECKED       ;public_win40
-#define MF_UNHILITE         MFS_UNHILITE        ;public_win40
-
-#define MF_STRING           MFT_STRING  ;public_win40
-#define MF_BITMAP           MFT_BITMAP  ;public_win40
-#define MF_OWNERDRAW        MFT_OWNERDRAW       ;public_win40
-
-#define MF_MENUBARBREAK     MFT_MENUBARBREAK    ;public_win40
-#define MF_MENUBREAK        MFT_MENUBREAK       ;public_win40
-
-#define MF_HILITE           MFS_HILITE  ;public_win40
-
-#define MF_DEFAULT          MFS_DEFAULT ;public_win40
-#define MF_RIGHTJUSTIFY     MFT_RIGHTJUSTIFY    ;public_win40
+// end_r_winuser
 
 ;begin_winver_400
+
 WINUSERAPI
 BOOL
 WINAPI
@@ -5497,12 +5957,13 @@ typedef struct {        // version 1
     WCHAR mtString[1];
 } MENUITEMTEMPLATE2, *PMENUITEMTEMPLATE2;
 ;end_internal_NT
-#define MF_END             0x00000080L
+#define MF_END             0x00000080L          // r_winuser
 
 #endif /* !NOMENUS */
 
 #ifndef NOSYSCOMMANDS
 
+// begin_r_winuser
 /*
  * System Menu Command Values
  */
@@ -5528,14 +5989,13 @@ typedef struct {        // version 1
 #define SC_CONTEXTHELP  0xF180
 #define SC_SEPARATOR    0xF00F
 ;end_winver_400
-#define SC_PROJECT      0xF190   ;public_cairo
-
 /*
  * Obsolete names
  */
 #define SC_ICON         SC_MINIMIZE
 #define SC_ZOOM         SC_MAXIMIZE
 
+// end_r_winuser
 #endif /* !NOSYSCOMMANDS */
 
 /*
@@ -5556,13 +6016,11 @@ LoadCursor%(
     HINSTANCE hInstance,
     LPCTSTR% lpCursorName);
 
-;begin_winver_400
 WINUSERAPI
 HCURSOR
 WINAPI
 LoadCursorFromFile%(
     LPCTSTR%    lpFileName);
-;end_winver_400
 
 WINUSERAPI
 HCURSOR
@@ -5594,18 +6052,25 @@ DestroyCursor(
 #define IDC_UPARROW         MAKEINTRESOURCE(32516)
 #define IDC_NWPEN           MAKEINTRESOURCE(32531) ;internal
 #define IDC_HUNG            MAKEINTRESOURCE(32632) ;internal
-#define IDC_SIZE            MAKEINTRESOURCE(32640)
-#define IDC_ICON            MAKEINTRESOURCE(32641)
+#define IDC_SIZE            MAKEINTRESOURCE(32640)  /* OBSOLETE: use IDC_SIZEALL */
+#define IDC_ICON            MAKEINTRESOURCE(32641)  /* OBSOLETE: use IDC_ARROW */
 #define IDC_SIZENWSE        MAKEINTRESOURCE(32642)
 #define IDC_SIZENESW        MAKEINTRESOURCE(32643)
 #define IDC_SIZEWE          MAKEINTRESOURCE(32644)
 #define IDC_SIZENS          MAKEINTRESOURCE(32645)
-#define IDC_SIZEALL         MAKEINTRESOURCE(32646) /*not in win3.1 */
+#define IDC_SIZEALL         MAKEINTRESOURCE(32646)
 #define IDC_NO              MAKEINTRESOURCE(32648) /*not in win3.1 */
 #define IDC_APPSTARTING     MAKEINTRESOURCE(32650) /*not in win3.1 */
 ;begin_winver_400
 #define IDC_HELP            MAKEINTRESOURCE(32651)
 ;end_winver_400
+
+WINUSERAPI
+BOOL
+WINAPI
+SetSystemCursor(
+    HCURSOR hcur,
+    DWORD   id);
 
 typedef struct _ICONINFO {
     BOOL    fIcon;
@@ -5622,6 +6087,26 @@ WINAPI
 LoadIcon%(
     HINSTANCE hInstance,
     LPCTSTR% lpIconName);
+
+;begin_internal_NT
+WINUSERAPI UINT PrivateExtractIconEx%(
+    LPCTSTR% szFileName,
+    int      nIconIndex,
+    HICON   *phiconLarge,
+    HICON   *phiconSmall,
+    UINT     nIcons);
+
+
+WINUSERAPI UINT PrivateExtractIcons%(
+    LPCTSTR% szFileName,
+    int      nIconIndex,
+    int      cxIcon,
+    int      cyIcon,
+    HICON   *phicon,
+    UINT    *piconid,
+    UINT     nIcons,
+    UINT     flags);
+;end_internal_NT
 
 WINUSERAPI
 HICON
@@ -5693,10 +6178,12 @@ typedef struct tagCURSORSHAPE
     BYTE    Planes;
     BYTE    BitsPixel;
 } CURSORSHAPE, FAR *LPCURSORSHAPE;
+;end_winver_400
 
 #define IMAGE_BITMAP        0
 #define IMAGE_ICON          1
 #define IMAGE_CURSOR        2
+;begin_winver_400
 #define IMAGE_ENHMETAFILE   3
 
 #define LR_DEFAULTCOLOR     0x0000
@@ -5705,13 +6192,18 @@ typedef struct tagCURSORSHAPE
 #define LR_COPYRETURNORG    0x0004
 #define LR_COPYDELETEORG    0x0008
 #define LR_LOADFROMFILE     0x0010
-#define LR_LOADREALSIZE     0x0020      ;internal
-#define LR_DEFAULTSIZE      0x0040      ;internal
-#define LR_LOADMAP3DCOLORS  0x1000      ;internal
-#define LR_CREATEDIBSECTION 0x2000      ;internal
-#define LR_COPYFROMRESOURCE 0x4000      ;internal
-#define LR_SHARED           0x8000      ;internal
-#define LR_VALID            0xB03F      ;internal
+#define LR_LOADTRANSPARENT  0x0020
+#define LR_DEFAULTSIZE      0x0040
+#define LR_VGACOLOR         0x0080
+#define LR_GLOBAL           0x0100          ;internal
+#define LR_ENVSUBST         0x0200          ;internal
+#define LR_ACONFRAME        0x0400          ;internal
+#define LR_LOADMAP3DCOLORS  0x1000
+#define LR_CREATEDIBSECTION 0x2000
+#define LR_COPYFROMRESOURCE 0x4000
+#define LR_SHARED           0x8000
+#define LR_CREATEREALDIB    0x0800          ;internal
+#define LR_VALID            0xF8FF          ;internal
 
 WINUSERAPI
 HANDLE
@@ -5725,7 +6217,7 @@ LoadImage%(
     UINT);
 
 WINUSERAPI
-HICON
+HANDLE
 WINAPI
 CopyImage(
     HANDLE,
@@ -5734,11 +6226,13 @@ CopyImage(
     int,
     UINT);
 
-#define DI_MASK     0x0001
-#define DI_IMAGE    0x0002
-#define DI_NORMAL   0x0003
-#define DI_COMPAT   0x0004
+#define DI_MASK         0x0001
+#define DI_IMAGE        0x0002
+#define DI_NORMAL       0x0003
+#define DI_COMPAT       0x0004
 #define DI_DEFAULTSIZE  0x0008
+#define DI_VALID       (DI_MASK | DI_IMAGE | DI_COMPAT | DI_DEFAULTSIZE) ;internal
+
 
 WINUSERAPI BOOL WINAPI DrawIconEx(HDC hdc, int xLeft, int yTop,
               HICON hIcon, int cxWidth, int cyWidth,
@@ -5771,6 +6265,8 @@ GetIconInfo(
 
 #ifdef OEMRESOURCE
 
+// begin_r_winuser
+
 /*
  * OEM Resource Ordinal Numbers
  */
@@ -5797,6 +6293,8 @@ GetIconInfo(
 #define OBM_LFARROWI        32734
 #define OBM_STARTUP         32733            ;internal_NT
 #define OBM_TRUETYPE        32732            ;internal_NT
+#define OBM_HELP            32731            ;internal_NT
+#define OBM_HELPD           32730            ;internal_NT
 
 #define OBM_OLD_CLOSE       32767
 #define OBM_SIZE            32766
@@ -5818,40 +6316,41 @@ GetIconInfo(
 #define OCR_CROSS           32515
 #define OCR_UP              32516
 #define OCR_NWPEN           32631   ;internal
-#define OCR_SIZE            32640
-#define OCR_ICON            32641
+#define OCR_SIZE            32640   /* OBSOLETE: use OCR_SIZEALL */
+#define OCR_ICON            32641   /* OBSOLETE: use OCR_NORMAL */
 #define OCR_SIZENWSE        32642
 #define OCR_SIZENESW        32643
 #define OCR_SIZEWE          32644
 #define OCR_SIZENS          32645
 #define OCR_SIZEALL         32646
-#define OCR_ICOCUR          32647
-#define OCR_NO              32648 /*not in win3.1 */
+#define OCR_ICOCUR          32647   /* OBSOLETE: use OIC_WINLOGO */
+#define OCR_NO              32648
+#define OCR_HELP            32651   ;internal
 ;begin_winver_400
 #define OCR_APPSTARTING     32650
-#define OCR_HUNG            32651
-#define OCR_HELP            32652   ;internal
 ;end_winver_400
 
 
 /*                                                      ;internal
  * Default Cursor IDs to get original image from User   ;internal
  */                                                     ;internal
-#define OCR_ARROW_DEFAULT       100 ;internal
-#define OCR_IBEAM_DEFAULT       101 ;internal
-#define OCR_WAIT_DEFAULT        102 ;internal
-#define OCR_CROSS_DEFAULT       103 ;internal
-#define OCR_UPARROW_DEFAULT     104 ;internal
-#define OCR_SIZENWSE_DEFAULT    105 ;internal
-#define OCR_SIZENESW_DEFAULT    106 ;internal
-#define OCR_SIZEWE_DEFAULT      107 ;internal
-#define OCR_SIZENS_DEFAULT      108 ;internal
-#define OCR_SIZEALL_DEFAULT     109 ;internal
-#define OCR_NO_DEFAULT          110 ;internal
-#define OCR_APPSTARTING_DEFAULT 111 ;internal
-#define OCR_HELP_DEFAULT        112 ;internal
-#define OCR_HUNG_DEFAULT        113 ;internal
-#define OCR_NWPEN_DEFAULT       114 ;internal
+#define OCR_FIRST_DEFAULT           100 ;internal
+#define OCR_ARROW_DEFAULT           100 ;internal
+#define OCR_IBEAM_DEFAULT           101 ;internal
+#define OCR_WAIT_DEFAULT            102 ;internal
+#define OCR_CROSS_DEFAULT           103 ;internal
+#define OCR_UPARROW_DEFAULT         104 ;internal
+#define OCR_SIZENWSE_DEFAULT        105 ;internal
+#define OCR_SIZENESW_DEFAULT        106 ;internal
+#define OCR_SIZEWE_DEFAULT          107 ;internal
+#define OCR_SIZENS_DEFAULT          108 ;internal
+#define OCR_SIZEALL_DEFAULT         109 ;internal
+#define OCR_NO_DEFAULT              110 ;internal
+#define OCR_APPSTARTING_DEFAULT     111 ;internal
+#define OCR_HELP_DEFAULT            112 ;internal
+#define OCR_NWPEN_DEFAULT           113 ;internal
+#define OCR_ICON_DEFAULT            114 ;internal
+#define COCR_CONFIGURABLE           (OCR_ICON_DEFAULT - OCR_FIRST_DEFAULT + 1) ;internal
 
 #define OIC_SAMPLE          32512
 #define OIC_HAND            32513
@@ -5860,18 +6359,25 @@ GetIconInfo(
 #define OIC_NOTE            32516
 ;begin_winver_400
 #define OIC_WINLOGO         32517
+#define OIC_WARNING         OIC_BANG
+#define OIC_ERROR           OIC_HAND
+#define OIC_INFORMATION     OIC_NOTE
 ;end_winver_400
-#define OIC_WINLOGOSM       32518   ;public_cairo
-#define OIC_GENERIC         32519   ;public_cairo
-#define OIC_SMGENERIC       32520   ;public_cairo
 
 /* Default IDs for original User images */                  ;internal
+#define OIC_FIRST_DEFAULT           100 ;internal
 #define OIC_APPLICATION_DEFAULT     100 ;internal
 #define OIC_HAND_DEFAULT            101 ;internal
+#define OIC_WARNING_DEFAULT         101 ;internal
 #define OIC_QUESTION_DEFAULT        102 ;internal
 #define OIC_EXCLAMATION_DEFAULT     103 ;internal
+#define OIC_ERROR_DEFAULT           103 ;internal
 #define OIC_ASTERISK_DEFAULT        104 ;internal
+#define OIC_INFORMATION_DEFAULT     104 ;internal
 #define OIC_WINLOGO_DEFAULT         105 ;internal
+#define COIC_CONFIGURABLE           (OIC_WINLOGO_DEFAULT - OIC_FIRST_DEFAULT + 1) ;internal
+
+// end_r_winuser
 
 #endif /* OEMRESOURCE */
 
@@ -5881,6 +6387,7 @@ GetIconInfo(
 
 #ifndef NOICONS
 
+// begin_r_winuser
 /*
  * Standard Icon IDs
  */
@@ -5893,22 +6400,24 @@ GetIconInfo(
 ;begin_winver_400
 #define IDI_WINLOGO         32517
 ;end_winver_400
-#define IDI_WINLOGOSM       32518   ;public_cairo
-#define IDI_GENERIC         32519   ;public_cairo
-#define IDI_SMGENERIC       32520   ;public_cairo
 #else                       ;both
-#define IDI_APPLICATION   MAKEINTRESOURCE(32512)
-#define IDI_HAND          MAKEINTRESOURCE(32513)
-#define IDI_QUESTION      MAKEINTRESOURCE(32514)
-#define IDI_EXCLAMATION   MAKEINTRESOURCE(32515)
-#define IDI_ASTERISK      MAKEINTRESOURCE(32516)
+#define IDI_APPLICATION     MAKEINTRESOURCE(32512)
+#define IDI_HAND            MAKEINTRESOURCE(32513)
+#define IDI_QUESTION        MAKEINTRESOURCE(32514)
+#define IDI_EXCLAMATION     MAKEINTRESOURCE(32515)
+#define IDI_ASTERISK        MAKEINTRESOURCE(32516)
 ;begin_winver_400
-#define IDI_WINLOGO       MAKEINTERESOURCE(32517)
+#define IDI_WINLOGO         MAKEINTRESOURCE(32517)
 ;end_winver_400
-#define IDI_WINLOGOSM       MAKEINTRESOURCE(32518)   ;public_cairo
-#define IDI_GENERIC         MAKEINTRESOURCE(32519)   ;public_cairo
-#define IDI_SMGENERIC       MAKEINTRESOURCE(32520)   ;public_cairo
 #endif /* RC_INVOKED */     ;both
+
+;begin_winver_400
+#define IDI_WARNING     IDI_EXCLAMATION
+#define IDI_ERROR       IDI_HAND
+#define IDI_INFORMATION IDI_ASTERISK
+;end_winver_400
+
+// end_r_winuser
 
 #endif /* !NOICONS */
 
@@ -5920,6 +6429,8 @@ LoadString%(
     UINT uID,
     LPTSTR% lpBuffer,
     int nBufferMax);
+
+// begin_r_winuser
 
 /*
  * Dialog Box Command IDs
@@ -5937,6 +6448,8 @@ LoadString%(
 #define IDUSERICON      10    ;internal
 ;end_winver_400
 
+// end_r_winuser
+
 #ifndef NOCTLMGR
 
 /*
@@ -5944,6 +6457,8 @@ LoadString%(
  */
 
 #ifndef NOWINSTYLES
+
+// begin_r_winuser
 
 /*
  * Edit Control Styles
@@ -5963,8 +6478,9 @@ LoadString%(
 #define ES_OEMCONVERT       0x0400L
 #define ES_READONLY         0x0800L
 #define ES_WANTRETURN       0x1000L
-#define ES_NUMBER           0x2000L     ;public_win40
+#define ES_NUMBER           0x2000L     ;public_winver_400
 
+// end_r_winuser
 
 #endif /* !NOWINSTYLES */
 
@@ -5989,6 +6505,8 @@ LoadString%(
 
 #ifndef NOWINMESSAGES
 
+// begin_r_winuser
+
 /*
  * Edit Control Messages
  */
@@ -6011,8 +6529,7 @@ LoadString%(
 #define EM_REPLACESEL           0x00C2
 #define EM_SETFONT              0x00C3 /* no longer suported */ ;internal
 #define EM_GETLINE              0x00C4
-#define EM_SETLIMITTEXT         0x00C5  /* ;win40 Name Change */ ;public_win40
-#define EM_LIMITTEXT            0x00C5  ;public_NT_35
+#define EM_LIMITTEXT            0x00C5
 #define EM_CANUNDO              0x00C6
 #define EM_UNDO                 0x00C7
 #define EM_FMTLINES             0x00C8
@@ -6029,15 +6546,16 @@ LoadString%(
 ;begin_winver_400
 #define EM_SETMARGINS           0x00D3
 #define EM_GETMARGINS           0x00D4
+#define EM_SETLIMITTEXT         EM_LIMITTEXT   /* ;win40 Name change */
 #define EM_GETLIMITTEXT         0x00D5
 #define EM_POSFROMCHAR          0x00D6
 #define EM_CHARFROMPOS          0x00D7
 ;end_winver_400
 
-#define EM_LIMITTEXT            EM_SETLIMITTEXT   /* ;win40 Name change */ ;public_win40
-#define EM_MSGMAX               0x00D3           ;internal_NT_35
+#define EM_MSGMAX               0x00D3          ;internal_NT_35
 #define EM_MSGMAX               0x00D8          ;internal_cairo
 
+// end_r_winuser
 #endif /* !NOWINMESSAGES */
 
 /*
@@ -6046,6 +6564,8 @@ LoadString%(
 #define WB_LEFT            0
 #define WB_RIGHT           1
 #define WB_ISDELIMITER     2
+
+// begin_r_winuser
 
 /*
  * Button Control Styles
@@ -6094,10 +6614,11 @@ LoadString%(
 #define BN_HILITE           2
 #define BN_UNHILITE         3
 #define BN_DISABLE          4
-#define BN_DOUBLECLICKED    5  ;public_NT_35
-#define BN_DBLCLK           5           /* ;win40 Name change */ ;public_win40
-#define BN_DOUBLECLICKED    BN_DBLCLK   /* ;win40 Name change */ ;public_win40
+#define BN_DOUBLECLICKED    5
 ;begin_winver_400
+#define BN_PUSHED           BN_HILITE
+#define BN_UNPUSHED         BN_UNHILITE
+#define BN_DBLCLK           BN_DOUBLECLICKED
 #define BN_SETFOCUS         6
 #define BN_KILLFOCUS        7
 ;end_winver_400
@@ -6114,6 +6635,12 @@ LoadString%(
 #define BM_CLICK           0x00F5
 #define BM_GETIMAGE        0x00F6
 #define BM_SETIMAGE        0x00F7
+
+#define BST_UNCHECKED      0x0000
+#define BST_CHECKED        0x0001
+#define BST_INDETERMINATE  0x0002
+#define BST_PUSHED         0x0004
+#define BST_FOCUS          0x0008
 ;end_winver_400
 
 /*
@@ -6145,11 +6672,17 @@ LoadString%(
 ;begin_winver_400
 #define SS_NOTIFY           0x00000100L
 #define SS_CENTERIMAGE      0x00000200L
-#define SS_RIGHTIMAGE       0x00000400L
+#define SS_RIGHTJUST        0x00000400L
 #define SS_REALSIZEIMAGE    0x00000800L
 #define SS_SUNKEN           0x00001000L
-#define SS_RAISED           0x00002000L
+#define SS_EDITCONTROL      0x00002000L ;internal
+#define SS_ENDELLIPSIS      0x00004000L
+#define SS_PATHELLIPSIS     0x00008000L
+#define SS_WORDELLIPSIS     0x0000C000L
+#define SS_ELLIPSISMASK     0x0000C000L
 ;end_winver_400
+
+// end_r_winuser
 
 #ifndef NOWINMESSAGES
 /*
@@ -6160,17 +6693,12 @@ LoadString%(
 ;begin_winver_400
 #define STM_SETIMAGE        0x0172
 #define STM_GETIMAGE        0x0173
-
 #define STN_CLICKED         0
 #define STN_DBLCLK          1
 #define STN_ENABLE          2
 #define STN_DISABLE         3
-#define STM_MSGMAX          0x0176    ;public_win40
-#else /* WINVER */                    ;public_win40
-#define STM_MSGMAX          0x0172    ;public_win40
 ;end_winver_400
-#define STM_MSGMAX          0x0172    ;public_NT_35
-
+#define STM_MSGMAX          0x0174
 #endif /* !NOWINMESSAGES */
 
 /*
@@ -6227,6 +6755,7 @@ DlgDirList%(
 #define DDL_DIRECTORY       0x0010
 #define DDL_ARCHIVE         0x0020
 
+#define DDL_NOFILES         0x1000  ;internal_cairo
 #define DDL_POSTMSGS        0x2000
 #define DDL_DRIVES          0x4000
 #define DDL_EXCLUSIVE       0x8000
@@ -6271,6 +6800,7 @@ DlgDirSelectComboBoxEx%(
                             DDL_EXCLUSIVE)
 ;end_internal_NT
 
+// begin_r_winuser
 
 /*
  * Dialog Styles
@@ -6290,6 +6820,10 @@ DlgDirSelectComboBoxEx%(
 //#define DS_VALID_FLAGS (DS_ABSALIGN|DS_SYSMODAL|DS_LOCALEDIT|DS_SETFONT|DS_MODALFRAME|DS_NOIDLEMSG | DS_SETFOREGROUND)
 #define DS_VALID_FLAGS   0x1FFF
 
+#define SCDLG_CLIENT            0x0001
+#define SCDLG_ANSI              0x0002
+#define SCDLG_NOREVALIDATE      0x0004
+#define SCDLG_16BIT             0x0008      // Created for a 16 bit thread; common dialogs
 ;end_internal
 
 #define DS_VALID31          0x01e3L ;internal
@@ -6303,11 +6837,14 @@ DlgDirSelectComboBoxEx%(
 #define DS_RECURSE      DS_CONTROL  /* BOGUS GOING AWAY */ ;internal
 #define DS_CENTER           0x0800L
 #define DS_CENTERMOUSE      0x1000L
+#define DS_CONTEXTHELP      0x2000L
+#define DS_COMMONDIALOG     0x4000L     ;internal
 
 #define DS_NONBOLD  DS_3DLOOK   /* BOGUS GOING AWAY */ ;internal
-#define DS_CONTEXTHELP  0x2000L
 
 ;end_winver_400
+
+// end_r_winuser
 
 #define DM_GETDEFID         (WM_USER+0)
 #define DM_SETDEFID         (WM_USER+1)
@@ -6350,9 +6887,6 @@ DlgDirSelectComboBoxEx%(
 #define DLGC_STATIC         0x0100      /* Static item: don't include       */
 #define DLGC_BUTTON         0x2000      /* Button item: can be checked      */
 
-;begin_winver_400
-#define DLGC_RECURSE        0x8000      /* Dialog that acts like a control  */
-;end_winver_400
 #define LB_CTLCODE          0L
 
 /*
@@ -6436,16 +6970,18 @@ DlgDirSelectComboBoxEx%(
 #define LB_ADDSTRINGLOWER       0x01AD    ;internal
 #define LBCB_STARTTRACK         0x01AE    ;internal_win40
 #define LBCB_ENDTRACK           0x01AF    ;internal_win40
-#define LB_MSGMAX               0x01B0  ;public_win40
-#else /* WINVER */                      ;public_win40
-#define LB_MSGMAX               0x01A8  ;public_win40
 ;end_winver_400
-
-#define LB_MSGMAX               0x01A8  ;public_NT_35
+#if(WINVER >= 0x0400)
+#define LB_MSGMAX               0x01B0
+#else
+#define LB_MSGMAX               0x01A8
+#endif
 
 #endif /* !NOWINMESSAGES */
 
 #ifndef NOWINSTYLES
+
+// begin_r_winuser
 
 /*
  * Listbox Styles
@@ -6468,6 +7004,8 @@ DlgDirSelectComboBoxEx%(
 #define LBS_NOSEL             0x4000L
 ;end_winver_400
 #define LBS_STANDARD          (LBS_NOTIFY | LBS_SORT | WS_VSCROLL | WS_BORDER)
+
+// end_r_winuser
 
 #endif /* !NOWINSTYLES */
 
@@ -6495,10 +7033,12 @@ DlgDirSelectComboBoxEx%(
 #define CBN_SELENDOK        9
 #define CBN_SELENDCANCEL    10
 
+#ifndef NOWINSTYLES
+// begin_r_winuser
+
 /*
  * Combo Box styles
  */
-#ifndef NOWINSTYLES
 #define CBS_SIMPLE            0x0001L
 #define CBS_DROPDOWN          0x0002L
 #define CBS_DROPDOWNLIST      0x0003L
@@ -6514,6 +7054,8 @@ DlgDirSelectComboBoxEx%(
 #define CBS_UPPERCASE           0x2000L
 #define CBS_LOWERCASE           0x4000L
 ;end_winver_400
+
+// end_r_winuser
 #endif  /* !NOWINSTYLES */
 
 
@@ -6557,8 +7099,11 @@ DlgDirSelectComboBoxEx%(
 #define CB_SETDROPPEDWIDTH          0x0160
 #define CB_INITSTORAGE              0x0161
 ;end_winver_400
-#define CB_MSGMAX                   0x015B  ;public_NT_35
-#define CB_MSGMAX                   0x0162  ;public_win40
+#if(WINVER >= 0x0400)
+#define CB_MSGMAX                   0x0162
+#else
+#define CB_MSGMAX                   0x015B
+#endif
 #define CBEC_SETCOMBOFOCUS          (CB_MSGMAX+1)    ;internal_nt
 #define CBEC_KILLCOMBOFOCUS         (CB_MSGMAX+2)    ;internal_nt
 #endif  /* !NOWINMESSAGES */
@@ -6566,6 +7111,8 @@ DlgDirSelectComboBoxEx%(
 
 
 #ifndef NOWINSTYLES
+
+// begin_r_winuser
 
 /*
  * Scroll Bar Styles
@@ -6582,6 +7129,9 @@ DlgDirSelectComboBoxEx%(
 ;begin_winver_400
 #define SBS_SIZEGRIP                0x0010L
 ;end_winver_400
+
+// end_r_winuser
+
 #endif /* !NOWINSTYLES */
 
 /*
@@ -6595,19 +7145,18 @@ DlgDirSelectComboBoxEx%(
 #define SBM_GETRANGE                0x00E3 /*not in win3.1 */
 #define SBM_ENABLE_ARROWS           0x00E4 /*not in win3.1 */
 ;begin_winver_400
-#define SBM_SETPAGE                 0x00E7
-#define SBM_GETPAGE                 0x00E8
 #define SBM_SETSCROLLINFO           0x00E9
 #define SBM_GETSCROLLINFO           0x00EA
 
 #define SIF_RANGE           0x0001
 #define SIF_PAGE            0x0002
 #define SIF_POS             0x0004
-#define SIF_ALL             (SIF_RANGE | SIF_PAGE | SIF_POS) ;internal
 #define SIF_DISABLENOSCROLL 0x0008
-#define SIF_RETURNOLDVALUE  0x1000  ;internal
+#define SIF_TRACKPOS        0x0010
+#define SIF_ALL             (SIF_RANGE | SIF_PAGE | SIF_POS | SIF_TRACKPOS)
+#define SIF_RETURNOLDPOS    0x1000  ;internal
 #define SIF_NOSCROLL        0x2000  ;internal
-#define SIF_RETURNOLDPOS    0x4000  ;internal
+#define SIF_MASK            0x701F  ;internal
 
 typedef struct tagSCROLLINFO
 {
@@ -6617,7 +7166,9 @@ typedef struct tagSCROLLINFO
     int     nMax;
     UINT    nPage;
     int     nPos;
-}   SCROLLINFO, FAR *LPSCROLLINFO, CONST FAR *LPCSCROLLINFO;
+    int     nTrackPos;
+}   SCROLLINFO, FAR *LPSCROLLINFO;
+typedef SCROLLINFO CONST FAR *LPCSCROLLINFO;
 
 WINUSERAPI int     WINAPI SetScrollInfo(HWND, int, LPCSCROLLINFO, BOOL);
 WINUSERAPI BOOL    WINAPI GetScrollInfo(HWND, int, LPSCROLLINFO);
@@ -6638,13 +7189,6 @@ WINUSERAPI BOOL    WINAPI GetScrollInfo(HWND, int, LPSCROLLINFO);
 #define MDITILE_VERTICAL       0x0000 /*not in win3.1 */
 #define MDITILE_HORIZONTAL     0x0001 /*not in win3.1 */
 #define MDITILE_SKIPDISABLED   0x0002 /*not in win3.1 */
-
-;begin_winver_400
-#define MDITILE_SKIPNOCAPTION   0x0004
-#define MDITILE_SKIPTOPMOST     0x0008
-#define MDITILE_SKIPOFFSCREEN   0x0010
-#define MDITILE_REALWINDOWS     0x001E
-;end_winver_400
 
 typedef struct tagMDICREATESTRUCT% {
     LPCTSTR% szClass;
@@ -6720,6 +7264,7 @@ WINUSERAPI WORD    WINAPI TileWindows(HWND hwndParent, UINT wHow, CONST RECT * l
 WINUSERAPI WORD    WINAPI CascadeWindows(HWND hwndParent, UINT wHow, CONST RECT * lpRect, UINT cKids,  const HWND FAR * lpKids);
 ;end_winver_400
 #endif /* !NOMDI */
+
 #endif /* !NOUSER */
 
 /****** Help support ********************************************************/
@@ -6743,6 +7288,8 @@ typedef struct tagHELPWININFO% {
     TCHAR% rgchMember[2];
 } HELPWININFO%, *PHELPWININFO%, *LPHELPWININFO%;
 
+// begin_r_winuser
+
 /*
  * Commands to pass to WinHelp()
  */
@@ -6764,17 +7311,27 @@ typedef struct tagHELPWININFO% {
 #define HELP_CONTEXTMENU  0x000a
 #define HELP_FINDER       0x000b
 #define HELP_WM_HELP      0x000c
+#define HELP_SETPOPUP_POS 0x000d
 
 #define HELP_TCARD              0x8000
 #define HELP_TCARD_DATA         0x0010
-#define HELP_TCARD_NEXT         0x0011
 #define HELP_TCARD_OTHER_CALLER 0x0011
+
+// These are in winhelp.h in Win95.
+#define IDH_NO_HELP                     28440
+#define IDH_MISSING_CONTEXT             28441 // Control doesn't have matching help context
+#define IDH_GENERIC_HELP_BUTTON         28442 // Property sheet help button
+#define IDH_OK                          28443
+#define IDH_CANCEL                      28444
+#define IDH_HELP                        28445
+
 ;end_winver_400
+
+// end_r_winuser
 
 #define HELP_HB_NORMAL    0x0000L        ;internal_NT
 #define HELP_HB_STRING    0x0100L        ;internal_NT
 #define HELP_HB_STRUCT    0x0200L        ;internal_NT
-
 
 WINUSERAPI
 BOOL
@@ -6789,20 +7346,6 @@ WinHelp%(
 #endif /* !NOHELP */
 
 #ifndef NOSYSPARAMSINFO
-;begin_winver_400
-WINUSERAPI BOOL  WINAPI  ResetDisplay(void);
-;end_winver_400
-
-;begin_public_cairo
-typedef struct tagSETPOINTERINFO% {
-    int xoffset;
-    int yoffset;
-    int msLatent;
-    DWORD dwTypes;
-    DWORD dwFormats;
-    LOGFONT% lf;
-} SETPOINTERINFO%, *PSETPOINTERINFO%;
-;end_public_cairo
 
 /*
  * Parameter for SystemParametersInfo()
@@ -6846,16 +7389,16 @@ typedef struct tagSETPOINTERINFO% {
 ;begin_winver_400
 #define SPI_SETDRAGFULLWINDOWS     37
 #define SPI_GETDRAGFULLWINDOWS     38
-#define SPI_GETKEYBOARDLAYOUT      39
-#define SPI_SETKEYBOARDLAYOUT      40
+#define SPI_UNUSED39               39   ;internal
+#define SPI_UNUSED40               40   ;internal
 #define SPI_GETNONCLIENTMETRICS    41
 #define SPI_SETNONCLIENTMETRICS    42
 #define SPI_GETMINIMIZEDMETRICS    43
 #define SPI_SETMINIMIZEDMETRICS    44
 #define SPI_GETICONMETRICS         45
 #define SPI_SETICONMETRICS         46
-#define SPI_SETWORKAREA            47      /* FOR NOW */ ;internal
-#define SPI_SETUSERTYPE            48
+#define SPI_SETWORKAREA            47
+#define SPI_GETWORKAREA            48
 #define SPI_SETPENWINDOWS          49
 
 #define SPI_GETHIGHCONTRAST        66
@@ -6866,8 +7409,8 @@ typedef struct tagSETPOINTERINFO% {
 #define SPI_SETSCREENREADER        71
 #define SPI_GETANIMATION           72
 #define SPI_SETANIMATION           73
-// #define SPI_GETCURSORSIZE          74 /* Obsolete */ ;internal
-// #define SPI_SETCURSORSIZE          75 /* Obsolete */ ;internal
+#define SPI_GETFONTSMOOTHING       74
+#define SPI_SETFONTSMOOTHING       75
 #define SPI_SETDRAGWIDTH           76
 #define SPI_SETDRAGHEIGHT          77
 #define SPI_SETHANDHELD            78
@@ -6881,8 +7424,13 @@ typedef struct tagSETPOINTERINFO% {
 #define SPI_SETPOWEROFFACTIVE      86
 #define SPI_SETCURSORS             87
 #define SPI_SETICONS               88
-#define SPI_GETPOINTERINFO         89   ;public_cairo
-#define SPI_SETPOINTERINFO         90   ;public_cairo
+#define SPI_GETDEFAULTINPUTLANG    89
+#define SPI_SETDEFAULTINPUTLANG    90
+#define SPI_SETLANGTOGGLE          91
+#define SPI_GETWINDOWSEXTENSION    92
+#define SPI_SETMOUSETRAILS         93
+#define SPI_GETMOUSETRAILS         94
+#define SPI_SCREENSAVERRUNNING     97
 ;end_winver_400
 #define SPI_GETFILTERKEYS          50
 #define SPI_SETFILTERKEYS          51
@@ -6896,13 +7444,46 @@ typedef struct tagSETPOINTERINFO% {
 #define SPI_SETSTICKYKEYS          59
 #define SPI_GETACCESSTIMEOUT       60
 #define SPI_SETACCESSTIMEOUT       61
-#define SPI_GETSERIALKEYS          62        ;public_win40
-#define SPI_SETSERIALKEYS          63        ;public_win40
+;begin_winver_400
+#define SPI_GETSERIALKEYS          62
+#define SPI_SETSERIALKEYS          63
+;end_winver_400
 #define SPI_GETSOUNDSENTRY         64
 #define SPI_SETSOUNDSENTRY         65
-#define SPI_MAX                    89        ;internal_chicago
-#define SPI_MAX                    71        ;internal_NT_35
-#define SPI_MAX                    91        ;internal_cairo
+#define SPI_GETSNAPTODEFBUTTON     95        ;internal_NT
+#define SPI_SETSNAPTODEFBUTTON     96        ;internal_NT
+;begin_sur
+#define SPI_GETMOUSEHOVERWIDTH     98
+#define SPI_SETMOUSEHOVERWIDTH     99
+#define SPI_GETMOUSEHOVERHEIGHT   100
+#define SPI_SETMOUSEHOVERHEIGHT   101
+#define SPI_GETMOUSEHOVERTIME     102
+#define SPI_SETMOUSEHOVERTIME     103
+#define SPI_GETWHEELSCROLLLINES   104
+#define SPI_SETWHEELSCROLLLINES   105
+#define SPI_GETMENUSHOWDELAY      106        ;internal
+#define SPI_SETMENUSHOWDELAY      107        ;internal
+
+#define SPI_GETUSERPREFERENCE     108        ;internal
+#define SPI_SETUSERPREFERENCE     109        ;internal
+/*                                           ;internal
+ *  Please consider using a SPI_UP_          ;internal
+ *  (i.e., use SPI_*USERPREFERENCE)          ;internal
+ *  You'll get most SystemParametersInfo     ;internal
+ *   support for free                        ;internal
+ */                                          ;internal
+;end_sur
+#define SPI_MAX                   110        ;internal
+
+/*
+ * SPI User Preferences.
+ */
+/*                                           ;internal
+ * These are stored in gpviCPUserPreferences ;internal
+ * Use the SPI_UP(p) macro to access them    ;internal
+ */                                          ;internal
+#define SPI_UP_ACTIVEWINDOWTRACKING     0    ;internal
+#define SPI_UP_COUNT                    1    ;internal
 
 /*
  * Flags
@@ -6913,25 +7494,9 @@ typedef struct tagSETPOINTERINFO% {
 
 #define SPIF_VALID            (SPIF_UPDATEINIFILE | SPIF_SENDWININICHANGE) ;internal
 
-/* SoundSentry window flash parameters */
-#define SSWF_NONE       0
-#define SSWF_TITLE      1
-#define SSWF_WINDOW     2
-#define SSWF_DISPLAY    3
-#define SSWF_CUSTOM     4
-
-/* SoundSentry graphic flash parameters */
-#define SSGF_NONE       0
-#define SSGF_DISPLAY    3
-
-/* SoundSentry text flash parameters */
-#define SSTF_NONE       0
-#define SSTF_CHARS      1
-#define SSTF_BORDER     2
-#define SSTF_DISPLAY    3
-
-;begin_winver_400
 #define METRICS_USEDEFAULT -1
+#ifdef _WINGDI_
+#ifndef NOGDI
 typedef struct tagNONCLIENTMETRICS%
 {
     UINT    cbSize;
@@ -6950,6 +7515,8 @@ typedef struct tagNONCLIENTMETRICS%
     LOGFONT% lfStatusFont;
     LOGFONT% lfMessageFont;
 }   NONCLIENTMETRICS%, *PNONCLIENTMETRICS%, FAR* LPNONCLIENTMETRICS%;
+#endif /* NOGDI */
+#endif /* _WINGDI_ */
 
 #define ARW_BOTTOMLEFT              0x0000L
 #define ARW_BOTTOMRIGHT             0x0001L
@@ -6966,16 +7533,17 @@ typedef struct tagNONCLIENTMETRICS%
 #define ARW_HIDE                    0x0008L
 #define ARW_VALID                   0x000FL
 
-typedef struct tagMINIMIZEDMETRICS%
+typedef struct tagMINIMIZEDMETRICS
 {
     UINT    cbSize;
     int     iWidth;
     int     iHorzGap;
     int     iVertGap;
     int     iArrange;
-    LOGFONT% lfFont;                ;public_cairo
-}   MINIMIZEDMETRICS%, *PMINIMIZEDMETRICS%, *LPMINIMIZEDMETRICS%;
+}   MINIMIZEDMETRICS, *PMINIMIZEDMETRICS, *LPMINIMIZEDMETRICS;
 
+#ifdef _WINGDI_
+#ifndef NOGDI
 typedef struct tagICONMETRICS%
 {
     UINT    cbSize;
@@ -6984,6 +7552,8 @@ typedef struct tagICONMETRICS%
     int     iTitleWrap;
     LOGFONT% lfFont;
 }   ICONMETRICS%, *PICONMETRICS%, *LPICONMETRICS%;
+#endif /* NOGDI */
+#endif /* _WINGDI_ */
 
 typedef struct tagANIMATIONINFO
 {
@@ -6994,8 +7564,7 @@ typedef struct tagANIMATIONINFO
 typedef struct tagSERIALKEYS%
 {
     UINT    cbSize;
-    BOOL    fSerialKeysOn;
-    BOOL    fAvailable;
+    DWORD   dwFlags;
     LPTSTR%   lpszActivePort;
     LPTSTR%   lpszPort;
     UINT    iBaudRate;
@@ -7003,19 +7572,101 @@ typedef struct tagSERIALKEYS%
     UINT    iActive;
 }   SERIALKEYS%, *LPSERIALKEYS%;
 
-typedef struct tagHIGHCONTRAST
+/* flags for SERIALKEYS dwFlags field */
+#define SERKF_SERIALKEYSON  0x00000001
+#define SERKF_AVAILABLE     0x00000002
+#define SERKF_INDICATOR     0x00000004
+
+
+typedef struct tagHIGHCONTRAST%
 {
     UINT    cbSize;
-    BOOL    fHighContrastOn;
-    BOOL    fHokeyActive;
-    BOOL    fAvailable;
-    BOOL    fConfirmHotkey;
-}   HIGHCONTRAST, *LPHIGHCONTRAST;
+    DWORD   dwFlags;
+    LPTSTR% lpszDefaultScheme;
+}   HIGHCONTRAST%, *LPHIGHCONTRAST%;
 
-;end_winver_400
+/* flags for HIGHCONTRAST dwFlags field */
+#define HCF_HIGHCONTRASTON  0x00000001
+#define HCF_AVAILABLE       0x00000002
+#define HCF_HOTKEYACTIVE    0x00000004
+#define HCF_CONFIRMHOTKEY   0x00000008
+#define HCF_HOTKEYSOUND     0x00000010
+#define HCF_INDICATOR       0x00000020
+#define HCF_HOTKEYAVAILABLE 0x00000040
+
+/* Flags for ChangeDisplaySettings */
+#define CDS_UPDATEREGISTRY  0x00000001
+#define CDS_TEST            0x00000002
+#define CDS_FULLSCREEN      0x00000004
+#define CDS_GLOBAL          0x00000008
+#define CDS_SET_PRIMARY     0x00000010
+#define CDS_EXCLUSIVE       0x80000000  ;internal
+#define CDS_RESET           0x40000000
+#define CDS_SETRECT         0x20000000
+#define CDS_NORESET         0x10000000
+#define CDS_VALID           0xF000001F  ;internal
+
+/* Return values for ChangeDisplaySettings */
+#define DISP_CHANGE_SUCCESSFUL       0
+#define DISP_CHANGE_RESTART          1
+#define DISP_CHANGE_FAILED          -1
+#define DISP_CHANGE_BADMODE         -2
+#define DISP_CHANGE_NOTUPDATED      -3
+#define DISP_CHANGE_BADFLAGS        -4
+#define DISP_CHANGE_BADPARAM        -5
+
+#ifdef _WINGDI_
+#ifndef NOGDI
+
+WINUSERAPI
+LONG
+WINAPI
+ChangeDisplaySettings%(
+    LPDEVMODE%  lpDevMode,
+    DWORD       dwFlags);
+
+WINUSERAPI
+LONG
+WINAPI
+ChangeDisplaySettingsEx%(
+    LPCTSTR%    lpszDeviceName,
+    LPDEVMODE%  lpDevMode,
+    HWND        hwnd,
+    DWORD       dwflags,
+    LPVOID      lParam);
+
+#define ENUM_CURRENT_SETTINGS       ((DWORD)-1)
+#define ENUM_REGISTRY_SETTINGS      ((DWORD)-2)
+
+WINUSERAPI
+BOOL
+WINAPI
+EnumDisplaySettings%(
+    LPCTSTR% lpszDeviceName,
+    DWORD iModeNum,
+    LPDEVMODE% lpDevMode);
+
+;begin_internal_NT
+
+WINUSERAPI
+BOOL
+WINAPI
+EnumDisplaySettingsEx%(
+    LPCTSTR% lpszDeviceName,
+    DWORD iModeNum,
+    LPDEVMODE% lpDevMode,
+    DWORD dwFlags);
+
+/* Flags for EnumDisplaySettingsEx */
+#define EDS_SHOW_DUPLICATES           0x00000001
+#define EDS_SHOW_MONITOR_NOT_CAPABLE  0x00000002
+
+;end_internal_NT
+
+#endif /* NOGDI */
+#endif /* _WINGDI_ */
 
 void LoadRemoteFonts(void); ;internal
-
 
 WINUSERAPI
 BOOL
@@ -7033,7 +7684,7 @@ SystemParametersInfo%(
  */
 typedef struct tagFILTERKEYS
 {
-    DWORD cbSize;
+    UINT  cbSize;
     DWORD dwFlags;
     DWORD iWaitMSec;            // Acceptance Delay
     DWORD iDelayMSec;           // Delay Until Repeat
@@ -7051,10 +7702,11 @@ typedef struct tagFILTERKEYS
 #define FKF_HOTKEYSOUND     0x00000010
 #define FKF_INDICATOR       0x00000020
 #define FKF_CLICKON         0x00000040
+#define FKF_VALID           0x0000007F   ;internal
 
 typedef struct tagSTICKYKEYS
 {
-    DWORD cbSize;
+    UINT  cbSize;
     DWORD dwFlags;
 } STICKYKEYS, *LPSTICKYKEYS;
 
@@ -7070,10 +7722,11 @@ typedef struct tagSTICKYKEYS
 #define SKF_AUDIBLEFEEDBACK 0x00000040
 #define SKF_TRISTATE        0x00000080
 #define SKF_TWOKEYSOFF      0x00000100
+#define SKF_VALID           0x000001FF  ; internal
 
 typedef struct tagMOUSEKEYS
 {
-    DWORD cbSize;
+    UINT cbSize;
     DWORD dwFlags;
     DWORD iMaxSpeed;
     DWORD iTimeToMaxSpeed;
@@ -7093,10 +7746,11 @@ typedef struct tagMOUSEKEYS
 #define MKF_INDICATOR       0x00000020
 #define MKF_MODIFIERS       0x00000040
 #define MKF_REPLACENUMBERS  0x00000080
+#define MKF_VALID           0x000000FF  ;internal
 
 typedef struct tagACCESSTIMEOUT
 {
-    DWORD cbSize;
+    UINT  cbSize;
     DWORD dwFlags;
     DWORD iTimeOutMSec;
 } ACCESSTIMEOUT, *LPACCESSTIMEOUT;
@@ -7106,10 +7760,19 @@ typedef struct tagACCESSTIMEOUT
  */
 #define ATF_TIMEOUTON       0x00000001
 #define ATF_ONOFFFEEDBACK   0x00000002
+#define ATF_VALID           0x00000003  ;internal
 
-/*
- * Define SoundSentry window flash parameters
- */
+/* values for SOUNDSENTRY iFSGrafEffect field */
+#define SSGF_NONE       0
+#define SSGF_DISPLAY    3
+
+/* values for SOUNDSENTRY iFSTextEffect field */
+#define SSTF_NONE       0
+#define SSTF_CHARS      1
+#define SSTF_BORDER     2
+#define SSTF_DISPLAY    3
+
+/* values for SOUNDSENTRY iWindowsEffect field */
 #define SSWF_NONE     0
 #define SSWF_TITLE    1
 #define SSWF_WINDOW   2
@@ -7118,7 +7781,7 @@ typedef struct tagACCESSTIMEOUT
 
 typedef struct tagSOUNDSENTRY%
 {
-    DWORD cbSize;
+    UINT cbSize;
     DWORD dwFlags;
     DWORD iFSTextEffect;
     DWORD iFSTextEffectMSec;
@@ -7138,10 +7801,11 @@ typedef struct tagSOUNDSENTRY%
 #define SSF_SOUNDSENTRYON   0x00000001
 #define SSF_AVAILABLE       0x00000002
 #define SSF_INDICATOR       0x00000004
+#define SSF_VALID           0x00000007  ;internal
 
 typedef struct tagTOGGLEKEYS
 {
-    DWORD cbSize;
+    UINT cbSize;
     DWORD dwFlags;
 } TOGGLEKEYS, *LPTOGGLEKEYS;
 
@@ -7154,24 +7818,22 @@ typedef struct tagTOGGLEKEYS
 #define TKF_CONFIRMHOTKEY   0x00000008
 #define TKF_HOTKEYSOUND     0x00000010
 #define TKF_INDICATOR       0x00000020
+#define TKF_VALID           0x0000003F   ;internal
 
 
-;begin_internal_win40
-WINUSERAPI DWORD WINAPI RegisterServiceProcess(DWORD dwProcessId, DWORD dwServiceType);
-#define RSP_UNREGISTER_SERVICE    0x00000000
-#define RSP_SIMPLE_SERVICE        0x00000001
-
+;begin_internal
 WINUSERAPI VOID WINAPI RegisterNetworkCapabilities(DWORD dwBitsToSet, DWORD dwValues);
 #define RNC_NETWORKS              0x00000001
-;end_internal_win40
-
+#define RNC_LOGON                 0x00000002
+;end_internal
 
 ;begin_internal_chicago
 WINUSERAPI DWORD WINAPI EndTask(HWND hwnd, DWORD idProcess, LPSTR lpszCaption, DWORD dwFlags);
 #define ET_ALLOWFORWAIT     0x00000001
 #define ET_TRYTOKILLNICELY  0x00000002
 #define ET_NOUI             0x00000004
-#define ET_VALID            0x00000007
+#define ET_NOWAIT           0x00000008
+#define ET_VALID           (ET_ALLOWFORWAIT | ET_TRYTOKILLNICELY | ET_NOUI | ET_NOWAIT)
 ;end_internal_chicago
 
 /*
@@ -7201,25 +7863,11 @@ SetLastErrorEx(
     DWORD dwType
     );
 
-;begin_public_cairo
-WINUSERAPI
-BOOL
-WINAPI
-RegisterTaskmanWindow(
-    HWND hwnd);
-
-WINUSERAPI
-void
-WINAPI
-DeregisterTaskmanWindow(
-    HWND hand);
-
-;end_public_cairo
-
 ;begin_internal_NT
 
 #define LOGON_LOGOFF        0
 #define LOGON_INPUT_TIMEOUT 1
+#define LOGON_RESTARTSHELL  2
 #define LOGON_FLG_MASK      0xF0000000
 #define LOGON_FLG_SHIFT     28
 
@@ -7230,10 +7878,12 @@ DeregisterTaskmanWindow(
 #define WSS_BUSY        1
 #define WSS_IDLE        2
 
-#define DTF_CENTER    0x00      /* Center the bitmap (default) */
-#define DTF_TILE      0x01      /* Tile the bitmap */
-#define DTF_NOPALETTE 0x04      /* Realize palette, otherwise match to default. */
-#define DTF_RETAIN    0x08      /* Retain bitmap, ignore win.ini changes */
+#define DTF_CENTER    0x00   /* Center the bitmap (default)                  */
+#define DTF_TILE      0x01   /* Tile the bitmap                              */
+#define DTF_STRETCH   0x02   /* Stretch bitmap to cover screen.              */
+#define DTF_NOPALETTE 0x04   /* Realize palette, otherwise match to default. */
+#define DTF_RETAIN    0x08   /* Retain bitmap, ignore win.ini changes        */
+#define DTF_FIT       0x10   /* Fit the bitmap to the screen (scaled).       */
 
 #ifdef _INC_DDEMLH
 BOOL DdeIsDataHandleReadOnly(
@@ -7321,9 +7971,18 @@ InternalGetWindowText(
     int nMaxCount);
 
 BOOL
-InternalBoostHardError(
+BoostHardError(
     DWORD dwProcessId,
     BOOL fForce);
+
+/*
+ * Services support routines
+ */
+WINUSERAPI
+BOOL
+WINAPI
+RegisterServicesProcess(
+    DWORD dwProcessId);
 
 /*
  * Logon support routines
@@ -7352,7 +8011,9 @@ BOOL
 WINAPI
 SetWindowStationUser(
     HWINSTA hWindowStation,
-    PLUID pLuidUser);
+    PLUID pLuidUser,
+    PSID pSidUser,
+    DWORD cbSidUser);
 
 WINUSERAPI
 BOOL
@@ -7391,6 +8052,10 @@ UserNotifyConsoleApplication(
 HBRUSH
 GetConsoleWindowBrush(
     PVOID pWnd);
+
+VOID vFontSweep();
+VOID vLoadLocalT1Fonts();
+VOID vLoadRemoteT1Fonts();
 
 
 #ifndef NOMSG
@@ -7459,37 +8124,27 @@ DWORD
 CurrentTaskLock(
     DWORD hlck);
 
+typedef struct _DISPLAY_DEVICE% {
+    DWORD  cb;
+    BCHAR% DeviceName[32];
+    BCHAR% DeviceString[128];
+    DWORD  StateFlags;
+} DISPLAY_DEVICE%, *PDISPLAY_DEVICE%, *LPDISPLAY_DEVICE%;
 
-/*
- * hack because GDI includes winuserp.h without including winuser.h !
- * This should go with the other types at top.
- */
-#ifdef STRICT
-typedef BOOL (CALLBACK* DEVICEENUMPROC)(LPVOID, DWORD);
-#else
-typedef FARPROC DEVICEENUMPROC;
-#endif
+#define DISPLAY_DEVICE_ATTACHED_TO_DESKTOP 0x00000001
+#define DISPLAY_DEVICE_MULTI_DRIVER        0x00000002
+#define DISPLAY_DEVICE_PRIMARY_DEVICE      0x00000004
+#define DISPLAY_DEVICE_MIRRORING_DRIVER    0x00000008
+
 
 WINUSERAPI
 BOOL
 WINAPI
 EnumDisplayDevices%(
-    DEVICEENUMPROC lpfnDeviceCallback,
-    DWORD dwData);
+    PVOID Unused,
+    DWORD iDevNum,
+    PDISPLAY_DEVICE% lpDisplayDevice);
 
-typedef struct _DISPLAY_DEVICE% {
-    DWORD cb;
-    LPCTSTR% lpszDeviceName;
-    LPTSTR% lpszDeviceString;
-} DISPLAY_DEVICE%, PDISPLAY_DEVICE%, LPDISPLAY_DEVICE%;
-
-WINUSERAPI
-BOOL
-WINAPI
-EnumDisplayDeviceModes%(
-    LPCTSTR% lpszDeviceName,
-    DEVICEENUMPROC lpfnModeCallback,
-    DWORD dwData);
 
 WINUSERAPI
 HDESK
@@ -7497,37 +8152,10 @@ WINAPI
 GetInputDesktop(
     VOID);
 
-WINUSERAPI
-BOOL
-WINAPI
-EnumWindowStations%(
-    WINSTAENUMPROC% lpEnumFunc,
-    LPARAM lParam);
-
-WINUSERAPI
-BOOL
-WINAPI
-EnumDesktops%(
-    HWINSTA hwinsta,
-    DESKTOPENUMPROC% lpEnumFunc,
-    LPARAM lParam);
-
-#define WINDOWED                    0
-#define FULLSCREEN                  1
-#define GDIFULLSCREEN               2
-
-WINUSERAPI
-BOOL
-WINAPI
-SetWindowFullScreenState(
-    HWND hWnd,
-    UINT uiNewState);
-
-WINUSERAPI
-UINT
-WINAPI
-GetWindowFullScreenState(
-    HWND hWnd);
+#define WINDOWED       0
+#define FULLSCREEN     1
+#define GDIFULLSCREEN  2
+#define FULLSCREENMIN  4
 
 
 #define WCSToMB(pUnicodeString, cbUnicodeChar, ppAnsiString, nAnsiChar,\
@@ -7592,13 +8220,6 @@ CsFrameRect(
 /*
  * Custom Cursor action.
  */
-WINUSERAPI
-BOOL
-WINAPI
-SetSystemCursor(
-    HCURSOR hcur,
-    DWORD id);
-
 HCURSOR
 GetCursorInfo(
     HCURSOR hcur,
@@ -7616,6 +8237,28 @@ WINUSERAPI
 BOOL
 WINAPI
 SetCursorContents(HCURSOR hCursor, HCURSOR hCursorNew);
+
+
+#ifdef WX86
+
+/*
+ *  Wx86
+ *  export from wx86.dll to convert an x86 hook proc to risc address.
+ */
+typedef
+PVOID
+(*PFNWX86HOOKCALLBACK)(
+    SHORT HookType,
+    PVOID HookProc
+    );
+
+#endif
+
+
+
+
+
+
 
 typedef struct _TAG {
     DWORD type;
@@ -7712,105 +8355,6 @@ typedef struct _ANIHEADER {     /* anih */
 #define AF_ICON     0x0001L     /* Windows format icon/cursor animation */
 #define AF_SEQUENCE 0x0002L     /* Animation is sequenced */
 ;end_internal_NT
-
-;begin_public_cairo
-#define SYSIMAGELIST_32  0          // 32x32 icons
-#define SYSIMAGELIST_16  1          // 16x16 icons
-
-#ifndef GUID_DEFINED
-#define GUID_DEFINED
-typedef struct _GUID
-{
-    unsigned long Data1;
-    unsigned short Data2;
-    unsigned short Data3;
-    unsigned char Data4[8];
-} GUID;
-#endif /* GUID_DEFINED */
-
-#if !defined( __IID_DEFINED__ )
-#define __IID_DEFINED__
-typedef GUID IID;
-
-typedef IID *LPIID;
-
-#define IID_NULL            GUID_NULL
-#define IsEqualIID(riid1, riid2) IsEqualGUID(riid1, riid2)
-typedef GUID CLSID;
-
-typedef CLSID *LPCLSID;
-
-#define CLSID_NULL          GUID_NULL
-#define IsEqualCLSID(rclsid1, rclsid2) IsEqualGUID(rclsid1, rclsid2)
-
-#if defined(__cplusplus)
-#ifndef _REFGUID_DEFINED
-#define _REFGUID_DEFINED
-#define REFGUID             const GUID &
-#endif // !_REFGUID_DEFINED
-#ifndef _REFIID_DEFINED
-#define _REFIID_DEFINED
-#define REFIID              const IID &
-#endif // !_REFIID_DEFINED
-#ifndef _REFCLSID_DEFINED
-#define _REFCLSID_DEFINED
-#define REFCLSID            const CLSID &
-#endif // !_REFCLSID_DEFINED
-#else // !__cplusplus
-#ifndef _REFGUID_DEFINED
-#define _REFGUID_DEFINED
-#define REFGUID             const GUID * const
-#endif // !_REFGUID_DEFINED
-#ifndef _REFIID_DEFINED
-#define _REFIID_DEFINED
-#define REFIID              const IID * const
-#endif // !_REFIID_DEFINED
-#ifndef _REFCLSID_DEFINED
-#define _REFCLSID_DEFINED
-#define REFCLSID            const CLSID * const
-#endif // !_REFCLSID_DEFINED
-#endif // !__cplusplus
-#endif // !__IID_DEFINED__
-
-WINUSERAPI
-BOOL
-WINAPI
-SysImageList_AddIcon(DWORD dwList, HICON hIcon, REFCLSID rClsid, DWORD dwUnique);
-
-WINUSERAPI
-BOOL
-WINAPI
-SysImageList_Lookup(DWORD dwList, REFCLSID rClsid, DWORD dwUnique);
-
-WINUSERAPI
-BOOL
-WINAPI
-SysImageList_GetImageSize(DWORD dwList, LPSIZE pSize);
-
-WINUSERAPI
-BOOL
-WINAPI
-SysImageList_Draw(HDC hdc, int x, int y, DWORD dwList,
-                  REFCLSID rClsid, DWORD dwUnique, DWORD dwFlags, COLORREF cref);
-
-// dwFlags for SysImageList_Draw:
-
-#define ILD_NORMAL      0x0000          // use current bkcolor
-#define ILD_TRANSPARENT 0x0001          // force transparent icon style (override bk color)
-#define ILD_MASK        0x0010          // draw the mask
-#define ILD_BLEND       0x000E          // blend
-#define ILD_BLEND25     0x0002          // blend 25%
-#define ILD_BLEND50     0x0004          // blend 50%
-#define ILD_BLEND75     0x0008          // blend 75%
-
-#define ILD_SELECTED    ILD_BLEND50     // draw as selected
-#define ILD_FOCUS       ILD_BLEND25     // draw as focused (selection)
-#define ILD_DITHERED    0x0008          // draw dithered
-#define ILD_DISABLED    0x0010          // draw disabled (grey dither)
-#define ILD_USEGENERIC  0x0020          // use generic on cache miss
-#define ILD_TINT        0x0040
-
-;end_public_cairo
 
 ;begin_both
 #ifdef __cplusplus

@@ -85,6 +85,15 @@ MessageId=+1   SymbolicName=EVENT_BKUP_ENDVERIFY
 Language=English
 End Verify to '%1'
 .
+MessageId=+1   SymbolicName=EVENT_BKUP_EMS_ERROR
+Language=English
+Microsoft Exchange services returned '%1' from a call to '%2' additional data '%3'
+.
+MessageId=+1   SymbolicName=EVENT_BKUP_EMS_DB_ERROR
+Language=English
+Microsoft Exchange services returned too few databases for backup
+Only %1 databases was retured but Backup expected %2
+.
 
 ;#endif // _BKUEVENT_
 

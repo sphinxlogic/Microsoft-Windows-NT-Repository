@@ -97,7 +97,8 @@ SyFrameLength:                          // length of stack frame
 
 #endif
 
-        ldbu    a0, InSynchronizeIrql(a0) // get synchronization IRQL
+        ldq_u   t1, InSynchronizeIrql(a0)
+        extbl   t1, InSynchronizeIrql % 8, a0   // get synchronization IRQL
         SWAP_IRQL                       // raise irql
         stl     v0, SyIrql(sp)          // save old irql
 
@@ -127,7 +128,7 @@ SyFrameLength:                          // length of stack frame
 
 #if !defined(NT_UP)
 
-        wmb                             // synchronize all previous writes
+        mb                              // synchronize all previous writes
                                         //   before the spinlock is released
         stl     zero, 0(s0)             // set spin lock not owned
 
@@ -221,18 +222,21 @@ ChFrameLength:                          // length of stack frame
         addl    a0, InInterruptListEntry, s0 // set address of listhead
         bis     s0, zero, s1            // set address of first entry
         bis     zero, zero, s2          // clear floating state saved flag
-        ldbu    s3, InMode(a0)          // get mode of interrupt
-        ldbu    s4, InIrql(a0)          // get interrupt source IRQL
+        ldq_u   t0, InMode(a0)
+        extbl   t0, InMode % 8, s3      // get mode of interrupt
+        ldq_u   t1, InIrql(a0)
+        extbl   t1, InIrql % 8, s4      // get interrupt source IRQL
 
 //
 // Walk the list of connected interrupt objects and call the respective
 // interrupt service routines.
 //
 
-10:     subl    s1, InInterruptListEntry, a0 // compute intr object address
-        ldbu    t0, InFloatingSave(a0)  // get floating save flag
-        bne     s2, 20f                 // if ne, floating state already saved
-        beq     t0, 20f                 // if eq, don't save floating state
+10:     subl    s1, InInterruptListEntry, a0    // compute intr object address
+        ldq_u   t2, InFloatingSave(a0)
+        extbl   t2, InFloatingSave % 8, t0      // get floating save flag
+        bne     s2, 20f                         // if ne, floating state already saved
+        beq     t0, 20f                         // if eq, don't save floating state
 
 //
 // Save volatile floating registers in trap frame.
@@ -247,12 +251,13 @@ ChFrameLength:                          // length of stack frame
 // equal to the interrupt source level.
 //
 
-20:     ldbu    s5, InSynchronizeIrql(a0)  // get synchronization IRQL
-        cmpeq   s4, s5, t0              // synchronization = source level?
-        bne     t0, 25f                 // if ne[true], IRQL levels are same
-        bis     s5, zero, a0            // set synchronization IRQL
+20:     ldq_u   t1, InSynchronizeIrql(a0)
+        extbl   t1, InSynchronizeIrql % 8, s5   // get synchronization IRQL
+        cmpeq   s4, s5, t0                  // synchronization = source level?
+        bne     t0, 25f                     // if ne[true], IRQL levels are same
+        bis     s5, zero, a0                // set synchronization IRQL
         SWAP_IRQL
-        stl     v0, ChIrql(sp)          // save old IRQL
+        stl     v0, ChIrql(sp)              // save old IRQL
         subq    s1, InInterruptListEntry, a0  // recompute intr obj address
 
 //
@@ -287,7 +292,7 @@ ChFrameLength:                          // length of stack frame
 #if !defined(NT_UP)
 
         ldl     t5, ChSpinL(sp)         // get address of spin lock
-        wmb                             // synchronize all previous writes
+        mb                              // synchronize all previous writes
                                         //   before the spinlock is released
         stl     zero, 0(t5)             // set spin lock not owned
 
@@ -410,14 +415,16 @@ FlFrameLength:                          // length of stack frame
 // equal to the interrupt source level.
 //
 
-        bis     a0, zero, s0            // save address of interrupt object
-        ldbu    a0, InSynchronizeIrql(s0)  // get synchronization IRQL
-        ldbu    t0, InIrql(s0)          // get interrupt source IRQL
-        cmpeq   a0, t0, t1              // synchronize = source IRQL ?
-        bne     t1, 10f                 // if ne[true], IRQL levels are the same
+        bis     a0, zero, s0                // save address of interrupt object
+        ldq_u   t2, InSynchronizeIrql(s0)
+        extbl   t2, InSynchronizeIrql % 8, a0   // get synchronization IRQL
+        ldq_u   t3, InIrql(s0)
+        extbl   t3, InIrql % 8, t0          // get interrupt source IRQL
+        cmpeq   a0, t0, t1                  // synchronize = source IRQL ?
+        bne     t1, 10f                     // if ne[true], IRQL levels are the same
         SWAP_IRQL
-        stl     v0, FlIrql(sp)          // save old irql
-10:     bis     s0, zero, a0            // restore address of intr object
+        stl     v0, FlIrql(sp)              // save old irql
+10:     bis     s0, zero, a0                // restore address of intr object
 
 //
 //
@@ -447,7 +454,7 @@ FlFrameLength:                          // length of stack frame
 
 #if !defined(NT_UP)
 
-        wmb                             // synchronize all previous writes
+        mb                              // synchronize all previous writes
                                         //   before the spinlock is released
         stl     zero, 0(s1)             // set spin lock not owned
 
@@ -458,11 +465,13 @@ FlFrameLength:                          // length of stack frame
 // the same as the interrupt source level.
 //
 
-        ldbu    a0, InIrql(s0)          // get interrupt source IRQL
-        ldbu    t0, InSynchronizeIrql(s0) // get synchronization IRQL
-        cmpeq   a0, t0, t1              // synchronize = source IRQL?
-        bne     t1, 30f                 // if eq, IRQL levels are the same
-        SWAP_IRQL                       // lower to interrupt source IRQL
+        ldq_u   t3, InIrql(s0)
+        extbl   t3, InIrql % 8, a0          // get interrupt source IRQL
+        ldq_u   t4, InSynchronizeIrql(s0)
+        extbl   t4, InSynchronizeIrql % 8, t0   // get synchronization IRQL
+        cmpeq   a0, t0, t1                  // synchronize = source IRQL?
+        bne     t1, 30f                     // if eq, IRQL levels are the same
+        SWAP_IRQL                           // lower to interrupt source IRQL
 
 //
 // Restore volatile floating registers f0 - f19 from trap frame.
@@ -545,11 +554,12 @@ RdFrameLength:                          // length of stack frame
 // Raise IRQL to synchronization level
 //
 
-        bis     a0, zero, s0            // save address of interrupt object
-        ldbu    a0, InSynchronizeIrql(s0) // get synchronization IRQL
+        bis     a0, zero, s0                // save address of interrupt object
+        ldq_u   t3, InSynchronizeIrql(s0)   // get synchronization IRQL
+        extbl   t3, InSynchronizeIrql % 8, a0
         SWAP_IRQL
-        stl     v0, RdIrql(sp)          // save old irql
-10:     bis     s0, zero, a0            // restore address of intr object
+        stl     v0, RdIrql(sp)              // save old irql
+10:     bis     s0, zero, a0                // restore address of intr object
 
 //
 //
@@ -580,7 +590,7 @@ RdFrameLength:                          // length of stack frame
 #if !defined(NT_UP)
 
         ldl     t2, InActualLock(s0)
-        wmb                             // synchronize all previous writes
+        mb                              // synchronize all previous writes
                                         //   befor the spinlock is released
         stl     zero, 0(t2)             // set spin lock not owned
 
@@ -589,8 +599,7 @@ RdFrameLength:                          // length of stack frame
 //
 // Lower IRQL to the previous level.
 //
-
-        ldbu    a0, RdIrql(sp)          // get previous IRQL
+        ldl     a0, RdIrql(s0)          // get previous IRQL
         SWAP_IRQL                       // lower to interrupt source IRQL
 
 //
@@ -684,7 +693,7 @@ SdFrameLength:                          // length of stack frame
 //
 
         ldl     t2, InActualLock(s0)
-        wmb                             // synchronize all previous writes
+        mb                              // synchronize all previous writes
                                         // before the spinlock is released
         stl     zero, 0(t2)             // set spin lock not owned
 

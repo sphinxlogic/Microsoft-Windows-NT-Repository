@@ -18,7 +18,7 @@ Author:
 Revision History:
 
 --*/
-
+#include <rpc.h>
 #include <regapi.h>
 #include <stdio.h>
 

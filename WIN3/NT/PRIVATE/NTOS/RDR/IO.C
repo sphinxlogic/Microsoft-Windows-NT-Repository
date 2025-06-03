@@ -30,10 +30,60 @@ Revision History:
 #pragma alloc_text(PAGE2VC, RdrAllocateIrp)
 #endif
 
+#if RDRDBG_IRP_LOG
+
+#define RDR_IRP_LOG_MAX 4096
+
+ULONG RdrIrpLogIndex = 0;
+typedef struct {
+    ULONG Operation;
+    PIRP Irp;
+    PVOID Context;
+    PVOID Thread;
+} RDR_IRP_LOG, *PRDR_IRP_LOG;
+RDR_IRP_LOG RdrIrpLogBuffer[RDR_IRP_LOG_MAX] = {0};
+
+BOOLEAN RdrIrpLogDisabled = FALSE;
+
+VOID
+RdrIrpLog (
+    IN UCHAR Operation,
+    IN UCHAR Index,
+    IN PIRP Irp,
+    IN PVOID Context
+    )
+{
+    PRDR_IRP_LOG log;
+    KIRQL oldIrql;
+    ULONG index;
+
+    if (RdrIrpLogDisabled) return;
+
+    KeRaiseIrql( DISPATCH_LEVEL, &oldIrql );
+    log = &RdrIrpLogBuffer[RdrIrpLogIndex];
+    if ( ++RdrIrpLogIndex >= RDR_IRP_LOG_MAX ) {
+        RdrIrpLogIndex = 0;
+    }
+    KeLowerIrql( oldIrql );
+
+    log->Operation = (Index << 24) | Operation;
+    log->Irp = Irp;
+    log->Context = Context;
+    log->Thread = PsGetCurrentThread();
+
+    return;
+}
+
+#endif // RDRDBG_IRP_LOG
+
 PIRP
 RdrAllocateIrp(
     IN PFILE_OBJECT FileObject,
     IN PDEVICE_OBJECT DeviceObject OPTIONAL
+#if RDRDBG_IRP_LOG
+    , IN UCHAR Index,
+    IN PVOID Context
+#endif
     )
 /*++
 
@@ -88,6 +138,10 @@ Return Value:
         return(NULL);
     }
 
+#if RDRDBG_IRP_LOG
+    RdrIrpLog( 'a', Index, Irp, Context );
+#endif
+
     Irp->Tail.Overlay.OriginalFileObject = FileObject;
 
     Irp->Tail.Overlay.Thread = PsGetCurrentThread();
@@ -97,3 +151,17 @@ Return Value:
     return Irp;
 }
 
+#if RDRDBG_IRP_LOG
+
+VOID
+RdrFreeIrp (
+    IN PIRP Irp,
+    IN UCHAR Index,
+    IN PVOID Context
+    )
+{
+    RdrIrpLog( 'f', Index, Irp, Context );
+    IoFreeIrp( Irp );
+}
+
+#endif // RDRDBG_IRP_LOG

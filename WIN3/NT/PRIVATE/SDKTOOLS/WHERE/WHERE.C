@@ -61,7 +61,7 @@ flagType fExe = FALSE;
 flagType fFound;
 flagType fWildCards;
 flagType fHasDot;
-struct stat sbuf;
+struct _stat sbuf;
 char *pPattern;                 /* arg to look4match, contains * or ?   */
 char strDirFileExtBuf[MAX_PATH]; /* fully qualified file name            */
 char *strDirFileExt = strDirFileExtBuf;
@@ -92,13 +92,13 @@ void Usage( char *p, ... )
 found (p)
 char *p;
 {
-    struct stat sbuf;
+    struct _stat sbuf;
     struct tm *ptm;
 
     fAnyFound = fFound = TRUE;
     if (!fQuiet) {
         if (fTimes) {
-            if ( ( stat(p, &sbuf) == 0 ) &&
+            if ( ( _stat(p, &sbuf) == 0 ) &&
                  ( ptm = localtime (&sbuf.st_mtime) ) ) {
                 printf ("% 9ld  %2d-%02d-%d  %2d:%02d%c  ", sbuf.st_size,
                     ptm->tm_mon+1, ptm->tm_mday, ptm->tm_year,
@@ -146,7 +146,7 @@ void *dummy;
 {
     char *p = b->fbuf.cFileName;
 
-    if (!strcmp (p, ".") || !strcmp (p, "..") || !strcmpi (p, "deleted"))
+    if (!strcmp (p, ".") || !strcmp (p, "..") || !_strcmpi (p, "deleted"))
                 return;
 
     /* if pattern has dot and filename does NOT ..., this handles case of
@@ -195,7 +195,7 @@ flagType chkdir (char *pDir, va_list pa)
             strcat (strDirFileExt, pFileExt+1);
         else
             strcat (strDirFileExt, pFileExt);
-        if (stat (strDirFileExt, &sbuf) != -1)
+        if (_stat (strDirFileExt, &sbuf) != -1)
             found (strDirFileExt);
         }
     return FALSE;
@@ -251,7 +251,7 @@ char *v[];
 
     while (c) {
         fFound = FALSE;
-        p = strlwr (*v);
+        p = _strlwr (*v);
         if (*p == '$') {
             if (fRecurse)
                 Usage ("$FOO not allowed with /r", 0);
@@ -259,7 +259,7 @@ char *v[];
                 Usage ("Missing \":\" in ", *v, 0);
             *p1 = 0;
 //            if ((p2 = getenv (strupr (p+1))) == NULL) {
-            if ((p2 = getenvOem (strupr (p+1))) == NULL) {
+            if ((p2 = getenvOem (_strupr (p+1))) == NULL) {
                 rootpath (".", strDir);
                 printf ("WHERE: Warning env variable \"%s\" is NULL, using current dir %s\n",
                     p+1, strDir);
@@ -301,4 +301,3 @@ char *v[];
 
     return( fAnyFound ? 0 : 1 );
 }
-

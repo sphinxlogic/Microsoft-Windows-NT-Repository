@@ -28,42 +28,46 @@
 #define  pio2  1.57079632679489661923
 #define  pi    3.14159265358979323846
 
-.text
-
 #define FSIZE 40
 
+.text .text$fasincos
 .globl acosf
-
 .ent acosf
 acosf:
 	.frame  sp, FSIZE, ra
 	.mask   0x80000000, -4
 	subu    sp, FSIZE
 	sw      ra, FSIZE-4(sp)
-    .prologue 1
+	.prologue 1
 	li.s	$f8, half
 	abs.s	$f14, $f12
 	c.le.s	$f14, $f8
 	li.s	$f10, eps
-	bc1f	facos2
+	bc1f	acosf2
 	c.lt.s	$f14, $f10
 	mov.s	$f0, $f12
-	bc1t	1f
+	bc1t	acosf1
 	mul.s	$f2, $f12, $f12
 	bal	fasincos2
-1:	li.s	$f8, pio2
+acosf1:
+	li.s	$f8, pio2
 	sub.s	$f0, $f8, $f0
-	j	ret
-facos2:
+	b	acosfret
+acosf2:
 	bal	fasincos1
-	bltz	t1, 1f
+	bltz	t1, acosf3
 	neg.s	$f0
-	j	ret
-1:	li.s	$f8, pi
+	b	acosfret
+acosf3:
+	li.s	$f8, pi
 	add.s	$f0, $f8
-	j	ret
+acosfret:
+	lw	ra, FSIZE-4(sp)
+	addu	sp, FSIZE
+	j	ra
 .end acosf
 
+.text .text$fasincos
 .globl asinf
 .ent asinf
 asinf:
@@ -71,32 +75,42 @@ asinf:
 	.mask   0x80000000, -4
 	subu    sp, FSIZE
 	sw      ra, FSIZE-4(sp)
-    .prologue 1
+	.prologue 1
 	li.s	$f8, half
 	abs.s	$f14, $f12
 	c.ole.s	$f14, $f8
 	li.s	$f10, eps
-	bc1f	fasin2
+	bc1f	asinf1
 	c.lt.s	$f14, $f10
 	mul.s	$f2, $f12, $f12
 	mov.s	$f0, $f12
-	bc1f	retlab
-	j	ret
+	bc1t	asinfret
 
-retlab:	bal	fasincos2
-	j	ret
+	bal	fasincos2
+	b	asinfret
 
-fasin2:
+asinf1:
 	bal	fasincos1
 	li.s	$f8, pio2
 	add.s	$f0, $f8
-	bltz	t1, 1f
-	j	ret
-1:	neg.s	$f0
-	j	ret
+	bgez	t1, asinfret
+
+asinf2:
+	neg.s	$f0
+	b	asinfret
+asinfret:
+	lw	ra, FSIZE-4(sp)
+	addu	sp, FSIZE
+	j	ra
+.end asinf
 
 
+.text .text$fasincos
+.ent fasincos1
+.aent fasincos2
 fasincos1:
+	.frame  sp, 0, ra
+	.prologue 0
 	li.s	$f10, one
 	mfc1	t1, $f12
 	c.ole.s	$f14, $f10
@@ -129,9 +143,8 @@ error:	// |x| > 1
 	li.s	$f0, 0.0	// else generate a NaN
 	bc1t	1f
 	div.s	$f0, $f0
-	j	ret
-1:	mov.s	$f0, $f12
-ret:	lw	ra, FSIZE-4(sp)
-	addu	sp, FSIZE
 	j	ra
-.end asinf
+1:
+	mov.s	$f0, $f12
+	j	ra
+.end fasincos1

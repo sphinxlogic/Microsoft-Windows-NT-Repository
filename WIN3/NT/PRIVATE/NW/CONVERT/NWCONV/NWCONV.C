@@ -1,25 +1,21 @@
-/*
-  +-------------------------------------------------------------------------+
-  |               Netware to Windows NT Conversion Program                  |
-  +-------------------------------------------------------------------------+
-  |                     (c) Copyright 1993, 1994                            |
-  |                          Microsoft Corp.                                |
-  |                        All rights reserved                              |
-  |                                                                         |
-  | Program               : [NWConv.c]                                      |
-  | Programmer            : Arthur Hanson                                   |
-  | Original Program Date : [Dec 01, 1993]                                  |
-  | Last Update           : [Jun 16, 1994]                                  |
-  |                                                                         |
-  | Version:  1.00                                                          |
-  |                                                                         |
-  | Description:                                                            |
-  |                                                                         |
-  | History:                                                                |
-  |   arth  Jun 16, 1994    1.00    Original Version.                       |
-  |                                                                         |
-  +-------------------------------------------------------------------------+
-*/
+/*++
+
+Copyright (c) 1993-1995  Microsoft Corporation
+
+Module Name:
+
+   nwconv.c
+
+Abstract:
+
+
+Author:
+
+    Arthur Hanson (arth) 16-Jun-1994
+
+Revision History:
+
+--*/
 
 
 #include "globals.h"
@@ -45,7 +41,7 @@ TCHAR NW_SERVICE_NAME[80];
 #define DEF_CONFIG_FILE TEXT("NWConv.DAT")
 
 // version as x.yz expressed as xyz (no decimal point).
-#define CONFIG_VER 023
+#define CONFIG_VER 026
 #define CHECK_CONST 0xA5A56572
 
 SOURCE_SERVER_BUFFER *lpSourceServer;
@@ -92,15 +88,30 @@ BOOL InConversion = FALSE;
   +-------------------------------------------------------------------------+*/
 LRESULT CALLBACK DlgUsers(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam);
 LRESULT CALLBACK DlgMoveIt(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam);
-void AboutBox_Do(HWND hDlg);
-void ToggleControls(HWND hDlg, BOOL Toggle);
+VOID AboutBox_Do(HWND hDlg);
+VOID ToggleControls(HWND hDlg, BOOL Toggle);
 
 
-/*+-------------------------------------------------------------------------+
-  | NTServInfoDlg_SwitchControls()                                          |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void NTServInfoDlg_SwitchControls(HWND hDlg, BOOL Toggle) {
+/////////////////////////////////////////////////////////////////////////
+VOID NTServInfoDlg_SwitchControls(
+   HWND hDlg, 
+   BOOL Toggle
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    HWND hCtrl;
 
    // The NW Controls
@@ -132,15 +143,30 @@ void NTServInfoDlg_SwitchControls(HWND hDlg, BOOL Toggle) {
 } // NTServInfoDlg_SwitchControls
 
 
-/*+-------------------------------------------------------------------------+
-  | NTServInfoDlg_EnableNT()                                                |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void NTServInfoDlg_EnableNT(HWND hDlg) {
+/////////////////////////////////////////////////////////////////////////
+VOID
+NTServInfoDlg_EnableNT(
+   HWND hDlg
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    TCHAR VerStr[TMP_STR_LEN_256];
 
    SetDlgItemText(hDlg, IDC_TYPE, Lids(IDS_S_15));
-   wsprintf(VerStr, TEXT("%lu.%lu"), CurrentConvertList->DestServ->VerMaj, CurrentConvertList->DestServ->VerMin);
+   wsprintf(VerStr, TEXT("%lu.%lu"), CurrentConvertList->FileServ->VerMaj, CurrentConvertList->FileServ->VerMin);
    SetDlgItemText(hDlg, IDC_VERSION, VerStr);
 
    NTServInfoDlg_SwitchControls(hDlg, FALSE);
@@ -148,11 +174,26 @@ void NTServInfoDlg_EnableNT(HWND hDlg) {
 } // NTServInfoDlg_EnableNT
 
 
-/*+-------------------------------------------------------------------------+
-  | NTServInfoDlg_EnableNW()                                                |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void NTServInfoDlg_EnableNW(HWND hDlg) {
+/////////////////////////////////////////////////////////////////////////
+VOID 
+NTServInfoDlg_EnableNW(
+   HWND hDlg
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    TCHAR VerStr[TMP_STR_LEN_256];
 
    SetDlgItemText(hDlg, IDC_TYPE, Lids(IDS_S_16));
@@ -164,11 +205,29 @@ void NTServInfoDlg_EnableNW(HWND hDlg) {
 } // NTServInfoDlg_EnableNW
 
 
-/*+-------------------------------------------------------------------------+
-  | NTServInfoDlg()                                                         |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-LRESULT CALLBACK NTServInfoDlg(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam) {
+/////////////////////////////////////////////////////////////////////////
+LRESULT CALLBACK 
+NTServInfoDlg(
+   HWND hDlg, 
+   UINT message, 
+   WPARAM wParam, 
+   LPARAM lParam
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    static TCHAR AddLine[TMP_STR_LEN_256];
    HWND hCtrl;
    DWORD dwData, dwIndex;
@@ -184,8 +243,8 @@ LRESULT CALLBACK NTServInfoDlg(HWND hDlg, UINT message, WPARAM wParam, LPARAM lP
 
          // Add the servers to the combo-box and select the source server
          hCtrl = GetDlgItem(hDlg, IDC_COMBO1);
-         dwIndex = SendMessage(hCtrl, CB_ADDSTRING, (WPARAM) 0, (LPARAM) CurrentConvertList->DestServ->Name);
-         SendMessage(hCtrl, CB_SETITEMDATA, (WPARAM) dwIndex, (LPARAM) CurrentConvertList->DestServ);
+         dwIndex = SendMessage(hCtrl, CB_ADDSTRING, (WPARAM) 0, (LPARAM) CurrentConvertList->FileServ->Name);
+         SendMessage(hCtrl, CB_SETITEMDATA, (WPARAM) dwIndex, (LPARAM) CurrentConvertList->FileServ);
          dwIndex = SendMessage(hCtrl, CB_ADDSTRING, (WPARAM) 0, (LPARAM) CurrentConvertList->SourceServ->Name);
          SendMessage(hCtrl, CB_SETITEMDATA, (WPARAM) dwIndex, (LPARAM) CurrentConvertList->SourceServ);
 
@@ -193,12 +252,6 @@ LRESULT CALLBACK NTServInfoDlg(HWND hDlg, UINT message, WPARAM wParam, LPARAM lP
 
          PostMessage(hDlg, WM_COMMAND, ID_INIT, 0L);
          return (TRUE);
-
-#ifdef Ctl3d
-      case WM_SYSCOLORCHANGE:
-         Ctl3dColorChange();
-         break;
-#endif
 
       case WM_COMMAND:
          wmId    = LOWORD(wParam);
@@ -213,7 +266,7 @@ LRESULT CALLBACK NTServInfoDlg(HWND hDlg, UINT message, WPARAM wParam, LPARAM lP
             case ID_INIT:
                // Fill in the Drive and share lists for NT system
                hCtrl = GetDlgItem(hDlg, IDC_LIST1);
-               DriveList = CurrentConvertList->DestServ->DriveList;
+               DriveList = CurrentConvertList->FileServ->DriveList;
                if (DriveList != NULL) {
                   for (i = 0; i < DriveList->Count; i++) {
                      wsprintf(AddLine, TEXT("%s: [%4s] %s"), DriveList->DList[i].Drive, DriveList->DList[i].DriveType, DriveList->DList[i].Name);
@@ -225,7 +278,7 @@ LRESULT CALLBACK NTServInfoDlg(HWND hDlg, UINT message, WPARAM wParam, LPARAM lP
                }
 
                hCtrl = GetDlgItem(hDlg, IDC_LIST2);
-               ShareList = CurrentConvertList->DestServ->ShareList;
+               ShareList = CurrentConvertList->FileServ->ShareList;
                if (ShareList != NULL)
                   for (i = 0; i < ShareList->Count; i++) {
                      SendMessage(hCtrl, LB_ADDSTRING, (WPARAM) 0, (LPARAM) ShareList->SList[i].Name);
@@ -253,7 +306,7 @@ LRESULT CALLBACK NTServInfoDlg(HWND hDlg, UINT message, WPARAM wParam, LPARAM lP
 
                if (dwIndex != CB_ERR) {
                   dwData = SendMessage(hCtrl, CB_GETITEMDATA, dwIndex, 0L);
-                  if (dwData == (DWORD) CurrentConvertList->DestServ)
+                  if (dwData == (DWORD) CurrentConvertList->FileServ)
                      NTServInfoDlg_EnableNT(hDlg);
 
                   if (dwData == (DWORD) CurrentConvertList->SourceServ)
@@ -279,12 +332,26 @@ LRESULT CALLBACK NTServInfoDlg(HWND hDlg, UINT message, WPARAM wParam, LPARAM lP
 } // NTServInfoDlg
 
 
+/////////////////////////////////////////////////////////////////////////
+VOID 
+NTServInfoDlg_Do(
+   HWND hDlg
+   )
 
-/*+-------------------------------------------------------------------------+
-  | NTServInfoDlg_Do()                                                      |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void NTServInfoDlg_Do(HWND hDlg) {
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    DLGPROC lpfnDlg;
 
    lpfnDlg = MakeProcInstance((DLGPROC)NTServInfoDlg, hInst);
@@ -294,11 +361,29 @@ void NTServInfoDlg_Do(HWND hDlg) {
 } // NTServInfoDlg_Do
 
 
-/*+-------------------------------------------------------------------------+
-  | MainListbox_Add()                                                       |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void MainListbox_Add(HWND hDlg, DWORD Data, LPTSTR SourceServ, LPTSTR DestServ) {
+/////////////////////////////////////////////////////////////////////////
+VOID 
+MainListbox_Add(
+   HWND hDlg, 
+   DWORD Data, 
+   LPTSTR SourceServ, 
+   LPTSTR DestServ
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    TCHAR AddLine[256];
    CONVERT_LIST *ptr;
    CONVERT_LIST *nptr = NULL;
@@ -321,7 +406,7 @@ void MainListbox_Add(HWND hDlg, DWORD Data, LPTSTR SourceServ, LPTSTR DestServ) 
       dwData = ColumnLB_GetItemData(hCtrl, wItemNum);
       if (dwData != LB_ERR) {
          nptr = (CONVERT_LIST *) dwData;
-         if (!lstrcmpi(ptr->DestServ->Name, nptr->DestServ->Name))
+         if (!lstrcmpi(ptr->FileServ->Name, nptr->FileServ->Name))
             match = TRUE;
       }
 
@@ -335,7 +420,7 @@ void MainListbox_Add(HWND hDlg, DWORD Data, LPTSTR SourceServ, LPTSTR DestServ) 
          dwData = ColumnLB_GetItemData(hCtrl, wItemNum);
          if (dwData != LB_ERR) {
             nptr = (CONVERT_LIST *) dwData;
-            if (lstrcmpi(ptr->DestServ->Name, nptr->DestServ->Name))
+            if (lstrcmpi(ptr->FileServ->Name, nptr->FileServ->Name))
                match = FALSE;
          }
 
@@ -344,7 +429,7 @@ void MainListbox_Add(HWND hDlg, DWORD Data, LPTSTR SourceServ, LPTSTR DestServ) 
       }
 
    } else {
-      if (ptr->DestServ->InDomain && ptr->DestServ->Domain) {
+      if (ptr->FileServ->InDomain && ptr->FileServ->Domain) {
          wItemNum = 0;
 
          // No matching servers, so try to find matching domain
@@ -353,8 +438,8 @@ void MainListbox_Add(HWND hDlg, DWORD Data, LPTSTR SourceServ, LPTSTR DestServ) 
             if (dwData != LB_ERR) {
                nptr = (CONVERT_LIST *) dwData;
 
-               if (nptr->DestServ->InDomain && nptr->DestServ->Domain)
-                  if (!lstrcmpi(ptr->DestServ->Domain->Name, nptr->DestServ->Domain->Name))
+               if (nptr->FileServ->InDomain && nptr->FileServ->Domain)
+                  if (!lstrcmpi(ptr->FileServ->Domain->Name, nptr->FileServ->Domain->Name))
                      match = TRUE;
             }
 
@@ -369,8 +454,8 @@ void MainListbox_Add(HWND hDlg, DWORD Data, LPTSTR SourceServ, LPTSTR DestServ) 
                if (dwData != LB_ERR) {
                   nptr = (CONVERT_LIST *) dwData;
 
-                  if (nptr->DestServ->InDomain && nptr->DestServ->Domain) {
-                     if (lstrcmpi(ptr->DestServ->Domain->Name, nptr->DestServ->Domain->Name))
+                  if (nptr->FileServ->InDomain && nptr->FileServ->Domain) {
+                     if (lstrcmpi(ptr->FileServ->Domain->Name, nptr->FileServ->Domain->Name))
                         match = FALSE;
                   } else
                      match = FALSE;
@@ -392,11 +477,26 @@ void MainListbox_Add(HWND hDlg, DWORD Data, LPTSTR SourceServ, LPTSTR DestServ) 
 } // MainListbox_Add
 
 
-/*+-------------------------------------------------------------------------+
-  | ConfigurationReset()                                                    |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void ConfigurationReset(HWND hDlg) {
+/////////////////////////////////////////////////////////////////////////
+VOID 
+ConfigurationReset(
+   HWND hDlg
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    // Remove the listbox entries
    ColumnLB_ResetContent(GetDlgItem(hDlg, IDC_LIST1));
 
@@ -411,17 +511,32 @@ void ConfigurationReset(HWND hDlg) {
 } // ConfigurationReset
 
 
-/*+-------------------------------------------------------------------------+
-  | ConfigurationSave()                                                     |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void ConfigurationSave(LPTSTR FileName) {
+/////////////////////////////////////////////////////////////////////////
+VOID 
+ConfigurationSave(
+   LPTSTR FileName
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    DWORD wrote;
    HANDLE hFile;
    CHAR FileNameA[MAX_PATH + 1];
    DWORD Check, Ver;
 
-   wcstombs(FileNameA, FileName, lstrlen(FileName)+1);
+   WideCharToMultiByte(CP_ACP, 0, FileName, -1, FileNameA, sizeof(FileNameA), NULL, NULL);
 
    // Create it no matter what
    hFile = CreateFileA( FileNameA, GENERIC_WRITE, 0,
@@ -450,18 +565,34 @@ void ConfigurationSave(LPTSTR FileName) {
 } // ConfigurationSave
 
 
-/*+-------------------------------------------------------------------------+
-  | ConfigurationLoad()                                                     |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void ConfigurationLoad(HWND hDlg, LPTSTR FileName) {
+/////////////////////////////////////////////////////////////////////////
+VOID 
+ConfigurationLoad(
+   HWND hDlg, 
+   LPTSTR FileName
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    static TCHAR AddLine[256];
    DWORD wrote;
    HANDLE hFile;
    CHAR FileNameA[MAX_PATH + 1];
    DWORD Check, Ver;
 
-   wcstombs(FileNameA, FileName, lstrlen(FileName)+1);
+   WideCharToMultiByte(CP_ACP, 0, FileName, -1, FileNameA, sizeof(FileNameA), NULL, NULL);
 
    // Open, but fail if already exists.
    hFile = CreateFileA( FileNameA, GENERIC_READ, 0,
@@ -504,7 +635,7 @@ void ConfigurationLoad(HWND hDlg, LPTSTR FileName) {
       // Now add them to the listbox
       CurrentConvertList = ConvertListStart;
       while (CurrentConvertList) {
-         MainListbox_Add(hDlg, (DWORD) CurrentConvertList, CurrentConvertList->SourceServ->Name, CurrentConvertList->DestServ->Name);
+         MainListbox_Add(hDlg, (DWORD) CurrentConvertList, CurrentConvertList->SourceServ->Name, CurrentConvertList->FileServ->Name);
          CurrentConvertList = CurrentConvertList->next;
       }
 
@@ -522,11 +653,26 @@ void ConfigurationLoad(HWND hDlg, LPTSTR FileName) {
 } // ConfigurationLoad
 
 
-/*+-------------------------------------------------------------------------+
-  | CanonServerName()                                                       |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void CanonServerName(LPTSTR ServerName) {
+/////////////////////////////////////////////////////////////////////////
+VOID 
+CanonServerName(
+   LPTSTR ServerName
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    LPTSTR TmpStr = ServerName;
 
    while (*TmpStr == TEXT('\\'))
@@ -537,11 +683,28 @@ void CanonServerName(LPTSTR ServerName) {
 } // CanonServerName
 
 
-/*+-------------------------------------------------------------------------+
-  | MessageFilter()                                                         |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-int MessageFilter(INT nCode, WPARAM wParam, LPMSG lpMsg) {
+/////////////////////////////////////////////////////////////////////////
+int 
+MessageFilter(
+   INT nCode, 
+   WPARAM wParam, 
+   LPMSG lpMsg
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    if (nCode < 0)
       goto DefHook;
 
@@ -574,11 +737,29 @@ DefHook:
 } // MessageFilter
 
 
-/*+-------------------------------------------------------------------------+
-  | WinMain()                                                               |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-int APIENTRY WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
+/////////////////////////////////////////////////////////////////////////
+int APIENTRY 
+WinMain( 
+   HINSTANCE hInstance, 
+   HINSTANCE hPrevInstance, 
+   LPSTR lpCmdLine, 
+   int nCmdShow
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    LPTSTR ptr;
    DLGPROC lpproc;
    HACCEL haccel;
@@ -591,7 +772,7 @@ int APIENTRY WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdL
       ColumnLBClass_Register(hInst);
    }
 
-   mbstowcs(ProgPath, _pgmptr, lstrlenA(_pgmptr)+1);
+   MultiByteToWideChar(CP_ACP, 0, _pgmptr, -1, ProgPath, sizeof(ProgPath) );
 
    // go to the end and rewind to remove program name
    ptr = ProgPath;
@@ -604,11 +785,6 @@ int APIENTRY WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdL
       ptr++;
 
    *ptr = TEXT('\0');
-
-#ifdef Ctl3d
-   Ctl3dRegister(hInst);
-   Ctl3dAutoSubclass(hInst);
-#endif
 
    MemInit();
    MyIcon = LoadIcon(hInst, szAppName);
@@ -633,20 +809,32 @@ int APIENTRY WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdL
    DestroyIcon(MyIcon);
    StringTableDestroy();
 
-#ifdef Ctl3d
-   Ctl3dUnregister(hInst);
-#endif
-
    return msg.wParam;
 
 } // WinMain
 
 
-/*+-------------------------------------------------------------------------+
-  | ToggleControls()                                                        |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void ToggleControls(HWND hDlg, BOOL Toggle) {
+/////////////////////////////////////////////////////////////////////////
+VOID 
+ToggleControls(
+   HWND hDlg, 
+   BOOL Toggle
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    HWND hCtrl;
 
    hCtrl = GetDlgItem(hDlg, IDOK);
@@ -664,13 +852,28 @@ void ToggleControls(HWND hDlg, BOOL Toggle) {
 } // ToggleControls
 
 
-/*+-------------------------------------------------------------------------+
-  | ConfigFileGet()                                                         |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-DWORD ConfigFileGet(HWND hwnd) {
+/////////////////////////////////////////////////////////////////////////
+DWORD 
+ConfigFileGet(
+   HWND hwnd
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    OPENFILENAME ofn;
-   TCHAR szDirName[MAX_PATH];
+   TCHAR szDirName[MAX_PATH+1];
    TCHAR szFile[256], szFileTitle[256];
    UINT i, cbString;
    TCHAR chReplace;
@@ -719,11 +922,26 @@ DWORD ConfigFileGet(HWND hwnd) {
 } // ConfigFileGet
 
 
-/*+-------------------------------------------------------------------------+
-  | ConfigFileSave()                                                        |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-DWORD ConfigFileSave(HWND hwnd) {
+/////////////////////////////////////////////////////////////////////////
+DWORD 
+ConfigFileSave(
+   HWND hwnd
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    OPENFILENAME ofn;
    TCHAR szDirName[MAX_PATH + 1];
    TCHAR szFile[MAX_PATH + 1], szFileTitle[MAX_PATH + 1];
@@ -776,11 +994,24 @@ DWORD ConfigFileSave(HWND hwnd) {
 } // ConfigFileSave
 
 
-/*+-------------------------------------------------------------------------+
-  | ProvidersInit()                                                         |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-BOOL ProvidersInit() {
+/////////////////////////////////////////////////////////////////////////
+BOOL 
+ProvidersInit() 
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    HKEY hKey;
    DWORD dwType, dwSize;
    LONG Status;
@@ -820,44 +1051,113 @@ BOOL ProvidersInit() {
 } // ProvidersInit
 
 
-/*+-------------------------------------------------------------------------+
-  | CheckServiceInstall()                                                   |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-BOOL CheckServiceInstall() {
-   BOOL ret = FALSE;
-   SC_HANDLE hSC;
-   DWORD dwBufSize, dwBytesNeeded, dwNumEntries, dwhResume;
-   static ENUM_SERVICE_STATUS lpStatus[100];
-   UINT i;
+/////////////////////////////////////////////////////////////////////////
+BOOL 
+CheckServiceInstall()
 
-   dwBufSize = dwBytesNeeded = dwNumEntries = dwhResume = 0;
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
+   SC_HANDLE hSC;
+   DWORD dwBytesNeeded, dwNumEntries, dwhResume;
+   ENUM_SERVICE_STATUS *lpStatus = NULL;
+   BOOL ret = FALSE;
 
    if (!ProvidersInit())
-      ret = FALSE;
+      return FALSE;
 
-   hSC = OpenSCManager(NULL, NULL, SC_MANAGER_ENUMERATE_SERVICE);
+   // initialize variables for enumeration...
+   dwBytesNeeded = dwNumEntries = dwhResume = 0;
 
-   dwBufSize = sizeof(lpStatus);
-   if (EnumServicesStatus(hSC, SERVICE_WIN32, SERVICE_ACTIVE, lpStatus, dwBufSize, &dwBytesNeeded, &dwNumEntries, &dwhResume)) {
-      for (i = 0; ((i < dwNumEntries) && (ret == FALSE)); i++) {
-         if (!lstrcmpi(lpStatus[i].lpServiceName, Lids(IDS_S_26)))
-            ret = TRUE;
-      }
+   // acquire handle to svc controller to query for netware client...
+   if (hSC = OpenSCManager(NULL, NULL, SC_MANAGER_ENUMERATE_SERVICE)) {
+
+      UINT i;
+      LPTSTR lpServiceName = Lids(IDS_S_26); // NWCWorkstation
+
+      // ask for buffer size...      
+      ret = EnumServicesStatus(
+               hSC,
+               SERVICE_WIN32,
+               SERVICE_ACTIVE,
+               NULL,
+               0,
+               &dwBytesNeeded,
+               &dwNumEntries,
+               &dwhResume
+               );
+
+      // intentionally called function with no buffer to size...
+      if ((ret == FALSE) && (GetLastError() == ERROR_MORE_DATA)) {
+
+         // allocate buffer with size passed back...
+         if (lpStatus = AllocMemory(dwBytesNeeded)) {
+
+            // ask for svc entries... 
+            if (EnumServicesStatus(
+                   hSC,
+                   SERVICE_WIN32,
+                   SERVICE_ACTIVE,
+                   lpStatus,
+                   dwBytesNeeded,
+                   &dwBytesNeeded,
+                   &dwNumEntries,
+                   &dwhResume)) { 
+
+               // search service names for match...
+               for (i = 0; ((i < dwNumEntries) && (ret == FALSE)); i++) {
+                  if (!lstrcmpi(lpStatus[i].lpServiceName, lpServiceName)) {
+                     ret = TRUE; // found it...
+                  }
+               }   
+            }
+
+            FreeMemory(lpStatus); 
+         }        
+      } 
+
+      CloseServiceHandle(hSC);
    }
-
-   CloseServiceHandle(hSC);
 
    return ret;
 
 } // CheckServiceInstall
 
 
-/*+-------------------------------------------------------------------------+
-  | DlgMoveIt()                                                             |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-LRESULT CALLBACK DlgMoveIt(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam) {
+/////////////////////////////////////////////////////////////////////////
+LRESULT CALLBACK 
+DlgMoveIt(
+   HWND hDlg, 
+   UINT message, 
+   WPARAM wParam, 
+   LPARAM lParam
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    static TCHAR AddLine[256];
    int wmId, wmEvent;
    HWND hCtrl;
@@ -870,9 +1170,6 @@ LRESULT CALLBACK DlgMoveIt(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam
 
    switch (message) {
       case WM_INITDIALOG:
-#ifdef Ctl3d
-         Ctl3dSubclassDlgEx(hDlg, CTL3D_ALL);
-#endif
 
          ConvertListStart = ConvertListEnd = NULL;
          UserOptionsDefaultsReset();
@@ -904,19 +1201,13 @@ LRESULT CALLBACK DlgMoveIt(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam
 
       case WM_ERASEBKGND:
 
-         // Process so icon background isn't painted grey by CTL3D - main dlg
+         // Process so icon background isn't painted grey - main dlg
          // can't be DS_MODALFRAME either, or else a frame is painted around
          // the icon.
          if (IsIconic(hDlg))
             return TRUE;
 
          break;
-
-#ifdef Ctl3d
-      case WM_SYSCOLORCHANGE:
-         Ctl3dColorChange();
-         break;
-#endif
 
       case WM_DESTROY:
          NTConnListDeleteAll();
@@ -983,6 +1274,7 @@ LRESULT CALLBACK DlgMoveIt(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam
                InConversion = FALSE;
                break;
 
+            case IDCANCEL:
             case IDC_EXIT:
                CursorHourGlass();
 
@@ -1033,7 +1325,7 @@ LRESULT CALLBACK DlgMoveIt(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam
                dwData = ColumnLB_GetItemData(hCtrl, Index);
                CurrentConvertList = (CONVERT_LIST *) dwData;
 
-               UserOptions_Do(hDlg, CurrentConvertList->ConvertOptions, CurrentConvertList->SourceServ->Name, CurrentConvertList->DestServ->Name);
+               UserOptions_Do(hDlg, CurrentConvertList->ConvertOptions, CurrentConvertList->SourceServ, CurrentConvertList->FileServ);
                return TRUE;
 
             case IDC_FILEINF:
@@ -1043,10 +1335,10 @@ LRESULT CALLBACK DlgMoveIt(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam
                dwData = ColumnLB_GetItemData(hCtrl, Index);
                CurrentConvertList = (CONVERT_LIST *) dwData;
 
-               FileOptions_Do(hDlg, CurrentConvertList->FileOptions, CurrentConvertList->SourceServ, CurrentConvertList->DestServ);
+               FileOptions_Do(hDlg, CurrentConvertList->FileOptions, CurrentConvertList->SourceServ, CurrentConvertList->FileServ);
                break;
 
-            case IDC_HELP:
+            case IDHELP:
                WinHelp(hDlg, HELP_FILE, HELP_CONTEXT, (DWORD) IDC_HELP_MAIN);
                break;
 

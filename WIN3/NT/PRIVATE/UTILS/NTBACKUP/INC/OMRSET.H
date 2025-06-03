@@ -79,4 +79,19 @@ Initial revision.
 #define IDD_RSET_CREATION_DATE      130
 #define IDD_RSET_OWNERS_NAME        131
 
+/* The following controls are for Exchange backups */
+#define IDD_RSET_DEST_NAME          132
+#define IDD_RSET_DEST_TEXT          133
+
+/* These have to be consecutive */
+#define IDD_RSET_ORG_TEXT           134
+#define IDD_RSET_WIPE_DATA          135
+
+#define IDD_RSET_PRIV_IS            136
+#define IDD_RSET_PUB_IS             137
+#define IDD_RSET_ORG_NAME           138
+#define IDD_RSET_DSA_DEST_NAME      139
+#define IDD_RSET_START_EMS          140
+
+#define IDD_RSET_DS_DEST_TEXT       141
 #endif

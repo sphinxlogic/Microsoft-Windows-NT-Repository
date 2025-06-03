@@ -529,18 +529,27 @@ CG_INTERFACE_POINTER::S_OutLocalAnalysis(
 
 ----------------------------------------------------------------------------*/
 {
-	if( pAna->IsRefAllocDone() )
-		{
-		if( pAna->GetCurrentSide() != C_SIDE )
-			{
-			PNAME	pName	= pAna->GenTempResourceName( 0 );
-			SetResource( pAna->AddLocalResource( pName,
-									 	 	MakeIDNode( pName, GetType() )
-								   	   		));
-			}
-		SetAllocatedOnStack( 1 );
-		}
-	return CG_OK;
+    if( pAna->IsRefAllocDone() )
+        {
+        if( pAna->GetCurrentSide() != C_SIDE )
+            {
+            PNAME       pName = pAna->GenTempResourceName( 0 );
+            node_skl *  pType = GetType();
+
+            node_skl *  pActualType;
+
+            if ( pType->NodeKind() == NODE_DEF )
+                pActualType = MakeIDNode( pName, pType );
+            else
+                pActualType = MakePtrIDNode( pName, pType );
+
+            SetResource( pAna->AddLocalResource( pName,
+                                                 pActualType ));
+            }
+
+        SetAllocatedOnStack( 1 );
+        }
+    return CG_OK;
 }
 
 CG_STATUS

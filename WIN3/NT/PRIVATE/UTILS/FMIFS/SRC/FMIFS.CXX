@@ -85,7 +85,7 @@ Return Value:
 
         } else {
 
-        DbgAbort( "FmIfs initialization failed!!!\n" );
+        DebugAbort( "FmIfs initialization failed!!!\n" );
                 return( FALSE );
         }
 }
@@ -108,7 +108,7 @@ DefineClassDescriptors(
 
         } else {
 
-                DbgPrint( "Could not initialize class descriptors!");
+                DebugPrint( "Could not initialize class descriptors!");
                 return FALSE;
         }
 }

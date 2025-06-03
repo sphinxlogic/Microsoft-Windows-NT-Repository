@@ -421,4 +421,3 @@ void WINAPI StandardShowDlgItem(HWND hDlg, int idControl, int nCmdShow)
         EnableWindow(GetDlgItem(hDlg, idControl), TRUE);
     }
 }
-

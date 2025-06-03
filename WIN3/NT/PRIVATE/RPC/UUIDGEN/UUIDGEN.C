@@ -238,6 +238,8 @@ main(
                     );
             } // end switch
         } // end for
+
+    return(0);
 }
 
 void Usage(void)
@@ -266,4 +268,4 @@ void NoErrorUsageAndExit(void)
     exit(0);
 }
 
-
+

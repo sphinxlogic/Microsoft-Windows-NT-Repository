@@ -137,6 +137,9 @@ HWND gb_tapes_win = (HWND)NULL;
 HWND gb_disks_win = (HWND)NULL;
 HWND gb_search_win = (HWND)NULL;
 
+#ifdef OEM_EMS
+Q_HEADER gq_exchange_win;
+#endif
 
 
 VOID VLM_SetMaxVolumeLabelLength( Q_HEADER_PTR vlm_list )
@@ -635,6 +638,13 @@ BYTE attr )          // I - what to change it to
    INT16 bset_num;
    QTC_BSET_PTR qtc_bset;
    QTC_HEADER_PTR header;
+
+#ifdef OEM_EMS
+   UNREFERENCED_PARAMETER( slm );
+   UNREFERENCED_PARAMETER( qtc_bset );
+   UNREFERENCED_PARAMETER( header );
+   UNREFERENCED_PARAMETER( bset_num );
+#endif
 
    all_subdirs = CDS_GetIncludeSubdirs( CDS_GetPerm() );
 

@@ -15,6 +15,18 @@
 * HISTORY:
 *		$Log:   J:\se.vcs\driver\q117cd\src\0x11044.c  $
 *	
+*	   Rev 1.9.1.0   07 Feb 1996 08:27:58   boblehma
+*	do a seek load point for all 3010 and 3020 drives.
+*	
+*	   Rev 1.9   15 May 1995 10:48:04   GaryKiwi
+*	Phoenix merge from CBW95s
+*	
+*	   Rev 1.8.1.0   11 Apr 1995 18:04:38   garykiwi
+*	PHOENIX pass #1
+*	
+*	   Rev 1.9   30 Jan 1995 14:23:40   BOBLEHMA
+*	Added #include "vendor.h"
+*	
 *	   Rev 1.8   17 Feb 1994 11:38:28   KEVINKES
 *	Added an extra parameter to WaitCC.
 *
@@ -50,6 +62,7 @@
 #define FCT_ID 0x11044
 #include "include\public\adi_api.h"
 #include "include\public\frb_api.h"
+#include "include\public\vendor.h"
 #include "include\private\kdi_pub.h"
 #include "include\private\cqd_pub.h"
 #include "q117cd\include\cqd_defs.h"
@@ -164,7 +177,6 @@ dStatus cqd_SetDeviceMode
 	 * after entering verify mode. */
 
 	if (status == DONT_PANIC && mode == VERIFY_MODE &&
-		(cqd_context->device_descriptor.vendor == VENDOR_CMS) &&
 		((cqd_context->device_descriptor.drive_class == QIC3010_DRIVE) ||
 		 (cqd_context->device_descriptor.drive_class == QIC3020_DRIVE))) {
 

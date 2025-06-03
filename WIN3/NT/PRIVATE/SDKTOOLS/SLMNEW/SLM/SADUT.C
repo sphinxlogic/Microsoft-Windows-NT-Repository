@@ -1,17 +1,7 @@
 /* sadmin utilities */
 
-#include <fcntl.h>
-
-#include "slm.h"
-#include "sys.h"
-#include "util.h"
-#include "stfile.h"
-#include "ad.h"
-#include "log.h"
-#include "proto.h"
-#include "sadproto.h"
-#include "da.h"
-
+#include "precomp.h"
+#pragma hdrstop
 EnableAssert
 
 /*** RENAME ***
@@ -74,7 +64,7 @@ F FRenInit(
         Usage(pad);
     }
 
-    ValidateFileName(szNew);
+    ValidateFileName(szNew, TRUE);
 
     /* Save the new name, then munge pneArgs so that it contains only
      * the source file path.  Not exactly "a gem of algoristic precision".
@@ -185,6 +175,9 @@ F FRobustInit(
         Error("must specify either \"on\" or \"off\"\n");
         return fFalse;
     }
+
+    if (pad->flags&flagAll || pad->pecmd->gl&fglAll)
+        CreatePeekThread(pad);
 
     return fTrue;
 }
@@ -314,7 +307,7 @@ F FSetTDir(
 
         if (pfi->fk == fkVersion)
         {
-            Error("can't set the type of version file %&F",pad,pfi);
+            Error("can't set the type of version file %&F\n",pad,pfi);
             continue;
         }
 
@@ -336,31 +329,33 @@ F FSetTDir(
         /* Make others copy-in.  If we're in sync, update our local fv*/
         for (ied = 0; ied < iedMac; ied++)
         {
-            FS far *pfs = PfsForPfi(pad, ied, pfi);
+            if (!FIsFreeEdValid(pad->psh) || !pad->rged[ied].fFreeEd) {
+                FS far *pfs = PfsForPfi(pad, ied, pfi);
 
-            switch(pfs->fm)
-            {
-                default:
-                case fmOut:
-                case fmMerge:
-                case fmVerify:
-                case fmConflict:
-                case fmDelOut:
-                    AssertF(fFalse);
+                switch(pfs->fm)
+                {
+                    default:
+                    case fmOut:
+                    case fmMerge:
+                    case fmVerify:
+                    case fmConflict:
+                    case fmDelOut:
+                        AssertF(fFalse);
 
-                case fmNonExistent:
-                case fmDelIn:
-                case fmGhost:
-                case fmAdd:
-                case fmCopyIn:
-                    break;
+                    case fmNonExistent:
+                    case fmDelIn:
+                    case fmGhost:
+                    case fmAdd:
+                    case fmCopyIn:
+                        break;
 
-                case fmIn:
-                    if (ied == pad->iedCur)
-                        pfs->fv = pfi->fv;
-                    else
-                        pfs->fm = fmCopyIn;
-                    break;
+                    case fmIn:
+                        if (ied == pad->iedCur)
+                            pfs->fv = pfi->fv;
+                        else
+                            pfs->fm = fmCopyIn;
+                        break;
+                }
             }
         }
 
@@ -383,7 +378,9 @@ F FSetTDir(
 F FListInit(
     AD *pad)
 {
-    Unreferenced(pad);
+    if (pad->flags&flagAll || pad->pecmd->gl&fglAll)
+        CreatePeekThread(pad);
+
     return fTrue;
 }
 
@@ -397,7 +394,8 @@ F FListDir(
 
     PrOut("IED\tOwner   \tPath\t(Directory %&P/C)\n", pad);
     for (ied = 0; ied < pad->psh->iedMac; ied++)
-        PrOut("%d\t%&O       \t%&E\n", ied, pad, ied, pad, ied);
+        if ((!FIsFreeEdValid(pad->psh) || !pad->rged[ied].fFreeEd))
+            PrOut("%d\t%&O       \t%&E\n", ied, pad, ied, pad, ied);
 
     FlushStatus(pad);
     return fTrue;
@@ -418,6 +416,9 @@ F FDelEdInit(
         Error("cannot specify -r or -a with numeric ED\n");
         Usage(pad);
     }
+
+    if (pad->flags&flagAll || pad->pecmd->gl&fglAll)
+        CreatePeekThread(pad);
 
     return fTrue;
 }
@@ -468,7 +469,8 @@ F FDelEdDir(
         iedToGo = iedNil;
         for (ied = 0; ied < psh->iedMac; ied++)
         {
-            if (NmCmpSz(rged[ied].nmOwner, pad->sz, cchUserMax) ==0)
+            if ((!FIsFreeEdValid(pad->psh) || !pad->rged[ied].fFreeEd) &&
+                NmCmpSz(rged[ied].nmOwner, pad->sz, cchUserMax) ==0)
             {
                 cMatch++;
                 iedToGo = ied;
@@ -482,7 +484,8 @@ F FDelEdDir(
         else
         {
             for (ied = 0; ied < psh->iedMac; )
-                if (NmCmpSz(rged[ied].nmOwner, pad->sz, cchUserMax) == 0 &&
+                if ((!FIsFreeEdValid(pad->psh) || !pad->rged[ied].fFreeEd) &&
+                    NmCmpSz(rged[ied].nmOwner, pad->sz, cchUserMax) == 0 &&
                     FCanQuery("%&P/C ED %&E not deleted\n", pad, pad, ied) &&
                     FQueryUser("%&P/C delete ED %&E owner %s? ",
                                 pad, pad, ied, pad->sz))
@@ -500,7 +503,8 @@ F FDelEdDir(
         F fFound = fFalse;
         ConvToSlash(pad->sz);
         for (iedToGo = 0; iedToGo < psh->iedMac; iedToGo++)
-            if (PthCmp(pad->sz, rged[iedToGo].pthEd) == 0)
+            if ((!FIsFreeEdValid(pad->psh) || !pad->rged[iedToGo].fFreeEd) &&
+                PthCmp(pad->sz, rged[iedToGo].pthEd) == 0)
             {
                 FDelEd(pad, (IED)iedToGo);
                 fFound = fTrue;
@@ -529,56 +533,72 @@ private F FDelEd(
     SH far *psh             = pad->psh;
     ED far *rged            = pad->rged;
     FS far * far *mpiedrgfs = pad->mpiedrgfs;
+    FS *rgfs;
     FI far *pfiMac          = pad->rgfi + psh->ifiMac;
     FI far *pfi;
     FS far *pfs;
     IED ied;
+    IFS ifs;
     F fQueried = fFalse;
     char szComment[150];
 
     AssertF(iedToGo < psh->iedMac);
 
-    for (pfi = pad->rgfi; pfi < pfiMac; pfi++)
+    for (pfi = pad->rgfi; pfi < pfiMac; pfi++) {
+        pfs = PfsForPfi(pad, iedToGo, pfi);
+
+        switch(pfs->fm)
         {
-            pfs = PfsForPfi(pad, iedToGo, pfi);
+            default: AssertF(fFalse);
 
-            switch(pfs->fm)
-            {
-                default: AssertF(fFalse);
+            case fmIn:
+            case fmCopyIn:
+            case fmGhost:
+            case fmAdd:
+            case fmNonExistent:
+            case fmDelIn:
+                break;
 
-                case fmIn:
-                case fmCopyIn:
-                case fmGhost:
-                case fmAdd:
-                case fmNonExistent:
-                case fmDelIn:
-                    break;
+            case fmOut:
+            case fmVerify:
+            case fmConflict:
+            case fmMerge:
+            case fmDelOut:
+                if (!fQueried &&
+                    !FQueryApp("Files are still checked out to %&E",
+                               "remove ED anyway", pad, iedToGo))
+                    return fFalse;
 
-                case fmOut:
-                case fmVerify:
-                case fmConflict:
-                case fmMerge:
-                case fmDelOut:
-                    if (!fQueried &&
-                        !FQueryApp("Files are still checked out to %&E",
-                                   "remove ED anyway", pad, iedToGo))
-                        return fFalse;
-
-                    fQueried = fTrue;
-                    pfs->fm = fmDelIn;
-                    break;
-            }
+                fQueried = fTrue;
+                pfs->fm = fmDelIn;
+                break;
         }
+    }
 
     SzPrint(szComment, "Removed ED %&E", pad, iedToGo);
     if (fVerbose)
         PrErr("%s from %&P/C\n", szComment, pad);
 
-    psh->iedMac--;
-    for (ied = iedToGo; ied < psh->iedMac; ied++)
-    {
-        rged[ied] = rged[ied+1];
-        mpiedrgfs[ied] = mpiedrgfs[ied+1];
+    if (FIsFreeEdValid(pad->psh)) {
+        rged[iedToGo].fFreeEd = fTrue;
+        rged[iedToGo].wSpare = 0;
+        memset(rged[iedToGo].pthEd, 0, sizeof(rged[iedToGo].pthEd));
+        memset(rged[iedToGo].nmOwner, 0, sizeof(rged[iedToGo].nmOwner));
+
+        rgfs = mpiedrgfs[iedToGo];
+        for (ifs = 0; ifs < pad->psh->ifiMac; ifs++) {
+            pfs = &rgfs[ifs];
+            pfs->fm = fmNonExistent;
+            pfs->bi = biNil;
+            pfs->fv = 0;
+        }
+    } else {
+        psh->iedMac--;
+        for (ied = iedToGo; ied < psh->iedMac; ied++)
+        {
+            rged[ied] = rged[ied+1];
+            mpiedrgfs[ied] = mpiedrgfs[ied+1];
+        }
     }
 
     /* write out to log */
@@ -677,32 +697,33 @@ private F FExFi(
             return fFalse;
 
         /* check the fm for all ed */
-        for (ied=0, iedMac=pad->psh->iedMac; ied < iedMac; ied++)
-        {
-            pfs = PfsForPfi(pad, ied, pfi);
+        for (ied=0, iedMac=pad->psh->iedMac; ied < iedMac; ied++) {
+            if (!FIsFreeEdValid(pad->psh) || !pad->rged[ied].fFreeEd) {
+                pfs = PfsForPfi(pad, ied, pfi);
 
-            switch(pfs->fm)
-            {
-                default: AssertF(fFalse);
+                switch(pfs->fm)
+                {
+                    default: AssertF(fFalse);
 
-                case fmGhost:
-                case fmIn:
-                case fmCopyIn:
-                case fmAdd:
-                case fmNonExistent:
-                case fmDelIn:
-                    break;
+                    case fmGhost:
+                    case fmIn:
+                    case fmCopyIn:
+                    case fmAdd:
+                    case fmNonExistent:
+                    case fmDelIn:
+                        break;
 
-                case fmOut:
-                case fmVerify:
-                case fmMerge:
-                case fmConflict:
-                case fmDelOut:
-                    if (!FCanQuery("%&/C/F is still checked out to %&O; not deleting\n", pad, pfi, pad, ied) ||
-                        !FQueryUser("%&/C/F is still checked out to %&O; delete anyway ? ", pad, pfi, pad, ied))
-                        return fFalse;
+                    case fmOut:
+                    case fmVerify:
+                    case fmMerge:
+                    case fmConflict:
+                    case fmDelOut:
+                        if (!FCanQuery("%&/C/F is still checked out to %&O; not deleting\n", pad, pfi, pad, ied) ||
+                            !FQueryUser("%&/C/F is still checked out to %&O; delete anyway ? ", pad, pfi, pad, ied))
+                            return fFalse;
 
-                    break;
+                        break;
+                }
             }
         }
 
@@ -741,6 +762,9 @@ F FDlDfInit(
         pad->ileMin  = 1;
         pad->ileMac  = ileMax;
     }
+
+    if (pad->flags&flagAll || pad->pecmd->gl&fglAll)
+        CreatePeekThread(pad);
 
     return fTrue;
 }
@@ -798,6 +822,9 @@ F FTrLogInit(
 {
     if (pad->tdMin.tdt == tdtNone)
         Usage(pad);
+
+    if (pad->flags&flagAll || pad->pecmd->gl&fglAll)
+        CreatePeekThread(pad);
 
     return fTrue;
 }
@@ -962,4 +989,3 @@ private F FDelDiff(
     }
     return fTrue;
 }
-

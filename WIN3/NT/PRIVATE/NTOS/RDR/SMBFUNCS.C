@@ -73,7 +73,6 @@ typedef struct _StatContext {
 } STATCONTEXT, *PSTATCONTEXT;
 
 
-#ifndef _CAIRO_ // moved to volinfo.c for Cairo
 typedef struct _DSKATTRIBCONTEXT {
     TRANCEIVE_HEADER Header;            // Standard NetTranceive context header
     ULONG TotalAllocationUnits;         // Total Number of clusters
@@ -81,7 +80,6 @@ typedef struct _DSKATTRIBCONTEXT {
     ULONG SectorsPerAllocationUnit;     // Sectors per cluster
     ULONG BytesPerSector;               // Bytes per sector
 } DSKATTRIBCONTEXT, *PDSKATTRIBCONTEXT;
-#endif // _CAIRO_
 
 DBGSTATIC
 VOID
@@ -120,12 +118,10 @@ STANDARD_CALLBACK_HEADER (
     GetAttribsCallback
     );
 
-#ifndef _CAIRO_ // moved to volinfo.c for Cairo
 DBGSTATIC
 STANDARD_CALLBACK_HEADER (
     QueryDiskAttributesCallback
     );
-#endif // _CAIRO_
 
 #ifdef  ALLOC_PRAGMA
 #pragma alloc_text(PAGE, RdrCloseFile)
@@ -138,9 +134,7 @@ STANDARD_CALLBACK_HEADER (
 #pragma alloc_text(PAGE, RdrQueryEndOfFile)
 #pragma alloc_text(PAGE, RdrDetermineFileAllocation)
 #pragma alloc_text(PAGE, RdrQueryFileAttributes)
-#ifndef _CAIRO_ // moved to volinfo.c for Cairo
 #pragma alloc_text(PAGE3FILE, QueryDiskAttributesCallback)
-#endif // _CAIRO_
 #pragma alloc_text(PAGE, RdrRenameFile)
 #pragma alloc_text(PAGE, RdrSetEndOfFile)
 #pragma alloc_text(PAGE, RdrSetFileAttributes)
@@ -442,10 +436,7 @@ Note:
             //  after we have completed all of the close processing.
             //
 
-            ObReferenceObjectByPointer(FileObject,
-                                    FILE_ALL_ACCESS,
-                                    *IoFileObjectType,
-                                    KernelMode);
+            ObReferenceObject(FileObject);
         }
 
 
@@ -892,6 +883,7 @@ try_exit:NOTHING;
 RdrDeleteFile (
     IN PIRP Irp OPTIONAL,
     IN PUNICODE_STRING FileName,
+    IN BOOLEAN DfsFile,
     IN PCONNECTLISTENTRY Connection,
     IN PSECURITY_ENTRY Se
     )
@@ -929,6 +921,7 @@ Return Value:
     PUCHAR Bufferp;
     PMDL SendMDL;
     ULONG SendLength;
+    ULONG TranceiveFlags = 0;
 
     PAGED_CODE();
 
@@ -943,6 +936,11 @@ Return Value:
     //
 
     Smb->Command = SMB_COM_DELETE;
+
+    if (DfsFile) {
+        SmbPutUshort(&Smb->Flags2, SMB_FLAGS2_DFS);
+        TranceiveFlags |= NT_DFSFILE;
+    }
 
     DeleteFile = (PREQ_DELETE ) (Smb+1);
 
@@ -973,7 +971,9 @@ Return Value:
 
     SendMDL->ByteCount = SendLength;
 
-    Status = RdrNetTranceive(NT_NORMAL, // Flags
+    TranceiveFlags |= NT_NORMAL;
+
+    Status = RdrNetTranceive(TranceiveFlags, // Flags
                             Irp,
                             Connection,
                             SendMDL,
@@ -1004,6 +1004,7 @@ RdrDoesFileExist (
     IN PUNICODE_STRING FileName,
     IN PCONNECTLISTENTRY Connection,
     IN PSECURITY_ENTRY Se,
+    IN BOOLEAN DfsFile,
     OUT PULONG FileAttributes,
     OUT PBOOLEAN FileIsDirectory,
     OUT PLARGE_INTEGER LastWriteTime OPTIONAL
@@ -1043,6 +1044,7 @@ Return Value:
     NTSTATUS Status;
     UNICODE_STRING ServerName, ShareName;
     UNICODE_STRING PathName;
+    ULONG TranceiveFlags;
 
     PAGED_CODE();
 
@@ -1097,6 +1099,8 @@ Return Value:
 
         Smb->Command = SMB_COM_QUERY_INFORMATION;
 
+        TranceiveFlags = DfsFile ? (NT_NORMAL | NT_DFSFILE) : NT_NORMAL;
+
         GetAttr->WordCount = 0;
 
         TrailingBytes = (PUCHAR)GetAttr + FIELD_OFFSET(REQ_QUERY_INFORMATION, Buffer[0]);
@@ -1128,7 +1132,7 @@ Return Value:
         Context.Header.TransferSize =
             SmbBuffer->Mdl->ByteCount + sizeof(PRESP_QUERY_INFORMATION);
 
-        Status = RdrNetTranceiveWithCallback(NT_NORMAL, Irp,
+        Status = RdrNetTranceiveWithCallback(TranceiveFlags, Irp,
                                 Connection,
                                 SmbBuffer->Mdl,
                                 &Context,
@@ -1253,6 +1257,7 @@ ReturnStatus:
 RdrGenericPathSmb(
     IN  PIRP Irp OPTIONAL,
     IN  UCHAR Command,
+    IN  BOOLEAN DfsFile,
     IN  PUNICODE_STRING RemotePathName,
     IN  PCONNECTLISTENTRY Connection,
     IN  PSECURITY_ENTRY Se
@@ -1288,6 +1293,7 @@ Return Value:
     PUCHAR Bufferp;
     PMDL SendMDL;
     ULONG SendLength;
+    ULONG TranceiveFlags;
 
     PAGED_CODE();
 
@@ -1320,7 +1326,6 @@ Return Value:
         return Status;
     }
 
-
     //
     //  Set the BCC field in the SMB to indicate the number of bytes of
     //  protocol we've put in the negotiate.
@@ -1335,7 +1340,9 @@ Return Value:
 
     SendMDL->ByteCount = SendLength;
 
-    Status = RdrNetTranceive(NT_NORMAL, // Flags
+    TranceiveFlags = DfsFile ? NT_NORMAL | NT_DFSFILE : NT_NORMAL;
+
+    Status = RdrNetTranceive(TranceiveFlags, // Flags
                             Irp,
                             Connection,
                             SendMDL,
@@ -1354,7 +1361,6 @@ Return Value:
 
 }
 
-#ifndef _CAIRO_ // moved to volinfo.c for Cairo
 
 
 //
@@ -1422,7 +1428,10 @@ Return Value:
 
         REQ_QUERY_FS_INFORMATION Parameters;
 
-        PCHAR Buffer[MAX(sizeof(QFSALLOCATE), sizeof(FILE_FS_SIZE_INFORMATION))];
+        union {
+            FILE_FS_SIZE_INFORMATION FsSizeInfo;
+            QFSALLOCATE FsAllocate;
+        } Buffer;
 
         CLONG OutParameterCount = sizeof(REQ_QUERY_FS_INFORMATION);
 
@@ -1454,7 +1463,7 @@ Return Value:
             &OutParameterCount,
             NULL,                   // InData,
             0,                      // InDataCount,
-            Buffer,                 // OutData,
+            &Buffer,                // OutData,
             &OutDataCount,
             NULL,                   // Fid
             0,                      // Timeout
@@ -1466,7 +1475,7 @@ Return Value:
 
         if (NT_SUCCESS(Status)) {
             if (Icb->Fcb->Connection->Server->Capabilities & DF_NT_SMBS) {
-                PFILE_FS_SIZE_INFORMATION SizeInfo = (PFILE_FS_SIZE_INFORMATION)Buffer;
+                PFILE_FS_SIZE_INFORMATION SizeInfo = &Buffer.FsSizeInfo;
 
                 *TotalAllocationUnits = SizeInfo->TotalAllocationUnits;
 
@@ -1483,7 +1492,7 @@ Return Value:
 
                 Status = STATUS_SUCCESS;
             } else {
-                PQFSALLOCATE FsInfo = (PQFSALLOCATE)Buffer;
+                PQFSALLOCATE FsInfo = &Buffer.FsAllocate;
 
                 (*TotalAllocationUnits).QuadPart = FsInfo->cUnit;
 
@@ -1634,7 +1643,6 @@ ReturnStatus:
     UNREFERENCED_PARAMETER(Server);
 }
 
-#endif // _CAIRO_
 
 
 //
@@ -1912,9 +1920,7 @@ Note:
 
     if (FileGranularity == 0) {
         *FileAllocation = Icb->Fcb->Header.FileSize;
-        RdrLog( "determin", &Icb->Fcb->FileName,
-                FileGranularity,
-                FileAllocation->LowPart );
+        //RdrLog(( "determin", &Icb->Fcb->FileName, 2, FileGranularity, FileAllocation->LowPart ));
         return STATUS_SUCCESS;
     }
 
@@ -1963,9 +1969,7 @@ Note:
                             FileGranularity) * FileGranularity;
         }
     }
-    RdrLog( "determin", &Icb->Fcb->FileName,
-            FileGranularity,
-            FileAllocation->LowPart );
+    //RdrLog(( "determin", &Icb->Fcb->FileName, 2, FileGranularity, FileAllocation->LowPart ));
 
     return(STATUS_SUCCESS);
 }
@@ -2003,6 +2007,7 @@ Return Value:
 
     NTSTATUS Status;
     GETEXPANDEDATTRIBS Context;
+    ULONG TranceiveFlags;
 
     PAGED_CODE();
 
@@ -2045,6 +2050,12 @@ Return Value:
         ULONG Capabilities = Connection->Server->Capabilities;
 
         Smb->Command = SMB_COM_QUERY_INFORMATION;
+
+        if (FlagOn(Icb->NonPagedFcb->Flags, FCB_DFSFILE)) {
+            TranceiveFlags = NT_NORMAL | NT_DFSFILE;
+        } else {
+            TranceiveFlags = NT_NORMAL;
+        }
 
         Status = RdrCopyNetworkPath((PVOID *)&Bufferp,
             &Icb->Fcb->FileName,
@@ -2092,6 +2103,8 @@ Return Value:
             if (Icb->Fcb->Connection->Type == CONNECT_DISK) {
                 Attributes->Attributes = RdrMapSmbAttributes(
                     SMB_FILE_ATTRIBUTE_DIRECTORY | SMB_FILE_ATTRIBUTE_ARCHIVE);
+            } else if (Icb->Fcb->Connection->Type == CONNECT_PRINT) {
+                return( STATUS_INVALID_DEVICE_REQUEST );
             } else {
                 Attributes->Attributes = RdrMapSmbAttributes(
                     SMB_FILE_ATTRIBUTE_ARCHIVE);
@@ -2120,7 +2133,7 @@ Return Value:
         Context.Header.TransferSize =
              SmbBuffer->Mdl->ByteCount + sizeof(RESP_QUERY_INFORMATION);
 
-        Status = RdrNetTranceiveWithCallback(NT_NORMAL, Irp,
+        Status = RdrNetTranceiveWithCallback(TranceiveFlags, Irp,
                             Connection,
                             SmbBuffer->Mdl,
                             &Context,
@@ -2467,7 +2480,9 @@ RdrRenameFile (
     IN PIRP Irp OPTIONAL,
     IN PICB Icb,
     IN PUNICODE_STRING OriginalFileName,
-    IN PUNICODE_STRING NewFileName
+    IN PUNICODE_STRING NewFileName,
+    IN USHORT NtInformationLevel,
+    IN ULONG ClusterCount
     )
 
 /*++
@@ -2482,6 +2497,8 @@ Arguments:
     IN PIRP Irp OPTIONAL - Supplies an IRP to use in the transaction.
     IN PUNICODE_STRING OriginalFileName - Supplies the original (current) file name.
     IN PUNICODE_STRING NewFileName - Supplies the new file name.
+    IN USHORT NtInformationLevel - Nt info level
+    IN ULONG ClusterCount - MoveCluster count of clusters
 
 
 Return Value:
@@ -2496,11 +2513,15 @@ Return Value:
     PSMB_HEADER Smb;
     NTSTATUS Status;
     PREQ_RENAME RenameFile;
+    PREQ_NTRENAME NtRenameFile;
+    PUCHAR RenameBuffer;
     PUCHAR Buffer = NULL;
     PUCHAR Bufferp;
     PMDL SendMDL;
+    BOOLEAN isNtRename;
     ULONG BufferLength;
     PSERVERLISTENTRY Server = Icb->Fcb->Connection->Server;
+    ULONG TranceiveFlag = FlagOn(Icb->NonPagedFcb->Flags, FCB_DFSFILE) ? NT_DFSFILE : 0;
 
     PAGED_CODE();
 
@@ -2514,16 +2535,49 @@ Return Value:
     //  Build the SMB
     //
 
-    Smb->Command = SMB_COM_RENAME;
+    RenameFile = (PREQ_RENAME )(Smb+1);
+    NtRenameFile = (PREQ_NTRENAME)(Smb+1);
 
-    RenameFile = (PREQ_RENAME ) (Smb+1);
+    isNtRename = NtInformationLevel != FileRenameInformation;
 
-    RenameFile->WordCount = 1;
+    if (!isNtRename) {
+        Smb->Command = SMB_COM_RENAME;
+        RenameFile->WordCount = 1;
+        RenameBuffer = RenameFile->Buffer;
+    } else {
+        USHORT infolevel;
+
+        Smb->Command = SMB_COM_NT_RENAME;
+        NtRenameFile->WordCount = 4;
+        RenameBuffer = NtRenameFile->Buffer;
+        switch (NtInformationLevel)
+        {
+        case FileCopyOnWriteInformation:
+            infolevel = SMB_NT_RENAME_SET_COPY_ON_WRITE;
+            break;
+        case FileMoveClusterInformation:
+            infolevel = SMB_NT_RENAME_MOVE_CLUSTER_INFO;
+            break;
+        case FileLinkInformation:
+            infolevel = SMB_NT_RENAME_SET_LINK_INFO;
+            break;
+        default:
+            ASSERT(FALSE);
+        }
+        if (NtInformationLevel != FileMoveClusterInformation) {
+            ClusterCount = 0;
+        }
+        SmbPutUshort(&NtRenameFile->InformationLevel, infolevel);
+        SmbPutUlong(&NtRenameFile->ClusterCount, ClusterCount);
+    }
 
     //
     //  We put a hard coded search attributes of 0x16 in the
     //  SMB.
     //
+
+    ASSERT(FIELD_OFFSET(REQ_RENAME, SearchAttributes) ==
+           FIELD_OFFSET(REQ_NTRENAME, SearchAttributes));
 
     SmbPutUshort(&RenameFile->SearchAttributes, SMB_FILE_ATTRIBUTE_SYSTEM | SMB_FILE_ATTRIBUTE_HIDDEN | SMB_FILE_ATTRIBUTE_DIRECTORY);
 
@@ -2535,8 +2589,7 @@ Return Value:
         //  has the same word/byte alignment as FileRename->Buffer[0]
         //
 
-        ULONG Pad = (ULONG)ALIGN_SMB_WSTR(RenameFile->Buffer) -
-                        (ULONG)RenameFile->Buffer;
+        ULONG Pad = (ULONG)ALIGN_SMB_WSTR(RenameBuffer) - (ULONG)RenameBuffer;
 
         //
         //  Allocate a buffer for the worst case rename
@@ -2575,18 +2628,24 @@ Return Value:
             return Status;
         }
 
+        SendMDL = SMBBuffer->Mdl;
+
         //
         //  Set the BCC field in the SMB to indicate the number of bytes of
         //  protocol we've put in the negotiate.
         //
 
-        SmbPutUshort( &RenameFile->ByteCount,
-                      (USHORT )(Bufferp-Buffer) - (USHORT)Pad);
-
-
-        SendMDL = SMBBuffer->Mdl;
-
-        SendMDL->ByteCount = (RenameFile->Buffer - (PUCHAR)(Smb));
+        if (isNtRename) {
+            SmbPutUshort(
+                    &NtRenameFile->ByteCount,
+                    (USHORT)(Bufferp - Buffer) - (USHORT)Pad);
+            SendMDL->ByteCount = (NtRenameFile->Buffer - (PUCHAR)(Smb));
+        } else {
+            SmbPutUshort(
+                    &RenameFile->ByteCount,
+                    (USHORT)(Bufferp - Buffer) - (USHORT)Pad);
+            SendMDL->ByteCount = (RenameFile->Buffer - (PUCHAR)(Smb));
+        }
 
         BufferLength = Bufferp - (Buffer + Pad);
 
@@ -2604,7 +2663,8 @@ Return Value:
 
         MmBuildMdlForNonPagedPool(SendMDL->Next);
 
-        Status = RdrNetTranceive(NT_NORMAL, // Flags
+        Status = RdrNetTranceive(
+                                TranceiveFlag | NT_NORMAL, // Flags
                                 Irp,
                                 Icb->Fcb->Connection,
                                 SendMDL,
@@ -2885,7 +2945,7 @@ Return Value:
                 &OutDataCount,          // OutDataCount,
                 &Icb->FileId,           // Fid
                 0,                      // Timeout
-                0,                      // Flags
+                (USHORT) (FlagOn(Icb->NonPagedFcb->Flags, FCB_DFSFILE) ? SMB_TRANSACTION_DFSFILE : 0),
                 0,
                 NULL,
                 NULL
@@ -3275,4 +3335,93 @@ try_exit:NOTHING;
 
     return Status;
 
+}
+
+
+//
+//      RdrSetGeneric
+//
+
+NTSTATUS
+RdrSetGeneric(
+    IN PIRP Irp,
+    IN PICB Icb,
+    USHORT NtInformationLevel,
+    ULONG cbBuffer,
+    IN VOID *pvBuffer)
+
+/*++
+
+Routine Description:
+
+    This routine will perform whatever operations are necessary to set the
+    extended Cairo information on the remote file.
+
+Arguments:
+
+    IN PICB Icb - Supplies the file to set the attributes on.
+    IN ULONG NtInformationLevel - Supplies the NtInformationLevel to use
+    IN ULONG cbBuffer - Supplies the size of the information to change
+    IN VOID *pvBuffer - Supplies the information to change
+
+Return Value:
+
+    NTSTATUS - Final status of operation
+
+--*/
+
+{
+    NTSTATUS Status;
+
+    PAGED_CODE();
+
+    if ((Icb->Fcb->Connection->Server->Capabilities & DF_NT_SMBS) == 0) {
+
+        Status = STATUS_NOT_SUPPORTED;
+
+    } else if ((Icb->Flags & ICB_HASHANDLE) == 0) {
+
+        Status = STATUS_INVALID_HANDLE;
+
+    } else {
+
+        //
+        // Use TRANSACT2_SETFILEINFO to set the extended information
+        //
+
+        USHORT Setup[] = {TRANS2_SET_FILE_INFORMATION};
+        REQ_SET_FILE_INFORMATION Parameters;
+        CLONG OutParameterCount = sizeof(REQ_SET_FILE_INFORMATION);
+        CLONG OutDataCount = 0;
+        CLONG OutSetupCount = 0;
+
+        SmbPutAlignedUshort(&Parameters.InformationLevel, NtInformationLevel);
+        SmbPutAlignedUshort(&Parameters.Fid, Icb->FileId);
+
+        Status = RdrTransact(Irp,   // Irp,
+            Icb->Fcb->Connection,
+            Icb->Se,
+            Setup,
+            (CLONG) sizeof(Setup),  // InSetupCount,
+            &OutSetupCount,
+            NULL,                   // Name,
+            &Parameters,
+            sizeof(Parameters),     // InParameterCount,
+            &OutParameterCount,
+            pvBuffer,               // InData,
+            cbBuffer,
+            NULL,                   // OutData,
+            &OutDataCount,          // OutDataCount,
+            &Icb->FileId,           // Fid
+            0,                      // Timeout
+            0,                      // Flags
+            0,
+            NULL,
+            NULL);
+
+        if (Status == STATUS_INVALID_HANDLE) {
+            RdrInvalidateFileId(Icb->NonPagedFcb, Icb->FileId);
+        }
+    }
+    return(Status);
 }

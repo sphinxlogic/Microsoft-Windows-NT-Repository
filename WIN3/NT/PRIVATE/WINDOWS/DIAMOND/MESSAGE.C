@@ -66,6 +66,7 @@ typedef enum {
 } ARGTYPE;  /* at */
 
 
+int     addCommas(char *pszStart);
 ARGTYPE ATFromFormatSpecifier(char *pch);
 int     doFinalSubstitution(char *ach, char *pszMsg, char *apszValue[]);
 int     getHighestParmNumber(char *pszMsg);
@@ -117,10 +118,12 @@ int MsgSetWorker(char *ach, char *pszMsg, char *pszFmtList, va_list marker)
     char   *apszValue[cMSG_PARM_MAX];   // Pointers into achValues
     int     cch;                        // Length of format specifier
     int     cParm;                      // Highest parameter number
+    BOOL    fCommas;                    // TRUE=>use Commas
     int     iParm;                      // Parameter index
     char   *pch;                        // Last character of format specifier
     char   *pchFmtStart;                // Start of single format specifier
     char   *pszNextValue;               // Location in achValues for next value
+    char   *pszStart;
 
     //** (1) See if we have parameters to retrieve and format
     cParm = getHighestParmNumber(pszMsg);
@@ -152,13 +155,21 @@ int MsgSetWorker(char *ach, char *pszMsg, char *pszFmtList, va_list marker)
 
             //** (3) Pick up each argument and format with sprintf into array
 
-            //** Copy specifier for use with sprintf() -- we need a NULL terminator
-            memcpy(achFmt,pchFmtStart,cch); // Copy to specifier buffer
-            achFmt[cch] = '\0';         // Terminate specifier
+            //** Get specifier for sprintf() - we need a NULL terminator
+            fCommas = pchFmtStart[1] == ',';
+            if (fCommas) {               // Copy format, deleting comma
+                achFmt[0] = pchFmtStart[0]; // Copy '%'
+                memcpy(achFmt+1,pchFmtStart+2,cch-2); // Get rest after ','
+                achFmt[cch-1] = '\0';    // Terminate specifier
+            }
+            else {
+                memcpy(achFmt,pchFmtStart,cch); // Copy to specifier buffer
+                achFmt[cch] = '\0';         // Terminate specifier
+            }
 
             //** Format value, based on last character of format specifier
-            pch--;                      // Point at last character of specifier
-            at = ATFromFormatSpecifier(pch); // Get argument type
+            at = ATFromFormatSpecifier(pch-1); // Get argument type
+            pszStart = pszNextValue;    // Save start of value (for commas)
             switch (at) {
                 case atSHORT:   pszNextValue += sprintf(pszNextValue,achFmt,
                                       va_arg(marker,unsigned short)) + 1;
@@ -199,7 +210,16 @@ int MsgSetWorker(char *ach, char *pszMsg, char *pszFmtList, va_list marker)
                     return 0;           // Failure
             } /* switch */
 
-            pch++;                      // Point at next specifier
+            //**
+            if (fCommas) {
+                switch (at) {
+                    case atSHORT:
+                    case atINT:
+                    case atLONG:
+                        pszNextValue += addCommas(pszStart);
+                        break;
+                }
+            }
         } /* for */
     } /* if - parameters were present */
 
@@ -208,15 +228,101 @@ int MsgSetWorker(char *ach, char *pszMsg, char *pszFmtList, va_list marker)
 }
 
 
+/***    addCommas - Add thousand separators to a number
+ *
+ *  Entry:
+ *      pszStart - Buffer with number at end (NULL terminated)
+ *                 NOTE:  White space preceding or following number are
+ *                        assumed to be part of the field width, and will
+ *                        be consumed for use by any commas that are
+ *                        added.  If there are not enough blanks to account
+ *                        for the commas, all the blanks will be consumed,
+ *                        and the field will be effectively widened to
+ *                        accomodate all of the commas.
+ *  Exit:
+ *      Returns number of commas added (0 or more)
+ */
+int addCommas(char *pszStart)
+{
+    char    ach[20];                    // Buffer for number
+    int     cb;
+    int     cbBlanksBefore;
+    int     cbBlanksAfter;
+    int     cbFirst;
+    int     cCommas;
+    char   *psz;
+    char   *pszSrc;
+    char   *pszDst;
+
+    //** Figure out if there are any blanks
+    cbBlanksBefore = strspn(pszStart," ");  // Count blanks before number
+    psz = strpbrk(pszStart+cbBlanksBefore," "); // Skip over number
+    if (psz) {
+        cbBlanksAfter = strspn(psz," ");    // Count blanks after number
+        cb = psz - (pszStart+cbBlanksBefore); // Length of number itself
+    }
+    else {
+        cbBlanksAfter = 0;                  // No blanks after number
+        cb = strlen(pszStart+cbBlanksBefore); // Length of number itself
+    }
+
+    //** Quick out if we don't need to add commas
+    if (cb <= 3) {
+        return 0;
+    }
+    //** Figure out how many commas we need to add
+    Assert(cb < sizeof(ach));
+    strncpy(ach,pszStart+cbBlanksBefore,cb); // Move number to a safe place
+    cCommas = (cb - 1) / 3;             // Number of commas we need to add
+
+    //** Figure out where to place modified number in buffer
+    if ((cbBlanksBefore > 0) && (cbBlanksBefore >= cCommas)) {
+        //** Eat some (but not all) blanks at front of buffer
+        pszDst = pszStart + cbBlanksBefore - cCommas;
+    }
+    else {
+        pszDst = pszStart;              // Have to start number at front of buffer
+    }
+
+    //** Add commas to the number
+    cbFirst = cb % 3;                   // Number of digits before first comma
+    if (cbFirst == 0) {
+        cbFirst = 3;
+    }
+    pszSrc = ach;
+    strncpy(pszDst,pszSrc,cbFirst);
+    cb -= cbFirst;
+    pszDst += cbFirst;
+    pszSrc += cbFirst;
+    while (cb > 0) {
+        *pszDst++ = chTHOUSAND_SEPARATOR; // Place comma
+        strncpy(pszDst,pszSrc,3);       // Copy next 3 digits
+        cb -= 3;
+        pszDst += 3;
+        pszSrc += 3;
+    }
+
+    //** Figure out if we need to add trailing NUL
+    if (cbBlanksBefore+cbBlanksAfter <= cCommas) {
+        //** There were no trailing blanks to preserve, so we need to
+        //   make sure the string is terminated.
+        *pszDst++ = '\0';                   // Terminate string
+    }
+
+    //** Success
+    return cCommas;
+} /* addCommas() */
+
+
 /***    ATFromFormatSpecifier - Determine argument type from sprintf format
  *
  *  Entry:
  *      pch - points to last character (type) of sprintf format specifier
  *
- *  Exit-Success
+ *  Exit-Success:
  *      Returns ARGTYPE indicated by format specifier.
  *
- *  Exit-Failure
+ *  Exit-Failure:
  *      Returns atBAD -- could not determine type.
  */
 ARGTYPE ATFromFormatSpecifier(char *pch)
@@ -364,4 +470,3 @@ int getHighestParmNumber(char *pszMsg)
     }
     return iMax;                    // Return highest parameter seen
 }
-

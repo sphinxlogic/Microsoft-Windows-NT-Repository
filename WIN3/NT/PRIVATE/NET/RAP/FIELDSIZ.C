@@ -130,9 +130,9 @@ Return Value:
     case REM_EPOCH_TIME_LOCAL:
 	return (sizeof(DWORD));
     default:
-        NetpDbgPrint( PREFIX_NETRAP
+        NetpKdPrint(( PREFIX_NETRAP
                 "RapGetFieldSize: unexpected desc '" FORMAT_LPDESC_CHAR
-                "'.\n", c);
+                "'.\n", c));
         NetpBreakPoint();
         return (0);
     }

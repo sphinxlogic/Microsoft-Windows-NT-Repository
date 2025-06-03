@@ -83,6 +83,10 @@ CG_PROC::GenClientStub(
 	pCCB->SetCodeGenSide( CGSIDE_CLIENT );
 	pCCB->SetCodeGenPhase( CGPHASE_MARSHALL );
 
+    //
+    // Change to -Os if needed because of number of param and/or stack size.
+    //
+    (void) MustUseSingleEngineCall( pCCB );
 	pCCB->SetOptimOption( GetOptimizationFlags() );
 
 	Analysis.SetCurrentSide( C_SIDE );
@@ -123,6 +127,11 @@ CG_PROC::GenClientStub(
 
 	S_OutLocalAnalysis( &Analysis );
 
+    // Perform this analysis on the client side so the format string is
+    // correct for server. It is needed for -Oi RpcSs flag generation.
+
+    RpcSsPackageAnalysis( &Analysis );
+
     // Find out which alloc and free routines should be put in the stub
     // descriptor.
 
@@ -151,35 +160,33 @@ CG_PROC::GenClientStub(
 
 	if ( MustUseSingleEngineCall( pCCB ) )
 		{
-		if( IsObject() )
-			{
-			((CG_OBJECT_PROC*)this)->Out_ProxyFunctionPrototype(pCCB, 0);
-			pStream->WriteOnNewLine( "{" );
-			pStream->NewLine();
+		if ( IsObject() )
+            {
+            //
+            // Non-call_as object proxies are now stubless.
+            //
+            if ( ! GetCallAsName() &&
+                 (GetOptimizationFlags() & OPTIMIZE_STUBLESS_CLIENT) &&
+                 (GetProcNum() < 32) )
+                return CG_OK;
 
-	
-			// Do the single call code generation.  Binding crap will be handled
-			// here.
-			GenNdrSingleClientCall( pCCB );
+            ((CG_OBJECT_PROC *)this)->Out_ProxyFunctionPrototype(pCCB,0);
+            pStream->WriteOnNewLine( "{" );
+            pStream->NewLine();
+            }
+        else
+            {
+		    // Generate the function header.
+		    Out_ClientProcedureProlog( pCCB, GetType() );
 
-			Out_IndentDec( pCCB );
-			Out_ProcClosingBrace( pCCB );
-			}
-		else
-			{
-			// Generate the function header.
-			Out_ClientProcedureProlog( pCCB, GetType() );
+		    Out_IndentInc( pCCB );
+		    pStream->NewLine();
+            }
 
-			Out_IndentInc( pCCB );
-			pCCB->GetStream()->NewLine();
+		GenNdrSingleClientCall( pCCB );
 
-			// Do the single call code generation.  Binding crap will be handled
-			// here.
-			GenNdrSingleClientCall( pCCB );
-
-			Out_IndentDec( pCCB );
-			Out_ProcClosingBrace( pCCB );
-			}
+		Out_IndentDec( pCCB );
+		Out_ProcClosingBrace( pCCB );
 
 		// All done.
 		return CG_OK;
@@ -199,7 +206,7 @@ CG_PROC::GenClientStub(
 
 	C_GenProlog( pCCB );
 
-	if(fHasExceptionHandler = (HasStatuses() || ReturnsHRESULT() ))
+	if(fHasExceptionHandler = (HasStatuses() || IsObject() ))
 		{
 		Out_RpcTryExcept( pCCB );
 		}
@@ -207,20 +214,27 @@ CG_PROC::GenClientStub(
 	if ( HasFullPtr() )
 		Out_FullPointerInit( pCCB );
 
+    // Generate the null ref check code.
+    // For object interfaces we need to generate a call to initialize proxy
+    // first as we won't be able to walk parameters later for cleanup.
+    // For raw interfaces we don't ned to move initialization call
+    // as we don't have the walk problem.
 
-	// generate the null ref check code.
+    if ( IsObject() )
+        C_GenBind( pCCB );
 
-	if( pCCB->MustCheckRef() )
+    if( pCCB->MustCheckRef() )
         GenRefChecks( pCCB );
 
-	Out_RpcTryFinally( pCCB);
+    Out_RpcTryFinally( pCCB);
 
-	C_GenBind( pCCB );
+    if ( !IsObject() )
+        C_GenBind( pCCB );
 
 	// If the rpc ss package is to be enabled, do so.
     // It would need to be enabled explicitely on the client side when
     // in non-osf mode, with the attribute on the operation AND
-    //      - the routine is a callback, 
+    //      - the routine is a callback,
     //      - the routine is not a callback and the interface doesn't
     //        have the attribute (if it does, we optimized via stub descr.)
 
@@ -252,26 +266,43 @@ CG_PROC::GenClientStub(
 	C_GenUnBind( pCCB );
 	Out_RpcEndFinally( pCCB );
 
-	if( fHasExceptionHandler )
-		{
-		Out_RpcExcept_1( pCCB );
+    if( fHasExceptionHandler )
+        {
 
-		if(ReturnsHRESULT())
-			{
-			C_GenClearOutParams( pCCB );
-			C_GenMapHRESULT( pCCB );
-			}
-		else if( HasStatuses() )
-			{
-			C_GenMapCommAndFaultStatus( pCCB );
-			}
-		else
-			{
-			Out_RaiseException( pCCB, "RpcExceptionCode()" );
-			}
+        if(IsObject())
+            {
+            ISTREAM * pStream = pCCB->GetStream();
 
-		Out_RpcEndExcept( pCCB );
-		}
+            pStream->NewLine();
+            pStream->Write('}');
+            pStream->IndentDec();
+            pStream->NewLine();
+            pStream->Write( "RpcExcept(_StubMsg.dwStubPhase != PROXY_SENDRECEIVE)" );
+            pStream->IndentInc();
+            pStream->NewLine();
+            pStream->Write( '{' );
+            }
+        else
+            {
+            Out_RpcExcept( pCCB, "1" );
+            }
+
+        if(ReturnsHRESULT())
+            {
+            C_GenClearOutParams( pCCB );
+            C_GenMapHRESULT( pCCB );
+            }
+        else if( HasStatuses() )
+            {
+            C_GenMapCommAndFaultStatus( pCCB );
+            }
+        else
+            {
+            Out_RaiseException( pCCB, "RpcExceptionCode()" );
+            }
+
+        Out_RpcEndExcept( pCCB );
+        }
 
 
 	// All done, emit the final closed curly and we're done.
@@ -290,8 +321,8 @@ CG_PROC::C_GenMapCommAndFaultStatus(
 	CG_NDR	*	pRT;
 	int			i = 0;
 	CG_NDR	*	StatArray[2] = {0,0};
-	_expr_node	*	pCommExpr;
-	_expr_node	*	pFaultExpr;
+	expr_node	*	pCommExpr;
+	expr_node	*	pFaultExpr;
 	BOOL		fReturnHasStatus = FALSE;
 
 	ITERATOR	I;
@@ -325,7 +356,7 @@ CG_PROC::C_GenMapCommAndFaultStatus(
 			pCommExpr = pComm->GetResource();
 		}
 	else
-		pCommExpr = new _expr_constant(0L);
+		pCommExpr = new expr_constant(0L);
 
 	if( pFault )
 		{
@@ -335,7 +366,7 @@ CG_PROC::C_GenMapCommAndFaultStatus(
 			pFaultExpr = pFault->GetResource();
 		}
 	else
-		pFaultExpr = new _expr_constant(0L);
+		pFaultExpr = new expr_constant(0L);
 
 	Out_CallNdrMapCommAndFaultStatus( pCCB,
 									  MakeAddressExpressionNoMatterWhat(
@@ -371,8 +402,8 @@ CG_PROC::C_GenClearOutParams(
 ----------------------------------------------------------------------------*/
 {
     ITERATOR    I;
-    _expr_proc_call *   pProc;
-	_expr_node		*	pExpr;
+    expr_proc_call *   pProc;
+	expr_node		*	pExpr;
     short               Count;
     CG_PARAM        *   pParam;
     ISTREAM         *   pStream = pCCB->GetStream();
@@ -388,10 +419,11 @@ CG_PROC::C_GenClearOutParams(
 
     while( ITERATOR_GETNEXT( I, pParam ) )
         {
+        pParam->GenNdrTopLevelAttributeSupport( pCCB, TRUE );
 
         // Create a call to the procedure.
 
-        pProc   = new _expr_proc_call( C_NDR_CLEAR_OUT_PARAMS_RTN_NAME );
+        pProc   = new expr_proc_call( C_NDR_CLEAR_OUT_PARAMS_RTN_NAME );
 
 	    // First param is the address of the stub message.
 
@@ -453,7 +485,7 @@ CG_PROC::C_GenMapHRESULT(
 	ISTREAM *pStream = pCCB->GetStream();
 
 	pStream->NewLine();
-	pStream->Write("_RetVal = NdrProxyErrorHandler(GetExceptionCode());");
+	pStream->Write("_RetVal = NdrProxyErrorHandler(RpcExceptionCode());");
 	return CG_OK;
 }
 
@@ -507,8 +539,8 @@ CG_PROC::C_GenProlog(
     // This is where we output additional variable declarations to handle
     // multidimensional conformant/varying arrays.
     //
-    
-    ITERATOR    Iterator;
+
+    CG_ITERATOR	Iterator;
     ISTREAM *   pStream;
     CG_PARAM *  pParam;
     CG_NDR *    pNdr;
@@ -521,7 +553,7 @@ CG_PROC::C_GenProlog(
         {
         pNdr = (CG_NDR *) pParam->GetChild();
 
-        if ( (pNdr->IsArray() && ((CG_ARRAY *)pNdr)->IsMultiConfOrVar()) || 
+        if ( (pNdr->IsArray() && ((CG_ARRAY *)pNdr)->IsMultiConfOrVar()) ||
              (pNdr->IsPointer() && ((CG_POINTER *)pNdr)->IsMultiSize()) )
             Out_MultiDimVars( pCCB, pParam );
         }
@@ -566,9 +598,9 @@ CG_PROC::C_GenBind(
 ----------------------------------------------------------------------------*/
 {
 	ITERATOR			BindingParamList;
-	_expr_node		*	pSizeExpr = GetSizeExpression();
-	_expr_node		*	pExpr;
-	_expr_node		*	pAssignExpr	= 0;
+	expr_node		*	pSizeExpr = GetSizeExpression();
+	expr_node		*	pExpr;
+	expr_node		*	pAssignExpr	= 0;
 	BOOL				fCallBack = (GetCGID() == ID_CG_CALLBACK_PROC);
 
 	//
@@ -613,7 +645,11 @@ CG_PROC::C_GenBind(
 	// Proc num.
 	//
 	ITERATOR_INSERT( BindingParamList,
-					 new _expr_constant( (long) GetProcNum() ) );
+					 new expr_constant( (long) GetProcNum() ) );
+
+    // This call doesn't do much nowadays except for generating
+    // the initialize call and rpc flags assignment and so could
+    // be eliminated.
 
 	Out_HandleInitialize( pCCB,
 						  BindingParamList,
@@ -626,8 +662,8 @@ CG_PROC::C_GenBind(
 
 	if( fCallBack )
 		{
-		pExpr	= new _expr_proc_call( CALLBACK_HANDLE_RTN_NAME );
-		pExpr	= new _expr_assign( GetBindingResource(), pExpr );
+		pExpr	= new expr_proc_call( CALLBACK_HANDLE_RTN_NAME );
+		pExpr	= new expr_assign( GetBindingResource(), pExpr );
 		}
 	else
 		{
@@ -682,8 +718,8 @@ CG_PROC::C_GenBind(
 		// none implemented on procs, we can set it based on that.
 
 		BOOL		fErrorCheckReqd = pCCB->MustCheckRef();
-		_expr_node	*	pAss;
-		_expr_node	*	pContextParam	=  ((CG_NDR *)SearchForBindingParam())->
+		expr_node	*	pAss;
+		expr_node	*	pContextParam	=  ((CG_NDR *)SearchForBindingParam())->
 												GenBindOrUnBindExpression(
 																pCCB, TRUE );
 
@@ -699,7 +735,7 @@ CG_PROC::C_GenBind(
 												  (node_skl *)0,
 												  I
 												);
-		pAss= new _expr_assign(GetBindingResource(), pExpr);
+		pAss= new expr_assign(GetBindingResource(), pExpr);
 
 		if( !fErrorCheckReqd )
 			{
@@ -710,9 +746,9 @@ CG_PROC::C_GenBind(
 			}
 		else
 			{
-			Out_If( pCCB, new _expr_relational(OP_NOT_EQUAL,
+			Out_If( pCCB, new expr_relational(OP_NOT_EQUAL,
 											   pContextParam,
-											   new _expr_constant(0L) ) );
+											   new expr_constant(0L) ) );
 			pCCB->GetStream()->NewLine();
 			pAss->PrintCall( pCCB->GetStream(), 0, 0 );
 			pCCB->GetStream()->Write(';');
@@ -727,16 +763,28 @@ CG_PROC::C_GenBind(
 				}
 			}
 		}
-	else if( pExpr )
-		{
-		pCCB->GetStream()->NewLine();
-		pExpr->PrintCall( pCCB->GetStream(), 0, 0 );
-		pCCB->GetStream()->Write(';');
-		pCCB->GetStream()->NewLine();
-		}
+    else if( pExpr )
+        {
+        pCCB->GetStream()->NewLine();
+        pExpr->PrintCall( pCCB->GetStream(), 0, 0 );
+        pCCB->GetStream()->Write(';');
+        pCCB->GetStream()->NewLine();
+
+        if ( IsGenericHandle() )
+            {
+            // For generic handles generate a check that the handle
+            // is not null after calling user's bind routine.
+
+            Out_If( pCCB, new expr_relational( OP_EQUAL,
+                                               GetBindingResource(),
+                                               new expr_constant(0L) ) );
+            Out_RaiseException( pCCB, "RPC_S_INVALID_BINDING" );
+            Out_Endif( pCCB );
+            }
+        }
 
 
-	return CG_OK;
+    return CG_OK;
 }
 
 CG_STATUS
@@ -766,9 +814,9 @@ CG_PROC::C_GenSendReceive(
 ----------------------------------------------------------------------------*/
 {
 	PNAME				pProcName;
-	_expr_proc_call	*	pProc;
-	_expr_node		*	pExpr;
-	_expr_node		*	pStubMsgExpr	= pCCB->GetStandardResource(
+	expr_proc_call	*	pProc;
+	expr_node		*	pExpr;
+	expr_node		*	pStubMsgExpr	= pCCB->GetStandardResource(
 											ST_RES_STUB_MESSAGE_VARIABLE );
 	ITERATOR			ParamsList;
 
@@ -807,7 +855,7 @@ CG_PROC::C_GenSendReceive(
 		}
 
 	ITERATOR_INSERT( ParamsList,
-					 new _expr_variable(  STUB_MSG_BUFFER_VAR_NAME ) );
+					 new expr_variable(  STUB_MSG_BUFFER_VAR_NAME ) );
 
 	// generate the procedure call expression.
 
@@ -850,8 +898,8 @@ CG_PROC::C_GenUnBind(
 		{
 		ISTREAM			*	pStream	= pCCB->GetStream();
 
-		_expr_proc_call	*	pUnBindCall	=
-				 	(_expr_proc_call *)GenBindOrUnBindExpression( pCCB, FALSE );
+		expr_proc_call	*	pUnBindCall	=
+				 	(expr_proc_call *)GenBindOrUnBindExpression( pCCB, FALSE );
 
 		pStream->NewLine();
 		Out_If( pCCB, GetBindingResource() );
@@ -945,7 +993,13 @@ CG_PROC::GenServerStub(
 	// Set the analysis phase to the correct one.
 
 	Analysis.SetCurrentPhase( ANA_PHASE_SERVER_UNMARSHALL );
+
+    //
+    // Change to -Os if needed because of number of param and/or stack size.
+    //
+    (void) MustUseSingleEngineCall( pCCB );
 	Analysis.SetOptimOption( pCCB->GetOptimOption() );
+
 	Analysis.SetMode( pCCB->GetMode() );
 	Analysis.SetRpcSSSwitchSet( (unsigned long)pCCB->IsRpcSSSwitchSet() );
 
@@ -973,6 +1027,11 @@ CG_PROC::GenServerStub(
 	// allocated for the [out] ONLY parameters.
 
 	S_OutLocalAnalysis( &Analysis );
+
+    // Perform this analysis so the format string is correct for server.
+    // It is needed for -Oi RpcSs flag generation.
+
+    RpcSsPackageAnalysis( &Analysis );
 
 	// Perform InLocalAnalysis to allocate any in params( for now arrays of
 	// ref pointers only) on the server side stub stack.
@@ -1031,7 +1090,7 @@ CG_PROC::GenServerStub(
         {
 	    if ( MustUseSingleEngineCall( pCCB ) )
 		    {
-            if ( UseOldInterpreterMode( pCCB ) ) 
+            if ( UseOldInterpreterMode( pCCB ) )
                 {
                 GenNdrOldInterpretedServerStub( pCCB );
                 }
@@ -1064,21 +1123,26 @@ CG_PROC::GenServerStub(
     if ( fPicklingProcOrType )
         return( CG_OK );
 
-	// Generate the server side procedure prolog. This generates only the
-	// server side proc signature, the locals needed and the stub descriptor
-	// structure.
+    // Generate the server side procedure prolog. This generates only the
+    // server side proc signature, the locals needed and the stub descriptor
+    // structure.
 
-	S_GenProlog( pCCB );
-	S_GenInitTopLevelStuff( pCCB );
+    // This also generates the call to server initialize routine.
+    // Note, that it is out of RpcTryFinally, but this is ok as
+    // we shouldn't attempt to free parameters (they haven't been
+    // unmarshaled yet.
 
-	S_GenInitInLocals( pCCB );
+    S_GenProlog( pCCB );
+    S_GenInitTopLevelStuff( pCCB );
 
-	// Initialize the local variables allocated on the server side if necessary.
-	// Also make the initialization call for the server side stub message which
-	// updates the buffer pointer.
+    S_GenInitInLocals( pCCB );
 
-	// Generate the unmarshalling code.
-	Out_RpcTryFinally( pCCB );
+    // Initialize the local variables allocated on the server side if necessary.
+    // Also make the initialization call for the server side stub message which
+    // updates the buffer pointer.
+
+    // Generate the unmarshalling code.
+    Out_RpcTryFinally( pCCB );
 
     // If the user specifies the -error stub_data to check server unmarshall
     // errors, we need to enclose the unmarshall in a try except, and in the
@@ -1096,14 +1160,15 @@ CG_PROC::GenServerStub(
 
 	GenUnMarshall( pCCB );
 
-	// If the check for bad stub data must be made, then generate a 
-	// Rpcexcept(1) to catch all exceptions here, and re-raise a bad
-	// stub data exception.
+	// If the check for bad stub data must be made, then generate a
+	// Rpcexcept() to catch some exceptions here, and re-raise a bad
+	// stub data exception for them.
+    // Other exceptions would propagate unchanged.
 
 	if( fEmitCheckStubData )
 	    {
 	    Out_CheckUnMarshallPastBufferEnd( pCCB );
-	    Out_RpcExcept_1( pCCB );
+	    Out_RpcExcept( pCCB, "RPC_BAD_STUB_DATA_EXCEPTION_FILTER" );
 	    Out_RaiseException( pCCB, "RPC_X_BAD_STUB_DATA" );
 	    Out_RpcEndExcept( pCCB );
 	    }
@@ -1128,18 +1193,16 @@ CG_PROC::GenServerStub(
 
 	Out_RpcFinally( pCCB );
 
+    // When notify is used, guard also against an exception in freeing.
+
+	if( HasNotify() || HasNotifyFlag() )
+        {
+    	Out_RpcTryFinally( pCCB );
+        }
+
 	// Free anything that needs freeing.
 
 	GenFree( pCCB );
-
-	// If this is a notify procedure, generate the call to the notify procedure.
-
-	if( HasNotify() )
-        {
-        pCCB->RegisterNotifyRoutine( (node_proc *) GetType() );
-        GenNotify( pCCB );
-        }
-
 
 	if( MustInvokeRpcSSAllocate())
 		{
@@ -1148,6 +1211,19 @@ CG_PROC::GenServerStub(
 
 	if ( HasFullPtr() )
 		Out_FullPointerFree( pCCB );
+
+	// If this is a notify procedure, generate the call to the notify procedure.
+
+	if( HasNotify() || HasNotifyFlag() )
+        {
+    	Out_RpcFinally( pCCB );
+
+        pCCB->RegisterNotifyRoutine( (node_proc *) GetType(),
+                                     HasNotifyFlag() );
+        GenNotify( pCCB , HasNotifyFlag() );
+
+    	Out_RpcEndFinally( pCCB );
+        }
 
 	Out_RpcEndFinally( pCCB );
 
@@ -1180,7 +1256,7 @@ CG_PROC::S_GenInitMarshall(
 
 ----------------------------------------------------------------------------*/
 {
-    ITERATOR    Iterator;
+    CG_ITERATOR	Iterator;
     ISTREAM *   pStream;
     CG_PARAM *  pParam;
     CG_NDR *    pNdr;
@@ -1234,7 +1310,7 @@ CG_PROC::S_GenInitOutLocals(
 	This method will also perform the server side stub message init.
 ----------------------------------------------------------------------------*/
 {
-	ITERATOR		Iter;
+	CG_ITERATOR		Iter;
 	CG_PARAM	*	pParam;
 
 	if( GetMembers( Iter ) )
@@ -1284,12 +1360,12 @@ CG_PROC::S_GenCallManager(
 
 ----------------------------------------------------------------------------*/
 {
-	ITERATOR			I;
+	CG_ITERATOR			I;
 	PNAME				pName;
-	_expr_proc_call	*	pProc;
+	expr_proc_call	*	pProc;
 	CG_PARAM		*	pParam;
-	_expr_node		*	pExpr;
-	_expr_node		*	pReturnExpr	= 0;
+	expr_node		*	pExpr;
+	expr_node		*	pReturnExpr	= 0;
 	CG_RETURN		*	pRT;
 	char			*	pSStubPrefix	= NULL;
 
@@ -1297,7 +1373,7 @@ CG_PROC::S_GenCallManager(
 
 	if ( GetCallAsName() )
 		pName	= (PNAME ) GenMangledCallAsName( pCCB );
-	else if ( pSStubPrefix ) 
+	else if ( pSStubPrefix )
 		{
 		pName	= new char[ strlen(pSStubPrefix) + strlen(GetType()->GetSymName()) + 1];
 		strcpy( pName, pSStubPrefix );
@@ -1306,7 +1382,7 @@ CG_PROC::S_GenCallManager(
 	else
 		pName	= (PNAME ) GetType()->GetSymName();
 
-	pProc	= new _expr_proc_call( pName );
+	pProc	= new expr_proc_call( pName );
 
 	GetMembers( I );
 
@@ -1322,13 +1398,13 @@ CG_PROC::S_GenCallManager(
 			//
 			if ( pChild->IsArray() )
 				{
-				pExpr = new _expr_u_deref( pExpr );
+				pExpr = new expr_u_deref( pExpr );
 				}
 			else if( (pChild->GetCGID() == ID_CG_GENERIC_HDL ) &&
 					 (((CG_NDR *)pChild->GetChild())->IsArray() )
 				   )
 				{
-				pExpr = new _expr_u_deref( pExpr );
+				pExpr = new expr_u_deref( pExpr );
 				}
 
 			//
@@ -1339,29 +1415,29 @@ CG_PROC::S_GenCallManager(
 				  (((CG_NDR *)pChild->GetChild())->GetCGID() ==
 					 ID_CG_CONTEXT_HDL)) )
 				{
-				_expr_proc_call * 	pCall;
+				expr_proc_call * 	pCall;
 
-				pCall = new _expr_proc_call( "NDRSContextValue" );
+				pCall = new expr_proc_call( "NDRSContextValue" );
 				pCall->SetParam(
-					new _expr_param(
-					new _expr_variable(
+					new expr_param(
+					new expr_variable(
 							pParam->GetResource()->GetResourceName() )) );
 
-				_expr_node * pFinal;
+				expr_node * pFinal;
 
 				if ( pChild->GetCGID() == ID_CG_CONTEXT_HDL )
-					pFinal = new _expr_u_deref(pCall);
+					pFinal = new expr_u_deref(pCall);
 				else
 					pFinal = pCall;
 
 				//
 				// Dereference a plain context handle.
 				//
-				pExpr = new _expr_cast( pParam->GetType()->GetChild(),
+				pExpr = new expr_cast( pParam->GetType()->GetChild(),
 										pFinal );
 				}
 
-			pProc->SetParam( new _expr_param( pExpr ) );
+			pProc->SetParam( new expr_param( pExpr ) );
 			}
 		}
 
@@ -1370,20 +1446,38 @@ CG_PROC::S_GenCallManager(
 		pReturnExpr = pRT->GetFinalExpression();
 		}
 
+    if ( HasNotifyFlag() )
+        {
+        // Assign TRUE to the notify flag variable.
+
+        expr_node * pNotifyFlag;
+        expr_node * pAssignExpr;
+
+        ISTREAM *   pStream = pCCB->GetStream();
+
+        pNotifyFlag = new expr_variable( NOTIFY_FLAG_VAR_NAME );
+        pAssignExpr = new expr_assign( pNotifyFlag,
+                                       new expr_variable( "TRUE" ) );
+        pStream->NewLine();
+        pAssignExpr->Print( pStream );
+        pStream->Write( ';' );
+        pStream->NewLine();
+        }
+
 	Out_CallManager( pCCB,
 					 pProc,
 					 pReturnExpr,
 					 (GetCGID() == ID_CG_CALLBACK_PROC)
 				   );
 
-	return CG_OK;
+    return CG_OK;
 
 }
 CG_STATUS
 CG_PROC::S_GenInitTopLevelStuff(
 	CCB	*	pCCB )
 	{
-	ITERATOR	Iter;
+	CG_ITERATOR	Iter;
 	CG_NDR	*	pParam;
 
 	if( GetMembers( Iter ) )
@@ -1393,6 +1487,10 @@ CG_PROC::S_GenInitTopLevelStuff(
 			pParam->S_GenInitTopLevelStuff( pCCB );
 			}
 		}
+
+    if ( GetReturnType() )
+        GetReturnType()->S_GenInitTopLevelStuff( pCCB );
+
 	return CG_OK;
 	}
 
@@ -1432,9 +1530,9 @@ CG_PROC::S_GenProlog(
 	pCCB->GetListOfParamResources( ParamsList );
 	pCCB->GetListOfTransientResources( TransientList );
 
-	// Print out the procedure signature and the local variables. This
-	// procedure will also print out the stub descriptor.
-
+    //
+	// Print out the procedure signature and the local variables.
+    //
 	Out_ServerProcedureProlog( pCCB,
 							   GetType(),
 							   LocalsList,
@@ -1448,16 +1546,12 @@ CG_PROC::S_GenProlog(
 	if ( pCCB->GetOptimOption() & OPTIMIZE_INTERPRETER )
 		return CG_OK;
 
-	// Start a new indent for code.
-
-	Out_IndentInc( pCCB );
-
     //
     // This is where we output additional variable declarations to handle
     // multidimensional conformant/varying arrays.
     //
-    
-    ITERATOR    Iterator;
+
+    CG_ITERATOR	Iterator;
     ISTREAM *   pStream;
     CG_PARAM *  pParam;
     CG_NDR *    pNdr;
@@ -1470,32 +1564,55 @@ CG_PROC::S_GenProlog(
         {
         pNdr = (CG_NDR *) pParam->GetChild();
 
-        if ( (pNdr->IsArray() && ((CG_ARRAY *)pNdr)->IsMultiConfOrVar()) || 
+        if ( (pNdr->IsArray() && ((CG_ARRAY *)pNdr)->IsMultiConfOrVar()) ||
              (pNdr->IsPointer() && ((CG_POINTER *)pNdr)->IsMultiSize()) )
             Out_MultiDimVars( pCCB, pParam );
         }
 
-	//
+    pStream->NewLine();
+
+    // Removes warning if we don't use the _Status variable.
+    pStream->Write( "((void)(" RPC_STATUS_VAR_NAME "));" );
+    pStream->NewLine();
+
+    if ( HasNotifyFlag() )
+        {
+        // Assign FALSE to the notify flag variable.
+
+        expr_node * pNotifyFlag;
+        expr_node * pAssignExpr;
+
+        pNotifyFlag = new expr_variable( NOTIFY_FLAG_VAR_NAME );
+        pAssignExpr = new expr_assign( pNotifyFlag,
+                                       new expr_variable( "FALSE" ) );
+        pStream->NewLine();
+        pAssignExpr->Print( pStream );
+        pStream->Write( ';' );
+        pStream->NewLine();
+        }
+
+    //
 	// Call the NdrServerInitialize routine.
 	//
 
-	_expr_proc_call	*	pCall;
+	expr_proc_call	*	pCall;
 
-	pCall = new _expr_proc_call( SSTUB_INIT_RTN_NAME );
+	pCall = new expr_proc_call( SSTUB_INIT_RTN_NAME );
 
-	pCall->SetParam( new _expr_param (
-					 new _expr_variable( PRPC_MESSAGE_VAR_NAME ) ) );
+	pCall->SetParam( new expr_param (
+					 new expr_variable( PRPC_MESSAGE_VAR_NAME ) ) );
 
-	pCall->SetParam( new _expr_param (
-					 new _expr_u_address (
-					 new _expr_variable( STUB_MESSAGE_VAR_NAME ) ) ) );
+	pCall->SetParam( new expr_param (
+					 new expr_u_address (
+					 new expr_variable( STUB_MESSAGE_VAR_NAME ) ) ) );
 
-	pCall->SetParam( new _expr_param (
-					 new _expr_u_address (
-					 new _expr_variable( 
-                            pCCB->GetInterfaceCG()->GetStubDescName() ) ) ) );
+	pCall->SetParam( new expr_param (
+					 new expr_u_address (
+					 new expr_variable(
+                          pCCB->GetInterfaceCG()->GetStubDescName() ) ) ) );
 
 	pCall->PrintCall( pCCB->GetStream(), 0, 0 );
+    pStream->NewLine();
 
 	// if the rpc ss package is to be enabled, do so.
 
@@ -1539,11 +1656,20 @@ CG_PROC::GenUnMarshall(
 	Currently we will use the engine to tranform the data.
 ----------------------------------------------------------------------------*/
 {
+    CG_ITERATOR         Iterator;
 	ITERATOR			ParamList;
 	CG_RETURN		*	pRT;
 	CGSIDE				Side;
 	ALIGNMENT_PROPERTY	NextWireAl;
 	BOOL				fReturnNeedsUnMarshall	= FALSE;
+    long                ParamTotal;
+
+    GetMembers( Iterator );
+
+    ParamTotal = ITERATOR_GETCOUNT( Iterator );
+
+    if ( GetReturnType() )
+        ParamTotal++;
 
 	// Reset the alignment state machine.
 
@@ -1572,7 +1698,10 @@ CG_PROC::GenUnMarshall(
 	// if needed.
 	//
 	if ( fReturnNeedsUnMarshall || ParamList.GetCount() )
-		Out_NdrConvert( pCCB, GetFormatStringParamStart() );
+		Out_NdrConvert( pCCB,
+                        GetFormatStringParamStart(),
+                        ParamTotal,
+                        GetOptimizationFlags() );
 
 	if( ITERATOR_GETCOUNT( ParamList ) )
 		{
@@ -1633,7 +1762,7 @@ CG_PROC::GenFree(
 
 ----------------------------------------------------------------------------*/
 {
-	ITERATOR			ParamList;
+	CG_ITERATOR			ParamList;
 	CGSIDE				Side;
 	CG_RETURN		*	pRT;
 	BOOL				fReturnNeedsFree	= FALSE;
@@ -1673,7 +1802,8 @@ CG_PROC::GenFree(
 
 CG_STATUS
 CG_PROC::GenNotify(
-    CCB *   pCCB )
+    CCB *   pCCB,
+    BOOL    fHasFlag )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
  Routine Description:
@@ -1692,36 +1822,42 @@ CG_PROC::GenNotify(
     the same as the original procedure. The return value is a void.
 ----------------------------------------------------------------------------*/
 {
-    ITERATOR             I;
-    _expr_proc_call *   pProcExpr;
-    CG_PARAM        *   pParamCG;
-    PNAME               pProcName;
-    PNAME               pParamName;
-    node_skl        *   pNode;
+    ISTREAM *   pStream = pCCB->GetStream();
 
     // Create an expression for the call to the notify procedure. The name
     // of the notify procedure is the procname suffixed by _notify.
 
-    pNode       = GetType();
-    pProcName   = new char [ strlen( pNode->GetSymName() ) +
-                             SIZEOF_NOTIFY_SUFFIX          +
-                             1
-                           ];
+    CSzBuffer   ProcName;
 
-    strcpy( pProcName, pNode->GetSymName() );
-    strcat( pProcName, NOTIFY_SUFFIX );
+    ProcName.Set( GetType()->GetSymName() );
+    ProcName.Append( (fHasFlag ? NOTIFY_FLAG_SUFFIX
+                               : NOTIFY_SUFFIX) );
 
-    pProcExpr   = new _expr_proc_call( pProcName, 0 );
+    expr_proc_call   ProcExpr( ProcName.GetData(), 0 );
+    expr_variable *  pVarNode;
+    expr_param    *  pFlagParam;
+
+    if ( fHasFlag )
+        {
+        pVarNode   = new expr_variable( NOTIFY_FLAG_VAR_NAME );
+        pFlagParam = new expr_param( pVarNode );
+
+        ProcExpr.SetParam( pFlagParam );
+        }
 
     // The call expression has been made. Emit it.
 
-    pCCB->GetStream()->NewLine();
-    pProcExpr->PrintCall( pCCB->GetStream(), 0, 0 );
-    pCCB->GetStream()->NewLine();
+    pStream->NewLine();
+    ProcExpr.PrintCall( pStream, 0, 0 );
+    pStream->NewLine();
 
     // Clean up.
 
-    delete  pProcName;
+    if ( fHasFlag )
+        {
+        delete pVarNode;
+        delete pFlagParam;
+        }
 
     return CG_OK;
 }
@@ -1749,7 +1885,7 @@ CG_PROC::GenEpilog(
 {
 	if( (pCCB->GetCodeGenSide() == CGSIDE_CLIENT) && GetReturnType() )
 		{
-		_expr_node * pExpr = new _expr_variable( RETURN_VALUE_VAR_NAME );
+		expr_node * pExpr = new expr_variable( RETURN_VALUE_VAR_NAME );
 		pCCB->GetStream()->NewLine();
 		pCCB->GetStream()->Write( "return " );
 		pExpr->Print( pCCB->GetStream() );
@@ -1765,12 +1901,12 @@ CG_PROC::GenEpilog(
 		pStream->NewLine();
 		pStream->Spaces( STANDARD_STUB_TAB );
 		pStream->Write( "(unsigned int)" );
-		pStream->Write( "(" );
+		pStream->Write( '(' );
 		pStream->Write( "(long)" STUB_MESSAGE_VAR_NAME ".Buffer" );
 		pStream->Write( " - " );
 		pStream->Write( "(long)" PRPC_MESSAGE_VAR_NAME "->Buffer" );
-		pStream->Write( ")" );
-		pStream->Write( ";");
+		pStream->Write( ')' );
+		pStream->Write( ';');
 		pStream->NewLine();
 		}
 
@@ -1806,26 +1942,37 @@ CG_PROC::GenSizing(
 	CGSIDE				Side;
 	CG_RETURN		*	pRT;
 	BOOL				fReturnNeedsSizing	= FALSE;
-	_expr_node		*	pSizeExpr;
+	expr_node		*	pSizeExpr;
+	short               ParamCount = 0;
 
 	pCCB->GetStream()->NewLine();
+
+
+	if( (Side = pCCB->GetCodeGenSide()) == CGSIDE_CLIENT )
+		ParamCount = GetInParamList( ParamList );
+	else
+		ParamCount = GetOutParamList( ParamList );
+
+	if( (Side == CGSIDE_SERVER) && (pRT = GetReturnType()) )
+		fReturnNeedsSizing = TRUE;
+
+	// On the server side if there are no out params and no returns, dont
+	// generate code for sizing and get buffer at all !
+
+	if( (Side == CGSIDE_SERVER) && (ParamCount == 0) && !fReturnNeedsSizing )
+	    {
+	    return CG_OK;
+	    }
 
 	//
 	// Init the length variable to 0.
 	//
 
 	Out_Assign( pCCB,
-				new _expr_variable ( STUB_MSG_LENGTH_VAR_NAME, 0 ),
-				(pSizeExpr = GetSizeExpression()) ? pSizeExpr : new _expr_constant(0L)
+				new expr_variable ( STUB_MSG_LENGTH_VAR_NAME, 0 ),
+				(pSizeExpr = GetSizeExpression()) ? pSizeExpr : new expr_constant(0L)
 			  );
 
-	if( (Side = pCCB->GetCodeGenSide()) == CGSIDE_CLIENT )
-		GetInParamList( ParamList );
-	else
-		GetOutParamList( ParamList );
-
-	if( (Side == CGSIDE_SERVER) && (pRT = GetReturnType()) )
-		fReturnNeedsSizing = TRUE;
 
 	if( ITERATOR_GETCOUNT( ParamList ) )
 		{
@@ -2003,11 +2150,11 @@ CG_PROC::GenRefChecks(
 
 ----------------------------------------------------------------------------*/
 {
-	ITERATOR			ParamList;
+	CG_ITERATOR			ParamList;
 	CGSIDE				Side;
 
 	// On the client side, perform ref checks for every pointer parameter.
-	// On the server side, dont perform any checks at all. If it is a top 
+	// On the server side, dont perform any checks at all. If it is a top
 	// level ref, the stub allocates the pointee on the stack or in memory.
 	// if the allocation fails, the engine will always raise an exception.
 	// For embedded pointers, the engine checks anyhow.
@@ -2070,6 +2217,7 @@ CG_PROC::S_GenInitInLocals(
 			pParam->S_GenInitInLocals( pCCB );
 			}
 		}
+
 	return CG_OK;
 }
 
@@ -2128,7 +2276,7 @@ CG_PARAM::S_GenInitTopLevelStuff(
 	{
 	ISTREAM * 	pStream;
     CG_NDR * 	pChild;
-    ID_CG  		ChildID; 
+    ID_CG  		ChildID;
 
 	pStream = pCCB->GetStream();
 
@@ -2147,17 +2295,17 @@ CG_PARAM::S_GenInitTopLevelStuff(
 	//
 	if ( pChild->IsPointer() || pChild->IsArray() )
 		{
-		_expr_node *	pParam;
-		_expr_node * 	pExpr;
+		expr_node *	pParam;
+		expr_node * 	pExpr;
 
-		pParam = new _expr_variable( GetResource()->GetResourceName() );
+		pParam = new expr_variable( GetResource()->GetResourceName() );
 
-		pExpr = new _expr_assign( pParam,
-								  new _expr_constant( (long) 0 ) );
+		pExpr = new expr_assign( pParam,
+								  new expr_constant( (long) 0 ) );
 
 		pStream->NewLine();
 		pExpr->Print( pStream );
-		pStream->Write( ";" );
+		pStream->Write( ';' );
 		}
 
     //
@@ -2165,29 +2313,42 @@ CG_PARAM::S_GenInitTopLevelStuff(
     // local which is a pointer to the same type.
     //
     if ( pChild->IsStruct() || pChild->IsUnion()  ||
-         ChildID == ID_CG_TRANSMIT_AS ||
-         ChildID == ID_CG_REPRESENT_AS )
+         pChild->IsXmitRepOrUserMarshal() )
 		{
-		_expr_node *	pParam;
-		_expr_node *	pPointer;
-		_expr_node * 	pExpr;
+		expr_node *	pParam;
+		expr_node *	pPointer;
+		expr_node * 	pExpr;
 		char *			pPointerName;
+		char *			pPlainName = GetResource()->GetResourceName();
 
-		pPointerName = new char[128];
+		pPointerName = new char[strlen( pPlainName ) + 10];
 
 		strcpy( pPointerName, LOCAL_NAME_POINTER_MANGLE);
-		strcat( pPointerName, GetResource()->GetResourceName());
+		strcat( pPointerName, pPlainName);
 
-		pParam = new _expr_u_address (
-				 new _expr_variable( GetResource()->GetResourceName() ) );
+		pParam = new expr_u_address (
+				 new expr_variable( pPlainName ) );
 
-		pPointer = new _expr_variable( pPointerName );
+		pPointer = new expr_variable( pPointerName );
 
-		pExpr = new _expr_assign( pPointer, pParam );
+		pExpr = new expr_assign( pPointer, pParam );
 
 		pStream->NewLine();
 		pExpr->Print( pStream );
-		pStream->Write( ";" );
+		pStream->Write( ';' );
+
+        //
+        // Memset [in], [in,out] by-value structs & unions in case we catch
+        // an exception before we finish unmarshalling them.  If they have
+        // embedded pointers they must be zeroed before freeing.
+        //
+        if ( IsParamIn() &&
+             (pChild->IsStruct() || pChild->IsUnion()) )
+            {
+            Out_MemsetToZero( pCCB,
+                              pPointer,
+                              new expr_sizeof( pChild->GetType() ) );
+            }
 
 		// If there is a transmit_as etc, init the ptr to 0.
 
@@ -2195,12 +2356,12 @@ CG_PARAM::S_GenInitTopLevelStuff(
 			{
 			case ID_CG_TRANSMIT_AS:
 				{
-				_expr_proc_call * pProc = new _expr_proc_call( MIDL_MEMSET_RTN_NAME );
-				pProc->SetParam( new _expr_param( pPointer ) );
-				pProc->SetParam( new _expr_param( new _expr_constant( 0L ) ) );
+				expr_proc_call * pProc = new expr_proc_call( MIDL_MEMSET_RTN_NAME );
+				pProc->SetParam( new expr_param( pPointer ) );
+				pProc->SetParam( new expr_param( new expr_constant( 0L ) ) );
 				pProc->SetParam(
-					 new _expr_param(
-					   new _expr_sizeof(
+					 new expr_param(
+					   new expr_sizeof(
 						((CG_TRANSMIT_AS *)pChild)->GetPresentedType())));
 				pCCB->GetStream()->NewLine();
 				pProc->PrintCall( pCCB->GetStream(), 0, 0 );
@@ -2210,10 +2371,22 @@ CG_PARAM::S_GenInitTopLevelStuff(
 				{
 				node_skl	*	pNode = new node_def(
 							((CG_REPRESENT_AS *)pChild)->GetRepAsTypeName() );
-				_expr_proc_call * pProc = new _expr_proc_call( MIDL_MEMSET_RTN_NAME  );
-				pProc->SetParam( new _expr_param( pPointer ) );
-				pProc->SetParam( new _expr_param( new _expr_constant( 0L ) ) );
-				pProc->SetParam( new _expr_param( new _expr_sizeof( pNode ) ) );
+				expr_proc_call * pProc = new expr_proc_call( MIDL_MEMSET_RTN_NAME  );
+				pProc->SetParam( new expr_param( pPointer ) );
+				pProc->SetParam( new expr_param( new expr_constant( 0L ) ) );
+				pProc->SetParam( new expr_param( new expr_sizeof( pNode ) ) );
+				pCCB->GetStream()->NewLine();
+				pProc->PrintCall( pCCB->GetStream(), 0, 0 );
+				break;
+				}
+			case ID_CG_USER_MARSHAL:
+				{
+				node_skl	*	pNode = new node_def(
+							((CG_REPRESENT_AS *)pChild)->GetRepAsTypeName() );
+				expr_proc_call * pProc = new expr_proc_call( MIDL_MEMSET_RTN_NAME  );
+				pProc->SetParam( new expr_param( pPointer ) );
+				pProc->SetParam( new expr_param( new expr_constant( 0L ) ) );
+				pProc->SetParam( new expr_param( new expr_sizeof( pNode ) ) );
 				pCCB->GetStream()->NewLine();
 				pProc->PrintCall( pCCB->GetStream(), 0, 0 );
 				break;
@@ -2266,7 +2439,7 @@ CG_PARAM::GenMarshall(
 			}
 		else
 			pCCB->SetSourceExpression( GetResource() );
-		pCCB->SetDestExpression(new _expr_variable(STUB_MSG_BUFFER_VAR_NAME ));
+		pCCB->SetDestExpression(new expr_variable(STUB_MSG_BUFFER_VAR_NAME ));
 
 		Status = ((CG_NDR *)GetChild())->GenMarshall( pCCB );
 
@@ -2281,7 +2454,7 @@ CG_PARAM::GenMarshall(
 			else
 				pCCB->SetSourceExpression( GetResource() );
 
-			pCCB->SetDestExpression( new _expr_variable( STUB_MSG_BUFFER_VAR_NAME ) );
+			pCCB->SetDestExpression( new expr_variable( STUB_MSG_BUFFER_VAR_NAME ) );
 			((CG_NDR *)GetChild())->GenFollowerMarshall( pCCB );
 			}
 		}
@@ -2298,22 +2471,22 @@ CG_PARAM::GenUnMarshall(
 	CG_NDR 		*	pOldPlaceholder;
 	CG_NDR 		*	pC	= (CG_NDR *)GetChild();
 	BOOL			fPtrToContext = FALSE;
-	_expr_node	*	pFinalExpr	= GetResource();
+	expr_node	*	pFinalExpr	= GetResource();
 
 	pOldPlaceholder = pCCB->SetLastPlaceholderClass( this );
 
 	if( (pC->GetCGID() == ID_CG_CONTEXT_HDL) ||
 		( fPtrToContext = (pC->GetChild() && (pC->GetChild()->GetCGID() == ID_CG_CONTEXT_HDL) ) ) )
 		{
-		_expr_node		*	pExpr;
-		_expr_proc_call * pProc		= new _expr_proc_call( "NDRSContextValue" );
+		expr_node		*	pExpr;
+		expr_proc_call * pProc		= new expr_proc_call( "NDRSContextValue" );
 		CG_CONTEXT_HANDLE * pCtxtHandle;
 
-		pProc->SetParam( new _expr_param( GetResource() ) );
+		pProc->SetParam( new expr_param( GetResource() ) );
 
 		if( fPtrToContext )
 			{
-			pExpr	= new _expr_u_deref( pProc );
+			pExpr	= new expr_u_deref( pProc );
 			pCtxtHandle = (CG_CONTEXT_HANDLE *)pC->GetChild();
 			}
 		else
@@ -2322,7 +2495,7 @@ CG_PARAM::GenUnMarshall(
 			pCtxtHandle = (CG_CONTEXT_HANDLE *)pC;
 			}
 
-		pExpr	= new _expr_cast( GetType()->GetChild(), pExpr );
+		pExpr	= new expr_cast( GetType()->GetChild(), pExpr );
 		pFinalExpr = pExpr;
 
 		// Register the context handle for a rundown.
@@ -2357,7 +2530,7 @@ CG_PARAM::GenUnMarshall(
 		else
 			pCCB->SetDestExpression( GetResource() );
 
-		pCCB->SetSourceExpression(new _expr_variable(STUB_MSG_BUFFER_VAR_NAME ));
+		pCCB->SetSourceExpression(new expr_variable(STUB_MSG_BUFFER_VAR_NAME ));
 
 		Status = ((CG_NDR *)GetChild())->GenUnMarshall( pCCB );
 
@@ -2376,7 +2549,7 @@ CG_PARAM::GenUnMarshall(
 			else
 				pCCB->SetDestExpression( GetResource() );
 
-			pCCB->SetSourceExpression(new _expr_variable(STUB_MSG_BUFFER_VAR_NAME ));
+			pCCB->SetSourceExpression(new expr_variable(STUB_MSG_BUFFER_VAR_NAME ));
 			((CG_NDR *)GetChild())->GenFollowerUnMarshall( pCCB );
 			}
 		pCCB->ResetReturnContext();
@@ -2423,7 +2596,7 @@ CG_PARAM::GenSizing(
 				pCCB->ResetDeferPointee();
 				pCCB->SetSourceExpression( GetResource() );
 		pCCB->SetPrefix(0);
-			pCCB->SetDestExpression(new _expr_variable(STUB_MSG_BUFFER_VAR_NAME ));
+			pCCB->SetDestExpression(new expr_variable(STUB_MSG_BUFFER_VAR_NAME ));
 				((CG_NDR *)GetChild())->GenFollowerSizing( pCCB );
 				}
 			}
@@ -2508,7 +2681,7 @@ CG_RETURN::GenMarshall(
 		pCCB->SetPrefix(0);
 
 	pCCB->SetSourceExpression( GetResource() );
-	pCCB->SetDestExpression(new _expr_variable(STUB_MSG_BUFFER_VAR_NAME ));
+	pCCB->SetDestExpression(new expr_variable(STUB_MSG_BUFFER_VAR_NAME ));
 
 	((CG_NDR *)GetChild())->GenMarshall( pCCB );
 
@@ -2518,7 +2691,7 @@ CG_RETURN::GenMarshall(
 		pCCB->SetMemoryAllocDone();
 		pCCB->ResetDeferPointee();
 		pCCB->SetSourceExpression( GetResource() );
-		pCCB->SetDestExpression(new _expr_variable(STUB_MSG_BUFFER_VAR_NAME ));
+		pCCB->SetDestExpression(new expr_variable(STUB_MSG_BUFFER_VAR_NAME ));
 
 		((CG_NDR *)GetChild())->GenFollowerMarshall( pCCB );
 		}
@@ -2583,14 +2756,13 @@ CG_RETURN::GenUnMarshall(
 		// Initialize a struct or union return value.
 		//
 		if ( GetChild()->IsStruct() || GetChild()->IsUnion() ||
-            ((CG_NDR *)GetChild())->GetCGID() == ID_CG_TRANSMIT_AS  ||
-            ((CG_NDR *)GetChild())->GetCGID() == ID_CG_REPRESENT_AS )
+            ((CG_NDR *)GetChild())->IsXmitRepOrUserMarshal() )
 			{
 			pStream->NewLine();
 			pStream->Write( LOCAL_NAME_POINTER_MANGLE RETURN_VALUE_VAR_NAME );
 			pStream->Write( " = " );
 			pStream->Write( "(void __RPC_FAR *) &" RETURN_VALUE_VAR_NAME );
-			pStream->Write( ";" );
+			pStream->Write( ';' );
 			}
 
 		GenNdrUnmarshallCall( pCCB );
@@ -2609,7 +2781,7 @@ CG_RETURN::GenUnMarshall(
 		pCCB->SetPrefix(0);
 
 	pCCB->SetDestExpression( GetResource() );
-	pCCB->SetSourceExpression(new _expr_variable(STUB_MSG_BUFFER_VAR_NAME ));
+	pCCB->SetSourceExpression(new expr_variable(STUB_MSG_BUFFER_VAR_NAME ));
 
 
 	((CG_NDR *)GetChild())->GenUnMarshall( pCCB );
@@ -2623,7 +2795,7 @@ CG_RETURN::GenUnMarshall(
 		pCCB->ResetDeferPointee();
 		pCCB->SetDestExpression( GetResource() );
 		pCCB->SetPrefix(0);
-		pCCB->SetSourceExpression(new _expr_variable(STUB_MSG_BUFFER_VAR_NAME ));
+		pCCB->SetSourceExpression(new expr_variable(STUB_MSG_BUFFER_VAR_NAME ));
 		((CG_NDR *)GetChild())->GenFollowerUnMarshall( pCCB );
 
 		}
@@ -2655,9 +2827,24 @@ CG_RETURN::S_GenInitOutLocals(
 CG_STATUS
 CG_RETURN::S_GenInitTopLevelStuff(
 	CCB		*	pCCB )
-	{
+{
+    CG_NDR *    pChild;
+	expr_node *	pExpr;
+
+    pChild = (CG_NDR *) GetChild();
+
+	pExpr = new expr_u_address (
+			new expr_variable( RETURN_VALUE_VAR_NAME ) );
+
+    if ( pChild->IsStruct() || pChild->IsUnion() )
+        {
+        Out_MemsetToZero( pCCB,
+                          pExpr,
+                          new expr_sizeof( pChild->GetType() ) );
+        }
+
 	return CG_OK;
-	}
+}
 
 CG_STATUS
 CG_RETURN::GenFree(
@@ -2691,10 +2878,10 @@ CG_RETURN::GenFree(
 	return CG_OK;
 	}
 
-_expr_node *
+expr_node *
 CG_RETURN::GetFinalExpression()
 	{
-	_expr_node * pReturnExpr;
+	expr_node * pReturnExpr;
 	BOOL		 fPtrToContext	= FALSE;
 	CG_NDR	*	 pC = (CG_NDR *)GetChild();
 
@@ -2702,10 +2889,10 @@ CG_RETURN::GetFinalExpression()
 		( fPtrToContext = (pC->GetChild() &&
 				 (pC->GetChild()->GetCGID() == ID_CG_CONTEXT_HDL) ) ) )
 		{
-		_expr_node		*	pExpr;
-		_expr_proc_call * pProc		= new _expr_proc_call( "NDRSContextValue" );
+		expr_node		*	pExpr;
+		expr_proc_call * pProc		= new expr_proc_call( "NDRSContextValue" );
 
-		pProc->SetParam( new _expr_param( GetResource() ) );
+		pProc->SetParam( new expr_param( GetResource() ) );
 
 		// cast the proc call to this type.
 
@@ -2785,8 +2972,8 @@ CG_PROC::GetCorrectAllocFreeRoutines(
 
         if ( fServer )
             {
-            *ppAllocName = (char *) RPC_SS_SERVER_ALLOCATE_RTN_NAME;   
-            *ppFreeName  = (char *) RPC_SS_SERVER_FREE_RTN_NAME;    
+            *ppAllocName = (char *) RPC_SS_SERVER_ALLOCATE_RTN_NAME;
+            *ppFreeName  = (char *) RPC_SS_SERVER_FREE_RTN_NAME;
             }
         else
             {
@@ -2811,6 +2998,7 @@ CG_PROC::GetCorrectAllocFreeRoutines(
             }
         }
 }
+
 
 
 

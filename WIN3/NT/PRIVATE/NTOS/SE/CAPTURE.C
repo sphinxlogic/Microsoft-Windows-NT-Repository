@@ -41,9 +41,12 @@ Revision History:
 #pragma alloc_text(PAGE,SeCaptureSidAndAttributesArray)
 #pragma alloc_text(PAGE,SeReleaseSidAndAttributesArray)
 #pragma alloc_text(PAGE,SeComputeQuotaInformationSize)
+#pragma alloc_text(PAGE,SepCopyProxyData)
+#pragma alloc_text(PAGE,SepProbeAndCaptureQosData)
+#pragma alloc_text(PAGE,SepFreeProxyData)
 #endif
 
-#define LongAligned( ptr )  (LongAlign((ptr) == (ptr)))
+#define LongAligned( ptr )  (LongAlign(ptr) == (ptr))
 
 
 NTSTATUS
@@ -632,9 +635,9 @@ Return Value:
 
     if ( ((RequestorMode == KernelMode) && (ForceCapture == TRUE)) ||
           (RequestorMode == UserMode ) ) {
-
-        ExFreePool(CapturedSecurityDescriptor);
-
+        if ( CapturedSecurityDescriptor ) {
+            ExFreePool(CapturedSecurityDescriptor);
+            }
     }
 
     return;
@@ -642,13 +645,281 @@ Return Value:
 }
 
 
+NTSTATUS
+SepCopyProxyData (
+    OUT PSECURITY_TOKEN_PROXY_DATA * DestProxyData,
+    IN PSECURITY_TOKEN_PROXY_DATA SourceProxyData
+    )
+
+/*++
+
+Routine Description:
+
+    This routine copies a token proxy data structure from one token to another.
+
+Arguments:
+
+    DestProxyData - Receives a pointer to a new proxy data structure.
+
+    SourceProxyData - Supplies a pointer to an already existing proxy data structure.
+
+Return Value:
+
+    STATUS_INSUFFICIENT_RESOURCES on failure.
+
+--*/
+
+{
+
+    PAGED_CODE();
+
+    *DestProxyData = ExAllocatePoolWithTag( PagedPool, sizeof( SECURITY_TOKEN_PROXY_DATA ), 'dPoT' );
+
+    if (*DestProxyData == NULL) {
+        return( STATUS_INSUFFICIENT_RESOURCES );
+    }
+
+
+
+    (*DestProxyData)->PathInfo.Buffer = ExAllocatePoolWithTag( PagedPool, SourceProxyData->PathInfo.Length, 'dPoT' );
+
+    if ((*DestProxyData)->PathInfo.Buffer == NULL) {
+        ExFreePool( *DestProxyData );
+        *DestProxyData = NULL;
+        return( STATUS_INSUFFICIENT_RESOURCES );
+    }
+
+    (*DestProxyData)->Length = SourceProxyData->Length;
+    (*DestProxyData)->ProxyClass = SourceProxyData->ProxyClass;
+    (*DestProxyData)->PathInfo.MaximumLength =
+        (*DestProxyData)->PathInfo.Length = SourceProxyData->PathInfo.Length;
+    (*DestProxyData)->ContainerMask = SourceProxyData->ContainerMask;
+    (*DestProxyData)->ObjectMask = SourceProxyData->ObjectMask;
+
+    RtlCopyUnicodeString( &(*DestProxyData)->PathInfo, &SourceProxyData->PathInfo );
+
+    return( STATUS_SUCCESS );
+}
+
+VOID
+SepFreeProxyData (
+    IN PSECURITY_TOKEN_PROXY_DATA ProxyData
+    )
+
+/*++
+
+Routine Description:
+
+    This routine frees a SECURITY_TOKEN_PROXY_DATA structure and all sub structures.
+
+Arguments:
+
+    ProxyData - Supplies a pointer to an existing proxy data structure.
+
+Return Value:
+
+    None.
+
+--*/
+{
+    PAGED_CODE();
+
+    if (ProxyData != NULL) {
+
+        if (ProxyData->PathInfo.Buffer != NULL) {
+            ExFreePool( ProxyData->PathInfo.Buffer );
+        }
+
+        ExFreePool( ProxyData );
+    }
+}
+
+
+
+
+NTSTATUS
+SepProbeAndCaptureQosData(
+    IN PSECURITY_ADVANCED_QUALITY_OF_SERVICE CapturedSecurityQos
+    )
+
+/*++
+
+Routine Description:
+
+    This routine probes and captures the imbedded structures in a
+    Security Quality of Service structure.
+
+    This routine assumes that it is being called under an existing
+    try-except clause.
+
+Arguments:
+
+    CapturedSecurityQos - Points to the captured body of a QOS
+        structure.  The pointers in this structure are presumed
+        not to be probed or captured at this point.
+
+Return Value:
+
+    STATUS_SUCCESS indicates no exceptions were encountered.
+
+    Any access violations encountered will be returned.
+
+--*/
+{
+    NTSTATUS Status;
+    PSECURITY_TOKEN_PROXY_DATA CapturedProxyData;
+    PSECURITY_TOKEN_AUDIT_DATA CapturedAuditData;
+    PAGED_CODE();
+
+    CapturedProxyData = CapturedSecurityQos->ProxyData;
+    CapturedSecurityQos->ProxyData = NULL;
+    CapturedAuditData = CapturedSecurityQos->AuditData;
+    CapturedSecurityQos->AuditData = NULL;
+
+    if (ARGUMENT_PRESENT( CapturedProxyData )) {
+
+        PSECURITY_TOKEN_PROXY_DATA LocalProxyData = NULL;
+        UNICODE_STRING SavedPathInfo;
+
+        //
+        // Make sure the body of the proxy data is ok to read.
+        //
+
+        ProbeForRead(
+            CapturedProxyData,
+            sizeof(SECURITY_TOKEN_PROXY_DATA),
+            sizeof(ULONG)
+            );
+
+        if (CapturedProxyData->Length != sizeof( SECURITY_TOKEN_PROXY_DATA )) {
+            return( STATUS_INVALID_PARAMETER );
+        }
+
+        //
+        // Probe the passed pathinfo buffer
+        //
+
+        ProbeForRead(
+            CapturedProxyData->PathInfo.Buffer,
+            CapturedProxyData->PathInfo.Length,
+            sizeof( UCHAR )
+            );
+
+        Status = SepCopyProxyData( &CapturedSecurityQos->ProxyData, CapturedProxyData );
+
+        if (!NT_SUCCESS(Status)) {
+
+            if (CapturedSecurityQos->ProxyData != NULL) {
+                SepFreeProxyData( CapturedSecurityQos->ProxyData );
+                CapturedSecurityQos->ProxyData = NULL;
+            }
+
+            return( Status );
+        }
+
+    }
+
+    if (ARGUMENT_PRESENT( CapturedAuditData )) {
+
+        PSECURITY_TOKEN_AUDIT_DATA LocalAuditData;
+
+        //
+        // Probe the audit data structure and make sure it looks ok
+        //
+
+        ProbeForRead(
+            CapturedAuditData,
+            sizeof( SECURITY_TOKEN_AUDIT_DATA ),
+            sizeof( ULONG )
+            );
+
+        if ( CapturedAuditData->Length != sizeof( SECURITY_TOKEN_AUDIT_DATA ) ) {
+            SepFreeProxyData( CapturedSecurityQos->ProxyData );
+            CapturedSecurityQos->ProxyData = NULL;
+            return( STATUS_INVALID_PARAMETER );
+        }
+
+        LocalAuditData = ExAllocatePool( PagedPool, sizeof( SECURITY_TOKEN_AUDIT_DATA ));
+
+        if (LocalAuditData == NULL) {
+
+            //
+            // Cleanup any proxy data we may have allocated.
+            //
+
+            SepFreeProxyData( CapturedSecurityQos->ProxyData );
+            CapturedSecurityQos->ProxyData = NULL;
+
+            return( STATUS_INSUFFICIENT_RESOURCES );
+
+        }
+
+        //
+        // Copy the data to the local buffer. Note: we do this in this
+        // order so that if the final assignment fails the caller will
+        // still be able to free the allocated pool.
+        //
+
+        CapturedSecurityQos->AuditData = LocalAuditData;
+
+        *CapturedSecurityQos->AuditData = *CapturedAuditData;
+
+    }
+
+    return( STATUS_SUCCESS );
+
+}
+
+
+VOID
+SeFreeCapturedSecurityQos(
+    IN PVOID SecurityQos
+    )
+
+/*++
+
+Routine Description:
+
+    This routine frees the data associated with a captured SecurityQos
+    structure.  It does not free the body of the structure, just whatever
+    its internal fields point to.
+
+Arguments:
+
+    SecurityQos - Points to a captured security QOS structure.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    PSECURITY_ADVANCED_QUALITY_OF_SERVICE IAdvancedSecurityQos;
+
+    PAGED_CODE();
+
+    IAdvancedSecurityQos = (PSECURITY_ADVANCED_QUALITY_OF_SERVICE)SecurityQos;
+
+    if (IAdvancedSecurityQos->Length == sizeof( SECURITY_ADVANCED_QUALITY_OF_SERVICE )) {
+
+        if (IAdvancedSecurityQos->AuditData != NULL) {
+            ExFreePool( IAdvancedSecurityQos->AuditData );
+        }
+
+        SepFreeProxyData( IAdvancedSecurityQos->ProxyData );
+    }
+
+    return;
+}
+
 
 NTSTATUS
 SeCaptureSecurityQos (
     IN POBJECT_ATTRIBUTES ObjectAttributes OPTIONAL,
     IN KPROCESSOR_MODE RequestorMode,
     OUT PBOOLEAN SecurityQosPresent,
-    OUT PSECURITY_QUALITY_OF_SERVICE CapturedSecurityQos
+    OUT PSECURITY_ADVANCED_QUALITY_OF_SERVICE CapturedSecurityQos
 )
 /*++
 
@@ -683,9 +954,13 @@ Return Value:
 {
 
     PSECURITY_QUALITY_OF_SERVICE LocalSecurityQos;
+    PSECURITY_ADVANCED_QUALITY_OF_SERVICE LocalAdvancedSecurityQos;
+    NTSTATUS Status;
+    BOOLEAN CapturedQos;
 
     PAGED_CODE();
 
+    CapturedQos =  FALSE;
     //
     //  Set default return
     //
@@ -717,8 +992,58 @@ Return Value:
                         sizeof(ULONG)
                         );
 
-                    (*SecurityQosPresent) = TRUE;
-                    (*CapturedSecurityQos) = (*LocalSecurityQos);
+                    //
+                    // Check the length and see if this is a QOS or Advanced QOS
+                    // structure.
+                    //
+
+                    if (LocalSecurityQos->Length == sizeof( SECURITY_QUALITY_OF_SERVICE )) {
+
+                        //
+                        // It's a downlevel QOS, copy what's there and leave.
+                        //
+
+                        (*SecurityQosPresent) = TRUE;
+                        RtlMoveMemory( CapturedSecurityQos, LocalSecurityQos, sizeof( SECURITY_QUALITY_OF_SERVICE ));
+                        CapturedSecurityQos->ProxyData = NULL;
+                        CapturedSecurityQos->AuditData = NULL;
+
+                    } else {
+
+                        if (LocalSecurityQos->Length == sizeof( SECURITY_ADVANCED_QUALITY_OF_SERVICE )) {
+
+                            LocalAdvancedSecurityQos =
+                                (PSECURITY_ADVANCED_QUALITY_OF_SERVICE)ObjectAttributes->SecurityQualityOfService;
+
+                                ProbeForRead(
+                                    LocalAdvancedSecurityQos,
+                                    sizeof(SECURITY_ADVANCED_QUALITY_OF_SERVICE),
+                                    sizeof(ULONG)
+                                    );
+
+                            (*SecurityQosPresent) = TRUE;
+                            *CapturedSecurityQos = *LocalAdvancedSecurityQos;
+
+                            //
+                            // Capture the proxy and audit data, if necessary.
+                            //
+
+                            if ( ARGUMENT_PRESENT(CapturedSecurityQos->ProxyData) || ARGUMENT_PRESENT( CapturedSecurityQos->AuditData ) ) {
+
+                                CapturedQos = TRUE;
+                                Status = SepProbeAndCaptureQosData( CapturedSecurityQos );
+
+                                if (!NT_SUCCESS( Status )) {
+
+                                    return( Status );
+                                }
+                            }
+
+                        } else {
+
+                            return( STATUS_INVALID_PARAMETER );
+                        }
+                    }
 
                 } // end_if
 
@@ -726,6 +1051,21 @@ Return Value:
             } // end_if
 
         } except(EXCEPTION_EXECUTE_HANDLER) {
+
+
+            //
+            // If we captured any proxy data, we need to free it now.
+            //
+
+            if ( CapturedQos ) {
+
+                SepFreeProxyData( CapturedSecurityQos->ProxyData );
+
+                if ( CapturedSecurityQos->AuditData != NULL ) {
+                    ExFreePool( CapturedSecurityQos->AuditData );
+                }
+            }
+
             return GetExceptionCode();
         } // end_try
 
@@ -735,8 +1075,20 @@ Return Value:
         if ( ARGUMENT_PRESENT(ObjectAttributes) ) {
             if ( ARGUMENT_PRESENT(ObjectAttributes->SecurityQualityOfService) ) {
                 (*SecurityQosPresent) = TRUE;
-                (*CapturedSecurityQos) =
-                    (*(SECURITY_QUALITY_OF_SERVICE *)(ObjectAttributes->SecurityQualityOfService));
+
+                if (((PSECURITY_QUALITY_OF_SERVICE)(ObjectAttributes->SecurityQualityOfService))->Length == sizeof( SECURITY_QUALITY_OF_SERVICE )) {
+
+                    RtlMoveMemory( CapturedSecurityQos, ObjectAttributes->SecurityQualityOfService, sizeof( SECURITY_QUALITY_OF_SERVICE ));
+                    CapturedSecurityQos->ProxyData = NULL;
+                    CapturedSecurityQos->AuditData = NULL;
+
+                } else {
+
+                    (*CapturedSecurityQos) =
+                        (*(SECURITY_ADVANCED_QUALITY_OF_SERVICE *)(ObjectAttributes->SecurityQualityOfService));
+                }
+
+
             } // end_if
         } // end_if
 
@@ -1982,27 +2334,33 @@ SeValidSecurityDescriptor(
     )
 
 /*++
-    
+
 Routine Description:
-    
-    Validates a security descriptor for structural correctness.
+
+    Validates a security descriptor for structural correctness.  The idea is to make
+    sure that the security descriptor may be passed to other kernel callers, without
+    fear that they're going to choke while manipulating it.
+
+    This routine does not enforce policy (e.g., ACL/ACE revision information).  It is
+    entirely possible for a security descriptor to be approved by this routine, only
+    to be later found to be invalid by some later routine.
 
     This routine is designed to be used by callers who have a security descriptor in
     kernel memory.  Callers wishing to validate a security descriptor passed from user
     mode should call RtlValidSecurityDescriptor.
-    
+
 Arguments:
-    
-    Length - Lenght in bytes of passed Security Descriptor.
+
+    Length - Length in bytes of passed Security Descriptor.
 
     SecurityDescriptor - Points to the Security Descriptor (in kernel memory) to be
         validatated.
-    
+
 Return Value:
-    
+
     TRUE - The passed security descriptor is correctly structured
     FALSE - The passed security descriptor is badly formed
-    
+
 --*/
 
 {
@@ -2011,6 +2369,7 @@ Return Value:
     PISID GroupSid;
     PACE_HEADER Ace;
     PISID Sid;
+    PISID Sid2;
     PACL Dacl;
     PACL Sacl;
     ULONG i;
@@ -2048,11 +2407,11 @@ Return Value:
 
     //
     // It is safe to reference the owner's SubAuthorityCount, compute the
-    // expected length of the SID 
+    // expected length of the SID
     //
 
     OwnerSid = (PSID)RtlOffsetToPointer( ISecurityDescriptor, ISecurityDescriptor->Owner );
-    
+
     if (OwnerSid->Revision != SID_REVISION) {
         return(FALSE);
     }
@@ -2084,22 +2443,22 @@ Return Value:
         if ((ULONG)((PCHAR)(ISecurityDescriptor->Group)+sizeof(SID)) > Length) {
             return(FALSE);
         }
-    
+
         //
         // It is safe to reference the Group's SubAuthorityCount, compute the
-        // expected length of the SID 
+        // expected length of the SID
         //
 
         GroupSid = (PSID)RtlOffsetToPointer( ISecurityDescriptor, ISecurityDescriptor->Group );
-    
+
         if (GroupSid->Revision != SID_REVISION) {
             return(FALSE);
         }
-    
+
         if (GroupSid->SubAuthorityCount > SID_MAX_SUB_AUTHORITIES) {
             return(FALSE);
         }
-    
+
         if ((ULONG)((PCHAR)ISecurityDescriptor->Group+SeLengthSid(GroupSid)) > Length) {
             return(FALSE);
         }
@@ -2119,77 +2478,39 @@ Return Value:
         if (!LongAligned(ISecurityDescriptor->Dacl)) {
             return(FALSE);
         }
-                
+
+        //
+        // Make sure the DACL structure is within the bounds of the security descriptor.
+        //
+
         if ((ULONG)((PCHAR)(ISecurityDescriptor->Dacl)+sizeof(ACL)) > Length) {
             return(FALSE);
         }
 
         Dacl = (PACL)RtlOffsetToPointer( ISecurityDescriptor, ISecurityDescriptor->Dacl );
 
-        if (Dacl->AclRevision != ACL_REVISION) {
-            return(FALSE);
+        //
+        // Make sure the DACL is at least as big as an ACL structure
+        //
+
+        if (Dacl->AclSize < sizeof( ACL )) {
+            return( FALSE );
         }
 
-        if (!LongAligned(Dacl->AclSize)) {
-            return(FALSE);
-        }
+        //
+        // Make sure the DACL length fits within the bounds of the security descriptor.
+        //
 
         if ((ULONG)((PUCHAR)ISecurityDescriptor->Dacl + Dacl->AclSize) > Length) {
             return(FALSE);
         }
 
         //
-        // Validate all of the ACEs.
+        // Make sure the ACL is structurally valid.
         //
 
-        Ace = ((PVOID)((PUCHAR)(Dacl) + sizeof(ACL)));
-    
-        for (i = 0; i < Dacl->AceCount; i++) {
-    
-            //
-            //  Check to make sure we haven't overrun the Acl buffer
-            //  with our ace pointer.
-            //
-    
-            if ((PVOID)Ace >= (PVOID)((PUCHAR)Dacl + Dacl->AclSize)) {
-                return(FALSE);
-            }
-
-            //
-            // The ACE fits into the ACL, if this is a known type of ACE,
-            // make sure the SID is within the bounds of the ACE
-            //
-
-            if (Ace->AceType == ACCESS_ALLOWED_ACE_TYPE || Ace->AceType == ACCESS_DENIED_ACE_TYPE) {
-
-                    if (!LongAligned(Ace->AceSize)) {
-                        return(FALSE);
-                    }
-
-                    if (Ace->AceSize < sizeof(KNOWN_ACE) - sizeof(ULONG) + sizeof(SID)) {
-                        return(FALSE);
-                    }
-
-                    Sid = (PISID) & (((PKNOWN_ACE)Ace)->SidStart);
-
-                    if (Sid->Revision != SID_REVISION) {
-                        return(FALSE);
-                    }
-                
-                    if (Sid->SubAuthorityCount > SID_MAX_SUB_AUTHORITIES) {
-                        return(FALSE);
-                    }
-
-                    if (Ace->AceSize < sizeof(KNOWN_ACE) - sizeof(ULONG) + SeLengthSid( Sid )) {
-                        return(FALSE);
-                    }
-                }
-
-            //
-            //  And move Ace to the next ace position
-            //
-    
-            Ace = ((PVOID)((PUCHAR)(Ace) + ((PACE_HEADER)(Ace))->AceSize));
+        if (!SepCheckAcl( Dacl, Dacl->AclSize )) {
+            return(FALSE);
         }
     }
 
@@ -2207,77 +2528,39 @@ Return Value:
         if (!LongAligned(ISecurityDescriptor->Sacl)) {
             return(FALSE);
         }
-                
+
+        //
+        // Make sure the Sacl structure is within the bounds of the security descriptor.
+        //
+
         if ((ULONG)((PCHAR)(ISecurityDescriptor->Sacl)+sizeof(ACL)) > Length) {
             return(FALSE);
         }
 
         Sacl = (PACL)RtlOffsetToPointer( ISecurityDescriptor, ISecurityDescriptor->Sacl );
 
-        if (!LongAligned(Sacl->AclSize)) {
-            return(FALSE);
+        //
+        // Make sure the SACL is at least as big as an ACL structure
+        //
+
+        if (Sacl->AclSize < sizeof( ACL )) {
+            return( FALSE );
         }
 
-        if (Sacl->AclRevision != ACL_REVISION) {
-            return(FALSE);
-        }
+        //
+        // Make sure the Sacl length fits within the bounds of the security descriptor.
+        //
 
         if ((ULONG)((PUCHAR)ISecurityDescriptor->Sacl + Sacl->AclSize) > Length) {
             return(FALSE);
         }
 
         //
-        // Validate all of the ACEs.
+        // Make sure the ACL is structurally valid.
         //
 
-        Ace = ((PVOID)((PUCHAR)(Sacl) + sizeof(ACL)));
-    
-        for (i = 0; i < Sacl->AceCount; i++) {
-    
-            //
-            //  Check to make sure we haven't overrun the Acl buffer
-            //  with our ace pointer.
-            //
-    
-            if ((PVOID)Ace >= (PVOID)((PUCHAR)Sacl + Sacl->AclSize)) {
-                return(FALSE);
-            }
-
-            //
-            // The ACE fits into the ACL, if this is a known type of ACE,
-            // make sure the SID is within the bounds of the ACE
-            //
-
-            if (Ace->AceType == SYSTEM_AUDIT_ACE_TYPE || Ace->AceType == SYSTEM_ALARM_ACE_TYPE) {
-
-                    if (!LongAligned(Ace->AceSize)) {
-                        return(FALSE);
-                    }
-
-                    if (Ace->AceSize < sizeof(KNOWN_ACE) - sizeof(ULONG) + sizeof(SID)) {
-                        return(FALSE);
-                    }
-
-                    Sid = (PISID) & ((PKNOWN_ACE)Ace)->SidStart;
-
-                    if (Sid->Revision != SID_REVISION) {
-                        return(FALSE);
-                    }
-                
-                    if (Sid->SubAuthorityCount > SID_MAX_SUB_AUTHORITIES) {
-                        return(FALSE);
-                    }
-
-                    if (Ace->AceSize < sizeof(KNOWN_ACE) - sizeof(ULONG) + SeLengthSid( Sid )) {
-                        return(FALSE);
-                    }
-                }
-
-            //
-            //  And move Ace to the next ace position
-            //
-    
-            Ace = ((PVOID)((PUCHAR)(Ace) + ((PACE_HEADER)(Ace))->AceSize));
+        if (!SepCheckAcl( Sacl, Sacl->AclSize )) {
+            return(FALSE);
         }
     }
 

@@ -600,8 +600,8 @@ Return Value:
 
     *pMajorRevisionNumber = 3;
     *pMinorRevisionNumber = 10;
-    *pMaxConnections = 15;
-    *pAvailableConnections = 14;
+    *pMaxConnections = 128;
+    *pAvailableConnections = *pMaxConnections - 1 ;
 
     return SPX_INSTALLED;
 }

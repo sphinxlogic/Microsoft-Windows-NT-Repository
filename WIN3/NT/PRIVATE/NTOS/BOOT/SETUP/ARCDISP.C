@@ -33,11 +33,10 @@ Revision History:
 
 
 #define     HEADER_HEIGHT       3
-#define     MAX_STATUS          78
+#define     MAX_STATUS          200   // allow up to 1600 horizontal res.
 
 #define     SCREEN_SIZE         (ScreenWidth*ScreenHeight)
 
-#define     CSI                 0x9b
 
 ULONG ScreenWidth=80;
 ULONG ScreenHeight=25;
@@ -158,7 +157,7 @@ Return Value:
     while ( Item != CONTAINING_RECORD(&Menu->ItemListHead,
                                       SL_MENUITEM,
                                       ListEntry)) {
-        if (stricmp(Item->Text,Text)==0) {
+        if (_stricmp(Item->Text,Text)==0) {
             *Index = i;
             return(TRUE);
         }
@@ -363,7 +362,7 @@ Return Value:
     //
     // Make sure default item is in view;
     //
-    if (Sel > Height - 2) {
+    if (Sel >= Height - 2) {
         TopItem = Sel - Height + 3;
     }
 
@@ -514,11 +513,11 @@ Return Value:
     ULONG MenuWidth;
 
     MenuWidth = Menu->Width+4;
-    Output[0]='É';
+    Output[0]=GetGraphicsChar(GraphicsCharDoubleRightDoubleDown);
     for (i=1;i<MenuWidth-1;i++) {
-        Output[i]='Í';
+        Output[i]=GetGraphicsChar(GraphicsCharDoubleHorizontal);
     }
-    Output[MenuWidth-1]='»';
+    Output[MenuWidth-1]=GetGraphicsChar(GraphicsCharDoubleLeftDoubleDown);
     SlPositionCursor(X,Y);
     ArcWrite(ARC_CONSOLE_OUTPUT,Output,MenuWidth,&Count);
     //
@@ -537,8 +536,8 @@ Return Value:
     //
     // Display items
     //
-    Output[0]='º';
-    Output[MenuWidth-1]='º';
+    Output[0]=
+    Output[MenuWidth-1]=GetGraphicsChar(GraphicsCharDoubleVertical);
     for (i=Y+1;i<Y+Height-1;i++) {
         RtlFillMemory(Output+1,MenuWidth-2,' ');
         SlPositionCursor(X, i);
@@ -552,11 +551,11 @@ Return Value:
         }
         ArcWrite(ARC_CONSOLE_OUTPUT,Output,MenuWidth,&Count);
     }
-    Output[0]='È';
+    Output[0]=GetGraphicsChar(GraphicsCharDoubleRightDoubleUp);
     for (i=1;i<MenuWidth-1;i++) {
-        Output[i]='Í';
+        Output[i]=GetGraphicsChar(GraphicsCharDoubleHorizontal);
     }
-    Output[MenuWidth-1]='¼';
+    Output[MenuWidth-1]=GetGraphicsChar(GraphicsCharDoubleLeftDoubleUp);
     SlPositionCursor(X,Y+Height-1);
     ArcWrite(ARC_CONSOLE_OUTPUT,Output,MenuWidth,&Count);
 }
@@ -691,10 +690,15 @@ SlPrint(
     va_list arglist;
     CHAR    text[MAX_STATUS+1];
     ULONG   Count,Length;
+    ULONG   MaxWidth = ScreenWidth - 2;
+
+    if (MaxWidth > MAX_STATUS) {
+        MaxWidth = MAX_STATUS;
+    }
 
     va_start(arglist,FormatString);
-    Length = _vsnprintf(text,sizeof(text),FormatString,arglist);
-    text[MAX_STATUS] = 0;
+    Length = _vsnprintf(text,MaxWidth*sizeof(CHAR),FormatString,arglist);
+    text[MaxWidth] = 0;
 
     ArcWrite(ARC_CONSOLE_OUTPUT,text,Length,&Count);
     va_end(arglist);
@@ -773,7 +777,7 @@ SlClearToEol(
     VOID
     )
 {
-    SlPrint("%c2K",CSI);
+    SlPrint(ASCI_CSI_OUT "2K");
     return(ESUCCESS);
 }
 
@@ -810,53 +814,7 @@ SlPositionCursor(
     ScreenX = x;
     ScreenY = y;
 
-    SlPrint("%c%d;%dH",CSI,y+1,x+1);
-    return(ESUCCESS);
-}
-
-
-ARC_STATUS
-SlWriteChar(
-    IN UCHAR c
-    )
-{
-    unsigned SpaceCount;
-
-    switch(c) {
-
-    case '\n':
-
-        ScreenX=0;
-        ScreenY++;
-        if(ScreenY == ScreenHeight-1) {      // wrap
-            ScreenY = HEADER_HEIGHT;
-            SlClearClientArea();
-        }
-        SlPositionCursor(ScreenX,ScreenY);
-        break;
-
-    case '\r':
-
-        break;          // ignore
-
-    case '\t':
-
-        // figure out how many spaces are needed
-        SpaceCount = 8 - (ScreenX % 8);
-        while(SpaceCount--) {
-            SlWriteChar(' ');
-        }
-        break;
-
-    default:
-
-        SlPrint("%c",c);
-        ScreenX++;
-        if(ScreenX == ScreenWidth) {
-            SlWriteChar('\n');
-        }
-    }
-
+    SlPrint(ASCI_CSI_OUT "%d;%dH",y+1,x+1);
     return(ESUCCESS);
 }
 
@@ -909,14 +867,13 @@ SlSetCurrentAttribute(
 {
     CurAttribute = Attribute;
 
-    SlPrint("%c0m%c3%dm%c4%dm",
-                CSI,                            // attributes off
-                CSI,Attribute & 7,              // foreground color
-                CSI,(Attribute >> 4) & 7        // background color
-               );
+    SlPrint(ASCI_CSI_OUT "0m" ASCI_CSI_OUT "3%dm" ASCI_CSI_OUT "4%dm",
+                Attribute & 7,              // foreground color
+                (Attribute >> 4) & 7        // background color
+                );
 
     if(Attribute & ATT_FG_INTENSE) {
-        SlPrint("%c1m",CSI);
+        SlPrint(ASCI_CSI_OUT "1m");
     }
 }
 
@@ -996,6 +953,11 @@ Return Value:
     UCHAR AttributeSave = CurAttribute;
     CHAR *p;
     ULONG Count;
+    ULONG MaxWidth = ScreenWidth - 2;
+
+    if (MaxWidth > MAX_STATUS) {
+        MaxWidth = MAX_STATUS;
+    }
 
     RtlFillMemory(StatusText,sizeof(StatusText),' ');
 
@@ -1004,7 +966,7 @@ Return Value:
     //
     p = StatusText;
     Count = 0;
-    while((Count < MAX_STATUS) && *Text) {
+    while((Count < MaxWidth) && *Text) {
         if((*Text != '\r') && (*Text != '\n')) {
             *p++ = *Text;
             Count++;
@@ -1016,7 +978,7 @@ Return Value:
     SlPositionCursor(0,ScreenHeight-1);
     ArcWrite(ARC_CONSOLE_OUTPUT,"  ",2,&Count);
     SlPositionCursor(2,ScreenHeight-1);
-    ArcWrite(ARC_CONSOLE_OUTPUT,StatusText,sizeof(StatusText),&Count);
+    ArcWrite(ARC_CONSOLE_OUTPUT,StatusText,MaxWidth*sizeof(CHAR),&Count);
     SlSetCurrentAttribute(AttributeSave);
     SlPositionCursor(0,5);
 }
@@ -1095,7 +1057,7 @@ SlGetChar(
 
     ArcRead(ARC_CONSOLE_INPUT,&c,1,&count);
 
-    if(c == ASCI_CSI) {
+    if(c == ASCI_CSI_IN) {
 
         ArcRead(ARC_CONSOLE_INPUT,&c,1,&count);
 

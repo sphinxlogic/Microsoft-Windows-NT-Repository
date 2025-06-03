@@ -17,6 +17,10 @@
 #ifndef _COLUMNLB_
 #define _COLUMNLB_
 
+#ifdef __cplusplus
+extern "C"{
+#endif
+
 //
 // CONTROL STYLES
 //
@@ -318,7 +322,8 @@ void ColumnLB_DrawColumnBorder(HDC hdc, RECT *rect, int Bottom, HBRUSH hBrush);
 #define ColumnLB_GetFocus(hwndCtl)   ((HWND)(DWORD)SendMessage((hwndCtl), CLB_GETFOCUS, 0L, 0L))
 
 
-
-
+#ifdef __cplusplus
+}
+#endif
 
 #endif

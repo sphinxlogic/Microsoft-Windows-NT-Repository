@@ -205,6 +205,9 @@ Return Value:
                      );
 
 
+        if ( NT_SUCCESS(Status) ) {
+            ObDeleteCapturedInsertInfo(DuplicateToken);
+            }
         //
         // No longer need the pointer to the client's token
         //
@@ -628,4 +631,3 @@ Return Value:
                          );
 
 }
-

@@ -1,17 +1,6 @@
 #include "cmd.h"
-#include "cmdproto.h"
 
 extern   DWORD DosErr ;
-
-/* The following are definitions of the debugging group and level bits
- * for the code in this file.
- */
-
-#define MMGRP	0x1000	/* Memory Manager				   */
-#define MALVL	0x0001	/* Memory allocators				   */
-#define LMLVL	0x0002	/* List managers				   */
-#define SMLVL	0x0004	/* Segment manipulators 			   */
-
 
 /* Data Stack - a stack of pointers to memory that has been allocated *M005*/
 
@@ -26,7 +15,8 @@ typedef struct _DSTACK {
 PDSTACK DHead = NULL ;   /* Head of the data list           */
 ULONG DCount = 0 ;       /* Number of elements in the list  */
 
-PVOID BigBufHandle = 0 ;   /* Handle/segment of buffer used by type & copy */
+#define MAX_NUM_BIG_BUF  2
+PVOID BigBufHandle[MAX_NUM_BIG_BUF] = {0, 0};   /* Handle/segment of buffer used by type & copy */
 
 
 #if DBG
@@ -34,19 +24,19 @@ PVOID BigBufHandle = 0 ;   /* Handle/segment of buffer used by type & copy */
 
 
 
-/***	MemChk1 - Sanity check on one element of the data stack
+/***    MemChk1 - Sanity check on one element of the data stack
  *
  *  Purpose:
- *	Verifies the integrity and length of a single data element
+ *      Verifies the integrity and length of a single data element
  *
  *  int MemChk1(PDSTACK s)
  *
  *  Args:
- *	s - Pointer to the data stack element to check on
+ *      s - Pointer to the data stack element to check on
  *
  *  Returns:
- *	0 - If element is intact and okay
- *	1 - If element size or integrity is off
+ *      0 - If element is intact and okay
+ *      1 - If element size or integrity is off
  *
  */
 
@@ -54,31 +44,31 @@ MemChk1(
     IN  PDSTACK pdstk
     )
 {
-        if (pdstk->cb != _msize(pdstk)) {
+        if (pdstk->cb != HeapSize(GetProcessHeap(), 0, pdstk)) {
             cmd_printf (TEXT("len = %d"), pdstk->cb) ;
-		return(1) ;
+                return(1) ;
         } else {
-		return(0) ;
+                return(0) ;
         } ;
 }
 
 
 
 
-/***	MemChkBk - Sanity check on data stack elements from here back
+/***    MemChkBk - Sanity check on data stack elements from here back
  *
  *  Purpose:
- *	Verifies the integrity of the CMD data stack from a single
- *	point back to the beginning.
+ *      Verifies the integrity of the CMD data stack from a single
+ *      point back to the beginning.
  *
  *  int MemChkBk(PDSTACK s)
  *
  *  Args:
- *	s - Pointer to the data stack element to start with
+ *      s - Pointer to the data stack element to start with
  *
  *  Returns:
- *	0 - If elements are intact and okay
- *	1 - If elements' size or integrity are off
+ *      0 - If elements are intact and okay
+ *      1 - If elements' size or integrity are off
  *
  */
 
@@ -89,89 +79,95 @@ MemChkBk(
         ULONG   cnt ;           // Element counter
         PDSTACK pdstkCur;   // Element pointer
 
-	cnt = DCount ;
+        cnt = DCount ;
 
         for (pdstkCur = DHead, cnt = DCount ; pdstkCur ; pdstkCur = (PDSTACK)pdstkCur->pdstkPrev, cnt--) {
                 if (pdstkCur == pdstk) {
-			break ;
-		} ;
-	} ;
+                        break ;
+                } ;
+        } ;
 
         while (pdstkCur) {
                 if (MemChk1(pdstkCur)) {
                         cmd_printf(TEXT("Memory Element %d @ %04x contaminated!"), cnt, pdstkCur) ;
-			abort() ;
-		} ;
+                        abort() ;
+                } ;
                 pdstkCur = (PDSTACK)pdstkCur->pdstkPrev ;
-		--cnt ;
-	} ;
+                --cnt ;
+        } ;
 
-	return(0) ;
+        return(0) ;
 }
 
 
 
 
-/***	MemChkAll - Sanity check on one element of the data stack
+/***    MemChkAll - Sanity check on one element of the data stack
  *
  *  Purpose:
- *	Checks the entire data stack for integrity.
+ *      Checks the entire data stack for integrity.
  *
  *  int MemChkAll()
  *
  *  Args:
  *
  *  Returns:
- *	0 - If elements are intact and okay
- *	1 - If elements' size or integrity are off
+ *      0 - If elements are intact and okay
+ *      1 - If elements' size or integrity are off
  *
  */
 
 MemChkAll()
 {
-	return(MemChkBk(DHead)) ;
+        return(MemChkBk(DHead)) ;
 }
 
 #endif
 
 
-/***	FreeBigBuf - free the buffer used by the type and copy commands
+/***    FreeBigBuf - free the buffer used by the type and copy commands
  *
  *  Purpose:
- *	If BigBufHandle contains a handle, unlock it and free it.
+ *      If BigBufHandle contains a handle, unlock it and free it.
  *
  *  FreeBigBuf()
  *
- * ***	NOTE:	This routine manipulates Command's Buffer handle, and	***
- * ***		should be called with signal processing postponed.	***
+ * ***  NOTE:   This routine manipulates Command's Buffer handle, and   ***
+ * ***          should be called with signal processing postponed.      ***
  */
 
-void FreeBigBuf()
+void FreeBigBuf(
+    int BigBufID
+    )
 {
-    if (BigBufHandle) {
-        DEBUG((MMGRP, LMLVL, "    FREEBIGBUF: Freeing bigbufhandle = 0x%04x", BigBufHandle)) ;
 
-        VirtualFree(BigBufHandle,0,MEM_RELEASE) ;
-        BigBufHandle = 0 ;
+    if (BigBufID >= MAX_NUM_BIG_BUF)
+        return;
+
+    if (BigBufHandle[BigBufID]) {
+        DEBUG((MMGRP, LMLVL, "    FREEBIGBUF: Freeing bigbufhandle = 0x%04x", BigBufHandle[BigBufID])) ;
+
+        VirtualFree(BigBufHandle[BigBufID],0,MEM_RELEASE) ;
+        BigBufHandle[BigBufID] = 0 ;
     } ;
 }
 
 
 
 
-/***	FreeStack - free the memory on the data stack
+/***    FreeStack - free the memory on the data stack
  *
  *  Purpose:
- *	Free the memory pointed to by all but the first n elements of the
- *	data stack and free BigBufHandle if it is nonzero.
+ *      Free the memory pointed to by all but the first n elements of the
+ *      data stack and free BigBufHandle if it is nonzero.
  *
  *  FreeStack(int n)
  *
  *  Args:
- *	n - the number of elements to leave on the stack
+ *      n - the number of elements to leave on the stack
  *
- *				W A R N I N G
- *	!!! THIS ROUTINE CAUSES AN ABORT IF DATA STACK CONTAMINATED !!!
+ *                              W A R N I N G
+ *      !!! THIS ROUTINE CAUSES AN ABORT IF DATA STACK CONTAMINATED !!!
  */
 
 void FreeStack(
@@ -179,6 +175,7 @@ void FreeStack(
     )
 {
     PDSTACK pdstkPtr ;
+    int i;
 
     DEBUG((MMGRP, LMLVL, "    FREESTACK: n = %d  DCount = %d", n, DCount)) ;
 
@@ -187,17 +184,19 @@ void FreeStack(
 
         DHead = (PDSTACK)DHead->pdstkPrev ;
         -- DCount ;
-        free((PTCHAR)pdstkPtr) ;
+        HeapFree(GetProcessHeap(), 0, pdstkPtr) ;
     } ;
 
 #if DBG
 
-	MemChkAll() ;		/* CAUSES abort() IF CONTAMINATED	   */
+        MemChkAll() ;           /* CAUSES abort() IF CONTAMINATED          */
 
 #endif
-	FreeBigBuf() ;
+        for (i=0; i<MAX_NUM_BIG_BUF; i++) {
+            FreeBigBuf(i) ;
+        }
 
-	DEBUG((MMGRP, LMLVL, "    FREESTACK: n = %d, DCount = %d", n, DCount)) ;
+        DEBUG((MMGRP, LMLVL, "    FREESTACK: n = %d, DCount = %d", n, DCount)) ;
 }
 
 void
@@ -235,7 +234,7 @@ FreeStr(
             } else {
                 pdstkLast->pdstkPrev = pdstkCur->pdstkPrev;
             }
-            free(pdstkCur);
+            HeapFree(GetProcessHeap(), 0, pdstkCur);
             DCount--;
 #if DBG
 
@@ -259,31 +258,32 @@ FreeStr(
 }
 
 
-/***	GetBigBuf -  allocate a large buffer
+/***    GetBigBuf -  allocate a large buffer
  *
  *  Purpose:
- *	To allocate a buffer for data transferrals.
- *	The buffer will be as large as possible, up to MAXBUFSIZE bytes,
- *	but no smaller than MINBUFSIZE bytes.
+ *      To allocate a buffer for data transferrals.
+ *      The buffer will be as large as possible, up to MAXBUFSIZE bytes,
+ *      but no smaller than MINBUFSIZE bytes.
  *
  *  TCHAR *GetBigBuf(unsigned *blen)
  *
  *  Args:
- *	blen = the variable pointed to by blen will be assigned the size of
- *	    the buffer
+ *      blen = the variable pointed to by blen will be assigned the size of
+ *          the buffer
  *
  *  Returns:
- *	A TCHAR pointer containing segment:0.
- *	Returns 0L if unable to allocate a reasonable length buffer
+ *      A TCHAR pointer containing segment:0.
+ *      Returns 0L if unable to allocate a reasonable length buffer
  *
  */
 
 PVOID
 
 GetBigBuf(
-    IN	ULONG	CbMaxToAllocate,
-    IN	ULONG	CbMinToAllocate,
-    OUT unsigned int *CbAllocated
+    IN  ULONG   CbMaxToAllocate,
+    IN  ULONG   CbMinToAllocate,
+    OUT unsigned int *CbAllocated,
+    IN  int     BigBufID
     )
 
 
@@ -298,12 +298,12 @@ Arguments:
     CbMinToAllocate - Fail if can't allocate this number
     CbMaxToAllocate - Initial try and allocation will use this number
     CbAllocated - Number of bytes allocated
-
+    BigBufID - BigBuf index
 
 Return Value:
 
     Return: NULL - if failed to allocate anything
-	    pointer to allocated buffer if success
+            pointer to allocated buffer if success
 --*/
 
 {
@@ -317,37 +317,37 @@ Return Value:
 
     while (!(handle = VirtualAlloc(NULL, CbMaxToAllocate,MEM_COMMIT,PAGE_READWRITE))) {
 
-	//
-	// Decrease the desired buffer size by CbToDecrease
-	// If the decrease is too large, make it smaller
-	//
-	if ( cbToDecrease >= CbMaxToAllocate ) {
-	    cbToDecrease = ((CbMaxToAllocate >> 2) & 0xFE00) + 0x200;
-	}
+        //
+        // Decrease the desired buffer size by CbToDecrease
+        // If the decrease is too large, make it smaller
+        //
+        if ( cbToDecrease >= CbMaxToAllocate ) {
+            cbToDecrease = ((CbMaxToAllocate >> 2) & 0xFE00) + 0x200;
+        }
 
-	if ( cbToDecrease < CbMinToAllocate ) {
-	    cbToDecrease = CbMinToAllocate ;
-	}
+        if ( cbToDecrease < CbMinToAllocate ) {
+            cbToDecrease = CbMinToAllocate ;
+        }
 
-	CbMaxToAllocate -= cbToDecrease ;
+        CbMaxToAllocate -= cbToDecrease ;
 
-	if ( CbMaxToAllocate < CbMinToAllocate ) {
+        if ( CbMaxToAllocate < CbMinToAllocate ) {
 
-	    //
-	    // Unable to allocate a reasonable buffer
-	    //
-	    *CbAllocated = 0 ;
-	    PutStdErr(ERROR_NOT_ENOUGH_MEMORY, NOARGS);
-	    return ( NULL ) ;
-	}
+            //
+            // Unable to allocate a reasonable buffer
+            //
+            *CbAllocated = 0 ;
+            PutStdErr(ERROR_NOT_ENOUGH_MEMORY, NOARGS);
+            return ( NULL ) ;
+        }
     }
 
     *CbAllocated = CbMaxToAllocate ;
 
-    FreeBigBuf() ;
-    BigBufHandle = handle ;
+    FreeBigBuf(BigBufID) ;
+    BigBufHandle[BigBufID] = handle ;
 
-    DEBUG((MMGRP, MALVL, " GETBIGBUF: Bytes Allocated = %d  Handle = 0x%04x", *CbAllocated, BigBufHandle)) ;
+    DEBUG((MMGRP, MALVL, " GETBIGBUF: Bytes Allocated = %d  Handle = 0x%04x", *CbAllocated, BigBufHandle[BigBufID])) ;
 
     return(handle) ;
 }
@@ -355,65 +355,65 @@ Return Value:
 
 
 
-/***	mknode - allocata a parse tree node
+/***    mknode - allocata a parse tree node
  *
  *  Purpose:
- *	To allocate space for a new parse tree node.  Grow the data segment
- *	if necessary.
+ *      To allocate space for a new parse tree node.  Grow the data segment
+ *      if necessary.
  *
  *  struct node *mknode()
  *
  *  Returns:
- *	A pointer to the node that was just allocated.
+ *      A pointer to the node that was just allocated.
  *
  *  Notes:
- *	This routine must always use calloc().	Many other parts of Command
- *	depend on the fact that the fields in these nodes are initialized to 0.
+ *      This routine must always use calloc().  Many other parts of Command
+ *      depend on the fact that the fields in these nodes are initialized to 0.
  *
- *	THIS ROUTINE RETURNS `NULL' IF THE C RUN-TIME CANNOT ALLOCATE MEMORY
+ *      THIS ROUTINE RETURNS `NULL' IF THE C RUN-TIME CANNOT ALLOCATE MEMORY
  */
 
 struct node *mknode()
 {
-	DEBUG((MMGRP, MALVL, "    MKNODE: Entered")) ;
-	return((struct node *) mkstr(sizeof(struct node))) ;
+        DEBUG((MMGRP, MALVL, "    MKNODE: Entered")) ;
+        return((struct node *) mkstr(sizeof(struct node))) ;
 }
 
 
 
 
-/***	mkstr -  allocate space for a string
+/***    mkstr -  allocate space for a string
  *
  *  Purpose:
- *	To allocate space for a new string.  Grow the data segment if necessary.
+ *      To allocate space for a new string.  Grow the data segment if necessary.
  *
  *  TCHAR *mkstr(size)
  *
  *  Args:
- *	size - size of the string to be allocated
+ *      size - size of the string to be allocated
  *
  *  Returns:
- *	A pointer to the string that was just allocated.
+ *      A pointer to the string that was just allocated.
  *
  *  Notes:
- *	This routine must always use calloc().	Many other parts of Command
- *	depend on the fact that memory that is allocated is initialized to 0.
+ *      This routine must always use calloc().  Many other parts of Command
+ *      depend on the fact that memory that is allocated is initialized to 0.
  *
  *    - M005 * The piece of memory allocated is large enough to include
- *	a pointer at the beginning.  This pointer is part of the list of
- *	allocated memory.  The routine calling mkstr() receives the address
- *	of the first byte after that pointer.  resize() knows about this,
- *	and so must any other routines which directly modify memory
- *	allocation.
+ *      a pointer at the beginning.  This pointer is part of the list of
+ *      allocated memory.  The routine calling mkstr() receives the address
+ *      of the first byte after that pointer.  resize() knows about this,
+ *      and so must any other routines which directly modify memory
+ *      allocation.
  *    - M011 * This function is the same as mentioned above except that the
- *	pointer is now preceeded by a header consisting of two signature
- *	bytes and the length of the memory allocated.  This was added for
- *	sanity checks.
+ *      pointer is now preceeded by a header consisting of two signature
+ *      bytes and the length of the memory allocated.  This was added for
+ *      sanity checks.
  *
- *	THIS ROUTINE RETURNS `NULL' IF THE C RUN-TIME CANNOT ALLOCATE MEMORY
+ *      THIS ROUTINE RETURNS `NULL' IF THE C RUN-TIME CANNOT ALLOCATE MEMORY
  *
- *				W A R N I N G
- *	!!! THIS ROUTINE CAUSES AN ABORT IF DATA STACK CONTAMINATED !!!
+ *                              W A R N I N G
+ *      !!! THIS ROUTINE CAUSES AN ABORT IF DATA STACK CONTAMINATED !!!
  */
 
 void*
@@ -427,11 +427,11 @@ mkstr(
 
 #if DBG
 
-	MemChkAll() ;		/* CAUSES abort() IF CONTAMINATED	   */
+        MemChkAll() ;           /* CAUSES abort() IF CONTAMINATED          */
 
 #endif
 
-    if ((pdstkCur = (PDSTACK)(calloc(1, cbNew + PTRSIZE + 4))) == NULL) {
+    if ((pdstkCur = (PDSTACK)(HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, cbNew + PTRSIZE + 4))) == NULL) {
             PutStdErr(ERROR_NOT_ENOUGH_MEMORY, NOARGS);
             return(0) ;
     } ;
@@ -458,12 +458,12 @@ mkstr(
 
 
 
-/***	gmkstr - allocate a piece of memory, with no return on failure
+/***    gmkstr - allocate a piece of memory, with no return on failure
  *
  *  Purpose:
- *	Same as "mkstr" except that if memory cannot be allocated, this
- *	routine will jump out to code which will clean things up and
- *	return to the top level of command.
+ *      Same as "mkstr" except that if memory cannot be allocated, this
+ *      routine will jump out to code which will clean things up and
+ *      return to the top level of command.
  *
  */
 
@@ -484,31 +484,31 @@ gmkstr(
 
 
 
-/***	resize - resize a piece of memory
+/***    resize - resize a piece of memory
  *
  *  Purpose:
- *	Change the size of a previously allocated piece of memory.  Grow the
- *	data segment if necessary.  If a new different pointer is returned by
+ *      Change the size of a previously allocated piece of memory.  Grow the
+ *      data segment if necessary.  If a new different pointer is returned by
  *      realloc(0), search the dstk for the pointer to the old piece and
- *	update that pointer to point to the new piece.
+ *      update that pointer to point to the new piece.
  *
  *  TCHAR *resize(TCHAR *ptr, unsigned size)
  *
  *  Args:
- *	ptr - pointer to the memory to be resized
- *	size - the new size for the block of memory
+ *      ptr - pointer to the memory to be resized
+ *      size - the new size for the block of memory
  *
  *  Returns:
- *	A pointer to the new piece of memory.
+ *      A pointer to the new piece of memory.
  *
  *    - M005 * Modified for the new scheme for keeping a list of allocated
- *	blocks
+ *      blocks
  *    - M011 * Modified to use and check new header.
  *
- *	THIS ROUTINE RETURNS `NULL' IF THE C RUN-TIME CANNOT ALLOCATE MEMORY
+ *      THIS ROUTINE RETURNS `NULL' IF THE C RUN-TIME CANNOT ALLOCATE MEMORY
  *
- *				W A R N I N G
- *	!!! THIS ROUTINE CAUSES AN ABORT IF DATA STACK CONTAMINATED !!!
+ *                              W A R N I N G
+ *      !!! THIS ROUTINE CAUSES AN ABORT IF DATA STACK CONTAMINATED !!!
  */
 
 void*
@@ -538,7 +538,7 @@ resize (
 
 #endif
 
-    if (!(pdstkNew = (PDSTACK)realloc(pbOld, cbNew + PTRSIZE + 4))) {
+    if (!(pdstkNew = (PDSTACK)HeapReAlloc(GetProcessHeap(), 0, pbOld, cbNew + PTRSIZE + 4))) {
             PutStdErr(ERROR_NOT_ENOUGH_MEMORY, NOARGS);
             return(0) ;
     } ;

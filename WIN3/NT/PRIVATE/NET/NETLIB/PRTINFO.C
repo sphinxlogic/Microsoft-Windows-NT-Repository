@@ -157,49 +157,49 @@ NetpDisplayPrintStructureInfo(
 {
     IF_DEBUG( STRUCINF ) {
         if (DataDesc16) {
-            NetpDbgPrint( PREFIX_NETLIB FORMAT_LPDEBUG_STRING
+            NetpKdPrint(( PREFIX_NETLIB FORMAT_LPDEBUG_STRING
                     ": desc 16 is " FORMAT_LPDESC
-                    ".\n", ApiName, *DataDesc16 );
+                    ".\n", ApiName, *DataDesc16 ));
         }
         if (DataDesc32) {
-            NetpDbgPrint( PREFIX_NETLIB FORMAT_LPDEBUG_STRING
+            NetpKdPrint(( PREFIX_NETLIB FORMAT_LPDEBUG_STRING
                     ": desc 32 is " FORMAT_LPDESC
-                    ".\n", ApiName, *DataDesc32 );
+                    ".\n", ApiName, *DataDesc32 ));
         }
         if (DataDescSmb) {
-            NetpDbgPrint( PREFIX_NETLIB FORMAT_LPDEBUG_STRING
+            NetpKdPrint(( PREFIX_NETLIB FORMAT_LPDEBUG_STRING
                     ": desc Smb is " FORMAT_LPDESC
-                    ".\n", ApiName, *DataDescSmb );
+                    ".\n", ApiName, *DataDescSmb ));
         }
         if (AuxDesc16) {
-            NetpDbgPrint( PREFIX_NETLIB FORMAT_LPDEBUG_STRING
+            NetpKdPrint(( PREFIX_NETLIB FORMAT_LPDEBUG_STRING
                     ": aux desc 16 is " FORMAT_LPDESC
-                    ".\n", ApiName, *AuxDesc16 );
+                    ".\n", ApiName, *AuxDesc16 ));
         }
         if (AuxDesc32) {
-            NetpDbgPrint( PREFIX_NETLIB FORMAT_LPDEBUG_STRING
+            NetpKdPrint(( PREFIX_NETLIB FORMAT_LPDEBUG_STRING
                     ": aux desc 32 is " FORMAT_LPDESC
-                    ".\n", ApiName, *AuxDesc32 );
+                    ".\n", ApiName, *AuxDesc32 ));
         }
         if (AuxDescSmb) {
-            NetpDbgPrint( PREFIX_NETLIB FORMAT_LPDEBUG_STRING
+            NetpKdPrint(( PREFIX_NETLIB FORMAT_LPDEBUG_STRING
                     ": aux desc Smb is " FORMAT_LPDESC
-                    ".\n", ApiName, *AuxDescSmb );
+                    ".\n", ApiName, *AuxDescSmb ));
         }
         if (MaxSize) {
-            NetpDbgPrint( PREFIX_NETLIB FORMAT_LPDEBUG_STRING
+            NetpKdPrint(( PREFIX_NETLIB FORMAT_LPDEBUG_STRING
                     ": max size is " FORMAT_DWORD
-                    ".\n", ApiName, *MaxSize );
+                    ".\n", ApiName, *MaxSize ));
         }
         if (FixedSize) {
-            NetpDbgPrint( PREFIX_NETLIB FORMAT_LPDEBUG_STRING
+            NetpKdPrint(( PREFIX_NETLIB FORMAT_LPDEBUG_STRING
                     ": fixed size is " FORMAT_DWORD
-                    ".\n", ApiName, *FixedSize );
+                    ".\n", ApiName, *FixedSize ));
         }
         if (StringSize) {
-            NetpDbgPrint( PREFIX_NETLIB FORMAT_LPDEBUG_STRING
+            NetpKdPrint(( PREFIX_NETLIB FORMAT_LPDEBUG_STRING
                     ": string size is " FORMAT_DWORD
-                    ".\n", ApiName, *StringSize );
+                    ".\n", ApiName, *StringSize ));
         }
     }
 

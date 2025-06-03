@@ -28,8 +28,14 @@ Revision History:
 #pragma alloc_text(PAGE, FatStringTo8dot3)
 #pragma alloc_text(PAGE, FatSetFullFileNameInFcb)
 #pragma alloc_text(PAGE, FatGetUnicodeNameFromFcb)
+#pragma alloc_text(PAGE, FatUnicodeToUpcaseOem)
 #pragma alloc_text(PAGE, FatSelectNames)
 #pragma alloc_text(PAGE, FatEvaluateNameCase)
+#pragma alloc_text(PAGE, FatSpaceInName)
+#pragma alloc_text(PAGE, FatUpcaseUnicodeStringToCountedOemString)
+#pragma alloc_text(PAGE, FatUpcaseUnicodeString)
+#pragma alloc_text(PAGE, FatDowncaseUnicodeString)
+#pragma alloc_text(PAGE, FatFreeOemString)
 #endif
 
 
@@ -115,10 +121,7 @@ Return Value:
     //  Make the output name all blanks
     //
 
-    for (i = 0; i < 11; i += 1) {
-
-        (*Output8dot3)[i] = UCHAR_SP;
-    }
+    RtlFillMemory( Output8dot3, 11, UCHAR_SP );
 
     //
     //  Copy over the first part of the file name.  Stop when we get to
@@ -207,104 +210,133 @@ Return Value:
 --*/
 
 {
-    ULONG i,j;
+    ULONG DirentIndex, StringIndex;
+    ULONG BaseLength, ExtensionLength;
 
     DebugTrace(+1, Dbg, "Fat8dot3ToString\n", 0);
 
     //
-    //  Copy over the 8 part of the 8.3 name into the output buffer
-    //  and then make sure if the first character needs to be changed
-    //  from 0x05 to 0xe5.  Then backup the index to the first non space
-    //  character searching backwards
+    //  First, find the length of the base component.
     //
 
-    RtlCopyMemory( &OutputString->Buffer[0], &Dirent->FileName[0], 8 );
+    for (BaseLength = 8; BaseLength > 0; BaseLength -= 1) {
 
-    if (OutputString->Buffer[0] == FAT_DIRENT_REALLY_0E5) {
+        if (Dirent->FileName[BaseLength - 1] != UCHAR_SP) {
 
-        OutputString->Buffer[0] = (CHAR)0xe5;
+            break;
+        }
     }
 
-    for (i = 7; (i >= 0) && (OutputString->Buffer[i] == UCHAR_SP); i -= 1) {
+    //
+    //  Now find the length of the extension.
+    //
 
-        NOTHING;
+    for (ExtensionLength = 3; ExtensionLength > 0; ExtensionLength -= 1) {
+
+        if (Dirent->FileName[8 + ExtensionLength - 1] != UCHAR_SP) {
+
+            break;
+        }
     }
 
-    ASSERT( i >= 0 );
-
     //
-    //  Now if we are to restore case, look for A-Z
+    //  If there was a base part, copy it and check the case.  Don't forget
+    //  if the first character needs to be changed from 0x05 to 0xe5.
     //
 
-    if (FatData.ChicagoMode &&
-        RestoreCase &&
-        FlagOn(Dirent->NtByte, FAT_DIRENT_NT_BYTE_8_LOWER_CASE)) {
+    if (BaseLength != 0) {
 
-        for (j = 0; j <= i; j += 1) {
+        RtlCopyMemory( OutputString->Buffer, Dirent->FileName, BaseLength );
 
-            if ((OutputString->Buffer[j] >= 'A') &&
-                (OutputString->Buffer[j] <= 'Z')) {
+        if (OutputString->Buffer[0] == FAT_DIRENT_REALLY_0E5) {
 
-                OutputString->Buffer[j] += 'a' - 'A';
+            OutputString->Buffer[0] = (CHAR)0xe5;
+        }
+
+        //
+        //  Now if we are to restore case, look for A-Z
+        //
+
+        if (FatData.ChicagoMode &&
+            RestoreCase &&
+            FlagOn(Dirent->NtByte, FAT_DIRENT_NT_BYTE_8_LOWER_CASE)) {
+
+            for (StringIndex = 0; StringIndex < BaseLength; StringIndex += 1) {
+
+                if ((OutputString->Buffer[StringIndex] >= 'A') &&
+                    (OutputString->Buffer[StringIndex] <= 'Z')) {
+
+                    OutputString->Buffer[StringIndex] += 'a' - 'A';
+                }
             }
         }
     }
 
     //
-    //  Now add the dot
+    //  If there was an extension, copy that over.  Else we now know the
+    //  size of the string.
     //
 
-    i += 1;
-    OutputString->Buffer[i] = '.';
+    if (ExtensionLength != 0) {
 
-    //
-    //  Copy over the extension into the output buffer and backup the
-    //  index to the first non space character searching backwards
-    //
+        PUCHAR o, d;
 
-    i += 1;
-    RtlCopyMemory( &OutputString->Buffer[i], &Dirent->FileName[8], 3 );
+        //
+        //  Now add the dot
+        //
 
-    j = i;
+        OutputString->Buffer[BaseLength++] = '.';
 
-    for (i += 2; OutputString->Buffer[i] == UCHAR_SP; i -= 1) {
+        //
+        //  Copy over the extension into the output buffer.
+        //
 
-        NOTHING;
-    }
+        o = &OutputString->Buffer[BaseLength];
+        d = &Dirent->FileName[8];
 
-    //
-    //  Now if the last character is a '.' then we don't have an extension
-    //  so backup before the dot.
-    //
+        switch (ExtensionLength) {
+        case 3:
+            *o++ = *d++;
+        case 2:
+            *o++ = *d++;
+        case 1:
+            *o++ = *d++;
+        }
 
-    if (OutputString->Buffer[i] == '.') {
+        //
+        //  Set the output string length
+        //
 
-        i -= 1;
-    }
+        OutputString->Length = (USHORT)(BaseLength + ExtensionLength);
 
-    //
-    //  Now if we are to restore case, look for A-Z
-    //
+        //
+        //  Now if we are to restore case, look for A-Z
+        //
 
-    if (FatData.ChicagoMode &&
-        RestoreCase &&
-        FlagOn(Dirent->NtByte, FAT_DIRENT_NT_BYTE_3_LOWER_CASE)) {
+        if (FatData.ChicagoMode &&
+            RestoreCase &&
+            FlagOn(Dirent->NtByte, FAT_DIRENT_NT_BYTE_3_LOWER_CASE)) {
 
-        for (; j <= i; j += 1) {
+            for (StringIndex = BaseLength;
+                 StringIndex < OutputString->Length;
+                 StringIndex++ ) {
 
-            if ((OutputString->Buffer[j] >= 'A') &&
-                (OutputString->Buffer[j] <= 'Z')) {
+                if ((OutputString->Buffer[StringIndex] >= 'A') &&
+                    (OutputString->Buffer[StringIndex] <= 'Z')) {
 
-                OutputString->Buffer[j] += 'a' - 'A';
+                    OutputString->Buffer[StringIndex] += 'a' - 'A';
+                }
             }
         }
+
+    } else {
+
+        //
+        //  Set the output string length
+        //
+
+        OutputString->Length = (USHORT)BaseLength;
     }
-
-    //
-    //  Set the output string length
-    //
-
-    OutputString->Length = (USHORT)(i + 1);
 
     //
     //  And return to our caller
@@ -371,6 +403,7 @@ Return Value:
                      &Dirent,
                      &DirentBcb,
                      &DirentByteOffset,
+                     NULL,
                      Lfn );
 
     try {
@@ -575,7 +608,7 @@ Return Value:
 {
     NTSTATUS Status;
 
-    Status = RtlUpcaseUnicodeStringToCountedOemString( OemString,
+    Status = FatUpcaseUnicodeStringToCountedOemString( OemString,
                                                        UnicodeString,
                                                        FALSE );
 
@@ -585,7 +618,7 @@ Return Value:
         OemString->Length = 0;
         OemString->MaximumLength = 0;
 
-        Status = RtlUpcaseUnicodeStringToCountedOemString( OemString,
+        Status = FatUpcaseUnicodeStringToCountedOemString( OemString,
                                                            UnicodeString,
                                                            TRUE );
     }
@@ -612,6 +645,7 @@ FatSelectNames (
     IN POEM_STRING OemName,
     IN PUNICODE_STRING UnicodeName,
     IN OUT POEM_STRING ShortName,
+    IN PUNICODE_STRING SuggestedShortName OPTIONAL,
     IN OUT BOOLEAN *AllLowerComponent,
     IN OUT BOOLEAN *AllLowerExtension,
     IN OUT BOOLEAN *CreateLfn
@@ -639,11 +673,15 @@ Arguments:
 
     UnicodeName - Provides the original final name.
 
-    AllLowerComponent - Returns whether this compoent was all lower case.
+    SuggestedShortName - a first-try short name to try before auto-generation
+        is used
+
+    AllLowerComponent - Returns whether this component was all lower case.
 
     AllLowerExtension - Returns wheather the extension was all lower case.
 
-    CreateLfn - Tells the call if we must create an LFN for the UnicodeName.
+    CreateLfn - Tells the caller if we must create an LFN for the UnicodeName or
+        SuggestedLongName
 
 Return Value:
 
@@ -661,14 +699,18 @@ Return Value:
     //
 
     if ((OemName->Length == 0) ||
-        !FatIsNameValid( IrpContext, *OemName, FALSE, FALSE, FALSE )) {
+        !FatIsNameValid( IrpContext, *OemName, FALSE, FALSE, FALSE ) ||
+        FatSpaceInName( IrpContext, UnicodeName )) {
 
         WCHAR ShortNameBuffer[12];
         UNICODE_STRING ShortUnicodeName;
         GENERATE_NAME_CONTEXT Context;
+        BOOLEAN TrySuggestedShortName;
 
         GenerateShortName = TRUE;
 
+        TrySuggestedShortName = (SuggestedShortName != NULL);
+    
         //
         //  Now generate a short name.
         //
@@ -686,7 +728,23 @@ Return Value:
             ULONG ByteOffset;
             NTSTATUS Status;
 
-            RtlGenerate8dot3Name( UnicodeName, TRUE, &Context, &ShortUnicodeName );
+            if (TrySuggestedShortName) {
+
+                //
+                //  Try our caller's candidate first. Note that this must have
+                //  been uppercased previously.
+                //
+
+                ShortUnicodeName.Length = SuggestedShortName->Length;
+                ShortUnicodeName.MaximumLength = SuggestedShortName->MaximumLength;
+                ShortUnicodeName.Buffer = SuggestedShortName->Buffer;
+
+                TrySuggestedShortName = FALSE;
+
+            } else {
+
+                RtlGenerate8dot3Name( UnicodeName, TRUE, &Context, &ShortUnicodeName );
+            }
 
             //
             //  We have a candidate, make sure it doesn't exist.
@@ -807,7 +865,7 @@ Return Value:
 
             Lowers += 1;
 
-        } else if (c >= 0x0080) {
+        } else if ((c >= 0x0080) && FatData.CodePageInvariant) {
 
             break;
         }
@@ -858,4 +916,303 @@ Return Value:
     }
 
     return;
+}
+
+BOOLEAN
+FatSpaceInName (
+    IN PIRP_CONTEXT IrpContext,
+    IN PUNICODE_STRING UnicodeName
+    )
+
+/*++
+
+Routine Description:
+
+    This routine takes a UNICODE string and sees if it contains any spaces.
+
+Arguments:
+
+    UnicodeName - Provides the final name.
+
+Return Value:
+
+    BOOLEAN - TRUE if it does, FALSE if it doesn't.
+
+--*/
+
+{
+    ULONG i;
+
+    for (i=0; i < UnicodeName->Length/sizeof(WCHAR); i++) {
+
+        if (UnicodeName->Buffer[i] == L' ') {
+            return TRUE;
+        }
+    }
+
+    return FALSE;
+}
+
+NTSTATUS
+FatUpcaseUnicodeStringToCountedOemString (
+    OUT POEM_STRING DestinationString,
+    IN PUNICODE_STRING SourceString,
+    IN BOOLEAN AllocateDestinationString
+    )
+/*++
+
+Routine Description:
+
+    This routine converts a unicode string to upcased, oem.  The 
+    returned oem string is not null-terminated.  It should be nearly
+    equivalent to the analogous Rtl routine, except this one uses
+    the internal mapping array.
+
+Arguments:
+
+    DestinationString - Returns an oem string that is equivalent to the
+        unicode source string.   The maximum length field is set only if
+        AllocateDestinationString is TRUE.
+
+    SourceString - Supplies the unicode source string that is to be 
+        converted to oem.
+
+    AllocateDestinationString - Supplies a flag that controls whether or
+        not this API allocates the buffer space for the destination
+        string.  If it does, then the buffer must be deallocated using
+        FatFreeOemString.  Note that only storage for
+        DestinationString->Buffer is allocated by this API.
+
+Return Value:
+
+    SUCCESS - The conversion was successful
+
+    !SUCCESS - The operation failed.  No storage was allocated and no
+        conversion was done.
+
+--*/
+
+{
+    ULONG OemLength;
+    ULONG i1, i2;
+    NTSTATUS st;
+
+    PAGED_CODE();
+
+    RtlUnicodeToMultiByteSize( &OemLength, SourceString->Buffer, SourceString->Length );
+
+    if (OemLength == 0) {
+        
+        DestinationString->Length = 0;
+        DestinationString->MaximumLength = 0;
+        DestinationString->Buffer = NULL;
+
+        return STATUS_SUCCESS;
+    }
+
+    if (OemLength > MAXUSHORT) {
+        return STATUS_INVALID_PARAMETER_2;
+    }
+
+    DestinationString->Length = (USHORT)OemLength;
+
+    if (AllocateDestinationString) {
+        DestinationString->MaximumLength = (USHORT)OemLength;
+        DestinationString->Buffer = FsRtlAllocatePool( PagedPool,
+                                                       OemLength );
+
+    } else if (DestinationString->Length > DestinationString->MaximumLength) {
+        return STATUS_BUFFER_OVERFLOW;
+    }
+
+    st = STATUS_SUCCESS;
+
+    for (i1 = 0, i2 = 0; i1 < SourceString->Length/sizeof(WCHAR); i1++) {
+
+        CHAR byte1;
+        CHAR byte2;
+
+        byte1 = FatData.UnicodeToUpcaseOemArray[SourceString->Buffer[i1] * 2];
+        byte2 = FatData.UnicodeToUpcaseOemArray[SourceString->Buffer[i1] * 2 + 1];
+
+        if (byte1 == 0 && byte2 == 0) {
+
+           st = STATUS_UNMAPPABLE_CHARACTER;
+           break;
+        }
+
+        DestinationString->Buffer[i2++] = byte1;
+
+        if (byte2 != 0) {
+
+            DestinationString->Buffer[i2++] = byte2;
+        }
+    }
+
+    if (!NT_SUCCESS(st)) {
+
+        if (AllocateDestinationString) {
+
+            ExFreePool( DestinationString->Buffer );
+        }
+        return st;
+    } 
+
+    ASSERT(i2 == OemLength);
+
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS
+FatUpcaseUnicodeString (
+    OUT PUNICODE_STRING DestinationString,
+    IN PUNICODE_STRING SourceString,
+    IN BOOLEAN AllocateDestinationString
+    )
+/*++
+
+Routine Description:
+
+    This routine upcases a unicode string, just like RtlUpcaseUnicodeString,
+    but makes an exception for the double-width latin characters, which
+    are not cased by the filesystem.
+
+Arguments:
+
+    DestinationString - Returns the upcased unicode string. The maximum
+        length field is set only if AllocateDestinationString is TRUE.
+
+    SourceString - Supplies the unicode source string that is to be 
+        upcased.
+
+    AllocateDestinationString - Supplies a flag that controls whether or
+        not this API allocates the buffer space for the destination
+        string.  If it does, then the buffer must be deallocated using
+        RtlFreeUnicodeString.  Note that only storage for
+        DestinationString->Buffer is allocated by this API.
+
+Return Value:
+
+    SUCCESS - The conversion was successful
+
+    !SUCCESS - The operation failed.  No storage was allocated and no
+        conversion was done.
+
+--*/
+{
+    ULONG i;
+    NTSTATUS st;
+
+    PAGED_CODE();
+
+    st = RtlUpcaseUnicodeString( DestinationString,
+                                 SourceString,
+                                 AllocateDestinationString );
+    
+    if (!NT_SUCCESS(st)) {
+        return st;
+    }
+
+    for (i = 0; i < SourceString->Length/sizeof(WCHAR); i++) {
+
+        if (SourceString->Buffer[i] >= WIDE_LATIN_SMALL_A &&
+            SourceString->Buffer[i] <= WIDE_LATIN_SMALL_Z) {
+
+            DestinationString->Buffer[i] = SourceString->Buffer[i];
+        }
+    }
+
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS
+FatDowncaseUnicodeString (
+    OUT PUNICODE_STRING DestinationString,
+    IN PUNICODE_STRING SourceString,
+    IN BOOLEAN AllocateDestinationString
+    )
+/*++
+
+Routine Description:
+
+    This routine downcases a unicode string, just like RtlDowncaseUnicodeString,
+    but makes an exception for the double-width latin characters, which
+    are not cased by the filesystem.
+
+Arguments:
+
+    DestinationString - Returns the downcased unicode string. The maximum
+        length field is set only if AllocateDestinationString is TRUE.
+
+    SourceString - Supplies the unicode source string that is to be 
+        downcased.
+
+    AllocateDestinationString - Supplies a flag that controls whether or
+        not this API allocates the buffer space for the destination
+        string.  If it does, then the buffer must be deallocated using
+        RtlFreeUnicodeString.  Note that only storage for
+        DestinationString->Buffer is allocated by this API.
+
+Return Value:
+
+    SUCCESS - The conversion was successful
+
+    !SUCCESS - The operation failed.  No storage was allocated and no
+        conversion was done.
+
+--*/
+{
+    NTSTATUS st;
+    ULONG i;
+
+    PAGED_CODE();
+
+    st = RtlDowncaseUnicodeString( DestinationString,
+                                   SourceString,
+                                   AllocateDestinationString );
+    
+    if (!NT_SUCCESS(st)) {
+        return st;
+    }
+
+    for (i = 0; i < SourceString->Length/sizeof(WCHAR); i++) {
+
+        if (SourceString->Buffer[i] >= WIDE_LATIN_CAPITAL_A &&
+            SourceString->Buffer[i] <= WIDE_LATIN_CAPITAL_Z) {
+
+            DestinationString->Buffer[i] = SourceString->Buffer[i];
+        }
+    }
+
+    return STATUS_SUCCESS;
+}
+
+VOID
+FatFreeOemString (
+    IN OUT POEM_STRING OemString
+    )
+/*++
+    
+Routine Description:
+
+    This API is used to free storage allocated by
+    FatUpcaseUnicodeStringToCountedOemString.  Note that only
+    OemString->Buffer is freed by this routine.
+
+Arguments:
+
+    OemString - Supplies the addresss of the oem string whose buffer
+        was previously allocated by FatUpcaseUnicodeStringToCountedOemString.
+
+Return Value:
+
+    None.
+
+--*/
+{
+    PAGED_CODE();
+
+    if (OemString->Buffer != NULL) {
+        ExFreePool( OemString->Buffer );
+    }
 }

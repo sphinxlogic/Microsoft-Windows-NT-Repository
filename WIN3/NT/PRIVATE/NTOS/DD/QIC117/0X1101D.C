@@ -14,6 +14,19 @@
 * HISTORY:
 *		$Log:   J:\se.vcs\driver\q117cd\src\0x1101d.c  $
 *	
+*	   Rev 1.6   15 May 1995 10:46:58   GaryKiwi
+*	Phoenix merge from CBW95s
+*	
+*	   Rev 1.5.1.0   11 Apr 1995 18:03:34   garykiwi
+*	PHOENIX pass #1
+*	
+*	   Rev 1.6   30 Jan 1995 14:24:54   BOBLEHMA
+*	Changed vendor defines to ARCHIVE_CONNER and MOUNTAIN_SUMMIT.
+*	
+*	   Rev 1.5   08 Dec 1994 11:34:38   BOBLEHMA
+*	Added a check for seld to the if statement.  This allows seld selects to send
+*	step pulses to the FDC.
+*	
 *	   Rev 1.4   11 Jan 1994 14:29:34   KEVINKES
 *	Removed unecessary status checking and cleaned up defines.
 *
@@ -37,6 +50,7 @@
 #define FCT_ID 0x1101d
 #include "include\public\adi_api.h"
 #include "include\public\frb_api.h"
+#include "include\public\vendor.h"
 #include "include\private\kdi_pub.h"
 #include "include\private\cqd_pub.h"
 #include "q117cd\include\cqd_defs.h"
@@ -68,8 +82,9 @@ dStatus cqd_DeselectDevice
 
    if (cqd_context->selected == dTRUE) {
 
-      if ((cqd_context->device_cfg.select_byte == selu ||
-            cqd_context->device_cfg.select_byte == selub) &&
+      if ((cqd_context->device_cfg.select_byte == seld ||
+           cqd_context->device_cfg.select_byte == selu ||
+           cqd_context->device_cfg.select_byte == selub) &&
             cqd_context->device_cfg.drive_select != curb) {
 
          if (cqd_context->device_descriptor.vendor == VENDOR_CMS) {
@@ -78,8 +93,8 @@ dStatus cqd_DeselectDevice
 
          }
 
-         if ((cqd_context->device_descriptor.vendor == VENDOR_SUMMIT) ||
-            	(cqd_context->device_descriptor.vendor == VENDOR_CONNER) ||
+         if ((cqd_context->device_descriptor.vendor == VENDOR_MOUNTAIN_SUMMIT) ||
+            	(cqd_context->device_descriptor.vendor == VENDOR_ARCHIVE_CONNER) ||
             	(cqd_context->device_descriptor.vendor == VENDOR_CORE)) {
 
             status = cqd_ConnerPreamble(cqd_context, dFALSE);

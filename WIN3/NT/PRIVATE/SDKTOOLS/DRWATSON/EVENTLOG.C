@@ -34,7 +34,7 @@ char * AddString( char *p, char *s );
 char * AddNumber( char *p, char *f, DWORD dwNumber );
 char * GetDWORD( PDWORD pdwData, char *p );
 char * GetWORD( PWORD pwData, char *p );
-char * GetString( char *s, char *p );
+char * GetString( char *s, char *p, DWORD size );
 
 
 BOOL
@@ -119,7 +119,7 @@ try_again:
 
             p += pevlr->StringOffset;
 
-            p = GetString( crashInfo->crash.szAppName,           p );
+            p = GetString( crashInfo->crash.szAppName,           p, sizeof(crashInfo->crash.szAppName) );
             p = GetWORD  ( &crashInfo->crash.time.wMonth,        p );
             p = GetWORD  ( &crashInfo->crash.time.wDay,          p );
             p = GetWORD  ( &crashInfo->crash.time.wYear,         p );
@@ -129,7 +129,7 @@ try_again:
             p = GetWORD  ( &crashInfo->crash.time.wMilliseconds, p );
             p = GetDWORD ( &crashInfo->crash.dwExceptionCode,    p );
             p = GetDWORD ( &crashInfo->crash.dwAddress,          p );
-            p = GetString( crashInfo->crash.szFunction,          p );
+            p = GetString( crashInfo->crash.szFunction,          p, sizeof(crashInfo->crash.szFunction) );
 
             p = (char *) ((DWORD)pevlr + sizeof(EVENTLOGRECORD));
 
@@ -234,9 +234,9 @@ AddNumber( char *p, char *f, DWORD dwNumber )
 }
 
 char *
-GetString( char *s, char *p )
+GetString( char *s, char *p, DWORD size )
 {
-    strcpy( s, p );
+    strncpy( s, p, size );
     return p + strlen(p) + 1;
 }
 
@@ -253,4 +253,3 @@ GetWORD( PWORD pwData, char *p )
     *pwData = atoi( p );
     return p + strlen(p) + 1;
 }
-

@@ -26,6 +26,7 @@ Environment:
 #include "precomp.h"
 #pragma hdrstop
 
+#define MAX_MAPPED_ROOTS        (5)
 
 extern AVS Avs;
 extern HWND GetLocalHWND(void);
@@ -49,6 +50,13 @@ DWORD FAR PASCAL ExtGetExpression( LPSTR lpsz );
 
 LRESULT SendMessageNZ (HWND,UINT,WPARAM,LPARAM);
 
+BOOL
+FAR PASCAL EXPORT DlgFileSearchResolve(
+   HWND hDlg,
+   UINT msg,
+   WPARAM wParam,
+   LPARAM lParam
+);
 
 
 
@@ -91,6 +99,25 @@ struct MpPair {
 int CMacAtomMapped = 0;     /* Size of array        */
 int CAtomMapped = 0;        /* Count of mappings in array   */
 
+// Structure to map one root to another
+
+struct MRootPair {
+    DWORD   dwSrcLen;
+    LPSTR   lpszSrcRoot;
+    LPSTR   lpszTargetRoot;
+} RgMappedRoots[MAX_MAPPED_ROOTS];
+UINT CMappedRoots = 0;
+static INT  MatchedList[MAX_DOCUMENTS];
+static int  dwMatchCnt = 0;
+static int  dwMatchIdx = 0;
+static CHAR szFSSrcName[MAX_PATH];
+static BOOL FAddToSearchPath = FALSE;
+static BOOL FAddToRootMap = FALSE;
+
+static CHAR  szBrowsePrompt[256];
+static CHAR  szBrowseFname[256];
+static BOOL  fBrowseAnswer;
+
 /*
 **  Expression Evaluator items
 */
@@ -109,7 +136,6 @@ static int              iDbgMsgBufferBack = 0;
 static CRITICAL_SECTION csDbgMsgBuffer;
 
 
-
 BOOL    FKilling       = FALSE;
 
 HWND    HwndDebuggee = NULL;
@@ -119,10 +145,13 @@ HWND    HwndDebuggee = NULL;
 BOOL FLoadEmTl(void);
 LRESULT SendMessageNZ(HWND,UINT,WPARAM,LPARAM);
 
+BOOL    RootNameIsMapped(LPSTR, LPSTR, UINT);
 
 BOOL    SrcNameIsMasked(ATOM);
 BOOL    SrcNameIsMapped(ATOM, LSZ, UINT);
-BOOL    SrcSearchOnPath(LSZ, UINT);
+INT     MatchOpenedDoc(LPSTR, UINT);
+BOOL    SrcSearchOnPath(LSZ, UINT, BOOL);
+BOOL    SrcSearchOnRoot(LSZ, UINT);
 BOOL    SrcBrowseForFile(LSZ, UINT);
 BOOL    MiscBrowseForFile(
     LSZ     lpb,
@@ -131,11 +160,16 @@ BOOL    MiscBrowseForFile(
     UINT    cchDir,
     int     nDefExt,
     int     nIdDlgTitle,
-    void    (*fnSetMapped)(LSZ, LSZ));
+    void    (*fnSetMapped)(LSZ, LSZ),
+    LPOFNHOOKPROC lpfnHook
+    );
 VOID    SrcSetMasked(LSZ);
 VOID    SrcSetMapped(LSZ, LSZ);
 VOID    ExeSetMapped(LSZ, LSZ);
 void EnsureFocusDebuggee( void );
+
+VOID     CmdMatchOpenedDocPrompt(BOOL, BOOL);
+BOOL     CmdMatchOpenedDocInputString(LPSTR);
 
 
 VOID
@@ -599,7 +633,11 @@ Return Value:
      *  drives specified.
      */
 
+#ifdef DBCS
+    if (!IsDBCSLeadByte(pchSource[0]) && pchSource[1] == ':') {
+#else
     if (pchSource[1] == ':') {
+#endif
         iDriveSrc = toupper(pchSource[0]) - 'A' + 1;
         pchSource += 2;
         if (_chdrive( iDriveSrc ) == -1) {
@@ -608,7 +646,11 @@ Return Value:
         pchBase = 0;
     } else {
     nextDrive:
+#ifdef DBCS
+        if (!IsDBCSLeadByte(pchBase[0]) && pchBase[1] == ':') {
+#else
         if (pchBase[1] == ':') {
+#endif
             iDriveSrc = toupper(pchBase[0]) - 'A' + 1;
             pchBase += 2;
             if (_chdrive( iDriveSrc ) == -1) {
@@ -639,10 +681,22 @@ Return Value:
         cbDest -= 3;
     } else {
         Dbg(_getcwd(rgchDest, cbDest-1) != NULL);
+#ifdef DBCS
+        pchDest = CharPrev(rgchDest, rgchDest + strlen(rgchDest));
+        if (*pchDest != '\\') {
+            if (IsDBCSLeadByte(*pchDest)) {
+                pchDest += 2;
+            } else {
+                pchDest++;
+            }
+            *pchDest = '\\';
+        }
+#else   // !DBCS
         pchDest = rgchDest + strlen(rgchDest) - 1;
         if (*pchDest != '\\') {
             *++pchDest = '\\';
         }
+#endif  // !DBCS
         cbDest = cbDest - (pchDest - rgchDest + 1);
     }
 
@@ -653,11 +707,26 @@ Return Value:
 
     if (pchBase != NULL) {
         char    ch;
+#ifdef DBCS
+        char *  pch = CharPrev(pchBase, pchBase + strlen(pchBase));
+        if (pch == pchBase) {
+            // Make sure the result is same as US code.
+            pch = pchBase - 1;
+        }
+#else
         char *  pch = pchBase + strlen(pchBase) - 1;
+#endif
 
         while ((pch >= pchBase) &&
                ((*pch != '\\') && (*pch != '/'))) {
+#ifdef DBCS
+            if ((pch = CharPrev(pchBase, pch)) == pchBase) {
+                // Make sure the result is same as US code.
+                pch--;
+            }
+#else
             pch--;
+#endif
         }
 
         if ((*pch == '\\') || (*pch == '/')) {
@@ -665,7 +734,12 @@ Return Value:
             ch = *pch;
             *pch = 0;
         } else {
+#ifdef DBCS
+            ch = *(pch = CharNext(pch));
+            pch = *pch ? pch : pch+1;
+#else
             ch = *++pch;
+#endif
             *pch = 0;
         }
 
@@ -678,16 +752,26 @@ Return Value:
                          *  next '\' unless the next character up is a ':'
                          */
 
+#ifdef DBCS
+                        pchDest = CharPrev(rgchDest, pchDest);
+                        cbDest += ((IsDBCSLeadByte(*pchDest)) ? 2 : 1);
+#else
                         pchDest--;
                         cbDest += 1;
+#endif
                         if (*pchDest == ':') {
                             pchDest++;
                             cbDest -= 1;
                         } else {
                             while (*pchDest != '\\') {
                                 Assert(*pchDest != ':');
+#ifdef DBCS
+                                pchDest = CharPrev(rgchDest, pchDest);
+                                cbDest += ((IsDBCSLeadByte(*pchDest)) ? 2 : 1);
+#else
                                 pchDest--;
                                 cbDest += 1;
+#endif
                             }
                         }
 
@@ -729,6 +813,12 @@ Return Value:
                  * No funny characters
                  */
 
+#ifdef DBCS
+                if (IsDBCSLeadByte(*pchBase) && *(pchBase+1)) {
+                    *++pchDest = *pchBase++;
+                    cbDest -= 1;
+                }
+#endif
                 *++pchDest = *pchBase++;
                 cbDest -= 1;
             }
@@ -751,16 +841,26 @@ Return Value:
                      *  next '\' unless the next character up is a ':'
                      */
 
+#ifdef DBCS
+                    pchDest = CharPrev(rgchDest, pchDest);
+                    cbDest += ((IsDBCSLeadByte(*pchDest)) ? 2 : 1);
+#else
                     pchDest--;
                     cbDest += 1;
+#endif
                     if (*pchDest == ':') {
                         pchDest++;
                         cbDest -= 1;
                     } else {
                         while (*pchDest != '\\') {
                             Assert(*pchDest != ':');
+#ifdef DBCS
+                            pchDest = CharPrev(rgchDest, pchDest);
+                            cbDest += ((IsDBCSLeadByte(*pchDest)) ? 2 : 1);
+#else
                             pchDest--;
                             cbDest += 1;
+#endif
                         }
                     }
 
@@ -794,6 +894,12 @@ Return Value:
              * No funny characters
              */
 
+#ifdef DBCS
+            if (IsDBCSLeadByte(*pchSource) && *(pchSource+1)) {
+                *++pchDest = *pchSource++;
+                cbDest -= 1;
+            }
+#endif
             *++pchDest = *pchSource++;
             cbDest -= 1;
         }
@@ -887,8 +993,8 @@ Return Value:
 {
     BOOL    Active;
     ADDR    addr = {0};
-    int     iViewCur;
     int     indx;
+    int     iViewCur = curView;
 
     Active = DebuggeeActive();
 
@@ -902,8 +1008,7 @@ Return Value:
         Assert(LppdCur && LptdCur);
         if (LppdCur && LptdCur) {
             OSDGetAddr(LppdCur->hpid, LptdCur->htid, adrPC, &addr);
-            SHChangeProcess(LppdCur->hpds,TRUE);
-            SHChangeProcess(NULL,FALSE);
+            SHChangeProcess(LppdCur->hpds);
             if ( ! ADDR_IS_LI ( addr ) ) {
                 SYUnFixupAddr ( &addr );
             }
@@ -982,10 +1087,10 @@ Return Value:
 
             if (UpdateFlags & UPDATE_NOFORCE) {
                 GotNext = SrcMapSourceFilename(SrcFname, sizeof(SrcFname),
-                                               SRC_MAP_ONLY);
+                                               SRC_MAP_ONLY, FindDoc1);
             } else {
                 GotNext = SrcMapSourceFilename(SrcFname, sizeof(SrcFname),
-                                               SRC_MAP_OPEN);
+                                               SRC_MAP_OPEN, FindDoc1);
             }
 
             /*
@@ -993,7 +1098,7 @@ Return Value:
             */
 
             if (GotNext > 0) {
-                Dbg( FindDoc(SrcFname, &doc, TRUE) );
+                Dbg( FindDoc1(SrcFname, &doc, TRUE) );
             }
 
             if (GotNext > 0) {
@@ -1021,7 +1126,7 @@ Return Value:
                             SetFocus(Views[iViewCur].hwndClient);
                         }
                     }
-                } else {
+                } else if (!status.fSrcMode || disasmView == -1) {
                     SetWindowPos(Views[Docs[doc].FirstView].hwndFrame,
                                  Views[iViewCur].hwndFrame, 0, 0, 0, 0,
                                  SWP_NOACTIVATE|SWP_NOSIZE|SWP_NOMOVE);
@@ -1044,27 +1149,23 @@ Return Value:
 
                 if ((disasmView == -1) && !(UpdateFlags & UPDATE_NOFORCE) &&
                     (!(runDebugParams.DisAsmOpts & dopDemand)))
-                   {
+                {
                     OpenDebugWindow(DISASM_WIN, NULL, -1);
-                    if (Views[iViewCur].Doc < 0)
-                        {
-                         if (Views[iViewCur].Doc != -1)
-                            {
+                    if (Views[iViewCur].Doc < 0) {
+                         if (Views[iViewCur].Doc != -1) {
                              BringWindowToTop(Views[iViewCur].hwndFrame);
                              SetFocus(Views[iViewCur].hwndClient);
-                            }
+                         }
 
-                        }
-                        else
-                         if (Docs[Views[iViewCur].Doc].docType != DOC_WIN)
-                            {
-                             BringWindowToTop(Views[iViewCur].hwndFrame);
-                             SetFocus(Views[iViewCur].hwndClient);
-                            }
+                    } else if (Docs[Views[iViewCur].Doc].docType != DOC_WIN) {
+                        BringWindowToTop(Views[iViewCur].hwndFrame);
+                        SetFocus(Views[iViewCur].hwndClient);
+                    }
+
                     // ntbug #3787
                     // StatusSrc(TRUE); // Switch to ASM mode
 
-                   }
+                }
             }
         }
         else
@@ -1078,58 +1179,55 @@ Return Value:
 
             if ((disasmView == -1) && !(UpdateFlags & UPDATE_NOFORCE) &&
                     (!(runDebugParams.DisAsmOpts & dopDemand)))
-               {
+            {
                 OpenDebugWindow(DISASM_WIN, NULL, -1);
-                if (Views[iViewCur].Doc < 0)
-                    {
-                     if (Views[iViewCur].Doc != -1)
-                        {
+                if (Views[iViewCur].Doc < 0) {
+
+                     if (Views[iViewCur].Doc != -1) {
                          BringWindowToTop(Views[iViewCur].hwndFrame);
                          SetFocus(Views[iViewCur].hwndClient);
-                        }
+                     }
 
-                    }
-                    else
-                        if (Docs[Views[iViewCur].Doc].docType != DOC_WIN)
-                           {
-                            BringWindowToTop(Views[iViewCur].hwndFrame);
-                            SetFocus(Views[iViewCur].hwndClient);
-                           }
+                } else if (Docs[Views[iViewCur].Doc].docType != DOC_WIN) {
+
+                    BringWindowToTop(Views[iViewCur].hwndFrame);
+                    SetFocus(Views[iViewCur].hwndClient);
+                }
                 // ntbug #3787
                 // StatusSrc(TRUE);     // Switch to ASM mode
-               }
+            }
 
         }
     }
 
 OtherWindows:
 
-             for (indx = 0; indx < MAX_VIEWS; indx++)
-                {
-                 if (Views[indx].Doc > -1)
-                    {
-                       if (Docs[Views[indx].Doc].docType == MEMORY_WIN)
-                         {
-                          memView = indx;
-
-                          if ((MemWinDesc[memView].fLive) || (UpdateFlags & UPDATE_MEMORY))
-                                  {
-                                   ViewMem(indx, TRUE);  // check of valid views or sparse array
-                                  }
-                         }
-                    }
+    for (indx = 0; indx < MAX_VIEWS; indx++) {
+        if (Views[indx].Doc > -1) {
+            if (Docs[Views[indx].Doc].docType == MEMORY_WIN) {
+                memView = indx;
+                if ((MemWinDesc[memView].fLive) ||
+                             (UpdateFlags & UPDATE_MEMORY)) {
+                    // check of valid views or sparse array
+                    ViewMem(indx, TRUE);
                 }
+            }
+        }
+    }
 
 
     if (UpdateFlags & UPDATE_DISASM) {
         if (disasmView != -1 && Active) {
             ViewDisasm(SHPAddrFromPCxf(&CxfIp), DISASM_PC);
-            if (status.fSrcMode && ((curView == disasmView) || (Docs[Views[curView].Doc].docType == DOC_WIN)))
-               {
+            if (status.fSrcMode &&
+                ((curView == disasmView) ||
+                 ((Views[curView].Doc > -1) &&
+                  (Docs[Views[curView].Doc].docType == DOC_WIN) )))
+            {
                 OpenDebugWindow(DISASM_WIN, NULL, -1);
                 BringWindowToTop(GetParent(Views[disasmView].hwndClient));
                 SetFocus(Views[disasmView].hwndClient);
-               }
+            }
 
 
         }
@@ -1617,7 +1715,7 @@ SetProcessExceptions(
             eList->next            = NULL;
             eList->dwExceptionCode = exd.dwExceptionCode;
             eList->efd             = exd.efd;
-            eList->lpName          = strdup(exd.rgchDescription);
+            eList->lpName          = _strdup(exd.rgchDescription);
             eList->lpCmd           = NULL;
             eList->lpCmd2          = NULL;
 
@@ -1650,9 +1748,9 @@ SetProcessExceptions(
                 eList->next            = NULL;
                 eList->dwExceptionCode = List->dwExceptionCode;
                 eList->efd             = List->efd;
-                eList->lpName          = List->lpName ? strdup(List->lpName) : NULL;
-                eList->lpCmd           = List->lpCmd  ? strdup(List->lpCmd)  : NULL;
-                eList->lpCmd2          = List->lpCmd2 ? strdup(List->lpCmd2) : NULL;
+                eList->lpName          = List->lpName ? _strdup(List->lpName) : NULL;
+                eList->lpCmd           = List->lpCmd  ? _strdup(List->lpCmd)  : NULL;
+                eList->lpCmd2          = List->lpCmd2 ? _strdup(List->lpCmd2) : NULL;
 
                 lppd->exceptionList = InsertException( lppd->exceptionList, eList);
 
@@ -1752,6 +1850,7 @@ ConnectDebugger(
      **  Check to see if we have already loaded an EM/DM pair and created
      **  the base process descriptor.  If not then we need to do so now.
      */
+    char str[9];
 
     if (LppdFirst == NULL) {
 
@@ -1772,13 +1871,13 @@ ConnectDebugger(
 
     }
 
-    SHChangeProcess(LppdCur->hpds,TRUE);
-    SHChangeProcess(NULL,FALSE);
+    SHChangeProcess(LppdCur->hpds);
 
     GetDebugeePrompt();
 
     if (runDebugParams.fAlternateSS) {
-        OSDIoctl(LppdCur->hpid,0,ioctlCustomCommand,8,"slowstep");
+        strcpy(str, "slowstep");
+        OSDIoctl(LppdCur->hpid,0,ioctlCustomCommand,8,str);
     }
 
     return TRUE;
@@ -2039,17 +2138,19 @@ Return Value:
     }
 
     if (argv[0]) {
-        n = strlen(argv[0]) + 1;
+        n = strlen(argv[0]) + 3;
     } else {
-        n = 1;
+        n = 3;
     }
     if (argv[1]) {
         n += strlen(argv[1]) + 1;
     }
     lpb = malloc( n );
+    strcpy(lpb, "\"");
     if (argv[0]) {
-        strcpy(lpb, argv[0]);
+        strcat(lpb, argv[0]);
     }
+    strcat(lpb, "\"");
     if (argv[1]) {
         strcat(lpb, " ");
         strcat(lpb, argv[1]);
@@ -2324,6 +2425,11 @@ GetSourceFromAddress(
         // Canonicalise the found file relative to the ProgramName
 
         lpchFname = SLNameFromHsf (hsf);
+#if 0
+        Assert(SrcLen > 0);
+        _fmemcpy ( SrcFname, lpchFname + 1, min(SrcLen-1, *lpchFname));
+        SrcFname[*lpchFname] = '\0';
+#else
         _fmemcpy ( TmpSrcFname, lpchFname + 1, *lpchFname);
         TmpSrcFname[*lpchFname] = '\0';
         GetExecutableFilename(Executable, sizeof(Executable));
@@ -2331,11 +2437,18 @@ GetSourceFromAddress(
                               Executable,
                               SrcFname,
                               SrcLen);
+#endif
         /// M00HACK
         {
             char * lpch = SrcFname + strlen(SrcFname);
+#ifdef DBCS
+            while (lpch > SrcFname && *lpch != '.'){
+                lpch = CharPrev(SrcFname, lpch);
+            }
+#else
             while (*lpch != '.') lpch--;
-            if (stricmp(lpch, ".OBJ") == 0) {
+#endif
+            if (_stricmp(lpch, ".OBJ") == 0) {
                 strcpy(lpch, ".C");
             }
         }
@@ -2399,7 +2512,8 @@ BOOL PASCAL MoveEditorToAddr(PADDR pAddr)
 
     GotSource = FALSE;
     if (GetSourceFromAddress( pAddr, szFname, sizeof(szFname), &FnameLine)) {
-        GotSource = SrcMapSourceFilename(szFname, sizeof(szFname), SRC_MAP_OPEN);
+        GotSource = SrcMapSourceFilename(szFname, sizeof(szFname),
+                                         SRC_MAP_OPEN, NULL);
         switch( GotSource ) {
         case -2:
             return FALSE;
@@ -2845,35 +2959,17 @@ void PASCAL ZapInt3s(void)
 }
 
 
-/**********************************************************************/
-/**********************************************************************/
-/**********************************************************************/
-/**********************************************************************/
-/**********************************************************************/
-
-/* If you use a critical section, its use MUST be
-     preceded by the following pragma!!!!!         */
-
-#pragma optimize("y", off)
-
-
-/**********************************************************************/
-/**********************************************************************/
-/**********************************************************************/
-/**********************************************************************/
-/**********************************************************************/
-
 int NEAR PASCAL
 GetQueueLength()
 {
     int i;
 
-/* This MUST be compiled with /Oy- !!!!! */
+
     EnterCriticalSection(&csDbgMsgBuffer);
-    /*
-     *  OK so its not the length -- all I currently really care about
-     *  is if there are any messages setting and waiting for me.
-     */
+
+     //  OK so its not the length -- all I currently really care about
+     //  is if there are any messages setting and waiting for me.
+
     i = iDbgMsgBufferFront - iDbgMsgBufferBack;
     LeaveCriticalSection(&csDbgMsgBuffer);
     return i;
@@ -2901,7 +2997,6 @@ Return Value:
     int         newBufferFront;
     BOOLEAN     fEmpty;
 
-/* This MUST be compiled with /Oy- !!!!! */
     EnterCriticalSection(&csDbgMsgBuffer);
 
     newBufferFront = (iDbgMsgBufferFront + 1) % QUEUE_SIZE;
@@ -2942,7 +3037,6 @@ Return Value:
 {
     long    l;
 
-/* This MUST be compiled with /Oy- !!!!! */
     EnterCriticalSection(&csDbgMsgBuffer);
 
     while (iDbgMsgBufferFront == iDbgMsgBufferBack) {
@@ -2959,22 +3053,6 @@ Return Value:
 
     return l;
 }
-
-/**********************************************************************/
-/**********************************************************************/
-/**********************************************************************/
-/**********************************************************************/
-/**********************************************************************/
-
-/* DO NOT use critical sections in code which is compiled with /Oy !!! */
-
-#pragma optimize("y",)
-
-/**********************************************************************/
-/**********************************************************************/
-/**********************************************************************/
-/**********************************************************************/
-/**********************************************************************/
 
 
 LPTD LOCAL PASCAL
@@ -3085,7 +3163,7 @@ Return Value:
 
         AddQueueItemLong( lpinf->fUniCode );
         if (!lpinf->fUniCode) {
-            AddQueueItemLong( (LONG) strdup(lpinf->buffer) );
+            AddQueueItemLong( (LONG) _strdup(lpinf->buffer) );
         } else {
             int     l = lstrlenW((LPWSTR)lpinf->buffer);
             LPWSTR  lpw = malloc(2*l + 2);
@@ -3142,7 +3220,7 @@ Return Value:
     case dbcModLoad:
         fPostMsg = AddQueueItemLong( wMsg );
         AddQueueItemLong((LONG) hpid);
-        AddQueueItemLong((LONG) strdup((LSZ)lParam));    // remember name
+        AddQueueItemLong((LONG) _strdup((LSZ)lParam));    // remember name
         break;
 
     case dbcError:
@@ -3150,7 +3228,7 @@ Return Value:
         AddQueueItemLong((LONG) hpid);
         AddQueueItemLong((LONG) htid);
         AddQueueItemLong((LONG) wParam);
-        AddQueueItemLong((LONG)strdup((LSZ) lParam));
+        AddQueueItemLong((LONG)_strdup((LSZ) lParam));
         break;
 
     case dbcCanStep:
@@ -3581,13 +3659,17 @@ BOOL PASCAL FloadShEe(
             szDllEEAuto = "eecxxalp.dll";
             break;
 
+        case mptmppc:
+            szDllEEAuto = "eecxxppc.dll";
+            break;
+
         case mptUnknown:
         default:
             szDllEEAuto = szDll;
             break;
     }
 
-    if (stricmp( szDll, szDllEEAuto ) != 0) {
+    if (_stricmp( szDll, szDllEEAuto ) != 0) {
         CmdLogFmt("Wrong EE specified, overidden by %s\r\n", szDllEEAuto );
         szDll = szDllEEAuto;
     }
@@ -3951,13 +4033,17 @@ Return Value:
             szDllEMAuto = "emalp.dll";
             break;
 
+        case mptmppc:
+            szDllEMAuto = "emppc.dll";
+            break;
+
         case mptUnknown:
         default:
             szDllEMAuto = szDllEM;
             break;
     }
 
-    if (stricmp( szDllEM, szDllEMAuto ) != 0) {
+    if (_stricmp( szDllEM, szDllEMAuto ) != 0) {
         CmdLogFmt("Wrong EM specified, overidden by %s\r\n", szDllEMAuto );
         szDllEM = szDllEMAuto;
     }
@@ -4237,6 +4323,132 @@ BOOL    SrcNameIsMapped(ATOM atm, LSZ lpb, UINT cb)
     return FALSE;
 }                   /* SrcNameIsMapped() */
 
+/***    MatchOpenedDoc
+**
+**  Synopsis:
+**  int = MatchOpenedDoc
+**
+**  Entry:
+**  lpszSrc  - buffer containing entry & exit filename
+**  cbSrc    - size of lpszSrc buffer in bytes
+**
+**  Returns:
+** -1 - error occurred
+**  0 - no match
+**  1 - found and possibly mapping added
+**
+**  Description:
+**  This routine searches through the doc list and matches doc
+**  that has the same file name as lpszSrc.  If there is a match,
+**  the file has not been mapped, and one of the following conditions
+**  is true:
+**   1. The file satisfies root mapping transformation
+**   2. The file can be found along the source search path
+**   3. The user agrees on the mapping
+**  then a 1 will be returned.
+*/
+INT
+MatchOpenedDoc(
+   LPSTR lpszSrc,
+   UINT cbSrc
+)
+{
+   LPSTR    SrcFile = GetFileName(lpszSrc);
+   CHAR     szDestName[MAX_PATH];
+   int      doc;
+
+   dwMatchCnt = 0;
+   if ( SrcFile ) {
+      for (doc = 0; doc < MAX_DOCUMENTS; doc++) {
+         if (Docs[doc].docType == DOC_WIN && Docs[doc].FirstView != -1 &&
+             _stricmp(GetFileName(Docs[doc].FileName), SrcFile) == 0) {
+            // found a match just based on filename only
+            strcpy(szDestName, Docs[doc].FileName);
+            if (SrcBackMapSourceFilename(szDestName, sizeof(szDestName)) == 0) {
+               // file has no backward mapping
+               if (RootNameIsMapped(lpszSrc, szDestName, sizeof(szDestName)) &&
+                   _stricmp(szDestName, Docs[doc].FileName) == 0) {
+                  SrcSetMapped(lpszSrc, szDestName);
+                  if (cbSrc <= strlen(szDestName))
+                     return (-1);       // error
+                  else {
+                     strcpy(lpszSrc, szDestName);
+                     return (1);        // matched and mapped
+                  }
+               } else if (strcpy(szDestName, lpszSrc) &&
+                          SrcSearchOnPath(szDestName, sizeof(szDestName), FALSE) &&
+                          _stricmp(szDestName, Docs[doc].FileName) == 0) {
+                  SrcSetMapped(lpszSrc, szDestName);
+                  if (cbSrc <= strlen(szDestName))
+                     return (-1);       // error
+                  else {
+                     strcpy(lpszSrc, szDestName);
+                     return (1);        // matched and mapped
+                  }
+               } else { // ask user
+                  MatchedList[dwMatchCnt++] = doc;
+               }
+            }
+         }
+      }
+   }
+   if (dwMatchCnt > 0 && !AutoTest) {
+      if (NoPopups)     {
+         MSG            msg;
+matchopeneddocagain:
+         sprintf( szBrowsePrompt, "File %s can be mapped to several opened documents.\n", lpszSrc );
+         fBrowseAnswer = FALSE;
+         CmdSetCmdProc( CmdMatchOpenedDocInputString, CmdMatchOpenedDocPrompt );
+         CmdSetAutoHistOK(FALSE);
+         CmdSetEatEOLWhitespace(FALSE);
+         CmdDoPrompt( TRUE, TRUE );
+         while (GetMessage( &msg, NULL, 0, 0 )) {
+            ProcessQCQPMessage( &msg );
+            if (fBrowseAnswer) {
+                break;
+            }
+         }
+         if (szBrowseFname[0]) {
+            dwMatchIdx = atoi(szBrowseFname);
+            if (0 < dwMatchIdx && dwMatchIdx <= dwMatchCnt) {
+               SrcFile = Docs[MatchedList[dwMatchIdx-1]].FileName;
+               SrcSetMapped(lpszSrc, SrcFile);
+               if (cbSrc <= strlen(SrcFile))
+                  return(-1);
+               else {
+                  strcpy(lpszSrc, SrcFile);
+                  return(1);
+               }
+            } else {
+               goto matchopeneddocagain;
+            }
+         }
+         CmdSetDefaultCmdProc();
+         CmdDoPrompt(TRUE, TRUE);
+         return 0;
+      }
+      strcpy(szFSSrcName, lpszSrc);
+      StartDialog( DLG_FSRESOLVE, DlgFileSearchResolve );
+      if (dwMatchIdx >= 0) {
+         SrcFile = Docs[MatchedList[dwMatchIdx]].FileName;
+         SrcSetMapped(lpszSrc, SrcFile);
+
+         if (FAddToSearchPath)
+            AddToSearchPath(SrcFile);
+         else if (FAddToRootMap)
+            RootSetMapped(lpszSrc, SrcFile);
+
+         if (cbSrc <= strlen(SrcFile))
+            return(-1);
+         else {
+            strcpy(lpszSrc, SrcFile);
+            return(1);
+         }
+      }
+   }
+   return 0;
+}  // MatchOpenedDoc
+
 
 /***    SrcSearchOnPath
 **
@@ -4260,7 +4472,7 @@ BOOL    SrcNameIsMapped(ATOM atm, LSZ lpb, UINT cb)
 */
 
 
-BOOL SrcSearchOnPath(LSZ lpb, UINT cb)
+BOOL SrcSearchOnPath(LSZ lpb, UINT cb, BOOL fAddToMap)
 {
     char    rgch[_MAX_PATH];
     char    rgch2[_MAX_PATH];
@@ -4290,7 +4502,11 @@ BOOL SrcSearchOnPath(LSZ lpb, UINT cb)
             _splitpath(rgch, szDrive, szDir, szFName, szExt );
             strcpy( rgch2, szDrive );
             strcat( rgch2, szDir );
+#ifdef DBCS
+            p = CharPrev(rgch2, rgch2 + strlen(rgch2));
+#else
             p = rgch2 + strlen(rgch2) - 1;
+#endif
             if ( *p == '\\' ) {
                 *p = '\0';
             }
@@ -4317,7 +4533,8 @@ BOOL SrcSearchOnPath(LSZ lpb, UINT cb)
 
         } else {
 
-            SrcSetMapped(lpb, rgch);
+            if (fAddToMap)
+               SrcSetMapped(lpb, rgch);
 
             _fstrcpy(lpb, rgch);
         }
@@ -4325,6 +4542,71 @@ BOOL SrcSearchOnPath(LSZ lpb, UINT cb)
 
     return Found;
 }                   /* SrcSearchOnPath() */
+
+/***    SrcSearchOnRoot
+**
+**  Synopsis:
+**  bool = SrcSearchOnRoot(lpb, cb)
+**
+**  Entry:
+**  lpb  - buffer containing entry & exit filename
+**  cb   - size of lpb in bytes
+**
+**  Returns:
+**  TRUE if the file was found by root mapping and FALSE otherwise
+**
+**  Description:
+**  This routine compares the given file's root with those stored
+**  in the root mapping table.  If not found, it uses the debuggee's
+**  drive to locate the source.
+*/
+BOOL SrcSearchOnRoot(LSZ lpb, UINT cb)
+{
+   char    rgch[_MAX_PATH];
+   char    rgch2[_MAX_PATH];
+   char    rgchDest[_MAX_PATH];
+   BOOL    Found;
+   char    *p;
+   int     i;
+
+   Found = RootNameIsMapped(lpb, rgchDest, sizeof(rgchDest));
+
+#if 0
+   if (!Found) {
+      _splitpath(lpb, szDrive, szDir, szFName, szExt);
+      Assert(szDir[0] == '\\');
+      sprintf(rgch, "%s%s%s", (szDir[0] == '\\') ? szDir+1 : szDir,
+              szFName, szExt);    // src without drive
+
+      //
+      //  Look into the debuggee's drive
+      //
+      if ( GetCurrentProgramName(FALSE) ) {
+         if (_fullpath(rgch2, GetCurrentProgramName(FALSE), sizeof(rgch2)) != NULL) {
+            // make sure drive letter exists and not the same as
+            // the original one as it would have been searched
+            if (rgch2[1] == ':' && _strnicmp(szDrive, rgch2, 2) != 0) {
+               rgch2[2] = '\0';
+               Found = FindNameOn(rgchDest, sizeof(rgchDest), rgch2, rgch);
+            }
+         }
+      }
+   }
+#endif
+
+   if ( Found ) {
+      if (strlen(rgchDest) >= cb) {
+         //
+         //  Not enough space in return buffer
+         //
+         Found = FALSE;
+      } else {
+         SrcSetMapped(lpb, rgchDest);
+         _fstrcpy(lpb, rgchDest);
+      }
+   }
+   return Found;
+}                   /* SrcSearchOnRoot() */
 
 
 
@@ -4336,7 +4618,8 @@ MiscBrowseForFile(
     UINT    cchDir,
     int     nDefExt,
     int     nIdDlgTitle,
-    void    (*fnSetMapped)(LSZ, LSZ)
+    void    (*fnSetMapped)(LSZ, LSZ),
+    LPOFNHOOKPROC lpfnHook
     )
 /*++
 
@@ -4381,8 +4664,10 @@ Return Value:
     Assert(_fstrlen(lpb) < sizeof(rgchT));
     _fstrcpy(rgchT, lpb);
 
-    _splitpath( rgchT, NULL, NULL, fname, ext );
-    _makepath( rgchT, NULL, NULL, fname, ext );
+    if (DLG_Browse_Filebox_Title != nIdDlgTitle) {
+       _splitpath( rgchT, NULL, NULL, fname, ext );
+       _makepath( rgchT, NULL, NULL, fname, ext );
+    }
 
     GetCurrentDirectory( sizeof( CurrentDirectory ), CurrentDirectory );
     if ( *lpDir ) {
@@ -4396,7 +4681,7 @@ Return Value:
                      FILEOPENORD,
                      rgchT,
                      &dwFlags,
-                     GetOpenFileNameHookProc)
+                     lpfnHook)
     ) {
          Assert( strlen(rgchT) < cb );
 
@@ -4413,10 +4698,6 @@ Return Value:
     return Ret;
 }                   /* MiscBrowseForFile() */
 
-static CHAR  szBrowsePrompt[256];
-static CHAR  szBrowseFname[256];
-static BOOL  fBrowseAnswer;
-
 BOOL NEAR PASCAL
 StringLogger(
     LPSTR       szStr,
@@ -4424,6 +4705,36 @@ StringLogger(
     BOOL        fSendRemote,
     BOOL        fPrintLocal
 );
+
+VOID
+CmdMatchOpenedDocPrompt(
+    BOOL fRemote,
+    BOOL fLocal
+    )
+{
+   int   i;
+   LPSTR lpszName;
+
+    CmdInsertInit();
+    StringLogger( szBrowsePrompt, TRUE, fRemote, fLocal );
+    StringLogger( "Please select from one of the followings or <CR> for none:\n", TRUE, fRemote, fLocal );
+    for (i=0; i < dwMatchCnt; i++) {
+       lpszName = Docs[MatchedList[i]].FileName;
+       sprintf(szBrowsePrompt, "%d. %s\n", i+1, lpszName);
+       StringLogger( szBrowsePrompt, TRUE, fRemote, fLocal );
+    }
+}
+
+BOOL
+CmdMatchOpenedDocInputString(
+    LPSTR lpsz
+    )
+{
+    strcpy( szBrowseFname, lpsz );
+    fBrowseAnswer = TRUE;
+    CmdSetDefaultCmdProc();
+    return TRUE;
+}
 
 VOID
 CmdBrowsePrompt(
@@ -4479,7 +4790,7 @@ DlgBrowse(
                      EndDialog( hDlg,wParam );
                      return TRUE;
 
-                case IDHELP :
+                case IDWINDBGHELP :
                     Dbg(WinHelp(hDlg,szHelpFileName, HELP_CONTEXT, ID_ASKBROWSE_HELP));
                     return TRUE;
             }
@@ -4538,12 +4849,12 @@ SrcBrowseForFile(
 
     if (NoPopups) {
 browseagain:
-        sprintf( szBrowsePrompt, "Cannot load [ %s ] > ", lpb );
+        sprintf( szBrowsePrompt, "Cannot load [ %s ] - Enter new path or <CR> to ignore ", lpb );
         fBrowseAnswer = FALSE;
         CmdSetCmdProc( CmdBrowseInputString, CmdBrowsePrompt );
         CmdSetAutoHistOK(FALSE);
         CmdSetEatEOLWhitespace(FALSE);
-        CmdDoPrompt( FALSE, TRUE );
+        CmdDoPrompt( TRUE, TRUE );
         while (GetMessage( &msg, NULL, 0, 0 )) {
             ProcessQCQPMessage( &msg );
             if (fBrowseAnswer) {
@@ -4558,6 +4869,9 @@ browseagain:
                 goto browseagain;
             }
         }
+
+        CmdSetDefaultCmdProc();
+        CmdDoPrompt(TRUE, TRUE);
         return FALSE;
     }
 
@@ -4593,7 +4907,8 @@ browseagain:
                              sizeof(SrcFileDirectory),
                              DEF_Ext_C,
                              DLG_Browse_Filebox_Title,
-                             SrcSetMapped);
+                             SrcSetMapped,
+                             GetOpenFileNameHookProc);
 }                   /* SrcBrowseForFile() */
 
 BOOL
@@ -4641,7 +4956,8 @@ ExeBrowseForFile(
                              sizeof(ExeFileDirectory),
                              DEF_Ext_SYM,
                              DLG_Browse_UserDll_Title,
-                             ExeSetMapped);
+                             ExeSetMapped,
+                             GetOpenDllNameHookProc);
 }
 
 
@@ -4694,7 +5010,8 @@ ExeBrowseBadSym(
                              sizeof(ExeFileDirectory),
                              DEF_Ext_SYM,
                              DLG_Browse_UserDll_Title,
-                             ExeSetMapped);
+                             ExeSetMapped,
+                             GetOpenDllNameHookProc);
 }
 
 VOID
@@ -4765,21 +5082,20 @@ VOID    SrcSetMasked(LSZ lsz)
 
 VOID    SrcSetMapped(LSZ lsz1, LSZ lsz2)
 {
-    ATOM    atomSrc = AddAtom(lsz1);
-    ATOM    atomTrg = AddAtom(lsz2);
+   ATOM    atomSrc = AddAtom(lsz1);
+   ATOM    atomTrg = AddAtom(lsz2);
 
-    if (RgAtomMappedNames == NULL) {
-    CMacAtomMapped = 10;
-    RgAtomMappedNames = (struct MpPair *) malloc(sizeof(*RgAtomMappedNames)*CMacAtomMapped);
-    } else if (CAtomMapped == CMacAtomMapped) {
-    CMacAtomMapped += 10;
-    RgAtomMappedNames = (struct MpPair *) realloc(RgAtomMappedNames, sizeof(*RgAtomMappedNames)*CMacAtomMapped);
-    }
+   if (RgAtomMappedNames == NULL) {
+      CMacAtomMapped = 10;
+      RgAtomMappedNames = (struct MpPair *) malloc(sizeof(*RgAtomMappedNames)*CMacAtomMapped);
+   } else if (CAtomMapped == CMacAtomMapped) {
+      CMacAtomMapped += 10;
+      RgAtomMappedNames = (struct MpPair *) realloc(RgAtomMappedNames, sizeof(*RgAtomMappedNames)*CMacAtomMapped);
+   }
 
-    RgAtomMappedNames[CAtomMapped].atomSrc = atomSrc;
-    RgAtomMappedNames[CAtomMapped].atomTarget = atomTrg;
-    CAtomMapped += 1;
-    return;
+   RgAtomMappedNames[CAtomMapped].atomSrc = atomSrc;
+   RgAtomMappedNames[CAtomMapped].atomTarget = atomTrg;
+   CAtomMapped += 1;
 }                   /* SrcSetMapped() */
 
 
@@ -4807,7 +5123,14 @@ VOID    SrcSetMapped(LSZ lsz1, LSZ lsz2)
 **
 */
 
-int PASCAL SrcMapSourceFilename(LPSTR lpszSrc, UINT cbSrc, int flags)
+int
+PASCAL
+SrcMapSourceFilename(
+   LPSTR lpszSrc,
+   UINT cbSrc,
+   int flags,
+   FINDDOC lpFindDoc
+)
 {
     ATOM    atomFile;
     int     doc;
@@ -4817,13 +5140,72 @@ int PASCAL SrcMapSourceFilename(LPSTR lpszSrc, UINT cbSrc, int flags)
     **      so then no changes need to be made to the source
     **      file name.
     */
+    if (lpFindDoc == NULL)
+      lpFindDoc = FindDoc;
 
-    if (FindDoc(lpszSrc, &doc, TRUE)) {
-        return( 1 );
+    if ((*lpFindDoc)(lpszSrc, &doc, TRUE)) {
+        return (1);
     }
 
     /*
-    **  Step 2. Does the requested file in fact actually exist on
+    **  Step 2. Make sure file is not on the "I'don't want to hear about it
+    **      list".  If file has been mapped or exists on disk, it would not
+    **      not have been on this list.
+    */
+
+    atomFile = FindAtom(lpszSrc);
+    if (atomFile != (ATOM) NULL &&
+        SrcNameIsMasked(atomFile)) {
+       return 0;
+    }
+
+    /*
+    **  Step 3. Now check to see if the file has been previously remapped
+    **      or not
+    */
+
+    if ((atomFile != (ATOM) NULL) &&
+        SrcNameIsMapped(atomFile, lpszSrc, cbSrc)) {
+        if ((*lpFindDoc)(lpszSrc, &doc, TRUE)) {
+            return 1;
+        } else if (flags & SRC_MAP_OPEN) {
+            if (AddFile(MODE_OPEN, DOC_WIN, lpszSrc, NULL, NULL, TRUE, -1, -1) != -1) {
+                if (FSourceOverlay) {
+                    int iView;
+                    WINDOWPLACEMENT  wp;
+
+                    Dbg((*lpFindDoc)(lpszSrc, &doc, TRUE));
+
+                    for (iView=0; iView < MAX_VIEWS; iView++) {
+                        if ((Views[iView].Doc > -1) &&
+                            (Docs[Views[iView].Doc].docType == DOC_WIN) &&
+                            (Views[iView].Doc != doc)) {
+                            GetWindowPlacement( Views[iView].hwndFrame, &wp );
+                            SetWindowPlacement(Views[Docs[doc].FirstView].hwndFrame,
+                                               &wp);
+                            break;
+                        }
+                    }
+                }
+                return 2;
+            }
+            return -1;
+        }
+        return 0;
+    }
+
+    /*
+    **   Step 4.  The file we are looking for is not on the "I don't
+    **      want to hear about it list" and has no forward mapping.
+    **      Let's consider opened file of the same name.
+    */
+
+    doc = MatchOpenedDoc(lpszSrc, cbSrc);
+    if (doc != 0)
+      return(doc);
+
+    /*
+    **  Step 5. Does the requested file in fact actually exist on
     **      the disk.  If so then we want to read in the file
     **      if requested and return the correct code.
     **
@@ -4839,7 +5221,7 @@ int PASCAL SrcMapSourceFilename(LPSTR lpszSrc, UINT cbSrc, int flags)
                     int iView;
                     WINDOWPLACEMENT  wp;
 
-                    Dbg(FindDoc(lpszSrc, &doc, TRUE));
+                    Dbg((*lpFindDoc)(lpszSrc, &doc, TRUE));
 
                     for (iView=0; iView < MAX_VIEWS; iView++) {
                         if ((Views[iView].Doc > -1) &&
@@ -4862,25 +5244,12 @@ int PASCAL SrcMapSourceFilename(LPSTR lpszSrc, UINT cbSrc, int flags)
     }
 
     /*
-    **  Step 3. The file as specified does not exist on the disk.  We therefore
-    **      should check for being on the "I'don't want to hear about it
-    **      list."
-    */
-
-    atomFile = FindAtom(lpszSrc);
-    if (atomFile == (ATOM) NULL) {
-    } else if (SrcNameIsMasked(atomFile)) {
-    return 0;
-    }
-
-    /*
-    **  Step 4. Now check to see if the file has been previously remapped
+    **  Step 6. Now check to see if the file can be root map
     **      or not
     */
 
-    if ((atomFile != (ATOM) NULL) &&
-        (SrcNameIsMapped(atomFile, lpszSrc, cbSrc))) {
-        if (FindDoc(lpszSrc, &doc, TRUE) ) {
+    if (SrcSearchOnRoot(lpszSrc, cbSrc)) {
+        if ((*lpFindDoc)(lpszSrc, &doc, TRUE) ) {
             return 1;
         } else if (flags & SRC_MAP_OPEN) {
             if (AddFile(MODE_OPEN, DOC_WIN, lpszSrc, NULL, NULL, TRUE, -1, -1) != -1) {
@@ -4888,7 +5257,7 @@ int PASCAL SrcMapSourceFilename(LPSTR lpszSrc, UINT cbSrc, int flags)
                     int iView;
                     WINDOWPLACEMENT  wp;
 
-                    Dbg(FindDoc(lpszSrc, &doc, TRUE));
+                    Dbg((*lpFindDoc)(lpszSrc, &doc, TRUE));
 
                     for (iView=0; iView < MAX_VIEWS; iView++) {
                         if ((Views[iView].Doc > -1) &&
@@ -4914,16 +5283,17 @@ int PASCAL SrcMapSourceFilename(LPSTR lpszSrc, UINT cbSrc, int flags)
     */
 
     if (flags & SRC_MAP_ONLY) {
-    return 0;
+       return 0;
     }
 
     /*
-    **  Step 5. We must now search the source file path for the file.  This
+    **  Step 7. We must now search the source file path for the file.  This
     **      needs to include the cwd and exe directory for the file
     */
 
-    if (SrcSearchOnPath(lpszSrc, cbSrc)) {  // Specified path
-        if (FindDoc(lpszSrc, &doc, TRUE)) {
+    if (SrcSearchOnPath(lpszSrc, cbSrc, TRUE) ||
+        SrcBrowseForFile(lpszSrc, cbSrc)) {
+        if ((*lpFindDoc)(lpszSrc, &doc, TRUE)) {
             return 1;
         } else if (flags & SRC_MAP_OPEN) {
             if (AddFile(MODE_OPEN, DOC_WIN, lpszSrc, NULL, NULL, TRUE, -1, -1) != -1) {
@@ -4931,7 +5301,7 @@ int PASCAL SrcMapSourceFilename(LPSTR lpszSrc, UINT cbSrc, int flags)
                     int iView;
                     WINDOWPLACEMENT  wp;
 
-                    Dbg(FindDoc(lpszSrc, &doc, TRUE));
+                    Dbg((*lpFindDoc)(lpszSrc, &doc, TRUE));
 
                     for (iView=0; iView < MAX_VIEWS; iView++) {
                         if ((Views[iView].Doc > -1) &&
@@ -4951,37 +5321,8 @@ int PASCAL SrcMapSourceFilename(LPSTR lpszSrc, UINT cbSrc, int flags)
         return 0;
     }
 
-
-    if (SrcBrowseForFile(lpszSrc, cbSrc)) {
-        if (FindDoc(lpszSrc, &doc, TRUE)) {
-            return 1;
-        } else if (flags & SRC_MAP_OPEN) {
-            if (AddFile(MODE_OPEN, DOC_WIN, lpszSrc, NULL, NULL, TRUE, -1, -1) != -1) {
-                if (FSourceOverlay) {
-                    int iView;
-                    WINDOWPLACEMENT  wp;
-
-                    Dbg(FindDoc(lpszSrc, &doc, TRUE));
-
-                    for (iView=0; iView < MAX_VIEWS; iView++) {
-                        if ((Views[iView].Doc > -1) &&
-                            (Docs[Views[iView].Doc].docType == DOC_WIN) &&
-                            (Views[iView].Doc != doc)) {
-                            GetWindowPlacement( Views[iView].hwndFrame, &wp );
-                            SetWindowPlacement(Views[Docs[doc].FirstView].hwndFrame,
-                                               &wp);
-                            break;
-                        }
-                    }
-                }
-                return 2;
-            }
-            return -1;
-        }
-        return 0;
-    }
-
-    SrcSetMasked(lpszSrc);
+    SrcSetMasked(lpszSrc); // add file to the I don't
+                           // want to hear about it list.
 
     return 0;
 }                   /* SrcMapSourceFilename() */
@@ -4997,7 +5338,6 @@ int PASCAL SrcMapSourceFilename(LPSTR lpszSrc, UINT cbSrc, int flags)
 **  cbTarget    - size of source buffer
 **
 **  Returns:
-**  -1 - error occured
 **  0 - No mapping done -- no source file mapped
 **  1 - Mapping done
 **
@@ -5134,6 +5474,10 @@ FormatKdParams(
             case 2:
                 strcpy( p, "DM:DMKDALP.DLL " );
                 break;
+
+            case 3:
+                strcpy( p, "DM:DMKDPPC.DLL " );
+                break;
         }
         p += strlen(p);
     }
@@ -5154,3 +5498,333 @@ FormatKdParams(
         free(lpsz);
     }
 }
+
+//
+// Root Mapping Routines
+//
+
+/***    RootSetMapped
+**
+**  Synopsis:
+**  BOOL = RootSetMapped(lsz1, lsz2)
+**
+**  Entry:
+**  lsz1 - Name of file to be mapped from
+**  lsz2 - Name of file to be mapped to
+**
+**  Returns:
+**  TRUE if mapping was successfully recorded
+**
+**  Description:
+**  This function will setup a mapping of source root to target root.
+**  This will allow for a fast reamapping without haveing to do
+**  searches or ask the user a second time.
+**
+*/
+
+BOOL
+RootSetMapped(
+   LSZ lpszSrcRoot,
+   LSZ lpszTargetRoot
+)
+{
+   UINT     i;
+   LPSTR    p, q;
+   CHAR     chpSaved, chqSaved;
+
+   if (lpszSrcRoot == NULL || lpszTargetRoot == NULL ||
+       *lpszSrcRoot == '\0' || *lpszTargetRoot == '\0')
+      return FALSE;  // strlen is zero
+
+   if (!((lpszSrcRoot[1] == ':' ||
+          (lpszSrcRoot[0] == '\\' && lpszSrcRoot[1] == '\\')) &&
+         (lpszTargetRoot[1] == ':' ||
+          (lpszTargetRoot[0] == '\\' && lpszTargetRoot[1] == '\\'))
+        )
+      )
+      return FALSE;  // ignore non fullpath for now
+
+   p = lpszSrcRoot + strlen(lpszSrcRoot) - 1;
+   q = lpszTargetRoot + strlen(lpszTargetRoot) - 1;
+
+   while (p >= lpszSrcRoot && q >= lpszTargetRoot) {
+      if (*(p--) != *(q--)) {
+         p += 2;
+         q += 2;
+         if (*p == ':') {
+            p++;
+            q++;
+            if (*p == '\\') {
+               p++;
+               q++;
+            }
+         } else if (*p == '\\') {
+            p++;
+            q++;
+         }
+         chpSaved = *p;
+         chqSaved = *q;
+         *p = *q = '\0';
+         for (i=0; i<CMappedRoots; i++) {
+            if (_stricmp(RgMappedRoots[i].lpszSrcRoot, lpszSrcRoot) == 0 &&
+                _stricmp(RgMappedRoots[i].lpszTargetRoot, lpszTargetRoot) == 0)
+                return TRUE; // already there
+         }
+         if (CMappedRoots >= MAX_MAPPED_ROOTS) {
+            memcpy(RgMappedRoots,
+                   &(RgMappedRoots[1]),
+                   sizeof(struct MRootPair)*--CMappedRoots);
+         }
+
+         if ((RgMappedRoots[CMappedRoots].lpszSrcRoot = _strdup(lpszSrcRoot)) == NULL)
+            return FALSE;
+         if ((RgMappedRoots[CMappedRoots].lpszTargetRoot = _strdup(lpszTargetRoot)) == NULL) {
+            free(RgMappedRoots[CMappedRoots].lpszSrcRoot);
+            return FALSE;  // error - out of memory? - skip the mapping
+         }
+
+         RgMappedRoots[CMappedRoots++].dwSrcLen = strlen(lpszSrcRoot);
+         *p = chpSaved;
+         *q = chqSaved;
+         return (TRUE);
+      }
+   }
+   return (FALSE);
+}  /* RootSetMapped() */
+
+/***    RootNameIsMapped
+**
+**  Synopsis:
+**  BOOL = RootNameIsMapped(lpb, lpszDest, cbDest)
+**
+**  Entry:
+**  lpb      - Name of file to try for root mapping
+**  lpszDest - Name of file root mapped to
+**  cbDest   - Size of lpszDest buffer
+**
+**  Returns:
+**  TRUE if mapping was successfully done
+**
+**  Description:
+**  This function will try to map the given source in lpb to it's mapped
+**  location.  If file does exists, it will return TRUE and the new full
+**  file path thru lpszDest.
+**
+*/
+
+BOOL
+RootNameIsMapped(
+   LPSTR lpb,
+   LPSTR lpszDest,
+   UINT cbDest
+)
+{
+   struct MRootPair  *lpRoot;
+   char              rgch[_MAX_PATH];
+   char              *p;
+   INT              i;
+
+   for (i=(INT)CMappedRoots-1; i >= 0; i--) {
+      lpRoot = &(RgMappedRoots[i]);
+      if (_strnicmp(lpRoot->lpszSrcRoot, lpb, lpRoot->dwSrcLen) == 0) {
+         strcpy(rgch, lpRoot->lpszTargetRoot);
+         p = rgch + strlen(rgch) - 1;
+         if (*p == '\\')
+            *p = 0;
+         if (FindNameOn(lpszDest, cbDest,
+                        rgch, lpb+lpRoot->dwSrcLen))
+            return(TRUE);
+      }
+   }
+   return(FALSE);
+}
+
+/***    GetRootNameMappings
+**
+**  Synopsis:
+**  BOOL = GetRootNameMappings(String, Length)
+**
+**  Entry:
+**  String - Address of the variable pointing to the multistring
+**  Length - Address of Length of the multi-string
+**
+**  Returns:
+**  TRUE if operation completed successfully
+**
+**  Description:
+**  This function scans thru all the root mappings and returns
+**  all the source and target roots in the form of a multi-string
+**
+*/
+BOOL
+GetRootNameMappings(
+   LPSTR *String,
+   DWORD *Length
+)
+{
+   struct MRootPair  *lpRoot = RgMappedRoots;
+   UINT              i;
+
+   for (i=0; i<CMappedRoots; lpRoot++, i++) {
+      if (!AddToMultiString(String, Length, lpRoot->lpszSrcRoot))
+         return(FALSE);
+      if (!AddToMultiString(String, Length, lpRoot->lpszTargetRoot))
+         return(FALSE);
+   }
+   return(TRUE);
+}
+
+
+/***    SetRootNameMappings
+**
+**  Synopsis:
+**  BOOL = SetRootNameMappings(String, Length)
+**
+**  Entry:
+**  String - Pointer to the multistring
+**  Length - Length of the multi-string
+**
+**  Returns:
+**  TRUE if operation completed successfully
+**
+**  Description:
+**  This function clears all the current root mappings
+**  and reconstruct the root mappings table thru the given
+**  multi-string.
+**
+*/
+BOOL
+SetRootNameMappings(
+   LPSTR String,
+   DWORD Length
+)
+{
+   struct MRootPair  *lpRoot = RgMappedRoots;
+   DWORD             Next = 0;
+   UINT              i;
+   LPSTR             lpsztmp1, lpsztmp2;
+
+   for (i=0; i<CMappedRoots; lpRoot++, i++) {
+      if (lpRoot->lpszSrcRoot)
+         free(lpRoot->lpszSrcRoot);
+      if (lpRoot->lpszTargetRoot)
+         free(lpRoot->lpszTargetRoot);
+   }
+   CMappedRoots = 0;
+
+   lpRoot = RgMappedRoots;
+   while ((lpsztmp1 = GetNextStringFromMultiString(String, Length, &Next)) &&
+          (lpsztmp2 = GetNextStringFromMultiString(String, Length, &Next))) {
+      lpRoot->dwSrcLen = strlen(lpsztmp1);
+      if ((lpRoot->lpszSrcRoot = _strdup(lpsztmp1)) == NULL)
+         return (FALSE);
+      if ((lpRoot->lpszTargetRoot = _strdup(lpsztmp2)) == NULL) {
+         free(lpRoot->lpszSrcRoot);
+         return (FALSE);
+      }
+
+      lpRoot++;
+      CMappedRoots++;
+
+      if (CMappedRoots >= MAX_MAPPED_ROOTS)
+         return (GetNextStringFromMultiString(String, Length, &Next) == NULL);
+      lpsztmp2 = NULL;
+   }
+   return (lpsztmp1 == NULL);
+}
+
+BOOL
+FAR PASCAL EXPORT DlgFileSearchResolve(
+   HWND hDlg,
+   UINT msg,
+   WPARAM wParam,
+   LPARAM lParam
+)
+{
+
+    HDC         hdc;
+    int         i;
+    int         j;
+    int         Idx;
+    int         LargestString = 0;
+    SIZE        Size;
+    HWND        hList;
+    LPSTR       lpszName;
+    CHAR        rgch[128];
+
+    Unreferenced( lParam );
+
+    switch( msg ) {
+
+      case WM_INITDIALOG:
+
+        SendDlgItemMessage(hDlg, ID_FSRESOLVE_STRING, WM_SETTEXT,
+                           0, (DWORD)szFSSrcName);
+
+        LoadString(hInst, DLG_ResolveFSCaption, rgch, sizeof(rgch));
+
+        SetWindowText( hDlg, rgch );
+
+        hList = GetDlgItem(hDlg, ID_FSRESOLVE_LIST);
+
+        for (i=0; i < dwMatchCnt; i++) {
+            lpszName = Docs[MatchedList[i]].FileName;
+
+            hdc = GetDC( hList );
+            GetTextExtentPoint(hdc, lpszName, strlen(lpszName), &Size );
+            ReleaseDC( hList, hdc );
+
+            if ( Size.cx > LargestString ) {
+               LargestString = Size.cx;
+               SendMessage(hList,
+                           LB_SETHORIZONTALEXTENT,
+                           (WPARAM)LargestString,
+                           0 );
+            }
+
+            SendMessage(hList, LB_ADDSTRING, 0, (LONG)lpszName);
+        }
+
+        SendMessage(hList, LB_SETCURSEL, 0, 0L);
+
+        CheckRadioButton(hDlg, ID_FSRESOLVE_ADDNONE, ID_FSRESOLVE_ADDSOURCE,
+                         ID_FSRESOLVE_ADDNONE);
+
+        dwMatchIdx = -1;
+
+        return TRUE;
+
+      case WM_COMMAND:
+
+        switch( LOWORD( wParam ) ) {
+          case ID_FSRESOLVE_USE:
+            Idx = SendDlgItemMessage(hDlg, ID_FSRESOLVE_LIST,
+                                     LB_GETCURSEL, 0, 0);
+            dwMatchIdx = Idx;
+            Assert(dwMatchIdx < dwMatchCnt);
+            FAddToSearchPath = IsDlgButtonChecked( hDlg, ID_FSRESOLVE_ADDSOURCE );
+            FAddToRootMap = IsDlgButtonChecked(hDlg, ID_FSRESOLVE_ADDROOT);
+            if (FAddToSearchPath || FAddToRootMap) {
+               Assert(FAddToSearchPath != FAddToRootMap);
+               Assert(IsDlgButtonChecked(hDlg, ID_FSRESOLVE_ADDNONE) == FALSE);
+            } else
+               Assert(IsDlgButtonChecked(hDlg, ID_FSRESOLVE_ADDNONE));
+            EndDialog(hDlg, TRUE);
+            return TRUE;
+
+
+          case IDCANCEL:        // none
+            dwMatchIdx = -1;
+            EndDialog(hDlg, TRUE);
+            return TRUE;
+
+
+          case IDWINDBGHELP:
+            Dbg( WinHelp( hDlg, szHelpFileName, HELP_CONTEXT, ID_FSRESOLVE_HELP) );
+            return TRUE;
+        }
+        break;
+    }
+    return FALSE;
+}
+

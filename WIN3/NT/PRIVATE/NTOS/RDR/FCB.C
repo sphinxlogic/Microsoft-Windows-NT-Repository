@@ -50,6 +50,7 @@ PFCB
 FindFcb (
     IN PUNICODE_STRING FileName,
     IN PCONNECTLISTENTRY Connection OPTIONAL,
+    IN BOOLEAN DfsFile,
     IN BOOLEAN OpenTargetDirectory
     );
 
@@ -58,9 +59,11 @@ RdrCreateFcb(
     IN PUNICODE_STRING FileName,
     IN PCONNECTLISTENTRY Connection OPTIONAL,
     IN BOOLEAN OpenTargetDirectory,
+    IN BOOLEAN DfsFile,
     IN PFILE_OBJECT FileObject,
     IN USHORT ShareAccess,
-    IN ACCESS_MASK DesiredAccess
+    IN ACCESS_MASK DesiredAccess,
+    IN BOOLEAN LockFcb
     );
 
 VOID
@@ -95,7 +98,6 @@ RdrRealReleaseSize(
 #pragma alloc_text(PAGE, RdrAllocateFcb)
 #pragma alloc_text(PAGE, FindFcb)
 #pragma alloc_text(PAGE, RdrCreateFcb)
-//#pragma alloc_text(PAGE, RdrDereferenceFcb)
 #pragma alloc_text(PAGE, RdrUnlinkAndFreeIcb)
 #pragma alloc_text(PAGE, RdrIsOperationValid)
 #pragma alloc_text(PAGE, RdrFastIoCheckIfPossible)
@@ -233,13 +235,13 @@ RdrInitializeReferenceHistory (
     //
 
     if ( ReferenceHistory->HistoryTable == NULL ) {
-        ReferenceHistory->NextEntry == -1;
+        ReferenceHistory->NextEntry = (ULONG)-1;
     } else {
         ReferenceHistory->NextEntry = 0;
         RtlZeroMemory( ReferenceHistory->HistoryTable, historyTableSize );
     }
 
-    ReferenceHistory->TotalReferences = 0;
+    ReferenceHistory->TotalReferences = InitialReferenceCount;
     ReferenceHistory->TotalDereferences = 0;
 
     //
@@ -317,6 +319,7 @@ Return Value:
     NewIcb->u.f.FileObject = NULL;
     NewIcb->u.f.CcReadAhead = TRUE;
     NewIcb->u.f.CcReliable = TRUE;
+    NewIcb->DeletePending = FALSE;
 
     RtlInitUnicodeString(&NewIcb->DeviceName, NULL);
 
@@ -455,6 +458,7 @@ RdrAllocateFcb (
     IN USHORT ShareAccess,
     IN ACCESS_MASK DesiredAccess,
     IN BOOLEAN OpenTargetDirectory,
+    IN BOOLEAN DfsFile,
     IN PCONNECTLISTENTRY Connection,
     OUT PBOOLEAN FcbWasCreated,
     OUT PBOOLEAN BaseFcbWasCreated OPTIONAL
@@ -487,6 +491,7 @@ Note:
 
 {
     PFCB Fcb;
+    PNONPAGED_FCB NonPagedFcb;
 
     NTSTATUS Status;
 
@@ -506,7 +511,7 @@ Note:
     //  Find a new FCB to match the name passed in.
     //
 
-    Fcb = FindFcb(FileName, Connection, OpenTargetDirectory);
+    Fcb = FindFcb(FileName, Connection, DfsFile, OpenTargetDirectory);
 
     if (Fcb == NULL) {
 
@@ -515,7 +520,14 @@ Note:
         //  FCB.
         //
 
-        Fcb = RdrCreateFcb(FileName, Connection, OpenTargetDirectory, FileObject, ShareAccess, DesiredAccess);
+        Fcb = RdrCreateFcb(FileName,
+                           Connection,
+                           OpenTargetDirectory,
+                           DfsFile,
+                           FileObject,
+                           ShareAccess,
+                           DesiredAccess,
+                           TRUE);
 
         if (Fcb == NULL) {
             KeReleaseMutex(&RdrDatabaseMutex, FALSE);
@@ -523,42 +535,47 @@ Note:
             return NULL;
         }
 
+        NonPagedFcb = Fcb->NonPagedFcb;
+
         if (ARGUMENT_PRESENT(BaseFileName) && (BaseFileName->Length != 0)) {
             //
             //  If there is a base file name specified, look up that FCB.
             //
 
-            Fcb->SharingCheckFcb = FindFcb(BaseFileName, Connection, FALSE);
+            NonPagedFcb->SharingCheckFcb = FindFcb(BaseFileName, Connection, DfsFile, FALSE);
 
             //
             //  If there is no sharing check FCB, allocate a new FCB for
             //  the base file name.
             //
 
-            if (Fcb->SharingCheckFcb == NULL) {
+            if (NonPagedFcb->SharingCheckFcb == NULL) {
                 UNICODE_STRING BaseName;
 
                 if (NT_SUCCESS(RdrpDuplicateUnicodeStringWithString(&BaseName,
                                                     BaseFileName, PagedPool, FALSE))) {
 
-                    Fcb->SharingCheckFcb = RdrCreateFcb(&BaseName,
-                                                    Connection,
-                                                    FALSE,
-                                                    FileObject,
-                                                    ShareAccess,
-                                                    DesiredAccess);
+                    NonPagedFcb->SharingCheckFcb = RdrCreateFcb(&BaseName,
+                                                        Connection,
+                                                        FALSE,
+                                                        DfsFile,
+                                                        FileObject,
+                                                        ShareAccess,
+                                                        DesiredAccess,
+                                                        FALSE);
 
                     if (ARGUMENT_PRESENT(BaseFcbWasCreated)) {
                         *BaseFcbWasCreated = TRUE;
                     }
-                    if (Fcb->SharingCheckFcb == NULL) {
+                    if (NonPagedFcb->SharingCheckFcb == NULL) {
                         if (BaseName.Buffer != NULL) {
                             FREE_POOL(BaseName.Buffer);
                         }
                     }
                 }
 
-                if (Fcb->SharingCheckFcb == NULL) {
+                if (NonPagedFcb->SharingCheckFcb == NULL) {
+                    ExReleaseResource(Fcb->Header.Resource);
                     RdrDereferenceFcb(NULL, Fcb->NonPagedFcb, FALSE, 0, NULL);
 
                     KeReleaseMutex(&RdrDatabaseMutex, FALSE);
@@ -574,10 +591,10 @@ Note:
             }
 
         } else {
-            Fcb->SharingCheckFcb = NULL;
+            NonPagedFcb->SharingCheckFcb = NULL;
         }
 
-        ASSERT (Fcb->SharingCheckFcb != Fcb);
+        ASSERT (NonPagedFcb->SharingCheckFcb != Fcb);
 
         *FcbWasCreated = TRUE;
 
@@ -613,37 +630,34 @@ Note:
 
     KeReleaseMutex(&RdrDatabaseMutex, FALSE);
 
-    //
-    //  This thread had better NOT own this resource.
-    //
+    if (!*FcbWasCreated) {
 
-    ASSERT (!ExIsResourceAcquiredExclusive(Fcb->Header.Resource));
+        //
+        //  This thread had better NOT own this resource.
+        //
 
-    //
-    //  Wait for any open operations active on the file to complete
-    //  before attempting to acquire the FCB resource.  This is necessary
-    //  because we might be releasing the FCB resource in the middle
-    //  of the open operation, and we don't want another thread
-    //  coming in to use this file while we are in the process of opening
-    //  it.
-    //
+        ASSERT (!ExIsResourceAcquiredExclusive(Fcb->Header.Resource));
 
-    Status = KeWaitForSingleObject(&Fcb->NonPagedFcb->CreateComplete, Executive,
-                                            KernelMode, FALSE, NULL);
-    ASSERT(NT_SUCCESS(Status));
+        //
+        //  Wait for any open operations active on the file to complete
+        //  before attempting to acquire the FCB resource.  This is necessary
+        //  because we might be releasing the FCB resource in the middle
+        //  of the open operation, and we don't want another thread
+        //  coming in to use this file while we are in the process of opening
+        //  it.
+        //
 
-    //
-    //  This thread had better NOT own this resource.
-    //
+        Status = KeWaitForSingleObject(&Fcb->NonPagedFcb->CreateComplete, Executive,
+                                                KernelMode, FALSE, NULL);
+        ASSERT(NT_SUCCESS(Status));
 
-    ASSERT (!ExIsResourceAcquiredExclusive(Fcb->Header.Resource));
+        //
+        //  Wait for any asynchronous operations outstanding on this
+        //  file to complete before allowing the open to continue.
+        //
 
-    //
-    //  Wait for any asynchronous operations outstanding on this
-    //  file to complete before allowing the open to continue.
-    //
-
-    RdrAcquireFcbLock(Fcb, ExclusiveLock, TRUE);
+        RdrAcquireFcbLock(Fcb, ExclusiveLock, TRUE);
+    }
 
     //
     //  Stick this instance onto the tail of the FCB's instance
@@ -663,9 +677,11 @@ RdrCreateFcb(
     IN PUNICODE_STRING FileName,
     IN PCONNECTLISTENTRY Connection OPTIONAL,
     IN BOOLEAN OpenTargetDirectory,
+    IN BOOLEAN DfsFile,
     IN PFILE_OBJECT FileObject,
     IN USHORT ShareAccess,
-    IN ACCESS_MASK DesiredAccess
+    IN ACCESS_MASK DesiredAccess,
+    IN BOOLEAN LockFcb
     )
 {
     PFCB Fcb;
@@ -686,6 +702,9 @@ RdrCreateFcb(
         FREE_POOL(NonPagedFcb);
         return NULL;
     }
+
+    RtlZeroMemory( Fcb, sizeof( FCB ) );
+    RtlZeroMemory( NonPagedFcb, sizeof( NONPAGED_FCB ) );
 
     Fcb->Header.NodeTypeCode = STRUCTURE_SIGNATURE_FCB;
     Fcb->Header.NodeByteSize = sizeof(FCB);
@@ -744,23 +763,9 @@ RdrCreateFcb(
 
     NonPagedFcb->RefCount = 1;
 
-#if DBG
-    if (0) {
-        PVOID caller, callerscaller;
-        RtlGetCallersAddress( &caller, &callerscaller );
-        KdPrint(( "FCB %lx create; now %ld; %lx %lx\n",
-                            Fcb, Fcb->NonPagedFcb->RefCount, caller, callerscaller ));
+    if (DfsFile) {
+        NonPagedFcb->Flags = FCB_DFSFILE;
     }
-#endif
-    Fcb->NumberOfOpens = 0;
-
-    NonPagedFcb->Flags = 0;
-
-    NonPagedFcb->SectionObjectPointer.DataSectionObject = NULL;
-    NonPagedFcb->SectionObjectPointer.SharedCacheMap = NULL;
-    NonPagedFcb->SectionObjectPointer.ImageSectionObject = NULL;
-
-    NonPagedFcb->OplockedSecurityEntry = NULL;
 
     //
     //  Initialize file type.
@@ -787,12 +792,6 @@ RdrCreateFcb(
     //
 
     Fcb->WriteBehindPages = (ETHERNET_BANDWIDTH*WRITE_BEHIND_AMOUNT_TIME) / PAGE_SIZE;
-
-    //
-    //  Initialize the sharing check FCB to a known value.
-    //
-
-    Fcb->SharingCheckFcb = NULL;
 
     Fcb->AcquireSizeRoutine = RdrNullAcquireSize;
 
@@ -851,21 +850,7 @@ RdrCreateFcb(
 
     Fcb->Header.NodeByteSize = sizeof(FCB);
 
-    Fcb->Header.Flags = 0;
-
     Fcb->Header.IsFastIoPossible = FastIoIsQuestionable;
-
-    Fcb->Header.ValidDataLength.HighPart =
-            Fcb->Header.ValidDataLength.LowPart = 0;
-
-    Fcb->Header.AllocationSize.HighPart =
-            Fcb->Header.AllocationSize.LowPart = 0;
-
-    Fcb->Header.FileSize.HighPart =
-            Fcb->Header.FileSize.LowPart = 0;
-
-    Fcb->LazyWritingThread = NULL;
-    Fcb->ReadAheadThread = NULL;
 
     FsRtlInitializeFileLock(&Fcb->FileLock,
             RdrLockOperationCompletion, RdrUnlockOperation);
@@ -879,6 +864,12 @@ RdrCreateFcb(
     //  We know we're going to return this FCB.  Stick it on the global
     //  and per-connection FCB chain.
     //
+    //  If requested, lock the FCB before making it visible.
+    //
+
+    if (LockFcb) {
+        ExAcquireResourceExclusive(Fcb->Header.Resource, TRUE);
+    }
 
     InsertTailList (&RdrFcbHead, &Fcb->GlobalNext);
 
@@ -895,25 +886,9 @@ RdrCreateFcb(
 
         RdrReferenceConnection(Connection);
 
-    } else {
-
-        Fcb->Connection = NULL;
-
-        Fcb->ConnectNext.Flink = NULL;
-        Fcb->ConnectNext.Blink = NULL;
-
     }
 
-#if DBG
-    if (0) {
-        PVOID caller, callerscaller;
-        RtlGetCallersAddress( &caller, &callerscaller );
-        KdPrint(( "RdrCreateFcb %lx now %ld; %lx %lx\n",
-                            Fcb, NonPagedFcb->RefCount, caller, callerscaller ));
-    }
-#endif
     return Fcb;
-
 }
 
 DBGSTATIC
@@ -921,6 +896,7 @@ PFCB
 FindFcb (
     IN PUNICODE_STRING FileName,
     IN PCONNECTLISTENTRY Connection OPTIONAL,
+    IN BOOLEAN DfsFile,
     IN BOOLEAN OpenTargetDirectory
     )
 
@@ -952,6 +928,8 @@ Note:
     UNICODE_STRING NameToCheck;
     UNICODE_STRING TargetFileName;
 
+    ULONG       DfsFlagToCheck;
+
     PAGED_CODE();
 
     if (OpenTargetDirectory) {
@@ -959,6 +937,8 @@ Note:
     } else {
         NameToCheck = *FileName;
     }
+
+    DfsFlagToCheck = DfsFile ? FCB_DFSFILE : 0;
 
     if (Connection == NULL) {
         for (FcbEntry = RdrFcbHead.Flink
@@ -969,6 +949,10 @@ Note:
             Fcb = CONTAINING_RECORD(FcbEntry, FCB, GlobalNext);
 
             dprintf(DPRT_FCB, ("Compare %wZ with %wZ\n", FileName, &Fcb->FileName));
+
+            if ((Fcb->NonPagedFcb->Flags & FCB_DFSFILE) != DfsFlagToCheck) {
+                continue;
+            }
 
             if (RtlEqualUnicodeString(&Fcb->FileName, &NameToCheck, TRUE)) {
 
@@ -1004,6 +988,10 @@ Note:
 
             dprintf(DPRT_FCB, ("Compare %wZ with %wZ\n", FileName, &Fcb->FileName));
 
+            if ((Fcb->NonPagedFcb->Flags & FCB_DFSFILE) != DfsFlagToCheck) {
+                continue;
+            }
+
             if (RtlEqualUnicodeString(&Fcb->FileName, &NameToCheck, TRUE)) {
 
                 //
@@ -1026,7 +1014,6 @@ Note:
 
     return NULL;
 }
-
 
 BOOLEAN
 RdrDereferenceFcb (
@@ -1071,69 +1058,44 @@ Return Value:
 
     DISCARDABLE_CODE(RdrFileDiscardableSection);
 
-//    PAGED_CODE();
-
     dprintf(DPRT_FCB, ("DereferenceFCB, FCB: %08lx\n", Fcb));
 
     //
-    //  If we're not going to delete the FCB, early out
-    //  by dereferencing the FCB while we hold the spin lock.  Since we're
-    //  not going to modify any of the database chains, we don't need to hold
-    //  the database mutex, just the FCB reference count spin lock.
+    //  If we're not going to delete the FCB, and we don't own the FCB
+    //  lock, early out by dereferencing the FCB while we hold the spin
+    //  lock.  Since we're not going to modify any of the database
+    //  chains, we don't need to hold the database mutex, just the FCB
+    //  reference count spin lock.
     //
-
-
-#if DBG
-    if (0) {
-        PVOID caller, callerscaller;
-        RtlGetCallersAddress( &caller, &callerscaller );
-        KdPrint(( "RdrDereferenceFcb %lx now %ld; %lx %lx\n",
-                            Fcb, NonPagedFcb->RefCount-1, caller, callerscaller ));
-    }
-#endif
+    //  We can't take the fast path if we own the FCB lock, because
+    //  if we did we'd end up touching the FCB after decrementing the
+    //  reference count and releasing the lock, which would mean that
+    //  some other thread could interrupt us and decrement the count
+    //  to 0 and free the FCB.
+    //
 
     GET_CALLERS_ADDRESS(&Caller, &CallersCaller);
 
-    ACQUIRE_SPIN_LOCK(&RdrFcbReferenceLock, &OldIrql);
+    if ( !FcbLocked && (NonPagedFcb->RefCount > 1) ) {
 
-    ASSERT((LONG)NonPagedFcb->RefCount > 0);
+        ACQUIRE_SPIN_LOCK(&RdrFcbReferenceLock, &OldIrql);
 
-    if (NonPagedFcb->RefCount > 1) {
+        ASSERT((LONG)NonPagedFcb->RefCount > 0);
 
-        UPDATE_REFERENCE_HISTORY(&NonPagedFcb->ReferenceHistory, TRUE, Caller, CallersCaller);
-        NonPagedFcb->RefCount -= 1;
+        if (NonPagedFcb->RefCount > 1) {
 
-        ASSERT (NonPagedFcb->RefCount > 0);
+            UPDATE_REFERENCE_HISTORY(&NonPagedFcb->ReferenceHistory, TRUE, Caller, CallersCaller);
+            NonPagedFcb->RefCount -= 1;
 
-        RELEASE_SPIN_LOCK(&RdrFcbReferenceLock, OldIrql);
+            ASSERT (NonPagedFcb->RefCount > 0);
 
-        if (FcbLocked) {
+            RELEASE_SPIN_LOCK(&RdrFcbReferenceLock, OldIrql);
 
-            if (DereferencingThread == 0) {
-                ASSERT (ExIsResourceAcquiredExclusive(Fcb->Header.Resource) ||
-                        ExIsResourceAcquiredShared(Fcb->Header.Resource));
-//            } else {
-//                ASSERT (Fcb->Header.Resource->Threads[0] == DereferencingThread);
-            }
-
-            //
-            //  We want to release the lock that was applied during the start
-            //  of the close operation.  This is the first time that it is
-            //  safe to do so.
-            //
-
-            if (DereferencingThread != 0) {
-                RdrReleaseFcbLockForThread(Fcb, DereferencingThread);
-            } else {
-                RdrReleaseFcbLock(Fcb);
-
-            }
+            return FALSE;
         }
 
-        return FALSE;
+        RELEASE_SPIN_LOCK(&RdrFcbReferenceLock, OldIrql);
     }
-
-    RELEASE_SPIN_LOCK(&RdrFcbReferenceLock, OldIrql);
 
     ASSERT (KeGetCurrentIrql() <= APC_LEVEL);
 
@@ -1167,6 +1129,7 @@ Return Value:
         }
     }
 #endif
+
     ACQUIRE_SPIN_LOCK(&RdrFcbReferenceLock, &OldIrql);
 
     ASSERT(NonPagedFcb->RefCount > 0);
@@ -1186,10 +1149,8 @@ Return Value:
 
         dprintf(DPRT_FCB, ("Free FCB %08lx\n", Fcb));
 
-#if     DBG
-        {
-            ASSERT(IsListEmpty(&Fcb->InstanceChain));
-        }
+#if DBG
+        ASSERT(IsListEmpty(&Fcb->InstanceChain));
 #endif
 
         if (Fcb->FileName.Buffer != NULL) {
@@ -1238,12 +1199,12 @@ Return Value:
         //  then dereference that FCB.
         //
 
-        ASSERT (Fcb->SharingCheckFcb != Fcb);
+        ASSERT (NonPagedFcb->SharingCheckFcb != Fcb);
 
-        if (Fcb->SharingCheckFcb != NULL) {
-            RdrDereferenceFcb(Irp, Fcb->SharingCheckFcb->NonPagedFcb, FALSE, DereferencingThread, Se);
+        if (NonPagedFcb->SharingCheckFcb != NULL) {
+            RdrDereferenceFcb(Irp, NonPagedFcb->SharingCheckFcb->NonPagedFcb, FALSE, DereferencingThread, Se);
 
-            Fcb->SharingCheckFcb = NULL;
+            NonPagedFcb->SharingCheckFcb = NULL;
         }
 
 
@@ -1279,6 +1240,13 @@ Return Value:
     } else {
 
         RELEASE_SPIN_LOCK(&RdrFcbReferenceLock, OldIrql);
+
+        //
+        // Note that even though we have decremented the reference count
+        // and released the spin lock, it is still safe to touch the FCB
+        // here because we own the database mutex, and no other thread
+        // can decrement the count to 0 until we release the mutex.
+        //
 
         if (FcbLocked) {
 
@@ -1353,16 +1321,7 @@ Return Value:
 
     RELEASE_SPIN_LOCK(&RdrFcbReferenceLock, OldIrql);
 
-#if DBG
-    if (0) {
-        PVOID caller, callerscaller;
-        RtlGetCallersAddress( &caller, &callerscaller );
-        KdPrint(( "RdrReferenceFcb %lx now %ld; %lx %lx\n",
-                            Fcb, NonPagedFcb->RefCount, caller, callerscaller ));
-    }
-#endif
-
-
+    return;
 }
 
 VOID
@@ -1466,9 +1425,6 @@ Return Value:
 --*/
 
 {
-    NTSTATUS Status = STATUS_SUCCESS;
-    PFCB Fcb = Icb->Fcb;
-
     PAGED_CODE();
 
     if (Icb->Type > sizeof(RdrLegalIrpFunctions)/sizeof(RdrLegalIrpFunctions[0])) {
@@ -1478,6 +1434,31 @@ Return Value:
 
     if (!(RdrLegalIrpFunctions[Icb->Type] & (1 << NtOperation))) {
         return STATUS_INVALID_PARAMETER;
+    }
+
+    //
+    //  If the file object has already been cleaned up, and
+    //
+    //  A) This request is a close operation, or
+    //  B) This request is a set or query info call (for Lou)
+    //
+    //  let it pass, otherwise return STATUS_FILE_CLOSED.
+    //
+    //  Note that we check for paging I/O external to this routine.
+    //
+
+    if ( FlagOn(FileObject->Flags, FO_CLEANUP_COMPLETE) ) {
+
+        if ( (NtOperation == IRP_MJ_CLOSE) ||
+             (NtOperation == IRP_MJ_SET_INFORMATION) ||
+             (NtOperation == IRP_MJ_QUERY_INFORMATION) ) {
+
+            NOTHING;
+
+        } else {
+
+            return STATUS_FILE_CLOSED;
+        }
     }
 
     //
@@ -1492,65 +1473,58 @@ Return Value:
         return STATUS_SUCCESS;
     }
 
-    try {
+    if ( Icb->Flags & (ICB_ERROR | ICB_RENAMED | ICB_FORCECLOSED |
+                       ICB_DELETE_PENDING )) {
+        //
+        //  If the file was administratively closed (NETUSEDEL),
+        //  return an appropriate error.
+        //
 
-
-        if ( Icb->Flags & (ICB_ERROR | ICB_RENAMED | ICB_FORCECLOSED |
-                           ICB_DELETE_PENDING )) {
-            //
-            //  If the file was administratively closed (NETUSEDEL),
-            //  return an appropriate error.
-            //
-
-            if (Icb->Flags & ICB_FORCECLOSED) {
-                try_return(Status = STATUS_FILE_FORCED_CLOSED);
-            }
-
-            //
-            //  If the file was invalidated due to some other reason (ie a VC
-            //  going down), return unexpected network error.
-            //
-
-            if (Icb->Flags & ICB_ERROR) {
-                try_return(Status = STATUS_UNEXPECTED_NETWORK_ERROR);
-            }
-
-            if (FileObject->DeletePending) {
-                try_return(Status = STATUS_DELETE_PENDING);
-            }
-
-            if (Icb->Flags & ICB_RENAMED) {
-                try_return(Status = STATUS_FILE_RENAMED);
-            }
-
+        if (Icb->Flags & ICB_FORCECLOSED) {
+            return STATUS_FILE_FORCED_CLOSED;
         }
 
         //
-        //  If this ICB doesn't have a handle, but we are trying to perform
-        //  an operation that requires a handle (like a read/write/lock),
-        //  we want to return an error unless we have an ICB thats going
-        //  to have a handle created by the read/write/lock.
-        //
-        //
-        //  We perform this check in addition to the above global check because
-        //  certain operation can be performed on the file that can cause
-        //  its handle to "go away", such as RENAME or DELETE.
+        //  If the file was invalidated due to some other reason (ie a VC
+        //  going down), return unexpected network error.
         //
 
-        if (!(Icb->Flags & (ICB_HASHANDLE | ICB_DEFERREDOPEN)) &&
-            ((NtOperation == IRP_MJ_READ) ||
-             (NtOperation == IRP_MJ_WRITE) ||
-             (NtOperation == IRP_MJ_LOCK_CONTROL) ||
-             (NtOperation == IRP_MJ_FLUSH_BUFFERS) ||
-             (NtOperation == IRP_MJ_DEVICE_CONTROL))) {
-            try_return(Status = STATUS_INVALID_DEVICE_REQUEST);
+        if (Icb->Flags & ICB_ERROR) {
+            return STATUS_UNEXPECTED_NETWORK_ERROR;
         }
 
-try_exit: NOTHING;
-    } finally {
+        if (FileObject->DeletePending) {
+            return STATUS_DELETE_PENDING;
+        }
+
+        if (Icb->Flags & ICB_RENAMED) {
+            return STATUS_FILE_RENAMED;
+        }
+
     }
 
-    return Status;
+    //
+    //  If this ICB doesn't have a handle, but we are trying to perform
+    //  an operation that requires a handle (like a read/write/lock),
+    //  we want to return an error unless we have an ICB thats going
+    //  to have a handle created by the read/write/lock.
+    //
+    //
+    //  We perform this check in addition to the above global check because
+    //  certain operation can be performed on the file that can cause
+    //  its handle to "go away", such as RENAME or DELETE.
+    //
+
+    if (!(Icb->Flags & (ICB_HASHANDLE | ICB_DEFERREDOPEN)) &&
+        ((NtOperation == IRP_MJ_READ) ||
+         (NtOperation == IRP_MJ_WRITE) ||
+         (NtOperation == IRP_MJ_LOCK_CONTROL) ||
+         (NtOperation == IRP_MJ_FLUSH_BUFFERS) ||
+         (NtOperation == IRP_MJ_DEVICE_CONTROL))) {
+        return STATUS_INVALID_DEVICE_REQUEST;
+    }
+
+    return STATUS_SUCCESS;
 }
 
 
@@ -1607,8 +1581,8 @@ Return Value:
 
     ASSERT (Fcb->Header.NodeTypeCode == STRUCTURE_SIGNATURE_FCB);
 
-    //RdrLog( "chkfast", &Icb->Fcb->FileName, FileOffset->LowPart,
-    //        Length | (CheckForReadOperation ? ('r'<<24) : ('w'<<24)) );
+    //RdrLog(( "chkfast", &Icb->Fcb->FileName, 2, FileOffset->LowPart,
+    //        Length | (CheckForReadOperation ? ('r'<<24) : ('w'<<24)) ));
 
     if (!RdrAcquireFcbLock(Fcb, SharedLock, Wait)) {
         return FALSE;
@@ -1846,14 +1820,14 @@ InvalidateFcb(
 
         if (Context->CloseFile) {
 
-            RdrLog( "rdflush9", &Fcb->FileName, 0, 0 );
+            //RdrLog(( "rdflush9", &Fcb->FileName, 0 ));
             Status = RdrFlushCacheFile(Fcb);
 
             Status = RdrUnlockFileLocks(Fcb, Context->DeviceName);
 
         }
 
-        RdrLog( "rdpurge9", &Fcb->FileName, 0, 0 );
+        //RdrLog(( "rdpurge9", &Fcb->FileName, 0 ));
         Status = RdrPurgeCacheFile(Fcb);
 
     }
@@ -2098,6 +2072,7 @@ Return Value:
         dprintf(DPRT_FCB, ("Failed to acquire FCB lock, FCB: %08lx\n", Fcb));
     }
 #endif
+
 
     return Result;
 }
@@ -2550,9 +2525,10 @@ RdrNullAcquireSize(
     )
 {
     PAGED_CODE();
-    return;
 
     UNREFERENCED_PARAMETER(Fcb);
+
+    return;
 }
 
 VOID
@@ -2561,9 +2537,10 @@ RdrNullReleaseSize(
     )
 {
     PAGED_CODE();
-    return;
 
     UNREFERENCED_PARAMETER(Fcb);
+
+    return;
 }
 VOID
 RdrRealAcquireSize(

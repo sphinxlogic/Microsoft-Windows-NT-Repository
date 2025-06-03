@@ -1,6 +1,6 @@
 /*++
 
-Copyright (c) 1990-1992  Microsoft Corporation
+Copyright (c) 1990-1995  Microsoft Corporation
 
 Module Name:
 
@@ -30,7 +30,25 @@ Revision History:
 //
 
 #define NUM_S3_ACCESS_RANGES 36
+#define NUM_S3_PCI_ACCESS_RANGES 2
 #define S3_EXTENDED_RANGE_START 4
+
+//
+// Index of Frame buffer in access range array
+//
+
+#define A000_FRAME_BUF   1
+#define LINEAR_FRAME_BUF 36
+
+//
+// Constants defining 'New Memory-mapped I/O' window:
+//
+
+#define NEW_MMIO_WINDOW_SIZE    0x4000000   // Total window size -- 64 MB
+#define NEW_MMIO_IO_OFFSET      0x1000000   // Offset to start of little endian
+                                            //   control registers -- 16 MB
+#define NEW_MMIO_IO_LENGTH      0x0020000   // Length of control registers
+                                            //   -- 128 KB
 
 ////////////////////////////////////////////////////////////////////////
 // Capabilities flags
@@ -45,6 +63,32 @@ Revision History:
 //       'driver.h'!
 
 typedef enum {
+    CAPS_NO_DDRAW           = 0x00000020,   // Do NOT enable Direct Draw
+    CAPS_STREAMS_CAPABLE    = 0x00000040,   // Has overlay streams processor
+    CAPS_FORCE_DWORD_REREADS= 0x00000080,   // Dword reads occasionally return
+                                            //   an incorrect result, so always
+                                            //   retry the reads
+    CAPS_NEW_MMIO           = 0x00000100,   // Can use 'new memory-mapped
+                                            //   I/O' scheme introduced with
+                                            //   868/968
+    CAPS_POLYGON            = 0x00000200,   // Can do polygons in hardware
+    CAPS_24BPP              = 0x00000400,   // Has 24bpp capability
+    CAPS_BAD_24BPP          = 0x00000800,   // Has 868/968 early rev chip bugs
+                                            //   when at 24bpp
+    CAPS_PACKED_EXPANDS     = 0x00001000,   // Can do 'new 32-bit transfers'
+    CAPS_PIXEL_FORMATTER    = 0x00002000,   // Can do colour space conversions,
+                                            //   and one-dimensional hardware
+                                            //   stretches
+    CAPS_BAD_DWORD_READS    = 0x00004000,   // Dword or word reads from the
+                                            //   frame buffer will occasionally
+                                            //   return an incorrect result,
+                                            //   so always do byte reads
+    CAPS_NO_DIRECT_ACCESS   = 0x00008000,   // Frame buffer can't be directly
+                                            //   accessed by GDI or DCI --
+                                            //   because dword or word reads
+                                            //   would crash system, or Alpha
+                                            //   is running in sparse space
+
     CAPS_HW_PATTERNS        = 0x00010000,   // 8x8 hardware pattern support
     CAPS_MM_TRANSFER        = 0x00020000,   // Memory-mapped image transfers
     CAPS_MM_IO              = 0x00040000,   // Memory-mapped I/O
@@ -53,20 +97,22 @@ typedef enum {
     CAPS_SW_POINTER         = 0x00200000,   // No hardware pointer; use software
                                             //   simulation
     CAPS_BT485_POINTER      = 0x00400000,   // Use Brooktree 485 pointer
-    CAPS_MASKBLT_CAPABLE    = 0x00800000,   // Hardware can handle masked blts
-    CAPS_NEW_BANK_CONTROL   = 0x01000000,   // Set if 801/805/928 style banking
-    CAPS_NEWER_BANK_CONTROL = 0x02000000,   // Set if 864/964 style banking
-    CAPS_RE_REALIZE_PATTERN = 0x04000000,   // Set if we have to work around the
-                                            //   864/964 hardware pattern bug
-    CAPS_SLOW_MONO_EXPANDS  = 0x08000000,   // Set if we have to slow down
-                                            //   monochrome expansions
-    CAPS_MM_GLYPH_EXPAND    = 0x10000000,   // Use memory-mapped I/O glyph-
-                                            //   expand method of drawing text
-                                            //   (always implied for non-x86)
-    CAPS_SCALE_POINTER      = 0x20000000,   // Set if the S3 hardware pointer
+    CAPS_TI025_POINTER      = 0x00800000,   // Use TI TVP3020/3025 pointer
+    CAPS_SCALE_POINTER      = 0x01000000,   // Set if the S3 hardware pointer
                                             //   x position has to be scaled by
                                             //   two
-    CAPS_TI025_POINTER      = 0x40000000,   // Use TI TVP3020/3025 pointer
+    CAPS_SPARSE_SPACE       = 0x02000000,   // Frame buffer is mapped in sparse
+                                            //   space on the Alpha
+    CAPS_NEW_BANK_CONTROL   = 0x04000000,   // Set if 801/805/928 style banking
+    CAPS_NEWER_BANK_CONTROL = 0x08000000,   // Set if 864/964 style banking
+    CAPS_RE_REALIZE_PATTERN = 0x10000000,   // Set if we have to work around the
+                                            //   864/964 hardware pattern bug
+    CAPS_SLOW_MONO_EXPANDS  = 0x20000000,   // Set if we have to slow down
+                                            //   monochrome expansions
+    CAPS_MM_GLYPH_EXPAND    = 0x40000000,   // Use memory-mapped I/O glyph-
+                                            //   expand method of drawing text
+    CAPS_WAIT_ON_PALETTE    = 0x80000000,   // Wait for vertical retrace before
+                                            //   setting the palette registers
 } CAPS;
 
 #define CAPS_DAC_POINTER    (CAPS_BT485_POINTER | CAPS_TI025_POINTER)
@@ -83,20 +129,75 @@ typedef enum _S3_BOARDS {
     S3_METHEUS,
     S3_DIAMOND,
     S3_HP,
+    S3_IBM_PS2,
     MAX_S3_BOARD
 } S3_BOARDS;
 
 //
-// Chip type definitions
+// Chip type definitions -- for families of chips
+//
+// if you change this typedef it will change the size of the second element
+// (named Fixed) of the union in the typedef for S3_VIDEO_FREQUENCIES and
+// PS3_VIDEO_FREQUENCIES, look at that typedef for a caution about the effect
+// this will have on autoinitialization
 //
 
 typedef enum _S3_CHIPSETS {
     S3_911 = 0,    // 911 and 924 boards
     S3_801,        // 801 and 805 boards
     S3_928,        // 928 boards
-    S3_864,        // 864 and 964 boards
+    S3_864,        // 864, 964, 732, 764, and 765 boards
+    S3_866,        // 866, 868, and 968 boards
     MAX_S3_CHIPSET
 } S3_CHIPSET;
+
+//
+// Chip subtypes -- for more differentiation within families
+//
+// Note that ordering is important.
+//
+
+typedef enum _S3_SUBTYPE {
+    SUBTYPE_911 = 0,    // 911 and 924
+    SUBTYPE_80x,        // 801 and 805
+    SUBTYPE_928,        // 928 and 928PCI
+    SUBTYPE_805i,       // 805i
+    SUBTYPE_864,        // 864
+    SUBTYPE_964,        // 964
+    SUBTYPE_764,        // Trio64
+    SUBTYPE_732,        // Trio32
+    SUBTYPE_866,        // 866
+    SUBTYPE_868,        // 868
+    SUBTYPE_765,        // Trio64 V+
+    SUBTYPE_968,        // 968
+    SUBTYPE_M65,        // M65 Laptop Chipset
+    MAX_S3_SUBTYPE
+} S3_CHIPSET;
+
+//
+// DAC type definitions
+//
+
+typedef enum _S3_DACS {
+    UNKNOWN_DAC = 0,    // unknown DAC type
+    BT_485,             // Brooktree's Bt 485
+    TI_3020,            // TI's 3020 or 3025
+    S3_SDAC,            // S3's SDAC
+    MAX_S3_DACS
+} S3_DACS;
+
+//
+// Hardware pointer capabilities flags
+//
+
+typedef enum _POINTER_CAPABILITY {
+    POINTER_BUILT_IN            = 0x01, // A pointer is built in to the hardware
+    POINTER_WORKS_ONLY_AT_8BPP  = 0x02, // If set, the hardware pointer works
+                                        //   only at 8bpp, and only for modes
+                                        //   1024x768 or less
+    POINTER_NEEDS_SCALING       = 0x04, // x-coordinate must be scaled by 2 at
+                                        //   32bpp
+} POINTER_CAPABILITY;
 
 //
 // Characteristics of each mode
@@ -112,7 +213,6 @@ typedef struct _S3_VIDEO_MODES {
 
 } S3_VIDEO_MODES, *PS3_VIDEO_MODES;
 
-
 //
 // Mode-set specific information.
 //
@@ -124,12 +224,27 @@ typedef struct _S3_VIDEO_FREQUENCIES {
     ULONG ScreenFrequency;
     union {
 
+        //
+        // The compiler uses the first element of a union to determine where
+        // it places the values given when the union is autoinitialized.
+        //
+        // If size of the Fixed element of this union is changed by adding
+        // chips to the enum typedef for S3_CHIPSET then the Int10 element
+        // needs to be padded with dummy fields to make autoinitialization
+        // of the Fixed element work correctly.
+        //
+        // If values are removed from the S3_CHIPSET typedef then either the
+        // Int10 element should shrunk by removing pads or the Fixed element
+        // should be padded.
+        //
+
         struct {
 
-            ULONG FrequencySet52;
-            ULONG FrequencyMask52;
-            ULONG FrequencySet41or5B;
-            ULONG FrequencyMask41or5B;
+            ULONG FrequencyPrimarySet;
+            ULONG FrequencyPrimaryMask;
+            ULONG FrequencySecondarySet;
+            ULONG FrequencySecondaryMask;
+            ULONG SizePad0;             // make struct sizes match
 
         } Int10;
 
@@ -146,6 +261,47 @@ typedef struct _S3_VIDEO_FREQUENCIES {
     UCHAR ModeValid;
 
 } S3_VIDEO_FREQUENCIES, *PS3_VIDEO_FREQUENCIES;
+
+//
+// Streams parameter information.
+//
+
+typedef struct _K2TABLE {
+    USHORT  ScreenWidth;
+    UCHAR   BitsPerPel;
+    UCHAR   RefreshRate;
+    UCHAR   MemoryFlags;
+    UCHAR   MemorySpeed;
+    ULONG   Value;
+} K2TABLE;
+
+#define MEM_1EDO 0x0
+#define MEM_2EDO 0x2
+#define MEM_FAST 0x3
+#define MEM_TYPE_MASK 0x3
+
+#define MEM_1MB 0x0
+#define MEM_2MB 0x10
+#define MEM_SIZE_MASK 0x10
+
+//
+// Private IOCTL for communicating S3 streams parameters.  These definitions
+// must match those in the display driver!
+//
+
+#define IOCTL_VIDEO_S3_QUERY_STREAMS_PARAMETERS                        \
+    CTL_CODE(FILE_DEVICE_VIDEO, 0x800, METHOD_BUFFERED, FILE_ANY_ACCESS)
+
+typedef struct _VIDEO_QUERY_STREAMS_MODE {
+    ULONG ScreenWidth;
+    ULONG BitsPerPel;
+    ULONG RefreshRate;
+} VIDEO_QUERY_STREAMS_MODE;
+
+typedef struct _VIDEO_QUERY_STREAMS_PARAMETERS {
+    ULONG MinOverlayStretch;
+    ULONG FifoValue;
+} VIDEO_QUERY_STREAMS_PARAMETERS;
 
 
 //
@@ -167,6 +323,14 @@ typedef struct _S3_VIDEO_FREQUENCIES {
 #define SEQ_ADDRESS_REG        (PVOID) ((ULONG)(HwDeviceExtension->MappedAddress[2]) + (0x03C4 - 0x03C0))
 #define SEQ_DATA_REG           (PVOID) ((ULONG)(HwDeviceExtension->MappedAddress[2]) + (0x03C5 - 0x03C0))
 
+//
+// This is a hack, but I have almost no time to fix this, so just
+// make it work!
+//
+
+#define SEQ_ADDRESS_PORT       (PVOID) ((ULONG)(hwDeviceExtension->MappedAddress[2]) + (0x03C4 - 0x03C0))
+#define SEQ_DATA_PORT          (PVOID) ((ULONG)(hwDeviceExtension->MappedAddress[2]) + (0x03C5 - 0x03C0))
+
 #define BT485_ADDR_CMD_REG0    (PVOID) ((ULONG)( ((PHW_DEVICE_EXTENSION)HwDeviceExtension)->MappedAddress[2]) + (0x03C6 - 0x03C0))
 #define TI025_INDEX_REG        (PVOID) ((ULONG)( ((PHW_DEVICE_EXTENSION)HwDeviceExtension)->MappedAddress[2]) + (0x03C6 - 0x03C0))
 #define TI025_DATA_REG         (PVOID) ((ULONG)( ((PHW_DEVICE_EXTENSION)HwDeviceExtension)->MappedAddress[2]) + (0x03C7 - 0x03C0))
@@ -175,22 +339,7 @@ typedef struct _S3_VIDEO_FREQUENCIES {
 #define CRT_DATA_REG           (PVOID) ((ULONG)( ((PHW_DEVICE_EXTENSION)HwDeviceExtension)->MappedAddress[3]) + (0x03D5 - 0x03D4))
 #define SYSTEM_CONTROL_REG     (PVOID) ((ULONG)( ((PHW_DEVICE_EXTENSION)HwDeviceExtension)->MappedAddress[3]) + (0x03DA - 0x03D4))
 
-#define ADV_FUNC_CTL    (PVOID) ((PHW_DEVICE_EXTENSION)HwDeviceExtension)->MappedAddress[5]
-
-#define SUB_SYS_STAT    HwDeviceExtension->MappedAddress[4]      // 0x42E8
-#define CUR_Y           HwDeviceExtension->MappedAddress[6]      // 0x82E8
-#define CUR_X           HwDeviceExtension->MappedAddress[7]      // 0x86E8
-#define RECT_WIDTH      HwDeviceExtension->MappedAddress[11]     // 0x96E8
 #define GP_STAT         ((PHW_DEVICE_EXTENSION)HwDeviceExtension)->MappedAddress[12]        // 0x9AE8
-#define CMD             HwDeviceExtension->MappedAddress[12]     // 0x9AE8
-#define BKGD_COLOR      HwDeviceExtension->MappedAddress[14]     // 0xA2E8
-#define FRGD_COLOR      HwDeviceExtension->MappedAddress[15]     // 0xA6E8
-#define WRT_MASK        HwDeviceExtension->MappedAddress[16]     // 0xAAE8
-#define RD_MASK         HwDeviceExtension->MappedAddress[17]     // 0xAEE8
-#define BKGD_MIX        HwDeviceExtension->MappedAddress[18]     // 0xB6E8
-#define FRGD_MIX        HwDeviceExtension->MappedAddress[19]     // 0xBAE8
-#define MULTIFUNC_CNTL  HwDeviceExtension->MappedAddress[20]     // 0xBEE8
-#define PIXEL_TRANSFER  HwDeviceExtension->MappedAddress[21]     // 0xE2E8
 
 //
 // Define device extension structure. This is device dependent/private
@@ -199,32 +348,50 @@ typedef struct _S3_VIDEO_FREQUENCIES {
 
 typedef struct _HW_DEVICE_EXTENSION {
     PHYSICAL_ADDRESS PhysicalFrameAddress;
+    ULONG PhysicalFrameIoSpace;
     ULONG FrameLength;
     PHYSICAL_ADDRESS PhysicalRegisterAddress;
     ULONG RegisterLength;
     UCHAR RegisterSpace;
     PHYSICAL_ADDRESS PhysicalMmIoAddress;
     ULONG MmIoLength;
+    USHORT PCIVendorID;
+    USHORT PCIDeviceID;
     UCHAR MmIoSpace;
-    UCHAR Index41or5B;
-    UCHAR OriginalReg52;
-    UCHAR OriginalReg41or5B;
-    UCHAR RefreshSet;
-    UCHAR bUseFixedFrequencyTable;
-    ULONG NumInt10Modes;
-    ULONG NumFixedModes;
+    UCHAR FrequencySecondaryIndex;
+    UCHAR BiosPresent;
+    UCHAR CR5C;
+    BOOLEAN bNeedReset;
+    ULONG PanelWidth;
+    ULONG PanelHeight;
     PS3_VIDEO_MODES ActiveModeEntry;
     PS3_VIDEO_FREQUENCIES ActiveFrequencyEntry;
     PS3_VIDEO_FREQUENCIES Int10FrequencyTable;
     PS3_VIDEO_FREQUENCIES FixedFrequencyTable;
     ULONG BoardID;
     ULONG ChipID;
+    ULONG SubTypeID;
+    ULONG DacID;
     ULONG Capabilities;
     ULONG NumAvailableModes;
     ULONG NumTotalModes;
     ULONG AdapterMemorySize;
+    ULONG RegisterLock_35;
+    ULONG ExtendedSystemControl2_51;
     PVOID MappedAddress[NUM_S3_ACCESS_RANGES];
 } HW_DEVICE_EXTENSION, *PHW_DEVICE_EXTENSION;
+
+
+//
+// SDAC M and N paramaters
+//
+
+typedef struct {
+    UCHAR   m;
+    UCHAR   n;
+} SDAC_PLL_PARMS;
+
+#define SDAC_TABLE_SIZE         16
 
 
 //
@@ -232,149 +399,6 @@ typedef struct _HW_DEVICE_EXTENSION {
 //
 
 #define VIDEO_MAX_COLOR_REGISTER  0xFF
-
-    // Command Types
-
-#define NOP                     0x0000
-#define DRAW_LINE               0x2000
-#define RECTANGLE_FILL          0x4000
-#define BITBLT                  0xC000
-
-#define BYTE_SWAP               0x1000
-#define BUS_SIZE_16             0x0200
-#define BUS_SIZE_8              0x0000
-#define WAIT                    0x0100
-
-    // Drawing directions (radial)
-
-#define DRAWING_DIRECTION_0     0x0000
-#define DRAWING_DIRECTION_45    0x0020
-#define DRAWING_DIRECTION_90    0x0040
-#define DRAWING_DIRECTION_135   0x0060
-#define DRAWING_DIRECTION_180   0x0080
-#define DRAWING_DIRECTION_225   0x00A0
-#define DRAWING_DIRECTION_270   0x00C0
-#define DRAWING_DIRECTION_315   0x00E0
-
-    // Drawing directions (x/y)
-
-#define DRAWING_DIR_BTRLXM  0x0000
-#define DRAWING_DIR_BTLRXM  0x0020
-#define DRAWING_DIR_BTRLYM  0x0040
-#define DRAWING_DIR_BTLRYM  0x0060
-#define DRAWING_DIR_TBRLXM  0x0080
-#define DRAWING_DIR_TBLRXM  0x00A0
-#define DRAWING_DIR_TBRLYM  0x00C0
-#define DRAWING_DIR_TBLRYM  0x00E0
-
-    // Drawing Direction Bits
-
-#define PLUS_X              0x0020
-#define PLUS_Y              0x0080
-#define MAJOR_Y             0x0040
-
-    // Draw
-
-#define DRAW                    0x0010
-
-    // Direction type
-
-#define DIR_TYPE_RADIAL         0x0008
-#define DIR_TYPE_XY             0x0000
-
-    // Last Pixel
-
-#define LAST_PIXEL_OFF          0x0004
-#define LAST_PIXEL_ON           0x0000
-
-    // Pixel Mode
-
-#define MULTIPLE_PIXELS         0x0002
-#define SINGLE_PIXEL            0x0000
-
-    // Read/Write
-
-#define READ                    0x0000
-#define WRITE                   0x0001
-
-
-    // G.P. Status
-
-#define HARDWARE_BUSY       0x200
-#define READ_DATA_AVAILABLE 0x100
-
-    // Fifo Status
-
-#define FIFO_7_STATUS       0x080
-#define FIFO_6_STATUS       0x040
-#define FIFO_5_STATUS       0x020
-#define FIFO_4_STATUS       0x010
-#define FIFO_3_STATUS       0x008
-#define FIFO_2_STATUS       0x004
-#define FIFO_1_STATUS       0x002
-#define FIFO_0_STATUS       0x001
-
-    // Fifo status in terms of empty entries
-
-#define FIFO_1_EMPTY FIFO_7_STATUS
-#define FIFO_2_EMPTY FIFO_6_STATUS
-#define FIFO_3_EMPTY FIFO_5_STATUS
-#define FIFO_4_EMPTY FIFO_4_STATUS
-#define FIFO_5_EMPTY FIFO_3_STATUS
-#define FIFO_6_EMPTY FIFO_2_STATUS
-#define FIFO_7_EMPTY FIFO_1_STATUS
-#define FIFO_8_EMPTY FIFO_0_STATUS
-
-
-
-// These are the defines for the multifunction control register.
-// The 4 MSBs define the function of the register.
-
-#define RECT_HEIGHT         0x0000
-
-#define CLIP_TOP            0x1000
-#define CLIP_LEFT           0x2000
-#define CLIP_BOTTOM         0x3000
-#define CLIP_RIGHT          0x4000
-
-
-#define DATA_EXTENSION      0xA000
-#define ALL_ONES            0x0000
-#define CPU_DATA            0x0080
-#define DISPLAY_MEMORY      0x00C0
-
-    // Color source
-
-#define BACKGROUND_COLOR    0x00
-#define FOREGROUND_COLOR    0x20
-#define SRC_CPU_DATA        0x40
-#define SRC_DISPLAY_MEMORY  0x60
-
-    // Mix modes
-
-#define NOT_SCREEN              0x00
-#define LOGICAL_0               0x01
-#define LOGICAL_1               0x02
-#define LEAVE_ALONE             0x03
-#define NOT_NEW                 0x04
-#define SCREEN_XOR_NEW          0x05
-#define NOT_SCREEN_XOR_NEW      0x06
-#define OVERPAINT               0x07
-#define NOT_SCREEN_OR_NOT_NEW   0x08
-#define SCREEN_OR_NOT_NEW       0x09
-#define NOT_SCREEN_OR_NEW       0x0A
-#define SCREEN_OR_NEW           0x0B
-#define SCREEN_AND_NEW          0x0C
-#define NOT_SCREEN_AND_NEW      0x0D
-#define SCREEN_AND_NOT_NEW      0x0E
-#define NOT_SCREEN_AND_NOT_NEW  0x0F
-
-//
-// General purpose support routines & macros.
-//
-
-#define FIFOWAIT(level) while (VideoPortReadPortUshort(GP_STAT) & level);
-
 
 //
 // Data
@@ -390,15 +414,37 @@ extern VIDEO_ACCESS_RANGE S3AccessRanges[];
 extern VIDEO_ACCESS_RANGE S3LinearAccessRanges[];
 
 //
+// Memory Size array
+//
+
+extern ULONG gacjMemorySize[];
+
+//
+// nnlck.c clock generator table
+//
+
+extern long vclk_range[];
+
+//
 // Hard-coded modeset tables
 //
 
 extern USHORT  s3_set_vga_mode[];
+extern USHORT  s3_set_vga_mode_no_bios[];
 
 extern USHORT  S3_911_Enhanced_Mode[];
 extern USHORT  S3_801_Enhanced_Mode[];
 extern USHORT  S3_928_Enhanced_Mode[];
 extern USHORT  S3_928_1280_Enhanced_Mode[];
+
+//
+//  Externs for 864 PPC board
+//
+
+extern USHORT  S3_864_Enhanced_Mode[];
+extern USHORT  S3_864_1280_Enhanced_Mode[];
+extern SDAC_PLL_PARMS SdacTable[];
+extern UCHAR MParameterTable[];
 
 //
 // Hard-coded modeset frequency tables
@@ -421,7 +467,9 @@ extern S3_VIDEO_FREQUENCIES Generic64NewFrequencyTable[];
 extern S3_VIDEO_FREQUENCIES Generic64OldFrequencyTable[];
 extern S3_VIDEO_FREQUENCIES NumberNine64FrequencyTable[];
 extern S3_VIDEO_FREQUENCIES Diamond64FrequencyTable[];
-
+extern S3_VIDEO_FREQUENCIES HerculesFrequencyTable[];
+extern S3_VIDEO_FREQUENCIES Hercules64FrequencyTable[];
+extern S3_VIDEO_FREQUENCIES Hercules68FrequencyTable[];
 //
 // Mode Tables
 //
@@ -430,8 +478,29 @@ extern S3_VIDEO_MODES S3Modes[];
 extern ULONG NumS3VideoModes;
 
 //
+// Streams Tables
+//
+
+extern K2TABLE K2WidthRatio[];
+extern K2TABLE K2FifoValue[];
+
+//
 // Function prototypes
 //
+
+//
+// sdac.c
+//
+
+BOOLEAN
+InitializeSDAC(
+    PHW_DEVICE_EXTENSION
+    );
+
+BOOLEAN
+FindSDAC(
+    PHW_DEVICE_EXTENSION
+    );
 
 //
 // nnclk.c
@@ -446,6 +515,13 @@ VOID set_clock(
 //
 // S3.c
 //
+
+BOOLEAN
+S3ConfigurePCI(
+    PHW_DEVICE_EXTENSION HwDeviceExtension,
+    PULONG NumPCIAccessRanges,
+    PVIDEO_ACCESS_RANGE PCIAccessRanges
+    );
 
 VP_STATUS
 GetDeviceDataCallback(
@@ -472,6 +548,13 @@ S3FindAdapter(
 BOOLEAN
 S3Initialize(
     PVOID HwDeviceExtension
+    );
+
+BOOLEAN
+S3ResetHw(
+    PVOID HwDeviceExtension,
+    ULONG Columns,
+    ULONG Rows
     );
 
 BOOLEAN
@@ -508,6 +591,18 @@ CompareRom(
     PUCHAR String
     );
 
+VOID
+MapLinearControlSpace(
+    PHW_DEVICE_EXTENSION HwDeviceExtension
+    );
+
+VOID
+BankMap(
+    LONG BankRead,
+    LONG BankWrite,
+    PVOID pvContext
+    );
+
 //
 // Non-int 10 platform support
 //
@@ -531,3 +626,18 @@ BOOLEAN
 Bus_Test(
     PHW_DEVICE_EXTENSION HwDeviceExtension
     );
+
+BOOLEAN
+Set864MemoryTiming(
+    PHW_DEVICE_EXTENSION HwDeviceExtension
+    );
+
+VP_STATUS
+QueryStreamsParameters(
+    PHW_DEVICE_EXTENSION HwDeviceExtension,
+    VIDEO_QUERY_STREAMS_MODE *pStreamsMode,
+    VIDEO_QUERY_STREAMS_PARAMETERS *pStreamsParameters
+    );
+
+BOOLEAN
+UPMachine();

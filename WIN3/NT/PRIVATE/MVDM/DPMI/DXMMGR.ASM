@@ -131,7 +131,7 @@ externFP        NSetSegmentDscr
         extrn   EnterProtectedMode:NEAR
         extrn   EnterRealMode:NEAR
         extrn   MoveMemBlock:NEAR
-ifdef WOW
+ifdef WOW_x86
 externNP        NSetSegmentAccess
 externNP        NSetSegmentBase
 externNP        NSetSegmentLimit
@@ -147,7 +147,7 @@ if VCPI
         extrn   fVCPI:byte
 endif
 
-ifdef WOW
+ifdef WOW_x86
         extrn   FastBop:fword
 endif
 DXDATA  ends
@@ -433,7 +433,7 @@ cEnd
 InitXmemHeap:
         ret
 
-IFNDEF WOW
+IFNDEF WOW_x86
 ; -------------------------------------------------------
 ;    FreeXmemHeap -- This routine gives the xms memory back to
 ;       the xms driver.  The selectors for the heap are not
@@ -948,7 +948,7 @@ alm45:
         inc     ax                              ; we always want 2 more
         inc     ax
         mov     cSelector,ax
-
+	xor	cx, cx				;allocate from lower range
         call    AllocateSelectorBlock
         jnc     alm50
 
@@ -1299,6 +1299,7 @@ axb60:  inc     ax
         ;
         ; Allocate the selectors
         ;
+	xor	cx,cx				; allocate from lower range
         call    AllocateSelectorBlock
         jnc     axb65
 
@@ -2465,7 +2466,7 @@ sudd40: mov     ax,si
 
 ; Set the DPL of allocated blocks to user DPL
 
-ifndef WOW
+ifndef WOW_x86
         mov     es:[si].arbSegAccess,STD_DATA
 else
         push    ax
@@ -2480,7 +2481,7 @@ endif
 
         cmp     es:[si].cbLimit,CB_MEMHDR-1  ; Is this the first block?
         jne     sudd41                       ; No - jump
-ifndef WOW
+ifndef WOW_x86
         add     es:[si].adrBaseLow,CB_MEMHDR ; bump segment start to point
         adc     es:[si].adrBaseHigh,0        ;past the block header
 else
@@ -2496,7 +2497,7 @@ else
         pop     ax
 endif
         jmp     short sudd42
-ifndef WOW
+ifndef WOW_x86
 sudd41: add     es:[si].adrBaseHigh,1        ; bump segment start by 64k
 else
 sudd41: push    ax
@@ -2523,13 +2524,13 @@ sudd42: add     bx,8                    ; Offset of next segment descriptor
         dec     dx                      ; Last legal offset
         mov     es,selGDT
         mov     es:[si].cblimit,dx      ; Store in segment descriptor
-ifdef WOW
+ifdef WOW_x86
         cCall   NSetSegmentLimit,<si>
 endif
         jmp     sudd60                  ; All valid data segs now exist
 sudd45:
         mov     es:[si].cbLimit,0FFFFh  ;set segment limit at 64k
-ifdef WOW
+ifdef WOW_x86
         cCall   NSetSegmentLimit,<si>
 endif
         dec     dx                      ; On to the next data segment
@@ -2662,6 +2663,7 @@ endif
 
 FreeMemByOwner:
         push    es
+        push    cx
 
         cmp     bx,0                    ; owner is free owner??
         je      fbo40
@@ -2676,13 +2678,18 @@ FreeMemByOwner:
         pop     selHeapStart
 
 
-fbo40:  pop     es
+fbo40:
+        pop     cx
+        pop     es
         ret
 
 FreeHiMemByOwnerW:
 fhbow10: mov     ax,selHiHeapStart
 fhbow20: cmp     ax,0
-        jne     fhbow25
+        je      @f
+        lar     cx, ax                  ;is this a valid selector?
+        jz      fhbow25                 ;yes, go ahead
+@@:
         ret
 
 fhbow25: mov     es,ax
@@ -2702,7 +2709,10 @@ fhbow30: mov     ax,selBlkNext           ; check next block
 FreeLowMemByOwnerW:
 flbow10: mov     ax,selLowHeapStart
 flbow20: cmp     ax,0
-        jne     flbow25
+        je      @f
+        lar     cx, ax                  ;is this a valid selector?
+        jz      flbow25                 ;yes, go ahead
+@@:
         ret
 
 flbow25: mov     es,ax
@@ -2724,601 +2734,6 @@ flbow30: mov     ax,selBlkNext           ; check next block
 ; -------------------------------------------------------
 ; -------------------------------------------------------
 
-
-if 0
-
-dead code section
-
-
-AllocateLowBlock  proc  near
-
-        push    bx
-        push    si
-        push    di
-        push    es
-        push    selHeapStart            ;save current heap start selector
-
-        push    selLowHeapStart         ;  and select the low heap
-        pop     selHeapStart
-
-; We assume the low memory heap is for fixed objects (like network buffers)
-; that should not be moved.  Therefore, we never compact the low heap, just
-; combine free blocks when they're released.
-
-        call    FindFreeBlock           ;try to find a large enuff free block
-        jc      alb80
-
-        mov     es,ax
-        assume  es:MEMHDR
-
-        mov     ax,dx                   ;set ax = # selectors needed for block
-        jcxz    @f
-        inc     ax
-@@:
-        mov     di,ax                   ;keep selector count for later
-        call    AllocateSelectorBlock
-        jc      alb80
-
-        mov     si,ax                   ;save starting selector for later
-        mov     ax,es
-        call    SplitBlock              ;split the current block into 2 parts
-        mov     ax,selPSPChild
-        mov     selBlkOwner,ax
-        mov     selBlkData,si           ;  the starting selector of this block
-
-        or      selBlkData,SELECTOR_TI or SELECTOR_PL_DX
-                                        ;mark sel as LDT/DOSX ring
-
-        mov     ax,di                   ;set # selectors for this block
-        mov     cselBlkData,al
-
-        mov     ax,es                   ;initialize selector descriptors
-        call    SetUpDataDescriptors
-        jnc     alb70
-
-; We can't do the allocate for some reason. Clean up
-
-        mov     ax,si                   ;we can't continue, so free the
-        mov     cx,di                   ;  set of selectors that we allocated
-        call    FreeSelectorBlock       ;  but can't use
-
-        xor     cx,cx                   ;return that there is no memory
-        mov     dx,cx                   ;  available
-        jmp     short alb88
-
-; Normal completion, setup initial selector and exit
-
-alb70:
-        clc                                     ;Good return
-        mov     ax,si                           ;Return first data selector
-        or      al,SELECTOR_TI or SELECTOR_PL_DX;  as LDT and DOSX ring
-        jmp     short alb90
-
-; No block large enough, or not enough selectors, return max size block
-; and null selector
-
-alb80:
-        mov     cx,word ptr [cbHeapBlkMax]
-        mov     dx,word ptr [cbHeapBlkMax+2]
-alb88:
-        xor     ax,ax
-        stc
-
-alb90:
-        pop     selHeapStart            ;restore current heap
-        pop     es
-        pop     di
-        pop     si
-        pop     bx
-
-        ret
-
-AllocateLowBlock  endp
-endif
-
-if 0
-dead code
-FreeLowBlock    proc    near
-
-        push    selHeapStart            ;save current heap start selector
-        push    selLowHeapStart         ;  and select the low heap
-        pop     selHeapStart
-
-        call    FreeXmemBlock           ;call this guy to really do it
-
-        pop     selHeapStart            ;restore previous heap start
-
-        ret
-
-FreeLowBlock    endp
-endif
-
-if 0
-InitLowHeap proc
-Now we allocate directly from dos
-
-        push    ax
-        push    bx
-        push    dx
-
-; Allocate the memory from DOS, or fail
-
-        mov     bx,ax                   ;convert K to paragraphs
-        shl     bx,6
-        add     bx,3                    ;add in overhead for sentinels & header
-
-        .errnz  CB_MEMHDR - 16
-
-        SwitchToRealMode
-        sti
-
-
-; check to see if there is a switcher around.
-
-        mov     fDosErr,0               ;assume no allocation error
-        push    ax
-        push    bx
-        push    es
-        push    di                      ;save
-        mov     ax,SWAPI_DETECT_SWITCHER;SWAPI function code
-        xor     bx,bx                   ;requred by above function
-        mov     es,bx
-        mov     di,bx                   ;es:di set to 0:0
-        int     2fh                     ;make swapi call
-        mov     ax,es                   ;is there a switcher around ?
-        or      ax,di                   ;es:di will be non 0 then
-        pop     di
-        pop     es
-        pop     bx
-        pop     ax                      ;restore
-        jnz     ILH_AllocFromSwitcher   ;switcher is around
-
-ILH_AllocFromDos:
-
-; there is no switcher, allocate memory from DOS
-
-        mov     ah,48h                  ;alloc memory function
-
-        pushf                           ;invoke DOS to alloc
-        sub     sp,8                    ; make room for stack frame
-        push    bp
-        mov     bp,sp
-        push    es
-        push    ax
-
-        xor     ax,ax
-        mov     es,ax
-        mov     [bp + 8],cs
-        mov     [bp + 6],word ptr (offset ILH_10)
-        mov     ax,es:[21h*4]
-        mov     [bp + 2],ax
-        mov     ax,es:[21h*4 + 2]
-        mov     [bp + 4],ax
-        pop     ax
-        pop     es
-        pop     bp
-        retf
-ILH_10: jnc     ILH_BackToPM            ;go back to PM
-        mov     fDosErr,1
-        jmp     short ILH_BackToPM      ;go back to PM
-
-ILH_AllocFromSwitcher:
-
-        push    bp
-        sub     sp,4                    ;space for a far address
-        mov     bp,sp                   ; bp -> [addrlow][addrhi][bp]
-        push    bx
-        push    es                      ;save
-
-        mov     ax,SWAPI_ALLOC_MEM_CALLIN;code to get global memory call in
-        int     2fh                     ;make SWAPI call
-        or      ax,ax                   ;was it successful ?
-        jz      ILH_CallInObtained
-
-;;This line has been added because, it seems that --- sub sp,4 ---
-;;will not be compensated for if win.com doesn't have global memory
-;;allocator. and dos alloc has to be used.
-
-        add     sp,4                    ;EARLEH/AMITC should code review this.
-
-;;
-
-        stc                             ;no global memory support
-        jmp     short ILH_BalanceStack
-
-ILH_CallInObtained:
-
-        jnz     ILH_AllocFromDos        ;global memory support not there
-        mov     [bp],bx                 ;save low word of call in
-        mov     [bp+2],es               ;hiword of call in
-        pop     es
-        pop     bx                      ;restore
-        mov     ax,SWAPI_ALLOC_MEM      ;allocate memory
-        call    dword ptr ss:[bp]
-
-ILH_BalanceStack:
-
-; we need to pop off the saved space, can't do 'add sp,4' as that would change
-; the state of the carry flag.
-
-        pop     bp                      ;discard space for addrlo
-        pop     bp                      ;discard space for addrhi
-        pop     bp                      ;restore saved value of bp
-        jnc     ILH_BackToPM            ;allocation succeeded
-
-; the switcher cannot allocate global memory, allocate it from DOS. In this
-; case the DosX should allow a switch out when asynchronous calls are pending
-
-        mov     [NoAsyncSwitching],1    ;cant switch with async calls pending
-        jmp     short ILH_AllocFromDos  ;allocate memory from DOS
-
-ILH_BackToPM:
-
-        push    ax
-
-        SwitchToProtectedMode
-
-        pop     ax
-        sti
-
-        cmp     fDosErr,0               ;allocate go okay?
-        jnz     ilh95                   ;  no, then exit
-
-; Heap space allocated, build the sentinels and free block
-
-        mov     segLowHeap,ax           ;save segment addr of entire low heap
-        mov     hmemHeap,ax
-
-        mov     dsegCurrent,bx          ;flag block as from DOS
-
-        mov     dx,bx                   ;calculate heap size in bytes
-        shl     bx,4
-        shr     dx,12
-        sub     bx,3*CB_MEMHDR          ;  don't count initial headers
-        sbb     dx,0
-        mov     word ptr cbHeapSize,bx
-        mov     word ptr [cbHeapSize+2],dx
-
-        mov     dx,ax                   ;BX:DX -> start of heap
-        shl     dx,4
-        mov     bx,ax
-        shr     bx,12
-
-        xor     ax,ax                   ;low heap is beinig started now
-        mov     selHeapStart,ax
-
-        call    StructureHeap           ;build sentinels & free block
-
-; Setup global variables for later use
-
-        mov     ax,selHeapStart
-        mov     selLowHeapStart,ax
-
-        mov     ax,selHiHeapStart       ;do some clean up for the next guy
-        mov     selHeapStart,ax
-
-        clc                             ;the sweat smell of success
-        jmp     short ilh99
-
-ilh95:  stc                             ;error occured, set carry & exit
-
-ilh99:  pop     dx
-        pop     bx
-        pop     ax
-endif
-
-if 0
-dead code
-AllocateXmemBlock       proc    near
-
-ifdef MD
-        call    CheckXmemHeap
-endif
-        push    bx
-        push    si
-        push    di
-        push    es
-
-; Get a free memory block to use.
-
-        push    bx                      ;save BL selector alloc flag
-
-        call    FindFreeBlock
-        jnc     alxm40
-        cCall   AddToXmemHeap
-        call    FindFreeBlock
-
-alxm40:
-        pop     bx                      ;restore BL alloc flag
-        jnc     alxm41                  ;no carry == success
-        jmp     alxm80                  ;  otherwise fail the allocation
-
-; We have found a free heap block that is large enough.  Now, we need
-; to make sure that we can get a block of selectors large enough to
-; be able to handle the block size.
-
-alxm41:
-        mov     es,ax               ;save selector of free block
-        assume  es:MEMHDR
-
-        or      bl,bl           ;bl == 0 means a selector for each 64k,
-        jz      @f              ;bl != 0 means 1 selector at start of blk
-        mov     ax,1
-        jmp     alxm42
-@@:
-        mov     ax,dx               ;get high word of block size, which
-                                    ; gives us the number of complete
-                                    ; 64k chunks in the block
-
-        cmp     cx,0                ;is low word 0
-        jz      alxm42              ;if so, AX has number of selectors needed
-        inc     ax                  ;if not, we need one more for the partial
-                                    ; (<64k) chunk left over.
-
-alxm42: mov     di,ax               ;save count of selectors for later
-        call    AllocateSelectorBlock
-        jnc     alxm50
-        jmp     alxm80
-
-; We have the memory block and we have the segment descriptors allocated,
-; so now we need to split the memory block and then initialize the
-; segment descriptors to point to the allocated block.
-
-alxm50: mov     si,ax               ;save starting selector for later
-        mov     ax,es
-        call    SplitBlock          ;split the current block into two parts
-;
-alxm52: mov     ax,selPSPChild
-        mov     selBlkOwner,ax      ;mark the current block as being in use
-        mov     selBlkData,si       ;and indicate the starting selector
-                                    ; of this block
-
-        or      selBlkData,SELECTOR_TI or SELECTOR_PL_DX
-                                    ;mark sel as LDT/DOSX ring
-
-        mov     ax,di
-        mov     cselBlkData,al
-
-        cmp     al,1            ;if there is only one selector for the block,
-        jnz     alxm53          ;  initialize it here and now
-
-        push    cx              ;save size in CX:DX
-        push    dx
-
-        dec     cx              ;set segment limit, assume size is < 64k
-        or      dx,dx           ;  so limit is CX - 1
-        jz      @f
-        mov     cx,0ffffh       ;oops, limit is 64k
-@@:
-        mov     ax,es           ;get header address in BX:DX
-        call    GetSegmentAddress
-        add     dx,CB_MEMHDR    ;block starts just past header
-        adc     bx,0
-        mov     ax,si
-        cCall   NSetSegmentDscr,<ax,bx,dx,0,cx,STD_DATA>
-
-        pop     dx
-        pop     cx
-        jmp     short alxm70
-
-alxm53:
-        mov     ax,es               ;Initialize the GDT data block entries
-        call    SetUpDataDescriptors
-        jnc     alxm70              ;Jump on no error
-
-; We can't do the allocate for some reason. Clean up
-
-alxm51: mov     ax,si               ;we can't continue, so free the
-        mov     cx,di               ; set of selectors that we allocated but
-        call    FreeSelectorBlock   ; can't use
-        xor     cx,cx               ;and return that there is no memory
-        mov     dx,cx               ; available
-        mov     ax,7
-        jmp     short alxm88
-
-; All done
-
-alxm70: clc                                     ;Good return
-        mov     ax,si                           ;Return first data selector
-        or      al,SELECTOR_TI or SELECTOR_PL_DX;  as LDT and DOSX ring
-        jmp     short alxm90
-
-; Error occured, return the error code.
-
-alxm80: mov     cx,word ptr [cbHeapBlkMax]
-        mov     dx,word ptr [cbHeapBlkMax+2]
-        mov     ax,8
-alxm88: stc
-
-; Cleanup
-
-alxm90: pop     es
-        pop     di
-        pop     si
-        pop     bx
-ifdef MD
-        call    CheckXmemHeap
-endif
-        ret
-
-AllocateXmemBlock       endp
-endif ; NEWHIGHMEM
-
-
-if 0
-dead code
-ModifyXmemBlock proc    near
-ifdef MD
-        call    CheckXmemHeap
-endif
-        push    es
-        push    bx
-        push    si
-        push    di
-
-        push    bp              ;save BL selector flag on stack
-        mov     bp,sp
-        sub     sp,2
-        mov     [bp-2],bx
-
-; What we have is the selector to the data block.  We need a selector
-; for the memory block header.
-
-        call    GetBlockHeader      ;Find the header segment
-        jnc     short mxmb14        ;Jump if all OK
-        mov     ax,7                ;Set "Control Blocks Damaged" Error
-        jmp     mxmb80              ;Jump to error exit
-
-; See if we are shrinking or growing.
-
-mxmb14: mov     es,ax
-        assume  es:MEMHDR
-        mov     al,byte ptr [bp-2]      ;selector flag to al for CalcMaxSpace
-        call    CalculateMaximumSpace
-        jnc     mxmb17
-        jmp     mxmbNoRoom
-mxmb17:
-        cmp     ax,0                    ; Test expansion strategy
-        je      mxmb50                  ; If strategy 0 - jump
-
-; Strategy 1
-; There is enough room to expand into the following block.
-; The Header segment is in ES.
-
-mxmb100:
-        mov     ax,[selBlkNext]         ;AX = block to be combined
-        push    dx                      ;Save register destroyed by following call
-        call    spliceblocks            ;Expand into freespace following
-        pop     dx                      ;Restore dx
-
-; The block is large enough. The Header segment is in ES.
-; It may need to be shrunk.
-
-mxmb50:
-        cmp     dx,word ptr es:[cbBlkLen +2]    ;Cmp required and present len
-        jne     mxmb51
-        cmp     cx,word ptr es:[cbBlkLen]
-        je      mxmbGotBlock                    ;Size is correct already - jump
-
-; The block needs to be shrunk. The Header segment is in ES.
-
-mxmb51:
-        mov     ax,es                   ; AX = Block header segment
-        call    splitblock              ;Remove redundant space
-
-; We have a big enough block. The header segment is in ES. Massage the GDT
-
-mxmbGotBlock:
-        mov     ax,es           ; AX = Block header segment
-
-        cmp     cselBlkData,1   ;if there is only one selector for the block,
-        jnz     mxmb53          ;  initialize it here and now
-
-        push    cx              ;save size in CX:DX
-        push    dx
-
-        dec     cx              ;set segment limit, assume size is < 64k
-        or      dx,dx           ;  so limit is CX - 1
-        jz      @f
-        mov     cx,0ffffh       ;oops, limit is 64k
-@@:
-        call    GetSegmentAddress       ;get header address in BL:DX
-        add     dx,CB_MEMHDR            ;block starts just past header
-        adc     bx,0
-        mov     ax,selBlkData
-        cCall   NSetSegmentDscr,<ax,bx,dx,0,cx,STD_DATA>
-
-        pop     dx
-        pop     cx
-
-        jmp     short mxmb90
-
-mxmb53:
-        call    SetUpDataDescriptors    ;Map the new memory into
-        jnc     mxmb90                  ;the users address space
-
-; There is not enough room to expand. Max available is in CX&DX
-
-mxmbNoRoom:
-        mov     ax,8                    ;Memory allocation error
-        jmp     short mxmb95
-
-; Error
-
-mxmb80:
-        stc
-        jmp     mxmb95
-
-; All done
-
-mxmb90: clc
-        mov     ax,0                    ;Clear error flag and code
-
-mxmb95: pop     bp                      ; throw away, but don't wreck flags
-        pop     bp
-        pop     di
-        pop     si
-        pop     bx
-        pop     es
-
-ifdef MD
-        call    CheckXmemHeap
-endif
-ModifyXmemBlock endp
-endif ; NEWHIGHMEM
-
-
-if 0
-FreeXmemBlock:
-ifdef MD
-        call    CheckXmemHeap
-endif
-        push    cx
-        push    es
-;
-; What we have is the selector to the data block.  We need a selector
-; for the memory block header.
-        call    GetBlockHeader
-        jc      frxb90              ;get out if error
-        mov     es,ax
-        assume  es:MEMHDR
-;
-; Free the data selectors used by this memory block.
-        xor     ch,ch
-        mov     cl,[cselBlkData]
-        mov     ax,[selBlkData]
-        and     ax,SELECTOR_INDEX   ;treat like GDT entry for FreeSelectorBlk
-        call    FreeSelectorBlock
-;
-; Mark this block as free, and then combine any free blocks that are
-; adjacent with it.
-        mov     selBlkOwner,0
-        mov     cselBlkData,0
-        mov     selBlkData,0
-        mov     ax,es
-        call    CombineFreeBlocks
-;
-; All done
-frxb90: pop     es
-        pop     cx
-ifdef MD
-        call    CheckXmemHeap
-endif
-        ret
-endif
-
-if 0
-initxmemheap
-        xor     dx,dx
-        mov     cx,dx
-        mov     selHeapStart,cx
-        mov     cx,XMEM_MIN_ALLOC
-        shl     cx,10
-        mov     dx,XMEM_MIN_ALLOC
-        shr     dx,6
-
-        cCall   AddToXmemHeap
-endif
 DXPMCODE  ends
 ;
 ;****************************************************************

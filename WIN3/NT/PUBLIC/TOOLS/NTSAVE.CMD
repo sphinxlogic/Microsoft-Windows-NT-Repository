@@ -2,6 +2,9 @@
 setlocal
 set _NTSTATXX=SaVe
 set _NTSAVEDEL=
+set _NTSTATSRCMD=\nt\ntstatsr.cmd
+set _NTSTATSR1CMD=\nt\ntstatsr1.cmd
+set _NTSTATXXLOCAL=
 if "%_NTSLMBACKUP%" == "" goto nobackup
 if NOT EXIST \nt\ntstatsr.cmd goto noscript
 if NOT EXIST %_NTSLMBACKUP%\*. goto firsttime
@@ -16,6 +19,9 @@ if "%1" == "/HELP" goto dohelp
 if "%1" == "keep" goto dokeep
 if "%1" == "KEEP" goto dokeep
 if "%1" == "Keep" goto dokeep
+if "%1" == "" goto doit
+goto dokeep
+:doit
 ech ;
 echo Saving previous tree while we create a new one.
 mv %_NTSLMBACKUP% %_NTSLMBACKUP%\..\ntsave.old
@@ -27,8 +33,13 @@ mkdir %_NTSLMBACKUP%
 ech ;
 echo Saving checked out files to %_NTSLMBACKUP%
 ech ;
-copy \nt\ntstatsr.cmd %_NTSLMBACKUP%
-call \nt\ntstatsr.cmd
+copy %_NTSTATSRCMD% %_NTSLMBACKUP%
+call %_NTSTATSRCMD%
+if EXIST %_NTSTATSR1CMD% (
+set _NTSTATXXLOCAL=yes
+copy %_NTSTATSR1CMD% %_NTSLMBACKUP%
+call %_NTSTATSR1CMD%
+)
 if "%_NTSAVEDEL%" == "" goto nodelete
 ech ;
 echo Deleting previous tree now that we have successfully created a new one.

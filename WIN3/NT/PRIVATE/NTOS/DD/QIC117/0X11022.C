@@ -22,6 +22,19 @@
 * HISTORY:
 *		$Log:   J:\se.vcs\driver\q117cd\src\0x11022.c  $
 *
+*	   Rev 1.16   15 May 1995 10:47:04   GaryKiwi
+*	Phoenix merge from CBW95s
+*
+*	   Rev 1.15.1.0   11 Apr 1995 18:03:40   garykiwi
+*	PHOENIX pass #1
+*
+*	   Rev 1.16   30 Jan 1995 14:24:58   BOBLEHMA
+*	Added #include "vendor.h"
+*
+*	   Rev 1.15   24 Aug 1994 13:00:02   BOBLEHMA
+*	If a firmware error NO_DRIVE occurs, reset the FDC and try the selectdevice
+*	again.  Otherwise, return the error as before.
+*
 *	   Rev 1.14   10 May 1994 11:42:26   KEVINKES
 *	Removed the eject_pending flag.
 *
@@ -83,6 +96,7 @@
 #define FCT_ID 0x11022
 #include "include\public\adi_api.h"
 #include "include\public\frb_api.h"
+#include "include\public\vendor.h"
 #include "include\private\kdi_pub.h"
 #include "include\private\cqd_pub.h"
 #include "q117cd\include\cqd_defs.h"
@@ -247,7 +261,7 @@ dStatus cqd_GetDeviceError
 					if (status == DONT_PANIC) {
 
 						kdi_CheckedDump(
-							QIC117DRVSTAT,
+                            QIC117DBGP,
 							"QIC117: Drv error = %04x\n",
 							drv_err );
 

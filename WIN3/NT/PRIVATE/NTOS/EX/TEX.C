@@ -1290,27 +1290,6 @@ DoInfoTest( void )
                  BasicInfo.MinimumUserModeAddress,
                  BasicInfo.MaximumUserModeAddress
                );
-
-        Status = ZwQuerySystemInformation( SystemProcessorInformation,
-                                           (PVOID)&ProcessorInfo,
-                                           sizeof( ProcessorInfo ),
-                                           &ReturnedLength
-                                         );
-
-        if (NT_SUCCESS( Status )) {
-            DbgPrint( "    Processor: %ld  Stepping: %c%d\n",
-                     ProcessorInfo.ProcessorType,
-                     'A' + (ProcessorInfo.ProcessorStepping >> 16),
-                     ProcessorInfo.ProcessorStepping & 0xFFFF
-                   );
-
-            Result = TRUE;
-            }
-        else {
-            DbgPrint( "NtQuerySystemInformation failed.  Status == %X\n",
-                     Status
-                   );
-            }
         }
     else {
         DbgPrint( "NtQuerySystemInformation failed.  Status == %X\n",

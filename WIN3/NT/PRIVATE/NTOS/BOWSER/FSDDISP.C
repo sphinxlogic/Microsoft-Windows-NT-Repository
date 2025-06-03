@@ -79,7 +79,7 @@ Return Value:
 
     PAGED_CODE();
 
-    ExInterlockedIncrementLong(&BowserNumberOfOpenFiles, NULL);
+    InterlockedIncrement(&BowserNumberOfOpenFiles);
 
     BowserCompleteRequest(Irp, Status);
 
@@ -155,9 +155,11 @@ Return Value:
 
     PAGED_CODE();
 
+    FsRtlEnterFileSystem();
+
     BowserForEachTransport(BowserCancelRequestsOnTransport, Irp->Tail.Overlay.OriginalFileObject);
 
-    if (ExInterlockedDecrementLong(&BowserNumberOfOpenFiles, NULL) == ResultZero) {
+    if (InterlockedDecrement(&BowserNumberOfOpenFiles) == 0) {
         //
         //  There are no longer any handles open to the browser.
         //
@@ -166,6 +168,8 @@ Return Value:
 
         BowserForEachTransport(BowserStopBrowser, NULL);
     }
+
+    FsRtlExitFileSystem();
 
     BowserCompleteRequest(Irp, Status);
 
@@ -187,7 +191,6 @@ BowserCancelRequestsOnTransport(
     BowserCancelQueuedIoForFile(&Transport->BecomeBackupQueue, FileObject);
     BowserCancelQueuedIoForFile(&Transport->BecomeMasterQueue, FileObject);
     BowserCancelQueuedIoForFile(&Transport->FindMasterQueue, FileObject);
-//    BowserCancelQueuedIoForFile(&Transport->WaitForBackupListQueue, FileObject);
     BowserCancelQueuedIoForFile(&Transport->WaitForMasterAnnounceQueue, FileObject);
     BowserCancelQueuedIoForFile(&Transport->ChangeRoleQueue, FileObject);
     BowserCancelQueuedIoForFile(&Transport->WaitForNewMasterNameQueue, FileObject);

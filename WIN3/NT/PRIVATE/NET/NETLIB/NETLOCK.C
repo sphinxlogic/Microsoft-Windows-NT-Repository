@@ -20,7 +20,7 @@ Abstract:
 
     1) The resource package now supports recursive acquisition.
 
-    2) There are a couple of places in the server where shared access
+    2) There are a couple of places in the server where shared _access
        is desirable.
 
     3) The resource package has a "no-wait" option that disables waiting

@@ -242,37 +242,26 @@
 
         LEAF_ENTRY(RtlEnlargedUnsignedDivide)
 
-        .set    noreorder
-        .set    noat
-        beq     zero,a2,20f             // if eq, attempted division by zero
         sltu    v1,a1,a2                // check if overflow will occur
+        beq     zero,a2,20f             // if eq, attempted division by zero
+        dsll    a1,a1,32                // left justify hihg part of dividend
         beq     zero,v1,30f             // if eq, overflow will occur
-        li      t1,31                   // set loop count
-10:     sra     t2,a1,31                // replicate partial remainder high bit
-        sll     a1,a1,1                 // shift next dividend bit
-        srl     t0,a0,31                // into the partial remainder
-        or      a1,a1,t0                //
-        sltu    t0,a1,a2                // check if partial remainder less
-        subu    t0,t0,1                 // convert to 0 or -1
-        or      t0,t0,t2                // merge with partial remainder high bit
-        and     t3,t0,a2                // select divisor or zero
-        sll     a0,a0,1                 // left shift quotient
-        subu    a0,a0,t0                // merge quotient bit
-        subu    a1,a1,t3                // subtract out divisor
-        bne     zero,t1,10b             // if ne, more iterations to go
-        subu    t1,t1,1                 // decrement iteration count
-        beq     zero,a3,40f             // if eq, remainder not requested
-        move    v0,a0                   // set quotient value
-        j       ra                      // return
-        sw      a1,0(a3)                // store longword remainder
-        .set    at
-        .set    reorder
+        dsll    a0,a0,32                // zero extend low part of dividend
+        dsrl    a0,a0,32                //
+        or      a0,a0,a1                // merge high and low part of dividend
+        ddivu   a0,a2                   // compute quotient value
+        mflo    v0                      // set quotient value
+        beq     zero,a3,10f             // if eq, remainder not requested
+        mfhi    a0                      // load remainder
+        sw      a0,0(a3)                // store longword remainder
+10:     j       ra                      // return
+
 
 20:     break   DIVIDE_BY_ZERO_BREAKPOINT // attempted division by zero
         j       ra                      //
 
 30:     break   DIVIDE_OVERFLOW_BREAKPOINT // division value overflows result
-40:     j       ra                      //
+        j       ra                      //
 
         .end    RtlEnlargedUnsignedDivide
 
@@ -779,7 +768,7 @@
 
         LEAF_ENTRY(RtlLargeIntegerShiftLeft)
 
-        lw      a1,4 * 4(sp)            // get shift count
+        lbu     a1,4 * 4(sp)            // get shift count
         move    v0,a0                   // set function return register
         and     a1,a1,0x3f              // truncate shift count mod 64
 
@@ -847,7 +836,7 @@
 
         LEAF_ENTRY(RtlLargeIntegerShiftRight)
 
-        lw      a1,4 * 4(sp)            // get shift count
+        lbu     a1,4 * 4(sp)            // get shift count
         move    v0,a0                   // set function return register
         and     a1,a1,0x3f              // truncate shift count mod 64
 
@@ -916,7 +905,7 @@
 
         LEAF_ENTRY(RtlLargeIntegerArithmeticShift)
 
-        lw      a1,4 * 4(sp)            // get shift count
+        lbu     a1,4 * 4(sp)            // get shift count
         move    v0,a0                   // set function return register
         and     a1,a1,0x3f              // truncate shift count mod 64
 

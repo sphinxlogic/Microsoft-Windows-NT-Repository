@@ -49,6 +49,7 @@ RtlpInitUpcaseTable(
 #pragma alloc_text(PAGE,RtlResetRtlTranslations)
 #pragma alloc_text(PAGE,RtlMultiByteToUnicodeSize)
 #pragma alloc_text(PAGE,RtlUnicodeToMultiByteSize)
+#pragma alloc_text(PAGE,RtlGetDefaultCodePage)
 #endif
 
 
@@ -75,6 +76,8 @@ PUSHORT Nls844UnicodeLowercaseTable;
 // ACP related data
 //
 USHORT   NlsLeadByteInfoTable[DBCS_TABLE_SIZE]; // Lead byte info. for ACP
+USHORT   NlsAnsiCodePage;                  // Default ANSI code page
+USHORT   NlsOemCodePage;                   // Default OEM code page
 PUSHORT  NlsLeadByteInfo = NlsLeadByteInfoTable;
 PUSHORT  NlsMbAnsiCodePageTables;          // Multibyte to Unicode translation tables
 PUSHORT  NlsAnsiToUnicodeData;             // Ansi CP to Unicode translation table
@@ -1718,13 +1721,13 @@ Return Value:
             //  If we landed on a DBCS character handle it accordingly
             //
 
-            if (NlsOemLeadByteInfo[OemString->Buffer[OemOffset]]) {
+            if (NlsOemLeadByteInfo[(UCHAR)OemString->Buffer[OemOffset]]) {
 
                 USHORT DbcsChar;
 
                 ASSERT( OemOffset + 1 < OemString->Length );
 
-                DbcsChar = NlsOemLeadByteInfo[OemString->Buffer[OemOffset]] +
+                DbcsChar = NlsOemLeadByteInfo[(UCHAR)OemString->Buffer[OemOffset]] +
                            OemString->Buffer[++OemOffset];
 
                 if ((DbcsChar == OemDefaultChar) &&
@@ -2467,7 +2470,8 @@ RtlResetRtlTranslations(
     NlsUnicodeToAnsiData = (PCH)TableInfo->AnsiTableInfo.WideCharTable;
     NlsUnicodeToMbAnsiData = (PUSHORT)TableInfo->AnsiTableInfo.WideCharTable;
     NlsMbCodePageTag = TableInfo->AnsiTableInfo.DBCSCodePage ? TRUE : FALSE;
-
+    NlsAnsiCodePage = TableInfo->AnsiTableInfo.CodePage;
+    
     if ( TableInfo->OemTableInfo.DBCSCodePage ) {
         RtlMoveMemory(NlsOemLeadByteInfo,TableInfo->OemTableInfo.DBCSOffsets,DBCS_TBL_SIZE*sizeof(USHORT));
         }
@@ -2481,6 +2485,7 @@ RtlResetRtlTranslations(
     NlsUnicodeToOemData = (PCH)TableInfo->OemTableInfo.WideCharTable;
     NlsUnicodeToMbOemData = (PUSHORT)TableInfo->OemTableInfo.WideCharTable;
     NlsMbOemCodePageTag = TableInfo->OemTableInfo.DBCSCodePage ? TRUE : FALSE;
+    NlsOemCodePage = TableInfo->OemTableInfo.CodePage;
     OemDefaultChar = TableInfo->OemTableInfo.DefaultChar;
     OemTransUniDefaultChar = TableInfo->OemTableInfo.TransDefaultChar;
 
@@ -2488,4 +2493,19 @@ RtlResetRtlTranslations(
     Nls844UnicodeLowercaseTable = TableInfo->LowerCaseTable;
     UnicodeDefaultChar = TableInfo->AnsiTableInfo.UniDefaultChar;
 }
+
+void
+RtlGetDefaultCodePage(
+    OUT PUSHORT AnsiCodePage,
+    OUT PUSHORT OemCodePage
+    )
+{
+    RTL_PAGED_CODE();
+    *AnsiCodePage = NlsAnsiCodePage;
+    *OemCodePage = NlsOemCodePage;
+}
+
+    
+    
+
 

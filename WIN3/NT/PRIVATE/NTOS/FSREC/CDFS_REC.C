@@ -106,14 +106,17 @@ Return Value:
 
         //
         // Attempt to load the CDFS file system:  A volume has been found that
-        // appears to be an CTFS volume, so attempt to load the CTFS file system.
-        // If it successfully loads, then
+        // appears to be an CDFS volume, so attempt to load the CDFS file system.
+        // If it successfully loads, then unregister ourselves. Note that CDFS can
+        // already be loaded.
         //
 
         RtlInitUnicodeString( &driverName, L"\\Registry\\Machine\\System\\CurrentControlSet\\Services\\Cdfs" );
         status = ZwLoadDriver( &driverName );
         if (!NT_SUCCESS( status )) {
-            deviceExtension->RealFsLoadFailed = TRUE;
+            if (status != STATUS_IMAGE_ALREADY_LOADED) {
+                deviceExtension->RealFsLoadFailed = TRUE;
+            }
         } else {
             IoUnregisterFileSystem( DeviceObject );
         }

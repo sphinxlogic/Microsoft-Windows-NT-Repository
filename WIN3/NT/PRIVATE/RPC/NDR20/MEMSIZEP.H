@@ -28,7 +28,7 @@ typedef     ulong	(* PPRIVATE_MEM_SIZE_ROUTINE)(
                         PFORMAT_STRING		pFormat
                     );
 
-extern PMEM_SIZE_ROUTINE     pfnMemSizeRoutines[];
+extern const PMEM_SIZE_ROUTINE * pfnMemSizeRoutines;
 
 ulong 
 NdrpPointerMemorySize( 

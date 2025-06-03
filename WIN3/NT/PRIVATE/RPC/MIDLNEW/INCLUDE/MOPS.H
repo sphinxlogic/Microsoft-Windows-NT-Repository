@@ -778,4 +778,4 @@ extern const size_t MopSizeOf[];
 //
 
 #endif // __MOPS_H__
-
+

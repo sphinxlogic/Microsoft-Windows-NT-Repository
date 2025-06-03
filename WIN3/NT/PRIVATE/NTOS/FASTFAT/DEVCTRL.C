@@ -246,9 +246,9 @@ DeviceControlCompletionRoutine(
         (IrpSp->Parameters.DeviceIoControl.IoControlCode == IOCTL_DISK_GET_PARTITION_INFO)) {
 
         ((PPARTITION_INFORMATION)
-         Irp->AssociatedIrp.SystemBuffer)->PartitionLength =
+         Irp->AssociatedIrp.SystemBuffer)->PartitionLength.QuadPart =
 
-        LiFromUlong(Vcb->Bpb.LargeSectors * 0x200);
+        (Vcb->Bpb.LargeSectors * 0x200);
     }
 
     UNREFERENCED_PARAMETER( DeviceObject );

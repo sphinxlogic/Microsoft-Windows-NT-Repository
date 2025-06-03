@@ -143,7 +143,7 @@ Revision History:
     // convert back to integer
     //
 
-    WindowsX = fWindowsX;
+    WindowsX = (int)fWindowsX;
 
     if (WindowsX == 0) {
         WindowsX = 1;
@@ -297,8 +297,8 @@ Revision History:
         fx2 = fx1 * 0.6666;
         fy1 = fx1 * 0.3333;
 
-        GraphHeight = fx2;
-        TextHeight  = fy1;
+        GraphHeight = (LONG)fx2;
+        TextHeight  = (LONG)fy1;
 
         if (TextHeight > 20) {
             GraphHeight += TextHeight-20;
@@ -1062,3 +1062,4 @@ Revision History:
     }
 
 }
+

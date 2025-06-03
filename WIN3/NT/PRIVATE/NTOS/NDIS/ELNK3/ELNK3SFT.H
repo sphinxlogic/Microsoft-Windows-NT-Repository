@@ -192,6 +192,7 @@ typedef struct _ELNK3_ADAPTER {
 
     UCHAR  PermanentAddress[ELNK3_LENGTH_OF_ADDRESS];  // filled in at init time
 
+    USHORT                EEpromSoftwareInfo;
 
     ULONG FramesXmitGood;               // Good Frames Transmitted
     ULONG FramesRcvGood;                // Good Frames Received

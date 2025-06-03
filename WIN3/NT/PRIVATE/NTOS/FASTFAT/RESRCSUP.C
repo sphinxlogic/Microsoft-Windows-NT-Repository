@@ -26,6 +26,7 @@ Revision History:
 #pragma alloc_text(PAGE, FatAcquireFcbForReadAhead)
 #pragma alloc_text(PAGE, FatAcquireExclusiveFcb)
 #pragma alloc_text(PAGE, FatAcquireSharedFcb)
+#pragma alloc_text(PAGE, FatAcquireSharedFcbWaitForEx)
 #pragma alloc_text(PAGE, FatAcquireExclusiveVcb)
 #pragma alloc_text(PAGE, FatAcquireSharedVcb)
 #pragma alloc_text(PAGE, FatNoOpAcquire)
@@ -401,6 +402,20 @@ Return Value:
 
 {
     //
+    //  Check here for the EA File.  It turns out we need the normal
+    //  resource shared in this case.  Otherwise we take the paging
+    //  I/O resource shared.
+    //
+
+    if (!ExAcquireResourceShared( Fcb == ((PFCB)Fcb)->Vcb->EaFcb ?
+                                  ((PFCB)Fcb)->Header.Resource :
+                                  ((PFCB)Fcb)->Header.PagingIoResource,
+                                  Wait )) {
+
+        return FALSE;
+    }
+
+    //
     // We assume the Lazy Writer only acquires this Fcb once.
     // Therefore, it should be guaranteed that this flag is currently
     // clear (the ASSERT), and then we will set this flag, to insure
@@ -454,6 +469,15 @@ Return Value:
 --*/
 
 {
+    //
+    //  Check here for the EA File.  It turns out we needed the normal
+    //  resource shared in this case.  Otherwise it was the PagingIoResource.
+    //
+
+    ExReleaseResource( Fcb == ((PFCB)Fcb)->Vcb->EaFcb ?
+                       ((PFCB)Fcb)->Header.Resource :
+                       ((PFCB)Fcb)->Header.PagingIoResource );
+
     ASSERT( NodeType(((PFCB)Fcb)) == FAT_NTC_FCB );
 
     ((PFCB)Fcb)->Specific.Fcb.LazyWriteThread = NULL;

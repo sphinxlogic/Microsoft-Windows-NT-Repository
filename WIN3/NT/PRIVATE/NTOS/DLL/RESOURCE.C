@@ -28,6 +28,34 @@ Revision History:
 #include <ldrp.h>
 #include <ntimage.h>
 
+
+#if defined(_MIPS_) || defined(_ALPHA_) || defined(_PPC_)
+
+#define InterlockedDecrement _InterlockedDecrement
+LONG
+InterlockedDecrement(
+    PLONG Addend
+    );
+#pragma intrinsic(_InterlockedDecrement)
+
+#else
+__inline
+VOID
+_fastcall
+InterlockedDecrement(
+    IN PLONG Addend
+    )
+{
+    __asm {
+        mov     eax, -1
+        mov     ecx, Addend
+   lock xadd    [ecx], eax
+        dec     eax
+        }
+}
+#endif
+
+
 //
 // Define the desired access for semaphores.
 //
@@ -36,6 +64,9 @@ Revision History:
                 (SEMAPHORE_QUERY_STATE | SEMAPHORE_MODIFY_STATE | SYNCHRONIZE)
 
 VOID RtlDumpResource( IN PRTL_RESOURCE Resource );
+
+extern BOOLEAN LdrpShutdownInProgress;
+extern HANDLE LdrpShutdownThreadId;
 
 VOID
 RtlpInitDeferedCriticalSection( VOID );
@@ -103,8 +134,6 @@ UnProtectHandle(
     return FALSE;
 }
 #endif // DBG
-
-#if DEVL
 
 RTL_CRITICAL_SECTION_DEBUG RtlpStaticDebugInfo[ 16 ];
 PRTL_CRITICAL_SECTION_DEBUG RtlpDebugInfoFreeList;
@@ -201,8 +230,6 @@ RtlpFreeDebugInfo(
     return;
 }
 
-#endif
-
 VOID
 RtlpCreateCriticalSectionSem(
     IN PRTL_CRITICAL_SECTION CriticalSection
@@ -211,7 +238,6 @@ RtlpCreateCriticalSectionSem(
 VOID
 RtlpInitDeferedCriticalSection( VOID )
 {
-#if DEVL
     if (sizeof( RTL_CRITICAL_SECTION_DEBUG ) != sizeof( RTL_RESOURCE_DEBUG )) {
         DbgPrint( "NTDLL: Critical Section & Resource Debug Info length mismatch.\n" );
         return;
@@ -220,14 +246,11 @@ RtlpInitDeferedCriticalSection( VOID )
     RtlpDebugInfoFreeList = RtlpChainDebugInfo( RtlpStaticDebugInfo,
                                                 sizeof( RtlpStaticDebugInfo )
                                               );
-#endif
 
     RtlInitializeCriticalSection(&DeferedCriticalSection);
     RtlpCreateCriticalSectionSem(&DeferedCriticalSection);
-
-#if DEVL
     RtlpCritSectInitialized = TRUE;
-#endif
+    return;
 }
 
 
@@ -236,11 +259,7 @@ NtdllOkayToLockRoutine(
     IN PVOID Lock
     )
 {
-#if DEVL
     return TRUE;
-#else
-    return RtlpCritSectInitialized;
-#endif
 }
 
 
@@ -269,9 +288,7 @@ Return Value:
 
 {
     NTSTATUS Status;
-#if DEVL
     PRTL_RESOURCE_DEBUG ResourceDebugInfo;
-#endif // DEVL
 
     //
     //  Initialize the lock fields, the count indicates how many are waiting
@@ -285,7 +302,6 @@ Return Value:
         RtlRaiseStatus(Status);
         }
 
-#if DEVL
     Resource->CriticalSection.DebugInfo->Type = RTL_RESOURCE_TYPE;
     ResourceDebugInfo = (PRTL_RESOURCE_DEBUG)
         RtlpAllocateDebugInfo();
@@ -295,7 +311,6 @@ Return Value:
         }
 
     ResourceDebugInfo->ContentionCount = 0;
-    ResourceDebugInfo->Depth = 0;
     Resource->DebugInfo = ResourceDebugInfo;
 
     //
@@ -305,7 +320,6 @@ Return Value:
 
     Resource->Flags = 0;
 
-#endif // DEVL
 
     //
     //  Initialize the shared and exclusive waiting counters and semaphore.
@@ -353,13 +367,6 @@ Return Value:
     return;
 }
 
-#define RtlpCopyCriticalSectionDebugInfo( r )                               \
-        (r)->DebugInfo->Depth = (r)->CriticalSection.DebugInfo->Depth;      \
-        RtlMoveMemory( (r)->DebugInfo->ExclOwnerBackTrace,                  \
-                       (r)->CriticalSection.DebugInfo->OwnerBackTrace,      \
-                       sizeof( (r)->DebugInfo->ExclOwnerBackTrace )         \
-                     )
-
 
 BOOLEAN
 RtlAcquireResourceShared(
@@ -389,10 +396,8 @@ Return Value:
 
 {
     NTSTATUS Status;
-#if DEVL
     ULONG TimeoutCount = 0;
     PLARGE_INTEGER TimeoutTime = &RtlpTimeout;
-#endif // DEVL
     //
     //  Enter the critical section
     //
@@ -468,31 +473,21 @@ Return Value:
         //
 
         Resource->NumberOfWaitingShared += 1;
-
-#if DEVL
         Resource->DebugInfo->ContentionCount++;
-#endif // DEVL
 
         RtlLeaveCriticalSection(&Resource->CriticalSection);
 
-#if DEVL
 rewait:
         if ( Resource->Flags & RTL_RESOURCE_FLAG_LONG_TERM ) {
             TimeoutTime = NULL;
         }
-#endif // DEVL
         Status = NtWaitForSingleObject(
                     Resource->SharedSemaphore,
                     FALSE,
-#if DEVL
                     TimeoutTime
-#else
-                    NULL
-#endif
                     );
-#if DEVL
         if ( Status == STATUS_TIMEOUT ) {
-            DbgPrint("RTL: Aquire Shared Sem Timeout %d(2 minutes)\n",TimeoutCount);
+            DbgPrint("RTL: Acquire Shared Sem Timeout %d(2 minutes)\n",TimeoutCount);
             DbgPrint("RTL: Resource at %lx\n",Resource);
             TimeoutCount++;
             if ( TimeoutCount > 2 ) {
@@ -514,7 +509,7 @@ rewait:
                     ExceptionRecord.ExceptionRecord = NULL;
                     ExceptionRecord.ExceptionAddress = (PVOID)RtlRaiseException;
                     ExceptionRecord.NumberParameters = 1;
-                    ExceptionRecord.ExceptionInformation[0] = (PVOID)Resource;
+                    ExceptionRecord.ExceptionInformation[0] = (ULONG)Resource;
                     RtlRaiseException(&ExceptionRecord);
                     }
                 else {
@@ -524,7 +519,6 @@ rewait:
             DbgPrint("RTL: Re-Waiting\n");
             goto rewait;
         }
-#endif // DEVL
         if ( !NT_SUCCESS(Status) ) {
             RtlRaiseStatus(Status);
             }
@@ -567,10 +561,8 @@ Return Value:
 
 {
     NTSTATUS Status;
-#if DEVL
     ULONG TimeoutCount = 0;
     PLARGE_INTEGER TimeoutTime = &RtlpTimeout;
-#endif // DEVL
 
     //
     //  Loop until the resource is ours or exit if we cannot wait.
@@ -606,10 +598,6 @@ Return Value:
             Resource->NumberOfActive = -1;
 
             Resource->ExclusiveOwnerThread = NtCurrentTeb()->ClientId.UniqueThread;
-
-#if DEVL
-            RtlpCopyCriticalSectionDebugInfo( Resource );
-#endif // DEVL
 
             RtlLeaveCriticalSection(&Resource->CriticalSection);
 
@@ -657,31 +645,21 @@ Return Value:
         //
 
         Resource->NumberOfWaitingExclusive += 1;
-
-#if DEVL
         Resource->DebugInfo->ContentionCount++;
-#endif // DEVL
 
         RtlLeaveCriticalSection(&Resource->CriticalSection);
 
-#if DEVL
 rewait:
         if ( Resource->Flags & RTL_RESOURCE_FLAG_LONG_TERM ) {
             TimeoutTime = NULL;
         }
-#endif // DEVL
         Status = NtWaitForSingleObject(
                     Resource->ExclusiveSemaphore,
                     FALSE,
-#if DEVL
                     TimeoutTime
-#else
-                    NULL
-#endif
                     );
-#if DEVL
         if ( Status == STATUS_TIMEOUT ) {
-            DbgPrint("RTL: Aquire Exclusive Sem Timeout %d (2 minutes)\n",TimeoutCount);
+            DbgPrint("RTL: Acquire Exclusive Sem Timeout %d (2 minutes)\n",TimeoutCount);
             DbgPrint("RTL: Resource at %lx\n",Resource);
             TimeoutCount++;
             if ( TimeoutCount > 2 ) {
@@ -703,7 +681,7 @@ rewait:
                     ExceptionRecord.ExceptionRecord = NULL;
                     ExceptionRecord.ExceptionAddress = (PVOID)RtlRaiseException;
                     ExceptionRecord.NumberParameters = 1;
-                    ExceptionRecord.ExceptionInformation[0] = (PVOID)Resource;
+                    ExceptionRecord.ExceptionInformation[0] = (ULONG)Resource;
                     RtlRaiseException(&ExceptionRecord);
                     }
                 else {
@@ -713,7 +691,6 @@ rewait:
             DbgPrint("RTL: Re-Waiting\n");
             goto rewait;
         }
-#endif // DEVL
         if ( !NT_SUCCESS(Status) ) {
             RtlRaiseStatus(Status);
             }
@@ -813,9 +790,6 @@ Return Value:
             //
 
             Resource->ExclusiveOwnerThread = NULL;
-#if DEVL
-            Resource->DebugInfo->Depth = 0;
-#endif // DEVL
 
             //
             //  If there is another waiting exclusive then give the resource
@@ -921,9 +895,7 @@ Return Value:
 
 {
     NTSTATUS Status;
-#if DEVL
     ULONG TimeoutCount = 0;
-#endif // DEVL
 
     //
     //  Enter the critical section
@@ -946,9 +918,6 @@ Return Value:
         Resource->NumberOfActive = -1;
 
         Resource->ExclusiveOwnerThread = NtCurrentTeb()->ClientId.UniqueThread;
-#if DEVL
-        RtlpCopyCriticalSectionDebugInfo( Resource );
-#endif // DEVL
 
         RtlLeaveCriticalSection(&Resource->CriticalSection);
 
@@ -996,25 +965,15 @@ Return Value:
             //
 
             Resource->NumberOfWaitingExclusive += 1;
-
-#if DEVL
             Resource->DebugInfo->ContentionCount++;
-#endif // DEVL
 
             RtlLeaveCriticalSection(&Resource->CriticalSection);
-#if DEVL
 rewait:
-#endif // DEVL
         Status = NtWaitForSingleObject(
                     Resource->ExclusiveSemaphore,
                     FALSE,
-#if DEVL
                     &RtlpTimeout
-#else
-                    NULL
-#endif
                     );
-#if DEVL
         if ( Status == STATUS_TIMEOUT ) {
             DbgPrint("RTL: Convert Exclusive Sem Timeout %d (2 minutes)\n",TimeoutCount);
             DbgPrint("RTL: Resource at %lx\n",Resource);
@@ -1038,7 +997,7 @@ rewait:
                     ExceptionRecord.ExceptionRecord = NULL;
                     ExceptionRecord.ExceptionAddress = (PVOID)RtlRaiseException;
                     ExceptionRecord.NumberParameters = 1;
-                    ExceptionRecord.ExceptionInformation[0] = (PVOID)Resource;
+                    ExceptionRecord.ExceptionInformation[0] = (ULONG)Resource;
                     RtlRaiseException(&ExceptionRecord);
                     }
                 else {
@@ -1048,7 +1007,6 @@ rewait:
             DbgPrint("RTL: Re-Waiting\n");
             goto rewait;
         }
-#endif // DEVL
             if ( !NT_SUCCESS(Status) ) {
                 RtlRaiseStatus(Status);
                 }
@@ -1081,10 +1039,6 @@ rewait:
                 Resource->NumberOfActive = -1;
 
                 Resource->ExclusiveOwnerThread = NtCurrentTeb()->ClientId.UniqueThread;
-
-#if DEVL
-                RtlpCopyCriticalSectionDebugInfo( Resource );
-#endif // DEVL
 
                 RtlLeaveCriticalSection(&Resource->CriticalSection);
 
@@ -1249,10 +1203,8 @@ Return Value:
     NtClose(Resource->SharedSemaphore);
     NtClose(Resource->ExclusiveSemaphore);
 
-#if DEVL
     RtlpFreeDebugInfo( Resource->DebugInfo );
     RtlZeroMemory( Resource, sizeof( *Resource ) );
-#endif // DEVL
 
     return;
 }
@@ -1313,8 +1265,6 @@ Return Value:
     CriticalSection->OwningThread = 0;
     CriticalSection->LockSemaphore = 0;
 
-#if DEVL
-
     //
     // Initialize debugging information.
     //
@@ -1326,7 +1276,6 @@ Return Value:
 
     DebugInfo->Type = RTL_CRITSECT_TYPE;
     DebugInfo->ContentionCount = 0;
-    DebugInfo->Depth = 0;
     DebugInfo->EntryCount = 0;
 
     //
@@ -1347,8 +1296,9 @@ Return Value:
 
     DebugInfo->CriticalSection = CriticalSection;
     CriticalSection->DebugInfo = DebugInfo;
+#if i386
     DebugInfo->CreatorBackTraceIndex = (USHORT)RtlLogStackBackTrace();
-#endif // DEVL
+#endif // i386
 
     return STATUS_SUCCESS;
 }
@@ -1368,6 +1318,8 @@ RtlpCreateCriticalSectionSem(
                 MAXLONG
                 );
     if ( !NT_SUCCESS(Status) ) {
+        InterlockedDecrement(&CriticalSection->LockCount);
+        KdPrint(( "NTDLL: Warning. Unable to allocate lock semaphore for Cs %x. Undoing lock and raising %x\n", CriticalSection,Status ));
         RtlRaiseStatus(Status);
         }
 #if DBG
@@ -1418,9 +1370,7 @@ Return Value:
 
 {
     NTSTATUS Status;
-#if DEVL
     PRTL_CRITICAL_SECTION_DEBUG DebugInfo;
-#endif // DEVL
 
     if ( CriticalSection->LockSemaphore ) {
 #if DBG
@@ -1432,19 +1382,21 @@ Return Value:
         Status = STATUS_SUCCESS;
         }
 
-#if DEVL
     //
     // Remove critical section from the list
     //
 
     RtlEnterCriticalSection( &RtlCriticalSectionLock );
     DebugInfo = CriticalSection->DebugInfo;
-    RemoveEntryList( &DebugInfo->ProcessLocksList );
-    RtlZeroMemory( DebugInfo, sizeof( *DebugInfo ) );
+    if (DebugInfo != NULL) {
+        RemoveEntryList( &DebugInfo->ProcessLocksList );
+        RtlZeroMemory( DebugInfo, sizeof( *DebugInfo ) );
+        }
     RtlLeaveCriticalSection( &RtlCriticalSectionLock );
-    RtlpFreeDebugInfo( DebugInfo );
+    if (DebugInfo != NULL) {
+        RtlpFreeDebugInfo( DebugInfo );
+        }
     RtlZeroMemory( CriticalSection, sizeof( *CriticalSection ) );
-#endif // DEVL
 
     return Status;
 }
@@ -1475,20 +1427,54 @@ RtlpWaitForCriticalSection(
     )
 {
     NTSTATUS st;
-#if DEVL
     ULONG TimeoutCount = 0;
+    PLARGE_INTEGER TimeoutTime;
+    BOOLEAN CsIsLoaderLock;
 
+    //
+    // critical sections are disabled during exit process so that
+    // apps that are not carefull during shutdown don't hang
+    //
+
+    CsIsLoaderLock = (CriticalSection == NtCurrentPeb()->LoaderLock);
+    NtCurrentTeb()->WaitingOnLoaderLock = (ULONG)CsIsLoaderLock;
+
+    if ( LdrpShutdownInProgress &&
+        ((!CsIsLoaderLock) ||
+         (CsIsLoaderLock && LdrpShutdownThreadId == NtCurrentTeb()->ClientId.UniqueThread) ) ) {
+
+        //
+        // slimey reinitialization of the critical section with the count biased by one
+        // this is how the critical section would normally look to the thread coming out
+        // of this function. Note that the semaphore handle is leaked, but since the
+        // app is exiting, it's ok
+        //
+
+        CriticalSection->LockCount = 0;
+        CriticalSection->RecursionCount = 0;
+        CriticalSection->OwningThread = 0;
+        CriticalSection->LockSemaphore = 0;
+
+        NtCurrentTeb()->WaitingOnLoaderLock = 0;
+
+        return;
+
+        }
+
+    if (RtlpTimoutDisable) {
+        TimeoutTime = NULL;
+        }
+    else {
+        TimeoutTime = &RtlpTimeout;
+        }
     if ( !CriticalSection->LockSemaphore ) {
         RtlpCheckDeferedCriticalSection(CriticalSection);
         }
 
     CriticalSection->DebugInfo->EntryCount++;
     while( TRUE ) {
-#endif // DEVL
 
-#if DEVL
         CriticalSection->DebugInfo->ContentionCount++;
-#endif // DEVL
 
 #if 0
         DbgPrint( "NTDLL: Waiting for CritSect: %X  owned by ThreadId: %X  Count: %u  Level: %u\n",
@@ -1501,22 +1487,20 @@ RtlpWaitForCriticalSection(
 
         st = NtWaitForSingleObject( CriticalSection->LockSemaphore,
                                     FALSE,
-#if DEVL
-                                    &RtlpTimeout
-#else
-                                    NULL
-#endif
+                                    TimeoutTime
                                   );
-#if DEVL
         if ( st == STATUS_TIMEOUT ) {
             DbgPrint( "RTL: Enter Critical Section Timeout (2 minutes) %d\n",
                       TimeoutCount
                     );
-            DbgPrint( "RTL: Critical Section %lx - ContentionCount == %lu\n",
-                      CriticalSection, CriticalSection->DebugInfo->ContentionCount
+            DbgPrint( "RTL: Pid.Tid %x.%x, owner tid %x Critical Section %lx - ContentionCount == %lu\n",
+                    NtCurrentTeb()->ClientId.UniqueProcess,
+                    NtCurrentTeb()->ClientId.UniqueThread,
+                    CriticalSection->OwningThread,
+                    CriticalSection, CriticalSection->DebugInfo->ContentionCount
                     );
             TimeoutCount++;
-            if ( TimeoutCount > 2 ) {
+            if ( TimeoutCount > 2 && CriticalSection != NtCurrentPeb()->LoaderLock ) {
                 PIMAGE_NT_HEADERS NtHeaders;
 
                 //
@@ -1535,7 +1519,7 @@ RtlpWaitForCriticalSection(
                     ExceptionRecord.ExceptionRecord = NULL;
                     ExceptionRecord.ExceptionAddress = (PVOID)RtlRaiseException;
                     ExceptionRecord.NumberParameters = 1;
-                    ExceptionRecord.ExceptionInformation[0] = (PVOID)CriticalSection;
+                    ExceptionRecord.ExceptionInformation[0] = (ULONG)CriticalSection;
                     RtlRaiseException(&ExceptionRecord);
                     }
                 else {
@@ -1544,17 +1528,19 @@ RtlpWaitForCriticalSection(
                 }
             DbgPrint("RTL: Re-Waiting\n");
             }
-        else
-#endif // DEVL
-        if ( NT_SUCCESS(st) ) {
-            return;
-            }
         else {
-            RtlRaiseStatus(st);
+            if ( NT_SUCCESS(st) ) {
+                if ( CsIsLoaderLock ) {
+                    CriticalSection->OwningThread = NtCurrentTeb()->ClientId.UniqueThread;
+                    NtCurrentTeb()->WaitingOnLoaderLock = 0;
+                    }
+                return;
+                }
+            else {
+                RtlRaiseStatus(st);
+                }
             }
-#if DEVL
     }
-#endif
 }
 
 void
@@ -1587,7 +1573,6 @@ RtlpUnWaitCriticalSection(
 }
 
 
-#if DEVL
 void
 RtlpNotOwnerCriticalSection(
     IN PRTL_CRITICAL_SECTION CriticalSection
@@ -1599,108 +1584,32 @@ RtlpNotOwnerCriticalSection(
     IN PRTL_CRITICAL_SECTION CriticalSection
     )
 {
-    DbgPrint( "NTDLL: Calling thread (%X) not owner of CritSect: %X  Owner ThreadId: %X\n",
-              NtCurrentTeb()->ClientId.UniqueThread,
-              CriticalSection,
-              CriticalSection->OwningThread
-            );
-    DbgBreakPoint();
+    BOOLEAN CsIsLoaderLock;
+
+    //
+    // critical sections are disabled during exit process so that
+    // apps that are not carefull during shutdown don't hang
+    //
+
+    CsIsLoaderLock = (CriticalSection == NtCurrentPeb()->LoaderLock);
+
+    if ( LdrpShutdownInProgress &&
+        ((!CsIsLoaderLock) ||
+         (CsIsLoaderLock && LdrpShutdownThreadId == NtCurrentTeb()->ClientId.UniqueThread) ) ) {
+        return;
+        }
+
+    if (NtCurrentPeb()->BeingDebugged) {
+        DbgPrint( "NTDLL: Calling thread (%X) not owner of CritSect: %X  Owner ThreadId: %X\n",
+                  NtCurrentTeb()->ClientId.UniqueThread,
+                  CriticalSection,
+                  CriticalSection->OwningThread
+                );
+#if i386
+        _asm {  int 3 }
+#else
+        DbgBreakPoint();
+#endif
+        }
+    RtlRaiseStatus( STATUS_RESOURCE_NOT_OWNED );
 }
-
-#endif // DEVL
-
-
-#if DEVL
-NTSTATUS
-RtlQueryProcessLockInformation(
-    OUT PRTL_PROCESS_LOCKS LockInformation,
-    IN ULONG LockInformationLength,
-    OUT PULONG ReturnLength OPTIONAL
-    )
-{
-    ULONG RequiredLength;
-    PLIST_ENTRY Head, Next;
-    PRTL_PROCESS_LOCK_INFORMATION LockInfo;
-    PRTL_CRITICAL_SECTION CriticalSection;
-    PRTL_CRITICAL_SECTION_DEBUG DebugInfo;
-    PRTL_RESOURCE Resource;
-    PRTL_RESOURCE_DEBUG ResourceDebugInfo;
-    NTSTATUS Status;
-
-    Status = STATUS_SUCCESS;
-    RequiredLength = FIELD_OFFSET( RTL_PROCESS_LOCKS, Locks );
-    if (LockInformationLength < RequiredLength) {
-        return( STATUS_INFO_LENGTH_MISMATCH );
-        }
-
-    RtlEnterCriticalSection( &RtlCriticalSectionLock );
-    LockInformation->NumberOfLocks = 0;
-    LockInfo = &LockInformation->Locks[ 0 ];
-
-    Head = &RtlCriticalSectionList;
-    Next = Head->Flink;
-    while ( Next != Head ) {
-        DebugInfo = CONTAINING_RECORD( Next,
-                                       RTL_CRITICAL_SECTION_DEBUG,
-                                       ProcessLocksList
-                                     );
-        CriticalSection = DebugInfo->CriticalSection;
-        LockInformation->NumberOfLocks++;
-        RequiredLength += sizeof( RTL_PROCESS_LOCK_INFORMATION );
-
-        if (LockInformationLength < RequiredLength) {
-            Status = STATUS_INFO_LENGTH_MISMATCH;
-            }
-        else {
-            LockInfo->SymbolicBackTrace = NULL;
-            LockInfo->Address = CriticalSection;
-            LockInfo->Type = DebugInfo->Type;
-            LockInfo->CreatorBackTraceIndex = DebugInfo->CreatorBackTraceIndex;
-            if (LockInfo->Type == RTL_CRITSECT_TYPE) {
-                LockInfo->Depth = (USHORT)DebugInfo->Depth;
-                RtlMoveMemory( LockInfo->OwnerBackTrace,
-                               DebugInfo->OwnerBackTrace,
-                               DebugInfo->Depth * sizeof( PVOID )
-                             );
-
-                LockInfo->OwningThread = CriticalSection->OwningThread;
-                LockInfo->LockCount = CriticalSection->LockCount;
-                LockInfo->RecursionCount = CriticalSection->RecursionCount;
-                LockInfo->ContentionCount = DebugInfo->ContentionCount;
-                LockInfo->EntryCount = DebugInfo->EntryCount;
-                }
-            else {
-                Resource = (PRTL_RESOURCE)CriticalSection;
-                ResourceDebugInfo = Resource->DebugInfo;
-                LockInfo->Depth = (USHORT)ResourceDebugInfo->Depth;
-                RtlMoveMemory( LockInfo->OwnerBackTrace,
-                               ResourceDebugInfo->ExclOwnerBackTrace,
-                               ResourceDebugInfo->Depth * sizeof( PVOID )
-                             );
-                LockInfo->ContentionCount = ResourceDebugInfo->ContentionCount;
-                LockInfo->OwningThread = Resource->ExclusiveOwnerThread;
-                LockInfo->LockCount = Resource->NumberOfActive;
-                LockInfo->NumberOfWaitingShared    = Resource->NumberOfWaitingShared;
-                LockInfo->NumberOfWaitingExclusive = Resource->NumberOfWaitingExclusive;
-                }
-
-            LockInfo++;
-            }
-        if ( Next == Next->Flink ) {
-            Next = Head;
-            }
-        else {
-            Next = Next->Flink;
-            }
-        }
-
-    RtlLeaveCriticalSection( &RtlCriticalSectionLock );
-
-    if (ARGUMENT_PRESENT( ReturnLength )) {
-        *ReturnLength = RequiredLength;
-        }
-
-    return Status;
-}
-
-#endif // DEVL

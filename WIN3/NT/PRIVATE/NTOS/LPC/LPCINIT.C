@@ -29,6 +29,8 @@ GENERIC_MAPPING LpcpPortMapping = {
     PORT_ALL_ACCESS
 };
 
+FAST_MUTEX LpcpLock;
+
 BOOLEAN LpcpRequestMsgType[] = {
     FALSE,
     TRUE,           // LPC_REQUEST
@@ -42,7 +44,7 @@ BOOLEAN LpcpRequestMsgType[] = {
     TRUE            // LPC_ERROR_EVENT
 };
 
-#if DBG
+#if ENABLE_LPC_TRACING
 char *LpcpMessageTypeName[] = {
     "UNUSED_MSG_TYPE",
     "LPC_REQUEST",
@@ -74,7 +76,7 @@ LpcpGetCreatorName(
         }
 }
 
-#endif
+#endif // ENABLE_LPC_TRACING
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(INIT,LpcInitSystem)
@@ -108,7 +110,7 @@ Return Value:
     ULONG ZoneElementSize;
     NTSTATUS Status;
 
-    KeInitializeSpinLock( &LpcpLock );
+    ExInitializeFastMutex( &LpcpLock );
 
     RtlInitUnicodeString( &PortTypeName, L"Port" );
 
@@ -116,11 +118,13 @@ Return Value:
     ObjectTypeInitializer.Length = sizeof( ObjectTypeInitializer );
     ObjectTypeInitializer.GenericMapping = LpcpPortMapping;
     ObjectTypeInitializer.MaintainTypeList = TRUE;
-    ObjectTypeInitializer.PoolType = NonPagedPool;
-    ObjectTypeInitializer.DefaultNonPagedPoolCharge = sizeof( LPCP_PORT_OBJECT );
+    ObjectTypeInitializer.PoolType = PagedPool;
+    ObjectTypeInitializer.DefaultPagedPoolCharge = sizeof( LPCP_PORT_OBJECT );
+    ObjectTypeInitializer.DefaultNonPagedPoolCharge = sizeof( LPCP_NONPAGED_PORT_QUEUE );
     ObjectTypeInitializer.InvalidAttributes = OBJ_VALID_ATTRIBUTES ^
                                               PORT_VALID_OBJECT_ATTRIBUTES;
     ObjectTypeInitializer.ValidAccessMask = PORT_ALL_ACCESS;
+    ObjectTypeInitializer.CloseProcedure = LpcpClosePort;
     ObjectTypeInitializer.DeleteProcedure = LpcpDeletePort;
     ObjectTypeInitializer.UseDefaultObject = TRUE;
     ObCreateObjectType( &PortTypeName,
@@ -136,6 +140,7 @@ Return Value:
                       LPCP_ZONE_ALIGNMENT_MASK;
 
     LpcpNextMessageId = 1;
+    LpcpNextCallbackId = 1;
 
     Status = LpcpInitializePortZone( ZoneElementSize,
                                      PAGE_SIZE,

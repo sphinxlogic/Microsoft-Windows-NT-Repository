@@ -243,7 +243,7 @@ fileinfo()
         bool_t readonly = FALSE;
 
         if (Filename != NULL) {
-            if((access(Filename,2) == -1) && (errno == EACCES)) {
+            if((_access(Filename,2) == -1) && (errno == EACCES)) {
                 readonly = TRUE;
             }
         }

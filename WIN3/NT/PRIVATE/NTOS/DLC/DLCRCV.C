@@ -210,11 +210,11 @@ Return Value:
     // this IRP is cancellable
     //
 
-    RELEASE_DRIVER_LOCK();
+//    RELEASE_DRIVER_LOCK();
 
     SetIrpCancelRoutine(pIrp, TRUE);
 
-    ACQUIRE_DRIVER_LOCK();
+//    ACQUIRE_DRIVER_LOCK();
 
     //
     // We must queue both receive command types, the other can receive
@@ -336,7 +336,8 @@ Return Value:
                      pDlcObject->StationId,
                      NULL,
                      pDlcParms->Async.Ccb.pCcbAddress,
-                     pDlcParms->Async.Ccb.CommandCompletionFlag
+                     pDlcParms->Async.Ccb.CommandCompletionFlag,
+                     FALSE
                      );
     }
 
@@ -515,11 +516,11 @@ Return Value:
     // this IRP is cancellable
     //
 
-    RELEASE_DRIVER_LOCK();
+//    RELEASE_DRIVER_LOCK();
 
     SetIrpCancelRoutine(pIrp, TRUE);
 
-    ACQUIRE_DRIVER_LOCK();
+//    ACQUIRE_DRIVER_LOCK();
 
     return QueueDlcCommand(pFileContext,
                            (ULONG)pDlcParms->Async.Parms.ReadInput.EventSet,
@@ -782,7 +783,9 @@ Return Value:
     if (IoGetCurrentIrpStackLocation(pIrp)->Parameters.DeviceIoControl.IoControlCode == IOCTL_DLC_READ) {
         LlcMemCpy(MmGetSystemAddressForMdl((PMDL)pParms->Async.Ccb.u.pMdl),
                   &pParms->Async.Parms.Read.Event,
-                  aSpecialOutputBuffers[IOCTL_DLC_READ_INDEX]
+                  aSpecialOutputBuffers[IOCTL_DLC_READ_INDEX] -
+				  ( (PCHAR)&pParms->Async.Parms.Read.Event -
+				    (PCHAR)&pParms->Async.Parms.Read )
                   );
         UnlockAndFreeMdl(pParms->Async.Ccb.u.pMdl);
     }
@@ -793,12 +796,12 @@ Return Value:
     // we are about to complete this IRP - remove the cancel routine
     //
 
-    RELEASE_DRIVER_LOCK();
+//    RELEASE_DRIVER_LOCK();
 
     SetIrpCancelRoutine(pIrp, FALSE);
     IoCompleteRequest(pIrp, (CCHAR)IO_NETWORK_INCREMENT);
 
-    ACQUIRE_DRIVER_LOCK();
+//    ACQUIRE_DRIVER_LOCK();
 
     DereferenceFileContext(pFileContext);
     return boolDeallocatePacket;
@@ -840,7 +843,9 @@ Return Value:
                       (PVOID*)&pParms->Async.Parms.Read.u.Event.pReceivedFrame,
                       &pParms->Async.Parms.Read.u.Event.ReceivedFrameCount
                       );
-    DeallocatePacket(pFileContext->hPacketPool, pCompletionInfo);
+
+    DEALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool, pCompletionInfo);
+
 }
 
 

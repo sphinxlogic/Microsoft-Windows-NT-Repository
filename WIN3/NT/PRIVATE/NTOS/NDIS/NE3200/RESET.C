@@ -609,6 +609,7 @@ Return Value:
     //
     NE3200SetConfigurationBlockAndInit(Adapter);
 
+
 }
 
 STATIC
@@ -1251,6 +1252,11 @@ Return Value:
             0
             );
     }
+
+    //
+    //  Setup the network address.
+    //
+    NE3200ChangeCurrentAddress(Adapter);
 
     Adapter->ResetInProgress = FALSE;
 

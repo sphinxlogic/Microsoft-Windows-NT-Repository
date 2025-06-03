@@ -87,6 +87,7 @@ PPSX_API_ROUTINE PsxServerApiDispatch[PsxMaxApiNumber] = {
     PsxGetGrNam,
     PsxUnlink,
     PsxReadDir,
+    PsxFtruncate,
     PsxNull
 
 #ifdef PSX_SOCKET
@@ -173,6 +174,7 @@ PSZ PsxServerApiName[PsxMaxApiNumber] = {
     "PsxGetGrNam",
     "PsxUnlink",
     "PsxReadDir",
+    "PsxFtruncate",
     "PsxNull"
    
 #ifdef PSX_SOCKET

@@ -217,9 +217,12 @@ LcFrameLength:                          // length of stack frame
 //
 // Decrement the lock count and check if a waiter should be continued.
 //
+//
 
-20:     wmb                             // insure that all previous writes
+20:
+        mb                              // insure that all previous writes
                                         //   go before releasing the lock
+
         ldl_l   t0, CsLockCount(a0)     // get addend value - locked
         subl    t0, 1, t0               // decrement addend value
         mov     t0, t1                  // copy updated value to t1 for store
@@ -261,3 +264,107 @@ LcFrameLength:                          // length of stack frame
 70:     br      zero, 40b               // go try lock again
 
         .end    RtlLeaveCriticalSection
+
+
+        SBTTL("Try to Enter Critical Section")
+//++
+//
+// BOOLEAN
+// RtlTryEnterCriticalSection(
+//    IN PRTL_CRITICAL_SECTION CriticalSection
+//    )
+//
+// Routine Description:
+//
+//    This function attempts to enter a critical section without blocking.
+//
+// Arguments:
+//
+//    CriticalSection (a0) - Supplies a pointer to a critical section.
+//
+// Return Value:
+//
+//    If the critical section was successfully entered, then a value of TRUE
+//    is returned as the function value. Otherwise, a value of FALSE is returned.
+//
+//--
+
+        .struct 0
+EcRa:   .space  8                       // saved return address
+EcA0:   .space  8                       // saved critical section address
+EcA1:   .space  8                       // saved unique thread id
+        .space  1 * 8                   // required for 16-byte stack alignment
+EcFrameLength:                          // length of stack frame
+
+        LEAF_ENTRY(RtlTryEnterCriticalSection)
+
+        GET_THREAD_ENVIRONMENT_BLOCK    // (PALcode) get TEB address in v0
+        ldl     a1, TeClientId+4(v0)    // get current thread unique id
+//
+// Attempt to enter the critical section.
+//
+
+10:     ldl_l   t0, CsLockCount(a0)     // get addend value - locked
+        addl    t0, 1, t1               // increment addend value
+        bne     t1, 20f                 // critical section owned
+        stl_c   t1, CsLockCount(a0)     // store conditionally
+        beq     t1, 40f                 // if lock-flag eq zero, store failed
+        mb                              // synchronize all future fetches
+                                        //   after obtaining the lock
+//
+// The critical section is now owned by this thread. Initialize the owner
+// thread id and return a successful status.
+//
+        stl     a1, CsOwningThread(a0)  // set critical section owner
+        ldil    v0, TRUE                // set success status
+        ret     zero, (ra)
+
+20:
+//
+// The critical section is already owned. If it is owned by another thread,
+// return FALSE immediately. If it is owned by this thread, we must increment
+// the lock count here.
+//
+        ldl     t2, CsOwningThread(a0)  // get current owner
+        cmpeq   t2, a1, t3              // compare equality
+        bne     t3, 30f                 // if ne, this thread is already the owner
+        bis     zero,zero,v0            // set failure status
+        ret     zero, (ra)              // return
+
+//
+// This thread is already the owner of the critical section. Perform an atomic
+// increment of the LockCount and a normal increment of the RecursionCount and
+// return success.
+//
+30:
+        ldl_l   t0, CsLockCount(a0)     // get addend value - locked
+        addl    t0, 1, t1               // increment addend value
+        stl_c   t1, CsLockCount(a0)     // store conditionally
+        beq     t1, 50f                 // if eqz, store failed
+
+//
+// normally you need a MB here, but in this case we already own the lock
+// so it is not necessary.
+//
+
+//
+// Increment the recursion count
+//
+        ldl     t0, CsRecursionCount(a0)
+        addl    t0, 1, t1
+        stl     t1, CsRecursionCount(a0)
+
+        ldil    v0, TRUE                // set success status
+        ret     zero, (ra)              // return
+
+//
+// We expect the store conditional will usually succeed the first time so it
+// is faster to branch forward (predicted not taken) to here and then branch
+// backward (predicted taken) to where we wanted to go.
+//
+
+40:     br      zero, 10b               // go try lock again
+
+50:     br      zero, 30b               // retry lock
+
+        .end    RtlTryEnterCriticalSection

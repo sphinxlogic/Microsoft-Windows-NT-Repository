@@ -1246,7 +1246,7 @@ BOOL fSymFileFind (PFNFIND pfn, HANDLE h, PSZ psz, PREF pref)
                             break;
                         /*  does symbol match?
                          */
-			if (!strnicmp (pch, psz, cch) && !iscsym (pch[cch])) {
+			if (!_strnicmp (pch, psz, cch) && !iscsym (pch[cch])) {
 			    sprintf (szmsg, "%s %d %d: %s", pfil->name.sz,
 					    1 + (pvec[iblk] & 0x7FFF) + iline,
 					    1 + pch - szBuf, szBuf);

@@ -31,15 +31,21 @@ Environment:
 #include "precomp.h"
 #pragma hdrstop
 
+#ifdef FE_IME
+#include <ime.h>
+#endif
 
 extern LPSHF    Lpshf;
 extern CXF      CxfIp;
 
 
-/************************** Structs and Defines *************************/
+/************************** Externals *************************/
+
+BOOL            FCmdDoingInput;
 
 extern BOOL    fWaitForDebugString;
 extern LPSTR   lpCmdString;
+extern ADDR    addrLastDisasmStart;
 
 /************************** Internal Prototypes *************************/
 /************************** Data declaration    *************************/
@@ -132,6 +138,9 @@ DoStopEvent(
         lptd->fRegisters = FALSE;
         lptd->fDisasm = FALSE;
     }
+
+    addrLastDisasmStart.addr.seg = 0;
+    addrLastDisasmStart.addr.off = 0;
 
     return FALSE;
 }
@@ -581,7 +590,7 @@ Return Value:
             Assert(lppd);
             Assert(lpsz);
 
-            SHChangeProcess(lppd->hpds,TRUE);
+            SHChangeProcess(lppd->hpds);
             SetFindExeBaseName(lppd->lpBaseExeName);
             she = SHLoadDll( lpsz, TRUE );
             emi = SHGethExeFromName((char FAR *) lpsz);
@@ -593,7 +602,7 @@ Return Value:
             ModListModLoad( SHGetExeName( emi ), she );
 
             if (!lppd->lpBaseExeName) {
-                lppd->lpBaseExeName = strdup(SHGetExeName( emi ));
+                lppd->lpBaseExeName = _strdup(SHGetExeName( emi ));
             }
 
             if (she != sheSuppressSyms && runDebugParams.fVerbose) {
@@ -608,8 +617,6 @@ Return Value:
                 }
                 CmdLogFmt("\r\n");
             }
-
-            SHChangeProcess(NULL,FALSE);
 
             if (lppd->pstate != psPreRunning) {
                 //
@@ -638,7 +645,7 @@ Return Value:
             break;
 
         case dbcModFree:           /* DBG_REFRESH */
-            bfRefresh = UPDATE_NONE;
+            bfRefresh = UPDATE_CONTEXT;
             hpid = (HPID)GetQueueItemLong();
             lppd = LppdOfHpid(hpid);
             Assert(lppd);
@@ -881,7 +888,7 @@ Return Value:
             CmdLogFmt("DBG: Process Destroy:  Process=%d\r\n", lppd->ipid);
 #endif
 
-            SHChangeProcess(lppd->hpds,TRUE);
+            SHChangeProcess(lppd->hpds);
 
             while ( emi = SHGetNextExe( (HEXE) NULL ) ) {
                 SHUnloadDll( emi );
@@ -902,12 +909,10 @@ Return Value:
                 LppdCur = NULL;
                 LptdCur = NULL;
             } else if (LppdCur) {
-                SHChangeProcess(NULL,FALSE);
-                SHChangeProcess(LppdCur->hpds,TRUE);
+                SHChangeProcess(LppdCur->hpds);
                 bfRefresh |= (UPDATE_NOFORCE | UPDATE_CONTEXT);
             }
 
-            SHChangeProcess(NULL,FALSE);
             break;
 
         case dbcInfoAvail:         /* DBG_INFO */
@@ -955,10 +960,14 @@ Return Value:
                     if (*lpsz1 == '\r' || *lpsz1 == '\n') {
                         *lpsz1 = '\0';
                     } else {
+#ifdef DBCS
+                        lpsz1 = CharNext(lpsz1);
+#else
                         lpsz1++;
+#endif
                     }
                 }
-                if (stricmp(lpsz, lpCmdString)==0) {
+                if (_stricmp(lpsz, lpCmdString)==0) {
                     free(lpCmdString);
                     fExecNext = TRUE;
                 }
@@ -1009,7 +1018,8 @@ Return Value:
             CmdGetDefaultPrompt(szOldPrompt);
             CmdSetDefaultPrompt(lpsz);
             CmdSetCmdProc(CmdHandleInputString, CmdExecutePrompt);
-            CmdDoPrompt(FALSE, TRUE);
+            CmdDoPrompt(TRUE, TRUE);
+            FCmdDoingInput = TRUE;
             free(lpsz);
             break;
 
@@ -1017,9 +1027,14 @@ Return Value:
             Assert(!"This never happens");
             break;
 #if 0
-
-    // char        rgchT[1024];
-    // LPNT_RIP    lpNtRip;
+        //
+        // Will RIPs be resurrected?
+        // Does this code work on Chicago?
+        // Will Elvis return?
+        //
+        {
+            char        rgchT[1024];
+            LPNT_RIP    lpNtRip;
 
             lptd = (LPTD) GetQueueItemLong();
             Assert(lptd);
@@ -1060,7 +1075,12 @@ Return Value:
                               NULL);
                 lpsz = rgchT + strlen(rgchT) - 1;
                 while (lpsz > rgchT && (*lpsz == '\r' || *lpsz == '\n')) {
+#ifdef DBCS
+                    *lpsz = 0;
+                    lpsz = CharPrev(rgchT, lpsz);
+#else
                     *lpsz-- = 0;
+#endif
                 }
 
                 CmdLogFmt("%s\r\n", rgchT);
@@ -1085,6 +1105,7 @@ Return Value:
                 bfRefresh = UPDATE_NONE;
             }
             break;
+        }
 #endif
 
         case dbcException:         /* DBG_REFRESH */
@@ -1255,9 +1276,8 @@ Return Value:
             bfRefresh = UPDATE_NONE;
             fExecNext = FALSE;
 
-            SHChangeProcess(lppd->hpds,TRUE);
+            SHChangeProcess(lppd->hpds);
             BPSegLoad( (ULONG)GetQueueItemLong() );
-            SHChangeProcess(NULL,FALSE);
 
             Go();
             break;
@@ -1312,8 +1332,7 @@ Return Value:
 
             if (LppdCur && LptdCur) {
                 OSDGetAddr(LppdCur->hpid, LptdCur->htid, adrPC, &Addr);
-                SHChangeProcess(LppdCur->hpds,TRUE);
-                SHChangeProcess(NULL,FALSE);
+                SHChangeProcess(LppdCur->hpds);
             }
 
             if ( (HPID)emiAddr( Addr ) == LppdCur->hpid ) {
@@ -1360,7 +1379,7 @@ Return Value:
                          && !FAutoRunSuppress && !emergency ) {
                     PostMessage(Views[cmdView].hwndClient, WU_AUTORUN, 0, 0);
                 } else {
-                    CmdDoPrompt(TRUE, FALSE);
+                    CmdDoPrompt(!FCmdDoingInput, FALSE);
                 }
             } else {
                 fGetFocus = FALSE;
@@ -1675,7 +1694,6 @@ CmdGetAutoHistOK(
 {
     return FAutoHistOK;
 }
-
 
 long FAR PASCAL EXPORT
 CmdEditProc(
@@ -1892,13 +1910,11 @@ Return Value:
                 break;
 
               case VK_HOME:
-
                 if (fCtrl) {
-                    PosXY(cmdView, 0, 0, FALSE);
+                    lRet = CallWindowProc( lpfnEditProc, hwnd, msg, wParam, lParam );
                 } else {
-                    PosXY(cmdView, Xro, Yro, FALSE);
+                    PosXY(cmdView, Xro, nLines-1, FALSE);
                 }
-                lRet = 0;
                 break;
 
               case VK_ESCAPE:
@@ -1995,7 +2011,7 @@ Return Value:
                         if (!fShowingLine || fEdited) {
                             nHistoryLine = nHistBufBot;
                         }
-                        alpszHistory[nHistBufBot++] = _fstrdup(szStr);
+                        alpszHistory[nHistBufBot++] = _strdup(szStr);
                         if (nHistBufBot >= MAX_CMDWIN_HISTORY) {
                             nHistBufBot = 0;
                         }
@@ -2049,6 +2065,14 @@ Return Value:
 
         return lRet;
 
+#ifdef FE_IME
+      case WM_IME_REPORT:
+        if (IR_STRING != wParam) {
+            break;
+        }
+        // Fall through
+#endif
+
       case WM_CHAR:
 
         // the interesting cases have already been handled;  we just want
@@ -2094,6 +2118,13 @@ Return Value:
                     p1 = p;
                     while (size && *p1) {
                         size--;
+#ifdef DBCS
+                        if (IsDBCSLeadByte(*p1) && *(p1+1)) {
+                            p1 += 2;
+                            size--;
+                            continue;
+                        }
+#endif
                         if (*p1 == '\r' || *p1 == '\n') {
                             break;
                         }
@@ -2140,7 +2171,8 @@ Return Value:
         //
 
         CmdDoLine( (LPSTR)lParam );
-        CmdDoPrompt(TRUE, FALSE);
+        CmdDoPrompt(!FCmdDoingInput, FALSE);
+        FCmdDoingInput = FALSE;
 
         if (wParam) {
             free((LPVOID)lParam);
@@ -2163,7 +2195,7 @@ Return Value:
             CmdLogDebugString(szStr, FALSE);
         }
 
-        CmdLogDebugString( (LPSTR)lParam, FALSE);
+        CmdLogDebugString( (LPSTR)lParam, TRUE);
 
         free( (LPSTR)lParam );
 

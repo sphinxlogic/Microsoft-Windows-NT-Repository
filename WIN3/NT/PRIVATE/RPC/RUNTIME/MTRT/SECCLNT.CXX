@@ -19,17 +19,7 @@ Revision History:
 
 --*/
 
-#include <sysinc.h>
-#include <rpc.h>
-#include <rpcerrp.h>
-#include <rpcssp.h>
-#include <util.hxx>
-#include <rpcuuid.hxx>
-#include <binding.hxx>
-#include <handle.hxx>
-#include <threads.hxx>
-#include <secclnt.hxx>
-#include <mutex.hxx>
+#include <precomp.hxx>
 #include <rpccfg.h>
 #include <spseal.h>
 
@@ -41,6 +31,9 @@ unsigned long LoadedProviders = 0;
 unsigned long AvailableProviders = 0;
 SECURITY_PROVIDER_INFO PAPI * ProviderList = 0;
 MUTEX * SecurityCritSect;
+
+NEW_SDICT(SECURITY_CREDENTIALS);
+static SECURITY_CREDENTIALS_DICT *ClientCredentials;
 
 RPC_STATUS
 FindSecurityPackage (
@@ -86,7 +79,7 @@ Routine Description:
 #endif // WIN
 
 
-int
+RPC_STATUS
 InsureSecuritySupportLoaded (
     )
 /*++
@@ -127,13 +120,18 @@ Return Value:
 
     SecurityCritSect = new MUTEX(&Status);
 
-    if (Status == RPC_S_OK)
-       {
-       SecuritySupportLoaded = 1;
-       }
+    if (SecurityCritSect == 0)
+        {
+        Status = RPC_S_OUT_OF_MEMORY;
+        }
 
-    ClearGlobalMutex();
-    return (Status);
+    if (Status == RPC_S_OK)
+        {
+        SecuritySupportLoaded = 1;
+        }
+
+     ClearGlobalMutex();
+     return (Status);
 }
 
 
@@ -167,9 +165,9 @@ Return Value:
 
     // First make sure that the security support has been loaded.
 
-    if ( InsureSecuritySupportLoaded() != 0 )
+    if ( InsureSecuritySupportLoaded() != RPC_S_OK )
         {
-        return(RPC_S_UNKNOWN_AUTHN_SERVICE);
+        return(RPC_S_OUT_OF_MEMORY);
         }
 
 
@@ -248,9 +246,9 @@ Return Value:
 
     // First make sure that the security support has been loaded.
 
-    if ( InsureSecuritySupportLoaded() != 0 )
+    if ( InsureSecuritySupportLoaded() != RPC_S_OK )
         {
-        return(RPC_S_UNKNOWN_AUTHN_SERVICE);
+        return(RPC_S_OUT_OF_MEMORY);
         }
 
     SecurityCritSect->Request();
@@ -420,6 +418,49 @@ Cleanup:
    return(Status);
 }
 
+
+
+SECURITY_CREDENTIALS::SECURITY_CREDENTIALS (
+    IN OUT RPC_STATUS PAPI * Status
+    ) : CredentialsMutex(Status)
+/*++
+
+Routine Description:
+
+    We need this here to keep the compiler happy.
+
+--*/
+{
+#ifdef DOSWIN32RPC
+    DefaultPrincName = NULL;
+#endif
+
+    ReferenceCount = 1;
+    fCredentialsValid = 0;
+}
+
+#ifdef DOSWIN32RPC
+SECURITY_CREDENTIALS::~SECURITY_CREDENTIALS (
+    )
+{
+#ifdef NTENV
+    PSecurityFunctionTableW RpcSecurityInterface;
+#else // NTENV
+    PSecurityFunctionTableA RpcSecurityInterface;
+#endif // NTENV
+
+    if (DefaultPrincName != NULL)
+        {
+        RpcSecurityInterface = InquireProviderFunctionTable();
+
+        ASSERT(RpcSecurityInterface != NULL);
+
+        (*RpcSecurityInterface->FreeContextBuffer)(DefaultPrincName);
+        }
+}
+#endif
+
+
 
 RPC_STATUS
 SECURITY_CREDENTIALS::AcquireCredentialsForServer (
@@ -533,13 +574,14 @@ Return Value:
            PrintToDebugger("RPC SEC: ACQUIRE CRED Returned [%lx]\n",
                            SecurityStatus);
            }
-#endif       
+#endif
         ASSERT(   (SecurityStatus == SEC_E_NO_CREDENTIALS)
-               || (SecurityStatus == SEC_E_UNKNOWN_CREDENTIALS) );
+               || (SecurityStatus == SEC_E_UNKNOWN_CREDENTIALS)
+               || (SecurityStatus == SEC_E_NO_AUTHENTICATING_AUTHORITY) );
 
         return(RPC_S_INVALID_AUTH_IDENTITY);
         }
-
+    fCredentialsValid = 1;
     return(RPC_S_OK);
 }
 
@@ -648,16 +690,61 @@ Return Value:
            PrintToDebugger("RPC SEC: ACQUIRE CRED For Cli Returned [%lx]\n",
                            SecurityStatus);
            }
-#endif 
+#endif
 
         ASSERT(   (SecurityStatus == SEC_E_NO_CREDENTIALS)
-               || (SecurityStatus == SEC_E_UNKNOWN_CREDENTIALS) );
+               || (SecurityStatus == SEC_E_UNKNOWN_CREDENTIALS)
+               || (SecurityStatus == SEC_E_NO_AUTHENTICATING_AUTHORITY) );
 
         return(RPC_S_INVALID_AUTH_IDENTITY);
         }
 
+    fCredentialsValid = 1;
     return(RPC_S_OK);
 }
+
+#ifdef DOSWIN32RPC
+
+SEC_CHAR __SEC_FAR *
+SECURITY_CREDENTIALS::InquireDefaultPrincName(
+    )
+{
+    SECURITY_STATUS SecurityStatus;
+    SecPkgCredentials_Names CredentialsNames;
+#ifdef NTENV
+    PSecurityFunctionTableW RpcSecurityInterface;
+#else // NTENV
+    PSecurityFunctionTableA RpcSecurityInterface;
+#endif // NTENV
+
+    if (DefaultPrincName == NULL) {
+        RpcSecurityInterface = InquireProviderFunctionTable();
+        if (RpcSecurityInterface == NULL) {
+            return (NULL);
+        }
+#ifdef NTENV
+        if (RpcSecurityInterface->QueryCredentialsAttributesW == NULL) {
+            return (NULL);
+        }
+        SecurityStatus = (*RpcSecurityInterface->QueryCredentialsAttributesW)(
+#else // NTENV
+        if (RpcSecurityInterface->QueryCredentialsAttributesA == NULL) {
+            return (NULL);
+        }
+        SecurityStatus = (*RpcSecurityInterface->QueryCredentialsAttributesA)(
+#endif // NTENV
+        InquireCredentials(), SECPKG_CRED_ATTR_NAMES, &CredentialsNames);
+
+        if (SecurityStatus != SEC_E_OK) {
+            return (NULL);
+        }
+        DefaultPrincName = CredentialsNames.sUserName;
+    }
+
+    return (DefaultPrincName);
+}
+
+#endif
 
 
 void
@@ -680,35 +767,9 @@ Routine Description:
 #endif // NTENV
         = ProviderList[ProviderIndex].RpcSecurityInterface;
 
-    SecurityStatus = (*RpcSecurityInterface->FreeCredentialHandle)(
-            &Credentials);
-    ASSERT( SecurityStatus == SEC_E_OK );
-
-}
-
-
-SECURITY_CONTEXT::~SECURITY_CONTEXT (
-    )
-/*++
-
-Routine Description:
-
-    If there is a valid security context, we need to delete it.
-
---*/
-{
-    SECURITY_STATUS SecurityStatus;
-
-    if ( DontForgetToDelete != 0 )
+    if (fCredentialsValid)
         {
-        SecurityStatus = (*RpcSecurityInterface->DeleteSecurityContext)(
-                &SecurityContext );
-#if DBG
-        if (SecurityStatus != SEC_E_OK)
-           {
-           PrintToDebugger("DeleteSecContext Returned [%lx]\n", SecurityStatus);
-           }
-#endif
+        SecurityStatus = (*RpcSecurityInterface->FreeCredentialHandle)(&Credentials);
         ASSERT( SecurityStatus == SEC_E_OK );
         }
 }
@@ -729,21 +790,68 @@ Routine Description:
     SECURITY_STATUS SecurityStatus;
     SecPkgContext_Sizes ContextSizes;
 
+    if (FailedContext != 0)
+        {
+        //We cheat if 3rd Leg Failed as we dont really have a true Context
+        //Provider is going to really complain if we call QueryContextAttr()
+        //.. we get around that by picking large values.
+        //The rest of the code prevents these values to be really used
+        //We do this because we do not want to block 3rd Leg, rather fail the
+        //first request!
+
+        MaxSignatureLength = 256;
+        MaxHeaderLength    = 256;
+        cbBlockSize        = 64;
+        return;
+        }
+
 #ifdef NTENV
     SecurityStatus = (*RpcSecurityInterface->QueryContextAttributesW)(
 #else // NTENV
     SecurityStatus = (*RpcSecurityInterface->QueryContextAttributesA)(
 #endif // NTENV
             &SecurityContext, SECPKG_ATTR_SIZES, &ContextSizes);
-    ASSERT( SecurityStatus == SEC_E_OK );
+
+#ifdef DEBUGRPC
+    if (SecurityStatus != SEC_E_OK)
+        {
+        PrintToDebugger("RPC: secclnt.cxx: QueryContextAttributes returned: %lx\n",
+                        SecurityStatus);
+        }
+#endif
 
     MaxSignatureLength = (unsigned int) ContextSizes.cbMaxSignature;
-    MaxHeaderLength = (unsigned int) ContextSizes.cbSecurityTrailer;
-    ASSERT( ContextSizes.cbBlockSize <= MAXIMUM_SECURITY_BLOCK_SIZE );
+    MaxHeaderLength    = (unsigned int) ContextSizes.cbSecurityTrailer;
+    cbBlockSize        = (unsigned int) ContextSizes.cbBlockSize;
+
+    ASSERT( SecurityStatus != RPC_S_OK || ContextSizes.cbBlockSize <= MAXIMUM_SECURITY_BLOCK_SIZE );
 }
 
 
-void
+SECURITY_CONTEXT::SECURITY_CONTEXT (
+    CLIENT_AUTH_INFO *myAuthInfo,
+    unsigned myAuthContextId,
+    BOOL fUseDatagram,
+    RPC_STATUS __RPC_FAR * pStatus
+    )
+    : CLIENT_AUTH_INFO(myAuthInfo, pStatus),
+      AuthContextId(myAuthContextId),
+      UseDatagram(fUseDatagram)
+/*++
+
+Routine Description:
+
+    We need to set the flag indicating that there is no security context
+    to be deleted.
+
+--*/
+{
+    DontForgetToDelete = 0;
+    FailedContext = 0;
+}
+
+
+RPC_STATUS
 SECURITY_CONTEXT::CompleteSecurityToken (
     IN OUT SECURITY_BUFFER_DESCRIPTOR PAPI * BufferDescriptor
     )
@@ -758,13 +866,35 @@ SECURITY_CONTEXT::CompleteSecurityToken (
 
     SecurityStatus = (*RpcSecurityInterface->CompleteAuthToken)(
             &SecurityContext, BufferDescriptor);
-
-    ASSERT( SecurityStatus == SEC_E_OK );
+    if (SecurityStatus ==  SEC_E_OK)
+        {
+        return (RPC_S_OK);
+        }
+    if (  (SecurityStatus == SEC_E_NO_CREDENTIALS)
+        || (SecurityStatus == SEC_E_LOGON_DENIED)
+        || (SecurityStatus == SEC_E_INVALID_TOKEN)
+        || (SecurityStatus == SEC_E_UNKNOWN_CREDENTIALS) )
+        {
+        return(RPC_S_ACCESS_DENIED);
+        }
+    if ( SecurityStatus ==  SEC_E_INSUFFICIENT_MEMORY )
+        {
+        return (RPC_S_OUT_OF_MEMORY);
+        }
+    else
+        {
+#if DBG
+        PrintToDebugger("RPC: CompleteSecurityContext Returned %lx\n",
+                         SecurityStatus);
+#endif
+        return(RPC_S_SEC_PKG_ERROR);
+        }
 }
 
 
 RPC_STATUS
 SECURITY_CONTEXT::SignOrSeal (
+    IN unsigned long Sequence,
     IN unsigned int SignNotSealFlag,
     IN OUT SECURITY_BUFFER_DESCRIPTOR PAPI * BufferDescriptor
     )
@@ -795,7 +925,6 @@ Return Value:
 --*/
 {
     SECURITY_STATUS SecurityStatus;
-    unsigned long SequenceNumber;
     SEAL_MESSAGE_FN SealMessage;
 
     ASSERT( BufferDescriptor->cBuffers == 5 );
@@ -803,35 +932,35 @@ Return Value:
                 | SECBUFFER_READONLY) );
     ASSERT( BufferDescriptor->pBuffers[4].cbBuffer
                 == sizeof(DCE_MSG_SECURITY_INFO) );
-    SequenceNumber = ((DCE_MSG_SECURITY_INFO PAPI *)
-            BufferDescriptor->pBuffers[4].pvBuffer)->SendSequenceNumber;
 
     if ( SignNotSealFlag == 0 )
         {
         SealMessage = (SEAL_MESSAGE_FN) RpcSecurityInterface->Reserved3;
         SecurityStatus = (*SealMessage)(&SecurityContext,
-                0, BufferDescriptor, SequenceNumber);
+                0, BufferDescriptor, Sequence);
         }
     else
         {
         SecurityStatus = (*RpcSecurityInterface->MakeSignature)(
-                &SecurityContext, 0, BufferDescriptor, SequenceNumber);
+                &SecurityContext, 0, BufferDescriptor, Sequence);
         }
 
 #if DBG
-        if (SecurityStatus != SEC_E_OK)
+        if ( (SecurityStatus != SEC_E_OK)
+           &&(SecurityStatus != SEC_E_CONTEXT_EXPIRED)
+           &&(SecurityStatus != SEC_E_QOP_NOT_SUPPORTED) )
            {
            PrintToDebugger("Sign/Seal Returned [%lx]\n", SecurityStatus);
            }
-#endif 
+#endif
 
-    ASSERT( SecurityStatus == SEC_E_OK );
-    return(RPC_S_OK);
+    return(SecurityStatus);
 }
 
 
 RPC_STATUS
 SECURITY_CONTEXT::VerifyOrUnseal (
+    IN unsigned long Sequence,
     IN unsigned int VerifyNotUnsealFlag,
     IN OUT  SECURITY_BUFFER_DESCRIPTOR PAPI * BufferDescriptor
     )
@@ -862,7 +991,6 @@ Return Value:
 {
     SECURITY_STATUS SecurityStatus;
     unsigned long QualityOfProtection;
-    unsigned long SequenceNumber;
     UNSEAL_MESSAGE_FN UnsealMessage;
 
     ASSERT( BufferDescriptor->cBuffers == 5 );
@@ -877,30 +1005,30 @@ Return Value:
     //
     if (FailedContext != 0)
        {
+#ifdef WIN32
+       SetLastError(FailedContext);
+#endif
        return (RPC_S_ACCESS_DENIED);
        }
-
-    SequenceNumber = ((DCE_MSG_SECURITY_INFO PAPI *)
-            BufferDescriptor->pBuffers[4].pvBuffer)->ReceiveSequenceNumber;
 
     if ( VerifyNotUnsealFlag == 0 )
         {
         UnsealMessage = (UNSEAL_MESSAGE_FN) RpcSecurityInterface->Reserved4;
         SecurityStatus = (*UnsealMessage)(
-                &SecurityContext, BufferDescriptor, SequenceNumber,
+                &SecurityContext, BufferDescriptor, Sequence,
                 &QualityOfProtection);
         }
     else
         {
         SecurityStatus = (*RpcSecurityInterface->VerifySignature)(
-                &SecurityContext, BufferDescriptor, SequenceNumber,
+                &SecurityContext, BufferDescriptor, Sequence,
                 &QualityOfProtection);
         }
 
     if ( SecurityStatus != SEC_E_OK )
         {
 
-#if DBG         
+#if DBG
         if ((SecurityStatus != SEC_E_MESSAGE_ALTERED)
            &&(SecurityStatus != SEC_E_OUT_OF_SEQUENCE))
            {
@@ -911,6 +1039,9 @@ Return Value:
 
         ASSERT( (SecurityStatus == SEC_E_MESSAGE_ALTERED) ||
                 (SecurityStatus == SEC_E_OUT_OF_SEQUENCE) );
+#ifdef WIN32
+        SetLastError(RPC_S_ACCESS_DENIED);
+#endif
         return(RPC_S_ACCESS_DENIED);
         }
     return(RPC_S_OK);
@@ -964,24 +1095,24 @@ Return Value:
     switch ( AuthenticationLevel )
         {
         case RPC_C_AUTHN_LEVEL_CONNECT :
-            ContextRequirements = ISC_REQ_USE_DCE_STYLE | ISC_REQ_CONNECTION
+            ContextRequirements = ISC_REQ_USE_DCE_STYLE
                     | ISC_REQ_DELEGATE | ISC_REQ_MUTUAL_AUTH;
             break;
 
         case RPC_C_AUTHN_LEVEL_PKT :
-            ContextRequirements = ISC_REQ_USE_DCE_STYLE | ISC_REQ_CONNECTION
+            ContextRequirements = ISC_REQ_USE_DCE_STYLE
                     | ISC_REQ_DELEGATE | ISC_REQ_MUTUAL_AUTH
                     | ISC_REQ_REPLAY_DETECT;
             break;
 
         case RPC_C_AUTHN_LEVEL_PKT_INTEGRITY :
-            ContextRequirements = ISC_REQ_USE_DCE_STYLE | ISC_REQ_CONNECTION
+            ContextRequirements = ISC_REQ_USE_DCE_STYLE
                     | ISC_REQ_DELEGATE | ISC_REQ_MUTUAL_AUTH
                     | ISC_REQ_REPLAY_DETECT | ISC_REQ_SEQUENCE_DETECT;
             break;
 
         case RPC_C_AUTHN_LEVEL_PKT_PRIVACY :
-            ContextRequirements = ISC_REQ_USE_DCE_STYLE | ISC_REQ_CONNECTION
+            ContextRequirements = ISC_REQ_USE_DCE_STYLE
                     | ISC_REQ_DELEGATE | ISC_REQ_MUTUAL_AUTH
                     | ISC_REQ_REPLAY_DETECT | ISC_REQ_SEQUENCE_DETECT
                     | ISC_REQ_CONFIDENTIALITY;
@@ -995,6 +1126,22 @@ Return Value:
                    || ( AuthenticationLevel ==
                            RPC_C_AUTHN_LEVEL_PKT_PRIVACY ) );
         }
+
+    if (UseDatagram)
+        {
+        ContextRequirements |= ISC_REQ_DATAGRAM;
+        }
+    else
+        {
+        ContextRequirements |= ISC_REQ_CONNECTION;
+        }
+
+#ifdef NTENV
+    if (ImpersonationType != RPC_C_IMP_LEVEL_IMPERSONATE)
+        {
+        ContextRequirements |= ISC_REQ_IDENTIFY;
+        }
+#endif
 
 #ifdef NTENV
     SecurityStatus = (*RpcSecurityInterface->InitializeSecurityContextW)(
@@ -1014,6 +1161,8 @@ Return Value:
         {
         if (  (SecurityStatus == SEC_E_SECPKG_NOT_FOUND)
            || (SecurityStatus == SEC_E_NO_CREDENTIALS)
+           || (SecurityStatus == SEC_E_LOGON_DENIED)
+           || (SecurityStatus == SEC_E_INVALID_TOKEN)
            || (SecurityStatus == SEC_E_UNKNOWN_CREDENTIALS) )
             {
             return(RPC_S_ACCESS_DENIED);
@@ -1033,6 +1182,21 @@ Return Value:
         }
 
     DontForgetToDelete = 1;
+
+#ifdef NTENV
+    if ( (ImpersonationType == RPC_C_IMP_LEVEL_IDENTIFY) &&
+         (!(ContextAttributes & ISC_RET_IDENTIFY)) )
+        {
+        return (RPC_S_INVALID_ARG);
+        }
+
+    if ( (!(ContextAttributes & ISC_RET_MUTUAL_AUTH) )&&
+         (Capabilities  == RPC_C_QOS_CAPABILITIES_MUTUAL_AUTH) )
+         {
+         return (RPC_S_INVALID_ARG);
+         }
+#endif
+
 
     if ( SecurityStatus == SEC_I_CONTINUE_NEEDED )
         {
@@ -1107,6 +1271,8 @@ Return Value:
         DontForgetToDelete = 0;
         if (  (SecurityStatus == SEC_E_SECPKG_NOT_FOUND)
            || (SecurityStatus == SEC_E_NO_CREDENTIALS)
+           || (SecurityStatus == SEC_E_LOGON_DENIED)
+           || (SecurityStatus == SEC_E_INVALID_TOKEN)
            || (SecurityStatus == SEC_E_UNKNOWN_CREDENTIALS) )
             {
             return(RPC_S_ACCESS_DENIED);

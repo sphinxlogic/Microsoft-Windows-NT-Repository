@@ -8,7 +8,7 @@ Module Name:
 
 Abstract:
 
-    Control routines (etc.) for the compatibility mode open test.
+    Control routines (etc.) for the compatibility mode _open test.
 
 Author:
 
@@ -41,12 +41,12 @@ file not open:
     OK otherwise
 */
 
-#define DO_LOCAL_OPEN(title,file,access,share,disp,handle) {                \
+#define DO_LOCAL_OPEN(title,file,_access,share,disp,handle) {                \
             status = DoLocalOpen(                                           \
                         (title),                                            \
                         Redir,                                              \
                         (file),                                             \
-                        (access),                                           \
+                        (_access),                                           \
                         (share),                                            \
                         (disp),                                             \
                         (handle)                                            \

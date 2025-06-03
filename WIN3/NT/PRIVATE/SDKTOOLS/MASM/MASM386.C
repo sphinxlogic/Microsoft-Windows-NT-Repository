@@ -48,7 +48,7 @@ long farAvail(void);
 #else
  extern long time();        /* Use C library functions */
  extern UCHAR *ctime();
- extern long lseek();
+ extern long _lseek();
 #endif /* MSDOS */
 
 
@@ -635,7 +635,7 @@ char **av;
         pFCBCur->ptmpbuf = pFCBCur->buf;
         pFCBCur->line = 0;
         pFCBCur->ctmpbuf = 0;
-        lseek(pFCBCur->fh, 0L, 0);          /* go back to beginning of file */
+        _lseek(pFCBCur->fh, 0L, 0);          /* go back to beginning of file */
 
         dopass();
         dumpCodeview();                     /* write codeview symbols */
@@ -707,14 +707,14 @@ char **av;
 #endif /* FLATMODEL */
 
 #ifdef MSDOS
-        flushall();
+        _flushall();
 #endif
 
         /* Put # errors in listing */
         if (lsting){
 
 #ifdef MSDOS
-            setmode( fileno(lst.fil), O_TEXT );
+            _setmode( _fileno(lst.fil), O_TEXT );
 #endif
             if (pagelength - pageline < 12)
                 pageheader ();
@@ -736,7 +736,7 @@ char **av;
 # if defined MSDOS && !defined FLATMODEL
                 farwrite( obj.fh, obj.buf, obj.siz - obj.cnt );
 # else
-                if (write( obj.fh, obj.buf, obj.siz - obj.cnt )
+                if (_write( obj.fh, obj.buf, obj.siz - obj.cnt )
                         != obj.siz - obj.cnt)
                         objerr = -1;
 # endif /* MSDOS */
@@ -746,29 +746,29 @@ char **av;
                     /* over write linker comment record */
 
                     i = 0xd2<<8 | 0;
-                    lseek(obj.fh, oEndPass1, 0);
+                    _lseek(obj.fh, oEndPass1, 0);
 #if defined MSDOS && !defined FLATMODEL
                     farwrite( obj.fh, (UCHAR FAR *)&i, 2);
 #else
-                    write( obj.fh, (UCHAR *)&i, 2);
+                    _write( obj.fh, (UCHAR *)&i, 2);
 #endif
                 }
 
-                close( obj.fh );
+                _close( obj.fh );
                 }
 
         if (objing && (objerr))
                 fprintf(ERRFILE,__NMSG_TEXT(ER_WEO) );
 
         if (objing && (errornum || objerr))
-                unlink( obj.name );
+                _unlink( obj.name );
 
         if (lsting && ferror(lst.fil))
                 fprintf(ERRFILE,__NMSG_TEXT(ER_WEL) );
 
         if (crefing && ferror(crf.fil)) {
                 fprintf(ERRFILE,__NMSG_TEXT(ER_WEC) );
-                unlink( crf.name );
+                _unlink( crf.name );
         }
 
         if (errornum)
@@ -790,7 +790,7 @@ getincenv ()
 #endif
 
     if (inclcnt < INCLUDEMAX - 1)
-        inclpath[inclcnt++] = strdup("");
+        inclpath[inclcnt++] = _strdup("");
 
 #ifdef MSDOS
 
@@ -819,7 +819,7 @@ getincenv ()
         while (*env == ';')
             env++;
 
-        inclpath[inclcnt++] = strdup(pathname);
+        inclpath[inclcnt++] = _strdup(pathname);
     }
 
 #endif /* MSDOS */
@@ -858,17 +858,17 @@ initproc ()
     strcpy(pFCBCur->fname, fname);
 
 #ifdef XENIX286
-    if ((pFCBCur->fh = open(fname, TEXTREAD)) == -1)
+    if ((pFCBCur->fh = _open(fname, TEXTREAD)) == -1)
 #else
-    if ((pFCBCur->fh = sopen(fname, O_RDONLY | O_BINARY, SH_DENYWR)) == -1)
+    if ((pFCBCur->fh = _sopen(fname, O_RDONLY | O_BINARY, SH_DENYWR)) == -1)
 #endif
         TERMINATE1(ER_UOI, EX_UINP, fname);
 
-    if ((filelen = lseek(pFCBCur->fh, 0L, 2 )) == -1L)
+    if ((filelen = _lseek(pFCBCur->fh, 0L, 2 )) == -1L)
         TERMINATE1(ER_ULI, EX_UINP, fname);
 
     /* go back to beginning */
-    lseek(pFCBCur->fh, 0L, 0 );
+    _lseek(pFCBCur->fh, 0L, 0 );
 
     pFCBCur->ctmpbuf = 0;
     pFCBCur->cbbuf = DEF_SRCBUFSIZ * 1024;
@@ -910,7 +910,7 @@ initproc ()
     if (fname[0] == '.' && fname[1] == '.') {
 
         *--p = NULL;
-        inclpath[0] = (char *) strdup(fname);
+        inclpath[0] = (char *) _strdup(fname);
         *p = PSEP;
         inclFirst--;
     }
@@ -931,12 +931,12 @@ initproc ()
     if (lsting) {
 
         if (!lst.name)
-            lst.name = strdup( strcat( strcpy( save, &baseName[10] ), LST_EXT ));
+            lst.name = _strdup( strcat( strcpy( save, &baseName[10] ), LST_EXT ));
 #else
     if (file[2] && !nulname( file[2] )) {
         lsting = TRUE;
 
-        lst.name = strdup( file[2] );
+        lst.name = _strdup( file[2] );
 
 #endif /* XENIX286 */
 
@@ -964,14 +964,14 @@ initproc ()
 
 #ifdef XENIX286
         if (!obj.name)
-            obj.name = strdup( strcat( strcpy( save, &baseName[10] ), OBJ_EXT ));
+            obj.name = _strdup( strcat( strcpy( save, &baseName[10] ), OBJ_EXT ));
 #else
-        obj.name = strdup( file[1] );
+        obj.name = _strdup( file[1] );
 #endif
         /* let the file be read or overwritten by anybody, like
          * other utilities.  -Hans */
 
-        if ((obj.fh = open( obj.name, BINOPEN, 0666)) == -1)
+        if ((obj.fh = _open( obj.name, BINOPEN, 0666)) == -1)
             TERMINATE1(ER_UOO, EX_UOBJ, obj.name );
 
         obj.cnt = obj.siz = obufsiz << 10;
@@ -994,9 +994,9 @@ initproc ()
     if (crefing) {
 #ifdef XENIX286
 
-        crf.name = strdup( strcat( strcpy( save, &baseName[10] ), ".crf" ));
+        crf.name = _strdup( strcat( strcpy( save, &baseName[10] ), ".crf" ));
 #else
-        crf.name = strdup( file[3] );
+        crf.name = _strdup( file[3] );
 #endif
 
         if (!(crf.fil = fopen( crf.name, "w" BINSTDIO )))
@@ -1133,7 +1133,7 @@ register char *p
 
                     if (p[1]) {  /* listing file name specified */
 
-                        lst.name = strdup( p+1 );
+                        lst.name = _strdup( p+1 );
                         p += strlen( p ) - 1;
                         }
 
@@ -1164,7 +1164,7 @@ register char *p
                     if (p[1]) {  /* object file name specified */
 
                         objing = TRUE;
-                        obj.name = strdup( p+1 );
+                        obj.name = _strdup( p+1 );
                         p += strlen( p ) - 1;
                         }
 
@@ -1295,13 +1295,13 @@ char *p;
                 q = p;
 
         if (p = strchr( q, '.' )) {
-                if (!stricmp( p + 1, "nul" ))
+                if (!_stricmp( p + 1, "nul" ))
                         return( 1 );
 
                 *p = '\0';
                 }
 
-        result = stricmp( q, "nul" );
+        result = _stricmp( q, "nul" );
 
         if (p)
                 *p = '.';
@@ -1323,13 +1323,13 @@ conname (
                 q = p;
 
         if (p = strchr( q, '.' )) {
-                if (!stricmp( p + 1, "con" ))
+                if (!_stricmp( p + 1, "con" ))
                         return( 1 );
 
                 *p = '\0';
                 }
 
-        result = stricmp( q, "con" );
+        result = _stricmp( q, "con" );
 
         if (p)
                 *p = '.';
@@ -1358,17 +1358,17 @@ closeOpenFiles()                 /* close and delete all output files on error *
 {
         if (crf.fil) {
                 fclose( crf.fil );
-                unlink( crf.name );
+                _unlink( crf.name );
                 }
 
         if (lst.fil) {
                 fclose( lst.fil );
-                unlink( lst.name );
+                _unlink( lst.name );
                 }
 
         if (obj.fh) {
-                close( obj.fh );
-                unlink( obj.name );
+                _close( obj.fh );
+                _unlink( obj.name );
                 }
 }
 
@@ -1437,24 +1437,24 @@ ctime ()
         day = regs.h.dl;
         }
 #endif
-        itoa( month, p++, 10 );
+        _itoa( month, p++, 10 );
         if (month >= 10)
                 p++;
 
         *p++ = '/';
-        itoa( day, p++, 10 );
+        _itoa( day, p++, 10 );
         if (day >= 10)
                 p++;
 
         *p++ = '/';
-        itoa( year % 100, p, 10 );
+        _itoa( year % 100, p, 10 );
         p += 2;
         *p++ = ' ';
 
         if (hour < 10)
                 *p++ = '0';
 
-        itoa( hour, p++, 10 );
+        _itoa( hour, p++, 10 );
         if (hour >= 10)
                 p++;
 
@@ -1463,7 +1463,7 @@ ctime ()
         if (minute < 10)
                 *p++ = '0';
 
-        itoa( minute, p++, 10 );
+        _itoa( minute, p++, 10 );
         if (minute >= 10)
                 p++;
 
@@ -1472,7 +1472,7 @@ ctime ()
         if (second < 10)
                 *p++ = '0';
 
-        itoa( second, p++, 10 );
+        _itoa( second, p++, 10 );
         if (second >= 10)
                 p++;
 
@@ -1526,7 +1526,7 @@ char * strrchr ( string, ch )
 #ifdef XENIX286
 #pragma loop_opt (on)
 
-SHORT stricmp ( first, last )
+SHORT _stricmp ( first, last )
 char *first;
 char *last;
 {

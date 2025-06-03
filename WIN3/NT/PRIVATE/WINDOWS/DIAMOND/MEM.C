@@ -13,6 +13,8 @@
  *      12-Aug-1993 bens    Get strings from memory.msg
  *      01-Sep-1993 bens    Add NULL pointer checks to MMAssert and MMStrDup
  *      18-Mar-1994 bens    Make sure non-assert build works; rename
+ *      18-May-1994 bens    Allow turning off MemCheckHeap() in debug build
+ *                              (it can really, really slow things down!)
  *
  *  Functions:
  *      MemAlloc  - Allocate memory block
@@ -20,9 +22,11 @@
  *      MemStrDup - Duplicate string to new memory block
  *
  *  Functions available in ASSERT build:
- *      MemAssert    - Assert that pointer was allocated by MemAlloc
- *      MemCheckHeap - Check entire memory heap
- *      MemGetSize   - Return allocated size of memory block
+ *      MemAssert       - Assert that pointer was allocated by MemAlloc
+ *      MemCheckHeap    - Check entire memory heap
+ *      MemGetSize      - Return allocated size of memory block
+ *      MemSetCheckHeap - Control whether MemCheckHeap is done on every
+ *                          every MemAlloc and MemFree!
  */
 
 #include <string.h>  
@@ -31,11 +35,12 @@
 
 #include "types.h"
 #include "asrt.h"
-#include "mem.h"
-
-#include "mem.msg"
 
 #ifdef ASSERT   // Must be after asrt.h!
+
+#include "mem.h"
+#include "mem.msg"
+
 
 /***    MEMSIG - memory signature
  *
@@ -68,6 +73,13 @@ typedef MEMHDR *PMEMHDR; /* pmh */
 
 
 STATIC PMEMHDR pmhList=NULL;    // List of memory blocks
+STATIC BOOL    fDoCheckHeap=TRUE; // TRUE => check heap regularly
+
+
+void MemSetCheckHeap(BOOL f)
+{
+    fDoCheckHeap = f;
+}
 
 
 void MMCheckHeap(char *pszFile, int iLine)
@@ -112,6 +124,11 @@ void MMFree(void *pv, char *pszFile, int iLine)
 
     MMAssert(pv,pszFile,iLine);
 
+    //** Check heap if enabled
+    if (fDoCheckHeap) {
+        MMCheckHeap(pszFile,iLine);
+    }
+
     pmh = PMHFromPV(pv);
 
     // Make previous block point to next block
@@ -148,7 +165,12 @@ void *MMAlloc(unsigned cb, char *pszFile, int iLine)
     PMEMHDR     pmh;
     PMEMSIG     pms;
 
-    MMCheckHeap(pszFile,iLine);
+    if (fDoCheckHeap) {
+        MMCheckHeap(pszFile,iLine);
+    }
+
+	// Solves alignment problems on the RISCs
+	cb = (cb+3) & ~3;
 
     cbAlloc = cb+sizeof(MEMHDR)+sizeof(MEMSIG)*cmsTAIL;
     pmh = malloc(cbAlloc);

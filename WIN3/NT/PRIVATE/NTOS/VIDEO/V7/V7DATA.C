@@ -1716,7 +1716,7 @@ VIDEOMODE ModesVGA[] = {
 //
 // Mode index 6
 // 800x600 256 colors.
-// Assumes 1024K.   // BUGBUG For now, until we implement broken rasters
+// Assumes 1024K.   // For now, until we implement broken rasters
 //
 
 { VIDEO_MODE_COLOR+VIDEO_MODE_GRAPHICS, 1, 8, 80, 30,

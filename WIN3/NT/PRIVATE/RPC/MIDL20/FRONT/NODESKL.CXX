@@ -48,21 +48,6 @@ extern ISTACK					*	pZpStack;
 
 extern BOOL							IsTempName( char * );
 extern void							ParseError( STATUS_T, char * );
-extern STATUS_T						DoSetAttributes( node_skl *,
-											 ATTR_SUMMARY *,
-											 ATTR_SUMMARY *,
-											 type_node_list	*);
-
-extern void							CollectAttributes( node_skl	*,
-													   ATTR_SUMMARY *,
-											   		   type_node_list	* );
-extern void							CollectSummaryAttributes( node_skl	*,
-													   ATTR_SUMMARY *,
-											   		   ATTR_SUMMARY	* );
-
-extern BOOL							IsMultipleAttributeApplicable( NODE_T, ATTR_T ); 
-extern BOOL							IsOkToApplyAttributeAgain(node_skl *,
-															  node_base_attr *);
 /****************************************************************************/
 
 
@@ -107,26 +92,6 @@ MEMLIST::GetNumberOfArguments()
 	return count;
 	};
 
-// currently coded up as 1-based, returns 0 for no match
-short           
-MEMLIST::GetOrdinalNumberOfMember( named_node * pMem )
-	{
-	short			count	= 0;
-	named_node	*	pNext	= pMembers;
-
-	while ( pNext )
-		{
-		count++;
-		if ( pNext == pMem )
-			{
-			return count;
-			}
-		pNext = pNext->GetSibling();
-		};
-
-	return 0;
-	};
-
 // add a new member onto the very tail
 void			
 MEMLIST::AddLastMember( named_node * pNode )
@@ -158,10 +123,13 @@ MEMLIST::AddLastMember( named_node * pNode )
 	the private memory allocator
  ****************************************************************************/
 
-// initialize the memory allocator for node_id
+// initialize the memory allocators for node_id and node_id_fe
 
 FreeListMgr
 node_id::MyFreeList( sizeof (node_id ) );
+
+FreeListMgr
+node_id_fe::MyFreeList( sizeof (node_id_fe ) );
 
 
 
@@ -231,7 +199,7 @@ calc:
 
 			pChildPtr = GetBasicType();
 
-			if(pChildPtr)
+			if(pChildPtr && pChildPtr != this)
 				{
 				return pChildPtr->GetSize(CurOffset, ZeePee);
 				}
@@ -419,16 +387,23 @@ node_skl::GetNdrAlign()
 			assert( FALSE );
 			return 0;
 		case NODE_DEF:
-			if( ((node_def *)this)->FInSummary( ATTR_TRANSMIT ) )
+			if ( ((node_def *)this)->FInSummary( ATTR_TRANSMIT ) )
 				{
-				node_transmit * 	pTrans = (node_transmit *) 
+				ta * 	pTrans = (ta *) 
 									((node_def *)this)->GetAttribute( ATTR_TRANSMIT );
-				return pTrans->GetTransmitAsType()->GetNdrAlign();
+				return pTrans->GetType()->GetNdrAlign();
+				}
+			else if ( ((node_def *)this)->FInSummary( ATTR_WIRE_MARSHAL ) )
+				{
+/* RKK node ? */
+                ta * 	pTrans = (ta *)
+									((node_def *)this)->GetAttribute( ATTR_WIRE_MARSHAL );
+				return pTrans->GetType()->GetNdrAlign();
 				}
 			else
 				return GetChild()->GetNdrAlign();
 		default:
-			if( (NodeType == NODE_STRUCT ) || (NodeType == NODE_UNION) )
+			if ( (NodeType == NODE_STRUCT ) || (NodeType == NODE_UNION) )
 				{
 				if( ((node_struct *) this)->IsEncapsulatedStruct() )
 					{
@@ -471,7 +446,7 @@ node_skl::GetBasicType()
 		default:
 			if( pChildPtr = GetChild() )
 				{
-				if(pChildPtr->NodeKind() == NODE_DEF)
+				if(pChildPtr->NodeKind() == NODE_DEF | pChildPtr->NodeKind() == NODE_FORWARD | pChildPtr->NodeKind() == NODE_HREF )
 					return pChildPtr->GetBasicType();
 				return pChildPtr;
 				}
@@ -493,67 +468,13 @@ node_skl::GetMyInterfaceNode()
 node_file *
 node_skl::GetDefiningFile()
 {
-	return GetMyInterfaceNode()->GetFileNode();
+    if (GetMyInterfaceNode())
+        return GetMyInterfaceNode()->GetFileNode();
+    else
+        return NULL;
 }
 
 
-char *
-node_skl::GetNodeNameString()
-	{
-	NODE_T	NT;
-static char *Names[] = 
-	{
-	 "illegal"
-    ,"float"
-	,"double"
-	,"hyper"
-	,"long"
-	,"longlong"
-	,"short"
-	,"int"
-	,"small"
-	,"char"
-	,"boolean"
-	,"byte"
-	,"void"
-	,"handle_t"
-	,"forward"
-	,"struct"
-	,"union"
-	,"enum"
-	,"short_enum"
-	,"long_enum"
-	,"label"
-	,"pipe"
-	,"error_status_t"
-	,"iso_latin_1"
-	,"private_char_8"
-	,"iso_multi_lingual"
-	,"private_char_16"
-	,"iso_mocs"
-	,"wchar_t"
-	,"procedure"
-	,"return"
-	,"parameter"
-	,"field"
-	,"bitfield"
-	,"typedef"
-	,"pointer"
-	,"array	"
-	,"file"
-	,"interface"
-	,"const"
-	,"unimpl"
-	,"error"
-	,"identifier"
-	,"echo_string"
-	,"error_status_t"
-	,"base type"
-	,"source"
-	};
-	NT = NodeKind();
-	return Names[NT];
-	}
 
 /*****************************************************************************
 	utility functions
@@ -667,6 +588,46 @@ node_base_type::IsUnsigned()
 	return FALSE;
 }
 
+EXPR_VALUE
+node_base_type::ConvertMyKindOfValueToEXPR_VALUE( EXPR_VALUE value )
+{
+
+	// make obvious choice
+	if ( FInSummary( ATTR_UNSIGNED ) ) 
+		return value;
+	
+	// small values are irrelevant
+	if ( (value & 0xffffff80) == 0 )
+		return value;
+
+	// handle default signedness
+	switch ( NodeKind() )
+		{
+		case NODE_CHAR:
+			if ( !FInSummary( ATTR_SIGNED ) )
+				return value;
+			// fall through to sign extend
+		case NODE_SMALL:
+			{
+			signed char 	ch	= (signed char) value;
+			return (EXPR_VALUE) ch;
+			}
+		case NODE_SHORT:
+			{
+			signed short	sh	= (signed short) value;
+			return (EXPR_VALUE) sh;
+			}
+		case NODE_LONG:
+		case NODE_INT:
+			{
+			signed long		lng = (signed long) value;
+			return (EXPR_VALUE) lng;
+			}
+		}
+
+	return value;
+}
+
 BOOL
 named_node::IsNamedNode()
 {
@@ -677,14 +638,19 @@ named_node::IsNamedNode()
 node_skl	*	
 node_def::GetTransmittedType()
 	{
-	node_transmit *		pXmit = (node_transmit *) GetAttribute( ATTR_TRANSMIT );
+	ta *		pXmit = (ta *) GetAttribute( ATTR_TRANSMIT );
+
+/*
+Rkk just in case
+*/
+    if ( !pXmit )
+        pXmit = (ta *) GetAttribute( ATTR_WIRE_MARSHAL );
 
 	// allow for transitive xmit_as
 	if ( !pXmit && ( GetChild()->NodeKind() == NODE_DEF ) )
 		return ((node_def*)GetChild())->GetTransmittedType();
 
-
-	return (pXmit) ? pXmit->GetTransmitAsType() : NULL;
+	return (pXmit) ? pXmit->GetType() : NULL;
 	}
 
 // return the represent_as type (or NULL)
@@ -693,6 +659,9 @@ node_def::GetRepresentationName()
 	{
 	node_represent_as	*	pRep	= 
 						(node_represent_as *) GetAttribute( ATTR_REPRESENT_AS );
+
+    if ( !pRep )
+        pRep = (node_represent_as *) GetAttribute( ATTR_USER_MARSHAL );
 
 	return (pRep) ? pRep->GetRepresentationName() : NULL;
 	}

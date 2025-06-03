@@ -452,7 +452,7 @@ static VOID SetConfigDefaults( BE_CFG_PTR cfg )
 #endif
 #endif
      cfg->skip_open_files          = FALSE ;  /* if true, skip; false, wait */
-     cfg->backup_files_inuse       = FALSE ;  /* ignore sharing problems?   */
+     cfg->backup_files_inuse       = TRUE ;  /* ignore sharing problems?   */
      cfg->support_afp_server       = TRUE ;   /* backup Mac resource info?  */
      cfg->extended_date_support    = TRUE ;   /* reset last access dates?   */
      cfg->hidden_flg               = TRUE ;   /* don't process hidden files */
@@ -506,6 +506,9 @@ static VOID SetConfigDefaults( BE_CFG_PTR cfg )
      cfg->TCP_listen_port          = 6101 ;   /* tcp resource listener port */
 #endif
      cfg->process_special_files    = FALSE ;  /* don't process special files  */
+     cfg->ems_pub_pri              = BEC_EMS_BOTH ;
+     cfg->ems_rip_kick             = FALSE ;
+     cfg->ems_wipe_clean           = FALSE ;
 }
 
 

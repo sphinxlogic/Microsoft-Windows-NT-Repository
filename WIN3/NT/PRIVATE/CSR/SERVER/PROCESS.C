@@ -46,8 +46,6 @@ FindProcessForShutdown(
     PLUID CallerLuid
     );
 
-ULONG CsrpNormalSeperation = 2;
-
 VOID
 CsrpSetToNormalPriority(
     VOID
@@ -85,29 +83,23 @@ CsrpSetToShutdownPriority(
 VOID
 CsrpComputePriority(
     IN ULONG PriorityClass,
-    OUT KPRIORITY *ForegroundPriority,
-    OUT KPRIORITY *BackgroundPriority
+    OUT PUCHAR ProcessPriorityClass
     )
 {
     if ( PriorityClass & CSR_NORMAL_PRIORITY_CLASS ) {
-        *ForegroundPriority = 9;
-        *BackgroundPriority = 7;
+        *ProcessPriorityClass = PROCESS_PRIORITY_CLASS_NORMAL;
         }
     else if ( PriorityClass & CSR_IDLE_PRIORITY_CLASS ) {
-        *ForegroundPriority = 4;
-        *BackgroundPriority = 4;
+        *ProcessPriorityClass = PROCESS_PRIORITY_CLASS_IDLE;
         }
     else if ( PriorityClass & CSR_HIGH_PRIORITY_CLASS ) {
-        *ForegroundPriority = 13;
-        *BackgroundPriority = 13;
+        *ProcessPriorityClass = PROCESS_PRIORITY_CLASS_HIGH;
         }
     else if ( PriorityClass & CSR_REALTIME_PRIORITY_CLASS ) {
-        *ForegroundPriority = 24;
-        *BackgroundPriority = 24;
+        *ProcessPriorityClass = PROCESS_PRIORITY_CLASS_REALTIME;
         }
     else {
-        *ForegroundPriority = 9;
-        *BackgroundPriority = 7;
+        *ProcessPriorityClass = PROCESS_PRIORITY_CLASS_NORMAL;
         }
 }
 
@@ -118,16 +110,16 @@ CsrComputePriorityClass(
 {
     ULONG ReturnValue;
 
-    if ( Process->ForegroundPriority == 9 && Process->BackgroundPriority == 7 ) {
+    if ( Process->PriorityClass == PROCESS_PRIORITY_CLASS_NORMAL ) {
         ReturnValue = CSR_NORMAL_PRIORITY_CLASS;
         }
-    else if ( Process->ForegroundPriority == 4 && Process->BackgroundPriority == 4 ) {
+    else if ( Process->PriorityClass == PROCESS_PRIORITY_CLASS_IDLE ) {
         ReturnValue = CSR_IDLE_PRIORITY_CLASS;
         }
-    else if ( Process->ForegroundPriority == 13 && Process->BackgroundPriority == 13 ) {
+    else if ( Process->PriorityClass == PROCESS_PRIORITY_CLASS_HIGH ) {
         ReturnValue = CSR_HIGH_PRIORITY_CLASS;
         }
-    else if ( Process->ForegroundPriority == 24 && Process->BackgroundPriority == 24 ) {
+    else if ( Process->PriorityClass == PROCESS_PRIORITY_CLASS_REALTIME ) {
         ReturnValue = CSR_REALTIME_PRIORITY_CLASS;
         }
     else {
@@ -140,43 +132,32 @@ CsrSetForegroundPriority(
     IN PCSR_PROCESS Process
     )
 {
-    KPRIORITY SetBasePriority;
+    PROCESS_PRIORITY_CLASS PriorityClass;
 
     //
     // priority seperation is set 0, 1, 2 as the process
     //
 
     if ( (ULONG)Process <= 2 ) {
-        switch ((ULONG)Process) {
-            case 0:
-                CsrpNormalSeperation = 0;
-                break;
-            case 1:
-                CsrpNormalSeperation = 1;
-                break;
-            case 2:
-                CsrpNormalSeperation = 2;
-                break;
-            }
+        ULONG PrioritySeperation;
+
+        PrioritySeperation = (ULONG)Process;
+        NtSetSystemInformation(
+            SystemPrioritySeperation,
+            &PrioritySeperation,
+            sizeof(ULONG)
+            );
         return;
         }
 
-    //
-    // If we are in the normal class, then forground is background + seperation
-    //
+    PriorityClass.Foreground = TRUE;
+    PriorityClass.PriorityClass = Process->PriorityClass;
 
-    if ( Process->BackgroundPriority == 7 ) {
-        SetBasePriority = Process->BackgroundPriority + CsrpNormalSeperation;
-        }
-    else {
-        SetBasePriority = Process->ForegroundPriority;
-        }
-    SetBasePriority |= 0x80000000;
     NtSetInformationProcess(
             Process->ProcessHandle,
-            ProcessBasePriority,
-            (PVOID)&SetBasePriority,
-            sizeof(SetBasePriority)
+            ProcessPriorityClass,
+            (PVOID)&PriorityClass,
+            sizeof(PriorityClass)
             );
 }
 
@@ -185,15 +166,16 @@ CsrSetBackgroundPriority(
     IN PCSR_PROCESS Process
     )
 {
-    KPRIORITY SetBasePriority;
+    PROCESS_PRIORITY_CLASS PriorityClass;
 
-    SetBasePriority = Process->BackgroundPriority;
+    PriorityClass.Foreground = FALSE;
+    PriorityClass.PriorityClass = Process->PriorityClass;
 
     NtSetInformationProcess(
             Process->ProcessHandle,
-            ProcessBasePriority,
-            (PVOID)&SetBasePriority,
-            sizeof(SetBasePriority)
+            ProcessPriorityClass,
+            (PVOID)&PriorityClass,
+            sizeof(PriorityClass)
             );
 }
 
@@ -239,7 +221,7 @@ CsrAllocateProcess( VOID )
 
     ProcessSize = QUAD_ALIGN(sizeof( CSR_PROCESS ) +
             (CSR_MAX_SERVER_DLL * sizeof(PVOID))) + CsrTotalPerProcessDataLength;
-    Process = (PCSR_PROCESS)RtlAllocateHeap( CsrHeap, 0,
+    Process = (PCSR_PROCESS)RtlAllocateHeap( CsrHeap, MAKE_TAG( PROCESS_TAG ),
                                              ProcessSize
                                            );
     ASSERT( Process != NULL );
@@ -263,8 +245,7 @@ CsrAllocateProcess( VOID )
     if (ProcessSequenceCount < FIRST_SEQUENCE_COUNT)
         ProcessSequenceCount = FIRST_SEQUENCE_COUNT;
 
-    Process->ForegroundPriority = (KPRIORITY)FOREGROUND_BASE_PRIORITY;
-    Process->BackgroundPriority = (KPRIORITY)NORMAL_BASE_PRIORITY;
+    Process->PriorityClass = PROCESS_PRIORITY_CLASS_NORMAL;
 
     CsrLockedReferenceProcess(Process);
 
@@ -424,17 +405,8 @@ CsrCreateProcess(
 
     CsrpComputePriority(
         DebugFlags,
-        &Process->ForegroundPriority,
-        &Process->BackgroundPriority
+        &Process->PriorityClass
         );
-
-    Status = NtSetInformationProcess(
-        ProcessHandle,
-        ProcessBasePriority,
-        (PVOID)&Process->BackgroundPriority,
-        sizeof(KPRIORITY)
-        );
-    ASSERT(NT_SUCCESS(Status));
 
     //
     // If we are creating a process group, the group leader has the same
@@ -511,7 +483,7 @@ CsrCreateProcess(
         CsrDeallocateProcess( Process );
         ReleaseProcessStructureLock();
         return( STATUS_NO_MEMORY );
-	}
+        }
 
     CsrInitializeThreadData(Thread, CSR_SERVER_QUERYCLIENTTHREAD());
 
@@ -530,6 +502,8 @@ ProtectHandle(ThreadHandle);
 
     Process->ClientId = *ClientId;
     Process->ProcessHandle = ProcessHandle;
+
+    CsrSetBackgroundPriority(Process);
 
     Process->ShutdownLevel = 0x00000280;
 
@@ -660,7 +634,7 @@ CsrCreateThread(
     if (Thread == NULL) {
         ReleaseProcessStructureLock();
         return( STATUS_NO_MEMORY );
-	}
+        }
 
     CsrInitializeThreadData(Thread, CallingThread);
 
@@ -707,11 +681,21 @@ CsrCreateRemoteThread(
         return( Status );
         }
 
+    //
+    // Don't create the thread structure if the thread
+    // has already terminated.
+    //
+
+    if ( TimeInfo.ExitTime.QuadPart != 0 ) {
+        CsrUnlockProcess( Process );
+        return( STATUS_THREAD_IS_TERMINATING );
+    }
+
     Thread = CsrAllocateThread( Process );
     if (Thread == NULL) {
         CsrUnlockProcess( Process );
         return( STATUS_NO_MEMORY );
-	}
+        }
     Status = NtDuplicateObject(
                 NtCurrentProcess(),
                 ThreadHandle,
@@ -806,7 +790,7 @@ CsrAllocateThread(
 
     ThreadSize = QUAD_ALIGN(sizeof( CSR_THREAD ) +
             (CSR_MAX_SERVER_DLL * sizeof(PVOID))) + CsrTotalPerThreadDataLength;
-    Thread = (PCSR_THREAD)RtlAllocateHeap( CsrHeap, 0,
+    Thread = (PCSR_THREAD)RtlAllocateHeap( CsrHeap, MAKE_TAG( PROCESS_TAG ),
                                            ThreadSize
                                          );
     if (Thread == NULL) {
@@ -918,7 +902,6 @@ CsrRemoveThread(
             CsrLockedDereferenceProcess(Thread->Process);
             }
         }
-    ReleaseProcessStructureLock();
 
     //
     // Set the termination thread *before* calling the delete thread routines
@@ -929,6 +912,16 @@ CsrRemoveThread(
 
     Thread->Flags |= CSR_THREAD_TERMINATING;
 
+    //
+    // Set the reference count before the structure lock is released.
+    // This will prevent gui threads from deleting the thread
+    // structure during cleanup.
+    //
+
+    Thread->ReferenceCount = 1;
+
+    ReleaseProcessStructureLock();
+
     for (i=0; i<CSR_MAX_SERVER_DLL; i++) {
         LoadedServerDll = CsrLoadedServerDll[ i ];
         if (LoadedServerDll && LoadedServerDll->DeleteThreadRoutine) {
@@ -937,25 +930,12 @@ CsrRemoveThread(
             }
         }
 
-    if (Thread->ThreadConnected) {
+    //
+    // Reset the refcount so gui threads can free the thread structure.
+    //
 
-        //
-        // Set the low event pair to wake up the gui thread if it is asleep
-        // on this. Then wait on it's thread handle for it to go away. Must
-        // do this before continuing cleanup so that we synchronize with the
-        // gui threads cleaning up.
-        //
-
-        Thread->ShutDownStatus = NtSetLowEventPair( Thread->ServerEventPairHandle );
-
-        if ( !NT_SUCCESS(Thread->ShutDownStatus) ) {
-#if DBG
-            DbgPrint("CSRSS: Shutdown Failed %lx Thread %lx\n",Thread->ShutDownStatus,Thread);
-            DbgBreakPoint();
-#endif
-            NtTerminateProcess(NtCurrentProcess(),Thread->ShutDownStatus);
-            }
-        }
+    AcquireProcessStructureLock();
+    Thread->ReferenceCount = 0;
 }
 
 
@@ -1005,6 +985,62 @@ CsrUnlockProcess(
     )
 {
     CsrLockedDereferenceProcess( Process );
+    ReleaseProcessStructureLock();
+    return( STATUS_SUCCESS );
+}
+
+NTSTATUS
+CsrLockThreadByClientId(
+    IN HANDLE UniqueThreadId,
+    OUT PCSR_THREAD *Thread
+    )
+{
+    NTSTATUS Status;
+    ULONG Index;
+    PLIST_ENTRY ListHead, ListNext;
+    PCSR_THREAD ThreadPtr;
+    CLIENT_ID ClientId;
+
+    AcquireProcessStructureLock();
+
+    if (ARGUMENT_PRESENT(Thread)) {
+        *Thread = NULL;
+    }
+
+    Index = THREAD_ID_TO_HASH(UniqueThreadId);
+
+    ListHead = &CsrThreadHashTable[Index];
+    ListNext = ListHead->Flink;
+    while (ListNext != ListHead) {
+        ThreadPtr = CONTAINING_RECORD( ListNext, CSR_THREAD, HashLinks );
+        if ( ThreadPtr->ClientId.UniqueThread == UniqueThreadId &&
+             !(ThreadPtr->Flags & CSR_THREAD_DESTROYED) ) {
+            break;
+            }
+        ListNext = ListNext->Flink;
+        }
+    if (ListNext == ListHead)
+        ThreadPtr = NULL;
+
+    if (ThreadPtr != NULL) {
+        Status = STATUS_SUCCESS;
+        CsrLockedReferenceThread(ThreadPtr);
+        *Thread = ThreadPtr;
+        }
+    else {
+        Status = STATUS_UNSUCCESSFUL;
+        ReleaseProcessStructureLock();
+        }
+
+    return( Status );
+}
+
+NTSTATUS
+CsrUnlockThread(
+    IN PCSR_THREAD Thread
+    )
+{
+    CsrLockedDereferenceThread( Thread );
     ReleaseProcessStructureLock();
     return( STATUS_SUCCESS );
 }
@@ -1099,7 +1135,6 @@ CsrImpersonateClient(
             if (Status != STATUS_BAD_IMPERSONATION_LEVEL)
                 DbgBreakPoint();
             }
-        CsrSetLastQlpcError(RtlNtStatusToDosError(Status));
         return FALSE;
         }
 
@@ -1229,7 +1264,6 @@ Return Value:
 
 ProtectHandle(ThreadHandle);
 
-        Thread->ServerThreadHandle = ThreadHandle;
         Thread->ClientId = *ClientId;
         Thread->Flags = Flags;
         InsertTailList(&CsrRootProcess->ThreadList, &Thread->Link);
@@ -1268,6 +1302,7 @@ CsrSrvSetPriorityClass(
     PLIST_ENTRY ListHead, ListNext;
     PCSR_PROCESS ProcessPtr;
     KPRIORITY ForegroundPriority,BackgroundPriority;
+    PROCESS_PRIORITY_CLASS PriorityClass;
 
     t = CSR_SERVER_QUERYCLIENTTHREAD();
 
@@ -1341,20 +1376,20 @@ CsrSrvSetPriorityClass(
 
                 CsrpComputePriority(
                     a->PriorityClass,
-                    &ForegroundPriority,
-                    &BackgroundPriority
+                    &PriorityClass.PriorityClass
                     );
 
-                Status = NtSetInformationProcess(
-                    TargetProcess,
-                    ProcessBasePriority,
-                    (PVOID)&BackgroundPriority,
-                    sizeof(KPRIORITY)
-                    );
+                PriorityClass.Foreground = FALSE;
+
+                Status =  NtSetInformationProcess(
+                                ProcessPtr->ProcessHandle,
+                                ProcessPriorityClass,
+                                (PVOID)&PriorityClass,
+                                sizeof(PriorityClass)
+                                );
 
                 if ( NT_SUCCESS(Status) ) {
-                    ProcessPtr->ForegroundPriority = ForegroundPriority;
-                    ProcessPtr->BackgroundPriority = BackgroundPriority;
+                    ProcessPtr->PriorityClass = PriorityClass.PriorityClass;
                     }
                 }
             else {
@@ -1452,16 +1487,17 @@ CsrThreadRefcountZero(
     NTSTATUS Status;
 
     p = t->Process;
+
     CsrRemoveThread(t);
 
-    if (!t->ThreadConnected) {
-UnProtectHandle(t->ThreadHandle);
-        Status = NtClose(t->ThreadHandle);
-        ASSERT(NT_SUCCESS(Status));
-        CsrDeallocateThread(t);
+    ReleaseProcessStructureLock();
 
-        CsrDereferenceProcess(p);
-        }
+UnProtectHandle(t->ThreadHandle);
+    Status = NtClose(t->ThreadHandle);
+    ASSERT(NT_SUCCESS(Status));
+    CsrDeallocateThread(t);
+
+    CsrDereferenceProcess(p);
 }
 
 VOID
@@ -1551,6 +1587,7 @@ CsrShutdownProcesses(
     PCSR_SERVER_DLL LoadedServerDll;
     ULONG Command;
     BOOLEAN fFirstPass;
+    NTSTATUS Status = STATUS_UNSUCCESSFUL;
 #ifdef DEVL
     BOOLEAN fFindDebugger;
     extern BOOLEAN fWin32ServerDebugger;
@@ -1587,6 +1624,7 @@ CsrShutdownProcesses(
     while (ListNext != ListHead) {
         Process = CONTAINING_RECORD(ListNext, CSR_PROCESS, ListLink);
         Process->Flags &= ~CSR_PROCESS_SHUTDOWNSKIP;
+        Process->ShutdownFlags = 0;
         ListNext = ListNext->Flink;
         }
     try {
@@ -1601,7 +1639,8 @@ CsrShutdownProcesses(
 
             if (Process == NULL) {
                 ReleaseProcessStructureLock();
-                return STATUS_SUCCESS;
+                Status = STATUS_SUCCESS;
+                goto ExitLoop;
                 }
 
             //
@@ -1661,7 +1700,8 @@ TryAgain:
                         // Unlock process structure.
                         //
                         ReleaseProcessStructureLock();
-                        return STATUS_CANCELLED;
+                        Status = STATUS_CANCELLED;
+                        goto ExitLoop;
                         }
                     }
                 }
@@ -1685,9 +1725,11 @@ TryAgain:
                 CsrLockedDereferenceProcess(Process);
 
             }
+ExitLoop:;
         }
     finally {
         CsrpSetToNormalPriority();
+        return Status;
         }
 }
 
@@ -1756,7 +1798,7 @@ FindProcessForShutdown(
         // we only notify them.
         //
 
-        fEqual = RtlLargeIntegerEqualTo(ProcessLuid, SystemLuid);
+        fEqual = RtlEqualLuid(&ProcessLuid,&SystemLuid);
         if (fEqual) {
             Process->ShutdownFlags |= SHUTDOWN_SYSTEMCONTEXT;
             }
@@ -1767,7 +1809,7 @@ FindProcessForShutdown(
         //
 
         if (!fEqual) {
-            fEqual = RtlLargeIntegerEqualTo(ProcessLuid, *CallerLuid);
+            fEqual = RtlEqualLuid(&ProcessLuid, CallerLuid);
             }
 
         //
@@ -1848,7 +1890,7 @@ CsrGetProcessLuid(
     // Allocate space for the user info
     //
 
-    pStats = (PTOKEN_STATISTICS)RtlAllocateHeap(CsrHeap, 0, BytesRequired);
+    pStats = (PTOKEN_STATISTICS)RtlAllocateHeap(CsrHeap, MAKE_TAG( TMP_TAG ), BytesRequired);
     if (pStats == NULL) {
         NtClose(UserToken);
         return Status;
@@ -1892,7 +1934,7 @@ CsrSetCallingSpooler(
     // Obsolete function that may be called by third part drivers.
     //
     return;
-    
+
     fSet;
 }
 

@@ -94,7 +94,7 @@ char *v[];
     timenow.modtime = ltime;
 
     while (c) {
-        if (utime (*v, (void *) &timenow) == -1) {
+        if (_utime (*v, (void *) &timenow) == -1) {
             printf ("Can't touch %s - %s\n", *v, error ());
             ReturnCode = 1;
             // exit (1);
@@ -103,4 +103,3 @@ char *v[];
         }
     return( ReturnCode );
 }
-

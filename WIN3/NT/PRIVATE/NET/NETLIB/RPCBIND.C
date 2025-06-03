@@ -77,7 +77,7 @@ Revision History:
 //#include <rpcutil.h>            // MIDL_user_allocate(), MIDL_user_free().
 #include <string.h>             // for strcpy strcat strlen memcmp
 #include <debuglib.h>           // IF_DEBUG
-#include <netdebug.h>   // FORMAT_ equates, NetpDbgPrint(), NetpAssert(), etc.
+#include <netdebug.h>   // FORMAT_ equates, NetpKdPrint(()), NetpAssert(), etc.
 #include <prefix.h>     // PREFIX_ equates.
 
 //*********************************
@@ -310,8 +310,8 @@ Return Value:
 
         if ( ntStatus != RPC_S_OK ) {
             IF_DEBUG(RPC) {
-                NetpDbgPrint(PREFIX_NETLIB "[NetpBindRpc]RpcpBindRpc Failed "
-                        "(impersonating) "FORMAT_NTSTATUS "\n",ntStatus);
+                NetpKdPrint((PREFIX_NETLIB "[NetpBindRpc]RpcpBindRpc Failed "
+                        "(impersonating) "FORMAT_NTSTATUS "\n",ntStatus));
             }
         }
         return(NetpNtStatusToApiStatus(ntStatus));
@@ -338,7 +338,7 @@ Return Value:
         // Entry was found.  Move it to the top of the cache.
         //
         IF_DEBUG(RPC) {
-            NetpDbgPrint( PREFIX_NETLIB "[NetpBindRpc]Handle Found in Cache\n");
+            NetpKdPrint(( PREFIX_NETLIB "[NetpBindRpc]Handle Found in Cache\n"));
         }
         AdjustCache(entryIndex);
 
@@ -375,8 +375,8 @@ Return Value:
 
         if ( ntStatus != RPC_S_OK ) {
             IF_DEBUG(RPC) {
-                NetpDbgPrint(PREFIX_NETLIB "[NetpBindRpc]RpcpBindRpc Failed "
-                        FORMAT_NTSTATUS "\n",ntStatus);
+                NetpKdPrint((PREFIX_NETLIB "[NetpBindRpc]RpcpBindRpc Failed "
+                        FORMAT_NTSTATUS "\n",ntStatus));
             }
             status = NetpNtStatusToApiStatus(ntStatus);
             if(entryFound) {
@@ -400,10 +400,10 @@ Return Value:
                 // add the new binding handle to the cache entry.
                 //
                 IF_DEBUG(RPC) {
-                    NetpDbgPrint(PREFIX_NETLIB
+                    NetpKdPrint((PREFIX_NETLIB
                             "[NetpBindRpc]Bind Success New handle added"
                             "to the cache " FORMAT_HANDLE "\n",
-                            *BindingHandlePtr);
+                            *BindingHandlePtr));
                 }
                 cacheEntry->UseCount = 1;
                 cacheEntry->RpcHandle = *BindingHandlePtr;
@@ -414,17 +414,17 @@ Return Value:
 #if DBG
     IF_DEBUG(RPC) {
         cacheEntry = GlobalRpcCachePtr[entryIndex];
-        NetpDbgPrint(PREFIX_NETLIB "[NetpBindRpc]Bind for " FORMAT_LPTSTR
+        NetpKdPrint((PREFIX_NETLIB "[NetpBindRpc]Bind for " FORMAT_LPTSTR
                 "," FORMAT_LPTSTR "\n",
                 cacheEntry->ServerName,
-                cacheEntry->ServiceName);
+                cacheEntry->ServiceName));
 
         IF_DEBUG(RPCCACHE) {
             DumpBindCache();
         }
 
-        NetpDbgPrint(PREFIX_NETLIB "[NetpBindRpc]RpcHandle = "
-                FORMAT_HANDLE "\n\n",*BindingHandlePtr);
+        NetpKdPrint((PREFIX_NETLIB "[NetpBindRpc]RpcHandle = "
+                FORMAT_HANDLE "\n\n",*BindingHandlePtr));
     }
 #endif // DBG
 
@@ -467,7 +467,7 @@ Return Value:
 
 #ifdef TURN_ON_CACHING
     DWORD           index;
-    
+
     EnterCriticalSection(&RpcCacheCritSec);
 
     if (!DecrementUseCount(BindingHandle, &index)) {
@@ -481,16 +481,16 @@ Return Value:
 #endif // TURN_ON_CACHING
 
         IF_DEBUG(RPC) {
-            NetpDbgPrint(PREFIX_NETLIB "[NetpUnbindRpc] UnBinding Handle "
-                    FORMAT_HANDLE "\n", BindingHandle);
+            NetpKdPrint((PREFIX_NETLIB "[NetpUnbindRpc] UnBinding Handle "
+                    FORMAT_HANDLE "\n", BindingHandle));
         }
 
         status = RpcpUnbindRpc( BindingHandle );
 
         IF_DEBUG(RPC) {
             if (status) {
-                NetpDbgPrint(PREFIX_NETLIB "Unbind Failure! RpcUnbind = "
-                        FORMAT_NTSTATUS "\n",status);
+                NetpKdPrint((PREFIX_NETLIB "Unbind Failure! RpcUnbind = "
+                        FORMAT_NTSTATUS "\n",status));
             }
         }
         status = NetpNtStatusToApiStatus(status);
@@ -592,10 +592,10 @@ Return Value:
                     (GlobalRpcCachePtr[i]->UseCount)++;
 
                     IF_DEBUG(RPC) {
-                        NetpDbgPrint(PREFIX_NETLIB
+                        NetpKdPrint((PREFIX_NETLIB
                                 "Cache Entry Found. It is Number " FORMAT_DWORD
                                 ", handle = " FORMAT_HANDLE "\n",
-                                i,GlobalRpcCachePtr[i]->RpcHandle);
+                                i,GlobalRpcCachePtr[i]->RpcHandle));
                     }
 
                     *BindingHandlePtr = GlobalRpcCachePtr[i]->RpcHandle;
@@ -760,9 +760,9 @@ Return Value:
         // ERROR
         //
         IF_DEBUG(RPC) {
-            NetpDbgPrint(PREFIX_NETLIB
+            NetpKdPrint((PREFIX_NETLIB
                     "[NetpBindRpc]AddCacheEntry:LocalAlloc Failed "
-                    FORMAT_API_STATUS "\n", (NET_API_STATUS) GetLastError());
+                    FORMAT_API_STATUS "\n", (NET_API_STATUS) GetLastError()));
         }
         return(FALSE);
     }
@@ -811,7 +811,7 @@ Return Value:
     }
 
     IF_DEBUG(RPC) {
-        NetpDbgPrint(PREFIX_NETLIB "New Cache Entry\n");
+        NetpKdPrint((PREFIX_NETLIB "New Cache Entry\n"));
     }
     *IndexPtr = 0;
 
@@ -865,12 +865,12 @@ Return Value:
     GlobalRpcCachePtr = (LPCACHE_ENTRY *)LocalAlloc(LMEM_ZEROINIT, allocSize);
     if(GlobalRpcCachePtr == NULL) {
         IF_DEBUG(RPC) {
-            NetpDbgPrint(PREFIX_NETLIB
+            NetpKdPrint((PREFIX_NETLIB
                     "[NetpBindRpc]InitRpcBindCache LocalAlloc Failed "
                     FORMAT_API_STATUS ".\n"
                     PREFIX_NETLIB
                     "[NetpBindRpc] Rpc Binding Caching will be disabled.\n",
-                    (NET_API_STATUS) GetLastError());
+                    (NET_API_STATUS) GetLastError()));
         }
         //
         // If we cannot allocate memory for the cache, then we will
@@ -908,9 +908,9 @@ Return Value:
 
     if (status != NERR_Success) {
         IF_DEBUG(RPC) {
-            NetpDbgPrint(PREFIX_NETLIB
+            NetpKdPrint((PREFIX_NETLIB
                     "[NetpBindRpc]InitRpcBindCache NetpGetComputerName Failed "
-                    FORMAT_API_STATUS "\n", status);
+                    FORMAT_API_STATUS "\n", status));
         }
         LocalComputerName = NULL;
         return(TRUE);
@@ -925,9 +925,9 @@ Return Value:
 
     if (LocalComputerName == NULL) {
         IF_DEBUG(RPC) {
-            NetpDbgPrint(PREFIX_NETLIB
+            NetpKdPrint((PREFIX_NETLIB
                     "[NetpBindRpc]LocalAlloc(computerName) Failed "
-                    FORMAT_API_STATUS "\n", GetLastError());
+                    FORMAT_API_STATUS "\n", GetLastError()));
         }
     }
     STRCPY(LocalComputerName, TEXT("\\\\"));
@@ -978,19 +978,19 @@ Return Value:
 
         if (!RPC_CACHE_ENTRY_FREE(GlobalRpcCachePtr[i])) {
             IF_DEBUG(RPC) {
-                NetpDbgPrint(PREFIX_NETLIB "[CLOSE_DLL] UnBinding Handle "
-                        FORMAT_HANDLE "\n", GlobalRpcCachePtr[i]->RpcHandle);
+                NetpKdPrint((PREFIX_NETLIB "[CLOSE_DLL] UnBinding Handle "
+                        FORMAT_HANDLE "\n", GlobalRpcCachePtr[i]->RpcHandle));
             }
 
             RpcpUnbindRpc(GlobalRpcCachePtr[i]->RpcHandle);
 
             IF_DEBUG(RPC) {
                 if (GlobalRpcCachePtr[i]->UseCount > 0) {
-                    NetpDbgPrint(PREFIX_NETLIB "Unclosed Handled for "
+                    NetpKdPrint((PREFIX_NETLIB "Unclosed Handled for "
                             FORMAT_LPTSTR "," FORMAT_LPTSTR
                             " being forced closed\n",
                             GlobalRpcCachePtr[i]->ServerName,
-                            GlobalRpcCachePtr[i]->ServiceName);
+                            GlobalRpcCachePtr[i]->ServiceName));
                 }
             }
         }
@@ -1095,10 +1095,10 @@ Return Value:
             return(FALSE);
         }
         IF_DEBUG(RPC) {
-            NetpDbgPrint(PREFIX_NETLIB "FindAddLocation: Entry #" FORMAT_DWORD
+            NetpKdPrint((PREFIX_NETLIB "FindAddLocation: Entry #" FORMAT_DWORD
                     " Being Removed From Cache (Handle Unbound): "
                     FORMAT_HANDLE "\n",
-                    (DWORD) i, GlobalRpcCachePtr[i]->RpcHandle);
+                    (DWORD) i, GlobalRpcCachePtr[i]->RpcHandle));
         }
         RpcpUnbindRpc(GlobalRpcCachePtr[i]->RpcHandle);
         (VOID) LocalFree(GlobalRpcCachePtr[i]->ServiceName);
@@ -1117,9 +1117,9 @@ Return Value:
             return(TRUE);
         }
         IF_DEBUG(RPC) {
-            NetpDbgPrint(PREFIX_NETLIB "FindAddLocation: Entry #" FORMAT_DWORD
+            NetpKdPrint((PREFIX_NETLIB "FindAddLocation: Entry #" FORMAT_DWORD
                     " Being Removed From Cache (Unbind Later): " FORMAT_HANDLE
-                    "\n", (DWORD) i, GlobalRpcCachePtr[i]->RpcHandle);
+                    "\n", (DWORD) i, GlobalRpcCachePtr[i]->RpcHandle));
         }
         (VOID) LocalFree(GlobalRpcCachePtr[i]->ServiceName);
         GlobalRpcCachePtr[i]->RpcHandle = NULL;
@@ -1132,8 +1132,8 @@ Return Value:
         // All handles in the table are used by one or more callers.
         //
         IF_DEBUG(RPC) {
-            NetpDbgPrint(PREFIX_NETLIB
-                    "All Handles in Cache are used by one or more callers\n");
+            NetpKdPrint((PREFIX_NETLIB
+                    "All Handles in Cache are used by one or more callers\n"));
         }
         return(FALSE);
     }
@@ -1182,10 +1182,10 @@ Return Value:
             // this procedure is entered.
             //
             IF_DEBUG(RPC) {
-                NetpDbgPrint(PREFIX_NETLIB "Decrement UseCount for "
+                NetpKdPrint((PREFIX_NETLIB "Decrement UseCount for "
                         FORMAT_HANDLE ". OldCount = " FORMAT_DWORD "\n\n",
                         GlobalRpcCachePtr[i]->RpcHandle,
-                        (DWORD) GlobalRpcCachePtr[i]->UseCount);
+                        (DWORD) GlobalRpcCachePtr[i]->UseCount));
             }
             NetpAssert(GlobalRpcCachePtr[i]->UseCount > 0);
 
@@ -1244,8 +1244,8 @@ Return Value:
         status = GetLastError();
         if (status != ERROR_NO_TOKEN) {
             IF_DEBUG(RPC) {
-                NetpDbgPrint(PREFIX_NETLIB "[CheckImpersonation]OpenThreadToken "
-                "Failed %d\n",status);
+                NetpKdPrint((PREFIX_NETLIB "[CheckImpersonation]OpenThreadToken "
+                "Failed %d\n",status));
             }
         }
         return(FALSE);
@@ -1259,8 +1259,8 @@ Return Value:
                 &ReturnLength)) {
 
             IF_DEBUG(RPC) {
-                NetpDbgPrint(PREFIX_NETLIB"[CheckImpersonation] "
-                "GetTokenInformation Failed %d\n",GetLastError());
+                NetpKdPrint((PREFIX_NETLIB"[CheckImpersonation] "
+                "GetTokenInformation Failed %d\n",GetLastError()));
             }
             CloseHandle(TokenHandle);
             return(FALSE);
@@ -1282,11 +1282,11 @@ DumpBindCache(
 {
     DWORD   i;
 
-    NetpDbgPrint("\n");
+    NetpKdPrint(("\n"));
     for(i=0; i<GlobalRpcCacheMaxSize; i++) {
         DumpCacheEntry(i, GlobalRpcCachePtr[i]);
     }
-    NetpDbgPrint("\n");
+    NetpKdPrint(("\n"));
 }
 
 STATIC VOID
@@ -1296,7 +1296,7 @@ DumpCacheEntry(
     )
 {
 
-    NetpDbgPrint(PREFIX_NETLIB "****** RPC CACHE ENTRY #" FORMAT_DWORD " ******"
+    NetpKdPrint((PREFIX_NETLIB "****** RPC CACHE ENTRY #" FORMAT_DWORD " ******"
                  "   SERVICE: " FORMAT_LPTSTR "\tSERVER: " FORMAT_LPTSTR "\n"
                  "Handle   " FORMAT_HANDLE "\n"
                  "UseCount " FORMAT_DWORD "\n"
@@ -1306,7 +1306,7 @@ DumpCacheEntry(
                  CacheEntryPtr->ServerName,
                  CacheEntryPtr->RpcHandle,
                  (DWORD) CacheEntryPtr->UseCount,
-                 CacheEntryPtr->NetworkOptions);
+                 CacheEntryPtr->NetworkOptions));
 
 }
 
@@ -1319,6 +1319,9 @@ NetpCloseRpcBindCache(
     VOID
     )
 {
+    if ( LocalComputerName != NULL ) {
+        (VOID) LocalFree(LocalComputerName);
+    }
     return TRUE;
 }
 

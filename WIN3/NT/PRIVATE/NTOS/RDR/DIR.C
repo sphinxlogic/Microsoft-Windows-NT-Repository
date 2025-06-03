@@ -138,6 +138,12 @@ FillFileInformation(
     );
 
 DBGSTATIC
+VOID
+RdrFreeSearchBuffer(
+    IN PSCB SCB
+    );
+
+DBGSTATIC
 NTSTATUS
 LoadSearchBuffer(
     IN PIRP Irp OPTIONAL,
@@ -231,6 +237,15 @@ CopyBothDirectory(
     );
 
 DBGSTATIC
+NTSTATUS
+CopyOleDirectory(
+    IN PSCB Scb,
+    IN OUT PPFILE_OLE_DIR_INFORMATION PPosition,
+    IN OUT PULONG Length,
+    IN DIRPTR DirEntry
+    );
+
+DBGSTATIC
 BOOLEAN
 NotifyChangeDirectory(
     IN PICB Icb,
@@ -247,11 +262,10 @@ AcquireScbLock(
     IN BOOLEAN Wait
     );
 
-DBGSTATIC
-VOID
-ReleaseScbLock(
-    IN PSCB Scb
-    );
+#define ReleaseScbLock( _Scb ) {                                    \
+    KeSetEvent( (_Scb)->SynchronizationEvent, 0, FALSE );           \
+    dprintf(DPRT_DIRECTORY, ("Release SCB lock: %08lx\n", (_Scb))); \
+    }
 
 VOID
 RdrSetSearchBufferSize(
@@ -276,6 +290,11 @@ NotifyChangeComplete (
     IN PVOID Ctx
     );
 
+NTSTATUS
+ValidateSearchBuffer(
+    IN PSCB Scb
+    );
+
 #ifdef  ALLOC_PRAGMA
 #pragma alloc_text(PAGE, RdrFsdDirectoryControl)
 #pragma alloc_text(PAGE, RdrFspDirectoryControl)
@@ -296,12 +315,12 @@ NotifyChangeComplete (
 #pragma alloc_text(PAGE, CopyDirectory)
 #pragma alloc_text(PAGE, CopyFullDirectory)
 #pragma alloc_text(PAGE, CopyBothDirectory)
+#pragma alloc_text(PAGE, CopyOleDirectory)
 #pragma alloc_text(PAGE, NotifyChangeDirectory)
 #pragma alloc_text(PAGE, RdrCompleteNotifyChangeDirectoryOperation)
 #pragma alloc_text(PAGE, AcquireScbLock)
-#pragma alloc_text(PAGE, ReleaseScbLock)
-#pragma alloc_text(INIT, RdrInitializeDir)
 #pragma alloc_text(PAGE, RdrSetSearchBufferSize)
+#pragma alloc_text(PAGE, ValidateSearchBuffer)
 
 #pragma alloc_text(PAGE3FILE, FindUniqueCallBack)
 #pragma alloc_text(PAGE3FILE, SearchCallback)
@@ -603,14 +622,12 @@ Return Value:
 
     PAGED_CODE();
 
-
     //
     // Obtain EXCLUSIVE access to the FCB lock associated with this
     // ICB. This will guarantee that only one thread can be looking
     // at Icb->u.d.Scb at a time and therefore ensure that at most
     // only one thread tries to AllocateScb at a time.
     //
-
     if ( !RdrAcquireFcbLock(Icb->Fcb, ExclusiveLock, Wait) ) {
         return TRUE;    // Needed to block to get resource and Wait=FALSE
     }
@@ -793,12 +810,12 @@ Return Value:
     //
 
     try {
-        if ( Icb->Fcb->Connection->Server->Capabilities & DF_NT_SMBS ) {
-            // Allow CCHMAXPATHCOMP space for the unicode Scb->ResumeName->Buffer
-            Scb = ALLOCATE_POOL (PagedPool, sizeof(SCB)+(CCHMAXPATHCOMP*sizeof(WCHAR)), POOL_SCB );
+        if ( Icb->Fcb->Connection->Server->Capabilities & DF_NT_FIND ) {
+            // Allow MAXIMUM_FILENAME_LENGTH space for the unicode Scb->ResumeName->Buffer
+            Scb = ALLOCATE_POOL (PagedPool, sizeof(SCB)+(MAXIMUM_FILENAME_LENGTH*sizeof(WCHAR)), POOL_SCB );
         } else if ( Icb->Fcb->Connection->Server->Capabilities & DF_LANMAN20 ) {
-            // Allow CCHMAXPATHCOMP space for the Scb->ResumeName->Buffer
-            Scb = ALLOCATE_POOL (PagedPool, sizeof(SCB)+CCHMAXPATHCOMP, POOL_SCB );
+            // Allow MAXIMUM_FILENAME_LENGTH space for the Scb->ResumeName->Buffer
+            Scb = ALLOCATE_POOL (PagedPool, sizeof(SCB)+MAXIMUM_FILENAME_LENGTH, POOL_SCB );
         } else {
             Scb = ALLOCATE_POOL (PagedPool, sizeof(SCB), POOL_SCB);
         }
@@ -811,15 +828,15 @@ Return Value:
 
         Icb->u.d.Scb = Scb;
 
+        RtlInitUnicodeString(&Scb->FileNameTemplate, NULL);
+        RtlInitUnicodeString(&Scb->ResumeName, NULL);
+        RtlInitUnicodeString(&Scb->SmbFileName, NULL);
+
         Scb->SynchronizationEvent = ALLOCATE_POOL(NonPagedPool, sizeof(KEVENT), POOL_SCB_LOCK);
 
         if (Scb->SynchronizationEvent == NULL) {
             try_return(Status = STATUS_INSUFFICIENT_RESOURCES);
         }
-
-        RtlInitUnicodeString(&Scb->FileNameTemplate, NULL);
-        RtlInitUnicodeString(&Scb->ResumeName, NULL);
-        RtlInitUnicodeString(&Scb->SmbFileName, NULL);
 
         if (IrpSp->Parameters.QueryDirectory.FileName == NULL) {
 
@@ -828,8 +845,6 @@ Return Value:
             // returned by the server will be provided to the requestor.
             // RdrAll20Files means everything returned by the server.
             //
-
-//BUGBUG    We don't need to allocate this name.
 
             Status = RdrpDuplicateUnicodeStringWithString ( &Scb->FileNameTemplate,
                     &RdrAll20Files, PagedPool, FALSE);
@@ -844,7 +859,10 @@ Return Value:
                 (IrpSp->Parameters.QueryDirectory.FileInformationClass ==
                                                FileFullDirectoryInformation) ||
                 (IrpSp->Parameters.QueryDirectory.FileInformationClass ==
+                                               FileOleDirectoryInformation) ||
+                (IrpSp->Parameters.QueryDirectory.FileInformationClass ==
                                                FileBothDirectoryInformation)) {
+
             //
             // Fill in the template used to determine which of the entries
             // returned by the server will be provided to the requestor.
@@ -891,7 +909,7 @@ Return Value:
 
         // Use the highest level of protocol possible
 
-        if ( Scb->Sle->Capabilities & DF_NT_SMBS) {
+        if ( Scb->Sle->Capabilities & DF_NT_FIND ) {
 
             Scb->SearchType = ST_NTFIND;
 
@@ -899,7 +917,7 @@ Return Value:
                 Scb->SearchType |= ST_UNICODE;
             }
 
-            Scb->ResumeName.MaximumLength = CCHMAXPATHCOMP*sizeof(WCHAR);
+            Scb->ResumeName.MaximumLength = MAXIMUM_FILENAME_LENGTH*sizeof(WCHAR);
             Scb->ResumeName.Buffer = (PWSTR) (Scb+1);
 
             Status = RdrCanonicalizeFilename(&Scb->SmbFileName,
@@ -926,7 +944,7 @@ Return Value:
                 // Use T2 FindFirst/Next
                 Scb->SearchType = ST_T2FIND;
 
-                Scb->ResumeName.MaximumLength = CCHMAXPATHCOMP;
+                Scb->ResumeName.MaximumLength = MAXIMUM_FILENAME_LENGTH;
                 Scb->ResumeName.Buffer = (PWSTR) (Scb+1);
 
 #if     RDRDBG
@@ -1123,6 +1141,8 @@ Return Value:
 
     PAGED_CODE();
 
+    UNREFERENCED_PARAMETER(IrpSp);
+
     if (RestartScan == FALSE) {
 
         //
@@ -1172,6 +1192,10 @@ Return Value:
 
         Smb->Command = (  Icb->Fcb->Connection->Server->Capabilities & DF_LANMAN10 ) ?
             SMB_COM_FIND_UNIQUE : SMB_COM_SEARCH;
+        if (FlagOn(Icb->NonPagedFcb->Flags, FCB_DFSFILE)) {
+            SmbPutUshort(&Smb->Flags2, SMB_FLAGS2_DFS);
+        }
+
         Search->WordCount = 2;
         SmbPutUshort(&Search->MaxCount, 1);
 
@@ -1271,6 +1295,13 @@ Return Value:
 
                 break;
 
+            case FileOleDirectoryInformation:
+                Status = CopyOleDirectory(Icb->u.d.Scb,
+                            (PPFILE_OLE_DIR_INFORMATION )&UsersBuffer,
+                            BufferSizeRemaining,
+                            SmbInformation);
+                break;
+
             default:
 
                 Status = STATUS_INVALID_LEVEL;
@@ -1294,7 +1325,6 @@ try_exit:NOTHING;
 
     }
     return Status;
-    if (IrpSp);
 }
 
 DBGSTATIC
@@ -1334,6 +1364,11 @@ Return Value:
 
     DISCARDABLE_CODE(RdrFileDiscardableSection);
 
+    UNREFERENCED_PARAMETER(SmbLength);
+    UNREFERENCED_PARAMETER(MpxEntry);
+    UNREFERENCED_PARAMETER(Irp);
+    UNREFERENCED_PARAMETER(Server);
+
     ASSERT(Context->Header.Type == CONTEXT_FINDUNIQUE);
 
     dprintf(DPRT_DIRECTORY, ("FindUniqueComplete\n"));
@@ -1362,7 +1397,12 @@ Return Value:
 
     ASSERT(*SmbLength <= sizeof(SMB_HEADER)+sizeof(RESP_SEARCH)+sizeof(SMB_DIRECTORY_INFORMATION)+2);
 
-    TdiCopyLookaheadData(Context->Buffer, SearchResponse, *SmbLength-sizeof(SMB_HEADER), ReceiveFlags);
+    TdiCopyLookaheadData(
+        Context->Buffer,
+        (PVOID)SearchResponse,
+        *SmbLength-sizeof(SMB_HEADER),
+        ReceiveFlags
+        );
 
     // Set the event that allows FindUnique to continue
 ReturnStatus:
@@ -1370,8 +1410,6 @@ ReturnStatus:
     KeSetEvent(&Context->Header.KernelEvent, IO_NETWORK_INCREMENT, FALSE);
 
     return STATUS_SUCCESS;
-
-    if (SmbLength || MpxEntry || Irp || Server);
 
 }
 
@@ -1479,6 +1517,8 @@ Return Value:
 
     PAGED_CODE();
 
+    UNREFERENCED_PARAMETER(IrpSp);
+
     ASSERT(Icb->Signature==STRUCTURE_SIGNATURE_ICB);
     ASSERT(Icb->Fcb->Header.NodeTypeCode==STRUCTURE_SIGNATURE_FCB);
     ASSERT(Icb->Fcb->Connection->Server->Signature==
@@ -1499,7 +1539,7 @@ Return Value:
     //        4) The UsersBuffer is full.
     //
 
-    dprintf(DPRT_DIRECTORY, ("NextPosition %lx, Length %lx\n", NextPosition, Length));
+    //dprintf(DPRT_DIRECTORY, ("NextPosition %lx, Length %lx\n", NextPosition, Length));
 
     if ( IrpSp->Flags & SL_INDEX_SPECIFIED ) {
 
@@ -1580,7 +1620,7 @@ Return Value:
 
         Status = LoadSearchBuffer(Irp,Icb,Scb,*BufferSizeRemaining);
 
-        dprintf(DPRT_DIRECTORY, ("FillFileInformation 1 Status %lx, NextPosition %lx, Length %lx\n", Status, NextPosition, Length));
+        //dprintf(DPRT_DIRECTORY, ("FillFileInformation 1 Status %lx, NextPosition %lx, Length %lx\n", Status, NextPosition, Length));
 
         ASSERT( Status != STATUS_PENDING);  // Would cause a loop in the FSP
 
@@ -1591,7 +1631,7 @@ Return Value:
     }
 
 
-    dprintf(DPRT_DIRECTORY, ("FillFileInformation 2 Status %lx, NextPosition %lx, Length %lx\n", Status, NextPosition, Length));
+    //dprintf(DPRT_DIRECTORY, ("FillFileInformation 2 Status %lx, NextPosition %lx, Length %lx\n", Status, NextPosition, Length));
 
     switch (Status) {
 
@@ -1666,7 +1706,6 @@ Cleanup:
     }
     return Status;
 
-    if (IrpSp);
 }
 
 DBGSTATIC
@@ -1786,6 +1825,8 @@ Return Value:
 
     PAGED_CODE();
 
+    UNREFERENCED_PARAMETER(BufferSizeRemaining);
+
     try {
 
         Context.Header.Type = CONTEXT_FIND;
@@ -1836,6 +1877,10 @@ Return Value:
         Smb->Command = ( Scb->SearchType == ST_FIND ) ?
             SMB_COM_FIND : SMB_COM_SEARCH;
 
+        if (FlagOn(Icb->NonPagedFcb->Flags, FCB_DFSFILE)) {
+            SmbPutUshort(&Smb->Flags2, SMB_FLAGS2_DFS);
+        }
+
         Search->WordCount = 2;
         SmbPutUshort(&Search->MaxCount, Scb->MaxCount);
 
@@ -1861,6 +1906,7 @@ Return Value:
 
             Scb->Flags &= ~SCB_INITIAL_CALL;    // Next time use resume key
             //TrailingBytes now points to where the 0x04 of FileName is to go.
+
 
             Status = RdrCopyNetworkPath((PVOID *)&TrailingBytes,
                 &Scb->SmbFileName,
@@ -1962,7 +2008,12 @@ Return Value:
 
         ConnectionObjectReferenced = TRUE;
 
-        Context.ReceiveIrp = RdrAllocateIrp(Icb->Fcb->Connection->Server->ConnectionContext->ConnectionObject, NULL);
+        Context.ReceiveIrp = ALLOCATE_IRP(
+                                Icb->Fcb->Connection->Server->ConnectionContext->ConnectionObject,
+                                NULL,
+                                2,
+                                &Context
+                                );
 
         if (Context.ReceiveIrp == NULL) {
             try_return(Status = STATUS_INSUFFICIENT_RESOURCES);
@@ -2078,7 +2129,7 @@ try_exit:NOTHING;
                                                 FALSE,
                                                 NULL);
 
-            IoFreeIrp(Context.ReceiveIrp);
+            FREE_IRP( Context.ReceiveIrp, 2, &Context );
 
         }
 
@@ -2108,7 +2159,6 @@ try_exit:NOTHING;
     dprintf(DPRT_DIRECTORY, ("LoadSearchBuffer Status %lx\n", Status));
     return Status;
 
-    if (BufferSizeRemaining);
 }
 
 STANDARD_CALLBACK_HEADER (
@@ -2145,6 +2195,11 @@ Return Value:
     NTSTATUS Status;
 
     DISCARDABLE_CODE(RdrFileDiscardableSection);
+
+    UNREFERENCED_PARAMETER(SmbLength);
+    UNREFERENCED_PARAMETER(MpxEntry);
+    UNREFERENCED_PARAMETER(Irp);
+    UNREFERENCED_PARAMETER(Server);
 
 //    DbgBreakPoint();
 
@@ -2269,8 +2324,6 @@ ReturnStatus:
 
     return STATUS_SUCCESS;
 
-    if (SmbLength || MpxEntry || Irp || Server);
-
 }
 
 DBGSTATIC
@@ -2308,6 +2361,8 @@ Return Value:
     PFINDCONTEXT Context = Ctx;
 
     DISCARDABLE_CODE(RdrFileDiscardableSection);
+
+    UNREFERENCED_PARAMETER(DeviceObject);
 
 //    DbgBreakPoint();
     dprintf(DPRT_DIRECTORY, ("SearchComplete.  Irp: %lx, Context: %lx\n", Irp, Context));
@@ -2364,7 +2419,6 @@ Return Value:
 
     return STATUS_MORE_PROCESSING_REQUIRED;
 
-    if (DeviceObject);
 }
 
 
@@ -2402,6 +2456,8 @@ Return Value:
 
     PAGED_CODE();
 
+    UNREFERENCED_PARAMETER(BufferSizeRemaining);
+
     if ( Scb->Flags & SCB_DIRECTORY_END_FLAG ) {
 
         //
@@ -2431,22 +2487,22 @@ Return Value:
 
         // Maximum of 1 entry
 
-        Scb->SearchBuffLength = sizeof(FILE_FULL_DIR_INFORMATION) + CCHMAXPATHCOMP;
+        Scb->SearchBuffLength = sizeof(SMB_RFIND_BUFFER_NT) + MAXIMUM_FILENAME_LENGTH;
         break;
     case ST_NTFIND | ST_UNIQUE | ST_UNICODE:
         // Maximum of 1 unicode entry
 
-        Scb->SearchBuffLength = sizeof(FILE_FULL_DIR_INFORMATION) + (CCHMAXPATHCOMP*sizeof(WCHAR));
+        Scb->SearchBuffLength = sizeof(SMB_RFIND_BUFFER_NT) + (MAXIMUM_FILENAME_LENGTH*sizeof(WCHAR));
         break;
     case ST_T2FIND | ST_UNIQUE:
         // Maximum of 1 entry
 
-        Scb->SearchBuffLength = sizeof(SMB_RFIND_BUFFER2) + CCHMAXPATHCOMP;
+        Scb->SearchBuffLength = sizeof(SMB_RFIND_BUFFER2) + MAXIMUM_FILENAME_LENGTH;
         break;
     case ST_T2FIND | ST_UNIQUE | ST_UNICODE:
         // Maximum of 1 entry
 
-        Scb->SearchBuffLength = sizeof(SMB_RFIND_BUFFER2) + (CCHMAXPATHCOMP*sizeof(WCHAR));
+        Scb->SearchBuffLength = sizeof(SMB_RFIND_BUFFER2) + (MAXIMUM_FILENAME_LENGTH*sizeof(WCHAR));
         break;
 
     default:
@@ -2496,6 +2552,21 @@ Return Value:
 
         PUCHAR TrailingBytes;
 
+        {
+            LARGE_INTEGER currentTime;
+            PCONNECTLISTENTRY Connect = Icb->Fcb->Connection;
+
+            KeQuerySystemTime( &currentTime );
+            
+            if( currentTime.QuadPart <= Connect->CachedInvalidPathExpiration.QuadPart &&
+                RdrStatistics.SmbsTransmitted.LowPart == Connect->CachedInvalidSmbCount &&
+                RtlEqualUnicodeString( &Scb->SmbFileName, &Connect->CachedInvalidPath, TRUE ) ) {
+
+                Status = STATUS_NO_SUCH_FILE;
+                goto ReturnError;
+            }
+        }
+
         //
         // Build and initialize the Parameters
         //
@@ -2541,7 +2612,7 @@ Return Value:
 
         SmbPutAlignedUshort( &Parameters.Q->Flags, Flags);
 
-        if (Icb->Fcb->Connection->Server->Capabilities & DF_NT_SMBS) {
+        if (Icb->Fcb->Connection->Server->Capabilities & DF_NT_FIND) {
             switch (Scb->FileInformationClass) {
             case FileNamesInformation:
                 SmbPutAlignedUshort( &Parameters.Q->InformationLevel, SMB_FIND_FILE_NAMES_INFO);
@@ -2555,6 +2626,9 @@ Return Value:
             case FileBothDirectoryInformation:
                 SmbPutAlignedUshort( &Parameters.Q->InformationLevel, SMB_FIND_FILE_BOTH_DIRECTORY_INFO);
                 break;
+            case FileOleDirectoryInformation:
+                SmbPutAlignedUshort( &Parameters.Q->InformationLevel, SMB_FIND_FILE_OLE_DIRECTORY_INFO);
+                break;
             default:
                 Status = STATUS_INVALID_LEVEL;
                 goto ReturnError;
@@ -2563,7 +2637,12 @@ Return Value:
             SmbPutAlignedUshort( &Parameters.Q->InformationLevel, SMB_INFO_QUERY_EA_SIZE);
         }
 
-        SmbPutAlignedUlong( &Parameters.Q->Reserved, 0);
+        SmbPutAlignedUlong(
+            &Parameters.Q->SearchStorageType,
+            Icb->u.f.Flags & ICB_STORAGE_TYPE);
+#if (ICB_STORAGE_TYPE_SHIFT != FILE_STORAGE_TYPE_SHIFT)
+#error "(ICB_STORAGE_TYPE_SHIFT != FILE_STORAGE_TYPE_SHIFT)"
+#endif
 
         // Add the null string to the end of the parameters
         TrailingBytes = (PUCHAR)Parameters.Q->Buffer;
@@ -2596,7 +2675,7 @@ Return Value:
                 &OutDataCount,
                 NULL,                   // Fid
                 0,                      // Timeout
-                0,                      // Flags
+                (USHORT) (FlagOn(Icb->NonPagedFcb->Flags, FCB_DFSFILE) ? SMB_TRANSACTION_DFSFILE : 0),
                 0,                      // NtTransact function
                 NULL,
                 NULL
@@ -2626,6 +2705,12 @@ Return Value:
             Scb->DirEntry.PU = Scb->SearchBuffer;
             //Scb->FirstDirEntry.PU = Scb->DirEntry.PU; // Used for FileIndex calculation
 
+            Scb->ReturnLength = (USHORT)OutDataCount;
+            Status = ValidateSearchBuffer(Scb);
+            if ( !NT_SUCCESS(Status) ) {
+                goto bogus_buffer_first;
+            }
+
             //
             //  Please note: LANMAN 2.x servers prematurely set the
             //  EndOfSearch flag, so we must ignore it on LM 2.x servers.
@@ -2645,6 +2730,32 @@ Return Value:
             }
 
         } else {
+
+bogus_buffer_first:
+
+            //
+            // Remember this invalid name, if appropriate
+            //
+            if( Status == STATUS_NO_SUCH_FILE ) {
+                PCONNECTLISTENTRY Connect = Icb->Fcb->Connection;
+                LARGE_INTEGER currentTime;
+
+                if( Scb->SmbFileName.Length <= Connect->CachedInvalidPath.MaximumLength ) {
+
+                    RtlCopyMemory( Connect->CachedInvalidPath.Buffer,
+                                   Scb->SmbFileName.Buffer,
+                                   Scb->SmbFileName.Length
+                                 );
+
+                    Connect->CachedInvalidPath.Length = Scb->SmbFileName.Length;
+                    Connect->CachedInvalidSmbCount = RdrStatistics.SmbsTransmitted.LowPart;
+                    KeQuerySystemTime( &currentTime );
+                    Connect->CachedInvalidPathExpiration.QuadPart =
+                        currentTime.QuadPart + 2*10*1000*1000;
+                }
+
+            }
+
             Scb->Flags |= SCB_INITIAL_CALL;    // Need to start fresh
             RdrFreeSearchBuffer(Scb);   //  SearchBuffer is invalid
         }
@@ -2706,6 +2817,8 @@ Return Value:
                 SmbPutAlignedUshort( &Parameters.Q->InformationLevel, SMB_FIND_FILE_FULL_DIRECTORY_INFO);
             } else if (Scb->FileInformationClass == FileBothDirectoryInformation) {
                 SmbPutAlignedUshort( &Parameters.Q->InformationLevel, SMB_FIND_FILE_BOTH_DIRECTORY_INFO);
+            } else if (Scb->FileInformationClass == FileOleDirectoryInformation) {
+                SmbPutAlignedUshort( &Parameters.Q->InformationLevel, SMB_FIND_FILE_OLE_DIRECTORY_INFO);
             } else {
                 Status = STATUS_INVALID_LEVEL;
                 goto ReturnError;
@@ -2736,7 +2849,7 @@ Return Value:
 
             } else {
 
-                Status = RdrCopyUnicodeStringToAscii((PUCHAR *)&TrailingBytes, &Scb->ResumeName, TRUE, (USHORT)CCHMAXPATHCOMP);
+                Status = RdrCopyUnicodeStringToAscii((PUCHAR *)&TrailingBytes, &Scb->ResumeName, TRUE, (USHORT)MAXIMUM_FILENAME_LENGTH);
 
                 if (!NT_SUCCESS(Status)) {
                     goto ReturnError;
@@ -2748,11 +2861,17 @@ Return Value:
 
             //
             //  We don't have a resume key, resume the search from where we
-            //  last left it.
+            //  last left it.  The server still expects us to send an empty
+            //  resume name.
             //
 
             SmbPutAlignedUshort( &Parameters.Q->Flags,
                 SMB_FIND_RETURN_RESUME_KEYS | SMB_FIND_CONTINUE_FROM_LAST);
+            if (Icb->Fcb->Connection->Server->Capabilities & DF_UNICODE) {
+                *((PWSTR)TrailingBytes)++ = L'\0';            // append null to name
+            } else {
+                *((PUCHAR)TrailingBytes)++ = '\0';            // append null to name
+            }
         }
 
         Scb->Flags &= ~SCB_INITIAL_CALL;    // Next time use resume key
@@ -2773,7 +2892,7 @@ Return Value:
             &OutDataCount,
             NULL,                   // Fid
             0,                      // Timeout
-            0,                      // Flags
+            (USHORT) (FlagOn(Icb->NonPagedFcb->Flags, FCB_DFSFILE) ? SMB_TRANSACTION_DFSFILE : 0),
             0,                      // NtTransact function
             NULL,
             NULL
@@ -2793,6 +2912,12 @@ Return Value:
             Scb->DirEntry.PU = Scb->SearchBuffer;
             //Scb->FirstDirEntry.PU = Scb->DirEntry.PU; // Used for FileIndex calculation
 
+            Scb->ReturnLength = (USHORT)OutDataCount;
+            Status = ValidateSearchBuffer(Scb);
+            if ( !NT_SUCCESS(Status) ) {
+                goto bogus_buffer_next;
+            }
+
             //
             //  Please note: LANMAN 2.x servers prematurely set the
             //  EndOfSearch flag, so we must ignore it on LM 2.x servers.
@@ -2810,6 +2935,9 @@ Return Value:
             }
 
         } else {
+
+bogus_buffer_next:
+
             RdrFreeSearchBuffer(Scb);   //  SearchBuffer is invalid
         }
 
@@ -2859,7 +2987,6 @@ ReturnError:
     dprintf(DPRT_DIRECTORY, ("LoadSearchBuffer2 Status %lx\n", Status));
     return Status;
 
-    if (BufferSizeRemaining);
 }
 
 
@@ -2923,8 +3050,6 @@ Return Value:
     UCHAR NameBuffer[MAXIMUM_FILENAME_LENGTH+1];
 
     BOOLEAN MatchFound;
-
-    LiTemps;
 
     PAGED_CODE();
 
@@ -2994,7 +3119,7 @@ Return Value:
                     Name.Length = Scb->DirEntry.FB2->Find.FileNameLength;
                     Name.MaximumLength = Scb->DirEntry.FB2->Find.FileNameLength;
 
-                    ASSERT (Name.Length <= CCHMAXPATHCOMP);
+                    ASSERT (Name.Length <= MAXIMUM_FILENAME_LENGTH);
                 }
 
             } else {
@@ -3045,6 +3170,10 @@ Return Value:
                     UniName.Buffer = (PWCH)Scb->DirEntry.NtFind->BothDir.FileName;
                     UniName.MaximumLength = (USHORT)Scb->DirEntry.NtFind->BothDir.FileNameLength;
                     UniName.Length = (USHORT)Scb->DirEntry.NtFind->BothDir.FileNameLength;
+                } else if (Scb->FileInformationClass == FileOleDirectoryInformation) {
+                    UniName.Buffer = (PWCH)Scb->DirEntry.NtFind->OleDir.FileName;
+                    UniName.MaximumLength = (USHORT)Scb->DirEntry.NtFind->OleDir.FileNameLength;
+                    UniName.Length = (USHORT)Scb->DirEntry.NtFind->OleDir.FileNameLength;
                 }
 
                 Status = RtlUnicodeStringToOemString(&Name, &UniName, FALSE);
@@ -3070,6 +3199,10 @@ Return Value:
                     Name.Buffer = (PUCHAR)Scb->DirEntry.NtFind->BothDir.FileName;
                     Name.MaximumLength = (USHORT)Scb->DirEntry.NtFind->BothDir.FileNameLength;
                     Name.Length = (USHORT)Scb->DirEntry.NtFind->BothDir.FileNameLength;
+                } else if (Scb->FileInformationClass == FileOleDirectoryInformation) {
+                    Name.Buffer = (PUCHAR)Scb->DirEntry.NtFind->OleDir.FileName;
+                    Name.MaximumLength = (USHORT)Scb->DirEntry.NtFind->OleDir.FileNameLength;
+                    Name.Length = (USHORT)Scb->DirEntry.NtFind->OleDir.FileNameLength;
                 }
             }
 #endif
@@ -3167,6 +3300,14 @@ Return Value:
 
                     break;
 
+                case FileOleDirectoryInformation:
+
+                    Status = CopyOleDirectory(Scb,
+                        (PPFILE_OLE_DIR_INFORMATION )PPosition,
+                        Length,
+                        Scb->DirEntry);
+                    break;
+
                 } // End of switch
 
             } except(EXCEPTION_EXECUTE_HANDLER) {
@@ -3174,8 +3315,8 @@ Return Value:
                 dprintf(DPRT_DIRECTORY, ("CopyIntoSearchBuffer Exception\n"));
             }
 
-            dprintf(DPRT_DIRECTORY, ("CopyIntoSearchBuffer.  *PPosition: %lx, LastEntrySave: %lx, *PLastPosition: %lx\n", *PPosition, LastEntrySave, *PLastposition));
-            dprintf(DPRT_DIRECTORY, ("CopyIntoSearchBuffer.  Status: %lx, ReturnSingleEntry: %lx\n", Status, ReturnSingleEntry));
+            //dprintf(DPRT_DIRECTORY, ("CopyIntoSearchBuffer.  *PPosition: %lx, LastEntrySave: %lx, *PLastPosition: %lx\n", *PPosition, LastEntrySave, *PLastposition));
+            //dprintf(DPRT_DIRECTORY, ("CopyIntoSearchBuffer.  Status: %lx, ReturnSingleEntry: %lx\n", Status, ReturnSingleEntry));
 
             if (!NT_SUCCESS(Status) || ReturnSingleEntry) {
                 //
@@ -3219,6 +3360,22 @@ Return Value:
                     //
 
                     Scb->EntryCount -= 1;
+
+                    //
+                    // Verify that we're still within the search buffer.
+                    // Note that an NT Find might return a NextEntryOffset
+                    // that's less than zero, which would really screw us up.
+                    //
+
+                    if ((Scb->DirEntry.PU < LastResumeEntry.PU) ||
+                        ((Scb->EntryCount != 0) &&
+                         (Scb->DirEntry.PU >= ((PUCHAR)Scb->SearchBuffer + Scb->SearchBuffLength)))) {
+                        if ( NT_SUCCESS(Status) ) {
+                            Status = STATUS_UNEXPECTED_NETWORK_ERROR;
+                        }
+                        RdrFreeSearchBuffer(Scb);
+                        goto ReturnData;
+                    }
                 }
 
                 goto ReturnData;
@@ -3280,6 +3437,20 @@ Return Value:
 
         Scb->EntryCount -= 1;
 
+        //
+        // Verify that we're still within the search buffer.  Note that
+        // an NT Find might return a NextEntryOffset that's less than
+        // zero, which would really screw us up.
+        //
+
+        if ((Scb->DirEntry.PU < LastResumeEntry.PU) ||
+            ((Scb->EntryCount != 0) &&
+             (Scb->DirEntry.PU >= ((PUCHAR)Scb->SearchBuffer + Scb->SearchBuffLength)))) {
+            Status = STATUS_UNEXPECTED_NETWORK_ERROR;
+            RdrFreeSearchBuffer(Scb);
+            goto ReturnData;
+        }
+
     }   // end of while entries in the SearchBuffer
 
 
@@ -3325,6 +3496,12 @@ ReturnData:
             LastResumeKey.MaximumLength = (USHORT)LastResumeEntry.NtFind->BothDir.FileNameLength;
             break;
 
+        case FileOleDirectoryInformation:
+            LastResumeKey.Buffer = (PWCH)LastResumeEntry.NtFind->OleDir.FileName;
+            LastResumeKey.Length = (USHORT)LastResumeEntry.NtFind->OleDir.FileNameLength;
+            LastResumeKey.MaximumLength = (USHORT)LastResumeEntry.NtFind->OleDir.FileNameLength;
+            break;
+
         default:
             InternalError(("Unknown file information class %lx\n", Scb->FileInformationClass));
             break;
@@ -3352,7 +3529,8 @@ ReturnData:
 
         Scb->ResumeKey = LastResumeEntry.NtFind->Names.FileIndex;
 
-        dprintf(DPRT_DIRECTORY, ("NT T2ResumeKey: %lx, %wZ.\n", Scb->ResumeKey, &Scb->ResumeName));
+        dprintf(DPRT_DIRECTORY, ("NT T2ResumeKey: %x\n", Scb->ResumeKey));
+        dprintf(DPRT_DIRECTORY, ("NT T2ResumeName: %x %x %x\n***%wZ***\n", Scb->ResumeName.Length, Scb->ResumeName.MaximumLength, Scb->ResumeName.Buffer, &Scb->ResumeName));
     } else if (Scb->SearchType & ST_T2FIND) {
         if (Scb->SearchType & ST_UNICODE) {
             UNICODE_STRING LastResumeKey;
@@ -3384,7 +3562,8 @@ ReturnData:
             SmbGetUlong(&LastResumeEntry.FB2->ResumeKey);
 
 
-        dprintf(DPRT_DIRECTORY, ("T2ResumeKey: %lx, %wZ\n", Scb->ResumeKey, &Scb->ResumeName));
+        dprintf(DPRT_DIRECTORY, ("T2ResumeKey: %x\n", Scb->ResumeKey));
+        dprintf(DPRT_DIRECTORY, ("T2ResumeName: %x %x %x\n***%wZ***\n", Scb->ResumeName.Length, Scb->ResumeName.MaximumLength, Scb->ResumeName.Buffer, &Scb->ResumeName));
     } else {
 
         //
@@ -3392,7 +3571,7 @@ ReturnData:
         //
 
         RtlCopyMemory( &Scb->LastResumeKey,
-           &(LastResumeEntry.DI->ResumeKey),
+           (PVOID)&(LastResumeEntry.DI->ResumeKey),
            sizeof (SMB_RESUME_KEY));
 
     }
@@ -3666,8 +3845,7 @@ Return Value:
 
         // DirEntry points at a Transact2 buffer
 
-        dprintf(DPRT_DIRECTORY, ("Copyname NtFind:%ws\n",
-                DirEntry.NtFind->Names.FileName));
+        //dprintf(DPRT_DIRECTORY, ("Copyname NtFind:%ws\n", DirEntry.NtFind->Names.FileName));
 
         if (Scb->SearchType & ST_UNICODE) {
             FullFileNameLength = DirEntry.NtFind->Names.FileNameLength;
@@ -3720,7 +3898,11 @@ Return Value:
         // of the structure.
         //
 
-        RtlCopyMemory((*PPosition), DirEntry.NtFind, FIELD_OFFSET(FILE_NAMES_INFORMATION, FileName));
+        RtlCopyMemory(
+            (*PPosition),
+            (PVOID)DirEntry.NtFind,
+            FIELD_OFFSET(FILE_NAMES_INFORMATION, FileName)
+            );
 
         (*PPosition)->FileNameLength = FileNameLength;
 
@@ -3735,8 +3917,7 @@ Return Value:
 
             // DirEntry points at a Transact2 buffer
 
-            dprintf(DPRT_DIRECTORY, ("Copyname Find2:%s\n",
-                DirEntry.FB2->Find.FileName));
+            //dprintf(DPRT_DIRECTORY, ("Copyname Find2:%s\n", DirEntry.FB2->Find.FileName));
 
             FullFileNameLength = DirEntry.FB2->Find.FileNameLength;
 
@@ -3773,8 +3954,7 @@ Return Value:
 
             // DirEntry points at a Transact2 buffer
 
-            dprintf(DPRT_DIRECTORY, ("Copyname Find2:%s\n",
-                DirEntry.FB2->Find.FileName));
+            //dprintf(DPRT_DIRECTORY, ("Copyname Find2:%s\n", DirEntry.FB2->Find.FileName));
 
 
             // Copy in whatever portion of the filename will fit.
@@ -3826,8 +4006,7 @@ Return Value:
         //  Some downlevel servers do not null terminate the name.
         NAME_LENGTH(FullFileNameLength, DirEntry.DI->FileName, MAXIMUM_COMPONENT_CORE);
 
-        dprintf(DPRT_DIRECTORY, ("CopyName Find:\"%s\" length %lx\n",
-            DirEntry.DI->FileName, FullFileNameLength));
+        //dprintf(DPRT_DIRECTORY, ("CopyName Find:\"%s\" length %lx\n", DirEntry.DI->FileName, FullFileNameLength));
 
         // Copy in whatever portion of the filename will fit.
 
@@ -3870,7 +4049,7 @@ Return Value:
 
     Status = STATUS_SUCCESS;
 
-    dprintf(DPRT_DIRECTORY, ("Incrementing buffer at %lx by %lx bytes\n", *PPosition, EntryLength));
+    //dprintf(DPRT_DIRECTORY, ("Incrementing buffer at %lx by %lx bytes\n", *PPosition, EntryLength));
     *PPosition = (PFILE_NAMES_INFORMATION)((PCHAR) *PPosition + EntryLength);
     if ( *Length > EntryLength ) {
         *Length -= EntryLength;
@@ -3944,15 +4123,13 @@ Return Value:
 
         if (Scb->SearchType & ST_UNICODE) {
 
-            dprintf(DPRT_DIRECTORY, ("CopyDirectory NtFind:%ws\n",
-                    DirEntry.NtFind->Dir.FileName));
+            //dprintf(DPRT_DIRECTORY, ("CopyDirectory NtFind:%ws\n", DirEntry.NtFind->Dir.FileName));
 
             FullFileNameLength = DirEntry.NtFind->Dir.FileNameLength;
 
         } else {
 
-            dprintf(DPRT_DIRECTORY, ("CopyDirectory NtFind:%s\n",
-                    DirEntry.NtFind->Dir.FileName));
+            //dprintf(DPRT_DIRECTORY, ("CopyDirectory NtFind:%s\n", DirEntry.NtFind->Dir.FileName));
 
             FullFileNameLength = (DirEntry.NtFind->Dir.FileNameLength)*sizeof(WCHAR);
 
@@ -4003,7 +4180,11 @@ Return Value:
         // of the structure.
         //
 
-        RtlCopyMemory((*PPosition), DirEntry.NtFind, FIELD_OFFSET(FILE_DIRECTORY_INFORMATION, FileName));
+        RtlCopyMemory(
+            (*PPosition),
+            (PVOID)DirEntry.NtFind,
+            FIELD_OFFSET(FILE_DIRECTORY_INFORMATION, FileName)
+            );
 
         (*PPosition)->FileNameLength = BufferName.Length;
 
@@ -4018,8 +4199,7 @@ Return Value:
 
             // DirEntry points at a Transact2 buffer
 
-            dprintf(DPRT_DIRECTORY, ("CopyDirectory Find2:%ws\n",
-                DirEntry.FB2->Find.FileName));
+            //dprintf(DPRT_DIRECTORY, ("CopyDirectory Find2:%ws\n", DirEntry.FB2->Find.FileName));
 
             FullFileNameLength = (DirEntry.FB2->Find.FileNameLength)*sizeof(WCHAR);
 
@@ -4057,8 +4237,7 @@ Return Value:
 
             // DirEntry points at a Transact2 buffer
 
-            dprintf(DPRT_DIRECTORY, ("CopyDirectory Find2:%s\n",
-                DirEntry.FB2->Find.FileName));
+            //dprintf(DPRT_DIRECTORY, ("CopyDirectory Find2:%s\n", DirEntry.FB2->Find.FileName));
 
             // Copy in whatever portion of the filename will fit.
 
@@ -4137,8 +4316,7 @@ Return Value:
 
         NAME_LENGTH(FullFileNameLength, DirEntry.DI->FileName, MAXIMUM_COMPONENT_CORE);
 
-        dprintf(DPRT_DIRECTORY, ("CopyDirectory Find:\"%s\" length: %lx\n",
-            DirEntry.DI->FileName, FullFileNameLength));
+        //dprintf(DPRT_DIRECTORY, ("CopyDirectory Find:\"%s\" length: %lx\n", DirEntry.DI->FileName, FullFileNameLength));
 
         // Copy in whatever portion of the filename will fit.
 
@@ -4198,7 +4376,7 @@ Return Value:
     Status = STATUS_SUCCESS;
 
 
-    dprintf(DPRT_DIRECTORY, ("Incrementing buffer at %lx by %lx bytes\n", *PPosition, EntryLength));
+    //dprintf(DPRT_DIRECTORY, ("Incrementing buffer at %lx by %lx bytes\n", *PPosition, EntryLength));
     *PPosition = (PFILE_DIRECTORY_INFORMATION)((PCHAR) *PPosition + EntryLength);
     if ( *Length > EntryLength ) {
         *Length -= EntryLength;
@@ -4270,8 +4448,7 @@ Return Value:
 
         // DirEntry points at a Transact2 buffer
 
-        dprintf(DPRT_DIRECTORY, ("CopyFullDirectory NtFind:%ws\n",
-            DirEntry.NtFind->FullDir.FileName));
+        //dprintf(DPRT_DIRECTORY, ("CopyFullDirectory NtFind:%ws\n", DirEntry.NtFind->FullDir.FileName));
 
         if (Scb->SearchType & ST_UNICODE) {
             FullFileNameLength = DirEntry.NtFind->FullDir.FileNameLength;
@@ -4324,7 +4501,11 @@ Return Value:
         // of the structure.
         //
 
-        RtlCopyMemory((*PPosition), DirEntry.NtFind, FIELD_OFFSET(FILE_FULL_DIR_INFORMATION, FileName));
+        RtlCopyMemory(
+            (*PPosition),
+            (PVOID)DirEntry.NtFind,
+            FIELD_OFFSET(FILE_FULL_DIR_INFORMATION, FileName)
+            );
 
         //
         // We overwrote the file name length in the structure, so restore it.
@@ -4344,8 +4525,7 @@ Return Value:
 
             // DirEntry points at a Transact2 buffer
 
-            dprintf(DPRT_DIRECTORY, ("CopyFullDirectory Find2:%ws\n",
-                DirEntry.FB2->Find.FileName));
+            //dprintf(DPRT_DIRECTORY, ("CopyFullDirectory Find2:%ws\n", DirEntry.FB2->Find.FileName));
 
             FullFileNameLength = (DirEntry.FB2->Find.FileNameLength)*sizeof(WCHAR);
 
@@ -4383,8 +4563,7 @@ Return Value:
 
             // DirEntry points at a Transact2 buffer
 
-            dprintf(DPRT_DIRECTORY, ("CopyDirectory Find2:%s\n",
-                DirEntry.FB2->Find.FileName));
+            //dprintf(DPRT_DIRECTORY, ("CopyDirectory Find2:%s\n", DirEntry.FB2->Find.FileName));
 
             // Copy in whatever portion of the filename will fit.
 
@@ -4457,14 +4636,15 @@ Return Value:
         (*PPosition)->FileAttributes =
             RdrMapSmbAttributes (SmbGetUshort(&DirEntry.FB2->Find.Attributes));
 
+        //
+        // If the returned EA size is exactly 4, that means the file has no EAs.
+        //
+
         EaSize = SmbGetUlong(&DirEntry.FB2->Find.EaSize);
 
         if (EaSize != 4) {
-            //  subtract 4 because OS/2 server always adds 4 (sizeof(cblist))
             (*PPosition)->EaSize = EaSize;
-
         } else {
-
             (*PPosition)->EaSize = 0;
         }
 
@@ -4478,8 +4658,7 @@ Return Value:
 
         NAME_LENGTH(FullFileNameLength, DirEntry.DI->FileName, MAXIMUM_COMPONENT_CORE);
 
-        dprintf(DPRT_DIRECTORY, ("CopyFullDir Find:\"%s\" length %lx\n",
-            DirEntry.DI->FileName, FullFileNameLength));
+        //dprintf(DPRT_DIRECTORY, ("CopyFullDir Find:\"%s\" length %lx\n", DirEntry.DI->FileName, FullFileNameLength));
 
         // Copy in whatever portion of the filename will fit.
 
@@ -4537,9 +4716,8 @@ Return Value:
 
     Status = STATUS_SUCCESS;
 
-    dprintf(DPRT_DIRECTORY, ("Incrementing buffer at %lx by %lx bytes\n", *PPosition, EntryLength));
+    //dprintf(DPRT_DIRECTORY, ("Incrementing buffer at %lx by %lx bytes\n", *PPosition, EntryLength));
     *PPosition = (PFILE_FULL_DIR_INFORMATION)((PCHAR) *PPosition + EntryLength);
-    *Length -= EntryLength;
     if ( *Length > EntryLength ) {
         *Length -= EntryLength;
     } else {
@@ -4591,6 +4769,7 @@ Return Value:
     ULONG EntryLength;
     ULONG FullFileNameLength;
     ULONG FileNameLength;
+    ULONG ShortNameLength;
     NTSTATUS Status = STATUS_SUCCESS;
     OEM_STRING OemString;
     UNICODE_STRING UnicodeString;
@@ -4610,12 +4789,10 @@ Return Value:
 
 #if RDRDBG
         if (Scb->SearchType & ST_UNICODE) {
-            dprintf(DPRT_DIRECTORY, ("CopyBothDirectory NtFind:%ws\n",
-                DirEntry.NtFind->BothDir.FileName));
+            //dprintf(DPRT_DIRECTORY, ("CopyBothDirectory NtFind:%ws\n", DirEntry.NtFind->BothDir.FileName));
 
         } else {
-            dprintf(DPRT_DIRECTORY, ("CopyBothDirectory NtFind:%s\n",
-                DirEntry.NtFind->BothDir.FileName));
+            //dprintf(DPRT_DIRECTORY, ("CopyBothDirectory NtFind:%s\n", DirEntry.NtFind->BothDir.FileName));
         }
 #endif
 
@@ -4645,22 +4822,37 @@ Return Value:
         BufferName.MaximumLength = (USHORT)FileNameLength;
 
         if (Scb->SearchType & ST_UNICODE) {
+
             RtlCopyUnicodeString(&BufferName, &Name);
+            ShortNameLength = DirEntry.NtFind->BothDir.ShortNameLength;
+            RtlCopyMemory( (*PPosition)->ShortName, DirEntry.NtFind->BothDir.ShortName, ShortNameLength);
+
         } else {
+
             UNICODE_STRING UnicodeName;
+            UNICODE_STRING ShortName;
 
             Status = RtlOemStringToUnicodeString(&UnicodeName, (POEM_STRING)&Name, TRUE);
-
-            FileNameLength = UnicodeName.Length;
-
+            if (!NT_SUCCESS(Status)) {
+                return Status;
+            }
             RtlCopyUnicodeString(&BufferName, &UnicodeName);
-
             RtlFreeUnicodeString(&UnicodeName);
+
+            Name.Buffer = (PWCH)DirEntry.NtFind->BothDir.ShortName;
+            Name.Length = (USHORT)DirEntry.NtFind->BothDir.ShortNameLength;
+            ShortName.Buffer = (*PPosition)->ShortName;
+            ShortName.MaximumLength = (USHORT)sizeof(DirEntry.NtFind->BothDir.ShortName);
+            Status = RtlOemStringToUnicodeString(&UnicodeName, (POEM_STRING)&Name, TRUE);
+            if (!NT_SUCCESS(Status)) {
+                return Status;
+            }
+            ShortNameLength = UnicodeName.Length;
+            RtlCopyUnicodeString(&ShortName, &UnicodeName);
+            RtlFreeUnicodeString(&UnicodeName);
+
         }
 
-        if (!NT_SUCCESS(Status)) {
-            return Status;
-        }
 
         // Fill in fixed part of the data structure;
 
@@ -4670,17 +4862,20 @@ Return Value:
         // of the structure.
         //
 
-        RtlCopyMemory((*PPosition), DirEntry.NtFind, FIELD_OFFSET(FILE_BOTH_DIR_INFORMATION, FileName));
+        RtlCopyMemory((*PPosition), (PVOID)DirEntry.NtFind,
+                        FIELD_OFFSET(FILE_BOTH_DIR_INFORMATION, ShortNameLength));
 
         //
         // We overwrote the file name length in the structure, so restore it.
         //
 
+        (*PPosition)->ShortNameLength = (CCHAR)ShortNameLength;
         (*PPosition)->FileNameLength = BufferName.Length;
 
         (*PPosition)->NextEntryOffset = 0;
 
     } else if ( Scb->SearchType & ST_T2FIND ) {
+        ULONG EaSize;
 
         if ( Scb->SearchType & ST_UNICODE) {
             UNICODE_STRING Name;
@@ -4688,8 +4883,7 @@ Return Value:
 
             // DirEntry points at a Transact2 buffer
 
-            dprintf(DPRT_DIRECTORY, ("Copy both name Find2:%s\n",
-                DirEntry.FB2->Find.FileName));
+            //dprintf(DPRT_DIRECTORY, ("Copy both name Find2:%s\n", DirEntry.FB2->Find.FileName));
 
             FullFileNameLength = (DirEntry.FB2->Find.FileNameLength)*sizeof(WCHAR);
 
@@ -4727,8 +4921,7 @@ Return Value:
 
             // DirEntry points at a Transact2 buffer
 
-            dprintf(DPRT_DIRECTORY, ("CopyBoth Name Find2:%s\n",
-                DirEntry.FB2->Find.FileName));
+            //dprintf(DPRT_DIRECTORY, ("CopyBoth Name Find2:%s\n", DirEntry.FB2->Find.FileName));
 
             // Copy in whatever portion of the filename will fit.
 
@@ -4800,9 +4993,17 @@ Return Value:
         (*PPosition)->FileAttributes =
             RdrMapSmbAttributes (SmbGetUshort(&DirEntry.FB2->Find.Attributes));
 
-        //  subtract 4 because OS/2 server always adds 4 (sizeof(cblist))
-        (*PPosition)->EaSize =
-            (ULONG)(SmbGetUlong(&DirEntry.FB2->Find.EaSize))-4;
+        //
+        // If the returned EA size is exactly 4, that means the file has no EAs.
+        //
+
+        EaSize = SmbGetUlong(&DirEntry.FB2->Find.EaSize);
+
+        if (EaSize != 4) {
+            (*PPosition)->EaSize = EaSize;
+        } else {
+            (*PPosition)->EaSize = 0;
+        }
 
         (*PPosition)->ShortNameLength = 0;
 
@@ -4815,8 +5016,7 @@ Return Value:
 
         NAME_LENGTH(FullFileNameLength, DirEntry.DI->FileName, MAXIMUM_COMPONENT_CORE);
 
-        dprintf(DPRT_DIRECTORY, ("CopyBothDir Find:\"%s\" length %lx\n",
-            DirEntry.DI->FileName, FullFileNameLength));
+        //dprintf(DPRT_DIRECTORY, ("CopyBothDir Find:\"%s\" length %lx\n", DirEntry.DI->FileName, FullFileNameLength));
 
         // Copy in whatever portion of the filename will fit.
 
@@ -4875,9 +5075,356 @@ Return Value:
 
     Status = STATUS_SUCCESS;
 
-    dprintf(DPRT_DIRECTORY, ("Incrementing buffer at %lx by %lx bytes\n", *PPosition, EntryLength));
+    //dprintf(DPRT_DIRECTORY, ("Incrementing buffer at %lx by %lx bytes\n", *PPosition, EntryLength));
     *PPosition = (PFILE_BOTH_DIR_INFORMATION)((PCHAR) *PPosition + EntryLength);
-    *Length -= EntryLength;
+    if ( *Length > EntryLength ) {
+        *Length -= EntryLength;
+    } else {
+        *Length = 0;
+    }
+    Scb->Flags |= (SCB_RETURNED_SOME|SCB_COPIED_THIS_CALL);
+    return Status;
+
+}
+
+DBGSTATIC
+NTSTATUS
+CopyOleDirectory(
+    IN PSCB Scb,
+    IN OUT PPFILE_OLE_DIR_INFORMATION PPosition,
+    IN OUT PULONG Length,
+    IN DIRPTR DirEntry
+    )
+/*++
+
+Routine Description:
+
+    This routine fills in a single OLE_DIR entry after checking that it will
+    fit.
+
+
+Arguments:
+
+    IN PSCB Scb - Supplies the SCB with the associated SearchBuffer
+                    to be freed.
+
+    IN OUT PPFILE_OLE_DIR_INFORMATION PPosition - Supplies where to put the data,
+        increased to the next position to be filled in.
+
+    IN OUT PULONG Length - Supplies the remaining space in the users buffer,
+        decreased by the size of the record copied.
+
+    IN PSMB_DIRECTORY_INFORMATION DirEntry or
+    IN DIRPTR DirEntry - Supplies the data from over the network.
+
+Return Value:
+
+    NTSTATUS - Was there space to copy it?.
+
+--*/
+
+{
+    SMB_TIME Time;
+    SMB_DATE Date;
+    ULONG EntryLength;
+    ULONG OleFileNameLength;
+    ULONG FileNameLength;
+    NTSTATUS Status = STATUS_SUCCESS;
+    OEM_STRING OemString;
+    UNICODE_STRING UnicodeString;
+
+    PAGED_CODE();
+
+    if ( *Length < sizeof(FILE_OLE_DIR_INFORMATION) ) {
+        dprintf(DPRT_DIRECTORY, ("CopyOleDirectory: Returning STATUS_BUFFER_OVERFLOW\n"));
+        return STATUS_BUFFER_OVERFLOW;
+    }
+
+    if ( Scb->SearchType & ST_NTFIND ) {
+        UNICODE_STRING Name;
+        UNICODE_STRING BufferName;
+
+        // DirEntry points at a Transact2 buffer
+
+        //dprintf(DPRT_DIRECTORY, ("CopyOleDirectory NtFind:%ws\n", DirEntry.NtFind->OleDir.FileName));
+
+        if (Scb->SearchType & ST_UNICODE) {
+            OleFileNameLength = DirEntry.NtFind->OleDir.FileNameLength;
+        } else {
+            OleFileNameLength = (DirEntry.NtFind->OleDir.FileNameLength)*sizeof(WCHAR);
+        }
+
+        FileNameLength =
+            MIN(
+                (*Length - FIELD_OFFSET(FILE_OLE_DIR_INFORMATION, FileName[0])),
+                OleFileNameLength
+            );
+
+        if (OleFileNameLength != FileNameLength) {
+            return STATUS_BUFFER_OVERFLOW;
+        }
+
+        // Copy in whatever portion of the filename will fit.
+
+        Name.Buffer = (PWSTR)DirEntry.NtFind->OleDir.FileName;
+        Name.MaximumLength = (USHORT)DirEntry.NtFind->OleDir.FileNameLength;
+        Name.Length = (USHORT)DirEntry.NtFind->OleDir.FileNameLength;
+
+        BufferName.Buffer = (*PPosition)->FileName;
+        BufferName.MaximumLength = (USHORT)FileNameLength;
+
+        if (Scb->SearchType & ST_UNICODE) {
+            RtlCopyUnicodeString(&BufferName, &Name);
+        } else {
+            UNICODE_STRING UnicodeName;
+
+            Status = RtlOemStringToUnicodeString(&UnicodeName, (POEM_STRING)&Name, TRUE);
+
+            FileNameLength = UnicodeName.Length;
+
+            RtlCopyUnicodeString(&BufferName, &UnicodeName);
+
+            RtlFreeUnicodeString(&UnicodeName);
+        }
+
+        if (!NT_SUCCESS(Status)) {
+            return Status;
+        }
+
+        // Fill in fixed part of the data structure;
+
+        //
+        // Since the structure returned by the remote server is a FILE_OLE_DIR
+        // information structure, we can simply copy over the fixed portion
+        // of the structure.
+        //
+
+        RtlCopyMemory(
+            (*PPosition),
+            (PVOID)DirEntry.NtFind,
+            FIELD_OFFSET(FILE_OLE_DIR_INFORMATION, FileName)
+            );
+
+        //
+        // We overwrote the file name length in the structure, so restore it.
+        //
+
+        (*PPosition)->FileNameLength = BufferName.Length;
+
+        (*PPosition)->NextEntryOffset = 0;
+
+    } else if ( Scb->SearchType & ST_T2FIND ) {
+        if ( Scb->SearchType & ST_UNICODE) {
+            UNICODE_STRING Name;
+            UNICODE_STRING BufferName;
+
+
+            // DirEntry points at a Transact2 buffer
+
+            //dprintf(DPRT_DIRECTORY, ("CopyOleDirectory Find2:%ws\n", DirEntry.FB2->Find.FileName));
+
+            OleFileNameLength = (DirEntry.FB2->Find.FileNameLength)*sizeof(WCHAR);
+
+            FileNameLength =
+                MIN(
+                    (*Length - FIELD_OFFSET(FILE_OLE_DIR_INFORMATION, FileName[0])),
+                    OleFileNameLength
+                );
+
+            if (OleFileNameLength != FileNameLength) {
+                return STATUS_BUFFER_OVERFLOW;
+            }
+
+            // Copy in whatever portion of the filename will fit.
+
+            Name.Buffer = (PWSTR)DirEntry.FB2->Find.FileName;
+            Name.MaximumLength = (USHORT)FileNameLength;
+            Name.Length = (USHORT) FileNameLength;
+
+            BufferName.Buffer = (*PPosition)->FileName;
+            BufferName.MaximumLength = (USHORT)FileNameLength;
+
+            RtlCopyUnicodeString(&BufferName, &Name);
+
+            // Fill in fixed part of the data structure;
+
+            (*PPosition)->FileNameLength = FileNameLength;
+
+        } else {
+            WCHAR UnicodeBuffer[MAXIMUM_FILENAME_LENGTH+1];
+
+            UnicodeString.Buffer = UnicodeBuffer;
+
+            UnicodeString.MaximumLength = sizeof(UnicodeBuffer);
+
+            // DirEntry points at a Transact2 buffer
+
+            //dprintf(DPRT_DIRECTORY, ("CopyDirectory Find2:%s\n", DirEntry.FB2->Find.FileName));
+
+            // Copy in whatever portion of the filename will fit.
+
+            OemString.Buffer = (PCHAR)DirEntry.FB2->Find.FileName;
+            OemString.MaximumLength = (USHORT )DirEntry.FB2->Find.FileNameLength;
+            OemString.Length = (USHORT )DirEntry.FB2->Find.FileNameLength;
+
+            Status = RtlOemStringToUnicodeString(&UnicodeString, &OemString, FALSE);
+
+            if (!NT_SUCCESS(Status)) {
+                return Status;
+            }
+
+            OleFileNameLength = UnicodeString.Length;
+
+            FileNameLength =
+                MIN(
+                    (*Length - FIELD_OFFSET(FILE_OLE_DIR_INFORMATION, FileName[0])),
+                    OleFileNameLength
+                   );
+
+
+            ASSERT(FileNameLength < (MAXIMUM_FILENAME_LENGTH*sizeof(WCHAR)));
+
+            if (OleFileNameLength != FileNameLength) {
+
+                return STATUS_BUFFER_OVERFLOW;
+            }
+
+            RtlCopyMemory((*PPosition)->FileName, UnicodeString.Buffer, FileNameLength);
+
+            //
+            //  Fill in fixed part of the data structure;
+            //
+
+            (*PPosition)->FileNameLength = OleFileNameLength;
+
+        }
+
+        // Fill in fixed part of the data structure;
+
+        (*PPosition)->NextEntryOffset = 0;
+        //(*PPosition)->FileIndex = (ULONG)(DirEntry.FB2 - Scb->FirstDirEntry.FB2);
+        // *** Must return FileIndex as 0 because it's buffer-relative, which means
+        //     it could change if we re-query the server.
+        (*PPosition)->FileIndex = 0;
+
+        SmbMoveTime (&Time, &DirEntry.FB2->Find.CreationTime);
+        SmbMoveDate (&Date, &DirEntry.FB2->Find.CreationDate);
+        (*PPosition)->CreationTime = RdrConvertSmbTimeToTime(Time, Date, Scb->Sle);
+
+        SmbMoveTime (&Time, &DirEntry.FB2->Find.LastAccessTime);
+        SmbMoveDate (&Date, &DirEntry.FB2->Find.LastAccessDate);
+        (*PPosition)->LastAccessTime = RdrConvertSmbTimeToTime(Time, Date, Scb->Sle);
+
+        SmbMoveTime (&Time, &DirEntry.FB2->Find.LastWriteTime);
+        SmbMoveDate (&Date, &DirEntry.FB2->Find.LastWriteDate);
+        (*PPosition)->LastWriteTime = RdrConvertSmbTimeToTime(Time, Date, Scb->Sle);
+
+        ZERO_TIME((*PPosition)->ChangeTime);
+
+        (*PPosition)->EndOfFile.LowPart =
+            SmbGetUlong(&DirEntry.FB2->Find.DataSize);
+        (*PPosition)->EndOfFile.HighPart = 0;
+
+        (*PPosition)->AllocationSize.LowPart =
+            SmbGetUlong(&DirEntry.FB2->Find.AllocationSize);
+        (*PPosition)->AllocationSize.HighPart = 0;
+
+        (*PPosition)->FileAttributes =
+            RdrMapSmbAttributes (SmbGetUshort(&DirEntry.FB2->Find.Attributes));
+
+        // Zero the Ole extensions, and make a stab at the storage type.
+
+        RtlZeroMemory(
+                      &(*PPosition)->OleClassId,
+                      FIELD_OFFSET(FILE_OLE_DIR_INFORMATION, FileName) -
+                      FIELD_OFFSET(FILE_OLE_DIR_INFORMATION, OleClassId));
+
+        if ((*PPosition)->FileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+            (*PPosition)->StorageType = StorageTypeDirectory;
+        } else {
+            (*PPosition)->StorageType = StorageTypeFile;
+        }
+
+    } else {
+        WCHAR UnicodeBuffer[MAXIMUM_FILENAME_LENGTH+1];
+
+        UnicodeString.Buffer = UnicodeBuffer;
+
+        UnicodeString.MaximumLength = sizeof(UnicodeBuffer);
+
+        NAME_LENGTH(OleFileNameLength, DirEntry.DI->FileName, MAXIMUM_COMPONENT_CORE);
+
+        //dprintf(DPRT_DIRECTORY, ("CopyOleDir Find:\"%s\" length %lx\n", DirEntry.DI->FileName, OleFileNameLength));
+
+        // Copy in whatever portion of the filename will fit.
+
+        OemString.Buffer = (PCHAR)DirEntry.DI->FileName;
+        OemString.MaximumLength = (USHORT )OleFileNameLength;
+        OemString.Length = (USHORT )OleFileNameLength;
+
+        Status = RtlOemStringToUnicodeString(&UnicodeString, &OemString, FALSE);
+
+        if (!NT_SUCCESS(Status)) {
+            return Status;
+        }
+
+        FileNameLength = MIN(
+            (USHORT)(*Length - FIELD_OFFSET(FILE_OLE_DIR_INFORMATION, FileName[0])),
+            UnicodeString.Length );
+
+        if (UnicodeString.Length != (USHORT)FileNameLength) {
+            return STATUS_BUFFER_OVERFLOW;
+        }
+
+        RtlCopyMemory((*PPosition)->FileName, UnicodeString.Buffer, FileNameLength);
+
+        (*PPosition)->FileNameLength = UnicodeString.Length;
+
+        // Fill in fixed part of the data structure;
+
+        (*PPosition)->NextEntryOffset = 0;
+        //(*PPosition)->FileIndex = (ULONG)(DirEntry.DI - Scb->FirstDirEntry.DI);
+        // *** Must return FileIndex as 0 because it's buffer-relative, which means
+        //     it could change if we re-query the server.
+        (*PPosition)->FileIndex = 0;
+
+        ZERO_TIME((*PPosition)->CreationTime);
+        ZERO_TIME((*PPosition)->LastAccessTime);
+        SmbMoveTime (&Time, &DirEntry.DI->LastWriteTime);
+        SmbMoveDate (&Date, &DirEntry.DI->LastWriteDate);
+        (*PPosition)->LastWriteTime = RdrConvertSmbTimeToTime(Time, Date, Scb->Sle);
+
+        ZERO_TIME((*PPosition)->ChangeTime);
+        (*PPosition)->EndOfFile.LowPart =
+            SmbGetUlong(&DirEntry.DI->FileSize);
+        (*PPosition)->EndOfFile.HighPart = 0;
+        (*PPosition)->AllocationSize.LowPart = 0;
+        (*PPosition)->AllocationSize.HighPart = 0;
+        (*PPosition)->FileAttributes =
+            RdrMapSmbAttributes (DirEntry.DI->FileAttributes);
+
+        // Zero the Ole extensions, and make a stab at the storage type.
+
+        RtlZeroMemory(
+                      &(*PPosition)->OleClassId,
+                      FIELD_OFFSET(FILE_OLE_DIR_INFORMATION, FileName) -
+                      FIELD_OFFSET(FILE_OLE_DIR_INFORMATION, OleClassId));
+
+        if ((*PPosition)->FileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+            (*PPosition)->StorageType = StorageTypeDirectory;
+        } else {
+            (*PPosition)->StorageType = StorageTypeFile;
+        }
+    }
+
+    EntryLength = (ULONG )FIELD_OFFSET(FILE_OLE_DIR_INFORMATION, FileName[0]);
+    EntryLength += FileNameLength;
+    EntryLength = ROUND_UP_COUNT(EntryLength, ALIGN_QUAD);        // Align next entry appropriately
+
+    Status = STATUS_SUCCESS;
+
+    //dprintf(DPRT_DIRECTORY, ("Incrementing buffer at %lx by %lx bytes\n", *PPosition, EntryLength));
+    *PPosition = (PFILE_OLE_DIR_INFORMATION)((PCHAR) *PPosition + EntryLength);
     if ( *Length > EntryLength ) {
         *Length -= EntryLength;
     } else {
@@ -4927,6 +5474,7 @@ typedef struct _NOTIFY_CHANGE_DIRECTORY_CONTEXT {
     KEVENT              ReceiveCompleteEvent;
     ERESOURCE_THREAD    RequestingRThread;
     PETHREAD            RequestingThread;
+    ULONG               BytesReturned;
 } NOTIFY_CHANGE_DIRECTORY_CONTEXT, *PNOTIFY_CHANGE_DIRECTORY_CONTEXT;
 
 
@@ -4977,6 +5525,7 @@ Return Value:
 
     *CompleteRequest = FALSE;
 
+
     //
     //  Reference our input parameter to make things easier
     //
@@ -5022,6 +5571,28 @@ Return Value:
             }
 
             //
+            // Make sure the application doesn't get into a loop hammering
+            //  the server with these (failing) requests
+            //
+            if( Icb->DeletePending ) {
+                *FinalStatus = STATUS_DELETE_PENDING;
+                try_return(FALSE);
+            }
+
+            //
+            //  Make sure that this is really a directory. OFS supports
+            //  DIRECTORY_CONTROL on files but not NotifyChangeDirectory.
+            //  RdrIsOperationValid permits DIRECTORY_CONTROL even if
+            //  its a file, so we need to kill NotifyChangeDirectory on files
+            //  separately here.
+            //
+
+            if (Icb->Type != Directory) {
+                *FinalStatus = STATUS_INVALID_PARAMETER;
+                try_return(FALSE);
+            }
+
+            //
             //  We only allow a QueryDirectory that will fit in the negotiated buffer
             //  size.
             //
@@ -5029,6 +5600,26 @@ Return Value:
             if (IrpSp->Parameters.NotifyDirectory.Length > Icb->Fcb->Connection->Server->BufferSize - (FIELD_OFFSET(REQ_NT_TRANSACTION, Buffer) + sizeof(REQ_NOTIFY_CHANGE))) {
                 *FinalStatus = STATUS_INVALID_PARAMETER;
                 try_return(FALSE);         // Don't pass request to FSP.
+            }
+
+            //
+            //  Make sure we have a valid handle
+            //
+
+            if (FlagOn(Icb->Flags, ICB_DEFERREDOPEN)) {
+                *FinalStatus = RdrCreateFile(
+                                    Irp,
+                                    Icb,
+                                    Icb->u.d.OpenOptions,
+                                    Icb->u.d.ShareAccess,
+                                    Icb->u.d.FileAttributes,
+                                    Icb->u.d.DesiredAccess,
+                                    Icb->u.d.Disposition,
+                                    NULL,
+                                    FALSE);
+                if (!NT_SUCCESS(*FinalStatus)) {
+                    try_return(FALSE);
+                }
             }
 
             smbBuffer = RdrAllocateSMBBuffer();
@@ -5048,9 +5639,8 @@ Return Value:
             }
 
             context->Server = NULL;
-
+            context->ReceiveIrp = NULL;
             context->RequestingThread = NULL;
-
             context->RequestingRThread = 0;
 
             smb = (PSMB_HEADER)&smbBuffer->Buffer;
@@ -5121,7 +5711,12 @@ Return Value:
 
             context->Server = Icb->Fcb->Connection->Server;
 
-            context->ReceiveIrp = RdrAllocateIrp(context->Server->ConnectionContext->ConnectionObject, NULL);
+            context->ReceiveIrp = ALLOCATE_IRP(
+                                    context->Server->ConnectionContext->ConnectionObject,
+                                    NULL,
+                                    3,
+                                    context
+                                    );
 
             if (context->ReceiveIrp == NULL) {
                 *FinalStatus = STATUS_INSUFFICIENT_RESOURCES;
@@ -5141,10 +5736,7 @@ Return Value:
 
             context->RequestingThread = PsGetCurrentThread();
 
-            ObReferenceObjectByPointer(context->RequestingThread,
-                                        THREAD_ALL_ACCESS,
-                                        NULL, // *(POBJECT_TYPE *)PsThreadType,
-                                        KernelMode);
+            ObReferenceObject(context->RequestingThread);
 
             //
             //  Set the # of bytes to transfer.
@@ -5202,11 +5794,12 @@ Return Value:
 
                 //
                 //  We were unable to send the request to the server.
-                //  Complete the request with the correct status (because we
-                //  marked the IRP as being pending), and return a "bogus"
-                //  status of STATUS_PENDING.
+                //  Turn off the PENDING_RETURNED bit in the IRP and
+                //  return the correct status to IoCallDriver.  This
+                //  tells File Manager to stop issuing notify requests.
                 //
 
+                IoGetCurrentIrpStackLocation(Irp)->Control &= ~SL_PENDING_RETURNED;
                 RdrCompleteRequest(Irp, *FinalStatus);
 
                 //
@@ -5215,8 +5808,6 @@ Return Value:
                 //
 
                 RdrEndAndXBehindOperation(&Icb->u.d.DirCtrlOutstanding);
-
-                *FinalStatus = STATUS_PENDING;
 
                 try_return(FALSE);
 
@@ -5240,6 +5831,10 @@ try_exit:NOTHING;
 
                     if (context->Server != NULL) {
                         RdrDereferenceTransportConnection(context->Server);
+                    }
+
+                    if (context->ReceiveIrp != NULL) {
+                        FREE_IRP( context->ReceiveIrp, 3, context );
                     }
 
                     FREE_POOL(context);
@@ -5339,7 +5934,6 @@ Return Value:
     ULONG parameterCount;
     ULONG parameterOffset;
     NTSTATUS status = STATUS_SUCCESS;
-    BOOLEAN completeRequest = TRUE;
 
     DISCARDABLE_CODE(RdrFileDiscardableSection);
 
@@ -5361,6 +5955,9 @@ Return Value:
 
     if (!NT_SUCCESS(context->Header.ErrorCode)) {
         context->Header.ErrorType = SMBError;
+        if( context->Header.ErrorCode == STATUS_DELETE_PENDING ) {
+            context->Icb->DeletePending = TRUE;
+        }
         goto ReturnStatus;
     }
 
@@ -5422,6 +6019,7 @@ Return Value:
     //
 
     parameterOffset = SmbGetAlignedUlong(&transactionResponse->ParameterOffset);
+    context->BytesReturned = parameterCount;
 
     if (parameterOffset + parameterCount <= *SmbLength) {
         PVOID UsersBuffer;
@@ -5519,6 +6117,8 @@ Return Value:
 
     DISCARDABLE_CODE(RdrFileDiscardableSection);
 
+    UNREFERENCED_PARAMETER(DeviceObject);
+
 //    DbgBreakPoint();
     dprintf(DPRT_DIRECTORY, ("SearchComplete.  Irp: %lx, Context: %lx\n", Irp, context));
 
@@ -5539,7 +6139,7 @@ Return Value:
 
         ExInterlockedAddLargeStatistic(
             &RdrStatistics.BytesReceived,
-            Irp->IoStatus.Information );
+            context->BytesReturned );
 
         context->Header.ErrorType = NoError;
         context->Header.ErrorCode = Irp->IoStatus.Status;
@@ -5584,7 +6184,6 @@ Return Value:
 
     return STATUS_MORE_PROCESSING_REQUIRED;
 
-    if (DeviceObject);
 }
 
 VOID
@@ -5593,6 +6192,7 @@ RdrCompleteNotifyChangeDirectoryOperation(
     )
 {
     PNOTIFY_CHANGE_DIRECTORY_CONTEXT context = Ctx;
+    NTSTATUS status;
 
     PAGED_CODE();
 
@@ -5612,7 +6212,9 @@ RdrCompleteNotifyChangeDirectoryOperation(
     //  submit any more requests on this share.
     //
 
-    if (context->Header.ErrorCode == STATUS_NOT_SUPPORTED ) {
+    status = context->Header.ErrorCode;
+
+    if (status == STATUS_NOT_SUPPORTED ) {
 
         //
         //  We are going to be modifying the connection database - claim the
@@ -5632,11 +6234,21 @@ RdrCompleteNotifyChangeDirectoryOperation(
         KeReleaseMutex(&RdrDatabaseMutex, FALSE);
     }
 
+    RdrCheckForSessionOrShareDeletion(
+        status,
+        ((PSMB_HEADER)context->SmbBuffer->Buffer)->Uid,
+        FALSE,
+        context->Icb->Fcb->Connection,
+        &context->Header,
+        context->Irp
+        );
+
     //
     //  Now complete the users notify request, since it has completed.
     //
 
-    RdrCompleteRequest(context->Irp, context->Header.ErrorCode);
+    context->Irp->IoStatus.Information = context->BytesReturned;
+    RdrCompleteRequest(context->Irp, status);
 
     //
     //  This AndXBehind is no longer outstanding, keep track of it.
@@ -5658,7 +6270,7 @@ RdrCompleteNotifyChangeDirectoryOperation(
     //  Free up the receive IRP, we're done with it.
     //
 
-    IoFreeIrp(context->ReceiveIrp);
+    FREE_IRP( context->ReceiveIrp, 4, context );
 
     //
     //  Dereference the transport connection, the request is now done.
@@ -5760,95 +6372,107 @@ Return Value:
     return TRUE;
 }
 
-DBGSTATIC
-VOID
-ReleaseScbLock(
+#define VSB_ASSERT(_cond,_msg)          \
+    if ( !(_cond) ) {                   \
+        KdPrint(((_msg),Scb,offset));   \
+        ASSERT(_cond);                  \
+        goto error;                     \
+    }
+
+NTSTATUS
+ValidateSearchBuffer (
     IN PSCB Scb
     )
-/*++
-
-Routine Description:
-
-    This routine releases the exclusive lock on an SCB.
-
-Arguments:
-
-    IN PSCB Scb - Supplies a pointer to the SCB to lock.
-
-Return Value:
-
-    None.
-
---*/
 {
-    PAGED_CODE();
+    PCHAR bp;
+    DIRPTR ep;
+    ULONG entry;
+    ULONG offset = 0;
+    ULONG nextEntryOffset;
+    ULONG sizeofTchar;
+    ULONG nameOffset;
+    ULONG nameLengthOffset;
+    ULONG nameLength;
+    USHORT maxShortNameLength;
 
-    KeSetEvent(Scb->SynchronizationEvent,
-                0,                        // Priority boost
-                FALSE);
+    VSB_ASSERT( Scb->ReturnLength <= Scb->SearchBuffLength,
+                "RDR: SCB %x ReturnLength bigger than search buffer\n" );
 
-    dprintf(DPRT_DIRECTORY, ("Release SCB lock: %08lx\n", Scb));
+    VSB_ASSERT( Scb->EntryCount <= Scb->MaxCount,
+                "RDR: SCB %x EntryCount bigger than MaxCount\n" );
+
+    if ( (Scb->SearchType & ST_NTFIND) == 0 ) {
+        return STATUS_SUCCESS;
+    }
+
+    sizeofTchar = sizeof(WCHAR);
+    if ( (Scb->SearchType & ST_UNICODE) == 0 ) sizeofTchar = sizeof(CHAR);
+    maxShortNameLength = (USHORT)(12 * sizeofTchar);
+
+    if (Scb->FileInformationClass == FileNamesInformation) {
+        nameOffset = FIELD_OFFSET( FILE_NAMES_INFORMATION, FileName );
+        nameLengthOffset = FIELD_OFFSET( FILE_NAMES_INFORMATION, FileNameLength );
+    } else if (Scb->FileInformationClass == FileDirectoryInformation) {
+        nameOffset = FIELD_OFFSET( FILE_DIRECTORY_INFORMATION, FileName );
+        nameLengthOffset = FIELD_OFFSET( FILE_DIRECTORY_INFORMATION, FileNameLength );
+    } else if (Scb->FileInformationClass == FileFullDirectoryInformation) {
+        nameOffset = FIELD_OFFSET( FILE_FULL_DIR_INFORMATION, FileName );
+        nameLengthOffset = FIELD_OFFSET( FILE_FULL_DIR_INFORMATION, FileNameLength );
+    } else if (Scb->FileInformationClass == FileBothDirectoryInformation) {
+        nameOffset = FIELD_OFFSET( FILE_BOTH_DIR_INFORMATION, FileName );
+        nameLengthOffset = FIELD_OFFSET( FILE_BOTH_DIR_INFORMATION, FileNameLength );
+    } else {
+        nameOffset = FIELD_OFFSET( FILE_OLE_DIR_INFORMATION, FileName );
+        nameLengthOffset = FIELD_OFFSET( FILE_OLE_DIR_INFORMATION, FileNameLength );
+    }
+
+    bp = Scb->SearchBuffer;
+
+    for ( entry = 0; entry < Scb->EntryCount; entry++ ) {
+
+        VSB_ASSERT( offset < Scb->ReturnLength,
+                    "RDR: SCB %x entry at offset %x beyond ReturnLength\n" );
+
+        ep.PU = bp;
+
+        if ( Scb->FileInformationClass == FileBothDirectoryInformation ) {
+            VSB_ASSERT( ep.NtFind->BothDir.ShortNameLength <= maxShortNameLength,
+                        "RDR: SCB %x entry at offset %x short name length too big\n" );
+        }
+
+        nameLength = *(ULONG UNALIGNED *)(bp + nameLengthOffset);
+
+        VSB_ASSERT( (offset + nameOffset + nameLength) <= Scb->ReturnLength,
+                    "RDR: SCB %x entry at offset %x name length beyond buffer\n" );
+
+        nextEntryOffset = ep.NtFind->Dir.NextEntryOffset;
+
+        if ( nextEntryOffset != 0 ) {
+            VSB_ASSERT( (nameOffset + nameLength) <= nextEntryOffset,
+                        "RDR: SCB %x entry at offset %x name length beyond entry\n" );
+        }
+
+        if ( (entry + 1) == Scb->EntryCount ) {
+            // Windows 95 server doesn't set NextLastEntry to 0 in last entry.
+            //VSB_ASSERT( nextEntryOffset == 0,
+            //            "RDR: SCB %x last entry at offset %x NextEntryOffset != 0\n" );
+        } else {
+            // Windows 95 server returns entries only word-aligned.
+            // Samba server returns entries only byte-aligned.
+            VSB_ASSERT( ((LONG)nextEntryOffset > 0) &&
+                        // ((nextEntryOffset & 1) == 0) &&
+                        (nextEntryOffset >= (nameOffset + nameLength)),
+                        "RDR: SCB %x entry at offset %x NextEntryOffset incorrect\n" );
+            offset += nextEntryOffset;
+            bp += nextEntryOffset;
+        }
+
+    } // while
+
+    return STATUS_SUCCESS;
+
+error:
+
+    return STATUS_UNEXPECTED_NETWORK_ERROR;
 
 }
-
-VOID
-RdrInitializeDir (
-    VOID
-    )
-
-/*++
-
-Routine Description:
-
-    This routine initializes the redirector Directory Control structures.
-
-Arguments:
-
-    None
-
-Return Value:
-
-    None.
-
---*/
-
-{
-
-
-    //
-    //  Initialize the SpinLock used to protect all Time entries in
-    //  the SCB's from being accessed simultaneously.
-    //
-
-    KeInitializeSpinLock(&DirectoryControlSpinLock);
-
-    //
-    //  Initialize the search invalidation interval.
-    //
-
-    SEARCH_INVALIDATE_INTERVAL.QuadPart = (LONGLONG)5*60*1000*10000;
-}
-//
-//VOID
-//RdrpUninitializeDir (
-//    VOID
-//    )
-//
-///*++
-//
-//Routine Description:
-//
-//    This routine undoes the operations performed by RdrInitializeDir
-//
-//Arguments:
-//
-//    None
-//
-//Return Value:
-//
-//    None.
-//
-//--*/
-//
-//{
-//}

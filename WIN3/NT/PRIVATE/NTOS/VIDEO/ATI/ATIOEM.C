@@ -7,10 +7,74 @@
 
 /**********************       PolyTron RCS Utilities
 
-    $Revision:   1.6  $
-    $Date:   15 Jun 1994 11:05:16  $
-    $Author:   RWOLFF  $
-    $Log:   S:/source/wnt/ms11/miniport/vcs/atioem.c  $
+    $Revision:   1.20  $
+    $Date:   01 May 1996 14:08:38  $
+    $Author:   RWolff  $
+    $Log:   S:/source/wnt/ms11/miniport/archive/atioem.c_v  $
+ * 
+ *    Rev 1.20   01 May 1996 14:08:38   RWolff
+ * Locked out 24BPP on Alpha and on machines without LFB.
+ * 
+ *    Rev 1.19   23 Jan 1996 11:43:24   RWolff
+ * Eliminated level 3 warnings, protected against false values of TARGET_BUILD.
+ * 
+ *    Rev 1.18   11 Jan 1996 19:35:58   RWolff
+ * Added maximum pixel clock rate to all calls to SetFixedModes().
+ * This is required as part of a Mach 64 fix.
+ * 
+ *    Rev 1.17   22 Dec 1995 14:52:52   RWolff
+ * Switched to TARGET_BUILD to identify the NT version for which
+ * the driver is being built.
+ * 
+ *    Rev 1.16   20 Jul 1995 17:26:54   mgrubac
+ * Added support for VDIF files
+ * 
+ *    Rev 1.15   31 Mar 1995 11:51:36   RWOLFF
+ * Changed from all-or-nothing debug print statements to thresholds
+ * depending on importance of the message.
+ * 
+ *    Rev 1.14   23 Dec 1994 10:47:28   ASHANMUG
+ * ALPHA/Chrontel-DAC
+ * 
+ *    Rev 1.13   18 Nov 1994 11:37:56   RWOLFF
+ * Added support for Dell Sylvester, STG1703 DAC, and display driver
+ * that can handle split rasters.
+ * 
+ *    Rev 1.12   14 Sep 1994 15:29:52   RWOLFF
+ * Now reads in frequency table and monitor description from disk.
+ * If disk-based frequency table is missing or invalid, loads default
+ * OEM-specific frequency table if it is different from the retail
+ * frequency table. If disk-based monitor description is missing or
+ * invalid, reads installed modes in OEM-specific manner if the OEM
+ * type is known. For unknown OEM types with no disk-based monitor
+ * description, only predefined mode tables are listed.
+ * 
+ *    Rev 1.11   31 Aug 1994 16:20:06   RWOLFF
+ * Changed includes to correspond to Daytona RC1, now skips over
+ * 1152x864 (Mach 64-only mode, this module is for Mach 32), assumes
+ * system is not a Premmia SE under NT retail because the definition
+ * we use to look for this machine is not available under NT retail.
+ * 
+ *    Rev 1.10   19 Aug 1994 17:08:28   RWOLFF
+ * Fixed aperture location bug on AST Premmia SE, added support for
+ * SC15026 DAC and 1280x1024 70Hz and 74Hz, and pixel clock
+ * generator independence.
+ * 
+ *    Rev 1.9   20 Jul 1994 13:01:56   RWOLFF
+ * Added diagnostic print statements for DELL, now defaults to "worst"
+ * (interlaced if available, else lowest frequency) refresh rate instead
+ * of skipping the resolution if we get an invalid result when trying
+ * to find which refresh rate is desired on a DELL Omniplex.
+ * 
+ *    Rev 1.8   12 Jul 1994 17:42:24   RWOLFF
+ * Andre Vachon's changes: different way of allowing DELL users
+ * to run without an ATIOEM field.
+ * 
+ *    Rev 1.7   11 Jul 1994 11:57:34   RWOLFF
+ * No longer aborts if ATIOEM field is missing from registry. Some OEMs
+ * auto-detect, and generic OEMs can use the "canned" mode tables,
+ * so this field is no longer mandatory and someone removed it from
+ * the registry sometime after Beta 2 for Daytona.
  *
  *    Rev 1.6   15 Jun 1994 11:05:16   RWOLFF
  * No longer lists "canned" mode tables for Dell Omniplex, since these tables
@@ -110,14 +174,18 @@ End of PolyTron RCS section                             *****************/
 
 #ifdef DOC
     ATIOEM.C -  Functions to obtain CRT parameters from OEM versions
-                of ATI accelerators which lack an EEPROM.
+                of Mach 32/Mach 8 accelerators which lack an EEPROM.
 
 #endif
 
 
+#include <stdlib.h>
+#include <string.h>
+
 #include "dderror.h"
 #include "miniport.h"
 
+#include "ntddvdeo.h"
 #include "video.h"      /* for VP_STATUS definition */
 #include "vidlog.h"
 
@@ -127,6 +195,7 @@ End of PolyTron RCS section                             *****************/
 #include "atimp.h"
 #include "atint.h"
 #include "cvtvga.h"
+#include "diskutil.h"
 #include "atioem.h"
 #include "services.h"
 #include "vdptocrt.h"
@@ -141,19 +210,40 @@ End of PolyTron RCS section                             *****************/
 #endif
 
 /*
+ * OEM types supported by this module
+ */
+enum {
+    OEM_AST_PREMMIA,        /* Also includes Bravo machines */
+    OEM_DELL_OMNIPLEX,
+    OEM_DELL_SYLVESTER,     /* Different programming of clock generator from Omniplex */
+    OEM_UNKNOWN             /* Generic OEM - "canned" modes only, no HW defaults */
+    };
+
+/*
+ * AST machines have "AST " starting at offset 0x50 into the BIOS.
+ * AST_REC_VALUE is the character sequence "AST " stored as an
+ * Intel-format DWORD.
+ */
+#define AST_REC_OFFSET  0x50
+#define AST_REC_VALUE   0x20545341
+
+/*
+ * Definitions used to distinguish Premmia SE from other
+ * AST machines. The Premmia SE has its aperture in the
+ * 4G range, with the location split between MEM_CFG and
+ * SCRATCH_PAD_0, but it does not have bit 0 of byte 0x62
+ * in the BIOS set to indicate this.
+ */
+#define EISA_ID_OFFSET  8           /* Offset to feed VideoPortGetBusData() */
+#define PREMMIA_SE_SLOT 0           /* Motherboard is slot 0 */
+#define PREMMIA_SE_ID   0x01057406  /* EISA ID of Premmia SE */
+
+/*
  * Indices into 1CE register where AST monitor configuration is kept.
  */
 #define AST_640_STORE   0xBA
 #define AST_800_STORE   0x81
 #define AST_1024_STORE  0x80
-
-/*
- * Dell machines have "DELL" starting at offset 0x100 into the BIOS.
- * DELL_REC_VALUE is the character sequence "DELL" stored as an
- * Intel-format DWORD.
- */
-#define DELL_REC_OFFSET 0x100
-#define DELL_REC_VALUE  0x4C4C4544
 
 /*
  * Values found in AST monitor configuration registers for the
@@ -168,6 +258,76 @@ End of PolyTron RCS section                             *****************/
 #define M1024F70AST 0x04
 #define M1024F72AST 0x08
 #define M1024F87AST 0x01
+
+/*
+ * Definitions used in stepping through pixel depths for AST Premmia.
+ * Since the supported depths can't be stepped through a FOR loop
+ * by a simple mathematical function, use an array index instead.
+ */
+enum {
+    DEPTH_4BPP = 0,
+    DEPTH_8BPP,
+    DEPTH_16BPP,
+    DEPTH_24BPP
+    };
+
+/*
+ * Pixel depth
+ */
+USHORT ASTDepth[DEPTH_24BPP - DEPTH_4BPP + 1] =
+{
+    4,
+    8,
+    16,
+    24
+};
+
+/*
+ * Pixel clock frequency multiplier
+ */
+USHORT ASTClockMult[DEPTH_24BPP - DEPTH_4BPP + 1] =
+{
+    CLOCK_SINGLE,
+    CLOCK_SINGLE,
+    CLOCK_DOUBLE,
+    CLOCK_TRIPLE
+};
+
+/*
+ * Pixel size as a multiple of 4BPP (lowest depth)
+ */
+USHORT ASTNybblesPerPixel[DEPTH_24BPP - DEPTH_4BPP + 1] =
+{
+    1,
+    2,
+    4,
+    6
+};
+
+
+/*
+ * Dell machines have "DELL" starting at an offset into the BIOS which
+ * is a multiple of 0x100. Currently, it is always at offset 0x100, but
+ * this may change. DELL_REC_VALUE is the character sequence "DELL"
+ * stored as an Intel-format DWORD.
+ *
+ * Some Dell machines store the pixel clock frequency table in the BIOS
+ * rather than using the default Dell frequency table. On these machines,
+ * the identifier DELL_TABLE_PRESENT will be found at offset DELL_TP_OFFSET
+ * from the start of DELL_REC_VALUE, and the offset of the frequency table
+ * into the video BIOS will be found at offset DELL_TABLE_OFFSET from the
+ * start of DELL_TABLE_PRESENT.
+ *
+ * The table consists of 18 words. The first word is DELL_TABLE_SIG,
+ * the second is the table type, and the remaining 16 are the clock
+ * table entries.
+ */
+#define DELL_REC_SPACING    0x100
+#define DELL_REC_VALUE      0x4C4C4544
+#define DELL_TABLE_PRESENT  0x7674          /* "tv" as WORD */
+#define DELL_TP_OFFSET      0x08
+#define DELL_TABLE_OFFSET   0x0C
+#define DELL_TABLE_SIG      0x7463          /* "ct" as WORD */
 
 /*
  * Indices into 1CE register where Dell monitor configuration is kept.
@@ -199,86 +359,6 @@ End of PolyTron RCS section                             *****************/
 #define M1280F70DELL    0x20
 #define M1280F74DELL    0x40
 
-/*
- * Index values for OEM-specific mode tables.
- */
-#define B640F60D8AST    0   /* AST 640x480 60Hz 8 BPP and lower */
-#define B640F60D16AST   1   /* AST 640x480 60Hz 16 BPP */
-#define B640F60D24AST   2   /* AST 640x480 60Hz 24 BPP */
-#define B640F72D8AST    3   /* AST 640x480 72Hz 8 BPP and lower */
-#define B640F72D16AST   4   /* AST 640x480 72Hz 16 BPP */
-#define B800F56D8AST    5   /* AST 800x600 56Hz 8 BPP and lower */
-#define B800F56D16AST   6   /* AST 800x600 56Hz 16 BPP */
-#define B800F60D8AST    7   /* AST 800x600 60Hz 8 BPP and lower */
-#define B800F60D16AST   8   /* AST 800x600 60Hz 16 BPP */
-#define B800F72AST      9   /* AST 800x600 72Hz 8 BPP and lower */
-#define B1024F60AST    10   /* AST 1024x768 60Hz 8 BPP and lower */
-#define B1024F70AST    11   /* AST 1024x768 70Hz 8 BPP and lower */
-#define B1024F72AST    12   /* AST 1024x768 72Hz 8 BPP and lower */
-#define B1024F87AST    13   /* AST 1024x768 87Hz interlaced 8 BPP and lower */
-
-#define B640F60DELL    14   /* Dell 640x480 60Hz */
-#define B640F72DELL    15   /* Dell 640x480 72Hz */
-#define B800F56DELL    16   /* Dell 800x600 56Hz */
-#define B800F60DELL    17   /* Dell 800x600 60Hz */
-#define B800F72DELL    18   /* Dell 800x600 72Hz */
-#define B1024F87DELL   19   /* Dell 1024x768 87Hz interlaced */
-#define B1024F60DELL   20   /* Dell 1024x768 60Hz */
-#define B1024F70DELL   21   /* Dell 1024x768 70Hz */
-#define B1024F72DELL   22   /* Dell 1024x768 72Hz */
-#define B1280F87DELL   23   /* Dell 1280x1024 87Hz interlaced */
-#define B1280F60DELL   24   /* Dell 1280x1024 60Hz */
-#define B1280F70DELL   25   /* Dell 1280x1024 70Hz */
-#define B1280F74DELL   26   /* Dell 1280x1024 74Hz */
-
-/*
- * List of OEM-specific mode tables, to be accessed using index
- * values above. Entries should only be added to this table for
- * OEM versions of our accelerators which use a different clock
- * synthesizer from our retail cards. OEM cards which use the
- * same clock synthesizer can use the mode tables for retail
- * cards, as accessed by BookVgaTable().
- *
- * For interlaced modes, the refresh rate field contains the
- * frame rate, not the vertical scan frequency.
- */
-static struct st_book_data OEMValues[B1280F74DELL-B640F60D8AST+1] =
-{
-    {0x063, 0x04F, 0x052, 0x02C, 0x0418, 0x03BF, 0x03D6, 0x022, 0x023, 0x0850, DEFAULT_REFRESH}, /* AST 640x480 */
-    {0x063, 0x04F, 0x052, 0x02C, 0x0418, 0x03BF, 0x03D6, 0x022, 0x023, 0x0810, DEFAULT_REFRESH},
-    {0x063, 0x04F, 0x052, 0x02C, 0x0418, 0x03BF, 0x03D6, 0x022, 0x023, 0x0838, DEFAULT_REFRESH},
-    {0x06A, 0x04F, 0x052, 0x025, 0x040B, 0x03BF, 0x03D4, 0x023, 0x023, 0x0824, DEFAULT_REFRESH},
-    {0x068, 0x04F, 0x052, 0x025, 0x040B, 0x03BF, 0x03D4, 0x023, 0x023, 0x0804, DEFAULT_REFRESH},
-
-    {0x07F, 0x063, 0x066, 0x009, 0x04E0, 0x04AB, 0x04B0, 0x002, 0x023, 0x080C, DEFAULT_REFRESH}, /* AST 800x600 */
-    {0x07F, 0x063, 0x066, 0x009, 0x04E0, 0x04AB, 0x04B0, 0x002, 0x023, 0x0834, DEFAULT_REFRESH},
-    {0x083, 0x063, 0x068, 0x010, 0x04E3, 0x04AB, 0x04B0, 0x004, 0x023, 0x0830, DEFAULT_REFRESH},
-    {0x083, 0x063, 0x068, 0x010, 0x04E3, 0x04AB, 0x04B0, 0x004, 0x023, 0x082C, DEFAULT_REFRESH},
-    {0x082, 0x063, 0x06A, 0x00F, 0x0537, 0x04AB, 0x04F8, 0x006, 0x023, 0x0810, DEFAULT_REFRESH},
-
-    {0x0A7, 0x07F, 0x085, 0x008, 0x063B, 0x05FF, 0x0600, 0x004, 0x023, 0x083C, DEFAULT_REFRESH}, /* AST 1024x768 */
-    {0x0A6, 0x07F, 0x083, 0x016, 0x0643, 0x05FF, 0x0601, 0x008, 0x023, 0x0838, DEFAULT_REFRESH},
-    {0x0A1, 0x07F, 0x082, 0x032, 0x0649, 0x05FF, 0x0602, 0x026, 0x023, 0x0838, DEFAULT_REFRESH},
-    {0x09D, 0x07F, 0x081, 0x016, 0x0660, 0x05FF, 0x0600, 0x008, 0x033, 0x081C, DEFAULT_REFRESH},
-
-
-    {0x063, 0x04F, 0x052, 0x02C, 0x0418, 0x03BF, 0x03D6, 0x022, 0x023, 0x0800, 60}, /* Dell 640x480 */
-    {0x069, 0x04F, 0x052, 0x025, 0x040B, 0x03BF, 0x03D0, 0x023, 0x023, 0x085C, 72},
-
-    {0x07F, 0x063, 0x066, 0x009, 0x04E0, 0x04AB, 0x04B0, 0x002, 0x023, 0x080C, 56}, /* Dell 800x600 */
-    {0x083, 0x063, 0x068, 0x010, 0x04E3, 0x04AB, 0x04B3, 0x004, 0x023, 0x0810, 60},
-    {0x082, 0x063, 0x06A, 0x00F, 0x0531, 0x04AB, 0x04F8, 0x006, 0x023, 0x0818, 72},
-
-    {0x09D, 0x07F, 0x081, 0x016, 0x0668, 0x05FF, 0x0600, 0x008, 0x033, 0x0814, 43}, /* Dell 1024x768 */
-    {0x0A7, 0x07F, 0x082, 0x031, 0x0649, 0x05FF, 0x0602, 0x026, 0x023, 0x081C, 60},
-    {0x0A5, 0x07F, 0x083, 0x031, 0x0649, 0x05FF, 0x0602, 0x026, 0x023, 0x0820, 70},
-    {0x0A0, 0x07F, 0x082, 0x031, 0x0649, 0x05FF, 0x0602, 0x026, 0x023, 0x0820, 72},
-
-    {0x0C7, 0x09F, 0x0A9, 0x00A, 0x08F8, 0x07FF, 0x0861, 0x00A, 0x033, 0x0822, 43}, /* Dell 1280x1024 */
-    {0x0D6, 0x09F, 0x0A9, 0x02E, 0x0852, 0x07FF, 0x0800, 0x025, 0x023, 0x0834, 60},
-    {0x0D2, 0x09F, 0x0A9, 0x00E, 0x0851, 0x07FF, 0x0800, 0x005, 0x023, 0x0838, 70},
-    {0x0CF, 0x09F, 0x0AE, 0x011, 0x0851, 0x07FF, 0x0818, 0x010, 0x023, 0x083C, 74}
-};
 
 /*
  * Variables used to pass data between ReadOEMRaw() and
@@ -300,6 +380,18 @@ VP_STATUS OEMCallback(
     ULONG Length
     );
 
+/*
+ * Callback function to load the table of available clock
+ * generator frequencies from a disk file.
+ */
+VP_STATUS FreqTblCallback(
+    PHW_DEVICE_EXTENSION phwDeviceExtension,
+    PVOID Context,
+    PWSTR Name,
+    PVOID Data,
+    ULONG Length
+    );
+
 
 /*
  * Local functions to get CRT data for specific OEM cards.
@@ -308,13 +400,14 @@ VP_STATUS ReadAST(struct query_structure *query);
 VP_STATUS ReadZenith(struct st_mode_table *Modes);
 VP_STATUS ReadOlivetti(struct st_mode_table *Modes);
 VP_STATUS ReadDell(struct st_mode_table *Modes);
+ULONG DetectDell(struct query_structure *Query);
+BOOL DetectSylvester(struct query_structure *Query, ULONG HeaderOffset);
 VP_STATUS ReadOEM1(struct st_mode_table *Modes);
 VP_STATUS ReadOEM2(struct st_mode_table *Modes);
 VP_STATUS ReadOEM3(struct st_mode_table *Modes);
 VP_STATUS ReadOEM4(struct st_mode_table *Modes);
 VP_STATUS ReadOEM5(struct st_mode_table *Modes);
 VP_STATUS ReadOEMRaw(struct st_mode_table *Modes);
-void OEMVgaTable(short VgaTblEntry, struct st_mode_table *pmode);
 
 
 
@@ -328,14 +421,16 @@ void OEMVgaTable(short VgaTblEntry, struct st_mode_table *pmode);
 #pragma alloc_text(PAGE_COM, ReadZenith)
 #pragma alloc_text(PAGE_COM, ReadOlivetti)
 #pragma alloc_text(PAGE_COM, ReadDell)
+#pragma alloc_text(PAGE_COM, DetectDell)
+#pragma alloc_text(PAGE_COM, DetectSylvester)
 #pragma alloc_text(PAGE_COM, ReadOEM1)
 #pragma alloc_text(PAGE_COM, ReadOEM2)
 #pragma alloc_text(PAGE_COM, ReadOEM3)
 #pragma alloc_text(PAGE_COM, ReadOEM4)
 #pragma alloc_text(PAGE_COM, ReadOEM5)
 #pragma alloc_text(PAGE_COM, ReadOEMRaw)
-#pragma alloc_text(PAGE_COM, OEMVgaTable)
 #pragma alloc_text(PAGE_COM, OEMCallback)
+#pragma alloc_text(PAGE_COM, FreqTblCallback)
 #endif
 
 
@@ -365,136 +460,163 @@ short   StartIndex;         /* First mode for SetFixedModes() to set up */
 short   EndIndex;           /* Last mode for SetFixedModes() to set up */
 BOOL    ModeInstalled;      /* Is this resolution configured? */
 WORD    Multiplier;         /* Pixel clock multiplier */
-BOOL    RetailClockChip;    /* This card uses the same clock generator as retail cards */
-
-    /*
-     * Assume we do not find anything.
-     */
-
-    RetVal = ERROR_DEV_NOT_EXIST;
-
-    /*
-     * Initially assume we are using the same clock generator as
-     * a retail card.
-     *
-     * NOTE: Once the miniport is made independent of clock generator,
-     *       all references to this variable can be eliminated.
-     */
-    RetailClockChip = TRUE;
+USHORT  OEMType;            /* Which OEM accelerator we are dealing with */
+ULONG   OEMInfoOffset;      /* Offset of OEM information block into the BIOS */
+short MaxModes;             /* Maximum number of modes possible */
+short FreeTables;            /* Number of remaining free mode tables */
 
     /*
      * Clear out our mode tables, then check to see which OEM card
      * we are dealing with and read its CRT parameters.
      */
-    VideoPortZeroMemory(ListOfModes, (RES_1280-RES_640+1)*sizeof(struct
-                st_mode_table));
+    VideoPortZeroMemory(ListOfModes, (RES_1280-RES_640+1)*sizeof(struct st_mode_table));
 
     /*
-     * Get the name of the OEM version from the registry. We must clear
-     * our data buffer first in order to detect a missing OEM entry.
+     * Try to auto-detect the type of OEM accelerator using recognition
+     * strings in the BIOS. If we can't identify the OEM in this manner,
+     * or there is no BIOS, treat it as a generic OEM card.
      */
+    if (query->q_bios != FALSE)
+        {
+        if ((OEMInfoOffset = DetectDell(query)) != 0)
+            OEMType = OEM_DELL_OMNIPLEX;
+        else if (*(PULONG)(query->q_bios + AST_REC_OFFSET) == AST_REC_VALUE)
+            OEMType = OEM_AST_PREMMIA;
+        else
+            OEMType = OEM_UNKNOWN;
+        }
+    else
+        {
+        OEMType = OEM_UNKNOWN;
+        }
 
+    /*
+     * The ATIOEM registry field can override the auto-detected OEM type.
+     * If this field is not present, or we don't recognize the value
+     * it contains, continue with the OEM type we detected in the
+     * previous step.
+     */
     RegistryBufferLength = 0;
 
     if (VideoPortGetRegistryParameters(phwDeviceExtension,
                                        L"ATIOEM",
                                        FALSE,
                                        RegistryParameterCallback,
-                                       NULL) == NO_ERROR) {
-
+                                       NULL) == NO_ERROR)
+        {
+        VideoDebugPrint((DEBUG_DETAIL, "ATIOEM field found\n"));
         if (RegistryBufferLength == 0)
             {
-            VideoDebugPrint((0, "Registry call gave Zero Length\n"));
-            RetVal = ERROR_INVALID_PARAMETER;
+            VideoDebugPrint((DEBUG_DETAIL, "Registry call gave Zero Length\n"));
             }
-
-        /*
-         * ReadAst() fills in its own mode tables, so no further processing
-         * is needed on AST versions of our cards.
-         */
         else if (!CompareASCIIToUnicode("AST", RegistryBuffer, CASE_INSENSITIVE))
             {
-            VideoDebugPrint((2, "AST found\n"));
-            RetVal = ReadAST(query);
-            return RetVal;
+            OEMType = OEM_AST_PREMMIA;
             }
-
-        else if (!CompareASCIIToUnicode("Zenith", RegistryBuffer,
-                    CASE_INSENSITIVE))
+        else if (!CompareASCIIToUnicode("DELL", RegistryBuffer, CASE_INSENSITIVE))
             {
-            VideoDebugPrint((2, "Zenith found\n"));
-            RetVal = ReadZenith(ListOfModes);
-            }
-        else if (!CompareASCIIToUnicode("Olivetti", RegistryBuffer,
-                    CASE_INSENSITIVE))
-            {
-            VideoDebugPrint((2, "Olivetti found\n"));
-            RetVal = ReadOlivetti(ListOfModes);
-            }
-        else if (!CompareASCIIToUnicode("OEM1", RegistryBuffer, CASE_INSENSITIVE))
-            {
-            VideoDebugPrint((2, "OEM1 found\n"));
-            RetVal = ReadOEM1(ListOfModes);
-            }
-        else if (!CompareASCIIToUnicode("OEM2", RegistryBuffer, CASE_INSENSITIVE))
-            {
-            VideoDebugPrint((2, "OEM2 found\n"));
-            RetVal = ReadOEM2(ListOfModes);
-            }
-        else if (!CompareASCIIToUnicode("OEM3", RegistryBuffer, CASE_INSENSITIVE))
-            {
-            VideoDebugPrint((2, "OEM3 found\n"));
-            RetVal = ReadOEM3(ListOfModes);
-            }
-        else if (!CompareASCIIToUnicode("OEM4", RegistryBuffer, CASE_INSENSITIVE))
-            {
-            VideoDebugPrint((2, "OEM4 found\n"));
-            RetVal = ReadOEM4(ListOfModes);
-            }
-        else if (!CompareASCIIToUnicode("OEM5", RegistryBuffer, CASE_INSENSITIVE))
-            {
-            VideoDebugPrint((2, "OEM5 found\n"));
-            RetVal = ReadOEM5(ListOfModes);
-            }
-        else if (!CompareASCIIToUnicode("\\SystemRoot\\System32\\drivers\\atioem.dat",
-            RegistryBuffer, CASE_INSENSITIVE))
-            {
-            VideoDebugPrint((2, "Read from disk\n"));
-            RetVal = ReadOEMRaw(ListOfModes);
+            OEMType = OEM_DELL_OMNIPLEX;
+            /*
+             * If the auto-detection failed, assume the Dell header
+             * starts at the default location (for Sylvester/Omniplex
+             * determination). If the auto-detection succeeded, but
+             * the ATIOEM registry field still exists, leave this
+             * value alone.
+             */
+            if (OEMInfoOffset == 0)
+                OEMInfoOffset = DELL_REC_SPACING;
             }
         else
             {
             VideoPortLogError(phwDeviceExtension, NULL, VID_ATIOEM_UNUSED, 20);
-            RetVal = ERROR_DEV_NOT_EXIST;
-            }
-    }
-    /*
-     * If we did not find anything, use BIOS detection
-     */
-
-    /*
-     * Dell systems can be recognized by a string in the BIOS. If we haven't
-     * found an OEM name we recognize in the registry, check to see if we
-     * have found the ROM BIOS. If we haven't, then we don't know which
-     * OEM we are dealing with. If we have found the BIOS, check to see
-     * if we're dealing with a Dell, and get the CRT parameters.
-     */
-
-    if (RetVal != NO_ERROR) {
-
-        VideoDebugPrint((2, "No OEM found - look for BIOS\n"));
-
-        if (query->q_bios != FALSE) {
-
-            if (*(PULONG)(query->q_bios + DELL_REC_OFFSET) == DELL_REC_VALUE) {
-
-                VideoDebugPrint((2, "Dell found\n"));
-                RetVal = ReadDell(ListOfModes);
-                RetailClockChip = FALSE;
-
             }
         }
-    }
+
+    /*
+     * Load a scratch registry field with the name of the file where
+     * the available clock frequencies are stored, then try to read
+     * the file. If we can read the file, use it to load a custom
+     * frequency table. If we can't read it, load the frequency table
+     * corresponding to the selected OEM type, unless it uses the
+     * same frequency table as our retail clock chip.
+     *
+     * The data file contains 16 or more lines (lines beyond the
+     * 16th are ignored), each containing a frequency (in Hz)
+     * expressed as an ASCII string and ending with a newline
+     * character sequence.
+     */
+    VideoPortSetRegistryParameters(phwDeviceExtension,
+                                   L"FileToRead",
+                                   L"\\SystemRoot\\System32\\drivers\\clocktbl.dat",
+                                   sizeof(L"\\SystemRoot\\System32\\drivers\\clocktbl.dat"));
+
+    if (VideoPortGetRegistryParameters(phwDeviceExtension,
+                                       L"FileToRead",
+                                       TRUE,
+                                       FreqTblCallback,
+                                       NULL) != NO_ERROR)
+        {
+        /*
+         * We were unable to load the clock frequency table from the
+         * disk file, so load the table for the desired OEM type.
+         */
+        if (OEMType == OEM_DELL_OMNIPLEX)
+            {
+            /*
+             * On a Sylvester (more recent model than the Omniplex),
+             * we must read the clock frequency table from the BIOS
+             * rather than using the Omniplex table. Otherwise, the
+             * two machines can be handled in the same manner.
+             *
+             * DetectSylvester() will load the clock frequency table
+             * if it finds a Sylvester, and return without loading
+             * the table if it finds a non-Sylvester machine.
+             */
+            if (DetectSylvester(query,OEMInfoOffset) == FALSE)
+                {
+                ClockGenerator[0]  =  25175000L;
+                ClockGenerator[1]  =  28322000L;
+                ClockGenerator[2]  =  31500000L;
+                ClockGenerator[3]  =  36000000L;
+                ClockGenerator[4]  =  40000000L;
+                ClockGenerator[5]  =  44900000L;
+                ClockGenerator[6]  =  50000000L;
+                ClockGenerator[7]  =  65000000L;
+                ClockGenerator[8]  =  75000000L;
+                ClockGenerator[9]  =  77500000L;
+                ClockGenerator[10] =  80000000L;
+                ClockGenerator[11] =  90000000L;
+                ClockGenerator[12] = 100000000L;
+                ClockGenerator[13] = 110000000L;
+                ClockGenerator[14] = 126000000L;
+                ClockGenerator[15] = 135000000L;
+                }
+            }
+        else if (OEMType == OEM_AST_PREMMIA)
+            {
+            ClockGenerator[0]  =  50000000L;
+            ClockGenerator[1]  =  63000000L;
+            ClockGenerator[2]  =  92400000L;
+            ClockGenerator[3]  =  36000000L;
+            ClockGenerator[4]  =  50350000L;
+            ClockGenerator[5]  =  56640000L;
+            ClockGenerator[6]  =         0L;
+            ClockGenerator[7]  =  44900000L;
+            ClockGenerator[8]  =  67500000L;
+            ClockGenerator[9]  =  31500000L;
+            ClockGenerator[10] =  55000000L;
+            ClockGenerator[11] =  80000000L;
+            ClockGenerator[12] =  39910000L;
+            ClockGenerator[13] =  72000000L;
+            ClockGenerator[14] =  75000000L;
+            ClockGenerator[15] =  65000000L;
+            }
+
+        /*
+         * else (this OEM type uses the retail frequency table)
+         */
+
+        }   /* endif (couldn't load frequency table from disk) */
 
 
     /*
@@ -508,14 +630,58 @@ BOOL    RetailClockChip;    /* This card uses the same clock generator as retail
      * 640x480      4,8,16,24           HWD,60,72               12
      * 800x600      4,8,16,24           HWD,56,60,70,72,89,95   28
      * 1024x768     4,8,16              HWD,60,66,70,72,87      18
-     * 1280x1024    4,8                 HWD,60,87,95            8
+     * 1280x1024    4,8                 HWD,60,70,74,87,95      12
      *
      * HWD = hardware default refresh rate (rate set by INSTALL)
      *
-     * Total: 66 modes
+     * Total: 70 modes
      */
-    if (QUERYSIZE < (66 * sizeof(struct st_mode_table) + sizeof(struct query_structure)))
+    if (QUERYSIZE < (70 * sizeof(struct st_mode_table) + sizeof(struct query_structure)))
         return ERROR_INSUFFICIENT_BUFFER;
+
+    MaxModes = (QUERYSIZE - sizeof(struct query_structure)) /
+                                          sizeof(struct st_mode_table); 
+
+    /*
+     * Load our scratch registry field with the name of the file where
+     * the monitor description is stored, then try to read the file.
+     * If we can read the file, use it to load a custom monitor description.
+     * If we can't read it, load the configured mode tables corresponding
+     * to the selected OEM type. If there is no custom monitor description,
+     * and we do not recognize the OEM type, use only the predefined
+     * mode tables.
+     *
+     * The data file contains a monitor description in the draft of
+     * the VDP standard format.
+     */
+    VideoPortSetRegistryParameters(phwDeviceExtension,
+                                   L"FileToRead",
+                                   L"\\SystemRoot\\System32\\drivers\\atioem.dat",
+                                   sizeof(L"\\SystemRoot\\System32\\drivers\\atioem.dat"));
+
+    RetVal = ReadOEMRaw(ListOfModes);
+
+    /*
+     * If we were not able to read in a monitor description file,
+     * load the configured mode tables according to the OEM type
+     * detected.
+     * AST machines load the entire list of mode tables (all
+     * pixel depths, including "canned" modes). Generic OEM
+     * machines only load the "canned" modes (done later).
+     */
+    if (RetVal != NO_ERROR)
+        {
+        if (OEMType == OEM_DELL_OMNIPLEX)
+            {
+            RetVal = ReadDell(ListOfModes);
+            }
+        else if (OEMType == OEM_AST_PREMMIA)
+            {
+            RetVal = ReadAST(query);
+            return RetVal;
+            }
+        }
+
 
     /*
      * Get a pointer into the mode table section of the query structure.
@@ -546,6 +712,14 @@ BOOL    RetailClockChip;    /* This card uses the same clock generator as retail
     for (CurrentResolution = RES_640; CurrentResolution <= RES_1280; CurrentResolution++)
         {
         /*
+         * Skip over 1152x864 (new resolution for Mach 64, which
+         * would require extensive re-work for Mach 32, the family
+         * for which this module was written).
+         */
+        if (CurrentResolution == RES_1152)
+            continue;
+
+        /*
          * If this resolution is configured, indicate that there is a
          * hardware default mode. If not, only list the "canned" refresh
          * rates for this resolution.
@@ -566,11 +740,13 @@ BOOL    RetailClockChip;    /* This card uses the same clock generator as retail
                  * of 1024. Other cases and Mach 32 with an aperture
                  * use a screen pitch of the number of pixels.
                  */
+#if !defined (SPLIT_RASTERS)
                 if((phwDeviceExtension->ModelNumber == MACH32_ULTRA)
                     && (query->q_aperture_cfg == 0))
                     ListOfModes[CurrentResolution].m_screen_pitch = 1024;
                 else
-                    ListOfModes[CurrentResolution].m_screen_pitch = 640;
+#endif
+                  ListOfModes[CurrentResolution].m_screen_pitch = 640;
                 NumPixels = ListOfModes[CurrentResolution].m_screen_pitch * 480;
                 query->q_status_flags |= VRES_640x480;
                 ListOfModes[CurrentResolution].Refresh = DEFAULT_REFRESH;
@@ -586,10 +762,14 @@ BOOL    RetailClockChip;    /* This card uses the same clock generator as retail
                  * Mach 32 rev. 6 and higher with an aperture use a screen
                  * pitch of the number of pixels.
                  */
+#if defined (SPLIT_RASTERS)
+                if ((query->q_asic_rev == CI_68800_3)
+#else
                 if((phwDeviceExtension->ModelNumber == MACH32_ULTRA)
                     && (query->q_aperture_cfg == 0))
                     ListOfModes[CurrentResolution].m_screen_pitch = 1024;
                 else if ((query->q_asic_rev == CI_68800_3)
+#endif
                     || (query->q_asic_rev == CI_38800_1)
                     || (query->q_bus_type == BUS_PCI))
                     ListOfModes[CurrentResolution].m_screen_pitch = 896;
@@ -617,7 +797,40 @@ BOOL    RetailClockChip;    /* This card uses the same clock generator as retail
                 query->q_status_flags |= VRES_1024x768;
                 ListOfModes[CurrentResolution].Refresh = DEFAULT_REFRESH;
                 StartIndex = B1280F87;
-                EndIndex = B1280F60;
+                /*
+                 * 1280x1024 noninterlaced has the following restrictions:
+                 *
+                 * Dell machines:
+                 *  VRAM supports up to 70Hz
+                 *  DRAM supports up to 74Hz
+                 *
+                 * Other machines:
+                 *  VRAM supports up to 74Hz
+                 *  DRAM supports up to 60Hz
+                 *
+                 * This is because Dell uses faster (and more expensive)
+                 * DRAM than on our retail cards (non-x86 implementations
+                 * will hit this code block on retail cards), but has
+                 * problems at 74Hz on their VRAM implementations. Other
+                 * OEMs have not requested that their cards be treated
+                 * differently from our retail cards in this respect.
+                 */
+                if ((query->q_memory_type == VMEM_DRAM_256Kx4) ||
+                    (query->q_memory_type == VMEM_DRAM_256Kx16) ||
+                    (query->q_memory_type == VMEM_DRAM_256Kx4_GRAP))
+                    {
+                    if (OEMType == OEM_DELL_OMNIPLEX)
+                        EndIndex = B1280F74;
+                    else
+                        EndIndex = B1280F60;
+                    }
+                else
+                    {
+                    if (OEMType == OEM_DELL_OMNIPLEX)
+                        EndIndex = B1280F70;
+                    else
+                        EndIndex = B1280F74;
+                    }
                 break;
             }
 
@@ -641,20 +854,21 @@ BOOL    RetailClockChip;    /* This card uses the same clock generator as retail
 
             /*
              * Add "canned" mode tables
-             *
-             * If we are using a clock generator other than the one on
-             * our retail cards, the "canned" mode tables will produce
-             * garbage screens due to the use of the wrong pixel clock.
-             * On these cards, avoid the problem by not making the
-             * "canned" mode tables available.
              */
-            if (RetailClockChip)
-                query->q_number_modes += SetFixedModes(StartIndex,
-                                                        EndIndex,
-                                                        CLOCK_SINGLE,
-                                                        4,
-                                                        ListOfModes[CurrentResolution].m_screen_pitch,
-                                                        &pmode);
+
+            if ((FreeTables = MaxModes - query->q_number_modes) <= 0)
+                {
+                VideoDebugPrint((DEBUG_ERROR, "Exceeded maximum allowable number of modes - aborting query\n"));
+                return ERROR_INSUFFICIENT_BUFFER;
+                }
+            query->q_number_modes += SetFixedModes(StartIndex,
+                                                   EndIndex,
+                                                   CLOCK_SINGLE,
+                                                   4,
+                                                   ListOfModes[CurrentResolution].m_screen_pitch,
+                                                   FreeTables,
+                                                   BookValues[EndIndex].ClockFreq,
+                                                   &pmode);
             }
         if (NumPixels <= MemAvail)
             {
@@ -670,13 +884,20 @@ BOOL    RetailClockChip;    /* This card uses the same clock generator as retail
             /*
              * Add "canned" mode tables
              */
-            if (RetailClockChip)
-                query->q_number_modes += SetFixedModes(StartIndex,
-                                                        EndIndex,
-                                                        CLOCK_SINGLE,
-                                                        8,
-                                                        ListOfModes[CurrentResolution].m_screen_pitch,
-                                                        &pmode);
+
+            if ((FreeTables = MaxModes - query->q_number_modes) <= 0)
+                {
+                VideoDebugPrint((DEBUG_ERROR, "Exceeded maximum allowable number of modes - aborting query\n"));
+                return ERROR_INSUFFICIENT_BUFFER;
+                }
+            query->q_number_modes += SetFixedModes(StartIndex,
+                                                   EndIndex,
+                                                   CLOCK_SINGLE,
+                                                   8,
+                                                   ListOfModes[CurrentResolution].m_screen_pitch,
+                                                   FreeTables,
+                                                   BookValues[EndIndex].ClockFreq,
+                                                   &pmode);
             }
 
         /*
@@ -699,12 +920,10 @@ BOOL    RetailClockChip;    /* This card uses the same clock generator as retail
              * Handle DACs that require higher pixel clocks for 16BPP.
              */
             if ((query->q_DAC_type == DAC_BT48x) ||
+                (query->q_DAC_type == DAC_SC15026) ||
                 (query->q_DAC_type == DAC_ATT491))
                 {
-                Scratch = (UCHAR)(pmode->m_clock_select & 0x7C) >> 2;
-                Scratch = DoubleClock(Scratch);
-                pmode->m_clock_select &= 0x0FF83;
-                pmode->m_clock_select |= (Scratch << 2);
+                pmode->ClockFreq *= 2;
                 Multiplier = CLOCK_DOUBLE;
                 if (CurrentResolution == RES_800)
                     EndIndex = B800F60;     /* 70 Hz and up not supported at 16BPP */
@@ -731,13 +950,67 @@ BOOL    RetailClockChip;    /* This card uses the same clock generator as retail
             /*
              * Add "canned" mode tables
              */
-            if (RetailClockChip)
-                query->q_number_modes += SetFixedModes(StartIndex,
-                                                        EndIndex,
-                                                        Multiplier,
-                                                        16,
-                                                        ListOfModes[CurrentResolution].m_screen_pitch,
-                                                        &pmode);
+
+            if ((FreeTables = MaxModes - query->q_number_modes) <= 0)
+                {
+                VideoDebugPrint((DEBUG_ERROR, "Exceeded maximum allowable number of modes - aborting query\n"));
+                return ERROR_INSUFFICIENT_BUFFER;
+                }
+            query->q_number_modes += SetFixedModes(StartIndex,
+                                                   EndIndex,
+                                                   Multiplier,
+                                                   16,
+                                                   ListOfModes[CurrentResolution].m_screen_pitch,
+                                                   FreeTables,
+                                                   BookValues[EndIndex].ClockFreq,
+                                                   &pmode);
+            }
+
+
+        /*
+         * Our new source stream display driver needs a linear aperture
+         * in order to handle 24BPP. Since the display driver doesn't
+         * have access to the aperture information when it is deciding
+         * which modes to pass on to the display applet, it can't make
+         * the decision to reject 24BPP modes for cards with only a
+         * VGA aperture. This decision must therefore be made in the
+         * miniport, so in a paged aperture configuration there are no
+         * 24BPP modes for the display driver to accept or reject.
+         *
+         * On the Alpha, we can't use dense space on the Mach 32 LFB,
+         * so we treat it as a no-aperture case.
+         */
+        if (query->q_aperture_cfg == 0)
+            {
+            VideoDebugPrint((DEBUG_DETAIL, "24BPP not available because we don't have a linear aperture\n"));
+            continue;
+            }
+
+#if defined(ALPHA)
+        VideoDebugPrint((DEBUG_DETAIL, "24BPP not available in sparse space on Alpha\n"));
+        continue;
+#endif
+
+        /*
+         * 800x600 24BPP exhibits screen tearing unless the pitch
+         * is a multiple of 128 (only applies to Rev. 6, since Rev. 3
+         * and PCI implementations already have a pitch of 896).
+         * Other pixel depths are not affected, and other resolutions
+         * are already a multiple of 128 pixels wide.
+         *
+         * Expand the 800x600 pitch to 896 here, rather than for
+         * all pixel depths, because making the change for all
+         * pixel depths would disable 16BPP (which doesn't have
+         * the problem) on 1M cards. The screen pitch will only
+         * be 800 on cards which will exhibit this problem - don't
+         * check for a resolution of 800x600 because we don't want
+         * to cut the pitch from 1024 down to 896 if SPLIT_RASTERS
+         * is not defined.
+         */
+        if (ListOfModes[CurrentResolution].m_screen_pitch == 800)
+            {
+            ListOfModes[CurrentResolution].m_screen_pitch = 896;
+            NumPixels = (long) ListOfModes[CurrentResolution].m_screen_pitch * 600;
             }
 
         if ((NumPixels*3 <= MemAvail) &&
@@ -754,27 +1027,22 @@ BOOL    RetailClockChip;    /* This card uses the same clock generator as retail
             if ((query->q_DAC_type == DAC_STG1700) ||
                 (query->q_DAC_type == DAC_ATT498))
                 {
-                Scratch = (UCHAR)(pmode->m_clock_select & 0x007C) >> 2;
-                Scratch = DoubleClock(Scratch);
-                pmode->m_clock_select &= 0x0FF83;
-                pmode->m_clock_select |= (Scratch << 2);
+                pmode->ClockFreq *= 2;
                 Multiplier = CLOCK_DOUBLE;
                 }
-            else if (query->q_DAC_type == DAC_SC15021)
+            else if ((query->q_DAC_type == DAC_SC15021) ||
+                (query->q_DAC_type == DAC_STG1702) ||
+                (query->q_DAC_type == DAC_STG1703))
                 {
-                Scratch = (UCHAR)(pmode->m_clock_select & 0x007C) >> 2;
-                Scratch = ThreeHalvesClock(Scratch);
-                pmode->m_clock_select &= 0x0FF83;
-                pmode->m_clock_select |= (Scratch << 2);
+                pmode->ClockFreq *= 3;
+                pmode->ClockFreq >>= 1;
                 Multiplier = CLOCK_THREE_HALVES;
                 }
             else if ((query->q_DAC_type == DAC_BT48x) ||
+                (query->q_DAC_type == DAC_SC15026) ||
                 (query->q_DAC_type == DAC_ATT491))
                 {
-                Scratch = (UCHAR)(pmode->m_clock_select & 0x7C) >> 2;
-                Scratch = TripleClock(Scratch);
-                pmode->m_clock_select &= 0x0FF83;
-                pmode->m_clock_select |= (Scratch << 2);
+                pmode->ClockFreq *= 3;
                 Multiplier = CLOCK_TRIPLE;
                 EndIndex = B640F60;     /* Only supports 24BPP in 640x480 60Hz */
                 }
@@ -799,19 +1067,27 @@ BOOL    RetailClockChip;    /* This card uses the same clock generator as retail
             /*
              * Add "canned" mode tables
              */
-            if (RetailClockChip)
-                query->q_number_modes += SetFixedModes(StartIndex,
-                                                        EndIndex,
-                                                        Multiplier,
-                                                        24,
-                                                        ListOfModes[CurrentResolution].m_screen_pitch,
-                                                        &pmode);
+
+            if ((FreeTables = MaxModes - query->q_number_modes) <= 0)
+                {
+                VideoDebugPrint((DEBUG_ERROR, "Exceeded maximum allowable number of modes - aborting query\n"));
+                return ERROR_INSUFFICIENT_BUFFER;
+                }
+            query->q_number_modes += SetFixedModes(StartIndex,
+                                                   EndIndex,
+                                                   Multiplier,
+                                                   24,
+                                                   ListOfModes[CurrentResolution].m_screen_pitch,
+                                                   FreeTables,
+                                                   BookValues[EndIndex].ClockFreq,
+                                                   &pmode);
             }
 
         }
 
     return NO_ERROR;
-}
+
+}   /* OEMGetParms() */
 
 
 /*
@@ -885,7 +1161,8 @@ UCHAR   CharU;
      * The strings are identical and of equal length.
      */
     return 0;
-}
+
+}   /* CompareASCIIToUnicode() */
 
 
 
@@ -910,18 +1187,66 @@ UCHAR   CharU;
 VP_STATUS ReadAST(struct query_structure *query)
 {
 struct st_mode_table *pmode;    /* Mode table we are currently working on */
+struct st_mode_table *OldPmode; /* Mode table pointer before SetFixedModes() call */
 unsigned char Frequency;        /* Vertical refresh rate for monitor */
+long NumPixels;                 /* Number of pixels at current resolution */
+USHORT Pitch;                   /* Screen pitch */
+long MemAvail;                  /* Bytes of video memory available to accelerator */
+USHORT LastNumModes;            /* Number of modes not including current resolution */
+short StartIndex;               /* First mode for SetFixedModes() to set up */
+short EndIndex;                 /* Last mode for SetFixedModes() to set up */
+short HWIndex;                  /* Mode selected as hardware default */
+USHORT PixelDepth;              /* Pixel depth we are working on */
+#if (TARGET_BUILD >= 350)
+ULONG EisaId;                   /* EISA ID of the motherboard */
+#endif
+short MaxModes;                 /* Maximum number of modes possible */
+short FreeTables;               /* Number of remaining free mode tables */
+
+
+#if (TARGET_BUILD >= 350)
+    /*
+     * The Premmia SE splits its aperture location between MEM_CFG and
+     * SCRATCH_PAD_0, but does not set the flag bit (bit 0 of BIOS byte
+     * 0x62). According to AST, the only way to distinguish this from
+     * other Premmia machines is to check its EISA ID.
+     *
+     * The VideoPortGetBusData() routine is not available in NT 3.1,
+     * so Premmia users running NT 3.1 are out of luck.
+     */
+    VideoPortGetBusData(phwDeviceExtension,
+                        EisaConfiguration,
+                        PREMMIA_SE_SLOT,
+                        &EisaId,
+                        EISA_ID_OFFSET,
+                        sizeof(ULONG));
+
+    if (EisaId == PREMMIA_SE_ID)
+    {
+        query->q_aperture_addr = (INPW(MEM_CFG) & 0x7F00) >> 8;
+        query->q_aperture_addr |= ((INPW(SCRATCH_PAD_0) & 0x1F00) >> 1);
+    }
+#endif
 
 
     /*
-     * AST uses only the Mach 32, and 640x480, 800x600, and 1024x768
-     * are always enabled. Since the aperture is always enabled, we
-     * don't need to stretch 640x480 and 800x600 out to 1024 wide.
-     * They also use the Brooktree 481 DAC which doesn't support
-     * any modes not available on a 1M configuration.
+     * Get the memory size in nybbles (half a byte). A 4BPP pixel
+     * uses 1 nybble. For other depths, compare this number to the
+     * product of the number of pixels needed and the number of
+     * nybbles per pixel.
+     *
+     * The q_memory_size field contains the number of quarter-megabyte
+     * blocks of memory available, so multiplying it by HALF_MEG yields
+     * the number of nybbles of video memory.
      */
-    query->q_number_modes = 9;
-    query->q_status_flags = VRES_640x480 | VRES_800x600 | VRES_1024x768;
+    MemAvail = query->q_memory_size * HALF_MEG;
+
+    /*
+     * Initially assume no video modes.
+     */
+    query->q_number_modes = 0;
+    LastNumModes = 0;
+    query->q_status_flags = 0;
 
     /*
      * Get a pointer into the mode table section of the query structure.
@@ -929,213 +1254,374 @@ unsigned char Frequency;        /* Vertical refresh rate for monitor */
     pmode = (struct st_mode_table *)query;  // first mode table at end of query
     ((struct query_structure *)pmode)++;
 
+
+    MaxModes = (QUERYSIZE - sizeof(struct query_structure)) /
+                                          sizeof(struct st_mode_table); 
     /*
      * Find out which refresh rate is used at 640x480, and fill in the
      * mode tables for the various pixel depths at this resoulution.
      */
     OUTP(reg1CE, AST_640_STORE);
     Frequency = INP(reg1CF);
-VideoDebugPrint((0, "AST 640x480 Frequency = 0x%x\n", Frequency));
-    if (Frequency == M640F72AST)
+    switch(Frequency)
         {
-        /*
-         * 72 Hz refresh rate. Do 4, 8, and 16 BPP.
-         */
-VideoDebugPrint((0, "AST 640x480 72Hz\n"));
-        OEMVgaTable(B640F72D8AST, pmode);
-        pmode->m_screen_pitch = 640;
-        pmode->m_pixel_depth = 4;
-        pmode++;
-        OEMVgaTable(B640F72D8AST, pmode);
-        pmode->m_screen_pitch = 640;
-        pmode->m_pixel_depth = 8;
-        pmode++;
-        OEMVgaTable(B640F72D16AST, pmode);
-        pmode->m_screen_pitch = 640;
-        pmode->m_pixel_depth = 16;
-        pmode++;
-        }
-    else{
-        /*
-         * 60 Hz refresh rate. Do 4, 8, and 16 BPP.
-         */
-VideoDebugPrint((0, "AST 640x480 60Hz\n"));
-        OEMVgaTable(B640F60D8AST, pmode);
-        pmode->m_screen_pitch = 640;
-        pmode->m_pixel_depth = 4;
-        pmode++;
-        OEMVgaTable(B640F60D8AST, pmode);
-        pmode->m_screen_pitch = 640;
-        pmode->m_pixel_depth = 8;
-        pmode++;
-        OEMVgaTable(B640F60D16AST, pmode);
-        pmode->m_screen_pitch = 640;
-        pmode->m_pixel_depth = 16;
-        pmode++;
+        case M640F72AST:
+            HWIndex = B640F72;
+            break;
+
+        case M640F60AST:
+        default:
+            HWIndex = B640F60;
+            break;
         }
 
     /*
-     * 24 BPP is available only at 60Hz.
+     * Select the "canned" mode tables for 640x480, and get
+     * information regarding the screen size. The Premmia always
+     * has the linear aperture enabled, so we don't need to
+     * stretch the pitch to 1024. Also, it always uses a
+     * Mach 32 ASIC and a BT48x or equivalent DAC, so we
+     * don't need to check the ASIC family or DAC type
+     * to determine if a particular resolution/pixel depth/
+     * refresh rate combination is supported.
      */
-    OEMVgaTable(B640F60D24AST, pmode);
-    pmode->m_screen_pitch = 640;
-    pmode->m_pixel_depth = 24;
-    pmode++;
+    StartIndex = B640F60;
+    EndIndex = B640F72;
+    Pitch = 640;
+    NumPixels = Pitch * 480;
+
+    /*
+     * Fill in the mode tables for 640x480 at all pixel depths.
+     */
+    for (PixelDepth = DEPTH_4BPP; PixelDepth <= DEPTH_24BPP; PixelDepth++)
+        {
+        /*
+         * Only include modes if there is enough memory.
+         */
+        if ((NumPixels * ASTNybblesPerPixel[PixelDepth]) <= MemAvail)
+            {
+            /*
+             * 640x480 24BPP is only available at 60Hz.
+             */
+            if (ASTDepth[PixelDepth] == 24)
+                {
+                HWIndex = B640F60;
+                EndIndex = B640F60;
+                }
+
+            /*
+             * Set up the hardware default refresh rate.
+             */
+            OldPmode = pmode;
+
+            if ((FreeTables = MaxModes - query->q_number_modes) <= 0)
+                {
+                VideoDebugPrint((DEBUG_ERROR, "Exceeded maximum allowable number of modes - aborting query\n"));
+                return ERROR_INSUFFICIENT_BUFFER;
+                }
+            query->q_number_modes += SetFixedModes(HWIndex,
+                                                   HWIndex,
+                                                   ASTClockMult[PixelDepth],
+                                                   ASTDepth[PixelDepth],
+                                                   Pitch,
+                                                   FreeTables,
+                                                   BookValues[EndIndex].ClockFreq,
+                                                   &pmode);
+            OldPmode->Refresh = DEFAULT_REFRESH;
+
+            /*
+             * Set up the canned mode tables.
+             */
+
+            if ((FreeTables = MaxModes - query->q_number_modes) <= 0)
+                {
+                VideoDebugPrint((DEBUG_ERROR, "Exceeded maximum allowable number of modes - aborting query\n"));
+                return ERROR_INSUFFICIENT_BUFFER;
+                }
+            query->q_number_modes += SetFixedModes(StartIndex,
+                                                   EndIndex,
+                                                   ASTClockMult[PixelDepth],
+                                                   ASTDepth[PixelDepth],
+                                                   Pitch,
+                                                   FreeTables,
+                                                   BookValues[EndIndex].ClockFreq,
+                                                   &pmode);
+
+            }   /* end if (enough memory for 640x480) */
+
+        }   /* end for (loop on 640x480 pixel depth) */
+
+    /*
+     * If we installed any 640x480 mode tables, report that
+     * 640x480 is supported.
+     */
+    if (query->q_number_modes > LastNumModes)
+        {
+        query->q_status_flags |= VRES_640x480;
+        LastNumModes = query->q_number_modes;
+        }
+
 
     /*
      * Find out which refresh rate is used at 800x600, and fill in the
-     * mode tables for the various pixel depths at this resolution.
+     * mode tables for the various pixel depths at this resoulution.
      */
     OUTP(reg1CE, AST_800_STORE);
     Frequency = INP(reg1CF);
-VideoDebugPrint((0, "AST 800x600 Frequency = 0x%x\n", Frequency));
-    switch (Frequency)
+    switch(Frequency)
         {
         case M800F72AST:
-            /*
-             * 72 Hz refresh rate. Do 4 and 8 BPP.
-             * For 16 BPP, fall back to 56 Hz.
-             */
-VideoDebugPrint((0, "AST 800x600 72Hz\n"));
-            OEMVgaTable(B800F72AST, pmode);
-            pmode->m_screen_pitch = 800;
-            pmode->m_pixel_depth = 4;
-            pmode++;
-            OEMVgaTable(B800F72AST, pmode);
-            pmode->m_screen_pitch = 800;
-            pmode->m_pixel_depth = 8;
-            pmode++;
-            OEMVgaTable(B800F56D16AST, pmode);
-            pmode->m_screen_pitch = 800;
-            pmode->m_pixel_depth = 16;
-            pmode++;
+            HWIndex = B800F72;
             break;
 
         case M800F60AST:
-            /*
-             * 60 Hz refresh rate. Do 4, 8, and 16 BPP.
-             */
-VideoDebugPrint((0, "AST 800x600 60Hz\n"));
-            OEMVgaTable(B800F60D8AST, pmode);
-            pmode->m_screen_pitch = 800;
-            pmode->m_pixel_depth = 4;
-            pmode++;
-            OEMVgaTable(B800F60D8AST, pmode);
-            pmode->m_screen_pitch = 800;
-            pmode->m_pixel_depth = 8;
-            pmode++;
-            OEMVgaTable(B800F60D16AST, pmode);
-            pmode->m_screen_pitch = 800;
-            pmode->m_pixel_depth = 16;
-            pmode++;
+            HWIndex = B800F60;
             break;
 
-        default:
-VideoDebugPrint((0, "AST 800x600 default\n"));
         case M800F56AST:
-            /*
-             * 56 Hz refresh rate. Do 4, 8, and 16 BPP.
-             */
-VideoDebugPrint((0, "AST 800x600 56Hz\n"));
-            OEMVgaTable(B800F56D8AST, pmode);
-            pmode->m_screen_pitch = 800;
-            pmode->m_pixel_depth = 4;
-            pmode++;
-            OEMVgaTable(B800F56D8AST, pmode);
-            pmode->m_screen_pitch = 800;
-            pmode->m_pixel_depth = 8;
-            pmode++;
-            OEMVgaTable(B800F56D16AST, pmode);
-            pmode->m_screen_pitch = 800;
-            pmode->m_pixel_depth = 16;
-            pmode++;
+        default:
+            HWIndex = B800F56;
             break;
         }
 
+    /*
+     * Select the "canned" mode tables for 800x600, and get
+     * information regarding the screen size. 68800-3 cards
+     * need a screen pitch that is a multiple of 128.
+     */
+    StartIndex = B800F89;
+    EndIndex = B800F72;
+    if (query->q_asic_rev == CI_68800_3)
+        Pitch = 896;
+    else
+        Pitch = 800;
+    NumPixels = Pitch * 600;
 
     /*
-     * An optimizer bug in the compiler results in I/O to the wrong
-     * port on 80x86 systems. The following statement will prevent
-     * optimization of the DX register as a workaround for this bug.
+     * Fill in the mode tables for 800x600 at all pixel depths.
      */
-#ifdef i386
-    _asm mov dx,dx;
-#endif
+    for (PixelDepth = DEPTH_4BPP; PixelDepth <= DEPTH_16BPP; PixelDepth++)
+        {
+        /*
+         * Only include modes if there is enough memory.
+         */
+        if ((NumPixels * ASTNybblesPerPixel[PixelDepth]) <= MemAvail)
+            {
+            /*
+             * 800x600 16BPP is only supported for 56Hz, 60Hz,
+             * and interlaced. Machines with a hardware default
+             * of 72Hz fall back to 56Hz.
+             */
+            if (ASTDepth[PixelDepth] == 16)
+                {
+                HWIndex = B800F56;
+                EndIndex = B800F60;
+                }
+
+            /*
+             * Set up the hardware default refresh rate.
+             */
+            OldPmode = pmode;
+
+            if ((FreeTables = MaxModes - query->q_number_modes) <= 0)
+                {
+                VideoDebugPrint((DEBUG_ERROR, "Exceeded maximum allowable number of modes - aborting query\n"));
+                return ERROR_INSUFFICIENT_BUFFER;
+                }
+            query->q_number_modes += SetFixedModes(HWIndex,
+                                                   HWIndex,
+                                                   ASTClockMult[PixelDepth],
+                                                   ASTDepth[PixelDepth],
+                                                   Pitch,
+                                                   FreeTables,
+                                                   BookValues[EndIndex].ClockFreq,
+                                                   &pmode);
+            OldPmode->Refresh = DEFAULT_REFRESH;
+
+            /*
+             * Set up the canned mode tables.
+             */
+
+            if ((FreeTables = MaxModes - query->q_number_modes) <= 0)
+                {
+                VideoDebugPrint((DEBUG_ERROR, "Exceeded maximum allowable number of modes - aborting query\n"));
+                return ERROR_INSUFFICIENT_BUFFER;
+                }
+            query->q_number_modes += SetFixedModes(StartIndex,
+                                                   EndIndex,
+                                                   ASTClockMult[PixelDepth],
+                                                   ASTDepth[PixelDepth],
+                                                   Pitch,
+                                                   FreeTables,
+                                                   BookValues[EndIndex].ClockFreq,
+                                                   &pmode);
+
+            }   /* end if (enough memory for 800x600) */
+
+        }   /* end for (loop on 800x600 pixel depth) */
+
+    /*
+     * If we installed any 800x600 mode tables, report that
+     * 800x600 is supported.
+     */
+    if (query->q_number_modes > LastNumModes)
+        {
+        query->q_status_flags |= VRES_800x600;
+        LastNumModes = query->q_number_modes;
+        }
+
 
     /*
      * Find out which refresh rate is used at 1024x768, and fill in the
-     * mode tables for the various pixel depths at this resolution.
+     * mode tables for the various pixel depths at this resoulution.
      */
     OUTP(reg1CE, AST_1024_STORE);
     Frequency = INP(reg1CF);
-VideoDebugPrint((0, "AST 1024x768 Frequency = 0x%x\n", Frequency));
     switch(Frequency)
         {
         case M1024F72AST:
-            /*
-             * 72 Hz refresh rate. Do 4 and 8 BPP.
-             */
-VideoDebugPrint((0, "AST 1024x768 72Hz\n"));
-            OEMVgaTable(B1024F72AST, pmode);
-            pmode->m_screen_pitch = 1024;
-            pmode->m_pixel_depth = 4;
-            pmode++;
-            OEMVgaTable(B1024F72AST, pmode);
-            pmode->m_screen_pitch = 1024;
-            pmode->m_pixel_depth = 8;
-            pmode++;
+            HWIndex = B1024F72;
             break;
 
         case M1024F70AST:
-            /*
-             * 70 Hz refresh rate. Do 4 and 8 BPP.
-             */
-VideoDebugPrint((0, "AST 1024x768 70Hz\n"));
-            OEMVgaTable(B1024F70AST, pmode);
-            pmode->m_screen_pitch = 1024;
-            pmode->m_pixel_depth = 4;
-            pmode++;
-            OEMVgaTable(B1024F70AST, pmode);
-            pmode->m_screen_pitch = 1024;
-            pmode->m_pixel_depth = 8;
-            pmode++;
+            HWIndex = B1024F70;
             break;
 
         case M1024F60AST:
-            /*
-             * 60 Hz refresh rate. Do 4 and 8 BPP.
-             */
-VideoDebugPrint((0, "AST 1024x768 60Hz\n"));
-            OEMVgaTable(B1024F60AST, pmode);
-            pmode->m_screen_pitch = 1024;
-            pmode->m_pixel_depth = 4;
-            pmode++;
-            OEMVgaTable(B1024F60AST, pmode);
-            pmode->m_screen_pitch = 1024;
-            pmode->m_pixel_depth = 8;
-            pmode++;
+            HWIndex = B1024F60;
             break;
 
-        default:
-VideoDebugPrint((0, "AST 1024x768 default\n"));
         case M1024F87AST:
-            /*
-             * 87 Hz refresh rate. Do 4 and 8 BPP.
-             */
-VideoDebugPrint((0, "AST 1024x768 87Hz\n"));
-            OEMVgaTable(B1024F87AST, pmode);
-            pmode->m_screen_pitch = 1024;
-            pmode->m_pixel_depth = 4;
-            pmode++;
-            OEMVgaTable(B1024F87AST, pmode);
-            pmode->m_screen_pitch = 1024;
-            pmode->m_pixel_depth = 8;
-            pmode++;
+        default:
+            HWIndex = B1024F87;
             break;
         }
 
+    /*
+     * Select the "canned" mode tables for 1024x768.
+     */
+    StartIndex = B1024F87;
+    EndIndex = B1024F72;
+    Pitch = 1024;
+    NumPixels = Pitch * 768;
+
+    /*
+     * Fill in the mode tables for 1024x768 at all pixel depths.
+     */
+    for (PixelDepth = DEPTH_4BPP; PixelDepth <= DEPTH_8BPP; PixelDepth++)
+        {
+        /*
+         * Only include modes if there is enough memory.
+         */
+        if ((NumPixels * ASTNybblesPerPixel[PixelDepth]) <= MemAvail)
+            {
+            /*
+             * Set up the hardware default refresh rate.
+             */
+            OldPmode = pmode;
+
+            if ((FreeTables = MaxModes - query->q_number_modes) <= 0)
+                {
+                VideoDebugPrint((DEBUG_ERROR, "Exceeded maximum allowable number of modes - aborting query\n"));
+                return ERROR_INSUFFICIENT_BUFFER;
+                }
+            query->q_number_modes += SetFixedModes(HWIndex,
+                                                   HWIndex,
+                                                   ASTClockMult[PixelDepth],
+                                                   ASTDepth[PixelDepth],
+                                                   Pitch,
+                                                   FreeTables,
+                                                   BookValues[EndIndex].ClockFreq,
+                                                   &pmode);
+            OldPmode->Refresh = DEFAULT_REFRESH;
+
+            /*
+             * Set up the canned mode tables.
+             */
+
+            if ((FreeTables = MaxModes - query->q_number_modes) <= 0)
+                {
+                VideoDebugPrint((DEBUG_ERROR, "Exceeded maximum allowable number of modes - aborting query\n"));
+                return ERROR_INSUFFICIENT_BUFFER;
+                }
+            query->q_number_modes += SetFixedModes(StartIndex,
+                                                   EndIndex,
+                                                   ASTClockMult[PixelDepth],
+                                                   ASTDepth[PixelDepth],
+                                                   Pitch,
+                                                   FreeTables,
+                                                   BookValues[EndIndex].ClockFreq,
+                                                   &pmode);
+
+            }   /* end if (enough memory for 1024x768) */
+
+        }   /* end for (loop on 1024x768 pixel depth) */
+
+    /*
+     * If we installed any 1024x768 mode tables, report that
+     * 1024x768 is supported.
+     */
+    if (query->q_number_modes > LastNumModes)
+        {
+        query->q_status_flags |= VRES_1024x768;
+        LastNumModes = query->q_number_modes;
+        }
+
+
+    /*
+     * Select the "canned" mode tables for 1280x1024.
+     *
+     * The DACs used on AST Premmia machines only support
+     * interlaced modes at this resolution, and there
+     * is no configured hardware default refresh rate.
+     */
+    StartIndex = B1280F87;
+    EndIndex = B1280F95;
+    Pitch = 1280;
+    NumPixels = Pitch * 1024;
+
+    /*
+     * Fill in the mode tables for 1280x1024 at all pixel depths.
+     */
+    for (PixelDepth = DEPTH_4BPP; PixelDepth <= DEPTH_8BPP; PixelDepth++)
+        {
+        /*
+         * Only include modes if there is enough memory.
+         */
+        if ((NumPixels * ASTNybblesPerPixel[PixelDepth]) <= MemAvail)
+            {
+            /*
+             * Set up the canned mode tables.
+             */
+
+            if ((FreeTables = MaxModes - query->q_number_modes) <= 0)
+                {
+                VideoDebugPrint((DEBUG_ERROR, "Exceeded maximum allowable number of modes - aborting query\n"));
+                return ERROR_INSUFFICIENT_BUFFER;
+                }
+            query->q_number_modes += SetFixedModes(StartIndex,
+                                                   EndIndex,
+                                                   ASTClockMult[PixelDepth],
+                                                   ASTDepth[PixelDepth],
+                                                   Pitch,
+                                                   FreeTables,
+                                                   BookValues[EndIndex].ClockFreq,
+                                                   &pmode);
+
+            }   /* end if (enough memory for 1280x1024) */
+
+        }   /* end for (loop on 1280x1024 pixel depth) */
+
+    /*
+     * If we installed any 1280x1024 mode tables, report that
+     * 1280x1024 is supported.
+     */
+    if (query->q_number_modes > LastNumModes)
+        query->q_status_flags |= VRES_1280x1024;
+
     return NO_ERROR;
-}
+
+}   /* ReadAST() */
 
 
 /*
@@ -1154,6 +1640,7 @@ VP_STATUS ReadZenith(struct st_mode_table *Modes)
 {
     ReadOEM3(Modes);
     return NO_ERROR;
+
 }
 
 
@@ -1207,30 +1694,9 @@ VP_STATUS ReadOlivetti(struct st_mode_table *Modes)
 VP_STATUS ReadDell(struct st_mode_table *Modes)
 {
 struct st_mode_table *pmode;    /* Mode table we are currently working on */
+UCHAR Fubar;                    // Temporary variable
 
     pmode = Modes;
-
-
-    /*
-     * Dell uses clock generator other than the 18811-1. Set up our
-     * table of frequencies to reflect this generator.
-     */
-    ClockGenerator[0]  =  25175000L;
-    ClockGenerator[1]  =  28322000L;
-    ClockGenerator[2]  =  31500000L;
-    ClockGenerator[3]  =  36000000L;
-    ClockGenerator[4]  =  40000000L;
-    ClockGenerator[5]  =  44900000L;
-    ClockGenerator[6]  =  50000000L;
-    ClockGenerator[7]  =  65000000L;
-    ClockGenerator[8]  =  75000000L;
-    ClockGenerator[9]  =  77500000L;
-    ClockGenerator[10] =  80000000L;
-    ClockGenerator[11] =  90000000L;
-    ClockGenerator[12] = 100000000L;
-    ClockGenerator[13] = 110000000L;
-    ClockGenerator[14] = 126000000L;
-    ClockGenerator[15] = 135000000L;
 
     /*
      * Get the 640x480 mode table.
@@ -1240,15 +1706,20 @@ struct st_mode_table *pmode;    /* Mode table we are currently working on */
      *       mode table is left empty.
      */
     OUTP(reg1CE, DELL_640_STORE);
-    switch(INP(reg1CF) & MASK_640_DELL)
+    Fubar = INP(reg1CF);
+    VideoDebugPrint((DEBUG_DETAIL, "Dell 640x480: 0x1CF reports 0x%X\n", Fubar));
+    switch(Fubar & MASK_640_DELL)
         {
         case M640F72DELL:
-            OEMVgaTable(B640F72DELL, pmode);
+            VideoDebugPrint((DEBUG_DETAIL, "Dell 640x480: 72Hz\n"));
+            BookVgaTable(B640F72, pmode);
             break;
 
         case M640F60DELL:
+            VideoDebugPrint((DEBUG_DETAIL, "Dell 640x480: 60Hz explicit\n"));
         default:                /* All VGA monitors support 640x480 60Hz */
-            OEMVgaTable(B640F60DELL, pmode);
+            VideoDebugPrint((DEBUG_DETAIL, "Dell 640x480: 60Hz\n"));
+            BookVgaTable(B640F60, pmode);
             break;
         }
     pmode++;
@@ -1257,21 +1728,25 @@ struct st_mode_table *pmode;    /* Mode table we are currently working on */
      * Get the 800x600 mode table.
      */
     OUTP(reg1CE, DELL_800_STORE);
-    switch(INP(reg1CF) & MASK_800_DELL)
+    Fubar = INP(reg1CF);
+    VideoDebugPrint((DEBUG_DETAIL, "Dell 800x600: 0x1CF reports 0x%X\n", Fubar));
+    switch(Fubar & MASK_800_DELL)
         {
-        case M800F56DELL:
-            OEMVgaTable(B800F56DELL, pmode);
+        case M800F72DELL:
+            VideoDebugPrint((DEBUG_DETAIL, "Dell 800x600: 72Hz\n"));
+            BookVgaTable(B800F72, pmode);
             break;
 
         case M800F60DELL:
-            OEMVgaTable(B800F60DELL, pmode);
+            VideoDebugPrint((DEBUG_DETAIL, "Dell 800x600: 60Hz\n"));
+            BookVgaTable(B800F60, pmode);
             break;
 
-        case M800F72DELL:
-            OEMVgaTable(B800F72DELL, pmode);
-            break;
-
-        default:        /* 800x600 not supported */
+        case M800F56DELL:
+            VideoDebugPrint((DEBUG_DETAIL, "Dell 800x600: 56Hz explicit\n"));
+        default:
+            VideoDebugPrint((DEBUG_DETAIL, "Dell 800x600: 56Hz\n"));
+            BookVgaTable(B800F56, pmode);
             break;
         }
     pmode++;
@@ -1280,58 +1755,228 @@ struct st_mode_table *pmode;    /* Mode table we are currently working on */
      * Get the 1024x768 mode table.
      */
     OUTP(reg1CE, DELL_1024_STORE);
-    switch(INP(reg1CF) & MASK_1024_DELL)
+    Fubar = INP(reg1CF);
+    VideoDebugPrint((DEBUG_DETAIL, "Dell 1024x768: 0x1CF reports 0x%X\n", Fubar));
+    switch(Fubar & MASK_1024_DELL)
         {
-        case M1024F87DELL:
-            OEMVgaTable(B1024F87DELL, pmode);
-            break;
-
-        case M1024F60DELL:
-            OEMVgaTable(B1024F60DELL, pmode);
+        case M1024F72DELL:
+            VideoDebugPrint((DEBUG_DETAIL, "Dell 1024x768: 72Hz\n"));
+            BookVgaTable(B1024F72, pmode);
             break;
 
         case M1024F70DELL:
-            OEMVgaTable(B1024F70DELL, pmode);
+            VideoDebugPrint((DEBUG_DETAIL, "Dell 1024x768: 70Hz\n"));
+            BookVgaTable(B1024F70, pmode);
             break;
 
-        case M1024F72DELL:
-            OEMVgaTable(B1024F72DELL, pmode);
+        case M1024F60DELL:
+            VideoDebugPrint((DEBUG_DETAIL, "Dell 1024x768: 60Hz\n"));
+            BookVgaTable(B1024F60, pmode);
             break;
 
-        default:        /* 1024x768 not supported */
+        case M1024F87DELL:
+            VideoDebugPrint((DEBUG_DETAIL, "Dell 1024x768: 87Hz interlaced explicit\n"));
+        default:
+            VideoDebugPrint((DEBUG_DETAIL, "Dell 1024x768: 87Hz interlaced\n"));
+            BookVgaTable(B1024F87, pmode);
             break;
         }
+    pmode++;
+
+    /*
+     * Skip 1152x864. This mode is not used on Mach 32 cards, and
+     * this routine is only called for Mach 32 cards.
+     */
     pmode++;
 
     /*
      * Get the 1280x1024 mode table.
      */
     OUTP(reg1CE, DELL_1280_STORE);
-    switch(INP(reg1CF) & MASK_1280_DELL)
+    Fubar = INP(reg1CF);
+    VideoDebugPrint((DEBUG_DETAIL, "Dell 1280x1024: 0x1CF reports 0x%X\n", Fubar));
+    switch(Fubar & MASK_1280_DELL)
         {
-        case M1280F87DELL:
-            OEMVgaTable(B1280F87DELL, pmode);
-            break;
-
-        case M1280F60DELL:
-            OEMVgaTable(B1280F60DELL, pmode);
+        case M1280F74DELL:
+            VideoDebugPrint((DEBUG_DETAIL, "Dell 1280x1024: 74Hz\n"));
+            BookVgaTable(B1280F74, pmode);
             break;
 
         case M1280F70DELL:
-            OEMVgaTable(B1280F70DELL, pmode);
+            VideoDebugPrint((DEBUG_DETAIL, "Dell 1280x1024: 70Hz\n"));
+            BookVgaTable(B1280F70, pmode);
             break;
 
-        case M1280F74DELL:
-            OEMVgaTable(B1280F74DELL, pmode);
+        case M1280F60DELL:
+            VideoDebugPrint((DEBUG_DETAIL, "Dell 1280x1024: 60Hz\n"));
+            BookVgaTable(B1280F60, pmode);
             break;
 
-        default:        /* 1280x1024 not supported */
+        case M1280F87DELL:
+            VideoDebugPrint((DEBUG_DETAIL, "Dell 1280x1024: 87Hz interlaced explicit\n"));
+        default:
+            VideoDebugPrint((DEBUG_DETAIL, "Dell 1280x1024: 87Hz interlaced\n"));
+            BookVgaTable(B1280F87, pmode);
             break;
         }
 
     return NO_ERROR;
 
 }   /* ReadDell() */
+
+
+
+/***************************************************************************
+ *
+ * ULONG DetectDell(Query);
+ *
+ * struct query_structure *Query;   Description of video card setup
+ *
+ * DESCRIPTION:
+ *  Routine to check whether or not we are dealing with a Dell machine.
+ *
+ * RETURN VALUE:
+ *  Offset of beginning of the Dell information block into the BIOS
+ *  0 if this is not a Dell OEM implementation.
+ *
+ * GLOBALS CHANGED:
+ *  None
+ *
+ * CALLED BY:
+ *  OEMGetParms()
+ *
+ * AUTHOR:
+ *  Robert Wolff
+ *
+ * CHANGE HISTORY:
+ *
+ * TEST HISTORY:
+ *
+ ***************************************************************************/
+
+ULONG DetectDell(struct query_structure *Query)
+{
+    ULONG CurrentOffset;    /* Current offset to check for Dell signature */
+    ULONG BiosLength;       /* Length of the video BIOS */
+
+    /*
+     * Dell OEM implementations will have an information block
+     * starting at an offset that is a multiple of DELL_REC_SPACING
+     * into the video BIOS. The first 4 bytes of this block will
+     * contain the signature value DELL_REC_VALUE. Find out how
+     * large the video BIOS is, and step through it checking for
+     * the signature string. If we reach the end of the video
+     * BIOS without finding the signature string, this is not
+     * a Dell OEM implementation.
+     */
+    BiosLength = (ULONG)(VideoPortReadRegisterUchar(Query->q_bios + 2)) * 512;
+
+    for(CurrentOffset = DELL_REC_SPACING; CurrentOffset < BiosLength; CurrentOffset += DELL_REC_SPACING)
+        {
+        if (VideoPortReadRegisterUlong((PULONG)(Query->q_bios + CurrentOffset)) == DELL_REC_VALUE)
+            return CurrentOffset;
+        }
+
+    /*
+     * Signature string not found, so this is not a Dell OEM implementation.
+     */
+    return 0;
+
+}   /* DetectDell() */
+
+
+
+/***************************************************************************
+ *
+ * BOOL DetectSylvester(Query, HeaderOffset);
+ *
+ * struct query_structure *Query;   Description of video card setup
+ * ULONG HeaderOffset;              Offset of Dell header into video BIOS
+ *
+ * DESCRIPTION:
+ *  Routine to check whether or not the Dell machine we are dealing
+ *  with is a Sylvester (table of pixel clock frequencies is stored
+ *  in BIOS image, rather than using a fixed table). If it is a
+ *  Sylvester, load the table of clock frequencies.
+ *
+ * RETURN VALUE:
+ *  TRUE if this is a Sylvester
+ *  FALSE if this is not a Sylvester
+ *
+ * GLOBALS CHANGED:
+ *  ClockGenerator[]
+ *
+ * CALLED BY:
+ *  OEMGetParms()
+ *
+ * NOTE:
+ *  Assumes that this is a Dell OEM implementation. Results are undefined
+ *  when run on other systems.
+ *
+ * AUTHOR:
+ *  Robert Wolff
+ *
+ * CHANGE HISTORY:
+ *
+ * TEST HISTORY:
+ *
+ ***************************************************************************/
+
+BOOL DetectSylvester(struct query_structure *Query, ULONG HeaderOffset)
+{
+    PUSHORT TablePointer;   /* Pointer to the clock table in the BIOS */
+    USHORT Scratch;         /* Temporary variable */
+
+    /*
+     * Dell machines which store the clock table in the BIOS have
+     * the signature DELL_TABLE_PRESENT at offset DELL_TP_OFFSET
+     * into the video information table (which starts at offset
+     * HeaderOffset into the BIOS). Older implementations (i.e.
+     * the Omniplex) use a fixed frequency table, and do not have
+     * this signature string.
+     */
+    if (VideoPortReadRegisterUshort((PUSHORT)(Query->q_bios + HeaderOffset + DELL_TP_OFFSET)) != DELL_TABLE_PRESENT)
+        return FALSE;
+
+    /*
+     * This is a Sylvester. The offset of the frequency table into the
+     * BIOS is stored at offset DELL_TABLE_OFFSET into the video
+     * information table.
+     */
+    TablePointer = (PUSHORT)(Query->q_bios + VideoPortReadRegisterUshort((PUSHORT)(Query->q_bios + HeaderOffset + DELL_TABLE_OFFSET)));
+
+    /*
+     * The frequency table has a 4-byte header. The first 2 bytes are
+     * the signature string DELL_TABLE_SIG - if this signature is not
+     * present, assume that the DELL_TABLE_PRESENT string was actually
+     * other data that happened to match, and treat this as an older
+     * implementation.
+     *
+     * The last 2 bytes are the table type. Currently, only table type
+     * 1 (16 entries, each is a word specifying the pixel clock frequency
+     * in units of 10 kHz) is supported. Treat other table types as an
+     * older implementation.
+     */
+    if (VideoPortReadRegisterUshort(TablePointer++) != DELL_TABLE_SIG)
+        return FALSE;
+    if (VideoPortReadRegisterUshort(TablePointer++) != 1)
+        return FALSE;
+
+    /*
+     * We have found a valid frequency table. Load its contents into
+     * our frequency table. The multiplication is because the table
+     * in the BIOS is in units of 10 kHz, and our table is in Hz.
+     */
+    for (Scratch = 0; Scratch < 16; Scratch++)
+        {
+        ClockGenerator[Scratch] = VideoPortReadRegisterUshort(TablePointer++) * 10000L;
+        }
+
+    return TRUE;
+
+}   /* DetectSylvester() */
+
+
 
 
 /*
@@ -1469,31 +2114,12 @@ VP_STATUS ReadOEM5(struct st_mode_table *Modes)
  * Routine to read in OEM monitor data from a disk file called
  * ATIOEM.DAT. This file must be a VDP-format monitor description.
  *
- * If a clock synthesizer other than the 18811-1 is used on the
- * installed graphics card, the clock select values must be supplied
- * in the field OEMCLOCK (field not required if 18811-1 is present).
- * This field must be of type REG_DWORD, arranged as follows:
- *
- * Byte 0:  Clock select for 640x480
- * Byte 1:  Clock select for 800x600
- * Byte 2:  Clock select for 1024x768
- * Byte 3:  Clock select for 1280x1024
- *
- * Bytes for unsupported modes should be set to 0x00. Bytes for supported
- * modes must be laid out in the following format:
- *
- * Bits 0-1: Clear
- * Bits 2-5: Frequency select for installed clock synthesizer
- * Bit 6:    Clear for divide-by-1, set for divide-by-2
- * Bit 7:    Clear
- *
  * Returns:
  *  NO_ERROR if successful
  *  ERROR_DEV_NOT_EXIST if unable to read the disk file.
  */
 VP_STATUS ReadOEMRaw(struct st_mode_table *Modes)
 {
-short CurrentResolution;            /* Resolution we are working on */
 VP_STATUS RetVal;                   /* Value returned by called functions */
 
 
@@ -1512,7 +2138,7 @@ VP_STATUS RetVal;                   /* Value returned by called functions */
      * Read in and process the contents of the OEM CRT parameters file.
      */
     RetVal = VideoPortGetRegistryParameters(phwDeviceExtension,
-                                            L"ATIOEM",
+                                            L"FileToRead",
                                             TRUE,
                                             OEMCallback,
                                             NULL);
@@ -1527,101 +2153,11 @@ VP_STATUS RetVal;                   /* Value returned by called functions */
     if (!CallbackResolutionConfigured)
         return ERROR_DEV_NOT_EXIST;
 
-    /*
-     * The VDP file interpreter assumes an 18811-1 clock synthesizer.
-     * If a different clock synthesizer is used, the clock select
-     * values will be in the registry field OEMCLOCK.
-     *
-     * Read the contents of this field. If we can't read it,
-     * assume that we are dealing with an 18811-1 clock synthesizer,
-     * so this field is not needed.
-     */
-    RegistryBufferLength = 0;
-    RetVal = VideoPortGetRegistryParameters(phwDeviceExtension,
-                                            L"OEMCLOCK",
-                                            FALSE,
-                                            RegistryParameterCallback,
-                                            NULL);
-    if (RetVal != NO_ERROR)
-        return NO_ERROR;
-
-    if (RegistryBufferLength != sizeof(long))
-        return NO_ERROR;
-
-    /*
-     * The OEMCLOCK field is present. Plug in the clock select
-     * values it contains.
-     */
-    for (CurrentResolution = RES_640; CurrentResolution <= RES_1280; CurrentResolution++)
-        {
-        Modes[CurrentResolution].m_clock_select &= 0x0FF00;
-        Modes[CurrentResolution].m_clock_select |= RegistryBuffer[CurrentResolution];
-        }
-
     return NO_ERROR;
-}
+
+}   /* ReadOEMRaw() */
 
 
-
-/*
- * void OEMVgaTable(VgaTblEntry, pmode);
- *
- * short VgaTblEntry;               Desired entry in OEMValues[]
- * struct st_mode_table *pmode;     Mode table to fill in
- *
- * Fills in a mode table using the values in the OEMValues[] entry
- * corresponding to the resolution specified by VgaTblEntry.
- *
- * NOTE: This routine is intended for use with OEM cards which use
- *       a different clock synthesizer from our retail cards. OEM
- *       cards using the same clock synthesizer should use the
- *       function BookVgaTable() instead of this function.
- */
-void OEMVgaTable(short VgaTblEntry, struct st_mode_table *pmode)
-{
-    pmode->m_h_total = OEMValues[VgaTblEntry].HTotal;
-    pmode->m_h_disp  = OEMValues[VgaTblEntry].HDisp;
-    pmode->m_x_size  = (pmode->m_h_disp+1)*8;
-
-    pmode->m_h_sync_strt = OEMValues[VgaTblEntry].HSyncStrt;
-    pmode->m_h_sync_wid  = OEMValues[VgaTblEntry].HSyncWid;
-
-    pmode->m_v_total = OEMValues[VgaTblEntry].VTotal;
-    pmode->m_v_disp  = OEMValues[VgaTblEntry].VDisp;
-    /*
-     * y_size is derived by removing bit 2
-     */
-    pmode->m_y_size = (((pmode->m_v_disp >> 1) & 0x0FFFC) | (pmode->m_v_disp & 0x03)) + 1;
-
-    pmode->m_v_sync_strt = OEMValues[VgaTblEntry].VSyncStrt;
-    pmode->m_v_sync_wid  = OEMValues[VgaTblEntry].VSyncWid;
-    pmode->m_disp_cntl   = OEMValues[VgaTblEntry].DispCntl;
-
-    pmode->m_clock_select = OEMValues[VgaTblEntry].ClockSel;
-
-    /*
-     * Assume 8 FIFO entries for 16 and 24 bit colour.
-     */
-    pmode->m_vfifo_24 = 8;
-    pmode->m_vfifo_16 = 8;
-
-    /*
-     * Fill in the refresh rate
-     */
-    pmode->Refresh = OEMValues[VgaTblEntry].Refresh;
-
-    /*
-     * Clear the values which we don't have data for, then let
-     * the caller know that the table is filled in.
-     */
-    pmode->m_h_overscan = 0;
-    pmode->m_v_overscan = 0;
-    pmode->m_overscan_8b = 0;
-    pmode->m_overscan_gr = 0;
-    pmode->m_status_flags = 0;
-
-    return;
-}
 
 /*
  * VP_STATUS OEMCallback(phwDeviceExtension, Context, Name, Data, Length);
@@ -1661,6 +2197,14 @@ struct st_book_data CurrentTable;   /* Raw data for resolution we are working on
      */
     for (CurrentResolution = RES_640; CurrentResolution <= RES_1280; CurrentResolution++)
         {
+        /*
+         * Skip over 1152x864 (new resolution for Mach 64, which
+         * would require extensive re-work for Mach 32, the family
+         * for which this module was written).
+         */
+        if (CurrentResolution == RES_1152)
+            continue;
+
         /*
          * An optimizer bug in the compiler results in CurrentResolution
          * being trashed on 80x86 systems. As a result, this becomes an
@@ -1707,6 +2251,7 @@ struct st_book_data CurrentTable;   /* Raw data for resolution we are working on
          * a depth of 8.
          */
         CallbackModes[CurrentResolution].m_clock_select = CurrentTable.ClockSel | 0x0800;
+        CallbackModes[CurrentResolution].ClockFreq = CurrentTable.ClockFreq;
 
         /*
          * Assume 8 FIFO entries for 16 and 24 bit colour.
@@ -1730,4 +2275,109 @@ struct st_book_data CurrentTable;   /* Raw data for resolution we are working on
         }
 
     return NO_ERROR;
-}
+
+}   /* OEMCallback() */
+
+/***************************************************************************
+ *
+ * VP_STATUS FreqTblCallback(phwDeviceExtension, Context, Name, Data, Length);
+ *
+ * PHW_DEVICE_EXTENSION phwDeviceExtension;     Miniport device extension
+ * PVOID Context;           Context parameter passed to the callback routine
+ * PWSTR Name;              Pointer to the name of the requested field
+ * PVOID Data;              Pointer to a buffer containing the information
+ * ULONG Length;            Length of the data
+ *
+ * DESCRIPTION:
+ *  Routine to fill the ClockGenerator[] array with a table
+ *  of frequencies read from a disk file.
+ *
+ * RETURN VALUE:
+ *  NO_ERROR if successful
+ *  ERROR_DEV_NOT_EXIST if the disk file does not contain
+ *      a valid table of frequencies.
+ *
+ * GLOBALS CHANGED:
+ *  ClockGenerator[]
+ *
+ * CALLED BY:
+ *  VideoPortGetRegistryParameters() called from within OEMGetParms()
+ *
+ * AUTHOR:
+ *  Robert Wolff
+ *
+ * CHANGE HISTORY:
+ *
+ * TEST HISTORY:
+ *
+ ***************************************************************************/
+
+VP_STATUS FreqTblCallback(PHW_DEVICE_EXTENSION phwDeviceExtension,
+                          PVOID Context,
+                          PWSTR Name,
+                          PVOID Data,
+                          ULONG Length)
+{
+    short FreqIndex;    /* Index into frequency table that we are working with */
+    ULONG FreqTbl[16];  /* Temporary storage for frequency table */
+    PUCHAR DataPtr;     /* Temporary copy of data pointer */
+
+    /*
+     * If there is nothing to work with, report failure.
+     */
+    DataPtr = Data;
+    if ((Length == 0) || (*DataPtr == '\x00'))
+        {
+        return ERROR_DEV_NOT_EXIST;
+        }
+
+    /*
+     * For each of the first 16 lines in the disk file (there
+     * are 16 entries in the frequency table - subsequent lines
+     * are ignored), read the frequency into our temporary
+     * frequency table and skip to the next line. If the
+     * file terminates prematurely (insufficient entries),
+     * report that we did not find a valid frequency table.
+     */
+    for (FreqIndex = 0; FreqIndex < 16; FreqIndex++)
+        {
+        /*
+         * Point to the first numeric character on the current
+         * line, then read the frequency into our temporary
+         * frequency table.
+         */
+        DataPtr = SynthStrcspn(DataPtr, "0123456789");
+        if (DataPtr == NULL)
+            {
+            return ERROR_DEV_NOT_EXIST;
+            }
+        FreqTbl[FreqIndex] = atol(DataPtr);
+
+        /*
+         * Skip to the end of the line, so that for the
+         * next iteration of the loop we won't re-read the
+         * same line into the next entry of the frequency
+         * table. If we can't find the end of the line,
+         * report that we didn't find a valid frequency table.
+         */
+        DataPtr = strchr(DataPtr, '\n');
+        if (DataPtr == NULL)
+            {
+            return ERROR_DEV_NOT_EXIST;
+            }
+
+        }   /* end for (reading in frequency table) */
+
+    /*
+     * We have read in a valid frequency table. Copy it
+     * into ClockGenerator[] and report success.
+     */
+    for (FreqIndex = 0; FreqIndex < 16; FreqIndex++)
+        {
+        ClockGenerator[FreqIndex] = FreqTbl[FreqIndex];
+        }
+
+    return NO_ERROR;
+
+}   /* FreqTblCallback() */
+

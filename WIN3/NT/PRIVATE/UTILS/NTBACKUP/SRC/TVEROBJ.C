@@ -97,6 +97,7 @@ more long path support
 Initial revision.
 
 **/
+#define FS_DEBUG 1
 #include <windows.h>
 #include <stdlib.h>
 #include <string.h>
@@ -495,14 +496,32 @@ static INT16 SeekForward( FILE_HAND        hand,
 
                if ( inputHeader->id == diskHeader->id )
                {
-                    if ( inputHeader->name_leng == diskHeader->name_leng )
-                    {
-                         if ( (inputHeader->name_leng == 0) ||
-                              (memcmp(inputHeader->name,
-                                      diskHeader->name,
-                                      inputHeader->name_leng) == 0) )
+                    LARGE_INTEGER disk_size ;
+                    LARGE_INTEGER tape_size ;
+
+                    disk_size.LowPart = diskHeader->size_lo ;
+                    disk_size.HighPart = diskHeader->size_hi ;
+
+                    tape_size.LowPart = inputHeader->size_lo ;
+                    tape_size.HighPart = inputHeader->size_hi ;
+
+                    //only for streams with names.
+                    if ( diskHeader->name_leng ) {
+                         tape_size.QuadPart -= (inputHeader->name_leng + 4) ;
+                    }
+
+                    if ( tape_size.QuadPart == disk_size.QuadPart )
+                    {    
+
+                         if ( inputHeader->name_leng == diskHeader->name_leng )
                          {
-                              break;
+                              if ( (inputHeader->name_leng == 0) ||
+                                   (memcmp(inputHeader->name,
+                                           diskHeader->name,
+                                           inputHeader->name_leng) == 0) )
+                              {
+                                   break;
+                              }
                          }
                     }
                }
@@ -869,7 +888,21 @@ static INT16 ClassifyError( FILE_HAND hand, UINT32 streamID )
           case BACKUP_ALTERNATE_DATA :
                if ( strcmp( TEXT("NTFS"), hand->fsh->attached_dle->info.ntfs->fs_name ) == 0 )
                {
-                    ret = FS_GDATA_DIFFERENT;
+                    NTFS_OBJ_HAND_PTR nt_hand = hand->obj_hand.ptr;
+
+                    if ( (nt_hand->streamHeader.name_leng != 0) &&
+                         (wcscmp( L":AFP_AfpInfo:$DATA",
+                                  (WCHAR *)nt_hand->streamHeader.name ) == 0) )
+                    {
+                         /*
+                          * It's just Finder info -- ignore the error
+                          */
+                         ret = SUCCESS;
+                    }
+                    else
+                    {
+                         ret = FS_GDATA_DIFFERENT;
+                    }
                }
                else
                {

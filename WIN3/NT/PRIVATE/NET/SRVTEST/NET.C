@@ -58,11 +58,11 @@ NetController(
         return STATUS_INVALID_PARAMETER;
     }
 
-    if ( stricmp( Redir->argv[1], "logon" ) == 0 ) {
+    if ( _stricmp( Redir->argv[1], "logon" ) == 0 ) {
 
         return NetSessionSetup( Redir );
 
-    } else if ( stricmp( Redir->argv[1], "use" ) == 0 ) {
+    } else if ( _stricmp( Redir->argv[1], "use" ) == 0 ) {
 
         return NetTreeConnect( Redir );
 

@@ -13,7 +13,6 @@
 
 #include <softpc.h>
 #include <winbase.h>
-#include <winioctl.h>
 #include "demdasd.h"
 
 PFNSVC	apfnSVCIoctl [] = {
@@ -107,29 +106,34 @@ VOID demIoctlChangeable (VOID)
 ULONG	ulSubFunc;
 
 CHAR	RootPathName[] = "?:\\";
-DWORD	dwDriveType;
+DWORD   DriveType;
+UCHAR   DriveNum;
+
     ulSubFunc = getAL();
 
     // Form Root path
-    RootPathName[0] = (CHAR)('A' + getBL());
+    DriveNum = getBL();
+    DriveType = demGetPhysicalDriveType(DriveNum);
+    if (DriveType == DRIVE_UNKNOWN) {
+        RootPathName[0] = (CHAR)('A' + DriveNum);
+        DriveType = GetDriveTypeOem(RootPathName);
+    }
 
-    dwDriveType = GetDriveTypeOem(RootPathName);
-
-    if (dwDriveType < 2){
+    if (DriveType == DRIVE_UNKNOWN || DriveType == DRIVE_NO_ROOT_DIR){
 	setAX (ERROR_INVALID_DRIVE);
 	setCF(1);
 	return;
     }
 
     if (ulSubFunc == IOCTL_CHANGEABLE){
-	if(dwDriveType == DRIVE_REMOVABLE)
+        if(DriveType == DRIVE_REMOVABLE)
 	    setAX(0);
 	else
             setAX(1);  // includes CDROM drives
     }
     else {
         setAL(0);
-        if (dwDriveType == DRIVE_REMOTE || dwDriveType == DRIVE_CDROM)
+        if (DriveType == DRIVE_REMOTE || DriveType == DRIVE_CDROM)
             setDX(0x1000);
         else
             // We have to return 800 rather then 0 as Dos Based Quatrro pro
@@ -138,7 +142,10 @@ DWORD	dwDriveType;
     }
     setCF(0);
     return;
+
 }
+
+
 
 /* demIoctlDiskGeneric - Block device generic ioctl
  *
@@ -165,7 +172,6 @@ VOID demIoctlDiskGeneric (VOID)
     PRW_BLOCK pRW;
     PFMT_BLOCK pfmt;
     PBDS    pbds;
-    BYTE    Functions, i;
     DWORD    Head, Cylinder;
     DWORD    TrackSize;
     DWORD    Sectors, StartSector;
@@ -409,23 +415,23 @@ VOID demIoctlDiskGeneric (VOID)
 		    pdms->DeviceAttrs = NON_REMOVABLE;
 		    pdms->MediaType = 0;
 		    pdms->bpb.SectorSize = SectorSize;
-		    pdms->bpb.ClusterSize = ClusterSize;
+                    pdms->bpb.ClusterSize = (BYTE) ClusterSize;
 		    pdms->bpb.ReservedSectors = 1;
 		    pdms->bpb.FATs = 2;
 		    pdms->bpb.RootDirs = (Sectors > 32680) ? 512 : 64;
 		    pdms->bpb.MediaID = 0xF8;
-		    pdms->bpb.TrackSize = DiskGM.SectorsPerTrack;
-		    pdms->bpb.Heads = DiskGM.TracksPerCylinder;
-		    pdms->Cylinders = DiskGM.Cylinders.LowPart;
+                    pdms->bpb.TrackSize = (WORD) DiskGM.SectorsPerTrack;
+                    pdms->bpb.Heads = (WORD) DiskGM.TracksPerCylinder;
+                    pdms->Cylinders = (WORD) DiskGM.Cylinders.LowPart;
 		    if (Sectors >= 40000) {
 			TrackSize = 256 * ClusterSize + 2;
-			pdms->bpb.FATSize = (Sectors - pdms->bpb.ReservedSectors
+                        pdms->bpb.FATSize = (WORD) ((Sectors - pdms->bpb.ReservedSectors
 					     - pdms->bpb.RootDirs * 32 / 512 +
-					     TrackSize - 1 ) / TrackSize;
+                                             TrackSize - 1 ) / TrackSize);
 		    }
 		    else {
-			pdms->bpb.FATSize = ((Sectors / ClusterSize) * 3 / 2) /
-					    512 + 1;
+                        pdms->bpb.FATSize = (WORD) (((Sectors / ClusterSize) * 3 / 2) /
+                                            512 + 1);
 		    }
 		    pdms->bpb.HiddenSectors = Sectors;
 		    Sectors = TotalClusters * ClusterSize;
@@ -434,7 +440,7 @@ VOID demIoctlDiskGeneric (VOID)
 			pdms->bpb.BigSectors = Sectors;
 		    }
 		    else {
-			pdms->bpb.Sectors = Sectors;
+                        pdms->bpb.Sectors = (WORD) Sectors;
 			pdms->bpb.BigSectors = 0;
 		    }
 		    pdms->bpb.HiddenSectors -= Sectors;
@@ -527,7 +533,7 @@ VOID demIoctlDiskGeneric (VOID)
 VOID demIoctlDiskQuery (VOID)
 {
     BYTE    Code, Drive;
-    PBDS    pbds;
+
     Code = getCL();
     Drive = getBL();
     if (demGetBDS(Drive) == NULL) {

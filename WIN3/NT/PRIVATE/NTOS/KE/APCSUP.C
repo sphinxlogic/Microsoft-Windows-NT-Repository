@@ -45,6 +45,9 @@ Routine Description:
     and the previous mode is user, then a user APC is delivered. On entry
     to this routine IRQL is set to APC_LEVEL.
 
+    N.B. The exception frame and trap frame addresses are only guaranteed
+         to be valid if, and only if, the previous mode is user.
+
 Arguments:
 
     PreviousMode - Supplies the previous processor mode.
@@ -75,16 +78,16 @@ Return Value:
     // Raise IRQL to dispatcher level and lock the APC queue.
     //
 
-    KiLockApcQueue(&OldIrql);
-
-    //
-    // Get address of current thread object and check if any kernel mode APC's
-    // can be delivered.
-    //
-
     Thread = KeGetCurrentThread();
+    KiLockApcQueue(Thread, &OldIrql);
+
+    //
+    // Get address of current thread object, clear kernel APC pending, and
+    // check if any kernel mode APC's can be delivered.
+    //
+
+    Thread->ApcState.KernelApcPending = FALSE;
     while (IsListEmpty(&Thread->ApcState.ApcListHead[KernelMode]) == FALSE) {
-        Thread->ApcState.KernelApcPending = FALSE;
         NextEntry = Thread->ApcState.ApcListHead[KernelMode].Flink;
         Apc = CONTAINING_RECORD(NextEntry, KAPC, ApcListEntry);
         KernelRoutine = Apc->KernelRoutine;
@@ -104,10 +107,10 @@ Return Value:
 
             RemoveEntryList(NextEntry);
             Apc->Inserted = FALSE;
-            KiUnlockApcQueue(OldIrql);
+            KiUnlockApcQueue(Thread, OldIrql);
             (KernelRoutine)(Apc, &NormalRoutine, &NormalContext,
                             &SystemArgument1, &SystemArgument2);
-            KiLockApcQueue(&OldIrql);
+            KiLockApcQueue(Thread, &OldIrql);
 
         } else {
 
@@ -126,7 +129,7 @@ Return Value:
                (Thread->KernelApcDisable == 0)) {
                 RemoveEntryList(NextEntry);
                 Apc->Inserted = FALSE;
-                KiUnlockApcQueue(OldIrql);
+                KiUnlockApcQueue(Thread, OldIrql);
                 (KernelRoutine)(Apc, &NormalRoutine, &NormalContext,
                                 &SystemArgument1, &SystemArgument2);
                 if (NormalRoutine != (PKNORMAL_ROUTINE)NULL) {
@@ -137,11 +140,11 @@ Return Value:
                     KeRaiseIrql(APC_LEVEL, &OldIrql);
                 }
 
-                KiLockApcQueue(&OldIrql);
+                KiLockApcQueue(Thread, &OldIrql);
                 Thread->ApcState.KernelApcInProgress = FALSE;
 
             } else {
-                KiUnlockApcQueue(OldIrql);
+                KiUnlockApcQueue(Thread, OldIrql);
                 return;
             }
         }
@@ -170,7 +173,7 @@ Return Value:
         SystemArgument2 = Apc->SystemArgument2;
         RemoveEntryList(NextEntry);
         Apc->Inserted = FALSE;
-        KiUnlockApcQueue(OldIrql);
+        KiUnlockApcQueue(Thread, OldIrql);
         (KernelRoutine)(Apc, &NormalRoutine, &NormalContext,
                         &SystemArgument1, &SystemArgument2);
 
@@ -183,7 +186,7 @@ Return Value:
         }
 
     } else {
-        KiUnlockApcQueue(OldIrql);
+        KiUnlockApcQueue(Thread, OldIrql);
     }
 
     return;
@@ -244,12 +247,12 @@ Return Value:
     // See KeLeaveCriticalRegion().
     //
 
-    KiLockApcQueueAtDpcLevel();
+    Thread = Apc->Thread;
+    KiAcquireSpinLock(&Thread->ApcQueueLock);
     if (Apc->Inserted) {
         Inserted = FALSE;
 
     } else {
-        Thread = Apc->Thread;
         ApcState = Thread->ApcStatePointer[Apc->ApcStateIndex];
 
         //
@@ -334,6 +337,6 @@ Return Value:
     // inserted in an APC queue.
     //
 
-    KiUnlockApcQueueFromDpcLevel();
+    KiReleaseSpinLock(&Thread->ApcQueueLock);
     return Inserted;
 }

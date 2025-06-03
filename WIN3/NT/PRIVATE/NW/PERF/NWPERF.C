@@ -125,9 +125,9 @@ OpenNetWarePerformanceData(
 #ifndef QFE_BUILD
     // Check for WorkStation or Server and use the gateway indexes if
     // currently running on Server.
-    // If RtlGetNtProductType is not successful or ProductType is 
+    // If RtlGetNtProductType is not successful or ProductType is
     // WinNt machine, ObjectNameTitleIndex and ObjectHelpTitleIndex are set
-    // to the correct values already. 
+    // to the correct values already.
     if ( RtlGetNtProductType( &ProductType))
     {
         if ( ProductType != NtProductWinNt )
@@ -309,15 +309,18 @@ CollectNetWarePerformanceData(
                                  );
     }
     if ( hNetWareRdr != NULL && NT_SUCCESS(status) ) {
+
         pliCounter = (LARGE_INTEGER UNALIGNED * ) (&pPerfCounterBlock[1]);
-        *pliCounter = RtlLargeIntegerAdd( NWRdrStatistics.BytesReceived,
-                                          NWRdrStatistics.BytesTransmitted);
+
+        pliCounter->QuadPart = NWRdrStatistics.BytesReceived.QuadPart +
+                                NWRdrStatistics.BytesTransmitted.QuadPart;
+
         pdwCounter = (PDWORD) ++pliCounter;
         *pdwCounter = NWRdrStatistics.ReadOperations +
                       NWRdrStatistics.WriteOperations;
         pliCounter = (LARGE_INTEGER UNALIGNED * ) ++pdwCounter;
-        *pliCounter = RtlLargeIntegerAdd( NWRdrStatistics.NcpsReceived,
-                                          NWRdrStatistics.NcpsTransmitted);
+        pliCounter->QuadPart = NWRdrStatistics.NcpsReceived.QuadPart + 
+                               NWRdrStatistics.NcpsTransmitted.QuadPart;
         *++pliCounter = NWRdrStatistics.BytesReceived;
         *++pliCounter = NWRdrStatistics.NcpsReceived;
         *++pliCounter = NWRdrStatistics.BytesTransmitted;
@@ -387,8 +390,9 @@ DWORD APIENTRY
 CloseNetWarePerformanceData(
 )
 {
+    NtClose( hNetWareRdr );
+
     return ERROR_SUCCESS;
 
 }
 
-

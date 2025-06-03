@@ -71,13 +71,13 @@
 
         lw      t0,4 * 4(sp)            // get address of spin lock
 
-        DISABLE_INTERRUPTS(t1)          // disable interrupts
+5:      DISABLE_INTERRUPTS(t1)          // disable interrupts
 
 #if !defined(NT_UP)
 
 10:     ll      t2,0(t0)                // get current lock value
         move    t3,t0                   // set ownership value
-        bne     zero,t2,10b             // if ne, spin lock owned
+        bne     zero,t2,20f             // if ne, spin lock owned
         sc      t3,0(t0)                // set spin lock owned
         beq     zero,t3,10b             // if eq, store conditional failed
 
@@ -104,6 +104,13 @@
         sw      t3,4(a0)                // set high part of initial value
         move    v0,a0                   // set function return register
         j       ra                      // return
+
+#if !defined(NT_UP)
+
+20:     ENABLE_INTERRUPTS(t1)           // enable interrupts
+        b       5b                      // try again
+
+#endif
 
         .end    ExInterlockedAddLargeInteger
 
@@ -141,21 +148,13 @@
 //
 //--
 
-        LEAF_ENTRY_S(ExInterlockedAddLargeStatistic, _TEXT$00)
+        LEAF_ENTRY(ExInterlockedAddLargeStatistic)
 
-10:     ll      t0,0(a0)                // get low part of large statistic
-        addu    t0,t0,a1                // add increment to low part
-        sltu    t1,t0,a1                // generate carry
-        sc      t0,0(a0)                // store result of low part add
+10:     lld     t0,0(a0)                // get large statistic value
+        daddu   t0,t0,a1                // add increment
+        scd     t0,0(a0)                // store large statistic value
         beq     zero,t0,10b             // if eq, store conditional failed
-        bne     zero,t1,20f             // if ne, add generated a carry
         j       ra                      //
-
-20:     ll      t0,4(a0)                // get high part of large statistic
-        addu    t0,t0,t1                // add carry to high part
-        sc      t0,4(a0)                // store result of high part add
-        beq     zero,t0,20b             // if eq, store conditional failed
-        j       ra                      // return
 
         .end    ExInterlockedAddLargeStatistic
 
@@ -192,16 +191,16 @@
 //
 //--
 
-        LEAF_ENTRY_S(ExInterlockedAddUlong, _TEXT$00)
+        LEAF_ENTRY(ExInterlockedAddUlong)
 
 
-        DISABLE_INTERRUPTS(t0)          // disable interrupts
+5:      DISABLE_INTERRUPTS(t0)          // disable interrupts
 
 #if !defined(NT_UP)
 
 10:     ll      t1,0(a2)                // get current lock value
         move    t2,a2                   // set ownership value
-        bne     zero,t1,10b             // if ne, spin lock owned
+        bne     zero,t1,20f             // if ne, spin lock owned
         sc      t2,0(a2)                // set spin lock owned
         beq     zero,t2,10b             // if eq, store conditional failed
 
@@ -220,6 +219,14 @@
         ENABLE_INTERRUPTS(t0)           // enable interrupts
 
         j       ra                      // return
+
+#if !defined(NT_UP)
+
+20:     ENABLE_INTERRUPTS(t0)           // enable interrupts
+
+        b       5b                      // try again
+
+#endif
 
         .end    ExInterlockedAddUlong
 
@@ -259,7 +266,7 @@
 //
 //--
 
-        LEAF_ENTRY_S(ExInterlockedExchangeUlong, _TEXT$00)
+        LEAF_ENTRY(ExInterlockedExchangeUlong)
 
         ALTERNATE_ENTRY(ExMipsInterlockedExchangeUlong)
 
@@ -271,6 +278,59 @@
         j       ra                      // return
 
         .end    ExInterlockedExchangeUlong
+
+        SBTTL("Interlocked Exchange Add Large Integer")
+//++
+//
+// LARGE_INTEGER
+// ExpInterlockedExchangeAddLargeInteger (
+//    IN PLARGE_INTEGER Addend,
+//    IN LARGE_INTEGER Increment,
+//    IN PKSPIN_LOCK Lock
+//    )
+//
+// Routine Description:
+//
+//    This function performs an interlocked add of an increment value to an
+//    addend variable of type large integer. The initial value of the addend
+//    variable is returned as the function value.
+//
+// Arguments:
+//
+//    Addend (a1) - Supplies a pointer to a variable whose value is to be
+//       adjusted by the increment value.
+//
+//    Increment (a2, a3) - Supplies the increment value to be added to the
+//       addend variable.
+//
+// Return Value:
+//
+//    The initial value of the addend variable is stored at the address
+//    supplied by a0.
+//
+// Implementation Note:
+//
+//    The arithmetic for this function is performed as if this were an
+//    unsigned large integer since this routine may not incur an overflow
+//    exception.
+//
+//--
+
+        LEAF_ENTRY(ExpInterlockedExchangeAddLargeInteger)
+
+        dsll    a2,a2,32                // merge low and high parts of
+        dsrl    a2,a2,32                // increment value
+        dsll    a3,a3,32                //
+        or      a2,a2,a3                //
+10:     lld     a3,0(a1)                // get addend value
+        daddu   v0,a3,a2                // add increment
+        scd     v0,0(a1)                // store addend value
+        beq     zero,v0,10b             // if eq, store conditional failed
+        sd      a3,0(a0)                //
+        move    v0,a0                   // set function return register
+        j       ra                      // return
+
+        .end    ExpInterlockedExchangeAddLargeInteger
 
         SBTTL("Interlocked Decrement Long")
 //++
@@ -308,7 +368,7 @@
 //
 //--
 
-        LEAF_ENTRY_S(ExInterlockedDecrementLong, _TEXT$00)
+        LEAF_ENTRY(ExInterlockedDecrementLong)
 
         ALTERNATE_ENTRY(ExMipsInterlockedDecrementLong)
 
@@ -316,7 +376,6 @@
         subu    t2,t1,1                 // decrement addend value
         sc      t2,0(a0)                // set new addend value
         beq     zero,t2,10b             // if eq, store conditional failed
-
         subu    v0,t1,1                 // decrement addend value
         sltu    t0,zero,v0              // check if result is nonzero
         sra     v0,v0,31                // sign extend result value
@@ -362,7 +421,7 @@
 //
 //--
 
-        LEAF_ENTRY_S(ExInterlockedIncrementLong, _TEXT$00)
+        LEAF_ENTRY(ExInterlockedIncrementLong)
 
         ALTERNATE_ENTRY(ExMipsInterlockedIncrementLong)
 
@@ -370,7 +429,6 @@
         addu    t2,t1,1                 // increment addend value
         sc      t2,0(a0)                // set new addend value
         beq     zero,t2,10b             // if eq, store conditional failed
-
         addu    v0,t1,1                 // increment addend value
         sltu    t0,zero,v0              // check if result is nonzero
         sra     v0,v0,31                // sign extend result value
@@ -415,13 +473,13 @@
 
         LEAF_ENTRY(ExInterlockedInsertHeadList)
 
-        DISABLE_INTERRUPTS(t0)          // disable interrupts
+5:      DISABLE_INTERRUPTS(t0)          // disable interrupts
 
 #if !defined(NT_UP)
 
 10:     ll      t2,0(a2)                // get current lock value
         move    t3,a2                   // set ownership value
-        bne     zero,t2,10b             // if ne, spin lock owned
+        bne     zero,t2,20f             // if ne, spin lock owned
         sc      t3,0(a2)                // set spin lock owned
         beq     zero,t3,10b             // if eq, store conditional failed
 
@@ -446,6 +504,14 @@
         ENABLE_INTERRUPTS(t0)           // enable interrupts
 
         j       ra                      // return
+
+#if !defined(NT_UP)
+
+20:     ENABLE_INTERRUPTS(t0)           // enable interrupts
+
+        b       5b                      // try again
+
+#endif
 
         .end    ExInterlockedInsertHeadList
 
@@ -482,15 +548,15 @@
 //
 //--
 
-        LEAF_ENTRY_S(ExInterlockedInsertTailList, _TEXT$00)
+        LEAF_ENTRY(ExInterlockedInsertTailList)
 
-        DISABLE_INTERRUPTS(t0)          // disable interrupts
+5:      DISABLE_INTERRUPTS(t0)          // disable interrupts
 
 #if !defined(NT_UP)
 
 10:     ll      t2,0(a2)                // get current lock value
         move    t3,a2                   // set ownership value
-        bne     zero,t2,10b             // if ne, spin lock owned
+        bne     zero,t2,20f             // if ne, spin lock owned
         sc      t3,0(a2)                // set spin lock owned
         beq     zero,t3,10b             // if eq, store conditional failed
 
@@ -515,6 +581,15 @@
         ENABLE_INTERRUPTS(t0)           // enable interrupts
 
         j       ra                      // return
+
+
+#if !defined(NT_UP)
+
+20:     ENABLE_INTERRUPTS(t0)           // enable interrupts
+
+        b       5b                      // try again
+
+#endif
 
         .end    ExInterlockedInsertTailList
 
@@ -552,13 +627,13 @@
 
         LEAF_ENTRY(ExInterlockedRemoveHeadList)
 
-        DISABLE_INTERRUPTS(t0)          // disable interrupts
+5:      DISABLE_INTERRUPTS(t0)          // disable interrupts
 
 #if !defined(NT_UP)
 
 10:     ll      t2,0(a1)                // get current lock value
         move    t3,a1                   // set ownership value
-        bne     zero,t2,10b             // if ne, spin lock owned
+        bne     zero,t2,30f             // if ne, spin lock owned
         sc      t3,0(a1)                // set spin lock owned
         beq     zero,t3,10b             // if eq, store conditional failed
 
@@ -582,6 +657,15 @@
         ENABLE_INTERRUPTS(t0)           // enable interrupts
 
         j       ra                      // return
+
+
+#if !defined(NT_UP)
+
+30:     ENABLE_INTERRUPTS(t0)           // enable interrupts
+
+        b       5b                      // try again
+
+#endif
 
         .end    ExInterlockedRemoveHeadList
 
@@ -617,15 +701,15 @@
 //
 //--
 
-        LEAF_ENTRY_S(ExInterlockedPopEntryList, _TEXT$00)
+        LEAF_ENTRY(ExInterlockedPopEntryList)
 
-        DISABLE_INTERRUPTS(t0)          // disable interrupts
+5:      DISABLE_INTERRUPTS(t0)          // disable interrupts
 
 #if !defined(NT_UP)
 
 10:     ll      t2,0(a1)                // get current lock value
         move    t3,a1                   // set ownership value
-        bne     zero,t2,10b             // if ne, spin lock owned
+        bne     zero,t2,30f             // if ne, spin lock owned
         sc      t3,0(a1)                // set spin lock owned
         beq     zero,t3,10b             // if eq, store conditional failed
 
@@ -646,6 +730,14 @@
         ENABLE_INTERRUPTS(t0)           // enable interrupts
 
         j       ra                      // return
+
+#if !defined(NT_UP)
+
+30:     ENABLE_INTERRUPTS(t0)           // enable interrupts
+
+        b       5b                      // try again
+
+#endif
 
         .end    ExInterlockedPopEntryList
 
@@ -682,15 +774,15 @@
 //
 //--
 
-        LEAF_ENTRY_S(ExInterlockedPushEntryList, _TEXT$00)
+        LEAF_ENTRY(ExInterlockedPushEntryList)
 
-        DISABLE_INTERRUPTS(t0)          // disable interrupts
+5:      DISABLE_INTERRUPTS(t0)          // disable interrupts
 
 #if !defined(NT_UP)
 
 10:     ll      t2,0(a2)                // get current lock value
         move    t3,a2                   // set ownership value
-        bne     zero,t2,10b             // if ne, spin lock owned
+        bne     zero,t2,20f             // if ne, spin lock owned
         sc      t3,0(a2)                // set spin lock owned
         beq     zero,t3,10b             // if eq, store conditional failed
 
@@ -710,43 +802,36 @@
 
         j       ra                      // return
 
+#if !defined(NT_UP)
+
+20:     ENABLE_INTERRUPTS(t0)           // enable interrupts
+
+        b       5b                      // try again
+
+#endif
+
         .end    ExInterlockedPushEntryList
 
-        SBTTL("Interlocked Try Allocate Pool")
+        SBTTL("Interlocked Pop Entry Sequenced List")
 //++
 //
-// PLIST_ENTRY
-// ExpInterlockedTryAllocatePool(
-//     IN PLIST_ENTRY List,
-//     IN KSPIN_LOCK Lock,
-//     IN ULONG Size,
-//     IN LONG SizeOffset
-//     );
+// PSINGLE_LIST_ENTRY
+// ExpInterlockedPopEntrySList (
+//    IN PSLIST_HEADER ListHead
+//    )
 //
 // Routine Description:
 //
-//    This function removes an entry from the head of the a pool block list
-//    so that access to the list is synchronized in a multiprocessor system.
+//    This function removes an entry from the front of a sequenced singly
+//    linked list so that access to the list is synchronized in a MP system.
 //    If there are no entries in the list, then a value of NULL is returned.
-//    Otherwise, the size field of the pool block is initialized to the value
-//    specified, and the address of entry that is removed is returned as the
+//    Otherwise, the address of the entry that is removed is returned as the
 //    function value.
-//
-//    N.B. It is assumed that this routine will not take a page fault.
 //
 // Arguments:
 //
-//    List (a0) - Supplies a pointer to the head of the doubly linked list
-//       from which an entry is to be removed.
-//
-//    Lock (a1) - Supplies a pointer to a spin lock to be used to synchronize
-//       access to the list.
-//
-//    Size (a2) - Supplies a size to be placed in the pool block at the
-//       appropriate location.
-//
-//    SizeOffset (a3) - Supplies the offset from the address of the block being
-//       removed from the list to the size field in the pool header.
+//    ListHead (a0) - Supplies a pointer to the sequenced listhead from which
+//       an entry is to be removed.
 //
 // Return Value:
 //
@@ -755,39 +840,147 @@
 //
 //--
 
-        LEAF_ENTRY(ExpInterlockedTryAllocatePool)
+        LEAF_ENTRY(ExpInterlockedPopEntrySList)
 
-        DISABLE_INTERRUPTS(t0)          // disable interrupts
+        .set    noreorder
+        .set    noat
+10:     ld      t0,0(a0)                // get next entry address and sequence
+20:     dsll    v0,t0,32                // sign extend next entry address
+        dsra    v0,v0,32                //
+        beq     zero,v0,30f             // if eq, list is empty
+        dsrl    t1,t0,32                // shift sequence to low 32-bits
 
-#if !defined(NT_UP)
+//
+// N.B. It is possible for the following instruction to fault in the rare
+//      case where the first entry in the list is allocated on another
+//      processor and free between the time the free pointer is read above
+//      and the following instruction. When this happens, the access fault
+//      code continues execution by skipping the following instruction.
+//      This results in the compare failing and the entire operation is
+//      retried.
+//
 
-10:     ll      t2,0(a1)                // get current lock value
-        move    t3,a2                   // set ownership value
-        bne     zero,t2,10b             // if ne, spin lock owned
-        sc      t3,0(a1)                // set spin lock owned
-        beq     zero,t3,10b             // if eq, store conditional failed
+        ALTERNATE_ENTRY(ExpInterlockedPopEntrySListFault)
 
-#endif
+        lwu     t2,0(v0)                // get address of successor entry
+        lld     t3,0(a0)                // reload next entry address and sequence
+        li      t4,0xffff               // decrement list depth and
+        addu    t1,t1,t4                // increment sequence number
+        dsll    t1,t1,32                // merge successor address and sequence
+        bne     t0,t3,10b               // if ne, listhead has changed
+        or      t1,t1,t2                //
+        scd     t1,0(a0)                // store next emtry address and sequence
+        beql    zero,t1,20b             // if eq, store conditional failed
+        ld      t0,0(a0)                // get next entry address and sequence
+        .set    at
+        .set    reorder
 
-        lw      t2,LsFlink(a0)          // get address of next entry
-        move    v0,zero                 // assume list is empty
-        beq     t2,a0,20f               // if eq, list is empty
-        lw      t3,LsFlink(t2)          // get address of next entry
-        sw      t3,LsFlink(a0)          // store address of next in head
-        sw      a0,LsBlink(t3)          // store address of previous in next
-        addu    t3,t2,a2                // compute address to store size
-        sw      a3,0(t3)                // set size of block allocated
-        move    v0,t2                   // set address of entry removed
-20:                                     //
+30:     j       ra                      // return
 
-#if !defined(NT_UP)
+        .end    ExpInterlockedPopEntrySList
+
+        SBTTL("Interlocked Push Entry Sequenced List")
+//++
+//
+// PSINGLE_LIST_ENTRY
+// ExpInterlockedPushEntrySList (
+//    IN PSLIST_HEADER ListHead,
+//    IN PSINGLE_LIST_ENTRY ListEntry
+//    )
+//
+// Routine Description:
+//
+//    This function inserts an entry at the head of a sequenced singly linked
+//    list so that access to the list is synchronized in an MP system.
+//
+// Arguments:
+//
+//    ListHead (a0) - Supplies a pointer to the sequenced listhead into which
+//       an entry is to be inserted.
+//
+//    ListEntry (a1) - Supplies a pointer to the entry to be inserted at the
+//       head of the list.
+//
+// Return Value:
+//
+//    Previous contents of ListHead.  NULL implies list went from empty
+//       to not empty.
+//
+//--
 
-        sw      zero,0(a1)              // set spin lock not owned
+        LEAF_ENTRY(ExpInterlockedPushEntrySList)
 
-#endif
-
-        ENABLE_INTERRUPTS(t0)           // enable interrupts
+        .set    noreorder
+        .set    noat
+10:     ld      t0,0(a0)                // get next entry address and sequence
+20:     dsll    v0,t0,32                // sign extend next entry address
+        dsra    v0,v0,32                //
+        dsrl    t1,t0,32                // shift sequence to low 32-bits
+        sw      v0,0(a1)                // set next link in new first entry
+        dsll    t2,a1,32                // zero extend new first entry
+        dsrl    t2,t2,32                //
+        lld     t3,0(a0)                // reload next entry address and sequence
+        lui     t4,1                    // get sequence adjustment value
+        addu    t1,t1,1                 // increment list depth
+        addu    t1,t1,t4                // increment sequence number
+        dsll    t1,t1,32                // merge new first entry address and sequence
+        bne     t0,t3,10b               // if ne, listhead has changed
+        or      t1,t1,t2                //
+        scd     t1,0(a0)                // store next emtry address and sequence
+        beql    zero,t1,20b             // if eq, store conditional failed
+        ld      t0,0(a0)                // get next entry address and sequence
+        .set    at
+        .set    reorder
 
         j       ra                      // return
 
-        .end    ExpInterlockedTryAllocatePool
+        .end    ExpInterlockedPushEntrySList
+
+        SBTTL("Interlocked Compare Exchange 64-bits")
+//++
+//
+// ULONGLONG
+// ExpInterlockedCompareExchange64 (
+//    IN PULONGLONG Destination,
+//    IN PULONGLONG Exchange,
+//    IN PULONGLONG Comperand
+//    )
+//
+// Routine Description:
+//
+//    This function performs an interlocked compare and exchange of 64-bits.
+//
+// Arguments:
+//
+//    Destination (a0) - Supplies a pointer to the destination variable.
+//
+//    Exchange (a1) - Supplies a pointer to the exchange value.
+//
+//    Comperand (a2) - Supplies a pointer to the comperand value.
+//
+// Return Value:
+//
+//    The current destination value are returned as the function value.
+//
+//--
+
+        LEAF_ENTRY(ExpInterlockedCompareExchange64)
+
+        .set    noreorder
+        .set    noat
+        ld      t0,0(a1)                // get exchange value
+        ld      t1,0(a2)                // get comperand value
+        lld     v0,0(a0)                // get current destination value
+10:     move    t2,t0                   // set exchange value
+        bne     v0,t1,20f               // if ne, current and comperand mismatch
+        dsra    v1,v0,32                // extract high part of result
+        scd     t2,0(a0)                // store exchange value
+        beql    zero,t2,10b             // if eq, store conditional failed
+        lld     v0,0(a0)                // get next entry address and sequence
+20:     dsll    v0,v0,32                // extract low part of result
+        j       ra                      // return
+        dsra    v0,v0,32                //
+        .set    at
+        .set    reorder
+
+        .end    ExpInterlockedCompareExchange64

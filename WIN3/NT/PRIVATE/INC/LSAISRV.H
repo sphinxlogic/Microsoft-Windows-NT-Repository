@@ -30,12 +30,27 @@ Revision History:
 #ifndef _LSAISRV_
 #define _LSAISRV_
 
+
+
+//
+// Caller's of the health check routine
+//
+
+#define LsaIHealthLsaInitialized    (1)
+#define LsaIHealthSamJustLocked     (2)
+#define LsaIHealthSamAboutToFree    (3)
+
 ///////////////////////////////////////////////////////////////////////////////
 //                                                                           //
 // The following prototypes are usable throughout the process that the       //
 // LSA server resides in.                                                    //
 //                                                                           //
 ///////////////////////////////////////////////////////////////////////////////
+
+VOID
+LsaIHealthCheck(
+    IN  ULONG CallerId
+    );
 
 NTSTATUS
 LsaIOpenPolicyTrusted(
@@ -203,6 +218,11 @@ LsaIAuditSamEvent(
     IN PUNICODE_STRING      DomainName,
     IN PULONG               AccountRid        OPTIONAL,
     IN PPRIVILEGE_SET       Privileges        OPTIONAL
+    );
+
+VOID
+LsaIAuditNotifyPackageLoad(
+    PUNICODE_STRING PackageFileName
     );
 
 #endif // _LSAISRV_

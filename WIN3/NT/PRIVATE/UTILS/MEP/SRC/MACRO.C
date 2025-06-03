@@ -238,7 +238,7 @@ fFindLabel (
     pMI->text = pMI->beg;
     while (*pMI->text != '\0') {
         if (!TESTFLAG (fParseMacro (pMI, lbuf), GRAPH)) {
-            if (!stricmp (lbl, lbuf)) {
+            if (!_stricmp (lbl, lbuf)) {
                 return TRUE;
             }
         }
@@ -311,7 +311,7 @@ mGetCmd (
                 break;
             }
 
-        strlwr (mname);
+        _strlwr (mname);
 
         pFunc = NameToFunc (mname);
 

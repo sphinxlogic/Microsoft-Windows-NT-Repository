@@ -15,11 +15,12 @@
 #include "graph.h"
 #include "cderr.h"
 #include "utils.h"
+#include "perfmops.h"
 #include "grafdata.h"  // for ToggleGraphRefresh
 #include "pmhelpid.h"  // Help IDs
 
 
-static BOOL          LocalManualRefresh ;
+BOOL          LocalManualRefresh ;
 
 
 /***************************************************************************/
@@ -68,6 +69,7 @@ PGRAPHSTRUCT   lgraph;
          SendDlgItemMessage(hDlg, ID_VERT_MAX, WM_SETTEXT, 0, (LONG) szBuff) ;
 
          TSPRINTF(szBuff, TEXT("%3.3f"), lgraph->gOptions.eTimeInterval) ;
+         ConvertDecimalPoint (szBuff);
          SendDlgItemMessage(hDlg, IDD_CHARTOPTIONSINTERVAL, WM_SETTEXT, 0, (LONG) szBuff) ;
 
          // Pickup a local copy of the Graph Options.
@@ -277,4 +279,4 @@ PGRAPHSTRUCT   lgraph;
 
 
 
-
+

@@ -192,7 +192,7 @@ typedef struct _NON_TRANSMIT_CB {
 typedef struct _SCP {
     USHORT Dummy;
     USHORT SysBus;
-    USHORT junk[2];
+    USHORT XXX[2];
     USHORT IscpOffset;
     USHORT IscpBase;
 } SCP, *PSCP;

@@ -17,7 +17,9 @@ Author:
 Revision History:
 
 --*/
-#include "dpmi32p.h"
+#include "precomp.h"
+#pragma hdrstop
+#include "softpc.h"
 
 VOID
 DpmiSwitchToDosxStack(
@@ -95,7 +97,7 @@ Return Value:
 
 --*/
 {
-    PUSHORT StackPointer;
+    PWORD16 StackPointer;
     PULONG Ivt;
 
     // bugbug stack wrap???
@@ -103,7 +105,7 @@ Return Value:
     ASSERT((getSP() > 6));
     ASSERT((!(getMSW() & MSW_PE)));
 
-    StackPointer = (PUSHORT)Sim32GetVDMPointer(
+    StackPointer = (PWORD16)Sim32GetVDMPointer(
         ((getSS() << 16) | getSP()),
         1,
         FALSE
@@ -121,8 +123,8 @@ Return Value:
         FALSE
         );
 
-     setCS((Ivt[InterruptNumber] >> 16));
-     setIP((Ivt[InterruptNumber] & 0xFFFF));
+     setCS((USHORT) (Ivt[InterruptNumber] >> 16));
+     setIP((USHORT) (Ivt[InterruptNumber] & 0xFFFF));
 }
 
 VOID
@@ -152,12 +154,13 @@ Notes:
 
 --*/
 {
-    PUSHORT StackPointer;
+    PWORD16 StackPointer;
 
-    StackPointer = (PUSHORT)Sim32GetVDMPointer(
+    StackPointer = (PWORD16)Sim32GetVDMPointer(
         (((ULONG)getSS() << 16) | getSP()),
         1,
-        getMSW() & MSW_PE
+//        (UCHAR) (getMSW() & MSW_PE)
+        TRUE
         );
 
     //

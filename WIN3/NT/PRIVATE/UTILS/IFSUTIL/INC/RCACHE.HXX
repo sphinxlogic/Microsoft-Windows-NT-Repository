@@ -21,8 +21,18 @@ Author:
 
 #define _READ_CACHE_DEFN_
 
+
 #include "dcache.hxx"
 #include "cache.hxx"
+
+#if defined ( _AUTOCHECK_ )
+#define IFSUTIL_EXPORT
+#elif defined ( _IFSUTIL_MEMBER_ )
+#define IFSUTIL_EXPORT    __declspec(dllexport)
+#else
+#define IFSUTIL_EXPORT    __declspec(dllimport)
+#endif
+
 
 DECLARE_CLASS(READ_CACHE);
 
@@ -31,6 +41,7 @@ class READ_CACHE : public DRIVE_CACHE {
 
     public:
 
+        IFSUTIL_EXPORT
         DECLARE_CONSTRUCTOR( READ_CACHE );
 
         VIRTUAL
@@ -38,6 +49,7 @@ class READ_CACHE : public DRIVE_CACHE {
             );
 
         NONVIRTUAL
+        IFSUTIL_EXPORT
         BOOLEAN
         Initialize(
             IN OUT  PIO_DP_DRIVE    Drive,
@@ -45,27 +57,27 @@ class READ_CACHE : public DRIVE_CACHE {
             );
 
         VIRTUAL
-		BOOLEAN
-		Read(
-			IN  BIG_INT     StartingSector,
-			IN  SECTORCOUNT NumberOfSectors,
-			OUT PVOID       Buffer
-			);
+                BOOLEAN
+                Read(
+                        IN  BIG_INT     StartingSector,
+                        IN  SECTORCOUNT NumberOfSectors,
+                        OUT PVOID       Buffer
+                        );
 
         VIRTUAL
-		BOOLEAN
-		Write(
-			IN  BIG_INT     StartingSector,
-			IN  SECTORCOUNT NumberOfSectors,
-			IN  PVOID       Buffer
+                BOOLEAN
+                Write(
+                        IN  BIG_INT     StartingSector,
+                        IN  SECTORCOUNT NumberOfSectors,
+                        IN  PVOID       Buffer
             );
 
     private:
 
         NONVIRTUAL
-		VOID
-		Construct(
-			);
+                VOID
+                Construct(
+                        );
 
         NONVIRTUAL
         VOID

@@ -91,6 +91,11 @@ DriverEntry(
     );
 
 
+VOID
+NE3200Shutdown(
+    IN NDIS_HANDLE MiniportAdapterContext
+    );
+
 #pragma NDIS_INIT_FUNCTION(DriverEntry)
 
 
@@ -197,8 +202,8 @@ Return Value:
     // We can only get here if something went wrong with registering
     // the driver or *all* of the adapters.
     //
-    NdisTerminateWrapper(NdisWrapperHandle, NULL);
     NE3200DestroyGlobals(&NE3200Globals);
+    NdisTerminateWrapper(NdisWrapperHandle, NULL);
 
     return STATUS_UNSUCCESSFUL;
 
@@ -331,7 +336,6 @@ Return Value:
 
             NE3200_FREE_PHYS(Adapter);
             return FALSE;
-
         }
 
         //
@@ -353,7 +357,6 @@ Return Value:
                                        (PVOID)Adapter->ResetPort
                                        );
             return FALSE;
-
         }
 
         //
@@ -381,7 +384,6 @@ Return Value:
                                        (PVOID)MappedIoBase
                                        );
             return FALSE;
-
         }
 
         //
@@ -396,11 +398,9 @@ Return Value:
                         CurrentAddress,
                         NE3200_LENGTH_OF_ADDRESS
                         );
-
         } else {
 
             Adapter->AddressChanged = FALSE;
-
         }
 
         //
@@ -504,7 +504,6 @@ Return Value:
                                            );
                 NE3200_FREE_PHYS(Adapter);
                 return FALSE;
-
             }
 
             //
@@ -522,6 +521,16 @@ Return Value:
             InsertTailList(&NE3200Globals.AdapterList,
                            &Adapter->AdapterList,
                            );
+
+			//
+			// Register our shutdown handler.
+			//
+		
+			NdisMRegisterAdapterShutdownHandler(
+				Adapter->MiniportAdapterHandle,     // miniport handle.
+				Adapter,                            // shutdown context.
+				NE3200Shutdown                      // shutdown handler.
+				);
 
             return(TRUE);
 
@@ -563,9 +572,7 @@ Return Value:
                 );
 
         return FALSE;
-
     }
-
 }
 
 
@@ -1557,7 +1564,6 @@ Return Value:
 
 #pragma NDIS_INIT_FUNCTION(NE3200Initialize)
 
-extern
 NDIS_STATUS
 NE3200Initialize(
     OUT PNDIS_STATUS OpenErrorStatus,
@@ -1908,7 +1914,6 @@ RegisterAdapter:
 }
 
 
-extern
 VOID
 NE3200Halt(
     IN NDIS_HANDLE MiniportAdapterContext
@@ -1937,68 +1942,12 @@ Return Value:
     //
     PNE3200_ADAPTER Adapter;
 
-    //
-    // Temporary looping variable
-    //
-    ULONG i;
-
     Adapter = PNE3200_ADAPTER_FROM_CONTEXT_HANDLE(MiniportAdapterContext);
 
+	//
+    // Shut down the h/w
     //
-    // Shut down the chip.
-    //
-    NE3200StopChip(Adapter);
-
-    //
-    // Pause, waiting for the chip to stop.
-    //
-    NdisStallExecution(250000);
-
-    //
-    // Unfortunately, a hardware reset to the NE3200 does *not*
-    // reset the BMIC chip.  To ensure that we read a proper status,
-    // we'll clear all of the BMIC's registers.
-    //
-    NE3200_WRITE_SYSTEM_INTERRUPT(
-        Adapter,
-        0
-        );
-
-    //
-    // I changed this to ff since the original 0 didn't work for
-    // some cases. since we don't have the specs....
-    //
-    NE3200_WRITE_LOCAL_DOORBELL_INTERRUPT(
-        Adapter,
-        0xff
-        );
-
-    NE3200_WRITE_SYSTEM_DOORBELL_MASK(
-        Adapter,
-        0
-        );
-
-    NE3200_SYNC_CLEAR_SYSTEM_DOORBELL_INTERRUPT(
-        Adapter
-        );
-
-    for (i = 0 ; i < 16 ; i += 4 ) {
-
-        NE3200_WRITE_MAILBOX_ULONG(
-            Adapter,
-            i,
-            0L
-            );
-
-    }
-
-    //
-    // Toggle the NE3200's reset line.
-    //
-    NE3200_WRITE_RESET(
-        Adapter,
-        NE3200_RESET_BIT_ON
-        );
+    NE3200Shutdown(Adapter);
 
     //
     // Disconnect the interrupt
@@ -2045,10 +1994,99 @@ Return Value:
     NE3200_FREE_PHYS(Adapter);
 
     return;
-
 }
 
 
+VOID
+NE3200Shutdown(
+    IN NDIS_HANDLE MiniportAdapterContext
+    )
+
+/*++
+
+Routine Description:
+
+    NE3200Shutdown shuts down the h/w.
+
+Arguments:
+
+    MacAdapterContext - The context value that the Miniport returned
+        from Ne3200Initialize; actually as pointer to an NE3200_ADAPTER.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    //
+    // The adapter to halt
+    //
+    PNE3200_ADAPTER Adapter;
+
+    //
+    // Temporary looping variable
+    //
+    ULONG i;
+
+    Adapter = PNE3200_ADAPTER_FROM_CONTEXT_HANDLE(MiniportAdapterContext);
+
+    //
+    // Shut down the chip.
+    //
+    NE3200StopChip(Adapter);
+
+    //
+    // Pause, waiting for the chip to stop.
+    //
+    NdisStallExecution(500000);
+
+    //
+    // Unfortunately, a hardware reset to the NE3200 does *not*
+    // reset the BMIC chip.  To ensure that we read a proper status,
+    // we'll clear all of the BMIC's registers.
+    //
+    NE3200_WRITE_SYSTEM_INTERRUPT(
+        Adapter,
+        0
+        );
+
+    //
+    // I changed this to ff since the original 0 didn't work for
+    // some cases. since we don't have the specs....
+    //
+    NE3200_WRITE_LOCAL_DOORBELL_INTERRUPT(
+        Adapter,
+        0xff
+        );
+
+    NE3200_WRITE_SYSTEM_DOORBELL_MASK(
+        Adapter,
+        0
+        );
+
+    SyncNE3200ClearDoorbellInterrupt(Adapter);
+
+    for (i = 0 ; i < 16 ; i += 4 ) {
+
+        NE3200_WRITE_MAILBOX_ULONG(
+            Adapter,
+            i,
+            0L
+            );
+    }
+
+    //
+    // Toggle the NE3200's reset line.
+    //
+    NE3200_WRITE_RESET(
+        Adapter,
+        NE3200_RESET_BIT_ON
+        );
+}
+
+
 NDIS_STATUS
 NE3200TransferData(
     OUT PNDIS_PACKET Packet,

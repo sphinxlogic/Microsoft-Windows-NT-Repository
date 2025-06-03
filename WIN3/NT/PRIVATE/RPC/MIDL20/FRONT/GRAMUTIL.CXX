@@ -27,7 +27,6 @@ extern	"C" {
 #include "idict.hxx"
 #include "control.hxx"
 #include "cmdana.hxx"
-#include "baduse.hxx"
 
 /****************************************************************************
  *			external data
@@ -39,7 +38,6 @@ extern pre_type_db		*	pPreAllocTypes;
 extern SymTable			*	pBaseSymTbl;
 extern node_error		*	pErrorTypeNode;
 extern short				CompileMode;
-extern IDICT			*	pPreAllocatedBitAttrDict;
 extern node_e_attr		*	pErrorAttrNode;
 extern CCONTROL			*	pCompiler;
 extern LexTable			*	pMidlLexTable;
@@ -58,14 +56,9 @@ extern char			*	GetTypeName( short );
 extern STATUS_T			GetBaseTypeNode( node_skl **, short, short, short);
 extern ATTRLIST			GenerateFieldAttribute(ATTR_T, expr_list *);
 
-extern void				ApplySummaryAttributes( node_skl *, ATTR_SUMMARY * );
 extern char			*	GetExpectedSyntax( char *, short );
 extern int				GetExpectedChar( short );
-extern BOOL				IsValidSizeOfType( node_skl	* );
 extern void				CheckGlobalNamesClash( SymKey );
-extern void				CheckSpecialForwardTypedef( node_skl *,
-													node_skl *,
-													type_node_list *);
 /****************************************************************************
  *			local  functions
  ***************************************************************************/
@@ -338,28 +331,32 @@ ParseError(
 	STATUS_T		Err,
 	char 		*	pSuffix )
 	{
-	char	*pFileName;
-	short	Line;
-	short	Col;
-	char	TempBuf[512 + 50];
-	extern	char *tokptr_G;
-	BOOL	flag = (BOOL) ( (*tokptr_G) && !isspace(*tokptr_G) );
+	char	*	pFileName;
+	short		Line;
+	short		Col;
+	char		TempBuf[512 + 50];
+	char	*	pBuffer;
+	ErrorInfo	ErrStats( Err );
 
+	if ( !ErrStats.IsRelevant() )
+		return;
 
 	pImportCntrl->GetCurrentInputDetails( &pFileName, &Line, &Col);
 
-	sprintf(TempBuf, " %s %s"
-					   , (pSuffix == (char *)NULL) ? "" : ":"
-					   , (pSuffix == (char *)NULL) ? "" : pSuffix);
-#if 0
-	sprintf(TempBuf, " %s %s %s %s"
-					   , flag ? "near" : ""
-					   , flag ? tokptr_G : ""
-					   , (pSuffix == (char *)NULL) ? "" : ":"
-					   , (pSuffix == (char *)NULL) ? "" : pSuffix);
-#endif // 0
-	RpcError(pFileName, Line, Err, TempBuf);
+	if (pSuffix)
+		{
+		strcpy( TempBuf, ": " );
+		strcat( TempBuf, pSuffix );
+		pBuffer = TempBuf;
+		}
+	else
+		{
+		pBuffer = "";
+		}
+
+	ErrStats.ReportError(pFileName, Line, pBuffer);
 	}
+
 void
 SyntaxError(
 	STATUS_T	Err,
@@ -555,7 +552,7 @@ pre_type_db::GetPreAllocType(
  ***************************************************************************/
 nsa::nsa( void )
 	{
-	SymTable *	pSymTable = new SymTable;
+	SymTable *	pSymTable = new GlobalSymTable;
 	CurrentLevel	= 0;
 	InsertHead( (void *)pSymTable );
 	}
@@ -878,20 +875,6 @@ ApplyAttributes(
 	}
 
 
-void
-CopyNode(
-	named_node	*	pDest,
-	named_node	*	pSrc )
-	{
-	char			*	pName;
-
-	pName = pSrc->GetSymName();
-	pDest->SetSymName( pName ? pName : GenTempName() );
-	pDest->SetChild( pSrc->GetChild() );
-
-//	delete pSrc;
-	}
-
 /****************************************************************************
  This routine exists to share code for setting up the field attribute nodes
  ****************************************************************************/
@@ -920,22 +903,12 @@ GenerateFieldAttribute(
 			switch(NodeType)
 				{
 				case ATTR_FIRST:
-					pAttr = new node_first_is( pExpr );
-					break;
 				case ATTR_LAST:
-					pAttr = new node_last_is( pExpr );
-					break;
 				case ATTR_LENGTH:
-					pAttr = new node_length_is( pExpr );
-					break;
 				case ATTR_SIZE:
-					pAttr = new node_size_is( pExpr );
-					break;
 				case ATTR_MIN:
-					pAttr = new node_min_is( pExpr );
-					break;
 				case ATTR_MAX:
-					pAttr = new node_max_is( pExpr );
+					pAttr = new size_attr( pExpr, NodeType );
 					break;
 				default:
 					//this should never happen
@@ -1021,18 +994,12 @@ void
 SetPredefinedTypes()
 	{
 
-	node_def		*	pDef = new node_def;
-	node_e_status_t	*	pNew = new node_e_status_t;
 	char			*	pName;
+	node_e_status_t	*	pNew = new node_e_status_t;
+	node_def_fe		*	pDef = new node_def_fe( pName = pNew->GetSymName(), pNew );
 
 	// set global version
 	pError_status_t	= pNew;
-
-	pDef->SetSymName( pName = pNew->GetSymName() );
-	pDef->SetChild( pNew );
-//	pDef->SetEdgeType( EDGE_DEF );
-//	pDef->SetSemanticsDone();
-//	pDef->SetPostSemanticsDone();
 
 	// the typedef of error_status_t in the symbol table
 
@@ -1048,12 +1015,7 @@ SetPredefinedTypes()
 
 	node_wchar_t *	pNew2 = new node_wchar_t;
 
-	pDef = new node_def;
-	pDef->SetSymName( pName = pNew2->GetSymName() );
-	pDef->SetChild( pNew2 );
-//	pDef->SetEdgeType( EDGE_DEF );
-//	pDef->SetSemanticsDone();
-//	pDef->SetPostSemanticsDone();
+	pDef = new node_def_fe( pName = pNew2->GetSymName(), pNew2 );
 
 	// the typedef of wchar_t in the symbol table
 
@@ -1061,85 +1023,6 @@ SetPredefinedTypes()
 	pBaseSymTbl->SymInsert(SKey, (SymTable *)NULL, pDef );
 
 	}
-node_skl *
-SetHppPredefinedTypes(
-	char	*	pInterfaceName)
-	{
-
-	SymKey				SKey( pInterfaceName, NAME_DEF);
-	node_def		*	pDef;
-	node_struct		*	pNew;
-
-
-	pDef = new node_def( pInterfaceName );
-	pNew = new node_struct( pInterfaceName );
-	pNew->SetChild( pErrorTypeNode );
-
-
-	pDef->SetChild( pNew );
-//	pDef->SetEdgeType( EDGE_USE );
-//	pDef->SetSemanticsDone();
-//	pDef->SetPostSemanticsDone();
-
-	// the typedef of interfacename in the symbol table
-
-	pBaseSymTbl->SymInsert(SKey, (SymTable *)NULL, pDef );
-
-
-	return pDef;
-
-	}
-
-node_skl	*
-CopyBaseType(
-	node_skl	*	pNode )
-	{
-
-	node_base_type	*	pBaseType;
-	ATTR_T				Attr		= ATTR_NONE;
-
-//gaj	if( pNode->FInSummary( ATTR_UNSIGNED ) )
-//gaj		Attr	= ATTR_UNSIGNED;
-
-	pBaseType	= new node_base_type( pNode->NodeKind(), Attr );
-//	pBaseType->SetNodeState( pNode->GetNodeState() );
-	pBaseType->SetSymName( pNode->GetSymName() );
-	return pBaseType;
-	}
-
-/******************************
-BOOL
-IsValidSizeOfType(
-	node_skl	*	pNode )
-	{
-
-	NODE_T	NT	= pNode->NodeKind();
-
-	if( IS_BASE_TYPE_NODE( NT ) || (NT == NODE_WCHAR_T) )
-		{
-		return TRUE;
-		}
-
-	switch( NT )
-		{
-		case NODE_POINTER:
-		case NODE_ERROR_STATUS_T:
-		case NODE_ENUM:
-		case NODE_UNION:
-			return TRUE;
-		case NODE_STRUCT:
-		case NODE_ARRAY:
-			return(!( (pNode->GetNodeState() & NODE_STATE_CONF_ARRAY ) ==
-					NODE_STATE_CONF_ARRAY ));
-		case NODE_DEF:
-		case NODE_ID:
-			return IsValidSizeOfType( pNode->GetBasicType() );
-
-		default:
-			return FALSE;
-		}
-	}
-**********************************/
 
 //
 // We check for a proc/typedef/member/param/tag/enum/label name already defined
@@ -1215,78 +1098,3 @@ CheckGlobalNamesClash(
 		}
 	}
 
-//
-// checks for the special typedef node case when the only construct allowed is
-// when context_handle is applied to an unknown type.
-//
-
-void
-CheckSpecialForwardTypedef(
-	node_skl		*	pTypedefNode,
-	node_skl		*	pType,
-	type_node_list	*	pAttrList )
-	{
-
-	short				fContextHandleCount;
-	short				fOtherAttributeCount;
-	node_base_attr	*	pAttrNode;
-	char				Buffer[ 256 ];
-	char			*	pName;
-	node_forward	*	pForward;
-	NAME_T				T;
-	char			*	pDummy;
-
-	//
-	// if the type is not a forward node, just return. Or if the type is
-	// not a forward type name return. We want to barf on forward
-	// declarations of these forms only:
-	//
-	// typedef FOO ID;
-	// typedef FOO * ID;
-	//
-
-	if( (pForward = ((node_forward *)pType))->NodeKind() != NODE_FORWARD )
-		return;
-
-	pForward->GetSymDetails( &T, &pDummy );
-
-	if( T != NAME_DEF )
-		return;
-
-	pName				= pTypedefNode->GetSymName();
-
-	fContextHandleCount	= 0;
-	fOtherAttributeCount= 0;
-
-	//
-	// then only attribute in the attribute list must be context_handle,
-	// and NOTHING else.
-	//
-
-	if( pAttrList )
-		{
-		pAttrList->Init();
-
-		while( pAttrList->GetPeer( (node_skl **)&pAttrNode ) == STATUS_OK )
-			{
-			if( pAttrNode->GetAttrID() == ATTR_CONTEXT )
-				fContextHandleCount++;
-			else
-				fOtherAttributeCount++;
-			}
-
-		//
-		// the only case allowed is when context_handle is applied and
-		// nothing else is applied.
-
-		if( fContextHandleCount && !fOtherAttributeCount )
-			return;
-
-		}
-	//
-	// report it as a syntax error.
-	//
-
-	sprintf( Buffer, "expecting a type specification near %s", pName );
-	ParseError( BENIGN_SYNTAX_ERROR, Buffer );
-	}

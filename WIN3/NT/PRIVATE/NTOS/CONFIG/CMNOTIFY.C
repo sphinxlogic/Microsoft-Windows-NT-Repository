@@ -29,11 +29,11 @@ extern  PCMHIVE  CmpMasterHive;
 
 VOID
 CmpReportNotifyHelper(
-    PUNICODE_STRING         Name,
-    PHHIVE                  SearchHive,
-    PHHIVE                  Hive,
-    HCELL_INDEX             Cell,
-    ULONG                   Filter
+    IN PUNICODE_STRING Name,
+    IN PHHIVE SearchHive,
+    IN PHHIVE Hive,
+    IN PCM_KEY_NODE Node,
+    IN ULONG Filter
     );
 
 #ifdef ALLOC_PRAGMA
@@ -86,7 +86,7 @@ Return Value:
 
 --*/
 {
-    PCELL_DATA  pcell;
+    PCM_KEY_NODE pcell;
     ULONG       flags;
     ULONG       i;
 
@@ -97,16 +97,17 @@ Return Value:
         KdPrint(("\tHive:%08lx Cell:%08lx Filter:%08lx\n", Hive, Cell, Filter));
     }
 
+    pcell = (PCM_KEY_NODE)HvGetCell(Hive, Cell);
     //
     // If the operation was create or delete, treat it as a change
     // to the parent.
     //
     if (Filter == REG_NOTIFY_CHANGE_NAME) {
-        pcell = HvGetCell(Hive, Cell);
-        flags = pcell->u.KeyNode.Flags;
-        Cell = pcell->u.KeyNode.Parent;
+        flags = pcell->Flags;
+        Cell = pcell->Parent;
         if (flags & KEY_HIVE_ENTRY) {
             Hive = &(CmpMasterHive->Hive);
+            pcell = (PCM_KEY_NODE)HvGetCell(Hive, Cell);
         }
         for ( i = (Name.Length/sizeof(WCHAR))-1;
               Name.Buffer[i] != OBJ_NAME_PATH_SEPARATOR;
@@ -120,30 +121,26 @@ Return Value:
         // if we're at an exit/link node, back up the real node
         // that MUST be it's parent.
         //
-        pcell = HvGetCell(Hive, Cell);
-        if (pcell->u.KeyNode.Flags & KEY_HIVE_EXIT) {
-            Cell = pcell->u.KeyNode.Parent;
+        if (pcell->Flags & KEY_HIVE_EXIT) {
+            Cell = pcell->Parent;
         }
+        pcell = (PCM_KEY_NODE)HvGetCell(Hive, Cell);
     }
-
-
 
     //
     // Report to notifies waiting on the event's hive
     //
-    CmpReportNotifyHelper(&Name, Hive, Hive, Cell, Filter);
+    CmpReportNotifyHelper(&Name, Hive, Hive, pcell, Filter);
 
     //
     // If containging hive is not the master hive, apply to master hive
     //
     if (Hive != &(CmpMasterHive->Hive)) {
-        CmpReportNotifyHelper(
-            &Name,
-            &(CmpMasterHive->Hive),
-            Hive,
-            Cell,
-            Filter
-            );
+        CmpReportNotifyHelper(&Name,
+                              &(CmpMasterHive->Hive),
+                              Hive,
+                              pcell,
+                              Filter);
     }
 
     return;
@@ -152,11 +149,11 @@ Return Value:
 
 VOID
 CmpReportNotifyHelper(
-    PUNICODE_STRING         Name,
-    PHHIVE                  SearchHive,
-    PHHIVE                  Hive,
-    HCELL_INDEX             Cell,
-    ULONG                   Filter
+    IN PUNICODE_STRING Name,
+    IN PHHIVE SearchHive,
+    IN PHHIVE Hive,
+    IN PCM_KEY_NODE Node,
+    IN ULONG Filter
     )
 /*++
 
@@ -174,9 +171,9 @@ Arguments:
 
     SearchHive - hive to search for matches (which notify list to check)
 
-    Hive - hive to match with (and check access to)
+    Hive - Supplies hive containing node to match with.
 
-    Cell - cell to match with (and check access to)
+    Node - pointer to key to match with (and check access to)
 
     Filter - type of event
 
@@ -222,8 +219,7 @@ Return Value:
              (
                (NotifyBlock->WatchTree == TRUE) ||
                (
-                 (Cell == NotifyBlock->KeyControlBlock->KeyCell) &&
-                 (Hive == NotifyBlock->KeyControlBlock->KeyHive)
+                 Node == NotifyBlock->KeyControlBlock->KeyNode
                )
              )
            )
@@ -245,12 +241,7 @@ Return Value:
             //
             // Correct scope, does caller have access?
             //
-            if (CmpCheckNotifyAccess(
-                            NotifyBlock,
-                            Hive,
-                            Cell
-                            ) == TRUE)
-            {
+            if (CmpCheckNotifyAccess(NotifyBlock,Hive,Node)) {
                 //
                 // Notify block has KEY_NOTIFY access to the node
                 // the event occured at.  It is relevent.  Therefore,
@@ -344,37 +335,61 @@ Return Value:
         // The apc will remove itself from the thread list
         //
         PostBlock = (PCM_POST_BLOCK)RemoveHeadList(&(NotifyBlock->PostList));
-        PostBlock = CONTAINING_RECORD(
-                        PostBlock,
-                        CM_POST_BLOCK,
-                        NotifyList
-                        );
+        PostBlock = CONTAINING_RECORD(PostBlock,
+                                      CM_POST_BLOCK,
+                                      NotifyList);
 
-        if (PostBlock->IsSynchronous) {
-            //
-            // This is a SYNC notify call.  There will be no user event,
-            // and no user apc routine.  Quick exit here, just fill in
-            // the Status and poke the event.
-            //
-            // Holder of the systemevent will wake up and free the
-            // postblock.  If we free it here, we get a race & bugcheck.
-            //
-            PostBlock->u.Sync.Status = Status;
-            KeSetEvent(PostBlock->u.Sync.SystemEvent,
-                       0,
-                       FALSE);
-        } else {
-            //
-            // Insert the APC into the queue
-            //
-            KeInsertQueueApc(
-                PostBlock->u.Async.Apc,
-                (PVOID)Status,
-                (PVOID)PostBlock,
-                0                       // INCREMENT
-                );
+        switch (PostBlock->NotifyType) {
+            case PostSynchronous:
+                //
+                // This is a SYNC notify call.  There will be no user event,
+                // and no user apc routine.  Quick exit here, just fill in
+                // the Status and poke the event.
+                //
+                // Holder of the systemevent will wake up and free the
+                // postblock.  If we free it here, we get a race & bugcheck.
+                //
+                PostBlock->u.Sync.Status = Status;
+                KeSetEvent(PostBlock->u.Sync.SystemEvent,
+                           0,
+                           FALSE);
+                break;
+
+            case PostAsyncUser:
+                //
+                // Insert the APC into the queue
+                //
+                KeInsertQueueApc(PostBlock->u.AsyncUser.Apc,
+                                 (PVOID)Status,
+                                 (PVOID)PostBlock,
+                                 0);
+                break;
+
+            case PostAsyncKernel:
+                //
+                // Queue the work item, then free the post block.
+                //
+                if (PostBlock->u.AsyncKernel.WorkItem != NULL) {
+                    ExQueueWorkItem(PostBlock->u.AsyncKernel.WorkItem,
+                                    PostBlock->u.AsyncKernel.QueueType);
+                }
+                //
+                // Signal Event if present, and deref it.
+                //
+                if (PostBlock->u.AsyncKernel.Event != NULL) {
+                    KeSetEvent(PostBlock->u.AsyncKernel.Event,
+                               0,
+                               FALSE);
+                    ObDereferenceObject(PostBlock->u.AsyncKernel.Event);
+                }
+
+                //
+                // remove the post block from the thread list, and free it
+                //
+                RemoveEntryList(&(PostBlock->ThreadList));
+                CmpFreePostBlock(PostBlock);
+                break;
         }
-
     }
 
     return;
@@ -446,12 +461,12 @@ Return Value:
     //      buffer into the caller's buffer.
     //
     try {
-        PostBlock->u.Async.IoStatusBlock->Status = *((ULONG *)SystemArgument1);
-        PostBlock->u.Async.IoStatusBlock->Information = 0L;
+        PostBlock->u.AsyncUser.IoStatusBlock->Status = *((ULONG *)SystemArgument1);
+        PostBlock->u.AsyncUser.IoStatusBlock->Information = 0L;
     } except (EXCEPTION_EXECUTE_HANDLER) {
         NOTHING;
     }
-    *SystemArgument1 = PostBlock->u.Async.IoStatusBlock;
+    *SystemArgument1 = PostBlock->u.AsyncUser.IoStatusBlock;
 
     //
     // This is an Async notify, do all work here, including
@@ -461,13 +476,11 @@ Return Value:
     //
     // Signal UserEvent if present, and deref it.
     //
-    if (PostBlock->u.Async.UserEvent != NULL) {
-        KeSetEvent(
-            PostBlock->u.Async.UserEvent,
-            0,
-            FALSE
-            );
-        ObDereferenceObject(PostBlock->u.Async.UserEvent);
+    if (PostBlock->u.AsyncUser.UserEvent != NULL) {
+        KeSetEvent(PostBlock->u.AsyncUser.UserEvent,
+                   0,
+                   FALSE);
+        ObDereferenceObject(PostBlock->u.AsyncUser.UserEvent);
     }
 
     //
@@ -529,19 +542,19 @@ Return Value:
     // be stuck.  also drop any event references we hold
     //
     try {
-        PostBlock->u.Async.IoStatusBlock->Status = STATUS_NOTIFY_CLEANUP;
-        PostBlock->u.Async.IoStatusBlock->Information = 0L;
+        PostBlock->u.AsyncUser.IoStatusBlock->Status = STATUS_NOTIFY_CLEANUP;
+        PostBlock->u.AsyncUser.IoStatusBlock->Information = 0L;
     } except (EXCEPTION_EXECUTE_HANDLER) {
         NOTHING;
     }
 
-    if (PostBlock->u.Async.UserEvent != NULL) {
+    if (PostBlock->u.AsyncUser.UserEvent != NULL) {
         KeSetEvent(
-            PostBlock->u.Async.UserEvent,
+            PostBlock->u.AsyncUser.UserEvent,
             0,
             FALSE
             );
-        ObDereferenceObject(PostBlock->u.Async.UserEvent);
+        ObDereferenceObject(PostBlock->u.AsyncUser.UserEvent);
     }
 
     //
@@ -635,37 +648,55 @@ Return Value:
                         ThreadList
                         );
 
-        //
-        // remove from notify block's list
-        //
-        RemoveEntryList(&(PostBlock->NotifyList));
 
         //
         // at this point, CmpReportNotify and friends will no longer
         // attempt to post this post block.
         //
 
-        //
-        // report status and wake up any threads that might otherwise
-        // be stuck.  also drop any event references we hold
-        //
-        try {
-            PostBlock->u.Async.IoStatusBlock->Status = STATUS_NOTIFY_CLEANUP;
-            PostBlock->u.Async.IoStatusBlock->Information = 0L;
-        } except (EXCEPTION_EXECUTE_HANDLER) {
-            CMLOG(CML_API, CMS_EXCEPTION) {
-                KdPrint(("!!CmNotifyRundown: code:%08lx\n", GetExceptionCode()));
+        if (PostBlock->NotifyType == PostAsyncUser) {
+            //
+            // report status and wake up any threads that might otherwise
+            // be stuck.  also drop any event references we hold
+            //
+            try {
+                PostBlock->u.AsyncUser.IoStatusBlock->Status = STATUS_NOTIFY_CLEANUP;
+                PostBlock->u.AsyncUser.IoStatusBlock->Information = 0L;
+            } except (EXCEPTION_EXECUTE_HANDLER) {
+                CMLOG(CML_API, CMS_EXCEPTION) {
+                    KdPrint(("!!CmNotifyRundown: code:%08lx\n", GetExceptionCode()));
+                }
+                NOTHING;
             }
-            NOTHING;
-        }
 
-        if (PostBlock->u.Async.UserEvent != NULL) {
-            KeSetEvent(
-                PostBlock->u.Async.UserEvent,
-                0,
-                FALSE
-                );
-            ObDereferenceObject(PostBlock->u.Async.UserEvent);
+            if (PostBlock->u.AsyncUser.UserEvent != NULL) {
+                KeSetEvent(
+                    PostBlock->u.AsyncUser.UserEvent,
+                    0,
+                    FALSE
+                    );
+                ObDereferenceObject(PostBlock->u.AsyncUser.UserEvent);
+            }
+
+            //
+            // Cancel the APC. Otherwise the rundown routine will also
+            // free the post block if the APC happens to be queued at
+            // this point. If the APC is queued, then the post block has
+            // already been removed from the notify list, so don't remove
+            // it again.
+            //
+            if (!KeRemoveQueueApc(PostBlock->u.AsyncUser.Apc)) {
+
+                //
+                // remove from notify block's list
+                //
+                RemoveEntryList(&(PostBlock->NotifyList));
+            }
+        } else {
+            //
+            // remove from notify block's list
+            //
+            RemoveEntryList(&(PostBlock->NotifyList));
         }
         //
         // Free the post block.  Use Ex call because PostBlocks are NOT
@@ -939,4 +970,3 @@ Return Value:
     return STATUS_PENDING;
 }
 
-

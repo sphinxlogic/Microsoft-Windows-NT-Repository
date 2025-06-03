@@ -4,6 +4,39 @@
 #include <string.h>
 #include <ctype.h>
 
+// #define SEE_EM 1
+
+#define MAX_FILENAME_LENGTH       27
+
+#define MAX_TIMEANDSIZE           50        /* mm-dd-yyyy hh-mm-ss */
+
+#define MAX_FILENAME_PER_BLOCK  1000
+#define MAX_MEMBLOCKS            100
+
+#define MAX_THREADS               29
+
+#define MAX_COMMAND_LINE        1024
+#define MAX_ARGS                  20
+
+// kenhia 15-Mar-1996: add support for -#:<share>
+#ifdef _ALPHA_
+    #define PLATFORM_SPECIFIC_SHARES { "ntalpha1", "ntalpha2", NULL }
+#endif
+#ifdef _MIPS_
+    #define PLATFORM_SPECIFIC_SHARES { "ntjazz1", "ntjazz2", NULL }
+#endif
+#ifdef _PPC_
+    #define PLATFORM_SPECIFIC_SHARES { "ntppc1", "ntppc2", NULL }
+#endif
+#ifdef _X86_
+    #define PLATFORM_SPECIFIC_SHARES { "ntx861", "ntx862", "ntx863", "ntx864", "ntx865", NULL }
+#endif
+#ifndef PLATFORM_SPECIFIC_SHARES
+    #pragma message( "WARNING: Platform Specific shares disabled" )
+    #define PLATFORM_SPECIFIC_SHARES {NULL}
+#endif
+
+
 typedef struct _filename FILENAME;
 
 typedef union _virtual_pointer {
@@ -23,7 +56,8 @@ struct _filename {
     DWORD       dwDATFileSizeLow;
     DWORD       dwDATFileSizeHigh;
     FILETIME    ftDATFileTime;
-    CHAR        cFileName[11];
+    DWORD       dwFileNameLen;
+    CHAR        cFileName[MAX_FILENAME_LENGTH+1];
 };
 
 typedef struct _memblock MEMBLOCK;
@@ -36,16 +70,6 @@ typedef struct _fileheader {
     VIRTPTR     fnRoot;             // Pointer to root node
 } FILEHEADER;
 
-
-#define MAX_TIMEANDSIZE           50        /* mm-dd-yyyy hh-mm-ss */
-
-#define MAX_FILENAME_PER_BLOCK  1000
-#define MAX_MEMBLOCKS            100
-
-#define MAX_THREADS               29
-
-#define MAX_COMMAND_LINE        1024
-#define MAX_ARGS                  20
 
 #define SUCK_INI_FILE           ".\\suck.ini"
 #define SUCK_DAT_FILE           ".\\suck.dat"
@@ -119,6 +143,8 @@ DWORD dwMasks[] = {
 CHAR chPath[MAX_THREADS][MAX_PATH];
 DWORD dwTotalSizes[MAX_THREADS] = {0};
 
+BOOL EverybodyBailOut = FALSE;
+
 BOOL fProblems[MAX_THREADS] = {0};
 
 FILENAME *AllocateFileName()
@@ -174,41 +200,30 @@ VOID AddFile(
     INT         maximum;
     FILENAME    *fnCurrent;
     FILENAME    *fnChild;
-    CHAR        NewName[11];
+    DWORD       dwFileNameLen;
+    CHAR        NewName[MAX_FILENAME_LENGTH+1];
     FILENAME    *fnChildOriginally;
 
     if ( *lpwfd->cFileName == '.' ) {
         return;
     }
 
-    memset( NewName, ' ', 11 );
-
-    pdest = NewName;
-    psrc = lpwfd->cFileName;
-    count = 0;
-    maximum = 8;
-
-    while ( *psrc ) {
-        if ( *psrc == '.' ) {
-            pdest = NewName + 8;
-            count = 0;
-            maximum = 3;
-            psrc++;
-        } else {
-            if ( count < maximum ) {
-                *pdest++ = tolower(*psrc);
-                count++;
-            }
-            psrc++;
-        }
+    dwFileNameLen = strlen(lpwfd->cFileName);
+    if (dwFileNameLen > MAX_FILENAME_LENGTH) {
+        fprintf(stderr, "File name %s too long (%u > %u), complain to BobDay\n",
+                lpwfd->cFileName, dwFileNameLen, MAX_FILENAME_LENGTH);
+        return;
     }
 
+    strcpy( NewName, lpwfd->cFileName );
 
     fnChild = fn->fnChild.mem_ptr;
     fnChildOriginally = fnChild;
 
     while ( fnChild ) {
-        if ( memcmp(NewName, fnChild->cFileName, 11) == 0 ) {
+        if ( fnChild->dwFileNameLen == dwFileNameLen &&
+             !strcmp(NewName, fnChild->cFileName)
+           ) {
             fnChild->dwStatus |= mask;           // Atomic instruction
             if ( fnChild->ftFileTime.dwLowDateTime == ftZero.dwLowDateTime
                  && fnChild->ftFileTime.dwHighDateTime == ftZero.dwHighDateTime ) {
@@ -238,7 +253,9 @@ VOID AddFile(
         fnChild = fn->fnChild.mem_ptr;
 
         while ( fnChild ) {
-            if ( memcmp(NewName, fnChild->cFileName, 11) == 0 ) {
+            if ( fnChild->dwFileNameLen == dwFileNameLen &&
+                 !strcmp(NewName, fnChild->cFileName)
+               ) {
                 fnChild->dwStatus |= mask;           // Atomic instruction
                 nDuplicates++;
                 LeaveCriticalSection( &cs );
@@ -252,8 +269,8 @@ VOID AddFile(
 
     fnCurrent = AllocateFileName();
 
-    memcpy( fnCurrent->cFileName, NewName, 11 );
-
+    strcpy( fnCurrent->cFileName, NewName );
+    fnCurrent->dwFileNameLen     = dwFileNameLen;
     fnCurrent->dwFileSizeLow     = lpwfd->nFileSizeLow;
     fnCurrent->dwFileSizeHigh    = lpwfd->nFileSizeHigh;
     fnCurrent->ftFileTime        = lpwfd->ftLastWriteTime;
@@ -279,9 +296,9 @@ VOID AddFile(
     fnCurrent->dwStatus |= mask;
 
 #ifdef SEE_EM
-    { char text[100];
-      memcpy( text, fnCurrent->cFileName, 11 );
-      text[11] = '\0';
+    { char text[MAX_FILENAME_LENGTH+1];
+      memcpy( text, fnCurrent->cFileName, MAX_FILENAME_LENGTH );
+      text[MAX_FILENAME_LENGTH] = '\0';
 
       if ( fnCurrent->dwStatus & DIRECTORY ) {
           printf("Munged  DirName = %08lX:[%s]\n", fnCurrent, text );
@@ -300,7 +317,7 @@ BOOL Excluded(WIN32_FIND_DATA *pwfd)
     while (*pszScan)
     {
         if ((pwfd->dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) &&
-            stricmp(pszScan, pwfd->cFileName) == 0)
+            _stricmp(pszScan, pwfd->cFileName) == 0)
         {
             return(TRUE);
         }
@@ -349,6 +366,7 @@ printf("Enuming <%s>\n", lpSearch );
         switch( rc ) {
             default:
                 printf("%s: Error: GetLastError = %08ld  What does it mean?\n", NewName, rc );
+            case ERROR_SHARING_PAUSED:
             case ERROR_BAD_NETPATH:
             case ERROR_BAD_NET_NAME:
             case ERROR_NO_LOGON_SERVERS:
@@ -357,6 +375,9 @@ printf("Enuming <%s>\n", lpSearch );
                 if ( !fProblems[iThread] ) {
                     printf("Error accesing %s, switching to silent retry\n", lpSearch );
                     fProblems[iThread] = TRUE;
+                }
+                if (EverybodyBailOut) {
+                    return;
                 }
                 Sleep( 10000 );      // Wait for 10 seconds
                 break;
@@ -385,29 +406,10 @@ printf("Enuming <%s>\n", lpSearch );
               && (fnChild->dwStatus & mask) == mask ) {
             pch = pchSpot;
 
-            memcpy( pch, fnChild->cFileName, 8 );
-            *(pch+8) = '\0';
-
-            while ( *pch ) {
-                if ( *pch == ' ' ) {
-                    break;
-                }
-                pch++;
-            }
-            *pch++ = '.';
-
-            memcpy( pch, fnChild->cFileName+8, 3 );
-            pch += 2;
-
-            while ( *pch == ' ' || *pch == '.' ) {
-                --pch;
-            }
-            *(pch+1) = '\0';
-
+            strcpy( pch, fnChild->cFileName );
 #ifdef SEE_EM
             printf("NewName = <%s>\n", NewName );
 #endif
-
             EnumFiles( NewName, fnChild, mask, iThread );
         }
         fnChild = fnChild->fnSibling.mem_ptr;
@@ -514,27 +516,8 @@ DWORD CopyThem(
         if ( fCopyIt ) {
             pch = pchSpotDest;
 
-            memcpy( pch, fnChild->cFileName, 8 );
-            *(pch+8) = '\0';
-
-            while ( *pch ) {
-                if ( *pch == ' ' ) {
-                    break;
-                }
-                pch++;
-            }
-            *pch++ = '.';
-
-            memcpy( pch, fnChild->cFileName+8, 3 );
-            pch += 2;
-
-            while ( *pch == ' ' || *pch == '.' ) {
-                --pch;
-            }
-            *(pch+1) = '\0';
-
+            strcpy( pch, fnChild->cFileName );
             strcpy( pchSpotSrc, pchSpotDest );
-
 
             if ( (fnChild->dwStatus & DIRECTORY) == DIRECTORY ) {
                 CreateDirectory( chDest, NULL );
@@ -655,6 +638,7 @@ DWORD CopyThem(
                                     fDeleted = DeleteFile( chDest );
                                     if ( !fDeleted ) {
                                         dw = GetLastError();
+                                        fnChild->dwStatus |= COPIED;
                                     }
 
                                     if ( fDeleted || dw == ERROR_FILE_NOT_FOUND ) {
@@ -744,6 +728,7 @@ DWORD WINAPI ThreadFunction(
         dwCount = CopyThem( fnRoot, chDest, chSrc, dw, mask, FALSE );
     } while ( dwCount != 0 );
 
+    EverybodyBailOut = TRUE;
     return( 0 );
 }
 
@@ -765,25 +750,7 @@ VOID EnumStraglers(
 
         pch = pchSpot;
 
-        memcpy( pch, fnChild->cFileName, 8 );
-        *(pch+8) = '\0';
-
-        while ( *pch ) {
-            if ( *pch == ' ' ) {
-                break;
-            }
-            pch++;
-        }
-        *pch++ = '.';
-
-        memcpy( pch, fnChild->cFileName+8, 3 );
-        pch += 2;
-
-        while ( *pch == ' ' || *pch == '.' ) {
-            --pch;
-        }
-        *(pch+1) = '\0';
-
+        strcpy( pch, fnChild->cFileName );
         if ( (fnChild->dwStatus & dwTotalMask) != dwTotalMask ) {
             if ( fLogTreeDifferences ) {
                 printf( "File %s is not on all source locations\n", lpPath );
@@ -872,7 +839,8 @@ printf("Size = %d\n", fnChild->dwFileSizeLow );
         fnCurrent->dwDATFileSizeHigh = fnChild->dwFileSizeHigh;
         fnCurrent->ftDATFileTime     = fnChild->ftFileTime;
 
-        memcpy( fnCurrent->cFileName, fnChild->cFileName, 11 );
+        fnCurrent->dwFileNameLen     = fnChild->dwFileNameLen;
+        strcpy( fnCurrent->cFileName, fnChild->cFileName );
 
         fnParent->fnChild.mem_ptr = fnCurrent;
 
@@ -1151,6 +1119,24 @@ VOID ReplaceEnvironmentStrings(
 }
 
 
+DWORD DiffTimes(
+    SYSTEMTIME *start,
+    SYSTEMTIME *end
+) {
+    DWORD nSecStart;
+    DWORD nSecEnd;
+
+    nSecStart = start->wHour*60*60 +
+                start->wMinute*60 +
+                start->wSecond;
+
+    nSecEnd = end->wHour*60*60 +
+              end->wMinute*60 +
+              end->wSecond;
+
+    return nSecEnd - nSecStart;
+}
+
 VOID Usage(
     VOID
 ) {
@@ -1174,12 +1160,20 @@ int _CRTAPI1 main(
     DWORD       dwThreadId;
     DWORD       nThreads;
     INT         nArg;
-    INT         nPaths;
+    DWORD       nPaths;
     CHAR        *pch;
+    CHAR        *pch2;
     DWORD       dwTotalMask;
     OFSTRUCT    ofs;
     BOOL        fUpdateCommandLine = TRUE;
     CHAR *      pchNextExclude = gExcludes;
+    SYSTEMTIME  stStart;
+    SYSTEMTIME  stEnd;
+    DWORD       nSeconds;
+    DWORD       nMinutes;
+    // kenhia 15-Mar-1996: add support for -#:<share>
+    CHAR *      PlatformPoundArray[] = PLATFORM_SPECIFIC_SHARES;
+    DWORD       nPound = 0;
 
     if ( argc < 2 ) {
         LookForLastCommand( &argc, &argv );
@@ -1230,6 +1224,41 @@ int _CRTAPI1 main(
                         *pchNextExclude = 0;
                         fExitSwitchLoop = TRUE;
                         break;
+
+                    // kenhia 15-Mar-1996: add support for -#:<share>
+                    case '#':
+                        pch++;
+                        if ( *pch != ':' )
+                        {
+                                Usage();
+                                exit(1);
+                        }
+                        while( PlatformPoundArray[nPound] )
+                        {
+                            if ( nPaths >= MAX_THREADS ) {
+                                 Usage();
+                                 exit(1);
+                            }
+                            strcpy( chPath[nPaths], "\\\\" );
+                            strcat( chPath[nPaths], PlatformPoundArray[nPound] );
+                            strcat( chPath[nPaths], "\\" );
+                            strcat( chPath[nPaths], pch+1 );
+
+                            pch2 = chPath[nPaths] + strlen(chPath[nPaths]) - 1;
+                            if ( *pch2 != '\\' && *pch2 != '/' && *pch2 != ':' ) {
+                                *++pch2 = '\\';
+                                *++pch2 = '\0';
+                            }
+
+                            // this isn't currently needed, may want later
+                            //ReplaceEnvironmentStrings( chPath[nPaths] );
+
+                            nPound++;
+                            nPaths++;
+                        }
+                        fExitSwitchLoop = TRUE;
+                        break;
+
                     default:
                         Usage();
                         exit(1);
@@ -1270,6 +1299,8 @@ int _CRTAPI1 main(
 
     printf("Streamlined Utility for Copying Kernel v1.1 (%d %s)\n", nThreads, (nThreads == 1 ? "thread" : "threads") );
 
+    GetSystemTime( &stStart );
+
     LoadFileTimesAndSizes( fUseDAT );
 
     dwTotalMask = 0;
@@ -1288,7 +1319,7 @@ int _CRTAPI1 main(
 
     WaitForMultipleObjects( nThreads,
                             hThreads,
-                            FALSE,          // WaitAny
+                            TRUE,          // WaitAll
                             (DWORD)-1 );
 
     printf("Copy complete, %ld file entries\n", nFiles+nDirectories);
@@ -1320,7 +1351,13 @@ int _CRTAPI1 main(
         UpdateLastCommandLine( argc, argv );
     }
 
-    printf("Done.\n");
+    GetSystemTime( &stEnd );
+
+    nSeconds = DiffTimes( &stStart, &stEnd );
+
+    nMinutes = nSeconds / 60;
+    nSeconds = nSeconds % 60;
+    printf("Done, Elapsed time: %02d:%02d\n", nMinutes, nSeconds);
 
     return( 0 );
 }

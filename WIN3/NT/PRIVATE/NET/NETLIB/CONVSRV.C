@@ -66,7 +66,7 @@ Revision History:
 #include <lmerr.h>      // NERR_ and ERROR_ equates.
 #include <lmserver.h>   // New info level structures & conv routines.
 #include <mapsupp.h>    // NetpMoveStrings().
-#include <netdebug.h>   // NetpDbgPrint(), FORMAT_ equates, etc.
+#include <netdebug.h>   // NetpKdPrint(()), FORMAT_ equates, etc.
 #include <netlib.h>     // NetpPointerPlusSomeBytes().
 #include <prefix.h>     // PREFIX_ equates.
 #include <tstr.h>       // STRLEN().
@@ -183,18 +183,18 @@ Return Value:
 
 
     IF_DEBUG(CONVSRV) {
-        NetpDbgPrint( PREFIX_NETLIB
-                "NetpConvertServerInfo: before (partial):\n" );
+        NetpKdPrint(( PREFIX_NETLIB
+                "NetpConvertServerInfo: before (partial):\n" ));
         NetpDbgHexDump( (LPVOID) FromInfo, CNLEN+3);  // dump first few bytes.
         NetpDbgDisplayServerInfo( FromLevel, FromInfo );
-        NetpDbgPrint( PREFIX_NETLIB "NetpConvertServerInfo: ToFixedSize="
+        NetpKdPrint(( PREFIX_NETLIB "NetpConvertServerInfo: ToFixedSize="
                 FORMAT_DWORD ", ToStringSize=" FORMAT_DWORD ".\n",
-                ToFixedSize, ToStringSize);
-        NetpDbgPrint( PREFIX_NETLIB "NetpConvertServerInfo: "
+                ToFixedSize, ToStringSize));
+        NetpKdPrint(( PREFIX_NETLIB "NetpConvertServerInfo: "
                 "ToInfo at " FORMAT_LPVOID ", "
                 "ToFixedEnd at " FORMAT_LPVOID ", "
                 "ToStringTop at " FORMAT_LPVOID ".\n",
-                (LPVOID)ToInfo, (LPVOID)ToFixedEnd, (LPVOID)ToStringTop);
+                (LPVOID)ToInfo, (LPVOID)ToFixedEnd, (LPVOID)ToStringTop));
     }
 
     // Make sure info levels are OK and caller didn't mess up otherwise.
@@ -232,9 +232,9 @@ Return Value:
         // BUGBUG: Support other info levels.
 
         default :
-            NetpDbgPrint(  PREFIX_NETLIB
+            NetpKdPrint((  PREFIX_NETLIB
                     "NetpConvertServerInfo: invalid FromLevel ("
-                    FORMAT_DWORD ").\n", FromLevel );
+                    FORMAT_DWORD ").\n", FromLevel ));
             return (ERROR_INVALID_LEVEL);
     }
 
@@ -538,7 +538,7 @@ Return Value:
                 // Copy comment string.  Note that null ptr and ptr to null
                 // char are both allowed here.
                 if (psv1->sv1_comment != NULL) {
-                    CommentSize = STRLEN(psv1->sv1_comment) * sizeof(TCHAR);
+                    CommentSize = STRLEN(psv1->sv1_comment);
                 } else {
                     CommentSize = 0;
                 }
@@ -589,8 +589,8 @@ Return Value:
         // BUGBUG: Support other info levels.
 
         default :
-            NetpDbgPrint( PREFIX_NETLIB
-                    "NetpConvertServerInfo: unexpected error.\n" );
+            NetpKdPrint(( PREFIX_NETLIB
+                    "NetpConvertServerInfo: unexpected error.\n" ));
             return (NERR_InternalError);
     }
 
@@ -601,8 +601,8 @@ Done:
     NetpAssert(ToInfo != NULL);
 
     IF_DEBUG(CONVSRV) {
-        NetpDbgPrint( PREFIX_NETLIB
-                "NetpConvertServerInfo: after (partial):\n");
+        NetpKdPrint(( PREFIX_NETLIB
+                "NetpConvertServerInfo: after (partial):\n"));
         NetpDbgHexDump( (LPVOID) ToInfo, NetpDbgReasonable( ToInfoSize ) );
         NetpDbgDisplayServerInfo( ToLevel, ToInfo );
     }

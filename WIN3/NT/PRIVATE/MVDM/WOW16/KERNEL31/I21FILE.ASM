@@ -203,7 +203,7 @@ cEnd nogen
 cProc	FileHandleCall,<PUBLIC,NEAR>
 cBegin nogen
 if1
-%OUT	FileHandleCall DISABLED
+; %OUT    FileHandleCall DISABLED
 endif
 	jmp	final_call_for_DOS
 cEnd nogen

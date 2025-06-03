@@ -6,8 +6,7 @@
 /*                                                                          */
 /****************************************************************************/
 
-#include "prerc.h"
-#pragma hdrstop
+#include "rc.h"
 
 PRESINFO pResString = NULL;      /* Used to add a stringtable     */
 /* at the end of processing if a stringtable */
@@ -27,7 +26,7 @@ PCHAR  MyFAlloc(UINT cb, PCHAR pb)
 {
     PCHAR pbT;
 
-    pbT = (PCHAR)malloc(cb);
+    pbT = (PCHAR)MyAlloc(cb);
     if (!pbT)
         quit("RC : fatal error RW1025: Out of heap memory");
     if (pb) {
@@ -57,6 +56,7 @@ PRESINFO GetTable(PRESINFO pResTemp)
     CHAR       bDone = FALSE;
     USHORT     nStringID;
     PWCHAR     p;
+    PSYMINFO   pCurrentSymbol;
 
     PreBeginParse(pResTemp, 2105);
 
@@ -74,6 +74,8 @@ PRESINFO GetTable(PRESINFO pResTemp)
             ParseError1(2149); //"Expected numeric constant in string table "
 
         nStringID = token.val;
+
+        pCurrentSymbol = (SYMINFO*)MyFAlloc(sizeof(token.sym), (char*)&token.sym);
 
         if (!GetFullExpression(&nStringID, GFE_ZEROINIT | GFE_SHORT))
             ParseError1(2110); //"Expected numeric constant in v table "
@@ -95,6 +97,7 @@ PRESINFO GetTable(PRESINFO pResTemp)
                                 sizeof(WCHAR) * (token.val + 2),
                                 (PCHAR)tokenbuf);
                         pCurrent->rgsz[nStringID % BLOCKSIZE] = p;
+                        pCurrent->rgsym[nStringID % BLOCKSIZE] = pCurrentSymbol;
                     }
                     else
                         ParseError1(2151);
@@ -116,6 +119,8 @@ PRESINFO GetTable(PRESINFO pResTemp)
             p = pCurrent->rgsz[nStringID%BLOCKSIZE] =
                 (WCHAR * )MyFAlloc(sizeof(WCHAR) * (token.val + 2),
                 (PCHAR)tokenbuf);
+
+            pCurrent->rgsym[nStringID%BLOCKSIZE] = pCurrentSymbol;
 
             if (pTrailer)
                 pTrailer->next = pCurrent;
@@ -157,14 +162,26 @@ VOID WriteTable(PRESINFO pResOld)
 
         CtlInit();
 
+        // 'STR#' resource starts with a count of strings
+        if (fMacRsrcs)
+            WriteWord(BLOCKSIZE);
+
         /* Write out the next block. */
         for (i = 0; i < BLOCKSIZE; i++) {
             n = 0;
             s = p->rgsz[i];
-            if (s)
-            {
+
+            if (fMacRsrcs) {
+                WriteMacString(s, TRUE, TRUE);
+                continue;
+            }
+
+            if (s) {
                 while (s[n] || s[n + 1])
                     n++; // szsz terminated
+
+                if (fAppendNull)
+                    n++;
             }
 
             nBytesWritten += sizeof(WCHAR) * (n + 1);
@@ -273,6 +290,10 @@ int     GetAccelerators(PRESINFO pRes)
         if (token.type != NUMLIT)
             ParseError1(2107);
 
+        Accel.id = token.val;
+
+        WriteSymbolUse(&token.sym);
+
         if (!GetFullExpression(&Accel.id, GFE_ZEROINIT | GFE_SHORT))
             ParseError1(2107); //"Expected numeric command value"
 
@@ -324,8 +345,13 @@ int     GetAccelerators(PRESINFO pRes)
         MarkAccelFlagsByte();
         WriteWord(Accel.flags);
         WriteWord(Accel.ascii);
-        WriteWord(Accel.id);
-        WriteWord(0);
+	if (fMacRsrcs)
+	    WriteLong(Accel.id);
+	else
+	{
+            WriteWord(Accel.id);
+	    WriteWord(0);
+	}
 
         count++;
 

@@ -109,7 +109,7 @@ _CRTAPI1 main(
 
     if (argc > 1)
     {
-        if (stricmp(argv[1], "-p") == 0)
+        if (_stricmp(argv[1], "-p") == 0)
         {
             ++argv;
             --argc;
@@ -119,7 +119,7 @@ _CRTAPI1 main(
 
     if (argc == 6)
     {
-        if (stricmp(argv[1], "-a") != 0)
+        if (_stricmp(argv[1], "-a") != 0)
         {
             fprintf(stderr, USAGE);
             return(1);

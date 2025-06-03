@@ -89,6 +89,11 @@ GetConnectionDetails(
     );
 
 NTSTATUS
+GetConnectionPerformance(
+    IN PIRP_CONTEXT IrpContext
+    );
+
+NTSTATUS
 RegisterWithMup(
     VOID
     );
@@ -164,6 +169,48 @@ GetRemoteHandle(
     IN PIRP_CONTEXT IrpContext
     );
 
+NTSTATUS
+GetUserName(
+    IN PIRP_CONTEXT IrpContext
+    );
+
+NTSTATUS
+GetChallenge(
+    IN PIRP_CONTEXT IrpContext
+    );
+
+NTSTATUS
+WriteConnStatusEntry(
+    PSCB pConnectionScb,
+    PBYTE pbUserBuffer,
+    DWORD dwBufferLen,
+    DWORD *pdwBytesWritten,
+    DWORD *pdwBytesNeeded,
+    BOOLEAN fCallerScb
+    );
+
+NTSTATUS
+GetConnStatus(
+    IN PIRP_CONTEXT IrpContext,
+    PFILE_OBJECT FileObject
+    );
+
+NTSTATUS
+GetConnectionInfo(
+    IN PIRP_CONTEXT IrpContext
+    );
+
+NTSTATUS
+GetPreferredServer(
+    IN PIRP_CONTEXT IrpContext
+    );
+
+NTSTATUS
+SetShareBit(
+    IN PIRP_CONTEXT IrpContext,
+    PFILE_OBJECT FileObject
+    );
+
 //
 // Statics
 //
@@ -191,11 +238,25 @@ HANDLE MupHandle;
 #pragma alloc_text( PAGE, WriteNetResourceEntry )
 #pragma alloc_text( PAGE, CopyStringToBuffer )
 #pragma alloc_text( PAGE, GetRemoteHandle )
+#pragma alloc_text( PAGE, GetUserName )
+#pragma alloc_text( PAGE, GetChallenge )
+#pragma alloc_text( PAGE, WriteConnStatusEntry )
+#pragma alloc_text( PAGE, GetConnStatus )
+#pragma alloc_text( PAGE, GetConnectionInfo )
+#pragma alloc_text( PAGE, GetPreferredServer )
 
+#ifndef QFE_BUILD
 #pragma alloc_text( PAGE1, UserNcpCallback )
 #pragma alloc_text( PAGE1, GetConnectionDetails )
 #pragma alloc_text( PAGE1, GetMessage )
 #pragma alloc_text( PAGE1, EnumConnections )
+#endif
+
+#endif
+
+#if 0  // Not pageable
+
+// see ifndef QFE_BUILD above
 
 #endif
 
@@ -227,7 +288,7 @@ Return Value:
 
 {
     NTSTATUS Status;
-    PIRP_CONTEXT IrpContext;
+    PIRP_CONTEXT IrpContext = NULL;
     BOOLEAN TopLevel;
 
     PAGED_CODE();
@@ -245,21 +306,40 @@ Return Value:
 
     } except(NwExceptionFilter( Irp, GetExceptionInformation() )) {
 
-        //
-        //  We had some trouble trying to perform the requested
-        //  operation, so we'll abort the I/O request with
-        //  the error status that we get back from the
-        //  execption code
-        //
+        if ( IrpContext == NULL ) {
 
-        Status = NwProcessException( IrpContext, GetExceptionCode() );
+            //
+            //  If we couldn't allocate an irp context, just complete
+            //  irp without any fanfare.
+            //
+
+            Status = STATUS_INSUFFICIENT_RESOURCES;
+            Irp->IoStatus.Status = Status;
+            Irp->IoStatus.Information = 0;
+            IoCompleteRequest ( Irp, IO_NETWORK_INCREMENT );
+
+        } else {
+
+            //
+            //  We had some trouble trying to perform the requested
+            //  operation, so we'll abort the I/O request with
+            //  the error Status that we get back from the
+            //  execption code
+            //
+
+            Status = NwProcessException( IrpContext, GetExceptionCode() );
+        }
+
     }
 
-    if ( Status != STATUS_PENDING ) {
-        NwDequeueIrpContext( IrpContext, FALSE );
-    }
+    if ( IrpContext ) {
 
-    NwCompleteRequest( IrpContext, Status );
+        if ( Status != STATUS_PENDING ) {
+            NwDequeueIrpContext( IrpContext, FALSE );
+        }
+
+        NwCompleteRequest( IrpContext, Status );
+    }
 
     if ( TopLevel ) {
         NwSetTopLevelIrp( NULL );
@@ -388,8 +468,36 @@ Return Value:
             Status = GetStats( IrpContext );
             break;
 
+        case FSCTL_NWR_GET_USERNAME:
+            Status = GetUserName( IrpContext );
+            break;
+
+        case FSCTL_NWR_CHALLENGE:
+            Status = GetChallenge( IrpContext );
+            break;
+
         case FSCTL_GET_PRINT_ID:
             Status = GetPrintJobId( IrpContext );
+            break;
+
+        case FSCTL_NWR_GET_CONN_STATUS:
+            Status = GetConnStatus( IrpContext, IrpSp->FileObject );
+            break;
+
+        case FSCTL_NWR_GET_CONN_INFO:
+            Status = GetConnectionInfo( IrpContext );
+            break;
+
+        case FSCTL_NWR_GET_PREFERRED_SERVER:
+            Status = GetPreferredServer( IrpContext );
+            break;
+
+        case FSCTL_NWR_GET_CONN_PERFORMANCE:
+            Status = GetConnectionPerformance( IrpContext );
+            break;
+
+        case FSCTL_NWR_SET_SHAREBIT:
+            Status = SetShareBit( IrpContext, IrpSp->FileObject );
             break;
 
         default:
@@ -400,13 +508,20 @@ Return Value:
                 Status = UserNcp( Function, IrpContext );
                 break;
 
-            } else {
-                DebugTrace( 0, Dbg, "Invalid FS Control Code %08lx\n",
-                            IrpSp->Parameters.FileSystemControl.FsControlCode);
+            }
 
-                Status = STATUS_INVALID_DEVICE_REQUEST;
+            if (( Function >= NWR_ANY_NDS(0)) &&
+                ( Function <= NWR_ANY_NDS(0x00ff))) {
+
+                Status = DispatchNds( Function, IrpContext );
                 break;
             }
+
+            DebugTrace( 0, Dbg, "Invalid FS Control Code %08lx\n",
+                        IrpSp->Parameters.FileSystemControl.FsControlCode);
+
+            Status = STATUS_INVALID_DEVICE_REQUEST;
+            break;
 
         }
 
@@ -448,7 +563,7 @@ Return Value:
 
 {
     NTSTATUS Status;
-    PIRP_CONTEXT IrpContext;
+    PIRP_CONTEXT IrpContext = NULL;
     BOOLEAN TopLevel;
 
     PAGED_CODE();
@@ -466,21 +581,40 @@ Return Value:
 
     } except(NwExceptionFilter( Irp, GetExceptionInformation() )) {
 
-        //
-        //  We had some trouble trying to perform the requested
-        //  operation, so we'll abort the I/O request with
-        //  the error status that we get back from the
-        //  execption code
-        //
+        if ( IrpContext == NULL ) {
 
-        Status = NwProcessException( IrpContext, GetExceptionCode() );
+            //
+            //  If we couldn't allocate an irp context, just complete
+            //  irp without any fanfare.
+            //
+
+            Status = STATUS_INSUFFICIENT_RESOURCES;
+            Irp->IoStatus.Status = Status;
+            Irp->IoStatus.Information = 0;
+            IoCompleteRequest ( Irp, IO_NETWORK_INCREMENT );
+
+        } else {
+
+            //
+            //  We had some trouble trying to perform the requested
+            //  operation, so we'll abort the I/O request with
+            //  the error Status that we get back from the
+            //  execption code
+            //
+
+            Status = NwProcessException( IrpContext, GetExceptionCode() );
+        }
+
     }
 
-    if ( Status != STATUS_PENDING ) {
-        NwDequeueIrpContext( IrpContext, FALSE );
-    }
+    if ( IrpContext ) {
 
-    NwCompleteRequest(IrpContext, Status);
+        if ( Status != STATUS_PENDING ) {
+            NwDequeueIrpContext( IrpContext, FALSE );
+        }
+
+        NwCompleteRequest(IrpContext, Status);
+    }
 
     if ( TopLevel ) {
         NwSetTopLevelIrp( NULL );
@@ -609,6 +743,22 @@ NTSTATUS
 
     PAGED_CODE();
 
+#ifdef _PNP_POWER
+
+    //
+    // For PnP builds, register the bind handlers.
+    //
+
+    DebugTrace( 0 , Dbg, "Register TDI bind handlers.\n", 0 );
+
+    TdiInitialize();
+
+    return TdiRegisterNotificationHandler( HandleTdiBindMessage,
+                                           HandleTdiUnbindMessage,
+                                           &TdiBindingHandle );
+
+#endif
+
     DebugTrace(+1, Dbg, "Bind to transport\n", 0);
 
     try {
@@ -710,7 +860,200 @@ try_exit:NOTHING;
 
     DebugTrace(-1, Dbg, "Bind to transport\n", 0);
     return Status;
+
 }
+
+#ifdef _PNP_POWER
+
+VOID
+HandleTdiBindMessage(
+    IN PUNICODE_STRING DeviceName
+)
+/*+++
+
+Description:  This function is the bind handler for NetPnP
+    support.  This function is registered with TDI and is called
+    whenever a transport starts up or stops.  We watch for IPX
+    coming and going and do the appropriate thing.
+
+    See also: HandleTdiUnbindMessage()
+
+---*/
+{
+
+    NTSTATUS Status;
+    PIRP_CONTEXT IrpContext = NULL;
+    PIRP pIrp = NULL;
+
+    PAGED_CODE();
+
+    //
+    // See if this is IPX requesting a bind.  We only bind to NwLnkIpx.
+    //
+
+    if ( !RtlEqualUnicodeString( &TdiIpxDeviceName, DeviceName, TRUE ) ) {
+
+        DebugTrace( 0, Dbg, "Ignoring PnP Bind request for %wZ\n", DeviceName );
+        return;
+    }
+
+    //
+    // Make sure we aren't already bound.
+    //
+
+    if ( ( NwRcb.State != RCB_STATE_NEED_BIND ) ||
+         ( IpxHandle != NULL ) ) {
+
+        DebugTrace( 0, Dbg, "Discarding duplicate PnP bind request.\n", 0 );
+        return;
+    }
+
+    ASSERT( IpxTransportName.Buffer == NULL );
+    ASSERT( pIpxDeviceObject == NULL );
+
+    Status = DuplicateUnicodeStringWithString ( &IpxTransportName,
+                                                DeviceName,
+                                                PagedPool );
+
+    if ( !NT_SUCCESS( Status ) ) {
+
+        DebugTrace( 0, Dbg, "Failing IPX bind: Can't set device name.\n", 0 );
+        return;
+    }
+
+    //
+    // Open IPX.
+    //
+
+    Status = IpxOpen();
+
+    if ( !NT_SUCCESS( Status ) ) {
+        goto ExitWithCleanup;
+    }
+
+    //
+    //  Verify that have a large enough stack size.
+    //
+
+    if ( pIpxDeviceObject->StackSize >= FileSystemDeviceObject->StackSize) {
+
+        Status = STATUS_INVALID_PARAMETER;
+        goto ExitWithCleanup;
+    }
+
+    //
+    //  Submit a line change request.
+    //
+
+    SubmitLineChangeRequest();
+
+    //
+    // Allocate an irp and irp context.  AllocateIrpContext may raise status.
+    //
+
+    pIrp = ALLOCATE_IRP( pIpxDeviceObject->StackSize, FALSE );
+
+    if ( pIrp == NULL ) {
+
+        Status = STATUS_INSUFFICIENT_RESOURCES;
+        goto ExitWithCleanup;
+    }
+
+    try {
+
+        IrpContext = AllocateIrpContext( pIrp );
+
+    } except ( EXCEPTION_EXECUTE_HANDLER ) {
+
+        Status = STATUS_INSUFFICIENT_RESOURCES;
+        goto ExitWithCleanup;
+    }
+
+    ASSERT( IrpContext != NULL );
+
+    //
+    //  Open a handle to IPX for the permanent scb.
+    //
+
+    NwPermanentNpScb.Server.Socket = 0;
+    Status = IPX_Open_Socket( IrpContext, &NwPermanentNpScb.Server );
+    ASSERT( NT_SUCCESS( Status ) );
+
+    Status = SetEventHandler (
+                 IrpContext,
+                 &NwPermanentNpScb.Server,
+                 TDI_EVENT_RECEIVE_DATAGRAM,
+                 &ServerDatagramHandler,
+                 &NwPermanentNpScb );
+
+    ASSERT( NT_SUCCESS( Status ) );
+
+    IrpContext->pNpScb = &NwPermanentNpScb;
+
+    NwRcb.State = RCB_STATE_RUNNING;
+
+    DebugTrace( 0, Dbg, "Opened IPX for NwRdr.\n", 0 );
+
+    Status = STATUS_SUCCESS;
+
+ExitWithCleanup:
+
+    if ( !NT_SUCCESS( Status ) ) {
+
+        //
+        // If we failed, clean up our globals.
+        //
+
+        if ( pIpxDeviceObject != NULL ) {
+            IpxClose();
+            pIpxDeviceObject = NULL;
+        }
+
+        IpxHandle = NULL;
+
+        if ( IpxTransportName.Buffer != NULL ) {
+            FREE_POOL( IpxTransportName.Buffer );
+            IpxTransportName.Buffer = NULL;
+        }
+
+        DebugTrace( 0, Dbg, "Failing IPX bind request.\n", 0 );
+
+    }
+
+    if ( pIrp != NULL ) {
+        FREE_IRP( pIrp );
+    }
+
+    if ( IrpContext != NULL ) {
+        FreeIrpContext( IrpContext );
+    }
+
+    return;
+
+}
+
+VOID
+HandleTdiUnbindMessage(
+    IN PUNICODE_STRING DeviceName
+)
+/*+++
+
+Description:  This function is the unbind handler for NetPnP
+    support.  This function is registered with TDI and is called
+    whenever a transport stops.  We watch for IPX coming and going
+    and do the appropriate thing.
+
+    See also: HandleTdiBindMessage()
+
+---*/
+{
+
+    DebugTrace( 0, Dbg, "TDI unbind request ignored.  Not Supported.\n", 0 );
+    return;
+
+}
+
+#endif
 
 
 NTSTATUS
@@ -867,12 +1210,68 @@ NTSTATUS
         }
 
         //
-        //  First try to set the preferred server.
+        // We don't do anything with a preferred server change, but if we
+        // get a request to change the preferred tree and context, we
+        // validate the context.  The rest of the changes happen at the next
+        // login.
         //
 
-        if ( InputBuffer->Parameters.SetInfo.PreferredServerLength != 0 ) {
+        if ( InputBuffer->Parameters.SetInfo.PreferredServerLength > 0 &&
+             InputBuffer->Parameters.SetInfo.PreferredServer[0] == '*' ) {
 
-            //  BUGBUG  Not implemented yet.
+            UNICODE_STRING Tree, NewContext;
+            USHORT i = 0;
+
+            //
+            // Dig out the tree name.  Skip over the *.
+            //
+
+            Tree.Length = 0;
+            Tree.Buffer = InputBuffer->Parameters.SetInfo.PreferredServer + 1;
+
+            while ( i < InputBuffer->Parameters.SetInfo.PreferredServerLength ) {
+
+                if ( InputBuffer->Parameters.SetInfo.PreferredServer[i] == L'\\' ) {
+
+                    i++;
+                    Tree.Length -= sizeof( WCHAR );
+                    Tree.MaximumLength = Tree.Length;
+                    break;
+
+                } else {
+
+                   Tree.Length += sizeof( WCHAR );
+                   i++;
+
+                }
+            }
+
+            DebugTrace( 0, Dbg, "Tree: %wZ\n", &Tree );
+
+            NewContext.Length = (USHORT)InputBuffer->Parameters.SetInfo.PreferredServerLength -
+                                ( Tree.Length + (2 * sizeof( WCHAR ) ) );
+            NewContext.Buffer = &InputBuffer->Parameters.SetInfo.PreferredServer[i];
+            NewContext.MaximumLength = NewContext.Length;
+
+            //
+            // Strip off any leading period.
+            //
+
+            if ( NewContext.Buffer[0] == L'.' ) {
+
+                NewContext.Buffer++;
+                NewContext.Length -= sizeof( WCHAR );
+                NewContext.MaximumLength -= sizeof( WCHAR );
+
+            }
+
+            DebugTrace( 0, Dbg, "Context: %wZ\n", &NewContext );
+
+            Status = NdsVerifyContext( IrpContext, &Tree, &NewContext );
+
+            if ( !NT_SUCCESS( Status )) {
+                try_return( STATUS_INVALID_PARAMETER );
+            }
         }
 
         //
@@ -1357,6 +1756,10 @@ Return Value:
 
     FspProcess = PsGetCurrentProcess();
 
+#ifdef QFE_BUILD
+    StartTimer() ;
+#endif
+
     //
     // Now connect to the MUP.
     //
@@ -1407,13 +1810,27 @@ Return Value:
         return( Status );
     }
 
+#ifdef _PNP_POWER
+
+    //
+    // Unregister the bind handler with tdi.
+    //
+
+    if ( TdiBindingHandle != NULL ) {
+        TdiDeregisterNotificationHandler( TdiBindingHandle );
+        TdiBindingHandle = NULL;
+    }
+
+#endif
+
     NwRcb.State = RCB_STATE_SHUTDOWN;
 
     //
     //  Invalid all ICBs
     //
 
-    ActiveHandles = NwInvalidateAllHandles(NULL);
+    SetFlag( IrpContext->Flags, IRP_FLAG_SEND_ALWAYS );
+    ActiveHandles = NwInvalidateAllHandles(NULL, IrpContext);
 
     //
     //  To expedite shutdown, set retry count down to 2.
@@ -1425,7 +1842,6 @@ Return Value:
     //  Close all VCBs
     //
 
-    SetFlag( IrpContext->Flags, IRP_FLAG_SEND_ALWAYS );
     NwCloseAllVcbs( IrpContext );
 
     //
@@ -1460,7 +1876,7 @@ Return Value:
 
     //
     //  On shutdown, we need 0 remote handles and 2 open handles to
-    //  the redir (one for the service, and one for the MUP) ond the timer stopped.
+    //  the redir (one for the service, and one for the MUP) and the timer stopped.
     //
 
     if ( ActiveHandles == 0 && RcbOpenCount <= 2 ) {
@@ -1570,8 +1986,6 @@ Return Value:
     UNICODE_STRING FileName;
     UNICODE_STRING UnicodeUid;
     WCHAR DriveLetter;
-    PSCB Scb = NULL;
-    PVCB Vcb;
 
     NTSTATUS status;
 
@@ -1617,6 +2031,18 @@ Return Value:
         //  of create. Set up the IrpContext appropriately.
         //
 
+        IrpContext->Specific.Create.VolumeName = VolumeName;
+        IrpContext->Specific.Create.PathName = PathName;
+        IrpContext->Specific.Create.DriveLetter = DriveLetter;
+        IrpContext->Specific.Create.FullPathName = FilePathName;
+
+        RtlInitUnicodeString( &IrpContext->Specific.Create.UidConnectName, NULL );
+
+        //
+        // The irp context specific data is now zeroed out by AllocateIrpContext,
+        // so we don't have to worry about re-setting the specific data here.
+        //
+
         SeCaptureSubjectContext(&SubjectContext);
 
         IrpContext->Specific.Create.UserUid = GetUid( &SubjectContext );
@@ -1624,42 +2050,17 @@ Return Value:
         SeReleaseSubjectContext(&SubjectContext);
 
         try {
-#if 0
-            status = CreateScb( &Scb,
-                                IrpContext,
-                                &ServerName,
-                                NULL,
-                                NULL,
-                                TRUE );
-#else
-            status = CreateScb( &Scb,
-                                IrpContext,
-                                &ServerName,
-                                NULL,
-                                NULL,
-                                FALSE,
-                                FALSE );
 
             //
-            //  If we could connect to the server, then try to
-            //  find the volume.
+            // The slightly more complicated approach.  This function
+            // handles the resolution of the server/volume duple.  It
+            // may use the bindery, cached nds information, or fresh
+            // nds information.
             //
 
-            if ( NT_SUCCESS( status ) ) {
-                Vcb = NwFindVcb(
-                          IrpContext,
-                          &VolumeName,
-                          RESOURCETYPE_ANY,
-                          0,
-                          FALSE,
-                          FALSE );
-
-                if ( Vcb == NULL ) {
-                    ExRaiseStatus( STATUS_BAD_NETWORK_PATH );
-                }
-
-            }
-#endif
+            status = HandleVolumeAttach( IrpContext,
+                                         &ServerName,
+                                         &VolumeName );
 
         } except( NwExceptionFilter( Irp, GetExceptionInformation() )) {
             status = STATUS_BAD_NETWORK_PATH;
@@ -1668,14 +2069,6 @@ Return Value:
 try_exit: NOTHING;
 
     } finally {
-
-        //
-        //  Release the SCB reference (we don't need it).
-        //
-
-        if ( Scb != NULL ) {
-            NwDereferenceScb( Scb->pNpScb );
-        }
 
         RtlFreeUnicodeString(&UnicodeUid);
     }
@@ -1774,7 +2167,7 @@ Return Value:
 
             status = STATUS_INVALID_PARAMETER;
 
-            DebugTrace(-1, DEBUG_TRACE_USERNCP, "UserNcb -> %08lx\n", status );
+            DebugTrace(-1, DEBUG_TRACE_USERNCP, "UserNcp -> %08lx\n", status );
             return status;
         }
 
@@ -1791,6 +2184,14 @@ Return Value:
         IrpContext->pScb = pScb;
         IrpContext->pNpScb = IrpContext->pScb->pNpScb;
 
+        //
+        // Set the icb pointer in case the cache gets
+        // flushed because the write routines look at it.
+        //
+    
+        IrpContext->Icb = icb;    
+        AcquireFcbAndFlushCache( IrpContext, icb->NpFcb );
+
     } else {
 
         DebugTrace(0, DEBUG_TRACE_USERNCP, "Incorrect nodeTypeCode %x\n", nodeTypeCode);
@@ -1798,7 +2199,7 @@ Return Value:
 
         status = STATUS_INVALID_PARAMETER;
 
-        DebugTrace(-1, DEBUG_TRACE_USERNCP, "UserNcb -> %08lx\n", status );
+        DebugTrace(-1, DEBUG_TRACE_USERNCP, "UserNcp -> %08lx\n", status );
         return status;
     }
 
@@ -1809,13 +2210,13 @@ Return Value:
             return( status );
         }
 
-        DebugTrace(-1, DEBUG_TRACE_USERNCP, "UserNcb Pid = %02lx\n", icb->Pid );
+        DebugTrace(-1, DEBUG_TRACE_USERNCP, "UserNcp Pid = %02lx\n", icb->Pid );
         NwSetEndOfJobRequired(icb->Pid);
 
     }
 
     //
-    //  We now know where to send the NCB.  Lock down the users buffers and
+    //  We now know where to send the NCP.  Lock down the users buffers and
     //  build the Mdls required to transfer the data.
     //
 
@@ -2048,7 +2449,7 @@ try_exit: NOTHING;
                      UserNcpCallback,
                      "F", Function);
 
-    } else if ( InputBufferLength < MAX_DATA - sizeof( NCP_REQUEST ) - 2 ) {
+    } else if ( InputBufferLength < MAX_SEND_DATA - sizeof( NCP_REQUEST ) - 2 ) {
 
         //
         //  Send the request by copying it to our send buffer.
@@ -2147,7 +2548,7 @@ try_exit: NOTHING;
         }
     }
 
-    DebugTrace(-1, DEBUG_TRACE_USERNCP, "UserNcb -> %08lx\n", status );
+    DebugTrace(-1, DEBUG_TRACE_USERNCP, "UserNcp -> %08lx\n", status );
     return status;
 }
 
@@ -2245,7 +2646,7 @@ Return Value:
             //  Reset the file offset.
             //
 
-            Icb->FileObject->CurrentByteOffset = LiFromUlong( 0 );
+            Icb->FileObject->CurrentByteOffset.QuadPart = 0;
 
         } else if (IrpContext->Specific.FileSystemControl.Subfunction == NCP_CREATE_QUEUE_JOB ) {
 
@@ -2271,7 +2672,7 @@ Return Value:
             //  Reset the file offset.
             //
 
-            Icb->FileObject->CurrentByteOffset = LiFromUlong( 0 );
+            Icb->FileObject->CurrentByteOffset.QuadPart = 0;
 
         } else if ((IrpContext->Specific.FileSystemControl.Subfunction == NCP_SUBFUNC_7F) ||
                    (IrpContext->Specific.FileSystemControl.Subfunction == NCP_CLOSE_FILE_AND_START_JOB )) {
@@ -2295,6 +2696,15 @@ Return Value:
 
             if ( NT_SUCCESS( Status ) ) {
 
+
+                //
+                // Set the reconnect attempt flag so that we don't try to
+                // run this irp context through the reconnect logic.  Doing
+                // this could deadlock the worker thread that's handling this
+                // fsp side request.
+                //
+
+                SetFlag( IrpContext->Flags, IRP_FLAG_RECONNECT_ATTEMPT );
                 IrpContext->PostProcessRoutine = FspCompleteLogin;
                 Status = NwPostToFsp( IrpContext, TRUE );
                 return Status;
@@ -2303,8 +2713,8 @@ Return Value:
                 if (IrpContext->pNpScb->pScb->UserName.Buffer) {
                    FREE_POOL( IrpContext->pNpScb->pScb->UserName.Buffer );
                 }
-                IrpContext->pNpScb->pScb->UserName.Buffer = NULL;
-                IrpContext->pNpScb->pScb->Password.Buffer = NULL;
+                RtlInitUnicodeString( &IrpContext->pNpScb->pScb->UserName, NULL);
+                RtlInitUnicodeString( &IrpContext->pNpScb->pScb->Password, NULL);
             }
         }
     }
@@ -2441,7 +2851,7 @@ Return Value:
 
             Vcb = DriveMapTable[DriveName[0] - 'A'];
 
-        } else if ( wcsnicmp( DriveName, L"LPT", 3 ) == 0 &&
+        } else if ( _wcsnicmp( DriveName, L"LPT", 3 ) == 0 &&
                     DriveName[3] >= '1' && DriveName[3] <= '9' &&
                     DriveNameLength == sizeof( L"LPTX" ) - sizeof( L'\0' ) ) {
 
@@ -2590,10 +3000,25 @@ Return Value:
         //
 
         if ( NodeTypeCode == NW_NTC_ICB_SCB ) {
-            DebugTrace( 0, Dbg, "Delete connection to SCB %X\n", Icb->SuperType.Scb );
 
-            Status = TreeDisconnectScb( IrpContext, Icb->SuperType.Scb );
-            DebugTrace(-1, Dbg, "DeleteConnection -> %08lx\n", Status );
+
+            if ( Icb->IsTreeHandle ) {
+
+                //
+                // Do an NDS logoff.  This will release the RCB.
+                //
+
+                Status = NdsLogoff( IrpContext );
+                DebugTrace( 0, Dbg, "Nds tree logoff -> %08lx\n", Status );
+
+            } else {
+
+                DebugTrace( 0, Dbg, "Delete connection to SCB %X\n", Icb->SuperType.Scb );
+
+                Status = TreeDisconnectScb( IrpContext, Icb->SuperType.Scb );
+                DebugTrace(-1, Dbg, "DeleteConnection -> %08lx\n", Status );
+
+            }
 
             try_return( NOTHING );
 
@@ -2643,7 +3068,7 @@ Return Value:
                 ClearFlag( Vcb->Flags, VCB_FLAG_EXPLICIT_CONNECTION );
                 --Vcb->Scb->OpenFileCount;
 
-                NwDereferenceVcb( Vcb, IrpContext );
+                NwDereferenceVcb( Vcb, IrpContext, TRUE );
             }
         }
 
@@ -2651,8 +3076,17 @@ Return Value:
 
     } finally {
 
-        NwReleaseRcb( &NwRcb );
-        NwDequeueIrpContext( IrpContext, FALSE );
+
+        //
+        // An NDS logoff will have already freed the RCB
+        // and dequeued the irp context.
+        //
+
+        if ( ! ( Icb->IsTreeHandle ) ) {
+            NwReleaseRcb( &NwRcb );
+            NwDequeueIrpContext( IrpContext, FALSE );
+        }
+
 
     }
 
@@ -2809,7 +3243,6 @@ Return Value:
                 else
                     ShareType = RESOURCETYPE_DISK;
             }
-
 
             if ( Vcb->DriveLetter >= L'A' && Vcb->DriveLetter <= L'Z' ) {
                 Path.Buffer = Vcb->Name.Buffer + 3;
@@ -3409,7 +3842,7 @@ NTSTATUS
         Status = ExchangeWithWait (
                      IrpContext,
                      SynchronousResponseCallback,
-                     "SbbU",
+                     "SbbJ",
                      NCP_DIR_FUNCTION, NCP_ALLOCATE_TEMP_DIR_HANDLE,
                      Dcb->Vcb->Specific.Disk.Handle,
                      0,
@@ -3440,4 +3873,2058 @@ NTSTATUS
 
     DebugTrace(-1, Dbg, "GetRemoteHandle -> %08lx\n", Status );
     return Status;
+}
+
+
+NTSTATUS
+GetUserName(
+    IN PIRP_CONTEXT IrpContext
+    )
+
+/*++
+
+Routine Description:
+
+    This routine gets the UserName that would be used to connect to a particular
+    server.
+
+    If there are credentials specific to this connection use them
+    otherwise use the logon credentials.
+
+Arguments:
+
+    IN PIRP_CONTEXT IrpContext - Io Request Packet for request
+
+Return Value:
+
+NTSTATUS
+
+--*/
+
+{
+
+    NTSTATUS Status = STATUS_PENDING;
+    PIRP Irp = IrpContext->pOriginalIrp;
+    PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation(Irp);
+    PWSTR InputBuffer = IrpSp->Parameters.FileSystemControl.Type3InputBuffer;
+    ULONG InputBufferLength = IrpSp->Parameters.FileSystemControl.InputBufferLength;
+    ULONG OutputBufferLength = IrpSp->Parameters.DeviceIoControl.OutputBufferLength;
+    PWSTR OutputBuffer;
+    SECURITY_SUBJECT_CONTEXT SubjectContext;
+    LARGE_INTEGER Uid;
+    UNICODE_STRING UidServer;
+    UNICODE_STRING ServerName;
+    UNICODE_STRING ConvertedName;
+    PUNICODE_STRING pUserName;
+    PSCB pScb;
+    PLOGON pLogon;
+    BOOLEAN CredentialsHeld = FALSE;
+    BOOLEAN FailedTreeLookup = FALSE;
+    PNDS_SECURITY_CONTEXT pNdsCredentials;
+
+    PAGED_CODE();
+
+    DebugTrace(+1, Dbg, "GetUserName\n", 0);
+
+    SeCaptureSubjectContext(&SubjectContext);
+    Uid = GetUid( &SubjectContext );
+    SeReleaseSubjectContext(&SubjectContext);
+
+    ServerName.Buffer = InputBuffer;
+    ServerName.MaximumLength = (USHORT)InputBufferLength;
+    ServerName.Length = (USHORT)InputBufferLength;
+    Status = MakeUidServer( &UidServer, &Uid, &ServerName );
+
+    if (!NT_SUCCESS(Status)) {
+        DebugTrace(-1, Dbg, "GetUserName -> %08lx\n", Status );
+        return(Status);
+    }
+
+    DebugTrace( 0, Dbg, " ->UidServer = \"%wZ\"\n", &UidServer );
+
+    //
+    // Get the login for this user.
+    //
+
+    NwDequeueIrpContext( IrpContext, FALSE );
+    NwAcquireExclusiveRcb( &NwRcb, TRUE );
+    pLogon = FindUser( &Uid, FALSE);
+    NwReleaseRcb( &NwRcb );
+
+    //
+    // First try this name as a server.  Avoid FindScb creating a
+    // connection to the server if one doesn't exist already.
+    //
+
+    SetFlag( IrpContext->Flags, IRP_FLAG_NOCONNECT );
+    NwFindScb( &pScb, IrpContext, &UidServer, &ServerName );
+
+    pUserName = NULL;
+
+    //
+    // Look for bindery server name, or tree login name.
+    //
+
+    if ( pScb != NULL ) {
+
+        if ( pScb->UserName.Buffer != NULL ) {
+
+            pUserName = &pScb->UserName;
+
+        } else if ( pScb->NdsTreeName.Buffer != NULL &&
+                    pScb->NdsTreeName.Length > 0 ) {
+
+            Status = NdsLookupCredentials( &pScb->NdsTreeName,
+                                           pLogon,
+                                           &pNdsCredentials,
+                                           CREDENTIAL_READ,
+                                           FALSE );
+
+            if ( NT_SUCCESS( Status ) ) {
+
+                CredentialsHeld = TRUE;
+
+                if ( pNdsCredentials->Credential ) {
+
+                    //
+                    // If we have login data, get the user name.
+                    //
+
+                    ConvertedName.Length = pNdsCredentials->Credential->userNameLength -
+                                           sizeof( WCHAR );
+                    ConvertedName.MaximumLength = ConvertedName.Length;
+                    ConvertedName.Buffer = (USHORT *)
+                        ( ((BYTE *) pNdsCredentials->Credential ) +
+                                    sizeof( NDS_CREDENTIAL ) +
+                                    pNdsCredentials->Credential->optDataSize );
+
+                    pUserName = &ConvertedName;
+
+                } else {
+
+                    //
+                    // If there's no credential data, we're not logged in.
+                    //
+
+                    FailedTreeLookup = TRUE;
+                }
+
+            } else {
+
+                FailedTreeLookup = TRUE;
+            }
+
+        }
+
+    }
+
+    //
+    // If it wasn't a server and we haven't already tried a tree, do so now.
+    //
+
+    if ( pUserName == NULL &&
+         !FailedTreeLookup )  {
+
+        Status = NdsLookupCredentials( &ServerName,
+                                       pLogon,
+                                       &pNdsCredentials,
+                                       CREDENTIAL_READ,
+                                       FALSE );
+
+        if ( NT_SUCCESS( Status ) ) {
+
+            CredentialsHeld = TRUE;
+
+            if ( pNdsCredentials->Credential ) {
+
+                //
+                // If we've logged in, get the user name.
+                //
+
+                ConvertedName.Length = pNdsCredentials->Credential->userNameLength -
+                                       sizeof( WCHAR );
+                ConvertedName.MaximumLength = ConvertedName.Length;
+                ConvertedName.Buffer = (USHORT *)
+                    ( ((BYTE *) pNdsCredentials->Credential ) +
+                                sizeof( NDS_CREDENTIAL ) +
+                                pNdsCredentials->Credential->optDataSize );
+
+                pUserName = &ConvertedName;
+
+            }
+        }
+
+    }
+
+    //
+    // If we still don't know, return the default name.
+    //
+
+    if ( pUserName == NULL &&
+         pLogon != NULL ) {
+
+        pUserName = &pLogon->UserName;
+    }
+
+    FREE_POOL(UidServer.Buffer);
+
+    if ( pUserName ) {
+
+        DebugTrace( 0, Dbg, "Get User Name: %wZ\n", pUserName );
+
+        try {
+
+            if (pUserName->Length > OutputBufferLength) {
+
+                DebugTrace(-1, Dbg, "GetUserName -> %08lx\n", STATUS_BUFFER_TOO_SMALL );
+                Status = STATUS_BUFFER_TOO_SMALL;
+                goto ReleaseAndExit;
+            }
+
+            NwMapUserBuffer( Irp, KernelMode, (PVOID *)&OutputBuffer );
+
+            IrpContext->pOriginalIrp->IoStatus.Information = pUserName->Length;
+            RtlMoveMemory( OutputBuffer, pUserName->Buffer, pUserName->Length);
+
+            Status = STATUS_SUCCESS;
+
+        } except ( EXCEPTION_EXECUTE_HANDLER ) {
+
+            Status = STATUS_INVALID_PARAMETER;
+        }
+    }
+
+ReleaseAndExit:
+
+    if ( pScb ) {
+        NwDereferenceScb( pScb->pNpScb );
+    }
+
+    DebugTrace(-1, Dbg, "GetUserName -> %08lx\n", Status );
+
+    if ( CredentialsHeld ) {
+        NwReleaseCredList( pLogon );
+    }
+
+    return Status;
+}
+
+
+NTSTATUS
+GetChallenge(
+    IN PIRP_CONTEXT IrpContext
+    )
+
+/*++
+
+Routine Description:
+
+    This routine builds the challenge and session key for rpc using the
+    credentials stored in the redirector. The Rpc client can supply a
+    password. This allows the redirector to keep the algorithm in one
+    place.
+
+    If a password is supplied then use that, if there is a password on this
+    specific connection use that, otherwise use the logon credentials.
+
+Arguments:
+
+    IN PIRP_CONTEXT IrpContext - Io Request Packet for request
+
+Return Value:
+
+NTSTATUS
+
+--*/
+
+{
+
+    NTSTATUS Status = STATUS_PENDING;
+    PIRP Irp = IrpContext->pOriginalIrp;
+    PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation(Irp);
+    PNWR_GET_CHALLENGE_REQUEST InputBuffer = Irp->AssociatedIrp.SystemBuffer;
+    ULONG InputBufferLength = IrpSp->Parameters.FileSystemControl.InputBufferLength;
+    ULONG OutputBufferLength = IrpSp->Parameters.DeviceIoControl.OutputBufferLength;
+    PNWR_GET_CHALLENGE_REPLY OutputBuffer = Irp->AssociatedIrp.SystemBuffer;
+    OEM_STRING Password;
+    PSCB pScb;
+    PLOGON pLogon;
+    BOOLEAN RcbHeld = FALSE;
+    SECURITY_SUBJECT_CONTEXT SubjectContext;
+    LARGE_INTEGER ProcessUid;
+
+    PAGED_CODE();
+
+    DebugTrace(+1, Dbg, "GetChallenge\n", 0);
+
+    if ((InputBufferLength <
+            (FIELD_OFFSET(NWR_GET_CHALLENGE_REQUEST,ServerNameorPassword[0])) +
+            InputBuffer->ServerNameorPasswordLength)) {
+
+        return(STATUS_INVALID_PARAMETER);
+    }
+
+    //
+    //  Only allow processes running in the system context to call this api to prevent
+    //  password attacks.
+    //
+    SeCaptureSubjectContext(&SubjectContext);
+    SeQueryAuthenticationIdToken(&SubjectContext.PrimaryToken, (PLUID)&ProcessUid);
+    SeReleaseSubjectContext(&SubjectContext);
+
+    //  FIXFIX surely there's a define for 3e7 somewhere.
+
+    if (ProcessUid.QuadPart != 0x3e7) {
+        return(STATUS_ACCESS_DENIED);
+    }
+
+    Password.Buffer = NULL;
+
+    if ( InputBuffer->Flags == CHALLENGE_FLAGS_SERVERNAME ) {
+
+        PUNICODE_STRING pPassword;
+        UNICODE_STRING ServerName;
+        LARGE_INTEGER Uid;
+        UNICODE_STRING UidServer;
+
+        if (InputBuffer->ServerNameorPasswordLength == 0) {
+            return(STATUS_INVALID_PARAMETER);
+        }
+
+        //
+        //  We have to supply the password from the redirector
+        //
+
+        SeCaptureSubjectContext(&SubjectContext);
+        Uid = GetUid( &SubjectContext );
+        SeReleaseSubjectContext(&SubjectContext);
+
+        ServerName.Buffer = (PWSTR)((PUCHAR)InputBuffer +
+            FIELD_OFFSET(NWR_GET_CHALLENGE_REQUEST,ServerNameorPassword[0]));
+        ServerName.MaximumLength = (USHORT)InputBuffer->ServerNameorPasswordLength;
+        ServerName.Length = (USHORT)InputBuffer->ServerNameorPasswordLength;
+
+        Status = MakeUidServer( &UidServer, &Uid, &ServerName );
+
+        if (!NT_SUCCESS(Status)) {
+            DebugTrace(-1, Dbg, "GetChallenge -> %08lx\n", Status );
+            return(Status);
+        }
+
+        DebugTrace( 0, Dbg, " ->UidServer = \"%wZ\"\n", &UidServer );
+
+        //
+        //  Avoid FindScb creating a connection to the server if one
+        //  doesn't exist already.
+        //
+
+        SetFlag( IrpContext->Flags, IRP_FLAG_NOCONNECT );
+        NwFindScb( &pScb, IrpContext, &UidServer, &ServerName );
+
+        try {
+
+            if ((pScb != NULL) &&
+                (pScb->Password.Buffer != NULL)) {
+
+                pPassword = &pScb->Password;
+
+            } else {
+
+                //
+                //  Use default credentials for this UID
+                //
+
+                NwDequeueIrpContext( IrpContext, FALSE );
+                RcbHeld = TRUE;
+                NwAcquireExclusiveRcb( &NwRcb, TRUE );
+                pLogon = FindUser( &Uid, FALSE);
+
+                if (pLogon != NULL ) {
+
+                    pPassword = &pLogon->PassWord;
+
+                } else {
+                    DebugTrace(-1, Dbg, "GetChallenge -> %08lx\n", STATUS_ACCESS_DENIED );
+                    return( STATUS_ACCESS_DENIED );
+                }
+            }
+
+            if (pPassword->Length != 0) {
+                Status = RtlUpcaseUnicodeStringToOemString( &Password, pPassword, TRUE );
+                if (!NT_SUCCESS(Status)) {
+                    DebugTrace(-1, Dbg, "GetChallenge -> %08lx\n", Status );
+                    return( Status );
+                }
+            } else {
+                Password.Buffer = "";
+                Password.Length = Password.MaximumLength = 0;
+            }
+
+        } finally {
+
+            if (RcbHeld) {
+                NwReleaseRcb( &NwRcb );
+            }
+
+            if (pScb != NULL) {
+                NwDereferenceScb( pScb->pNpScb );
+            }
+
+            FREE_POOL(UidServer.Buffer);
+        }
+
+    } else {
+
+        UNICODE_STRING LocalPassword;
+
+        LocalPassword.Buffer = (PWSTR)((PUCHAR)InputBuffer +
+            FIELD_OFFSET(NWR_GET_CHALLENGE_REQUEST,ServerNameorPassword[0]));
+        LocalPassword.MaximumLength = (USHORT)InputBuffer->ServerNameorPasswordLength;
+        LocalPassword.Length = (USHORT)InputBuffer->ServerNameorPasswordLength;
+
+        if (LocalPassword.Length != 0) {
+            Status = RtlUpcaseUnicodeStringToOemString( &Password, &LocalPassword, TRUE );
+            if (!NT_SUCCESS(Status)) {
+                DebugTrace(-1, Dbg, "GetChallenge -> %08lx\n", Status );
+                return( Status );
+            }
+        } else {
+            Password.Buffer = "";
+            Password.Length = Password.MaximumLength = 0;
+        }
+    }
+
+    DebugTrace( 0, Dbg, " ->Password = \"%Z\"\n", &Password );
+
+    try {
+        RespondToChallenge( (PUCHAR)&InputBuffer->ObjectId, &Password, InputBuffer->Challenge, OutputBuffer->Challenge);
+
+    } finally {
+
+        if ( Password.Length > 0 ) {
+
+            RtlFreeAnsiString( &Password );
+        }
+    }
+
+    Irp->IoStatus.Information = sizeof(NWR_GET_CHALLENGE_REPLY);
+    Status = STATUS_SUCCESS;
+
+    DebugTrace(-1, Dbg, "GetChallenge -> %08lx\n", Status );
+    return Status;
+}
+
+NTSTATUS
+WriteConnStatusEntry(
+    PSCB pConnectionScb,
+    PBYTE pbUserBuffer,
+    DWORD dwBufferLen,
+    DWORD *pdwBytesWritten,
+    DWORD *pdwBytesNeeded,
+    BOOLEAN fCallerScb
+    )
+{
+
+    NTSTATUS Status;
+    PLOGON pLogon;
+    PNDS_SECURITY_CONTEXT pNdsContext;
+    BOOLEAN fHoldingCredentials = FALSE;
+    PUNICODE_STRING puUserName = NULL;
+    UNICODE_STRING CredentialName;
+    UNICODE_STRING ServerName;
+    PCONN_STATUS pStatus;
+    DWORD dwBytesNeeded;
+    PBYTE pbStrPtr;
+    DWORD dwAllowedHandles;
+
+    //
+    // If this is an NDS connection, get the credentials.
+    //
+
+    if ( ( pConnectionScb->MajorVersion > 3 ) &&
+         ( pConnectionScb->UserName.Length == 0 ) ) {
+
+        NwAcquireExclusiveRcb( &NwRcb, TRUE );
+        pLogon = FindUser( &(pConnectionScb->UserUid), FALSE );
+        NwReleaseRcb( &NwRcb );
+
+        if ( pLogon ) {
+
+            Status = NdsLookupCredentials( &(pConnectionScb->NdsTreeName),
+                                           pLogon,
+                                           &pNdsContext,
+                                           CREDENTIAL_READ,
+                                           FALSE );
+
+            if ( NT_SUCCESS( Status ) ) {
+
+                fHoldingCredentials = TRUE;
+
+                if ( pNdsContext->Credential != NULL ) {
+
+                    CredentialName.Length = pNdsContext->Credential->userNameLength -
+                                            sizeof( WCHAR );
+                    CredentialName.MaximumLength = CredentialName.Length;
+                    CredentialName.Buffer = (USHORT *)
+                        ( ((BYTE *) pNdsContext->Credential ) +
+                          sizeof( NDS_CREDENTIAL ) +
+                          pNdsContext->Credential->optDataSize );
+
+                    puUserName = &CredentialName;
+                }
+
+            }
+        }
+
+    } else {
+
+       if ( pConnectionScb->UserName.Length != 0 ) {
+           puUserName = &(pConnectionScb->UserName);
+       } else {
+           puUserName = NULL;
+       }
+
+    }
+
+    DebugTrace( 0, Dbg, "WriteConnStatus: UserName %wZ\n", puUserName );
+
+    //
+    // Strip off the uid from the server name.
+    //
+
+    ServerName.Length = (pConnectionScb->UidServerName).Length;
+    ServerName.Buffer = (pConnectionScb->UidServerName).Buffer;
+
+    while ( ServerName.Length ) {
+
+       if ( ServerName.Buffer[0] == L'\\' ) {
+
+           ServerName.Length -= sizeof( WCHAR );
+           ServerName.Buffer += 1;
+           break;
+       }
+
+       ServerName.Length -= sizeof( WCHAR );
+       ServerName.Buffer += 1;
+
+    }
+
+    DebugTrace( 0, Dbg, "WriteConnStatus: ServerName %wZ\n", &ServerName );
+
+    //
+    // Do we have enough space?  Don't forget that we have to
+    // NULL terminate the WCHAR strings.
+    //
+
+    dwBytesNeeded = sizeof( CONN_STATUS );
+
+    dwBytesNeeded += ( ServerName.Length + sizeof( WCHAR ) );
+
+    if ( pConnectionScb->NdsTreeName.Length ) {
+        dwBytesNeeded += ( pConnectionScb->NdsTreeName.Length + sizeof( WCHAR ) );
+    }
+
+    if ( puUserName ) {
+        dwBytesNeeded += ( puUserName->Length + sizeof( WCHAR ) );
+    }
+
+    //
+    // Pad the end to make sure all structures are aligned.
+    //
+
+    dwBytesNeeded = ROUNDUP4( dwBytesNeeded );
+
+    if ( dwBytesNeeded > dwBufferLen ) {
+
+        *pdwBytesNeeded = dwBytesNeeded;
+        Status = STATUS_BUFFER_TOO_SMALL;
+        goto ExitWithCleanup;
+    }
+
+    //
+    // Fill in the CONN_STATUS structure.
+    //
+
+    try {
+
+        pStatus = (PCONN_STATUS)pbUserBuffer;
+        pbStrPtr = pbUserBuffer + sizeof( CONN_STATUS );
+
+        //
+        // We always have a server name.
+        //
+
+        pStatus->pszServerName = (PWSTR) pbStrPtr;
+        pbStrPtr += ( ServerName.Length + sizeof( WCHAR ) );
+
+        //
+        // Fill in the user name if applicable.
+        //
+
+        if ( puUserName ) {
+
+            pStatus->pszUserName = (PWSTR) pbStrPtr;
+            pbStrPtr += ( puUserName->Length + sizeof( WCHAR ) );
+
+        } else {
+
+            pStatus->pszUserName = NULL;
+        }
+
+        //
+        // Fill in the tree name if applicable.
+        //
+
+        if ( pConnectionScb->NdsTreeName.Length ) {
+
+            pStatus->pszTreeName = (PWSTR) pbStrPtr;
+
+        } else {
+
+            pStatus->pszTreeName = NULL;
+        }
+
+        //
+        // Fill in the connection number if applicable.
+        //
+
+        if ( ( pConnectionScb->pNpScb->State == SCB_STATE_IN_USE ) ||
+             ( pConnectionScb->pNpScb->State == SCB_STATE_LOGIN_REQUIRED ) ) {
+
+            pStatus->nConnNum = (DWORD)(pConnectionScb->pNpScb->ConnectionNo);
+
+        } else {
+
+            pStatus->nConnNum = 0;
+
+        }
+
+        //
+        // Copy the user name over.
+        //
+
+        if ( puUserName ) {
+
+            RtlCopyMemory( (PBYTE)(pStatus->pszUserName),
+                           (PBYTE)(puUserName->Buffer),
+                           puUserName->Length );
+            *(pStatus->pszUserName + (puUserName->Length / sizeof( WCHAR ))) = L'\0';
+
+        }
+
+        //
+        // Set the NDS flag and authentication fields.
+        //
+
+        if ( ( pConnectionScb->MajorVersion > 3 ) &&
+             ( pConnectionScb->UserName.Length == 0 ) ) {
+
+            pStatus->fNds = TRUE;
+
+            if ( pConnectionScb->pNpScb->State == SCB_STATE_IN_USE ) {
+
+                if ( ( pConnectionScb->VcbCount ) || ( pConnectionScb->OpenNdsStreams ) ) {
+                    pStatus->dwConnType = NW_CONN_NDS_AUTHENTICATED_LICENSED;
+                } else {
+                    pStatus->dwConnType = NW_CONN_NDS_AUTHENTICATED_NO_LICENSE;
+                }
+
+            } else if ( pConnectionScb->pNpScb->State == SCB_STATE_LOGIN_REQUIRED ) {
+
+                pStatus->dwConnType = NW_CONN_NOT_AUTHENTICATED;
+
+            } else {
+
+                pStatus->dwConnType = NW_CONN_DISCONNECTED;
+
+            }
+
+        } else {
+
+            pStatus->fNds = FALSE;
+
+            if ( pConnectionScb->pNpScb->State == SCB_STATE_IN_USE ) {
+
+                pStatus->dwConnType = NW_CONN_BINDERY_LOGIN;
+
+            } else if ( pConnectionScb->pNpScb->State == SCB_STATE_LOGIN_REQUIRED ) {
+
+               pStatus->dwConnType = NW_CONN_NOT_AUTHENTICATED;
+
+            } else {
+
+               pStatus->dwConnType = NW_CONN_DISCONNECTED;
+
+            }
+
+        }
+
+        //
+        // Copy over the tree name.
+        //
+
+        if ( pConnectionScb->NdsTreeName.Length ) {
+
+            RtlCopyMemory( (PBYTE)(pStatus->pszTreeName),
+                           (PBYTE)(pConnectionScb->NdsTreeName.Buffer),
+                           pConnectionScb->NdsTreeName.Length );
+            *( pStatus->pszTreeName +
+               ( pConnectionScb->NdsTreeName.Length / sizeof( WCHAR ) ) ) = L'\0';
+
+        } else {
+
+            pStatus->pszTreeName = NULL;
+        }
+
+        //
+        // Copy the server name over.
+        //
+
+        RtlCopyMemory( (PBYTE)(pStatus->pszServerName),
+                       (PBYTE)(ServerName.Buffer),
+                       ServerName.Length );
+        *(pStatus->pszServerName + (ServerName.Length / sizeof( WCHAR ))) = L'\0';
+
+        //
+        // Set the preferred server field if this is a preferred server
+        // and there are no explicit uses for the connection.  If the
+        // fCallerScb parameter is TRUE, then this SCB has a handle from
+        // the caller of the API and we have to make an allowance for
+        // that handle. Yes, this is kind of ugly.
+        //
+
+        if ( fCallerScb ) {
+            dwAllowedHandles = 1;
+        } else {
+            dwAllowedHandles = 0;
+        }
+
+        if ( ( pConnectionScb->PreferredServer ) &&
+             ( pConnectionScb->OpenFileCount == 0 ) &&
+             ( pConnectionScb->IcbCount == dwAllowedHandles ) ) {
+
+            pStatus->fPreferred = TRUE;
+
+        } else {
+
+            pStatus->fPreferred = FALSE;
+        }
+
+        //
+        // Fill out the length.
+        //
+
+        pStatus->dwTotalLength = dwBytesNeeded;
+        *pdwBytesWritten = dwBytesNeeded;
+        Status = STATUS_SUCCESS;
+
+
+    } except ( EXCEPTION_EXECUTE_HANDLER ) {
+
+        Status = GetExceptionCode();
+        DebugTrace( 0, Dbg, "Exception %08lx accessing user mode buffer.\n", Status );
+        goto ExitWithCleanup;
+
+    }
+
+ExitWithCleanup:
+
+    if ( fHoldingCredentials ) {
+        NwReleaseCredList( pLogon );
+    }
+
+    return Status;
+}
+
+NTSTATUS
+GetConnStatus(
+    IN PIRP_CONTEXT IrpContext,
+    IN PFILE_OBJECT FileObject
+    )
+/*++
+
+    Get the connection status for the described connection.
+    The following connection requests are valid:
+
+    Server (e.g. "MARS312") - returns a single connection
+        status structure for this server if the user has a
+        connection to the server.
+
+    Tree (e.g. "*MARSDEV") - returns a connection status
+        structure for every server in the tree that the user
+        has a connection to.
+
+    All Connections (e.g. "") - returns a connection status
+        structure for every server that the user has a
+        connection to.
+
+--*/
+{
+
+    NTSTATUS Status = STATUS_SUCCESS;
+
+    PIRP Irp = IrpContext->pOriginalIrp;
+    PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation(Irp);
+
+    PNWR_REQUEST_PACKET InputBuffer;
+    ULONG InputBufferLength;
+    BYTE *OutputBuffer;
+    ULONG OutputBufferLength;
+
+    SECURITY_SUBJECT_CONTEXT SubjectContext;
+    LARGE_INTEGER Uid;
+
+    PLIST_ENTRY ListEntry;
+    UNICODE_STRING ConnectionName, UidServer;
+    BOOL fTreeConnections = FALSE;
+    BOOL fServerConnection = FALSE;
+    BOOL OwnRcb = FALSE;
+    PUNICODE_PREFIX_TABLE_ENTRY PrefixEntry;
+    DWORD dwBytesWritten, dwBytesNeeded;
+    KIRQL OldIrql;
+    PSCB pScb;
+    PNONPAGED_SCB pNpScb;
+    DWORD dwReturned = 0;
+    ULONG SequenceNumber = 0;
+
+    NODE_TYPE_CODE nodeTypeCode;
+    PICB pIcb;
+    PSCB pCallerScb;
+    PVOID fsContext, fsContext2;
+
+    //
+    // Get the appropriate buffers.
+    //
+
+    InputBuffer = (PNWR_REQUEST_PACKET) IrpSp->Parameters.FileSystemControl.Type3InputBuffer;
+    InputBufferLength = IrpSp->Parameters.FileSystemControl.InputBufferLength;
+    OutputBufferLength = IrpSp->Parameters.DeviceIoControl.OutputBufferLength;
+    NwMapUserBuffer( Irp, KernelMode, (PVOID *)&OutputBuffer );
+
+    //
+    // Figure out who this request applies to.
+    //
+
+    SeCaptureSubjectContext(&SubjectContext);
+    Uid = GetUid( &SubjectContext );
+    SeReleaseSubjectContext(&SubjectContext);
+
+    RtlInitUnicodeString( &ConnectionName, NULL );
+    RtlInitUnicodeString( &UidServer, NULL );
+
+    //
+    // Figure out who the caller of this routine is so we know to
+    // ignore their handle when deciding what to return.
+    //
+
+    nodeTypeCode = NwDecodeFileObject( FileObject, &fsContext, &fsContext2 );
+
+    if ( nodeTypeCode == NW_NTC_ICB_SCB ) {
+
+       pIcb = (PICB) fsContext2;
+       pCallerScb = pIcb->SuperType.Scb;
+       DebugTrace( 0, Dbg, "GetConnStatus called by handle on %08lx\n", pCallerScb );
+
+    } else {
+
+        pCallerScb = NULL;
+        DebugTrace( 0, Dbg, "Couldn't figure out who called us.\n", 0 );
+    }
+
+    //
+    //
+    // Figure out which connections we're looking for.
+    //
+
+    try {
+
+        if ( InputBuffer->Parameters.GetConnStatus.ConnectionNameLength != 0 ) {
+
+            if ( InputBuffer->Parameters.GetConnStatus.ConnectionName[0] == L'*' ) {
+
+                ConnectionName.Buffer = &(InputBuffer->Parameters.GetConnStatus.ConnectionName[1]);
+                ConnectionName.Length = (USHORT)
+                    ( InputBuffer->Parameters.GetConnStatus.ConnectionNameLength -
+                    sizeof( WCHAR ) );
+                ConnectionName.MaximumLength = ConnectionName.Length;
+
+                fTreeConnections = TRUE;
+
+                DebugTrace( 0, Dbg, "GetConnStatus: Tree is %wZ\n", &ConnectionName );
+
+            } else {
+
+                ConnectionName.Buffer = InputBuffer->Parameters.GetConnStatus.ConnectionName;
+                ConnectionName.Length = (USHORT)
+                    (InputBuffer->Parameters.GetConnStatus.ConnectionNameLength);
+                ConnectionName.MaximumLength = ConnectionName.Length;
+
+                fServerConnection = TRUE;
+
+                Status = MakeUidServer( &UidServer, &Uid, &ConnectionName );
+                if ( !NT_SUCCESS( Status )) {
+                    return Status;
+                }
+
+                DebugTrace( 0, Dbg, "GetConnStatus: Server is %wZ\n", &UidServer );
+            }
+
+        } else {
+
+            DebugTrace( 0, Dbg, "GetConnectionStatus: Enumerate all connections.\n", 0 );
+
+        }
+
+    } except ( EXCEPTION_EXECUTE_HANDLER ) {
+
+        DebugTrace( 0, Dbg, "Bad input buffer in GetConnStatus.\n" , 0 );
+
+    }
+
+    //
+    // If this is a server connection, find and return it.
+    //
+
+    if ( fServerConnection ) {
+
+        NwAcquireExclusiveRcb( &NwRcb, TRUE );
+        OwnRcb = TRUE;
+        PrefixEntry = RtlFindUnicodePrefix( &NwRcb.ServerNameTable, &UidServer, 0 );
+
+        if ( !PrefixEntry ) {
+            Status = STATUS_INVALID_PARAMETER;
+            goto ExitWithCleanup;
+        }
+
+        pScb = CONTAINING_RECORD( PrefixEntry, SCB, PrefixEntry );
+
+        if ( ( pScb->PreferredServer ) ||
+             ( pScb->OpenFileCount > 0 ) ) {
+
+            //
+            // If there are open files, we need to return this.
+            // We always write status entries for the preferred
+            // server so that we can give default logon info.
+            //
+
+            goto ProcessServer;
+        }
+
+        //
+        // Are there open handles other than the caller?
+        //
+
+        if ( pScb == pCallerScb ) {
+
+            if ( pScb->IcbCount > 1 ) {
+
+                ASSERT( pScb->pNpScb->Reference > 1 );
+                goto ProcessServer;
+            }
+
+        } else {
+
+            if ( pScb->IcbCount > 0 ) {
+
+                ASSERT( pScb->pNpScb->Reference > 0 );
+                goto ProcessServer;
+            }
+        }
+
+        //
+        // Not an explicit use for this server.
+        //
+        goto ExitWithCleanup;
+
+ProcessServer:
+
+        NwReferenceScb( pScb->pNpScb );
+
+        NwReleaseRcb( &NwRcb );
+        OwnRcb = FALSE;
+
+        Status = WriteConnStatusEntry( pScb,
+                                       OutputBuffer,
+                                       OutputBufferLength,
+                                       &dwBytesWritten,
+                                       &dwBytesNeeded,
+                                       (BOOLEAN)( pScb == pCallerScb ) );
+
+        NwDereferenceScb( pScb->pNpScb );
+
+        InputBuffer->Parameters.GetConnStatus.ResumeKey = 0;
+
+        if ( !NT_SUCCESS( Status )) {
+
+            InputBuffer->Parameters.GetConnStatus.EntriesReturned = 0;
+            InputBuffer->Parameters.GetConnStatus.BytesNeeded = dwBytesNeeded;
+            Irp->IoStatus.Information = 0;
+            goto ExitWithCleanup;
+
+        } else {
+
+            InputBuffer->Parameters.GetConnStatus.EntriesReturned = 1;
+            InputBuffer->Parameters.GetConnStatus.BytesNeeded = 0;
+            Irp->IoStatus.Information = dwBytesWritten;
+            goto ExitWithCleanup;
+
+        }
+    }
+
+    //
+    // We want all connections or all tree connections, so
+    // we need to walk the list.
+    //
+
+    KeAcquireSpinLock( &ScbSpinLock, &OldIrql );
+    ListEntry = ScbQueue.Flink;
+
+    while ( ListEntry != &ScbQueue ) {
+
+        pNpScb = CONTAINING_RECORD( ListEntry, NONPAGED_SCB, ScbLinks );
+        pScb = pNpScb->pScb;
+
+        NwReferenceScb( pNpScb );
+
+        KeReleaseSpinLock(&ScbSpinLock, OldIrql);
+
+        //
+        // Make sure we pass up the one's we've already returned.
+        //
+
+        if ( ( SequenceNumber >= InputBuffer->Parameters.GetConnStatus.ResumeKey ) &&
+             ( pNpScb != &NwPermanentNpScb ) ) {
+
+            //
+            // If there are open files, we need to return this.
+            // We always write status entries for the preferred
+            // server so that we can give default logon info.
+            //
+
+            if ( ( pScb->PreferredServer ) ||
+                 ( pScb->OpenFileCount > 0 ) ) {
+                goto SecondProcessServer;
+            }
+
+            //
+            // Are there any handles other than the caller?
+            //
+
+            if ( pScb == pCallerScb ) {
+
+                if ( pScb->IcbCount > 1 ) {
+
+                    ASSERT( pScb->pNpScb->Reference > 2 );
+                    goto SecondProcessServer;
+                }
+
+            } else {
+
+                if ( pScb->IcbCount > 0 ) {
+
+                    ASSERT( pScb->pNpScb->Reference > 1 );
+                    goto SecondProcessServer;
+                }
+            }
+
+        }
+
+        //
+        // Not an interesting server; move to next entry.
+        //
+
+        KeAcquireSpinLock( &ScbSpinLock, &OldIrql );
+        ListEntry = pNpScb->ScbLinks.Flink;
+        NwDereferenceScb( pNpScb );
+        SequenceNumber++;
+        continue;
+
+SecondProcessServer:
+
+        //
+        // We have a possible candidate; see if the uid and tree are appropriate.
+        //
+
+        if ( ( (pScb->UserUid).QuadPart != Uid.QuadPart ) ||
+
+             ( fTreeConnections &&
+               !RtlEqualUnicodeString( &(pScb->NdsTreeName),
+                                       &ConnectionName,
+                                       TRUE ) ) ) {
+
+            //
+            // No dice.  Move onto the next one.
+            //
+
+           KeAcquireSpinLock( &ScbSpinLock, &OldIrql );
+           ListEntry = pNpScb->ScbLinks.Flink;
+           NwDereferenceScb( pNpScb );
+           SequenceNumber++;
+           continue;
+
+        }
+
+        //
+        // Ok, we definitely want to report this one.
+        //
+
+        Status = WriteConnStatusEntry( pScb,
+                                       OutputBuffer,
+                                       OutputBufferLength,
+                                       &dwBytesWritten,
+                                       &dwBytesNeeded,
+                                       (BOOLEAN)( pScb == pCallerScb ) );
+
+        if ( !NT_SUCCESS( Status )) {
+
+            //
+            // If we couldn't write this entry, then we have to update
+            // the ResumeKey and return.  We don't really know how many
+            // more there are going to be so we 'suggest' to the caller
+            // a 2k buffer size.
+            //
+
+            InputBuffer->Parameters.GetConnStatus.ResumeKey = SequenceNumber;
+            InputBuffer->Parameters.GetConnStatus.EntriesReturned = dwReturned;
+            InputBuffer->Parameters.GetConnStatus.BytesNeeded = 2048;
+            NwDereferenceScb( pNpScb );
+            goto ExitWithCleanup;
+
+        } else {
+
+            OutputBuffer = ( OutputBuffer + dwBytesWritten );
+            OutputBufferLength -= dwBytesWritten;
+            dwReturned++;
+        }
+
+        //
+        //  Move to next entry in the list.
+        //
+
+        KeAcquireSpinLock( &ScbSpinLock, &OldIrql );
+        ListEntry = pNpScb->ScbLinks.Flink;
+        NwDereferenceScb( pNpScb );
+        SequenceNumber++;
+    }
+
+    //
+    // We made it through the list.
+    //
+
+    KeReleaseSpinLock(&ScbSpinLock, OldIrql);
+
+    InputBuffer->Parameters.GetConnStatus.ResumeKey = 0;
+    InputBuffer->Parameters.GetConnStatus.EntriesReturned = dwReturned;
+    InputBuffer->Parameters.GetConnStatus.BytesNeeded = 0;
+
+    Status = STATUS_SUCCESS;
+
+ExitWithCleanup:
+
+    //
+    // If we returned any entries, then set the status to success.
+    //
+
+    if ( dwReturned ) {
+
+        ASSERT( SequenceNumber != 0 );
+        Status = STATUS_SUCCESS;
+    }
+
+    if ( OwnRcb ) {
+        NwReleaseRcb( &NwRcb );
+    }
+
+    if ( UidServer.Buffer != NULL ) {
+        FREE_POOL( UidServer.Buffer );
+    }
+
+    return Status;
+}
+
+NTSTATUS
+GetConnectionInfo(
+    IN PIRP_CONTEXT IrpContext
+    )
+/*+++
+
+GetConnectionInfo:
+
+    Takes a connection name from the new shell and returns
+    some info commonly requested by property sheets and the
+    such.
+
+    The following connection names are supported:
+
+        Drive Letter: "X:"
+        Printer Port: "LPTX:"
+        UNC Name:     "\\SERVER\Share\{Path\}
+
+
+---*/
+{
+
+    NTSTATUS Status;
+
+    PIRP Irp = IrpContext->pOriginalIrp;
+    PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation(Irp);
+    PNWR_REQUEST_PACKET InputBuffer;
+    PCONN_INFORMATION pConnInfo;
+    ULONG InputBufferLength, OutputBufferLength;
+    ULONG BytesNeeded;
+
+    SECURITY_SUBJECT_CONTEXT SubjectContext;
+    LARGE_INTEGER Uid;
+    UNICODE_STRING ConnectionName;
+    UNICODE_STRING UidVolumeName;
+    WCHAR DriveLetter = 0;
+
+    BOOLEAN OwnRcb = FALSE;
+    BOOLEAN ReferenceVcb = FALSE;
+    PVCB Vcb = NULL;
+    PSCB Scb = NULL;
+    PUNICODE_PREFIX_TABLE_ENTRY Prefix;
+
+    PLOGON pLogon;
+    UNICODE_STRING CredentialName;
+    UNICODE_STRING ServerName;
+    PUNICODE_STRING puUserName = NULL;
+    PNDS_SECURITY_CONTEXT pNdsContext;
+    BOOLEAN fHoldingCredentials = FALSE;
+
+    //
+    // Get the input and output buffers.
+    //
+
+    InputBuffer = (PNWR_REQUEST_PACKET) IrpSp->Parameters.FileSystemControl.Type3InputBuffer;
+    InputBufferLength = IrpSp->Parameters.FileSystemControl.InputBufferLength;
+    OutputBufferLength = IrpSp->Parameters.DeviceIoControl.OutputBufferLength;
+
+    if ( OutputBufferLength ) {
+        NwMapUserBuffer( Irp, KernelMode, (PVOID *)&pConnInfo );
+    } else {
+        return STATUS_BUFFER_TOO_SMALL;
+    }
+
+    SeCaptureSubjectContext(&SubjectContext);
+    Uid = GetUid( &SubjectContext );
+    SeReleaseSubjectContext(&SubjectContext);
+
+    RtlInitUnicodeString( &UidVolumeName, NULL );
+
+    ConnectionName.Length = (USHORT)(InputBuffer->Parameters).GetConnInfo.ConnectionNameLength;
+    ConnectionName.MaximumLength = ConnectionName.Length;
+    ConnectionName.Buffer = &((InputBuffer->Parameters).GetConnInfo.ConnectionName[0]);
+
+    //
+    // Ok, this gets a little hand-wavey, but we have to try and figure
+    // what this connection name represents.
+    //
+
+    if ( ConnectionName.Length == sizeof( L"X:" ) - sizeof( WCHAR ) ) {
+        DriveLetter = ConnectionName.Buffer[0];
+    } else if ( ConnectionName.Length == sizeof( L"LPT1:" ) - sizeof( WCHAR ) ) {
+        DriveLetter = ConnectionName.Buffer[3];
+    }
+
+    NwAcquireExclusiveRcb( &NwRcb, TRUE );
+    OwnRcb = TRUE;
+
+    if ( DriveLetter != 0 ) {
+
+        DebugTrace( 0, Dbg, "GetConnectionInfo: Drive %wZ\n", &ConnectionName );
+
+        //
+        //  This is a drive relative path.  Look up the drive letter.
+        //
+
+        ASSERT( ( DriveLetter >= L'A' && DriveLetter <= L'Z' ) ||
+                ( DriveLetter >= L'1' && DriveLetter <= L'9' ) );
+
+        if ( DriveLetter >= L'A' && DriveLetter <= L'Z' ) {
+            Vcb = DriveMapTable[DriveLetter - L'A'];
+        } else {
+            Vcb = DriveMapTable[MAX_DISK_REDIRECTIONS + DriveLetter - L'1'];
+        }
+
+        //
+        //  Was the Vcb created for this user?
+        //
+
+        if ( ( Vcb != NULL ) && ( Uid.QuadPart != Vcb->Scb->UserUid.QuadPart ) ) {
+            Status = STATUS_ACCESS_DENIED;
+            goto ExitWithCleanup;
+        }
+
+    } else {
+
+        //
+        // This is a UNC path.  Skip over the backslashes and
+        // prepend the unicode uid.
+        //
+
+        ConnectionName.Length -= (2 * sizeof( WCHAR ) );
+        ConnectionName.Buffer += 2;
+
+        Status = MakeUidServer( &UidVolumeName, &Uid, &ConnectionName );
+
+        if ( !NT_SUCCESS( Status )) {
+            goto ExitWithCleanup;
+        }
+
+        DebugTrace( 0, Dbg, "GetConnectionInfo: %wZ\n", &UidVolumeName );
+
+        Prefix = RtlFindUnicodePrefix( &NwRcb.VolumeNameTable, &UidVolumeName, 0 );
+
+        if ( Prefix != NULL ) {
+            Vcb = CONTAINING_RECORD( Prefix, VCB, PrefixEntry );
+
+            if ( Vcb->Name.Length != UidVolumeName.Length ) {
+                Vcb = NULL;
+            }
+        }
+    }
+
+    if ( !Vcb ) {
+        Status = STATUS_BAD_NETWORK_PATH;
+        goto ExitWithCleanup;
+    }
+
+    DebugTrace( 0, Dbg, "GetConnectionInfo: Vcb is 0x%08lx\n", Vcb );
+
+    NwReferenceVcb( Vcb );
+    ReferenceVcb = TRUE;
+    NwReleaseRcb( &NwRcb );
+    OwnRcb = FALSE;
+
+    //
+    // Get the username.  This is the same code block as in
+    // WriteConnStatusEntry; it should be abstracted out.
+    //
+
+    Scb = Vcb->Scb;
+    ASSERT( Scb != NULL );
+
+    if ( ( Scb->MajorVersion > 3 ) &&
+         ( Scb->UserName.Length == 0 ) ) {
+
+        NwAcquireExclusiveRcb( &NwRcb, TRUE );
+        pLogon = FindUser( &Uid, FALSE );
+        NwReleaseRcb( &NwRcb );
+
+        if ( pLogon ) {
+
+            Status = NdsLookupCredentials( &(Scb->NdsTreeName),
+                                           pLogon,
+                                           &pNdsContext,
+                                           CREDENTIAL_READ,
+                                           FALSE );
+
+            if ( NT_SUCCESS( Status ) ) {
+
+                fHoldingCredentials = TRUE;
+
+                if ( pNdsContext->Credential != NULL ) {
+
+                    CredentialName.Length = pNdsContext->Credential->userNameLength -
+                                            sizeof( WCHAR );
+                    CredentialName.MaximumLength = CredentialName.Length;
+                    CredentialName.Buffer = (USHORT *)
+                        ( ((BYTE *) pNdsContext->Credential ) +
+                          sizeof( NDS_CREDENTIAL ) +
+                          pNdsContext->Credential->optDataSize );
+
+                    puUserName = &CredentialName;
+                }
+
+            }
+        }
+
+    } else {
+
+       puUserName = &(Scb->UserName);
+
+    }
+
+    DebugTrace( 0, Dbg, "GetConnectionInfo: UserName %wZ\n", puUserName );
+
+    //
+    // Strip off the uid from the server name.
+    //
+
+    ServerName.Length = (Scb->UidServerName).Length;
+    ServerName.Buffer = (Scb->UidServerName).Buffer;
+
+    while ( ServerName.Length ) {
+
+       if ( ServerName.Buffer[0] == L'\\' ) {
+
+           ServerName.Length -= sizeof( WCHAR );
+           ServerName.Buffer += 1;
+           break;
+       }
+
+       ServerName.Length -= sizeof( WCHAR );
+       ServerName.Buffer += 1;
+
+    }
+
+    DebugTrace( 0, Dbg, "GetConnectionInfo: ServerName %wZ\n", &ServerName );
+
+    //
+    // Write a single CONN_INFORMATION structure into the output buffer.
+    //
+
+    if ( puUserName ) {
+
+        BytesNeeded = sizeof( CONN_INFORMATION ) +
+                      ServerName.Length +
+                      puUserName->Length;
+    } else {
+
+       BytesNeeded = sizeof( CONN_INFORMATION ) +
+                     ServerName.Length;
+
+    }
+
+    if ( BytesNeeded > OutputBufferLength ) {
+        Status = STATUS_BUFFER_TOO_SMALL;
+        goto ExitWithCleanup;
+    }
+
+    pConnInfo->HostServerLength = ServerName.Length;
+    pConnInfo->HostServer = (LPWSTR) ( (PBYTE) pConnInfo ) + sizeof( CONN_INFORMATION );
+    RtlCopyMemory( pConnInfo->HostServer, ServerName.Buffer, ServerName.Length );
+
+    pConnInfo->UserName = (LPWSTR) ( ( (PBYTE) pConnInfo->HostServer ) +
+                                     ServerName.Length );
+
+    if ( puUserName ) {
+
+        pConnInfo->UserNameLength = puUserName->Length;
+        RtlCopyMemory( pConnInfo->UserName, puUserName->Buffer, puUserName->Length );
+
+    } else {
+
+       pConnInfo->UserNameLength = 0;
+    }
+
+    Status = STATUS_SUCCESS;
+
+ExitWithCleanup:
+
+    if ( fHoldingCredentials ) {
+        NwReleaseCredList( pLogon );
+    }
+
+    if ( OwnRcb ) {
+        NwReleaseRcb( &NwRcb );
+    }
+
+    if ( ReferenceVcb ) {
+        NwDereferenceVcb( Vcb, NULL, FALSE );
+    }
+
+    if ( UidVolumeName.Buffer ) {
+        FREE_POOL( UidVolumeName.Buffer );
+    }
+
+    return Status;
+}
+
+NTSTATUS
+GetPreferredServer(
+    IN PIRP_CONTEXT IrpContext
+    )
+/*+++
+
+GetPreferredServer:
+
+    Returns the current preferred server.
+
+---*/
+{
+
+    NTSTATUS Status;
+
+    PIRP Irp = IrpContext->pOriginalIrp;
+    PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation(Irp);
+
+    BYTE *OutputBuffer;
+    ULONG OutputBufferLength;
+
+    SECURITY_SUBJECT_CONTEXT SubjectContext;
+    LARGE_INTEGER Uid;
+    PLOGON pLogon;
+
+    PUNICODE_STRING PreferredServer;
+
+    //
+    // Get the output buffer.
+    //
+
+    OutputBufferLength = IrpSp->Parameters.DeviceIoControl.OutputBufferLength;
+
+    if ( OutputBufferLength ) {
+        NwMapUserBuffer( Irp, KernelMode, (PVOID *)&OutputBuffer );
+    } else {
+        return STATUS_BUFFER_TOO_SMALL;
+    }
+
+    //
+    // Get the logon structure for the user and return the preferred server.
+    //
+
+    SeCaptureSubjectContext(&SubjectContext);
+    Uid = GetUid( &SubjectContext );
+    SeReleaseSubjectContext(&SubjectContext);
+
+    NwAcquireExclusiveRcb( &NwRcb, TRUE );
+    pLogon = FindUser( &Uid, FALSE );
+
+    Status = STATUS_NO_SUCH_LOGON_SESSION;
+
+    if ( ( pLogon ) &&
+         ( pLogon->ServerName.Length ) &&
+         ( ( pLogon->ServerName.Length + sizeof( UNICODE_STRING ) ) <= OutputBufferLength ) ) {
+
+        PreferredServer = (PUNICODE_STRING) OutputBuffer;
+        PreferredServer->Length = pLogon->ServerName.Length;
+        PreferredServer->MaximumLength = pLogon->ServerName.Length;
+        PreferredServer->Buffer = ( PWCHAR ) ( OutputBuffer + sizeof( UNICODE_STRING ) );
+
+        RtlCopyMemory( PreferredServer->Buffer,
+                       pLogon->ServerName.Buffer,
+                       pLogon->ServerName.Length );
+
+        Status = STATUS_SUCCESS;
+    }
+
+    NwReleaseRcb( &NwRcb );
+
+    return Status;
+}
+
+NTSTATUS
+GetConnectionPerformance(
+    IN PIRP_CONTEXT IrpContext
+    )
+/*+++
+
+GetConnectionPerformance:
+
+    Takes a connection name from the new shell and returns
+    some estimated performance info to the shell so the shell
+    can decide whether or not it wants to download icons, etc.
+
+    The following connection names are supported:
+
+        Drive Letter: "X:"
+        Printer Port: "LPTX:"
+        UNC Name:     "\\SERVER\Share\{Path\}
+
+---*/
+{
+
+    NTSTATUS Status;
+
+    PIRP Irp = IrpContext->pOriginalIrp;
+    PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation(Irp);
+    PNWR_REQUEST_PACKET InputBuffer;
+    ULONG InputBufferLength;
+
+    SECURITY_SUBJECT_CONTEXT SubjectContext;
+    LARGE_INTEGER Uid;
+    UNICODE_STRING RemoteName;
+
+    WCHAR DriveLetter = 0;
+    BOOLEAN OwnRcb = FALSE;
+    BOOLEAN ReferenceScb = FALSE;
+    PVCB Vcb = NULL;
+    PSCB Scb = NULL;
+
+    PLIST_ENTRY ListEntry;
+    UNICODE_STRING OriginalUnc;
+
+    //
+    // Get the input buffer.
+    //
+
+    InputBuffer = (PNWR_REQUEST_PACKET) IrpSp->Parameters.FileSystemControl.Type3InputBuffer;
+    InputBufferLength = IrpSp->Parameters.FileSystemControl.InputBufferLength;
+
+    //
+    // Get the UID for the caller.
+    //
+
+    SeCaptureSubjectContext(&SubjectContext);
+    Uid = GetUid( &SubjectContext );
+    SeReleaseSubjectContext(&SubjectContext);
+
+    //
+    // Dig out the remote name.
+    //
+
+    RemoteName.Length = (USHORT)(InputBuffer->Parameters).GetConnPerformance.RemoteNameLength;
+    RemoteName.MaximumLength = RemoteName.Length;
+    RemoteName.Buffer = &((InputBuffer->Parameters).GetConnPerformance.RemoteName[0]);
+
+    //
+    // Ok, this gets a little hand-wavey, but we have to try and figure
+    // what this connection name represents (just like in GetConnectionInfo).
+    //
+
+    if ( RemoteName.Length == sizeof( L"X:" ) - sizeof( WCHAR ) ) {
+        DriveLetter = RemoteName.Buffer[0];
+    } else if ( RemoteName.Length == sizeof( L"LPT1:" ) - sizeof( WCHAR ) ) {
+        DriveLetter = RemoteName.Buffer[3];
+    }
+
+    NwAcquireExclusiveRcb( &NwRcb, TRUE );
+    OwnRcb = TRUE;
+
+    DebugTrace( 0, Dbg, "GetConnectionPerformance: Remote Name %wZ\n", &RemoteName );
+
+    if ( DriveLetter != 0 ) {
+
+        if ( ! ( ( ( DriveLetter >= L'a' ) && ( DriveLetter <= L'z' ) ) ||
+                 ( ( DriveLetter >= L'A' ) && ( DriveLetter <= L'Z' ) ) ||
+                 ( ( DriveLetter >= L'0' ) && ( DriveLetter <= L'9' ) ) ) ) {
+
+            Status = STATUS_BAD_NETWORK_PATH;
+            goto ExitWithCleanup;
+        }
+
+        //
+        //  This is a drive relative path.  Look up the drive letter.
+        //
+
+        if ( DriveLetter >= L'a' && DriveLetter <= L'z' ) {
+            DriveLetter += (WCHAR) ( L'A' - L'a' );
+        }
+
+        if ( DriveLetter >= L'A' && DriveLetter <= L'Z' ) {
+            Vcb = DriveMapTable[DriveLetter - L'A'];
+        } else {
+            Vcb = DriveMapTable[MAX_DISK_REDIRECTIONS + DriveLetter - L'1'];
+        }
+
+        //
+        // Did we get a connection?
+        //
+
+        if ( Vcb == NULL ) {
+            Status = STATUS_BAD_NETWORK_PATH;
+            goto ExitWithCleanup;
+        }
+
+        //
+        //  Was the Vcb created for this user?
+        //
+
+        if ( Uid.QuadPart != Vcb->Scb->UserUid.QuadPart ) {
+            Status = STATUS_ACCESS_DENIED;
+            goto ExitWithCleanup;
+        }
+
+        Scb = Vcb->Scb;
+
+    } else {
+
+        //
+        // It's valid for the shell to pass us the remote name of a drive
+        // with no reference to the drive at all.  Since we file these in
+        // volume prefix table with their drive letter information, we won't
+        // find them if we do a flat munge and lookup.  Therefore, we have
+        // to walk the global vcb list and find the match.
+        //
+
+        //
+        // Skip over the first slash of the provided UNC remote name.
+        //
+
+        RemoteName.Length -= sizeof( WCHAR );
+        RemoteName.Buffer += 1;
+
+        for ( ListEntry = GlobalVcbList.Flink;
+              ( ListEntry != &GlobalVcbList ) && ( Scb == NULL );
+              ListEntry = ListEntry->Flink ) {
+
+            Vcb = CONTAINING_RECORD( ListEntry, VCB, GlobalVcbListEntry );
+
+            OriginalUnc.Length = Vcb->Name.Length;
+            OriginalUnc.MaximumLength = Vcb->Name.MaximumLength;
+            OriginalUnc.Buffer = Vcb->Name.Buffer;
+
+            if ( Vcb->DriveLetter ) {
+
+                //
+                // Try it as a drive connection.
+                //
+
+                while ( ( OriginalUnc.Length ) &&
+                        ( OriginalUnc.Buffer[0] != L':' ) ) {
+
+                    OriginalUnc.Length -= sizeof( WCHAR );
+                    OriginalUnc.Buffer += 1;
+                }
+
+                if ( OriginalUnc.Buffer[0] == L':' ) {
+
+                    OriginalUnc.Length -= sizeof( WCHAR );
+                    OriginalUnc.Buffer += 1;
+
+                    if ( RtlEqualUnicodeString( &OriginalUnc,
+                                                &RemoteName,
+                                                TRUE ) ) {
+                        Scb = Vcb->Scb;
+                    }
+                }
+
+             } else {
+
+                 //
+                 // Try it as a UNC connection; start by skipping
+                 // only the leading slash, the walking to the next
+                 // slash.
+                 //
+
+                 OriginalUnc.Length -= sizeof( WCHAR );
+                 OriginalUnc.Buffer += 1;
+
+                 while ( ( OriginalUnc.Length ) &&
+                         ( OriginalUnc.Buffer[0] != L'\\' ) ) {
+
+                     OriginalUnc.Length -= sizeof( WCHAR );
+                     OriginalUnc.Buffer += 1;
+                 }
+
+                 if ( OriginalUnc.Length ) {
+
+                     if ( RtlEqualUnicodeString( &OriginalUnc,
+                                                 &RemoteName,
+                                                 TRUE ) ) {
+                         Scb = Vcb->Scb;
+                     }
+                 }
+
+             }
+        }
+
+    }
+
+    if ( !Scb ) {
+        Status = STATUS_BAD_NETWORK_PATH;
+        goto ExitWithCleanup;
+    }
+
+    NwReferenceScb( Scb->pNpScb );
+    ReferenceScb = TRUE;
+    NwReleaseRcb( &NwRcb );
+    OwnRcb = FALSE;
+
+    DebugTrace( 0, Dbg, "GetConnectionPerformance: Scb is 0x%08lx\n", Scb );
+
+    //
+    // Now dig out the performance info from the LIP negotiation.
+    //
+    // dwSpeed - The speed of the media to the network resource in units of 100bps (e.g 1,200
+    //           baud point to point link returns 12).
+    // dwDelay - The delay introduced by the network when sending information (i.e. the time
+    //           between starting sending data and the time that it starts being received) in
+    //           units of a millisecond. This is in addition to any latency that was incorporated
+    //           into the calculation of dwSpeed, so the value returned will be 0 for accessing
+    //           most resources.
+    // dwOptDataSize - A recommendation for the size of data in bytes that is most efficiently
+    //                 sent through the network when an application makes a single request to
+    //                 the network resource. For example, for a disk network resource, this
+    //                 value might be 2048 or 512 when writing a block of data.
+
+    (InputBuffer->Parameters).GetConnPerformance.dwFlags = WNCON_DYNAMIC;
+    (InputBuffer->Parameters).GetConnPerformance.dwDelay = 0;
+    (InputBuffer->Parameters).GetConnPerformance.dwOptDataSize = Scb->pNpScb->BufferSize;
+    (InputBuffer->Parameters).GetConnPerformance.dwSpeed = Scb->pNpScb->LipDataSpeed;
+
+    //
+    // BUGBUG: We don't return any good speed info for servers that have not yet
+    // negotiated lip.  We may return out of date information for servers that have
+    // become disconnected unless a RAS line transition occurred.  This API is bogus.
+    //
+
+    Status = STATUS_SUCCESS;
+
+ExitWithCleanup:
+
+    if ( OwnRcb ) {
+        NwReleaseRcb( &NwRcb );
+    }
+
+    if ( ReferenceScb ) {
+        NwDereferenceScb( Scb->pNpScb );
+    }
+
+    return Status;
+
+}
+
+NTSTATUS
+SetShareBit(
+    IN PIRP_CONTEXT IrpContext,
+    PFILE_OBJECT FileObject
+    )
+/*+++
+
+SetShareBit:
+
+    This function sets the share bit on a file.
+    The bit won't get set until all handles to the
+    file are closed.
+
+---*/
+{
+
+    NTSTATUS Status;
+
+    PIRP Irp = IrpContext->pOriginalIrp;
+    PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation(Irp);
+
+    NODE_TYPE_CODE nodeTypeCode;
+    PICB pIcb;
+    PFCB pFcb;
+    PVOID fsContext, fsContext2;
+
+    DebugTrace( 0, Dbg, "SetShareBit.\n", 0 );
+
+    //
+    // Make sure this is a handle to a file.
+    //
+
+    nodeTypeCode = NwDecodeFileObject( FileObject, &fsContext, &fsContext2 );
+
+    if ( nodeTypeCode != NW_NTC_ICB ) {
+        DebugTrace( 0, Dbg, "You can only set the share bit on a file!\n", 0 );
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    pIcb = (PICB) fsContext2;
+    pFcb = pIcb->SuperType.Fcb;
+
+    if ( pFcb->NodeTypeCode != NW_NTC_FCB ) {
+        DebugTrace( 0, Dbg, "You can't set the share bit on a directory!\n", 0 );
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    //
+    // Acquire this FCB so we can muck with the flags.
+    //
+
+    NwAcquireExclusiveFcb( pFcb->NonPagedFcb, TRUE );
+
+    SetFlag( pFcb->Flags, FCB_FLAGS_LAZY_SET_SHAREABLE );
+
+    NwReleaseFcb( pFcb->NonPagedFcb );
+
+    return STATUS_SUCCESS;
+
+}
+
+VOID
+LazySetShareable(
+    PIRP_CONTEXT IrpContext,
+    PICB pIcb,
+    PFCB pFcb
+)
+/***
+
+Function Description:
+
+    This function gets called everytime an ICB with a remote handle
+    is closed.  If we are closing the last ICB to an FCB and the
+    caller has requested that we set the shareable bit on the FCB,
+    then we need to do so now.  Otherwise, we simply return.
+
+Caveats:
+
+    If we fail to set the shareable bit, there is no way to notify
+    the requestor of the operation that the operation was not carried
+    out.
+
+***/
+{
+
+    NTSTATUS Status;
+
+    PLIST_ENTRY IcbListEntry;
+    PICB pCurrentIcb;
+    BOOLEAN OtherHandlesExist = FALSE;
+
+    ULONG Attributes;
+    BOOLEAN AttributesAreValid = FALSE;
+
+
+    //
+    // Get to the head of the queue, acquire the RCB,
+    // and acquire this FCB to protect the ICB list
+    // and FCB flags.
+    //
+
+    NwAppendToQueueAndWait( IrpContext );
+    NwAcquireExclusiveRcb( &NwRcb, TRUE );
+    NwAcquireExclusiveFcb( pFcb->NonPagedFcb, TRUE );
+
+    //
+    // Scan the other ICBs on this FCB to see if any of
+    // them have remote handles.
+    //
+
+    for ( IcbListEntry = pFcb->IcbList.Flink;
+          IcbListEntry != &(pFcb->IcbList) ;
+          IcbListEntry = IcbListEntry->Flink ) {
+
+        pCurrentIcb = CONTAINING_RECORD( IcbListEntry, ICB, ListEntry );
+
+        if ( ( pCurrentIcb != pIcb ) &&
+             ( pCurrentIcb->HasRemoteHandle ) ) {
+            OtherHandlesExist = TRUE;
+        }
+    }
+
+    if ( OtherHandlesExist ) {
+
+        //
+        // We'll do it when the last handle is closed.
+        //
+
+        DebugTrace( 0, Dbg, "LazySetShareable: This isn't the last remote handle.\n", 0 );
+        goto ReleaseAllAndExit;
+    }
+
+    //
+    // We're closing the last handle.  Make sure we have valid attributes.
+    //
+
+    if ( !FlagOn( pFcb->Flags, FCB_FLAGS_ATTRIBUTES_ARE_VALID ) ) {
+
+       if ( !BooleanFlagOn( pFcb->Flags, FCB_FLAGS_LONG_NAME ) ) {
+
+           Status = ExchangeWithWait ( IrpContext,
+                                       SynchronousResponseCallback,
+                                       "FwbbJ",
+                                       NCP_SEARCH_FILE,
+                                       -1,
+                                       pFcb->Vcb->Specific.Disk.Handle,
+                                       SEARCH_ALL_FILES,
+                                       &pFcb->RelativeFileName );
+
+           if ( NT_SUCCESS( Status ) ) {
+
+               Status = ParseResponse( IrpContext,
+                                       IrpContext->rsp,
+                                       IrpContext->ResponseLength,
+                                       "N==_b",
+                                       14,
+                                       &Attributes );
+
+               if ( NT_SUCCESS( Status ) ) {
+                   AttributesAreValid = TRUE;
+               }
+           }
+
+       } else {
+
+           Status = ExchangeWithWait ( IrpContext,
+                                       SynchronousResponseCallback,
+                                       "LbbWDbDbC",
+                                       NCP_LFN_GET_INFO,
+                                       pFcb->Vcb->Specific.Disk.LongNameSpace,
+                                       pFcb->Vcb->Specific.Disk.LongNameSpace,
+                                       SEARCH_ALL_FILES,
+                                       LFN_FLAG_INFO_ATTRIBUTES,
+                                       pFcb->Vcb->Specific.Disk.VolumeNumber,
+                                       pFcb->Vcb->Specific.Disk.Handle,
+                                       0,
+                                       &pFcb->RelativeFileName );
+
+           if ( NT_SUCCESS( Status ) ) {
+
+               Status = ParseResponse( IrpContext,
+                                       IrpContext->rsp,
+                                       IrpContext->ResponseLength,
+                                       "N_e",
+                                       4,
+                                       &Attributes );
+
+               if ( NT_SUCCESS( Status ) ) {
+                   AttributesAreValid = TRUE;
+               }
+
+           }
+
+       }
+
+    } else {
+
+        Attributes = pFcb->NonPagedFcb->Attributes;
+        AttributesAreValid = TRUE;
+    }
+
+    if ( !AttributesAreValid ) {
+        DebugTrace( 0, Dbg, "Couldn't get valid attributes for this file.\n", 0 );
+        goto ReleaseAllAndExit;
+    }
+
+    //
+    // Do the set with the shareable bit on!
+    //
+
+    if ( BooleanFlagOn( pFcb->Flags, FCB_FLAGS_LONG_NAME ) ) {
+
+        Status = ExchangeWithWait( IrpContext,
+                                   SynchronousResponseCallback,
+                                   "LbbWDW--WW==WW==_W_bDbC",
+                                   NCP_LFN_SET_INFO,
+                                   pFcb->Vcb->Specific.Disk.LongNameSpace,
+                                   pFcb->Vcb->Specific.Disk.LongNameSpace,
+                                   SEARCH_ALL_FILES,
+                                   LFN_FLAG_SET_INFO_ATTRIBUTES,
+                                   Attributes | 0x80,
+                                   0,
+                                   0,
+                                   0,
+                                   0,
+                                   8,
+                                   0,
+                                   8,
+                                   pFcb->Vcb->Specific.Disk.VolumeNumber,
+                                   pFcb->Vcb->Specific.Disk.Handle,
+                                   0,
+                                   &pFcb->RelativeFileName );
+
+    } else {
+
+        Status = ExchangeWithWait( IrpContext,
+                                   SynchronousResponseCallback,
+                                   "FbbbU",
+                                   NCP_SET_FILE_ATTRIBUTES,
+                                   Attributes | 0x80,
+                                   pFcb->Vcb->Specific.Disk.Handle,
+                                   SEARCH_ALL_FILES,
+                                   &pFcb->RelativeFileName );
+
+    }
+
+    if ( !NT_SUCCESS( Status ) ) {
+        DebugTrace( 0, Dbg, "Failed to set the shareable attribute on the file.\n", 0 );
+        ASSERT( FALSE && "File NOT marked as shareable!!" );
+    } else {
+        DebugTrace( 0, Dbg, "Shareable bit successfully set.\n", 0 );
+        ClearFlag( pFcb->Flags, FCB_FLAGS_LAZY_SET_SHAREABLE );
+    }
+
+ReleaseAllAndExit:
+
+    NwReleaseFcb( pFcb->NonPagedFcb );
+    NwReleaseRcb( &NwRcb );
+    NwDequeueIrpContext( IrpContext, FALSE );
+    return;
 }

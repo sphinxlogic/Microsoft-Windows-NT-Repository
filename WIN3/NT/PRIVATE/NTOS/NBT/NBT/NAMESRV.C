@@ -27,7 +27,6 @@ Revision History:
 
 #include "nbtprocs.h"
 
-
 //
 // function prototypes for completion routines that are local to this file
 //
@@ -56,13 +55,6 @@ SetWinsDownFlag(
 
 VOID
 ReleaseCompletion(
-    PVOID               pContext,
-    PVOID               pContext2,
-    tTIMERQENTRY        *pTimerQEntry
-    );
-
-VOID
-DnsCompletion(
     PVOID               pContext,
     PVOID               pContext2,
     tTIMERQENTRY        *pTimerQEntry
@@ -118,11 +110,21 @@ WinsDownTimeout(
     tTIMERQENTRY        *pTimerQEntry
     );
 
+BOOL
+AppropriateNodeType(
+	IN PCHAR pName,
+	IN ULONG NodeType
+	);
+
+BOOL
+IsBrowserName(
+	IN PCHAR pName
+	);
+
 #if DBG
 unsigned char  Buff[256];
 unsigned char  Loc;
 #endif
-
 
 //*******************  Pageable Routine Declarations ****************
 #ifdef ALLOC_PRAGMA
@@ -217,7 +219,7 @@ Return Value:
 {
     tNAMEADDR   *pNameAddr;
 
-    pNameAddr = CTEAllocMem(sizeof(tNAMEADDR));
+    pNameAddr = NbtAllocMem(sizeof(tNAMEADDR),NBT_TAG('R'));
     if (pNameAddr)
     {
         CTEZeroMemory(pNameAddr,sizeof(tNAMEADDR));
@@ -248,7 +250,7 @@ QueryNameOnNet(
     IN  USHORT                  uType,
     IN  PVOID                   pClientContext,
     IN  PVOID                   pClientCompletion,
-    IN  ULONG                   NodeType,
+    IN  ULONG                   LocalNodeType,
     IN  tNAMEADDR               *pNameAddrIn,
     IN  tDEVICECONTEXT          *pDeviceContext,
     OUT tDGRAM_SEND_TRACKING    **ppTracker,
@@ -280,6 +282,9 @@ Called By: ProxyQueryFromNet() in proxy.c,   NbtConnect() in name.c
     tDGRAM_SEND_TRACKING *pSentList;
     tNAMEADDR            *pNameAddr;
     LPVOID               pContext2 = NULL;
+	CHAR				 cNameType = pName[NETBIOS_NAME_SIZE-1];
+	BOOL				 SendFlag = TRUE;
+    LONG                IpAddr = 0;
 
     status = GetTracker(&pSentList);
     if (!NT_SUCCESS(status))
@@ -303,15 +308,16 @@ Called By: ProxyQueryFromNet() in proxy.c,   NbtConnect() in name.c
     if (!pNameAddrIn)
     {
         status = AddToPendingList(pName,&pNameAddr);
-        // fill in the record with the name and IpAddress
-        pNameAddr->NameTypeState = (uType == NBT_UNIQUE) ?
-                                        NAMETYPE_UNIQUE : NAMETYPE_GROUP;
 
         if (!NT_SUCCESS(status))
         {
             FreeTracker(pSentList,RELINK_TRACKER);
             return(status);
         }
+
+        // fill in the record with the name and IpAddress
+        pNameAddr->NameTypeState = (uType == NBT_UNIQUE) ?
+                                        NAMETYPE_UNIQUE : NAMETYPE_GROUP;
     }
     else
     {
@@ -339,14 +345,15 @@ Called By: ProxyQueryFromNet() in proxy.c,   NbtConnect() in name.c
     //  to revert to Broadcast
     //
 #endif
-    if(NodeType & PROXY)
+    if(LocalNodeType & PROXY)
     {
         pNameAddr->fProxyReq = (BOOLEAN)TRUE;
     }
     else
     {
         pNameAddr->fProxyReq = (BOOLEAN)FALSE;
-    }
+		LocalNodeType = AppropriateNodeType( pName, LocalNodeType );
+	}
 
     // keep a ptr to the Ascii name so that we can remove the name from the
     // hash table later if the query fails.
@@ -357,7 +364,7 @@ Called By: ProxyQueryFromNet() in proxy.c,   NbtConnect() in name.c
     // broadcast or with the name server
     //
 #ifdef PROXY_NODE
-    IF_PROXY(NodeType)
+    IF_PROXY(LocalNodeType)
     {
         Retries             = (USHORT)pNbtGlobConfig->uNumRetries;
         Timeout             = (ULONG)pNbtGlobConfig->uRetryTimeout;
@@ -381,8 +388,8 @@ Called By: ProxyQueryFromNet() in proxy.c,   NbtConnect() in name.c
         // for Pnode, just allow it to do the name query on the loop back
         // address
         //
-        if ((NodeType & (MNODE | BNODE)) ||
-            ((NodeType & MSNODE) &&
+        if ((LocalNodeType & (MNODE | BNODE)) ||
+            ((LocalNodeType & MSNODE) &&
             ((pDeviceContext->lNameServerAddress == LOOP_BACK) ||
               pDeviceContext->WinsIsDown)))
         {
@@ -405,13 +412,17 @@ Called By: ProxyQueryFromNet() in proxy.c,   NbtConnect() in name.c
         //
         // no sense doing a name query out an adapter with no Ip address
         //
-        if (pDeviceContext->IpAddress == LOOP_BACK)
+        if (
+        	(pDeviceContext->IpAddress == LOOP_BACK)
+			|| ( IpAddr = Nbt_inet_addr(pName) )
+		)
         {
 
             Retries = 1;
             Timeout = 10;
             pSentList->Flags = NBT_BROADCAST;
-            if (NodeType & (PNODE | MNODE))
+			SendFlag = FALSE;
+            if (LocalNodeType & (PNODE | MNODE))
             {
                 pSentList->Flags = NBT_NAME_SERVER_BACKUP;
             }
@@ -442,15 +453,28 @@ Called By: ProxyQueryFromNet() in proxy.c,   NbtConnect() in name.c
     CHECK_PTR(pNameAddr);
     pNameAddr->pTimer = NULL;
     CTESpinFree(&NbtConfig.JointLock,*pJointLockOldIrq);
-    status = UdpSendNSBcast(pNameAddr,
-                            pScope,
-                            pSentList,
-                            pCompletionRoutine,
-                            pClientContext,
-                            pClientCompletion,
-                            Retries,
-                            Timeout,
-                            eNAME_QUERY);
+
+    //
+    // Bug: 22542 - prevent broadcast of remote adapter status on net view of limited subnet b'cast address.
+    // In order to test for subnet broadcasts, we need to match against the subnet masks of all adapters. This
+    // is expensive and not done.
+    // Just check for the limited bcast.
+    //
+    if (IpAddr == 0xffffffff) {
+        KdPrint(("Nbt: Query on Limited broadcast - failed\n"));
+        status = STATUS_BAD_NETWORK_PATH;
+    } else {
+        status = UdpSendNSBcast(pNameAddr,
+                                pScope,
+                                pSentList,
+                                pCompletionRoutine,
+                                pClientContext,
+                                pClientCompletion,
+                                Retries,
+                                Timeout,
+                                eNAME_QUERY,
+                                SendFlag);
+    }
 
     // a successful send means, Don't complete the Irp.  Status Pending is
     // returned to ntisol.c to tell that code not to complete the irp. The
@@ -488,7 +512,9 @@ Called By: ProxyQueryFromNet() in proxy.c,   NbtConnect() in name.c
         pCompletion = pTimer->ClientCompletion;
 
         // dereferencing the tracker no longer frees the dgram hdr too.
-        if (status != STATUS_INSUFFICIENT_RESOURCES)
+        // if IP addr is limited bcast, then UdpSendNSBcast was not called.
+        if ((status != STATUS_INSUFFICIENT_RESOURCES) &&
+            (IpAddr != 0xffffffff))
         {
             CTEMemFree(pSentList->SendBuffer.pDgramHdr);
         }
@@ -545,9 +571,12 @@ Return Value:
     CTELockHandle            OldIrq;
     COMPLETIONCLIENT         pClientCompletion;
     USHORT                   Flags;
+    tDGRAM_SEND_TRACKING    *pClientTracker;
+	ULONG					LocalNodeType;
 
     pTracker = (tDGRAM_SEND_TRACKING *)pContext;
 
+	LocalNodeType = AppropriateNodeType( pTracker->pNameAddr->Name, NodeType );
 
     //
     // check if the client completion routine is still set.  If not then the
@@ -563,7 +592,7 @@ Return Value:
         //
         CTESpinLock(&NbtConfig.JointLock,OldIrq);
         ASSERT(pTracker->pNameAddr->Verify == REMOTE_NAME);
-#ifndef VXD
+#if !defined(VXD) && DBG
         if (pTracker->pNameAddr->Verify != REMOTE_NAME)
         {
             DbgBreakPoint();
@@ -584,6 +613,69 @@ Return Value:
             CTESpinFree(&NbtConfig.JointLock,OldIrq);
             return;
         }
+
+
+        pClientTracker = (tDGRAM_SEND_TRACKING *)pTimerQEntry->ClientContext;
+
+        //
+        // if the tracker has been cancelled, don't do any more queries
+        //
+        if (pClientTracker->Flags & TRACKER_CANCELLED)
+        {
+            IF_DBG(NBT_DEBUG_NAMESRV)
+            KdPrint(("Nbt: MSnodeCompletion: tracker flag cancelled\n"));
+
+            //
+            // In case the timer has been stopped, we coordinate
+            // through the pClientCompletionRoutine Value with StopTimer.
+            //
+            pClientCompletion = pTimerQEntry->ClientCompletion;
+
+            //
+            // remove from the PendingNameQueries list
+            //
+            RemoveEntryList(&pTracker->pNameAddr->Linkage);
+            InitializeListHead(&pTracker->pNameAddr->Linkage);
+
+            // remove the link from the name table to this timer block
+            CHECK_PTR(((tNAMEADDR *)pTimerQEntry->pCacheEntry));
+            ((tNAMEADDR *)pTimerQEntry->pCacheEntry)->pTimer = NULL;
+            //
+            // to synch. with the StopTimer routine, Null the client completion
+            // routine so it gets called just once.
+            //
+            CHECK_PTR(pTimerQEntry);
+            pTimerQEntry->ClientCompletion = NULL;
+
+            //
+            // remove the name from the hash table, since it did not
+            // resolve
+            //
+            CHECK_PTR(pTracker->pNameAddr);
+            pTracker->pNameAddr->NameTypeState &= ~NAME_STATE_MASK;
+            pTracker->pNameAddr->NameTypeState |= STATE_RELEASED;
+            pTracker->pNameAddr->pTimer = NULL;
+
+            NbtDereferenceName(pTracker->pNameAddr);
+            pTracker->pNameAddr = NULL;
+
+            CTESpinFree(&NbtConfig.JointLock,OldIrq);
+
+            // there can be a list of trackers Q'd up on this name
+            // query, so we must complete all of them!
+            //
+            CompleteClientReq(pClientCompletion,
+                              pClientTracker,
+                              STATUS_CANCELLED);
+
+            // return the tracker block to its queue
+            LOCATION(0x51);
+            DereferenceTracker(pTracker);
+
+            return;
+
+        }
+
         if (pTimerQEntry->ClientCompletion)
         {
             // if number of retries is not zero then continue trying to contact the
@@ -600,7 +692,7 @@ Return Value:
                                         | NBT_NAME_SERVER
                                         | NBT_BROADCAST);
 
-                if ((Flags & NBT_BROADCAST) && (NodeType & MNODE) &&
+                if ((Flags & NBT_BROADCAST) && (LocalNodeType & MNODE) &&
                     (pTracker->pDeviceContext->lNameServerAddress != LOOP_BACK) &&
                     !pTracker->pDeviceContext->WinsIsDown)
                 {
@@ -617,7 +709,7 @@ Return Value:
 
                 }
                 else
-                if ((Flags & NBT_NAME_SERVER) && !(NodeType & BNODE))
+                if ((Flags & NBT_NAME_SERVER) && !(LocalNodeType & BNODE))
                 {
                     LOCATION(0x47);
                         // *** NOT BNODE ***
@@ -639,7 +731,7 @@ Return Value:
                 }
                 else
                 if ((Flags & NBT_NAME_SERVER_BACKUP)
-                     && (NodeType & MSNODE))
+                     && (LocalNodeType & MSNODE))
                 {
                     LOCATION(0x46);
                         // *** MSNODE ONLY ***
@@ -712,7 +804,9 @@ Return Value:
                             status = LmHostQueueRequest(pTracker,
                                                         pTimerQEntry->ClientContext,
                                                         pClientCompletion,
-                                                        ScanLmHostFile);
+                                                        ScanLmHostFile,
+                                                        pTracker->pDeviceContext,
+                                                        OldIrq);
                         }
                     }
 
@@ -734,8 +828,6 @@ Return Value:
                     }
                     else
                     {
-                        tDGRAM_SEND_TRACKING    *pClientTracker;
-
 
                         pClientTracker = (tDGRAM_SEND_TRACKING *)pTimerQEntry->ClientContext;
 
@@ -779,7 +871,8 @@ Return Value:
                                     pTracker,
                                     NULL,NULL,NULL,
                                     0,0,
-                                    eNAME_QUERY);
+                                    eNAME_QUERY,
+                                    TRUE);
 
             DereferenceTracker(pTracker);
             pTimerQEntry->Flags |= TIMER_RESTART;
@@ -1028,7 +1121,10 @@ Return Value:
     USHORT      uAddrType;
     tDGRAM_SEND_TRACKING *pSentList= NULL;
     CTELockHandle OldIrq1;
+    ULONG         PrevNameTypeState;
+	ULONG		LocalNodeType;
 
+	LocalNodeType = AppropriateNodeType( pName, NodeType );
 
     if ((uAddressType == (USHORT)NBT_UNIQUE ) ||
         (uAddressType == (USHORT)NBT_QUICK_UNIQUE))
@@ -1052,6 +1148,11 @@ Return Value:
                         &pNameAddr);
 
         CHECK_PTR(pNameAddr);
+        if (!NT_SUCCESS(status))
+        {
+            CTESpinFree(&NbtConfig.JointLock,OldIrq1);
+            return(status);
+        }
         pNameAddr->RefreshMask = 0;
     }
     else
@@ -1069,9 +1170,13 @@ Return Value:
             CTESpinFree(&NbtConfig.JointLock,OldIrq1);
             return(status);
         }
+        PrevNameTypeState = pNameAddr->NameTypeState;
         pNameAddr->NameTypeState &= ~NAME_TYPE_MASK;
         pNameAddr->NameTypeState |= (uAddrType == NBT_UNIQUE) ?
                                         NAMETYPE_UNIQUE : NAMETYPE_GROUP;
+
+        if (PrevNameTypeState & NAMETYPE_QUICK)
+           pNameAddr->NameTypeState |= NAMETYPE_QUICK;
     }
 
     if ((uAddressType != (USHORT)NBT_UNIQUE ) &&
@@ -1123,7 +1228,8 @@ Return Value:
         // however the name will get registered with the name server and
         // refreshed later....if this is an MS or M or P node.
         //
-        if (uAddressType >= (USHORT)NBT_QUICK_UNIQUE)
+        if ((pNameAddr->NameTypeState & NAMETYPE_QUICK) ||
+            (uAddressType >= (USHORT)NBT_QUICK_UNIQUE) )
         {
             pNameAddr->NameTypeState |= STATE_RESOLVED;
             pNameAddr->NameTypeState |= NAMETYPE_QUICK;
@@ -1138,14 +1244,15 @@ Return Value:
         // timeout, so pretend the registration succeeded. Later DHCP will
         // activate the net card and the names will be registered then.
         //
-        if (IpAddress == LOOP_BACK)
+
+        if (IpAddress == LOOP_BACK || pDeviceContext->IpAddress == 0)
         {
             pNameAddr->NameTypeState |= STATE_RESOLVED;
 
             CTESpinFree(&NbtConfig.JointLock,OldIrq1);
             return(STATUS_SUCCESS);
-
         }
+
         pNameAddr->NameTypeState |= STATE_RESOLVING;
 
         status = GetTracker(&pSentList);
@@ -1179,7 +1286,7 @@ Return Value:
         //
         pSentList->RefCount = 2;
 
-        if (NodeType & (PNODE | MSNODE))
+        if (LocalNodeType & (PNODE | MSNODE))
         {
             // talk to the NS only to register the name
             // ( the +1 does not actually result in a name reg, it
@@ -1196,7 +1303,7 @@ Return Value:
             if ((pDeviceContext->lNameServerAddress == LOOP_BACK) ||
                 pDeviceContext->WinsIsDown)
             {
-                if (NodeType & MSNODE)
+                if (LocalNodeType & MSNODE)
                 {
                     pSentList->Flags = NBT_BROADCAST;
                     Retries = (USHORT)pNbtGlobConfig->uNumBcasts + 1;
@@ -1239,33 +1346,27 @@ Return Value:
                             pClientCompletion,
                             Retries,
                             Timeout,
-                            eNAME_REGISTRATION);
+                            eNAME_REGISTRATION,
+                            TRUE);
 
         // this decrements the reference count and possibly frees the
         // tracker
         //
         DereferenceTracker(pSentList);
-        CTESpinLock(&NbtConfig.JointLock,OldIrq1);
-
-        // if a name registration fails, because of a name conflict on the
-        // wire, it is possible that pAddressEle has already been freed
-        // by now, and pNameAddr, was already dereferenced once in
-        // NbtRegisterCompletion.  Therefore this next dereference may
-        // delete pNameAddr
-        //
-        LOCATION(0x53);
-
-        NbtDereferenceName(pNameAddr);
 
         if (NT_SUCCESS(status))
         {
-            CTESpinFree(&NbtConfig.JointLock,OldIrq1);
+            LockedDereferenceName(pNameAddr);
             return(STATUS_PENDING);
 
         }
         else
         {
             tTIMERQENTRY        *pTimer;
+
+            LOCATION(0x53);
+
+            CTESpinLock(&NbtConfig.JointLock,OldIrq1);
 
             IF_DBG(NBT_DEBUG_NAMESRV)
             KdPrint(("Nbt:Registration failed - bad retcode from UdpSendNsBcast = %X\n",
@@ -1293,21 +1394,9 @@ Return Value:
             CHECK_PTR(pNameAddr);
             pNameAddr->pTimer = NULL;
 
-            //
-            // UdpSendNsBcast cannot fail and Start a timer
-            //
-#if 0
-            if (status != STATUS_INVALID_PARAMETER_6)
-            {
-                StopTimerAndCallCompletion(pTimer,
-                                           STATUS_UNEXPECTED_NETWORK_ERROR,
-                                           OldIrq1);
-            }
-            else
-#endif
-            {
-                DereferenceTrackerNoLock(pSentList);
-            }
+            NbtDereferenceName(pNameAddr);
+
+            DereferenceTrackerNoLock(pSentList);
 
             CTESpinFree(&NbtConfig.JointLock,OldIrq1);
         }
@@ -1353,9 +1442,13 @@ Return Value:
     USHORT                  Flags;
     CTELockHandle           OldIrq;
     enum eNSTYPE            PduType;
+	ULONG					LocalNodeType;
 
     pTracker = (tDGRAM_SEND_TRACKING *)pContext;
     PduType = eNAME_REGISTRATION;
+
+	LocalNodeType = AppropriateNodeType( pTracker->pNameAddr->Name, NodeType );
+
     //
     // check if the client completion routine is still set.  If not then the
     // timer has been cancelled and this routine should just clean up its
@@ -1416,7 +1509,7 @@ Return Value:
                         PduType = eNAME_REGISTRATION_OVERWRITE;
                     }
                     else
-                    if (NodeType & (PNODE | MSNODE))
+                    if (LocalNodeType & (PNODE | MSNODE))
                     {
                         // we want the Pnode to timeout again, right away and fall
                         // through to handle Timed out name registration - i.e. it
@@ -1439,7 +1532,7 @@ Return Value:
                 pTimerQEntry->DeltaTime = NbtConfig.uRetryTimeout;
                 pTimerQEntry->Retries = NbtConfig.uNumRetries + 1;
 
-                if ((Flags & NBT_BROADCAST) && (NodeType & MNODE))
+                if ((Flags & NBT_BROADCAST) && (LocalNodeType & MNODE))
                 {
                     //
                     // Registered through broadcast, so try the name server now.
@@ -1457,7 +1550,7 @@ Return Value:
                     }
                 }
                 else
-                if ((Flags & NBT_NAME_SERVER) && !(NodeType & BNODE))
+                if ((Flags & NBT_NAME_SERVER) && !(LocalNodeType & BNODE))
                 {
                     //
                     // Can't reach the name server, so try the backup
@@ -1475,7 +1568,7 @@ Return Value:
                     }
                 }
                 else
-                if ((NodeType & MSNODE) && !(Flags & NBT_BROADCAST))
+                if ((LocalNodeType & MSNODE) && !(Flags & NBT_BROADCAST))
                 {
                     if (Flags & NBT_NAME_SERVER_BACKUP)
                     {
@@ -1496,7 +1589,7 @@ Return Value:
                 else
                 {
 
-                    if (NodeType & BNODE)
+                    if (LocalNodeType & BNODE)
                     {
                         IncrementNameStats(NAME_REGISTRATION_SUCCESS,
                                            FALSE);   // not name server register
@@ -1530,7 +1623,8 @@ Return Value:
                                     pTracker,
                                     NULL,NULL,NULL,
                                     0,0,
-                                    PduType);
+                                    PduType,
+                                    TRUE);
 
             DereferenceTracker(pTracker);
             pTimerQEntry->Flags |= TIMER_RESTART;
@@ -1578,6 +1672,8 @@ Return Value:
     tDGRAM_SEND_TRACKING    *pTracker;
     CTELockHandle           OldIrq;
     COMPLETIONCLIENT        pClientCompletion;
+    PVOID                   pClientContext;
+    PCHAR                   pName0;
 
     pTracker = (tDGRAM_SEND_TRACKING *)pContext;
 
@@ -1590,6 +1686,7 @@ Return Value:
             PUCHAR      pHdr;
             ULONG       Length;
             ULONG UNALIGNED *      pAddress;
+            PFILE_OBJECT    pFileObject;
 
             // send the Datagram...increment ref count
             pTracker->RefCount++;
@@ -1600,7 +1697,10 @@ Return Value:
             // request since the datagram gets freed when the irp is returned
             // from the transport in NsDgramSendCompleted.
             //
-            pAddress = (ULONG UNALIGNED *)CreatePdu(pTracker->pNameAddr->Name,
+
+            pName0 = Nbt_inet_addr(pTracker->pNameAddr->Name)
+                     ? "*\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0" : pTracker->pNameAddr->Name;
+            pAddress = (ULONG UNALIGNED *)CreatePdu(pName0,
                                                     NbtConfig.pScope,
                                                     0L,
                                                     0,
@@ -1622,11 +1722,16 @@ Return Value:
                 // note that the passed in transport address must stay valid till this
                 // send completes
                 pTracker->SendBuffer.pDgramHdr = (PVOID)pHdr;
-
+                if (pTracker->pDeviceContext->IpAddress)
+                {
+                    pFileObject = pTracker->pDeviceContext->pNameServerFileObject;
+                }
+                else
+                    pFileObject = NULL;
                 status = UdpSendDatagram(
                                 pTracker,
                                 pTracker->pNameAddr->IpAddress,
-                                ((tDEVICECONTEXT *)pTracker->pDeviceContext)->pNameServerFileObject,
+                                pFileObject,
                                 NameDgramSendCompleted,
                                 pHdr,
                                 NBT_NAMESERVICE_UDP_PORT,
@@ -1646,6 +1751,7 @@ Return Value:
 
             CTESpinLock(&NbtConfig.JointLock,OldIrq);
             pClientCompletion = pTimerQEntry->ClientCompletion;
+            pClientContext = pTimerQEntry->ClientContext;
             CHECK_PTR(pTimerQEntry);
             pTimerQEntry->ClientCompletion = NULL;
 
@@ -1661,16 +1767,6 @@ Return Value:
                 //
                 RemoveEntryList(&pTracker->Linkage);
 
-#if 0
-    //
-    // Don't do this because the timer block is not linked to the pNameAddr
-    // block.
-
-                // remove the link from the name table to this timer block
-                CHECK_PTR(((tNAMEADDR *)pTimerQEntry->pCacheEntry));
-                ((tNAMEADDR *)pTimerQEntry->pCacheEntry)->pTimer = NULL;
-#endif
-
                 CTESpinFree(&NbtConfig.JointLock,OldIrq);
 
                 //
@@ -1679,8 +1775,14 @@ Return Value:
                 //
                 // DereferenceTracker(pTracker);
 
+                //
+                // pClientContext will be zero if we came here through nbtstat
+                //
+                if (!pClientContext)
+                    pClientContext = pTracker;
+
                 (*pClientCompletion)(
-                            pTimerQEntry->ClientContext,
+                            pClientContext,
                             STATUS_TIMEOUT);
                 return;
             }
@@ -1761,7 +1863,8 @@ Return Value:
                                         pTracker,
                                         NULL,NULL,NULL,
                                         0,0,
-                                        eNAME_REFRESH);
+                                        eNAME_REFRESH,
+                                        TRUE);
 
                 // always restart even if the above send fails, since it might succeed
                 // later.
@@ -1786,29 +1889,29 @@ Return Value:
 }
 
 //----------------------------------------------------------------------------
-VOID
+ULONG
 SetFirstDeviceContext(
-    IN  tDGRAM_SEND_TRACKING    *pTracker,
+    OUT tDEVICECONTEXT          **ppDeviceContext,
     IN  tNAMEADDR               *pNameAddr
     )
 /*++
 
 Routine Description:
 
-    This routine finds the first adapter in the name's adapter mask and
-    sets that value in the pTracker structure and then clears the bit  in the
-    adapter mask of pNameAddr.
+    This routine finds the first adapter as specified in the name's adapter
+    mask and set the DeviceContext associated with it.  It then clears the
+    bit  in the adapter mask of pNameAddr.
 
 Arguments:
 
 
 Return Value:
-
+    
+    TRUE if pNameAddr->AdapterMask != 0
 
 --*/
 {
     CTEULONGLONG    AdapterNumber = 1;
-    tDEVICECONTEXT  *pDeviceContext;
     CTEULONGLONG    i;
     PLIST_ENTRY     pHead;
     PLIST_ENTRY     pEntry;
@@ -1825,13 +1928,14 @@ Return Value:
         pEntry = pEntry->Flink;
     }
 
-    pDeviceContext = CONTAINING_RECORD(pEntry,tDEVICECONTEXT,Linkage);
-    pTracker->pDeviceContext = pDeviceContext;
+    *ppDeviceContext = CONTAINING_RECORD(pEntry,tDEVICECONTEXT,Linkage);
 
     // turn off the adapter bit since we are releasing the name on this adapter
     // now.
     //
     pNameAddr->AdapterMask &= ~AdapterNumber;
+
+    return TRUE;
 }
 //----------------------------------------------------------------------------
 NTSTATUS
@@ -1840,7 +1944,8 @@ ReleaseNameOnNet(
     PCHAR               pScope,
     PVOID               pClientContext,
     PVOID               pClientCompletion,
-    ULONG               NodeType
+    ULONG               LocalNodeType,
+    tDEVICECONTEXT      *pDeviceContext
     )
 /*++
 
@@ -1863,36 +1968,56 @@ Called By: ProxyQueryFromNet() in proxy.c,   NbtConnect() in name.c
 {
     ULONG                Timeout;
     USHORT               Retries;
-    NTSTATUS             status;
+    NTSTATUS             status=STATUS_UNSUCCESSFUL;
     tDGRAM_SEND_TRACKING *pTracker;
     USHORT               uAddrType;
     CTELockHandle        OldIrq;
+    tDEVICECONTEXT       *pReleaseDeviceContext;
+
+    //    ASSERT(pNameAddr->AdapterMask);   // This fails when NbtDestroyDeviceObject
+    // is called and the name has already been released
+
+    //
+    // If this name is not registered on any adapters, return STATUS_UNSUCCESSFUL
+    //
+    if (pNameAddr->AdapterMask == 0)
+    {
+        return STATUS_UNSUCCESSFUL;
+    }
+
+    //
+    // Find the DeviceContext specified by the Adapter mask in pNameAddr
+    // and clear the corresponding bit in pNameAddr->AdapterMask
+    // Return FALSE if no Adapter was specified
+    //
+    if (pDeviceContext)
+    {
+        pReleaseDeviceContext = pDeviceContext;
+        pNameAddr->AdapterMask &= ~(pDeviceContext->AdapterNumber);
+    }
+    else if (!SetFirstDeviceContext(&pReleaseDeviceContext,pNameAddr))
+    {
+        return (status);
+    }
 
     status = GetTracker(&pTracker);
-
     if (!NT_SUCCESS(status))
     {
         return(status);
     }
+    CHECK_PTR(pTracker);
+
+    pTracker->pDeviceContext = pReleaseDeviceContext;
+    LocalNodeType = AppropriateNodeType( pNameAddr->Name, LocalNodeType );
 
     // set to NULL to catch any erroneous frees.
-    ASSERT(pNameAddr->AdapterMask);
-    CHECK_PTR(pTracker);
     pTracker->SendBuffer.pDgramHdr = NULL;
-
-    // this routine finds the first adapter in pNameAddr and sets its
-    // value in pTracker->pDeviceContext, and then clears the corresponding
-    // bit in pNameAddr->AdapterMask - so that we know that the name has
-    // been released on this adapter.
-    //
-    SetFirstDeviceContext(pTracker,pNameAddr);
 
     // Set a few values as a precursor to releasing the name either by
     // broadcast or with the name server
     //
-    switch (NodeType & NODE_MASK)
+    switch (LocalNodeType & NODE_MASK)
     {
-
         case MSNODE:
         case MNODE:
         case PNODE:
@@ -1913,8 +2038,6 @@ Called By: ProxyQueryFromNet() in proxy.c,   NbtConnect() in name.c
 #endif
             Timeout = (ULONG)pNbtGlobConfig->uBcastTimeout;
             pTracker->Flags = NBT_BROADCAST;
-
-
     }
     //
     // Release name on the network
@@ -1924,7 +2047,9 @@ Called By: ProxyQueryFromNet() in proxy.c,   NbtConnect() in name.c
         uAddrType = NBT_GROUP;
     }
     else
+    {
         uAddrType = NBT_UNIQUE;
+    }
 
     IF_DBG(NBT_DEBUG_NAMESRV)
     KdPrint(("Nbt:Doing Name Release on name %16.16s<%X>\n",
@@ -1939,16 +2064,18 @@ Called By: ProxyQueryFromNet() in proxy.c,   NbtConnect() in name.c
                             pClientCompletion,
                             Retries,
                             Timeout,
-                            eNAME_RELEASE);
+                            eNAME_RELEASE,
+                            TRUE);
 
     DereferenceTracker(pTracker);
-    CTESpinLock(&NbtConfig.JointLock,OldIrq);
 
     if (!NT_SUCCESS(status))
     {
         NTSTATUS            Locstatus;
         COMPLETIONCLIENT    pCompletion;
         PVOID               pContext;
+
+        CTESpinLock(&NbtConfig.JointLock,OldIrq);
 
         IF_DBG(NBT_DEBUG_NAMESRV)
         KdPrint(("Nbt:Query failed - bad retcode from UdpSendNsBcast during name release= %X\n",
@@ -1964,7 +2091,6 @@ Called By: ProxyQueryFromNet() in proxy.c,   NbtConnect() in name.c
 
             CHECK_PTR(pNameAddr);
             pNameAddr->pTimer = NULL;
-
         }
         else
         {
@@ -1980,12 +2106,9 @@ Called By: ProxyQueryFromNet() in proxy.c,   NbtConnect() in name.c
                 FreeTracker(pTracker, RELINK_TRACKER);
             }
         }
-        CTESpinFree(&NbtConfig.JointLock,OldIrq);
 
+        CTESpinFree(&NbtConfig.JointLock,OldIrq);
     }
-    else
-        CTESpinFree(&NbtConfig.JointLock,OldIrq);
-
 
     return(status);
 }
@@ -2018,8 +2141,19 @@ Return Value:
 
     NTSTATUS                status;
     tDGRAM_SEND_TRACKING    *pTracker;
+	ULONG					LocalNodeType;
 
     pTracker = (tDGRAM_SEND_TRACKING *)pContext;
+
+	if (IsBrowserName(pTracker->pNameAddr->Name))
+	{
+		LocalNodeType = BNODE;
+	}
+	else
+	{
+		LocalNodeType = NodeType;
+	}
+
     //
     // check if the client completion routine is still set.  If not then the
     // timer has been cancelled and this routine should just clean up its
@@ -2032,7 +2166,7 @@ Return Value:
         //
         if (!(--pTimerQEntry->Retries))
         {
-            if ((NodeType & MNODE) &&
+            if ((LocalNodeType & MNODE) &&
                (pTracker->Flags & NBT_NAME_SERVER))
             {
                 //
@@ -2077,7 +2211,8 @@ Return Value:
                                 pTracker,
                                 NULL,NULL,NULL,
                                 0,0,
-                                eNAME_RELEASE);
+                                eNAME_RELEASE,
+                                TRUE);
 
         DereferenceTracker(pTracker);
         pTimerQEntry->Flags |= TIMER_RESTART;
@@ -2089,22 +2224,19 @@ Return Value:
     }
 }
 
-#ifdef VXD
-
 //----------------------------------------------------------------------------
 VOID
-DnsCompletion(
-               PVOID               pContext,
-               PVOID               pContext2,
-               tTIMERQENTRY        *pTimerQEntry
-             )
+NameReleaseDoneOnDynIf(
+    PVOID               pContext,
+    NTSTATUS            Status
+    )
 /*++
 
 Routine Description:
 
-    This routine is called by the timer code when the timer expires. It must
-    decide if another name query should be sent to the DNS server, and if not,
-    then it calls the client's completion routine (in completion2).
+    This routine is called when a name is released on the network for a deleted dynamic If.
+    Itsmain, role in life is to free the memory in Context, which is the pAddressEle
+    structure.
 
 Arguments:
 
@@ -2113,175 +2245,64 @@ Return Value:
 
     The function value is the status of the operation.
 
-
-Notes:
+Called By Release Completion (above)
 --*/
 
 {
+    CTELockHandle   OldIrq1;
+    tADDRESSELE     *pAddress;
+    tNAMEADDR       *pNameAddr;
 
-   NTSTATUS                 status;
-   tDGRAM_SEND_TRACKING    *pTracker;
-   tDEVICECONTEXT          *pDeviceContext;
-   CTELockHandle            OldIrq;
-   COMPLETIONCLIENT         pClientCompletion;
-   USHORT                   Flags;
-   BOOL                     fOneMoreTry;
+    pAddress = (tADDRESSELE *)pContext;
+    pNameAddr = pAddress->pNameAddr;
 
 
-   KdPrint(("DnsCompletion entered\r\n"));
+    //
+    // If last device, release resources.
+    //
+    if (!pNameAddr->AdapterMask)
+    {
+        CTESpinLock(&NbtConfig.JointLock,OldIrq1);
 
-   pTracker = (tDGRAM_SEND_TRACKING *)pContext;
-   pDeviceContext = pTracker->pDeviceContext;
+        // this should remove and delete the name from the local table.  Since it
+        // is possible to re-register the name during the name release on the
+        // net, we need this check here for the ref count, since NbtOpenAddress
+        // will increment it if is going to reregister it.
+        //
+        if (pAddress->RefCount == 0)
+        {
 
+            // remove the address object from the list of addresses tied to the
+            // device context for the adapter
+            //
+            RemoveEntryList(&pAddress->Linkage);
 
-   // if the client completion routine is not set anymore, then the
-   // timer has been cancelled and this routine should just clean up its
-   // buffers associated with the tracker (and return)
-   //
-   if (!pTimerQEntry)
-   {
-         // return the tracker block to its queue
-      LOCATION(0x52);
-      DereferenceTrackerNoLock((tDGRAM_SEND_TRACKING *)pContext);
-      return;
-   }
+            CHECK_PTR(pAddress->pNameAddr);
+            pAddress->pNameAddr->pAddressEle = NULL;
 
+            ASSERT(IsListEmpty(&pAddress->ClientHead));
 
-   //
-   // to prevent a client from stopping the timer and deleting the
-   // pNameAddr, grab the lock and check if the timer has been stopped
-   //
-   CTESpinLock(&NbtConfig.JointLock,OldIrq);
-   if (pTimerQEntry->Flags & TIMER_RETIMED)
-   {
-      pTimerQEntry->Flags &= ~TIMER_RETIMED;
-      pTimerQEntry->Flags |= TIMER_RESTART;
-      //
-      // if we are not bound to this card than use a very short timeout
-      //
-      if (!pTracker->pDeviceContext->pNameServerFileObject)
-      {
-          pTimerQEntry->DeltaTime = 10;
-      }
+            // check if pnameaddr memory already freed
+            ASSERT(pAddress->pNameAddr->pAddressEle != (PVOID)0xD1000000);
 
-      CTESpinFree(&NbtConfig.JointLock,OldIrq);
-      return;
-   }
+            NbtDereferenceName(pAddress->pNameAddr);
 
-   if (!pTimerQEntry->ClientCompletion)
-   {
-      CTESpinFree(&NbtConfig.JointLock,OldIrq);
-      return;
-   }
+            CTESpinFree(&NbtConfig.JointLock,OldIrq1);
 
-      // If done with all the (3) retries with primary, try secondary DNS srvr
-      // If secondary not defined, or done with secondary as well, stop.
-      //
+            // free the memory associated with the address element
 
-   fOneMoreTry = TRUE;
+            IF_DBG(NBT_DEBUG_NAMESRV)
+            KdPrint(("NBt: Deleteing Address Obj after name release on net %X\n",pAddress));
+            NbtFreeAddressObj(pAddress);
+        }
+        else
+        {
+            CTESpinFree(&NbtConfig.JointLock,OldIrq1);
 
-   if (!(--pTimerQEntry->Retries))
-   {
-         // backup server not defined?  if so, done
-      if ( ( !pDeviceContext->lDnsBackupServer ) ||
-           (  pDeviceContext->lDnsBackupServer == LOOP_BACK) )
-      {
-         CDbgPrint(DBGFLAG_ERROR,("Backup DNS server not defined\r\n"));
-
-         fOneMoreTry = FALSE;
-      }
-
-         // finished backup server too?  if so, done
-      else if (pTracker->Flags & NBT_DNS_SERVER_BACKUP)
-         fOneMoreTry = FALSE;
-
-         // ok, prepare to try the backup server
-      else
-      {
-         pTimerQEntry->Retries = NbtConfig.uNumRetries;
-
-         pTracker->Flags &= ~NBT_DNS_SERVER;
-         pTracker->Flags |= NBT_DNS_SERVER_BACKUP;
-      }
-   }
-
-      // we aren't done yet: send one more query and restart the timer
-   if (fOneMoreTry)
-   {
-      pTracker->RefCount++;
-
-      CTESpinFree(&NbtConfig.JointLock,OldIrq);
-
-      status = UdpSendNSBcast(pTracker->pNameAddr,
-                              NbtConfig.pScope,
-                              pTracker,
-                              NULL,NULL,NULL,
-                              0,0,
-                              eDNS_NAME_QUERY);
-
-      DereferenceTracker(pTracker);
-
-      pTimerQEntry->Flags |= TIMER_RESTART;
-
-      KdPrint(("One more DNS query sent out\r\n"));
-   }
-
-      // yup, all done: didn't find the name! give client above the bad news
-   else
-   {
-      tDGRAM_SEND_TRACKING    *pClientTracker;
-
-
-      pClientTracker = (tDGRAM_SEND_TRACKING *)pTimerQEntry->ClientContext;
-
-      pClientCompletion = pTimerQEntry->ClientCompletion;
-
-         // remove the link from the name table to this timer block
-      CHECK_PTR(((tNAMEADDR *)pTimerQEntry->pCacheEntry));
-
-      ((tNAMEADDR *)pTimerQEntry->pCacheEntry)->pTimer = NULL;
-
-      // to synch. with the StopTimer routine, Null the client
-      // completion routine so it gets called just once.
-      //
-      CHECK_PTR(pTimerQEntry);
-      pTimerQEntry->ClientCompletion = NULL;
-
-      //
-      // remove the name from the hash table, since it did not
-      // resolve via DNS either
-      //
-      CHECK_PTR(pTracker->pNameAddr);
-      pTracker->pNameAddr->NameTypeState &= ~NAME_STATE_MASK;
-      pTracker->pNameAddr->NameTypeState |= STATE_RELEASED;
-      pTracker->pNameAddr->pTimer = NULL;
-
-      //
-      // This call will remove the name from the PendingNameQueries List
-      //
-      NbtDereferenceName(pTracker->pNameAddr);
-
-      CTESpinFree(&NbtConfig.JointLock,OldIrq);
-
-      // there can be a list of trackers Q'd up on this name
-      // query, so we must complete all of them!
-      //
-      CompleteClientReq(pClientCompletion,
-                        pClientTracker,
-                        STATUS_TIMEOUT);
-
-      // return the tracker block to its queue
-      LOCATION(0x51);
-      DereferenceTracker(pTracker);
-
-      KdPrint(("DNS resolution failed: told client\r\n"));
-   }
+        }
+    }
 
 }
-
-#endif //  #ifdef VXD
-
-
 //----------------------------------------------------------------------------
 VOID
 NameReleaseDone(
@@ -2323,57 +2344,12 @@ Called By Release Completion (above)
                          NbtConfig.pScope,
                          pAddress,
                          NameReleaseDone,
-                         NodeType);
+                         NodeType,
+                         NULL);
     }
     else
     {
         CTESpinLock(&NbtConfig.JointLock,OldIrq1);
-
-#if 0
-    //
-    // CHANGED so that the client close address completes before the
-    // name is actually released on the net - see name.c
-    //
-        //
-        // there should be a single client waiting for the name to be released
-        // on the net.  For NT, complete this client's irp and delete the
-        // memory structure (Vxd, the Irp will be NULL which is Ok).
-        //
-        if (!IsListEmpty(&pAddress->ClientHead))
-        {
-            pClientEle = CONTAINING_RECORD(pAddress->ClientHead.Flink,
-                                            tCLIENTELE,Linkage);
-            //
-            // free the memory associated with the client element
-            //
-            pIrp = pClientEle->pIrp;
-
-            RemoveEntryList(&pClientEle->Linkage);
-
-            NbtFreeClientObj(pClientEle);
-
-            IF_DBG(NBT_DEBUG_NAMESRV)
-            KdPrint(("NBt: Delete Client Object after name release on net %X\n",pClientEle));
-
-            CTESpinFree(&NbtConfig.JointLock,OldIrq1);
-
-            // complete the client's close address irp
-            if (pIrp)
-            {
-                CTEIoComplete(pIrp,STATUS_SUCCESS,0);
-            }
-
-            CTESpinLock(&NbtConfig.JointLock,OldIrq1);
-        }
-        //
-        // there may not be any client on the client list if the name is closed
-        // during a refresh cycle since the pAddressEle will have its ref count
-        // incremented when the CloseAddress comes in causing the client's irp to
-        // return immediately.  When refresh is done with the address it will
-        // dereference and send a name release.  When the name release completes
-        // it will come here and find that there is no client on the list which is
-        // ok.
-#endif
 
         // this should remove and delete the name from the local table.  Since it
         // is possible to re-register the name during the name release on the
@@ -2597,11 +2573,36 @@ Return Value:
     //
     if (ResetDevice)
     {
+        PLIST_ENTRY  pEntry;
+        CTEULONGLONG AdapterMask;
+        CTEULONGLONG AdapterNumber = 1;
+        ULONG   i;
+
         LOCATION(0xb);
-        // set the devicecontext to the first one on the list
-        pDeviceContext = CONTAINING_RECORD(NbtConfig.DeviceContexts.Flink,
-                                           tDEVICECONTEXT,
-                                           Linkage);
+
+        //
+        // Travel to the actual device this name is registered on
+        //
+        pEntry = NbtConfig.DeviceContexts.Flink;
+        AdapterMask = pNameAddr->AdapterMask;
+
+        if (AdapterMask) {
+            while (!(AdapterNumber & AdapterMask))
+            {
+                AdapterNumber = AdapterNumber << 1;
+            }
+
+            for (i = 1;i < AdapterNumber ;i = i << 1 ) {
+                pEntry = pEntry->Flink;
+            }
+        }
+
+        pDeviceContext = CONTAINING_RECORD(pEntry,tDEVICECONTEXT,Linkage);
+
+        IF_DBG(NBT_DEBUG_REFRESH)
+            KdPrint(("Nbt: Refresh adapter: %lx:%lx, dev.nm: %lx for name: %lx\n",
+                AdapterNumber, pDeviceContext->BindName.Buffer, pNameAddr));
+
         pTracker->pDeviceContext = pDeviceContext;
         //
         // Clear the transaction Id so that CreatePdu will increment
@@ -2620,7 +2621,8 @@ Return Value:
                         NextRefresh,
                         NbtConfig.uNumRetries,
                         NbtConfig.uRetryTimeout,
-                        eNAME_REFRESH);
+                        eNAME_REFRESH,
+                        TRUE);
 
     DereferenceTracker(pTracker);
     CTESpinLock(&NbtConfig.JointLock,OldIrq);
@@ -2729,7 +2731,7 @@ Return Value:
             // 1 one bit position further and then subtracting 1.
             // i.e. 100 -1  = 11 (binary) or 4-3 = 3(11 binary)
             //
-            AllRefreshed = (1 << NbtConfig.AdapterCount) -1;
+            AllRefreshed = ((CTEULONGLONG)1 << NbtConfig.AdapterCount) -1;
             if (pNameAddr->RefreshMask == AllRefreshed)
             {
                 pEntry = pEntry->Flink;
@@ -2739,8 +2741,7 @@ Return Value:
             // increment the reference count so that this name cannot
             // disappear while it is being refreshed and screw up the linked
             // list
-            CTEInterlockedIncrementLong(&pNameAddr->pAddressEle->RefCount,
-                                        &pNameAddr->pAddressEle->SpinLock);
+            CTEInterlockedIncrementLong(&pNameAddr->pAddressEle->RefCount);
 
             NbtConfig.CurrentHashBucket = (USHORT)i;
 
@@ -2780,7 +2781,8 @@ Return Value:
     pTracker = (tDGRAM_SEND_TRACKING *)pContext;
 
     LOCATION(0xf);
-    CTEQueueForNonDispProcessing(pTracker,(PVOID)CompletionStatus,NULL,NextRefreshNonDispatch);
+    CTEQueueForNonDispProcessing(pTracker,(PVOID)CompletionStatus,NULL,
+                              NextRefreshNonDispatch,pTracker->pDeviceContext);
 }
 
 //----------------------------------------------------------------------------
@@ -2937,6 +2939,11 @@ Return Value:
                 // is the same as the last one though...no need to create a new one.
                 //
                 status = StartRefresh(pNameAddr,pTracker,FALSE);
+                if (!NT_SUCCESS(status))
+                {
+                    DereferenceTracker(pTracker);
+                    NbtConfig.DoingRefreshNow = FALSE;
+                }
                 goto ExitRoutine;
             }
 
@@ -2981,7 +2988,10 @@ Return Value:
             status = StartRefresh(pNameAddrNext,pTracker,TRUE);
             if (!NT_SUCCESS(status))
             {
-                NbtDereferenceAddress(pNameAddrNext->pAddressEle);
+               NbtConfig.DoingRefreshNow = FALSE;
+               DereferenceTracker(pTracker);
+               KdPrint(("Nbt:StartRefresh failed on Adapter %X, Name %15.15s<%x>, status=%X\n",
+                   (ULONG)AdapterNumber,pNameAddr->Name,pNameAddr->Name[15], status));
             }
             IF_DBG(NBT_DEBUG_REFRESH)
             KdPrint(("Nbt:Refresh on Adapter %X, Name %15.15s<%x>\n",
@@ -3058,17 +3068,22 @@ Return Value:
     }
     else
     {
+        CTESpinLock(&NbtConfig.JointLock,OldIrq);
         if (NodeType & BNODE)
         {
             // Do not restart the timer
             CHECK_PTR(pTimerQEntry);
+
             pTimerQEntry->Flags = 0;
+            NbtConfig.pRefreshTimer = NULL;
+
+            CTESpinFree(&NbtConfig.JointLock,OldIrq);
+
             return;
         }
 
         LOCATION(0x10);
 
-        CTESpinLock(&NbtConfig.JointLock,OldIrq);
 
         if (!NbtConfig.DoingRefreshNow)
         {
@@ -3080,7 +3095,7 @@ Return Value:
 
             CTESpinFree(&NbtConfig.JointLock,OldIrq);
 
-            CTEQueueForNonDispProcessing(NULL,NULL,NULL,RefreshBegin);
+            CTEQueueForNonDispProcessing(NULL,NULL,NULL,RefreshBegin,NULL);
 
         } // doing refresh now
         else
@@ -3132,6 +3147,8 @@ Return Value:
     ULONG                   TimeoutCount;
     tDEVICECONTEXT          *pDeviceContext;
     CTEULONGLONG            Adapter;
+    BOOLEAN                 fTimeToSwitch = FALSE;
+    BOOLEAN                 fTimeToRefresh = FALSE;
 
     CTEMemFree(pContext);
     LOCATION(0x12);
@@ -3141,6 +3158,24 @@ Return Value:
     // get the timeout cycle number
 
     TimeoutCount = NbtConfig.sTimeoutCount++;
+    //
+    // BUG #3094:
+    // Currently, we try to switch back to primary every 1/2 TTl => 3 days, generally.
+    // We try to do this more often - every hour by checking at each timeout
+    // if we have not switched for an hour.
+    //
+    // We take care not to clear the refresh bits in the name on every interval by re-checking
+    // for the T/2 or 0 conditions later.
+    //
+    // Do this before the modulo operation.
+    //
+    fTimeToSwitch = (((NbtConfig.MinimumTtl/NbtConfig.RefreshDivisor) *
+                    (TimeoutCount - NbtConfig.LastSwitchTimeoutCount)) >= DEFAULT_SWITCH_TTL);
+
+    IF_DBG(NBT_DEBUG_REFRESH)
+    KdPrint(("Nbt:fTimeToSwitch: %d, MinTtl: %lx, RefDiv: %d, TimeoutCount: %d, LastSwTimeoutCount: %d",
+            fTimeToSwitch, NbtConfig.MinimumTtl, NbtConfig.RefreshDivisor, TimeoutCount, NbtConfig.LastSwitchTimeoutCount));
+
     NbtConfig.sTimeoutCount %= NbtConfig.RefreshDivisor;
 
     //
@@ -3149,6 +3184,7 @@ Return Value:
     //
     if (NbtConfig.MinimumTtl == NBT_MAXIMUM_TTL)
     {
+        NbtConfig.DoingRefreshNow = FALSE;
         return;
     }
 
@@ -3163,9 +3199,14 @@ Return Value:
     // clear the refreshed bits so all names get refreshed if we are
     // at interval 0 or interval 8/2
     //
-    if ((TimeoutCount == (NbtConfig.RefreshDivisor/2)) || (TimeoutCount == 0))
+
+    fTimeToRefresh = ((TimeoutCount == (NbtConfig.RefreshDivisor/2)) || (TimeoutCount == 0));
+
+    if (fTimeToRefresh || fTimeToSwitch)
     {
         CTEULONGLONG   JustSwitched = 0;
+
+        NbtConfig.LastSwitchTimeoutCount = (USHORT)TimeoutCount;
 
         for (i=0 ;i < pHashTable->lNumBuckets ;i++ )
         {
@@ -3189,6 +3230,7 @@ Return Value:
 
                 if (!(pNameAddr->NameTypeState & STATE_RESOLVED) ||
                     (pNameAddr->Name[0] == '*') ||
+                    (IsBrowserName(pNameAddr->Name)) ||
                     (pNameAddr->NameTypeState & NAMETYPE_QUICK))
                 {
                     pEntry = pEntry->Flink;
@@ -3205,7 +3247,7 @@ Return Value:
                 while (pEntry1 != pHead1)
                 {
 
-                    Adapter = 1 << j++;
+                    Adapter = (CTEULONGLONG)1 << j++;
 
                     pDeviceContext = CONTAINING_RECORD(pEntry1,tDEVICECONTEXT,Linkage);
                     pEntry1 = pEntry1->Flink;
@@ -3245,7 +3287,13 @@ Return Value:
                 // clear the refresh mask, so we can refresh all over
                 // again!
                 CHECK_PTR(pNameAddr);
-                pNameAddr->RefreshMask = 0;
+
+                //
+                // Dont clear the refresh bits when we are trying to switch (say at T/8).
+                //
+                if (fTimeToRefresh) {
+                    pNameAddr->RefreshMask = 0;
+                }
 
                 // next hash table entry
                 pEntry = pEntry->Flink;
@@ -3281,6 +3329,7 @@ Return Value:
         if (!NT_SUCCESS(status))
         {
             NbtDereferenceAddress(pNameAddr->pAddressEle);
+            NbtConfig.DoingRefreshNow = FALSE;
         }
 
     }
@@ -3511,7 +3560,10 @@ Return Value:
         // be sure this connection is still on the active list by checking
         // the state.
         //
+        // If this connection has been cleaned up in OutOfRsrcKill, then dont trust the linkages.
+        //
         if (pLowerConnIn &&
+            !pLowerConnIn->OutOfRsrcFlag &&
             ((pLowerConnIn->State == NBT_SESSION_UP) ||
              (pLowerConnIn->State == NBT_SESSION_INBOUND)))
         {
@@ -3622,7 +3674,7 @@ Return Value:
 {
     if (pTimerQEntry)
     {
-        CTEQueueForNonDispProcessing(NULL,NULL,NULL,SessionKeepAliveNonDispatch);
+        CTEQueueForNonDispProcessing(NULL,NULL,NULL,SessionKeepAliveNonDispatch,NULL);
 
         // restart the timer
         //
@@ -3684,7 +3736,7 @@ Return Value:
         // keep alives will be sent by the completion routine, NextKeepAlive()
         //
 
-        pSessionHdr = (tSESSIONHDR *)CTEAllocMem(sizeof(tSESSIONERROR));
+        pSessionHdr = (tSESSIONHDR *)NbtAllocMem(sizeof(tSESSIONERROR),NBT_TAG('S'));
         if (!pSessionHdr)
         {
             return;
@@ -3792,5 +3844,43 @@ Return Value:
     }
 
 }
-
-
+
+//
+// These are names that should never be sent to WINS.
+//
+BOOL
+IsBrowserName(
+	IN PCHAR pName
+)
+{
+	CHAR cNameType = pName[NETBIOS_NAME_SIZE - 1];
+
+	return (
+		(cNameType == 0x1E)
+		|| (cNameType == 0x1D)
+		|| (cNameType == 0x01)
+		);
+}
+
+//
+// Returns the node type that should be used with a request,
+// based on NetBIOS name type.  This is intended to help the
+// node to behave like a BNODE for browser names only.
+//
+AppropriateNodeType(
+	IN PCHAR pName,
+	IN ULONG NodeType
+)
+{
+	ULONG LocalNodeType = NodeType;
+
+	if (LocalNodeType & BNODE)
+	{
+		if ( IsBrowserName ( pName ) )
+		{
+			LocalNodeType &= BNODE;
+		}
+	}
+	return LocalNodeType;
+}
+

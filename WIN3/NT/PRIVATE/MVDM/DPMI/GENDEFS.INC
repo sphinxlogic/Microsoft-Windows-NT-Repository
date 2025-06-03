@@ -326,7 +326,7 @@ ENDIF
 ; This macro calls one of the DX services
 
 DXcall  MACRO Procedure, Param_List
-IFNDEF  WOW                             ; BUGBUG
+IFNDEF  WOW_x86                             ; BUGBUG
         PushCParams Param_List
         db      9Ah                     ;call sel:0
         dw      0
@@ -342,7 +342,7 @@ ENDIF
 
 Trace_Out MACRO String, nocrlf
         LOCAL   String_Offset
-ifndef WOW      ;bugbug
+ifndef WOW_x86      ;bugbug
 IF DEBUG
 
 DXDATA SEGMENT
@@ -371,7 +371,7 @@ DXDATA ENDS
         npopf
         pop     ds
 ENDIF
-endif   ;wow
+endif   ;WOW_x86
         ENDM
 
 ; -------------------------------------------------------

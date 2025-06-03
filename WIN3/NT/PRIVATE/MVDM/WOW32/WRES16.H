@@ -44,5 +44,5 @@ BOOL    UnlockResource16(PRES pres);
 DWORD   SizeofResource16(HMOD16 hmod16, PRES pres);
 
 DWORD   ConvertMenu16(WORD wExeVer, PBYTE pmenu32, VPBYTE vpmenu16, DWORD cb, DWORD cb16);
-DWORD   ConvertMenuItems16(WORD wExeVer, PPBYTE ppmenu32, PPBYTE ppmenu16);
+DWORD   ConvertMenuItems16(WORD wExeVer, PPBYTE ppmenu32, PPBYTE ppmenu16, VPBYTE vpmenu16);
 DWORD   ConvertDialog16(PBYTE pdlg32, VPBYTE vpdlg16, DWORD cb, DWORD cb16);

@@ -37,9 +37,7 @@ extern ULONG NtfsMaxDelayedCloseCount;
 extern ULONG NtfsMinDelayedCloseCount;
 
 extern ULONG NtfsCleanCheckpoints;
-extern ULONG NtfsSuccessRequests;
 extern ULONG NtfsPostRequests;
-extern ULONG NtfsCleanCheckpointLite;
 
 //
 //  The global fsd data record
@@ -52,6 +50,21 @@ extern NTFS_DATA NtfsData;
 //
 
 extern FAST_MUTEX StreamFileCreationFastMutex;
+
+//
+//  A mutex and queue of NTFS MCBS that will be freed
+//  if we reach over a certain threshold
+//
+
+extern FAST_MUTEX NtfsMcbFastMutex;
+extern LIST_ENTRY NtfsMcbLruQueue;
+
+extern ULONG NtfsMcbHighWaterMark;
+extern ULONG NtfsMcbLowWaterMark;
+extern ULONG NtfsMcbCurrentLevel;
+
+extern BOOLEAN NtfsMcbCleanupInProgress;
+extern WORK_QUEUE_ITEM NtfsMcbWorkItem;
 
 //
 //  The following are global large integer constants used throughout ntfs
@@ -68,9 +81,31 @@ extern LONGLONG NtfsLastAccess;
 #define Li0                              (NtfsLarge0)
 #define Li1                              (NtfsLarge1)
 
-#define MAXLONGLONG                      (0x7fffffffffffffff)
 #define MAXULONGLONG                     (0xffffffffffffffff)
 #define UNUSED_LCN                       ((LONGLONG)(-1))
+
+//
+//   The following fields are used to allocate nonpaged structures
+//  using a lookaside list, and other fixed sized structures from a
+//  small cache.
+//
+
+extern NPAGED_LOOKASIDE_LIST NtfsFileLockLookasideList;
+extern NPAGED_LOOKASIDE_LIST NtfsIoContextLookasideList;
+extern NPAGED_LOOKASIDE_LIST NtfsIrpContextLookasideList;
+extern NPAGED_LOOKASIDE_LIST NtfsKeventLookasideList;
+extern NPAGED_LOOKASIDE_LIST NtfsScbNonpagedLookasideList;
+extern NPAGED_LOOKASIDE_LIST NtfsScbSnapshotLookasideList;
+
+extern PAGED_LOOKASIDE_LIST NtfsCcbLookasideList;
+extern PAGED_LOOKASIDE_LIST NtfsCcbDataLookasideList;
+extern PAGED_LOOKASIDE_LIST NtfsDeallocatedRecordsLookasideList;
+extern PAGED_LOOKASIDE_LIST NtfsFcbDataLookasideList;
+extern PAGED_LOOKASIDE_LIST NtfsFcbIndexLookasideList;
+extern PAGED_LOOKASIDE_LIST NtfsIndexContextLookasideList;
+extern PAGED_LOOKASIDE_LIST NtfsLcbLookasideList;
+extern PAGED_LOOKASIDE_LIST NtfsNukemLookasideList;
+extern PAGED_LOOKASIDE_LIST NtfsScbDataLookasideList;
 
 //
 //  This is the string for the name of the index allocation attributes.
@@ -120,7 +155,9 @@ extern FILE_REFERENCE Mft2FileReference;
 extern FILE_REFERENCE LogFileReference;
 extern FILE_REFERENCE VolumeFileReference;
 extern FILE_REFERENCE RootIndexFileReference;
+extern FILE_REFERENCE BitmapFileReference;
 extern FILE_REFERENCE FirstUserFileReference;
+extern FILE_REFERENCE BootFileReference;
 
 //
 //  The global structure used to contain our fast I/O callbacks
@@ -133,6 +170,34 @@ extern UCHAR IndexSignature[4];
 extern UCHAR FileSignature[4];
 extern UCHAR HoleSignature[4];
 extern UCHAR ChkdskSignature[4];
+
+//
+//  Large Reserved Buffer Context
+//
+
+extern ULONG NtfsReservedInUse;
+extern PVOID NtfsReserved1;
+extern PVOID NtfsReserved2;
+extern ULONG NtfsReserved2Count;
+extern PVOID NtfsReserved3;
+extern PVOID NtfsReserved1Thread;
+extern PVOID NtfsReserved2Thread;
+extern PVOID NtfsReserved3Thread;
+extern PFCB NtfsReserved12Fcb;
+extern PFCB NtfsReserved3Fcb;
+extern PVOID NtfsReservedBufferThread;
+extern BOOLEAN NtfsBufferAllocationFailure;
+extern FAST_MUTEX NtfsReservedBufferMutex;
+extern ERESOURCE NtfsReservedBufferResource;
+extern LARGE_INTEGER NtfsShortDelay;
+
+#ifdef _CAIRO_
+extern FAST_MUTEX NtfsScavengerLock;
+extern PIRP_CONTEXT NtfsScavengerWorkList;
+extern BOOLEAN NtfsScavengerRunning;
+#endif  // _CAIRO_
+
+#define LARGE_BUFFER_SIZE                (0x10000)
 
 //
 //  The following is the number of minutes for the last access increment
@@ -151,7 +216,7 @@ extern UCHAR ChkdskSignature[4];
 //  per one request.
 //
 
-#define NTFS_MAX_PARALLEL_IOS            ((ULONG)5)
+#define NTFS_MAX_PARALLEL_IOS            ((ULONG)8)
 
 //
 //  Define a symbol which states the maximum number of runs that will be
@@ -166,10 +231,30 @@ extern UCHAR ChkdskSignature[4];
 #define MAXIMUM_RUNS_AT_ONCE             (128)
 
 
+
+//
+//  Turn on pseudo-asserts if NTFS_FREE_ASSERTS is defined.
+//
+
+#if (!DBG && defined( NTFS_FREE_ASSERTS )) || defined( NTFSDBG )
+#undef ASSERT
+#undef ASSERTMSG
+#define ASSERT(exp)                                             \
+    ((exp) ? TRUE :                                             \
+             (DbgPrint( "%s:%d %s\n",__FILE__,__LINE__,#exp ),  \
+              DbgBreakPoint(),                                  \
+              TRUE))
+#define ASSERTMSG(msg,exp)                                              \
+    ((exp) ? TRUE :                                                     \
+             (DbgPrint( "%s:%d %s %s\n",__FILE__,__LINE__,msg,#exp ),   \
+              DbgBreakPoint(),                                          \
+              TRUE))
+#endif
+
 //
 //  The following debug macros are used in ntfs and defined in this module
 //
-//      DebugTrace( Indent, Level, String, Value );
+//      DebugTrace( Indent, Level, (DbgPrint list) );
 //
 //      DebugUnwind( NonquotedString );
 //
@@ -237,9 +322,10 @@ extern UCHAR ChkdskSignature[4];
 
 extern LONG NtfsDebugTraceLevel;
 extern LONG NtfsDebugTraceIndent;
+extern LONG NtfsFailCheck;
 
 #define DEBUG_TRACE_ERROR                (0x00000001)
-#define DEBUG_TRACE_0x00000002           (0x00000002)
+#define DEBUG_TRACE_QUOTA                (0x00000002)
 #define DEBUG_TRACE_CATCH_EXCEPTIONS     (0x00000004)
 #define DEBUG_TRACE_UNWIND               (0x00000008)
 
@@ -279,11 +365,12 @@ extern LONG NtfsDebugTraceIndent;
 #define DEBUG_TRACE_DEVIOSUP             (0x10000000)
 #define DEBUG_TRACE_STRUCSUP             (0x20000000)
 #define DEBUG_TRACE_FSP_DISPATCHER       (0x40000000)
-#define DEBUG_TRACE_0x80000000           (0x80000000)
+#define DEBUG_TRACE_ACLINDEX             (0x80000000)
 
-#define DebugTrace(INDENT,LEVEL,X,Y) {                       \
+#define DebugTrace(INDENT,LEVEL,M) {                           \
     LONG _i;                                                 \
-    if (((LEVEL) == 0) || (NtfsDebugTraceLevel & (LEVEL))) { \
+    if (((LEVEL) == 0) ||                                    \
+        (NtfsDebugTraceLevel & (LEVEL)) != 0) {              \
         _i = (ULONG)PsGetCurrentThread();                    \
         DbgPrint("%08lx:",_i);                               \
         if ((INDENT) < 0) {                                  \
@@ -295,42 +382,37 @@ extern LONG NtfsDebugTraceIndent;
         for (_i = 0; _i < NtfsDebugTraceIndent; _i += 1) {   \
             DbgPrint(" ");                                   \
         }                                                    \
-        DbgPrint(X,Y);                                       \
+        DbgPrint M;                                          \
         if ((INDENT) > 0) {                                  \
             NtfsDebugTraceIndent += (INDENT);                \
         }                                                    \
     }                                                        \
 }
 
-#define DebugTrace2(INDENT,LEVEL,X,Y,Z) {                    \
-    LONG _i;                                                 \
-    if (((LEVEL) == 0) || (NtfsDebugTraceLevel & (LEVEL))) { \
-        _i = (ULONG)PsGetCurrentThread();                    \
-        DbgPrint("%08lx:",_i);                               \
-        if ((INDENT) < 0) {                                  \
-            NtfsDebugTraceIndent += (INDENT);                \
-        }                                                    \
-        if (NtfsDebugTraceIndent < 0) {                      \
-            NtfsDebugTraceIndent = 0;                        \
-        }                                                    \
-        for (_i=0; _i<NtfsDebugTraceIndent; _i+=1) {         \
-            DbgPrint(" ");                                   \
-        }                                                    \
-        DbgPrint(X,Y,Z);                                     \
-        if ((INDENT) > 0) {                                  \
-            NtfsDebugTraceIndent += (INDENT);                \
-        }                                                    \
-    }                                                        \
+#define DebugUnwind(X) {                                                        \
+    if (AbnormalTermination()) {                                                \
+        DebugTrace( 0, DEBUG_TRACE_UNWIND, (#X ", Abnormal termination.\n") );  \
+    }                                                                           \
 }
 
-#define DebugUnwind(X) {                                                      \
-    if (AbnormalTermination()) {                                              \
-        DebugTrace(0, DEBUG_TRACE_UNWIND, #X ", Abnormal termination.\n", 0); \
-    }                                                                         \
+#define DebugDoit(X)    X
+
+//
+//  Perform log-file-full testing.
+//
+
+#define FailCheck(I,S) {                                    \
+    PIRP_CONTEXT FailTopContext = (I)->TopLevelIrpContext;  \
+    if (FailTopContext->NextFailCount != 0) {               \
+        if (--FailTopContext->CurrentFailCount == 0) {      \
+            FailTopContext->NextFailCount++;                \
+            FailTopContext->CurrentFailCount = FailTopContext->NextFailCount; \
+            ExRaiseStatus( S );                             \
+        }                                                   \
+    }                                                       \
 }
 
-#define DebugDoit(X)                     {X;}
-
+#define LogFileFullFailCheck(I) FailCheck( I, STATUS_LOG_FILE_FULL )
 //
 //  The following variables are used to keep track of the total amount
 //  of requests processed by the file system, and the number of requests
@@ -346,10 +428,12 @@ extern ULONG NtfsIoCallDriverCount;
 
 #else
 
-#define DebugTrace(INDENT,LEVEL,X,Y)     {NOTHING;}
-#define DebugTrace2(INDENT,LEVEL,X,Y,Z)  {NOTHING;}
-#define DebugUnwind(X)                   {NOTHING;}
-#define DebugDoit(X)                     {NOTHING;}
+#define DebugTrace(INDENT,LEVEL,M)  {NOTHING;}
+#define DebugUnwind(X)              {NOTHING;}
+#define DebugDoit(X)                 NOTHING
+
+#define FailCheck(I,S)
+#define LogFileFullFailCheck(I)
 
 #endif // NTFSDBG
 
@@ -358,7 +442,7 @@ extern ULONG NtfsIoCallDriverCount;
 //  set, not just  NTFSDBG users
 //
 
-#if 0 //****#if DBG
+#ifdef NTFSDBG
 
 #define DbgDoit(X)                       {X;}
 
@@ -395,13 +479,15 @@ extern ULONG NtfsIoCallDriverCount;
            (NodeType(S) == NTFS_NTC_SCB_ROOT_INDEX));   \
 }
 
-#define ASSERT_CCB(C) {                    \
-    ASSERT((NodeType(C) == NTFS_NTC_CCB)); \
+#define ASSERT_CCB(C) {                                 \
+    ASSERT((NodeType(C) == NTFS_NTC_CCB_DATA) ||        \
+           (NodeType(C) == NTFS_NTC_CCB_INDEX));        \
 }
 
-#define ASSERT_OPTIONAL_CCB(C) {           \
-    ASSERT(((C) == NULL) ||                \
-           (NodeType(C) == NTFS_NTC_CCB)); \
+#define ASSERT_OPTIONAL_CCB(C) {                        \
+    ASSERT(((C) == NULL) ||                             \
+           ((NodeType(C) == NTFS_NTC_CCB_DATA) ||       \
+            (NodeType(C) == NTFS_NTC_CCB_INDEX)));      \
 }
 
 #define ASSERT_LCB(L) {                    \
@@ -449,26 +535,26 @@ extern ULONG NtfsIoCallDriverCount;
            ((F)->Type == IO_TYPE_FILE)); \
 }
 
-#define ASSERT_EXCLUSIVE_RESOURCE(R)     \
-    ASSERTMSG("ASSERT_EXCLUSIVE_RESOURCE ", ExIsResourceAcquiredExculsive(R)); \
+#define ASSERT_EXCLUSIVE_RESOURCE(R) {   \
+    ASSERTMSG("ASSERT_EXCLUSIVE_RESOURCE ", ExIsResourceAcquiredExclusiveLite(R)); \
 }
 
 #define ASSERT_SHARED_RESOURCE(R)        \
-    ASSERTMSG( "ASSERT_RESOURCE_NOT_MINE ", ExIsResourceAcquiredShared(R));
+    ASSERTMSG( "ASSERT_RESOURCE_NOT_MINE ", ExIsResourceAcquiredSharedLite(R));
 
 #define ASSERT_RESOURCE_NOT_MINE(R)     \
-    ASSERTMSG( "ASSERT_RESOURCE_NOT_MINE ", !ExIsResourceAcquiredShared(R));
+    ASSERTMSG( "ASSERT_RESOURCE_NOT_MINE ", !ExIsResourceAcquiredSharedLite(R));
 
 #define ASSERT_EXCLUSIVE_FCB(F) {                                    \
-    if (F->FileReference.HighPart != 0                               \
-        || F->FileReference.LowPart >= FIRST_USER_FILE_NUMBER) {     \
+    if (NtfsSegmentNumber( &(F)->FileReference )                     \
+            >= FIRST_USER_FILE_NUMBER) {                             \
         ASSERT_EXCLUSIVE_RESOURCE(F->Resource);                      \
     }                                                                \
 }                                                                    \
 
 #define ASSERT_SHARED_FCB(F) {                                       \
-    if (F->FileReference.HighPart != 0                               \
-        || F->FileReference.LowPart >= FIRST_USER_FILE_NUMBER) {     \
+    if (NtfsSegmentNumber( &(F)->FileReference )                     \
+            >= FIRST_USER_FILE_NUMBER) {                             \
         ASSERT_SHARED_RESOURCE(F->Resource);                         \
     }                                                                \
 }                                                                    \
@@ -479,7 +565,7 @@ extern ULONG NtfsIoCallDriverCount;
 
 #define ASSERT_LCN_RANGE_CHECKING(V,L) {                                             \
     ASSERTMSG("ASSERT_LCN_RANGE_CHECKING ",                                          \
-        ((V)->TotalClusters.QuadPart == 0) || ((L) <= (V)->TotalClusters.QuadPart)); \
+        ((V)->TotalClusters == 0) || ((L) <= (V)->TotalClusters));                   \
 }
 
 #else

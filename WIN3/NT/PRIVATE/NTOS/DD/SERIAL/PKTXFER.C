@@ -216,8 +216,6 @@ dcb.fAbortOnError     = FALSE; // old behaviour
 
 
 //dcb.fChEvt = 0;           forget about event char
-//dcb.fDtrFlow = 0;         no dtr flow control      BUGBUG in spec Flow
-//dcb.fRtsFlow = 0;         no rts flow control      BUGBUG in spec Flow
 
 bRc = SetCommState(hCommPort,&dcb);
 

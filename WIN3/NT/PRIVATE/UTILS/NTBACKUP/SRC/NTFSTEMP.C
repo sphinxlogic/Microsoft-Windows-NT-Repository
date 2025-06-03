@@ -50,8 +50,8 @@ typedef struct HASH_ENTRY
 } HASH_ENTRY;
 
 HASH_ENTRY **hashTable;       /* Pointer to vector of entries */
-UINT32     hashTableSize;
-UINT32     hashTableEntries;
+UINT16     hashTableSize;
+UINT16     hashTableEntries;
 
 /*
  * Vector of prime numbers for sizes to make table. If the table gets
@@ -61,7 +61,7 @@ UINT32     hashTableEntries;
  * will be increased to (2 * currentTableSize + 1). (The numbers chosen
  * here are rather arbitrary.)
  */
-UINT32 tableSizes[] = { 1223, 2377, 3571, 0 };
+UINT16 tableSizes[] = { 1223, 2377, 3571, 0 };
 
 /*
  * Number of bits to rotate hash code for each character in key.
@@ -204,7 +204,7 @@ static BOOLEAN GrowHashTable( VOID )
 {
      BOOLEAN    ret          = TRUE;
      UINT32     i;
-     UINT32     newTableSize = 0;
+     UINT16     newTableSize = 0;
      HASH_ENTRY **newTable;
 
      for ( i = 0; (tableSizes[i] != 0); i++ )

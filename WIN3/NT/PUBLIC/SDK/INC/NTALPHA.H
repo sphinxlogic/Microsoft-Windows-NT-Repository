@@ -158,6 +158,18 @@ typedef ULONG DBGKD_CONTROL_SET, *PDBGKD_CONTROL_SET;
 
 #define KERNEL_STACK_SIZE 0x4000
 
+//
+// Define size of large kernel mode stack for callbacks.
+//
+
+#define KERNEL_LARGE_STACK_SIZE 65536
+
+//
+// Define number of pages to initialize in a large kernel stack.
+//
+
+#define KERNEL_LARGE_STACK_COMMIT 16384
+
 // end_ntddk end_nthal
 
 //
@@ -168,21 +180,44 @@ typedef ULONG DBGKD_CONTROL_SET, *PDBGKD_CONTROL_SET;
 
 #define USER_SHARED_DATA ((KUSER_SHARED_DATA * const)MM_SHARED_USER_DATA_VA)
 
+// begin_winnt
+
+#ifdef _ALPHA_                          // winnt
+void *_rdteb(void);                     // winnt
+#if defined(_M_ALPHA)                   // winnt
+#pragma intrinsic(_rdteb)               // winnt
+#endif                                  // winnt
+#endif                                  // winnt
+
+#if defined(_M_ALPHA)
+#define NtCurrentTeb() ((struct _TEB *)_rdteb())
+#else
+struct _TEB *
+NtCurrentTeb(void);
+#endif
+
 //
 // Define function to return the current Thread Environment Block
 //
 
-struct _TEB *
-NtCurrentTeb(void);
-
-// begin_winnt
-
 #ifdef _ALPHA_
+
+
+
+//
+// Define functions to get the address of the current fiber and the
+// current fiber data.
+//
+
+#define GetCurrentFiber() (((PNT_TIB)NtCurrentTeb())->FiberData)
+#define GetFiberData() (*(PVOID *)(GetCurrentFiber()))
 
 // begin_ntddk begin_nthal
 //
 // The following flags control the contents of the CONTEXT structure.
 //
+
+#if !defined(RC_INVOKED)
 
 #define CONTEXT_PORTABLE_32BIT     0x00100000
 #define CONTEXT_ALPHA              0x00020000
@@ -192,6 +227,8 @@ NtCurrentTeb(void);
 #define CONTEXT_INTEGER         (CONTEXT_ALPHA | 0x00000004L)
 
 #define CONTEXT_FULL (CONTEXT_CONTROL | CONTEXT_FLOATING_POINT | CONTEXT_INTEGER)
+
+#endif
 
 #ifndef _PORTABLE_32BIT_CONTEXT
 
@@ -849,4 +886,3 @@ __jump_unwind (
 #endif // _ALPHA_               // ntddk nthal
 
 #endif // _NTALPHA_
-

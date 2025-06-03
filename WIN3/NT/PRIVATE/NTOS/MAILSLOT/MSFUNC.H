@@ -242,6 +242,10 @@ MsReadTimeoutHandler(
 // otherwise.
 //
 
+#ifdef FlagOn
+#undef FlagOn
+#endif
+
 #define FlagOn(Flags,SingleFlag) (                          \
     (BOOLEAN)(((Flags) & (SingleFlag)) != 0 ? TRUE : FALSE) \
     )
@@ -402,27 +406,27 @@ typedef union _UCHAR4 {
 //
 
 #define MsAcquireGlobalLock() ((VOID)                          \
-    ExAcquireResourceExclusive( &MsGlobalResource, TRUE )      \
+    ExAcquireResourceExclusive( MsGlobalResource, TRUE )      \
 )
 
 #define MsReleaseGlobalLock() (                                \
-    ExReleaseResource( &MsGlobalResource )                     \
+    ExReleaseResource( MsGlobalResource )                     \
 )
 
 #define MsAcquirePrefixTableLock() ((VOID)                     \
-    ExAcquireResourceExclusive( &MsPrefixTableResource, TRUE ) \
+    ExAcquireResourceExclusive( MsPrefixTableResource, TRUE ) \
 )
 
 #define MsReleasePrefixTableLock() (                           \
-    ExReleaseResource( &MsPrefixTableResource )                \
+    ExReleaseResource( MsPrefixTableResource )                \
 )
 
 #define MsAcquireCcbListLock() ((VOID)                         \
-    ExAcquireResourceExclusive( &MsCcbListResource, TRUE )     \
+    ExAcquireResourceExclusive( MsCcbListResource, TRUE )     \
 )
 
 #define MsReleaseCcbListLock() (                               \
-    ExReleaseResource( &MsCcbListResource )                    \
+    ExReleaseResource( MsCcbListResource )                    \
 )
 
 #define MsAcquireExclusiveVcb(VCB) ((VOID)                     \
@@ -750,4 +754,3 @@ _DebugTrace(
     (_dataQueue)->DataEntryList.Flink
 
 #endif // _MSFUNCS_
-

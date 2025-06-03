@@ -25,4 +25,3 @@ extern RC    AddObjectHandle (LPHANDLE *plphandles, HANDLE handle);
 
 extern long  FoldNormDist (long lMean, short sSDev, long lLoLimit,
                            long  lHiLimit);
-

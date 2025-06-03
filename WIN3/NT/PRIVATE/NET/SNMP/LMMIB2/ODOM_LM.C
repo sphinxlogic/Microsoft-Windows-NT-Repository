@@ -1,98 +1,27 @@
-//-------------------------- MODULE DESCRIPTION ----------------------------
-//
-//  odom_lm.c
-//
-//  Copyright 1992 Technology Dynamics, Inc.
-//
-//  All Rights Reserved!!!
-//
-//	This source code is CONFIDENTIAL and PROPRIETARY to Technology
-//	Dynamics. Unauthorized distribution, adaptation or use may be
-//	subject to civil and criminal penalties.
-//
-//  All Rights Reserved!!!
-//
-//---------------------------------------------------------------------------
-//
-//  This file contains the routines which actually call Lan Manager and
-//  retrieve the contents of the other domains table, including cacheing.
-//
-//  Project:  Implementation of an SNMP Agent for Microsoft's NT Kernel
-//
-//  $Revision:   1.13  $
-//  $Date:   10 Aug 1992 14:00:42  $
-//  $Author:   ChipS  $
-//
-//  $Log:   N:/lmmib2/vcs/odom_lm.c_v  $
-//
-//     Rev 1.13   10 Aug 1992 14:00:42   ChipS
-//  Fixed a bug with totalentries where space was alloced for a random
-//  number of entries, sometimes failing in the alloc.
-//
-//     Rev 1.12   03 Jul 1992 13:20:40   ChipS
-//  Final Unicode Changes
-//
-//     Rev 1.11   03 Jul 1992 12:18:46   ChipS
-//  Enable Unicode
-//
-//     Rev 1.10   07 Jun 1992 17:16:12   ChipS
-//  Turn off unicode.
-//
-//     Rev 1.9   07 Jun 1992 17:02:18   ChipS
-//  Made SETs unicode.
-//
-//     Rev 1.8   07 Jun 1992 16:11:48   ChipS
-//  Fix cast problem
-//
-//     Rev 1.7   07 Jun 1992 15:53:26   ChipS
-//  Fix include file order
-//
-//     Rev 1.6   07 Jun 1992 15:21:56   ChipS
-//  Initial unicode changes
-//
-//     Rev 1.5   01 Jun 1992 14:36:40   todd
-//  LM API NetWkstaUserSetInfo is not implemented, so had to be #if 0
-//  until a release after 263 that implements it.
-//
-//     Rev 1.4   01 Jun 1992 12:35:28   todd
-//  Added 'dynamic' field to octet string
-//
-//     Rev 1.3   01 Jun 1992 10:36:20   todd
-//  Added set functionality
-//
-//     Rev 1.2   22 May 1992 17:35:50   todd
-//
-//     Rev 1.1   21 May 1992 15:43:00   todd
-//  Added return codes to lmget
-//
-//     Rev 1.0   20 May 1992 15:10:34   mlk
-//  Initial revision.
-//
-//     Rev 1.5   03 May 1992 16:56:28   Chip
-//  No change.
-//
-//     Rev 1.4   02 May 1992 19:10:00   todd
-//  code cleanup
-//
-//     Rev 1.3   01 May 1992 15:40:54   Chip
-//  Get rid of warnings.
-//
-//     Rev 1.2   30 Apr 1992 23:55:46   Chip
-//  Added code to free complex structures.
-//
-//     Rev 1.1   30 Apr 1992  9:57:54   Chip
-//  Added cacheing.
-//
-//     Rev 1.0   29 Apr 1992 11:20:04   Chip
-//  Initial revision.
-//
-//
-//---------------------------------------------------------------------------
+/*++
 
-//--------------------------- VERSION INFO ----------------------------------
+Copyright (c) 1992-1996  Microsoft Corporation
 
-static char *vcsid = "@(#) $Logfile:   N:/lmmib2/vcs/odom_lm.c_v  $ $Revision:   1.13  $";
+Module Name:
 
+    odom_lm.c
+
+Abstract:
+
+    This file contains the routines which actually call Lan Manager and
+    retrieve the contents of the other domains table, including cacheing.
+
+Environment:
+
+    User Mode - Win32
+
+Revision History:
+
+    10-May-1996 DonRyan
+        Removed banner from Technology Dynamics, Inc.
+
+--*/
+ 
 //--------------------------- WINDOWS DEPENDENCIES --------------------------
 
 //--------------------------- STANDARD DEPENDENCIES -- #include<xxxxx.h> ----
@@ -106,12 +35,10 @@ static char *vcsid = "@(#) $Logfile:   N:/lmmib2/vcs/odom_lm.c_v  $ $Revision:  
 #include <lm.h>
 #endif
 
-#include <malloc.h>
 #include <string.h>
 #include <search.h>
 #include <stdlib.h>
 #include <time.h>
-#include <uniconv.h>
 //--------------------------- MODULE DEPENDENCIES -- #include"xxxxx.h" ------
 
 
@@ -126,8 +53,8 @@ static char *vcsid = "@(#) $Logfile:   N:/lmmib2/vcs/odom_lm.c_v  $ $Revision:  
 
 //--------------------------- PRIVATE CONSTANTS -----------------------------
 
-#define SafeBufferFree(x)	if(NULL != x) NetApiBufferFree( x )
-#define SafeFree(x)		if(NULL != x) free( x )
+#define SafeBufferFree(x)       if(NULL != x) NetApiBufferFree( x )
+#define SafeFree(x)             if(NULL != x) SnmpUtilMemFree( x )
 
 //--------------------------- PRIVATE STRUCTS -------------------------------
 
@@ -136,7 +63,7 @@ static char *vcsid = "@(#) $Logfile:   N:/lmmib2/vcs/odom_lm.c_v  $ $Revision:  
 //--------------------------- PRIVATE PROTOTYPES ----------------------------
 
 #ifdef UNICODE
-#define Tstrlen strlen_W
+#define Tstrlen SnmpUtilStrlenW
 #else
 #define Tstrlen strlen
 #endif
@@ -144,8 +71,8 @@ static char *vcsid = "@(#) $Logfile:   N:/lmmib2/vcs/odom_lm.c_v  $ $Revision:  
 //--------------------------- PRIVATE PROCEDURES ----------------------------
 
 int _CRTAPI1 odom_entry_cmp(
-       IN DOM_OTHER_ENTRY *A,
-       IN DOM_OTHER_ENTRY *B
+       IN const DOM_OTHER_ENTRY *A,
+       IN const DOM_OTHER_ENTRY *B
        ) ;
 
 void build_odom_entry_oids( );
@@ -157,8 +84,8 @@ int i;
 temp = s;
 i = 1;  // assume one since no terminating space, other code counts tokens
 while( NULL != (temp = strchr(temp,' ')) ) {
-	i++;
-	}
+        i++;
+        }
 return i;
 }
 
@@ -177,9 +104,9 @@ return i;
 //
 UINT MIB_odoms_lmset(
         IN AsnObjectIdentifier *Index,
-	IN UINT Field,
-	IN AsnAny *Value
-	)
+        IN UINT Field,
+        IN AsnAny *Value
+        )
 
 {
 LPBYTE bufptr = NULL;
@@ -206,31 +133,31 @@ LPWSTR unitemp ;
       // If empty string then delete entry
       if ( Value->asnValue.string.length == 0 )
          {
-	 // Alloc memory for buffer
-	 bufptr = malloc( DNLEN * sizeof(char) *
-	                  (MIB_DomOtherDomainTable.Len-1) +
-			  MIB_DomOtherDomainTable.Len-1 );
+         // Alloc memory for buffer
+         bufptr = SnmpUtilMemAlloc( DNLEN * sizeof(char) *
+                          (MIB_DomOtherDomainTable.Len-1) +
+                          MIB_DomOtherDomainTable.Len-1 );
 
-	 // Create the other domain string
-	 Temp = bufptr;
-	 for ( I=0;I < MIB_DomOtherDomainTable.Len;I++ )
-	    {
-	    if ( I+1 != Entry )
-	       {
-	       memcpy( Temp,
-	               MIB_DomOtherDomainTable.Table[I].domOtherName.stream,
-	               MIB_DomOtherDomainTable.Table[I].domOtherName.length );
-	       Temp[MIB_DomOtherDomainTable.Table[I].domOtherName.length] = ' ';
-	       Temp += MIB_DomOtherDomainTable.Table[I].domOtherName.length + 1;
-	       }
-	    }
-	 *(Temp-1) = '\0';
-	 }
+         // Create the other domain string
+         Temp = bufptr;
+         for ( I=0;I < MIB_DomOtherDomainTable.Len;I++ )
+            {
+            if ( I+1 != Entry )
+               {
+               memcpy( Temp,
+                       MIB_DomOtherDomainTable.Table[I].domOtherName.stream,
+                       MIB_DomOtherDomainTable.Table[I].domOtherName.length );
+               Temp[MIB_DomOtherDomainTable.Table[I].domOtherName.length] = ' ';
+               Temp += MIB_DomOtherDomainTable.Table[I].domOtherName.length + 1;
+               }
+            }
+         *(Temp-1) = '\0';
+         }
       else
          {
-	 // Cannot modify the domain entries, so bad value
-	 ErrStat = SNMP_ERRORSTATUS_BADVALUE;
-	 goto Exit;
+         // Cannot modify the domain entries, so bad value
+         ErrStat = SNMP_ERRORSTATUS_BADVALUE;
+         goto Exit;
          }
       }
    else
@@ -247,9 +174,9 @@ LPWSTR unitemp ;
       //
 
       // Alloc memory for buffer
-      bufptr = malloc( DNLEN * sizeof(char) *
+      bufptr = SnmpUtilMemAlloc( DNLEN * sizeof(char) *
                        (MIB_DomOtherDomainTable.Len+1) +
-		       MIB_DomOtherDomainTable.Len+1 );
+                       MIB_DomOtherDomainTable.Len+1 );
 
       // Create the other domain string
       Temp = bufptr;
@@ -271,9 +198,9 @@ LPWSTR unitemp ;
 
    // Set table and check return codes
    #ifdef UNICODE
-   convert_ansi_to_uni( 	&unitemp,
-    				bufptr,
-    				TRUE );
+   SnmpUtilAnsiToUnicode(         &unitemp,
+                                bufptr,
+                                TRUE );
    ODom.wkui1101_oth_domains = unitemp;
    #else
    ODom.wkui1101_oth_domains = bufptr;
@@ -293,7 +220,7 @@ LPWSTR unitemp ;
 #endif
 
 Exit:
-   free( bufptr );
+   SnmpUtilMemFree( bufptr );
 
    return ErrStat;
 } // MIB_odoms_lmset
@@ -316,7 +243,7 @@ Exit:
 //    None.
 //
 SNMPAPI MIB_odoms_lmget(
-	   )
+           )
 
 {
 
@@ -333,7 +260,7 @@ SNMPAPI nResult = SNMPAPI_NOERROR;
 
 
 
-   time(&curr_time);	// get the time
+   time(&curr_time);    // get the time
 
 
    //
@@ -345,21 +272,21 @@ SNMPAPI nResult = SNMPAPI_NOERROR;
 
    if((NULL != cache_table[C_ODOM_TABLE].bufptr) &&
       (curr_time <
-    	(cache_table[C_ODOM_TABLE].acquisition_time
-        	 + cache_expire[C_ODOM_TABLE]              ) ) )
-   	{ // it has NOT expired!
-     	
-     	goto Exit; // the global table is valid
-	
-	}
-	
+        (cache_table[C_ODOM_TABLE].acquisition_time
+                 + cache_expire[C_ODOM_TABLE]              ) ) )
+        { // it has NOT expired!
+
+        goto Exit; // the global table is valid
+
+        }
+
    //
    //
    // Do network call to gather information and put it in a nice array
    //
    //
 
-	
+
      //
      // remember to free the existing data
      //
@@ -369,92 +296,92 @@ SNMPAPI nResult = SNMPAPI_NOERROR;
      // iterate over the whole table
      for(i=0; i<MIB_DomOtherDomainTable.Len ;i++)
      {
-     	// free any alloc'ed elements of the structure
-     	SNMP_oidfree(&(MIB_DomOtherDomainTableElement->Oid));
-     	SafeFree(MIB_DomOtherDomainTableElement->domOtherName.stream);
-     	
-	MIB_DomOtherDomainTableElement ++ ;  // increment table entry
-     }
-     SafeFree(MIB_DomOtherDomainTable.Table) ;	// free the base Table
-     MIB_DomOtherDomainTable.Table = NULL ;	// just for safety
-     MIB_DomOtherDomainTable.Len = 0 ;		// just for safety
+        // free any alloc'ed elements of the structure
+        SnmpUtilOidFree(&(MIB_DomOtherDomainTableElement->Oid));
+        SafeFree(MIB_DomOtherDomainTableElement->domOtherName.stream);
 
-	lmCode =
-	NetWkstaUserGetInfo(
-			0,			// required
-			1,			// level 0,
-	 		&bufptr			// data structure to return
-	 		);
+        MIB_DomOtherDomainTableElement ++ ;  // increment table entry
+     }
+     SafeFree(MIB_DomOtherDomainTable.Table) ;  // free the base Table
+     MIB_DomOtherDomainTable.Table = NULL ;     // just for safety
+     MIB_DomOtherDomainTable.Len = 0 ;          // just for safety
+
+        lmCode =
+        NetWkstaUserGetInfo(
+                        0,                      // required
+                        1,                      // level 0,
+                        &bufptr                 // data structure to return
+                        );
 
 
     DataTable = (WKSTA_USER_INFO_1 *) bufptr ;
 
     if((NERR_Success == lmCode) || (ERROR_MORE_DATA == lmCode))
-    	{  // valid so process it, otherwise error
+        {  // valid so process it, otherwise error
         if(NULL==DataTable->wkui1_oth_domains) {
                 totalentries = 0;
 
-   		// alloc the table space
-   		MIB_DomOtherDomainTable.Table = malloc(totalentries *
-   						sizeof(DOM_OTHER_ENTRY) );
-        } else {  // compute it	
-   	totalentries = chrcount(DataTable->wkui1_oth_domains);
-   	if(0 == MIB_DomOtherDomainTable.Len) {  // 1st time, alloc the whole table
-   		// alloc the table space
-   		MIB_DomOtherDomainTable.Table = malloc(totalentries *
-   						sizeof(DOM_OTHER_ENTRY) );
-   	}
-	
-	MIB_DomOtherDomainTableElement = MIB_DomOtherDomainTable.Table  ;
-	
-	// make a pointer to the beginning of the string field
+                // alloc the table space
+                MIB_DomOtherDomainTable.Table = SnmpUtilMemAlloc(totalentries *
+                                                sizeof(DOM_OTHER_ENTRY) );
+        } else {  // compute it
+        totalentries = chrcount((char *)DataTable->wkui1_oth_domains);
+        if(0 == MIB_DomOtherDomainTable.Len) {  // 1st time, alloc the whole table
+                // alloc the table space
+                MIB_DomOtherDomainTable.Table = SnmpUtilMemAlloc(totalentries *
+                                                sizeof(DOM_OTHER_ENTRY) );
+        }
 
-	#ifdef UNICODE
-	convert_uni_to_ansi(
-		&p,
-   		DataTable->wkui1_oth_domains,
-		TRUE);
-	#else
-	p =  DataTable->wkui1_oth_domains  ;
-	#endif
-	
-	// scan through the field, making an entry for each space
-	// separated domain
-   	while( 	(NULL != p ) &
-   		('\0' != *p)  ) {  // once for each entry in the buffer
-   		
-   		// increment the entry number
-   		
-   		MIB_DomOtherDomainTable.Len ++;
-   		
-   		// find the end of this one
-   		next = strchr(p,' ');
-   		
-   		// if more to come, ready next pointer and mark end of this one
-   		if(NULL != next) {
-   			*next='\0' ;	// replace space with EOS
-   			next++ ;	// point to beginning of next domain
-   		}
-   		
-   		
-   		MIB_DomOtherDomainTableElement->domOtherName.stream = malloc (
-   				strlen( p ) ) ;
-   		MIB_DomOtherDomainTableElement->domOtherName.length =
-   				strlen( p ) ;
-   		MIB_DomOtherDomainTableElement->domOtherName.dynamic = TRUE;
-   		memcpy(	MIB_DomOtherDomainTableElement->domOtherName.stream,
-   			p,
-   			strlen( p ) ) ;
-   		
-   		
-		MIB_DomOtherDomainTableElement ++ ;  // and table entry
-	
-   	   DataTable ++ ;  // advance pointer to next sess entry in buffer
-		
-   	} // while still more to do
-   	
-        } // if there really were entries	
-       	} // if data is valid to process
+        MIB_DomOtherDomainTableElement = MIB_DomOtherDomainTable.Table  ;
+
+        // make a pointer to the beginning of the string field
+
+        #ifdef UNICODE
+        SnmpUtilUnicodeToAnsi(
+                &p,
+                DataTable->wkui1_oth_domains,
+                TRUE);
+        #else
+        p =  DataTable->wkui1_oth_domains  ;
+        #endif
+
+        // scan through the field, making an entry for each space
+        // separated domain
+        while(  (NULL != p ) &
+                ('\0' != *p)  ) {  // once for each entry in the buffer
+
+                // increment the entry number
+
+                MIB_DomOtherDomainTable.Len ++;
+
+                // find the end of this one
+                next = strchr(p,' ');
+
+                // if more to come, ready next pointer and mark end of this one
+                if(NULL != next) {
+                        *next='\0' ;    // replace space with EOS
+                        next++ ;        // point to beginning of next domain
+                }
+
+
+                MIB_DomOtherDomainTableElement->domOtherName.stream = SnmpUtilMemAlloc (
+                                strlen( p ) ) ;
+                MIB_DomOtherDomainTableElement->domOtherName.length =
+                                strlen( p ) ;
+                MIB_DomOtherDomainTableElement->domOtherName.dynamic = TRUE;
+                memcpy( MIB_DomOtherDomainTableElement->domOtherName.stream,
+                        p,
+                        strlen( p ) ) ;
+
+
+                MIB_DomOtherDomainTableElement ++ ;  // and table entry
+
+           DataTable ++ ;  // advance pointer to next sess entry in buffer
+
+        } // while still more to do
+
+        } // if there really were entries
+        } // if data is valid to process
 
     else
        {
@@ -463,11 +390,11 @@ SNMPAPI nResult = SNMPAPI_NOERROR;
        goto Exit;
        }
 
-   	
+
    // free all of the lan man data
    SafeBufferFree( bufptr ) ;
-	
-	
+
+
     // iterate over the table populating the Oid field
     build_odom_entry_oids();
 
@@ -483,10 +410,10 @@ SNMPAPI nResult = SNMPAPI_NOERROR;
 
 
    if(0 != MIB_DomOtherDomainTable.Len) {
-   	
-   	cache_table[C_ODOM_TABLE].acquisition_time = curr_time ;
 
-   	cache_table[C_ODOM_TABLE].bufptr = bufptr ;
+        cache_table[C_ODOM_TABLE].acquisition_time = curr_time ;
+
+        cache_table[C_ODOM_TABLE].bufptr = bufptr ;
    }
 
    //
@@ -513,13 +440,14 @@ Exit:
 //    None.
 //
 int _CRTAPI1 odom_entry_cmp(
-       IN DOM_OTHER_ENTRY *A,
-       IN DOM_OTHER_ENTRY *B
+       IN const DOM_OTHER_ENTRY *A,
+       IN const DOM_OTHER_ENTRY *B
        )
 
 {
    // Compare the OID's
-   return SNMP_oidcmp( &A->Oid, &B->Oid );
+   return SnmpUtilOidCmp( (AsnObjectIdentifier *)&A->Oid,
+                       (AsnObjectIdentifier *)&B->Oid );
 } // MIB_odom_cmp
 
 
@@ -541,7 +469,7 @@ DomOtherEntry = MIB_DomOtherDomainTable.Table ;
 for( i=0; i<MIB_DomOtherDomainTable.Len ; i++)  {
    // for each entry in the session table
 
-   OSA.stream = &DomOtherEntry->domOtherName.stream ;
+   OSA.stream = DomOtherEntry->domOtherName.stream ;
    OSA.length =  DomOtherEntry->domOtherName.length ;
    OSA.dynamic = FALSE;
 

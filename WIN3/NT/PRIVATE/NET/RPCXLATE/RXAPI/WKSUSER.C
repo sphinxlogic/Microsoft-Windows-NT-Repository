@@ -48,7 +48,7 @@ Revision History:
 #include <dlwksta.h>            // WKSTA_INFO_0, MAX_WKSTA_ equates, etc.
 #include <lmapibuf.h>           // NetApiBufferAllocate().
 #include <lmerr.h>              // ERROR_ and NERR_ equates.
-#include <netdebug.h>           // DBGSTATIC, NetpDbgPrint(), FORMAT_ equates.
+#include <netdebug.h>           // DBGSTATIC, NetpKdPrint(()), FORMAT_ equates.
 #include <netlib.h>             // NetpCopyStringToBuffer().
 #include <prefix.h>     // PREFIX_ equates.
 #include <rxpdebug.h>           // IF_DEBUG().
@@ -101,9 +101,9 @@ Return Value:
     UNREFERENCED_PARAMETER(ResumeHandle);
 
     IF_DEBUG(WKSTA) {
-        NetpDbgPrint( PREFIX_NETAPI
+        NetpKdPrint(( PREFIX_NETAPI
                 "RxNetWkstaUserEnum: starting, server=" FORMAT_LPTSTR
-                ", lvl=" FORMAT_DWORD ".\n", UncServerName, Level);
+                ", lvl=" FORMAT_DWORD ".\n", UncServerName, Level));
     }
 
     //
@@ -128,7 +128,7 @@ Return Value:
     case 1 :
         NewFixedSize = sizeof(WKSTA_USER_INFO_1);
         NewStringSize =
-                (LM20_UNLEN+1 + LM20_DNLEN+1 + LM20_UNCLEN+1) * sizeof(TCHAR);
+                (LM20_UNLEN+1 + LM20_DNLEN+1 + MAX_PATH+1) * sizeof(TCHAR);
         break;
     default:
         Status = ERROR_INVALID_LEVEL;
@@ -152,8 +152,8 @@ Return Value:
         NetpAssert( OldInfo != NULL );
 
         IF_DEBUG(WKSTA) {
-            NetpDbgPrint( PREFIX_NETAPI
-                    "RxNetWkstaUserEnum: got old wksta info:\n" );
+            NetpKdPrint(( PREFIX_NETAPI
+                    "RxNetWkstaUserEnum: got old wksta info:\n" ));
             NetpDbgDisplayWksta( OldLevel, OldInfo );
         }
 
@@ -188,9 +188,9 @@ Return Value:
             }
             NetpAssert( NewInfo != NULL );
             IF_DEBUG(WKSTA) {
-                NetpDbgPrint( PREFIX_NETAPI
+                NetpKdPrint(( PREFIX_NETAPI
                         "RxNetWkstaUserEnum: allocated new buffer at "
-                        FORMAT_LPVOID "\n", (LPVOID) NewInfo );
+                        FORMAT_LPVOID "\n", (LPVOID) NewInfo ));
             }
 
             // Set up pointers for use by NetpCopyStringsToBuffer.

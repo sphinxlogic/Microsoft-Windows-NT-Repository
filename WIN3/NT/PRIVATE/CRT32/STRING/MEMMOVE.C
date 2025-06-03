@@ -24,6 +24,10 @@
 #include <cruntime.h>
 #include <string.h>
 
+#if defined(_M_ALPHA)
+#pragma function(memmove)
+#endif
+
 /***
 *memmove - Copy source buffer to destination buffer
 *
@@ -51,7 +55,7 @@ void * _CALLTYPE1 memmove (
 {
 	void * ret = dst;
 
-#if defined(MIPS) || defined(_ALPHA_)
+#if	defined(_M_MRX000) || defined(_M_ALPHA) || defined(_M_PPC)
         {
         extern void RtlMoveMemory( void *, const void *, size_t count );
 

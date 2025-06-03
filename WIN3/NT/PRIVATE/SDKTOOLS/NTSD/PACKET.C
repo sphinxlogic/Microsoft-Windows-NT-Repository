@@ -23,6 +23,7 @@ Revision History:
 
 --*/
 
+#include "ntsdp.h"
 #include "dbgpnt.h"
 #include <xxsetjmp.h>
 
@@ -44,14 +45,11 @@ ULONG DbgKdpNextPacketToSend;   // ID for Next packet to send
 // contains valid but unaccessed packet.
 //
 
-BOOLEAN ValidUnaccessedPacket = FALSE;
+BOOLEAN ValidUnaccessedPacket;
 UCHAR DbgKdpPacket[PACKET_MAX_SIZE];
 KD_PACKET PacketHeader;
 
-extern void _CRTAPI1 dprintf(char *, ...);
-extern UCHAR cmdState;
 extern BOOL cdecl waitHandler(ULONG);
-extern PHANDLE pLogHandle;
 
 #define CONTROL_C 3
 
@@ -157,7 +155,7 @@ Return Value:
         // Write the control packet header
         //
 
-	rc = DbgKdpWriteComPort((PUCHAR) &Packet, sizeof(Packet), &BytesWritten);
+        rc = DbgKdpWriteComPort((PUCHAR) &Packet, sizeof(Packet), &BytesWritten);
 
     } while ( (!rc) || BytesWritten != sizeof(Packet) );
 }
@@ -335,7 +333,7 @@ Timeout:
             // Read 2 byte Packet type
             //
 
-	    rc = DbgKdpReadComPort((PUCHAR) &PacketType,sizeof(PacketType), &BytesRead);
+            rc = DbgKdpReadComPort((PUCHAR) &PacketType,sizeof(PacketType), &BytesRead);
 
             if (rc && BytesRead == sizeof(PacketType) &&
                 PacketType == PACKET_TYPE_KD_RESET ) {
@@ -753,7 +751,7 @@ WaitForPacketLeader:
     //
 
     rc = DbgKdpReadComPort(
-		 (PUCHAR) &PacketHeader.ByteCount,
+                 (PUCHAR) &PacketHeader.ByteCount,
                  sizeof(PacketHeader.ByteCount),
                  &BytesRead
                  );
@@ -797,7 +795,7 @@ WaitForPacketLeader:
     //
 
     rc = DbgKdpReadComPort(
-		 (PUCHAR) &PacketHeader.PacketId,
+                 (PUCHAR) &PacketHeader.PacketId,
                  sizeof(PacketHeader.PacketId),
                  &BytesRead
                  );
@@ -893,7 +891,7 @@ WaitForPacketLeader:
         //
 
         rc = DbgKdpReadComPort(
-		 (PUCHAR) &PacketHeader.Checksum,
+                 (PUCHAR) &PacketHeader.Checksum,
                  sizeof(PacketHeader.Checksum),
                  &BytesRead
                  );
@@ -1124,4 +1122,3 @@ AskForResend:
 #endif
     goto WaitForPacketLeader;
 }
-

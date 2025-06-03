@@ -270,6 +270,30 @@ extern PPHYSICAL_MEMORY_DESCRIPTOR MmPhysicalMemoryBlock;
 
 #define MmGetMdlByteCount(Mdl)  ((Mdl)->ByteCount)
 
+//++
+//
+// ULONG
+// MmGetMdlByteOffset (
+//     IN PMDL Mdl
+//     )
+//
+// Routine Description:
+//
+//     The MmGetMdlByteOffset returns the byte offset within the page
+//     of the buffer described by the Mdl.
+//
+// Arguments:
+//
+//     Mdl - Pointer to an MDL.
+//
+// Return Value:
+//
+//     Returns the byte offset within the page of the buffer described by the Mdl
+//
+//--
+
+#define MmGetMdlByteOffset(Mdl)  ((Mdl)->ByteOffset)
+
 // end_ntddk end_nthal end_ntifs
 
 //
@@ -315,13 +339,6 @@ extern MMSUPPORT MmSystemCacheWs;
 
 extern KEVENT MmWorkingSetManagerEvent;
 
-//
-// Boolean which indicates if a check of the PTE should be done
-// for a write probe in x86 machines.
-//
-
-extern BOOLEAN MmCheckPteOnProbe;
-
 // begin_ntddk begin_nthal begin_ntifs
 typedef enum _MM_SYSTEM_SIZE {
     MmSmallSystem,
@@ -348,6 +365,12 @@ typedef enum _LOCK_OPERATION {
 } LOCK_OPERATION;
 
 // end_ntddk end_nthal end_ntifs
+
+//
+// NT product type.
+//
+
+extern ULONG MmProductType;
 
 typedef struct _MMINFO_COUNTERS {
     ULONG PageFaultCount;
@@ -479,12 +502,18 @@ MmCleanVirtualAddressDescriptor (
 
 PVOID
 MmCreateKernelStack (
-    VOID
+    BOOLEAN LargeStack
     );
 
 VOID
 MmDeleteKernelStack (
-    IN PVOID PointerKernelStack
+    IN PVOID PointerKernelStack,
+    IN BOOLEAN LargeStack
+    );
+
+NTSTATUS
+MmGrowKernelStack (
+    IN PVOID CurrentStack
     );
 
 VOID
@@ -534,7 +563,8 @@ MmAllowWorkingSetExpansion (
 NTSTATUS
 MmAdjustWorkingSetSize (
     IN ULONG WorkingSetMinimum,
-    IN ULONG WorkingSetMaximum
+    IN ULONG WorkingSetMaximum,
+    IN ULONG SystemCache
     );
 
 VOID
@@ -627,7 +657,7 @@ MmIsRecursiveIoFault(
 //
 // VOID
 // MmDisablePageFaultClustering
-//     VOID
+//     OUT PULONG SavedState
 //     );
 //
 // Routine Description:
@@ -639,7 +669,8 @@ MmIsRecursiveIoFault(
 //
 // Arguments:
 //
-//     None.
+//     SavedState - returns previous state of page fault clustering which
+//                  is guaranteed to be nonzero
 //
 // Return Value:
 //
@@ -647,15 +678,16 @@ MmIsRecursiveIoFault(
 //
 //--
 
-#define MmDisablePageFaultClustering() \
-                (PsGetCurrentThread()->DisablePageFaultClustering = TRUE)
+#define MmDisablePageFaultClustering(SavedState) {                                          \
+                *(SavedState) = 2 + (ULONG)PsGetCurrentThread()->DisablePageFaultClustering;\
+                PsGetCurrentThread()->DisablePageFaultClustering = TRUE; }
 
 
 //++
 //
 // VOID
 // MmEnablePageFaultClustering
-//     VOID
+//     IN ULONG SavedState
 //     );
 //
 // Routine Description:
@@ -667,7 +699,7 @@ MmIsRecursiveIoFault(
 //
 // Arguments:
 //
-//     None.
+//     SavedState - supplies previous state of page fault clustering
 //
 // Return Value:
 //
@@ -675,8 +707,39 @@ MmIsRecursiveIoFault(
 //
 //--
 
-#define MmEnablePageFaultClustering() \
-                (PsGetCurrentThread()->DisablePageFaultClustering = FALSE)
+#define MmEnablePageFaultClustering(SavedState) {                                               \
+                PsGetCurrentThread()->DisablePageFaultClustering = (BOOLEAN)(SavedState - 2); }
+
+//++
+//
+// VOID
+// MmSavePageFaultReadAhead
+//     IN PETHREAD Thread,
+//     OUT PULONG SavedState
+//     );
+//
+// Routine Description:
+//
+//
+// This macro saves the page fault read ahead value for the specified
+// thread.
+//
+// Arguments:
+//
+//     Thread - Supplies a pointer to the current thread.
+//
+//     SavedState - returns previous state of page fault read ahead
+//
+// Return Value:
+//
+//     None.
+//
+//--
+
+
+#define MmSavePageFaultReadAhead(Thread,SavedState) {               \
+                *(SavedState) = (Thread)->ReadClusterSize * 2 +     \
+                                (Thread)->ForwardClusterOnly; }
 
 //++
 //
@@ -709,19 +772,20 @@ MmIsRecursiveIoFault(
 //--
 
 
-#define MmSetPageFaultReadAhead(Thread,ReadAhead)                            \
+#define MmSetPageFaultReadAhead(Thread,ReadAhead) {                          \
                 (Thread)->ForwardClusterOnly = TRUE;                         \
                 if ((ReadAhead) > MM_MAXIMUM_READ_CLUSTER_SIZE) {            \
                     (Thread)->ReadClusterSize = MM_MAXIMUM_READ_CLUSTER_SIZE;\
                 } else {                                                     \
                     (Thread)->ReadClusterSize = (ReadAhead);                 \
-                }
+                } }
 
 //++
 //
 // VOID
 // MmResetPageFaultReadAhead
-//     IN PETHREAD Thread
+//     IN PETHREAD Thread,
+//     IN ULONG SavedState
 //     );
 //
 // Routine Description:
@@ -735,15 +799,17 @@ MmIsRecursiveIoFault(
 //
 //     Thread - Supplies a pointer to the current thread.
 //
+//     SavedState - supplies previous state of page fault read ahead
+//
 // Return Value:
 //
 //     None.
 //
 //--
 
-#define MmResetPageFaultReadAhead(Thread)                        \
-                (Thread)->ForwardClusterOnly = FALSE;            \
-                (Thread)->ReadClusterSize = MmReadClusterSize;
+#define MmResetPageFaultReadAhead(Thread, SavedState) {                     \
+                (Thread)->ForwardClusterOnly = (BOOLEAN)((SavedState) & 1); \
+                (Thread)->ReadClusterSize = (SavedState) / 2; }
 
 //
 // The order of this list is important, the zeroed, free and standby
@@ -900,14 +966,16 @@ MmMapViewInSystemCache (
 VOID
 MmUnmapViewInSystemCache (
     IN PVOID BaseAddress,
-    IN PVOID SectionToUnmap
+    IN PVOID SectionToUnmap,
+    IN ULONG AddToFront
     );
 
 BOOLEAN
 MmPurgeSection (
     IN PSECTION_OBJECT_POINTERS SectionObjectPointer,
     IN PLARGE_INTEGER Offset OPTIONAL,
-    IN ULONG RegionSize
+    IN ULONG RegionSize,
+    IN ULONG IgnoreCacheViews
     );
 
 NTSTATUS
@@ -915,7 +983,8 @@ MmFlushSection (
     IN PSECTION_OBJECT_POINTERS SectionObjectPointer,
     IN PLARGE_INTEGER Offset OPTIONAL,
     IN ULONG RegionSize,
-    OUT PIO_STATUS_BLOCK IoStatus
+    OUT PIO_STATUS_BLOCK IoStatus,
+    IN ULONG AcquireFile
     );
 
 NTSTATUS
@@ -963,14 +1032,7 @@ MmPurgeWorkingSet (
      IN ULONG RegionSize
      );
 
-VOID
-MmProbeForWrite (
-    IN PVOID Address,
-    IN ULONG Length
-    );
-
-
-VOID                                        // ntifs
+BOOLEAN                                     // ntifs
 MmSetAddressRangeModified (                 // ntifs
     IN PVOID Address,                       // ntifs
     IN ULONG Length                         // ntifs
@@ -1057,7 +1119,7 @@ PVOID
 MmMapIoSpace (
     IN PHYSICAL_ADDRESS PhysicalAddress,
     IN ULONG NumberOfBytes,
-    IN BOOLEAN CacheEnable
+    IN MEMORY_CACHING_TYPE CacheType
     );
 
 NTKERNELAPI
@@ -1068,9 +1130,39 @@ MmUnmapIoSpace (
     );
 
 NTKERNELAPI
+VOID
+MmProbeAndLockSelectedPages (
+    IN OUT PMDL MemoryDescriptorList,
+    IN PFILE_SEGMENT_ELEMENT SegmentArray,
+    IN KPROCESSOR_MODE AccessMode,
+    IN LOCK_OPERATION Operation
+    );
+
+NTKERNELAPI
+PVOID
+MmMapVideoDisplay (
+    IN PHYSICAL_ADDRESS PhysicalAddress,
+    IN ULONG NumberOfBytes,
+    IN MEMORY_CACHING_TYPE CacheType
+     );
+
+NTKERNELAPI
+VOID
+MmUnmapVideoDisplay (
+     IN PVOID BaseAddress,
+     IN ULONG NumberOfBytes
+     );
+
+NTKERNELAPI
 PHYSICAL_ADDRESS
 MmGetPhysicalAddress (
     IN PVOID BaseAddress
+    );
+
+NTKERNELAPI
+PVOID
+MmGetVirtualForPhysical (
+    IN PHYSICAL_ADDRESS PhysicalAddress
     );
 
 NTKERNELAPI
@@ -1105,6 +1197,7 @@ MmIsAddressValid (
     IN PVOID VirtualAddress
     );
 
+
 NTKERNELAPI
 BOOLEAN
 MmIsNonPagedSystemAddressValid (
@@ -1128,7 +1221,41 @@ MmCreateMdl(
 
 NTKERNELAPI
 PVOID
-MmLockPagableImageSection(
+MmLockPagableDataSection(
+    IN PVOID AddressWithinSection
+    );
+
+NTKERNELAPI
+VOID
+MmLockPagableSectionByHandle (
+    IN PVOID ImageSectionHandle
+    );
+
+NTKERNELAPI
+VOID
+MmLockPagedPool (
+    IN PVOID Address,
+    IN ULONG Size
+    );
+
+NTKERNELAPI
+VOID
+MmUnlockPagedPool (
+    IN PVOID Address,
+    IN ULONG Size
+    );
+
+
+NTKERNELAPI
+VOID
+MmResetDriverPaging (
+    IN PVOID AddressWithinSection
+    );
+
+
+NTKERNELAPI
+PVOID
+MmPageEntireDriver (
     IN PVOID AddressWithinSection
     );
 
@@ -1137,6 +1264,37 @@ VOID
 MmUnlockPagableImageSection(
     IN PVOID ImageSectionHandle
     );
+
+
+NTKERNELAPI
+HANDLE
+MmSecureVirtualMemory (
+    IN PVOID Address,
+    IN ULONG Size,
+    IN ULONG ProbeMode
+    );
+
+NTKERNELAPI
+VOID
+MmUnsecureVirtualMemory (
+    IN HANDLE SecureHandle
+    );
+
+NTKERNELAPI
+NTSTATUS
+MmMapViewInSystemSpace (
+    IN PVOID Section,
+    OUT PVOID *MappedBase,
+    IN PULONG ViewSize
+    );
+
+NTKERNELAPI
+NTSTATUS
+MmUnmapViewInSystemSpace (
+    IN PVOID MappedBase
+    );
+
+
 
 //++
 //
@@ -1244,13 +1402,12 @@ MmUnlockPagableImageSection(
 
 // end_ntddk end_nthal end_ntifs
 
-#if DEVL
-
+#if DBG || (i386 && !FPO)
 typedef NTSTATUS (*PMM_SNAPSHOT_POOL_PAGE)(
     IN PVOID Address,
     IN ULONG Size,
-    IN PRTL_HEAP_INFORMATION PoolInformation,
-    IN PRTL_HEAP_ENTRY *PoolEntryInfo,
+    IN PSYSTEM_POOL_INFORMATION PoolInformation,
+    IN PSYSTEM_POOL_ENTRY *PoolEntryInfo,
     IN ULONG Length,
     IN OUT PULONG RequiredLength
     );
@@ -1259,11 +1416,34 @@ NTSTATUS
 MmSnapShotPool(
     IN POOL_TYPE PoolType,
     IN PMM_SNAPSHOT_POOL_PAGE SnapShotPoolPage,
-    IN PRTL_HEAP_INFORMATION PoolInformation,
+    IN PSYSTEM_POOL_INFORMATION PoolInformation,
     IN ULONG Length,
     IN OUT PULONG RequiredLength
     );
-#endif // DEVL
+#endif // DBG || (i386 && !FPO)
+
+#if DBG
+VOID
+MmInitializeSpecialPool (
+    VOID
+    );
+
+PVOID
+MmAllocateSpecialPool (
+    IN ULONG NumberOfBytes,
+    IN ULONG Tag
+    );
+
+VOID
+MmFreeSpecialPool (
+    IN PVOID P
+    );
+
+extern ULONG MmSpecialPoolTag;
+extern PVOID MmSpecialPoolStart;
+extern PVOID MmSpecialPoolEnd;
+
+#endif // DBG
 
 #define MMNONPAGED_QUOTA_INCREASE (64*1024)
 
@@ -1311,5 +1491,50 @@ MmMapMemoryDumpMdl(
     IN OUT PMDL MemoryDumpMdl
     );
 
+
+// begin_ntminiport
+
+//
+// Graphics support routines.
+//
+
+typedef
+VOID
+(*PBANKED_SECTION_ROUTINE) (
+    IN ULONG ReadBank,
+    IN ULONG WriteBank,
+    IN PVOID Context
+    );
+
+// end_ntminiport
+
+NTSTATUS
+MmSetBankedSection(
+    IN HANDLE ProcessHandle,
+    IN PVOID VirtualAddress,
+    IN ULONG BankLength,
+    IN BOOLEAN ReadWriteBank,
+    IN PBANKED_SECTION_ROUTINE BankRoutine,
+    IN PVOID Context);
+
+
+NTKERNELAPI
+BOOLEAN
+MmIsSystemAddressAccessable (
+    IN PVOID VirtualAddress
+    );
+
+BOOLEAN
+MmVerifyImageIsOkForMpUse(
+    IN PVOID BaseAddress
+    );
+
+NTSTATUS
+MmMemoryUsage (
+    IN PVOID Buffer,
+    IN ULONG Size,
+    IN ULONG Type,
+    OUT PULONG Length
+    );
 
 #endif  // MM

@@ -28,12 +28,10 @@ CHAR demDebugBuffer [256];
 BOOL ToDebugOnF11 = FALSE;
 #endif
 
-BOOL DemInit (argc, argv, DosDirectory)
-int argc;
-char *argv[];
-char *DosDirectory;
+BOOL DemInit (int argc, char *argv[])
 {
     PSZ psz;
+    DWORD dw;
 
     // Modify default hard error handling
     // - turn off all file io related popups
@@ -41,10 +39,16 @@ char *DosDirectory;
     //
     SetErrorMode (SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX);
 
-    pszDefaultDOSDirectory = DosDirectory;
+    pszDefaultDOSDirectory =  (PCHAR) malloc(MAX_PATH+14);
+    if (!pszDefaultDOSDirectory ||
+        !(dw = GetSystemDirectory(pszDefaultDOSDirectory, MAX_PATH)) ||
+        dw >= MAX_PATH )
+      {
+        return FALSE;
+        }
 
     if (VDMForWOW)
-	return TRUE;
+        return TRUE;
 
     // Check the debugging level
     while (--argc > 0) {
@@ -57,6 +61,7 @@ char *DosDirectory;
 	    }
 	}
     }
+
 
 #if DBG
 #ifndef i386

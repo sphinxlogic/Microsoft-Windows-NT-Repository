@@ -14,6 +14,10 @@
 #define _OBJMGR_
 #pragma pack(1)
 
+#ifdef __cplusplus
+extern "C"{
+#endif
+
 //=============================================================================
 //  Memory functions.
 //=============================================================================
@@ -27,6 +31,10 @@ extern VOID       WINAPI FreeMemory(LPVOID ptr);
 extern DWORD      WINAPI MemorySize(LPVOID ptr);
 
 void MemInit();
+
+#ifdef __cplusplus
+}
+#endif
 
 #pragma pack()
 #endif

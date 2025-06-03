@@ -47,18 +47,18 @@ char * f;
     char defstubmsg[4];
 
 	errno = 0;
-	if ( (fh = sopen( f, O_RDONLY | O_BINARY, SH_DENYWR )) == -1 )
+	if ( (fh = _sopen( f, O_RDONLY | O_BINARY, SH_DENYWR )) == -1 )
 	    return IOERROR;
 
-	br = read( fh, (char *)&oldhdr, sizeof oldhdr );
+	br = _read( fh, (char *)&oldhdr, sizeof oldhdr );
 
 	if ( br != sizeof oldhdr || E_MAGIC(oldhdr) != EMAGIC )
 	    retc = NOTANEXE;
 	else
 	    if ( E_LFARLC(oldhdr) == ENEWEXE )
 	    {
-		lseek( fh, E_LFANEW(oldhdr), SEEK_SET);
-		br = read( fh, (char *)&newhdr, sizeof newhdr );
+		_lseek( fh, E_LFANEW(oldhdr), SEEK_SET);
+		br = _read( fh, (char *)&newhdr, sizeof newhdr );
 
         if ( br != sizeof newhdr ) retc = OLDEXE;
         else if ( NE_MAGIC(newhdr) == NTMAGIC )     retc = NTEXE;
@@ -71,8 +71,8 @@ char * f;
 							    retc = WINDOWS;
 		else if ( E_LFANEW(oldhdr) != ENEWEXE )
 		     {
-			lseek( fh, (long)NEDEFSTUBMSG, SEEK_SET );
-			read( fh, defstubmsg, 4 );
+			_lseek( fh, (long)NEDEFSTUBMSG, SEEK_SET );
+			_read( fh, defstubmsg, 4 );
 			if ( !strncmp (defstubmsg, "This", 4))
 							    retc = DOS286;
 			else				    retc = BOUNDEXE;
@@ -81,7 +81,7 @@ char * f;
 	    }
 	    else					    retc = OLDEXE;
 
-	close(fh);
+	_close(fh);
 	return retc;
 }
 

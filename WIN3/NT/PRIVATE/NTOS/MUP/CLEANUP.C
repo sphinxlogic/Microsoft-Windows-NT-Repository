@@ -84,6 +84,15 @@ Return Value:
     MupDeviceObject;
     PAGED_CODE();
 
+    if (MupEnableDfs &&
+            MupDeviceObject->DeviceObject.DeviceType == FILE_DEVICE_DFS) {
+        status = DfsFsdCleanup((PDEVICE_OBJECT) MupDeviceObject, Irp);
+        return( status );
+    }
+
+
+    FsRtlEnterFileSystem();
+
     try {
 
         irpSp = IoGetCurrentIrpStackLocation( Irp );
@@ -103,6 +112,8 @@ Return Value:
                                               &fsContext2 )) == BlockTypeUndefined) {
 
             DebugTrace(0, Dbg, "The file is closed\n", 0);
+
+            FsRtlExitFileSystem();
 
             MupCompleteRequest( Irp, STATUS_INVALID_HANDLE );
             status = STATUS_INVALID_HANDLE;
@@ -174,6 +185,8 @@ Return Value:
         status = GetExceptionCode();
 
     }
+
+    FsRtlExitFileSystem();
 
     DebugTrace(-1, Dbg, "MupCleanup -> %08lx\n", status);
     return status;

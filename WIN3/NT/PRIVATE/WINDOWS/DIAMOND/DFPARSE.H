@@ -20,6 +20,9 @@
  *      21-Feb-1994 bens    Add wrapper for stdout writes (lineOut)
  *      08-Mar-1994 bens    Control INF generation
  *      30-Mar-1994 bens    Keep track of file counts per folder/cabinet/disk
+ *      25-Apr-1994 bens    Add customizable INF stuff
+ *      27-May-1994 bens    Add CompressionXxxx support
+ *      28-Mar-1995 jeffwe  Add ChecksumWidth variable
  */
 
 #ifndef INCLUDED_DFPARSE
@@ -34,7 +37,14 @@
 #include "fileutil.h"       // Get cbFILE_NAME_MAX
 #include "command.h"
 
-#include "inf.h"
+
+/***    HINF - handle to INF context
+ *
+ *  NOTE: Duplication copied from INF.H to avoid chicken-and-egg definition
+ *        problem.  INF.H needs PSESSION, and PSESSION needs HINF!
+ */
+typedef void *HINF; /* hinf */
+
 
 #ifdef BIT16
 #include "chuck\fci.h"
@@ -53,7 +63,21 @@
 #define cbMAX_COMMAND_NAME   50 // Maxmimum length of a command name
 
 
+/***    DDFMODE - Mode of INF generation indicated by DDF
+ *
+ */
+typedef enum {
+    ddfmodeBAD,
 
+    ddfmodeUNKNOWN,
+    ddfmodeUNIFIED,
+    ddfmodeRELATIONAL,
+} DDFMODE; /* ddfmode */
+
+
+/***    ACTION - What action Diamond command line requested
+ *
+ */
 typedef enum {
     actBAD,         // Invalid action
     actHELP,        // Show help
@@ -61,6 +85,10 @@ typedef enum {
     actDIRECTIVE,   // Process a directives file
 } ACTION;   /* act */
 
+
+/***    VERBOSITY - Verbosity of debug output
+ *
+ */
 typedef enum {
     vbNONE,         // Minimal output during disk layout
     vbSOME,         // Only high-level status feedback
@@ -81,13 +109,9 @@ typedef struct {
 #endif
     ACTION      act;                // Action to perform
     HFILELIST   hflistDirectives;   // Directive file list, or single file
-    HFILELIST   hflistNormal;       // Normal files (including groups)
-    HFILELIST   hflistFiller;       // Filler files (go anywhere)
-    HFILELIST   hflistOnDisk;       // File for specific disks
     HVARLIST    hvlist;             // List of variables
-    BOOL        fFiller;            // TRUE => Inside .Filler/.EndFiller
-    BOOL        fOnDisk;            // TRUE => Inside .OnDisk/.EndOnDisk
-    BOOL        fGroup;             // TRUE => Inside .Group/.EndGroup
+    HVARLIST    hvlistPass2;        // List of variables for pass 2
+    BOOL        fPass2;             // Doing pass 2 processing
     int         iDisk;              // Current disk number
     int         iCabinet;           // Current cabinet number
     int         iFolder;            // Current folder number
@@ -108,17 +132,45 @@ typedef struct {
     ULONG       cbFileBytes;        // Running total of bytes processed
     ULONG       cbFileBytesComp;    // Running total of compressed bytes
     long        cFiles;             // Total files in directives file(s)
-    long        iCurrFile;          // Index of last file sent to FCIAddFile
+    long        iCurrFile;          // Index of file in DDF; 0 means no
+                                    //  file copy commands have been
+                                    //  processed, yet.
+
     HINF        hinf;               // Inf file info
     clock_t	clkStart;	    // Time at start of run
     clock_t	clkEnd;		    // Time at end of run
     BOOL        fGenerateInf;       // TRUE => generate INF file
     USHORT      setID;              // Cabinet set ID for FCI
+    HGENLIST    hglistFiles;        // List of files in session
+    HGENERIC    hgenFile;           // Next file in hglistFiles to be placed
+    HGENERIC    hgenFileLast;       // Last file added to hglistFiles
+
+    DDFMODE     ddfmode;            // DDF INF generation mode
+    BOOL        fExpectFileCommand; // TRUE => non-command DDF lines are
+                                    //  file copy commands;
+                                    // FALSE => non-command DDF lines are
+                                    //  INF reference commands
+
+    BOOL        fCopyToInf;         // TRUE => Copy lines to INF file
+    INFAREA     inf;                // if fCopyToInf is true, area of INF
+                                    //  lines are being copied to.
+
+    BOOL        fExplicitVarDefine; // TRUE => Vars must be .Define before .Set
+    BOOL        fGetVerInfo;        // TRUE => Get file version/lang info
+    BOOL        fGetFileChecksum;   // TRUE => Compute file checksum
+
+    BOOL        fForceNewDisk;      // TRUE => Force new disk next time we
+                                    //         check; get's reset at that time
+    BOOL        fRunSeen;            // TRUE => /RUN flag already seen
+
     char        achCurrFile[cbFILE_NAME_MAX]; // Last file sent to FCIAddFile
     char        achMsg[cbMAX_DF_LINE*2]; // Message formatting buffer
     char        achBlanks[cchSCREEN_WIDTH+1]; // Buffer of spaces
     char        achCurrDiskLabel[cbFILE_NAME_MAX]; // Current readable disk label
     char        achCurrOutputDir[cbFILE_NAME_MAX]; // Current output disk directory
+#ifndef REMOVE_CHICAGO_M6_HACK
+    int         fFailOnIncompressible; // TRUE => Fail if a block is incompressible
+#endif
 } SESSION;  /* sess */
 typedef SESSION *PSESSION;  /* psess */
 
@@ -158,7 +210,8 @@ typedef (*PFNDIRFILEPARSE)(PSESSION   psess,
 /***    DFPInit - initialize directive file parser
  *
  *  Entry:
- *      perr - ERROR structure
+ *      psess - Session
+ *      perr  - ERROR structure
  *
  *  Exit-Success:
  *      Returns HVARLIST of standard variables.
@@ -166,7 +219,7 @@ typedef (*PFNDIRFILEPARSE)(PSESSION   psess,
  *  Exit-Failure:
  *      Returns NULL; perr filled in with error.
  */
-HVARLIST DFPInit(PERROR perr);
+HVARLIST DFPInit(PSESSION psess, PERROR perr);
  
 
 /***    DFPParse - Parse a directive file
@@ -222,16 +275,90 @@ BOOL DFPParseVarAssignment(PCOMMAND pcmd,
 /***    IsSpecialDiskSize - Check if supplied size is a standard one
  *
  *  Entry:
- *      psess  - Session state
- *      cbDisk - Disk size
+ *      psess       - Session state
+ *      pszDiskSize - String with disk size
  *
  *  Exit-Success:
- *      Returns TRUE; cbDisk is a standard size
+ *      Returns non-zero disk size; Special size specified
  *
  *  Exit-Failure:
- *      Returns FALSE; cbDisk is not a standard size
+ *      Returns 0; not a special size
  */
-BOOL IsSpecialDiskSize(PSESSION psess,long cbDisk);
+long IsSpecialDiskSize(PSESSION psess,char *pszDiskSize);
+
+
+/***    BOOLfromPSZ - Get boolean from string value
+ *
+ *  Entry:
+ *      psz - String to convert (YES/NO/TRUE/FALSE/1/0)
+ *
+ *  Exit-Success:
+ *      Returns BOOL version of string (TRUE or FALSE)
+ *
+ *  Exit-Failure:
+ *      Returns -1; perr filled in
+ */
+BOOL BOOLfromPSZ(char *psz, PERROR perr);
+
+
+/***    ChecksumWidthFromPSZ - Get Checksum Width from a string
+ *
+ *  Entry:
+ *      psz  - String to parse
+ *      perr - ERROR structure
+ *
+ *  Exit-Success:
+ *      Returns checksum width.
+ *
+ *  Exit-Failure:
+ *      Returns -1; perr filled in.
+ */
+int ChecksumWidthFromPSZ(char *psz, PERROR perr);
+
+
+/***    CompTypeFromPSZ - Get Compression Type from a string
+ *
+ *  Entry:
+ *      psz  - String to parse
+ *      perr - ERROR structure
+ *
+ *  Exit-Success:
+ *      Returns compression type.
+ *
+ *  Exit-Failure:
+ *      Returns -1; perr filled in.
+ */
+int CompTypeFromPSZ(char *psz, PERROR perr);
+
+
+/***    CompLevelFromPSZ - Get Compression Level from a string
+ *
+ *  Entry:
+ *      psz  - String to parse
+ *      perr - ERROR structure
+ *
+ *  Exit-Success:
+ *      Returns compression level.
+ *
+ *  Exit-Failure:
+ *      Returns -1; perr filled in.
+ */
+int CompLevelFromPSZ(char *psz, PERROR perr);
+
+
+/***    CompMemoryFromPSZ - Get Compression Memory from a string
+ *
+ *  Entry:
+ *      psz  - String to parse
+ *      perr - ERROR structure
+ *
+ *  Exit-Success:
+ *      Returns compression memory.
+ *
+ *  Exit-Failure:
+ *      Returns -1; perr filled in.
+ */
+int CompMemoryFromPSZ(char *psz, PERROR perr);
 
 
 /***    lineOut - write line to stdout with padding

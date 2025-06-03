@@ -24,9 +24,6 @@ Revision History:
 --*/
 
 #include "iop.h"
-#include "ntiolog.h"
-#include "stdio.h"
-#include "string.h"
 
 typedef struct _IOPORTMSG {
     PORT_MESSAGE h;
@@ -412,7 +409,7 @@ Return Value:
 
         errorMessage->EntryData.NumberOfStrings++;
         objectName += deviceNameLength;
-        
+
         if (errorData->NumberOfStrings) {
 
             //
@@ -748,8 +745,7 @@ Return Value:
     // Delay for 30 seconds and try for the port again.
     //
 
-    interval.LowPart = (ULONG) - (10 * 1000 * 1000 * 30);
-    interval.HighPart = -1;
+    interval.QuadPart = - 10 * 1000 * 1000 * 30;
 
     //
     // Set the timer to fire a DPC in 30 seconds.

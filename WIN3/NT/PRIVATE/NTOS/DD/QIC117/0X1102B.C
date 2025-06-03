@@ -15,6 +15,23 @@
 * HISTORY:
 *		$Log:   J:\se.vcs\driver\q117cd\src\0x1102b.c  $
 *	
+*	   Rev 1.8   04 Oct 1995 10:58:50   boblehma
+*	
+*	   Rev 1.9   27 Jun 1995 12:35:52   BOBLEHMA
+*	Removed call to cqd_PrepareIomega3010PhysRev.  Firmware bug is now fixed
+*	by calling stop tape instead of pause tape in the cqd_ProcessFRB function.
+*	
+*	   Rev 1.8   30 Jan 1995 14:25:12   BOBLEHMA
+*	Changed device_descriptor.version to cqd_context->firmware_version.
+*	
+*	   Rev 1.7   27 Jan 1995 13:22:28   BOBLEHMA
+*	Added a call to cqd_PrepareIomega3010PhysRev before the call to
+*	the firmware function Physical Reverse.  Note that this function
+*	is a NOP if the drive is not an Iomega 3010.
+*	
+*	   Rev 1.6   06 Jan 1995 17:08:52   BOBLEHMA
+*	Added a check for vendor_id == CMS in addition to the Firmware > 64 test.
+*	
 *	   Rev 1.5   17 Feb 1994 11:35:44   KEVINKES
 *
 *	   Rev 1.4   18 Jan 1994 16:19:56   KEVINKES
@@ -38,6 +55,7 @@
 #define FCT_ID 0x1102b
 #include "include\public\adi_api.h"
 #include "include\public\frb_api.h"
+#include "include\public\vendor.h"
 #include "include\private\kdi_pub.h"
 #include "include\private\cqd_pub.h"
 #include "q117cd\include\cqd_defs.h"
@@ -67,6 +85,7 @@ dStatus cqd_LogicalBOT
 	dStatus status;	/* dStatus or error condition.*/
    dUWord direction;   /* tells physical direction of tape movement */
 	dUByte ram_byte;
+   dSDWord seek_offset=0l;
 
 /* CODE: ********************************************************************/
 
@@ -77,7 +96,6 @@ dStatus cqd_LogicalBOT
    }
 
    if ((destination_track & ODD_TRACK) == EVEN_TRACK) {
-
       status = cqd_SendByte(cqd_context, FW_CMD_PHYSICAL_REV);
       direction = REVERSE;
 
@@ -101,7 +119,7 @@ dStatus cqd_LogicalBOT
    /* concurrent operation is purely for performance enhancement (saves */
    /* ~220 msec). */
 
-   if ((cqd_context->device_descriptor.version == FIRM_VERSION_64) &&
+   if ((cqd_context->firmware_version == FIRM_VERSION_64) &&
             (cqd_context->device_descriptor.vendor == VENDOR_CMS)) {
 
       kdi_Sleep(cqd_context->kdi_context, kdi_wt200ms, dFALSE);
@@ -127,7 +145,8 @@ dStatus cqd_LogicalBOT
 
    }
 
-   if (cqd_context->device_descriptor.version == FIRM_VERSION_64) {
+   if ((cqd_context->firmware_version == FIRM_VERSION_64) &&
+            (cqd_context->device_descriptor.vendor == VENDOR_CMS)) {
 
       /* Prepare the communication cmd_string to read the byte with the */
       /* hole_flag bit in it. */

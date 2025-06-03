@@ -29,6 +29,7 @@ externFP <GlobalHandle,GlobalReAlloc,GlobalSize,GlobalCompact,GlobalFlags>
 externFP <GlobalLock,GlobalUnlock>
 externFP <GlobalMasterHandle,GetCurrentTask>
 externFP FarValidatePointer
+externFP DibRealloc
 
 DataBegin
 
@@ -1065,6 +1066,112 @@ grow_DS:
 	pop	bx
 	mov	ax,1
 dlnexit:
+cEnd
+
+cProc   LocalNotifyDib,<PUBLIC,FAR>,<si,di>
+	parmW   msg
+	parmW	handle		; or largest free block
+	parmW   arg1
+cBegin
+	mov	ax,msg
+	or	ax,ax
+        jnz     dlnexit1dib
+	cCall	GlobalHandle,<ds>
+	or	ax,ax
+        jz      dlnexit1dib
+			; Fix for FORMBASE who uses a fixed
+			; segment for a local heap.  This blows
+			; up if we cause the calling segment
+			; to be discarded since the DS saved by
+			; Local???? is a fixed segment which
+			; SearchStack can't handle.  Confused?
+			; This was not a problem in 2.x because
+			; 2.x failed to grow a fixed object.
+			; Using a fixed segment for a local heap
+			; is not valid and this is really a problem
+			; with FORMBASE.
+	mov	si,ax
+	cCall	GlobalFlags,<si>	; Get flags
+	xchg	ah, al
+	push	ax
+	cCall	GlobalSize,<si>
+	sub	ax, handle		; Temorarily subtract out largest free
+	pop	bx			; Get flags in BX
+	xor	cx,cx
+	add	ax,arg1
+	adc	dx,cx			; Fail if DS attempts to grow
+        jnz     dib_too_large           ;  beyond 64k.
+	add	ax,18h			; since li_extra isn't guaranteed
+	adc	dx,cx
+        jnz     dib_too_large
+	add	ax,[di].li_extra
+	adc	dx,cx			; Fail if DS attempts to grow
+	jnz	@F			;  beyond 64k.
+	add	ax, handle		; add back largest free
+	adc	dx, cx					       
+	jnz	@F
+	cmp	ax,0FFF0h
+        jbe     dln0dib
+@@:	mov	ax,0FFF0h
+	xor	dx,dx
+        jmps    dln0dib
+dib_too_large:
+	xor	ax,ax
+dlnexit1Dib:
+        jmp     dlnexitdib
+dln0dib:
+	test	si,GA_FIXED		; Is DS fixed?
+        jnz     dln1dib                 ; Yes, must grow in place
+	cmp	bh,1			; No, is lock count 1?
+        jne     dln1dib                 ; No must grow in place if locked
+	or	cl,GA_MOVEABLE		; Yes, okay to move even though locked
+dln1dib:
+	push	bx
+        cCall   DibReAlloc,<ds,ax>
+        or      ax,ax
+        jz      dlnexitdib0
+        cCall   GlobalSize,<si>
+
+	or	dx,dx			; Did we get rounded up >= 64K?
+	jz	@F			; No, OK
+	mov	ax,0FFFFh		 ; This only happens under 386pmode
+@@:
+	mov	bx,ax
+	sub	bx,la_freefixedsize
+	and	bl,LA_MASK
+	mov	di,ds:[pLocalHeap]
+	mov	si,[di].hi_last
+	mov	[bx].la_next,bx
+	mov	[bx].la_prev,si
+	or	byte ptr [bx].la_prev,LA_BUSY
+	mov	[si].la_next,bx
+
+; Maintain the free list.
+
+	mov	ax,[si].la_free_prev
+	mov	[bx].la_free_prev,ax
+	mov	[bx].la_free_next,bx
+	mov	[bx].la_size,WORD PTR la_freefixedsize
+	push	si
+	mov	si,ax
+	mov	[si].la_free_next,bx
+	pop	si
+
+	mov	[di].hi_last,bx
+	inc	[di].hi_count
+	mov	bx,si
+	call	lfree
+
+;   Don't do this... (bobgu 8/4/87)
+;	stc
+;	call	lalign
+;	call	lcompact
+
+
+        mov     ax,1
+dlnexitdib0:
+	pop	bx
+dlnexitdib:
 cEnd
 
 sEnd	CODE

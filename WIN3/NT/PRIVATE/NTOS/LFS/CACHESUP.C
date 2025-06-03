@@ -130,6 +130,7 @@ Return Value:
 
 {
     volatile NTSTATUS Status;
+    ULONG Signature;
 
     Status = STATUS_SUCCESS;
 
@@ -179,6 +180,13 @@ Return Value:
                            Buffer );
             }
 
+            //
+            //  Capture the signature now while we are within the
+            //  exception filter.
+            //
+
+            Signature = *((PULONG) *Buffer);
+
         } except( LfsExceptionFilter( GetExceptionInformation() )) {
 
             Status = GetExceptionCode();
@@ -203,7 +211,7 @@ Return Value:
         //  page is valid.
         //
 
-        } else if (*((PULONG) *Buffer) == LFS_SIGNATURE_BAD_USA_ULONG) {
+        } else if (Signature == LFS_SIGNATURE_BAD_USA_ULONG) {
 
             //
             //  If we don't allow errors, raise an error status.
@@ -437,7 +445,7 @@ Return Value:
             //  are copying.
             //
 
-            if ( PageHeader->Copy.LastLsn.QuadPart < RecordHeader->ThisLsn.QuadPart ) {                                //**** xxLtr( PageHeader->Copy.LastLsn, RecordHeader->ThisLsn )
+            if ( PageHeader->Copy.LastLsn.QuadPart < RecordHeader->ThisLsn.QuadPart ) {
 
                 ExRaiseStatus( STATUS_DISK_CORRUPT_ERROR );
             }
@@ -459,7 +467,7 @@ Return Value:
                 if (!FlagOn( PageHeader->Flags, LOG_PAGE_LOG_RECORD_END )
 
                     || (FlagOn( Lfcb->Flags, LFCB_PACK_LOG )
-                        && ( RecordHeader->ThisLsn.QuadPart > PageHeader->Header.Packed.LastEndLsn.QuadPart ))) {      //**** xxGtr( RecordHeader->ThisLsn, PageHeader->Header.Packed.LastEndLsn )
+                        && ( RecordHeader->ThisLsn.QuadPart > PageHeader->Header.Packed.LastEndLsn.QuadPart ))) {
 
                     ExRaiseStatus( STATUS_DISK_CORRUPT_ERROR );
                 }
@@ -479,9 +487,9 @@ Return Value:
                 //  If there is no spanning log record this is an error.
                 //
 
-                if (( PageHeader->Copy.LastLsn.QuadPart == PageHeader->Header.Packed.LastEndLsn.QuadPart )             //**** xxEql( PageHeader->Copy.LastLsn, PageHeader->Header.Packed.LastEndLsn )
+                if (( PageHeader->Copy.LastLsn.QuadPart == PageHeader->Header.Packed.LastEndLsn.QuadPart )
 
-                    || ( RecordHeader->ThisLsn.QuadPart > PageHeader->Copy.LastLsn.QuadPart )) {                       //**** xxGtr( RecordHeader->ThisLsn, PageHeader->Copy.LastLsn )
+                    || ( RecordHeader->ThisLsn.QuadPart > PageHeader->Copy.LastLsn.QuadPart )) {
 
                     ExRaiseStatus( STATUS_DISK_CORRUPT_ERROR );
                 }
@@ -580,6 +588,7 @@ Return Value:
     BOOLEAN UseTailCopy;
 
     ULONG IoBlocks;
+    ULONG NewLfcbFlags = 0;
 
     LSN LastLsn;
 
@@ -631,7 +640,7 @@ Return Value:
             //  Reset the notify event for all of the waiting threads.
             //
 
-            KeResetEvent( &Lfcb->Sync->Event );
+            KeClearEvent( &Lfcb->Sync->Event );
 
             //
             //  Find the block of Lbcb's that make up the first I/O, remembering
@@ -681,16 +690,49 @@ Return Value:
 
                 PLFS_RESTART_PAGE_HEADER RestartPage;
                 BOOLEAN UsaError;
+                NTSTATUS Status;
 
-                if (NT_SUCCESS( LfsPinOrMapData( Lfcb,
-                                                 FileOffset,
-                                                 (ULONG)Lfcb->SystemPageSize,
-                                                 TRUE,
-                                                 TRUE,
-                                                 TRUE,
-                                                 &UsaError,
-                                                 &RestartPage,
-                                                 &PageBcb ))) {
+                //
+                //  If there was some error in initially reading the restart page then
+                //  it is OK to settle for a page of zeroes.
+                //
+
+                if (FlagOn( Lfcb->Flags, LFCB_READ_FIRST_RESTART | LFCB_READ_SECOND_RESTART ) &&
+                    ((FileOffset == 0) ?
+                     FlagOn( Lfcb->Flags, LFCB_READ_FIRST_RESTART ) :
+                     FlagOn( Lfcb->Flags, LFCB_READ_SECOND_RESTART ))) {
+
+                    LfsPreparePinWriteData( Lfcb,
+                                            FileOffset,
+                                            (ULONG) Lfcb->SystemPageSize,
+                                            &RestartPage,
+                                            &PageBcb );
+
+                    Status = STATUS_SUCCESS;
+
+                    if (FileOffset == 0) {
+
+                        SetFlag( NewLfcbFlags, LFCB_READ_FIRST_RESTART );
+
+                    } else {
+
+                        SetFlag( NewLfcbFlags, LFCB_READ_SECOND_RESTART );
+                    }
+
+                } else {
+
+                    Status = LfsPinOrMapData( Lfcb,
+                                              FileOffset,
+                                              (ULONG)Lfcb->SystemPageSize,
+                                              TRUE,
+                                              TRUE,
+                                              TRUE,
+                                              &UsaError,
+                                              &RestartPage,
+                                              &PageBcb );
+                }
+
+                if (NT_SUCCESS( Status )) {
 
                     //
                     //  Initialize the restart page header.
@@ -952,11 +994,14 @@ Return Value:
 
                     if (!NT_SUCCESS( Iosb.Status )) {
 
+#ifdef NTFS_RESTART
+                        ASSERT( FALSE );
+#endif
                         RaiseCorrupt = TRUE;
                     }
 
                     BytesRemaining -= (LONG)Lfcb->SystemPageSize;
-                    FileOffset = FileOffset + Lfcb->SystemPageSize;                                                    //**** xxAdd( FileOffset, Lfcb->SystemPageSize );
+                    FileOffset = FileOffset + Lfcb->SystemPageSize;
                 }
             }
 
@@ -988,6 +1033,16 @@ Return Value:
             } else {
 
                 Lfcb->LastFlushedRestartLsn = LastLsn;
+
+                //
+                //  Clear any neccessary flags on a successful operation.
+                //
+
+                if (!RaiseCorrupt) {
+
+                    ClearFlag( Lfcb->Flags, NewLfcbFlags );
+                    NewLfcbFlags = 0;
+                }
             }
 
             //
@@ -1020,7 +1075,7 @@ Return Value:
                     //  Deallocate the structure.
                     //
 
-                    LfsDeallocateLbcb( ThisLbcb );
+                    LfsDeallocateLbcb( Lfcb, ThisLbcb );
 
                     if (IoBlocks-- == 1) {
 
@@ -1070,9 +1125,11 @@ Return Value:
 
     //
     //  If the Io failed at some point, we raise a corrupt disk error.
+    //  The only exception is if this is the final flush of the log file.
+    //  In this case the client may not be able to cleanup after this error.
     //
 
-    if (RaiseCorrupt) {
+    if (RaiseCorrupt && (!FlagOn( Lfcb->Flags, LFCB_FINAL_SHUTDOWN ))) {
 
         ExRaiseStatus( STATUS_DISK_CORRUPT_ERROR );
     }
@@ -1181,7 +1238,7 @@ Return Value:
 
         } else {
 
-            FileOffset = SEQUENCE_NUMBER_STRIDE;                                                                       //**** xxFromUlong( SEQUENCE_NUMBER_STRIDE );
+            FileOffset = SEQUENCE_NUMBER_STRIDE;
             FileOffsetIncrement = 0;
         }
 
@@ -1190,7 +1247,7 @@ Return Value:
         //  or exhaust the number of possible tries.
         //
 
-        while ( FileOffset < FileSize ) {                                                                              //**** xxLtr( FileOffset, FileSize )
+        while ( FileOffset < FileSize ) {
 
             ULONG Signature;
             BOOLEAN UsaError;
@@ -1356,7 +1413,7 @@ Return Value:
             //  Move to the next possible log page.
             //
 
-            FileOffset = FileOffset << 1;                                                                              //**** xxShl( FileOffset, 1 );
+            FileOffset = FileOffset << 1;
 
             (ULONG)FileOffset += FileOffsetIncrement;
 
@@ -1499,7 +1556,7 @@ Return Value:
     //  Check that if the file offset isn't 0, it is the system page size.
     //
 
-    if (( FileOffset != 0 )                                                                                            //**** xxNeqZero( FileOffset )
+    if (( FileOffset != 0 )
         && ((ULONG)FileOffset != SystemPage)) {
 
         return FALSE;
@@ -1683,9 +1740,9 @@ Return Value:
     FileSize = RestartArea->FileSize;
 
     for (SeqNumberBits = 0;
-         ( FileSize != 0 );                                                                                            //**** xxNeqZero( FileSize );
+         ( FileSize != 0 );
          SeqNumberBits += 1,
-         FileSize = ((ULONGLONG)(FileSize)) >> 1 ) {                                                                   //**** xxShr( FileSize, 1 )
+         FileSize = ((ULONGLONG)(FileSize)) >> 1 ) {
     }
 
     SeqNumberBits = (sizeof( LSN ) * 8) + 3 - SeqNumberBits;
@@ -1995,7 +2052,8 @@ Return Value:
         //  flush a copy first.
         //
 
-        while (FirstLbcb->WorkqueLinks.Flink != &Lfcb->LbcbWorkque) {
+        while ((FirstLbcb->WorkqueLinks.Flink != &Lfcb->LbcbWorkque) &&
+               !FlagOn( FirstLbcb->LbcbFlags, LBCB_ON_ACTIVE_QUEUE )) {
 
             LONGLONG ExpectedFileOffset;
             PLBCB TempLbcb;
@@ -2013,7 +2071,7 @@ Return Value:
             //  expected value or the next entry is on the active queue.
             //
 
-            ExpectedFileOffset = FirstLbcb->FileOffset + FirstLbcb->Length;                                            //**** xxAdd( FirstLbcb->FileOffset, FirstLbcb->Length );
+            ExpectedFileOffset = FirstLbcb->FileOffset + FirstLbcb->Length;
 
             //
             //  We want to stop at this point if the next Lbcb is not
@@ -2022,9 +2080,9 @@ Return Value:
             //  a copy of the data before this page goes out.
             //
 
-            if (( TempLbcb->FileOffset != ExpectedFileOffset )                                                         //**** xxNeq( TempLbcb->FileOffset, ExpectedFileOffset )
-                || (FlagOn( Lfcb->Flags, LFCB_PACK_LOG )
-                    && (FlagOn( TempLbcb->LbcbFlags, LBCB_FLUSH_COPY | LBCB_ON_ACTIVE_QUEUE )))) {
+            if ((TempLbcb->FileOffset != ExpectedFileOffset) ||
+                (FlagOn( Lfcb->Flags, LFCB_PACK_LOG ) &&
+                 FlagOn( TempLbcb->LbcbFlags, LBCB_FLUSH_COPY | LBCB_ON_ACTIVE_QUEUE))) {
 
                 break;
             }
@@ -2062,13 +2120,14 @@ Return Value:
     if (!(*UseTailCopy)
         && FlagOn( FirstLbcb->LbcbFlags, LBCB_ON_ACTIVE_QUEUE )) {
 
-        if ( Lfcb->CurrentAvailable < Lfcb->TotalUndoCommitment ) {                                                    //**** xxLtr( Lfcb->CurrentAvailable, Lfcb->TotalUndoCommitment )
+        if ( Lfcb->CurrentAvailable < Lfcb->TotalUndoCommitment ) {
 
             //
             //  Move back one file record.
             //
 
             *IoBlocks -= 1;
+            *Length -= (ULONG)FirstLbcb->Length;
             *NextLbcb = FirstLbcb;
 
         //

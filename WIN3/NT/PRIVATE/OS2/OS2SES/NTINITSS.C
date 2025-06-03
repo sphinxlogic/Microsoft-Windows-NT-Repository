@@ -33,6 +33,7 @@ Revision History:
 #define INCL_32BIT
 #include "pmnt.h"
 #endif
+#include <winerror.h>
 
 #define OD2_PORT_MEMORY_SIZE 0x10000
 
@@ -46,6 +47,14 @@ extern ULONG PMSubprocSem32;
 extern BOOLEAN Ow2WriteBackCloseEvent();
 extern APIRET DosSemClear(ULONG hsem);
 #endif //PMNT
+
+HANDLE
+CreateEventW(
+    PVOID lpEventAttributes,
+    BOOL bManualReset,
+    BOOL bInitialState,
+    LPCWSTR lpName
+    );
 
 ULONG
 KbdInitAfterSesGrp(IN VOID);
@@ -80,6 +89,27 @@ GetCurrentDirectoryW(
     DWORD nBufferLength,
     LPWSTR lpBuffer
     );
+
+BOOLEAN
+InitializeSecurityDescriptor (
+    PSECURITY_DESCRIPTOR pSecurityDescriptor,
+    DWORD dwRevision
+    );
+
+BOOLEAN
+SetSecurityDescriptorDacl (
+    PSECURITY_DESCRIPTOR pSecurityDescriptor,
+    BOOLEAN bDaclPresent,
+    PACL pDacl,
+    BOOLEAN bDaclDefaulted
+    );
+
+// Defined in <winbase.h> but we can't include it in this file
+typedef struct _SECURITY_ATTRIBUTES {
+    DWORD nLength;
+    PVOID lpSecurityDescriptor;
+    BOOL bInheritHandle;
+} SECURITY_ATTRIBUTES, *PSECURITY_ATTRIBUTES, *LPSECURITY_ATTRIBUTES;
 
 BOOLEAN     Ow2ExitInProcess = (BOOLEAN)FALSE;
 HANDLE      hOs2Srv;
@@ -325,6 +355,7 @@ SessionRequestThread(IN PVOID Parameter)
     return(0L);
 }
 
+CONST WCHAR OS2SSInitializationEvent[] = U_OS2_SS_INITIALIZATION_EVENT;
 
 /*
  *  OS2 Session console - protocol with OS2SS
@@ -382,6 +413,11 @@ InitOs2ssSessionPort()
 #if DBG
     BOOLEAN             DebugOnStartup = FALSE;
 #endif
+    HANDLE              InitialEventHandle;
+    DWORD               NonFirstClient;
+    DWORD               WaitState;
+    SECURITY_ATTRIBUTES Sa;
+    CHAR localSecurityDescriptor[SECURITY_DESCRIPTOR_MIN_LENGTH];
 
     //
     // Create a section to contain the Port Memory.  Port Memory is private
@@ -455,72 +491,112 @@ InitOs2ssSessionPort()
     ServerView.ViewSize = 0;
     ServerView.ViewBase = 0;
 
-    Status = STATUS_OBJECT_NAME_NOT_FOUND;
+    // Create security attribute record granting access to all
+    Sa.nLength = sizeof(Sa);
+    Sa.bInheritHandle = TRUE;
 
-    for ( i = 0 ;
-          ( Status == STATUS_OBJECT_NAME_NOT_FOUND ) && ( i < 100 ) ;
-          i++ )
+    Status = RtlCreateSecurityDescriptor( (PSECURITY_DESCRIPTOR)
+                                          &localSecurityDescriptor,
+                                          SECURITY_DESCRIPTOR_REVISION );
+    if (!NT_SUCCESS( Status ))
     {
-        if (i == 1)
-        {
-            //
-            // Perhaps the os2srv is not started yet - start it
-            //
-
-            Status = (NTSTATUS) CreateOS2SRV(&hOs2srvProcess);
 #if DBG
-            KdPrint(("OS2SES: wait for os2srv to start "));
+            KdPrint(("OS2SES: failed at RtlCreateSecurityDescriptor %x\n", Status));
+        ASSERT(FALSE);
 #endif
-        } else if ( i )
-        {
-#if DBG
-            KdPrint(("."));
-#endif
-            if (hOs2srvProcess == NULL) {
-                Sleep(250L);
-            } else {
-                if (WaitForSingleObject(hOs2srvProcess, 50L) == WAIT_OBJECT_0) {
-                        //
-                        // Can't create os2srv, resort to second os2.exe case
-                        //
-                    NtClose(hOs2srvProcess);
-                    Sleep(500L);
-                    hOs2srvProcess = NULL;
-                }
-            }
-        }
-
-        //
-        // try again
-        //
-
-        Status = NtConnectPort( &Ow2hOs2srvPort,
-                                &Name_U,
-                                &DynamicQos,              // Security Quality
-                                &ClientView,
-                                &ServerView,
-                                NULL,                     // MaxMessageLength,
-                                (PVOID) &ConnectionInfo,
-                                &ConnectionInfoLen );
-        if ( Status == STATUS_OBJECT_PATH_NOT_FOUND ) {
-            Status = STATUS_OBJECT_NAME_NOT_FOUND;
-            }
+        return 0L;
     }
 
-    if (hOs2srvProcess != NULL) {
-        NtClose(hOs2srvProcess);
-    }
-
-    NtClose( SectionHandle );
+    Status = RtlSetDaclSecurityDescriptor( (PSECURITY_DESCRIPTOR)
+                                           &localSecurityDescriptor,
+                                           (BOOLEAN)TRUE,
+                                           (PACL) NULL,
+                                           (BOOLEAN)FALSE );
 
     if (!NT_SUCCESS( Status ))
     {
 #if DBG
-        KdPrint(( NtInitssFail,  Status, "NtConnectPort"));
-        ASSERT( FALSE );
+            KdPrint(("OS2SES: failed at RtlSetDaclSecurityDescriptor %x\n", Status));
+        ASSERT(FALSE);
 #endif
-        return( (DWORD)-1L );
+        return 0L;
     }
+    Sa.lpSecurityDescriptor = (PSECURITY_DESCRIPTOR) &localSecurityDescriptor;
+
+    InitialEventHandle = CreateEventW(
+                            &Sa,
+                            TRUE,   // Notification event
+                            FALSE,  // Nonsignaled
+                            OS2SSInitializationEvent
+                            );
+    if ((NonFirstClient = GetLastError()) || !InitialEventHandle) {
+        if (NonFirstClient != ERROR_ALREADY_EXISTS) {
+#if DBG
+            KdPrint(("OS2SES: Cannot create initialization event, error %d\n", NonFirstClient));
+#endif
+            return 0L;
+        }
+    }
+
+    if (!NonFirstClient) {
+        Status = (NTSTATUS) CreateOS2SRV(&hOs2srvProcess);
+        if (!NT_SUCCESS(Status) || !hOs2srvProcess) {
+#if DBG
+            KdPrint(("OS2SES: Fail to start server process, status %x\n", Status));
+#endif
+            return 0L;
+        }
+        NtClose(hOs2srvProcess);
+    }
+
+    //
+    // Wait for server. We want to see messages printed in debugger in the case that
+    // client waits too much (or may be it will wait forever).
+    //
+
+    while (TRUE) {
+        WaitState = WaitForSingleObject(
+                        InitialEventHandle,
+                        (DWORD) 4900L
+                        );
+        if (WaitState == STATUS_TIMEOUT) {
+#ifdef DBG
+            KdPrint(("OS2SES: Waiting for server\n"));
+#endif
+        }
+        else {
+            break;
+        }
+    }
+
+    if (WaitState != WAIT_OBJECT_0) {
+#if DBG
+        KdPrint(("OS2SES: Initialization event wasn't set by the server, wait_state %d\n", WaitState));
+#endif
+        return (DWORD) -1L;
+    }
+
+    CloseHandle(InitialEventHandle);
+
+    Status = NtConnectPort(
+                &Ow2hOs2srvPort,
+                &Name_U,
+                &DynamicQos,              // Security Quality
+                &ClientView,
+                &ServerView,
+                NULL,                     // MaxMessageLength,
+                (PVOID) &ConnectionInfo,
+                &ConnectionInfoLen
+                );
+
+    if (!NT_SUCCESS(Status)) {
+#if DBG
+        KdPrint(("OS2SES: Fail to connect to port, status %x\n", Status));
+#endif
+        return (DWORD) -1L;
+    }
+
+    NtClose( SectionHandle );
 
     //
     // Now capture the fact if we were exec'd with the DEBUG command
@@ -920,6 +996,9 @@ InitOs2ssSessionPort()
 
     if (OS2SS_IS_SESSION( Ow2bNewSession ))
     {
+        CHAR sd[SECURITY_DESCRIPTOR_MIN_LENGTH];
+        PSECURITY_DESCRIPTOR psd = (PSECURITY_DESCRIPTOR)&sd;
+
         *BasePrefix = U_OS2_SES_BASE_PORT_PREFIX;
 
         /*
@@ -927,11 +1006,14 @@ InitOs2ssSessionPort()
          * runing in this session for Kbd, Mou, Mon, Tm and Prt.
          */
 
+        InitializeSecurityDescriptor(psd, SECURITY_DESCRIPTOR_REVISION);
+        SetSecurityDescriptorDacl(psd, TRUE, NULL, FALSE); // NULL DACL means access free to all
+
         InitializeObjectAttributes(&ObjectAttributes,
                                    &Name_U,
                                    OBJ_CASE_INSENSITIVE,
                                    NULL,
-                                   NULL);
+                                   psd);
 
         Status = NtCreatePort( &Ow2hOs2sesPort,
                                &ObjectAttributes,
@@ -1188,7 +1270,12 @@ VOID TerminateSession(VOID)
     NtClose(Os2SessionSesGrpDataSectionHandle);
     NtClose(Ow2hOs2sesPort);
     NtClose(hOs2Srv);
-    NtClose(Od2PortHandle);
+    // Jul-2-1995 YosefD:
+    // Od2PortHandle is the same value as Ow2hOs2srvPort. This handle is already closed. An
+    // attemt to close it once more is a bug. On build 1096 this cause exception and
+    // process termination. The return value of the terminated process isn't right in this
+    // case.
+    //NtClose(Od2PortHandle);
 
     /* =>? what about the following handles:
 
@@ -1361,6 +1448,13 @@ CloseApp:
 #endif // PMNT
             break;
         case CTRL_LOGOFF_EVENT:
+            if (fService) // Are we running as a service ?
+            {
+#if DBG
+                DbgPrint("OS2: service - ignoring CTRL_LOGOFF_EVENT !\n");
+#endif
+                return FALSE;
+            }
             SignalType = XCPT_SIGNAL_KILLPROC;
 #if PMNT
             // Jump to CloseApp only for PM apps !

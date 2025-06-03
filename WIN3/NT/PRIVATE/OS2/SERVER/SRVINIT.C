@@ -395,7 +395,10 @@ Os2Initialize( VOID )
     PSECURITY_DESCRIPTOR psd = (PSECURITY_DESCRIPTOR)&sd;
 
 #if DBG
-    KdPrint(("Started OS2SRV init\n"));
+    if (fService)
+        KdPrint(("Started OS2SRV init (as a service)\n"));
+    else
+        KdPrint(("Started OS2SRV init\n"));
 #endif
 
     //

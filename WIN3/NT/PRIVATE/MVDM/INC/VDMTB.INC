@@ -82,7 +82,11 @@ EiEvent equ 04H
 EiInstructionSize equ 08H
 EiBopNumber equ 0CH
 EiIntAckInfo equ 0CH
-; 
+;
+; WOW TD offsets
+;
+WtdFastWowEsp equ 08H
+;
 ; VdmInterrupHandler offsets
 ; 
 ViCsSelector equ 00H

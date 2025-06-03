@@ -4,7 +4,7 @@ Copyright (c) 1989  Microsoft Corporation
 
 Module Name:
 
-    open.c
+    _open.c
 
 Abstract:
 

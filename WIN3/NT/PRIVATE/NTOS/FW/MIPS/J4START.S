@@ -235,14 +235,6 @@
 #endif
 
 //
-// Set the processor type to a MIPS R4000.
-//
-
-        la      t0,KeProcessorType      // set processor type
-        li      t1,1                    //
-        sh      t1,0(t0)                //
-
-//
 // Compute the size of the primary data cache, the primary data cache line
 // size, the primary instruction cache, and the primary instruction cache
 // line size.

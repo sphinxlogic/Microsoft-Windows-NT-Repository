@@ -179,7 +179,11 @@ INT VLM_StartBackup(  )
 
                          /* process security info */
                          BSD_SetProcElemOnlyFlg( bsd_ptr, FALSE );
-                         BSD_SetProcSpecialFlg( bsd_ptr, FALSE );
+                         if ( BSD_GetProcSpecialFlg( bsd_ptr ) ) {
+
+                              UI_AddSpecialIncOrExc( bsd_ptr, FALSE ) ;
+                              BSD_SetProcSpecialFlg( bsd_ptr, FALSE );
+                         }
                          BEC_SetRestoreSecurity( BSD_GetConfigData( bsd_ptr ), TRUE );
 
                          bsd_ptr = BSD_GetNext( bsd_ptr );
@@ -326,7 +330,11 @@ INT VLM_StartRestore( )
 
                       /* reset the flag indicating the file was backed up */
                       BSD_ClearDelete( bsd );
-                      BSD_SetProcSpecialFlg( bsd, FALSE );
+                      if ( BSD_GetProcSpecialFlg( bsd ) ) {
+
+                           UI_AddSpecialIncOrExc( bsd, FALSE ) ;
+                           BSD_SetProcSpecialFlg( bsd, FALSE );
+                      }
 
                       bsd = BSD_GetNext( bsd ) ;
                  }
@@ -336,6 +344,40 @@ INT VLM_StartRestore( )
             }
             BSD_ClearCurrOper( tape_bsd_list );
             error = SUCCESS;
+        }
+
+        if ( !error ) {
+            FSYS_HAND fsh = NULL ;
+            GENERIC_DLE_PTR dle ;
+            INT status = FAILURE ;
+            BSD_PTR bsd ;
+
+            bsd = BSD_GetFirst( tape_bsd_list );
+            while ( bsd != NULL ) {
+                 
+                  dle = BSD_GetDLE( bsd ) ;
+                  if ( dle ) {
+                     status = FS_AttachToDLE( &fsh, 
+                               dle, 
+                               BSD_GetConfigData(bsd), 
+                               NULL, 
+                               NULL ) ;
+                  }
+                  if ( !status ) {
+                     status = FS_EndOperationOnDLE( fsh ) ;
+                  }
+
+                  if ( status == LP_END_OPER_FAILED ) {
+                     eresprintf_cancel( RES_ERROR_EMS_RESTART, DLE_GetDeviceName( dle ) ) ;
+                     gb_error_during_operation = TRUE;
+                  }                 
+
+                  if ( fsh ) {
+                     FS_DetachDLE( fsh ) ;
+                  }
+
+                  bsd = BSD_GetNext( bsd ) ;
+            }
         }
      }
      return( error );

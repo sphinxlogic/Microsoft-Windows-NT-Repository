@@ -22,6 +22,18 @@
 * HISTORY:
 *		$Log:   J:\se.vcs\driver\q117cd\src\0x1103f.c  $
 *	
+*	   Rev 1.14   15 May 1995 10:47:46   GaryKiwi
+*	Phoenix merge from CBW95s
+*	
+*	   Rev 1.13.1.0   11 Apr 1995 18:04:22   garykiwi
+*	PHOENIX pass #1
+*	
+*	   Rev 1.14   30 Jan 1995 14:24:06   BOBLEHMA
+*	Changed device_descriptor.version to cqd_context->firmware_version.
+*	
+*	   Rev 1.13   29 Aug 1994 12:06:26   BOBLEHMA
+*	Changed the interface to cqd_CmdRetension.  Added a number of segments parameter.
+*	
 *	   Rev 1.12   07 Mar 1994 15:22:10   KEVINKES
 *	Modified to check segment proximity before returning a seek error.
 *
@@ -71,6 +83,7 @@
 #define FCT_ID 0x1103f
 #include "include\public\adi_api.h"
 #include "include\public\frb_api.h"
+#include "include\public\vendor.h"
 #include "include\private\kdi_pub.h"
 #include "include\private\cqd_pub.h"
 #include "q117cd\include\cqd_defs.h"
@@ -211,7 +224,7 @@ dStatus cqd_Seek
 			 * the tape. */
 
    		if ((cqd_context->device_descriptor.vendor == VENDOR_CMS) &&
-					(cqd_context->device_descriptor.version >= FIRM_VERSION_80)) {
+					(cqd_context->firmware_version >= FIRM_VERSION_80)) {
 
    			if ((status = cqd_SendByte(cqd_context, FW_CMD_NEW_TAPE)) == DONT_PANIC) {
 
@@ -242,7 +255,7 @@ dStatus cqd_Seek
 
 			}
 
-			if ((status = cqd_CmdRetension(cqd_context)) != DONT_PANIC) {
+			if ((status = cqd_CmdRetension(cqd_context, dNULL_PTR)) != DONT_PANIC) {
 
             return status;
 

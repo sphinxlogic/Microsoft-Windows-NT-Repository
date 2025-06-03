@@ -94,7 +94,7 @@ NdrpComputeVariance(
 	PFORMAT_STRING				pFormat
 	);
 
-typedef char * 	(RPC_ENTRY * PMARSHALL_ROUTINE)( 
+typedef uchar * (RPC_ENTRY * PMARSHALL_ROUTINE)( 
 					PMIDL_STUB_MESSAGE, 
 					uchar *, 
 					PFORMAT_STRING
@@ -105,9 +105,10 @@ typedef void 	(* PPRIVATE_MARSHALL_ROUTINE)(
 					uchar *, 
 					PFORMAT_STRING
 				);
+
 //
 // Function table defined in mrshl.c
 //
-extern PMARSHALL_ROUTINE 			pfnMarshallRoutines[]; 
+extern const PMARSHALL_ROUTINE * pfnMarshallRoutines; 
 
 #endif

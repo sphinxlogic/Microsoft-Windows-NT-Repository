@@ -52,6 +52,9 @@ Revision History:
 #include <lmapibuf.h>
 #include <lmaccess.h>
 #include <lmerr.h>
+#include <lmuse.h>
+#include <crypt.h>
+#include <ntmsv1_0.h>
 #include <limits.h>
 #include <netdebug.h>
 #include <netlib.h>
@@ -234,7 +237,7 @@ DBGSTATIC struct _USER_UAS_SAM_TABLE {
 
 NET_API_STATUS NET_API_FUNCTION
 NetUserAdd(
-    IN LPWSTR ServerName OPTIONAL,
+    IN LPCWSTR ServerName OPTIONAL,
     IN DWORD Level,
     IN LPBYTE Buffer,
     OUT LPDWORD ParmError OPTIONAL // Name required by NetpSetParmError
@@ -274,9 +277,10 @@ Return Value:
     SAM_HANDLE UserHandle = NULL;
     SAM_HANDLE DomainHandle = NULL;
     ULONG RelativeId;
-    ULONG DesiredAccess;
-    BOOLEAN SpecialCaseWorkstationAccount;
-    ULONG WhichFieldsMask;
+    ULONG GrantedAccess;
+    ULONG NewSamAccountType;
+    DWORD UasUserFlags;
+    ULONG WhichFieldsMask = 0xFFFFFFFF;
 
 
     //
@@ -286,7 +290,7 @@ Return Value:
     PSID DomainId = NULL;            // Domain Id of the primary domain
 
     IF_DEBUG( UAS_DEBUG_USER ) {
-        NetpDbgPrint( "NetUserAdd: entered \n");
+        NetpKdPrint(( "NetUserAdd: entered \n"));
     }
 
     //
@@ -303,15 +307,88 @@ Return Value:
     case 1:
     case 2:
     case 3:
-    case 22:
         NetpAssert ( offsetof( USER_INFO_1, usri1_flags ) ==
                      offsetof( USER_INFO_2, usri2_flags ) );
         NetpAssert ( offsetof( USER_INFO_1, usri1_flags ) ==
                      offsetof( USER_INFO_3, usri3_flags ) );
+
+        UasUserFlags = ((PUSER_INFO_1)Buffer)->usri1_flags;
+        break;
+
+    case 22:
+        UasUserFlags = ((PUSER_INFO_22)Buffer)->usri22_flags;
         break;
 
     default:
         return ERROR_INVALID_LEVEL;  // Nothing to cleanup yet
+    }
+
+
+    //
+    // Determine the account type we're creating.
+    //
+
+    if( UasUserFlags & UF_ACCOUNT_TYPE_MASK ) {
+
+        //
+        // Account Types bits are exclusive, so make sure that
+        // precisely one Account Type bit is set.
+        //
+
+        if ( !JUST_ONE_BIT( UasUserFlags & UF_ACCOUNT_TYPE_MASK )) {
+
+            NetpSetParmError( USER_FLAGS_PARMNUM );
+            NetStatus = ERROR_INVALID_PARAMETER;
+            IF_DEBUG( UAS_DEBUG_USER ) {
+                NetpKdPrint((
+                    "NetUserAdd: Invalid account control bits (2) \n" ));
+            }
+            goto Cleanup;
+        }
+
+
+        //
+        // Determine what the new account type should be.
+        //
+
+        if ( UasUserFlags & UF_TEMP_DUPLICATE_ACCOUNT ) {
+            NewSamAccountType = USER_TEMP_DUPLICATE_ACCOUNT;
+
+        } else if ( UasUserFlags & UF_NORMAL_ACCOUNT ) {
+            NewSamAccountType = USER_NORMAL_ACCOUNT;
+
+        } else if (UasUserFlags & UF_WORKSTATION_TRUST_ACCOUNT){
+            NewSamAccountType = USER_WORKSTATION_TRUST_ACCOUNT;
+
+        // Because of a bug in NT 3.5x, we have to initially create SERVER
+        // and interdomain trust accounts as normal accounts and change them
+        // later.  Specifically, SAM didn't call I_NetNotifyMachineAccount
+        // in SamCreateUser2InDomain.  Therefore, netlogon didn't get notified
+        // of the change.  That bug is fixed in NT 4.0.
+        } else if ( UasUserFlags & UF_SERVER_TRUST_ACCOUNT ) {
+            NewSamAccountType = USER_NORMAL_ACCOUNT;
+
+        } else if (UasUserFlags & UF_INTERDOMAIN_TRUST_ACCOUNT){
+            NewSamAccountType = USER_NORMAL_ACCOUNT;
+
+        } else {
+
+            IF_DEBUG( UAS_DEBUG_USER ) {
+                NetpKdPrint((
+                    "NetUserAdd: Invalid account type (3)\n"));
+            }
+
+            NetStatus = NERR_InternalError;
+            goto Cleanup;
+        }
+
+
+    //
+    //  If SAM has none of its bits set,
+    //      set USER_NORMAL_ACCOUNT.
+    //
+    } else {
+        NewSamAccountType = USER_NORMAL_ACCOUNT;
     }
 
     //
@@ -323,7 +400,6 @@ Return Value:
     //  set the password on the account.
     //
 
-    SpecialCaseWorkstationAccount = FALSE;
     NetStatus = UaspOpenDomain(
                     ServerName,
                     DOMAIN_CREATE_USER | DOMAIN_LOOKUP |
@@ -334,9 +410,14 @@ Return Value:
 
 
     if ( NetStatus == ERROR_ACCESS_DENIED &&
-        (( ( Level == 22 )
-          ? ((PUSER_INFO_22)Buffer)->usri22_flags
-          : ((PUSER_INFO_1)Buffer)->usri1_flags ) & UF_WORKSTATION_TRUST_ACCOUNT )) {
+         NewSamAccountType == USER_WORKSTATION_TRUST_ACCOUNT ) {
+
+        // Workstation accounts can be created with either DOMAIN_CREATE_USER access
+        // or SE_CREATE_MACHINE_ACCOUNT_PRIVILEGE.  So we'll try both.
+        // In the later case, we probably will only have access to the account
+        // to set the password, so we'll avoid setting any other parameters on the
+        // account.
+        //
 
         NetStatus = UaspOpenDomain(
                         ServerName,
@@ -345,14 +426,14 @@ Return Value:
                         &DomainHandle,
                         &DomainId );
 
-        SpecialCaseWorkstationAccount = TRUE;
+        WhichFieldsMask = USER_ALL_NTPASSWORDPRESENT;
 
     }
 
     if ( NetStatus != NERR_Success ) {
         IF_DEBUG( UAS_DEBUG_USER ) {
-            NetpDbgPrint( "NetUserAdd: UaspOpenDomain returns %ld\n",
-                      NetStatus );
+            NetpKdPrint(( "NetUserAdd: UaspOpenDomain returns %ld\n",
+                      NetStatus ));
         }
         goto Cleanup;
     }
@@ -365,41 +446,22 @@ Return Value:
     //
 
     RtlInitUnicodeString( &UserNameString, ((PUSER_INFO_1)Buffer)->usri1_name );
-    DesiredAccess = GENERIC_READ | GENERIC_WRITE | GENERIC_EXECUTE |
-                        WRITE_DAC | DELETE | USER_FORCE_PASSWORD_CHANGE |
-                        USER_READ_ACCOUNT | USER_WRITE_ACCOUNT;
-    if ( SpecialCaseWorkstationAccount ) {
-        ULONG GrantedAccess;
 
-        Status = SamCreateUser2InDomain(
-                    DomainHandle,
-                    &UserNameString,
-                    USER_WORKSTATION_TRUST_ACCOUNT,
-                    DesiredAccess,
-                    &UserHandle,
-                    &GrantedAccess,
-                    &RelativeId );
-        //
-        // Since we are creating a workstation, and Sam creates these already
-        // enabled, all we need to do is set the password.
-        //
-        WhichFieldsMask = USER_ALL_NTPASSWORDPRESENT;
-
-    } else {
-
-        Status = SamCreateUserInDomain(
-                    DomainHandle,
-                    &UserNameString,
-                    DesiredAccess,
-                    &UserHandle,
-                    &RelativeId );
-        WhichFieldsMask = 0xFFFFFFFF;
-    }
+    Status = SamCreateUser2InDomain(
+                DomainHandle,
+                &UserNameString,
+                NewSamAccountType,
+                GENERIC_READ | GENERIC_WRITE | GENERIC_EXECUTE |
+                    WRITE_DAC | DELETE | USER_FORCE_PASSWORD_CHANGE |
+                    USER_READ_ACCOUNT | USER_WRITE_ACCOUNT,
+                &UserHandle,
+                &GrantedAccess,
+                &RelativeId );
 
     if ( !NT_SUCCESS(Status) ) {
         IF_DEBUG( UAS_DEBUG_USER ) {
-            NetpDbgPrint( "NetUserAdd: SamCreateUserInDomain rets %lX\n",
-                      Status );
+            NetpKdPrint(( "NetUserAdd: SamCreateUserInDomain rets %lX\n",
+                      Status ));
         }
         NetStatus = NetpNtStatusToApiStatus( Status );
         goto Cleanup;
@@ -425,8 +487,8 @@ Return Value:
 
     if ( NetStatus != NERR_Success ) {
         IF_DEBUG( UAS_DEBUG_USER ) {
-            NetpDbgPrint( "NetUserAdd: UserpSetInfo returns %ld\n",
-                      NetStatus );
+            NetpKdPrint(( "NetUserAdd: UserpSetInfo returns %ld\n",
+                      NetStatus ));
         }
         goto Cleanup;
     }
@@ -474,13 +536,13 @@ Cleanup:
 
     UASP_DOWNLEVEL_BEGIN( ServerName, NetStatus )
 
-        NetStatus = RxNetUserAdd( ServerName, Level, Buffer, ParmError );
+        NetStatus = RxNetUserAdd( (LPWSTR) ServerName, Level, Buffer, ParmError );
 
     UASP_DOWNLEVEL_END;
 
 
     IF_DEBUG( UAS_DEBUG_USER ) {
-        NetpDbgPrint( "NetUserAdd: returning %ld\n", NetStatus );
+        NetpKdPrint(( "NetUserAdd: returning %ld\n", NetStatus ));
     }
 
     return NetStatus;
@@ -490,8 +552,8 @@ Cleanup:
 
 NET_API_STATUS NET_API_FUNCTION
 NetUserDel(
-    IN LPWSTR ServerName OPTIONAL,
-    IN LPWSTR UserName
+    IN LPCWSTR ServerName OPTIONAL,
+    IN LPCWSTR UserName
     )
 
 /*++
@@ -565,8 +627,8 @@ Return Value:
 
     if ( NetStatus != NERR_Success ) {
         IF_DEBUG( UAS_DEBUG_USER ) {
-            NetpDbgPrint( "NetUserDel: UserpOpenUser returns %ld\n",
-                       NetStatus );
+            NetpKdPrint(( "NetUserDel: UserpOpenUser returns %ld\n",
+                       NetStatus ));
         }
         goto Cleanup;
     }
@@ -595,9 +657,9 @@ Return Value:
 
     if ( !NT_SUCCESS(Status) ) {
         IF_DEBUG( UAS_DEBUG_USER ) {
-            NetpDbgPrint(
+            NetpKdPrint((
                "NetUserDel: SamRemoveMembershipFromForeignDomain returns %lX\n",
-                 Status );
+                 Status ));
         }
 
         NetStatus = NetpNtStatusToApiStatus( Status );
@@ -613,7 +675,7 @@ Return Value:
 
     if ( !NT_SUCCESS(Status) ) {
         IF_DEBUG( UAS_DEBUG_USER ) {
-            NetpDbgPrint( "NetUserDel: SamDeleteUser returns %lX\n", Status );
+            NetpKdPrint(( "NetUserDel: SamDeleteUser returns %lX\n", Status ));
         }
 
         NetStatus = NetpNtStatusToApiStatus( Status );
@@ -655,22 +717,172 @@ Cleanup:
 
     UASP_DOWNLEVEL_BEGIN( ServerName, NetStatus )
 
-        NetStatus = RxNetUserDel( ServerName, UserName );
+        NetStatus = RxNetUserDel( (LPWSTR)ServerName, (LPWSTR)UserName );
 
     UASP_DOWNLEVEL_END;
 
 
     IF_DEBUG( UAS_DEBUG_USER ) {
-        NetpDbgPrint( "NetUserDel: returning %ld\n", NetStatus );
+        NetpKdPrint(( "NetUserDel: returning %ld\n", NetStatus ));
     }
     return NetStatus;
 
 } // NetUserDel
 
+
+
+
+ULONG
+UserpComputeSamPrefMaxLen(
+    IN DWORD Level,
+    IN DWORD NetUserPrefMaxLen,
+    IN DWORD NetUserBytesAlreadyReturned,
+    IN DWORD SamBytesAlreadyReturned
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is a helper function for NetUserEnum.  NetUserEnum enumerates
+    the appropriate users by calling SamEnumerateUsersInDomain.  NetUserEnum builds
+    the appropriate return structure for each such enumerated user.
+
+    SamEnumerateUsersInDomain returns a resume handle as does NetUserEnum.  If
+    NetUserEnum were to return to its caller without having processed all of the
+    entries returned from SAM, NetUserEnum would have to "compute" a resume handle
+    corresponding to an intermediate entry returned from SAM.  That's impossible
+    (except in the special cases where no "filter" parameter is passed to SAM).
+
+    Instead, we choose to pass SamEnumerateUsersInDomain a PrefMaxLen which will
+    attempt to enumerate exactly the right number of users that NetUserEnum can
+    pack into its PrefMaxLen buffer.
+    Since the size of the structure returned from SAM is different than the size of
+    the structure returned from it is difficult to determine an optimal PrefMaxLen
+    to pass to SamEnumerateUsersInDomain.  This routine attempts to do that.
+
+    We realise that this algorithm may cause NetUserEnum to exceed its PrefMaxLen by
+    a significant amount.
+
+Arguments:
+
+    Level - The NetUserEnum info level.
+
+    NetUserPrefMaxLen - The NetUserEnum prefered maximum length of returned data.
+
+    NetUserBytesAlreadyReturned - The number of bytes already packed by
+        NetUserEnum
+
+    SamBytesAlreadyReturned - The number of bytes already returned by
+        SamEnumerateUserInDomain.
+
+Return Value:
+
+    Value to use as PrefMaxLen on next call to SamEnumerateUsersInDomain.
+
+--*/
+
+{
+    ULONG RemainingPrefMaxLen;
+    ULARGE_INTEGER LargeTemp;
+    ULONG SamPrefMaxLen;
+
+    //
+    // If caller simply wants ALL the data,
+    //  ask SAM for the same thing.
+    //
+
+    if ( NetUserPrefMaxLen == 0xFFFFFFFF ) {
+        IF_DEBUG( UAS_DEBUG_USER ) {
+            NetpKdPrint(("SamPrefMaxLen: Net Pref: %ld Net bytes: %ld Sam Bytes: %ld Sam Pref: %ld\n",
+                          NetUserPrefMaxLen, NetUserBytesAlreadyReturned, SamBytesAlreadyReturned, NetUserPrefMaxLen ));
+        }
+        return NetUserPrefMaxLen;
+    }
+
+    //
+    // If no bytes have been returned yet,
+    //  use sample data based on a sample domain (REDMOND).
+    //  Since the information returned by SAM and NetUserEnum is variable
+    //  length, there is no way to compute a value.
+    //
+
+    if ( NetUserBytesAlreadyReturned == 0 ) {
+
+        //
+        // Use a different constant for each info level.
+        //
+
+        switch ( Level ) {
+        case 0:
+            SamBytesAlreadyReturned =     1;
+            NetUserBytesAlreadyReturned = 1;
+            break;
+        case 2:
+        case 3:
+        case 11:
+            SamBytesAlreadyReturned =     1;
+            NetUserBytesAlreadyReturned = 10;
+            break;
+        case 1:
+        case 10:
+        case 20:
+            SamBytesAlreadyReturned =     1;
+            NetUserBytesAlreadyReturned = 4;
+            break;
+        default:
+            SamBytesAlreadyReturned =     1;
+            NetUserBytesAlreadyReturned = 1;
+            break;
+        }
+
+    }
+
+    //
+    // Use the above computed divisor to compute the desired number of bytes to
+    // enumerate from SAM.
+    //
+
+    if ( NetUserBytesAlreadyReturned >= NetUserPrefMaxLen ) {
+        RemainingPrefMaxLen = 0;
+    } else {
+        RemainingPrefMaxLen = NetUserPrefMaxLen - NetUserBytesAlreadyReturned;
+    }
+
+    LargeTemp.QuadPart = UInt32x32To64 ( RemainingPrefMaxLen, SamBytesAlreadyReturned );
+    SamPrefMaxLen = (ULONG)(LargeTemp.QuadPart / (ULONGLONG) NetUserBytesAlreadyReturned);
+
+    //
+    // Ensure we always make reasonable progress by returning at least 5
+    //  entries from SAM (unless the caller is really conservative).
+    //
+
+#define MIN_SAM_ENUMERATION \
+    ((sizeof(SAM_RID_ENUMERATION) + LM20_UNLEN * sizeof(WCHAR) + sizeof(WCHAR)))
+#define TYPICAL_SAM_ENUMERATION \
+    (MIN_SAM_ENUMERATION * 5)
+
+    if ( SamPrefMaxLen < TYPICAL_SAM_ENUMERATION && NetUserPrefMaxLen > 1 ) {
+        SamPrefMaxLen = TYPICAL_SAM_ENUMERATION;
+    } else if ( SamPrefMaxLen < MIN_SAM_ENUMERATION ) {
+        SamPrefMaxLen = MIN_SAM_ENUMERATION;
+    }
+
+    IF_DEBUG( UAS_DEBUG_USER ) {
+        NetpKdPrint(("SamPrefMaxLen: Net Pref: %ld Net bytes: %ld Sam Bytes: %ld Sam Pref: %ld\n",
+                  NetUserPrefMaxLen, NetUserBytesAlreadyReturned, SamBytesAlreadyReturned, SamPrefMaxLen ));
+    }
+
+    return SamPrefMaxLen;
+
+
+}
+
+
 
 NET_API_STATUS NET_API_FUNCTION
 NetUserEnum(
-    IN LPWSTR ServerName OPTIONAL,
+    IN LPCWSTR ServerName OPTIONAL,
     IN DWORD Level,
     IN DWORD Filter,
     OUT LPBYTE *Buffer,
@@ -723,7 +935,7 @@ Return Value:
 --*/
 
 {
-    NET_API_STATUS NetStatus;
+        NET_API_STATUS NetStatus;
     NTSTATUS Status;
     NTSTATUS CachedStatus;
 
@@ -743,6 +955,9 @@ Return Value:
     DWORD LocalResumeHandle;
 
     DWORD SamFilter;
+    DWORD SamPrefMaxLen;
+    DWORD NetUserBytesAlreadyReturned;
+    DWORD SamBytesAlreadyReturned;
 
 #define USERACCOUNTCONTROL( _f )    ( \
             ( ( (_f) & FILTER_TEMP_DUPLICATE_ACCOUNT ) ? \
@@ -830,10 +1045,11 @@ Return Value:
         goto Cleanup;
     }
 
+
+
     //
     // Get the total number of users from SAM
     //
-
     //
     // the only way to get the total number of specified accounts is
     // enumerate the specified accounts till there is no more accounts
@@ -843,17 +1059,29 @@ Return Value:
     TotalRemaining = 0;
     LocalEnumHandle = EnumHandle;
 
+    SamPrefMaxLen = UserpComputeSamPrefMaxLen(
+                        Level,
+                        PrefMaxLen,
+                        0,  // NetUserBytesAlreadyReturned,
+                        0 );// SamBytesAlreadyReturned
+
+    SamBytesAlreadyReturned = SamPrefMaxLen;
+
     do {
         NTSTATUS LocalStatus;
         PSAM_RID_ENUMERATION LocalEnumBuffer = NULL;
         DWORD LocalCountReturned;
+
+        IF_DEBUG( UAS_DEBUG_USER ) {
+            NetpKdPrint(("Calling Enumerate phase 1: PrefLen %ld\n", SamPrefMaxLen ));
+        }
 
         Status = SamEnumerateUsersInDomain(
                         DomainHandle,
                         &LocalEnumHandle,
                         SamFilter,
                         (PVOID *) &LocalEnumBuffer,
-                        PrefMaxLen,
+                        SamPrefMaxLen,
                         &LocalCountReturned
                     );
 
@@ -873,31 +1101,43 @@ Return Value:
         // aggrigate total count.
         //
 
+
+        IF_DEBUG( UAS_DEBUG_USER ) {
+            NetpKdPrint(("Enumerate phase 1: Returned %ld entries\n", LocalCountReturned ));
+        }
         TotalRemaining += LocalCountReturned;
 
         //
-        // cache first enum buffer if the SamFilter is 0
+        // cache first enum buffer to use it in the loop below.
         //
 
-        if( (SamFilter == 0) && (EnumBuffer == NULL ) ) {
+        if( EnumBuffer == NULL ) {
 
             EnumBuffer = LocalEnumBuffer;
             EnumHandle = LocalEnumHandle;
             CountReturned = LocalCountReturned;
             CachedStatus = Status;
-        }
-        else {
+
+            // Subsequent calls can use a reasonably large buffer size.
+            if ( SamPrefMaxLen < NETP_ENUM_GUESS ) {
+                SamPrefMaxLen = NETP_ENUM_GUESS;
+            }
+        } else {
 
             LocalStatus =  SamFreeMemory( LocalEnumBuffer );
             NetpAssert( NT_SUCCESS( LocalStatus ) );
         }
 
+
     } while ( Status == STATUS_MORE_ENTRIES );
+
 
     //
     // Loop for each user
     //
     //
+
+    NetUserBytesAlreadyReturned = 0;
 
     for ( ;; ) {
 
@@ -910,17 +1150,32 @@ Return Value:
         if( EnumBuffer != NULL ) {
 
             Status = CachedStatus;
-        }
-        else {
+        } else {
 
+            SamPrefMaxLen = UserpComputeSamPrefMaxLen(
+                                Level,
+                                PrefMaxLen,
+                                NetUserBytesAlreadyReturned,
+                                SamBytesAlreadyReturned );
+
+
+            IF_DEBUG( UAS_DEBUG_USER ) {
+                NetpKdPrint(("Calling Enumerate phase 2: PrefLen %ld\n", SamPrefMaxLen ));
+            }
             Status = SamEnumerateUsersInDomain(
                             DomainHandle,
                             &EnumHandle,
-                            0, // enum all accounts and filter req.
-                               // accts in UserpGetInfo
+                            SamFilter,
                             (PVOID *) &EnumBuffer,
-                            PrefMaxLen,
+                            SamPrefMaxLen,
                             &CountReturned );
+
+
+            IF_DEBUG( UAS_DEBUG_USER ) {
+                NetpKdPrint(("Enumerate phase 2: Returned %ld entries\n", CountReturned ));
+            }
+
+            SamBytesAlreadyReturned += SamPrefMaxLen;
         }
 
         if ( !NT_SUCCESS( Status ) ) {
@@ -948,6 +1203,10 @@ Return Value:
             //
             // Place another entry into the return buffer.
             //
+            // Use 0xFFFFFFFF as PrefMaxLen to prevent this routine from
+            // prematurely returning ERROR_MORE_DATA.  We'll calculate that
+            // ourselves below.
+            //
 
             NetStatus = UserpGetInfo(
                             DomainHandle,
@@ -956,18 +1215,17 @@ Return Value:
                             EnumBuffer[i].Name,
                             EnumBuffer[i].RelativeId,
                             Level,
-                            PrefMaxLen,
+                            0xFFFFFFFF,
                             &BufferDescriptor,
                             FALSE, // Not a 'get' operation
-                            SamFilter );
+                            0 );
 
             if (NetStatus != NERR_Success) {
                 goto Cleanup;
             }
 
             //
-            // if nothing added to the return buffer indicates that this
-            // user account is skipped.
+            // Only count this entry if it was added to the return buffer.
             //
 
             if ( (EndOfVariableData != BufferDescriptor.EndOfVariableData ) ||
@@ -975,12 +1233,6 @@ Return Value:
 
                 (*EntriesRead)++;
             }
-
-            //
-            // increament the resume handle anyway.
-            //
-
-            LocalResumeHandle++;
 
         }
 
@@ -993,7 +1245,27 @@ Return Value:
         EnumBuffer = NULL;
 
         if( AllDone == TRUE ) {
+            NetStatus = NERR_Success;
             break;
+        }
+
+        //
+        //  Check here if we've exceeded PrefMaxLen since here we know
+        //  a valid resume handle.
+        //
+
+
+        NetUserBytesAlreadyReturned =
+            ( BufferDescriptor.AllocSize -
+                 ((DWORD)(BufferDescriptor.EndOfVariableData -
+                          BufferDescriptor.FixedDataEnd)) );
+
+        if ( NetUserBytesAlreadyReturned >= PrefMaxLen ) {
+
+            LocalResumeHandle = EnumHandle;
+
+            NetStatus = ERROR_MORE_DATA;
+            goto Cleanup;
         }
 
     }
@@ -1070,13 +1342,21 @@ Cleanup:
         *ResumeHandle = LocalResumeHandle;
     }
 
+
+    IF_DEBUG( UAS_DEBUG_USER ) {
+        NetpKdPrint(("NetUserEnum: PrefLen %ld Returned %ld\n", PrefMaxLen,
+                 ( BufferDescriptor.AllocSize -
+                      ((DWORD)(BufferDescriptor.EndOfVariableData -
+                               BufferDescriptor.FixedDataEnd)) ) ));
+    }
+
     //
     // Handle downlevel.
     //
 
     UASP_DOWNLEVEL_BEGIN( ServerName, NetStatus )
 
-        NetStatus = RxNetUserEnum( ServerName,
+        NetStatus = RxNetUserEnum( (LPWSTR)ServerName,
                                    Level,
                                    Buffer,
                                    PrefMaxLen,
@@ -1087,7 +1367,7 @@ Cleanup:
     UASP_DOWNLEVEL_END;
 
     IF_DEBUG( UAS_DEBUG_USER ) {
-        NetpDbgPrint( "NetUserEnum: returning %ld\n", NetStatus );
+        NetpKdPrint(( "NetUserEnum: returning %ld\n", NetStatus ));
     }
 
     return NetStatus;
@@ -1097,8 +1377,8 @@ Cleanup:
 
 NET_API_STATUS NET_API_FUNCTION
 NetUserGetInfo(
-    IN LPWSTR ServerName OPTIONAL,
-    IN LPWSTR UserName,
+    IN LPCWSTR ServerName OPTIONAL,
+    IN LPCWSTR UserName,
     IN DWORD Level,
     OUT LPBYTE *Buffer
     )
@@ -1236,12 +1516,12 @@ Cleanup:
 
     UASP_DOWNLEVEL_BEGIN( ServerName, NetStatus )
 
-        NetStatus = RxNetUserGetInfo( ServerName, UserName, Level, Buffer );
+        NetStatus = RxNetUserGetInfo( (LPWSTR)ServerName, (LPWSTR)UserName, Level, Buffer );
 
     UASP_DOWNLEVEL_END;
 
     IF_DEBUG( UAS_DEBUG_USER ) {
-        NetpDbgPrint( "NetUserGetInfo: returning %ld\n", NetStatus );
+        NetpKdPrint(( "NetUserGetInfo: returning %ld\n", NetStatus ));
     }
 
     return NetStatus;
@@ -1251,8 +1531,8 @@ Cleanup:
 
 NET_API_STATUS NET_API_FUNCTION
 NetUserSetInfo(
-    IN LPWSTR ServerName OPTIONAL,
-    IN LPWSTR UserName,
+    IN LPCWSTR ServerName OPTIONAL,
+    IN LPCWSTR UserName,
     IN DWORD Level,
     IN LPBYTE Buffer,
     OUT LPDWORD ParmError OPTIONAL  // Name required by NetpSetParmError
@@ -1384,8 +1664,8 @@ Cleanup:
 
     UASP_DOWNLEVEL_BEGIN( ServerName, NetStatus )
 
-        NetStatus = RxNetUserSetInfo( ServerName,
-                                      UserName,
+        NetStatus = RxNetUserSetInfo( (LPWSTR) ServerName,
+                                      (LPWSTR) UserName,
                                       Level,
                                       Buffer,
                                       ParmError );
@@ -1394,7 +1674,7 @@ Cleanup:
 
 
     IF_DEBUG( UAS_DEBUG_USER ) {
-        NetpDbgPrint( "NetUserSetInfo: returning %ld\n", NetStatus );
+        NetpKdPrint(( "NetUserSetInfo: returning %ld\n", NetStatus ));
     }
 
     return NetStatus;
@@ -1404,8 +1684,8 @@ Cleanup:
 
 NET_API_STATUS NET_API_FUNCTION
 NetUserGetGroups(
-    IN LPWSTR ServerName OPTIONAL,
-    IN LPWSTR UserName,
+    IN LPCWSTR ServerName OPTIONAL,
+    IN LPCWSTR UserName,
     IN DWORD Level,
     OUT LPBYTE *Buffer,
     IN DWORD PrefMaxLen,
@@ -1525,9 +1805,9 @@ Return Value:
 
     if ( !NT_SUCCESS( Status ) ) {
         IF_DEBUG( UAS_DEBUG_USER ) {
-            NetpDbgPrint(
+            NetpKdPrint((
                 "NetUserGetGroups: SamGetGroupsForUser returned %lX\n",
-                Status );
+                Status ));
         }
         NetStatus = NetpNtStatusToApiStatus( Status );
         goto Cleanup;
@@ -1590,9 +1870,9 @@ Return Value:
                                    NULL ); // NameUse
     if ( !NT_SUCCESS( Status ) ) {
         IF_DEBUG( UAS_DEBUG_USER ) {
-            NetpDbgPrint(
+            NetpKdPrint((
                 "NetUserGetGroups: SamLookupIdsInDomain returned %lX\n",
-                Status );
+                Status ));
         }
         NetStatus = NetpNtStatusToApiStatus( Status );
         goto Cleanup;
@@ -1718,8 +1998,8 @@ Cleanup:
 
     UASP_DOWNLEVEL_BEGIN( ServerName, NetStatus )
 
-        NetStatus = RxNetUserGetGroups( ServerName,
-                                        UserName,
+        NetStatus = RxNetUserGetGroups( (LPWSTR)ServerName,
+                                        (LPWSTR)UserName,
                                         Level,
                                         Buffer,
                                         PrefMaxLen,
@@ -1730,7 +2010,7 @@ Cleanup:
 
 
     IF_DEBUG( UAS_DEBUG_USER ) {
-        NetpDbgPrint( "NetUserGetGroups: returning %ld\n", NetStatus );
+        NetpKdPrint(( "NetUserGetGroups: returning %ld\n", NetStatus ));
     }
 
 
@@ -1741,8 +2021,8 @@ Cleanup:
 
 NET_API_STATUS NET_API_FUNCTION
 NetUserSetGroups (
-    IN LPWSTR ServerName OPTIONAL,
-    IN LPWSTR UserName,
+    IN LPCWSTR ServerName OPTIONAL,
+    IN LPCWSTR UserName,
     IN DWORD Level,
     IN LPBYTE Buffer,
     IN DWORD NewGroupCount
@@ -1930,9 +2210,9 @@ Return Value:
 
         if ( !NT_SUCCESS( Status )) {
             IF_DEBUG( UAS_DEBUG_USER ) {
-                NetpDbgPrint(
+                NetpKdPrint((
                     "NetUserSetGroups: SamLookupNamesInDomain returned %lX\n",
-                    Status );
+                    Status ));
             }
 
             if ( Status == STATUS_NONE_MAPPED ) {
@@ -2027,9 +2307,9 @@ Return Value:
 
         if ( !NT_SUCCESS( Status ) ) {
             IF_DEBUG( UAS_DEBUG_USER ) {
-                NetpDbgPrint(
+                NetpKdPrint((
                     "NetUserSetGroups: SamGetGroupsForUser returned %lX\n",
-                    Status );
+                    Status ));
             }
             NetStatus = NetpNtStatusToApiStatus( Status );
             goto Cleanup;
@@ -2148,9 +2428,9 @@ Return Value:
 
             if ( !NT_SUCCESS( Status ) ) {
                 IF_DEBUG( UAS_DEBUG_USER ) {
-                    NetpDbgPrint(
+                    NetpKdPrint((
                         "NetUserSetGroups: SamOpenGroup returned %lX\n",
-                        Status );
+                        Status ));
                 }
                 NetStatus = NetpNtStatusToApiStatus( Status );
                 goto Cleanup;
@@ -2185,9 +2465,9 @@ Return Value:
 
             if ( !NT_SUCCESS( Status ) ) {
                 IF_DEBUG( UAS_DEBUG_USER ) {
-                    NetpDbgPrint(
+                    NetpKdPrint((
                         "NetUserSetGroups: SamAddMemberToGroup returned %lX\n",
-                        Status );
+                        Status ));
                 }
                 NetStatus = NetpNtStatusToApiStatus( Status );
                 goto Cleanup;
@@ -2218,9 +2498,9 @@ Return Value:
 
         if ( !NT_SUCCESS( Status ) ) {
             IF_DEBUG( UAS_DEBUG_USER ) {
-                NetpDbgPrint(
+                NetpKdPrint((
                     "NetUserSetGroups: SamRemoveMemberFromGroup (or SetMemberAttributes) returned %lX\n",
-                    Status );
+                    Status ));
             }
             NetStatus = NetpNtStatusToApiStatus( Status );
             goto Cleanup;
@@ -2312,8 +2592,8 @@ Cleanup:
 
     UASP_DOWNLEVEL_BEGIN( ServerName, NetStatus )
 
-        NetStatus = RxNetUserSetGroups( ServerName,
-                                        UserName,
+        NetStatus = RxNetUserSetGroups( (LPWSTR)ServerName,
+                                        (LPWSTR)UserName,
                                         Level,
                                         Buffer,
                                         NewGroupCount );
@@ -2321,7 +2601,7 @@ Cleanup:
     UASP_DOWNLEVEL_END;
 
     IF_DEBUG( UAS_DEBUG_USER ) {
-        NetpDbgPrint( "NetUserSetGroups: returning %ld\n", NetStatus );
+        NetpKdPrint(( "NetUserSetGroups: returning %ld\n", NetStatus ));
     }
 
     return NetStatus;
@@ -2331,8 +2611,8 @@ Cleanup:
 
 NET_API_STATUS NET_API_FUNCTION
 NetUserGetLocalGroups(
-    IN LPWSTR ServerName OPTIONAL,
-    IN LPWSTR UserName,
+    IN LPCWSTR ServerName OPTIONAL,
+    IN LPCWSTR UserName,
     IN DWORD Level,
     IN DWORD Flags,
     OUT LPBYTE *Buffer,
@@ -2354,6 +2634,11 @@ Arguments:
         or string specifies the local machine.
 
     UserName - The name of the user whose members are to be listed.
+        The UserName can be of the form <UserName> in which case the
+        UserName is expected to be found on ServerName.  The UserName can also
+        be of the form <DomainName>\<UserName> in which case <DomainName> is
+        expected to be trusted by ServerName and <UserName> is expected to be to
+        be found on that domain.
 
     Level - Level of information required (must be 0)
 
@@ -2385,10 +2670,18 @@ Return Value:
     BOOL   EnumIndirectMembership ;
 
     SAM_HANDLE  DomainHandle = NULL;
+    SAM_HANDLE  UsersDomainHandle = NULL;
+    SAM_HANDLE  DomainHandleToUse = NULL;
     SAM_HANDLE  BuiltinDomainHandle = NULL;
     SAM_HANDLE  UserHandle = NULL;
     PSID DomainId = NULL ;
+    PSID DomainIdToUse;
+    PSID UsersDomainId = NULL ;
     ULONG PartialCount = 0;
+
+    LPWSTR UsersDomainServerName = NULL;
+    LPWSTR UsersDomainShareName = NULL;
+    PWCHAR BackSlash;
 
     PUNICODE_STRING Names = NULL;           // Names corresponding to Ids
     PULONG Aliases = NULL;
@@ -2450,10 +2743,72 @@ Return Value:
     }
 
     //
+    // Parse the <DomainName>\<UserName>
+    //
+
+    BackSlash = wcschr( UserName, L'\\' );
+
+    //
+    // Handle the case where no domain is specified
+    //
+
+    if ( BackSlash == NULL ) {
+        DomainHandleToUse = DomainHandle;
+        DomainIdToUse = DomainId;
+
+    //
+    // Handle the case where a domain name was specified
+    //
+
+    } else {
+
+        DWORD UsersDomainNameLength;
+        WCHAR UsersDomainName[DNLEN+1];
+
+        //
+        // Grab the domain name
+        //
+
+        UsersDomainNameLength = BackSlash - UserName;
+        if ( UsersDomainNameLength == 0 ||
+             UsersDomainNameLength > DNLEN ) {
+
+            NetStatus = NERR_DCNotFound;
+            goto Cleanup;
+        }
+
+        RtlCopyMemory( UsersDomainName, UserName, UsersDomainNameLength*sizeof(WCHAR) );
+        UsersDomainName[UsersDomainNameLength] = L'\0';
+        UserName = BackSlash+1;
+
+        //
+        // Open a handle to the specified domain's SAM.
+        //
+
+        NetStatus = UaspOpenDomainWithDomainName(
+                        UsersDomainName,
+                        DOMAIN_LOOKUP,
+                        TRUE,       // Account Domain
+                        &UsersDomainHandle,
+                        &UsersDomainId,
+                        &UsersDomainServerName,
+                        &UsersDomainShareName );
+
+        if ( NetStatus != NERR_Success ) {
+            goto Cleanup;
+        }
+
+        DomainHandleToUse = UsersDomainHandle;
+        DomainIdToUse = UsersDomainId;
+
+    }
+
+
+    //
     // Open the user asking for USER_LIST_GROUPS access.
     //
 
-    NetStatus = UserpOpenUser( DomainHandle,
+    NetStatus = UserpOpenUser( DomainHandleToUse,
                                USER_LIST_GROUPS,
                                UserName,
                                &UserHandle,
@@ -2477,9 +2832,9 @@ Return Value:
 
         if ( !NT_SUCCESS( Status ) ) {
             IF_DEBUG( UAS_DEBUG_USER ) {
-                NetpDbgPrint(
+                NetpKdPrint((
                     "NetUserGetGroups: SamGetGroupsForUser returned %lX\n",
-                    Status );
+                    Status ));
             }
             NetStatus = NetpNtStatusToApiStatus( Status );
             goto Cleanup;
@@ -2502,7 +2857,7 @@ Return Value:
     // Add the User's Sid to the Array of Sids.
     //
 
-    NetStatus = NetpDomainIdToSid( DomainId,
+    NetStatus = NetpDomainIdToSid( DomainIdToUse,
                                    UserRelativeId,
                                    &UserSids[0] );
 
@@ -2522,7 +2877,7 @@ Return Value:
 
     for ( GroupIndex = 0; GroupIndex < GroupCount; GroupIndex ++ ) {
 
-        NetStatus = NetpDomainIdToSid( DomainId,
+        NetStatus = NetpDomainIdToSid( DomainIdToUse,
                                        GroupMembership[GroupIndex].RelativeId,
                                        &UserSids[GroupIndex+1] );
 
@@ -2546,9 +2901,9 @@ Return Value:
 
     if ( !NT_SUCCESS(Status) ) {
         IF_DEBUG( UAS_DEBUG_USER ) {
-            NetpDbgPrint(
+            NetpKdPrint((
                 "UserpGetUserPriv: SamGetAliasMembership returns %lX\n",
-                Status );
+                Status ));
         }
         NetStatus = NetpNtStatusToApiStatus( Status );
         goto Cleanup;
@@ -2567,9 +2922,9 @@ Return Value:
                                        NULL ); // NameUse
         if ( !NT_SUCCESS( Status ) ) {
             IF_DEBUG( UAS_DEBUG_USER ) {
-                NetpDbgPrint(
+                NetpKdPrint((
                     "NetUserGetGroups: SamLookupIdsInDomain returned %lX\n",
-                    Status );
+                    Status ));
             }
             NetStatus = NetpNtStatusToApiStatus( Status );
             goto Cleanup;
@@ -2613,9 +2968,9 @@ Return Value:
 
     if ( !NT_SUCCESS(Status) ) {
         IF_DEBUG( UAS_DEBUG_USER ) {
-            NetpDbgPrint(
+            NetpKdPrint((
                 "UserpGetUserPriv: SamGetAliasMembership returns %lX\n",
-                Status );
+                Status ));
         }
         NetStatus = NetpNtStatusToApiStatus( Status );
         goto Cleanup;
@@ -2632,9 +2987,9 @@ Return Value:
                                    NULL ); // NameUse
     if ( !NT_SUCCESS( Status ) ) {
         IF_DEBUG( UAS_DEBUG_USER ) {
-            NetpDbgPrint(
+            NetpKdPrint((
                 "NetUserGetGroups: SamLookupIdsInDomain returned %lX\n",
-                Status );
+                Status ));
         }
         NetStatus = NetpNtStatusToApiStatus( Status );
         goto Cleanup;
@@ -2662,6 +3017,9 @@ Cleanup:
 
     if ( DomainId != NULL ) {
         NetpMemoryFree( DomainId );
+    }
+    if ( UsersDomainId != NULL ) {
+        NetpMemoryFree( UsersDomainId );
     }
 
     if ( Names != NULL ) {
@@ -2701,6 +3059,19 @@ Cleanup:
         UaspCloseDomain( DomainHandle );
     }
 
+    if ( UsersDomainHandle != NULL ) {
+        UaspCloseDomain( UsersDomainHandle );
+    }
+
+    if ( UsersDomainServerName != NULL ) {
+        NetpMemoryFree( UsersDomainServerName );
+    }
+
+    if ( UsersDomainShareName != NULL ) {
+        (VOID) NetUseDel( NULL, UsersDomainShareName, FALSE );
+        NetpMemoryFree( UsersDomainShareName );
+    }
+
 
     //
     // If we're not returning data to the caller,
@@ -2718,7 +3089,7 @@ Cleanup:
     *Buffer = BufferDescriptor.Buffer;
 
     IF_DEBUG( UAS_DEBUG_USER ) {
-        NetpDbgPrint( "NetUserGetGroups: returning %ld\n", NetStatus );
+        NetpKdPrint(( "NetUserGetGroups: returning %ld\n", NetStatus ));
     }
 
 
@@ -2801,7 +3172,7 @@ AliaspPackBuf(
 
 NET_API_STATUS NET_API_FUNCTION
 NetUserModalsGet(
-    IN LPWSTR ServerName OPTIONAL,
+    IN LPCWSTR ServerName OPTIONAL,
     IN DWORD Level,
     OUT LPBYTE *Buffer
     )
@@ -3175,12 +3546,12 @@ Cleanup:
 
     UASP_DOWNLEVEL_BEGIN( ServerName, NetStatus )
 
-        NetStatus = RxNetUserModalsGet( ServerName, Level, Buffer );
+        NetStatus = RxNetUserModalsGet( (LPWSTR)ServerName, Level, Buffer );
 
     UASP_DOWNLEVEL_END;
 
     IF_DEBUG( UAS_DEBUG_USER ) {
-        NetpDbgPrint( "NetUserModalsGet: returning %ld\n", NetStatus );
+        NetpKdPrint(( "NetUserModalsGet: returning %ld\n", NetStatus ));
     }
 
     return NetStatus;
@@ -3191,7 +3562,7 @@ Cleanup:
 
 NET_API_STATUS NET_API_FUNCTION
 NetUserModalsSet(
-    IN LPWSTR ServerName OPTIONAL,
+    IN LPCWSTR ServerName OPTIONAL,
     IN DWORD Level,
     IN LPBYTE Buffer,
     OUT LPDWORD ParmError OPTIONAL  // Name required by NetpSetParmError
@@ -3431,10 +3802,10 @@ Return Value:
             if ( GET_UAS_MODAL_DWORD(UasSamIndex) > USHRT_MAX ) {
 
                 IF_DEBUG( UAS_DEBUG_USER ) {
-                    NetpDbgPrint(
+                    NetpKdPrint((
                         "NetUserModalsSet: ushort too big %lx Index:%ld\n",
                         GET_UAS_MODAL_DWORD(UasSamIndex),
-                        UasSamIndex );
+                        UasSamIndex ));
                 }
                 NetpSetParmError( UserUasSamTable[UasSamIndex].UasParmNum );
                 NetStatus = ERROR_INVALID_PARAMETER;
@@ -3462,10 +3833,10 @@ Return Value:
 
             default:
                 IF_DEBUG( UAS_DEBUG_USER ) {
-                    NetpDbgPrint(
+                    NetpKdPrint((
                         "NetUserModalsSet: invalid role %lx Index:%ld\n",
                         GET_UAS_MODAL_DWORD(UasSamIndex),
-                        UasSamIndex );
+                        UasSamIndex ));
                 }
                 NetpSetParmError( UserUasSamTable[UasSamIndex].UasParmNum );
                 NetStatus = ERROR_INVALID_PARAMETER;
@@ -3607,11 +3978,11 @@ Return Value:
 
             if ( !NT_SUCCESS(Status) ) {
                 IF_DEBUG( UAS_DEBUG_USER ) {
-                    NetpDbgPrint(
+                    NetpKdPrint((
                         "NetUserModalsSet: Error from"
                         " SamQueryInformationDomain %lx Index:%ld\n",
                         Status,
-                        UasSamIndex );
+                        UasSamIndex ));
                 }
                 NetStatus = NetpNtStatusToApiStatus( Status );
                 goto Cleanup;
@@ -3654,14 +4025,14 @@ Return Value:
             *((PLARGE_INTEGER) GET_SAM_MODAL_FIELD_POINTER(UasSamIndex)) =
                 NetpSecondsToDeltaTime( GET_UAS_MODAL_DWORD(UasSamIndex) );
             IF_DEBUG( UAS_DEBUG_USER ) {
-                NetpDbgPrint(
+                NetpKdPrint((
                     "UserpsetInfo: Index: %ld Setting DeltaTime %lx %lx %lx\n",
                     UasSamIndex,
                     ((PLARGE_INTEGER) GET_SAM_MODAL_FIELD_POINTER(UasSamIndex))
                         ->HighPart,
                     ((PLARGE_INTEGER) GET_SAM_MODAL_FIELD_POINTER(UasSamIndex))
                         ->LowPart,
-                    GET_UAS_MODAL_DWORD(UasSamIndex) );
+                    GET_UAS_MODAL_DWORD(UasSamIndex) ));
             }
 
 
@@ -3704,10 +4075,10 @@ Return Value:
 
             default:
                 IF_DEBUG( UAS_DEBUG_USER ) {
-                    NetpDbgPrint(
+                    NetpKdPrint((
                         "NetUserModalsSet: invalid role %lx Index:%ld\n",
                         GET_UAS_MODAL_DWORD(UasSamIndex),
-                        UasSamIndex );
+                        UasSamIndex ));
                 }
                 NetpSetParmError( UserUasSamTable[UasSamIndex].UasParmNum );
                 NetStatus = ERROR_INVALID_PARAMETER;
@@ -3759,11 +4130,11 @@ Return Value:
                 if( NetStatus != NERR_Success ) {
 
                     IF_DEBUG( UAS_DEBUG_USER ) {
-                        NetpDbgPrint(
+                        NetpKdPrint((
                             "NetUserModalsSet: Error from"
                             " UaspLSASetServerRole %lx Index:%ld\n",
                             NetStatus,
-                            UasSamIndex );
+                            UasSamIndex ));
                     }
                     NetpSetParmError( UserUasSamTable[UasSamIndex].UasParmNum );
                     goto Cleanup;
@@ -3778,11 +4149,11 @@ Return Value:
                 if( NetStatus != NERR_Success ) {
 
                     IF_DEBUG( UAS_DEBUG_USER ) {
-                        NetpDbgPrint(
+                        NetpKdPrint((
                             "NetUserModalsSet: Error from"
                             " UaspBuiltinDomainSetServerRole %lx Index:%ld\n",
                             NetStatus,
-                            UasSamIndex );
+                            UasSamIndex ));
                     }
                     NetpSetParmError( UserUasSamTable[UasSamIndex].UasParmNum );
                     goto Cleanup;
@@ -3798,11 +4169,11 @@ Return Value:
 
             if ( !NT_SUCCESS(Status) ) {
                 IF_DEBUG( UAS_DEBUG_USER ) {
-                    NetpDbgPrint(
+                    NetpKdPrint((
                         "NetUserModalsSet: Error from"
                         " SamSetInformationDomain %lx Index:%ld\n",
                         Status,
-                        UasSamIndex );
+                        UasSamIndex ));
                 }
                 NetpSetParmError( UserUasSamTable[UasSamIndex].UasParmNum );
                 NetStatus = NetpNtStatusToApiStatus( Status );
@@ -3920,17 +4291,475 @@ Cleanup:
 
     UASP_DOWNLEVEL_BEGIN( ServerName, NetStatus )
 
-        NetStatus = RxNetUserModalsSet( ServerName, Level, Buffer, ParmError );
+        NetStatus = RxNetUserModalsSet( (LPWSTR) ServerName, Level, Buffer, ParmError );
 
     UASP_DOWNLEVEL_END;
 
     IF_DEBUG( UAS_DEBUG_USER ) {
-        NetpDbgPrint( "NetUserModalsSet: returning %ld\n", NetStatus );
+        NetpKdPrint(( "NetUserModalsSet: returning %ld\n", NetStatus ));
     }
 
 
     return NetStatus;
 
 } // NetUserModalsSet
+
+
+NET_API_STATUS
+GetUserAndDomainName(
+    LPWSTR * UserName,
+    LPWSTR * DomainName
+    )
+/*++
+
+Routine Description:
+
+    Gets the users's username and domain by opening the token and looking
+    up the SID.
+
+Arguments:
+
+    UserName - Recieves a pointer to the user name, allocated with LocalAlloc
+
+    DomainName - Receives a pointer to the domain name, allocated with
+        LocalAlloc
+
+Return Value:
+
+    Win32 error codes.
+
+--*/
+
+{
+    HANDLE hToken = NULL;
+    DWORD cbTokenBuffer = 0;
+    PTOKEN_USER pUserToken = NULL;
+    LPWSTR lpUserName = NULL;
+    LPWSTR lpUserDomain = NULL;
+    DWORD cbAccountName = 0;
+    DWORD cbUserDomain = 0;
+    SID_NAME_USE SidNameUse;
+    DWORD Error = 0;
+
+    if (!OpenProcessToken(  GetCurrentProcess(),
+                            TOKEN_QUERY,
+                            &hToken) ){
+        return(GetLastError());
+    }
+
+    //
+    // Get space needed for token information
+    //
+    if (!GetTokenInformation(   hToken,
+                                TokenUser,
+                                NULL,
+                                0,
+                                &cbTokenBuffer) ) {
+
+        if (GetLastError() != ERROR_INSUFFICIENT_BUFFER) {
+            Error = GetLastError();
+            goto Cleanup;
+        }
+    }
+
+    //
+    // Get the actual token information
+    //
+
+    pUserToken = (PTOKEN_USER)LocalAlloc(0,cbTokenBuffer);
+    if (pUserToken == NULL) {
+        return(ERROR_NOT_ENOUGH_MEMORY);
+    }
+    if (!GetTokenInformation(   hToken,
+                                TokenUser,
+                                pUserToken,
+                                cbTokenBuffer,
+                                &cbTokenBuffer) ) {
+        Error = GetLastError();
+        goto Cleanup;
+    }
+
+    //
+    // Get the space needed for the User name and the Domain name
+    //
+    if (!LookupAccountSid(  NULL,
+                            pUserToken->User.Sid,
+                            NULL, &cbAccountName,
+                            NULL, &cbUserDomain,
+                            &SidNameUse
+                            ) ) {
+        if (GetLastError() != ERROR_INSUFFICIENT_BUFFER) {
+            Error = GetLastError();
+            goto Cleanup;
+        }
+    }
+    lpUserName = (LPWSTR)LocalAlloc(0, sizeof(WCHAR)*(cbAccountName+1));
+    if (!lpUserName) {
+        Error = ERROR_NOT_ENOUGH_MEMORY;
+        goto Cleanup;
+    }
+    lpUserDomain = (LPWSTR)LocalAlloc(0, sizeof(WCHAR)*(1+cbUserDomain));
+    if (!lpUserDomain) {
+        Error = ERROR_NOT_ENOUGH_MEMORY;
+        goto Cleanup;
+    }
+
+    //
+    // Now get the user name and domain name
+    //
+
+    if (!LookupAccountSid(  NULL,
+                            pUserToken->User.Sid,
+                            lpUserName, &cbAccountName,
+                            lpUserDomain, &cbUserDomain,
+                            &SidNameUse
+                            ) ) {
+
+        Error = GetLastError();
+        goto Cleanup;
+    }
+
+Cleanup:
+    if (pUserToken != NULL) {
+        LocalFree(pUserToken);
+    }
+
+    if (Error != ERROR_SUCCESS) {
+        if (lpUserName != NULL) {
+            LocalFree(lpUserName);
+        }
+        if (lpUserDomain != NULL) {
+            LocalFree(lpUserDomain);
+        }
+    } else {
+        *UserName = lpUserName;
+        *DomainName = lpUserDomain;
+
+    }
+    if (hToken != NULL) {
+        CloseHandle(hToken);
+    }
+
+
+    return(Error);
+}
+
+
+
+NET_API_STATUS NET_API_FUNCTION
+NetUserChangePassword(
+    IN LPCWSTR DomainName,
+    IN LPCWSTR UserName,
+    IN LPCWSTR OldPassword,
+    IN LPCWSTR NewPassword
+    )
+
+/*++
+
+Routine Description:
+
+    Changes a users password.
+
+Arguments:
+
+    DomainName - A pointer to a string containing the name of the domain or
+        remote server on which to change the password.  The name is assuemd
+        to be a domain name unless it begins with "\\".  If no domain can be
+        located by that name, it is prepended with "\\" and tried as a server
+        name.
+        BUGBUG: not true - If this parameter is not present the domain of the logged on
+        user is used.
+
+    UserName - Name of the user who's password is to be changed.
+        BUGBUG: not true - If this
+        parameter is not present, the logged on user is used.
+
+    OldPassword - NULL terminated string containing the user's old password
+
+    NewPassword - NULL terminated string containing the user's new password.
+
+Return Value:
+
+    Error code for the operation.
+
+--*/
+{
+    NTSTATUS Status;
+    HANDLE LsaHandle = NULL;
+    NET_API_STATUS NetStatus = 0;
+    PMSV1_0_CHANGEPASSWORD_REQUEST ChangeRequest = NULL;
+    PMSV1_0_CHANGEPASSWORD_RESPONSE ChangeResponse = NULL;
+    STRING PackageName;
+    ULONG PackageId;
+    ULONG RequestSize;
+    ULONG ResponseSize = 0;
+    PBYTE Where;
+    NTSTATUS ProtocolStatus;
+    LPWSTR User;
+    LPWSTR Domain;
+    PSECURITY_SEED_AND_LENGTH SeedAndLength;
+    UCHAR Seed;
+
+    //
+    // If a user name and domain were not supplied, generate them now.
+    //
+
+    if ((DomainName == NULL) || (UserName == NULL)) {
+        NetStatus = GetUserAndDomainName(
+                        &User,
+                        &Domain
+                        );
+        if (NetStatus != 0) {
+            goto Cleanup;
+        }
+
+        if (UserName != NULL) {
+            LocalFree(User);
+            User = (LPWSTR) UserName;
+        } else if (DomainName != NULL) {
+            LocalFree(Domain);
+            Domain = (LPWSTR) DomainName;
+        }
+    } else {
+        User = (LPWSTR) UserName;
+        Domain = (LPWSTR) DomainName;
+    }
+
+
+    //
+    // Calculate the request size
+    //
+
+    RequestSize = sizeof(MSV1_0_CHANGEPASSWORD_REQUEST);
+
+    if (ARGUMENT_PRESENT(Domain)) {
+        RequestSize += (wcslen(Domain)+1) * sizeof(WCHAR);
+    } else {
+        NetStatus = ERROR_INVALID_PARAMETER;
+        goto Cleanup;
+    }
+
+    if (ARGUMENT_PRESENT(User)) {
+        RequestSize += (wcslen(User)+1) * sizeof(WCHAR);
+    } else {
+        NetStatus = ERROR_INVALID_PARAMETER;
+        goto Cleanup;
+    }
+
+    if (ARGUMENT_PRESENT(OldPassword)) {
+        RequestSize += (wcslen(OldPassword)+1) * sizeof(WCHAR);
+    } else {
+        NetStatus = ERROR_INVALID_PARAMETER;
+        goto Cleanup;
+    }
+
+    if (ARGUMENT_PRESENT(NewPassword)) {
+        RequestSize += (wcslen(NewPassword)+1) * sizeof(WCHAR);
+    } else {
+        NetStatus = ERROR_INVALID_PARAMETER;
+        goto Cleanup;
+    }
+
+
+
+    //
+    // Connect to the LSA
+    //
+
+    Status = LsaConnectUntrusted(
+                &LsaHandle
+                );
+
+    if (!NT_SUCCESS(Status)) {
+        NetStatus = NetpNtStatusToApiStatus( Status );
+        goto Cleanup;
+    }
+
+    RtlInitString(
+        &PackageName,
+        MSV1_0_PACKAGE_NAME
+        );
+
+    Status = LsaLookupAuthenticationPackage(
+                LsaHandle,
+                &PackageName,
+                &PackageId
+                );
+    if (!NT_SUCCESS(Status)) {
+        NetStatus = NetpNtStatusToApiStatus( Status );
+        goto Cleanup;
+    }
+
+    //
+    // Allocate the request buffer
+    //
+
+    ChangeRequest = NetpMemoryAllocate( RequestSize );
+    if (ChangeRequest == NULL) {
+        NetStatus = ERROR_NOT_ENOUGH_MEMORY;
+        goto Cleanup;
+
+    }
+
+
+    //
+    // Build up the request message
+    //
+
+    ChangeRequest->MessageType = MsV1_0ChangePassword;
+
+    RtlInitUnicodeString(
+        &ChangeRequest->DomainName,
+        Domain
+        );
+
+    RtlInitUnicodeString(
+        &ChangeRequest->AccountName,
+        User
+        );
+
+    RtlInitUnicodeString(
+        &ChangeRequest->OldPassword,
+        OldPassword
+        );
+
+    //
+    // Limit passwords to 127 bytes so we can run-encode them.
+    //
+
+    if (ChangeRequest->OldPassword.Length > 127) {
+        NetStatus = ERROR_PASSWORD_RESTRICTION;
+        goto Cleanup;
+    }
+
+    RtlInitUnicodeString(
+        &ChangeRequest->NewPassword,
+        NewPassword
+        );
+
+    if (ChangeRequest->NewPassword.Length > 127) {
+        NetStatus = ERROR_PASSWORD_RESTRICTION;
+        goto Cleanup;
+    }
+
+
+    //
+    // Marshall the buffer pointers.  We run-encode the passwords so
+    // we don't have cleartext password lying around the pagefile.
+    //
+
+    Where = (PBYTE) (ChangeRequest+1);
+
+    ChangeRequest->DomainName.Buffer = (LPWSTR) Where;
+    RtlCopyMemory(
+        Where,
+        Domain,
+        ChangeRequest->DomainName.MaximumLength
+        );
+    Where += ChangeRequest->DomainName.MaximumLength;
+
+
+    ChangeRequest->AccountName.Buffer = (LPWSTR) Where;
+    RtlCopyMemory(
+        Where,
+        User,
+        ChangeRequest->AccountName.MaximumLength
+        );
+    Where += ChangeRequest->AccountName.MaximumLength;
+
+
+    ChangeRequest->OldPassword.Buffer = (LPWSTR) Where;
+    RtlCopyMemory(
+        Where,
+        OldPassword,
+        ChangeRequest->OldPassword.MaximumLength
+        );
+    Where += ChangeRequest->OldPassword.MaximumLength;
+
+    //
+    // Run encode the passwords so they don't lie around the page file.
+    //
+
+    Seed = 0;
+    RtlRunEncodeUnicodeString(
+        &Seed,
+        &ChangeRequest->OldPassword
+        );
+    SeedAndLength = (PSECURITY_SEED_AND_LENGTH) &ChangeRequest->OldPassword.Length;
+    SeedAndLength->Seed = Seed;
+
+    ChangeRequest->NewPassword.Buffer = (LPWSTR) Where;
+    RtlCopyMemory(
+        Where,
+        NewPassword,
+        ChangeRequest->NewPassword.MaximumLength
+        );
+    Where += ChangeRequest->NewPassword.MaximumLength;
+
+    Seed = 0;
+    RtlRunEncodeUnicodeString(
+        &Seed,
+        &ChangeRequest->NewPassword
+        );
+    SeedAndLength = (PSECURITY_SEED_AND_LENGTH) &ChangeRequest->NewPassword.Length;
+    SeedAndLength->Seed = Seed;
+
+    //
+    // Since we are running in the caller's process, we most certainly are
+    // impersonating him/her.
+    //
+
+    ChangeRequest->Impersonating = TRUE;
+
+    //
+    // Call the MSV1_0 package to change the password.
+    //
+
+    Status = LsaCallAuthenticationPackage(
+                LsaHandle,
+                PackageId,
+                ChangeRequest,
+                RequestSize,
+                (PVOID *) &ChangeResponse,
+                &ResponseSize,
+                &ProtocolStatus
+                );
+
+    if (!NT_SUCCESS(Status)) {
+        NetStatus = NetpNtStatusToApiStatus( Status );
+        goto Cleanup;
+    }
+    if (!NT_SUCCESS(ProtocolStatus)) {
+        NetStatus = NetpNtStatusToApiStatus( ProtocolStatus );
+        goto Cleanup;
+    }
+
+    NetStatus = ERROR_SUCCESS;
+
+Cleanup:
+    if (LsaHandle != NULL) {
+        NtClose(LsaHandle);
+    }
+    if (ChangeRequest != NULL) {
+        RtlZeroMemory( ChangeRequest, RequestSize );
+        NetpMemoryFree( ChangeRequest );
+    }
+    if (ChangeResponse != NULL) {
+        LsaFreeReturnBuffer( ChangeResponse );
+    }
+
+    if (User && User != UserName) {
+        LocalFree(User);
+    }
+
+    if (Domain && Domain != DomainName) {
+        LocalFree(Domain);
+    }
+
+    return(NetStatus);
+
+}
+
+
 /*lint +e614 */
 /*lint +e740 */

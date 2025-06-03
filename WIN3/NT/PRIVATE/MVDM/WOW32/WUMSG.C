@@ -19,6 +19,8 @@
 MODNAME(wumsg.c);
 
 
+extern HANDLE hmodWOW32;
+
 // SendDlgItemMessage cache
 HWND  hdlgSDIMCached = NULL ;
 
@@ -65,29 +67,57 @@ BOOL fWhoCalled = FALSE;
 
 ULONG FASTCALL WU32CallMsgFilter(PVDMFRAME pFrame)
 {
+    INT   f2;
     ULONG ul;
     MSG t1;
+    VPMSG16 vpf1;
     register PCALLMSGFILTER16 parg16;
     MSGPARAMEX mpex;
 
     GETARGPTR(pFrame, sizeof(CALLMSGFILTER16), parg16);
 
-    getmsg16(parg16->f1, &t1, &mpex);
+    vpf1 = (VPMSG16)(parg16->f1);
+    f2   = INT32(parg16->f2);
 
-    *pNtVDMState |= VDM_WOWBLOCKED;
+    getmsg16(vpf1, &t1, &mpex);
 
-    ul = GETBOOL16(CallMsgFilter(
-    &t1,
-    INT32(parg16->f2)
-    ));
+    // Note: getmsg16 may have caused 16-bit memory movement
+    FREEARGPTR(pFrame);
+    FREEARGPTR(parg16);
 
-   *pNtVDMState &= ~VDM_WOWBLOCKED;
+    BlockWOWIdle(TRUE);
 
-    FREEMSG16(parg16->f1, &t1);
+    ul = GETBOOL16(CallMsgFilter(&t1, f2));
+
+    // Note: Call to CallMsgFilter may have caused 16-bit memory to move
+
+    BlockWOWIdle(FALSE);
+
+    // we need to free the struct ret'd by PackDDElParam in the getmsg16 call
+    // (actually the call is made in ThunkWMMsg16() which is called by getmsg16)
+    if((t1.message >= WM_DDE_FIRST) && (t1.message <= WM_DDE_LAST)) {
+        if(t1.message == WM_DDE_ACK       ||
+           t1.message == WM_DDE_DATA      ||
+           t1.message == WM_DDE_POKE      ||
+           t1.message == WM_DDE_ADVISE )            {
+
+            // make sure this isn't in response to an initiate message
+            if(!WI32DDEInitiate((HWND16) mpex.Parm16.WndProc.hwnd)) {
+                FreeDDElParam(t1.message, t1.lParam);
+            }
+        }
+    }
+
+    FREEMSG16(vpf1, &t1);
 
     FREEARGPTR(parg16);
     RETURN(ul);
 }
+
+
+
+
+
 
 
 /*++
@@ -137,6 +167,8 @@ ULONG FASTCALL WU32CallWindowProc(PVDMFRAME pFrame)
     ULONG ul;
     PARM16 Parm16;
     register PCALLWINDOWPROC16 parg16;
+    WORD  f2, f3, f4;
+    LONG  f5;
     DWORD Proc16;
     DWORD Proc32;
     INT  iMsgThunkClass = 0;
@@ -145,19 +177,36 @@ ULONG FASTCALL WU32CallWindowProc(PVDMFRAME pFrame)
     GETARGPTR(pFrame, sizeof(CALLWINDOWPROC16), parg16);
 
     Proc16 = DWORD32(parg16->f1);
-    if ((Proc32 = IsThunkWindowProc(Proc16, &iMsgThunkClass))) {
+    f2     = parg16->f2;
+    f3     = WORD32(parg16->f3);
+    f4     = WORD32(parg16->f4);
+    f5     = LONG32(parg16->f5);
+
+    Proc32 = IsThunkWindowProc(Proc16, &iMsgThunkClass);
+
+    // Note: IsThunkWindowProc may have caused 16-bit memory movement
+    FREEARGPTR(pFrame);
+    FREEARGPTR(parg16);
+
+    if (Proc32) {
         HWND hwnd;
         UINT uMsgNew;
         UINT uParamNew;
         LONG lParamNew;
         MSGPARAMEX mpex;
 
-        mpex.Parm16.WndProc.hwnd = parg16->f2;
-        mpex.Parm16.WndProc.wMsg = WORD32(parg16->f3);
-        mpex.Parm16.WndProc.wParam = WORD32(parg16->f4);
-        mpex.Parm16.WndProc.lParam = LONG32(parg16->f5);
+        mpex.Parm16.WndProc.hwnd   = f2;
+        mpex.Parm16.WndProc.wMsg   = f3;
+        mpex.Parm16.WndProc.wParam = f4;
+        mpex.Parm16.WndProc.lParam = f5;
         mpex.iMsgThunkClass = iMsgThunkClass;
+
         if (hwnd = ThunkMsg16(&mpex)) {
+
+            // Note: ThunkMsg16 may have caused 16-bit memory movement
+            FREEARGPTR(pFrame);
+            FREEARGPTR(parg16);
+
             uMsgNew = mpex.uMsg;
             uParamNew = mpex.uParam;
             lParamNew = mpex.lParam;
@@ -171,11 +220,11 @@ ULONG FASTCALL WU32CallWindowProc(PVDMFRAME pFrame)
                              (LPCLIENTCREATESTRUCT)((LPCREATESTRUCT)lParamNew + 1));
             }
 
-            *pNtVDMState |= VDM_WOWBLOCKED;
+            BlockWOWIdle(TRUE);
 
             ul = CallWindowProc((WNDPROC)Proc32, hwnd, uMsgNew,
                                                       uParamNew, lParamNew);
-            *pNtVDMState &= ~VDM_WOWBLOCKED;
+            BlockWOWIdle(FALSE);
 
             if ((uMsgNew == WM_CREATE || uMsgNew == WM_NCCREATE) && iMsgThunkClass == WOWCLASS_MDICLIENT) {
                 StartUnThunkingWMCreateMDI16(lParamNew); // does nothing
@@ -189,17 +238,21 @@ ULONG FASTCALL WU32CallWindowProc(PVDMFRAME pFrame)
         }
     }
     else {
-        Parm16.WndProc.hwnd = WORD32(parg16->f2);
-        Parm16.WndProc.wMsg = WORD32(parg16->f3);
-        Parm16.WndProc.wParam = WORD32(parg16->f4);
-        Parm16.WndProc.lParam = DWORD32(parg16->f5);
-        Parm16.WndProc.hInst = (WORD)GetWindowLong( HWND32(parg16->f2), GWL_HINSTANCE );
-        CallBack16(RET_WNDPROC, &Parm16, VPFN32(parg16->f1), (PVPVOID)&ul);
+        Parm16.WndProc.hwnd   = f2;
+        Parm16.WndProc.wMsg   = f3;
+        Parm16.WndProc.wParam = f4;
+        Parm16.WndProc.lParam = f5;
+        Parm16.WndProc.hInst  = (WORD)GetWindowLong(HWND32(f2), GWL_HINSTANCE);
+        CallBack16(RET_WNDPROC, &Parm16, VPFN32(Proc16), (PVPVOID)&ul);
     }
 
     FREEARGPTR(parg16);
     RETURN(ul);
 }
+
+
+
+
 
 
 /*++
@@ -276,12 +329,18 @@ ULONG FASTCALL WU32DefDlgProc(PVDMFRAME pFrame)
     mpex.Parm16.WndProc.wParam = WORD32(parg16->f3);
     mpex.Parm16.WndProc.lParam = LONG32(parg16->f4);
     mpex.iMsgThunkClass = 0;
+
     if (hdlg = ThunkMsg16(&mpex)) {
+
+        // Note: ThunkMsg16 may have caused 16-bit memory movement
+        FREEARGPTR(pFrame);
+        FREEARGPTR(parg16);
+
         SetFakeDialogClass(hdlg);
 
-        *pNtVDMState |= VDM_WOWBLOCKED;
+        BlockWOWIdle(TRUE);
         mpex.lReturn = DefDlgProc(hdlg, mpex.uMsg, mpex.uParam, mpex.lParam);
-        *pNtVDMState &= ~VDM_WOWBLOCKED;
+        BlockWOWIdle(FALSE);
 
         if (MSG16NEEDSTHUNKING(&mpex)) {
             (mpex.lpfnUnThunk16)(&mpex);
@@ -291,6 +350,13 @@ ULONG FASTCALL WU32DefDlgProc(PVDMFRAME pFrame)
     FREEARGPTR(parg16);
     RETURN((ULONG)mpex.lReturn);
 }
+
+
+
+
+
+
+
 
 
 /*++
@@ -360,7 +426,8 @@ ULONG FASTCALL WU32DefDlgProc(PVDMFRAME pFrame)
 
 ULONG FASTCALL WU32DefFrameProc(PVDMFRAME pFrame)
 {
-    HWND hwnd;
+    HWND hwnd, hwnd2;
+    
     MSGPARAMEX mpex;
     register PDEFFRAMEPROC16 parg16;
 
@@ -372,11 +439,47 @@ ULONG FASTCALL WU32DefFrameProc(PVDMFRAME pFrame)
     mpex.Parm16.WndProc.wParam = WORD32(parg16->f4);
     mpex.Parm16.WndProc.lParam = LONG32(parg16->f5);
     mpex.iMsgThunkClass = 0;
+
+    hwnd2 = HWND32(parg16->f2);
+
     if (hwnd = ThunkMsg16(&mpex)) {
-        *pNtVDMState |= VDM_WOWBLOCKED;
-        mpex.lReturn = DefFrameProc(hwnd, HWND32(parg16->f2),
-                               mpex.uMsg, mpex.uParam, mpex.lParam);
-        *pNtVDMState &= ~VDM_WOWBLOCKED;
+
+        // Note: ThunkMsg16 may have caused 16-bit memory movement
+        FREEARGPTR(pFrame);
+        FREEARGPTR(parg16);
+
+        if (mpex.uMsg == WM_CLIENTSHUTDOWN &&
+            CURRENTPTD()->dwWOWCompatFlagsEx & WOWCFEX_IGNORECLIENTSHUTDOWN) {
+
+            //
+            // TurboCAD picks up an uninitialized stack variable as the
+            // message number to pass to DefFrameProc.  In NT 3.51 it
+            // got 0x907 so the call was a NOP.  In NT 4.0, because we
+            // now save FS and GS in wow16call, they pick up the x86
+            // flat FS, 0x3b, which also happens to be WM_CLIENTSHUTDOWN
+            // on NT and Win95, an undocumented message.  DefFrameProc
+            // passes the message to DefWindowProc, which does some
+            // shutdown related processing which causes TurboCAD to fault
+            // soon thereafter.
+            //
+            // We considered renumbering WM_CLIENTSHUTDOWN, but Win95 uses
+            // it as well and some apps may have reverse-engineered the
+            // value 3b and depend on seeing the message.
+            //
+            // So instead we eat the call to DefFrameProc here under
+            // a compatibility bit.
+            //                            -- DaveHart 31-May-96
+            //
+
+            mpex.lReturn = 0;
+
+        } else {
+
+            BlockWOWIdle(TRUE);
+            mpex.lReturn = DefFrameProc(hwnd, hwnd2,
+                                        mpex.uMsg, mpex.uParam, mpex.lParam);
+            BlockWOWIdle(FALSE);
+        }
 
         if (MSG16NEEDSTHUNKING(&mpex)) {
             (mpex.lpfnUnThunk16)(&mpex);
@@ -386,6 +489,14 @@ ULONG FASTCALL WU32DefFrameProc(PVDMFRAME pFrame)
     FREEARGPTR(parg16);
     RETURN((ULONG)mpex.lReturn);
 }
+
+
+
+
+
+
+
+
 
 
 /*++
@@ -469,18 +580,18 @@ ULONG FASTCALL WU32DefMDIChildProc(PVDMFRAME pFrame)
     mpex.Parm16.WndProc.wParam = WORD32(parg16->f3);
     mpex.Parm16.WndProc.lParam = LONG32(parg16->f4);
     mpex.iMsgThunkClass = 0;
+
     if (hwnd = ThunkMsg16(&mpex)) {
-        *pNtVDMState |= VDM_WOWBLOCKED;
+
+        // Note: ThunkMsg16 may have caused 16-bit memory movement
+        FREEARGPTR(pFrame);    
+        FREEARGPTR(parg16);
+
+        BlockWOWIdle(TRUE);
         mpex.lReturn = DefMDIChildProc(hwnd, mpex.uMsg, mpex.uParam,
                                                                 mpex.lParam);
-#ifdef DEBUG
-        {
-            PTD ptd;
-            ptd = CURRENTPTD();
-            WOW32ASSERT(VDMPTR(ptd->vpStack,1) == pFrame);
-        }
-#endif
-        *pNtVDMState &= ~VDM_WOWBLOCKED;
+        BlockWOWIdle(FALSE);
+
         if (MSG16NEEDSTHUNKING(&mpex)) {
             (mpex.lpfnUnThunk16)(&mpex);
         }
@@ -489,6 +600,14 @@ ULONG FASTCALL WU32DefMDIChildProc(PVDMFRAME pFrame)
     FREEARGPTR(parg16);
     RETURN((ULONG)mpex.lReturn);
 }
+
+
+
+
+
+
+
+
 
 
 /*++
@@ -534,11 +653,17 @@ ULONG FASTCALL WU32DefWindowProc(PVDMFRAME pFrame)
     mpex.Parm16.WndProc.wParam = WORD32(parg16->wParam);
     mpex.Parm16.WndProc.lParam = LONG32(parg16->lParam);
     mpex.iMsgThunkClass = 0;
+
     if (hwnd = ThunkMsg16(&mpex)) {
-        *pNtVDMState |= VDM_WOWBLOCKED;
-        mpex.lReturn = DefWindowProc(hwnd, mpex.uMsg, mpex.uParam,
-                                                                mpex.lParam);
-        *pNtVDMState &= ~VDM_WOWBLOCKED;
+
+        // Note: ThunkMsg16 may have caused 16-bit memory movement
+        FREEARGPTR(pFrame);
+        FREEARGPTR(parg16);
+
+        BlockWOWIdle(TRUE);
+        mpex.lReturn = DefWindowProc(hwnd, mpex.uMsg, mpex.uParam, mpex.lParam);
+        BlockWOWIdle(FALSE);
+
         if (MSG16NEEDSTHUNKING(&mpex)) {
             (mpex.lpfnUnThunk16)(&mpex);
         }
@@ -547,6 +672,14 @@ ULONG FASTCALL WU32DefWindowProc(PVDMFRAME pFrame)
     FREEARGPTR(parg16);
     RETURN((ULONG)mpex.lReturn);
 }
+
+
+
+
+
+
+
+
 
 
 /*++
@@ -574,24 +707,31 @@ ULONG FASTCALL WU32DefWindowProc(PVDMFRAME pFrame)
 ULONG FASTCALL WU32DispatchMessage(PVDMFRAME pFrame)
 {
     ULONG ul;
+    WORD  wTDB;
     MSG t1;
     register PDISPATCHMESSAGE16 parg16;
     MSGPARAMEX mpex;
 
     GETARGPTR(pFrame, sizeof(DISPATCHMESSAGE16), parg16);
 
+    wTDB = pFrame->wTDB;
+
     getmsg16(parg16->f1, &t1, &mpex);
 
-    if (CACHENOTEMPTY() && !(CURRENTPTD()->dwWOWCompatFlags & WOWCF_DONTRELEASECACHEDDC))
-        ReleaseCachedDCs(pFrame->wTDB, 0, 0, 0, SRCHDC_TASK16);
+    // Note: getmsg16 may have caused 16-bit memory movement
+    FREEARGPTR(pFrame);
+    FREEARGPTR(parg16);
 
-    *pNtVDMState |= VDM_WOWBLOCKED;
+    if (CACHENOTEMPTY() && !(CURRENTPTD()->dwWOWCompatFlags & WOWCF_DONTRELEASECACHEDDC)) {
 
-    ul = GETLONG16(DispatchMessage(
-    &t1
-    ));
+        ReleaseCachedDCs(wTDB, 0, 0, 0, SRCHDC_TASK16);
+    }
 
-    *pNtVDMState &= ~VDM_WOWBLOCKED;
+    BlockWOWIdle(TRUE);
+
+    ul = GETLONG16(DispatchMessage(&t1));
+
+    BlockWOWIdle(FALSE);
 
     // WARNING Don't rely on any 32 bit flat pointers to 16 bit memory
     // After the dispatchmessage call.
@@ -599,6 +739,11 @@ ULONG FASTCALL WU32DispatchMessage(PVDMFRAME pFrame)
     FREEARGPTR(parg16);
     RETURN(ul);
 }
+
+
+
+
+
 
 
 /*++
@@ -671,23 +816,33 @@ ULONG FASTCALL WU32GetMessage(PVDMFRAME pFrame)
 {
     ULONG ul;
     MSG t1;
+    VPMSG16  vpMsg;
     register PGETMESSAGE16 parg16;
     ULONG ulReturn;
 
+    BlockWOWIdle(TRUE);
+
+// NOTE: pFrame needs to be restored on all GOTO's to get_next_dde_message
 get_next_dde_message:
 
     GETARGPTR(pFrame, sizeof(GETMESSAGE16), parg16);
 
-    *pNtVDMState |= VDM_WOWBLOCKED;
+    vpMsg = parg16->vpMsg;
 
-    ul = GETBOOL16(GetMessage(
-    &t1,
-    HWND32(parg16->hwnd),
-    WORD32(parg16->wMin),
-    WORD32(parg16->wMax)
-    ));
 
-    *pNtVDMState &= ~VDM_WOWBLOCKED;
+
+    ul = GETBOOL16(GetMessage(&t1,
+                              HWND32(parg16->hwnd),
+                              WORD32(parg16->wMin),
+                              WORD32(parg16->wMax)));
+
+
+    // There Could have been a Task Switch Before GetMessage Returned so
+    // Don't Trust any 32 bit flat pointers we have, memory could've been 
+    // compacted or moved.
+    FREEARGPTR(parg16);
+    FREEVDMPTR(pFrame);
+
 
 #ifdef DEBUG
     if (t1.message == WM_TIMER) {
@@ -695,17 +850,9 @@ get_next_dde_message:
     }
 #endif
 
-    // There Could have been a Task Switch Before GetMessage Returned so Don't
-    // Trust any 32 bit flat pointers we have, memory could have been compacted or
-    // moved.
+    ulReturn = putmsg16(vpMsg, &t1);
 
-    FREEARGPTR(parg16);
-    FREEVDMPTR(pFrame);
-
-    GETFRAMEPTR(((PTD)CURRENTPTD())->vpStack, pFrame);
-    GETARGPTR(pFrame, sizeof(GETMESSAGE16), parg16);
-
-    ulReturn = putmsg16(parg16->vpMsg, &t1);
+    // NOTE: Call to putmsg16 could've caused 16-bit memory movement
 
     if (((t1.message == WM_DDE_DATA) || (t1.message == WM_DDE_POKE)) && (!ulReturn)) {
         register PMSG16 pmsg16;
@@ -716,16 +863,7 @@ get_next_dde_message:
         char szMsgBoxText[1024];
         char szCaption[256];
 
-        // There Could have been a Task Switch Before GetMessage Returned so Don't
-        // Trust any 32 bit flat pointers we have, memory could have been compacted or
-        // moved.
-
-        FREEARGPTR(parg16);
-        FREEVDMPTR(pFrame);
-
-        GETFRAMEPTR(((PTD)CURRENTPTD())->vpStack, pFrame);
-        GETARGPTR(pFrame, sizeof(PEEKMESSAGE16), parg16);
-        GETVDMPTR(parg16->vpMsg, sizeof(MSG16), pmsg16);
+        GETVDMPTR(vpMsg, sizeof(MSG16), pmsg16);
 
         dd = FETCHDWORD(pmsg16->lParam);
         ww = FETCHWORD(pmsg16->wParam);
@@ -739,28 +877,36 @@ get_next_dde_message:
         GlobalDeleteAtom (ww);
 
         if ((Status & fAckReq) || (t1.message == WM_DDE_POKE)) {
-            LoadString(HMODULEINSTANCE, iszOLEMemAllocFailedFatal, szMsgBoxText, sizeof szMsgBoxText);
-            LoadString(HMODULEINSTANCE, iszSystemError, szCaption, sizeof szCaption);
-            MessageBox(t1.hwnd, (LPCTSTR) szMsgBoxText, szCaption, MB_OK);
-            PostMessage ((HWND) t1.wParam, WM_DDE_TERMINATE,
-                    (WPARAM)FULLHWND32((WORD)t1.hwnd), (LPARAM)0l);
+            LoadString(hmodWOW32, iszOLEMemAllocFailedFatal, szMsgBoxText, sizeof szMsgBoxText);
+            LoadString(hmodWOW32, iszSystemError, szCaption, sizeof szCaption);
+            MessageBox(t1.hwnd, (LPCTSTR) szMsgBoxText, szCaption, MB_OK | MB_SETFOREGROUND | MB_TOPMOST);
+            PostMessage((HWND) t1.wParam, WM_DDE_TERMINATE, (WPARAM)FULLHWND32((WORD)t1.hwnd), (LPARAM)0l);
         }
         else {
-            LoadString(HMODULEINSTANCE, iszOLEMemAllocFailed, szMsgBoxText, sizeof szMsgBoxText);
-            LoadString(HMODULEINSTANCE, iszSystemError, szCaption, sizeof szCaption);
-            MessageBox(t1.hwnd, (LPCTSTR) szMsgBoxText, szCaption, MB_OK);
+            LoadString(hmodWOW32, iszOLEMemAllocFailed, szMsgBoxText, sizeof szMsgBoxText);
+            LoadString(hmodWOW32, iszSystemError, szCaption, sizeof szCaption);
+            MessageBox(t1.hwnd, (LPCTSTR) szMsgBoxText, szCaption, MB_OK | MB_SETFOREGROUND | MB_TOPMOST);
         }
 
-        FREEARGPTR(parg16);
         FREEVDMPTR(pmsg16);
+
+        // restore the frame ptr due to possible 16-bit memory movement
+        GETFRAMEPTR(((PTD)CURRENTPTD())->vpStack, pFrame);
 
         goto get_next_dde_message;
     }
+
+    BlockWOWIdle(FALSE);
 
     FREEARGPTR(parg16);
     FREEVDMPTR(pFrame);
     RETURN(ul);
 }
+
+
+
+
+
 
 
 /*++
@@ -793,6 +939,11 @@ ULONG FASTCALL WU32GetMessagePos(PVDMFRAME pFrame)
 
     RETURN(ul);
 }
+
+
+
+
+
 
 
 /*++
@@ -828,6 +979,11 @@ ULONG FASTCALL WU32GetMessageTime(PVDMFRAME pFrame)
 }
 
 
+
+
+
+
+
 /*++
     BOOL InSendMessage(VOID)
 
@@ -859,6 +1015,11 @@ ULONG FASTCALL WU32InSendMessage(PVDMFRAME pFrame)
 
     RETURN(ul);
 }
+
+
+
+
+
 
 
 /*++
@@ -949,30 +1110,35 @@ ULONG FASTCALL WU32InSendMessage(PVDMFRAME pFrame)
 ULONG FASTCALL WU32PeekMessage(PVDMFRAME pFrame)
 {
     ULONG ul;
+    VPMSG16 vpf1;
+    HANDLE  f2;
+    WORD    f3, f4, f5;
     MSG t1;
     register PPEEKMESSAGE16 parg16;
     BOOL fNoYield;
 
+    BlockWOWIdle(TRUE);
+
+// NOTE: pFrame needs to be restored on all GOTO's to get_next_dde_message
 get_next_dde_message:
 
     GETARGPTR(pFrame, sizeof(PEEKMESSAGE16), parg16);
 
+    vpf1 = parg16->f1;
+    f2   = HWND32(parg16->f2);
+    f3   = WORD32(parg16->f3);
+    f4   = WORD32(parg16->f4);
+    f5   = parg16->f5;
 
-    fNoYield = parg16->f5 & PM_NOYIELD;
-    if (!fNoYield) {
-        *pNtVDMState |= VDM_WOWBLOCKED;
-    }
+    fNoYield = f5 & PM_NOYIELD;
 
-    ul = GETBOOL16(PeekMessage(
-    &t1,
-    HWND32(parg16->f2),
-    WORD32(parg16->f3),
-    WORD32(parg16->f4),
-    WORD32(parg16->f5)
-    ));
+    ul = GETBOOL16(PeekMessage(&t1, f2, f3, f4, f5));
 
-    *pNtVDMState &= ~VDM_WOWBLOCKED;
-
+    // There could've been a task switch before peekmessage returned
+    // so Don't trust any 32 bit flat pointers we have, memory could
+    // have been compacted or moved.
+    FREEARGPTR(parg16);
+    FREEVDMPTR(pFrame);
 
 #ifdef DEBUG
     if (ul && t1.message == WM_TIMER) {
@@ -985,26 +1151,22 @@ get_next_dde_message:
     if (ul) {
         ULONG ulReturn;
 
-        // There Could have been a Task Switch Before Peekmessage Returned so Don't
-        // Trust any 32 bit flat pointers we have, memory could have been compacted or
-        // moved.
-
-        FREEARGPTR(parg16);
-        FREEVDMPTR(pFrame);
-
-        GETFRAMEPTR(((PTD)CURRENTPTD())->vpStack, pFrame);
-        GETARGPTR(pFrame, sizeof(PEEKMESSAGE16), parg16);
-
         //
-        // We need to set/reset fFreeDDElParam (based on PM_REMOVE flag)
+        // We need to set/reset fThunkDDEmsg (based on PM_REMOVE flag)
         // so that we know whether to call FreeDDElParam or not while
         // thunking 32 bit message to 16 bit message.
         //
 
-        fFreeDDElParam = (BOOL) ((WORD) WORD32(parg16->f5) & PM_REMOVE);
-        ulReturn = putmsg16(parg16->f1, &t1);
-        fFreeDDElParam = TRUE;
+        fThunkDDEmsg = (BOOL) (f5 & PM_REMOVE);
+        ulReturn = putmsg16(vpf1, &t1);
 
+        // There Could've been a Task Switch Before putmsg16 Returned so Don't
+        // Trust any 32 bit flat pointers we have, memory could have been 
+        // compacted or moved.
+        FREEARGPTR(parg16);
+        FREEVDMPTR(pFrame);
+
+        fThunkDDEmsg = TRUE;
 
         if (((t1.message == WM_DDE_DATA) || (t1.message == WM_DDE_POKE)) && (!ulReturn)) {
             register PMSG16 pmsg16;
@@ -1015,13 +1177,7 @@ get_next_dde_message:
             char szMsgBoxText[1024];
             char szCaption[256];
 
-
-            FREEARGPTR(parg16);
-            FREEVDMPTR(pFrame);
-
-            GETFRAMEPTR(((PTD)CURRENTPTD())->vpStack, pFrame);
-            GETARGPTR(pFrame, sizeof(PEEKMESSAGE16), parg16);
-            GETVDMPTR(parg16->f1, sizeof(MSG16), pmsg16);
+            GETVDMPTR(vpf1, sizeof(MSG16), pmsg16);
 
             dd = FETCHDWORD(pmsg16->lParam);
             ww = FETCHWORD(pmsg16->wParam);
@@ -1034,37 +1190,42 @@ get_next_dde_message:
 
             GlobalDeleteAtom (ww);
 
+            if (!(f5 & PM_REMOVE)) {
 
-            if (!((WORD) WORD32(parg16->f5) & PM_REMOVE)) {
-                ul = GETBOOL16(PeekMessage(
-                        &t1,
-                        HWND32(parg16->f2),
-                        WORD32(parg16->f3),
-                        WORD32(parg16->f4),
-                        WORD32(parg16->f5) | PM_REMOVE
-                        ));
+                ul = GETBOOL16(PeekMessage(&t1, f2, f3, f4, f5 | PM_REMOVE));
 
+                // There could've been a task switch before peekmessage returned
+                // so Don't trust any 32 bit flat pointers we have, memory could
+                // have been compacted or moved.
                 FREEARGPTR(parg16);
                 FREEVDMPTR(pFrame);
+                FREEVDMPTR(pmsg16);
 
-                GETFRAMEPTR(((PTD)CURRENTPTD())->vpStack, pFrame);
-                GETARGPTR(pFrame, sizeof(PEEKMESSAGE16), parg16);
+                // uncomment if parg16 is ref'd before goto get_next_dde_message
+                //GETFRAMEPTR(((PTD)CURRENTPTD())->vpStack, pFrame);
+                //GETARGPTR(pFrame, sizeof(PEEKMESSAGE16), parg16);
+
+                // uncomment if pmsg16 is ref'd before goto get_next_dde_message
+                //GETVDMPTR(vpf1, sizeof(MSG16), pmsg16);
             }
 
             if ((Status & fAckReq) || (t1.message == WM_DDE_POKE)) {
-                LoadString(HMODULEINSTANCE, iszOLEMemAllocFailedFatal, szMsgBoxText, sizeof szMsgBoxText);
-                LoadString(HMODULEINSTANCE, iszSystemError, szCaption, sizeof szCaption);
+
+                LoadString(hmodWOW32, iszOLEMemAllocFailedFatal, szMsgBoxText, sizeof szMsgBoxText);
+                LoadString(hmodWOW32, iszSystemError, szCaption, sizeof szCaption);
                 MessageBox(t1.hwnd, (LPCTSTR) szMsgBoxText, szCaption, MB_OK);
                 PostMessage ((HWND) t1.wParam, WM_DDE_TERMINATE, (WPARAM)FULLHWND32((WORD)t1.hwnd), (LPARAM)0l);
             }
             else {
-                LoadString(HMODULEINSTANCE, iszOLEMemAllocFailed, szMsgBoxText, sizeof szMsgBoxText);
-                LoadString(HMODULEINSTANCE, iszSystemError, szCaption, sizeof szCaption);
+                LoadString(hmodWOW32, iszOLEMemAllocFailed, szMsgBoxText, sizeof szMsgBoxText);
+                LoadString(hmodWOW32, iszSystemError, szCaption, sizeof szCaption);
                 MessageBox(t1.hwnd, (LPCTSTR) szMsgBoxText, szCaption, MB_OK);
             }
 
-            FREEARGPTR(parg16);
             FREEVDMPTR(pmsg16);
+
+            // restore the frame ptr due to possible 16-bit memory movement
+            GETFRAMEPTR(((PTD)CURRENTPTD())->vpStack, pFrame);
 
             goto get_next_dde_message;
         }
@@ -1087,7 +1248,7 @@ get_next_dde_message:
         // called with PM_NOYIELD and thus the 16bit memory couldn't have moved
 
         register PMSG16 pmsg16;
-        GETVDMPTR(parg16->f1, sizeof(MSG16), pmsg16);
+        GETVDMPTR(vpf1, sizeof(MSG16), pmsg16);
         if (pmsg16 && (pmsg16->message == WM_QUIT)) {
             pmsg16->message = 0;
         }
@@ -1095,10 +1256,17 @@ get_next_dde_message:
     }
 
 
+    BlockWOWIdle(FALSE);
+
     FREEARGPTR(parg16);
     FREEVDMPTR(pFrame);
     RETURN(ul);
 }
+
+
+
+
+
 
 
 /*++
@@ -1134,6 +1302,7 @@ get_next_dde_message:
 ULONG FASTCALL WU32PostAppMessage(PVDMFRAME pFrame)
 {
     register PPOSTAPPMESSAGE16 parg16;
+    DWORD    f1;
     MSGPARAMEX mpex;
 
     GETARGPTR(pFrame, sizeof(POSTAPPMESSAGE16), parg16);
@@ -1144,16 +1313,16 @@ ULONG FASTCALL WU32PostAppMessage(PVDMFRAME pFrame)
     mpex.Parm16.WndProc.wParam = WORD32(parg16->f3);
     mpex.Parm16.WndProc.lParam = LONG32(parg16->f4);
     mpex.iMsgThunkClass = 0;
+
+    f1 = THREADID32(parg16->f1);
+
     ThunkMsg16(&mpex);
-    mpex.lReturn = PostThreadMessage((DWORD)THREADID32(parg16->f1),
-                                        mpex.uMsg, mpex.uParam, mpex.lParam);
-#ifdef DEBUG
-    {
-        PTD ptd;
-        ptd = CURRENTPTD();
-        WOW32ASSERT(VDMPTR(ptd->vpStack,1) == pFrame);  // contact MattFe
-    }
-#endif
+
+    // Note: ThunkMsg16 may have caused 16-bit memory movement
+    FREEARGPTR(pFrame);    
+    FREEARGPTR(parg16);
+
+    mpex.lReturn = PostThreadMessage(f1, mpex.uMsg, mpex.uParam, mpex.lParam);
 
     if (MSG16NEEDSTHUNKING(&mpex)) {
         (mpex.lpfnUnThunk16)(&mpex);
@@ -1162,6 +1331,11 @@ ULONG FASTCALL WU32PostAppMessage(PVDMFRAME pFrame)
     FREEARGPTR(parg16);
     RETURN((ULONG)mpex.lReturn);
 }
+
+
+
+
+
 
 
 /*++
@@ -1222,8 +1396,10 @@ ULONG FASTCALL WU32PostAppMessage(PVDMFRAME pFrame)
 ULONG FASTCALL WU32PostMessage(PVDMFRAME pFrame)
 {
     LONG l;
+    UINT f2;
+    WPARAM f3;
+    LPARAM f4;
     HWND hwnd;
-    UINT uMsgNew;
     register PPOSTMESSAGE16 parg16;
     MSGPARAMEX mpex;
     DWORD err = NO_ERROR;
@@ -1250,44 +1426,48 @@ ULONG FASTCALL WU32PostMessage(PVDMFRAME pFrame)
 
     fWhoCalled = WOWDDE_POSTMESSAGE;
 
+    f2 = (UINT)WORD32(parg16->f2);
+    f3 = (WPARAM)(WORD32(parg16->f3));
+    f4 = (LPARAM)(LONG32(parg16->f4));
+
     mpex.lReturn = 0;
     mpex.Parm16.WndProc.hwnd   = parg16->f1;
-    mpex.Parm16.WndProc.wMsg   = WORD32(parg16->f2);
-    mpex.Parm16.WndProc.wParam = WORD32(parg16->f3);
-    mpex.Parm16.WndProc.lParam = LONG32(parg16->f4);
+    mpex.Parm16.WndProc.wMsg   = f2;
+    mpex.Parm16.WndProc.wParam = f3;
+    mpex.Parm16.WndProc.lParam = f4;
     mpex.iMsgThunkClass = 0;
+
+    // The Reader.exe shipped with Lotus 123MM version has a message 
+    // synchronization problem.  Force proper synchronization by 
+    // converting this PostMessage call to a SendMessage().
+    if ((f2 == WM_VSCROLL) &&
+         ((f3 == SB_THUMBTRACK) || (f3 == SB_THUMBPOSITION)) &&
+         (CURRENTPTD()->dwWOWCompatFlagsEx & WOWCFEX_SENDPOSTEDMSG) ) {
+
+        l = (LONG)WU32SendMessage(pFrame);
+        FREEARGPTR(parg16);
+        RETURN((ULONG) l);
+    }
+
     hwnd = ThunkMsg16(&mpex);
+
+    // Note: ThunkMsg16 may have caused 16-bit memory movement
+    FREEARGPTR(pFrame);
+    FREEARGPTR(parg16);
 
     fWhoCalled = FALSE;
     if (hwnd) {
-        uMsgNew = mpex.uMsg;
 
         l = PostMessage(hwnd, mpex.uMsg, mpex.uParam, mpex.lParam);
+
         if (!l)
             err = GetLastError();
 
-#ifdef DEBUG
-    {
-        PTD ptd;
-        ptd = CURRENTPTD();
-        WOW32ASSERT(VDMPTR(ptd->vpStack,1) == pFrame);  // contact MattFe
-    }
-#endif
         mpex.lReturn = l;
         if (MSG16NEEDSTHUNKING(&mpex)) {
             (mpex.lpfnUnThunk16)(&mpex);
         }
 
-        // EM_SETSEL no longer positions the caret on NT as Win3.1 did.  The new procedure
-        // is to send an EM_SETSEL message and then if you want the caret to be scrolled
-        // into view you send an EM_SCROLLCARET message.  This code will do this to emulate
-        // the Win 3.1 EM_SETSEL correctly on NT (This is for PostMessage just in case an
-        // app decides to post instead of send these messages)
-        if( uMsgNew == EM_SETSEL )
-        {
-            if( !(WORD32(parg16->f3)) )
-                PostMessage( hwnd, EM_SCROLLCARET, 0, 0 ) ;
-        }
 
         // If the post message failed, then the message was probably one
         // that has pointers and therefore can not be posted. (MetaDesign
@@ -1301,10 +1481,8 @@ ULONG FASTCALL WU32PostMessage(PVDMFRAME pFrame)
             pww = FindPWW(hwnd, WOWCLASS_UNKNOWN);
 
             if (pww != NULL && pww->iClass != WOWCLASS_UNKNOWN) {
-                mpex.lReturn = PostMessage(hwnd,
-                                      WORD32(parg16->f2) | WOWPRIVATEMSG,
-                                      WORD32(parg16->f3),
-                                      LONG32(parg16->f4));
+
+                mpex.lReturn = PostMessage(hwnd, f2 | WOWPRIVATEMSG, f3, f4);
             }
         }
     }
@@ -1312,6 +1490,11 @@ ULONG FASTCALL WU32PostMessage(PVDMFRAME pFrame)
     FREEARGPTR(parg16);
     RETURN((ULONG)mpex.lReturn);
 }
+
+
+
+
+
 
 
 /*++
@@ -1344,13 +1527,16 @@ ULONG FASTCALL WU32PostQuitMessage(PVDMFRAME pFrame)
 
     GETARGPTR(pFrame, sizeof(POSTQUITMESSAGE16), parg16);
 
-    PostQuitMessage(
-    INT32(parg16->wExitCode)
-    );
+    PostQuitMessage(INT32(parg16->wExitCode));
 
     FREEARGPTR(parg16);
     RETURN(0);
 }
+
+
+
+
+
 
 
 /*++
@@ -1390,14 +1576,17 @@ ULONG FASTCALL WU32RegisterWindowMessage(PVDMFRAME pFrame)
     GETARGPTR(pFrame, sizeof(REGISTERWINDOWMESSAGE16), parg16);
     GETPSZPTR(parg16->f1, psz1);
 
-    ul = GETWORD16(RegisterWindowMessage(
-    psz1
-    ));
+    ul = GETWORD16(RegisterWindowMessage(psz1));
 
     FREEPSZPTR(psz1);
     FREEARGPTR(parg16);
     RETURN(ul);
 }
+
+
+
+
+
 
 
 /*++
@@ -1441,16 +1630,19 @@ ULONG FASTCALL WU32ReplyMessage(PVDMFRAME pFrame)
 
     GETARGPTR(pFrame, sizeof(REPLYMESSAGE16), parg16);
 
-    ReplyMessage(
-    LONG32(parg16->f1)
-    );
+    ReplyMessage(LONG32(parg16->f1));
 
-    // WARNING - Don't use any 32 bit flat pointers after call to ReplyMessage, other tasks
-    // Might have run and made the pointers invalid.
+    // WARNING - Don't use any 32 bit flat pointers after call to ReplyMessage,
+    //           other tasks might have run and made the pointers invalid.
 
     FREEARGPTR(parg16);
     RETURN(0);
 }
+
+
+
+
+
 
 
 /*++
@@ -1490,6 +1682,8 @@ ULONG FASTCALL WU32ReplyMessage(PVDMFRAME pFrame)
     control and calling the %SendMessage% function.
 --*/
 
+#define W31EM_GETRECT (WM_USER+2)  // w31 EM_GETRECT != NT EM_GETRECT
+
 ULONG FASTCALL WU32SendDlgItemMessage(PVDMFRAME pFrame)
 {
     HWND hdlg, hwndItem;
@@ -1500,6 +1694,16 @@ static HWND  hwndCached = NULL ;
 static DWORD dwCachedItem = 0L ;
 
     GETARGPTR(pFrame, sizeof(SENDDLGITEMMESSAGE16), parg16);
+
+    // QuarkExpress v3.31 passes a hard coded 7fff:0000 as the pointer to the
+    // RECT struct for EM_GETRECT message - W3.1 rejects it in validation layer
+    if( (DWORD32(parg16->f5) == 0x7FFF0000)    &&
+        (WORD32(parg16->f3) == W31EM_GETRECT)  &&
+        (CURRENTPTD()->dwWOWCompatFlagsEx & WOWCFEX_BOGUSPOINTER) ) {
+
+        FREEARGPTR(parg16);
+        RETURN((ULONG)0);
+    }
 
     // Need unique handle
     hdlg = (HWND)FULLHWND32(parg16->f1);
@@ -1534,7 +1738,13 @@ static DWORD dwCachedItem = 0L ;
         mpex.Parm16.WndProc.wParam = WORD32(parg16->f4);
         mpex.Parm16.WndProc.lParam = LONG32(parg16->f5);
         mpex.iMsgThunkClass = 0;
+
         if (ThunkMsg16(&mpex)) {
+
+            // Note: ThunkMsg16 may have caused memory movement
+            FREEARGPTR(pFrame);
+            FREEARGPTR(parg16);
+
             /*
             ** Since we already know which window the message is going to
             ** don't make USER32 look it up again. - MarkRi
@@ -1551,6 +1761,11 @@ static DWORD dwCachedItem = 0L ;
     FREEARGPTR(parg16);
     RETURN((ULONG)mpex.lReturn);
 }
+
+
+
+
+
 
 
 /*++
@@ -1587,6 +1802,8 @@ static DWORD dwCachedItem = 0L ;
 
 ULONG FASTCALL WU32SendMessage(PVDMFRAME pFrame)
 {
+    // NOTE: This can be called directly by WU32PostMessage!!!
+
     HWND hwnd;
     register PSENDMESSAGE16 parg16;
     MSGPARAMEX mpex;
@@ -1630,35 +1847,35 @@ ULONG FASTCALL WU32SendMessage(PVDMFRAME pFrame)
     mpex.Parm16.WndProc.wParam = uParamOld;
     mpex.Parm16.WndProc.lParam = lParamOld;
     mpex.iMsgThunkClass = 0;
+
     hwnd = ThunkMsg16(&mpex);
+
+    // Note: ThunkMsg16 may have caused memory movement
+    FREEARGPTR(pFrame);
+    FREEARGPTR(parg16);
+
     fWhoCalled = FALSE;
 
     if (hwnd) {
-        *pNtVDMState |= VDM_WOWBLOCKED;
+        BlockWOWIdle(TRUE);
         mpex.lReturn = SendMessage(hwnd, mpex.uMsg, mpex.uParam, mpex.lParam);
-        *pNtVDMState &= ~VDM_WOWBLOCKED;
+        BlockWOWIdle(FALSE);
 
         fWhoCalled = WOWDDE_POSTMESSAGE;
         if (MSG16NEEDSTHUNKING(&mpex)) {
             (mpex.lpfnUnThunk16)(&mpex);
         }
         fWhoCalled = FALSE;
-
-        // EM_SETSEL no longer positions the caret on NT as Win3.1 did.  The new procedure
-        // is to send an EM_SETSEL message and then if you want the caret to be scrolled
-        // into view you send an EM_SCROLLCARET message.  This code will do this to emulate
-        // the Win 3.1 EM_SETSEL correctly on NT
-
-        if( mpex.uMsg == EM_SETSEL )
-        {
-            if( !uParamOld )
-                SendMessage( hwnd, EM_SCROLLCARET, 0, 0 ) ;
-        }
     }
 
     FREEARGPTR(parg16);
     RETURN((ULONG)mpex.lReturn);
 }
+
+
+
+
+
 
 
 /*++
@@ -1694,9 +1911,7 @@ ULONG FASTCALL WU32SetMessageQueue(PVDMFRAME pFrame)
 
     GETARGPTR(pFrame, sizeof(SETMESSAGEQUEUE16), parg16);
 
-    ul = GETBOOL16(SetMessageQueue(
-    INT32(parg16->f1)
-    ));
+    ul = GETBOOL16(SetMessageQueue(INT32(parg16->f1)));
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -1706,6 +1921,11 @@ ULONG FASTCALL WU32SetMessageQueue(PVDMFRAME pFrame)
     return TRUE;    // WIN32 doesn't have sizeable message queues
 #endif
 }
+
+
+
+
+
 
 
 /*++
@@ -1787,12 +2007,17 @@ ULONG FASTCALL WU32TranslateAccelerator(PVDMFRAME pFrame)
     GETARGPTR(pFrame, sizeof(TRANSLATEACCELERATOR16), parg16);
 
     W32CopyMsgStruct(parg16->f3, &t3, TRUE);
-    ul = GETINT16(TranslateAccelerator(HWND32(parg16->f1),
-                                          HACCEL32(parg16->f2), &t3 ));
+    ul = GETINT16(TranslateAccelerator(HWND32(parg16->f1), 
+                                       HACCEL32(parg16->f2), &t3 ));
 
     FREEARGPTR(parg16);
     RETURN(ul);
 }
+
+
+
+
+
 
 
 /*++
@@ -1826,11 +2051,17 @@ ULONG FASTCALL WU32TranslateMDISysAccel(PVDMFRAME pFrame)
     GETARGPTR(pFrame, sizeof(TRANSLATEMDISYSACCEL16), parg16);
 
     W32CopyMsgStruct(parg16->f2, &t2, TRUE);
+
     ul = GETBOOL16(TranslateMDISysAccel(HWND32(parg16->f1), &t2));
 
     FREEARGPTR(parg16);
     RETURN(ul);
 }
+
+
+
+
+
 
 
 /*++
@@ -1878,11 +2109,17 @@ ULONG FASTCALL WU32TranslateMessage(PVDMFRAME pFrame)
     GETARGPTR(pFrame, sizeof(TRANSLATEMESSAGE16), parg16);
 
     W32CopyMsgStruct(parg16->f1, &t1, TRUE);
+
     ul = GETBOOL16(TranslateMessage( &t1 ));
 
     FREEARGPTR(parg16);
     RETURN(ul);
 }
+
+
+
+
+
 
 
 /*++
@@ -1915,14 +2152,19 @@ ULONG FASTCALL WU32WaitMessage(PVDMFRAME pFrame)
 {
     UNREFERENCED_PARAMETER(pFrame);
 
-    *pNtVDMState |= VDM_WOWBLOCKED;
+    BlockWOWIdle(TRUE);
 
     WaitMessage();
 
-    *pNtVDMState &= ~VDM_WOWBLOCKED;
+    BlockWOWIdle(FALSE);
 
     RETURN(0);
 }
+
+
+
+
+
 
 
 //----------------------------------------------------------------------------

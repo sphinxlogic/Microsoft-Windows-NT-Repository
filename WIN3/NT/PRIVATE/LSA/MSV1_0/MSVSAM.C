@@ -33,6 +33,7 @@ Revision History:
 #include <rpc.h>        // Needed by samrpc.h
 #include <samrpc.h>     // Samr Routines
 #include <samisrv.h>    // SamIFree routines
+#include <ssi.h>        // SSI_ACCOUNT_POSTFIX_CHAR
 
 
 
@@ -195,6 +196,7 @@ Return Value:
 
         LogonNetworkInfo =
             (PNETLOGON_NETWORK_INFO) LogonInformation;
+
 
         //
         // If we're in UasCompatibilityMode,
@@ -568,6 +570,9 @@ Return Value:
     USER_SESSION_KEY UserSessionKey;
     LM_SESSION_KEY LmSessionKey;
     ULONG WhichFields = 0;
+    ULONG LocalUserFlags = 0;
+    ULONG Flags = 0;
+    ULONG DllNumber;
 
     UNICODE_STRING LocalWorkstation;
     ULONG UserAccountControl;
@@ -753,8 +758,9 @@ Return Value:
     // Ensure the account isn't locked out.
     //
 
-    if (RelativeId != DOMAIN_USER_RID_ADMIN) {
-        if ( UserAll->UserAccountControl & USER_ACCOUNT_AUTO_LOCKED ) {
+    if ( UserAll->UserAccountControl & USER_ACCOUNT_AUTO_LOCKED ) {
+
+        if (RelativeId != DOMAIN_USER_RID_ADMIN) {
 
              //
              // Since the UI strongly encourages admins to disable user
@@ -769,6 +775,57 @@ Return Value:
              }
             Status = STATUS_ACCOUNT_LOCKED_OUT;
             goto Cleanup;
+        } else {
+            PSAMPR_DOMAIN_INFO_BUFFER DomainInfo = NULL;
+            PDOMAIN_PASSWORD_INFORMATION DomainPassword;
+
+            //
+            // For administrators we need to check domain password
+            // policy to see if they can be locked out. If they can
+            // be locked out then they can only log on from a domain
+            // controller.
+            //
+
+            Status = SamrQueryInformationDomain(
+                        DomainHandle,
+                        DomainPasswordInformation,
+                        &DomainInfo );
+        
+            if (!NT_SUCCESS(Status)) {
+                *Authoritative = FALSE;
+                goto Cleanup;
+            }
+        
+            DomainPassword = &DomainInfo->Password;
+
+            if ((DomainPassword->PasswordProperties & DOMAIN_LOCKOUT_ADMINS) != 0) {
+                //
+                // Administrators are supposed to be locked out if they are
+                // not logging on locally
+                //
+
+                if (!RtlEqualUnicodeString(
+                        &NlpComputerName,
+                        &LogonInfo->Workstation,
+                        FALSE) ||
+                     (LogonLevel != NetlogonInteractiveInformation)) {
+
+                    //
+                    // Admin accounts can't be disabled, so this is always
+                    // authoritative.
+                    //
+
+                    *Authoritative = TRUE;
+                
+                    Status = STATUS_ACCOUNT_LOCKED_OUT;
+                }
+            }
+
+            SamIFree_SAMPR_DOMAIN_INFO_BUFFER( DomainInfo, DomainPasswordInformation );
+
+            if (!NT_SUCCESS(Status)) {
+                goto Cleanup;
+            }
         }
     }
 
@@ -781,8 +838,6 @@ Return Value:
     //
 
     if ( LogonInfo->ParameterControl & MSV1_0_SUBAUTHENTICATION_DLL ) {
-        ULONG LocalUserFlags = 0;
-        ULONG Flags = 0;
 
         if ( SecureChannelType != MsvApSecureChannel ) {
             Flags |= MSV1_0_PASSTHRU;
@@ -918,12 +973,110 @@ Return Value:
                            USER_WORKSTATION_TRUST_ACCOUNT) {
                     Status = STATUS_NOLOGON_WORKSTATION_TRUST_ACCOUNT;
                 } else if (UserAll->UserAccountControl & USER_SERVER_TRUST_ACCOUNT){
-                    Status = STATUS_NOLOGON_SERVER_TRUST_ACCOUNT;
-                } else {
-                    Status = STATUS_NO_SUCH_USER;
+                    //
+                    // If we are asked to allow logging on to a server trust account
+                    // and the account is a server trust account, make sure that the
+                    // user name equals the workstation name and the password on the
+                    // account is the same as the workstation name.
+                    //
+
+                    if ((LogonInfo->ParameterControl & MSV1_0_ALLOW_SERVER_TRUST_ACCOUNT) != 0) {
+
+                        NT_OWF_PASSWORD WorkstationPassword;
+                        UNICODE_STRING TempUserName;
+                        UNICODE_STRING TempMachineName;
+                        WCHAR UserNameBuffer[CNLEN+1];
+
+                        //
+                        // If someone passed in this bit we need to make
+                        // sure that the user name they passed was the same
+                        // as the workstation name.
+                        //
+
+                        TempUserName = LogonInfo->UserName;
+                        TempMachineName = LogonInfo->Workstation;
+
+                        //
+                        // Skip UNC marks on the machine name
+                        //
+
+                        if (TempMachineName.Length >= 2*sizeof(WCHAR) &&
+                            (TempMachineName.Buffer[0] == L'\\') &&
+                            (TempMachineName.Buffer[1] == L'\\')) {
+                            TempMachineName.Buffer += 2;
+                            TempMachineName.Length -= 2 * sizeof(WCHAR);
+                        }
+
+                        if ((TempUserName.Length > sizeof(WCHAR)) &&
+                            (TempUserName.Buffer[TempUserName.Length/sizeof(WCHAR) - 1] ==
+                                SSI_ACCOUNT_NAME_POSTFIX_CHAR)) {
+                            TempUserName.Length -= 2;
+
+                            if (RtlEqualUnicodeString(
+                                    &TempUserName,
+                                    &LogonInfo->Workstation,
+                                    TRUE // case insensitive
+                                    )) {
+
+                                //
+                                // Let the client know that this was
+                                // a server trust account
+                                //
+
+
+                                UserFlags |= LOGON_SERVER_TRUST_ACCOUNT;
+
+                                //
+                                // Calculate the default password for a trust account,
+                                // which is just the lowercase computer name
+                                //
+
+                                RtlCopyMemory(
+                                    UserNameBuffer,
+                                    TempUserName.Buffer,
+                                    TempUserName.Length
+                                    );
+
+                                UserNameBuffer[TempUserName.Length/sizeof(WCHAR)] = L'\0';
+                                TempUserName.Buffer = UserNameBuffer;
+
+                                Status = RtlDowncaseUnicodeString(
+                                            &TempUserName,
+                                            &TempUserName,
+                                            FALSE
+                                            );
+                                ASSERT(NT_SUCCESS(Status));
+
+                                Status = RtlCalculateNtOwfPassword(
+                                            &TempUserName,
+                                            &WorkstationPassword
+                                            );
+                                ASSERT(NT_SUCCESS(Status));
+
+                                //
+                                // If the password does equal the server name, fail
+                                // here.
+                                //
+
+                                if (RtlEqualNtOwfPassword(
+                                        &WorkstationPassword,
+                                        (PNT_OWF_PASSWORD) UserAll->NtOwfPassword.Buffer
+                                        )) {
+                                    Status = STATUS_NOLOGON_SERVER_TRUST_ACCOUNT;
+                                }
+
+                            } else {
+                                Status = STATUS_NOLOGON_SERVER_TRUST_ACCOUNT;
+                            }
+                        }
+                    } else {
+                        Status = STATUS_NOLOGON_SERVER_TRUST_ACCOUNT;
+                    }
                 }
-                *Authoritative = TRUE;
-                goto Cleanup;
+                if (!NT_SUCCESS(Status)) {
+                    *Authoritative = TRUE;
+                    goto Cleanup;
+                }
             }
         }
 
@@ -954,9 +1107,9 @@ Return Value:
             //
 
             OLD_TO_NEW_LARGE_INTEGER( UserAll->AccountExpires, AccountExpires );
-        
-            if ( !RtlLargeIntegerEqualToZero(AccountExpires) &&
-                 RtlLargeIntegerGreaterThanOrEqualTo(LogonTime, AccountExpires)) {
+
+            if ( AccountExpires.QuadPart != 0 &&
+                 LogonTime.QuadPart >= AccountExpires.QuadPart ) {
                 *Authoritative = TRUE;
                 Status = STATUS_ACCOUNT_EXPIRED;
                 goto Cleanup;
@@ -975,11 +1128,9 @@ Return Value:
             OLD_TO_NEW_LARGE_INTEGER( UserAll->PasswordLastSet, PasswordLastSet );
 
             if ( SecureChannelType != NullSecureChannel ) {
-                if ( RtlLargeIntegerGreaterThanOrEqualTo(
-                        LogonTime,
-                        PasswordMustChange ) ) {
+                if ( LogonTime.QuadPart >= PasswordMustChange.QuadPart ) {
 
-                    if ( RtlLargeIntegerEqualToZero(PasswordLastSet) ) {
+                    if ( PasswordLastSet.QuadPart == 0 ) {
                         Status = STATUS_PASSWORD_MUST_CHANGE;
                     } else {
                         Status = STATUS_PASSWORD_EXPIRED;
@@ -1022,6 +1173,51 @@ Return Value:
             *Authoritative = TRUE;
             goto Cleanup;
         }
+
+
+        //
+        // If there is a SubAuthentication package zero, call it
+        //
+
+        if (NlpSubAuthZeroExists) {
+            if ( SecureChannelType != MsvApSecureChannel ) {
+                Flags |= MSV1_0_PASSTHRU;
+            }
+            if ( GuestRelativeId != 0 ) {
+                Flags |= MSV1_0_GUEST_LOGON;
+            }
+
+
+            Status = Msv1_0SubAuthenticationRoutine(
+                        LogonLevel,
+                        LogonInformation,
+                        Flags,
+                        (PUSER_ALL_INFORMATION) UserAll,
+                        &WhichFields,
+                        &LocalUserFlags,
+                        Authoritative,
+                        &LogoffTime,
+                        &KickoffTime );
+
+            if ( !NT_SUCCESS(Status) ) {
+                goto Cleanup;
+            }
+
+            //
+            // Sanity check what the SubAuthentication package returned
+            //
+
+            if ( (WhichFields & ~USER_ALL_PARAMETERS) != 0 ) {
+                Status = STATUS_INTERNAL_ERROR;
+                *Authoritative = TRUE;
+                goto Cleanup;
+            }
+
+            UserFlags |= LocalUserFlags;
+
+        }
+
+
     }
 
 
@@ -1548,7 +1744,7 @@ Routine Description:
     statistics and packages the result for return to the caller.
 
     This routine is called directly from the MSV Authentication package
-    on any system where LanMan is not installed.  This routine is called
+    if the account is defined locally.  This routine is called
     from the Netlogon Service otherwise.
 
 Arguments:
@@ -1615,6 +1811,14 @@ Return Value:
     *BadPasswordCountZeroed = FALSE;
 
     if ( AccountsToTry & MSVSAM_SPECIFIED ) {
+
+        //
+        // Keep track of the total number of logons attempted.
+        //
+
+        RtlEnterCriticalSection(&NlpSessionCountLock);
+        NlpLogonAttemptCount ++;
+        RtlLeaveCriticalSection(&NlpSessionCountLock);
 
         Status = MsvpSamValidate( (SAMPR_HANDLE) DomainHandle,
                                   UasCompatibilityRequired,
@@ -1714,13 +1918,12 @@ MsvSamLogoff (
 
 Routine Description:
 
-    Process an interactive, network, or session logon.  It calls
-    SamIUserValidation, validates the passed in credentials, updates the logon
-    statistics and packages the result for return to the caller.
+    Process an interactive, network, or session logoff.  It simply updates
+    the logon statistics for the user account.
 
     This routine is called directly from the MSV Authentication package
-    on any system where LanMan is not installed.  This routine is called
-    from the Netlogon Service otherwise.
+    if the user was logged on not using the Netlogon service.  This routine
+    is called from the Netlogon Service otherwise.
 
 Arguments:
 
@@ -1851,4 +2054,38 @@ Cleanup:
     }
 
     return Status;
+}
+
+
+ULONG
+MsvGetLogonAttemptCount (
+    VOID
+)
+/*++
+
+Routine Description:
+
+    Return the number of logon attempts since the last reboot.
+
+Arguments:
+
+    NONE
+
+Return Value:
+
+    Returns the number of logon attempts since the last reboot.
+
+--*/
+{
+    ULONG LogonAttemptCount;
+
+    //
+    // Keep track of the total number of logons attempted.
+    //
+
+    RtlEnterCriticalSection(&NlpSessionCountLock);
+    LogonAttemptCount = NlpLogonAttemptCount;
+    RtlLeaveCriticalSection(&NlpSessionCountLock);
+
+    return LogonAttemptCount;
 }

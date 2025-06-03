@@ -34,4 +34,4 @@
 BOOL LoadMainWindowPlacement (HWND hWnd) ;
 
 BOOL SaveMainWindowPlacement (HWND hWnd) ;
-
+

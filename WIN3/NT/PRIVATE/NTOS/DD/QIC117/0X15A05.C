@@ -14,6 +14,9 @@
 * HISTORY:
 *		$Log:   J:\se.vcs\driver\q117kdi\nt\src\0x15a05.c  $
 *	
+*	   Rev 1.2   10 Aug 1994 09:53:18   BOBLEHMA
+*	Changed cast from a dUDDWordPtr to dSDDWordPtr.
+*	
 *	   Rev 1.1   18 Jan 1994 16:24:16   KEVINKES
 *	Updated the debug code and fixed compile errors.
 *
@@ -198,4 +201,3 @@ dVoid kdi_ThreadRun
 
    } while ( TRUE );
 }
-

@@ -1,9 +1,11 @@
-/* fcomp - this algorithm was adapted from one presented in 
+/* fcomp - this algorithm was adapted from one presented in
    Software-Practice and Experience, Vol. 15(11), November 1985,
    by Webb Miller and Eugene W. Myers.
 */
 
-#include <stdio.h>
+#include "precomp.h"
+#pragma hdrstop
+EnableAssert
 
 #define fTrue 1
 #define fFalse 0
@@ -29,7 +31,7 @@ typedef short K;		/* K -      ("   "      "     "  ) */
 
 typedef short unsigned OE;	/* word offset to entry within rgee */
 
-typedef struct 
+typedef struct
 	{
 	OE oe:15;
 	unsigned fDelete:1;	/* operation */
@@ -231,7 +233,7 @@ ROW *prcMac;	/* Row or Col */
 	IB ib, ibMac;
 	POS pos;
 	ROW rc;
-	long lseek();
+	long _lseek();
 
 	if ((fd = open(sz, 0)) < 0)
 		{
@@ -239,7 +241,7 @@ ROW *prcMac;	/* Row or Col */
 		exit(1);
 		}
 
-	pos = lseek(fd, 0L, 2);		/* seek to end and determine size */
+	pos = _lseek(fd, 0L, 2);		/* seek to end and determine size */
 
 	if (pos > (POS)(sizeof(rgbRow)-1))
 		{
@@ -247,7 +249,7 @@ ROW *prcMac;	/* Row or Col */
 		exit(1);
 		}
 
-	lseek(fd, 0L, 0);		/* back to beginning */
+	_lseek(fd, 0L, 0);		/* back to beginning */
 	ibMac = (IB)pos;
 	
 	if (fread(fd, rgb, ibMac) != ibMac)
@@ -372,11 +374,11 @@ OE oe;
 				{
 				oeA = oeB;
 				oeB = PeeForOe(oeB)->oe;
-				} 
-			while (oeB != oeNil && PeeForOe(oeB)->fDelete && 
+				}
+			while (oeB != oeNil && PeeForOe(oeB)->fDelete &&
 			       PeeForOe(oeB)->row == PeeForOe(oeA)->row+1);
 
-			fChange = (oeB != oeNil && !PeeForOe(oeB)->fDelete && 
+			fChange = (oeB != oeNil && !PeeForOe(oeB)->fDelete &&
 				PeeForOe(oeB)->row == PeeForOe(oeA)->row);
 
 			if (fChange)
@@ -390,7 +392,7 @@ OE oe;
 				printf("lines %d-%d:\n", PeeForOe(oe)->row, PeeForOe(oeA)->row);
 
 			/* print the deleted lines */
-			do 
+			do
 				{
 				printf("  %s\n", SzForRow(PeeForOe(oe)->row-1));
 				oe = PeeForOe(oe)->oe;
@@ -404,12 +406,12 @@ OE oe;
 			}
 
 		/* print the inserted lines */
-		do 
+		do
 			{
 			printf("  %s\n", SzForCol(PeeForOe(oe)->col-1));
 			oe = PeeForOe(oe)->oe;
-			} 
-		while (oe != oeNil && !PeeForOe(oe)->fDelete && 
+			}
+		while (oe != oeNil && !PeeForOe(oe)->fDelete &&
 			PeeForOe(oe)->row == PeeForOe(oeB)->row);
 		}
 	}

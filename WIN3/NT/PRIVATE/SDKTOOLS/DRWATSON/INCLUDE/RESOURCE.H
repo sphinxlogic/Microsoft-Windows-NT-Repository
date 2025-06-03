@@ -43,6 +43,10 @@ Environment:
 #define ID_WAVEFILE_TEXT        121
 #define ID_USAGE                122
 #define ID_ABOUT                123
+#define ID_CRASH                124
+#define ID_CRASH_DUMP           125
+#define ID_BROWSE_CRASH         126
+#define ID_CRASH_DUMP_TEXT      127
 
 #define IDS_APPLICATION_NAME    201
 #define IDS_FATAL_ERROR         202
@@ -63,6 +67,10 @@ Environment:
 #define IDS_WAVE_FILTER         217
 #define IDS_UNKNOWN_MACHINE     218
 #define IDS_UNKNOWN_USER        219
+#define IDS_ABOUT               220
+#define IDS_DUMPBROWSE_TITLE    221
+#define IDS_DUMP_FILTER         222
+#define IDS_INVALID_CRASH_PATH  223
 
 #define IDH_INDEX               701
 #define IDH_WHAT                702
@@ -86,6 +94,8 @@ Environment:
 #define IDH_VIEW                720
 #define IDH_CLEAR               721
 #define IDH_APPERRORS           722
+#define IDH_CRASH               723
+#define IDH_CRASH_DUMP          724
 
 
 #define NOTIFYDIALOG            501
@@ -98,6 +108,7 @@ Environment:
 #define DRWATSONACCEL           508
 #define APPICON                 509
 #define USAGEDIALOG             510
+#define DUMPFILEOPENDIALOG      511
 
 #define stc1                 0x0440
 #define stc2                 0x0441

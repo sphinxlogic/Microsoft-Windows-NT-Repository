@@ -34,10 +34,15 @@ SrvXsFreeSharedMemory (
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text( PAGE, SrvXsConnect )
 #pragma alloc_text( PAGE, SrvXsRequest )
+#pragma alloc_text( PAGE, SrvXsInformThreadDeath )
+#pragma alloc_text( PAGE, SrvXsLSOperation )
 #pragma alloc_text( PAGE, SrvXsDisconnect )
 #pragma alloc_text( PAGE, SrvXsFreeSharedMemory )
 #pragma alloc_text( PAGE, SrvXsAllocateHeap )
 #pragma alloc_text( PAGE, SrvXsFreeHeap )
+#ifdef  SRV_PNP_POWER
+#pragma alloc_text( PAGE, SrvXsPnpOperation )
+#endif
 #endif
 
 //
@@ -282,6 +287,8 @@ Return Value:
              apiNumber != API_WWkstaUserLogoff          &&
              apiNumber != API_WNetWriteUpdateLog        &&
              apiNumber != API_WNetAccountUpdate         &&
+             apiNumber != API_SamOEMChgPasswordUser2_P  &&
+             apiNumber != API_NetServerEnum3            &&
              apiNumber != API_WNetAccountConfirmUpdate  ) {
 
             IF_DEBUG(ERRORS) {
@@ -315,8 +322,7 @@ Return Value:
     transaction->OutData += SrvXsPortMemoryDelta;
 
     //
-    // Make sure that XACTSRV is active and allocate space from the port
-    // heap for the transport name.
+    // Build the transport name in the message.
     //
 
     requestMessage.Message.DownLevelApi.TransportName =
@@ -331,9 +337,6 @@ Return Value:
         goto exit;
     }
 
-    //
-    // Build the transport name in the message.
-    //
 
     requestMessage.Message.DownLevelApi.TransportNameLength =
                         WorkContext->Endpoint->TransportName.Length;
@@ -357,6 +360,16 @@ Return Value:
     requestMessage.Message.DownLevelApi.TransportName =
         (PWSTR)((PUCHAR)requestMessage.Message.DownLevelApi.TransportName +
                                                 SrvXsPortMemoryDelta);
+
+    //
+    // Build the server name in the message
+    //
+    RtlCopyMemory(
+        requestMessage.Message.DownLevelApi.ServerName,
+        WorkContext->Endpoint->TransportAddress.Buffer,
+        MIN( sizeof(requestMessage.Message.DownLevelApi.ServerName),
+             WorkContext->Endpoint->TransportAddress.Length )
+        );
 
     requestMessage.Message.DownLevelApi.Transaction =
         (PTRANSACTION)( (PCHAR)transaction + SrvXsPortMemoryDelta );
@@ -413,7 +426,7 @@ Return Value:
 
     requestMessage.Message.DownLevelApi.Flags = 0;
 
-    if ( connection->SmbDialect == SmbDialectNtLanMan ) {
+    if ( IS_NT_DIALECT( connection->SmbDialect ) ) {
 
         requestMessage.Message.DownLevelApi.Flags |= XS_FLAGS_NT_CLIENT;
     }
@@ -506,13 +519,342 @@ exit:
 
 
 VOID
-SrvXsDisconnect (
-    IN ULONG NumberOfMessages
-    )
+SrvXsInformThreadDeath( VOID )
+/*++
+
+Routine Description:
+
+    This thread tells the Xact service that a server driver thread just
+        terminated.  This is to allow the xact service to balance its
+        threads as well
+++*/
+{
+    XACTSRV_REQUEST_MESSAGE requestMessage;
+    XACTSRV_REPLY_MESSAGE replyMessage;
+
+    PAGED_CODE( );
+
+    if( SrvXsPortHandle != NULL &&
+        SrvFspTransitioning == FALSE &&
+        SrvFspActive == TRUE ) {
+
+        requestMessage.PortMessage.u1.s1.DataLength =
+                (USHORT)( sizeof(requestMessage) - sizeof(PORT_MESSAGE) );
+        requestMessage.PortMessage.u1.s1.TotalLength = sizeof(requestMessage);
+        requestMessage.PortMessage.u2.ZeroInit = 0;
+        requestMessage.MessageType = XACTSRV_MESSAGE_SERVER_THREAD_EXIT;
+
+        //
+        // Send the message to XACTSRV and wait for a response message.
+        //
+        // !!! We may want to put a timeout on this.
+        //
+
+        (void)NtRequestWaitReplyPort(
+                 SrvXsPortHandle,
+                 (PPORT_MESSAGE)&requestMessage,
+                 (PPORT_MESSAGE)&replyMessage
+                 );
+
+    }
+}
+
+
+
+NTSTATUS
+SrvXsLSOperation (
+IN PSESSION Session,
+IN ULONG Type
+)
+
+/*++
+
+Routine Description:
+
+    This routine causes the Xact service to do an NtLSRequest call
+
+Arguments:
+
+    Session - a pointer to the session structure involved in the request
+
+    Type - either XACTSRV_MESSAGE_LSREQUEST or XACTSRV_MESSAGE_LSRELEASE
+            depending on whether a license is being requested or being
+            released.
+
+Return Value:
+
+    STATUS_SUCCESS if the license was granted
+
+Notes:
+    Once a license is granted for a particular session, it is never released
+      until the session is deallocated.  Therefore, it is only necessary to
+      hold the Session->Connection->LicenseLock when we are checking for
+      acquisition of the license.
+
+    We don't need licenses if we are running on a workstation.
+    We don't try for licenses over NULL sessions
+
+--*/
+
+{
+    XACTSRV_REQUEST_MESSAGE requestMessage;
+    XACTSRV_REPLY_MESSAGE replyMessage;
+    NTSTATUS status;
+    ULONG requestLength;
+
+    PAGED_CODE( );
+
+    if( SrvProductTypeServer == FALSE || !SrvXsActive ) {
+        return STATUS_SUCCESS;
+    }
+
+    switch( Type ) {
+    case XACTSRV_MESSAGE_LSREQUEST:
+
+        if( Session->IsNullSession ||
+            Session->IsLSNotified ) {
+
+                return STATUS_SUCCESS;
+        }
+
+        ACQUIRE_LOCK( &Session->Connection->LicenseLock );
+
+        if( Session->IsLSNotified == TRUE ) {
+            RELEASE_LOCK( &Session->Connection->LicenseLock );
+            return STATUS_SUCCESS;
+        }
+
+        //
+        // Put domainname\username in the message
+        //
+        requestMessage.Message.LSRequest.UserName =
+            SrvXsAllocateHeap( Session->UserDomain.Length + sizeof(WCHAR)
+                               + Session->UserName.Length + sizeof(WCHAR), &status
+                             );
+
+        if ( requestMessage.Message.LSRequest.UserName == NULL ) {
+            RELEASE_LOCK( &Session->Connection->LicenseLock );
+            return status;
+        }
+
+        if( Session->UserDomain.Length ) {
+            RtlCopyMemory(
+                requestMessage.Message.LSRequest.UserName,
+                Session->UserDomain.Buffer,
+                Session->UserDomain.Length
+                );
+        }
+
+        requestMessage.Message.LSRequest.UserName[ Session->UserDomain.Length / sizeof(WCHAR) ] = L'\\';
+
+        RtlCopyMemory(
+            requestMessage.Message.LSRequest.UserName + (Session->UserDomain.Length / sizeof( WCHAR )) + 1,
+            Session->UserName.Buffer,
+            Session->UserName.Length
+            );
+
+        requestMessage.Message.LSRequest.UserName[ (Session->UserDomain.Length
+                                                   + Session->UserName.Length) / sizeof( WCHAR )
+                                                   + 1 ]
+            = UNICODE_NULL;
+
+        requestMessage.Message.LSRequest.IsAdmin = SrvIsAdmin( Session->UserHandle );
+
+        IF_DEBUG(LICENSE) {
+            KdPrint(("XACTSRV_MESSAGE_LSREQUEST: %ws, IsAdmin: %d\n",
+            requestMessage.Message.LSRequest.UserName,
+            requestMessage.Message.LSRequest.IsAdmin ));
+        }
+
+        // Adjust the buffer pointers to be self relative within the buffer.
+
+        requestMessage.Message.LSRequest.UserName =
+            (PWSTR)((PUCHAR)requestMessage.Message.LSRequest.UserName + SrvXsPortMemoryDelta);
+
+        break;
+
+    case XACTSRV_MESSAGE_LSRELEASE:
+
+        if( Session->IsLSNotified == FALSE )
+            return STATUS_SUCCESS;
+
+        IF_DEBUG(LICENSE) {
+            KdPrint(("XACTSRV_MESSAGE_LSRELEASE: Handle %X\n", Session->hLicense ));
+        }
+
+
+        requestMessage.Message.LSRelease.hLicense = Session->hLicense;
+
+        break;
+
+    default:
+
+        ASSERT( !"Bad Type" );
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    requestMessage.PortMessage.u1.s1.DataLength =
+            (USHORT)( sizeof(requestMessage) - sizeof(PORT_MESSAGE) );
+    requestMessage.PortMessage.u1.s1.TotalLength = sizeof(requestMessage);
+    requestMessage.PortMessage.u2.ZeroInit = 0;
+    requestMessage.MessageType = Type;
+
+    //
+    // Send the message to XACTSRV and wait for a response message.
+    //
+    // !!! We may want to put a timeout on this.
+    //
+
+    status = NtRequestWaitReplyPort(
+                 SrvXsPortHandle,
+                 (PPORT_MESSAGE)&requestMessage,
+                 (PPORT_MESSAGE)&replyMessage
+                 );
+
+    IF_DEBUG( ERRORS ) {
+        if( !NT_SUCCESS( status ) ) {
+            KdPrint(( "SrvXsLSOperation: NtRequestWaitReplyPort failed: %X\n", status ));
+        }
+    }
+
+    if( NT_SUCCESS( status ) )
+        status = replyMessage.Message.LSRequest.Status;
+
+    switch( Type ) {
+
+    case XACTSRV_MESSAGE_LSREQUEST:
+
+        requestMessage.Message.LSRequest.UserName =
+            (PWSTR)((PUCHAR)requestMessage.Message.LSRequest.UserName - SrvXsPortMemoryDelta);
+        SrvXsFreeHeap( requestMessage.Message.LSRequest.UserName );
+
+        if( NT_SUCCESS( status ) ) {
+            Session->IsLSNotified = TRUE;
+            Session->hLicense = replyMessage.Message.LSRequest.hLicense;
+            IF_DEBUG( LICENSE ) {
+                KdPrint(("  hLicense = %X\n", Session->hLicense ));
+            }
+        }
+        RELEASE_LOCK( &Session->Connection->LicenseLock );
+        break;
+
+    case XACTSRV_MESSAGE_LSRELEASE:
+
+        Session->IsLSNotified = FALSE;
+        break;
+    }
+
+    IF_DEBUG( LICENSE ) {
+        if( !NT_SUCCESS( status ) ) {
+            KdPrint(( "    SrvXsLSOperation returning status %X\n", status ));
+        }
+    }
+
+    return status;
+
+} // SrvXsLSOperation
+
+
+#ifdef  SRV_PNP_POWER
+VOID
+SrvXsPnpOperation(
+    BOOLEAN Bind,
+    ULONG   TransportIndex
+)
+
+/*++
+
+Routine Description:
+
+    This routine sends the Xact service a PNP notification
+
+Arguments:
+
+    Bind -  TRUE-> bind to the transport
+            FALSE-> unbind from the transport
+
+    TransportIndex - Index into the binding list of the affected transport
+
+--*/
+
+{
+    XACTSRV_REQUEST_MESSAGE requestMessage;
+    XACTSRV_REQUEST_MESSAGE responseMessage;
+    NTSTATUS status;
+    PVOID xsMemory;
+
+    PAGED_CODE( );
+
+    if( SrvXsPortHandle == NULL ) {
+        return;
+    }
+
+    ASSERT( SrvTransportBindingList != NULL );
+    ASSERT( SrvTransportBindingList[ TransportIndex ] != NULL );
+
+    requestMessage.Message.Pnp.TransportName.Length =
+    requestMessage.Message.Pnp.TransportName.MaximumLength =
+        (wcslen( SrvTransportBindingList[ TransportIndex ] ) + 1) * sizeof( WCHAR );
+
+    requestMessage.Message.Pnp.Bind = Bind;
+    xsMemory = SrvXsAllocateHeap( requestMessage.Message.Pnp.TransportName.Length, &status );
+
+    if( xsMemory == NULL ) {
+        IF_DEBUG( PNP ) {
+            KdPrint(( "SRV: SrvXsPnpOperation unable to allocate memory: %X\n", status ));
+        }
+        return;
+    }
+
+    //
+    // Send the name of the transport of interest to Xactsrv
+    //
+    RtlCopyMemory( xsMemory,
+                   SrvTransportBindingList[ TransportIndex ],
+                   requestMessage.Message.Pnp.TransportName.Length
+                 );
+
+    requestMessage.Message.Pnp.TransportName.Buffer = 
+            (PWSTR)((PUCHAR)xsMemory + SrvXsPortMemoryDelta);
+
+    requestMessage.PortMessage.u1.s1.DataLength =
+            (USHORT)( sizeof(requestMessage) - sizeof(PORT_MESSAGE) );
+    requestMessage.PortMessage.u1.s1.TotalLength = sizeof(requestMessage);
+    requestMessage.PortMessage.u2.ZeroInit = 0;
+    requestMessage.MessageType = XACTSRV_MESSAGE_PNP;
+
+    //
+    // Send the message to XACTSRV
+    //
+
+    IF_DEBUG( PNP ) {
+        KdPrint(( "SRV: Sending PNP %sbind request for %ws to SRVSVC\n",
+                    requestMessage.Message.Pnp.Bind ? "" : "un", xsMemory
+               ));
+    }
+
+    status = NtRequestWaitReplyPort(
+                 SrvXsPortHandle,
+                 (PPORT_MESSAGE)&requestMessage,
+                 (PPORT_MESSAGE)&responseMessage
+                 );
+
+    IF_DEBUG( PNP ) {
+        if( !NT_SUCCESS( status ) ) {
+            KdPrint(( "SRV: PNP response from xactsrv status %X\n", status ));
+        }
+    }
+
+    SrvXsFreeHeap( xsMemory );
+
+}
+#endif
+
+
+VOID
+SrvXsDisconnect ( )
 {
     NTSTATUS status;
-    ULONG i;
-    XACTSRV_REQUEST_MESSAGE requestMessage;
 
     PAGED_CODE( );
 
@@ -527,45 +869,12 @@ SrvXsDisconnect (
 
     ExAcquireResourceExclusive( &SrvXsResource, TRUE );
 
-    if ( SrvXsActive ) {
+    SrvXsActive = FALSE;
 
-        //
-        // Send wakeup messages to the XACTSRV worker threads waiting
-        // on the port.
-        //
-
-        requestMessage.PortMessage.u1.s1.DataLength =
-                    (USHORT)( sizeof(requestMessage) - sizeof(PORT_MESSAGE) );
-        requestMessage.PortMessage.u1.s1.TotalLength = sizeof(requestMessage);
-        requestMessage.PortMessage.u2.ZeroInit = 0;
-        requestMessage.MessageType = XACTSRV_MESSAGE_WAKEUP;
-
-        for ( i = 0; i < NumberOfMessages; i++ ) {
-            status = NtRequestPort(
-                        SrvXsPortHandle,
-                        (PPORT_MESSAGE)&requestMessage
-                        );
-            if ( !NT_SUCCESS(status) ) {
-                IF_DEBUG(ERRORS) {
-                    SrvPrint1( "SrvXsDisconnect: NtRequestPort failed: %X\n",
-                                  status );
-                }
-                break;
-            }
-        }
-
-        //
-        // Mark XACTSRV as inactive and close the port and the shared
-        // memory section.
-        //
-
-        SrvXsActive = FALSE;
-
-        SrvXsFreeSharedMemory();
-
-    }
+    SrvXsFreeSharedMemory();
 
     ExReleaseResource( &SrvXsResource );
+
     IF_DEBUG(XACTSRV) {
         SrvPrint0( "SrvXsDisconnect: SrvXsResource released.\n");
     }
@@ -829,4 +1138,3 @@ Return Value:
     return;
 
 } // SrvXsFreeHeap
-

@@ -256,5 +256,5 @@ typedef struct _NBF_DATA_DEFINITION {
 
 #endif //_DATANBF_H_
 
-
-
+
+

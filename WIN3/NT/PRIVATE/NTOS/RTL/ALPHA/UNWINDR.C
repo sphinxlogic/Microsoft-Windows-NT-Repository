@@ -45,6 +45,14 @@ Revision History:
     RtlRaiseException(&ExceptionRecordn); \
     }
 
+//
+// The low 2 bits of ExceptionHandler are flags bits and not part of the
+// exception handler address.
+//
+
+#define IS_HANDLER_DEFINED(FunctionEntry) \
+    (((ULONG)FunctionEntry->ExceptionHandler & ~0x3) != 0)
+
 #if DBG
 
 //
@@ -258,7 +266,7 @@ Return Value:
 #endif
                 RAISE_EXCEPTION(STATUS_BAD_STACK, ExceptionRecord);
 
-            } else if ((FunctionEntry->ExceptionHandler != NULL) && InFunction) {
+            } else if (IS_HANDLER_DEFINED(FunctionEntry) && InFunction) {
 #if DBG
     if (RtlDebugFlags & RTL_DBG_DISPATCH_EXCEPTION_DETAIL) {
     DbgPrint("RtlUnwindRfp: ExceptionHandler = %lx, HandlerData = %lx\n",
@@ -647,7 +655,7 @@ Return Value:
 #endif
                 RAISE_EXCEPTION(STATUS_BAD_STACK, ExceptionRecord);
 
-            } else if ((FunctionEntry->ExceptionHandler != NULL) && InFunction) {
+            } else if (IS_HANDLER_DEFINED(FunctionEntry) && InFunction) {
 #if DBG
     if (RtlDebugFlags & RTL_DBG_DISPATCH_EXCEPTION_DETAIL) {
     DbgPrint("RtlUnwindReturn: ExceptionHandler = %lx, HandlerData = %lx\n",

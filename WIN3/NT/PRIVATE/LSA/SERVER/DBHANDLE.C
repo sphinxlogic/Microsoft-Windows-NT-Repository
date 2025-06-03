@@ -24,7 +24,7 @@ Abstract:
 
 Author:
 
-    Scott Birrell       (ScottBi)   	May 29, 1991
+    Scott Birrell       (ScottBi)       May 29, 1991
 
 Environment:
 
@@ -178,6 +178,7 @@ Return Value:
     Handle->Sid = NULL;
     Handle->Trusted = FALSE;
     Handle->DeletedObject = FALSE;
+    Handle->GenerateOnClose = FALSE;
     Handle->Options = Options;
     Handle->LogicalNameU.Buffer = NULL;
     Handle->PhysicalNameU.Buffer = NULL;
@@ -267,6 +268,15 @@ Return Value:
     //
 
     LsapDbState.OpenHandleCount++;
+
+
+#ifdef TRACK_HANDLE_CLOSE
+    if (Handle == (LSAP_DB_HANDLE) LsapDbHandle)
+    {
+        DbgPrint("BUGBUG: Creating global policy handle\n");
+        DbgBreakPoint();
+    }
+#endif
 
 CreateHandleFinish:
 
@@ -593,6 +603,14 @@ Return Value:
 {
     NTSTATUS Status;
     LSAP_DB_HANDLE Handle = (LSAP_DB_HANDLE) ObjectHandle;
+
+#ifdef TRACK_HANDLE_CLOSE
+    if (ObjectHandle == LsapDbHandle)
+    {
+        DbgPrint("BUGBUG: Closing global policy handle\n");
+        DbgBreakPoint();
+    }
+#endif
 
     //
     // Free the Registry Key Handle (if any).

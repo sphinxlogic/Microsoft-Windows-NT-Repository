@@ -144,6 +144,11 @@ COMSPEC_LENGTH          equ ($ - Comspec)
 ; this is the <END NWDOSTABLE> structure.
 ;
 
+;
+; data passed from nw16.asm
+;
+        public not_exclusive
+not_exclusive           db      0
 
         page
 
@@ -341,6 +346,9 @@ notNETQ:push    di
 @@:     test    al,OF_SHARE_MASK
         jne     not_compat
 
+        cmp     not_exclusive, 1        ; open shared mode anyway
+        je      not_compat
+
         mov     SavedAx,ax
         mov     ax,hVdd
         DispatchCall                    ; 32 bit code decides if compat mode
@@ -366,6 +374,8 @@ for_dos_properR:                        ; restore regs and call dos
         jne     for_dos_proper
 @@:     test    al,OF_SHARE_MASK
         jne     for_dos_proper
+        cmp     not_exclusive, 1        ; open shared mode anyway
+        je      for_dos_proper
         mov     SavedAx,ax
         mov     ax,hVdd
 @@:     DispatchCall                    ; 32 bit code decides if compat mode

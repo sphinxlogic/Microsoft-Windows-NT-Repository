@@ -279,4 +279,3 @@ int NEAR ReleaseClipboardDC()
 ReleaseDC( wwdClipboard.wwptr, wwdClipboard.hDC );
 wwdClipboard.hDC = NULL;    /* Mark clipboard DC as invalid */
 }
-

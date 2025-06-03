@@ -1,28 +1,29 @@
-/*++
-
-Copyright (c) 1989  Microsoft Corporation
-
-Module Name:
-
-    buildutl.c
-
-Abstract:
-
-    This is the Utility module for the NT Build Tool (BUILD.EXE)
-
-    This module contains covering routines for most external procedures.
-
-Author:
-
-    Steve Wood (stevewo) 16-May-1989
-
-Revision History:
-
---*/
+//+---------------------------------------------------------------------------
+//
+//  Microsoft Windows
+//  Copyright (C) Microsoft Corporation, 1989 - 1994
+//
+//  File:       buildutl.c
+//
+//  Contents:   Utility functions for Build.exe
+//
+//  History:    16-May-89     SteveWo  Created
+//                 ... See SLM log
+//              26-Jul-94     LyleC    Cleanup/Add pass0 support
+//
+//----------------------------------------------------------------------------
 
 #include "build.h"
 
+
 #if DBG
+//+---------------------------------------------------------------------------
+//
+//  Memory Allocation/Deallocation functions
+//
+//  These functions provide leak tracking on a debug build.
+//
+//----------------------------------------------------------------------------
 
 typedef struct _MEMHEADER {
     MemType mt;
@@ -36,7 +37,6 @@ typedef struct _MEMHEADER {
 
 char patternFree[CBTAIL] = { 'M', 'E', 'M', 'D' };
 char patternBusy[CBTAIL] = { 'm', 'e', 'm', 'd' };
-
 
 __inline MEMHEADER *
 GetHeader(VOID *pvblock)
@@ -88,6 +88,7 @@ MEMTAB MemTab[] = {
     { "ChildData", },           // MT_CHILDDATA
     { "CmdString", },           // MT_CMDSTRING
     { "DirDB", },               // MT_DIRDB
+    { "DirSup", },              // MT_DIRSUP
     { "DirPath", },             // MT_DIRPATH
     { "DirString", },           // MT_DIRSTRING
     { "EventHandles", },        // MT_EVENTHANDLES
@@ -126,6 +127,18 @@ InitMem(VOID)
 
 #endif
 
+
+//+---------------------------------------------------------------------------
+//
+//  Function:   AllocMem
+//
+//  Synopsis:   Allocate memory
+//
+//  Arguments:  [cb]  -- Requested Size
+//              [ppv] -- [out] allocated memory
+//              [mt]  -- Type of memory being allocated (MT_XXX)
+//
+//----------------------------------------------------------------------------
 
 VOID
 AllocMem(UINT cb, VOID **ppv, MemType mt)
@@ -186,6 +199,19 @@ AllocMem(UINT cb, VOID **ppv, MemType mt)
 
 
 
+//+---------------------------------------------------------------------------
+//
+//  Function:   FreeMem
+//
+//  Synopsis:   Free memory allocated by AllocMem
+//
+//  Arguments:  [ppv] -- Memory pointer
+//              [mt]  -- Type of memory (MT_XXX)
+//
+//  Notes:      Sets the memory pointer to null after freeing it.
+//
+//----------------------------------------------------------------------------
+
 VOID
 FreeMem(VOID **ppv, MemType mt)
 {
@@ -237,6 +263,18 @@ FreeMem(VOID **ppv, MemType mt)
 }
 
 
+//+---------------------------------------------------------------------------
+//
+//  Function:   ReportMemoryUsage
+//
+//  Synopsis:   Report current memory usage (if any) on a debug build.  If
+//              called just before termination, memory leaks will be
+//              displayed.
+//
+//  Arguments:  (none)
+//
+//----------------------------------------------------------------------------
+
 VOID
 ReportMemoryUsage(VOID)
 {
@@ -269,9 +307,9 @@ ReportMemoryUsage(VOID)
     }
     if (DEBUG_1 || MemTab[MT_TOTALS].cbAlloc != 0) {
         BuildErrorRaw(szNewLine);
-	if (MemTab[MT_TOTALS].cbAlloc != 0) {
+        if (MemTab[MT_TOTALS].cbAlloc != 0) {
             BuildError("Internal memory leaks detected:\n");
-	}
+        }
         for (pmt = MemTab; pmt < &MemTab[MT_MAX]; pmt++) {
             BuildErrorRaw(
             "%5lx bytes in %4lx blocks, %5lx bytes in %4lx blocks Total (%s)\n",
@@ -286,12 +324,21 @@ ReportMemoryUsage(VOID)
 }
 
 
+//+---------------------------------------------------------------------------
+//
+//  Function:   MyOpenFile
+//
+//  Synopsis:   Open a file
+//
+//----------------------------------------------------------------------------
+
 BOOL
 MyOpenFile(
     LPSTR DirName,
     LPSTR FileName,
     LPSTR Access,
-    FILE **Stream)
+    FILE **ppf,
+    BOOL BufferedIO)
 {
     char path[ DB_MAX_PATH_LENGTH ];
 
@@ -300,12 +347,15 @@ MyOpenFile(
         strcat(path, "\\");
     }
     strcat(path, FileName);
-    *Stream = fopen( path, Access );
-    if (*Stream == NULL) {
+    *ppf = fopen( path, Access );
+    if (*ppf == NULL) {
         if (*Access == 'w') {
             BuildError("%s: create file failed\n", path);
         }
         return(FALSE);
+    }
+    if (!BufferedIO) {
+        setvbuf(*ppf, NULL, _IONBF, 0);      // Clear buffering on the stream.
     }
     return(TRUE);
 }
@@ -335,6 +385,12 @@ static FILEREADBUF Frb;
 char achzeros[16];
 
 
+//+---------------------------------------------------------------------------
+//
+//  Function:   ReadFilePush
+//
+//----------------------------------------------------------------------------
+
 LPSTR
 ReadFilePush(LPSTR pszfile)
 {
@@ -347,8 +403,7 @@ ReadFilePush(LPSTR pszfile)
     Frb.pfrbNext = pfrb;
 
     if (!SetupReadFile(
-            (pszfile[0] == '\\' || (isalpha(pszfile[0]) && pszfile[1] == ':'))?
-                "" : pfrb->pszFile,
+            IsFullPath(pszfile) ? "" : pfrb->pszFile,
             pszfile,
             pfrb->pszCommentToEOL,
             &pf)) {
@@ -358,6 +413,12 @@ ReadFilePush(LPSTR pszfile)
     return(ReadLine(Frb.pf));
 }
 
+
+//+---------------------------------------------------------------------------
+//
+//  Function:   ReadFilePop
+//
+//----------------------------------------------------------------------------
 
 LPSTR
 ReadFilePop(VOID)
@@ -369,6 +430,12 @@ ReadFilePop(VOID)
     return(ReadLine(Frb.pf));
 }
 
+
+//+---------------------------------------------------------------------------
+//
+//  Function:   ReadBuf
+//
+//----------------------------------------------------------------------------
 
 BOOL
 ReadBuf(FILE *pf)
@@ -424,6 +491,12 @@ ReadBuf(FILE *pf)
 }
 
 
+//+---------------------------------------------------------------------------
+//
+//  Function:   IsNmakeInclude
+//
+//----------------------------------------------------------------------------
+
 LPSTR
 IsNmakeInclude(LPSTR pinc)
 {
@@ -433,10 +506,16 @@ IsNmakeInclude(LPSTR pinc)
     while (*pinc == ' ') {
         pinc++;
     }
-    if (strnicmp(pinc, szInclude, sizeof(szInclude) - 1) == 0 &&
+    if (_strnicmp(pinc, szInclude, sizeof(szInclude) - 1) == 0 &&
         pinc[sizeof(szInclude) - 1] == ' ') {
+
         pnew = NULL;
-        if (MakeMacroString(&pnew, pinc + sizeof(szInclude))) {
+        pinc += sizeof(szInclude);
+        while (*pinc == ' ') {
+            pinc++;
+        }
+
+        if (MakeMacroString(&pnew, pinc)) {
             p = strchr(pnew, ' ');
             if (p != NULL) {
                 *p = '\0';
@@ -448,13 +527,26 @@ IsNmakeInclude(LPSTR pinc)
 }
 
 
-//  ReadLine - read a line from the input file
+//+---------------------------------------------------------------------------
 //
-//  ReadLine returns a canonical line from the input file.  This involves:
+//  Function:   ReadLine
 //
-//  1)  Converting tab to spaces.  Various editors/users change tabbing
-//  2)  Uniformly terminate lines.  Some editors drop CR in CRLF or add extras.
-//  3)  Handle file-type-specific continuations.
+//  Synopsis:   Read a line from the input file.
+//
+//  Arguments:  [pf] -- File to read from
+//
+//  Returns:    Line read from file
+//
+//  Notes:      ReadLine returns a canonical line from the input file.
+//              This involves:
+//
+//              1)  Converting tab to spaces.  Various editors/users change
+//                      tabbing.
+//              2)  Uniformly terminate lines.  Some editors drop CR in
+//                      CRLF or add extras.
+//              3)  Handle file-type-specific continuations.
+//
+//----------------------------------------------------------------------------
 
 LPSTR
 ReadLine(FILE *pf)
@@ -602,8 +694,32 @@ eol:
 }
 
 
+//+---------------------------------------------------------------------------
+//
+//  Function:   SetupReadFile
+//
+//  Synopsis:   Open a file and prepare to read from it.
+//
+//  Arguments:  [pszdir]          -- Directory name
+//              [pszfile]         -- Filename
+//              [pszCommentToEOL] -- Comment to EOL string
+//              [ppf]             -- [out] Open file handle
+//
+//  Returns:    TRUE if opened successfully
+//
+//  Notes:      This function, in order to minimize disk hits, reads the
+//              entire file into a buffer, which is then used by the ReadLine
+//              function.
+//
+//----------------------------------------------------------------------------
+
 BOOL
-SetupReadFile(LPSTR pszdir, LPSTR pszfile, LPSTR pszCommentToEOL, FILE **ppf)
+SetupReadFile(
+    LPSTR pszdir,
+    LPSTR pszfile,
+    LPSTR pszCommentToEOL,
+    FILE **ppf
+    )
 {
     char path[DB_MAX_PATH_LENGTH];
 
@@ -612,21 +728,36 @@ SetupReadFile(LPSTR pszdir, LPSTR pszfile, LPSTR pszCommentToEOL, FILE **ppf)
     assert(Frb.pszFile == NULL);
     Frb.fMakefile = strcmp(pszCommentToEOL, "#") == 0;
     Frb.DateTime = 0;
+
     strcpy(path, pszdir);
-    if (Frb.pfrbNext != NULL) {
+    if (Frb.pfrbNext != NULL) {         // if a nested open
         LPSTR p;
+
+        // if a nested makefile !include statement with a relative path,
+        // we have to simulate nmake's brain damaged behavior by making
+        // the path relative to the TOP LEVEL makefile!
+
+        if (Frb.fMakefile && !IsFullPath(pszfile)) {
+            FILEREADBUF *pfrb;
+
+            for (pfrb = &Frb; pfrb->pfrbNext != NULL; pfrb = pfrb->pfrbNext) {
+            }
+            assert(pfrb->pszFile != NULL);
+
+            strcpy(path, pfrb->pszFile);
+        }
 
         p = strrchr(path, '\\');
         if (p != NULL) {
             *p = '\0';
         }
     }
-    if (!MyOpenFile(path, pszfile, "rb", ppf)) {
+    if (!MyOpenFile(path, pszfile, "rb", ppf, TRUE)) {
         *ppf = NULL;
         return(FALSE);
     }
     if (Frb.fMakefile) {
-        Frb.DateTime = DateTimeFile(path, pszfile);
+        Frb.DateTime = (*pDateTimeFile)(path, pszfile);
     }
     Frb.cLine = 0;
     Frb.cNull = 0;
@@ -673,8 +804,22 @@ SetupReadFile(LPSTR pszdir, LPSTR pszfile, LPSTR pszCommentToEOL, FILE **ppf)
 }
 
 
+//+---------------------------------------------------------------------------
+//
+//  Function:   CloseReadFile
+//
+//  Synopsis:   Close the open file buffer.
+//
+//  Arguments:  [pcline] -- [out] Count of lines in file.
+//
+//  Returns:    Timestamp of file
+//
+//----------------------------------------------------------------------------
+
 ULONG
-CloseReadFile(UINT *pcline)
+CloseReadFile(
+    UINT *pcline
+    )
 {
     assert(Frb.fOpen);
     assert(Frb.pf != NULL);
@@ -692,7 +837,7 @@ CloseReadFile(UINT *pcline)
     FreeString(&Frb.pszFile, MT_FRBSTRING);
     if (Frb.pfrbNext != NULL) {
         FILEREADBUF *pfrb;
-        
+
         FreeMem(&Frb.pbBuffer, MT_IOBUFFER);
         pfrb = Frb.pfrbNext;
         if (pfrb->DateTime < Frb.DateTime) {
@@ -707,6 +852,14 @@ CloseReadFile(UINT *pcline)
     return(Frb.DateTime);
 }
 
+
+//+---------------------------------------------------------------------------
+//
+//  Function:   ProbeFile
+//
+//  Synopsis:   Determine if a file exists
+//
+//----------------------------------------------------------------------------
 
 UINT
 ProbeFile(
@@ -723,6 +876,71 @@ ProbeFile(
     return(GetFileAttributes(FileName));
 }
 
+//+---------------------------------------------------------------------------
+//
+//  Function:   EnsureDirectoriesExist
+//
+//  Synopsis:   Ensures the given directory exists. If the path contains
+//              an asterisk, it will be expanded into all current machine
+//              target names.
+//
+//  Arguments:  [DirName] -- Name of directory to create if necessary
+//
+//  Returns:    FALSE if the directory could not be created, TRUE if it
+//              already exists or it could be created.
+//
+//----------------------------------------------------------------------------
+
+BOOL
+EnsureDirectoriesExist(
+    LPSTR DirName
+    )
+{
+    char path[ DB_MAX_PATH_LENGTH ];
+    char *p;
+    UINT i;
+
+    if (!DirName || DirName[0] == '\0')
+        return FALSE;
+
+    for (i = 0; i < CountTargetMachines; i++) {
+
+        // Replace '*' with appropriate name
+
+        ExpandObjAsterisk(
+            path,
+            DirName,
+            TargetMachines[i]->ObjectDirectory);
+
+        if (ProbeFile(NULL, path) != -1) {
+            continue;
+        }
+        p = path;
+        while (TRUE) {
+            p = strchr(p, '\\');
+            if (p != NULL) {
+                *p = '\0';
+            }
+            if (!CreateBuildDirectory(path)) {
+                    return FALSE;
+            }
+            if (p == NULL) {
+                break;
+            }
+            *p++ = '\\';
+        }
+    }
+
+    return TRUE;
+}
+
+//+---------------------------------------------------------------------------
+//
+//  Function:   DateTimeFile
+//
+//  Synopsis:   Get the timestamp on a file
+//
+//----------------------------------------------------------------------------
 
 ULONG
 DateTimeFile(
@@ -735,7 +953,7 @@ DateTimeFile(
     HDIR FindHandle;
     ULONG FileDateTime;
 
-    if (DirName == NULL) {
+    if (DirName == NULL || DirName[0] == '\0') {
         FindHandle = FindFirstFile( FileName, &FindFileData );
         }
     else {
@@ -758,6 +976,51 @@ DateTimeFile(
         }
 }
 
+//+---------------------------------------------------------------------------
+//
+//  Function:   DateTimeFile2
+//
+//  Synopsis:   Get the timestamp on a file using the new GetFileAttributesExA
+//
+//----------------------------------------------------------------------------
+
+ULONG
+DateTimeFile2(
+    LPSTR DirName,
+    LPSTR FileName
+    )
+{
+    char path[ DB_MAX_PATH_LENGTH ];
+    WIN32_FILE_ATTRIBUTE_DATA FileData;
+    ULONG FileDateTime;
+    BOOL rc;
+
+    if (DirName == NULL || DirName[0] == '\0') {
+        rc = (*pGetFileAttributesExA) (FileName, GetFileExInfoStandard, (LPVOID)&FileData);
+    } else {
+        sprintf( path, "%s\\%s", DirName, FileName );
+        rc = (*pGetFileAttributesExA) (path, GetFileExInfoStandard, (LPVOID)&FileData);
+    }
+
+    if (!rc) {
+        return( 0L );
+    } else {
+        FileDateTime = 0L;
+        FileTimeToDosDateTime( &FileData.ftLastWriteTime,
+                               ((LPWORD)&FileDateTime)+1,
+                               (LPWORD)&FileDateTime
+                             );
+        return( FileDateTime );
+    }
+}
+
+//+---------------------------------------------------------------------------
+//
+//  Function:   DeleteSingleFile
+//
+//  Synopsis:   Delete the given file
+//
+//----------------------------------------------------------------------------
 
 BOOL
 DeleteSingleFile(
@@ -783,6 +1046,14 @@ DeleteSingleFile(
     return( DeleteFile( path ) );
 }
 
+
+//+---------------------------------------------------------------------------
+//
+//  Function:   DeleteMultipleFiles
+//
+//  Synopsis:   Delete one or more files matching a pattern.
+//
+//----------------------------------------------------------------------------
 
 BOOL
 DeleteMultipleFiles(
@@ -818,26 +1089,39 @@ DeleteMultipleFiles(
 }
 
 
+//+---------------------------------------------------------------------------
+//
+//  Function:   CloseOrDeleteFile
+//
+//----------------------------------------------------------------------------
+
 BOOL
 CloseOrDeleteFile(
-    FILE **Stream,
+    FILE **ppf,
     LPSTR FileName,
     ULONG SizeThreshold
     )
 {
     ULONG Temp;
 
-    Temp = ftell( *Stream );
-    fclose( *Stream );
-    *Stream = NULL;
+    Temp = ftell( *ppf );
+    fclose( *ppf );
+    *ppf = NULL;
     if (Temp <= SizeThreshold) {
         return( DeleteSingleFile( ".", FileName, TRUE ) );
         }
     else {
+        CreatedBuildFile(".", FileName);
         return( TRUE );
         }
 }
 
+
+//+---------------------------------------------------------------------------
+//
+//  Function:   PushCurrentDirectory
+//
+//----------------------------------------------------------------------------
 
 LPSTR
 PushCurrentDirectory(
@@ -855,6 +1139,12 @@ PushCurrentDirectory(
 }
 
 
+//+---------------------------------------------------------------------------
+//
+//  Function:   PopCurrentDirectory
+//
+//----------------------------------------------------------------------------
+
 VOID
 PopCurrentDirectory(
     LPSTR OldCurrentDirectory
@@ -866,6 +1156,26 @@ PopCurrentDirectory(
     }
 }
 
+
+//+---------------------------------------------------------------------------
+//
+//  Function:   CanonicalizePathName
+//
+//  Synopsis:   Take the given relative pathname and the current directory
+//              and obtain the full absolute path of the file.
+//
+//  Arguments:  [SourcePath] -- Relative path
+//              [Action]     -- Canonicalizing flags
+//              [FullPath]   -- [out] Full path of file or directory
+//
+//  Returns:    TRUE if canonicalization succeeded.
+//
+//  Notes:      [Action] indicates whether the function will fail if the
+//              resulting path is not of the correct type.  CANONICALIZE_ONLY
+//              never fails, and CANON..._FILE or CANON..._DIR will fail if
+//              the resulting path is not of the specified type.
+//
+//----------------------------------------------------------------------------
 
 BOOL
 CanonicalizePathName(
@@ -932,6 +1242,27 @@ CanonicalizePathName(
 
 static char FormatPathBuffer[ DB_MAX_PATH_LENGTH ];
 
+//+---------------------------------------------------------------------------
+//
+//  Function:   FormatPathName
+//
+//  Synopsis:   Take a directory name and relative pathname and merges the
+//              two into a correctly formatted path.  If the resulting path
+//              has the current directory as a component, the current
+//              directory part is removed.
+//
+//  Arguments:  [DirName]  -- Directory
+//              [FileName] -- Pathname relative to [DirName]
+//
+//  Returns:    Resulting string (should not be freed).
+//
+//  Notes:      Example: DirName="f:\nt\private\foo\subdir1\subdir2"
+//                       FileName="..\..\bar.c"
+//                       CurrentDirectory="f:\nt\private"
+//                       Result="foo\bar.c"
+//
+//----------------------------------------------------------------------------
+
 LPSTR
 FormatPathName(
     LPSTR DirName,
@@ -975,24 +1306,38 @@ FormatPathName(
     }
     else
     if (!strncmp(FileName, "..\\", 3)) {
-        p--;
-        while (*--p != '\\') {
-            if (p == FormatPathBuffer) {
-                break;
+        do
+        {
+            p--;
+            while (*--p != '\\') {
+                if (p <= FormatPathBuffer) {
+                    p = FormatPathBuffer;
+                    break;
+                }
             }
+            p++;
+            FileName += 3;
+
         }
-        p++;
-        FileName += 3;
+        while (!strncmp(FileName, "..\\", 3) && (p != FormatPathBuffer));
     }
     CopyString(p, FileName, TRUE);
 
     cb = strlen(CurrentDirectory);
     p = FormatPathBuffer + cb;
-    if (!strnicmp(CurrentDirectory, FormatPathBuffer, cb) && *p == '\\') {
-        return(p + 1);
+    if (!fAlwaysPrintFullPath) {
+        if (!_strnicmp(CurrentDirectory, FormatPathBuffer, cb) && *p == '\\') {
+            return(p + 1);
+        }
     }
     return(FormatPathBuffer);
 }
+
+//+---------------------------------------------------------------------------
+//
+//  Function:   AppendString
+//
+//----------------------------------------------------------------------------
 
 LPSTR
 AppendString(
@@ -1017,6 +1362,12 @@ AppendString(
 
 
 #if DBG
+//+---------------------------------------------------------------------------
+//
+//  Function:   AssertPathString
+//
+//----------------------------------------------------------------------------
+
 VOID
 AssertPathString(LPSTR pszPath)
 {
@@ -1032,6 +1383,12 @@ AssertPathString(LPSTR pszPath)
 }
 #endif
 
+
+//+---------------------------------------------------------------------------
+//
+//  Function:   CopyString
+//
+//----------------------------------------------------------------------------
 
 LPSTR
 CopyString(
@@ -1058,6 +1415,12 @@ CopyString(
 }
 
 
+//+---------------------------------------------------------------------------
+//
+//  Function:   MakeString
+//
+//----------------------------------------------------------------------------
+
 VOID
 MakeString(
     LPSTR *Destination,
@@ -1074,6 +1437,12 @@ MakeString(
 }
 
 
+//+---------------------------------------------------------------------------
+//
+//  Function:   FreeString
+//
+//----------------------------------------------------------------------------
+
 VOID
 FreeString(LPSTR *ppsz, MemType mt)
 {
@@ -1082,6 +1451,12 @@ FreeString(LPSTR *ppsz, MemType mt)
     }
 }
 
+
+//+---------------------------------------------------------------------------
+//
+//  Function:   FormatNumber
+//
+//----------------------------------------------------------------------------
 
 LPSTR
 FormatNumber(
@@ -1107,6 +1482,12 @@ FormatNumber(
 }
 
 
+//+---------------------------------------------------------------------------
+//
+//  Function:   FormatTime
+//
+//----------------------------------------------------------------------------
+
 LPSTR
 FormatTime(
     ULONG Seconds
@@ -1131,7 +1512,18 @@ FormatTime(
 }
 
 
-// AToD - hex atoi with pointer bumping and success flag
+//+---------------------------------------------------------------------------
+//
+//  Function:   AToX
+//
+//  Synopsis:   Hex atoi with pointer bumping and success flag
+//
+//  Arguments:  [pp]  -- String to convert
+//              [pul] -- [out] Result
+//
+//  Returns:    TRUE if success
+//
+//----------------------------------------------------------------------------
 
 BOOL
 AToX(LPSTR *pp, ULONG *pul)
@@ -1161,7 +1553,18 @@ AToX(LPSTR *pp, ULONG *pul)
 }
 
 
-// AToD - atoi with pointer bumping and success flag
+//+---------------------------------------------------------------------------
+//
+//  Function:   AToD
+//
+//  Synopsis:   Decimal atoi with pointer bumping and success flag
+//
+//  Arguments:  [pp]  -- String to convert
+//              [pul] -- [out] Result
+//
+//  Returns:    TRUE if success
+//
+//----------------------------------------------------------------------------
 
 BOOL
 AToD(LPSTR *pp, ULONG *pul)
@@ -1183,6 +1586,11 @@ AToD(LPSTR *pp, ULONG *pul)
     return(fRet);
 }
 
+//+---------------------------------------------------------------------------
+//
+//  Logging and Display Functions
+//
+//----------------------------------------------------------------------------
 
 VOID
 LogMsg(char *pszfmt, ...)
@@ -1198,9 +1606,37 @@ LogMsg(char *pszfmt, ...)
 
 
 VOID
+EnterMessageMode(VOID)
+{
+    EnterCriticalSection(&TTYCriticalSection);
+    if (fConsoleInitialized &&
+        (NewConsoleMode & ENABLE_WRAP_AT_EOL_OUTPUT) == 0) {
+
+        SetConsoleMode(
+            GetStdHandle(STD_ERROR_HANDLE),
+            NewConsoleMode | ENABLE_WRAP_AT_EOL_OUTPUT);
+    }
+}
+
+
+VOID
+LeaveMessageMode(VOID)
+{
+    if (fConsoleInitialized &&
+        (NewConsoleMode & ENABLE_WRAP_AT_EOL_OUTPUT) == 0) {
+
+        SetConsoleMode(GetStdHandle(STD_ERROR_HANDLE), NewConsoleMode);
+    }
+    LeaveCriticalSection(&TTYCriticalSection);
+}
+
+
+VOID
 BuildMsg(char *pszfmt, ...)
 {
     register va_list va;
+
+    EnterMessageMode();
 
     ClearLine();
     va_start(va, pszfmt);
@@ -1208,6 +1644,8 @@ BuildMsg(char *pszfmt, ...)
     vfprintf(stderr, pszfmt, va);
     va_end(va);
     fflush(stderr);
+
+    LeaveMessageMode();
 }
 
 
@@ -1216,10 +1654,14 @@ BuildMsgRaw(char *pszfmt, ...)
 {
     register va_list va;
 
+    EnterMessageMode();
+
     va_start(va, pszfmt);
     vfprintf(stderr, pszfmt, va);
     va_end(va);
     fflush(stderr);
+
+    LeaveMessageMode();
 }
 
 
@@ -1227,6 +1669,8 @@ VOID
 BuildError(char *pszfmt, ...)
 {
     register va_list va;
+
+    EnterMessageMode();
 
     ClearLine();
     va_start(va, pszfmt);
@@ -1239,6 +1683,8 @@ BuildError(char *pszfmt, ...)
     vfprintf(stderr, pszfmt, va);
     va_end(va);
     fflush(stderr);
+
+    LeaveMessageMode();
 
     if (LogFile != NULL) {
         va_start(va, pszfmt);
@@ -1260,10 +1706,14 @@ BuildErrorRaw(char *pszfmt, ...)
 {
     register va_list va;
 
+    EnterMessageMode();
+
     va_start(va, pszfmt);
     vfprintf(stderr, pszfmt, va);
     va_end(va);
     fflush(stderr);
+
+    LeaveMessageMode();
 
     if (LogFile != NULL) {
         va_start(va, pszfmt);

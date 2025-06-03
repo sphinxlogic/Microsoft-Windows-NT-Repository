@@ -371,6 +371,291 @@ BOOL FAR PASCAL FCustInstDlgProc(HWND hdlg, WORD wMsg, WORD wParam, LONG lParam)
 }
 
 
+/*
+**	Purpose:
+**		Super-special...
+**      Custom Install Dialog procedure for templates with one to ten custom
+**		options each consisting of at least one checkbox with an optional
+**		sub-option pushbutton or status string.  The dialog also supports
+**		an install path set button, display of the current install path, and
+**		display of the current disk space status.
+**
+**	Controls Recognized:
+**		Checkbox   - IDC_B1 to IDC_B10
+**			with optionaly assocated buttons or text:
+**			Pushbutton - IDC_SP1 to IDC_SP10
+**			Text       - IDC_STATUS1 to IDC_STATUS10
+**		Pushbutton - IDC_B, IDC_C, IDC_H, IDC_P, IDC_X
+**		Text       - IDC_TEXT1 through IDC_TEXT7
+**
+**	Initialization Symbols:
+**		"CheckItemsState" - list of "ON" and "OFF" string items for setting
+**			the intial state of the checkbox controls, evaluated in
+**			sequence ("ON" for checked, "OFF" for unchecked).  If there
+**			are more controls than items, extra controls are left unchecked.
+**			If there are fewer items than controls, extra items are ignored.
+**		"StatusItemsText" - list of strings to initialize status text items
+**			associated with checkboxes.
+**		"DriveStatusText" - list of seven strings to initialize drive status
+**			text items (IDC_TEXT1-7) in the following sequence:
+**				dst_drive, dst_space_need, dst_space_free,
+**				win_drive, win_space_need, win_space_free,
+**				dst_path
+**			If any of the "win_" items is an empty string, its label
+**			text will be made non-visible.
+**
+**	Termination Symbols:
+**		"CheckItemsState" - state of checkbox items (same format as above).
+**		"DLGEVENT" - one of the following, depending on event:
+**				event                value
+**				----------           ----------
+**				IDC_B                "BACK"
+**				IDC_C                "CONTINUE"
+**				IDC_P                "PATH"
+**				IDC_X                "EXIT"
+**				IDC_B1  to IDC_B10   "CHK1" to "CHK10"
+**				IDC_SP1 to IDC_SP10  "BTN1" to "BTN10"
+**				IDCANCEL             "CANCEL"
+**				STF_ACTIVATEAPP      "REACTIVATE"
+**
+**	Note:
+**		Pushbutton IDC_H will open the related Help dialog, if any.
+**
+*****************************************************************************/
+BOOL FAR PASCAL FMyCustInstDlgProc(HWND hdlg, WORD wMsg, WORD wParam, LONG lParam)
+{
+	char  rgchChk[10];
+	char  rgchBtn[10];
+	WORD  idc;
+	WORD  cItems;
+	WORD  i, cb, cbLen;
+	static WORD wSelStart[10];
+	static WORD wSelEnd[10];
+	char  szSymBuf[cbSymBuf];
+	char  rgchText[cbFullPathMax + 1];
+	LPSTR szEvent;
+
+	switch (wMsg)
+		{
+	case STF_ACTIVATEAPP:
+		if (!FSetSymbolValue("DLGEVENT", "REACTIVATE"))
+			{
+			DestroyWindow(GetParent(hdlg));
+			return(fTrue);
+			}
+		ReactivateSetupScript();
+		return(fTrue);
+
+	case STF_REINITDIALOG:
+		SendDlgItemMessage(hdlg, wParam, EM_SETSEL, 0, MAKELONG(256, 256));
+		SetFocus(GetDlgItem(hdlg, wParam));
+		return(fTrue);
+
+	case WM_INITDIALOG:
+		cItems = UsGetListLength("CheckItemsState");
+		idc = IDC_B1;
+		for (i = 1; i <= cItems; ++i)
+			{
+			WORD wCheck = 0;
+
+			cb = CbGetListItem("CheckItemsState", i, szSymBuf, cbSymBuf);
+			Assert(cb < cbSymBuf);
+			if (lstrcmp(szSymBuf, "ON") == 0)
+				wCheck = 1;
+			CheckDlgButton(hdlg, idc++, wCheck);
+			}
+
+		cItems = UsGetListLength("StatusItemsText");
+		idc = IDC_STATUS1;
+		for (i = 1; i <= cItems; ++i)
+			{
+			WORD wCheck = 0;
+
+			cb = CbGetListItem("StatusItemsText", i, szSymBuf, cbSymBuf);
+			Assert(cb < cbSymBuf);
+			SetDlgItemText(hdlg, idc++, szSymBuf);
+			}
+
+		cItems = UsGetListLength("DriveStatusText");
+		idc = IDC_TEXT1;
+		for (i = 1; i <= cItems; ++i)
+			{
+			WORD wCheck = 0;
+
+			cb = CbGetListItem("DriveStatusText", i, szSymBuf, cbSymBuf);
+			Assert(cb < cbSymBuf);
+			SetDlgItemText(hdlg, idc++, szSymBuf);
+			if (i >= 4
+					&& i <= 6)
+				{
+				if (*szSymBuf == '\0')
+					ShowWindow(GetDlgItem(hdlg, IDC_TEXT4+i), SW_HIDE);
+				else
+					ShowWindow(GetDlgItem(hdlg, IDC_TEXT4+i), SW_SHOWNOACTIVATE);
+				}
+			}
+
+        cItems = UsGetListLength("EditTextIn");
+        idc = IDC_EDT1-1;
+        for ( i = 1; i <= cItems; ++i)
+            {
+            cb = CbGetListItem("EditTextIn", i, szSymBuf, cbFullPathMax + 1);
+            Assert(cb < cbFullPathMax + 1);
+            SendDlgItemMessage(hdlg, idc+i, EM_LIMITTEXT, cbFullPathMax, 0L);
+            SetDlgItemText(hdlg, idc+i, (LPSTR)szSymBuf);
+    
+            cbLen = lstrlen(szSymBuf);
+            cb = CbGetListItem("EditFocus", i, szSymBuf, cbFullPathMax + 1);
+            Assert(cb < cbFullPathMax + 1);
+    
+            if (lstrcmp(szSymBuf, "ALL") == 0)
+                {
+                wSelStart[i] = 0;
+                wSelEnd[i]   = INT_MAX;
+                }
+            else if (lstrcmp(szSymBuf, "START") == 0)
+                {
+                wSelStart[i] = 0;
+                wSelEnd[i]   = 0;
+                }
+            else       /* default == END */
+                {
+                wSelStart[i] = (WORD)cbLen;
+                wSelEnd[i]   = (WORD)cbLen;
+                }
+            }
+
+		return(fTrue);
+
+	case WM_COMMAND:
+		switch(wParam)
+			{
+		default:
+			szEvent = (LPSTR)NULL;
+			break;
+
+		case IDC_B1:
+		case IDC_B2:
+		case IDC_B3:
+		case IDC_B4:
+		case IDC_B5:
+		case IDC_B6:
+		case IDC_B7:
+		case IDC_B8:
+		case IDC_B9:
+		case IDC_B10:
+			lstrcpy((LPSTR)rgchChk, "CHK");
+			IntToAscii((int)(wParam-IDC_B1+1), (LPSTR)(&rgchChk[3]));
+			szEvent = (LPSTR)rgchChk;
+			break;
+
+		case IDC_SP1:
+		case IDC_SP2:
+		case IDC_SP3:
+		case IDC_SP4:
+		case IDC_SP5:
+		case IDC_SP6:
+		case IDC_SP7:
+		case IDC_SP8:
+		case IDC_SP9:
+		case IDC_SP10:
+			lstrcpy((LPSTR)rgchBtn, "BTN");
+			IntToAscii((int)(wParam-IDC_SP1+1), (LPSTR)(&rgchBtn[3]));
+			szEvent = (LPSTR)rgchBtn;
+			break;
+
+		case IDC_TEXT1:
+		case IDC_TEXT2:
+		case IDC_TEXT3:
+		case IDC_TEXT4:
+		case IDC_TEXT5:
+		case IDC_TEXT6:
+		case IDC_TEXT7:
+		case IDC_TEXT8:
+		case IDC_TEXT9:
+		case IDC_TEXT10:
+			lstrcpy((LPSTR)rgchBtn, "TEXT");
+			IntToAscii((int)(wParam-IDC_TEXT1+1), (LPSTR)(&rgchBtn[3]));
+			szEvent = (LPSTR)rgchBtn;
+			break;
+
+		case IDC_EDT1:
+		case IDC_EDT2:
+		case IDC_EDT3:
+		case IDC_EDT4:
+		case IDC_EDT5:
+		case IDC_EDT6:
+		case IDC_EDT7:
+		case IDC_EDT8:
+		case IDC_EDT9:
+		case IDC_EDT10:
+			if (HIWORD(lParam) == EN_SETFOCUS)
+				SendDlgItemMessage(hdlg, wParam, EM_SETSEL, 0,
+						MAKELONG(wSelStart[wParam-IDC_EDT1+1], wSelEnd[wParam-IDC_EDT1+1]));
+			else if (HIWORD(lParam) == EN_KILLFOCUS)
+				{
+				LONG  l = SendDlgItemMessage(hdlg, wParam, EM_GETSEL, 0, 0L);
+
+				wSelStart[wParam-IDC_EDT1+1] = LOWORD(l);
+				wSelEnd[wParam-IDC_EDT1+1]   = HIWORD(l);
+				}
+			break;
+
+		case IDC_B:
+		case IDC_C:
+		case IDC_X:
+			szEvent = SzDlgEvent(wParam);
+			Assert(szEvent != NULL);
+			break;
+
+		case IDC_P:
+			szEvent = "PATH";
+			break;
+
+		case IDC_H:
+			HdlgShowHelp();
+			return(fTrue);
+
+			}
+
+		if (szEvent == (LPSTR)NULL)
+			break;
+
+		FRemoveSymbol("CheckItemsState");
+		for (idc = IDC_B1; GetDlgItem(hdlg, idc); idc++)
+			if (!FAddListItem("CheckItemsState",
+					IsDlgButtonChecked(hdlg, idc) ? "ON" : "OFF"))
+				{
+				DestroyWindow(GetParent(hdlg));
+				return(fFalse);
+				}
+		Assert((unsigned)(idc-IDC_B1+1) <= iszBMax);
+
+		if (szEvent != (LPSTR)NULL)
+			if (!FSetSymbolValue("DLGEVENT", szEvent))
+				{
+				DestroyWindow(GetParent(hdlg));
+				return(fTrue);
+				}
+
+		for (idc = IDC_EDT1; GetDlgItem(hdlg, idc); idc++)
+		    {
+			SendDlgItemMessage(hdlg, idc, (WORD)WM_GETTEXT,
+					cbFullPathMax + 1, (LONG)((LPSTR)rgchText));
+			if (!FAddListItem("EditTextOut", rgchText))
+				{
+				DestroyWindow(GetParent(hdlg));
+				return(fTrue);
+				}
+		    }
+		ReactivateSetupScript();
+		break;
+		}
+
+	return(fFalse);
+}
+
+
 
 /*
 **	Purpose:
@@ -493,6 +778,185 @@ BOOL FAR PASCAL FEditDlgProc(HWND hdlg, WORD wMsg, WORD wParam, LONG lParam)
 			}
 		break;
 		}
+
+	return(fFalse);
+}
+
+
+
+/*
+**	Purpose:
+**		Super special Edit Dialog procedure for templates with one Edit control.
+**		(Limits the input string length to cbFullPathMax characters.)
+**
+**	Controls Recognized:
+**		Edit       - IDC_EDIT
+**		Pushbutton - IDC_B, IDC_C, IDC_H, IDC_X
+**
+**	Initialization Symbols:
+**		"EditTextIn" - initial text for IDC_EDIT edit control.
+**		"EditFocus"  - position of intial focus for text string:
+**				"END" (default), "ALL", or "START"
+**
+**	Termination Symbols:
+**		"EditTextOut" - text in the IDC_EDIT edit control upon termination.
+**		"DLGEVENT"    - one of the following, depending on event:
+**				event                value
+**				----------           ----------
+**				IDC_B                "BACK"
+**				IDC_C                "CONTINUE"
+**				IDC_X                "EXIT"
+**				IDCANCEL             "CANCEL"
+**				STF_ACTIVATEAPP      "REACTIVATE"
+**
+**	Note:
+**		Pushbutton IDC_H will open the related Help dialog, if any.
+**
+*****************************************************************************/
+BOOL FAR PASCAL FMyEditDlgProc(HWND hdlg, WORD wMsg, WORD wParam, LONG lParam)
+{
+	static WORD wSelStart = 0;
+	static WORD wSelEnd   = 0;
+	char  rgchText[cbFullPathMax + 1];
+	WORD  cbLen;
+	WORD  cb;
+	WORD  cItems, idc, i;
+	char  rgchChk[10];
+	char  szSymBuf[cbFullPathMax + 1];
+	LPSTR szEvent;
+
+	switch (wMsg)
+		{
+	case STF_ACTIVATEAPP:
+		if (!FSetSymbolValue("DLGEVENT", "REACTIVATE"))
+			{
+			DestroyWindow(GetParent(hdlg));
+			return(fTrue);
+			}
+		ReactivateSetupScript();
+		return(fTrue);
+
+	case WM_INITDIALOG:
+		cItems = UsGetListLength("InnerChkItemsState");
+		idc = IDC_B1;
+		for (i = 1; i <= cItems; ++i)
+			{
+			WORD wCheck = 0;
+
+			cb = CbGetListItem("InnerChkItemsState", i, szSymBuf, cbSymBuf);
+			Assert(cb < cbSymBuf);
+			if (lstrcmp(szSymBuf, "ON") == 0)
+				wCheck = 1;
+			CheckDlgButton(hdlg, idc++, wCheck);
+			}
+
+		cb = CbGetSymbolValue("EditTextIn", szSymBuf, cbFullPathMax + 1);
+		Assert(cb < cbFullPathMax + 1);
+		SendDlgItemMessage(hdlg, IDC_EDIT, EM_LIMITTEXT, cbFullPathMax, 0L);
+		SetDlgItemText(hdlg, IDC_EDIT, (LPSTR)szSymBuf);
+
+		cbLen = lstrlen(szSymBuf);
+		cb = CbGetSymbolValue("EditFocus", szSymBuf, cbFullPathMax + 1);
+		Assert(cb < cbFullPathMax + 1);
+
+		if (lstrcmp(szSymBuf, "ALL") == 0)
+			{
+			wSelStart = 0;
+			wSelEnd   = INT_MAX;
+			}
+		else if (lstrcmp(szSymBuf, "START") == 0)
+			{
+			wSelStart = 0;
+			wSelEnd   = 0;
+			}
+		else       /* default == END */
+			{
+			wSelStart = (WORD)cbLen;
+			wSelEnd   = (WORD)cbLen;
+			}
+		return(fTrue);
+
+	case STF_REINITDIALOG:
+		SendDlgItemMessage(hdlg, IDC_EDIT, EM_SETSEL, 0, MAKELONG(256, 256));
+		SetFocus(GetDlgItem(hdlg, IDC_EDIT));
+		return(fTrue);
+
+	case WM_COMMAND:
+		switch(wParam)
+			{
+		case IDC_EDIT:
+			if (HIWORD(lParam) == EN_SETFOCUS)
+				SendDlgItemMessage(hdlg, IDC_EDIT, EM_SETSEL, 0,
+						MAKELONG(wSelStart, wSelEnd));
+			else if (HIWORD(lParam) == EN_KILLFOCUS)
+				{
+				LONG  l = SendDlgItemMessage(hdlg, IDC_EDIT, EM_GETSEL, 0, 0L);
+
+				wSelStart = LOWORD(l);
+				wSelEnd   = HIWORD(l);
+				}
+			break;
+
+		case IDC_B1:
+		case IDC_B2:
+		case IDC_B3:
+		case IDC_B4:
+		case IDC_B5:
+		case IDC_B6:
+		case IDC_B7:
+		case IDC_B8:
+		case IDC_B9:
+		case IDC_B10:
+			lstrcpy((LPSTR)rgchChk, "CHK");
+			IntToAscii((int)(wParam-IDC_B1+1), (LPSTR)(&rgchChk[3]));
+			szEvent = (LPSTR)rgchChk;
+			
+            FRemoveSymbol("InnerChkItemsState");
+            for (idc = IDC_B1; GetDlgItem(hdlg, idc); idc++)
+                if (!FAddListItem("InnerChkItemsState",
+                        IsDlgButtonChecked(hdlg, idc) ? "ON" : "OFF"))
+                    {
+                    DestroyWindow(GetParent(hdlg));
+                    return(fFalse);
+                    }
+            Assert((unsigned)(idc-IDC_B1+1) <= iszBMax);
+    
+            if (szEvent != (LPSTR)NULL)
+                if (!FSetSymbolValue("DLGEVENT", szEvent))
+                    {
+                    DestroyWindow(GetParent(hdlg));
+                    return(fTrue);
+                    }
+    
+            ReactivateSetupScript();
+			break;
+
+		case IDC_H:
+			HdlgShowHelp();
+			return(fTrue);
+
+		case IDC_B:
+		case IDC_C:
+		case IDC_X:
+			if (!FSetSymbolValue("DLGEVENT", SzDlgEvent(wParam)))
+				{
+				DestroyWindow(GetParent(hdlg));
+				return(fTrue);
+				}
+			SendDlgItemMessage(hdlg, IDC_EDIT, (WORD)WM_GETTEXT,
+					cbFullPathMax + 1, (LONG)((LPSTR)rgchText));
+			if (!FSetSymbolValue("EditTextOut", rgchText))
+				{
+				DestroyWindow(GetParent(hdlg));
+				return(fTrue);
+				}
+			ReactivateSetupScript();
+			break;
+			}
+			
+		break;
+		}
+		
 
 	return(fFalse);
 }

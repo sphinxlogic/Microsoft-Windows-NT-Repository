@@ -1,13 +1,8 @@
 /* sadmin release utilities */
 
-#include "slm.h"
-#include "sys.h"
-#include "util.h"
-#include "stfile.h"
-#include "ad.h"
-#include "log.h"
-#include "proto.h"
-#include "sadproto.h"
+#include "precomp.h"
+#pragma hdrstop
+EnableAssert
 
 private void	SetPv(P1(AD *));
 private F	FSetPv(P2(AD *, F (*)(AD *pad)));
@@ -19,7 +14,9 @@ private F	FRelease(P1(AD *));
 F FRelInit(pad)
 AD *pad;
 	{
-	Unreferenced(pad);
+        if (pad->flags&flagAll || pad->pecmd->gl&fglAll)
+            CreatePeekThread(pad);
+
 	return fTrue;
 	}
 
@@ -48,7 +45,7 @@ private F FSetPv(AD *pad, F (*pfnf)(AD *padX))
 
 		/* Write the release to the log. */
 		OpenLog(pad, fTrue);
-		SzPrint(szBuf, "%s;%s", SzForPv(szPv, pad->psh->pv, fTrue), 
+		SzPrint(szBuf, "%s;%s", SzForPv(szPv, pad->psh->pv, fTrue),
 			pad->szComment ? pad->szComment : "");
 		AppendLog(pad, (FI far *)0, (char *)0, szBuf);
 		CloseLog();
@@ -164,7 +161,7 @@ AD *pad;
 	if ('\0' == pad->tdMin.u.pv.szName[0] &&
 		fTrue == pad->dpv.fRelRmj &&
 		fTrue == pad->dpv.fRelRmm &&
-		fTrue == pad->dpv.fRelRup && 
+		fTrue == pad->dpv.fRelRup &&
 		0 == pad->dpv.rmj &&
 		0 == pad->dpv.rmm &&
 		0 == pad->dpv.rup)
@@ -172,6 +169,9 @@ AD *pad;
 		Error("must specify project version or name\n");
 		return fFalse;
 		}
+
+        if (pad->flags&flagAll || pad->pecmd->gl&fglAll)
+            CreatePeekThread(pad);
 
 	return fTrue;
 	}
@@ -250,11 +250,12 @@ AD *pad;
 		/* Change all fs's fvs.  If equal to current pfi->fv, change
 		 * to new value, else set to 0 (will get set when in sync.)
 		 */
-		for (ied = 0; ied < pad->psh->iedMac; ied++)
-			{
-			pfs = PfsForPfi(pad, ied, pfi);
-			pfs->fv = (FV)((pfs->fv == pfi->fv) ? pad->fv : 0);
-			}
+                for (ied = 0; ied < pad->psh->iedMac; ied++) {
+                    if (!FIsFreeEdValid(pad->psh) || !pad->rged[ied].fFreeEd) {
+                        pfs = PfsForPfi(pad, ied, pfi);
+                        pfs->fv = (FV)((pfs->fv == pfi->fv) ? pad->fv : 0);
+                    }
+                }
 
 		pfi->fv = pad->fv;
 

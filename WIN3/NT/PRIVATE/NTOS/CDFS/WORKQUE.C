@@ -13,7 +13,7 @@ Abstract:
 
 Author:
 
-    Brian Andrew    [BrianAn]   02-Jan-1991
+    Brian Andrew    [BrianAn]   01-July-1995
 
 Revision History:
 
@@ -22,22 +22,39 @@ Revision History:
 #include "CdProcs.h"
 
 //
+//  The Bug check file id for this module
+//
+
+#define BugCheckFileId                   (CDFS_BUG_CHECK_WORKQUE)
+
+//
 //  The following constant is the maximum number of ExWorkerThreads that we
 //  will allow to be servicing a particular target device at any one time.
 //
 
 #define FSP_PER_DEVICE_THRESHOLD         (2)
 
+//
+//  Local support routines
+//
+
+VOID
+CdAddToWorkque (
+    IN PIRP_CONTEXT IrpContext,
+    IN PIRP Irp
+    );
+
 #ifdef ALLOC_PRAGMA
+#pragma alloc_text(PAGE, CdAddToWorkque)
 #pragma alloc_text(PAGE, CdFsdPostRequest)
 #pragma alloc_text(PAGE, CdOplockComplete)
 #pragma alloc_text(PAGE, CdPrePostIrp)
 #endif
 
 
-VOID
-CdOplockComplete (
-    IN PVOID Context,
+NTSTATUS
+CdFsdPostRequest (
+    IN PIRP_CONTEXT IrpContext,
     IN PIRP Irp
     )
 
@@ -45,54 +62,49 @@ CdOplockComplete (
 
 Routine Description:
 
-    This routine is called by the oplock package when an oplock break has
-    completed, allowing an Irp to resume execution.  If the status in
-    the Irp is STATUS_SUCCESS, then we queue the Irp to the Fsp queue.
-    Otherwise we complete the Irp with the status in the Irp.
+    This routine enqueues the request packet specified by IrpContext to the
+    work queue associated with the FileSystemDeviceObject.  This is a FSD
+    routine.
 
 Arguments:
 
-    Context - Pointer to the IrpContext to be queued to the Fsp
+    IrpContext - Pointer to the IrpContext to be queued to the Fsp.
 
     Irp - I/O Request Packet.
 
 Return Value:
 
-    None.
+    STATUS_PENDING
 
 --*/
 
 {
     PAGED_CODE();
 
-    //
-    //  Check on the return value in the Irp.
-    //
-
-    if (Irp->IoStatus.Status == STATUS_SUCCESS) {
-
-        //
-        //  Insert the Irp context in the workqueue.
-        //
-
-        CdAddToWorkque( (PIRP_CONTEXT) Context, Irp );
+    ASSERT_IRP_CONTEXT( IrpContext );
+    ASSERT_IRP( Irp );
 
     //
-    //  Otherwise complete the request.
+    //  Posting is a three step operation.  First lock down any buffers
+    //  in the Irp.  Next cleanup the IrpContext for the post and finally
+    //  add this to a workque.
     //
 
-    } else {
+    CdPrePostIrp( IrpContext, Irp );
 
-        CdCompleteRequest( (PIRP_CONTEXT) Context, Irp, Irp->IoStatus.Status );
-    }
+    CdAddToWorkque( IrpContext, Irp );
 
-    return;
+    //
+    //  And return to our caller
+    //
+
+    return STATUS_PENDING;
 }
 
 
 VOID
 CdPrePostIrp (
-    IN PVOID Context,
+    IN PIRP_CONTEXT IrpContext,
     IN PIRP Irp
     )
 
@@ -117,54 +129,89 @@ Return Value:
 --*/
 
 {
-    PIO_STACK_LOCATION IrpSp;
-    PIRP_CONTEXT IrpContext;
+    PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation( Irp );
+    BOOLEAN RemovedFcb;
 
     PAGED_CODE();
 
+    ASSERT_IRP_CONTEXT( IrpContext );
+    ASSERT_IRP( Irp );
+
     //
-    //  If there is no Irp, we are done.
+    //  Case on the type of the operation.
     //
 
-    if (Irp == NULL) {
+    switch (IrpContext->MajorFunction) {
 
-        return;
-    }
+    case IRP_MJ_CREATE :
 
-    IrpSp = IoGetCurrentIrpStackLocation( Irp );
+        //
+        //  If called from the oplock package then there is an
+        //  Fcb to possibly teardown.  We will call the teardown
+        //  routine and release the Fcb if still present.  The cleanup
+        //  code in create will know not to release this Fcb because
+        //  we will clear the pointer.
+        //
 
-    IrpContext = (PIRP_CONTEXT) Context;
+        if ((IrpContext->TeardownFcb != NULL) &&
+            *(IrpContext->TeardownFcb) != NULL) {
+
+            CdTeardownStructures( IrpContext, *(IrpContext->TeardownFcb), &RemovedFcb );
+
+            if (!RemovedFcb) {
+
+                CdReleaseFcb( IrpContext, *(IrpContext->TeardownFcb) );
+            }
+
+            *(IrpContext->TeardownFcb) = NULL;
+            IrpContext->TeardownFcb = NULL;
+        }
+
+        break;
 
     //
     //  We need to lock the user's buffer, unless this is an MDL-read,
     //  in which case there is no user buffer.
     //
-    //  **** we need a better test than non-MDL (read or write)!
 
-    if (IrpContext->MajorFunction == IRP_MJ_READ
-        && !FlagOn( IrpContext->MinorFunction, IRP_MN_MDL )) {
+    case IRP_MJ_READ :
 
-        CdLockUserBuffer( IrpContext,
-                          Irp,
-                          IoWriteAccess,
-                          IrpSp->Parameters.Read.Length );
+        //
+        //  We know we won't be at DPC level when we really process this.
+        //
+
+        ClearFlag( IrpContext->MinorFunction, IRP_MN_DPC );
+
+        if (!FlagOn( IrpContext->MinorFunction, IRP_MN_MDL )) {
+
+            CdLockUserBuffer( IrpContext, IrpSp->Parameters.Read.Length );
+        }
+
+        break;
 
     //
     //  We also need to check whether this is a query file operation.
     //
 
-    } else if (IrpContext->MajorFunction == IRP_MJ_DIRECTORY_CONTROL
-               && IrpContext->MinorFunction == IRP_MN_QUERY_DIRECTORY) {
+    case IRP_MJ_DIRECTORY_CONTROL :
 
-        CdLockUserBuffer( IrpContext,
-                          Irp,
-                          IoWriteAccess,
-                          IrpSp->Parameters.QueryDirectory.Length );
+        if (IrpContext->MinorFunction == IRP_MN_QUERY_DIRECTORY) {
 
+            CdLockUserBuffer( IrpContext, IrpSp->Parameters.QueryDirectory.Length );
+        }
+
+        break;
     }
 
     //
-    //  Mark that we've already returned pending to the user
+    //  Cleanup the IrpContext for the post.
+    //
+
+    SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_MORE_PROCESSING );
+    CdCleanupIrpContext( IrpContext, TRUE );
+
+    //
+    //  Mark the Irp to show that we've already returned pending to the user.
     //
 
     IoMarkIrpPending( Irp );
@@ -173,8 +220,8 @@ Return Value:
 }
 
 
-NTSTATUS
-CdFsdPostRequest(
+VOID
+CdOplockComplete (
     IN PIRP_CONTEXT IrpContext,
     IN PIRP Irp
     )
@@ -183,40 +230,91 @@ CdFsdPostRequest(
 
 Routine Description:
 
-    This routine enqueues the request packet specified by IrpContext to the
-    Ex Worker threads.  This is a FSD routine.
+    This routine is called by the oplock package when an oplock break has
+    completed, allowing an Irp to resume execution.  If the status in
+    the Irp is STATUS_SUCCESS, then we queue the Irp to the Fsp queue.
+    Otherwise we complete the Irp with the status in the Irp.
+
+    If we are completing due to an error then check if there is any
+    cleanup to do.
 
 Arguments:
 
-    IrpContext - Pointer to the IrpContext to be queued to the Fsp
-
-    Irp - I/O Request Packet, or NULL if it has already been completed.
+    Irp - I/O Request Packet.
 
 Return Value:
 
-    STATUS_PENDING
-
+    None.
 
 --*/
 
 {
-    ASSERT( ARGUMENT_PRESENT(Irp) );
-    ASSERT( IrpContext->OriginatingIrp == Irp );
+    BOOLEAN RemovedFcb;
 
     PAGED_CODE();
 
-    CdPrePostIrp( IrpContext, Irp );
-
-    CdAddToWorkque( IrpContext, Irp );
-
     //
-    //  And return to our caller
+    //  Check on the return value in the Irp.  If success then we
+    //  are to post this request.
     //
 
-    return STATUS_PENDING;
+    if (Irp->IoStatus.Status == STATUS_SUCCESS) {
+
+        //
+        //  Check if there is any cleanup work to do.
+        //
+
+        switch (IrpContext->MajorFunction) {
+
+        case IRP_MJ_CREATE :
+
+            //
+            //  If called from the oplock package then there is an
+            //  Fcb to possibly teardown.  We will call the teardown
+            //  routine and release the Fcb if still present.  The cleanup
+            //  code in create will know not to release this Fcb because
+            //  we will clear the pointer.
+            //
+
+            if (IrpContext->TeardownFcb != NULL) {
+
+                CdTeardownStructures( IrpContext, *(IrpContext->TeardownFcb), &RemovedFcb );
+
+                if (!RemovedFcb) {
+
+                    CdReleaseFcb( IrpContext, *(IrpContext->TeardownFcb) );
+                }
+
+                *(IrpContext->TeardownFcb) = NULL;
+                IrpContext->TeardownFcb = NULL;
+            }
+
+            break;
+        }
+
+        //
+        //  Insert the Irp context in the workqueue.
+        //
+
+        CdAddToWorkque( IrpContext, Irp );
+
+    //
+    //  Otherwise complete the request.
+    //
+
+    } else {
+
+        CdCompleteRequest( IrpContext, Irp, Irp->IoStatus.Status );
+    }
+
+    return;
 }
 
 
+//
+//  Local support routine
+//
+
 VOID
 CdAddToWorkque (
     IN PIRP_CONTEXT IrpContext,
@@ -243,19 +341,17 @@ Return Value:
 --*/
 
 {
+    PVOLUME_DEVICE_OBJECT Vdo;
     KIRQL SavedIrql;
-    PIO_STACK_LOCATION IrpSp;
-
-    IrpSp = IoGetCurrentIrpStackLocation( Irp );
+    PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation( Irp );
 
     //
     //  Check if this request has an associated file object, and thus volume
     //  device object.
     //
 
-    if ( IrpSp->FileObject != NULL ) {
+    if (IrpSp->FileObject != NULL) {
 
-        PVOLUME_DEVICE_OBJECT Vdo;
 
         Vdo = CONTAINING_RECORD( IrpSp->DeviceObject,
                                  VOLUME_DEVICE_OBJECT,
@@ -268,7 +364,7 @@ Return Value:
 
         KeAcquireSpinLock( &Vdo->OverflowQueueSpinLock, &SavedIrql );
 
-        if ( Vdo->PostedRequestCount > FSP_PER_DEVICE_THRESHOLD) {
+        if (Vdo->PostedRequestCount > FSP_PER_DEVICE_THRESHOLD) {
 
             //
             //  We cannot currently respond to this IRP so we'll just enqueue it
@@ -307,9 +403,7 @@ Return Value:
 
     ExQueueWorkItem( &IrpContext->WorkQueueItem, CriticalWorkQueue );
 
-    UNREFERENCED_PARAMETER( Irp );
-
     return;
 }
 
-
+

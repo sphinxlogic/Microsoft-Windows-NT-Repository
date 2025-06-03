@@ -1,14 +1,13 @@
 /****************************************************************************/
 /*                                                                          */
-/*  RC.C -                                                                  */
+/*  RCDLL.C -                                                               */
 /*                                                                          */
 /*    Windows 3.5 Resource Compiler - Main Module                           */
 /*                                                                          */
 /*                                                                          */
 /****************************************************************************/
 
-#include "prerc.h"
-#pragma hdrstop
+#include "rc.h"
 #include <setjmp.h>
 
 
@@ -16,7 +15,8 @@
 HINSTANCE hInstance;
 HWND      hWndCaller;
 
-RC_CALLBACK  lpfnRCCallback;
+RC_MESSAGE_CALLBACK  lpfnMessageCallback;
+RC_PARSE_CALLBACK lpfnParseCallback;
 
 
 /* Function prototypes */
@@ -32,11 +32,14 @@ BOOL APIENTRY LibMain(HANDLE hDll, DWORD dwReason, LPVOID lpReserved)
 }
 
 
-int CALLBACK RC(HWND hWnd, int fStatus, RC_CALLBACK lpfn, int argc, char**argv)
+int CALLBACK RC(HWND hWnd, int fStatus,
+	RC_MESSAGE_CALLBACK lpfnMsg, RC_PARSE_CALLBACK lpfnParse,
+	int argc, char**argv)
 {
     hWndCaller     = hWnd;
 
-    lpfnRCCallback = lpfn;
+    lpfnMessageCallback = lpfnMsg;
+	lpfnParseCallback = lpfnParse;
 
     return (rc_main(argc, argv));
 }
@@ -51,19 +54,48 @@ int RCPP(int argc, PCHAR *argv, PCHAR env)
 }
 
 
+void SendWarning(PSTR str)
+{
+    if (lpfnMessageCallback)
+	(*lpfnMessageCallback)(0, 0, str);
+
+    if (hWndCaller) {
+        if (SendMessageA(hWndCaller, WM_RC_ERROR, FALSE, (LPARAM)str) != 0) {
+	    quit("\n");
+	}
+    }
+}
+
 void SendError(PSTR str)
 {
-    (*lpfnRCCallback)(0, 0, str);
+    static int cErrThisLine = 0;
+    static int LastRow = 0;
 
-    if (hWndCaller)
-        SendMessage(hWndCaller, WM_RC_ERROR, (WPARAM)FALSE, (LPARAM)str);
+    if (lpfnMessageCallback)
+	(*lpfnMessageCallback)(0, 0, str);
+
+    if (hWndCaller) {
+        if (SendMessageA(hWndCaller, WM_RC_ERROR, FALSE, (LPARAM)str) != 0) {
+	    quit("\n");
+	}
+    }
+
+    if (token.row == LastRow) {
+	if (++cErrThisLine > 4 && strcmp(str, "\n"))
+	    quit("\n");
+    }
+    else {
+	LastRow = token.row;
+	cErrThisLine = 0;
+    }
 }
 
 
 void UpdateStatus(unsigned nCode, unsigned long dwStatus)
 {
-    if (hWndCaller)
-        SendMessage(hWndCaller, WM_RC_STATUS, nCode, dwStatus);
+    if (hWndCaller) {
+        if (SendMessageA(hWndCaller, WM_RC_STATUS, nCode, dwStatus) != 0) {
+	    quit("\n");
+	}
+    }
 }
-
-

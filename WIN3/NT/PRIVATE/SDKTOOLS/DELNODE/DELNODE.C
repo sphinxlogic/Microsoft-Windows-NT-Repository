@@ -33,7 +33,7 @@ flagType fConfirm (char *psz)
     printf ("\nDELNODE: Delete node \"%s\" and all its subdirectories? [yn] ", psz);
     while( TRUE ) {
 
-        ch = getch();
+        ch = _getch();
         ch = tolower( ch );
 
         if (ch == ENTER && (chLast == 'y' || chLast == 'n')) {
@@ -95,4 +95,3 @@ char *v[];
     }
     return( 0 );
 }
-

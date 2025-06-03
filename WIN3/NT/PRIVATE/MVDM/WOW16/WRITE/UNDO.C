@@ -870,5 +870,4 @@ CmdAgain()
     vfSeeSel = true;
 }
 #endif  /* CASHMERE */
-
-
+

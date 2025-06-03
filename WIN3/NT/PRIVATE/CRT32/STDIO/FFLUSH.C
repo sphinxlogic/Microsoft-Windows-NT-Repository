@@ -59,6 +59,18 @@
 #include <internal.h>
 
 
+#pragma data_seg(".CRT$XPX")
+
+const void (__cdecl *__pendstdio)(void) = _endstdio;
+
+#pragma data_seg()
+
+/*
+ * _cflush is a dummy variable used to pull in _endstdio() when any STDIO
+ * routine is included in the user program.
+ */
+int _cflush = 1;
+
 /* Values passed to flsall() to distinguish between _flushall() and
  * fflush(NULL) behavior
  */

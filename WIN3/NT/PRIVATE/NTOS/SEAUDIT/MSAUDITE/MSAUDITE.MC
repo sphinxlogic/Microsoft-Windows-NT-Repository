@@ -233,6 +233,7 @@ Account Management
 ;//              SE_AUDITID_AUTH_PACKAGE_LOAD                               //
 ;//              SE_AUDITID_LOGON_PROC_REGISTER                             //
 ;//              SE_AUDITID_AUDITS_DISCARDED                                //
+;//              SE_AUDITID_NOTIFY_PACKAGE_LOAD                             //
 ;//                                                                         //
 ;/////////////////////////////////////////////////////////////////////////////
 
@@ -395,6 +396,29 @@ The audit log was cleared
 
 
 
+;//
+;//
+;// SE_AUDITID_SYSTEM_NOTIFY_PACKAGE_LOAD
+;//
+;//          Category:  SE_CATEGID_SYSTEM
+;//
+;// Parameter Strings -
+;//
+;//          1 - Notification Package Name
+;//
+;//
+;//
+
+MessageId=0x0206
+        SymbolicName=SE_AUDITID_NOTIFY_PACKAGE_LOAD
+        Language=English
+An notification package has been loaded by the Security Account Manager.
+This package will be notified of any account or password changes.
+%n
+Notification Package Name:%t%1
+.
+
+
 ;
 ;/////////////////////////////////////////////////////////////////////////////
 ;//                                                                         //
@@ -452,7 +476,8 @@ Successful Logon:%n
 %tLogon ID:%t%t%3%n
 %tLogon Type:%t%4%n
 %tLogon Process:%t%5%n
-%tAuthentication Package:%t%6
+%tAuthentication Package:%t%6%n
+%tWorkstation Name:%t%7
 .
 
 ;//
@@ -484,7 +509,8 @@ Logon Failure:%n
 %tDomain:%t%t%2%n
 %tLogon Type:%t%3%n
 %tLogon Process:%t%4%n
-%tAuthentication Package:%t%5
+%tAuthentication Package:%t%5%n
+%tWorkstation Name:%t%6
 .
 
 ;//
@@ -516,7 +542,8 @@ Logon Failure:%n
 %tDomain:%t%2%n
 %tLogon Type:%t%3%n
 %tLogon Process:%t%4%n
-%tAuthentication Package:%t%5
+%tAuthentication Package:%t%5%n
+%tWorkstation Name:%t%6
 .
 
 
@@ -549,7 +576,8 @@ Logon Failure:%n
 %tDomain:%t%t%2%n
 %tLogon Type:%t%3%n
 %tLogon Process:%t%4%n
-%tAuthentication Package:%t%5
+%tAuthentication Package:%t%5%n
+%tWorkstation Name:%t%6
 .
 
 
@@ -582,7 +610,8 @@ Logon Failure:%n
 %tDomain:%t%t%2%n
 %tLogon Type:%t%3%n
 %tLogon Process:%t%4%n
-%tAuthentication Package:%t%5
+%tAuthentication Package:%t%5%n
+%tWorkstation Name:%t%6
 .
 
 
@@ -615,7 +644,8 @@ Logon Failure:%n
 %tDomain:%t%2%n
 %tLogon Type:%t%3%n
 %tLogon Process:%t%4%n
-%tAuthentication Package:%t%5
+%tAuthentication Package:%t%5%n
+%tWorkstation Name:%t%6
 .
 
 
@@ -649,7 +679,8 @@ Logon Failure:%n
 %tDomain:%t%t%2%n
 %tLogon Type:%t%3%n
 %tLogon Process:%t%4%n
-%tAuthentication Package:%t%5
+%tAuthentication Package:%t%5%n
+%tWorkstation Name:%t%6
 .
 
 
@@ -682,7 +713,8 @@ Logon Failure:%n
 %tDomain:%t%t%2%n
 %tLogon Type:%t%3%n
 %tLogon Process:%t%4%n
-%tAuthentication Package:%t%5
+%tAuthentication Package:%t%5%n
+%tWorkstation Name:%t%6
 .
 
 
@@ -715,7 +747,8 @@ Logon Failure:%n
 %tDomain:%t%t%2%n
 %tLogon Type:%t%3%n
 %tLogon Process:%t%4%n
-%tAuthentication Package:%t%5
+%tAuthentication Package:%t%5%n
+%tWorkstation Name:%t%6
 .
 
 
@@ -745,10 +778,11 @@ MessageId=0x0219
 Logon Failure:%n
 %tReason:%t%tAn unexpected error occured during logon%n
 %tUser Name:%t%1%n
-%tDomain:%t%2%n
+%tDomain:%t%t%2%n
 %tLogon Type:%t%3%n
 %tLogon Process:%t%4%n
-%tAuthentication Package:%t%5
+%tAuthentication Package:%t%5%n
+%tWorkstation Name:%t%6
 .
 
 
@@ -810,7 +844,8 @@ Logon Failure:%n
 %tDomain:%t%2%n
 %tLogon Type:%t%3%n
 %tLogon Process:%t%4%n
-%tAuthentication Package:%t%5
+%tAuthentication Package:%t%5%n
+%tWorkstation Name:%t%6
 .
 
 
@@ -837,6 +872,8 @@ Logon Failure:%n
 ;//   Event IDs:                                                            //
 ;//              SE_AUDITID_OPEN_HANDLE                                     //
 ;//              SE_AUDITID_CLOSE_HANDLE                                    //
+;//              SE_AUDITID_OPEN_OBJECT_FOR_DELETE                          //
+;//              SE_AUDITID_DELETE_OBJECT                                   //
 ;//                                                                         //
 ;//                                                                         //
 ;//                                                                         //
@@ -950,6 +987,114 @@ MessageId=0x0232
         SymbolicName=SE_AUDITID_CLOSE_HANDLE
         Language=English
 Handle Closed:%n
+%tObject Server:%t%1%n
+%tHandle ID:%t%2%n
+%tProcess ID:%t%3%n
+.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+;//
+;//
+;// SE_AUDITID_OPEN_OBJECT_FOR_DELETE
+;//
+;//          Category:  SE_CATEGID_OBJECT_ACCESS
+;//
+;// Parameter Strings -
+;//
+;//             1 - Object Type string
+;//
+;//             2 - Object name
+;//
+;//             3 - New handle ID string
+;//
+;//             4 - Object server name
+;//
+;//             5 - Process ID string
+;//
+;//             6 - Primary user account name
+;//
+;//             7 - Primary authenticating domain name
+;//
+;//             8 - Primary logon ID string
+;//
+;//             9 - Client user account name ("-" if no client)
+;//
+;//            10 - Client authenticating domain name ("-" if no client)
+;//
+;//            11 - Client logon ID string ("-" if no client)
+;//
+;//            12 - Access names
+;//
+;//
+;//
+;//
+
+MessageId=0x0233
+        SymbolicName=SE_AUDITID_OPEN_OBJECT_FOR_DELETE
+        Language=English
+Object Open for Delete:%n
+%tObject Server:%t%1%n
+%tObject Type:%t%2%n
+%tObject Name:%t%3%n
+%tNew Handle ID:%t%4%n
+%tOperation ID:%t{%5,%6}%n
+%tProcess ID:%t%7%n
+%tPrimary User Name:%t%8%n
+%tPrimary Domain:%t%9%n
+%tPrimary Logon ID:%t%10%n
+%tClient User Name:%t%11%n
+%tClient Domain:%t%12%n
+%tClient Logon ID:%t%13%n
+%tAccesses%t%t%14%n
+%tPrivileges%t%t%15%n
+.
+
+
+;//
+;//
+;// SE_AUDITID_DELETE_OBJECT
+;//
+;//          Category:  SE_CATEGID_OBJECT_ACCESS
+;//
+;// Parameter Strings -
+;//
+;//             1 - Object server name
+;//
+;//             2 - Handle ID string
+;//
+;//             3 - Process ID string
+;//
+;//
+;//
+;//
+
+MessageId=0x0234
+        SymbolicName=SE_AUDITID_DELETE_OBJECT
+        Language=English
+Object Deleted:%n
 %tObject Server:%t%1%n
 %tHandle ID:%t%2%n
 %tProcess ID:%t%3%n
@@ -1776,7 +1921,7 @@ Change Password Attempt:%n
 %tCaller User Name:%t%4%n
 %tCaller Domain:%t%5%n
 %tCaller Logon ID:%t%6%n
-%Privileges:%t%7%n
+%tPrivileges:%t%7%n
 .
 
 
@@ -1894,7 +2039,7 @@ User Account Deleted:%n
 %tCaller User Name:%t%4%n
 %tCaller Domain:%t%5%n
 %tCaller Logon ID:%t%6%n
-%Privileges:%t%7%n
+%tPrivileges:%t%7%n
 .
 
 
@@ -1977,6 +2122,7 @@ Global Group Member Added:%n
 %tCaller User Name:%t%5%n
 %tCaller Domain:%t%6%n
 %tCaller Logon ID:%t%7%n
+%tPrivileges:%t%8%n
 .
 
 
@@ -2019,7 +2165,7 @@ Global Group Member Removed:%n
 %tCaller User Name:%t%5%n
 %tCaller Domain:%t%6%n
 %tCaller Logon ID:%t%7%n
-%Privileges:%t%8%n
+%tPrivileges:%t%8%n
 .
 
 
@@ -2380,7 +2526,7 @@ User Account Changed:%n
 %tCaller User Name:%t%4%n
 %tCaller Domain:%t%5%n
 %tCaller Logon ID:%t%6%n
-%Privileges:%t%7%n
+%tPrivileges:%t%7%n
 .
 
 

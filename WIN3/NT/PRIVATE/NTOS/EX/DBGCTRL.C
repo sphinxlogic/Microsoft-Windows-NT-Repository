@@ -23,8 +23,6 @@ Revision History:
 --*/
 
 #include "exp.h"
-#include "zwapi.h"
-#include <ntdbg.h>
 
 #if defined(ALLOC_PRAGMA)
 #pragma alloc_text(PAGE, NtSystemDebugControl)
@@ -85,7 +83,6 @@ Arguments:
 
     Command - The command to be executed.  One of the following:
 
-        SysDbgQueryModuleInformation
         SysDbgQueryTraceInformation
         SysDbgSetTracepoint
         SysDbgSetSpecialCall
@@ -164,28 +161,6 @@ Return Value:
         //
 
         switch ( Command ) {
-
-        case SysDbgQueryModuleInformation:
-
-            KeEnterCriticalRegion();
-            ExAcquireResourceExclusive( &PsLoadedModuleResource, TRUE );
-            releaseModuleResoure = TRUE;
-
-            status = RtlQueryModuleInformation(
-                        &PsLoadedModuleList,
-                        NULL,
-                        NULL,
-                        (PRTL_PROCESS_MODULES)OutputBuffer,
-                        OutputBufferLength,
-                        &length
-                        );
-
-            ExReleaseResource( &PsLoadedModuleResource );
-            KeLeaveCriticalRegion();
-
-            releaseModuleResoure = FALSE;
-
-            break;
 
 #if i386
 

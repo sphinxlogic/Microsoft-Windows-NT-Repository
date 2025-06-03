@@ -16,6 +16,8 @@ Author:
     Sudeep Bharati (sudeepb) 16-Jan-1993
 
 Revision History:
+    William Hsieh (williamh) 31-May-1996
+	rewrote for Dongle support
 
 --*/
 
@@ -24,103 +26,17 @@ Revision History:
 #include "vdmprint.h"
 #include <i386.h>
 #include <v86emul.h>
+#include "..\..\..\..\inc\ntddvdm.h"
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE, VdmPrinterStatus)
+#pragma alloc_text(PAGE, VdmPrinterWriteData)
+#pragma alloc_text(PAGE, VdmFlushPrinterWriteData)
+#pragma alloc_text(PAGE, VdmpPrinterDirectIoOpen)
+#pragma alloc_text(PAGE, VdmpPrinterDirectIoClose)
 #endif
 
-#ifdef WHEN_IO_DISPATCHING_IMPROVED
-    // Sudeepb - Once we improve the IO dispatching we should use this
-    // routine. Currently we are dispatching the printer ports directly
-    // from emv86.asm and instemul.asm
 
-NTSTATUS
-VdmPrinterStatus(
-    ULONG Context,
-    ULONG iPort,
-    ULONG AccessMode,
-    PUCHAR Data
-    )
-
-/*++
-
-Routine Description:
-
-    This routine handles the read operation on the printer status port
-
-Arguments:
-    Context     - not used
-    iPort       - port on which the io was trapped
-    AccessMode  - Read/Write
-    Data        - Pointer where status byte to be returned.
-
-Return Value:
-
-    True if successfull, False otherwise
-
---*/
-{
-    PVDM_TIB VdmTib;
-    ULONG    adapter;
-    ULONG    printer_status;
-    NTSTATUS Status = STATUS_SUCCESS;
-
-    PAGED_CODE();
-
-    VdmTib = NtCurrentTeb()->Vdm;
-    if(VdmTib->PrinterInfo.fReflect != PRINTER_EMULATE_IN_KERNEL) {
-        // donot emulate the port here. Send it to the VMD.
-        // any status value other than status_success is good.
-        return(STATUS_ILLEGAL_INSTRUCTION);
-    }
-
-
-    if (VdmTib->PrinterInfo.prt_Status == NULL ||
-        VdmTib->PrinterInfo.prt_HostState == NULL ||
-        VdmTib->PrinterInfo.prt_Control == NULL) {
-        // any status value other than status_success is good.
-        return(STATUS_ILLEGAL_INSTRUCTION);
-    }
-
-    try {
-        switch (iPort) {
-           case LPT1_PORT_STATUS:
-                adapter = 0;
-                break;
-           case LPT2_PORT_STATUS:
-                adapter = 1;
-                break;
-           case LPT3_PORT_STATUS:
-                adapter = 2;
-                break;
-           default:
-                // Will never happen but just in case!
-                return(STATUS_ILLEGAL_INSTRUCTION);
-        }
-
-        if (!(get_status(adapter) & NOTBUSY) &&
-            !(host_lpt_status(adapter) & HOST_LPT_BUSY)) {
-
-            if (get_control(adapter) & IRQ) {
-                // any status value other than status_success is good.
-                Status = STATUS_ILLEGAL_INSTRUCTION;
-                return FALSE;
-            }
-            printer_status = (ULONG)(get_status(adapter) | NOTBUSY);
-            set_status(adapter, (UCHAR)printer_status);
-        }
-
-        printer_status = (ULONG)(get_status(adapter) | STATUS_REG_MASK);
-
-        *Data = (UCHAR)printer_status;
-
-    } except(EXCEPTION_EXECUTE_HANDLER) {
-        Status = GetExceptionCode();
-    }
-    return Status;
-}
-
-#else
 
 BOOLEAN
 VdmPrinterStatus(
@@ -146,107 +62,256 @@ Return Value:
 
 --*/
 {
-    PVDM_TIB VdmTib;
-    ULONG    adapter;
-    ULONG    printer_status;
+    UCHAR    PrtMode;
+    USHORT   adapter;
+    ULONG *  printer_status;
+    KIRQL    OldIrql;
+    PIO_STATUS_BLOCK IoStatusBlock;
+    PVDM_PRINTER_INFO	PrtInfo;
+    PVDM_TIB	VdmTib;
     NTSTATUS Status = STATUS_SUCCESS;
 
     PAGED_CODE();
 
+    // why we have printer stuff in TIB? It would be more appropriate
+    // if we have them in the process object. The main reason(I think)
+    // is that we can get rid of synchronization.
+    //
+
     VdmTib = NtCurrentTeb()->Vdm;
-    if(VdmTib->PrinterInfo.fReflect != PRINTER_EMULATE_IN_KERNEL) {
-        // donot emulate the port here. Send it to the VDM.
-        return FALSE;
-    }
 
-    // if printer port are to be reflected to ntvdm then these
-    // values will be NULL.
-    if (VdmTib->PrinterInfo.prt_Status == NULL ||
-        VdmTib->PrinterInfo.prt_HostState == NULL ||
-        VdmTib->PrinterInfo.prt_Control == NULL) {
-        return FALSE;
-    }
+    PrtInfo = &VdmTib->PrinterInfo;
+    IoStatusBlock = (PIO_STATUS_BLOCK) &VdmTib->TempArea1;
+    printer_status = &VdmTib->PrinterInfo.prt_Scratch;
 
+    *pNtVDMState |= VDM_IDLEACTIVITY;
     try {
-        switch (iPort) {
-           case LPT1_PORT_STATUS:
-                adapter = 0;
-                break;
-           case LPT2_PORT_STATUS:
-                adapter = 1;
-                break;
-           case LPT3_PORT_STATUS:
-                adapter = 2;
-                break;
-           default:
-                // Will never happen but just in case!
-                return FALSE;
-        }
+	// first, figure out which PRT we are dealing with. The
+	// port addresses in the PrinterInfo are base address of each
+	// PRT sorted in the adapter order.
 
-        if (!(get_status(adapter) & NOTBUSY) &&
-            !(host_lpt_status(adapter) & HOST_LPT_BUSY)) {
-            if (get_control(adapter) & IRQ)
-                return FALSE;
-            printer_status = (ULONG)(get_status(adapter) | NOTBUSY);
-            set_status(adapter, (UCHAR)printer_status);
-        }
+	if ((USHORT)iPort == PrtInfo->prt_PortAddr[0] + STATUS_PORT_OFFSET)
+	    adapter = 0;
+	else if ((USHORT)iPort == PrtInfo->prt_PortAddr[1] + STATUS_PORT_OFFSET)
+	    adapter = 1;
+	else if ((USHORT)iPort == PrtInfo->prt_PortAddr[2] + STATUS_PORT_OFFSET)
+	    adapter = 2;
+	else {
+	    // something must be wrong in our code, better check it out
+	    ASSERT(FALSE);
+	    return FALSE;
+	}
+	PrtMode = PrtInfo->prt_Mode[adapter];
 
-        printer_status = (ULONG)(get_status(adapter) | STATUS_REG_MASK);
+
+	if(PRT_MODE_SIMULATE_STATUS_PORT == PrtMode) {
+	    // we are simulating printer status read.
+	    // get the current status from softpc.
+	    if (!(get_status(adapter) & NOTBUSY) &&
+		!(host_lpt_status(adapter) & HOST_LPT_BUSY)) {
+		if (get_control(adapter) & IRQ)
+		    return FALSE;
+		set_status(adapter, get_status(adapter) | NOTBUSY);
+	    }
+	    *printer_status = (ULONG)(get_status(adapter) | STATUS_REG_MASK);
+        }
+	else if (PRT_MODE_DIRECT_IO ==	PrtMode) {
+	    // we have to read the i/o directly(of course, through file system
+	    // which in turn goes to the driver).
+	    // Before performing read, flush out all pending output data in our
+	    // buffer. This is done because the status we are about to read
+	    // may depend on those pending output data.
+	    //
+	    if (PrtInfo->prt_BytesInBuffer[adapter]) {
+		Status = VdmFlushPrinterWriteData(adapter);
+#ifdef DBG
+		if (!NT_SUCCESS(Status)) {
+		    DbgPrint("VdmPrintStatus: failed to flush buffered data, status = %ls\n", Status);
+		}
+#endif
+	    }
+	    OldIrql = KeGetCurrentIrql();
+	    // lower irql to passive before doing any IO
+	    KeLowerIrql(PASSIVE_LEVEL);
+	    Status = NtDeviceIoControlFile(PrtInfo->prt_Handle[adapter],
+					   NULL,	// notification event
+					   NULL,	// APC routine
+					   NULL,	// Apc Context
+					   IoStatusBlock,
+					   IOCTL_VDM_PAR_READ_STATUS_PORT,
+					   NULL,
+					   0,
+					   printer_status,
+					   sizeof(ULONG)
+					   );
+
+	    if (!NT_SUCCESS(Status) || !NT_SUCCESS(IoStatusBlock->Status)) {
+		// fake a status to make it looks like the port is not connected
+		// to a printer.
+		*printer_status = 0x7F;
+#ifdef DBG
+		DbgPrint("VdmPrinterStatus: failed to get status from printer, status = %lx\n", Status);
+#endif
+		// always tell the caller that we have simulated the operation.
+		Status = STATUS_SUCCESS;
+	    }
+	    KeRaiseIrql(OldIrql, &OldIrql);
+	}
+	else
+	    // we don't simulate it here
+	    return FALSE;
 
         TrapFrame->Eax &= 0xffffff00;
-        TrapFrame->Eax |= (UCHAR)printer_status;
+	TrapFrame->Eax |= (UCHAR)*printer_status;
         TrapFrame->Eip += cbInstructionSize;
 
     } except(EXCEPTION_EXECUTE_HANDLER) {
         Status = GetExceptionCode();
     }
-    if (!NT_SUCCESS(Status))
-        return FALSE;
-    else
-        return TRUE;
+    return (NT_SUCCESS(Status));
 }
 
-#endif
-
-#ifdef WHEN_IO_DISPATCHING_IMPROVED
-
-VOID
-VdmInitializePrinter(
-    VOID
+BOOLEAN VdmPrinterWriteData(
+    ULONG iPort,
+    ULONG cbInstructionSize,
+    PKTRAP_FRAME TrapFrame
     )
 {
-    PROCESS_IO_PORT_HANDLER_INFORMATION IoHandlerInfo;
-    EMULATOR_ACCESS_ENTRY IoHandlerEntry;
+    UCHAR    PrtMode;
+    PVDM_PRINTER_INFO	PrtInfo;
+    USHORT   adapter;
+    PVDM_TIB VdmTib;
+    NTSTATUS Status = STATUS_SUCCESS;
 
-    IoHandlerInfo.Install = TRUE;
-    IoHandlerInfo.NumEntries = 1;
-    IoHandlerInfo.Context = 0;
-    IoHandlerInfo.EmulatorAccessEntries = &IoHandlerEntry;
-    IoHandlerEntry.BasePort = LPT1_PORT_STATUS;
-    IoHandlerEntry.NumConsecutivePorts = 1;
-    IoHandlerEntry.AccessType = Byte;
-    IoHandlerEntry.AccessMode = EMULATOR_READ_ACCESS;
-    IoHandlerEntry.StringSupport = 0;
-    IoHandlerEntry.Routine = VdmPrinterStatus;
+    PAGED_CODE();
 
-    PspSetProcessIoHandlers (
-        PsGetCurrentProcess(),
-        (PVOID)&IoHandlerInfo,
-        sizeof(PROCESS_IO_PORT_HANDLER_INFORMATION));
+    VdmTib = NtCurrentTeb()->Vdm;
+    PrtInfo = &VdmTib->PrinterInfo;
+    *pNtVDMState |= VDM_IDLEACTIVITY;
 
-    IoHandlerEntry.BasePort = LPT2_PORT_STATUS;
+    try {
+	// first, figure out which PRT we are dealing with. The
+	// port addresses in the PrinterInfo are base address of each
+	// PRT sorted in the adapter order
+	if ((USHORT)iPort == PrtInfo->prt_PortAddr[0] + DATA_PORT_OFFSET)
+	    adapter = 0;
+	else if ((USHORT)iPort == PrtInfo->prt_PortAddr[1] + DATA_PORT_OFFSET)
+	    adapter = 1;
+	else if ((USHORT)iPort == PrtInfo->prt_PortAddr[2] + DATA_PORT_OFFSET)
+	    adapter = 2;
+	else {
+	    // something must be wrong in our code, better check it out
+	    ASSERT(FALSE);
+	    return FALSE;
+	}
+	if (PRT_MODE_DIRECT_IO == PrtInfo->prt_Mode[adapter]){
+	    PrtInfo->prt_Buffer[adapter][PrtInfo->prt_BytesInBuffer[adapter]] = (UCHAR)TrapFrame->Eax;
+	    // buffer full, then flush it out
+	    if (++PrtInfo->prt_BytesInBuffer[adapter] >= PRT_DATA_BUFFER_SIZE){
 
-    PspSetProcessIoHandlers (
-        PsGetCurrentProcess(),
-        (PVOID)&IoHandlerInfo,
-        sizeof(PROCESS_IO_PORT_HANDLER_INFORMATION));
+		VdmFlushPrinterWriteData(adapter);
+	    }
 
-    IoHandlerEntry.BasePort = LPT3_PORT_STATUS;
+	    TrapFrame->Eip += cbInstructionSize;
 
-    PspSetProcessIoHandlers (
-        PsGetCurrentProcess(),
-        (PVOID)&IoHandlerInfo,
-        sizeof(PROCESS_IO_PORT_HANDLER_INFORMATION));
+	}
+	else
+	    Status = STATUS_ILLEGAL_INSTRUCTION;
+    } except(EXCEPTION_EXECUTE_HANDLER) {
+        Status = GetExceptionCode();
+    }
+    return(NT_SUCCESS(Status));
+
 }
 
+
+NTSTATUS
+VdmFlushPrinterWriteData(USHORT adapter)
+{
+    KIRQL    OldIrql;
+    PVDM_TIB	VdmTib;
+    PVDM_PRINTER_INFO PrtInfo;
+    PIO_STATUS_BLOCK IoStatusBlock;
+    NTSTATUS Status;
+
+
+    PAGED_CODE();
+
+    Status = STATUS_SUCCESS;
+    VdmTib = NtCurrentTeb()->Vdm;
+    PrtInfo = &VdmTib->PrinterInfo;
+    IoStatusBlock = (PIO_STATUS_BLOCK)&VdmTib->TempArea1;
+    try {
+	if (PrtInfo->prt_Handle[adapter] &&
+	    PrtInfo->prt_BytesInBuffer[adapter] &&
+	    PRT_MODE_DIRECT_IO == PrtInfo->prt_Mode[adapter]) {
+
+	    OldIrql = KeGetCurrentIrql();
+	    KeLowerIrql(PASSIVE_LEVEL);
+	    Status = NtDeviceIoControlFile(PrtInfo->prt_Handle[adapter],
+					   NULL,	// notification event
+					   NULL,	// APC routine
+					   NULL,	// APC context
+					   IoStatusBlock,
+					   IOCTL_VDM_PAR_WRITE_DATA_PORT,
+					   &PrtInfo->prt_Buffer[adapter][0],
+					   PrtInfo->prt_BytesInBuffer[adapter],
+					   NULL,
+					   0
+					   );
+	    PrtInfo->prt_BytesInBuffer[adapter] = 0;
+	    KeRaiseIrql(OldIrql, &OldIrql);
+	    if (!NT_SUCCESS(Status)) {
+#ifdef DBG
+		DbgPrint("IOCTL_VDM_PAR_WRITE_DATA_PORT failed %lx %x\n",
+			 Status, IoStatusBlock->Status);
 #endif
+		Status = IoStatusBlock->Status;
+
+	    }
+	}
+	else
+	    Status = STATUS_INVALID_PARAMETER;
+    } except (EXCEPTION_EXECUTE_HANDLER) {
+	Status = GetExceptionCode();
+    }
+    return Status;
+
+}
+
+
+NTSTATUS
+VdmpPrinterDirectIoOpen(PVOID ServiceData)
+{
+    PAGED_CODE();
+
+    return STATUS_SUCCESS;
+
+}
+NTSTATUS
+VdmpPrinterDirectIoClose(PVOID ServiceData)
+{
+    NTSTATUS	Status;
+    PVDM_PRINTER_INFO PrtInfo;
+    USHORT Adapter;
+
+    PAGED_CODE();
+
+    Status = STATUS_SUCCESS;
+    PrtInfo =&(((PVDM_TIB)NtCurrentTeb()->Vdm)->PrinterInfo);
+
+    try {
+	Adapter = *(USHORT *)ServiceData;
+	if (Adapter < VDM_NUMBER_OF_LPT) {
+	    if (PRT_MODE_DIRECT_IO == PrtInfo->prt_Mode[Adapter] &&
+		PrtInfo->prt_BytesInBuffer[Adapter]) {
+		Status = VdmFlushPrinterWriteData(Adapter);
+	    }
+	}
+	else
+	    Status = STATUS_INVALID_PARAMETER;
+    } except (EXCEPTION_EXECUTE_HANDLER) {
+	Status	= GetExceptionCode();
+    }
+    return Status;
+}

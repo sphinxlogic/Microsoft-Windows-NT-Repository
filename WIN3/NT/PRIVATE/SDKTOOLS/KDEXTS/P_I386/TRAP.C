@@ -26,6 +26,7 @@ Revision History:
 #pragma hdrstop
 
 extern ULONG   STeip, STebp, STesp;
+extern ULONG ThreadLastDump;
 
 
 BOOL
@@ -72,7 +73,8 @@ Return Value:
 VOID
 DoStackTrace(
     LPSTR args,
-    ULONG ulType
+    ULONG ulType,
+    ULONG Thread
     )
 {
     ULONG           Count;
@@ -90,7 +92,7 @@ DoStackTrace(
     Count = 100;
     sscanf(args,"%lX",&Count);
 
-    stk = (PEXTSTACKTRACE) malloc( Count * sizeof(EXTSTACKTRACE) );
+    stk = (PEXTSTACKTRACE) LocalAlloc( LPTR, Count * sizeof(EXTSTACKTRACE) );
     if (!stk) {
         dprintf("no frame displayed\n");
         return;
@@ -98,6 +100,7 @@ DoStackTrace(
 
     stk[0].FramePointer = ulType;
 
+    SetThreadForOperation( &Thread );
     Frames = StackTrace( STebp, STesp, STeip, stk, Count );
 
     for (i=0; i<Frames; i++) {
@@ -124,7 +127,7 @@ DoStackTrace(
         dprintf( "\n" );
     }
 
-    free( stk );
+    LocalFree( stk );
 }
 
 
@@ -147,7 +150,7 @@ Return Value:
 --*/
 
 {
-    DoStackTrace( args, 1 );
+    DoStackTrace( (PSTR)args, 1, ThreadLastDump );
 }
 
 
@@ -170,7 +173,7 @@ Return Value:
 --*/
 
 {
-    DoStackTrace( args, 2 );
+    DoStackTrace( (PSTR)args, 2, ThreadLastDump );
 }
 
 
@@ -231,6 +234,7 @@ DisplayTrapFrame (
     DESCRIPTOR_TABLE_ENTRY Descriptor;
     ULONG Esp;
     ULONG DisasmAddr;
+    CONTEXT Context;
 
     dprintf("eax=%08lx ebx=%08lx ecx=%08lx edx=%08lx esi=%08lx edi=%08lx\n",
                 TrapFrame->Eax,
@@ -282,8 +286,7 @@ DisplayTrapFrame (
     // Check whether P5 Virtual Mode Extensions are enabled, for display
     // of new EFlags values.
 
-    if ( GetExpression( "Cr4") != 0x0L ) {
-        //if((GetRegValue(REGCR4) & VMENABLED) != 0x0L)
+    if ( GetExpression("@Cr4") != 0) {
         dprintf("vip=%1lx    vif=%1lx\n",
         (TrapFrame->EFlags & 0x00100000L) >> 20,
         (TrapFrame->EFlags & 0x00080000L) >> 19);

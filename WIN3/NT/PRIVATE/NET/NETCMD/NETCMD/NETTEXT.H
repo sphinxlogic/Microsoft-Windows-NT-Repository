@@ -68,6 +68,8 @@ extern TCHAR swtxt_SW_PRIORITY[];
 extern TCHAR swtxt_SW_ROUTE[];
 extern TCHAR swtxt_SW_PURGE[];
 extern TCHAR swtxt_SW_DOMAIN[];
+extern TCHAR swtxt_SW_NETWARE[];
+extern TCHAR swtxt_SW_RANDOM[];
 #ifdef OS2
 extern TCHAR swtxt_SW_COUNT[];
 extern TCHAR swtxt_SW_REVERSE[];
@@ -187,7 +189,6 @@ extern TCHAR swtxt_SW_USER_EXPIRES[];
 extern TCHAR swtxt_SW_USER_ENABLESCRIPT[];
 extern TCHAR swtxt_SW_USER_FULLNAME[];
 extern TCHAR swtxt_SW_USER_HOMEDIR[];
-extern TCHAR swtxt_SW_USER_HOMEDIRREQ[];
 extern TCHAR swtxt_SW_USER_LOGONSERVER[];
 extern TCHAR swtxt_SW_USER_MAXSTORAGE[];
 extern TCHAR swtxt_SW_USER_PARMS[];

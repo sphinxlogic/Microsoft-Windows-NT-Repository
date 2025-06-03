@@ -19,13 +19,11 @@ Environment:
 
 Revision History:
 
+    Add PnP support - shielint
 
 --*/
 
 #include "iop.h"
-#include "ntiologc.h"
-#include "zwapi.h"
-#include "stdio.h"
 
 #define IDBG    DBG
 #define PAGED   1
@@ -58,7 +56,6 @@ extern WCHAR IopWstrBusValues[];
 extern WCHAR IopWstrTranslated[];
 extern WCHAR IopWstrBusTranslated[];
 
-
 #define HRESOURCE_MAP           0
 #define HDEVICE_STORAGE         1
 #define HCURRENT_CONTROL_SET    2
@@ -66,11 +63,12 @@ extern WCHAR IopWstrBusTranslated[];
 #define HORDERING               4
 #define HRESERVEDRESOURCES      5
 #define HBUSVALUES              6
-#define MAX_REG_HANDLES         7
+#define HOWNER_MAP              7
+#define MAX_REG_HANDLES         8
 
 #define INVALID_HANDLE      (HANDLE) -1
 
-#define BUFFERSIZE              2048 + sizeof( KEY_FULL_INFORMATION )
+#define BUFFERSIZE              (2048 + sizeof( KEY_FULL_INFORMATION ))
 #define MAX_ENTRIES             50
 #define SCONFLICT               5
 
@@ -86,20 +84,37 @@ typedef struct  {
     WCHAR                       UnicodeBuffer[1];           // Must be last!
 } *POWNER;
 
+#if _PNP_POWER_
+
+struct _RECONFIGURED_DRIVER;
+
+//
+// Flags for TENTRY
+//
+
+#define TENTRY_FLAGS_IN_USE            0
+#define TENTRY_FLAGS_BEING_RELOCATED   1
+#define TENTRY_FLAGS_REMOVED           2
+
+#endif
+
 // translated entry
 typedef struct  {
-    LARGE_INTEGER               BAddr;                      // Beginning address
-    LARGE_INTEGER               EAddr;                      // Ending address
+    LONGLONG                    BAddr;                      // Beginning address
+    LONGLONG                    EAddr;                      // Ending address
     KAFFINITY                   Affinity;                   // Processor affinity of resource
     POWNER                      Owner;                      // Owner of this resource
+#if _PNP_POWER_
+    UCHAR                       Flags;                      // Flags of this entry
+#else
 #if IDBG
     ULONG                       na[2];
 #endif
+#endif // _PNP_POWER_
 } TENTRY, *PTENTRY;                                         // Translated resource
 
 #define DoesTEntryCollide(a,b)                                         \
-  ( LiGeq((a).BAddr, (b).BAddr) ? LiLeq((a).BAddr, (b).EAddr) && ((a).Affinity & (b).Affinity) : \
-                                  LiGeq((a).EAddr, (b).BAddr) && ((a).Affinity & (b).Affinity) )
+  ( (a).EAddr >= (b).BAddr && (a).BAddr <= (b).EAddr && ((a).Affinity & (b).Affinity) )
 
 
 // list of translated entries
@@ -120,7 +135,7 @@ typedef struct  {
     ULONG                       NoConflicts;                // # of BAddrs
     struct {
         UCHAR                   Type;
-        LARGE_INTEGER           BAddr;
+        LONGLONG                BAddr;
         POWNER                  Owner;
     } EasyConflict[SCONFLICT];
 
@@ -136,13 +151,13 @@ typedef struct  {
 
     // current bus specific ordering location
     ULONG                       CurBusLoc;                  // Current Bus descriptor location
-    LARGE_INTEGER               CurBusMin;                  // Current bus desc min
-    LARGE_INTEGER               CurBusMax;                  // Current bus desc max
+    LONGLONG                    CurBusMin;                  // Current bus desc min
+    LONGLONG                    CurBusMax;                  // Current bus desc max
 
     // raw selection being considered...
     UCHAR                       Type;                       // type of descriptor
     ULONG                       CurBLoc;
-    LARGE_INTEGER               CurBAddr;                   // bus native BAddr
+    LONGLONG                    CurBAddr;                   // bus native BAddr
 
     // the raw selection's translation
     UCHAR                       TType;                      // Translated type
@@ -154,7 +169,7 @@ typedef struct  {
     // Phase 3
     ULONG                       PrefCnt;                    // # of times this level skipped
     ULONG                       Pass2HoldCurLoc;            // CurBLoc of best selection so far
-    LARGE_INTEGER               Pass2HoldBAddr;             // CurBAddr of best selection so far
+    LONGLONG                    Pass2HoldBAddr;             // CurBAddr of best selection so far
 
     // resource options
     ULONG                       NoAlternatives;             // entries in IoResourceDescriptor
@@ -187,6 +202,10 @@ typedef struct _DIR_RESREQ_LIST {
     PIO_RESOURCE_REQUIREMENTS_LIST  IoResourceReq;          // this IO_RESOURCES_REQUIREMENTS_LIST
     PDIR_RESOURCE_LIST          Alternative;                // list of alternatives
     PWCHAR                      Buffer;                     // Scratch memory
+#if _PNP_POWER_
+    PDIR_RESOURCE_LIST          ListPicked;                 // Resources assigned list
+    struct _RECONFIGURED_DRIVER *ReconfiguredDriver;
+#endif
 } DIR_RESREQ_LIST, *PDIR_RESREQ_LIST;
 
 // a list of heap which was allocated
@@ -195,6 +214,84 @@ typedef struct {
     PVOID                           FreeHeap;               // pointer to heap to free
 } USED_HEAP, *PUSED_HEAP;
 
+#if _PNP_POWER_
+
+//
+// IopRelocatedDirList - List of all the DIRs which were created to resolve conflicts.
+//
+
+PDIR_RESREQ_LIST IopRelocatedDirList = NULL;
+
+//
+// Information about conflict used by conflict relocator
+//
+
+typedef struct _RELOCATED_TENTRIES{
+    struct _RELOCATED_TENTRIES  *Next;
+    UCHAR                       Type;                       // Type of the TENTRY
+    PTENTRY                     TranslatedEntry;            // Pointer to the TENTRY
+    UNICODE_STRING              OriginalDriver;             // The names of the original
+    UNICODE_STRING              OriginalDevice;             //   owner.  So we can restore then
+                                                            //   if necessary.
+} RELOCATED_TENTRIES, *PRELOCATED_TENTRIES;
+
+//
+// IopInProcessedConflicts - list of all the conflict translated
+//     entries under processed.
+//
+
+PRELOCATED_TENTRIES IopInProcessedConflicts = NULL;
+
+//
+// IopNewResources - list of all the new translated entries
+//     allocated by the reconfigured drivers.
+//
+
+PRELOCATED_TENTRIES IopNewResources = NULL;
+
+//
+// Information about driver/device to be reconfigured.
+//
+
+typedef struct _RECONFIGURED_DRIVER {
+    struct _RECONFIGURED_DRIVER *Next;
+    POWNER                      Owner;                      // Owner of this structure
+    struct _DIR_RESREQ_LIST     *ReconfiguredDir;           // pointer to DIR_RESREQ_LIST
+    PCM_RESOURCE_LIST           CmResourceList;             // Cm res list of the driver/device
+    ULONG                       ResourceLength;             // The length of the CM resource list
+    UNICODE_STRING              DriverClassName;            // Required by ReportResourceUsage
+    PDRIVER_OBJECT              DriverObject;               // pointer to the dev obj of the driver
+    PDEVICE_OBJECT              DeviceObject;               // Not NULL if resource is device specific
+    PFILE_OBJECT                DeviceFileObject;           // redundant??
+} RECONFIGURED_DRIVER, *PRECONFIGURED_DRIVER;
+
+PRECONFIGURED_DRIVER IopReconfiguredDrivers;
+
+//
+// Information to help reconstruct DIR_REQUIRED_LIST
+//
+
+typedef struct _REG_REQUIRED_RESOURCE {
+
+    //
+    // raw selection
+    //
+    UCHAR                       Type;                       // type of descriptor
+    ULONG                       CurBLoc;
+    LONGLONG                    CurBAddr;                   // bus native BAddr
+
+    //
+    // the raw selection's translation
+    //
+    UCHAR                       TType;                      // Translated type
+    TENTRY                      Trans;                      // Translated info
+} REG_REQUIRED_RESOURCE, *PREG_REQUIRED_RESOURCE;
+
+typedef struct _REG_REQUIRED_RESOURCE_LIST {
+    ULONG                       NoRequiredResources;
+    REG_REQUIRED_RESOURCE       RegResource[1];             // Must be last entry
+} REG_REQUIRED_RESOURCE_LIST, *PREG_REQUIRED_RESOURCE_LIST;
+#endif // _PNP_POWER
 
 //
 // Internal prototypes
@@ -205,15 +302,6 @@ IopGetResourceReqRegistryValue (
     IN PDIR_RESREQ_LIST     Dir,
     IN HANDLE               KeyHandle,
     IN PWSTR                ValueName
-    );
-
-NTSTATUS
-IopLookupBusStringFromID (
-    IN HANDLE           KeyHandle,
-    IN INTERFACE_TYPE   InterfaceType,
-    OUT PWCHAR          Buffer,
-    IN ULONG            Length,
-    OUT PULONG          BusFlags
     );
 
 NTSTATUS
@@ -273,14 +361,19 @@ IopAddCmDescriptorToInUseList (
 ULONG
 IopFindCollisionInTList (
     IN PTENTRY SEntry,
+#if _PNP_POWER_
+    IN PLTENTRY List,
+    OUT PTENTRY *ConflictEntry
+#else
     IN PLTENTRY List
+#endif // _PNP_POWER_
     );
 
 VOID
 IopPickupCollisionInTList (
     IN PDIR_RESOURCE_LIST   CurList,
     IN UCHAR                Type,
-    IN LARGE_INTEGER        BAddr,
+    IN LONGLONG             BAddr,
     IN PTENTRY              SEntry,
     IN PLTENTRY             List
     );
@@ -326,6 +419,95 @@ IopGenNextValidDescriptor (
     IN PDIR_RESREQ_LIST     Dir,
     IN PULONG               collisionlevel
     );
+
+BOOLEAN
+IopSlotResourceOwner (
+    IN PDIR_RESREQ_LIST Dir,
+    IN PDRIVER_OBJECT DriverObject,
+    IN PDEVICE_OBJECT DeviceObject OPTIONAL,
+    IN PIO_RESOURCE_REQUIREMENTS_LIST IoResources,
+    IN BOOLEAN  AddOwner
+    );
+
+#if _PNP_POWER_
+
+PDIR_RESOURCE_LIST
+IopAssignMachineDefaultResources (
+    IN PDIR_RESREQ_LIST Dir,
+    IN PDRIVER_OBJECT DriverObject,
+    IN PDEVICE_OBJECT DeviceObject,
+    IN PIO_RESOURCE_REQUIREMENTS_LIST RequestedResource
+    );
+
+BOOLEAN
+IopRelocateResource (
+    IN PDIR_RESREQ_LIST Dir,
+    IN PDIR_RESOURCE_LIST CurList,
+    IN UCHAR TranslatedType,
+    IN PTENTRY ConflictEntry,
+    IN PTENTRY TranslatedEntry
+    );
+
+PDIR_RESOURCE_LIST
+IopResolveConflicts (
+    IN PDIR_RESREQ_LIST Dir
+    );
+
+ULONG
+IopAddRelocatedEntry (
+    IN PRELOCATED_TENTRIES *List,
+    IN PTENTRY Entry,
+    IN UCHAR Type,
+    IN POWNER NewOwner
+    );
+
+ULONG
+IopFindCollisionInRelocatedList (
+    IN PTENTRY SEntry,
+    IN PRELOCATED_TENTRIES List,
+    OUT PTENTRY *ConflictEntry
+    );
+
+VOID
+IopFreeRelocatedTEntryLists (
+    VOID
+    );
+
+NTSTATUS
+IopQueryReconfigureResource(
+    IN PDRIVER_OBJECT DriverObject,
+    IN PDEVICE_OBJECT DeviceObject,
+    IN PCM_RESOURCE_LIST CmResources
+    );
+
+NTSTATUS
+IopReconfigureResource(
+    IN PDRIVER_OBJECT DriverObject,
+    IN PDEVICE_OBJECT DeviceObject,
+    IN PCM_RESOURCE_LIST CmResources
+    );
+
+NTSTATUS
+IopCancelReconfigureResource(
+    IN PDRIVER_OBJECT DriverObject,
+    IN PDEVICE_OBJECT DeviceObject
+    );
+
+NTSTATUS
+IopRecordAssignInformation(
+    IN PDIR_RESREQ_LIST Dir,
+    IN PUNICODE_STRING DriverClassName,
+    IN PDRIVER_OBJECT DriverObject,
+    IN PDEVICE_OBJECT DeviceObject,
+    IN PDIR_RESOURCE_LIST CurList
+    );
+
+VOID
+IopFreeRelocatedResourceDir (
+    IN PDIR_RESREQ_LIST  DirResourceList
+    );
+
+#endif
 
 #if IDBG
 VOID
@@ -373,12 +555,25 @@ IopDumpIoResourceDescriptor (
 #pragma alloc_text(PAGE,IopPickupCollisionInTList)
 #pragma alloc_text(PAGE,IopAllocateDirPool)
 #pragma alloc_text(PAGE,IopGetResourceReqRegistryValue)
-#pragma alloc_text(PAGE,IopLookupBusStringFromID)
 #pragma alloc_text(PAGE,IopBuildResourceDir)
 #pragma alloc_text(PAGE,IopFreeResourceDir)
 #pragma alloc_text(PAGE,IopCatagorizeDescriptors)
 #pragma alloc_text(PAGE,IopSortDescriptors)
 #pragma alloc_text(PAGE,IopAddCmDescriptorToInUseList)
+#pragma alloc_text(PAGE,IopSlotResourceOwner)
+#if _PNP_POWER_
+#pragma alloc_text(PAGE,IoAssignDeviceResources)
+#pragma alloc_text(PAGE,IopResolveConflicts)
+#pragma alloc_text(PAGE,IopAddRelocatedEntry)
+#pragma alloc_text(PAGE,IopFindCollisionInRelocatedList)
+#pragma alloc_text(PAGE,IopFreeRelocatedTEntryLists)
+#pragma alloc_text(PAGE,IopRelocateResource)
+#pragma alloc_text(PAGE,IopQueryReconfigureResource)
+#pragma alloc_text(PAGE,IopReconfigureResource)
+#pragma alloc_text(PAGE,IopCancelReconfigureResource)
+#pragma alloc_text(PAGE,IopRecordAssignInformation)
+#pragma alloc_text(PAGE,IopFreeRelocatedResourceDir)
+#endif // _PNP_POWER_
 
 #if IDBG
 #pragma alloc_text(PAGE,IopDumpIoResourceDir)
@@ -394,8 +589,319 @@ IopDumpIoResourceDescriptor (
 
 #endif  // ALLOC_PRAGMA
 #endif  // PAGED
+
+#if _PNP_POWER_
+NTSTATUS
+IoAssignDeviceResources (
+    IN PDEVICE_HANDLER_OBJECT DeviceHandler,
+    IN PUNICODE_STRING RegistryPath OPTIONAL,
+    IN PUNICODE_STRING DriverClassName OPTIONAL,
+    IN PDRIVER_OBJECT DriverObject,
+    IN PDEVICE_OBJECT DeviceObject,
+    IN PIO_RESOURCE_REQUIREMENTS_LIST RequestedResources OPTIONAL,
+    IN OUT PCM_RESOURCE_LIST *AllocatedResources
+    )
+/*++
 
+Routine Description:
 
+    This routine takes an input request of RequestedResources, and returned
+    allocated resources in pAllocatedResources.   The allocated resources are
+    automatically recorded in the registry under the ResourceMap for the
+    DriverClassName/DriverObject/DeviceObject requestor.
+
+Arguments:
+
+    DeviceHandler
+        Supplies a pointer to the device's device handler object.
+
+    RegistryPath
+        For a simple driver, this would be the value passed to the drivers
+        initialization function.  For drivers call IoAssignResources with
+        multiple DeviceObjects are responsible for passing in a unique
+        RegistryPath for each object.  Drivers do not need to specify this
+        argument if it is the same as ServiceKeyName.
+
+        The registry path is checked for:
+            RegitryPath:
+                AssignedSystemResources.
+
+        AssignSystemResources is of type REG_RESOURCE_REQUIREMENTS_LIST
+
+        If present, IoAssignResources will attempt to use these settings to
+        satisify the requested resources.  If the listed settings do
+        not conform to the resource requirements, then IoAssignResources
+        will fail.
+
+        Note: IoAssignResources may store other internal binary information
+        in the supplied RegisteryPath.
+
+    DriverObject:
+        The driver object of the caller.
+
+    DeviceObject:
+        Supplies a pointer to a device object that the requested resoruce
+        list refers to.
+
+    DriverClassName
+        Used to partition allocated resources into different device classes.
+
+    RequestedResources
+        A list of resources to allocate. If NULL, it will be retrieved from
+        the location specified by ServiceKeyName\InstanceNumber.
+
+        Allocated resources may be freed by re-invoking
+        IoAssignResources with the same RegistryPath, DriverObject and
+        DeviceObject.
+
+    AllocatedResources
+        Returns the allocated resources for the requested resource list.
+
+        Note that the driver is responsible for passing in a pointer to
+        an uninitialized pointer.  IoAssignDeviceResources will initialize the
+        pointer to point to the allocated CM_RESOURCE_LIST.  The driver
+        is responisble for returning the memory back to pool when it is
+        done with them structure.
+
+Return Value:
+
+    The status returned is the final completion status of the operation.
+
+--*/
+{
+    NTSTATUS status;
+    PIO_RESOURCE_REQUIREMENTS_LIST ioResources = NULL, adjustedIoResources = NULL;
+    PCM_RESOURCE_LIST cmResList = NULL;
+    ULONG instanceFlags, bufferSize, requiredSize;
+    HAL_BUS_INFORMATION busInfo;
+    UNICODE_STRING unicodeName, fullServiceName;
+    HANDLE handle;
+
+    PAGED_CODE();
+
+    //
+    // If caller does not specify RegistryPath, use ServiceKeyName instead.
+    //
+
+    fullServiceName.Buffer = NULL;
+    if (!ARGUMENT_PRESENT(RegistryPath)) {
+        bufferSize = CmRegistryMachineSystemCurrentControlSetServices.Length +
+                     2 * sizeof(UNICODE_NULL) + DeviceHandler->ServiceKeyName.Length;
+        fullServiceName.Buffer = (PWSTR)ExAllocatePool(PagedPool, bufferSize);
+        if (!fullServiceName.Buffer) {
+            return STATUS_INSUFFICIENT_RESOURCES;
+        }
+        fullServiceName.Length = (USHORT)bufferSize - sizeof(UNICODE_NULL);
+        fullServiceName.MaximumLength = (USHORT)bufferSize;
+        bufferSize = CmRegistryMachineSystemCurrentControlSetServices.Length;
+        RtlMoveMemory (fullServiceName.Buffer,
+                       CmRegistryMachineSystemCurrentControlSetServices.Buffer,
+                       bufferSize
+                       );
+        fullServiceName.Buffer[bufferSize / sizeof(WCHAR)] = OBJ_NAME_PATH_SEPARATOR;
+        bufferSize += sizeof(WCHAR);
+        RtlMoveMemory((PUCHAR)fullServiceName.Buffer + bufferSize,
+                      DeviceHandler->ServiceKeyName.Buffer,
+                      DeviceHandler->ServiceKeyName.Length
+                      );
+        bufferSize += DeviceHandler->ServiceKeyName.Length;
+        fullServiceName.Buffer[bufferSize / sizeof(WCHAR)] = UNICODE_NULL;
+        RegistryPath = &fullServiceName;
+    }
+
+    //
+    // if caller does not supplies RequestedResources try to get it from
+    // registry specified by ServiceKeyName and InstanceNumber.
+    //
+
+    if (!ARGUMENT_PRESENT(RequestedResources)) {
+        bufferSize = 1024;
+allocAgain:
+        ioResources = (PIO_RESOURCE_REQUIREMENTS_LIST)ExAllocatePool(PagedPool, bufferSize);
+        if (ioResources == NULL) {
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            goto exit0;
+        }
+        status = IoQueryDeviceConfigurationVector(
+                     DeviceHandler,
+                     &instanceFlags,
+                     ioResources,
+                     bufferSize,
+                     &requiredSize
+                     );
+        if (!NT_SUCCESS(status)) {
+            ExFreePool(ioResources);
+            ioResources = NULL;
+            if (status == STATUS_BUFFER_TOO_SMALL) {
+                bufferSize = requiredSize;
+                goto allocAgain;
+            }
+        } else if (ioResources->ListSize == 0 || requiredSize == 0) {
+
+            //
+            // if it is an empty list, free the space
+            //
+
+            ExFreePool(ioResources);
+            ioResources = NULL;
+        } else {
+            RequestedResources = ioResources;
+        }
+    }
+
+    //
+    // Get machine default resources frome ServiceKeyName\InstanceNumber.
+    //
+
+    bufferSize = 512;
+tryAgain:
+    cmResList = (PCM_RESOURCE_LIST)ExAllocatePool(PagedPool, bufferSize);
+    if (cmResList == NULL) {
+        if (ioResources) {
+            ExFreePool(ioResources);
+        }
+        status = STATUS_INSUFFICIENT_RESOURCES;
+        goto exit0;
+    }
+    status = IoQueryDeviceConfiguration(
+                     DeviceHandler,
+                     &busInfo,
+                     &instanceFlags,
+                     cmResList,
+                     bufferSize,
+                     &requiredSize
+                     );
+    if (!NT_SUCCESS(status)) {
+        ExFreePool(cmResList);
+        cmResList = NULL;
+        if (status == STATUS_BUFFER_TOO_SMALL) {
+            bufferSize = requiredSize;
+            goto tryAgain;
+        }
+    } else if (requiredSize == 0 || cmResList->Count == 0) {
+
+        //
+        // if it is an empty list, free the space
+        //
+
+        ExFreePool(cmResList);
+        cmResList = NULL;
+    }
+
+    //
+    // If no possible resource lists and default resource list,
+    // exit.
+    //
+
+    if (!RequestedResources && !cmResList) {
+        status = STATUS_INVALID_PARAMETER;
+        goto exit0;
+    }
+
+    if (cmResList) {
+
+        //
+        // Insert default resources to the RequestedResources such that
+        // the default resource list will be picked with highest priority.
+        //
+
+        adjustedIoResources = IopAddDefaultResourceList (RequestedResources, cmResList);
+        ExFreePool(cmResList);
+        if (adjustedIoResources) {
+            if (ioResources) {
+                ExFreePool(ioResources);
+                ioResources = NULL;
+            }
+            RequestedResources = adjustedIoResources;
+        }
+    }
+
+    //
+    // call IoAssignResources to allocate resources for the device
+    //
+
+    status = IoAssignResources (
+                         RegistryPath,
+                         DriverClassName,
+                         DriverObject,
+                         DeviceObject,
+                         RequestedResources,
+                         AllocatedResources
+                         );
+    if (!NT_SUCCESS(status)) {
+        goto exit;
+    }
+#if 0
+    //
+    // Call Hal to set the allocated resources to the device's corresponding
+    // configuration space.
+    //
+
+    requiredSize = IopDetermineResourceListSize(*AllocatedResources);
+    status = HalSlotControl(RequestedResources->InterfaceType,
+                            RequestedResources->BusNumber,
+                            RequestedResources->SlotNumber,
+                            DeviceObject,
+                            BCTL_SET_DEVICE_RESOURCES,
+                            *AllocatedResources,
+                            &requiredSize,
+                            NULL,
+                            (PSLOT_CONTROL_COMPLETION)NULL
+                            );
+
+    if (NT_SUCCESS(status)) {
+
+        //
+        // If configuration space was updated successfully, change our registry data.
+        //
+
+        KeEnterCriticalRegion();
+        ExAcquireResourceExclusive(&PpRegistryDeviceResource, TRUE);
+
+        status = IopServiceInstanceToDeviceInstance (
+                            NULL,
+                            &DeviceHandler->ServiceKeyName,
+                            DeviceHandler->InstanceNumber,
+                            NULL,
+                            &handle,
+                            KEY_ALL_ACCESS
+                            );
+
+        if (NT_SUCCESS(status)) {
+
+            //
+            // Set Configuration = data entry to caller supplied resources.
+            //
+
+            PiWstrToUnicodeString(&unicodeName, REGSTR_VALUE_CONFIGURATION);
+            ZwSetValueKey(handle,
+                          &unicodeName,
+                          TITLE_INDEX_VALUE,
+                          REG_RESOURCE_LIST,
+                          *AllocatedResources,
+                          requiredSize
+                          );
+            ZwClose(handle);
+        }
+        ExReleaseResource(&PpRegistryDeviceResource);
+        KeLeaveCriticalRegion();
+    }
+#endif // 0
+    status = STATUS_SUCCESS;
+
+exit:
+    if (ioResources) {
+        ExFreePool(ioResources);
+    }
+    if (adjustedIoResources) {
+        ExFreePool(adjustedIoResources);
+    }
+exit0:
+    RtlFreeUnicodeString(&fullServiceName);
+    return status;
+}
+
+#endif // _PNP_POWER_
 NTSTATUS
 IoAssignResources (
     IN PUNICODE_STRING RegistryPath,
@@ -472,6 +978,7 @@ Return Value:
     PDIR_RESREQ_LIST                Dir;
     USED_HEAP                       DirHeap;
     PIO_RESOURCE_REQUIREMENTS_LIST  IoResources;
+    PKEY_VALUE_PARTIAL_INFORMATION  PartInf;
     UNICODE_STRING                  unicodeString;
     ULONG                           i, busflags, len;
     PDIR_RESOURCE_LIST              CurList;
@@ -485,53 +992,24 @@ Return Value:
 
     PAGED_CODE();
 
-    //
-    // If no resource list, then caller wishes to free allocated resources
-    //
+    SemaphoreOwned = FALSE;
+    IoResources = NULL;
+    Dir = NULL;
 
-    if (RequestedResources == NULL) {
-        i = 0;
-        if (!DeviceObject)  {
-            status = IoReportResourceUsage (
-                        DriverClassName,
-                        DriverObject,           // DriverObject
-                        (PCM_RESOURCE_LIST) &i, // DriverList
-                        sizeof (i),             // DriverListSize
-                        DeviceObject,
-                        NULL,                   // DeviceList
-                        0,                      // DeviceListSize
-                        FALSE,                  // override conflict
-                        &flag                   // conflicted detected
-                    );
-        } else {
-            status = IoReportResourceUsage (
-                        DriverClassName,
-                        DriverObject,           // DriverObject
-                        NULL,                   // DriverList
-                        0,                      // DriverListSize
-                        DeviceObject,
-                        (PCM_RESOURCE_LIST) &i, // DeviceList
-                        sizeof (i),             // DeviceListSize
-                        FALSE,                  // override conflict
-                        &flag                   // conflicted detected
-                    );
-        }
-        return status;
+    if (pAllocatedResources) {
+        *pAllocatedResources = NULL;
     }
 
-    *pAllocatedResources = NULL;
-    SemaphoreOwned = FALSE;
+    KeEnterCriticalRegion( );
 
     //
     // Copy input structure & let hal have a crack at it
     //
 
-    status = IopAssignResourcesPhase1 (RequestedResources, &IoResources);
-    if (!NT_SUCCESS(status)) {
-        return status;
+    if (RequestedResources) {
+        status = IopAssignResourcesPhase1 (RequestedResources, &IoResources);
+        CHECK_STATUS (status, "IopAssignResourcesPhase1 failed");
     }
-
-    KeEnterCriticalRegion( );
 
     //
     // Build a resource directory from the requested list
@@ -539,33 +1017,30 @@ Return Value:
 
     status = IopBuildResourceDir (NULL, &Dir, IoResources);
     if (!NT_SUCCESS(status)) {
-        ExFreePool (IoResources);
+        if (IoResources) {
+            ExFreePool (IoResources);
+        }
         CHECK_STATUS (status, "RequestedResources could no be parsed");
     }
 
+    //
     // put IoResources onto allocated heap list
-    DirHeap.FreeHeap = (PVOID) IoResources;
-    PushEntryList (&Dir->AllocatedHeap, &DirHeap.FreeLink);
+    //
 
-    // allocate a scratch buffer
-    Dir->Buffer = (PWSTR) IopAllocateDirPool (Dir, BUFFERSIZE);
-    if (!Dir->Buffer) {
-        status = STATUS_NO_MEMORY;
-        CHECK_STATUS (status, "No memory");
+    if (IoResources) {
+        DirHeap.FreeHeap = (PVOID) IoResources;
+        PushEntryList (&Dir->AllocatedHeap, &DirHeap.FreeLink);
     }
 
-
     //
-    // Sort the request descriptors such that all alternative descriptor
-    // options are grouped by CmResourceType.
+    // allocate a scratch buffer
     //
 
-    IopSortDescriptors (Dir);
-
-#if IDBG
-    DbgPrint ("IoAssignResources: Dump of requested resource list\n");
-    IopDumpIoResourceDir (Dir);
-#endif
+    Dir->Buffer = (PWSTR) IopAllocateDirPool (Dir, BUFFERSIZE);
+    if (!Dir->Buffer) {
+        status = STATUS_INSUFFICIENT_RESOURCES;
+        CHECK_STATUS (status, "No memory");
+    }
 
     //
     // Get handles to registry keys:
@@ -573,9 +1048,9 @@ Return Value:
     //      HDEVICE_STORAGE
     //      HCURRENT_CONTROL_SET
     //      HSYSTEMRESOURCES
+    //      HBUSVALUES
     //      HORDERING
     //      HRESERVEDRESOURCES
-    //      HBUSVALUES
     //
 
     //
@@ -588,8 +1063,20 @@ Return Value:
                 KEY_READ | KEY_WRITE,
                 TRUE
                 );
-    CHECK_STATUS (status, "No ResourceMap?");
+    CHECK_STATUS (status, "No ResourceMap");
 
+    //
+    // Open owner map
+    //
+
+    status = IopOpenRegistryKey (
+                &Dir->RegHandle[HOWNER_MAP],
+                NULL,
+                &CmRegistryMachineHardwareOwnerMapName,
+                KEY_READ | KEY_WRITE,
+                TRUE
+                );
+    CHECK_STATUS (status, "No OwnerMap");
 
     //
     // Open up storage location for this Device/Driver in the registry
@@ -603,20 +1090,6 @@ Return Value:
                 TRUE
                 );
     CHECK_STATUS (status, "RegistryPath parameter incorrect");
-
-    //
-    // Put a copy of the driver's request into the registry
-    //
-
-    RtlInitUnicodeString( &unicodeString, IopWstrRequestedResources );
-    status = ZwSetValueKey( Dir->RegHandle[HDEVICE_STORAGE],
-                            &unicodeString,
-                            0L,
-                            REG_RESOURCE_REQUIREMENTS_LIST,
-                            Dir->IoResourceReq,
-                            Dir->IoResourceReq->ListSize
-                            );
-    CHECK_STATUS (status, "SetValueKey error");
 
 
     //
@@ -644,6 +1117,20 @@ Return Value:
                 FALSE
                 );
     CHECK_STATUS (status, "SystemResources not found");
+
+    //
+    // Open up ...SystemResources\BusValues
+    //
+
+    RtlInitUnicodeString (&unicodeString, IopWstrBusValues);
+    status = IopOpenRegistryKey (
+                &Dir->RegHandle[HBUSVALUES],
+                Dir->RegHandle[HSYSTEMRESOURCES],
+                &unicodeString,
+                KEY_READ,
+                FALSE
+                );
+    CHECK_STATUS (status, "BusValues not found");
 
     //
     // Open up ...SystemResources\AssignmentOrdering
@@ -674,179 +1161,328 @@ Return Value:
     CHECK_STATUS (status, "ReservedResources not found");
 
     //
-    // Open up ...SystemResources\BusValues
+    // If no resource list, then caller wishes to free allocated resources
+    // Else caller wishes to allocate resources
     //
 
-    RtlInitUnicodeString (&unicodeString, IopWstrBusValues);
-    status = IopOpenRegistryKey (
-                &Dir->RegHandle[HBUSVALUES],
-                Dir->RegHandle[HSYSTEMRESOURCES],
-                &unicodeString,
-                KEY_READ,
-                FALSE
-                );
-    CHECK_STATUS (status, "BusValues not found");
+    if (RequestedResources == NULL) {
 
+        //
+        // Lookup callers requested resources which are being freed
+        //
 
-    //
-    // Check for user assigned resources in RegistryPath
-    //
+        RtlInitUnicodeString( &unicodeString, IopWstrRequestedResources );
+        status = ZwQueryValueKey( Dir->RegHandle[HDEVICE_STORAGE],
+                                    &unicodeString,
+                                    KeyValuePartialInformation,
+                                    NULL,
+                                    0,
+                                    &len
+                                );
 
-    IoResources = IopGetResourceReqRegistryValue (
+        if (status == STATUS_BUFFER_TOO_SMALL) {
+            PartInf = (PKEY_VALUE_PARTIAL_INFORMATION) IopAllocateDirPool (Dir, len);
+            if (!PartInf) {
+                status = STATUS_INSUFFICIENT_RESOURCES;
+                CHECK_STATUS (status, "No memory");
+            }
+            status = ZwQueryValueKey( Dir->RegHandle[HDEVICE_STORAGE],
+                                        &unicodeString,
+                                        KeyValuePartialInformation,
+                                        PartInf,
+                                        len,
+                                        &len
+                                    );
+        }
+        if (!NT_SUCCESS(status)) {
+
+            DBGMSG ("IoAllocateResources - could not find copy of requested resource to free\n");
+
+        } else {
+
+            IoResources = (PIO_RESOURCE_REQUIREMENTS_LIST) PartInf->Data;
+            flag = IopSlotResourceOwner (
                         Dir,
-                        Dir->RegHandle[HDEVICE_STORAGE],
-                        IopWstrAssignedResources
+                        DriverObject,
+                        DeviceObject,
+                        IoResources,
+                        FALSE           // Adding owner
                         );
 
-    if (IoResources) {
+            if (!flag) {
+                status = STATUS_INVALID_OWNER;
+                CHECK_STATUS (status, "(free resources) not owner of slot");
+            }
+        }
+
         //
-        // Build directory out of user's assignments
-        //
-
-        status = IopBuildResourceDir (Dir, &Dir->UserDir, IoResources);
-        CHECK_STATUS (status, "Device AssignedResources could not be parsed");
-
-        status = IopCatagorizeDescriptors (Dir->UserDir);
-        CHECK_STATUS (status, "Device AssignedResources could not be catagorized");
-    }
-
-
-    //
-    // Find bus specific ordering
-    //
-
-    IoResources = NULL;
-    status = IopLookupBusStringFromID (
-                Dir->RegHandle[HBUSVALUES],
-                Dir->IoResourceReq->InterfaceType,
-                Dir->Buffer,
-                BUFFERSIZE - 10,
-                &busflags
-                );
-
-    CHECK_STATUS (status, "Bus identifier unknown");
-
-    //
-    // First try BusName_#
-    //
-
-    for (i=0; Dir->Buffer[i]; i++) ;
-    swprintf (Dir->Buffer+i, L"_%d", Dir->IoResourceReq->BusNumber);
-    IoResources = IopGetResourceReqRegistryValue (
-                        Dir,
-                        Dir->RegHandle[HORDERING],
-                        Dir->Buffer
-                        );
-
-    if (!IoResources) {
-        //
-        // Use just BusName
+        // Release the the acquired resources
         //
 
-        Dir->Buffer[i] = 0;
+        i = 0;
+        if (!DeviceObject)  {
+            status = IopReportResourceUsage (
+                        DriverClassName,
+                        DriverObject,           // DriverObject
+                        (PCM_RESOURCE_LIST) &i, // DriverList
+                        sizeof (i),             // DriverListSize
+                        DeviceObject,
+                        NULL,                   // DeviceList
+                        0,                      // DeviceListSize
+                        FALSE,                  // override conflict
+                        &flag                   // conflicted detected
+                    );
+        } else {
+            status = IopReportResourceUsage (
+                        DriverClassName,
+                        DriverObject,           // DriverObject
+                        NULL,                   // DriverList
+                        0,                      // DriverListSize
+                        DeviceObject,
+                        (PCM_RESOURCE_LIST) &i, // DeviceList
+                        sizeof (i),             // DeviceListSize
+                        FALSE,                  // override conflict
+                        &flag                   // conflicted detected
+                    );
+        }
+
+        CHECK_STATUS (status, "free resources failed");
+
+    } else {
+
+        flag = IopSlotResourceOwner (
+                    Dir,
+                    DriverObject,
+                    DeviceObject,
+                    IoResources,
+                    TRUE            // Adding owner
+                    );
+
+        if (!flag) {
+            status = STATUS_INVALID_OWNER;
+            CHECK_STATUS (status, "not owner of slot");
+        }
+#ifndef _PNP_POWER_
+
+        //
+        // The copy of the requested resources is stored under
+        // new location : ServiceKeyName\ResourceInformation
+        //                     Driver\DeviceName.RequestedResources
+        //
+
+        //
+        // Put a copy of the driver's request into the registry
+        //
+
+        RtlInitUnicodeString( &unicodeString, IopWstrRequestedResources );
+        status = ZwSetValueKey( Dir->RegHandle[HDEVICE_STORAGE],
+                                &unicodeString,
+                                0L,
+                                REG_RESOURCE_REQUIREMENTS_LIST,
+                                Dir->IoResourceReq,
+                                Dir->IoResourceReq->ListSize
+                                );
+        CHECK_STATUS (status, "SetValueKey error");
+#endif
+        //
+        // Sort the request descriptors such that all alternative descriptor
+        // options are grouped by CmResourceType.
+        //
+
+        IopSortDescriptors (Dir);
+
+#if IDBG
+        DbgPrint ("IoAssignResources: Dump of requested resource list\n");
+        IopDumpIoResourceDir (Dir);
+#endif
+
+        //
+        // Check for user assigned resources in RegistryPath
+        //
+
+        IoResources = IopGetResourceReqRegistryValue (
+                            Dir,
+                            Dir->RegHandle[HDEVICE_STORAGE],
+                            IopWstrAssignedResources
+                            );
+
+        if (IoResources) {
+            //
+            // Build directory out of user's assignments
+            //
+
+            status = IopBuildResourceDir (Dir, &Dir->UserDir, IoResources);
+            CHECK_STATUS (status, "Device AssignedResources could not be parsed");
+
+            status = IopCatagorizeDescriptors (Dir->UserDir);
+            CHECK_STATUS (status, "Device AssignedResources could not be catagorized");
+        }
+
+        //
+        // Find bus specific ordering
+        //
+
+        IoResources = NULL;
+        status = IopLookupBusStringFromID (
+                    Dir->RegHandle[HBUSVALUES],
+                    Dir->IoResourceReq->InterfaceType,
+                    Dir->Buffer,
+                    BUFFERSIZE - 10,
+                    &busflags
+                    );
+
+        CHECK_STATUS (status, "Bus identifier unknown");
+
+        //
+        // First try BusName_#
+        //
+
+        for (i=0; Dir->Buffer[i]; i++) ;
+        swprintf (Dir->Buffer+i, L"_%d", Dir->IoResourceReq->BusNumber);
         IoResources = IopGetResourceReqRegistryValue (
                             Dir,
                             Dir->RegHandle[HORDERING],
                             Dir->Buffer
                             );
-    }
 
-    if (!IoResources) {
-        status = STATUS_UNSUCCESSFUL;
-        CHECK_STATUS (status, "Bus ordering information not found");
-    }
+        if (!IoResources) {
+            //
+            // Use just BusName
+            //
 
-    //
-    // Build a directory & catagorize the resource ordering information for
-    // the bus.
-    //
+            Dir->Buffer[i] = 0;
+            IoResources = IopGetResourceReqRegistryValue (
+                                Dir,
+                                Dir->RegHandle[HORDERING],
+                                Dir->Buffer
+                                );
+        }
 
-    status = IopBuildResourceDir (Dir, &Dir->BusDir, IoResources);
-    CHECK_STATUS (status, "Bus ordering information could not be parsed");
-
-    status = IopCatagorizeDescriptors (Dir->BusDir);
-    CHECK_STATUS (status, "Bus ordering information could not be catagorized");
-
-    //
-    // Serialize with other resource reporting & assignments
-    //
-
-    status = KeWaitForSingleObject( &IopRegistrySemaphore,
-                                    DelayExecution,
-                                    KernelMode,
-                                    FALSE,
-                                    NULL );
-
-    CHECK_STATUS (status, "Wait for RegistrySemaphore");
-    SemaphoreOwned = TRUE;
-
-    //
-    // Read all currently allocated resources into memory
-    //
-
-    status = IopAssignResourcesPhase2 (Dir, DriverClassName, DriverObject, DeviceObject);
-    CHECK_STATUS (status, "Phase2 failed");
-
-    //
-    // Make resource assignments
-    //
-
-    CurList = IopAssignResourcesPhase3 (Dir);
-    if (!CurList) {
-        status = STATUS_CONFLICTING_ADDRESSES;
-        IopLogConflict (DriverObject, Dir, status);
-
-        CHECK_STATUS (status, "Resource assignments failed");
-    }
-
-
-    //
-    // Build CmResourceList from assignments
-    //
-
-    *pAllocatedResources = IopAssignResourcesPhase4 (Dir, CurList, &len);
-    if (!*pAllocatedResources) {
-        status = STATUS_NO_MEMORY;
-        CHECK_STATUS (status, "Phase4 failed");
-    }
-
-    //
-    // Report consumed resources..
-    //
-
-    if (!DeviceObject)  {
-        status = IopReportResourceUsage (
-                    DriverClassName,
-                    DriverObject,           // DriverObject
-                    *pAllocatedResources,   // DriverList
-                    len,                    // DriverListSize
-                    DeviceObject,           // DeviceObject
-                    NULL,                   // DeviceList
-                    0,                      // DeviceListSize
-                    FALSE,                  // override conflict
-                    &flag                   // conflicted detected
-                    );
-    } else {
-        status = IopReportResourceUsage (
-                    DriverClassName,
-                    DriverObject,           // DriverObject
-                    NULL,                   // DriverList
-                    0,                      // DriverListSize
-                    DeviceObject,
-                    *pAllocatedResources,   // DeviceList
-                    len,                    // DeviceListSize
-                    FALSE,                  // override conflict
-                    &flag                   // conflicted detected
-                    );
-    }
-
-    if (NT_SUCCESS(status)  &&  flag) {
+        if (!IoResources) {
+          status = STATUS_UNSUCCESSFUL;
+          CHECK_STATUS (status, "Bus ordering information not found");
+        }
 
         //
-        // IopReportResourceUsage saw a conflict?
+        // Build a directory & catagorize the resource ordering information for
+        // the bus.
         //
 
-        status = STATUS_CONFLICTING_ADDRESSES;
+        status = IopBuildResourceDir (Dir, &Dir->BusDir, IoResources);
+        CHECK_STATUS (status, "Bus ordering information could not be parsed");
+
+        status = IopCatagorizeDescriptors (Dir->BusDir);
+        CHECK_STATUS (status, "Bus ordering information could not be catagorized");
+
+        //
+        // Serialize with other resource reporting & assignments
+        //
+
+        status = KeWaitForSingleObject( &IopRegistrySemaphore,
+                                        DelayExecution,
+                                        KernelMode,
+                                        FALSE,
+                                        NULL );
+
+        CHECK_STATUS (status, "Wait for RegistrySemaphore");
+        SemaphoreOwned = TRUE;
+
+        //
+        // Read all currently allocated resources into memory
+        //
+
+        status = IopAssignResourcesPhase2 (Dir, DriverClassName, DriverObject, DeviceObject);
+        CHECK_STATUS (status, "Phase2 failed");
+
+        //
+        // Make resource assignments
+        //
+
+        CurList = IopAssignResourcesPhase3 (Dir);
+        if (!CurList) {
+            status = STATUS_CONFLICTING_ADDRESSES;
+            IopLogConflict (DriverObject, Dir, status);
+
+#if _PNP_POWER_
+
+            //
+            // After logging the conflicts, try to resolve the them.
+            //
+
+            CurList = IopResolveConflicts(Dir);
+            if (!CurList) {
+                status = STATUS_CONFLICTING_ADDRESSES;
+            } else {
+                status = STATUS_SUCCESS;
+            }
+#endif
+            CHECK_STATUS (status, "Resource assignments failed");
+        }
+
+
+        //
+        // Build CmResourceList from assignments
+        //
+
+        *pAllocatedResources = IopAssignResourcesPhase4 (Dir, CurList, &len);
+        if (!*pAllocatedResources) {
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            CHECK_STATUS (status, "Phase4 failed");
+        }
+
+        //
+        // Report consumed resources..
+        //
+
+        if (!DeviceObject)  {
+            status = IopReportResourceUsage (
+                        DriverClassName,
+                        DriverObject,           // DriverObject
+                        *pAllocatedResources,   // DriverList
+                        len,                    // DriverListSize
+                        DeviceObject,           // DeviceObject
+                        NULL,                   // DeviceList
+                        0,                      // DeviceListSize
+                        FALSE,                  // override conflict
+                        &flag                   // conflicted detected
+                        );
+        } else {
+            status = IopReportResourceUsage (
+                        DriverClassName,
+                        DriverObject,           // DriverObject
+                        NULL,                   // DriverList
+                        0,                      // DriverListSize
+                        DeviceObject,
+                        *pAllocatedResources,   // DeviceList
+                        len,                    // DeviceListSize
+                        FALSE,                  // override conflict
+                        &flag                   // conflicted detected
+                        );
+        }
+
+        if (NT_SUCCESS(status)  &&  flag) {
+
+            //
+            // IopReportResourceUsage saw a conflict?
+            //
+
+            status = STATUS_CONFLICTING_ADDRESSES;
+#if _PNP_POWER_
+        } else if (NT_SUCCESS(status)) {
+
+            //
+            // Save all the resource information to registry.  We may need it
+            // again to solve conflicts.
+            //
+
+            IopRecordAssignInformation(Dir,
+                                       DriverClassName,
+                                       DriverObject,
+                                       DeviceObject,
+                                       CurList);
+
+#endif
+        }
     }
 
     CHECK_STATUS (status, "IoReportResourceUsage failed");
@@ -856,7 +1492,7 @@ Exit:
 #if DBG
         DbgPrint ("IoAssignResources failed %08x - %s\n", status, DebugString);
 #endif
-        if (*pAllocatedResources) {
+        if (pAllocatedResources && *pAllocatedResources) {
             ExFreePool (*pAllocatedResources);
         }
     }
@@ -875,6 +1511,134 @@ Exit:
     return status;
 }
 
+BOOLEAN
+IopSlotResourceOwner (
+    IN PDIR_RESREQ_LIST Dir,
+    IN PDRIVER_OBJECT DriverObject,
+    IN PDEVICE_OBJECT DeviceObject OPTIONAL,
+    IN PIO_RESOURCE_REQUIREMENTS_LIST IoResources,
+    IN BOOLEAN  AddOwner
+    )
+{
+    ULONG                           busflags, len, i;
+    PWCHAR                          KeyName;
+    UNICODE_STRING                  KeyString, ValueString;
+    POBJECT_NAME_INFORMATION        ObjectName;
+    PKEY_VALUE_PARTIAL_INFORMATION  PartInf;
+    BOOLEAN                         Match;
+    NTSTATUS                        status;
+
+    PAGED_CODE();
+
+    KeyName = ExAllocatePool (PagedPool, BUFFERSIZE * 2);
+    if (!KeyName) {
+        return FALSE;
+    }
+
+    ObjectName = (POBJECT_NAME_INFORMATION) ((PCHAR)KeyName + BUFFERSIZE);
+    Match = TRUE;
+
+    //
+    // Find bus specific ordering
+    //
+
+    status = IopLookupBusStringFromID (
+                Dir->RegHandle[HBUSVALUES],
+                IoResources->InterfaceType,
+                KeyName,
+                BUFFERSIZE-40,
+                &busflags
+                );
+
+    //
+    // Does this bus have unique SlotNumber ownership?
+    //
+
+    if (NT_SUCCESS(status) && (busflags & 0x1)) {
+
+        //
+        // Build keyname
+        //
+
+        for (i=0; KeyName[i]; i++) ;
+        swprintf (KeyName+i, L"_%d_%x", IoResources->BusNumber, IoResources->SlotNumber);
+        RtlInitUnicodeString( &KeyString, KeyName );
+
+        //
+        // Build valuename
+        //
+
+        status = ObQueryNameString(
+                        DeviceObject ? (PVOID) DeviceObject : (PVOID) DriverObject,
+                        ObjectName,
+                        BUFFERSIZE,
+                        &len
+                    );
+
+        if (NT_SUCCESS(status)) {
+
+            //
+            // Look it up
+            //
+
+            PartInf = (PKEY_VALUE_PARTIAL_INFORMATION) Dir->Buffer;
+            status = ZwQueryValueKey (
+                        Dir->RegHandle[HOWNER_MAP],
+                        &KeyString,
+                        KeyValuePartialInformation,
+                        Dir->Buffer,
+                        BUFFERSIZE,
+                        &len
+                    );
+
+            if (!NT_SUCCESS(status)) {
+
+                //
+                // No owner listed, see if we should add ourselves
+                //
+
+                if (AddOwner) {
+                    //
+                    // Add the key
+                    //
+
+                    ZwSetValueKey (
+                        Dir->RegHandle[HOWNER_MAP],
+                        &KeyString,
+                        0L,
+                        REG_SZ,
+                        ObjectName->Name.Buffer,
+                        ObjectName->Name.Length
+                        );
+                }
+
+            } else {
+
+                //
+                // Owner is listed, see if it's us
+                //
+
+                ValueString.Buffer = (PWCHAR) PartInf->Data;
+                ValueString.Length = (USHORT) len - (USHORT) FIELD_OFFSET(KEY_VALUE_PARTIAL_INFORMATION, Data);
+                ValueString.MaximumLength = ValueString.Length;
+
+                Match = RtlEqualUnicodeString (&ObjectName->Name, &ValueString, TRUE);
+                if (Match  &&  !AddOwner) {
+
+                    //
+                    // Free ownership
+                    //
+
+                    ZwDeleteValueKey( Dir->RegHandle[HOWNER_MAP], &KeyString);
+                }
+            }
+        }
+    }
+
+    ExFreePool (KeyName);
+    return Match;
+}
+
 /*++
 
 Routine Description:
@@ -884,37 +1648,35 @@ Routine Description:
 
 --*/
 
-INLINE LARGE_INTEGER
+INLINE LONGLONG
 IO_DESC_MIN (
     IN PIO_RESOURCE_DESCRIPTOR   Desc
     )
 {
-    LARGE_INTEGER   li;
+    LONGLONG        li;
 
     switch (Desc->Type) {
         case CmResourceTypePort:
-            li = Desc->u.Port.MinimumAddress;
+            li = Desc->u.Port.MinimumAddress.QuadPart;
             break;
 
         case CmResourceTypeMemory:
-            li = Desc->u.Memory.MinimumAddress;
+            li = Desc->u.Memory.MinimumAddress.QuadPart;
             break;
 
         case CmResourceTypeInterrupt:
-            li.HighPart = 0;
-            li.LowPart  = Desc->u.Interrupt.MinimumVector;
+            li = Desc->u.Interrupt.MinimumVector;
             break;
 
         case CmResourceTypeDma:
-            li.HighPart = 0;
-            li.LowPart  = Desc->u.Dma.MinimumChannel;
+            li = Desc->u.Dma.MinimumChannel;
             break;
     }
 
     return li;
 }
 
-INLINE LARGE_INTEGER
+INLINE LONGLONG
 IO_DESC_MAX (
     IN PIO_RESOURCE_DESCRIPTOR   Desc
     )
@@ -926,25 +1688,23 @@ Routine Description:
 
 --*/
 {
-    LARGE_INTEGER   li;
+    LONGLONG        li;
 
     switch (Desc->Type) {
         case CmResourceTypePort:
-            li = Desc->u.Port.MaximumAddress;
+            li = Desc->u.Port.MaximumAddress.QuadPart;
             break;
 
         case CmResourceTypeMemory:
-            li = Desc->u.Memory.MaximumAddress;
+            li = Desc->u.Memory.MaximumAddress.QuadPart;
             break;
 
         case CmResourceTypeInterrupt:
-            li.HighPart = 0;
-            li.LowPart  = Desc->u.Interrupt.MaximumVector;
+            li = Desc->u.Interrupt.MaximumVector;
             break;
 
         case CmResourceTypeDma:
-            li.HighPart = 0;
-            li.LowPart  = Desc->u.Dma.MaximumChannel;
+            li = Desc->u.Dma.MaximumChannel;
             break;
     }
 
@@ -982,6 +1742,9 @@ Return Value
 {
     ULONG               collisionlevel;
     BOOLEAN             flag;
+#if _PNP_POWER_
+    ULONG               i;
+#endif
 
     do {
         if (level > CurList->LastLevel) {
@@ -1021,6 +1784,29 @@ Return Value
             continue;
         }
 
+#if _PNP_POWER_
+
+        if (CurList->RequiredResource[level]->PassNo == 6) {
+
+            //
+            // if we returned back to here from pass 6, we just resolved a
+            // resource conflict for current level.  It is possible that the
+            // reconfigured driver took the resouce which was selected by earlier
+            // level.  We must reset level back to 0 and reset PassNo of
+            // current level to 2 to restart the resource assignment.
+            //
+
+            CurList->RequiredResource[level]->PassNo = 2;
+            i=0;
+            while (i <= level) {
+                CurList->RequiredResource[i]->CurLoc = 0;
+                CurList->RequiredResource[i]->RunLen = 0;
+                i++;
+            }
+            level = 0;
+            continue;
+        }
+#endif
         if (CurList->RequiredResource[level]->PassNo == 1  &&
             CurList->RequiredResource[level]->CurPref <
             CurList->RequiredResource[level]->BestPref) {
@@ -1082,16 +1868,21 @@ Return Value
 {
     PDIR_REQUIRED_RESOURCE      Res, CRes;
     PIO_RESOURCE_DESCRIPTOR     *Desc, DescTmp;
-    LARGE_INTEGER               BAddr,  EAddr;
-    LARGE_INTEGER               NBAddr;
-    LARGE_INTEGER               DescMax, MinAddr, LiILen, LiELen, LiTmp;
-    LARGE_INTEGER               NAddr, BusMax, BusMin, PBAddr;
+    LONGLONG                    BAddr,  EAddr;
+    LONGLONG                    NBAddr;
+    LONGLONG                    DescMax, MinAddr, LiILen, LiELen, LiTmp;
+    LONGLONG                    NAddr, BusMax, BusMin, PBAddr;
     ULONG                       indx, j, k, NBLoc;
     ULONG                       DescLen, Align, len;
     BOOLEAN                     NBSet, flag, flag2;
     LONG                        Preference, NPref;
     UCHAR                       TType, NTType;
     TENTRY                      Trans, NTrans;
+#if _PNP_POWER_
+    PRELOCATED_TENTRIES         pResourceRecord;
+    PTENTRY                     pConflictTrans, pNewTrans;
+    UCHAR                       newTransType;
+#endif
 
     Res  = CurList->RequiredResource[level];
 
@@ -1158,8 +1949,7 @@ Return Value
             // function to find the next acceptable value.
             //
 
-            LiTmp = LiFromLong (-1);
-            NAddr = LiAdd (Res->CurBAddr, LiTmp);
+            NAddr = Res->CurBAddr - 1;
         }
 
         //
@@ -1170,7 +1960,7 @@ Return Value
         BusMax  = Res->CurBusMax;
         BusMin  = Res->CurBusMin;
 
-        NBAddr.LowPart = NBAddr.HighPart = 0;
+        NBAddr = 0;
 
         for (; ;) {
 
@@ -1190,33 +1980,29 @@ Return Value
                     case CmResourceTypePort:
                         len     = DescTmp->u.Port.Length;
                         Align   = DescTmp->u.Port.Alignment;
-                        MinAddr = DescTmp->u.Port.MinimumAddress;
-                        DescMax = DescTmp->u.Port.MaximumAddress;
+                        MinAddr = DescTmp->u.Port.MinimumAddress.QuadPart;
+                        DescMax = DescTmp->u.Port.MaximumAddress.QuadPart;
                         break;
 
                     case CmResourceTypeMemory:
                         len     = DescTmp->u.Memory.Length;
                         Align   = DescTmp->u.Memory.Alignment;
-                        MinAddr = DescTmp->u.Memory.MinimumAddress;
-                        DescMax = DescTmp->u.Memory.MaximumAddress;
+                        MinAddr = DescTmp->u.Memory.MinimumAddress.QuadPart;
+                        DescMax = DescTmp->u.Memory.MaximumAddress.QuadPart;
                         break;
 
                     case CmResourceTypeInterrupt:
                         len   = 1;
                         Align = 1;
-                        MinAddr.HighPart = 0;
-                        MinAddr.LowPart  = DescTmp->u.Interrupt.MinimumVector;
-                        DescMax.HighPart = 0;
-                        DescMax.LowPart  = DescTmp->u.Interrupt.MaximumVector;
+                        MinAddr = DescTmp->u.Interrupt.MinimumVector;
+                        DescMax = DescTmp->u.Interrupt.MaximumVector;
                         break;
 
                     case CmResourceTypeDma:
                         len   = 1;
                         Align = 1;
-                        MinAddr.HighPart = 0;
-                        MinAddr.LowPart  = DescTmp->u.Dma.MinimumChannel;
-                        DescMax.HighPart = 0;
-                        DescMax.LowPart  = DescTmp->u.Dma.MaximumChannel;
+                        MinAddr = DescTmp->u.Dma.MinimumChannel;
+                        DescMax = DescTmp->u.Dma.MaximumChannel;
                         break;
 
                 }
@@ -1227,17 +2013,17 @@ Return Value
                 // So the search is from NAddr -to-> NBAddr
                 //
 
-                if (LiGtr (BusMin, MinAddr)) {
+                if (BusMin > MinAddr) {
                     MinAddr = BusMin;
                 }
 
-                if (LiGtr (NBAddr, MinAddr)) {
+                if (NBAddr > MinAddr) {
                     MinAddr = NBAddr;
                 }
 
                 BAddr = NAddr;
-                LiELen = LiFromUlong (len);         // Exclusive length
-                LiILen = LiFromUlong (len - 1);     // Inclusive length
+                LiELen = len;           // Exclusive length
+                LiILen = len - 1;       // Inclusive length
 
                 //
                 // Set initial preference
@@ -1261,26 +2047,26 @@ Return Value
                 // Loop while BAddr being tested is above MinAddr
                 //
 
-                while (LiGeq (BAddr, MinAddr)) {
+                while (BAddr >= MinAddr) {
 
-                    EAddr = LiAdd (BAddr, LiILen);
-                    if (LiGtr (EAddr, DescMax)) {
+                    EAddr = BAddr + LiILen;
+                    if (EAddr > DescMax) {
                         //
                         // The ending address is above the requested limit
                         // compute the best possible beginning address
                         //
 
-                        BAddr = LiSub (DescMax, LiILen);
+                        BAddr = DescMax - LiILen;
                         continue;
                     }
 
-                    if (LiGtr (EAddr, BusMax)) {
+                    if (EAddr > BusMax) {
                         //
                         // The ending address is above the bus'es limit
                         // compute best possible beginning address
                         //
 
-                        BAddr = LiSub (BusMax, LiILen);
+                        BAddr = BusMax - LiILen;
                         continue;
                     }
 
@@ -1292,12 +2078,12 @@ Return Value
                     if (Dir->UserDir) {
                         CRes = Dir->UserDir->Alternative->ResourceByType[Res->Type];
                         flag = FALSE;
-                        PBAddr = LiFromLong (-1);
+                        PBAddr = -1;
 
                         for (j=0; j < CRes->NoAlternatives; j++) {
                             LiTmp = IO_DESC_MIN (CRes->IoResourceDescriptor[j]);
 
-                            if (LiLtr (BAddr, LiTmp)) {
+                            if (BAddr < LiTmp) {
                                 //
                                 // Beginning address is before user's range, check
                                 // next descriptor
@@ -1307,16 +2093,15 @@ Return Value
                             }
 
                             LiTmp = IO_DESC_MAX (CRes->IoResourceDescriptor[j]);
-                            if (LiGtr(EAddr, LiTmp)) {
+                            if (EAddr > LiTmp) {
 
                                 //
                                 // Ending address is above user's range.
                                 // Check for new BAddr to continue from
                                 //
 
-                                LiTmp = LiSub (LiTmp, LiILen);
-                                if (LiGtr (LiTmp, PBAddr)  &&
-                                    LiLtr (LiTmp, BAddr)) {
+                                LiTmp = LiTmp - LiILen;
+                                if (LiTmp > PBAddr  &&  LiTmp < BAddr) {
 
                                     //
                                     // Update next possible setting
@@ -1346,7 +2131,7 @@ Return Value
                     // settings and verify resource is available
                     //
 
-                    LiTmp.LowPart = LiTmp.HighPart = 0;
+                    LiTmp = 0;
                     switch (Res->Type) {
                         case CmResourceTypePort:
                         case CmResourceTypeMemory:
@@ -1354,17 +2139,17 @@ Return Value
                             flag = HalTranslateBusAddress (
                                 Dir->IoResourceReq->InterfaceType,
                                 Dir->IoResourceReq->BusNumber,
-                                BAddr,
+                                *((PPHYSICAL_ADDRESS) &BAddr),
                                 &j,
-                                &Trans.BAddr
+                                (PPHYSICAL_ADDRESS) &Trans.BAddr
                                 );
 
                             // precheck alignment on first half
-                            if (Align > 1  &&  Trans.BAddr.HighPart == 0) {
+                            if (Align > 1  &&  (Trans.BAddr & 0xffffffff00000000) == 0) {
                                 RtlEnlargedUnsignedDivide (
-                                    *((PULARGE_INTEGER) &Trans.BAddr), Align, &LiTmp.LowPart);
+                                    *((PULARGE_INTEGER) &Trans.BAddr), Align, (PULONG) &LiTmp);
 
-                                if (LiTmp.LowPart != 0) {
+                                if (LiTmp & 0xffffffff) {
                                     break;      // alignment is off - don't bother with second translation
                                 }
                             }
@@ -1372,9 +2157,9 @@ Return Value
                             flag2 = HalTranslateBusAddress (
                                 Dir->IoResourceReq->InterfaceType,
                                 Dir->IoResourceReq->BusNumber,
-                                EAddr,
+                                *((PPHYSICAL_ADDRESS) &EAddr),
                                 &k,
-                                &Trans.EAddr
+                                (PPHYSICAL_ADDRESS) &Trans.EAddr
                                 );
 
                             TType = j == 1 ? CmResourceTypePort : CmResourceTypeMemory;
@@ -1394,12 +2179,11 @@ Return Value
                             TType = CmResourceTypeInterrupt;
 
                             Trans.Affinity = 0;
-                            Trans.BAddr.HighPart = 0;
-                            Trans.BAddr.LowPart  = HalGetInterruptVector (
+                            Trans.BAddr = HalGetInterruptVector (
                                 Dir->IoResourceReq->InterfaceType,
                                 Dir->IoResourceReq->BusNumber,
-                                BAddr.LowPart,                  // bus level
-                                BAddr.LowPart,                  // bus vector
+                                (ULONG) BAddr,                  // bus level
+                                (ULONG) BAddr,                  // bus vector
                                 (PKIRQL) &j,                    // translated level
                                 &Trans.Affinity
                                 );
@@ -1408,7 +2192,7 @@ Return Value
 
                             if (Trans.Affinity == 0) {
                                 // skip vectors which can not be translated
-                                LiTmp.LowPart = 1;
+                                LiTmp = 1;
                             }
                             break;
 
@@ -1428,10 +2212,10 @@ Return Value
                     // Check bias from translation
                     //
 
-                    if (LiTmp.LowPart != 0  || LiTmp.HighPart != 0) {
+                    if (LiTmp != 0) {
 
                         // move to next address
-                        BAddr = LiSub (BAddr, LiTmp);
+                        BAddr = BAddr - LiTmp;
                         continue;
                     }
 
@@ -1440,20 +2224,22 @@ Return Value
                     //
 
                     if (Align > 1) {
-                        if (Trans.BAddr.HighPart == 0) {
+                        if ((Trans.BAddr & 0xffffffff00000000) == 0) {
                             RtlEnlargedUnsignedDivide (
-                                *((PULARGE_INTEGER) &Trans.BAddr), Align, &LiTmp.LowPart);
+                                *((PULARGE_INTEGER) &Trans.BAddr), Align, (PULONG) &LiTmp);
                         } else {
-                            RtlExtendedLargeIntegerDivide (Trans.BAddr, Align, &LiTmp.LowPart);
+                            RtlExtendedLargeIntegerDivide (
+                                *((PLARGE_INTEGER) &Trans.BAddr), Align, (PULONG) &LiTmp);
+
                         }
 
-                        if (LiTmp.LowPart != 0) {
+                        if (LiTmp != 0) {
                             //
                             // Starting address not on proper alignment, move to next
                             // aligned address
                             //
 
-                            BAddr = LiSub (BAddr, LiTmp);
+                            BAddr = BAddr - LiTmp;
                             continue;
                         }
                     }
@@ -1490,15 +2276,38 @@ Return Value
                         // Try BAddr just best address before collision range
                         //
 
-                        BAddr = LiSub (CRes->CurBAddr, LiELen);
+                        BAddr = CRes->CurBAddr - LiELen;
                         continue;
                     }
 
+#if _PNP_POWER_
+
+                    //
+                    // Avoid picking up the resources in In-Processed list for pass
+                    // no >= 4.
+                    //
+
+                    if (Res->PassNo >= 4) {
+                        j = IopFindCollisionInRelocatedList (&Trans,
+                                                             IopInProcessedConflicts,
+                                                             &pConflictTrans);
+                        if (j) {
+                            BAddr = BAddr - j;
+                            continue;
+                        }
+                    }
+#endif
                     //
                     // Check InUse system resources to verify this range is available.
                     //
 
+#if _PNP_POWER_
+                    j = IopFindCollisionInTList (&Trans,
+                                                 Dir->InUseResources.ByType[TType],
+                                                 &pConflictTrans);
+#else
                     j = IopFindCollisionInTList (&Trans, Dir->InUseResources.ByType[TType]);
+#endif
                     if (j) {
                         if (Res->PassNo == 3) {
                             //
@@ -1514,13 +2323,44 @@ Return Value
                                 );
                         }
 
+#if _PNP_POWER_
+                          else if (Res->PassNo > 4) {
+
+                            //
+                            // Try to resolve the conflict by relocating the resources
+                            // consumed by other drivers.
+                            //
+
+                            if (IopRelocateResource (
+                                    Dir,
+                                    CurList,
+                                    TType,
+                                    &Trans,
+                                    pConflictTrans)) {
+
+                                if (Res->PassNo == 6) {
+
+                                    //
+                                    // Mark conflict entry in in-used list to be "Deleted"
+                                    // if at pass 6.
+                                    //
+
+                                    pConflictTrans->Flags = TENTRY_FLAGS_REMOVED;
+                                }
+                                Res->CurBAddr = BAddr;
+                                Res->TType = TType;
+                                Res->Trans = Trans;
+                                Res->CurBLoc = Res->CurLoc + indx;
+                                return TRUE;
+                            }
+                        }
+#endif // _PNP_POWER_
                         //
                         // This range collides with a resource which is already in use.
                         // Moving begining address to next possible setting
                         //
 
-                        LiTmp = LiFromUlong (j);
-                        BAddr = LiSub (BAddr, LiTmp);
+                        BAddr = BAddr - j;
                         continue;
                     }
 
@@ -1528,7 +2368,13 @@ Return Value
                     // Check to see if this resource selection is being shared
                     //
 
+#if _PNP_POWER_
+                    j = IopFindCollisionInTList (&Trans,
+                                                 Dir->InUseResources.ByType[TType],
+                                                 &pConflictTrans);
+#else
                     j = IopFindCollisionInTList (&Trans, Dir->InUseSharableResources.ByType[TType]);
+#endif
                     if (j) {
                         //
                         // Current range collided with a resource which is already in use,
@@ -1553,9 +2399,8 @@ Return Value
 
                             // required resource can't be shared, move to next possible setting or
                             // this is the Pass#1 and we don't bother with non-preferred settings
-                            LiTmp = LiFromUlong (j);
-                            BAddr = LiSub (BAddr, LiTmp);
 
+                            BAddr = BAddr - j;
                             continue;
                         }
 
@@ -1566,7 +2411,13 @@ Return Value
                     // Check to see if this resource reserved, but sharable
                     //
 
+#if _PNP_POWER_
+                    j = IopFindCollisionInTList (&Trans,
+                                                 Dir->InUseResources.ByType[TType],
+                                                 &pConflictTrans);
+#else
                     j = IopFindCollisionInTList (&Trans, Dir->ReservedSharableResources.ByType[TType]);
+#endif
                     if (j) {
                         //
                         // Current range collosided with a resource which is in the
@@ -1576,8 +2427,8 @@ Return Value
 
                         if (Res->PassNo == 1) {
                             // don't bother with non-preferred settings on the first pass.
-                            LiTmp = LiFromUlong (j);
-                            BAddr = LiSub (BAddr, LiTmp);
+
+                            BAddr = BAddr - j;
                             continue;
                         }
 
@@ -1599,7 +2450,6 @@ Return Value
                     break;                  // check next selector in run
 
                 } // next BAddr
-
             }   // next descriptor in run
 
             if (NBSet) {
@@ -1627,7 +2477,9 @@ Return Value
             DescTmp = CRes->IoResourceDescriptor[Res->CurBusLoc];
             Res->CurBusMin = IO_DESC_MIN (DescTmp);
             Res->CurBusMax = IO_DESC_MAX (DescTmp);
-            NAddr = Res->CurBusMax;
+            BusMin  = Res->CurBusMin;
+            BusMax  = Res->CurBusMax;
+            NAddr   = Res->CurBusMax;
         }   // next bus ordering descriptor
 
     } while (!NBSet);
@@ -1645,10 +2497,16 @@ Return Value
     return TRUE;
 }
 
+
 ULONG
 IopFindCollisionInTList (
     IN PTENTRY SEntry,
+#if _PNP_POWER_
+    IN PLTENTRY List,
+    OUT PTENTRY *ConflictEntry
+#else
     IN PLTENTRY List
+#endif
     )
 /*++
 
@@ -1662,11 +2520,12 @@ Arguments:
 Return Value
 
     Returns the skew amount required to continue searching for next possible
-    setting.  A zero skew means no collision occured.
+    setting and a pointer to the conflicted entry.
+    A zero skew means no collision occured.
 
 --*/
 {
-    LARGE_INTEGER   LiTmp;
+    LONGLONG        LiTmp;
     TENTRY          Source;
     ULONG           i, j;
 
@@ -1675,22 +2534,1361 @@ Return Value
         j = List->CurEntries;
         for (i=0; i < j; i++) {
             SEntry = List->Table+i;
+#if _PNP_POWER_
+            if (SEntry->Flags != TENTRY_FLAGS_REMOVED) {
+#endif
             if (DoesTEntryCollide (Source, *SEntry)) {
-                LiTmp = LiSub (Source.EAddr, SEntry->BAddr);
-                ASSERT (LiTmp.HighPart == 0);
-                return LiTmp.LowPart + 1;
+
+                LiTmp = Source.EAddr - SEntry->BAddr;
+#if _PNP_POWER_
+                    *ConflictEntry = SEntry;
+#endif
+                return (ULONG) LiTmp + 1;
             }
+#if _PNP_POWER_
+            }
+#endif
         }
         List = List->Next;
     }
     return 0;
 }
+
+#if _PNP_POWER_
+PDIR_RESOURCE_LIST
+IopResolveConflicts (
+    IN PDIR_RESREQ_LIST Dir
+    )
 
+/*++
+
+Routine Description:
+
+    This routine tries to satisfy the current resource settings by relocating
+    resources among drivers.
+
+Arguments:
+
+    Dir - supplies a pointer to the DIR_RESREQ_LIST for the request.
+
+Returned Value:
+
+    A DIR_RESOURCE_LIST is returned if the relocation succeeded.  Else a value
+    of NULL is returned.
+
+--*/
+{
+    PDIR_RESOURCE_LIST CurList;
+    ULONG i;
+    PRECONFIGURED_DRIVER tmp;
+    BOOLEAN flag;
+    BOOLEAN success = FALSE;
+    NTSTATUS status;
+
+    for (CurList = Dir->Alternative; CurList; CurList = CurList->Next) {
+
+        //
+        // Look for settings - set LastFailed level to pass 6 and try to resolve
+        // the conflicts by relocating resources among the drivers.
+        //
+
+        while (1) {
+            for (i = CurList->FailedLevel; i < CurList->NoRequiredResources; i++) {
+                CurList->RequiredResource[i]->CurLoc = 0;
+                CurList->RequiredResource[i]->RunLen = 0;
+                CurList->RequiredResource[i]->PassNo = 2;
+            }
+            CurList->RequiredResource[CurList->FailedLevel]->PassNo = 6;
+            success = IopGenNextValidResourceList (CurList->FailedLevel, CurList, Dir);
+            if (CurList->RequiredResource[CurList->FailedLevel]->PassNo == 6 ||
+                success) {
+                break;
+            }
+        }
+        while (IopReconfiguredDrivers) {
+            tmp = IopReconfiguredDrivers;
+            if (success) {
+                //
+                // We have successfully resolved the conflicts.  Now for
+                // each driver in the IopReconfigDriver List, a Reconfig command is
+                // requested.
+                //
+
+                i = 0;
+                if (!tmp->DeviceObject)  {
+                    status = IopReportResourceUsage (
+                                &tmp->DriverClassName,
+                                tmp->DriverObject,      // DriverObject
+                                tmp->CmResourceList,    // DriverList
+                                tmp->ResourceLength,    // DriverListSize
+                                tmp->DeviceObject,      // DeviceObject
+                                NULL,                   // DeviceList
+                                0,                      // DeviceListSize
+                                TRUE,                   // override conflict
+                                &flag                   // conflicted detected
+                                );
+                } else {
+                    status = IopReportResourceUsage (
+                                &tmp->DriverClassName,
+                                tmp->DriverObject,      // DriverObject
+                                NULL,                   // DriverList
+                                0,                      // DriverListSize
+                                tmp->DeviceObject,
+                                tmp->CmResourceList,    // DriverList
+                                tmp->ResourceLength,    // DeviceListSize
+                                TRUE,                   // override conflict
+                                &flag                   // conflicted detected
+                                );
+                }
+                if (!NT_SUCCESS(status) && status != STATUS_CONFLICTING_ADDRESSES) {
+#if DBG
+                    DbgPrint("ResolveConflict: Report resource usage failed\n");
+#endif
+                    goto BugCheckExit;
+                }
+                status = IopReconfigureResource(tmp->DriverObject,
+                                                tmp->DeviceObject,
+                                                tmp->CmResourceList);
+                if (!NT_SUCCESS(status)) {
+#if DBG
+                    DbgPrint("ResolveConflict: Driver failed to reconfig resources\n");
+#endif
+                    goto BugCheckExit;
+                }
+
+                //
+                // Save the resource information to registry.  We may need it
+                // again to solve conflicts.
+                //
+
+                IopRecordAssignInformation(tmp->ReconfiguredDir,
+                                           &tmp->DriverClassName,
+                                           tmp->DriverObject,
+                                           tmp->DeviceObject,
+                                           tmp->ReconfiguredDir->ListPicked
+                                           );
+            } else {
+                //
+                // We have failed to resolve the conflicts.  Now for
+                // each driver in the IopReconfigList, a CancelReconfig command is
+                // sent to release the driver.
+                //
+                IopCancelReconfigureResource(tmp->DriverObject,
+                                             tmp->DeviceObject);
+            }
+            IopReconfiguredDrivers = tmp->Next;
+            ObDereferenceObject(tmp->DriverObject);
+            if (tmp->DeviceObject) {
+                ObDereferenceObject(tmp->DeviceObject);
+            }
+            RtlFreeUnicodeString(&tmp->DriverClassName);
+            if (tmp->CmResourceList) {
+                ExFreePool(tmp->CmResourceList);
+            }
+            ExFreePool(tmp);
+        }
+
+        //
+        // Clean up and try next list or return success.
+        //
+
+        IopFreeRelocatedResourceDir(IopRelocatedDirList);
+        IopRelocatedDirList = NULL;
+        IopFreeRelocatedTEntryLists();
+
+        if (success) {
+            return CurList;
+        }
+
+        // Try next resource list
+    }
+    return NULL;
+BugCheckExit:
+    KeBugCheckEx(PNP_INTERNAL_ERROR, status, 0, 0, 0);
+}
+
+BOOLEAN
+IopRelocateResource (
+    IN PDIR_RESREQ_LIST Dir,
+    IN PDIR_RESOURCE_LIST CurList,
+    IN UCHAR TranslatedType,
+    IN PTENTRY ConflictEntry,
+    IN PTENTRY TranslatedEntry
+    )
+/*++
+
+Routine Description:
+
+    This routine tries to satisfy the Resource settings by relocating resources
+    among drivers.  Note caller does NOT need to free the returned
+    pNewTranslatedEntry.
+
+Arguments:
+
+    Dir - supplies a pointer to the DIR_RESREQ_LIST for the request.
+
+    CurList - supplies a pointer to the current DIR_RESOURCE_LIST.
+
+    Level - Indicates which level of the CurList encountered the conflict.
+
+    TranslatedType - the resource type.
+
+    ConflictEntry - supplies a point to a TENTRY which collides with
+        TranslatedEntry.
+
+    TranslatedEntry - supplies a point to a TENTRY whose resources needs
+        to be relocated.
+
+Returned Value:
+
+    TRUE - succeed otherwise a value of FALSE is returned.
+
+--*/
+{
+    PRECONFIGURED_DRIVER reconfigDriver, tmp;
+    NTSTATUS status;
+    PDRIVER_OBJECT driverObject = NULL;
+    PDEVICE_OBJECT deviceObject = NULL;
+    PKEY_VALUE_FULL_INFORMATION keyValueInformation;
+    ULONG length, listPicked, collisionLevel;
+    PIO_RESOURCE_REQUIREMENTS_LIST ioResources = NULL;
+    PREG_REQUIRED_RESOURCE_LIST reportedResources = NULL;
+    PDIR_RESREQ_LIST driverDir = NULL, tmpDir;
+    PDIR_RESOURCE_LIST resourceList;
+    PDIR_REQUIRED_RESOURCE reqRes;
+    BOOLEAN found;
+    PCM_RESOURCE_LIST cmResources;
+    UNICODE_STRING driverClassName = {0, 0, NULL};
+    UNICODE_STRING unicodeValueName;
+    UNICODE_STRING unicodeName1, unicodeName2;
+    HANDLE driverHandle = NULL, resourcesHandle;
+    ULONG i;
+    LONGLONG li;
+    PUSED_HEAP usedHeap;
+    HANDLE deviceHandle;
+    OBJECT_ATTRIBUTES objectAttributes;
+    IO_STATUS_BLOCK ioStatus;
+    PFILE_OBJECT fileObject = NULL;
+    UCHAR tmpFlags;
+    POWNER owner;
+    CM_PARTIAL_RESOURCE_DESCRIPTOR cmDesc;
+    PTENTRY trans;
+    PTENTRIESBYTYPE byType;
+    PIO_RESOURCE_DESCRIPTOR ioDesc;
+
+
+    //
+    // We need to reconsturct the DIR and all the supporting data structures
+    // for the driver to be relocated.
+    //
+
+    if (TranslatedEntry->Owner == NULL) {
+
+        //
+        // Don't know which driver has the resource.  Simply return failure.
+        //
+
+        return FALSE;
+    }
+
+    if (TranslatedEntry->Flags == TENTRY_FLAGS_BEING_RELOCATED) {
+
+        //
+        // To avoid infinite loop.
+        //
+
+        return FALSE;
+    }
+
+    //
+    // See if the DIR for the relocating resources was built already.
+    //
+
+    tmpDir = IopRelocatedDirList;
+    while (tmpDir) {
+        if (RtlEqualUnicodeString(&TranslatedEntry->Owner->KeyName,
+                                  &tmpDir->ReconfiguredDriver->Owner->KeyName, TRUE)){
+            if (TranslatedEntry->Owner->DeviceName.Length == 0 ||
+                RtlEqualUnicodeString(&TranslatedEntry->Owner->DeviceName,
+                                       &tmpDir->ReconfiguredDriver->Owner->KeyName, TRUE )) {
+                driverDir = tmpDir;
+                break;
+            }
+        }
+        tmpDir = tmpDir->FreeResReqList;
+    }
+
+    if (!driverDir) {
+
+        if (TranslatedEntry->Owner->DeviceName.Length > 0) {
+            InitializeObjectAttributes( &objectAttributes,
+                                        &TranslatedEntry->Owner->DeviceName,
+                                        0,
+                                        (HANDLE) NULL,
+                                        (PSECURITY_DESCRIPTOR) NULL );
+            status = NtOpenFile( &deviceHandle,
+                                 FILE_READ_ATTRIBUTES,
+                                 &objectAttributes,
+                                 &ioStatus,
+                                 0,
+                                 FILE_NON_DIRECTORY_FILE );
+            if (!NT_SUCCESS( status )) {
+                return FALSE;
+            }
+
+            //
+            // The device object was located, so convert the handle into a pointer
+            // so that the device object itself can be examined.
+            //
+
+            status = ObReferenceObjectByHandle( deviceHandle,
+                                                0,
+                                                IoFileObjectType,
+                                                KernelMode,
+                                                (PVOID *) &fileObject,
+                                                NULL );
+            deviceObject = fileObject->DeviceObject;
+            NtClose( deviceHandle );
+            if (!NT_SUCCESS(status)) {
+                return FALSE;
+            }
+        }
+
+        //
+        // Read ClassName and requested resources information from
+        // driver's ServiceKeyName\RequestedResources key.
+        //
+
+        RtlInitUnicodeString(&unicodeName2, L"\\Driver\\");
+        IopConcatenateUnicodeStrings(&unicodeName1,
+                                     &unicodeName2,
+                                     &TranslatedEntry->Owner->KeyName);
+
+        //
+        // BUGBUG - Can NOT do this!!  Will be changed soon...
+        //
+
+        status = ObReferenceObjectByName(&unicodeName1,
+                                         OBJ_CASE_INSENSITIVE,
+                                         NULL,
+                                         0,
+                                         IoDriverObjectType,
+                                         KernelMode,
+                                         NULL,
+                                         &driverObject
+                                         );
+        RtlFreeUnicodeString(&unicodeName1);
+        if (!NT_SUCCESS(status)) {
+            goto exit1;
+        }
+
+        status = IopOpenRegistryKey(&resourcesHandle,
+                                    NULL,
+                                    &CmRegistryMachineSystemCurrentControlSetServices,
+                                    KEY_ALL_ACCESS,
+                                    FALSE
+                                    );
+        if (!NT_SUCCESS(status)) {
+            goto exit1;
+        }
+
+        status = IopOpenRegistryKey(&driverHandle,
+                                    resourcesHandle,
+                                    &driverObject->DriverExtension->ServiceKeyName,
+                                    KEY_ALL_ACCESS,
+                                    FALSE
+                                    );
+        ZwClose(resourcesHandle);
+        if (!NT_SUCCESS(status)) {
+            goto exit1;
+        }
+
+        RtlInitUnicodeString(&unicodeName2, L"ResourceInformation");
+        status = IopOpenRegistryKey(&resourcesHandle,
+                                    driverHandle,
+                                    &unicodeName2,
+                                    KEY_ALL_ACCESS,
+                                    FALSE
+                                    );
+        if (!NT_SUCCESS(status)) {
+            goto exit1;
+        }
+
+        //
+        // Read driver class name (for report resources)
+        //
+
+        status = IopGetRegistryValue (resourcesHandle,
+                                      L"ClassName",
+                                      &keyValueInformation
+                                      );
+        if (NT_SUCCESS( status )) {
+            status = STATUS_FAIL_CHECK;
+            if (keyValueInformation->DataLength != 0L) {
+                if (PiRegSzToString((PWCHAR)KEY_VALUE_DATA(keyValueInformation),
+                                    keyValueInformation->DataLength,
+                                    &length,
+                                    &driverClassName.Buffer)) {
+                    driverClassName.Length = (USHORT)length;
+                    driverClassName.MaximumLength =
+                                    (USHORT)length + sizeof (UNICODE_NULL);
+                    status = STATUS_SUCCESS;
+                }
+            }
+            ExFreePool(keyValueInformation);
+        }
+        if (!NT_SUCCESS(status)) {
+            ZwClose(resourcesHandle);
+            goto exit1;
+        }
+
+        //
+        // Read driver/device requested and assigned resources
+        //
+
+        if (TranslatedEntry->Owner->DeviceName.Length == 0) {
+            RtlInitUnicodeString(&unicodeName1, L"Driver");
+        } else {
+            unicodeName1 = TranslatedEntry->Owner->DeviceName;
+        }
+
+        //
+        // Read information on which resource list is picked from
+        // resource requirement list.
+        //
+
+        RtlInitUnicodeString(&unicodeName2, L".ListPicked");
+        IopConcatenateUnicodeStrings(&unicodeValueName,
+                                     &unicodeName1,
+                                     &unicodeName2);
+        status = IopGetRegistryValue (resourcesHandle,
+                                      unicodeValueName.Buffer,
+                                      &keyValueInformation
+                                      );
+
+        if (NT_SUCCESS( status )) {
+            status = STATUS_FAIL_CHECK;
+            if (keyValueInformation->DataLength != 0L) {
+                listPicked = *(PULONG)KEY_VALUE_DATA(keyValueInformation);
+                status = STATUS_SUCCESS;
+            }
+            ExFreePool(keyValueInformation);
+        }
+        RtlFreeUnicodeString(&unicodeValueName);
+        if (!NT_SUCCESS(status)) {
+            ZwClose(resourcesHandle);
+            goto exit1;
+        }
+
+        //
+        // Read requested resources
+        //
+
+        RtlInitUnicodeString(&unicodeName2, L".RequestedResources");
+        IopConcatenateUnicodeStrings(&unicodeValueName,
+                                     &unicodeName1,
+                                     &unicodeName2);
+        status = IopGetRegistryValue (resourcesHandle,
+                                      unicodeValueName.Buffer,
+                                      &keyValueInformation
+                                      );
+
+        if (NT_SUCCESS( status )) {
+            status = STATUS_FAIL_CHECK;
+            if (keyValueInformation->DataLength != 0L) {
+                usedHeap = (PUSED_HEAP)ExAllocatePool(
+                                           PagedPool,
+                                           keyValueInformation->DataLength + sizeof(USED_HEAP));
+                ioResources = (PIO_RESOURCE_REQUIREMENTS_LIST)(usedHeap + 1);
+                if (usedHeap) {
+                    RtlMoveMemory(ioResources,
+                                  KEY_VALUE_DATA(keyValueInformation),
+                                  keyValueInformation->DataLength);
+                    status = STATUS_SUCCESS;
+                }
+            }
+            ExFreePool(keyValueInformation);
+        }
+        RtlFreeUnicodeString(&unicodeValueName);
+        if (!NT_SUCCESS(status)) {
+            ZwClose(resourcesHandle);
+            goto exit1;
+        }
+
+        //
+        // read reported resources
+        //
+
+        RtlInitUnicodeString(&unicodeName2, L".ReportedResources");
+        IopConcatenateUnicodeStrings(&unicodeValueName,
+                                     &unicodeName1,
+                                     &unicodeName2);
+        status = IopGetRegistryValue (resourcesHandle,
+                                      unicodeValueName.Buffer,
+                                      &keyValueInformation
+                                      );
+
+        if (NT_SUCCESS( status )) {
+            status = STATUS_FAIL_CHECK;
+            if (keyValueInformation->DataLength != 0L) {
+                reportedResources = (PREG_REQUIRED_RESOURCE_LIST)ExAllocatePool(
+                                         PagedPool,
+                                         keyValueInformation->DataLength);
+                if (reportedResources) {
+                    RtlMoveMemory(reportedResources,
+                                  KEY_VALUE_DATA(keyValueInformation),
+                                  keyValueInformation->DataLength);
+                    status = STATUS_SUCCESS;
+                }
+            }
+            ExFreePool(keyValueInformation);
+        }
+        RtlFreeUnicodeString(&unicodeValueName);
+        if (!NT_SUCCESS(status)) {
+            ExFreePool(usedHeap);
+            ZwClose(resourcesHandle);
+            goto exit1;
+        }
+
+        ZwClose(resourcesHandle);
+
+        //
+        // Build a resource directory from the requested list
+        //
+        // Note the Io resource requirement list returned by hal is not on
+        // allocated heap list.  We will free it manually.
+        //
+
+        status = IopBuildResourceDir (NULL, &driverDir, ioResources);
+        if (!NT_SUCCESS(status)) {
+#if DBG
+            DbgPrint("RequestedResources could no be parsed. Status = %lx", status);
+#endif
+            ExFreePool(usedHeap);
+            ExFreePool(reportedResources);
+            goto exit1;
+        }
+
+        //
+        // put IoResources onto allocated heap list
+        //
+
+        usedHeap->FreeHeap = (PVOID) usedHeap;
+        PushEntryList (&driverDir->AllocatedHeap, &usedHeap->FreeLink);
+
+        //
+        // allocate a scratch buffer
+        //
+
+        driverDir->Buffer = (PWSTR)IopAllocateDirPool (driverDir, BUFFERSIZE);
+        if (!driverDir->Buffer) {
+            status = STATUS_INSUFFICIENT_RESOURCES;
+#if DBG
+            DbgPrint("No memory, status = %lx", status);
+#endif
+            goto exit0;
+        }
+
+        //
+        // Sort the request descriptors such that all alternative descriptor
+        // options are grouped by CmResourceType.
+        //
+
+        IopSortDescriptors(driverDir);
+
+        //
+        // Initialize handles from caller's Dir.
+        //
+
+        for (i = 0; i < MAX_REG_HANDLES; i++) {
+            driverDir->RegHandle[i] = Dir->RegHandle[i];
+        }
+        driverDir->RegHandle[HDEVICE_STORAGE] = driverHandle;
+
+        //
+        // Check for user assigned resources in RegistryPath
+        //
+
+        ioResources = IopGetResourceReqRegistryValue (
+                            driverDir,
+                            driverDir->RegHandle[HDEVICE_STORAGE],
+                            IopWstrAssignedResources
+                            );
+
+        if (ioResources) {
+
+            //
+            // Build directory out of user's assignments
+            //
+
+            status = IopBuildResourceDir (driverDir, &driverDir->UserDir, ioResources);
+            if (!NT_SUCCESS(status)) {
+#if DBG
+                DbgPrint("RelocateResource: Device AssignedResources could not be parsed status = %lx", status);
+#endif
+                goto exit0;
+            }
+            status = IopCatagorizeDescriptors (driverDir->UserDir);
+            if (!NT_SUCCESS(status)) {
+#if DBG
+                DbgPrint("RelocateResource: Device AssignedResources could not be catagorized, status = %lx", status);
+#endif
+                goto exit0;
+            }
+        }
+
+        //
+        // Init bus specific ordering
+        //
+
+        driverDir->BusDir = Dir->BusDir;
+
+        //
+        // Init TENTRIESBYTYPE structures
+        //
+
+        driverDir->InUseResources = Dir->InUseResources;
+        driverDir->InUseSharableResources = Dir->InUseSharableResources;
+        driverDir->ReservedSharableResources = Dir->ReservedSharableResources;
+
+        //
+        // Init DIR_REQUIRED_RESOURCE structures from reported resources
+        //
+
+        resourceList = driverDir->Alternative;
+        for (i = 1; i < listPicked; i++) {
+            resourceList = resourceList->Next;
+        }
+        ASSERT(resourceList->NoRequiredResources = reportedResources->NoRequiredResources);
+        driverDir->ListPicked = resourceList;
+        for (i = 0; i < reportedResources->NoRequiredResources; i++) {
+            resourceList->RequiredResource[i]->Type =
+                                   reportedResources->RegResource[i].Type;
+            resourceList->RequiredResource[i]->CurBLoc =
+                                   reportedResources->RegResource[i].CurBLoc;
+            resourceList->RequiredResource[i]->CurBAddr =
+                                   reportedResources->RegResource[i].CurBAddr;
+            resourceList->RequiredResource[i]->TType =
+                                   reportedResources->RegResource[i].TType;
+            resourceList->RequiredResource[i]->Trans =
+                                   reportedResources->RegResource[i].Trans;
+        }
+
+        //
+        // Link the new DIR to our DIR list
+        //
+
+        tmpDir = driverDir;
+        while (tmpDir->FreeResReqList) {
+            tmpDir = driverDir->FreeResReqList;
+        }
+        tmpDir->FreeResReqList = IopRelocatedDirList;
+        IopRelocatedDirList = driverDir;
+
+        //
+        // Create and initialize RECONFIGURE_DRIVER structure for this driverDir
+        //
+
+        reconfigDriver = (PRECONFIGURED_DRIVER)ExAllocatePool(
+                           PagedPool,
+                           sizeof(RECONFIGURED_DRIVER));
+        if (!reconfigDriver) {
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            goto exit0;
+        }
+        driverDir->ReconfiguredDriver = reconfigDriver;
+        reconfigDriver->Owner = TranslatedEntry->Owner;
+        reconfigDriver->ReconfiguredDir = driverDir;
+        reconfigDriver->DriverClassName = driverClassName;
+        reconfigDriver->DriverObject = driverObject;
+        reconfigDriver->DeviceObject = deviceObject;
+        reconfigDriver->DeviceFileObject = fileObject;
+        reconfigDriver->CmResourceList = NULL;
+    } else {
+
+        reconfigDriver = driverDir->ReconfiguredDriver;
+        //
+        // Snapshot the current assignment such that we can recover it if fails.
+        //
+
+        resourceList = driverDir->ListPicked;
+        reportedResources = ExAllocatePool(PagedPool,
+                                           sizeof(REG_REQUIRED_RESOURCE_LIST) +
+                                             (resourceList->NoRequiredResources - 1) *
+                                             sizeof(REG_REQUIRED_RESOURCE));
+        reportedResources->NoRequiredResources = resourceList->NoRequiredResources;
+        for (i = 0; i < reportedResources->NoRequiredResources; i++) {
+            reportedResources->RegResource[i].Type =
+                                   resourceList->RequiredResource[i]->Type;
+            reportedResources->RegResource[i].CurBLoc =
+                                   resourceList->RequiredResource[i]->CurBLoc;
+            reportedResources->RegResource[i].CurBAddr =
+                                   resourceList->RequiredResource[i]->CurBAddr;
+            reportedResources->RegResource[i].TType =
+                                   resourceList->RequiredResource[i]->TType;
+            reportedResources->RegResource[i].Trans =
+                                   resourceList->RequiredResource[i]->Trans;
+        }
+
+    }
+
+    //
+    // try to regenerate a resource assignment for the requiredResource which
+    // is in conflict at pass 4.
+    //
+
+    for (i=0; i < resourceList->NoRequiredResources; i++) {
+        reqRes = resourceList->RequiredResource[i];
+
+        //
+        // find the required resource which we are interested in.
+        //
+
+        if (TranslatedEntry->BAddr == reqRes->Trans.BAddr &&
+            TranslatedEntry->EAddr == reqRes->Trans.EAddr &&
+            reqRes->TType == TranslatedType) {
+            reqRes->CurLoc = 0;
+            reqRes->RunLen = 0;
+            reqRes->PassNo = 4;
+            break;
+        }
+    }
+    ASSERT(i < resourceList->NoRequiredResources);
+
+    found = IopGenNextValidDescriptor (
+                               i,
+                               resourceList,
+                               driverDir,
+                               &collisionLevel);
+    if (!found) {
+        tmpFlags = TranslatedEntry->Flags;
+        TranslatedEntry->Flags = TENTRY_FLAGS_BEING_RELOCATED;
+
+        //
+        // Fail go generate a valid assignment at pass 4.
+        // Move to pass 5 see if we can relocate other driver(s)
+        //
+
+        reqRes->CurLoc = 0;
+        reqRes->RunLen = 0;
+        reqRes->PassNo = 5;
+        found = IopGenNextValidDescriptor (
+                               i,
+                               resourceList,
+                               driverDir,
+                               &collisionLevel);
+        TranslatedEntry->Flags = tmpFlags;
+    }
+
+    if (found) {
+
+        //
+        // Build CmResourceList from assignments
+        //
+
+        cmResources = IopAssignResourcesPhase4 (
+                          driverDir,
+                          resourceList,
+                          &length);
+        if (!cmResources) {
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            goto exit2;
+        }
+
+        //
+        // Ask driver if its resources can be reconfigured.
+        //
+
+        status = IopQueryReconfigureResource(
+                               reconfigDriver->DriverObject,
+                               reconfigDriver->DeviceObject,
+                               cmResources);
+
+        if (NT_SUCCESS(status)) {
+
+            //
+            // Link reconfigured driver structure to to IopReconfiguredDrivers
+            // list if it has been done.
+            //
+
+            if (reconfigDriver->CmResourceList) {
+                ExFreePool(reconfigDriver->CmResourceList);
+            }
+            reconfigDriver->CmResourceList = cmResources;
+            reconfigDriver->ResourceLength = length;
+            tmp = IopReconfiguredDrivers;
+            while (tmp) {
+                if (tmp == reconfigDriver) {
+                    break;
+                }
+                tmp = tmp->Next;
+            }
+            if (!tmp) {
+                reconfigDriver->Next = IopReconfiguredDrivers;
+                IopReconfiguredDrivers = reconfigDriver;
+            }
+
+            if (reqRes->PassNo == 4) {
+
+                //
+                // the NewTranslatedEntry is return only when we actually
+                // allocated *new* resource in pass 4.  If we are in PassNo 5,
+                // we did not allocate *new* resource, we re-use the resource
+                // which is in used.
+                //
+
+                //
+                // Build Owner structure for TLIST entries
+                //
+
+                owner = IopAllocateDirPool (driverDir, sizeof (*(TranslatedEntry->Owner)));
+                if (!owner) {
+                    status = STATUS_INSUFFICIENT_RESOURCES;
+                    goto exit2;
+                }
+
+                owner->InConflict.Flink = NULL;
+                owner->DeviceName = TranslatedEntry->Owner->DeviceName;
+                owner->KeyName = TranslatedEntry->Owner->KeyName;
+
+                //
+                // Get a new Trans entry in the InUseResource list or the
+                // InUseSharableResource list
+                //
+
+                ioDesc = reqRes->IoResourceDescriptor[reqRes->CurBLoc];
+                if (ioDesc->ShareDisposition == CmResourceShareShared) {
+                    byType = &driverDir->InUseSharableResources;
+                } else {
+                    byType = &driverDir->InUseResources;
+                }
+                trans = IopNewTransEntry (driverDir, byType, reqRes->TType);
+                if (!trans) {
+                    status = STATUS_INSUFFICIENT_RESOURCES;
+                    goto exit2;
+                }
+
+                //
+                // Fill in the Trans structure
+                //
+
+                *trans = reqRes->Trans;
+                trans->Owner = owner;
+                trans->Flags = TENTRY_FLAGS_IN_USE;
+
+                //
+                // Add new translated entry to New Resource list
+                //
+
+                if (!IopAddRelocatedEntry(&IopNewResources,
+                                          trans,
+                                          reqRes->TType,
+                                          owner)) {
+                    status = STATUS_INSUFFICIENT_RESOURCES;
+                    goto exit2;
+                }
+            }
+
+            //
+            // Add the conflict entry to Conflict InProcessed list
+            //
+            owner = NULL;
+            if (Dir->ReconfiguredDriver) {
+                owner = Dir->ReconfiguredDriver->Owner;
+            }
+            if (!IopAddRelocatedEntry(&IopInProcessedConflicts,
+                                      TranslatedEntry,
+                                      TranslatedType,
+                                      owner
+                                      )) {
+                status = STATUS_INSUFFICIENT_RESOURCES;
+            }
+        }
+    } else {
+        status = STATUS_CONFLICTING_ADDRESSES;
+    }
+
+exit2:
+    if (!NT_SUCCESS(status)) {
+        if (driverDir) {
+            resourceList = driverDir->ListPicked;
+            for (i = 0; i < reportedResources->NoRequiredResources; i++) {
+                resourceList->RequiredResource[i]->Type =
+                                       reportedResources->RegResource[i].Type;
+                resourceList->RequiredResource[i]->CurBLoc =
+                                       reportedResources->RegResource[i].CurBLoc;
+                resourceList->RequiredResource[i]->CurBAddr =
+                                       reportedResources->RegResource[i].CurBAddr;
+                resourceList->RequiredResource[i]->TType =
+                                       reportedResources->RegResource[i].TType;
+                resourceList->RequiredResource[i]->Trans =
+                                       reportedResources->RegResource[i].Trans;
+            }
+        }
+    }
+    if (reportedResources) {
+        ExFreePool(reportedResources);
+    }
+    if (!NT_SUCCESS(status)) {
+        return FALSE;
+    } else {
+        return TRUE;
+    }
+exit0:
+    IopFreeResourceDir(driverDir);
+    if (reportedResources) {
+        ExFreePool(reportedResources);
+    }
+exit1:
+    if (driverObject) {
+        ObDereferenceObject(driverObject);
+    }
+    if (driverHandle) {
+        ZwClose(driverHandle);
+    }
+    if (deviceObject) {
+        ObDereferenceObject( fileObject );
+        ObDereferenceObject(deviceObject);
+    }
+    if (driverClassName.Length != 0) {
+        ExFreePool(driverClassName.Buffer);
+    }
+    return FALSE;
+}
+
+NTSTATUS
+IopRecordAssignInformation(
+    IN PDIR_RESREQ_LIST Dir,
+    IN PUNICODE_STRING DriverClassName,
+    IN PDRIVER_OBJECT DriverObject,
+    IN PDEVICE_OBJECT DeviceObject,
+    IN PDIR_RESOURCE_LIST CurList
+    )
+
+/*++
+
+Routine Description:
+
+    This routine saves resource assignment related information to
+    registry.  We may need it later to resolve resource conflicts.
+    If this routine fails to save the information, it is not fatal.  But
+    we won't be able to reconfigure the resources of the driver.
+
+Arguments:
+
+    Dir - Supplies a pointer to the DIR_RESREQ_LIST of the resource list
+
+    DriverClassName - Supplies a pointer to the Driver's class name.  It is
+        used to partition allocated resources into different device classes.
+
+    DriverObject - Supplies a pointer to the driver object of the caller.
+
+    DeviceObject - Supplies a pointer to the device object of the caller.
+        If non-null, then requested resoruce list refers to this device.
+        If null, the requested resource list refers to the driver.
+
+    CurDir - supplies a pointer to the selected DIR_RESOURCE_LIST.
+
+Returned Value:
+
+    None.
+
+--*/
+{
+    HANDLE driverHandle, handle;
+    NTSTATUS status;
+    UNICODE_STRING unicodeName1, unicodeName2, unicodeValueName;
+    ULONG i, length;
+    POBJECT_NAME_INFORMATION obNameInfo;
+    PDIR_RESOURCE_LIST resourceList;
+    PREG_REQUIRED_RESOURCE_LIST regList;
+    PREG_REQUIRED_RESOURCE regResource;
+    PDIR_REQUIRED_RESOURCE reqResource;
+
+    //
+    // Open CCS\ServiceKeyName\ResourceInformation key for the driver
+    //
+
+    status = IopOpenRegistryKey(&handle,
+                                NULL,
+                                &CmRegistryMachineSystemCurrentControlSetServices,
+                                KEY_ALL_ACCESS,
+                                FALSE
+                                );
+    if (!NT_SUCCESS(status)) {
+        return status;
+    }
+
+    status = IopOpenRegistryKey(&driverHandle,
+                                handle,
+                                &DriverObject->DriverExtension->ServiceKeyName,
+                                KEY_ALL_ACCESS,
+                                FALSE
+                                );
+    ZwClose(handle);
+    if (!NT_SUCCESS(status)) {
+        return status;
+    }
+
+    RtlInitUnicodeString(&unicodeName2, L"ResourceInformation");
+    status = IopOpenRegistryKey(&handle,
+                                driverHandle,
+                                &unicodeName2,
+                                KEY_ALL_ACCESS,
+                                TRUE
+                                );
+    if (!NT_SUCCESS(status)) {
+        return status;
+    }
+
+    //
+    // Write driver class name (for report resources)
+    //
+
+    RtlInitUnicodeString(&unicodeName1, L"ClassName");
+    if (DriverClassName == NULL) {
+        RtlInitUnicodeString(&unicodeName2, L"OtherDrivers");
+        DriverClassName = &unicodeName2;
+    }
+
+    ZwSetValueKey(handle,
+                  &unicodeName1,
+                  TITLE_INDEX_VALUE,
+                  REG_SZ,
+                  DriverClassName->Buffer,
+                  DriverClassName->Length + sizeof(UNICODE_NULL)
+                  );
+
+    //
+    // Form ValueName.
+    //
+
+    obNameInfo = (POBJECT_NAME_INFORMATION) Dir->Buffer;
+    if (DeviceObject) {
+        status = ObQueryNameString (DeviceObject,
+                                    obNameInfo,
+                                    BUFFERSIZE,
+                                    &i);
+        if (!NT_SUCCESS(status)) {
+            goto exit1;
+        }
+        unicodeName1 = obNameInfo->Name;
+    } else {
+        RtlInitUnicodeString(&unicodeName1, L"Driver");
+    }
+
+    //
+    // Save requested resources under Driver/DeviceName.RequestedResources
+    //
+
+    RtlInitUnicodeString( &unicodeName2, L".RequestedResources");
+    IopConcatenateUnicodeStrings(&unicodeValueName,
+                                 &unicodeName1,
+                                 &unicodeName2);
+    ZwSetValueKey( handle,
+                   &unicodeValueName,
+                   TITLE_INDEX_VALUE,
+                   REG_BINARY,
+                   Dir->IoResourceReq,
+                   Dir->IoResourceReq->ListSize
+                   );
+    RtlFreeUnicodeString(&unicodeValueName);
+
+    //
+    // Find out which DIR_RESOURCE_LIST was picked and save its data
+    // in Driver/DeviceName.ListPicked and .ReportedResources
+    //
+
+    resourceList = Dir->Alternative;
+    i = 1;
+    while (resourceList) {
+        if (CurList == resourceList) {
+            break;
+        }
+        resourceList = resourceList->Next;
+        i++;
+    }
+    ASSERT(resourceList != NULL);
+
+    //
+    // Save Driver/DeviceName.ListPicked =
+    //
+
+    RtlInitUnicodeString( &unicodeName2, L".ListPicked");
+    IopConcatenateUnicodeStrings(&unicodeValueName,
+                                 &unicodeName1,
+                                 &unicodeName2);
+    ZwSetValueKey( handle,
+                   &unicodeValueName,
+                   TITLE_INDEX_VALUE,
+                   REG_DWORD,
+                   &i,
+                   sizeof(i)
+                   );
+    RtlFreeUnicodeString(&unicodeValueName);
+
+    //
+    // Build REG_REQUIRED_RESOURCE_LIST
+    //
+
+    length = sizeof(REG_REQUIRED_RESOURCE_LIST) + sizeof(REG_REQUIRED_RESOURCE)
+                 * (CurList->NoRequiredResources - 1);
+    regList = ExAllocatePool(PagedPool, length);
+    regList->NoRequiredResources = CurList->NoRequiredResources;
+    length = sizeof(regList->NoRequiredResources);
+    for (i = 0; i < CurList->NoRequiredResources; i++) {
+        regResource = &regList->RegResource[i];
+        reqResource = CurList->RequiredResource[i];
+        regResource->Type = reqResource->Type;
+        regResource->CurBLoc = reqResource->CurBLoc;
+        regResource->CurBAddr = reqResource->CurBAddr;
+        regResource->TType = reqResource->TType;
+        regResource->Trans = reqResource->Trans;
+        length += sizeof(REG_REQUIRED_RESOURCE);
+    }
+
+    //
+    // Save the REG_REQUIRED_RESOURCE_LIST to Driver/DeviceName.ReportedResources
+    //
+
+    RtlInitUnicodeString( &unicodeName2, L".ReportedResources");
+    IopConcatenateUnicodeStrings(&unicodeValueName,
+                                 &unicodeName1,
+                                 &unicodeName2);
+    ZwSetValueKey( handle,
+                   &unicodeValueName,
+                   TITLE_INDEX_VALUE,
+                   REG_BINARY,
+                   regList,
+                   length
+                   );
+    RtlFreeUnicodeString(&unicodeValueName);
+    ExFreePool(regList);
+exit1:
+    ZwClose(handle);
+    return status;
+}
+
+NTSTATUS
+IopQueryReconfigureResource(
+    PDRIVER_OBJECT DriverObject,
+    PDEVICE_OBJECT DeviceObject,
+    PCM_RESOURCE_LIST CmResources
+    )
+{
+    return STATUS_SUCCESS;
+    //return STATUS_NOT_IMPLEMENTED;
+}
+
+NTSTATUS
+IopReconfigureResource(
+    PDRIVER_OBJECT DriverObject,
+    PDEVICE_OBJECT DeviceObject,
+    PCM_RESOURCE_LIST CmResources
+    )
+{
+    return STATUS_SUCCESS;
+    //return STATUS_NOT_IMPLEMENTED;
+}
+
+NTSTATUS
+IopCancelReconfigureResource(
+    PDRIVER_OBJECT DriverObject,
+    PDEVICE_OBJECT DeviceObject
+    )
+{
+    return STATUS_SUCCESS;
+    //return STATUS_NOT_IMPLEMENTED;
+}
+
+VOID
+IopFreeRelocatedTEntryLists(
+    VOID
+    )
+
+/*++
+
+Routine Description:
+
+    Frees pool used to resolve resource conflicts.  Note, we free the
+    RELOCATED_TENTRIES structure but leave the TENTRY in the structure.
+    The TENTRY structure will be freed by resource dir free routine.
+
+Arguments:
+
+    None.
+
+Return Value:
+
+    None.
+
+--*/
+{
+    PRELOCATED_TENTRIES tmp;
+
+    while (IopInProcessedConflicts) {
+        tmp = IopInProcessedConflicts;
+        IopInProcessedConflicts = IopInProcessedConflicts->Next;
+        ExFreePool(tmp);
+    }
+    while (IopNewResources) {
+        tmp = IopNewResources;
+        IopNewResources = IopNewResources->Next;
+        ExFreePool(tmp);
+    }
+}
+
+ULONG
+IopFindCollisionInRelocatedList (
+    IN PTENTRY SEntry,
+    IN PRELOCATED_TENTRIES List,
+    OUT PTENTRY *ConflictEntry
+    )
+/*++
+
+Routine Description:
+
+    Checks to see if there's a collision between the source TENTRY and the list
+    of RELOCATED_TENTRIES passed by List.
+
+Arguments:
+
+Return Value
+
+    Returns the skew amount required to continue searching for next possible
+    setting and a pointer to the conflicted entry.
+    A zero skew means no collision occured.
+
+--*/
+{
+    LONGLONG        liTmp;
+    TENTRY          source;
+
+    source = *SEntry;
+    while (List) {
+        SEntry = List->TranslatedEntry;
+        if (DoesTEntryCollide (source, *SEntry)) {
+            liTmp = source.EAddr - SEntry->BAddr;
+            *ConflictEntry = SEntry;
+            return (ULONG) liTmp + 1;
+        }
+        List = List->Next;
+    }
+    return 0;
+}
+
+ULONG
+IopAddRelocatedEntry (
+    IN PRELOCATED_TENTRIES *List,
+    IN PTENTRY Entry,
+    IN UCHAR Type,
+    IN POWNER NewOwner
+    )
+/*++
+
+Routine Description:
+
+    This routine add Entry to the specified RELOCATED_ENTRIES list.
+
+Arguments:
+
+Return Value
+
+    TRUE - succeeded. FALSE - failed.
+--*/
+{
+    PRELOCATED_TENTRIES pRelocatedEntry;
+
+    if (Entry == NULL) {
+        return TRUE;
+    }
+
+    //
+    // Is the entry already in the specified list
+    //
+
+    pRelocatedEntry = *List;
+    while (pRelocatedEntry) {
+        if (pRelocatedEntry->TranslatedEntry == Entry) {
+            break;
+        }
+        pRelocatedEntry = pRelocatedEntry->Next;
+    }
+    if (!pRelocatedEntry) {
+        pRelocatedEntry = (PRELOCATED_TENTRIES)ExAllocatePool(
+                                                    PagedPool,
+                                                    sizeof(RELOCATED_TENTRIES));
+        if (!pRelocatedEntry) {
+#if DBG
+            DbgPrint("IoAssignResource P4: Failed to allocate memory for InProcess list");
+#endif
+            return FALSE;
+        }
+
+        //
+        // Remember the names of the FIRST owner (i.e. the owner before the relocation began)
+        //
+
+        pRelocatedEntry->OriginalDriver = Entry->Owner->KeyName;
+        pRelocatedEntry->OriginalDevice = Entry->Owner->DeviceName;
+        pRelocatedEntry->Next = *List;
+        *List = pRelocatedEntry;
+        pRelocatedEntry->Type = Type;
+        pRelocatedEntry->TranslatedEntry = Entry;
+    }
+    Entry->Owner = NewOwner;
+    return TRUE;
+}
+
+VOID
+IopFreeRelocatedResourceDir (
+    IN PDIR_RESREQ_LIST  DirResourceList
+    )
+/*++
+
+Routine Description:
+
+    This routine does a special handling to the DIR_RESREQ_LIST used
+    to relocate driver resources before calling IopFreeResourceDir.
+    Note, the FreeResReqList should be NULL for relocated driver
+    resource dir.
+
+Arguments:
+
+    DirResourceList - supplies a pointer to the DIR_RESREQ_LIST used
+        to relocate driver resources.
+
+Return Value:
+
+    None.
+
+--*/
+{
+    ULONG i;
+    PDIR_RESREQ_LIST  tmpDir;
+
+    //
+    // Close any opened handles
+    //
+
+    tmpDir = DirResourceList;
+    while (tmpDir) {
+        for (i=0; i< MAX_REG_HANDLES; i++) {
+            if (i != HDEVICE_STORAGE) {
+                tmpDir->RegHandle[i] = INVALID_HANDLE;
+            }
+        }
+        tmpDir = tmpDir->FreeResReqList;
+    }
+    IopFreeResourceDir(DirResourceList);
+}
+#endif // _PNP_POWER_
+
 VOID
 IopPickupCollisionInTList (
     IN PDIR_RESOURCE_LIST   CurList,
     IN UCHAR                Type,
-    IN LARGE_INTEGER        BAddr,
+    IN LONGLONG             BAddr,
     IN PTENTRY              SEntry,
     IN PLTENTRY             List
     )
@@ -1710,8 +3908,7 @@ IopPickupCollisionInTList (
     }
 
     for (i=0; i < j; i++) {
-        if (CurList->Conflict.EasyConflict[i].BAddr.LowPart == BAddr.LowPart  &&
-            CurList->Conflict.EasyConflict[i].BAddr.HighPart == BAddr.HighPart  &&
+        if (CurList->Conflict.EasyConflict[i].BAddr == BAddr  &&
             CurList->Conflict.EasyConflict[i].Type == Type) {
                 return ;
         }
@@ -1868,73 +4065,6 @@ Return Value:
 
 
 NTSTATUS
-IopLookupBusStringFromID (
-    IN HANDLE           KeyHandle,
-    IN INTERFACE_TYPE   InterfaceType,
-    OUT PWCHAR          Buffer,
-    IN ULONG            Length,
-    OUT PULONG          BusFlags
-    )
-/*++
-
-Routine Description:
-
-    Translates INTERFACE_TYPE to it's corrisponding WCHAR[] string.
-
---*/
-{
-    NTSTATUS                        status;
-    ULONG                           Index, junk, i, j;
-    PULONG                          pl;
-    PKEY_VALUE_FULL_INFORMATION     KeyInformation;
-    WCHAR                           c;
-
-    PAGED_CODE();
-
-    Index = 0;
-    KeyInformation = (PKEY_VALUE_FULL_INFORMATION) Buffer;
-
-    for (; ;) {
-        status = ZwEnumerateValueKey (
-                        KeyHandle,
-                        Index++,
-                        KeyValueFullInformation,
-                        Buffer,
-                        Length,
-                        &junk
-                        );
-
-        if (!NT_SUCCESS (status)) {
-            return status;
-        }
-
-        if (KeyInformation->Type != REG_BINARY) {
-            continue;
-        }
-
-        pl = (PULONG) ((PUCHAR) KeyInformation + KeyInformation->DataOffset);
-        if ((ULONG) InterfaceType != pl[0]) {
-            continue;
-        }
-
-        //
-        // Found a match - move the name to the start of the buffer
-        //
-
-        *BusFlags = pl[1];
-        j = KeyInformation->NameLength / sizeof (WCHAR);
-        for (i=0; i < j; i++) {
-            c = KeyInformation->Name[i];
-            Buffer[i] = c;
-        }
-
-        Buffer[i] = 0;
-        return STATUS_SUCCESS;
-    }
-}
-
-
-NTSTATUS
 IopAssignResourcesPhase1 (
     IN PIO_RESOURCE_REQUIREMENTS_LIST   IoResources,
     IN PIO_RESOURCE_REQUIREMENTS_LIST   *pCopiedList
@@ -2012,7 +4142,7 @@ Arguments:
     *pCopiedList = (PIO_RESOURCE_REQUIREMENTS_LIST) ExAllocatePool (PagedPool, length);
 
     if (!*pCopiedList) {
-        return STATUS_NO_MEMORY;
+        return STATUS_INSUFFICIENT_RESOURCES;
     }
 
     RtlCopyMemory (*pCopiedList, IoResources, length);
@@ -2073,8 +4203,9 @@ Arguments:
     PWSTR                           pw;
     NTSTATUS                        status;
     BOOLEAN                         sameClass, sameDriver;
+    BOOLEAN                         flag;
     POWNER                          Owner;
-    LARGE_INTEGER                   li;
+    LONGLONG                        li;
 
     PAGED_CODE();
 
@@ -2097,7 +4228,7 @@ Arguments:
     BufferSize = Length > BUFFERSIZE ? Length : BUFFERSIZE;
     U.Buffer = ExAllocatePool (PagedPool, BufferSize);
     if (!U.Buffer) {
-        return STATUS_NO_MEMORY;
+        return STATUS_INSUFFICIENT_RESOURCES;
     }
 
     //
@@ -2122,7 +4253,7 @@ Arguments:
     TranslatedName.MaximumLength = ObNameInfo->Name.Length;
     TranslatedName.Buffer = IopAllocateDirPool (Dir, TranslatedName.Length);
     if (!TranslatedName.Buffer) {
-        return STATUS_NO_MEMORY;
+        return STATUS_INSUFFICIENT_RESOURCES;
     }
     RtlCopyMemory (TranslatedName.Buffer, ObNameInfo->Name.Buffer, TranslatedName.Length);
     for (TranslatedStrLen=0; IopWstrTranslated[TranslatedStrLen]; TranslatedStrLen++) ;
@@ -2152,7 +4283,7 @@ Arguments:
     DriverName.MaximumLength = (USHORT) Length;
     DriverName.Buffer = IopAllocateDirPool (Dir, Length);
     if (!DriverName.Buffer) {
-        return STATUS_NO_MEMORY;
+        return STATUS_INSUFFICIENT_RESOURCES;
     }
     RtlCopyMemory (DriverName.Buffer, ObNameInfo->Name.Buffer + i, Length);
 
@@ -2246,7 +4377,7 @@ Arguments:
 
             KeyName.Buffer = (PWSTR) IopAllocateDirPool (Dir, U.KeyBInf->NameLength);
             if (!KeyName.Buffer) {
-                status = STATUS_NO_MEMORY;
+                status = STATUS_INSUFFICIENT_RESOURCES;
                 break;
             }
 
@@ -2295,7 +4426,7 @@ Arguments:
 
                 p2 = ExAllocatePool (PagedPool, Length);
                 if (!p2) {
-                    status = STATUS_NO_MEMORY;
+                    status = STATUS_INSUFFICIENT_RESOURCES;
                     break;
                 }
 
@@ -2370,13 +4501,16 @@ Arguments:
 
                 Owner = IopAllocateDirPool (Dir, sizeof (*Owner) + U.VKeyFInf->NameLength);
                 if (!Owner) {
-                    status = STATUS_NO_MEMORY;
+                    status = STATUS_INSUFFICIENT_RESOURCES;
                     break;
                 }
 
                 Owner->InConflict.Flink = NULL;
                 Owner->DeviceName.Buffer = NULL;
 
+#if _PNP_POWER_
+                Owner->DeviceName.Length = 0;
+#endif
                 Owner->KeyName.Buffer = KeyName.Buffer;
                 Owner->KeyName.Length = KeyName.Length;
                 Owner->KeyName.MaximumLength = KeyName.MaximumLength;
@@ -2402,14 +4536,16 @@ Arguments:
                 for (i=0; i < CmResList->Count && NT_SUCCESS(status) ; i++) {
                     CmDesc = CmFResDesc->PartialResourceList.PartialDescriptors;
                     if ((PUCHAR) (CmDesc+1) > LastAddr) {
-                        DBGMSG ("IopAssignResourcesPhase2: CmResourceList in regitry too short\n");
+                        if (i) {
+                            DBGMSG ("IopAssignResourcesPhase2: a. CmResourceList in regitry too short\n");
+                        }
                         break;
                     }
 
                     for (j=0; j < CmFResDesc->PartialResourceList.Count && NT_SUCCESS(status); j++) {
                         if ((PUCHAR) (CmDesc+1) > LastAddr) {
                             i = CmResList->Count;
-                            DBGMSG ("IopAssignResourcesPhase2: CmResourceList in regitry too short\n");
+                            DBGMSG ("IopAssignResourcesPhase2: b. CmResourceList in regitry too short\n");
                             break;
                         }
 
@@ -2485,6 +4621,9 @@ Arguments:
     if (Owner) {
         Owner->InConflict.Flink = NULL;
         Owner->DeviceName.Buffer = NULL;
+#if _PNP_POWER_
+        Owner->DeviceName.Length = 0;
+#endif
         RtlInitUnicodeString (&Owner->KeyName, IopWstrReservedResources);
     }
 
@@ -2512,14 +4651,14 @@ Arguments:
         for (i=0; i < CmResList->Count && NT_SUCCESS(status) ; i++) {
             CmDesc = CmFResDesc->PartialResourceList.PartialDescriptors;
             if ((PUCHAR) (CmDesc+1) > LastAddr) {
-                DBGMSG ("IopAssignResourcesPhase2: CmResourceList in regitry too short\n");
+                DBGMSG ("IopAssignResourcesPhase2: c. CmResourceList in regitry too short\n");
                 break;
             }
 
             for (j=0; j < CmFResDesc->PartialResourceList.Count && NT_SUCCESS(status); j++) {
                 if ((PUCHAR) (CmDesc+1) > LastAddr) {
                     i = CmResList->Count;
-                    DBGMSG ("IopAssignResourcesPhase2: CmResourceList in regitry too short\n");
+                    DBGMSG ("IopAssignResourcesPhase2: d. CmResourceList in regitry too short\n");
                     break;
                 }
 
@@ -2531,15 +4670,15 @@ Arguments:
                     case CmResourceTypePort:
                     case CmResourceTypeMemory:
                         junk = CmDesc->Type == CmResourceTypePort ? 1 : 0;
-                        li = *((LARGE_INTEGER UNALIGNED *) &CmDesc->u.Port.Start);
-                        HalTranslateBusAddress (
+                        li = *((LONGLONG UNALIGNED *) &CmDesc->u.Port.Start);
+                        flag = HalTranslateBusAddress (
                             CmFResDesc->InterfaceType,
                             CmFResDesc->BusNumber,
-                            li,
+                            *((PPHYSICAL_ADDRESS) &li),
                             &junk,
-                            &li
+                            (PPHYSICAL_ADDRESS) &li
                             );
-                        *((LARGE_INTEGER UNALIGNED *) &CmDesc->u.Port.Start) = li;
+                        *((LONGLONG UNALIGNED *) &CmDesc->u.Port.Start) = li;
                         CmDesc->Type = junk == 1 ? CmResourceTypePort : CmResourceTypeMemory;
                         break;
 
@@ -2552,31 +4691,40 @@ Arguments:
                             (PKIRQL) &junk,                 // translated level
                             &CmDesc->u.Interrupt.Affinity
                             );
-                        break;
+                       flag = CmDesc->u.Interrupt.Affinity == 0 ? FALSE : TRUE;
+                       break;
 
                     case CmResourceTypeDma:
                         // no translation
+                        flag = TRUE;
+                        break;
+
+                    default:
+                        flag = FALSE;
                         break;
                 }
 
-                //
-                // Add it to the appropiate tlist
-                //
+                if (flag) {
 
-                if (CmDesc->ShareDisposition == CmResourceShareShared) {
-                    status = IopAddCmDescriptorToInUseList (
-                                Dir,
-                                &Dir->ReservedSharableResources,
-                                CmDesc,
-                                Owner
-                            );
-                } else {
-                    status = IopAddCmDescriptorToInUseList (
-                                Dir,
-                                &Dir->InUseResources,
-                                CmDesc,
-                                Owner
-                            );
+                    //
+                    // Add it to the appropiate tlist
+                    //
+
+                    if (CmDesc->ShareDisposition == CmResourceShareShared) {
+                        status = IopAddCmDescriptorToInUseList (
+                                    Dir,
+                                    &Dir->ReservedSharableResources,
+                                    CmDesc,
+                                    Owner
+                                );
+                    } else {
+                        status = IopAddCmDescriptorToInUseList (
+                                    Dir,
+                                    &Dir->InUseResources,
+                                    CmDesc,
+                                    Owner
+                                );
+                    }
                 }
 
                 CmDesc++;
@@ -2616,7 +4764,7 @@ Arguments:
     LONG                    BestPref, Pref;
 
     //
-    // Run each list as first pass
+    // Run each list as pass 1
     //
 
     PAGED_CODE();
@@ -2625,6 +4773,10 @@ Arguments:
 
         // set to pass 1
         for (i=0; i < CurList->NoRequiredResources; i++) {
+#if _PNP_POWER_
+            CurList->RequiredResource[i]->CurLoc = 0;
+            CurList->RequiredResource[i]->RunLen = 0;
+#endif
             CurList->RequiredResource[i]->PassNo = 1;
         }
 
@@ -2658,7 +4810,7 @@ Arguments:
 
             ReqRes->PassNo = 2;
             for (j=0; j < ReqRes->NoAlternatives; j++) {
-                ReqRes->IoResourceDescriptor[j]->Flags &= ~IO_RESOURCE_PREFERRED;
+                ReqRes->IoResourceDescriptor[j]->Option &= ~IO_RESOURCE_PREFERRED;
             }
 
             //
@@ -2695,7 +4847,7 @@ Arguments:
             ReqRes->PassNo = 2;
 
             for (j=0; j < ReqRes->NoAlternatives; j++) {
-                ReqRes->IoResourceDescriptor[j]->Flags &= ~IO_RESOURCE_PREFERRED;
+                ReqRes->IoResourceDescriptor[j]->Option &= ~IO_RESOURCE_PREFERRED;
             }
         }
     }
@@ -2828,6 +4980,10 @@ Arguments:
     *Length = len;
 
     CmRes = (PCM_RESOURCE_LIST) ExAllocatePool (PagedPool, len);
+    if (!CmRes) {
+        return NULL;
+    }
+
     RtlZeroMemory (CmRes, len);
 
     CmRes->Count = 1;
@@ -2852,8 +5008,8 @@ Arguments:
 
         switch (CmDesc->Type) {
             case CmResourceTypePort:
-                CmDesc->u.Port.Start  = DirDesc->CurBAddr;
-                CmDesc->u.Port.Length = IoDesc->u.Port.Length;
+                CmDesc->u.Port.Start.QuadPart = DirDesc->CurBAddr;
+                CmDesc->u.Port.Length         = IoDesc->u.Port.Length;
 #if IDBG
                 DbgPrint ("    IO  Start %x:%08x, Len %x\n",
                     CmDesc->u.Port.Start.HighPart, CmDesc->u.Port.Start.LowPart,
@@ -2862,8 +5018,8 @@ Arguments:
                 break;
 
             case CmResourceTypeMemory:
-                CmDesc->u.Memory.Start  = DirDesc->CurBAddr;
-                CmDesc->u.Memory.Length = IoDesc->u.Memory.Length;
+                CmDesc->u.Memory.Start.QuadPart = DirDesc->CurBAddr;
+                CmDesc->u.Memory.Length         = IoDesc->u.Memory.Length;
 #if IDBG
                 DbgPrint ("    MEM Start %x:%08x, Len %x\n",
                     CmDesc->u.Memory.Start.HighPart, CmDesc->u.Memory.Start.LowPart,
@@ -2872,8 +5028,8 @@ Arguments:
                 break;
 
             case CmResourceTypeInterrupt:
-                CmDesc->u.Interrupt.Level  = DirDesc->CurBAddr.LowPart;
-                CmDesc->u.Interrupt.Vector = DirDesc->CurBAddr.LowPart;
+                CmDesc->u.Interrupt.Level  = (ULONG) DirDesc->CurBAddr;
+                CmDesc->u.Interrupt.Vector = (ULONG) DirDesc->CurBAddr;
 #if IDBG
                 DbgPrint ("    INT Level %x, Vector %x\n",
                     CmDesc->u.Interrupt.Level, CmDesc->u.Interrupt.Vector );
@@ -2881,7 +5037,7 @@ Arguments:
                 break;
 
             case CmResourceTypeDma:
-                CmDesc->u.Dma.Channel = DirDesc->CurBAddr.LowPart;
+                CmDesc->u.Dma.Channel = (ULONG) DirDesc->CurBAddr;
 #if IDBG
                 DbgPrint ("    DMA Channel %x\n", CmDesc->u.Dma.Channel);
 #endif
@@ -2983,19 +5139,19 @@ Arguments:
             DbgPrint ("  Conflict # %d. ", j+1);
             switch (CurList->Conflict.EasyConflict[j].Type) {
                 case CmResourceTypePort:
-                    DbgPrint ("IO  Base %08x",  CurList->Conflict.EasyConflict[j].BAddr.LowPart);
+                    DbgPrint ("IO  Base %08x",  (ULONG) CurList->Conflict.EasyConflict[j].BAddr);
                     break;
 
                 case CmResourceTypeMemory:
-                    DbgPrint ("MEM Base %08x",  CurList->Conflict.EasyConflict[j].BAddr.LowPart);
+                    DbgPrint ("MEM Base %08x",  (ULONG) CurList->Conflict.EasyConflict[j].BAddr);
                     break;
 
                 case CmResourceTypeInterrupt:
-                    DbgPrint ("INT Line %x",    CurList->Conflict.EasyConflict[j].BAddr.LowPart);
+                    DbgPrint ("INT Line %x",    (ULONG) CurList->Conflict.EasyConflict[j].BAddr);
                     break;
 
                 case CmResourceTypeDma:
-                    DbgPrint ("DMA Channel %x", CurList->Conflict.EasyConflict[j].BAddr.LowPart);
+                    DbgPrint ("DMA Channel %x", (ULONG) CurList->Conflict.EasyConflict[j].BAddr);
                     break;
             }
 
@@ -3074,13 +5230,13 @@ Arguments:
                     break;
             }
 
-            if (CurList->Conflict.EasyConflict[j].BAddr.HighPart) {
+            if (CurList->Conflict.EasyConflict[j].BAddr & 0xffffffff00000000) {
                 len = swprintf (pLog, L"%X:%08X",
-                        CurList->Conflict.EasyConflict[j].BAddr.HighPart,
-                        CurList->Conflict.EasyConflict[j].BAddr.LowPart
+                        (ULONG) (CurList->Conflict.EasyConflict[j].BAddr >> 32),
+                        (ULONG) CurList->Conflict.EasyConflict[j].BAddr
                         );
             } else {
-                len = swprintf (pLog, L"%X", CurList->Conflict.EasyConflict[j].BAddr.LowPart);
+                len = swprintf (pLog, L"%X", (ULONG) CurList->Conflict.EasyConflict[j].BAddr);
             }
 
             len += 1;       // include null
@@ -3119,6 +5275,7 @@ Arguments:
     IDBGMSG ("****\n");
 }
 
+
 STATIC PTENTRY
 IopNewTransEntry (
     IN PDIR_RESREQ_LIST Dir,
@@ -3172,7 +5329,7 @@ Return Value:
 --*/
 {
     PTENTRY             Trans;
-    LARGE_INTEGER       li;
+    LONGLONG            li;
 
     if ((CmDesc->Type == CmResourceTypePort  && CmDesc->u.Port.Length == 0) ||
         (CmDesc->Type == CmResourceTypeMemory  && CmDesc->u.Memory.Length == 0)) {
@@ -3188,7 +5345,7 @@ Return Value:
 
     Trans = IopNewTransEntry (Dir, pTypes, CmDesc->Type);
     if (!Trans) {
-        return STATUS_NO_MEMORY;
+        return STATUS_INSUFFICIENT_RESOURCES;
     }
 
     //
@@ -3199,38 +5356,34 @@ Return Value:
     // detect process.
 
     Trans->Owner = Owner;
+#if _PNP_POWER_
+    Trans->Flags = TENTRY_FLAGS_IN_USE;
+#endif
     switch (CmDesc->Type) {
         case CmResourceTypePort:
-            li = LiFromUlong (CmDesc->u.Port.Length - 1);
-            Trans->BAddr = *((LARGE_INTEGER UNALIGNED *) &CmDesc->u.Port.Start);
-            Trans->EAddr = LiAdd (Trans->BAddr, li);
+            li = CmDesc->u.Port.Length - 1;
+            Trans->BAddr = *((LONGLONG UNALIGNED *) &CmDesc->u.Port.Start);
+            Trans->EAddr = Trans->BAddr + li;
             Trans->Affinity = (KAFFINITY) -1;
             break;
 
         case CmResourceTypeMemory:
-            li = LiFromUlong (CmDesc->u.Memory.Length - 1);
-            Trans->BAddr = *((LARGE_INTEGER UNALIGNED *) &CmDesc->u.Memory.Start);
-            Trans->EAddr = LiAdd (Trans->BAddr, li);
+            li = CmDesc->u.Memory.Length - 1;
+            Trans->BAddr = *((LONGLONG UNALIGNED *) &CmDesc->u.Memory.Start);
+            Trans->EAddr = Trans->BAddr + li;
             Trans->Affinity = (KAFFINITY) -1;
             break;
 
         case CmResourceTypeInterrupt:
-            Trans->BAddr.HighPart = 0;
-            Trans->EAddr.HighPart = 0;
-
-            Trans->BAddr.LowPart = CmDesc->u.Interrupt.Vector;
-            Trans->EAddr.LowPart = CmDesc->u.Interrupt.Vector;
-
+            Trans->BAddr = CmDesc->u.Interrupt.Vector;
+            Trans->EAddr = CmDesc->u.Interrupt.Vector;
             Trans->Affinity = CmDesc->u.Interrupt.Affinity;
             break;
 
         case CmResourceTypeDma:
-            Trans->BAddr.HighPart = 0;
-            Trans->EAddr.HighPart = 0;
+            Trans->BAddr = CmDesc->u.Dma.Channel;
+            Trans->EAddr = CmDesc->u.Dma.Channel;
             Trans->Affinity = (KAFFINITY) -1;
-
-            Trans->BAddr.LowPart = CmDesc->u.Dma.Channel;
-            Trans->EAddr.LowPart = CmDesc->u.Dma.Channel;
             break;
     }
     return STATUS_SUCCESS;
@@ -3264,6 +5417,34 @@ Return Value:
     PUCHAR                          FirstAddress, LastAddress;
 
     //
+    // Allocate and initialize DIR structure
+    //
+
+    Dir = (PDIR_RESREQ_LIST) ExAllocatePool (PagedPool, sizeof(DIR_RESREQ_LIST));
+    *pDir = Dir;
+    if (!Dir) {
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    RtlZeroMemory (Dir, sizeof (DIR_RESREQ_LIST));
+    for (i=0; i < MAX_REG_HANDLES; i++) {
+        Dir->RegHandle[i] = INVALID_HANDLE;
+    }
+
+    if (ParentDir) {
+        Dir->FreeResReqList = ParentDir->FreeResReqList;
+        ParentDir->FreeResReqList = Dir;
+    }
+
+    //
+    // If no IoResources to process, the Dir structure is done
+    //
+
+    if (!IoResources) {
+        return STATUS_SUCCESS;
+    }
+
+    //
     // Verify ResourceList does not exceede ListSize
     //
 
@@ -3279,26 +5460,6 @@ Return Value:
             DBGMSG ("IopBuildResourceDir: IO_RESOURCE_LIST.ListSize too small\n");
             return STATUS_INVALID_PARAMETER;
         }
-    }
-
-    //
-    //
-    //
-
-    Dir = (PDIR_RESREQ_LIST) ExAllocatePool (PagedPool, sizeof(DIR_RESREQ_LIST));
-    *pDir = Dir;
-    if (!Dir) {
-        return STATUS_NO_MEMORY;
-    }
-
-    RtlZeroMemory (Dir, sizeof (DIR_RESREQ_LIST));
-    for (i=0; i < MAX_REG_HANDLES; i++) {
-        Dir->RegHandle[i] = INVALID_HANDLE;
-    }
-
-    if (ParentDir) {
-        Dir->FreeResReqList = ParentDir->FreeResReqList;
-        ParentDir->FreeResReqList = Dir;
     }
 
     //
@@ -3333,7 +5494,7 @@ Return Value:
         DirResourceList = (PDIR_RESOURCE_LIST) IopAllocateDirPool (Dir, i);
 
         if (!DirResourceList) {
-            return STATUS_NO_MEMORY;
+            return STATUS_INSUFFICIENT_RESOURCES;
         }
 
         //
@@ -3369,7 +5530,7 @@ Return Value:
                             sizeof (DIR_REQUIRED_RESOURCE) + acnt * sizeof(PVOID));
 
                 if (!ReqRes) {
-                    return STATUS_NO_MEMORY;
+                    return STATUS_INSUFFICIENT_RESOURCES;
                 }
 
                 RtlZeroMemory (ReqRes, sizeof (DIR_REQUIRED_RESOURCE));

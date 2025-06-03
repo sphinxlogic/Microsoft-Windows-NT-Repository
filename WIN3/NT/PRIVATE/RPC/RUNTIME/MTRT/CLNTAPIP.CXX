@@ -19,11 +19,7 @@ mikemon    02-02-91    Created.
 
 -------------------------------------------------------------------- */
 
-#include <sysinc.h>
-#include <rpc.h>
-#include <rpcdcep.h>
-#include <util.hxx>
-#include <threads.hxx>
+#include <precomp.hxx>
 #include <rpctran.h>
 
 #ifdef DOS
@@ -35,8 +31,6 @@ I_RpcAllocate (
     IN unsigned int size
     )
 {
-#ifdef DEBUGRPC
-
 #ifdef RPC_DELAYED_INITIALIZATION
 
     if ( RpcHasBeenInitialized == 0 )
@@ -48,8 +42,6 @@ I_RpcAllocate (
         }
 
 #endif // RPC_DELAYED_INITIALIZATION
-
-#endif // DEBUGRPC
 
     return(RpcpFarAllocate(size));
 }
@@ -124,4 +116,3 @@ Routine Description:
 
 };
 
-

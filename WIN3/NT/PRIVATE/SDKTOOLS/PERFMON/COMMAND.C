@@ -881,7 +881,7 @@ BOOL PerfmonCommand (HWND hWnd,
 
          NullStr[0] = TEXT('\0') ;
          bPrepareMenu = FALSE ;
-         WinHelp (hWndMain, pszHelpFile, HELP_INDEX, (DWORD)(NullStr)) ;
+         WinHelp (hWndMain, pszHelpFile, HELP_FINDER, (DWORD)(NullStr)) ;
          }
          break ;
 
@@ -922,8 +922,8 @@ BOOL PerfmonCommand (HWND hWnd,
 void PrepareMenu (HMENU hMenu)
    {  // PrepareMenu
    BOOL           bPlayingLog ;
-   BOOL           bCurrentLine ;
-   BOOL           bManualRefresh ;
+   BOOL           bCurrentLine = FALSE;
+   BOOL           bManualRefresh = FALSE;
    BOOL           bLogCollecting ;
    BOOL           bRefresh ;
 
@@ -1043,5 +1043,5 @@ void PrepareMenu (HMENU hMenu)
 
 
 
-
-
+
+

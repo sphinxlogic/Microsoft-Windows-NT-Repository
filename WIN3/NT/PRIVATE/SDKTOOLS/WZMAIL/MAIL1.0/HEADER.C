@@ -126,7 +126,7 @@ PSTR PASCAL INTERNAL GetSender (PSTR pHdr, PSTR pIgnFrom)
         c = *p;
         *p = '\0';
     }
-    if ( pFrom && strcmpi (pFrom, pIgnFrom) ) {
+    if ( pFrom && _strcmpi (pFrom, pIgnFrom) ) {
         /*
         **  skip over routing char in long names so that we display
         **  the part after rightmost !, e.g.

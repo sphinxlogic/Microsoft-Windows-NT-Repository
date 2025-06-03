@@ -70,4 +70,3 @@ typedef DRIVDATA far *PDRIVDATA;
 
 #endif  /* _INC_WFWNET */
 
-

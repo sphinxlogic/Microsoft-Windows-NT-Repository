@@ -1353,6 +1353,7 @@ QTC_BUILD_PTR build )
       }
       build->state = QTC_ERROR_STATE;
       QTC_CloseFile( build->fh_rec );
+      build->fh_rec = INVALID_HANDLE_VALUE ;
       return( FAILURE );
    }
 
@@ -1389,7 +1390,9 @@ QTC_BUILD_PTR build )
       }
       build->state = QTC_ERROR_STATE;
       QTC_CloseFile( build->fh_rec );
+      build->fh_rec = INVALID_HANDLE_VALUE ;
       QTC_CloseFile( build->fh_fil );
+      build->fh_fil = INVALID_HANDLE_VALUE ;
       return( FAILURE );
    }
 

@@ -10,15 +10,28 @@
 ;
 	.386p
         include vmm.inc
+ifdef CHICAGO
+        include ndis.inc
+endif ;; CHICAGO
         include dosmgr.inc
         include netvxd.inc
+IFDEF CHICAGO
+        include configmg.inc
+ENDIF
+        include vwin32.inc
         include vdhcp.inc
         include debug.inc
         include vtdi.inc
 
         Create_VNBT_Service_Table EQU True
+ifdef CHICAGO
+        include vnbt.inc
+else  ;;  CHICAGO
         include vnbtd.inc
+endif  ;;  CHICAGO
         include vnetbios.inc
+
+        include pageable.inc
 .LIST
 
 Declare_Virtual_Device VNBT,3,0,VNBT_Control,VNBT_Device_ID, \
@@ -28,14 +41,20 @@ Declare_Virtual_Device VNBT,3,0,VNBT_Control,VNBT_Device_ID, \
 VxD_DATA_SEG
 VxD_DATA_ENDS
 
-EXTRN   _VxdMapSegmentOffsetToFlat:near	; from client.asm
+EXTRN   __VxdMapSegmentOffsetToFlat:near	; from client.asm
+ifndef CHICAGO
 EXTRN	_BSSBegin:DWORD
 EXTRN	_BSSDataEnd:DWORD
+endif ;; CHICAGO
 EXTRN   _TdiDispatch:DWORD
 
 EXTRN	_PostInit_Proc:NEAR
 EXTRN   _VxdApiWorker:NEAR
-EXTRN   _NCBHandler:NEAR
+
+ifndef CHICAGO
+EXTRN   _VNBT_NCB_X@20:NEAR
+endif   ;; CHICAGO
+
 EXTRN   _GetDhcpOption:NEAR
 
 
@@ -83,6 +102,7 @@ Init_Continue:
         mov     bInitialized, 1
 ENDIF
 
+ifndef CHICAGO
 	mov	edi, OFFSET32 _BSSBegin
 	mov	ecx, OFFSET32 _BSSDataEnd
 	sub	ecx, edi
@@ -90,6 +110,7 @@ ENDIF
 	sub	eax, eax
 	cld
 	rep	stosd	
+endif ;; CHICAGO
 
         VxDcall VTDI_Get_Version
         jc      Init_Exit       ; Get out if VTDI is not installed
@@ -157,8 +178,25 @@ EndProc VNBT_Device_Init
 
 VxD_ICODE_ENDS
 
-VxD_CODE_SEG
+NBT_PAGEABLE_CODE_SEG
 
+ifdef CHICAGO
+_NdisOpenProtocolConfiguration@12 PROC NEAR PUBLIC
+    VxDJmp NdisOpenProtocolConfiguration
+_NdisOpenProtocolConfiguration@12 ENDP
+
+_NdisCloseConfiguration@4 PROC NEAR PUBLIC
+    VxDJmp NdisCloseConfiguration
+_NdisCloseConfiguration@4 ENDP
+
+_NdisReadConfiguration@20 PROC NEAR PUBLIC
+    VxDJmp NdisReadConfiguration
+_NdisReadConfiguration@20 ENDP
+endif ;; CHICAGO
+
+NBT_PAGEABLE_CODE_ENDS
+
+VxD_CODE_SEG
 ;****************************************************************************
 ;*      NCB_Handler
 ;
@@ -177,18 +215,40 @@ BeginProc NCB_Handler
         ;  the attempt to synchronize, a wait add group name NCB is
         ;  submitted with interrupts disabled.  The CTE timer event handler
         ;  checks this and schedules an event for when they are re-enabled,
-        ;  however since it's a wait NCB, we deadlock in NCBHandler's block.
+        ;  however since it's a wait NCB, we deadlock in VNBT_NCB_X's block.
         ;
         ;  Make sure interrupts are enabled.
         ;  BUGBUG - Why were we called with ints disabled?
         ;
         ;VMMcall Enable_VM_Ints
 
-        xor     eax, eax          ; second parm of NCBHandler is unused when
+        xor     eax, eax          ; second parm of VNBT_NCB_X is unused when
+
+ifndef CHICAGO
+
+        push    eax
+        push    eax
         push    eax               ; called from here, but is used (e.g.nbtstat)
+        push    eax
         push    ebx
-        call    _NCBHandler       ; when NCBHandler is called directly
-        add     esp, 8
+        call    _VNBT_NCB_X@20    ; when VNBT_NCB_X is called directly
+
+else    ;; CHICAGO
+if 0
+;
+;   As of 08-Feb-1996 there is a bug in "vmm.h" where this doesn't
+;   work properly, with the result being a misaligned stack pointer.
+;
+        VxDCall VNBT_NCB_X, <ebx, eax, eax, eax, eax>
+else    ;; 0
+        push    eax
+        push    eax
+        push    eax
+        push    eax
+        push    ebx
+        VxDCall VNBT_NCB_X
+endif   ;; 0
+endif   ;; CHICAGO
 
         ret
 EndProc NCB_Handler
@@ -253,11 +313,14 @@ EndProc _DhcpQueryOption
 ;
 BeginProc VNBT_Get_Version, SERVICE
 
-	mov	ax, 0100h
+	mov	ax, VNBT_VERSION
 	clc
 	ret
 
 EndProc VNBT_Get_Version
+
+VxD_CODE_ENDS
+NBT_PAGEABLE_CODE_SEG
 
 ;****************************************************************************
 ;**     VNBT_Device_PostProc  - do postprocessing
@@ -276,6 +339,8 @@ BeginProc VNBT_Device_PostProc
 
 EndProc VNBT_Device_PostProc
 
+NBT_PAGEABLE_CODE_ENDS
+VxD_CODE_SEG
 
 ;****************************************************************************
 ;**     VNBT_Control - VNBT device control procedure
@@ -294,11 +359,322 @@ BeginProc VNBT_Control
         Control_Dispatch Device_Init, VNBT_Device_Init
         Control_Dispatch Sys_Dynamic_Device_Init, VNBT_Device_Init
         Control_Dispatch Sys_Vm_Init, VNBT_Device_PostProc
+IFDEF CHICAGO
+        Control_Dispatch W32_DEVICEIOCONTROL, VNBT_DeviceIoControl
+ENDIF
 
 	clc
 	ret
 
 EndProc VNBT_Control
+
+IFDEF CHICAGO
+;*******************************************************************
+;**     VNBT_DeviceIoControl
+;
+;       Dispatch routine for VxD services invoked via the Win32
+;       DeviceIoControl API.
+;
+;       Entry:  (ESI) - Points to DIOCParams structure (see VWIN32.H).
+;
+;       Exit:   (EAX) - Win32 status code, -1 for asynchronous
+;                       completion.
+;   HISTORY:
+;       Koti    10-Nov-1994  Created (Modified from wsock version)
+;
+;********************************************************************
+BeginProc  VNBT_DeviceIoControl
+
+;;;
+;;;  Setup stack frame.
+;;;
+
+	push	ebx
+	push	esi
+	push	edi
+
+	mov	eax, [esi.dwIoControlCode]
+	cmp	ecx, DIOC_GETVERSION
+	je      vdic_doNothing
+	cmp	ecx, DIOC_CLOSEHANDLE
+	jne     vdic_doSomething
+
+;;;
+;;; For devioctl calls resulting from CreateFile and CloseFile, we don't do
+;;; anything other than return success.
+;;;
+
+vdic_doNothing:
+        xor     eax, eax
+        jmp     vdic_CommonExit
+
+;;;
+;;; This is an ioctl requiring some work: call our api worker (VxdApiWorker)
+;;;
+
+vdic_doSomething:
+
+;;;  Lock the in-buffer.
+
+	mov		eax, [esi.lpvInBuffer]
+	or		eax, eax
+	jz		vdic_outbuf
+
+	cCall	__VxdLockBuffer, <eax, [esi.cbInBuffer]>
+	or		eax, eax
+	jz		vdic_LockFailure
+	mov		[esi.lpvInBuffer], eax
+
+vdic_outbuf:
+
+;;;  Lock the out-buffer.
+
+	mov		eax, [esi.lpvOutBuffer]
+	or		eax, eax
+	jz		vdic_callApi
+
+	cCall	__VxdLockBuffer, <eax, [esi.cbOutBuffer]>
+	or		eax, eax
+	jz		vdic_LockFailure
+	mov		[esi.lpvOutBuffer], eax
+
+vdic_callApi:
+
+        mov     eax, 0               ; VxdApiWorker won't trash input buffer
+        push    eax
+        mov     eax, [esi.cbInBuffer]
+        push    eax
+        mov     eax, [esi.lpvInBuffer]
+        push    eax
+        mov     eax, [esi.cbOutBuffer]
+        push    eax
+        mov     eax, [esi.lpvOutBuffer]
+        push    eax
+        mov     eax, [esi.dwIoControlCode]
+        push    eax
+
+        call    _VxdApiWorker
+	add	esp, 24
+
+
+;;;  Unlock the in-buffer.
+
+	push	eax            ; save the return code from VxdApiWorker
+	cCall	__VxdUnlockBuffer, <[esi.lpvInBuffer], [esi.cbInBuffer]>
+	pop		eax
+
+;;;  Unlock the out-buffer.
+
+	push	eax            ; save the return code from VxdApiWorker
+	cCall	__VxdUnlockBuffer, <[esi.lpvOutBuffer], [esi.cbOutBuffer]>
+	pop		eax
+
+vdic_CommonExit:
+
+	pop		edi
+	pop		esi
+	pop		ebx
+
+	ret
+
+;;;
+;;;  Failed to lock parameter structure.
+;;;
+
+vdic_LockFailure:
+
+	Debug_Out "VNBT_DeviceIoControl: cannot lock parameters"
+
+	mov		eax, 1784				; ERROR_INVALID_USER_BUFFER
+	jmp		vdic_CommonExit
+
+EndProc			VNBT_DeviceIoControl
+
+;*******************************************************************
+;**     _ReconfigureDevnode
+;
+;       This routine schedules an AppyTime call for the ConfigMgr to
+;       call us back when it's ready.  It calls our routine VNBT_ConfigCalls
+;
+;       Entry:  ESP+4 our devnode on the stack
+;
+;       Exit:   (EAX) - 0 if everything goes well
+;                       1 if something goes wrong
+;
+;   HISTORY:
+;       Koti    15-Dec-1994  Created
+;
+;********************************************************************
+
+BeginProc  _ReconfigureDevnode
+
+        push   ebp
+        mov    ebp, esp
+
+        xor    eax, eax
+        push   eax                     ; the flags
+        mov    eax, [ebp+8]            ; our devnode
+        push   eax                     ; this is our RefData
+        lea    eax, VNBT_ConfigCalls   ; call back routine
+        push   eax
+        VxdCall _CONFIGMG_Call_At_Appy_Time
+        add    esp, 12
+        cmp    eax, CR_SUCCESS
+        je     ReconfigureDevnode_PASS
+        mov    eax, 1
+        jmp    ReconfigureDevnode_Exit
+
+ReconfigureDevnode_PASS:
+        xor    eax, eax
+
+ReconfigureDevnode_Exit:
+IFDEF DBG
+        or     eax, eax
+        jz     ReconfigureDevnode_GoodJob
+        int    3
+ReconfigureDevnode_GoodJob:
+ENDIF
+        pop    ebp
+        ret
+EndProc  _ReconfigureDevnode
+
+VxD_CODE_ENDS
+
+NBT_PAGEABLE_CODE_SEG
+
+;*******************************************************************
+;**     VNBT_ConfigCalls
+;
+;       This routine makes all the calls to the Config Mgr so that our
+;       devnode is reconfigured.  We first get vredir's devnode, kill it
+;       and then reenumerate all the children again.  This way vredir
+;       gets the msg from ConfigMgr to do whatever it does with a new devnode.
+;
+;       If dhcp lease expires and then comes back in, vredir had no way
+;       of knowing that lana is usable again: hence this convoluted way.
+;
+;       IMPORTANT: if chicago ever changes to add more children to tcp's
+;                  devnode, this function needs to be modified to enumerate
+;                  rest of the children and kill them!
+;
+;       Entry:  (EDX) - our devnode
+;
+;       Exit:   (EAX) - 0 if everything goes well
+;                       1 if something goes wrong
+;
+;   HISTORY:
+;       Koti    15-Dec-1994  Created
+;
+;********************************************************************
+
+VnbtScratch    dd  0
+
+BeginProc  VNBT_ConfigCalls
+
+        push   ebp
+        mov    ebp, esp
+        push   esi
+        push   edi
+        push   ecx
+
+          ;;; First get the first child
+        xor    eax, eax
+        push   eax                 ; the flags
+        mov    eax, [ebp+8]
+        push   eax                 ; our devnode
+        lea    eax, VnbtScratch    ; this is where we will receive child node
+        push   eax
+        VxdCall _CONFIGMG_Get_Child
+        add    esp, 12
+        mov    esi, dword ptr [VnbtScratch]   ;save the first child in esi
+        mov    edi, 0                         ; for now, make esi,edi different
+        cmp    eax, CR_SUCCESS
+        je     ConfigCalls_Label2
+        mov    ecx, 1
+        jmp    ConfigCalls_Exit
+
+          ;;; Get a sibling of this child
+ConfigCalls_Label2:
+        cmp    edi, esi                 ; did we just kill the first child
+        je     ConfigCalls_Label6       ; yes: we are done with all the killings
+        xor    eax, eax
+        push   eax                      ; the flags
+        push   esi                      ; the first child
+        lea    eax, VnbtScratch         ; this is where we will receive sibling
+        push   eax
+        VxdCall _CONFIGMG_Get_Sibling
+        add    esp, 12
+        mov    edi, dword ptr [VnbtScratch]   ;edi contains sibling
+        cmp    eax, CR_SUCCESS          ; found a sibling?
+        je     ConfigCalls_Label4       ; yes, go kill it
+        cmp    eax, CR_NO_SUCH_DEVNODE  ; done with all siblings?
+        je     ConfigCalls_Label3       ; yes, go kill the first child
+        mov    ecx, 2                   ; hmmm: something went wrong
+        jmp    ConfigCalls_Exit
+
+          ;;; Done with all the siblings: now kill the first child
+ConfigCalls_Label3:
+        mov    edi, esi                 ; esi=first child, edi=child to kill
+
+ConfigCalls_Label4:
+          ;;; Now, ask ConfigMgr if it's ok to kill our child
+        xor    eax, eax
+        push   eax                      ; the flags
+        push   edi                      ; sibling's devnode
+        VxdCall _CONFIGMG_Query_Remove_SubTree
+        add    esp, 8
+        cmp    eax, CR_SUCCESS          ; ok to kill?
+        je     ConfigCalls_Label5       ; nope!
+        mov    ecx, 4
+        jmp    ConfigCalls_Exit
+
+ConfigCalls_Label5:
+          ;;; Now that ConfigMgr approved, kill the child
+        xor    eax, eax
+        push   eax                      ; the flags
+        push   edi                      ; sibling's devnode
+        VxdCall _CONFIGMG_Remove_SubTree
+        add    esp, 8
+        cmp    eax, CR_SUCCESS          ; did it die?
+        je     ConfigCalls_Label2       ; yes, it did: go kill other siblings
+        mov    ecx, 5                   ; nope!
+        jmp    ConfigCalls_Exit
+
+ConfigCalls_Label6:
+          ;;; Ok, reenumerate our devnode so our children come back to life
+        xor    eax, eax
+        push   eax                               ; the flags
+        mov    eax, [ebp+8]
+        push   eax                               ; our devnode
+        VxdCall _CONFIGMG_Reenumerate_DevNode
+        add    esp, 8
+        cmp    eax, CR_SUCCESS                   ; did it die?
+        je     ConfigCalls_Label7                ; nope!
+        mov    ecx, 6
+        jmp    ConfigCalls_Exit
+
+ConfigCalls_Label7:
+        xor    eax, eax
+
+ConfigCalls_Exit:
+IFDEF DBG
+        or     eax, eax
+        jz     ConfigCalls_GoodJob
+        int    3
+ConfigCalls_GoodJob:
+ENDIF
+        pop    ecx
+        pop    edi
+        pop    esi
+        pop    ebp
+        ret
+EndProc			VNBT_ConfigCalls
+
+ENDIF
+
+NBT_PAGEABLE_CODE_ENDS
+
+VxD_CODE_SEG
 
 ;****************************************************************************
 ;**     _GetInDosFlag - Retrieves the InDos flag
@@ -485,7 +861,7 @@ BeginProc VNBT_Api_Handler
         movzx	eax, [ebp.Client_ES]
         push	eax
         push	ebx
-        call	_VxdMapSegmentOffsetToFlat
+        call	__VxdMapSegmentOffsetToFlat
         add	esp, 12
 
         cmp	eax, 0FFFFFFFFh
@@ -499,7 +875,7 @@ BeginProc VNBT_Api_Handler
         jz	vnbt_DontLock_OutBuf
 
         movzx	ecx, [ebp.Client_DI]
-        cCall	_VxdLockBuffer, <eax, ecx>
+        cCall	__VxdLockBuffer, <eax, ecx>
 
         or	eax, eax
         jz	vnbt_Fault
@@ -515,7 +891,7 @@ vnbt_DontLock_OutBuf:
         movzx	eax, [ebp.Client_DX]
         push	eax
         push	ebx
-        call	_VxdMapSegmentOffsetToFlat
+        call	__VxdMapSegmentOffsetToFlat
         add	esp, 12
 
         cmp	eax, 0FFFFFFFFh
@@ -525,7 +901,7 @@ vnbt_DontLock_OutBuf:
         jz	vnbt_DontLock
 
         movzx	ebx, [ebp.Client_SI]
-        cCall	_VxdLockBuffer, <eax, ebx>
+        cCall	__VxdLockBuffer, <eax, ebx>     ; this preserves esi
 
         or	eax, eax
         jz	vnbt_Fault
@@ -542,9 +918,14 @@ vnbt_DontLock:
 ;;;     ebx - InBuffer length
 
 ;
-; RLF 05/30/94 - _VxdLockBuffer destroys contents of cx - reload
+; RLF 05/30/94 - __VxdLockBuffer destroys contents of cx - reload
 ;
 
+        push    esi                  ; save OutBuffer addr
+        push    edx                  ; save InBuffer addr
+
+        mov     eax, 1               ; VxdApiWorker will trash input buffer
+        push    eax
         movzx	ecx, [ebp.Client_DI]
         movzx	ebx, [ebp.Client_SI]
         push    ebx
@@ -554,7 +935,10 @@ vnbt_DontLock:
         push    edi
 
         call    _VxdApiWorker
-	add	esp, 20
+	add	esp, 24
+
+        pop     edx                  ; restore InBuffer addr
+        pop     esi                  ; restore OutBuffer addr
 
         mov	[ebp.Client_AX], ax
 
@@ -565,16 +949,17 @@ vnbt_DontLock:
         or	esi, esi
         jz	vnbt_DontUnLock_OutBuf
 
+        push    edx                  ; save InBuffer addr
         movzx	ecx, [ebp.Client_DI]
-        cCall	_VxdUnlockBuffer <esi, ecx>
-
+        cCall	__VxdUnlockBuffer <esi, ecx>
+        pop     edx                  ; restore InBuffer addr
 vnbt_DontUnLock_OutBuf:
 
         or	edx, edx
         jz	vnbt_DontUnLock
 
         movzx	ebx, [ebp.Client_SI]
-        cCall	_VxdUnlockBuffer <edx, ebx>
+        cCall	__VxdUnlockBuffer <edx, ebx>
 
 vnbt_DontUnLock:
 

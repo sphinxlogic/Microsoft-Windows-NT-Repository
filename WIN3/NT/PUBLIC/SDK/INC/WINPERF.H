@@ -1,6 +1,6 @@
 /*++
 
-Copyright (c) 1993 Microsoft Corporation
+Copyright (C) 1993-1996 Microsoft Corporation
 
 Module Name:
 
@@ -146,7 +146,7 @@ typedef struct _PERF_OBJECT_TYPE {
                                         // the instance names
     LARGE_INTEGER   PerfTime;           // Sample Time in "Object" units
                                         //
-    LARGE_INTEGER   PerfFreq;           // Frequency of "Object" units in 
+    LARGE_INTEGER   PerfFreq;           // Frequency of "Object" units in
                                         // counts per second.
 } PERF_OBJECT_TYPE, *PPERF_OBJECT_TYPE;
 
@@ -184,7 +184,7 @@ typedef struct _PERF_OBJECT_TYPE {
 #define PERF_TYPE_TEXT          0x00000800  // a text field
 #define PERF_TYPE_ZERO          0x00000C00  // displays a zero
 //
-//  If the PERF_TYPE_NUMBER field was selected, then select one of the 
+//  If the PERF_TYPE_NUMBER field was selected, then select one of the
 //  following to describe the Number
 //
 #define PERF_NUMBER_HEX         0x00000000  // display as HEX value
@@ -198,11 +198,11 @@ typedef struct _PERF_OBJECT_TYPE {
 #define PERF_COUNTER_RATE       0x00010000  // divide ctr / delta time
 #define PERF_COUNTER_FRACTION   0x00020000  // divide ctr / base
 #define PERF_COUNTER_BASE       0x00030000  // base value used in fractions
-#define PERF_COUNTER_ELAPSED    0x00040000  // subtract counter from current time 
+#define PERF_COUNTER_ELAPSED    0x00040000  // subtract counter from current time
 #define PERF_COUNTER_QUEUELEN   0x00050000  // Use Queuelen processing func.
 #define PERF_COUNTER_HISTOGRAM  0x00060000  // Counter begins or ends a histogram
 //
-//  If the PERF_TYPE_TEXT value was selected, then select one of the 
+//  If the PERF_TYPE_TEXT value was selected, then select one of the
 //  following to indicate the type of TEXT data.
 //
 #define PERF_TEXT_UNICODE       0x00000000  // type of text in text field
@@ -214,7 +214,7 @@ typedef struct _PERF_OBJECT_TYPE {
 #define PERF_TIMER_100NS        0x00100000  // use 100 NS timer time base units
 #define PERF_OBJECT_TIMER       0x00200000  // use the object timer freq
 //
-//  Any types that have calculations performed can use one or more of 
+//  Any types that have calculations performed can use one or more of
 //  the following calculation modification flags listed here
 //
 #define PERF_DELTA_COUNTER      0x00400000  // compute difference first
@@ -230,15 +230,15 @@ typedef struct _PERF_OBJECT_TYPE {
 #define PERF_DISPLAY_SECONDS    0x30000000  // "secs"
 #define PERF_DISPLAY_NOSHOW     0x40000000  // value is not displayed
 //
-//  Predefined counter types 
+//  Predefined counter types
 //
 
 // 32-bit Counter.  Divide delta by delta time.  Display suffix: "/sec"
 #define PERF_COUNTER_COUNTER        \
             (PERF_SIZE_DWORD | PERF_TYPE_COUNTER | PERF_COUNTER_RATE |\
             PERF_TIMER_TICK | PERF_DELTA_COUNTER | PERF_DISPLAY_PER_SEC)
-                     
-                                                       
+
+
 // 64-bit Timer.  Divide delta by delta time.  Display suffix: "%"
 #define PERF_COUNTER_TIMER          \
             (PERF_SIZE_LARGE | PERF_TYPE_COUNTER | PERF_COUNTER_RATE |\
@@ -247,6 +247,11 @@ typedef struct _PERF_OBJECT_TYPE {
 // Queue Length Space-Time Product. Divide delta by delta time. No Display Suffix.
 #define PERF_COUNTER_QUEUELEN_TYPE  \
             (PERF_SIZE_DWORD | PERF_TYPE_COUNTER | PERF_COUNTER_QUEUELEN |\
+            PERF_TIMER_TICK | PERF_DELTA_COUNTER | PERF_DISPLAY_NO_SUFFIX)
+
+// Queue Length Space-Time Product. Divide delta by delta time. No Display Suffix.
+#define PERF_COUNTER_LARGE_QUEUELEN_TYPE  \
+            (PERF_SIZE_LARGE | PERF_TYPE_COUNTER | PERF_COUNTER_QUEUELEN |\
             PERF_TIMER_TICK | PERF_DELTA_COUNTER | PERF_DISPLAY_NO_SUFFIX)
 
 // 64-bit Counter.  Divide delta by delta time. Display Suffix: "/sec"
@@ -354,14 +359,14 @@ typedef struct _PERF_OBJECT_TYPE {
             (PERF_SIZE_LARGE | PERF_TYPE_COUNTER | PERF_COUNTER_RATE |\
             PERF_TIMER_100NS | PERF_DELTA_COUNTER | PERF_INVERSE_COUNTER  |\
             PERF_DISPLAY_PERCENT)
-     
+
 // 64-bit Timer.  Divide delta by delta time.  Display suffix: "%"
 // Timer for multiple instances, so result can exceed 100%.
 #define PERF_COUNTER_MULTI_TIMER    \
             (PERF_SIZE_LARGE | PERF_TYPE_COUNTER | PERF_COUNTER_RATE |\
             PERF_DELTA_COUNTER | PERF_TIMER_TICK | PERF_MULTI_COUNTER |\
             PERF_DISPLAY_PERCENT)
-  
+
 // 64-bit Timer inverse (e.g., idle is measured, but display busy %)
 // Display 100 * _MULTI_BASE - delta divided by delta time.
 // Display suffix: "%" Timer for multiple instances, so result
@@ -370,20 +375,20 @@ typedef struct _PERF_OBJECT_TYPE {
             (PERF_SIZE_LARGE | PERF_TYPE_COUNTER | PERF_COUNTER_RATE |\
             PERF_DELTA_COUNTER | PERF_MULTI_COUNTER | PERF_TIMER_TICK |\
             PERF_INVERSE_COUNTER | PERF_DISPLAY_PERCENT)
-    
+
 // Number of instances to which the preceding _MULTI_..._INV counter
 // applies.  Used as a factor to get the percentage.
 #define PERF_COUNTER_MULTI_BASE     \
             (PERF_SIZE_LARGE | PERF_TYPE_COUNTER | PERF_COUNTER_BASE |\
             PERF_MULTI_COUNTER | PERF_DISPLAY_NOSHOW)
 
-// 64-bit Timer in 100 nsec units. Display delta divided by delta time.  
+// 64-bit Timer in 100 nsec units. Display delta divided by delta time.
 // Display suffix: "%" Timer for multiple instances, so result can exceed 100%.
 #define PERF_100NSEC_MULTI_TIMER   \
             (PERF_SIZE_LARGE | PERF_TYPE_COUNTER | PERF_DELTA_COUNTER  |\
             PERF_COUNTER_RATE | PERF_TIMER_100NS | PERF_MULTI_COUNTER |\
             PERF_DISPLAY_PERCENT)
-            
+
 // 64-bit Timer inverse (e.g., idle is measured, but display busy %)
 // Display 100 * _MULTI_BASE - delta divided by delta time.
 // Display suffix: "%" Timer for multiple instances, so result
@@ -392,14 +397,14 @@ typedef struct _PERF_OBJECT_TYPE {
             (PERF_SIZE_LARGE | PERF_TYPE_COUNTER | PERF_DELTA_COUNTER  |\
             PERF_COUNTER_RATE | PERF_TIMER_100NS | PERF_MULTI_COUNTER |\
             PERF_INVERSE_COUNTER | PERF_DISPLAY_PERCENT)
-            
-// Indicates the data is a fraction of the following counter  which 
-// should not be time averaged on display (such as free space over 
+
+// Indicates the data is a fraction of the following counter  which
+// should not be time averaged on display (such as free space over
 // total space.) Display as is.  Display the quotient as "%".
 #define PERF_RAW_FRACTION           \
             (PERF_SIZE_DWORD | PERF_TYPE_COUNTER | PERF_COUNTER_FRACTION |\
             PERF_DISPLAY_PERCENT)
-                                    
+
 // Indicates the data is a base for the preceding counter which should
 // not be time averaged on display (such as free space over total space.)
 #define PERF_RAW_BASE               \
@@ -408,10 +413,10 @@ typedef struct _PERF_OBJECT_TYPE {
             0x00000003)  // for compatibility with pre-beta versions
 
 // The data collected in this counter is actually the start time of the
-// item being measured. For display, this data is subtracted from the 
+// item being measured. For display, this data is subtracted from the
 // sample time to yield the elapsed time as the difference between the two.
 // In the definition below, the PerfTime field of the Object contains
-// the sample time as indicated by the PERF_OBJECT_TIMER bit and the 
+// the sample time as indicated by the PERF_OBJECT_TIMER bit and the
 // difference is scaled by the PerfFreq of the Object to convert the time
 // units into seconds.
 #define PERF_ELAPSED_TIME           \
@@ -424,7 +429,21 @@ typedef struct _PERF_OBJECT_TYPE {
 
 #define PERF_COUNTER_HISTOGRAM_TYPE   0x80000000
                                         // Counter begins or ends a histogram
+//
+//  This counter is used to display the difference from one sample
+//  to the next. The counter value is a constantly increasing number
+//  and the value displayed is the difference between the current
+//  value and the previous value. Negative numbers are not allowed
+//  which shouldn't be a problem as long as the counter value is
+//  increasing or unchanged.
+//
+#define PERF_COUNTER_DELTA      \
+            (PERF_SIZE_DWORD | PERF_TYPE_COUNTER | PERF_COUNTER_VALUE |\
+            PERF_DELTA_COUNTER | PERF_DISPLAY_NO_SUFFIX)
 
+#define PERF_COUNTER_LARGE_DELTA      \
+            (PERF_SIZE_LARGE | PERF_TYPE_COUNTER | PERF_COUNTER_VALUE |\
+            PERF_DELTA_COUNTER | PERF_DISPLAY_NO_SUFFIX)
 //
 //  The following are used to determine the level of detail associated
 //  with the counter.  The user will be setting the level of detail
@@ -435,7 +454,6 @@ typedef struct _PERF_OBJECT_TYPE {
 #define PERF_DETAIL_ADVANCED        200 // For the advanced user
 #define PERF_DETAIL_EXPERT          300 // For the expert user
 #define PERF_DETAIL_WIZARD          400 // For the system designer
-
 
 //
 //  There is one of the following for each of the
@@ -502,7 +520,11 @@ typedef struct _PERF_INSTANCE_DEFINITION {
                                         // this struct to the Unicode name
                                         // of this instance
     DWORD           NameLength;         // Length in bytes of name; 0 = none
-
+                                        // this length includes the characters
+                                        // in the string plus the size of the
+                                        // terminating NULL char. It does not
+                                        // include any additional pad bytes to
+                                        // correct structure alignment
 } PERF_INSTANCE_DEFINITION, *PPERF_INSTANCE_DEFINITION;
 //
 //  If .ParentObjectName is 0, there
@@ -537,4 +559,3 @@ typedef DWORD (APIENTRY PM_CLOSE_PROC) (void);
 #endif // _WINPERF_
 
 
-

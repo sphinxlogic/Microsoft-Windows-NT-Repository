@@ -29,6 +29,13 @@ Revision History:
 
 #define Dbg                              (DEBUG_TRACE_DIRCTRL)
 
+//
+//  Define a tag for general pool allocations from this module
+//
+
+#undef MODULE_POOL_TAG
+#define MODULE_POOL_TAG                  ('dFtN')
+
 NTSTATUS
 NtfsQueryDirectory (
     IN PIRP_CONTEXT IrpContext,
@@ -87,12 +94,13 @@ Return Value:
     NTSTATUS Status = STATUS_SUCCESS;
     PIRP_CONTEXT IrpContext = NULL;
 
-    UNREFERENCED_PARAMETER( VolumeDeviceObject );
     ASSERT_IRP( Irp );
+
+    UNREFERENCED_PARAMETER( VolumeDeviceObject );
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsFsdDirectoryControl\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsFsdDirectoryControl\n") );
 
     //
     //  Call the common Directory Control routine
@@ -152,7 +160,7 @@ Return Value:
     //  And return to our caller
     //
 
-    DebugTrace(-1, Dbg, "NtfsFsdDirectoryControl -> %08lx\n", Status);
+    DebugTrace( -1, Dbg, ("NtfsFsdDirectoryControl -> %08lx\n", Status) );
 
     return Status;
 }
@@ -203,9 +211,9 @@ Return Value:
 
     IrpSp = IoGetCurrentIrpStackLocation( Irp );
 
-    DebugTrace(+1, Dbg, "NtfsCommonDirectoryControl\n", 0);
-    DebugTrace( 0, Dbg, "IrpContext = %08lx\n", IrpContext);
-    DebugTrace( 0, Dbg, "Irp        = %08lx\n", Irp);
+    DebugTrace( +1, Dbg, ("NtfsCommonDirectoryControl\n") );
+    DebugTrace( 0, Dbg, ("IrpContext = %08lx\n", IrpContext) );
+    DebugTrace( 0, Dbg, ("Irp        = %08lx\n", Irp) );
 
     //
     //  Extract and decode the file object
@@ -218,12 +226,11 @@ Return Value:
     //  The only type of opens we accept are user directory opens
     //
 
-    if ((TypeOfOpen != UserDirectoryOpen)
-        && (TypeOfOpen != UserOpenDirectoryById)) {
+    if (TypeOfOpen != UserDirectoryOpen) {
 
         NtfsCompleteRequest( &IrpContext, &Irp, STATUS_INVALID_PARAMETER );
 
-        DebugTrace(-1, Dbg, "NtfsCommonDirectoryControl -> STATUS_INVALID_PARAMETER\n", 0);
+        DebugTrace( -1, Dbg, ("NtfsCommonDirectoryControl -> STATUS_INVALID_PARAMETER\n") );
         return STATUS_INVALID_PARAMETER;
     }
 
@@ -247,12 +254,12 @@ Return Value:
         //  closed his handle.
         //
 
-        if (TypeOfOpen == UserOpenDirectoryById
-            || FlagOn( FileObject->Flags, FO_CLEANUP_COMPLETE )) {
+        if (FlagOn( Ccb->Flags, CCB_FLAG_OPEN_BY_FILE_ID ) ||
+            FlagOn( FileObject->Flags, FO_CLEANUP_COMPLETE )) {
 
             NtfsCompleteRequest( &IrpContext, &Irp, STATUS_INVALID_PARAMETER );
 
-            DebugTrace(-1, Dbg, "NtfsCommonDirectoryControl -> STATUS_INVALID_PARAMETER\n", 0);
+            DebugTrace( -1, Dbg, ("NtfsCommonDirectoryControl -> STATUS_INVALID_PARAMETER\n") );
             return STATUS_INVALID_PARAMETER;
         }
 
@@ -261,7 +268,7 @@ Return Value:
 
     default:
 
-        DebugTrace(0, Dbg, "Invalid Minor Function %08lx\n", IrpSp->MinorFunction);
+        DebugTrace( 0, Dbg, ("Invalid Minor Function %08lx\n", IrpSp->MinorFunction) );
 
         NtfsCompleteRequest( &IrpContext, &Irp, STATUS_INVALID_DEVICE_REQUEST );
 
@@ -273,7 +280,7 @@ Return Value:
     //  And return to our caller
     //
 
-    DebugTrace(-1, Dbg, "NtfsCommonDirectoryControl -> %08lx\n", Status);
+    DebugTrace( -1, Dbg, ("NtfsCommonDirectoryControl -> %08lx\n", Status) );
 
     return Status;
 }
@@ -322,6 +329,8 @@ Return Value:
     PUCHAR Buffer;
     CLONG UserBufferLength;
 
+    ULONG BaseLength;
+
     PUNICODE_STRING UniFileName;
     FILE_INFORMATION_CLASS FileInformationClass;
     ULONG FileIndex;
@@ -353,6 +362,10 @@ Return Value:
 
     INDEX_CONTEXT OtherContext;
 
+    PFCB AcquiredFcb = NULL;
+
+    BOOLEAN VcbAcquired = FALSE;
+
     BOOLEAN ScbAcquired = FALSE;
     BOOLEAN FirstQuery = FALSE;
 
@@ -370,20 +383,20 @@ Return Value:
 
     IrpSp = IoGetCurrentIrpStackLocation( Irp );
 
-    DebugTrace(+1, Dbg, "NtfsQueryDirectory...\n", 0);
-    DebugTrace( 0, Dbg, "IrpContext = %08lx\n", IrpContext);
-    DebugTrace( 0, Dbg, "Irp        = %08lx\n", Irp);
-    DebugTrace( 0, Dbg, " ->Length               = %08lx\n", IrpSp->Parameters.QueryDirectory.Length);
-    DebugTrace( 0, Dbg, " ->FileName             = %08lx\n", IrpSp->Parameters.QueryDirectory.FileName);
-    DebugTrace( 0, Dbg, " ->FileInformationClass = %08lx\n", IrpSp->Parameters.QueryDirectory.FileInformationClass);
-    DebugTrace( 0, Dbg, " ->FileIndex            = %08lx\n", IrpSp->Parameters.QueryDirectory.FileIndex);
-    DebugTrace( 0, Dbg, " ->SystemBuffer         = %08lx\n", Irp->AssociatedIrp.SystemBuffer);
-    DebugTrace( 0, Dbg, " ->RestartScan          = %08lx\n", FlagOn(IrpSp->Flags, SL_RESTART_SCAN));
-    DebugTrace( 0, Dbg, " ->ReturnSingleEntry    = %08lx\n", FlagOn(IrpSp->Flags, SL_RETURN_SINGLE_ENTRY));
-    DebugTrace( 0, Dbg, " ->IndexSpecified       = %08lx\n", FlagOn(IrpSp->Flags, SL_INDEX_SPECIFIED));
-    DebugTrace( 0, Dbg, "Vcb        = %08lx\n", Vcb);
-    DebugTrace( 0, Dbg, "Scb        = %08lx\n", Scb);
-    DebugTrace( 0, Dbg, "Ccb        = %08lx\n", Ccb);
+    DebugTrace( +1, Dbg, ("NtfsQueryDirectory...\n") );
+    DebugTrace( 0, Dbg, ("IrpContext = %08lx\n", IrpContext) );
+    DebugTrace( 0, Dbg, ("Irp        = %08lx\n", Irp) );
+    DebugTrace( 0, Dbg, (" ->Length               = %08lx\n", IrpSp->Parameters.QueryDirectory.Length) );
+    DebugTrace( 0, Dbg, (" ->FileName             = %08lx\n", IrpSp->Parameters.QueryDirectory.FileName) );
+    DebugTrace( 0, Dbg, (" ->FileInformationClass = %08lx\n", IrpSp->Parameters.QueryDirectory.FileInformationClass) );
+    DebugTrace( 0, Dbg, (" ->FileIndex            = %08lx\n", IrpSp->Parameters.QueryDirectory.FileIndex) );
+    DebugTrace( 0, Dbg, (" ->SystemBuffer         = %08lx\n", Irp->AssociatedIrp.SystemBuffer) );
+    DebugTrace( 0, Dbg, (" ->RestartScan          = %08lx\n", FlagOn(IrpSp->Flags, SL_RESTART_SCAN)) );
+    DebugTrace( 0, Dbg, (" ->ReturnSingleEntry    = %08lx\n", FlagOn(IrpSp->Flags, SL_RETURN_SINGLE_ENTRY)) );
+    DebugTrace( 0, Dbg, (" ->IndexSpecified       = %08lx\n", FlagOn(IrpSp->Flags, SL_INDEX_SPECIFIED)) );
+    DebugTrace( 0, Dbg, ("Vcb        = %08lx\n", Vcb) );
+    DebugTrace( 0, Dbg, ("Scb        = %08lx\n", Scb) );
+    DebugTrace( 0, Dbg, ("Ccb        = %08lx\n", Ccb) );
 
     //
     //  Because we probably need to do the I/O anyway we'll reject any request
@@ -393,11 +406,11 @@ Return Value:
 
     if (!FlagOn(IrpContext->Flags, IRP_CONTEXT_FLAG_WAIT)) {
 
-        DebugTrace(0, Dbg, "Automatically enqueue Irp to Fsp\n", 0);
+        DebugTrace( 0, Dbg, ("Automatically enqueue Irp to Fsp\n") );
 
         Status = NtfsPostRequest( IrpContext, Irp );
 
-        DebugTrace(-1, Dbg, "NtfsQueryDirectory -> %08lx\n", Status);
+        DebugTrace( -1, Dbg, ("NtfsQueryDirectory -> %08lx\n", Status) );
         return Status;
     }
 
@@ -421,16 +434,52 @@ Return Value:
     IndexSpecified    = BooleanFlagOn(IrpSp->Flags, SL_INDEX_SPECIFIED);
 
     //
-    //  We have to create a File Name string for querying if there is either
-    //  one specified in this request, or we do not already have a value
-    //  in the Ccb.
+    //  Determine the size of the constant part of the structure.
     //
 
-    if ((IrpSp->Parameters.QueryDirectory.FileName != NULL)
+    switch (FileInformationClass) {
 
-            ||
+    case FileDirectoryInformation:
 
-        (Ccb->QueryBuffer == NULL)) {
+        BaseLength = FIELD_OFFSET( FILE_DIRECTORY_INFORMATION,
+                                   FileName[0] );
+        break;
+
+    case FileFullDirectoryInformation:
+
+        BaseLength = FIELD_OFFSET( FILE_FULL_DIR_INFORMATION,
+                                   FileName[0] );
+        break;
+
+    case FileNamesInformation:
+
+        BaseLength = FIELD_OFFSET( FILE_NAMES_INFORMATION,
+                                   FileName[0] );
+        break;
+
+    case FileBothDirectoryInformation:
+
+        BaseLength = FIELD_OFFSET( FILE_BOTH_DIR_INFORMATION,
+                                   FileName[0] );
+        break;
+
+    default:
+
+        Status = STATUS_INVALID_INFO_CLASS;
+        NtfsCompleteRequest( &IrpContext, &Irp, Status );
+        DebugTrace( -1, Dbg, ("NtfsQueryDirectory -> %08lx\n", Status) );
+        return Status;
+    }
+
+    //
+    //  We have to create a File Name string for querying if there is either
+    //  one specified in this request, or we do not already have a value
+    //  in the Ccb.  If we already have one then we will ignore the input
+    //  name in this case unless the INDEX_SPECIFIED bit is set.
+    //
+
+    if ((Ccb->QueryBuffer == NULL) ||
+        ((IrpSp->Parameters.QueryDirectory.FileName != NULL) && IndexSpecified)) {
 
         //
         //  Now, if the input string is NULL, we have to create the default
@@ -440,7 +489,7 @@ Return Value:
         if (IrpSp->Parameters.QueryDirectory.FileName == NULL) {
 
             FileNameLength = SizeOfFileName + sizeof(WCHAR);
-            FileNameBuffer = FsRtlAllocatePool( NonPagedPool, FileNameLength );
+            FileNameBuffer = NtfsAllocatePool(PagedPool, FileNameLength );
 
             //
             //  Initialize it.
@@ -462,7 +511,7 @@ Return Value:
 
             UniFileName = (PUNICODE_STRING) IrpSp->Parameters.QueryDirectory.FileName;
 
-            if (!NtfsIsFileNameValid(IrpContext, UniFileName, TRUE)) {
+            if (!NtfsIsFileNameValid(UniFileName, TRUE)) {
 
                 if (Ccb->QueryBuffer == NULL
                     || UniFileName->Length > 4
@@ -473,7 +522,7 @@ Return Value:
 
                     Status = STATUS_OBJECT_NAME_INVALID;
 
-                    DebugTrace(-1, Dbg, "NtfsQueryDirectory -> %08lx\n", Status);
+                    DebugTrace( -1, Dbg, ("NtfsQueryDirectory -> %08lx\n", Status) );
 
                     NtfsCompleteRequest( &IrpContext, &Irp, Status );
 
@@ -483,9 +532,7 @@ Return Value:
 
             FileNameLength = (USHORT)IrpSp->Parameters.QueryDirectory.FileName->Length;
 
-            FileNameBuffer = (PFILE_NAME)FsRtlAllocatePool( NonPagedPool,
-                                                            SizeOfFileName +
-                                                              FileNameLength );
+            FileNameBuffer = NtfsAllocatePool(PagedPool, SizeOfFileName + FileNameLength );
 
             RtlCopyMemory( FileNameBuffer->FileName,
                            UniFileName->Buffer,
@@ -524,7 +571,7 @@ Return Value:
             UNICODE_STRING Expression;
 
             Ccb->QueryBuffer = (PVOID)FileNameBuffer;
-            Ccb->QueryLength = FileNameLength;
+            Ccb->QueryLength = (USHORT)FileNameLength;
             FirstQuery = TRUE;
 
             //
@@ -546,9 +593,7 @@ Return Value:
             //
 
             if (Scb != Vcb->RootIndexScb) {
-
-                WCHAR Dot = L'.';
-                UNICODE_STRING DotString = {2, 2, &Dot};
+                static UNICODE_STRING DotString = CONSTANT_UNICODE_STRING( L"." );
 
                 if (FsRtlDoesNameContainWildCards(&Expression)) {
 
@@ -561,11 +606,7 @@ Return Value:
                         SetFlag( Ccb->Flags, CCB_FLAG_RETURN_DOT | CCB_FLAG_RETURN_DOTDOT );
                     }
                 } else {
-
-                    if (FsRtlAreNamesEqual( &Expression,
-                                            &DotString,
-                                            FALSE,
-                                            NULL )) {
+                    if (NtfsAreNamesEqual( Vcb->UpcaseTable, &Expression, &DotString, FALSE )) {
 
                         SetFlag( Ccb->Flags, CCB_FLAG_RETURN_DOT | CCB_FLAG_RETURN_DOTDOT );
                     }
@@ -585,12 +626,61 @@ Return Value:
 
     Irp->IoStatus.Information = 0;
 
-    NtfsInitializeIndexContext( IrpContext, &OtherContext );
+    NtfsInitializeIndexContext( &OtherContext );
 
     try {
 
-        ULONG BaseLength;
         ULONG BytesToCopy;
+
+        FCB_TABLE_ELEMENT Key;
+        PFCB_TABLE_ELEMENT Entry;
+
+        BOOLEAN MatchAll = FALSE;
+
+        //
+        //  See if we are supposed to try to acquire an Fcb on this
+        //  resume.
+        //
+
+        if (Ccb->FcbToAcquire.LongValue != 0) {
+
+            //
+            //  First we need to acquire the Vcb shared, since we will
+            //  acquire two Fcbs.
+            //
+
+            NtfsAcquireSharedVcb( IrpContext, Vcb, FALSE );
+            VcbAcquired = TRUE;
+
+            //
+            //  Now look up the Fcb, and if it is there, reference it
+            //  and remember it.
+            //
+
+            Key.FileReference = Ccb->FcbToAcquire.FileReference;
+            NtfsAcquireFcbTable( IrpContext, Vcb );
+            Entry = RtlLookupElementGenericTable( &Vcb->FcbTable, &Key );
+            if (Entry != NULL) {
+                AcquiredFcb = Entry->Fcb;
+                AcquiredFcb->ReferenceCount += 1;
+            }
+            NtfsReleaseFcbTable( IrpContext, Vcb );
+
+            //
+            //  Now that it cannot go anywhere, acquire it.
+            //
+
+            if (AcquiredFcb != NULL) {
+                NtfsAcquireSharedFcb( IrpContext, AcquiredFcb, NULL, TRUE );
+            }
+
+            //
+            //  Now that we actually acquired it, we may as well clear this
+            //  field.
+            //
+
+            Ccb->FcbToAcquire.LongValue = 0;
+        }
 
         //
         //  Acquire shared access to the Scb.
@@ -600,12 +690,21 @@ Return Value:
         ScbAcquired = TRUE;
 
         //
+        //  Now that we have both files acquired, we can free the Vcb.
+        //
+
+        if (VcbAcquired) {
+            NtfsReleaseVcb( IrpContext, Vcb );
+            VcbAcquired = FALSE;
+        }
+
+        //
         // If we are in the Fsp now because we had to wait earlier,
         // we must map the user buffer, otherwise we can use the
         // user's buffer directly.
         //
 
-        Buffer = NtfsMapUserBuffer( IrpContext, Irp );
+        Buffer = NtfsMapUserBuffer( Irp );
 
         //
         //  Check if this is the first call to query directory for this file
@@ -704,47 +803,26 @@ Return Value:
         NextEntry = 0;
 
         //
-        //  Determine the size of the constant part of the structure.
+        //  Remember if we are matching everything, by checking these to common
+        //  cases.
         //
 
-        switch (FileInformationClass) {
+        MatchAll = (FileNameBuffer->FileName[0] == L'*')
 
-        case FileDirectoryInformation:
+                    &&
 
-            BaseLength = FIELD_OFFSET( FILE_DIRECTORY_INFORMATION,
-                                       FileName[0] );
-            break;
+                   ((FileNameBuffer->FileNameLength == 1) ||
 
-        case FileFullDirectoryInformation:
-
-            BaseLength = FIELD_OFFSET( FILE_FULL_DIR_INFORMATION,
-                                       FileName[0] );
-            break;
-
-        case FileNamesInformation:
-
-            BaseLength = FIELD_OFFSET( FILE_NAMES_INFORMATION,
-                                       FileName[0] );
-            break;
-
-        case FileBothDirectoryInformation:
-
-            BaseLength = FIELD_OFFSET( FILE_BOTH_DIR_INFORMATION,
-                                       FileName[0] );
-            break;
-
-        default:
-
-            try_return( Status = STATUS_INVALID_INFO_CLASS );
-        }
+                    ((FileNameBuffer->FileNameLength == 3) &&
+                     (FileNameBuffer->FileName[1] == L'.') &&
+                     (FileNameBuffer->FileName[2] == L'*')));
 
         while (TRUE) {
 
             PINDEX_ENTRY IndexEntry;
-            UNICODE_STRING TempName;
-            PFILE_NAME NameInIndex;
+            PFILE_NAME NtfsFileName;
             PDUPLICATED_INFORMATION DupInfo;
-            PINDEX_ENTRY DosIndexEntry;
+            PFILE_NAME DosFileName;
 
             ULONG BytesRemainingInBuffer;
             ULONG FoundFileNameLength;
@@ -755,11 +833,13 @@ Return Value:
                 WCHAR LastChar;
             } DotDotName;
 
-            DebugTrace(0, Dbg, "Top of Loop\n", 0);
-            DebugTrace(0, Dbg, "LastEntry = %08lx\n", LastEntry);
-            DebugTrace(0, Dbg, "NextEntry = %08lx\n", NextEntry);
+            BOOLEAN SynchronizationError;
 
-            DosIndexEntry = NULL;
+            DebugTrace( 0, Dbg, ("Top of Loop\n") );
+            DebugTrace( 0, Dbg, ("LastEntry = %08lx\n", LastEntry) );
+            DebugTrace( 0, Dbg, ("NextEntry = %08lx\n", NextEntry) );
+
+            DosFileName = NULL;
 
             //
             //  Lookup the next index entry.  Check if we need to do the lookup
@@ -774,10 +854,10 @@ Return Value:
                                                         Ccb,
                                                         Scb,
                                                         (PVOID)FileNameBuffer,
-                                                        FileNameLength,
                                                         IgnoreCase,
                                                         NextFlag,
-                                                        &IndexEntry );
+                                                        &IndexEntry,
+                                                        AcquiredFcb );
 
                 CallRestart = FALSE;
 
@@ -811,10 +891,10 @@ Return Value:
             //
 
             RtlZeroMemory( &DotDotName, sizeof(DotDotName) );
-            NameInIndex = &DotDotName.FileName;
-            NameInIndex->Flags = FILE_NAME_NTFS | FILE_NAME_DOS;
-            NameInIndex->FileName[0] =
-            NameInIndex->FileName[1] = L'.';
+            NtfsFileName = &DotDotName.FileName;
+            NtfsFileName->Flags = FILE_NAME_NTFS | FILE_NAME_DOS;
+            NtfsFileName->FileName[0] =
+            NtfsFileName->FileName[1] = L'.';
             DupInfo = &Scb->Fcb->Info;
             NextFlag = FALSE;
 
@@ -850,8 +930,8 @@ Return Value:
 
                     FoundFileNameLength = IndexEntry->AttributeLength - SizeOfFileName;
 
-                    NameInIndex = (PFILE_NAME)(IndexEntry + 1);
-                    DupInfo = &NameInIndex->Info;
+                    NtfsFileName = (PFILE_NAME)(IndexEntry + 1);
+                    DupInfo = &NtfsFileName->Info;
                     NextFlag = TRUE;
                 }
             }
@@ -865,7 +945,7 @@ Return Value:
 
             if (!GotEntry) {
 
-                DebugTrace(0, Dbg, "GotEntry is FALSE\n", 0);
+                DebugTrace( 0, Dbg, ("GotEntry is FALSE\n") );
 
                 if (NextEntry == 0) {
 
@@ -891,16 +971,27 @@ Return Value:
             //  it and go get the Ntfs name.
             //
 
-            if (!FlagOn(NameInIndex->Flags, FILE_NAME_NTFS) &&
-                FlagOn(NameInIndex->Flags, FILE_NAME_DOS)) {
+            if (!FlagOn(NtfsFileName->Flags, FILE_NAME_NTFS) &&
+                FlagOn(NtfsFileName->Flags, FILE_NAME_DOS)) {
 
-                DosIndexEntry = IndexEntry;
+                //
+                //  If we are returning everything, then we can skip
+                //  the Dos-Only names and save some cycles.
+                //
 
-                IndexEntry = NtfsRetrieveOtherIndexEntry ( IrpContext,
-                                                           Ccb,
-                                                           Scb,
-                                                           DosIndexEntry,
-                                                           &OtherContext );
+                if (MatchAll) {
+                    continue;
+                }
+
+                DosFileName = NtfsFileName;
+
+                NtfsFileName = NtfsRetrieveOtherFileName( IrpContext,
+                                                          Ccb,
+                                                          Scb,
+                                                          IndexEntry,
+                                                          &OtherContext,
+                                                          AcquiredFcb,
+                                                          &SynchronizationError );
 
                 //
                 //  If we got an Ntfs name, then we need to list this entry now
@@ -909,38 +1000,38 @@ Return Value:
                 //  this name when we encounter it by the Ntfs name.
                 //
 
-                if (IndexEntry != NULL) {
+                if (NtfsFileName != NULL) {
 
                     if (FlagOn(Ccb->Flags, CCB_FLAG_WILDCARD_IN_EXPRESSION)) {
 
-
-                        if ((*NtfsIsInExpression[COLLATION_FILE_NAME])
-                                                 ( IrpContext,
-                                                   (PVOID)Ccb->QueryBuffer,
-                                                   Ccb->QueryLength,
-                                                   IndexEntry,
-                                                   IgnoreCase )) {
+                        if (NtfsFileNameIsInExpression( Vcb->UpcaseTable,
+                                                        (PFILE_NAME)Ccb->QueryBuffer,
+                                                        NtfsFileName,
+                                                        IgnoreCase )) {
 
                             continue;
                         }
 
                     } else {
 
-                        if ((*NtfsIsEqual[COLLATION_FILE_NAME])
-                                          ( IrpContext,
-                                            (PVOID)Ccb->QueryBuffer,
-                                            Ccb->QueryLength,
-                                            IndexEntry,
-                                            IgnoreCase )) {
+                        if (NtfsFileNameIsEqual( Vcb->UpcaseTable,
+                                                 (PFILE_NAME)Ccb->QueryBuffer,
+                                                 NtfsFileName,
+                                                 IgnoreCase )) {
 
                             continue;
                         }
                     }
 
-                    FoundFileNameLength = IndexEntry->AttributeLength - SizeOfFileName;
+                    FoundFileNameLength = NtfsFileName->FileNameLength * 2;
 
-                    NameInIndex = (PFILE_NAME)(IndexEntry + 1);
-                    DupInfo = &NameInIndex->Info;
+                } else if (SynchronizationError) {
+
+                    if (Irp->IoStatus.Information != 0) {
+                        try_return( Status = STATUS_SUCCESS );
+                    } else {
+                        NtfsRaiseStatus( IrpContext, STATUS_CANT_WAIT, NULL, NULL );
+                    }
 
                 } else {
 
@@ -970,7 +1061,7 @@ Return Value:
                  ( (BaseLength + FoundFileNameLength > BytesRemainingInBuffer) ||
                    (UserBufferLength < NextEntry) ) ) {
 
-                DebugTrace(0, Dbg, "Next entry won't fit\n", 0);
+                DebugTrace( 0, Dbg, ("Next entry won't fit\n") );
 
                 try_return( Status = STATUS_SUCCESS );
             }
@@ -994,44 +1085,47 @@ Return Value:
             case FileBothDirectoryInformation:
 
                 BothDirInfo = (PFILE_BOTH_DIR_INFORMATION)&Buffer[NextEntry];
-                TempName.Buffer = NameInIndex->FileName;
-                TempName.MaximumLength =
-                TempName.Length = (USHORT)FoundFileNameLength;
 
                 //
                 //  If this is not also a Dos name, and the Ntfs flag is set
                 //  (meaning there is a separate Dos name), then call the
-                //  routine to get the short name.
+                //  routine to get the short name, if we do not already have
+                //  it from above.
                 //
 
-                if (!FlagOn(NameInIndex->Flags, FILE_NAME_DOS) &&
-                    FlagOn(NameInIndex->Flags, FILE_NAME_NTFS) &&
-                    !NtfsIsDosNameInCurrentCodePage(&TempName)) {
+                if (!FlagOn(NtfsFileName->Flags, FILE_NAME_DOS) &&
+                    FlagOn(NtfsFileName->Flags, FILE_NAME_NTFS)) {
 
-                    PFILE_NAME DosFileName;
+                    if (DosFileName == NULL) {
 
-                    if (DosIndexEntry == NULL) {
-
-                        DosIndexEntry = NtfsRetrieveOtherIndexEntry ( IrpContext,
-                                                                      Ccb,
-                                                                      Scb,
-                                                                      IndexEntry,
-                                                                      &OtherContext );
+                        DosFileName = NtfsRetrieveOtherFileName( IrpContext,
+                                                                 Ccb,
+                                                                 Scb,
+                                                                 IndexEntry,
+                                                                 &OtherContext,
+                                                                 AcquiredFcb,
+                                                                 &SynchronizationError );
                     }
 
-                    if (DosIndexEntry != NULL) {
+                    if (DosFileName != NULL) {
 
-                        DosFileName = (PFILE_NAME)(DosIndexEntry + 1);
                         BothDirInfo->ShortNameLength = DosFileName->FileNameLength * 2;
                         RtlCopyMemory( BothDirInfo->ShortName,
                                        DosFileName->FileName,
                                        BothDirInfo->ShortNameLength );
+                    } else if (SynchronizationError) {
+
+                        if (Irp->IoStatus.Information != 0) {
+                            try_return( Status = STATUS_SUCCESS );
+                        } else {
+                            NtfsRaiseStatus( IrpContext, STATUS_CANT_WAIT, NULL, NULL );
+                        }
                     }
                 }
 
             case FileFullDirectoryInformation:
 
-                DebugTrace(0, Dbg, "Getting file full Unicode directory information\n", 0);
+                DebugTrace( 0, Dbg, ("Getting file full Unicode directory information\n") );
 
                 FullDirInfo = (PFILE_FULL_DIR_INFORMATION)&Buffer[NextEntry];
 
@@ -1048,7 +1142,7 @@ Return Value:
 
             case FileDirectoryInformation:
 
-                DebugTrace(0, Dbg, "Getting file Unicode directory information\n", 0);
+                DebugTrace( 0, Dbg, ("Getting file Unicode directory information\n") );
 
                 DirInfo = (PFILE_DIRECTORY_INFORMATION)&Buffer[NextEntry];
 
@@ -1075,7 +1169,7 @@ Return Value:
 
             case FileNamesInformation:
 
-                DebugTrace(0, Dbg, "Getting file Unicode names information\n", 0);
+                DebugTrace( 0, Dbg, ("Getting file Unicode names information\n") );
 
                 NamesInfo = (PFILE_NAMES_INFORMATION)&Buffer[NextEntry];
 
@@ -1106,8 +1200,38 @@ Return Value:
             }
 
             RtlCopyMemory( &Buffer[NextEntry + BaseLength],
-                           NameInIndex->FileName,
+                           NtfsFileName->FileName,
                            BytesToCopy );
+
+            //
+            //  If/when we actually emit a record for the Fcb acquired,
+            //  then we can release that file now.  Note we do not just
+            //  do it on the first time through the loop, because some of
+            //  our callers back up a bit when they give us the resume point.
+            //
+
+            if ((AcquiredFcb != NULL) &&
+                (DupInfo != &Scb->Fcb->Info) &&
+                NtfsEqualMftRef(&IndexEntry->FileReference, &Ccb->FcbToAcquire.FileReference)) {
+
+                //
+                //  Now look up the Fcb, and if it is there, reference it
+                //  and remember it.
+                //
+                //  It is pretty inconvenient here to see if the ReferenceCount
+                //  goes to zero and try to do a TearDown, we do not have the
+                //  right resources.  Note that the window is small, and the Fcb
+                //  will go away if either someone opens the file again, someone
+                //  tries to delete the directory, or someone tries to lock the
+                //  volume.
+                //
+
+                NtfsAcquireFcbTable( IrpContext, Vcb );
+                AcquiredFcb->ReferenceCount -= 1;
+                NtfsReleaseFcbTable( IrpContext, Vcb );
+                NtfsReleaseFcb( IrpContext, AcquiredFcb );
+                AcquiredFcb = NULL;
+            }
 
             //
             //  Set up the previous next entry offset
@@ -1118,10 +1242,12 @@ Return Value:
             //
             //  And indicate how much of the user buffer we have currently
             //  used up.  We must compute this value before we long align
-            //  ourselves for the next entry
+            //  ourselves for the next entry.  This is the point where we
+            //  quad-align the length of the previous entry.
             //
 
-            Irp->IoStatus.Information += BaseLength + BytesToCopy;
+            Irp->IoStatus.Information = QuadAlign( Irp->IoStatus.Information) +
+                                        BaseLength + BytesToCopy;
 
             //
             //  If we weren't able to copy the whole name, then we bail here.
@@ -1153,14 +1279,15 @@ Return Value:
         //  Abort transaction on error by raising.
         //
 
-        NtfsCleanupTransaction( IrpContext, Status );
+        NtfsCleanupTransaction( IrpContext, Status, FALSE );
 
         //
         //  Set the last access flag in the Fcb if the caller
         //  didn't set it explicitly.
         //
 
-        if (!FlagOn( Ccb->Flags, CCB_FLAG_USER_SET_LAST_ACCESS_TIME )) {
+        if (!FlagOn( Ccb->Flags, CCB_FLAG_USER_SET_LAST_ACCESS_TIME ) &&
+            !FlagOn( NtfsData.Flags, NTFS_FLAGS_DISABLE_LAST_ACCESS )) {
 
             NtfsGetCurrentTime( IrpContext, Scb->Fcb->CurrentLastAccess );
         }
@@ -1169,12 +1296,37 @@ Return Value:
 
         DebugUnwind( NtfsQueryDirectory );
 
+        if (VcbAcquired) {
+            NtfsReleaseVcb( IrpContext, Vcb );
+        }
+
+        NtfsCleanupIndexContext( IrpContext, &OtherContext );
+
+        if (AcquiredFcb != NULL) {
+
+            //
+            //  Now look up the Fcb, and if it is there, reference it
+            //  and remember it.
+            //
+            //  It is pretty inconvenient here to see if the ReferenceCount
+            //  goes to zero and try to do a TearDown, we do not have the
+            //  right resources.  Note that the window is small, and the Fcb
+            //  will go away if either someone opens the file again, someone
+            //  tries to delete the directory, or someone tries to lock the
+            //  volume.
+            //
+
+            NtfsAcquireFcbTable( IrpContext, Vcb );
+            AcquiredFcb->ReferenceCount -= 1;
+            NtfsReleaseFcbTable( IrpContext, Vcb );
+            NtfsReleaseFcb( IrpContext, AcquiredFcb );
+        }
+
         if (ScbAcquired) {
             NtfsReleaseScb( IrpContext, Scb );
         }
 
         NtfsCleanupAfterEnumeration( IrpContext, Ccb );
-        NtfsCleanupIndexContext( IrpContext, &OtherContext );
 
         if (!AbnormalTermination()) {
 
@@ -1183,7 +1335,7 @@ Return Value:
 
         if (UnwindFileNameBuffer != NULL) {
 
-            ExFreePool(UnwindFileNameBuffer);
+            NtfsFreePool(UnwindFileNameBuffer);
         }
     }
 
@@ -1191,7 +1343,7 @@ Return Value:
     //  And return to our caller
     //
 
-    DebugTrace(-1, Dbg, "NtfsQueryDirectory -> %08lx\n", Status);
+    DebugTrace( -1, Dbg, ("NtfsQueryDirectory -> %08lx\n", Status) );
 
     return Status;
 }
@@ -1259,14 +1411,14 @@ Return Value:
 
     IrpSp = IoGetCurrentIrpStackLocation( Irp );
 
-    DebugTrace(+1, Dbg, "NtfsNotifyChangeDirectory...\n", 0);
-    DebugTrace( 0, Dbg, "IrpContext = %08lx\n", IrpContext);
-    DebugTrace( 0, Dbg, "Irp        = %08lx\n", Irp);
-    DebugTrace( 0, Dbg, " ->CompletionFilter = %08lx\n", IrpSp->Parameters.NotifyDirectory.CompletionFilter);
-    DebugTrace( 0, Dbg, " ->WatchTree        = %08lx\n", FlagOn( IrpSp->Flags, SL_WATCH_TREE ));
-    DebugTrace( 0, Dbg, "Vcb        = %08lx\n", Vcb);
-    DebugTrace( 0, Dbg, "Ccb        = %08lx\n", Ccb);
-    DebugTrace( 0, Dbg, "Scb        = %08lx\n", Scb);
+    DebugTrace( +1, Dbg, ("NtfsNotifyChangeDirectory...\n") );
+    DebugTrace( 0, Dbg, ("IrpContext = %08lx\n", IrpContext) );
+    DebugTrace( 0, Dbg, ("Irp        = %08lx\n", Irp) );
+    DebugTrace( 0, Dbg, (" ->CompletionFilter = %08lx\n", IrpSp->Parameters.NotifyDirectory.CompletionFilter) );
+    DebugTrace( 0, Dbg, (" ->WatchTree        = %08lx\n", FlagOn( IrpSp->Flags, SL_WATCH_TREE )) );
+    DebugTrace( 0, Dbg, ("Vcb        = %08lx\n", Vcb) );
+    DebugTrace( 0, Dbg, ("Ccb        = %08lx\n", Ccb) );
+    DebugTrace( 0, Dbg, ("Scb        = %08lx\n", Scb) );
 
     //
     //  Reference our input parameter to make things easier
@@ -1292,6 +1444,16 @@ Return Value:
     try {
 
         //
+        //  If the Link count is zero on this Fcb then complete this request
+        //  with STATUS_DELETE_PENDING.
+        //
+
+        if (Scb->Fcb->LinkCount == 0) {
+
+            NtfsRaiseStatus( IrpContext, STATUS_DELETE_PENDING, NULL, NULL );
+        }
+
+        //
         //  If we need to verify traverse access for this caller then allocate and
         //  capture the subject context to pass to the dir notify package.  That
         //  package will be responsible for deallocating it.
@@ -1299,7 +1461,7 @@ Return Value:
 
         if (FlagOn( Ccb->Flags, CCB_FLAG_TRAVERSE_CHECK )) {
 
-            SubjectContext = FsRtlAllocatePool( PagedPool,
+            SubjectContext = NtfsAllocatePool( PagedPool,
                                                 sizeof( SECURITY_SUBJECT_CONTEXT ));
 
             FreeSubjectContext = TRUE;
@@ -1333,11 +1495,17 @@ Return Value:
 
         Status = STATUS_PENDING;
 
+        if (!FlagOn( Ccb->Flags, CCB_FLAG_DIR_NOTIFY )) {
+
+            SetFlag( Ccb->Flags, CCB_FLAG_DIR_NOTIFY );
+            InterlockedIncrement( &Vcb->NotifyCount );
+        }
+
     } finally {
 
         DebugUnwind( NtfsNotifyChangeDirectory );
 
-        NtfsReleaseVcb( IrpContext, Vcb, NULL );
+        NtfsReleaseVcb( IrpContext, Vcb );
 
         //
         //  Since the dir notify package is holding the Irp, we discard the
@@ -1350,7 +1518,7 @@ Return Value:
 
         } else if (FreeSubjectContext) {
 
-            ExFreePool( SubjectContext );
+            NtfsFreePool( SubjectContext );
         }
     }
 
@@ -1358,7 +1526,7 @@ Return Value:
     //  And return to our caller
     //
 
-    DebugTrace(-1, Dbg, "NtfsNotifyChangeDirectory -> %08lx\n", Status);
+    DebugTrace( -1, Dbg, ("NtfsNotifyChangeDirectory -> %08lx\n", Status) );
 
     return Status;
 }

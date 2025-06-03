@@ -133,8 +133,10 @@ Return Value:
     *FsContext = FileObject->FsContext;
     *FsContext2 = FileObject->FsContext2;
 
+    ASSERT( (*FsContext) != NULL );
 
-    if ( ((PBLOCK_HEADER)(*FsContext))->BlockState != BlockStateActive ) {
+    if ( ((*FsContext) == NULL) ||
+            ((PBLOCK_HEADER)(*FsContext))->BlockState != BlockStateActive ) {
 
         //
         // This Block is shutting down.  Indicate this to the caller.

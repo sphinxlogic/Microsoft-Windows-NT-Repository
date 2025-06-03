@@ -8,11 +8,71 @@ Module Name:
 
 Abstract:
 
-    This module implements the path table support routines for Cdfs.
+    This module implements the Path Table support routines for Cdfs.
+
+    The path table on a CDROM is a condensed summary of the entire
+    directory structure.  It is stored on a number of contiguous sectors
+    on the disk.  Each directory on the disk has an entry in the path
+    table.  The entries are aligned on USHORT boundaries and MAY span
+    sector boundaries.  The entries are stored as a breadth-first search.
+
+    The first entry in the table contains the entry for the root.  The
+    next entries will consist of the contents of the root directory.  The
+    next entries will consist of the all the directories at the next level
+    of the tree.  The children of a given directory will be grouped together.
+
+    The directories are assigned ordinal numbers based on their position in
+    the path table.  The root dirctory is assigned ordinal value 1.
+
+    Path table sectors:
+
+      Ordinal     1        2        3             4       5        6
+                                         +-----------+
+                                         | Spanning  |
+                                         | Sectors   |
+              +----------------------------+  +------------------------+
+              |        |        |        | |  |      |         |       |
+      DirName |  \     |   a    |    b   |c|  |   c  |    d    |   e   |
+              |        |        |        | |  |      |         |       |
+      Parent #|  1     |   1    |    1   | |  |   2  |    2    |   3   |
+              +----------------------------+  +------------------------+
+
+    Directory Tree:
+
+                                            \ (root)
+
+                                          /   \
+                                         /     \
+                                        a       b
+
+                                      /   \       \
+                                     /     \       \
+                                    c       d       e
+
+    Path Table Entries:
+
+        - Position scan at known offset in the path table.  Path Entry at
+            this offset must exist and is known to be valid.  Used when
+            scanning for the children of a given directory.
+
+        - Position scan at known offset in the path table.  Path Entry is
+            known to start at this location but the bounds must be checked
+            for validity.
+
+        - Move to next path entry in the table.
+
+        - Update a common path entry structure with the details of the
+            on-disk structure.  This is used to smooth out the differences
+            in the on-disk structures.
+
+        - Update the filename in the in-memory path entry with the bytes
+            off the disk.  For Joliet disks we will have
+            to convert to little endian.  We assume that directories
+            don't have version numbers.
 
 Author:
 
-    Brian Andrew    [BrianAn]   02-Jan-1991
+    Brian Andrew    [BrianAn]   01-July-1995
 
 Revision History:
 
@@ -21,708 +81,904 @@ Revision History:
 #include "CdProcs.h"
 
 //
-//  Local debug trace level
+//  The Bug check file id for this module
 //
 
-#define Dbg                              (DEBUG_TRACE_PATHSUP)
+#define BugCheckFileId                   (CDFS_BUG_CHECK_PATHSUP)
+
+//
+//  Local macros
+//
+
+//
+//  PRAW_PATH_ENTRY
+//  CdRawPathEntry (
+//      IN PIRP_CONTEXT IrpContext,
+//      IN PPATH_ENUM_CONTEXT PathContext
+//      );
+//
+
+#define CdRawPathEntry(IC, PC)      \
+    Add2Ptr( (PC)->Data, (PC)->DataOffset, PRAW_PATH_ENTRY )
+
+//
+//  Local support routines
+//
 
 VOID
-CdCopyRawPathToPathEntry(
+CdMapPathTableBlock (
     IN PIRP_CONTEXT IrpContext,
-    OUT PPATH_ENTRY PathEntry,
-    IN PRAW_PATH_ISO RawPathIso,
-    IN BOOLEAN IsoVol,
-    IN CD_VBO PathTableOffset,
-    IN USHORT PathTableNumber
+    IN PFCB Fcb,
+    IN LONGLONG BaseOffset,
+    IN OUT PPATH_ENUM_CONTEXT PathContext
     );
 
-BOOLEAN
-CdIsValidPathEntry (
+VOID
+CdUpdatePathEntryFromRawPathEntry (
     IN PIRP_CONTEXT IrpContext,
-    IN PPATH_ENTRY PathEntry,
-    IN SHORT EntryLength
+    IN ULONG Ordinal,
+    IN BOOLEAN VerifyBounds,
+    IN PPATH_ENUM_CONTEXT PathContext,
+    OUT PPATH_ENTRY PathEntry
     );
 
 #ifdef ALLOC_PRAGMA
-#pragma alloc_text(PAGE, CdCopyRawPathToPathEntry)
-#pragma alloc_text(PAGE, CdIsValidPathEntry)
-#pragma alloc_text(PAGE, CdLookUpPathDir)
-#pragma alloc_text(PAGE, CdPathByNumber)
+#pragma alloc_text(PAGE, CdFindPathEntry)
+#pragma alloc_text(PAGE, CdLookupPathEntry)
+#pragma alloc_text(PAGE, CdLookupNextPathEntry)
+#pragma alloc_text(PAGE, CdMapPathTableBlock)
+#pragma alloc_text(PAGE, CdUpdatePathEntryFromRawPathEntry)
+#pragma alloc_text(PAGE, CdUpdatePathEntryName)
 #endif
 
 
-BOOLEAN
-CdPathByNumber (
+VOID
+CdLookupPathEntry (
     IN PIRP_CONTEXT IrpContext,
-    IN PVCB Vcb,
-    IN ULONG PathNumber,
-    IN ULONG StartPathNumber,
-    IN CD_VBO StartPathOffset,
-    OUT PPATH_ENTRY PathEntry,
-    OUT PBCB *Bcb
+    IN ULONG PathEntryOffset,
+    IN ULONG Ordinal,
+    IN BOOLEAN VerifyBounds,
+    IN OUT PCOMPOUND_PATH_ENTRY CompoundPathEntry
     )
 
 /*++
 
 Routine Description:
 
-    This routines searches through the Path Table for a Path Table entry.
-    The entries are assigned an ordinal number based on their position in
-    the Path Table.
-
-    This routine will skip over any entries which have an illegal length
-    for the directory ID field.  The search is terminated when either the
-    correct entry is found or the Path Table is exhausted.  The search
-    itself will start at the offset indicated by 'StartPathOffset'.
-
-    The basic algorithm consists of the following basic loop.
-
-        1 - Determine if there is enough left in the Path Table to pin
-            a block.
-
-        2 - If so, pin that block.  NOTE - At the end of the Path Table
-            it may be that this block does not totally contain a
-            path entry.
-
-        3 - Check the pinned block to see if it contains an entire entry.
-
-        4 - If this is the last block and is insufficient then exit with
-            error condition.
-
-        5 - If this is not the last entry, then simply skip over it and
-            loop to step 1.
-
-        6 - If this is the desired entry, remove the directory information
-            and return it in the function parameters.
-
-        7 - Otherwise, step over this entry and loop to step 1.
+    This routine is called to initiate a walk through a path table.  We are
+    looking for a path table entry at location PathEntryOffset.
 
 Arguments:
 
-    Vcb - Pointer to the VCB structure for this Path Table.
+    PathEntryOffset - This is our target point in the Path Table.  We know that
+        a path entry must begin at this point although we may have to verify
+        the bounds.
 
-    PathNumber - Ordinal number of directory to look up.
+    Ordinal - Ordinal number for the directory at the PathEntryOffset above.
 
-    StartPathNumber - Ordinal number of the path entry represented by
-                      'PathTableOffset' value.
+    VerifyBounds - Indicates whether we need to check the validity of
+        this entry.
 
-    StartPathOffset - Offset in Path Table to start search on entry.
-
-    PathEntry - Pointer to the path entry structure to be updated.
-
-    Bcb - Pointer to a Bcb to use in conjunction with the cache.
+    CompoundPathEntry - PathEnumeration context and in-memory path entry.  This
+        has been initialized outside of this call.
 
 Return Value:
 
-    BOOLEAN - TRUE if the entry is found, FALSE if not.  An exception
-              may be raised for other errors.
+    None.
 
 --*/
 
 {
-    PVOID LocalBcb;
-    PRAW_PATH_ISO RawPathIso;
-
-
-    ULONG ThisLength;
-    ULONG NextLength;
-
-    CD_VBO FinalOffset;
-
-    BOOLEAN FoundEntry;
-    BOOLEAN IsoVol;
-
-    LARGE_INTEGER LargePathTableOffset = {0,0};
+    PPATH_ENUM_CONTEXT PathContext = &CompoundPathEntry->PathContext;
+    LONGLONG CurrentBaseOffset;
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "CdPathByNumber:  Entered\n", 0)
-
     //
-    //  Initialize the local variables.
+    //  Compute the starting base and starting path table offset.
     //
 
-    LocalBcb = NULL;
-    FoundEntry = FALSE;
-
-    RawPathIso = NULL;
-    IsoVol = BooleanFlagOn( Vcb->Mvcb->MvcbState, MVCB_STATE_FLAG_ISO_VOLUME );
+    CurrentBaseOffset = SectorTruncate( PathEntryOffset );
 
     //
-    //  Use a try-finally to facilitate cleanup.
+    //  Map the next block in the Path Table.
     //
 
-    try {
+    CdMapPathTableBlock( IrpContext,
+                         IrpContext->Vcb->PathTableFcb,
+                         CurrentBaseOffset,
+                         PathContext );
 
-        //
-        //  Loop until either an error condition exists, the Path Table
-        //  is exhausted or the entry is found.
-        //
+    //
+    //  Set up our current offset into the Path Context.
+    //
 
-        while (TRUE) {
+    PathContext->DataOffset = PathEntryOffset - PathContext->BaseOffset;
 
-            //
-            //  Compute the size of the next pin.  This is either large
-            //  enough to hold the maximum Path Entry size or the remaining
-            //  bytes in the Path Table.
-            //
+    //
+    //  Update the in-memory structure for this path entry.
+    //
 
-            FinalOffset = StartPathOffset + MAX_PE_LENGTH;
+    CdUpdatePathEntryFromRawPathEntry( IrpContext,
+                                       Ordinal,
+                                       VerifyBounds,
+                                       &CompoundPathEntry->PathContext,
+                                       &CompoundPathEntry->PathEntry );
 
-            if (FinalOffset > Vcb->PtSize) {
-
-                FinalOffset = Vcb->PtSize;
-            }
-
-            ThisLength = FinalOffset - StartPathOffset;
-
-            if (ThisLength < MIN_PE_LENGTH) {
-
-                //
-                //  Raise the error status.
-                //
-
-                DebugTrace(0, Dbg,
-                           "CdPathByNumber:  Path Table exhausted\n", 0)
-
-                try_return( FoundEntry = FALSE );
-            }
-
-            //
-            //  Try to pin that amount.  Exit the 'try' block if the
-            //  pin fails.
-            //
-
-            {
-                LargePathTableOffset.LowPart = StartPathOffset;
-
-                if (!CcPinRead( Vcb->PathTableFile,
-                                &LargePathTableOffset,
-                                ThisLength,
-                                IrpContext->Wait,
-                                &LocalBcb,
-                                (PVOID *) &RawPathIso )) {
-
-                    //
-                    //  Raise can't wait status
-                    //
-
-                    DebugTrace(0, Dbg,"CdPathByNumber:  Pin couldn't wait\n", 0);
-
-                    CdRaiseStatus( IrpContext, STATUS_CANT_WAIT );
-                }
-            }
-
-            //
-            //  Check if we pinned enough.  If not, we skip this entry.
-            //  Skipping this entry means that the directory ID is an
-            //  illegal length or we reached the end of the Path Table.
-            //
-
-            NextLength = PT_LEN_DI( IsoVol, RawPathIso ) + PE_BASE;
-
-            if (NextLength > ThisLength) {
-
-                //
-                //  Take no action for this case.  The error is caught
-                //  later.
-                //
-
-            } else if (StartPathNumber == PathNumber) {
-
-                //
-                //  Is this the desired entry.  If so then copy the relevant
-                //  data out of it and exit the 'try' block.
-                //
-
-                CdCopyRawPathToPathEntry( IrpContext,
-                                          PathEntry,
-                                          RawPathIso,
-                                          IsoVol,
-                                          StartPathOffset,
-                                          (USHORT) StartPathNumber );
-
-                *Bcb = LocalBcb;
-                LocalBcb = NULL;
-
-                try_return( FoundEntry = TRUE );
-
-            } else {
-
-                //
-                //  Increment the current directory number.
-                //
-
-                StartPathNumber++;
-            }
-
-            //
-            //  Calculate the next offset and unpin the data.
-            //
-
-            CdUnpinBcb( IrpContext, LocalBcb );
-
-            StartPathOffset += (NextLength + (NextLength & 1));
-
-            //
-            //  If the Path Table offset is beyond the end of the
-            //  Path Table, we raise STATUS_NO_SUCH_FILE
-            //
-
-            if (StartPathOffset > Vcb->PtSize) {
-
-                DebugTrace( 0,
-                            Dbg,
-                            "CdPathByNumber:  Past end of Path Table\n",
-                            0 );
-
-                try_return( FoundEntry = FALSE );
-            }
-        }
-
-    try_exit: NOTHING;
-    } finally {
-
-        //
-        //  Unpin the buffer if still locked down.
-        //
-
-        if (LocalBcb != NULL) {
-
-            CdUnpinBcb( IrpContext, LocalBcb );
-        }
-
-        DebugTrace(-1, Dbg, "CdPathByNumber:  Exit ->%08lx\n", StartPathOffset );
-    }
-
-    return FoundEntry;
+    return;
 }
 
+
 BOOLEAN
-CdLookUpPathDir (
+CdLookupNextPathEntry (
     IN PIRP_CONTEXT IrpContext,
-    IN OUT PDCB Dcb,
-    IN PSTRING DirName,
-    OUT PPATH_ENTRY PathEntry,
-    OUT PBCB *Bcb
+    IN OUT PPATH_ENUM_CONTEXT PathContext,
+    IN OUT PPATH_ENTRY PathEntry
     )
 
 /*++
 
 Routine Description:
 
-    This routines searches through the Path Table for a Path Table entry.
+    This routine is called to move to the next path table entry.  We know
+    the offset and the length of the current entry.  We start by computing
+    the offset of the next entry and determine if it is contained in the
+    table.  Then we check to see if we need to move to the next sector in
+    the path table.  We always map two sectors at a time so we don't
+    have to deal with any path entries which span sectors.  We move to
+    the next sector if we are in the second sector of the current mapped
+    data block.
 
-    This routine will skip over any entries which have an illegal length
-    for the directory ID field.  The search is terminated when either the
-    correct entry is found or the Path Table is exhausted.  The search
-    itself will start at the offset indicated by the first child offset in
-    the Dcb.  This value does not neccessarily yield a child of the Dcb, but
-    may point to an entry which precedes the entries for the children of
-    this Dcb.  In that case, we will attempt to update the Dcb with an
-    offset further through the Path Table.
+    We look up the next entry and update the path entry structure with
+    the values out of the raw sector but don't update the CdName structure.
 
 Arguments:
 
-    Dcb - Pointer to the Dcb whose child is required.
+    PathContext - Enumeration context for this scan of the path table.
 
-    DirName - The name of the directory being searched for.
-
-    PathEntry - Pointer to the path entry structure to be updated.
-
-    Bcb - Pointer to a Bcb to use in conjunction with the cache.
+    PathEntry - In-memory representation of the on-disk path table entry.
 
 Return Value:
 
-    BOOLEAN - TRUE if the entry is found, FALSE if not.  An exception
-              may be raised for other errors.
+    BOOLEAN - TRUE if another entry is found, FALSE otherwise.
+        This routine may raise on error.
 
 --*/
 
 {
-    BOOLEAN FoundEntry;
-
-    PRAW_PATH_ISO RawPathIso;
-    PBCB LocalBcb;
-
-    CD_VBO CurrentOffset;
-    USHORT CurrentDir;
-    ULONG RemainingBytes;
-    BOOLEAN UpdateFirstChild;
-    ULONG ThisLength;
-    BOOLEAN IsoVol;
-
-    LARGE_INTEGER PathOffset = {0,0};
+    LONGLONG CurrentBaseOffset;
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "CdLookupPathDir:  Entered\n", 0);
-    DebugTrace( 0, Dbg, "CdLookupPathDir:  DirName  -> %Z\n", DirName);
-
     //
-    //  Initial local variables.
+    //  Get the offset of the next path entry within the current
+    //  data block.
     //
 
-    FoundEntry = FALSE;
-    LocalBcb = NULL;
-    CurrentOffset = Dcb->Specific.Dcb.ChildSearchOffset;
-    CurrentDir = (USHORT) Dcb->Specific.Dcb.ChildStartDirNumber;
-    UpdateFirstChild = TRUE;
-    RemainingBytes = Dcb->Vcb->PtSize - CurrentOffset;
-    IsoVol = BooleanFlagOn( Dcb->Vcb->Mvcb->MvcbState, MVCB_STATE_FLAG_ISO_VOLUME );
+    PathContext->DataOffset += PathEntry->PathEntryLength;
 
     //
-    //  If the current offset is at the end of the Path table we are done
-    //  immediately.
+    //  If we are in the last data block then check if we are beyond the
+    //  end of the file.
     //
 
-    if (CurrentOffset >= (CD_VBO) Dcb->Vcb->PtSize) {
+    if (PathContext->LastDataBlock) {
 
-        DebugTrace(0, Dbg, "CdLookupPathDir:  Immediately past end of Path Table\n", 0);
-        DebugTrace(-1, Dbg, "CdLookupPathDir:  Exit -> %04x\n", FALSE);
-        return FALSE;
+        if (PathContext->DataOffset >= PathContext->DataLength) {
+
+            return FALSE;
+        }
+
+    //
+    //  If we are not in the last data block of the path table and
+    //  this offset is in the second sector then move to the next
+    //  data block.
+    //
+
+    } else if (PathContext->DataOffset >= SECTOR_SIZE) {
+
+        CurrentBaseOffset = PathContext->BaseOffset + SECTOR_SIZE;
+
+        CdMapPathTableBlock( IrpContext,
+                             IrpContext->Vcb->PathTableFcb,
+                             CurrentBaseOffset,
+                             PathContext );
+
+        //
+        //  Set up our current offset into the Path Context.
+        //
+
+        PathContext->DataOffset -= SECTOR_SIZE;
     }
 
     //
-    //  Use a try-finally to facilitate cleanup.
+    //  Now update the path entry with the values from the on-disk
+    //  structure.
     //
-    try {
 
-        //
-        //  Loop indefinitely until an entry is found or the path
-        //  table is exhausted.
-        //
+    CdUpdatePathEntryFromRawPathEntry( IrpContext,
+                                       PathEntry->Ordinal + 1,
+                                       TRUE,
+                                       PathContext,
+                                       PathEntry );
 
-        while (RemainingBytes != 0) {
+    return TRUE;
+}
 
-            //
-            //  Compute the next offset.
-            //
+
+BOOLEAN
+CdFindPathEntry (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB ParentFcb,
+    IN PCD_NAME DirName,
+    IN BOOLEAN IgnoreCase,
+    IN OUT PCOMPOUND_PATH_ENTRY CompoundPathEntry
+    )
 
-            ThisLength = (RemainingBytes > MAX_PE_LENGTH) ? MAX_PE_LENGTH : RemainingBytes;
+/*++
 
-            DebugTrace(0, Dbg, "CdLookupPathDir:  CurrentOffset     -> %08lx\n", CurrentOffset);
-            DebugTrace(0, Dbg, "CdLookupPathDir:  RemainingBytes    -> %08lx\n", CurrentOffset);
-            DebugTrace(0, Dbg, "CdLookupPathDir:  CurrentDir        -> %08lx\n", RemainingBytes);
+Routine Description:
 
-            //
-            //  If this length is insufficient we break now.
-            //
+    This routine will walk through the path table looking for a matching entry for DirName
+    among the child directories of the ParentFcb.
 
-            if (ThisLength < MIN_PE_LENGTH) {
+Arguments:
 
-                DebugTrace(0, Dbg, "CdLookupPathDir:  Insufficient bytes for path entry\n", 0);
+    ParentFcb - This is the directory we are examining.  We know the ordinal and path table
+        offset for this directory in the path table.  If this is the first scan for this
+        Fcb we will update the first child offset for this directory in the path table.
 
-                //
-                //  Update the first child values
-                //
+    DirName - This is the name we are searching for.  This name will not contain wildcard
+        characters.  The name will also not have a version string.
 
-                if (UpdateFirstChild) {
+    IgnoreCase - Indicates if this search is exact or ignore case.
 
-                    DebugTrace(0, Dbg, "CdLookupPathDir:  Updating first child information\n", 0);
+    CompoundPathEntry - Complete path table enumeration structure.  We will have initialized
+        it for the search on entry.  This will be positioned at the matching name if found.
 
-                    Dcb->Specific.Dcb.ChildSearchOffset = CurrentOffset;
-                    Dcb->Specific.Dcb.ChildStartDirNumber = CurrentDir;
-                }
+Return Value:
 
-                try_return( FoundEntry = FALSE );
-            }
+    BOOLEAN - TRUE if matching entry found, FALSE otherwise.
 
-            //
-            //  Try to pin the required entry.
-            //
+--*/
 
-            {
-                PathOffset.LowPart = CurrentOffset;
+{
+    BOOLEAN Found = FALSE;
+    BOOLEAN UpdateChildOffset = TRUE;
 
-                if (!CcPinRead( Dcb->Vcb->PathTableFile,
-                                &PathOffset,
-                                ThisLength,
-                                IrpContext->Wait,
-                                &LocalBcb,
-                                (PVOID *) &RawPathIso )) {
+    ULONG StartingOffset;
+    ULONG StartingOrdinal;
 
-                    DebugTrace(0, Dbg, "CdLookupPathDir:  Can't wait to pin entry\n", 0);
+    PAGED_CODE();
 
-                    //
-                    //  Update the first child values
-                    //
+    //
+    //  Position ourselves at either the first child or at the directory itself.
+    //  Lock the Fcb to get this value and remember whether to update with the first
+    //  child.
+    //
 
-                    if (UpdateFirstChild) {
+    StartingOffset = CdQueryFidPathTableOffset( ParentFcb->FileId );
+    StartingOrdinal = ParentFcb->Ordinal;
 
-                        DebugTrace(0, Dbg, "CdLookupPathDir:  Updating first child information\n", 0);
+	//
+	//  ISO 9660 9.4.4 restricts the backpointer from child to parent in a
+	//  pathtable entry to 16bits. Although we internally store ordinals
+	//  as 32bit values, it is impossible to search for the children of a
+	//  directory whose ordinal value is greater than MAXUSHORT. Media that
+	//  could induce such a search is illegal.
+	//
+	//  Note that it is not illegal to have more than MAXUSHORT directories.
+	//
 
-                        Dcb->Specific.Dcb.ChildSearchOffset = CurrentOffset;
-                        Dcb->Specific.Dcb.ChildStartDirNumber = CurrentDir;
-                    }
+	if (ParentFcb->Ordinal > MAXUSHORT) {
 
-                    CdRaiseStatus( IrpContext, STATUS_CANT_WAIT );
-                }
-            }
+		CdRaiseStatus( IrpContext, STATUS_DISK_CORRUPT_ERROR );
+	}
 
-            //
-            //  Copy the entry found into the path entry structure.
-            //
+    CdLockFcb( IrpContext, ParentFcb );
 
-            CdCopyRawPathToPathEntry( IrpContext,
-                                      PathEntry,
-                                      RawPathIso,
-                                      IsoVol,
-                                      CurrentOffset,
-                                      CurrentDir );
+    if (ParentFcb->ChildPathTableOffset != 0) {
 
-            //
-            //  If this is a valid path entry, then compare the parent
-            //  directory numbers and the filename.
-            //
+        StartingOffset = ParentFcb->ChildPathTableOffset;
+        StartingOrdinal = ParentFcb->ChildOrdinal;
+        UpdateChildOffset = FALSE;
 
-            if (CdIsValidPathEntry( IrpContext,
-                                    PathEntry,
-                                    (SHORT) ThisLength )) {
+    } else if (ParentFcb == ParentFcb->Vcb->RootIndexFcb) {
 
-                //
-                //  Check if the parent numbers match.
-                //
-
-                if (PathEntry->ParentNumber == (USHORT) Dcb->Specific.Dcb.DirectoryNumber) {
-
-                    //
-                    //  Check if this is the first child for this directory.
-                    //
-
-                    if (UpdateFirstChild) {
-
-                        DebugTrace(0, Dbg, "CdLookupPathDir:  Updating first child information\n", 0);
-
-                        Dcb->Specific.Dcb.ChildSearchOffset = CurrentOffset;
-                        Dcb->Specific.Dcb.ChildStartDirNumber = CurrentDir;
-
-                        UpdateFirstChild = FALSE;
-                    }
-
-                    //
-                    //  Check if the filenames match.  We can do a simple
-                    //  mem-compare as neither will have wildcards and
-                    //  both will be upcased.
-                    //
-
-                    if (DirName->Length == PathEntry->DirName.Length
-                        && (RtlCompareMemory( PathEntry->DirName.Buffer,
-                                              DirName->Buffer,
-                                              DirName->Length ) == (ULONG)DirName->Length)) {
-
-                        //
-                        //  Matching entry found.
-                        //
-
-                        DebugTrace(0, Dbg, "CdLookupPathDir:  Matching entry found\n", 0);
-
-                        *Bcb = LocalBcb;
-                        LocalBcb = NULL;
-
-                        try_return( FoundEntry = TRUE );
-                    }
-                }
-            }
-
-            //
-            //  We need to unpin the current entry and prepare to go
-            //  to the next entry.
-            //
-
-            CdUnpinBcb( IrpContext, LocalBcb );
-
-            ThisLength = MIN_PE_LENGTH - 1 + PathEntry->DirName.Length;
-            ThisLength += (ThisLength & 1);
-
-            if (ThisLength > RemainingBytes) {
-
-                ThisLength = RemainingBytes;
-            }
-
-            CurrentOffset += ThisLength;
-            RemainingBytes -= ThisLength;
-            CurrentDir += 1;
-        }
-
-    try_exit: NOTHING;
-    } finally {
-
-        if (LocalBcb != NULL) {
-
-            CdUnpinBcb( IrpContext, LocalBcb );
-        }
-
-        DebugTrace(-1, Dbg, "CdLookupPathDir:  Exit -> %04x\n", FoundEntry);
+        UpdateChildOffset = FALSE;
     }
 
-    return FoundEntry;
+    CdUnlockFcb( IrpContext, ParentFcb );
+
+    CdLookupPathEntry( IrpContext, StartingOffset, StartingOrdinal, FALSE, CompoundPathEntry );
+
+    //
+    //  Loop until we find a match or are beyond the children for this directory.
+    //
+
+    do {
+
+        //
+        //  If we are beyond this directory then return FALSE.
+        //
+
+        if (CompoundPathEntry->PathEntry.ParentOrdinal > ParentFcb->Ordinal) {
+
+            //
+            //  Update the Fcb with the offsets for the children in the path table.
+            //
+
+            if (UpdateChildOffset) {
+
+                CdLockFcb( IrpContext, ParentFcb );
+
+                ParentFcb->ChildPathTableOffset = StartingOffset;
+                ParentFcb->ChildOrdinal = StartingOrdinal;
+
+                CdUnlockFcb( IrpContext, ParentFcb );
+            }
+
+            break;
+        }
+
+        //
+        //  If we are within the children of this directory then check for a match.
+        //
+
+        if (CompoundPathEntry->PathEntry.ParentOrdinal == ParentFcb->Ordinal) {
+
+            //
+            //  Update the child offset if not yet done.
+            //
+
+            if (UpdateChildOffset) {
+
+                CdLockFcb( IrpContext, ParentFcb );
+
+                ParentFcb->ChildPathTableOffset = CompoundPathEntry->PathEntry.PathTableOffset;
+                ParentFcb->ChildOrdinal = CompoundPathEntry->PathEntry.Ordinal;
+
+                CdUnlockFcb( IrpContext, ParentFcb );
+
+                UpdateChildOffset = FALSE;
+            }
+
+            //
+            //  Update the name in the path entry.
+            //
+
+            CdUpdatePathEntryName( IrpContext, &CompoundPathEntry->PathEntry, IgnoreCase );
+
+            //
+            //  Now compare the names for an exact match.
+            //
+
+            if (CdIsNameInExpression( IrpContext,
+                                      &CompoundPathEntry->PathEntry.CdCaseDirName,
+                                      DirName,
+                                      0,
+                                      FALSE )) {
+
+                //
+                //  Let our caller know we have a match.
+                //
+
+                Found = TRUE;
+                break;
+            }
+        }
+
+        //
+        //  Go to the next entry in the path table.  Remember the current position
+        //  in the event we update the Fcb.
+        //
+
+        StartingOffset = CompoundPathEntry->PathEntry.PathTableOffset;
+        StartingOrdinal = CompoundPathEntry->PathEntry.Ordinal;
+
+    } while (CdLookupNextPathEntry( IrpContext,
+                                    &CompoundPathEntry->PathContext,
+                                    &CompoundPathEntry->PathEntry ));
+
+    return Found;
 }
 
 
 //
-//  Local Support Routine
+//  Local support routine
 //
 
 VOID
-CdCopyRawPathToPathEntry(
+CdMapPathTableBlock (
     IN PIRP_CONTEXT IrpContext,
-    OUT PPATH_ENTRY PathEntry,
-    IN PRAW_PATH_ISO RawPathIso,
-    IN BOOLEAN IsoVol,
-    IN CD_VBO PathTableOffset,
-    IN USHORT PathTableNumber
+    IN PFCB Fcb,
+    IN LONGLONG BaseOffset,
+    IN OUT PPATH_ENUM_CONTEXT PathContext
     )
 
 /*++
 
 Routine Description:
 
-    This routine copies the data from an on-disk path entry into
-    a path entry structure.  The filesystem then uses this structure
-    for all references to a path table entry.
+    This routine is called to map (or allocate and copy) the next
+    data block in the path table.  We check if the next block will
+    span a view boundary and allocate an auxilary buffer in that case.
 
 Arguments:
 
-    PathEntry - Supplies a pointer to the structure to update.
+    Fcb - This is the Fcb for the Path Table.
 
-    RawPathIso - Supplies a pointer to an on-disk structure.
+    BaseOffset - Offset of the first sector to map.  This will be on a
+        sector boundary.
 
-    IsoVol - Indicates if this is ISO or HSG volume.
-
-    PathTableOffset - Offset of this entry in the cached path table.
-
-    PathTableNumber - Ordinal number for this directory.
+    PathContext - Enumeration context to update in this routine.
 
 Return Value:
 
-    None
+    None.
 
 --*/
 
 {
-    PUSHORT2 LocalUshort2;
+    ULONG CurrentLength;
+    ULONG SectorSize;
+    ULONG DataOffset;
+    ULONG PassCount;
+    PVOID Sector;
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "CdCopyRawPathToPathEntry:  Entered\n", 0);
-
     //
-    //  Copy the logical block and Xar length for this directory.
-    //
-
-    LocalUshort2 = (PUSHORT2) (PT_LOC_DIR( IsoVol, RawPathIso ));
-
-    CopyUshort2( &PathEntry->LogicalBlock, LocalUshort2 );
-    PathEntry->XarBlocks = PT_XAR_LEN( IsoVol, RawPathIso );
-
-    //
-    //  For the root directory we attach the string "\\", for any others
-    //  we attach to the string in the raw path entry.
+    //  Map the new block and set the enumeration context to this
+    //  point.  Allocate an auxilary buffer if necessary.
     //
 
-    PathEntry->DirName.Length = PT_LEN_DI( IsoVol, RawPathIso );
+    CurrentLength = 2 * SECTOR_SIZE;
 
-    if (RawPathIso->ParentNum == PT_ROOT_DIR
-        && PathEntry->DirName.Length == 1
-        && RawPathIso->DirId[0] == '\0') {
+    if (CurrentLength >= (ULONG) (Fcb->FileSize.QuadPart - BaseOffset)) {
 
-        RtlInitString( &PathEntry->DirName, "\\" );
+        CurrentLength = (ULONG) (Fcb->FileSize.QuadPart - BaseOffset);
+
+        //
+        //  We know this is the last data block for this
+        //  path table.
+        //
+
+        PathContext->LastDataBlock = TRUE;
+    }
+
+    //
+    //  Set context values.
+    //
+
+    PathContext->BaseOffset = (ULONG) BaseOffset;
+    PathContext->DataLength = CurrentLength;
+
+    //
+    //  Drop the previous sector's mapping
+    //
+
+    CdUnpinData( IrpContext, &PathContext->Bcb );
+
+    //
+    //  Check if spanning a view section.  The following must
+    //  be true before we take this step.
+    //
+    //      Data length is more than one sector.
+    //      Starting offset must be one sector before the
+    //          cache manager VACB boundary.
+    //
+
+    if ((CurrentLength > SECTOR_SIZE) &&
+        (FlagOn( ((ULONG) BaseOffset), VACB_MAPPING_MASK ) == LAST_VACB_SECTOR_OFFSET )) {
+
+        //
+        //  Map each sector individually and store into an auxilary
+        //  buffer.
+        //
+
+        SectorSize = SECTOR_SIZE;
+        DataOffset = 0;
+        PassCount = 2;
+
+        PathContext->Data = FsRtlAllocatePoolWithTag( CdPagedPool,
+                                                      CurrentLength,
+                                                      TAG_SPANNING_PATH_TABLE );
+        PathContext->AllocatedData = TRUE;
+
+        while (PassCount--) {
+
+            CcMapData( Fcb->FileObject,
+                       (PLARGE_INTEGER) &BaseOffset,
+                       SectorSize,
+                       TRUE,
+                       &PathContext->Bcb,
+                       &Sector );
+
+            RtlCopyMemory( Add2Ptr( PathContext->Data, DataOffset, PVOID ),
+                           Sector,
+                           SectorSize );
+
+            CdUnpinData( IrpContext, &PathContext->Bcb );
+
+            BaseOffset += SECTOR_SIZE;
+            SectorSize = CurrentLength - SECTOR_SIZE;
+            DataOffset = SECTOR_SIZE;
+        }
+
+    //
+    //  Otherwise we can just map the data into the cache.
+    //
 
     } else {
 
-        PathEntry->DirName.MaximumLength = PathEntry->DirName.Length;
-        PathEntry->DirName.Buffer = RawPathIso->DirId;
+        //
+        //  There is a slight chance that we have allocated an
+        //  auxilary buffer on the previous sector.
+        //
+
+        if (PathContext->AllocatedData) {
+
+            ExFreePool( PathContext->Data );
+            PathContext->AllocatedData = FALSE;
+        }
+
+        CcMapData( Fcb->FileObject,
+                   (PLARGE_INTEGER) &BaseOffset,
+                   CurrentLength,
+                   TRUE,
+                   &PathContext->Bcb,
+                   &PathContext->Data );
     }
-
-    PathEntry->ParentNumber = RawPathIso->ParentNum;
-
-    PathEntry->PathTableOffset = PathTableOffset;
-    PathEntry->DirectoryNumber = PathTableNumber;
-
-    //
-    //  Verify that the entry is valid.
-    //
-
-    if (PathTableOffset & 1
-        || PathEntry->DirName.Length > MAX_FILE_ID_LENGTH) {
-
-        DebugTrace(-1, Dbg, "CdCopyRawPathToPathEntry:  Exit -- Invalid path table entry\n", 0);
-        ExRaiseStatus( STATUS_DISK_CORRUPT_ERROR );
-    }
-
-    DebugTrace(0, Dbg, "CdCopyRawPathToPathEntry:  DirName          -> %Z\n", &PathEntry->DirName);
-    DebugTrace(0, Dbg, "CdCopyRawPathToPathEntry:  LogicalBlock     -> %08lx\n", PathEntry->LogicalBlock);
-    DebugTrace(0, Dbg, "CdCopyRawPathToPathEntry:  XarBlocks        -> %08lx\n", PathEntry->XarBlocks);
-    DebugTrace(0, Dbg, "CdCopyRawPathToPathEntry:  ParentNumber     -> %04x\n", PathEntry->ParentNumber);
-    DebugTrace(0, Dbg, "CdCopyRawPathToPathEntry:  PathTableOffset  -> %08lx\n", PathEntry->PathTableOffset);
-    DebugTrace(0, Dbg, "CdCopyRawPathToPathEntry:  DirectoryNumber  -> %08lx\n", PathEntry->DirectoryNumber);
-
-    DebugTrace(-1, Dbg, "CdCopyRawPathToPathEntry:  Exit\n", 0);
 
     return;
-
-    UNREFERENCED_PARAMETER( IrpContext );
 }
 
 
 //
-//  Local support routine.
+//  Local support routine
 //
 
-BOOLEAN
-CdIsValidPathEntry (
+VOID
+CdUpdatePathEntryFromRawPathEntry (
     IN PIRP_CONTEXT IrpContext,
-    IN PPATH_ENTRY PathEntry,
-    IN SHORT EntryLength
+    IN ULONG Ordinal,
+    IN BOOLEAN VerifyBounds,
+    IN PPATH_ENUM_CONTEXT PathContext,
+    OUT PPATH_ENTRY PathEntry
     )
 
 /*++
 
 Routine Description:
 
-    This routine checks that the path table dirent is valid.
+    This routine is called to update the in-memory Path Entry from the on-disk
+    path entry.  We also do a careful check of the bounds if requested and we
+    are in the last data block of the path table.
 
 Arguments:
 
-    PathEntry - Supplies a pointer to the structure to update.
+    Ordinal - Ordinal number for this directory.
 
-    EntryLength - Supplies the maximum number of bytes the entry
-                  should comprise of.
+    VerifyBounds - Check that the current raw Path Entry actually fits
+        within the data block.
+
+    PathContext - Current path table enumeration context.
+
+    PathEntry - Pointer to the in-memory path entry structure.
 
 Return Value:
 
-    BOOLEAN - TRUE if the entry describes a legal path entry, FALSE otherwise.
+    None.  This routine may raise.
 
 --*/
 
 {
-    BOOLEAN ValidEntry;
+    PRAW_PATH_ENTRY RawPathEntry = CdRawPathEntry( IrpContext, PathContext );
+    ULONG RemainingDataLength;
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "CdIsValidPathEntry:  Entered\n", 0);
-
     //
-    //  Check the following facts.
-    //
-    //      1.  The path entry is the stated size.
-    //      2.  The name is of legal length.
+    //  Check if we should verify the path entry.  If we are not in the last
+    //  data block then there is nothing to check.
     //
 
-    if ((PathEntry->DirName.Length + MIN_PE_LENGTH - 1) > EntryLength
-        || PathEntry->DirName.Length > MAX_FILE_ID_LENGTH ) {
+    if (PathContext->LastDataBlock && VerifyBounds) {
 
-        ValidEntry = FALSE;
+        //
+        //  Quick check to see if the maximum size is still available.  This
+        //  will handle most cases and we don't need to access any of the
+        //  fields.
+        //
+
+        RemainingDataLength = PathContext->DataLength - PathContext->DataOffset;
+
+        if (RemainingDataLength < sizeof( RAW_PATH_ENTRY )) {
+
+            //
+            //  Make sure the remaining bytes hold the path table entries.
+            //  Do the following checks.
+            //
+            //      - A minimal path table entry will fit (and then check)
+            //      - This path table entry (with dir name) will fit.
+            //
+
+            if ((RemainingDataLength < MIN_RAW_PATH_ENTRY_LEN) ||
+                (RemainingDataLength < (ULONG) (CdRawPathIdLen( IrpContext, RawPathEntry ) + MIN_RAW_PATH_ENTRY_LEN - 1))) {
+
+                CdRaiseStatus( IrpContext, STATUS_DISK_CORRUPT_ERROR );
+            }
+        }
+    }
+
+    //
+    //  The ordinal number of this directory is passed in.
+    //  Compute the path table offset of this entry.
+    //
+
+    PathEntry->Ordinal = Ordinal;
+    PathEntry->PathTableOffset = PathContext->BaseOffset + PathContext->DataOffset;
+
+    //
+    //  We know we can safely access all of the fields of the raw path table at
+    //  this point.
+    //
+    //  Bias the disk offset by the number of logical blocks
+    //
+
+    CopyUchar4( &PathEntry->DiskOffset, CdRawPathLoc( IrpContext, RawPathEntry ));
+
+    PathEntry->DiskOffset += CdRawPathXar( IrpContext, RawPathEntry );
+
+    PathEntry->DirNameLen = CdRawPathIdLen( IrpContext, RawPathEntry );
+
+    CopyUchar2( &PathEntry->ParentOrdinal, &RawPathEntry->ParentNum );
+
+    //
+    //  Check for a name length of zero.
+    //
+
+    if (PathEntry->DirNameLen == 0) {
+
+        CdRaiseStatus( IrpContext, STATUS_DISK_CORRUPT_ERROR );
+    }
+
+    PathEntry->PathEntryLength = PathEntry->DirNameLen + MIN_RAW_PATH_ENTRY_LEN - 1;
+
+    //
+    //  Align the path entry length on a ushort boundary.
+    //
+
+    PathEntry->PathEntryLength = WordAlign( PathEntry->PathEntryLength );
+
+    PathEntry->DirName = RawPathEntry->DirId;
+
+    return;
+}
+
+
+//
+//  Local support routine
+//
+
+VOID
+CdUpdatePathEntryName (
+    IN PIRP_CONTEXT IrpContext,
+    IN OUT PPATH_ENTRY PathEntry,
+    IN BOOLEAN IgnoreCase
+    )
+
+/*++
+
+Routine Description:
+
+    This routine will store the directory name into the CdName in the
+    path entry.  If this is a Joliet name then we will make sure we have
+    an allocated buffer and need to convert from big endian to little
+    endian.  We also correctly update the case name.  If this operation is ignore
+    case then we need an auxilary buffer for the name.
+
+    For an Ansi disk we can use the name from the disk for the exact case.  We only
+    need to allocate a buffer for the ignore case name.  The on-disk representation of
+    a Unicode name is useless for us.  In this case we will need a name buffer for
+    both names.  We store a buffer in the PathEntry which can hold two 8.3 unicode
+    names.  This means we will almost never need to allocate a buffer in the Ansi case
+    (we only need one buffer and already have 48 characters).
+
+Arguments:
+
+    PathEntry - Pointer to a path entry structure.  We have already updated
+        this path entry with the values from the raw path entry.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    ULONG Length;
+    NTSTATUS Status;
+
+    PAGED_CODE();
+
+    //
+    //  Check if this is a self entry.  We use a fixed string for this.
+    //
+    //      Self-Entry - Length is 1, value is 0.
+    //
+
+    if ((*PathEntry->DirName == 0) &&
+        (PathEntry->DirNameLen == 1)) {
+
+        //
+        //  There should be no allocated buffers.
+        //
+
+        ASSERT( !FlagOn( PathEntry->Flags, PATH_ENTRY_FLAG_ALLOC_BUFFER ));
+
+        //
+        //  Now use one of the hard coded directory names.
+        //
+
+        PathEntry->CdDirName.FileName = CdUnicodeDirectoryNames[0];
+
+        //
+        //  Show that there is no version number.
+        //
+
+        PathEntry->CdDirName.VersionString.Length = 0;
+
+        //
+        //  The case name is identical.
+        //
+
+        PathEntry->CdCaseDirName = PathEntry->CdDirName;
+
+        //
+        //  Return now.
+        //
+
+        return;
+    }
+
+    //
+    //  Compute how large a buffer we will need.  If this is an ignore
+    //  case operation then we will want a double size buffer.  If the disk is not
+    //  a Joliet disk then we might need two bytes for each byte in the name.
+    //
+
+    Length = PathEntry->DirNameLen;
+
+    if (IgnoreCase) {
+
+        Length *= 2;
+    }
+
+    if (!FlagOn( IrpContext->Vcb->VcbState, VCB_STATE_JOLIET )) {
+
+        Length *= sizeof( WCHAR );
+    }
+
+    //
+    //  Now decide if we need to allocate a new buffer.  We will if
+    //  this name won't fit in the embedded name buffer and it is
+    //  larger than the current allocated buffer.  We always use the
+    //  allocated buffer if present.
+    //
+    //  If we haven't allocated a buffer then use the embedded buffer if the data
+    //  will fit.  This is the typical case.
+    //
+
+    if (!FlagOn( PathEntry->Flags, PATH_ENTRY_FLAG_ALLOC_BUFFER ) &&
+        (Length <= sizeof( PathEntry->NameBuffer ))) {
+
+        PathEntry->CdDirName.FileName.MaximumLength = sizeof( PathEntry->NameBuffer );
+        PathEntry->CdDirName.FileName.Buffer = PathEntry->NameBuffer;
 
     } else {
 
-        ValidEntry = TRUE;
+        //
+        //  We need to use an allocated buffer.  Check if the current buffer
+        //  is large enough.
+        //
+
+        if (Length > PathEntry->CdDirName.FileName.MaximumLength) {
+
+            //
+            //  Free any allocated buffer.
+            //
+
+            if (FlagOn( PathEntry->Flags, PATH_ENTRY_FLAG_ALLOC_BUFFER )) {
+
+                ExFreePool( PathEntry->CdDirName.FileName.Buffer );
+                ClearFlag( PathEntry->Flags, PATH_ENTRY_FLAG_ALLOC_BUFFER );
+            }
+
+            PathEntry->CdDirName.FileName.Buffer = FsRtlAllocatePoolWithTag( CdPagedPool,
+                                                                             Length,
+                                                                             TAG_PATH_ENTRY_NAME );
+
+            SetFlag( PathEntry->Flags, PATH_ENTRY_FLAG_ALLOC_BUFFER );
+
+            PathEntry->CdDirName.FileName.MaximumLength = (USHORT) Length;
+        }
     }
 
-    DebugTrace(-1, Dbg, "CdIsValidPathEntry:  Exit -> %04x\n", ValidEntry);
+    //
+    //  We now have a buffer for the name.  We need to either convert the on-disk bigendian
+    //  to little endian or covert the name to Unicode.
+    //
 
-    return ValidEntry;
+    if (!FlagOn( IrpContext->Vcb->VcbState, VCB_STATE_JOLIET )) {
 
-    UNREFERENCED_PARAMETER( IrpContext );
+        Status = RtlOemToUnicodeN( PathEntry->CdDirName.FileName.Buffer,
+                                   PathEntry->CdDirName.FileName.MaximumLength,
+                                   &Length,
+                                   PathEntry->DirName,
+                                   PathEntry->DirNameLen );
+
+        ASSERT( Status == STATUS_SUCCESS );
+        PathEntry->CdDirName.FileName.Length = (USHORT) Length;
+
+    } else {
+
+        //
+        //  Convert this string to little endian.
+        //
+
+        CdConvertBigToLittleEndian( IrpContext,
+                                    PathEntry->DirName,
+                                    PathEntry->DirNameLen,
+                                    (PCHAR) PathEntry->CdDirName.FileName.Buffer );
+
+        PathEntry->CdDirName.FileName.Length = (USHORT) PathEntry->DirNameLen;
+    }
+
+    //
+    //  There is no version string.
+    //
+
+    PathEntry->CdDirName.VersionString.Length =
+    PathEntry->CdCaseDirName.VersionString.Length = 0;
+
+    //
+    //  If the name string ends with a period then knock off the last
+    //  character.
+    //
+
+    if (PathEntry->CdDirName.FileName.Buffer[(PathEntry->CdDirName.FileName.Length - sizeof( WCHAR )) / 2] == L'.') {
+
+        //
+        //  Shrink the filename length.
+        //
+
+        PathEntry->CdDirName.FileName.Length -= sizeof( WCHAR );
+    }
+
+    //
+    //  Update the case name buffer if necessary.  If this is an exact case
+    //  operation then just copy the exact case string.
+    //
+
+    if (IgnoreCase) {
+
+        PathEntry->CdCaseDirName.FileName.Buffer = Add2Ptr( PathEntry->CdDirName.FileName.Buffer,
+                                                            PathEntry->CdDirName.FileName.MaximumLength / 2,
+                                                            PWCHAR);
+
+        PathEntry->CdCaseDirName.FileName.MaximumLength = PathEntry->CdDirName.FileName.MaximumLength / 2;
+
+        CdUpcaseName( IrpContext,
+                      &PathEntry->CdDirName,
+                      &PathEntry->CdCaseDirName );
+
+    } else {
+
+        PathEntry->CdCaseDirName = PathEntry->CdDirName;
+    }
+
+    return;
 }
+

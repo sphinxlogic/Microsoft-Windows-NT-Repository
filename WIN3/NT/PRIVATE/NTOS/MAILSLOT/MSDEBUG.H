@@ -101,4 +101,3 @@ LONG MsExceptionCatcher (IN PSZ String);
 #endif // MSDBG
 
 #endif // _MSDEBUG_
-

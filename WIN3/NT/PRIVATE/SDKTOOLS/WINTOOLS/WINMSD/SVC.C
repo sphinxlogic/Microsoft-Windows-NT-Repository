@@ -84,7 +84,7 @@ Return Value:
                 Ess->lpServiceName,
                 SERVICE_QUERY_CONFIG
                 );
-    DbgHandleAssert( Handle );
+
     if( Handle == NULL ) {
         return NULL;
     }
@@ -100,6 +100,7 @@ Return Value:
                 0,
                 &BytesNeeded
                 );
+
     DbgAssert( Success == FALSE );
     DbgAssert( GetLastError( ) == ERROR_INSUFFICIENT_BUFFER );
     if(    ( Success == TRUE )
@@ -198,7 +199,13 @@ Return Value:
     //
 
     FreeMemory( hSvc->Ess );
-    CloseServiceHandle( hSvc->ScHandle );
+
+    //
+    // Only attempt to close the ServiceHandle if it is valid
+    //
+    if( hSvc->ScHandle ){
+       CloseServiceHandle( hSvc->ScHandle );
+    }
     FreeObject( hSvc );
 
     return TRUE;
@@ -261,8 +268,6 @@ Return Value:
     LPSVC   Svc;
     DWORD   BytesNeeded;
     DWORD   ResumeHandle;
-    DWORD   dwError;
-    TCHAR   szBuffer[ MAX_PATH ];
 
     //
     // Allocate space for the SVC object.
@@ -292,16 +297,10 @@ Return Value:
                             SC_MANAGER_ENUMERATE_SERVICE
                             );
 
+        DbgHandleAssert( Svc->ScHandle );
+
         if( Svc->ScHandle == NULL ) {
 
-            dwError = GetLastError();
-
-            wsprintf( szBuffer,
-                      GetString( IDS_SC_ERROR ),
-                      dwError,
-                      _lpszSelectedComputer );
-
-            MessageBox( GetFocus(), szBuffer, NULL, MB_OK );
 
             CloseSvc( Svc );
             return NULL;
@@ -431,3 +430,4 @@ Return Value:
             ? &( hSvc->Ess[ hSvc->Current++ ])
             : NULL;
 }
+

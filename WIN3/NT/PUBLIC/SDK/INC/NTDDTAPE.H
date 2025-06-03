@@ -55,6 +55,9 @@ Revision History:
 // The following device control codes are common for all class drivers.  The
 // functions codes defined here must match all of the other class drivers.
 //
+// Warning: these codes will be replaced in the future with the IOCTL_STORAGE
+// codes included below
+//
 
 #define IOCTL_TAPE_CHECK_VERIFY         CTL_CODE(IOCTL_TAPE_BASE, 0x0200, METHOD_BUFFERED, FILE_READ_ACCESS)
 #define IOCTL_TAPE_MEDIA_REMOVAL        CTL_CODE(IOCTL_TAPE_BASE, 0x0201, METHOD_BUFFERED, FILE_READ_ACCESS)
@@ -63,9 +66,14 @@ Revision History:
 #define IOCTL_TAPE_RESERVE              CTL_CODE(IOCTL_TAPE_BASE, 0x0204, METHOD_BUFFERED, FILE_READ_ACCESS)
 #define IOCTL_TAPE_RELEASE              CTL_CODE(IOCTL_TAPE_BASE, 0x0205, METHOD_BUFFERED, FILE_READ_ACCESS)
 #define IOCTL_TAPE_FIND_NEW_DEVICES     CTL_CODE(IOCTL_DISK_BASE, 0x0206, METHOD_BUFFERED, FILE_READ_ACCESS)
-#define IOCTL_TAPE_REMOVE_DEVICE        CTL_CODE(IOCTL_DISK_BASE, 0x0207, METHOD_BUFFERED, FILE_READ_ACCESS)
 
-// begin_winnt
+//
+// The following file contains the IOCTL_STORAGE class ioctls
+//
+
+#include <ntddstor.h>
+
+// begin_winnt begin_ntminitape
 
 //
 // IOCTL_TAPE_ERASE definitions
@@ -180,6 +188,8 @@ typedef struct _TAPE_SET_POSITION {
 #define TAPE_DRIVE_GET_LOGICAL_BLK  0x00200000
 #define TAPE_DRIVE_SET_EOT_WZ_SIZE  0x00400000
 
+#define TAPE_DRIVE_EJECT_MEDIA      0x01000000
+
 #define TAPE_DRIVE_RESERVED_BIT     0x80000000  //don't use this bit!
 //                                              //can't be a low features bit!
 //                                              //reserved; high features only
@@ -288,4 +298,4 @@ typedef struct _TAPE_CREATE_PARTITION {
     ULONG Size;
 } TAPE_CREATE_PARTITION, *PTAPE_CREATE_PARTITION;
 
-// end_winnt
+// end_winnt end_ntminitape

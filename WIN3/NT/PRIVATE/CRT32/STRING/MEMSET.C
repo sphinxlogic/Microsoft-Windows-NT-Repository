@@ -22,9 +22,9 @@
 #include <cruntime.h>
 #include <string.h>
 
-#if	defined(_CRUISER_) || defined(i386)
+#ifdef	_MSC_VER
 #pragma function(memset)
-#endif  /* ndef _CRUISER_ */
+#endif
 
 /***
 *char *memset(dst, val, count) - sets "count" bytes at "dst" to "val"
@@ -53,7 +53,7 @@ void * _CALLTYPE1 memset (
 {
 	void *start = dst;
 
-#if defined(MIPS) || defined(_ALPHA_)
+#if	defined(_M_MRX000) || defined(_M_ALPHA) || defined(_M_PPC)
         {
         extern void RtlFillMemory( void *, size_t count, char );
 

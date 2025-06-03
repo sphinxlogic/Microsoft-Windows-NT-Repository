@@ -26,14 +26,14 @@
 
 static LPTSTR ServName;
 static TCHAR szPassword[PWLEN+1];
-static TCHAR szUserName[MAX_NT_USER_NAME_LEN + 1];
+static TCHAR szUserName[MAX_USER_NAME_LEN + 1];
 
 LRESULT CALLBACK PasswordDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam);
 BOOL BadPassword;
 
 /*+-------------------------------------------------------------------------+
-  | FixPathSlash()                                                          |
-  |                                                                         |
+  | FixPathSlash()
+  |
   +-------------------------------------------------------------------------+*/
 void FixPathSlash(LPTSTR NewPath, LPTSTR Path) {
    UINT PathLen;
@@ -48,8 +48,8 @@ void FixPathSlash(LPTSTR NewPath, LPTSTR Path) {
 
 
 /*+-------------------------------------------------------------------------+
-  | ShareNameParse()                                                        |
-  |                                                                         |
+  | ShareNameParse()
+  |
   +-------------------------------------------------------------------------+*/
 LPTSTR ShareNameParse(LPTSTR ShareName) {
    ULONG i;
@@ -74,8 +74,8 @@ LPTSTR ShareNameParse(LPTSTR ShareName) {
 
 static LPTSTR LocName = NULL;
 /*+-------------------------------------------------------------------------+
-  | GetLocalName()                                                          |
-  |                                                                         |
+  | GetLocalName()
+  |
   +-------------------------------------------------------------------------+*/
 void GetLocalName(LPTSTR *lpLocalName) {
    int size;
@@ -97,8 +97,8 @@ void GetLocalName(LPTSTR *lpLocalName) {
 
 
 /*+-------------------------------------------------------------------------+
-  | SetProvider()                                                           |
-  |                                                                         |
+  | SetProvider()
+  |
   +-------------------------------------------------------------------------+*/
 BOOL SetProvider(LPTSTR Provider, NETRESOURCE *ResourceBuf) {
    ResourceBuf->dwScope = RESOURCE_GLOBALNET;
@@ -119,8 +119,8 @@ BOOL SetProvider(LPTSTR Provider, NETRESOURCE *ResourceBuf) {
 
 
 /*+-------------------------------------------------------------------------+
-  | AllocEnumBuffer()                                                       |
-  |                                                                         |
+  | AllocEnumBuffer()
+  |
   +-------------------------------------------------------------------------+*/
 ENUM_REC *AllocEnumBuffer() {
    ENUM_REC *Buf;
@@ -142,13 +142,13 @@ ENUM_REC *AllocEnumBuffer() {
 
 
 /*+-------------------------------------------------------------------------+
-  | EnumBufferBuild()                                                       |
-  |                                                                         |
-  |    Uses WNetEnum to enumerate the resource.  WNetEnum is really brain-  |
-  |    dead so we need to create a temporary holding array and then build   |
-  |    up a finalized complete buffer in the end.  A linked list of inter-  |
-  |    mediate buffer records is created first.                             |
-  |                                                                         |
+  | EnumBufferBuild()
+  |
+  |    Uses WNetEnum to enumerate the resource.  WNetEnum is really brain-
+  |    dead so we need to create a temporary holding array and then build
+  |    up a finalized complete buffer in the end.  A linked list of inter-
+  |    mediate buffer records is created first.
+  |
   +-------------------------------------------------------------------------+*/
 DWORD FAR PASCAL EnumBufferBuild(ENUM_REC **BufHead, int *NumBufs, NETRESOURCE ResourceBuf) {
    DWORD status = ERROR_NO_NETWORK;
@@ -223,23 +223,23 @@ DWORD FAR PASCAL EnumBufferBuild(ENUM_REC **BufHead, int *NumBufs, NETRESOURCE R
 
 
 /*+-------------------------------------------------------------------------+
-  | UseAddPswd()                                                            |
-  |                                                                         |
-  |   Attempts to make connections to \\szServer\admin$, asking for         |
-  |   passwords if necessary.                                               |
-  |                                                                         |
-  | Returns TRUE if use was added,                                          |
-  |         FALSE otherwise                                                 |
-  |                                                                         |
+  | UseAddPswd()
+  |
+  |   Attempts to make connections to \\szServer\admin$, asking for
+  |   passwords if necessary.
+  |
+  | Returns TRUE if use was added,
+  |         FALSE otherwise
+  |
   +-------------------------------------------------------------------------+*/
-BOOL UseAddPswd(HWND hwnd, LPTSTR UserName, LPTSTR lpszServer, LPTSTR lpszShare) {
+BOOL UseAddPswd(HWND hwnd, LPTSTR UserName, LPTSTR lpszServer, LPTSTR lpszShare, LPTSTR Provider) {
     WORD nState;
     WORD fCancel;
     DLGPROC lpProc;
     NETRESOURCE nr;
     NET_API_STATUS retcode;
     LPTSTR lpPassword;
-    static TCHAR szTmp[256];
+    static TCHAR szTmp[MAX_UNC_PATH+1];
 
     ServName = lpszServer;
 
@@ -261,6 +261,7 @@ BOOL UseAddPswd(HWND hwnd, LPTSTR UserName, LPTSTR lpszServer, LPTSTR lpszShare)
         // Fill in data structure
         nr.lpLocalName = NULL;
         nr.lpRemoteName = szTmp;
+        nr.lpProvider = Provider;
 
         // Try to make the connection
         if (lstrlen(szUserName))
@@ -268,7 +269,7 @@ BOOL UseAddPswd(HWND hwnd, LPTSTR UserName, LPTSTR lpszServer, LPTSTR lpszShare)
         else
            retcode = WNetAddConnection2(&nr, lpPassword, NULL, 0);
 
-        switch(retcode) {
+	switch(retcode) {
             case NERR_Success:
                 lstrcpy(UserName, szUserName);
                 return TRUE;
@@ -279,7 +280,9 @@ BOOL UseAddPswd(HWND hwnd, LPTSTR UserName, LPTSTR lpszServer, LPTSTR lpszShare)
 
             case ERROR_ACCESS_DENIED:
             case ERROR_NETWORK_ACCESS_DENIED:
+	    case ERROR_SESSION_CREDENTIAL_CONFLICT:
             case ERROR_NO_SUCH_USER:
+            case ERROR_NO_MORE_ITEMS:
             case ERROR_LOGON_FAILURE:
                 BadPassword = FALSE;
                 break;
@@ -298,7 +301,7 @@ BOOL UseAddPswd(HWND hwnd, LPTSTR UserName, LPTSTR lpszServer, LPTSTR lpszShare)
         // Gamble call only once
         FreeProcInstance(lpProc);
 
-        // Save...
+	// Save...
         if(!fCancel) {
             if(nState) {
                 nState = 2; // try specified password
@@ -307,20 +310,22 @@ BOOL UseAddPswd(HWND hwnd, LPTSTR UserName, LPTSTR lpszServer, LPTSTR lpszShare)
                 nState = 1; // try default password
                 lpPassword = NULL;
             }
-        } else
-            return FALSE;
+	} else {
+	    SetLastError(ERROR_SUCCESS); // just aborting...
+	    return FALSE;
+	}
     }
 
 } // UseAddPswd
 
 
 /*+-------------------------------------------------------------------------+
-  | PasswordDlgProc()                                                       |
-  |                                                                         |
-  |   Gets a password from the user and copies it into the string pointed   |
-  |   to by lParam.  This string must have room for at least (PWLEN + 1)    |
-  |   characters.  Returns TRUE if OK is pressed, or FALSE if Cancel        |
-  |                                                                         |
+  | PasswordDlgProc()
+  |
+  |   Gets a password from the user and copies it into the string pointed
+  |   to by lParam.  This string must have room for at least (PWLEN + 1)
+  |   characters.  Returns TRUE if OK is pressed, or FALSE if Cancel
+  |
   +-------------------------------------------------------------------------+*/
 LRESULT CALLBACK PasswordDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam) {
 
@@ -333,22 +338,16 @@ LRESULT CALLBACK PasswordDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lPar
 
          SetDlgItemText(hDlg, IDC_SERVNAME, ServName);
          SendDlgItemMessage(hDlg, IDC_PASSWORD, EM_LIMITTEXT, PWLEN, 0L);
-         SendDlgItemMessage(hDlg, IDC_USERNAME, EM_LIMITTEXT, MAX_NT_USER_NAME_LEN, 0L);
+         SendDlgItemMessage(hDlg, IDC_USERNAME, EM_LIMITTEXT, MAX_USER_NAME_LEN, 0L);
          PostMessage(hDlg, WM_COMMAND, ID_INIT, 0L);
          break;
-
-#ifdef Ctl3d
-      case WM_SYSCOLORCHANGE:
-         Ctl3dColorChange();
-         break;
-#endif
 
       case WM_COMMAND:
          switch(wParam) {
             case IDOK:
                CursorHourGlass();
                GetDlgItemText(hDlg, IDC_PASSWORD, szPassword, PWLEN+1);
-               GetDlgItemText(hDlg, IDC_USERNAME, szUserName, MAX_NT_USER_NAME_LEN+1);
+               GetDlgItemText(hDlg, IDC_USERNAME, szUserName, MAX_USER_NAME_LEN+1);
 
                EndDialog(hDlg, TRUE);
                break;
@@ -384,8 +383,8 @@ LRESULT CALLBACK PasswordDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lPar
 
 
 /*+-------------------------------------------------------------------------+
-  | NicePath()                                                              |
-  |                                                                         |
+  | NicePath()
+  |
   +-------------------------------------------------------------------------+*/
 LPTSTR NicePath(int Len, LPTSTR Path) {
    static TCHAR NewPath[MAX_PATH + 80];
@@ -436,5 +435,3 @@ LPTSTR NicePath(int Len, LPTSTR Path) {
    return NewPath;
 
 } // NicePath
-
-

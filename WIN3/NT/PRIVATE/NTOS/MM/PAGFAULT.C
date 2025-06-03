@@ -22,20 +22,30 @@ Revision History:
 
 #define STATUS_ISSUE_PAGING_IO (0xC0033333)
 #define STATUS_PTE_CHANGED 0x87303000
-#define STATUS_REFAULT 0x87303001
+#define STATUS_REFAULT 0xC7303001
 
 #if DBG
 extern ULONG MmPagingFileDebug[8192];
 #endif
 
-extern KSPIN_LOCK KiDispatcherLock;
-
 extern MMPTE MmSharedUserDataPte;
-
 
 MMINPAGE_SUPPORT_LIST MmInPageSupportList;
 
 
+VOID
+MiHandleBankedSection (
+    IN PVOID VirtualAddress,
+    IN PMMVAD Vad
+    );
+
+NTSTATUS
+MiCompleteProtoPteFault (
+    IN BOOLEAN StoreInstruction,
+    IN PVOID FaultingAddress,
+    IN PMMPTE PointerPte,
+    IN PMMPTE PointerProtoPte
+    );
 
 
 NTSTATUS
@@ -77,7 +87,7 @@ Return Value:
 
 Environment:
 
-    Kernel mode, PFN lock held.
+    Kernel mode, working set lock held.
 
 --*/
 
@@ -87,7 +97,7 @@ Environment:
     PMMINPAGE_SUPPORT ReadBlock;
     MMPTE SavedPte;
     PMMINPAGE_SUPPORT CapturedEvent;
-    KIRQL OldIrql = APC_LEVEL;
+    KIRQL OldIrql;
     PULONG Page;
     ULONG PageFrameIndex;
     LONG NumberOfBytes;
@@ -95,22 +105,30 @@ Environment:
     PMMPTE ReadPte;
     PMMPFN PfnClusterPage;
     PMMPFN Pfn1;
-    PMMPFN Pfn2;
-
-    MM_PFN_LOCK_ASSERT();
-
-    TempPte = *PointerPte;
-    ASSERT (TempPte.u.Hard.Valid == 0);
-    ASSERT (TempPte.u.Long != 0);
 
 ProtoPteNotResident:
 
     if (PointerProtoPte != NULL) {
 
+        //
+        // Acquire the PFN lock to synchronize access to prototype PTEs.
+        // This is required as the working set lock will not prevent
+        // multiple processes from operating on the same prototype PTE.
+        //
+
+        LOCK_PFN (OldIrql)
+
+        //
+        // Make sure the prototptes are in memory.  For
+        // user mode faults, this should already be the case.
+        //
+
         if (!MI_IS_PHYSICAL_ADDRESS(PointerProtoPte)) {
             CheckPte = MiGetPteAddress (PointerProtoPte);
 
             if (CheckPte->u.Hard.Valid == 0) {
+
+                ASSERT (Process == NULL);
 
                 //
                 // The page that contains the prototype PTE is not in memory.
@@ -118,10 +136,21 @@ ProtoPteNotResident:
 
                 VirtualAddress =  PointerProtoPte,
                 PointerPte = CheckPte;
-                TempPte = *CheckPte;
                 PointerProtoPte = NULL;
+                UNLOCK_PFN (OldIrql);
                 goto ProtoPteNotResident;
             }
+        }
+
+        if (PointerPte->u.Hard.Valid == 1) {
+
+            //
+            // PTE was already made valid by the cache manager support
+            // routines.
+            //
+
+            UNLOCK_PFN (OldIrql);
+            return STATUS_SUCCESS;
         }
 
         ReadPte = PointerProtoPte;
@@ -131,38 +160,55 @@ ProtoPteNotResident:
                                          PointerProtoPte,
                                          &ReadBlock,
                                          Process);
-
-    } else if (TempPte.u.Soft.Transition != 0) {
-
         //
-        // This is a transition page.
+        // Returns with PFN lock released.
         //
 
-        status = MiResolveTransitionFault (VirtualAddress,
-                                          PointerPte,
-                                          Process);
-
-    } else if (TempPte.u.Soft.PageFileHigh == 0) {
-
-        //
-        // Demand zero fault.
-        //
-
-        status = MiResolveDemandZeroFault (VirtualAddress, PointerPte, Process);
+        ASSERT (KeGetCurrentIrql() == APC_LEVEL);
 
     } else {
 
-        //
-        // Page resides in paging file.
-        //
+        TempPte = *PointerPte;
+        ASSERT (TempPte.u.Long != 0);
+        ASSERT (TempPte.u.Hard.Valid == 0);
 
-        ReadPte = PointerPte;
-        status = MiResolvePageFileFault (VirtualAddress,
-                                         PointerPte,
-                                         &ReadBlock,
-                                         Process);
+        if (TempPte.u.Soft.Transition != 0) {
+
+            //
+            // This is a transition page.
+            //
+
+            status = MiResolveTransitionFault (VirtualAddress,
+                                               PointerPte,
+                                               Process,
+                                               FALSE);
+
+        } else if (TempPte.u.Soft.PageFileHigh == 0) {
+
+            //
+            // Demand zero fault.
+            //
+
+            status = MiResolveDemandZeroFault (VirtualAddress,
+                                               PointerPte,
+                                               Process,
+                                               FALSE);
+        } else {
+
+            //
+            // Page resides in paging file.
+            //
+
+            ReadPte = PointerPte;
+            LOCK_PFN (OldIrql);
+            status = MiResolvePageFileFault (VirtualAddress,
+                                             PointerPte,
+                                             &ReadBlock,
+                                             Process);
+        }
     }
 
+    ASSERT (KeGetCurrentIrql() == APC_LEVEL);
     if (NT_SUCCESS(status)) {
         return status;
     }
@@ -173,14 +219,14 @@ ProtoPteNotResident:
 
         CapturedEvent = (PMMINPAGE_SUPPORT)ReadBlock->Pfn->u1.Event;
 
-        UNLOCK_PFN (OldIrql);
-
         if (Process != NULL) {
             UNLOCK_WS (Process);
+        } else {
+            UNLOCK_SYSTEM_WS(APC_LEVEL);
         }
 
 #if DBG
-        if (MmDebug & 0x8) {
+        if (MmDebug & MM_DBG_PAGEFAULT) {
             DbgPrint ("MMFAULT: va: %8lx size: %lx process: %s file: %Z\n",
                 VirtualAddress,
                 ReadBlock->Mdl.ByteCount,
@@ -227,24 +273,21 @@ ProtoPteNotResident:
                                   Process);
 
         //
+        // MiWaitForInPageComplete RETURNS WITH THE WORKING SET LOCK
+        // AND PFN LOCK HELD!!!
+        //
+
+        //
         // This is the thread which owns the event, clear the event field
         // in the PFN database.
         //
 
         Pfn1 = ReadBlock->Pfn;
-        Pfn2 = MI_PFN_ELEMENT (Pfn1->u3.e1.PteFrame);
         Page = &ReadBlock->Page[0];
         NumberOfBytes = (LONG)ReadBlock->Mdl.ByteCount;
         CheckPte = ReadBlock->BasePte;
 
         while (NumberOfBytes > 0) {
-
-            //
-            // Decrement the valid PTE count that was incremented during
-            // the read.
-            //
-
-            Pfn2->ValidPteCount -= 1;
 
             //
             // Don't remove the page we just brought in the
@@ -253,7 +296,7 @@ ProtoPteNotResident:
 
             if (CheckPte != ReadPte) {
                 PfnClusterPage = MI_PFN_ELEMENT (*Page);
-                ASSERT (PfnClusterPage->u3.e1.PteFrame == Pfn1->u3.e1.PteFrame);
+                ASSERT (PfnClusterPage->PteFrame == Pfn1->PteFrame);
 
                 if (PfnClusterPage->u3.e1.ReadInProgress != 0) {
 
@@ -283,6 +326,7 @@ ProtoPteNotResident:
                 // return success and refault.
                 //
 
+                UNLOCK_PFN (APC_LEVEL);
                 return STATUS_SUCCESS;
 
             } else {
@@ -305,7 +349,7 @@ ProtoPteNotResident:
 
                     if (PfnClusterPage->u3.e1.InPageError == 1) {
 
-                        if (PfnClusterPage->ReferenceCount == 0) {
+                        if (PfnClusterPage->u3.e2.ReferenceCount == 0) {
 
                             PfnClusterPage->u3.e1.InPageError = 0;
                             ASSERT (PfnClusterPage->u3.e1.PageLocation ==
@@ -320,7 +364,7 @@ ProtoPteNotResident:
                     Page += 1;
                     NumberOfBytes -= PAGE_SIZE;
                 }
-
+                UNLOCK_PFN (APC_LEVEL);
                 return status;
             }
         }
@@ -333,21 +377,11 @@ ProtoPteNotResident:
         Pfn1->u2.ShareCount += 1;
         Pfn1->u3.e1.PageLocation = ActiveAndValid;
 
-        //
-        // As the PTE went from transition to valid, the number of valid
-        // count for the page table page which contains the PTE must be
-        // incremented.
-        //
-
-        Pfn2->ValidPteCount += 1;
-
         MI_MAKE_TRANSITION_PTE_VALID (TempPte, ReadPte);
-
+        if (StoreInstruction && TempPte.u.Hard.Write) {
+            MI_SET_PTE_DIRTY (TempPte);
+        }
         *ReadPte = TempPte;
-        MiAddValidPageToWorkingSet (VirtualAddress,
-                                    ReadPte,
-                                    Pfn1,
-                                    0);
 
         if (PointerProtoPte != NULL) {
 
@@ -357,6 +391,9 @@ ProtoPteNotResident:
             //
 
             if (PointerPte->u.Hard.Valid == 0) {
+#if DBG
+                NTSTATUS oldstatus = status;
+#endif //DBG
 
                 //
                 // PTE is not valid, continue with operation.
@@ -365,11 +402,39 @@ ProtoPteNotResident:
                 status = MiCompleteProtoPteFault (StoreInstruction,
                                                   VirtualAddress,
                                                   PointerPte,
-                                                  PointerProtoPte,
-                                                  status);
+                                                  PointerProtoPte);
+
+                //
+                // Returns with PFN lock release!
+                //
+
+#if DBG
+                if (PointerPte->u.Hard.Valid == 0) {
+                    DbgPrint ("MM:PAGFAULT - va %lx  %lx  %lx  status:%lx\n",
+                        VirtualAddress, PointerPte, PointerProtoPte, oldstatus);
+                }
+#endif //DBG
             }
+        } else {
+
+            if (Pfn1->u1.WsIndex == 0) {
+                Pfn1->u1.WsIndex = (ULONG)PsGetCurrentThread();
+            }
+
+            UNLOCK_PFN (APC_LEVEL);
+            MiAddValidPageToWorkingSet (VirtualAddress,
+                                        ReadPte,
+                                        Pfn1,
+                                        0);
         }
+
+        //
+        // Note, this routine could release and reacquire the PFN lock!
+        //
+
+        LOCK_PFN (OldIrql);
         MiFlushInPageSupportBlock();
+        UNLOCK_PFN (APC_LEVEL);
 
         if (status == STATUS_SUCCESS) {
             status = STATUS_PAGE_FAULT_PAGING_FILE;
@@ -378,9 +443,9 @@ ProtoPteNotResident:
 
     if ((status == STATUS_REFAULT) ||
         (status == STATUS_PTE_CHANGED)) {
-        return STATUS_SUCCESS;
+        status = STATUS_SUCCESS;
     }
-
+    ASSERT (KeGetCurrentIrql() == APC_LEVEL);
     return status;
 }
 
@@ -389,7 +454,8 @@ NTSTATUS
 MiResolveDemandZeroFault (
     IN PVOID VirtualAddress,
     IN PMMPTE PointerPte,
-    IN PEPROCESS Process
+    IN PEPROCESS Process,
+    IN ULONG PrototypePte
     )
 
 /*++
@@ -397,6 +463,10 @@ MiResolveDemandZeroFault (
 Routine Description:
 
     This routine resolves a demand zero page fault.
+
+    If the PrototypePte argument is true, the PFN lock is
+    held, the lock cannot be dropped, and the page should
+    not be added to the working set at this time.
 
 Arguments:
 
@@ -408,13 +478,15 @@ Arguments:
               parameter is NULL, then the fault is for system
               space and the Process's working set lock is not held.
 
+    PrototypePte - Supplies TRUE if this is a prototype PTE.
+
 Return Value:
 
     status, either STATUS_SUCCESS or STATUS_REFAULT.
 
 Environment:
 
-    Kernel mode, PFN lock held.
+    Kernel mode, PFN lock held conditionally.
 
 --*/
 
@@ -432,10 +504,18 @@ Environment:
     // returned, do not continue, just return success.
     //
 
+    if (!PrototypePte) {
+        LOCK_PFN (OldIrql);
+    }
+
+    MM_PFN_LOCK_ASSERT();
+
+    ASSERT (PointerPte->u.Hard.Valid == 0);
+
     if (!MiEnsureAvailablePageOrWait (Process,
                                       VirtualAddress)) {
 
-        if (Process != NULL) {
+        if ((Process != NULL) && (!PrototypePte)) {
 
             //
             // If a fork operation is in progress and the faulting thread
@@ -446,27 +526,19 @@ Environment:
             if ((Process->ForkInProgress != NULL) &&
                 (Process->ForkInProgress != PsGetCurrentThread())) {
                 MiWaitForForkToComplete (Process);
+                UNLOCK_PFN (APC_LEVEL);
                 return STATUS_REFAULT;
             }
 
             Process->NumberOfPrivatePages += 1;
             PageColor = MI_PAGE_COLOR_VA_PROCESS (VirtualAddress,
                                                &Process->NextPageColor);
-            if (PointerPte > (PMMPTE)PDE_TOP) {
+            ASSERT (PointerPte <= (PMMPTE)PDE_TOP);
 
-                //
-                // This is a prototype PTE, don't drop the PFN
-                // database lock, just get a zero page.
-                //
-
-                PageFrameIndex = MiRemoveZeroPage (PageColor);
-            } else {
-
-                PageFrameIndex = MiRemoveZeroPageIfAny (PageColor);
-                if (PageFrameIndex == 0) {
-                    PageFrameIndex = MiRemoveAnyPage (PageColor);
-                    NeedToZero = TRUE;
-                }
+            PageFrameIndex = MiRemoveZeroPageIfAny (PageColor);
+            if (PageFrameIndex == 0) {
+                PageFrameIndex = MiRemoveAnyPage (PageColor);
+                NeedToZero = TRUE;
             }
 
         } else {
@@ -478,17 +550,23 @@ Environment:
             // the system before used.
             //
 
-            PageFrameIndex = MiRemoveAnyPage (PageColor);
+            if (PrototypePte) {
+                PageFrameIndex = MiRemoveZeroPage (PageColor);
+            } else {
+                PageFrameIndex = MiRemoveAnyPage (PageColor);
+            }
         }
 
         MmInfoCounters.DemandZeroCount += 1;
 
         MiInitializePfn (PageFrameIndex, PointerPte, 1);
 
-        if (NeedToZero) {
+        if (!PrototypePte) {
             UNLOCK_PFN (APC_LEVEL);
+        }
+
+        if (NeedToZero) {
             MiZeroPhysicalPage (PageFrameIndex, PageColor);
-            LOCK_PFN (OldIrql);
         }
 
         //
@@ -504,17 +582,23 @@ Environment:
                            PointerPte);
 
         if (TempPte.u.Hard.Write != 0) {
-            TempPte.u.Hard.Dirty = MM_PTE_DIRTY;
+            MI_SET_PTE_DIRTY (TempPte);
         }
 
         *PointerPte = TempPte;
-
-        MiAddValidPageToWorkingSet (VirtualAddress,
-                                    PointerPte,
-                                    Pfn1,
-                                    0);
-
+        if (!PrototypePte) {
+            ASSERT (Pfn1->u1.WsIndex == 0);
+            Pfn1->u1.WsIndex = (ULONG)PsGetCurrentThread();
+            MiAddValidPageToWorkingSet (VirtualAddress,
+                                        PointerPte,
+                                        Pfn1,
+                                        0);
+        }
         return STATUS_PAGE_FAULT_DEMAND_ZERO;
+    }
+
+    if (!PrototypePte) {
+        UNLOCK_PFN (APC_LEVEL);
     }
     return STATUS_REFAULT;
 }
@@ -524,7 +608,8 @@ NTSTATUS
 MiResolveTransitionFault (
     IN PVOID FaultingAddress,
     IN PMMPTE PointerPte,
-    IN PEPROCESS CurrentProcess
+    IN PEPROCESS CurrentProcess,
+    IN ULONG PfnLockHeld
     )
 
 /*++
@@ -557,13 +642,11 @@ Environment:
 {
     ULONG PageFrameIndex;
     PMMPFN Pfn1;
-    PMMPFN Pfn2;
     MMPTE TempPte;
     NTSTATUS status;
     NTSTATUS PfnStatus;
-    BOOLEAN IncrementValidPteCount = TRUE;
     PMMINPAGE_SUPPORT CapturedEvent;
-    KIRQL OldIrql = APC_LEVEL;
+    KIRQL OldIrql;
 
     //
     // ***********************************************************
@@ -573,188 +656,217 @@ Environment:
 
     //
     // A transition PTE is either on the free or modified list,
-    // on neither list because of its ReferenceCount or ValidPteCount
+    // on neither list because of its ReferenceCount
     // or currently being read in from the disk (read in progress).
     // If the page is read in progress, this is a collided page
     // and must be handled accordingly.
     //
 
-    MmInfoCounters.TransitionCount += 1;
-
-    PageFrameIndex = PointerPte->u.Trans.PageFrameNumber;
-    Pfn1 = MI_PFN_ELEMENT (PageFrameIndex);
-
-    if (Pfn1->u3.e1.InPageError) {
-
-        //
-        // There was an in-page read error and there are other
-        // threads collidiing for this page, delay to let the
-        // other threads complete and return.
-        //
-
-        ASSERT (!NT_SUCCESS(Pfn1->u1.ReadStatus));
-        return Pfn1->u1.ReadStatus;
+    if (!PfnLockHeld) {
+        LOCK_PFN (OldIrql);
     }
 
-    if (Pfn1->u3.e1.ReadInProgress) {
+    TempPte = *PointerPte;
+
+    if ((TempPte.u.Soft.Valid == 0) &&
+        (TempPte.u.Soft.Prototype == 0) &&
+        (TempPte.u.Soft.Transition == 1)) {
 
         //
-        // Collided page fault.
+        // Still in transition format.
         //
+
+        MmInfoCounters.TransitionCount += 1;
+
+        PageFrameIndex = TempPte.u.Trans.PageFrameNumber;
+        Pfn1 = MI_PFN_ELEMENT (PageFrameIndex);
+
+        if (Pfn1->u3.e1.InPageError) {
+
+            //
+            // There was an in-page read error and there are other
+            // threads collidiing for this page, delay to let the
+            // other threads complete and return.
+            //
+
+            ASSERT (!NT_SUCCESS(Pfn1->u1.ReadStatus));
+            if (!PfnLockHeld) {
+                UNLOCK_PFN (APC_LEVEL);
+            }
+            return Pfn1->u1.ReadStatus;
+        }
+
+        if (Pfn1->u3.e1.ReadInProgress) {
+
+            //
+            // Collided page fault.
+            //
 
 #if DBG
-        if (MmDebug & 0x1000) {
-            DbgPrint("MM:collided page fault\n");
-        }
+            if (MmDebug & MM_DBG_COLLIDED_PAGE) {
+                DbgPrint("MM:collided page fault\n");
+            }
 #endif
 
-        TempPte = *PointerPte;
-
-        //
-        // Increment the reference count for the page so it won't be
-        // reused until all collisions have been completed.
-        //
-
-        Pfn1->ReferenceCount += 1;
-
-        CapturedEvent = (PMMINPAGE_SUPPORT)Pfn1->u1.Event;
-        CapturedEvent->WaitCount += 1;
-
-        UNLOCK_PFN (OldIrql);
-
-        if (CurrentProcess != NULL) {
-            UNLOCK_WS (CurrentProcess);
-        }
-
-        status = MiWaitForInPageComplete (Pfn1,
-                                          PointerPte,
-                                          FaultingAddress,
-                                          &TempPte,
-                                          CapturedEvent,
-                                          CurrentProcess);
-
-        ASSERT (Pfn1->u3.e1.ReadInProgress == 0);
-
-        if (status != STATUS_SUCCESS) {
-            PfnStatus = Pfn1->u1.ReadStatus;
-            MiDecrementReferenceCount (PageFrameIndex);
-
             //
-            // Check to see if an I/O error occurred on this page.
-            // If so, try to free the physical page, wait a
-            // half second and return a status of PTE_CHANGED.
-            // This will result in a success being returned to
-            // the user and the fault will occur again and should
-            // not be a transition fault this time.
+            // Increment the reference count for the page so it won't be
+            // reused until all collisions have been completed.
             //
 
-            if (Pfn1->u3.e1.InPageError == 1) {
-                status = PfnStatus;
-                if (Pfn1->ReferenceCount == 0) {
+            Pfn1->u3.e2.ReferenceCount += 1;
 
-                    Pfn1->u3.e1.InPageError = 0;
-                    ASSERT (Pfn1->u3.e1.PageLocation ==
-                                                    StandbyPageList);
+            CapturedEvent = (PMMINPAGE_SUPPORT)Pfn1->u1.Event;
+            CapturedEvent->WaitCount += 1;
 
-                    MiUnlinkPageFromList (Pfn1);
-                    MiRestoreTransitionPte (PageFrameIndex);
-                    MiInsertPageInList (MmPageLocationList[FreePageList],
-                                    PageFrameIndex);
+            UNLOCK_PFN (APC_LEVEL);
+
+            if (CurrentProcess != NULL) {
+                UNLOCK_WS (CurrentProcess);
+            } else {
+                UNLOCK_SYSTEM_WS (APC_LEVEL);
+            }
+
+            status = MiWaitForInPageComplete (Pfn1,
+                                              PointerPte,
+                                              FaultingAddress,
+                                              &TempPte,
+                                              CapturedEvent,
+                                              CurrentProcess);
+            //
+            // MiWaitForInPageComplete RETURNS WITH THE WORKING SET LOCK
+            // AND PFN LOCK HELD!!!
+            //
+
+            ASSERT (Pfn1->u3.e1.ReadInProgress == 0);
+
+            if (status != STATUS_SUCCESS) {
+                PfnStatus = Pfn1->u1.ReadStatus;
+                MiDecrementReferenceCount (PageFrameIndex);
+
+                //
+                // Check to see if an I/O error occurred on this page.
+                // If so, try to free the physical page, wait a
+                // half second and return a status of PTE_CHANGED.
+                // This will result in a success being returned to
+                // the user and the fault will occur again and should
+                // not be a transition fault this time.
+                //
+
+                if (Pfn1->u3.e1.InPageError == 1) {
+                    status = PfnStatus;
+                    if (Pfn1->u3.e2.ReferenceCount == 0) {
+
+                        Pfn1->u3.e1.InPageError = 0;
+                        ASSERT (Pfn1->u3.e1.PageLocation ==
+                                                        StandbyPageList);
+
+                        MiUnlinkPageFromList (Pfn1);
+                        MiRestoreTransitionPte (PageFrameIndex);
+                        MiInsertPageInList (MmPageLocationList[FreePageList],
+                                        PageFrameIndex);
+                    }
                 }
-            }
 
 #if DBG
-            if (MmDebug & 0x1000) {
-                DbgPrint("MM:decrement ref count - pte changed\n");
-                MiFormatPfn(Pfn1);
-            }
+                if (MmDebug & MM_DBG_COLLIDED_PAGE) {
+                    DbgPrint("MM:decrement ref count - pte changed\n");
+                    MiFormatPfn(Pfn1);
+                }
 #endif
-            return status;
-        }
-
-    } else {
-
-        //
-        // PTE refers to a normal transition PTE.
-        //
-
-        ASSERT (Pfn1->u3.e1.InPageError == 0);
-        if (Pfn1->u3.e1.PageLocation == ActiveAndValid) {
-
-            //
-            // This PTE must be a page table page which was removed
-            // from the working set because none of the PTEs within the
-            // page table page were valid, but some are still in the
-            // transition state.  Make the page valid without incrementing
-            // the refererence count, but increment the share count.
-            //
-
-            ASSERT ((Pfn1->PteAddress >= (PMMPTE)PDE_BASE) &&
-                    (Pfn1->PteAddress <= (PMMPTE)PDE_TOP));
-
-            //
-            // Don't increment the valid pte count for the
-            // page table page.
-            //
-
-            IncrementValidPteCount = FALSE;
-            ASSERT (Pfn1->u2.ShareCount != 0);
-            ASSERT (Pfn1->ReferenceCount != 0);
+                if (!PfnLockHeld) {
+                    UNLOCK_PFN (APC_LEVEL);
+                }
+                return status;
+            }
 
         } else {
 
-            MiUnlinkPageFromList (Pfn1);
+            //
+            // PTE refers to a normal transition PTE.
+            //
 
-            //
-            // Update the PFN database, the share count is now 1 and
-            // the reference count is incremented as the share count
-            // just went from zero to 1.
-            //
-            ASSERT (Pfn1->u2.ShareCount == 0);
-            Pfn1->ReferenceCount += 1;
+            ASSERT (Pfn1->u3.e1.InPageError == 0);
+            if (Pfn1->u3.e1.PageLocation == ActiveAndValid) {
+
+                //
+                // This PTE must be a page table page which was removed
+                // from the working set because none of the PTEs within the
+                // page table page were valid, but some are still in the
+                // transition state.  Make the page valid without incrementing
+                // the refererence count, but increment the share count.
+                //
+
+                ASSERT ((Pfn1->PteAddress >= (PMMPTE)PDE_BASE) &&
+                        (Pfn1->PteAddress <= (PMMPTE)PDE_TOP));
+
+                //
+                // Don't increment the valid pte count for the
+                // page table page.
+                //
+
+                ASSERT (Pfn1->u2.ShareCount != 0);
+                ASSERT (Pfn1->u3.e2.ReferenceCount != 0);
+
+            } else {
+
+                MiUnlinkPageFromList (Pfn1);
+
+                //
+                // Update the PFN database, the share count is now 1 and
+                // the reference count is incremented as the share count
+                // just went from zero to 1.
+                //
+                ASSERT (Pfn1->u2.ShareCount == 0);
+                Pfn1->u3.e2.ReferenceCount += 1;
+            }
+        }
+
+        //
+        // Join with collided page fault code to handle updating
+        // the transition PTE.
+        //
+
+        Pfn1->u2.ShareCount += 1;
+        Pfn1->u3.e1.PageLocation = ActiveAndValid;
+
+        MI_MAKE_TRANSITION_PTE_VALID (TempPte, PointerPte);
+
+        //
+        // If the modified field is set in the PFN database and this
+        // page is not copy on modify, then set the dirty bit.
+        // This can be done as the modified page will not be
+        // written to the paging file until this PTE is made invalid.
+        //
+
+        if (Pfn1->u3.e1.Modified && TempPte.u.Hard.Write &&
+                        (TempPte.u.Hard.CopyOnWrite == 0)) {
+            MI_SET_PTE_DIRTY (TempPte);
+        } else {
+            MI_SET_PTE_CLEAN (TempPte);
+        }
+
+        *PointerPte = TempPte;
+
+        if (!PfnLockHeld) {
+
+            if (Pfn1->u1.WsIndex == 0) {
+               Pfn1->u1.WsIndex = (ULONG)PsGetCurrentThread();
+            }
+
+            UNLOCK_PFN (APC_LEVEL);
+
+            MiAddValidPageToWorkingSet (FaultingAddress,
+                                        PointerPte,
+                                        Pfn1,
+                                        0);
+        }
+        return STATUS_PAGE_FAULT_TRANSITION;
+    } else {
+        if (!PfnLockHeld) {
+            UNLOCK_PFN (APC_LEVEL);
         }
     }
-
-    //
-    // Join with collided page fault code to handle updating
-    // the transition PTE.
-    //
-
-    Pfn1->u2.ShareCount += 1;
-    Pfn1->u3.e1.PageLocation = ActiveAndValid;
-
-    if (IncrementValidPteCount) {
-
-        //
-        // The PTE is not a prototype PTE update the working set list entry
-        // and increment the number valid count for the page table page.
-        //
-
-        Pfn2 = MI_PFN_ELEMENT (Pfn1->u3.e1.PteFrame);
-        Pfn2->ValidPteCount += 1;
-    }
-
-    MI_MAKE_TRANSITION_PTE_VALID (TempPte, PointerPte);
-
-    //
-    // If the modified field is set in the PFN database and this
-    // page is not copy on modify, then set the dirty bit.
-    // This can be done as the modified page will not be
-    // written to the paging file until this PTE is made invalid.
-    //
-
-    TempPte.u.Hard.Dirty = (Pfn1->u3.e1.Modified & TempPte.u.Hard.Write &
-                           (TempPte.u.Hard.CopyOnWrite ^ 1)) ?
-                                                        MM_PTE_DIRTY :
-                                                        MM_PTE_CLEAN;
-
-    *PointerPte = TempPte;
-
-    MiAddValidPageToWorkingSet (FaultingAddress,
-                                PointerPte,
-                                Pfn1,
-                                0);
-    return STATUS_PAGE_FAULT_TRANSITION;
+    return STATUS_REFAULT;
 }
 
 
@@ -804,6 +916,7 @@ Environment:
     ULONG PageFileNumber;
     ULONG WorkingSetIndex;
     ULONG PageColor;
+    MMPTE TempPte;
     PETHREAD CurrentThread;
     PMMINPAGE_SUPPORT ReadBlockLocal;
 
@@ -815,6 +928,22 @@ Environment:
     // Calculate the VBN for the in-page operation.
     //
 
+    CurrentThread = PsGetCurrentThread();
+    TempPte = *PointerPte;
+
+    ASSERT (TempPte.u.Hard.Valid == 0);
+    ASSERT (TempPte.u.Soft.Prototype == 0);
+    ASSERT (TempPte.u.Soft.Transition == 0);
+
+    PageFileNumber = GET_PAGING_FILE_NUMBER (TempPte);
+    StartingOffset.LowPart = GET_PAGING_FILE_OFFSET (TempPte);
+
+    ASSERT (StartingOffset.LowPart <= MmPagingFile[PageFileNumber]->Size);
+
+    StartingOffset.HighPart = 0;
+    StartingOffset.QuadPart = StartingOffset.QuadPart << PAGE_SHIFT;
+
+    MM_PFN_LOCK_ASSERT();
     if (MiEnsureAvailablePageOrWait (Process,
                                      FaultingAddress)) {
 
@@ -823,45 +952,42 @@ Environment:
         // repeat this fault.
         //
 
+        UNLOCK_PFN (APC_LEVEL);
         return STATUS_REFAULT;
     }
-
-    CurrentThread = PsGetCurrentThread();
 
     ReadBlockLocal = MiGetInPageSupportBlock (FALSE);
     if (ReadBlockLocal == NULL) {
+        UNLOCK_PFN (APC_LEVEL);
         return STATUS_REFAULT;
     }
-    *ReadBlock = ReadBlockLocal;
-
     MmInfoCounters.PageReadCount += 1;
     MmInfoCounters.PageReadIoCount += 1;
 
-    PageFileNumber = GET_PAGING_FILE_NUMBER (*PointerPte);
+    *ReadBlock = ReadBlockLocal;
+
+    //fixfix can any of this be moved to after pfn lock released?
+
     ReadBlockLocal->FilePointer = MmPagingFile[PageFileNumber]->File;
 
-    StartingOffset.LowPart = GET_PAGING_FILE_OFFSET (*PointerPte);
 #if DBG
 
-    if ((StartingOffset.LowPart < 8192) && (PageFileNumber == 0)) {
+    if (((StartingOffset.LowPart >> PAGE_SHIFT) < 8192) && (PageFileNumber == 0)) {
 
-        if (((MmPagingFileDebug[StartingOffset.LowPart] - 1) << 4) !=
+        if (((MmPagingFileDebug[StartingOffset.LowPart>>PAGE_SHIFT] - 1) << 4) !=
                ((ULONG)PointerPte << 4)) {
-            if (((MmPagingFileDebug[StartingOffset.LowPart] - 1) << 4) !=
+            if (((MmPagingFileDebug[StartingOffset.LowPart>>PAGE_SHIFT] - 1) << 4) !=
                   ((ULONG)(MiGetPteAddress(FaultingAddress)) << 4)) {
 
                DbgPrint("MMINPAGE: Missmatch PointerPte %lx Offset %lx info %lx\n",
                     PointerPte, StartingOffset.LowPart,
-                    MmPagingFileDebug[StartingOffset.LowPart]);
+                    MmPagingFileDebug[StartingOffset.LowPart>>PAGE_SHIFT]);
                DbgBreakPoint();
             }
         }
     }
 #endif //DBG
 
-    ASSERT (StartingOffset.LowPart <= MmPagingFile[PageFileNumber]->Size);
-    StartingOffset.HighPart = 0;
-    StartingOffset.QuadPart = StartingOffset.QuadPart << PAGE_SHIFT;
     ReadBlockLocal->ReadOffset = StartingOffset;
 
     //
@@ -876,8 +1002,6 @@ Environment:
                                               &Process->NextPageColor);
     }
 
-    PageFrameIndex = MiRemoveAnyPage (PageColor);
-    ReadBlockLocal->Pfn = MI_PFN_ELEMENT (PageFrameIndex);
     ReadBlockLocal->BasePte = PointerPte;
 
     KeClearEvent (&ReadBlockLocal->Event);
@@ -888,7 +1012,6 @@ Environment:
 
     MmInitializeMdl(&ReadBlockLocal->Mdl, PAGE_ALIGN(FaultingAddress), PAGE_SIZE);
     ReadBlockLocal->Mdl.MdlFlags |= (MDL_PAGES_LOCKED | MDL_IO_PAGE_READ);
-    ReadBlockLocal->Page[0] = PageFrameIndex;
 
     if ((PointerPte < (PMMPTE)PTE_BASE) ||
         (PointerPte > (PMMPTE)PDE_TOP)) {
@@ -897,11 +1020,16 @@ Environment:
         WorkingSetIndex = 1;
     }
 
+    PageFrameIndex = MiRemoveAnyPage (PageColor);
+    ReadBlockLocal->Pfn = MI_PFN_ELEMENT (PageFrameIndex);
+    ReadBlockLocal->Page[0] = PageFrameIndex;
+
     MiInitializeReadInProgressPfn (
                            &ReadBlockLocal->Mdl,
                            PointerPte,
                            &ReadBlockLocal->Event,
                            WorkingSetIndex);
+    UNLOCK_PFN (APC_LEVEL);
 
     return STATUS_ISSUE_PAGING_IO;
 }
@@ -954,10 +1082,12 @@ Environment:
     ULONG PageFrameIndex;
     PMMPFN Pfn1;
     NTSTATUS status;
-    BOOLEAN CopyOnWrite;
+    ULONG CopyOnWrite;
     MMWSLE ProtoProtect;
     PMMPTE ContainingPageTablePointer;
     PMMPFN Pfn2;
+    KIRQL OldIrql;
+    ULONG PfnHeld = FALSE;
 
     //
     // Acquire the pfn database mutex as the routine to locate a working
@@ -965,10 +1095,9 @@ Environment:
     //
 
     MM_PFN_LOCK_ASSERT();
-    ASSERT (PointerPte->u.Hard.Valid == 0);
 
 #if DBG
-    if (MmDebug & 2) {
+    if (MmDebug & MM_DBG_PTE_UPDATE) {
         DbgPrint("MM:actual fault %lx va %lx\n",PointerPte, FaultingAddress);
         MiFormatPte(PointerPte);
     }
@@ -1000,6 +1129,7 @@ Environment:
         //
 
         MmInfoCounters.TransitionCount += 1;
+        PfnHeld = TRUE;
 
     } else {
 
@@ -1010,13 +1140,14 @@ Environment:
         if (TempPte.u.Long == 0) {
 
 #if DBG
-            if (MmDebug & 0x1000000) {
+            if (MmDebug & MM_DBG_STOP_ON_ACCVIO) {
                 DbgPrint("MM:access vio2 - %lx\n",FaultingAddress);
                 MiFormatPte(PointerPte);
                 DbgBreakPoint();
             }
 #endif //DEBUG
 
+            UNLOCK_PFN (APC_LEVEL);
             return STATUS_ACCESS_VIOLATION;
         }
 
@@ -1035,6 +1166,20 @@ Environment:
                 // that the user has access to the virtual address.
                 //
 
+#if 0 // removed this assert since mapping drivers via MmMapViewInSystemSpace
+      // file violates the assert.
+
+                {
+                    PSUBSECTION Sub;
+                    if (PointerProtoPte->u.Soft.Prototype == 1) {
+                        Sub = MiGetSubsectionAddress (PointerProtoPte);
+                        ASSERT (Sub->u.SubsectionFlags.Protection ==
+                                    PointerProtoPte->u.Soft.Protection);
+                    }
+                }
+
+#endif //DBG
+
                 status = MiAccessCheck (PointerProtoPte,
                                         StoreInstruction,
                                         KernelMode,
@@ -1042,13 +1187,14 @@ Environment:
 
                 if (status != STATUS_SUCCESS) {
 #if DBG
-                    if (MmDebug & 0x1000000) {
+                    if (MmDebug & MM_DBG_STOP_ON_ACCVIO) {
                         DbgPrint("MM:access vio3 - %lx\n",FaultingAddress);
                         MiFormatPte(PointerPte);
                         MiFormatPte(PointerProtoPte);
                         DbgBreakPoint();
                     }
 #endif
+                    UNLOCK_PFN (APC_LEVEL);
                     return status;
                 }
                 if ((PointerProtoPte->u.Soft.Protection & MM_COPY_ON_WRITE_MASK) ==
@@ -1070,11 +1216,16 @@ Environment:
             // write.  Make this PTE a private demand zero PTE.
             //
 
+            ASSERT (Process != NULL);
+
             PointerPte->u.Long = MM_DEMAND_ZERO_WRITE_PTE;
+
+            UNLOCK_PFN (APC_LEVEL);
 
             status = MiResolveDemandZeroFault (FaultingAddress,
                                                PointerPte,
-                                               Process);
+                                               Process,
+                                               FALSE);
             return status;
         }
 
@@ -1098,6 +1249,12 @@ Environment:
                                                ReadBlock,
                                                Process);
 
+            //
+            // Returns with PFN lock held.
+            //
+
+            PfnHeld = TRUE;
+
         } else if (TempPte.u.Soft.Transition == 1) {
 
             //
@@ -1106,7 +1263,14 @@ Environment:
 
             status = MiResolveTransitionFault (FaultingAddress,
                                               PointerProtoPte,
-                                              Process);
+                                              Process,
+                                              TRUE);
+
+            //
+            // Returns with PFN lock held.
+            //
+
+            PfnHeld = TRUE;
 
         } else if (TempPte.u.Soft.PageFileHigh == 0) {
 
@@ -1116,10 +1280,14 @@ Environment:
 
             status = MiResolveDemandZeroFault (FaultingAddress,
                                                PointerProtoPte,
-                                               Process);
-            if ((Process != NULL) && (NT_SUCCESS(status))) {
-                Process->NumberOfPrivatePages -= 1;
-            }
+                                               Process,
+                                               TRUE);
+
+            //
+            // Returns with PFN lock held!
+            //
+
+            PfnHeld = TRUE;
 
         } else {
 
@@ -1131,10 +1299,17 @@ Environment:
                                              PointerProtoPte,
                                              ReadBlock,
                                              Process);
+
+            //
+            // Returns with PFN lock released.
+            //
+            ASSERT (KeGetCurrentIrql() == APC_LEVEL);
         }
     }
 
     if (NT_SUCCESS(status)) {
+
+        MM_PFN_LOCK_ASSERT();
 
         //
         // The prototype PTE is valid, complete the fault.
@@ -1149,6 +1324,7 @@ Environment:
         //
 
         ASSERT (PointerProtoPte->u.Hard.Valid == 1);
+        ASSERT (PointerPte->u.Hard.Valid == 0);
 
         //
         // A PTE just went from not present, not transition to
@@ -1160,7 +1336,6 @@ Environment:
         ContainingPageTablePointer = MiGetPteAddress(PointerPte);
         Pfn2 = MI_PFN_ELEMENT(ContainingPageTablePointer->u.Hard.PageFrameNumber);
         Pfn2->u2.ShareCount += 1;
-        Pfn2->ValidPteCount += 1;
 
         ProtoProtect.u1.Long = 0;
         if (PointerPte->u.Soft.PageFileHigh == 0xFFFFF) {
@@ -1197,7 +1372,7 @@ Environment:
 
         if ((StoreInstruction) && (TempPte.u.Hard.CopyOnWrite == 0)) {
             Pfn1->u3.e1.Modified = 1;
-            TempPte.u.Hard.Dirty = MM_PTE_DIRTY;
+            MI_SET_PTE_DIRTY (TempPte);
             if ((Pfn1->OriginalPte.u.Soft.Prototype == 0) &&
                           (Pfn1->u3.e1.WriteInProgress == 0)) {
                  MiReleasePageFileSpace (Pfn1->OriginalPte);
@@ -1206,13 +1381,24 @@ Environment:
         }
 
         *PointerPte = TempPte;
+
+        if (Pfn1->u1.WsIndex == 0) {
+            Pfn1->u1.WsIndex = (ULONG)PsGetCurrentThread();
+        }
+
+        UNLOCK_PFN (APC_LEVEL);
         MiAddValidPageToWorkingSet (FaultingAddress,
                                     PointerPte,
                                     Pfn1,
                                     ProtoProtect.u1.Long);
 
         ASSERT (PointerPte == MiGetPteAddress(FaultingAddress));
+    } else {
+        if (PfnHeld) {
+            UNLOCK_PFN (APC_LEVEL);
+        }
     }
+
     return status;
 }
 
@@ -1222,8 +1408,7 @@ MiCompleteProtoPteFault (
     IN BOOLEAN StoreInstruction,
     IN PVOID FaultingAddress,
     IN PMMPTE PointerPte,
-    IN PMMPTE PointerProtoPte,
-    IN NTSTATUS Status
+    IN PMMPTE PointerProtoPte
     )
 
 /*++
@@ -1247,12 +1432,6 @@ Arguments:
     PointerProtoPte - Supplies a pointer to the prototype PTE to fault in,
                       NULL if no prototype PTE exists.
 
-    Status - Supplies the status of the read operation.
-
-    Process - Supplies a pointer to the process object.  If this
-              parameter is NULL, then the fault is for system
-              space and the Process's working set lock is not held.
-
 Return Value:
 
     status.
@@ -1269,44 +1448,9 @@ Environment:
     PMMPFN Pfn1;
     PMMPFN Pfn2;
     PMMPTE ContainingPageTablePointer;
+    KIRQL OldIrql;
 
-    if (Status != STATUS_SUCCESS) {
-        if (Status == STATUS_PTE_CHANGED) {
-
-            //
-            // As this was a prototype PTE, check to see if the prototype
-            // PTE was made valid during a collided page fault.
-            //
-
-            PointerPte = MiFindActualFaultingPte (FaultingAddress);
-
-            if ((PointerProtoPte != PointerPte) ||
-                (PointerProtoPte->u.Hard.Valid == 0)) {
-
-                //
-                // Either the faulting PTE changed or the prototype PTE
-                // was not made valid, release the reserved working set
-                // entry and return success.  If the PTE was not made
-                // valid, the pager will be reentered to try again.
-                //
-
-                return STATUS_SUCCESS;
-            }
-        } else {
-
-            //
-            // The page was not made valid, release the working
-            // set entry and return the status.
-            //
-
-#if DBG
-            if (Status != STATUS_VERIFY_REQUIRED) {
-                DbgPrint("MM: non success status returned - %lx\n",Status);
-            }
-#endif
-            return Status;
-        }
-    }
+    MM_PFN_LOCK_ASSERT();
 
     PageFrameIndex = PointerProtoPte->u.Hard.PageFrameNumber;
     Pfn1 = MI_PFN_ELEMENT(PageFrameIndex);
@@ -1328,7 +1472,6 @@ Environment:
     ContainingPageTablePointer = MiGetPteAddress(PointerPte);
     Pfn2 = MI_PFN_ELEMENT(ContainingPageTablePointer->u.Hard.PageFrameNumber);
     Pfn2->u2.ShareCount += 1;
-    Pfn2->ValidPteCount += 1;
 
     ProtoProtect.u1.Long = 0;
     if (PointerPte->u.Soft.PageFileHigh == 0xFFFFF) {
@@ -1365,7 +1508,7 @@ Environment:
 
     if ((StoreInstruction) && (TempPte.u.Hard.CopyOnWrite == 0)) {
         Pfn1->u3.e1.Modified = 1;
-        TempPte.u.Hard.Dirty = MM_PTE_DIRTY;
+        MI_SET_PTE_DIRTY (TempPte);
         if ((Pfn1->OriginalPte.u.Soft.Prototype == 0) &&
                       (Pfn1->u3.e1.WriteInProgress == 0)) {
              MiReleasePageFileSpace (Pfn1->OriginalPte);
@@ -1374,6 +1517,12 @@ Environment:
     }
 
     *PointerPte = TempPte;
+
+    if (Pfn1->u1.WsIndex == 0) {
+        Pfn1->u1.WsIndex = (ULONG)PsGetCurrentThread();
+    }
+
+    UNLOCK_PFN (APC_LEVEL);
 
     MiAddValidPageToWorkingSet (FaultingAddress,
                                 PointerPte,
@@ -1437,6 +1586,7 @@ Environment:
     PULONG FirstMdlPage;
     PMMINPAGE_SUPPORT ReadBlockLocal;
     ULONG PageColor;
+    ULONG ClusterSize = 0;
 
     ASSERT (PointerPte->u.Soft.Prototype == 1);
 
@@ -1455,9 +1605,8 @@ Environment:
         return STATUS_REFAULT;
     }
 
-
 #if DBG
-    if (MmDebug & 2) {
+    if (MmDebug & MM_DBG_PTE_UPDATE) {
         MiFormatPte (PointerPte);
     }
 #endif //DBG
@@ -1468,7 +1617,22 @@ Environment:
 
     Subsection = MiGetSubsectionAddress (PointerPte);
 
-    ASSERT (Subsection->u.SubsectionFlags.LargePages == 0);
+#ifdef LARGE_PAGES
+
+    //
+    // Check to see if this subsection maps a large page, if
+    // so, just fill the TB and return a status of PTE_CHANGED.
+    //
+
+    if (Subsection->u.SubsectionFlags.LargePages == 1) {
+        KeFlushEntireTb (TRUE, TRUE);
+        KeFillLargeEntryTb ((PHARDWARE_PTE)(Subsection + 1),
+                             FaultingAddress,
+                             Subsection->StartingSector);
+
+        return STATUS_REFAULT;
+    }
+#endif //LARGE_PAGES
 
     if (Subsection->ControlArea->u.Flags.FailAllIo) {
         return STATUS_IN_PAGE_ERROR;
@@ -1492,7 +1656,7 @@ Environment:
     Page = FirstMdlPage;
 
 #if DBG
-    RtlFillMemoryUlong( Page, (MM_MAXIMUM_READ_CLUSTER_SIZE+1) * 4, 0xfedcba98 );
+    RtlFillMemoryUlong( Page, (MM_MAXIMUM_READ_CLUSTER_SIZE+1) * 4, 0xf1f1f1f1);
 #endif //DBG
 
     ReadSize = PAGE_SIZE;
@@ -1516,9 +1680,18 @@ Environment:
             // Cluster up to n pages.  This one + n-1.
             //
 
-            ASSERT (CurrentThread->ReadClusterSize <=
+            if (Subsection->ControlArea->u.Flags.Image == 0) {
+                ASSERT (CurrentThread->ReadClusterSize <=
                             MM_MAXIMUM_READ_CLUSTER_SIZE);
-            EndPage = Page + CurrentThread->ReadClusterSize;
+                ClusterSize = CurrentThread->ReadClusterSize;
+            } else {
+                ClusterSize = MmDataClusterSize;
+                if (Subsection->u.SubsectionFlags.Protection &
+                                            MM_PROTECTION_EXECUTE_MASK ) {
+                    ClusterSize = MmCodeClusterSize;
+                }
+            }
+            EndPage = Page + ClusterSize;
 
             CheckPte = PointerPte + 1;
 
@@ -1536,7 +1709,6 @@ Environment:
                 ReadSize += PAGE_SIZE;
                 Page += 1;
                 CheckPte += 1;
-
             }
 
             if ((Page < EndPage) && (!CurrentThread->ForwardClusterOnly)) {
@@ -1661,7 +1833,7 @@ Environment:
     Mdl->MdlFlags |= (MDL_PAGES_LOCKED | MDL_IO_PAGE_READ);
 
 #if DBG
-    if (ReadSize > ((CurrentThread->ReadClusterSize + 1) << PAGE_SHIFT)) {
+    if (ReadSize > ((ClusterSize + 1) << PAGE_SHIFT)) {
         KeBugCheckEx (MEMORY_MANAGEMENT, 0x777,(ULONG)Mdl, (ULONG)Subsection,
                         (ULONG)TempOffset.LowPart);
     }
@@ -1684,7 +1856,7 @@ Environment:
 
 NTSTATUS
 MiWaitForInPageComplete (
-    IN PMMPFN Pfn,
+    IN PMMPFN Pfn2,
     IN PMMPTE PointerPte,
     IN PVOID FaultingAddress,
     IN PMMPTE PointerPteContents,
@@ -1728,6 +1900,7 @@ Environment:
     PMMPTE NewPointerPte;
     PMMPTE ProtoPte;
     PMMPFN Pfn1;
+    PMMPFN Pfn;
     PULONG Va;
     PULONG Page;
     PULONG LastPage;
@@ -1753,6 +1926,8 @@ Environment:
 
     if (CurrentProcess != NULL) {
         LOCK_WS (CurrentProcess);
+    } else {
+        LOCK_SYSTEM_WS (OldIrql);
     }
 
     LOCK_PFN (OldIrql);
@@ -1762,6 +1937,10 @@ Environment:
     // operation.
     //
 
+    Pfn = InPageSupport->Pfn;
+    if (Pfn2 != Pfn) {
+        Pfn2->u3.e1.ReadInProgress = 0;
+    }
     if (Pfn->u3.e1.ReadInProgress) {
 
         Mdl = &InPageSupport->Mdl;
@@ -1836,8 +2015,7 @@ Environment:
                                       (ULONG)PointerPte,
                                       InPageSupport->IoStatus.Status,
                                       (ULONG)FaultingAddress,
-                                      (ULONG)MiGetVirtualAddressMappedByPte(
-                                                PointerPte));
+                                      PointerPte->u.Long);
                     }
 
                 }
@@ -1917,10 +2095,10 @@ Environment:
         // was successful.
         //
 
-        if (Pfn->u3.e1.InPageError == 1) {
-            ASSERT (!NT_SUCCESS(Pfn->u1.ReadStatus));
+        if (Pfn2->u3.e1.InPageError == 1) {
+            ASSERT (!NT_SUCCESS(Pfn2->u1.ReadStatus));
             MiFreeInPageSupportBlock (InPageSupport);
-            return Pfn->u1.ReadStatus;
+            return Pfn2->u1.ReadStatus;
         }
     }
 
@@ -2167,6 +2345,8 @@ Environment:
 
         if (Vad->u.VadFlags.LargePages == 1) {
 
+            KIRQL OldIrql;
+
             //
             // The first prototype PTE points to the subsection for the
             // large page mapping.
@@ -2175,13 +2355,27 @@ Environment:
 
             ASSERT (Subsection->u.SubsectionFlags.LargePages == 1);
 
+            KeRaiseIrql (DISPATCH_LEVEL, &OldIrql);
+            KeFlushEntireTb (TRUE, TRUE);
             KeFillLargeEntryTb ((PHARDWARE_PTE)(Subsection + 1),
                                  VirtualAddress,
                                  Subsection->StartingSector);
+            KeLowerIrql (OldIrql);
             *ProtectCode = MM_LARGE_PAGES;
             return NULL;
         }
 #endif //LARGE_PAGES
+
+        if (Vad->u.VadFlags.PhysicalMapping == 1) {
+
+            //
+            // This is a banked section.
+            //
+
+            MiHandleBankedSection (VirtualAddress, Vad);
+            *ProtectCode = MM_NOACCESS;
+            return NULL;
+        }
 
         if (Vad->u.VadFlags.PrivateMemory == 1) {
 
@@ -2271,9 +2465,11 @@ MiCheckPdeForPagedPool (
 
 Routine Description:
 
-    This function checks to see if the virtual address is within
-    paged pool, and if so loads the PDE for the page table page
-    with a valid PDE.
+    This function copies the Page Table Entry for the corresponding
+    virtual address from the system process's page directory.
+
+    This allows page table pages to be lazily evalulated for things
+    like paged pool.
 
 Arguments:
 
@@ -2291,18 +2487,19 @@ Environment:
 {
     PMMPTE PointerPde;
     PMMPTE PointerPte;
+    NTSTATUS status = STATUS_SUCCESS;
 
-    if (((PMMPTE)VirtualAddress >= MiGetPteAddress (MM_PAGED_POOL_START)) &&
-        ((PMMPTE)VirtualAddress <= MmLastPteForPagedPool)) {
+    if (((PMMPTE)VirtualAddress >= MiGetPteAddress (MM_SYSTEM_RANGE_START)) &&
+        ((PMMPTE)VirtualAddress <= (PMMPTE)PDE_TOP)) {
 
         //
         // Pte for paged pool.
         //
 
         PointerPde = MiGetPteAddress (VirtualAddress);
+        status = STATUS_WAIT_1;
+    } else if (VirtualAddress < (PVOID)MM_SYSTEM_RANGE_START) {
 
-    } else if ((VirtualAddress < MM_PAGED_POOL_START) ||
-                    (VirtualAddress > MmPagedPoolEnd)) {
         return STATUS_ACCESS_VIOLATION;
 
     } else {
@@ -2320,10 +2517,11 @@ Environment:
 
     if (PointerPde->u.Hard.Valid == 0) {
         PointerPte = MiGetVirtualAddressMappedByPte (PointerPde);
-        *PointerPde = MmPagedPoolPdes[PointerPde - MmPagedPoolBasePde];
+        *PointerPde = MmSystemPagePtes [((ULONG)PointerPde &
+                        ((sizeof(MMPTE) * PDE_PER_PAGE) - 1)) / sizeof(MMPTE)];
         KeFillEntryTb ((PHARDWARE_PTE)PointerPde, PointerPte, FALSE);
     }
-    return STATUS_SUCCESS;
+    return status;
 }
 
 VOID
@@ -2366,6 +2564,8 @@ Environment:
     PMMPTE PteFramePointer;
     ULONG PteFramePage;
 
+    MM_PFN_LOCK_ASSERT();
+
     Pfn1 = MI_PFN_ELEMENT (PageFrameIndex);
     Pfn1->PteAddress = PointerPte;
 
@@ -2386,10 +2586,10 @@ Environment:
                     (Pfn1->OriginalPte.u.Soft.Transition == 1)));
     }
 
-    Pfn1->ReferenceCount += 1;
+    Pfn1->u3.e2.ReferenceCount += 1;
 
 #if DBG
-    if (Pfn1->ReferenceCount > 1) {
+    if (Pfn1->u3.e2.ReferenceCount > 1) {
         DbgPrint("MM:incrementing ref count > 1 \n");
         MiFormatPfn(Pfn1);
         MiFormatPte(PointerPte);
@@ -2408,7 +2608,7 @@ Environment:
     PteFramePointer = MiGetPteAddress(PointerPte);
     PteFramePage = PteFramePointer->u.Hard.PageFrameNumber;
     ASSERT (PteFramePage != 0);
-    Pfn1->u3.e1.PteFrame = PteFramePage;
+    Pfn1->PteFrame = PteFramePage;
 
     //
     // Increment the share count for the page table page containing
@@ -2418,7 +2618,6 @@ Environment:
     Pfn2 = MI_PFN_ELEMENT (PteFramePage);
 
     Pfn2->u2.ShareCount += 1;
-    Pfn2->ValidPteCount += 1;
 
     return;
 }
@@ -2472,6 +2671,8 @@ Environment:
     LONG NumberOfBytes;
     PULONG Page;
 
+    MM_PFN_LOCK_ASSERT();
+
     Page = (PULONG)(Mdl + 1);
 
     NumberOfBytes = Mdl->ByteCount;
@@ -2482,7 +2683,7 @@ Environment:
         Pfn1->u1.Event = Event;
         Pfn1->PteAddress = BasePte;
         Pfn1->OriginalPte = *BasePte;
-        Pfn1->ReferenceCount += 1;
+        Pfn1->u3.e2.ReferenceCount += 1;
         Pfn1->u2.ShareCount = 0;
         Pfn1->u3.e1.ReadInProgress = 1;
 
@@ -2497,7 +2698,7 @@ Environment:
 
         PteFramePointer = MiGetPteAddress(BasePte);
         PteFramePage = PteFramePointer->u.Hard.PageFrameNumber;
-        Pfn1->u3.e1.PteFrame = PteFramePage;
+        Pfn1->PteFrame = PteFramePage;
 
         //
         // Put the PTE into the transition state, no cache flush needed as
@@ -2518,7 +2719,6 @@ Environment:
         ASSERT (PteFramePage != 0);
         Pfn2 = MI_PFN_ELEMENT (PteFramePage);
         Pfn2->u2.ShareCount += 1;
-        Pfn2->ValidPteCount += 1;
 
         NumberOfBytes -= PAGE_SIZE;
         Page += 1;
@@ -2571,6 +2771,7 @@ Environment:
     ULONG PteFramePage;
     MMPTE TempPte;
 
+    MM_PFN_LOCK_ASSERT();
     Pfn1 = MI_PFN_ELEMENT (PageFrameIndex);
     Pfn1->u1.Event = NULL;
     Pfn1->PteAddress = PointerPte;
@@ -2596,7 +2797,7 @@ Environment:
 
     PteFramePointer = MiGetPteAddress(PointerPte);
     PteFramePage = PteFramePointer->u.Hard.PageFrameNumber;
-    Pfn1->u3.e1.PteFrame = PteFramePage;
+    Pfn1->PteFrame = PteFramePage;
 
     //
     // Put the PTE into the transition state, no cache flush needed as
@@ -2617,7 +2818,6 @@ Environment:
 
     Pfn2 = MI_PFN_ELEMENT (PteFramePage);
     ASSERT (PteFramePage != 0);
-    //ASSERT (Pfn2->ValidPteCount < Pfn2->u2.ShareCount);
     Pfn2->u2.ShareCount += 1;
 
     return;
@@ -2638,7 +2838,7 @@ Routine Description:
     active and valid state for a copy on write operation.
 
     In this case the page table page which contains the PTE has
-    the proper ValidPteCount and ShareCount.
+    the proper ShareCount.
 
 Arguments:
 
@@ -2681,7 +2881,7 @@ Environment:
                 MI_MAKE_PROTECT_NOT_WRITE_COPY (
                                     MmWsle[WorkingSetIndex].u1.e1.Protection);
 
-    Pfn1->ReferenceCount += 1;
+    Pfn1->u3.e2.ReferenceCount += 1;
     Pfn1->u2.ShareCount += 1;
     Pfn1->u3.e1.PageLocation = ActiveAndValid;
     Pfn1->u1.WsIndex = WorkingSetIndex;
@@ -2695,7 +2895,7 @@ Environment:
     PteFramePage = PteFramePointer->u.Hard.PageFrameNumber;
     ASSERT (PteFramePage != 0);
 
-    Pfn1->u3.e1.PteFrame = PteFramePage;
+    Pfn1->PteFrame = PteFramePage;
 
     //
     // Set the modified flag in the PFN database as we are writing
@@ -2737,7 +2937,6 @@ Environment:
 
 --*/
 
-
 {
     PMMPTE PointerPte;
 
@@ -2757,6 +2956,11 @@ Environment:
     if (PointerPte->u.Hard.Valid == 0) {
         return FALSE;
     }
+#ifdef _X86_
+    if (PointerPte->u.Hard.LargePage == 1) {
+        return TRUE;
+    }
+#endif //_X86_
     PointerPte = MiGetPteAddress (VirtualAddress);
     if (PointerPte->u.Hard.Valid == 0) {
         return FALSE;
@@ -2793,7 +2997,7 @@ Arguments:
     ContainingPageFrame - Supplies the page frame number of the page
                           table page which contains this PTE.
                           If the ContainingPageFrame is 0, then
-                          the ValidPteCount and ShareCount for the
+                          the ShareCount for the
                           containing page is not incremented.
 
 Return Value:
@@ -2813,10 +3017,10 @@ Environment:
     Pfn1 = MI_PFN_ELEMENT (PageFrameIndex);
     Pfn1->PteAddress = PointerPte;
     Pfn1->OriginalPte.u.Long = MM_DEMAND_ZERO_WRITE_PTE;
-    Pfn1->ReferenceCount += 1;
+    Pfn1->u3.e2.ReferenceCount += 1;
 
 #if DBG
-    if (Pfn1->ReferenceCount > 1) {
+    if (Pfn1->u3.e2.ReferenceCount > 1) {
         DbgPrint("MM:incrementing ref count > 1 \n");
         MiFormatPfn(Pfn1);
         MiFormatPte(PointerPte);
@@ -2833,11 +3037,9 @@ Environment:
     //
 
     if (ContainingPageFrame != 0) {
-        Pfn1->u3.e1.PteFrame = ContainingPageFrame;
+        Pfn1->PteFrame = ContainingPageFrame;
         Pfn2 = MI_PFN_ELEMENT (ContainingPageFrame);
         Pfn2->u2.ShareCount += 1;
-        Pfn2->ValidPteCount += 1;
-        //ASSERT (Pfn2->ValidPteCount < Pfn2->u2.ShareCount);
     }
     return;
 }
@@ -2882,16 +3084,13 @@ Environment:
 {
     ULONG WorkingSetIndex;
     PEPROCESS Process;
+    PMMSUPPORT WsInfo;
+    PMMWSLE Wsle;
 
-    if ((PointerPte < (PMMPTE)PTE_BASE) ||
-        (PointerPte > (PMMPTE)PDE_TOP)) {
+    ASSERT ((PointerPte >= (PMMPTE)PTE_BASE) &&
+        (PointerPte <= (PMMPTE)PDE_TOP));
 
-        //
-        // Proto PTE, don't add to working set.
-        //
-
-        return;
-    }
+    ASSERT (PointerPte->u.Hard.Valid == 1);
 
     if ((VirtualAddress <= (PVOID)MM_HIGHEST_USER_ADDRESS) ||
         ((VirtualAddress >= (PVOID)PTE_BASE) &&
@@ -2902,12 +3101,8 @@ Environment:
         //
 
         Process = PsGetCurrentProcess();
-        WorkingSetIndex = MiLocateAndReserveWsle (&Process->Vm);
-        MiUpdateWsle (WorkingSetIndex,
-                      VirtualAddress,
-                      MmWorkingSetList,
-                      Pfn1);
-        MmWsle[WorkingSetIndex].u1.Long |= WsleMask;
+        WsInfo = &Process->Vm;
+        Wsle = MmWsle;
 
     } else {
 
@@ -2915,13 +3110,16 @@ Environment:
         // System cache working set.
         //
 
-        WorkingSetIndex = MiLocateAndReserveWsle (&MmSystemCacheWs);
-        MiUpdateWsle (WorkingSetIndex,
-                      VirtualAddress,
-                      MmSystemCacheWorkingSetList,
-                      Pfn1);
-        MmSystemCacheWsle[WorkingSetIndex].u1.Long |= WsleMask;
+        WsInfo = &MmSystemCacheWs;
+        Wsle = MmSystemCacheWsle;
     }
+
+    WorkingSetIndex = MiLocateAndReserveWsle (WsInfo);
+    MiUpdateWsle (&WorkingSetIndex,
+                  VirtualAddress,
+                  WsInfo->VmWorkingSetList,
+                  Pfn1);
+    Wsle[WorkingSetIndex].u1.Long |= WsleMask;
 
 #if DBG
     if ((VirtualAddress >= (PVOID)MM_SYSTEM_CACHE_START) &&
@@ -2970,8 +3168,7 @@ Environment:
 
     if (MmInPageSupportList.Count == 0) {
         ASSERT (IsListEmpty(&MmInPageSupportList.ListHead));
-        OldIrql = APC_LEVEL;
-        UNLOCK_PFN (OldIrql);
+        UNLOCK_PFN (APC_LEVEL);
         Support = ExAllocatePoolWithTag (NonPagedPoolMustSucceed,
                                          sizeof(MMINPAGE_SUPPORT),
                                          'nImM');
@@ -3009,9 +3206,12 @@ MiFreeInPageSupportBlock (
 
 Routine Description:
 
+    This routine returns the in page support block to a list
+    of freed blocks.
 
 Arguments:
 
+    Support - Supplies the in page support block to put on the free list.
 
 Return Value:
 
@@ -3049,9 +3249,16 @@ MiFlushInPageSupportBlock (
 
 Routine Description:
 
+    This routine examines the number of freed in page support blocks,
+    and if more than 4, frees the blocks back to the NonPagedPool.
+
+
+   ****** NB: The PFN LOCK is RELEASED and reacquired during this call ******
+
 
 Arguments:
 
+    None.
 
 Return Value:
 
@@ -3087,8 +3294,7 @@ Environment:
         return;
     }
 
-    OldIrql = APC_LEVEL;
-    UNLOCK_PFN (OldIrql);
+    UNLOCK_PFN (APC_LEVEL);
 
     do {
         i -= 1;
@@ -3099,3 +3305,102 @@ Environment:
 
     return;
 }
+
+VOID
+MiHandleBankedSection (
+    IN PVOID VirtualAddress,
+    IN PMMVAD Vad
+    )
+
+/*++
+
+Routine Description:
+
+    This routine invalidates a bank of video memory, calls out to the
+    video driver and then enables the next bank of video memory.
+
+Arguments:
+
+    VirtualAddress - Supplies the address of the faulting page.
+
+    Vad - Supplies the VAD which maps the range.
+
+Return Value:
+
+    None.
+
+Environment:
+
+    Kernel mode, PFN lock held.
+
+--*/
+
+{
+    PMMBANKED_SECTION Bank;
+    PMMPTE PointerPte;
+    ULONG BankNumber;
+    ULONG size;
+
+    Bank = Vad->Banked;
+    size = Bank->BankSize;
+
+    RtlFillMemory (Bank->CurrentMappedPte,
+                   size >> (PAGE_SHIFT - PTE_SHIFT),
+                   (UCHAR)ZeroPte.u.Long);
+
+    //
+    // Flush the TB as we have invalidated all the PTEs in this range
+    //
+
+    KeFlushEntireTb (TRUE, FALSE);
+
+    //
+    // Calculate new bank address and bank number.
+    //
+
+    PointerPte = MiGetPteAddress (
+                        (PVOID)((ULONG)VirtualAddress & ~(size - 1)));
+    Bank->CurrentMappedPte = PointerPte;
+
+    BankNumber = ((ULONG)PointerPte - (ULONG)Bank->BasedPte) >> Bank->BankShift;
+
+    (Bank->BankedRoutine)(BankNumber, BankNumber, Bank->Context);
+
+    //
+    // Set the new range valid.
+    //
+
+    RtlMoveMemory (PointerPte,
+                   &Bank->BankTemplate[0],
+                   size >> (PAGE_SHIFT - PTE_SHIFT));
+
+    return;
+}
+#if DBG
+VOID
+MiCheckFileState (
+    IN PMMPFN Pfn
+    )
+
+{
+    PSUBSECTION Subsection;
+    LARGE_INTEGER StartingOffset;
+
+    if (Pfn->u3.e1.PrototypePte == 0) {
+        return;
+    }
+    if (Pfn->OriginalPte.u.Soft.Prototype == 0) {
+        return;
+    }
+    Subsection = MiGetSubsectionAddress (&(Pfn->OriginalPte));
+    if (Subsection->ControlArea->u.Flags.NoModifiedWriting) {
+        return;
+    }
+    StartingOffset.QuadPart = MI_STARTING_OFFSET (Subsection,
+                                                  Pfn->PteAddress);
+    DbgPrint("file: %lx offset: %lx\n",
+            Subsection->ControlArea->FilePointer,
+            StartingOffset.LowPart);
+    return;
+}
+#endif //DBG

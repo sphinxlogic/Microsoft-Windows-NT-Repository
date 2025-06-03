@@ -72,46 +72,6 @@ VIDEO_ACCESS_RANGE VgaAccessRange[] = {
 }
 };
 
-#ifdef DEADMAN_KEY
-//
-// This structure describes to which ports access is required.
-//
-
-VIDEO_ACCESS_RANGE ExclusiveVgaAccessRange[] = {
-{
-    VGA_BASE_IO_PORT, 0x00000000,                // 64-bit linear base address
-                                                 // of range
-    VGA_START_BREAK_PORT - VGA_BASE_IO_PORT + 1, // # of ports
-    1,                                           // range is in I/O space
-    1,                                           // range should be visible
-    0                                            // range should be shareable
-},
-{
-    VGA_END_BREAK_PORT, 0x00000000,
-    VGA_MAX_IO_PORT - VGA_END_BREAK_PORT + 1,
-    1,
-    1,
-    0
-},
-{
-    MEM_VGA, 0x00000000,
-    MEM_VGA_SIZE,
-    0,
-    1,
-    0
-},
-    // HACK Allow our standard VGA to be used with ATI cards:
-    // ATI uses an extra IO port at location 1CE on pretty much all of its
-    // video boards
-{
-    0x000001CE, 0x00000000,
-    2,
-    1,
-    1,
-    0
-}
-};
-#endif
 
 //
 // Validator Port list.

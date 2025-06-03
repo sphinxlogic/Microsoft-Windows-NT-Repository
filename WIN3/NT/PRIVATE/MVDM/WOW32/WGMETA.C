@@ -20,6 +20,40 @@ MODNAME(wgmeta.c);
 typedef METAHEADER UNALIGNED *PMETAHEADER16;
 
 
+
+
+// WARNING: This function may cause 16-bit memory to move
+VOID CopyMetaFile16FromHMF32(HAND16 hMF16, HMETAFILE hMF32)
+{
+    UINT   cbMF32, cbMF16;
+    VPVOID vp;
+    PBYTE  pMF16;
+
+
+    if((vp = GlobalLock16(hMF16, &cbMF16)) && hMF32) {
+
+        GETMISCPTR(vp, pMF16);
+
+        cbMF32 = GetMetaFileBitsEx(hMF32, 0, NULL);
+    
+        // Verify these are the same size within the 16-bit kernel memory
+        // allocation granularity
+        WOW32WARNMSGF((abs(cbMF16 - cbMF32) < 32),
+                      ("WOW32: Size MF16 = %lu  MF32 = %lu\n", cbMF16, cbMF32));
+
+        // copy the bits from the 32-bit metafile to the 16-bit metafile memory
+        cbMF32 = GetMetaFileBitsEx(hMF32, min(cbMF16, cbMF32), pMF16);
+
+        GlobalUnlock16(hMF16);
+        FLUSHVDMPTR(vp, cbMF32, pMF16);
+        FREEMISCPTR(pMF16);
+    }
+}
+
+
+
+
+// WARNING: This function may cause 16-bit memory to move
 HAND16 WinMetaFileFromHMF(HMETAFILE hmf, BOOL fFreeOriginal)
 {
     UINT cbMetaData;
@@ -104,8 +138,9 @@ ULONG FASTCALL WG32CloseMetaFile(PVDMFRAME pFrame)
     hmf = CloseMetaFile(HDC32(parg16->f1));
 
     if (hmf)
-        ulRet = (ULONG)WinMetaFileFromHMF(hmf, TRUE);
-
+	ulRet = (ULONG)WinMetaFileFromHMF(hmf, TRUE);
+    // WARNING: 16-bit memory may have moved - invalidate flat pointers now
+    FREEVDMPTR(pFrame);
     FREEARGPTR(parg16);
     RETURN(ulRet);
 }
@@ -126,7 +161,11 @@ ULONG FASTCALL WG32CopyMetaFile(PVDMFRAME pFrame)
         hmf = HMFFromWinMetaFile(parg16->f1, FALSE);
         hmfNew = CopyMetaFile(hmf, psz2);
         DeleteMetaFile(hmf);
-        ul = (ULONG)WinMetaFileFromHMF(hmfNew, TRUE);
+	ul = (ULONG)WinMetaFileFromHMF(hmfNew, TRUE);
+	// WARNING: 16-bit memory may have moved - invalidate flat pointers now
+	FREEVDMPTR(pFrame);
+	FREEARGPTR(parg16);
+	FREEPSZPTR(psz2);
     } else {
         UINT cb;
         VPVOID vp, vpNew;
@@ -139,7 +178,6 @@ ULONG FASTCALL WG32CopyMetaFile(PVDMFRAME pFrame)
 
         vp = GlobalLock16(h16, &cb);
         if (vp) {
-            GETMISCPTR(vp, pMF);
 
         /*
          * Windows app such as WinWord uses GlobalSize to determine
@@ -149,8 +187,15 @@ ULONG FASTCALL WG32CopyMetaFile(PVDMFRAME pFrame)
          * WinWord doesn't crash.
          */
 
-            vpNew = GlobalAllocLock16(GMEM_MOVEABLE | GMEM_DDESHARE, cb, &h16New);
+	    vpNew = GlobalAllocLock16(GMEM_MOVEABLE | GMEM_DDESHARE, cb, &h16New);
+
+	    // 16-bit memory may have moved - invalidate flat pointers now
+	    FREEVDMPTR(pFrame);
+	    FREEARGPTR(parg16);
+	    FREEPSZPTR(psz2);
+
             if (vpNew) {
+		GETMISCPTR(vp, pMF);
                 GETOPTPTR(vpNew, 0, pMFNew);
 
                 RtlCopyMemory(pMFNew, pMF, cb);
@@ -188,19 +233,60 @@ ULONG FASTCALL WG32CreateMetaFile(PVDMFRAME pFrame)
     RETURN(ul);
 }
 
+//
+// This routine does what the 16-bit parameter validation layer would
+// normally do for metafile handles, but since it is currently disabled,
+// we'll do it here to fix WordPerfect that relies on it. Once true
+// win31-style parameter validation has been re-enabled for metafile
+// handles, all code within the ifndefs here and in WG32DeleteMetaFile
+// can be removed.
+//
+#ifndef PARAMETER_VALIDATION_16_RE_ENABLED
+#define MEMORYMETAFILE 1
+#define DISKMETAFILE 2
+#define HEADERSIZE          (sizeof(METAHEADER)/sizeof(WORD))
+#define METAVERSION         0x0300
+#define METAVERSION100      0x0100
+
+BOOL IsValidMetaFile16(PMETAHEADER16 lpMetaData)
+{
+    BOOL            sts = FALSE;
+
+        sts = (lpMetaData->mtType == MEMORYMETAFILE ||
+           lpMetaData->mtType == DISKMETAFILE) &&
+              (lpMetaData->mtHeaderSize == HEADERSIZE) &&
+              ((lpMetaData->mtVersion ==METAVERSION) ||
+           (lpMetaData->mtVersion ==METAVERSION100)) ;
+    return sts;
+}
+#endif
 
 ULONG FASTCALL WG32DeleteMetaFile(PVDMFRAME pFrame)
 {
     ULONG ul = FALSE;
     VPVOID vp;
+#ifndef PARAMETER_VALIDATION_16_RE_ENABLED
+    PMETAHEADER16 lpMetaData;
+#endif
 
     register PDELETEMETAFILE16 parg16;
 
     GETARGPTR(pFrame, sizeof(DELETEMETAFILE16), parg16);
 
     if (vp = GlobalLock16(parg16->f1,NULL)) {
+#ifdef PARAMETER_VALIDATION_16_RE_ENABLED
         GlobalUnlockFree16(vp);
         ul = TRUE;
+#else
+        GETVDMPTR(vp, 1, lpMetaData);
+
+        if (IsValidMetaFile16(lpMetaData)) {
+            GlobalUnlockFree16(vp);
+            ul = TRUE;
+        }
+
+        FREEVDMPTR(lpMetaData);
+#endif
     }
 
 
@@ -237,6 +323,9 @@ INT WG32EnumMetaFileCallBack(HDC hdc, LPHANDLETABLE lpht, LPMETARECORD lpMR, LON
 
     CallBack16(RET_ENUMMETAFILEPROC, (PPARM16)&pMetaData->parmemp, pMetaData->vpfnEnumMetaFileProc, (PVPVOID)&iReturn);
 
+    // update the metarec in case the app altered it (Approach does)
+    getstr16(pMetaData->parmemp.vpMetaRecord, (LPSZ)lpMR, nWords*sizeof(WORD));
+
     // update object table if we have one
     if (pMetaData->parmemp.vpHandleTable)
         GETHANDLETABLE16(pMetaData->parmemp.vpHandleTable,nObj,lpht);
@@ -255,6 +344,7 @@ ULONG FASTCALL WG32EnumMetaFile(PVDMFRAME pFrame)
     PBYTE       pMetaFile;
     HMETAFILE   hmf = (HMETAFILE) 0;
     HAND16      hMetaFile16;
+    HDC 	hDC = 0;
 
     GETARGPTR(pFrame, sizeof(ENUMMETAFILE16), parg16);
 
@@ -277,6 +367,8 @@ ULONG FASTCALL WG32EnumMetaFile(PVDMFRAME pFrame)
     // Get the metafile bits so we can get max record size and number of objects
 
     vpMetaFile = GlobalLock16(hMetaFile16, NULL);
+    FREEARGPTR(parg16); 	// memory may have moved
+    FREEVDMPTR(pFrame);
     if (!vpMetaFile)
         goto EMF_Exit;
 
@@ -285,29 +377,57 @@ ULONG FASTCALL WG32EnumMetaFile(PVDMFRAME pFrame)
         goto EMF_Exit;
 
     metadata.parmemp.nObjects = ((PMETAHEADER16)pMetaFile)->mtNoObjects;
+    metadata.mtMaxRecordSize = ((PMETAHEADER16)pMetaFile)->mtMaxRecord;
 
     if (metadata.parmemp.nObjects)
     {
-        PBYTE pHT;
+	PBYTE pHT;
+	DWORD cb = ((PMETAHEADER16)pMetaFile)->mtNoObjects*sizeof(HAND16);
 
-        metadata.parmemp.vpHandleTable = GlobalAllocLock16(GMEM_MOVEABLE, ((PMETAHEADER16)pMetaFile)->mtNoObjects*sizeof(HAND16), NULL);
+	metadata.parmemp.vpHandleTable = GlobalAllocLock16(GMEM_MOVEABLE, cb, NULL);
+	FREEOPTPTR(pMetaFile);	 // memory may have moved
+	FREEARGPTR(parg16);
+	FREEVDMPTR(pFrame);
         if (!metadata.parmemp.vpHandleTable)
             goto EMF_Exit;
 
         GETOPTPTR(metadata.parmemp.vpHandleTable, 0, pHT);
-        RtlZeroMemory(pHT, ((PMETAHEADER16)pMetaFile)->mtNoObjects*sizeof(HAND16));
+	RtlZeroMemory(pHT, cb);
     }
 
-    metadata.parmemp.vpMetaRecord = GlobalAllocLock16(GMEM_MOVEABLE, ((PMETAHEADER16)pMetaFile)->mtMaxRecord*sizeof(WORD), NULL);
+    metadata.parmemp.vpMetaRecord = GlobalAllocLock16(GMEM_MOVEABLE, metadata.mtMaxRecordSize*sizeof(WORD), NULL);
+    FREEOPTPTR(pMetaFile);	 // memory may have moved
+    FREEARGPTR(parg16);
+    FREEVDMPTR(pFrame);
     if (!metadata.parmemp.vpMetaRecord)
         goto EMF_Exit;
 
-    metadata.mtMaxRecordSize = ((PMETAHEADER16)pMetaFile)->mtMaxRecord;
+    // Corel Draw passes a NULL hDC, we'll create a dummy to keep GDI32 happy.
+    if (CURRENTPTD()->dwWOWCompatFlags & WOWCF_GETDUMMYDC) {
+	if ((hDC = HDC32(metadata.parmemp.hdc)) == 0) {
+            hDC = CreateMetaFile(NULL);
+        }
+    }
+    else {
+	hDC = HDC32(metadata.parmemp.hdc);
+    }
 
-    ul = GETBOOL16(EnumMetaFile(HDC32(parg16->f1),
+    ul = GETBOOL16(EnumMetaFile(hDC,
                                 hmf,
                                 (MFENUMPROC)WG32EnumMetaFileCallBack,
-                                ((LPARAM)(LPVOID)&metadata)));
+				((LPARAM)(LPVOID)&metadata)));
+    // 16-bit memory may have moved - nothing to do as no flat ptrs exist now
+
+    // copy the 32-bit metafile back to 16-bit land (the app may have altered
+    // some of the metarecs in its MetaRecCallBackFunc -- Approach does)
+    CopyMetaFile16FromHMF32(hMetaFile16, hmf);
+
+    // Cleanup the dummy hDC created for Corel Draw 5.0.
+    if (CURRENTPTD()->dwWOWCompatFlags & WOWCF_GETDUMMYDC) {
+	if (HDC32(metadata.parmemp.hdc) == 0) {
+            DeleteMetaFile(CloseMetaFile(hDC));
+        }
+    }
 
 EMF_Exit:
     if (vpMetaFile)

@@ -56,9 +56,50 @@ Return Value:
 
 {
     NTSTATUS status;
+    PTREE_CONNECT treeConnect;
     PRESP_OPEN_PRINT_FILE response;
 
     PAGED_CODE( );
+
+    //
+    // Make sure we are on a blocking thread!
+    //
+    if( WorkContext->UsingBlockingThread == 0 ) {
+        SrvQueueWorkToBlockingThread( WorkContext );
+        return SmbStatusInProgress;
+    }
+
+    //
+    // Verify that this is a print share.
+    //
+    // *** We are putting in this check because some public domain Samba
+    //     smb clients are trying to print through a disk share.
+    //
+
+    treeConnect = SrvVerifyTid(
+                         WorkContext,
+                         SmbGetAlignedUshort( &WorkContext->RequestHeader->Tid )
+                         );
+
+    if ( treeConnect == NULL ) {
+
+        IF_DEBUG(SMB_ERRORS) {
+             KdPrint(( "SrvSmbPrintFile: Invalid TID.\n" ));
+        }
+
+        SrvSetSmbError( WorkContext, STATUS_SMB_BAD_TID );
+        return SmbStatusSendResponse;
+    }
+
+    //
+    // if it's not a print share, tell the client to get lost.
+    //
+
+    if ( treeConnect->Share->ShareType != ShareTypePrint ) {
+
+        SrvSetSmbError( WorkContext, STATUS_INVALID_DEVICE_REQUEST );
+        return SmbStatusSendResponse;
+    }
 
     //
     // Call SrvCreateFile to open a print spooler file.  None of the
@@ -144,6 +185,14 @@ Return Value:
     NTSTATUS status;
 
     PAGED_CODE( );
+
+    //
+    // Make sure we are on a blocking thread
+    //
+    if( WorkContext->UsingBlockingThread == 0 ) {
+        SrvQueueWorkToBlockingThread( WorkContext );
+        return SmbStatusInProgress;
+    }
 
     IF_SMB_DEBUG(OPEN_CLOSE1) {
         KdPrint(( "Close print file request header at 0x%lx, "

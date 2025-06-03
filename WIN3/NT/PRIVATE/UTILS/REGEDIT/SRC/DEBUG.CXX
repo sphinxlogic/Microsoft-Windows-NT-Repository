@@ -32,9 +32,7 @@ Notes:
 
 #include "uapp.hxx"
 
-extern "C" {
-	#include <stdio.h>
-}
+#include <stdio.h>
 
 //
 // Output buffer size.

@@ -36,14 +36,19 @@ AfdRestartAccept (
 
 PAFD_CONNECT_DATA_BUFFERS
 CopyConnectDataBuffers (
-    IN PAFD_CONNECT_DATA_BUFFERS OriginalConnectDataBuffers,
-    IN ULONG ExtraAllocation
+    IN PAFD_CONNECT_DATA_BUFFERS OriginalConnectDataBuffers
     );
 
 BOOLEAN
 CopySingleConnectDataBuffer (
     IN PAFD_CONNECT_DATA_INFO InConnectDataInfo,
     OUT PAFD_CONNECT_DATA_INFO OutConnectDataInfo
+    );
+
+VOID
+AfdEnableDynamicBacklogOnEndpoint(
+    IN PAFD_ENDPOINT Endpoint,
+    IN LONG ListenBacklog
     );
 
 #ifdef ALLOC_PRAGMA
@@ -54,6 +59,7 @@ CopySingleConnectDataBuffer (
 #pragma alloc_text( PAGEAFD, AfdRestartAccept )
 #pragma alloc_text( PAGEAFD, CopyConnectDataBuffers )
 #pragma alloc_text( PAGEAFD, CopySingleConnectDataBuffer )
+#pragma alloc_text( PAGEAFD, AfdEnableDynamicBacklogOnEndpoint )
 #endif
 
 
@@ -111,6 +117,15 @@ Return Value:
 
     endpoint->Type = AfdBlockTypeVcListening;
     endpoint->State = AfdEndpointStateListening;
+    endpoint->EventsDisabled = AFD_DISABLED_LISTENING_POLL_EVENTS;
+
+    IF_DEBUG(EVENT_SELECT) {
+        KdPrint((
+            "AfdStartListen: Disabled %08lX events on endpoint %08lX\n",
+            endpoint->EventsDisabled,
+            endpoint
+            ));
+    }
 
     //
     // Initialize lists which are specific to listening endpoints.
@@ -120,6 +135,18 @@ Return Value:
     InitializeListHead( &endpoint->Common.VcListening.UnacceptedConnectionListHead );
     InitializeListHead( &endpoint->Common.VcListening.ReturnedConnectionListHead );
     InitializeListHead( &endpoint->Common.VcListening.ListeningIrpListHead );
+
+    //
+    // Initialize the tracking data for implementing dynamic backlog.
+    //
+
+    endpoint->Common.VcListening.FreeConnectionCount = 0;
+    endpoint->Common.VcListening.TdiAcceptPendingCount = 0;
+
+    AfdEnableDynamicBacklogOnEndpoint(
+        endpoint,
+        (LONG)afdListenInfo->MaximumConnectionQueue
+        );
 
     //
     // Open a pool of connections on the specified endpoint.  The
@@ -140,16 +167,12 @@ Return Value:
     // Set up a connect indication handler on the specified endpoint.
     //
 
-    KeAttachProcess( AfdSystemProcess );
-
     status = AfdSetEventHandler(
-                 endpoint->AddressHandle,
+                 endpoint->AddressFileObject,
                  TDI_EVENT_CONNECT,
                  AfdConnectEventHandler,
                  endpoint
                  );
-
-    KeDetachProcess( );
 
     if ( !NT_SUCCESS(status) ) {
         goto error_exit;
@@ -169,7 +192,7 @@ error_exit:
 
     while ( (connection = AfdGetFreeConnection( endpoint )) != NULL ) {
         ASSERT( connection->Type == AfdBlockTypeConnection );
-        AfdDereferenceConnection( connection );
+        DEREFERENCE_CONNECTION( connection );
     }
 
     //
@@ -245,7 +268,7 @@ Return Value:
     //
 
     IoAcquireCancelSpinLock( &oldIrql1 );
-    KeAcquireSpinLock( &AfdSpinLock, &oldIrql2 );
+    AfdAcquireSpinLock( &AfdSpinLock, &oldIrql2 );
 
     connection = AfdGetUnacceptedConnection( endpoint );
 
@@ -264,6 +287,7 @@ Return Value:
             // STATUS_CANCELLED.
             //
 
+            AfdReleaseSpinLock( &AfdSpinLock, oldIrql2 );
             IoReleaseCancelSpinLock( oldIrql1 );
 
             Irp->IoStatus.Status = STATUS_CANCELLED;
@@ -288,12 +312,24 @@ Return Value:
 
         IoMarkIrpPending( Irp );
 
-        InsertTailList(
-            &endpoint->Common.VcListening.ListeningIrpListHead,
-            &Irp->Tail.Overlay.ListEntry
-            );         
+        if( IrpSp->Parameters.DeviceIoControl.IoControlCode ==
+                IOCTL_AFD_WAIT_FOR_LISTEN_LIFO ) {
 
-        KeReleaseSpinLock( &AfdSpinLock, oldIrql2 );
+            InsertHeadList(
+                &endpoint->Common.VcListening.ListeningIrpListHead,
+                &Irp->Tail.Overlay.ListEntry
+                );
+
+        } else {
+
+            InsertTailList(
+                &endpoint->Common.VcListening.ListeningIrpListHead,
+                &Irp->Tail.Overlay.ListEntry
+                );
+
+        }
+
+        AfdReleaseSpinLock( &AfdSpinLock, oldIrql2 );
         IoReleaseCancelSpinLock( oldIrql1 );
 
         return STATUS_PENDING;
@@ -308,8 +344,29 @@ Return Value:
     listenResponse->Sequence = (ULONG)connection;
 
     ASSERT( connection->State == AfdConnectionStateUnaccepted );
-    ASSERT( connection->RemoteAddressLength <=
-                IrpSp->Parameters.DeviceIoControl.OutputBufferLength );
+
+    if( connection->RemoteAddressLength >
+            IrpSp->Parameters.DeviceIoControl.OutputBufferLength ) {
+
+        //
+        // The specified remote address buffer is too small. Put
+        // the connection back at the head of the queue and fail
+        // the request.
+        //
+
+        InsertHeadList(
+            &endpoint->Common.VcListening.UnacceptedConnectionListHead,
+            &connection->ListEntry
+            );
+
+        Irp->IoStatus.Status = STATUS_BUFFER_TOO_SMALL;
+
+        AfdReleaseSpinLock( &AfdSpinLock, oldIrql2 );
+        IoReleaseCancelSpinLock( oldIrql1 );
+
+        return STATUS_BUFFER_TOO_SMALL;
+
+    }
 
     RtlMoveMemory(
         &listenResponse->RemoteAddress,
@@ -331,7 +388,7 @@ Return Value:
         &connection->ListEntry
         );
 
-    KeReleaseSpinLock( &AfdSpinLock, oldIrql2 );
+    AfdReleaseSpinLock( &AfdSpinLock, oldIrql2 );
     IoReleaseCancelSpinLock( oldIrql1 );
 
     //
@@ -367,11 +424,11 @@ AfdCancelWaitForListen (
     }
 
     //
-    // While holding the AFD spin lock, search all listening endpoints 
-    // for this IRP.  
+    // While holding the AFD spin lock, search all listening endpoints
+    // for this IRP.
     //
 
-    KeAcquireSpinLock( &AfdSpinLock, &oldIrql );
+    AfdAcquireSpinLock( &AfdSpinLock, &oldIrql );
 
     for ( endpointListEntry = AfdEndpointListHead.Flink;
           endpointListEntry != &AfdEndpointListHead;
@@ -420,7 +477,7 @@ AfdCancelWaitForListen (
 
                 RemoveEntryList( &Irp->Tail.Overlay.ListEntry );
 
-                KeReleaseSpinLock( &AfdSpinLock, oldIrql );
+                AfdReleaseSpinLock( &AfdSpinLock, oldIrql );
                 IoReleaseCancelSpinLock( Irp->CancelIrql );
 
                 //
@@ -444,7 +501,7 @@ AfdCancelWaitForListen (
 
     ASSERT( FALSE );
 
-    KeReleaseSpinLock( &AfdSpinLock, oldIrql );
+    AfdReleaseSpinLock( &AfdSpinLock, oldIrql );
     IoReleaseCancelSpinLock( Irp->CancelIrql );
 
     return;
@@ -501,91 +558,111 @@ Return Value:
     }
 
     endpoint = TdiEventContext;
+    ASSERT( endpoint != NULL );
     ASSERT( endpoint->Type == AfdBlockTypeVcListening );
 
     //
     // If the endpoint is closing, refuse to accept the connection.
     //
 
-    if ( endpoint->State == AfdEndpointStateClosing ) {
+    AfdAcquireSpinLock( &AfdSpinLock, &oldIrql );
+
+    if ( endpoint->State == AfdEndpointStateClosing ||
+         endpoint->EndpointCleanedUp ) {
+
+        AfdReleaseSpinLock( &AfdSpinLock, oldIrql );
         return STATUS_INSUFFICIENT_RESOURCES;
+
     }
+
+    //
+    // Reference the endpoint while holding AfdSpinLock so that the
+    // endpoint doesn't go away beneath us.
+    //
+
+    REFERENCE_ENDPOINT( endpoint );
 
     //
     // If there are connect data buffers on the listening endpoint,
     // create equivalent buffers that we'll use for the connection.
     //
 
-    KeAcquireSpinLock( &AfdSpinLock, &oldIrql );
+    connectDataBuffers = NULL;
 
-    if ( endpoint->ConnectDataBuffers != NULL ) {
+    if( endpoint->ConnectDataBuffers != NULL ) {
 
         connectDataBuffers = CopyConnectDataBuffers(
-                                 endpoint->ConnectDataBuffers,
-                                 sizeof(*requestConnectionInformation)
+                                 endpoint->ConnectDataBuffers
                                  );
-        if ( connectDataBuffers == NULL ) {
-            KeReleaseSpinLock( &AfdSpinLock, oldIrql );
+
+        if( connectDataBuffers == NULL ) {
+            AfdReleaseSpinLock( &AfdSpinLock, oldIrql );
+            DEREFERENCE_ENDPOINT( endpoint );
             return STATUS_INSUFFICIENT_RESOURCES;
         }
 
-        //
-        // If there was connect data or options and we have a place
-        // for them, save them on the connection.
-        //
+    }
 
-        if ( UserData != NULL && UserDataLength != 0 &&
-                 connectDataBuffers->ReceiveConnectData.Buffer != NULL ) {
+    //
+    // If we got connect data and/or options, save them on the connection.
+    //
 
-            if ( connectDataBuffers->ReceiveConnectData.BufferLength >
-                     (ULONG)UserDataLength ) {
+    if( UserData != NULL && UserDataLength > 0 ) {
 
-                connectDataBuffers->ReceiveConnectData.BufferLength =
-                    UserDataLength;
-            }
+        NTSTATUS status;
 
-            RtlCopyMemory(
-                connectDataBuffers->ReceiveConnectData.Buffer,
-                UserData,
-                connectDataBuffers->ReceiveConnectData.BufferLength
-                );
+        status = AfdSaveReceivedConnectData(
+                     &connectDataBuffers,
+                     IOCTL_AFD_SET_CONNECT_DATA,
+                     UserData,
+                     UserDataLength
+                     );
 
-        } else {
+        if( !NT_SUCCESS(status) ) {
 
-            connectDataBuffers->ReceiveConnectData.BufferLength = 0;
+            AfdReleaseSpinLock( &AfdSpinLock, oldIrql );
+            DEREFERENCE_ENDPOINT( endpoint );
+            AfdFreeConnectDataBuffers( connectDataBuffers );
+            return status;
+
         }
 
-        if ( Options != NULL && OptionsLength != 0 &&
-                 connectDataBuffers->ReceiveConnectOptions.Buffer != NULL ) {
+    }
 
-            if ( connectDataBuffers->ReceiveConnectOptions.BufferLength >
-                     (ULONG)OptionsLength ) {
+    if( Options != NULL && OptionsLength > 0 ) {
 
-                connectDataBuffers->ReceiveConnectOptions.BufferLength =
-                    OptionsLength;
-            }
+        NTSTATUS status;
 
-            RtlCopyMemory(
-                connectDataBuffers->ReceiveConnectOptions.Buffer,
-                Options,
-                connectDataBuffers->ReceiveConnectOptions.BufferLength
-                );
+        status = AfdSaveReceivedConnectData(
+                     &connectDataBuffers,
+                     IOCTL_AFD_SET_CONNECT_OPTIONS,
+                     Options,
+                     OptionsLength
+                     );
 
-        } else {
+        if( !NT_SUCCESS(status) ) {
 
-            connectDataBuffers->ReceiveConnectOptions.BufferLength = 0;
+            AfdReleaseSpinLock( &AfdSpinLock, oldIrql );
+            DEREFERENCE_ENDPOINT( endpoint );
+            AfdFreeConnectDataBuffers( connectDataBuffers );
+            return status;
+
         }
 
+    }
+
+    if( connectDataBuffers != NULL ) {
+
         //
-        // We allocated extra space at the end of the connect data 
-        // buffers structure.  We'll use this for the 
+        // We allocated extra space at the end of the connect data
+        // buffers structure.  We'll use this for the
         // TDI_CONNECTION_INFORMATION structure that holds response
         // connect data and options.  Not pretty, but the fastest
         // and easiest way to accomplish this.
         //
 
         requestConnectionInformation =
-            (PTDI_CONNECTION_INFORMATION)(connectDataBuffers + 1);
+            &connectDataBuffers->TdiConnectionInfo;
 
         RtlZeroMemory(
             requestConnectionInformation,
@@ -603,11 +680,50 @@ Return Value:
 
     } else {
 
-        connectDataBuffers = NULL;
         requestConnectionInformation = NULL;
+
     }
 
-    KeReleaseSpinLock( &AfdSpinLock, oldIrql );
+    AfdReleaseSpinLock( &AfdSpinLock, oldIrql );
+
+    //
+    // Enforce dynamic backlog if enabled.
+    //
+
+    if( endpoint->Common.VcListening.EnableDynamicBacklog ) {
+
+        LONG freeCount;
+        LONG acceptCount;
+        LONG failedCount;
+
+        //
+        // If the free connection count has dropped below the configured
+        // minimum, the number of "quasi-free" connections is less than
+        // the configured maximum, and we haven't already queued enough
+        // requests to take us past the maximum, then add new free
+        // connections to the endpoint. "Quasi-free" is defined as the
+        // sum of the free connection count and the count of pending TDI
+        // accepts.
+        //
+
+        freeCount = endpoint->Common.VcListening.FreeConnectionCount;
+        acceptCount = endpoint->Common.VcListening.TdiAcceptPendingCount;
+        failedCount = endpoint->Common.VcListening.FailedConnectionAdds;
+
+        if( freeCount < AfdMinimumDynamicBacklog &&
+            ( freeCount + acceptCount ) < AfdMaximumDynamicBacklog &&
+            failedCount < AfdMaximumDynamicBacklog ) {
+
+            InterlockedExchangeAdd(
+                &endpoint->Common.VcListening.FailedConnectionAdds,
+                AfdMaximumDynamicBacklog
+                );
+
+            AfdInitiateListenBacklogReplenish( endpoint );
+
+        }
+
+    }
 
     //
     // Attempt to get a pre-allocated connection object to handle the
@@ -642,6 +758,7 @@ Return Value:
             AfdInitiateListenBacklogReplenish( endpoint );
         }
 
+        DEREFERENCE_ENDPOINT( endpoint );
         return STATUS_INSUFFICIENT_RESOURCES;
     }
 
@@ -659,25 +776,29 @@ Return Value:
 
     fileObject = connection->FileObject;
     ASSERT( fileObject != NULL );
-    deviceObject = IoGetRelatedDeviceObject( fileObject );
+    deviceObject = connection->DeviceObject;
 
     //
-    // Allocate an IRP.  The stack size is one higher than that of the 
-    // target device, to allow for the caller's completion routine.  
+    // Allocate an IRP.  The stack size is one higher than that of the
+    // target device, to allow for the caller's completion routine.
     //
 
     irp = IoAllocateIrp( (CCHAR)(deviceObject->StackSize), FALSE );
+
     if ( irp == NULL ) {
 
         //
-        // Unable to allocate an IRP.  Free resources and inform the 
-        // caller.  
+        // Unable to allocate an IRP.  Free resources and inform the
+        // caller.
         //
 
-        KeAcquireSpinLock( &AfdSpinLock, &oldIrql );
+        AfdAcquireSpinLock( &AfdSpinLock, &oldIrql );
 
         if ( connection->ConnectDataBuffers != NULL ) {
-            AFD_FREE_POOL( connection->ConnectDataBuffers );
+            AFD_FREE_POOL(
+                connection->ConnectDataBuffers,
+                AFD_CONNECT_DATA_POOL_TAG
+                );
             connection->ConnectDataBuffers = NULL;
         }
 
@@ -686,8 +807,13 @@ Return Value:
             &connection->ListEntry
             );
 
-        KeReleaseSpinLock( &AfdSpinLock, oldIrql );
+        InterlockedIncrement(
+            &endpoint->Common.VcListening.FreeConnectionCount
+            );
 
+        AfdReleaseSpinLock( &AfdSpinLock, oldIrql );
+
+        DEREFERENCE_ENDPOINT( endpoint );
         return STATUS_INSUFFICIENT_RESOURCES;
     }
 
@@ -715,7 +841,7 @@ Return Value:
 
     TdiBuildAccept(
         irp,
-        fileObject->DeviceObject,
+        deviceObject,
         fileObject,
         AfdRestartAccept,
         connection,
@@ -746,11 +872,30 @@ Return Value:
     connection->State = AfdConnectionStateUnaccepted;
 
     //
-    // Store the remote address in the connection.
+    // We need to store the remote address in the connection.  If the
+    // connection object already has a remote address block that is
+    // sufficient, use it.  Otherwise, allocate a new one.
     //
 
-    connection->RemoteAddress =
-        AFD_ALLOCATE_POOL( NonPagedPoolMustSucceed, RemoteAddressLength );
+    if ( connection->RemoteAddress != NULL &&
+             connection->RemoteAddressLength < (ULONG)RemoteAddressLength ) {
+
+        AFD_FREE_POOL(
+            connection->RemoteAddress,
+            AFD_REMOTE_ADDRESS_POOL_TAG
+            );
+        connection->RemoteAddress = NULL;
+    }
+
+    if ( connection->RemoteAddress == NULL ) {
+
+        connection->RemoteAddress = AFD_ALLOCATE_POOL(
+                                        NonPagedPoolMustSucceed,
+                                        RemoteAddressLength,
+                                        AFD_REMOTE_ADDRESS_POOL_TAG
+                                        );
+    }
+
     connection->RemoteAddressLength = RemoteAddressLength;
 
     RtlMoveMemory(
@@ -764,19 +909,26 @@ Return Value:
     //
 
     connection->Endpoint = endpoint;
-    AfdReferenceEndpoint( endpoint, FALSE );
 
     //
-    // Add an additional reference to the connection.  This prevents 
-    // the connection from being closed until the disconnect event 
-    // handler is called.  
+    // Add an additional reference to the connection.  This prevents
+    // the connection from being closed until the disconnect event
+    // handler is called.
     //
 
     AfdAddConnectedReference( connection );
-    
+
     //
-    // Indicate to the TDI provider that we allocated a connection to 
-    // service this connect attempt.  
+    // Remember that we have another TDI accept pending on this endpoint.
+    //
+
+    InterlockedIncrement(
+        &endpoint->Common.VcListening.TdiAcceptPendingCount
+        );
+
+    //
+    // Indicate to the TDI provider that we allocated a connection to
+    // service this connect attempt.
     //
 
     return STATUS_MORE_PROCESSING_REQUIRED;
@@ -794,12 +946,20 @@ AfdRestartAccept (
     PAFD_ENDPOINT endpoint;
     PAFD_CONNECTION connection;
     KIRQL oldIrql1, oldIrql2;
+    LIST_ENTRY irpCompletionList;
+    PLIST_ENTRY listEntry;
+    PIRP waitForListenIrp;
+    BOOLEAN successfulCompletion;
 
     connection = (PAFD_CONNECTION)Context;
+    ASSERT( connection != NULL );
     ASSERT( connection->Type == AfdBlockTypeConnection );
 
     endpoint = connection->Endpoint;
+    ASSERT( endpoint != NULL );
     ASSERT( endpoint->Type == AfdBlockTypeVcListening );
+
+    UPDATE_CONN( connection, Irp->IoStatus.Status );
 
     IF_DEBUG(ACCEPT) {
         KdPrint(( "AfdRestartAccept: accept completed, status = %X, "
@@ -809,11 +969,23 @@ AfdRestartAccept (
     }
 
     //
+    // Remember that a TDI accept has completed on this endpoint.
+    //
+
+    InterlockedDecrement(
+        &endpoint->Common.VcListening.TdiAcceptPendingCount
+        );
+
+    //
     // If there are outstanding polls waiting for a connection on this
     // endpoint, complete them.
     //
 
-    AfdIndicatePollEvent( endpoint, AFD_POLL_ACCEPT, STATUS_SUCCESS );
+    AfdIndicatePollEvent(
+        endpoint,
+        AFD_POLL_ACCEPT_BIT,
+        STATUS_SUCCESS
+        );
 
     //
     // If the accept failed, treat it like an abortive disconnect.
@@ -834,46 +1006,99 @@ AfdRestartAccept (
     }
 
     //
-    // Check whether there are IOCTL_AFD_WAIT_FOR_LISTEN IRPs
-    // outstanding on this endpoint.  If there is one, complete it with
-    // this connection.  Note that we hold both the AFD and cancel
-    // spin locks here, in order to properly synchronize with
-    // AfdCancelWaitForListen.
+    // Remember the time that the connection started.
+    //
+
+    KeQuerySystemTime( (PLARGE_INTEGER)&connection->ConnectTime );
+
+    //
+    // Check whether the endpoint has been cleaned up yet.  If so, just
+    // throw out this connection, since it cannot be accepted any more.
+    // Also, this closes a hole between the endpoint being cleaned up
+    // and all the connections that reference it being deleted.
     //
 
     IoAcquireCancelSpinLock( &oldIrql2 );
-    KeAcquireSpinLock( &AfdSpinLock, &oldIrql1 );
+    AfdAcquireSpinLock( &AfdSpinLock, &oldIrql1 );
 
-    if ( !IsListEmpty( &endpoint->Common.VcListening.ListeningIrpListHead ) ) {
+    if ( endpoint->EndpointCleanedUp ) {
 
-        PLIST_ENTRY listEntry;
-        PIRP waitForListenIrp;
+        //
+        // First release the locks.
+        //
+
+        AfdReleaseSpinLock( &AfdSpinLock, oldIrql1 );
+        IoReleaseCancelSpinLock( oldIrql2 );
+
+        //
+        // Abort the connection.
+        //
+
+        AfdAbortConnection( connection );
+
+        //
+        // Free the IRP now since it is no longer needed.
+        //
+
+        IoFreeIrp( Irp );
+
+        //
+        // Return STATUS_MORE_PROCESSING_REQUIRED so that IoCompleteRequest
+        // will stop working on the IRP.
+        //
+
+        return STATUS_MORE_PROCESSING_REQUIRED;
+
+    }
+
+    //
+    // Initialize the local list of IRPs to complete.
+    //
+
+    InitializeListHead( &irpCompletionList );
+
+    successfulCompletion = FALSE;
+
+    //
+    // Scan the list of pending IOCTL_AFD_WAIT_FOR_LISTEN IRPs. Remove IRPs
+    // from the pending list and append them the local completion list.
+    // We'll stop our scan of the pending list as soon as either a) the
+    // pending list is exhausted, or b) we find a pended IRP with sufficient
+    // listen response buffer that it can be completed successfully. In
+    // either case, the IRPs are fully setup for completion (status code,
+    // etc.) before being appended to the completion list.
+    //
+    // This may seem like a lot of trouble (and it is). We must do this
+    // because we may have multiple IRPs to complete, we must hold the
+    // spinlock while traversing the pended IRP list, and we cannot hold
+    // the spinlock when calling IoCompleteRequest().
+    //
+
+    while( !IsListEmpty( &endpoint->Common.VcListening.ListeningIrpListHead ) ) {
+
         PIO_STACK_LOCATION irpSp;
         PAFD_LISTEN_RESPONSE_INFO listenResponse;
 
-        //
-        // Place the connection we're going to use on the endpoint's
-        // list of returned connections.
-        //
-
-        InsertTailList(
-            &endpoint->Common.VcListening.ReturnedConnectionListHead,
-            &connection->ListEntry
-            );
+        ASSERT( !successfulCompletion );
 
         //
         // Take the first IRP off the listening list.
         //
 
-        listEntry = RemoveHeadList( &endpoint->Common.VcListening.ListeningIrpListHead );
+        listEntry = RemoveHeadList(
+                        &endpoint->Common.VcListening.ListeningIrpListHead
+                        );
 
         //
-        // Get a pointer to the IRP we're using, reset its cancel 
-        // routine, and the stack location for the request.  
+        // Get a pointer to the current IRP, reset its cancel routine,
+        // and get a pointer to the current stack lockation.
         //
 
-        waitForListenIrp =
-            CONTAINING_RECORD( listEntry, IRP, Tail.Overlay.ListEntry );
+        waitForListenIrp = CONTAINING_RECORD(
+                               listEntry,
+                               IRP,
+                               Tail.Overlay.ListEntry
+                               );
 
         IF_DEBUG(LISTEN) {
             KdPrint(( "AfdRestartAccept: completing IRP %lx\n",
@@ -882,63 +1107,149 @@ AfdRestartAccept (
 
         IoSetCancelRoutine( waitForListenIrp, NULL );
 
-        KeReleaseSpinLock( &AfdSpinLock, oldIrql1 );
-        IoReleaseCancelSpinLock( oldIrql2 );
-
         irpSp = IoGetCurrentIrpStackLocation( waitForListenIrp );
 
         //
-        // Set up the response buffer with the sequence number (actually
-        // the pointer to the connection) and the address of the remote
-        // client.
+        // Check the listen response buffer. If it's insufficient,
+        // set its completion status to STATUS_BUFFER_TOO_SMALL and
+        // append it to the completion list.
         //
 
         listenResponse = waitForListenIrp->AssociatedIrp.SystemBuffer;
 
-        listenResponse->Sequence = (ULONG)connection;
+        if( connection->RemoteAddressLength >
+                ( irpSp->Parameters.DeviceIoControl.OutputBufferLength -
+                  sizeof(listenResponse->Sequence) ) ) {
 
-        ASSERT( connection->RemoteAddressLength <=
-                    irpSp->Parameters.DeviceIoControl.OutputBufferLength );
+            //
+            // Setup the IRP completion status.
+            //
 
-        RtlMoveMemory(
-            &listenResponse->RemoteAddress,
-            connection->RemoteAddress,
-            connection->RemoteAddressLength
-            );
+            waitForListenIrp->IoStatus.Status = STATUS_BUFFER_TOO_SMALL;
+            waitForListenIrp->IoStatus.Information = 0;
 
-        waitForListenIrp->IoStatus.Information =
-            sizeof(*listenResponse) - sizeof(TRANSPORT_ADDRESS) +
-                connection->RemoteAddressLength;
+            //
+            // Append to the IRP completion list.
+            //
 
-        //
-        // Indicate in the state of this connection that it has been
-        // returned to the user.
-        //
+            InsertTailList(
+                &irpCompletionList,
+                &waitForListenIrp->Tail.Overlay.ListEntry
+                );
 
-        connection->State = AfdConnectionStateReturned;
+        } else {
 
-        //
-        // Complete the IRP.
-        //
+            //
+            // This is an IRP we can actually complete successfully.
+            // Setup the sequence number (actually the pointer to the
+            // connection) and the address of the remote client.
+            //
 
-        waitForListenIrp->IoStatus.Status = STATUS_SUCCESS;
-        IoCompleteRequest( waitForListenIrp, AfdPriorityBoost );
+            listenResponse->Sequence = (ULONG)connection;
 
-    } else {
+            RtlMoveMemory(
+                &listenResponse->RemoteAddress,
+                connection->RemoteAddress,
+                connection->RemoteAddressLength
+                );
 
-        //
-        // There were no outstanding wait for listen IOCTLs.  Place this 
-        // connection on the list of unaccepted, unreturned connections 
-        // on the endpoint.  
-        //
-    
+            //
+            // Setup the IRP completion status.
+            //
+
+            waitForListenIrp->IoStatus.Status = STATUS_SUCCESS;
+            waitForListenIrp->IoStatus.Information =
+                sizeof(*listenResponse) - sizeof(TRANSPORT_ADDRESS) +
+                    connection->RemoteAddressLength;
+
+            //
+            // Place the connection we're going to use on the endpoint's
+            // list of returned connections.
+            //
+
+            InsertTailList(
+                &endpoint->Common.VcListening.ReturnedConnectionListHead,
+                &connection->ListEntry
+                );
+
+            //
+            // Indicate in the state of this connection that it has been
+            // returned to the user.
+            //
+
+            connection->State = AfdConnectionStateReturned;
+
+            //
+            // Append to the IRP completion list, then bail out of the
+            // scan loop.
+            //
+
+            InsertTailList(
+                &irpCompletionList,
+                &waitForListenIrp->Tail.Overlay.ListEntry
+                );
+
+            successfulCompletion = TRUE;
+            break;
+
+        }
+
+    }
+
+    //
+    // At this point, we still hold the AFD and I/O cancel spinlocks.
+    // We have a (potentially empty) list of IRPs that we need to
+    // complete.
+    //
+    // If we didn't manage to find a queued IRP to complete successfully,
+    // then enqueue the connection onto the endpoint's list of unaccepted,
+    // unreturned connections. We must do this *before* releasing the
+    // spinlocks.
+    //
+
+    if( !successfulCompletion ) {
+
         InsertTailList(
             &endpoint->Common.VcListening.UnacceptedConnectionListHead,
             &connection->ListEntry
             );
-    
-        KeReleaseSpinLock( &AfdSpinLock, oldIrql1 );
-        IoReleaseCancelSpinLock( oldIrql2 );
+
+    }
+
+    //
+    // We can now safely release the spinlocks and start completing
+    // IRPs.
+    //
+
+    AfdReleaseSpinLock( &AfdSpinLock, oldIrql1 );
+    IoReleaseCancelSpinLock( oldIrql2 );
+
+    //
+    // Scan the IRP completion list, and complete them all.
+    //
+
+    while( !IsListEmpty( &irpCompletionList ) ) {
+
+        listEntry = RemoveHeadList( &irpCompletionList );
+
+        //
+        // Get a pointer to the current IRP and complete it. Note that
+        // all completion information (IoStatus.Information and
+        // IoStatus.Status) was set before appending the IRP to this
+        // list.
+        //
+
+        waitForListenIrp = CONTAINING_RECORD(
+                               listEntry,
+                               IRP,
+                               Tail.Overlay.ListEntry
+                               );
+
+        IoCompleteRequest(
+            waitForListenIrp,
+            AfdPriorityBoost
+            );
+
     }
 
     //
@@ -959,16 +1270,17 @@ AfdRestartAccept (
 
 PAFD_CONNECT_DATA_BUFFERS
 CopyConnectDataBuffers (
-    IN PAFD_CONNECT_DATA_BUFFERS OriginalConnectDataBuffers,
-    IN ULONG ExtraAllocation
+    IN PAFD_CONNECT_DATA_BUFFERS OriginalConnectDataBuffers
     )
 {
     PAFD_CONNECT_DATA_BUFFERS connectDataBuffers;
 
     connectDataBuffers = AFD_ALLOCATE_POOL(
                              NonPagedPool,
-                             sizeof(*connectDataBuffers) + ExtraAllocation
+                             sizeof(*connectDataBuffers),
+                             AFD_CONNECT_DATA_POOL_TAG
                              );
+
     if ( connectDataBuffers == NULL ) {
         return NULL;
     }
@@ -1048,8 +1360,11 @@ CopySingleConnectDataBuffer (
 
         OutConnectDataInfo->BufferLength = InConnectDataInfo->BufferLength;
 
-        OutConnectDataInfo->Buffer =
-            AFD_ALLOCATE_POOL( NonPagedPool, OutConnectDataInfo->BufferLength );
+        OutConnectDataInfo->Buffer = AFD_ALLOCATE_POOL(
+                                         NonPagedPool,
+                                         OutConnectDataInfo->BufferLength,
+                                         AFD_CONNECT_DATA_POOL_TAG
+                                         );
 
         if ( OutConnectDataInfo->Buffer == NULL ) {
             return FALSE;
@@ -1070,3 +1385,51 @@ CopySingleConnectDataBuffer (
     return TRUE;
 
 } // CopySingleConnectDataBuffer
+
+
+VOID
+AfdEnableDynamicBacklogOnEndpoint(
+    IN PAFD_ENDPOINT Endpoint,
+    IN LONG ListenBacklog
+    )
+
+/*++
+
+Routine Description:
+
+    Determine if dynamic backlog should be enabled for the given
+    endpoint using the specified listen() backlog.
+
+Arguments:
+
+    Endpoint - The endpoint to manipulate.
+
+    ListenBacklog - The backlog passed into the listen() API.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+
+    //
+    // CODEWORK: For IP endpoints we could conditionally enable
+    // dynamic backlog by looking up the IP Port number in a
+    // database read from the registry.
+    //
+
+    if( AfdEnableDynamicBacklog &&
+        ListenBacklog > AfdMinimumDynamicBacklog ) {
+
+        Endpoint->Common.VcListening.EnableDynamicBacklog = TRUE;
+
+    } else {
+
+        Endpoint->Common.VcListening.EnableDynamicBacklog = FALSE;
+
+    }
+
+}   // AfdEnableDynamicBacklogOnEndpoint
+

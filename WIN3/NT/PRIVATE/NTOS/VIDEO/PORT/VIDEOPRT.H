@@ -21,6 +21,11 @@ Revision History:
 
 --*/
 
+
+extern BOOLEAN   VpBaseVideo;
+extern PEPROCESS CsrProcess;
+extern ULONG     VpC0000Compatible;
+
 //
 // Debugging Macro
 //
@@ -41,7 +46,7 @@ Revision History:
 extern BOOLEAN VPResourcesReported;
 
 #undef VideoDebugPrint
-#define pVideoDebugPrint(arg) pVideoPortDebugPrint arg
+#define pVideoDebugPrint(arg) VideoPortDebugPrint arg
 
 #define IS_ACCESS_RANGES_DEFINED()                                         \
     {                                                                      \
@@ -74,7 +79,11 @@ extern BOOLEAN VPResourcesReported;
 typedef struct _MAPPED_ADDRESS {
     struct _MAPPED_ADDRESS *NextMappedAddress;
     PVOID MappedAddress;
+    PHYSICAL_ADDRESS PhysicalAddress;
     ULONG NumberOfUchars;
+    ULONG RefCount;
+    BOOLEAN bNeedsUnmapping;
+    BOOLEAN bLargePageRequest;
 } MAPPED_ADDRESS, *PMAPPED_ADDRESS;
 
 //
@@ -131,18 +140,11 @@ typedef struct _VP_RESET_HW {
 typedef struct _DEVICE_EXTENSION {
 
     //
-    // Temporary pointer to the miniport config info so that the port driver
+    // Pointer to the miniport config info so that the port driver
     // can modify it when the miniport is asking for configuration information.
     //
 
     PVIDEO_PORT_CONFIG_INFO MiniportConfigInfo;
-
-    //
-    // Pointer to physical memory. It is created during driver initialization
-    // and is only closed when the driver is closed.
-    //
-
-    PVOID  PhysicalMemorySection;
 
     //
     // Linked list of all memory mapped io space (done through MmMapIoSpace)
@@ -253,6 +255,13 @@ typedef struct _DEVICE_EXTENSION {
     PWSTR DriverRegistryPath;
 
     //
+    // Total memory usage of PTEs by a miniport driver.
+    // This is used to track if the miniport is mapping too much memory
+    //
+
+    ULONG MemoryPTEUsage;
+
+    //
     // Pointer to the video request packet;
     //
 
@@ -289,7 +298,6 @@ typedef struct _DEVICE_EXTENSION {
     // VDM and int10 support
     //
 
-    ULONG ServerBiosAddressSpaceInitialized;
     PHYSICAL_ADDRESS VdmPhysicalVideoMemoryAddress;
     ULONG VdmPhysicalVideoMemoryLength;
 
@@ -324,6 +332,21 @@ pVideoPortDispatch(
     IN PIRP Irp
     );
 
+PVOID
+pVideoPortFreeDeviceBase(
+    IN PVOID HwDeviceExtension,
+    IN PVOID MappedAddress
+    );
+
+PVOID
+pVideoPortGetDeviceBase(
+    IN PVOID HwDeviceExtension,
+    IN PHYSICAL_ADDRESS IoAddress,
+    IN ULONG NumberOfUchars,
+    IN UCHAR InIoSpace,
+    IN BOOLEAN bLargePage
+    );
+
 NTSTATUS
 pVideoPortGetDeviceDataRegistry(
     IN PVOID Context,
@@ -347,6 +370,11 @@ pVideoPortGetRegistryCallback(
     IN ULONG ValueLength,
     IN PVOID Context,
     IN PVOID EntryContext
+    );
+
+VOID
+pVPInit(
+    VOID
     );
 
 NTSTATUS
@@ -434,7 +462,8 @@ pVideoPortResetDisplay(
 
 BOOLEAN
 pOverrideConflict(
-    PDEVICE_EXTENSION DeviceExtension
+    PDEVICE_EXTENSION DeviceExtension,
+    BOOLEAN bSetResources
     );
 
 NTSTATUS
@@ -450,6 +479,11 @@ pVideoPortReportResourceList(
 // i386\porti386.c
 // mips\portmips.c
 // alpha\portalpha.c
+
+VOID
+pVideoPortInitializeInt10(
+    PDEVICE_EXTENSION deviceExtension
+    );
 
 NTSTATUS
 pVideoPortEnableVDM(

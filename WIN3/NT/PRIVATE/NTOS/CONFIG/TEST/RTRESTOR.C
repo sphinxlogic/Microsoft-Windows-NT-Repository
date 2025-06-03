@@ -190,7 +190,7 @@ processargs(
                                   NULL,
                                   NULL);
 
-    if ((argc==4) && (stricmp(argv[3],"volatile")==0)) {
+    if ((argc==4) && (_stricmp(argv[3],"volatile")==0)) {
         HiveVolatile = TRUE;
     } else {
         HiveVolatile = FALSE;
@@ -198,4 +198,3 @@ processargs(
 
     return;
 }
-

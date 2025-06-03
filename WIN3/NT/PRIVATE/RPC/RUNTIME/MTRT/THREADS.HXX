@@ -51,6 +51,15 @@ public:
     unsigned long TimeLow;
 
     long CancelTimeout; // seconds.  Default=RPC_C_CANCEL_INFINITE_TIMEOUT.
+    void __RPC_FAR * ServerContextList;
+
+    void * SecurityContext;
+    long ImpersonatingClient;
+    unsigned Slot ;
+
+#ifdef NTENV
+    HANDLE hThreadEvent;
+#endif
 
 // Construct a new thread which will execute the procedure specified, taking
 // Param as the argument.
@@ -58,6 +67,10 @@ public:
     THREAD (
         IN THREAD_PROC Procedure,
         IN void * Parameter,
+        OUT RPC_STATUS * RpcStatus
+        );
+
+    THREAD (
         OUT RPC_STATUS * RpcStatus
         );
 
@@ -90,7 +103,6 @@ public:
     InqProtectCount (
         );
 
-    void __RPC_FAR * ServerContextList;
 };
 
 
@@ -182,5 +194,197 @@ extern RPC_STATUS
 SetThreadStackSize (
     IN unsigned long ThreadStackSize
     );
+
+#define  HIGHBITSET               (0x80000000)
+#define  MAXINTERNALCANCELTIMEOUT (0x7FFFFFFF)
+
+extern long
+ThreadGetRpcCancelTimeout(
+    );
+
+extern void
+ThreadSetRpcCancelTimeout(
+    long Timeout
+    );
+
+class ACTIVE_THREAD_DICT
+{
+public:
+
+    ACTIVE_THREAD_DICT(
+        RPC_STATUS * pStatus
+        )
+    {
+        Size = 8;
+        Data = new THREAD_CALL_INFO[Size];
+        if (!Data)
+            {
+            *pStatus = RPC_S_OUT_OF_MEMORY;
+            return;
+            }
+
+        memset(Data,
+               0,
+               Size * sizeof(THREAD_CALL_INFO)
+               );
+    }
+
+    ~ACTIVE_THREAD_DICT(
+        )
+    {
+        delete Data;
+    }
+
+    unsigned
+    RegisterThread(
+        unsigned long ThreadId,
+        CONNECTION *  Connection,
+        unsigned      PreviousSlot
+        );
+
+    CONNECTION *
+    UnregisterThread(
+        unsigned Index
+        );
+
+    void *
+    ACTIVE_THREAD_DICT::Find(
+        unsigned long ThreadId
+        );
+
+    unsigned
+    HashThreadId(
+        unsigned long Id
+        )
+    {
+        unsigned Low  = Id % 0x10000;
+        unsigned High = Id / 0x10000;
+
+        return (Low ^ High) % Size;
+    }
+
+private:
+
+    struct THREAD_CALL_INFO
+    {
+        unsigned long ThreadId;
+        CONNECTION *   Connection;
+    };
+
+
+    unsigned Size;
+    THREAD_CALL_INFO * Data;
+};
+
+RPC_STATUS
+RegisterForCancels(
+    CONNECTION * Conn
+    );
+
+RPC_STATUS
+UnregisterForCancels(
+    );
+
+unsigned
+RpcpThreadTestCancel(
+    );
+
+RPC_STATUS
+RpcpThreadCancel(
+    void * ThreadHandle
+    );
+
+
+#ifdef DOSWIN32RPC
+
+extern unsigned long RpcTlsIndex;
+
+inline THREAD *
+RpcpGetThreadPointer(
+    )
+{
+    return (THREAD *) TlsGetValue(RpcTlsIndex);
+}
+
+inline void
+RpcpSetThreadPointer(
+    THREAD * Thread
+    )
+{
+    TlsSetValue(RpcTlsIndex, Thread);
+}
+
+inline THREAD_IDENTIFIER
+GetThreadIdentifier (
+    )
+{
+    return(GetCurrentThreadId());
+}
+
+
+#elif NTENV
+
+inline THREAD *
+RpcpGetThreadPointer(
+    )
+{
+    return (THREAD *) NtCurrentTeb()->ReservedForNtRpc;
+}
+
+inline void
+RpcpSetThreadPointer(
+    THREAD * Thread
+    )
+{
+    NtCurrentTeb()->ReservedForNtRpc = Thread;
+}
+
+inline THREAD_IDENTIFIER
+GetThreadIdentifier (
+    )
+{
+    return(NtCurrentTeb()->ClientId.UniqueThread);
+}
+
+#endif
+
+
+inline void *
+RpcpGetThreadContext (
+    )
+{
+    THREAD * Thread = RpcpGetThreadPointer();
+
+    if ( Thread == 0 || ((unsigned long) Thread & HIGHBITSET))
+        {
+        return(0);
+        }
+
+    return(Thread->Context);
+}
+
+inline void
+RpcpSetThreadContext (
+    void * Context
+    )
+{
+    RpcpGetThreadPointer()->Context = Context;
+}
+
+inline
+void RpcpSetThisCallSecurityContext (
+     void * SecurityContext
+     )
+{
+     RpcpGetThreadPointer()->SecurityContext = SecurityContext;
+}
+
+inline
+void RpcpSetCallImpersonatedFlag (
+     long Flag
+     )
+{
+     RpcpGetThreadPointer()->ImpersonatingClient = Flag;
+}
 
 #endif // __THREADS__

@@ -66,6 +66,33 @@ SpRemoveDevice(
     IN PIRP Irp
     );
 
+VOID
+SpLogResetError(
+    IN PDEVICE_EXTENSION DeviceExtension,
+    IN PSCSI_REQUEST_BLOCK  Srb,
+    IN ULONG UniqueId
+    );
+
+NTSTATUS
+SpSendResetCompletion(
+    IN PDEVICE_OBJECT DeviceObject,
+    IN PIRP Irp,
+    IN PRESET_COMPLETION_CONTEXT Context
+    );
+
+NTSTATUS
+SpSendReset(
+    IN PDEVICE_OBJECT DeviceObject,
+    IN PIRP RequestIrp
+    );
+
+PLOGICAL_UNIT_EXTENSION
+SpFindSafeLogicalUnit(
+    IN PDEVICE_OBJECT DeviceObject,
+    IN UCHAR PathId
+    );
+
+
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE, ScsiPortDeviceControl)
 #pragma alloc_text(PAGE, SpSendMiniPortIoctl)
@@ -285,17 +312,19 @@ Return Value:
             resetContext.DeviceExtension = deviceExtension;
             resetContext.PathId = srb->PathId;
 
-            if (!deviceExtension->SynchronizeExecution(
-                    deviceExtension->InterruptObject,
-                    SpResetBusSynchronized,
-                    &resetContext
-                    )) {
+            if (!deviceExtension->SynchronizeExecution(deviceExtension->InterruptObject,
+                                                       SpResetBusSynchronized,
+                                                       &resetContext)) {
 
                 DebugPrint((1,"ScsiPortDispatch: Reset failed\n"));
                 srb->SrbStatus = SRB_STATUS_PHASE_SEQUENCE_FAILURE;
                 status = STATUS_IO_DEVICE_ERROR;
 
             } else {
+
+                SpLogResetError(deviceExtension,
+                                srb,
+                                ('R'<<24) | 256);
 
                 srb->SrbStatus = SRB_STATUS_SUCCESS;
                 status = STATUS_SUCCESS;
@@ -522,7 +551,7 @@ Return Value:
     PDEVICE_EXTENSION deviceExtension = DeviceObject->DeviceExtension;
     PSRB_DATA srbData;
     PLOGICAL_UNIT_EXTENSION logicalUnit;
-    INTERLOCKED_RESULT interlockResult;
+    LONG interlockResult;
     NTSTATUS status;
 
     DebugPrint((3,"ScsiPortStartIo: Enter routine\n"));
@@ -609,7 +638,7 @@ Return Value:
 
     //
     // If this is not an ABORT request the set the current srb.
-    // BUGBUG Lock should be held here!
+    // NOTE: Lock should be held here!
     //
 
     if (srb->Function != SRB_FUNCTION_ABORT_COMMAND) {
@@ -736,11 +765,9 @@ Return Value:
     // adapter has already been checked.
     //
 
-    interlockResult = ExInterlockedIncrementLong(
-                                &deviceExtension->ActiveRequestCount,
-                                &deviceExtension->SpinLock );
+    interlockResult = InterlockedIncrement(&deviceExtension->ActiveRequestCount);
 
-    if (interlockResult == ResultZero &&
+    if (interlockResult == 0 &&
         !deviceExtension->MasterWithAdapter &&
         deviceExtension->DmaAdapterObject != NULL) {
 
@@ -880,7 +907,7 @@ Return Value:
     BOOLEAN callStartIo;
     PLOGICAL_UNIT_EXTENSION logicalUnit;
     PSRB_DATA srbData;
-    INTERLOCKED_RESULT interlockResult;
+    LONG interlockResult;
     LARGE_INTEGER timeValue;
     PMDL mdl;
 
@@ -904,11 +931,9 @@ RestartCompletionDpc:
     interruptContext.DeviceExtension = deviceExtension;
     interruptContext.SavedInterruptData = &savedInterruptData;
 
-    if (!deviceExtension->SynchronizeExecution(
-        deviceExtension->InterruptObject,
-        SpGetInterruptState,
-        &interruptContext
-        )) {
+    if (!deviceExtension->SynchronizeExecution(deviceExtension->InterruptObject,
+                                               SpGetInterruptState,
+                                               &interruptContext)) {
 
         //
         // There is no work to do so just return.
@@ -1195,10 +1220,8 @@ RestartCompletionDpc:
         // Process the request.
         //
 
-        LogErrorEntry(
-            deviceExtension,
-            &savedInterruptData.LogEntry
-            );
+        LogErrorEntry(deviceExtension,
+                      &savedInterruptData.LogEntry);
     }
 
     //
@@ -1218,11 +1241,9 @@ RestartCompletionDpc:
         savedInterruptData.CompletedRequests = srbData->CompletedRequests;
         srbData->CompletedRequests = NULL;
 
-        SpProcessCompletedRequest(
-            deviceExtension,
-            srbData,
-            &callStartIo
-            );
+        SpProcessCompletedRequest(deviceExtension,
+                                  srbData,
+                                  &callStartIo);
     }
 
     //
@@ -1290,17 +1311,14 @@ RestartCompletionDpc:
         KeReleaseSpinLockFromDpcLevel(&deviceExtension->SpinLock);
 
         //
-        // Decrement the number of active requests.  If the count is negitive,
+        // Decrement the number of active requests.  If the count is negative,
         // and this is a slave with an adapter then free the adapter object and
         // map registers.
         //
 
-        interlockResult = ExInterlockedDecrementLong(
-                                &deviceExtension->ActiveRequestCount,
-                                &deviceExtension->SpinLock );
+        interlockResult = InterlockedDecrement(&deviceExtension->ActiveRequestCount);
 
-
-        if ( interlockResult == ResultNegative &&
+        if ( interlockResult < 0 &&
             !deviceExtension->MasterWithAdapter &&
             deviceExtension->DmaAdapterObject != NULL ) {
 
@@ -1445,13 +1463,15 @@ Return Value:
                                                       deviceExtension->DeviceObject)){
 
                 //
-                // Log error if SpTimeoutSynchonized indicate this was an error
+                // Log error if SpTimeoutSynchonized indicates this was an error
                 // timeout.
                 //
 
-                SpLogTimeoutError(deviceExtension,
-                                  deviceExtension->DeviceObject->CurrentIrp,
-                                  256);
+                if (deviceExtension->DeviceObject->CurrentIrp) {
+                    SpLogTimeoutError(deviceExtension,
+                                      deviceExtension->DeviceObject->CurrentIrp,
+                                      256);
+                }
             }
         }
 
@@ -1470,7 +1490,7 @@ Return Value:
     // decrement the timeout value and process a timeout if it is zero.
     //
 
-    for (target = 0; target < deviceExtension->MaximumTargetIds; target++) {
+    for (target = 0; target < NUMBER_LOGICAL_UNIT_BINS; target++) {
 
         logicalUnit = deviceExtension->LogicalUnitList[target];
         while (logicalUnit != NULL) {
@@ -1523,17 +1543,27 @@ Return Value:
                 // Request timed out.
                 //
 
+                logicalUnit->RequestTimeoutCounter = PD_TIMER_STOPPED;
+
                 DebugPrint((1,"ScsiPortTickHandler: Request timed out\n"));
 
                 resetContext.DeviceExtension = deviceExtension;
                 resetContext.PathId = logicalUnit->PathId;
 
-                if (!deviceExtension->SynchronizeExecution(
-                        deviceExtension->InterruptObject,
-                        SpResetBusSynchronized,
-                        &resetContext)) {
+                if (!deviceExtension->SynchronizeExecution(deviceExtension->InterruptObject,
+                                                           SpResetBusSynchronized,
+                                                           &resetContext)) {
 
                     DebugPrint((1,"ScsiPortTickHanlder: Reset failed\n"));
+                } else {
+
+                    //
+                    // Log the reset.
+                    //
+
+                    SpLogResetError( deviceExtension,
+                                     logicalUnit->SrbData.CurrentSrb,
+                                     ('P'<<24) | 257);
                 }
 
             } else if (logicalUnit->RequestTimeoutCounter > 0) {
@@ -1543,6 +1573,7 @@ Return Value:
                 //
 
                 logicalUnit->RequestTimeoutCounter--;
+
             }
 
             logicalUnit = logicalUnit->NextLogicalUnit;
@@ -1710,6 +1741,36 @@ Return Value:
 
         break;
 
+    case IOCTL_STORAGE_RESET_BUS: {
+
+        if(irpStack->Parameters.DeviceIoControl.InputBufferLength <
+           sizeof(STORAGE_BUS_RESET_REQUEST)) {
+
+            status = STATUS_BUFFER_TOO_SMALL;
+
+        } else {
+
+            //
+            // Send an asynchronous srb through to ourself to handle this reset then
+            // return.  SpSendReset will take care of completing the request when
+            // it's done
+            //
+
+            IoMarkIrpPending(Irp);
+
+            status = SpSendReset(DeviceObject, Irp);
+
+            if(!NT_SUCCESS(status)) {
+                DebugPrint((1, "IOCTL_STORAGE_BUS_RESET - error %#08lx from SpSendReset\n", status));
+            }
+
+            return STATUS_PENDING;
+        }
+
+        break;
+    }
+
+
     default:
 
         DebugPrint((1,
@@ -1875,13 +1936,11 @@ Notes:
 
         if (srb->Function == SRB_FUNCTION_ABORT_COMMAND) {
 
-             srbData = SpGetSrbData(
-                    deviceExtension,
-                    srb->PathId,
-                    srb->TargetId,
-                    srb->Lun,
-                    srb->QueueTag
-                    );
+             srbData = SpGetSrbData(deviceExtension,
+                                    srb->PathId,
+                                    srb->TargetId,
+                                    srb->Lun,
+                                    srb->QueueTag);
 
             //
             // Make sure the srb request is still active.
@@ -1906,16 +1965,12 @@ Notes:
 
                 DebugPrint((1, "ScsiPortStartIO: Request completed be for it was aborted.\n"));
                 srb->SrbStatus = SRB_STATUS_ABORT_FAILED;
-                ScsiPortNotification(
-                    RequestComplete,
-                    deviceExtension + 1,
-                    srb
-                    );
+                ScsiPortNotification(RequestComplete,
+                                     deviceExtension + 1,
+                                     srb);
 
-                ScsiPortNotification(
-                    NextRequest,
-                    deviceExtension + 1
-                    );
+                ScsiPortNotification(NextRequest,
+                                     deviceExtension + 1);
 
                 //
                 // Queue a DPC to process the work that was just indicated.
@@ -1965,10 +2020,8 @@ Notes:
 
     srb->SrbFlags |= SRB_FLAGS_IS_ACTIVE;
 
-    returnValue = deviceExtension->HwStartIo(
-        deviceExtension->HwDeviceExtension,
-        srb
-        );
+    returnValue = deviceExtension->HwStartIo(deviceExtension->HwDeviceExtension,
+                                             srb);
 
     //
     // Check for miniport work requests.
@@ -1979,7 +2032,7 @@ Notes:
         IoRequestDpc(deviceExtension->DeviceObject, NULL, NULL);
     }
 
-    return(returnValue);
+    return returnValue;
 
 } // end SpStartIoSynchronized()
 
@@ -2161,14 +2214,15 @@ Return Value:
 --*/
 
 {
-    PIO_STACK_LOCATION irpStack;
-    PIRP irp;
-    LARGE_INTEGER largeInt = LiFromUlong(1);
+    PIO_STACK_LOCATION  irpStack;
+    PIRP                irp;
+    LARGE_INTEGER       largeInt;
     PSCSI_REQUEST_BLOCK srb;
-    PCDB cdb;
-    PVOID *pointer;
+    PCDB                cdb;
+    PVOID              *pointer;
 
     DebugPrint((3,"IssueRequestSense: Enter routine\n"));
+    largeInt.QuadPart = (LONGLONG) 1;
 
     //
     // Build the asynchronous request
@@ -2182,8 +2236,7 @@ Return Value:
     //
 
     srb = ExAllocatePool(NonPagedPoolMustSucceed,
-        sizeof(SCSI_REQUEST_BLOCK) + sizeof(PVOID));
-
+                         sizeof(SCSI_REQUEST_BLOCK) + sizeof(PVOID));
     RtlZeroMemory(srb, sizeof(SCSI_REQUEST_BLOCK));
 
     //
@@ -2455,16 +2508,17 @@ Return Value:
 --*/
 
 {
-    PIRP irp;
-    PIO_STACK_LOCATION irpStack;
-    LARGE_INTEGER largeInt = LiFromUlong(1);
+    PIRP                irp;
+    PIO_STACK_LOCATION  irpStack;
+    LARGE_INTEGER       largeInt;
     PSCSI_REQUEST_BLOCK srb;
     PSCSI_REQUEST_BLOCK failingSrb;
-    PSRB_DATA srbData;
-    RESET_CONTEXT resetContext;
-    PLIST_ENTRY entry;
+    PSRB_DATA           srbData;
+    RESET_CONTEXT       resetContext;
+    PLIST_ENTRY         entry;
 
     DebugPrint((3,"IssueAbortRequest: Enter routine\n"));
+    largeInt.QuadPart = (LONGLONG) 1;
 
     //
     // Lock out the completion DPC.
@@ -2499,13 +2553,15 @@ Return Value:
         resetContext.DeviceExtension = DeviceExtension;
         resetContext.PathId = LogicalUnit->PathId;
 
-        if (!DeviceExtension->SynchronizeExecution(
-                DeviceExtension->InterruptObject,
-                SpResetBusSynchronized,
-                &resetContext
-                )) {
+        if (!DeviceExtension->SynchronizeExecution(DeviceExtension->InterruptObject,
+                                                   SpResetBusSynchronized,
+                                                   &resetContext)) {
 
             DebugPrint((1,"IssueAbortRequest: Reset failed\n"));
+        } else {
+            SpLogResetError( DeviceExtension,
+                             LogicalUnit->AbortSrb,
+                             ('P'<<24) | 259);
         }
 
         //
@@ -2595,13 +2651,15 @@ Return Value:
         resetContext.DeviceExtension = DeviceExtension;
         resetContext.PathId = LogicalUnit->PathId;
 
-        if (!DeviceExtension->SynchronizeExecution(
-                DeviceExtension->InterruptObject,
-                SpResetBusSynchronized,
-                &resetContext
-                )) {
+        if (!DeviceExtension->SynchronizeExecution(DeviceExtension->InterruptObject,
+                                                   SpResetBusSynchronized,
+                                                   &resetContext)) {
 
             DebugPrint((1,"IssueAbortRequest: Reset failed\n"));
+        } else {
+            SpLogResetError( DeviceExtension,
+                             failingSrb,
+                             ('P'<<24) | 260);
         }
 
         //
@@ -2771,14 +2829,14 @@ Notes:
 
 --*/
 {
-    PINTERRUPT_CONTEXT interruptContext = ServiceContext;
-    PDEVICE_EXTENSION deviceExtension;
+    PINTERRUPT_CONTEXT      interruptContext = ServiceContext;
+    ULONG                   limit = 0;
+    PDEVICE_EXTENSION       deviceExtension;
     PLOGICAL_UNIT_EXTENSION logicalUnit;
-    PSCSI_REQUEST_BLOCK srb;
-    PSRB_DATA srbData;
-    PSRB_DATA nextSrbData;
-    BOOLEAN isTimed;
-    ULONG limit = 0;
+    PSCSI_REQUEST_BLOCK     srb;
+    PSRB_DATA               srbData;
+    PSRB_DATA               nextSrbData;
+    BOOLEAN                 isTimed;
 
     deviceExtension = interruptContext->DeviceExtension;
 
@@ -2818,12 +2876,10 @@ Notes:
 
         srb = srbData->CurrentSrb;
 
-        logicalUnit = GetLogicalUnitExtension(
-            (PDEVICE_EXTENSION) deviceExtension,
-            srb->PathId,
-            srb->TargetId,
-            srb->Lun
-            );
+        logicalUnit = GetLogicalUnitExtension((PDEVICE_EXTENSION) deviceExtension,
+                                               srb->PathId,
+                                               srb->TargetId,
+                                               srb->Lun);
 
         //
         // If the request did not succeed, then check for the special cases.
@@ -2877,12 +2933,20 @@ Notes:
                 logicalUnit->LuFlags |= PD_QUEUE_IS_FULL;
 
                 //
+                // Assert to catch queue full condition when there are
+                // no requests.
+                //
+
+                ASSERT(logicalUnit->QueueCount);
+
+                //
                 // Update the maximum queue depth.
                 //
 
-                if (logicalUnit->QueueCount < logicalUnit->MaxQueueDepth &&
-                    logicalUnit->QueueCount > 1) {
+                if (logicalUnit->QueueCount <= logicalUnit->MaxQueueDepth &&
+                    logicalUnit->QueueCount > 2) {
 
+                    DebugPrint((1, "SpGetInterruptState: Old queue depth %d.\n", logicalUnit->MaxQueueDepth));
                     logicalUnit->MaxQueueDepth = logicalUnit->QueueCount - 1;
                     DebugPrint((1, "SpGetInterruptState: New queue depth %d.\n", logicalUnit->MaxQueueDepth));
                 }
@@ -2901,8 +2965,7 @@ Notes:
 
         } else {
 
-            if (logicalUnit->SrbData.RequestList.Flink ==
-                &srbData->RequestList) {
+            if (logicalUnit->SrbData.RequestList.Flink == &srbData->RequestList) {
 
                     isTimed = TRUE;
 
@@ -2982,10 +3045,15 @@ Return Value:
 {
     PLOGICAL_UNIT_EXTENSION logicalUnit;
 
-    logicalUnit = deviceExtension->LogicalUnitList[TargetId];
+    if (TargetId >= deviceExtension->MaximumTargetIds) {
+        return NULL;
+    }
+
+    logicalUnit = deviceExtension->LogicalUnitList[(TargetId + Lun) % NUMBER_LOGICAL_UNIT_BINS];
     while (logicalUnit != NULL) {
 
-        if (logicalUnit->Lun == Lun &&
+        if (logicalUnit->TargetId == TargetId &&
+            logicalUnit->Lun == Lun &&
             logicalUnit->PathId == PathId) {
             return logicalUnit;
         }
@@ -3106,17 +3174,16 @@ Return Value:
 --*/
 
 {
-    BOOLEAN writeToDevice;
-    PIO_STACK_LOCATION irpStack;
-    PSRB_DATA srbData = Context;
+    BOOLEAN             writeToDevice;
+    PIO_STACK_LOCATION  irpStack;
     PSCSI_REQUEST_BLOCK srb;
     PSRB_SCATTER_GATHER scatterList;
-    PCCHAR dataVirtualAddress;
-    ULONG totalLength;
-    KIRQL currentIrql;
-    PDEVICE_EXTENSION deviceExtension;
+    PCCHAR              dataVirtualAddress;
+    ULONG               totalLength;
+    KIRQL               currentIrql;
+    PSRB_DATA           srbData         = Context;
+    PDEVICE_EXTENSION   deviceExtension = DeviceObject->DeviceExtension;
 
-    deviceExtension = DeviceObject->DeviceExtension;
     irpStack = IoGetCurrentIrpStackLocation(Irp);
     srb = (PSCSI_REQUEST_BLOCK)irpStack->Parameters.Others.Argument1;
 
@@ -3195,14 +3262,12 @@ Return Value:
         // Since we are a master call I/O map transfer with a NULL adapter.
         //
 
-        scatterList->PhysicalAddress = IoMapTransfer(
-            NULL,
-            Irp->MdlAddress,
-            MapRegisterBase,
-            (PCCHAR) dataVirtualAddress + totalLength,
-            &scatterList->Length,
-            writeToDevice
-            ).LowPart;
+        scatterList->PhysicalAddress = IoMapTransfer(NULL,
+                                                     Irp->MdlAddress,
+                                                     MapRegisterBase,
+                                                     (PCCHAR) dataVirtualAddress + totalLength,
+                                                     &scatterList->Length,
+                                                     writeToDevice).LowPart;
 
         totalLength += scatterList->Length;
         scatterList++;
@@ -3212,8 +3277,7 @@ Return Value:
     // Update the active request count.
     //
 
-    ExInterlockedIncrementLong( &deviceExtension->ActiveRequestCount,
-                                &deviceExtension->SpinLock );
+    InterlockedIncrement( &deviceExtension->ActiveRequestCount );
 
     //
     // Acquire the spinlock to protect the various structures.
@@ -3405,9 +3469,9 @@ Return Value:
 
 {
     PKDEVICE_QUEUE_ENTRY packet;
-    PIO_STACK_LOCATION irpStack;
-    PSCSI_REQUEST_BLOCK srb;
-    PIRP nextIrp;
+    PIO_STACK_LOCATION   irpStack;
+    PSCSI_REQUEST_BLOCK  srb;
+    PIRP                 nextIrp;
 
     //
     // If the active flag is not set, then the queue is not busy or there is
@@ -3491,8 +3555,6 @@ Return Value:
         }
     }
 
-    ASSERT(LogicalUnit->SrbData.CurrentSrb == NULL);
-
     //
     // Clear the active flag.  If there is another request, the flag will be
     // set again when the request is passed to the miniport.
@@ -3505,10 +3567,8 @@ Return Value:
     // Remove the packet from the logical unit device queue.
     //
 
-    packet = KeRemoveByKeyDeviceQueue(
-        &LogicalUnit->RequestQueue,
-        LogicalUnit->CurrentKey
-        );
+    packet = KeRemoveByKeyDeviceQueue(&LogicalUnit->RequestQueue,
+                                      LogicalUnit->CurrentKey);
 
     if (packet != NULL) {
 
@@ -3522,6 +3582,13 @@ Return Value:
         srb = (PSCSI_REQUEST_BLOCK)irpStack->Parameters.Others.Argument1;
 
         LogicalUnit->CurrentKey = srb->QueueSortKey;
+
+        //
+        // Hack to work-around the starvation led to by numerous requests touching the same sector.
+        //
+
+        LogicalUnit->CurrentKey++;
+
 
         //
         // Release the spinlock.
@@ -3576,28 +3643,24 @@ Notes:
 
 {
     PIO_ERROR_LOG_PACKET errorLogEntry;
-    PIO_STACK_LOCATION irpStack;
-    PSRB_DATA srbData;
-    PSCSI_REQUEST_BLOCK srb;
+    PIO_STACK_LOCATION   irpStack;
+    PSRB_DATA            srbData;
+    PSCSI_REQUEST_BLOCK  srb;
 
     irpStack = IoGetCurrentIrpStackLocation(Irp);
     srb = (PSCSI_REQUEST_BLOCK)irpStack->Parameters.Others.Argument1;
-    srbData = SpGetSrbData(
-            DeviceExtension,
-            srb->PathId,
-            srb->TargetId,
-            srb->Lun,
-            srb->QueueTag
-            );
+    srbData = SpGetSrbData(DeviceExtension,
+                           srb->PathId,
+                           srb->TargetId,
+                           srb->Lun,
+                           srb->QueueTag);
 
     if (!srbData) {
         return;
     }
 
-    errorLogEntry = (PIO_ERROR_LOG_PACKET)IoAllocateErrorLogEntry(
-        DeviceExtension->DeviceObject,
-        sizeof(IO_ERROR_LOG_PACKET) + 4 * sizeof(ULONG)
-        );
+    errorLogEntry = (PIO_ERROR_LOG_PACKET) IoAllocateErrorLogEntry(DeviceExtension->DeviceObject,
+                                                                   sizeof(IO_ERROR_LOG_PACKET) + 4 * sizeof(ULONG));
 
     if (errorLogEntry != NULL) {
         errorLogEntry->ErrorCode = IO_ERR_TIMEOUT;
@@ -3611,6 +3674,98 @@ Notes:
         errorLogEntry->DumpData[1] = srb->TargetId;
         errorLogEntry->DumpData[2] = srb->Lun;
         errorLogEntry->DumpData[3] = SP_REQUEST_TIMEOUT;
+
+        IoWriteErrorLogEntry(errorLogEntry);
+    }
+}
+
+VOID
+SpLogResetError(
+    IN PDEVICE_EXTENSION DeviceExtension,
+    IN PSCSI_REQUEST_BLOCK  Srb,
+    IN ULONG UniqueId
+    )
+/*++
+
+Routine Description:
+
+    This function logs an error when the bus is reset.
+
+Arguments:
+
+    DeviceExtension - Supplies a pointer to the port device extension.
+
+    Srb - Supplies a pointer to the request which timed-out.
+
+    UniqueId - Supplies the UniqueId for this error.
+
+Return Value:
+
+    None.
+
+Notes:
+
+    The port device extension spinlock should be held when this routine is
+    called.
+
+--*/
+
+{
+    PIO_ERROR_LOG_PACKET errorLogEntry;
+    PIO_STACK_LOCATION   irpStack;
+    PIRP                 irp;
+    PSRB_DATA            srbData;
+    ULONG                sequenceNumber = 0;
+    UCHAR                function       = 0,
+                         pathId         = 0,
+                         targetId       = 0,
+                         lun            = 0,
+                         retryCount     = 0;
+
+    if (Srb) {
+
+        irp = Srb->OriginalRequest;
+
+        if (irp) {
+            irpStack = IoGetCurrentIrpStackLocation(irp);
+            function = irpStack->MajorFunction;
+        }
+
+        srbData = SpGetSrbData( DeviceExtension,
+                                Srb->PathId,
+                                Srb->TargetId,
+                                Srb->Lun,
+                                Srb->QueueTag );
+
+        if (!srbData) {
+            return;
+        }
+
+        pathId         = Srb->PathId;
+        targetId       = Srb->TargetId;
+        lun            = Srb->Lun;
+        retryCount     = (UCHAR) srbData->ErrorLogRetryCount;
+        sequenceNumber = srbData->SequenceNumber;
+
+
+    }
+
+    errorLogEntry = (PIO_ERROR_LOG_PACKET) IoAllocateErrorLogEntry( DeviceExtension->DeviceObject,
+                                                                    sizeof(IO_ERROR_LOG_PACKET)
+                                                                        + 4 * sizeof(ULONG) );
+
+    if (errorLogEntry != NULL) {
+        errorLogEntry->ErrorCode         = IO_ERR_TIMEOUT;
+        errorLogEntry->SequenceNumber    = sequenceNumber;
+        errorLogEntry->MajorFunctionCode = function;
+        errorLogEntry->RetryCount        = retryCount;
+        errorLogEntry->UniqueErrorValue  = UniqueId;
+        errorLogEntry->FinalStatus       = STATUS_SUCCESS;
+        errorLogEntry->DumpDataSize      = 4 * sizeof(ULONG);
+        errorLogEntry->DumpData[0]       = pathId;
+        errorLogEntry->DumpData[1]       = targetId;
+        errorLogEntry->DumpData[2]       = lun;
+        errorLogEntry->DumpData[3]       = SP_REQUEST_TIMEOUT;
 
         IoWriteErrorLogEntry(errorLogEntry);
     }
@@ -3687,12 +3842,8 @@ Return Value:
     PDEVICE_EXTENSION deviceExtension;
 
     deviceExtension = resetContext->DeviceExtension;
-
-
-    deviceExtension->HwResetBus(
-            deviceExtension->HwDeviceExtension,
-            resetContext->PathId
-            );
+    deviceExtension->HwResetBus(deviceExtension->HwDeviceExtension,
+                                resetContext->PathId);
 
     //
     // Set the reset hold flag and start the counter.
@@ -3751,11 +3902,11 @@ Return Value:
 {
 
     PLOGICAL_UNIT_EXTENSION logicalUnit;
-    PIRP irp;
-    PSCSI_REQUEST_BLOCK srb;
-    PIO_ERROR_LOG_PACKET errorLogEntry;
-    ULONG sequenceNumber;
-    INTERLOCKED_RESULT interlockResult;
+    PSCSI_REQUEST_BLOCK     srb;
+    PIO_ERROR_LOG_PACKET    errorLogEntry;
+    ULONG                   sequenceNumber;
+    LONG                    interlockResult;
+    PIRP                    irp;
 
     srb = SrbData->CurrentSrb;
     irp = srb->OriginalRequest;
@@ -3764,44 +3915,44 @@ Return Value:
     // Get logical unit extension for this request.
     //
 
-    logicalUnit =
-            GetLogicalUnitExtension(DeviceExtension,
-                                    srb->PathId,
-                                    srb->TargetId,
-                                    srb->Lun);
+    logicalUnit = GetLogicalUnitExtension(DeviceExtension,
+                                          srb->PathId,
+                                          srb->TargetId,
+                                          srb->Lun);
 
     //
     // If miniport needs mapped system addresses, the the
     // data buffer address in the SRB must be restored to
-    // original unmapped virtual address.
+    // original unmapped virtual address. Ensure that this request requires
+    // a data transfer.
     //
 
-    if (DeviceExtension->MapBuffers) {
-        if (irp->MdlAddress) {
+    if (srb->SrbFlags & SRB_FLAGS_UNSPECIFIED_DIRECTION) {
+        if (DeviceExtension->MapBuffers) {
+            if (irp->MdlAddress) {
 
-            //
-            // If an IRP is for a transfer larger than a miniport driver
-            // can handle, the request is broken up into multiple smaller
-            // requests. Each request uses the same MDL and the data
-            // buffer address field in the SRB may not be at the
-            // beginning of the memory described by the MDL.
-            //
+                //
+                // If an IRP is for a transfer larger than a miniport driver
+                // can handle, the request is broken up into multiple smaller
+                // requests. Each request uses the same MDL and the data
+                // buffer address field in the SRB may not be at the
+                // beginning of the memory described by the MDL.
+                //
 
-            srb->DataBuffer = (PCCHAR)MmGetMdlVirtualAddress(irp->MdlAddress) +
-                ((PCCHAR)srb->DataBuffer - SrbData->SrbDataOffset);
+                srb->DataBuffer = (PCCHAR)MmGetMdlVirtualAddress(irp->MdlAddress) +
+                    ((PCCHAR)srb->DataBuffer - SrbData->SrbDataOffset);
 
-            //
-            // Since this driver driver did programmaged I/O then the buffer
-            // needs to flushed if this an data-in transfer.
-            //
+                //
+                // Since this driver driver did programmaged I/O then the buffer
+                // needs to flushed if this an data-in transfer.
+                //
 
-            if (srb->SrbFlags & SRB_FLAGS_DATA_IN) {
+                if (srb->SrbFlags & SRB_FLAGS_DATA_IN) {
 
-                KeFlushIoBuffers(
-                    irp->MdlAddress,
-                    TRUE,
-                    FALSE
-                    );
+                    KeFlushIoBuffers(irp->MdlAddress,
+                                     TRUE,
+                                     FALSE);
+                }
             }
         }
     }
@@ -3817,24 +3968,20 @@ Return Value:
         // adapter.
         //
 
-        IoFlushAdapterBuffers(
-            NULL,
-            irp->MdlAddress,
-            SrbData->MapRegisterBase,
-            srb->DataBuffer,
-            srb->DataTransferLength,
-            (BOOLEAN)(srb->SrbFlags & SRB_FLAGS_DATA_IN ? FALSE : TRUE)
-            );
+        IoFlushAdapterBuffers(NULL,
+                              irp->MdlAddress,
+                              SrbData->MapRegisterBase,
+                              srb->DataBuffer,
+                              srb->DataTransferLength,
+                              (BOOLEAN)(srb->SrbFlags & SRB_FLAGS_DATA_IN ? FALSE : TRUE));
 
         //
         // Free the map registers.
         //
 
-        IoFreeMapRegisters(
-            DeviceExtension->DmaAdapterObject,
-            SrbData->MapRegisterBase,
-            SrbData->NumberOfMapRegisters
-            );
+        IoFreeMapRegisters(DeviceExtension->DmaAdapterObject,
+                           SrbData->MapRegisterBase,
+                           SrbData->NumberOfMapRegisters);
 
         //
         // Clear the MapRegisterBase.
@@ -3913,11 +4060,13 @@ Return Value:
 
     if (srb->SrbFlags & SRB_FLAGS_SGLIST_FROM_POOL) {
 
-        //
-        // Free scatter/gather list to pool.
-        //
+        if (SrbData->ScatterGather) {
+            //
+            // Free scatter/gather list to pool.
+            //
 
-        ExFreePool(SrbData->ScatterGather);
+            ExFreePool(SrbData->ScatterGather);
+        }
         srb->SrbFlags &= ~SRB_FLAGS_SGLIST_FROM_POOL;
     }
 
@@ -3945,12 +4094,9 @@ Return Value:
 
             if (srb->SrbStatus & SRB_STATUS_AUTOSENSE_VALID) {
 
-                RtlCopyMemory(
-                    SrbData->RequestSenseSave,
-                    srb->SenseInfoBuffer,
-                    srb->SenseInfoBufferLength
-                    );
-
+                RtlCopyMemory(SrbData->RequestSenseSave,
+                              srb->SenseInfoBuffer,
+                              srb->SenseInfoBufferLength);
             }
 
             //
@@ -3961,11 +4107,8 @@ Return Value:
 
         }
 
-        *((PVOID *) srb->SrbExtension) =
-            DeviceExtension->SrbExtensionListHeader;
-
+        *((PVOID *)srb->SrbExtension) = DeviceExtension->SrbExtensionListHeader;
         DeviceExtension->SrbExtensionListHeader = srb->SrbExtension;
-
     }
 
     //
@@ -4042,7 +4185,7 @@ Return Value:
 
         if (!(srb->SrbFlags & SRB_FLAGS_BYPASS_FROZEN_QUEUE) &&
             logicalUnit->RequestTimeoutCounter == PD_TIMER_STOPPED) {
-// BUGBUG
+
             //
             // This is a normal request start the next packet.
             //
@@ -4059,11 +4202,9 @@ Return Value:
 
         }
 
-        DebugPrint((
-            2,
-            "SpProcessCompletedRequests: Iocompletion IRP %lx\n",
-            irp
-            ));
+        DebugPrint((2,
+                    "SpProcessCompletedRequests: Iocompletion IRP %lx\n",
+                    irp));
 
         //
         // Note that the retry count and sequence number are not cleared
@@ -4079,12 +4220,9 @@ Return Value:
         // this logical unit before adapter is released.
         //
 
-        interlockResult = ExInterlockedDecrementLong(
-                                    &DeviceExtension->ActiveRequestCount,
-                                    &DeviceExtension->SpinLock );
+        interlockResult = InterlockedDecrement( &DeviceExtension->ActiveRequestCount );
 
-
-         if ( interlockResult == ResultNegative &&
+         if ( interlockResult < 0 &&
             !DeviceExtension->MasterWithAdapter &&
             DeviceExtension->DmaAdapterObject != NULL ) {
 
@@ -4103,17 +4241,14 @@ Return Value:
     }
 
     //
-    // Decrement the number of active requests.  If the count is negitive, and
+    // Decrement the number of active requests.  If the count is negative, and
     // this is a slave with an adapter then free the adapter object and
     // map registers.
     //
 
-    interlockResult = ExInterlockedDecrementLong(
-                                &DeviceExtension->ActiveRequestCount,
-                                &DeviceExtension->SpinLock );
+    interlockResult = InterlockedDecrement( &DeviceExtension->ActiveRequestCount );
 
-
-    if (interlockResult == ResultNegative &&
+    if (interlockResult < 0 &&
         !DeviceExtension->MasterWithAdapter &&
         DeviceExtension->DmaAdapterObject != NULL) {
 
@@ -4164,10 +4299,9 @@ Return Value:
             srb->SrbStatus = SRB_STATUS_PENDING;
             srb->ScsiStatus = 0;
 
-            if (!KeInsertByKeyDeviceQueue(
-                &logicalUnit->RequestQueue,
-                &irp->Tail.Overlay.DeviceQueueEntry,
-                srb->QueueSortKey)) {
+            if (!KeInsertByKeyDeviceQueue(&logicalUnit->RequestQueue,
+                                          &irp->Tail.Overlay.DeviceQueueEntry,
+                                          srb->QueueSortKey)) {
 
                 //
                 // This should never occur since there is a busy request.
@@ -4272,7 +4406,7 @@ BusyError:
     if (!NEED_REQUEST_SENSE(srb) && srb->SrbFlags & SRB_FLAGS_NO_QUEUE_FREEZE) {
 
         if (logicalUnit->RequestTimeoutCounter == PD_TIMER_STOPPED) {
-// BUGBUG
+
             GetNextLuRequest(DeviceExtension, logicalUnit);
 
             //
@@ -4292,7 +4426,7 @@ BusyError:
     } else {
 
         //
-        // BUGBUG:  This will also freeze the queue.  For a case where there
+        // NOTE:  This will also freeze the queue.  For a case where there
         // is no request sense.
         //
 
@@ -4428,7 +4562,7 @@ Return Value:
             return(NULL);
         }
 
-        return(&logicalUnit->SrbData);
+        return &logicalUnit->SrbData;
 
     } else {
 
@@ -4446,7 +4580,7 @@ Return Value:
 
         }
 
-        return(&DeviceExtension->SrbData[QueueTag -1]);
+        return &DeviceExtension->SrbData[QueueTag -1];
     }
 }
 
@@ -4633,7 +4767,6 @@ Return Value:
             if (srbData) {
 
                 DeviceExtension->FreeSrbData = (PSRB_DATA) srbData->RequestList.Flink;
-
             } else {
 
                 //
@@ -4839,19 +4972,20 @@ Return Value:
 --*/
 
 {
-    PIRP irp;
-    PIO_STACK_LOCATION irpStack;
-    PSRB_IO_CONTROL srbControl;
-    SCSI_REQUEST_BLOCK srb;
-    KEVENT event;
-    LARGE_INTEGER startingOffset = LiFromUlong(1);
-    IO_STATUS_BLOCK ioStatusBlock;
+    PIRP                    irp;
+    PIO_STACK_LOCATION      irpStack;
+    PSRB_IO_CONTROL         srbControl;
+    SCSI_REQUEST_BLOCK      srb;
+    KEVENT                  event;
+    LARGE_INTEGER           startingOffset;
+    IO_STATUS_BLOCK         ioStatusBlock;
     PLOGICAL_UNIT_EXTENSION logicalUnit;
-    ULONG outputLength;
-    ULONG length;
-    ULONG target;
+    ULONG                   outputLength;
+    ULONG                   length;
+    ULONG                   target;
 
     PAGED_CODE();
+    startingOffset.QuadPart = (LONGLONG) 1;
 
     DebugPrint((3,"SpSendMiniPortIoctl: Enter routine\n"));
 
@@ -4893,12 +5027,7 @@ Return Value:
     // merely used for addressing purposes.
     //
 
-    for (target = 0; target < SCSI_MAXIMUM_LOGICAL_UNITS; target++) {
-        logicalUnit = DeviceExtension->LogicalUnitList[target];
-        if (logicalUnit != NULL) {
-            break;
-        }
-    }
+    logicalUnit = SpFindSafeLogicalUnit(DeviceExtension->DeviceObject, 0xFF);
 
     if (logicalUnit == NULL) {
         RequestIrp->IoStatus.Status = STATUS_DEVICE_DOES_NOT_EXIST;
@@ -5194,25 +5323,26 @@ Return Value:
 --*/
 
 {
-    PIRP irp;
-    PIO_STACK_LOCATION irpStack;
-    PSCSI_PASS_THROUGH srbControl;
-    SCSI_REQUEST_BLOCK srb;
-    KEVENT event;
-    LARGE_INTEGER startingOffset = LiFromUlong(1);
-    IO_STATUS_BLOCK ioStatusBlock;
-    KIRQL currentIrql;
+    PIRP                    irp;
+    PIO_STACK_LOCATION      irpStack;
+    PSCSI_PASS_THROUGH      srbControl;
+    SCSI_REQUEST_BLOCK      srb;
+    KEVENT                  event;
+    LARGE_INTEGER           startingOffset;
+    IO_STATUS_BLOCK         ioStatusBlock;
+    KIRQL                   currentIrql;
     PLOGICAL_UNIT_EXTENSION logicalUnit;
-    PLUNINFO lunInfo;
-    ULONG outputLength;
-    ULONG length;
-    ULONG bufferOffset;
-    PVOID buffer;
-    PVOID senseBuffer;
-    UCHAR majorCode;
-    NTSTATUS status;
+    PLUNINFO                lunInfo;
+    ULONG                   outputLength;
+    ULONG                   length;
+    ULONG                   bufferOffset;
+    PVOID                   buffer;
+    PVOID                   senseBuffer;
+    UCHAR                   majorCode;
+    NTSTATUS                status;
 
     PAGED_CODE();
+    startingOffset.QuadPart = (LONGLONG) 1;
 
     DebugPrint((3,"SpSendPassThrough: Enter routine\n"));
 
@@ -5303,7 +5433,7 @@ Return Value:
                 irpStack->Parameters.DeviceIoControl.InputBufferLength ||
                 srbControl->Length > srbControl->DataBufferOffset) {
 
-                return(STATUS_INVALID_PARAMETER);
+                return STATUS_INVALID_PARAMETER;
             }
         }
 
@@ -5312,7 +5442,7 @@ Return Value:
             if (srbControl->DataBufferOffset + srbControl->DataTransferLength > outputLength ||
                 srbControl->Length > srbControl->DataBufferOffset) {
 
-                return(STATUS_INVALID_PARAMETER);
+                return STATUS_INVALID_PARAMETER;
             }
         }
 
@@ -5322,9 +5452,26 @@ Return Value:
 
     }
 
+    //
+    // Validate that the request isn't too large for the miniport.
+    //
+
+    if (srbControl->DataTransferLength &&
+        ((ADDRESS_AND_SIZE_TO_SPAN_PAGES(
+              buffer+bufferOffset,
+              srbControl->DataTransferLength
+              ) > DeviceExtension->Capabilities.MaximumPhysicalPages) ||
+        (DeviceExtension->Capabilities.MaximumTransferLength <
+         srbControl->DataTransferLength))) {
+
+        return(STATUS_INVALID_PARAMETER);
+
+    }
+
+
     if (srbControl->TimeOutValue == 0 ||
         srbControl->TimeOutValue > 30 * 60 * 60) {
-            return(STATUS_INVALID_PARAMETER);
+            return STATUS_INVALID_PARAMETER;
     }
 
     //
@@ -5335,7 +5482,7 @@ Return Value:
         srbControl->Cdb[0] == SCSIOP_COMPARE ||
         srbControl->Cdb[0] == SCSIOP_COPY_COMPARE) {
 
-        return(STATUS_INVALID_DEVICE_REQUEST);
+        return STATUS_INVALID_DEVICE_REQUEST;
     }
 
     //
@@ -5348,7 +5495,7 @@ Return Value:
     if (irpStack->MinorFunction == 0) {
 
         if (srbControl->PathId >= DeviceExtension->ScsiInfo->NumberOfBuses) {
-            return(STATUS_INVALID_PARAMETER);
+            return STATUS_INVALID_PARAMETER;
         }
 
         lunInfo = DeviceExtension->ScsiInfo->BusScanData[srbControl->PathId]->
@@ -5371,7 +5518,7 @@ Return Value:
         //
 
         if (lunInfo == NULL) {
-            return(STATUS_INVALID_PARAMETER);
+            return STATUS_INVALID_PARAMETER;
         }
     }
 
@@ -5892,11 +6039,12 @@ Return Value:
     //
 
     previousLu = NULL;
-    logicalUnit = DeviceExtension->LogicalUnitList[srb->TargetId];
+    logicalUnit = DeviceExtension->LogicalUnitList[(srb->TargetId + srb->Lun) % NUMBER_LOGICAL_UNIT_BINS];
 
     while (logicalUnit != NULL) {
 
-        if (srb->PathId == logicalUnit->PathId &&
+        if (srb->TargetId == logicalUnit->TargetId &&
+            srb->PathId == logicalUnit->PathId &&
             srb->Lun == logicalUnit->Lun) {
 
             break;
@@ -5922,7 +6070,7 @@ Return Value:
             // Remove from head of list.
             //
 
-            DeviceExtension->LogicalUnitList[srb->TargetId] =
+            DeviceExtension->LogicalUnitList[(srb->TargetId + srb->Lun) % NUMBER_LOGICAL_UNIT_BINS] =
                 logicalUnit->NextLogicalUnit;
 
         } else {
@@ -6070,5 +6218,312 @@ Return Value:
     KeReleaseSpinLockFromDpcLevel(&deviceExtension->InterruptSpinLock);
 
     return(returnValue);
+}
+
+
+NTSTATUS
+SpSendReset(
+    IN PDEVICE_OBJECT DeviceObject,
+    IN PIRP RequestIrp
+    )
+
+/*++
+
+Routine Description:
+
+    This routine will create an assynchronous request to reset the scsi bus
+    and route that through the port driver.  The completion routine on the
+    request will take care of completing the original irp
+
+    This call is asynchronous.
+
+Arguments:
+
+    DeviceObject - the port driver to be reset
+
+    Irp - a pointer to the reset request - this request will already have been
+          marked as PENDING.
+
+Return Value:
+
+    STATUS_PENDING if the request is pending
+    STATUS_SUCCESS if the request completed successfully
+    or an error status
+
+--*/
+
+{
+    PDEVICE_EXTENSION deviceExtension = DeviceObject->DeviceExtension;
+
+    PSTORAGE_BUS_RESET_REQUEST resetRequest = RequestIrp->AssociatedIrp.SystemBuffer;
+
+    PIRP irp = NULL;
+    PIO_STACK_LOCATION irpStack = NULL;
+
+    PRESET_COMPLETION_CONTEXT completionContext = NULL;
+    PSCSI_REQUEST_BLOCK srb = NULL;
+
+    BOOLEAN completeRequest = FALSE;
+    NTSTATUS status;
+
+    PLOGICAL_UNIT_EXTENSION logicalUnit;
+
+    //
+    // use finally handler to complete request if necessary
+    //
+
+    try {
+
+        //
+        // Make sure the path id is valid
+        //
+
+        if(resetRequest->PathId >= deviceExtension->NumberOfBuses) {
+
+            status = STATUS_INVALID_PARAMETER;
+            completeRequest = TRUE;
+            leave;
+        }
+
+        logicalUnit = SpFindSafeLogicalUnit(DeviceObject, resetRequest->PathId);
+
+        if(logicalUnit == NULL) {
+
+            //
+            // There's nothing on this bus so in this case we won't bother
+            // resetting it
+            // XXX - this may be a bug
+            //
+
+            status = STATUS_DEVICE_DOES_NOT_EXIST;
+            completeRequest = TRUE;
+            leave;
+        }
+
+        //
+        // Try to allocate a completion context block
+        //
+
+        completionContext = ExAllocatePool(
+                                NonPagedPool,
+                                sizeof(RESET_COMPLETION_CONTEXT));
+
+        if(completionContext == NULL) {
+
+            DebugPrint((1, "SpSendReset: Unable to allocate completion context\n"));
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            completeRequest = TRUE;
+            leave;
+        }
+
+        //
+        // Try to allocate our srb
+        //
+
+        srb = ExAllocatePool( NonPagedPool, sizeof(SCSI_REQUEST_BLOCK));
+
+        if(srb == NULL) {
+
+            DebugPrint((1, "SpSendReset: unable to allocate srb\n"));
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            completeRequest = TRUE;
+            leave;
+
+        } else {
+
+            completionContext->Srb = srb;
+            completionContext->RequestIrp = RequestIrp;
+
+        }
+
+        irp = IoBuildAsynchronousFsdRequest(
+                IRP_MJ_FLUSH_BUFFERS,
+                DeviceObject,
+                NULL,
+                0,
+                NULL,
+                NULL);
+
+        if(irp == NULL) {
+
+            DebugPrint((1, "SpSendReset: unable to allocate irp\n"));
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            completeRequest = TRUE;
+            leave;
+        }
+
+        //
+        // Stick the srb pointer into the irp stack
+        //
+
+        irpStack = IoGetNextIrpStackLocation(irp);
+
+        irpStack->MajorFunction = IRP_MJ_SCSI;
+        irpStack->Parameters.Scsi.Srb = srb;
+
+        //
+        // Fill in the srb
+        //
+
+        RtlZeroMemory(srb, sizeof(SCSI_REQUEST_BLOCK));
+
+        srb->Function = SRB_FUNCTION_RESET_BUS;
+        srb->SrbStatus = SRB_STATUS_PENDING;
+
+        srb->PathId = logicalUnit->PathId;
+        srb->TargetId = logicalUnit->TargetId;
+        srb->Lun = logicalUnit->Lun;
+
+        srb->OriginalRequest = irp;
+
+        IoSetCompletionRoutine(
+            irp,
+            SpSendResetCompletion,
+            completionContext,
+            TRUE,
+            TRUE,
+            TRUE);
+
+        completeRequest = FALSE;
+
+        status = IoCallDriver(DeviceObject, irp);
+
+    } finally {
+
+        if(completeRequest) {
+
+            if(srb != NULL) {
+                ExFreePool(srb);
+            }
+
+            if(completionContext != NULL) {
+                ExFreePool(completionContext);
+            }
+
+            if(irp != NULL) {
+                IoFreeIrp(irp);
+            }
+
+            RequestIrp->IoStatus.Status = status;
+            IoCompleteRequest(RequestIrp, IO_NO_INCREMENT);
+        }
+    }
+
+    return status;
+}
+
+NTSTATUS
+SpSendResetCompletion(
+    IN PDEVICE_OBJECT DeviceObject,
+    IN PIRP Irp,
+    IN PRESET_COMPLETION_CONTEXT Context
+    )
+
+/*++
+
+Routine Description:
+
+    This routine handles completion of the srb generated from an asynchronous
+    IOCTL_SCSI_RESET_BUS request.  It will take care of freeing all resources
+    allocated during SpSendReset as well as completing the original request.
+
+Arguments:
+
+    DeviceObject - a pointer to the device object
+
+    Irp - a pointer to the irp sent to the port driver
+
+    Context - a pointer to a reset completion context which contains
+              the original request and a pointer to the srb sent down
+
+Return Value:
+
+    STATUS_MORE_PROCESSING_REQUIRED
+
+--*/
+
+{
+    PSCSI_REQUEST_BLOCK srb = Context->Srb;
+    PIRP requestIrp = Context->RequestIrp;
+
+    requestIrp->IoStatus.Status = Irp->IoStatus.Status;
+
+    IoCompleteRequest(requestIrp, IO_NO_INCREMENT);
+
+    ExFreePool(srb);
+    ExFreePool(Context);
+    IoFreeIrp(Irp);
+
+    return STATUS_MORE_PROCESSING_REQUIRED;
+}
+
+PLOGICAL_UNIT_EXTENSION
+SpFindSafeLogicalUnit(
+    IN PDEVICE_OBJECT DeviceObject,
+    IN UCHAR PathId
+    )
+
+/*++
+
+Routine Description:
+
+    This routine will scan the bus in question and return a pointer to the
+    first logical unit on the bus that is not involved in a rescan operation.
+    This can be used to find a logical unit for ioctls or other requests that
+    may not specify one (IOCTL_SCSI_MINIPORT, IOCTL_SCSI_RESET_BUS, etc)
+
+Arguments:
+
+    DeviceObject - a pointer to the device object
+
+    PathId - The path number to be searched for a logical unit.  If this is 0xff
+             then the first unit on any path will be found.
+
+Return Value:
+
+    a pointer to a logical unit extension
+    NULL if none was found
+
+--*/
+
+{
+    PDEVICE_EXTENSION deviceExtension = DeviceObject->DeviceExtension;
+
+    UCHAR target;
+
+    PLOGICAL_UNIT_EXTENSION logicalUnit;
+
+    //
+    // Set the logical unit addressing to the first logical unit.  This is
+    // merely used for addressing purposes.
+    //
+
+    for (target = 0; target < NUMBER_LOGICAL_UNIT_BINS; target++) {
+        logicalUnit = deviceExtension->LogicalUnitList[target];
+
+        //
+        // Walk the logical unit list to the end, looking for a safe one.
+        // If it was created for a rescan, it might be freed before this
+        // request is complete.
+        //
+
+        while (logicalUnit) {
+            if ((!(logicalUnit->LuFlags & PD_RESCAN_ACTIVE)) &&
+                ((PathId == 0xff) || (logicalUnit->PathId == PathId))) {
+
+                //
+                // This lu isn't being rescanned and if a path id was specified
+                // it matches so this must be the right one
+                //
+
+                return logicalUnit;
+
+            } else {
+                logicalUnit = logicalUnit->NextLogicalUnit;
+            }
+        }
+    }
+
+    return NULL;
 }
 

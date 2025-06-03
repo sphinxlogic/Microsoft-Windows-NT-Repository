@@ -37,17 +37,19 @@ Revision History:
 //  Macro to attempt to flush a stream from an Scb.
 //
 
-#define FlushScb(IRPC,SCB,IOS) {                                        \
-    CcFlushCache( &(SCB)->NonpagedScb->SegmentObject, NULL, 0, (IOS) ); \
-    if (NT_SUCCESS((IOS)->Status)                                       \
-        && FlagOn((SCB)->ScbState, SCB_STATE_FILE_SIZE_LOADED)) {       \
-        NtfsWriteFileSizes( (IRPC),                                     \
-                            (SCB),                                      \
-                            (SCB)->Header.FileSize.QuadPart,            \
-                            (SCB)->Header.ValidDataLength.QuadPart,     \
-                            TRUE,                                       \
-                            TRUE );                                     \
-    }                                                                   \
+#define FlushScb(IRPC,SCB,IOS) {                                                \
+    (IOS)->Status = NtfsFlushUserStream((IRPC),(SCB),NULL,0);                   \
+    NtfsNormalizeAndCleanupTransaction( IRPC,                                   \
+                                        &(IOS)->Status,                         \
+                                        TRUE,                                   \
+                                        STATUS_UNEXPECTED_IO_ERROR );           \
+    if (FlagOn((SCB)->ScbState, SCB_STATE_FILE_SIZE_LOADED)) {                  \
+        NtfsWriteFileSizes( (IRPC),                                             \
+                            (SCB),                                              \
+                            &(SCB)->Header.ValidDataLength.QuadPart,            \
+                            TRUE,                                               \
+                            TRUE );                                             \
+    }                                                                           \
 }
 
 //
@@ -70,10 +72,12 @@ NtfsFlushFcbFileRecords (
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE, NtfsCommonFlushBuffers)
 #pragma alloc_text(PAGE, NtfsFlushAndPurgeFcb)
+#pragma alloc_text(PAGE, NtfsFlushAndPurgeScb)
 #pragma alloc_text(PAGE, NtfsFlushFcbFileRecords)
 #pragma alloc_text(PAGE, NtfsFlushLsnStreams)
 #pragma alloc_text(PAGE, NtfsFlushVolume)
 #pragma alloc_text(PAGE, NtfsFsdFlushBuffers)
+#pragma alloc_text(PAGE, NtfsFlushUserStream)
 #endif
 
 
@@ -109,12 +113,13 @@ Return Value:
     NTSTATUS Status = STATUS_SUCCESS;
     PIRP_CONTEXT IrpContext = NULL;
 
-    UNREFERENCED_PARAMETER( VolumeDeviceObject );
     ASSERT_IRP( Irp );
+
+    UNREFERENCED_PARAMETER( VolumeDeviceObject );
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsFsdFlushBuffers\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsFsdFlushBuffers\n") );
 
     //
     //  Call the common flush buffer routine
@@ -170,7 +175,7 @@ Return Value:
     //  And return to our caller
     //
 
-    DebugTrace(-1, Dbg, "NtfsFsdFlushBuffers -> %08lx\n", Status);
+    DebugTrace( -1, Dbg, ("NtfsFsdFlushBuffers -> %08lx\n", Status) );
 
     return Status;
 }
@@ -215,13 +220,13 @@ Return Value:
     PLCB Lcb = NULL;
     PSCB ParentScb = NULL;
 
+    PLIST_ENTRY Links;
+    PFCB NextFcb;
+    ULONG Count;
+
     BOOLEAN VcbAcquired = FALSE;
     BOOLEAN ScbAcquired = FALSE;
     BOOLEAN ParentScbAcquired = FALSE;
-    BOOLEAN MftScbAcquired = FALSE;
-
-    LONGLONG CurrentOffset = 0;
-    LONGLONG BytesToFlush;
 
     ASSERT_IRP_CONTEXT( IrpContext );
     ASSERT_IRP( Irp );
@@ -230,9 +235,9 @@ Return Value:
 
     IrpSp = IoGetCurrentIrpStackLocation( Irp );
 
-    DebugTrace(+1, Dbg, "NtfsCommonFlushBuffers\n", 0);
-    DebugTrace( 0, Dbg, "Irp           = %08lx\n", Irp);
-    DebugTrace( 0, Dbg, "->FileObject  = %08lx\n", IrpSp->FileObject);
+    DebugTrace( +1, Dbg, ("NtfsCommonFlushBuffers\n") );
+    DebugTrace( 0, Dbg, ("Irp           = %08lx\n", Irp) );
+    DebugTrace( 0, Dbg, ("->FileObject  = %08lx\n", IrpSp->FileObject) );
 
     //
     //  Extract and decode the file object
@@ -252,9 +257,11 @@ Return Value:
         switch (TypeOfOpen) {
 
         case UserFileOpen:
-        case UserOpenFileById:
+#ifdef _CAIRO_
+        case UserPropertySetOpen:
+#endif  //  _CAIRO_
 
-            DebugTrace(0, Dbg, "Flush User File Open\n", 0);
+            DebugTrace( 0, Dbg, ("Flush User File Open\n") );
 
             //
             //  Acquire the Vcb so we can update the duplicate information as well.
@@ -264,309 +271,172 @@ Return Value:
             VcbAcquired = TRUE;
 
             //
-            //  If we are flushing a compressed file we want to break
-            //  up the transaction by flushing ranges of the file
-            //  and committing each piece.  For an uncompressed file
-            //  we can flush the entire file at one time.
+            //  Make sure the data gets out to disk.
             //
 
-            while (TRUE) {
+            NtfsAcquireExclusivePagingIo( IrpContext, Fcb );
 
-                //
-                //  Acquire exclusive access to the Scb and enqueue the irp
-                //  if we didn't get access
-                //
+            //
+            //  Acquire exclusive access to the Scb and enqueue the irp
+            //  if we didn't get access
+            //
 
-                NtfsAcquireExclusiveScb( IrpContext, Scb );
+            NtfsAcquireExclusiveScb( IrpContext, Scb );
+            ScbAcquired = TRUE;
 
-                ScbAcquired = TRUE;
+            //
+            //  Flush the stream and verify there were no errors.
+            //
 
-                //
-                //  If the file is not compressed then break out of the loop
-                //  after the flush.
-                //
+            FlushScb( IrpContext, Scb, &Irp->IoStatus );
 
-                if (!FlagOn( Scb->ScbState, SCB_STATE_COMPRESSED )) {
+            //
+            //  Now commit what we've done so far.
+            //
 
-                    CcFlushCache( FileObject->SectionObjectPointer, NULL, 0, &Irp->IoStatus );
-                    Status = Irp->IoStatus.Status;
+            NtfsCheckpointCurrentTransaction( IrpContext );
 
-                    break;
+            //
+            //  Update the time stamps and file sizes in the Fcb based on
+            //  the state of the File Object.
+            //
 
-                } else {
+            NtfsUpdateScbFromFileObject( IrpContext, FileObject, Scb, TRUE );
 
-                    BytesToFlush = Scb->Header.FileSize.QuadPart - CurrentOffset;
+            //
+            //  If we are to update standard information then do so now.
+            //
 
-                    if (BytesToFlush > 0x40000) {
+            if (FlagOn( Fcb->FcbState, FCB_STATE_UPDATE_STD_INFO )) {
 
-                        BytesToFlush = 0x40000;
-                    }
-
-                    CcFlushCache( FileObject->SectionObjectPointer,
-                                  (PLARGE_INTEGER)&CurrentOffset,
-                                  (ULONG)BytesToFlush,
-                                  &Irp->IoStatus );
-
-                    Status = Irp->IoStatus.Status;
-                }
-
-                //
-                //  Exit the loop if we are beyond the file size.
-                //
-
-                CurrentOffset += BytesToFlush;
-
-                if (Scb->Header.FileSize.QuadPart <= CurrentOffset) {
-
-                    break;
-                }
-
-                //
-                //  Checkpoint the current transaction and release all of the
-                //  resources.
-                //
-
-                NtfsCleanupTransaction( IrpContext, Status );
-
-                NtfsCheckpointCurrentTransaction( IrpContext );
-
-                while (!IsListEmpty(&IrpContext->ExclusiveFcbList)) {
-
-                    NtfsReleaseFcb( IrpContext,
-                                    (PFCB)CONTAINING_RECORD(IrpContext->ExclusiveFcbList.Flink,
-                                                            FCB,
-                                                            ExclusiveFcbLinks ));
-                }
-
-                while (!IsListEmpty(&IrpContext->ExclusivePagingIoList)) {
-
-                    NtfsReleasePagingIo( IrpContext,
-                                         (PFCB)CONTAINING_RECORD(IrpContext->ExclusivePagingIoList.Flink,
-                                                                 FCB,
-                                                                 ExclusivePagingIoLinks ));
-                }
-
-                ScbAcquired = FALSE;
+                NtfsUpdateStandardInformation( IrpContext, Fcb );
             }
 
             //
-            //  Update the file sizes and flush the log file if no error
-            //  encountered.
+            //  If this is the system hive there is more work to do.  We want to flush
+            //  all of the file records for this file as well as for the parent index
+            //  stream.  We also want to flush the parent index stream.  Acquire the
+            //  parent stream exclusively now so that the update duplicate call won't
+            //  acquire it shared first.
             //
 
-            if (NT_SUCCESS( Status )) {
-
-                LONGLONG CurrentTime;
+            if (FlagOn( Ccb->Flags, CCB_FLAG_SYSTEM_HIVE )) {
 
                 //
-                //  Make sure the data got out to disk.
+                //  Start by acquiring all of the necessary files to avoid deadlocks.
                 //
 
-                if (Scb->Header.PagingIoResource != NULL) {
+                if (Ccb->Lcb != NULL) {
 
-                    ExAcquireResourceExclusive( Scb->Header.PagingIoResource, TRUE );
-                    ExReleaseResource( Scb->Header.PagingIoResource );
-                }
+                    ParentScb = Ccb->Lcb->Scb;
 
-                //
-                //  Update the file sizes in the Mft record.
-                //
+                    if (ParentScb != NULL) {
 
-                NtfsWriteFileSizes( IrpContext,
-                                    Scb,
-                                    Scb->Header.FileSize.QuadPart,
-                                    Scb->Header.ValidDataLength.QuadPart,
-                                    TRUE,
-                                    TRUE );
-
-                //
-                //  Update the correct time stamps.
-                //
-
-                NtfsGetCurrentTime( IrpContext, CurrentTime );
-
-                if (!FlagOn( Ccb->Flags, CCB_FLAG_USER_SET_LAST_CHANGE_TIME )) {
-
-                    Fcb->Info.LastChangeTime = CurrentTime;
-                    SetFlag( Fcb->Info.FileAttributes, FILE_ATTRIBUTE_ARCHIVE );
-
-                    SetFlag( Fcb->InfoFlags, FCB_INFO_CHANGED_LAST_CHANGE );
-                    SetFlag( Fcb->FcbState, FCB_STATE_UPDATE_STD_INFO );
-                }
-
-                //
-                //  If this is a named stream then remember there was a
-                //  modification.
-                //
-
-                if (!FlagOn( Scb->ScbState, SCB_STATE_UNNAMED_DATA )) {
-
-                    SetFlag( Scb->ScbState, SCB_STATE_NOTIFY_MODIFY_STREAM );
-
-                //
-                //  Set the last modification time and last access time for the
-                //  main data stream.  Also check if the file size changed
-                //  through the fast Io path.
-                //
-
-                } else {
-
-                    //
-                    //  Remember if the file size changed through the fast Io Path.
-                    //
-
-                    if (FlagOn( FileObject->Flags, FO_FILE_SIZE_CHANGED )) {
-
-                        Fcb->Info.FileSize = Scb->Header.FileSize.QuadPart;
-                        SetFlag( Fcb->InfoFlags, FCB_INFO_CHANGED_FILE_SIZE );
-                    }
-
-                    if (!FlagOn( Ccb->Flags, CCB_FLAG_USER_SET_LAST_MOD_TIME )) {
-
-                        Fcb->Info.LastModificationTime = CurrentTime;
-                        SetFlag( Fcb->InfoFlags, FCB_INFO_CHANGED_LAST_MOD);
-                        SetFlag( Fcb->FcbState, FCB_STATE_UPDATE_STD_INFO );
-                    }
-
-                    //
-                    //  If the user didn't set the last access time, then
-                    //  set the UpdateLastAccess flag.
-                    //
-
-                    if (!FlagOn( Ccb->Flags, CCB_FLAG_USER_SET_LAST_ACCESS_TIME )) {
-
-                        Fcb->CurrentLastAccess = CurrentTime;
+                        NtfsAcquireExclusiveScb( IrpContext, ParentScb );
+                        ParentScbAcquired = TRUE;
                     }
                 }
+            }
 
-                //
-                //  Clear the file object modified flag at this point
-                //  since we will now know to update it in cleanup.
-                //
+            //
+            //  Update the duplicate information if there are updates to apply.
+            //
 
-                ClearFlag( FileObject->Flags,
-                           FO_FILE_MODIFIED | FO_FILE_FAST_IO_READ | FO_FILE_SIZE_CHANGED );
+            if (FlagOn( Fcb->InfoFlags, FCB_INFO_DUPLICATE_FLAGS )) {
 
-                //
-                //  If we are to update standard information then do so now.
-                //
+                Lcb = Ccb->Lcb;
 
-                if (FlagOn( Fcb->FcbState, FCB_STATE_UPDATE_STD_INFO )) {
+                NtfsPrepareForUpdateDuplicate( IrpContext, Fcb, &Lcb, &ParentScb, TRUE );
+                NtfsUpdateDuplicateInfo( IrpContext, Fcb, Lcb, ParentScb );
+                NtfsUpdateLcbDuplicateInfo( Fcb, Lcb );
 
-                    NtfsUpdateStandardInformation( IrpContext, Fcb );
-                }
-
-                //
-                //  Update the duplicate information if there are updates to apply.
-                //
-
-                if (Fcb->InfoFlags != 0) {
-
-                    Lcb = Ccb->Lcb;
-
-                    NtfsPrepareForUpdateDuplicate( IrpContext, Fcb, &Lcb, &ParentScb, &ParentScbAcquired );
-                    NtfsUpdateDuplicateInfo( IrpContext, Fcb, Lcb, ParentScb );
-                    NtfsUpdateLcbDuplicateInfo( IrpContext, Fcb, Lcb );
+                if (ParentScbAcquired) {
 
                     NtfsReleaseScb( IrpContext, ParentScb );
                     ParentScbAcquired = FALSE;
                 }
+            }
+
+            //
+            //  Now flush the file records for this stream.
+            //
+
+            if (FlagOn( Ccb->Flags, CCB_FLAG_SYSTEM_HIVE )) {
 
                 //
-                //  If this is the system hive there is more work to do.  We want to flush
-                //  all of the file records for this file as well as for the parent index
-                //  stream.  We also want to flush the parent index stream.
+                //  Flush the file records for this file.
                 //
 
-                if (FlagOn( Ccb->Flags, CCB_FLAG_SYSTEM_HIVE )) {
+                Status = NtfsFlushFcbFileRecords( IrpContext, Scb->Fcb );
+
+                //
+                //  Now flush the parent index stream.
+                //
+
+                if (NT_SUCCESS(Status) && (ParentScb != NULL)) {
+
+                    CcFlushCache( &ParentScb->NonpagedScb->SegmentObject, NULL, 0, &Irp->IoStatus );
+                    Status = Irp->IoStatus.Status;
 
                     //
-                    //  Start by acquiring all of the necessary files to avoid deadlocks.
+                    //  Finish by flushing the file records for the parent out
+                    //  to disk.
                     //
 
-                    if (Ccb->Lcb != NULL) {
+                    if (NT_SUCCESS( Status )) {
 
-                        ParentScb = Ccb->Lcb->Scb;
-
-                        if (ParentScb != NULL) {
-
-                            NtfsAcquireExclusiveScb( IrpContext, ParentScb );
-                            ParentScbAcquired = TRUE;
-                        }
+                        Status = NtfsFlushFcbFileRecords( IrpContext, ParentScb->Fcb );
                     }
+                }
+            }
 
-                    NtfsAcquireExclusiveScb( IrpContext, Vcb->MftScb );
-                    MftScbAcquired;
+            //
+            //  If our status is still success then flush the log file and
+            //  report any changes.
+            //
 
-                    //
-                    //  Flush the file records for this file.
-                    //
+            if (NT_SUCCESS( Status )) {
 
-                    Status = NtfsFlushFcbFileRecords( IrpContext, Scb->Fcb );
+                ULONG FilterMatch;
 
-                    //
-                    //  Now flush the parent index stream.
-                    //
+                LfsFlushToLsn( Vcb->LogHandle, LfsQueryLastLsn( Vcb->LogHandle ));
 
-                    if (NT_SUCCESS( Status ) &&
-                        ParentScb != NULL) {
+                //
+                //  We only want to do this DirNotify if we updated duplicate
+                //  info and set the ParentScb.
+                //
 
-                        FlushScb( IrpContext, ParentScb, &Irp->IoStatus );
-                        Status = Irp->IoStatus.Status;
+                if (!FlagOn( Ccb->Flags, CCB_FLAG_OPEN_BY_FILE_ID ) &&
+                    (Vcb->NotifyCount != 0) &&
+                    FlagOn( Fcb->InfoFlags, FCB_INFO_DUPLICATE_FLAGS )) {
 
-                        //
-                        //  Finish by flushing the file records for the parent out
-                        //  to disk.
-                        //
+                    FilterMatch = NtfsBuildDirNotifyFilter( IrpContext, Fcb->InfoFlags );
 
-                        if (NT_SUCCESS( Status )) {
+                    if (FilterMatch != 0) {
 
-                            Status = NtfsFlushFcbFileRecords( IrpContext, ParentScb->Fcb );
-                        }
+                        NtfsReportDirNotify( IrpContext,
+                                             Fcb->Vcb,
+                                             &Ccb->FullFileName,
+                                             Ccb->LastFileNameOffset,
+                                             NULL,
+                                             ((FlagOn( Ccb->Flags, CCB_FLAG_PARENT_HAS_DOS_COMPONENT ) &&
+                                               Ccb->Lcb != NULL &&
+                                               Ccb->Lcb->Scb->ScbType.Index.NormalizedName.Buffer != NULL) ?
+                                              &Ccb->Lcb->Scb->ScbType.Index.NormalizedName :
+                                              NULL),
+                                             FilterMatch,
+                                             FILE_ACTION_MODIFIED,
+                                             ParentScb->Fcb );
                     }
                 }
 
-                //
-                //  If our status is still success then flush the log file and
-                //  report any changes.
-                //
-
-                if (NT_SUCCESS( Status )) {
-
-                    ULONG FilterMatch;
-
-                    LfsFlushToLsn( Vcb->LogHandle, LfsQueryLastLsn(Vcb->LogHandle) );
-
-                    if (!FlagOn( Ccb->Flags, CCB_FLAG_OPEN_BY_FILE_ID )) {
-
-                        FilterMatch = NtfsBuildDirNotifyFilter( IrpContext, Fcb, Fcb->InfoFlags );
-
-                        if (FilterMatch != 0) {
-
-                            NtfsReportDirNotify( IrpContext,
-                                                 Fcb->Vcb,
-                                                 &Ccb->FullFileName,
-                                                 Ccb->LastFileNameOffset,
-                                                 NULL,
-                                                 ((FlagOn( Ccb->Flags, CCB_FLAG_PARENT_HAS_DOS_COMPONENT ) &&
-                                                   Ccb->Lcb->Scb->ScbType.Index.NormalizedName.Buffer != NULL) ?
-                                                  &Ccb->Lcb->Scb->ScbType.Index.NormalizedName :
-                                                  NULL),
-                                                 FilterMatch,
-                                                 FILE_ACTION_MODIFIED,
-                                                 ParentScb->Fcb );
-
-                            ClearFlag( Fcb->FcbState, FCB_STATE_MODIFIED_SECURITY );
-                            Fcb->InfoFlags = 0;
-                        }
-                    }
-                }
+                ClearFlag( Fcb->InfoFlags,
+                           FCB_INFO_NOTIFY_FLAGS | FCB_INFO_DUPLICATE_FLAGS );
             }
 
             break;
 
         case UserDirectoryOpen:
-        case UserOpenDirectoryById:
 
             //
             //  If the user had opened the root directory then we'll
@@ -575,21 +445,29 @@ Return Value:
 
             if (NodeType(Scb) != NTFS_NTC_SCB_ROOT_INDEX) {
 
-                DebugTrace(0, Dbg, "Flush a directory does nothing\n", 0);
+                DebugTrace( 0, Dbg, ("Flush a directory does nothing\n") );
                 break;
             }
 
         case UserVolumeOpen:
 
-            DebugTrace(0, Dbg, "Flush User Volume Open\n", 0);
+            DebugTrace( 0, Dbg, ("Flush User Volume Open\n") );
 
-            NtfsCheckpointVolume( IrpContext,
-                                  Vcb,
-                                  FALSE,
-                                  TRUE,
-                                  TRUE,
-                                  Vcb->LastRestartArea );
+            NtfsAcquireExclusiveVcb( IrpContext, Vcb, TRUE );
+            VcbAcquired = TRUE;
 
+            NtfsFlushVolume( IrpContext,
+                             Vcb,
+                             TRUE,
+                             FALSE,
+                             TRUE,
+                             FALSE );
+
+            //
+            //  Make sure all of the data written in the flush gets to disk.
+            //
+
+            LfsFlushToLsn( Vcb->LogHandle, LfsQueryLastLsn( Vcb->LogHandle ));
             break;
 
         case StreamFileOpen:
@@ -609,7 +487,7 @@ Return Value:
         //  Abort transaction on error by raising.
         //
 
-        NtfsCleanupTransaction( IrpContext, Status );
+        NtfsCleanupTransaction( IrpContext, Status, FALSE );
 
     } finally {
 
@@ -628,7 +506,7 @@ Return Value:
         }
 
         if (VcbAcquired) {
-            NtfsReleaseVcb( IrpContext, Vcb, NULL );
+            NtfsReleaseVcb( IrpContext, Vcb );
         }
 
         //
@@ -679,7 +557,7 @@ Return Value:
                      Status : DriverStatus;
         }
 
-        DebugTrace(-1, Dbg, "NtfsCommonFlushBuffers -> %08lx\n", Status);
+        DebugTrace( -1, Dbg, ("NtfsCommonFlushBuffers -> %08lx\n", Status) );
     }
 
     return Status;
@@ -691,14 +569,22 @@ NtfsFlushVolume (
     IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb,
     IN BOOLEAN FlushCache,
-    IN BOOLEAN PurgeFromCache
+    IN BOOLEAN PurgeFromCache,
+    IN BOOLEAN ReleaseAllFiles,
+    IN BOOLEAN MarkFilesForDismount    
     )
 
 /*++
 
 Routine Description:
 
-    This routine non-recursively flushes an volume.
+    This routine non-recursively flushes a volume.  This routine will always do
+    as much of the operation as possible.  It will continue until getting a logfile
+    full.  If any of the streams can't be flushed because of corruption then we
+    will try to flush the others.  We will mark the volume dirty in this case.
+
+    We will pass the error code back to the caller because they often need to
+    proceed as best as possible (i.e. shutdown).
 
 Arguments:
 
@@ -710,9 +596,14 @@ Arguments:
     PurgeFromCache - Supplies TRUE if the caller wants the data purged from
         the Cache (such as for autocheck!)
 
+    ReleaseAllFiles - Indicates that our caller would like to release all Fcb's
+        after TeardownStructures.  This will prevent a deadlock when acquiring
+        paging io resource after a main resource which is held from a previous
+        teardown.
+
 Return Value:
 
-    STATUS_SUCCESS or else the most recent error status
+    STATUS_SUCCESS or else the first error status.
 
 --*/
 
@@ -722,17 +613,25 @@ Return Value:
     PFCB Fcb;
     PFCB NextFcb;
     PSCB Scb;
-    PSCB NextScb;
     IO_STATUS_BLOCK IoStatus;
-    BOOLEAN DecrementNextScbCleanup = FALSE;
+
+    ULONG Pass;
+
+    BOOLEAN UserDataFile;
+    BOOLEAN RemovedFcb;
+    BOOLEAN DecrementScbCleanup = FALSE;
     BOOLEAN DecrementNextFcbClose = FALSE;
+
+    BOOLEAN AcquiredFcb = FALSE;
+    BOOLEAN PagingIoAcquired = FALSE;
+    BOOLEAN ReleaseFiles = FALSE;
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsFlushVolume, Vcb = %08lx\n", Vcb);
+    DebugTrace( +1, Dbg, ("NtfsFlushVolume, Vcb = %08lx\n", Vcb) );
 
     //
-    //  If we can't wait then raise the status code.
+    //  This operation must be able to wait.
     //
 
     if (!FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_WAIT )) {
@@ -741,32 +640,26 @@ Return Value:
     }
 
     //
-    //  Blow away our delayed close file object.
+    //  Make sure there is nothing on the delayed close queue.
     //
 
-    if (!IsListEmpty( &NtfsData.AsyncCloseList ) ||
-        !IsListEmpty( &NtfsData.DelayedCloseList )) {
-
-        NtfsFspClose( Vcb );
-    }
+    NtfsFspClose( Vcb );
 
     //
-    //  Synchronize by acquiring all of the files exclusive.
+    //  Acquire the Vcb exclusive.  The Raise condition cannot happen.
     //
 
-    NtfsAcquireAllFiles( IrpContext, Vcb, TRUE );
+    NtfsAcquireExclusiveVcb( IrpContext, Vcb, TRUE );
 
     try {
 
         //
-        //  Set the flag in the Vcb to indicate that we need to rescan
-        //  the volume bitmap whenever we do a purge.
+        //  Set the PURGE_IN_PROGRESS flag if this is a purge operation.
         //
 
         if (PurgeFromCache) {
 
-            SetFlag( Vcb->VcbState,
-                     VCB_STATE_RELOAD_FREE_CLUSTERS | VCB_STATE_VOL_PURGE_IN_PROGRESS);
+            SetFlag( Vcb->VcbState, VCB_STATE_VOL_PURGE_IN_PROGRESS);
         }
 
         //
@@ -776,288 +669,578 @@ Return Value:
         LfsFlushToLsn( Vcb->LogHandle, LfsQueryLastLsn( Vcb->LogHandle ) );
 
         //
-        //  Loop to flush all of the prerestart streams, to do the loop
-        //  we cycle through the prerestart fcb and for each fcb we
-        //  cycle through its scbs.
+        //  There will be two passes through the Fcb's for the volume.  On the
+        //  first pass we just want to flush/purge the user data streams.  On
+        //  the second pass we want to flush the other streams.  We hold off on
+        //  several of the system files until after these two passes since they
+        //  may be modified during the flush phases.
         //
 
-        NtfsAcquireFcbTable( IrpContext, Vcb );
-        Fcb = NtfsGetNextFcbTableEntry(IrpContext, Vcb, NULL);
-        NtfsReleaseFcbTable( IrpContext, Vcb );
+        Pass = 0;
 
-        while (Fcb != NULL) {
+        do {
 
-            ASSERT_FCB( Fcb );
+            PVOID RestartKey;
+
+            //
+            //  Loop through all of the Fcb's in the Fcb table.
+            //
+
+            RestartKey = NULL;
 
             NtfsAcquireFcbTable( IrpContext, Vcb );
-            NextFcb = NtfsGetNextFcbTableEntry(IrpContext, Vcb, Fcb);
+            NextFcb = Fcb = NtfsGetNextFcbTableEntry( Vcb, &RestartKey );
             NtfsReleaseFcbTable( IrpContext, Vcb );
-
-            //
-            //  Make sure the NextFcb won't go away as a result of purging
-            //  the current Fcb.
-            //
 
             if (NextFcb != NULL) {
 
-                NextFcb->CloseCount += 1;
+                InterlockedIncrement( &NextFcb->CloseCount );
                 DecrementNextFcbClose = TRUE;
             }
 
-            //
-            //  If we are in the purge path then we may have removed all of the
-            //  Scb's for this Fcb by walking up the tree.  The Fcb is still
-            //  here because we referenced it to prevent it from being deleted
-            //  from underneath us.  If we have an Fcb without any Scb's,
-            //  simply call teardown structures to remove the Fcb.
-            //
+            while (Fcb != NULL) {
 
-            Scb = NtfsGetNextChildScb(IrpContext, Fcb, NULL);
+                //
+                //  Acquire Paging I/O first, since we may be deleting or truncating.
+                //  Testing for the PagingIoResource is not really safe without
+                //  holding the main resource, so we correct for that below.
+                //
 
-            if (Scb == NULL) {
+                if (Fcb->PagingIoResource != NULL) {
+                    NtfsAcquireExclusivePagingIo( IrpContext, Fcb );
+                    PagingIoAcquired = TRUE;
+                }
 
-                BOOLEAN RemovedFcb;
+                //
+                //  Let's acquire this Scb exclusively.
+                //
 
-                NtfsTeardownStructures( IrpContext,
-                                        Fcb,
-                                        NULL,
-                                        TRUE,
-                                        &RemovedFcb,
-                                        FALSE );
+                NtfsAcquireExclusiveFcb( IrpContext, Fcb, NULL, TRUE, FALSE );
+                AcquiredFcb = TRUE;
 
-            } else {
+                //
+                //  If we now do not see a paging I/O resource we are golden,
+                //  othewise we can absolutely release and acquire the resources
+                //  safely in the right order, since a resource in the Fcb is
+                //  not going to go away.
+                //
 
-                do {
+                if (!PagingIoAcquired && (Fcb->PagingIoResource != NULL)) {
+                    NtfsReleaseFcb( IrpContext, Fcb );
+                    NtfsAcquireExclusivePagingIo( IrpContext, Fcb );
+                    PagingIoAcquired = TRUE;
+                    NtfsAcquireExclusiveFcb( IrpContext, Fcb, NULL, TRUE, FALSE );
+                }
 
-                    ASSERT_SCB( Scb );
+                //
+                //  If this is not one of the special system files then perform
+                //  the flush and purge as requested.  Go ahead and test file numbers
+                //  instead of walking through the Scbs in the Vcb just in case they
+                //  have been deleted.
+                //
 
-                    NextScb = NtfsGetNextChildScb(IrpContext, Fcb, Scb);
+                if (NtfsSegmentNumber( &Fcb->FileReference ) != MASTER_FILE_TABLE_NUMBER &&
+                    NtfsSegmentNumber( &Fcb->FileReference ) != LOG_FILE_NUMBER &&
+                    NtfsSegmentNumber( &Fcb->FileReference ) != VOLUME_DASD_NUMBER &&
+                    NtfsSegmentNumber( &Fcb->FileReference ) != BIT_MAP_FILE_NUMBER &&
+                    NtfsSegmentNumber( &Fcb->FileReference ) != BAD_CLUSTER_FILE_NUMBER) {
 
                     //
-                    //  Flush the Scb and save any error status, skipping the Mft since
-                    //  we will do that last.  And also skip the dasd scb because
-                    //  that can never be cached and the dasd scb is really a special
-                    //  dummied up scb.
+                    //  We will walk through all of the Scb's for this Fcb.  In
+                    //  the first pass we will only deal with user data streams.
+                    //  In the second pass we will do the others.
                     //
 
-                    if ((Scb != Vcb->MftScb)
-                        && (Scb != Vcb->VolumeDasdScb)
-                        && (Scb != Vcb->LogFileScb)
-                        && (Scb != Vcb->BadClusterFileScb)) {
+                    Scb = NULL;
 
-                        IoStatus.Status = STATUS_SUCCESS;
+                    while (TRUE) {
 
-                        if (!FlagOn( Scb->ScbState, SCB_STATE_ATTRIBUTE_DELETED )
-                            && FlushCache) {
+                        Scb = NtfsGetNextChildScb( Fcb, Scb );
 
-                            if (Scb != Vcb->BitmapScb &&
-                                Scb->ScbSnapshot == NULL) {
+                        if (Scb == NULL) { break; }
 
-                                NtfsSnapshotScb( IrpContext, Scb );
-                            }
+                        //
+                        //  Reference the Scb to keep it from going away.
+                        //
+
+                        InterlockedIncrement( &Scb->CleanupCount );
+                        DecrementScbCleanup = TRUE;
+
+                        //
+                        //  Check whether this is a user data file.
+                        //
+
+                        UserDataFile = FALSE;
+
+                        if ((NodeType( Scb ) == NTFS_NTC_SCB_DATA) &&
+                            (Scb->AttributeTypeCode == $DATA)) {
+
+                            UserDataFile = TRUE;
+                        }
+
+                        //
+                        //  Process this Scb in the correct loop.
+                        //
+
+                        if ((Pass == 0) == (UserDataFile)) {
 
                             //
-                            //  Enclose the flushes with try-except, so that we can
-                            //  react to log file full, and in any case keep on truckin.
+                            //  Initialize the state of the Io to SUCCESS.
                             //
 
-                            try {
+                            IoStatus.Status = STATUS_SUCCESS;
+
+                            //
+                            //  Don't put this Scb on the delayed close queue.
+                            //
+
+                            ClearFlag( Scb->ScbState, SCB_STATE_DELAY_CLOSE );
+
+                            //
+                            //  Flush this stream if it is not already deleted.
+                            //  Also don't flush resident streams for system attributes.
+                            //
+
+                            if (FlushCache &&
+                                !FlagOn( Scb->ScbState, SCB_STATE_ATTRIBUTE_DELETED ) &&
+                                (!FlagOn( Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT) ||
+                                 (Scb->AttributeTypeCode == $DATA))) {
 
                                 //
-                                //  If this is not a compressed stream we will flush
-                                //  it and continue.
+                                //  Enclose the flushes with try-except, so that we can
+                                //  react to log file full, and in any case keep on truckin.
                                 //
 
-                                if (!FlagOn( Scb->ScbState, SCB_STATE_COMPRESSED )) {
+                                try {
 
                                     FlushScb( IrpContext, Scb, &IoStatus );
-
-                                    NtfsCleanupTransaction( IrpContext, IoStatus.Status );
-
                                     NtfsCheckpointCurrentTransaction( IrpContext );
 
                                 //
-                                //  Otherwise we will want to flush this in pieces and
-                                //  commit the current transaction so that we won't
-                                //  overflow the log file.
+                                //  We will handle all errors except LOG_FILE_FULL and fatal
+                                //  bugcheck errors here.  In the corruption case we will
+                                //  want to mark the volume dirty and continue.
                                 //
 
-                                } else {
+                                } except( (((IoStatus.Status = GetExceptionCode()) == STATUS_LOG_FILE_FULL) ||
+                                           !FsRtlIsNtstatusExpected( IoStatus.Status ))
+                                          ? EXCEPTION_CONTINUE_SEARCH
+                                          : EXCEPTION_EXECUTE_HANDLER ) {
 
-                                    LONGLONG CurrentOffset;
-                                    LONGLONG BytesToFlush;
+                                    //
+                                    //  To make sure that we can access all of our streams correctly,
+                                    //  we first restore all of the higher sizes before aborting the
+                                    //  transaction.  Then we restore all of the lower sizes after
+                                    //  the abort, so that all Scbs are finally restored.
+                                    //
 
-                                    CurrentOffset = 0;
+                                    NtfsRestoreScbSnapshots( IrpContext, TRUE );
+                                    NtfsAbortTransaction( IrpContext, IrpContext->Vcb, NULL );
+                                    NtfsRestoreScbSnapshots( IrpContext, FALSE );
 
-                                    do {
+                                    //
+                                    //  Clear the top-level exception status so we won't raise
+                                    //  later.
+                                    //
 
-                                        BytesToFlush = Scb->Header.FileSize.QuadPart - CurrentOffset;
+                                    IrpContext->ExceptionStatus = STATUS_SUCCESS;
 
-                                        if (BytesToFlush > 0x40000) {
+                                    //
+                                    //  Remember the first error.
+                                    //
 
-                                            BytesToFlush = 0x40000;
-                                        }
+                                    if (Status == STATUS_SUCCESS) {
 
-                                        CcFlushCache( &Scb->NonpagedScb->SegmentObject,
-                                                      (PLARGE_INTEGER)&CurrentOffset,
-                                                      (ULONG)BytesToFlush,
-                                                      &IoStatus );
+                                        Status = IoStatus.Status;
+                                    }
 
-                                        NtfsCleanupTransaction( IrpContext, IoStatus.Status );
+                                    //
+                                    //  If the current status is either DISK_CORRUPT or FILE_CORRUPT then
+                                    //  mark the volume dirty.  We clear the IoStatus to allow
+                                    //  a corrupt file to be purged.  Otherwise it will never
+                                    //  leave memory.
+                                    //
 
-                                        NtfsCheckpointCurrentTransaction( IrpContext );
+                                    if ((IoStatus.Status == STATUS_DISK_CORRUPT_ERROR) ||
+                                        (IoStatus.Status == STATUS_FILE_CORRUPT_ERROR)) {
 
-                                        CurrentOffset += BytesToFlush;
-
-                                    } while (Scb->Header.FileSize.QuadPart > CurrentOffset);
-
-                                    if (FlagOn( Scb->ScbState, SCB_STATE_FILE_SIZE_LOADED )) {
-
-                                        NtfsWriteFileSizes( IrpContext,
-                                                            Scb,
-                                                            Scb->Header.FileSize.QuadPart,
-                                                            Scb->Header.ValidDataLength.QuadPart,
-                                                            TRUE,
-                                                            TRUE );
+                                        NtfsMarkVolumeDirty( IrpContext, Vcb );
+                                        IoStatus.Status = STATUS_SUCCESS;
                                     }
                                 }
+                            }
 
-                            } except( (((IoStatus.Status = GetExceptionCode()) == STATUS_LOG_FILE_FULL) ||
-                                       !FsRtlIsNtstatusExpected( IoStatus.Status ))
-                                      ? EXCEPTION_CONTINUE_SEARCH
-                                      : EXCEPTION_EXECUTE_HANDLER ) {
+                            //
+                            //  Proceed with the purge if there are no failures.  We will
+                            //  purge if the flush revealed a corrupt file though.
+                            //
+
+                            if (PurgeFromCache
+                                && IoStatus.Status == STATUS_SUCCESS) {
+
+                                BOOLEAN DataSectionExists;
+                                BOOLEAN ImageSectionExists;
+
+                                DataSectionExists = (BOOLEAN)(Scb->NonpagedScb->SegmentObject.DataSectionObject != NULL);
+                                ImageSectionExists = (BOOLEAN)(Scb->NonpagedScb->SegmentObject.ImageSectionObject != NULL);
 
                                 //
-                                //  To make sure that we can access all of our streams correctly,
-                                //  we first restore all of the higher sizes before aborting the
-                                //  transaction.  Then we restore all of the lower sizes after
-                                //  the abort, so that all Scbs are finally restored.
+                                //  Since purging the data section can cause the image
+                                //  section to go away, we will flush the image section first.
                                 //
 
-                                NtfsRestoreScbSnapshots( IrpContext, TRUE );
-                                NtfsAbortTransaction( IrpContext, IrpContext->Vcb, NULL );
-                                NtfsRestoreScbSnapshots( IrpContext, FALSE );
-                            }
+                                if (ImageSectionExists) {
 
-                            if (!NT_SUCCESS(IoStatus.Status)) {
+                                    (VOID)MmFlushImageSection( &Scb->NonpagedScb->SegmentObject, MmFlushForWrite );
+                                }
 
-                                Status = IoStatus.Status;
-                            }
-                        }
-
-                        if (PurgeFromCache
-                            && IoStatus.Status == STATUS_SUCCESS) {
-
-                            BOOLEAN DataSectionExists;
-                            BOOLEAN ImageSectionExists;
-
-                            //
-                            //  The call to purge below may generate a close call.
-                            //  We increment the cleanup count of the next Scb to prevent
-                            //  it from going away in a TearDownStructures as part of that
-                            //  close.
-                            //
-
-                            DataSectionExists = (BOOLEAN)(Scb->NonpagedScb->SegmentObject.DataSectionObject != NULL);
-                            ImageSectionExists = (BOOLEAN)(Scb->NonpagedScb->SegmentObject.ImageSectionObject != NULL);
-
-                            if (Scb->FcbLinks.Flink != &Fcb->ScbQueue) {
-
-                                NextScb->CleanupCount += 1;
-                                DecrementNextScbCleanup = TRUE;
-                            }
-
-                            //
-                            //  Since purging the data section can cause the image
-                            //  section to go away, we will flush the image section first.
-                            //
-
-                            if (ImageSectionExists) {
-
-                                (VOID)MmFlushImageSection( &Scb->NonpagedScb->SegmentObject, MmFlushForWrite );
-                            }
-
-                            if (DataSectionExists) {
-
-                                if (!CcPurgeCacheSection( &Scb->NonpagedScb->SegmentObject,
+                                if (DataSectionExists &&
+                                    !CcPurgeCacheSection( &Scb->NonpagedScb->SegmentObject,
                                                           NULL,
                                                           0,
-                                                          FALSE )) {
+                                                          FALSE ) &&
+                                    (Status == STATUS_SUCCESS)) {
 
                                     Status = STATUS_UNABLE_TO_DELETE_SECTION;
                                 }
                             }
+                            
+                            if (MarkFilesForDismount
+                                && IoStatus.Status == STATUS_SUCCESS) {
+
+                                //
+                                //  Set the dismounted flag for this stream so we
+                                //  know we have to fail reads & writes to it.
+                                //
+
+                                SetFlag( Scb->ScbState, SCB_STATE_VOLUME_DISMOUNTED );
+
+                                //  Also mark the Scb as not allowing fast io --
+                                //  this ensures that the file system will get a
+                                //  chance to see all reads & writes to this stream.
+                                //
+
+                                ExAcquireFastMutex( Scb->Header.FastMutex );
+                                Scb->Header.IsFastIoPossible = FastIoIsNotPossible;
+                                ExReleaseFastMutex( Scb->Header.FastMutex );
+                            }
+                        }
+
+                        //
+                        //  Move to the next Scb.
+                        //
+
+                        InterlockedDecrement( &Scb->CleanupCount );
+                        DecrementScbCleanup = FALSE;
+                    }
+                }
+
+                //
+                //  Remove our reference to the current Fcb.
+                //
+
+                InterlockedDecrement( &NextFcb->CloseCount );
+                DecrementNextFcbClose = FALSE;
+
+                //
+                //  Get the next Fcb and reference it so it won't go away.
+                //
+
+                NtfsAcquireFcbTable( IrpContext, Vcb );
+                NextFcb = NtfsGetNextFcbTableEntry( Vcb, &RestartKey );
+                NtfsReleaseFcbTable( IrpContext, Vcb );
+
+                if (NextFcb != NULL) {
+
+                    InterlockedIncrement( &NextFcb->CloseCount );
+                    DecrementNextFcbClose = TRUE;
+                }
+
+                //
+                //  Flushing the volume can cause new file objects to be allocated.
+                //  If we are in the second pass and the Fcb is for a user file
+                //  or directory then try to perform a teardown on this.
+                //
+
+                RemovedFcb = FALSE;
+                if ((Pass == 1) &&
+                    (NtfsSegmentNumber( &Fcb->FileReference ) >= FIRST_USER_FILE_NUMBER)) {
+
+                    ASSERT( IrpContext->TransactionId == 0 );
+
+                    NtfsTeardownStructures( IrpContext,
+                                            Fcb,
+                                            NULL,
+                                            FALSE,
+                                            FALSE,
+                                            &RemovedFcb );
+
+                    //
+                    //  TeardownStructures can create a transaction.  Commit
+                    //  it if present.
+                    //
+
+                    if (IrpContext->TransactionId != 0) {
+
+                        NtfsCheckpointCurrentTransaction( IrpContext );
+                    }
+                }
+
+                //
+                //  If the Fcb is still around then free any of the the other
+                //  resources we have acquired.
+                //
+
+                if (!RemovedFcb) {
+
+                    //
+                    //  Free the snapshots for the current Fcb.  This will keep us
+                    //  from having a snapshot for all open attributes in the
+                    //  system.
+                    //
+
+                    NtfsFreeSnapshotsForFcb( IrpContext, Fcb );
+
+                    if (PagingIoAcquired) {
+                        ASSERT( IrpContext->TransactionId == 0 );
+                        NtfsReleasePagingIo( IrpContext, Fcb );
+                    }
+
+                    if (AcquiredFcb) {
+                        NtfsReleaseFcb( IrpContext, Fcb );
+                    }
+                }
+
+                //
+                //  If our caller wants to insure that all files are released
+                //  between flushes then walk through the exclusive Fcb list
+                //  and free everything.
+                //
+
+                if (ReleaseAllFiles) {
+
+                    while (!IsListEmpty( &IrpContext->ExclusiveFcbList )) {
+
+                        NtfsReleaseFcb( IrpContext,
+                                        (PFCB)CONTAINING_RECORD( IrpContext->ExclusiveFcbList.Flink,
+                                                                 FCB,
+                                                                 ExclusiveFcbLinks ));
+                    }
+                }
+
+                PagingIoAcquired = FALSE;
+                AcquiredFcb = FALSE;
+
+                //
+                //  Now move to the next Fcb.
+                //
+
+                Fcb = NextFcb;
+            }
+
+        } while (++Pass < 2);
+
+        //
+        //  Make sure that all of the delayed or async closes for this Vcb are gone.
+        //
+
+        if (PurgeFromCache) {
+
+            NtfsFspClose( Vcb );
+        }
+
+        //
+        //  Now we want to flush/purge the streams for volume bitmap and then the Mft.
+        //
+
+        Pass = 0;
+
+        if (Vcb->BitmapScb != NULL) {
+
+            Fcb = Vcb->BitmapScb->Fcb;
+
+        } else {
+
+            Fcb = NULL;
+        }
+
+        do {
+
+            PSCB ThisScb;
+
+            if (Fcb != NULL) {
+
+                //
+                //  Go through each Scb for each of these Fcb's.
+                //
+
+                ThisScb = NtfsGetNextChildScb( Fcb, NULL );
+
+                while (ThisScb != NULL) {
+
+                    Scb = NtfsGetNextChildScb( Fcb, ThisScb );
+
+                    //
+                    //  Initialize the state of the Io to SUCCESS.
+                    //
+
+                    IoStatus.Status = STATUS_SUCCESS;
+
+                    //
+                    //  Reference the next Scb to keep it from going away if
+                    //  we purge the current one.
+                    //
+
+                    if (Scb != NULL) {
+
+                        InterlockedIncrement( &Scb->CleanupCount );
+                        DecrementScbCleanup = TRUE;
+                    }
+
+                    if (FlushCache) {
+
+                        //
+                        //  Flush Bitmap or Mft
+                        //
+
+                        CcFlushCache( &ThisScb->NonpagedScb->SegmentObject, NULL, 0, &IoStatus );
+
+                        if (!NT_SUCCESS( IoStatus.Status )) {
+
+                            Status = IoStatus.Status;
+                        }
+
+                        //
+                        //  Use a try-except to commit the current transaction.
+                        //
+
+                        try {
+
+                            NtfsCleanupTransaction( IrpContext, IoStatus.Status, TRUE );
+
+                            NtfsCheckpointCurrentTransaction( IrpContext );
+
+                        //
+                        //  We will handle all errors except LOG_FILE_FULL and fatal
+                        //  bugcheck errors here.  In the corruption case we will
+                        //  want to mark the volume dirty and continue.
+                        //
+
+                        } except( (((IoStatus.Status = GetExceptionCode()) == STATUS_LOG_FILE_FULL) ||
+                                   !FsRtlIsNtstatusExpected( IoStatus.Status ))
+                                  ? EXCEPTION_CONTINUE_SEARCH
+                                  : EXCEPTION_EXECUTE_HANDLER ) {
 
                             //
-                            //  Decrement the cleanup count of the next Scb if we incremented
-                            //  it.
+                            //  To make sure that we can access all of our streams correctly,
+                            //  we first restore all of the higher sizes before aborting the
+                            //  transaction.  Then we restore all of the lower sizes after
+                            //  the abort, so that all Scbs are finally restored.
                             //
 
-                            if (DecrementNextScbCleanup) {
+                            NtfsRestoreScbSnapshots( IrpContext, TRUE );
+                            NtfsAbortTransaction( IrpContext, IrpContext->Vcb, NULL );
+                            NtfsRestoreScbSnapshots( IrpContext, FALSE );
 
-                                NextScb->CleanupCount -= 1;
-                                DecrementNextScbCleanup = FALSE;
+                            //
+                            //  Clear the top-level exception status so we won't raise
+                            //  later.
+                            //
+
+                            IrpContext->ExceptionStatus = STATUS_SUCCESS;
+
+                            //
+                            //  Remember the first error.
+                            //
+
+                            if (Status == STATUS_SUCCESS) {
+
+                                Status = IoStatus.Status;
+                            }
+
+                            //
+                            //  If the current status is either DISK_CORRUPT or FILE_CORRUPT then
+                            //  mark the volume dirty.  We clear the IoStatus to allow
+                            //  a corrupt file to be purged.  Otherwise it will never
+                            //  leave memory.
+                            //
+
+                            if ((IoStatus.Status == STATUS_DISK_CORRUPT_ERROR) ||
+                                (IoStatus.Status == STATUS_FILE_CORRUPT_ERROR)) {
+
+                                NtfsMarkVolumeDirty( IrpContext, Vcb );
+                                IoStatus.Status = STATUS_SUCCESS;
                             }
                         }
                     }
 
-                    Scb = NextScb;
+                    //
+                    //  Purge this stream if there have been no errors.
+                    //
 
-                } while (Scb != NULL);
+                    if (PurgeFromCache
+                        && IoStatus.Status == STATUS_SUCCESS) {
+
+                        if (!CcPurgeCacheSection( &ThisScb->NonpagedScb->SegmentObject,
+                                                  NULL,
+                                                  0,
+                                                  FALSE ) &&
+                            (Status == STATUS_SUCCESS)) {
+
+                            Status = STATUS_UNABLE_TO_DELETE_SECTION;
+                        }
+                    }
+
+                    //
+                    //  Remove any reference we have to the next Scb and move
+                    //  forward to the next Scb.
+                    //
+
+                    if (DecrementScbCleanup) {
+
+                        InterlockedDecrement( &Scb->CleanupCount );
+                        DecrementScbCleanup = FALSE;
+                    }
+
+                    ThisScb = Scb;
+                }
             }
 
-            Fcb = NextFcb;
+            if (Vcb->MftScb != NULL) {
 
-            //
-            //  Decrement the close count if we previously incremented it.
-            //
+                Fcb = Vcb->MftScb->Fcb;
 
-            if (DecrementNextFcbClose) {
+                //
+                //  If we are purging the MFT then acquire all files to
+                //  avoid a purge deadlock.  If someone create an MFT mapping
+                //  between the flush and purge then the purge can spin
+                //  indefinitely in CC.
+                //
 
-                NextFcb->CloseCount -= 1;
-                DecrementNextFcbClose = FALSE;
+                if (PurgeFromCache && !ReleaseFiles) {
+
+                    NtfsAcquireAllFiles( IrpContext, Vcb, TRUE, FALSE );
+                    ReleaseFiles = TRUE;
+                }
+
+            } else {
+
+                Fcb = NULL;
             }
-        }
 
-        //
-        //  Now flush the Mft to get all of the FileSize and Valid DataLength updates.
-        //
-
-        IoStatus.Status = STATUS_SUCCESS;
-
-        if (FlushCache) {
-
-            CcFlushCache( &Vcb->MftScb->NonpagedScb->SegmentObject, NULL, 0, &IoStatus );
-
-            if (!NT_SUCCESS( IoStatus.Status )) {
-
-                Status = IoStatus.Status;
-            }
-        }
-
-        if (PurgeFromCache
-            && IoStatus.Status == STATUS_SUCCESS) {
-
-            if (!CcPurgeCacheSection( &Vcb->MftScb->NonpagedScb->SegmentObject,
-                                      NULL,
-                                      0,
-                                      FALSE )) {
-
-                IoStatus.Status = Status = STATUS_UNABLE_TO_DELETE_SECTION;
-
-                ASSERTMSG( "Failed to purge Mft file during flush\n", FALSE );
-            }
-        }
+        } while (++Pass < 2);
 
     } finally {
 
         //
-        //  Clear the purge flag only if we set it.
+        //  If this is a purge then clear the purge flag and set flag to force
+        //  rescan of volume bitmap.
         //
 
         if (PurgeFromCache) {
 
             ClearFlag( Vcb->VcbState, VCB_STATE_VOL_PURGE_IN_PROGRESS );
+            SetFlag( Vcb->VcbState, VCB_STATE_RELOAD_FREE_CLUSTERS );
         }
 
         //
@@ -1065,20 +1248,37 @@ Return Value:
         //  in-memory structures.
         //
 
-        if (DecrementNextScbCleanup) {
+        if (DecrementScbCleanup) {
 
-            NextScb->CleanupCount -= 1;
+            InterlockedDecrement( &Scb->CleanupCount );
         }
 
         if (DecrementNextFcbClose) {
 
-            NextFcb->CloseCount -= 1;
+            InterlockedDecrement( &NextFcb->CloseCount );
         }
 
-        NtfsReleaseAllFiles( IrpContext, Vcb );
+        if (PagingIoAcquired) {
+            NtfsReleasePagingIo( IrpContext, Fcb );
+        }
+
+        if (AcquiredFcb) {
+            NtfsReleaseFcb( IrpContext, Fcb );
+        }
+
+        if (ReleaseFiles) {
+
+            NtfsReleaseAllFiles( IrpContext, Vcb, FALSE );
+        }
+
+        //
+        //  Release the Vcb now.
+        //
+
+        NtfsReleaseVcb( IrpContext, Vcb );
     }
 
-    DebugTrace(-1, Dbg, "NtfsFlushVolume -> %08lx\n", Status);
+    DebugTrace( -1, Dbg, ("NtfsFlushVolume -> %08lx\n", Status) );
 
     return Status;
 }
@@ -1086,7 +1286,6 @@ Return Value:
 
 NTSTATUS
 NtfsFlushLsnStreams (
-    IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb
     )
 
@@ -1118,7 +1317,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsFlushLsnStreams, Vcb = %08lx\n", Vcb);
+    DebugTrace( +1, Dbg, ("NtfsFlushLsnStreams, Vcb = %08lx\n", Vcb) );
 
     //
     //  Start by flushing the log file to assure Write-Ahead-Logging.
@@ -1189,7 +1388,7 @@ Return Value:
         }
     }
 
-    DebugTrace(-1, Dbg, "NtfsFlushLsnStreams -> %08lx\n", Status);
+    DebugTrace( -1, Dbg, ("NtfsFlushLsnStreams -> %08lx\n", Status) );
 
     return Status;
 }
@@ -1225,6 +1424,7 @@ Return Value:
     BOOLEAN DecrementNextScbCleanup = FALSE;
 
     PSCB Scb;
+    PSCB AttributeListScb;
     PSCB NextScb;
 
     PAGED_CODE();
@@ -1239,14 +1439,29 @@ Return Value:
         //  Get the first Scb for the Fcb.
         //
 
-        Scb = NtfsGetNextChildScb( IrpContext, Fcb, NULL );
+        Scb = NtfsGetNextChildScb( Fcb, NULL );
 
         while (Scb != NULL) {
 
             BOOLEAN DataSectionExists;
             BOOLEAN ImageSectionExists;
 
-            NextScb = NtfsGetNextChildScb( IrpContext, Fcb, Scb );
+            NextScb = NtfsGetNextChildScb( Fcb, Scb );
+
+            //
+            //  Save the attribute list for last so we don't purge it
+            //  and then bring it back for another attribute.
+            //
+
+            if ((Scb->AttributeTypeCode == $ATTRIBUTE_LIST) &&
+                (NextScb != NULL)) {
+
+                RemoveEntryList( &Scb->FcbLinks );
+                InsertTailList( &Fcb->ScbQueue, &Scb->FcbLinks );
+
+                Scb = NextScb;
+                continue;
+            }
 
             if (!FlagOn( Scb->ScbState, SCB_STATE_ATTRIBUTE_DELETED )) {
 
@@ -1265,7 +1480,7 @@ Return Value:
 
             if (NextScb != NULL) {
 
-                NextScb->CleanupCount += 1;
+                InterlockedIncrement( &NextScb->CleanupCount );
                 DecrementNextScbCleanup = TRUE;
             }
 
@@ -1289,7 +1504,7 @@ Return Value:
 
             if (DecrementNextScbCleanup) {
 
-                NextScb->CleanupCount -= 1;
+                InterlockedDecrement( &NextScb->CleanupCount );
                 DecrementNextScbCleanup = FALSE;
             }
 
@@ -1309,9 +1524,125 @@ Return Value:
 
         if (DecrementNextScbCleanup) {
 
-            NextScb->CleanupCount -= 1;
+            InterlockedDecrement( &NextScb->CleanupCount );
         }
     }
+
+    return;
+}
+
+
+VOID
+NtfsFlushAndPurgeScb (
+    IN PIRP_CONTEXT IrpContext,
+    IN PSCB Scb,
+    IN PSCB ParentScb OPTIONAL
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called to flush and purge a stream.  It is used
+    when there are now only non-cached handles on a file and there is
+    a data section.  Flushing and purging the data section will mean that
+    the user non-cached io won't have to block for the cache coherency calls.
+
+    We want to remove all of the Fcb's from the exclusive list so that the
+    lower level flush will be its own transaction.  We don't want to drop
+    any of the resources however so we acquire the Scb's above explicitly
+    and then empty the exclusive list.  In all cases we will reacquire the
+    Scb's before raising out of this routine.
+
+Arguments:
+
+    Scb - Scb for the stream to flush and purge.  The reference count on this
+        stream will prevent it from going away.
+
+    ParentScb - If specified then this is the parent for the stream being flushed.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    IO_STATUS_BLOCK Iosb;
+
+    PAGED_CODE();
+
+    //
+    //  Commit the current transaction.
+    //
+
+    NtfsCheckpointCurrentTransaction( IrpContext );
+
+    //
+    //  Acquire the Scb and ParentScb explicitly.
+    //
+
+    ExAcquireResourceExclusive( Scb->Header.Resource, TRUE );
+
+    if (ARGUMENT_PRESENT( ParentScb )) {
+
+        ExAcquireResourceExclusive( ParentScb->Header.Resource, TRUE );
+    }
+
+    //
+    //  Walk through and release all of the Fcb's in the Fcb list.
+    //
+
+    while (!IsListEmpty( &IrpContext->ExclusiveFcbList )) {
+
+        NtfsReleaseFcb( IrpContext,
+                        (PFCB)CONTAINING_RECORD( IrpContext->ExclusiveFcbList.Flink,
+                                                 FCB,
+                                                 ExclusiveFcbLinks ));
+    }
+
+    //
+    //  Use a try-finally to reacquire the Scbs.
+    //
+
+    try {
+
+        //
+        //  Perform the flush, raise on error.
+        //
+
+        CcFlushCache( &Scb->NonpagedScb->SegmentObject, NULL, 0, &Iosb );
+        NtfsNormalizeAndCleanupTransaction( IrpContext, &Iosb.Status, TRUE, STATUS_UNEXPECTED_IO_ERROR );
+
+        //
+        //  If no error then purge the section.
+        //
+
+        CcPurgeCacheSection( &Scb->NonpagedScb->SegmentObject, NULL, 0, FALSE );
+
+    } finally {
+
+        //
+        //  Reacquire the Scbs.
+        //
+
+        NtfsAcquireExclusiveScb( IrpContext, Scb );
+        ExReleaseResource( Scb->Header.Resource );
+
+        if (ARGUMENT_PRESENT( ParentScb )) {
+
+            NtfsAcquireExclusiveScb( IrpContext, ParentScb );
+            ExReleaseResource( ParentScb->Header.Resource );
+        }
+    }
+
+    //
+    //  Write the file sizes to the attribute.  Commit the transaction since the
+    //  file sizes must get to disk.
+    //
+
+    NtfsWriteFileSizes( IrpContext, Scb, &Scb->Header.ValidDataLength.QuadPart, TRUE, TRUE );
+    NtfsCheckpointCurrentTransaction( IrpContext );
 
     return;
 }
@@ -1329,6 +1660,9 @@ NtfsFlushCompletionRoutine(
     )
 
 {
+    UNREFERENCED_PARAMETER( DeviceObject );
+    UNREFERENCED_PARAMETER( Contxt );
+
     //
     //  Add the hack-o-ramma to fix formats.
     //
@@ -1347,9 +1681,6 @@ NtfsFlushCompletionRoutine(
 
         Irp->IoStatus.Status = STATUS_SUCCESS;
     }
-
-    UNREFERENCED_PARAMETER( DeviceObject );
-    UNREFERENCED_PARAMETER( Irp );
 
     return STATUS_SUCCESS;
 }
@@ -1428,6 +1759,8 @@ Return Value:
 
                 if (!NT_SUCCESS( IoStatus.Status )) {
 
+                    IoStatus.Status = FsRtlNormalizeNtstatus( IoStatus.Status,
+                                                              STATUS_UNEXPECTED_IO_ERROR );
                     break;
                 }
             }
@@ -1441,9 +1774,98 @@ Return Value:
 
         DebugUnwind( NtfsFlushFcbFileRecords );
 
-        NtfsCleanupAttributeContext( IrpContext, &AttrContext );
+        NtfsCleanupAttributeContext( &AttrContext );
     }
 
     return IoStatus.Status;
 }
 
+
+NTSTATUS
+NtfsFlushUserStream (
+    IN PIRP_CONTEXT IrpContext,
+    IN PSCB Scb,
+    IN PLONGLONG FileOffset OPTIONAL,
+    IN ULONG Length
+    )
+
+/*++
+
+Routine Description:
+
+    This routine flushes a user stream as a top-level action.  To do so
+    it checkpoints the current transaction first and frees all of the
+    caller's snapshots.  After doing the flush, it snapshots the input
+    Scb again, just in case the caller plans to do any more work on that
+    stream.  If the caller needs to modify any other streams (presumably
+    metadata), it must know to snapshot them itself after calling this
+    routine.
+
+Arguments:
+
+    Scb - Stream to flush
+
+    FileOffset - FileOffset at which the flush is to start, or NULL for
+                 entire stream.
+
+    Length - Number of bytes to flush.  Ignored if FileOffset not specified.
+
+Return Value:
+
+    Status of the flush
+
+--*/
+
+{
+    IO_STATUS_BLOCK IoStatus;
+    BOOLEAN ScbAcquired = FALSE;
+
+    PAGED_CODE();
+
+    //
+    //  Checkpoint the current transaction and free all of its snapshots,
+    //  in order to treat the flush as a top-level action with his own
+    //  snapshots, etc.
+    //
+
+    NtfsCheckpointCurrentTransaction( IrpContext );
+    NtfsFreeSnapshotsForFcb( IrpContext, NULL );
+
+    //
+    //  Set the wait flag in the IrpContext so we don't hit a case where the
+    //  reacquire below fails because we can't wait.  If our caller was asynchronous
+    //  and we get this far we will continue synchronously.
+    //
+
+    SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_WAIT );
+
+    //
+    //  We must free the Scb now before calling through MM to prevent
+    //  collided page deadlocks.
+    //
+
+    if (Scb->Header.PagingIoResource != NULL) {
+
+        ScbAcquired = ExIsResourceAcquiredExclusive( Scb->Header.Resource );
+        if (ScbAcquired) {
+            NtfsReleaseScb( IrpContext, Scb );
+            //  ASSERT( !ExIsResourceAcquiredExclusive(Scb->Header.Resource) );
+        }
+    }
+
+    //
+    //  Now do the flush he wanted as a top-level action
+    //
+
+    CcFlushCache( &Scb->NonpagedScb->SegmentObject, (PLARGE_INTEGER)FileOffset, Length, &IoStatus );
+
+    //
+    //  Now reacquire for the caller.
+    //
+
+    if (ScbAcquired) {
+        NtfsAcquireExclusiveScb( IrpContext, Scb );
+    }
+
+    return IoStatus.Status;
+}

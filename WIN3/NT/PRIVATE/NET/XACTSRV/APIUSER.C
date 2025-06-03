@@ -204,8 +204,8 @@ Return Value:
 
     if ( *TempPassword == NULL ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsCheckAndReplacePassword: "
-                          "failed to allocate memory" );
+            NetpKdPrint(( "XsCheckAndReplacePassword: "
+                          "failed to allocate memory" ));
         }
         return NERR_NoRoom;
     }
@@ -464,10 +464,10 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(USER) {
-        NetpDbgPrint( "XsNetUserAdd2: header at %lx, params at %lx, "
+        NetpKdPrint(( "XsNetUserAdd2: header at %lx, params at %lx, "
                       "level %ld\n",
                       Header, parameters,
-                      SmbGetUshort( &parameters->Level ) );
+                      SmbGetUshort( &parameters->Level ) ));
     }
 
     //
@@ -491,8 +491,8 @@ Return Value:
 
     if ( status != NERR_Success ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetUserAdd2: XsCheckAndReplacePassword failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetUserAdd2: XsCheckAndReplacePassword failed: "
+                          "%X\n", status ));
         }
         goto cleanup;
     }
@@ -534,7 +534,7 @@ Return Value:
              )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetUserAdd2: Buffer too small.\n" );
+            NetpKdPrint(( "XsNetUserAdd2: Buffer too small.\n" ));
         }
         status = NERR_BufTooSmall;
         goto cleanup;
@@ -563,7 +563,7 @@ Return Value:
 
     if ( buffer == NULL ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetUserAdd2: failed to create buffer" );
+            NetpKdPrint(( "XsNetUserAdd2: failed to create buffer" ));
         }
         status = NERR_NoRoom;
         goto cleanup;
@@ -571,8 +571,8 @@ Return Value:
     }
 
     IF_DEBUG(USER) {
-        NetpDbgPrint( "XsNetUserAdd2: buffer of %ld bytes at %lx\n",
-                      bufferSize, buffer );
+        NetpKdPrint(( "XsNetUserAdd2: buffer of %ld bytes at %lx\n",
+                      bufferSize, buffer ));
     }
 
     //
@@ -598,8 +598,8 @@ Return Value:
 
     if ( status != NERR_Success ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetUserAdd: RapConvertSingleEntry failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetUserAdd: RapConvertSingleEntry failed: "
+                          "%X\n", status ));
         }
 
         status = NERR_InternalError;
@@ -704,10 +704,10 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetUserAdd2: NetUserAdd failed: %X\n", status );
+            NetpKdPrint(( "XsNetUserAdd2: NetUserAdd failed: %X\n", status ));
             if ( status == ERROR_INVALID_PARAMETER ) {
-                NetpDbgPrint( "XsNetUserAdd2: ParmError: %ld\n",
-                              parmError );
+                NetpKdPrint(( "XsNetUserAdd2: ParmError: %ld\n",
+                              parmError ));
 
             }
         }
@@ -727,8 +727,8 @@ Return Value:
                     );
         if ( !XsApiSuccess( status1 )) {
             IF_DEBUG(ERRORS) {
-                NetpDbgPrint( "XsNetUserAdd2: SetMacPrimaryGroup failed: %X\n",
-                                status1 );
+                NetpKdPrint(( "XsNetUserAdd2: SetMacPrimaryGroup failed: %X\n",
+                                status1 ));
             }
         }
     }
@@ -779,8 +779,8 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(USER) {
-        NetpDbgPrint( "XsNetUserDel: header at %lx, params at %lx, name %s\n",
-                      Header, parameters, SmbGetUlong( &parameters->UserName ));
+        NetpKdPrint(( "XsNetUserDel: header at %lx, params at %lx, name %s\n",
+                      Header, parameters, SmbGetUlong( &parameters->UserName )));
     }
 
     //
@@ -803,7 +803,7 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetUserDel: NetUserDel failed: %X\n", status );
+            NetpKdPrint(( "XsNetUserDel: NetUserDel failed: %X\n", status ));
         }
     }
 
@@ -858,10 +858,10 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid parameters
 
     IF_DEBUG(USER) {
-        NetpDbgPrint( "XsNetUserEnum: header at %lx, params at %lx, "
+        NetpKdPrint(( "XsNetUserEnum: header at %lx, params at %lx, "
                       "level %ld, buf size %ld\n",
                       Header, parameters, SmbGetUshort( &parameters->Level ),
-                      SmbGetUshort( &parameters->BufLen ));
+                      SmbGetUshort( &parameters->BufLen )));
     }
 
     //
@@ -892,15 +892,15 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetUserEnum: NetUserEnum failed: %X\n", status );
+            NetpKdPrint(( "XsNetUserEnum: NetUserEnum failed: %X\n", status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
     }
 
     IF_DEBUG(USER) {
-        NetpDbgPrint( "XsNetUserEnum: received %ld entries at %lx\n",
-                      entriesRead, outBuffer );
+        NetpKdPrint(( "XsNetUserEnum: received %ld entries at %lx\n",
+                      entriesRead, outBuffer ));
     }
 
     //
@@ -956,10 +956,10 @@ Return Value:
         );
 
     IF_DEBUG(USER) {
-        NetpDbgPrint( "32-bit data at %lx, 16-bit data at %lx, %ld BR,"
+        NetpKdPrint(( "32-bit data at %lx, 16-bit data at %lx, %ld BR,"
                       " Entries %ld of %ld\n",
                       outBuffer, SmbGetUlong( &parameters->Buffer ),
-                      bytesRequired, entriesFilled, totalEntries );
+                      bytesRequired, entriesFilled, totalEntries ));
     }
 
     //
@@ -1039,25 +1039,33 @@ Return Value:
 
     PXS_NET_USER_ENUM_2 parameters = Parameters;
     LPVOID outBuffer = NULL;                // Native parameters
-    DWORD entriesRead;
-    DWORD totalEntries;
-    DWORD resumeKey = 0;
-
-    DWORD entriesFilled;                    // Conversion variables
-    DWORD totalEntriesRead;
-    DWORD bytesRequired = 0;
-    DWORD nativeBufferSize;
+    DWORD TotalEntriesToReturn = 0;
     LPDESC nativeStructureDesc;
+    DWORD nativeBufferSize = 0xFFFFFFFF;
+
+    DWORD entriesRead = 0;
+    DWORD PreviousEntriesRead;
+    DWORD totalEntries;
+    DWORD entriesFilled;                    // Conversion variables
+    DWORD bytesRequired;
+
     LPBYTE bufferBegin;
     DWORD bufferSize;
+    DWORD totalEntriesRead;
+    DWORD resumeKey;
+
+    LPBYTE SavedBufferBegin;
+    DWORD SavedBufferSize;
+    DWORD SavedTotalEntriesRead;
+    DWORD SavedResumeKey;
 
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(USER) {
-        NetpDbgPrint( "XsNetUserEnum2: header at %lx, params at %lx, "
+        NetpKdPrint(( "XsNetUserEnum2: header at %lx, params at %lx, "
                       "level %ld, buf size %ld\n",
                       Header, parameters, SmbGetUshort( &parameters->Level ),
-                      SmbGetUshort( &parameters->BufLen ));
+                      SmbGetUshort( &parameters->BufLen )));
     }
 
     //
@@ -1068,7 +1076,7 @@ Return Value:
     SmbPutUlong( &parameters->ResumeOut, resumeKey );
 
     IF_DEBUG(USER) {
-        NetpDbgPrint( "XsNetUserEnum2: resume key is %ld\n", resumeKey );
+        NetpKdPrint(( "XsNetUserEnum2: resume key is %ld\n", resumeKey ));
     }
 
     //
@@ -1131,12 +1139,42 @@ Return Value:
 
     for ( ; ; ) {
 
+
         //
         // Compute a safe size for the native buffer.
-        // !!! - We could do some optimization here.
+        //
+        // It is better to underguess than overguess.  NetUserEnum is relatively
+        // efficient (especially in the local case) at resuming an enumeration.
+        // It is relatively inefficient at returning detailed information about
+        // the enumerated users.
+        //
+        // If nativeBufferSize reaches 1 (or 0),
+        //  NetUserEnum will typically enumerate a single user.
         //
 
-        nativeBufferSize = bufferSize;
+        if ( nativeBufferSize > bufferSize/2 ) {
+            nativeBufferSize = bufferSize/2;
+        }
+
+        //
+        // Remember how many we read last time to ensure we make progress.
+        //
+
+        PreviousEntriesRead = entriesRead;
+
+        //
+        // Save away a copy of all the important variables.
+        //
+        // The NetUserEnum API can actually overshoot its PrefMaxLen.  The
+        // values being saved are values known to not already have been overshot.
+        // We can restore these values later if needed.
+        //
+
+        SavedBufferBegin = bufferBegin;
+        SavedBufferSize = bufferSize;
+        SavedTotalEntriesRead = totalEntriesRead;
+        SavedResumeKey = resumeKey;
+
 
         //
         // Make the local call.
@@ -1156,8 +1194,8 @@ Return Value:
         if ( !XsApiSuccess( status )) {
 
             IF_DEBUG(API_ERRORS) {
-                NetpDbgPrint( "XsNetUserEnum2: NetUserEnum failed: %X\n",
-                              status );
+                NetpKdPrint(( "XsNetUserEnum2: NetUserEnum failed: %X\n",
+                              status ));
             }
 
             Header->Status = (WORD)status;
@@ -1165,11 +1203,19 @@ Return Value:
         }
 
         IF_DEBUG(USER) {
-            NetpDbgPrint( "XsNetUserEnum2: received %ld entries at %lx\n",
-                          entriesRead, outBuffer );
+            NetpKdPrint(( "XsNetUserEnum2: received %ld entries out of %ld at %lx asking for %ld bytes.\n",
+                          entriesRead, totalEntries, outBuffer, nativeBufferSize ));
 
-            NetpDbgPrint( "XsNetUserEnum2: resume key is now %ld\n",
-                          resumeKey );
+            NetpKdPrint(( "XsNetUserEnum2: resume key is now %ld\n",
+                          resumeKey ));
+        }
+
+        //
+        // Keep track of the total entries available.
+        //
+
+        if ( totalEntries > TotalEntriesToReturn ) {
+            TotalEntriesToReturn = totalEntries;
         }
 
         //
@@ -1200,39 +1246,118 @@ Return Value:
             );
 
         IF_DEBUG(USER) {
-            NetpDbgPrint( "32-bit data at %lx, 16-bit data at %lx, %ld BR,"
+            NetpKdPrint(( "XsNetUserEnum2: 32-bit data at %lx, 16-bit data at %lx, %ld BR,"
                           " Entries %ld of %ld\n",
                           outBuffer, SmbGetUlong( &parameters->Buffer ),
-                          bytesRequired, entriesFilled, totalEntries );
+                          bytesRequired, entriesFilled, entriesRead ));
         }
 
         //
-        // Very key assertion!
+        // If NetUserEnum overshot PrefMaxLen,
+        //  we can't simply return the collected data since we wouldn't
+        //  know what to use as a ResumeHandle.
         //
 
-        NetpAssert( entriesRead == entriesFilled );
+        if ( entriesRead != entriesFilled ) {
+
+            //
+            // Restore the saved values.
+            //
+
+            bufferBegin = SavedBufferBegin;
+            bufferSize = SavedBufferSize;
+            totalEntriesRead = SavedTotalEntriesRead;
+            resumeKey = SavedResumeKey;
+
+            //
+            // If we have ANY data to return to the caller,
+            //  return the short list now rather than trying to outguess NetUserEnum
+            //
+
+            if ( totalEntriesRead != 0 ) {
+                IF_DEBUG(USER) {
+                    NetpKdPrint(( "XsNetUserEnum2: couldn't pack data: return previous data\n" ));
+                }
+                break;
+            }
+
+            //
+            // If we've already asked NetUserEnum for the smallest amount,
+            //  just give up.
+            //
+
+            if ( nativeBufferSize == 1 || entriesRead == 1 ) {
+
+                status = NERR_BufTooSmall;
+                IF_DEBUG(API_ERRORS) {
+                    NetpKdPrint(( "XsNetUserEnum2: NetUserEnum buffer too small: %X\n",
+                                  status ));
+                }
+
+                Header->Status = (WORD)status;
+                goto cleanup;
+            }
+
+            //
+            // Otherwise, trim it down and try again.
+            //  If we've tried twice and gotten the same result,
+            //      be really agressive.
+            //
+
+            if ( entriesRead == PreviousEntriesRead || entriesRead < 10 ) {
+                nativeBufferSize = 1;
+            } else {
+                nativeBufferSize /= 2;
+            }
 
         //
-        // Update count of entries read.
+        // If NetUserEnum returned useful data,
+        //  account for it.
         //
 
-        totalEntriesRead += entriesRead;
+        } else {
+            //
+            // Update count of entries read.
+            //
 
-        //
-        // Are there any more entries to read?
-        //
+            totalEntriesRead += entriesRead;
 
-        if ( entriesRead == totalEntries ) {
-            break;
+            //
+            // Are there any more entries to read?
+            //
+
+            if ( entriesRead == totalEntries ) {
+                break;
+            }
+
+            //
+            // If we've made the nativeBufferSize so small we're barely making
+            //  progress,
+            //  just return what we have to the caller.
+            //
+
+            if ( entriesRead == 1 ) {
+                break;
+            }
+
+            //
+            // Calculate new buffer beginning and size.
+            //
+
+            bufferBegin += entriesRead *
+                               RapStructureSize( StructureDesc, Response, FALSE );
+            bufferSize -= bytesRequired;
+
+            //
+            // Don't hassle the last few bytes,
+            //  we'll just overshoot anyway.
+            //
+
+            if ( bufferSize < 50 ) {
+                break;
+            }
         }
 
-        //
-        // Calculate new buffer beginning and size.
-        //
-
-        bufferBegin += entriesRead *
-                           RapStructureSize( StructureDesc, Response, FALSE );
-        bufferSize -= bytesRequired;
 
         //
         // Free last native buffer.
@@ -1245,12 +1370,11 @@ Return Value:
 
     //
     // Upon exit from the loop, totalEntriesRead has the number of entries
-    // read, entriesRead has the number read in the last call, totalEntries
-    // has the number remaining plus entriesRead. Formulate return codes,
-    // etc. from these values.
+    // read, TotalEntriesToReturn has the number available from NetUserEnum.
+    // Formulate return codes, etc. from these values.
     //
 
-    if ( totalEntries > entriesRead ) {
+    if ( totalEntriesRead < TotalEntriesToReturn ) {
 
         Header->Status = ERROR_MORE_DATA;
 
@@ -1266,7 +1390,10 @@ Return Value:
     }
 
     IF_DEBUG(USER) {
-        NetpDbgPrint( "XsNetUserEnum2: resume key is now %ld\n", resumeKey );
+        NetpKdPrint(( "XsNetUserEnum2: returning %ld entries of %ld. Resume key is now %ld\n",
+                      totalEntriesRead,
+                      TotalEntriesToReturn,
+                      resumeKey ));
     }
 
     //
@@ -1275,7 +1402,7 @@ Return Value:
 
     SmbPutUshort( &parameters->EntriesRead, (WORD)totalEntriesRead );
     SmbPutUshort( &parameters->TotalAvail,
-        (WORD)( totalEntries - entriesRead ));
+        (WORD)( TotalEntriesToReturn ));
     SmbPutUlong( &parameters->ResumeOut, resumeKey );
 
 cleanup:
@@ -1336,10 +1463,10 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(USER) {
-        NetpDbgPrint( "XsNetUserGetGroups: header at %lx, params at %lx, "
+        NetpKdPrint(( "XsNetUserGetGroups: header at %lx, params at %lx, "
                       "level %ld, buf size %ld\n",
                       Header, parameters, SmbGetUshort( &parameters->Level ),
-                      SmbGetUshort( &parameters->BufLen ));
+                      SmbGetUshort( &parameters->BufLen )));
     }
 
     //
@@ -1373,16 +1500,16 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetUserGetGroups: NetUserGetGroups failed: %X\n",
-                          status );
+            NetpKdPrint(( "XsNetUserGetGroups: NetUserGetGroups failed: %X\n",
+                          status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
     }
 
     IF_DEBUG(USER) {
-        NetpDbgPrint( "XsNetUserGetGroups: received %ld entries at %lx\n",
-                      entriesRead, outBuffer );
+        NetpKdPrint(( "XsNetUserGetGroups: received %ld entries at %lx\n",
+                      entriesRead, outBuffer ));
     }
 
     //
@@ -1404,10 +1531,10 @@ Return Value:
         );
 
     IF_DEBUG(USER) {
-        NetpDbgPrint( "32-bit data at %lx, 16-bit data at %lx, %ld BR,"
+        NetpKdPrint(( "32-bit data at %lx, 16-bit data at %lx, %ld BR,"
                       " Entries %ld of %ld\n",
                       outBuffer, SmbGetUlong( &parameters->Buffer ),
-                      bytesRequired, entriesFilled, totalEntries );
+                      bytesRequired, entriesFilled, totalEntries ));
     }
 
     //
@@ -1497,9 +1624,9 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(USER) {
-        NetpDbgPrint( "XsNetUserGetInfo: header at %lx, "
+        NetpKdPrint(( "XsNetUserGetInfo: header at %lx, "
                       "params at %lx, level %ld\n",
-                      Header, parameters, SmbGetUshort( &parameters->Level ) );
+                      Header, parameters, SmbGetUshort( &parameters->Level ) ));
     }
 
     //
@@ -1534,8 +1661,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetUserGetInfo: NetUserGetInfo failed: "
-                        "%X\n", status );
+            NetpKdPrint(( "XsNetUserGetInfo: NetUserGetInfo failed: "
+                        "%X\n", status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
@@ -1647,8 +1774,8 @@ Return Value:
 
     if ( status != NERR_Success ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetUserGetInfo: RapConvertSingleEntry failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetUserGetInfo: RapConvertSingleEntry failed: "
+                          "%X\n", status ));
         }
 
         Header->Status = NERR_InternalError;
@@ -1656,9 +1783,9 @@ Return Value:
     }
 
     IF_DEBUG(USER) {
-        NetpDbgPrint( "32-bit data at %lx, 16-bit data at %lx, %ld BR\n",
+        NetpKdPrint(( "32-bit data at %lx, 16-bit data at %lx, %ld BR\n",
                       outBuffer, SmbGetUlong( &parameters->Buffer ),
-                      bytesRequired );
+                      bytesRequired ));
     }
 
     //
@@ -1672,19 +1799,19 @@ Return Value:
              )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetUserGetInfo: Buffer too small %ld s.b. %ld.\n",
+            NetpKdPrint(( "XsNetUserGetInfo: Buffer too small %ld s.b. %ld.\n",
                 SmbGetUshort( &parameters->BufLen ),
                 RapStructureSize(
                     StructureDesc,
                     Response,
-                    FALSE ) );
+                    FALSE ) ));
         }
         Header->Status = NERR_BufTooSmall;
 
     } else if ( bytesRequired > (DWORD)SmbGetUshort( &parameters-> BufLen )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "NetUserGetInfo: More data available.\n" );
+            NetpKdPrint(( "NetUserGetInfo: More data available.\n" ));
         }
         Header->Status = ERROR_MORE_DATA;
 
@@ -1765,9 +1892,9 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(USER) {
-        NetpDbgPrint( "XsNetUserModalsGet: header at %lx, "
+        NetpKdPrint(( "XsNetUserModalsGet: header at %lx, "
                       "params at %lx, level %ld\n",
-                      Header, parameters, SmbGetUshort( &parameters->Level ) );
+                      Header, parameters, SmbGetUshort( &parameters->Level ) ));
     }
 
     //
@@ -1792,8 +1919,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetUserModalsGet: NetUserModalsGet failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetUserModalsGet: NetUserModalsGet failed: "
+                          "%X\n", status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
@@ -1846,8 +1973,8 @@ Return Value:
 
     if ( status != NERR_Success ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetUserModalsGet: RapConvertSingleEntry failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetUserModalsGet: RapConvertSingleEntry failed: "
+                          "%X\n", status ));
         }
 
         Header->Status = NERR_InternalError;
@@ -1855,9 +1982,9 @@ Return Value:
     }
 
     IF_DEBUG(USER) {
-        NetpDbgPrint( "32-bit data at %lx, 16-bit data at %lx, %ld BR\n",
+        NetpKdPrint(( "32-bit data at %lx, 16-bit data at %lx, %ld BR\n",
                       outBuffer, SmbGetUlong( &parameters->Buffer ),
-                      bytesRequired );
+                      bytesRequired ));
     }
 
     //
@@ -1871,14 +1998,14 @@ Return Value:
              )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetUserModalsGet: Buffer too small.\n" );
+            NetpKdPrint(( "XsNetUserModalsGet: Buffer too small.\n" ));
         }
         Header->Status = NERR_BufTooSmall;
 
     } else if ( bytesRequired > (DWORD)SmbGetUshort( &parameters-> BufLen )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "NetUserModalsGet: More data available.\n" );
+            NetpKdPrint(( "NetUserModalsGet: More data available.\n" ));
         }
         Header->Status = ERROR_MORE_DATA;
 
@@ -2018,8 +2145,8 @@ Return Value:
     if ( status != NERR_Success ) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetUserModalsSet: Problem with conversion: %X\n",
-                          status );
+            NetpKdPrint(( "XsNetUserModalsSet: Problem with conversion: %X\n",
+                          status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
@@ -2039,8 +2166,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetUserModalsSet: NetUserModalsSet failed: %X\n",
-                          status );
+            NetpKdPrint(( "XsNetUserModalsSet: NetUserModalsSet failed: %X\n",
+                          status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
@@ -2123,8 +2250,8 @@ Return Value:
 
     if ( status != NERR_Success ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetUserPasswordSet2: XsCheckAndReplacePassword "
-                          "failed: %X\n", status );
+            NetpKdPrint(( "XsNetUserPasswordSet2: XsCheckAndReplacePassword "
+                          "failed: %X\n", status ));
         }
         goto cleanup;
     }
@@ -2192,9 +2319,9 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(USER) {
-        NetpDbgPrint( "XsNetUserSetGroups: header at %lx, params at %lx,"
+        NetpKdPrint(( "XsNetUserSetGroups: header at %lx, params at %lx,"
                       "level %ld\n",
-                      Header, parameters, SmbGetUshort( &parameters->Level ) );
+                      Header, parameters, SmbGetUshort( &parameters->Level ) ));
     }
 
     //
@@ -2235,7 +2362,7 @@ Return Value:
 
     if (( longDescriptor == NULL ) || ( longNativeDescriptor == NULL )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetUserSetGroups: failed to allocate memory" );
+            NetpKdPrint(( "XsNetUserSetGroups: failed to allocate memory" ));
         }
         Header->Status = NERR_NoRoom;
         goto cleanup;
@@ -2260,7 +2387,7 @@ Return Value:
              )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetUserSetGroups: Buffer too small.\n" );
+            NetpKdPrint(( "XsNetUserSetGroups: Buffer too small.\n" ));
         }
         Header->Status = NERR_BufTooSmall;
         goto cleanup;
@@ -2287,15 +2414,15 @@ Return Value:
 
     if ( buffer == NULL ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetUserSetGroups: failed to create buffer" );
+            NetpKdPrint(( "XsNetUserSetGroups: failed to create buffer" ));
         }
         Header->Status = NERR_NoRoom;
         goto cleanup;
     }
 
     IF_DEBUG(USER) {
-        NetpDbgPrint( "XsNetUserSetGroups: buffer of %ld bytes at %lx\n",
-                      bufferSize, buffer );
+        NetpKdPrint(( "XsNetUserSetGroups: buffer of %ld bytes at %lx\n",
+                      bufferSize, buffer ));
     }
 
     //
@@ -2321,8 +2448,8 @@ Return Value:
 
     if ( status != NERR_Success ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetUserSetGroups: RapConvertSingleEntry failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetUserSetGroups: RapConvertSingleEntry failed: "
+                          "%X\n", status ));
         }
 
         Header->Status = NERR_InternalError;
@@ -2372,8 +2499,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetUserSetGroups: NetUserSetGroups failed: %X\n",
-                          status );
+            NetpKdPrint(( "XsNetUserSetGroups: NetUserSetGroups failed: %X\n",
+                          status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
@@ -2592,8 +2719,8 @@ Return Value:
 
         if ( status != NERR_Success ) {
             IF_DEBUG(ERRORS) {
-                NetpDbgPrint( "XsNetUserSetInfo2: XsCheckAndReplacePassword "
-                              "failed: " FORMAT_API_STATUS "\n", status );
+                NetpKdPrint(( "XsNetUserSetInfo2: XsCheckAndReplacePassword "
+                              "failed: " FORMAT_API_STATUS "\n", status ));
             }
             goto cleanup;
         }
@@ -2714,8 +2841,8 @@ Return Value:
 
         if ( !XsApiSuccess( status )) {
             IF_DEBUG(ERRORS) {
-                NetpDbgPrint( "XsNetUserSetInfo2: NetUserSetInfo failed: %X\n",
-                              status );
+                NetpKdPrint(( "XsNetUserSetInfo2: NetUserSetInfo failed: %X\n",
+                              status ));
             }
             goto cleanup;
         }
@@ -2734,8 +2861,8 @@ Return Value:
                         );
             if ( !XsApiSuccess( status1 )) {
                 IF_DEBUG(ERRORS) {
-                    NetpDbgPrint( "XsNetUserSetInfo2: SetMacPrimaryGroup "
-                                    "failed: %X\n", status1 );
+                    NetpKdPrint(( "XsNetUserSetInfo2: SetMacPrimaryGroup "
+                                    "failed: %X\n", status1 ));
                 }
             }
         } else if ( (level == USER_PARMS_INFOLEVEL) &&
@@ -2748,8 +2875,8 @@ Return Value:
                         );
             if ( !XsApiSuccess( status1 )) {
                 IF_DEBUG(ERRORS) {
-                    NetpDbgPrint( "XsNetUserSetInfo2: SetMacPrimaryGroup "
-                                    "failed: %X\n", status1 );
+                    NetpKdPrint(( "XsNetUserSetInfo2: SetMacPrimaryGroup "
+                                    "failed: %X\n", status1 ));
                 }
             }
         }
@@ -2843,8 +2970,8 @@ Return Value:
 
         if ( !XsApiSuccess( status )) {
             IF_DEBUG(ERRORS) {
-                NetpDbgPrint( "XsNetUserSetInfo2: NetUserSetInfo failed: "
-                              "%X\n", status );
+                NetpKdPrint(( "XsNetUserSetInfo2: NetUserSetInfo failed: "
+                              "%X\n", status ));
             }
             goto cleanup;
         }

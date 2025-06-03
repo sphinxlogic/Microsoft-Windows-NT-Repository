@@ -337,6 +337,8 @@ RtlLogEvent(
         return STATUS_SUCCESS;
         }
 
+#if i386
+
     try {
         Hash = 0;
         StackBackTraceLength = RtlCaptureStackBackTrace( 1,
@@ -348,6 +350,9 @@ RtlLogEvent(
     except( EXCEPTION_EXECUTE_HANDLER ) {
         StackBackTraceLength = 0;
         }
+#else
+    StackBackTraceLength = 0;
+#endif
 
     va_start( arglist, EventClassMask );
 

@@ -31,10 +31,8 @@ Author:
 #define RpcLtoa     ltoa
 #endif
 
-defModule
-
-REPLY_BASE_LIST RPRoot;		// linked list of replys
-char nl[2] = "\n";		// global newline, to save space
+REPLY_BASE_LIST RPRoot;     // linked list of replys
+char nl[2] = "\n";      // global newline, to save space
 
 
 PB
@@ -62,7 +60,7 @@ Returns:
     PB pb;
 
     if (!cb)
-	return(NIL);
+    return(NIL);
 
     if (!(pb = (PB) malloc(cb)))
         return(NIL);
@@ -325,7 +323,7 @@ StrdupUZ(
     IN PUZ StringW
     )
 {
- 
+
   PUZ DuplicateString = 0;
 
   DuplicateString = new UICHAR[LenUZ(StringW) + 1];
@@ -338,7 +336,7 @@ StrdupUZ(
 
   return (DuplicateString);
 }
-  
+
 
 // ** Derived Class for BuffStream from ostream **//
 
@@ -388,7 +386,7 @@ Returns:
 --*/
 {
     if (pptr-base)
-	FlushBuffer();	// call rountine to process buffer
+    FlushBuffer();  // call rountine to process buffer
 
     // then do standard overflow processing
 
@@ -425,16 +423,16 @@ Returns:
         return(*this << "(null)");
 
     while (*p) {
-	bp->sputc(*p++);
+    bp->sputc(*p++);
 
-	if (state == BUFF_LINE && p[-1] == '\n')
-	    flush();
+    if (state == BUFF_LINE && p[-1] == '\n')
+        flush();
     }
 
     // Dump the contexts of the buffer if required.
 
     if (state == BUFF_FLUSH)
-	flush();
+    flush();
 
     return (*this);
 }
@@ -464,14 +462,14 @@ Returns:
         return(*this << "(null)");
 
     while (*p) {
-	bp->sputc((char) *p++);
+    bp->sputc((char) *p++);
 
-	if (state == BUFF_LINE && (char) p[-1] == '\n')
-	    flush();
+    if (state == BUFF_LINE && (char) p[-1] == '\n')
+        flush();
     }
 
     if (state == BUFF_FLUSH)
-	flush();
+    flush();
 
     return (*this);
 }
@@ -557,7 +555,7 @@ Returns:
     // If the string is wide enough, just return it.
 
     if (width <= 0)
-	return (buff+8);
+    return (buff+8);
 
     // Else return a string with leading 0s.
 
@@ -624,7 +622,7 @@ Returns:
     strcat(strcat(AsciiBuff, hex(data3[1], 2)), "-");
 
     for (int iT = 2; iT < 8; iT++)
-	strcat(AsciiBuff, hex(data3[iT], 2));
+    strcat(AsciiBuff, hex(data3[iT], 2));
 
     unsigned char *pA = (unsigned char *)AsciiBuff;
     for (PUZ pU = Buffer; *pU++ = (UICHAR) *pA++; );
@@ -635,8 +633,8 @@ Returns:
 
 ostream&
 operator << (
-    OUT ostream& pSB,		// stream buffer to write to
-    IN  NS_UUID& pID		// Global ID
+    OUT ostream& pSB,       // stream buffer to write to
+    IN  NS_UUID& pID        // Global ID
     )
 /*++
 
@@ -647,7 +645,7 @@ Routine Description:
 Arguments:
 
     pSB - Stream buffer to write to
-    pID	- and object to format.
+    pID - and object to format.
 
 Returns:
 
@@ -663,9 +661,9 @@ Returns:
 }
 
 
-#ifdef LDEBUG
+#if DBG
 
-void NS_UUID::Assert(		// check consistency of the class
+void NS_UUID::Assert(       // check consistency of the class
     )
 /*++
 
@@ -701,16 +699,16 @@ Arguments:
     ASSERT(this && (void *)&pLLHead);
 
     if (!pLIPrev)
-	pLLHead.pLIHead = pLINext;	// LI at head of list
+    pLLHead.pLIHead = pLINext;  // LI at head of list
 
     else
-	pLIPrev->pLINext = pLINext;
+    pLIPrev->pLINext = pLINext;
 
     if (!pLINext)
-	pLLHead.pLITail = pLIPrev;	// LI at tail of list
+    pLLHead.pLITail = pLIPrev;  // LI at tail of list
 
     else
-	pLINext->pLIPrev = pLIPrev;
+    pLINext->pLIPrev = pLIPrev;
 
     pLLHead.Assert();
 }
@@ -739,16 +737,16 @@ Arguments:
     if (!pLInew)
         return;
 
-    pLInew->pLINext = pLIHead;		// old head is now Next
+    pLInew->pLINext = pLIHead;      // old head is now Next
     pLInew->pLIPrev = NIL;
-    pLIHead = pLInew;			// new is now Head
+    pLIHead = pLInew;           // new is now Head
 
-    if (!pLITail)			// handle empty list
+    if (!pLITail)           // handle empty list
 
-	pLITail = pLInew;
+    pLITail = pLInew;
     else {
-	ASSERT(pLInew->pLINext);
-	pLInew->pLINext->pLIPrev = pLInew;	// old head points back to new
+    ASSERT(pLInew->pLINext);
+    pLInew->pLINext->pLIPrev = pLInew;  // old head points back to new
     }
 }
 
@@ -776,18 +774,18 @@ Arguments:
     // empty lists are just like Add
 
     if (!pLITail) {
-	this->Add(pLInew);
-	return;
+    this->Add(pLInew);
+    return;
     }
 
-    pLInew->pLINext = NIL;		// new points back to old tail
+    pLInew->pLINext = NIL;      // new points back to old tail
     pLInew->pLIPrev = pLITail;
 
-    pLITail->pLINext = pLInew;		// old tail points forward to new
-    pLITail = pLInew;			// tail is now new
+    pLITail->pLINext = pLInew;      // old tail points forward to new
+    pLITail = pLInew;           // tail is now new
 }
 
-#ifdef LDEBUG
+#if DBG
 
 void
 LINK_LIST::Assert(
@@ -804,30 +802,30 @@ Routine Description:
 
 --*/
 {
-    if (!pLIHead)		// empty list
-	ASSERT(!pLITail);
+    if (!pLIHead)       // empty list
+    ASSERT(!pLITail);
 
     if (!pLITail)
-	ASSERT(!pLIHead);
+    ASSERT(!pLIHead);
 
     for (LINK_ITEM *pLI = pLIHead; pLI; pLI = pLI->pLINext) {
 
-	// tail should point to end of list
+    // tail should point to end of list
 
-	if (pLI->pLINext == NIL)
-	    ASSERT(pLITail == pLI);
+    if (pLI->pLINext == NIL)
+        ASSERT(pLITail == pLI);
 
-	// first in chain, should have NIL back pointer
+    // first in chain, should have NIL back pointer
 
-	if (pLI->pLIPrev == NIL)
-	    ASSERT(pLIHead == pLI);
+    if (pLI->pLIPrev == NIL)
+        ASSERT(pLIHead == pLI);
 
-	// check back pointer of next Item points here
+    // check back pointer of next Item points here
 
-	if (pLI->pLINext)
-	    ASSERT(pLI->pLINext->pLIPrev == pLI);
+    if (pLI->pLINext)
+        ASSERT(pLI->pLINext->pLIPrev == pLI);
 
-	pLI->Assert();		// check any derived data
+    pLI->Assert();      // check any derived data
     }
 
 }
@@ -843,7 +841,7 @@ Routine Description:
 --*/
 {
 
-    return;	// base class has no additional members, so return
+    return; // base class has no additional members, so return
 }
 
 #endif
@@ -851,7 +849,7 @@ Routine Description:
 
 // ** Classes for handling lookup/dump in progress **/
 
-// Reply Items represent context of calls in progress.	Each context
+// Reply Items represent context of calls in progress.  Each context
 // type must understand how to Free itself (delete if there are no
 // more references to the object) and Discard which either immediatly
 // deletes the object or marks it for later deletion (via Free).
@@ -919,13 +917,13 @@ Returns:
 
     for (QUERY_REF_ITEM *QueryRef = aQuery->First(); QueryRef; QueryRef = QueryRef->Next())
 
-	if (QueryRef->EntryItem == DeletedItem) {
+    if (QueryRef->EntryItem == DeletedItem) {
 
-	    DLIST(4, "REPLY_BASE Item deleted\n");
-	    aQuery->FreeReply(QueryRef);
+        DLIST(4, "REPLY_BASE Item deleted\n");
+        aQuery->FreeReply(QueryRef);
 
-	    return(TRUE);
-	}
+        return(TRUE);
+    }
 
     return(FALSE);
 }
@@ -1153,7 +1151,7 @@ Returns:
     if ((Status = aQuery->Search()) == NSI_S_OK ) {
 
         // Reset the object interator if needed.
- 
+
 
         if (fAllObjects)
           {
@@ -1186,14 +1184,14 @@ Returns:
 --*/
 {
     if (!this)
-	return(0);
+    return(0);
 
     // assert the the lookup handle is in the chain
 
     for (REPLY_BASE_ITEM *pRPt = RPRoot.First(); pRPt; pRPt = pRPt->Next() )
 
-	if (pRPt == this)
-	    goto OK;
+    if (pRPt == this)
+        goto OK;
 
     return(0);
 OK:
@@ -1203,7 +1201,7 @@ OK:
 
 
 
-#ifdef LDEBUG
+#if DBG
 
 
 void

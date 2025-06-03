@@ -80,7 +80,7 @@ VdmpDispatchableIntPending(
     IN ULONG EFlags
     );
 
-BOOLEAN
+NTSTATUS
 VdmpIsThreadTerminating(
     HANDLE ThreadId
     );
@@ -155,24 +155,23 @@ VdmConvertToLinearAddress(
 
 #endif
 
-#ifdef WHEN_IO_DISPATCHING_IMPROVED
-VOID
-VdmInitializePrinter (
-    VOID
-    );
-
-NTSTATUS
-VdmPrinterStatus(
-    ULONG Context,
-    ULONG iPort,
-    ULONG AccessMode,
-    PUCHAR Data
-    );
-#else
 BOOLEAN
 VdmPrinterStatus(
     ULONG iPort,
     ULONG cbInstructionSize,
     PKTRAP_FRAME TrapFrame
-    );
-#endif
+);
+BOOLEAN
+VdmPrinterWriteData(
+    ULONG iPort,
+    ULONG cbInstructionSize,
+    PKTRAP_FRAME TrapFrame
+);
+NTSTATUS
+VdmpPrinterDirectIoOpen(
+    PVOID ServiceData
+);
+NTSTATUS
+VdmpPrinterDirectIoClose(
+    PVOID ServiceData
+);

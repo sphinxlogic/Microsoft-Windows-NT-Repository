@@ -41,27 +41,47 @@ InitializeServer (
     );
 
 STATIC
-VOID
+NTSTATUS
 TerminateServer (
+    BOOLEAN Clean
+    );
+
+VOID
+SrvFreeRegTables (
     VOID
     );
 
-#if SRVDBG_HEAP
 VOID
-SrvDumpHeap (
-    IN CLONG Level
+SrvGetRegTables (
+    VOID
     );
+
 VOID
-SrvDumpPool (
-    IN CLONG Level
+StartQueueDepthComputations(
+    PWORK_QUEUE queue
     );
-#endif
+
+VOID
+StopQueueDepthComputations(
+    PWORK_QUEUE queue
+    );
+
+VOID
+ComputeAvgQueueDepth (
+    IN PKDPC Dpc,
+    IN PVOID DeferredContext,
+    IN PVOID SystemArgument1,
+    IN PVOID SystemArgument2
+    );
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text( PAGE, SrvConfigurationThread )
 #pragma alloc_text( PAGE, InitializeServer )
 #pragma alloc_text( PAGE, TerminateServer )
+#pragma alloc_text( PAGE, SrvFreeRegTables )
+#pragma alloc_text( PAGE, SrvGetRegTables )
 #pragma alloc_text( PAGE, DequeueConfigurationIrp )
+#pragma alloc_text( PAGE, StartQueueDepthComputations )
 #endif
 
 
@@ -91,10 +111,14 @@ Return Value:
     PIRP irp;
     PIO_STACK_LOCATION irpSp;
     ULONG code;
+    PWORK_QUEUE_ITEM p = Parameter;
 
     PAGED_CODE( );
 
-    Parameter;  // prevent compiler warnings
+    //
+    // Allow another configuration work item to be posted if necessary
+    //
+    p->Parameter = 0;
 
     IF_DEBUG(FSP1) KdPrint(( "SrvConfigurationThread entered\n" ));
 
@@ -107,6 +131,8 @@ Return Value:
         irp = DequeueConfigurationIrp( );
 
         if ( irp == NULL ) break;
+
+        ASSERT( (LONG)SrvConfigurationIrpsInProgress >= 1 );
 
         //
         // Get the IRP stack pointer.
@@ -122,11 +148,27 @@ Return Value:
 
             //
             // The system is being shut down.  Make the server
-            // "disappear" from the net by closing all endpoints.
+            // disappear quickly
             //
 
-            SrvShutDownEndpoints( );
-            status = STATUS_SUCCESS;
+            ACQUIRE_LOCK( &SrvStartupShutdownLock );
+
+            status = TerminateServer( FALSE );
+            RELEASE_LOCK( &SrvStartupShutdownLock );
+
+        } else if( irpSp->MajorFunction == IRP_MJ_CLOSE ) {
+
+            //
+            // If the dispatcher routed this irp here, it means
+            //  that we unexpectededly got the last handle close without
+            //  having gotten cleanly terminated first. Ok, so we should
+            //  shut ourselves down, since we can't sensibly run without
+            //  our usermode counterpart.
+            //
+
+            ACQUIRE_LOCK( &SrvStartupShutdownLock );
+            status = TerminateServer( TRUE );
+            RELEASE_LOCK( &SrvStartupShutdownLock );
 
         } else {
 
@@ -141,24 +183,28 @@ Return Value:
             switch ( code ) {
 
             case FSCTL_SRV_STARTUP:
+                ACQUIRE_LOCK( &SrvStartupShutdownLock );
 
-                status = InitializeServer( );
+                status = InitializeServer();
 
                 if ( !NT_SUCCESS(status) ) {
 
                     //
                     // Terminate the server FSP.
                     //
-
-                    TerminateServer( );
+                    (void)TerminateServer( TRUE );
 
                 }
+
+                RELEASE_LOCK( &SrvStartupShutdownLock );
 
                 break;
 
             case FSCTL_SRV_SHUTDOWN:
 
-                TerminateServer( );
+                ACQUIRE_LOCK( &SrvStartupShutdownLock );
+                status = TerminateServer( TRUE );
+                RELEASE_LOCK( &SrvStartupShutdownLock );
 
                 //
                 // If there is more than one handle open to the server
@@ -171,14 +217,78 @@ Return Value:
                 // from being restarted.
                 //
 
-                if ( SrvOpenCount != 1 ) {
+                if( NT_SUCCESS( status ) && SrvOpenCount != 1 ) {
                     status = STATUS_SERVER_HAS_OPEN_HANDLES;
-                } else {
-                    status = STATUS_SUCCESS;
                 }
 
                 break;
 
+            case FSCTL_SRV_REGISTRY_CHANGE:
+                //
+                // The Parameters section of the server service registry has changed.
+                // That's likely due to somebody changing the Null Session pipe or
+                //  share lists.  Pick up the new settings.
+                //
+                ACQUIRE_LOCK( &SrvConfigurationLock );
+
+                SrvFreeRegTables();
+                SrvGetRegTables();
+
+                RELEASE_LOCK( &SrvConfigurationLock );
+
+                status = STATUS_SUCCESS;
+
+                break;
+
+#ifdef  SRV_PNP_POWER
+            case FSCTL_SRV_BEGIN_PNP_NOTIFICATIONS:
+                //
+                // Get the transport binding list from the registry
+                //
+                ACQUIRE_LOCK( &SrvConfigurationLock );
+
+                if( SrvTransportBindingList != NULL ) {
+                    RELEASE_LOCK( &SrvConfigurationLock );
+                    status = STATUS_SUCCESS;
+                    break;
+                }
+
+                SrvGetMultiSZList(
+                    &SrvTransportBindingList,
+                    StrRegSrvBindingsPath,
+                    StrRegTransportBindingList,
+                    NULL
+                );
+
+                if( SrvTransportBindingList == NULL ) {
+                    RELEASE_LOCK( &SrvConfigurationLock );
+                    status = STATUS_UNSUCCESSFUL;
+                    break;
+                }
+
+                RELEASE_LOCK( &SrvConfigurationLock );
+
+                status = TdiRegisterNotificationHandler (
+                            SrvTdiBindCallback,
+                            SrvTdiUnbindCallback,
+                            &SrvTdiNotificationHandle );
+
+                if( !NT_SUCCESS( status ) ) {
+
+                        IF_DEBUG( PNP ) {
+                            KdPrint(("TdiRegisterNotificationHandler: status %X\n", status ));
+                        }
+
+                        SrvLogServiceFailure( SRV_SVC_PNP_TDI_NOTIFICATION, status );
+                }
+
+                //
+                // Allow the transports to begin receiving connections
+                //
+                SrvCompletedPNPRegistration = TRUE;
+
+                break;
+#endif
             case FSCTL_SRV_XACTSRV_CONNECT:
             {
                 ANSI_STRING ansiPortName;
@@ -208,18 +318,10 @@ Return Value:
 
             case FSCTL_SRV_XACTSRV_DISCONNECT:
             {
-                PULONG ptr;
-                ULONG buflen;
-                ULONG numberOfMessages = 1;
-
-                ptr = (PULONG)irp->AssociatedIrp.SystemBuffer;
-                buflen = irpSp->Parameters.FileSystemControl.InputBufferLength;
-                if ( (buflen >= sizeof(numberOfMessages)) &&
-                     (ptr != NULL) ) {
-                    numberOfMessages = *ptr;
-                }
-
-                SrvXsDisconnect( numberOfMessages );
+                //
+                // This is now obsolete
+                //
+                status = STATUS_SUCCESS;
 
                 break;
             }
@@ -230,28 +332,38 @@ Return Value:
                                               "received.\n" ));
 
                 //
-                // Create shared memory, create events, start SmbTrace thread,
-                // and indicate that this is the server.
+                // Initialize the SmbTrace related events.
                 //
 
-                status = SmbTraceStart(
-                            irpSp->Parameters.FileSystemControl.InputBufferLength,
-                            irpSp->Parameters.FileSystemControl.OutputBufferLength,
-                            irp->AssociatedIrp.SystemBuffer,
-                            irpSp->FileObject,
-                            SMBTRACE_SERVER
-                            );
+                status = SmbTraceInitialize( SMBTRACE_SERVER );
 
                 if ( NT_SUCCESS(status) ) {
 
                     //
-                    // Record the length of the return information, which is
-                    // simply the length of the output buffer, validated by
-                    // SmbTraceStart.
+                    // Create shared memory, create events, start SmbTrace thread,
+                    // and indicate that this is the server.
                     //
 
-                    irp->IoStatus.Information =
-                            irpSp->Parameters.FileSystemControl.OutputBufferLength;
+                    status = SmbTraceStart(
+                                irpSp->Parameters.FileSystemControl.InputBufferLength,
+                                irpSp->Parameters.FileSystemControl.OutputBufferLength,
+                                irp->AssociatedIrp.SystemBuffer,
+                                irpSp->FileObject,
+                                SMBTRACE_SERVER
+                                );
+
+                    if ( NT_SUCCESS(status) ) {
+
+                        //
+                        // Record the length of the return information, which is
+                        // simply the length of the output buffer, validated by
+                        // SmbTraceStart.
+                        //
+
+                        irp->IoStatus.Information =
+                                irpSp->Parameters.FileSystemControl.OutputBufferLength;
+
+                    }
 
                 }
 
@@ -308,6 +420,20 @@ Return Value:
                 // These APIs are handled in the server FSP because they
                 // open or close FSP handles.
                 //
+
+                ACQUIRE_LOCK_SHARED( &SrvConfigurationLock );
+                if( SrvFspTransitioning == TRUE && SrvFspActive == TRUE ) {
+                    //
+                    // The server is coming down.  Do not allow these
+                    //  irps to continue.
+                    //
+                    RELEASE_LOCK( &SrvConfigurationLock );
+                    status = STATUS_SERVER_NOT_STARTED;
+                    break;
+                }
+                RELEASE_LOCK( &SrvConfigurationLock );
+
+                //
                 // Get the server request packet and secondary input buffer
                 // pointers.
                 //
@@ -353,6 +479,8 @@ Return Value:
         irp->IoStatus.Status = status;
         IoCompleteRequest( irp, 2 );
 
+        InterlockedDecrement( (PLONG)&SrvConfigurationIrpsInProgress );
+        ASSERT( (LONG)SrvConfigurationIrpsInProgress >= 0 );
     }
 
     return;
@@ -398,11 +526,9 @@ Return Value:
     if ( listEntry == &SrvConfigurationWorkQueue ) {
 
         //
-        // The queue is empty.  Indicate that the configuration thread
-        // is no longer running.
+        // The queue is empty.
         //
 
-        SrvConfigurationThreadRunning = FALSE;
         irp = NULL;
 
     } else {
@@ -443,16 +569,18 @@ Return Value:
 {
     NTSTATUS status;
     CLONG i;
-    ULONG handleArraySize;
     PWORK_CONTEXT workContext;
     OBJECT_ATTRIBUTES objectAttributes;
     IO_STATUS_BLOCK ioStatusBlock;
     OBJECT_HANDLE_INFORMATION handleInformation;
+    PSID AdminSid;
+    PACL Acl;
+    ULONG length;
+    SID_IDENTIFIER_AUTHORITY BuiltinAuthority = SECURITY_NT_AUTHORITY;
+    PWORK_QUEUE queue;
+    HANDLE handle;
+    UNICODE_STRING string;
 
-#ifndef _CAIRO_
-    ANSI_STRING logonProcessName;
-    ANSI_STRING authenticationPackageName;
-#endif // _CAIRO_
 
     PAGED_CODE();
 
@@ -486,24 +614,74 @@ Return Value:
     SrvGetOsVersionString( );
 
     //
-    // Get the list of null session pipes.
+    // Get the list of null session pipes and shares
     //
+    SrvGetRegTables( );
 
-    SrvGetMultiSZList(
-            &SrvNullSessionPipes,
-            StrRegNullSessionPipes,
-            StrDefaultNullSessionPipes
-            );
+#if MULTIPROCESSOR
+    //
+    // Allocate and init the nonblocking work queues, paying attention to cache lines
+    //
+    i = SrvNumberOfProcessors * sizeof( *SrvWorkQueues );
+    i += CACHE_LINE_SIZE;
+    SrvWorkQueuesBase = ALLOCATE_NONPAGED_POOL( i, BlockTypeWorkQueue );
+
+    if( SrvWorkQueuesBase == NULL ) {
+         return STATUS_INSUFF_SERVER_RESOURCES;
+    }
 
     //
-    // Get the list of null session pipes.
+    // Round up the start of the work queue data structure to
+    // the next cache line boundry
     //
+    SrvWorkQueues = (PWORK_QUEUE)(((ULONG)SrvWorkQueuesBase + CACHE_LINE_SIZE-1) &
+                    ~(CACHE_LINE_SIZE-1));
+#endif
 
-    SrvGetMultiSZList(
-            &SrvNullSessionShares,
-            StrRegNullSessionShares,
-            StrDefaultNullSessionShares
-            );
+
+    eSrvWorkQueues = SrvWorkQueues + SrvNumberOfProcessors;
+
+    RtlZeroMemory( SrvWorkQueues, (char *)eSrvWorkQueues - (char *)SrvWorkQueues );
+
+    for( queue = SrvWorkQueues; queue < eSrvWorkQueues; queue++ ) {
+        KeInitializeQueue( &queue->Queue, 1 );
+        queue->WaitMode         = SrvProductTypeServer ? KernelMode : UserMode;
+        queue->MaxThreads       = SrvMaxThreadsPerQueue;
+        queue->MaximumWorkItems = SrvMaxReceiveWorkItemCount / SrvNumberOfProcessors;
+        queue->MinFreeWorkItems = SrvMinReceiveQueueLength / SrvNumberOfProcessors;
+        queue->MaxFreeRfcbs     = SrvMaxFreeRfcbs;
+        queue->MaxFreeMfcbs     = SrvMaxFreeMfcbs;
+        queue->PagedPoolLookAsideList.MaxSize  = SrvMaxPagedPoolChunkSize;
+        queue->NonPagedPoolLookAsideList.MaxSize  = SrvMaxNonPagedPoolChunkSize;
+        queue->CreateMoreWorkItems.CurrentWorkQueue = queue;
+        queue->CreateMoreWorkItems.BlockHeader.ReferenceCount = 1;
+        queue->KillOneThreadWorkItem.CurrentWorkQueue = queue;
+        queue->KillOneThreadWorkItem.BlockHeader.ReferenceCount = 1;
+
+        INITIALIZE_SPIN_LOCK( &queue->SpinLock );
+        SET_SERVER_TIME( queue );
+
+#if MULTIPROCESSOR
+        StartQueueDepthComputations( queue );
+#endif
+    }
+
+    //
+    // Init the nonblocking work queue
+    //
+    RtlZeroMemory( &SrvBlockingWorkQueue, sizeof( SrvBlockingWorkQueue ) );
+
+    KeInitializeQueue( &SrvBlockingWorkQueue.Queue, 0 );
+
+    SrvBlockingWorkQueue.WaitMode =
+                SrvProductTypeServer ? KernelMode : UserMode;
+
+    SrvBlockingWorkQueue.MaxThreads = SrvMaxThreadsPerQueue;
+
+    SrvBlockingWorkQueue.KillOneThreadWorkItem.CurrentWorkQueue =
+                &SrvBlockingWorkQueue;
+
+    SET_SERVER_TIME( &SrvBlockingWorkQueue );
 
     //
     // Build the receive work item list.
@@ -515,39 +693,26 @@ Return Value:
     }
 
     //
-    // Build the raw mode work item list.
+    // Build the raw mode work item list, and spread it around
+    //  the processors
     //
 
+    queue = SrvWorkQueues;
     for ( i = 0; i < SrvInitialRawModeWorkItemCount; i++ ) {
 
-        SrvAllocateRawModeWorkItem( &workContext );
+        SrvAllocateRawModeWorkItem( &workContext, queue );
+
         if ( workContext == NULL ) {
             return STATUS_INSUFFICIENT_RESOURCES;
         }
 
-        GET_SERVER_TIME( &workContext->Timestamp );
-        PushEntryList(
-            &SrvRawModeWorkItemList,
-            &workContext->SingleListEntry
-            );
-        SrvFreeRawModeWorkItems++;
+        GET_SERVER_TIME( queue, &workContext->Timestamp );
 
+        SrvRequeueRawModeWorkItem( workContext );
+
+        if( ++queue == eSrvWorkQueues )
+            queue = SrvWorkQueues;
     }
-
-    //
-    // Allocate the array that will hold the worker thread handles.
-    //
-
-    handleArraySize = sizeof(HANDLE) *
-        (SrvNonblockingThreads + SrvBlockingThreads + SrvCriticalThreads);
-
-    SrvThreadHandles = ALLOCATE_HEAP( handleArraySize, BlockTypeDataBuffer );
-
-    if ( SrvThreadHandles == NULL ) {
-        return STATUS_INSUFFICIENT_RESOURCES;
-    }
-
-    RtlZeroMemory( SrvThreadHandles, handleArraySize );
 
     //
     // Create worker threads.
@@ -581,8 +746,8 @@ Return Value:
     SrvInitializeOrderedList(
         &SrvCommDeviceList,
         FIELD_OFFSET( COMM_DEVICE, GlobalCommDeviceListEntry ),
-        (PREFERENCE_ROUTINE)SrvCheckAndReferenceCommDevice,
-        (PDEREFERENCE_ROUTINE)SrvDereferenceCommDevice,
+        SrvCheckAndReferenceCommDevice,
+        SrvDereferenceCommDevice,
         &SrvCommDeviceLock
         );
 #endif
@@ -590,40 +755,32 @@ Return Value:
     SrvInitializeOrderedList(
         &SrvEndpointList,
         FIELD_OFFSET( ENDPOINT, GlobalEndpointListEntry ),
-        (PREFERENCE_ROUTINE)SrvCheckAndReferenceEndpoint,
-        (PDEREFERENCE_ROUTINE)SrvDereferenceEndpoint,
+        SrvCheckAndReferenceEndpoint,
+        SrvDereferenceEndpoint,
         &SrvEndpointLock
         );
 
     SrvInitializeOrderedList(
         &SrvRfcbList,
         FIELD_OFFSET( RFCB, GlobalRfcbListEntry ),
-        (PREFERENCE_ROUTINE)SrvCheckAndReferenceRfcb,
-        (PDEREFERENCE_ROUTINE)SrvDereferenceRfcb,
+        SrvCheckAndReferenceRfcb,
+        SrvDereferenceRfcb,
         &SrvOrderedListLock
         );
 
     SrvInitializeOrderedList(
         &SrvSessionList,
         FIELD_OFFSET( SESSION, GlobalSessionListEntry ),
-        (PREFERENCE_ROUTINE)SrvCheckAndReferenceSession,
-        (PDEREFERENCE_ROUTINE)SrvDereferenceSession,
+        SrvCheckAndReferenceSession,
+        SrvDereferenceSession,
         &SrvOrderedListLock
-        );
-
-    SrvInitializeOrderedList(
-        &SrvShareList,
-        FIELD_OFFSET( SHARE, GlobalShareListEntry ),
-        (PREFERENCE_ROUTINE)SrvCheckAndReferenceShare,
-        (PDEREFERENCE_ROUTINE)SrvDereferenceShare,
-        &SrvShareLock
         );
 
     SrvInitializeOrderedList(
         &SrvTreeConnectList,
         FIELD_OFFSET( TREE_CONNECT, GlobalTreeConnectListEntry ),
-        (PREFERENCE_ROUTINE)SrvCheckAndReferenceTreeConnect,
-        (PDEREFERENCE_ROUTINE)SrvDereferenceTreeConnect,
+        SrvCheckAndReferenceTreeConnect,
+        SrvDereferenceTreeConnect,
         &SrvShareLock
         );
 
@@ -699,110 +856,130 @@ Return Value:
         }
     }
 
-#ifdef _CAIRO_
+    //
+    // Initialize Dfs operations
+    //
+    SrvInitializeDfs();
+
+    //
+    // Intialize SrvAdminSecurityDescriptor, which allows Administrators READ access.
+    //   This descriptor is used by the server to check if a user is an administrator
+    //   in SrvIsAdmin().
+
+    status = RtlCreateSecurityDescriptor( &SrvAdminSecurityDescriptor, SECURITY_DESCRIPTOR_REVISION );
+    if( !NT_SUCCESS( status ) ) {
+        return status;
+    }
+
+    //
+    // Create an admin SID
+    //
+    AdminSid  = ALLOCATE_HEAP( RtlLengthRequiredSid( 2 ), BlockTypeAdminCheck );
+    if( AdminSid == NULL ) {
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    RtlInitializeSid( AdminSid, &BuiltinAuthority, (UCHAR)2 );
+    *(RtlSubAuthoritySid( AdminSid, 0 )) = SECURITY_BUILTIN_DOMAIN_RID;
+    *(RtlSubAuthoritySid( AdminSid, 1 )) = DOMAIN_ALIAS_RID_ADMINS;
+
+    length = sizeof(ACL) + sizeof( ACCESS_ALLOWED_ACE ) + RtlLengthSid( AdminSid );
+    Acl = ALLOCATE_HEAP( length, BlockTypeAdminCheck );
+    if( Acl == NULL ) {
+        FREE_HEAP( AdminSid );
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    status = RtlCreateAcl( Acl, length, ACL_REVISION2 );
+
+    if( NT_SUCCESS( status ) ) {
+        status = RtlAddAccessAllowedAce( Acl, ACL_REVISION2, FILE_GENERIC_READ, AdminSid );
+    }
+
+    if( NT_SUCCESS( status ) ) {
+        status = RtlSetDaclSecurityDescriptor( &SrvAdminSecurityDescriptor, TRUE, Acl, FALSE );
+    }
+
+    if( NT_SUCCESS( status ) ) {
+        status = RtlSetOwnerSecurityDescriptor( &SrvAdminSecurityDescriptor, AdminSid, FALSE );
+    }
+
+    if( !NT_SUCCESS( status ) ) {
+        return status;
+    }
 
     (VOID) InitSecurityInterface();
 
-    SrvValidateUser(
-            &SrvNullSessionToken,
-            NULL,
-            NULL,
-            NULL,
-            StrNullAnsi,
-            1,
-            NULL,
-            0,
-            NULL
-            );
-
-#else // _CAIRO_
-
     //
-    // Register the server FSP as a logon process.  This call returns
-    // a handle we'll use in calls to LsaLogonUser when we attempt to
-    // authenticate a user in SrvValidateUser.
+    // Check to see if Kerberos is available on this machine.
     //
 
-    ASSERT( SrvLsaHandle == NULL );
+    SrvHaveKerberos = SrvIsKerberosAvailable();
 
-    RtlInitString( &logonProcessName, StrLogonProcessName );
-
-    status = LsaRegisterLogonProcess(
-                 &logonProcessName,
-                 &SrvLsaHandle,
-                 &SrvSystemSecurityMode
-                 );
+    status = SrvValidateUser(
+                &SrvNullSessionToken,
+                NULL,
+                NULL,
+                NULL,
+                StrNullAnsi,
+                1,
+                NULL,
+                0,
+                NULL
+                );
 
     if ( !NT_SUCCESS(status) ) {
 
-        KdPrint(( "InitializeServer: LsaRegisterLogonProcess failed: %X\n",
-                      status ));
+        KdPrint(( "InitializeServer: No null session token: %X\n",
+                  status ));
 
-        SrvLogServiceFailure( SRV_SVC_LSA_REGISTER_LOGON_PROCESS, status );
-        SrvLsaHandle = NULL;
+        SrvLogServiceFailure( SRV_SVC_LSA_LOGON_USER, status );
+        SrvNullSessionToken.dwLower = 0;
+        SrvNullSessionToken.dwUpper = 0;
         return status;
-
-    } else {
-
-        //
-        // Get a token that identifies the authentication package we're
-        // using, MSV1.0.
-        //
-
-        RtlInitString(
-            &authenticationPackageName,
-            StrLogonPackageName
-            );
-
-        status = LsaLookupAuthenticationPackage(
-                     SrvLsaHandle,
-                     &authenticationPackageName,
-                     &SrvAuthenticationPackage
-                     );
-
-        if ( NT_SUCCESS(status) ) {
-
-            //
-            // Get a token for the null session and save it away for
-            // future use.  This optimization saves us a trip to the
-            // LSA on every null session setup.
-            //
-
-            ASSERT( SrvNullSessionToken == NULL );
-
-            status = SrvValidateUser(
-                        &SrvNullSessionToken,
-                        NULL,
-                        NULL,
-                        NULL,
-                        StrNullAnsi,
-                        0,
-                        NULL,
-                        0,
-                        NULL
-                        );
-
-            if ( !NT_SUCCESS(status) ) {
-
-                KdPrint(( "InitializeServer: No null session token: %X\n",
-                          status ));
-
-                SrvLogServiceFailure( SRV_SVC_LSA_LOGON_USER, status );
-                SrvNullSessionToken = NULL;
-                return status;
-            }
-
-        } else {
-
-            KdPrint(( "InitializeServer: LsaLookupAuthenticationPackage "
-                           "failed: %X\n", status ));
-
-            SrvLogServiceFailure( SRV_SVC_LSA_LOOKUP_PACKAGE, status );
-            return status;
-        }
     }
 
-#endif // _CAIRO_
+    //
+    // See if the filesystems are allowing extended characters in 8.3 names.  If
+    //  so, we need to filter them out ourself.
+    //
+    RtlInitUnicodeString( &string, StrRegExtendedCharsInPath );
+    InitializeObjectAttributes( &objectAttributes,
+                                &string,
+                                OBJ_CASE_INSENSITIVE,
+                                NULL,
+                                NULL
+                              );
+
+    status = ZwOpenKey( &handle, KEY_READ, &objectAttributes );
+
+    if( NT_SUCCESS( status ) ) {
+        ULONG resultLength;
+        union {
+            KEY_VALUE_FULL_INFORMATION;
+            UCHAR   buffer[ sizeof( KEY_VALUE_FULL_INFORMATION ) + 100 ];
+        } keyValueInformation;
+
+        RtlInitUnicodeString( &string, StrRegExtendedCharsInPathValue );
+        status = ZwQueryValueKey( handle,
+                                  &string,
+                                  KeyValueFullInformation,
+                                  &keyValueInformation,
+                                  sizeof( keyValueInformation ),
+                                  &resultLength
+                                );
+
+        if( NT_SUCCESS( status ) &&
+            keyValueInformation.Type == REG_DWORD &&
+            keyValueInformation.DataLength != 0 ) {
+
+            SrvFilterExtendedCharsInPath = 
+                *(PULONG)(((PUCHAR)(&keyValueInformation)) + keyValueInformation.DataOffset) ?
+                TRUE : FALSE;
+        }
+
+        ZwClose( handle );
+    }
 
     //
     // Indicate that the server is active.
@@ -821,9 +998,9 @@ Return Value:
 
 
 STATIC
-VOID
+NTSTATUS
 TerminateServer (
-    VOID
+    BOOLEAN Clean
     )
 
 /*++
@@ -834,16 +1011,17 @@ Routine Description:
 
         - Walk through SrvEndpointList and close all open endpoints.
 
-        - Walk through the work context blocks in SrvNormalReceiveWorkItemList
-          and SrvWork queue, getting rid of them as appropiate.
+        - Walk through the work context blocks in the work queues
+            getting rid of them as appropiate (if Clean)
 
-        - Close all shares open in the server.
+        - Close all shares open in the server (if Clean)
 
-        - Deallocate the search table.
+        - Deallocate the search table (if Clean)
 
 Arguments:
 
-    None.
+    Clean - Is this be a completely clean shutdown -- TRUE
+            Are we just going after speed, not cleanliness -- FALSE
 
 Return Value:
 
@@ -859,54 +1037,125 @@ Return Value:
     PWORK_CONTEXT workContext;
     PSHARE share;
     ULONG i;
-    TERMINATION_WORK_ITEM nonblockingWorkItem;
-    TERMINATION_WORK_ITEM blockingWorkItem;
-    TERMINATION_WORK_ITEM criticalWorkItem;
+    SPECIAL_WORK_ITEM WorkItem;
     PSRV_TIMER timer;
+    PSID adminsid;
+    PACL acl;
+    BOOLEAN defaulted;
+    BOOLEAN daclpresent;
+    NTSTATUS status;
+    PWORK_QUEUE queue;
+    PIRP irp;
 
     PAGED_CODE( );
 
     IF_DEBUG(FSP1) KdPrint(( "LAN Manager server FSP terminating.\n" ));
 
+#ifdef  SRV_PNP_POWER
     //
-    // If there are outstanding API requests in the server FSD,
-    // wait for them to complete.  The last one to complete will
-    // set SrvApiCompletionEvent.
+    // Do not receive PNP notifications anymore
     //
+    if( SrvTdiNotificationHandle != NULL ) {
 
-    ACQUIRE_LOCK( &SrvConfigurationLock );
+        status = TdiDeregisterNotificationHandler( SrvTdiNotificationHandle );
 
-    if ( SrvApiRequestCount != 0 ) {
+        if( !NT_SUCCESS( status ) ) {
+            KdPrint(( "TdiDeregisterNotificationHandler status %X\n", status ));
+            SrvLogServiceFailure( SRV_SVC_PNP_TDI_NOTIFICATION, status );
+            return status;
+        }
 
-        //
-        // We must release the lock before waiting so that the FSD
-        // threads can get it to decrement SrvApiRequestCount.
-        //
+        SrvTdiNotificationHandle = NULL;
 
-        RELEASE_LOCK( &SrvConfigurationLock );
-
-        //
-        // Wait until the last API has completed.  Since
-        // SrvFspTransitioning was set to TRUE earlier, we know that the
-        // API that makes SrvApiRequestCount go to zero will set the
-        // event.
-        //
-        // This wait allows us to make the assumption later on that no
-        // other thread is operating on server data structures.
-        //
-
-        (VOID)KeWaitForSingleObject(
-                &SrvApiCompletionEvent,
-                UserRequest,
-                UserMode,   // let kernel stack be paged
-                FALSE,
-                NULL
-                );
-
-    } else {
-
-        RELEASE_LOCK( &SrvConfigurationLock );
+        if( SrvTransportBindingList != NULL ) {
+            FREE_HEAP( SrvTransportBindingList );
+            SrvTransportBindingList = NULL;
+        }
     }
+#endif
+
+    //
+    // Make sure we are not processing any other configuration IRPs.  We know
+    //  that no new configuration IRPs can enter the queue because SrvFspTransitioning
+    //  has been set.
+    //
+    // First drain the configuration queue
+    //
+    while( 1 ) {
+
+        ACQUIRE_LOCK( &SrvConfigurationLock );
+
+        irp = DequeueConfigurationIrp( );
+
+        RELEASE_LOCK( &SrvConfigurationLock );
+
+        if( irp == NULL ) {
+            break;
+        }
+
+        irp->IoStatus.Status = STATUS_SERVER_NOT_STARTED;
+        IoCompleteRequest( irp, 2 );
+        InterlockedDecrement( (PLONG)&SrvConfigurationIrpsInProgress );
+    }
+
+    //
+    // Now wait until any already dequeued configuration IRPs have been completed.  We
+    //  check for >1 because we need to account for our own IRP
+    //
+    while( SrvConfigurationIrpsInProgress > 1 ) {
+
+        LARGE_INTEGER interval;
+
+        interval.QuadPart = -1*10*1000*10; // .01 second
+
+        ASSERT( (LONG)SrvConfigurationIrpsInProgress > 0 );
+
+        KeDelayExecutionThread( KernelMode, FALSE, &interval );
+    }
+
+    if( Clean ) {
+        //
+        // If there are outstanding API requests in the server FSD,
+        // wait for them to complete.  The last one to complete will
+        // set SrvApiCompletionEvent.
+        //
+
+        ACQUIRE_LOCK( &SrvConfigurationLock );
+
+        if ( SrvApiRequestCount != 0 ) {
+
+            //
+            // We must release the lock before waiting so that the FSD
+            // threads can get it to decrement SrvApiRequestCount.
+            //
+
+            RELEASE_LOCK( &SrvConfigurationLock );
+
+            //
+            // Wait until the last API has completed.  Since
+            // SrvFspTransitioning was set to TRUE earlier, we know that the
+            // API that makes SrvApiRequestCount go to zero will set the
+            // event.
+            //
+            // This wait allows us to make the assumption later on that no
+            // other thread is operating on server data structures.
+            //
+
+            (VOID)KeWaitForSingleObject(
+                    &SrvApiCompletionEvent,
+                    UserRequest,
+                    UserMode,   // let kernel stack be paged
+                    FALSE,
+                    NULL
+                    );
+
+        } else {
+
+            RELEASE_LOCK( &SrvConfigurationLock );
+        }
+    }
+
+
     //
     // Close all the endpoints opened by the server.  This also results
     // in the connections, sessions, tree connects, and files opened
@@ -976,11 +1225,13 @@ Return Value:
 
     KeClearEvent( &SrvEndpointEvent );
 
-    //
-    // Terminate worker threads.
-    //
+    if( Clean ) {
 
-    if ( SrvThreadCount != 0 ) {
+        //
+        // All the endpoints are closed, so it's impossible for there to
+        // be any outstanding requests to xactsrv.  So shut it down.
+        //
+        SrvXsDisconnect();
 
         //
         // Queue a special work item to each of the work queues.  This
@@ -990,117 +1241,92 @@ Return Value:
         // itself.
         //
 
-        nonblockingWorkItem.FspRestartRoutine = (PRESTART_ROUTINE)SrvTerminateWorkerThread;
-        nonblockingWorkItem.WorkQueue = &SrvWorkQueue;
-        DEBUG SET_BLOCK_TYPE( &nonblockingWorkItem, BlockTypeWorkContextInitial );
-        blockingWorkItem.FspRestartRoutine = (PRESTART_ROUTINE)SrvTerminateWorkerThread;
-        blockingWorkItem.WorkQueue = &SrvBlockingWorkQueue;
-        DEBUG SET_BLOCK_TYPE( &blockingWorkItem, BlockTypeWorkContextInitial );
-        criticalWorkItem.FspRestartRoutine = (PRESTART_ROUTINE)SrvTerminateWorkerThread;
-        criticalWorkItem.WorkQueue = &SrvCriticalWorkQueue;
-        DEBUG SET_BLOCK_TYPE( &criticalWorkItem, BlockTypeWorkContextInitial );
-
-        SrvInsertWorkQueueTail(
-            &SrvWorkQueue,
-            (PQUEUEABLE_BLOCK_HEADER)&nonblockingWorkItem
-            );
-        SrvInsertWorkQueueTail(
-            &SrvBlockingWorkQueue,
-            (PQUEUEABLE_BLOCK_HEADER)&blockingWorkItem
-            );
-        SrvInsertWorkQueueTail(
-            &SrvCriticalWorkQueue,
-            (PQUEUEABLE_BLOCK_HEADER)&criticalWorkItem
-            );
+        WorkItem.FspRestartRoutine = SrvTerminateWorkerThread;
+        SET_BLOCK_TYPE( &WorkItem, BlockTypeWorkContextSpecial );
 
         //
-        // Wait on each thread's handle.  When all these handles are
-        // signaled, all the worker threads have killed themselves and
-        // it is safe to start unloading server data structures.
+        // Kill the threads on the nonblocking work queues
         //
 
-        numberOfThreads =
-            SrvNonblockingThreads + SrvBlockingThreads + SrvCriticalThreads;
+        if ( SrvWorkQueues != NULL ) {
 
-        for ( i = 0; i < numberOfThreads ; i++ ) {
+            for( queue=SrvWorkQueues; queue && queue < eSrvWorkQueues; queue++ ) {
 
-            if ( SrvThreadHandles[i] != NULL ) {
+                WorkItem.CurrentWorkQueue = queue;
+
+                SrvInsertWorkQueueTail(
+                    queue,
+                    (PQUEUEABLE_BLOCK_HEADER)&WorkItem
+                    );
 
                 //
-                // Wait for the thread to terminate.
+                // Wait for the threads to all die
                 //
+                while( queue->Threads != 0 ) {
 
-                (VOID) NtWaitForSingleObject(
-                                        SrvThreadHandles[i],
-                                        FALSE,
-                                        NULL
-                                        );
-                //
-                // Close the handle so the thread object can go away.
-                //
+                    LARGE_INTEGER interval;
 
-                SrvNtClose( SrvThreadHandles[i], FALSE );
+                    interval.QuadPart = -1*10*1000*10; // .01 second
 
+                    KeDelayExecutionThread( KernelMode, FALSE, &interval );
+                }
+            }
+
+            //
+            // Kill the threads on the blocking work queues
+            //
+            WorkItem.CurrentWorkQueue = &SrvBlockingWorkQueue;
+
+            SrvInsertWorkQueueTail(
+                &SrvBlockingWorkQueue,
+                (PQUEUEABLE_BLOCK_HEADER)&WorkItem
+                );
+
+            //
+            // Wait for the threads to all die
+            //
+            while( SrvBlockingWorkQueue.Threads != 0 ) {
+
+                LARGE_INTEGER interval;
+
+                interval.QuadPart = -1*10*1000*10; // .01 second
+
+                KeDelayExecutionThread( KernelMode, FALSE, &interval );
             }
 
         }
 
-    }
+        //
+        // Free any space allocated for the Null Session pipe and share lists
+        //
+        SrvFreeRegTables();
 
-    SrvThreadCount = 0;
+        //
+        // If we allocated memory for the os version strings, free it now.
+        //
 
-    //
-    // Free the array of thread handles
-    //
+        if ( SrvNativeOS.Buffer != NULL &&
+             SrvNativeOS.Buffer != StrDefaultNativeOs ) {
 
-    if ( SrvThreadHandles != NULL ) {
-        FREE_HEAP( SrvThreadHandles );
-        DEBUG SrvThreadHandles = NULL;
-    }
+            FREE_HEAP( SrvNativeOS.Buffer );
+            SrvNativeOS.Buffer = NULL;
 
-    //
-    // If we allocated a buffer for the list of null session pipes,
-    // free it now.
-    //
+            RtlFreeOemString( &SrvOemNativeOS );
+            SrvOemNativeOS.Buffer = NULL;
+        }
 
-    if ( SrvNullSessionPipes != NULL &&
-         SrvNullSessionPipes != StrDefaultNullSessionPipes ) {
+        //
+        // If allocated memory for the display name, free it now.
+        //
 
-        FREE_HEAP( SrvNullSessionPipes );
-        SrvNullSessionPipes = NULL;
-    }
+        if ( SrvAlertServiceName != NULL &&
+             SrvAlertServiceName != StrDefaultSrvDisplayName ) {
 
-    if ( SrvNullSessionShares != NULL &&
-         SrvNullSessionShares != StrDefaultNullSessionShares ) {
+            FREE_HEAP( SrvAlertServiceName );
+            SrvAlertServiceName = NULL;
+        }
 
-        FREE_HEAP( SrvNullSessionShares );
-        SrvNullSessionShares = NULL;
-    }
-
-    //
-    // If we allocated memory for the os version strings, free it now.
-    //
-
-    if ( SrvNativeOS.Buffer != NULL &&
-         SrvNativeOS.Buffer != StrDefaultNativeOs ) {
-
-        FREE_HEAP( SrvNativeOS.Buffer );
-        SrvNativeOS.Buffer = NULL;
-
-        RtlFreeOemString( &SrvOemNativeOS );
-        SrvOemNativeOS.Buffer = NULL;
-    }
-
-    //
-    // If allocated memory for the display name, free it now.
-    //
-
-    if ( SrvAlertServiceName != NULL &&
-         SrvAlertServiceName != StrDefaultSrvDisplayName ) {
-
-        FREE_HEAP( SrvAlertServiceName );
-        SrvAlertServiceName = NULL;
-    }
+    } // Clean
 
     //
     // Make sure the scavenger is not running.
@@ -1108,220 +1334,264 @@ Return Value:
 
     SrvTerminateScavenger( );
 
-    //
-    // Free the work items in the work queues and the receive work item
-    // list.  This also deallocates the SMB buffers.  Note that work
-    // items allocated dynamically may be deallocated singly, while work
-    // items allocated at server startup are part of one large block,
-    // and may not be deallocated singly.
-    //
-    // !!! Need to reset the work queue semaphore here.
-    //
-    // !!! Does this properly clean up buffers allocated during SMB
-    //     processing?  Probably not.  Should probably allow the worker
-    //     threads to run the work queue normally before they stop.
-    //
-
-#if 0 // !!!
-    while ( SrvWorkQueue.Head.Next != NULL ) {
-
-        singleListEntry = PopEntryList( &SrvWorkQueue.Head );
-        workContext =
-            CONTAINING_RECORD( singleListEntry, WORK_CONTEXT, SingleListEntry );
-
-        //
-        // Found a work item.  Was it part of the initial allocation?
-        // If not, delete it now.  Otherwise, do nothing; we'll delete
-        // the entire initial block after clearing the queue.
-        //
-
-        if ( !workContext->PartOfInitialAllocation ) {
-            SrvFreeNormalWorkItem( workContext );
+#if MULTIPROCESSOR
+    if( SrvWorkQueues ) {
+        for( queue = SrvWorkQueues; queue < eSrvWorkQueues; queue++ ) {
+            StopQueueDepthComputations( queue );
         }
-
-    }
-
-    while ( SrvBlockingWorkQueue.Head.Next != NULL ) {
-
-        singleListEntry = PopEntryList( &SrvBlockingWorkQueue.Head );
-        workContext =
-            CONTAINING_RECORD( singleListEntry, WORK_CONTEXT, SingleListEntry );
-
-        //
-        // Found a work item.  Was it part of the initial allocation?
-        // If not, delete it now.  Otherwise, do nothing; we'll delete
-        // the entire initial block after clearing the queue.
-        //
-
-        if ( !workContext->PartOfInitialAllocation ) {
-            SrvFreeNormalWorkItem( workContext );
-        }
-
-    }
-
-    while ( SrvCriticalWorkQueue.Head.Next != NULL ) {
-
-        singleListEntry = PopEntryList( &SrvCriticalWorkQueue.Head );
-        workContext =
-            CONTAINING_RECORD( singleListEntry, WORK_CONTEXT, SingleListEntry );
-
-        //
-        // Found a work item.  Was it part of the initial allocation?
-        // If not, delete it now.  Otherwise, do nothing; we'll delete
-        // the entire initial block after clearing the queue.
-        //
-
-        if ( !workContext->PartOfInitialAllocation ) {
-            SrvFreeNormalWorkItem( workContext );
-        }
-
     }
 #endif
 
-    while ( SrvNormalReceiveWorkItemList.Next != NULL ) {
+    if( Clean ) {
 
-        singleListEntry = PopEntryList( &SrvNormalReceiveWorkItemList );
-        workContext =
-            CONTAINING_RECORD( singleListEntry, WORK_CONTEXT, SingleListEntry );
+        PLIST_ENTRY listEntryRoot;
 
-        SrvFreeNormalWorkItem( workContext );
-        --SrvFreeWorkItems;
+        //
+        // Free the work items in the work queues and the receive work item
+        // list.  This also deallocates the SMB buffers.  Note that work
+        // items allocated dynamically may be deallocated singly, while work
+        // items allocated at server startup are part of one large block,
+        // and may not be deallocated singly.
+        //
+        // !!! Does this properly clean up buffers allocated during SMB
+        //     processing?  Probably not.  Should probably allow the worker
+        //     threads to run the work queue normally before they stop.
+        //
 
-    }
+        if( SrvWorkQueues ) {
 
-    //
-    // All dynamic work items have been freed, and the work item queues
-    // have been emptied.  Release the initial work item allocation.
-    //
+            for( queue = SrvWorkQueues; queue < eSrvWorkQueues; queue++ ) {
 
-    SrvFreeInitialWorkItems( );
+                //
+                // Clean out the single FreeContext spot
+                //
+                workContext = NULL;
+                workContext = (PWORK_CONTEXT)InterlockedExchange(
+                                                (PLONG)&queue->FreeContext, (LONG)workContext );
 
-    //
-    // Free the work items in the raw mode work item list.
-    //
+                if( workContext != NULL && workContext->PartOfInitialAllocation == FALSE ) {
+                    SrvFreeNormalWorkItem( workContext );
+                }
 
-    while ( SrvRawModeWorkItemList.Next != NULL ) {
+                //
+                // Clean out the normal work item list
+                //
+                while( 1 ) {
+                    singleListEntry = ExInterlockedPopEntrySList(
+                                                &queue->NormalWorkItemList, &queue->SpinLock );
+                    if( singleListEntry == NULL ) {
+                        break;
+                    }
+                    workContext =
+                        CONTAINING_RECORD( singleListEntry, WORK_CONTEXT, SingleListEntry );
 
-        singleListEntry = PopEntryList( &SrvRawModeWorkItemList );
-        workContext =
-            CONTAINING_RECORD( singleListEntry, WORK_CONTEXT, SingleListEntry );
+                    SrvFreeNormalWorkItem( workContext );
+                    queue->FreeWorkItems--;
+                }
 
-        SrvFreeRawModeWorkItems--;
-        SrvFreeRawModeWorkItem( workContext );
+                //
+                // Clean out the raw mode work item list
+                //
+                while( 1 ) {
+                    singleListEntry = ExInterlockedPopEntrySList(
+                                                &queue->RawModeWorkItemList, &queue->SpinLock );
+                    if( singleListEntry == NULL ) {
+                        break;
+                    }
 
-    }
+                    workContext =
+                        CONTAINING_RECORD( singleListEntry, WORK_CONTEXT, SingleListEntry );
 
-    //
-    // Walk through the global share list, closing them all.
-    //
-    // !!! Do we need to synchronize with APIs here?
-    //
+                    SrvFreeRawModeWorkItem( workContext );
+                }
 
-    while ( SrvShareList.Initialized &&
-            !IsListEmpty( &SrvShareList.ListHead ) ) {
+                //
+                // Free up any saved rfcbs
+                //
+                if( queue->CachedFreeRfcb != NULL ) {
+                    FREE_HEAP( queue->CachedFreeRfcb->PagedRfcb );
+                    DEALLOCATE_NONPAGED_POOL( queue->CachedFreeRfcb );
+                    queue->CachedFreeRfcb = NULL;
+                }
 
-        listEntry = SrvShareList.ListHead.Flink;
-        share = CONTAINING_RECORD( listEntry, SHARE, GlobalShareListEntry );
-        SrvCloseShare( share );
+                while( 1 ) {
+                    PRFCB Rfcb;
 
-    }
+                    singleListEntry = ExInterlockedPopEntrySList( &queue->RfcbFreeList, &queue->SpinLock );
+                    if( singleListEntry == NULL ) {
+                        break;
+                    }
 
-    //
-    // If we opened the NPFS during initialization, close the handle now
-    // and dereference the NPFS file object.
-    //
+                    Rfcb =
+                        CONTAINING_RECORD( singleListEntry, RFCB, SingleListEntry );
+                    FREE_HEAP( Rfcb->PagedRfcb );
+                    DEALLOCATE_NONPAGED_POOL( Rfcb );
+                }
 
-    if ( SrvNamedPipeHandle != NULL) {
+                //
+                // Free up any saved mfcbs
+                //
+                if( queue->CachedFreeMfcb != NULL ) {
+                    DEALLOCATE_NONPAGED_POOL( queue->CachedFreeMfcb );
+                    queue->CachedFreeMfcb = NULL;
+                }
 
-        SrvNtClose( SrvNamedPipeHandle, FALSE );
-        ObDereferenceObject( SrvNamedPipeFileObject );
+                while( 1 ) {
+                    PNONPAGED_MFCB nonpagedMfcb;
 
-        SrvNamedPipeHandle = NULL;
+                    singleListEntry = ExInterlockedPopEntrySList( &queue->MfcbFreeList, &queue->SpinLock );
+                    if( singleListEntry == NULL ) {
+                        break;
+                    }
 
-    }
+                    nonpagedMfcb =
+                        CONTAINING_RECORD( singleListEntry, NONPAGED_MFCB, SingleListEntry );
 
-#ifndef _CAIRO_
-    //
-    // If we registered the server as a logon process during
-    // initialization, deregister now.
-    //
+                    DEALLOCATE_NONPAGED_POOL( nonpagedMfcb );
+                }
+            }
 
-    if ( SrvLsaHandle != NULL) {
-        if ( SrvNullSessionToken != NULL ) {
-            SRVDBG_RELEASE_HANDLE( SrvNullSessionToken, "TOK", 53, NULL );
-            SrvNtClose( SrvNullSessionToken, FALSE );
-            SrvNullSessionToken = NULL;
+        } // SrvWorkQueues
+
+        //
+        // All dynamic work items have been freed, and the work item queues
+        // have been emptied.  Release the initial work item allocation.
+        //
+        SrvFreeInitialWorkItems( );
+
+        //
+        // Walk through the global share list, closing them all.
+        //
+
+        for( listEntryRoot = SrvShareHashTable;
+             listEntryRoot < &SrvShareHashTable[ NSHARE_HASH_TABLE ];
+             listEntryRoot++ ) {
+
+            while( listEntryRoot->Flink != listEntryRoot ) {
+
+                share = CONTAINING_RECORD( listEntryRoot->Flink, SHARE, GlobalShareList );
+
+                SrvCloseShare( share );
+            }
         }
-        LsaDeregisterLogonProcess( SrvLsaHandle );
-        SrvLsaHandle = NULL;
-    }
-#endif // _CAIRO_
 
-    //
-    // Delete the global ordered lists.
-    //
+        //
+        // If we opened the NPFS during initialization, close the handle now
+        // and dereference the NPFS file object.
+        //
+
+        if ( SrvNamedPipeHandle != NULL) {
+
+            SrvNtClose( SrvNamedPipeHandle, FALSE );
+            ObDereferenceObject( SrvNamedPipeFileObject );
+
+            SrvNamedPipeHandle = NULL;
+
+        }
+
+        //
+        // Disconnect from the Dfs driver
+        //
+        SrvTerminateDfs();
+
+        status = RtlGetDaclSecurityDescriptor( &SrvAdminSecurityDescriptor,
+                                               &daclpresent,
+                                               &acl,
+                                               &defaulted );
+        if( !NT_SUCCESS( status ) ) {
+            acl = NULL;
+        }
+
+        status = RtlGetOwnerSecurityDescriptor( &SrvAdminSecurityDescriptor,
+                                                &adminsid,
+                                                &defaulted );
+
+        if( NT_SUCCESS( status ) && adminsid != NULL ) {
+            FREE_HEAP( adminsid );
+        }
+
+        if( acl != NULL ) {
+            FREE_HEAP( acl );
+        }
+
+
+        if (!CONTEXT_NULL(SrvNullSessionToken)) {
+
+            DeleteSecurityContext(&SrvNullSessionToken);
+            SrvNullSessionToken.dwLower = 0;
+            SrvNullSessionToken.dwUpper = 0;
+        }
+
+        //
+        // Delete the global ordered lists.
+        //
 
 #if SRV_COMM_DEVICES
-    SrvDeleteOrderedList( &SrvCommDeviceList );
+        SrvDeleteOrderedList( &SrvCommDeviceList );
 #endif
-    SrvDeleteOrderedList( &SrvEndpointList );
-    SrvDeleteOrderedList( &SrvRfcbList );
-    SrvDeleteOrderedList( &SrvSessionList );
-    SrvDeleteOrderedList( &SrvShareList );
-    SrvDeleteOrderedList( &SrvTreeConnectList );
+        SrvDeleteOrderedList( &SrvEndpointList );
+        SrvDeleteOrderedList( &SrvRfcbList );
+        SrvDeleteOrderedList( &SrvSessionList );
+        SrvDeleteOrderedList( &SrvTreeConnectList );
 
-    //
-    // Free the domain name buffers
-    //
+        //
+        // Clear out the timer pool.
+        //
 
-    if ( SrvPrimaryDomain.Buffer != NULL ) {
-        ASSERT( SrvOemPrimaryDomain.Buffer != NULL );
-
-        DEALLOCATE_NONPAGED_POOL( SrvPrimaryDomain.Buffer );
-        SrvPrimaryDomain.Buffer = NULL;
-        DEALLOCATE_NONPAGED_POOL( SrvOemPrimaryDomain.Buffer );
-        SrvOemPrimaryDomain.Buffer = NULL;
-    }
-
-    //
-    // Free the OEM code page version of the server name.
-    //
-
-    if ( SrvOemServerName.Buffer != NULL ) {
-        DEALLOCATE_NONPAGED_POOL( SrvOemServerName.Buffer );
-        SrvOemServerName.Buffer = NULL;
-    }
-
-    //
-    // Unlock pageable sections.
-    //
-
-    for ( i = 0; i < SRV_CODE_SECTION_MAX; i++ ) {
-        if ( SrvSectionInfo[i].Handle != NULL ) {
-            ASSERT( SrvSectionInfo[i].ReferenceCount != 0 );
-            MmUnlockPagableImageSection( SrvSectionInfo[i].Handle );
-            SrvSectionInfo[i].Handle = 0;
-            SrvSectionInfo[i].ReferenceCount = 0;
+        while ( (singleListEntry = ExInterlockedPopEntrySList(
+                                        &SrvTimerList,
+                                        &GLOBAL_SPIN_LOCK(Timer) )) != NULL ) {
+            timer = CONTAINING_RECORD( singleListEntry, SRV_TIMER, Next );
+            DEALLOCATE_NONPAGED_POOL( timer );
         }
-    }
 
-    //
-    // Clear out the timer pool.
-    //
+        if( SrvWorkQueues ) {
 
-    while ( (singleListEntry = ExInterlockedPopEntryList(
-                                    &SrvTimerList,
-                                    &GLOBAL_SPIN_LOCK(Timer) )) != NULL ) {
-        timer = CONTAINING_RECORD( singleListEntry, SRV_TIMER, Next );
-        DEALLOCATE_NONPAGED_POOL( timer );
-    }
+            //
+            // Clear out the saved pool chunks
+            //
+            for( queue = SrvWorkQueues; queue < eSrvWorkQueues; queue++ ) {
+                //
+                // Free up any paged pool that we've saved.
+                //
+                SrvClearLookAsideList( &queue->PagedPoolLookAsideList, SrvFreePagedPool );
 
-#if SRVDBG_HEAP
+                //
+                // Free up any nonpaged pool that we've saved.
+                //
+                SrvClearLookAsideList( &queue->NonPagedPoolLookAsideList, SrvFreeNonPagedPool );
+            }
 
-    SrvDumpPool( 3 );
-    SrvDumpHeap( 3 );
+#if MULTIPROCESSOR
+            DEALLOCATE_NONPAGED_POOL( SrvWorkQueuesBase );
+            SrvWorkQueuesBase = NULL;
+            SrvWorkQueues = NULL;
+#endif
+        }
 
-#endif // SRVDBG_HEAP
+        //
+        // Unlock pageable sections.
+        //
+
+        for ( i = 0; i < SRV_CODE_SECTION_MAX; i++ ) {
+            if ( SrvSectionInfo[i].Handle != NULL ) {
+                ASSERT( SrvSectionInfo[i].ReferenceCount != 0 );
+                MmUnlockPagableImageSection( SrvSectionInfo[i].Handle );
+                SrvSectionInfo[i].Handle = 0;
+                SrvSectionInfo[i].ReferenceCount = 0;
+            }
+        }
+
+        //
+        // Zero out the statistics database.
+        //
+
+        RtlZeroMemory( &SrvStatistics, sizeof(SrvStatistics) );
+#if SRVDBG_STATS || SRVDBG_STATS2
+        RtlZeroMemory( &SrvDbgStatistics, sizeof(SrvDbgStatistics) );
+#endif
+
+    } // Clean
 
     //
     // Indicate that the server is no longer active.
@@ -1335,29 +1605,300 @@ Return Value:
     RELEASE_LOCK( &SrvConfigurationLock );
 
     //
-    // Zero out the statistics database.
-    //
-
-    RtlZeroMemory( &SrvStatistics, sizeof(SrvStatistics) );
-    RtlZeroMemory( &SrvStatisticsShadow, sizeof(SrvStatisticsShadow) );
-#if SRVDBG_HEAP
-    RtlZeroMemory( &SrvInternalStatistics, sizeof(SrvInternalStatistics) );
-#endif
-#if SRVDBG_STATS || SRVDBG_STATS2
-    RtlZeroMemory( &SrvDbgStatistics, sizeof(SrvDbgStatistics) );
-#endif
-
-    //
     // Deregister from shutdown notification.
     //
 
     if ( RegisteredForShutdown ) {
         IoUnregisterShutdownNotification( SrvDeviceObject );
+        RegisteredForShutdown = FALSE;
     }
 
     IF_DEBUG(FSP1) KdPrint(( "LAN Manager server FSP termination complete.\n" ));
 
-    return;
+    return STATUS_SUCCESS;
 
 } // TerminateServer
 
+VOID
+SrvFreeRegTables (
+    VOID
+    )
+/*++
+
+Routine Description:
+
+    This routine frees space allocated for the list of legal Null session shares
+     and pipes.  The SrvConfigurationLock must be held when this routine is called.
+
+Arguments:
+
+    None.
+
+Return Value:
+
+    None.
+
+--*/
+{
+    PAGED_CODE( );
+
+    //
+    // If we allocated a buffer for the list of null session pipes,
+    // free it now.
+    //
+
+    if ( SrvNullSessionPipes != NULL &&
+         SrvNullSessionPipes != StrDefaultNullSessionPipes ) {
+
+        FREE_HEAP( SrvNullSessionPipes );
+    }
+    SrvNullSessionPipes = NULL;
+
+
+    if ( SrvPipesNeedLicense != NULL &&
+         SrvPipesNeedLicense != StrDefaultPipesNeedLicense ) {
+
+        FREE_HEAP( SrvPipesNeedLicense );
+    }
+    SrvPipesNeedLicense = NULL;
+
+    if ( SrvNullSessionShares != NULL &&
+         SrvNullSessionShares != StrDefaultNullSessionShares ) {
+
+        FREE_HEAP( SrvNullSessionShares );
+    }
+    SrvNullSessionShares = NULL;
+}
+
+VOID
+SrvGetRegTables (
+    VOID
+    )
+/*++
+
+Routine Description:
+
+    This routine loads the lists of valid shares and pipes for null sessions.
+      The SrvConfigurationLock must be held when this routine is called.
+
+Arguments:
+
+    None.
+
+Return Value:
+
+    None.
+
+--*/
+{
+    PWSTR *strErrorLogIgnore;
+
+    PAGED_CODE( );
+
+    //
+    // Get the list of null session pipes.
+    //
+    ASSERT( SrvNullSessionPipes == NULL );
+    SrvGetMultiSZList(
+            &SrvNullSessionPipes,
+            StrRegSrvParameterPath,
+            StrRegNullSessionPipes,
+            StrDefaultNullSessionPipes
+            );
+
+    //
+    // Get the list of pipes requiring licenses
+    //
+    ASSERT( SrvPipesNeedLicense == NULL );
+    SrvGetMultiSZList(
+            &SrvPipesNeedLicense,
+            StrRegSrvParameterPath,
+            StrRegPipesNeedLicense,
+            StrDefaultPipesNeedLicense
+            );
+
+    //
+    // Get the list of null session pipes.
+    //
+    ASSERT( SrvNullSessionShares == NULL );
+    SrvGetMultiSZList(
+            &SrvNullSessionShares,
+            StrRegSrvParameterPath,
+            StrRegNullSessionShares,
+            StrDefaultNullSessionShares
+            );
+
+    //
+    // Get the list of error codes that we don't log
+    //
+
+    SrvGetMultiSZList(
+            &strErrorLogIgnore,
+            StrRegSrvParameterPath,
+            StrRegErrorLogIgnore,
+            StrDefaultErrorLogIgnore
+            );
+
+    if( strErrorLogIgnore != NULL ) {
+        DWORD i;
+
+        //
+        // They came in as strings, convert to NTSTATUS codes
+        //
+        for( i=0; i < SRVMAXERRLOGIGNORE; i++ ) {
+            NTSTATUS Status;
+            PWSTR p;
+
+            if( (p = strErrorLogIgnore[i]) == NULL )
+                break;
+
+            for( Status = 0; *p; p++ ) {
+                if( *p >= L'A' && *p <= L'F' ) {
+                    Status <<= 4;
+                    Status += 10 + (*p - L'A');
+                } else if( *p >= '0' && *p <= '9' ) {
+                    Status <<= 4;
+                    Status += *p - L'0';
+                }
+            }
+
+            SrvErrorLogIgnore[i] = Status;
+
+            IF_DEBUG(FSP1) KdPrint(( "LAN Manager server:  %X errs not logged\n", Status ));
+        }
+        SrvErrorLogIgnore[i] = 0;
+
+        if( strErrorLogIgnore != StrDefaultErrorLogIgnore ) {
+            FREE_HEAP( strErrorLogIgnore );
+        }
+    }
+}
+
+#if MULTIPROCESSOR
+VOID
+StartQueueDepthComputations(
+    PWORK_QUEUE queue
+    )
+{
+    LARGE_INTEGER currentTime;
+
+    PAGED_CODE();
+
+    if( SrvNumberOfProcessors == 1 )
+        return;
+
+    //
+    // We're going to schedule a dpc to call the 'ComputeAvgQueueDepth' routine
+    //   Initialize the dpc
+    //
+    KeInitializeDpc( &queue->QueueAvgDpc, ComputeAvgQueueDepth, queue );
+
+    //
+    // We want to make sure the dpc runs on the same processor handling the
+    //   queue -- to avoid thrashing the cache
+    //
+    KeSetTargetProcessorDpc( &queue->QueueAvgDpc, (CCHAR)(queue - SrvWorkQueues));
+
+    //
+    // Initialize a timer object to schedule our dpc later
+    //
+    KeInitializeTimer( &queue->QueueAvgTimer );
+    KeQuerySystemTime( &currentTime );
+    queue->NextAvgUpdateTime.QuadPart = currentTime.QuadPart + SrvQueueCalc.QuadPart;
+
+    //
+    // Initialize the sample vector
+    //
+    queue->NextSample = queue->DepthSamples;
+    RtlZeroMemory( queue->DepthSamples, sizeof( queue->DepthSamples ) );
+
+    //
+    // And start it going!
+    //
+    KeSetTimer( &queue->QueueAvgTimer, queue->NextAvgUpdateTime, &queue->QueueAvgDpc );
+}
+
+VOID
+StopQueueDepthComputations(
+    PWORK_QUEUE queue
+    )
+{
+    KIRQL oldIrql;
+
+    if( SrvNumberOfProcessors == 1 )
+        return;
+
+    KeInitializeEvent( &queue->AvgQueueDepthTerminationEvent,
+                       NotificationEvent,
+                       FALSE
+                     );
+
+
+    ACQUIRE_SPIN_LOCK( &queue->SpinLock, &oldIrql );
+
+    queue->NextSample = NULL;
+
+    RELEASE_SPIN_LOCK( &queue->SpinLock, oldIrql );
+
+    //
+    // Cancel the computation timer.  If this works, then we know that
+    //  the DPC code is not running.  Otherwise, it is running or queued
+    //  to run and we need to wait until it completes.
+    //
+    if( !KeCancelTimer( &queue->QueueAvgTimer ) ) {
+        KeWaitForSingleObject(
+            &queue->AvgQueueDepthTerminationEvent,
+            Executive,
+            KernelMode,
+            FALSE,
+            NULL
+            );
+    }
+}
+
+VOID
+ComputeAvgQueueDepth (
+    IN PKDPC Dpc,
+    IN PVOID DeferredContext,
+    IN PVOID SystemArgument1,
+    IN PVOID SystemArgument2
+    )
+{
+    LARGE_INTEGER currentTime;
+    PWORK_QUEUE queue = (PWORK_QUEUE)DeferredContext;
+
+    ACQUIRE_DPC_SPIN_LOCK( &queue->SpinLock );
+
+    if( queue->NextSample == NULL ) {
+
+        KeSetEvent( &queue->AvgQueueDepthTerminationEvent, 0, FALSE );
+
+    } else {
+
+        //
+        // Compute the sliding window average by taking a queue depth
+        // sample, removing the old sample value from the running sum
+        // and adding in the new value
+        //
+
+        currentTime.LowPart= (ULONG)SystemArgument1;
+        currentTime.HighPart = (ULONG)SystemArgument2;
+
+        queue->AvgQueueDepthSum -= *queue->NextSample;
+        *(queue->NextSample) = KeReadStateQueue( &queue->Queue );
+        queue->AvgQueueDepthSum += *queue->NextSample;
+
+        if( ++(queue->NextSample) == &queue->DepthSamples[ QUEUE_SAMPLES ] )
+            queue->NextSample = queue->DepthSamples;
+
+        queue->NextAvgUpdateTime.QuadPart =
+               currentTime.QuadPart + SrvQueueCalc.QuadPart;
+
+        KeSetTimer( &queue->QueueAvgTimer,
+                    queue->NextAvgUpdateTime,
+                    &queue->QueueAvgDpc );
+    }
+
+    RELEASE_DPC_SPIN_LOCK( &queue->SpinLock );
+}
+#endif  // MULTIPROCESSOR

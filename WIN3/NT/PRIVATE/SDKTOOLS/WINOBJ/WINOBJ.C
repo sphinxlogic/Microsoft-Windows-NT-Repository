@@ -42,12 +42,12 @@ BOOL    bSaveSettings = TRUE;
 CHAR        chFirstDrive;                       /* 'A' or 'a' */
 
 CHAR        szExtensions[]          = "Extensions";
-CHAR        szFrameClass[]          = "WFS_Frame";
-CHAR        szTreeClass[]           = "WFS_Tree";
-CHAR        szDrivesClass[]         = "WFS_Drives";
+CHAR        szFrameClass[]          = "WOS_Frame";
+CHAR        szTreeClass[]           = "WOS_Tree";
+CHAR        szDrivesClass[]         = "WOS_Drives";
 CHAR        szTreeControlClass[]    = "DirTree";
-CHAR        szDirClass[]            = "WFS_Dir";
-CHAR        szSearchClass[]         = "WFS_Search";
+CHAR        szDirClass[]            = "WOS_Dir";
+CHAR        szSearchClass[]         = "WOS_Search";
 
 CHAR        szMinOnRun[]            = "MinOnRun";
 CHAR        szStatusBar[]           = "StatusBar";
@@ -166,7 +166,7 @@ LPSTR    szDocuments;
 
 WORD    wTextAttribs    = TA_LOWERCASE;
 WORD    wSuperDlgMode;
-WORD    wFATSector      = -1;
+WORD    wFATSector      = (WORD)0xFFFF;
 WORD    wFATMode        = 0;
 WORD    wDOSversion;
 UINT    wHelpMessage;
@@ -182,7 +182,7 @@ LONG lTotalSpace = -1L;
 
 HFONT hFont;
 HFONT hFontStatus;
-CHAR szWinfileHelp[] = "WINFILE.HLP";
+CHAR szWinObjHelp[] = "WINOBJ.HLP";
 
 INT iNumExtensions = 0;
 EXTENSION extensions[MAX_EXTENSIONS];
@@ -270,7 +270,7 @@ VOID NEAR PASCAL NoRunInLongDir(HWND hwndActive, HMENU hMenu)
 LONG  APIENTRY FrameWndProc(HWND hWnd, UINT wMsg, WPARAM wParam, LONG lParam)
 {
   RECT     rc;
-  HMENU    hMenu;
+  HMENU    hMenu = NULL;
 
   STKCHK();
 
@@ -699,7 +699,7 @@ LONG  APIENTRY FrameWndProc(HWND hWnd, UINT wMsg, WPARAM wParam, LONG lParam)
       case WM_DESTROY:
             MSG("FrameWndProc", "WM_DESTROY");
           //FileCDR(NULL);
-          if (!WinHelp(hwndFrame, szWinfileHelp, HELP_QUIT, 0L)) {
+          if (!WinHelp(hwndFrame, szWinObjHelp, HELP_QUIT, 0L)) {
                 MyMessageBox(hwndFrame, IDS_WINFILE, IDS_WINHELPERR, MB_OK | MB_ICONEXCLAMATION | MB_SYSTEMMODAL);
           }
           hwndFrame = NULL;

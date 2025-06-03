@@ -54,8 +54,6 @@ extern ULONG AtDebugLevel;
 #define AtDump(LEVEL,STRING) do {NOTHING;} while (0)
 #endif
 
-//BUGBUG delete TemporaryArcNamePrefix when HalGetNumberOfBusses is defined
-
 #if defined(_X86_) || (defined(_MIPS_) && defined(COMPAQ)) || defined(_PPC_)
 static CCHAR TemporaryArcNamePrefix[] = { "\\ArcName\\multi(0)" };
 #else
@@ -202,6 +200,7 @@ typedef struct _CONTROLLER_EXTENSION {
     LONG InterruptTimer;                  // used to time out operations
     CCHAR ResettingController;            // >0 while controller is being reset
     CCHAR ControlFlags;                   // OR into CONTROL_PORT
+    CCHAR ControllerNumber;               // ordinal for controller.
     BOOLEAN InterruptRequiresDpc;         // true if ISR should queue DPC
     BOOLEAN ControllerAddressMapped;
     BOOLEAN ControllerPortMapped;
@@ -257,8 +256,12 @@ typedef struct _DISK_EXTENSION {
     PARTITION_INFORMATION Pi;             // Partition info (MUST BE FIRST FIELD).
     PVOID Partition0;                     // Pointer to self (MUST BE SECOND FIELD).
     ULONG PartitionOrdinal;               // Order partition appears on disk.
+                                          // (MUST BE THIRD FIELD)
     PDEVICE_OBJECT NextPartition;         // Pointer to next parititions object
-                                          // MUST BE THIRD FIELD
+                                          // MUST BE FOURTH FIELD
+    LARGE_INTEGER DMByteSkew;             // Number of bytes to skew the
+                                          // IO operation if the disk was
+                                          // partitioned by DM driver.
     PCONTROLLER_EXTENSION ControllerExtension; // ptr to disk's controller
     PDEVICE_OBJECT DeviceObject;          // ptr to this disk's object
     struct _DISK_EXTENSION *OtherDiskExtension; // other disk on controller
@@ -273,6 +276,9 @@ typedef struct _DISK_EXTENSION {
     ULONG RemainingTransferLength;        // length left in current transfer
     ULONG SequenceNumber;                 // Sequence number that is incremented
                                           // on every new irp for this device.
+    ULONG DMSkew;                         // The number of sectors to skew if
+                                          // On track disk manager is
+                                          // controlling this disk.
     HANDLE DirectoryHandle;               // handle to disk's device directory
     PCCHAR CurrentAddress;                // working address in user's buffer
     USHORT BytesPerSector;                // disk-specific values
@@ -293,6 +299,7 @@ typedef struct _DISK_EXTENSION {
     CCHAR IrpRetryCount;                  // count of retries by driver
     BOOLEAN PacketIsBeingRetried;         // when driver calls AtDiskStartIo
     BOOLEAN UseLBAMode;                   //
+    BOOLEAN DMControl;                    // DM laid down the partitions.
 } DISK_EXTENSION;
 
 typedef DISK_EXTENSION *PDISK_EXTENSION;
@@ -305,7 +312,7 @@ typedef DISK_EXTENSION *PDISK_EXTENSION;
 #pragma pack(1)                                 // This structure is packed
 typedef struct _FIXED_DISK_PARAMETER_TABLE {
     USHORT MaxCylinders;
-    CCHAR  MaxHeads;
+    UCHAR  MaxHeads;
     UCHAR  Signature;
     UCHAR  TranslatedSectorsPerTrack;
     USHORT StartWritePrecomp;
@@ -335,6 +342,9 @@ typedef struct _DRIVE_DATA {
     USHORT PretendNumberOfCylinders;
     USHORT PretendTracksPerCylinder;
     USHORT PretendSectorsPerTrack;
+    USHORT IdentifyNumberOfCylinders;
+    USHORT IdentifyTracksPerCylinder;
+    USHORT IdentifySectorsPerTrack;
     USHORT BytesPerSector;
     USHORT BytesPerInterrupt;
     USHORT WritePrecomp;
@@ -370,6 +380,7 @@ typedef struct _CONTROLLER_DATA {
     ULONG ControllerVector;
     CCHAR ControlFlags;
     UCHAR OriginalControllerVector;
+    BOOLEAN PCCard;
 } CONTROLLER_DATA, *PCONTROLLER_DATA;
 
 
@@ -597,7 +608,8 @@ AtBuildDeviceMap(
     IN PHYSICAL_ADDRESS ControllerAddress,
     IN KIRQL Irql,
     IN PDRIVE_DATA Disk,
-    IN PIDENTIFY_DATA DiskData
+    IN PIDENTIFY_DATA DiskData,
+    IN BOOLEAN PCCard
     );
 
 BOOLEAN
@@ -630,3 +642,10 @@ VOID
 AtDiskTestPci(
     IN OUT PCONTROLLER_DATA Controller
     );
+
+BOOLEAN
+AtDiskIsPcmcia(
+    PPHYSICAL_ADDRESS Address,
+    PKIRQL Irql
+    );
+

@@ -1040,12 +1040,12 @@ CHAR_PTR drive_name )  // I - name of the device driver
 
              if ( drive->floppy ) {
 
-                return( drive );  // Card is valid, everything's OK.
+//                return( drive );  // Card is valid, everything's OK.
              }
         }
 
-        if ( ( ( drive->card == card    ) || ( card == -1 ) ) &&
-             ( ( drive->bus  == bus     ) || ( bus == -1  ) ) &&
+        if ( ( ( drive->card == card    ) || ( card == -1 ) || drive->floppy ) &&
+             ( ( drive->bus  == bus     ) || ( bus == -1  ) || drive->floppy ) &&
              ( ( drive->lun == lun      ) || ( lun == -1  ) ) &&
              ( ( drive->target_id == id ) || ( id == -1   ) ) ) {
 

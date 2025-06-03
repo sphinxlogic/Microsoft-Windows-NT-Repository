@@ -75,7 +75,6 @@ SetBufferSizePrintfWindow(
 
 USHORT
 GetBufferSizePrintfWindow(
-    HANDLE Window,
+    HANDLE Window
     );
 #endif
-

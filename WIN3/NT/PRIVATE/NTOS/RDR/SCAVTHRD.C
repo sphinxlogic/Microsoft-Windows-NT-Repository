@@ -70,6 +70,12 @@ Return Value:
     dprintf(DPRT_SCAVTHRD, ("RdrTimer\n"));
 
     //
+    // Get rid of aged server entries
+    //
+
+    RdrScavengeServerEntries();
+
+    //
     //  First scan for dormant connections to remove.
     //
 

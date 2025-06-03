@@ -116,6 +116,10 @@ Revision History:
 #endif // ndef CDEBUG
 
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Arbitrary.  PortUAS has at least 16 args in one message.
 // This allows arg numbers 1-19 to be used.
 // (This is used by NetpFindNumberedFormatInWStr() and its caller(s).
@@ -551,5 +555,9 @@ NetpWriteEventlog(
     DWORD DataLength,
     LPVOID Data
     );
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // ndef _NETLIB_

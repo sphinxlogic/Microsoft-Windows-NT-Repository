@@ -530,7 +530,7 @@ fInList (
     for (pchList = ScanMyList (pcmd, &mi, bufList, fRecurse);
          pchList;
          pchList = ScanMyList (NULL, &mi, bufList, fRecurse)) {
-        if (!stricmp (pchList, pch)) {
+        if (!_stricmp (pchList, pch)) {
             return TRUE;
         }
     }
@@ -822,7 +822,7 @@ CanonFilename (
          && (szName[0] != '$' || findpath(szName, buf, TRUE))
              && !rootpath (buf, pchCanon)) {
 
-            strlwr (pchCanon);
+            _strlwr (pchCanon);
             return pchCanon;
         }
     }

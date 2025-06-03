@@ -109,6 +109,10 @@ typedef struct STREAM_INFO {
 #define STRM_SMS_DATA         0x44534d53     /* 'SMSD' */
 #define STRM_CHECKSUM_DATA    0x4d555343     /* 'CSUM' */
 
+#define STRM_EMS_MONO_DB      0x42444d58     /* 'XMDB'  */
+#define STRM_EMS_MONO_LOG     0x474c4f58     /* 'XLOG' */
+#define STRM_EMS_MONO_PATHS   0x48545058     /* 'XPTH' */
+
 /** stream attrib values (fs) **/
 
 #define STRM_ATTRIB_NORMAL                     0x0000

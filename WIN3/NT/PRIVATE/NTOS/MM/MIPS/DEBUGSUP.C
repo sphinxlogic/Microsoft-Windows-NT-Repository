@@ -127,19 +127,10 @@ Environment:
         }
         return NULL;
     }
-    if (VirtualAddress <= MM_HIGHEST_USER_ADDRESS) {
-
-        //
-        // User mode - return the phyiscal address.  This prevents
-        // copy on write faults for breakpoints on user-mode pages.
-        // IGNORE write protection.
-        //
-
-        return (PVOID)((ULONG)MmGetPhysicalAddress(VirtualAddress).LowPart + KSEG0_BASE);
-    }
 
     PointerPte = MiGetPteAddress (VirtualAddress);
-    if (PointerPte->u.Hard.Write == 0) {
+
+    if ((ULONG) VirtualAddress < KSEG0_BASE && PointerPte->u.Hard.Dirty == 0) {
         return NULL;
     }
 
@@ -174,6 +165,8 @@ Return Value:
 
     The virtual address which corresponds to the phyiscal address.
 
+    NULL if the physical address was bogus.
+
 Environment:
 
     Kernel mode IRQL at DISPATCH_LEVEL or greater.
@@ -182,15 +175,33 @@ Environment:
 
 {
     PVOID BaseAddress;
+    PMMPTE BasePte;
+    PMMPFN Pfn1;
+    ULONG Page;
 
-    BaseAddress = MiGetVirtualAddressMappedByPte (MmDebugPte);
+    BasePte = MmDebugPte + (MM_NUMBER_OF_COLORS - 1);
+    BasePte = (PMMPTE)((ULONG)BasePte & ~(MM_COLOR_MASK << PTE_SHIFT));
+
+    Page = (ULONG)(PhysicalAddress.QuadPart >> PAGE_SHIFT);
+
+    if ((Page > (LONGLONG)MmHighestPhysicalPage) ||
+        (Page < (LONGLONG)MmLowestPhysicalPage)) {
+        return NULL;
+    }
+
+    Pfn1 = MI_PFN_ELEMENT (Page);
+
+    if (!MmIsAddressValid (Pfn1)) {
+        return NULL;
+    }
+
+    BasePte = BasePte + Pfn1->u3.e1.PageColor;
+
+    BaseAddress = MiGetVirtualAddressMappedByPte (BasePte);
 
     KiFlushSingleTb (TRUE, BaseAddress);
 
-    *MmDebugPte = ValidKernelPte;
-    MmDebugPte->u.Hard.PageFrameNumber = RtlLargeIntegerShiftRight(
-                                                PhysicalAddress,
-                                                PAGE_SHIFT).LowPart;
-
+    *BasePte = ValidKernelPte;
+    BasePte->u.Hard.PageFrameNumber = Page;
     return (PVOID)((ULONG)BaseAddress + BYTE_OFFSET(PhysicalAddress.LowPart));
 }

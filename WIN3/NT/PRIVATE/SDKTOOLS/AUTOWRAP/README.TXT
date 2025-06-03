@@ -66,11 +66,11 @@ BOOL APIPrelude( PAPICALLDATA pData )
 ** Returns: the value you wish returned from the API call
 **
 */
-DWORD APIPostlude( PAPICALLDATA pData )
+RETVAL APIPostlude( PAPICALLDATA pData )
 {
 	// TO DO: Place any work you wish done AFTER an API call here.
 
-	return pData->dwRet ;	
+	return pData->Ret ;	
 }
 
 /* AUTOWRAP EOF */
@@ -90,8 +90,42 @@ AUTOWRAP <-u> dll-name
     Wrapper files are only created if they do not allready exist.
     
     
-Files
------
+Project Files
+-------------
+
+	Scan.c 		This is the DLL entrypoint scanning code.
+	Autowrap.c  Main program, cmdline interface, parser/template expansion
+    *.tpl		Templates.
+    
+    	A note on templates.  The templates are stored as strings.  There is a
+    	string table in Autowrap.C that is created by including the
+    	appropriate *.tpl files.  These files are thus limited by C string
+    	constraints.  There is a string length limit. This is why some of the
+    	templates are broken up into multiple files.  This is also the
+    	explanation as to why each line ends with \n\ and the fiels begin
+    	and end with double quates.  
+    	The expansion formats for the templates are documented in the comments
+    	for the ExpandTo and ExpandLineTo functions in Autowrap.c
+       
+       The Template files:
+        
+		makefile.tpl 	Produces makefile
+		readme.tpl 		Produces readme.txt
+		sources.tpl		Produces Sources
+		wapic.tpl		<outputname>.c
+		wapidef.tpl		*\<outputname>.def
+		wapih1.tpl		*\wapi.h
+		wrapperh.tpl	wrapper.h
+		wrapaxp.tpl		alpha\wrapem.s 
+		wrapi386.tpl	i386\wrapem.asm
+		wrapmips.tpl	mips\wrapem.s
+		wrapppc.tpl		ppc\wrapem.s
+		wrapprc1.tpl	wrapper.c
+		wrapprc2.tpl		"
+		wrapprc3.tpl		"
+    
+Output Files
+------------
 
 Auto Wrapper produces the following files:
 

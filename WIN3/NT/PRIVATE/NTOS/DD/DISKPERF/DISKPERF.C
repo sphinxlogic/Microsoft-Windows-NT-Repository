@@ -30,6 +30,13 @@ Revision History:
 #include "stdio.h"
 #include "ntdddisk.h"
 
+#ifdef POOL_TAGGING
+#ifdef ExAllocatePool
+#undef ExAllocatePool
+#endif
+#define ExAllocatePool(a,b) ExAllocatePoolWithTag(a,b,'frPD')
+#endif
+
 //
 // Device Extension
 //
@@ -197,8 +204,8 @@ Return Value:
 VOID
 DiskPerfInitialize(
     IN PDRIVER_OBJECT DriverObject,
-    IN PVOID NextDisk,
-    IN ULONG Count
+    IN PVOID          NextDisk,
+    IN ULONG          Count
     )
 
 /*++
@@ -225,21 +232,21 @@ Return Value:
 
 {
     PCONFIGURATION_INFORMATION configurationInformation;
-    CCHAR ntNameBuffer[64];
-    STRING ntNameString;
-    UNICODE_STRING ntUnicodeString;
-    PDEVICE_OBJECT deviceObject;
-    PDEVICE_OBJECT physicalDevice;
-    PDEVICE_EXTENSION deviceExtension;
-    PDEVICE_EXTENSION zeroExtension;
-    PFILE_OBJECT fileObject;
-    PIRP irp;
+    CCHAR                      ntNameBuffer[64];
+    STRING                     ntNameString;
+    UNICODE_STRING             ntUnicodeString;
+    PDEVICE_OBJECT             deviceObject;
+    PDEVICE_OBJECT             physicalDevice;
+    PDEVICE_EXTENSION          deviceExtension;
+    PDEVICE_EXTENSION          zeroExtension;
+    PFILE_OBJECT               fileObject;
+    PIRP                       irp;
     PDRIVE_LAYOUT_INFORMATION  partitionInfo;
-    KEVENT event;
-    IO_STATUS_BLOCK ioStatusBlock;
-    NTSTATUS status;
-    ULONG diskNumber;
-    ULONG partNumber;
+    KEVENT                     event;
+    IO_STATUS_BLOCK            ioStatusBlock;
+    NTSTATUS                   status;
+    ULONG                      diskNumber;
+    ULONG                      partNumber;
 
     //
     // Get the configuration information.
@@ -340,7 +347,7 @@ Return Value:
         //
 
         partitionInfo = ExAllocatePool(NonPagedPool,
-                                       (24 * sizeof(PARTITION_INFORMATION) + 4));
+                                       (128 * sizeof(PARTITION_INFORMATION) + 4));
 
         if (!partitionInfo) {
             continue;
@@ -355,7 +362,7 @@ Return Value:
                                             NULL,
                                             0,
                                             partitionInfo,
-                                            (24 * sizeof(PARTITION_INFORMATION) + 4),
+                                            (128 * sizeof(PARTITION_INFORMATION) + 4),
                                             FALSE,
                                             &event,
                                             &ioStatusBlock);
@@ -600,9 +607,9 @@ Return Value:
 --*/
 
 {
-    PDEVICE_EXTENSION deviceExtension = DeviceObject->DeviceExtension;
-    PDEVICE_EXTENSION physicalDisk =
-        deviceExtension->PhysicalDevice->DeviceExtension;
+    PDEVICE_EXTENSION  deviceExtension = DeviceObject->DeviceExtension;
+    PDEVICE_EXTENSION  physicalDisk =
+                               deviceExtension->PhysicalDevice->DeviceExtension;
     PIO_STACK_LOCATION currentIrpStack = IoGetCurrentIrpStackLocation(Irp);
     PIO_STACK_LOCATION nextIrpStack = IoGetNextIrpStackLocation(Irp);
 
@@ -610,15 +617,16 @@ Return Value:
     // Increment queue depth counter.
     //
 
-    ExInterlockedIncrementLong(&deviceExtension->DiskCounters.QueueDepth,
-                               &physicalDisk->Spinlock);
+    InterlockedIncrement(&deviceExtension->DiskCounters.QueueDepth);
 
-    //
-    // Now get the physical disk counters and increment queue depth.
-    //
+    if (deviceExtension != physicalDisk) {
 
-    ExInterlockedIncrementLong(&physicalDisk->DiskCounters.QueueDepth,
-                               &physicalDisk->Spinlock);
+        //
+        // Now get the physical disk counters and increment queue depth.
+        //
+
+        InterlockedIncrement(&physicalDisk->DiskCounters.QueueDepth);
+    }
 
     //
     // Copy current stack to next stack.
@@ -656,8 +664,8 @@ Return Value:
 NTSTATUS
 DiskPerfIoCompletion(
     IN PDEVICE_OBJECT DeviceObject,
-    IN PIRP Irp,
-    IN PVOID Context
+    IN PIRP           Irp,
+    IN PVOID          Context
     )
 
 /*++
@@ -681,16 +689,15 @@ Return Value:
 --*/
 
 {
-    PDEVICE_EXTENSION deviceExtension = DeviceObject->DeviceExtension;
-    PDEVICE_EXTENSION physicalDisk =
-        deviceExtension->PhysicalDevice->DeviceExtension;
-    PIO_STACK_LOCATION irpStack = IoGetCurrentIrpStackLocation(Irp);
-    PDISK_PERFORMANCE partitionCounters = &deviceExtension->DiskCounters;
-    PDISK_PERFORMANCE diskCounters = &physicalDisk->DiskCounters;
-    LARGE_INTEGER timeStampStart =
-        irpStack->Parameters.Read.ByteOffset;
-    LARGE_INTEGER timeStampComplete;
-    KIRQL currentIrql;
+    PDEVICE_EXTENSION  deviceExtension   = DeviceObject->DeviceExtension;
+    PDEVICE_EXTENSION  physicalDisk      = deviceExtension->PhysicalDevice->DeviceExtension;
+    PIO_STACK_LOCATION irpStack          = IoGetCurrentIrpStackLocation(Irp);
+    PDISK_PERFORMANCE  partitionCounters = &deviceExtension->DiskCounters;
+    PDISK_PERFORMANCE  diskCounters      = &physicalDisk->DiskCounters;
+    LARGE_INTEGER      timeStampStart    = irpStack->Parameters.Read.ByteOffset;
+    LARGE_INTEGER      timeStampComplete;
+    LARGE_INTEGER      difference;
+    KIRQL              currentIrql;
 
     UNREFERENCED_PARAMETER(Context);
 
@@ -701,29 +708,32 @@ Return Value:
     timeStampComplete = KeQueryPerformanceCounter((PVOID)NULL);
 
     //
+    // Decrement the queue depth counters for the volume and physical disk.  This is
+    // done without the spinlock using the Interlocked functions.  This is the only
+    // legal way to do this.
+    //
+
+    InterlockedDecrement(&partitionCounters->QueueDepth);
+
+    if (deviceExtension != physicalDisk) {
+        InterlockedDecrement(&diskCounters->QueueDepth);
+    }
+
+    //
     // Update counters under spinlock protection.
     //
 
     KeAcquireSpinLock(&physicalDisk->Spinlock, &currentIrql);
 
-    //
-    // Decrement the queue depth counters for the volume and physical disk.
-    //
-
-    partitionCounters->QueueDepth--;
-    diskCounters->QueueDepth--;
-
+    difference.QuadPart = timeStampComplete.QuadPart - timeStampStart.QuadPart;
     if (irpStack->MajorFunction == IRP_MJ_READ) {
 
         //
         // Add bytes in this request to bytes read counters.
         //
 
-        partitionCounters->BytesRead = RtlLargeIntegerAdd(partitionCounters->BytesRead,
-            RtlConvertUlongToLargeInteger(Irp->IoStatus.Information));
-
-        diskCounters->BytesRead = RtlLargeIntegerAdd(diskCounters->BytesRead,
-            RtlConvertUlongToLargeInteger(Irp->IoStatus.Information));
+        partitionCounters->BytesRead.QuadPart += Irp->IoStatus.Information;
+        diskCounters->BytesRead.QuadPart += Irp->IoStatus.Information;
 
         //
         // Increment read requests processed counters.
@@ -736,11 +746,8 @@ Return Value:
         // Calculate request processing time.
         //
 
-        partitionCounters->ReadTime = RtlLargeIntegerAdd(partitionCounters->ReadTime,
-            RtlLargeIntegerSubtract(timeStampComplete, timeStampStart));
-
-        diskCounters->ReadTime = RtlLargeIntegerAdd(diskCounters->ReadTime,
-            RtlLargeIntegerSubtract(timeStampComplete, timeStampStart));
+        partitionCounters->ReadTime.QuadPart += difference.QuadPart;
+        diskCounters->ReadTime.QuadPart += difference.QuadPart;
 
     } else {
 
@@ -748,11 +755,8 @@ Return Value:
         // Add bytes in this request to bytes write counters.
         //
 
-        partitionCounters->BytesWritten = RtlLargeIntegerAdd(partitionCounters->BytesWritten,
-            RtlConvertUlongToLargeInteger(Irp->IoStatus.Information));
-
-        diskCounters->BytesWritten = RtlLargeIntegerAdd(diskCounters->BytesWritten,
-            RtlConvertUlongToLargeInteger(Irp->IoStatus.Information));
+        partitionCounters->BytesWritten.QuadPart += Irp->IoStatus.Information;
+        diskCounters->BytesWritten.QuadPart += Irp->IoStatus.Information;
 
         //
         // Increment write requests processed counters.
@@ -765,11 +769,8 @@ Return Value:
         // Calculate request processing time.
         //
 
-        partitionCounters->WriteTime = RtlLargeIntegerAdd(partitionCounters->WriteTime,
-            RtlLargeIntegerSubtract(timeStampComplete, timeStampStart));
-
-        diskCounters->WriteTime = RtlLargeIntegerAdd(diskCounters->WriteTime,
-            RtlLargeIntegerSubtract(timeStampComplete, timeStampStart));
+        partitionCounters->WriteTime.QuadPart += difference.QuadPart;
+        diskCounters->WriteTime.QuadPart += difference.QuadPart;
     }
 
     //
@@ -1242,4 +1243,3 @@ Return Value:
 
     return Irp->IoStatus.Status;
 }
-

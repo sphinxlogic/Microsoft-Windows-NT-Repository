@@ -18,9 +18,8 @@ Revision History:
 
 --*/
 
-#include "types.h"
-#include "hosts.h"
 #include "nbtprocs.h"
+#include "hosts.h"
 #include <string.h>
 
 
@@ -321,13 +320,18 @@ Return Value:
                         (HANDLE) NULL,                      // RootDirectory
                         (PSECURITY_DESCRIPTOR) NULL);       // SecurityDescriptor
 
-            status = ZwOpenFile(
+            status = ZwCreateFile(
                         &handle,                            // FileHandle
                         SYNCHRONIZE | FILE_READ_DATA,       // DesiredAccess
                         &attributes,                        // ObjectAttributes
                         &iostatus,                          // IoStatusBlock
+                        0,                                  // AllocationSize
+                        FILE_ATTRIBUTE_NORMAL,              // FileAttributes
                         FILE_SHARE_READ | FILE_SHARE_WRITE, // ShareAccess
-                        FILE_SYNCHRONOUS_IO_NONALERT);      // OpenOptions
+                        FILE_OPEN,                          // CreateDisposition
+                        FILE_SYNCHRONOUS_IO_NONALERT,       // OpenOptions
+                        NULL,                               // EaBuffer
+                        0);                                 // EaLength
 
             if (NT_SUCCESS(status))
             {
@@ -377,4 +381,4 @@ Return Value:
 
 } // LmOpenFile
 
-
+

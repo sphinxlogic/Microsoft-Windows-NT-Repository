@@ -8,7 +8,7 @@ Module Name:
 
 Abstract:
 
-    Control routines (etc.) for the read, write, and copy tests.
+    Control routines (etc.) for the _read, _write, and copy tests.
 
 Author:
 
@@ -187,13 +187,13 @@ RwcController(
 
     Unused, SubCommand, Unused2;    // prevent compiler warnings
 
-    if ( stricmp( Redir->argv[0], "read" ) == 0 ) {
+    if ( _stricmp( Redir->argv[0], "read" ) == 0 ) {
         doRead = TRUE;
         doWrite = FALSE;
-    } else if ( stricmp( Redir->argv[0], "write" ) == 0 ) {
+    } else if ( _stricmp( Redir->argv[0], "write" ) == 0 ) {
         doRead = FALSE;
         doWrite = TRUE;
-    } else if ( stricmp( Redir->argv[0], "copy" ) == 0 ) {
+    } else if ( _stricmp( Redir->argv[0], "copy" ) == 0 ) {
         doRead = TRUE;
         doWrite = TRUE;
     } else {
@@ -392,11 +392,11 @@ RwcController(
         if ( !totalsOnly ) {
             LARGE_INTEGER kbps;
             (VOID)NtQuerySystemTime( (PLARGE_INTEGER)&endTime );
-            elapsedTime = RtlLargeIntegerSubtract( endTime, startTime );
+            elapsedTime.QuadPart = endTime.QuadPart - startTime.QuadPart;
             elapsedMs = RtlExtendedMagicDivide( elapsedTime, magic10000, 13 );
             if ( elapsedMs.LowPart != 0 ) {
-                kbps = RtlEnlargedIntegerMultiply( offset, 1000 );
-                kbps = RtlLargeIntegerDivide( kbps, elapsedMs, NULL );
+                kbps.QuadPart = Int32x32To64( offset, 1000 );
+                kbps.QuadPart = kbps.QuadPart / elapsedMs.QuadPart;
                 kbps = RtlExtendedLargeIntegerDivide( kbps, 1024, NULL );
             } else {
                 kbps.LowPart = 0;
@@ -418,12 +418,12 @@ RwcController(
     if ( totalsOnly || iterations > 1 ) {
         LARGE_INTEGER kbps;
         (VOID)NtQuerySystemTime( (PLARGE_INTEGER)&endTime );
-        elapsedTime = RtlLargeIntegerSubtract( endTime, totalStartTime );
+        elapsedTime.QuadPart = endTime.QuadPart - totalStartTime.QuadPart;
         elapsedMs = RtlExtendedMagicDivide( elapsedTime, magic10000, 13 );
         if ( elapsedMs.LowPart != 0 ) {
-            kbps = RtlEnlargedIntegerMultiply( offset, iterations );
+            kbps.QuadPart = Int32x32To64( offset, iterations );
             kbps = RtlExtendedIntegerMultiply( kbps, 1000 );
-            kbps = RtlLargeIntegerDivide( kbps, elapsedMs, NULL );
+            kbps.QuadPart = kbps.QuadPart / elapsedMs.QuadPart;
             kbps = RtlExtendedLargeIntegerDivide( kbps, 1024, NULL );
         } else {
             kbps.LowPart = 0;
@@ -464,7 +464,7 @@ WriteController(
 
     Unused, SubCommand, Unused2; // A good compiler is a happy compiler
 
-    if ( strnicmp( Redir->argv[0], "funkyclose",
+    if ( _strnicmp( Redir->argv[0], "funkyclose",
                                     strlen( Redir->argv[0] )) == 0) {
         writeFunction = DoRawWrite;
         writeLength = 8192;
@@ -719,7 +719,7 @@ UpdateController(
         } while ( actualLength == maxLength );
 
         (VOID)NtQuerySystemTime( (PLARGE_INTEGER)&endTime );
-        elapsedTime = RtlLargeIntegerSubtract( endTime, startTime );
+        elapsedTime.QuadPart = endTime.QuadPart - startTime.QuadPart;
         elapsedMs = RtlExtendedMagicDivide( elapsedTime, magic10000, 13 );
         switch ( iteration ) {
         case 0:
@@ -1647,7 +1647,7 @@ PipeController(
         }
 
         (VOID)NtQuerySystemTime( (PLARGE_INTEGER)&endTime );
-        elapsedTime = RtlLargeIntegerSubtract( endTime, startTime );
+        elapsedTime.QuadPart = endTime.QuadPart - startTime.QuadPart;
         elapsedMs = RtlExtendedMagicDivide( elapsedTime, magic10000, 13 );
         if (reader || writer) {
             printf( "Bytes %s %ld, ms %ld, rate %ld kbps\n",

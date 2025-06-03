@@ -545,4 +545,3 @@ GetXferSegment (const ADAPTER_PTR HA, IO_REQ_PTR Req, SegmentDescr *SGDescr,
     }
   }
 }
-

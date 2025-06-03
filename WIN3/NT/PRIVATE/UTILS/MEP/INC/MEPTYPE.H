@@ -587,4 +587,4 @@ DWORD       MepFWrite   (PVOID pBuffer,  DWORD Size, FILEHANDLE  Handle);
 DWORD       MepFSeek    (FILEHANDLE  Handle, DWORD  Distance,  MOVEMETHOD  MoveMethod);
 
 #pragma intrinsic( memset,      memcpy )
-
+

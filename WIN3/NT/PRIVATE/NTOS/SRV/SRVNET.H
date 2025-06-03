@@ -35,7 +35,9 @@ NTSTATUS
 SrvAddServedNet (
     IN PUNICODE_STRING NetworkName,
     IN PUNICODE_STRING TransportName,
-    IN PANSI_STRING TransportAddress
+    IN PANSI_STRING TransportAddress,
+    IN PUNICODE_STRING DomainName,
+    IN ULONG           Flags
     );
 
 NTSTATUS
@@ -60,14 +62,9 @@ SrvPrepareReceiveWorkItem (
     IN BOOLEAN QueueToFreeList
     );
 
-VOID
+VOID SRVFASTCALL
 SrvRestartAccept (
     IN OUT PWORK_CONTEXT WorkContext
-    );
-
-VOID
-SrvShutDownEndpoints (
-    VOID
     );
 
 VOID
@@ -84,7 +81,7 @@ SrvStartSend2 (
     IN PIO_COMPLETION_ROUTINE SendCompletionRoutine
     );
 
-VOID
+VOID SRVFASTCALL
 RestartStartSend (
     IN OUT PWORK_CONTEXT WorkContext
     );

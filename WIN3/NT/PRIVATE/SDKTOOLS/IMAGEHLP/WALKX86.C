@@ -26,12 +26,19 @@ Environment:
 #define _IMAGEHLP_SOURCE_
 #define _CROSS_PLATFORM_
 #include "walk.h"
+#include "private.h"
 
 
-#define SAVE_EBP(f)        f->Reserved[0]
-#define TRAP_TSS(f)        f->Reserved[1]
-#define TRAP_EDITED(f)     f->Reserved[1]
-#define SAVE_TRAP(f)       f->Reserved[2]
+#define SAVE_EBP(f)        (f->Reserved[0])
+#define TRAP_TSS(f)        (f->Reserved[1])
+#define TRAP_EDITED(f)     (f->Reserved[1])
+#define SAVE_TRAP(f)       (f->Reserved[2])
+#define CALLBACK_STACK(f)  (f->KdHelp.ThCallbackStack)
+#define CALLBACK_NEXT(f)   (f->KdHelp.NextCallback)
+#define CALLBACK_FUNC(f)   (f->KdHelp.KiCallUserMode)
+#define CALLBACK_THREAD(f) (f->KdHelp.Thread)
+#define CALLBACK_FP(f)     (f->KdHelp.FramePointer)
+#define CALLBACK_DISPATCHER(f) (f->KdHelp.KeUserCallbackDispatcher)
 
 #define STACK_SIZE         (sizeof(DWORD))
 #define FRAME_SIZE         (STACK_SIZE * 2)
@@ -303,7 +310,7 @@ SearchForReturnAddress(
 
         if (( cBytes >= 5 ) && ( ( code[ 2 ] == 0xE8 ) || ( code[ 2 ] == 0xE9 ) )) {
 
-            uoffT =  *( (LPDWORD) &code[3] ) + uoffRet;
+            uoffT =  *( (UNALIGNED DWORD *) &code[3] ) + uoffRet;
 
             //
             // See if it calls the function directly, or into the function
@@ -336,12 +343,12 @@ SearchForReturnAddress(
                 //
                 if ( *(LPBYTE)lpwJmp == 0xE9 ) {
 
-                    uoffT += *(LPDWORD)( jmpBuffer + sizeof(BYTE) ) + 5;
+                    uoffT += *(UNALIGNED DWORD *)( jmpBuffer + sizeof(BYTE) ) + 5;
 
                 } else if ( *lpwJmp == 0x25FF ) {
 
                     if ((!ReadMemory(hProcess,
-                                     (LPVOID)*(LPDWORD)((LPBYTE)lpwJmp+sizeof(WORD)),
+                                     (LPVOID)*(UNALIGNED DWORD *)((LPBYTE)lpwJmp+sizeof(WORD)),
                                      &uoffT,
                                      sizeof(uoffT),
                                      &cb)) || (cb != sizeof(uoffT))) {
@@ -405,7 +412,7 @@ SearchForReturnAddress(
     }
 
     //
-    // we found nothig that was 100% definite so we'll return the best guess
+    // we found nothing that was 100% definite so we'll return the best guess
     //
     return uoffBestGuess;
 }
@@ -471,7 +478,7 @@ GetFpoFrameBase(
             // we must save the last non-fpo's frame address
             // for use by the next non-fpo frame
             //
-            if ( !pFpoData->fUseBP && SAVE_EBP(lpstkfrm) == 0) {
+            if ((!pFpoData->fUseBP) && SAVE_EBP(lpstkfrm) == 0) {
                 if (!ReadMemory(hProcess,
                                 (LPVOID)OldFrameAddr,
                                 &SAVE_EBP(lpstkfrm),
@@ -485,8 +492,7 @@ GetFpoFrameBase(
     } else {
 
         OldFrameAddr = lpstkfrm->AddrFrame.Offset;
-
-        if ( !pFpoData->fUseBP ) {
+        if (!pFpoData->fUseBP) {
             //
             // this frame didn't use EBP, so it actually belongs
             // to a non-FPO frame further up the stack.  Stash
@@ -565,7 +571,8 @@ GetFpoFrameBase(
         return TRUE;
     }
 
-    if (pFpoData->cbFrame != FRAME_FPO) {
+    if ((pFpoData->cbFrame != FRAME_FPO) &&
+        (pFpoData->cbFrame != FRAME_NONFPO) ) {
         //
         // we either have a compiler or linker problem, or possibly
         // just simple data corruption.
@@ -592,7 +599,7 @@ GetFpoFrameBase(
         return FALSE;
     }
 
-    if ( pFpoData->fUseBP ) {
+    if (pFpoData->fUseBP && pFpoData->cbFrame != FRAME_NONFPO) {
 
         //
         // this function used ebp as a general purpose register, but
@@ -885,16 +892,16 @@ ProcessTrapFrame(
     if (!pFpoData) {
         lpstkfrm->AddrFrame.Offset = TrapFrame.Ebp;
         SAVE_EBP(lpstkfrm) = 0;
-    }
-    else {
+    } else {
         if (((TrapFrame.SegCs & MODE_MASK) != KernelMode) ||
             (TrapFrame.EFlags & EFLAGS_V86_MASK)) {
             //
             // User-mode frame, real value of Esp is in HardwareEsp
             //
             lpstkfrm->AddrFrame.Offset = TrapFrame.HardwareEsp - STACK_SIZE;
-        }
-        else {
+            lpstkfrm->AddrStack.Offset = (ULONG)TrapFrame.HardwareEsp;
+
+        } else {
             //
             // We ignore if Esp has been edited for now, and we will print a
             // separate line indicating this later.
@@ -907,26 +914,22 @@ ProcessTrapFrame(
                 // plain trap frame
                 //
                 if ((TrapFrame.SegCs & FRAME_EDITED) == 0) {
-                    lpstkfrm->AddrFrame.Offset = TrapFrame.TempEsp;
+                    lpstkfrm->AddrStack.Offset = TrapFrame.TempEsp;
                 } else {
-                    lpstkfrm->AddrFrame.Offset = (ULONG)
+                    lpstkfrm->AddrStack.Offset = (ULONG)
                         (& (((PKTRAP_FRAME)SAVE_TRAP(lpstkfrm))->HardwareEsp) );
                 }
             } else {
                 //
                 // tss converted to trap frame
                 //
-                lpstkfrm->AddrFrame.Offset = TrapFrame.HardwareEsp;
+                lpstkfrm->AddrStack.Offset = TrapFrame.HardwareEsp;
             }
-#if 0
-            lpstkfrm->AddrFrame.Offset += pFpoData->cdwLocals * STACK_SIZE;
-            if (pFpoData->cbFrame == FRAME_FPO) {
-                lpstkfrm->AddrFrame.Offset += pFpoData->cbRegs * STACK_SIZE - STACK_SIZE;
-            }
-#endif
         }
-        SAVE_EBP(lpstkfrm) = TrapFrame.Ebp;
     }
+
+    lpstkfrm->AddrFrame.Offset = (ULONG)TrapFrame.Ebp;
+    lpstkfrm->AddrPC.Offset = (ULONG)TrapFrame.Eip;
 
     SAVE_TRAP(lpstkfrm) = 0;
     lpstkfrm->FuncTableEntry = pFpoData;
@@ -1201,15 +1204,38 @@ WalkX86_Fpo_NonFpo(
     PTRANSLATE_ADDRESS_ROUTINE        TranslateAddress
     )
 {
-    DWORD       stack[FRAME_SIZE];
+    DWORD       stack[FRAME_SIZE+STACK_SIZE];
     DWORD       cb;
     DWORD       FrameAddr;
 
 
     //
+    // if the previous frame was an seh frame then we must
+    // retrieve the "real" frame pointer for this frame.
+    // the seh function pushed the frame pointer last.
+    //
+    if (((PFPO_DATA)lpstkfrm->FuncTableEntry)->fHasSEH) {
+        if (DoMemoryRead( &lpstkfrm->AddrFrame, stack, FRAME_SIZE+STACK_SIZE, &cb )) {
+            lpstkfrm->AddrFrame.Offset = stack[2];
+            lpstkfrm->AddrStack.Offset = stack[2];
+            WalkX86Init(
+                hProcess,
+                hThread,
+                lpstkfrm,
+                ContextRecord,
+                ReadMemory,
+                FunctionTableAccess,
+                GetModuleBase,
+                TranslateAddress
+                );
+            return TRUE;
+        }
+    }
+
+    //
     // at this time the frame pointer is pointing to a frame with a bogus
     // ebp and a good return address.  we must skip past the frame and
-    // any paratemeters to the fpo function.
+    // any parameters to the fpo function.
     //
     lpstkfrm->AddrFrame.Offset +=
         (FRAME_SIZE + (((PFPO_DATA)lpstkfrm->FuncTableEntry)->cdwParams * 4));
@@ -1254,7 +1280,7 @@ WalkX86_Fpo_NonFpo(
     }
     SAVE_EBP(lpstkfrm) = stack[0];
 
-    lpstkfrm->FuncTableEntry = NULL;
+    lpstkfrm->FuncTableEntry = pFpoData;
 
     return TRUE;
 }
@@ -1325,7 +1351,7 @@ WalkX86_NonFpo_NonFpo(
 
     lpstkfrm->AddrFrame.Offset = stack[0];
 
-    lpstkfrm->FuncTableEntry = NULL;
+    lpstkfrm->FuncTableEntry = pFpoData;
 
     return TRUE;
 }
@@ -1344,7 +1370,12 @@ WalkX86Next(
 {
     PFPO_DATA      pFpoData = NULL;
     BOOL           rVal = TRUE;
+    DWORD          Address;
+    DWORD          cb;
+    DWORD          ThisPC;
+    DWORD          ModuleBase;
 
+    ThisPC = lpstkfrm->AddrPC.Offset;
 
     //
     // the previous frame's return address is this frame's pc
@@ -1367,20 +1398,143 @@ WalkX86Next(
     }
 
     //
+    // if the last frame was the usermode callback dispatcher,
+    // switch over to the kernel stack:
+    //
+
+    ModuleBase = GetModuleBase(hProcess, ThisPC);
+
+    if (AppVersion.Revision >= 4 &&
+             CALLBACK_STACK(lpstkfrm) != 0 &&
+             (pFpoData = (PFPO_DATA)lpstkfrm->FuncTableEntry) &&
+             CALLBACK_DISPATCHER(lpstkfrm) == ModuleBase + pFpoData->ulOffStart )  {
+
+      NextCallback:
+
+        rVal = FALSE;
+
+        //
+        // find callout frame
+        //
+
+        if (CALLBACK_STACK(lpstkfrm) & 0x80000000) {
+
+            //
+            // it is the pointer to the stack frame that we want,
+            // or -1.
+
+            Address = CALLBACK_STACK(lpstkfrm);
+
+        } else {
+
+            //
+            // if it is a positive integer, it is the offset to
+            // the address in the thread.
+            // Look up the pointer:
+            //
+
+            rVal = ReadMemory(hProcess,
+                              (PVOID)(CALLBACK_THREAD(lpstkfrm) +
+                                                     CALLBACK_STACK(lpstkfrm)),
+                              &Address,
+                              sizeof(DWORD),
+                              &cb);
+
+            if (!rVal || Address == 0) {
+                Address = 0xffffffff;
+                CALLBACK_STACK(lpstkfrm) = 0xffffffff;
+            }
+
+        }
+
+        if ((Address == 0xffffffff) ||
+            !(pFpoData = (PFPO_DATA) FunctionTableAccess( hProcess,
+                                                 CALLBACK_FUNC(lpstkfrm))) ) {
+            rVal = FALSE;
+
+        } else {
+
+            lpstkfrm->FuncTableEntry = pFpoData;
+
+            lpstkfrm->AddrPC.Offset = CALLBACK_FUNC(lpstkfrm) +
+                                                    pFpoData->cbProlog;
+
+            lpstkfrm->AddrStack.Offset = Address;
+
+            ReadMemory(hProcess,
+                       (PVOID)(Address + CALLBACK_FP(lpstkfrm)),
+                       &lpstkfrm->AddrFrame.Offset,
+                       sizeof(DWORD),
+                       &cb);
+
+            ReadMemory(hProcess,
+                       (PVOID)(Address + CALLBACK_NEXT(lpstkfrm)),
+                       &CALLBACK_STACK(lpstkfrm),
+                       sizeof(DWORD),
+                       &cb);
+
+            SAVE_TRAP(lpstkfrm) = 0;
+
+            rVal = WalkX86Init(
+                hProcess,
+                hThread,
+                lpstkfrm,
+                ContextRecord,
+                ReadMemory,
+                FunctionTableAccess,
+                GetModuleBase,
+                TranslateAddress
+                );
+
+        }
+
+        return rVal;
+
+    }
+
+    //
     // if there is a trap frame then handle it
     //
     if (SAVE_TRAP(lpstkfrm)) {
-        rVal = ProcessTrapFrame( hProcess, lpstkfrm, pFpoData,
-                                 ReadMemory, FunctionTableAccess );
-        goto exit;
+        rVal = ProcessTrapFrame(
+            hProcess,
+            lpstkfrm,
+            pFpoData,
+            ReadMemory,
+            FunctionTableAccess
+            );
+        if (!rVal) {
+            return rVal;
+        }
+        rVal = WalkX86Init(
+            hProcess,
+            hThread,
+            lpstkfrm,
+            ContextRecord,
+            ReadMemory,
+            FunctionTableAccess,
+            GetModuleBase,
+            TranslateAddress
+            );
+        return rVal;
     }
 
     //
     // if the PC address is zero then we're at the end of the stack
     //
     if (GetModuleBase(hProcess, lpstkfrm->AddrPC.Offset) == 0) {
+
+        //
+        // if we ran out of stack, check to see if there is
+        // a callback stack chain
+        //
+        if (AppVersion.Revision >= 4 && CALLBACK_STACK(lpstkfrm) != 0) {
+            goto NextCallback;
+        }
+
         return FALSE;
     }
+
 
     //
     // check to see if the current frame is an fpo frame
@@ -1388,9 +1542,9 @@ WalkX86Next(
     pFpoData = (PFPO_DATA) FunctionTableAccess(hProcess, lpstkfrm->AddrPC.Offset);
 
 
-    if (pFpoData) {
+    if (pFpoData && pFpoData->cbFrame != FRAME_NONFPO) {
 
-        if (lpstkfrm->FuncTableEntry) {
+        if (lpstkfrm->FuncTableEntry && ((PFPO_DATA)lpstkfrm->FuncTableEntry)->cbFrame != FRAME_NONFPO) {
 
             rVal = WalkX86_Fpo_Fpo( hProcess,
                                   hThread,
@@ -1418,7 +1572,7 @@ WalkX86Next(
 
         }
     } else {
-        if (lpstkfrm->FuncTableEntry) {
+        if (lpstkfrm->FuncTableEntry && ((PFPO_DATA)lpstkfrm->FuncTableEntry)->cbFrame != FRAME_NONFPO) {
 
             rVal = WalkX86_Fpo_NonFpo( hProcess,
                                      hThread,
@@ -1491,7 +1645,7 @@ WalkX86Init(
     lpstkfrm->FuncTableEntry = pFpoData = (PFPO_DATA)
         FunctionTableAccess(hProcess, lpstkfrm->AddrPC.Offset);
 
-    if (pFpoData) {
+    if (pFpoData && pFpoData->cbFrame != FRAME_NONFPO) {
 
         GetFpoFrameBase( hProcess,
                          lpstkfrm,

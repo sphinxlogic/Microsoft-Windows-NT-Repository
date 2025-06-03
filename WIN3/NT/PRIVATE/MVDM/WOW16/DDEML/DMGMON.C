@@ -21,7 +21,7 @@ LPHMSTRUCT lParam)
     if (cMonitor && lParam &&
             lParam->wMsg >= WM_DDE_FIRST && lParam->wMsg <= WM_DDE_LAST) {
         if (hData = allocMonBuf(sizeof(MONMSGSTRUCT), HIWORD(MF_SENDMSGS))) {
-            pmsgs = (MONMSGSTRUCT FAR *)GLOBALLOCK(HIWORD(hData));
+            pmsgs = (MONMSGSTRUCT FAR *)GlobalLock(HIWORD(hData));
             pmsgs->cb = sizeof(MONMSGSTRUCT);
             pmsgs->dwTime = GetCurrentTime();
             pmsgs->hwndTo = lParam->hWnd;
@@ -49,7 +49,7 @@ LPMSG lParam;
     if (cMonitor && lParam &&
             lParam->message >= WM_DDE_FIRST && lParam->message <= WM_DDE_LAST) {
         if (hData = allocMonBuf(sizeof(MONMSGSTRUCT), HIWORD(MF_POSTMSGS))) {
-            pmsgs = (MONMSGSTRUCT FAR *)GLOBALLOCK(HIWORD(hData));
+            pmsgs = (MONMSGSTRUCT FAR *)GlobalLock(HIWORD(hData));
             pmsgs->cb = sizeof(MONMSGSTRUCT);
             pmsgs->dwTime = lParam->time;
             pmsgs->hwndTo = lParam->hwnd;
@@ -83,7 +83,7 @@ DWORD dwRet)
     SEMENTER();
     if (pai) {
         if (hDataBuf = allocMonBuf(sizeof(MONCBSTRUCT), HIWORD(MF_CALLBACKS))) {
-            pcbs = (MONCBSTRUCT FAR *)GLOBALLOCK(HIWORD(hDataBuf));
+            pcbs = (MONCBSTRUCT FAR *)GlobalLock(HIWORD(hDataBuf));
             pcbs->cb = sizeof(MONCBSTRUCT);
             pcbs->dwTime = GetCurrentTime();
             pcbs->hTask = pai->hTask;
@@ -116,7 +116,7 @@ HANDLE hTask)
 
     if (hData = allocMonBuf(sizeof(MONHSZSTRUCT) + (cb = QueryHszLength((HSZ)a)),
             HIWORD(MF_HSZ_INFO))) {
-        phszs = (MONHSZSTRUCT FAR *)GLOBALLOCK(HIWORD(hData));
+        phszs = (MONHSZSTRUCT FAR *)GlobalLock(HIWORD(hData));
         phszs->cb = sizeof(MONHSZSTRUCT) + cb + 1;
         phszs->dwTime = GetCurrentTime();
         phszs->hTask = hTask;
@@ -139,7 +139,7 @@ WORD error)
 
     if (error) {
         if (hData = allocMonBuf(sizeof(MONERRSTRUCT), HIWORD(MF_ERRORS))) {
-            perrs = (MONERRSTRUCT FAR *)GLOBALLOCK(HIWORD(hData));
+            perrs = (MONERRSTRUCT FAR *)GlobalLock(HIWORD(hData));
             perrs->cb = sizeof(MONERRSTRUCT);
             perrs->dwTime = GetCurrentTime();
             perrs->hTask = pai->hTask;
@@ -168,7 +168,7 @@ HCONV hConvClient)
     HDDEDATA hData;
 
     if (hData = allocMonBuf(sizeof(MONLINKSTRUCT), HIWORD(MF_LINKS))) {
-        plink = (MONLINKSTRUCT FAR *)GLOBALLOCK(HIWORD(hData));
+        plink = (MONLINKSTRUCT FAR *)GlobalLock(HIWORD(hData));
         plink->cb = sizeof(MONLINKSTRUCT);
         plink->dwTime = GetCurrentTime();
         plink->hTask = pai->hTask;
@@ -200,7 +200,7 @@ BOOL fConnect)
     HDDEDATA hData;
 
     if (hData = allocMonBuf(sizeof(MONCONVSTRUCT), HIWORD(MF_CONV))) {
-        pconv = (MONCONVSTRUCT FAR *)GLOBALLOCK(HIWORD(hData));
+        pconv = (MONCONVSTRUCT FAR *)GlobalLock(HIWORD(hData));
         pconv->cb = sizeof(MONCONVSTRUCT);
         pconv->dwTime = GetCurrentTime();
         pconv->hTask = pai->hTask;
@@ -238,7 +238,7 @@ WORD filterClass)  // set to class of filter or 0
         pai = pai->next;
     }
     SEMLEAVE();
-    GLOBALUNLOCK(HIWORD(hData));
+    GlobalUnlock(HIWORD(hData));
     GLOBALFREE(HIWORD(hData));
 }
 
@@ -267,8 +267,6 @@ WORD filter)
 }
 
 
-
-
 long    EXPENTRY MonitorWndProc(hwnd, msg, wP, lP)
 HWND hwnd;
 WORD msg;
@@ -277,7 +275,7 @@ register DWORD lP;
 {
     switch (msg) {
     case WM_CREATE:
-        SetWindowWord(hwnd, GWW_PAI, (WORD)(DWORD)(((LPCREATESTRUCT)lP)->lpCreateParams));
+        SetWindowWord(hwnd, GWW_PAI, (WORD)LPCREATESTRUCT_GETPAI(lP));
         break;
 
     case UM_MONITOR:
@@ -295,4 +293,3 @@ register DWORD lP;
     return(0);
 }
 
-

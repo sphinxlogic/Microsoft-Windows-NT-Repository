@@ -25,22 +25,66 @@ DonnaLi     09-11-1990      Created.
 #define __BUFFER_HXX__
 
 #include "stream.hxx"
+#include <assert.h>
 
-typedef struct _BufferElement
+class BufferElement
 {
-	struct _BufferElement *	pPrev;
-	struct _BufferElement *	pNext;
-	char **					pBuffer;
+public:
+	BufferElement *	pPrev;
+	BufferElement *	pNext;
+	char **			pBuffer;
 
-	_BufferElement(
-		struct _BufferElement * pPrevElem,
-		struct _BufferElement * pNextElem,
-		char ** pNewBuf);
-	struct _BufferElement * ExtendPrev(char **);
-	struct _BufferElement * ExtendNext(char **);
-	struct _BufferElement * GetPrev(void);
-	struct _BufferElement * GetNext(void);
-} BufferElement;
+	BufferElement(
+					BufferElement * pPrevElem,
+					BufferElement * pNextElem,
+					char ** pNewBuf)
+			{
+			pPrev = pPrevElem;
+			pNext = pNextElem;
+			pBuffer = pNewBuf;
+			}
+
+
+	~BufferElement()
+			{
+			delete pBuffer;
+			}
+
+	BufferElement * ExtendPrev(char ** pNewBuf)
+			{
+			if (pPrev)
+				{
+				return pPrev;
+				}
+			else
+				{
+				return pPrev = new BufferElement(NULL, this, pNewBuf);
+				}
+			}
+
+	BufferElement * ExtendNext(char ** pNewBuf)
+			{
+			if (pNext)
+				{
+				return pNext;
+				}
+			else
+				{
+				return pNext = new BufferElement(this, NULL, pNewBuf);
+				}
+			}
+
+	BufferElement * GetPrev()
+			{
+			return pPrev;
+			}
+
+	BufferElement * GetNext()
+			{
+			return pNext;
+			}
+		
+};
 
 class BufferManager
 {
@@ -55,21 +99,88 @@ class BufferManager
 
 public:
 	BufferManager(unsigned short);
-	BufferManager(unsigned short, unsigned short, char * []);
-	void	Clear(void);
-	short	Empty(void);
-	void	Print(STREAM *);
+	BufferManager(unsigned short, unsigned short, const char * []);
+	~BufferManager()
+				{
+				BufferElement * pCur = pHead;
+				BufferElement * pNext;
+
+				while ( pCur )
+					{
+					pNext = pCur->pNext;
+					delete pCur;
+					pCur = pNext;
+					}
+				}
+
+	void	Clear()
+				{
+				if ( pHead != pTail )
+					{
+					BufferElement * pCur = pHead;
+					BufferElement * pNext;
+
+					while ( pCur )
+						{
+						pNext = pCur->pNext;
+						if ( pCur != pSave )
+							delete pCur;
+						pCur = pNext;
+						}
+					}
+				pHead = pTail = pSave;
+				pSave->pNext = NULL;
+				pSave->pPrev = NULL;
+				iHead = iTail = usBufSize - 2;
+				}
+
 	void	Print(ISTREAM *);
-	void	Print(FILE *);
-	void	Print(char *);
-	void	Clone(BufferManager *);
-	void	Merge(BufferManager *);
-	void	ConcatHead(char *);
-	void	ConcatHead(unsigned short);
-	void	ConcatTail(char *);
-	void	ConcatTail(unsigned short);
-	void	RemoveHead(char **);
-	void	RemoveTail(char **);
-} ;
+
+	void	ConcatHead(char * psz)
+				{
+				BufferElement *	pTemp;
+
+				if (iHead == 0)
+					{
+					pTemp = pHead->ExtendPrev(new (char *[usBufSize]));
+					iHead = usBufSize-1;
+					pHead = pTemp;
+					pHead->pBuffer[iHead] = psz;
+					}
+				else
+					{
+					pHead->pBuffer[--iHead] = psz;
+					}
+				}
+
+	void	ConcatHead(unsigned short iIndex)
+				{
+				assert( iIndex < usTabSize );
+				ConcatHead( pszTable[iIndex] );
+				}
+
+	void	ConcatTail(char * psz)
+				{
+				BufferElement *	pTemp;
+
+				if (iTail == usBufSize)
+					{
+					pTemp = pTail->ExtendNext(new (char *[usBufSize]));
+					iTail = 0;
+					pTail = pTemp;
+					pTail->pBuffer[iTail++] = psz;
+					}
+				else
+					{
+					pTail->pBuffer[iTail++] = psz;
+					}
+				}
+	void	ConcatTail(unsigned short iIndex)
+				{
+				assert( iIndex < usTabSize );
+				ConcatTail( pszTable[iIndex] );
+				}
+
+};
 
 #endif // __BUFFER_HXX__

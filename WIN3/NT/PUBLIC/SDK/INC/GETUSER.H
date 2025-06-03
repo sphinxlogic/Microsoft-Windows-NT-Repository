@@ -89,6 +89,17 @@ typedef struct tagUSLT {    // uslt
 				     USRBROWS_SHOW_GROUPS  |\
 				     USRBROWS_SHOW_USERS)
 
+
+//
+// The caller should provide the name of a help file containing four
+// help contexts.  The first help context is for the main User Browser
+// dialog, the next three are for the Local Group Membership, Global Group
+// Membership, and Find Account subdialogs, respectively.
+//
+#define USRBROWS_HELP_OFFSET_LOCALGROUP  1
+#define USRBROWS_HELP_OFFSET_GLOBALGROUP 2
+#define USRBROWS_HELP_OFFSET_FINDUSER    3
+
 //
 //  User Details structure returned by user browser enumeration
 //

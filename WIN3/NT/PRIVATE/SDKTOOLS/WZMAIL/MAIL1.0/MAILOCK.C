@@ -165,7 +165,7 @@ char *file;
 		if (Lockstat.st_mtime + MAXLCKAGE <= time((time_t *) 0)) {
 			i = ML_STALE;
 			errval = Lockstat.st_uid;
-			unlink(cp);
+			_unlink(cp);
 			continue;
 		}
 
@@ -181,13 +181,13 @@ char *file;
 		i = ML_STATERR;		/* bad news */
 		errval = errno;
 		if (errno != ENOENT) {	/* disappeared? */
-			unlink(cp);
+			_unlink(cp);
 		}
 	} else {
 		Locked = 1;
 	}
 lockerr:
-	unlink(tmpname);
+	_unlink(tmpname);
 lockerr2:
 	if (i) {
 		fprintf(stderr, "mailock: ");
@@ -227,6 +227,6 @@ mailunlock()
 		return(-1);
 	}
 	Locked = 0;
-	unlink(Lockfile);
+	_unlink(Lockfile);
 	return(0);
 }

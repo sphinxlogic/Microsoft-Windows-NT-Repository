@@ -31,10 +31,8 @@ Revision History:
 
 --*/
 
-#include <sysinc.h>
-#include <rpc.h>
-#include <util.hxx>
-#include <rpcuuid.hxx>
+#include <precomp.hxx>
+#include <osfpcket.hxx>
 
 
 static RPC_CHAR PAPI *
@@ -496,3 +494,12 @@ Return Value:
            ^ Values[4] ^ Values[5] ^ Values[6] ^ Values[7] );
 }
 
+void ByteSwapUuid(
+    RPC_UUID PAPI *pRpcUuid
+    )
+{
+    UUID PAPI *pUuid = (UUID PAPI *)pRpcUuid;
+    ByteSwapLong(pUuid->Data1);
+    ByteSwapShort(pUuid->Data2);
+    ByteSwapShort(pUuid->Data3);
+}

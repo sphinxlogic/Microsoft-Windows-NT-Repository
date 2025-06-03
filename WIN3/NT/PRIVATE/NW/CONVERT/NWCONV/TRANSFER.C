@@ -36,6 +36,7 @@
 #include "userdlg.h"
 #include "statbox.h"
 #include "filedlg.h"
+#include "map.h"
 
 #define NWC_ERR_IGNORE 1
 #define NWC_ERR_NAMELONG 2
@@ -45,7 +46,7 @@
 #define ILLEGAL_CHARS TEXT("\"\\/[]:;=,+*?<>")
 
 // define for routines in fcopy.c
-void ConvertFiles(HWND hDlg, BOOL TConversion, USER_LIST *Users, ULONG UserCount, GROUP_LIST *Groups, ULONG GroupCount);
+void ConvertFiles(HWND hDlg, BOOL TConversion, USER_LIST *Users, GROUP_LIST *Groups);
 void ConvertFilesInit(HWND hDlg);
 void VSharesCreate(DEST_SERVER_BUFFER *DServ, BOOL TConversion);
 
@@ -92,6 +93,8 @@ static DWORD UserCount, NTUserCount;
 static DWORD GroupCount, NTGroupCount;
 static BOOL TransferCancel = FALSE;
 
+static MAP_FILE *hMap;
+
 // All of this is used for transfer lists in the conversion
 #define USER_SERVER 0
 #define USER_SERVER_PDC 1
@@ -110,8 +113,8 @@ typedef struct _TRANSFER_LIST {
 
 
 /*+-------------------------------------------------------------------------+
-  | ErrorIt()                                                               |
-  |                                                                         |
+  | ErrorIt()
+  |
   +-------------------------------------------------------------------------+*/
 void ErrorIt(LPTSTR szFormat, ...) {
    static TCHAR tmpStr[1024];
@@ -126,7 +129,7 @@ void ErrorIt(LPTSTR szFormat, ...) {
 
    TotErrors++;
    Status_TotErrors(TotErrors);
-   LogWriteErr(tmpStr);
+   LogWriteErr(TEXT("%s"),tmpStr);
    va_end(marker);
 
 } // ErrorIt
@@ -137,8 +140,8 @@ void ErrorIt(LPTSTR szFormat, ...) {
   +-------------------------------------------------------------------------+*/
 
 /*+-------------------------------------------------------------------------+
-  | ShareListNTFSCheck()                                                    |
-  |                                                                         |
+  | ShareListNTFSCheck()
+  |
   +-------------------------------------------------------------------------+*/
 BOOL ShareListNTFSCheck() {
    CONVERT_LIST *ConvList;
@@ -155,7 +158,7 @@ BOOL ShareListNTFSCheck() {
    ConvList = ConvertListStart;
 
    while (ConvList != NULL) {
-      DServ = ConvList->DestServ;
+      DServ = ConvList->FileServ;
       SServ = ConvList->SourceServ;
 
       FileOptions = (FILE_OPTIONS *) ConvList->FileOptions;
@@ -197,8 +200,8 @@ BOOL ShareListNTFSCheck() {
 
 
 /*+-------------------------------------------------------------------------+
-  | ShareListNTFSListboxFill()                                              |
-  |                                                                         |
+  | ShareListNTFSListboxFill()
+  |
   +-------------------------------------------------------------------------+*/
 void ShareListNTFSListboxFill(HWND hDlg) {
    TCHAR AddLine[256];
@@ -218,7 +221,7 @@ void ShareListNTFSListboxFill(HWND hDlg) {
    hCtrl = GetDlgItem(hDlg, IDC_LIST1);
 
    while (ConvList != NULL) {
-      DServ = ConvList->DestServ;
+      DServ = ConvList->FileServ;
       SServ = ConvList->SourceServ;
 
       FileOptions = (FILE_OPTIONS *) ConvList->FileOptions;
@@ -261,8 +264,8 @@ void ShareListNTFSListboxFill(HWND hDlg) {
 
 
 /*+-------------------------------------------------------------------------+
-  | ShareListFATOK()                                                        |
-  |                                                                         |
+  | ShareListFATOK()
+  |
   +-------------------------------------------------------------------------+*/
 void ShareListFATOK() {
    CONVERT_LIST *ConvList;
@@ -277,7 +280,7 @@ void ShareListFATOK() {
    ConvList = ConvertListStart;
 
    while (ConvList != NULL) {
-      DServ = ConvList->DestServ;
+      DServ = ConvList->FileServ;
       SServ = ConvList->SourceServ;
 
       FileOptions = (FILE_OPTIONS *) ConvList->FileOptions;
@@ -306,8 +309,8 @@ void ShareListFATOK() {
   +-------------------------------------------------------------------------+*/
 
 /*+-------------------------------------------------------------------------+
-  | ShareListSpaceCheck()                                                   |
-  |                                                                         |
+  | ShareListSpaceCheck()
+  |
   +-------------------------------------------------------------------------+*/
 BOOL ShareListSpaceCheck() {
    CONVERT_LIST *ConvList;
@@ -324,7 +327,7 @@ BOOL ShareListSpaceCheck() {
    ConvList = ConvertListStart;
 
    while (ConvList != NULL) {
-      DServ = ConvList->DestServ;
+      DServ = ConvList->FileServ;
       SServ = ConvList->SourceServ;
 
       FileOptions = (FILE_OPTIONS *) ConvList->FileOptions;
@@ -363,8 +366,8 @@ BOOL ShareListSpaceCheck() {
 
 
 /*+-------------------------------------------------------------------------+
-  | ShareListSpaceListboxFill()                                             |
-  |                                                                         |
+  | ShareListSpaceListboxFill()
+  |
   +-------------------------------------------------------------------------+*/
 void ShareListSpaceListboxFill(HWND hDlg) {
    TCHAR AddLine[256];
@@ -385,7 +388,7 @@ void ShareListSpaceListboxFill(HWND hDlg) {
    hCtrl = GetDlgItem(hDlg, IDC_LIST1);
 
    while (ConvList != NULL) {
-      DServ = ConvList->DestServ;
+      DServ = ConvList->FileServ;
       SServ = ConvList->SourceServ;
 
       FileOptions = (FILE_OPTIONS *) ConvList->FileOptions;
@@ -457,8 +460,8 @@ void ShareListSpaceListboxFill(HWND hDlg) {
   +-------------------------------------------------------------------------+*/
 
 /*+-------------------------------------------------------------------------+
-  | DlgConversionWarning()                                                  |
-  |                                                                         |
+  | DlgConversionWarning()
+  |
   +-------------------------------------------------------------------------+*/
 LRESULT CALLBACK DlgConversionWarning(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam) {
    int wmId, wmEvent;
@@ -477,12 +480,6 @@ LRESULT CALLBACK DlgConversionWarning(HWND hDlg, UINT message, WPARAM wParam, LP
          }
 
          return (TRUE);
-
-#ifdef Ctl3d
-      case WM_SYSCOLORCHANGE:
-         Ctl3dColorChange();
-         break;
-#endif
 
       case WM_COMMAND:
          wmId    = LOWORD(wParam);
@@ -515,8 +512,8 @@ LRESULT CALLBACK DlgConversionWarning(HWND hDlg, UINT message, WPARAM wParam, LP
 
 
 /*+-------------------------------------------------------------------------+
-  | ConversionWarningDlg_Do()                                               |
-  |                                                                         |
+  | ConversionWarningDlg_Do()
+  |
   +-------------------------------------------------------------------------+*/
 void ConversionWarningDlg_Do(HWND hDlg) {
    DLGPROC lpfnDlg;
@@ -529,8 +526,8 @@ void ConversionWarningDlg_Do(HWND hDlg) {
 
 
 /*+-------------------------------------------------------------------------+
-  | NTFSCheck()                                                             |
-  |                                                                         |
+  | NTFSCheck()
+  |
   +-------------------------------------------------------------------------+*/
 void NTFSCheck(HWND hDlg) {
    WarningDlgForNTFS = TRUE;
@@ -542,8 +539,8 @@ void NTFSCheck(HWND hDlg) {
 
 
 /*+-------------------------------------------------------------------------+
-  | SpaceCheck()                                                            |
-  |                                                                         |
+  | SpaceCheck()
+  |
   +-------------------------------------------------------------------------+*/
 void SpaceCheck(HWND hDlg) {
    WarningDlgForNTFS = FALSE;
@@ -560,8 +557,8 @@ void SpaceCheck(HWND hDlg) {
   +-------------------------------------------------------------------------+*/
 
 /*+-------------------------------------------------------------------------+
-  | DlgConversionEnd()                                                      |
-  |                                                                         |
+  | DlgConversionEnd()
+  |
   +-------------------------------------------------------------------------+*/
 LRESULT CALLBACK DlgConversionEnd(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam) {
    HANDLE hFile;
@@ -596,18 +593,13 @@ LRESULT CALLBACK DlgConversionEnd(HWND hDlg, UINT message, WPARAM wParam, LPARAM
 
          return (TRUE);
 
-#ifdef Ctl3d
-      case WM_SYSCOLORCHANGE:
-         Ctl3dColorChange();
-         break;
-#endif
-
       case WM_COMMAND:
          wmId    = LOWORD(wParam);
          wmEvent = HIWORD(wParam);
 
          switch (wmId) {
             case IDOK:
+            case IDCANCEL:
                EndDialog(hDlg, 0);
                return (TRUE);
                break;
@@ -631,8 +623,8 @@ LRESULT CALLBACK DlgConversionEnd(HWND hDlg, UINT message, WPARAM wParam, LPARAM
 
 
 /*+-------------------------------------------------------------------------+
-  | ConversionEndDlg_Do()                                                   |
-  |                                                                         |
+  | ConversionEndDlg_Do()
+  |
   +-------------------------------------------------------------------------+*/
 void ConversionEndDlg_Do(HWND hDlg) {
    DLGPROC lpfnDlg;
@@ -646,125 +638,28 @@ void ConversionEndDlg_Do(HWND hDlg) {
 
 
 /*+-------------------------------------------------------------------------+
-  |                            Mapping File stuff                           |
-  +-------------------------------------------------------------------------+*/
-
-/*+-------------------------------------------------------------------------+
-  | MapFileCreate()                                                         |
-  |                                                                         |
-  |    Creates a mapping file.  This allows the admin to specify for each   |
-  |    user a new username and password.                                    |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-BOOL MapFileCreate(LPTSTR FileName, LPTSTR Server) {
-   BOOL status = FALSE;
-   DWORD ret = 0;
-   USER_LIST *Users;
-   DWORD UserCount;
-   GROUP_LIST *Groups;
-   DWORD GroupCount;
-   int Count;
-
-   if (!(ret = NWServerSet(Server))) {
-      if (!NWUsersEnum(&Users, &UserCount)) {
-
-         for (Count = 0; Count < (int) UserCount; Count++) {
-            status = WritePrivateProfileString(Users[Count].Name, Lids(IDS_MAPNEWNAME), TEXT(""), FileName);
-            status = WritePrivateProfileString(Users[Count].Name, Lids(IDS_MAPNEWPASSWORD), TEXT(""), FileName);
-         }
-
-         FreeMemory((LPBYTE) Users);
-
-         if (!NWGroupsEnum(&Groups, &GroupCount)) {
-
-            for (Count = 0; Count < (int) GroupCount; Count++) {
-               WritePrivateProfileString(Lids(IDS_MAPGROUPS), Groups[Count].Name, TEXT(""), FileName);
-            }
-
-            FreeMemory((LPBYTE) Groups);
-            status = TRUE;
-         }
-
-      }
-
-      // Flush Windows cache of the MRU INI file
-      WritePrivateProfileString(NULL, NULL, NULL, FileName);
-      NWServerFree();
-   }
-
-   return status;
-
-} // MapFileCreate
-
-
-/*+-------------------------------------------------------------------------+
-  | MapPassword()                                                           |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-BOOL MapPassword(LPTSTR MapFile, LPTSTR Name, LPTSTR Password, int MaxSize) {
-   int size;
-
-   size = GetPrivateProfileString(Name, Lids(IDS_MAPNEWPASSWORD), TEXT(""), Password, MaxSize, MapFile);
-
-   if (size == 0)
-      return FALSE;
-   else
-      return TRUE;
-
-} // MapPassword
-
-
-/*+-------------------------------------------------------------------------+
-  | MapUserName()                                                           |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-BOOL MapUserName(LPTSTR MapFile, LPTSTR Name, LPTSTR NewName, int MaxSize) {
-   int size;
-
-   size = GetPrivateProfileString(Name, Lids(IDS_MAPNEWNAME), TEXT(""), NewName, MaxSize, MapFile);
-
-   if (size == 0)
-      return FALSE;
-   else
-      return TRUE;
-
-} // MapUserName
-
-
-/*+-------------------------------------------------------------------------+
-  | MapGroupName()                                                          |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-BOOL MapGroupName(LPTSTR MapFile, LPTSTR Name, LPTSTR NewName, int MaxSize) {
-   int size;
-
-   size = GetPrivateProfileString(Lids(IDS_MAPGROUPS), Name, TEXT(""), NewName, MaxSize, MapFile);
-
-   if (size == 0)
-      return FALSE;
-   else
-      return TRUE;
-
-} // MapGroupName
-
-
-
-/*+-------------------------------------------------------------------------+
   |                  User / Group lists and Cache routines                  |
   +-------------------------------------------------------------------------+*/
 
 /*+-------------------------------------------------------------------------+
-  | FindUserMatch()                                                         |
-  |                                                                         |
-  |   Searches through the user list using a binary search.  Returns a      |
-  |   pointer to the found user record or NULL if no match.                 |
-  |                                                                         |
+  | FindUserMatch()
+  |
+  |   Searches through the user list using a binary search.  Returns a
+  |   pointer to the found user record or NULL if no match.
+  |
   +-------------------------------------------------------------------------+*/
-USER_LIST *FindUserMatch(LPTSTR Name, USER_LIST *UserList, DWORD UserCount, BOOL NewName) {
+USER_BUFFER *FindUserMatch(LPTSTR Name, USER_LIST *UserList, BOOL NewName) {
    LONG begin = 0;
-   LONG end = (LONG) UserCount - 1;
+   LONG end;
    LONG cur;
    int match;
+   USER_BUFFER *UserBuffer;
+
+   if (UserList == NULL)
+      return NULL;
+
+   UserBuffer = UserList->UserBuffer;
+   end = UserList->Count - 1;
 
    while (end >= begin) {
       // go halfway in-between
@@ -772,9 +667,9 @@ USER_LIST *FindUserMatch(LPTSTR Name, USER_LIST *UserList, DWORD UserCount, BOOL
 
       // compare the two result into match
       if (NewName)
-         match = lstrcmpi(Name, UserList[cur].NewName);
+         match = lstrcmpi(Name, UserBuffer[cur].NewName);
       else
-         match = lstrcmpi(Name, UserList[cur].Name);
+         match = lstrcmpi(Name, UserBuffer[cur].Name);
 
       if (match < 0)
          // move new begin
@@ -783,7 +678,7 @@ USER_LIST *FindUserMatch(LPTSTR Name, USER_LIST *UserList, DWORD UserCount, BOOL
          begin = cur + 1;
 
       if (match == 0)
-         return &UserList[cur];
+         return &UserBuffer[cur];
    }
 
    return NULL;
@@ -792,17 +687,24 @@ USER_LIST *FindUserMatch(LPTSTR Name, USER_LIST *UserList, DWORD UserCount, BOOL
 
 
 /*+-------------------------------------------------------------------------+
-  | FindGroupMatch()                                                        |
-  |                                                                         |
-  |   Searches through the group list using a binary search.  Returns a     |
-  |   pointer to the found group record or NULL if no match.                |
-  |                                                                         |
+  | FindGroupMatch()
+  |
+  |   Searches through the group list using a binary search.  Returns a
+  |   pointer to the found group record or NULL if no match.
+  |
   +-------------------------------------------------------------------------+*/
-GROUP_LIST *FindGroupMatch(LPTSTR Name, GROUP_LIST *GroupList, DWORD GroupCount, BOOL NewName) {
+GROUP_BUFFER *FindGroupMatch(LPTSTR Name, GROUP_LIST *GroupList, BOOL NewName) {
    LONG begin = 0;
-   LONG end = (LONG) GroupCount - 1;
+   LONG end;
    LONG cur;
    int match;
+   GROUP_BUFFER *GroupBuffer;
+
+   if (GroupList == NULL)
+      return NULL;
+
+   GroupBuffer = GroupList->GroupBuffer;
+   end = GroupList->Count - 1;
 
    while (end >= begin) {
       // go halfway in-between
@@ -810,9 +712,9 @@ GROUP_LIST *FindGroupMatch(LPTSTR Name, GROUP_LIST *GroupList, DWORD GroupCount,
 
       // compare the two result into match
       if (NewName)
-         match = lstrcmpi(Name, GroupList[cur].NewName);
+         match = lstrcmpi(Name, GroupBuffer[cur].NewName);
       else
-         match = lstrcmpi(Name, GroupList[cur].Name);
+         match = lstrcmpi(Name, GroupBuffer[cur].Name);
 
       if (match < 0)
          // move new begin
@@ -821,7 +723,7 @@ GROUP_LIST *FindGroupMatch(LPTSTR Name, GROUP_LIST *GroupList, DWORD GroupCount,
          begin = cur + 1;
 
       if (match == 0)
-         return &GroupList[cur];
+         return &GroupBuffer[cur];
    }
 
    return NULL;
@@ -841,8 +743,8 @@ GROUP_LIST *FindGroupMatch(LPTSTR Name, GROUP_LIST *GroupList, DWORD GroupCount,
   +-------------------------------------------------------------------------+*/
 
 /*+-------------------------------------------------------------------------+
-  | ListCachePut()                                                          |
-  |                                                                         |
+  | ListCachePut()
+  |
   +-------------------------------------------------------------------------+*/
 BOOL ListCachePut(LIST_CACHE **CacheHead, void *ul, ULONG Count) {
    LIST_CACHE *cc;
@@ -875,8 +777,8 @@ BOOL ListCachePut(LIST_CACHE **CacheHead, void *ul, ULONG Count) {
 
 
 /*+-------------------------------------------------------------------------+
-  | ListCacheFree()                                                         |
-  |                                                                         |
+  | ListCacheFree()
+  |
   +-------------------------------------------------------------------------+*/
 void ListCacheFree(LIST_CACHE **CacheHead) {
    LIST_CACHE *cc;
@@ -902,8 +804,8 @@ void ListCacheFree(LIST_CACHE **CacheHead) {
 
 
 /*+-------------------------------------------------------------------------+
-  | UserCacheMatch()                                                        |
-  |                                                                         |
+  | UserCacheMatch()
+  |
   +-------------------------------------------------------------------------+*/
 BOOL UserCacheMatch(LPTSTR UserName) {
    LIST_CACHE *cc;
@@ -913,7 +815,7 @@ BOOL UserCacheMatch(LPTSTR UserName) {
 
    // loop through the cache entries and try to match with each user list
    while (cc && !match) {
-      if (FindUserMatch(UserName, (USER_LIST *) cc->ul, cc->Count, TRUE))
+      if (FindUserMatch(UserName, (USER_LIST *) cc->ul, TRUE))
          match = TRUE;
       else
          cc = cc->next;
@@ -925,8 +827,8 @@ BOOL UserCacheMatch(LPTSTR UserName) {
 
 
 /*+-------------------------------------------------------------------------+
-  | GroupCacheMatch()                                                       |
-  |                                                                         |
+  | GroupCacheMatch()
+  |
   +-------------------------------------------------------------------------+*/
 BOOL GroupCacheMatch(LPTSTR GroupName) {
    LIST_CACHE *cc;
@@ -936,7 +838,7 @@ BOOL GroupCacheMatch(LPTSTR GroupName) {
 
    // loop through the cache entries and try to match with each user list
    while (cc && !match) {
-      if (FindGroupMatch(GroupName, (GROUP_LIST *) cc->ul, cc->Count, TRUE))
+      if (FindGroupMatch(GroupName, (GROUP_LIST *) cc->ul, TRUE))
          match = TRUE;
       else
          cc = cc->next;
@@ -952,10 +854,10 @@ BOOL GroupCacheMatch(LPTSTR GroupName) {
   +-------------------------------------------------------------------------+*/
 
 /*+-------------------------------------------------------------------------+
-  | ConvertOptionsLog()                                                     |
-  |                                                                         |
-  |   Writes all the admin selected conversion options to the log file.     |
-  |                                                                         |
+  | ConvertOptionsLog()
+  |
+  |   Writes all the admin selected conversion options to the log file.
+  |
   +-------------------------------------------------------------------------+*/
 void ConvertOptionsLog() {
 
@@ -974,23 +876,24 @@ void ConvertOptionsLog() {
       if (ConvOpt->UseMappingFile) {
          LogWriteLog(2, Lids(IDS_L_138), Lids(IDS_YES));
          LogWriteLog(3, Lids(IDS_L_139), ConvOpt->MappingFile);
-      } else
+      } else {
          LogWriteLog(2, Lids(IDS_L_138), Lids(IDS_NO));
 
-      // Password Options
-      LogWriteLog(2, Lids(IDS_L_141));
-      switch (ConvOpt->PasswordOption) {
-         case 0: // Use NULL
-            LogWriteLog(0, Lids(IDS_L_142));
-            break;
+         // Password Options
+         LogWriteLog(2, Lids(IDS_L_141));
+         switch (ConvOpt->PasswordOption) {
+            case 0: // Use NULL
+               LogWriteLog(0, Lids(IDS_L_142));
+               break;
 
-         case 1: // Password is username
-            LogWriteLog(0, Lids(IDS_L_143));
-            break;
+            case 1: // Password is username
+               LogWriteLog(0, Lids(IDS_L_143));
+               break;
 
-         case 2: // Use constant
-            LogWriteLog(0, Lids(IDS_L_144), ConvOpt->PasswordConstant);
-            break;
+            case 2: // Use constant
+               LogWriteLog(0, Lids(IDS_L_144), ConvOpt->PasswordConstant);
+               break;
+         }
       }
 
       if (ConvOpt->ForcePasswordChange)
@@ -998,47 +901,49 @@ void ConvertOptionsLog() {
       else
          LogWriteLog(3, Lids(IDS_L_145), Lids(IDS_NO));
 
-      // User Names Options
-      LogWriteLog(2, Lids(IDS_L_146));
+      if (!ConvOpt->UseMappingFile) {
+         // User Names Options
+         LogWriteLog(2, Lids(IDS_L_146));
 
-      switch (ConvOpt->UserNameOption) {
-         case 0: // Don't transfer - log failures
-            LogWriteLog(0, Lids(IDS_L_148));
-            break;
+         switch (ConvOpt->UserNameOption) {
+            case 0: // Don't transfer - log failures
+               LogWriteLog(0, Lids(IDS_L_148));
+               break;
 
-         case 1: // Ignore
-            LogWriteLog(0, Lids(IDS_L_149));
-            break;
+            case 1: // Ignore
+               LogWriteLog(0, Lids(IDS_L_149));
+               break;
 
-         case 2: // Overwrite with new info
-            LogWriteLog(0, Lids(IDS_L_151));
-            break;
+            case 2: // Overwrite with new info
+               LogWriteLog(0, Lids(IDS_L_151));
+               break;
 
-         case 3: // Pre-Pend constant
-            LogWriteLog(0, Lids(IDS_L_150), ConvOpt->UserConstant);
-            break;
+            case 3: // Pre-Pend constant
+               LogWriteLog(0, Lids(IDS_L_150), ConvOpt->UserConstant);
+               break;
+         }
+
+         LogWriteLog(0, Lids(IDS_CRLF));
+
+         // Group Names Options
+         LogWriteLog(2, Lids(IDS_L_147));
+
+         switch (ConvOpt->GroupNameOption) {
+            case 0: // Don't transfer - log failures
+               LogWriteLog(0, Lids(IDS_L_148));
+               break;
+
+            case 1: // Overwrite with new info
+               LogWriteLog(0, Lids(IDS_L_149));
+               break;
+
+            case 2: // Pre-Pend constant
+               LogWriteLog(0, Lids(IDS_L_150), ConvOpt->GroupConstant);
+               break;
+         }
+
+         LogWriteLog(0, Lids(IDS_CRLF));
       }
-
-      LogWriteLog(0, Lids(IDS_CRLF));
-
-      // Group Names Options
-      LogWriteLog(2, Lids(IDS_L_147));
-
-      switch (ConvOpt->GroupNameOption) {
-         case 0: // Don't transfer - log failures
-            LogWriteLog(0, Lids(IDS_L_148));
-            break;
-
-         case 1: // Overwrite with new info
-            LogWriteLog(0, Lids(IDS_L_149));
-            break;
-
-         case 2: // Pre-Pend constant
-            LogWriteLog(0, Lids(IDS_L_150), ConvOpt->GroupConstant);
-            break;
-      }
-
-      LogWriteLog(0, Lids(IDS_CRLF));
 
       if (ConvOpt->SupervisorDefaults)
          LogWriteLog(2, Lids(IDS_L_152), Lids(IDS_YES));
@@ -1062,8 +967,8 @@ void ConvertOptionsLog() {
 
 
 /*+-------------------------------------------------------------------------+
-  | OptionsFileLog()                                                        |
-  |                                                                         |
+  | OptionsFileLog()
+  |
   +-------------------------------------------------------------------------+*/
 void OptionsFileLog() {
    LogWriteLog(0, Lids(IDS_L_155));
@@ -1078,8 +983,8 @@ void OptionsFileLog() {
 
 
 /*+-------------------------------------------------------------------------+
-  | ConvertPairLog()                                                        |
-  |                                                                         |
+  | ConvertPairLog()
+  |
   +-------------------------------------------------------------------------+*/
 void ConvertPairLog() {
    LogWriteLog(0, Lids(IDS_LINE));
@@ -1104,11 +1009,19 @@ void ConvertPairLog() {
 
 
 /*+-------------------------------------------------------------------------+
-  | UsersLogNames()                                                         |
-  |                                                                         |
+  | UsersLogNames()
+  |
   +-------------------------------------------------------------------------+*/
-void UsersLogNames(USER_LIST *Users, ULONG UserCount) {
+void UsersLogNames(USER_LIST *Users) {
    ULONG i;
+   DWORD UserCount;
+   USER_BUFFER *UserBuffer;
+
+   if (Users == NULL)
+      return;
+
+   UserCount = Users->Count;
+   UserBuffer = Users->UserBuffer;
 
    if (UserCount) {
       LogWriteLog(1, Lids(IDS_L_160));
@@ -1116,27 +1029,27 @@ void UsersLogNames(USER_LIST *Users, ULONG UserCount) {
 
       // Check Mapping File
       for (i = 0; i < UserCount; i++) {
-         if (Users[i].IsNewName)
-            wsprintf(pLine, TEXT("%s -> %s"), Users[i].Name, Users[i].NewName);
+         if (UserBuffer[i].IsNewName)
+            wsprintf(pLine, TEXT("%s -> %s"), UserBuffer[i].Name, UserBuffer[i].NewName);
          else
-            wsprintf(pLine, TEXT("%s"), Users[i].NewName);
+            wsprintf(pLine, TEXT("%s"), UserBuffer[i].NewName);
 
          LogWriteLog(1, TEXT(" %-50s"), pLine);
 
-         if (Users[i].err) {
-            if (Users[i].err == NWC_ERR_NAMELONG)
+         if (UserBuffer[i].err) {
+            if (UserBuffer[i].err == NWC_ERR_NAMELONG)
                LogWriteLog(0, Lids(IDS_L_162));
 
-            if (Users[i].err == NWC_ERR_DUPLICATE)
+            if (UserBuffer[i].err == NWC_ERR_DUPLICATE)
                LogWriteLog(0, Lids(IDS_L_163));
 
-            if (Users[i].err == NWC_ERR_NAMEINVALID)
+            if (UserBuffer[i].err == NWC_ERR_NAMEINVALID)
                LogWriteLog(0, Lids(IDS_L_164));
 
          }
 
          // Need to check this seperatly - as it's not an error
-         if (Users[i].Overwrite)
+         if (UserBuffer[i].Overwrite)
             LogWriteLog(0, Lids(IDS_L_163));
 
          LogWriteLog(0, Lids(IDS_CRLF));
@@ -1150,10 +1063,10 @@ void UsersLogNames(USER_LIST *Users, ULONG UserCount) {
 
 
 /*+-------------------------------------------------------------------------+
-  | UserNewName_Check()                                                     |
-  |                                                                         |
+  | UserNewName_Check()
+  |
   +-------------------------------------------------------------------------+*/
-void UserNewName_Check(USER_LIST *Users) {
+void UserNewName_Check(USER_BUFFER *Users) {
    // We have done any mappings that need to be done, now check for
    // name validity if there is a new name...
    if (Users->IsNewName)
@@ -1174,26 +1087,13 @@ void UserNewName_Check(USER_LIST *Users) {
 
 
 /*+-------------------------------------------------------------------------+
-  | UserNames_Resolve()                                                     |
-  |                                                                         |
+  | UserNames_Resolve()
+  |
   +-------------------------------------------------------------------------+*/
-void UserNames_Resolve(USER_LIST *Users) {
+void UserNames_Resolve(USER_BUFFER *Users) {
    LPTSTR TheName;
    LPTSTR ErrorText;
    ULONG RetType;
-
-   // If using mapping file then map the name appropriatly
-   if (ConvOpt->UseMappingFile) {
-      if (MapUserName(ConvOpt->MappingFile, Users->Name, NewName, MAX_USER_NAME_LEN)) {
-         if (lstrlen(NewName)) {
-            // There was a mapping in the file
-            Users->IsNewName = TRUE;
-            lstrcpy(Users->NewName, NewName);
-         }
-      }
-   }
-
-   // Whether mapped or not fall through as error checking is the same...
 
    // Figure out which name to use
    if (Users->IsNewName)
@@ -1201,30 +1101,36 @@ void UserNames_Resolve(USER_LIST *Users) {
    else
       TheName = Users->NewName;
 
-   // check if the user name is in the destination list (duplicate)
-   if (UserCacheMatch(TheName)) {
-      // There was - so figure out based on conversion options what
-      // to do with it...
-      switch (ConvOpt->UserNameOption) {
-         case 0: // Log Errors
-            Users->err = NWC_ERR_DUPLICATE;
-            break;
+   // If using mapping file then map the name appropriatly
+   if (ConvOpt->UseMappingFile) {
+      if (UserCacheMatch(TheName))
+         Users->err = NWC_ERR_DUPLICATE;
+   } else {
+      // check if the user name is in the destination list (duplicate)
+      if (UserCacheMatch(TheName)) {
+         // There was - so figure out based on conversion options what
+         // to do with it...
+         switch (ConvOpt->UserNameOption) {
+            case 0: // Log Errors
+               Users->err = NWC_ERR_DUPLICATE;
+               break;
 
-         case 1: // ignore
-            Users->err = NWC_ERR_IGNORE;
-            break;
+            case 1: // ignore
+               Users->err = NWC_ERR_IGNORE;
+               break;
 
-         case 2: // Overwrite
-            Users->Overwrite = TRUE;
-            break;
+            case 2: // Overwrite
+               Users->Overwrite = TRUE;
+               break;
 
-         case 3: // Pre-Pend constant
-            lstrcpy(NewName, ConvOpt->UserConstant);
-            lstrcat(NewName, Users->Name);
-            lstrcpy(Users->NewName, NewName);
-            Users->IsNewName = TRUE;
-            break;
-      } // switch
+            case 3: // Pre-Pend constant
+               lstrcpy(NewName, ConvOpt->UserConstant);
+               lstrcat(NewName, Users->Name);
+               lstrcpy(Users->NewName, NewName);
+               Users->IsNewName = TRUE;
+               break;
+         } // switch
+      }
    }
 
    do {
@@ -1258,16 +1164,17 @@ void UserNames_Resolve(USER_LIST *Users) {
 
 
 /*+-------------------------------------------------------------------------+
-  | UserSave()                                                              |
-  |                                                                         |
-  |    Given a user-name, moves their account information from the source   |
-  |    to the destination server.                                           |
-  |                                                                         |
+  | UserSave()
+  |
+  |    Given a user-name, moves their account information from the source
+  |    to the destination server.
+  |
   +-------------------------------------------------------------------------+*/
 BOOL UserSave(BOOL *NWInfo, LPTSTR origUserName, LPTSTR newUserName, NT_USER_INFO *NTInfo, void **OldInfo, BOOL Replace) {
    NET_API_STATUS ret = 0;
    void *NWUInfo;
-   static TCHAR ServerName[CNLEN+3];   // +3 for leading slashes and ending NULL
+   FPNW_INFO fpnw;
+   static TCHAR ServerName[MAX_SERVER_NAME_LEN+3];   // +3 for leading slashes and ending NULL
 
    *NWInfo = FALSE;
 
@@ -1285,26 +1192,43 @@ BOOL UserSave(BOOL *NWInfo, LPTSTR origUserName, LPTSTR newUserName, NT_USER_INF
    if (ConvOpt->ForcePasswordChange)
       NTInfo->password_expired = (DWORD) (-1L);
 
+   // Now get/map special FPNW info
+   if (ConvOpt->NetWareInfo) {
+      NWFPNWMapInfo(NWUInfo, &fpnw);
+   }
+
    if (!TConversion)
       if (Replace)
-         ret = NTUserInfoSet(NTInfo);
+         if (ConvOpt->NetWareInfo)
+            ret = NTUserInfoSet(NTInfo, &fpnw);
+         else
+            ret = NTUserInfoSet(NTInfo, NULL);
       else
-         ret = NTUserInfoSave(NTInfo);
+         if (ConvOpt->NetWareInfo)
+            ret = NTUserInfoSave(NTInfo, &fpnw);
+         else
+            ret = NTUserInfoSave(NTInfo, NULL);
 
    if (ret)
       return FALSE;
-   else
+   else {
+      // now save out FPNW Info
+      if (ConvOpt->NetWareInfo)
+         NTSAMParmsSet(newUserName, fpnw, NTInfo->password, ConvOpt->ForcePasswordChange);
+
       return TRUE;
+   }
 
 } // UserSave
 
 
 /*+-------------------------------------------------------------------------+
-  | UsersConvert()                                                          |
-  |                                                                         |
+  | UsersConvert()
+  |
   +-------------------------------------------------------------------------+*/
 void UsersConvert() {
    static TCHAR Password[MAX_PW_LEN + 1];
+   USER_BUFFER *UserBuffer = NULL;
    BOOL NWInfo;
    DWORD status = 0;
    DWORD i;
@@ -1321,88 +1245,94 @@ void UsersConvert() {
    LogWriteLog(1, Lids(IDS_L_170), UserCount);
    ErrorCategorySet(Lids(IDS_L_171));
 
+   if (Users == NULL)
+      return;
+
+   UserBuffer = Users->UserBuffer;
+
    // This will update the status pane - but we will reset it afterwards
    for (i = 0; i < UserCount; i++) {
       // Don't update totals yet, but update item ref incase this takes 
       // awhile
       Status_CurNum((UINT) i + 1);
-      Status_Item(Users[i].Name);
+      Status_Item(UserBuffer[i].Name);
 
-      UserNames_Resolve(&Users[i]);
+      UserNames_Resolve(&UserBuffer[i]);
       if (TransferCancel)
          return;
    }
 
-   UsersLogNames(Users, UserCount);
+   UsersLogNames(Users);
 
    i = 0;
    while (i < UserCount) {
       Status_CurNum((UINT) i + 1);
-      Status_Item(Users[i].Name);
-      lstrcpy(pLine, Users[i].Name);
+      Status_Item(UserBuffer[i].Name);
+      lstrcpy(pLine, UserBuffer[i].Name);
 
-      if (Users[i].IsNewName)
-         wsprintf(pLine, TEXT("[%s -> %s]"), Users[i].Name, Users[i].NewName);
+      if (UserBuffer[i].IsNewName)
+         wsprintf(pLine, TEXT("[%s -> %s]"), UserBuffer[i].Name, UserBuffer[i].NewName);
       else
-         wsprintf(pLine, TEXT("[%s]"), Users[i].NewName);
+         wsprintf(pLine, TEXT("[%s]"), UserBuffer[i].NewName);
 
       LogWriteLog(1, TEXT("%-50s"), pLine);
       ErrorItemSet(TEXT("%s\r\n"), pLine);
 
       // If duplicate or other type error just do logging - don't try to save
-      if (Users[i].err) {
-         if (Users[i].err == NWC_ERR_DUPLICATE) {
+      if (UserBuffer[i].err) {
+         if (UserBuffer[i].err == NWC_ERR_DUPLICATE) {
             LogWriteLog(0, Lids(IDS_L_172));
             ErrorIt(Lids(IDS_L_173));
          }
 
-         if (Users[i].err == NWC_ERR_NAMELONG) {
+         if (UserBuffer[i].err == NWC_ERR_NAMELONG) {
             LogWriteLog(0, Lids(IDS_L_174));
             ErrorIt(Lids(IDS_L_175));
          }
 
-         if (Users[i].err == NWC_ERR_NAMEINVALID) {
+         if (UserBuffer[i].err == NWC_ERR_NAMEINVALID) {
             LogWriteLog(0, Lids(IDS_L_176));
             ErrorIt(Lids(IDS_L_177));
          }
 
       } else {
          // Init the user record
-         NTUserRecInit(Users[i].NewName, &NT_UInfo);
+         NTUserRecInit(UserBuffer[i].NewName, &NT_UInfo);
 
          // +-------------------------------------------------------------+
          // |  User name figured out - now map password                   |
          // +-------------------------------------------------------------+
          memset(Password, 0, sizeof(Password));
          if (ConvOpt->UseMappingFile)
-            MapPassword(ConvOpt->MappingFile, Users[i].Name, Password, sizeof(Password));
+            // If using map file, password is already set
+            lstrcpy(Password, UserBuffer[i].Password);
+         else
+            if (lstrlen(Password) == 0) {
+               // Didn't map password - so find what to use
+               switch (ConvOpt->PasswordOption) {
+                  case 0: // No Password
+                     // Don't need to do anything
+                     break;
 
-         if (lstrlen(Password) == 0) {
-            // Didn't map password - so find what to use
-            switch (ConvOpt->PasswordOption) {
-               case 0: // No Password
-                  // Don't need to do anything
-                  break;
+                  case 1: // Username
+                     // BUGBUG: Name can be longer then password!!!
+                     lstrcpy(Password, UserBuffer[i].NewName);
+                     break;
 
-               case 1: // Username
-                  // BUGBUG: Name can be longer then password!!!
-                  lstrcpy(Password, Users[i].NewName);
-                  break;
+                  case 2: // Constant
+                     lstrcpy(Password, ConvOpt->PasswordConstant);
+                     break;
 
-               case 2: // Constant
-                  lstrcpy(Password, ConvOpt->PasswordConstant);
-                  break;
-
-            } // switch
-         }
+               } // switch
+            }
 
          NT_UInfo.password = Password;
 
 #ifdef DEBUG
-dprintf(TEXT("User: %s\n"), Users[i].Name);
+dprintf(TEXT("User: %s\n"), UserBuffer[i].Name);
 #endif
 
-         if (!UserSave(&NWInfo, Users[i].Name, Users[i].NewName, &NT_UInfo, &NW_UInfo, Users[i].Overwrite )) {
+         if (!UserSave(&NWInfo, UserBuffer[i].Name, UserBuffer[i].NewName, &NT_UInfo, &NW_UInfo, UserBuffer[i].Overwrite )) {
             LogWriteLog(0, Lids(IDS_L_178));
             ErrorIt(Lids(IDS_L_179));
          } else {
@@ -1417,7 +1347,7 @@ dprintf(TEXT("User: %s\n"), Users[i].Name);
             // Converted - now need to save info to logs...
             if (NWInfo) {
                if (VerboseUserLogging())
-                  NWUserInfoLog(Users[i].Name, NW_UInfo);
+                  NWUserInfoLog(UserBuffer[i].Name, NW_UInfo);
 
                if (VerboseUserLogging())
                   NTUserRecLog(NT_UInfo);
@@ -1439,8 +1369,8 @@ dprintf(TEXT("User: %s\n"), Users[i].Name);
 
 
 /*+-------------------------------------------------------------------------+
-  | GroupSave()                                                             |
-  |                                                                         |
+  | GroupSave()
+  |
   +-------------------------------------------------------------------------+*/
 BOOL GroupSave(LPTSTR Name, DWORD *Status) {
 
@@ -1456,10 +1386,10 @@ BOOL GroupSave(LPTSTR Name, DWORD *Status) {
 
 
 /*+-------------------------------------------------------------------------+
-  | GroupNewName_Check()                                                    |
-  |                                                                         |
+  | GroupNewName_Check()
+  |
   +-------------------------------------------------------------------------+*/
-void GroupNewName_Check(GROUP_LIST *Groups) {
+void GroupNewName_Check(GROUP_BUFFER *Groups) {
    // We have done any mappings that need to be done, now check for
    // name validity if there is a new name...
    if (Groups->IsNewName)
@@ -1481,26 +1411,13 @@ void GroupNewName_Check(GROUP_LIST *Groups) {
 
 
 /*+-------------------------------------------------------------------------+
-  | GroupNames_Resolve()                                                     |
-  |                                                                         |
+  | GroupNames_Resolve()
+  |
   +-------------------------------------------------------------------------+*/
-void GroupNames_Resolve(GROUP_LIST *Groups) {
+void GroupNames_Resolve(GROUP_BUFFER *Groups) {
    LPTSTR TheName;
    LPTSTR ErrorText;
    ULONG RetType;
-
-   // If using mapping file then map the name appropriatly
-   if (ConvOpt->UseMappingFile) {
-      if (MapGroupName(ConvOpt->MappingFile, Groups->Name, NewName, MAX_GROUP_NAME_LEN)) {
-         if (lstrlen(NewName)) {
-            // There was a mapping in the file
-            Groups->IsNewName = TRUE;
-            lstrcpy(Groups->NewName, NewName);
-         }
-      }
-   }
-
-   // Whether mapped or not fall through as error checking is the same...
 
    // Figure out which name to use
    if (Groups->IsNewName)
@@ -1508,26 +1425,32 @@ void GroupNames_Resolve(GROUP_LIST *Groups) {
    else
       TheName = Groups->NewName;
 
-   // check if the user name is in the destination list (duplicate)
-   if (GroupCacheMatch(TheName)) {
-      // There was - so figure out based on conversion options what
-      // to do with it...
-      switch (ConvOpt->GroupNameOption) {
-         case 0: // Log Errors
-            Groups->err = NWC_ERR_DUPLICATE;
-            break;
+   // If using mapping file then map the name appropriatly
+   if (ConvOpt->UseMappingFile) {
+      if (GroupCacheMatch(TheName))
+         Groups->err = NWC_ERR_DUPLICATE;
+   } else {
+      // check if the user name is in the destination list (duplicate)
+      if (GroupCacheMatch(TheName)) {
+         // There was - so figure out based on conversion options what
+         // to do with it...
+         switch (ConvOpt->GroupNameOption) {
+            case 0: // Log Errors
+               Groups->err = NWC_ERR_DUPLICATE;
+               break;
 
-         case 1: // ignore
-            Groups->err = NWC_ERR_IGNORE;
-            break;
+            case 1: // ignore
+               Groups->err = NWC_ERR_IGNORE;
+               break;
 
-         case 2: // Pre-Pend constant
-            lstrcpy(NewName, ConvOpt->GroupConstant);
-            lstrcat(NewName, Groups->Name);
-            lstrcpy(Groups->NewName, NewName);
-            Groups->IsNewName = TRUE;
-            break;
-      } // switch
+            case 2: // Pre-Pend constant
+               lstrcpy(NewName, ConvOpt->GroupConstant);
+               lstrcat(NewName, Groups->Name);
+               lstrcpy(Groups->NewName, NewName);
+               Groups->IsNewName = TRUE;
+               break;
+         } // switch
+      }
    }
 
    do {
@@ -1561,13 +1484,15 @@ void GroupNames_Resolve(GROUP_LIST *Groups) {
 
 
 /*+-------------------------------------------------------------------------+
-  | GroupsConvert()                                                         |
-  |                                                                         |
+  | GroupsConvert()
+  |
   +-------------------------------------------------------------------------+*/
 void GroupsConvert() {
    USER_LIST *GUsers = NULL;
-   USER_LIST *pUser;
-   GROUP_LIST *pGroup;
+   USER_BUFFER *GUserBuffer;
+   USER_BUFFER *pUser;
+   GROUP_BUFFER *pGroup;
+   GROUP_BUFFER *GroupBuffer = NULL;
    DWORD GUserCount;
    DWORD status = 0;
    ULONG Count, i;
@@ -1575,6 +1500,7 @@ void GroupsConvert() {
    LPTSTR NewName;
    BOOL SecEquivTitle = FALSE;
    BOOL SecEquivUser = FALSE;
+   TCHAR GroupTitle[TMP_STR_LEN_256];
 
    // update status pane
    Status_ConvTxt(Lids(IDS_D_20));
@@ -1585,13 +1511,18 @@ void GroupsConvert() {
    LogWriteLog(0, Lids(IDS_L_187));
    LogWriteLog(1, Lids(IDS_L_188), GroupCount);
 
+   if (Groups == NULL)
+      return;
+
+   GroupBuffer = Groups->GroupBuffer;
+
    for (i = 0; i < GroupCount; i++) {
       // Don't update totals yet, but update item ref incase this takes 
       // awhile
       Status_CurNum((UINT) i + 1);
-      Status_Item(Groups[i].Name);
+      Status_Item(GroupBuffer[i].Name);
 
-      GroupNames_Resolve(&Groups[i]);
+      GroupNames_Resolve(&GroupBuffer[i]);
 
       if (TransferCancel)
          return;
@@ -1601,42 +1532,42 @@ void GroupsConvert() {
    while (i < GroupCount) {
       // update status pane for this group
       Status_CurNum((UINT) i + 1);
-      Status_Item(Groups[i].Name);
-      lstrcpy(pLine, Groups[i].Name);
+      Status_Item(GroupBuffer[i].Name);
+      lstrcpy(pLine, GroupBuffer[i].Name);
 
 #ifdef DEBUG
-dprintf(TEXT("Working on Group: %s\r\n"), Groups[i].Name);
+dprintf(TEXT("Working on Group: %s\r\n"), GroupBuffer[i].Name);
 #endif
 
-      if (Groups[i].IsNewName)
-         wsprintf(pLine, TEXT("%s -> %s"), Groups[i].Name, Groups[i].NewName);
+      if (GroupBuffer[i].IsNewName)
+         wsprintf(pLine, TEXT("%s -> %s"), GroupBuffer[i].Name, GroupBuffer[i].NewName);
       else
-         wsprintf(pLine, TEXT("%s"), Groups[i].NewName);
+         wsprintf(pLine, TEXT("%s"), GroupBuffer[i].NewName);
 
       LogWriteLog(1, TEXT("%-50s"), pLine);
       ErrorItemSet(TEXT("[%s]\r\n"), pLine);
 
       // If duplicate or other type error just do logging - don't try
       // to save...
-      if (Groups[i].err) {
-         if (Groups[i].err == NWC_ERR_DUPLICATE) {
+      if (GroupBuffer[i].err) {
+         if (GroupBuffer[i].err == NWC_ERR_DUPLICATE) {
             LogWriteLog(0, Lids(IDS_L_163));
             ErrorIt(Lids(IDS_L_189));
          }
 
-         if (Groups[i].err == NWC_ERR_NAMELONG) {
+         if (GroupBuffer[i].err == NWC_ERR_NAMELONG) {
             LogWriteLog(0, Lids(IDS_L_162));
             ErrorIt(Lids(IDS_L_190));
          }
 
-         if (Groups[i].err == NWC_ERR_NAMEINVALID) {
+         if (GroupBuffer[i].err == NWC_ERR_NAMEINVALID) {
             LogWriteLog(0, Lids(IDS_L_164));
             ErrorIt(Lids(IDS_L_191));
          }
 
       } else {
          // Try to save it and get any errors...
-         if (!GroupSave(Groups[i].NewName, &status)) {
+         if (!GroupSave(GroupBuffer[i].NewName, &status)) {
             LogWriteLog(0, Lids(IDS_L_192));
             ErrorIt(Lids(IDS_L_193));
          } else {
@@ -1662,26 +1593,36 @@ dprintf(TEXT("Working on Group: %s\r\n"), Groups[i].Name);
    for (Count = 0; Count < GroupCount; Count++) {
       GUserCount = 0;
 
-      if (!(status = NWGroupUsersEnum(Groups[Count].Name, &GUsers, &GUserCount))) {
-         if (GUserCount > 0)
-            LogWriteLog(1, TEXT("[%s]\r\n"), Groups[Count].NewName);
+      if (!(status = NWGroupUsersEnum(GroupBuffer[Count].Name, &GUsers)) && (GUsers != NULL)) {
+         GUserCount = GUsers->Count;
+         GUserBuffer = GUsers->UserBuffer;
+
+         if (GUserCount > 0) {
+            wsprintf(GroupTitle, Lids(IDS_S_46), GroupBuffer[Count].NewName);
+            EscapeFormattingChars(GroupTitle,
+                                  sizeof(GroupTitle)/sizeof(GroupTitle[0])) ;
+            Status_ItemLabel(GroupTitle);
+            LogWriteLog(1, TEXT("[%s]\r\n"), GroupBuffer[Count].NewName);
+         }
 
          for (i = 0; i < GUserCount; i++) {
-            pUser = FindUserMatch(GUsers[i].Name, Users, UserCount, FALSE);
+            pUser = FindUserMatch(GUserBuffer[i].Name, Users, FALSE);
 
             if (pUser == NULL)
-               NewName = NWSpecialNamesMap(GUsers[i].Name);
+               NewName = NWSpecialNamesMap(GUserBuffer[i].Name);
             else
                NewName = pUser->NewName;
 
             LogWriteLog(2, TEXT("%-20s"), NewName);
+            Status_Item(NewName);
+
 #ifdef DEBUG
-dprintf(TEXT("Adding User [%s] to Group: %s\n"), NewName, Groups[Count].NewName );
+dprintf(TEXT("Adding User [%s] to Group: %s\n"), NewName, GroupBuffer[Count].NewName );
 #endif
             if (!TConversion)
-               if (NTGroupUserAdd(Groups[Count].NewName, NewName, FALSE)) {
+               if (NTGroupUserAdd(GroupBuffer[Count].NewName, NewName, FALSE)) {
                   LogWriteLog(0, Lids(IDS_L_196));
-                  ErrorIt(Lids(IDS_L_195), NewName, Groups[Count].NewName);
+                  ErrorIt(Lids(IDS_L_195), NewName, GroupBuffer[Count].NewName);
                }
 
             LogWriteLog(0, Lids(IDS_CRLF));
@@ -1690,8 +1631,8 @@ dprintf(TEXT("Adding User [%s] to Group: %s\n"), NewName, Groups[Count].NewName 
          LogWriteLog(0, Lids(IDS_CRLF));
          FreeMemory((LPBYTE) GUsers);
       } else {
-         LogWriteLog(1, Lids(IDS_L_197), Groups[Count].Name);
-         ErrorIt(Lids(IDS_L_197), Groups[Count].Name);
+         LogWriteLog(1, Lids(IDS_L_197), GroupBuffer[Count].Name);
+         ErrorIt(Lids(IDS_L_197), GroupBuffer[Count].Name);
       }
 
    } // loop adding users to groups
@@ -1705,10 +1646,13 @@ dprintf(TEXT("Adding User [%s] to Group: %s\n"), NewName, Groups[Count].NewName 
       GUserCount = 0;
       SecEquivUser = FALSE;
 
-      if (!(status = NWUserEquivalenceEnum(Users[Count].Name, &GUsers, &GUserCount))) {
+      if (!(status = NWUserEquivalenceEnum(Users->UserBuffer[Count].Name, &GUsers)) && (GUsers != NULL)) {
+         GUserCount = GUsers->Count;
+         GUserBuffer = GUsers->UserBuffer;
+
          if (GUserCount > 0) {
             for (i = 0; i < GUserCount; i++) {
-               pGroup = FindGroupMatch(GUsers[i].Name, Groups, GroupCount, FALSE);
+               pGroup = FindGroupMatch(GUserBuffer[i].Name, Groups, FALSE);
 
                if (pGroup != NULL) {
                   if ((pGroup->err != NWC_ERR_NAMELONG) && (pGroup->err != NWC_ERR_NAMEINVALID))
@@ -1720,24 +1664,29 @@ dprintf(TEXT("Adding User [%s] to Group: %s\n"), NewName, Groups[Count].NewName 
 
                      if (!SecEquivUser) {
                         SecEquivUser = TRUE;
-                        LogWriteLog(1, TEXT("[%s]\r\n"), Users[Count].NewName);
+                        wsprintf(GroupTitle, Lids(IDS_S_47), Users->UserBuffer[Count].NewName);
+                        EscapeFormattingChars(GroupTitle,
+                                  sizeof(GroupTitle)/sizeof(GroupTitle[0])) ;
+                        Status_ItemLabel(GroupTitle);
+                        LogWriteLog(1, TEXT("[%s]\r\n"), Users->UserBuffer[Count].NewName);
                      }
 
                      LogWriteLog(2, TEXT("%-20s"), pGroup->NewName);
+                     Status_Item(pGroup->NewName);
 #ifdef DEBUG
-dprintf(TEXT("User [%s] Security Equivalence: %s\n"), Users[Count].NewName, pGroup->NewName );
+dprintf(TEXT("User [%s] Security Equivalence: %s\n"), Users->UserBuffer[Count].NewName, pGroup->NewName );
 #endif
                      if (!TConversion)
-                        if (NTGroupUserAdd(pGroup->NewName, Users[Count].NewName, FALSE)) {
+                        if (NTGroupUserAdd(pGroup->NewName, Users->UserBuffer[Count].NewName, FALSE)) {
                            LogWriteLog(0, Lids(IDS_L_196));
-                           ErrorIt(Lids(IDS_L_195), Users[Count].NewName, pGroup->NewName);
+                           ErrorIt(Lids(IDS_L_195), Users->UserBuffer[Count].NewName, pGroup->NewName);
                         }
 
                      LogWriteLog(0, Lids(IDS_CRLF));
                } else {
                   // There was not a group match - check if this is supervisor
                   // equivalence
-                  if (!lstrcmpi(GUsers[i].Name, Lids(IDS_S_28))) {
+                  if (!lstrcmpi(GUserBuffer[i].Name, Lids(IDS_S_28))) {
                      // Check if we should add them
                      if (ConvOpt->AdminAccounts) {
                         if (!SecEquivTitle) {
@@ -1748,15 +1697,15 @@ dprintf(TEXT("User [%s] Security Equivalence: %s\n"), Users[Count].NewName, pGro
 
                         if (!SecEquivUser) {
                            SecEquivUser = TRUE;
-                           LogWriteLog(1, TEXT("[%s]\r\n"), Users[Count].NewName);
+                           LogWriteLog(1, TEXT("[%s]\r\n"), Users->UserBuffer[Count].NewName);
                         }
 
                         LogWriteLog(2, TEXT("%-20s"), Lids(IDS_S_42));
 
                         if (!TConversion)
-                           if (NTGroupUserAdd(Lids(IDS_S_42), Users[Count].NewName, FALSE)) {
+                           if (NTGroupUserAdd(Lids(IDS_S_42), Users->UserBuffer[Count].NewName, FALSE)) {
                               LogWriteLog(0, Lids(IDS_L_196));
-                              ErrorIt(Lids(IDS_L_195), Users[Count].NewName, Lids(IDS_S_42));
+                              ErrorIt(Lids(IDS_L_195), Users->UserBuffer[Count].NewName, Lids(IDS_S_42));
                            }
 
                         LogWriteLog(0, Lids(IDS_CRLF));
@@ -1778,14 +1727,14 @@ dprintf(TEXT("User [%s] Security Equivalence: %s\n"), Users[Count].NewName, pGro
 
    // Synchronize the domain - we need to synch as Print Operators are a
    // local group
-   NTDomainSynch(CurrentConvertList->DestServ);
+   NTDomainSynch(CurrentConvertList->FileServ);
 
    // Now set server to appropriate dest server (local group - so must
    // be on dest server and not PDC or trusted domain)...
-   if ((status = NTServerSet(CurrentConvertList->DestServ->Name))) {
+   if ((status = NTServerSet(CurrentConvertList->FileServ->Name))) {
       // Failed to set server so log it and loop to next server
-      LogWriteLog(0, Lids(IDS_L_209), CurrentConvertList->DestServ->Name);
-      ErrorIt(Lids(IDS_L_209), CurrentConvertList->DestServ->Name);
+      LogWriteLog(0, Lids(IDS_L_209), CurrentConvertList->FileServ->Name);
+      ErrorIt(Lids(IDS_L_209), CurrentConvertList->FileServ->Name);
       return;
    }
 
@@ -1794,7 +1743,10 @@ dprintf(TEXT("User [%s] Security Equivalence: %s\n"), Users[Count].NewName, pGro
    // | Do Print Operators                                          |
    // +-------------------------------------------------------------+
    SecEquivTitle = FALSE;
-   if (!(status = NWPrintOpsEnum(&GUsers, &GUserCount))) {
+   if (!(status = NWPrintOpsEnum(&GUsers)) && (GUsers != NULL)) {
+      GUserCount = GUsers->Count;
+      GUserBuffer = GUsers->UserBuffer;
+
       if (GUserCount > 0) {
          for (i = 0; i < GUserCount; i++) {
 
@@ -1804,11 +1756,11 @@ dprintf(TEXT("User [%s] Security Equivalence: %s\n"), Users[Count].NewName, pGro
                LogWriteLog(0, Lids(IDS_L_201));
             }
 
-            pUser = FindUserMatch(GUsers[i].Name, Users, UserCount, FALSE);
+            pUser = FindUserMatch(GUserBuffer[i].Name, Users, FALSE);
 
             if ((pUser == NULL) || ((pUser->err != NWC_ERR_NAMELONG) && (pUser->err != NWC_ERR_NAMEINVALID))) {
                if (pUser == NULL)
-                  NewName = NWSpecialNamesMap(GUsers[i].Name);
+                  NewName = NWSpecialNamesMap(GUserBuffer[i].Name);
                else
                   NewName = pUser->NewName;
 
@@ -1834,8 +1786,8 @@ dprintf(TEXT("Adding User [%s] to Group: %s\n"), NewName, Lids(IDS_S_43) );
 
 
 /*+-------------------------------------------------------------------------+
-  | SupervisorDefaultsConvert()                                             |
-  |                                                                         |
+  | SupervisorDefaultsConvert()
+  |
   +-------------------------------------------------------------------------+*/
 void SupervisorDefaultsConvert(TRANSFER_LIST *tl) {
    ULONG i;
@@ -1863,7 +1815,7 @@ void SupervisorDefaultsConvert(TRANSFER_LIST *tl) {
       CurrentConvertList = TList[i].ConvertList;
       ConvOpt = (CONVERT_OPTIONS *) CurrentConvertList->ConvertOptions;
 
-      if (CurrentConvertList->DestServ != oDServ) {
+      if (CurrentConvertList->FileServ != oDServ) {
          // if this is not the first time through the loop, then we need to save
          // off the converted defaults
          if (ConvertDefaults && (oDServ != NULL)) {
@@ -1872,16 +1824,17 @@ void SupervisorDefaultsConvert(TRANSFER_LIST *tl) {
 
             if (NTDefaults != NULL) {
                NTUserDefaultsLog(*NTDefaults);
+
+               if (!TConversion)
+                  NTUserDefaultsSet(*NTDefaults);
             }
 
-            if (!TConversion)
-               NTUserDefaultsSet(*NTDefaults);
          }
 
-         oDServ = CurrentConvertList->DestServ;
+         oDServ = CurrentConvertList->FileServ;
 
          // Point to dest server and get defaults
-         NTServerSet(CurrentConvertList->DestServ->Name);
+         NTServerSet(CurrentConvertList->FileServ->Name);
          NTUserDefaultsGet(&NTDefaults);
          memset(&CDefaults, 0, sizeof(CDefaults));
 
@@ -1899,7 +1852,7 @@ void SupervisorDefaultsConvert(TRANSFER_LIST *tl) {
             ConvertDefaults = TRUE;
 
             if (NTDefaults != NULL) {
-               LogWriteLog(0, Lids(IDS_L_205), CurrentConvertList->DestServ->Name);
+               LogWriteLog(0, Lids(IDS_L_205), CurrentConvertList->FileServ->Name);
                NTUserDefaultsLog(*NTDefaults);
             }
          }
@@ -1932,17 +1885,18 @@ void SupervisorDefaultsConvert(TRANSFER_LIST *tl) {
 
    }
 
-   // Need to catch the last one throug the loop
+   // Need to catch the last one through the loop
    if (ConvertDefaults && (oDServ != NULL)) {
       ConvertDefaults = FALSE;
       LogWriteLog(0, Lids(IDS_L_204), oDServ->Name);
 
       if (NTDefaults != NULL) {
          NTUserDefaultsLog(*NTDefaults);
+
+         if (!TConversion)
+            NTUserDefaultsSet(*NTDefaults);
       }
 
-      if (!TConversion)
-         NTUserDefaultsSet(*NTDefaults);
    }
 
 
@@ -1950,8 +1904,8 @@ void SupervisorDefaultsConvert(TRANSFER_LIST *tl) {
 
 
 /*+-------------------------------------------------------------------------+
-  | TransferListCompare()                                                   |
-  |                                                                         |
+  | TransferListCompare()
+  |
   +-------------------------------------------------------------------------+*/
 int __cdecl TransferListCompare(const void *arg1, const void *arg2) {
    TRANSFER_BUFFER *TBarg1, *TBarg2;
@@ -1965,8 +1919,8 @@ int __cdecl TransferListCompare(const void *arg1, const void *arg2) {
 
 
 /*+-------------------------------------------------------------------------+
-  | TransferListCreate()                                                    |
-  |                                                                         |
+  | TransferListCreate()
+  |
   +-------------------------------------------------------------------------+*/
 TRANSFER_LIST *TransferListCreate() {
    CONVERT_OPTIONS *ConvOpt;
@@ -2007,12 +1961,12 @@ TRANSFER_LIST *TransferListCreate() {
          TList[Count].ServerName = ConvOpt->TrustedDomain->PDCName;
       } else
          // If in a domain then point to the PDC for user transfers
-         if (CList->DestServ->InDomain && CList->DestServ->Domain) {
+         if (CList->FileServ->InDomain && CList->FileServ->Domain) {
             TList[Count].UserServerType = USER_SERVER_PDC;
-            TList[Count].ServerName = CList->DestServ->Domain->PDCName;
+            TList[Count].ServerName = CList->FileServ->Domain->PDCName;
          } else {
             TList[Count].UserServerType = USER_SERVER;
-            TList[Count].ServerName = CList->DestServ->Name;
+            TList[Count].ServerName = CList->FileServ->Name;
          }
 
       Count++;
@@ -2050,11 +2004,11 @@ dprintf(TEXT("\n"));
 
 
 /*+-------------------------------------------------------------------------+
-  | DoConversion()                                                          |
-  |                                                                         |
-  |   Main program that does the actuall conversion.  Loops through the     |
-  |   convert list and transfer the information.                            |
-  |                                                                         |
+  | DoConversion()
+  |
+  |   Main program that does the actuall conversion.  Loops through the
+  |   convert list and transfer the information.
+  |
   +-------------------------------------------------------------------------+*/
 void DoConversion(HWND hDlg, BOOL TrialConversion) {
    TRANSFER_LIST *tl = NULL;
@@ -2064,6 +2018,7 @@ void DoConversion(HWND hDlg, BOOL TrialConversion) {
    UINT i;
    BOOL GotUserList;
    TCHAR sztime[40];
+   LPTSTR DomainName;
 
    time(&StartTime);
    TransferCancel = FALSE;
@@ -2161,7 +2116,7 @@ void DoConversion(HWND hDlg, BOOL TrialConversion) {
       Status_CurConv(i + 1);
 
       SourceServer = CurrentConvertList->SourceServ->Name;
-      DestServer = CurrentConvertList->DestServ->Name;
+      DestServer = CurrentConvertList->FileServ->Name;
 
       Status_SrcServ(SourceServer);
       Status_DestServ(DestServer);
@@ -2191,17 +2146,18 @@ void DoConversion(HWND hDlg, BOOL TrialConversion) {
 
          // Put VShares here so it doesn't get lost in user info
          if (FileOptions->TransferFileInfo)
-            VSharesCreate(CurrentConvertList->DestServ, TConversion);
+            VSharesCreate(CurrentConvertList->FileServ, TConversion);
 
          // Get users on NT server and put in cache
-         if (status = NTUsersEnum(&NTUsers, &NTUserCount)) {
+         if (status = NTUsersEnum(&NTUsers)) {
             // Failed - make sure we don't try to convert users and log err
             NTUsers = NULL;
             NTUserCount = 0;
             LogWriteLog(0, Lids(IDS_L_210), DestServer);
             ErrorIt(Lids(IDS_L_210), DestServer);
             GotUserList = FALSE;
-         }
+         } else
+            NTUserCount = NTUsers->Count;
 
          if (!ListCachePut(&UserCacheHead, (void *) NTUsers, NTUserCount)) {
             // Failed - but clean up NT List first
@@ -2209,7 +2165,7 @@ void DoConversion(HWND hDlg, BOOL TrialConversion) {
             FreeMemory(NTUsers);
          } else {
             // Now get Groups (if users succeded) and put in group cache
-            if (status = NTGroupsEnum(&NTGroups, &NTGroupCount)) {
+            if (status = NTGroupsEnum(&NTGroups)) {
                // Failed - make sure we don't try to convert users and log err
                NTGroupCount = 0;
                NTGroups = NULL;
@@ -2217,7 +2173,8 @@ void DoConversion(HWND hDlg, BOOL TrialConversion) {
                ErrorIt(Lids(IDS_L_211), DestServer);
                FreeMemory(NTUsers);
                GotUserList = FALSE;
-            }
+            } else
+               NTGroupCount = NTGroups->Count;
 
             if (!ListCachePut(&GroupCacheHead, (void *) NTGroups, NTGroupCount)) {
                // Failed - but clean up NT List first
@@ -2237,6 +2194,25 @@ void DoConversion(HWND hDlg, BOOL TrialConversion) {
          goto ConvDo_Loop;
       }
 
+      if (ConvOpt->NetWareInfo) {
+         NTSAMClose();
+
+         if (ConvOpt->UseTrustedDomain && (ConvOpt->TrustedDomain != NULL))
+            DomainName = ConvOpt->TrustedDomain->Name;
+         else
+            if ((CurrentConvertList->FileServ->InDomain) && (CurrentConvertList->FileServ->Domain != NULL))
+               DomainName = CurrentConvertList->FileServ->Domain->Name;
+            else
+               DomainName = TEXT("");
+
+         if ((status = NTSAMConnect(TList[i].ServerName, DomainName))) {
+            // Failed to set server so log it and loop to next server
+            LogWriteLog(0, Lids(IDS_L_209), TList[i].ServerName);
+            ErrorIt(Lids(IDS_L_209), TList[i].ServerName);
+            goto ConvDo_Loop;
+         }
+      }
+
       if ((status = NWServerSet(SourceServer))) {
          // Failed to set server so log it and loop to next server
          LogWriteLog(0, Lids(IDS_L_209), SourceServer);
@@ -2244,22 +2220,64 @@ void DoConversion(HWND hDlg, BOOL TrialConversion) {
          goto ConvDo_Loop;
       }
 
-      if ((status = NWGroupsEnum(&Groups, &GroupCount))) {
-         // Failed - make sure we don't try to convert users and log err
-         Groups = NULL;
-         GroupCount = 0;
-         LogWriteLog(0, Lids(IDS_L_211), SourceServer);
-         ErrorIt(Lids(IDS_L_211), SourceServer);
-         GotUserList = FALSE;
-      }
+      //
+      // If we are using mapping file then don't enum users and groups off
+      // the server.  Get them from the mapping file instead.
+      //
+      hMap = NULL;
+      if (ConvOpt->UseMappingFile) {
+         //
+         // This is mapping file stuff
+         //
+         hMap = map_Open(ConvOpt->MappingFile);
+         if (hMap == NULL) {
+            ErrorIt(Lids(IDS_L_217), ConvOpt->MappingFile);
+            goto ConvDo_Loop;
+         }
 
-      if ((status = NWUsersEnum(&Users, &UserCount))) {
-         // Failed - make sure we don't try to convert users and log err
-         Users = NULL;
-         UserCount = 0;
-         LogWriteLog(0, Lids(IDS_L_210), SourceServer);
-         ErrorIt(Lids(IDS_L_210), SourceServer);
-         GotUserList = FALSE;
+         if ((status = map_GroupsEnum(hMap, &Groups))) {
+            // Failed - make sure we don't try to convert users and log err
+            Groups = NULL;
+            GroupCount = 0;
+            LogWriteLog(0, Lids(IDS_L_219), ConvOpt->MappingFile);
+            ErrorIt(Lids(IDS_L_219), ConvOpt->MappingFile);
+            GotUserList = FALSE;
+         } else
+            GroupCount = Groups->Count;
+
+         if ((status = map_UsersEnum(hMap, &Users))) {
+            // Failed - make sure we don't try to convert users and log err
+            Users = NULL;
+            UserCount = 0;
+            LogWriteLog(0, Lids(IDS_L_218), ConvOpt->MappingFile);
+            ErrorIt(Lids(IDS_L_218), ConvOpt->MappingFile);
+            GotUserList = FALSE;
+         } else
+            UserCount = Users->Count;
+
+      } else {
+         //
+         // Enuming users and groups from NetWare Server instead of map file
+         //
+         if ((status = NWGroupsEnum(&Groups, TRUE))) {
+            // Failed - make sure we don't try to convert users and log err
+            Groups = NULL;
+            GroupCount = 0;
+            LogWriteLog(0, Lids(IDS_L_211), SourceServer);
+            ErrorIt(Lids(IDS_L_211), SourceServer);
+            GotUserList = FALSE;
+         } else
+            GroupCount = Groups->Count;
+
+         if ((status = NWUsersEnum(&Users, TRUE))) {
+            // Failed - make sure we don't try to convert users and log err
+            Users = NULL;
+            UserCount = 0;
+            LogWriteLog(0, Lids(IDS_L_210), SourceServer);
+            ErrorIt(Lids(IDS_L_210), SourceServer);
+            GotUserList = FALSE;
+         } else
+            UserCount = Users->Count;
       }
 
       if (GotUserList) {
@@ -2280,10 +2298,10 @@ void DoConversion(HWND hDlg, BOOL TrialConversion) {
          ErrorCategorySet(Lids(IDS_L_212));
 
          // Now set server to appropriate file dest server
-         if ((status = NTServerSet(CurrentConvertList->DestServ->Name))) {
+         if ((status = NTServerSet(CurrentConvertList->FileServ->Name))) {
             // Failed to set server so log it and loop to next server
-            LogWriteLog(0, Lids(IDS_L_209), CurrentConvertList->DestServ->Name);
-            ErrorIt(Lids(IDS_L_209), CurrentConvertList->DestServ->Name);
+            LogWriteLog(0, Lids(IDS_L_209), CurrentConvertList->FileServ->Name);
+            ErrorIt(Lids(IDS_L_209), CurrentConvertList->FileServ->Name);
             goto ConvDo_Loop;
          }
 
@@ -2291,7 +2309,7 @@ void DoConversion(HWND hDlg, BOOL TrialConversion) {
          Status_Bytes(TEXT("0"));
          Status_TotBytes(TEXT("0"));
          Status_BytesSep(Lids(IDS_L_214));
-         ConvertFiles(hDlg, TConversion, Users, UserCount, Groups, GroupCount);
+         ConvertFiles(hDlg, TConversion, Users, Groups);
          Status_BytesTxt(TEXT(""));
          Status_Bytes(TEXT(""));
          Status_TotBytes(TEXT(""));
@@ -2312,6 +2330,9 @@ ConvDo_Loop:
          FreeMemory(Groups);
          GroupCount = 0;
       }
+
+      if (hMap != NULL)
+         map_Close(hMap);
 
    } // for loop through transfer list
 
@@ -2337,6 +2358,7 @@ ConvDo_Loop:
    if (tl != NULL)
       FreeMemory(tl);
 
+   NTSAMClose();
    StatusDlgKill();
    CursorNormal();
 
@@ -2347,8 +2369,8 @@ ConvDo_Loop:
 
 
 /*+-------------------------------------------------------------------------+
-  | ConversionSuccessful()                                                  |
-  |                                                                         |
+  | ConversionSuccessful()
+  |
   +-------------------------------------------------------------------------+*/
 BOOL ConversionSuccessful() {
    if (TotErrors || TransferCancel)
@@ -2357,5 +2379,3 @@ BOOL ConversionSuccessful() {
       return TRUE;
 
 } // ConversionSuccesful
-
-

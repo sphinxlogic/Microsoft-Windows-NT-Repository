@@ -169,7 +169,7 @@ BOOL DebugOutput2(DOPARAMS FAR* pparams)
     if (DebugOptions & DBO_SILENT)
 	fPrint = FALSE;
 
-    if ((lstrlen(pparams->lpszFmt) <= sizeof(rgch) - BUFFERSLOP) &&
+    if ((lstrlen((LPSTR)pparams->lpszFmt) <= sizeof(rgch) - BUFFERSLOP) &&
             (SELECTOROF(wsprintf) || LoadWsprintf()) && (fPrint || fBreak))
     {
 	int hinst = HIWORD(pparams);

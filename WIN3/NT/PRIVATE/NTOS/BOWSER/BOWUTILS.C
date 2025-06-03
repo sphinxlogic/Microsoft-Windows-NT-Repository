@@ -615,7 +615,7 @@ Return Value:
 
     KeQuerySystemTime(&CurrentTime);
 
-    TimeDelta = RtlLargeIntegerSubtract(CurrentTime, BowserStartTime);
+    TimeDelta.QuadPart = CurrentTime.QuadPart - BowserStartTime.QuadPart;
 
     //
     //  TimeDelta is the number of 100ns units the bowser has been up.  Convert
@@ -698,7 +698,7 @@ Routine Description:
     BowserReferenceDiscardableCode is called to reference the browsers
     discardable code section.
 
-    If the section is not present in memory, MmLockPagableImageSection is
+    If the section is not present in memory, MmLockPagableCodeSection is
     called to fault the section into memory.
 
 Arguments:

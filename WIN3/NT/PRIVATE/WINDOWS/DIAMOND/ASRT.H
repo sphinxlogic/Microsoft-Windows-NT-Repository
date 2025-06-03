@@ -53,7 +53,7 @@
 #ifndef ASSERT
 #define ASSERT 1
 #endif // !ASSERT
-#endif // DEBUG
+#endif // _DEBUG
 
 #ifdef ASSERT
 

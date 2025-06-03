@@ -118,10 +118,10 @@ Return Value:
     DSTRING             CommentString;
 
     if( !LexArray.Initialize() ) {
-        DbgPrint( "LexArray.Initialize() Failed!\n" );
+        KdPrint(( "LexArray.Initialize() Failed!\n" ));
     }
     if( !ArgLex.Initialize(&LexArray) ) {
-        DbgPrint( "ArgLex.Initialize() Failed!\n" );
+        KdPrint(( "ArgLex.Initialize() Failed!\n" ));
     }
 
     // Allow only the '/' as a valid switch
@@ -129,27 +129,27 @@ Return Value:
     ArgLex.SetCaseSensitive( FALSE );
 
     if( !ArgLex.PrepareToParse() ) {
-        DbgPrint( "ArgLex.PrepareToParse() Failed!\n" );
+        KdPrint(( "ArgLex.PrepareToParse() Failed!\n" ));
     }
 
     if( !ProgramName.Initialize("*")            ||
         !FlagRequestHelp.Initialize("/?")       ||
         !_FileName.Initialize("*") ) {
 
-        DbgPrint( "Unable to Initialize some or all of the Arguments!\n" );
+        KdPrint(( "Unable to Initialize some or all of the Arguments!\n" ));
         return( FALSE );
     }
 
 
     if( !ArrayOfArg.Initialize() ) {
-        DbgPrint( "ArrayOfArg.Initialize() Failed\n" );
+        KdPrint(( "ArrayOfArg.Initialize() Failed\n" ));
     }
 
     if( !ArrayOfArg.Put(&ProgramName)           ||
         !ArrayOfArg.Put(&FlagRequestHelp)       ||
         !ArrayOfArg.Put(&_FileName) ) {
 
-        DbgPrint( "ArrayOfArg.Put() Failed!\n" );
+        KdPrint(( "ArrayOfArg.Put() Failed!\n" ));
 
     }
 
@@ -164,7 +164,7 @@ Return Value:
  *
         PWSTRING    InvalidArg;
 
-        DbgPrint( "HELP: invalid Switch(s)\n" );
+        KdPrint(( "HELP: invalid Switch(s)\n" ));
         InvalidArg = ArgLex.QueryInvalidArgument();
 
         psmsg->Set( MSG_HELP_TOO_MANY_PARAMETERS );
@@ -181,7 +181,7 @@ Return Value:
     if( FlagRequestHelp.QueryFlag() ) {
 
         // Send help message
-        DbgPrint( "Help....\n" );
+        KdPrint(( "Help....\n" ));
         psmsg->Set( MSG_HELP_HELP_MESSAGE );
         psmsg->Display( "" );
 
@@ -235,7 +235,7 @@ Notes:
 
     if( ( pHelpPath = SYSTEM::SearchPath( &HelpName ) ) == NULL ) {
         // Output unable to find helpfile...
-        DbgPrint( "Unable to find helpfile...\n" );
+        KdPrint(( "Unable to find helpfile...\n" ));
         psmsg->Set( MSG_HELP_HELP_FILE_NOT_FOUND );
         psmsg->Display( "" );
         Errlev = HELP_ERROR;
@@ -244,7 +244,7 @@ Notes:
 
     // Get a file node to the Help file and open a stream...
     if( ( pHelpFile = SYSTEM::QueryFile( pHelpPath ) ) == NULL ) {
-        DbgPrint( "Unable to create FSN_NODE for helpfile\n" );
+        KdPrint(( "Unable to create FSN_NODE for helpfile\n" ));
         psmsg->Set( MSG_HELP_HELP_FILE_ERROR );
         psmsg->Display( "" );
         DELETE( pHelpPath );
@@ -254,7 +254,7 @@ Notes:
     DELETE( pHelpPath );
 
     if( ( _HelpStream = pHelpFile->QueryStream( READ_ACCESS ) ) == NULL ) {
-        DbgPrint( "Unable to open stream to help file...\n" );
+        KdPrint(( "Unable to open stream to help file...\n" ));
         psmsg->Set( MSG_HELP_HELP_FILE_ERROR );
         psmsg->Display( "" );
         DELETE( pHelpFile );
@@ -324,7 +324,7 @@ Return Value:
     while( !_HelpStream->IsAtEnd() ) {
 
         if( ( String = NEW DSTRING ) == NULL ) {
-            DbgPrint( "Unable to create string for QueryLine()\n" );
+            KdPrint(( "Unable to create string for QueryLine()\n" ));
             return;
         }
         String->Initialize( "" );
@@ -333,7 +333,7 @@ Return Value:
         // Help file is ANSI.
         WSTRING::SetAnsiConversions();
         if( !_HelpStream->ReadLine( String ) ) {
-            DbgPrint( "Unable to read line but file isn't empty...\n" );
+            KdPrint(( "Unable to read line but file isn't empty...\n" ));
         }
         WSTRING::SetOemConversions();
 
@@ -353,7 +353,7 @@ Return Value:
     DELETE( String );
 
     if( !flag ) {
-        DbgPrint( "Help not available for this subject\n" );
+        KdPrint(( "Help not available for this subject\n" ));
         psmsg->Set( MSG_HELP_HELP_UNAVAILABLE );
         psmsg->Display( "%W", &Command );
         Errlev = NO_HELP_FOUND;
@@ -390,7 +390,7 @@ Return Value:
     } else {
 
         if( !ExternalCommand.Initialize( _FileName.GetString() ) ) {
-            DbgPrint( "ExternalCommand.Initialize() failed \n" );
+            KdPrint(( "ExternalCommand.Initialize() failed \n" ));
             return;
         }
         //
@@ -402,7 +402,7 @@ Return Value:
             // Append '.COM' to the command
             //
             if( !DotComExtension.Initialize( ".COM" ) ) {
-                DbgPrint( "DotComExtension.Initialize() failed \n" );
+                KdPrint(( "DotComExtension.Initialize() failed \n" ));
                 return;
             }
             ExternalCommand.Strcat( &DotComExtension );
@@ -447,7 +447,7 @@ Return Value:
 
     if( !flag ) {
         // Failed to create the process...
-        DbgPrint( " Unable to run the exe...\n" );
+        KdPrint(( " Unable to run the exe...\n" ));
         psmsg->Set( MSG_HELP_HELP_UNAVAILABLE );
         psmsg->Display( "%W", &Command );
         Errlev = NO_HELP_FOUND;
@@ -493,7 +493,7 @@ Return Value:
     // is typed.
     //
     if( !( InStream = KEYBOARD::Cast( Get_Standard_Input_Stream() ) ) ) {
-        DbgPrint( "Unable to flush keyboard - skipping more...\n" );
+        KdPrint(( "Unable to flush keyboard - skipping more...\n" ));
     }
 
     //
@@ -537,7 +537,7 @@ Return Value:
             }
 
             if( ( String = NEW DSTRING ) == NULL ) {
-                DbgPrint( "Unable to create string for QueryLine()\n" );
+                KdPrint(( "Unable to create string for QueryLine()\n" ));
                 return;
             }
             String->Initialize( "" );
@@ -548,7 +548,7 @@ Return Value:
             WSTRING::SetAnsiConversions();
 
             if( !_HelpStream->ReadLine( String ) ) {
-                DbgPrint( "Unable to read line but file isn't empty...\n" );
+                KdPrint(( "Unable to read line but file isn't empty...\n" ));
             }
 
             WSTRING::SetOemConversions();
@@ -708,7 +708,7 @@ main(
                             Get_Standard_Input_Stream() );
 
         if( !SYSTEM::IsCorrectVersion() ) {
-            DbgPrint( "Incorrect Version Number...\n" );
+            KdPrint(( "Incorrect Version Number...\n" ));
             psmsg->Set( MSG_HELP_INCORRECT_VERSION );
             psmsg->Display( "" );
             Help.Destruct();

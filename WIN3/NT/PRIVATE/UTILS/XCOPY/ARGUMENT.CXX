@@ -4,44 +4,44 @@ Copyright (c) 1990  Microsoft Corporation
 
 Module Name:
 
-	Argument
+    Argument
 
 Abstract:
 
-	Argument processing for the XCopy directory copy utility
+    Argument processing for the XCopy directory copy utility
 
 Author:
 
-	Ramon Juan San Andres (ramonsa) 01-May-1991
+    Ramon Juan San Andres (ramonsa) 01-May-1991
 
 Notes:
 
-	The arguments accepted	by the XCopy utility are:
+    The arguments accepted  by the XCopy utility are:
 
-	Source directory.-	Source path.
+    Source directory.-  Source path.
 
-	Dest. directory.-	Destination path.
+    Dest. directory.-   Destination path.
 
-	Archive switch.-	Copy files that have their archive bit set
+    Archive switch.-    Copy files that have their archive bit set
 
-	Date.-				Copy files modified on or after the specifiec
-						date.
+    Date.-              Copy files modified on or after the specifiec
+                        date.
 
-	Empty switch.-		Copy directories even if empty. Subdir switch
-						must also be set.
+    Empty switch.-      Copy directories even if empty. Subdir switch
+                        must also be set.
 
-	Modify switch.- 	Same as Archive switch, but turns off archive
-						bit ins the source file after copying.
+    Modify switch.-     Same as Archive switch, but turns off archive
+                        bit in the source file after copying.
 
-	Prompt switch.- 	Prompts before copying each file.
+    Prompt switch.-     Prompts before copying each file.
 
-	Subdir switch.- 	Copies also subdirectories, unless they are empty.
-						(Empty directories are copied if the Empty switch
-						is set).
+    Subdir switch.-     Copies also subdirectories, unless they are empty.
+                        (Empty directories are copied if the Empty switch
+                        is set).
 
-	Verify switch.- 	Verifies each copy.
+    Verify switch.-     Verifies each copy.
 
-	Wait switch.-		Wait before starting to copy the files.
+    Wait switch.-       Wait before starting to copy the files.
 
 Revision History:
 
@@ -59,28 +59,28 @@ Revision History:
 #include "filestrm.hxx"
 
 //
-//	Switch characters. Used for maintaining DOS5 compatibility when
-//	displaying error messages
+// Switch characters. Used for maintaining DOS5 compatibility when
+// displaying error messages
 //
-#define SWITCH_CHARACTERS	"dDaAeEmMpPsSvVwW?"
+#define SWITCH_CHARACTERS  "dDaAeEmMpPsSvVwW?"
 
 //
-//	Static variables
+// Static variables
 //
 
 PARRAY              LexArray;
 PPATH_ARGUMENT      FirstPathArgument       =   NULL;
 PPATH_ARGUMENT      FirstQuotedPathArgument =   NULL;
 PPATH_ARGUMENT      SecondPathArgument      =   NULL;
-PPATH_ARGUMENT      SecondQuotedPathArgument = NULL;
-PFLAG_ARGUMENT		ArchiveArgument 		=	NULL;
+PPATH_ARGUMENT      SecondQuotedPathArgument =  NULL;
+PFLAG_ARGUMENT      ArchiveArgument         =   NULL;
 PTIMEINFO_ARGUMENT  DateArgument            =   NULL;
-PFLAG_ARGUMENT		EmptyArgument			=	NULL;
-PFLAG_ARGUMENT		ModifyArgument			=	NULL;
-PFLAG_ARGUMENT		PromptArgument			=	NULL;
-PFLAG_ARGUMENT		SubdirArgument			=	NULL;
-PFLAG_ARGUMENT		VerifyArgument			=	NULL;
-PFLAG_ARGUMENT		WaitArgument			=	NULL;
+PFLAG_ARGUMENT      EmptyArgument           =   NULL;
+PFLAG_ARGUMENT      ModifyArgument          =   NULL;
+PFLAG_ARGUMENT      PromptArgument          =   NULL;
+PFLAG_ARGUMENT      SubdirArgument          =   NULL;
+PFLAG_ARGUMENT      VerifyArgument          =   NULL;
+PFLAG_ARGUMENT      WaitArgument            =   NULL;
 PFLAG_ARGUMENT      HelpArgument            =   NULL;
 PFLAG_ARGUMENT      ContinueArgument        =   NULL;
 
@@ -95,27 +95,29 @@ PFLAG_ARGUMENT      StructureArgument       =   NULL;
 PFLAG_ARGUMENT      UpdateArgument          =   NULL;
 PFLAG_ARGUMENT      CopyAttrArgument        =   NULL;
 PFLAG_ARGUMENT      UseShortArgument        =   NULL;
+PFLAG_ARGUMENT      RestartableArgument     =   NULL;
+
 PSTRING_ARGUMENT    ExclusionListArgument   =   NULL;
 
-PSTRING_ARGUMENT	InvalidSwitchArgument	=	NULL;
+PSTRING_ARGUMENT    InvalidSwitchArgument   =   NULL;
 
 
-BOOLEAN 			HelpSwitch;
+BOOLEAN        HelpSwitch;
 
 //
-//	Prototypes
+// Prototypes
 //
 
 
 VOID
 XCOPY::SetArguments(
-	)
+    )
 
 /*++
 
 Routine Description:
 
-	Obtains the arguments for the XCopy utility
+    Obtains the arguments for the XCopy utility
 
 Arguments:
 
@@ -135,15 +137,15 @@ Notes:
     PATH_ARGUMENT       LocalFirstQuotedPathArgument;
     PATH_ARGUMENT       LocalSecondPathArgument;
     PATH_ARGUMENT       LocalSecondQuotedPathArgument;
-	FLAG_ARGUMENT		LocalArchiveArgument;
+    FLAG_ARGUMENT       LocalArchiveArgument;
     TIMEINFO_ARGUMENT   LocalDateArgument;
     FLAG_ARGUMENT       LocalOldArgument;
-	FLAG_ARGUMENT		LocalEmptyArgument;
-	FLAG_ARGUMENT		LocalModifyArgument;
-	FLAG_ARGUMENT		LocalPromptArgument;
-	FLAG_ARGUMENT		LocalSubdirArgument;
-	FLAG_ARGUMENT		LocalVerifyArgument;
-	FLAG_ARGUMENT		LocalWaitArgument;
+    FLAG_ARGUMENT       LocalEmptyArgument;
+    FLAG_ARGUMENT       LocalModifyArgument;
+    FLAG_ARGUMENT       LocalPromptArgument;
+    FLAG_ARGUMENT       LocalSubdirArgument;
+    FLAG_ARGUMENT       LocalVerifyArgument;
+    FLAG_ARGUMENT       LocalWaitArgument;
     FLAG_ARGUMENT       LocalHelpArgument;
     FLAG_ARGUMENT       LocalContinueArgument;
     FLAG_ARGUMENT       LocalIntelligentArgument;
@@ -156,28 +158,29 @@ Notes:
     FLAG_ARGUMENT       LocalUpdateArgument;
     FLAG_ARGUMENT       LocalCopyAttrArgument;
     FLAG_ARGUMENT       LocalUseShortArgument;
+    FLAG_ARGUMENT       LocalRestartableArgument;
     STRING_ARGUMENT     LocalExclusionListArgument;
 
 
-	STRING_ARGUMENT 	LocalInvalidSwitchArgument;
-	ARRAY				LocalLexArray;
+    STRING_ARGUMENT     LocalInvalidSwitchArgument;
+    ARRAY               LocalLexArray;
 
-	//
-	//	Set the static global pointers
-	//
+    //
+    // Set the static global pointers
+    //
     FirstPathArgument         = &LocalFirstPathArgument;
     FirstQuotedPathArgument   = &LocalFirstQuotedPathArgument;
     SecondPathArgument        = &LocalSecondPathArgument;
     SecondQuotedPathArgument  = &LocalSecondQuotedPathArgument;
-	ArchiveArgument 		  = &LocalArchiveArgument;
+    ArchiveArgument           = &LocalArchiveArgument;
     DateArgument              = &LocalDateArgument;
     OldArgument               = &LocalOldArgument;
-	EmptyArgument			  = &LocalEmptyArgument;
-	ModifyArgument			  = &LocalModifyArgument;
-	PromptArgument			  = &LocalPromptArgument;
-	SubdirArgument			  = &LocalSubdirArgument;
-	VerifyArgument			  = &LocalVerifyArgument;
-	WaitArgument			  = &LocalWaitArgument;
+    EmptyArgument             = &LocalEmptyArgument;
+    ModifyArgument            = &LocalModifyArgument;
+    PromptArgument            = &LocalPromptArgument;
+    SubdirArgument            = &LocalSubdirArgument;
+    VerifyArgument            = &LocalVerifyArgument;
+    WaitArgument              = &LocalWaitArgument;
     HelpArgument              = &LocalHelpArgument;
     ContinueArgument          = &LocalContinueArgument;
     IntelligentArgument       = &LocalIntelligentArgument;
@@ -191,21 +194,21 @@ Notes:
     CopyAttrArgument          = &LocalCopyAttrArgument;
     UseShortArgument          = &LocalUseShortArgument;
     ExclusionListArgument     = &LocalExclusionListArgument;
-	InvalidSwitchArgument	  = &LocalInvalidSwitchArgument;
-	LexArray				  = &LocalLexArray;
+    InvalidSwitchArgument     = &LocalInvalidSwitchArgument;
+    LexArray                  = &LocalLexArray;
+    RestartableArgument       = &LocalRestartableArgument;
 
-	//
-	//	Parse the arguments
-	//
-	GetArgumentsCmd();
-
-	//
-	//	Verify the arguments
-	//
-	CheckArgumentConsistency();
+    //
+    // Parse the arguments
+    //
+    GetArgumentsCmd();
+    
+    //
+    // Verify the arguments
+    //
+    CheckArgumentConsistency();
 
     LocalLexArray.DeleteAllMembers();
-
 }
 
 
@@ -313,13 +316,13 @@ Return Value:
 
 VOID
 XCOPY::GetArgumentsCmd(
-	)
+   )
 
 /*++
 
 Routine Description:
 
-	Obtains the arguments from the Command line
+    Obtains the arguments from the Command line
 
 Arguments:
 
@@ -327,154 +330,151 @@ Arguments:
 
 Return Value:
 
-	None
-
-Notes:
+    None.
 
 --*/
 
 {
 
-	ARRAY				ArgArray;
-	PATH_ARGUMENT		ProgramNameArgument;
+    ARRAY               ArgArray;
+    PATH_ARGUMENT       ProgramNameArgument;
     DSTRING             CmdLine;
     DSTRING             InvalidParms;
-	WCHAR				Ch;
+    WCHAR               Ch;
     PWSTRING            InvalidSwitch;
     PARGUMENT_LEXEMIZER ArgLex;
 
-	//
-	//	Prepare for parsing
-	//
-	if (//
-		//	Initialize the arguments
-		//
-		!(CmdLine.Initialize( GetCommandLine() ))			||
-		!(ArgArray.Initialize( 15, 15 ))					||
-		!(ProgramNameArgument.Initialize( "*" ))			||
-        !(FirstPathArgument->Initialize( "*",  FALSE ))     ||
-        !(FirstQuotedPathArgument->Initialize( "\"*\"",
-                                                FALSE ))    ||
-        !(SecondPathArgument->Initialize( "*", FALSE))      ||
-        !(SecondQuotedPathArgument->Initialize( "\"*\"",
-                                                    FALSE)) ||
-		!(ArchiveArgument->Initialize( "/A"	))				||
-        !(DateArgument->Initialize( "/D:*" ))               ||
-        !(OldArgument->Initialize( "/D" ))                  ||
-		!(EmptyArgument->Initialize( "/E" ))				||
-		!(ModifyArgument->Initialize( "/M" ))				||
-		!(PromptArgument->Initialize( "/P" ))				||
-		!(SubdirArgument->Initialize( "/S" ))				||
-		!(VerifyArgument->Initialize( "/V" ))				||
-        !(WaitArgument->Initialize( "/W" ))                 ||
-        !(HelpArgument->Initialize( "/?" ))                 ||
-        !(ContinueArgument->Initialize( "/C" ))             ||
-        !(IntelligentArgument->Initialize( "/I" ))          ||
-        !(VerboseArgument->Initialize( "/F" ))              ||
-        !(HiddenArgument->Initialize( "/H" ))               ||
-        !(ReadOnlyArgument->Initialize( "/R" ))             ||
-        !(SilentArgument->Initialize( "/Q" ))               ||
-        !(NoCopyArgument->Initialize( "/L" ))               ||
-        !(StructureArgument->Initialize( "/T" ))            ||
-        !(UpdateArgument->Initialize( "/U" ))               ||
-        !(CopyAttrArgument->Initialize( "/K" ))             ||
-        !(UseShortArgument->Initialize( "/N" ))             ||
-        !(ExclusionListArgument->Initialize("/EXCLUDE:*"))  ||
-        !(InvalidSwitchArgument->Initialize( "/*" ))        ||
-		//
-		//	Put the arguments in the argument array
-		//
-		!(ArgArray.Put( &ProgramNameArgument ))				||
-		!(ArgArray.Put( ArchiveArgument ))					||
-		!(ArgArray.Put( DateArgument ))						||
-        !(ArgArray.Put( OldArgument ))                      ||
-		!(ArgArray.Put( EmptyArgument ))					||
-		!(ArgArray.Put( ModifyArgument ))					||
-		!(ArgArray.Put( PromptArgument ))					||
-		!(ArgArray.Put( SubdirArgument ))					||
-		!(ArgArray.Put( VerifyArgument ))					||
-		!(ArgArray.Put( WaitArgument )) 					||
-        !(ArgArray.Put( HelpArgument ))                     ||
-        !(ArgArray.Put( ContinueArgument ))                 ||
-        !(ArgArray.Put( IntelligentArgument ))              ||
-        !(ArgArray.Put( VerboseArgument ))                  ||
-        !(ArgArray.Put( HiddenArgument ))                   ||
-        !(ArgArray.Put( ReadOnlyArgument ))                 ||
-        !(ArgArray.Put( SilentArgument ))                   ||
-        !(ArgArray.Put( NoCopyArgument ))                   ||
-        !(ArgArray.Put( StructureArgument ))                ||
-        !(ArgArray.Put( UpdateArgument ))                   ||
-        !(ArgArray.Put( CopyAttrArgument ))                 ||
-        !(ArgArray.Put( UseShortArgument ))                 ||
-        !(ArgArray.Put( ExclusionListArgument ))            ||
-        !(ArgArray.Put( InvalidSwitchArgument ))            ||
-        !(ArgArray.Put( FirstQuotedPathArgument ))          ||
-        !(ArgArray.Put( SecondQuotedPathArgument ))         ||
-        !(ArgArray.Put( FirstPathArgument ))                ||
+    //
+    // Prepare for parsing
+    //
+    if (//
+        // Initialize the arguments
+        //
+        !(CmdLine.Initialize( GetCommandLine() ))                   ||
+        !(ArgArray.Initialize( 15, 15 ))                            ||
+        !(ProgramNameArgument.Initialize( "*" ))                    ||
+        !(FirstPathArgument->Initialize( "*",  FALSE ))             ||
+        !(FirstQuotedPathArgument->Initialize( "\"*\"", FALSE ))    ||
+        !(SecondPathArgument->Initialize( "*", FALSE))              ||
+        !(SecondQuotedPathArgument->Initialize( "\"*\"", FALSE))    ||
+        !(ArchiveArgument->Initialize( "/A" ))                      ||
+        !(DateArgument->Initialize( "/D:*" ))                       ||
+        !(OldArgument->Initialize( "/D" ))                          ||
+        !(EmptyArgument->Initialize( "/E" ))                        ||
+        !(ModifyArgument->Initialize( "/M" ))                       ||
+        !(PromptArgument->Initialize( "/P" ))                       ||
+        !(SubdirArgument->Initialize( "/S" ))                       ||
+        !(VerifyArgument->Initialize( "/V" ))                       ||
+        !(WaitArgument->Initialize( "/W" ))                         ||
+        !(HelpArgument->Initialize( "/?" ))                         ||
+        !(ContinueArgument->Initialize( "/C" ))                     ||
+        !(IntelligentArgument->Initialize( "/I" ))                  ||
+        !(VerboseArgument->Initialize( "/F" ))                      ||
+        !(HiddenArgument->Initialize( "/H" ))                       ||
+        !(ReadOnlyArgument->Initialize( "/R" ))                     ||
+        !(SilentArgument->Initialize( "/Q" ))                       ||
+        !(NoCopyArgument->Initialize( "/L" ))                       ||
+        !(StructureArgument->Initialize( "/T" ))                    ||
+        !(UpdateArgument->Initialize( "/U" ))                       ||
+        !(CopyAttrArgument->Initialize( "/K" ))                     ||
+        !(UseShortArgument->Initialize( "/N" ))                     ||
+        !(RestartableArgument->Initialize( "/Z" ))                  ||
+        !(ExclusionListArgument->Initialize("/EXCLUDE:*"))          ||
+        !(InvalidSwitchArgument->Initialize( "/*" ))                ||
+        //
+        // Put the arguments in the argument array
+        //
+        !(ArgArray.Put( &ProgramNameArgument ))                     ||
+        !(ArgArray.Put( ArchiveArgument ))                          ||
+        !(ArgArray.Put( DateArgument ))                             ||
+        !(ArgArray.Put( OldArgument ))                              ||
+        !(ArgArray.Put( EmptyArgument ))                            ||
+        !(ArgArray.Put( ModifyArgument ))                           ||
+        !(ArgArray.Put( PromptArgument ))                           ||
+        !(ArgArray.Put( SubdirArgument ))                           ||
+        !(ArgArray.Put( VerifyArgument ))                           ||
+        !(ArgArray.Put( WaitArgument ))                             ||
+        !(ArgArray.Put( HelpArgument ))                             ||
+        !(ArgArray.Put( ContinueArgument ))                         ||
+        !(ArgArray.Put( IntelligentArgument ))                      ||
+        !(ArgArray.Put( VerboseArgument ))                          ||
+        !(ArgArray.Put( HiddenArgument ))                           ||
+        !(ArgArray.Put( ReadOnlyArgument ))                         ||
+        !(ArgArray.Put( SilentArgument ))                           ||
+        !(ArgArray.Put( RestartableArgument ))                      ||
+        !(ArgArray.Put( NoCopyArgument ))                           ||
+        !(ArgArray.Put( StructureArgument ))                        ||
+        !(ArgArray.Put( UpdateArgument ))                           ||
+        !(ArgArray.Put( CopyAttrArgument ))                         ||
+        !(ArgArray.Put( UseShortArgument ))                         ||
+        !(ArgArray.Put( ExclusionListArgument ))                    ||
+        !(ArgArray.Put( InvalidSwitchArgument ))                    ||
+        !(ArgArray.Put( FirstQuotedPathArgument ))                  ||
+        !(ArgArray.Put( SecondQuotedPathArgument ))                 ||
+        !(ArgArray.Put( FirstPathArgument ))                        ||
         !(ArgArray.Put( SecondPathArgument ))
-		)	{
+        )  {
 
+        DisplayMessageAndExit( XCOPY_ERROR_NO_MEMORY, NULL, EXIT_MISC_ERROR);
+    }
 
-		DisplayMessageAndExit( XCOPY_ERROR_NO_MEMORY, NULL, EXIT_MISC_ERROR);
-	}
-
-	//
-	//	Parse the arguments
-	//
+    //
+    // Parse the arguments
+    //
     ArgLex = ParseArguments( &CmdLine, &ArgArray );
 
-	if ( InvalidSwitchArgument->IsValueSet() ) {
+    if ( InvalidSwitchArgument->IsValueSet() ) {
 
-		InvalidSwitch = InvalidSwitchArgument->GetString();
+        InvalidSwitch = InvalidSwitchArgument->GetString();
+        
+        InvalidParms.Initialize( SWITCH_CHARACTERS );
+        
+        Ch = InvalidSwitch->QueryChAt(0);
 
-		InvalidParms.Initialize( SWITCH_CHARACTERS );
+        if ( Ch == 'd' || Ch == 'D' ) {
+            Ch = InvalidSwitch->QueryChAt(1);
+            if ( Ch == INVALID_CHAR ) {
+                DisplayMessageAndExit( XCOPY_ERROR_INVALID_NUMBER_PARAMETERS,
+                                       NULL,
+                                       EXIT_MISC_ERROR );
+            } else if ( Ch != ':' || InvalidSwitch->QueryChCount() == 2 ) {
+                DisplayMessageAndExit( XCOPY_ERROR_INVALID_SWITCH_SWITCH,
+                                       InvalidSwitchArgument->GetLexeme(),
+                                       EXIT_MISC_ERROR );
+            }
+        } else if ( Ch == '/' ) {
+            Ch = InvalidSwitch->QueryChAt(1);
+            if ( Ch == ':' && InvalidSwitchArgument->GetString()->QueryChAt(2) == INVALID_CHAR ) {
+                InvalidSwitchArgument->GetLexeme()->Truncate(1);
+            }
+        }
 
-		Ch = InvalidSwitch->QueryChAt(0);
+        Ch = InvalidSwitch->QueryChAt(0);
 
-		if ( Ch == 'd' || Ch == 'D' ) {
-			Ch = InvalidSwitch->QueryChAt(1);
-			if ( Ch == INVALID_CHAR ) {
-				DisplayMessageAndExit( XCOPY_ERROR_INVALID_NUMBER_PARAMETERS,
-									   NULL,
-									   EXIT_MISC_ERROR );
-			} else if ( Ch != ':' || InvalidSwitch->QueryChCount() == 2 ) {
-				DisplayMessageAndExit( XCOPY_ERROR_INVALID_SWITCH_SWITCH,
-									   InvalidSwitchArgument->GetLexeme(),
-									   EXIT_MISC_ERROR );
-			}
-		} else if ( Ch == '/' ) {
-			Ch = InvalidSwitch->QueryChAt(1);
-			if ( Ch == ':' && InvalidSwitchArgument->GetString()->QueryChAt(2) == INVALID_CHAR ) {
-				InvalidSwitchArgument->GetLexeme()->Truncate(1);
-			}
-		}
+        if ( InvalidParms.Strchr( Ch ) != INVALID_CHNUM ) {
+            DisplayMessageAndExit( XCOPY_ERROR_INVALID_PARAMETER,
+                                   InvalidSwitchArgument->GetLexeme(),
+                                   EXIT_MISC_ERROR );
+        } else {
+            DisplayMessageAndExit( XCOPY_ERROR_INVALID_SWITCH_SWITCH,
+                                   InvalidSwitchArgument->GetLexeme(),
+                                   EXIT_MISC_ERROR );
+        }
+    }
 
-		Ch = InvalidSwitch->QueryChAt(0);
-
-		if ( InvalidParms.Strchr( Ch ) != INVALID_CHNUM ) {
-			DisplayMessageAndExit( XCOPY_ERROR_INVALID_PARAMETER,
-								   InvalidSwitchArgument->GetLexeme(),
-								   EXIT_MISC_ERROR );
-		} else {
-			DisplayMessageAndExit( XCOPY_ERROR_INVALID_SWITCH_SWITCH,
-								   InvalidSwitchArgument->GetLexeme(),
-								   EXIT_MISC_ERROR );
-		}
-	}
-
-	//
-	//	Set the switches
-	//
-	_EmptySwitch	=	EmptyArgument->QueryFlag();
+    //
+    // Set the switches
+    //
+    _EmptySwitch    =   EmptyArgument->QueryFlag();
     _ModifySwitch   =   ModifyArgument->QueryFlag();
 
-	//
-	//	ModifySwitch implies ArchiveSwitch
-	//
-	if ( _ModifySwitch ) {
-		_ArchiveSwitch = TRUE;
-	} else {
-		_ArchiveSwitch	=	ArchiveArgument->QueryFlag();
+    //
+    // ModifySwitch implies ArchiveSwitch
+    //
+    if ( _ModifySwitch ) {
+        _ArchiveSwitch = TRUE;
+    } else {
+        _ArchiveSwitch =  ArchiveArgument->QueryFlag();
     }
 
     //
@@ -496,13 +496,14 @@ Notes:
     _UpdateSwitch       =   UpdateArgument->QueryFlag();
     _CopyAttrSwitch     =   CopyAttrArgument->QueryFlag();
     _UseShortSwitch     =   UseShortArgument->QueryFlag();
+    _RestartableSwitch  =   RestartableArgument->QueryFlag();
     HelpSwitch          =   HelpArgument->QueryFlag();
 
 
-	//
-	//	Set the source and destination paths.  Argument checking is
-	//	done somewhere else, so it is ok. to set the source path to
-	//	NULL here.
+    //
+    // Set the source and destination paths.  Argument checking is
+    // done somewhere else, so it is ok. to set the source path to
+    // NULL here.
     //
     GetSourceAndDestinationPath(FirstPathArgument,
                                 FirstQuotedPathArgument,
@@ -514,48 +515,46 @@ Notes:
 
     DELETE(ArgLex);
 
-	//
-	//	Set the date argument
-	//
+    //
+    // Set the date argument
+    //
+    
+    if ( DateArgument->IsValueSet() ) {
 
-	if ( DateArgument->IsValueSet() ) {
+        if ((_Date = NEW TIMEINFO) == NULL ) {
 
-		if ((_Date = NEW TIMEINFO) == NULL ) {
+            DisplayMessageAndExit( XCOPY_ERROR_NO_MEMORY, NULL, EXIT_MISC_ERROR );
+        }
 
-			DisplayMessageAndExit( XCOPY_ERROR_NO_MEMORY, NULL, EXIT_MISC_ERROR );
-		}
+        _Date->Initialize( DateArgument->GetTimeInfo() );
 
-		_Date->Initialize( DateArgument->GetTimeInfo() );
+    } else {
 
-	} else {
-
-		_Date = NULL;
+        _Date = NULL;
     }
 
     if( ExclusionListArgument->IsValueSet() ) {
 
         InitializeExclusionList( ExclusionListArgument->GetString() );
     }
-
-
 }
 
 PARGUMENT_LEXEMIZER
 XCOPY::ParseArguments(
-	IN	PWSTRING	CmdLine,
-	OUT PARRAY		ArgArray
-	)
+    IN PWSTRING CmdLine,
+    OUT PARRAY     ArgArray
+    )
 
 /*++
 
 Routine Description:
 
-	Parses a group of arguments
+    Parses a group of arguments
 
 Arguments:
 
-	CmdLine 	-	Supplies pointer to a command line to parse
-	ArgArray	-	Supplies pointer to array of arguments
+    CmdLine  -  Supplies pointer to a command line to parse
+    ArgArray -  Supplies pointer to array of arguments
 
 Return Value:
 
@@ -569,74 +568,74 @@ Notes:
 {
     PARGUMENT_LEXEMIZER  ArgLex;
 
-	//
-	//	Initialize lexeme array and the lexemizer.
-	//
+    //
+    // Initialize lexeme array and the lexemizer.
+    //
     if ( !(ArgLex = NEW ARGUMENT_LEXEMIZER) ||
          !(LexArray->Initialize( 9, 9 )) ||
          !(ArgLex->Initialize( LexArray )) ) {
 
-		DisplayMessageAndExit( XCOPY_ERROR_NO_MEMORY,
-							   NULL,
-							   EXIT_MISC_ERROR );
+        DisplayMessageAndExit( XCOPY_ERROR_NO_MEMORY,
+                               NULL,
+                               EXIT_MISC_ERROR );
+    }
 
-	}
-
-	//
-	//	Set our parsing preferences
-	//
-    ArgLex->PutMultipleSwitch( "/?AMDPSEVWCIFHRQLKTUN" );
+    //
+    // Set our parsing preferences
+    //
+    ArgLex->PutMultipleSwitch( "/?AMDPSEVWCIFHRQLKTUNZ" );
     ArgLex->PutSwitches( "/" );
     ArgLex->SetCaseSensitive( FALSE );
-    ArgLex->PutSeparators( " /\t" );
+    ArgLex->PutSeparators( " \t" );
     ArgLex->PutStartQuotes( "\"" );
     ArgLex->PutEndQuotes( "\"" );
+    ArgLex->SetAllowSwitchGlomming( TRUE );
+    ArgLex->SetNoSpcBetweenDstAndSwitch( TRUE );
 
-	//
-	//	Parse the arguments
-	//
+    //
+    // Parse the arguments
+    //
     if ( !(ArgLex->PrepareToParse( CmdLine ))) {
 
-		DisplayMessageAndExit( XCOPY_ERROR_PARSE,
-							   NULL,
-							   EXIT_MISC_ERROR );
+        DisplayMessageAndExit( XCOPY_ERROR_PARSE,
+                               NULL,
+                               EXIT_MISC_ERROR );
 
-	}
+    }
 
     if ( !ArgLex->DoParsing( ArgArray ) ) {
 
-		DisplayMessageAndExit( XCOPY_ERROR_INVALID_NUMBER_PARAMETERS,
-							   NULL,
-							   EXIT_MISC_ERROR );
-	}
+        DisplayMessageAndExit( XCOPY_ERROR_INVALID_NUMBER_PARAMETERS,
+                               NULL,
+                               EXIT_MISC_ERROR );
+    }
 
     return ArgLex;
 }
 
 VOID
 XCOPY::CheckArgumentConsistency (
-	)
+    )
 
 /*++
 
 Routine Description:
 
-	Checks the consistency of the arguments
+   Checks the consistency of the arguments
 
 Arguments:
 
-	none
+   none
 
 Return Value:
 
-	none
+   none
 
 Notes:
 
 --*/
 
 {
-
     PFSN_DIRECTORY      DirSrc;
     PFSN_DIRECTORY      DirDst;
     PWSTRING DevSrc;
@@ -645,28 +644,28 @@ Notes:
     PATH                PathDst, PathDst1;
     DSTRING             Slash;
 
-	if ( HelpSwitch ) {
-		//
-		//	Help requested
-		//
-		Usage();
-		DisplayMessageAndExit( 0,
-							   NULL,
-							   EXIT_NORMAL );
-	}
+    if ( HelpSwitch ) {
+        //
+        // Help requested
+        //
+        Usage();
+        DisplayMessageAndExit( 0,
+                               NULL,
+                               EXIT_NORMAL );
+    }
 
 
-	//
-	//	Make sure that we have a source path
-	//
-	if ( _SourcePath == NULL ) {
+    //
+    // Make sure that we have a source path
+    //
+    if ( _SourcePath == NULL ) {
 
-		DisplayMessageAndExit( XCOPY_ERROR_INVALID_NUMBER_PARAMETERS,
-							   NULL,
-							   EXIT_MISC_ERROR );
-	}
+        DisplayMessageAndExit( XCOPY_ERROR_INVALID_NUMBER_PARAMETERS,
+                               NULL,
+                               EXIT_MISC_ERROR );
+    }
 
-	//
+    //
     //  The empty switch implies Subdir switch (note that DOS
     //  requires Subdir switch explicitly, but we are not that
     //  brain-damaged).
@@ -683,30 +682,22 @@ Notes:
         _SubdirSwitch = TRUE;
     }
 
-    //if ( _EmptySwitch && !_SubdirSwitch )  {
     //
-    //    DisplayMessageAndExit( XCOPY_ERROR_INVALID_SWITCH,
-    //                           NULL,
-    //                           EXIT_MISC_ERROR );
+    // If destination path is null, then the destination path is the
+    // current directory
     //
-    //}
+    if ( _DestinationPath == NULL ) {
 
-	//
-	//	If destination path is null, then the destination path is the
-	//	current directory
-	//
-	if ( _DestinationPath == NULL ) {
+        if ( ((_DestinationPath = NEW PATH) == NULL ) ||
+            !_DestinationPath->Initialize( (LPWSTR)L".", TRUE ) ) {
 
-		if ( ((_DestinationPath = NEW PATH) == NULL ) ||
-             !_DestinationPath->Initialize( (LPWSTR)L".", TRUE ) ) {
+            DisplayMessageAndExit( XCOPY_ERROR_NO_MEMORY, NULL, EXIT_MISC_ERROR );
+        }
+    }
 
-			DisplayMessageAndExit( XCOPY_ERROR_NO_MEMORY, NULL, EXIT_MISC_ERROR );
-		}
-	}
+    _DestinationPath->TruncateNameAtColon();
 
-	_DestinationPath->TruncateNameAtColon();
-
-	if ( !PathSrc1.Initialize( _SourcePath, TRUE )      ||
+    if ( !PathSrc1.Initialize( _SourcePath, TRUE )      ||
          !PathDst1.Initialize( _DestinationPath, TRUE ) ||
          !(DevSrc = PathSrc1.QueryDevice())             ||
          !(DevDst = PathDst1.QueryDevice())             ||
@@ -717,13 +708,12 @@ Notes:
          !PathDst.AppendBase( &Slash )                  ||
          !(DirSrc = SYSTEM::QueryDirectory( &PathSrc )) ||
          !(DirDst = SYSTEM::QueryDirectory( &PathDst )) ) {
-		DisplayMessageAndExit( XCOPY_ERROR_INVALID_DRIVE, NULL, EXIT_MISC_ERROR );
+        DisplayMessageAndExit( XCOPY_ERROR_INVALID_DRIVE, NULL, EXIT_MISC_ERROR );
     }
     DELETE( DevSrc );
     DELETE( DevDst );
     DELETE( DirSrc );
     DELETE( DirDst );
-
 }
 
 BOOLEAN
@@ -754,7 +744,7 @@ Return Value:
     PFILE_STREAM    Stream;
     CHNUM           Position;
 
-    DbgPtrAssert( ExclusionListFileName );
+    DebugPtrAssert( ExclusionListFileName );
 
     if( !ExclusionPath.Initialize( ExclusionListFileName ) ||
         (File = SYSTEM::QueryFile( &ExclusionPath )) == NULL ||
@@ -836,7 +826,7 @@ Return Value:
     DSTRING CurrentName;
     CHNUM   LastPosition, Position;
 
-    DbgPtrAssert( ListOfFiles );
+    DebugPtrAssert( ListOfFiles );
 
     if( (_ExclusionList = NEW STRING_ARRAY) == NULL ||
         !_ExclusionList->Initialize() ||

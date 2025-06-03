@@ -317,4 +317,3 @@ GetMySid(
     return(Owner->Owner);
 
 }
-

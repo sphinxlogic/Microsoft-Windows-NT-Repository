@@ -61,10 +61,17 @@ typedef struct _DEVICE_EXTENSION {
     UCHAR MaximumNumberOfSgDescriptors;
 
     //
+    // Keep track of state of verify.
+    //
+
+    ULONG CurrentSector;
+    ULONG RemainingSectors;
+
+    //
     // Array of outstanding requests
     //
 
-    PSCSI_REQUEST_BLOCK Srb[255];
+    PSCSI_REQUEST_BLOCK Srb[256];
 
 } DEVICE_EXTENSION, *PDEVICE_EXTENSION;
 
@@ -378,6 +385,83 @@ Return Value:
 
 } // end BuildRequest()
 
+
+VOID
+BuildVerifyRequest(
+    IN PDEVICE_EXTENSION DeviceExtension,
+    IN PSCSI_REQUEST_BLOCK Srb
+    )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+    DeviceExtension - Represents the target disk.
+    SRB - System request.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    PDDA_REQUEST_BLOCK ddaRequest = Srb->SrbExtension;
+    PUCHAR dataPointer;
+    ULONG descriptorNumber;
+    ULONG bytesLeft;
+    PSG_DESCRIPTOR sgList;
+    ULONG length;
+    USHORT sectorCount;
+
+    //
+    // Set drive number if request packet.
+    //
+
+    ddaRequest->DriveNumber = Srb->TargetId;
+
+    //
+    // Use SRB tag as request id.
+    //
+
+    ddaRequest->RequestId = Srb->QueueTag;
+    DeviceExtension->Srb[Srb->QueueTag] = Srb;
+
+    //
+    // Determine starting block number.
+    //
+
+    ddaRequest->StartingSector =
+        ((PCDB)Srb->Cdb)->CDB10.LogicalBlockByte3 |
+        ((PCDB)Srb->Cdb)->CDB10.LogicalBlockByte2 << 8 |
+        ((PCDB)Srb->Cdb)->CDB10.LogicalBlockByte1 << 16 |
+        ((PCDB)Srb->Cdb)->CDB10.LogicalBlockByte0 << 24;
+
+    //
+    // Get data pointer, byte count and index to scatter/gather list.
+    //
+
+    sectorCount = ((PCDB)Srb->Cdb)->CDB10.TransferBlocksMsb << 8 | ((PCDB)Srb->Cdb)->CDB10.TransferBlocksLsb;
+    DeviceExtension->CurrentSector = ddaRequest->StartingSector;
+
+    if (sectorCount > 0x80) {
+        DeviceExtension->RemainingSectors = sectorCount - 0x80;
+        sectorCount = 0x80;
+    } else {
+        DeviceExtension->RemainingSectors = 0;
+    }
+
+    ddaRequest->Size = (UCHAR)sectorCount;
+    ddaRequest->Command = DDA_COMMAND_VERIFY;
+    ddaRequest->PhysicalAddress = 0;
+
+    return;
+
+} // end BuildVerifyRequest()
+
 BOOLEAN
 SubmitRequest(
     IN PDEVICE_EXTENSION DeviceExtension,
@@ -413,7 +497,7 @@ Return Value:
     for (i=0; i<100; i++) {
 
         if (ScsiPortReadPortUchar(&bmic->SubmissionSemaphore)) {
-            ScsiPortStallExecution(1);
+            ScsiPortStallExecution(20);
         } else {
             break;
         }
@@ -521,7 +605,7 @@ Return Value:
     // Clear all SRB entries in device extension.
     //
 
-    for (i=0; i<255; i++) {
+    for (i=0; i<256; i++) {
         deviceExtension->Srb[i] = NULL;
     }
 
@@ -560,7 +644,9 @@ Return Value:
 --*/
 
 {
-    PDEVICE_EXTENSION deviceExtension = HwDeviceExtension;
+    PDEVICE_EXTENSION   deviceExtension = HwDeviceExtension;
+    PDDA_REGISTERS      bmic            = deviceExtension->Bmic;
+    PDDA_REQUEST_BLOCK  ddaRequest;
     PSCSI_REQUEST_BLOCK srb;
     UCHAR status;
     UCHAR tag;
@@ -585,14 +671,14 @@ Return Value:
         return TRUE;
     }
 
-    status = ScsiPortReadPortUchar(&deviceExtension->Bmic->Status);
-    tag = ScsiPortReadPortUchar(&deviceExtension->Bmic->RequestIdIn);
+    status = ScsiPortReadPortUchar(&bmic->Status);
+    tag = ScsiPortReadPortUchar(&bmic->RequestIdIn);
 
     //
     // Release completion semaphore.
     //
 
-    ScsiPortWritePortUchar(&deviceExtension->Bmic->CompletionSemaphore, 0);
+    ScsiPortWritePortUchar(&bmic->CompletionSemaphore, 0);
 
     //
     // Get SRB address.
@@ -603,6 +689,103 @@ Return Value:
 
     if (!srb) {
         return TRUE;
+    }
+
+    if (srb->Cdb[0] == SCSIOP_VERIFY) {
+
+        if (status == DDA_STATUS_NO_ERROR) {
+
+            //
+            // See if the verify isn't yet complete.
+            //
+
+            if (deviceExtension->RemainingSectors != 0) {
+
+                ULONG  i;
+                USHORT sectorCount;
+
+                ddaRequest = srb->SrbExtension;
+                sectorCount = ddaRequest->Size;
+
+                //
+                // Determine the new starting block number.
+                //
+
+                ddaRequest->StartingSector += sectorCount;
+
+                sectorCount = (USHORT)deviceExtension->RemainingSectors;
+
+                if (sectorCount > 0x80) {
+                    deviceExtension->RemainingSectors = sectorCount - 0x80;
+                    sectorCount = 0x80;
+                } else {
+                    deviceExtension->RemainingSectors = 0;
+                }
+
+
+                ddaRequest->Size = (UCHAR)sectorCount;
+                ddaRequest->Command = DDA_COMMAND_VERIFY;
+                ddaRequest->PhysicalAddress = 0;
+
+                ddaRequest->RequestId = srb->QueueTag;
+                deviceExtension->Srb[srb->QueueTag] = srb;
+
+                //
+                // Claim submission semaphore.
+                //
+
+                for (i=0; i<100; i++) {
+
+                    if (ScsiPortReadPortUchar(&bmic->SubmissionSemaphore)) {
+                        ScsiPortStallExecution(20);
+                    } else {
+                        break;
+                    }
+                }
+
+                //
+                // Check for timeout.
+                //
+
+                if (i == 100) {
+
+                    DebugPrint((1,
+                                "DELLDSA: SubmitRequest: Timeout waiting for submission channel %x\n",
+                                ddaRequest));
+
+                    status = DDA_STATUS_TIMEOUT;
+
+                } else {
+
+                    //
+                    // Submit request.
+                    //
+
+                    ScsiPortWritePortUchar(&bmic->SubmissionSemaphore, 1);
+                    ScsiPortWritePortUchar(&bmic->Command, ddaRequest->Command);
+                    ScsiPortWritePortUchar(&bmic->DriveNumber, ddaRequest->DriveNumber);
+                    ScsiPortWritePortUchar(&bmic->TransferCount, ddaRequest->Size);
+                    ScsiPortWritePortUchar(&bmic->RequestIdOut, ddaRequest->RequestId);
+                    ScsiPortWritePortUlong(&bmic->StartingSector, ddaRequest->StartingSector);
+                    ScsiPortWritePortUlong(&bmic->DataAddress, ddaRequest->PhysicalAddress);
+                    ScsiPortWritePortUchar(&bmic->SubmissionDoorBell,
+                        DDA_DOORBELL_LOGICAL_COMMAND);
+
+                    return TRUE;
+                }
+            } else {
+
+                //
+                // Ask for next request.
+                //
+
+                ScsiPortNotification(NextRequest,
+                                     deviceExtension,
+                                     NULL);
+
+
+            }
+        }
     }
 
     //
@@ -706,6 +889,34 @@ Return Value:
         case SRB_FUNCTION_EXECUTE_SCSI:
 
             switch (Srb->Cdb[0]) {
+
+                case SCSIOP_VERIFY:
+
+
+                    BuildVerifyRequest(deviceExtension,Srb);
+
+                    if (SubmitRequest(deviceExtension,
+                                      (PDDA_REQUEST_BLOCK)Srb->SrbExtension)) {
+
+                        status = SRB_STATUS_PENDING;
+
+                        //
+                        // return, upon completion the verify path will ask for the next request.
+                        //
+
+                        return TRUE;
+
+                    } else {
+
+                        //
+                        // Timed out waiting for submission channel to clear.
+                        //
+
+                        status = SRB_STATUS_BUSY;
+                    }
+
+                    break;
+
 
                 case SCSIOP_WRITE:
                 case SCSIOP_READ:
@@ -897,11 +1108,6 @@ Return Value:
 
                     break;
 
-                case SCSIOP_VERIFY:
-
-                    status = SRB_STATUS_SUCCESS;
-                    break;
-
                 default:
 
                     status = SRB_STATUS_INVALID_REQUEST;
@@ -937,18 +1143,24 @@ Return Value:
         ScsiPortNotification(RequestComplete,
                              deviceExtension,
                              Srb);
+
+        ScsiPortNotification(NextRequest,
+                             deviceExtension,
+                             NULL);
+    } else {
+
+        //
+        // Indicate to system that the controller can take another request
+        // for this device.
+        //
+
+        ScsiPortNotification(NextLuRequest,
+                             deviceExtension,
+                             Srb->PathId,
+                             Srb->TargetId,
+                             Srb->Lun);
     }
 
-    //
-    // Indicate to system that the controller can take another request
-    // for this device.
-    //
-
-    ScsiPortNotification(NextLuRequest,
-                         deviceExtension,
-                         Srb->PathId,
-                         Srb->TargetId,
-                         Srb->Lun);
 
     return TRUE;
 
@@ -1207,7 +1419,7 @@ Return Value:
     // Clear all SRB entries in device extension.
     //
 
-    for (i=0; i<255; i++) {
+    for (i=0; i<256; i++) {
         deviceExtension->Srb[i] = NULL;
     }
 
@@ -1286,25 +1498,12 @@ Return Value:
                               accessRange->RangeLength,
                               (BOOLEAN)!accessRange->RangeInMemory);
 
-    //
-    // Complete description of controller.
-    //
-
-    ConfigInfo->NumberOfPhysicalBreaks = MAXIMUM_SG_DESCRIPTORS;
 
     ConfigInfo->NumberOfBuses = 1;
     ConfigInfo->ScatterGather = TRUE;
     ConfigInfo->Master = TRUE;
     ConfigInfo->Dma32BitAddresses = TRUE;
 
-    //
-    // Get noncached extension for identify requests.
-    //
-
-    deviceExtension->IdentifyBuffer =
-        ScsiPortGetUncachedExtension(deviceExtension,
-                                     ConfigInfo,
-                                     512);
 
     //
     // Initialize controller.
@@ -1367,8 +1566,20 @@ Return Value:
 
     if (deviceExtension->MajorVersion == 1) {
         ConfigInfo->AlignmentMask = 511;
-        ConfigInfo->MaximumTransferLength = MAXIMUM_XFER_SIZE;
+        ConfigInfo->MaximumTransferLength = 0x8000;
+        ConfigInfo->NumberOfPhysicalBreaks = 8;
+    } else {
+        ConfigInfo->NumberOfPhysicalBreaks = MAXIMUM_SG_DESCRIPTORS;
     }
+
+    //
+    // Get noncached extension for identify requests.
+    //
+
+    deviceExtension->IdentifyBuffer =
+        ScsiPortGetUncachedExtension(deviceExtension,
+                                     ConfigInfo,
+                                     512);
 
     //
     // Get hardware configuration.

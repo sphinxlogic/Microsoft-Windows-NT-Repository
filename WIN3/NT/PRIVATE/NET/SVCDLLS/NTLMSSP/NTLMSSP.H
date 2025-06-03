@@ -66,6 +66,16 @@ NtLmSspControl(
 #endif // DBG
 
 
+//
+// Exported non-ssp function
+//
+
+SECURITY_STATUS
+SspQueryPasswordExpiry(
+    IN PCtxtHandle ContextHandle,
+    OUT PTimeStamp PasswordExpiry
+    );
+
 // includes that should go elsewhere.
 
 

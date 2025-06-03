@@ -8,6 +8,7 @@
 *Revision History:
 *   07-17-91    GDP     Initial version (ported from assembly)
 *   07-16-93    SRW     ALPHA Merge
+*   10-02-94    BWT     PPC changes
 *
 *******************************************************************************/
 
@@ -95,7 +96,7 @@ void _CALLTYPE5 __ld12mul(_LDBL12 *px, _LDBL12 *py)
 	qoffs = 8;
 	for (j=5-i;j>0;j--) {
 	    u_long prod;
-#if defined(MIPS) || defined(_ALPHA_)
+#if defined(_M_MRX000) || defined(_M_ALPHA) || defined(_M_PPC)
 	    /* a variable to hold temprary sums */
 	    u_long sum;
 #endif
@@ -106,7 +107,7 @@ void _CALLTYPE5 __ld12mul(_LDBL12 *px, _LDBL12 *py)
 	    q = USHORT_12(py,qoffs);
 	    r = ULONG_12(&tempman,roffs);
 	    prod = (u_long)*p * (u_long)*q;
-#if defined(MIPS) || defined(_ALPHA_)
+#if defined(_M_MRX000) || defined(_M_ALPHA) || defined(_M_PPC)
 	    /* handle misalignment problems */
 	    if (i&0x1){ /* i is odd */
 		carry = __addl(*ALIGN(r), prod, &sum);

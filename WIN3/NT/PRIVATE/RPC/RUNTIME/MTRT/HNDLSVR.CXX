@@ -24,40 +24,45 @@ mikemon    12-28-90    Updated the comments to match reality.
 
 -------------------------------------------------------------------- */
 
-#include <sysinc.h>
-#include <rpc.h>
-#include <rpcdcep.h>
-#include <rpcerrp.h>
-#include <rpcssp.h>
-#include <util.hxx>
-#include <rpcuuid.hxx>
-#include <mutex.hxx>
-#include <interlck.hxx>
-#include <threads.hxx>
-#include <linklist.hxx>
-#include <binding.hxx>
-#include <handle.hxx>
-#include <svrbind.hxx>
-#include <sdict.hxx>
-#include <interlck.hxx>
-#include <secclnt.hxx>
+#include <precomp.hxx>
 #include <hndlsvr.hxx>
 #include <thrdctx.hxx>
 #include <rpcobj.hxx>
 #include <rpccfg.h>
+#include <sdict2.hxx>
 
 #ifdef NTENV
+#include <wmsgpack.hxx>
+#include <wmsgsvr.hxx>
+
 #include <dispatch.h>
-#endif // NTENV
+extern WMSG_SERVER *GlobalWMsgServer ;
+#else
+#include <critsec.hxx>
+#include <wmsgheap.hxx>
+#include <wmsgpack.hxx>
+#include <wmsgport.hxx>
+#include <wmsgthrd.hxx>
+#include <wmsgproc.hxx>
+#include <wmsgsys.hxx>
+extern WMSG_SYSTEM * WmsgSystem ;
+#endif
+
+
 
 
 RPC_INTERFACE::RPC_INTERFACE (
     IN RPC_SERVER_INTERFACE PAPI * RpcInterfaceInformation,
-    IN RPC_SERVER * Server
-    ) : NullManagerActiveCallCount(0)
+    IN RPC_SERVER * Server,
+    IN unsigned int Flags,
+    IN unsigned int MaxCalls,
+    IN RPC_IF_CALLBACK_FN PAPI *IfCallbackFn
+    ) : NullManagerActiveCallCount(0), AutoListenCallCount(0)
 /*++
 
 Routine Description:
+
+
 
     This method will get called to construct an instance of the
     RPC_INTERFACE class.  We have got to make a copy of the rpc interface
@@ -79,6 +84,9 @@ Arguments:
     ALLOCATE_THIS(RPC_INTERFACE);
     unsigned int Length;
 
+    PipeInterfaceFlag = 0;
+    SequenceNumber = 1;
+
     if (RpcInterfaceInformation->Length > sizeof(RPC_SERVER_INTERFACE) )
         {
         ASSERT( ("RPC_SERVER_INTERFACE struct too large", 0) );
@@ -89,12 +97,20 @@ Arguments:
         Length = RpcInterfaceInformation->Length;
         }
 
-    RpcpMemoryCopy(&(this->RpcInterfaceInformation),RpcInterfaceInformation,
-                   Length);
+    if ((RpcInterfaceInformation->Length > NT351_INTERFACE_SIZE)
+        && (RpcInterfaceInformation->Flags & RPC_INTERFACE_HAS_PIPES))
+        {
+        PipeInterfaceFlag = 1;
+        }
+
+    RpcpMemoryCopy(&(this->RpcInterfaceInformation),RpcInterfaceInformation, Length);
 
     NullManagerFlag = 0;
     ManagerCount = 0;
     this->Server = Server;
+    this->Flags = Flags ;
+    this->MaxCalls = MaxCalls ;
+    this->CallbackFn = IfCallbackFn ;
 }
 
 
@@ -289,7 +305,7 @@ Return Value:
 
 --*/
 {
-    RPC_STATUS RpcStatus;
+    RPC_STATUS RpcStatus = RPC_S_OK;
 
     if ( CallbackFlag == 0 )
         {
@@ -297,25 +313,34 @@ Return Value:
         if ( NullManagerFlag == 0 )
             {
             NullManagerActiveCallCount.Decrement();
+
+            RpcStatus = RPC_S_UNSUPPORTED_TYPE;
+
             if ( ManagerCount == 0 )
                 {
-                return(RPC_S_UNKNOWN_IF);
+                RpcStatus = RPC_S_UNKNOWN_IF;
                 }
-            return(RPC_S_UNSUPPORTED_TYPE);
             }
+        }
+
+    if (RpcStatus != RPC_S_OK)
+        {
+        ((MESSAGE_OBJECT *) Message->Handle)->FreeBuffer(Message);
+        return RpcStatus;
         }
 
     Message->ManagerEpv = NullManagerEpv;
 
-
     RpcStatus = DispatchToStubWorker(Message, CallbackFlag, ExceptionCode);
-
 
     if ( CallbackFlag == 0 )
         {
         NullManagerActiveCallCount.Decrement();
         }
 
+    //
+    // DispatchToStubWorker freed Message.Buffer if an error occurred.
+    //
     return(RpcStatus);
 }
 
@@ -369,34 +394,74 @@ Return Value:
 
 --*/
 {
-    RPC_STATUS RpcStatus;
-    RPC_MESSAGE OriginalMessage;
+    RPC_STATUS RpcStatus = RPC_S_OK;
     void * OldServerContextList;
+    int procnum ;
+
+    if (Flags & RPC_IF_OLE)
+        {
+        procnum = 0 ;
+        }
+    else
+        {
+        procnum = Message->ProcNum ;
+        }
+
 
     if (CallbackFlag == 0)
         {
-        if (Server->IsServerListening() == 0)
-            return(RPC_S_NOT_LISTENING);
-
-        if (Server->CallBeginning() == 0)
+        if (Flags & RPC_IF_AUTOLISTEN)
             {
-            return(RPC_S_SERVER_TOO_BUSY);
+            if (AutoListenCallCount.GetInteger() >= MaxCalls)
+                {
+                RpcStatus = RPC_S_SERVER_TOO_BUSY ;
+                }
+            else
+                {
+                Server->AutoListenCallBeginning() ;
+                }
+            }
+        else
+            {
+            if (Server->IsServerListening() == 0)
+                {
+                RpcStatus = RPC_S_NOT_LISTENING;
+                }
+            else if (Server->CallBeginning() == 0)
+                {
+                RpcStatus = RPC_S_SERVER_TOO_BUSY;
+                }
             }
         }
 
-    OriginalMessage = *Message;
-
-    if (Message->ProcNum >=
+    if (procnum >=
             RpcInterfaceInformation.DispatchTable->DispatchTableCount)
         {
-        if (CallbackFlag == 0)
-            Server->CallEnding();
-        return(RPC_S_PROCNUM_OUT_OF_RANGE);
+        if (CallbackFlag == 0  &&
+            RpcStatus != RPC_S_SERVER_TOO_BUSY)
+            {
+            if (Flags & RPC_IF_AUTOLISTEN)
+                {
+                Server->AutoListenCallEnding() ;
+                }
+            else
+                {
+                Server->CallEnding();
+                }
+            }
+        RpcStatus = RPC_S_PROCNUM_OUT_OF_RANGE;
         }
 
-    RpcStatus = RPC_S_OK;
+    if (RpcStatus != RPC_S_OK)
+        {
+        ((MESSAGE_OBJECT *) Message->Handle)->FreeBuffer(Message);
+        return RpcStatus;
+        }
 
     Server->IncomingCall();
+
+    ((PRPC_RUNTIME_INFO) Message->ReservedForRuntime)->OldBuffer =
+            Message->Buffer ;
 
     Message->RpcInterfaceInformation = &RpcInterfaceInformation;
 
@@ -412,21 +477,18 @@ Return Value:
 
 #ifdef NTENV
 
-
     if ( DispatchToStubInC(RpcInterfaceInformation.DispatchTable->DispatchTable[
-            Message->ProcNum], Message, ExceptionCode) != 0 )
+            procnum], Message, ExceptionCode) != 0 )
         {
         RpcStatus = RPC_P_EXCEPTION_OCCURED;
         }
-
-
 
 #else // NTENV
 
     RpcTryExcept
         {
         (*RpcInterfaceInformation.DispatchTable->DispatchTable[
-                Message->ProcNum])(Message);
+                procnum])(Message);
         }
     RpcExcept( 1 )
         {
@@ -443,29 +505,59 @@ Return Value:
         }
     ThreadSelf()->ServerContextList = OldServerContextList;
 
-    if (   (RpcStatus == RPC_P_EXCEPTION_OCCURED)
-        && (OriginalMessage.Buffer != Message->Buffer) )
+    RPC_MESSAGE OriginalMessage ;
+    OriginalMessage.ReservedForRuntime = 0;
+    OriginalMessage.Buffer =
+        ((PRPC_RUNTIME_INFO) Message->ReservedForRuntime)->OldBuffer;
+
+    if (RPC_S_OK == RpcStatus)
         {
-        // An exception occured in the stub after the I_RpcGetBuffer.
-        // Free the output buffer now.
+        //
+        // If the stub didn't allocate an output buffer, do so now.
+        //
+        if (OriginalMessage.Buffer == Message->Buffer)
+            {
+            ASSERT((Message->RpcFlags & RPC_BUFFER_EXTRA) == 0) ;
+
+            Message->BufferLength = 0;
+            ((MESSAGE_OBJECT *) Message->Handle)->GetBuffer(Message);
+            }
+
+        //
+        // Free the [in] buffer that we saved.
+        //
+        ((MESSAGE_OBJECT *) Message->Handle)->FreeBuffer(&OriginalMessage);
+        }
+    else
+        {
+        ASSERT(RpcStatus == RPC_P_EXCEPTION_OCCURED) ;
+        //
+        // Free the buffer in the caller's message; this can be either
+        // the [in] buffer or the [out] buffer, depending upon which
+        // line of the stub caused the error.
+        //
+        // If the exception occurred after allocating the [out] buffer,
+        // also free the [in] buffer.
+        //
+        if (OriginalMessage.Buffer != Message->Buffer)
+            {
+            ((MESSAGE_OBJECT *) Message->Handle)->FreeBuffer(&OriginalMessage);
+            }
+
         ((MESSAGE_OBJECT *) Message->Handle)->FreeBuffer(Message);
         }
-    else if (   (RpcStatus == RPC_S_OK)
-             && (OriginalMessage.Buffer == Message->Buffer) )
-        {
-
-        // If the stub has no out parameters, it may not call I_RpcGetBuffer
-        // for a new 0 length buffer. If there are any out parameter it must
-        // call I_RpcGetBuffer which must change the value of Message->Buffer.
-
-        Message->BufferLength = 0;
-        ((MESSAGE_OBJECT *) Message->Handle)->GetBuffer(Message);
-        }
-
-    ((MESSAGE_OBJECT *) Message->Handle)->FreeBuffer(&OriginalMessage);
 
     if (CallbackFlag == 0)
-        Server->CallEnding();
+        {
+        if (Flags & RPC_IF_AUTOLISTEN)
+            {
+            Server->AutoListenCallEnding() ;
+            }
+        else
+            {
+            Server->CallEnding();
+            }
+        }
 
     return(RpcStatus);
 }
@@ -565,11 +657,15 @@ Return Value:
             // There is a type for this object, but no type manager for
             // this interface.
 
+            RpcStatus = RPC_S_UNSUPPORTED_TYPE;
+
             if ( ManagerCount == 0 )
                 {
-                return(RPC_S_UNKNOWN_IF);
+                RpcStatus = RPC_S_UNKNOWN_IF;
                 }
-            return(RPC_S_UNSUPPORTED_TYPE);
+
+            ((MESSAGE_OBJECT *) Message->Handle)->FreeBuffer(Message);
+            return RpcStatus;
             }
         }
 
@@ -577,6 +673,83 @@ Return Value:
     // just go ahead and try and use the NULL type manager.
 
     return(DispatchToStub(Message, CallbackFlag, ExceptionCode));
+}
+
+
+BOOL
+RPC_INTERFACE::IsObjectSupported (
+    IN RPC_UUID * ObjectUuid
+    )
+/*++
+
+Routine Description:
+
+    Determines whether the manager for the given object UUID is registered.
+
+Arguments:
+
+    ObjectUuid - the client's object UUID
+
+Return Value:
+
+    RPC_S_OK                if it is OK to dispatch
+    RPC_S_UNKNOWN_IF        if the interface is not registered
+    RPC_S_UNSUPPORTED_TYPE  if this particular object's type is not registered
+
+--*/
+
+{
+    RPC_STATUS Status = RPC_S_OK;
+
+    if (ObjectUuid->IsNullUuid() )
+        {
+        if ( NullManagerFlag == 0 )
+            {
+            Status = RPC_S_UNSUPPORTED_TYPE;
+
+            if ( ManagerCount == 0 )
+                {
+                Status = RPC_S_UNKNOWN_IF;
+                }
+            }
+        }
+    else
+        {
+        RPC_UUID TypeUuid;
+        Status = ObjectInqType(ObjectUuid, &TypeUuid);
+        if ( Status == RPC_S_OK )
+            {
+            RPC_INTERFACE_MANAGER * RpcInterfaceManager = 0;
+
+            RpcInterfaceManager = FindInterfaceManager(&TypeUuid);
+            if (!RpcInterfaceManager ||
+                !RpcInterfaceManager->ValidManager())
+                {
+                Status = RPC_S_UNSUPPORTED_TYPE;
+
+                if ( ManagerCount == 0 )
+                    {
+                    Status = RPC_S_UNKNOWN_IF;
+                    }
+                }
+            }
+        else
+            {
+            Status = RPC_S_OK;
+            if ( NullManagerFlag == 0 )
+                {
+                Status = RPC_S_UNSUPPORTED_TYPE;
+
+                if ( ManagerCount == 0 )
+                    {
+                    Status = RPC_S_UNKNOWN_IF;
+                    }
+                }
+            }
+
+        }
+
+    return Status;
 }
 
 
@@ -904,7 +1077,9 @@ Return Value:
 
 void
 RPC_INTERFACE::UpdateRpcInterfaceInformation (
-    IN RPC_SERVER_INTERFACE PAPI * RpcInterfaceInformation
+    IN RPC_SERVER_INTERFACE PAPI * RpcInterfaceInformation,
+    IN unsigned int Flags,
+    IN unsigned int MaxCalls
     )
 /*++
 
@@ -924,21 +1099,18 @@ Arguments:
 {
     unsigned int Length;
 
-    if (RpcInterfaceInformation->Length > sizeof(RPC_SERVER_INTERFACE) )
-        {
-        ASSERT( ("RPC_SERVER_INTERFACE struct is too large", 0) );
-        Length = sizeof(RPC_SERVER_INTERFACE);
-        }
-    else
-        {
-        Length = RpcInterfaceInformation->Length;
-        }
+    Length = (RpcInterfaceInformation->Length > sizeof(RPC_SERVER_INTERFACE) ) ?
+        sizeof(RPC_SERVER_INTERFACE) : RpcInterfaceInformation->Length;
 
     if ( ManagerCount == 0 )
         {
         RpcpMemoryCopy(&(this->RpcInterfaceInformation),
                 RpcInterfaceInformation, Length);
         }
+
+    this->Flags = Flags ;
+    this->MaxCalls = MaxCalls ;
+    SequenceNumber++ ;
 }
 
 
@@ -976,10 +1148,70 @@ Return Value:
 }
 
 
+RPC_STATUS
+RPC_INTERFACE::CheckSecurityIfNecessary(
+        IN SCONNECTION * Context
+        )
+{
+
+//
+// If manager count in non-zero, this interface is still registered
+// If it has been registered with a call back function, invoke the callback
+// function, else return success....
+
+    RPC_IF_ID RpcIfId;
+    RPC_STATUS RpcStatus = RPC_S_OK;
+
+
+    if (CallbackFn != 0)
+        {
+        RpcIfId.Uuid = RpcInterfaceInformation.InterfaceId.SyntaxGUID;
+        RpcIfId.VersMajor =
+            RpcInterfaceInformation.InterfaceId.SyntaxVersion.MajorVersion;
+        RpcIfId.VersMinor =
+            RpcInterfaceInformation.InterfaceId.SyntaxVersion.MinorVersion;
+
+        BeginAutoListenCall();
+        if (ManagerCount == 0)
+            {
+            EndAutoListenCall();
+            return (RPC_S_UNKNOWN_IF);
+            }
+
+        RpcTryExcept
+           {
+           RpcStatus = CallbackFn(&RpcIfId, (void *)Context);
+           }
+        RpcExcept(1)
+           {
+           RpcStatus = RPC_S_ACCESS_DENIED;
+           }
+         RpcEndExcept
+
+         EndAutoListenCall();
+
+        //
+        // Ensure that App is not "impersonating the call"
+        // When we callout to the app, we pass in the SCONNECTION
+        // It is conceiveable that App might end up Impersonating the client
+        // Further, if the incoming call was insecure, Context supplied will be
+        // NULL
+        //
+        if (Context != 0)
+            {
+            Context->RevertToSelf();
+            }
+        }
+
+     return(RpcStatus);
+}
+
+
 RPC_SERVER::RPC_SERVER (
     IN OUT RPC_STATUS PAPI * RpcStatus
     ) : AvailableCallCount(0), ServerMutex(RpcStatus),
-        StopListeningEvent(RpcStatus), ThreadCacheMutex(RpcStatus)
+        StopListeningEvent(RpcStatus), ThreadCacheMutex(RpcStatus),
+        AutoListenCallCount(0), NumAutoListenInterfaces(0)
 /*++
 
 Routine Description:
@@ -995,13 +1227,16 @@ Routine Description:
     ListeningThreadFlag = 0;
     WaitingThreadFlag = 0;
     MinimumCallThreads = 1;
+    MaximumConcurrentCalls = 1;
     IncomingRpcCount = 0;
     OutgoingRpcCount = 0;
     ReceivedPacketCount = 0;
     SentPacketCount = 0;
     ThreadCache = 0;
+    ServerThreadsStarted = 0 ;
 
     pRpcForwardFunction = (RPC_FORWARD_FUNCTION *)0;
+    CommonAddress = NULL ;
 }
 
 
@@ -1315,9 +1550,11 @@ Return Value:
     while ( (RpcAddress = RpcAddressDictionary.Next()) != 0 )
         {
         Status = RpcAddress->ServerStartingToListen(MinimumCallThreads,
-                MaximumConcurrentCalls);
+                MaximumConcurrentCalls, ServerThreadsStarted);
         if (Status)
             {
+            ServerThreadsStarted = 0 ;
+
             ServerMutex.Clear();
             return(Status);
             }
@@ -1326,6 +1563,7 @@ Return Value:
     StopListeningEvent.Lower();
     ServerListeningFlag = 1;
     ListeningThreadFlag = 1;
+    ServerThreadsStarted = 1 ;
 
     if ( DontWait != 0 )
         {
@@ -1334,6 +1572,7 @@ Return Value:
         }
 
     WaitingThreadFlag = 1;
+
     ServerMutex.Clear();
 
     return(WaitForStopServerListening());
@@ -1374,7 +1613,7 @@ Return Value:
         RpcAddress->ServerStoppedListening();
         }
 
-    while ( AvailableCallCount.GetInteger() != MaximumConcurrentCalls )
+    while ((unsigned)AvailableCallCount.GetInteger() != MaximumConcurrentCalls)
         {
         PauseExecution(200L);
         }
@@ -1382,11 +1621,10 @@ Return Value:
     RpcAddressDictionary.Reset();
     while ( (RpcAddress = RpcAddressDictionary.Next()) != 0 )
         {
-        while ( RpcAddress->InqNumberOfActiveCalls() != 0 )
-            {
-            PauseExecution(200L);
-            }
+        RpcAddress->WaitForCalls() ;
         }
+
+    // Wait for calls on all non auto-listen interfaces to complete
 
     ServerMutex.Request();
     WaitingThreadFlag = 0;
@@ -1503,8 +1741,10 @@ RPC_STATUS
 RPC_SERVER::UseRpcProtocolSequence (
     IN RPC_CHAR PAPI * RpcProtocolSequence,
     IN unsigned int PendingQueueSize,
-    IN RPC_CHAR PAPI * Endpoint, OPTIONAL
-    IN void PAPI * SecurityDescriptor OPTIONAL
+    IN RPC_CHAR PAPI *Endpoint,
+    IN void PAPI * SecurityDescriptor,
+    IN unsigned long EndpointFlags,
+    IN unsigned long NICFlags
     )
 /*++
 
@@ -1557,7 +1797,8 @@ Return Value:
     RPC_STATUS Status;
     RPC_ADDRESS * RpcAddress;
     RPC_ADDRESS * Address;
-    RPC_CHAR PAPI * NetworkAddress;
+    RPC_CHAR PAPI * lNetworkAddress;
+    unsigned int NumNetworkAddress = 0 ;
     unsigned int StaticEndpointFlag;
     int Key;
 
@@ -1566,10 +1807,23 @@ Return Value:
     if ( RpcpStringCompare(RpcProtocolSequence,
                 RPC_CONST_STRING("ncalrpc")) == 0 )
         {
+#ifdef NTENV
+        RpcAddress = WmsgCreateRpcAddress();
+#else
         RpcAddress = SpcCreateRpcAddress();
+#endif
         }
     else
-#ifndef DOSWIN32RPC
+#ifndef NTENV
+    if (RpcpStringCompare(RpcProtocolSequence,
+                RPC_CONST_STRING("mswmsg")) == 0 )
+        {
+        RpcAddress = WmsgCreateRpcAddress();
+        }
+    else
+#endif
+
+#if !defined(DOSWIN32RPC) || defined(WIN96)
     if ( RpcpStringNCompare(RPC_CONST_STRING("ncadg_"), RpcProtocolSequence,
                 6) == 0)
         {
@@ -1638,19 +1892,41 @@ Return Value:
             return(RPC_S_OUT_OF_MEMORY);
             }
         Status = RpcAddress->SetupAddressWithEndpoint(Endpoint,
-                &NetworkAddress, SecurityDescriptor, PendingQueueSize,
-                RpcProtocolSequence);
+                 &lNetworkAddress, &NumNetworkAddress,
+                 SecurityDescriptor, PendingQueueSize,
+                 RpcProtocolSequence, EndpointFlags, NICFlags);
         StaticEndpointFlag = 1;
         }
     else
         {
+#if defined(NTENV) || defined(WIN96)
+        ServerMutex.Request() ;
+        RpcAddressDictionary.Reset() ;
+        while ((Address = RpcAddressDictionary.Next()) != 0)
+            {
+            if ( Address->SameProtocolSequence(RpcProtocolSequence) != 0 )
+                {
+                ServerMutex.Clear();
+                delete RpcAddress;
+                return(RPC_S_OK);
+                }
+            }
+        ServerMutex.Clear();
+#endif
+
         Status = RpcAddress->SetupAddressUnknownEndpoint(
-                &Endpoint, &NetworkAddress, SecurityDescriptor,
-                PendingQueueSize, RpcProtocolSequence);
+                &Endpoint, &lNetworkAddress,
+                &NumNetworkAddress,SecurityDescriptor,
+                PendingQueueSize, RpcProtocolSequence,
+                EndpointFlags, NICFlags);
         StaticEndpointFlag = 0;
         }
 
+#if defined(NTENV) || defined(WIN96)
+    if (Status == RPC_S_OK || Status == RPC_P_THREAD_LISTENING)
+#else
     if (Status == RPC_S_OK)
+#endif
         {
         RpcProtocolSequence = DuplicateString(RpcProtocolSequence);
         if (RpcProtocolSequence == 0)
@@ -1660,7 +1936,8 @@ Return Value:
             return(RPC_S_OUT_OF_MEMORY);
             }
         RpcAddress->SetEndpointAndStuff(Endpoint, RpcProtocolSequence,
-                NetworkAddress, this, StaticEndpointFlag);
+                lNetworkAddress, NumNetworkAddress,
+                this, StaticEndpointFlag);
         }
     else
         {
@@ -1675,38 +1952,55 @@ Return Value:
         return(Status);
         }
 
-    Status = RpcAddress->FireUpManager(MinimumCallThreads);
-    if (Status)
-        {
-#if DBG
-        PrintToDebugger("RPC: FirupManager returned %d\n", Status);
-#endif 
-        ASSERT(Key != -1);
-        ServerMutex.Request(); 
-        RpcAddressDictionary.Delete(Key);
-        ServerMutex.Clear();
-        delete RpcAddress;
-        return(Status);
-        }
+    RpcAddress->DictKey = Key;
 
-    ServerMutex.Request();
-    if (IsServerListening() != 0)
-        {
+#if defined(NTENV) || defined(WIN96)
+    if (Status == RPC_S_OK)
+       {
+#endif
+       Status = RpcAddress->FireUpManager(MinimumCallThreads);
+       if (Status)
+           {
+#if DBG
+           PrintToDebugger("RPC: FireupManager returned %d\n", Status);
+#endif
+           ASSERT(Key != -1);
+           ServerMutex.Request();
+           RpcAddressDictionary.Delete(Key);
+           ServerMutex.Clear();
+           delete RpcAddress;
+           return(Status);
+           }
+
+        ServerMutex.Request();
         Status = RpcAddress->ServerStartingToListen(MinimumCallThreads,
-                MaximumConcurrentCalls);
+                                         MaximumConcurrentCalls, 0);
         if (Status)
+           {
+           ServerMutex.Clear();
+           return(Status);
+           }
+        ServerMutex.Clear();
+#if defined(NTENV) || defined(WIN96)
+        }
+     else
+        {
+        ASSERT(Status == RPC_P_THREAD_LISTENING) ;
+        RpcAddress->ServerDontCreateThread() ;
+
+        Status = RpcAddress->StartListening() ;
+        if (Status != RPC_S_OK)
             {
-            ServerMutex.Clear();
-            return(Status);
+            return Status ;
             }
         }
-    ServerMutex.Clear();
+#endif
 
-    return(RPC_S_OK);
+        return(RPC_S_OK);
 }
 
 
-int 
+int
 RPC_SERVER::AddAddress (
     IN RPC_ADDRESS * RpcAddress
     )
@@ -1787,6 +2081,7 @@ Return Value:
     RPC_INTERFACE * RpcInterface;
     RPC_STATUS RpcStatus;
     RPC_STATUS Status;
+    MSG wMsg ;
 
     UNUSED(WaitForCallsToComplete);
 
@@ -1798,6 +2093,41 @@ Return Value:
         if (RpcInterface == 0)
             return(RPC_S_UNKNOWN_IF);
 
+        if (RpcInterface->IsAutoListenInterface())
+            {
+            GlobalRpcServer->DecrementAutoListenInterfaceCount() ;
+
+            while (RpcInterface->InqAutoListenCallCount())
+                {
+#ifdef NTENV
+                if (GlobalWMsgServer)
+                    {
+                    if (GlobalWMsgServer->
+                        PeekMessageW(&wMsg, NULL, 0, 0, PM_REMOVE))
+                        {
+                        GlobalWMsgServer->TranslateMessage(&wMsg);
+                        GlobalWMsgServer->DispatchMessageW(&wMsg);
+                        }
+                    }
+
+                PauseExecution(500L) ;
+#else
+                if (WmsgSystem)
+                    {
+                    if (PeekMessage(&wMsg, NULL, 0, 0, PM_REMOVE))
+                        {
+                        TranslateMessage(&wMsg) ;
+                        DispatchMessage(&wMsg) ;
+                        }
+                    }
+                else
+                    {
+                    PauseExecution(500L);
+                    }
+#endif
+                }
+            }
+
         return(RpcInterface->UnregisterManagerEpv(ManagerTypeUuid,
                 WaitForCallsToComplete));
         }
@@ -1808,6 +2138,12 @@ Return Value:
     RpcInterfaceDictionary.Reset();
     while ((RpcInterface = RpcInterfaceDictionary.Next()) != 0)
         {
+        // auto-listen intefaces have to be individually unregistered
+        if (RpcInterface->IsAutoListenInterface())
+            {
+            continue;
+            }
+
         RpcStatus = RpcInterface->UnregisterManagerEpv(ManagerTypeUuid,
                 WaitForCallsToComplete);
         if (RpcStatus == RPC_S_OK)
@@ -1869,6 +2205,9 @@ Return Value:
     return(RpcInterface->InquireManagerEpv(ManagerTypeUuid, ManagerEpv));
 }
 
+
+
+
 
 RPC_STATUS
 RPC_SERVER::InquireBindings (
@@ -1901,9 +2240,12 @@ Return Value:
 --*/
 {
     RPC_BINDING_VECTOR PAPI * RpcBindingVector;
-    unsigned int Index;
+    unsigned int Index, RpcAddressIndex;
     RPC_ADDRESS * RpcAddress;
     BINDING_HANDLE * BindingHandle;
+    int i ;
+    RPC_CHAR PAPI * LocalNetworkAddress;
+    int count = 0 ;
 
     ServerMutex.Request();
     if (RpcAddressDictionary.Size() == 0)
@@ -1912,16 +2254,23 @@ Return Value:
         return(RPC_S_NO_BINDINGS);
         }
 
+
+    RpcAddressDictionary.Reset();
+    while ((RpcAddress = RpcAddressDictionary.Next()) != 0)
+        {
+        count += RpcAddress->InqNumNetworkAddress();
+        }
+
     RpcBindingVector = (RPC_BINDING_VECTOR PAPI *) RpcpFarAllocate(
-            sizeof(RPC_BINDING_VECTOR) + RpcAddressDictionary.Size()
-            * sizeof(RPC_BINDING_HANDLE) - 1);
+            sizeof(RPC_BINDING_VECTOR) + (count -1 )
+            * sizeof(RPC_BINDING_HANDLE) );
     if (RpcBindingVector == 0)
         {
         ServerMutex.Clear();
         return(RPC_S_OUT_OF_MEMORY);
         }
 
-    RpcBindingVector->Count = RpcAddressDictionary.Size();
+    RpcBindingVector->Count = count;
     for (Index = 0; Index < RpcBindingVector->Count; Index++)
         RpcBindingVector->BindingH[Index] = 0;
 
@@ -1929,17 +2278,27 @@ Return Value:
     RpcAddressDictionary.Reset();
     while ((RpcAddress = RpcAddressDictionary.Next()) != 0)
         {
-        BindingHandle = RpcAddress->InquireBinding();
-        if (BindingHandle == 0)
-            {
-            ServerMutex.Clear();
-            RpcBindingVectorFree(&RpcBindingVector);
-            return(RPC_S_OUT_OF_MEMORY);
-            }
-        RpcBindingVector->BindingH[Index] = BindingHandle;
-        Index += 1;
-        }
+        RpcAddressIndex = 0;
+        LocalNetworkAddress = RpcAddress->
+                               GetListNetworkAddress(RpcAddressIndex) ;
 
+        while(LocalNetworkAddress != NULL)
+            {
+            BindingHandle = RpcAddress->
+                             InquireBinding(LocalNetworkAddress);
+            if (BindingHandle == 0)
+                {
+                ServerMutex.Clear();
+                RpcBindingVectorFree(&RpcBindingVector);
+                return(RPC_S_OUT_OF_MEMORY);
+                }
+            RpcBindingVector->BindingH[Index] = BindingHandle;
+            Index += 1;
+            RpcAddressIndex += 1;
+            LocalNetworkAddress = RpcAddress->
+                                   GetListNetworkAddress(RpcAddressIndex) ;
+            }
+        }
     ServerMutex.Clear();
 
     ASSERT(Index == RpcBindingVector->Count);
@@ -1947,6 +2306,7 @@ Return Value:
     *BindingVector = RpcBindingVector;
     return(RPC_S_OK);
 }
+
 
 
 RPC_STATUS
@@ -1994,6 +2354,14 @@ Return Value:
     RPC_STATUS RpcStatus;
     RPC_CHAR __RPC_FAR * PrincipalName;
 
+    if (ServerPrincipalName == NULL) {
+        ServerPrincipalName = new RPC_CHAR[1];
+        if (ServerPrincipalName == NULL) {
+            return (RPC_S_OUT_OF_MEMORY);
+        }
+        ServerPrincipalName[0] = '\0';
+    }
+
     if ( AuthenticationService == 0 )
         {
         return(RPC_S_UNKNOWN_AUTHN_SERVICE);
@@ -2027,8 +2395,15 @@ Return Value:
     if ( RpcStatus != RPC_S_OK )
         {
         ServerMutex.Clear();
-        ASSERT( RpcStatus == RPC_S_UNKNOWN_AUTHN_SERVICE );
-        return(RpcStatus);
+        if ( (RpcStatus == RPC_S_UNKNOWN_AUTHN_SERVICE) ||
+             (RpcStatus == RPC_S_UNKNOWN_AUTHN_LEVEL) )
+            {
+            return (RPC_S_UNKNOWN_AUTHN_SERVICE);
+            }
+        else
+            {
+            return (RPC_S_OUT_OF_MEMORY);
+            }
         }
 
     Service = new RPC_AUTHENTICATION;
@@ -2095,7 +2470,7 @@ Return Value:
 --*/
 {
     RPC_AUTHENTICATION * Service;
-    RPC_STATUS RpcStatus;
+    RPC_STATUS RpcStatus = RPC_S_OK;
 
     ServerMutex.Request();
     AuthenticationDictionary.Reset();
@@ -2105,10 +2480,15 @@ Return Value:
             {
             ServerMutex.Clear();
 
-            *SecurityCredentials = new SECURITY_CREDENTIALS;
+            *SecurityCredentials = new SECURITY_CREDENTIALS(&RpcStatus);
             if ( *SecurityCredentials == 0 )
                 {
                 return(RPC_S_OUT_OF_MEMORY);
+                }
+            if ( RpcStatus != RPC_S_OK )
+                {
+                delete *SecurityCredentials;
+                return (RpcStatus);
                 }
             RpcStatus = (*SecurityCredentials)->AcquireCredentialsForServer(
                     Service->GetKeyFunction, Service->Argument,
@@ -2153,8 +2533,11 @@ Arguments:
 RPC_STATUS
 RPC_SERVER::RegisterInterface (
     IN RPC_SERVER_INTERFACE PAPI * RpcInterfaceInformation,
-    IN RPC_UUID PAPI * ManagerTypeUuid, OPTIONAL
-    IN RPC_MGR_EPV PAPI * ManagerEpv OPTIONAL
+    IN RPC_UUID PAPI * ManagerTypeUuid,
+    IN RPC_MGR_EPV PAPI * ManagerEpv,
+    IN unsigned int Flags,
+    IN unsigned int MaxCalls,
+    IN RPC_IF_CALLBACK_FN PAPI *IfCallbackFn
     )
 /*++
 
@@ -2197,6 +2580,7 @@ Return Value:
 {
     RPC_STATUS RpcStatus;
     RPC_INTERFACE * RpcInterface;
+    RPC_ADDRESS *RpcAddress ;
 
     if ( ManagerEpv == 0 )
         {
@@ -2214,7 +2598,8 @@ Return Value:
     RpcInterface = FindInterface(RpcInterfaceInformation);
     if ( RpcInterface == 0 )
         {
-        RpcInterface = new RPC_INTERFACE(RpcInterfaceInformation, this);
+        RpcInterface = new RPC_INTERFACE(RpcInterfaceInformation,
+                                                                this, Flags, MaxCalls, IfCallbackFn);
         if ( RpcInterface == 0 )
             {
             ServerMutex.Clear();
@@ -2225,18 +2610,47 @@ Return Value:
             ServerMutex.Clear();
             return(RPC_S_OUT_OF_MEMORY);
             }
+        if (Flags & RPC_IF_AUTOLISTEN)
+            {
+            GlobalRpcServer->IncrementAutoListenInterfaceCount() ;
+            }
         }
     else
         {
-        RpcInterface->UpdateRpcInterfaceInformation(RpcInterfaceInformation);
+        if (Flags & RPC_IF_AUTOLISTEN)
+            {
+            GlobalRpcServer->IncrementAutoListenInterfaceCount() ;
+            }
+        RpcInterface->UpdateRpcInterfaceInformation(RpcInterfaceInformation,
+                                                                            Flags, MaxCalls);
         }
 
     RpcStatus = RpcInterface->RegisterTypeManager(ManagerTypeUuid, ManagerEpv);
+
+    if (Flags & RPC_IF_AUTOLISTEN)
+        {
+        RpcAddressDictionary.Reset();
+        while ( (RpcAddress = RpcAddressDictionary.Next()) != 0 )
+            {
+            RpcStatus = RpcAddress->ServerStartingToListen(
+                                       this->MinimumCallThreads,
+                                       MaxCalls,
+                                       ServerThreadsStarted
+                                       );
+            if (RpcStatus != RPC_S_OK)
+                {
+                ServerThreadsStarted = 0 ;
+                break;
+                }
+            }
+        ServerThreadsStarted = 1 ;
+        }
+
     ServerMutex.Clear();
     return(RpcStatus);
 }
 
-#define CACHED_THREAD_TIMEOUT 4000L
+#define CACHED_THREAD_TIMEOUT 15L * 1000L
 #define MAXIMUM_CACHED_THREAD_TIMEOUT (1000L * 60L * 60L)
 
 
@@ -2316,7 +2730,7 @@ Arguments:
                 // But there is work available - so we have this race condition
                 // between CreateThread setting workavail to 1 and then
                 // raising the event [and then clearing the CacheMutex]
-     
+
                 CachedThread->WaitForWorkEvent.Lower();
                 RpcServer->ThreadCacheMutex.Clear();
                 break;
@@ -2416,13 +2830,15 @@ Return Value:
     Thread = new THREAD((THREAD_PROC) BaseCachedThreadRoutine, CachedThread,
             &RpcStatus);
 
-    if ( Thread == 0 )
+    if (Thread == 0)
         {
+        delete CachedThread;
         return(RPC_S_OUT_OF_THREADS);
         }
 
-    if ( RpcStatus != RPC_S_OK )
+    if (RpcStatus != RPC_S_OK)
         {
+        delete CachedThread;
         delete Thread;
         }
 
@@ -2575,12 +2991,47 @@ Revision History:
 
 }
 
+
+RPC_STATUS
+RPC_SERVER::UnregisterEndpoint (
+    IN RPC_CHAR __RPC_FAR * Protseq,
+    IN RPC_CHAR __RPC_FAR * Endpoint
+    )
+{
+#ifdef DOSWIN32RPC
+    RPC_STATUS RpcStatus;
+    RPC_ADDRESS * RpcAddress;
+    int DictKey;
 
+    ServerMutex.Request();
+    RpcAddressDictionary.Reset();
+    while ( (RpcAddress = RpcAddressDictionary.Next()) != 0 )
+        {
+        if (RpcAddress->SameEndpointAndProtocolSequence(Protseq, Endpoint))
+            {
+            DictKey = RpcAddress->DictKey;
+            RpcStatus = RpcAddress->DeleteSelf();
+            if (RpcStatus != RPC_S_OK)
+                {
+                ServerMutex.Clear();
+                return (RpcStatus);
+                }
+            RpcAddressDictionary.Delete(DictKey);
+            ServerMutex.Clear();
+            return (RPC_S_OK);
+            }
+        }
+    ServerMutex.Clear();
+    return (RPC_S_NO_ENDPOINT_FOUND);
+#else
+    return (RPC_S_CANNOT_SUPPORT);
+#endif
+}
 
 
 RPC_ADDRESS::RPC_ADDRESS (
     IN OUT RPC_STATUS PAPI * RpcStatus
-    ) : AddressMutex(RpcStatus)
+    ) : AddressMutex(RpcStatus), AutoListenCallCount(0)
 /*++
 
 Routine Description:
@@ -2589,11 +3040,16 @@ Routine Description:
     later have to delete this address because of an error in initialization
     we can tell what instance variables need to be freed.
 
+    lNetworkAddress will be allocate by runtime
+
 --*/
 {
     Endpoint = 0;
     RpcProtocolSequence = 0;
-    NetworkAddress = 0;
+#if defined(NTENV) || defined(WIN96)
+    CreateThread = 1 ;
+#endif
+    NumNetworkAddress = 0;
 }
 
 
@@ -2614,15 +3070,50 @@ Routine Description:
         delete Endpoint;
     if (RpcProtocolSequence != 0)
         delete RpcProtocolSequence;
-    if (NetworkAddress != 0)
-        delete NetworkAddress;
 }
+
+
+
+RPC_CHAR *
+RPC_ADDRESS::GetListNetworkAddress (IN unsigned int Index
+                          )
+/*++
+
+Routine Description:
+
+    A pointer to the network address for this address is returned.
+
+--*/
+{
+    RPC_CHAR * PAPI * tmpStr;
+    unsigned short i = 0;
+
+    if (Index >= NumNetworkAddress)
+        {
+        return (NULL);
+        }
+    tmpStr = (RPC_CHAR * PAPI *) lNetworkAddress;
+    return( tmpStr[Index]);
+
+}
+
+
+
+#if defined(NTENV) || defined(WIN96)
+void
+RPC_ADDRESS::ServerDontCreateThread(
+     )
+{
+   CreateThread = 0 ;
+}
+#endif
 
 void
 RPC_ADDRESS::SetEndpointAndStuff (
     IN RPC_CHAR PAPI * Endpoint,
     IN RPC_CHAR PAPI * RpcProtocolSequence,
-    IN RPC_CHAR PAPI * NetworkAddress,
+    IN RPC_CHAR PAPI * lNetworkAddress,
+    IN unsigned NumNetworkAddress,
     IN RPC_SERVER * Server,
     IN unsigned int StaticEndpointFlag
     )
@@ -2639,7 +3130,7 @@ Arguments:
     RpcProtocolSequence - Supplies the rpc protocol sequence for this
         rpc address.
 
-    NetworkAddress - Supplies the network address for this rpc address.
+    lNetworkAddress - Supplies the network address for this rpc address.
 
     Server - Supplies the rpc server which owns this rpc address.
 
@@ -2650,7 +3141,8 @@ Arguments:
 {
     this->Endpoint = Endpoint;
     this->RpcProtocolSequence = RpcProtocolSequence;
-    this->NetworkAddress = NetworkAddress;
+    this->lNetworkAddress = lNetworkAddress;
+    this->NumNetworkAddress = NumNetworkAddress;
     this->Server = Server;
     this->StaticEndpointFlag = StaticEndpointFlag;
 }
@@ -2713,7 +3205,7 @@ Return Value:
 
 
 BINDING_HANDLE *
-RPC_ADDRESS::InquireBinding (
+RPC_ADDRESS::InquireBinding (RPC_CHAR * LocalNetworkAddress
     )
 /*++
 
@@ -2734,9 +3226,16 @@ Return Value:
     DCE_BINDING * DceBinding;
     BINDING_HANDLE * BindingHandle;
     RPC_CHAR * DynamicEndpoint = 0;
+    RPC_CHAR * PAPI * tmpPtr;
 
-    DceBinding = new DCE_BINDING(0, RpcProtocolSequence, NetworkAddress,
-            (StaticEndpointFlag != 0 ? Endpoint : 0), 0, &Status);
+    if(LocalNetworkAddress == 0)
+        {
+        tmpPtr = (RPC_CHAR * PAPI *) lNetworkAddress;
+        LocalNetworkAddress = tmpPtr[0];
+        }
+
+    DceBinding = new DCE_BINDING(0, RpcProtocolSequence, LocalNetworkAddress,
+                     (StaticEndpointFlag != 0 ? Endpoint : 0), 0, &Status);
     if (   (Status != RPC_S_OK)
         || (DceBinding == 0))
         return(0);
@@ -2758,7 +3257,8 @@ Return Value:
 RPC_STATUS
 RPC_ADDRESS::ServerStartingToListen (
     IN unsigned int MinimumCallThreads,
-    IN unsigned int MaximumConcurrentCalls
+    IN unsigned int MaximumConcurrentCalls,
+    IN int ServerThreadsStarted
     )
 /*++
 
@@ -2789,6 +3289,7 @@ Return Value:
     UNUSED(this);
     UNUSED(MinimumCallThreads);
     UNUSED(MaximumConcurrentCalls);
+    UNUSED(ServerThreadsStarted);
 
     return(RPC_S_OK);
 }
@@ -2829,7 +3330,13 @@ Return Value:
 {
     return(0);
 }
-
+
+RPC_STATUS
+RPC_ADDRESS::DeleteSelf (
+    )
+{
+    return (RPC_S_CANNOT_SUPPORT);
+}
 
 RPC_STATUS
 InquireProtocolSequences (
@@ -2878,9 +3385,6 @@ Return Value:
         {
         if ( (*ProtseqVector)->Protseq[Index] != 0 )
             {
-
-#ifdef NTENV
-
             if ( RpcpStringCompare((*ProtseqVector)->Protseq[Index],
                         RPC_CONST_STRING("ncalrpc")) == 0 )
                 {
@@ -2889,9 +3393,6 @@ Return Value:
                 FreeSlot += 1;
                 }
             else
-
-#endif // NTENV
-
             if ( (RpcpStringNCompare(RPC_CONST_STRING("ncacn_"),
                         (*ProtseqVector)->Protseq[Index], 6) == 0 )
                  || ( RpcpStringNCompare(RPC_CONST_STRING("ncadg_"),
@@ -2921,11 +3422,238 @@ Return Value:
     return(RPC_S_OK);
 }
 
+
 /*====================================================================
 
 SCONNECTION
 
 ==================================================================== */
+
+RPC_STATUS
+SCONNECTION::SetThreadSecurityContext(
+    SSECURITY_CONTEXT * Context,
+    MUTEX * Mutex
+    )
+/*++
+
+Routine Description:
+
+    RpcImpersonateClient() takes a handle_t, so many threads can impersonate
+    the client of a single SCONNECTION.  RPC needs to record which context
+    each thread is using.  It is logical to place this in the TLS, but threads
+    not created by RPC lack the THREAD structure in their TLS.  This wrapper
+    function will store the security context in the TLS if available, or
+    place the context in a dictionary if not.
+
+Arguments:
+
+    Context - the security context to associate with this thread
+
+Return Value:
+
+    RPC_S_OK if successful
+    RPC_S_OUT_OF_MEMORY if the dictionary insertion failed
+
+--*/
+
+{
+    THREAD * ThreadInfo = RpcpGetThreadPointer();
+    if (ThreadInfo && 0 == (HIGHBITSET & (unsigned) ThreadInfo))
+        {
+        ThreadInfo->SecurityContext = Context;
+        return RPC_S_OK;
+        }
+
+    if (Mutex)
+        {
+        Mutex->Request();
+        }
+    else
+        {
+        RequestGlobalMutex();
+        }
+
+    if (!ImpersonationContextDict)
+        {
+        ImpersonationContextDict = new THREAD_CONTEXT_DICT2;
+        if (!ImpersonationContextDict)
+            {
+            if (Mutex)
+                {
+                Mutex->Clear();
+                }
+            else
+                {
+                ClearGlobalMutex();
+                }
+
+            return RPC_S_OUT_OF_MEMORY;
+            }
+        }
+
+    ImpersonationContextDict->Delete(GetCurrentThreadId());
+
+    if (-1 == ImpersonationContextDict->Insert(GetCurrentThreadId(), Context))
+        {
+        if (Mutex)
+            {
+            Mutex->Clear();
+            }
+        else
+            {
+            ClearGlobalMutex();
+            }
+
+        return RPC_S_OUT_OF_MEMORY;
+        }
+
+    if (Mutex)
+        {
+        Mutex->Clear();
+        }
+    else
+        {
+        ClearGlobalMutex();
+        }
+
+    return RPC_S_OK;
+}
+
+SSECURITY_CONTEXT *
+SCONNECTION::QueryThreadSecurityContext(
+    MUTEX * Mutex
+    )
+/*++
+
+Routine Description:
+
+    Fetches the security context associated with this thread for this
+    connection.  We check the TLS if available; if nothing is there
+    then we scan the connection's dictionary.
+
+Arguments:
+
+    none
+
+Return Value:
+
+    the associated security context, or zero if none is found
+
+--*/
+{
+    THREAD * ThreadInfo = RpcpGetThreadPointer();
+
+    if (ThreadInfo && 0 == (HIGHBITSET & (unsigned) ThreadInfo))
+        {
+        if (ThreadInfo->SecurityContext)
+            {
+            return (SSECURITY_CONTEXT *) ThreadInfo->SecurityContext;
+            }
+        }
+
+    if (Mutex)
+        {
+        Mutex->Request();
+        }
+    else
+        {
+        RequestGlobalMutex();
+        }
+
+    if (ImpersonationContextDict)
+        {
+        if (Mutex)
+            {
+            Mutex->Clear();
+            }
+        else
+            {
+            ClearGlobalMutex();
+            }
+
+        return ImpersonationContextDict->Find(GetCurrentThreadId());
+        }
+
+    if (Mutex)
+        {
+        Mutex->Clear();
+        }
+    else
+        {
+        ClearGlobalMutex();
+        }
+
+    return 0;
+}
+
+SSECURITY_CONTEXT *
+SCONNECTION::ClearThreadSecurityContext(
+    MUTEX * Mutex
+    )
+/*++
+
+Routine Description:
+
+    Clears the association between this thread and its security context
+    for this connection.
+
+Arguments:
+
+    none
+
+Return Value:
+
+    the formerly associated security context, or zero if none was found
+
+--*/
+{
+    THREAD * ThreadInfo = RpcpGetThreadPointer();
+
+    if (ThreadInfo && 0 == (HIGHBITSET & (unsigned) ThreadInfo))
+        {
+        SSECURITY_CONTEXT * Context = (SSECURITY_CONTEXT *) ThreadInfo->SecurityContext;
+
+        if (Context)
+            {
+            ThreadInfo->SecurityContext = 0;
+            return Context;
+            }
+        }
+
+    if (Mutex)
+        {
+        Mutex->Request();
+        }
+    else
+        {
+        RequestGlobalMutex();
+        }
+
+    if (ImpersonationContextDict)
+        {
+        if (Mutex)
+            {
+            Mutex->Clear();
+            }
+        else
+            {
+            ClearGlobalMutex();
+            }
+
+        return ImpersonationContextDict->Delete(GetCurrentThreadId());
+        }
+
+    if (Mutex)
+        {
+        Mutex->Clear();
+        }
+    else
+        {
+        ClearGlobalMutex();
+        }
+
+    return 0;
+}
 
 RPC_STATUS
 SCONNECTION::ImpersonateClient (
@@ -3044,8 +3772,12 @@ InitializeServerDLL (
         return(1);
 
 #ifdef WIN32RPC
-
+#ifndef NTENV
     if (InitializeRpcProtocolSPC() != 0)
+        return(1);
+#endif
+
+    if (InitializeRpcProtocolWmsg() != 0)
         return(1);
 
 #endif // WIN32RPC

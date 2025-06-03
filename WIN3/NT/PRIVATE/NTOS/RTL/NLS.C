@@ -1526,36 +1526,49 @@ Return Value:
 
 {
 
-    UNALIGNED WCHAR *s1, *s2;
-    USHORT n1, n2;
+    PWCHAR s1, s2, Limit;
+    LONG n1, n2;
     WCHAR c1, c2;
-    LONG cDiff;
 
     s1 = String1->Buffer;
     s2 = String2->Buffer;
-    n1 = (USHORT )(String1->Length / sizeof(WCHAR));
-    n2 = (USHORT )(String2->Length / sizeof(WCHAR));
-    while (n1 && n2) {
-        c1 = *s1++;
-        c2 = *s2++;
+    n1 = String1->Length;
+    n2 = String2->Length;
 
-        if (CaseInSensitive) {
-            //
-            // Note that this needs to reference the translation table !
-            //
-            c1 = NLS_UPCASE(c1);
-            c2 = NLS_UPCASE(c2);
-        }
+    ASSERT((n1 & 1) == 0);
+    ASSERT((n2 & 1) == 0);
+    ASSERT(!(((((ULONG)s1 & 1) != 0) || (((ULONG)s2 & 1) != 0)) && (n1 != 0) && (n2 != 0)));
 
-        if ((cDiff = ((LONG)c1 - (LONG)c2)) != 0) {
-            return( cDiff );
+    Limit = (PWCHAR)((PCHAR)s1 + (n1 <= n2 ? n1 : n2));
+    if (CaseInSensitive) {
+        while (s1 < Limit) {
+            c1 = *s1++;
+            c2 = *s2++;
+            if (c1 != c2) {
+
+                //
+                // Note that this needs to reference the translation table!
+                //
+
+                c1 = NLS_UPCASE(c1);
+                c2 = NLS_UPCASE(c2);
+                if (c1 != c2) {
+                    return (LONG)(c1) - (LONG)(c2);
+                }
             }
-
-        n1--;
-        n2--;
         }
 
-    return( n1 - n2 );
+    } else {
+        while (s1 < Limit) {
+            c1 = *s1++;
+            c2 = *s2++;
+            if (c1 != c2) {
+                return (LONG)(c1) - (LONG)(c2);
+            }
+        }
+    }
+
+    return n1 - n2;
 }
 
 
@@ -1592,44 +1605,121 @@ Return Value:
 --*/
 
 {
-    UNALIGNED WCHAR *s1, *s2;
-    USHORT n1, n2;
+
+    PWCHAR s1, s2, Limit;
+    LONG n1, n2;
     WCHAR c1, c2;
 
     RTL_PAGED_CODE();
 
-    s1 = String1->Buffer;
-    s2 = String2->Buffer;
-    n1 = (USHORT )(String1->Length / sizeof(WCHAR));
-    n2 = (USHORT )(String2->Length / sizeof(WCHAR));
+    n1 = String1->Length;
+    n2 = String2->Length;
 
-    if ( n1 != n2 ) {
-        return FALSE;
+    ASSERT((n1 & 1) == 0);
+    ASSERT((n2 & 1) == 0);
+
+    if (n1 == n2) {
+        s1 = String1->Buffer;
+        s2 = String2->Buffer;
+
+        ASSERT(!(((((ULONG)s1 & 1) != 0) || (((ULONG)s2 & 1) != 0)) && (n1 != 0) && (n2 != 0)));
+
+        Limit = (PWCHAR)((PCHAR)s1 + n1);
+        if (CaseInSensitive) {
+            while (s1 < Limit) {
+                c1 = *s1++;
+                c2 = *s2++;
+                if ((c1 != c2) && (NLS_UPCASE(c1) != NLS_UPCASE(c2))) {
+                    return FALSE;
+                }
+            }
+
+            return TRUE;
+
+        } else {
+            while (s1 < Limit) {
+                c1 = *s1++;
+                c2 = *s2++;
+                if (c1 != c2) {
+                    return FALSE;
+                }
+            }
+
+            return TRUE;
         }
 
+    } else {
+        return FALSE;
+    }
+}
+
+
+BOOLEAN
+RtlPrefixUnicodeString(
+    IN PUNICODE_STRING String1,
+    IN PUNICODE_STRING String2,
+    IN BOOLEAN CaseInSensitive
+    )
+
+/*++
+
+Routine Description:
+
+    The RtlPrefixUnicodeString function determines if the String1
+    counted string parameter is a prefix of the String2 counted string
+    parameter.
+
+    The CaseInSensitive parameter specifies if case is to be ignored when
+    doing the comparison.
+
+Arguments:
+
+    String1 - Pointer to the first unicode string.
+
+    String2 - Pointer to the second unicode string.
+
+    CaseInsensitive - TRUE if case should be ignored when doing the
+        comparison.
+
+Return Value:
+
+    Boolean value that is TRUE if String1 equals a prefix of String2 and
+    FALSE otherwise.
+
+--*/
+
+{
+    PWSTR s1, s2;
+    ULONG n;
+    WCHAR c1, c2;
+
+    s1 = String1->Buffer;
+    s2 = String2->Buffer;
+    n = String1->Length;
+    if (String2->Length < n) {
+        return( FALSE );
+        }
+
+    n = n / sizeof(c1);
     if (CaseInSensitive) {
+        while (n) {
+            c1 = *s1++;
+            c2 = *s2++;
 
-        while ( n1 ) {
-
-            if ( *s1++ != *s2++ ) {
-                c1 = NLS_UPCASE(*(s1-1));
-                c2 = NLS_UPCASE(*(s2-1));
-                if (c1 != c2) {
-                    return( FALSE );
-                    }
+            if ((c1 != c2) && (NLS_UPCASE(c1) != NLS_UPCASE(c2))) {
+                return( FALSE );
                 }
-            n1--;
+
+            n--;
             }
         }
     else {
-
-        while ( n1 ) {
-
+        while (n) {
             if (*s1++ != *s2++) {
                 return( FALSE );
                 }
 
-            n1--;
+            n--;
             }
         }
 
@@ -1673,23 +1763,25 @@ Return Value:
     UNALIGNED WCHAR *src, *dst;
     ULONG n;
 
-    if (ARGUMENT_PRESENT( SourceString )) {
+    if (ARGUMENT_PRESENT(SourceString)) {
         dst = DestinationString->Buffer;
         src = SourceString->Buffer;
         n = SourceString->Length;
         if ((USHORT)n > DestinationString->MaximumLength) {
             n = DestinationString->MaximumLength;
-            }
+        }
 
         DestinationString->Length = (USHORT)n;
-        RtlCopyMemory( dst, src, n );
+        RtlCopyMemory(dst, src, n);
         if (DestinationString->Length < DestinationString->MaximumLength) {
-            dst[ n / sizeof( WCHAR )] = UNICODE_NULL;
-            }
+            dst[n / sizeof(WCHAR)] = UNICODE_NULL;
         }
-    else {
+
+    } else {
         DestinationString->Length = 0;
-        }
+    }
+
+    return;
 }
 
 
@@ -2133,7 +2225,7 @@ Return Value:
         iHi = HIBYTE (lpBuff[iTmp]);
         iLo = LOBYTE (lpBuff[iTmp]);
 
-	// Count cr/lf and lf/cr that cross two words
+        // Count cr/lf and lf/cr that cross two words
         if ((iLo == '\r' && LastHi == '\n') ||
             (iLo == '\n' && LastHi == '\r')) {
             cWeird++;
@@ -2150,14 +2242,14 @@ Return Value:
 
     // Count cr/lf and lf/cr that cross two words
     if ((iLo == '\r' && LastHi == '\n') ||
-	(iLo == '\n' && LastHi == '\r')) {
-	cWeird++;
-	}
+        (iLo == '\n' && LastHi == '\r')) {
+        cWeird++;
+        }
 
     if (iHi == '\0')     /* don't count the last null */
-	iNull--;
+        iNull--;
     if (iHi == 26)       /* count ^Z at end as weird */
-	cWeird++;
+        cWeird++;
 
     iMaxTmp = __min(256 * sizeof(WCHAR), Size);
     if (NlsMbCodePageTag) {
@@ -2225,7 +2317,7 @@ Return Value:
     //
 
     if ((iRBOM + iFFFF + iUNULL + iCRLF) != 0 ||
-	 (cWeird != 0 && cWeird >= iMaxTmp/40 )) {
+         (cWeird != 0 && cWeird >= iMaxTmp/40 )) {
         iResult |= IS_TEXT_UNICODE_ILLEGAL_CHARS;
         }
 

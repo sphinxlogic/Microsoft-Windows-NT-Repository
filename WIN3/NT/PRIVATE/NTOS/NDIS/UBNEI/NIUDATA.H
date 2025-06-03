@@ -518,7 +518,7 @@ typedef volatile struct _NIU_CONTROL_AREA {
   UCHAR      uc_UnusedInfo1[108];   // uninteresting stuff.
   USHORT     us_pod_status;         // xFF80 - current Power-On Diag (POD) status.
   USHORT     us_sif_test;           // xFF82 - request to test SIF chip.
-  UCHAR         uc_UnusedInfo2[12]; // more junk.
+  UCHAR         uc_UnusedInfo2[12];
   USHORT     us_HWstatus;           // xFF90 - status results of POD.
   USHORT     us_HWcommand;          // xFF92 - command from PC to PROM.
   USHORT     us_HWresult1;          // xFF94 - results of last command from PC.

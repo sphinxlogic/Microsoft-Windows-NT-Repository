@@ -93,7 +93,7 @@ Revision History:
 NET_API_STATUS
 RxRemoteApi(
     IN DWORD ApiNumber,
-    IN LPTSTR UncServerName,                // this is not OPTIONAL!
+    IN LPCWSTR UncServerName,                // this is not OPTIONAL!
     IN LPDESC ParmDescString,
     IN LPDESC DataDesc16 OPTIONAL,
     IN LPDESC DataDesc32 OPTIONAL,
@@ -235,7 +235,7 @@ Return Value:
     }
 #endif
 
-    if (! NetpIsUncComputerNameValid(UncServerName)) {
+    if (! NetpIsUncComputerNameValid((LPWSTR)UncServerName)) {
         return (NERR_InvalidComputer);
     }
 
@@ -417,7 +417,7 @@ Return Value:
     NetpAssert( SmbRcvBufferLength <= MAX_TRANSACT_RET_DATA_SIZE );
 
     Status = RxpTransactSmb(
-                        UncServerName,          // computer name
+                        (LPWSTR)UncServerName,          // computer name
                         TransportName,
                         parm_buf,               // Send parm buffer
                         parm_len,               // Send parm length
@@ -533,4 +533,3 @@ Return Value:
     return(Status);             // Return status from RxpConvertBlock or
                                 // RxpTransactSmb.
 } // RxRemoteApi
-

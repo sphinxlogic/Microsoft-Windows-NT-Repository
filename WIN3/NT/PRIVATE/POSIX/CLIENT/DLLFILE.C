@@ -62,7 +62,11 @@ opendir(const char *dirname)
 	}
 
 	i = fcntl(fd, F_SETFD, FD_CLOEXEC);
-	ASSERT(0 == i);
+	if (0 != i) {
+	    close(fd);
+	    RtlFreeHeap(PdxHeap, 0, (PVOID)ReturnedDir);
+        return NULL;
+	}
 
 	ReturnedDir->Directory = fd;
 	ReturnedDir->Dirent.d_name[0] = '\0';

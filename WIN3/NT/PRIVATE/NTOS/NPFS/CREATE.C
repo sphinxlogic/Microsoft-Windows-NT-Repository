@@ -449,8 +449,6 @@ Return Value:
     PLIST_ENTRY Links;
     PPRIVILEGE_SET Privileges = NULL;
 
-    extern POBJECT_TYPE *IoFileObjectType;
-
     DebugTrace(+1, Dbg, "NpCreateClientEnd\n", 0 );
 
     NamedPipeConfiguration = Fcb->Specific.Fcb.NamedPipeConfiguration;

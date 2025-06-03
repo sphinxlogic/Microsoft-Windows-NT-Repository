@@ -34,7 +34,7 @@ Revision History:
     uuid(12345778-1234-ABCD-EF00-0123456789AC),      //FIX,FIX - Need real uuid
     version(1.0),
 #ifdef __midl
-	ms_union,
+    ms_union,
 #endif // __midl
     pointer_default(unique)
 ]
@@ -135,7 +135,6 @@ typedef struct _RPC_SID {
 //
 
 typedef [handle] LPWSTR PSAMPR_SERVER_NAME;
-
 
 //
 // SAM RPC Context Handle (Internal definition of SAM_HANDLE)
@@ -583,11 +582,12 @@ typedef struct _SAMPR_USER_INTERNAL3_INFORMATION {
     SAMPR_USER_ALL_INFORMATION I1;
 #if defined(MIDL_PASS)
     OLD_LARGE_INTEGER   LastBadPasswordTime;
-#else 
+#else
     LARGE_INTEGER       LastBadPasswordTime;
 #endif
 } SAMPR_USER_INTERNAL3_INFORMATION,  *PSAMPR_USER_INTERNAL3_INFORMATION;
 #pragma pack()
+
 
 typedef struct _SAMPR_USER_GENERAL_INFORMATION {
     RPC_UNICODE_STRING UserName;
@@ -701,6 +701,16 @@ typedef struct _SAMPR_USER_INTERNAL1_INFORMATION {
 } SAMPR_USER_INTERNAL1_INFORMATION, *PSAMPR_USER_INTERNAL1_INFORMATION;
 
 
+typedef struct _SAMPR_USER_INTERNAL4_INFORMATION {
+    SAMPR_USER_ALL_INFORMATION I1;
+    SAMPR_ENCRYPTED_USER_PASSWORD UserPassword;
+} SAMPR_USER_INTERNAL4_INFORMATION,  *PSAMPR_USER_INTERNAL4_INFORMATION;
+
+typedef struct _SAMPR_USER_INTERNAL5_INFORMATION {
+    SAMPR_ENCRYPTED_USER_PASSWORD UserPassword;
+    BOOLEAN                       PasswordExpired;
+} SAMPR_USER_INTERNAL5_INFORMATION,  *PSAMPR_USER_INTERNAL5_INFORMATION;
+
 
 typedef [switch_type(USER_INFORMATION_CLASS)] union
 _SAMPR_USER_INFO_BUFFER {
@@ -725,7 +735,10 @@ _SAMPR_USER_INFO_BUFFER {
     [case(UserParametersInformation)]   SAMPR_USER_PARAMETERS_INFORMATION     Parameters;
     [case(UserAllInformation)]          SAMPR_USER_ALL_INFORMATION            All;
     [case(UserInternal3Information)]    SAMPR_USER_INTERNAL3_INFORMATION      Internal3;
+    [case(UserInternal4Information)]    SAMPR_USER_INTERNAL4_INFORMATION      Internal4;
+    [case(UserInternal5Information)]    SAMPR_USER_INTERNAL5_INFORMATION      Internal5;
 } SAMPR_USER_INFO_BUFFER, *PSAMPR_USER_INFO_BUFFER;
+
 
 
 
@@ -1000,7 +1013,7 @@ SamrLookupNamesInDomain(
     // The following count must match SAM_MAXIMUM_LOOKUP_COUNT,
     // defined in ntsam.h
     //
-    [in,size_is(1*1000), length_is(1*Count)]
+    [in,size_is(1000), length_is(Count)]
                         RPC_UNICODE_STRING      Names[*],
     [out]               PSAMPR_ULONG_ARRAY      RelativeIds,
     [out]               PSAMPR_ULONG_ARRAY      Use
@@ -1022,7 +1035,7 @@ SamrLookupIdsInDomain(
     // The following count must match SAM_MAXIMUM_LOOKUP_COUNT,
     // defined in ntsam.h
     //
-    [in,size_is(1*1000), length_is(1*Count)]
+    [in,size_is(1000), length_is(Count)]
                         PULONG                          RelativeIds,
     [out]               PSAMPR_RETURNED_USTRING_ARRAY   Names,
     [out]               PSAMPR_ULONG_ARRAY              Use
@@ -1371,5 +1384,63 @@ SamrQueryDisplayInformation3 (
                         PSAMPR_DISPLAY_INFO_BUFFER      Buffer
     );
 
+NTSTATUS
+SamrAddMultipleMembersToAlias(
+    [in]                SAMPR_HANDLE            AliasHandle,
+    [in]                PSAMPR_PSID_ARRAY       MembersBuffer
+    );
+
+NTSTATUS
+SamrRemoveMultipleMembersFromAlias(
+    [in]                SAMPR_HANDLE            AliasHandle,
+    [in]                PSAMPR_PSID_ARRAY       MembersBuffer
+    );
+
+
+NTSTATUS
+SamrOemChangePasswordUser2(
+    [in]                handle_t                        BindingHandle,
+    [in,unique]         PRPC_STRING                     ServerName,
+    [in]                PRPC_STRING                     UserName,
+    [in,unique]         PSAMPR_ENCRYPTED_USER_PASSWORD  NewPasswordEncryptedWithOldLm,
+    [in,unique]         PENCRYPTED_LM_OWF_PASSWORD      OldLmOwfPassswordEncryptedWithNewLm
+    );
+
+NTSTATUS
+SamrUnicodeChangePasswordUser2(
+    [in]                handle_t                        BindingHandle,
+    [in,unique]         PRPC_UNICODE_STRING             ServerName,
+    [in]                PRPC_UNICODE_STRING             UserName,
+    [in,unique]         PSAMPR_ENCRYPTED_USER_PASSWORD  NewPasswordEncryptedWithOldNt,
+    [in,unique]         PENCRYPTED_NT_OWF_PASSWORD      OldNtOwfPasswordEncryptedWithNewNt,
+    [in]                BOOLEAN                         LmPresent,
+    [in,unique]         PSAMPR_ENCRYPTED_USER_PASSWORD  NewPasswordEncryptedWithOldLm,
+    [in,unique]         PENCRYPTED_LM_OWF_PASSWORD      OldLmOwfPassswordEncryptedWithNewLmOrNt
+    );
+
+NTSTATUS
+SamrGetDomainPasswordInformation (
+    [in]                handle_t                        BindingHandle,
+    [in,unique]         PRPC_UNICODE_STRING             ServerName,
+    [out]               PUSER_DOMAIN_PASSWORD_INFORMATION PasswordInformation
+    );
+
+NTSTATUS
+SamrConnect2(
+    [in,unique,string]  PSAMPR_SERVER_NAME      ServerName,
+    [out]               SAMPR_HANDLE    *       ServerHandle,
+    [in]                ACCESS_MASK             DesiredAccess
+    );
+
+
+NTSTATUS
+SamrSetInformationUser2(
+    [in]                SAMPR_HANDLE            UserHandle,
+    [in]                USER_INFORMATION_CLASS UserInformationClass,
+    [in, switch_is(UserInformationClass)]
+                        PSAMPR_USER_INFO_BUFFER Buffer
+    );
 
 }
+
+

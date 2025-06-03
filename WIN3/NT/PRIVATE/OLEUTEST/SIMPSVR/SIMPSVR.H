@@ -47,4 +47,3 @@ BOOL FAR PASCAL EXPORT About(HWND hDlg, UINT message, WORD wParam, LONG lParam);
 #endif
 
 
-

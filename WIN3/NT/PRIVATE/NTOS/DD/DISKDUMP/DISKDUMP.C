@@ -37,6 +37,13 @@ Revision History:
 ULONG ScsiDebug = 1;
 #endif
 
+#ifdef POOL_TAGGING
+#ifdef ExAllocatePool
+#undef ExAllocatePool
+#endif
+#define ExAllocatePool(a,b) ExAllocatePoolWithTag(a,b,'pmuD')
+#endif
+
 PDEVICE_EXTENSION DeviceExtension;
 
 VOID
@@ -47,6 +54,42 @@ ExecuteSrb(
 //
 // Routines start
 //
+
+VOID
+FreePool(
+    IN PVOID Ptr
+    )
+
+/*++
+
+Routine Description:
+
+    free block of memory.
+
+Arguments:
+
+    ptr - The memory to free.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+
+    PMEMORY_HEADER freedBlock;
+
+    //
+    // Don't try to coalesce.  They will probably just ask for something
+    // of just this size again.
+    //
+
+    freedBlock = (PMEMORY_HEADER)Ptr - 1;
+    freedBlock->Next = DeviceExtension->FreeMemory;
+    DeviceExtension->FreeMemory = freedBlock;
+
+}
 
 
 PVOID
@@ -93,25 +136,39 @@ Return Value:
             //
             // Update free list eliminating as much of this block as necessary.
             //
+            // Make sure if we don't have enough of the block left for a
+            // memory header we just point to the next block (and adjust
+            // length accordingly).
+            //
 
             if (!previous) {
-                DeviceExtension->FreeMemory =
-                    (PMEMORY_HEADER)((PUCHAR)descriptor + length);
-                previous = DeviceExtension->FreeMemory;
-                previous->Length = descriptor->Length - length;
-                previous->Next = NULL;
+
+                if (descriptor->Length < (length+sizeof(MEMORY_HEADER))) {
+                    DeviceExtension->FreeMemory = DeviceExtension->FreeMemory->Next;
+                } else {
+                    DeviceExtension->FreeMemory =
+                        (PMEMORY_HEADER)((PUCHAR)descriptor + length);
+                    previous = DeviceExtension->FreeMemory;
+                    previous->Length = descriptor->Length - length;
+                    previous->Next = descriptor->Next;
+                    descriptor->Length = length;
+                }
             } else {
-                previous->Next =
-                    (PMEMORY_HEADER)((PUCHAR)descriptor + length);
-                previous->Next->Length = descriptor->Length - length;
-                previous->Next->Next = descriptor->Next;
+                if (descriptor->Length < (length+sizeof(MEMORY_HEADER))) {
+                    previous->Next = descriptor->Next;
+                } else {
+                    previous->Next =
+                        (PMEMORY_HEADER)((PUCHAR)descriptor + length);
+                    previous->Next->Length = descriptor->Length - length;
+                    previous->Next->Next = descriptor->Next;
+                    descriptor->Length = length;
+                }
             }
 
             //
             // Update memory header for allocated block.
             //
 
-            descriptor->Length = length;
             descriptor->Next = NULL;
 
             //
@@ -187,7 +244,8 @@ Return Value:
     PSCSI_REQUEST_BLOCK srb = &DeviceExtension->Srb;
 
     //
-    // Check for a flush DMA adapter object request.
+    // Check for a flush DMA adapter object request.  Note that
+    // on the finish up code this will have been already cleared.
     //
 
     if (DeviceExtension->InterruptFlags & PD_FLUSH_ADAPTER_BUFFERS) {
@@ -200,7 +258,7 @@ Return Value:
         IoFlushAdapterBuffers(
             DeviceExtension->DmaAdapterObject,
             DeviceExtension->Mdl,
-            DeviceExtension->MapRegisterBase,
+            DeviceExtension->MapRegisterBase[1],
             DeviceExtension->FlushAdapterParameters.LogicalAddress,
             DeviceExtension->FlushAdapterParameters.Length,
             (BOOLEAN)(DeviceExtension->FlushAdapterParameters.Srb->SrbFlags
@@ -210,7 +268,8 @@ Return Value:
     }
 
     //
-    // Check for an IoMapTransfer DMA request.
+    // Check for an IoMapTransfer DMA request.  Note that on the finish
+    // up code, this will have been cleared.
     //
 
     if (DeviceExtension->InterruptFlags & PD_MAP_TRANSFER) {
@@ -223,7 +282,7 @@ Return Value:
         IoMapTransfer(
             DeviceExtension->DmaAdapterObject,
             DeviceExtension->Mdl,
-            DeviceExtension->MapRegisterBase,
+            DeviceExtension->MapRegisterBase[1],
             DeviceExtension->MapTransferParameters.LogicalAddress,
             &DeviceExtension->MapTransferParameters.Length,
             (BOOLEAN)(DeviceExtension->MapTransferParameters.Srb->SrbFlags
@@ -258,7 +317,12 @@ Return Value:
         // Flush the adapter buffers if necessary.
         //
 
-        if (DeviceExtension->MapRegisterBase) {
+        //
+        // Use 1 cause if there is a map register base the second 1 is bound
+        // to be non-zero Note that on the finish up code this will have
+        // been nulled.
+        //
+        if (DeviceExtension->MapRegisterBase[1]) {
 
             //
             // Since we are a master call I/O flush adapter buffers with a NULL
@@ -267,7 +331,7 @@ Return Value:
 
             IoFlushAdapterBuffers(NULL,
                                   DeviceExtension->Mdl,
-                                  DeviceExtension->MapRegisterBase,
+                                  DeviceExtension->MapRegisterBase[1],
                                   DeviceExtension->FlushAdapterParameters.LogicalAddress,
                                   DeviceExtension->FlushAdapterParameters.Length,
                                   (BOOLEAN)(srb->SrbFlags & SRB_FLAGS_DATA_OUT ? TRUE : FALSE));
@@ -396,7 +460,6 @@ Return Value:
 {
     PSCSI_REQUEST_BLOCK srb = &DeviceExtension->RequestSenseSrb;
     PCDB cdb = (PCDB)srb->Cdb;
-    LARGE_INTEGER pfn;
     PULONG page;
     ULONG localMdl[(sizeof( MDL )/4) + 17];
 
@@ -432,8 +495,7 @@ Return Value:
                     srb->DataTransferLength);
 
     page = (PULONG) (DeviceExtension->Mdl + 1);
-    pfn = LiShr(DeviceExtension->PhysicalAddress[1], PAGE_SHIFT);
-    *page = pfn.LowPart;
+    *page = (ULONG)(DeviceExtension->PhysicalAddress[1].QuadPart >> PAGE_SHIFT);
     MmMapMemoryDumpMdl(DeviceExtension->Mdl);
 
     //
@@ -558,10 +620,14 @@ Return Value:
                 // adapter.
                 //
 
+                //
+                // Io is always done through the second map register.
+                //
+
                 scatterList->PhysicalAddress =
                     IoMapTransfer(NULL,
                                   DeviceExtension->Mdl,
-                                  DeviceExtension->MapRegisterBase,
+                                  DeviceExtension->MapRegisterBase[1],
                                   (PCCHAR)DeviceExtension->Mdl->StartVa +
                                       totalLength,
                                   &scatterList->Length,
@@ -847,7 +913,8 @@ done:
         // Determine if a REQUEST SENSE command needs to be done.
         //
 
-        if (Srb->ScsiStatus == SCSISTAT_CHECK_CONDITION) {
+        if ((Srb->ScsiStatus == SCSISTAT_CHECK_CONDITION) &&
+            !DeviceExtension->FinishingUp) {
 
             //
             // Call IssueRequestSense and it will complete the request after
@@ -887,7 +954,6 @@ Return Value:
 --*/
 
 {
-    LARGE_INTEGER byteOffset;
     PSCSI_REQUEST_BLOCK srb = &DeviceExtension->Srb;
     PCDB cdb = (PCDB)&srb->Cdb;
     ULONG blockOffset;
@@ -951,18 +1017,12 @@ writeRetry:
     cdb->CDB10.OperationCode = SCSIOP_WRITE;
 
     //
-    // Add partition offset to request byte offset.
-    //
-
-    byteOffset = LiAdd(DeviceExtension->PartitionOffset,
-                       *DiskByteOffset);
-
-    //
     // Convert disk byte offset to block offset.
     //
 
-    blockOffset = LiXDiv(byteOffset,
-                         DeviceExtension->BytesPerSector).LowPart;
+    blockOffset = (ULONG)((DeviceExtension->PartitionOffset.QuadPart +
+                           (*DiskByteOffset).QuadPart) /
+                          DeviceExtension->BytesPerSector);
 
     //
     // Fill in CDB block address.
@@ -1014,6 +1074,90 @@ writeRetry:
 } // end DiskDumpWrite()
 
 
+VOID
+DiskDumpFinish(
+    VOID
+    )
+
+/*++
+
+Routine Description:
+
+    This routine sends ops that finish up the write
+
+Arguments:
+
+Return Value:
+
+    Status of write operation.
+
+--*/
+
+{
+    PSCSI_REQUEST_BLOCK srb = &DeviceExtension->Srb;
+    PCDB cdb = (PCDB)&srb->Cdb;
+    ULONG retryCount = 0;
+
+    //
+    // No data will be transfered with these two requests.  So set up
+    // our extension so that we don't try to flush any buffers.
+    //
+
+    DeviceExtension->InterruptFlags &= ~PD_FLUSH_ADAPTER_BUFFERS;
+    DeviceExtension->InterruptFlags &= ~PD_MAP_TRANSFER;
+    DeviceExtension->MapRegisterBase[1] = 0;
+    DeviceExtension->FinishingUp = TRUE;
+
+    //
+    // Zero SRB.
+    //
+
+    RtlZeroMemory(srb, sizeof(SCSI_REQUEST_BLOCK));
+
+    //
+    // Initialize SRB.
+    //
+
+    srb->Length = sizeof(SCSI_REQUEST_BLOCK);
+    srb->PathId = DeviceExtension->PathId;
+    srb->TargetId = DeviceExtension->TargetId;
+    srb->Lun = DeviceExtension->Lun;
+    srb->Function = SRB_FUNCTION_EXECUTE_SCSI;
+    srb->SrbFlags = SRB_FLAGS_DISABLE_SYNCH_TRANSFER |
+                    SRB_FLAGS_DISABLE_DISCONNECT |
+                    SRB_FLAGS_DISABLE_AUTOSENSE;
+    srb->SrbStatus = srb->ScsiStatus = 0;
+    srb->NextSrb = 0;
+    srb->TimeOutValue = 10;
+    srb->CdbLength = 10;
+
+    //
+    // Initialize CDB for write command.
+    //
+
+    cdb->CDB10.OperationCode = SCSIOP_SYNCHRONIZE_CACHE;
+
+    //
+    // Send SRB to miniport driver.
+    //
+
+    ExecuteSrb(srb);
+
+    srb->CdbLength = 0;
+    srb->Function = SRB_FUNCTION_SHUTDOWN;
+    srb->SrbFlags = SRB_FLAGS_DISABLE_SYNCH_TRANSFER |
+                    SRB_FLAGS_DISABLE_DISCONNECT |
+                    SRB_FLAGS_DISABLE_AUTOSENSE;
+    srb->SrbStatus = srb->ScsiStatus = 0;
+    srb->NextSrb = 0;
+    srb->TimeOutValue = 0;
+
+    ExecuteSrb(srb);
+
+
+} // end DiskDumpWrite()
+
+
 NTSTATUS
 DriverEntry(
     IN PDRIVER_OBJECT DriverObject,
@@ -1046,7 +1190,7 @@ Return Value:
     // Zero the entire device extension and memory blocks.
     //
 
-    RtlZeroMemory( context->MemoryBlock, PAGE_SIZE );
+    RtlZeroMemory( context->MemoryBlock, 8*PAGE_SIZE );
     RtlZeroMemory( context->CommonBuffer[0], INITIAL_MEMORY_BLOCK_SIZE );
     RtlZeroMemory( context->CommonBuffer[1], INITIAL_MEMORY_BLOCK_SIZE );
 
@@ -1072,7 +1216,7 @@ Return Value:
     DeviceExtension->FreeMemory =
         (PMEMORY_HEADER)((PUCHAR)memoryHeader + memoryHeader->Length);
     DeviceExtension->FreeMemory->Length =
-        PAGE_SIZE - memoryHeader->Length;
+        (8*PAGE_SIZE) - memoryHeader->Length;
     DeviceExtension->FreeMemory->Next = NULL;
 
     //
@@ -1114,6 +1258,7 @@ Return Value:
 
     context->OpenRoutine = DiskDumpOpen;
     context->WriteRoutine = DiskDumpWrite;
+    context->FinishRoutine = DiskDumpFinish;
 
     return STATUS_SUCCESS;
 
@@ -1208,7 +1353,6 @@ Return Value:
     PCDB cdb = (PCDB)&srb->Cdb;
     ULONG retryCount = 0;
     PINQUIRYDATA inquiryData = DeviceExtension->CommonBuffer[1];
-    LARGE_INTEGER pfn;
     PULONG page;
     ULONG localMdl[(sizeof( MDL )/4) + 17];
 
@@ -1250,8 +1394,7 @@ inquiryRetry:
                     srb->DataTransferLength);
 
     page = (PULONG)(DeviceExtension->Mdl + 1);
-    pfn = LiShr(DeviceExtension->PhysicalAddress[1], PAGE_SHIFT);
-    *page = pfn.LowPart;
+    *page = (ULONG)(DeviceExtension->PhysicalAddress[1].QuadPart >> PAGE_SHIFT);
     MmMapMemoryDumpMdl(DeviceExtension->Mdl);
 
     //
@@ -1325,7 +1468,6 @@ Return Value:
     PCDB cdb = (PCDB)&srb->Cdb;
     ULONG startingSector;
     ULONG retryCount = 0;
-    LARGE_INTEGER pfn;
     PULONG page;
     ULONG localMdl[(sizeof( MDL )/4) + 17];
 
@@ -1367,8 +1509,7 @@ readSectorRetry:
                     srb->DataTransferLength);
 
     page = (PULONG)(DeviceExtension->Mdl + 1);
-    pfn = LiShr(DeviceExtension->PhysicalAddress[1], PAGE_SHIFT);
-    *page = pfn.LowPart;
+    *page = (ULONG)(DeviceExtension->PhysicalAddress[1].QuadPart >> PAGE_SHIFT);
     MmMapMemoryDumpMdl(DeviceExtension->Mdl);
 
     //
@@ -1381,8 +1522,8 @@ readSectorRetry:
     // Calculate starting sector.
     //
 
-    startingSector = LiXDiv(*ByteOffset,
-                            DeviceExtension->BytesPerSector).LowPart;
+    startingSector = (ULONG)((*ByteOffset).QuadPart /
+                             DeviceExtension->BytesPerSector);
 
     //
     // SCSI CDBs use big endian.
@@ -1451,7 +1592,6 @@ Return Value:
     PCDB cdb = (PCDB)&srb->Cdb;
     PREAD_CAPACITY_DATA readCapacityData = DeviceExtension->CommonBuffer[1];
     ULONG retryCount = 0;
-    LARGE_INTEGER pfn;
     PULONG page;
     ULONG localMdl[(sizeof( MDL )/4) + 17];
 
@@ -1493,8 +1633,7 @@ readCapacityRetry:
                     srb->DataTransferLength);
 
     page = (PULONG) (DeviceExtension->Mdl + 1);
-    pfn = LiShr(DeviceExtension->PhysicalAddress[1], PAGE_SHIFT);
-    *page = pfn.LowPart;
+    *page = (ULONG)(DeviceExtension->PhysicalAddress[1].QuadPart >> PAGE_SHIFT);
     MmMapMemoryDumpMdl(DeviceExtension->Mdl);
 
     //
@@ -1510,7 +1649,7 @@ readCapacityRetry:
     ExecuteSrb(srb);
 
     if (SRB_STATUS(srb->SrbStatus) != SRB_STATUS_SUCCESS &&
-        SRB_STATUS(srb->SrbStatus) != SRB_STATUS_DATA_OVERRUN) {
+       (SRB_STATUS(srb->SrbStatus) != SRB_STATUS_DATA_OVERRUN || srb->Cdb[0] == SCSIOP_READ_CAPACITY)) {
 
         DebugPrint((1,
                    "ReadCapacity failed SRB status %x\n",
@@ -1578,6 +1717,13 @@ Return Value:
     ULONG diskSignature;
     UCHAR target;
     UCHAR device = 0;
+
+#if defined(JAPAN) && defined(_X86_) && defined(_FMR_)
+    //  Fujitsu TakaO Oct.20.1994
+    //  Partition information is contained in block1 on FMR
+    //
+#define PARTITION_TABLE_OFFSET_FMR     (0x20/2)
+#endif // defined(JAPAN) && defined(_X86_) && defined(_FMR_)
 
     //
     // Issue inquiry command to each target id to find devices.
@@ -1672,10 +1818,21 @@ Return Value:
                 // Read MBR to check signature.
                 //
 
-                byteOffset = LiFromUlong(0);
+#if defined (JAPAN) && defined (_X86_) && defined (_FMR_)
+                // Fujitsu TakaO Oct.20.1994
+                // Partition information is contained in block1 on FMR
+                //
+
+                byteOffset.QuadPart = 512;
+                ReadSector(&byteOffset);
+                diskSignature =
+                    ((PULONG)DeviceExtension->CommonBuffer[1])[PARTITION_TABLE_OFFSET_FMR/2-1];
+#else
+                byteOffset.QuadPart = 0;
                 ReadSector(&byteOffset);
                 diskSignature =
                     ((PULONG)DeviceExtension->CommonBuffer[1])[PARTITION_TABLE_OFFSET/2-1];
+#endif  // defined (JAPAN) && defined (_X86_) && defined (_FMR_)
 
                 if (diskSignature == DeviceExtension->DiskSignature) {
                     DebugPrint((1,
@@ -1728,7 +1885,10 @@ Return Value:
     ULONG length;
     UCHAR scsiBus;
     BOOLEAN callAgain;
-    UCHAR crashDump[5] = {'d', 'u','m','p', 0 };
+    UCHAR crashDump[] = {'d', 'u', 'm', 'p', '=', '1', ';', 0 };
+    BOOLEAN allocatedHw = FALSE;
+    BOOLEAN allocatedconfigInfo = FALSE;
+    BOOLEAN allocatedAccess = FALSE;
 
     UNREFERENCED_PARAMETER(Argument1);
     UNREFERENCED_PARAMETER(Argument2);
@@ -1765,27 +1925,19 @@ Return Value:
     }
 
     //
-    // Check that the device extension is at or under limit.
-    //
-
-    if (HwInitializationData->DeviceExtensionSize > PAGE_SIZE) {
-
-        //
-        // Fail this miniport driver.
-        //
-
-        DebugPrint((0,
-                   "ScsiPortInitialize: Device extension (%x) is too big\n",
-                   HwInitializationData->DeviceExtensionSize));
-        return(ULONG)STATUS_INSUFFICIENT_RESOURCES;
-    }
-
-    //
     // Allocate memory for the miniport driver's device extension.
     //
 
     DeviceExtension->HwDeviceExtension =
         AllocatePool(HwInitializationData->DeviceExtensionSize);
+
+    if (!DeviceExtension->HwDeviceExtension) {
+        DebugPrint((0,
+                   "ScsiPortInitialize: Device extension (%x) is too big\n",
+                   HwInitializationData->DeviceExtensionSize));
+        return (ULONG)STATUS_INSUFFICIENT_RESOURCES;
+    }
+    allocatedHw = TRUE;
 
 CallAgain:
 
@@ -1800,12 +1952,6 @@ CallAgain:
     DeviceExtension->HwDmaStarted = HwInitializationData->HwDmaStarted;
     DeviceExtension->HwLogicalUnitExtensionSize =
         HwInitializationData->SpecificLuExtensionSize;
-
-    //
-    // Set indicater as to whether adapter needs mapped buffers.
-    //
-
-    DeviceExtension->MapBuffers = HwInitializationData->MapBuffers;
 
     //
     // Assume that the the miniport driver will not want another call into
@@ -1833,15 +1979,14 @@ CallAgain:
         // initialization.
         //
 
-        if (configInfo->AdapterInterfaceType !=
-                HwInitializationData->AdapterInterfaceType ||
-            configInfo->NumberOfAccessRanges !=
+        if (configInfo->NumberOfAccessRanges !=
                 HwInitializationData->NumberOfAccessRanges) {
 
             //
             // Fail this initialization.
             //
 
+            FreePool(DeviceExtension->HwDeviceExtension);
             return (ULONG)STATUS_NO_SUCH_DEVICE;
         }
 
@@ -1852,6 +1997,11 @@ CallAgain:
         //
 
         configInfo = AllocatePool(sizeof(PORT_CONFIGURATION_INFORMATION));
+        if (!configInfo) {
+            FreePool(DeviceExtension->HwDeviceExtension);
+            return (ULONG)STATUS_INSUFFICIENT_RESOURCES;
+        }
+        allocatedconfigInfo = TRUE;
 
         //
         // Set up configuration information structure.
@@ -1862,6 +2012,8 @@ CallAgain:
                                                 TRUE))) {
 
             DebugPrint((1, "ScsiPortInitialize: No Configuration info found\n"));
+            FreePool(DeviceExtension->HwDeviceExtension);
+            FreePool(configInfo);
             return (ULONG)STATUS_NO_SUCH_DEVICE;
         }
 
@@ -1875,8 +2027,11 @@ CallAgain:
                                                HwInitializationData->NumberOfAccessRanges);
 
         if (configInfo->AccessRanges == NULL) {
+            FreePool(DeviceExtension->HwDeviceExtension);
+            FreePool(configInfo);
             return (ULONG)STATUS_INSUFFICIENT_RESOURCES;
         }
+        allocatedAccess = TRUE;
 
         //
         // Zero out access ranges.
@@ -1938,12 +2093,16 @@ CallAgain:
         // the maximum transfer size and the size of the two common buffers.
         //
 
-        numberOfPages = MAXIMUM_TRANSFER_SIZE / PAGE_SIZE;
-        numberOfPages += (INITIAL_MEMORY_BLOCK_SIZE * 2 ) / PAGE_SIZE;
+        numberOfPages = INITIAL_MEMORY_BLOCK_SIZE / PAGE_SIZE;
 
-        DeviceExtension->MapRegisterBase =
+        DeviceExtension->MapRegisterBase[0] =
             HalAllocateCrashDumpRegisters(DeviceExtension->DmaAdapterObject,
-                                          numberOfPages);
+                                          &numberOfPages);
+        numberOfPages = INITIAL_MEMORY_BLOCK_SIZE / PAGE_SIZE;
+        DeviceExtension->MapRegisterBase[1] =
+            HalAllocateCrashDumpRegisters(DeviceExtension->DmaAdapterObject,
+                                          &numberOfPages);
+
 
         //
         // Determine if adapter is a busmaster or uses slave DMA.
@@ -1990,11 +2149,8 @@ CallAgain:
             // Calculate first page.
             //
 
-            pfn =
-                LiShr(LiAdd(DeviceExtension->PhysicalAddress[0],
-                            LiFromUlong(PAGE_SIZE * i)),
-                      PAGE_SHIFT);
-            *page = pfn.LowPart;
+            *page = (ULONG)((DeviceExtension->PhysicalAddress[0].QuadPart +
+                             (PAGE_SIZE * i)) >> PAGE_SHIFT);
             page++;
         }
 
@@ -2005,7 +2161,7 @@ CallAgain:
         DeviceExtension->LogicalAddress[0] =
             IoMapTransfer(DeviceExtension->DmaAdapterObject,
                           mdl,
-                          DeviceExtension->MapRegisterBase,
+                          DeviceExtension->MapRegisterBase[0],
                           DeviceExtension->CommonBuffer[0],
                           &length,
                           FALSE);
@@ -2041,11 +2197,10 @@ CallAgain:
             // Calculate first page.
             //
 
-            pfn =
-                LiShr(LiAdd(DeviceExtension->PhysicalAddress[1],
-                            LiFromUlong(PAGE_SIZE * i)),
-                      PAGE_SHIFT);
-            *page = pfn.LowPart;
+            *page = (ULONG)((DeviceExtension->PhysicalAddress[1].QuadPart +
+                            (PAGE_SIZE * i)) >> PAGE_SHIFT);
+
+
             page++;
         }
 
@@ -2056,7 +2211,7 @@ CallAgain:
         DeviceExtension->LogicalAddress[1] =
             IoMapTransfer(DeviceExtension->DmaAdapterObject,
                           mdl,
-                          DeviceExtension->MapRegisterBase,
+                          DeviceExtension->MapRegisterBase[1],
                           DeviceExtension->CommonBuffer[1],
                           &length,
                           FALSE);
@@ -2078,11 +2233,14 @@ CallAgain:
 
     if (HwInitializationData->HwFindAdapter(DeviceExtension->HwDeviceExtension,
                                             HwContext,
-                                            &crashDump,
                                             NULL,
+                                            (PCHAR)&crashDump,
                                             configInfo,
                                             &callAgain) != SP_RETURN_FOUND) {
 
+        if (allocatedAccess) FreePool(configInfo->AccessRanges);
+        FreePool(DeviceExtension->HwDeviceExtension);
+        if (allocatedconfigInfo) FreePool(configInfo);
         return (ULONG)STATUS_NO_SUCH_DEVICE;
     }
 
@@ -2094,9 +2252,17 @@ CallAgain:
                "SCSI adapter ID is %d\n",
                configInfo->InitiatorBusId[0]));
 
-    DebugPrint((1,
-               "SCSI IO address is %x\n",
-               ((*(configInfo->AccessRanges))[0]).RangeStart.LowPart));
+    if (configInfo->NumberOfAccessRanges) {
+        DebugPrint((1,
+                   "SCSI IO address is %x\n",
+                   ((*(configInfo->AccessRanges))[0]).RangeStart.LowPart));
+    }
+
+    //
+    // Set indicater as to whether adapter needs mapped buffers.
+    //
+
+    DeviceExtension->MapBuffers = configInfo->MapBuffers;
 
     //
     // 64k is the maximum supported transfer count.
@@ -2170,6 +2336,9 @@ CallAgain:
 
     if (!DeviceExtension->HwInitialize(DeviceExtension->HwDeviceExtension)) {
         DebugPrint((1,"ScsiPortInitialize: initialization failed\n"));
+        if (allocatedAccess) FreePool(configInfo->AccessRanges);
+        FreePool(DeviceExtension->HwDeviceExtension);
+        if (allocatedconfigInfo) FreePool(configInfo);
         return (ULONG)STATUS_INVALID_PARAMETER;
     }
 
@@ -2192,6 +2361,9 @@ CallAgain:
         if (callAgain) {
             goto CallAgain;
         } else {
+            if (allocatedAccess) FreePool(configInfo->AccessRanges);
+            FreePool(DeviceExtension->HwDeviceExtension);
+            if (allocatedconfigInfo) FreePool(configInfo);
             return (ULONG)STATUS_NO_SUCH_DEVICE;
         }
     }
@@ -3617,7 +3789,7 @@ Return Value:
     PMAPPED_ADDRESS Addresses = DeviceExtension->MappedAddressList;
     PHYSICAL_ADDRESS CardAddress;
     ULONG AddressSpace = InIoSpace;
-    PVOID MappedAddress;
+    PVOID MappedAddress = NULL;
     BOOLEAN b;
 
     b = HalTranslateBusAddress(
@@ -3643,7 +3815,7 @@ Return Value:
         while (Addresses) {
             if (SystemIoBusNumber == Addresses->BusNumber &&
                 NumberOfBytes == Addresses->NumberOfBytes &&
-                LiEql( IoAddress, Addresses->IoAddress)) {
+                IoAddress.QuadPart == Addresses->IoAddress.QuadPart) {
                 MappedAddress = Addresses->MappedAddress;
                 break;
             }
@@ -3775,12 +3947,19 @@ Return Value:
     // If the length is non-zero, the the requested data.
     //
 
-    return 0;
-    return(HalGetBusData(BusDataType,
-                         SystemIoBusNumber,
-                         SlotNumber,
-                         Buffer,
-                         Length));
+    if (BusDataType == PCIConfiguration) {
+
+        return(HalGetBusData(BusDataType,
+                             SystemIoBusNumber,
+                             SlotNumber,
+                             Buffer,
+                             Length));
+
+    } else {
+
+        return (0);
+
+    }
 #else
     return(0);
 #endif
@@ -4086,4 +4265,3 @@ Return Value:
                                  Length));
 
 } // end ScsiPortSetBusDataByOffset()
-

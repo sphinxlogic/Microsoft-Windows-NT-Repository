@@ -97,21 +97,24 @@ Return Value:
         //      Parse command line
         //
         if ( !LexArray.Initialize() ) {
-                DbgAbort( "LexArray.Initialize() failed \n" );
+                DebugAbort( "LexArray.Initialize() failed \n" );
                 return( FALSE );
     }
         if ( !ArgLex.Initialize( &LexArray ) ) {
-                DbgAbort( "ArgLex.Initialize() failed \n" );
+                DebugAbort( "ArgLex.Initialize() failed \n" );
                 return( FALSE );
     }
         ArgLex.PutSwitches( "/" );
         ArgLex.SetCaseSensitive( FALSE );
+        ArgLex.PutStartQuotes( "\"" );
+        ArgLex.PutEndQuotes( "\"" );
+
         if( !ArgLex.PrepareToParse() ) {
-                DbgAbort( "ArgLex.PrepareToParse() failed \n" );
+                DebugAbort( "ArgLex.PrepareToParse() failed \n" );
                 return( FALSE );
         }
         if ( !ArgumentArray.Initialize() ) {
-                DbgAbort( "ArgumentArray.Initialize() failed \n" );
+                DebugAbort( "ArgumentArray.Initialize() failed \n" );
                 return( FALSE );
         }
         if( !ProgramNameArgument.Initialize("*") ||
@@ -126,7 +129,7 @@ Return Value:
                 !_FlagCancelPrinting.Initialize( "/C" ) ||
                 !_FlagAddFiles.Initialize( "/P" ) ||
                 !FlagDisplayHelp.Initialize( "/?" ) ) {
-                DbgAbort( "Unable to initialize flag or string arguments \n" );
+                DebugAbort( "Unable to initialize flag or string arguments \n" );
                 return( FALSE );
         }
         if( !ArgumentArray.Put( &ProgramNameArgument ) ||
@@ -141,12 +144,12 @@ Return Value:
                 !ArgumentArray.Put( &_FlagCancelPrinting ) ||
                 !ArgumentArray.Put( &_FlagAddFiles ) ||
                 !ArgumentArray.Put( &FlagDisplayHelp ) ) {
-                DbgAbort( "ArgumentArray.Put() failed \n" );
+                DebugAbort( "ArgumentArray.Put() failed \n" );
                 return( FALSE );
         }
         if( !ArgLex.DoParsing( &ArgumentArray ) ) {
                 InvalidArgument = ArgLex.QueryInvalidArgument();
-                DbgPtrAssert( InvalidArgument );
+                DebugPtrAssert( InvalidArgument );
                 _Message.Set( MSG_PRINT_INVALID_SWITCH );
                 _Message.Display( "%W", InvalidArgument );
                 return( FALSE );
@@ -221,7 +224,7 @@ Return Value:
         //
         if( !DeviceArgument.IsValueSet() ) {
                 DevicePath = NEW( PATH );
-                DbgPtrAssert( DevicePath );
+                DebugPtrAssert( DevicePath );
         if( !DevicePath->Initialize( (LPWSTR)L"PRN" ) ) {
                         _Message.Set( MSG_PRINT_UNABLE_INIT_DEVICE );
                         _Message.Display( "%s", "PRN" );
@@ -229,11 +232,11 @@ Return Value:
                 }
         } else {
                 DevicePath = DeviceArgument.GetPath();
-                DbgPtrAssert( DevicePath );
+                DebugPtrAssert( DevicePath );
         }
         if( !_Printer.Initialize( DevicePath ) ) {
                 DeviceString = DevicePath->GetPathString();
-                DbgPtrAssert( DeviceString );
+                DebugPtrAssert( DeviceString );
                 _Message.Set( MSG_PRINT_UNABLE_INIT_DEVICE );
                 _Message.Display( "%W", DeviceString );
                 if( !DeviceArgument.IsValueSet() ) {
@@ -246,12 +249,12 @@ Return Value:
         //      Get FSNODE of each file and put them in an array
         //
         PathArray = _Files.GetPathArray();
-        DbgPtrAssert( PathArray );
+        DebugPtrAssert( PathArray );
         PathArrayIterator = ( PARRAY_ITERATOR )PathArray->QueryIterator();
-        DbgPtrAssert( PathArrayIterator );
+        DebugPtrAssert( PathArrayIterator );
 
         if( !_FsnFileArray.Initialize() ) {
-                DbgAbort( "_FsnFileArray.Initialize() failed \n" );
+                DebugAbort( "_FsnFileArray.Initialize() failed \n" );
                 return( FALSE );
         }
         while( ( FilePath = ( PPATH )PathArrayIterator->GetNext() ) != NULL ) {
@@ -310,13 +313,13 @@ Return Value:
         Size = 512;
         Buffer = ( PBYTE )MALLOC( ( size_t )Size );
         lpStuffANSI = ( LPSTR )MALLOC( ( size_t )Size );
-        DbgPtrAssert( Buffer );
-        DbgPtrAssert( lpStuffANSI );
+        DebugPtrAssert( Buffer );
+        DebugPtrAssert( lpStuffANSI );
         ArrayIterator = ( PARRAY_ITERATOR )_FsnFileArray.QueryIterator();
-        DbgPtrAssert( ArrayIterator );
+        DebugPtrAssert( ArrayIterator );
         while( ( FsnFile = ( PFSN_FILE )ArrayIterator->GetNext() ) != NULL ) {
                 FileStream = ( PSTREAM )FsnFile->QueryStream( READ_ACCESS );
-                DbgPtrAssert( FileStream );
+                DebugPtrAssert( FileStream );
 
                 FileName = FsnFile->GetPath()->GetPathString();
                 if( FileName != NULL ) {
@@ -343,8 +346,8 @@ Return Value:
                            BytesConverted = WideCharToMultiByte(CP_ACP,0,
                                    (LPTSTR)Buffer,BytesRead/sizeof(WCHAR),
                                    lpStuffANSI,cbStuff,NULL,&fUsedDefault) ;
-                           DbgAssert(cbStuff>0);
-                           DbgAssert(BytesConverted >= 0);
+                           DebugAssert(cbStuff>0);
+                           DebugAssert(BytesConverted >= 0);
                            _Printer.Write((PBYTE)lpStuffANSI,BytesConverted,&BytesWritten );
                         } else {
                            _Printer.Write( Buffer, BytesRead, &BytesWritten );

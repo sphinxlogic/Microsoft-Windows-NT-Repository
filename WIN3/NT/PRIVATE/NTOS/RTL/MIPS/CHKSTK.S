@@ -68,33 +68,17 @@
         .set    noreorder
         .set    noat
         li      t9,UsPcr                // get address of user PCR
-        bgez    sp,10f                  // if gez, running on user stack
+        lw      t9,PcTeb(t9)            // get address of environment block
         subu    t8,sp,t8                // compute new bottom of stack
-
-//
-// Running on kernel stack - compute stack limit from initial kernel stack.
-//
-
-        lw      t9,KiPcr + PcInitialStack(zero) // get initial kernel stack
-        b       20f                     // finish in common code
-        subu    t9,t9,KERNEL_STACK_SIZE // compute low limit of kernel stack
-
-//
-// Running on user stack - get stack limit from thread environment block.
-//
-
-10:     lw      t9,PcTeb(t9)            // get address of environment block
-        nop                             // fill
         lw      t9,TeStackLimit(t9)     // get low stack address
-        nop                             // fill
-20:     sltu    t7,t8,t9                // new stack address within limits?
-        beq     zero,t7,40f             // if eq, stack within limits
+        sltu    t7,t8,t9                // new stack address within limits?
+        beq     zero,t7,20f             // if eq, stack within limits
         li      t7,~(PAGE_SIZE - 1)     // set address mask
         and     t8,t8,t7                // round down new stack address
-30:     subu    t9,t9,PAGE_SIZE         // compute next address to check
-        bne     t8,t9,30b               // if ne, more pages to probe
+10:     subu    t9,t9,PAGE_SIZE         // compute next address to check
+        bne     t8,t9,10b               // if ne, more pages to probe
         sw      zero,0(t9)              // check stack address
-40:     lw      t7,0(sp)                // restore temporary register
+20:     lw      t7,0(sp)                // restore temporary register
         lw      t8,4(sp)                // restore allocation size
         j       ra                      // return
         lw      t9,8(sp)                // restore temporary register

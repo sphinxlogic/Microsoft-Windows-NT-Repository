@@ -45,7 +45,7 @@ Environment:
 #define CLBS_VSCROLL            WS_VSCROLL
 #define CLBS_BORDER             WS_BORDER
 #define CLBS_POPOUT_HEADINGS    SBT_POPOUT
-#define CLBS_SPRINGY_COLUMNS    HBT_SPRING
+#define CLBS_SPRINGY_COLUMNS    0
                                 
 #define CLBS_STANDARD           (                                           \
                                       0                                     \

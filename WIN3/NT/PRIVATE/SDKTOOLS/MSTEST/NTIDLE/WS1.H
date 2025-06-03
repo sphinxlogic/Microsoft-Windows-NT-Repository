@@ -11,4 +11,4 @@
 BOOL WAITUNTILIDLE (DWORD dwTimeOut);
 void SETNOTIDLE (void);
 
-
+

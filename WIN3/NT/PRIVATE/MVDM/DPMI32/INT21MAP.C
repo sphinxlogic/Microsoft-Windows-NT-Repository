@@ -17,18 +17,18 @@ Author:
 
 Revision History:
 
+    Neil Sandlin (neilsa) 31-Jul-1995 - Updates for the 486 emulator
+
 --*/
-#include "dpmi32p.h"
+#include "precomp.h"
+#pragma hdrstop
+#include "softpc.h"
 #include "xlathlp.h"
 //
 // Local constants
 //
+//#define Verbose 1
 #define MAX_SUPPORTED_DOS_CALL 0x6d
-
-// bugbug fix for mips
-#if !defined(i386)
-typedef ULONG LDT_ENTRY;
-#endif
 
 typedef VOID (*APIXLATFUNCTION)(VOID);
 APIXLATFUNCTION ApiXlatTable[MAX_SUPPORTED_DOS_CALL] = {
@@ -183,13 +183,13 @@ Return Value:
 
     StackPointer += (*GetSPRegister)();
 
-    setDS(*(PUSHORT)StackPointer);
+    setDS(*(PWORD16)StackPointer);
 
     (*SetSPRegister)((*GetSPRegister)() + 2);
 
     DosMajorCode = getAH();
 
-    if (getAH() >= MAX_SUPPORTED_DOS_CALL) {
+    if (DosMajorCode >= MAX_SUPPORTED_DOS_CALL) {
         return; //bugbug find out what win31 does.
     }
 
@@ -197,6 +197,17 @@ Return Value:
 
     // put this back in after beta 2.5
     DpmiFreeAllBuffers();
+
+#ifdef Verbose
+    {
+        char szFormat[] = "NTVDM Int21 %.4X Ret: ax=%.4X, at %.4x:%.8x, ss:esp=%.4x:%.8x\n";
+        char szMsg[sizeof(szFormat)+30];
+
+        wsprintf(szMsg, szFormat, DosMajorCode, getAX(), getCS(), getEIP(), getSS(), getESP());
+        OutputDebugString(szMsg);
+    }
+#endif
+
 }
 
 VOID
@@ -222,8 +233,10 @@ Return Value:
 {
     VSAVEDSTATE State;
 
+    DpmiSwitchToRealMode();
     DpmiSaveSegmentsAndStack(&State);
     DPMI_EXEC_INT(0x21);
+    DpmiSwitchToProtectedMode();
     DpmiRestoreSegmentsAndStack();
     DpmiSimulateIretCF();
 }
@@ -256,6 +269,7 @@ Return Value:
     USHORT ClientAX, ClientDX;
     VSAVEDSTATE State;
 
+    DpmiSwitchToRealMode();
     DpmiSaveSegmentsAndStack(&State);
 
     // BUGBUG 32 bit??
@@ -281,6 +295,7 @@ Return Value:
     setAX(ClientAX);
     setDX(ClientDX);
 
+    DpmiSwitchToProtectedMode();
     DpmiRestoreSegmentsAndStack();
     DpmiSimulateIretCF();
 
@@ -311,6 +326,7 @@ Return Value:
     USHORT ClientDX;
     VSAVEDSTATE State;
 
+    DpmiSwitchToRealMode();
     DpmiSaveSegmentsAndStack(&State);
     ClientDX = getDX();
 
@@ -352,6 +368,7 @@ Return Value:
     DpmiUnmapAndCopyBuffer(PmInputBuffer, RmInputBuffer, BufferLen);
 
     setDX(ClientDX);
+    DpmiSwitchToProtectedMode();
     DpmiRestoreSegmentsAndStack();
     DpmiSimulateIretCF();
 
@@ -449,6 +466,7 @@ Return Value:
     USHORT FcbLength;
     VSAVEDSTATE State;
 
+    DpmiSwitchToRealMode();
     DpmiSaveSegmentsAndStack(&State);
     SetDTAPointers();
     ClientDX = getDX();
@@ -475,7 +493,7 @@ Return Value:
     // Check to see if we need to set the real dta
     //
     if (CurrentDosDta != CurrentDta)
-        SetDosDTA();
+	SetDosDTA();
 
     //
     // Make the int 21 call
@@ -498,6 +516,7 @@ Return Value:
     }
 
     setDX(ClientDX);
+    DpmiSwitchToProtectedMode();
     DpmiRestoreSegmentsAndStack();
     DpmiSimulateIretCF();
 }
@@ -527,6 +546,7 @@ Return Value:
     USHORT ClientDX;
     VSAVEDSTATE State;
 
+    DpmiSwitchToRealMode();
     DpmiSaveSegmentsAndStack(&State);
     ClientDX = getDX();
 
@@ -565,6 +585,7 @@ Return Value:
     // Clean up
     //
     setDX(ClientDX);
+    DpmiSwitchToProtectedMode();
     DpmiRestoreSegmentsAndStack();
     DpmiSimulateIretCF();
 }
@@ -594,6 +615,7 @@ Return Value:
     USHORT ClientDX;
     VSAVEDSTATE State;
 
+    DpmiSwitchToRealMode();
     DpmiSaveSegmentsAndStack(&State);
     ClientDX = getDX();
 
@@ -627,6 +649,7 @@ Return Value:
     // Clean up
     //
     setDX(ClientDX);
+    DpmiSwitchToProtectedMode();
     DpmiRestoreSegmentsAndStack();
     DpmiSimulateIretCF();
 }
@@ -654,8 +677,10 @@ Return Value:
     USHORT Selector;
     VSAVEDSTATE State;
 
+    DpmiSwitchToRealMode();
     DpmiSaveSegmentsAndStack(&State);
     DPMI_EXEC_INT(0x21);
+    DpmiSwitchToProtectedMode();
 
     Selector = DpmiSegmentToSelector(getDS());
 
@@ -688,24 +713,27 @@ Return Value:
 
 --*/
 {
-    ULONG Segment, ClientDX;
+    ULONG Segment;
+    USHORT ClientDX;
     VSAVEDSTATE State;
 
+    DpmiSwitchToRealMode();
     DpmiSaveSegmentsAndStack(&State);
     ClientDX = getDX();
 
-    Segment = FlatAddress[(ClientDX & ~0x7)/sizeof(LDT_ENTRY)];
+    Segment = SELECTOR_TO_INTEL_LINEAR_ADDRESS(ClientDX);
 
     if (Segment > ONE_MB) {
         //
         // Create PSP doesn't do anything on error
         //
     } else {
-        setDX(Segment >> 4);
+        setDX((USHORT) (Segment >> 4));
         DPMI_EXEC_INT(0x21);
     }
 
     setDX(ClientDX);
+    DpmiSwitchToProtectedMode();
     DpmiRestoreSegmentsAndStack();
     DpmiSimulateIretCF();
 
@@ -735,6 +763,7 @@ Return Value:
     PUCHAR Fcb, BufferedFcb, String, BufferedString;
     VSAVEDSTATE State;
 
+    DpmiSwitchToRealMode();
     DpmiSaveSegmentsAndStack(&State);
     ClientSI = getSI();
     ClientDI = getDI();
@@ -775,6 +804,7 @@ Return Value:
 
     setDI(ClientDI);
     setSI(ClientSI + (getSI() - StringOff));
+    DpmiSwitchToProtectedMode();
     DpmiRestoreSegmentsAndStack();
     DpmiSimulateIretCF();
 }
@@ -799,6 +829,18 @@ Return Value:
 
 --*/
 {
+
+    //
+    // Win31 compatibility:
+    //
+    // Some hosebag programs set the DTA to a selector that they later free!
+    // This test makes sure that this does not cause us to crash.
+    //
+
+    if (!SEGMENT_IS_WRITABLE(CurrentDtaSelector)) {
+        CurrentDtaSelector = 0;
+        CurrentDtaOffset = 0;
+    }
 
     setES(CurrentDtaSelector);
     setBX(CurrentDtaOffset);
@@ -893,7 +935,7 @@ Return Value:
     // If the new dta is not accessible in v86 mode, use the one
     // supplied by Dosx
     //
-    if ((ULONG)(NewDta + 128) > MAX_V86_ADDRESS) {
+    if ((ULONG)(NewDta + 128 - IntelBase) > MAX_V86_ADDRESS) {
         NewDta = DosxDtaBuffer;
     }
 
@@ -915,6 +957,9 @@ Routine Description:
     This routine is called internally by other functions in this module
     to reflect a Set Dta call to Dos.
 
+    WARNING: The client must be in REAL mode
+
+
 Arguments:
 
     None.
@@ -926,6 +971,8 @@ Return Value:
 --*/
 {
     USHORT ClientAX, ClientDX, ClientDS, NewDtaSegment, NewDtaOffset;
+
+    ASSERT((getMSW() & MSW_PE) == 0);
 
     ClientAX = getAX();
     ClientDX = getDX();
@@ -993,8 +1040,10 @@ Return Value:
     USHORT Selector;
     VSAVEDSTATE State;
 
+    DpmiSwitchToRealMode();
     DpmiSaveSegmentsAndStack(&State);
     DPMI_EXEC_INT(0x21);
+    DpmiSwitchToProtectedMode();
 
     Selector = DpmiSegmentToSelector(getDS());
 
@@ -1029,8 +1078,10 @@ Return Value:
     USHORT Selector;
     VSAVEDSTATE State;
 
+    DpmiSwitchToRealMode();
     DpmiSaveSegmentsAndStack(&State);
     DPMI_EXEC_INT(0x21);
+    DpmiSwitchToProtectedMode();
 
     Selector = DpmiSegmentToSelector(getES());
 
@@ -1070,6 +1121,7 @@ Return Value:
         PUCHAR Country, BufferedCountry;
         VSAVEDSTATE State;
 
+        DpmiSwitchToRealMode();
         DpmiSaveSegmentsAndStack(&State);
         ClientDX = getDX();
 
@@ -1088,6 +1140,7 @@ Return Value:
         setDX(Off);
 
         DPMI_EXEC_INT(0x21);
+        DpmiSwitchToProtectedMode();
 
         DpmiUnmapAndCopyBuffer(Country, BufferedCountry, 34);
 
@@ -1122,6 +1175,7 @@ Return Value:
     USHORT ClientDX, StringSeg, StringOff, Length;
     VSAVEDSTATE State;
 
+    DpmiSwitchToRealMode();
     DpmiSaveSegmentsAndStack(&State);
     ClientDX = getDX();
 
@@ -1131,6 +1185,7 @@ Return Value:
     setDS(StringSeg);
     setDX(StringOff);
     DPMI_EXEC_INT(0x21);
+    DpmiSwitchToProtectedMode();
 
     DpmiUnmapString(BufferedString, Length);
     setDX(ClientDX);
@@ -1165,6 +1220,7 @@ Return Value:
     PUCHAR ReadWriteData, BufferedData;
     VSAVEDSTATE State;
 
+    DpmiSwitchToRealMode();
     DpmiSaveSegmentsAndStack(&State);
 
     ClientCX = getCX();
@@ -1231,6 +1287,7 @@ Return Value:
     if (!getCF()) {
         (*SetAXRegister)(BytesRead);
     }
+    DpmiSwitchToProtectedMode();
     DpmiRestoreSegmentsAndStack();
     DpmiSimulateIretCF();
 }
@@ -1347,6 +1404,7 @@ Return Value:
     USHORT ClientSI, Seg, Off;
     VSAVEDSTATE State;
 
+    DpmiSwitchToRealMode();
     DpmiSaveSegmentsAndStack(&State);
     ClientSI = getSI();
 
@@ -1364,6 +1422,7 @@ Return Value:
     setSI(Off);
 
     DPMI_EXEC_INT(0x21);
+    DpmiSwitchToProtectedMode();
 
     DpmiUnmapAndCopyBuffer(DirInfo, BufferedDirInfo, 64);
     setSI(ClientSI);
@@ -1396,8 +1455,10 @@ Return Value:
 
     DebugBreak(); // debugbug
 
+    DpmiSwitchToRealMode();
     DpmiSaveSegmentsAndStack(&State);
     DPMI_EXEC_INT(0x21);
+    DpmiSwitchToProtectedMode();
 
     if (!getCF()) {
         Selector = DpmiSegmentToSelector(getAX());
@@ -1405,7 +1466,6 @@ Return Value:
     }
 
     DpmiRestoreSegmentsAndStack();
-
     DpmiSimulateIretCF();
 #endif
 }
@@ -1435,9 +1495,10 @@ Return Value:
 
     DebugBreak(); // debugbug
 
+    DpmiSwitchToRealMode();
     DpmiSaveSegmentsAndStack(&State);
 
-    Segment = FlatAddress[(getES() & ~0x7)/sizeof(LDT_ENTRY)];
+    Segment = SELECTOR_TO_INTEL_LINEAR_ADDRESS(getES);
 
     if (Segment > ONE_MB) {
         setCF(1);
@@ -1447,6 +1508,7 @@ Return Value:
         DPMI_EXEC_INT(0x21);
     }
 
+    DpmiSwitchToProtectedMode();
     DpmiRestoreSegmentsAndStack();
     DpmiSimulateIretCF();
 #endif
@@ -1478,9 +1540,10 @@ Return Value:
 
     DebugBreak(); // debugbug
 
+    DpmiSwitchToRealMode();
     DpmiSaveSegmentsAndStack(&State);
 
-    Segment = FlatAddress[(getES() & ~0x7)/sizeof(LDT_ENTRY)];
+    Segment = SELECTOR_TO_INTEL_LINEAR_ADDRESS(getES);
 
     if (Segment > ONE_MB) {
         setCF(1);
@@ -1490,6 +1553,7 @@ Return Value:
         DPMI_EXEC_INT(0x21);
     }
 
+    DpmiSwitchToProtectedMode();
     DpmiRestoreSegmentsAndStack();
     DpmiSimulateIretCF();
 
@@ -1524,6 +1588,7 @@ Return Value:
     USHORT ClientDX, ClientBX, Seg, Off, Length, i, EnvironmentSel;
     VSAVEDSTATE State;
 
+    DpmiSwitchToRealMode();
     DpmiSaveSegmentsAndStack(&State);
     ClientDX = getDX();
     ClientBX = getBX();
@@ -1560,8 +1625,8 @@ Return Value:
         // 128 bytes
         //
         DPMI_FLAT_TO_SEGMENTED((LargeXlatBuffer + 0x10), &Seg, &Off)
-        *(PUSHORT)(LargeXlatBuffer + 2) = Off;
-        *(PUSHORT)(LargeXlatBuffer + 4) = Seg;
+        *(PWORD16)(LargeXlatBuffer + 2) = Off;
+        *(PWORD16)(LargeXlatBuffer + 4) = Seg;
 
         //
         // CommandTail = FLAT(es:bx)
@@ -1579,18 +1644,18 @@ Return Value:
             // CommandTail -> string
             //
             CommandTail = Sim32GetVDMPointer(
-                (*(PUSHORT)(CommandTail + 4)) << 16,
+                (*(PWORD16)(CommandTail + 4)) << 16,
                 1,
                 TRUE
                 ) +
-                *(PULONG)(CommandTail);
+                *(PDWORD16)(CommandTail);
 
         } else {
             //
             // CommandTail -> string
             //
             CommandTail = Sim32GetVDMPointer(
-                *(PULONG)(CommandTail + 2),
+                *(PDWORD16)(CommandTail + 2),
                 1,
                 TRUE
                 );
@@ -1602,15 +1667,15 @@ Return Value:
         // Set FCB pointers and put spaces in the file names
         //
         DPMI_FLAT_TO_SEGMENTED((LargeXlatBuffer + 144), &Seg, &Off)
-        *(PUSHORT)(LargeXlatBuffer + 6) = Off;
-        *(PUSHORT)(LargeXlatBuffer + 8) = Seg;
+        *(PWORD16)(LargeXlatBuffer + 6) = Off;
+        *(PWORD16)(LargeXlatBuffer + 8) = Seg;
         for (i = 0; i < 11; i++) {
             (LargeXlatBuffer + 144 + 1)[i] = ' ';
         }
 
         DPMI_FLAT_TO_SEGMENTED((LargeXlatBuffer + 188), &Seg, &Off)
-        *(PUSHORT)(LargeXlatBuffer + 0xA) = Off;
-        *(PUSHORT)(LargeXlatBuffer + 0xC) = Seg;
+        *(PWORD16)(LargeXlatBuffer + 0xA) = Off;
+        *(PWORD16)(LargeXlatBuffer + 0xC) = Seg;
         for (i = 0; i < 11; i++) {
             (LargeXlatBuffer + 188 + 1)[i] = ' ';
         }
@@ -1625,10 +1690,10 @@ Return Value:
             TRUE
             );
 
-        EnvironmentSel = *(PUSHORT)Environment;
+        EnvironmentSel = *(PWORD16)Environment;
 
-        *(PUSHORT)Environment =
-            (USHORT)(FlatAddress[(EnvironmentSel & ~0x7) / sizeof(LDT_ENTRY)] >> 4);
+        *(PWORD16)Environment =
+	    (USHORT)(SELECTOR_TO_INTEL_LINEAR_ADDRESS(EnvironmentSel) >> 4);
 
         //
         // Set up registers for the exec
@@ -1651,7 +1716,7 @@ Return Value:
             TRUE
             );
 
-        *(PUSHORT)Environment = EnvironmentSel;
+        *(PWORD16)Environment = EnvironmentSel;
 
         //
         // Free translation buffer
@@ -1661,6 +1726,7 @@ Return Value:
     }
     setDX(ClientDX);
     setBX(ClientBX);
+    DpmiSwitchToProtectedMode();
     DpmiRestoreSegmentsAndStack();
     DpmiSimulateIretCF();
 }
@@ -1715,6 +1781,7 @@ Return Value:
     PUCHAR BufferedString;
     VSAVEDSTATE State;
 
+    DpmiSwitchToRealMode();
     DpmiSaveSegmentsAndStack(&State);
     SetDTAPointers();
     ClientDX = getDX();
@@ -1730,7 +1797,7 @@ Return Value:
     // Check to see if we need to set the real dta
     //
     if (CurrentDosDta != CurrentDta)
-        SetDosDTA();
+	SetDosDTA();
 
     //
     // map the string
@@ -1742,6 +1809,7 @@ Return Value:
     setDX(Off);
 
     DPMI_EXEC_INT(0x21);
+    DpmiSwitchToProtectedMode();
 
     DpmiUnmapString(BufferedString, StringLength);
 
@@ -1781,6 +1849,7 @@ Return Value:
 --*/
 {
     VSAVEDSTATE State;
+    DpmiSwitchToRealMode();
     DpmiSaveSegmentsAndStack(&State);
     SetDTAPointers();
 
@@ -1795,9 +1864,10 @@ Return Value:
     // Check to see if we need to set the real dta
     //
     if (CurrentDosDta != CurrentDta)
-        SetDosDTA();
+	SetDosDTA();
 
     DPMI_EXEC_INT(0x21);
+    DpmiSwitchToProtectedMode();
 
     //
     // Copy the DTA back (if necessary)
@@ -1836,26 +1906,28 @@ Return Value:
     USHORT ClientBX;
     VSAVEDSTATE State;
 
+    DpmiSwitchToRealMode();
     DpmiSaveSegmentsAndStack(&State);
     ClientBX = getBX();
 
     if (ClientBX == 0) {
         CurrentPSPSelector = ClientBX;
     } else {
-        Segment = FlatAddress[(ClientBX & ~0x7)/sizeof(LDT_ENTRY)];
+	Segment = SELECTOR_TO_INTEL_LINEAR_ADDRESS(ClientBX);
 
         if (Segment > ONE_MB) {
 
             setCF(1);
 
         } else {
-            setBX(Segment >> 4);
+            setBX((USHORT) (Segment >> 4));
             DPMI_EXEC_INT(0x21);
             CurrentPSPSelector = ClientBX;
         }
     }
 
     setBX(ClientBX);
+    DpmiSwitchToProtectedMode();
     DpmiRestoreSegmentsAndStack();
     DpmiSimulateIretCF();
 }
@@ -1881,17 +1953,19 @@ Return Value:
 --*/
 {
     VSAVEDSTATE State;
+    DpmiSwitchToRealMode();
     DpmiSaveSegmentsAndStack(&State);
     //
     // Get the current psp segment to see if it changed
     //
     DPMI_EXEC_INT(0x21);
+    DpmiSwitchToProtectedMode();
 
     //
     // If it changed get a new selector for the psp
     //
     if (getBX() !=
-        (USHORT)(FlatAddress[(CurrentPSPSelector & ~0x7) / sizeof(LDT_ENTRY)] >> 4)
+	(USHORT)(SELECTOR_TO_INTEL_LINEAR_ADDRESS(CurrentPSPSelector) >> 4)
     ){
         CurrentPSPSelector = DpmiSegmentToSelector(getBX());
     }
@@ -1956,6 +2030,7 @@ Return Value:
     USHORT ClientDX, ClientDI, Seg, Off, SourceLength, DestinationLength;
     VSAVEDSTATE State;
 
+    DpmiSwitchToRealMode();
     DpmiSaveSegmentsAndStack(&State);
     ClientDX = getDX();
     ClientDI = getDI();
@@ -1974,6 +2049,7 @@ Return Value:
 
     setDX(ClientDX);
     setDI(ClientDI);
+    DpmiSwitchToProtectedMode();
     DpmiRestoreSegmentsAndStack();
     DpmiSimulateIretCF();
 }
@@ -2002,6 +2078,7 @@ Return Value:
     USHORT ClientDX, Seg, Off, Length;
     VSAVEDSTATE State;
 
+    DpmiSwitchToRealMode();
     DpmiSaveSegmentsAndStack(&State);
     ClientDX = getDX();
 
@@ -2028,6 +2105,7 @@ Return Value:
     setDX(Off);
 
     DPMI_EXEC_INT(0x21);
+    DpmiSwitchToProtectedMode();
 
     DpmiUnmapAndCopyBuffer(String, BufferedString, Length);
 
@@ -2171,6 +2249,7 @@ Return Value:
         PUCHAR Data16, BufferedData16, Data128, BufferedData128;
         VSAVEDSTATE State;
 
+        DpmiSwitchToRealMode();
         DpmiSaveSegmentsAndStack(&State);
         ClientDI = getDI();
         ClientSI = getSI();
@@ -2203,6 +2282,7 @@ Return Value:
         setDI(DataOff);
 
         DPMI_EXEC_INT(0x21);
+        DpmiSwitchToProtectedMode();
 
         DpmiUnmapAndCopyBuffer(Data16, BufferedData16, 16);
         DpmiUnmapAndCopyBuffer(Data128, BufferedData128, 128);
@@ -2273,8 +2353,10 @@ Return Value:
     USHORT Selector;
     VSAVEDSTATE State;
 
+    DpmiSwitchToRealMode();
     DpmiSaveSegmentsAndStack(&State);
     DPMI_EXEC_INT(0x21);
+    DpmiSwitchToProtectedMode();
 
     Selector = DpmiSegmentToSelector(getDS());
 
@@ -2342,6 +2424,7 @@ Return Value:
     USHORT ClientDI, Seg, Off, Length;
     VSAVEDSTATE State;
 
+    DpmiSwitchToRealMode();
     DpmiSaveSegmentsAndStack(&State);
     ClientDI = getDI();
 
@@ -2361,6 +2444,7 @@ Return Value:
     setDI(Off);
 
     DPMI_EXEC_INT(0x21);
+    DpmiSwitchToProtectedMode();
 
     DpmiUnmapAndCopyBuffer(Country, BufferedCountry, Length);
 
@@ -2393,6 +2477,7 @@ Return Value:
     USHORT ClientSI, StringSeg, StringOff, Length;
     VSAVEDSTATE State;
 
+    DpmiSwitchToRealMode();
     DpmiSaveSegmentsAndStack(&State);
     ClientSI = getSI();
 
@@ -2402,6 +2487,7 @@ Return Value:
     setDS(StringSeg);
     setSI(StringOff);
     DPMI_EXEC_INT(0x21);
+    DpmiSwitchToProtectedMode();
 
     DpmiUnmapString(BufferedString, Length);
     setSI(ClientSI);
@@ -2460,6 +2546,7 @@ Return Value:
     PUCHAR Data, BufferedData;
     VSAVEDSTATE State;
 
+    DpmiSwitchToRealMode();
     DpmiSaveSegmentsAndStack(&State);
     ClientDX = getDX();
     ClientCX = getCX();
@@ -2479,12 +2566,12 @@ Return Value:
     setDS(DataSeg);
     setDX(DataOff);
     DPMI_EXEC_INT(0x21);
+    DpmiSwitchToProtectedMode();
 
     DpmiUnmapAndCopyBuffer(Data, BufferedData, ClientCX);
 
     setDX(ClientDX);
     DpmiRestoreSegmentsAndStack();
-
     DpmiSimulateIretCF();
 }
 
@@ -2515,6 +2602,7 @@ Return Value:
     PUCHAR Data, BufferedData;
     VSAVEDSTATE State;
 
+    DpmiSwitchToRealMode();
     DpmiSaveSegmentsAndStack(&State);
     ClientDX = getDX();
 
@@ -2531,12 +2619,12 @@ Return Value:
     setDS(DataSeg);
     setDX(DataOff);
     DPMI_EXEC_INT(0x21);
+    DpmiSwitchToProtectedMode();
 
     DpmiUnmapAndCopyBuffer(Data, BufferedData, 2);
 
     setDX(ClientDX);
     DpmiRestoreSegmentsAndStack();
-
     DpmiSimulateIretCF();
 }
 
@@ -2586,6 +2674,7 @@ Return Value:
         return;
     }
 
+    DpmiSwitchToRealMode();
     DpmiSaveSegmentsAndStack(&State);
     ClientDX = getDX();
 
@@ -2602,7 +2691,7 @@ Return Value:
         //
         // Map set device params
         //
-        Length = (*(PUSHORT)(Data + 0x26));
+        Length = (*(PWORD16)(Data + 0x26));
         Length <<= 2;
         Length += 0x28;
         break;
@@ -2635,6 +2724,7 @@ Return Value:
     setDX(Off);
 
     DPMI_EXEC_INT(0x21);
+    DpmiSwitchToProtectedMode();
 
     DpmiUnmapAndCopyBuffer(Data, BufferedData, Length);
 
@@ -2669,6 +2759,7 @@ Return Value:
     PUCHAR ParameterBlock, BufferedPBlock, Data, BufferedData;
     VSAVEDSTATE State;
 
+    DpmiSwitchToRealMode();
     DpmiSaveSegmentsAndStack(&State);
     ClientAX = getAX();
     ClientDX = getDX();
@@ -2697,6 +2788,7 @@ Return Value:
         DpmiFreeBuffer(BufferedData, 0x40);
         setDX(ClientDX);
         setCX(ClientCX);
+        DpmiSwitchToProtectedMode();
         DpmiRestoreSegmentsAndStack();
         DpmiSimulateIretCF();
         return;
@@ -2705,7 +2797,7 @@ Return Value:
     //
     // Get the number of bytes/sector
     //
-    BytesPerSector = *(PUSHORT)(BufferedData + 0x7);
+    BytesPerSector = *(PWORD16)(BufferedData + 0x7);
 
     DpmiFreeBuffer(BufferedData, 0x40);
 
@@ -2736,26 +2828,26 @@ Return Value:
     if (CurrentAppFlags & DPMI_32BIT) {
 
         Data = Sim32GetVDMPointer(
-            (*((PUSHORT)(BufferedPBlock + 0xd)) << 16),
+            (*((PWORD16)(BufferedPBlock + 0xd)) << 16),
             1,
             TRUE
             );
 
-        Data += *((PULONG)(BufferedPBlock + 0x9));
+        Data += *((PDWORD16)(BufferedPBlock + 0x9));
 
     } else {
 
         Data = Sim32GetVDMPointer(
-            (*((PUSHORT)(BufferedPBlock + 0xb)) << 16),
+            (*((PWORD16)(BufferedPBlock + 0xb)) << 16),
             1,
             TRUE
             );
 
-        Data += *((PUSHORT)(BufferedPBlock + 0x9));
+        Data += *((PWORD16)(BufferedPBlock + 0x9));
 
     }
 
-    NumberOfSectors = *((PUSHORT)(BufferedPBlock + 7));
+    NumberOfSectors = *((PWORD16)(BufferedPBlock + 7));
 
     SectorsRead = 0;
 
@@ -2774,9 +2866,9 @@ Return Value:
 
         DPMI_FLAT_TO_SEGMENTED(BufferedData, &Seg, &Off);
 
-        *((PUSHORT)(BufferedPBlock + 9)) = Off;
-        *((PUSHORT)(BufferedPBlock + 11)) = Seg;
-        *((PUSHORT)(BufferedPBlock + 7)) = SectorsToRead;
+        *((PWORD16)(BufferedPBlock + 9)) = Off;
+        *((PWORD16)(BufferedPBlock + 11)) = Seg;
+        *((PWORD16)(BufferedPBlock + 7)) = SectorsToRead;
         setAX(ClientAX);
         setCX(ClientCX);
 
@@ -2797,12 +2889,13 @@ Return Value:
             );
 
         Data += SectorsToRead * BytesPerSector;
-        *((PUSHORT)(BufferedPBlock + 5)) += SectorsToRead;
+        *((PWORD16)(BufferedPBlock + 5)) += SectorsToRead;
         SectorsRead += SectorsToRead;
     }
 
     DpmiUnmapBuffer(BufferedPBlock,13);
     setDX(ClientDX);
+    DpmiSwitchToProtectedMode();
     DpmiRestoreSegmentsAndStack();
     DpmiSimulateIretCF();
 
@@ -2832,6 +2925,7 @@ Return Value:
     PUCHAR Data, BufferedData;
     VSAVEDSTATE State;
 
+    DpmiSwitchToRealMode();
     DpmiSaveSegmentsAndStack(&State);
     ClientDX = getDX();
 
@@ -2850,6 +2944,7 @@ Return Value:
     setDS(DataSeg);
     setDX(DataOff);
     DPMI_EXEC_INT(0x21);
+    DpmiSwitchToProtectedMode();
 
     DpmiUnmapAndCopyBuffer(Data, BufferedData, 22);
 
@@ -2882,6 +2977,7 @@ Return Value:
     PUCHAR Data, BufferedData;
     VSAVEDSTATE State;
 
+    DpmiSwitchToRealMode();
     DpmiSaveSegmentsAndStack(&State);
     ClientDX = getDX();
 
@@ -2900,6 +2996,7 @@ Return Value:
     setDS(DataSeg);
     setDX(DataOff);
     DPMI_EXEC_INT(0x21);
+    DpmiSwitchToProtectedMode();
 
     DpmiUnmapAndCopyBuffer(Data, BufferedData, 16);
 
@@ -2932,6 +3029,7 @@ Return Value:
     PUCHAR Data, BufferedData;
     VSAVEDSTATE State;
 
+    DpmiSwitchToRealMode();
     DpmiSaveSegmentsAndStack(&State);
     ClientSI = getSI();
     ClientCX = getCX();
@@ -2951,12 +3049,12 @@ Return Value:
     setDS(DataSeg);
     setSI(DataOff);
     DPMI_EXEC_INT(0x21);
+    DpmiSwitchToProtectedMode();
 
     DpmiUnmapAndCopyBuffer(Data, BufferedData, ClientCX);
 
     setSI(ClientSI);
     DpmiRestoreSegmentsAndStack();
-
     DpmiSimulateIretCF();
 }
 
@@ -2984,6 +3082,7 @@ Return Value:
     PUCHAR Data, BufferedData;
     VSAVEDSTATE State;
 
+    DpmiSwitchToRealMode();
     DpmiSaveSegmentsAndStack(&State);
     ClientDI = getDI();
 
@@ -3002,6 +3101,7 @@ Return Value:
     setES(DataSeg);
     setDI(DataOff);
     DPMI_EXEC_INT(0x21);
+    DpmiSwitchToProtectedMode();
 
     DpmiUnmapAndCopyBuffer(Data, BufferedData, 64);
 

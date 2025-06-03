@@ -121,7 +121,7 @@ StartRemoteServer(
     DWORD  j;
 
 
-    if (stricmp(szPipeName,"stop")==0) {
+    if (_stricmp(szPipeName,"stop")==0) {
         if (!RemoteRunning) {
             CmdLogFmt( "Remote server is not running\r\n" );
             return;
@@ -796,7 +796,13 @@ FilterCommand(
                          st.wMinute,
                          &buf[2]
                        );
-                CreateThread( NULL, 0, ShowPopupThread, mssg, 0, &ThreadID );
+                CreateThread( NULL,
+                              0,
+                              (LPTHREAD_START_ROUTINE)ShowPopupThread,
+                              mssg,
+                              0,
+                              &ThreadID
+                            );
                 PipeWrite( cl, ack, strlen(ack), FALSE );
                 break;
 
@@ -886,14 +892,14 @@ SendStatus(
     PipeWrite(cl,buf,strlen(buf), FALSE);
 
 
-    try {
+    __try {
         while (*env!=0) {
             sprintf(buf,"%s\n",env);
             PipeWrite(cl,buf,strlen(buf), FALSE);
 
             while(*(env++)!=0);
         }
-    } except(EXCEPTION_EXECUTE_HANDLER) {
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
         sprintf(buf,"Exception Generated Getting Environment Block\n",env);
         PipeWrite(cl,buf,strlen(buf), FALSE);
     }

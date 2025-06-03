@@ -347,6 +347,12 @@ int FAR PASCAL Pix2Pos(
         int pix1;
         NPVIEWREC v = &Views[view];
         int blankWidth = v->charWidth[' '];
+#ifdef DBCS
+        BOOL bDBCS = FALSE;
+        SIZE SizeDBCS;
+        char szDBCS[3];
+        HDC  hDCTmp = 0;
+#endif  // DBCS
 
         //Normalize
         if (Y < 0)
@@ -358,19 +364,75 @@ int FAR PASCAL Pix2Pos(
         // Get text of line
         if (!FirstLine(v->Doc, &pl, &Y, &pb))
                 return 0;
+#ifdef DBCS
+        if (v->wViewPitch == VIEW_PITCH_VARIABLE) {
+            Dbg(hDCTmp = GetDC(v->hwndClient));
+            Dbg(SelectObject(hDCTmp, v->font));
+        }
+#endif
 
         idx = 0;
         pix = 0;
         while (pix < X) {
+#ifdef DBCS
+                bDBCS = FALSE;
+                if (idx < elLen - 1 && IsDBCSLeadByte((BYTE)el[idx])) {
+                        bDBCS = TRUE;
+
+                        if (v->wViewPitch == VIEW_PITCH_VARIABLE) {
+                                szDBCS[0] = el[idx];
+                                szDBCS[1] = el[idx+1];
+                                szDBCS[2] = '\0';
+                                GetTextExtentPoint(
+                                        hDCTmp, szDBCS, 2, &SizeDBCS);
+                                pix += (SizeDBCS.cx - v->Tmoverhang);
+                        } else
+                        pix += v->charWidthDBCS;
+                        idx += 2;
+                } else if (idx >= elLen) {
+                        pix += blankWidth;
+                        idx++;
+                } else {
+                        pix += (v->charWidth[(BYTE)(el[idx])] - v->Tmoverhang);
+                        idx++;
+                }
+#else   // !DBCS
                 if (idx >= (pl->Length - LHD))
                         pix += blankWidth;
                 else
                         pix += (v->charWidth[(BYTE)(pl->Text[idx])] - v->Tmoverhang);
                 idx++;
+#endif  // !DBCS
         }
 
         if (pix != X) {
                 pix1 = pix;
+#ifdef DBCS
+                if (bDBCS) {
+                        idx -= 2;
+                        if (v->wViewPitch == VIEW_PITCH_VARIABLE) {
+                                szDBCS[0] = el[idx];
+                                szDBCS[1] = el[idx+1];
+                                szDBCS[2] = '\0';
+                                GetTextExtentPoint(
+                                        hDCTmp, szDBCS, 2, &SizeDBCS);
+                                pix -= (SizeDBCS.cx - v->Tmoverhang);
+                        } else
+                        pix -= v->charWidthDBCS;
+                } else {
+                        idx--;
+                        if (idx >= elLen)
+                                pix -= blankWidth;
+                        else
+                                pix -= v->charWidth[(BYTE)(el[idx])];
+                }
+                if ((pix + ((pix1 - pix) >> 1)) < X) {
+                        if (bDBCS)
+                                idx+=2;
+                        else
+                                idx++;
+                }
+#else   // !DBCS
                 idx--;
                 if (idx >= (pl->Length - LHD))
                         pix -= blankWidth;
@@ -378,8 +440,14 @@ int FAR PASCAL Pix2Pos(
                         pix -= (v->charWidth[(BYTE)(pl->Text[idx])] - v->Tmoverhang);
                 if ((pix + ((pix1 - pix) >> 1)) < X)
                         idx++;
+#endif
         }
 
+#ifdef DBCS
+        if (v->wViewPitch == VIEW_PITCH_VARIABLE) {
+                Dbg(ReleaseDC (v->hwndClient, hDCTmp));
+        }
+#endif
         CloseLine (v->Doc, &pl, Y, &pb);
         return idx;
 }
@@ -395,6 +463,11 @@ int NEAR PASCAL Pos2Pix(
         NPVIEWREC v = &Views[view];
         register int i, xPixel;
         int *charWidth = Views[view].charWidth;
+#ifdef DBCS
+        SIZE SizeDBCS;
+        char szDBCS[3];
+        HDC  hDCTmp = 0;
+#endif
 
         //Normalize
         Assert(v->Doc >= 0);
@@ -411,12 +484,37 @@ int NEAR PASCAL Pos2Pix(
                 return 0;
         CloseLine(v->Doc, &pl, y, &pb);
 
+#ifdef DBCS
+        if (v->wViewPitch == VIEW_PITCH_VARIABLE) {
+                Dbg(hDCTmp = GetDC(v->hwndClient));
+                Dbg(SelectObject(hDCTmp, v->font));
+        }
+#endif
         //We do not need to take care of the position beyond line,
         //"el" is allways filled with spaces
         xPixel = 0;
         for (i = 0; i < x; i++)
+#ifdef DBCS
+                if (IsDBCSLeadByte((BYTE)el[i])) {
+                        if (v->wViewPitch == VIEW_PITCH_VARIABLE) {
+                                szDBCS[0] = el[i];
+                                szDBCS[1] = el[i+1];
+                                szDBCS[2] = '\0';
+                                GetTextExtentPoint(
+                                        hDCTmp, szDBCS, 2, &SizeDBCS);
+                                xPixel += (SizeDBCS.cx - v->Tmoverhang);
+                        } else
+                        xPixel += Views[view].charWidthDBCS;
+                        i++;
+                } else
+#endif  // DBCS
                 xPixel += (charWidth[(BYTE)el[i]] - v->Tmoverhang);
 
+#ifdef DBCS
+        if (v->wViewPitch == VIEW_PITCH_VARIABLE) {
+                Dbg(ReleaseDC (v->hwndClient, hDCTmp));
+        }
+#endif
         return xPixel;
 }
 
@@ -465,6 +563,12 @@ Return Value:
     SetCaretPos(pixelPos - v->maxCharWidth * GetScrollPos(v->hwndClient, SB_HORZ),
                 (int)(((long)y - (long)yPos) * (long)v->charHeight));
 
+#ifdef FE_IME
+    ImeMoveConvertWin(v->hwndClient,
+                pixelPos - v->maxCharWidth
+                        * GetScrollPos(v->hwndClient, SB_HORZ),
+                (int)(((long)y - (long)yPos) * (long)v->charHeight));
+#endif
 
 #if 0
     wsprintf (obuf," SCP called in edit.c with %d , %d\n",pixelPos - v->maxCharWidth * GetScrollPos(v->hwndClient, SB_HORZ),
@@ -581,6 +685,18 @@ int NEAR PASCAL AdjustPosX(
         int len = pcl->Length - LHD;
 
         while (i < len && j < x) {
+#ifdef DBCS
+                if (IsDBCSLeadByte((BYTE)pcl->Text[i])) {
+                        if (x == j+1) {
+                                if (goingRight)
+                                        return j+2;
+                                else
+                                        return j;
+                        }
+                        j += 2;
+                        i++;
+                } else
+#endif
                 if (pcl->Text[i] == TAB) {
                         k = j;
                         j += tabSize - (j % tabSize);
@@ -912,8 +1028,20 @@ int _CRTAPI1 Compare(const char **left, const char **right)
         start = 0;
 
         //Closing multiline comments
+#ifdef DBCS
+        while (i < elLen - 1) {
+            if (IsDBCSLeadByte(el[i])) {
+                i += 2;
+            } else if (el[i] == '*' && el[i + 1] == '/') {
+                break;
+            } else {
+                i++;
+            }
+        }
+#else   // !DBCS
           while (i < elLen - 1 && (el[i] != '*' || el[i + 1] != '/'))
             i++;
+#endif
         Assert(i < elLen - 1);
 
         i += 2;
@@ -927,6 +1055,14 @@ int _CRTAPI1 Compare(const char **left, const char **right)
     }
 
     while (i < elLen) {
+#ifdef DBCS
+        if (IsDBCSLeadByte(el[i])) {
+            colors[nbColors].nbChars+=2;
+            wasInDefault = TRUE;
+            i += 2;
+            continue;
+        }
+#endif
 
         start = i;
         ch = el[i++];
@@ -954,7 +1090,7 @@ int _CRTAPI1 Compare(const char **left, const char **right)
             savedChar = el[i];
             el[i] = 0;
 
-            if (bsearch((char *)&pst, CKeywords, sizeof(CKeywords) / sizeof(CKeywords[0]), sizeof(CKeywords[0]), Compare) != NULL)  {
+            if (bsearch((char *)&pst, CKeywords, sizeof(CKeywords) / sizeof(CKeywords[0]), sizeof(CKeywords[0]), (int (_CRTAPI1 *)(const void *, const void *))Compare) != NULL)  {
                 fore = FORECOLOR(Cols_Keyword);
                 back = BACKCOLOR(Cols_Keyword);
             }
@@ -1067,6 +1203,32 @@ int _CRTAPI1 Compare(const char **left, const char **right)
               back = BACKCOLOR(Cols_String);
 
               //Now search for a second '"'
+#ifdef DBCS
+              {
+                int iBackSlash1 = -2;
+                int iBackSlash2 = -2;
+
+                do {
+                    //Handle possible double '\\' before a '"'
+                    if (i < 1) {
+                        break;
+                    } else if (IsDBCSLeadByte(el[i])) {
+                        i += 2;
+                    } else {
+                        if (el[i] == '\\') {
+                            iBackSlash1 = iBackSlash2;
+                            iBackSlash2 = i;
+                        } else if (el[i] == '"') {
+                            if (i != iBackSlash2 + 1
+                            || (i == iBackSlash2 + 1 && i == iBackSlash1 + 2)) {
+                                break;
+                            }
+                        }
+                        i++;
+                    }
+                } while (i < elLen);
+              }
+#else   // !DBCS
                 do {
 
                     //Handle possible double '\\' before a '"'
@@ -1082,6 +1244,7 @@ int _CRTAPI1 Compare(const char **left, const char **right)
 
                     i++;
                 } while (i < elLen);
+#endif  // !DBCS
               if (i >= elLen)
                 goto done;
 
@@ -1102,6 +1265,32 @@ int _CRTAPI1 Compare(const char **left, const char **right)
               back = BACKCOLOR(Cols_String);
 
               //Now search for a second "'"
+#ifdef DBCS
+              {
+                int iBackSlash1 = -2;
+                int iBackSlash2 = -2;
+
+                do {
+                    //Handle possible double '\\' before a '"'
+                    if (i < 1) {
+                        break;
+                    } else if (IsDBCSLeadByte(el[i])) {
+                        i += 2;
+                    } else {
+                        if (el[i] == '\\') {
+                            iBackSlash1 = iBackSlash2;
+                            iBackSlash2 = i;
+                        } else if (el[i] == '\'') {
+                            if (i != iBackSlash2 + 1
+                            || (i == iBackSlash2 + 1 && i == iBackSlash1 + 2)) {
+                                break;
+                            }
+                        }
+                        i++;
+                    }
+                } while (i < elLen);
+              }
+#else   // !DBCS
                 do {
 
                     //Handle possible double "\\" before a "'"
@@ -1117,6 +1306,7 @@ int _CRTAPI1 Compare(const char **left, const char **right)
 
                     i++;
                 } while (i < elLen);
+#endif  // !DBCS
 
               if (i >= elLen)
                 goto done;
@@ -1141,8 +1331,20 @@ int _CRTAPI1 Compare(const char **left, const char **right)
 
                     i++;
 
+#ifdef DBCS
+                    while (i < elLen - 1) {
+                        if (IsDBCSLeadByte(el[i])) {
+                            i += 2;
+                        } else if (el[i] == '*' && el[i + 1] == '/') {
+                            break;
+                        } else {
+                            i++;
+                        }
+                    }
+#else   // !DBCS
                     while (i < elLen - 1 && (el[i] != '*' || el[i + 1] != '/'))
                       i++;
+#endif
 
                     //Begin of a multiline comment
                       if (i >= elLen - 1)
@@ -1868,6 +2070,12 @@ Return Value:
             PosXY(view, v->X, newY, FALSE);
         }
     }
+#ifdef FE_IME
+    else {
+        // This is to change a position of IME conversion window
+        SetCaret(view, v->X, v->Y, Pos2Pix(view, v->X, v->Y));
+    }
+#endif
     return;
 }                               /* VertScroll() */
 
@@ -1960,6 +2168,10 @@ HorzScroll(
 
               }
 
+#ifdef FE_IME
+        // This is to change a position of IME conversion window
+        SetCaret(view, v->X, v->Y, Pos2Pix(view, v->X, v->Y));
+#endif
       }
 }
 
@@ -2016,9 +2228,25 @@ int FAR PASCAL GetLineLength(
                 return 0;
         CloseLine (v->Doc, &pl, line, &pb);
         X = elLen;
+#ifdef DBCS
+        if (skipBlanks) {
+                register int i;
+
+                X = 0;
+                for (i = 0 ; i < elLen ; i++) {
+                        if (IsDBCSLeadByte(el[i]) && i+1 < elLen) {
+                                i++;
+                                X = i+1;
+                        } else if (' ' != el[i]) {
+                                X = i+1;
+                        }
+                }
+        }
+#else   // !DBCS
         if (skipBlanks)
                 while (X > 0 && el[X - 1] == ' ')
                         X--;
+#endif
         return X;
 }
 
@@ -2073,21 +2301,94 @@ void NEAR PASCAL MoveLeftWord(
                                 x = elLen;
                         }
                 }
+#ifdef DBCS
+                {
+                        int iLeftChar = -1;
+                        int i;
+
+                        for (i = 0 ; i < x ; i++) {
+                                if (IsDBCSLeadByte((BYTE)el[i])) {
+                                        iLeftChar = i;
+                                        i++;
+                                } else if (CHARINKANASET(el[i])) {
+                                        iLeftChar = i;
+                                } else if (CHARINALPHASET(el[i])) {
+                                        iLeftChar = i;
+                                }
+                        }
+                        x = (-1 != iLeftChar) ? iLeftChar : 0;
+                }
+#else   // !DBCS
 
                 //Now x is different from zero. Skip till we find a valid
                 //word character
                 while (x > 0 && !(CHARINALPHASET(el[x - 1])))
                         x--;
+#endif  // !DBCS
 
         //Now either x is equal to zero or set after a word character
         } while (x == 0);
 
+#ifdef DBCS
+        {
+                int iLeftChar = -1;
+                int i;
+
+                //make sure if the cursor isn't on middle of DBCS char
+                for (i = 0 ; i < x ; i++) {
+                        if (IsDBCSLeadByte((BYTE)el[i])) {
+                                if (x == i + 1) {
+                                        x = i;
+                                        break;
+                                }
+                                i++;
+                        }
+                }
+                for (i = 0 ; i <= x ; i++) {
+                        if (IsDBCSLeadByte(el[i])) {
+                                if (IsDBCSLeadByte(el[x])) {
+#ifdef DBCS_WORD_MULTI
+                                        if (-1 == iLeftChar) {
+                                                iLeftChar = i;
+                                        }
+#else
+                                        // Suppose one DBCS char is one word.
+                                        iLeftChar = i;
+#endif  // DBCS_WORD_MULTI
+                                } else {
+                                        iLeftChar = -1;
+                                }
+                                i++;
+                        } else if (CHARINKANASET(el[i])) {
+                                if (CHARINKANASET(el[x])) {
+                                        if (-1 == iLeftChar) {
+                                                iLeftChar = i;
+                                        }
+                                } else {
+                                        iLeftChar = -1;
+                                }
+                        } else if (CHARINALPHASET(el[i])) {
+                                if (CHARINALPHASET(el[x])) {
+                                        if (-1 == iLeftChar) {
+                                                iLeftChar = i;
+                                        }
+                                } else {
+                                        iLeftChar = -1;
+                                }
+                        } else {
+                                iLeftChar = -1;
+                        }
+                }
+                x = (-1 != iLeftChar) ? iLeftChar : 0;
+        }
+#else   // !DBCS
         do {
                 x--;
         } while (x >= 0 && CHARINALPHASET(el[x]));
 
         //Now x is less than 0 or set to a none word character
         x++;
+#endif
 
 done:
         y++;
@@ -2112,6 +2413,143 @@ void NEAR PASCAL MoveRightWord(
         int                     x;
         int                     y;
         NPVIEWREC v = &Views[view];
+
+#ifdef DBCS // ***************************************************************
+        BYTE    chWord;
+
+        y = posY;
+
+        Assert (v->Doc >= 0);
+        Assert (y < Docs[v->Doc].NbLines);
+
+        if (!FirstLine(v->Doc, &pl, &y, &pb)) {
+                return;
+        }
+        CloseLine(v->Doc, &pl, y, &pb);
+        y--;
+
+        posX = mini(posX, elLen);
+
+        //make sure if the cursor isn't on middle of DBCS char
+        for (x = 0 ; x < posX ; x++) {
+                if (IsDBCSLeadByte((BYTE)el[x])) {
+                        if (posX == x + 1) {
+                                break;
+                        }
+                        x++;
+                }
+        }
+
+        if (CHARINWORDCHAR(el[x])) {
+                chWord = el[x];
+        } else {
+
+                /****************************/
+                /* skip non-word characters */
+                /****************************/
+
+                while (y < Docs[v->Doc].NbLines) {
+                        if (!FirstLine(v->Doc, &pl, &y, &pb)) {
+                                return;
+                        }
+                        CloseLine(v->Doc, &pl, y, &pb);
+                        y--;
+
+                        while (x < elLen) {
+                                if (CHARINWORDCHAR(el[x])) {
+                                        chWord = el[x];
+                                        break;
+                                }
+                                x++;
+                        }
+
+                        if (x < elLen) {
+                                break;
+                        }
+                        x = 0;
+                        y++;
+                }
+
+                if (y >= (Docs[v->Doc].NbLines)) {
+                        PosXY(view, elLen, y - 1, FALSE);
+                        return;
+                }
+                if (!Sel) {
+                        PosXY(view, x, y, FALSE);
+                        return;
+                }
+        }
+
+        /**************************/
+        /* search the end of word */
+        /**************************/
+
+        while (x < elLen) {
+#ifdef DBCS_WORD_MULTI
+#else
+                if (IsDBCSLeadByte(chWord)) {
+                        // Suppose one DBCS char is one word.
+                        x += 2;
+                        break;
+                }
+#endif
+                if (IsDBCSLeadByte(el[x])) {
+                        if (!IsDBCSLeadByte(chWord)) {
+                                break;
+                        }
+                        x += 2;
+                } else if (CHARINKANASET(el[x])) {
+                        if (!CHARINKANASET(chWord)) {
+                                break;
+                        }
+                        x++;
+                } else if (CHARINALPHASET(el[x])) {
+                        if (!CHARINALPHASET(chWord)) {
+                                break;
+                        }
+                        x++;
+                } else {
+                        break;
+                }
+        }
+
+        if (Sel) {
+                SelPosXY(view, x, y);
+                return;
+        }
+
+        /*******************************/
+        /* search the top of next word */
+        /*******************************/
+
+        while (y < Docs[v->Doc].NbLines) {
+                if (!FirstLine(v->Doc, &pl, &y, &pb)) {
+                        return;
+                }
+                CloseLine(v->Doc, &pl, y, &pb);
+                y--;
+
+                while (x < elLen) {
+                        if (CHARINWORDCHAR(el[x])) {
+                                break;
+                        }
+                        x++;
+                }
+
+                if (x < elLen) {
+                        break;
+                }
+                x = 0;
+                y++;
+        }
+        if (y >= (Docs[v->Doc].NbLines)) {
+                PosXY(view, elLen, y - 1, FALSE);
+        } else {
+                PosXY(view, x, y, FALSE);
+        }
+        return;
+
+#else   // !DBCS *************************************************************
 
         y = posY;
 
@@ -2177,6 +2615,7 @@ done:
                 PosXY(view, x,y, FALSE);
         y++;
         CloseLine(v->Doc, &pl, y, &pb);
+#endif  // !DBCS end *********************************************************
 }
 
 void FAR PASCAL ClearSelection(int view)
@@ -2574,7 +3013,16 @@ BOOL FAR PASCAL GetSelectedText(
 **
 */
 
-BOOL FAR PASCAL InsertStream (int view, int x, int y, int size, LPSTR Buf, BOOL destroyRedo)
+BOOL
+PASCAL
+InsertStream (
+    int view,
+    int x,
+    int y,
+    int size,
+    LPSTR Buf,
+    BOOL destroyRedo
+    )
 {
     NPVIEWREC v = &Views[view];
     NPDOCREC d = &Docs[v->Doc];
@@ -2582,6 +3030,9 @@ BOOL FAR PASCAL InsertStream (int view, int x, int y, int size, LPSTR Buf, BOOL 
     BOOL prevStopMark = stopMarkStatus;
 
     Assert(v->Doc >= 0);
+    if (v->Doc < 0) {
+        return FALSE;
+    }
 
     //Destroy Redo Buffer if we start re-editing in a middle of a
     //undo/redo session
@@ -2940,6 +3391,12 @@ void NEAR PASCAL FindMatching(
 
                                 //Parse current line
                                 while (k < elLen && !found) {
+#ifdef DBCS
+                                        if (IsDBCSLeadByte(el[k]) && k+1 < elLen) {
+                                                k+=2;
+                                                continue;
+                                        }
+#endif
                                         ch = el[k];
                                         found = (ch == target && level == 0);
                                         if (ch == source)
@@ -2971,6 +3428,25 @@ void NEAR PASCAL FindMatching(
                                 //Parse current line
                                 while (k >= 0 && !found) {
                                         ch = el[k];
+#ifdef DBCS
+                                        if (ch == source || ch == target) {
+                                                register int i;
+                                                BOOL bDBCS = FALSE;
+
+                                                for (i = 0 ; i <= k ; i++) {
+                                                        if (IsDBCSLeadByte(el[i]) && i+1 < elLen) {
+                                                                if (i+1 == k){
+                                                                        bDBCS = TRUE;
+                                                                        break;
+                                                                }
+                                                        }
+                                                }
+                                                if (bDBCS) {
+                                                        k -= 2;
+                                                        continue;
+                                                }
+                                        }
+#endif  // DBCS
                                         found = (ch == target && level == 0);
                                         if (ch == source)
                                                 level++;
@@ -3059,6 +3535,21 @@ DeleteKey(
         YL = v->Y;
 
         if (XL < GetLineLength(view, TRUE, YL)) {
+#ifdef DBCS
+            LPLINEREC   pl;
+            LPBLOCKDEF  pb;
+
+            if (!FirstLine(v->Doc, &pl, &YL, &pb)) {
+                return;
+            }
+            CloseLine(v->Doc, &pl, YL, &pb);
+            YL--;
+            if (IsDBCSLeadByte((BYTE)(el[XL]))) {
+                if (fRet = DeleteStream(view, XL, YL, XL + 2, YL, TRUE)) {
+                    SetReplaceDBCSFlag(&Docs[v->Doc], FALSE);
+                }
+            } else
+#endif  // DBCS
             fRet = DeleteStream(view, XL, YL, XL + 1, YL, TRUE);
         } else if (YL < (Docs[v->Doc].NbLines - 1)) {
             fRet = DeleteStream(view, XL, YL, 0, YL + 1, TRUE);
@@ -3428,6 +3919,11 @@ Return Value:
 
                           posX = 0;
                           while (i < pl->Length - LHD)  {
+#ifdef DBCS
+                              if (IsDBCSLeadByte(pl->Text[i])) {
+                                  break;
+                              } else
+#endif
                               if (pl->Text[i] == ' ') {
                                   posX++;
                               } else if (pl->Text[i] == TAB) {
@@ -3507,12 +4003,23 @@ Return Value:
 
                     LPLINEREC pl;
                     LPBLOCKDEF pb;
+#ifdef DBCS
+                    BOOL bDBCS;
+#endif
 
                     if (!FirstLine(v->Doc, &pl, &posY, &pb))
                       goto end;
                     posY--;
                     XL = AdjustPosX(posX - 1, FALSE);
+#ifdef DBCS
+                    bDBCS = IsDBCSLeadByte((BYTE)(el[XL])) ? TRUE : FALSE;
+#endif
                     if (DeleteStream(view, posX - 1, posY, posX, posY, TRUE)) {
+#ifdef DBCS
+                        if (bDBCS) {
+                            SetReplaceDBCSFlag(&Docs[v->Doc], FALSE);
+                        }
+#endif
                         PosXY(view, XL, posY, FALSE);
                     }
                 } else if (posY > 0) {
@@ -3738,12 +4245,70 @@ Return Value:
     NPVIEWREC   v = &Views[view];
     NPDOCREC    d = &Docs[v->Doc];
     int         yPos;
+#ifdef DBCS
+    static  BOOL bDBCS = FALSE;
+    static  BYTE szBuf[4];
+#endif
 
     Assert(v->Doc >= 0);
 
     if ((lParam & (1 << 31)) != 0 || IsIconic(GetParent(hwnd))) {
         return;
     }
+#ifdef DBCS
+    if (bDBCS) {
+        bDBCS = FALSE;
+        szBuf[1] = (BYTE)wParam;
+        szBuf[2] = '\0';
+
+        if ((status.overtype || d->forcedOvertype)
+        && !v->BlockStatus) {
+            LPLINEREC   pl;
+            LPBLOCKDEF  pb;
+
+            /**********************************************/
+            /* if over-write mode and no text is selected */
+            /**********************************************/
+            if (!FirstLine(v->Doc, &pl, &v->Y, &pb)) {
+                return;
+            }
+            CloseLine(v->Doc, &pl, v->Y, &pb);
+            v->Y--;
+
+            v->BlockStatus = TRUE;
+            v->BlockXL = v->X;
+            v->BlockYL = v->Y;
+            v->BlockYR = v->Y;
+            if (IsDBCSLeadByte((BYTE)(el[v->X]))) {
+                v->BlockXR = v->X + 2;
+            } else if (v->bDBCSOverWrite) {
+                if (v->X + 2 < elLen) {
+                    if (IsDBCSLeadByte((BYTE)(el[v->X + 1]))) {
+                        szBuf[2] = ' ';
+                        szBuf[3] = '\0';
+                        v->BlockXR = v->X + 3;
+                    } else {
+                        v->BlockXR = v->X + 2;
+                    }
+                } else {
+                    v->BlockXR = v->X + 1;
+                }
+            } else {
+                v->BlockXR = v->X + 1;
+            }
+
+            if (InsertStream(view, v->X, v->Y, lstrlen(szBuf), szBuf, TRUE)) {
+                SetReplaceDBCSFlag(d, TRUE);
+                PosXY(view, v->X + lstrlen(szBuf), v->Y, FALSE);
+            }
+        } else {
+            if (InsertStream(view, v->X, v->Y, 2, szBuf, TRUE)) {
+                PosXY(view, v->X + 2, v->Y, FALSE);
+            }
+        }
+        return;
+    }
+#endif  // DBCS
 
     /*
      *  See if we have the prefix to multikey function
@@ -4134,6 +4699,13 @@ Return Value:
             //Normal char or unknown CTRL chars
 
           default:
+#ifdef DBCS
+            if (IsDBCSLeadByte((BYTE)wParam)) {
+                szBuf[0] = (BYTE)wParam;
+                bDBCS = TRUE;
+                break;
+            }
+#endif
             if (wParam >= ' ') {
 
                 BOOL ok;
@@ -4141,6 +4713,41 @@ Return Value:
                 //Replace or insert char at cursor location
 
                 if (status.overtype || d->forcedOvertype) {
+#ifdef DBCS
+                    LPLINEREC   pl;
+                    LPBLOCKDEF  pb;
+                    BOOL        bDBCS;
+
+                    if (!FirstLine(v->Doc, &pl, &v->Y, &pb)) {
+                        break;
+                    }
+                    CloseLine(v->Doc, &pl, v->Y, &pb);
+                    v->Y--;
+
+                    szBuf[0] = (BYTE)wParam;
+                    szBuf[1] = '\0';
+
+                    bDBCS = IsDBCSLeadByte((BYTE)(el[v->X])) ? TRUE : FALSE;
+                    if (bDBCS && !v->BlockStatus) {
+                        if (v->bDBCSOverWrite) {
+                            szBuf[1] = ' ';
+                            szBuf[2] = '\0';
+                        }
+                        v->BlockStatus = TRUE;
+                        v->BlockXL = v->X;
+                        v->BlockXR = v->X + 2;
+                        v->BlockYL = v->Y;
+                        v->BlockYR = v->Y;
+                    }
+                    if (bDBCS || v->BlockStatus) {
+                        if (ok = InsertStream(view, v->X, v->Y,
+                                    lstrlen(szBuf), szBuf, TRUE)) {
+                            if (bDBCS) {
+                                SetReplaceDBCSFlag(d, TRUE);
+                            }
+                        }
+                    } else
+#endif  // DBCS
                       ok = ReplaceChar(view, v->X, v->Y, wParam, TRUE);
                 } else {
                       ok = InsertStream(view, v->X, v->Y, 1, (LPSTR)&wParam, TRUE);

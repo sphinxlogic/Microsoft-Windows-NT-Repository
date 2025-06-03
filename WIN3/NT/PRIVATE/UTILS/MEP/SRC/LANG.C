@@ -22,7 +22,7 @@ tblFind (
     int    i;
     STRCMP f;
 
-    f = fCase ? (STRCMP)FNADDR(strcmp) : (STRCMP)FNADDR(stricmp);
+    f = fCase ? (STRCMP)FNADDR(strcmp) : (STRCMP)FNADDR(_stricmp);
     for (i=0; tbl[i]; i++) {
         if (!(*f) (tbl[i], s)) {
             return i+1;

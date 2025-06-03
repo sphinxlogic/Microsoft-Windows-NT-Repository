@@ -126,7 +126,7 @@ HRESULT WStorage::CreateStorage(const OLECHAR * pwcsName,
     out("IStorage %p::CreateStorage(%s, 0x%lX, %lu, %lu, %p)", _pstg,
         OlecsOut(pwcsName), grfMode, reserved1, reserved2, ppstg);
     hr = Result(_pstg->CreateStorage(pwcsName, grfMode, reserved1,
-                                     (LPSTGSECURITY)reserved2, &pistg));
+                                     reserved2, &pistg));
     *ppstg = WStorage::Wrap(pistg);
     return hr;
 }
@@ -593,10 +593,20 @@ HRESULT WStgCreateDocfile(const OLECHAR * pwcsName,
     HRESULT hr;
     IStorage *pistg;
 
+#ifndef _CAIRO_
     out("StgCreateDocfile(%s, 0x%lX, %lu, %p)", OlecsOut(pwcsName), grfMode,
 	reserved, ppstgOpen);
+
     hr = Result(StgCreateDocfile(pwcsName, grfMode,
                                  reserved, &pistg));
+#else ELSE == 300
+    out("StgCreateStorage(%s, 0x%lX, %lu, %p)", OlecsOut(pwcsName), grfMode,
+	reserved, ppstgOpen);
+
+    hr = Result(StgCreateStorage(pwcsName, grfMode,
+                                 STGFMT_DOCUMENT,
+                                 (LPSECURITY_ATTRIBUTES)reserved, &pistg));
+#endif
 
     *ppstgOpen = WStorage::Wrap(pistg);
     return hr;

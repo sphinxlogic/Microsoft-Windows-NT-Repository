@@ -1,4 +1,3 @@
-
 /*++
 
 Copyright (c) 1991  Microsoft Corporation
@@ -78,6 +77,9 @@ Return Values:
 
         STATUS_TOO_MANY_SECRETS - The maximum number of Secret objects in the
             system has been reached.
+
+        STATUS_NAME_TOO_LONG - The name of the secret is too long to be stored
+            in the LSA database.
 --*/
 
 {
@@ -92,6 +94,16 @@ Return Values:
     ULONG ReferenceOptions = (ULONG) LSAP_DB_ACQUIRE_LOCK;
     ULONG DereferenceOptions = (ULONG) LSAP_DB_RELEASE_LOCK;
     BOOLEAN GlobalSecret = FALSE;
+
+
+    //
+    // Check to see if the lenght of the name is within the limits of the
+    // LSA database.
+    //
+
+    if ( SecretName->Length > LSAP_DB_LOGICAL_NAME_MAX_LENGTH ) {
+        return(STATUS_NAME_TOO_LONG);
+    }
 
     //
     // Check for Local Secret creation request.  If the Secret name does
@@ -212,6 +224,13 @@ CreateSecretFinish:
         LsapDbReleaseLock();
     }
 
+#ifdef TRACK_HANDLE_CLOSE
+    if (*SecretHandle == LsapDbHandle)
+    {
+        DbgPrint("BUGBUG: Closing global policy handle\n");
+        DbgBreakPoint();
+    }
+#endif
     return( Status );
 
 CreateSecretError:
@@ -394,6 +413,14 @@ OpenSecretFinish:
 
         LsapDbReleaseLock();
     }
+
+#ifdef TRACK_HANDLE_CLOSE
+    if (*SecretHandle == LsapDbHandle)
+    {
+        DbgPrint("BUGBUG: Closing global policy handle\n");
+        DbgBreakPoint();
+    }
+#endif
 
     return(Status);
 
@@ -1410,7 +1437,7 @@ Return Values:
         // Call general enumeration routine.  This will return an array
         // of names of secrets.
         //
-        
+
         Status = LsapDbEnumerateNames(
                      PolicyHandle,
                      SecretObject,
@@ -1431,22 +1458,22 @@ Return Values:
         //
 
         if (NT_SUCCESS(Status)) {
-            
+
             //
             // Return the number of entries read.  Note that the Enumeration Buffer
             // returned from LsapDbEnumerateNames is expected to be non-null
             // in all non-error cases.
             //
-            
+
             ASSERT(DbEnumerationBuffer.EntriesRead != 0);
 
-            
+
             //
             // Now copy the output array of Unicode Strings for the caller.
             // Memory for the array and the Unicode Buffers is allocated via
             // MIDL_user_allocate.
             //
-            
+
             Status = LsapRpcCopyUnicodeStrings(
                          NULL,
                          DbEnumerationBuffer.EntriesRead,

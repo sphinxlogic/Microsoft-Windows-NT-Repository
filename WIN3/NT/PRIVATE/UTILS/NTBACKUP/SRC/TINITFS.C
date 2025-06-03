@@ -601,6 +601,7 @@ GENERIC_DLE_PTR     *pCurrentDLE  /* O - current dle */ )
           }
 
           dle->info.ntfs->fname_leng = (UINT16)fsize ;
+          dle->info.ntfs->vol_flags  = sflags ;
 
 
           /*
@@ -610,9 +611,12 @@ GENERIC_DLE_PTR     *pCurrentDLE  /* O - current dle */ )
            * Unicode.
            */
 
-          dle->feature_bits |= (sflags & FS_CASE_IS_PRESERVED)
+          if ( strcmp( fs_name, TEXT("FAT") ) ) {  // force FAT to not case preserved
+
+               dle->feature_bits |= (sflags & FS_CASE_IS_PRESERVED)
                                ? DLE_FEAT_CASE_PRESERVING
                                : 0;
+          }
 
           dle->feature_bits |= (sflags & FS_CASE_SENSITIVE)
                                ? DLE_FEAT_CASE_SENSITIVE

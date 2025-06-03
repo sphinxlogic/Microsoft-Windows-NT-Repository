@@ -414,7 +414,6 @@ Return Value:
     IO_STATUS_BLOCK iosb;
     PCCB ccb;
 
-    extern POBJECT_TYPE *IoFileObjectType;
     BOOLEAN accessGranted;
     ACCESS_MASK grantedAccess;
     UNICODE_STRING name;
@@ -576,6 +575,12 @@ MsOpenMailslotFileSystem (
 
         MsAcquireGlobalLock();
         MsReferenceNode( &Vcb->Header );
+        if (Vcb->Header.ReferenceCount == 2) {
+            //
+            // Set the driver paging back to normal
+            //
+            MmResetDriverPaging(MsOpenMailslotFileSystem);
+        }
         MsReleaseGlobalLock();
 
         MsSetFileObject( FileObject, Vcb, NULL );

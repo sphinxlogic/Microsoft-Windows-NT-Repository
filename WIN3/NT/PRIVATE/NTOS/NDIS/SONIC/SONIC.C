@@ -48,6 +48,12 @@ SonicHalt(
     );
 
 STATIC
+VOID
+SonicShutdown(
+    IN NDIS_HANDLE MiniportAdapterContext
+    );
+
+STATIC
 NDIS_STATUS
 SonicInitalize(
     OUT PNDIS_STATUS OpenErrorStatus,
@@ -692,6 +698,16 @@ Return Value:
 
             } else {
 
+				//
+				// Register our shutdown handler.
+				//
+			
+				NdisMRegisterAdapterShutdownHandler(
+					Adapter->MiniportAdapterHandle,     // miniport handle.
+					Adapter,                            // shutdown context.
+					SonicShutdown                       // shutdown handler.
+					);
+
                 //
                 // All done.
                 //
@@ -1067,6 +1083,44 @@ Return Value:
                      (PVOID)Adapter->SonicPortAddress
                      );
     SONIC_FREE_MEMORY(Adapter, sizeof(SONIC_ADAPTER));
+
+    return;
+
+}
+
+
+
+STATIC
+VOID
+SonicShutdown(
+    IN NDIS_HANDLE MiniportAdapterContext
+    )
+
+/*++
+
+Routine Description:
+
+    SonicShutdown is called when the system is shutdown or it bugchecks.
+
+Arguments:
+
+    MiniportAdapterContext - Context registered with the wrapper, really
+        a pointer to the adapter.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    PSONIC_ADAPTER Adapter = PSONIC_ADAPTER_FROM_CONTEXT_HANDLE(MiniportAdapterContext);
+
+    //
+    // Stop the chip.
+    //
+
+    SonicStopChip (Adapter);
 
     return;
 

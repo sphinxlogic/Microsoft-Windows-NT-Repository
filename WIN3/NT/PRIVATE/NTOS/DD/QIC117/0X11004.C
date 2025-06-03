@@ -21,6 +21,9 @@
 *
 * HISTORY:
 *		$Log:   J:\se.vcs\driver\q117cd\src\0x11004.c  $
+*	
+*	   Rev 1.4   24 Aug 1994 12:59:58   BOBLEHMA
+*	Check for illegal and undefined command.
 *
 *	   Rev 1.3   17 Feb 1994 11:36:16   KEVINKES
 *	Added an extra parameter to WaitCC.

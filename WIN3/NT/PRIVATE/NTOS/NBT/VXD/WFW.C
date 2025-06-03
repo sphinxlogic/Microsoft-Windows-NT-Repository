@@ -196,6 +196,7 @@ BOOL GetActiveLanasFromIP( VOID )
             ULONG         NLType ;
             ULONG         IpNameServer[COUNT_NS_ADDR];
             ULONG         IpDnsServer[COUNT_NS_ADDR];
+            UCHAR         IpIndex;
 
             //
             //  Does this entity support IP?
@@ -255,7 +256,7 @@ BOOL GetActiveLanasFromIP( VOID )
             }
 
             Size = sizeof(IPAddrEntry) * IPStats.ipsi_numaddr ;
-            if ( !(pIAE = (IPAddrEntry*) CTEAllocInitMem( (USHORT) Size )) )
+            if ( !(pIAE = (IPAddrEntry*) CTEAllocInitMem( Size )) )
             {
                 CDbgPrint( DBGFLAG_ERROR, ( "GetActiveLanasFromIP: Couldn't allocate IP table buffer\r\n")) ;
                 continue ;
@@ -286,35 +287,34 @@ BOOL GetActiveLanasFromIP( VOID )
             for ( j = 0 ; j < IPStats.ipsi_numaddr ; j++ )
             {
                 //
-                //  Skip failed DHCPed addresses and the loopback address
+                //  Skip the loopback address
                 //
-                if (  pIAE[j].iae_addr == 0 ||
-                     (pIAE[j].iae_addr  & 0x000000ff) == 0x0000007f )
+                if ((pIAE[j].iae_addr  & 0x000000ff) == 0x0000007f )
                 {
-                    //
-                    //  Maintain the lanas even if a particular address failed
-                    //  to initialize (however we always ignore the loopback).
-                    //
-                    if ( pIAE[j].iae_addr == 0 )
-                        iLanaOffset++ ;
-
                     continue ;
                 }
 
                 CurrentIP = pIAE[j].iae_addr ;
+                if (!CurrentIP)
+                {
+                    CDbgPrint( DBGFLAG_ERROR, ( "Init: ipaddr is 0, but accepting\n\r")) ;
+                }
 
                 //
                 // now find out the mac address for this ipaddr
                 //
                 memset( MacAddr, 0, 6 ) ;
+                IpIndex = -1;
                 for ( k=0; k<AdptNum; k++ )
                 {
                     if ( ifeAdapterInfo[k]->if_index == pIAE[j].iae_index )
                     {
                         CTEMemCopy( MacAddr, ifeAdapterInfo[k]->if_physaddr, 6 );
+                        IpIndex = ifeAdapterInfo[k]->if_index;
                         break;
                     }
                 }
+                ASSERT(IpIndex != -1);
 
                 PreviousNodeType = NodeType;
 
@@ -332,11 +332,7 @@ BOOL GetActiveLanasFromIP( VOID )
                 //
                 // Get all the NBNS servers' and DNS servers' ipaddresses
                 //
-                // BUGBUG: we don't use DNS_MODE anymore.  GetNameServerAddress
-                // will change once changes are made to Chicago.  After that
-                // this line should be modified to drop the NBNS_MODE parm
-                //
-                GetNameServerAddress( CurrentIP, IpNameServer, NBNS_MODE);
+                GetNameServerAddress( CurrentIP, IpNameServer);
 
                 GetDnsServerAddress( CurrentIP, IpDnsServer);
 
@@ -352,7 +348,7 @@ BOOL GetActiveLanasFromIP( VOID )
                                              IpDnsServer[0],
                                              IpDnsServer[1],
                                              MacAddr,
-                                             (UCHAR) j
+                                             IpIndex
                                            ) ;
 
                 if ( !NT_SUCCESS( status ) )
@@ -420,7 +416,7 @@ NTSTATUS VxdReadIniString( LPSTR pchKey, LPSTR * ppchString )
 
     if ( pchTmp = GetProfileString( pchKey, NULL, NBTSectionName ) )
     {
-        if ( *ppchString = CTEAllocInitMem( (USHORT) (strlen( pchTmp ) + 1)) )
+        if ( *ppchString = CTEAllocInitMem( strlen( pchTmp ) + 1) )
         {
             strcpy( *ppchString, pchTmp ) ;
             return STATUS_SUCCESS ;
@@ -467,7 +463,6 @@ NTSTATUS VxdReadIniString( LPSTR pchKey, LPSTR * ppchString )
 void GetDnsServerAddress( ULONG   IpAddr, PULONG  pIpDnsServer)
 {
     UCHAR       i ;
-      // BUGBUG: move this to a better place
     PUCHAR      pchDnsSrv  = "DNSServers" ;
     UINT        OptId;
     PUCHAR      pchTmp;
@@ -494,7 +489,7 @@ void GetDnsServerAddress( ULONG   IpAddr, PULONG  pIpDnsServer)
        goto Not_In_Sysini;
     }
 
-    if ( !(pchString = CTEAllocInitMem( (USHORT) (strlen( pchTmp ) + 1)) ) )
+    if ( !(pchString = CTEAllocInitMem( strlen( pchTmp ) + 1)) )
     {
          DbgPrint("GetDnsServerAddress: CTEAllocInitMem failed!\r\n") ;
          goto Not_In_Sysini;
@@ -594,7 +589,106 @@ Not_In_Sysini:
 
 }
 
+/*******************************************************************
+
+    NAME:       GetNameServerAddress
+
+    SYNOPSIS:   Gets the Win server for the specified Lana.
+
+                Or, if DHCP is installed and the Name server addresses aren't
+                found, we get them from DHCP
+
+    ENTRY:      IpAddr - If we can get from DHCP, get form this address
+                pIpNameServer - Receives addresses if found (otherwise 0)
+
+    NOTES:      This routine is only used by Snowball
+
+    HISTORY:
+        Johnl   21-Oct-1993     Created
+
+********************************************************************/
+
+void GetNameServerAddress( ULONG   IpAddr,
+                           PULONG  pIpNameServer)
+{
+    UCHAR       i ;
+    PUCHAR      pchSrv = "NameServer$" ;
+    PUCHAR      pchSrvNum;
+    UINT        OptId;
+    LPTSTR      pchString ;
+    TDI_STATUS  TdiStatus ;
+    BOOL        fPrimaryFound = FALSE;
+    ULONG       Buff[COUNT_NS_ADDR] ;
+
+
+    OptId = 44;                    // NBNS Option
+    pchSrvNum = pchSrv + 10 ;      // to overwrite '$' with 1,2,3 etc.
+
+
+    for ( i = 0; i < COUNT_NS_ADDR; i++)
+    {
+
+        pIpNameServer[i] = LOOP_BACK ;
+        *pchSrvNum = '1' + i;
+
+        if ( !CTEReadIniString( NULL, pchSrv, &pchString ) )
+        {
+            if ( ConvertDottedDecimalToUlong( pchString, &pIpNameServer[i] ))
+            {
+                //
+                //  Bad IP address format
+                //
+                DbgPrint("GetNameServerAddress: ConvertDottedDecimalToUlong failed!\r\n") ;
+                pIpNameServer[i] = LOOP_BACK ;
+            }
+            else if ( i == 0 )
+                fPrimaryFound = TRUE ;
+
+            CTEFreeMem( pchString ) ;
+        }
+    }
+
+    //
+    //  Not in the .ini file, try getting them from DHCP
+    //
+
+    if ( !fPrimaryFound )
+    {
+        ULONG Size = sizeof( Buff ) ;
+        TDI_STATUS tdistatus ;
+
+        tdistatus = DhcpQueryOption( IpAddr,
+                                     OptId,
+                                     &Buff,
+                                     &Size ) ;
+
+        switch ( tdistatus )
+        {
+        case TDI_SUCCESS:
+        case TDI_BUFFER_OVERFLOW:     // May be more then one our buffer will hold
+            for ( i = 0; i < COUNT_NS_ADDR; i++ )
+            {
+                if ( Size >= (sizeof(ULONG)*(i+1)))
+                    pIpNameServer[i] = htonl(Buff[i]) ;
+            }
+            break ;
+
+        case TDI_INVALID_PARAMETER:      // Option not found
+            break ;
+
+        default:
+            ASSERT( FALSE ) ;
+            break ;
+        }
+    }
+
+    KdPrint(("GetNameServerAddress: Primary: %x, backup: %x\r\n",
+            pIpNameServer[0], pIpNameServer[1] )) ;
+
+}
+
+
 #pragma END_INIT
 #endif //!CHICAGO
 
-
+

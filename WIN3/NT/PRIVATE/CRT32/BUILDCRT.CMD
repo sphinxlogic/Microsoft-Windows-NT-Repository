@@ -5,7 +5,9 @@
 
 @set _helpdir=
 @if "%MIPS%" == "1" set _helpdir=helper
+@if "%PPC%" == "1" set _helpdir=helper
 @if "%_targetcpu%" == "mips" set _helpdir=helper
+@if "%_targetcpu%" == "ppc" set _helpdir=helper
 
 :bldtype
 @if "%1" == "DLL" (set CRTLIBTYPE=DLL) && goto blddll

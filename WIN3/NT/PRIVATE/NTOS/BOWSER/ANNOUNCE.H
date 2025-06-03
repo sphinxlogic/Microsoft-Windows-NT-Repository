@@ -155,9 +155,12 @@ BowserEnumerateServers(
     IN OUT PULONG ResumeKey,
     IN ULONG ServerTypeMask,
     IN PUNICODE_STRING TransportName OPTIONAL,
+#ifdef _CAIRO_
+    IN PUNICODE_STRING EmulatedDomainName,
+#endif // _CAIRO_
     IN PUNICODE_STRING DomainName OPTIONAL,
     OUT PVOID OutputBuffer,
-    IN  ULONG OutputBufferSize,
+    IN ULONG OutputBufferSize,
     OUT PULONG EntriesRead,
     OUT PULONG TotalEntries,
     OUT PULONG TotalBytesNeeded,
@@ -169,10 +172,12 @@ BowserAnnouncementDispatch (
     PVOID Context
     );
 
+#ifndef _CAIRO_
 ULONG
 BowserGetAnnounceTableSize(
     VOID
     );
+#endif // _CAIRO_
 
 VOID
 BowserDeleteGenericTable(

@@ -31,7 +31,7 @@ Revision History:
 #include <ntrtl.h>
 #include <nturtl.h>
 
-#include <windef.h>             // DWORD.
+#include <windows.h>            // DWORD.
 #include <lmcons.h>             // NET_API_STATUS.
 
 #include <netlib.h>
@@ -115,8 +115,8 @@ Return Value:
                    );
 
     if ( !NT_SUCCESS( NtStatus )) {
-        NetpDbgPrint("[Netlib] Error calling RtlOemStringToUnicodeString %08lx\n",
-                     NtStatus);
+        NetpKdPrint(("[Netlib] Error calling RtlOemStringToUnicodeString %08lx\n",
+                     NtStatus));
         return NetpNtStatusToApiStatus( NtStatus );
     }
 
@@ -128,8 +128,8 @@ Return Value:
                    );
 
     if ( !NT_SUCCESS( NtStatus )) {
-        NetpDbgPrint("[Netlib] Error calling RtlOemStringToUnicodeString %08lx\n",
-                     NtStatus);
+        NetpKdPrint(("[Netlib] Error calling RtlOemStringToUnicodeString %08lx\n",
+                     NtStatus));
         RtlFreeUnicodeString( &Subsystem );
         return NetpNtStatusToApiStatus( NtStatus );
     }
@@ -138,8 +138,8 @@ Return Value:
     RtlInitUnicodeString(&ObjectName, NULL);             // No object name
 
     if ((RpcStatus = RpcImpersonateClient(NULL)) != RPC_S_OK) {
-        NetpDbgPrint("[Netlib] Failed to impersonate client %08lx\n",
-                     RpcStatus);
+        NetpKdPrint(("[Netlib] Failed to impersonate client %08lx\n",
+                     RpcStatus));
         return NetpRpcStatusToApiStatus(RpcStatus);
     }
 
@@ -163,22 +163,153 @@ Return Value:
 #endif
 
     if ((RpcStatus = RpcRevertToSelf()) != RPC_S_OK) {
-        NetpDbgPrint("[Netlib] Fail to revert to self %08lx\n", RpcStatus);
+        NetpKdPrint(("[Netlib] Fail to revert to self %08lx\n", RpcStatus));
         NetpAssert(FALSE);
     }
 
     if (! NT_SUCCESS(NtStatus)) {
-        NetpDbgPrint("[Netlib] Error calling NtAccessCheckAndAuditAlarm %08lx\n",
-                     NtStatus);
+        NetpKdPrint(("[Netlib] Error calling NtAccessCheckAndAuditAlarm %08lx\n",
+                     NtStatus));
         return ERROR_ACCESS_DENIED;
     }
 
     if (AccessStatus != STATUS_SUCCESS) {
         IF_DEBUG(SECURITY) {
-            NetpDbgPrint("[Netlib] Access status is %08lx\n", AccessStatus);
+            NetpKdPrint(("[Netlib] Access status is %08lx\n", AccessStatus));
         }
         return ERROR_ACCESS_DENIED;
     }
 
     return NERR_Success;
+}
+
+
+
+NET_API_STATUS
+NetpAccessCheck(
+    IN  PSECURITY_DESCRIPTOR SecurityDescriptor,
+    IN  ACCESS_MASK DesiredAccess,
+    IN  PGENERIC_MAPPING GenericMapping
+    )
+/*++
+
+Routine Description:
+
+    This function impersonates the caller so that it can perform access
+    validation using NtAccessCheck; and reverts back to
+    itself before returning.
+
+    This routine differs from NetpAccessCheckAndAudit in that it doesn't require
+    the caller to have SE_AUDIT_PRIVILEGE nor does it generate audits.
+    That is typically fine since the passed in security descriptor typically doesn't
+    have a SACL requesting an audit.
+
+Arguments:
+
+    SecurityDescriptor - A pointer to the Security Descriptor against which
+        acccess is to be checked.
+
+    DesiredAccess - Supplies desired acccess mask.  This mask must have been
+        previously mapped to contain no generic accesses.
+
+    GenericMapping - Supplies a pointer to the generic mapping associated
+        with this object type.
+
+Return Value:
+
+    NET_API_STATUS - NERR_Success or reason for failure.
+
+--*/
+{
+    NET_API_STATUS NetStatus;
+    NET_API_STATUS TempStatus;
+
+    HANDLE ClientToken = NULL;
+
+    DWORD GrantedAccess;
+    BOOL AccessStatus;
+    BYTE PrivilegeSet[500]; // Large buffer
+    DWORD PrivilegeSetSize;
+
+
+    //
+    // Impersonate the client.
+    //
+
+    NetStatus = RpcImpersonateClient(NULL);
+
+    if ( NetStatus != RPC_S_OK ) {
+        NetpKdPrint(("[Netlib] Failed to impersonate client %08lx\n",
+                     NetStatus));
+        return NetpRpcStatusToApiStatus(NetStatus);
+    }
+
+    //
+    // Open the impersonated token.
+    //
+
+    if ( !OpenThreadToken( GetCurrentThread(),
+                           TOKEN_QUERY,
+                           TRUE, // Use NtLmSvc security context to open token
+                           &ClientToken )) {
+
+        NetStatus = GetLastError();
+        NetpKdPrint(("[Netlib] Error calling GetCurrentThread %ld\n",
+                     NetStatus));
+
+        goto Cleanup;
+    }
+
+    //
+    // Check if the client has the required access.
+    //
+
+    PrivilegeSetSize = sizeof(PrivilegeSet);
+
+    if ( !AccessCheck( SecurityDescriptor,
+                       ClientToken,
+                       DesiredAccess,
+                       GenericMapping,
+                       (PPRIVILEGE_SET) &PrivilegeSet,
+                       &PrivilegeSetSize,
+                       &GrantedAccess,
+                       &AccessStatus ) ) {
+
+        NetStatus = GetLastError();
+        NetpKdPrint(("[Netlib] Error calling AccessCheck %ld\n",
+                     NetStatus));
+
+        goto Cleanup;
+
+    }
+
+    if ( !AccessStatus ) {
+        NetStatus = GetLastError();
+        IF_DEBUG(SECURITY) {
+            NetpKdPrint(("[Netlib] Access status is %ld\n", NetStatus ));
+        }
+        goto Cleanup;
+    }
+
+    //
+    // Success
+    //
+
+    NetStatus = NERR_Success;
+
+    //
+    // Free locally used resources
+    //
+Cleanup:
+    TempStatus = RpcRevertToSelf();
+    if ( TempStatus != RPC_S_OK ) {
+        NetpKdPrint(("[Netlib] Fail to revert to self %08lx\n", TempStatus));
+        NetpAssert(FALSE);
+    }
+
+    if ( ClientToken != NULL ) {
+        CloseHandle( ClientToken );
+    }
+
+    return NetStatus;
 }

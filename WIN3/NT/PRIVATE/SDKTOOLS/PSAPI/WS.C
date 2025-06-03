@@ -31,8 +31,8 @@ EmptyWorkingSet(
 
     // The following signals a desire to empty the working set
 
-    QuotaLimits.MinimumWorkingSetSize = 0xffff * SystemInfo.dwPageSize;
-    QuotaLimits.MaximumWorkingSetSize = 0xffff * SystemInfo.dwPageSize;
+    QuotaLimits.MinimumWorkingSetSize = 0xffffffff;
+    QuotaLimits.MaximumWorkingSetSize = 0xffffffff;
 
     Status = NtSetInformationProcess(hProcess,
                                      ProcessQuotaLimits,

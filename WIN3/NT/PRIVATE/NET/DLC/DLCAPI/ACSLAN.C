@@ -36,7 +36,6 @@ Revision History:
 
 #include "dlcdll.h"
 #include "dlcdebug.h"
-#include <stdio.h>
 
 #define DLC_UNSUPPORTED_COMMAND ((ULONG)0x7fffffff)
 #define DLC_ASYNCHRONOUS_FLAG   ((ULONG)0x80000000)
@@ -820,7 +819,11 @@ Return Value:
         //
 
         pFirstBuffer = pDlcParms->BufferFree.pFirstBuffer;
-        do {
+
+        for ( pFirstBuffer = pDlcParms->BufferFree.pFirstBuffer,
+                DlcStatus = LLC_STATUS_SUCCESS ;
+              pFirstBuffer != NULL ; ) {
+
             cElement = 0;
 
             //
@@ -848,7 +851,7 @@ Return Value:
                                               pDlcParms,
                                               OutputBufferLength
                                               );
-        } while (pFirstBuffer != NULL);
+        }
 
         IF_DEBUG(DUMP_NTACSLAN) {
             IF_DEBUG(DUMP_INPUT_CCB) {
@@ -2749,8 +2752,8 @@ Return Value:
         }
 #endif
 
-        DeleteCriticalSection(&AdapterOpenSection);
-        DeleteCriticalSection(&DriverHandlesCritSec);
+        //DeleteCriticalSection(&AdapterOpenSection);
+        //DeleteCriticalSection(&DriverHandlesCritSec);
     }
 
     return TRUE;

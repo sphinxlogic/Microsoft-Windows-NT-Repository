@@ -146,4 +146,23 @@ GLOBAL   TCHAR  LocalComputerName[MAX_COMPUTERNAME_LENGTH + 3];
 // Flag to indicate if we need to close local machine
 GLOBAL   BOOL           bCloseLocalMachine ;
 
-
+// Timeout for data collection thread in msec
+GLOBAL   DWORD          DataTimeOut ;
+
+// flag to indicate duplicate instance names should be allowed
+GLOBAL  BOOL            bMonitorDuplicateInstances;
+
+
+// 20 sec for the data thread timeout
+#define  DEFAULT_DATA_TIMEOUT    20000L
+
+//=============================//
+// Log Playback Information    //
+//=============================//
+
+GLOBAL   PLAYBACKLOG    PlaybackLog ;
+
+GLOBAL   REPORT         Report ;
+GLOBAL   ALERT          Alert ;
+GLOBAL   LOG            Log ;
+

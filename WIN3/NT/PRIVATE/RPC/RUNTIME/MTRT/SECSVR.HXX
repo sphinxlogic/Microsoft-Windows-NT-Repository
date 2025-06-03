@@ -31,19 +31,13 @@ Fields:
 
 --*/
 {
-private:
- 
-
 public:
 
-    unsigned long AuthContextId;
-    unsigned long AuthenticationLevel;
-    unsigned long AuthenticationSvc;
-
     SSECURITY_CONTEXT(
-        unsigned long ContextId,
-        unsigned long Level,
-        unsigned long AuthService
+        CLIENT_AUTH_INFO * myAuthInfo,
+        unsigned           AuthContextId,
+        BOOL               fUseDatagram,
+        RPC_STATUS       * pStatus
         );
 
     void
@@ -87,24 +81,22 @@ public:
     void
     GetDceInfo (
         RPC_AUTHZ_HANDLE __RPC_FAR * PacHandle,
-        unsigned long __RPC_FAR * AuthzSvc 
+        unsigned long __RPC_FAR * AuthzSvc
         );
 };
 
 
 inline
 SSECURITY_CONTEXT::SSECURITY_CONTEXT(
-    unsigned long ContextId,
-    unsigned long Level,
-    unsigned long AuthnService
+    CLIENT_AUTH_INFO * myAuthInfo,
+    unsigned           AuthContextId,
+    BOOL               fUseDatagram,
+    RPC_STATUS       * pStatus
     )
-    
+    : SECURITY_CONTEXT(myAuthInfo, AuthContextId, fUseDatagram, pStatus)
 {
-  AuthContextId = ContextId;
-  AuthenticationLevel = Level;
-  AuthenticationSvc = AuthnService;
 }
- 
+
 
 
 #endif // __SECSVR_HXX__

@@ -59,7 +59,7 @@ KiMoveApcState (
 
 VOID
 KeInitializeProcess (
-    IN PKPROCESS Process,
+    IN PRKPROCESS Process,
     IN KPRIORITY BasePriority,
     IN KAFFINITY Affinity,
     IN ULONG DirectoryTableBase[2],
@@ -110,7 +110,7 @@ Return Value:
     //
 
     Process->Header.Type = ProcessObject;
-    Process->Header.Size = sizeof(KPROCESS);
+    Process->Header.Size = sizeof(KPROCESS) / sizeof(LONG);
     InitializeListHead(&Process->Header.WaitListHead);
 
     //
@@ -137,13 +137,15 @@ Return Value:
     InitializeListHead(&Process->ProfileListHead);
     InitializeListHead(&Process->ReadyListHead);
     InitializeListHead(&Process->ThreadListHead);
-    Process->ThreadQuantum = (SCHAR)KiThreadQuantum;
+    Process->ThreadQuantum = THREAD_QUANTUM;
 
     //
-    // Initialize the active processor set and process state.
+    // Initialize the process state and set the thread processor selection
+    // seed.
     //
 
     Process->State = ProcessInMemory;
+    Process->ThreadSeed = (UCHAR)KiQueryLowTickCount();
 
     //
     // Initialize Ldt descriptor for this process (i386 only)
@@ -164,7 +166,7 @@ Return Value:
 
 VOID
 KeAttachProcess (
-    IN PKPROCESS Process
+    IN PRKPROCESS Process
     )
 
 /*++
@@ -187,11 +189,8 @@ Return Value:
 
     KIRQL OldIrql;
 
-    //
-    // Assert that we are being called with a process and not something else
-    //
-
     ASSERT_PROCESS(Process);
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
 
     //
     // Raise IRQL to dispatcher level and lock dispatcher database.
@@ -209,7 +208,7 @@ Return Value:
 
 BOOLEAN
 KeTryToAttachProcess (
-    IN PKPROCESS Process
+    IN PRKPROCESS Process
     )
 
 /*++
@@ -240,11 +239,8 @@ Return Value:
 
     KIRQL OldIrql;
 
-    //
-    // Assert that we are being called with a process and not something else
-    //
-
     ASSERT_PROCESS(Process);
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
 
     //
     // Raise IRQL to dispatcher level and lock dispatcher database.
@@ -296,6 +292,8 @@ Return Value:
     KIRQL OldIrql;
     PKPROCESS Process;
     PKTHREAD Thread;
+
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
 
     //
     // Raise IRQL to dispatcher level and lock dispatcher database.
@@ -363,17 +361,7 @@ Return Value:
         // Swap the address space back to the parent process.
         //
 
-#if !defined(NT_UP) && (defined(_MIPS_) || defined(_ALPHA_))
-
-        if (KiSwapProcess(Thread->ApcState.Process, Process) != FALSE) {
-            KiSynchronizeProcessIds();
-            KiReleaseSpinLock(&KiProcessIdWrapLock);
-        }
-
-#else
-
         KiSwapProcess(Thread->ApcState.Process, Process);
-#endif
 
     }
 
@@ -387,7 +375,7 @@ Return Value:
 
 LONG
 KeReadStateProcess (
-    IN PKPROCESS Process
+    IN PRKPROCESS Process
     )
 
 /*++
@@ -407,9 +395,6 @@ Return Value:
 --*/
 
 {
-    //
-    // Assert that we are being called with an process and not something else
-    //
 
     ASSERT_PROCESS(Process);
 
@@ -422,7 +407,7 @@ Return Value:
 
 LONG
 KeSetProcess (
-    IN PKPROCESS Process,
+    IN PRKPROCESS Process,
     IN KPRIORITY Increment,
     IN BOOLEAN Wait
     )
@@ -456,29 +441,16 @@ Return Value:
 
     KIRQL OldIrql;
     LONG OldState;
-    PKTHREAD Thread;
-
-    //
-    // Assert that we are being called with a process and not something else
-    //
+    PRKTHREAD Thread;
 
     ASSERT_PROCESS(Process);
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
 
     //
     // Raise IRQL to dispatcher level and lock dispatcher database.
     //
 
-    Thread = KeGetCurrentThread();
     KiLockDispatcherDatabase(&OldIrql);
-
-    //
-    // Capture the current signal state of process object, then set the state
-    // of the process object to Signaled, and set the wait next value.
-    //
-
-    OldState = Process->Header.SignalState;
-    Thread->WaitNext = Wait;
-    Process->Header.SignalState = 1;
 
     //
     // If the previous state of the process object is Not-Signaled and
@@ -486,6 +458,8 @@ Return Value:
     // possible.
     //
 
+    OldState = Process->Header.SignalState;
+    Process->Header.SignalState = 1;
     if ((OldState == 0) && (!IsListEmpty(&Process->Header.WaitListHead))) {
         KiWaitTest(Process, Increment);
     }
@@ -498,9 +472,12 @@ Return Value:
     //
 
     if (Wait) {
-       Thread->WaitIrql = OldIrql;
+        Thread = KeGetCurrentThread();
+        Thread->WaitNext = Wait;
+        Thread->WaitIrql = OldIrql;
+
     } else {
-       KiUnlockDispatcherDatabase(OldIrql);
+        KiUnlockDispatcherDatabase(OldIrql);
     }
 
     //
@@ -545,11 +522,8 @@ Return Value:
     KPRIORITY OldBase;
     PKTHREAD Thread;
 
-    //
-    // Assert that we are being called with a process and not something else
-    //
-
     ASSERT_PROCESS(Process);
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
 
     //
     // Raise IRQL to dispatcher level and lock dispatcher database.
@@ -593,12 +567,21 @@ Return Value:
             // Set the base priority and the current priority of the
             // thread to the computed value and reset the thread quantum.
             //
+            // N.B. If priority saturation occured the last time the thread
+            //      base priority was set and the new process base priority
+            //      is not crossing from variable to realtime, then the thread
+            //      priority is not changed.
+            //
 
-            Thread->BasePriority = (SCHAR)NewPriority;
-            Thread->Quantum = Process->ThreadQuantum;
-            Thread->DecrementCount = 0;
-            Thread->PriorityDecrement = 0;
-            KiSetPriorityThread(Thread, NewPriority);
+            if ((Thread->Saturation == FALSE) || (OldBase < LOW_REALTIME_PRIORITY)) {
+                Thread->BasePriority = (SCHAR)NewPriority;
+                Thread->Quantum = Process->ThreadQuantum;
+                Thread->DecrementCount = 0;
+                Thread->PriorityDecrement = 0;
+                Thread->Saturation = FALSE;
+                KiSetPriorityThread(Thread, NewPriority);
+            }
+
             NextEntry = NextEntry->Flink;
         }
 
@@ -628,12 +611,21 @@ Return Value:
             // Set the base priority and the current priority of the
             // thread to the computed value and reset the thread quantum.
             //
+            // N.B. If priority saturation occured the last time the thread
+            //      base priority was set and the new process base priority
+            //      is not crossing from realtime to variable, then the thread
+            //      priority is not changed.
+            //
 
-            Thread->BasePriority = (SCHAR)NewPriority;
-            Thread->Quantum = Process->ThreadQuantum;
-            Thread->DecrementCount = 0;
-            Thread->PriorityDecrement = 0;
-            KiSetPriorityThread(Thread, NewPriority);
+            if ((Thread->Saturation == FALSE) || (OldBase >= LOW_REALTIME_PRIORITY)) {
+                Thread->BasePriority = (SCHAR)NewPriority;
+                Thread->Quantum = Process->ThreadQuantum;
+                Thread->DecrementCount = 0;
+                Thread->PriorityDecrement = 0;
+                Thread->Saturation = FALSE;
+                KiSetPriorityThread(Thread, NewPriority);
+            }
+
             NextEntry = NextEntry->Flink;
         }
     }
@@ -683,7 +675,7 @@ Return Value:
 
 {
 
-    PKTHREAD Thread;
+    PRKTHREAD Thread;
     KAFFINITY Processor;
 
     //
@@ -698,16 +690,18 @@ Return Value:
     // bug check.
     //
 
-#if DBG
-
     if (Process != Thread->ApcState.Process) {
         if ((Thread->ApcStateIndex != 0) ||
             (KeIsExecutingDpc() != FALSE)) {
-            KeBugCheck(INVALID_PROCESS_ATTACH_ATTEMPT);
+            KeBugCheckEx(
+                INVALID_PROCESS_ATTACH_ATTEMPT,
+                (ULONG)Process,
+                (ULONG)Thread->ApcState.Process,
+                (ULONG)Thread->ApcStateIndex,
+                (ULONG)KeIsExecutingDpc()
+                );
         }
     }
-
-#endif
 
     //
     // If the target process is the same as the current process, then
@@ -744,28 +738,14 @@ Return Value:
 
         //
         // If the target process is in memory, then immediately enter the
-        // new address space by flushing the instruction and data caches
-        // and loading a new Directory Table Base. Otherwise, insert the
-        // current thread in the target process ready list, inswap the
-        // target process if necessary, select a new thread to run on the
+        // new address space by loading a new Directory Table Base. Otherwise,
+        // insert the current thread in the target process ready list, inswap
+        // the target process if necessary, select a new thread to run on the
         // the current processor and context switch to the new thread.
         //
 
         if (Process->State == ProcessInMemory) {
-
-#if !defined(NT_UP) && (defined(_MIPS_) || defined(_ALPHA_))
-
-            if (KiSwapProcess(Process, Thread->SavedApcState.Process) != FALSE) {
-                KiSynchronizeProcessIds();
-                KiReleaseSpinLock(&KiProcessIdWrapLock);
-            }
-
-#else
-
             KiSwapProcess(Process, Thread->SavedApcState.Process);
-
-#endif
-
             KiUnlockDispatcherDatabase(OldIrql);
 
         } else {
@@ -779,21 +759,14 @@ Return Value:
                 if (IsListEmpty(&KiSwapEvent.Header.WaitListHead) == FALSE) {
                     KiWaitTest(&KiSwapEvent, BALANCE_INCREMENT);
                 }
-
             }
 
             //
-            // Even though the page directory of the processor does not match
-            // the attached process, move the ActiveProcessor bit for this
-            // processor to the attached process.  This is 'safe' because
-            // the thread being switched too must be in a different process
-            // then the process the thread is now running in.
-            //
-            // N.B. This is not done on Alpha and MIPS since the PIDs used
-            //      to tag TB entries are globally assigned.
+            // Clear the active processor bit in the previous process and
+            // set active processor bit in the process being attached to.
             //
 
-#if !defined(_MIPS_) && !defined(_ALPHA_)
+#if !defined(NT_UP)
 
             Processor = KeGetCurrentPrcb()->SetMember;
             Thread->SavedApcState.Process->ActiveProcessors &= ~Processor;
@@ -802,11 +775,9 @@ Return Value:
 #endif
 
             Thread->WaitIrql = OldIrql;
-            Thread = KiSelectNextThread(Thread);
 
-            ASSERT(Thread->ApcState.Process != Process);
+            KiSwapThread();
 
-            KiSwapContext(Thread, FALSE);
         }
     }
 
@@ -848,7 +819,17 @@ Return Value:
     // Copy the APC state from the source to the destination.
     //
 
+#if defined(_M_PPC) && (_MSC_VER >= 1000)
+    KIRQL OldIrql;
+    KeRaiseIrql(HIGH_LEVEL, &OldIrql);
+#endif
+
     *Destination = *Source;
+
+#if defined(_M_PPC) && (_MSC_VER >= 1000)
+    KeLowerIrql(OldIrql);
+#endif
+
     if (IsListEmpty(&Source->ApcListHead[KernelMode]) != FALSE) {
         InitializeListHead(&Destination->ApcListHead[KernelMode]);
 

@@ -21,21 +21,18 @@ extern "C" {
 #include <nturtl.h>
 }
 
-#include <windef.h>	// Base windows types
+#include <windef.h> // Base windows types
 #include <winbase.h>
 #include <winsvc.h>
 
-#include <lmcons.h>	// LAN Manager common definitions
-#include <lmapibuf.h>	// Buffer stuff
-#include <lmwksta.h>	// Workstation class
-
-#undef ASSERT
+#include <lmcons.h> // LAN Manager common definitions
+#include <lmapibuf.h>   // Buffer stuff
+#include <lmwksta.h>    // Workstation class
 
 #include "core.hxx"
-defModule
 
-int hDebugFile = 1;		// use standard out by default
-TIME LoadTime;			// time the locator loaded
+int hDebugFile = 1;     // use standard out by default
+TIME LoadTime;          // time the locator loaded
 unsigned long LoadTimeinSecs;
 
 SERVICE_STATUS ServiceStatus;
@@ -157,11 +154,11 @@ Arguments:
     // Bail out on bad arguments.
 
     if (BadArg) {
-     	char errLine[500];
+        char errLine[500];
 
         ServiceStatus.dwWin32ExitCode = ERROR_INVALID_PARAMETER;
 
-	AbortServer((SZ) strcat(strcpy(
+    AbortServer((SZ) strcat(strcpy(
             errLine, "Command Line Error: "), BadArg));
     }
 
@@ -198,8 +195,7 @@ Routine Description:
     int cbSelfName;
 
     static SERVICE_TABLE_ENTRY ServiceEntry [] = {
-        "locator", (LPSERVICE_MAIN_FUNCTION) LocatorServiceMain,
-        0,0
+        "locator", (LPSERVICE_MAIN_FUNCTION) LocatorServiceMain, 0, 0
     };
 
     NtQuerySystemTime(&LoadTime);
@@ -212,47 +208,68 @@ Routine Description:
 
     WKSTA_INFO_100 *WorkInfo;
 
-    if (fNet && !NetWkstaGetInfo(NIL, 100, (LPBYTE *) &WorkInfo) &&
-	 WorkInfo->wki100_computername) {
+    NET_API_STATUS NetStatus = NetWkstaGetInfo(NIL, 100, (LPBYTE *) &WorkInfo);
 
-	// put self name in global place
+    if (NetStatus)
+        {
+#ifdef DEBUGRPC
 
-        Buffer[0] = 0;
+        DbgPrint("RPC Locator: NetWkstaGetInfo returned %lu\n", NetStatus);
+        DbgBreakPoint();
 
-	CatUZ(CatUZ(Buffer, (PUZ) L"\\\\"), (PUZ) WorkInfo->wki100_computername);
+#endif
+        AbortServer("netwkstaGetInfo failed", NetStatus);
+        }
 
-        SelfName = (PUZ) NewCopy(Buffer, (LenUZ(Buffer)+1)*sizeof(UICHAR));
+    if (0 == WorkInfo->wki100_computername)
+        {
+#ifdef DEBUGRPC
 
-	DomainName = (PUZ) NewCopy(WorkInfo->wki100_langroup,
-            (LenUZ((PUZ) WorkInfo->wki100_langroup)+1)*sizeof(UICHAR));
+        DbgPrint("RPC Locator: NetWkstaGetInfo returned null computer name\n");
+        DbgBreakPoint();
 
-        if (!SelfName && !DomainName)
-            AbortServer("Out of Memory");
+#endif
+        AbortServer("null computer name");
+        }
 
-	status = NetApiBufferFree((LPBYTE) WorkInfo);
-        ASSERT(!status);
+    // put self name in global place
 
-	DLIST(2, "My workstation name: " << SelfName << nl);
+    Buffer[0] = 0;
 
-	pThreadHandle = CreateThread(0, 0,
-            (LPTHREAD_START_ROUTINE) QueryProcess, 0, 0, &ThreadID);
+    CatUZ(CatUZ(Buffer, (PUZ) L"\\\\"), (PUZ) WorkInfo->wki100_computername);
 
-        if (!pThreadHandle)
-            AbortServer("CreateThread", (int) GetLastError());
-    }
+    SelfName = (PUZ) NewCopy(Buffer, (LenUZ(Buffer)+1)*sizeof(UICHAR));
+
+    DomainName = (PUZ) NewCopy(WorkInfo->wki100_langroup,
+                               (LenUZ((PUZ) WorkInfo->wki100_langroup)+1)*sizeof(UICHAR));
+
+    if (!SelfName || !DomainName)
+        AbortServer("Out of Memory");
+
+    status = NetApiBufferFree((LPBYTE) WorkInfo);
+
+    ASSERT(!status);
+
+    DLIST(2, "My workstation name: " << SelfName << nl);
+
+    pThreadHandle = CreateThread(0, 0, (LPTHREAD_START_ROUTINE) QueryProcess, 0, 0, &ThreadID);
+
+    if (!pThreadHandle)
+        AbortServer("CreateThread", (int) GetLastError());
 
     // Start the RPC service now if not running under the service controller.
 
-    if (!fService) {
+    if (!fService)
+        {
         StartServer();
         RpcMgmtWaitServerListen();
+
         return;
-    }
+        }
 
     // Call (give this thread) to the service controller.
 
     StartServiceCtrlDispatcher(ServiceEntry);
-
 }
 
 
@@ -290,9 +307,9 @@ Arguments:
     *cout << "Locator Aborting: " << szReason;
 
     if (code)
-	*cout << ": " << code;
+    *cout << ": " << code;
     else
-	code = -1;
+    code = -1;
 
     *cout << nl;
 
@@ -354,8 +371,8 @@ Returns:
     /*
 
     Alpha Compiler Chokes Here
-   
-   
+
+
     return( RtlLargeIntegerSubtract(*(PLARGE_INTEGER) &time,
             *(PLARGE_INTEGER) &LoadTime).LowPart / 10);
 
@@ -415,26 +432,7 @@ Arguments:
 }
 
 
-#ifdef LDEBUG
-
-void
-RaiseAssert(
-   IN AB *pAB
-   )
-/*++
-
-Routine Description:
-
-    Signal Assertion failure by calling the NT runtime.
-
-Arguments:
-
-    pAB	- Assert message block
-
---*/
-{
-    RtlAssert(pAB->mess, pAB->modName, pAB->line, 0);
-}
+#if DBG
 
 int AssertHeap(
     )
@@ -459,4 +457,4 @@ Returns:
     return(!fHeapTrashed);
 }
 
-#endif	// LDEBUG
+#endif  // DBG

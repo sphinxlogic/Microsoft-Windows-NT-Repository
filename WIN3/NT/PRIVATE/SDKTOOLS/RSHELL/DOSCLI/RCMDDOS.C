@@ -101,7 +101,7 @@ main(int argc, char **argv)
     // Open the server pipe
     //
 
-    PipeHandle = sopen(ServerPipeName, O_BINARY | O_RDWR, SH_DENYRW);
+    PipeHandle = _sopen(ServerPipeName, O_BINARY | O_RDWR, SH_DENYRW);
 
     if (PipeHandle == -1) {
         printf("Error occurred opening pipe <%s>, errno = %d\n", ServerPipeName, errno);
@@ -214,7 +214,7 @@ main(int argc, char **argv)
         // Get input from the keyboard
         //
 
-        while (kbhit() && !Done) {
+        while (_kbhit() && !Done) {
 
             //
             // If the input buffer's full, send it
@@ -242,7 +242,7 @@ main(int argc, char **argv)
             // Get the input character and add it to buffer
             //
 
-            InputBuffer[InputBytesRead++] = (char)getch();
+            InputBuffer[InputBytesRead++] = (char)_getch();
 
 
             //
@@ -324,7 +324,7 @@ main(int argc, char **argv)
                 //  Cursor/function key - go get the second part of it
                 //
 
-                InputBuffer[InputBytesRead++] = (char)getch();
+                InputBuffer[InputBytesRead++] = (char)_getch();
 
                 //
                 // Check for our exit key (F3)

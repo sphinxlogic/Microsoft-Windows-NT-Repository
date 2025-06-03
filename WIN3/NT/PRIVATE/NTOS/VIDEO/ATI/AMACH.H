@@ -20,10 +20,16 @@
   
 /**********************       PolyTron RCS Utilities
 
-   $Revision:   1.0  $
-   $Date:   31 Jan 1994 11:26:18  $
-   $Author:   RWOLFF  $
+   $Revision:   1.2  $
+   $Date:   23 Dec 1994 10:48:28  $
+   $Author:   ASHANMUG  $
    $Log:   S:/source/wnt/ms11/miniport/vcs/amach.h  $
+ * 
+ *    Rev 1.2   23 Dec 1994 10:48:28   ASHANMUG
+ * ALPHA/Chrontel-DAC
+ * 
+ *    Rev 1.1   20 May 1994 13:55:52   RWOLFF
+ * Ajith's change: removed unused register SRC_CMP_COLOR from enumeration.
  * 
  *    Rev 1.0   31 Jan 1994 11:26:18   RWOLFF
  * Initial revision.
@@ -272,10 +278,6 @@ End of PolyTron RCS section                             *****************/
 #define IO_ASIC_ID              0xFAEE // Mach32 rev 6
 #define IO_LINEDRAW             0xFEEE 
 
-#ifdef MSDOS
-#define  IO_reg1CE              0x01CE // ati_reg == 0x1CE
-#define  IO_reg1CF              0x01CF // ati_reg == 0x1CF
-#endif
 
 
 // Internal registers (read only, for test purposes only)
@@ -389,7 +391,6 @@ End of PolyTron RCS section                             *****************/
 #define MM_LINEDRAW             0x100+((IO_LINEDRAW             & 0xFC00) >> 8) + (IO_LINEDRAW             & 1)
 													     
 													     
-#ifndef MSDOS
 //---------------------------------------------------------
 // define the registers as subscripts to an array
 // this order MATCHES  SETUP_M.H  Driver<space type>Range_m[] structures
@@ -547,159 +548,6 @@ enum    {
 #define    R_SRC_Y                      EXT_SCISSOR_T        
 #define    EXT_SRC_Y                    ASIC_ID
 
-#else       /* ~MSDOS */
-
-#define  DAC_MASK                IO_DAC_MASK
-#define  DAC_R_INDEX             IO_DAC_R_INDEX
-#define  DAC_W_INDEX             IO_DAC_W_INDEX
-#define  DAC_DATA                IO_DAC_DATA
-#define  DISP_STATUS             IO_DISP_STATUS
-#define  OVERSCAN_COLOR_8        IO_OVERSCAN_COLOR_8
-#define  H_DISP                  IO_H_DISP
-#define  OVERSCAN_GREEN_24       IO_OVERSCAN_GREEN_24
-#define  H_SYNC_STRT             IO_H_SYNC_STRT
-#define  CURSOR_OFFSET_LO        IO_CURSOR_OFFSET_LO
-#define  H_SYNC_WID              IO_H_SYNC_WID
-#define  CURSOR_OFFSET_HI        IO_CURSOR_OFFSET_HI
-#define  V_TOTAL                 IO_V_TOTAL
-#define  CONFIG_STATUS_1         IO_CONFIG_STATUS_1
-#define  V_DISP                  IO_V_DISP
-#define  CONFIG_STATUS_2         IO_CONFIG_STATUS_2
-#define  V_SYNC_STRT             IO_V_SYNC_STRT
-#define  CURSOR_COLOR_0          IO_CURSOR_COLOR_0
-#define  CURSOR_COLOR_1          IO_CURSOR_COLOR_1
-#define  V_SYNC_WID              IO_V_SYNC_WID
-#define  HORZ_CURSOR_OFFSET      IO_HORZ_CURSOR_OFFSET
-#define  VERT_CURSOR_OFFSET      IO_VERT_CURSOR_OFFSET
-#define  DISP_CNTL               IO_DISP_CNTL
-#define  CRT_PITCH               IO_CRT_PITCH
-#define  CRT_OFFSET_LO           IO_CRT_OFFSET_LO
-#define  CRT_OFFSET_HI           IO_CRT_OFFSET_HI
-#define  LOCAL_CONTROL           IO_LOCAL_CONTROL
-#define  FIFO_OPT                IO_FIFO_OPT
-#define  EXT_CURSOR_COLOR_0      IO_EXT_CURSOR_COLOR_0
-#define  EXT_CURSOR_COLOR_1      IO_EXT_CURSOR_COLOR_1
-#define  SUBSYS_CNTL             IO_SUBSYS_CNTL
-#define  MEM_BNDRY               IO_MEM_BNDRY
-#define  ROM_PAGE_SEL            IO_ROM_PAGE_SEL
-#define  SHADOW_CTL              IO_SHADOW_CTL
-#define  ADVFUNC_CNTL            IO_ADVFUNC_CNTL
-#define  CLOCK_SEL               IO_CLOCK_SEL
-#define  ROM_ADDR_1              IO_ROM_ADDR_1
-#define  ROM_ADDR_2              IO_ROM_ADDR_2
-#define  SHADOW_SET              IO_SHADOW_SET
-#define  MEM_CFG                 IO_MEM_CFG
-#define  EXT_GE_STATUS           IO_EXT_GE_STATUS
-#define  VERT_OVERSCAN           IO_VERT_OVERSCAN
-#define  MAX_WAITSTATES          IO_MAX_WAITSTATES
-#define  GE_OFFSET_LO            IO_GE_OFFSET_LO
-#define  BOUNDS_LEFT             IO_BOUNDS_LEFT
-#define  BOUNDS_TOP              IO_BOUNDS_TOP
-#define  BOUNDS_RIGHT            IO_BOUNDS_RIGHT
-#define  BOUNDS_BOTTOM           IO_BOUNDS_BOTTOM
-#define  CUR_Y                   IO_CUR_Y
-#define  PATT_DATA_INDEX         IO_PATT_DATA_INDEX
-#define  CUR_X                   IO_CUR_X
-#define  SRC_Y                   IO_SRC_Y
-#define  SRC_X                   IO_SRC_X
-#define  PATT_DATA               IO_PATT_DATA
-#define  ERR_TERM                IO_ERR_TERM
-#define  R_MISC_CNTL             IO_R_MISC_CNTL
-#define  MAJ_AXIS_PCNT           IO_MAJ_AXIS_PCNT
-#define  BRES_COUNT              IO_BRES_COUNT
-#define  CMD                     IO_CMD
-#define  LINEDRAW_INDEX          IO_LINEDRAW_INDEX
-#define  SHORT_STROKE            IO_SHORT_STROKE
-#define  BKGD_COLOR              IO_BKGD_COLOR
-#define  LINEDRAW_OPT            IO_LINEDRAW_OPT
-#define  FRGD_COLOR              IO_FRGD_COLOR
-#define  DEST_X_START            IO_DEST_X_START
-#define  WRT_MASK                IO_WRT_MASK
-#define  DEST_X_END              IO_DEST_X_END
-#define  RD_MASK                 IO_RD_MASK
-#define  DEST_Y_END              IO_DEST_Y_END
-#define  CMP_COLOR               IO_CMP_COLOR
-#define  SRC_X_START             IO_SRC_X_START
-#define  BKGD_MIX                IO_BKGD_MIX
-#define  ALU_BG_FN               IO_ALU_BG_FN
-#define  FRGD_MIX                IO_FRGD_MIX
-#define  ALU_FG_FN               IO_ALU_FG_FN
-#define  MULTIFUNC_CNTL          IO_MULTIFUNC_CNTL
-#define  SRC_X_END               IO_SRC_X_END
-#define  SRC_Y_DIR               IO_SRC_Y_DIR
-#define  EXT_SSV                 IO_EXT_SSV
-#define  SCAN_X                  IO_SCAN_X
-#define  DP_CONFIG               IO_DP_CONFIG
-#define  PATT_LENGTH             IO_PATT_LENGTH
-#define  PATT_INDEX              IO_PATT_INDEX
-#define  EXT_SCISSOR_L           IO_EXT_SCISSOR_L
-#define  EXT_SCISSOR_T           IO_EXT_SCISSOR_T
-#define  PIX_TRANS               IO_PIX_TRANS
-#define  PIX_TRANS_HI            IO_PIX_TRANS_HI
-#define  EXT_SCISSOR_R           IO_EXT_SCISSOR_R
-#define  EXT_SCISSOR_B           IO_EXT_SCISSOR_B
-#define  SRC_CMP_COLOR           IO_SRC_CMP_COLOR
-#define  DEST_CMP_FN             IO_DEST_CMP_FN
-#define  ASIC_ID                 IO_ASIC_ID
-#define  LINEDRAW                IO_LINEDRAW
-#define  SEQ_IND                 IO_SEQ_IND
-#define  HI_SEQ_ADDR             IO_HI_SEQ_ADDR
-#define  SEQ_DATA                IO_SEQ_DATA
-#define  regVGA_BASE_IO_PORT     IO_regVGA_BASE_IO_PORT
-#define  regVGA_END_BREAK_PORT   IO_regVGA_END_BREAK_PORT
-#define  reg1CE                  IO_reg1CE
-#define  reg1CF                  IO_reg1CF
-#define  reg4C80                 IO_reg4C80
-#define  EXT_CUR_Y               IO_EXT_CUR_Y
-#define  reg3CE                  IO_reg3CE
-
-// Internal registers (read only, for test purposes only)
-#define  _PAR_FIFO_DATA          IO__PAR_FIFO_DATA
-#define  _PAR_FIFO_ADDR          IO__PAR_FIFO_ADDR
-#define  _MAJOR_DEST_CNT         IO__MAJOR_DEST_CNT
-#define  _MAJOR_SRC_CNT          IO__MAJOR_SRC_CNT
-#define  _MINOR_DEST_CNT         IO__MINOR_DEST_CNT
-#define  _MINOR_SRC_CNT          IO__MINOR_SRC_CNT
-#define  _HW_TEST                IO__HW_TEST
-
-// define the registers located at the same I/O addresses
-#define  H_TOTAL                 IO_H_TOTAL
-#define  HORZ_CURSOR_POSN        IO_HORZ_CURSOR_POSN
-#define  VERT_CURSOR_POSN        IO_VERT_CURSOR_POSN
-#define  FIFO_TEST_DATA          IO_FIFO_TEST_DATA
-#define  MISC_OPTIONS            IO_MISC_OPTIONS
-#define  FIFO_TEST_TAG           IO_FIFO_TEST_TAG
-#define  SUBSYS_STAT             IO_SUBSYS_STAT
-#define  SCRATCH_PAD_0           IO_SCRATCH_PAD_0
-#define  SCRATCH_PAD_1           IO_SCRATCH_PAD_1
-#define  HORZ_OVERSCAN           IO_HORZ_OVERSCAN
-#define  GE_STAT                 IO_GE_STAT
-#define  GE_OFFSET_HI            IO_GE_OFFSET_HI
-#define  GE_PITCH                IO_GE_PITCH
-#define  EXT_GE_CONFIG           IO_EXT_GE_CONFIG
-#define  MISC_CNTL               IO_MISC_CNTL
-#define  DEST_Y                  IO_DEST_Y
-#define  AXSTP                   IO_AXSTP
-#define  DEST_X                  IO_DEST_X
-#define  DIASTP                  IO_DIASTP
-#define  R_EXT_GE_CONFIG         IO_R_EXT_GE_CONFIG
-#define  EXT_FIFO_STATUS         IO_EXT_FIFO_STATUS
-#define  R_H_TOTAL               IO_R_H_TOTAL
-#define  R_H_DISP                IO_R_H_DISP
-#define  R_H_SYNC_STRT           IO_R_H_SYNC_STRT
-#define  R_H_SYNC_WID            IO_R_H_SYNC_WID
-#define  MEM_CNTL                IO_MEM_CNTL
-#define  R_V_TOTAL               IO_R_V_TOTAL
-#define  EXT_SHORT_STROKE        IO_EXT_SHORT_STROKE
-#define  R_V_DISP                IO_R_V_DISP
-#define  R_V_SYNC_STRT           IO_R_V_SYNC_STRT
-#define  VERT_LINE_CNTR          IO_VERT_LINE_CNTR
-#define  R_V_SYNC_WID            IO_R_V_SYNC_WID
-#define  R_SRC_X                 IO_R_SRC_X
-#define  R_SRC_Y                 IO_R_SRC_Y
-#define  EXT_SRC_Y               IO_EXT_SRC_Y
-
-#endif      /* ~MSDOS */
 
 
 //---------------------------------------------------------
@@ -1020,3 +868,4 @@ enum    {
 
 
 //**********************   end  of  AMACH.H   ****************************
+

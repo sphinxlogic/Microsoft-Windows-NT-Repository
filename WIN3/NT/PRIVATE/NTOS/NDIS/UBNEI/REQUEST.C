@@ -374,23 +374,19 @@ Return Value:
 
         case OID_GEN_XMIT_OK:
 
-            NdisMoveMappedMemory(
-                (PUCHAR)&GenericULong,
-                (PUCHAR)&pRcvDWindow->sst.SST_TotalFramesTransmitted,
-                sizeof(GenericULong)
-                );
-
+            NdisReadRegisterUlong(
+                &pRcvDWindow->sst.SST_TotalFramesTransmitted,
+                &GenericULong
+            );
 
             break;
 
         case OID_GEN_RCV_OK:
 
-            NdisMoveMappedMemory(
-                (PUCHAR)&GenericULong,
+            NdisReadRegisterUlong(
                 (PUCHAR)&pRcvDWindow->sst.SST_TotalFramesReceived,
-                sizeof(GenericULong)
-                );
-
+                &GenericULong
+            );
 
             break;
 
@@ -404,13 +400,10 @@ Return Value:
 
         case OID_GEN_RCV_ERROR:
 
-            NdisMoveMappedMemory(
-                (PUCHAR)&GenericULong,
+            NdisReadRegisterUlong(
                 (PUCHAR)&pRcvDWindow->sst.SST_FramesReceivedWithErrors,
-                sizeof(GenericULong)
-                );
-
-
+                &GenericULong
+            );
 
             break;
 
@@ -418,13 +411,11 @@ Return Value:
 
             GenericULong = (UINT)(pAdapter->MissedPackets);
 
-
             break;
 
         case OID_802_3_RCV_ERROR_ALIGNMENT:
 
             GenericULong = (UINT)pAdapter->FrameAlignmentErrors;
-
 
             break;
 

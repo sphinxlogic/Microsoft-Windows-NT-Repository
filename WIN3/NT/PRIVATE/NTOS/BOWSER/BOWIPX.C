@@ -78,6 +78,15 @@ BowserIpxDatagramHandler (
         return STATUS_REQUEST_NOT_ACCEPTED;
     }
 
+    //
+    // If we're not fully initialized yet,
+    //  simply ignore the packet.
+    //
+    if (Transport->ComputerName == NULL ||
+        Transport->PrimaryDomain == NULL ) {
+        return STATUS_REQUEST_NOT_ACCEPTED;
+    }
+
 
     ComputerName = ((PTA_NETBIOS_ADDRESS)(Transport->ComputerName->TransportAddress.Buffer))->Address[0].Address->NetbiosName;
     DomainName = ((PTA_NETBIOS_ADDRESS)(Transport->PrimaryDomain->TransportAddress.Buffer))->Address[0].Address->NetbiosName;
@@ -90,12 +99,12 @@ BowserIpxDatagramHandler (
 
         // Mailslot messages are always sent as TYPE_MACHINE even when they're
         // to the DomainName (so allow both).
-        if ((RtlCompareMemory(ComputerName, NamePacket->Name, SMB_IPX_NAME_LENGTH) != SMB_IPX_NAME_LENGTH) &&
-            (RtlCompareMemory(DomainName, NamePacket->Name, SMB_IPX_NAME_LENGTH) != SMB_IPX_NAME_LENGTH)) {
+        if (!RtlEqualMemory(ComputerName, NamePacket->Name, SMB_IPX_NAME_LENGTH) &&
+            !RtlEqualMemory(DomainName, NamePacket->Name, SMB_IPX_NAME_LENGTH)) {
             return STATUS_REQUEST_NOT_ACCEPTED;
         }
     } else if (NamePacket->NameType == SMB_IPX_NAME_TYPE_WORKKGROUP) {
-        if ((RtlCompareMemory(DomainName, NamePacket->Name, SMB_IPX_NAME_LENGTH) != SMB_IPX_NAME_LENGTH)) {
+        if (!RtlEqualMemory(DomainName, NamePacket->Name, SMB_IPX_NAME_LENGTH)) {
             return STATUS_REQUEST_NOT_ACCEPTED;
         }
     } else if (NamePacket->NameType != SMB_IPX_NAME_TYPE_BROWSER) {
@@ -108,7 +117,6 @@ BowserIpxDatagramHandler (
     //
     //  1) A server announcement
     //  2) An incoming mailslot
-    //  3) A relogon request
     //
 
     Opcode = BowserClassifyIncomingDatagram(Smb, SmbLength,
@@ -176,7 +184,7 @@ BowserIpxDatagramHandler (
         //  handle it when we finally complete the receive.
         //
 
-        if (BytesIndicated < BytesAvailable) {
+        if (BytesIndicated != BytesAvailable) {
             return BowserHandleShortBrowserPacket(Transport->ComputerName,
                                                     TdiEventContext,
                                                     SourceAddressLength,
@@ -227,7 +235,7 @@ BowserIpxDatagramHandler (
                 //  it's for our domain, then we need to do some more work.
                 //
 
-                if (RtlCompareMemory(DomainName, NamePacket->Name, SMB_IPX_NAME_LENGTH) != SMB_IPX_NAME_LENGTH) {
+                if (!RtlEqualMemory(DomainName, NamePacket->Name, SMB_IPX_NAME_LENGTH)) {
                     return status;
                 }
             } else {

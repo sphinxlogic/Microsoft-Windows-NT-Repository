@@ -19,8 +19,7 @@ Revision History:
 
 --*/
 
-#include "..\mi.h"
-#include "mm.h"
+#include "mi.h"
 
 
 //
@@ -36,11 +35,13 @@ MMPTE ZeroPte = { 0 };
 
 MMPTE ZeroKernelPte = {0x0};
 
+ULONG MmPteGlobal = 0; // Set to one later if processor supports Global Page
 
 MMPTE ValidKernelPte = { MM_PTE_VALID_MASK |
                          MM_PTE_WRITE_MASK |
                          MM_PTE_DIRTY_MASK |
                          MM_PTE_ACCESS_MASK };
+// NOTE - MM_PTE_GLOBAL_MASK  or'ed in later if processor supports Global Page
 
 
 MMPTE ValidUserPte = { MM_PTE_VALID_MASK |
@@ -66,6 +67,8 @@ MMPTE ValidKernelPde = { MM_PTE_VALID_MASK |
                          MM_PTE_WRITE_MASK |
                          MM_PTE_DIRTY_MASK |
                          MM_PTE_ACCESS_MASK };
+
+// NOTE - MM_PTE_GLOBAL_MASK  or'ed in later if processor supports Global Page
 
 
 MMPTE DemandZeroPde = { MM_READWRITE << 5 };
@@ -103,14 +106,17 @@ PVOID MmPagedPoolStart =  (PVOID)MM_PAGED_POOL_START;
 
 PVOID MmPagedPoolEnd;
 
+ULONG MmKseg2Frame;
+
 //
 // Color tables for free and zeroed pages.
 //
 
-#ifdef COLORED_PAGES
-MMPRIMARY_COLOR_TABLES MmFreePagesByPrimaryColor[2][MM_MAXIMUM_NUMBER_OF_COLORS];
+#if MM_MAXIMUM_NUMBER_OF_COLORS > 1
+MMPFNLIST MmFreePagesByPrimaryColor[2][MM_MAXIMUM_NUMBER_OF_COLORS];
+#endif
 
-MMCOLOR_TABLES MmFreePagesByColor[2][MM_SECONDARY_COLORS];
+PMMCOLOR_TABLES MmFreePagesByColor[2];
 
 //
 // Color tables for modified pages destined for the paging file.
@@ -118,7 +124,9 @@ MMCOLOR_TABLES MmFreePagesByColor[2][MM_SECONDARY_COLORS];
 
 MMPFNLIST MmModifiedPageListByColor[MM_MAXIMUM_NUMBER_OF_COLORS] = {
                             0, ModifiedPageList, MM_EMPTY_LIST, MM_EMPTY_LIST};
-#endif //COLORED_PAGES
+
+
+ULONG MmSecondaryColorMask;
 
 //
 // Count of the number of modified pages destined for the paging file.

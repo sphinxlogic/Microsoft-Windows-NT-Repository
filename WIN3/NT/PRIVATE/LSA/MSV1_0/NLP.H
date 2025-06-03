@@ -243,7 +243,8 @@ NlpAllocateNetworkProfile (
     IN PLSA_CLIENT_REQUEST ClientRequest,
     OUT PMSV1_0_LM20_LOGON_PROFILE *ProfileBuffer,
     OUT PULONG ProfileBufferSize,
-    IN  PNETLOGON_VALIDATION_SAM_INFO2 NlpUser
+    IN  PNETLOGON_VALIDATION_SAM_INFO2 NlpUser,
+    IN  ULONG ParameterControl
     );
 
 PSID
@@ -372,7 +373,7 @@ EXTERN NTSTATUS (*NlpNetpApiStatusToNtStatus)( NET_API_STATUS );
 // Routines in netlogon.dll
 //
 
-EXTERN BOOLEAN NlpNetlogonDllLoaded;
+EXTERN HANDLE NlpNetlogonDllHandle;
 EXTERN PNETLOGON_SAM_LOGON_PROCEDURE NlpNetLogonSamLogon;
 EXTERN PNETLOGON_SAM_LOGOFF_PROCEDURE NlpNetLogonSamLogoff;
 
@@ -421,6 +422,12 @@ EXTERN BOOLEAN NlpUasCompatibilityRequired INIT(TRUE);
 
 EXTERN LSA_HANDLE NlpPolicyHandle INIT(NULL);
 
+//
+// TRUE if there is a subauthentication package zero
+//
+
+EXTERN BOOLEAN NlpSubAuthZeroExists INIT(TRUE);
+
 
 ////////////////////////////////////////////////////////////////////////
 //                                                                    //
@@ -458,6 +465,7 @@ EXTERN ULONG NlpEnumerationHandle;
 
 EXTERN RTL_CRITICAL_SECTION NlpSessionCountLock;
 EXTERN ULONG NlpSessionCount;
+EXTERN ULONG NlpLogonAttemptCount;
 
 
 #undef EXTERN

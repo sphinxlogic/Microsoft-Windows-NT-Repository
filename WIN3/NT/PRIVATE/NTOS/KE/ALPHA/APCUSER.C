@@ -94,7 +94,7 @@ Return Value:
         //
 
         Length = (sizeof(CONTEXT) + 15) & (~15);
-        UserStack = (ContextRecord.IntSp & (~15)) - Length;
+        UserStack = ((ULONG)ContextRecord.IntSp & (~15)) - Length;
 
         //
         // Probe user stack area for writeability and then transfer the
@@ -112,7 +112,7 @@ Return Value:
         //
         // N.B. It is not possible to pass 64 bit arguments to the routine.
         // N.B. ULONG becomes canonical longword with (ULONGLONG)(LONG) cast.
-        // 
+        //
         //
 
         TrapFrame->IntSp = (ULONGLONG)(LONG)UserStack;

@@ -227,12 +227,6 @@ RasDial(
     (void )reserved;
     (void )reserved2;
 
-    /* The 32-bit stub won't work with a NULL notifier, so this user error
-    ** must be caught here.
-    */
-    if (!hwndNotify)
-        return ERROR_INVALID_PARAMETER;
-
     /* Account for the increased user name and password field lengths on NT.
     */
     if (!(prdpa = (LPRASDIALPARAMSA )AlignedAlloc(

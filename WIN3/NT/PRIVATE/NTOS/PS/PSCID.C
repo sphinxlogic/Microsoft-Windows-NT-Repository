@@ -22,7 +22,6 @@ Revision History:
 --*/
 
 #include "psp.h"
-#include "handle.h"
 
 NTSTATUS
 PsLookupProcessThreadByCid(
@@ -44,71 +43,46 @@ Arguments:
     Cid - Specifies the Client ID of the thread.
 
     Process - If specified, returns a referenced pointer to the process
-              specified in the Cid.
+        specified in the Cid.
 
     Thread - Returns a referenced pointer to the thread specified in the
-             Cid.
+        Cid.
 
 Return Value:
 
-    STATUS_SUCCESS - A process and thread were located based on the contents of
-                     the Cid.
+    STATUS_SUCCESS - A process and thread were located based on the contents
+        of the Cid.
 
     STATUS_INVALID_CID - The specified Cid is invalid.
 
 --*/
 
 {
+
+    PHANDLE_ENTRY CidEntry;
     PETHREAD lThread;
+    NTSTATUS Status;
 
-    lThread = ExMapHandleToPointer(PspCidTable, Cid->UniqueThread, TRUE);
-    if ( lThread == (PETHREAD)PSP_INVALID_ID ) {
-        ExUnlockHandleTable(PspCidTable);
-        return STATUS_INVALID_CID;
-        }
-
-    if ( lThread ) {
-        if (lThread->Cid.UniqueProcess != Cid->UniqueProcess) {
-            ExUnlockHandleTable(PspCidTable);
-            return STATUS_INVALID_CID;
-            }
-
-        if ( ARGUMENT_PRESENT(Process) ) {
-            if (!NT_SUCCESS(ObReferenceObjectByPointer(
-                            THREAD_TO_PROCESS(lThread),
-                            0,
-                            PsProcessType,
-                            KernelMode
-                            )) ) {
-
-                KeBugCheck(REFERENCE_BY_POINTER);
-                }
-            else {
+    CidEntry = ExMapHandleToPointer(PspCidTable, Cid->UniqueThread, TRUE);
+    Status = STATUS_INVALID_CID;
+    if (CidEntry != NULL) {
+        lThread = (PETHREAD)CidEntry->Object;
+        if ((lThread != (PETHREAD)PSP_INVALID_ID) &&
+            (lThread->Cid.UniqueProcess == Cid->UniqueProcess)) {
+            if (ARGUMENT_PRESENT(Process)) {
                 *Process = THREAD_TO_PROCESS(lThread);
-                }
+                ObReferenceObject(*Process);
             }
 
-        if (!NT_SUCCESS(ObReferenceObjectByPointer(
-                        lThread,
-                        0,
-                        PsThreadType,
-                        KernelMode
-                        )) ) {
-
-            KeBugCheck(REFERENCE_BY_POINTER);
-            }
-        else {
+            ObReferenceObject(lThread);
             *Thread = lThread;
-            }
-
-        ExUnlockHandleTable(PspCidTable);
-
-        return STATUS_SUCCESS;
-
+            Status = STATUS_SUCCESS;
         }
-    else {
-        return STATUS_INVALID_CID;
-        }
+
+        ExUnlockHandleTableShared(PspCidTable);
+    }
+
+    return Status;
 }
 
 
@@ -129,46 +103,37 @@ Arguments:
 
     ProcessId - Specifies the Process ID of the process.
 
-    Process - Returns a referenced pointer to the process
-              specified by the process ID.
+    Process - Returns a referenced pointer to the process specified by the
+        process id.
 
 Return Value:
 
     STATUS_SUCCESS - A process was located based on the contents of
-                     the process id.
+        the process id.
 
     STATUS_INVALID_PARAMETER - The process was not found.
 
 --*/
 
 {
+
+    PHANDLE_ENTRY CidEntry;
     PEPROCESS lProcess;
     NTSTATUS Status;
 
-    lProcess = ExMapHandleToPointer(PspCidTable, ProcessId, TRUE);
-    if ( lProcess == (PEPROCESS)PSP_INVALID_ID ) {
-        ExUnlockHandleTable(PspCidTable);
-        return STATUS_INVALID_PARAMETER;
-    }
-    if ( lProcess ) {
-        if (!NT_SUCCESS(ObReferenceObjectByPointer(
-                        lProcess,
-                        0,
-                        PsProcessType,
-                        KernelMode
-                        )) ) {
-
-            KeBugCheck(REFERENCE_BY_POINTER);
-            }
-        else {
+    CidEntry = ExMapHandleToPointer(PspCidTable, ProcessId, TRUE);
+    Status = STATUS_INVALID_PARAMETER;
+    if (CidEntry != NULL) {
+        lProcess = (PEPROCESS)CidEntry->Object;
+        if (lProcess != (PEPROCESS)PSP_INVALID_ID) {
+            ObReferenceObject(lProcess);
             *Process = lProcess;
-            }
-        ExUnlockHandleTable(PspCidTable);
-        Status = STATUS_SUCCESS;
+            Status = STATUS_SUCCESS;
         }
-    else {
-        Status = STATUS_INVALID_PARAMETER;
-        }
+
+        ExUnlockHandleTableShared(PspCidTable);
+    }
+
     return Status;
 }
 
@@ -190,45 +155,36 @@ Arguments:
 
     ThreadId - Specifies the Thread ID of the thread.
 
-    Thread - Returns a referenced pointer to the thread
-              specified by the Thread ID.
+    Thread - Returns a referenced pointer to the thread specified by the
+        thread id.
 
 Return Value:
 
     STATUS_SUCCESS - A thread was located based on the contents of
-                     the thread id.
+        the thread id.
 
     STATUS_INVALID_PARAMETER - The thread was not found.
 
 --*/
 
 {
+
+    PHANDLE_ENTRY CidEntry;
     PETHREAD lThread;
     NTSTATUS Status;
 
-    lThread = ExMapHandleToPointer(PspCidTable, ThreadId, TRUE);
-    if ( lThread == (PETHREAD)PSP_INVALID_ID ) {
-        ExUnlockHandleTable(PspCidTable);
-        return STATUS_INVALID_PARAMETER;
-    }
-    if ( lThread ) {
-        if (!NT_SUCCESS(ObReferenceObjectByPointer(
-                        lThread,
-                        0,
-                        PsThreadType,
-                        KernelMode
-                        )) ) {
-
-            KeBugCheck(REFERENCE_BY_POINTER);
-            }
-        else {
+    CidEntry = ExMapHandleToPointer(PspCidTable, ThreadId, TRUE);
+    Status = STATUS_INVALID_PARAMETER;
+    if (CidEntry != NULL) {
+        lThread = (PETHREAD)CidEntry->Object;
+        if (lThread != (PETHREAD)PSP_INVALID_ID) {
+            ObReferenceObject(lThread);
             *Thread = lThread;
-            }
-        Status = STATUS_SUCCESS;
-        ExUnlockHandleTable(PspCidTable);
+            Status = STATUS_SUCCESS;
         }
-    else {
-        Status = STATUS_INVALID_PARAMETER;
-        }
+
+        ExUnlockHandleTableShared(PspCidTable);
+    }
+
     return Status;
 }

@@ -1,8 +1,4 @@
 #include "cmd.h"
-#include "cmdproto.h"
-#include "dir.h"
-#include "console.h"
-#include "search.h"
 
 /*
 
@@ -105,10 +101,9 @@ DIRCMD  An environment variable named DIRCMD is parsed before the
 extern   TCHAR SwitChar, PathChar;
 extern   TCHAR Fmt14[] ;
 extern   TCHAR CurDrvDir[] ;
-extern   TCHAR *SaveDir ;
 extern   ULONG DCount ;
 extern   DWORD DosErr ;
-extern   BOOLEAN CtrlCSeen;
+extern   BOOL  CtrlCSeen;
 
 
 VOID     FreeStr( PTCHAR );
@@ -116,7 +111,6 @@ VOID     FreeStr( PTCHAR );
 BOOLEAN  FindFirstNt( PTCHAR, PWIN32_FIND_DATA, PHANDLE );
 BOOLEAN  FindNextNt ( PWIN32_FIND_DATA, HANDLE );
 
-STATUS   ParseDirParms( PTCHAR, PDRP );
 HANDLE   OpenConsole();
 STATUS   PrintPatterns( PDRP );
 
@@ -141,7 +135,6 @@ PTCHAR   BuildSearchPath( PTCHAR );
 VOID     SortFileList( PFS, PSORTDESC, ULONG);
 STATUS   SetSortDesc( PTCHAR, PDRP );
 STATUS   SetAttribs( PTCHAR, PDRP );
-STATUS BuildFSFromPatterns ( PDRP, BOOLEAN, PFS * );
 //
 // This global is set in SortFileList and is used by the sort routine called
 // within qsort. This array contains pointers to compare functions. Our sort
@@ -298,16 +291,7 @@ Dir (
     //
 
     GetDir((PTCHAR)szCurDrv, GD_DEFAULT);
-#if 0
-
-    //
-    // BUGBUG see comment below
-    //
-    SaveDir = NULL;
-
-#endif
     if (drpCur.cpatdsc == 0) {
-
         drpCur.cpatdsc++;
         drpCur.patdscFirst.pszPattern = szCurDrv;
         drpCur.patdscFirst.fIsFat = TRUE;
@@ -331,20 +315,6 @@ Dir (
 
     rc = PrintPatterns(&drpCur);
 
-#if 0
-    //
-    // BUGBUG I do not thinks this is needed. We should always
-    // save the directory before printing and then restore, but
-    // I may need to do more. Find and then remove this code.
-    //
-    //
-    // Restore any change in directory.
-    //
-    if (SaveDir) {
-        mystrcpy(CurDrvDir,SaveDir);
-        SaveDir = NULL;
-    }
-#endif
     mystrcpy(CurDrvDir, szCurDrv);
 
 
@@ -783,7 +753,7 @@ Return Value:
             //
             case TEXT('N'):
 
-                fToggle ? (pdrp->rgfSwitchs ^= NEWFORMATSWITCH) :  (pdrp->rgfSwitchs |= NEWFORMATSWITCH);
+                fToggle ? (pdrp->rgfSwitchs |= OLDFORMATSWITCH) :  (pdrp->rgfSwitchs |= NEWFORMATSWITCH);
                 if (pszTok[irgchTok + 3]) {
                     PutStdErr(MSG_PARAMETER_FORMAT_NOT_CORRECT, ONEARG,
                               (ULONG)(&(pszTok[irgchTok + 2])) );
@@ -1115,9 +1085,21 @@ IsFATDrive (
         //             There should be a better way then to get cbComponentMax
         //             To tell if it is a fat or not
         //
-        if (GetVolumeInformation(szDrivePath, NULL, 0, NULL, &cbComponentMax,
-                                     NULL, szFileSystemName, MAX_PATH + 2)) {
-                return ((BOOLEAN)(cbComponentMax == 12));
+        if (GetVolumeInformation( szDrivePath,
+                                  NULL,
+                                  0,
+                                  NULL,
+                                  &cbComponentMax,
+                                  NULL,
+                                  szFileSystemName,
+                                  MAX_PATH + 2
+                                )
+           ) {
+            if (!_tcsicmp(szFileSystemName, TEXT("FAT")) && cbComponentMax == 12) {
+                return(TRUE);
+            } else {
+                return(FALSE);
+            }
         } else {
 
             DosErr = GetLastError();
@@ -1338,6 +1320,7 @@ PrintPatterns (
             // for all of the strange little rules DOS has.
             //
             pdpr->rgfSwitchs | FATFORMAT;
+
             //
             // Make sure if FAT only LAST_WRITE_TIME is allowed
             // since this is all that is supported.
@@ -1349,15 +1332,15 @@ PrintPatterns (
 
             }
 
-
-
         } else {
 
             //
             // If it is  not fat then print out in new format that
             // puts names to the right to allow for extra long names
             //
-            pdpr->rgfSwitchs |= NEWFORMATSWITCH;
+            if (!(pdpr->rgfSwitchs & OLDFORMATSWITCH)) {
+                pdpr->rgfSwitchs |= NEWFORMATSWITCH;
+            }
         }
 
 
@@ -1548,16 +1531,18 @@ Return Value:
 
 --*/
 int
+_cdecl
 CmpName(
     const void *elem1,
     const void *elem2
     )
 {
-    #define TRANS_BUF_SIZE MAX_PATH
+    int result;
 
-    return( lstrcmpi( ((PFF)(* (PPFF)elem1))->data.cFileName, ((PFF)(* (PPFF)elem2))->data.cFileName) );
-
+    result = lstrcmpi( ((PFF)(* (PPFF)elem1))->data.cFileName, ((PFF)(* (PPFF)elem2))->data.cFileName);
+    return result;
 }
+
 /*++
 
 Routine Description:
@@ -1570,12 +1555,15 @@ Return Value:
 
 --*/
 int
+_cdecl
 CmpExt(
     const void *pszElem1,
     const void *pszElem2
     )
 {
     PTCHAR  pszElem1T, pszElem2T;
+    int rc;
+
 
     //
     // Move pointer to name to make it all easier to read
@@ -1604,7 +1592,8 @@ CmpExt(
         //
         pszElem2T = ((PTCHAR)pszElem2) + mystrlen(pszElem2 );
     }
-    return( lstrcmpi( pszElem1T, pszElem2T ));
+    rc = lstrcmpi( pszElem1T, pszElem2T );
+    return rc;
 }
 
 
@@ -1620,6 +1609,7 @@ Return Value:
 
 --*/
 int
+_cdecl
 CmpTime(
     const void *pszElem1,
     const void *pszElem2
@@ -1668,32 +1658,26 @@ Return Value:
 
 --*/
 int
+_cdecl
 CmpSize(
     const void * pszElem1,
     const void * pszElem2
     )
 {
+    ULARGE_INTEGER ul1, ul2;
 
-    int cbHigh1, cbHigh2, cbLow1, cbLow2;
-    int cb;
+    ul1.HighPart = (* (PPFF)pszElem1)->data.nFileSizeHigh;
+    ul2.HighPart = (* (PPFF)pszElem2)->data.nFileSizeHigh;
+    ul1.LowPart = (* (PPFF)pszElem1)->data.nFileSizeLow;
+    ul2.LowPart = (* (PPFF)pszElem2)->data.nFileSizeLow;
 
-    cbHigh1 = (int)(* (PPFF)pszElem1)->data.nFileSizeHigh;
-    cbHigh2 = (int)(* (PPFF)pszElem2)->data.nFileSizeHigh;
-    cbLow1 =  (int)(* (PPFF)pszElem1)->data.nFileSizeLow;
-    cbLow2 =  (int)(* (PPFF)pszElem2)->data.nFileSizeLow;
-
-    //
-    // BUGBUG this does not work for gig file sizes
-    // since the low part would have the high bit sit would would act as a
-    // negative number. I will fix this later.
-    //
-    if ((cb = cbHigh1 - cbHigh2) != 0) {
-
-        return( cb );
-
-    }
-
-    return(cbLow1 - cbLow2);
+    if (ul1.QuadPart < ul2.QuadPart)
+        return -1;
+    else
+    if (ul1.QuadPart > ul2.QuadPart)
+        return 1;
+    else
+        return 0;
 
 }
 
@@ -1709,6 +1693,7 @@ Return Value:
 
 --*/
 int
+_cdecl
 CmpType(
     const void *pszElem1,
     const void *pszElem2
@@ -1734,7 +1719,8 @@ Return Value:
     Return:
 
 --*/
-int _CRTAPI1
+int
+_cdecl
 SortCompare(
     IN  const void * elem1,
     IN  const void * elem2

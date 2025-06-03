@@ -13,6 +13,21 @@ ConvertToIntegerArray(
     UNALIGNED UCHAR      *pArray,
     int                  *piNumParts) ;
 
+NTSTATUS
+NbtCreateAddressObjects(
+    IN  ULONG                IPAddr,
+    IN  ULONG                IPMask,
+    OUT tDEVICECONTEXT       *pDeviceContext);
+
+char * strrchr( const char * pch, int c );
+
+//*******************  Pageable Routine Declarations ****************
+#ifdef ALLOC_PRAGMA
+#pragma CTEMakePageable(PAGE, NbtCreateAddressObjects)
+#pragma CTEMakePageable(INIT, strrchr)
+#endif
+//*******************  Pageable Routine Declarations ****************
+
 #pragma BEGIN_INIT
 
 /*******************************************************************
@@ -39,7 +54,7 @@ char * strrchr( const char * pch, int c )
     while ( *pch != '\0' )
     {
         if ( *pch == c )
-            pchFound = pch ;
+            pchFound = (char *)pch ;
 
         //
         //  If double byte do this twice
@@ -85,6 +100,8 @@ Return Value:
     NTSTATUS status ;
     pDeviceContext->IpAddress  = IPAddr ;
     pDeviceContext->SubnetMask = IPMask ;
+
+    CTEPagedCode();
 
     if ( NbtConfig.UseRegistryBcastAddr )
     {
@@ -157,6 +174,7 @@ Return Value:
                 }
 
                 DbgPrint("Unable to Open broadcast name\r\n");
+                ASSERT(0);
                 CloseAddress( (HANDLE) pDeviceContext->pSessionFileObject ) ;
             }
 
@@ -171,4 +189,4 @@ Return Value:
     return(status);
 }
 
-
+

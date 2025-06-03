@@ -46,6 +46,14 @@ Revision History:
 #define INCL_OS2V20_FILESYS
 #include "os2dll.h"
 #include "conrqust.h"
+
+
+NTSTATUS
+Od2AlertableWaitForSingleObject(
+        IN HANDLE handle
+        );
+
+
 OS2IO_VECTORS NulVectors = {
     NulOpenRoutine,
     NonFileSetHandleStateRoutine,
@@ -410,7 +418,10 @@ Note:
     }
 #if DBG
     IF_OD2_DEBUG( FILESYS ) {
-        KdPrint(("file handle allocation failed - no free handles.\n"));
+        KdPrint(("[%d,%d] file handle allocation failed - no free handles.\n",
+                Od2Process->Pib.ProcessId,
+                Od2CurrentThreadId()
+                ));
     }
 #endif
     return ERROR_TOO_MANY_OPEN_FILES;
@@ -671,7 +682,10 @@ Return Value:
 
 #if DBG
     IF_OD2_DEBUG( FILESYS ) {
-        KdPrint(("entering DosOpen(%s)\n",FileName));
+        KdPrint(("[%d,%d] entering DosOpen(%s)\n",
+                Od2Process->Pib.ProcessId,
+                Od2CurrentThreadId(),
+                FileName));
     }
 #endif
     try {
@@ -752,7 +766,10 @@ Return Value:
             CreateDisposition = FILE_OVERWRITE_IF;
 #if DBG
             IF_OD2_DEBUG( FILESYS ) {
-                KdPrint(("setting file_overwrite_if\n"));
+                KdPrint(("[%d,%d] setting file_overwrite_if\n",
+                        Od2Process->Pib.ProcessId,
+                        Od2CurrentThreadId()
+                        ));
             }
 #endif
             break;
@@ -760,7 +777,10 @@ Return Value:
             CreateDisposition = FILE_OVERWRITE;
 #if DBG
             IF_OD2_DEBUG( FILESYS ) {
-                KdPrint(("setting file_overwrite\n"));
+                KdPrint(("[%d,%d] setting file_overwrite\n",
+                        Od2Process->Pib.ProcessId,
+                        Od2CurrentThreadId()
+                        ));
             }
 #endif
             break;
@@ -768,7 +788,10 @@ Return Value:
             CreateDisposition = FILE_OPEN_IF;
 #if DBG
             IF_OD2_DEBUG( FILESYS ) {
-                    KdPrint(("setting file_open_if\n"));
+                    KdPrint(("[%d,%d] setting file_open_if\n",
+                            Od2Process->Pib.ProcessId,
+                            Od2CurrentThreadId()
+                            ));
             }
 #endif
             break;
@@ -776,7 +799,10 @@ Return Value:
             CreateDisposition = FILE_OPEN;
 #if DBG
             IF_OD2_DEBUG( FILESYS ) {
-                KdPrint(("setting file_open\n"));
+                KdPrint(("[%d,%d] setting file_open\n",
+                        Od2Process->Pib.ProcessId,
+                        Od2CurrentThreadId()
+                        ));
             }
 #endif
             break;
@@ -784,7 +810,10 @@ Return Value:
             CreateDisposition = FILE_CREATE;
 #if DBG
             IF_OD2_DEBUG( FILESYS ) {
-                    KdPrint(("setting file_create\n"));
+                    KdPrint(("[%d,%d] setting file_create\n",
+                            Od2Process->Pib.ProcessId,
+                            Od2CurrentThreadId()
+                            ));
             }
 #endif
             break;
@@ -815,7 +844,10 @@ Return Value:
     if (OpenMode & OPEN_FLAGS_DASD) {
 #if DBG
         IF_OD2_DEBUG( FILESYS ) {
-            KdPrint(("DASD open\n"));
+            KdPrint(("[%d,%d] DASD open\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId()
+                    ));
         }
 #endif
         if (CreateDisposition != FILE_OPEN) {
@@ -848,7 +880,10 @@ Return Value:
                          );
                 if (CanonicalName == NULL) {
 #if DBG
-                    KdPrint(( "OS2: Od2Canonicalise, no memory in Od2Heap\n" ));
+                    KdPrint(("[%d,%d] OS2: Od2Canonicalise, no memory in Od2Heap\n",
+                            Od2Process->Pib.ProcessId,
+                            Od2CurrentThreadId()
+                            ));
                     ASSERT(FALSE);
 #endif
                     return ERROR_NOT_ENOUGH_MEMORY;
@@ -942,7 +977,10 @@ Return Value:
 
 #if DBG
     IF_OD2_DEBUG( FILESYS ) {
-        KdPrint(("canonical name is %s\n",CanonicalNameString.Buffer));
+        KdPrint(("[%d,%d] canonical name is %s\n",
+                Od2Process->Pib.ProcessId,
+                Od2CurrentThreadId(),
+                CanonicalNameString.Buffer));
     }
 #endif
         //
@@ -959,7 +997,10 @@ Return Value:
 #if DBG
         IF_OD2_DEBUG( FILESYS )
         {
-            KdPrint(("DosOpen: no memory for Unicode Conversion\n"));
+            KdPrint(("[%d,%d] DosOpen: no memory for Unicode Conversion\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId()
+                    ));
         }
 #endif
         RtlFreeHeap(Od2Heap, 0, CanonicalNameString.Buffer);
@@ -1039,7 +1080,12 @@ Return Value:
     // BUGBUG need to handle FAIL_ON_ERROR
     //
 
-    CreateOptions = FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE;
+    if (FileType == FILE_TYPE_NMPIPE) {
+        CreateOptions =  FILE_NON_DIRECTORY_FILE;
+    }
+    else {
+        CreateOptions = FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE;
+    }
     if (OpenMode & OPEN_FLAGS_WRITE_THROUGH)
         CreateOptions |= FILE_WRITE_THROUGH;
     if (OpenMode & OPEN_FLAGS_SEQUENTIAL)
@@ -1077,7 +1123,10 @@ Return Value:
             break;
         default:
 #if DBG
-            KdPrint(("unsupported filetype in DosOpen\n"));
+            KdPrint(("[%d,%d] unsupported filetype in DosOpen\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId()
+                    ));
             ASSERT (FALSE);     // not supported
 #endif
             break;
@@ -1175,7 +1224,10 @@ Return Value:
                     break;
                 default:
 #if DBG
-                    KdPrint(("unsupported filetype in DosOpen\n"));
+                    KdPrint(("[%d,%d] unsupported filetype in DosOpen\n",
+                            Od2Process->Pib.ProcessId,
+                            Od2CurrentThreadId()
+                            ));
                     ASSERT (FALSE);     // not supported
 #endif
                     break;
@@ -1192,7 +1244,10 @@ Return Value:
                               );
         if (!NT_SUCCESS(Status)) {
 #if DBG
-            KdPrint(("OS2DLL: DosOpen-Unable to NtCreateEvent()-for ComRead, Status = %x\n", Status));
+            KdPrint(("[%d,%d] OS2DLL: DosOpen-Unable to NtCreateEvent()-for ComRead, Status = %x\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId(),
+                    Status));
 #endif
         }
 
@@ -1204,7 +1259,10 @@ Return Value:
                               );
         if (!NT_SUCCESS(Status)) {
 #if DBG
-            KdPrint(("OS2DLL: DosOpen-Unable to NtCreateEvent()-for ComWrite, Status = %x\n", Status));
+            KdPrint(("[%d,%d] OS2DLL: DosOpen-Unable to NtCreateEvent()-for ComWrite, Status = %x\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId(),
+                    Status));
 #endif
         }
 
@@ -1216,7 +1274,10 @@ Return Value:
                               );
         if (!NT_SUCCESS(Status)) {
 #if DBG
-            KdPrint(("OS2DLL: DosOpen-Unable to NtCreateEvent()-for ComIOCtl, Status = %x\n", Status));
+            KdPrint(("[%d,%d] OS2DLL: DosOpen-Unable to NtCreateEvent()-for ComIOCtl, Status = %x\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId(),
+                    Status));
 #endif
         }
     }
@@ -1324,7 +1385,10 @@ NulOpenRoutine(
 #if DBG
     IF_OD2_DEBUG(FILESYS)
     {
-        KdPrint(("DosOpen(NUL): NulOpenRoutine\n"));
+        KdPrint(("[%d,%d] DosOpen(NUL): NulOpenRoutine\n",
+                Od2Process->Pib.ProcessId,
+                Od2CurrentThreadId()
+                ));
     }
 #endif
 
@@ -1338,7 +1402,10 @@ NulOpenRoutine(
 #if DBG
         IF_OD2_DEBUG(FILESYS)
         {
-            KdPrint(("NulOpenRoutine: unable to share request\n"));
+            KdPrint(("[%d,%d] NulOpenRoutine: unable to share request\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId()
+                    ));
         }
 #endif
         return RetCode;
@@ -1391,7 +1458,10 @@ ConOpenRoutine(
 #if DBG
     IF_OD2_DEBUG(VIO_FILE)
     {
-        KdPrint(("DosOpen(CON): ConOpenRoutine\n"));
+        KdPrint(("[%d,%d] DosOpen(CON): ConOpenRoutine\n",
+                Od2Process->Pib.ProcessId,
+                Od2CurrentThreadId()
+                ));
     }
 #endif
 
@@ -1405,7 +1475,10 @@ ConOpenRoutine(
 #if DBG
         IF_OD2_DEBUG(VIO_FILE)
         {
-            KdPrint(("ConOpenRoutine: unable to share request\n"));
+            KdPrint(("[%d,%d] ConOpenRoutine: unable to share request\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId()
+                    ));
         }
 #endif
         return RetCode;
@@ -1456,7 +1529,10 @@ ComOpenRoutine(
 #if DBG
     IF_OD2_DEBUG(FILESYS)
     {
-        KdPrint(("DosOpen(COM): ComOpenRoutine\n"));
+        KdPrint(("[%d,%d] DosOpen(COM): ComOpenRoutine\n",
+                Od2Process->Pib.ProcessId,
+                Od2CurrentThreadId()
+        ));
     }
 #endif
 
@@ -1534,7 +1610,10 @@ LptOpenRoutine(
 #if DBG
     IF_OD2_DEBUG(FILESYS)
     {
-        KdPrint(("DosOpen(LPT): LptOpenRoutine\n"));
+        KdPrint(("[%d,%d] DosOpen(LPT): LptOpenRoutine\n",
+                Od2Process->Pib.ProcessId,
+                Od2CurrentThreadId()
+                ));
     }
 #endif
 
@@ -1548,7 +1627,10 @@ LptOpenRoutine(
 #if DBG
         IF_OD2_DEBUG(FILESYS)
         {
-            KdPrint(("LptOpenRoutine: unable to share request\n"));
+            KdPrint(("[%d,%d] LptOpenRoutine: unable to share request\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId()
+                    ));
         }
 #endif
         return RetCode;
@@ -1604,7 +1686,10 @@ KbdOpenRoutine(
 #if DBG
     IF_OD2_DEBUG(KBD_FILE)
     {
-        KdPrint(("DosOpen(KBD$): KbdOpenRoutine\n"));
+        KdPrint(("[%d,%d] DosOpen(KBD$): KbdOpenRoutine\n",
+                Od2Process->Pib.ProcessId,
+                Od2CurrentThreadId()
+                ));
     }
 #endif
 
@@ -1618,7 +1703,10 @@ KbdOpenRoutine(
 #if DBG
         IF_OD2_DEBUG(KBD_FILE)
         {
-            KdPrint(("KbdOpenRoutine: unable to share request\n"));
+            KdPrint(("[%d,%d] KbdOpenRoutine: unable to share request\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId()
+                    ));
         }
 #endif
         return RetCode;
@@ -1678,7 +1766,10 @@ MouseOpenRoutine(
 #if DBG
     IF_OD2_DEBUG(MOU_FILE)
     {
-        KdPrint(("DosOpen(MOUSE$): MouOpenRoutine\n"));
+        KdPrint(("[%d,%d] DosOpen(MOUSE$): MouOpenRoutine\n",
+                Od2Process->Pib.ProcessId,
+                Od2CurrentThreadId()
+                ));
     }
 #endif
 
@@ -1692,7 +1783,10 @@ MouseOpenRoutine(
 #if DBG
         IF_OD2_DEBUG(MOU_FILE)
         {
-            KdPrint(("MouOpenRoutine: unable to share request\n"));
+            KdPrint(("[%d,%d] MouOpenRoutine: unable to share request\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId()
+                    ));
         }
 #endif
         return RetCode;
@@ -1708,8 +1802,10 @@ MouseOpenRoutine(
         ASSERT(FALSE);
 #if DBG
         IF_OD2_DEBUG( FILESYS ) {
-            KdPrint(("MouseOpenRouine: Error returned from DevMouOpen %d\n",
-                RetCode));
+            KdPrint(("[%d,%d] MouseOpenRouine: Error returned from DevMouOpen %d\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId(),
+                    RetCode));
         }
 #endif
         return(RetCode);
@@ -1763,7 +1859,10 @@ ClockOpenRoutine(
 #if DBG
     IF_OD2_DEBUG(FILESYS)
     {
-        KdPrint(("DosOpen(CLOCK$): ClockOpenRoutine\n"));
+        KdPrint(("[%d,%d] DosOpen(CLOCK$): ClockOpenRoutine\n",
+                Od2Process->Pib.ProcessId,
+                Od2CurrentThreadId()
+                ));
     }
 #endif
 
@@ -1777,7 +1876,10 @@ ClockOpenRoutine(
 #if DBG
         IF_OD2_DEBUG(FILESYS)
         {
-            KdPrint(("ClockOpenRoutine: unable to share request\n"));
+            KdPrint(("[%d,%d] ClockOpenRoutine: unable to share request\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId()
+                    ));
         }
 #endif
         return RetCode;
@@ -1833,7 +1935,10 @@ ScreenOpenRoutine(
 #if DBG
     IF_OD2_DEBUG(VIO_FILE)
     {
-        KdPrint(("DosOpen(SCREEN$): ScreenOpenRoutine\n"));
+        KdPrint(("[%d,%d] DosOpen(SCREEN$): ScreenOpenRoutine\n",
+                Od2Process->Pib.ProcessId,
+                Od2CurrentThreadId()
+                ));
     }
 #endif
 
@@ -1847,7 +1952,10 @@ ScreenOpenRoutine(
 #if DBG
         IF_OD2_DEBUG(VIO_FILE)
         {
-            KdPrint(("ScreenOpenRoutine: unable to share request\n"));
+            KdPrint(("[%d,%d] ScreenOpenRoutine: unable to share request\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId()
+                    ));
         }
 #endif
         return RetCode;
@@ -1910,7 +2018,10 @@ PointerOpenRoutine(
 #if DBG
     IF_OD2_DEBUG(FILESYS)
     {
-        KdPrint(("DosOpen(POINTER$): PointerOpenRoutine\n"));
+        KdPrint(("[%d,%d] DosOpen(POINTER$): PointerOpenRoutine\n",
+                Od2Process->Pib.ProcessId,
+                Od2CurrentThreadId()
+                ));
     }
 #endif
 
@@ -1927,7 +2038,10 @@ PointerOpenRoutine(
 #if DBG
         IF_OD2_DEBUG(FILESYS)
         {
-            KdPrint(("PointerOpenRoutine: unable to share request\n"));
+            KdPrint(("[%d,%d] PointerOpenRoutine: unable to share request\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId()
+                    ));
         }
 #endif
         return RetCode;
@@ -2031,7 +2145,9 @@ Return Value:
     if (!NT_SUCCESS( Status )) {
 #if DBG
         IF_OD2_DEBUG( FILESYS ) {
-            KdPrint(("MapFileType: Error from NtQueryVolumeInformation, %lx\n",
+            KdPrint(("[%d,%d] MapFileType: Error from NtQueryVolumeInformation, %lx\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId(),
                     Status));
         }
 #endif
@@ -2039,7 +2155,10 @@ Return Value:
     }
 #if DBG
     IF_OD2_DEBUG( FILESYS ) {
-        KdPrint(("MapFileType: DeviceType=%ld\n",DeviceInfo.DeviceType));
+        KdPrint(("[%d,%d] MapFileType: DeviceType=%ld\n",
+                Od2Process->Pib.ProcessId,
+                Od2CurrentThreadId(),
+                DeviceInfo.DeviceType));
     }
 #endif
     switch (DeviceInfo.DeviceType) {
@@ -2055,7 +2174,10 @@ Return Value:
         case FILE_DEVICE_TAPE:
 #if DBG
             IF_OD2_DEBUG( FILESYS ) {
-                KdPrint(("MapFileType: disk file \n"));
+                KdPrint(("[%d,%d] MapFileType: disk file \n",
+                        Od2Process->Pib.ProcessId,
+                        Od2CurrentThreadId()
+                        ));
             }
 #endif
             *DeviceAttribute = 0;
@@ -2076,7 +2198,10 @@ Return Value:
         case FILE_DEVICE_SERIAL_PORT:
 #if DBG
             IF_OD2_DEBUG( FILESYS ) {
-                KdPrint(("MapFileType: COM device \n"));
+                KdPrint(("[%d,%d] MapFileType: COM device \n",
+                        Od2Process->Pib.ProcessId,
+                        Od2CurrentThreadId()
+                        ));
             }
 #endif
             *FileType = FILE_TYPE_COM;
@@ -2093,7 +2218,10 @@ Return Value:
         case FILE_DEVICE_PARALLEL_PORT:
 #if DBG
             IF_OD2_DEBUG( FILESYS ) {
-                KdPrint(("MapFileType: character device \n"));
+                KdPrint(("[%d,%d] MapFileType: character device \n",
+                        Od2Process->Pib.ProcessId,
+                        Od2CurrentThreadId()
+                        ));
             }
 #endif
             *FileType = FILE_TYPE_DEV;
@@ -2114,7 +2242,10 @@ Return Value:
 
         default:
 #if DBG
-            KdPrint(("error: unknown device type in MapFileType %ld\n",DeviceInfo.DeviceType));
+            KdPrint(("[%d,%d] error: unknown device type in MapFileType %ld\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId(),
+                    DeviceInfo.DeviceType));
 #endif
             return ERROR_PATH_NOT_FOUND;
             break;
@@ -2161,8 +2292,10 @@ Return Value:
     if (RetCode){
 #if DBG
         IF_OD2_DEBUG( FILESYS ) {
-            KdPrint(("CheckFileType: Error returned from MapFileType %d\n",
-                RetCode));
+            KdPrint(("[%d,%d] CheckFileType: Error returned from MapFileType %d\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId(),
+                    RetCode));
         }
 #endif
         return FALSE;
@@ -2408,7 +2541,10 @@ Return Value:
 #if DBG
         IF_OD2_DEBUG( FILESYS )
         {
-            KdPrint(("St == %X\n",Status));
+            KdPrint(("[%d,%d] St == %X\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId(),
+                    Status));
         }
 #endif
         switch (Status) {
@@ -2443,8 +2579,14 @@ Return Value:
     if (RetCode = MapFileType(*FileHandle,NULL, FileType, DeviceAttribute)) {
 #if DBG
         IF_OD2_DEBUG( FILESYS ) {
-            KdPrint(("Retcode == %ld\n",RetCode));
-            KdPrint(("returned from MapFileType\n"));
+            KdPrint(("[%d,%d] Retcode == %ld\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId(),
+                    RetCode));
+            KdPrint(("[%d,%d] returned from MapFileType\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId()
+                    ));
         }
 #endif
         NtClose(*FileHandle);
@@ -2616,7 +2758,15 @@ Note:
     if (hFileRecord->FileType == FILE_TYPE_MAILSLOT) {
         return (ERROR_INVALID_HANDLE);
     }
-    ModeInfo.Mode = FILE_SYNCHRONOUS_IO_NONALERT;
+
+    if ((hFileRecord->FileType != FILE_TYPE_NMPIPE) &&
+        (hFileRecord->FileType != FILE_TYPE_PIPE)){
+        ModeInfo.Mode = FILE_SYNCHRONOUS_IO_NONALERT;
+    }
+    else {
+        ModeInfo.Mode = 0;
+    }
+
     if (OpenMode & OPEN_FLAGS_WRITE_THROUGH)
         ModeInfo.Mode |= FILE_WRITE_THROUGH;
     do {
@@ -2669,7 +2819,10 @@ Note:
 #if DBG
     IF_OD2_DEBUG(FILESYS)
     {
-        KdPrint(("DosSetHandleState: not support for this handle\n"));
+        KdPrint(("[%d,%d] DosSetHandleState: not support for this handle\n",
+                Od2Process->Pib.ProcessId,
+                Od2CurrentThreadId()
+                ));
     }
 #endif
 
@@ -2882,7 +3035,10 @@ Return Value:
 #if DBG
     IF_OD2_DEBUG(FILESYS)
     {
-        KdPrint(("DosQueryHType: not support for this handle\n"));
+        KdPrint(("[%d,%d] DosQueryHType: not support for this handle\n",
+                Od2Process->Pib.ProcessId,
+                Od2CurrentThreadId()
+                ));
     }
 #endif
 
@@ -3249,7 +3405,10 @@ Note:
 #if DBG
     IF_OD2_DEBUG(FILESYS)
     {
-        KdPrint(("DosClose: not support for this handle\n"));
+        KdPrint(("[%d,%d] DosClose: not support for this handle\n",
+                Od2Process->Pib.ProcessId,
+                Od2CurrentThreadId()
+                ));
     }
 #endif
 
@@ -3335,7 +3494,10 @@ Note:
     if (!NT_SUCCESS(Status)) {
 #if DBG
         IF_OD2_DEBUG( FILESYS ) {
-            KdPrint(("NtDuplicateObject failed in FileDupHandle. Status is = %X.\n",Status));
+            KdPrint(("[%d,%d] NtDuplicateObject failed in FileDupHandle. Status is = %X.\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId(),
+                    Status));
         }
 #endif
         return (Or2MapNtStatusToOs2Error(Status, ERROR_INVALID_HANDLE));
@@ -3352,10 +3514,14 @@ Note:
     hNewFileRecord->Flags = hOldFileRecord->Flags & ~SETFHSTATE_FLAGS;
 #if DBG
     IF_OD2_DEBUG( FILESYS ) {
-        KdPrint(("HandleTable[OldFileHandle] flags = %ld NtHandle = %ld FileType = %ld\n",
-                 hOldFileRecord->Flags,hOldFileRecord->NtHandle,hOldFileRecord->FileType));
-        KdPrint(("HandleTable[NewFileHandle] flags = %ld NtHandle = %ld FileType = %ld\n",
-                 hNewFileRecord->Flags,hNewFileRecord->NtHandle,hNewFileRecord->FileType));
+        KdPrint(("[%d,%d] HandleTable[OldFileHandle] flags = %ld NtHandle = %ld FileType = %ld\n",
+                Od2Process->Pib.ProcessId,
+                Od2CurrentThreadId(),
+                hOldFileRecord->Flags,hOldFileRecord->NtHandle,hOldFileRecord->FileType));
+        KdPrint(("[%d,%d] HandleTable[NewFileHandle] flags = %ld NtHandle = %ld FileType = %ld\n",
+                Od2Process->Pib.ProcessId,
+                Od2CurrentThreadId(),
+                hNewFileRecord->Flags,hNewFileRecord->NtHandle,hNewFileRecord->FileType));
     }
 #endif
     ValidateHandle(hNewFileRecord);
@@ -3412,7 +3578,10 @@ Note:
     if (!NT_SUCCESS(Status)) {
 #if DBG
         IF_OD2_DEBUG( FILESYS ) {
-            KdPrint(("NtDuplicateObject failed in FileDupHandle. Status is = %X.\n",Status));
+            KdPrint(("[%d,%d] NtDuplicateObject failed in FileDupHandle. Status is = %X.\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId(),
+                    Status));
         }
 #endif
         return (Or2MapNtStatusToOs2Error(Status, ERROR_INVALID_HANDLE));
@@ -3428,7 +3597,10 @@ Note:
                           );
     if (!NT_SUCCESS(Status)) {
 #if DBG
-        KdPrint(("OS2DLL: DosOpen-Unable to NtCreateEvent()-for ComRead, Status = %x\n", Status));
+        KdPrint(("[%d,%d] OS2DLL: DosOpen-Unable to NtCreateEvent()-for ComRead, Status = %x\n",
+                Od2Process->Pib.ProcessId,
+                Od2CurrentThreadId(),
+                Status));
 #endif
     }
 
@@ -3440,7 +3612,10 @@ Note:
                           );
     if (!NT_SUCCESS(Status)) {
 #if DBG
-        KdPrint(("OS2DLL: DosOpen-Unable to NtCreateEvent()-for ComWrite, Status = %x\n", Status));
+        KdPrint(("[%d,%d] OS2DLL: DosOpen-Unable to NtCreateEvent()-for ComWrite, Status = %x\n",
+                Od2Process->Pib.ProcessId,
+                Od2CurrentThreadId(),
+                Status));
 #endif
     }
 
@@ -3452,7 +3627,10 @@ Note:
                           );
     if (!NT_SUCCESS(Status)) {
 #if DBG
-        KdPrint(("OS2DLL: DosOpen-Unable to NtCreateEvent()-for ComIOCtl, Status = %x\n", Status));
+        KdPrint(("[%d,%d] OS2DLL: DosOpen-Unable to NtCreateEvent()-for ComIOCtl, Status = %x\n",
+                Od2Process->Pib.ProcessId,
+                Od2CurrentThreadId(),
+                Status));
 #endif
     }
 
@@ -3465,10 +3643,14 @@ Note:
     hNewFileRecord->Flags = hOldFileRecord->Flags & ~SETFHSTATE_FLAGS;
 #if DBG
     IF_OD2_DEBUG( FILESYS ) {
-        KdPrint(("HandleTable[OldFileHandle] flags = %ld NtHandle = %ld FileType = %ld\n",
-                 hOldFileRecord->Flags,hOldFileRecord->NtHandle,hOldFileRecord->FileType));
-        KdPrint(("HandleTable[NewFileHandle] flags = %ld NtHandle = %ld FileType = %ld\n",
-                 hNewFileRecord->Flags,hNewFileRecord->NtHandle,hNewFileRecord->FileType));
+        KdPrint(("[%d,%d] HandleTable[OldFileHandle] flags = %ld NtHandle = %ld FileType = %ld\n",
+                Od2Process->Pib.ProcessId,
+                Od2CurrentThreadId(),
+                hOldFileRecord->Flags,hOldFileRecord->NtHandle,hOldFileRecord->FileType));
+        KdPrint(("[%d,%d] HandleTable[NewFileHandle] flags = %ld NtHandle = %ld FileType = %ld\n",
+                Od2Process->Pib.ProcessId,
+                Od2CurrentThreadId(),
+                hNewFileRecord->Flags,hNewFileRecord->NtHandle,hNewFileRecord->FileType));
     }
 #endif
     ValidateHandle(hNewFileRecord);
@@ -3488,7 +3670,10 @@ MapShareAccess(
         *ShareAccess |= FILE_SHARE_READ;
 #if DBG
         IF_OD2_DEBUG( FILESYS ) {
-            KdPrint(("setting read share access\n"));
+            KdPrint(("[%d,%d] setting read share access\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId()
+                    ));
         }
 #endif
     }
@@ -3497,7 +3682,10 @@ MapShareAccess(
         *ShareAccess |= FILE_SHARE_WRITE;
 #if DBG
         IF_OD2_DEBUG( FILESYS ) {
-            KdPrint(("setting write share access\n"));
+            KdPrint(("[%d,%d] setting write share access\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId()
+                    ));
         }
 #endif
     }
@@ -3513,7 +3701,10 @@ MapShareAccess(
         *DesiredAccess |= FILE_READ_DATA;
 #if DBG
         IF_OD2_DEBUG( FILESYS ) {
-            KdPrint(("setting request read access\n"));
+            KdPrint(("[%d,%d] setting request read access\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId()
+                    ));
         }
 #endif
     }
@@ -3521,7 +3712,10 @@ MapShareAccess(
         *DesiredAccess |= FILE_WRITE_DATA | FILE_WRITE_EA;
 #if DBG
         IF_OD2_DEBUG( FILESYS ) {
-            KdPrint(("setting request write access\n"));
+            KdPrint(("[%d,%d] setting request write access\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId()
+                    ));
         }
 #endif
     }
@@ -3751,7 +3945,10 @@ Note:
 #if DBG
     IF_OD2_DEBUG(FILESYS)
     {
-        KdPrint(("DosDupHandle: no support for this handle\n"));
+        KdPrint(("[%d,%d] DosDupHandle: no support for this handle\n",
+                Od2Process->Pib.ProcessId,
+                Od2CurrentThreadId()
+                ));
     }
 #endif
 
@@ -3797,7 +3994,10 @@ Return Value:
 
 #if DBG
     IF_OD2_DEBUG( FILESYS ) {
-        KdPrint(("entering DosDupHandle. OldFileHandle = %ld.  NewFileHandle = %ld\n",OldFileHandle,*NewFileHandle));
+        KdPrint(("[%d,%d] entering DosDupHandle. OldFileHandle = %ld.  NewFileHandle = %ld\n",
+                Od2Process->Pib.ProcessId,
+                Od2CurrentThreadId(),
+                OldFileHandle,*NewFileHandle));
     }
 #endif
     AcquireFileLockExclusive(
@@ -3837,7 +4037,10 @@ Return Value:
     if (TargetHandle == (HFILE) DDH_NEW_HANDLE) {
 #if DBG
         IF_OD2_DEBUG( FILESYS ) {
-            KdPrint(("allocating a new handle\n"));
+            KdPrint(("[%d,%d] allocating a new handle\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId()
+                    ));
         }
 #endif
         if (RetCode = AllocateHandle(NewFileHandle)) {
@@ -3997,7 +4200,10 @@ Return Value:
     NewTable = RtlAllocateHeap(Od2Heap,0,MaxFileHandles * sizeof(FILE_HANDLE));
     if (NewTable == NULL) {
 #if DBG
-        KdPrint(( "OS2: DosSetMaxFH, no memory in Od2Heap\n" ));
+        KdPrint(("[%d,%d] OS2: DosSetMaxFH, no memory in Od2Heap\n",
+                Od2Process->Pib.ProcessId,
+                Od2CurrentThreadId()
+                ));
         ASSERT(FALSE);
 #endif
         return ERROR_NOT_ENOUGH_MEMORY;
@@ -4016,22 +4222,31 @@ Return Value:
 
 #if DBG
     IF_OD2_DEBUG( FILESYS ) {
-        KdPrint(("new max file handles is %ld\n",HandleTableLength));
+        KdPrint(("[%d,%d] new max file handles is %ld\n",
+                Od2Process->Pib.ProcessId,
+                Od2CurrentThreadId(),
+                HandleTableLength));
     }
 #endif
     for (i=0;i<MaxFileHandles;i++) {
         if (NewTable[i].Flags == FILE_HANDLE_FREE) {
 #if DBG
             IF_OD2_DEBUG( FILESYS ) {
-                KdPrint(("NewTable[%ld] is free\n",i));
+                KdPrint(("[%d,%d] NewTable[%ld] is free\n",
+                        Od2Process->Pib.ProcessId,
+                        Od2CurrentThreadId(),
+                        i));
             }
 #endif
         }
         else {
 #if DBG
             IF_OD2_DEBUG( FILESYS ) {
-                KdPrint(("NewTable[%ld] flags = %ld NtHandle = %ld FileType = %ld\n",i,
-                     NewTable[i].Flags,NewTable[i].NtHandle,NewTable[i].FileType));
+                KdPrint(("[%d,%d] NewTable[%ld] flags = %ld NtHandle = %ld FileType = %ld\n",
+                        Od2Process->Pib.ProcessId,
+                        Od2CurrentThreadId(),
+                        i,
+                        NewTable[i].Flags,NewTable[i].NtHandle,NewTable[i].FileType));
             }
 #endif
         }
@@ -4084,8 +4299,14 @@ Return Value:
                          );
 #if DBG
     IF_OD2_DEBUG( FILESYS ) {
-        KdPrint(("handle is %ld\n",FileHandle));
-        KdPrint(("HandleTableLength is %ld\n",HandleTableLength));
+        KdPrint(("[%d,%d] handle is %ld\n",
+                Od2Process->Pib.ProcessId,
+                Od2CurrentThreadId(),
+                FileHandle));
+        KdPrint(("[%d,%d] HandleTableLength is %ld\n",
+                Od2Process->Pib.ProcessId,
+                Od2CurrentThreadId(),
+                HandleTableLength));
     }
 #endif
 
@@ -4160,8 +4381,11 @@ Note:
 #if DBG
     IF_OD2_DEBUG(KBD)
     {
-        KdPrint(("ConReadRoutine: Length %lu, Handle %p\n",
-            Length, hFileRecord ));
+        KdPrint(("[%d,%d] ConReadRoutine: Length %lu, Handle %p\n",
+                Od2Process->Pib.ProcessId,
+                Od2CurrentThreadId(),
+                Length,
+                hFileRecord ));
     }
 #endif
 
@@ -4236,8 +4460,11 @@ Note:
 #if DBG
     IF_OD2_DEBUG(KBD)
     {
-        KdPrint(("KbdReadRoutine: Length %lu, Handle %p\n",
-            Length, hFileRecord ));
+        KdPrint(("[%d,%d] KbdReadRoutine: Length %lu, Handle %p\n",
+                Od2Process->Pib.ProcessId,
+                Od2CurrentThreadId(),
+                Length,
+                hFileRecord ));
     }
 #endif
 
@@ -4424,8 +4651,9 @@ Note:
     NTSTATUS Status;
     IO_STATUS_BLOCK IoStatus;
     LARGE_INTEGER FileOffset;
-    ULONG Key;
     HANDLE NtHandle;
+    HANDLE Event;
+    BOOLEAN fNPipe;
     #if DBG
     PSZ RoutineName;
     RoutineName = "FileReadRoutine";
@@ -4433,7 +4661,6 @@ Note:
 
     // BUGBUG need to check for alignment and probe validity
 
-    Key = (ULONG) Od2Process->Pib.ProcessId;
     FileOffset = RtlConvertLongToLargeInteger(FILE_USE_FILE_POINTER_POSITION);
     NtHandle = hFileRecord->NtHandle;
     ReleaseFileLockShared(
@@ -4441,16 +4668,37 @@ Note:
                           RoutineName
                           #endif
                          );
+
+    fNPipe = ((hFileRecord->FileType == FILE_TYPE_NMPIPE) ||
+              (hFileRecord->FileType == FILE_TYPE_PIPE)) ? TRUE : FALSE;
+    if (fNPipe) {
+        Status = NtCreateEvent(&Event,
+                               EVENT_ALL_ACCESS,
+                               NULL,
+                               SynchronizationEvent,
+                               FALSE
+                              );
+        if (Status != STATUS_SUCCESS) {
+#if DBG
+            DbgPrint("[%d,%d] FileReadRoutine: Unable to NtCreateEvent(), Status 0x%x\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId(),
+                    Status);
+#endif
+            return( Status );
+        }
+    }
+
     do {
         Status = NtReadFile(NtHandle,
-                            (HANDLE) NULL,
+                            (fNPipe ? Event : (HANDLE)NULL),
                             (PIO_APC_ROUTINE) NULL,
                             (PVOID) NULL,
                             &IoStatus,
                             Buffer,
                             Length,
-                            &FileOffset,
-                            &Key
+                            (fNPipe ? NULL : &FileOffset),
+                            NULL
                             );
     } while (RetryIO(Status, NtHandle));
     //
@@ -4459,23 +4707,28 @@ Note:
     //  but no bytes transferred, otherwise, return an appropriate error.
     //
 
-    if (NT_SUCCESS(Status)) {
+    if (NT_SUCCESS(Status) && !(Status == STATUS_PENDING)) {
         *BytesRead = IoStatus.Information;
+        if (fNPipe) {
+            NtClose(Event);
+        }
         return NO_ERROR;
     } else if (Status == STATUS_END_OF_FILE) {
         *BytesRead = 0;
+        if (fNPipe) {
+            NtClose(Event);
+        }
         return NO_ERROR;
-    } else if ( (Status == STATUS_PENDING) &&
-                (
-                 (hFileRecord->FileType == FILE_TYPE_NMPIPE) ||
-                 (hFileRecord->FileType == FILE_TYPE_PIPE)
-                )
-              ) {
-        Status = NtWaitForSingleObject( NtHandle, TRUE, NULL );
+    } else if ((Status == STATUS_PENDING) && fNPipe) {
+        Status = Od2AlertableWaitForSingleObject(Event);
+        NtClose(Event);
         if (!NT_SUCCESS(Status)) {
 #if DBG
             IF_OD2_DEBUG( PIPES ) {
-                KdPrint(("ReadFileRoutine, Pipe, Status %x\n", Status));
+                KdPrint(("[%d,%d] ReadFileRoutine, Pipe, Status %x\n",
+                        Od2Process->Pib.ProcessId,
+                        Od2CurrentThreadId(),
+                        Status));
             }
 #endif
             *BytesRead = IoStatus.Information;
@@ -4484,19 +4737,27 @@ Note:
         else {
 #if DBG
             IF_OD2_DEBUG( PIPES ) {
-                KdPrint(("ReadFileRoutine, Pipe, Block completed successfully \n"));
+                KdPrint(("[%d,%d] ReadFileRoutine, Pipe, Block completed successfully \n",
+                        Od2Process->Pib.ProcessId,
+                        Od2CurrentThreadId()
+                        ));
             }
 #endif
             *BytesRead = IoStatus.Information;
             return NO_ERROR;
         }
     } else {
-        if ((hFileRecord->FileType == FILE_TYPE_NMPIPE) ||
-            (hFileRecord->FileType == FILE_TYPE_PIPE)) {
+        if (fNPipe) {
+            NtClose(Event);
+        }
+        if (fNPipe) {
              if  (Status == STATUS_PIPE_EMPTY) {
 #if DBG
                  IF_OD2_DEBUG( PIPES ) {
-                     KdPrint(("DosRead Named pipe: STATUS_PIPE_EMPTY\n"));
+                     KdPrint(("[%d,%d] DosRead Named pipe: STATUS_PIPE_EMPTY\n",
+                            Od2Process->Pib.ProcessId,
+                            Od2CurrentThreadId()
+                            ));
                  }
 #endif
 //                 *BytesRead = IoStatus.Information;
@@ -4506,7 +4767,10 @@ Note:
              else if (Status == STATUS_END_OF_FILE)  {
 #if DBG
                  IF_OD2_DEBUG( PIPES ) {
-                     KdPrint(("DosRead Named pipe: STATUS_END_OF_FILE\n"));
+                     KdPrint(("[%d,%d] DosRead Named pipe: STATUS_END_OF_FILE\n",
+                            Od2Process->Pib.ProcessId,
+                            Od2CurrentThreadId()
+                            ));
                  }
 #endif
                  *BytesRead = 0;
@@ -4515,16 +4779,26 @@ Note:
              else if (Status == STATUS_PIPE_BROKEN)  {
 #if DBG
                  IF_OD2_DEBUG( PIPES ) {
-                    KdPrint(("DosRead Named pipe: STATUS_PIPE_BROKEN\n"));
+                    KdPrint(("[%d,%d] DosRead Named pipe: STATUS_PIPE_BROKEN\n",
+                            Od2Process->Pib.ProcessId,
+                            Od2CurrentThreadId()
+                            ));
                  }
 #endif
                  *BytesRead = 0;
+                 //return ERROR_BROKEN_PIPE;
+                 //
+                 // Return NO_ERROR for compatibility (SQL server, setup).
+                 //
                  return NO_ERROR;
              }
              else if (Status == STATUS_PIPE_LISTENING) {
 #if DBG
                  IF_OD2_DEBUG( PIPES ) {
-                     KdPrint(("DosRead Named pipe: STATUS_PIPE_LISTEMING\n"));
+                     KdPrint(("[%d,%d] DosRead Named pipe: STATUS_PIPE_LISTEMING\n",
+                            Od2Process->Pib.ProcessId,
+                            Od2CurrentThreadId()
+                            ));
                  }
 #endif
                  *BytesRead = 0;
@@ -4533,7 +4807,10 @@ Note:
              else if (Status == STATUS_INVALID_PIPE_STATE) {
 #if DBG
                  IF_OD2_DEBUG( PIPES ) {
-                     KdPrint(("DosRead Named pipe: STATUS_INVALID_PIPE_STATE\n"));
+                     KdPrint(("[%d,%d] DosRead Named pipe: STATUS_INVALID_PIPE_STATE\n",
+                            Od2Process->Pib.ProcessId,
+                            Od2CurrentThreadId()
+                            ));
                  }
 #endif
                  *BytesRead = 0;
@@ -4542,7 +4819,10 @@ Note:
              else if (Status == STATUS_PIPE_DISCONNECTED) {
 #if DBG
                  IF_OD2_DEBUG( PIPES ) {
-                     KdPrint(("DosRead Named pipe: STATUS_PIPE_DISCONNECTED\n"));
+                     KdPrint(("[%d,%d] DosRead Named pipe: STATUS_PIPE_DISCONNECTED\n",
+                            Od2Process->Pib.ProcessId,
+                            Od2CurrentThreadId()
+                            ));
                  }
 #endif
                  *BytesRead = 0;
@@ -4551,25 +4831,34 @@ Note:
              else if (Status == STATUS_ACCESS_DENIED) {
 #if DBG
                  IF_OD2_DEBUG( PIPES ) {
-                     KdPrint(("DosRead Named pipe: STATUS_ACCESS_DENIED\n"));
+                     KdPrint(("[%d,%d] DosRead Named pipe: STATUS_ACCESS_DENIED\n",
+                            Od2Process->Pib.ProcessId,
+                            Od2CurrentThreadId()
+                            ));
                  }
 #endif
                  *BytesRead = 0;
                  return ERROR_ACCESS_DENIED;
-	     }
-	     else if (Status == STATUS_BUFFER_OVERFLOW) {
+             }
+             else if (Status == STATUS_BUFFER_OVERFLOW) {
 #if DBG
                  IF_OD2_DEBUG( PIPES ) {
-		     KdPrint(("DosRead Named pipe: STATUS_BUFFER_OVERFLOW\n"));
+                     KdPrint(("[%d,%d] DosRead Named pipe: STATUS_BUFFER_OVERFLOW\n",
+                            Od2Process->Pib.ProcessId,
+                            Od2CurrentThreadId()
+                            ));
                  }
 #endif
-		 *BytesRead = IoStatus.Information;
-		 return ERROR_MORE_DATA;
+                 *BytesRead = IoStatus.Information;
+                 return ERROR_MORE_DATA;
              }
              else {
 #if DBG
                 IF_OD2_DEBUG( PIPES ) {
-                    KdPrint(("DosRead on a named pipe - map status %lx to ERROR_ACCESS_DENIED\n", Status));
+                    KdPrint(("[%d,%d] DosRead on a named pipe - map status %lx to ERROR_ACCESS_DENIED\n",
+                            Od2Process->Pib.ProcessId,
+                            Od2CurrentThreadId(),
+                            Status));
                 }
 #endif
                 *BytesRead = 0;
@@ -4580,7 +4869,10 @@ Note:
             *BytesRead = 0;
 #if DBG
             IF_OD2_DEBUG( FILESYS ) {
-               KdPrint(("DosRead (not a named pipe) - returned status %lx\n", Status));
+               KdPrint(("[%d,%d] DosRead (not a named pipe) - returned status %lx\n",
+                        Od2Process->Pib.ProcessId,
+                        Od2CurrentThreadId(),
+                        Status));
             }
 #endif
             return (Or2MapNtStatusToOs2Error(Status, ERROR_ACCESS_DENIED));
@@ -4639,7 +4931,10 @@ Return Value:
 
 #if DBG
     IF_OD2_DEBUG( FILESYS ) {
-        KdPrint(("handle is %ld\n",FileHandle));
+        KdPrint(("[%d,%d] DosRead: handle is %ld\n",
+                Od2Process->Pib.ProcessId,
+                Od2CurrentThreadId(),
+                FileHandle));
     }
 #endif
 
@@ -4685,8 +4980,10 @@ Return Value:
     IF_OD2_DEBUG( PIPES ) {
         if ((hFileRecord->FileType == FILE_TYPE_NMPIPE) ||
             (hFileRecord->FileType == FILE_TYPE_PIPE)) {
-                KdPrint(("DosRead on Named pipe: Handle %ld Status %ld Bytes Requested %d Bytes Read %d\n",
-                   FileHandle, RetCode, Length, *BytesRead));
+                KdPrint(("[%d,%d] DosRead on Named pipe: Handle %ld Status %ld Bytes Requested %d Bytes Read %d\n",
+                        Od2Process->Pib.ProcessId,
+                        Od2CurrentThreadId(),
+                        FileHandle, RetCode, Length, *BytesRead));
         }
     }
 #endif
@@ -4728,8 +5025,9 @@ Return Value:
     NTSTATUS Status;
     IO_STATUS_BLOCK IoStatus;
     LARGE_INTEGER FileOffset;
-    ULONG Key;
     HANDLE NtHandle;
+    HANDLE Event;
+    BOOLEAN fNPipe;
     #if DBG
     PSZ RoutineName;
     RoutineName = "FileWriteRoutine";
@@ -4738,7 +5036,6 @@ Return Value:
 
     // BUGBUG need to check for alignment and probe validity
 
-    Key = (ULONG) Od2Process->Pib.ProcessId;
     FileOffset = RtlConvertLongToLargeInteger(FILE_USE_FILE_POINTER_POSITION);
     NtHandle = hFileRecord->NtHandle;
     ReleaseFileLockShared(
@@ -4746,16 +5043,37 @@ Return Value:
                           RoutineName
                           #endif
                          );
+
+    fNPipe = ((hFileRecord->FileType == FILE_TYPE_NMPIPE) ||
+              (hFileRecord->FileType == FILE_TYPE_PIPE)) ? TRUE : FALSE;
+    if (fNPipe) {
+        Status = NtCreateEvent(&Event,
+                               EVENT_ALL_ACCESS,
+                               NULL,
+                               SynchronizationEvent,
+                               FALSE
+                              );
+        if (Status != STATUS_SUCCESS) {
+#if DBG
+            DbgPrint("[%d,%d] FileWriteRoutine: Unable to NtCreateEvent(), Status 0x%x\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId(),
+                    Status);
+#endif
+            return( Status );
+        }
+    }
+
     do {
         Status = NtWriteFile(NtHandle,
-                            (HANDLE) NULL,
+                            (fNPipe ? Event : (HANDLE)NULL),
                             (PIO_APC_ROUTINE) NULL,
                             (PVOID) NULL,
                             &IoStatus,
                             Buffer,
                             Length,
-                            &FileOffset,
-                            &Key
+                            (fNPipe ? NULL : &FileOffset),
+                            NULL
                             );
     } while (RetryIO(Status, NtHandle));
     //
@@ -4765,29 +5083,37 @@ Return Value:
     //  and return that error.
     //
 
-    if (NT_SUCCESS(Status)) {
+    if (NT_SUCCESS(Status) && !(Status == STATUS_PENDING)) {
         *BytesWritten = IoStatus.Information;
         if (!NT_SUCCESS(IoStatus.Status)){
 #if DBG
-            KdPrint(("WriteFileRoutine, Pipe, Status SUCCESS, IoStatus %lx\n", IoStatus.Status));
+            KdPrint(("[%d,%d] WriteFileRoutine, Pipe, Status SUCCESS, IoStatus %lx\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId(),
+                    IoStatus.Status));
 #endif
+        }
+        if (fNPipe) {
+            NtClose(Event);
         }
         return NO_ERROR;
     } else if (Status == STATUS_DISK_FULL) {
         *BytesWritten = 0;
+        if (fNPipe) {
+            NtClose(Event);
+        }
         return NO_ERROR;
-    } else if ( (Status == STATUS_PENDING) &&
-               (
-                (hFileRecord->FileType == FILE_TYPE_NMPIPE) ||
-                (hFileRecord->FileType == FILE_TYPE_PIPE)
-               )
-              ) {
-        Status = NtWaitForSingleObject( NtHandle, TRUE, NULL );
+    } else if ((Status == STATUS_PENDING) && fNPipe) {
+        Status = Od2AlertableWaitForSingleObject(Event);
+        NtClose(Event);
         if (!NT_SUCCESS(Status)) {
             if (Status == STATUS_PIPE_DISCONNECTED) {
 #if DBG
                  IF_OD2_DEBUG( PIPES ) {
-                     KdPrint(("DosWrite Named pipe: STATUS_PIPE_DISCONNECTED\n"));
+                     KdPrint(("[%d,%d] DosWrite Named pipe: STATUS_PIPE_DISCONNECTED\n",
+                            Od2Process->Pib.ProcessId,
+                            Od2CurrentThreadId()
+                            ));
                  }
 #endif
                  *BytesWritten = 0;
@@ -4796,7 +5122,10 @@ Return Value:
             else {
 #if DBG
                 IF_OD2_DEBUG( PIPES ) {
-                    KdPrint(("WriteFileRoutine, Pipe, Status %x\n", Status));
+                    KdPrint(("[%d,%d] WriteFileRoutine, Pipe, Status %x\n",
+                            Od2Process->Pib.ProcessId,
+                            Od2CurrentThreadId(),
+                            Status));
                 }
 #endif
                 *BytesWritten = 0;
@@ -4806,19 +5135,27 @@ Return Value:
         else {
 #if DBG
             IF_OD2_DEBUG( PIPES ) {
-                KdPrint(("WriteFileRoutine, Pipe, Blocking succeeded\n"));
+                KdPrint(("[%d,%d] WriteFileRoutine, Pipe, Blocking succeeded\n",
+                        Od2Process->Pib.ProcessId,
+                        Od2CurrentThreadId()
+                        ));
             }
 #endif
             *BytesWritten = IoStatus.Information;
             return NO_ERROR;
         }
     } else {
-        if ((hFileRecord->FileType == FILE_TYPE_NMPIPE) ||
-            (hFileRecord->FileType == FILE_TYPE_PIPE)) {
+        if (fNPipe) {
+            NtClose(Event);
+        }
+        if (fNPipe) {
              if (Status == STATUS_PIPE_EMPTY) {
 #if DBG
                 IF_OD2_DEBUG( PIPES ) {
-                    KdPrint(("DosWrite Named pipe: STATUS_PIPE_EMPTY\n"));
+                    KdPrint(("[%d,%d] DosWrite Named pipe: STATUS_PIPE_EMPTY\n",
+                            Od2Process->Pib.ProcessId,
+                            Od2CurrentThreadId()
+                            ));
                 }
 #endif
                  *BytesWritten = IoStatus.Information;
@@ -4827,16 +5164,10 @@ Return Value:
              if (Status == STATUS_END_OF_FILE) {
 #if DBG
                 IF_OD2_DEBUG( PIPES ) {
-                    KdPrint(("DosWrite Named pipe: STATUS_END_OF_FILE\n"));
-                }
-#endif
-                 *BytesWritten = 0;
-                 return NO_ERROR;
-             }
-             if (Status == STATUS_PIPE_BROKEN) {
-#if DBG
-                IF_OD2_DEBUG( PIPES ) {
-                    KdPrint(("DosWrite Named pipe: STATUS_PIPE_BROKEN\n"));
+                    KdPrint(("[%d,%d] DosWrite Named pipe: STATUS_END_OF_FILE\n",
+                            Od2Process->Pib.ProcessId,
+                            Od2CurrentThreadId()
+                            ));
                 }
 #endif
                  *BytesWritten = 0;
@@ -4845,7 +5176,10 @@ Return Value:
              if (Status == STATUS_PIPE_DISCONNECTED) {
 #if DBG
                  IF_OD2_DEBUG( PIPES ) {
-                     KdPrint(("DosWrite Named pipe: STATUS_PIPE_DISCONNECTED\n"));
+                     KdPrint(("[%d,%d] DosWrite Named pipe: STATUS_PIPE_DISCONNECTED\n",
+                            Od2Process->Pib.ProcessId,
+                            Od2CurrentThreadId()
+                            ));
                  }
 #endif
                  *BytesWritten = 0;
@@ -4854,16 +5188,26 @@ Return Value:
              if (Status == STATUS_PIPE_BROKEN) {
 #if DBG
                 IF_OD2_DEBUG( PIPES ) {
-                    KdPrint(("DosWrite Named pipe: STATUS_PIPE_BROKEN\n"));
+                    KdPrint(("[%d,%d] DosWrite Named pipe: STATUS_PIPE_BROKEN\n",
+                            Od2Process->Pib.ProcessId,
+                            Od2CurrentThreadId()
+                            ));
                 }
 #endif
                  *BytesWritten = 0;
-                 return ERROR_BROKEN_PIPE;
+                 //return ERROR_BROKEN_PIPE;
+                 //
+                 // Return NO_ERROR for compatibility (SQL server, setup).
+                 //
+                 return NO_ERROR;
              }
              if (Status == STATUS_PIPE_CLOSING) {
 #if DBG
                 IF_OD2_DEBUG( PIPES ) {
-                    KdPrint(("DosWrite Named pipe: STATUS_PIPE_CLOSING\n"));
+                    KdPrint(("[%d,%d] DosWrite Named pipe: STATUS_PIPE_CLOSING\n",
+                            Od2Process->Pib.ProcessId,
+                            Od2CurrentThreadId()
+                            ));
                 }
 #endif
                  *BytesWritten = 0;
@@ -4872,7 +5216,10 @@ Return Value:
              else {
 #if DBG
                 IF_OD2_DEBUG( PIPES ) {
-                    KdPrint(("WriteFileRoutine, Pipe, Status %x\n", Status));
+                    KdPrint(("[%d,%d] WriteFileRoutine, Pipe, Status %x\n",
+                            Od2Process->Pib.ProcessId,
+                            Od2CurrentThreadId(),
+                            Status));
                 }
 #endif
                 *BytesWritten = 0;
@@ -5062,8 +5409,10 @@ Note:
 #if DBG
     IF_OD2_DEBUG(VIO_FILE)
     {
-        KdPrint(("ScreenWriteRoutine: Length %lu, Handle %p\n",
-            Length, hFileRecord ));
+        KdPrint(("[%d,%d] ScreenWriteRoutine: Length %lu, Handle %p\n",
+                Od2Process->Pib.ProcessId,
+                Od2CurrentThreadId(),
+                Length, hFileRecord ));
     }
 #endif
 
@@ -5135,7 +5484,10 @@ Return Value:
                          );
 #if DBG
     IF_OD2_DEBUG( FILESYS ) {
-        KdPrint(("Entering DosWrite with handle %ld\n",FileHandle));
+        KdPrint(("[%d,%d] Entering DosWrite with handle %ld\n",
+                Od2Process->Pib.ProcessId,
+                Od2CurrentThreadId(),
+                FileHandle));
     }
 #endif
 
@@ -5181,8 +5533,10 @@ Return Value:
     IF_OD2_DEBUG( PIPES ) {
         if ((hFileRecord->FileType == FILE_TYPE_NMPIPE) ||
             (hFileRecord->FileType == FILE_TYPE_PIPE)) {
-            KdPrint(("DosWrite on Named pipe: Handle %ld Status %ld Bytes Requested %d Bytes Written %d\n",
-                   FileHandle, RetCode, Length, *BytesWritten));
+            KdPrint(("[%d,%d] DosWrite on Named pipe: Handle %ld Status %ld Bytes Requested %d Bytes Written %d\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId(),
+                    FileHandle, RetCode, Length, *BytesWritten));
         }
     }
 #endif
@@ -5438,7 +5792,11 @@ Return Value:
 
 #if DBG
     IF_OD2_DEBUG( FILESYS ) {
-        KdPrint(("*** entering DosSetFilePtr ***\n"));
+        KdPrint(("[%d,%d] *** entering DosSetFilePtr , handle is %d ***\n",
+                Od2Process->Pib.ProcessId,
+                Od2CurrentThreadId(),
+                FileHandle
+                ));
     }
 #endif
     AcquireFileLockShared(
@@ -5538,7 +5896,10 @@ Return Value:
     }
 #if DBG
     IF_OD2_DEBUG( FILESYS ) {
-        KdPrint(("new position is %ld\n",NewPosition));
+        KdPrint(("[%d,%d] new position is %ld\n",
+                Od2Process->Pib.ProcessId,
+                Od2CurrentThreadId(),
+                NewPosition));
     }
 #endif
     if (NewPosition == 0) {
@@ -5554,7 +5915,10 @@ Return Value:
     }
 #if DBG
     IF_OD2_DEBUG( FILESYS ) {
-        KdPrint(("Current Byte Low = %ld  Current Byte High = %ld\n",PositionInfo.CurrentByteOffset.LowPart,PositionInfo.CurrentByteOffset.HighPart));
+        KdPrint(("[%d,%d] Current Byte Low = %ld  Current Byte High = %ld\n",
+                Od2Process->Pib.ProcessId,
+                Od2CurrentThreadId(),
+                PositionInfo.CurrentByteOffset.LowPart,PositionInfo.CurrentByteOffset.HighPart));
     }
 #endif
     do {
@@ -5621,18 +5985,21 @@ Return Value:
     #endif
 
     //
-    // OS/2 file locks are associated with a particular process, not a
-    // particular file handle.  They are shared by duped handles within
-    // a process, but not by handles inherited via DosExecPgm.  to associate
-    // a lock with a process in NT, we pass in a key.  when an I/O call is
-    // made, we also pass in a key.  if the I/O overlaps with a locked region
-    // and the keys don't match, the I/O fails.  we use the NT process id
-    // as the key.
+    // The usage of Key: A combination of KEY == NULL and EXCLUSIVE == TRUE
+    // in NtLockFile() let us NtReadFile()/NtWriteFile() on that
+    // region with KEY == NULL from the same process but not from
+    // another process. A combination of KEY == pid and EXCLUSIVE == FALSE
+    // in NtLockFile() let us NtReadFile() with KEY == NULL from every
+    // process, and doesn't let us NtWriteFile() with KEY == NULL from any
+    // process, incuding the owner of the locked region.
     //
 
 #if DBG
     IF_OD2_DEBUG( FILESYS ) {
-        KdPrint(("*** entering DosFileLocks ***\n"));
+        KdPrint(("[%d,%d] *** entering DosFileLocks ***\n",
+                Od2Process->Pib.ProcessId,
+                Od2CurrentThreadId()
+                ));
     }
 #endif
     AcquireFileLockShared(      // prevent file handle from going away
@@ -5685,8 +6052,16 @@ Return Value:
                               &IoStatus,
                               &FileOffset,
                               &FileLength,
-                              Key
+                              (ULONG) NULL  // try it once with key == NULL
                              );
+        if (!(NT_SUCCESS(Status))) {
+            Status = NtUnlockFile(NtHandle,
+                                  &IoStatus,
+                                  &FileOffset,
+                                  &FileLength,
+                                  Key       // try it again with key == pid
+                                 );
+        }
         if (!(NT_SUCCESS(Status))) {
             return (Or2MapNtStatusToOs2Error(Status, ERROR_LOCK_VIOLATION));
         }
@@ -5709,7 +6084,7 @@ Return Value:
                             &IoStatus,
                             &FileOffset,
                             &FileLength,
-                            Key,
+                            (ULONG)NULL,
                             (BOOLEAN)TRUE,
                             (BOOLEAN)TRUE
                            );
@@ -5789,17 +6164,15 @@ Note:
     NTSTATUS Status;
     IO_STATUS_BLOCK IoStatus, IoStatus2;
     LARGE_INTEGER FileOffset;
-    ULONG Key;
     HANDLE NtHandle;
     HANDLE ComReadEvent;
     #if DBG
     PSZ RoutineName;
-    RoutineName = "FileReadRoutine";
+    RoutineName = "ComReadRoutine";
     #endif
 
     // BUGBUG need to check for alignment and probe validity
 
-    Key = (ULONG) Od2Process->Pib.ProcessId;
     FileOffset = RtlConvertLongToLargeInteger(0);
     NtHandle = hFileRecord->NtHandle;
     ComReadEvent = hFileRecord->NtAsyncReadEvent;
@@ -5821,7 +6194,7 @@ Note:
                         Buffer,
                         Length,
                         &FileOffset,
-                        &Key
+                        NULL
                         );
     //
     //  If the operation was successful, return the total number of bytes
@@ -5836,10 +6209,13 @@ Note:
         *BytesRead = 0;
         return NO_ERROR;
     } else if (Status == STATUS_PENDING) {
-        Status = NtWaitForSingleObject( ComReadEvent, TRUE, NULL );
+        Status = Od2AlertableWaitForSingleObject(ComReadEvent);
         if (!NT_SUCCESS(Status)) {
 #if DBG
-            KdPrint(("OS2DLL: COM Read error: Status = %x\n", Status));
+            KdPrint(("[%d,%d] OS2DLL: COM Read error: Status = %x\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId(),
+                    Status));
 #endif
             *BytesRead = IoStatus.Information;
             return ERROR_ACCESS_DENIED;
@@ -5854,7 +6230,10 @@ Note:
 
                 if (!NT_SUCCESS(Status)) {
 #if DBG
-                    KdPrint(("OS2DLL: COM Cancel Read Io error: Status = %x\n", Status));
+                    KdPrint(("[%d,%d] OS2DLL: COM Cancel Read Io error: Status = %x\n",
+                            Od2Process->Pib.ProcessId,
+                            Od2CurrentThreadId(),
+                            Status));
 #endif
                     *BytesRead = IoStatus.Information;
                     return ERROR_ACCESS_DENIED;
@@ -5863,11 +6242,14 @@ Note:
 
                     do {
 
-                        Status = NtWaitForSingleObject( ComReadEvent, TRUE, NULL );
+                        Status = Od2AlertableWaitForSingleObject(ComReadEvent);
 
                         if (!NT_SUCCESS(Status)) {
 #if DBG
-                            KdPrint(("OS2DLL: COM Read error (2): Status = %x\n", Status));
+                            KdPrint(("[%d,%d] OS2DLL: COM Read error (2): Status = %x\n",
+                                    Od2Process->Pib.ProcessId,
+                                    Od2CurrentThreadId(),
+                                    Status));
 #endif
                             *BytesRead = IoStatus.Information;
                             return ERROR_ACCESS_DENIED;
@@ -5921,18 +6303,16 @@ Return Value:
     NTSTATUS Status;
     IO_STATUS_BLOCK IoStatus;
     LARGE_INTEGER FileOffset;
-    ULONG Key;
     HANDLE NtHandle;
     HANDLE ComWriteEvent;
     #if DBG
     PSZ RoutineName;
-    RoutineName = "FileWriteRoutine";
+    RoutineName = "ComWriteRoutine";
     #endif
 
 
     // BUGBUG need to check for alignment and probe validity
 
-    Key = (ULONG) Od2Process->Pib.ProcessId;
     FileOffset = RtlConvertLongToLargeInteger(0);
     NtHandle = hFileRecord->NtHandle;
     ComWriteEvent = hFileRecord->NtAsyncWriteEvent;
@@ -5950,7 +6330,7 @@ Return Value:
                         Buffer,
                         Length,
                         &FileOffset,
-                        &Key
+                        NULL
                         );
     //
     //  If the write was successful, then return the correct number of bytes to
@@ -5963,12 +6343,15 @@ Return Value:
         *BytesWritten = IoStatus.Information;
         if (!NT_SUCCESS(IoStatus.Status)){
 #if DBG
-            KdPrint(("ComWriteRoutine, Status SUCCESS, IoStatus %lx\n", IoStatus.Status));
+            KdPrint(("[%d,%d] ComWriteRoutine, Status SUCCESS, IoStatus %lx\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId(),
+                    IoStatus.Status));
 #endif
         }
         return NO_ERROR;
     } else if (Status == STATUS_PENDING) {
-        Status = NtWaitForSingleObject( ComWriteEvent, TRUE, NULL );
+        Status = Od2AlertableWaitForSingleObject(ComWriteEvent);
         if (!NT_SUCCESS(Status)) {
             *BytesWritten = 0;
             return ERROR_ACCESS_DENIED;

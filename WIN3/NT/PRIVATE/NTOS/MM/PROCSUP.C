@@ -18,18 +18,36 @@ Revision History:
 
 --*/
 
+
 #include "mi.h"
 
 #define MM_PROCESS_COMMIT_CHARGE 3
 
+#define MM_PROCESS_CREATE_CHARGE 5
+
 #define HEADER_FILE
-#include "kxmips.h"
 
 extern ULONG MmSharedCommit;
+extern ULONG MmHeapSegmentReserve;
+extern ULONG MmHeapSegmentCommit;
+extern ULONG MmHeapDeCommitTotalFreeThreshold;
+extern ULONG MmHeapDeCommitFreeBlockThreshold;
+extern ULONG MmProductType;
+
+extern ULONG MmWorkingSetReductionMax;
+
+extern MM_SYSTEMSIZE MmSystemSize;
 
 ULONG MmProcessCommit;
 
+ULONG MmKernelStackPages;
+ULONG MmKernelStackResident;
+ULONG MmLargeStacks;
+ULONG MmSmallStacks;
+
 MMPTE KernelDemandZeroPte = {MM_KERNEL_DEMAND_ZERO_PTE};
+
+CCHAR MmRotatingUniprocessorNumber;
 
 ULONG
 MiMakeOutswappedPageResident (
@@ -40,16 +58,7 @@ MiMakeOutswappedPageResident (
     OUT PULONG ActiveTransition
     );
 
-VOID
-MiVerifyReferenceCounts (
-    IN ULONG PdePage
-    );
 
-
-extern KSPIN_LOCK KiDispatcherLock;
-
-#define CODE_START 0x80000000
-#define CODE_END   0x80ffffff
 
 PVOID
 MiCreatePebOrTeb (
@@ -137,7 +146,6 @@ Environment:
     PEPROCESS CurrentProcess;
     KIRQL OldIrql;
     PMMPFN Pfn1;
-    LARGE_INTEGER TickCount;
     ULONG Color;
 
     //
@@ -158,8 +166,7 @@ Environment:
         return FALSE;
     }
 
-    KeQueryTickCount(&TickCount);
-    NewProcess->NextPageColor = (UCHAR)TickCount.LowPart;
+    NewProcess->NextPageColor = (USHORT)(RtlRandom(&MmProcessColorSeed));
     KeInitializeSpinLock (&NewProcess->HyperSpaceLock);
     Color =  MI_PAGE_COLOR_PTE_PROCESS (PDE_BASE,
                                         &CurrentProcess->NextPageColor);
@@ -188,7 +195,6 @@ Environment:
     MmProcessCommit += MM_PROCESS_COMMIT_CHARGE;
 
     MiEnsureAvailablePageOrWait (CurrentProcess, NULL);
-
 
     PageDirectoryIndex = MiRemoveZeroPageIfAny (Color);
     if (PageDirectoryIndex == 0) {
@@ -252,9 +258,7 @@ Environment:
 
     Pfn1 = MI_PFN_ELEMENT (PageDirectoryIndex);
 
-#ifdef COLORED_PAGES
     ASSERT (Pfn1->u3.e1.PageColor == 0);
-#endif
 
     Pfn1->PteAddress = (PMMPTE)PDE_BASE;
 
@@ -262,8 +266,8 @@ Environment:
     TempPte = ValidPdePde;
 
     TempPte.u.Hard.PageFrameNumber = HyperSpaceIndex;
+    MI_SET_GLOBAL_STATE (TempPte, 0);
 #ifdef R4000
-    TempPte.u.Hard.Global = 0;
     TempPte.u.Hard.Write = 1;
 #endif
 
@@ -287,32 +291,50 @@ Environment:
     //
 
 #if defined(_MIPS_) || defined(_ALPHA_) || defined(_PPC_)
+
     PointerFillPte = &PointerPte[MiGetPdeOffset(MM_SYSTEM_SPACE_START)];
     CurrentAddressSpacePde = MiGetPdeAddress(MM_SYSTEM_SPACE_START);
     RtlCopyMemory (PointerFillPte,
                    CurrentAddressSpacePde,
                    ((1 + (MiGetPdeAddress(MM_SYSTEM_SPACE_END) -
                       MiGetPdeAddress(MM_SYSTEM_SPACE_START))) * sizeof(MMPTE)));
-#else
-    LastPte = &PointerPte[MiGetPdeOffset(CODE_END)];
+
+#if defined(MM_SYSTEM_CACHE_AND_POOL_DISJOINT)
+    PointerFillPte = &PointerPte[MiGetPdeOffset(MM_SYSTEM_CACHE_WORKING_SET)];
+    CurrentAddressSpacePde = MiGetPdeAddress(MM_SYSTEM_CACHE_WORKING_SET);
+    RtlCopyMemory (PointerFillPte,
+                   CurrentAddressSpacePde,
+                   (((1 + (MiGetPdeAddress(MM_SYSTEM_CACHE_END) -
+                      CurrentAddressSpacePde))) * sizeof(MMPTE)));
+#endif
+
+#if defined(MM_BOOT_CODE_PAGEABLE)
+    PointerFillPte = &PointerPte[MiGetPdeOffset(MM_BOOT_CODE_START)];
+    CurrentAddressSpacePde = MiGetPdeAddress(MM_BOOT_CODE_START);
+    RtlCopyMemory (PointerFillPte,
+                   CurrentAddressSpacePde,
+                   ((1 + (MiGetPdeAddress(MM_BOOT_CODE_END) -
+                      MiGetPdeAddress(MM_BOOT_CODE_START))) * sizeof(MMPTE)));
+#endif
+
+#else // the following is for x86 only
+
     PointerFillPte = &PointerPte[MiGetPdeOffset(CODE_START)];
     CurrentAddressSpacePde = MiGetPdeAddress(CODE_START);
 
-    while (PointerFillPte <= LastPte) {
-        *PointerFillPte = *CurrentAddressSpacePde;
-        PointerFillPte++;
-        CurrentAddressSpacePde++;
-    }
+    RtlCopyMemory (PointerFillPte,
+                   CurrentAddressSpacePde,
+                   (((1 + CODE_END) - CODE_START) / MM_VA_MAPPED_BY_PDE));
+
 
     LastPte = &PointerPte[MiGetPdeOffset(NON_PAGED_SYSTEM_END)];
     PointerFillPte = &PointerPte[MiGetPdeOffset(MmNonPagedSystemStart)];
     CurrentAddressSpacePde = MiGetPdeAddress(MmNonPagedSystemStart);
 
-    while (PointerFillPte <= LastPte) {
-        *PointerFillPte = *CurrentAddressSpacePde;
-        PointerFillPte++;
-        CurrentAddressSpacePde++;
-    }
+    RtlCopyMemory (PointerFillPte,
+                   CurrentAddressSpacePde,
+                   ((1 + (MiGetPdeAddress(NON_PAGED_SYSTEM_END) -
+                      CurrentAddressSpacePde))) * sizeof(MMPTE));
 
     //
     // Map in the system cache page table pages.
@@ -322,12 +344,13 @@ Environment:
     PointerFillPte = &PointerPte[MiGetPdeOffset(MM_SYSTEM_CACHE_WORKING_SET)];
     CurrentAddressSpacePde = MiGetPdeAddress(MM_SYSTEM_CACHE_WORKING_SET);
 
-    while (PointerFillPte <= LastPte) {
-        *PointerFillPte = *CurrentAddressSpacePde;
-        PointerFillPte++;
-        CurrentAddressSpacePde++;
-    }
-#endif // _MIPS_ || _ALPHA_ || _PPC_
+    RtlCopyMemory (PointerFillPte,
+                   CurrentAddressSpacePde,
+                   ((1 + (MiGetPdeAddress(MmSystemCacheEnd) -
+                      CurrentAddressSpacePde))) * sizeof(MMPTE));
+
+
+#endif // else _MIPS_ || _ALPHA_ || _PPC_
 
     MiUnmapPageInHyperSpace (OldIrql);
 
@@ -401,12 +424,6 @@ Environment:
     KeAttachProcess (&ProcessToInitialize->Pcb);
     ProcessToInitialize->AddressSpaceInitialized = TRUE;
 
-#if DBG
-    if (NtGlobalFlag & FLG_TRACE_PAGING_INFO) {
-        DbgPrint("$$$PROCESS CREATE: %lx\n", ProcessToInitialize);
-    }
-#endif
-
     ExInitializeFastMutex(&ProcessToInitialize->AddressCreationLock);
 
     ExInitializeFastMutex(&ProcessToInitialize->WorkingSetLock);
@@ -456,7 +473,7 @@ Environment:
                        MM_READWRITE,
                        PointerPte );
 
-    TempPte.u.Hard.Dirty = MM_PTE_DIRTY;
+    MI_SET_PTE_DIRTY (TempPte);
     *PointerPte = TempPte;
 
     MiInitializeWorkingSetList (ProcessToInitialize);
@@ -466,42 +483,82 @@ Environment:
     //
 
     if (SectionToMap != (PSECTION)NULL) {
+#if DEVL
+        UNICODE_STRING UnicodeString;
+        ULONG n;
+        PWSTR Src;
+        PCHAR Dst;
+
+        UnicodeString = ((PSECTION)SectionToMap)->Segment->ControlArea->FilePointer->FileName;
+        Src = (PWSTR)((PCHAR)UnicodeString.Buffer + UnicodeString.Length);
+        n = 0;
+        if (UnicodeString.Buffer != NULL) {
+            while (Src > UnicodeString.Buffer) {
+                if (*--Src == OBJ_NAME_PATH_SEPARATOR) {
+                    Src++;
+                    break;
+                }
+                else {
+                    n += 1;
+                }
+            }
+        }
+        Dst = ProcessToInitialize->ImageFileName;
+        if (n >= sizeof( ProcessToInitialize->ImageFileName )) {
+            n = sizeof( ProcessToInitialize->ImageFileName ) - 1;
+        }
+
+        while (n--) {
+            *Dst++ = (UCHAR)*Src++;
+        }
+        *Dst = '\0';
+#endif // DEVL
+
+        ProcessToInitialize->SubSystemMajorVersion = (UCHAR)((PSECTION)SectionToMap)->Segment->ImageInformation.SubSystemMajorVersion;
+        ProcessToInitialize->SubSystemMinorVersion = (UCHAR)((PSECTION)SectionToMap)->Segment->ImageInformation.SubSystemMinorVersion;
 
         //
         // Map the specified section into the address space of the
-        // process.
+        // process but only if it is an image section
         //
 
-        BaseAddress = NULL;
-        ViewSize = 0;
-        ZERO_LARGE (SectionOffset);
+        if (!((PSECTION)SectionToMap)->u.Flags.Image) {
+            Status = STATUS_SECTION_NOT_IMAGE;
+        } else {
+            BaseAddress = NULL;
+            ViewSize = 0;
+            ZERO_LARGE (SectionOffset);
 
-        Status = MmMapViewOfSection ( (PSECTION)SectionToMap,
-                                      ProcessToInitialize,
-                                      &BaseAddress,
-                                      0,                // ZeroBits,
-                                      0,                // CommitSize,
-                                      &SectionOffset,   //SectionOffset,
-                                      &ViewSize,
-                                      ViewShare,        //InheritDisposition,
-                                      0,                //allocation type
-                                      PAGE_READWRITE    // Protect
-                                      );
+            Status = MmMapViewOfSection ( (PSECTION)SectionToMap,
+                                          ProcessToInitialize,
+                                          &BaseAddress,
+                                          0,                // ZeroBits,
+                                          0,                // CommitSize,
+                                          &SectionOffset,   //SectionOffset,
+                                          &ViewSize,
+                                          ViewShare,        //InheritDisposition,
+                                          0,                //allocation type
+                                          PAGE_READWRITE    // Protect
+                                          );
 
-        ProcessToInitialize->SectionBaseAddress = BaseAddress;
+            ProcessToInitialize->SectionBaseAddress = BaseAddress;
 
 #if DBG
-        if (MmDebug & 2) {
-            DbgPrint("mapped image section vads\n");
-            VadTreeWalk(ProcessToInitialize->VadRoot);
-        }
+            if (MmDebug & MM_DBG_PTE_UPDATE) {
+                DbgPrint("mapped image section vads\n");
+                VadTreeWalk(ProcessToInitialize->VadRoot);
+            }
 #endif //DBG
+        }
 
         KeDetachProcess ();
         return Status;
     }
 
     if (ProcessToClone != (PEPROCESS)NULL) {
+#if DEVL
+        strcpy( ProcessToInitialize->ImageFileName, ProcessToClone->ImageFileName );
+#endif // DEVL
 
         //
         // Clone the address space of the specified process.
@@ -568,7 +625,6 @@ Environment:
     //
 
     MiReturnCommitment (MM_PROCESS_COMMIT_CHARGE);
-    MmProcessCommit -= MM_PROCESS_COMMIT_CHARGE;
     ASSERT (Process->CommitCharge == 0);
 
     //
@@ -578,15 +634,16 @@ Environment:
     Pfn1 = MI_PFN_ELEMENT (Process->WorkingSetPage);
 
     LOCK_PFN (OldIrql);
+    MmProcessCommit -= MM_PROCESS_COMMIT_CHARGE;
 
     if (Process->AddressSpaceInitialized) {
 
         MI_SET_PFN_DELETED (Pfn1);
 
-        MiDecrementShareAndValidCount (Pfn1->u3.e1.PteFrame);
+        MiDecrementShareAndValidCount (Pfn1->PteFrame);
         MiDecrementShareCountOnly (Process->WorkingSetPage);
 
-        ASSERT ((Pfn1->ReferenceCount == 0) || (Pfn1->u3.e1.WriteInProgress));
+        ASSERT ((Pfn1->u3.e2.ReferenceCount == 0) || (Pfn1->u3.e1.WriteInProgress));
 
         //
         // Remove hyper space page table page from deleted process.
@@ -599,9 +656,9 @@ Environment:
 
         MI_SET_PFN_DELETED (Pfn1);
 
-        MiDecrementShareAndValidCount (Pfn1->u3.e1.PteFrame);
+        MiDecrementShareAndValidCount (Pfn1->PteFrame);
         MiDecrementShareCountOnly (PageFrameIndex);
-        ASSERT ((Pfn1->ReferenceCount == 0) || (Pfn1->u3.e1.WriteInProgress));
+        ASSERT ((Pfn1->u3.e2.ReferenceCount == 0) || (Pfn1->u3.e1.WriteInProgress));
 
         //
         // Remove page directory page.
@@ -617,16 +674,7 @@ Environment:
         MiDecrementShareAndValidCount (PageFrameIndex);
         MiDecrementShareCountOnly (PageFrameIndex);
 
-        ASSERT ((Pfn1->ReferenceCount == 0) || (Pfn1->u3.e1.WriteInProgress));
-        ASSERT (Pfn1->ValidPteCount == 0);
-
-        //
-        // TEMPORARY
-        //
-
-        Pfn1->ValidPteCount = 0;
-
-        // END OF TEMPORARY
+        ASSERT ((Pfn1->u3.e2.ReferenceCount == 0) || (Pfn1->u3.e1.WriteInProgress));
 
     } else {
 
@@ -645,9 +693,8 @@ Environment:
             ((PHARDWARE_PTE)(&(Process->Pcb.DirectoryTableBase[0])))->PageFrameNumber);
     }
 
-#ifdef _PPC_
-    KeFlushEntireTb (TRUE, TRUE);
-#endif // _PPC_
+    MmResidentAvailablePages += MM_PROCESS_CREATE_CHARGE;
+
     UNLOCK_PFN (OldIrql);
 
     //
@@ -691,6 +738,7 @@ Environment:
     PMMVAD Vad;
     KEVENT Event;
     KIRQL OldIrql;
+    KIRQL OldIrql2;
     PMMPTE PointerPte;
     PVOID TempVa;
     LONG AboveWsMin;
@@ -714,7 +762,7 @@ Environment:
     // is on it.
     //
 
-    LOCK_PFN (OldIrql);
+    LOCK_EXPANSION (OldIrql);
 
     if (Process->Vm.WorkingSetExpansionLinks.Flink == MM_NO_WS_EXPANSION) {
 
@@ -739,13 +787,15 @@ Environment:
             // Release the mutex and wait for the event.
             //
 
-            UNLOCK_PFN_AND_THEN_WAIT (OldIrql);
+            KeEnterCriticalRegion();
+            UNLOCK_EXPANSION_AND_THEN_WAIT (OldIrql);
 
             KeWaitForSingleObject(&Event,
                                   WrVirtualMemory,
                                   KernelMode,
                                   FALSE,
                                   (PLARGE_INTEGER)NULL);
+            KeLeaveCriticalRegion();
 
         } else {
 
@@ -753,7 +803,7 @@ Environment:
             // No expansion is allowed already, therefore it is not on the list.
             //
 
-            UNLOCK_PFN (OldIrql);
+            UNLOCK_EXPANSION (OldIrql);
         }
     } else {
 
@@ -769,7 +819,7 @@ Environment:
         // Release the pfn mutex.
         //
 
-        UNLOCK_PFN (OldIrql);
+        UNLOCK_EXPANSION (OldIrql);
     }
 
     //
@@ -894,7 +944,9 @@ Environment:
     // Delete the system portion of the address space.
     //
 
+    LOCK_EXPANSION_IF_ALPHA (OldIrql2);
     Process->Vm.AddressSpaceBeingDeleted = TRUE;
+    UNLOCK_EXPANSION_IF_ALPHA (OldIrql2);
 
     //
     // Adjust the count of pages above working set maximum.  This
@@ -937,7 +989,7 @@ Environment:
 #endif //DBG
 
 #if DBG
-    if ((Process->NumberOfPrivatePages != 0) && (MmDebug & 0x100000)) {
+    if ((Process->NumberOfPrivatePages != 0) && (MmDebug & MM_DBG_PRIVATE_PAGES)) {
         DbgPrint("MM: Process contains private pages %ld\n",
                Process->NumberOfPrivatePages);
         DbgBreakPoint();
@@ -959,7 +1011,31 @@ Environment:
     LOCK_PFN (OldIrql)
     while (PointerPte->u.Hard.Valid) {
         TempVa = MiGetVirtualAddressMappedByPte(PointerPte);
-        MiDeletePte (PointerPte, TempVa, TRUE, Process, NULL, &PteFlushList);
+        MiDeletePte (PointerPte,
+                     TempVa,
+                     TRUE,
+                     Process,
+                     NULL,
+                     &PteFlushList);
+
+        PointerPte += 1;
+    }
+
+    //
+    // Remove hash table pages, if any.
+    //
+
+    PointerPte = MiGetPteAddress (&MmWsle[MM_MAXIMUM_WORKING_SET]) + 1;
+
+    while (PointerPte->u.Hard.Valid) {
+        TempVa = MiGetVirtualAddressMappedByPte(PointerPte);
+        MiDeletePte (PointerPte,
+                     TempVa,
+                     TRUE,
+                     Process,
+                     NULL,
+                     &PteFlushList);
+
         PointerPte += 1;
     }
 
@@ -969,8 +1045,9 @@ Environment:
     // Update the count of available resident pages.
     //
 
-    MmResidentAvailablePages += Process->Vm.MinimumWorkingSetSize;
-
+    ASSERT (Process->Vm.MinimumWorkingSetSize >= MM_PROCESS_CREATE_CHARGE);
+    MmResidentAvailablePages += Process->Vm.MinimumWorkingSetSize -
+                                                    MM_PROCESS_CREATE_CHARGE;
     ASSERT (Process->Vm.WorkingSetExpansionLinks.Flink == MM_NO_WS_EXPANSION);
     UNLOCK_PFN (OldIrql);
 
@@ -990,6 +1067,7 @@ MMKSTACK MmKstacks[10];
 
 PVOID
 MmCreateKernelStack (
+    IN BOOLEAN LargeStack
     )
 
 /*++
@@ -1001,7 +1079,8 @@ Routine Description:
 
 Arguments:
 
-    None.
+    LargeStack - Supplies the value TRUE if a large stack should be
+                 created.  FALSE if a small stack is to be created.
 
 Return Value:
 
@@ -1021,38 +1100,11 @@ Environment:
     PMMPTE PointerPte;
     MMPTE TempPte;
     ULONG NumberOfPages;
+    ULONG NumberOfPtes;
     ULONG PageFrameIndex;
     ULONG i;
     PVOID StackVa;
     KIRQL OldIrql;
-
-    //
-    // Make sure there are at least 100 free system PTEs.
-    //
-
-    if (MmTotalFreeSystemPtes[SystemPteSpace] < 100) {
-        return NULL;
-    }
-
-    //
-    // Charge commitment for the page file space for the kernel stack.
-    //
-
-    NumberOfPages = BYTES_TO_PAGES(KERNEL_STACK_SIZE);
-
-    try {
-
-        MiChargeCommitment (NumberOfPages, NULL);
-
-    } except (EXCEPTION_EXECUTE_HANDLER) {
-
-        //
-        // Commitment exceeded, return NULL, indicating no kernel
-        // stacks are available.
-        //
-
-        return NULL;
-    }
 
     //
     // Acquire the PFN mutex to synchronize access to the dead stack
@@ -1065,7 +1117,7 @@ Environment:
     // Check to see if any "unused" stacks are available.
     //
 
-    if (MmNumberDeadKernelStacks != 0) {
+    if ((!LargeStack) && (MmNumberDeadKernelStacks != 0)) {
 
 #if DBG
         {
@@ -1083,6 +1135,7 @@ Environment:
                 PfnList = PfnList->u1.NextStackPfn;
             }
         }
+        NumberOfPages = BYTES_TO_PAGES (KERNEL_STACK_SIZE);
 #endif //DBG
 
         MmNumberDeadKernelStacks -= 1;
@@ -1090,6 +1143,44 @@ Environment:
         MmFirstDeadKernelStack = MmFirstDeadKernelStack->u1.NextStackPfn;
 
     } else {
+
+        UNLOCK_PFN (OldIrql);
+
+        //
+        // Make sure there are at least 100 free system PTEs.
+        //
+
+        if (MmTotalFreeSystemPtes[SystemPteSpace] < 100) {
+            return NULL;
+        }
+
+        if (LargeStack) {
+            NumberOfPtes = BYTES_TO_PAGES (KERNEL_LARGE_STACK_SIZE);
+            NumberOfPages = BYTES_TO_PAGES (KERNEL_LARGE_STACK_COMMIT);
+        } else {
+            NumberOfPtes = BYTES_TO_PAGES (KERNEL_STACK_SIZE);
+            NumberOfPages = NumberOfPtes;
+        }
+
+        //
+        // Charge commitment for the page file space for the kernel stack.
+        //
+
+        try {
+
+            MiChargeCommitment (NumberOfPtes, NULL);
+
+        } except (EXCEPTION_EXECUTE_HANDLER) {
+
+            //
+            // Commitment exceeded, return NULL, indicating no kernel
+            // stacks are available.
+            //
+
+            return NULL;
+        }
+
+        LOCK_PFN (OldIrql);
 
         //
         // Obtain enough pages to contain the stack plus a guard page from
@@ -1104,16 +1195,16 @@ Environment:
 
         if (MmResidentAvailablePages <= (LONG)NumberOfPages) {
             UNLOCK_PFN (OldIrql);
-            MiReturnCommitment (NumberOfPages);
+            MiReturnCommitment (NumberOfPtes);
             return NULL;
         }
 
-        PointerPte = MiReserveSystemPtes (NumberOfPages + 1,
+        MmKernelStackPages += NumberOfPtes + 1 + (MM_STACK_ALIGNMENT?1:0);
+        PointerPte = MiReserveSystemPtes (NumberOfPtes + 1 + (MM_STACK_ALIGNMENT?1:0),
                                           SystemPteSpace,
                                           MM_STACK_ALIGNMENT,
                                           MM_STACK_OFFSET,
                                           FALSE);
-
         if (PointerPte == NULL) {
             UNLOCK_PFN (OldIrql);
             MiReturnCommitment (NumberOfPages);
@@ -1121,39 +1212,46 @@ Environment:
         }
 
         MmResidentAvailablePages -= NumberOfPages;
+        PointerPte += (NumberOfPtes - NumberOfPages);
 
         for (i=0; i < NumberOfPages; i++) {
-            PointerPte++;
+            PointerPte += 1;
+            ASSERT (PointerPte->u.Hard.Valid == 0);
             MiEnsureAvailablePageOrWait (NULL, NULL);
             PageFrameIndex = MiRemoveAnyPage (
                                 MI_GET_PAGE_COLOR_FROM_PTE (PointerPte));
 
             PointerPte->u.Long = MM_KERNEL_DEMAND_ZERO_PTE;
+//fixfix (see mmfault as well.)
+            PointerPte->u.Soft.Protection = 31;
+// end fixfix
             MiInitializePfn (PageFrameIndex, PointerPte, 1);
 
             MI_MAKE_VALID_PTE (TempPte,
                                PageFrameIndex,
                                MM_READWRITE,
                                PointerPte );
-            TempPte.u.Hard.Dirty = MM_PTE_DIRTY;
+            MI_SET_PTE_DIRTY (TempPte);
 
             *PointerPte = TempPte;
         }
+        MmProcessCommit += NumberOfPtes;
+        MmKernelStackResident += NumberOfPages;
+        MmLargeStacks += LargeStack;
+        MmSmallStacks += !LargeStack;
     }
-
-    MmProcessCommit += NumberOfPages;
 
     UNLOCK_PFN (OldIrql);
 
-    PointerPte++;
+    PointerPte += 1;
     StackVa = (PVOID)MiGetVirtualAddressMappedByPte (PointerPte);
 #if DBG
     {
         PULONG p;
         ULONG i;
 
-        p = (PULONG)((ULONG)StackVa - KERNEL_STACK_SIZE);
-        i = KERNEL_STACK_SIZE >> 2;
+        p = (PULONG)((ULONG)StackVa - (NumberOfPages * PAGE_SIZE));
+        i = (NumberOfPages * PAGE_SIZE) >> 2;
         while(i--) {
             *p++ = 0x12345678;
         }
@@ -1164,10 +1262,10 @@ Environment:
     return StackVa;
 }
 
-
 VOID
 MmDeleteKernelStack (
-    IN PVOID PointerKernelStack
+    IN PVOID PointerKernelStack,
+    IN BOOLEAN LargeStack
     )
 
 /*++
@@ -1180,6 +1278,9 @@ Routine Description:
 Arguments:
 
     PointerKernelStack - Supplies a pointer to the base of the kernel stack.
+
+    LargeStack - Supplies the value TRUE if a large stack is being deleted.
+                 FALSE if a small stack is to be deleted.
 
 Return Value:
 
@@ -1194,22 +1295,18 @@ Environment:
 {
     PMMPTE PointerPte;
     PMMPFN Pfn1;
-    ULONG NumberOfPages;
+    ULONG NumberOfPages = 0;
+    ULONG NumberOfPtes;
     ULONG PageFrameIndex;
     ULONG i;
     KIRQL OldIrql;
-    MMPTE_FLUSH_LIST PteFlushList;
+    MMPTE PteContents;
 
-    PteFlushList.Count = 0;
-
-    //
-    // Return commitment.
-    //
-
-    NumberOfPages = BYTES_TO_PAGES(KERNEL_STACK_SIZE);
-
-    MiReturnCommitment (NumberOfPages);
-    MmProcessCommit -= NumberOfPages;
+    if (LargeStack) {
+        NumberOfPtes = BYTES_TO_PAGES (KERNEL_LARGE_STACK_SIZE);
+    } else {
+        NumberOfPtes = BYTES_TO_PAGES (KERNEL_STACK_SIZE);
+    }
 
     PointerPte = MiGetPteAddress (PointerKernelStack);
 
@@ -1233,7 +1330,8 @@ Environment:
     // of the address space.
     //
 
-    if (MmNumberDeadKernelStacks < MmMaximumDeadKernelStacks) {
+    if ((!LargeStack) &&
+        (MmNumberDeadKernelStacks < MmMaximumDeadKernelStacks)) {
 
         Pfn1 = MI_PFN_ELEMENT (PointerPte->u.Hard.PageFrameNumber);
 
@@ -1267,49 +1365,162 @@ Environment:
     }
 
     //
-    // We have exceeded the limit of dead kernel stacks, delete this
-    // kernel stack.
+    // We have exceeded the limit of dead kernel stacks or this is a large
+    // stack, delete this kernel stack.
     //
 
-    for (i=0; i < NumberOfPages; i++) {
+    for (i=0; i < NumberOfPtes; i++) {
 
-        PageFrameIndex = PointerPte->u.Hard.PageFrameNumber;
-        Pfn1 = MI_PFN_ELEMENT (PageFrameIndex);
-        MiDecrementShareAndValidCount (Pfn1->u3.e1.PteFrame);
+        PteContents = *PointerPte;
 
-        //
-        // Set the pointer to PTE as empty so the page
-        // is deleted when the reference count goes to zero.
-        //
+        if (PteContents.u.Hard.Valid == 1) {
+            PageFrameIndex = PteContents.u.Hard.PageFrameNumber;
+            Pfn1 = MI_PFN_ELEMENT (PageFrameIndex);
+            MiDecrementShareAndValidCount (Pfn1->PteFrame);
 
-        MI_SET_PFN_DELETED (Pfn1);
-        MiDecrementShareCountOnly (PointerPte->u.Hard.PageFrameNumber);
+            //
+            // Set the pointer to PTE as empty so the page
+            // is deleted when the reference count goes to zero.
+            //
 
-        //
-        // Flush the TB and make the PTE invalid.
-        //
-
-        PointerKernelStack = (PVOID)((PCHAR)PointerKernelStack - PAGE_SIZE);
-        ASSERT (PteFlushList.Count != MM_MAXIMUM_FLUSH_COUNT);
-        PteFlushList.FlushPte[PteFlushList.Count] = PointerPte;
-        PteFlushList.FlushVa[PteFlushList.Count] = PointerKernelStack;
-        PteFlushList.Count += 1;
+            MI_SET_PFN_DELETED (Pfn1);
+            MiDecrementShareCountOnly (PteContents.u.Hard.PageFrameNumber);
+            NumberOfPages += 1;
+        }
         PointerPte -= 1;
     }
 
-    MiFlushPteList (&PteFlushList, TRUE, ZeroKernelPte);
-    MiReleaseSystemPtes (PointerPte, NumberOfPages + 1, SystemPteSpace);
+    MmKernelStackPages  -= NumberOfPtes + 1 + (MM_STACK_ALIGNMENT?1:0);
+    MiReleaseSystemPtes (PointerPte,
+                         NumberOfPtes + 1 + (MM_STACK_ALIGNMENT?1:0),
+                         SystemPteSpace);
 
     //
     // Update the count of available resident pages.
     //
 
+    MmKernelStackResident -= NumberOfPages;
     MmResidentAvailablePages += NumberOfPages;
+    MmProcessCommit -= NumberOfPtes;
 
+    MmLargeStacks -= LargeStack;
+    MmSmallStacks -= !LargeStack;
     UNLOCK_PFN (OldIrql);
+
+    //
+    // Return commitment.
+    //
+
+    MiReturnCommitment (NumberOfPtes);
 
     return;
 }
+
+
+NTSTATUS
+MmGrowKernelStack (
+    IN PVOID CurrentStack
+    )
+
+/*++
+
+Routine Description:
+
+    This function attempts to grows the current thread's kernel stack
+    such that there is always KERNEL_LARGE_STACK_COMMIT bytes below
+    the current stack pointer.
+
+Arguments:
+
+    CurrentStack - Supplies a pointer to the current stack pointer.
+
+Return Value:
+
+    STATUS_SUCCESS is returned if the stack was grown,
+    STATUS_STACK_OVERFLOW is returned if there was not enough space reserved
+    for the commitment.
+
+--*/
+
+{
+    PMMPTE NewLimit;
+    PMMPTE StackLimit;
+    PMMPTE EndStack;
+    PETHREAD Thread;
+    ULONG NumberOfPages = 0;
+    KIRQL OldIrql;
+    ULONG PageFrameIndex;
+    MMPTE TempPte;
+
+    Thread = PsGetCurrentThread ();
+    ASSERT (((PCHAR)Thread->Tcb.StackBase - (PCHAR)Thread->Tcb.StackLimit) <=
+            (KERNEL_LARGE_STACK_SIZE + PAGE_SIZE));
+    NewLimit = MiGetPteAddress ((PVOID)((PUCHAR)CurrentStack -
+                                                    KERNEL_LARGE_STACK_COMMIT));
+
+    StackLimit = MiGetPteAddress (Thread->Tcb.StackLimit);
+
+    //
+    // If the new stack limit is exceeds the reserved region for the kernel
+    // stack, then return an error.
+    //
+
+    EndStack = MiGetPteAddress ((PVOID)((PUCHAR)Thread->Tcb.StackBase -
+                                                    KERNEL_LARGE_STACK_SIZE));
+
+    if (NewLimit < EndStack) {
+
+        //
+        // Don't go into guard page.
+        //
+
+        return STATUS_STACK_OVERFLOW;
+
+    }
+
+    ASSERT (StackLimit->u.Hard.Valid == 1);
+
+    //
+    // Lock the PFN database and attempt to expand the kernel stack.
+    //
+
+    StackLimit -= 1;
+
+    LOCK_PFN (OldIrql);
+
+    while (StackLimit >= NewLimit) {
+
+        ASSERT (StackLimit->u.Hard.Valid == 0);
+
+        MiEnsureAvailablePageOrWait (NULL, NULL);
+        PageFrameIndex = MiRemoveAnyPage (MI_GET_PAGE_COLOR_FROM_PTE (StackLimit));
+        StackLimit->u.Long = MM_KERNEL_DEMAND_ZERO_PTE;
+//fixfix (see mmfault as well.)
+        StackLimit->u.Soft.Protection = 31;
+// end fixfix
+        MiInitializePfn (PageFrameIndex, StackLimit, 1);
+        MI_MAKE_VALID_PTE (TempPte,
+                           PageFrameIndex,
+                           MM_READWRITE,
+                           StackLimit );
+
+        MI_SET_PTE_DIRTY (TempPte);
+        *StackLimit = TempPte;
+        NumberOfPages += 1;
+        StackLimit -= 1;
+    }
+
+    MmKernelStackResident += NumberOfPages;
+    MmResidentAvailablePages -= NumberOfPages;
+    UNLOCK_PFN (OldIrql);
+
+    ASSERT (NewLimit->u.Hard.Valid == 1);
+    ASSERT ((NewLimit - 1)->u.Hard.Valid == 0);
+    Thread->Tcb.StackLimit = MiGetVirtualAddressMappedByPte (NewLimit);
+
+    return STATUS_SUCCESS;
+}
+
 
 VOID
 MmOutPageKernelStack (
@@ -1341,7 +1552,7 @@ Environment:
 
 --*/
 
-#define MAX_STACK_PAGES 8
+#define MAX_STACK_PAGES (KERNEL_LARGE_STACK_SIZE / PAGE_SIZE)
 
 {
     PMMPTE PointerPte;
@@ -1355,7 +1566,11 @@ Environment:
     PMMPTE FlushPte[MAX_STACK_PAGES];
     PVOID FlushVa[MAX_STACK_PAGES];
     MMPTE FlushPteSave[MAX_STACK_PAGES];
+    ULONG StackSize;
     ULONG Count;
+
+    ASSERT (((PCHAR)Thread->StackBase - (PCHAR)Thread->StackLimit) <=
+            (KERNEL_LARGE_STACK_SIZE + PAGE_SIZE));
 
     if (NtGlobalFlag & FLG_DISABLE_PAGE_KERNEL_STACKS) {
         return;
@@ -1366,10 +1581,15 @@ Environment:
     // of the stack.
     //
 
-    BaseOfKernelStack = (PVOID)((ULONG)Thread->InitialStack - PAGE_SIZE);
+    BaseOfKernelStack = (PVOID)((ULONG)Thread->StackBase - PAGE_SIZE);
     PointerPte = MiGetPteAddress (BaseOfKernelStack);
     LastPte = MiGetPteAddress ((PULONG)Thread->KernelStack - 1);
-    EndOfStackPte = PointerPte - (KERNEL_STACK_SIZE >> PAGE_SHIFT);
+    if (Thread->LargeStack) {
+        StackSize = KERNEL_LARGE_STACK_SIZE >> PAGE_SHIFT;
+    } else {
+        StackSize = KERNEL_STACK_SIZE >> PAGE_SHIFT;
+    }
+    EndOfStackPte = PointerPte - StackSize;
 
     //
     // Put a signature at the current stack location - 4.
@@ -1386,7 +1606,14 @@ Environment:
         PageFrameIndex = PointerPte->u.Hard.PageFrameNumber;
         TempPte = *PointerPte;
         MI_MAKE_VALID_PTE_TRANSITION (TempPte, 0);
-
+//fixfix (see mmfault as well.)
+        TempPte.u.Soft.Protection = 31;
+        {
+            PMMPFN x;
+            x = MI_PFN_ELEMENT(PageFrameIndex);
+            x->OriginalPte.u.Soft.Protection = 31;
+        }
+// end fixfix
         FlushPteSave[Count] = TempPte;
         FlushPte[Count] = PointerPte;
         FlushVa[Count] = BaseOfKernelStack;
@@ -1398,16 +1625,25 @@ Environment:
     } while (PointerPte >= LastPte);
 
     while (PointerPte != EndOfStackPte) {
+        if (PointerPte->u.Hard.Valid == 0) {
+            break;
+        }
+
         PageFrameIndex = PointerPte->u.Hard.PageFrameNumber;
         Pfn1 = MI_PFN_ELEMENT (PageFrameIndex);
-        MiDecrementShareAndValidCount (Pfn1->u3.e1.PteFrame);
+        MiDecrementShareAndValidCount (Pfn1->PteFrame);
         MI_SET_PFN_DELETED (Pfn1);
         MiDecrementShareCountOnly (PointerPte->u.Hard.PageFrameNumber);
 
         FlushPteSave[Count] = KernelDemandZeroPte;
+//fixfix (see mmfault as well.)
+        FlushPteSave[Count].u.Soft.Protection = 31;
+// end fixfix
         FlushPte[Count] = PointerPte;
+
         FlushVa[Count] = BaseOfKernelStack;
         Count += 1;
+        MmResidentAvailablePages += 1;
 
         PointerPte -= 1;
         BaseOfKernelStack = (PVOID)((ULONG)BaseOfKernelStack - PAGE_SIZE);
@@ -1415,12 +1651,23 @@ Environment:
 
     ASSERT (Count <= MAX_STACK_PAGES);
 
-    KeFlushMultipleTb (Count,
-                       &FlushVa[0],
-                       TRUE,
-                       TRUE,
-                       &((PHARDWARE_PTE)FlushPte[0]),
-                       ZeroPte.u.Hard);
+    if (Count < MM_MAXIMUM_FLUSH_COUNT) {
+        KeFlushMultipleTb (Count,
+                           &FlushVa[0],
+                           TRUE,
+                           TRUE,
+                           &((PHARDWARE_PTE)FlushPte[0]),
+                           ZeroPte.u.Flush);
+    } else {
+        KeFlushEntireTb (TRUE, TRUE);
+    }
+
+    //
+    // Increase the available pages by the number of pages that where
+    // deleted and turned into demand zero.
+    //
+
+    MmKernelStackResident -= Count;
 
     //
     // Put the right contents back into the PTEs
@@ -1430,6 +1677,7 @@ Environment:
         Count -= 1;
         *FlushPte[Count] = FlushPteSave[Count];
     } while (Count != 0);
+
 
     UNLOCK_PFN (OldIrql);
     return;
@@ -1465,10 +1713,12 @@ Environment:
     PVOID BaseOfKernelStack;
     PMMPTE PointerPte;
     PMMPTE EndOfStackPte;
-    MMPTE PteContents;
     ULONG Temp;
     ULONG ContainingPage;
     KIRQL OldIrql;
+
+    ASSERT (((PCHAR)Thread->StackBase - (PCHAR)Thread->StackLimit) <=
+            (KERNEL_LARGE_STACK_SIZE + PAGE_SIZE));
 
     if (NtGlobalFlag & FLG_DISABLE_PAGE_KERNEL_STACKS) {
         return;
@@ -1479,21 +1729,56 @@ Environment:
     // of the stack.
     //
 
-    BaseOfKernelStack = (PVOID)((ULONG)Thread->InitialStack - PAGE_SIZE);
+    if (Thread->LargeStack) {
+        PointerPte = MiGetPteAddress ((PVOID)((PUCHAR)Thread->StackLimit));
+
+        EndOfStackPte = MiGetPteAddress ((PVOID)((PUCHAR)Thread->InitialStack -
+                                            KERNEL_LARGE_STACK_COMMIT));
+        //
+        // Trim back the stack.  Make sure that the stack does not grow, i.e.
+        // StackLimit remains the limit.
+        //
+
+        if (EndOfStackPte < PointerPte) {
+            EndOfStackPte = PointerPte;
+        }
+        Thread->StackLimit = MiGetVirtualAddressMappedByPte (EndOfStackPte);
+    } else {
+        EndOfStackPte = MiGetPteAddress (Thread->StackLimit);
+    }
+
+    BaseOfKernelStack = (PVOID)((ULONG)Thread->StackBase - PAGE_SIZE);
     PointerPte = MiGetPteAddress (BaseOfKernelStack);
-    PteContents = *PointerPte;
-    EndOfStackPte = PointerPte - (KERNEL_STACK_SIZE >> PAGE_SHIFT);
 
     LOCK_PFN (OldIrql);
-    while (PointerPte != EndOfStackPte) {
+    while (PointerPte >= EndOfStackPte) {
 
+
+//fixfix (see mmfault as well.)
+        if (!((PointerPte->u.Long == KernelDemandZeroPte.u.Long) ||
+                (PointerPte->u.Soft.Protection == 31))) {
+            KeBugCheckEx (MEMORY_MANAGEMENT,
+                          0x3451,
+                          (ULONG)PointerPte,
+                          (ULONG)Thread,
+                          0);
+        }
+        ASSERT (PointerPte->u.Hard.Valid == 0);
+        if (PointerPte->u.Soft.Protection == 31) {
+            PointerPte->u.Soft.Protection = PAGE_READWRITE;
+        }
+// end fixfix
         ContainingPage = (MiGetPteAddress (PointerPte))->u.Hard.PageFrameNumber;
+        if (PointerPte->u.Long == MM_KERNEL_DEMAND_ZERO_PTE) {
+            MmResidentAvailablePages -= 1;
+        }
         MiMakeOutswappedPageResident (PointerPte,
                                       PointerPte,
                                       1,
                                       ContainingPage,
                                       &Temp);
         PointerPte -= 1;
+        MmKernelStackResident += 1;
     }
 
     //
@@ -1503,8 +1788,8 @@ Environment:
     if (*((PULONG)Thread->KernelStack - 1) != (ULONG)Thread) {
         KeBugCheckEx (KERNEL_STACK_INPAGE_ERROR,
                       0,
+                      *((PULONG)Thread->KernelStack - 1),
                       0,
-                      PteContents.u.Long,
                       (ULONG)Thread->KernelStack);
     }
 
@@ -1567,14 +1852,12 @@ Return Value:
         // memory.
         //
 
-        LOCK_PFN (OldIrql);
+        LOCK_EXPANSION_IF_ALPHA (OldIrql);
         ASSERT (OutProcess->ProcessOutswapped == FALSE);
         OutProcess->ProcessOutswapped = TRUE;
+        UNLOCK_EXPANSION_IF_ALPHA (OldIrql);
 
-#if DBG
-        MiVerifyReferenceCounts (
-            ((PHARDWARE_PTE)(&(OutProcess->Pcb.DirectoryTableBase[0])))->PageFrameNumber);
-#endif //DBG
+        LOCK_PFN (OldIrql);
 
         //
         // Remove working set list page from the process.
@@ -1642,25 +1925,18 @@ Return Value:
         //
 
         Pfn1->u2.ShareCount -= 2;
-        Pfn1->ValidPteCount -= 1;
         Pfn1->PteAddress = (PMMPTE)&OutProcess->PageDirectoryPte;
 
-        ASSERT (Pfn1->ValidPteCount <= Pfn1->u2.ShareCount);
+        OutProcess->PageDirectoryPte = TempPte.u.Flush;
 
-        OutProcess->PageDirectoryPte = TempPte.u.Hard;
+        if (MI_IS_PHYSICAL_ADDRESS(OutProcess)) {
+            ProcessPage = MI_CONVERT_PHYSICAL_TO_PFN (OutProcess);
+        } else {
+            PointerPte = MiGetPteAddress (OutProcess);
+            ProcessPage = PointerPte->u.Hard.PageFrameNumber;
+        }
 
-#if defined(_MIPS_) || defined(_ALPHA_) || defined(_PPC_)
-    if (MI_IS_PHYSICAL_ADDRESS(OutProcess)) {
-        ProcessPage = MI_CONVERT_PHYSICAL_TO_PFN (OutProcess);
-    } else {
-#endif // _MIPS_ || _ALPHA_ || _PPC_
-        PointerPte = MiGetPteAddress (OutProcess);
-        ProcessPage = PointerPte->u.Hard.PageFrameNumber;
-#if defined(_MIPS_) || defined(_ALPHA_) || defined(_PPC_)
-    }
-#endif // _MIPS_ || _ALPHA_ || _PPC_
-
-        Pfn1->u3.e1.PteFrame = ProcessPage;
+        Pfn1->PteFrame = ProcessPage;
         Pfn1 = MI_PFN_ELEMENT (ProcessPage);
 
         //
@@ -1668,9 +1944,9 @@ Return Value:
         //
 
         Pfn1->u2.ShareCount += 1;
-        Pfn1->ValidPteCount += 1;
-        ASSERT (Pfn1->ValidPteCount < Pfn1->u2.ShareCount);
+        UNLOCK_PFN (OldIrql);
 
+        LOCK_EXPANSION (OldIrql);
         if (OutProcess->Vm.WorkingSetExpansionLinks.Flink >
                                                        MM_IO_IN_PROGRESS) {
 
@@ -1680,13 +1956,22 @@ Return Value:
             RemoveEntryList (&OutProcess->Vm.WorkingSetExpansionLinks);
             OutProcess->Vm.WorkingSetExpansionLinks.Flink = MM_WS_SWAPPED_OUT;
         }
+        UNLOCK_EXPANSION (OldIrql);
 
-#ifdef _PPC_
-        KeFlushEntireTb (TRUE, TRUE);
-#endif // _PPC_
-        UNLOCK_PFN (OldIrql);
         OutProcess->WorkingSetPage = 0;
         OutProcess->Vm.WorkingSetSize = 0;
+#if defined(_PPC_)
+
+        //
+        // Force assignment of new PID as we have removed
+        // the page directory page.
+        // Note that a TB flush would not work here as we
+        // are in the wrong process context.
+        //
+
+        Process->ProcessSequence = 0;
+#endif // _PPC_
+
     }
     return;
 }
@@ -1728,7 +2013,6 @@ Return Value:
     ULONG ProcessPage;
     ULONG Transition;
 
-    //OutProcess = (PEPROCESS)Process;
     OutProcess = CONTAINING_RECORD( Process,
                                     EPROCESS,
                                     Pcb);
@@ -1740,16 +2024,12 @@ Return Value:
         // structure.
         //
 
-#if defined(_MIPS_) || defined(_ALPHA_) || defined(_PPC_)
-    if (MI_IS_PHYSICAL_ADDRESS(OutProcess)) {
-        ProcessPage = MI_CONVERT_PHYSICAL_TO_PFN (OutProcess);
-    } else {
-#endif // _MIPS_ || _ALPHA_ || _PPC_
-        PointerPte = MiGetPteAddress (OutProcess);
-        ProcessPage = PointerPte->u.Hard.PageFrameNumber;
-#if defined(_MIPS_) || defined(_ALPHA_) || defined(_PPC_)
-    }
-#endif // _MIPS_ || _ALPHA_ || _PPC_
+        if (MI_IS_PHYSICAL_ADDRESS(OutProcess)) {
+            ProcessPage = MI_CONVERT_PHYSICAL_TO_PFN (OutProcess);
+        } else {
+            PointerPte = MiGetPteAddress (OutProcess);
+            ProcessPage = PointerPte->u.Hard.PageFrameNumber;
+        }
 
         LOCK_PFN (OldIrql);
         PdePage = MiMakeOutswappedPageResident (MiGetPteAddress (PDE_BASE),
@@ -1764,11 +2044,8 @@ Return Value:
 
         Pfn1 = MI_PFN_ELEMENT (ProcessPage);
         Pfn1->u2.ShareCount -= 1;
-        Pfn1->ValidPteCount -= 1 + (USHORT)Transition;
 
         ASSERT ((LONG)Pfn1->u2.ShareCount >= 1);
-        ASSERT ((SHORT)Pfn1->ValidPteCount >= 0);
-        ASSERT (Pfn1->u2.ShareCount > Pfn1->ValidPteCount);
 
         //
         // Adjust the counts properly for the Page directory page.
@@ -1776,9 +2053,8 @@ Return Value:
 
         Pfn1 = MI_PFN_ELEMENT (PdePage);
         Pfn1->u2.ShareCount += 1;
-        Pfn1->ValidPteCount += 1;
-        Pfn1->u1.WsIndex = 0;
-        Pfn1->u3.e1.PteFrame = PdePage;
+        Pfn1->u1.WsIndex = (ULONG)OutProcess;
+        Pfn1->PteFrame = PdePage;
         Pfn1->PteAddress = MiGetPteAddress (PDE_BASE);
 
         //
@@ -1798,13 +2074,9 @@ Return Value:
                                  &Transition);
 
         ASSERT (Pfn1->u2.ShareCount >= 3);
-        ASSERT (Pfn1->ValidPteCount >= 2);
-        Pfn1->ValidPteCount -= (USHORT)Transition;
-
-        ASSERT (Pfn1->u2.ShareCount > Pfn1->ValidPteCount);
 
         PageDirectoryMap = MiMapPageInHyperSpace (PdePage, &OldIrql2);
-        PageDirectoryMap[MiGetPdeOffset(PDE_BASE)].u.Hard =
+        PageDirectoryMap[MiGetPdeOffset(PDE_BASE)].u.Flush =
                                               OutProcess->PageDirectoryPte;
         PageDirectoryMap[MiGetPdeOffset(MmWorkingSetList)] = TempPte;
 
@@ -1837,22 +2109,20 @@ Return Value:
 
         Pfn1->u1.WsIndex = 2;
 
+        UNLOCK_PFN (OldIrql);
+
+        LOCK_EXPANSION (OldIrql);
+
         //
         // Allow working set trimming on this process.
         //
 
         OutProcess->Vm.AllowWorkingSetAdjustment = TRUE;
-
         if (OutProcess->Vm.WorkingSetExpansionLinks.Flink == MM_WS_SWAPPED_OUT) {
             InsertTailList (&MmWorkingSetExpansionHead.ListHead,
                             &OutProcess->Vm.WorkingSetExpansionLinks);
         }
-
-#if DBG
-        MiVerifyReferenceCounts (PdePage);
-#endif //DBG
-
-        UNLOCK_PFN (OldIrql);
+        UNLOCK_EXPANSION (OldIrql);
 
         //
         // Set up process structures.
@@ -1933,8 +2203,8 @@ Environment:
         //
 
         Vad = (PMMVAD)ExAllocatePoolWithTag (NonPagedPool,
-                                             sizeof(MMVAD_SHORT),
-                                             'SdaV');
+                                             sizeof(MMVAD),
+                                             ' daV');
         Vad->StartingVa = Base;
         Vad->EndingVa = (PVOID)((ULONG)Base + ROUND_TO_PAGES (Size - 1) - 1);
 
@@ -1943,7 +2213,19 @@ Environment:
         Vad->u.VadFlags.CommitCharge = BYTES_TO_PAGES (Size);
         Vad->u.VadFlags.MemCommit = 1;
         Vad->u.VadFlags.PrivateMemory = 1;
-        Vad->u.VadFlags.Protection = MM_READWRITE;
+        Vad->u.VadFlags.Protection = MM_EXECUTE_READWRITE;
+
+        //
+        // Mark VAD as not deletable, no protection change.
+        //
+
+        Vad->u.VadFlags.NoChange = 1;
+        Vad->u2.LongFlags2 = 0;
+        Vad->u2.VadFlags2.OneSecured = 1;
+        Vad->u2.VadFlags2.StoredInVad = 1;
+        Vad->u2.VadFlags2.ReadOnly = 0;
+        Vad->u3.Secured.StartVa = Base;
+        Vad->u3.Secured.EndVa = Vad->EndingVa;
 
         MiInsertVad (Vad);
 
@@ -2016,15 +2298,13 @@ Environment:
     KeAttachProcess (&TargetProcess->Pcb);
 
     TebBase = (PTEB)MiCreatePebOrTeb (TargetProcess,
-                                      (ULONG)sizeof(INITIAL_TEB));
+                                      (ULONG)sizeof(TEB));
 
     //
     // Initialize the TEB.
     //
 
     TebBase->NtTib.ExceptionList = EXCEPTION_CHAIN_END;
-    TebBase->NtTib.StackBase = InitialTeb->StackBase;
-    TebBase->NtTib.StackLimit = InitialTeb->StackLimit;
     TebBase->NtTib.SubSystemTib = NULL;
     TebBase->NtTib.Version = OS2_VERSION;
     TebBase->NtTib.ArbitraryUserPointer = NULL;
@@ -2033,6 +2313,20 @@ Environment:
     TebBase->ProcessEnvironmentBlock = TargetProcess->Peb;
     TebBase->ClientId = *ClientId;
     TebBase->RealClientId = *ClientId;
+    if (InitialTeb->OldInitialTeb.OldStackBase == NULL &&
+        InitialTeb->OldInitialTeb.OldStackLimit == NULL
+       ) {
+        TebBase->NtTib.StackBase = InitialTeb->StackBase;
+        TebBase->NtTib.StackLimit = InitialTeb->StackLimit;
+        TebBase->DeallocationStack = InitialTeb->StackAllocationBase;
+        }
+    else {
+        TebBase->NtTib.StackBase = InitialTeb->OldInitialTeb.OldStackBase;
+        TebBase->NtTib.StackLimit = InitialTeb->OldInitialTeb.OldStackLimit;
+        }
+    TebBase->StaticUnicodeString.Buffer = TebBase->StaticUnicodeBuffer;
+    TebBase->StaticUnicodeString.MaximumLength = (USHORT)sizeof( TebBase->StaticUnicodeBuffer );
+    TebBase->StaticUnicodeString.Length = (USHORT)0;
 
     KeDetachProcess();
     return TebBase;
@@ -2077,7 +2371,9 @@ Environment:
     NTSTATUS Status;
     PVOID ViewBase;
     LARGE_INTEGER SectionOffset;
-    ULONG ViewSize;
+    PIMAGE_NT_HEADERS NtHeaders;
+    ULONG ViewSize, ReturnedSize;
+    PIMAGE_LOAD_CONFIG_DIRECTORY ImageConfigData;
 
     ViewBase = NULL;
     SectionOffset.LowPart = 0;
@@ -2104,7 +2400,7 @@ Environment:
                 &SectionOffset,
                 &ViewSize,
                 ViewShare,
-                MEM_TOP_DOWN,
+                MEM_TOP_DOWN | SEC_NO_CHANGE,
                 PAGE_READONLY
                 );
 
@@ -2114,7 +2410,7 @@ Environment:
     }
 
     PebBase = (PPEB)MiCreatePebOrTeb (TargetProcess,
-                                      (ULONG)sizeof(PEB));
+                                      (ULONG)sizeof( PEB ));
 
     //
     // Initialize the Peb.
@@ -2128,8 +2424,105 @@ Environment:
     PebBase->OemCodePageData = (PVOID)((PUCHAR)ViewBase+InitOemCodePageDataOffset);
     PebBase->UnicodeCaseTableData = (PVOID)((PUCHAR)ViewBase+InitUnicodeCaseTableDataOffset);
 
+    PebBase->NumberOfProcessors = KeNumberProcessors;
+    PebBase->BeingDebugged = (BOOLEAN)(TargetProcess->DebugPort != NULL ? TRUE : FALSE);
+    PebBase->NtGlobalFlag = NtGlobalFlag;
     PebBase->CriticalSectionTimeout = MmCriticalSectionTimeout;
-    PebBase->TlsExpansionCounter = KeNumberProcessors;
+    PebBase->HeapSegmentReserve = MmHeapSegmentReserve;
+    PebBase->HeapSegmentCommit = MmHeapSegmentCommit;
+    PebBase->HeapDeCommitTotalFreeThreshold = MmHeapDeCommitTotalFreeThreshold;
+    PebBase->HeapDeCommitFreeBlockThreshold = MmHeapDeCommitFreeBlockThreshold;
+    PebBase->NumberOfHeaps = 0;
+    PebBase->MaximumNumberOfHeaps = (PAGE_SIZE - sizeof( PEB )) / sizeof( PVOID );
+    PebBase->ProcessHeaps = (PVOID *)(PebBase+1);
+
+    PebBase->OSMajorVersion = NtMajorVersion;
+    PebBase->OSMinorVersion = NtMinorVersion;
+    PebBase->OSBuildNumber = NtBuildNumber & 0x3FFF;
+    PebBase->OSPlatformId = 2;      // VER_PLATFORM_WIN32_NT from winbase.h
+
+    NtHeaders = RtlImageNtHeader( PebBase->ImageBaseAddress );
+    if (NtHeaders != NULL) {
+        PebBase->ImageSubsystem = NtHeaders->OptionalHeader.Subsystem;
+        PebBase->ImageSubsystemMajorVersion = NtHeaders->OptionalHeader.MajorSubsystemVersion;
+        PebBase->ImageSubsystemMinorVersion = NtHeaders->OptionalHeader.MinorSubsystemVersion;
+
+        //
+        // See if this image wants GetVersion to lie about who the system is
+        // If so, capture the lie into the PEB for the process.
+        //
+
+        if (NtHeaders->OptionalHeader.Win32VersionValue != 0) {
+            PebBase->OSMajorVersion = NtHeaders->OptionalHeader.Win32VersionValue & 0xFF;
+            PebBase->OSMinorVersion = (NtHeaders->OptionalHeader.Win32VersionValue >> 8) & 0xFF;
+            PebBase->OSBuildNumber  = (NtHeaders->OptionalHeader.Win32VersionValue >> 16) & 0x3FFF;
+
+            //
+            // Win32 API GetVersion returns the following bogus bit definitions
+            // in the high two bits:
+            //
+            //      00 - Windows NT
+            //      01 - reserved
+            //      10 - Win32s running on Windows 3.x
+            //      11 - Windows 95
+            //
+            //
+            // Win32 API GetVersionEx returns a dwPlatformId with the following values
+            // defined in winbase.h
+            //
+            //      00 - VER_PLATFORM_WIN32s
+            //      01 - VER_PLATFORM_WIN32_WINDOWS
+            //      10 - VER_PLATFORM_WIN32_NT
+            //      11 - reserved
+            //
+            //
+            // So convert the former from the Win32VersionValue field into the OSPlatformId
+            // field.  This is done by XORing with 0x2.  The translation is symetric so there
+            // is the same code to do the reverse in windows\base\client\module.c (GetVersion)
+            //
+
+            PebBase->OSPlatformId   = (NtHeaders->OptionalHeader.Win32VersionValue >> 30) ^ 0x2;
+        }
+
+        if ( MmProductType == 0 ) {
+            if (NtHeaders->FileHeader.Characteristics & IMAGE_FILE_AGGRESIVE_WS_TRIM ) {
+                TargetProcess->MmAgressiveWsTrimMask = PS_WS_TRIM_FROM_EXE_HEADER;
+                }
+#if defined(_X86_)
+            if ( MmSystemSize == MmSmallSystem ) {
+                TargetProcess->MmAgressiveWsTrimMask |= PS_WS_TRIM_BACKGROUND_ONLY_APP;
+                }
+#endif // _X86_
+            }
+
+        //
+        // See if image wants to override the default processor affinity mask
+        //
+        if (NtHeaders->FileHeader.Characteristics & IMAGE_FILE_UP_SYSTEM_ONLY) {
+            //
+            // Image is NOT MP safe.  So assign it a processor on a rotating
+            // basis to spread these processes around on MP systems
+            //
+            do {
+                PebBase->ImageProcessAffinityMask = (KAFFINITY)(0x1 << MmRotatingUniprocessorNumber);
+                if (++MmRotatingUniprocessorNumber >= KeNumberProcessors) {
+                    MmRotatingUniprocessorNumber = 0;
+                }
+            } while ((PebBase->ImageProcessAffinityMask & KeActiveProcessors) == 0);
+        } else {
+            ImageConfigData = RtlImageDirectoryEntryToData( PebBase->ImageBaseAddress,
+                                                            TRUE,
+                                                            IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG,
+                                                            &ReturnedSize
+                                                      );
+            if (ImageConfigData != NULL && ImageConfigData->ProcessAffinityMask != 0) {
+                //
+                // Yes, get it and pass it up to LdrpInitializeProcess via the PEB
+                //
+                PebBase->ImageProcessAffinityMask = ImageConfigData->ProcessAffinityMask;
+            }
+        }
+    }
 
     KeDetachProcess();
     return PebBase;
@@ -2169,7 +2562,7 @@ Environment:
     PMMVAD Vad;
 
     EndingAddress = (PVOID)((ULONG)TebBase +
-                                ROUND_TO_PAGES (sizeof(INITIAL_TEB)) - 1);
+                                ROUND_TO_PAGES (sizeof(TEB)) - 1);
 
     //
     // Attach to the specified process.
@@ -2244,7 +2637,7 @@ Environment:
 
     CurrentProcess = PsGetCurrentProcess();
 
-    LOCK_PFN (OldIrql);
+    LOCK_EXPANSION (OldIrql);
 
     if (!CurrentProcess->Vm.AllowWorkingSetAdjustment) {
         CurrentProcess->Vm.AllowWorkingSetAdjustment = TRUE;
@@ -2253,7 +2646,7 @@ Environment:
                         &CurrentProcess->Vm.WorkingSetExpansionLinks);
     }
 
-    UNLOCK_PFN (OldIrql);
+    UNLOCK_EXPANSION (OldIrql);
     return;
 }
 
@@ -2308,7 +2701,7 @@ Environment:
 #endif
     while (index <= MmWorkingSetList->LastEntry) {
         if ((Wsle->u1.e1.Valid == 1) &&
-            (Wsle->u2.BothPointers != 0)) {
+            (Wsle->u1.e1.Direct == 0)) {
 
             if (Wsle->u1.VirtualAddress > (PVOID)MM_HIGHEST_USER_ADDRESS) {
 
@@ -2319,14 +2712,12 @@ Environment:
                 ASSERT (Wsle->u1.VirtualAddress > (PVOID)PDE_TOP);
                 Wsle->u1.e1.WasInTree = 1;
             }
-
-            Wsle->u2.BothPointers = 0;
         }
         index += 1;
         Wsle += 1;
     }
 
-    MmWorkingSetList->Root = WSLE_NULL_INDEX;
+    MmWorkingSetList->HashTable = NULL;
 
     //
     // Go through the working set list and remove all pages for user
@@ -2348,9 +2739,6 @@ Environment:
                 // This is a user mode address.
                 //
 
-
-                ASSERT (Wsle->u2.BothPointers == 0);
-
                 //
                 // This entry is in the working set list tree.
                 //
@@ -2368,7 +2756,7 @@ Environment:
 
                 if (Wsle->u1.e1.WasInTree == 1) {
                     Wsle->u1.e1.WasInTree = 0;
-                    MiInsertWsle ((USHORT)index, MmWorkingSetList);
+                    MiInsertWsle (index, MmWorkingSetList);
                 }
                 ASSERT (MiGetPteAddress(Wsle->u1.VirtualAddress)->u.Hard.Valid == 1);
             }
@@ -2481,8 +2869,7 @@ Environment:
         // page which maps this PTE.
         //
 
-        MiDecrementShareAndValidCount (Pfn1->u3.e1.PteFrame);
-        ASSERT (Pfn1->ValidPteCount == 0);
+        MiDecrementShareAndValidCount (Pfn1->PteFrame);
 
         MI_SET_PFN_DELETED (Pfn1);
 
@@ -2573,7 +2960,6 @@ Environment:
     KIRQL OldIrql = APC_LEVEL;
     ULONG PageFrameIndex;
     PMMPFN Pfn1;
-    PMMPFN Pfn2;
     ULONG MdlHack[(sizeof(MDL)/4) + 2];
     PMDL Mdl;
     LARGE_INTEGER StartingOffset;
@@ -2604,10 +2990,8 @@ Environment:
                            PageFrameIndex,
                            MM_READWRITE,
                            ActualPteAddress );
-        TempPte.u.Hard.Dirty = MM_PTE_DIRTY;
-#if defined(_MIPS_) || defined(_ALPHA_)
-        TempPte.u.Hard.Global = Global;
-#endif
+        MI_SET_PTE_DIRTY (TempPte);
+        MI_SET_GLOBAL_STATE (TempPte, Global);
 
         *PointerTempPte = TempPte;
         MiInitializePfnForOtherProcess (PageFrameIndex,
@@ -2626,7 +3010,7 @@ Environment:
 
         if (Pfn1->u3.e1.PageLocation != ActiveAndValid) {
             MiUnlinkPageFromList (Pfn1);
-            Pfn1->ReferenceCount += 1;
+            Pfn1->u3.e2.ReferenceCount += 1;
             Pfn1->u3.e1.PageLocation = ActiveAndValid;
         } else {
             *ActiveTransition = 1;
@@ -2650,17 +3034,10 @@ Environment:
             Pfn1->OriginalPte.u.Long = MM_KERNEL_DEMAND_ZERO_PTE;
         }
 
-        if (ContainingPage != 0) {
-            Pfn2 = MI_PFN_ELEMENT (ContainingPage);
-            Pfn2->ValidPteCount += 1;
-        }
-
         MI_MAKE_TRANSITION_PTE_VALID (TempPte, PointerTempPte);
 
-        TempPte.u.Hard.Dirty = MM_PTE_DIRTY;
-#if defined(_MIPS_) || defined(_ALPHA_)
-        TempPte.u.Hard.Global = Global;
-#endif
+        MI_SET_PTE_DIRTY (TempPte);
+        MI_SET_GLOBAL_STATE (TempPte, Global);
         *PointerTempPte = TempPte;
 
     } else {
@@ -2753,7 +3130,7 @@ Refault:
                                         FALSE,
                                         &MmHalfSecond);
                 KeClearEvent (&Event);
-                RefaultCount + 1;
+                RefaultCount += 1;
                 goto Refault;
             }
             KdPrint(("MMINPAGE: status %lx io-status %lx\n",
@@ -2778,17 +3155,14 @@ Refault:
                            PageFrameIndex,
                            MM_READWRITE,
                            ActualPteAddress );
-        TempPte.u.Hard.Dirty = MM_PTE_DIRTY;
+        MI_SET_PTE_DIRTY (TempPte);
         Pfn1->u3.e1.Modified = 1;
-#if defined(_MIPS_) || defined(_ALPHA_)
-        TempPte.u.Hard.Global = Global;
-#endif
+        MI_SET_GLOBAL_STATE (TempPte, Global);
 
         *PointerTempPte = TempPte;
     }
     return PageFrameIndex;
 }
-
 
 
 VOID
@@ -2817,16 +3191,65 @@ Return Value:
 
 {
     KIRQL OldIrql;
+    PMMSUPPORT VmSupport;
+    ULONG i;
+    ULONG Trim;
+    UCHAR OldPriority;
 
-    LOCK_PFN(OldIrql);
+    if (MmSystemSize == MmSmallSystem && MmNumberOfPhysicalPages < ((15*1024*1024)/PAGE_SIZE)) {
 
+        //
+        // If this is a small system, make every process BACKGROUND.
+        //
+
+        MemoryPriority = MEMORY_PRIORITY_BACKGROUND;
+    }
+
+    LOCK_EXPANSION (OldIrql);
+
+    OldPriority = Process->Vm.MemoryPriority;
     Process->Vm.MemoryPriority = MemoryPriority;
 
-    UNLOCK_PFN(OldIrql);
+    UNLOCK_EXPANSION (OldIrql);
+
+    if ((OldPriority > MemoryPriority) &&
+        (MmAvailablePages < MmMoreThanEnoughFreePages)) {
+
+        //
+        // The priority is being lowered, see if the working set
+        // should be trimmed.
+        //
+
+        VmSupport = &Process->Vm;
+        i = VmSupport->WorkingSetSize - VmSupport->MaximumWorkingSetSize;
+        if ((LONG)i > 0) {
+            Trim = i;
+            if (Trim > MmWorkingSetReductionMax) {
+                Trim = MmWorkingSetReductionMax;
+            }
+            if (Process != PsGetCurrentProcess()) {
+               KeAttachProcess (&Process->Pcb);
+            }
+            LOCK_WS (Process);
+
+            Trim = MiTrimWorkingSet (Trim,
+                                     VmSupport,
+                                     FALSE);
+
+            MmWorkingSetList->Quota = VmSupport->WorkingSetSize;
+            if (MmWorkingSetList->Quota < VmSupport->MinimumWorkingSetSize) {
+                MmWorkingSetList->Quota = VmSupport->MinimumWorkingSetSize;
+            }
+
+            UNLOCK_WS (Process);
+            KeDetachProcess ();
+        }
+    }
+    return;
 }
 
 
-#if DBG
+#if 0
 VOID
 MiVerifyReferenceCounts (
     IN ULONG PdePage
@@ -2872,9 +3295,9 @@ MiVerifyReferenceCounts (
         Pte1 += 1;
     }
 
-    iy = MiGetPdeOffset(CODE_END) + 1;
+    iy = MiGetPdeOffset(PTE_BASE);
     Pte1 = &PageDirectoryMap[iy];
-    ix  = MiGetPdeOffset(MM_SYSTEM_CACHE_WORKING_SET);
+    ix  = MiGetPdeOffset(HYPER_SPACE_END) + 1;
 
     for (i = iy; i < ix; i++) {
         if (Pte1->u.Hard.Valid == 1) {
@@ -2892,19 +3315,13 @@ MiVerifyReferenceCounts (
         Pte1 += 1;
     }
 
-    if (Pfn1->ValidPteCount != Valid) {
-        DbgPrint ("MMPROCSUP - PDE page %lx ValidPteCount %lx found %lx\n",
-                PdePage, Pfn1->ValidPteCount, Valid);
-    }
-
     if (Pfn1->u2.ShareCount != (Share+Valid+1)) {
         DbgPrint ("MMPROCSUP - PDE page %lx ShareCount %lx found %lx\n",
                 PdePage, Pfn1->u2.ShareCount, Valid+Share+1);
     }
 
     MiUnmapPageInHyperSpace (OldIrql);
-    ASSERT (Pfn1->ValidPteCount == Valid);
     ASSERT (Pfn1->u2.ShareCount == (Share+Valid+1));
     return;
 }
-#endif //DBG
+#endif //0

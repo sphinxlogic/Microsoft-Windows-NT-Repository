@@ -278,7 +278,7 @@ DlgProcess(
             PrEmptyList();
             return TRUE;
 
-          case IDHELP:
+          case IDWINDBGHELP:
             Dbg( WinHelp( hDlg, szHelpFileName, HELP_CONTEXT, ID_PROCESS_HELP ));
             return TRUE;
 

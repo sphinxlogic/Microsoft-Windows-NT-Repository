@@ -99,7 +99,8 @@ typedef struct {
 #define TDI_CHNG_BLK_SIZE   0x00100000  /* Supports multiple block sizes */
 
 #define TDI_DRV_COMPRESSION 0x00200000  /* chs:04-16-93 Supports hardware compression */
-
+#define TDI_DRV_COMPRESS_ON 0x00400000  /* chs:04-16-93 compression currently turned on */
+#define TDI_DRV_COMPRES_INIT 0x00800000  /* chs:04-16-93 compression on at init */
 
 /* Media Types */
 

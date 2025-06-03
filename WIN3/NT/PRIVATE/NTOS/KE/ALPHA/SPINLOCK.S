@@ -141,11 +141,117 @@
 
 #if !defined(NT_UP)
 15:                                     //
-	ldl	t3, 0(t5)		// get current lock value
-	beq	t3, 10b			// retry acquire lock if unowned
+        ldl     t3, 0(t5)               // get current lock value
+        beq     t3, 10b                 // retry acquire lock if unowned
         br      zero, 15b               // loop in cache until lock free
 #endif
         .end    KeAcquireSpinLock
+
+
+        SBTTL("Acquire SpinLock and Raise to Synch")
+//++
+//
+// KIRQL
+// KeAcquireSpinLockRaiseToSynch (
+//    IN PKSPIN_LOCK SpinLock
+//    )
+//
+// Routine Description:
+//
+//    This function raises the current IRQL to synchronization level and
+//    acquires the specified spinlock.
+//
+// Arguments:
+//
+//    SpinLock (a0) - Supplies a pointer to the spinlock that is to be
+//        acquired.
+//
+// Return Value:
+//
+//    The previous IRQL is returned as the function value.
+//
+//--
+
+        LEAF_ENTRY(KeAcquireSpinLockRaiseToSynch)
+
+#if !defined(NT_UP)
+        bis         a0, zero, t5
+        ldl         a0, KiSynchIrql
+10:
+//
+// Raise IRQL and attempt to acquire the specified spinlock.
+//
+        SWAP_IRQL                       // save previous IRQL in v0
+        ldl_l       t3, 0(t5)           // get current lock value
+        bis         t5, zero, t4        // set ownership value
+        bne         t3, 25f             // if ne, lock owned
+        stl_c       t4, 0(t5)           // set lock owned
+        beq         t4, 25f             // if eq, stl_c failed
+        mb                              // synchronize subsequent reads
+
+        ret         zero, (ra)
+
+25:
+//
+// Spinlock is owned, lower IRQL and spin in cache
+// until it looks free.
+//
+        bis         v0, zero, a0
+        SWAP_IRQL
+        bis         v0, zero, a0
+
+26:
+        ldl         t3, 0(t5)           // get current lock value
+        beq         t3, 10b             // retry acquire if unowned
+        br          zero, 26b           // loop in cache until free
+
+#else
+        ldl         a0, KiSynchIrql
+        SWAP_IRQL
+        ret         zero, (ra)          // return
+        .end    KeAcquireSpinLockRaiseToSynch
+#endif
+
+//++
+//
+// KIRQL
+// KeAcquireSpinLockRaiseToDpc (
+//    IN PKSPIN_LOCK SpinLock
+//    )
+//
+// Routine Description:
+//
+//    This function raises the current IRQL to dispatcher level and acquires
+//    the specified spinlock.
+//
+// Arguments:
+//
+//    SpinLock (a0) - Supplies a pointer to the spinlock that is to be
+//        acquired.
+//
+// Return Value:
+//
+//    The previous IRQL is returned as the function value.
+//
+//--
+
+#if !defined(NT_UP)
+        ALTERNATE_ENTRY(KeAcquireSpinLockRaiseToDpc)
+
+        bis     a0, zero, t5
+        ldil    a0, DISPATCH_LEVEL
+        br      10b                     // finish in common code
+        .end    KeAcquireSpinLockRaiseToSynch
+#else
+        LEAF_ENTRY(KeAcquireSpinLockRaiseToDpc)
+
+        ldil    a0, DISPATCH_LEVEL      // set new IRQL
+        SWAP_IRQL                       // old irql in v0
+        ret     zero, (ra)
+
+        .end    KeAcquireSpinLockRaiseToDpc
+#endif
+
 
 
 //++
@@ -180,7 +286,7 @@
 
 #if !defined(NT_UP)
 
-        wmb                             // synchronize all previous writes
+        mb                              // synchronize all previous writes
                                         //   before the spinlock is released
         stl     zero, 0(a0)             // set spin lock not owned
 
@@ -354,8 +460,8 @@
         ret     zero, (ra)              // return
 
 15:                                     //
-	ldl     t2, 0(a0)		// get current lock value
-	beq	t2, 10b			// retry acquire lock if unowned
+        ldl     t2, 0(a0)               // get current lock value
+        beq     t2, 10b                 // retry acquire lock if unowned
         br      zero, 15b               // loop in cache until lock free
 
 #else
@@ -395,7 +501,7 @@
 
 #if !defined(NT_UP)
 
-        wmb                             // synchronize all previous writes
+        mb                              // synchronize all previous writes
                                         //   before the spinlock is released
         stl     zero, 0(a0)             // set spin lock not owned
 

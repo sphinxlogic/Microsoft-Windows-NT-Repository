@@ -20,6 +20,11 @@
 #define __CGCOMMON_HXX__
 
 
+// If we want temporary Oi server stubs in order to make stress failure
+// debugging easier uncomment the following line
+
+// #define TEMPORARY_OI_SERVER_STUBS
+
 /////////////////////////////////////////////////////////////////////////////
 // Code generation phase identification.
 /////////////////////////////////////////////////////////////////////////////
@@ -56,7 +61,7 @@ typedef enum _cgphase
 //////////////////////////////////////////////////////////////////////////////
 
 //
-// This enumeration identifies which side code is currently being 
+// This enumeration identifies which side code is currently being
 // generated for.
 //
 
@@ -162,6 +167,7 @@ typedef enum _standard_res_id
 #define SERVER_ROUTINE_TABLE_NAME       "_ServerRoutineTable"
 
 #define FORMAT_STRING_OFFSET_TABLE_NAME "_FormatStringOffsetTable"
+#define LOCAL_FORMAT_STRING_OFFSET_TABLE_NAME "_LocalFormatStringOffsetTable"
 
 #define STUB_THUNK_TYPE_NAME            "STUB_THUNK"
 #define STUB_THUNK_TABLE_NAME           "_StubThunkTable"
@@ -184,15 +190,25 @@ typedef enum _standard_res_id
 #define RPC_S_INT_INFO_TYPE_NAME		"RPC_SERVER_INTERFACE"
 #define RPC_S_INT_INFO_STRUCT_NAME		"___RpcServerInterface"
 
-#define FORMAT_STRING_TYPE_NAME			"MIDL_FORMAT_STRING"
-#define PFORMAT_STRING_TYPE_NAME		"PFORMAT_STRING"
-#define FORMAT_STRING_STRUCT_NAME		"__MIDLFormatString"
-#define FORMAT_STRING_STRING_FIELD		FORMAT_STRING_STRUCT_NAME ".Format"
+#define FORMAT_STRING_TYPE_NAME         "MIDL_TYPE_FORMAT_STRING"
+#define PFORMAT_STRING_TYPE_NAME        "PFORMAT_STRING"
+#define FORMAT_STRING_STRUCT_NAME       "__MIDL_TypeFormatString"
+#define FORMAT_STRING_STRING_FIELD      FORMAT_STRING_STRUCT_NAME ".Format"
 
-#define PROC_FORMAT_STRING_TYPE_NAME	FORMAT_STRING_TYPE_NAME
-#define PPROC_FORMAT_STRING_TYPE_NAME	FORMAT_STRING_TYPE_NAME
-#define PROC_FORMAT_STRING_STRUCT_NAME	"__MIDLProcFormatString"
-#define PROC_FORMAT_STRING_STRING_FIELD	PROC_FORMAT_STRING_STRUCT_NAME ".Format"
+#define PROC_FORMAT_STRING_TYPE_NAME    "MIDL_PROC_FORMAT_STRING"
+#define PPROC_FORMAT_STRING_TYPE_NAME   FORMAT_STRING_TYPE_NAME
+#define PROC_FORMAT_STRING_STRUCT_NAME  "__MIDL_ProcFormatString"
+#define PROC_FORMAT_STRING_STRING_FIELD PROC_FORMAT_STRING_STRUCT_NAME ".Format"
+
+#define LOCAL_FORMAT_STRING_TYPE_NAME           "MIDL_LOCAL_TYPE_FORMAT_STRING"
+#define PLOCAL_FORMAT_STRING_TYPE_NAME          "PLOCAL_FORMAT_STRING"
+#define LOCAL_FORMAT_STRING_STRUCT_NAME         "__MIDL_LocalTypeFormatString"
+#define LOCAL_FORMAT_STRING_STRING_FIELD        LOCAL_FORMAT_STRING_STRUCT_NAME ".Format"
+
+#define LOCAL_PROC_FORMAT_STRING_TYPE_NAME      "MIDL_LOCAL_PROC_FORMAT_STRING"
+#define PLOCAL_PROC_FORMAT_STRING_TYPE_NAME     LOCAL_FORMAT_STRING_TYPE_NAME
+#define LOCAL_PROC_FORMAT_STRING_STRUCT_NAME    "__MIDL_LocalProcFormatString"
+#define LOCAL_PROC_FORMAT_STRING_STRING_FIELD   LOCAL_PROC_FORMAT_STRING_STRUCT_NAME ".Format"
 
 #define RUNDOWN_ROUTINE_TABLE_TYPE		"NDR_RUNDOWN"
 #define RUNDOWN_ROUTINE_TABLE_VAR		"RundownRoutines"
@@ -205,24 +221,27 @@ typedef enum _standard_res_id
 
 #define XMIT_AS_ROUTINE_TABLE_TYPE      "XMIT_ROUTINE_QUINTUPLE"
 #define XMIT_AS_ROUTINE_TABLE_VAR       "TransmitAsRoutines"
-#define XMIT_TO_XMIT                    "_XmitTranslateToXmit_"
-#define XMIT_FROM_XMIT                  "_XmitTranslateFromXmit_"
-#define XMIT_FREE_XMIT                  "_XmitFreeXmit_"
-#define XMIT_FREE_INST                  "_XmitFreeInst_"
-#define XMIT_SIZE                       "_XmitSize_"
-#define XMIT_ALLOC_INST                 "_XmitAllocInst_"
+#define XMIT_TO_XMIT                    "_XmitTranslateToXmit"
+#define XMIT_FROM_XMIT                  "_XmitTranslateFromXmit"
+#define XMIT_FREE_XMIT                  "_XmitFreeXmit"
+#define XMIT_FREE_INST                  "_XmitFreeInst"
 
 #define REP_AS_ROUTINE_TABLE_TYPE       "XMIT_ROUTINE_QUINTUPLE"
 #define REP_AS_ROUTINE_TABLE_VAR        "RepresentAsRoutines"
-#define REP_FROM_LOCAL                  "_RepAsTranslateFromLocal_"
-#define REP_TO_LOCAL                    "_RepAsTranslateToLocal_"
-#define REP_FREE_INST                   "_RepAsFreeInst_"
-#define REP_FREE_LOCAL                  "_RepAsFreeLocal_"
-#define REP_SIZE                        "_RepAsSize_"
-#define REP_ALLOC_LOCAL                 "_RepAsAllocLocal_"
+#define REP_FROM_LOCAL                  "_RepAsTranslateFromLocal"
+#define REP_TO_LOCAL                    "_RepAsTranslateToLocal"
+#define REP_FREE_INST                   "_RepAsFreeInst"
+#define REP_FREE_LOCAL                  "_RepAsFreeLocal"
 
-#define FC_FIELD_OFFSET_MACRO           "NdrFieldOffset"  
-#define FC_FIELD_PAD_MACRO              "NdrFieldPad"  
+#define USER_MARSHAL_ROUTINE_TABLE_TYPE "USER_MARSHAL_ROUTINE_QUADRUPLE"
+#define USER_MARSHAL_ROUTINE_TABLE_VAR  "UserMarshalRoutines"
+#define USER_MARSHAL_SIZE               "_UserSize"
+#define USER_MARSHAL_MARSHALL           "_UserMarshal"
+#define USER_MARSHAL_UNMARSHALL         "_UserUnmarshal"
+#define USER_MARSHAL_FREE               "_UserFree"
+
+#define FC_FIELD_OFFSET_MACRO           "NdrFieldOffset"
+#define FC_FIELD_PAD_MACRO              "NdrFieldPad"
 
 #define GENERIC_BINDING_ROUTINE_TYPE	"GENERIC_BINDING_ROUTINE"
 #define GENERIC_UNBINDING_ROUTINE_TYPE	"GENERIC_UNBIND_ROUTINE"
@@ -234,6 +253,9 @@ typedef enum _standard_res_id
 #define PXMIT_VAR_TYPE_NAME				"PMIDL_XMIT_TYPE"
 
 #define PARAM_STRUCT_TYPE_NAME			"struct _PARAM_STRUCT"
+
+#define MALLOC_FREE_STRUCT_TYPE_NAME    "MALLOC_FREE_STRUCT"
+#define MALLOC_FREE_STRUCT_VAR_NAME     "_MallocFreeStruct"
 
 /////////////////////////////////////////////////////////////////////////////
 // standard routine names.
@@ -262,6 +284,7 @@ typedef enum _standard_res_id
 #define OLE_FREE_RTN_NAME				"NdrOleFree"
 
 #define NDR_CONVERT_RTN_NAME			"NdrConvert"
+#define NDR_CONVERT_RTN_NAME_V2			"NdrConvert2"
 
 #define DEFAULT_GB_RTN_NAME				"I_RpcGetBuffer"
 #define DEFAULT_SR_RTN_NAME				"I_RpcSendReceive"
@@ -290,6 +313,15 @@ typedef enum _standard_res_id
 
 #define S_NDR_CALL_RTN_NAME             "NdrServerCall"
 #define C_NDR_CALL_RTN_NAME				"NdrClientCall"
+
+#define S_NDR_CALL_RTN_NAME_V2          "NdrServerCall2"
+#define C_NDR_CALL_RTN_NAME_V2			"NdrClientCall2"
+
+#define S_OBJECT_NDR_CALL_RTN_NAME      "NdrStubCall"
+#define C_OBJECT_NDR_CALL_RTN_NAME      "NdrClientCall"
+
+#define S_OBJECT_NDR_CALL_RTN_NAME_V2   "NdrStubCall2"
+#define C_OBJECT_NDR_CALL_RTN_NAME_V2   "NdrClientCall2"
 
 #define S_NDR_MARSHALL_RTN_NAME			"NdrServerMarshall"
 #define S_NDR_UNMARSHALL_RTN_NAME		"NdrServerUnmarshall"
@@ -370,7 +402,10 @@ typedef enum _standard_res_id
 #define STRUCT_PTR_NAME					"_pStruct"
 
 #define STRICT_VARARGS_IFDEF			"#ifdef STRICT_VARARGS"
-#define ALPHA_IFDEF						"#ifdef _ALPHA_"
+#define ALPHA_IFDEF						"#if defined( _ALPHA_ )"
+
+#define ELSE_IF_PPC_OR_MIPS             "#elif defined( _PPC_ ) || defined( _MIPS_ )"
+
 #define VA_LIST_TYPE_NAME				"va_list"
 #define VLIST_VAR_NAME					"vlist"
 #define VA_START_PROC_NAME				"va_start"
@@ -393,11 +428,14 @@ typedef enum _standard_res_id
 
 // encode / decode specific definitions.
 
+#define	NO_FREEING_FOR_PICKLING		TRUE
+
 // functions.
 
 #define NDR_MES_TYPE_ALIGN_SIZE         "NdrMesTypeAlignSize"
 #define NDR_MES_TYPE_ENCODE             "NdrMesTypeEncode"
 #define NDR_MES_TYPE_DECODE             "NdrMesTypeDecode"
+#define NDR_MES_TYPE_FREE               "NdrMesTypeFree"
 #define PROC_ENCODE_DECODE_RTN_NAME     "NdrMesProcEncodeDecode"
 
 
@@ -410,7 +448,9 @@ typedef enum _standard_res_id
 // notify related stuff
 
 #define NOTIFY_SUFFIX                   "_notify"
-#define SIZEOF_NOTIFY_SUFFIX            strlen( NOTIFY_SUFFIX )
+#define NOTIFY_FLAG_SUFFIX              "_notify_flag"
+#define SIZEOF_NOTIFY_FLAG_SUFFIX       strlen( NOTIFY_FLAG_SUFFIX )
+#define NOTIFY_FLAG_VAR_NAME            "__MIDL_NotifyFlag"
 
 //////////////////////////////////////////////////////////////////////////////
 // sundry definitions
@@ -458,7 +498,7 @@ typedef unsigned long	S_STUB_ALLOC_LOCATION;
 #define S_STUB_ALLOC_LOCATION_NOT_NEEDED	0x3
 
 //
-// This definition specifies the actual entity allocated, whether it is a 
+// This definition specifies the actual entity allocated, whether it is a
 // reference to the entity or the entity itself.
 //
 
@@ -486,3 +526,5 @@ typedef unsigned long S_STUB_INIT_NEED;
 // #include "optprop.hxx"
 
 #endif // __CGCOMMON_HXX__
+
+

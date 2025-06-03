@@ -41,6 +41,17 @@ Environment:
 Notes:
 
 Revision History:
+   $0011
+      adrianc: 02/17/95
+         - Fix for RAID# 3292
+   $0010
+      adrianc: 02/17/95
+         - I added the capability for the miniport to add the
+           controller, ASIC and DAC information into the registry.
+   $0008
+      adrianc: 02/17/1995
+        - Because the DAC CMD2 register can change when a mode is set,
+        - it needs to be read again to get the correct value.
    $0006
       miked: 02/17/1994
         . took out conditional debug code to satisfy MSBHPD
@@ -475,6 +486,18 @@ Return Value:
     PHW_DEVICE_EXTENSION hwDeviceExtension = HwDeviceExtension;
     VP_STATUS status;
     ULONG ulTempMemBankNum;             // number of memory banks on card
+    ULONG ulNumQVisionAccessRanges;
+
+    IO_RESOURCE_DESCRIPTOR ioResource = {
+        IO_RESOURCE_PREFERRED,
+        CmResourceTypePort,
+        CmResourceShareDeviceExclusive,
+        0,
+        CM_RESOURCE_PORT_IO,
+        0,
+        { 0x1000, 0x1000, 0xA00000, 0xFFFFF}
+    };                                  // 4k-aligned 4k block between 640k
+                                        // and 1mb
 
     VideoDebugPrint((1,"QVision.sys: VgaFindAdapter.\n"));
 
@@ -497,8 +520,10 @@ Return Value:
     // Check to see if there is a hardware resource conflict.
     //
 
+    ulNumQVisionAccessRanges = NUM_QVISION_ACCESS_RANGES;
+
     status = VideoPortVerifyAccessRanges(HwDeviceExtension,
-                                         NUM_QVISION_ACCESS_RANGES,
+                                         ulNumQVisionAccessRanges,
                                          QVisionAccessRange);
 
     if (status != NO_ERROR) {
@@ -506,7 +531,6 @@ Return Value:
         return status;
 
     }
-
 
     //
     // Get logical IO port addresses.
@@ -675,6 +699,89 @@ Return Value:
 
 /***********************************************************************/
 
+    hwDeviceExtension->PhysicalMemoryMappedBase.HighPart = 0;
+    hwDeviceExtension->PhysicalMemoryMappedBase.LowPart = 0;
+    hwDeviceExtension->PhysicalMemoryMappedLength = 0;
+
+    //
+    // If running on an 'Orion' or newer chip, reserve 4k of space in the
+    // low-memory area for the memory-mapped I/O control registers.
+    // This check for 'v32' ASICs with Bt485 DACs seems to work...
+    //
+
+    if ((hwDeviceExtension->VideoChipInfo.ulControllerType >= QRY_CONTROLLER_V32) &&
+        (hwDeviceExtension->VideoChipInfo.ulDACType == QRY_DAC_BT485)) {
+
+        //
+        // For now, since the below 'VideoPortGetAccessRanges' call doesn't
+        // work, always place the 4k memory-mapped I/O block in the second
+        // half of the 128k space we've already reserved for the frame
+        // buffer memory aperture.  Since our banking only uses the first
+        // 64k area of this space, we won't run into any conflicts by placing
+        // the I/O block in the second 64k area.
+        //
+
+        hwDeviceExtension->PhysicalMemoryMappedBase.HighPart = 0;
+        hwDeviceExtension->PhysicalMemoryMappedBase.LowPart = 0x000B0000;
+        hwDeviceExtension->PhysicalMemoryMappedLength = 0x00001000;
+
+        #if 0 // !!! This doesn't work for now
+
+            //
+            // We're running on an orion-compatible QVision, so it can do
+            // memory-mapped I/O.  Locate a 4k-aligned 4k block between 640k
+            // and 1mb for our memory-mapped I/O window.
+            //
+            // Note that this call didn't work in this way on build 807.
+            //
+
+            status = VideoPortGetAccessRanges(hwDeviceExtension,
+                                              1,
+                                              &ioResource,
+                                              1,
+                                              &QVisionAccessRange[NUM_QVISION_ACCESS_RANGES],
+                                              NULL,
+                                              NULL,
+                                              NULL);
+
+            if (status != NO_ERROR)
+            {
+                VideoDebugPrint((0, "relocatable IO resouces failed with status %08lx\n", status));
+            }
+            else
+            {
+                //
+                // Merge the range in to the rest of the ACCESS_RANGES claimed
+                // by the driver
+                //
+
+                ulNumQVisionAccessRanges++;
+
+                hwDeviceExtension->PhysicalMemoryMappedBase
+                    = QVisionAccessRange[NUM_QVISION_ACCESS_RANGES].RangeStart;
+                hwDeviceExtension->PhysicalMemoryMappedLength
+                    = QVisionAccessRange[NUM_QVISION_ACCESS_RANGES].RangeLength;
+            }
+
+            //
+            // Report the resources over again, since VideoPortGetAccessRanges
+            // wiped them all out:
+            //
+
+            status = VideoPortVerifyAccessRanges(HwDeviceExtension,
+                                                 ulNumQVisionAccessRanges,
+                                                 QVisionAccessRange);
+
+            if (status != NO_ERROR) {
+
+                return status;
+
+            }
+
+        #endif
+
+    }
+
     //
     // Map the video memory into the system virtual address space so we can
     // clear it out and use it for save and restore.
@@ -706,10 +813,12 @@ Return Value:
     // At this point, we have a card. so write out the memory size to the
     // registry.
     //
-
+/*** $0011 ***********  adrianc 2/17/1995 ******************************
+***   This is a fix for RAID# 3292 - 0 MemorySize.                   ***
+***********************************************************************/
     VideoPortSetRegistryParameters(hwDeviceExtension,
                                    L"HardwareInformation.MemorySize",
-                                   &hwDeviceExtension->InstalledVmem,
+                                   &hwDeviceExtension->PhysicalVideoMemoryLength,
                                    sizeof(ULONG));
 
     //
@@ -804,6 +913,9 @@ Return Value:
     VIDEO_MODE videoMode;
     PVIDEO_MEMORY_INFORMATION memoryInformation;
     ULONG inIoSpace;
+    PVIDEO_PUBLIC_ACCESS_RANGES portAccess;
+    ULONG physicalMemoryMappedLength;
+    PVIDEO_MEMORY mappedMemory;
 
     VideoDebugPrint((1, "QVision.sys: VgaStartIO.\n"));
 
@@ -859,6 +971,62 @@ Return Value:
 
         break;
 
+    case IOCTL_VIDEO_QUERY_PUBLIC_ACCESS_RANGES:
+
+        VideoDebugPrint((2, "\tQueryPublicAccessRanges\n"));
+
+        if ( RequestPacket->OutputBufferLength <
+              (RequestPacket->StatusBlock->Information =
+                                     sizeof(VIDEO_PUBLIC_ACCESS_RANGES)) ) {
+
+            status = ERROR_INSUFFICIENT_BUFFER;
+            break;
+        }
+
+        portAccess = RequestPacket->OutputBuffer;
+
+        portAccess->VirtualAddress = NULL;
+
+        status = NO_ERROR;
+
+        if (hwDeviceExtension->PhysicalMemoryMappedLength != 0) {
+
+            inIoSpace = 0;
+
+            physicalMemoryMappedLength = hwDeviceExtension->PhysicalMemoryMappedLength;
+
+            status = VideoPortMapMemory(hwDeviceExtension,
+                                        hwDeviceExtension->PhysicalMemoryMappedBase,
+                                        &physicalMemoryMappedLength,
+                                        &inIoSpace,
+                                        &(portAccess->VirtualAddress));
+        }
+
+        break;
+
+    case IOCTL_VIDEO_FREE_PUBLIC_ACCESS_RANGES:
+
+        VideoDebugPrint((2, "\tFreePublicAccessRanges\n"));
+
+        if (RequestPacket->InputBufferLength < sizeof(VIDEO_MEMORY)) {
+
+            status = ERROR_INSUFFICIENT_BUFFER;
+            break;
+        }
+
+        status = NO_ERROR;
+
+        mappedMemory = RequestPacket->InputBuffer;
+
+        if (mappedMemory->RequestedVirtualAddress != NULL) {
+
+            status = VideoPortUnmapMemory(hwDeviceExtension,
+                                          mappedMemory->
+                                               RequestedVirtualAddress,
+                                          0);
+        }
+
+        break;
 
     case IOCTL_VIDEO_UNMAP_VIDEO_MEMORY:
 
@@ -1074,6 +1242,233 @@ Return Value:
                                          hwDeviceExtension->CurrentVdmAccessRange);
 
         status = NO_ERROR;
+
+        break;
+
+    case IOCTL_VIDEO_QUERY_POINTER_CAPABILITIES:
+
+        VideoDebugPrint((2, "QVStartIO - QueryPointerCapabilities\n"));
+
+        if (RequestPacket->OutputBufferLength <
+            (RequestPacket->StatusBlock->Information =
+                                    sizeof(VIDEO_POINTER_CAPABILITIES))) {
+
+            status = ERROR_INSUFFICIENT_BUFFER;
+
+        } else {
+
+            VIDEO_POINTER_CAPABILITIES *PointerCaps;
+
+            PointerCaps = (VIDEO_POINTER_CAPABILITIES *) RequestPacket->OutputBuffer;
+
+            //
+            // The hardware pointer works in all modes, and requires no
+            // part of off-screen memory.
+            //
+
+            PointerCaps->Flags = VIDEO_MODE_MONO_POINTER |
+                                 VIDEO_MODE_ASYNC_POINTER |
+                                 VIDEO_MODE_LOCAL_POINTER;
+
+            PointerCaps->MaxWidth = PTR_WIDTH_IN_PIXELS;
+            PointerCaps->MaxHeight = PTR_HEIGHT;
+            PointerCaps->HWPtrBitmapStart = (ULONG) -1;
+            PointerCaps->HWPtrBitmapEnd = (ULONG) -1;
+
+            //
+            // Read the current status of the DacCmd2 register:
+            //
+
+            hwDeviceExtension->DacCmd2 = VideoPortReadPortUchar((PUCHAR)DAC_CMD_2) & 0xFC;
+
+            //
+            // Set the graphic cursor fg color (white)
+            //
+
+            VideoPortWritePortUchar( (PUCHAR) CURSOR_COLOR_WRITE, CURSOR_COLOR_2);
+            VideoPortWritePortUchar( (PUCHAR) CURSOR_COLOR_DATA,  0xff);
+            VideoPortWritePortUchar( (PUCHAR) CURSOR_COLOR_DATA,  0xff);
+            VideoPortWritePortUchar( (PUCHAR) CURSOR_COLOR_DATA,  0xff);
+
+            //
+            // Set the graphic cursor bg color (black)
+            //
+
+            VideoPortWritePortUchar( (PUCHAR) CURSOR_COLOR_WRITE, CURSOR_COLOR_1);
+            VideoPortWritePortUchar( (PUCHAR) CURSOR_COLOR_DATA,  0x00);
+            VideoPortWritePortUchar( (PUCHAR) CURSOR_COLOR_DATA,  0x00);
+            VideoPortWritePortUchar( (PUCHAR) CURSOR_COLOR_DATA,  0x00);
+            status = NO_ERROR;
+        }
+
+        break;
+
+    case IOCTL_VIDEO_ENABLE_POINTER:
+
+        VideoDebugPrint((2, "QVStartIO - EnablePointer\n"));
+
+/*** $0008 ***********  adrianc 2/17/1995 ******************************
+***   Because the DAC CMD2 register can change when a mode is set,   ***
+***   it needs to be read again to get the correct value.            ***
+***********************************************************************/
+
+        //
+        // Read the current status of the DacCmd2 register:
+        //
+
+        hwDeviceExtension->DacCmd2 = VideoPortReadPortUchar((PUCHAR)DAC_CMD_2) & 0xFC;
+
+        VideoPortWritePortUchar((PUCHAR) DAC_CMD_2,
+                                (UCHAR) (hwDeviceExtension->DacCmd2 | CURSOR_ENABLE));
+
+        status = NO_ERROR;
+
+        break;
+
+    case IOCTL_VIDEO_DISABLE_POINTER:
+
+        VideoDebugPrint((2, "QVStartIO - DisablePointer\n"));
+
+/*** $0008 ***********  adrianc 2/17/1995 ******************************
+***   Because the DAC CMD2 register can change when a mode is set,   ***
+***   it needs to be read again to get the correct value.            ***
+***********************************************************************/
+
+        //
+        // Read the current status of the DacCmd2 register:
+        //
+
+        hwDeviceExtension->DacCmd2 = VideoPortReadPortUchar((PUCHAR)DAC_CMD_2) & 0xFC;
+
+        VideoPortWritePortUchar((PUCHAR) DAC_CMD_2,
+                                (UCHAR) hwDeviceExtension->DacCmd2);
+
+        status = NO_ERROR;
+
+        break;
+
+    case IOCTL_VIDEO_SET_POINTER_POSITION:
+
+        VideoDebugPrint((2, "QVStartIO - SetPointerPosition\n"));
+
+        if (RequestPacket->InputBufferLength < sizeof(VIDEO_POINTER_POSITION)) {
+
+            status = ERROR_INSUFFICIENT_BUFFER;
+
+        } else {
+
+            VIDEO_POINTER_POSITION *pPointerPosition;
+
+            pPointerPosition = (VIDEO_POINTER_POSITION *) RequestPacket->InputBuffer;
+
+            //
+            // The QVision's HW pointer coordinate system is upper-left =
+            // (31, 31), lower-right = (0, 0).  Thus, we must always bias
+            // the pointer.  As a result, the pointer position register will
+            // never go negative.
+            //
+
+            VideoPortWritePortUshort((PUSHORT) CURSOR_X,
+                                     (USHORT) (pPointerPosition->Column + CURSOR_CX));
+            VideoPortWritePortUshort((PUSHORT) CURSOR_Y,
+                                     (USHORT) (pPointerPosition->Row + CURSOR_CY));
+
+            status = NO_ERROR;
+
+        }
+
+        break;
+
+    case IOCTL_VIDEO_SET_POINTER_ATTR:
+
+        VideoDebugPrint((2, "QVStartIO - SetPointerAttr\n"));
+
+/*** $0008 ***********  adrianc 2/17/1995 ******************************
+***   Because the DAC CMD2 register can change when a mode is set,   ***
+***   it needs to be read again to get the correct value.            ***
+***********************************************************************/
+
+        //
+        // Read the current status of the DacCmd2 register:
+        //
+
+        hwDeviceExtension->DacCmd2 = VideoPortReadPortUchar((PUCHAR)DAC_CMD_2) & 0xFC;
+
+        if (RequestPacket->InputBufferLength < sizeof(VIDEO_POINTER_ATTRIBUTES)) {
+
+            status = ERROR_INSUFFICIENT_BUFFER;
+
+        } else {
+
+            VIDEO_POINTER_ATTRIBUTES *pPointerAttributes;
+            LONG                      i;
+            LONG                      j;
+            UCHAR*                    pPointerBits;
+
+            pPointerAttributes = (VIDEO_POINTER_ATTRIBUTES *) RequestPacket->InputBuffer;
+
+            //
+            // We have to turn off the hardware pointer while we down-load
+            // the new shape, otherwise we get sparkles on the screen.
+            //
+
+            VideoPortWritePortUchar((PUCHAR) DAC_CMD_2,
+                                    (UCHAR) hwDeviceExtension->DacCmd2);
+
+            VideoPortWritePortUchar((PUCHAR) CURSOR_WRITE,
+                                      CURSOR_PLANE_0);
+
+            //
+            // Download XOR mask:
+            //
+
+            pPointerBits = pPointerAttributes->Pixels + (PTR_WIDTH * PTR_HEIGHT);
+            for (i = 0; i < PTR_HEIGHT; i++) {
+
+                for (j = 0; j < PTR_WIDTH; j++) {
+
+                    VideoPortWritePortUchar((PUCHAR) CURSOR_DATA,
+                                            (UCHAR) *pPointerBits++);
+                }
+            }
+
+            //
+            // Download AND mask:
+            //
+
+            pPointerBits = pPointerAttributes->Pixels;
+            for (i = 0; i < PTR_HEIGHT; i++) {
+
+                for (j = 0; j < PTR_WIDTH; j++) {
+
+                    VideoPortWritePortUchar((PUCHAR) CURSOR_DATA,
+                                            (UCHAR) *pPointerBits++);
+                }
+            }
+
+            //
+            // Set the new position:
+            //
+
+            VideoPortWritePortUshort((PUSHORT) CURSOR_X,
+                                     (USHORT) (pPointerAttributes->Column + CURSOR_CX));
+            VideoPortWritePortUshort((PUSHORT) CURSOR_Y,
+                                     (USHORT) (pPointerAttributes->Row + CURSOR_CY));
+
+            //
+            // Enable or disable pointer:
+            //
+
+            if (pPointerAttributes->Enable) {
+
+                VideoPortWritePortUchar((PUCHAR) DAC_CMD_2,
+                                        (UCHAR) (hwDeviceExtension->DacCmd2 | CURSOR_ENABLE));
+
+            }
+
+            status = NO_ERROR;
+
+        }
 
         break;
 
@@ -1910,6 +2305,8 @@ Return Value:
     UCHAR testMask;
     BOOLEAN returnStatus;
     ULONG ulASIC;
+    PWSTR pwszChip, pwszDAC, pwszAdapterString;
+    ULONG cbChip, cbDAC, cbAdapterString;
 
 
     VideoDebugPrint((1,"QVision.sys: VgaIsPresent.\n"));
@@ -2294,6 +2691,7 @@ Return Value:
 
            case QRY_CONTROLLER_V32:
            case QRY_CONTROLLER_V35:         // QVision 1280/1024 - new ASIC
+           case QRY_CONTROLLER_V64:
 
               //
               //    We need to set bit 7 of the DAC_CMD_1 registers to 0
@@ -2358,6 +2756,110 @@ Return Value:
               returnStatus=FALSE;
               break;
         }
+
+/*** $0010 ***********  adrianc 2/17/1995 ******************************
+***   Write the controller and ASIC information to the registry.     ***
+***********************************************************************/
+       switch (HwDeviceExtension->VideoChipInfo.ulControllerType)
+         {
+           case QRY_CONTROLLER_V32:
+               if (HwDeviceExtension->VideoChipInfo.ulDACType == QRY_DAC_BT484)
+                 {
+                     pwszAdapterString = L"QVision 1024 Enhanced";
+                     cbAdapterString = sizeof(L"QVision 1024 Enhanced");
+                 } // if
+               else
+                 {
+                     pwszAdapterString = L"QVision 1280";
+                     cbAdapterString = sizeof(L"QVision 1280");
+                 } // else
+               break;
+
+           case QRY_CONTROLLER_V35:         // QVision 1280/1024 - new ASIC
+               pwszAdapterString = L"QVision 1280";
+               cbAdapterString = sizeof(L"QVision 1280");
+               break;
+           case QRY_CONTROLLER_V64:
+               pwszAdapterString = L"QVision 1280/P";
+               cbAdapterString = sizeof(L"QVision 1280/P");
+               break;
+           default:
+               pwszAdapterString = QV_NEW;
+               cbAdapterString = sizeof(QV_NEW);
+            break;
+         } // switch
+
+      VideoPortSetRegistryParameters(HwDeviceExtension,
+                                     L"HardwareInformation.AdapterString",
+                                     pwszAdapterString,
+                                     cbAdapterString);
+
+      switch (HwDeviceExtension->VideoChipInfo.ulDACType)
+         {
+         case QRY_DAC_BT471:
+                 pwszDAC = L"Brooktree Bt471";
+                 cbDAC   = sizeof(L"Brooktree Bt471");
+                 break;
+         case QRY_DAC_BT477:
+                 pwszDAC = L"Brooktree Bt477";
+                 cbDAC   = sizeof(L"Brooktree Bt477");
+                 break;
+         case QRY_DAC_BT476:
+                 pwszDAC = L"Brooktree Bt476";
+                 cbDAC   = sizeof(L"Brooktree Bt476");
+                 break;
+         case QRY_DAC_BT484:
+                 pwszDAC = L"Brooktree Bt484";
+                 cbDAC   = sizeof(L"Brooktree Bt484");
+                 break;
+         case QRY_DAC_BT485:
+                 pwszDAC = L"Brooktree Bt485";
+                 cbDAC   = sizeof(L"Brooktree Bt485");
+                 break;
+
+         case QRY_DAC_UNKNOWN:
+         default:
+                 pwszDAC = L"Unknown";
+                 cbDAC   = sizeof(L"Unknown");
+                 break;
+         } // switch
+
+      switch (HwDeviceExtension->VideoChipInfo.ulControllerType)
+         {
+         case QRY_CONTROLLER_VICTORY:
+            pwszChip = TRITON;
+            cbChip = sizeof(TRITON);
+            break;
+         case QRY_CONTROLLER_V32:
+            pwszChip = ORION;
+            cbChip = sizeof(ORION);
+            break;
+         case QRY_CONTROLLER_V35:
+            pwszChip = ARIEL;
+            cbChip = sizeof(ARIEL);
+            break;
+         case QRY_CONTROLLER_V64:
+            pwszChip = OBERON;
+            cbChip = sizeof(OBERON);
+            break;
+         default:
+            pwszChip = QV_NEW;
+            cbChip = sizeof(QV_NEW);
+            break;
+         } // switch
+
+
+      VideoPortSetRegistryParameters(HwDeviceExtension,
+                                  L"HardwareInformation.ChipType",
+                                  pwszChip,
+                                  cbChip);
+
+      VideoPortSetRegistryParameters(HwDeviceExtension,
+                                     L"HardwareInformation.DacType",
+                                     pwszDAC,
+                                     cbDAC);
+
+//*** END $0010 *********************************************************
 
     }
 
@@ -4380,7 +4882,8 @@ Return Value:
         // will support mapping a starting address at a 16k boundary.
         //
 
-        if (HwDeviceExtension->CurrentMode->hres >= 1280) {
+        if ((HwDeviceExtension->CurrentMode->hres >= 1280) ||
+            (HwDeviceExtension->PhysicalMemoryMappedLength != 0)) {
             VideoDebugPrint((2,"\t 16K banks\n"));
 
             codeSize = ((ULONG)&QV16kAddrBankSwitchEnd) -
@@ -6237,8 +6740,8 @@ Return Value:
     //   to no ROP and CPU data.
     //
 
-    VideoPortWritePortUshort((PUSHORT) HwDeviceExtension->IOAddress + \
-                 GRAPH_ADDRESS_PORT, ((USHORT) DATAPATH_CONTROL) + 0x0000 );
+    VideoPortWritePortUshort((PUSHORT) (HwDeviceExtension->IOAddress + \
+                 GRAPH_ADDRESS_PORT), ((USHORT) DATAPATH_CONTROL) + 0x0000 );
 
     //
     //   Clear the QVision control register 1 (63ca) data path
@@ -6307,8 +6810,8 @@ Return Value:
         // map the first 32k block (adjusting for addressing granularity!)
         //
 
-        VideoPortWritePortUshort((PUSHORT) HwDeviceExtension->IOAddress + \
-        GRAPH_ADDRESS_PORT, (USHORT) (0x0045 + (i << (8 + ucPgMultiplier))) );
+        VideoPortWritePortUshort((PUSHORT) (HwDeviceExtension->IOAddress + \
+        GRAPH_ADDRESS_PORT), (USHORT) (0x0045 + (i << (8 + ucPgMultiplier))) );
 
         //
         // save the 32k block of video memory - move test outside loop

@@ -8,33 +8,104 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+
+#define MAX_SYMNAME_SIZE  1024
+CHAR symBuffer[sizeof(IMAGEHLP_SYMBOL)+MAX_SYMNAME_SIZE];
+PIMAGEHLP_SYMBOL ThisSymbol = (PIMAGEHLP_SYMBOL) symBuffer;
+
+CHAR LastSymBuffer[sizeof(IMAGEHLP_SYMBOL)+MAX_SYMNAME_SIZE];
+PIMAGEHLP_SYMBOL LastSymbol = (PIMAGEHLP_SYMBOL) LastSymBuffer;
+
+CHAR BadSymBuffer[sizeof(IMAGEHLP_SYMBOL)+MAX_SYMNAME_SIZE];
+PIMAGEHLP_SYMBOL BadSymbol = (PIMAGEHLP_SYMBOL)BadSymBuffer;
+
+BOOL UseLastSymbol;
+
+
 typedef struct _PROFILE_BLOCK {
     HANDLE Handle;
-    PVOID ImageBase;  //actual base in image header
+    HANDLE SecondaryHandle;
+    PVOID ImageBase;
+    BOOL SymbolsLoaded;
     PULONG CodeStart;
     ULONG CodeLength;
     PULONG Buffer;
+    PULONG SecondaryBuffer;
     ULONG BufferSize;
     ULONG TextNumber;
     ULONG BucketSize;
-    PVOID MappedImageBase;  //actual base where mapped locally.
-    PIMAGE_DEBUG_INFORMATION DebugInfo;
     PUNICODE_STRING ImageName;
+    char *ImageFileName;
 } PROFILE_BLOCK;
 
 ULONG ProfilePageSize;
 
+
 #define MAX_BYTE_PER_LINE       72
-#define MAX_PROFILE_COUNT 50
+#define MAX_PROFILE_COUNT 100
+#define SYM_HANDLE ((HANDLE)0xffffffff)
 
 PROFILE_BLOCK ProfileObject[MAX_PROFILE_COUNT+1];
 
 ULONG NumberOfProfileObjects = 0;
 
-#define MAX_PROFILE_COUNT 50
+ULONG ProfileInterval = 4882;
 
-LPSTR SymbolSearchPath;
+#define BUCKETSIZE 4
+int PowerOfBytesCoveredPerBucket = 2;
+CHAR SymbolSearchPathBuf[4096];
+LPSTR SymbolSearchPath = SymbolSearchPathBuf;
 BOOLEAN ShowAllHits = FALSE;
+BOOLEAN fKernel = FALSE;
+
+PCHAR OutputFile = "profile.out";
+
+KPROFILE_SOURCE ProfileSource = ProfileTime;
+KPROFILE_SOURCE SecondaryProfileSource = ProfileTime;
+BOOLEAN UseSecondaryProfile = FALSE;
+
+//
+// define the mappings between arguments and KPROFILE_SOURCE types
+//
+
+typedef struct _PROFILE_SOURCE_MAPPING {
+    PCHAR   Name;
+    KPROFILE_SOURCE Source;
+} PROFILE_SOURCE_MAPPING, *PPROFILE_SOURCE_MAPPING;
+
+#if defined(_ALPHA_)
+
+PROFILE_SOURCE_MAPPING ProfileSourceMapping[] = {
+    {"align", ProfileAlignmentFixup},
+    {"totalissues", ProfileTotalIssues},
+    {"pipelinedry", ProfilePipelineDry},
+    {"loadinstructions", ProfileLoadInstructions},
+    {"pipelinefrozen", ProfilePipelineFrozen},
+    {"branchinstructions", ProfileBranchInstructions},
+    {"totalnonissues", ProfileTotalNonissues},
+    {"dcachemisses", ProfileDcacheMisses},
+    {"icachemisses", ProfileIcacheMisses},
+    {"branchmispredicts", ProfileBranchMispredictions},
+    {"storeinstructions", ProfileStoreInstructions},
+    {NULL,0}
+    };
+
+#elif defined(_MIPS_)
+
+PROFILE_SOURCE_MAPPING ProfileSourceMapping[] = {
+    {"align", },
+    {NULL,0}
+    };
+
+#else
+
+PROFILE_SOURCE_MAPPING ProfileSourceMapping[] = {
+    {NULL,0}
+    };
+#endif
+
+
+
 
 VOID
 PsParseCommandLine(
@@ -64,68 +135,11 @@ PsWriteProfileLine(
 
 }
 
-void
-SetSymbolSearchPath( )
-{
-    CHAR  SymPathBuffer[256];
-    CHAR  AltSymPathBuffer[256];
-    CHAR  SysRootBuffer[256];
-    LPSTR lpSymPathEnv,lpAltSymPathEnv,lpSystemRootEnv;
-    ULONG cbSymPath;
-    DWORD dw;
-
-    cbSymPath = 18;
-    lpSymPathEnv = lpAltSymPathEnv = lpSystemRootEnv = NULL;
-    if (GetEnvironmentVariable("_NT_SYMBOL_PATH",SymPathBuffer,100) < 100) {
-        lpSymPathEnv = SymPathBuffer;
-        cbSymPath += strlen(lpSymPathEnv) + 1;
-    }
-    if (GetEnvironmentVariable("_NT_ALT_SYMBOL_PATH",AltSymPathBuffer,100) < 100) {
-        lpAltSymPathEnv = AltSymPathBuffer;
-        cbSymPath += strlen(lpAltSymPathEnv) + 1;
-    }
-
-    if (GetEnvironmentVariable("SystemRoot",SysRootBuffer,100) < 100) {
-        lpSystemRootEnv = SysRootBuffer;
-        cbSymPath += strlen(lpSystemRootEnv) + 1;
-    }
-
-    SymbolSearchPath = LocalAlloc(LMEM_ZEROINIT,cbSymPath);
-
-    if (lpAltSymPathEnv) {
-        dw = GetFileAttributes(lpAltSymPathEnv);
-        if ( dw != 0xffffffff && dw & FILE_ATTRIBUTE_DIRECTORY ) {
-            strcat(SymbolSearchPath,lpAltSymPathEnv);
-            strcat(SymbolSearchPath,";");
-            }
-    }
-    if (lpSymPathEnv) {
-        dw = GetFileAttributes(lpSymPathEnv);
-        if ( dw != 0xffffffff && dw & FILE_ATTRIBUTE_DIRECTORY ) {
-            strcat(SymbolSearchPath,lpSymPathEnv);
-            strcat(SymbolSearchPath,";");
-            }
-    }
-
-    if (lpSystemRootEnv) {
-        dw = GetFileAttributes(lpSystemRootEnv);
-        if ( dw != 0xffffffff && dw & FILE_ATTRIBUTE_DIRECTORY ) {
-            strcat(SymbolSearchPath,lpSystemRootEnv);
-            strcat(SymbolSearchPath,";");
-            }
-    }
-
-    strcat(SymbolSearchPath,".;");
-
-}
-
 NTSTATUS
 PsInitializeAndStartProfile(
     VOID
     )
 {
-
-    HANDLE hFile;
     HANDLE CurrentProcessHandle;
     ULONG BufferSize;
     PVOID ImageBase;
@@ -136,17 +150,33 @@ PsInitializeAndStartProfile(
     PLDR_DATA_TABLE_ENTRY LdrDataTableEntry;
     PUNICODE_STRING ImageName;
     PLIST_ENTRY Next;
-    ULONG ExportSize, DebugSize;
-    PIMAGE_EXPORT_DIRECTORY ExportDirectory;
-    PIMAGE_DEBUG_DIRECTORY DebugDirectory;
-    PIMAGE_COFF_SYMBOLS_HEADER DebugInfo;
     SYSTEM_BASIC_INFORMATION SystemInfo;
     NTSTATUS status;
-    PIMAGE_NT_HEADERS pImageNtHeader;
     ULONG i;
+    CHAR Bogus[256];
+    CHAR *ImageFileName;
     DWORD WsMin, WsMax;
+    ULONG ModuleNumber;
+    CHAR ModuleInfoBuffer[64000];
+    ULONG ReturnedLength;
+    PRTL_PROCESS_MODULES Modules;
+    PRTL_PROCESS_MODULE_INFORMATION Module;
+    BOOLEAN PreviousProfilePrivState;
+    BOOLEAN PreviousQuotaPrivState;
+    BOOLEAN Done = FALSE;
+    BOOLEAN DuplicateObject = FALSE;
 
-    SetSymbolSearchPath();
+
+    //
+    // initialize the symbol handler
+    //
+    ThisSymbol->SizeOfStruct  = sizeof(IMAGEHLP_SYMBOL);
+    ThisSymbol->MaxNameLength = MAX_SYMNAME_SIZE;
+    LastSymbol->SizeOfStruct  = sizeof(IMAGEHLP_SYMBOL);
+    LastSymbol->MaxNameLength = MAX_SYMNAME_SIZE;
+    SymSetOptions( SYMOPT_UNDNAME | SYMOPT_CASE_INSENSITIVE );
+    SymInitialize( SYM_HANDLE, NULL, FALSE );
+    SymGetSearchPath( SYM_HANDLE, SymbolSearchPathBuf, sizeof(SymbolSearchPathBuf) );
 
     //
     // Get the page size.
@@ -159,7 +189,50 @@ PsInitializeAndStartProfile(
 
     if (!NT_SUCCESS(status)) {
         return status;
+    }
+
+    //
+    // Load kernel modules
+    //
+    if (fKernel) {
+        status = NtQuerySystemInformation (
+                        SystemModuleInformation,
+                        ModuleInfoBuffer,
+                        sizeof( ModuleInfoBuffer ),
+                        &ReturnedLength);
+        if (!NT_SUCCESS(status)) {
+            DbgPrint("query system info failed status - %lx\n",status);
+            fKernel = FALSE;
+        } else {
+            Modules = (PRTL_PROCESS_MODULES)ModuleInfoBuffer;
+            Module = &Modules->Modules[ 0 ];
+                ModuleNumber = 0;
+
+            status = RtlAdjustPrivilege(
+                         SE_SYSTEM_PROFILE_PRIVILEGE,
+                         TRUE,              //Enable
+                         FALSE,             //not impersonating
+                         &PreviousProfilePrivState
+                         );
+
+            if (!NT_SUCCESS(status) || status == STATUS_NOT_ALL_ASSIGNED) {
+                DbgPrint("Enable system profile privilege failed - status 0x%lx\n",
+                                status);
+            }
+
+            status = RtlAdjustPrivilege(
+                         SE_INCREASE_QUOTA_PRIVILEGE,
+                         TRUE,              //Enable
+                         FALSE,             //not impersonating
+                         &PreviousQuotaPrivState
+                         );
+
+            if (!NT_SUCCESS(status) || status == STATUS_NOT_ALL_ASSIGNED) {
+                DbgPrint("Unable to increase quota privilege (status=0x%lx)\n",
+                                status);
+            }
         }
+    }
 
     ProfilePageSize = SystemInfo.PageSize;
 
@@ -173,46 +246,72 @@ PsInitializeAndStartProfile(
     Peb = NtCurrentPeb();
 
     Next = Peb->Ldr->InMemoryOrderModuleList.Flink;
-    while ( Next != &Peb->Ldr->InMemoryOrderModuleList) {
-        LdrDataTableEntry
-            = (PLDR_DATA_TABLE_ENTRY) (CONTAINING_RECORD(Next,LDR_DATA_TABLE_ENTRY,InMemoryOrderLinks));
+    while (!Done) {
+        if ( Next != &Peb->Ldr->InMemoryOrderModuleList) {
+            LdrDataTableEntry = (PLDR_DATA_TABLE_ENTRY) (CONTAINING_RECORD(
+                                Next,
+                                LDR_DATA_TABLE_ENTRY,
+                                InMemoryOrderLinks
+                                ));
 
-        ImageBase = LdrDataTableEntry->DllBase;
-        ImageName = &LdrDataTableEntry->BaseDllName;
+            Next = Next->Flink;
 
-        hFile = CreateFileW(
-                    LdrDataTableEntry->FullDllName.Buffer,
-                    GENERIC_READ,
-                    FILE_SHARE_READ,
-                    NULL,
-                    OPEN_EXISTING,
-                    0,
-                    NULL
-                    );
-        if ( hFile == INVALID_HANDLE_VALUE ) {
-            hFile = NULL;
+            ImageBase = LdrDataTableEntry->DllBase;
+            ImageName = &LdrDataTableEntry->BaseDllName;
+            CodeLength = LdrDataTableEntry->SizeOfImage;
+            CodeStart = (PULONG)ImageBase;
+
+            ImageFileName = HeapAlloc(GetProcessHeap(), 0, 256);
+            status = RtlUnicodeToOemN( ImageFileName,
+                                       256,
+                                       &i,
+                                       ImageName->Buffer,
+                                       ImageName->Length
+                                     );
+            ImageFileName[i] = 0;
+
+            if (status != STATUS_SUCCESS) {
+                continue;
             }
+        } else
+        if (fKernel && (ModuleNumber < Modules->NumberOfModules)) {
+            ULONG cNameMBLength = lstrlen(&Module->FullPathName[Module->OffsetToFileName]) + 1;
+            ULONG cNameUCLength = cNameMBLength * sizeof(WCHAR);
+            ULONG cNameSize = cNameUCLength + sizeof(UNICODE_STRING);
+
+            ImageFileName = HeapAlloc(GetProcessHeap(), 0, cNameMBLength);
+            lstrcpy(ImageFileName, &Module->FullPathName[Module->OffsetToFileName]);
+
+            ImageBase = Module->ImageBase;
+            CodeLength = Module->ImageSize;
+            CodeStart = (PULONG)ImageBase;
+            ImageName = HeapAlloc(GetProcessHeap(), 0, cNameSize);
+            ImageName->Buffer = (WCHAR *)((PBYTE)ImageName + sizeof(UNICODE_STRING));
+            RtlMultiByteToUnicodeN(ImageName->Buffer, cNameUCLength, &i,
+                                   &Module->FullPathName[Module->OffsetToFileName],
+                                   cNameMBLength);
+            ImageName->Length = (USHORT)i;
+            Module++;
+            ModuleNumber++;
+        } else {
+            Done = TRUE;
+            break;
+        }
+
+        DuplicateObject = FALSE;
+
+        for (i = 0; i < NumberOfProfileObjects ; i++ ) {
+            if (ImageBase == ProfileObject[i].ImageBase)
+                DuplicateObject = TRUE;
+        }
+
+        if (DuplicateObject) {
+            continue;
+        }
 
         ProfileObject[NumberOfProfileObjects].ImageBase = ImageBase;
         ProfileObject[NumberOfProfileObjects].ImageName = ImageName;
-        ProfileObject[NumberOfProfileObjects].DebugInfo = MapDebugInformation(
-                                                                hFile,
-                                                                NULL,
-                                                                SymbolSearchPath,
-                                                                ImageBase
-                                                                );
-        if ( hFile ) {
-            CloseHandle(hFile);
-            }
-
-        //
-        // Locate the code range and start profiling.
-        //
-
-        pImageNtHeader = RtlImageNtHeader (ImageBase);
-
-        CodeLength = pImageNtHeader->OptionalHeader.SizeOfCode;
-        CodeStart = (PULONG)((ULONG)ImageBase + pImageNtHeader->OptionalHeader.BaseOfCode);
+        ProfileObject[NumberOfProfileObjects].ImageFileName = ImageFileName;
 
         ProfileObject[NumberOfProfileObjects].CodeLength = CodeLength;
         ProfileObject[NumberOfProfileObjects].CodeStart = CodeStart;
@@ -223,7 +322,7 @@ PsInitializeAndStartProfile(
         // profile object.
         //
 
-        BufferSize = (CodeLength >> 1) + 4;
+        BufferSize = ((CodeLength * BUCKETSIZE) >> PowerOfBytesCoveredPerBucket) + 4;
         Buffer = NULL;
 
         status = NtAllocateVirtualMemory (CurrentProcessHandle,
@@ -236,12 +335,11 @@ PsInitializeAndStartProfile(
         if (!NT_SUCCESS(status)) {
             DbgPrint ("RtlInitializeProfile : alloc VM failed %lx\n",status);
             return status;
-            }
-
+        }
 
         ProfileObject[NumberOfProfileObjects].Buffer = Buffer;
         ProfileObject[NumberOfProfileObjects].BufferSize = BufferSize;
-        ProfileObject[NumberOfProfileObjects].BucketSize = 3;
+        ProfileObject[NumberOfProfileObjects].BucketSize = PowerOfBytesCoveredPerBucket;
 
         status = NtCreateProfile (
                     &ProfileObject[NumberOfProfileObjects].Handle,
@@ -250,25 +348,61 @@ PsInitializeAndStartProfile(
                     ProfileObject[NumberOfProfileObjects].CodeLength,
                     ProfileObject[NumberOfProfileObjects].BucketSize,
                     ProfileObject[NumberOfProfileObjects].Buffer ,
-                    ProfileObject[NumberOfProfileObjects].BufferSize);
-
+                    ProfileObject[NumberOfProfileObjects].BufferSize,
+                    ProfileSource,
+                    (KAFFINITY)-1);
 
         if (status != STATUS_SUCCESS) {
-            DbgPrint("create profile %x failed - status %lx\n",
+            DbgPrint("create profile %wZ failed - status %lx\n",
                    ProfileObject[NumberOfProfileObjects].ImageName,status);
             return status;
+        }
+
+        if (UseSecondaryProfile) {
+            Buffer = NULL;
+            status = NtAllocateVirtualMemory (CurrentProcessHandle,
+                                              (PVOID *)&Buffer,
+                                              0,
+                                              &BufferSize,
+                                              MEM_RESERVE | MEM_COMMIT,
+                                              PAGE_READWRITE);
+
+            if (!NT_SUCCESS(status)) {
+                DbgPrint ("RtlInitializeProfile : secondary alloc VM failed %lx\n",status);
+                return status;
             }
+
+            ProfileObject[NumberOfProfileObjects].SecondaryBuffer = Buffer;
+
+            status = NtCreateProfile (
+                        &ProfileObject[NumberOfProfileObjects].SecondaryHandle,
+                        CurrentProcessHandle,
+                        ProfileObject[NumberOfProfileObjects].CodeStart,
+                        ProfileObject[NumberOfProfileObjects].CodeLength,
+                        ProfileObject[NumberOfProfileObjects].BucketSize,
+                        ProfileObject[NumberOfProfileObjects].SecondaryBuffer,
+                        ProfileObject[NumberOfProfileObjects].BufferSize,
+                        SecondaryProfileSource,
+                        (KAFFINITY)-1);
+
+            if (status != STATUS_SUCCESS) {
+                DbgPrint("create profile %wZ failed - status %lx\n",
+                       ProfileObject[NumberOfProfileObjects].ImageName,status);
+                return status;
+            }
+        }
 
         NumberOfProfileObjects++;
 
         if (NumberOfProfileObjects == MAX_PROFILE_COUNT) {
             break;
-            }
-
-        Next = Next->Flink;
         }
+    }
 
-    NtSetIntervalProfile(4882);
+    NtSetIntervalProfile(ProfileInterval,ProfileSource);
+    if (UseSecondaryProfile) {
+        NtSetIntervalProfile(ProfileInterval,SecondaryProfileSource);
+    }
 
     for (i = 0; i < NumberOfProfileObjects; i++) {
 
@@ -280,50 +414,103 @@ PsInitializeAndStartProfile(
             // Increase the working set to lock down a bigger buffer.
             //
 
-            GetProcessWorkingSetSize(NtCurrentProcess(),&WsMin,&WsMax);
+            GetProcessWorkingSetSize(CurrentProcessHandle,&WsMin,&WsMax);
 
             WsMax += 10*ProfilePageSize + ProfileObject[i].BufferSize;
             WsMin += 10*ProfilePageSize + ProfileObject[i].BufferSize;
 
-            SetProcessWorkingSetSize(NtCurrentProcess(),&WsMin,&WsMax);
+            SetProcessWorkingSetSize(CurrentProcessHandle,(DWORD)&WsMin,(DWORD)&WsMax);
 
             status = NtStartProfile (ProfileObject[i].Handle);
-            }
+        }
 
         if (status != STATUS_SUCCESS) {
             DbgPrint("start profile %wZ failed - status %lx\n",
                 ProfileObject[i].ImageName, status);
             return status;
+        }
+
+        if (UseSecondaryProfile) {
+            status = NtStartProfile (ProfileObject[i].SecondaryHandle);
+
+            if (status == STATUS_WORKING_SET_QUOTA) {
+
+                //
+                // Increase the working set to lock down a bigger buffer.
+                //
+
+                GetProcessWorkingSetSize(CurrentProcessHandle,&WsMin,&WsMax);
+
+                WsMax += 10*ProfilePageSize + ProfileObject[i].BufferSize;
+                WsMin += 10*ProfilePageSize + ProfileObject[i].BufferSize;
+
+                SetProcessWorkingSetSize(CurrentProcessHandle,(DWORD)&WsMin,(DWORD)&WsMax);
+
+                status = NtStartProfile (ProfileObject[i].SecondaryHandle);
+            }
+
+            if (status != STATUS_SUCCESS) {
+                DbgPrint("start secondary profile %wZ failed - status %lx\n",
+                    ProfileObject[i].ImageName, status);
+                return status;
             }
         }
+    }
     return status;
 }
 
+
+unsigned long
+Percent(
+    unsigned long arg1,
+    unsigned long arg2,
+    unsigned long * Low
+    )
+{
+    unsigned long iarg1 = arg1;
+    unsigned __int64 iarg2 = arg2 * 100000;
+    unsigned long diff, High;
+
+    diff = (unsigned long) (iarg2 / iarg1);
+    while (diff > 100000) {
+        diff /= 100000;
+    }
+    High = diff / 1000;
+    *Low = diff % 1000;
+    return(High);
+}
 
 NTSTATUS
 PsStopAndAnalyzeProfile(
     VOID
     )
 {
-    ULONG i;
     NTSTATUS status;
-    RTL_SYMBOL_INFORMATION ThisSymbol;
-    RTL_SYMBOL_INFORMATION LastSymbol;
     ULONG CountAtSymbol;
+    ULONG SecondaryCountAtSymbol;
     NTSTATUS Status;
     ULONG Va;
     ULONG StartVa;
     HANDLE ProfileHandle;
     CHAR Line[512];
-    ULONG n;
+    ULONG i, n, High, Low;
     PULONG Buffer, BufferEnd, Counter, InitialCounter;
+    PULONG SecondaryBuffer;
+    PULONG SecondaryInitialCounter;
     ULONG TotalCounts;
-    STRING NoSymbolFound = {15,16,"No Symbol Found"};
-    STRING NoSymbols = {12,13,"(NO SYMBOLS)"};
     ULONG ByteCount;
+    IMAGEHLP_MODULE ModuleInfo;
+    DWORD dwDisplacement;
+
+
+    ZeroMemory( BadSymBuffer, sizeof(BadSymBuffer) );
+    BadSymbol->Name[0] = (BYTE)lstrlen("No Symbol Found");
+    lstrcpy( &BadSymbol->Name[1], "No Symbol Found" );
+    BadSymbol->SizeOfStruct  = sizeof(IMAGEHLP_SYMBOL);
+    BadSymbol->MaxNameLength = MAX_SYMNAME_SIZE;
 
     ProfileHandle = CreateFile(
-                        "profile.out",
+                        OutputFile,
                         GENERIC_READ | GENERIC_WRITE,
                         FILE_SHARE_READ | FILE_SHARE_WRITE,
                         NULL,
@@ -334,20 +521,28 @@ PsStopAndAnalyzeProfile(
 
     if ( ProfileHandle == INVALID_HANDLE_VALUE ) {
         return STATUS_UNSUCCESSFUL;
-        }
+    }
 
     for (i = 0; i < NumberOfProfileObjects; i++) {
         Status = NtStopProfile (ProfileObject[i].Handle);
-        }
+    }
 
+    if (MAX_PROFILE_COUNT == NumberOfProfileObjects) {
+        n = sprintf(Line,"Overflowed the maximum number of "
+                        "modules: %d\n",
+                    MAX_PROFILE_COUNT
+                    );
+        PsWriteProfileLine(ProfileHandle,Line,n);
+    }
 
     //
     // The new profiler
     //
     for (i = 0; i < NumberOfProfileObjects; i++)  {
 
-        LastSymbol.Value = 0;
+        UseLastSymbol = FALSE;
         CountAtSymbol = 0;
+        SecondaryCountAtSymbol = 0;
 
         //
         // Sum the total number of cells written.
@@ -357,15 +552,39 @@ PsStopAndAnalyzeProfile(
         Buffer = ProfileObject[i].Buffer;
         Counter = BufferEnd;
 
+        if (UseSecondaryProfile) {
+            SecondaryBuffer = ProfileObject[i].SecondaryBuffer;
+        }
+
         TotalCounts = 0;
         while (Counter > Buffer) {
             Counter -= 1;
             TotalCounts += *Counter;
-            }
+        }
 
-        if (ProfileObject[i].DebugInfo ) {
+        if (!TotalCounts) {
+            // Don't bother wasting time loading symbols
+            continue;
+        }
+
+        if (SymLoadModule( SYM_HANDLE, NULL, ProfileObject[i].ImageFileName, NULL,
+                                                (DWORD)ProfileObject[i].ImageBase, 0)
+                && SymGetModuleInfo(SYM_HANDLE, (DWORD)ProfileObject[i].ImageBase,
+                                                        &ModuleInfo)
+                && (ModuleInfo.SymType != SymNone)
+            )
+        {
+            ProfileObject[i].SymbolsLoaded = TRUE;
+        } else {
+            ProfileObject[i].SymbolsLoaded = FALSE;
+        }
+
+        if (ProfileObject[i].SymbolsLoaded) {
 
             InitialCounter = Buffer;
+            if (UseSecondaryProfile) {
+                SecondaryInitialCounter = SecondaryBuffer;
+            }
             for ( Counter = Buffer; Counter < BufferEnd; Counter += 1 ) {
                 if ( *Counter ) {
 
@@ -384,28 +603,43 @@ PsStopAndAnalyzeProfile(
 
                     Va = Va + (ULONG)ProfileObject[i].CodeStart;
 
-                    Status = RtlLookupSymbolByAddress(
-                                ProfileObject[i].ImageBase,
-                                ProfileObject[i].DebugInfo->CoffSymbols,
-                                (PVOID)Va,
-                                0x4000,
-                                &ThisSymbol,
-                                NULL
-                                );
-
-                    if ( NT_SUCCESS(Status) ) {
-                        if ( LastSymbol.Value && LastSymbol.Value == ThisSymbol.Value ) {
+                    if (SymGetSymFromAddr( SYM_HANDLE, Va, &dwDisplacement, ThisSymbol )) {
+                        if ( UseLastSymbol && LastSymbol->Address == ThisSymbol->Address ) {
                             CountAtSymbol += *Counter;
+                            if (UseSecondaryProfile) {
+                                SecondaryCountAtSymbol += *(SecondaryBuffer + (Counter-Buffer));
                             }
-                        else {
-                            if ( LastSymbol.Value ) {
-                                if ( CountAtSymbol ) {
-                                    n= sprintf(Line,"%d,%wZ,%Z (%08lx)\n",
-                                                CountAtSymbol,
-                                                ProfileObject[i].ImageName,
-                                                &LastSymbol.Name,
-                                                LastSymbol.Value + (ULONG)ProfileObject[i].ImageBase
-                                                );
+                        } else {
+                            if ( UseLastSymbol && LastSymbol->Address ) {
+                                if ( CountAtSymbol || SecondaryCountAtSymbol) {
+                                    if (!UseSecondaryProfile) {
+                                        n= sprintf(Line,"%d,%wZ,%s (%08lx)\n",
+                                                    CountAtSymbol,
+                                                    ProfileObject[i].ImageName,
+                                                    LastSymbol->Name,
+                                                    LastSymbol->Address
+                                                    );
+                                    } else {
+                                        if (SecondaryCountAtSymbol != 0) {
+                                            High = Percent(CountAtSymbol, SecondaryCountAtSymbol, &Low);
+                                            n = sprintf(Line,"%d,%d,%2.2d.%3.3d,%wZ,%s (%08lx)\n",
+                                                        CountAtSymbol,
+                                                        SecondaryCountAtSymbol,
+                                                        High, Low,
+                                                        ProfileObject[i].ImageName,
+                                                        LastSymbol->Name,
+                                                        LastSymbol->Address
+                                                        );
+                                        } else {
+                                            n = sprintf(Line,"%d,%d, -- ,%wZ,%s (%08lx)\n",
+                                                        CountAtSymbol,
+                                                        SecondaryCountAtSymbol,
+                                                        ProfileObject[i].ImageName,
+                                                        LastSymbol->Name,
+                                                        LastSymbol->Address
+                                                        );
+                                        }
+                                    }
                                     PsWriteProfileLine(ProfileHandle,Line,n);
                                     if (ShowAllHits) {
                                         while (InitialCounter < Counter) {
@@ -413,30 +647,73 @@ PsStopAndAnalyzeProfile(
                                                 Va = (ULONG)((PUCHAR)InitialCounter - (PUCHAR)Buffer);
                                                 Va = Va * (1 << (ProfileObject[i].BucketSize - 2));
                                                 Va = Va + (ULONG)ProfileObject[i].CodeStart;
-                                                n = sprintf(Line, "\t%08lx:%d\n",
-                                                            Va,
-                                                            *InitialCounter);
-                                                PsWriteProfileLine(ProfileHandle, Line, n);
+                                                if (!UseSecondaryProfile) {
+                                                    n = sprintf(Line, "\t%08lx:%d\n",
+                                                                Va,
+                                                                *InitialCounter);
+                                                } else {
+                                                    if (*SecondaryInitialCounter != 0) {
+                                                        High = Percent(*InitialCounter, *SecondaryInitialCounter, &Low);
+                                                        n = sprintf(Line, "\t%08lx:%d, %d, %2.2d.%3.3d\n",
+                                                                    Va,
+                                                                    *InitialCounter,
+                                                                    *SecondaryInitialCounter,
+                                                                    High, Low);
+                                                    } else {
+                                                        n = sprintf(Line, "\t%08lx:%d, %d, --\n",
+                                                                    Va,
+                                                                    *InitialCounter,
+                                                                    *SecondaryInitialCounter);
+                                                    }
                                                 }
-                                                ++InitialCounter;
+                                                PsWriteProfileLine(ProfileHandle, Line, n);
                                             }
+                                            ++InitialCounter;
+                                            ++SecondaryInitialCounter;
                                         }
-
                                     }
+
                                 }
-                                InitialCounter = Counter;
-                                CountAtSymbol = *Counter;
-                                LastSymbol = ThisSymbol;
                             }
+                            InitialCounter = Counter;
+                            CountAtSymbol = *Counter;
+                            if (UseSecondaryProfile) {
+                                SecondaryInitialCounter = SecondaryBuffer + (Counter-Buffer);
+                                SecondaryCountAtSymbol += *(SecondaryBuffer + (Counter-Buffer));
+                            }
+                            memcpy( LastSymBuffer, symBuffer, sizeof(symBuffer) );
+                            UseLastSymbol = TRUE;
                         }
-                    else {
-                        if (CountAtSymbol) {
-                            n= sprintf(Line,"%d,%wZ,%Z (%08lx)\n",
-                                CountAtSymbol,
-                                ProfileObject[i].ImageName,
-                                &LastSymbol.Name,
-                                LastSymbol.Value + (ULONG)ProfileObject[i].ImageBase
-                                );
+                    } else {
+                        if (CountAtSymbol || SecondaryCountAtSymbol) {
+                            if (!UseSecondaryProfile) {
+                                n= sprintf(Line,"%d,%wZ,%s (%08lx)\n",
+                                            CountAtSymbol,
+                                            ProfileObject[i].ImageName,
+                                            LastSymbol->Name,
+                                            LastSymbol->Address
+                                            );
+                            } else {
+                                if (SecondaryCountAtSymbol != 0) {
+                                    High = Percent(CountAtSymbol, SecondaryCountAtSymbol, &Low);
+                                    n = sprintf(Line,"%d,%d,%2.2d.%3.3d,%wZ,%s (%08lx)\n",
+                                                CountAtSymbol,
+                                                SecondaryCountAtSymbol,
+                                                High, Low,
+                                                ProfileObject[i].ImageName,
+                                                LastSymbol->Name,
+                                                LastSymbol->Address
+                                                );
+                                } else {
+                                    n = sprintf(Line,"%d,%d, -- ,%wZ,%s (%08lx)\n",
+                                                CountAtSymbol,
+                                                SecondaryCountAtSymbol,
+                                                ProfileObject[i].ImageName,
+                                                LastSymbol->Name,
+                                                LastSymbol->Address
+                                                );
+                                }
+                            }
                             PsWriteProfileLine(ProfileHandle,Line,n);
                             if (ShowAllHits) {
                                 while (InitialCounter < Counter) {
@@ -444,38 +721,82 @@ PsStopAndAnalyzeProfile(
                                         Va = (ULONG)((PUCHAR)InitialCounter - (PUCHAR)Buffer);
                                         Va = Va * (1 << (ProfileObject[i].BucketSize - 2));
                                         Va = Va + (ULONG)ProfileObject[i].CodeStart;
-                                        n = sprintf(Line, "\t%08lx:%d\n",
-                                                    Va,
-                                                    *InitialCounter);
-                                        PsWriteProfileLine(ProfileHandle, Line, n);
+                                        if (!UseSecondaryProfile) {
+                                            n = sprintf(Line, "\t%08lx:%d\n",
+                                                        Va,
+                                                        *InitialCounter);
+                                        } else {
+                                            if (*SecondaryInitialCounter != 0) {
+                                                High = Percent(*InitialCounter, *SecondaryInitialCounter, &Low);
+                                                n = sprintf(Line, "\t%08lx:%d, %d, %2.2d.%3.3d\n",
+                                                            Va,
+                                                            *InitialCounter,
+                                                            *SecondaryInitialCounter,
+                                                            High,Low);
+                                            } else {
+                                                n = sprintf(Line, "\t%08lx:%d, %d, --\n",
+                                                            Va,
+                                                            *InitialCounter,
+                                                            *SecondaryInitialCounter);
+                                            }
                                         }
-                                    ++InitialCounter;
+                                        PsWriteProfileLine(ProfileHandle, Line, n);
                                     }
+                                    ++InitialCounter;
+                                    ++SecondaryInitialCounter;
                                 }
+                            }
 
                             InitialCounter = Counter;
                             CountAtSymbol = *Counter;
-                            LastSymbol.Name = NoSymbolFound;
+                            if (UseSecondaryProfile) {
+                                SecondaryInitialCounter = SecondaryBuffer + (Counter-Buffer);
+                                SecondaryCountAtSymbol += *(SecondaryBuffer + (Counter-Buffer));
                             }
-                        else if (Status == STATUS_INVALID_IMAGE_FORMAT) {
-                            DbgPrint(
-                                "RtlAnalyzeProfile: No mapped symbols for %wZ\n",
-                                ProfileObject[i].ImageName);
-                                ProfileObject[i].DebugInfo = NULL;
-                            break;
-                            }
+                            memcpy( LastSymBuffer, BadSymBuffer, sizeof(BadSymBuffer) );
+                            UseLastSymbol = TRUE;
+                        }
+                        else {
+                            n = sprintf(Line,"%d,%wZ,Unknown (%08lx)\n",
+                                        CountAtSymbol,
+                                        ProfileObject[i].ImageName,
+                                        Va
+                                        );
+                            PsWriteProfileLine(ProfileHandle, Line, n);
                         }
                     }
                 }
+            }
 
-        if (ProfileObject[i].DebugInfo) {
-            if ( CountAtSymbol ) {
-                n= sprintf(Line,"%d,%wZ,%Z (%08lx)\n",
-                    CountAtSymbol,
-                    ProfileObject[i].ImageName,
-                    &LastSymbol.Name,
-                    LastSymbol.Value + (ULONG)ProfileObject[i].ImageBase
-                    );
+            if ( CountAtSymbol || SecondaryCountAtSymbol ) {
+                if (!UseSecondaryProfile) {
+                    n= sprintf(Line,"%d,%wZ,%s (%08lx)\n",
+                                CountAtSymbol,
+                                ProfileObject[i].ImageName,
+                                LastSymbol->Name,
+                                LastSymbol->Address
+                                );
+                } else {
+                    if (SecondaryCountAtSymbol != 0) {
+                        High = Percent(CountAtSymbol, SecondaryCountAtSymbol, &Low);
+                        n = sprintf(Line,"%d,%d,%2.2d.%3.3d,%wZ,%s (%08lx)\n",
+                                    CountAtSymbol,
+                                    SecondaryCountAtSymbol,
+                                    High, Low,
+                                    ProfileObject[i].ImageName,
+                                    LastSymbol->Name,
+                                    LastSymbol->Address
+                                    );
+                    } else {
+                        n = sprintf(Line,"%d,%d, -- ,%wZ,%s (%08lx)\n",
+                                    CountAtSymbol,
+                                    SecondaryCountAtSymbol,
+                                    ProfileObject[i].ImageName,
+                                    LastSymbol->Name,
+                                    LastSymbol->Address
+                                    );
+                    }
+                }
                 PsWriteProfileLine(ProfileHandle,Line,n);
                 if (ShowAllHits) {
                     while (InitialCounter < Counter) {
@@ -483,43 +804,57 @@ PsStopAndAnalyzeProfile(
                             Va = (ULONG)((PUCHAR)InitialCounter - (PUCHAR)Buffer);
                             Va = Va * (1 << (ProfileObject[i].BucketSize - 2));
                             Va = Va + (ULONG)ProfileObject[i].CodeStart;
-                            n = sprintf(Line, "\t%08lx:%d\n",
-                                        Va,
-                                        *InitialCounter);
-                            PsWriteProfileLine(ProfileHandle, Line, n);
+                            if (!UseSecondaryProfile) {
+                                n = sprintf(Line, "\t%08lx:%d\n",
+                                            Va,
+                                            *InitialCounter);
+                            } else {
+                                if (*SecondaryInitialCounter != 0) {
+                                    High = Percent(*InitialCounter, *SecondaryInitialCounter, &Low);
+                                    n = sprintf(Line, "\t%08lx:%d, %d, %2.2d.%3.3d\n",
+                                                Va,
+                                                *InitialCounter,
+                                                *SecondaryInitialCounter,
+                                                High, Low);
+                                } else {
+                                    n = sprintf(Line, "\t%08lx:%d, %d, --\n",
+                                                Va,
+                                                *InitialCounter,
+                                                *SecondaryInitialCounter);
+                                }
                             }
-                        ++InitialCounter;
+                            PsWriteProfileLine(ProfileHandle, Line, n);
                         }
+                        ++InitialCounter;
+                        ++SecondaryInitialCounter;
                     }
                 }
             }
+            SymUnloadModule( SYM_HANDLE, (DWORD)ProfileObject[i].ImageBase);
         }
 
-
-        if (!ProfileObject[i].DebugInfo) {
-            if ( TotalCounts ) {
-                n= sprintf(Line,"%d,%wZ,%Z\n",
-                    TotalCounts,
-                    ProfileObject[i].ImageName,
-                    &NoSymbols
-                    );
-                PsWriteProfileLine(ProfileHandle,Line,n);
-                }
-            }
-
+        if (!ProfileObject[i].SymbolsLoaded) {
+            n= sprintf(Line,"%d,%wZ,%s\n",
+                TotalCounts,
+                ProfileObject[i].ImageName,
+                "(NO SYMBOLS)"
+                );
+            PsWriteProfileLine(ProfileHandle,Line,n);
         }
+
+    }
 
     for (i = 0; i < NumberOfProfileObjects; i++) {
         Buffer = ProfileObject[i].Buffer;
         RtlZeroMemory(Buffer,ProfileObject[i].BufferSize);
-        }
+    }
     CloseHandle(ProfileHandle);
 
     return STATUS_SUCCESS;
 }
 
 BOOLEAN
-PsDllInitialize(
+DllMain(
     IN PVOID DllHandle,
     IN ULONG Reason,
     IN PCONTEXT Context OPTIONAL
@@ -534,18 +869,77 @@ PsDllInitialize(
         if ( NtCurrentPeb()->ProcessParameters->Flags & RTL_USER_PROC_PROFILE_USER ) {
             PsParseCommandLine();
             PsInitializeAndStartProfile();
-            }
+        }
         break;
 
     case DLL_PROCESS_DETACH:
         if ( NtCurrentPeb()->ProcessParameters->Flags & RTL_USER_PROC_PROFILE_USER ) {
             PsStopAndAnalyzeProfile();
-            }
+        }
         break;
 
     }
 
     return TRUE;
+}
+
+
+char *
+Mystrtok (
+    char * string,
+    const char * control
+    )
+{
+    unsigned char *str;
+    const unsigned char *ctrl = control;
+
+    unsigned char map[32];
+    int count;
+
+    static char *nextoken;
+
+    /* Clear control map */
+    for (count = 0; count < 32; count++)
+        map[count] = 0;
+
+    /* Set bits in delimiter table */
+    do {
+        map[*ctrl >> 3] |= (1 << (*ctrl & 7));
+    } while (*ctrl++);
+
+    /* Initialize str. If string is NULL, set str to the saved
+     * pointer (i.e., continue breaking tokens out of the string
+     * from the last strtok call) */
+    if (string)
+        str = string;
+    else
+        str = nextoken;
+
+    /* Find beginning of token (skip over leading delimiters). Note that
+     * there is no token iff this loop sets str to point to the terminal
+     * null (*str == '\0') */
+    while ( (map[*str >> 3] & (1 << (*str & 7))) && *str )
+        str++;
+
+    string = str;
+
+    /* Find the end of the token. If it is not the end of the string,
+     * put a null there. */
+    for ( ; *str ; str++ )
+        if ( map[*str >> 3] & (1 << (*str & 7)) ) {
+            *str++ = '\0';
+            break;
+        }
+
+    /* Update nextoken (or the corresponding field in the per-thread data
+     * structure */
+    nextoken = str;
+
+    /* Determine if a token has been found. */
+    if ( string == str )
+        return NULL;
+    else
+        return string;
 }
 
 
@@ -557,6 +951,7 @@ PsParseCommandLine(
     PCHAR CommandLine;
     PCHAR Argument;
     HANDLE MappingHandle;
+    PPROFILE_SOURCE_MAPPING ProfileMapping;
 
     //
     // The original command line is in a shared memory section
@@ -579,7 +974,7 @@ PsParseCommandLine(
         return;
     }
 
-    Argument = strtok(CommandLine," \t");
+    Argument = Mystrtok(CommandLine," \t");
 
     while (Argument != NULL) {
         if ((Argument[0] == '-') ||
@@ -589,10 +984,58 @@ PsParseCommandLine(
                 case 'A':
                     ShowAllHits = TRUE;
                     break;
+
+                case 'b':
+                case 'B':
+                    PowerOfBytesCoveredPerBucket = atoi(&Argument[2]);
+                    break;
+
+                case 'f':
+                case 'F':
+                        //
+                        // The arg area is unmapped so we copy the string
+                                        //
+                    OutputFile = HeapAlloc(GetProcessHeap(), 0,
+                                            lstrlen(&Argument[2]) + 1);
+                    lstrcpy(OutputFile, &Argument[2]);
+
+                case 'i':
+                case 'I':
+                    ProfileInterval = atoi(&Argument[2]);
+                    break;
+
+                case 'k':
+                case 'K':
+                    fKernel = TRUE;
+                    break;
+
+                case 's':
+                    ProfileMapping = ProfileSourceMapping;
+                    while (ProfileMapping->Name != NULL) {
+                        if (_stricmp(ProfileMapping->Name, &Argument[2])==0) {
+                            ProfileSource = ProfileMapping->Source;
+                            break;
+                        }
+                        ++ProfileMapping;
+                    }
+                    break;
+
+                case 'S':
+                    ProfileMapping = ProfileSourceMapping;
+                    while (ProfileMapping->Name != NULL) {
+                        if (_stricmp(ProfileMapping->Name, &Argument[2])==0) {
+                            SecondaryProfileSource = ProfileMapping->Source;
+                            UseSecondaryProfile = TRUE;
+                            break;
+                        }
+                        ++ProfileMapping;
+                    }
+                    break;
+
             }
         }
 
-        Argument = strtok(NULL," \t");
+        Argument = Mystrtok(NULL," \t");
     }
 
     UnmapViewOfFile(CommandLine);

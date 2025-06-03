@@ -46,15 +46,12 @@ GetContextForThread( PDEBUGPACKET dp )
         ptctx->pc = 0;
         ptctx->frame = 0;
         ptctx->stack = 0;
-        ptctx->mi = NULL;
     }
     else {
         ptctx->pc = ptctx->context.Eip;
         ptctx->frame = ptctx->context.Ebp;
         ptctx->stack = ptctx->context.Esp;
-        ptctx->mi = GetModuleForPC( dp, ptctx->pc );
     }
 
     return;
 }
-

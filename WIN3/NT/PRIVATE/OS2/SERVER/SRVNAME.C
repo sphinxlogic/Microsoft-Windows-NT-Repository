@@ -29,6 +29,7 @@ Revision History:
    Yaron Shamir (yarons) 26-Aug-91: support UNC names.
    Beni Lavi (benil) 3-Mar-92: support mailslots
    Michael Jarus (mjaruss) 31-Mar-93: Remove Os2ComputeValidDrives
+   Patrick Questembert (PatrickQ) 19-Mar-1995: Add COM10-16
 
 --*/
 
@@ -102,6 +103,13 @@ struct _INITIAL_DEVICES {
     {L"COM7"     , L"#\\DosDevices\\COM7"},
     {L"COM8"     , L"#\\DosDevices\\COM8"},
     {L"COM9"     , L"#\\DosDevices\\COM9"},
+    {L"COM10"     , L"#\\DosDevices\\COM10"},
+    {L"COM11"     , L"#\\DosDevices\\COM11"},
+    {L"COM12"     , L"#\\DosDevices\\COM12"},
+    {L"COM13"     , L"#\\DosDevices\\COM13"},
+    {L"COM14"     , L"#\\DosDevices\\COM14"},
+    {L"COM15"     , L"#\\DosDevices\\COM15"},
+    {L"COM16"     , L"#\\DosDevices\\COM16"},
     {L"PRN"      , L" \\DosDevices\\LPT1"},
     {L"LPT1"     , L" \\DosDevices\\LPT1"},
     {L"LPT2"     , L" \\DosDevices\\LPT2"},
@@ -304,7 +312,7 @@ GetNextDeviceNameFromConfigDotSys(
             return (FALSE);
         }
         // check if the first name in the line is DEVICENAME
-        if (strnicmp(&ConfigSysValueData_A.Buffer[CurrentOffset], DeviceNameStr, sizeof(DeviceNameStr)-1)) {
+        if (_strnicmp(&ConfigSysValueData_A.Buffer[CurrentOffset], DeviceNameStr, sizeof(DeviceNameStr)-1)) {
             while ((ConfigSysValueData_A.Buffer[CurrentOffset] != '\n') &&
                    (ConfigSysValueData_A.Buffer[CurrentOffset] != '\0'))
             {

@@ -28,6 +28,7 @@ Revision History:
 --*/
 
 #include "ki.h"
+#pragma hdrstop
 #include "alphaops.h"
 
 //

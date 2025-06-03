@@ -128,6 +128,42 @@ typedef struct _USER_DOMAIN_PASSWORD_INFORMATION {
 } USER_DOMAIN_PASSWORD_INFORMATION, *PUSER_DOMAIN_PASSWORD_INFORMATION;
 
 
+//
+// This flag may be or'd with the length field of SAMP_USER_PASSWORD to
+// indicate that the password is not case sensitive.
+//
+
+#define SAM_PASSWORD_CASE_INSENSITIVE 0x80000000
+
+//
+// Structure to pass an encrypted password over the wire.  The Length is the
+// length of the password, which should be placed at the end of the buffer.
+// The size of the buffer (256) should be kept in sync with
+// SAM_MAX_PASSWORD_LENGTH, which is defined in ntsam.h.  Unfortunately,
+// MIDL does not let #define'd constants be imported, so we have to
+// use 256 instead of the constant here.
+//
+
+typedef struct _SAMPR_USER_PASSWORD {
+    WCHAR Buffer[SAM_MAX_PASSWORD_LENGTH];
+    ULONG Length;
+} SAMPR_USER_PASSWORD, *PSAMPR_USER_PASSWORD;
+
+//
+// Buffer - contains random fill with the password filling up the end
+//          of the buffer (the last Length bytes).
+// Length - Length, in bytes, of the buffer.
+//
+
+//
+// This is the encrypted version of the above structure, and is passed
+// on the wire.
+//
+
+typedef struct _SAMPR_ENCRYPTED_USER_PASSWORD {
+    UCHAR Buffer[ (SAM_MAX_PASSWORD_LENGTH * 2) + 4 ];
+} SAMPR_ENCRYPTED_USER_PASSWORD, *PSAMPR_ENCRYPTED_USER_PASSWORD;
+
 
 //
 // ChangePassword API for One-Way-Function-aware clients
@@ -150,6 +186,36 @@ SamiLmChangePasswordUser(
     IN SAM_HANDLE UserHandle,
     IN PENCRYPTED_LM_OWF_PASSWORD LmOldEncryptedWithLmNew,
     IN PENCRYPTED_LM_OWF_PASSWORD LmNewEncryptedWithLmOld
+    );
+
+NTSTATUS
+SamiEncryptPasswords(
+    IN PUNICODE_STRING OldPassword,
+    IN PUNICODE_STRING NewPassword,
+    OUT PSAMPR_ENCRYPTED_USER_PASSWORD NewEncryptedWithOldNt,
+    OUT PENCRYPTED_NT_OWF_PASSWORD OldNtOwfEncryptedWithNewNt,
+    OUT PBOOLEAN LmPresent,
+    OUT PSAMPR_ENCRYPTED_USER_PASSWORD NewEncryptedWithOldLm,
+    OUT PENCRYPTED_NT_OWF_PASSWORD OldLmOwfEncryptedWithNewNt
+);
+
+NTSTATUS
+SamiChangePasswordUser2(
+    PUNICODE_STRING ServerName,
+    PUNICODE_STRING UserName,
+    PSAMPR_ENCRYPTED_USER_PASSWORD NewPasswordEncryptedWithOldNt,
+    PENCRYPTED_NT_OWF_PASSWORD OldNtOwfPasswordEncryptedWithNewNt,
+    BOOLEAN LmPresent,
+    PSAMPR_ENCRYPTED_USER_PASSWORD NewPasswordEncryptedWithOldLm,
+    PENCRYPTED_LM_OWF_PASSWORD OldLmOwfPasswordEncryptedWithNewLmOrNt
+    );
+
+NTSTATUS
+SamiOemChangePasswordUser2(
+    PSTRING ServerName,
+    PSTRING UserName,
+    PSAMPR_ENCRYPTED_USER_PASSWORD NewPasswordEncryptedWithOldLm,
+    PENCRYPTED_LM_OWF_PASSWORD OldLmOwfPasswordEncryptedWithNewLm
     );
 
 #endif  // _NTSAMPRIVATE_

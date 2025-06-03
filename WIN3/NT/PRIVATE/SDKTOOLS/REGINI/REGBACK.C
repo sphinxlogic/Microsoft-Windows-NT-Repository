@@ -25,6 +25,8 @@
         All real work done by RegSaveKey()
 
 */
+#undef _UNICODE
+#undef UNICODE
 
 #include <windows.h>
 #include <stdio.h>
@@ -93,6 +95,7 @@ NULL
 #define MAX_KEY     512
 
 char    ConfigPath[BUF_SIZE];
+char    ProfilePath[BUF_SIZE];
 char    HivePath[BUF_SIZE];
 char    HiveName[BUF_SIZE];
 char    FilePath[BUF_SIZE];
@@ -116,7 +119,7 @@ DoSpecificBackup(
 
 
 void
-main(
+_CRTAPI1 main(
     int argc,
     char *argv[]
     )
@@ -206,7 +209,7 @@ DoFullBackup(
                 "\\registry\\machine\\system",
                 0L,
                 &ValueType,
-                &ConfigPath,
+                ConfigPath,
                 &BufferSize
                 );
     if (result != ERROR_SUCCESS) {
@@ -214,15 +217,22 @@ DoFullBackup(
         return(2);
     }
 
-    wp = strrchr(&ConfigPath, L'\\');
+    wp = strrchr(ConfigPath, L'\\');
     *wp = '\0';
 
+    strcpy(ProfilePath, ConfigPath);
+    wp = strrchr(ProfilePath, L'\\');
+    *wp = '\0';
+    wp = strrchr(ProfilePath, L'\\');
+    *wp = '\0';
+    strcpy(wp+1, "Profiles");
 
     //
     // ennumerate entries in hivelist.  for each entry, find it's hive file
     // path.  if it's file path matches ConfigPath, then save it.
     // else, print a message telling the user that it must be saved
-    // manually
+    // manually, unless the file name is of the form ....\username\ntuser.dat
+    // in which case save it as username.dat
     //
     for (index = 0; TRUE; index++) {
 
@@ -231,11 +241,11 @@ DoFullBackup(
         result = RegEnumValue(
                     HiveListKey,
                     index,
-                    &HiveName,
+                    HiveName,
                     &BufferSize2,
                     0L,
                     &ValueType,
-                    &HivePath,
+                    HivePath,
                     &BufferSize
                     );
 
@@ -248,7 +258,7 @@ DoFullBackup(
             return 2;
         }
 
-        BufferSize = strlen(&HivePath);
+        BufferSize = strlen(HivePath);
 
         /*
         printf("hivename = '%s'\n", HiveName);
@@ -263,15 +273,15 @@ DoFullBackup(
             // there's a file, compute it's path, hive branch, etc
             //
 
-            wp = strrchr(&HivePath, '\\');
+            wp = strrchr(HivePath, '\\');
             filename = wp + 1;
             *wp = '\0';
 
-            wp = strrchr(&HiveName, '\\');
+            wp = strrchr(HiveName, '\\');
             name = wp + 1;
             *wp = '\0';
 
-            wp = strrchr(&HiveName, L'\\');
+            wp = strrchr(HiveName, L'\\');
             wp++;
             if ((*wp == 'm') || (*wp == 'M')) {
                 branch = MACH_NAME;
@@ -279,16 +289,16 @@ DoFullBackup(
                 branch = USERS_NAME;
             }
 
-            if (strcmp(&ConfigPath, &HivePath) == 0) {
+            if (strcmp(ConfigPath, HivePath) == 0) {
 
                 //
                 // hive's file is in config dir, we can back it up
                 // without fear of collision
                 //
                 FilePath[0] = '\0';
-                strcat(&FilePath, dirname);
-                strcat(&FilePath, "\\");
-                strcat(&FilePath, filename);
+                strcat(FilePath, dirname);
+                strcat(FilePath, "\\");
+                strcat(FilePath, filename);
 
 
                 /*
@@ -297,9 +307,8 @@ DoFullBackup(
                 printf("FilePath = '%s'\n", &FilePath);
                 */
 
-
                 result = DoSpecificBackup(
-                            &FilePath,
+                            FilePath,
                             branch,
                             name
                             );
@@ -308,10 +317,39 @@ DoFullBackup(
                     return(result);
                 }
 
+            } else if (_strnicmp(ProfilePath, HivePath, strlen(ProfilePath)) == 0) {
+
+                //
+                // hive's file is in config dir, we can back it up
+                // without fear of collision
+                //
+                FilePath[0] = '\0';
+                strcat(FilePath, dirname);
+                strcat(FilePath, "\\");
+                wp = strrchr(HivePath, '\\');
+                filename = wp + 1;
+                strcat(FilePath, filename);
+                strcat(FilePath, ".dat");
+
+                /*
+                printf("name (hivename) = '%s'\n", name);
+                printf("branch = '%s'\n", branch);
+                printf("FilePath = '%s'\n", &FilePath);
+                */
+
+                result = DoSpecificBackup(
+                            FilePath,
+                            branch,
+                            name
+                            );
+
+                if (result != 0) {
+                    return(result);
+                }
             } else {
                 status = 1;
 
-                printf("\n***Hive = %s\\%s\nStored in file %s\\%s\n",
+                printf("\n***Hive = '%s'\\'%s'\nStored in file '%s'\\'%s'\n",
                         HiveName, name, HivePath, filename);
                 printf("Must be backed up manually\n");
                 printf("regback <filename you choose> %s %s\n\n",
@@ -350,9 +388,9 @@ DoSpecificBackup(
     //
     // compute/check out branch and name of hive
     //
-    if (stricmp(hivebranch, MACH_NAME) == 0) {
+    if (_stricmp(hivebranch, MACH_NAME) == 0) {
         RootKey = HKEY_LOCAL_MACHINE;
-    } else if (stricmp(hivebranch, USERS_NAME) == 0) {
+    } else if (_stricmp(hivebranch, USERS_NAME) == 0) {
         RootKey = HKEY_USERS;
     } else {
         printf("bad hive branch type '%s'\n", hivebranch);
@@ -409,7 +447,7 @@ AdjustPrivilege()
     LUID_AND_ATTRIBUTES LuidAndAttributes;
 
     TOKEN_PRIVILEGES    TokenPrivileges;
-    PWSTR               Privilege = SE_BACKUP_NAME;
+    PTSTR               Privilege = SE_BACKUP_NAME;
 
 
     if( !OpenProcessToken( GetCurrentProcess(),

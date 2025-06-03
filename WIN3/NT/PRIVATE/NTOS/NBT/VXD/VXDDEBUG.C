@@ -26,6 +26,7 @@
 //
 
 #define MAX_PRINTF_OUTPUT       1024            // characters
+#define MAX_SUBSTRING_LEN        256
 #define OUTPUT_LABEL            "VNBT"
 
 #define IS_DIGIT(ch)            (((ch) >= '0') && ((ch) <= '9'))
@@ -48,6 +49,8 @@
 int VxdVsprintf( char * pszStr,
                  char * pszFmt,
                  char * ArgPtr );
+
+void VxdCopyToDBOut( void );
 
 //
 //  Public functions.
@@ -106,8 +109,6 @@ void VxdPrintf( char * pszFormat,
 {
     va_list ArgList;
     int     cch;
-    int     bytesTowrite;
-    int     spaceAvailable;
 
     cch = VxdSprintf( szOutput,
                       "%s: ",
@@ -119,23 +120,8 @@ void VxdPrintf( char * pszFormat,
 
     VxdSprintf( szOutput, "%s\r\n", szOutput ) ;
 
-    spaceAvailable = sizeof(DBOut) - iCurPos;
+    VxdCopyToDBOut() ;
 
-    if ( spaceAvailable < 0 )       // shouldn't happen: just a safety check
-    {
-        iCurPos = 0;
-        return;
-    }
-
-    bytesTowrite = strlen( szOutput ) + 1;
-
-    if ( bytesTowrite >= spaceAvailable-1 )
-    {
-        bytesTowrite = spaceAvailable-2;
-        DBOut[spaceAvailable-1] = '\0';
-    }
-
-    CTEMemCopy( DBOut+iCurPos, szOutput, bytesTowrite ) ;
     NbtDebugOut( DBOut+iCurPos ) ;
 
 }   // VxdPrintf
@@ -144,6 +130,48 @@ void VxdPrintf( char * pszFormat,
 //
 //  Private functions.
 //
+
+/*******************************************************************
+    NAME:       VxdCopyToDBOut
+
+    SYNOPSIS:   Copies everything from szOutput into DBOut
+                First checks to see if DBOut has enough room to hold what we
+                have temporarily put in szOutput.  If not, resets the iCurPos
+                to point to beginning of DBOut.
+
+    RETURNS:    Nothing
+
+ *******************************************************************/
+
+void VxdCopyToDBOut( void )
+{
+
+    int     bytesTowrite;
+    int     spaceAvailable;
+    int     i;
+
+    spaceAvailable = sizeof(DBOut) - iCurPos;
+
+    bytesTowrite = strlen( szOutput ) + 1;
+
+    // if not enough room, start at the beginning
+    if ( spaceAvailable <= bytesTowrite )
+    {
+        for ( i=iCurPos; i<sizeof(DBOut); i++ )
+            DBOut[i] = '+';                       // so that strings don't mix
+
+        iCurPos = 0;
+
+        if ( bytesTowrite > sizeof(szOutput) )
+        {
+            bytesTowrite = sizeof(szOutput);
+            szOutput[bytesTowrite-1] = '\0';
+        }
+    }
+
+    CTEMemCopy( DBOut+iCurPos, szOutput, bytesTowrite ) ;
+
+}
 
 /*******************************************************************
 
@@ -172,6 +200,7 @@ int VxdVsprintf( char * pszStr,
     char * pszStrStart;
     int    fZeroPad;
     int    cchWidth;
+    int    ccMaxToCopy;
 
     //
     //  Remember start of output, so we can calc length.
@@ -203,6 +232,7 @@ int VxdVsprintf( char * pszStr,
 
         fZeroPad = 0;
         cchWidth = 0;
+        ccMaxToCopy = MAX_SUBSTRING_LEN;
 
         //
         //  Interpret the field specifiers.
@@ -249,24 +279,21 @@ int VxdVsprintf( char * pszStr,
             }
         }
 
-        //
-        //  Note that we don't support the precision specifiers,
-        //  but we do honor the syntax.
-        //
-
         if( ch == '.' )
         {
             ch = *pszFmt++;
 
             if( ch == '*' )
             {
-                (void)va_arg( ArgPtr, int );
+                ccMaxToCopy = va_arg( ArgPtr, int );
                 ch = *pszFmt++;
             }
             else
             {
+                ccMaxToCopy = 0;
                 while( IS_DIGIT(ch) )
                 {
+                    ccMaxToCopy =  ( ccMaxToCopy * 10 ) + ( ch - '0' );
                     ch = *pszFmt++;
                 }
             }
@@ -416,7 +443,7 @@ int VxdVsprintf( char * pszStr,
                 // overwrites other things (like tdidispatch table!) and very
                 // bad things happen....
                 //
-                if (count >= MAX_PRINTF_OUTPUT-30)
+                if (count >= ccMaxToCopy)
                    break;
             }
         }
@@ -489,5 +516,144 @@ int VxdSprintf( char * pszStr,
 }   // VxdSprintf
 
 
+/*******************************************************************
+
+    NAME:       DbgAllocMem
+
+    SYNOPSIS:   Keep track of all allocated memory so we can catch
+                memory leak when we unload
+                This is only on debug builds.  On non-debug builds
+                this function doesn't exist: calls directly go to
+                CTEAllocMem.
+
+    ENTRY:      ReqSize - how much memory is needed
+
+    RETURNS:    PVOID - pointer to the memory block that client will
+                use directly.
+
+    HISTORY:
+        Koti     11-Nov-1994 Created.
+
+********************************************************************/
+
+//
+// IMPORTANT: we are undef'ing CTEAllocMem because we need to make a
+//            call to the actual CTE function CTEAllocMem.  That's why
+//            this function and this undef are at the end of the file.
+//
+#undef CTEAllocMem
+PVOID DbgAllocMem( DWORD ReqSize )
+{
+
+    DWORD          ActualSize;
+    PVOID          pBuffer;
+    DbgMemBlkHdr  *pMemHdr;
+    PVOID          pRetAddr;
+
+
+    ActualSize = ReqSize + sizeof(DbgMemBlkHdr);
+    pBuffer = CTEAllocMem( ActualSize );
+    if ( !pBuffer )
+    {
+        return( NULL );
+    }
+
+    pMemHdr = (DbgMemBlkHdr *)pBuffer;
+
+    pMemHdr->Verify = DBG_MEMALLOC_VERIFY;
+    pMemHdr->ReqSize = ReqSize;
+    pRetAddr = &pMemHdr->Owner[0];
+
+//
+// now memory is allocated from NCBHandler, too where stack trace isn't more
+// than 2 deep!  unifdef when memory leaks becomes an issue...
+//
+#if 0
+    _asm
+    {
+        push   ebx
+        push   ecx
+        push   edx
+        mov    ebx, pRetAddr
+        mov    eax, ebp
+        mov    ecx, 4
+    again:
+        mov    edx, dword ptr [eax+4]           ; return address
+        mov    dword ptr [ebx], edx
+        mov    eax, dword ptr [eax]             ; previous frame pointer
+        add    ebx, 4
+        dec    ecx
+        cmp    ecx, 0
+        je     done
+        jmp    again
+    done:
+        pop    edx
+        pop    ecx
+        pop    ebx
+    }
+#endif
+
+    //
+    // BUGBUG: if ever ported to NT (or if chicago needs MP support),
+    // put spinlocks.  (we will need a spinlock field in DbgMemBlkHdr struct).
+    //
+    InsertTailList(&DbgMemList, &pMemHdr->Linkage);
+
+    return( (PCHAR)pBuffer + sizeof(DbgMemBlkHdr) );
+}
+
+/*******************************************************************
+
+    NAME:       DbgFreeMem
+
+    SYNOPSIS:   This routine removes the memory block from our list and
+                frees the memory by calling the CTE function CTEFreeMem
+
+    ENTRY:      pBufferToFree - memory to free (caller's buffer)
+
+    RETURNS:    nothing
+
+    HISTORY:
+        Koti     11-Nov-1994 Created.
+
+********************************************************************/
+
+//
+// IMPORTANT: we are undef'ing CTEFreeMem because we need to make a
+//            call to the actual CTE function CTEFreeMem.  That's why
+//            this function and this undef are at the end of the file.
+//
+#undef CTEMemFree
+#undef CTEFreeMem
+
+VOID DbgFreeMem( PVOID  pBufferToFree )
+{
+
+    DbgMemBlkHdr  *pMemHdr;
+
+
+    if ( !pBufferToFree )
+    {
+        return;
+    }
+
+    pMemHdr = (DbgMemBlkHdr *)((PCHAR)pBufferToFree - sizeof(DbgMemBlkHdr));
+
+    ASSERT( pMemHdr->Verify == DBG_MEMALLOC_VERIFY );
+
+    //
+    // change our signature: if we are freeing some memory twice, we'll know!
+    //
+    pMemHdr->Verify -= 1;
+
+    //
+    // BUGBUG: if ever ported to NT (or if chicago needs MP support),
+    // put spinlocks.  (we will need a spinlock field in DbgMemBlkHdr struct).
+    //
+    RemoveEntryList(&pMemHdr->Linkage);
+
+    CTEFreeMem( (PVOID)pMemHdr );
+}
+
 #endif  // DEBUG
-
+

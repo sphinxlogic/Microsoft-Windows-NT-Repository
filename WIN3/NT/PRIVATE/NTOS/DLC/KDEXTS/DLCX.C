@@ -18,10 +18,14 @@ Abstract:
         bf
         bh
         bp
+        ci
+        cw
         dc
         de
         dx
+        ep
         fc
+        fl
         ll
         lt
         lx
@@ -30,6 +34,8 @@ Abstract:
         pc
         pd
         ph
+        png
+        pnp
         pp
         pr
         pu
@@ -56,8 +62,10 @@ Revision History:
 #include <nt.h>
 #include <ntrtl.h>
 #include <nturtl.h>
+
 #include <windows.h>
-#include <ntkdexts.h>
+#include <imagehlp.h>
+#include <wdbgexts.h>
 #include <dlc.h>
 #include <llc.h>
 
@@ -68,13 +76,21 @@ Revision History:
 #define EMPTY_LIST(ptr, field, addr) \
     ((((ULONG)ptr->field.Flink - (ULONG)addr) == ((ULONG)&ptr->field.Flink - (ULONG)ptr)) ? "(empty)" : "")
 
+#define CurPC dwCurrentPc
+#define pArgStr args
+#define lpReadVirtualMemRoutine lpReadProcessMemoryRoutine
+
 //
 // prototypes
 //
 
-VOID dump_gen_object(PLLC_GENERIC_OBJECT, PNTKD_EXTENSION_APIS);
-VOID dump_data_link(DWORD, PNTKD_EXTENSION_APIS, BOOL);
-VOID dump_memory_usage(DWORD addr, PMEMORY_USAGE p, BOOL DumpAll);
+VOID dump_close_wait_info(DWORD, PDLC_CLOSE_WAIT_INFO, BOOL);
+VOID dump_gen_object(PLLC_GENERIC_OBJECT);
+VOID dump_data_link(DWORD, BOOL);
+VOID dump_memory_usage(DWORD, PMEMORY_USAGE, BOOL);
+#if DBG
+VOID dump_private_non_paged_pool(DWORD, PPRIVATE_NON_PAGED_POOL_HEAD);
+#endif
 
 LPSTR buffer_state$(BYTE);
 LPSTR $lx_type(BYTE);
@@ -87,14 +103,59 @@ LPSTR $frame_type(UINT);
 LPSTR $object_id(UINT);
 
 //
+// globals
+//
+
+EXT_API_VERSION        ApiVersion = { 4, 0, EXT_API_VERSION_NUMBER, 0 };
+WINDBG_EXTENSION_APIS  ExtensionApis;
+PWINDBG_EXTENSION_APIS pExtApis = &ExtensionApis;
+USHORT                 SavedMajorVersion;
+USHORT                 SavedMinorVersion;
+
+//
 // functions
 //
 
-VOID help(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
 
-    PNTKD_OUTPUT_ROUTINE printf = pExtApis->lpOutputRoutine;
 
-    printf("\n"
+VOID
+WinDbgExtensionDllInit(
+    PWINDBG_EXTENSION_APIS lpExtensionApis,
+
+    USHORT MajorVersion,
+    USHORT MinorVersion
+    )
+{
+    ExtensionApis = *lpExtensionApis;
+
+    SavedMajorVersion = MajorVersion;
+    SavedMinorVersion = MinorVersion;
+
+    return;
+}
+
+VOID
+CheckVersion(
+    VOID
+    )
+{
+    //
+    // your check version code goes here
+    //
+}
+
+LPEXT_API_VERSION
+ExtensionApiVersion(
+    VOID
+    )
+{
+    return &ApiVersion;
+}
+
+DECLARE_API(help)
+{
+
+    dprintf("\n"
            "NT DLC Protocol Stack Kernel Debugger Extensions\n"
 #if DBG
            "CHECKED build "
@@ -113,16 +174,22 @@ VOID help(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
 #endif
            "[" __TIME__ " " __DATE__ "]\n"
            "\n"
-           "\tac  - dump ADAPTER_CONTEXT\n"
+           );
+
+    dprintf("\tac  - dump ADAPTER_CONTEXT\n"
            "\tbc  - dump BINDING_CONTEXT\n"
            "\tbe  - dump DLC_BUFFER_HEADER as FreeBuffer\n"
            "\tbf  - dump DLC_BUFFER_HEADER as FrameBuffer\n"
            "\tbh  - dump DLC_BUFFER_HEADER as Header\n"
            "\tbp  - dump DLC_BUFFER_POOL\n"
+           "\tci  - dump DLC_COMPLETION_EVENT_INFO\n"
+           "\tcw  - dump DLC_CLOSE_WAIT_INFO\n"
            "\tdc  - dump DLC_COMMAND\n"
            "\tde  - dump DLC_EVENT\n"
            "\tdx  - dump DLC_OBJECT\n"
+           "\tep  - dump EVENT_PACKET\n"
            "\tfc  - dump FILE_CONTEXT\n"
+           "\tfl  - dump DLC_RESET_LOCAL_BUSY_CMD\n"
            "\tll  - dump DATA_LINK\n"
            "\tlt  - dump LLC_TIMER\n"
            "\tlx  - dump LLC_OBJECT\n"
@@ -131,59 +198,68 @@ VOID help(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
            "\tpc  - dump LLC_PACKET Completion flavour\n"
            "\tpd  - dump LLC_PACKET XmitDix flavour\n"
            "\tph  - dump PACKET_HEAD\n"
-           "\tpp  - dump PACKET_POOL\n"
+           );
+#if DBG
+    dprintf("\tpng - dump PRIVATE_NON_PAGED_POOL_HEAD from GlobalList pointer\n"
+           "\tpnp - dump PRIVATE_NON_PAGED_POOL_HEAD from PrivateList pointer\n"
+           );
+#endif
+    dprintf("\tpp  - dump PACKET_POOL\n"
            "\tpr  - dump LLC_PACKET Response flavour\n"
            "\tpu  - dump LLC_PACKET XmitU flavour\n"
            "\tpx  - dump LLC_PACKET Xmit flavour\n"
-           "\treq - map DLC IOCTL code\n"
+           "\treq - dump DLC IOCTL code\n"
            "\ttt  - dump TIMER_TICK\n"
            "\n"
            );
 }
 
-VOID ac(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
+DECLARE_API(ac)
+{
 
-    PNTKD_OUTPUT_ROUTINE printf = pExtApis->lpOutputRoutine;
     PADAPTER_CONTEXT pAdapter;
     ADAPTER_CONTEXT object;
-    DWORD addr = pExtApis->lpGetExpressionRoutine(pArgStr);
+    
     WCHAR name[128];
     BOOL ok;
     UINT i;
     BOOL haveOne;
 
+	static DWORD addr = 0;
+	addr = *pArgStr ? ExtensionApis.lpGetExpressionRoutine(pArgStr) : addr;
+
     if (!addr) {
-        printf("dlcx: error: address expression (0)\n");
+        dprintf("dlcx: error: address expression (0)\n");
         return;
     }
 
-    ok = pExtApis->lpReadVirtualMemRoutine(
-        (LPVOID)addr,
+    ok = ExtensionApis.lpReadVirtualMemRoutine(
+        addr,
         &object,
         sizeof(object),
         NULL
         );
 
     if (!ok) {
-        printf("dlcx: error: can't copy object locally\n");
+        dprintf("dlcx: error: can't copy object locally\n");
         return;
     }
 
     pAdapter = &object;
 
-    ok = pExtApis->lpReadVirtualMemRoutine(
-        pAdapter->Name.Buffer,
+    ok = ExtensionApis.lpReadVirtualMemRoutine(
+        (DWORD)pAdapter->Name.Buffer,
         name,
         pAdapter->Name.Length * sizeof(name[0]),
         NULL
         );
 
     if (!ok) {
-        printf("dlcx: error: can't copy name locally\n");
+        dprintf("dlcx: error: can't copy name locally\n");
         return;
     }
 
-    printf("\n"
+    dprintf("\n"
            "ADAPTER_CONTEXT structure at %#.8x:\n\n"
            "\t                     pNext 0x%08x\n"
 
@@ -208,7 +284,7 @@ VOID ac(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
            pAdapter->NdisBindingHandle
            );
 
-    printf("\t                 hLinkPool 0x%08x\n"
+    dprintf("\t                 hLinkPool 0x%08x\n"
            "\t               hPacketPool 0x%08x\n"
            "\t           pNdisPacketPool 0x%08x\n"
            "\t           hNdisPacketPool 0x%08x\n"
@@ -243,7 +319,7 @@ VOID ac(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
            pAdapter->Adapter.Node.auchAddress[5] & 0xff
            );
 
-    printf("\t              MaxFrameSize %d\n"
+    dprintf("\t              MaxFrameSize %d\n"
            "\t                 LinkSpeed %d\n"
            "\t                NdisMedium %d\n"
            "\t          XidTestResponses %d\n"
@@ -255,7 +331,7 @@ VOID ac(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
            pAdapter->ObjectCount
            );
 
-    printf("\t                ConfigInfo:\n"
+    dprintf("\t                ConfigInfo:\n"
            "\t+          SwapAddressBits 0x%02x\n"
            "\t+                   UseDix 0x%02x\n"
            "\t+                T1TickOne 0x%02x\n"
@@ -276,7 +352,7 @@ VOID ac(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
            pAdapter->ConfigInfo.UseEthernetFrameSize
            );
 
-    printf("\t        ulBroadcastAddress 0x%08x\n"
+    dprintf("\t        ulBroadcastAddress 0x%08x\n"
            "\t        usBroadcastAddress 0x%04x\n"
            "\t BackgroundProcessRequests 0x%04x\n",
            pAdapter->ulBroadcastAddress,
@@ -284,7 +360,7 @@ VOID ac(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
            pAdapter->BackgroundProcessRequests
            );
 
-    printf("\t               NodeAddress %02x-%02x-%02x-%02x-%02x-%02x\n"
+    dprintf("\t               NodeAddress %02x-%02x-%02x-%02x-%02x-%02x\n"
            "\t          cbMaxFrameHeader 0x%04x\n"
            "\t          PermanentAddress %02x-%02x-%02x-%02x-%02x-%02x\n"
            "\t               OpenOptions 0x%04x\n"
@@ -312,7 +388,7 @@ VOID ac(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
            pAdapter->usRcvMask
            );
 
-    printf("\t              EthernetType 0x%04x\n"
+    dprintf("\t              EthernetType 0x%04x\n"
            "\t        RcvLanHeaderLength 0x%04x\n"
            "\t              BindingCount %d\n"
            "\t      usHighFunctionalBits 0x%04x\n"
@@ -338,7 +414,7 @@ VOID ac(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
            pAdapter->LlcPacketInSendQueue
            );
 
-    printf("\t              NextSendTask 0x%08x, 0x%08x %s\n"
+    dprintf("\t              NextSendTask 0x%08x, 0x%08x %s\n"
            "\t               QueueEvents 0x%08x, 0x%08x %s\n"
            "\t             QueueCommands 0x%08x, 0x%08x %s\n",
            pAdapter->NextSendTask.Flink,
@@ -352,7 +428,7 @@ VOID ac(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
            EMPTY_LIST(pAdapter, QueueCommands, addr)
            );
 
-    printf("\t                    QueueI:\n"
+    dprintf("\t                    QueueI:\n"
            "\t+                ListEntry 0x%08x, 0x%08x %s\n"
            "\t+                 ListHead 0x%08x, 0x%08x %s\n"
            "\t+                  pObject 0x%08x\n",
@@ -365,7 +441,7 @@ VOID ac(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
            pAdapter->QueueI.pObject
            );
 
-    printf("\t              QueueDirAndU:\n"
+    dprintf("\t              QueueDirAndU:\n"
            "\t+                ListEntry 0x%08x, 0x%08x %s\n"
            "\t+                 ListHead 0x%08x, 0x%08x %s\n"
            "\t+                  pObject 0x%08x\n",
@@ -378,7 +454,7 @@ VOID ac(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
            pAdapter->QueueDirAndU.pObject
            );
 
-    printf("\t            QueueExpidited:\n"
+    dprintf("\t            QueueExpidited:\n"
            "\t+                ListEntry 0x%08x, 0x%08x %s\n"
            "\t+                 ListHead 0x%08x, 0x%08x %s\n"
            "\t+                  pObject 0x%08x\n",
@@ -391,13 +467,13 @@ VOID ac(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
            pAdapter->QueueExpidited.pObject
            );
 
-    printf("\t                      Name [0x%04x, 0x%04x] \"%ws\"\n",
+    dprintf("\t                      Name [0x%04x, 0x%04x] \"%ws\"\n",
            pAdapter->Name.Length,
            pAdapter->Name.MaximumLength,
            name
            );
 
-    printf("\t               pTimerTicks 0x%08x\n"
+    dprintf("\t               pTimerTicks 0x%08x\n"
            "\t           AsyncOpenStatus 0x%08x\n"
            "\t     AsyncCloseResetStatus 0x%08x\n"
            "\t        OpenCompleteStatus 0x%08x\n"
@@ -413,7 +489,7 @@ VOID ac(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
            pAdapter->OpenErrorStatus
            );
 
-    printf("\t                     Event:\n"
+    dprintf("\t                     Event:\n"
            "\t+                     Type 0x%04x\n"
            "\t+                     Size 0x%04x\n"
            "\t+              SignalState 0x%08x\n"
@@ -429,35 +505,35 @@ VOID ac(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
     haveOne = FALSE;
     for (i = 0; i < 256; ++i) {
         if (pAdapter->apSapBindings[i]) {
-            printf("\t                    SAP %02x %08x\n", i, pAdapter->apSapBindings[i]);
+            dprintf("\t                    SAP %02x %08x\n", i, pAdapter->apSapBindings[i]);
             haveOne = TRUE;
         }
     }
     if (!haveOne) {
-        printf("\t                   NO SAPs\n");
+        dprintf("\t                   NO SAPs\n");
     }
 
     haveOne = FALSE;
     for (i = 0; i < LINK_HASH_SIZE; ++i) {
         if (pAdapter->aLinkHash[i]) {
-            printf("\t                      LINK %08x\n", pAdapter->aLinkHash[i]);
+            dprintf("\t                      LINK %08x\n", pAdapter->aLinkHash[i]);
             haveOne = TRUE;
         }
     }
     if (!haveOne) {
-        printf("\t                  NO LINKs\n");
+        dprintf("\t                  NO LINKs\n");
     }
 
     haveOne = FALSE;
     for (i = 0; i < MAX_DIX_TABLE; ++i) {
         if (pAdapter->aDixStations[i]) {
-            printf("\t               DIX Station %08x\n", pAdapter->aDixStations[i]);
+            dprintf("\t               DIX Station %08x\n", pAdapter->aDixStations[i]);
         }
     }
     if (!haveOne) {
-        printf("\t           NO DIX Stations\n");
+        dprintf("\t           NO DIX Stations\n");
     }
-    printf("\t        TransferDataPacket:\n"
+    dprintf("\t        TransferDataPacket:\n"
            "\t+                  private:\n"
            "\t++           PhysicalCount %d\n"
            "\t++             TotalLength %d\n"
@@ -497,37 +573,42 @@ VOID ac(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
            pAdapter->TransferDataPacket.auchMacReserved[15] & 0xff,
            pAdapter->TransferDataPacket.pPacket
            );
+
+	addr = (DWORD)pAdapter->pNext;
 }
 
-VOID bc(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
+DECLARE_API(bc)
+{
 
-    PNTKD_OUTPUT_ROUTINE printf = pExtApis->lpOutputRoutine;
     PBINDING_CONTEXT p;
     BINDING_CONTEXT object;
-    DWORD addr = pExtApis->lpGetExpressionRoutine(pArgStr);
     BOOL ok;
     DWORD i;
+    DWORD maxFramingCacheCount;
+
+	static DWORD addr = 0;
+	addr = *pArgStr ? ExtensionApis.lpGetExpressionRoutine(pArgStr) : addr;
 
     if (!addr) {
-        printf("dlcx: error: address expression (0)\n");
+        dprintf("dlcx: error: address expression (0)\n");
         return;
     }
 
-    ok = pExtApis->lpReadVirtualMemRoutine(
-        (LPVOID)addr,
+    ok = ExtensionApis.lpReadVirtualMemRoutine(
+        addr,
         &object,
         sizeof(object),
         NULL
         );
 
     if (!ok) {
-        printf("dlcx: error: can't copy object locally\n");
+        dprintf("dlcx: error: can't copy object locally\n");
         return;
     }
 
     p = &object;
 
-    printf("\n"
+    dprintf("\n"
            "BINDING_CONTEXT structure at %#.8x:\n\n"
            "\t                     pNext 0x%08x\n"
            "\t           pAdapterContext 0x%08x\n"
@@ -548,7 +629,7 @@ VOID bc(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
            p->ulFunctionalZeroBits
            );
 
-    printf("\t                  DlcTimer:\n"
+    dprintf("\t                  DlcTimer:\n"
            "\t+                    pNext 0x%08x\n"
            "\t+                    pPrev 0x%08x\n"
            "\t+               pTimerTick 0x%08x\n"
@@ -562,12 +643,12 @@ VOID bc(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
            );
 
 #if defined(LOCK_CHECK)
-    printf("\t+                 Disabled 0x%08x\n",
+    dprintf("\t+                 Disabled 0x%08x\n",
            p->DlcTimer.Disabled
            );
 #endif
 
-    printf("\t                NdisMedium 0x%08x\n"
+    dprintf("\t                NdisMedium 0x%08x\n"
            "\t        AddressTranslation 0x%04x\n"
            "\t        usBroadcastAddress 0x%04x\n"
            "\t        ulBroadcastAddress 0x%08x\n"
@@ -584,7 +665,7 @@ VOID bc(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
            p->SwapCopiedLanAddresses
            );
 
-    printf("\t        TransferDataPacket:\n"
+    dprintf("\t        TransferDataPacket:\n"
            "\t+                  private:\n"
            "\t++           PhysicalCount %d\n"
            "\t++             TotalLength %d\n"
@@ -624,28 +705,32 @@ VOID bc(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
            p->TransferDataPacket.pPacket
            );
 
-    printf("\tFramingDiscoveryCacheEntries %d\n",
+    dprintf("\tFramingDiscoveryCacheEntries %d\n",
            p->FramingDiscoveryCacheEntries
            );
 
-    for (i = 0; i < p->FramingDiscoveryCacheEntries; ++i) {
+    maxFramingCacheCount = p->FramingDiscoveryCacheEntries;
+    if (maxFramingCacheCount > 64) {
+        maxFramingCacheCount = 64;
+    }
+    for (i = 0; i < maxFramingCacheCount; ++i) {
 
         FRAMING_DISCOVERY_CACHE_ENTRY cacheEntry;
 
-        ok = pExtApis->lpReadVirtualMemRoutine(
-            (LPVOID)((LPBYTE)addr + sizeof(BINDING_CONTEXT) + i * sizeof(FRAMING_DISCOVERY_CACHE_ENTRY)),
+        ok = ExtensionApis.lpReadVirtualMemRoutine(
+            (addr + sizeof(BINDING_CONTEXT) + i * sizeof(FRAMING_DISCOVERY_CACHE_ENTRY)),
             &cacheEntry,
             sizeof(cacheEntry),
             NULL
             );
 
         if (!ok) {
-            printf("dlcx: error: can't copy cache object %d locally\n", i);
+            dprintf("dlcx: error: can't copy cache object %d locally\n", i);
         } else {
             if (!cacheEntry.InUse) {
                 continue;
             }
-            printf("\t             CacheEntry % 2d:\n"
+            dprintf("\t             CacheEntry % 2d:\n"
                    "\t               NodeAddress %02x-%02x-%02x-%02x-%02x-%02x\n"
                    "\t                     InUse %02x\n"
                    "\t               FramingType %02x\n"
@@ -664,37 +749,41 @@ VOID bc(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
                    );
         }
     }
-    printf("\n");
+    dprintf("\n");
+
+	addr = (DWORD)p->pNext;
 }
 
-VOID be(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
+DECLARE_API(be)
+{
 
-    PNTKD_OUTPUT_ROUTINE printf = pExtApis->lpOutputRoutine;
     PDLC_BUFFER_HEADER pb;
     DLC_BUFFER_HEADER object;
-    DWORD addr = pExtApis->lpGetExpressionRoutine(pArgStr);
     BOOL ok;
 
+	static DWORD addr = 0;
+	addr = *pArgStr ? ExtensionApis.lpGetExpressionRoutine(pArgStr) : addr;
+
     if (!addr) {
-        printf("dlcx: error: address expression (0)\n");
+        dprintf("dlcx: error: address expression (0)\n");
         return;
     }
 
-    ok = pExtApis->lpReadVirtualMemRoutine(
-        (LPVOID)addr,
+    ok = ExtensionApis.lpReadVirtualMemRoutine(
+        addr,
         &object,
         sizeof(object),
         NULL
         );
 
     if (!ok) {
-        printf("dlcx: error: can't copy object locally\n");
+        dprintf("dlcx: error: can't copy object locally\n");
         return;
     }
 
     pb = &object;
 
-    printf("\n"
+    dprintf("\n"
            "DLC_BUFFER_HEADER.FreeBuffer structure at %#.8x:\n\n"
            "\t                     pNext 0x%08x\n"
            "\t                     pPrev 0x%08x\n"
@@ -720,33 +809,37 @@ VOID be(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
            pb->FreeBuffer.FreeListIndex & 0xff,
            pb->FreeBuffer.pMdl
            );
+
+	addr = (DWORD)pb->FreeBuffer.pNext;
 }
 
-VOID bf(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
+DECLARE_API(bf)
+{
 
-    PNTKD_OUTPUT_ROUTINE printf = pExtApis->lpOutputRoutine;
     PDLC_BUFFER_HEADER pb;
     DLC_BUFFER_HEADER object;
-    DWORD addr = pExtApis->lpGetExpressionRoutine(pArgStr);
     BOOL ok;
 
+	static DWORD addr = 0;
+	addr = *pArgStr ? ExtensionApis.lpGetExpressionRoutine(pArgStr) : addr;
+
     if (!addr) {
-        printf("dlcx: error: address expression (0)\n");
+        dprintf("dlcx: error: address expression (0)\n");
         return;
     }
 
-    ok = pExtApis->lpReadVirtualMemRoutine(
-        (LPVOID)addr,
+    ok = ExtensionApis.lpReadVirtualMemRoutine(
+        addr,
         &object,
         sizeof(object),
         NULL
         );
     if (!ok) {
-        printf("dlcx: error: can't copy object locally\n");
+        dprintf("dlcx: error: can't copy object locally\n");
         return;
     }
     pb = &object;
-    printf("\n"
+    dprintf("\n"
            "DLC_BUFFER_HEADER.FrameBuffer structure at %#.8x:\n\n"
            "\t                 pReserved 0x%08x\n"
            "\t                pNextFrame 0x%08x\n"
@@ -774,33 +867,37 @@ VOID bf(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
            pb->FrameBuffer.pMdl,
            pb->FrameBuffer.pNextSegment
            );
+
+	addr = (DWORD)pb->FrameBuffer.pNextFrame;
 }
 
-VOID bh(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
+DECLARE_API(bh)
+{
 
-    PNTKD_OUTPUT_ROUTINE printf = pExtApis->lpOutputRoutine;
     PDLC_BUFFER_HEADER pb;
     DLC_BUFFER_HEADER object;
-    DWORD addr = pExtApis->lpGetExpressionRoutine(pArgStr);
     BOOL ok;
 
+	static DWORD addr = 0;
+	addr = *pArgStr ? ExtensionApis.lpGetExpressionRoutine(pArgStr) : addr;
+
     if (!addr) {
-        printf("dlcx: error: address expression (0)\n");
+        dprintf("dlcx: error: address expression (0)\n");
         return;
     }
 
-    ok = pExtApis->lpReadVirtualMemRoutine(
-        (LPVOID)addr,
+    ok = ExtensionApis.lpReadVirtualMemRoutine(
+        addr,
         &object,
         sizeof(object),
         NULL
         );
     if (!ok) {
-        printf("dlcx: error: can't copy object locally\n");
+        dprintf("dlcx: error: can't copy object locally\n");
         return;
     }
     pb = &object;
-    printf("\n"
+    dprintf("\n"
            "DLC_BUFFER_HEADER.Header structure at %#.8x:\n\n"
            "\t               pNextHeader 0x%08x\n"
            "\t               pPrevHeader 0x%08x\n"
@@ -826,34 +923,38 @@ VOID bh(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
            pb->Header.Reserved,
            pb->Header.pMdl
            );
+
+	addr = (DWORD)pb->Header.pPrevHeader;
 }
 
-VOID bp(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
+DECLARE_API(bp)
+{
 
-    PNTKD_OUTPUT_ROUTINE printf = pExtApis->lpOutputRoutine;
     PDLC_BUFFER_POOL pbp;
     DLC_BUFFER_POOL object;
-    DWORD addr = pExtApis->lpGetExpressionRoutine(pArgStr);
     BOOL ok;
     DWORD maxIndex;
 
+	static DWORD addr = 0;
+	addr = *pArgStr ? ExtensionApis.lpGetExpressionRoutine(pArgStr) : addr;
+
     if (!addr) {
-        printf("dlcx: error: address expression (0)\n");
+        dprintf("dlcx: error: address expression (0)\n");
         return;
     }
 
-    ok = pExtApis->lpReadVirtualMemRoutine(
-        (LPVOID)addr,
+    ok = ExtensionApis.lpReadVirtualMemRoutine(
+        addr,
         &object,
         sizeof(object),
         NULL
         );
     if (!ok) {
-        printf("dlcx: error: can't copy object locally\n");
+        dprintf("dlcx: error: can't copy object locally\n");
         return;
     }
     pbp = &object;
-    printf("\n"
+    dprintf("\n"
            "DLC_BUFFER_POOL structure at %#.8x:\n\n"
            "\t                     pNext 0x%08x\n"
            "\t                  SpinLock 0x%08x\n"
@@ -918,54 +1019,231 @@ VOID bp(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
         DWORD i;
 
         addr = (DWORD)&((PDLC_BUFFER_POOL)addr)->BufferHeaders;
-        for (i = 0; i < maxIndex; ++i) {
+        for (i = 0; i <= maxIndex; ++i) {
 
-            ok = pExtApis->lpReadVirtualMemRoutine(
-                (LPVOID)addr,
+            ok = ExtensionApis.lpReadVirtualMemRoutine(
+                addr,
                 &ptr,
                 sizeof(ptr),
                 NULL
                 );
             if (!ok) {
-                printf("dlcx: error: can't copy BufferHeader[%d]\n", i);
+                dprintf("dlcx: error: can't copy BufferHeader[%d]\n", i);
                 break;
             }
 
-            printf("\t          BufferHeaders[%d] 0x%08x\n", i, ptr);
+            dprintf("\t          BufferHeaders[%d] 0x%08x\n", i, ptr);
             ++((PBYTE*)addr);
         }
     }
-    printf("\n");
+    dprintf("\n");
+
+	addr = (DWORD)pbp->pNext;
 }
 
-VOID dc(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
+DECLARE_API(ci)
+{
 
-    DLC_COMMAND object;
-    PDLC_COMMAND p;
-    DWORD addr = pExtApis->lpGetExpressionRoutine(pArgStr);
-    PNTKD_OUTPUT_ROUTINE printf = pExtApis->lpOutputRoutine;
+    DLC_COMPLETION_EVENT_INFO object;
+    PDLC_COMPLETION_EVENT_INFO p;
     BOOL ok;
 
+	static DWORD addr = 0;
+	addr = *pArgStr ? ExtensionApis.lpGetExpressionRoutine(pArgStr) : addr;
+
     if (!addr) {
-        printf("dlcx: error: address expression (0)\n");
+        dprintf("dlcx: error: address expression (0)\n");
         return;
     }
 
-    ok = pExtApis->lpReadVirtualMemRoutine(
-        (LPVOID)addr,
+    ok = ExtensionApis.lpReadVirtualMemRoutine(
+        addr,
         &object,
         sizeof(object),
         NULL
         );
 
     if (!ok) {
-        printf("dlcx: error: can't copy object locally\n");
+        dprintf("dlcx: error: can't copy object locally\n");
         return;
     }
 
     p = &object;
 
-    printf("\n"
+    dprintf("\n"
+           "DLC_COMPLETION_EVENT_INFO at %#.8x:\n\n"
+           "\t                 LlcPacket:\n"
+           "\t                     pNext 0x%08x\n"
+           "\t                     pPrev 0x%08x\n"
+           "\t            CompletionType 0x%02x [%s]\n"
+           "\t               cbLlcHeader 0x%02x\n"
+           "\t         InformationLength %d\n"
+           "\t                  pBinding 0x%08x\n",
+           addr,
+           p->LlcPacket.pNext,
+           p->LlcPacket.pPrev,
+           p->LlcPacket.CompletionType,
+           "",
+           p->LlcPacket.cbLlcHeader,
+           p->LlcPacket.InformationLength,
+           p->LlcPacket.pBinding
+           );
+
+    dprintf("\t                    Status 0x%08x\n"
+           "\t          CompletedCommand 0x%08x\n"
+           "\t                pLlcObject 0x%08x\n"
+           "\t             hClientHandle 0x%08x\n",
+           p->LlcPacket.Data.Completion.Status,
+           p->LlcPacket.Data.Completion.CompletedCommand,
+           p->LlcPacket.Data.Completion.pLlcObject,
+           p->LlcPacket.Data.Completion.hClientHandle
+           );
+
+    dprintf("\t               pCcbAddress 0x%08x\n"
+           "\t           pReceiveBuffers 0x%08x\n"
+           "\t     CommandCompletionFlag 0x%08x\n"
+           "\t                  CcbCount 0x%04x\n"
+           "\t                 StationId 0x%04x\n"
+           "\n",
+           p->pCcbAddress,
+           p->pReceiveBuffers,
+           p->CommandCompletionFlag,
+           p->CcbCount,
+           p->StationId
+           );
+
+	addr = (DWORD)p->LlcPacket.pNext;
+}
+
+DECLARE_API(cw)
+{
+
+    DLC_CLOSE_WAIT_INFO object;
+    PDLC_CLOSE_WAIT_INFO p;
+    BOOL ok;
+
+	static DWORD addr = 0;
+	addr = *pArgStr ? ExtensionApis.lpGetExpressionRoutine(pArgStr) : addr;
+
+    if (!addr) {
+        dprintf("dlcx: error: address expression (0)\n");
+        return;
+    }
+
+    ok = ExtensionApis.lpReadVirtualMemRoutine(
+        addr,
+        &object,
+        sizeof(object),
+        NULL
+        );
+
+    if (!ok) {
+        dprintf("dlcx: error: can't copy object locally\n");
+        return;
+    }
+
+    p = &object;
+
+	dump_close_wait_info(addr, p, TRUE);
+
+    addr = (DWORD)p->pNext;
+}
+
+VOID dump_close_wait_info(DWORD addr, PDLC_CLOSE_WAIT_INFO p, BOOL DumpAll)
+{
+
+    char fname[128];
+    DWORD off;
+
+    ExtensionApis.lpGetSymbolRoutine(p->pfCloseComplete, fname, &off);
+    if (DumpAll) {
+        dprintf("\n"
+               "DLC_CLOSE_WAIT_INFO at %#.8x:\n\n",
+               addr
+               );
+    }
+    dprintf("\t%c                    pNext 0x%08x\n"
+           "\t%c                     pIrp 0x%08x\n"
+           "\t%c                    Event 0x%08x\n"
+           "\t%c          pfCloseComplete 0x%08x %s\n"
+           "\t%c               pRcvFrames 0x%08x\n"
+           "\t%c                 pCcbLink 0x%08x\n"
+           "\t%c             pReadCommand 0x%08x\n"
+           "\t%c              pRcvCommand 0x%08x\n"
+           "\t%c          pCompletionInfo 0x%08x\n"
+           "\t%c             CancelStatus 0x%08x\n"
+           "\t%c                 CcbCount 0x%04x\n"
+           "\t%c             CloseCounter 0x%04x\n"
+           "\t%c            ChainCommands 0x%02x\n"
+           "\t%c            CancelReceive 0x%02x\n"
+           "\t%c           ClosingAdapter 0x%02x\n",
+           DumpAll ? ' ' : '+',
+           p->pNext,
+           DumpAll ? ' ' : '+',
+           p->pIrp,
+           DumpAll ? ' ' : '+',
+           p->Event,
+           DumpAll ? ' ' : '+',
+           p->pfCloseComplete,
+           fname,
+           DumpAll ? ' ' : '+',
+           p->pRcvFrames,
+           DumpAll ? ' ' : '+',
+           p->pCcbLink,
+           DumpAll ? ' ' : '+',
+           p->pReadCommand,
+           DumpAll ? ' ' : '+',
+           p->pRcvCommand,
+           DumpAll ? ' ' : '+',
+           p->pCompletionInfo,
+           DumpAll ? ' ' : '+',
+           p->CancelStatus,
+           DumpAll ? ' ' : '+',
+           p->CcbCount,
+           DumpAll ? ' ' : '+',
+           p->CloseCounter,
+           DumpAll ? ' ' : '+',
+           p->ChainCommands,
+           DumpAll ? ' ' : '+',
+           p->CancelReceive,
+           DumpAll ? ' ' : '+',
+           p->ClosingAdapter
+           );
+    if (DumpAll) {
+        dprintf("\n");
+    }
+}
+
+DECLARE_API(dc)
+{
+
+    DLC_COMMAND object;
+    PDLC_COMMAND p;
+    BOOL ok;
+
+	static DWORD addr = 0;
+	addr = *pArgStr ? ExtensionApis.lpGetExpressionRoutine(pArgStr) : addr;
+
+    if (!addr) {
+        dprintf("dlcx: error: address expression (0)\n");
+        return;
+    }
+
+    ok = ExtensionApis.lpReadVirtualMemRoutine(
+        addr,
+        &object,
+        sizeof(object),
+        NULL
+        );
+
+    if (!ok) {
+        dprintf("dlcx: error: can't copy object locally\n");
+        return;
+    }
+
+    p = &object;
+
+    dprintf("\n"
            "DLC_COMMAND at %#.8x:\n\n"
            "\t                 LlcPacket:\n"
            "\t                     pNext 0x%08x\n"
@@ -984,7 +1262,7 @@ VOID dc(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
            p->LlcPacket.pBinding
            );
 
-    printf("\t                    Status 0x%08x\n"
+    dprintf("\t                    Status 0x%08x\n"
            "\t          CompletedCommand 0x%08x\n"
            "\t                pLlcObject 0x%08x\n"
            "\t             hClientHandle 0x%08x\n",
@@ -994,12 +1272,13 @@ VOID dc(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
            p->LlcPacket.Data.Completion.hClientHandle
            );
 
-    printf("\t                     Event 0x%08x\n"
+    dprintf("\t                     Event 0x%08x\n"
            "\t                 StationId 0x%04x\n"
            "\t             StationIdMask 0x%04x\n"
            "\t               AbortHandle 0x%08x\n"
            "\t                      pIrp 0x%08x\n"
-           "\t       pfCompletionHandler 0x%08x\n",
+           "\t       pfCompletionHandler 0x%08x\n"
+           "\n",
            p->Event,
            p->StationId,
            p->StationIdMask,
@@ -1007,36 +1286,40 @@ VOID dc(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
            p->pIrp,
            p->Overlay.pfCompletionHandler
            );
+
+	addr = (DWORD)p->LlcPacket.pNext;
 }
 
-VOID de(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
+DECLARE_API(de)
+{
 
     DLC_EVENT object;
     PDLC_EVENT p;
-    DWORD addr = pExtApis->lpGetExpressionRoutine(pArgStr);
-    PNTKD_OUTPUT_ROUTINE printf = pExtApis->lpOutputRoutine;
     BOOL ok;
 
+	static DWORD addr = 0;
+	addr = *pArgStr ? ExtensionApis.lpGetExpressionRoutine(pArgStr) : addr;
+
     if (!addr) {
-        printf("dlcx: error: address expression (0)\n");
+        dprintf("dlcx: error: address expression (0)\n");
         return;
     }
 
-    ok = pExtApis->lpReadVirtualMemRoutine(
-        (LPVOID)addr,
+    ok = ExtensionApis.lpReadVirtualMemRoutine(
+        addr,
         &object,
         sizeof(object),
         NULL
         );
 
     if (!ok) {
-        printf("dlcx: error: can't copy object locally\n");
+        dprintf("dlcx: error: can't copy object locally\n");
         return;
     }
 
     p = &object;
 
-    printf("\n"
+    dprintf("\n"
            "DLC_EVENT at %#.8x:\n\n"
            "\t                 LlcPacket:\n"
            "\t                     pNext 0x%08x\n"
@@ -1055,7 +1338,7 @@ VOID de(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
            p->LlcPacket.pBinding
            );
 
-    printf("\t                    Status 0x%08x\n"
+    dprintf("\t                    Status 0x%08x\n"
            "\t          CompletedCommand 0x%08x\n"
            "\t                pLlcObject 0x%08x\n"
            "\t             hClientHandle 0x%08x\n",
@@ -1065,49 +1348,56 @@ VOID de(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
            p->LlcPacket.Data.Completion.hClientHandle
            );
 
-    printf("\t                     Event 0x%08x\n"
+    dprintf("\t                     Event 0x%08x\n"
            "\t                 StationId 0x%04x\n"
            "\t             StationIdMask 0x%04x\n"
            "\t              pOwnerObject 0x%08x\n"
            "\t         pEventInformation 0x%08x\n"
-           "\t             SecondaryInfo 0x%08x\n",
+           "\t             SecondaryInfo 0x%08x\n"
+           "\t            bFreeEventInfo 0x%02x\n"
+           "\n",
            p->Event,
            p->StationId,
            p->Overlay.StationIdMask,
            p->pOwnerObject,
            p->pEventInformation,
-           p->SecondaryInfo
+           p->SecondaryInfo,
+           p->bFreeEventInfo
            );
+
+	addr = (DWORD)p->LlcPacket.pNext;
 }
 
-VOID dx(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
+DECLARE_API(dx)
+{
 
     DLC_OBJECT object;
     PDLC_OBJECT p;
-    DWORD addr = pExtApis->lpGetExpressionRoutine(pArgStr);
-    PNTKD_OUTPUT_ROUTINE printf = pExtApis->lpOutputRoutine;
     BOOL ok;
 
+	static DWORD addr = 0;
+	addr = *pArgStr ? ExtensionApis.lpGetExpressionRoutine(pArgStr) : addr;
+
     if (!addr) {
-        printf("dlcx: error: address expression (0)\n");
+        dprintf("dlcx: error: address expression (0)\n");
         return;
     }
 
-    ok = pExtApis->lpReadVirtualMemRoutine(
-        (LPVOID)addr,
+    ok = ExtensionApis.lpReadVirtualMemRoutine(
+        addr,
         &object,
         sizeof(object),
         NULL
         );
 
     if (!ok) {
-        printf("dlcx: error: can't copy object locally\n");
+        dprintf("dlcx: error: can't copy object locally\n");
         return;
     }
 
     p = &object;
 
-    printf("\n"
+    dprintf("\n"
            "DLC_OBJECT at %#.8x:\n\n"
            "\t          pLinkStationList 0x%08x\n"
            "\t              pFileContext 0x%08x\n"
@@ -1150,7 +1440,7 @@ VOID dx(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
 
         switch (p->Type) {
         case DLC_SAP_OBJECT:
-            printf("\t             DlcStatusFlag 0x%08x\n"
+            dprintf("\t             DlcStatusFlag 0x%08x\n"
                    "\t      GlobalGroupSapHandle 0x%08x\n"
                    "\t        GroupSapHandleList 0x%08x\n"
                    "\t             GroupSapCount %d\n"
@@ -1170,7 +1460,7 @@ VOID dx(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
             break;
 
         case DLC_LINK_OBJECT:
-            printf("\t                      pSap 0x%08x\n"
+            dprintf("\t                      pSap 0x%08x\n"
                    "\t              pStatusEvent 0x%08x\n"
                    "\t        MaxInfoFieldLength %d\n",
                    p->u.Link.pSap,
@@ -1180,7 +1470,7 @@ VOID dx(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
             break;
 
         case DLC_DIRECT_OBJECT:
-            printf("\t               OpenOptions 0x%04x\n"
+            dprintf("\t               OpenOptions 0x%04x\n"
                    "\t        ProtocolTypeOffset 0x%04x\n"
                    "\t          ProtocolTypeMask 0x%08x\n"
                    "\t         ProtocolTypeMatch 0x%08x\n",
@@ -1191,50 +1481,110 @@ VOID dx(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
                    );
             break;
         }
-    printf("\n");
+    dprintf("\n");
+
+	addr = 0;
 }
 
-VOID fc(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
+DECLARE_API(ep)
+{
 
-    DLC_FILE_CONTEXT object;
-    PDLC_FILE_CONTEXT p;
-    DWORD addr = pExtApis->lpGetExpressionRoutine(pArgStr);
-    PNTKD_OUTPUT_ROUTINE printf = pExtApis->lpOutputRoutine;
+    EVENT_PACKET object;
+    PEVENT_PACKET p;
     BOOL ok;
-    UINT i;
-    BOOL firstTime;
+
+	static DWORD addr = 0;
+	addr = *pArgStr ? ExtensionApis.lpGetExpressionRoutine(pArgStr) : addr;
 
     if (!addr) {
-        printf("dlcx: error: address expression (0)\n");
+        dprintf("dlcx: error: address expression (0)\n");
         return;
     }
 
-    ok = pExtApis->lpReadVirtualMemRoutine(
-        (LPVOID)addr,
+    ok = ExtensionApis.lpReadVirtualMemRoutine(
+        addr,
         &object,
         sizeof(object),
         NULL
         );
+
     if (!ok) {
-        printf("dlcx: error: can't copy object locally\n");
+        dprintf("dlcx: error: can't copy object locally\n");
         return;
     }
 
     p = &object;
 
-    printf("\n"
+    dprintf("\n"
+           "EVENT_PACKET at %#.8x:\n\n"
+           "\t                     pNext 0x%08x\n"
+           "\t                     pPrev 0x%08x\n"
+           "\t                  pBinding 0x%08x\n"
+           "\t             hClientHandle 0x%08x\n"
+           "\t         pEventInformation 0x%08x\n"
+           "\t                     Event 0x%08x\n"
+           "\t             SecondaryInfo 0x%08x\n"
+           "\n",
+           addr,
+           p->pNext,
+           p->pPrev,
+           p->pBinding,
+           p->hClientHandle,
+           p->pEventInformation,
+           p->Event,
+           p->SecondaryInfo
+           );
+
+	addr = (DWORD)p->pNext;
+}
+
+DECLARE_API(fc)
+{
+
+    DLC_FILE_CONTEXT object;
+    PDLC_FILE_CONTEXT p;
+    BOOL ok;
+    UINT i;
+    BOOL firstTime;
+
+	static DWORD addr = 0;
+	addr = *pArgStr ? ExtensionApis.lpGetExpressionRoutine(pArgStr) : addr;
+
+    if (!addr) {
+        dprintf("dlcx: error: address expression (0)\n");
+        return;
+    }
+
+    ok = ExtensionApis.lpReadVirtualMemRoutine(
+        addr,
+        &object,
+        sizeof(object),
+        NULL
+        );
+    if (!ok) {
+        dprintf("dlcx: error: can't copy object locally\n");
+        return;
+    }
+
+    p = &object;
+
+    dprintf("\n"
            "DLC_FILE_CONTEXT structure at %#.8x:\n\n",
            addr
            );
 
+    dprintf("\t                      List 0x%08x\n",
+           p->List
+           );
+
 #if !defined(DLC_UNILOCK)
-    printf("\t                  SpinLock 0x%08x, 0x%08x\n",
+    dprintf("\t                  SpinLock 0x%08x, 0x%08x\n",
            p->SpinLock.SpinLock,
            p->SpinLock.OldIrql
            );
 #endif
 
-    printf("\t               hBufferPool 0x%08x\n"
+    dprintf("\t               hBufferPool 0x%08x\n"
            "\t       hExternalBufferPool 0x%08x\n"
            "\t               hPacketPool 0x%08x\n"
            "\t          hLinkStationPool 0x%08x\n"
@@ -1254,7 +1604,7 @@ VOID fc(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
            p->SystemActionFlag
            );
 
-    printf("\t                EventQueue 0x%08x, 0x%08x %s\n"
+    dprintf("\t                EventQueue 0x%08x, 0x%08x %s\n"
            "\t              CommandQueue 0x%08x, 0x%08x %s\n"
            "\t              ReceiveQueue 0x%08x, 0x%08x %s\n"
            "\t          FlowControlQueue 0x%08x, 0x%08x %s\n"
@@ -1282,11 +1632,11 @@ VOID fc(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
            p->ActualNdisMedium
            );
 
-    printf("\t            ReferenceCount %d\n"
+    dprintf("\t            ReferenceCount %d\n"
            "\t  BufferPoolReferenceCount %d\n"
            "\t          TimerTickCounter %d\n"
            "\t            DlcObjectCount %d\n"
-           "\t                     State 0x%02x [%s]\n"
+           "\t                     State 0x%04x [%s]\n"
            "\t            MaxFrameLength %d\n"
            "\t             AdapterNumber 0x%02x\n"
            "\t          LinkStationCount %d\n",
@@ -1301,121 +1651,151 @@ VOID fc(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
            p->LinkStationCount
            );
 
-    printf("\t           SapStationTable ");
+    dprintf("\t           SapStationTable ");
     firstTime = TRUE;
     for (i = 0; i < MAX_SAP_STATIONS; ++i) {
         if (p->SapStationTable[i]) {
             if (!firstTime) {
-                printf("\t                           ");
+                dprintf("\t                           ");
             }
             firstTime = FALSE;
-            printf("SAP  0x%02x Object = 0x%08x\n", i * 2, p->SapStationTable[i]);
+            dprintf("SAP  0x%02x Object = 0x%08x\n", i * 2, p->SapStationTable[i]);
         }
     }
     if (firstTime) {
-        printf("\n");
+        dprintf("\n");
     }
 
-    printf("\t          LinkStationTable ");
+    dprintf("\t          LinkStationTable ");
     firstTime = TRUE;
     for (i = 0; i < MAX_LINK_STATIONS; ++i) {
         if (p->LinkStationTable[i]) {
             if (!firstTime) {
-                printf("\t                           ");
+                dprintf("\t                           ");
             }
             firstTime = FALSE;
-            printf("LINK 0x%02x Object = 0x%08x\n", i + 1, p->LinkStationTable[i]);
+            dprintf("LINK 0x%02x Object = 0x%08x\n", i + 1, p->LinkStationTable[i]);
         }
     }
     if (firstTime) {
-        printf("\n");
+        dprintf("\n");
     }
 
     firstTime = TRUE;
     for (i = 0; i < ADAPTER_ERROR_COUNTERS; ++i) {
         if (firstTime) {
-            printf("\t         NdisErrorCounters 0x%08x\n", p->NdisErrorCounters[i]);
+            dprintf("\t         NdisErrorCounters 0x%08x\n", p->NdisErrorCounters[i]);
             firstTime = FALSE;
         } else {
-            printf("\t                           0x%08x\n", p->NdisErrorCounters[i]);
+            dprintf("\t                           0x%08x\n", p->NdisErrorCounters[i]);
         }
     }
 
-    printf("\t             ClosingPacket:\n"
-           "\t+                    pNext 0x%08x\n"
-           "\t+                     pIrp 0x%08x\n"
-           "\t+                    Event 0x%08x\n"
-           "\t+          pfCloseComplete 0x%08x\n"
-           "\t+               pRcvFrames 0x%08x\n"
-           "\t+                 pCcbLink 0x%08x\n"
-           "\t+             pReadCommand 0x%08x\n"
-           "\t+              pRcvCommand 0x%08x\n"
-           "\t+          pCompletionInfo 0x%08x\n"
-           "\t+             CancelStatus 0x%08x\n"
-           "\t+                 CcbCount %d\n"
-           "\t+             CloseCounter %d\n"
-           "\t+            ChainCommands 0x%02x\n"
-           "\t+            CancelReceive 0x%02x\n"
-           "\t+           ClosingAdapter 0x%02x\n",
-           p->ClosingPacket.pNext,
-           p->ClosingPacket.pIrp,
-           p->ClosingPacket.Event,
-           p->ClosingPacket.pfCloseComplete,
-           p->ClosingPacket.pRcvFrames,
-           p->ClosingPacket.pCcbLink,
-           p->ClosingPacket.pReadCommand,
-           p->ClosingPacket.pRcvCommand,
-           p->ClosingPacket.pCompletionInfo,
-           p->ClosingPacket.CancelStatus,
-           p->ClosingPacket.CcbCount,
-           p->ClosingPacket.CloseCounter,
-           p->ClosingPacket.ChainCommands,
-           p->ClosingPacket.CancelReceive,
-           p->ClosingPacket.ClosingAdapter
-           );
+    dprintf("\t             ClosingPacket:\n");
+    dump_close_wait_info(addr, &p->ClosingPacket, FALSE);
+
+#if DBG
+    dprintf("\t               MemoryUsage:\n");
+    dump_memory_usage(addr, &p->MemoryUsage, FALSE);
+#endif
+
+    dprintf("\n");
+
+	addr = (DWORD)p->List.Next;
 }
 
-VOID ll(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
+DECLARE_API(fl)
+{
 
-    PNTKD_OUTPUT_ROUTINE printf = pExtApis->lpOutputRoutine;
-    DWORD addr = pExtApis->lpGetExpressionRoutine(pArgStr);
-
-    if (!addr) {
-        printf("dlcx: error: address expression (0)\n");
-        return;
-    }
-
-    dump_data_link(addr, pExtApis, TRUE);
-}
-
-VOID lt(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
-
-    PNTKD_OUTPUT_ROUTINE printf = pExtApis->lpOutputRoutine;
-    PLLC_TIMER p;
-    LLC_TIMER object;
-    DWORD addr = pExtApis->lpGetExpressionRoutine(pArgStr);
+    DLC_RESET_LOCAL_BUSY_CMD object;
+    PDLC_RESET_LOCAL_BUSY_CMD p;
     BOOL ok;
 
+	static DWORD addr = 0;
+	addr = *pArgStr ? ExtensionApis.lpGetExpressionRoutine(pArgStr) : addr;
+
     if (!addr) {
-        printf("dlcx: error: address expression (0)\n");
+        dprintf("dlcx: error: address expression (0)\n");
         return;
     }
 
-    ok = pExtApis->lpReadVirtualMemRoutine(
-        (LPVOID)addr,
+    ok = ExtensionApis.lpReadVirtualMemRoutine(
+        addr,
+        &object,
+        sizeof(object),
+        NULL
+        );
+    if (!ok) {
+        dprintf("dlcx: error: can't copy object locally\n");
+        return;
+    }
+
+    p = &object;
+
+    dprintf("\n"
+           "DLC_RESET_LOCAL_BUSY_CMD structure at %#.8x:\n\n"
+           "\t                      List 0x%08x, 0x%08x %s\n"
+           "\t       RequiredBufferSpace 0x%08x\n"
+           "\t                 StationId 0x%04x\n"
+           "\n",
+           addr,
+           p->List.Flink,
+           p->List.Blink,
+           EMPTY_LIST(p, List, addr),
+           p->RequiredBufferSpace,
+           p->StationId
+           );
+
+	addr = (DWORD)p->List.Flink;
+}
+
+DECLARE_API(ll)
+{
+
+	static DWORD addr = 0;
+	addr = *pArgStr ? ExtensionApis.lpGetExpressionRoutine(pArgStr) : addr;
+
+
+    if (!addr) {
+        dprintf("dlcx: error: address expression (0)\n");
+        return;
+    }
+
+    dump_data_link(addr, TRUE);
+
+	addr = 0;
+}
+
+DECLARE_API(lt)
+{
+
+    PLLC_TIMER p;
+    LLC_TIMER object;
+    BOOL ok;
+
+	static DWORD addr = (DWORD)0;
+	addr = *pArgStr ? ExtensionApis.lpGetExpressionRoutine(pArgStr) : addr;
+
+    if (!addr) {
+        dprintf("dlcx: error: address expression (0)\n");
+        return;
+    }
+
+    ok = ExtensionApis.lpReadVirtualMemRoutine(
+        addr,
         &object,
         sizeof(object),
         NULL
         );
 
     if (!ok) {
-        printf("dlcx: error: can't copy object locally\n");
+        dprintf("dlcx: error: can't copy object locally\n");
         return;
     }
 
     p = &object;
 
-    printf("\n"
+    dprintf("\n"
            "LLC_TIMER structure at %#.8x:\n\n"
            "\t                     pNext 0x%08x\n"
            "\t                     pPrev 0x%08x\n"
@@ -1438,46 +1818,50 @@ VOID lt(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
            p->Disabled
 #endif
            );
+
+	addr = (DWORD)p->pNext;
 }
 
-VOID lx(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
+DECLARE_API(lx)
+{
 
-    PNTKD_OUTPUT_ROUTINE printf = pExtApis->lpOutputRoutine;
     PLLC_OBJECT p;
     LLC_OBJECT object;
-    DWORD addr = pExtApis->lpGetExpressionRoutine(pArgStr);
     BOOL ok;
 
+	static DWORD addr = 0;
+	addr = *pArgStr ? ExtensionApis.lpGetExpressionRoutine(pArgStr) : addr;
+
     if (!addr) {
-        printf("dlcx: error: address expression (0)\n");
+        dprintf("dlcx: error: address expression (0)\n");
         return;
     }
 
-    ok = pExtApis->lpReadVirtualMemRoutine(
-        (LPVOID)addr,
+    ok = ExtensionApis.lpReadVirtualMemRoutine(
+        addr,
         &object,
         sizeof(object),
         NULL
         );
 
     if (!ok) {
-        printf("dlcx: error: can't copy object locally\n");
+        dprintf("dlcx: error: can't copy object locally\n");
         return;
     }
 
     p = &object;
 
-    printf("\n"
+    dprintf("\n"
            "LLC_OBJECT structure at %#.8x:\n"
            "\n",
            addr
            );
 
-    dump_gen_object(&p->Gen, pExtApis);
+    dump_gen_object(&p->Gen);
 
     switch (p->Gen.ObjectType) {
     case LLC_SAP_OBJECT:
-        printf("\t                 SourceSap 0x%04x\n"
+        dprintf("\t                 SourceSap 0x%04x\n"
                "\t               OpenOptions 0x%04x\n"
                "\t                Statistics:\n"
                "\t+        FramesTransmitted %u\n"
@@ -1520,7 +1904,7 @@ VOID lx(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
     case LLC_GROUP_SAP_OBJECT:
     case LLC_DIX_OBJECT:
     case LLC_DIRECT_OBJECT:
-        printf("\t             ObjectAddress 0x%04x\n"
+        dprintf("\t             ObjectAddress 0x%04x\n"
                "\t               OpenOptions 0x%04x\n"
                "\t                Statistics:\n"
                "\t+        FramesTransmitted %u\n"
@@ -1537,40 +1921,44 @@ VOID lx(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
         break;
 
     case LLC_LINK_OBJECT:
-        dump_data_link(addr, pExtApis, FALSE);
+        dump_data_link(addr, FALSE);
         break;
     }
-    printf("\n");
+    dprintf("\n");
+
+	addr = 0;
 }
 
-VOID mdl(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
+DECLARE_API(mdl)
+{
 
-    PNTKD_OUTPUT_ROUTINE printf = pExtApis->lpOutputRoutine;
     PMDL p;
     MDL object;
-    DWORD addr = pExtApis->lpGetExpressionRoutine(pArgStr);
     BOOL ok;
 
+	static DWORD addr = 0;
+	addr = *pArgStr ? ExtensionApis.lpGetExpressionRoutine(pArgStr) : addr;
+
     if (!addr) {
-        printf("dlcx: error: address expression (0)\n");
+        dprintf("dlcx: error: address expression (0)\n");
         return;
     }
 
-    ok = pExtApis->lpReadVirtualMemRoutine(
-        (LPVOID)addr,
+    ok = ExtensionApis.lpReadVirtualMemRoutine(
+        addr,
         &object,
         sizeof(object),
         NULL
         );
 
     if (!ok) {
-        printf("dlcx: error: can't copy object locally\n");
+        dprintf("dlcx: error: can't copy object locally\n");
         return;
     }
 
     p = &object;
 
-    printf("\n"
+    dprintf("\n"
            "MDL structure at %#.8x:\n\n"
            "\t                      Next 0x%08x\n"
            "\t                      Size 0x%04x\n"
@@ -1591,66 +1979,74 @@ VOID mdl(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
            p->ByteCount,
            p->ByteOffset
            );
+
+	addr = (DWORD)p->Next;
 }
 
-VOID mu(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
+DECLARE_API(mu)
+{
 
-    PNTKD_OUTPUT_ROUTINE printf = pExtApis->lpOutputRoutine;
     PMEMORY_USAGE p;
     MEMORY_USAGE object;
-    DWORD addr = pExtApis->lpGetExpressionRoutine(pArgStr);
     BOOL ok;
 
+	static DWORD addr = 0;
+	addr = *pArgStr ? ExtensionApis.lpGetExpressionRoutine(pArgStr) : addr;
+
     if (!addr) {
-        printf("dlcx: error: address expression (0)\n");
+        dprintf("dlcx: error: address expression (0)\n");
         return;
     }
 
-    ok = pExtApis->lpReadVirtualMemRoutine(
-        (LPVOID)addr,
+    ok = ExtensionApis.lpReadVirtualMemRoutine(
+        addr,
         &object,
         sizeof(object),
         NULL
         );
 
     if (!ok) {
-        printf("dlcx: error: can't copy object locally\n");
+        dprintf("dlcx: error: can't copy object locally\n");
         return;
     }
 
     p = &object;
 
     dump_memory_usage(addr, p, TRUE);
+
+	addr = (DWORD)p->List;
 }
 
-VOID pc(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
+DECLARE_API(pc)
+{
 
-    PNTKD_OUTPUT_ROUTINE printf = pExtApis->lpOutputRoutine;
     PLLC_PACKET p;
     LLC_PACKET object;
-    DWORD addr = pExtApis->lpGetExpressionRoutine(pArgStr);
     BOOL ok;
 
+	static DWORD addr = 0;
+	addr = *pArgStr ? ExtensionApis.lpGetExpressionRoutine(pArgStr) : addr;
+
     if (!addr) {
-        printf("dlcx: error: address expression (0)\n");
+        dprintf("dlcx: error: address expression (0)\n");
         return;
     }
 
-    ok = pExtApis->lpReadVirtualMemRoutine(
-        (LPVOID)addr,
+    ok = ExtensionApis.lpReadVirtualMemRoutine(
+        addr,
         &object,
         sizeof(object),
         NULL
         );
 
     if (!ok) {
-        printf("dlcx: error: can't copy object locally\n");
+        dprintf("dlcx: error: can't copy object locally\n");
         return;
     }
 
     p = &object;
 
-    printf("\n"
+    dprintf("\n"
            "LLC_PACKET (Completion) structure at %#.8x:\n\n"
            "\t                     pNext 0x%08x\n"
            "\t                     pPrev 0x%08x\n"
@@ -1675,36 +2071,40 @@ VOID pc(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
            p->Data.Completion.pLlcObject,
            p->Data.Completion.hClientHandle
            );
+
+	addr = (DWORD)p->pNext;
 }
 
-VOID pd(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
+DECLARE_API(pd)
+{
 
-    PNTKD_OUTPUT_ROUTINE printf = pExtApis->lpOutputRoutine;
     PLLC_PACKET p;
     LLC_PACKET object;
-    DWORD addr = pExtApis->lpGetExpressionRoutine(pArgStr);
     BOOL ok;
 
+	static DWORD addr = 0;
+	addr = *pArgStr ? ExtensionApis.lpGetExpressionRoutine(pArgStr) : addr;
+
     if (!addr) {
-        printf("dlcx: error: address expression (0)\n");
+        dprintf("dlcx: error: address expression (0)\n");
         return;
     }
 
-    ok = pExtApis->lpReadVirtualMemRoutine(
-        (LPVOID)addr,
+    ok = ExtensionApis.lpReadVirtualMemRoutine(
+        addr,
         &object,
         sizeof(object),
         NULL
         );
 
     if (!ok) {
-        printf("dlcx: error: can't copy object locally\n");
+        dprintf("dlcx: error: can't copy object locally\n");
         return;
     }
 
     p = &object;
 
-    printf("\n"
+    dprintf("\n"
            "LLC_PACKET (XmitDix) structure at %#.8x:\n\n"
            "\t                     pNext 0x%08x\n"
            "\t                     pPrev 0x%08x\n"
@@ -1735,98 +2135,328 @@ VOID pd(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
            p->Data.XmitDix.pLlcObject,
            p->Data.XmitDix.pMdl
            );
+
+	addr = (DWORD)p->pNext;
 }
 
-VOID ph(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
+DECLARE_API(ph)
+{
 
-    PNTKD_OUTPUT_ROUTINE printf = pExtApis->lpOutputRoutine;
     PPACKET_HEAD p;
     PACKET_HEAD object;
-    DWORD addr = pExtApis->lpGetExpressionRoutine(pArgStr);
     BOOL ok;
+    char place[128];
+    DWORD off;
+
+	static DWORD addr = 0;
+	addr = *pArgStr ? ExtensionApis.lpGetExpressionRoutine(pArgStr) : addr;
 
     if (!addr) {
-        printf("dlcx: error: address expression (0)\n");
+        dprintf("dlcx: error: address expression (0)\n");
         return;
     }
 
-    ok = pExtApis->lpReadVirtualMemRoutine(
-        (LPVOID)addr,
+    ok = ExtensionApis.lpReadVirtualMemRoutine(
+        addr,
         &object,
         sizeof(object),
         NULL
         );
 
     if (!ok) {
-        printf("dlcx: error: can't copy object locally\n");
+        dprintf("dlcx: error: can't copy object locally\n");
         return;
     }
 
     p = &object;
 
-    printf("\n"
+    dprintf("\n"
            "PACKET_HEAD structure at %#.8x:\n"
            "\n"
            "\t                      List 0x%08x\n"
            "\t                     Flags 0x%08x\n",
-           p,
+           addr,
            p->List,
            p->Flags
            );
 
 #if DBG
-    printf("\t                 Signature 0x%08x\n"
-           "\t               pPacketPool 0x%08x\n"
-           "\t            CallersAddress 0x%08x\n"
-           "\t             CallersCaller 0x%08x\n"
-           "\t                      Pad1 0x%08x\n"
-           "\t                      Pad2 0x%08x\n",
+    dprintf("\t                 Signature 0x%08x\n"
+           "\t               pPacketPool 0x%08x\n",
            p->Signature,
-           p->pPacketPool,
-           p->CallersAddress,
-           p->CallersCaller,
-           p->Pad1,
-           p->Pad2
+           p->pPacketPool
            );
+    dprintf("\t     Alloc: CallersAddress 0x%08x", p->CallersAddress_A);
+    if (p->CallersAddress_A) {
+        place[0] = 0;
+        off = 0;
+        ExtensionApis.lpGetSymbolRoutine(p->CallersAddress_A, place, &off);
+        if (place[0]) {
+            dprintf(" %s", place);
+            if (off) {
+                dprintf("+%#x", off);
+            }
+        }
+    }
+    dprintf("\n"
+           "\t     Alloc:  CallersCaller 0x%08x", p->CallersCaller_A);
+    if (p->CallersCaller_A) {
+        place[0] = 0;
+        off = 0;
+        ExtensionApis.lpGetSymbolRoutine(p->CallersCaller_A, place, &off);
+        if (place[0]) {
+            dprintf(" %s", place);
+            if (off) {
+                dprintf("+%#x", off);
+            }
+        }
+    }
+    dprintf("\n"
+           "\t     Free:  CallersAddress 0x%08x", p->CallersAddress_D);
+    if (p->CallersAddress_D) {
+        place[0] = 0;
+        off = 0;
+        ExtensionApis.lpGetSymbolRoutine(p->CallersAddress_D, place, &off);
+        if (place[0]) {
+            dprintf(" %s", place);
+            if (off) {
+                dprintf("+%#x", off);
+            }
+        }
+    }
+    dprintf("\n"
+           "\t     Free:   CallersCaller 0x%08x", p->CallersCaller_D);
+    if (p->CallersCaller_D) {
+        place[0] = 0;
+        off = 0;
+        ExtensionApis.lpGetSymbolRoutine(p->CallersCaller_D, place, &off);
+        if (place[0]) {
+            dprintf(" %s", place);
+            if (off) {
+                dprintf("+%#x", off);
+            }
+        }
+    }
 #endif
 
-    printf("\n");
+    dprintf("\n");
+
+	addr = 0;
 }
 
-VOID pp(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
+DECLARE_API(png)
+{
 
-    PNTKD_OUTPUT_ROUTINE printf = pExtApis->lpOutputRoutine;
-    PPACKET_POOL p;
-    PACKET_POOL object;
-    DWORD addr = pExtApis->lpGetExpressionRoutine(pArgStr);
+#if DBG
+
+    PPRIVATE_NON_PAGED_POOL_HEAD p;
+    PRIVATE_NON_PAGED_POOL_HEAD object;
+    DWORD adjustedAddr;
     BOOL ok;
 
+	static DWORD addr = 0;
+	addr = *pArgStr ? ExtensionApis.lpGetExpressionRoutine(pArgStr) : addr;
+
     if (!addr) {
-        printf("dlcx: error: address expression (0)\n");
+        dprintf("dlcx: error: address expression (0)\n");
         return;
     }
 
-    ok = pExtApis->lpReadVirtualMemRoutine(
-        (LPVOID)addr,
+    adjustedAddr = addr - (DWORD)&((PPRIVATE_NON_PAGED_POOL_HEAD)0)->GlobalList;
+    ok = ExtensionApis.lpReadVirtualMemRoutine(
+        adjustedAddr,
         &object,
         sizeof(object),
         NULL
         );
 
     if (!ok) {
-        printf("dlcx: error: can't copy object locally\n");
+        dprintf("dlcx: error: can't copy object locally\n");
         return;
     }
 
     p = &object;
 
-    printf("\n"
+    dump_private_non_paged_pool(adjustedAddr, p);
+
+	addr = 0;
+
+#else
+
+    dprintf("error: png: only active on DEBUG build of DLC.SYS/DLCX.DLL\n");
+
+#endif
+
+}
+
+DECLARE_API(pnp)
+     {
+
+#if DBG
+
+    PPRIVATE_NON_PAGED_POOL_HEAD p;
+    PRIVATE_NON_PAGED_POOL_HEAD object;
+    BOOL ok;
+    DWORD adjustedAddr;
+
+	static DWORD addr = 0;
+	addr = *pArgStr ? ExtensionApis.lpGetExpressionRoutine(pArgStr) : addr;
+
+    if (!addr) {
+        dprintf("dlcx: error: address expression (0)\n");
+        return;
+    }
+
+    adjustedAddr = addr - (DWORD)&((PPRIVATE_NON_PAGED_POOL_HEAD)0)->PrivateList;
+    ok = ExtensionApis.lpReadVirtualMemRoutine(
+        adjustedAddr,
+        &object,
+        sizeof(object),
+        NULL
+        );
+
+    if (!ok) {
+        dprintf("dlcx: error: can't copy object locally\n");
+        return;
+    }
+
+    p = &object;
+
+    dump_private_non_paged_pool(adjustedAddr, p);
+
+	addr = 0;
+
+#else
+
+    dprintf("error: pnp: only active on DEBUG build of DLC.SYS/DLCX.DLL\n");
+
+#endif
+
+}
+
+#if DBG
+
+VOID dump_private_non_paged_pool(DWORD adjustedAddr, PPRIVATE_NON_PAGED_POOL_HEAD p) {
+
+    DWORD off;
+    char place[128];
+
+    dprintf("\n"
+           "PRIVATE_NON_PAGED_POOL_HEAD at %#.8x:\n\n"
+           "\t                      Size %d\n"
+           "\t              OriginalSize %d\n"
+           "\t                     Flags 0x%08x\n"
+           "\t                 Signature 0x%08x\n"
+           "\t                GlobalList 0x%08x, 0x%08x %s\n"
+           "\t               PrivateList 0x%08x, 0x%08x %s\n",
+           adjustedAddr,
+           p->Size,
+           p->OriginalSize,
+           p->Flags,
+           p->Signature,
+           p->GlobalList.Flink,
+           p->GlobalList.Blink,
+           EMPTY_LIST(p, GlobalList, adjustedAddr),
+           p->PrivateList.Flink,
+           p->PrivateList.Blink,
+           EMPTY_LIST(p, PrivateList, adjustedAddr)
+           );
+
+    dprintf("\t                  Stack[0] 0x%08x", p->Stack[0]);
+    if (p->Stack[0]) {
+        place[0] = 0;
+        off = 0;
+        ExtensionApis.lpGetSymbolRoutine(p->Stack[0], place, &off);
+        if (place[0]) {
+            dprintf(" %s", place);
+            if (off) {
+                dprintf("+%#x", off);
+            }
+        }
+    }
+    dprintf("\n");
+
+    dprintf("\t                       [1] 0x%08x", p->Stack[1]);
+    if (p->Stack[1]) {
+        place[0] = 0;
+        off = 0;
+        ExtensionApis.lpGetSymbolRoutine(p->Stack[1], place, &off);
+        if (place[0]) {
+            dprintf(" %s", place);
+            if (off) {
+                dprintf("+%#x", off);
+            }
+        }
+    }
+    dprintf("\n");
+
+    dprintf("\t                       [2] 0x%08x", p->Stack[2]);
+    if (p->Stack[2]) {
+        place[0] = 0;
+        off = 0;
+        ExtensionApis.lpGetSymbolRoutine(p->Stack[2], place, &off);
+        if (place[0]) {
+            dprintf(" %s", place);
+            if (off) {
+                dprintf("+%#x", off);
+            }
+        }
+    }
+    dprintf("\n");
+
+    dprintf("\t                       [3] 0x%08x", p->Stack[3]);
+    if (p->Stack[3]) {
+        place[0] = 0;
+        off = 0;
+        ExtensionApis.lpGetSymbolRoutine(p->Stack[3], place, &off);
+        if (place[0]) {
+            dprintf(" %s", place);
+            if (off) {
+                dprintf("+%#x", off);
+            }
+        }
+    }
+    dprintf("\n\n");
+}
+
+#endif
+
+DECLARE_API(pp)
+     {
+
+    PPACKET_POOL p;
+    PACKET_POOL object;
+    BOOL ok;
+
+	static DWORD addr = 0;
+	addr = *pArgStr ? ExtensionApis.lpGetExpressionRoutine(pArgStr) : addr;
+
+    if (!addr) {
+        dprintf("dlcx: error: address expression (0)\n");
+        return;
+    }
+
+    ok = ExtensionApis.lpReadVirtualMemRoutine(
+        addr,
+        &object,
+        sizeof(object),
+        NULL
+        );
+
+    if (!ok) {
+        dprintf("dlcx: error: can't copy object locally\n");
+        return;
+    }
+
+    p = &object;
+
+    dprintf("\n"
            "PACKET_POOL structure at %#.8x:\n\n"
            "\t                  FreeList 0x%08x\n"
            "\t                  BusyList 0x%08x\n"
            "\t                  PoolLock 0x%08x\n"
            "\t                PacketSize 0x%08x\n",
-           p,
+           addr,
            p->FreeList,
            p->BusyList,
            p->PoolLock,
@@ -1834,7 +2464,7 @@ VOID pp(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
            );
 
 #if DBG
-    printf("\t                 Signature 0x%08x\n"
+    dprintf("\t                 Signature 0x%08x\n"
            "\t                    Viable 0x%08x\n"
            "\t       OriginalPacketCount %d\n"
            "\t        CurrentPacketCount %d\n"
@@ -1860,8 +2490,8 @@ VOID pp(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
            p->ObjectSignature,
            p->pMemoryUsage
            );
-    dump_memory_usage(addr, p->pMemoryUsage, FALSE);
-    printf("\t                 FreeCount %d\n"
+    dump_memory_usage(addr, &p->MemoryUsage, FALSE);
+    dprintf("\t                 FreeCount %d\n"
            "\t                 BusyCount %d\n"
            "\t                      Pad1 0x%08x\n"
            "\t                      Pad2 0x%08x\n",
@@ -1872,37 +2502,41 @@ VOID pp(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
            );
 #endif
 
-    printf("\n");
+    dprintf("\n");
+
+	addr = 0;
 }
 
-VOID pr(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
+DECLARE_API(pr)
+{
 
-    PNTKD_OUTPUT_ROUTINE printf = pExtApis->lpOutputRoutine;
     PLLC_PACKET p;
     LLC_PACKET object;
-    DWORD addr = pExtApis->lpGetExpressionRoutine(pArgStr);
     BOOL ok;
 
+	static DWORD addr = 0;
+	addr = *pArgStr ? ExtensionApis.lpGetExpressionRoutine(pArgStr) : addr;
+
     if (!addr) {
-        printf("dlcx: error: address expression (0)\n");
+        dprintf("dlcx: error: address expression (0)\n");
         return;
     }
 
-    ok = pExtApis->lpReadVirtualMemRoutine(
-        (LPVOID)addr,
+    ok = ExtensionApis.lpReadVirtualMemRoutine(
+        addr,
         &object,
         sizeof(object),
         NULL
         );
 
     if (!ok) {
-        printf("dlcx: error: can't copy object locally\n");
+        dprintf("dlcx: error: can't copy object locally\n");
         return;
     }
 
     p = &object;
 
-    printf("\n"
+    dprintf("\n"
            "LLC_PACKET (Response) structure at %#.8x:\n\n"
            "\t                     pNext 0x%08x\n"
            "\t                     pPrev 0x%08x\n"
@@ -1938,36 +2572,40 @@ VOID pr(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
            p->Data.Response.Info.Padding[6],
            p->Data.Response.Info.Padding[7]
            );
+
+	addr = (DWORD)p->pNext;
 }
 
-VOID pu(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
+DECLARE_API(pu)
+{
 
-    PNTKD_OUTPUT_ROUTINE printf = pExtApis->lpOutputRoutine;
     PLLC_PACKET p;
     LLC_PACKET object;
-    DWORD addr = pExtApis->lpGetExpressionRoutine(pArgStr);
     BOOL ok;
 
+	static DWORD addr = 0;
+	addr = *pArgStr ? ExtensionApis.lpGetExpressionRoutine(pArgStr) : addr;
+
     if (!addr) {
-        printf("dlcx: error: address expression (0)\n");
+        dprintf("dlcx: error: address expression (0)\n");
         return;
     }
 
-    ok = pExtApis->lpReadVirtualMemRoutine(
-        (LPVOID)addr,
+    ok = ExtensionApis.lpReadVirtualMemRoutine(
+        addr,
         &object,
         sizeof(object),
         NULL
         );
 
     if (!ok) {
-        printf("dlcx: error: can't copy object locally\n");
+        dprintf("dlcx: error: can't copy object locally\n");
         return;
     }
 
     p = &object;
 
-    printf("\n"
+    dprintf("\n"
            "LLC_PACKET (XmitU) structure at %#.8x:\n\n"
            "\t                     pNext 0x%08x\n"
            "\t                     pPrev 0x%08x\n"
@@ -1998,36 +2636,40 @@ VOID pu(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
            p->Data.XmitU.pLlcObject,
            p->Data.XmitU.pMdl
            );
+
+	addr = (DWORD)p->pNext;
 }
 
-VOID px(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
+DECLARE_API(px)
+{
 
-    PNTKD_OUTPUT_ROUTINE printf = pExtApis->lpOutputRoutine;
     PLLC_PACKET p;
     LLC_PACKET object;
-    DWORD addr = pExtApis->lpGetExpressionRoutine(pArgStr);
     BOOL ok;
 
+	static DWORD addr = 0;
+	addr = *pArgStr ? ExtensionApis.lpGetExpressionRoutine(pArgStr) : addr;
+
     if (!addr) {
-        printf("dlcx: error: address expression (0)\n");
+        dprintf("dlcx: error: address expression (0)\n");
         return;
     }
 
-    ok = pExtApis->lpReadVirtualMemRoutine(
-        (LPVOID)addr,
+    ok = ExtensionApis.lpReadVirtualMemRoutine(
+        addr,
         &object,
         sizeof(object),
         NULL
         );
 
     if (!ok) {
-        printf("dlcx: error: can't copy object locally\n");
+        dprintf("dlcx: error: can't copy object locally\n");
         return;
     }
 
     p = &object;
 
-    printf("\n"
+    dprintf("\n"
            "LLC_PACKET (Xmit) structure at %#.8x:\n\n"
            "\t                     pNext 0x%08x\n"
            "\t                     pPrev 0x%08x\n"
@@ -2055,12 +2697,14 @@ VOID px(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
            p->Data.Xmit.pLlcObject,
            p->Data.Xmit.pMdl
            );
+
+	addr = (DWORD)p->pNext;
 }
 
-VOID req(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
+DECLARE_API(req)
+     {
 
-    PNTKD_OUTPUT_ROUTINE printf = pExtApis->lpOutputRoutine;
-    DWORD val = pExtApis->lpGetExpressionRoutine(pArgStr);
+    DWORD val = ExtensionApis.lpGetExpressionRoutine(pArgStr);
     LPSTR str;
 
     switch (val) {
@@ -2189,37 +2833,40 @@ VOID req(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
         break;
     }
 
-    printf("DLC IoCtl code %x = %s\n", val, str);
+    dprintf("DLC IoCtl code %x = %s\n", val, str);
+
 }
 
-VOID tt(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
+DECLARE_API(tt)
+{
 
-    PNTKD_OUTPUT_ROUTINE printf = pExtApis->lpOutputRoutine;
     PTIMER_TICK p;
     TIMER_TICK object;
-    DWORD addr = pExtApis->lpGetExpressionRoutine(pArgStr);
     BOOL ok;
 
+	static DWORD addr = 0;
+	addr = *pArgStr ? ExtensionApis.lpGetExpressionRoutine(pArgStr) : addr;
+
     if (!addr) {
-        printf("dlcx: error: address expression (0)\n");
+        dprintf("dlcx: error: address expression (0)\n");
         return;
     }
 
-    ok = pExtApis->lpReadVirtualMemRoutine(
-        (LPVOID)addr,
+    ok = ExtensionApis.lpReadVirtualMemRoutine(
+        addr,
         &object,
         sizeof(object),
         NULL
         );
 
     if (!ok) {
-        printf("dlcx: error: can't copy object locally\n");
+        dprintf("dlcx: error: can't copy object locally\n");
         return;
     }
 
     p = &object;
 
-    printf("\n"
+    dprintf("\n"
            "TIMER_TICK structure at %#.8x:\n\n"
            "\t                     pNext 0x%08x\n"
 //           "\t                     pPrev 0x%08x\n"
@@ -2238,13 +2885,14 @@ VOID tt(DWORD CurPc, PNTKD_EXTENSION_APIS pExtApis, LPSTR pArgStr) {
            p->Input,
            p->ReferenceCount
            );
+
+	addr = (DWORD)p->pNext;
 }
 
-VOID dump_gen_object(PLLC_GENERIC_OBJECT p, PNTKD_EXTENSION_APIS pExtApis) {
+VOID dump_gen_object(PLLC_GENERIC_OBJECT p) {
 
-    PNTKD_OUTPUT_ROUTINE printf = pExtApis->lpOutputRoutine;
 
-    printf("\t                       Gen:\n"
+    dprintf("\t                       Gen:\n"
            "\t+                    pNext 0x%08x\n"
            "\t+               ObjectType 0x%02x [%s]\n"
            "\t+             EthernetType 0x%02x\n"
@@ -2267,9 +2915,8 @@ VOID dump_gen_object(PLLC_GENERIC_OBJECT p, PNTKD_EXTENSION_APIS pExtApis) {
            );
 }
 
-VOID dump_data_link(DWORD addr, PNTKD_EXTENSION_APIS pExtApis, BOOL DumpAll) {
+VOID dump_data_link(DWORD addr, BOOL DumpAll) {
 
-    PNTKD_OUTPUT_ROUTINE printf = pExtApis->lpOutputRoutine;
     PDATA_LINK p;
     DATA_LINK object[2];    // use 2 DATA_LINKs so we get the MAC addr overflow
     BOOL ok;
@@ -2286,8 +2933,8 @@ VOID dump_data_link(DWORD addr, PNTKD_EXTENSION_APIS pExtApis, BOOL DumpAll) {
 
         macAddrLength = macAddrLengthArray[i];
 
-        ok = pExtApis->lpReadVirtualMemRoutine(
-            (LPVOID)addr,
+        ok = ExtensionApis.lpReadVirtualMemRoutine(
+            addr,
             &object[0],
             sizeof(DATA_LINK) + macAddrLength,    // for MAC addr
             NULL
@@ -2298,21 +2945,21 @@ VOID dump_data_link(DWORD addr, PNTKD_EXTENSION_APIS pExtApis, BOOL DumpAll) {
         }
     }
     if (!ok) {
-        printf("dlcx: error: can't copy object locally\n");
+        dprintf("dlcx: error: can't copy object locally\n");
         return;
     }
 
     p = &object[0];
     if (DumpAll) {
-        printf("\n"
+        dprintf("\n"
                "DATA_LINK structure at %#.8x:\n"
                "\n",
                addr
                );
-        dump_gen_object(&p->Gen, pExtApis);
+        dump_gen_object(&p->Gen);
     }
 
-    printf("\t                     Is_Ct 0x%04x\n"
+    dprintf("\t                     Is_Ct 0x%04x\n"
            "\t                     Ia_Ct 0x%04x\n"
            "\t                     State 0x%02x [%s]\n"
            "\t                     Ir_Ct 0x%02x\n"
@@ -2365,7 +3012,7 @@ VOID dump_data_link(DWORD addr, PNTKD_EXTENSION_APIS pExtApis, BOOL DumpAll) {
            p->Nr
            );
 
-    printf("\tLastTimeWhenCmdPollWasSent 0x%04x\n"
+    dprintf("\tLastTimeWhenCmdPollWasSent 0x%04x\n"
            "\t       AverageResponseTime 0x%04x\n"
            "\t         cbLanHeaderLength 0x%02x\n"
            "\t         VrDuringLocalBusy 0x%02x\n"
@@ -2385,7 +3032,7 @@ VOID dump_data_link(DWORD addr, PNTKD_EXTENSION_APIS pExtApis, BOOL DumpAll) {
            p->RemoteOpen
            );
 
-    printf("\t                        T1:\n"
+    dprintf("\t                        T1:\n"
            "\t+                    pNext 0x%08x\n"
            "\t+                    pPrev 0x%08x\n"
            "\t+               pTimerTick 0x%08x\n"
@@ -2399,12 +3046,12 @@ VOID dump_data_link(DWORD addr, PNTKD_EXTENSION_APIS pExtApis, BOOL DumpAll) {
            );
 
 #if defined(LOCK_CHECK)
-    printf("\t+                 Disabled 0x%08x\n",
+    dprintf("\t+                 Disabled 0x%08x\n",
            p->T1.Disabled
            );
 #endif
 
-    printf("\t                        T2:\n"
+    dprintf("\t                        T2:\n"
            "\t+                    pNext 0x%08x\n"
            "\t+                    pPrev 0x%08x\n"
            "\t+               pTimerTick 0x%08x\n"
@@ -2418,12 +3065,12 @@ VOID dump_data_link(DWORD addr, PNTKD_EXTENSION_APIS pExtApis, BOOL DumpAll) {
            );
 
 #if defined(LOCK_CHECK)
-    printf("\t+                 Disabled 0x%08x\n",
+    dprintf("\t+                 Disabled 0x%08x\n",
            p->T2.Disabled
            );
 #endif
 
-    printf("\t                        Ti:\n"
+    dprintf("\t                        Ti:\n"
            "\t+                    pNext 0x%08x\n"
            "\t+                    pPrev 0x%08x\n"
            "\t+               pTimerTick 0x%08x\n"
@@ -2437,12 +3084,12 @@ VOID dump_data_link(DWORD addr, PNTKD_EXTENSION_APIS pExtApis, BOOL DumpAll) {
            );
 
 #if defined(LOCK_CHECK)
-    printf("\t+                 Disabled 0x%08x\n",
+    dprintf("\t+                 Disabled 0x%08x\n",
            p->Ti.Disabled
            );
 #endif
 
-    printf("\t                 SendQueue:\n"
+    dprintf("\t                 SendQueue:\n"
            "\t+                ListEntry 0x%08x 0x%08x\n"
            "\t+                 ListHead 0x%08x 0x%08x\n"
            "\t+                  pObject 0x%08x\n"
@@ -2469,7 +3116,7 @@ VOID dump_data_link(DWORD addr, PNTKD_EXTENSION_APIS pExtApis, BOOL DumpAll) {
            p->pSap
            );
 
-    printf("\t                 DlcStatus:\n"
+    dprintf("\t                 DlcStatus:\n"
            "\t+               StatusCode 0x%04x\n"
            "\t+                 FrmrData:\n"
            "\t++                 Command 0x%02x\n"
@@ -2500,7 +3147,7 @@ VOID dump_data_link(DWORD addr, PNTKD_EXTENSION_APIS pExtApis, BOOL DumpAll) {
            p->DlcStatus.hLlcLinkStation
            );
 
-    printf("\t                Statistics:\n"
+    dprintf("\t                Statistics:\n"
            "\t+      I_FramesTransmitted %u\n"
            "\t+         I_FramesReceived %u\n"
            "\t+     I_FrameReceiveErrors %u\n"
@@ -2526,57 +3173,69 @@ VOID dump_data_link(DWORD addr, PNTKD_EXTENSION_APIS pExtApis, BOOL DumpAll) {
            $address_translation(p->FramingType)
            );
     if (macAddrLength) {
-        printf("\t             auchLanHeader ");
+        dprintf("\t             auchLanHeader ");
         for (i = 0; i < macAddrLength; ++i) {
-            printf("%02x ", p->auchLanHeader[i]);
+            dprintf("%02x ", p->auchLanHeader[i]);
             if (i && !((i + 1) % 8)) {
-                printf("\n\t                           ");
+                dprintf("\n\t                           ");
             }
         }
-        printf("\n");
+        dprintf("\n");
     }
-    printf("\n");
+    dprintf("\n");
 }
 
 VOID dump_memory_usage(DWORD addr, PMEMORY_USAGE p, BOOL DumpAll) {
     if (DumpAll) {
-        printf("\n"
+        dprintf("\n"
                "MEMORY_USAGE structure at 0x%08x\n"
                "\n",
                addr
                );
     }
-    printf("\t                      List 0x%08x\n"
-           "\t                  SpinLock 0x%08x\n"
-           "\t                     Owner 0x%08x\n"
-           "\t             OwnerObjectId 0x%08x [%s]\n"
-           "\t             OwnerInstance %d\n"
-           "\t     NonPagedPoolAllocated %d\n"
-           "\t             AllocateCount %d\n"
-           "\t                 FreeCount %d\n"
-           "\t               PrivateList 0x%08x, 0x%08x %s\n"
-           "\t                    Unused 0x%08x 0x%08x\n"
-           "\n",
+    dprintf("\t%c                     List 0x%08x\n"
+           "\t%c                 SpinLock 0x%08x\n"
+           "\t%c                    Owner 0x%08x\n"
+           "\t%c            OwnerObjectId 0x%08x [%s]\n"
+           "\t%c            OwnerInstance %d\n"
+           "\t%c    NonPagedPoolAllocated %d\n"
+           "\t%c            AllocateCount %d\n"
+           "\t%c                FreeCount %d\n"
+           "\t%c              PrivateList 0x%08x, 0x%08x %s\n"
+           "\t%c                   Unused 0x%08x 0x%08x\n",
+           DumpAll ? ' ' : '+',
            p->List,
+           DumpAll ? ' ' : '+',
            p->SpinLock,
+           DumpAll ? ' ' : '+',
            p->Owner,
+           DumpAll ? ' ' : '+',
            p->OwnerObjectId,
            $object_id(p->OwnerObjectId),
+           DumpAll ? ' ' : '+',
            p->OwnerInstance,
+           DumpAll ? ' ' : '+',
            p->NonPagedPoolAllocated,
+           DumpAll ? ' ' : '+',
            p->AllocateCount,
+           DumpAll ? ' ' : '+',
            p->FreeCount,
+           DumpAll ? ' ' : '+',
            p->PrivateList.Flink,
            p->PrivateList.Blink,
            EMPTY_LIST(p, PrivateList, addr),
+           DumpAll ? ' ' : '+',
            p->Unused[0],
            p->Unused[1]
            );
+    if (DumpAll) {
+        dprintf("\n");
+    }
 }
 
 LPSTR buffer_state$(BYTE state) {
 
-    char buf[256];
+    static char buf[256];
     BYTE comb;
     LPSTR str;
     LPSTR bp = buf;

@@ -194,4 +194,3 @@ BOOL FAR RegGetClassNames(       //* ENTRY:
    return FALSE;
 
 }
-

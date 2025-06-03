@@ -69,7 +69,7 @@ main(
 {
     WORD  RunType;              // Server or Client end of Remote
     DWORD len=HOSTNAMELEN-1;
-    int   i;
+    int   i, FirstArg;
 
     char  sTitle[100];          // New Title
     char  orgTitle[100];        // Old Title
@@ -129,7 +129,7 @@ main(
 
         ServerName=argv[2];
         PipeName=argv[3];
-
+        FirstArg=4;
         RunType=REMOTE_CLIENT;
         break;
 
@@ -143,6 +143,7 @@ main(
 
         bPromptForArgs=TRUE;
         RunType=REMOTE_CLIENT;
+        FirstArg=2;
         break;
 
 
@@ -161,6 +162,7 @@ main(
 
         ChildCmd=argv[2];
         PipeName=argv[3];
+        FirstArg=4;
 
         RunType=REMOTE_SERVER;
         break;
@@ -207,7 +209,7 @@ main(
     //Process Common (Optional) Parameters
     //
 
-    for (i=4;i<argc;i++)
+    for (i=FirstArg;i<argc;i++)
     {
 
         if ((argv[i][0]!='/')&&(argv[i][0]!='-'))
@@ -426,7 +428,7 @@ GetColorNum(
 {
     int i;
 
-    strlwr(color);
+    _strlwr(color);
     for (i=0;i<16;i++)
     {
         if (strcmp(ColorList[i],color)==0)
@@ -458,12 +460,13 @@ GetNextConnectInfo(
     char** PipeName
     )
 {
-    static char szServerName[32];
+    static char szServerName[64];
     static char szPipeName[32];
+    char *s;
 
     try
     {
-        ZeroMemory(szServerName,32);
+        ZeroMemory(szServerName,64);
         ZeroMemory(szPipeName,32);
         SetConsoleTitle("Remote - Prompting for next Connection");
         WRITEF((VBuff,"Debugger machine (server): "));
@@ -482,13 +485,28 @@ GetNextConnectInfo(
             return(FALSE);
         }
 
-        WRITEF((VBuff,"Debuggee machine : "));
-        fflush(stdout);
-
-        if ((*PipeName=gets(szPipeName))==NULL)
-        {
-            return(FALSE);
+        if (s = strchr( szServerName, ' ' )) {
+            *s++ = '\0';
+            while (*s == ' ') {
+                s += 1;
+            }
+            *PipeName=strcpy(szPipeName, s);
+            WRITEF((VBuff,szPipeName));
+            fflush(stdout);
         }
+        if (strlen(szPipeName) == 0) {
+            WRITEF((VBuff,"Debuggee machine : "));
+            fflush(stdout);
+            if ((*PipeName=gets(szPipeName))==NULL)
+            {
+                return(FALSE);
+            }
+        }
+
+        if (s = strchr(szPipeName, ' ')) {
+            *s++ = '\0';
+        }
+
         if (szPipeName[0] == COMMANDCHAR &&
             (szPipeName[1] == 'q' || szPipeName[1] == 'Q')
            )

@@ -298,7 +298,7 @@ EchoController(
         } // for ( j = interval; j > 0; j-- )
 
         (VOID)NtQuerySystemTime( (PLARGE_INTEGER)&endTime );
-        elapsedTime = RtlLargeIntegerSubtract( endTime, startTime );
+        elapsedTime.QuadPart = endTime.QuadPart - startTime.QuadPart;
         elapsedMs = RtlExtendedMagicDivide( elapsedTime, magic10000, 13 );
         printf( "Echoes sent/received %ld, elapsed ms %ld, rate %ld msgs/sec\n",
                     interval, elapsedMs.LowPart,
@@ -1050,7 +1050,7 @@ ThreadSleep(
 
         printf( "Sleeping for %lu tenths of a second\n", Time );
         ms = Time * 100;
-        delayTime = RtlEnlargedIntegerMultiply( ms, -10000 );
+        delayTime.QuadPart = Int32x32To64( ms, -10000 );
         NtDelayExecution( TRUE, (PLARGE_INTEGER)&delayTime );
 
     }

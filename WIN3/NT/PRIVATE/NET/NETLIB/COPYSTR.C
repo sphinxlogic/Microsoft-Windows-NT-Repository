@@ -64,7 +64,7 @@ Revision History:
 #include <ntrtl.h>      // RtlUnicodeStringToOemString(), etc.
 #include <string.h>     // strlen().
 #include <tstring.h>    // Most of my prototypes.
-#include <wcstr.h>      // wcslen(), wcsncpy().
+#include <stdlib.h>      // wcslen(), wcsncpy().
 #include <winerror.h>   // NO_ERROR, ERROR_NOT_ENOUGH_MEMORY.
 
 
@@ -293,3 +293,125 @@ NetpNCopyWStrToStr(
     return (NO_ERROR);
 
 } // NetpNCopyWStrToStr
+
+// NetpCopyStrToStr that assumes Dest <= wcslen(SRC)+1 * sizeof(WCHAR)
+// This will be called whereever we have made sure that the proper
+// buffer size has been allocated.  Eventually we can replace
+// NetpCopStrToStr with this entirely once all calling functions
+// have been fixed up.
+
+VOID NetpCopyWStrToStrDBCS(
+    OUT LPSTR  Dest,
+    IN  LPWSTR Src
+    )
+
+/*++
+
+Routine Description:
+
+    NetpCopyWStrToStr copies characters from a source string
+    to a destination, converting as it copies them.
+
+Arguments:
+
+    Dest - is an LPSTR indicating where the converted characters are to go.
+        This string will be in the default codepage for the LAN.
+
+    Src - is in LPWSTR indicating the source string.
+
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    NTSTATUS NtStatus;
+    LONG Index;
+    ULONG DestLen = NetpUnicodeToDBCSLen( Src )+1;
+
+    NetpAssert( Dest != NULL );
+    NetpAssert( Src != NULL );
+    NetpAssert( ((LPVOID)Dest) != ((LPVOID)Src) );
+    NetpAssert( ROUND_UP_POINTER( Src, ALIGN_WCHAR ) == Src );
+
+    NtStatus = RtlUnicodeToOemN(
+        Dest,                             // Destination string
+        DestLen,                          // Destination string length
+        &Index,                           // Last char in translated string
+        Src,                              // Source string
+        wcslen(Src)*sizeof(WCHAR)         // Length of source string
+    );
+
+    Dest[Index] = '\0';
+
+    NetpAssert( NT_SUCCESS(NtStatus) );
+
+} // NetpCopyWStrToStr
+
+VOID
+NetpCopyWStrToStrDBCSN(
+    OUT LPSTR  Dest,
+    IN  LPWSTR Src,
+    IN  DWORD  MaxBytesInString
+    )
+
+/*++
+
+Routine Description:
+
+    NetpCopyWStrToStr copies characters from a source string
+    to a destination, converting as it copies them.
+
+Arguments:
+
+    Dest - is an LPSTR indicating where the converted characters are to go.
+        This string will be in the default codepage for the LAN.
+
+    Src - is in LPWSTR indicating the source string.
+
+    MaxBytesInString - indicates the maximum number of bytes to copy
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    NTSTATUS NtStatus;
+    LONG Index;
+
+    NetpAssert( Dest != NULL );
+    NetpAssert( Src != NULL );
+    NetpAssert( ((LPVOID)Dest) != ((LPVOID)Src) );
+    NetpAssert( ROUND_UP_POINTER( Src, ALIGN_WCHAR ) == Src );
+
+    NtStatus = RtlUnicodeToOemN(
+        Dest,                             // Destination string
+        MaxBytesInString-1,               // Destination string length
+        &Index,                           // Last char in translated string
+        Src,                              // Source string
+        wcslen(Src)*sizeof(WCHAR)         // Length of source string
+    );
+
+    Dest[Index] = '\0';
+
+    NetpAssert( NT_SUCCESS(NtStatus) );
+
+} // NetpCopyWStrToStr
+
+ULONG
+NetpUnicodeToDBCSLen(
+    IN  LPWSTR Src
+)
+{
+    UNICODE_STRING SrcUnicode;
+
+    RtlInitUnicodeString(
+        & SrcUnicode,           // output: struct
+        Src);                   // input: null terminated
+
+    return( RtlUnicodeStringToOemSize( &SrcUnicode ) -1 );
+}

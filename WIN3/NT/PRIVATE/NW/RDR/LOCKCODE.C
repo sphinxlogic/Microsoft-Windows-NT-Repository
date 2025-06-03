@@ -1,3 +1,4 @@
+
 /*++
 
 Copyright (c) 1994  Microsoft Corporation
@@ -18,6 +19,9 @@ Revision History:
 --*/
 
 #include "Procs.h"
+
+
+#ifndef QFE_BUILD
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text( PAGE, NwReferenceUnlockableCodeSection )
@@ -59,7 +63,7 @@ NwReferenceUnlockableCodeSection (
         // Lock our code.
         //
 
-        NwSectionDescriptor.Handle = MmLockPagableImageSection( NwSectionDescriptor.Base );
+        NwSectionDescriptor.Handle = MmLockPagableCodeSection( NwSectionDescriptor.Base );
         StartTimer( );
 
     } else {
@@ -161,3 +165,4 @@ NwUnlockCodeSections(
 
 }
 
+#endif

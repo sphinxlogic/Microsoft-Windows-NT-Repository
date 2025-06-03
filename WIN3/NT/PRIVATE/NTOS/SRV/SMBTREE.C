@@ -33,8 +33,6 @@ Revision History:
 #pragma alloc_text( PAGE, SrvSmbTreeDisconnect )
 #endif
 
-STATIC GENERIC_MAPPING SrvShareConnectMapping = GENERIC_SHARE_CONNECT_MAPPING;
-
 
 SMB_PROCESSOR_RETURN_TYPE
 SrvSmbTreeConnect (
@@ -196,7 +194,6 @@ Return Value:
     } else {
 
         UNICODE_STRING machineName;
-        ULONG maxBufferSize;
         PENDPOINT endpoint;
 
         RELEASE_LOCK( &connection->Lock );
@@ -313,11 +310,7 @@ Return Value:
         //
 
         status = SrvValidateUser(
-#ifdef _CAIRO_
                     &session->UserHandle,
-#else // _CAIRO_
-                    &session->UserToken,
-#endif // _CAIRO_
                     session,
                     connection,
                     &machineName,
@@ -513,74 +506,44 @@ Return Value:
     // connect to the share.
     //
 
-#ifdef _CAIRO_
-    if (1) {
-#else  // _CAIRO_
-    if ( SrvLsaHandle != NULL ) {
-#endif // _CAIRO_
+    IMPERSONATE( WorkContext );
 
-        IMPERSONATE( WorkContext );
+    SeCaptureSubjectContext( &subjectContext );
 
-        SeCaptureSubjectContext( &subjectContext );
+    //
+    // Set up the desired access on the share, based on whether the
+    // server is paused.  If the server is paused, admin privilege is
+    // required to connect to any share; if the server is not paused,
+    // admin privilege is required only for admin shares (C$, etc.).
+    //
 
-        //
-        // Set up the desired access on the share, based on whether the
-        // server is paused.  If the server is paused, admin privilege is
-        // required to connect to any share; if the server is not paused,
-        // admin privilege is required only for admin shares (C$, etc.).
-        //
+    if ( SrvPaused ) {
+        desiredAccess = SRVSVC_PAUSED_SHARE_CONNECT;
+    } else {
+        desiredAccess = SRVSVC_SHARE_CONNECT;
+    }
 
-        if ( SrvPaused ) {
-            desiredAccess = SRVSVC_PAUSED_SHARE_CONNECT;
-        } else {
-            desiredAccess = SRVSVC_SHARE_CONNECT;
+    //
+    // Check whether the user has access to this share.
+    //
+
+    if ( !SeAccessCheck(
+              share->SecurityDescriptor,
+              &subjectContext,
+              FALSE,
+              desiredAccess,
+              0L,
+              NULL,
+              &SrvShareConnectMapping,
+              UserMode,
+              &grantedAccess,
+              &status
+              ) ) {
+
+        IF_SMB_DEBUG(TREE2) {
+            SrvPrint1( "SrvSmbTreeConnect: SeAccessCheck failed: %X\n",
+                           status );
         }
-
-        //
-        // Check whether the user has access to this share.
-        //
-
-        if ( !SeAccessCheck(
-                  share->SecurityDescriptor,
-                  &subjectContext,
-                  FALSE,
-                  desiredAccess,
-                  0L,
-                  NULL,
-                  &SrvShareConnectMapping,
-                  UserMode,
-                  &grantedAccess,
-                  &status
-                  ) ) {
-
-            IF_SMB_DEBUG(TREE2) {
-                SrvPrint1( "SrvSmbTreeConnect: SeAccessCheck failed: %X\n",
-                               status );
-            }
-
-            //
-            // Release the subject context and revert to the server's security
-            // context.
-            //
-
-            SeReleaseSubjectContext( &subjectContext );
-
-            REVERT( );
-
-            if ( SrvPaused ) {
-                SrvSetSmbError( WorkContext, STATUS_SHARING_PAUSED );
-            } else {
-                SrvSetSmbError( WorkContext, status );
-            }
-
-            if ( didLogon ) {
-                SrvCloseSession( session );
-            }
-            SrvFreeTreeConnect( treeConnect );
-            return SmbStatusSendResponse;
-        }
-
-        ASSERT( grantedAccess == desiredAccess );
 
         //
         // Release the subject context and revert to the server's security
@@ -591,6 +554,52 @@ Return Value:
 
         REVERT( );
 
+        if ( SrvPaused ) {
+            SrvSetSmbError( WorkContext, STATUS_SHARING_PAUSED );
+        } else {
+            SrvSetSmbError( WorkContext, status );
+        }
+
+        if ( didLogon ) {
+            SrvCloseSession( session );
+        }
+        SrvFreeTreeConnect( treeConnect );
+        return SmbStatusSendResponse;
+    }
+
+    ASSERT( grantedAccess == desiredAccess );
+
+    //
+    // Release the subject context and revert to the server's security
+    // context.
+    //
+
+    SeReleaseSubjectContext( &subjectContext );
+
+    REVERT( );
+
+
+    //
+    // Let the license server know
+    //
+    if( share->ShareType != ShareTypePipe ) {
+
+        status = SrvXsLSOperation( session, XACTSRV_MESSAGE_LSREQUEST );
+
+        if( !NT_SUCCESS( status ) ) {
+            if ( didLogon ) {
+                SrvCloseSession( session );
+            }
+            SrvFreeTreeConnect( treeConnect );
+
+            IF_DEBUG(ERRORS) {
+                SrvPrint1( "SrvSmbTreeConnect: License server returned %X\n",
+                               status );
+            }
+
+            SrvSetSmbError( WorkContext, status );
+            return SmbStatusSendResponse;
+        }
     }
 
     //
@@ -1081,77 +1090,51 @@ Return Value:
         return SmbStatusSendResponse;
     }
 
+
     //
     // Impersonate the user so that we can capture his security context.
     // This is necessary in order to determine whether the user can
     // connect to the share.
     //
 
-#ifdef _CAIRO_
-    if (1) {
-#else // _CAIRO_
-    if ( SrvLsaHandle != NULL ) {
-#endif // _CAIRO_
+    IMPERSONATE( WorkContext );
 
-        IMPERSONATE( WorkContext );
+    SeCaptureSubjectContext( &subjectContext );
 
-        SeCaptureSubjectContext( &subjectContext );
+    //
+    // Set up the desired access on the share, based on whether the
+    // server is paused.  If the server is paused, admin privilege is
+    // required to connect to any share; if the server is not paused,
+    // admin privilege is required only for admin shares (C$, etc.).
+    //
 
-        //
-        // Set up the desired access on the share, based on whether the
-        // server is paused.  If the server is paused, admin privilege is
-        // required to connect to any share; if the server is not paused,
-        // admin privilege is required only for admin shares (C$, etc.).
-        //
+    if ( SrvPaused ) {
+        desiredAccess = SRVSVC_PAUSED_SHARE_CONNECT;
+    } else {
+        desiredAccess = SRVSVC_SHARE_CONNECT;
+    }
 
-        if ( SrvPaused ) {
-            desiredAccess = SRVSVC_PAUSED_SHARE_CONNECT;
-        } else {
-            desiredAccess = SRVSVC_SHARE_CONNECT;
+    //
+    // Check whether the user has access to this share.
+    //
+
+    if ( !SeAccessCheck(
+              share->SecurityDescriptor,
+              &subjectContext,
+              FALSE,
+              desiredAccess,
+              0L,
+              NULL,
+              &SrvShareConnectMapping,
+              UserMode,
+              &grantedAccess,
+              &status
+              ) ) {
+
+        IF_SMB_DEBUG(TREE2) {
+            SrvPrint1( "SrvSmbTreeConnectAndX: SeAccessCheck failed: %X\n",
+                           status );
         }
-
-        //
-        // Check whether the user has access to this share.
-        //
-
-        if ( !SeAccessCheck(
-                  share->SecurityDescriptor,
-                  &subjectContext,
-                  FALSE,
-                  desiredAccess,
-                  0L,
-                  NULL,
-                  &SrvShareConnectMapping,
-                  UserMode,
-                  &grantedAccess,
-                  &status
-                  ) ) {
-
-            IF_SMB_DEBUG(TREE2) {
-                SrvPrint1( "SrvSmbTreeConnectAndX: SeAccessCheck failed: %X\n",
-                               status );
-            }
-
-            //
-            // Release the subject context and revert to the server's security
-            // context.
-            //
-
-            SeReleaseSubjectContext( &subjectContext );
-
-            REVERT( );
-
-            if ( SrvPaused ) {
-                SrvSetSmbError( WorkContext, STATUS_SHARING_PAUSED );
-            } else {
-                SrvSetSmbError( WorkContext, status );
-            }
-
-            SrvFreeTreeConnect( treeConnect );
-            return SmbStatusSendResponse;
-        }
-
-        ASSERT( grantedAccess == desiredAccess );
 
         //
         // Release the subject context and revert to the server's security
@@ -1161,6 +1144,47 @@ Return Value:
         SeReleaseSubjectContext( &subjectContext );
 
         REVERT( );
+
+        if ( SrvPaused ) {
+            SrvSetSmbError( WorkContext, STATUS_SHARING_PAUSED );
+        } else {
+            SrvSetSmbError( WorkContext, status );
+        }
+
+        SrvFreeTreeConnect( treeConnect );
+        return SmbStatusSendResponse;
+    }
+
+    ASSERT( grantedAccess == desiredAccess );
+
+    //
+    // Release the subject context and revert to the server's security
+    // context.
+    //
+
+    SeReleaseSubjectContext( &subjectContext );
+
+    REVERT( );
+
+    //
+    // See if the license server wants to let this person in on the NTAS
+    //
+    if( share->ShareType != ShareTypePipe ) {
+
+        status = SrvXsLSOperation( session, XACTSRV_MESSAGE_LSREQUEST );
+
+        if( !NT_SUCCESS( status ) ) {
+
+            SrvFreeTreeConnect( treeConnect );
+
+            IF_DEBUG(ERRORS) {
+                SrvPrint1( "SrvSmbTreeConnectAndX: License server returned %X\n",
+                               status );
+            }
+
+            SrvSetSmbError( WorkContext, status );
+            return SmbStatusSendResponse;
+        }
     }
 
     //
@@ -1400,6 +1424,9 @@ Return Value:
     } else {
         response21->WordCount = 3;
         response21->OptionalSupport = SMB_SUPPORT_SEARCH_BITS;
+        if (share->IsDfs) {
+            response21->OptionalSupport = SMB_SHARE_IS_IN_DFS;
+        }
         smbBuffer = (PUCHAR)response21->Buffer;
     }
 
@@ -1512,10 +1539,12 @@ Return Value:
     case SMB_COM_CREATE_DIRECTORY:
     case SMB_COM_DELETE:
     case SMB_COM_DELETE_DIRECTORY:
+    case SMB_COM_SEARCH:
     case SMB_COM_FIND:
     case SMB_COM_FIND_UNIQUE:
     case SMB_COM_COPY:
     case SMB_COM_RENAME:
+    case SMB_COM_NT_RENAME:
     case SMB_COM_CHECK_DIRECTORY:
     case SMB_COM_QUERY_INFORMATION:
     case SMB_COM_SET_INFORMATION:

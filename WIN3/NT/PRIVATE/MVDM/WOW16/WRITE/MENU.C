@@ -1284,9 +1284,9 @@ int iffn;
     pffn = (struct FFN *)rgffnFontMenu[iffn];
 
     ftc = FtcChkDocFfn(docCur, pffn);
-    if (ftc != ftcNil);
-    ApplyCLooks(0, sprmCFtc, ftc);
+    if (ftc != ftcNil)
+        ApplyCLooks(0, sprmCFtc, ftc);
     vfSeeSel = TRUE;
     }
 #endif
-
+

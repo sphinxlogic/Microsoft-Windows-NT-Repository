@@ -77,7 +77,7 @@ Fixed browsing directory search.
 Made changes to browse dialog to reflect path given in combobox.
 
    Rev 1.69   29 Apr 1993 17:27:26   CARLS
-changed strncmp to strnicmp for mixed case drive letters
+changed strncmp to _strnicmp for mixed case drive letters
 
    Rev 1.68   21 Apr 1993 18:55:50   CHUCKB
 1. Changed commented-out ifdef's on lines 989 and 1003 to real ifdef's for
@@ -195,6 +195,7 @@ added Mac delimiter support for SetTargetPath
 #endif
 
 #include "all.h"
+#include "ctl3d.h"
 
 #ifdef SOME
 #include "some.h"
@@ -229,12 +230,20 @@ struct temp {
 
 static struct temp     *mwpStatus;
 
+
 LOCALFN VOID clock_routine( VOID );
 LOCALFN VOID ScrollLineDown( VOID );
 LOCALFN VOID ScrollLineUp( VOID );
 LOCALFN VOID SetTargetPath( BSD_PTR, CHAR_PTR );
 LOCALFN VOID GetTargetPath( BSD_PTR, CHAR_PTR );
 LOCALFN VOID SeeIfWeCanSilentlyLogin( VOID );
+LOCALFN INT ConfirmXchgBsdServers( WORD * );
+#define EMS_SERVER_NOT_FOUND      1
+#define EMS_XCHG_FOUND            2
+#define EMS_NO_DEST               3
+#define EMS_NO_STORE              4
+#define EMS_MUST_WIPE_TO_ALT      5
+#define EMS_NO_WIPE_IF_NOT_BOTH   6
 
 /***************************************************
 
@@ -312,6 +321,101 @@ MP2   mp2 )
      COLORREF    crColor;
      LPDRAWITEMSTRUCT    lpDIS;
      LPMEASUREITEMSTRUCT lpMIS;
+     BSD_PTR     bsd_ptr ;
+#ifdef OEM_EMS
+
+     static DLG_CTRL_ENTRY DefaultCtrlTable[] = {
+           { IDD_RSET_DEST_NAME,      0,     CM_HIDE },
+           { IDD_RSET_DSA_DEST_NAME,  0,     CM_HIDE },
+           { IDD_RSET_DEST_TEXT,      0,     CM_HIDE },
+           { IDD_RSET_DS_DEST_TEXT,   0,     CM_HIDE },
+           { IDD_RSET_ORG_TEXT,       0,     CM_HIDE },
+           { IDD_RSET_WIPE_DATA,      0,     CM_HIDE },
+           { IDD_RSET_PRIV_IS,        0,     CM_HIDE },
+           { IDD_RSET_PUB_IS,         0,     CM_HIDE },
+           { IDD_RSET_ORG_NAME,       0,     CM_HIDE },
+           { IDD_RSET_START_EMS,      0,     CM_HIDE },
+           { IDD_RSET_DRIVE_TEXT,     0,     CM_ENABLE },
+           { IDD_RSET_DRIVE_BOX,      0,     CM_ENABLE },
+           { IDD_RSET_PATH_TEXT,      0,     CM_ENABLE },
+           { IDD_RSET_RESTORE_PATH,   0,     CM_ENABLE },
+           { IDD_RSET_BROWSE_BUTTON,  0,     CM_ENABLE },
+           { IDD_RSET_REGISTRY,       0,     CM_ENABLE },
+           { IDD_RSET_SECURITY_INFO,  0,     CM_ENABLE }
+     };
+
+     static DLG_CTRL_ENTRY EMS_MDBCtrlTable[] = {
+           { IDD_RSET_DRIVE_TEXT,     0,     CM_HIDE },
+           { IDD_RSET_DRIVE_BOX,      0,     CM_HIDE },
+           { IDD_RSET_PATH_TEXT,      0,     CM_HIDE },
+           { IDD_RSET_RESTORE_PATH,   0,     CM_HIDE },
+           { IDD_RSET_BROWSE_BUTTON,  0,     CM_HIDE },
+           { IDD_RSET_REGISTRY,       0,     CM_HIDE },
+           { IDD_RSET_SECURITY_INFO,  0,     CM_HIDE },
+           { IDD_RSET_DSA_DEST_NAME,  0,     CM_HIDE },
+           { IDD_RSET_DS_DEST_TEXT,   0,     CM_HIDE },
+           { IDD_RSET_DEST_NAME,      0,     CM_ENABLE },
+           { IDD_RSET_DEST_TEXT,      0,     CM_ENABLE },
+           { IDD_RSET_ORG_TEXT,       0,     CM_ENABLE },
+           { IDD_RSET_WIPE_DATA,      0,     CM_ENABLE },
+           { IDD_RSET_PRIV_IS,        0,     CM_ENABLE },
+           { IDD_RSET_PUB_IS,         0,     CM_ENABLE },
+           { IDD_RSET_START_EMS,      0,     CM_ENABLE },
+           { IDD_RSET_ORG_NAME,       0,     CM_ENABLE }
+     };
+
+     static DLG_CTRL_ENTRY EMS_DSACtrlTable[] = {
+           { IDD_RSET_DRIVE_TEXT,     0,     CM_HIDE },
+           { IDD_RSET_DRIVE_BOX,      0,     CM_HIDE },
+           { IDD_RSET_PATH_TEXT,      0,     CM_HIDE },
+           { IDD_RSET_RESTORE_PATH,   0,     CM_HIDE },
+           { IDD_RSET_BROWSE_BUTTON,  0,     CM_HIDE },
+           { IDD_RSET_REGISTRY,       0,     CM_HIDE },
+           { IDD_RSET_SECURITY_INFO,  0,     CM_HIDE },
+           { IDD_RSET_PRIV_IS,        0,     CM_HIDE },
+           { IDD_RSET_PUB_IS,         0,     CM_HIDE },
+           { IDD_RSET_DEST_NAME,      0,     CM_HIDE },
+           { IDD_RSET_DEST_TEXT,      0,     CM_HIDE },
+           { IDD_RSET_ORG_TEXT,       0,     CM_ENABLE },
+           { IDD_RSET_DSA_DEST_NAME,  0,     CM_ENABLE },
+           { IDD_RSET_DS_DEST_TEXT,   0,     CM_ENABLE },
+           { IDD_RSET_WIPE_DATA,      0,     CM_ENABLE },
+           { IDD_RSET_START_EMS,      0,     CM_ENABLE },
+           { IDD_RSET_ORG_NAME,       0,     CM_ENABLE }
+     };
+
+
+     // GENERIC_DATA must be last w/ no other iBsdType == GENERIC_DATA (or its value).
+     static DLG_DISPLAY_ENTRY RestBsdTable[] = {
+           { FS_EMS_MDB_ID,   EMS_MDBCtrlTable, 
+             sizeof(EMS_MDBCtrlTable)/sizeof(EMS_MDBCtrlTable[0]), IDH_DB_XCHG_RESTORESET },
+           { FS_EMS_DSA_ID,   EMS_DSACtrlTable, 
+             sizeof(EMS_DSACtrlTable)/sizeof(EMS_DSACtrlTable[0]), IDH_DB_XCHG_RESTORESET },
+           { FS_UNKNOWN_OS,   DefaultCtrlTable, 
+             sizeof(DefaultCtrlTable)/sizeof(DefaultCtrlTable[0]), IDH_DB_RESTORESET }
+     };
+
+     static DLG_DISPLAY_ENTRY VerifyBsdTable[] = {
+           { FS_EMS_MDB_ID,   EMS_MDBCtrlTable, 
+             sizeof(EMS_MDBCtrlTable)/sizeof(EMS_MDBCtrlTable[0]), IDH_DB_XCHG_RESTORESET },
+           { FS_EMS_DSA_ID,   EMS_DSACtrlTable, 
+             sizeof(EMS_DSACtrlTable)/sizeof(EMS_DSACtrlTable[0]), IDH_DB_XCHG_RESTORESET },
+           { FS_UNKNOWN_OS,   DefaultCtrlTable, 
+             sizeof(DefaultCtrlTable)/sizeof(DefaultCtrlTable[0]), IDH_DB_VERIFYSET }
+     };
+
+     static DLG_MODE ModeTable[] = {
+          { VERIFY_MODE,   VerifyBsdTable,  
+            sizeof(VerifyBsdTable)/sizeof(VerifyBsdTable[0]),   &(VerifyBsdTable[2]) },   
+          { RESTORE_MODE,  RestBsdTable,  
+            sizeof(RestBsdTable)/sizeof(RestBsdTable[0]),   &(VerifyBsdTable[2]) },
+     };
+     
+     static UINT16 cModeTblSize = sizeof( ModeTable ) / sizeof( ModeTable[0] );
+     static DLG_MODE *pCurMode;
+     DWORD  help_id;
+
+#endif
 
      switch ( message ) {
 
@@ -381,6 +485,14 @@ MP2   mp2 )
 
      case WM_INITDIALOG:     /* message: initialize dialog box */
 
+          // Let's go 3-D!!
+          Ctl3dSubclassDlgEx( hDlg, CTL3D_ALL );
+
+#ifdef OEM_EMS
+          pCurMode = DM_InitCtrlTables( hDlg, ModeTable, cModeTblSize, 
+                              mwpStatus->fMode );
+#endif
+
           DM_CenterDialog( hDlg );
 
           /* set the length of the text fields */
@@ -394,7 +506,6 @@ MP2   mp2 )
           /* start at the first BSD */
           mwpStatus->BSD_index = 0;
           pBSD = GetTapeBSDPointer( mwpStatus->BSD_index );
-
 
           /* get the backup engine config for this BSD */
           pBEConfig = BSD_GetConfigData( pBSD );
@@ -444,7 +555,11 @@ MP2   mp2 )
           }
 
           /* display the state of the first BSD */
+#ifndef OEM_EMS
           RestoreSetRetrieve( hDlg );
+#else            
+          RestoreSetRetrieve( hDlg, pCurMode );
+#endif            
 
 #         if defined ( OEM_MSOFT ) // special feature
           {
@@ -474,7 +589,11 @@ MP2   mp2 )
                }
 
                /* Check default log file radio button            */
-               CheckDlgButton( hDlg, IDD_RSET_LOG_SUMMARY, 1 ) ;
+                CheckRadioButton ( hDlg, IDD_RSET_LOG_FULL,
+                                         IDD_RSET_LOG_NONE, 
+                                         IDD_RSET_LOG_SUMMARY );
+
+//             CheckDlgButton( hDlg, IDD_RSET_LOG_SUMMARY, 1 ) ;
           }
 #         endif //defined ( OEM_MSOFT ) // special feature
 
@@ -517,8 +636,36 @@ MP2   mp2 )
                               //  something was wrong, so don't do anything
                               //  put up a message box and return
 
+#ifdef OEM_EMS                                                           
+                              pBSD = GetTapeBSDPointer( mwpStatus->BSD_index );
+                              switch ( BSD_GetOsId( pBSD ) ) {
+
+                                   case FS_EMS_MDB_ID:
+                                        WM_MsgBox( ID( IDS_MSGTITLE_RESTORE), ID(IDS_RESTOREEMSSERVERINVALID),
+                                                   WMMB_OK, WMMB_ICONEXCLAMATION );
+                                        SEND_EM_SETSEL_MSG (hDlg, IDD_RSET_DEST_NAME, 0, 32767);
+                                        SetFocus( GetDlgItem( hDlg, IDD_RSET_DEST_NAME ) );
+                                        break;
+
+                                   case FS_EMS_DSA_ID:
+
+                                        WM_MsgBox( ID( IDS_MSGTITLE_RESTORE), ID(IDS_RESTOREEMSSERVERINVALID),
+                                                   WMMB_OK, WMMB_ICONEXCLAMATION );
+                                        SEND_EM_SETSEL_MSG (hDlg, IDD_RSET_DSA_DEST_NAME, 0, 32767);
+                                        SetFocus( GetDlgItem( hDlg, IDD_RSET_DSA_DEST_NAME ) );
+                                        break;
+                                                   
+                                   default:
+
+                                        WM_MsgBox( ID( IDS_MSGTITLE_RESTORE), ID(IDS_RESTOREPATHINVALID),
+                                                   WMMB_OK, WMMB_ICONEXCLAMATION );
+                                        SEND_EM_SETSEL_MSG (hDlg, IDD_RSET_RESTORE_PATH, 0, 32767);
+                                        SetFocus( GetDlgItem( hDlg, IDD_RSET_RESTORE_PATH ) );
+                              }
+#else
                               WM_MsgBox( ID( IDS_MSGTITLE_RESTORE), ID(IDS_RESTOREPATHINVALID),
-                                         WMMB_OK, WMMB_ICONEXCLAMATION );
+                                                   WMMB_OK, WMMB_ICONEXCLAMATION );
+#endif
 
                               return ( TRUE );
                          }
@@ -528,7 +675,11 @@ MP2   mp2 )
                          }
 
                          /* restore the next BSDs information */
+#ifndef OEM_EMS
                          RestoreSetRetrieve( hDlg );
+#else            
+                         RestoreSetRetrieve( hDlg, pCurMode );
+#endif            
                     }
                     else {
 
@@ -538,8 +689,37 @@ MP2   mp2 )
 
                               //  put up message box & split
 
+#ifdef OEM_EMS                                                           
+                              pBSD = GetTapeBSDPointer( mwpStatus->BSD_index );
+                              switch ( BSD_GetOsId( pBSD ) ) {
+
+                                   case FS_EMS_MDB_ID:
+                                        WM_MsgBox( ID( IDS_MSGTITLE_RESTORE), ID(IDS_RESTOREEMSSERVERINVALID),
+                                                   WMMB_OK, WMMB_ICONEXCLAMATION );
+                                        SEND_EM_SETSEL_MSG (hDlg, IDD_RSET_DEST_NAME, 0, 32767);
+                                        SetFocus( GetDlgItem( hDlg, IDD_RSET_DEST_NAME ) );
+                                        break;
+                                                   
+
+                                   case FS_EMS_DSA_ID:
+
+                                        WM_MsgBox( ID( IDS_MSGTITLE_RESTORE), ID(IDS_RESTOREEMSSERVERINVALID),
+                                                   WMMB_OK, WMMB_ICONEXCLAMATION );
+                                        SEND_EM_SETSEL_MSG (hDlg, IDD_RSET_DSA_DEST_NAME, 0, 32767);
+                                        SetFocus( GetDlgItem( hDlg, IDD_RSET_DSA_DEST_NAME ) );
+                                        break;
+                                                   
+                                   default:
+
+                                        WM_MsgBox( ID( IDS_MSGTITLE_RESTORE), ID(IDS_RESTOREPATHINVALID),
+                                                   WMMB_OK, WMMB_ICONEXCLAMATION );
+                                        SEND_EM_SETSEL_MSG (hDlg, IDD_RSET_RESTORE_PATH, 0, 32767);
+                                        SetFocus( GetDlgItem( hDlg, IDD_RSET_RESTORE_PATH ) );
+                              }
+#else
                               WM_MsgBox( ID( IDS_MSGTITLE_RESTORE), ID(IDS_RESTOREPATHINVALID),
-                                         WMMB_OK, WMMB_ICONEXCLAMATION );
+                                                   WMMB_OK, WMMB_ICONEXCLAMATION );
+#endif
 
                               return( TRUE );
                          }
@@ -549,7 +729,11 @@ MP2   mp2 )
                          }
 
                          /* restore the next BSDs information */
+#ifndef OEM_EMS
                          RestoreSetRetrieve( hDlg );
+#else            
+                         RestoreSetRetrieve( hDlg, pCurMode );
+#endif            
                     }
 
                     return ( TRUE );
@@ -563,8 +747,37 @@ MP2   mp2 )
 
                          //  put up message box and leave town
 
+#ifdef OEM_EMS                                                           
+                         pBSD = GetTapeBSDPointer( mwpStatus->BSD_index );
+                         switch ( BSD_GetOsId( pBSD ) ) {
+
+                              case FS_EMS_MDB_ID:
+
+                                   WM_MsgBox( ID( IDS_MSGTITLE_RESTORE), ID(IDS_RESTOREEMSSERVERINVALID),
+                                              WMMB_OK, WMMB_ICONEXCLAMATION );
+                                   SEND_EM_SETSEL_MSG (hDlg, IDD_RSET_DEST_NAME, 0, 32767);
+                                   SetFocus( GetDlgItem( hDlg, IDD_RSET_DEST_NAME ) );
+                                   break;
+                                              
+                              case FS_EMS_DSA_ID:
+
+                                   WM_MsgBox( ID( IDS_MSGTITLE_RESTORE), ID(IDS_RESTOREEMSSERVERINVALID),
+                                              WMMB_OK, WMMB_ICONEXCLAMATION );
+                                   SEND_EM_SETSEL_MSG (hDlg, IDD_RSET_DSA_DEST_NAME, 0, 32767);
+                                   SetFocus( GetDlgItem( hDlg, IDD_RSET_DSA_DEST_NAME ) );
+                                   break;
+                                              
+                              default:
+
+                                   WM_MsgBox( ID( IDS_MSGTITLE_RESTORE), ID(IDS_RESTOREPATHINVALID),
+                                              WMMB_OK, WMMB_ICONEXCLAMATION );
+                                   SEND_EM_SETSEL_MSG (hDlg, IDD_RSET_RESTORE_PATH, 0, 32767);
+                                   SetFocus( GetDlgItem( hDlg, IDD_RSET_RESTORE_PATH ) );
+                         }
+#else
                          WM_MsgBox( ID( IDS_MSGTITLE_RESTORE), ID(IDS_RESTOREPATHINVALID),
-                                    WMMB_OK, WMMB_ICONEXCLAMATION );
+                                              WMMB_OK, WMMB_ICONEXCLAMATION );
+#endif
 
                          return( TRUE );
                     }
@@ -572,7 +785,11 @@ MP2   mp2 )
                     ScrollLineDown( );
 
                     /* restore the next BSDs information */
+#ifndef OEM_EMS
                     RestoreSetRetrieve( hDlg );
+#else            
+                    RestoreSetRetrieve( hDlg, pCurMode );
+#endif            
 
                     SetScrollPos( hWndScrollBar, SB_CTL, mwpStatus->BSD_index, REDRAW );
                     return ( TRUE );
@@ -586,8 +803,37 @@ MP2   mp2 )
 
                          //  put up message box and quit
 
+#ifdef OEM_EMS                                                           
+                         pBSD = GetTapeBSDPointer( mwpStatus->BSD_index );
+                         switch ( BSD_GetOsId( pBSD ) ) {
+
+                              case FS_EMS_MDB_ID:
+
+                                   WM_MsgBox( ID( IDS_MSGTITLE_RESTORE), ID(IDS_RESTOREEMSSERVERINVALID),
+                                              WMMB_OK, WMMB_ICONEXCLAMATION );
+                                   SEND_EM_SETSEL_MSG (hDlg, IDD_RSET_DEST_NAME, 0, 32767);
+                                   SetFocus( GetDlgItem( hDlg, IDD_RSET_DEST_NAME ) );
+                                   break;
+                                              
+                              case FS_EMS_DSA_ID:
+
+                                   WM_MsgBox( ID( IDS_MSGTITLE_RESTORE), ID(IDS_RESTOREEMSSERVERINVALID),
+                                              WMMB_OK, WMMB_ICONEXCLAMATION );
+                                   SEND_EM_SETSEL_MSG (hDlg, IDD_RSET_DSA_DEST_NAME, 0, 32767);
+                                   SetFocus( GetDlgItem( hDlg, IDD_RSET_DSA_DEST_NAME ) );
+                                   break;
+                                              
+                              default:
+
+                                   WM_MsgBox( ID( IDS_MSGTITLE_RESTORE), ID(IDS_RESTOREPATHINVALID),
+                                              WMMB_OK, WMMB_ICONEXCLAMATION );
+                                   SEND_EM_SETSEL_MSG (hDlg, IDD_RSET_RESTORE_PATH, 0, 32767);
+                                   SetFocus( GetDlgItem( hDlg, IDD_RSET_RESTORE_PATH ) );
+                         }
+#else
                          WM_MsgBox( ID( IDS_MSGTITLE_RESTORE), ID(IDS_RESTOREPATHINVALID),
-                                    WMMB_OK, WMMB_ICONEXCLAMATION );
+                                              WMMB_OK, WMMB_ICONEXCLAMATION );
+#endif
 
                          return( TRUE );
                     }
@@ -595,7 +841,11 @@ MP2   mp2 )
                     ScrollLineUp( );
 
                     /* restore the next BSDs information */
+#ifndef OEM_EMS
                     RestoreSetRetrieve( hDlg );
+#else            
+                    RestoreSetRetrieve( hDlg, pCurMode );
+#endif            
 
                     SetScrollPos( hWndScrollBar, SB_CTL, mwpStatus->BSD_index, REDRAW );
                     return ( TRUE );
@@ -645,7 +895,11 @@ MP2   mp2 )
                     /* get the defaults for the drive that's highlighted */
 
                     SetRestoreDrive( hDlg ) ;
+#ifndef OEM_EMS
                     RestoreSetRetrieve( hDlg );
+#else            
+                    RestoreSetRetrieve( hDlg, pCurMode );
+#endif            
 
                     return TRUE;
                }
@@ -736,7 +990,7 @@ MP2   mp2 )
                          // make sure the log file can be opened for
                          // writting.
 
-                         if ( fpLog = fopen ( szLogFile, TEXT("a") ) ) {
+                         if ( fpLog = UNI_fopen ( szLogFile, _O_TEXT|_O_APPEND ) ) {
 
                               LOG_SetCurrentLogName ( szLogFile );
                               fclose ( fpLog );
@@ -767,8 +1021,38 @@ MP2   mp2 )
 
                     //  set focus on the path
 
-                    SetFocus( GetDlgItem( hDlg, IDD_RSET_RESTORE_PATH ) );
+#ifdef OEM_EMS                                                           
+                    pBSD = GetTapeBSDPointer( mwpStatus->BSD_index );
+                    switch ( BSD_GetOsId( pBSD ) ) {
+
+                         case FS_EMS_MDB_ID:
+
+                              WM_MsgBox( ID( IDS_MSGTITLE_RESTORE), ID(IDS_RESTOREEMSSERVERINVALID),
+                                         WMMB_OK, WMMB_ICONEXCLAMATION );
+                              SEND_EM_SETSEL_MSG (hDlg, IDD_RSET_DEST_NAME, 0, 32767);
+                              SetFocus( GetDlgItem( hDlg, IDD_RSET_DEST_NAME ) );
+                              break;
+                                         
+                         case FS_EMS_DSA_ID:
+
+                              WM_MsgBox( ID( IDS_MSGTITLE_RESTORE), ID(IDS_RESTOREEMSSERVERINVALID),
+                                         WMMB_OK, WMMB_ICONEXCLAMATION );
+                              SEND_EM_SETSEL_MSG (hDlg, IDD_RSET_DSA_DEST_NAME, 0, 32767);
+                              SetFocus( GetDlgItem( hDlg, IDD_RSET_DSA_DEST_NAME ) );
+                              break;
+                                         
+                         default:
+
+                              WM_MsgBox( ID( IDS_MSGTITLE_RESTORE), ID(IDS_RESTOREPATHINVALID),
+                                         WMMB_OK, WMMB_ICONEXCLAMATION );
+                              SEND_EM_SETSEL_MSG (hDlg, IDD_RSET_RESTORE_PATH, 0, 32767);
+                              SetFocus( GetDlgItem( hDlg, IDD_RSET_RESTORE_PATH ) );
+                    }
+#else
+                    WM_MsgBox( ID( IDS_MSGTITLE_RESTORE), ID(IDS_RESTOREPATHINVALID),
+                                         WMMB_OK, WMMB_ICONEXCLAMATION );
                     SEND_EM_SETSEL_MSG (hDlg, IDD_RSET_RESTORE_PATH, 0, 32767);
+#endif
 
                     return( TRUE );
                }
@@ -781,6 +1065,9 @@ MP2   mp2 )
                BEC_SetRestoreSecurity( pBEConfig,
                     IsDlgButtonChecked( hDlg, IDD_RSET_SECURITY_INFO ) );
 
+               UI_AddSpecialIncOrExc( pBSD,
+                    IsDlgButtonChecked( hDlg, IDD_RSET_REGISTRY ) ) ;
+
                BSD_SetProcSpecialFlg( pBSD,
                     IsDlgButtonChecked( hDlg, IDD_RSET_REGISTRY ) ) ;
 
@@ -791,6 +1078,85 @@ MP2   mp2 )
 
                WM_UnhookTimer( mwpStatus->timer_handle );
                PD_SetFrequency( mwpStatus->poll_drive_freq );
+#ifdef OEM_EMS
+               wThumbPosition = mwpStatus->BSD_index ;
+               switch ( ConfirmXchgBsdServers( &wThumbPosition ) ) {
+
+               case EMS_SERVER_NOT_FOUND :
+
+                    mwpStatus->BSD_index = wThumbPosition ;
+                    RestoreSetRetrieve( hDlg, pCurMode );
+
+                    SetScrollPos( hDlg, SB_CTL, (INT)wThumbPosition, TRUE );
+                    WM_MsgBox( ID( IDS_MSGTITLE_RESTORE), ID(IDS_RESTOREEMSSERVERINVALID),
+                               WMMB_OK, WMMB_ICONEXCLAMATION );
+                    SEND_EM_SETSEL_MSG (hDlg, IDD_RSET_DEST_NAME, 0, 32767);
+                    SetFocus( GetDlgItem( hDlg, IDD_RSET_DEST_NAME ) );
+
+                    return( TRUE );
+
+
+               case EMS_NO_WIPE_IF_NOT_BOTH :
+
+                    mwpStatus->BSD_index = wThumbPosition ;
+                    RestoreSetRetrieve( hDlg, pCurMode );
+
+                    SetScrollPos( hDlg, SB_CTL, (INT)wThumbPosition, TRUE );
+                    WM_MsgBox( ID( IDS_MSGTITLE_RESTORE), ID(IDS_RESTOREEMSNOWIPE),
+                               WMMB_OK, WMMB_ICONEXCLAMATION );
+                    SetFocus( GetDlgItem( hDlg, IDD_RSET_WIPE_DATA  ) );
+
+                    return( TRUE );
+
+               case EMS_MUST_WIPE_TO_ALT:
+
+                    mwpStatus->BSD_index = wThumbPosition ;
+                    RestoreSetRetrieve( hDlg, pCurMode );
+
+                    SetScrollPos( hDlg, SB_CTL, (INT)wThumbPosition, TRUE );
+                    WM_MsgBox( ID( IDS_MSGTITLE_RESTORE), ID(IDS_RESTOREEMSMUSTWIPE),
+                               WMMB_OK, WMMB_ICONEXCLAMATION );
+                    SetFocus( GetDlgItem( hDlg, IDD_RSET_WIPE_DATA  ) );
+
+                    return( TRUE );
+               case EMS_XCHG_FOUND:
+                    mwpStatus->BSD_index = wThumbPosition ;
+                    RestoreSetRetrieve( hDlg, pCurMode );
+
+                    if( WM_MsgBox( ID( IDS_MSGTITLE_RESTORE), ID(IDS_RESTOREEMSWARNING),
+                                     WMMB_OKCANCEL, WMMB_ICONEXCLAMATION ) == WMMB_IDCANCEL ) {
+
+                         return( TRUE );
+                    }
+                    break ;
+
+               case EMS_NO_DEST:
+                    mwpStatus->BSD_index = wThumbPosition ;
+                    RestoreSetRetrieve( hDlg, pCurMode );
+
+                    SetScrollPos( hDlg, SB_CTL, (INT)wThumbPosition, TRUE );
+                    WM_MsgBox( ID( IDS_MSGTITLE_RESTORE), ID(IDS_EMS_NO_DEST_DRIVE),
+                               WMMB_OK, WMMB_ICONEXCLAMATION );
+                    SEND_EM_SETSEL_MSG (hDlg, IDD_RSET_DEST_NAME, 0, 32767);
+                    SetFocus( GetDlgItem( hDlg, IDD_RSET_DEST_NAME ) );
+
+                    return( TRUE );
+
+               case EMS_NO_STORE:
+
+                    mwpStatus->BSD_index = wThumbPosition ;
+                    RestoreSetRetrieve( hDlg, pCurMode );
+
+                    SetScrollPos( hDlg, SB_CTL, (INT)wThumbPosition, TRUE );
+                    WM_MsgBox( ID( IDS_MSGTITLE_RESTORE), ID(IDS_EMS_MUST_PUB_OR_PRI),
+                               WMMB_OK, WMMB_ICONEXCLAMATION );
+                    SEND_EM_SETSEL_MSG (hDlg, IDD_RSET_DEST_NAME, 0, 32767);
+                    SetFocus( GetDlgItem( hDlg, IDD_RSET_PUB_IS  ) );
+
+                    return( TRUE );
+               }
+
+#endif
 
                EndDialog( hDlg, TRUE );       /* Exits the dialog box      */
                return ( TRUE );
@@ -799,11 +1165,16 @@ MP2   mp2 )
           case IDD_RSET_HELP_BUTTON:
           case IDHELP :
 
+#ifndef OEM_EMS
                if (mwpStatus->fMode == RESTORE_MODE ) {
                    HM_DialogHelp( HELPID_DIALOGRESTORESET );
                } else {
                    HM_DialogHelp( HELPID_DIALOGVERIFYSET );
                }
+#else
+               help_id = DM_ModeGetHelpId( pCurMode );
+               HM_DialogHelp( help_id );
+#endif
 
                return( TRUE );
 
@@ -920,6 +1291,14 @@ MP2   mp2 )
 
           break;
 
+     case WM_SETCURSOR:
+
+          if ( WM_SetCursor ( hDlg ) ) {
+               return 1;
+          }
+
+          break;
+
      default:
 
           return FALSE; /* Didn't process a message    */
@@ -945,6 +1324,7 @@ HWND hDlg )         /* window handle of the dialog box */
      INT        nButtonState;
      CHAR       szTargetPath[ MAX_UI_PATH_SIZE ];
      BSD_PTR    pBSD;
+     BSD_PTR    bsd_ptr ;
      CDS_PTR    pCDS;
      BE_CFG_PTR pBEConfig;
 
@@ -956,55 +1336,163 @@ HWND hDlg )         /* window handle of the dialog box */
      pCDS      = CDS_GetCopy();
      pBEConfig = BSD_GetConfigData( pBSD );
 
-     /* Get the path and make sure it's valid.  If it isn't, let him try again. */
 
-     GetDlgItemText( hDlg, IDD_RSET_RESTORE_PATH, (CHAR_PTR)szTargetPath,  MAX_UI_PATH_LEN );
+     switch ( BSD_GetOsId( pBSD ) ){
 
-     if ( !VLM_ValidatePath( szTargetPath, FALSE, TRUE ) ) {
+          case FS_EMS_MDB_ID:
+          case FS_EMS_DSA_ID:
 
-          return( FALSE ) ;  //  the path was not valid
-     }
+               nButtonState = 0;
 
-     SetTargetPath( pBSD, szTargetPath );
+               nButtonState |= (IsDlgButtonChecked( hDlg, IDD_RSET_PRIV_IS )) ? BEC_EMS_PRIVATE:0;
+               nButtonState |= (IsDlgButtonChecked( hDlg, IDD_RSET_PUB_IS )) ? BEC_EMS_PUBLIC:0;
+               
+               BEC_SetEmsPubPri( pBEConfig, nButtonState );
 
-     //  if the mode is restore - save the state of the bindery flag
+               BEC_SetEmsRipKick( pBEConfig, FALSE );
 
-     if ( mwpStatus->fMode == RESTORE_MODE ) {
+               if ( BSD_GetOsId( pBSD ) == FS_EMS_DSA_ID ) {
+                    GetDlgItemText( hDlg, IDD_RSET_DSA_DEST_NAME, (CHAR_PTR)szTargetPath,  MAX_UI_PATH_LEN );
+               } else {
+                    GetDlgItemText( hDlg, IDD_RSET_DEST_NAME, (CHAR_PTR)szTargetPath,  MAX_UI_PATH_LEN );
+               }
 
-         /* save the state of the bindery flag */
-         /* if backup bindery allowed, save the bindery flay for this BSD */
+               if ( BSD_GetOsId(pBSD) == FS_EMS_MDB_ID ) {
+                    CHAR_PTR vol_name ;
 
-         if ( DLE_HasFeatures( BSD_GetDLE( pBSD ),
-                               DLE_FEAT_REST_SPECIAL_FILES ) ) {
+                    vol_name = calloc( strsize( szTargetPath ), 1 ) ;
+                    if ( vol_name ) {
+                         strcpy( vol_name, szTargetPath ) ;
+
+                         free( BSD_GetLogicalSourceDevice( pBSD ) ) ;
+
+                         BSD_SetLogicalSourceDevice( pBSD, vol_name ) ;
+                    }
+               }
+
+               if ( !IsDlgButtonChecked( hDlg, IDD_RSET_WIPE_DATA ) ) {
+                    BEC_SetEmsWipeClean( pBEConfig, FALSE );
+               } else {
+                    BEC_SetEmsWipeClean( pBEConfig, TRUE );
+               }
+               
+               if ( !IsDlgButtonChecked( hDlg, IDD_RSET_START_EMS ) ) {
+                    BEC_SetEmsRipKick( pBEConfig, FALSE );
+               } else {
+                    BEC_SetEmsRipKick( pBEConfig, TRUE );
+               }
+
+               // copy the dest and start bit to every BSD with the same
+               // source.
+
+               bsd_ptr = BSD_GetFirst( tape_bsd_list );
+               while (bsd_ptr ) {
+                    CHAR_PTR   dest_name ;
+                    CHAR_PTR   dest_name1 ;
+                    CHAR_PTR   new_dest_name ;
+                    CHAR_PTR   src_name ;
+                    CHAR_PTR   src_name1 ;
+                    BOOLEAN    kick_it ;
+               
+                    src_name  = BSD_GetVolumeLabel( pBSD ) ;
+                    src_name1 = BSD_GetVolumeLabel( bsd_ptr ) ;
+
+                    if ( (bsd_ptr != pBSD ) &&
+                         (BSD_GetOsId( bsd_ptr ) == FS_EMS_MDB_ID ) &&
+                         src_name1 && src_name &&
+                         !stricmp( src_name1, src_name) ) {
+          
+                         dest_name  = BSD_GetLogicalSourceDevice( pBSD ) ;
+                         if (dest_name && (*dest_name != TEXT('\0') ) ) {
+
+                              new_dest_name = calloc( strsize( dest_name ), 1 ) ;
+                              strcpy( new_dest_name, dest_name ) ;
+                              
+                              dest_name  = BSD_GetLogicalSourceDevice( bsd_ptr ) ;
+                              free( dest_name ) ;
+                              BSD_SetLogicalSourceDevice( bsd_ptr, new_dest_name ) ;
+                         }
+
+                    }
+
+                    dest_name  = BSD_GetLogicalSourceDevice( pBSD ) ;
+                    if ( ( dest_name== NULL ) || (*dest_name == TEXT('\0') ) ) {
+                         dest_name = src_name ;
+                    }
+                    dest_name1  = BSD_GetLogicalSourceDevice( bsd_ptr ) ;
+                    if ( ( dest_name1== NULL ) || (*dest_name1 == TEXT('\0') ) ) {
+                         dest_name1 = src_name1 ;
+                    }
+                    
+                    if ( dest_name1 && dest_name &&
+                         !stricmp( dest_name1, dest_name) ) {
+
+                         kick_it = BEC_GetEmsRipKick(pBEConfig) ;     
+                         BEC_SetEmsRipKick( BSD_GetConfigData( bsd_ptr ) , kick_it ) ;
+
+                    }
+     
+                    bsd_ptr = BSD_GetNext( bsd_ptr ) ;
+               } 
+
+               break;
+          
+          default:
+     
+          /* Get the path and make sure it's valid.  If it isn't, let him try again. */
+
+          GetDlgItemText( hDlg, IDD_RSET_RESTORE_PATH, (CHAR_PTR)szTargetPath,  MAX_UI_PATH_LEN );
+
+          if ( !VLM_ValidatePath( szTargetPath, FALSE, TRUE ) ) {
+
+               return( FALSE ) ;  //  the path was not valid
+          }
+
+          SetTargetPath( pBSD, szTargetPath );
+
+          //  if the mode is restore - save the state of the bindery flag
+
+          if ( mwpStatus->fMode == RESTORE_MODE ) {
+
+              /* save the state of the bindery flag */
+              /* if backup bindery allowed, save the bindery flay for this BSD */
+
+              if ( DLE_HasFeatures( BSD_GetDLE( pBSD ),
+                                    DLE_FEAT_REST_SPECIAL_FILES ) ) {
 
 #            if defined ( OS_WIN32 ) //unsupported feature
-                  nButtonState = IsDlgButtonChecked( hDlg, IDD_RSET_REGISTRY );
-                  BSD_SetProcSpecialFlg( pBSD, (INT16)nButtonState );
-                  BEC_SetProcSpecialFiles( pBEConfig, nButtonState );
+                       nButtonState = IsDlgButtonChecked( hDlg, IDD_RSET_REGISTRY );
+                       BSD_SetProcSpecialFlg( pBSD, (INT16)nButtonState );
+                       BEC_SetProcSpecialFiles( pBEConfig, nButtonState );
+                       UI_AddSpecialIncOrExc( pBSD, nButtonState ) ;
 #            else
-                  nButtonState = IsDlgButtonChecked( hDlg, IDD_RSET_BINDERY );
-                  BSD_SetProcSpecialFlg( pBSD, (INT16)nButtonState );
-                  BEC_SetProcSpecialFiles( pBEConfig, nButtonState );
+                       nButtonState = IsDlgButtonChecked( hDlg, IDD_RSET_BINDERY );
+                       BSD_SetProcSpecialFlg( pBSD, (INT16)nButtonState );
+                       BEC_SetProcSpecialFiles( pBEConfig, nButtonState );
 #            endif
-       }
+            }
 
-       /* if restore security information allowed, save the flay for this BSD */
-       if ( FS_PromptForSecure( BSD_GetDLE( pBSD ) ) ) {
+            /* if restore security information allowed, save the flay for this BSD */
+            if ( FS_PromptForSecure( BSD_GetDLE( pBSD ) ) ) {
 
-          nButtonState = IsDlgButtonChecked( hDlg, IDD_RSET_SECURITY_INFO );
-          BEC_SetRestoreSecurity( pBEConfig, nButtonState );
-          BSD_SetProcElemOnlyFlg( pBSD, !nButtonState ) ;
-       } else {
-          BEC_SetRestoreSecurity( pBEConfig, FALSE );
-          BSD_SetProcElemOnlyFlg( pBSD, TRUE ) ;
-       }
-     }
-#ifdef OS_WIN32
-     BSD_SetProcElemOnlyFlg( pBSD, FALSE ) ;
-#endif
-     // save the target drive
+               nButtonState = IsDlgButtonChecked( hDlg, IDD_RSET_SECURITY_INFO );
+               BEC_SetRestoreSecurity( pBEConfig, nButtonState );
+               BSD_SetProcElemOnlyFlg( pBSD, !nButtonState ) ;
+            } else {
+               BEC_SetRestoreSecurity( pBEConfig, FALSE );
+               BSD_SetProcElemOnlyFlg( pBSD, TRUE ) ;
+            }
+          }
+#         ifdef OS_WIN32
+          BSD_SetProcElemOnlyFlg( pBSD, FALSE ) ;
+#         endif
+          // save the target drive
 
-     SetRestoreDrive( hDlg );
+          SetRestoreDrive( hDlg );
+
+          break;
+
+     } // switch ( BSD_GetOsId( pBSD ) )
 
      return( TRUE );
 }
@@ -1018,8 +1506,12 @@ HWND hDlg )         /* window handle of the dialog box */
 
 *****************************************************/
 VOID RestoreSetRetrieve (
-
-HWND hDlg )    /* window handle of the dialog box */
+#ifndef OEM_EMS
+     HWND hDlg )    /* window handle of the dialog box */
+#else
+     HWND hDlg,
+     DLG_MODE * pModeTable )
+#endif      
 
 {
      INT16            nStatus;
@@ -1033,7 +1525,10 @@ HWND hDlg )    /* window handle of the dialog box */
      BSD_PTR          pBSD;
      CDS_PTR          pCDS;
      BE_CFG_PTR       pBEConfig;
+#ifdef OEM_EMS
      GENERIC_DLE_PTR  pDLE;
+     INT16            nButtonState;
+#endif // OEM_EMS
      INT16            nTapeType;
      INT16            nTapeDate;
      INT16            nTapeTime;
@@ -1047,60 +1542,128 @@ HWND hDlg )    /* window handle of the dialog box */
      pBSD      = GetTapeBSDPointer( mwpStatus->BSD_index );
      pCDS      = CDS_GetCopy();
      pBEConfig = BSD_GetConfigData( pBSD );
+#ifdef OEM_EMS
      pDLE      = BSD_GetDLE( pBSD );
+#endif
 
      pszTemp = (LPSTR)BSD_GetBackupDescript( pBSD );
      SetDlgItemText( hDlg, IDD_RSET_SET_LINE_1, pszTemp );
 
-     /* get this restore path information */
-     szTargetPath[0] = 0;
-     GetTargetPath( pBSD, szTargetPath );
-     SetDlgItemText( hDlg, IDD_RSET_RESTORE_PATH, (CHAR_PTR)szTargetPath );
+     /* display the default tape name */
+     pszTemp = (LPSTR)BSD_GetTapeLabel( pBSD );
+     SetDlgItemText( hDlg, IDD_RSET_TAPE_NAME, pszTemp );
 
-     /* if the mode flag is set for a restore then get the Bindery check box */
-     if ( mwpStatus->fMode == RESTORE_MODE ) {
 
-# ifdef OS_WIN32
-       {
-            CheckDlgButton(hDlg, IDD_RSET_REGISTRY, FALSE );
+     switch ( BSD_GetOsId ( pBSD ) ) {
 
-            /* check for backup bindery, enable/disable the control */
-            nStatus = DLE_HasFeatures( BSD_GetDLE( pBSD ),
-                                       DLE_FEAT_REST_SPECIAL_FILES );
+#ifdef OEM_EMS
+          case FS_EMS_MDB_ID:
+          case FS_EMS_DSA_ID:
 
-            EnableWindow( GetDlgItem( hDlg, IDD_RSET_REGISTRY ), nStatus );
+               nButtonState = BEC_GetEmsPubPri( pBEConfig );
 
-            if ( nStatus ) {
-                 /* set the state of the bindery flag */
-                 nStatus = BSD_GetProcSpecialFlg( pBSD ) ;
-                 CheckDlgButton(hDlg, IDD_RSET_REGISTRY, nStatus );
-            }
-       }
-# endif
+               if ( BEC_EMS_PRIVATE & nButtonState ) {
+                    CheckDlgButton( hDlg, IDD_RSET_PRIV_IS, TRUE );
+               } else {
+                    CheckDlgButton( hDlg, IDD_RSET_PRIV_IS, FALSE);
+               }
 
-       /* check for restore security information, enable/disable the control */
+               if ( BEC_EMS_PUBLIC & nButtonState ) {
+                    CheckDlgButton( hDlg, IDD_RSET_PUB_IS, TRUE );
+               } else {
+                    CheckDlgButton( hDlg, IDD_RSET_PUB_IS, FALSE );
+               }
 
-       nStatus = FS_PromptForSecure( BSD_GetDLE( pBSD ) );
 
-       if ( ! nStatus ) {
-          BEC_SetRestoreSecurity( pBEConfig, nStatus );
-       }
+               if ( BEC_GetEmsWipeClean( pBEConfig ) ) {
+                    CheckDlgButton( hDlg, IDD_RSET_WIPE_DATA, TRUE );
 
-       // Turn checkbox off before we disable the window.
+               } else {
+                    CheckDlgButton( hDlg, IDD_RSET_WIPE_DATA, FALSE );
+               }
+               
+               if ( BEC_GetEmsRipKick( pBEConfig ) ) {
+                    CheckDlgButton( hDlg, IDD_RSET_START_EMS, TRUE );
 
-       if ( ! nStatus ) {
-          CheckDlgButton(hDlg, IDD_RSET_SECURITY_INFO, nStatus );
-       }
+               } else {
+                    CheckDlgButton( hDlg, IDD_RSET_START_EMS, FALSE );
+               }
 
-       EnableWindow( GetDlgItem( hDlg, IDD_RSET_SECURITY_INFO ), nStatus );
+               if ( ( BSD_GetOsId(pBSD) == FS_EMS_MDB_ID ) &&
+                  ( BSD_GetLogicalSourceDevice( pBSD ) == NULL ) ) {
 
-       if ( nStatus ) {
-           /* restore security allowed, get the state of flag */
-           nStatus = BEC_GetRestoreSecurity( pBEConfig );
-           CheckDlgButton(hDlg, IDD_RSET_SECURITY_INFO, nStatus );
-       }
+                    CHAR_PTR vol_name ;
 
-     }
+                    vol_name = calloc( sizeof(CHAR),1 ) ;
+                    BSD_SetLogicalSourceDevice( pBSD, vol_name ) ;
+
+               }
+
+               SetDlgItemText( hDlg, IDD_RSET_DEST_NAME, BSD_GetLogicalSourceDevice( pBSD ) );
+               SetDlgItemText( hDlg, IDD_RSET_ORG_NAME, BSD_GetVolumeLabel( pBSD ) );
+               SetDlgItemText( hDlg, IDD_RSET_DSA_DEST_NAME, BSD_GetVolumeLabel( pBSD ) );
+
+              break;
+#endif //OEM_EMS
+          default:
+
+                    /* get this restore path information */
+                    szTargetPath[0] = 0;
+                    GetTargetPath( pBSD, szTargetPath );
+                    SetDlgItemText( hDlg, IDD_RSET_RESTORE_PATH, (CHAR_PTR)szTargetPath );
+
+               /* if the mode flag is set for a restore then get the Bindery check box */
+               if ( mwpStatus->fMode == RESTORE_MODE ) {
+
+#              ifdef OS_WIN32
+                 {
+                      CheckDlgButton(hDlg, IDD_RSET_REGISTRY, FALSE );
+
+                      /* check for backup bindery, enable/disable the control */
+                      nStatus = DLE_HasFeatures( BSD_GetDLE( pBSD ),
+                                                 DLE_FEAT_REST_SPECIAL_FILES );
+
+                      EnableWindow( GetDlgItem( hDlg, IDD_RSET_REGISTRY ), nStatus );
+
+                      if ( nStatus ) {
+                           /* set the state of the bindery flag */
+                           nStatus = BSD_GetProcSpecialFlg( pBSD ) ;
+                           CheckDlgButton(hDlg, IDD_RSET_REGISTRY, nStatus );
+                      }
+                 }
+#              endif
+
+                 /* check for restore security information, enable/disable the control */
+
+                 nStatus = FS_PromptForSecure( BSD_GetDLE( pBSD ) );
+
+                 if ( ! nStatus ) {
+                    BEC_SetRestoreSecurity( pBEConfig, nStatus );
+                 }
+
+                 // Turn checkbox off before we disable the window.
+
+                 if ( ! nStatus ) {
+                    CheckDlgButton(hDlg, IDD_RSET_SECURITY_INFO, nStatus );
+                 }
+
+                 EnableWindow( GetDlgItem( hDlg, IDD_RSET_SECURITY_INFO ), nStatus );
+
+                 if ( nStatus ) {
+                     /* restore security allowed, get the state of flag */
+                     nStatus = BEC_GetRestoreSecurity( pBEConfig );
+                     CheckDlgButton(hDlg, IDD_RSET_SECURITY_INFO, nStatus );
+                 }
+
+               }
+               
+               /* get the current drive selected */
+               GetRestoreDrive ( hDlg );
+               
+               break;
+          
+     } // switch ( BSD_GetOsId ( pBSD ) )
+
 
      /* add "1 of n" to backup set info title  */
      RSM_StringCopy( IDS_SET_INFORMATION, szBuffer1, 80 );
@@ -1132,9 +1695,13 @@ HWND hDlg )    /* window handle of the dialog box */
                break;
         case QTC_DIFF_BACKUP:
                RSM_StringCopy( IDS_METHOD_DIFFERENTIAL, szBuffer1, 80 );
+               BEC_SetEmsWipeClean( pBEConfig, FALSE );
+               BEC_SetEmsPubPri( pBEConfig, BEC_EMS_PUBLIC | BEC_EMS_PRIVATE );
                break;
         case QTC_INCR_BACKUP:
                RSM_StringCopy( IDS_METHOD_INCREMENTAL, szBuffer1, 80 );
+               BEC_SetEmsWipeClean( pBEConfig, FALSE );
+               BEC_SetEmsPubPri( pBEConfig, BEC_EMS_PUBLIC | BEC_EMS_PRIVATE );
                break;
 
      }
@@ -1215,8 +1782,41 @@ HWND hDlg )    /* window handle of the dialog box */
 
 #endif
 
-     /* get the current drive selected */
-     GetRestoreDrive ( hDlg );
+
+#ifdef OEM_EMS
+     DM_DispShowControls( hDlg, pModeTable, BSD_GetOsId( pBSD ) );
+#endif
+
+     nTapeType = VLM_GetBackupType( unTapeID, nTapeSetNum );
+
+     switch( nTapeType ) {
+
+        case QTC_NORM_BACKUP:
+        case QTC_COPY_BACKUP:
+               EnableWindow( GetDlgItem( hDlg, IDD_RSET_PUB_IS ), TRUE );
+               EnableWindow( GetDlgItem( hDlg, IDD_RSET_PRIV_IS ), TRUE );
+               EnableWindow( GetDlgItem( hDlg, IDD_RSET_WIPE_DATA ), TRUE );
+               break;
+        case QTC_DIFF_BACKUP:
+        case QTC_INCR_BACKUP:
+               EnableWindow( GetDlgItem( hDlg, IDD_RSET_PUB_IS ), FALSE );
+               EnableWindow( GetDlgItem( hDlg, IDD_RSET_PRIV_IS ), FALSE );
+               EnableWindow( GetDlgItem( hDlg, IDD_RSET_WIPE_DATA ), FALSE );
+               break;
+
+     }
+
+
+//     pszTemp = BSD_GetLogicalSourceDevice( pBSD ) ;
+//     if ( (BSD_GetOsId( pBSD )== FS_EMS_MDB_ID ) &&
+//          ( ( pszTemp == NULL ) || 
+//            ( *pszTemp == TEXT('\0') ) ) ) {
+//   
+//          EnableWindow( GetDlgItem( hDlg, IDD_RSET_START_EMS ), FALSE );
+//     } else {
+//          EnableWindow( GetDlgItem( hDlg, IDD_RSET_START_EMS ), TRUE );
+//     }
+//
 
 }
 /***************************************************
@@ -1290,16 +1890,16 @@ HWND hDlg )         /* window handle of the dialog box */
      PDS_WMINFO          pWinInfo;
      WORD                wListBoxCount;
      LONG                ListIndex;
-     BOOL                bIsGrayed;
      GENERIC_DLE_PTR     pDLE;
 
 #    if !defined ( OEM_MSOFT ) //  unused variable
-     VLM_OBJECT_PTR           pServerVLM;
+     BOOL                bIsGrayed;
+     VLM_OBJECT_PTR      pServerVLM;
 #    endif                     //  unused variable
 
      SendDlgItemMessage ( hDlg, IDD_RSET_DRIVE_BOX, CB_RESETCONTENT, (MPARAM1)0, (MPARAM2) 0 ) ;
 
-#    if !defined ( OEM_MSOFT )  // unsupported feature
+#    if !defined ( OEM_MSOFT ) // unsupported feature
      {
           if ( gb_servers_win != (HWND)NULL ) {
 
@@ -1313,11 +1913,7 @@ HWND hDlg )         /* window handle of the dialog box */
 
                     while ( pVLM != NULL ) {
 
-#ifndef UNICODE
                          sprintf ( szTempBuf, TEXT("%s"), pVLM->name );
-#else //UNICODE
-                         sprintf ( szTempBuf, TEXT("%ws"), pVLM->name );
-#endif //UNICODE
 
                          ListIndex = SendDlgItemMessage(hDlg,
                                                          IDD_RSET_DRIVE_BOX,
@@ -1359,11 +1955,7 @@ HWND hDlg )         /* window handle of the dialog box */
           while ( pVLM != NULL ) {
 
                if ( strlen ( pVLM->label ) ) {
-#ifndef UNICODE
                     sprintf ( szTempBuf, TEXT("%s [%s]"), pVLM->name, pVLM->label );
-#else //UNICODE
-                    sprintf ( szTempBuf, TEXT("%ws [%ws]"), pVLM->name, pVLM->label );
-#endif //UNICODE
                }
                else {
                     strcpy ( szTempBuf, pVLM->name );
@@ -1440,11 +2032,7 @@ HWND hDlg )         /* window handle of the dialog box */
           while ( pVLM != NULL ) {
 
                if ( strlen ( pVLM->label ) ) {
-#ifndef UNICODE
                     sprintf ( szTempBuf, TEXT("%s [%s]"), pVLM->name, pVLM->label );
-#else //UNICODE
-                    sprintf ( szTempBuf, TEXT("%ws [%ws]"), pVLM->name, pVLM->label );
-#endif //UNICODE
                }
                else {
                     strcpy ( szTempBuf, pVLM->name );
@@ -1463,7 +2051,7 @@ HWND hDlg )         /* window handle of the dialog box */
 
           fDone = FALSE;
 
-#         if !defined ( OEM_MSOFT )  // unsupported feature
+#         if !defined ( OEM_MSOFT ) // unsupported feature
           {
                if ( gb_servers_win != (HWND)NULL ) {
 
@@ -1730,8 +2318,8 @@ HWND hDlg )    /* window handle of the dialog box */
      WORD          wMaxListboxIndex;
      WORD          nSize;
      BSD_PTR       pBSD;
-     CHAR          szBuffer1[80];
-     CHAR          szBuffer2[80];
+     CHAR          szBuffer1[280];
+     CHAR          szBuffer2[280];
      CHAR_PTR      pszListboxString;
      CDS_PTR       pCDS;
      BE_CFG_PTR    pBEConfig;
@@ -2003,3 +2591,152 @@ LOCALFN VOID clock_routine( VOID )
    } /* end switch statment */
 
 }  /* end clock routine */
+
+#ifdef OEM_EMS
+
+/***************************************************
+
+        Name:           ConfirmXchgBsdServers
+
+        Description:    Confirms and sets DLEs for Exchange servers
+
+        Returns:        BOOLEAN
+
+*****************************************************/
+LOCALFN INT ConfirmXchgBsdServers( 
+     WORD * pwPosition
+)
+{
+
+     WORD wIndex;
+     BSD_PTR pBSD;
+     BE_CFG_PTR pBEConfig;
+     CHAR_PTR   pszTemp;
+     GENERIC_DLE_PTR     pDLE;
+     GENERIC_DLE_PTR     pChildDLE;
+     BOOLEAN             xchg_found = FALSE ;
+
+     for( wIndex = 0; wIndex <= mwpStatus->max_BSD_index; wIndex++ ) {
+
+          pBSD = GetTapeBSDPointer( wIndex );
+          
+          if ( ( BSD_GetOsId( pBSD ) != FS_EMS_MDB_ID ) && 
+               ( BSD_GetOsId( pBSD ) != FS_EMS_DSA_ID ) ) {
+               continue;
+          }
+               
+          pBEConfig = BSD_GetConfigData( pBSD );
+
+          if ( BSD_GetOsId( pBSD ) == FS_EMS_MDB_ID ) {
+
+               pszTemp = BSD_GetLogicalSourceDevice(pBSD) ;
+               if ( (BEC_GetEmsPubPri( pBEConfig ) != (BEC_EMS_PUBLIC | BEC_EMS_PRIVATE)) ) {
+                    if ( BEC_GetEmsWipeClean( pBEConfig ) ) {
+                         *pwPosition = wIndex;
+                         return EMS_NO_WIPE_IF_NOT_BOTH ;
+                    }
+               }
+
+          } else {
+
+               pszTemp = BSD_GetVolumeLabel( pBSD ); // We're using the volume label to store the server name
+          }
+
+          if ( ( pszTemp == NULL ) || ( *pszTemp == TEXT('\0') ) ) {
+               *pwPosition = wIndex;
+               return EMS_NO_DEST ;
+          }
+
+          if ( ( BSD_GetOsId( pBSD ) == FS_EMS_MDB_ID ) &&
+               !BEC_GetEmsWipeClean(pBEConfig) &&
+               stricmp( BSD_GetLogicalSourceDevice(pBSD),
+                       BSD_GetVolumeLabel(pBSD)) ) {
+
+               UINT32           unTapeID;
+               INT16            nTapeSetNum;
+               INT16            nTapeType;
+
+               unTapeID      = BSD_GetTapeID( pBSD );
+               nTapeSetNum = BSD_GetSetNum( pBSD );
+
+
+               /* get the backup method */
+               nTapeType = VLM_GetBackupType( unTapeID, nTapeSetNum );
+
+               switch( nTapeType ) {
+          
+                  case QTC_NORM_BACKUP:
+                  case QTC_COPY_BACKUP:
+                         *pwPosition = wIndex;
+                         return EMS_MUST_WIPE_TO_ALT ;
+               }
+          }
+
+          // Extract off the leading '\'s from the server name.
+          while ( TEXT ('\\') == *pszTemp ) pszTemp++;
+
+          if ( ( !pszTemp ) || ( TEXT ( '\0' ) == *pszTemp ) ) {
+               *pwPosition = wIndex;
+               return EMS_SERVER_NOT_FOUND;
+          }
+
+          if ( BEC_GetEmsPubPri( pBEConfig ) == 0 ) {
+               *pwPosition = wIndex;
+               return EMS_NO_STORE;
+          }
+          
+          WM_ShowWaitCursor( TRUE );
+           
+          // Things that have to happen in order. First, add name to EMS server list.
+          if ( SUCCESS == EMS_AddToServerList ( dle_list, pszTemp ) ) {
+          
+               if ( SUCCESS != FS_FindDrives( FS_EMS_DRV, dle_list, pBEConfig, 0 ) ) {
+                    *pwPosition = wIndex;
+                    WM_ShowWaitCursor( FALSE );
+                    return EMS_SERVER_NOT_FOUND;
+
+               }
+          }
+
+          WM_ShowWaitCursor( FALSE );
+          
+          // Next, find the DLE for the server name and type.
+          if ( SUCCESS != DLE_FindByName( dle_list, pszTemp, FS_EMS_DRV, &pDLE ) ) {
+               *pwPosition = wIndex;
+               return EMS_SERVER_NOT_FOUND;
+          }
+
+          DLE_GetFirstChild( pDLE, &pChildDLE );
+
+          while( pChildDLE ) {
+
+               if ( DLE_GetOsId( pChildDLE ) == BSD_GetOsId( pBSD ) ) {
+
+                    xchg_found = TRUE ;
+
+                    BSD_SetDLE ( pBSD, pChildDLE );
+
+//                    free( BSD_GetLogicalSourceDevice(pBSD) );
+//                    BSD_SetLogicalSourceDevice(pBSD, NULL) ;
+
+                    break;
+               }
+
+               DLE_GetNext( &pChildDLE );
+          }
+
+          if ( NULL == pChildDLE ) {
+               *pwPosition = wIndex;
+               return EMS_SERVER_NOT_FOUND;
+          }
+
+     }
+
+     if ( xchg_found ) {
+          return EMS_XCHG_FOUND ;
+     } else {
+          return SUCCESS;
+     }
+}
+
+#endif

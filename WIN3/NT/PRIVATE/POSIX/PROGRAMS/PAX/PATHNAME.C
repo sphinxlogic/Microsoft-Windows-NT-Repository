@@ -234,8 +234,8 @@ printf("DF_TRACE_DEBUG: int dirmake() in pathname.c\n");
 #endif
 
 #ifdef DF_POSIX   //DF_DSC  permission stuff no working in POSIX
-    mkdir (name,0777);
-    return (0);
+//    mkdir (name,0777);
+//    return (0);
 #endif
 
     if (mkdir(name, (int) (asb->sb_mode & S_IPOPN)) < 0) {

@@ -21,9 +21,9 @@ Revision History:
 #include "psxsrv.h"
 
 typedef struct _ALARM_WORK_ITEM {
-	LIST_ENTRY Links;
-	PPSX_PROCESS Process;
-	LARGE_INTEGER Time;
+        LIST_ENTRY Links;
+        PPSX_PROCESS Process;
+        LARGE_INTEGER Time;
 } ALARM_WORK_ITEM, *PALARM_WORK_ITEM;
 
 static LIST_ENTRY AlarmWorkList;
@@ -74,9 +74,9 @@ Return Value:
     AcquireProcessStructureLock();
 
     if (p->AlarmTimer) {
-    	PsxSignalProcess(p, SIGALRM);
+        PsxSignalProcess(p, SIGALRM);
     }
-		
+
     ReleaseProcessStructureLock();
 
 }
@@ -114,201 +114,209 @@ Return Value:
 --*/
 
 {
-	PPSX_ALARM_MSG args;
-	TIMER_BASIC_INFORMATION TimerInfo;
-	NTSTATUS st;
-	PALARM_WORK_ITEM pItem;
-	HANDLE Timer;
+        PPSX_ALARM_MSG args;
+        TIMER_BASIC_INFORMATION TimerInfo;
+        NTSTATUS st;
+        PALARM_WORK_ITEM pItem;
+        HANDLE Timer;
 
-	args = &m->u.Alarm;
+        args = &m->u.Alarm;
 
-	args->PreviousSeconds.LowPart = 0;
-	args->PreviousSeconds.HighPart = 0;
+        args->PreviousSeconds.LowPart = 0;
+        args->PreviousSeconds.HighPart = 0;
 
-	if (args->CancelAlarm) {
+        if (args->CancelAlarm) {
 
-		// Cancel the timer.
+                // Cancel the timer.
 
-		AcquireProcessStructureLock();
+                AcquireProcessStructureLock();
 
-		Timer = p->AlarmTimer;
-		p->AlarmTimer = NULL;
+                Timer = p->AlarmTimer;
+                p->AlarmTimer = NULL;
 
-		//
-		// After this point no alarms will be delivered to the process.
-		//
+                //
+                // After this point no alarms will be delivered to the process.
+                //
 
-		ReleaseProcessStructureLock();
+                ReleaseProcessStructureLock();
 
-        	if (NULL != Timer) {
+                if (NULL != Timer) {
 
-			//
-			// Query timer to determine signaled state and time
-			// remaining.  If timer is already signaled, then
-			// return 0; otherwise, return the reported remaining
-			// time
-			//
-			
-			st = NtQueryTimer(Timer, TimerBasicInformation,
-				&TimerInfo, sizeof(TIMER_BASIC_INFORMATION),
-				NULL);
-			if (!NT_SUCCESS(st)) {
-				KdPrint(("PSXSS: QueryTimer: 0x%x\n", st));
+                        //
+                        // Query timer to determine signaled state and time
+                        // remaining.  If timer is already signaled, then
+                        // return 0; otherwise, return the reported remaining
+                        // time
+                        //
+
+                        st = NtQueryTimer(Timer, TimerBasicInformation,
+                                &TimerInfo, sizeof(TIMER_BASIC_INFORMATION),
+                                NULL);
+                        if (!NT_SUCCESS(st)) {
+                                KdPrint(("PSXSS: QueryTimer: 0x%x\n", st));
                 m->Error = ENOMEM;
                 return TRUE;
-			}
+                        }
 
-			if (FALSE == TimerInfo.TimerState) {
+                        if (FALSE == TimerInfo.TimerState) {
 
-				//
-				// Timer is still active
-				//
+                                //
+                                // Timer is still active
+                                //
 
-				args->PreviousSeconds.LowPart =
-					TimerInfo.RemainingTime.LowPart;
-				args->PreviousSeconds.HighPart =
-					TimerInfo.RemainingTime.HighPart;
+                                args->PreviousSeconds.LowPart =
+                                        TimerInfo.RemainingTime.LowPart;
+                                args->PreviousSeconds.HighPart =
+                                        TimerInfo.RemainingTime.HighPart;
 
-				st = NtCancelTimer(Timer,
-					&TimerInfo.TimerState);
-				ASSERT(NT_SUCCESS(st));
+                                st = NtCancelTimer(Timer,
+                                        &TimerInfo.TimerState);
+                                ASSERT(NT_SUCCESS(st));
 
-				ASSERT(FALSE == TimerInfo.TimerState);
-			}
-			st = NtClose(Timer);
-			ASSERT(NT_SUCCESS(st));
+                                ASSERT(FALSE == TimerInfo.TimerState);
+                        }
+                        st = NtClose(Timer);
+                        ASSERT(NT_SUCCESS(st));
 
-		} else {
-			//
-			// The timer was already NULL, so we were cancelling
-			// a timer that had not been set.
-			//
-		}
-		return TRUE;
-	}
+                } else {
+                        //
+                        // The timer was already NULL, so we were cancelling
+                        // a timer that had not been set.
+                        //
+                }
+                return TRUE;
+        }
 
-	//
-	// Set a timer.
-	//
+        //
+        // Set a timer.
+        //
 
-	if (p->AlarmTimer) {
+        if (p->AlarmTimer) {
 
-		//
-		// Query timer to determine signaled state and time remaining
-		// If timer is already signaled, then return 0; otherwise,
-		// return the reported remaining time.
-		//
+                //
+                // Query timer to determine signaled state and time remaining
+                // If timer is already signaled, then return 0; otherwise,
+                // return the reported remaining time.
+                //
 
-		st = NtQueryTimer(p->AlarmTimer, TimerBasicInformation,
-			&TimerInfo, sizeof(TIMER_BASIC_INFORMATION), NULL);
+                st = NtQueryTimer(p->AlarmTimer, TimerBasicInformation,
+                        &TimerInfo, sizeof(TIMER_BASIC_INFORMATION), NULL);
 
-		ASSERT(NT_SUCCESS(st));
+                ASSERT(NT_SUCCESS(st));
 
-		if (TimerInfo.TimerState == FALSE) {
+                if (TimerInfo.TimerState == FALSE) {
 
-                	//
-                	// Timer is still active
-                	//
+                        //
+                        // Timer is still active
+                        //
 
-                	args->PreviousSeconds.LowPart =
-				TimerInfo.RemainingTime.LowPart;
-			args->PreviousSeconds.HighPart =
-				TimerInfo.RemainingTime.HighPart;
+                        args->PreviousSeconds.LowPart =
+                                TimerInfo.RemainingTime.LowPart;
+                        args->PreviousSeconds.HighPart =
+                                TimerInfo.RemainingTime.HighPart;
 
-			st = NtCancelTimer(p->AlarmTimer,
-				&TimerInfo.TimerState);
-			ASSERT(NT_SUCCESS(st));
-		}
-	} else {
+                        st = NtCancelTimer(p->AlarmTimer,
+                                &TimerInfo.TimerState);
+                        ASSERT(NT_SUCCESS(st));
+                }
+        } else {
 
-		//
-		// Process does not have a timer, so create one for it.
-		// The timer will not be deallocated until the process exits.
-		//
+                //
+                // Process does not have a timer, so create one for it.
+                // The timer will not be deallocated until the process exits.
+                //
 
-		st = NtCreateTimer(&p->AlarmTimer, TIMER_ALL_ACCESS, NULL);
+                st = NtCreateTimer(&p->AlarmTimer,
+                                   TIMER_ALL_ACCESS,
+                                   NULL,
+                                   NotificationTimer);
 
-		if (!NT_SUCCESS(st)) {
-			m->Error = ENOMEM;
-			return TRUE;
-		}
-	}
+                if (!NT_SUCCESS(st)) {
+                        m->Error = ENOMEM;
+                        return TRUE;
+                }
+        }
 
-	//
-	// Arrange for the alarm thread to set the timer.
-	//
+        //
+        // Arrange for the alarm thread to set the timer.
+        //
 
-	st = NtResetEvent(AlarmInitEvent, NULL);
-	ASSERT(NT_SUCCESS(st));
+        st = NtResetEvent(AlarmInitEvent, NULL);
+        ASSERT(NT_SUCCESS(st));
 
-	pItem = (PVOID)RtlAllocateHeap(PsxHeap, 0, sizeof(*pItem));
-	if (NULL == pItem) {
-		m->Error = ENOMEM;
-		return TRUE;
-	}
+        pItem = (PVOID)RtlAllocateHeap(PsxHeap, 0, sizeof(*pItem));
+        if (NULL == pItem) {
+                m->Error = ENOMEM;
+                return TRUE;
+        }
 
-	pItem->Process = p;
-	pItem->Time = args->Seconds;
+        pItem->Process = p;
+        pItem->Time = args->Seconds;
 
-	RtlEnterCriticalSection(&AlarmWorkListMutex);
+        RtlEnterCriticalSection(&AlarmWorkListMutex);
 
-	InsertTailList(&AlarmWorkList, &pItem->Links);
+        InsertTailList(&AlarmWorkList, &pItem->Links);
 
-	RtlLeaveCriticalSection(&AlarmWorkListMutex);
+        RtlLeaveCriticalSection(&AlarmWorkListMutex);
 
-	//
-	// Wake up the Alarm Thread to process the work item.
-	//
+        //
+        // Wake up the Alarm Thread to process the work item.
+        //
 
-	st = NtAlertThread(AlarmThreadHandle);
-	ASSERT(NT_SUCCESS(st));
+        st = NtAlertThread(AlarmThreadHandle);
+        ASSERT(NT_SUCCESS(st));
 
-	//
-	// Block until the work item has been processed.  If we don't do
-	// this, there can be cases where an alarm is queried before the
-	// alarm thread has actually initialized the timer.
-	//
+        //
+        // Block until the work item has been processed.  If we don't do
+        // this, there can be cases where an alarm is queried before the
+        // alarm thread has actually initialized the timer.
+        //
 
-	st = NtWaitForSingleObject(AlarmInitEvent, FALSE, NULL);
+        st = NtWaitForSingleObject(AlarmInitEvent, FALSE, NULL);
 
-	return TRUE;
+        return TRUE;
 }
 
 VOID
 AlarmThreadRoutine(VOID)
 {
-	NTSTATUS Status;
-	PALARM_WORK_ITEM pItem;
+        NTSTATUS Status;
+        PALARM_WORK_ITEM pItem;
 
-	RtlInitializeCriticalSection(&AlarmWorkListMutex);
-	InitializeListHead(&AlarmWorkList);
+        RtlInitializeCriticalSection(&AlarmWorkListMutex);
+        InitializeListHead(&AlarmWorkList);
 
-	Status = NtCreateEvent(&AlarmInitEvent, EVENT_ALL_ACCESS,
-		NULL, NotificationEvent, TRUE);
-	ASSERT(NT_SUCCESS(Status));
+        Status = NtCreateEvent(&AlarmInitEvent, EVENT_ALL_ACCESS,
+                NULL, NotificationEvent, TRUE);
+        ASSERT(NT_SUCCESS(Status));
 
-	for (;;) {
-		(void)NtWaitForSingleObject(NtCurrentThread(), TRUE, NULL);
+        for (;;) {
+                (void)NtWaitForSingleObject(NtCurrentThread(), TRUE, NULL);
 
-		RtlEnterCriticalSection(&AlarmWorkListMutex);
-	
-		while (!IsListEmpty(&AlarmWorkList)) {
+                RtlEnterCriticalSection(&AlarmWorkListMutex);
 
-			pItem = (PVOID)RemoveHeadList(&AlarmWorkList);
-	
-			Status = NtSetTimer(pItem->Process->AlarmTimer,
-				&pItem->Time, AlarmApcRoutine, pItem->Process,
-				NULL);
-			if (!NT_SUCCESS(Status)) {
+                while (!IsListEmpty(&AlarmWorkList)) {
+
+                        pItem = (PVOID)RemoveHeadList(&AlarmWorkList);
+
+                        Status = NtSetTimer(pItem->Process->AlarmTimer,
+                                            &pItem->Time,
+                                            AlarmApcRoutine,
+                                            pItem->Process,
+                                            FALSE,
+                                            0,
+                                            NULL);
+
+                        if (!NT_SUCCESS(Status)) {
                 KdPrint(("PSXSS: AlarmThread: NtSetTime: 0x%x\n", Status));
-			}
+                        }
 
-			RtlFreeHeap(PsxHeap, 0, pItem);
-		}
+                        RtlFreeHeap(PsxHeap, 0, pItem);
+                }
 
-		RtlLeaveCriticalSection(&AlarmWorkListMutex);
+                RtlLeaveCriticalSection(&AlarmWorkListMutex);
 
-		Status = NtSetEvent(AlarmInitEvent, NULL);
-		ASSERT(NT_SUCCESS(Status));
-	}
+                Status = NtSetEvent(AlarmInitEvent, NULL);
+                ASSERT(NT_SUCCESS(Status));
+        }
 }

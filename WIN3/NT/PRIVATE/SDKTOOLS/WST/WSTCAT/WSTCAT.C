@@ -226,7 +226,7 @@ VOID wspCatSetup(VOID)
 		nmod.tmi[x].ulSize = WsTMIReadRec(szTmpNam, &(nmod.tmi[x].ulIndex),
 								&(nmod.tmi[x].ulAddr), hFileTMI,
 								(PFN)wspCatExit, (PCHAR)0);
-		nmod.tmi[x].pszFxnName = strdup(szTmpNam);
+		nmod.tmi[x].pszFxnName = _strdup(szTmpNam);
 
     }
 
@@ -457,7 +457,7 @@ VOID wspCat(VOID)
 	fwrite(&WspHdr, sizeof(WSPHDR), 1, hFileTmpWSP);
 
 
-	fcloseall();
+	_fcloseall();
 
 	//
 	// Rename the non-cat'd .wsp file and rename the cat'd temp.wsp
@@ -625,4 +625,3 @@ int WspBCompare(ULONG ulAddr, PULONG pulAddr)
 
 } /* WspBCompare () */
 
-

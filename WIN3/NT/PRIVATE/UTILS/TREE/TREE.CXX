@@ -100,7 +100,7 @@ Return Value:
     ARRAY               ArgumentArray;
 
     STRING_ARGUMENT     ProgramNameArgument;
-    STRING_ARGUMENT     DirectoryNameArgument;
+    PATH_ARGUMENT       DirectoryPathArgument;
     PWSTRING            DirectoryNameString;
     PATH                DirectoryNamePath;
     PWSTRING            InvalidArgument;
@@ -117,6 +117,70 @@ Return Value:
     PATH                DevPth;
     PFSN_DIRECTORY      DevDir;
 
+#if defined(JAPAN)
+                                                                                 // How many
+                                                                                 // columns
+                                                                                 // is needed
+                                                                                 // ?
+    WCHAR               BufferMiddleBranch437[] = {
+                                               UNICODE_SINGLE_LEFT_T,            // 1
+                                               UNICODE_SINGLE_BOTTOM_HORIZONTAL, // 1
+                                               UNICODE_SINGLE_BOTTOM_HORIZONTAL, // 1
+                                               UNICODE_SINGLE_BOTTOM_HORIZONTAL, // 1
+                                               UNICODE_NULL                      // 0
+                                               };
+    WCHAR               BufferBottomBranch437[] = {
+                                               UNICODE_SINGLE_BOTTOM_LEFT_CORNER, // 1
+                                               UNICODE_SINGLE_BOTTOM_HORIZONTAL,  // 1
+                                               UNICODE_SINGLE_BOTTOM_HORIZONTAL,  // 1
+                                               UNICODE_SINGLE_BOTTOM_HORIZONTAL,  // 1
+                                               UNICODE_NULL                       // 0
+                                               };
+
+    WCHAR               BufferConnectingBranch437[] = {
+                                               UNICODE_SINGLE_VERTICAL, // 1
+                                               UNICODE_SPACE,           // 1
+                                               UNICODE_SPACE,           // 1
+                                               UNICODE_SPACE,           // 1
+                                               UNICODE_NULL             // 0
+                                               };
+
+    WCHAR               BufferMiddleBranch932[] = {
+                                               UNICODE_SINGLE_LEFT_T,            // 2
+                                               UNICODE_SINGLE_BOTTOM_HORIZONTAL, // 2
+                                               UNICODE_NULL                      // 0
+                                               };
+    WCHAR               BufferBottomBranch932[] = {
+                                               UNICODE_SINGLE_BOTTOM_LEFT_CORNER, // 2
+                                               UNICODE_SINGLE_BOTTOM_HORIZONTAL,  // 2
+                                               UNICODE_NULL                       // 0
+                                               };
+
+    WCHAR               BufferConnectingBranch932[] = {
+                                               UNICODE_SINGLE_VERTICAL, // 2
+                                               UNICODE_SPACE,           // 1
+                                               UNICODE_SPACE,           // 1
+                                               UNICODE_NULL             // 0
+                                               };
+
+    PWCHAR              BufferMiddleBranch;
+    PWCHAR              BufferBottomBranch;
+    PWCHAR              BufferConnectingBranch;
+
+    if( ::GetConsoleOutputCP() == 932 ) {
+
+        BufferMiddleBranch = BufferMiddleBranch932;
+        BufferBottomBranch = BufferBottomBranch932;
+        BufferConnectingBranch = BufferConnectingBranch932;
+
+    } else {
+
+        BufferMiddleBranch = BufferMiddleBranch437;
+        BufferBottomBranch = BufferBottomBranch437;
+        BufferConnectingBranch = BufferConnectingBranch437;
+
+    }
+#else
     WCHAR               BufferMiddleBranch[] = {
                                                UNICODE_SINGLE_LEFT_T,
                                                UNICODE_SINGLE_BOTTOM_HORIZONTAL,
@@ -139,7 +203,7 @@ Return Value:
                                                UNICODE_SPACE,
                                                UNICODE_NULL
                                                };
-
+#endif // defined(JAPAN)
 
     _InitialDirectory = NULL;
     FlagInvalidPath = FALSE;
@@ -155,21 +219,25 @@ Return Value:
     //      Parse command line
     //
     if ( !LexArray.Initialize( ) ) {
-        DbgAbort( "LexArray.Initialize() failed \n" );
+        DebugAbort( "LexArray.Initialize() failed \n" );
         return( FALSE );
     }
     if ( !ArgLex.Initialize( &LexArray ) ) {
-        DbgAbort( "ArgLex.Initialize() failed \n" );
+        DebugAbort( "ArgLex.Initialize() failed \n" );
         return( FALSE );
     }
     ArgLex.PutSwitches( "/" );
+    ArgLex.PutStartQuotes( "\"" );
+    ArgLex.PutEndQuotes( "\"" );
+    ArgLex.PutSeparators( " \t" );
     ArgLex.SetCaseSensitive( FALSE );
+
     if( !ArgLex.PrepareToParse() ) {
-        DbgAbort( "ArgLex.PrepareToParse() failed \n" );
+        DebugAbort( "ArgLex.PrepareToParse() failed \n" );
         return( FALSE );
     }
     if ( !ArgumentArray.Initialize() ) {
-        DbgAbort( "ArgumentArray.Initialize() failed \n" );
+        DebugAbort( "ArgumentArray.Initialize() failed \n" );
         return( FALSE );
     }
     if( !ProgramNameArgument.Initialize("*") ||
@@ -180,8 +248,8 @@ Return Value:
         !ParamNotCorrectAscii.Initialize( "/A*" )       ||
         !ParamNotCorrectHelp.Initialize( "/?*" ) ||
         !InvalidSwitch.Initialize( "/*" ) ||
-        !DirectoryNameArgument.Initialize( "*" ) ) {
-        DbgAbort( "Unable to initialize flag or string arguments \n" );
+        !DirectoryPathArgument.Initialize( "*" ) ) {
+        DebugAbort( "Unable to initialize flag or string arguments \n" );
         return( FALSE );
     }
     if( !ArgumentArray.Put( &ProgramNameArgument ) ||
@@ -192,41 +260,41 @@ Return Value:
         !ArgumentArray.Put( &ParamNotCorrectAscii )  ||
         !ArgumentArray.Put( &ParamNotCorrectHelp ) ||
         !ArgumentArray.Put( &InvalidSwitch ) ||
-        !ArgumentArray.Put( &DirectoryNameArgument ) ) {
-        DbgAbort( "ArgumentArray.Put() failed \n" );
+        !ArgumentArray.Put( &DirectoryPathArgument ) ) {
+        DebugAbort( "ArgumentArray.Put() failed \n" );
         return( FALSE );
     }
     if( !ArgLex.DoParsing( &ArgumentArray ) ) {
         InvalidArgument = ArgLex.QueryInvalidArgument();
-        DbgPtrAssert( InvalidArgument );
+        DebugPtrAssert( InvalidArgument );
         _Message.Set( MSG_TREE_TOO_MANY_PARAMETERS );
         _Message.Display( "%W", InvalidArgument );
         return( FALSE );
     }
     if( InvalidSwitch.IsValueSet() ) {
         InvalidArgument = InvalidSwitch.GetString();
-        DbgPtrAssert( InvalidArgument );
+        DebugPtrAssert( InvalidArgument );
         _Message.Set( MSG_TREE_INVALID_SWITCH );
         _Message.Display( "%W", InvalidArgument );
         return( FALSE );
     }
     if( ParamNotCorrectFile.IsValueSet() ) {
         InvalidArgument = ParamNotCorrectFile.GetLexeme();
-        DbgPtrAssert( InvalidArgument );
+        DebugPtrAssert( InvalidArgument );
         _Message.Set( MSG_TREE_PARAMETER_NOT_CORRECT );
         _Message.Display( "%W", InvalidArgument );
         return( FALSE );
     }
     if( ParamNotCorrectAscii.IsValueSet() ) {
         InvalidArgument = ParamNotCorrectAscii.GetLexeme();
-        DbgPtrAssert( InvalidArgument );
+        DebugPtrAssert( InvalidArgument );
         _Message.Set( MSG_TREE_PARAMETER_NOT_CORRECT );
         _Message.Display( "%W", InvalidArgument );
         return( FALSE );
     }
     if( ParamNotCorrectHelp.IsValueSet() ) {
         InvalidArgument = ParamNotCorrectHelp.GetLexeme();
-        DbgPtrAssert( InvalidArgument );
+        DebugPtrAssert( InvalidArgument );
         _Message.Set( MSG_TREE_PARAMETER_NOT_CORRECT );
         _Message.Display( "%W", InvalidArgument );
         return( FALSE );
@@ -245,32 +313,38 @@ Return Value:
     //
     //      Find initial directory
     //
-    if( !DirectoryNameArgument.IsValueSet() ) {
+    if( !DirectoryPathArgument.IsValueSet() ) {
         //
         // User did't specify a path, so assume current directory
         //
         _FlagPathSupplied = FALSE;
-        if( !DirectoryNamePath.Initialize( (LPWSTR)L".", TRUE ) ) {
-            DbgAbort( "DirectoryNamePath.Initialize() failed \n" );
+
+        if (!DirectoryNamePath.Initialize((LPWSTR)L".", TRUE )) {
+
+            DebugAbort( "DirectoryNamePath.Initialize() failed \n" );
             return( FALSE );
         }
+
     } else {
         //
         // User specified a path
         //
-        DirectoryNameString = DirectoryNameArgument.GetString();
-        DbgPtrAssert( DirectoryNameString );
+
+        DirectoryNameString = DirectoryPathArgument.GetPath()->QueryFullPathString();
+        DebugPtrAssert( DirectoryNameString );
         DirectoryNameString->Strupr();
-        if( !DirectoryNamePath.Initialize( DirectoryNameString, TRUE ) ) {
-            DbgAbort( "DirectoryNamePath.Initialize() failed \n" );
+
+        if (!DirectoryNamePath.Initialize(DirectoryNameString, TRUE)) {
+            DebugAbort( "DirectoryNamePath.Initialize() failed \n" );
             return( FALSE );
         }
+
         //
         // Save the path specified by the user as he/she typed it
         // (but in upper case)
         //
         if( !AuxPath.Initialize( DirectoryNameString, FALSE ) ) {
-            DbgAbort( "AuxPath.Initialize() failed \n" );
+            DebugAbort( "AuxPath.Initialize() failed \n" );
             return( FALSE );
         }
 
@@ -283,7 +357,7 @@ Return Value:
         //
         if( ( Device = AuxPath.QueryDevice() ) != NULL ) {
             if( !DevPth.Initialize( Device ) ) {
-                DbgAbort( "DevPth.Initialize() failed \n" );
+                DebugAbort( "DevPth.Initialize() failed \n" );
                 return( FALSE );
             }
             if( !(DevDir = SYSTEM::QueryDirectory( &DevPth ) ) ) {
@@ -306,7 +380,8 @@ Return Value:
         }
     }
 
-    if( ( _InitialDirectory = SYSTEM::QueryDirectory( &DirectoryNamePath ) ) == NULL ) {
+    if (NULL == (_InitialDirectory = SYSTEM::QueryDirectory( &DirectoryNamePath ))) {
+
         InvalidPath = DirectoryNamePath.GetPathString();
         FlagInvalidPath = TRUE;
         _FlagAtLeastOneSubdir = FALSE;
@@ -318,12 +393,12 @@ Return Value:
 
     if( !_FsnFilterDirectory.Initialize() ) {
         DELETE( _InitialDirectory );
-        DbgAbort( "_FsnFilterDirectory.Initialize() failed \n" );
+        DebugAbort( "_FsnFilterDirectory.Initialize() failed \n" );
         return( FALSE );
     }
     if( !_FsnFilterDirectory.SetFileName( "*.*" ) ) {
         DELETE( _InitialDirectory );
-        DbgAbort( "_FsnFilterDirectory.SetFilename() failed \n" );
+        DebugAbort( "_FsnFilterDirectory.SetFilename() failed \n" );
         return( FALSE );
     }
     if( !_FsnFilterDirectory.SetAttributes( FSN_ATTRIBUTE_DIRECTORY,
@@ -331,7 +406,7 @@ Return Value:
                                             FSN_ATTRIBUTE_HIDDEN |
                                             FSN_ATTRIBUTE_SYSTEM ) ) {
         DELETE( _InitialDirectory );
-        DbgAbort( "_FsnFilterDirectory.SetAttributes() failed \n" );
+        DebugAbort( "_FsnFilterDirectory.SetAttributes() failed \n" );
         return( FALSE );
     }
 
@@ -342,12 +417,12 @@ Return Value:
     if( _FlagDisplayFiles.QueryFlag() ) {
         if( !_FsnFilterFile.Initialize() ) {
             DELETE( _InitialDirectory );
-            DbgAbort( "FsnFilter.Initialize() failed \n" );
+            DebugAbort( "FsnFilter.Initialize() failed \n" );
             return( FALSE );
         }
         if( !_FsnFilterFile.SetFileName( "*.*" ) ) {
             DELETE( _InitialDirectory );
-            DbgAbort( "FsnFilter.SetFilename() failed \n" );
+            DebugAbort( "FsnFilter.SetFilename() failed \n" );
             return( FALSE );
         }
         if( !_FsnFilterFile.SetAttributes( ( FSN_ATTRIBUTE )0,
@@ -356,7 +431,7 @@ Return Value:
                                            FSN_ATTRIBUTE_HIDDEN |
                                            FSN_ATTRIBUTE_SYSTEM ) ) {
             DELETE( _InitialDirectory );
-            DbgAbort( "FsnFilter.SetAttributes() failed \n" );
+            DebugAbort( "FsnFilter.SetAttributes() failed \n" );
             return( FALSE );
         }
     }
@@ -381,13 +456,19 @@ Return Value:
     _StringForFileNoDirectory.Initialize( (LPWSTR)L"    " );
 
     if( !_EndOfLineString.Initialize( (LPWSTR)L"\r\n" ) ) {
-        DbgPrint( "_EndOfLineString.Initialize() failed" );
+        DebugPrint( "_EndOfLineString.Initialize() failed" );
         DELETE( _InitialDirectory );
         return( FALSE );
     }
 
     _VolumeName = SYSTEM::QueryVolumeLabel( &DirectoryNamePath, &_SerialNumber );
-    DbgPtrAssert( _VolumeName );
+    if (NULL == _VolumeName) {
+        _Message.Set( MSG_TREE_INVALID_DRIVE );
+        _Message.Display( " " );
+        DELETE( Device );
+        return( FALSE );
+    }
+    DebugPtrAssert( _VolumeName );
     _FlagAtLeastOneSubdir = FALSE;
     if( FlagInvalidPath ) {
         //
@@ -501,23 +582,23 @@ Return Value:
     PWSTRING                Device;
     DSTRING                 EndOfLinePrecededByDot;
 
-        DbgPtrAssert( Fsn );
+        DebugPtrAssert( Fsn );
 
         Path = Fsn->GetPath();
-        DbgPtrAssert( Path );
+        DebugPtrAssert( Path );
         if( String != NULL ) {
                 if( !_StandardOutput->WriteString( String, 0, String->QueryChCount() ) ) {
-                        DbgAbort( "_StandardOutput->WriteString() failed \n" );
+                        DebugAbort( "_StandardOutput->WriteString() failed \n" );
                         return( FALSE );
                 }
                 if( ( Name=Path->QueryName() ) == NULL ) {
-                        DbgAbort( "Path->QueryName() failed \n" );
+                        DebugAbort( "Path->QueryName() failed \n" );
                         return( FALSE );
                 }
                 Name->Strcat( &_EndOfLineString );
 
                 if( !_StandardOutput->WriteString( Name, 0, Name->QueryChCount() ) ) {
-                        DbgAbort( "_StandardOutput->WriteString() failed \n" );
+                        DebugAbort( "_StandardOutput->WriteString() failed \n" );
                         DELETE( Name );
                         return( FALSE );
                 }
@@ -526,21 +607,21 @@ Return Value:
         } else {
                 if( _FlagPathSupplied ) {
                         InitialDirectory = Path->GetPathString();
-                        DbgPtrAssert( InitialDirectory );
+                        DebugPtrAssert( InitialDirectory );
                         InitialDirectoryUpperCase.Initialize( InitialDirectory );
                         InitialDirectoryUpperCase.Strupr();
                         InitialDirectoryUpperCase.Strcat( &_EndOfLineString );
                         if( !_StandardOutput->WriteString( &InitialDirectoryUpperCase ) ) {
-                                DbgAbort( "_StandardOutput->WriteString() failed \n" );
+                                DebugAbort( "_StandardOutput->WriteString() failed \n" );
                                 return( FALSE );
                         }
                 } else {
                         Device = PPATH(Path)->QueryDevice();
-                        DbgPtrAssert( Device );
+                        DebugPtrAssert( Device );
                         EndOfLinePrecededByDot.Initialize( (LPWSTR)L".\r\n" );
                         Device->Strcat( &EndOfLinePrecededByDot );
                         if( !_StandardOutput->WriteString( Device, 0, TO_END ) ) {
-                                DbgAbort( "_StandardOutput->WriteString() failed \n" );
+                                DebugAbort( "_StandardOutput->WriteString() failed \n" );
                                 DELETE( Device );
                                 return( FALSE );
                         }
@@ -656,17 +737,17 @@ Return Value:
         DSTRING                        StringSon;
         DSTRING                        StringLastSon;
 
-        DbgPtrAssert( Directory );
+        DebugPtrAssert( Directory );
 
         //
         //      Build list of directories (ie., an array of PFSN_DIRECTORY of all
         //      sub-directories in the current directory
         //
         DirectoryArray = Directory->QueryFsnodeArray( &_FsnFilterDirectory );
-        DbgPtrAssert( DirectoryArray );
+        DebugPtrAssert( DirectoryArray );
         DirectoryArrayIterator =
                         ( PARRAY_ITERATOR )( DirectoryArray->QueryIterator() );
-        DbgPtrAssert( DirectoryArrayIterator );
+        DebugPtrAssert( DirectoryArrayIterator );
 
         //
         // If files are to be displayed (/F in the command line), then build
@@ -675,10 +756,10 @@ Return Value:
         //
         if( _FlagDisplayFiles.QueryFlag() ) {
                 FileArray = Directory->QueryFsnodeArray( &_FsnFilterFile );
-                DbgPtrAssert( FileArray );
+                DebugPtrAssert( FileArray );
                 FileArrayIterator =
                                 ( PARRAY_ITERATOR )( FileArray->QueryIterator() );
-                DbgPtrAssert( FileArrayIterator );
+                DebugPtrAssert( FileArrayIterator );
 
         //
         //  If array of files is not empty, then we need the strings
@@ -689,7 +770,7 @@ Return Value:
         if( FileArray->QueryMemberCount() > 0 ) {
 #if 0
             StringFile = NEW( DSTRING );
-            DbgPtrAssert( StringFile );
+            DebugPtrAssert( StringFile );
 #endif
             if( DirectoryArray->QueryMemberCount() > 0 ) {
                 if( String == NULL ) {

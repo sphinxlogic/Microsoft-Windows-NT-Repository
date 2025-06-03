@@ -81,61 +81,6 @@ uchar * _fastcall VBufCpy (VBuf *Buf, uchar *Src, unsigned int Bytes)
 }
 
 
-
-
-/** 	VBufRead - read type string to virtual buffer
- *
- *		pStr = VBufRead (buf, count, leaf);
- *
- *		Entry	buf = pointer to buffer header
- *				count = number of bytes in string
- *				leaf = leaf index
- *
- *		Exit	string copied to buffer if space available
- *				new buffer allocated if necessary
- *				buffer header updated
- *
- *		Returns NULL if count > exceeds buffer max
- *				pointer to copied string
- */
-
-
-uchar *VBufRead (VBuf *Buf, unsigned int Bytes, ushort leaf)
-{
-	uchar  *Target = NULL;
-	VBlock *NewBlock;
-
-	if ((Bytes + sizeof (TYPTYPE)) <= Buf->BlockSize) {
-		if (Bytes > Buf->FreeBytes) {
-			NewBlock = (VBlock *)CAlloc (sizeof (VBlock));
-			NewBlock->Address = (uchar *)Alloc (Buf->BlockSize);
-			if (Buf->CurBlock) {
-				// link to current block
-				Buf->CurBlock->Next = NewBlock;
-			}
-			else {
-				// first block
-				Buf->Block = NewBlock;
-			}
-			Buf->NumBlocks++;
-			Buf->CurBlock = NewBlock;
-			Buf->NextByte = NewBlock->Address;
-			Buf->FreeBytes = Buf->BlockSize;
-		}
-		Target = Buf->NextByte;
-		((TYPPTR)Target)->len = Bytes + sizeof (ushort);
-		((TYPPTR)Target)->leaf = leaf;
-		link_read (exefile, &((TYPPTR)Target)->data[0], Bytes);
-		Buf->NextByte += Bytes + sizeof (TYPTYPE);
-		Buf->FreeBytes -= Bytes + sizeof (TYPTYPE);
-		Buf->CurBlock->Size += Bytes + sizeof (TYPTYPE);
-	}
-	return (Target);
-}
-
-
-
-
 /** 	VBufSet - initialize space in virtual buffer
  *
  *		pStr = VBufSet (buf, init, count);

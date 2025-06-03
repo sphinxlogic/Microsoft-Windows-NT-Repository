@@ -1,32 +1,21 @@
 #include "cmd.h"
-#include "cmdproto.h"
-#include "dir.h"
-#include "console.h"
-
-
-
-#define FCGRP	0x0020	// File commands group
-#define COLVL	0x0001	// Copy level
-#define DELVL	0x0002	// Delete level
-#define RELVL	0x0004	// Rename level
-
 
 #define Wild(spec)  ((spec)->flags & (CI_NAMEWILD))
 
-extern TCHAR MsgBuf[];
+VOID    ResetCtrlC();
+
 extern unsigned msglen;
 
 extern jmp_buf CmdJBuf2 ;
 
-extern TCHAR Fmt19[], Fmt17[], Fmt14[];
+extern TCHAR Fmt11[], Fmt19[], Fmt17[], Fmt14[];
 extern TCHAR CurDrvDir[] ;
 
 extern TCHAR *SaveDir ;
 extern TCHAR SwitChar;
-extern TCHAR YesChar, NoChar ;
 extern unsigned DosErr ;
-extern BOOLEAN CtrlCSeen;
-extern   ULONG DCount ;
+extern BOOL CtrlCSeen;
+extern ULONG DCount ;
 
 STATUS BuildFSFromPatterns ( PDRP, BOOLEAN, PFS * );
 STATUS   DirWalkAndProcess( STATUS  (* ) ( PSCREEN, PULONG, PULONG, ULONG, ULONG, PFS ),
@@ -43,17 +32,11 @@ STATUS   DirWalkAndProcess( STATUS  (* ) ( PSCREEN, PULONG, PULONG, ULONG, ULONG
 VOID   FreeStr( PTCHAR );
 STATUS ParseDelParms ( PTCHAR, PDRP );
 STATUS ParseRmDirParms ( PTCHAR, PDRP );
-STATUS DelPatterns (STATUS  (*) ( PSCREEN, PULONG, PULONG, ULONG, ULONG, PFS ) ,
-                    STATUS  (*) ( PFS, PULONG ),
-                    BOOLEAN,
+STATUS DelPatterns (BOOLEAN,
                     BOOLEAN (*) (STATUS, PTCHAR),
                     PDRP );
 
-STATUS DelFileList ( PSCREEN, PULONG, PULONG, ULONG, ULONG, PFS );
-STATUS DeleteFiles ( PFS, ULONG, BOOLEAN , PULONG);
-STATUS RmDirDirList ( PFS, PULONG );
 PTCHAR GetWildPattern( ULONG, PPATDSC );
-STATUS GetFS( PFS, ULONG, ULONG, ULONG, ULONG, PSCREEN, BOOLEAN (*) (STATUS, PTCHAR)  );
 STATUS   SetSearchPath ( PFS, PPATDSC, PTCHAR, ULONG);
 
 BOOLEAN
@@ -140,7 +123,7 @@ DelWork (
     //
     if (ParseDelParms(pszCmdLine, &drpCur) == FAILURE) {
 
-	return( FAILURE );
+        return( FAILURE );
     }
 
     //
@@ -161,7 +144,11 @@ DelWork (
     // is set then this will desend down the tree.
     //
 
-    rc = DelPatterns(DelFileList,NULL,FALSE,PrintFNFErr, &drpCur);
+    drpCur.rgfSwitchs |= DELPROCESSEARLY;
+    rc = DelPatterns(FALSE,
+                     fEnableExtensions && (drpCur.rgfSwitchs & RECURSESWITCH) ? NULL : PrintFNFErr,
+                     &drpCur
+                    );
 
     mystrcpy(CurDrvDir, szCurDrv);
 
@@ -320,8 +307,8 @@ Return Value:
 STATUS
 ParseDelParms (
         IN      PTCHAR  pszCmdLine,
-	OUT     PDRP	pdrp
-	)
+        OUT     PDRP    pdrp
+        )
 
 /*++
 
@@ -383,7 +370,7 @@ Return Value:
     //
     for ( irgchTok = 0; *pszTok ; pszTok += mystrlen(pszTok)+1, irgchTok = 0) {
 
-	DEBUG((ICGRP, DILVL, "PRIVSW: pszTok = %ws", (ULONG)pszTok)) ;
+        DEBUG((ICGRP, DILVL, "PRIVSW: pszTok = %ws", (ULONG)pszTok)) ;
 
         //
         // fToggle control wither to turn off a switch that was set
@@ -491,7 +478,7 @@ Return Value:
             //
             pszTok += 2;
 
-	} else {
+        } else {
 
             //
             // If there already is a list then extend it else put info
@@ -507,7 +494,7 @@ Return Value:
 
             pdrp->cpatdsc++;
             ppatdscCur->pszPattern = (PTCHAR)gmkstr(_tcslen(pszTok)*sizeof(TCHAR) + sizeof(TCHAR));
-            mystrcpy(ppatdscCur->pszPattern, pszTok);
+            mystrcpy(ppatdscCur->pszPattern, stripit(pszTok));
             ppatdscCur->fIsFat = TRUE;
         }
 
@@ -521,8 +508,6 @@ Return Value:
 
 STATUS
 DelPatterns (
-    IN  STATUS  (* pfctFiles) ( PSCREEN, PULONG, PULONG, ULONG, ULONG, PFS ),
-    IN  STATUS  (* pfctDir)   (PFS, PULONG),
     IN  BOOLEAN fMustExist,
     IN  BOOLEAN (*pfctPrint) (STATUS, PTCHAR),
     IN  PDRP    pdpr
@@ -540,13 +525,7 @@ DelPatterns (
     TCHAR               szSearchPath[MAX_PATH+2];
     BOOLEAN             bPrintedErr;
 
-    // BOOLEAN             (*pfctPrint) (STATUS, PTCHAR);
-    //
-    // determine FAT drive from original pattern.
-    // Used in several places to control name format etc.
-    //
     DosErr = 0;
-
     if (BuildFSFromPatterns(pdpr, FALSE, &pfsFirst ) == FAILURE) {
 
         return( FAILURE );
@@ -555,20 +534,11 @@ DelPatterns (
 
     fRecurse = (BOOLEAN)(pdpr->rgfSwitchs & RECURSESWITCH);
 
-    //
-    // If recursing then do not print out individual file not found errors
-    // let the dir walk code print summaries
-    //
-    // pfctPrint = NULL;
-    // if (!(fRecurse)) {
-
-    //     pfctPrint = PrintFNFErr;
-    // }
     for( pfsCur = pfsFirst; pfsCur; pfsCur = pfsCur->pfsNext) {
 
 //DbgPrint("DelPatterns: searching for %s in %s\n",pfsCur->ppatdsc->pszPattern, pfsCur->ppatdsc->pszDir);
-        rc = DirWalkAndProcess(pfctFiles,
-                               pfctDir,
+        rc = DirWalkAndProcess(NULL,
+                               NULL,
                                NULL,
                                &cffTotal,
                                NULL,
@@ -586,26 +556,24 @@ DelPatterns (
                 return( rc );
             }
 
-            if ((!fRecurse) &&
-                (rc == ERROR_FILE_NOT_FOUND)
-                 && (cffTotal == 0)) {
+            if (!fRecurse &&
+                rc == ERROR_FILE_NOT_FOUND &&
+                cffTotal == 0
+               ) {
                 rc = SetSearchPath(pfsCur, pfsCur->ppatdsc, szSearchPath, MAX_PATH+2);
                 if (rc == SUCCESS) {
-
-                    //PutStdErr(MSG_NOT_FOUND, ONEARG, szSearchPath);
+                    // PutStdErr(MSG_NOT_FOUND, ONEARG, szSearchPath);
                     bPrintedErr=TRUE;
-
                 }
             }
         }
 
         //
         // If recursing then will not have printed
-        // Also !pfctdir means we are deleting up the tree.
         // This means that cffTotal will be 0 for the single dir
         // case (no subs in directory)
         //
-        if ((cffTotal == 0) && (!pfctDir) && (!bPrintedErr) &&
+        if ((cffTotal == 0) && (!bPrintedErr) &&
             (!(pdpr->rgfSwitchs & PROMPTUSERSWITCH) || rc != SUCCESS)) {
             if (DosErr == ERROR_ACCESS_DENIED) {
                 PutStdErr(DosErr, NOARGS);
@@ -615,6 +583,10 @@ DelPatterns (
                 // in this case, there were files in the directory.  they weren't
                 // deleted for some reason, but the error has already been
                 // displayed.
+
+                if ((cffTotal == 0) && fEnableExtensions && (pdpr->rgfSwitchs & RECURSESWITCH)) {
+                    PutStdErr(MSG_NOT_FOUND, ONEARG, pfsCur->ppatdsc->pszPattern);
+                }
 
                 //return (rc);
 
@@ -629,44 +601,6 @@ DelPatterns (
         // deleting directories we have not deleted the top most directory
         // do so now.
         //
-        //
-        // If error on walking tree do not delete top level pattern
-        //
-        if ((pfctDir) && ((rc == ERROR_FILE_NOT_FOUND) || (rc == SUCCESS))) {
-
-            //
-            // First find all of the files in the directory and then
-            // call the directory delete function. It will call the
-            // file list delete function and then delete the directory
-            //
-            rc = GetFS(pfsCur,
-		       pdpr->rgfSwitchs,
-                       pdpr->rgfAttribs,
-                       pdpr->rgfAttribsOnOff,
-		       pdpr->dwTimeType,
-                       NULL,
-                       NULL);
-
-            if (rc != SUCCESS) {
-
-                if ((rc != ERROR_FILE_NOT_FOUND) && (rc != ERROR_NO_MORE_FILES)) {
-
-
-                    PutStdErr(rc, NOARGS);
-
-                    return( FAILURE );
-
-                }
-
-            }
-
-            pfctDir(pfsCur, &cffTotal);
-            FreeStr((PTCHAR)(pfsCur->pff));
-            FreeStr((PTCHAR)(pfsCur->prgpff));
-            pfsCur->pff = NULL;
-            pfsCur->prgpff = NULL;
-
-        }
 
         FreeStr(pfsCur->pszDir);
         for(i = 1, ppatdscCur = pfsCur->ppatdsc;
@@ -684,100 +618,55 @@ DelPatterns (
 }
 
 STATUS
-DelFileList (
-    IN  PSCREEN pscr,
-    OUT PULONG  pcffTotal,
-    OUT PULONG  pcbFileTotal,
-    IN  ULONG   rgfSwitchs,
-    IN  ULONG   dwTimeType,
-    IN	PFS     pfsFiles
+EraseFile (
+    IN  PSCREEN          pscr,
+    IN  ULONG            rgfSwitchs,
+    IN  ULONG            dwTimeType,
+    OUT PLARGE_INTEGER   pcbFileTotal,
+    IN  PFS              pfs,
+    IN  PFF              pff
     )
-
 {
-    //
-    // DelFileList shares an interface with PrintFileList and so
-    // the extra unused parameters
-    //
-    UNREFERENCED_PARAMETER( pscr );
-    UNREFERENCED_PARAMETER( pcffTotal );
-    UNREFERENCED_PARAMETER( pcbFileTotal );
-    UNREFERENCED_PARAMETER( dwTimeType );
-
-    return(DeleteFiles( pfsFiles, rgfSwitchs, TRUE, pcffTotal ));
-
-}
-
-STATUS
-DeleteFiles (
-
-    IN  PFS     pfsFiles,
-    IN  ULONG   rgfSwitchs,
-    IN  BOOLEAN fPromptWild,
-    OUT PULONG   pcffTotal
-    )
-
-{
-
-    ULONG               cff;
-    ULONG               irgpff;
     PWIN32_FIND_DATA    pdata;
     TCHAR               szFile[MAX_PATH + 2];
-    TCHAR                answ;
-    TCHAR               Yes_Char;
-    TCHAR               No_Char;
     BOOLEAN             fPrompt;
     BOOLEAN             fQuite;
-    PTCHAR              pszPattern;
-    ULONG               cffTotal;
     STATUS              rc;
     PTCHAR              LastComponent;
     USHORT              cb;
     USHORT              obAlternate;
+    PTCHAR              pszPattern;
+    TCHAR               szFilePrompt[MAX_PATH + 2];
+    int                 incr;
 
-
-    //
-    // Number of files we are going to delete
-    //
-    cff = pfsFiles->cff;
-    cffTotal = 0;
-    Yes_Char = YesChar;
-    No_Char  = NoChar;
-
-    //
-    // Get yes and no message strings
-    //
-    if ((GetMsg(MSG_RESPONSE_DATA,0) == 0 )) {
-        Yes_Char = MsgBuf[0];
-        No_Char  = MsgBuf[2];
-    }
+    pdata =  &pff->data;
+    cb = pff->cb;
+    obAlternate = pff->obAlternate;
 
     fPrompt = fQuite = FALSE;
     if (rgfSwitchs & PROMPTUSERSWITCH) {
-
         fPrompt = TRUE;
-
     }
     if (rgfSwitchs & QUITESWITCH) {
-
         fQuite = TRUE;
-
     }
 
     //
     // Only prompt for global delete if user didn't specify /P
     //
-    if ((!fPrompt) &&
-         fPromptWild &&
+    if ((pfs->cffDisplayed == 0 &&
+         !fPrompt) &&
+         !pfs->fDelPrompted &&
          (!fQuite) &&
-         (pszPattern = GetWildPattern(pfsFiles->cpatdsc, pfsFiles->ppatdsc))) {
+         (pszPattern = GetWildPattern(pfs->cpatdsc, pfs->ppatdsc))) {
 
-        if ((mystrlen(pfsFiles->pszDir) + mystrlen(pszPattern) + 2) > MAX_PATH) {
+        if ((mystrlen(pfs->pszDir) + mystrlen(pszPattern) + 2) > MAX_PATH) {
 
             PutStdErr(MSG_FILE_NOT_FOUND, NOARGS);
             return( FAILURE );
 
         }
-        mystrcpy(szFile,pfsFiles->pszDir);
+        mystrcpy(szFile,pfs->pszDir);
         //
         // check if it needs a trailing path char
         //
@@ -785,123 +674,92 @@ DeleteFiles (
             mystrcat(szFile, TEXT("\\"));
         }
         mystrcat(szFile,pszPattern);
-        answ = PromptUser(szFile, MSG_ARE_YOU_SURE, Yes_Char, No_Char );
-        if (answ == (TCHAR)No_Char) {
-
-            return( FAILURE );
-
+        pfs->fDelPrompted = TRUE;
+        if (!PromptUser(szFile, MSG_ARE_YOU_SURE)) {
+            return( FAILURE+1 );
         }
     }
 
-    for(irgpff = 0; irgpff < cff; irgpff++) {
+    if (!(pdata->dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+        if (*lastc(pfs->pszDir) != BSLASH) {
+            incr = 1;
+        } else {
+            incr = 0;
+        }
 
-        if (CtrlCSeen) {
+        //
+        // If name is too big then blow it all away
+        //
+        if ((_tcslen(pfs->pszDir) + _tcslen(pdata->cFileName) + incr) > MAX_PATH) {
+            PutStdErr(MSG_FILE_NOT_FOUND, NOARGS);
             return( FAILURE );
         }
 
-        pdata =  &((pfsFiles->prgpff[irgpff])->data);
-        cb = (pfsFiles->prgpff[irgpff])->cb;
-        obAlternate = (pfsFiles->prgpff[irgpff])->obAlternate;
+        mystrcpy(szFile, pfs->pszDir);
 
-        if (!(pdata->dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
-            int incr;
+        //
+        // check if it needs a trailing path char
+        //
+        if (*lastc(szFile) != BSLASH) {
+            mystrcat(szFile, TEXT("\\"));
+        }
 
-            if (*lastc(pfsFiles->pszDir) != BSLASH) {
-                incr = 1;
-            } else {
-                incr = 0;
+        LastComponent = lastc(szFile)+1;
+
+        // prompt should not be based on the alternat. name
+
+        mystrcpy(szFilePrompt, szFile);
+        mystrcat(szFilePrompt, pdata->cFileName);
+
+
+        if (obAlternate) {
+            mystrcat(szFile, &pdata->cFileName[obAlternate]);
+        } else {
+            mystrcat(szFile, pdata->cFileName);
+        }
+
+        if (fPrompt) {
+            if (!PromptUser(szFilePrompt,MSG_CMD_DELETE)) {
+                if (CtrlCSeen) {
+                    return( FAILURE+1 );
+                }
+                return( SUCCESS );
             }
+        }
 
-            //
-            // If name is too big then blow it all away
-            //
-            if ((_tcslen(pfsFiles->pszDir) + _tcslen(pdata->cFileName) + incr) > MAX_PATH) {
-                PutStdErr(MSG_FILE_NOT_FOUND, NOARGS);
-                return( FAILURE );
-            }
+        if (rgfSwitchs & FORCEDELSWITCH) {
+            if (pdata->dwFileAttributes & FILE_ATTRIBUTE_READONLY) {
+                if (!SetFileAttributes(szFile,
+                                       pdata->dwFileAttributes & ~FILE_ATTRIBUTE_READONLY)) {
 
-            mystrcpy(szFile, pfsFiles->pszDir);
-
-            //
-            // check if it needs a trailing path char
-            //
-            if (*lastc(szFile) != BSLASH) {
-                mystrcat(szFile, TEXT("\\"));
-            }
-
-            LastComponent = lastc(szFile)+1;
-            if (obAlternate) {
-                mystrcat(szFile, &pdata->cFileName[obAlternate]);
-            } else {
-                mystrcat(szFile, pdata->cFileName);
-            }
-
-            if (fPrompt) {
-                answ = PromptUser(szFile,MSG_CMD_DELETE,Yes_Char, No_Char );
-                if (answ == NULLC) {
-
+                    PutStdErr(GetLastError(), NOARGS);
                     return( FAILURE );
                 }
             }
+        }
 
-            if (!fPrompt || (fPrompt && (answ == (TCHAR)Yes_Char))) {
+        if (!DeleteFile(szFile)) {
 
-                if (rgfSwitchs & FORCEDELSWITCH) {
-                    if (pdata->dwFileAttributes & FILE_ATTRIBUTE_READONLY) {
-                        if (!SetFileAttributes(szFile,
-                                               pdata->dwFileAttributes & ~FILE_ATTRIBUTE_READONLY)) {
-
-                            PutStdErr(GetLastError(), NOARGS);
-                            return( FAILURE );
-                        }
-                    }
-                }
-
-                if (!DeleteFile(szFile)) {
-
-                    rc = GetLastError();
-
-                    if (obAlternate) {
-                        mystrcpy(LastComponent, pdata->cFileName);
-                    }
-
-                    if (rgfSwitchs & RECURSESWITCH) {
-                        cmd_printf(Fmt17, szFile);
-                        PutStdErr(GetLastError(), NOARGS);
-                    } else if (cff > 1) {
-                        cmd_printf(Fmt17, szFile);
-                        PutStdErr(rc, NOARGS);
-                    } else {
-                        DosErr = rc;
-                    }
-                    // PrtErr(GetLastError());
-
-
-                } else {
-DelSuccess:
-                    //
-                    // track no. of files deleted. Used in recurse to
-                    // tell if any files found
-                    //
-                    cffTotal++;
-
-                }
-
+            if ( (rc = GetLastError() ) == ERROR_REQUEST_ABORTED )
+               return (FAILURE);
+            if (obAlternate) {
+                mystrcpy(LastComponent, pdata->cFileName);
             }
 
+            cmd_printf(Fmt17, szFile);
+            PutStdErr(rc, NOARGS);
+            return FAILURE;
+
+        } else {
+            pfs->cffDisplayed++;
+            if (fEnableExtensions && (rgfSwitchs & RECURSESWITCH)) {
+                PutStdOut(MSG_FILE_DELETED, ONEARG, szFile);
+            }
         }
 
     }
 
-    if (pcffTotal) {
-
-
-        *pcffTotal = cffTotal;
-
-    }
-    return( SUCCESS );
-
-
+    return SUCCESS;
 }
 
 
@@ -930,6 +788,18 @@ Return Value:
     STATUS   Status = SUCCESS;
     BOOL     Ok;
     DWORD    Attr;
+    TCHAR    szRootPath[ 4 ];
+    TCHAR   *pFilePart;
+
+    if (GetFullPathName(pszDirectory, 4, szRootPath, &pFilePart) == 3 &&
+        szRootPath[1] == COLON &&
+        szRootPath[2] == BSLASH
+       ) {
+        //
+        // Don't waste time trying to delete the root directory.
+        //
+        return SUCCESS;
+    }
 
     if ( !RemoveDirectory( pszDirectory ) ) {
 
@@ -984,13 +854,14 @@ Return Value:
 
 --*/
 {
-    int             dir_len;
-    TCHAR           pszFileBuffer[MAX_PATH];
     HANDLE          find_handle;
-    WIN32_FIND_DATA find_data;
     DWORD           attr;
     STATUS          s;
     BOOL            all_deleted;
+    int             dir_len, new_len;
+    TCHAR          *new_str;
+    WIN32_FIND_DATA find_data;
+    TCHAR           pszFileBuffer[MAX_PATH];
 
     *AllEntriesDeleted = TRUE;
 
@@ -1033,15 +904,21 @@ Return Value:
             break;
         }
 
-        // Chop off previous file name and strcat new one.
+        //
+        // Replace previous file name with new one, checking against MAX_PATH
+        // Using the short name where possible lets us go deeper before we hit
+        // the MAX_PATH limit.
+        //
+        new_len = _tcslen(new_str = find_data.cAlternateFileName);
+        if (!new_len)
+            new_len = _tcslen(new_str = find_data.cFileName);
 
-        pszFileBuffer[dir_len] = 0;
-
-        if (_tcslen(find_data.cAlternateFileName)) {
-            _tcscat(pszFileBuffer, find_data.cAlternateFileName);
-        } else {
-            _tcscat(pszFileBuffer, find_data.cFileName);
+        if (dir_len + new_len >= MAX_PATH) {
+            *AllEntriesDeleted = FALSE;
+            PutStdErr(MSG_MAX_PATH_EXCEEDED, 1, pszFileBuffer);
+            break;
         }
+        _tcscpy(&pszFileBuffer[dir_len], new_str);
 
         // If the file is a directory then recurse,
         // otherwise delete the file.
@@ -1079,12 +956,22 @@ Return Value:
 
             if (!DeleteFile(pszFileBuffer)) {
                 s = GetLastError();
+                if ( s == ERROR_REQUEST_ABORTED )
+                    break;
+
                 if (_tcslen(find_data.cAlternateFileName)) {
                     pszFileBuffer[dir_len] = 0;
-                    _tcscat(pszFileBuffer, find_data.cFileName);
-                    PutStdErr(MSG_FILE_NAME_PRECEEDING_ERROR, 1, pszFileBuffer);
-                    pszFileBuffer[dir_len] = 0;
-                    _tcscat(pszFileBuffer, find_data.cAlternateFileName);
+
+                    if (dir_len + _tcslen(find_data.cFileName) >= MAX_PATH) {
+                        _tcscat(pszFileBuffer, find_data.cAlternateFileName);
+                        PutStdErr(MSG_FILE_NAME_PRECEEDING_ERROR, 1, pszFileBuffer);
+                    }
+                    else {
+                        _tcscat(pszFileBuffer, find_data.cFileName);
+                        PutStdErr(MSG_FILE_NAME_PRECEEDING_ERROR, 1, pszFileBuffer);
+                        pszFileBuffer[dir_len] = 0;
+                        _tcscat(pszFileBuffer, find_data.cAlternateFileName);
+                    }
                 } else {
                     PutStdErr(MSG_FILE_NAME_PRECEEDING_ERROR, 1, pszFileBuffer);
                 }
@@ -1137,9 +1024,6 @@ RdWork (
     PPATDSC     ppatdscCur;
     ULONG       cpatdsc;
     STATUS      rc, s;
-    TCHAR        answ;
-    TCHAR       Yes_Char;
-    TCHAR       No_Char;
     BOOL        all_deleted;
 
     rc = SUCCESS;
@@ -1177,7 +1061,7 @@ RdWork (
     //
     if (ParseRmDirParms(pszCmdLine, &drpCur) == FAILURE) {
 
-	return( FAILURE );
+        return( FAILURE );
     }
 
     GetDir((PTCHAR)szCurDrv, GD_DEFAULT);
@@ -1198,21 +1082,9 @@ RdWork (
          ppatdscCur = ppatdscCur->ppatdscNext, cpatdsc--) {
 
         if (drpCur.rgfSwitchs & RECURSESWITCH) {
-
-            //
-            // Get yes and no message strings
-            //
-
-            if ((GetMsg(MSG_RESPONSE_DATA,0) == 0 )) {
-                Yes_Char = MsgBuf[0];
-                No_Char  = MsgBuf[2];
-            } else {
-                Yes_Char = YesChar;
-                No_Char  = NoChar;
-            }
-            answ = PromptUser(ppatdscCur->pszPattern, MSG_ARE_YOU_SURE,
-                              Yes_Char, No_Char );
-            if (answ == (TCHAR) No_Char) {
+            if (!(drpCur.rgfSwitchs & QUITESWITCH) &&
+                !PromptUser(ppatdscCur->pszPattern, MSG_ARE_YOU_SURE)
+               ) {
                 rc = FAILURE;
             } else {
                 s = RmDirSlashS(ppatdscCur->pszPattern, &all_deleted);
@@ -1249,8 +1121,8 @@ RdWork (
 STATUS
 ParseRmDirParms (
         IN      PTCHAR  pszCmdLine,
-	OUT     PDRP	pdrp
-	)
+        OUT     PDRP    pdrp
+        )
 
 /*++
 
@@ -1314,7 +1186,7 @@ Return Value:
     for ( irgchTok = 0; *pszTok ; pszTok += tlen+1, irgchTok = 0) {
         tlen = mystrlen(pszTok);
 
-	DEBUG((ICGRP, DILVL, "PRIVSW: pszTok = %ws", (ULONG)pszTok)) ;
+        DEBUG((ICGRP, DILVL, "PRIVSW: pszTok = %ws", (ULONG)pszTok)) ;
 
         //
         // fToggle control wither to turn off a switch that was set
@@ -1333,6 +1205,16 @@ Return Value:
             }
 
             switch (_totupper(pszTok[irgchTok + 2])) {
+            case QUIETCH:
+
+                fToggle ? (pdrp->rgfSwitchs ^= QUITESWITCH) :  (pdrp->rgfSwitchs |= QUITESWITCH);
+                if (pszTok[irgchTok + 3]) {
+                    PutStdErr(MSG_PARAMETER_FORMAT_NOT_CORRECT, ONEARG,
+                              (ULONG)(&(pszTok[irgchTok + 2])) );
+                    return( FAILURE );
+                }
+                break;
+
             case TEXT('S'):
 
                 fToggle ? (pdrp->rgfSwitchs ^= RECURSESWITCH) :  (pdrp->rgfSwitchs |= RECURSESWITCH);
@@ -1370,7 +1252,7 @@ Return Value:
             //
             pszTok += 2;
 
-	} else {
+        } else {
 
             mystrcpy( pszTok, stripit( pszTok ) );
 
@@ -1392,46 +1274,13 @@ Return Value:
             ppatdscCur->fIsFat = TRUE;
 
 
-	}
+        }
 
 
     } // for
 
     return( SUCCESS );
 }
-
-STATUS
-RmDirDirList (
-    IN  PFS     pfsDir,
-    OUT PULONG  pcffTotal
-    )
-
-{
-
-    int     rc;
-    ULONG   cffTotal = 0;
-
-    rc = DeleteFiles( pfsDir, FORCEDELSWITCH, FALSE, NULL);
-//DbgPrint("RmDirDirList: removing %s\n",pfsDir->pszDir);
-    if (!RemoveDirectory( pfsDir->pszDir)) {
-        rc = GetLastError();
-        PutStdErr( rc == ERROR_ACCESS_DENIED ?
-        ERROR_CURRENT_DIRECTORY : rc, NOARGS);      /* M004     */
-        return(FAILURE) ;
-    } else {
-
-        cffTotal++;
-
-    }
-
-    if (pcffTotal) {
-
-        *pcffTotal = cffTotal;
-    }
-    return( SUCCESS );
-
-}
-
 
 PTCHAR
 GetWildPattern(

@@ -18,6 +18,7 @@ private:
 inline COleInit::COleInit(HRESULT *phr)
 {
     //	Initialize the OLE libraries
+#ifdef THREADING_SUPPORT
     //	Look up the thread mode from the win.ini file.
     DWORD dwThreadMode;
     TCHAR buffer[80];
@@ -34,6 +35,9 @@ inline COleInit::COleInit(HRESULT *phr)
 
     // Initialize the OLE libraries
     *phr = OleInitializeEx(NULL, dwThreadMode);
+#else
+    *phr = OleInitialize(NULL);
+#endif
 
     if (FAILED(*phr))
     {
@@ -48,4 +52,3 @@ inline COleInit::~COleInit(void)
 }
 
 #endif // __OLEINIT_HXX__
-

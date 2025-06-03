@@ -25,8 +25,8 @@ Revision History:
 VOID
 CsrpComputePriority(
     IN ULONG PriorityClass,
-    OUT KPRIORITY *ForegroundPriority,
-    OUT KPRIORITY *BackgroundPriority
+    OUT PUCHAR ProcessPriorityClass
+
     );
 
 BOOLEAN
@@ -70,9 +70,10 @@ CsrSbCreateSession(
 
     CsrpComputePriority(
         CSR_NORMAL_PRIORITY_CLASS,
-        &Process->ForegroundPriority,
-        &Process->BackgroundPriority
+        &Process->PriorityClass
         );
+
+    CsrSetBackgroundPriority(Process);
 
     //
     // capture the thread's createtime so that we can use

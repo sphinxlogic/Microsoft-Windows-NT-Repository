@@ -68,13 +68,14 @@ assumes ES,NOTHING
 
 externFP ExitKernel
 externFP FatalAppExit
+externFP FatalExitC
 
 if KDEBUG
 
-externFP FatalExitC
 externFP KOutDebugStr
 externNP DebugOutput2
 externNP LogParamError2
+
 else
 
 ife ROM
@@ -124,9 +125,11 @@ else
 endif;  PMODE32
 endm
 
+; In Win3.1, different code is used for FatalExit on retail
+; and debug builds.  WOW uses the code below derived from the
+; debug wrapper for FatalExitC.  FatalExitC is a thunk to
+; WOW32's WK32FatalExit thunk.
 
-
-if      KDEBUG
 
 cProc FatalExit,<PUBLIC,FAR>
 	parmW	errCode
@@ -136,17 +139,16 @@ cBegin nogen
 	push	ds
 	pusha
 	setkernelds
-	push	[bp+6]
-	cCall	FatalExitC
-	or	ax, ax
+        push    [bp+6]
+        cCall   FatalExitC
         popa
 	pop	ds
-	jz	@F
-	INT3_DEBUG	; Stop here so WDEB386 can generate same stack trace.
-@@:
-	pop	bp
+        INT3_DEBUG      ; Stop here so WDEB386 can generate same stack trace.
+        pop     bp
 	ret     2
 cEnd nogen
+
+if KDEBUG
 
 BegData
 szCRLF  db      13,10,0
@@ -281,8 +283,10 @@ assumes es,NOTHING
 	push    psz
 	call    KOutDSStr       ; output the string
 
+ifndef WOW
 	push    offset szCRLF
-	call    KOutDSStr
+        call    KOutDSStr
+endif
 
 kdtnoprint:
 	test    fBreakPrint,1   ; if fBreak, then FatalExit
@@ -383,6 +387,11 @@ endif;  DISABLE
 endif;  KDEBUG
 
 ife KDEBUG			; RETAIL ONLY SECTION STARTS HERE!
+
+ifndef WOW                      ; WOW uses only the "debug" version
+                                ; of FatalExit which calls FatalExitC.
+                                ; FatalExitC is thunked in WOW, the
+                                ; version in rip.c is disabled.
 
 ;-----------------------------------------------------------------------;
 ;									;
@@ -502,7 +511,8 @@ fe4:
 	cCall	ExitKernel,<ax>
 endif
 cEnd
-    
+
+endif       ; ifndef WOW
 
 else				    ; DEBUG ONLY SECTION STARTS HERE!
 
@@ -606,6 +616,8 @@ opnnov:
 	mov	ax, -1
 opn2:	mov	bx,ax
 cEnd
+
+
 
 
 ;-----------------------------------------------------------------------;
@@ -1062,6 +1074,7 @@ if KDEBUG
 @@:
 endif
 cEnd
+
 
 ;-----------------------------------------------------------------------
 

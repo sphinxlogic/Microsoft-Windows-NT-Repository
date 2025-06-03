@@ -45,6 +45,8 @@ Revision History:
 #include <dlc.h>
 #include <smbgtpt.h>
 
+#if 0
+
 //
 // if DLC and LLC share the same driver then we can use macros to access fields
 // in the BINDING_CONTEXT and ADAPTER_CONTEXT structures
@@ -57,6 +59,7 @@ Revision History:
 #include "llcdef.h"
 #include "llctyp.h"
 #include "llcapi.h"
+#endif
 #endif
 
 //
@@ -308,6 +311,11 @@ Return Value:
     // This method works very well with XNS and TCP socket types
     //
 
+	if ( LlcLength > cbPacketSize ) {
+		Status = DLC_STATUS_INVALID_FRAME_LENGTH;
+        goto ErrorExit;
+	}
+
     if ((FrameType == LLC_DIRECT_ETHERNET_TYPE)
     && (pDlcObject->u.Direct.ProtocolTypeMask != 0)) {
 
@@ -373,6 +381,9 @@ Return Value:
 
     pBufferHeader = NULL;
     NtStatus = BufferPoolAllocate(
+#if DBG
+                pFileContext,
+#endif
                 pFileContext->hBufferPool,
                 DataSize,                       // size of actual MDL buffers
                 FrameHeaderSize,                // frame hdr (and possibly lan hdr)
@@ -496,7 +507,9 @@ Return Value:
     //
 
     pBufferHeader->FrameBuffer.pNextFrame = pBufferHeader;
-    pRcvEvent = AllocatePacket(pFileContext->hPacketPool);
+
+    pRcvEvent = ALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool);
+
     if (pRcvEvent == NULL) {
         Status = DLC_STATUS_NO_MEMORY;
         BufferPoolDeallocateList(pFileContext->hBufferPool, pBufferHeader);
@@ -796,6 +809,8 @@ Return Value:
 
     case NDIS_STATUS_RING_STATUS:
 
+		ASSERT ( IS_NDIS_RING_STATUS(SecondaryInfo) );
+
         //
         // The secondary information is directly the
         // the network statys code as defined for
@@ -814,7 +829,8 @@ Return Value:
                      (USHORT)(-1),
                      NULL,
                      pEventInformation,
-                     SecondaryInfo
+                     NDIS_RING_STATUS_TO_DLC_RING_STATUS(SecondaryInfo),
+                     FALSE
                      );
         break;
 
@@ -860,7 +876,12 @@ Return Value:
 
         pFileContext->TimerTickCounter++;
         if ((pFileContext->TimerTickCounter % 10) == 0 && pFileContext->hBufferPool != NULL) {
-            BufferPoolFreeExtraPages((PDLC_BUFFER_POOL)pFileContext->hBufferPool);
+            BufferPoolFreeExtraPages(
+#if DBG
+                                     pFileContext,
+#endif
+                                     (PDLC_BUFFER_POOL)pFileContext->hBufferPool
+                                     );
         }
 
         //
@@ -979,7 +1000,9 @@ Return Value:
             BufferPoolDeallocateList(pFileContext->hBufferPool,
                                      pPacket->Event.pEventInformation
                                      );
-            DeallocatePacket(pFileContext->hPacketPool, pPacket);
+
+            DEALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool, pPacket);
+
         } else {
             if (pPacket->Event.Overlay.RcvReadOption != LLC_RCV_READ_INDIVIDUAL_FRAMES) {
 
@@ -1019,7 +1042,8 @@ Return Value:
                     //
 
                     pDlcObject->pReceiveEvent->pEventInformation = pPacket->Event.pEventInformation;
-                    DeallocatePacket(pFileContext->hPacketPool, pPacket);
+
+                    DEALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool, pPacket);
 
                     //
                     // This event is already queued =>
@@ -1090,7 +1114,9 @@ Return Value:
         //
 
         if (pPacket != pRootNode) {
-            DeallocatePacket(pFileContext->hPacketPool, pPacket);
+
+            DEALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool, pPacket);
+
         }
 
         //
@@ -1116,7 +1142,9 @@ Return Value:
         if (pPacket->ResetPacket.pClosingInfo->CloseCounter == 0) {
             CompleteCloseReset(pFileContext, pPacket->ResetPacket.pClosingInfo);
         }
-        DeallocatePacket(pFileContext->hPacketPool, pPacket);
+
+        DEALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool, pPacket);
+
         break;
 
     case LLC_CONNECT_COMPLETION:
@@ -1149,7 +1177,7 @@ Return Value:
 
             LEAVE_DLC(pFileContext);
 
-            LlcCloseStation(pDlcObject->hLlcObject, pPacket);
+            LlcCloseStation(pDlcObject->hLlcObject, (PLLC_PACKET)pPacket);
 
             ENTER_DLC(pFileContext);
 
@@ -1174,7 +1202,9 @@ Return Value:
         DLC_TRACE('f');
 
         pDlcObject->PendingLlcRequests--;
-        DeallocatePacket(pFileContext->hPacketPool, pPacket);
+
+        DEALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool, pPacket);
+
         break;
 
 #if LLC_DBG
@@ -1296,7 +1326,7 @@ Return Value:
                 // a shameful jump.
                 //
 
-                DeallocatePacket(pFileContext->hPacketPool, pPacket);
+                DEALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool, pPacket);
 
                 //
                 // MODMOD RLF 01/21/93
@@ -1341,7 +1371,9 @@ Return Value:
         //
 
     } else {
-        DeallocatePacket(pFileContext->hPacketPool, pPacket);
+
+        DEALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool, pPacket);
+
     }
 
 ThisIsA_SHAME:
@@ -1438,12 +1470,12 @@ ThisIsA_SHAME:
     // we are about to complete this IRP - remove the cancel routine
     //
 
-    RELEASE_DRIVER_LOCK();
+//    RELEASE_DRIVER_LOCK();
 
     SetIrpCancelRoutine(pIrp, FALSE);
     IoCompleteRequest(pIrp, (CCHAR)IO_NETWORK_INCREMENT);
 
-    ACQUIRE_DRIVER_LOCK();
+//    ACQUIRE_DRIVER_LOCK();
 
     //
     // MODMOD RLF 01/19/93
@@ -1533,7 +1565,8 @@ Return Value:
     PIRP pIrp;
 
     pIrp = pDlcCommand->pIrp;
-    DeallocatePacket(pFileContext->hPacketPool, pDlcCommand);
+
+    DEALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool, pDlcCommand);
 
     pCcbAddress = ((PNT_DLC_PARMS)pIrp->AssociatedIrp.SystemBuffer)->Async.Ccb.pCcbAddress;
     CommandCompletionFlag = ((PNT_DLC_PARMS)pIrp->AssociatedIrp.SystemBuffer)->Async.Ccb.CommandCompletionFlag;
@@ -1549,7 +1582,8 @@ Return Value:
                      StationId,
                      NULL,
                      pCcbAddress,
-                     CommandCompletionFlag
+                     CommandCompletionFlag,
+                     FALSE
                      );
     }
 }

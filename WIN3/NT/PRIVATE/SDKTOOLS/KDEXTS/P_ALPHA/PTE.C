@@ -17,23 +17,7 @@
 // given virtual address.
 //
 
-#define PMMPTE ULONG
-
-//
-// MiGetPdeAddress returns the address of the PTE which maps the
-// given virtual address.
-//
-
-#define MiGetPdeAddress(va)  \
-    ((PMMPTE)(((((ULONG)(va)) >> PDI_SHIFT) << 2) + PDE_BASE))
-
-//
-// MiGetPteAddress returns the address of the PTE which maps the
-// given virtual address.
-//
-
-#define MiGetPteAddress(va) \
-    ((PMMPTE)(((((ULONG)(va)) >> PTI_SHIFT) << 2) + PTE_BASE))
+#define PMMPTEx ULONG
 
 //
 // MiGetVirtualAddressMappedByPte returns the virtual address
@@ -55,32 +39,9 @@
 #define MM_PTE_PAGEFILE_MASK      0xf00
 
 ULONG LocalNonPagedPoolStart;
+extern ULONG MmSubsectionBase;
 
 #define MmProtopte_Base ((ULONG)0xE1000000)
-
-#ifdef MiPteToProto
-#undef MiPteToProto
-#endif
-
-#define MiPteToProto(lpte) ( ((lpte) & 0x80000000) ?            \
-        ( ( (( ((lpte) << 1) >> 5 ) << 2 ) +            \
-                  (ULONG)LocalNonPagedPoolStart))                  \
-  :     ( (PMMPTE)(  ( ((lpte) >> 4 ) << 2 )  +                 \
-                        MmProtopte_Base ) ) )
-
-#ifdef NON_PAGED_SYSTEM_END
-#undef NON_PAGED_SYSTEM_END
-#endif
-
-#define NON_PAGED_SYSTEM_END ((ULONG)0xFFFFFFF0)  //quadword aligned
-
-#define MiGetSubsectionAddress1(lpte)                           \
-    ( (lpte & 0x4) ?                                            \
-       (((ULONG)LocalNonPagedPoolStart +                 \
-                (((lpte) >> 8) << 3) ))                    \
-    :  ((ULONG)(NON_PAGED_SYSTEM_END - ((lpte >> 8) << 3))) )
-
-
 
 
 DECLARE_API( pte )
@@ -105,13 +66,17 @@ Return Value:
     ULONG   Address;
     ULONG   result;
     ULONG   flags = 0;
-    PMMPTE  Pte;
-    PMMPTE  Pde;
+    PMMPTEx  Pte;
+    PMMPTEx  Pde;
     ULONG   PdeContents;
     ULONG   PteContents;
 
     if (LocalNonPagedPoolStart == 0) {
         LocalNonPagedPoolStart = GetUlongValue ("MmNonPagedPoolStart");
+    }
+
+    if (MmSubsectionBase == 0) {
+        MmSubsectionBase = GetUlongValue ("MmSubsectionBase");
     }
 
     sscanf(args,"%lx %lx",&Address, &flags);
@@ -129,11 +94,11 @@ Return Value:
     }
 
     if (!flags) {
-        Pde = (PMMPTE)MiGetPdeAddress (Address);
-        Pte = (PMMPTE)MiGetPteAddress (Address);
+        Pde = (PMMPTEx)MiGetPdeAddress (Address);
+        Pte = (PMMPTEx)MiGetPteAddress (Address);
     } else {
-        Pde = (PMMPTE)Address;
-        Pte = (PMMPTE)Address;
+        Pde = (PMMPTEx)Address;
+        Pte = (PMMPTEx)Address;
     }
 
     dprintf("%08lX  - PDE at %08lX    PTE at %08lX\n ",Address, Pde, Pte);
@@ -180,7 +145,7 @@ Return Value:
                             (PteContents & MM_PTE_PROTECTION_MASK) >> 3);
                 } else {
                     dprintf("                               Proto: %8lx\n",
-                                MiPteToProto(PteContents));
+                                MiPteToProto((PMMPTE)&PteContents));
                 }
             } else if (PteContents & MM_PTE_TRANSITION_MASK) {
                 dprintf("                               Transition: %5lx\n",
@@ -214,12 +179,12 @@ Return Value:
             } else {
                 if (flags) {
                     dprintf("          Subsection: %8lx\n",
-                            MiGetSubsectionAddress1(PdeContents));
+                            MiGetSubsectionAddress((PMMPTE)&PdeContents));
                     dprintf("          Protect: %2lx\n",
                             (PdeContents & MM_PTE_PROTECTION_MASK) >> 3);
                 }
                 dprintf("          Proto: %8lx\n",
-                        MiPteToProto(PdeContents));
+                        MiPteToProto((PMMPTE)&PdeContents));
             }
         } else if (PdeContents & MM_PTE_TRANSITION_MASK) {
             dprintf("          Transition: %5lx\n",

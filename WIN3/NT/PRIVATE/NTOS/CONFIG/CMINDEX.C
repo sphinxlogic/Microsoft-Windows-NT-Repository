@@ -109,7 +109,17 @@ ULONG
 CmpFindSubKeyInLeaf(
     PHHIVE          Hive,
     PCM_KEY_INDEX   Index,
+    ULONG           IndexHint,
     PUNICODE_STRING SearchName,
+    PHCELL_INDEX    Child
+    );
+
+LONG
+CmpCompareInIndex(
+    PHHIVE          Hive,
+    PUNICODE_STRING SearchName,
+    ULONG           Count,
+    PCM_KEY_INDEX   Index,
     PHCELL_INDEX    Child
     );
 
@@ -157,6 +167,7 @@ CmpSplitLeaf(
 #pragma alloc_text(PAGE,CmpFindSubKeyInRoot)
 #pragma alloc_text(PAGE,CmpFindSubKeyInLeaf)
 #pragma alloc_text(PAGE,CmpDoCompareKeyName)
+#pragma alloc_text(PAGE,CmpCompareInIndex)
 #pragma alloc_text(PAGE,CmpFindSubKeyByNumber)
 #pragma alloc_text(PAGE,CmpDoFindSubKeyByNumber)
 #pragma alloc_text(PAGE,CmpAddSubKey)
@@ -167,11 +178,14 @@ CmpSplitLeaf(
 #pragma alloc_text(PAGE,CmpRemoveSubKey)
 #endif
 
+ULONG CmpHintHits=0;
+ULONG CmpHintMisses=0;
+
 
 HCELL_INDEX
 CmpFindSubKeyByName(
     PHHIVE          Hive,
-    HCELL_INDEX     Parent,
+    PCM_KEY_NODE    Parent,
     PUNICODE_STRING SearchName
     )
 /*++
@@ -194,26 +208,24 @@ Return Value:
 
 --*/
 {
-    PCM_KEY_NODE    pparent;
     PCM_KEY_INDEX   IndexRoot;
     HCELL_INDEX     Child;
     ULONG           i;
+    ULONG           FoundIndex;
 
     CMLOG(CML_MAJOR, CMS_INDEX) {
         KdPrint(("CmpFindSubKeyByName:\n\t"));
         KdPrint(("Hive=%08lx Parent=%08lx SearchName=%08lx\n", Hive, Parent, SearchName));
     }
 
-    pparent = (PCM_KEY_NODE)HvGetCell(Hive, Parent);
-
     //
     // Try first the Stable, then the Volatile store.  Assumes that
     // all Volatile refs in Stable space are zeroed out at boot.
     //
     for (i = 0; i < Hive->StorageTypeCount; i++) {
-        if (pparent->SubKeyCounts[i] != 0) {
-            ASSERT(HvIsCellAllocated(Hive, pparent->SubKeyLists[i]));
-            IndexRoot = (PCM_KEY_INDEX)HvGetCell(Hive, pparent->SubKeyLists[i]);
+        if (Parent->SubKeyCounts[i] != 0) {
+            ASSERT(HvIsCellAllocated(Hive, Parent->SubKeyLists[i]));
+            IndexRoot = (PCM_KEY_INDEX)HvGetCell(Hive, Parent->SubKeyLists[i]);
 
             if (IndexRoot->Signature == CM_KEY_INDEX_ROOT) {
                 CmpFindSubKeyInRoot(Hive, IndexRoot, SearchName, &Child);
@@ -222,10 +234,26 @@ Return Value:
                 }
                 IndexRoot = (PCM_KEY_INDEX)HvGetCell(Hive, Child);
             }
-            ASSERT(IndexRoot->Signature == CM_KEY_INDEX_LEAF);
+            ASSERT((IndexRoot->Signature == CM_KEY_INDEX_LEAF) ||
+                   (IndexRoot->Signature == CM_KEY_FAST_LEAF));
 
-            CmpFindSubKeyInLeaf(Hive, IndexRoot, SearchName, &Child);
+            FoundIndex = CmpFindSubKeyInLeaf(Hive,
+                                             IndexRoot,
+                                             Parent->WorkVar,
+                                             SearchName,
+                                             &Child);
             if (Child != HCELL_NIL) {
+                //
+                // WorkVar is used as a hint for the last successful lookup
+                // to improve our locality when similar keys are opened
+                // repeatedly.
+                //
+                if (FoundIndex == Parent->WorkVar) {
+                    CmpHintHits++;
+                } else {
+                    CmpHintMisses++;
+                }
+                Parent->WorkVar = FoundIndex;
                 return Child;
             }
         }
@@ -270,7 +298,6 @@ Return Value:
     ULONG           High;
     ULONG           Low;
     ULONG           CanCount;
-    HCELL_INDEX     CanCell;
     HCELL_INDEX     LeafCell;
     PCM_KEY_INDEX   Leaf;
     LONG            Result;
@@ -296,11 +323,15 @@ Return Value:
         LeafCell = Index->List[CanCount];
         Leaf = (PCM_KEY_INDEX)HvGetCell(Hive, LeafCell);
 
-        ASSERT(Leaf->Signature == CM_KEY_INDEX_LEAF);
+        ASSERT((Leaf->Signature == CM_KEY_INDEX_LEAF) ||
+               (Leaf->Signature == CM_KEY_FAST_LEAF));
         ASSERT(Leaf->Count != 0);
 
-        CanCell = Leaf->List[Leaf->Count-1];
-        Result = CmpDoCompareKeyName(Hive, SearchName, CanCell);
+        Result = CmpCompareInIndex(Hive,
+                                   SearchName,
+                                   Leaf->Count-1,
+                                   Leaf,
+                                   Child);
 
         if (Result == 0) {
 
@@ -317,8 +348,11 @@ Return Value:
             //
             // SearchName < KeyName, so this may still be our leaf
             //
-            CanCell = Leaf->List[0];
-            Result = CmpDoCompareKeyName(Hive, SearchName, CanCell);
+            Result = CmpCompareInIndex(Hive,
+                                       SearchName,
+                                       0,
+                                       Leaf,
+                                       Child);
 
             if (Result >= 0) {
 
@@ -350,10 +384,14 @@ Return Value:
     //
     // If we get here, High - Low = 1 or High == Low
     //
+    ASSERT((High - Low == 1) || (High == Low));
     LeafCell = Index->List[Low];
     Leaf = (PCM_KEY_INDEX)HvGetCell(Hive, LeafCell);
-    CanCell = Leaf->List[Leaf->Count-1];
-    Result = CmpDoCompareKeyName(Hive, SearchName, CanCell);
+    Result = CmpCompareInIndex(Hive,
+                               SearchName,
+                               Leaf->Count-1,
+                               Leaf,
+                               Child);
 
     if (Result == 0) {
 
@@ -369,8 +407,11 @@ Return Value:
         //
         // SearchName < KeyName, so this may still be our leaf
         //
-        CanCell = Leaf->List[0];
-        Result = CmpDoCompareKeyName(Hive, SearchName, CanCell);
+        Result = CmpCompareInIndex(Hive,
+                                   SearchName,
+                                   0,
+                                   Leaf,
+                                   Child);
 
         if (Result >= 0) {
 
@@ -396,9 +437,11 @@ Return Value:
     //
     LeafCell = Index->List[High];
     Leaf = (PCM_KEY_INDEX)HvGetCell(Hive, LeafCell);
-    CanCell = Leaf->List[Leaf->Count-1];
-    Result = CmpDoCompareKeyName(Hive, SearchName, CanCell);
-
+    Result = CmpCompareInIndex(Hive,
+                               SearchName,
+                               Leaf->Count - 1,
+                               Leaf,
+                               Child);
     if (Result == 0) {
 
         //
@@ -432,6 +475,7 @@ ULONG
 CmpFindSubKeyInLeaf(
     PHHIVE          Hive,
     PCM_KEY_INDEX   Index,
+    ULONG           HintIndex,
     PUNICODE_STRING SearchName,
     PHCELL_INDEX    Child
     )
@@ -439,13 +483,16 @@ CmpFindSubKeyInLeaf(
 
 Routine Description:
 
-    Find a named key in a leaf index, if it exists.
+    Find a named key in a leaf index, if it exists. The supplied index
+    may be either a fast index or a slow one.
 
 Arguments:
 
     Hive - pointer to hive control structure for hive of interest
 
     Index - pointer to leaf block
+
+    HintIndex - Supplies hint for first key to check.
 
     SearchName - pointer to name of key of interest
 
@@ -463,7 +510,6 @@ Return Value:
     ULONG       High;
     ULONG       Low;
     ULONG       CanCount;
-    HCELL_INDEX CanCell;
     LONG        Result;
 
     CMLOG(CML_MAJOR, CMS_INDEX) {
@@ -471,11 +517,16 @@ Return Value:
         KdPrint(("Hive=%08lx Index=%08lx SearchName=%08lx\n",Hive,Index,SearchName));
     }
 
-
-    ASSERT(Index->Signature == CM_KEY_INDEX_LEAF);
+    ASSERT((Index->Signature == CM_KEY_INDEX_LEAF) ||
+           (Index->Signature == CM_KEY_FAST_LEAF));
 
     High = Index->Count - 1;
     Low = 0;
+    if (HintIndex < High) {
+        CanCount = HintIndex;
+    } else {
+        CanCount = High/2;
+    }
 
     if (Index->Count == 0) {
         *Child = HCELL_NIL;
@@ -487,16 +538,17 @@ Return Value:
         //
         // Compute where to look next, get correct pointer, do compare
         //
-        CanCount = ((High-Low)/2)+Low;
-        CanCell = Index->List[CanCount];
-        Result = CmpDoCompareKeyName(Hive, SearchName, CanCell);
+        Result = CmpCompareInIndex(Hive,
+                                   SearchName,
+                                   CanCount,
+                                   Index,
+                                   Child);
 
         if (Result == 0) {
 
             //
             // SearchName == KeyName
             //
-            *Child = CanCell;
             return CanCount;
         }
 
@@ -518,21 +570,23 @@ Return Value:
         if ((High - Low) <= 1) {
             break;
         }
+        CanCount = ((High-Low)/2)+Low;
     }
 
     //
     // If we get here, High - Low = 1 or High == Low
     // Simply look first at Low, then at High
     //
-    CanCell = Index->List[Low];
-    Result = CmpDoCompareKeyName(Hive, SearchName, CanCell);
-
+    Result = CmpCompareInIndex(Hive,
+                               SearchName,
+                               Low,
+                               Index,
+                               Child);
     if (Result == 0) {
 
         //
         // found it
         //
-        *Child = CanCell;
         return Low;
     }
 
@@ -541,32 +595,126 @@ Return Value:
         //
         // does not exist, under
         //
-        *Child = HCELL_NIL;
         return Low;
     }
 
     //
-    // see if High matches
+    // see if High matches, we will return High as the
+    // closest key regardless.
     //
-    CanCell = Index->List[High];
-    Result = CmpDoCompareKeyName(Hive, SearchName, CanCell);
+    Result = CmpCompareInIndex(Hive,
+                               SearchName,
+                               High,
+                               Index,
+                               Child);
+    return High;
+}
 
-    if (Result == 0) {
+
+LONG
+CmpCompareInIndex(
+    PHHIVE          Hive,
+    PUNICODE_STRING SearchName,
+    ULONG           Count,
+    PCM_KEY_INDEX   Index,
+    PHCELL_INDEX    Child
+    )
+/*++
+
+Routine Description:
+
+    Do a compare of a name in an index. This routine handles both
+    fast leafs and slow ones.
+
+Arguments:
+
+    Hive - pointer to hive control structure for hive of interest
+
+    SearchName - pointer to name of key we are searching for
+
+    Count - supplies index that we are searching at.
+
+    Index - Supplies pointer to either a CM_KEY_INDEX or
+            a CM_KEY_FAST_INDEX. This routine will determine which
+            type of index it is passed.
+
+    Child - pointer to variable to receive hcell_index of found key
+            HCELL_NIL if result != 0
+
+Return Value:
+
+    0 = SearchName == KeyName (of Cell)
+
+    < 0 = SearchName < KeyName
+
+    > 0 = SearchName > KeyName
+
+--*/
+{
+    PCM_KEY_FAST_INDEX FastIndex;
+    LONG Result;
+    ULONG i;
+    WCHAR c1;
+    WCHAR c2;
+    ULONG HintLength;
+    ULONG ValidChars;
+    ULONG NameLength;
+    PCM_INDEX Hint;
+
+    *Child = HCELL_NIL;
+    if (Index->Signature == CM_KEY_FAST_LEAF) {
+        FastIndex = (PCM_KEY_FAST_INDEX)Index;
+        Hint = &FastIndex->List[Count];
 
         //
-        // found it
+        // Compute the number of valid characters in the hint to compare.
         //
-        *Child = CanCell;
-        return High;
+        HintLength = 4;
+        for (i=0;i<4;i++) {
+            if (Hint->NameHint[i] == 0) {
+                HintLength = i;
+                break;
+            }
+        }
+        NameLength = SearchName->Length / sizeof(WCHAR);
+        if (NameLength < HintLength) {
+            ValidChars = NameLength;
+        } else {
+            ValidChars = HintLength;
+        }
+        for (i=0; i<ValidChars; i++) {
+            c1 = SearchName->Buffer[i];
+            c2 = FastIndex->List[Count].NameHint[i];
+            Result = (LONG)RtlUpcaseUnicodeChar(c1) -
+                     (LONG)RtlUpcaseUnicodeChar(c2);
+            if (Result != 0) {
 
+                //
+                // We have found a mismatched character in the hint,
+                // we can now tell which direction to go.
+                //
+                return(Result);
+            }
+        }
+
+        //
+        // We have compared all the available characters without a
+        // discrepancy. Go ahead and do the actual comparison now.
+        //
+        Result = CmpDoCompareKeyName(Hive,SearchName,FastIndex->List[Count].Cell);
+        if (Result == 0) {
+            *Child = Hint->Cell;
+        }
     } else {
-
         //
-        // does not exist
+        // This is just a normal old slow index.
         //
-        *Child = HCELL_NIL;
-        return High;
+        Result = CmpDoCompareKeyName(Hive,SearchName,Index->List[Count]);
+        if (Result == 0) {
+            *Child = Index->List[Count];
+        }
     }
+    return(Result);
 }
 
 
@@ -622,7 +770,7 @@ Return Value:
 HCELL_INDEX
 CmpFindSubKeyByNumber(
     PHHIVE          Hive,
-    HCELL_INDEX     Parent,
+    PCM_KEY_NODE    Node,
     ULONG           Number
     )
 /*++
@@ -635,7 +783,7 @@ Arguments:
 
     Hive - pointer to hive control structure for hive of interest
 
-    Parent - cell of key body which is parent of child of interest
+    Node - pointer to key body which is parent of child of interest
 
     Number - ordinal of child key to return
 
@@ -645,23 +793,19 @@ Return Value:
 
 --*/
 {
-    PCM_KEY_NODE    pparent;
     PCM_KEY_INDEX   Index;
 
     CMLOG(CML_MAJOR, CMS_INDEX) {
         KdPrint(("CmpFindSubKeyByNumber:\n\t"));
-        KdPrint(("Hive=%08lx Parent=%08lx Number=%08lx\n",Hive,Parent,Number));
+        KdPrint(("Hive=%08lx Node=%08lx Number=%08lx\n",Hive,Node,Number));
     }
 
-
-    pparent = (PCM_KEY_NODE)HvGetCell(Hive, Parent);
-
-    if (Number < pparent->SubKeyCounts[Stable]) {
+    if (Number < Node->SubKeyCounts[Stable]) {
 
         //
         // It's in the stable set
         //
-        Index = (PCM_KEY_INDEX)HvGetCell(Hive, pparent->SubKeyLists[Stable]);
+        Index = (PCM_KEY_INDEX)HvGetCell(Hive, Node->SubKeyLists[Stable]);
         return (CmpDoFindSubKeyByNumber(Hive, Index, Number));
 
     } else if (Hive->StorageTypeCount > Volatile) {
@@ -669,10 +813,10 @@ Return Value:
         //
         // It's in the volatile set
         //
-        Number = Number - pparent->SubKeyCounts[Stable];
-        if (Number < pparent->SubKeyCounts[Volatile]) {
+        Number = Number - Node->SubKeyCounts[Stable];
+        if (Number < Node->SubKeyCounts[Volatile]) {
 
-            Index = (PCM_KEY_INDEX)HvGetCell(Hive, pparent->SubKeyLists[Volatile]);
+            Index = (PCM_KEY_INDEX)HvGetCell(Hive, Node->SubKeyLists[Volatile]);
             return (CmpDoFindSubKeyByNumber(Hive, Index, Number));
 
         }
@@ -715,6 +859,7 @@ Return Value:
     ULONG           i;
     HCELL_INDEX     LeafCell;
     PCM_KEY_INDEX   Leaf;
+    PCM_KEY_FAST_INDEX FastIndex;
 
     if (Index->Signature == CM_KEY_INDEX_ROOT) {
         //
@@ -724,7 +869,12 @@ Return Value:
             LeafCell = Index->List[i];
             Leaf = (PCM_KEY_INDEX)HvGetCell(Hive, LeafCell);
             if (Number < Leaf->Count) {
-                return (Leaf->List[Number]);
+                if (Leaf->Signature == CM_KEY_FAST_LEAF) {
+                    FastIndex = (PCM_KEY_FAST_INDEX)Leaf;
+                    return (FastIndex->List[Number].Cell);
+                } else {
+                    return (Leaf->List[Number]);
+                }
             } else {
                 Number = Number - Leaf->Count;
             }
@@ -732,7 +882,12 @@ Return Value:
         ASSERT(FALSE);
     }
     ASSERT(Number < Index->Count);
-    return (Index->List[Number]);
+    if (Index->Signature == CM_KEY_FAST_LEAF) {
+        FastIndex = (PCM_KEY_FAST_INDEX)Index;
+        return(FastIndex->List[Number].Cell);
+    } else {
+        return (Index->List[Number]);
+    }
 }
 
 
@@ -771,12 +926,14 @@ Return Value:
     PCM_KEY_NODE    pcell;
     HCELL_INDEX     WorkCell;
     PCM_KEY_INDEX   Index;
+    PCM_KEY_FAST_INDEX FastIndex;
     UNICODE_STRING  NewName;
     HCELL_INDEX     LeafCell;
     PHCELL_INDEX    RootPointer = NULL;
     ULONG           cleanup = 0;
     ULONG           Type;
     BOOLEAN         IsCompressed;
+    ULONG           i;
 
     CMLOG(CML_MAJOR, CMS_INDEX) {
         KdPrint(("CmpAddSubKey:\n\t"));
@@ -812,26 +969,39 @@ Return Value:
 
     if (pcell->SubKeyCounts[Type] == 0) {
 
+        ULONG Signature;
+
         //
         // we must allocate a leaf
         //
-        WorkCell = HvAllocateCell(Hive, sizeof(CM_KEY_INDEX), Type);
+        WorkCell = HvAllocateCell(Hive, sizeof(CM_KEY_FAST_INDEX), Type);
         if (WorkCell == HCELL_NIL) {
             goto ErrorExit;
         }
-
         Index = (PCM_KEY_INDEX)HvGetCell(Hive, WorkCell);
-        Index->Signature = CM_KEY_INDEX_LEAF;
+        Index->Signature = UseFastIndex(Hive) ? CM_KEY_FAST_LEAF : CM_KEY_INDEX_LEAF;
         Index->Count = 0;
         pcell->SubKeyLists[Type] = WorkCell;
         cleanup = 1;
-
     } else {
 
         Index = (PCM_KEY_INDEX)HvGetCell(Hive, pcell->SubKeyLists[Type]);
-        if ((Index->Signature == CM_KEY_INDEX_LEAF) &&
-            (Index->Count >= (CM_MAX_INDEX - 1) ))
-        {
+        if ((Index->Signature == CM_KEY_FAST_LEAF) &&
+            (Index->Count >= (CM_MAX_FAST_INDEX))) {
+
+            //
+            // We must change fast index to a slow index to accomodate
+            // growth.
+            //
+
+            FastIndex = (PCM_KEY_FAST_INDEX)Index;
+            for (i=0; i<Index->Count; i++) {
+                Index->List[i] = FastIndex->List[i].Cell;
+            }
+            Index->Signature = CM_KEY_INDEX_LEAF;
+
+        } else if ((Index->Signature == CM_KEY_INDEX_LEAF) &&
+                   (Index->Count >= (CM_MAX_INDEX - 1) )) {
             //
             // We must change flat entry to a root/leaf tree
             //
@@ -857,7 +1027,7 @@ Return Value:
 
     //
     // LeafCell is target for add, or perhaps root
-    // Index is pointer to flat Leaf or Root, whichever applies
+    // Index is pointer to fast leaf, slow Leaf or Root, whichever applies
     //
     if (Index->Signature == CM_KEY_INDEX_ROOT) {
         LeafCell = CmpSelectLeaf(Hive, pcell, &NewName, Type, &RootPointer);
@@ -924,7 +1094,8 @@ CmpAddToLeaf(
 
 Routine Description:
 
-    Insert a new subkey into a Leaf index.
+    Insert a new subkey into a Leaf index. Supports both fast and slow
+    leaf indexes and will determine which sort of index the given leaf is.
 
     NOTE:   We expect Root to already be marked dirty by caller if non NULL.
             We expect Leaf to always be marked dirty by caller.
@@ -949,6 +1120,7 @@ Return Value:
 --*/
 {
     PCM_KEY_INDEX   Leaf;
+    PCM_KEY_FAST_INDEX FastLeaf;
     ULONG           Size;
     ULONG           OldSize;
     ULONG           freecount;
@@ -956,13 +1128,13 @@ Return Value:
     HCELL_INDEX     Child;
     ULONG           Select;
     LONG            Result;
-
+    ULONG           EntrySize;
+    ULONG           i;
 
     CMLOG(CML_MAJOR, CMS_INDEX) {
         KdPrint(("CmpAddToLeaf:\n\t"));
         KdPrint(("Hive=%08lx LeafCell=%08lx NewKey=%08lx\n",Hive,LeafCell,NewKey));
     }
-
 
     if (!HvMarkCellDirty(Hive, LeafCell)) {
         return HCELL_NIL;
@@ -972,10 +1144,18 @@ Return Value:
     // compute number free slots left in the leaf
     //
     Leaf = (PCM_KEY_INDEX)HvGetCell(Hive, LeafCell);
+    if (Leaf->Signature == CM_KEY_INDEX_LEAF) {
+        FastLeaf = NULL;
+        EntrySize = sizeof(HCELL_INDEX);
+    } else {
+        ASSERT(Leaf->Signature == CM_KEY_FAST_LEAF);
+        FastLeaf = (PCM_KEY_FAST_INDEX)Leaf;
+        EntrySize = sizeof(CM_INDEX);
+    }
     OldSize = HvGetCellSize(Hive, Leaf);
-    Size = OldSize - ((sizeof(HCELL_INDEX) * Leaf->Count) +
+    Size = OldSize - ((EntrySize * Leaf->Count) +
               FIELD_OFFSET(CM_KEY_INDEX, List));
-    freecount = Size / sizeof(HCELL_INDEX);
+    freecount = Size / EntrySize;
 
     //
     // grow the leaf if it isn't big enough
@@ -983,21 +1163,23 @@ Return Value:
     NewCell = LeafCell;
     if (freecount < 1) {
         Size = OldSize + OldSize / 2;
-        if (Size < (OldSize + sizeof(HCELL_INDEX))) {
-            Size = OldSize + sizeof(HCELL_INDEX);
+        if (Size < (OldSize + EntrySize)) {
+            Size = OldSize + EntrySize;
         }
         NewCell = HvReallocateCell(Hive, LeafCell, Size);
         if (NewCell == HCELL_NIL) {
             return HCELL_NIL;
         }
         Leaf = (PCM_KEY_INDEX)HvGetCell(Hive, NewCell);
-
+        if (FastLeaf != NULL) {
+            FastLeaf = (PCM_KEY_FAST_INDEX)Leaf;
+        }
     }
 
     //
     // Find where to put the new entry
     //
-    Select = CmpFindSubKeyInLeaf(Hive, Leaf, NewName, &Child);
+    Select = CmpFindSubKeyInLeaf(Hive, Leaf, (ULONG)-1, NewName, &Child);
     ASSERT(Child == HCELL_NIL);
 
     //
@@ -1009,7 +1191,11 @@ Return Value:
     //
     if (Select != Leaf->Count) {
 
-        Result = CmpDoCompareKeyName(Hive, NewName, Leaf->List[Select]);
+        Result = CmpCompareInIndex(Hive,
+                                   NewName,
+                                   Select,
+                                   Leaf,
+                                   &Child);
         ASSERT(Result != 0);
 
         //
@@ -1025,14 +1211,43 @@ Return Value:
             //
             // ripple copy to make space and insert
             //
-            RtlMoveMemory(
-                (PVOID)&(Leaf->List[Select+1]),
-                (PVOID)&(Leaf->List[Select]),
-                sizeof(HCELL_INDEX)*(Leaf->Count - Select)
-                );
+
+            if (FastLeaf != NULL) {
+                RtlMoveMemory((PVOID)&(FastLeaf->List[Select+1]),
+                              (PVOID)&(FastLeaf->List[Select]),
+                              sizeof(CM_INDEX)*(FastLeaf->Count - Select));
+            } else {
+                RtlMoveMemory((PVOID)&(Leaf->List[Select+1]),
+                              (PVOID)&(Leaf->List[Select]),
+                              sizeof(HCELL_INDEX)*(Leaf->Count - Select));
+            }
         }
     }
-    Leaf->List[Select] = NewKey;
+    if (FastLeaf != NULL) {
+        FastLeaf->List[Select].Cell = NewKey;
+        FastLeaf->List[Select].NameHint[0] = 0;
+        FastLeaf->List[Select].NameHint[1] = 0;
+        FastLeaf->List[Select].NameHint[2] = 0;
+        FastLeaf->List[Select].NameHint[3] = 0;
+        if (NewName->Length/sizeof(WCHAR) < 4) {
+            i = NewName->Length/sizeof(WCHAR);
+        } else {
+            i = 4;
+        }
+        do {
+            if ((USHORT)NewName->Buffer[i-1] > (UCHAR)-1) {
+                //
+                // Can't compress this name. Leave NameHint[0]==0
+                // to force the name to be looked up in the key.
+                //
+                break;
+            }
+            FastLeaf->List[Select].NameHint[i-1] = (UCHAR)NewName->Buffer[i-1];
+            i--;
+        } while ( i>0 );
+    } else {
+        Leaf->List[Select] = NewKey;
+    }
     Leaf->Count += 1;
     return NewCell;
 }
@@ -1446,7 +1661,6 @@ Return Value:
         SearchName.Buffer = &(pcell->Name[0]);
     }
 
-
     pcell = (PCM_KEY_NODE)HvGetCell(Hive, ParentKey);
 
     for (i = 0; i < Hive->StorageTypeCount; i++) {
@@ -1475,9 +1689,10 @@ Return Value:
                 IndexCell = Child;
                 Index = (PCM_KEY_INDEX)HvGetCell(Hive, Child);
             }
-            ASSERT(Index->Signature == CM_KEY_INDEX_LEAF);
+            ASSERT((Index->Signature == CM_KEY_INDEX_LEAF) ||
+                   (Index->Signature == CM_KEY_FAST_LEAF));
 
-            CmpFindSubKeyInLeaf(Hive, Index, &SearchName, &Child);
+            CmpFindSubKeyInLeaf(Hive, Index, pcell->WorkVar, &SearchName, &Child);
             if (Child != HCELL_NIL) {
                 if (IsCompressed) {
                     (Hive->Free)(SearchName.Buffer, SearchName.Length);
@@ -1527,6 +1742,7 @@ Return Value:
     PCM_KEY_NODE    pcell;
     HCELL_INDEX     LeafCell;
     PCM_KEY_INDEX   Leaf;
+    PCM_KEY_FAST_INDEX FastIndex;
     HCELL_INDEX     RootCell = HCELL_NIL;
     PCM_KEY_INDEX   Root = NULL;
     HCELL_INDEX     Child;
@@ -1535,15 +1751,20 @@ Return Value:
     ULONG           LeafSelect;
     UNICODE_STRING  SearchName;
     BOOLEAN         IsCompressed;
+    WCHAR           CompressedBuffer[50];
 
     pcell = (PCM_KEY_NODE)HvGetCell(Hive, TargetKey);
     if (pcell->Flags & KEY_COMP_NAME) {
         IsCompressed = TRUE;
         SearchName.Length = CmpCompressedNameSize(pcell->Name, pcell->NameLength);
         SearchName.MaximumLength = SearchName.Length;
-        SearchName.Buffer = (Hive->Allocate)(SearchName.Length, FALSE);
-        if (SearchName.Buffer==NULL) {
-            return(FALSE);
+        if (SearchName.MaximumLength > sizeof(CompressedBuffer)) {
+            SearchName.Buffer = (Hive->Allocate)(SearchName.Length, FALSE);
+            if (SearchName.Buffer==NULL) {
+                return(FALSE);
+            }
+        } else {
+            SearchName.Buffer = CompressedBuffer;
         }
         CmpCopyCompressedName(SearchName.Buffer,
                               SearchName.MaximumLength,
@@ -1577,9 +1798,10 @@ Return Value:
 
     }
 
-    ASSERT(Leaf->Signature == CM_KEY_INDEX_LEAF);
+    ASSERT((Leaf->Signature == CM_KEY_INDEX_LEAF) ||
+           (Leaf->Signature == CM_KEY_FAST_LEAF));
 
-    LeafSelect = CmpFindSubKeyInLeaf(Hive, Leaf, &SearchName, &Child);
+    LeafSelect = CmpFindSubKeyInLeaf(Hive, Leaf, pcell->WorkVar, &SearchName, &Child);
 
     ASSERT(Child != HCELL_NIL);
 
@@ -1633,19 +1855,24 @@ Return Value:
 
     } else if (LeafSelect < (ULONG)(Leaf->Count)) {
 
-        RtlMoveMemory(
-            (PVOID)&(Leaf->List[LeafSelect]),
-            (PVOID)&(Leaf->List[LeafSelect+1]),
-            (Leaf->Count - LeafSelect) * sizeof(HCELL_INDEX)
-            );
+        if (Leaf->Signature == CM_KEY_INDEX_LEAF) {
+            RtlMoveMemory((PVOID)&(Leaf->List[LeafSelect]),
+                          (PVOID)&(Leaf->List[LeafSelect+1]),
+                          (Leaf->Count - LeafSelect) * sizeof(HCELL_INDEX));
+        } else {
+            FastIndex = (PCM_KEY_FAST_INDEX)Leaf;
+            RtlMoveMemory((PVOID)&(FastIndex->List[LeafSelect]),
+                          (PVOID)&(FastIndex->List[LeafSelect+1]),
+                          (FastIndex->Count - LeafSelect) * sizeof(CM_INDEX));
+        }
     }
     //
     // Else LeafSelect == last entry, so decrementing count was enough
     //
 
-    if (IsCompressed) {
+    if ((IsCompressed) &&
+        (SearchName.MaximumLength > sizeof(CompressedBuffer))) {
         (Hive->Free)(SearchName.Buffer, SearchName.Length);
     }
-
     return TRUE;
 }

@@ -1,89 +1,28 @@
-//-------------------------- MODULE DESCRIPTION ----------------------------
-//
-//  dlog_lm.c
-//
-//  Copyright 1992 Technology Dynamics, Inc.
-//
-//  All Rights Reserved!!!
-//
-//	This source code is CONFIDENTIAL and PROPRIETARY to Technology
-//	Dynamics. Unauthorized distribution, adaptation or use may be
-//	subject to civil and criminal penalties.
-//
-//  All Rights Reserved!!!
-//
-//---------------------------------------------------------------------------
-//
-//  This file contains MIB_dlog_lmget, which actually call lan manager
-//  for the dloge table, copies it into structures, and sorts it to
-//  return ready to use by the higher level functions.
-//
-//  Project:  Implementation of an SNMP Agent for Microsoft's NT Kernel
-//
-//  $Revision:   1.10  $
-//  $Date:   03 Jul 1992 13:20:38  $
-//  $Author:   ChipS  $
-//
-//  $Log:   N:/lmmib2/vcs/dlog_lm.c_v  $
-//
-//     Rev 1.10   03 Jul 1992 13:20:38   ChipS
-//  Final Unicode Changes
-//
-//     Rev 1.9   03 Jul 1992 12:18:44   ChipS
-//  Enable Unicode
-//
-//     Rev 1.8   15 Jun 1992 17:33:00   ChipS
-//  Initialize resumehandle
-//
-//     Rev 1.7   13 Jun 1992 11:05:54   ChipS
-//  Fix a problem with Enum resumehandles.
-//
-//     Rev 1.6   07 Jun 1992 17:16:12   ChipS
-//  Turn off unicode.
-//
-//     Rev 1.5   07 Jun 1992 16:11:56   ChipS
-//  Fix cast problem
-//
-//     Rev 1.4   07 Jun 1992 15:53:20   ChipS
-//  Fix include file order
-//
-//     Rev 1.3   07 Jun 1992 15:21:46   ChipS
-//  Initial unicode changes
-//
-//     Rev 1.2   01 Jun 1992 12:35:24   todd
-//  Added 'dynamic' field to octet string
-//
-//     Rev 1.1   21 May 1992 15:42:42   todd
-//  Added return codes to lmget
-//
-//     Rev 1.0   20 May 1992 15:10:20   mlk
-//  Initial revision.
-//
-//     Rev 1.5   03 May 1992 16:56:32   Chip
-//  No change.
-//
-//     Rev 1.4   02 May 1992 19:07:50   todd
-//  code cleanup
-//
-//     Rev 1.3   01 May 1992 15:41:20   Chip
-//  Get rid of warnings.
-//
-//     Rev 1.2   30 Apr 1992 23:54:46   Chip
-//  No change.
-//
-//     Rev 1.1   30 Apr 1992  9:57:22   Chip
-//  No change.
-//
-//     Rev 1.0   29 Apr 1992 11:17:50   Chip
-//  Initial revision.
-//
-//
-//---------------------------------------------------------------------------
+/*++
 
-//--------------------------- VERSION INFO ----------------------------------
+Copyright (c) 1992-1996  Microsoft Corporation
 
-static char *vcsid = "@(#) $Logfile:   N:/lmmib2/vcs/dlog_lm.c_v  $ $Revision:   1.10  $";
+Module Name:
 
+    dlog_lm.c
+
+Abstract:
+
+    This file contains MIB_dlog_lmget, which actually call lan manager
+    for the dloge table, copies it into structures, and sorts it to
+    return ready to use by the higher level functions.
+
+Environment:
+
+    User Mode - Win32
+
+Revision History:
+
+    10-May-1996 DonRyan
+        Removed banner from Technology Dynamics, Inc.
+
+--*/
+ 
 //--------------------------- WINDOWS DEPENDENCIES --------------------------
 
 //--------------------------- STANDARD DEPENDENCIES -- #include<xxxxx.h> ----
@@ -98,7 +37,6 @@ static char *vcsid = "@(#) $Logfile:   N:/lmmib2/vcs/dlog_lm.c_v  $ $Revision:  
 #include <lm.h>
 #endif
 
-#include <malloc.h>
 #include <string.h>
 #include <search.h>
 #include <stdlib.h>
@@ -131,7 +69,7 @@ void build_dlog_entry_oids( );
 //--------------------------- PRIVATE PROCEDURES ----------------------------
 
 #ifdef UNICODE
-#define Tstrlen strlen_W
+#define Tstrlen SnmpUtilStrlenW
 #else
 #define Tstrlen strlen
 #endif
@@ -194,7 +132,7 @@ DWORD resumehandle=0;
     	NetShareEnum(NULL,          // local server
                 2,                  // level 2,
                 &bufptr,            // data structure to return
-                4096,
+                MAX_PREFERRED_LENGTH,
                 &entriesread,
                 &totalentries,
                 &resumehandle       //  resume handle
@@ -213,7 +151,7 @@ DWORD resumehandle=0;
    	
    	if(0 == MIB_DomLogonTable.Len) {  // 1st time, alloc the whole table
    		// alloc the table space
-   		MIB_DomLogonTable.Table = malloc(totalentries *
+                MIB_DomLogonTable.Table = SnmpUtilMemAlloc(totalentries *
    						sizeof(DOM_LOGON_ENTRY) );
    	}
 	
@@ -227,7 +165,7 @@ DWORD resumehandle=0;
    		// Stuff the data into each item in the table
    		
    		// dloge name
-   		MIB_DomLogonTableElement->svShareName.stream = malloc (
+                MIB_DomLogonTableElement->svShareName.stream = SnmpUtilMemAlloc (
    				strlen( DataTable->shi2_netname ) ) ;
    		MIB_DomLogonTableElement->svShareName.length =
    				strlen( DataTable->shi2_netname ) ;
@@ -237,7 +175,7 @@ DWORD resumehandle=0;
    			strlen( DataTable->shi2_netname ) ) ;
    		
    		// Share Path
-   		MIB_DomLogonTableElement->svSharePath.stream = malloc (
+                MIB_DomLogonTableElement->svSharePath.stream = SnmpUtilMemAlloc (
    				strlen( DataTable->shi2_path ) ) ;
    		MIB_DomLogonTableElement->svSharePath.length =
    				strlen( DataTable->shi2_path ) ;
@@ -248,7 +186,7 @@ DWORD resumehandle=0;
    		
    		
    		// Share Comment/Remark
-   		MIB_DomLogonTableElement->svShareComment.stream = malloc (
+                MIB_DomLogonTableElement->svShareComment.stream = SnmpUtilMemAlloc (
    				strlen( DataTable->shi2_remark ) ) ;
    		MIB_DomLogonTableElement->svShareComment.length =
    				strlen( DataTable->shi2_remark ) ;
@@ -295,8 +233,8 @@ DWORD resumehandle=0;
    //
    //
 
-#endif
 Exit:
+#endif
    return nResult;
 
 } // MIB_dlog_get
@@ -321,7 +259,7 @@ int dlog_entry_cmp(
 
 {
    // Compare the OID's
-   return SNMP_oidcmp( &A->Oid, &B->Oid );
+   return SnmpUtilOidCmp( &A->Oid, &B->Oid );
 } // MIB_dlog_cmp
 
 
@@ -362,4 +300,3 @@ for( i=0; i<MIB_DomLogonTable.Len ; i++)  {
 #endif
 } // build_dlog_entry_oids
 //-------------------------------- END --------------------------------------
-

@@ -238,7 +238,8 @@ Return Value:
                                pTracker,
                                NULL,NULL,NULL,
                                0,0,
-                               eNAME_QUERY);
+                               eNAME_QUERY,
+                               TRUE);
 
        DereferenceTracker(pTracker);
        pTimerQEntry->Flags |= TIMER_RESTART;
@@ -279,4 +280,3 @@ Return Value:
 }
 
 #endif
-

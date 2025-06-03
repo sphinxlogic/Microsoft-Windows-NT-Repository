@@ -817,22 +817,27 @@ endif
         mov     es,cx                   ;   use ES to get at local vars
         assumes es,nothing
 
-        test    ax,DCB_NOSWITCH         ; should we switch stacks?
-        jnz     dcb_on_stack
+;**************************************************************************-;
+;   We won't switch stacks on WOW since DPMI does this for us. Win 3.1
+;   would only switch stacks in Standard mode which we no longer support.
+;**************************************************************************-;
 
-        call    StackEnter              ; switch to new stack
+;        test    ax,DCB_NOSWITCH         ; should we switch stacks?
+;        jnz     dcb_on_stack
+
+;        call    StackEnter              ; switch to new stack
 
 ;**************************************************************************-;
 ;   determine the type of the callback, dwCallback is either a FARPROC, HWND
 ;   or HTASK depending on the value of fCallback
 ;**************************************************************************-;
 dcb_on_stack:
-
                                         ;
+        pushf                           ; Save the interrupt flag state
         FSTI                            ; ** Enable interrupts here **
                                         ;
 
-        push    ax                      ; save flags for StackLeave test
+;        push    ax                      ; save flags for StackLeave test
 
         and     ax,DCB_TYPEMASK         ; mask out the type bits
 
@@ -927,13 +932,14 @@ dcb_valid_callback:
 
 dcb_exit:
                                             ;
-        FCLI                                ; ** Disable interrupts here **
+        popf                                ; ** restore the interrupt flag **
                                             ;
-        pop     bx                          ; restore flags
-        test    bx,DCB_NOSWITCH             ; should we switch back?
-        jnz     dcb_exit_now
 
-        call    StackLeave                  ; return to previous stack
+;        pop     bx                          ; restore flags
+;        test    bx,DCB_NOSWITCH             ; should we switch back?
+;        jnz     dcb_exit_now
+
+;        call    StackLeave                  ; return to previous stack
         errn$   dcb_exit_now
 
 dcb_exit_now:

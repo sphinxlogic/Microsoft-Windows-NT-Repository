@@ -428,11 +428,10 @@ Return Value:
         // the loopback links (NbfFindLink won't find those).
         //
 
-        if (RtlCompareMemory(
+        if (RtlEqualMemory(
                HardwareAddress->Address,
                DeviceContext->LocalAddress.Address,
-               DeviceContext->MacInfo.AddressLength)
-                   == DeviceContext->MacInfo.AddressLength) {
+               DeviceContext->MacInfo.AddressLength)) {
 
             Link = DeviceContext->LoopbackLinks[LoopbackLinkIndex];
 
@@ -554,6 +553,8 @@ Return Value:
     }
 
     ++DeviceContext->LinkInUse;
+    ASSERT(DeviceContext->LinkInUse > 0);
+
     if (DeviceContext->LinkInUse > DeviceContext->LinkMaxInUse) {
         ++DeviceContext->LinkMaxInUse;
     }
@@ -743,11 +744,10 @@ Return Value:
     // Determine if this is a loopback link.
     //
 
-    if (RtlCompareMemory(
+    if (RtlEqualMemory(
             HardwareAddress->Address,
             DeviceContext->LocalAddress.Address,
-            DeviceContext->MacInfo.AddressLength)
-                == DeviceContext->MacInfo.AddressLength) {
+            DeviceContext->MacInfo.AddressLength)) {
 
         //
         // Yes, just fill it in, no need to do deferred processing
@@ -785,15 +785,28 @@ Return Value:
 
         ASSERT ((Link->DeferredFlags & LINK_FLAGS_DEFERRED_MASK) == 0);
 
-        Link->DeferredFlags |= LINK_FLAGS_DEFERRED_ADD;
+        ACQUIRE_DPC_SPIN_LOCK (&DeviceContext->LinkSpinLock);
         ACQUIRE_DPC_SPIN_LOCK (&DeviceContext->TimerSpinLock);
-        InsertTailList (&DeviceContext->LinkDeferred, &Link->DeferredList);
-        if (!(DeviceContext->a.i.LinkDeferredActive)) {
-            StartTimerLinkDeferredAdd++;
-            NbfStartShortTimer (DeviceContext);
-            DeviceContext->a.i.LinkDeferredActive = TRUE;
+        if ((Link->DeferredFlags & LINK_FLAGS_DEFERRED_DELETE) == 0) {
+            Link->DeferredFlags |= LINK_FLAGS_DEFERRED_ADD;
+            InsertTailList (&DeviceContext->LinkDeferred, &Link->DeferredList);
+
+            if (!(DeviceContext->a.i.LinkDeferredActive)) {
+                StartTimerLinkDeferredAdd++;
+                NbfStartShortTimer (DeviceContext);
+                DeviceContext->a.i.LinkDeferredActive = TRUE;
+            }
         }
+        else {
+           Link->DeferredFlags = LINK_FLAGS_DEFERRED_ADD;
+            if (!(DeviceContext->a.i.LinkDeferredActive)) {
+                StartTimerLinkDeferredAdd++;
+                NbfStartShortTimer (DeviceContext);
+                DeviceContext->a.i.LinkDeferredActive = TRUE;
+            }
+        } 
         RELEASE_DPC_SPIN_LOCK (&DeviceContext->TimerSpinLock);
+        RELEASE_DPC_SPIN_LOCK (&DeviceContext->LinkSpinLock);
 
 
         IF_NBFDBG (NBF_DEBUG_TEARDOWN) {
@@ -938,7 +951,10 @@ Return Value:
 
     DeviceContext->LinkTotal += DeviceContext->LinkInUse;
     ++DeviceContext->LinkSamples;
+    ASSERT(DeviceContext->LinkInUse > 0);
     --DeviceContext->LinkInUse;
+
+    ASSERT(DeviceContext->LinkAllocated > DeviceContext->LinkInUse);
 
     if ((DeviceContext->LinkAllocated - DeviceContext->LinkInUse) >
             DeviceContext->LinkInitAllocated) {
@@ -1065,7 +1081,7 @@ Return Value:
 --*/
 
 {
-    INTERLOCKED_RESULT result;
+    LONG result;
 
     IF_NBFDBG (NBF_DEBUG_LINK) {
         NbfPrint2 ("NbfReferenceLink:  Entered for link %lx, current level=%ld.\n",
@@ -1076,11 +1092,9 @@ Return Value:
     StoreLinkHistory( TransportLink, TRUE );
 #endif
 
-    result = ExInterlockedIncrementLong (
-                 &TransportLink->ReferenceCount,
-                 TransportLink->ProviderInterlock);
+    result = InterlockedIncrement (&TransportLink->ReferenceCount);
 
-    if (result == ResultZero) {
+    if (result == 0) {
 
         //
         // The first increment causes us to increment the
@@ -1091,7 +1105,7 @@ Return Value:
 
     }
 
-    ASSERT (result != ResultNegative);
+    ASSERT (result >= 0);
 
 } /* NbfRefLink */
 #endif
@@ -1135,8 +1149,7 @@ Return Value:
 --*/
 
 {
-    INTERLOCKED_RESULT result;
-
+    LONG result;
 
     IF_NBFDBG (NBF_DEBUG_LINK) {
         NbfPrint2 ("NbfDereferenceLink:  Entered for link %lx, current level=%ld.\n",
@@ -1147,9 +1160,7 @@ Return Value:
     StoreLinkHistory( TransportLink, FALSE );
 #endif
 
-    result = ExInterlockedDecrementLong(
-                &TransportLink->ReferenceCount,
-                TransportLink->ProviderInterlock);
+    result = InterlockedDecrement(&TransportLink->ReferenceCount);
 
     //
     // If all the normal references to this link are gone, then
@@ -1158,7 +1169,7 @@ Return Value:
     //
 
 
-    if (result == ResultNegative) {
+    if (result < 0) {
 
         //
         // If the refcount is -1 we want to call DisconnectLink,
@@ -1776,9 +1787,7 @@ Return Value:
 
         if ((TransportConnection->Flags2 & CONNECTION_FLAGS2_CONNECTOR) != 0) {
 
-            (VOID)ExInterlockedDecrementLong(
-                &Link->NumberOfConnectors,
-                Link->ProviderInterlock);
+            (VOID)InterlockedDecrement(&Link->NumberOfConnectors);
         }
 
         //
@@ -2072,6 +2081,10 @@ Return Value:
 
 
     ACQUIRE_DPC_SPIN_LOCK (&Link->SpinLock);
+
+    StopT1 (Link);
+    StopT2 (Link);
+    StopTi (Link);
 
     p = RemoveHeadList (&Link->ConnectionDatabase);
 

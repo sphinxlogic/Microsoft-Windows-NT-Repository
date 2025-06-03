@@ -101,6 +101,9 @@
   void APIENTRY List_Init(void);
   /* MUST BE CALLED BEFORE ANY OF THE OTHER FUNCTIONS. Don't ask, just do it */
 
+  void APIENTRY List_Term(void);
+  /* Call at end of application (does some checking and resource freeing) */
+
   void APIENTRY List_Dump(LPSTR Header, LIST lst);
   /* Dump the internals to current output stream -- debug only */
 
@@ -225,6 +228,10 @@
                                        ;  curs!=NULL                      \
                                        ;  curs = List_Next((LPVOID)curs)  \
                                        )
+  #define List_REVERSETRAVERSE(lst, curs)  for(  curs=List_Last(lst)             \
+                                              ;  curs!=NULL                      \
+                                              ;  curs = List_Prev((LPVOID)curs)  \
+                                              )
 
   LPVOID APIENTRY List_First(LIST lst);
   /*------------------------------------------------------------------

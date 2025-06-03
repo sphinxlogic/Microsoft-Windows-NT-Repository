@@ -57,4 +57,3 @@ struct PDB
         BOOL            fCancel;
         BOOL            fRemove;
         };
-

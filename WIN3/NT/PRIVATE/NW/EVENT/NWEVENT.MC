@@ -49,44 +49,44 @@ SeverityNames=(Success=0x0:STATUS_SEVERITY_SUCCESS
 ;// first string.
 ;
 
-MessageId=8001  SymbolicName=EVENT_NWRDR_RESOURCE_SHORTAGE
+MessageId=8001  Severity=Error SymbolicName=EVENT_NWRDR_RESOURCE_SHORTAGE
 Language=English
 The Microsoft Client Service for NetWare redirector was unable to allocate memory.
 .
 
-MessageId=8002  SymbolicName=EVENT_NWRDR_CANT_CREATE_DEVICE
+MessageId=8002  Severity=Error SymbolicName=EVENT_NWRDR_CANT_CREATE_DEVICE
 Language=English
 The Microsoft Client Service for NetWare redirector could not create its device.  The redirector could not be started.
 .
 
-MessageId=8003  SymbolicName=EVENT_NWRDR_INVALID_REPLY
+MessageId=8003  Severity=Error SymbolicName=EVENT_NWRDR_INVALID_REPLY
 Language=English
 The Microsoft Client Service for NetWare redirector received an incorrectly formatted response from %2.
 .
 
-MessageId=8004  SymbolicName=EVENT_NWRDR_FAILED_UNLOCK
+MessageId=8004  Severity=Error SymbolicName=EVENT_NWRDR_FAILED_UNLOCK
 Language=English
 The Microsoft Client Service for NetWare redirector failed to unlock part of a file on server %2.
 .
 
-MessageId=8005  SymbolicName=EVENT_NWRDR_NETWORK_ERROR
+MessageId=8005  Severity=Error SymbolicName=EVENT_NWRDR_NETWORK_ERROR
 Language=English
 The Microsoft Client Service for NetWare redirector has encountered a network error.
 .
 
-MessageId=8006  SymbolicName=EVENT_NWRDR_UNEXPECTED_ERROR
+MessageId=8006  Severity=Error SymbolicName=EVENT_NWRDR_UNEXPECTED_ERROR
 Language=English
 An unexpected network error has occurred on the connection to %2.
 .
 
-MessageId=8007  SymbolicName=EVENT_NWRDR_TIMEOUT
+MessageId=8007  Severity=Warning SymbolicName=EVENT_NWRDR_TIMEOUT
 Language=English
-The Microsoft Client Service for NetWare redirector has timed out a request to %2.
+The Microsoft Client Service for NetWare redirector has timed out one or more requests to %2.
 .
 
-MessageId=8008  SymbolicName=EVENT_NWRDR_NO_SERVER_ON_NETWORK
+MessageId=8008  Severity=Error SymbolicName=EVENT_NWRDR_NO_SERVER_ON_NETWORK
 Language=English
-No NetWare server exists on this network.
+No NetWare or compatible server exists on this network.
 .
 
 
@@ -97,38 +97,38 @@ No NetWare server exists on this network.
 ;//
 ;/////////////////////////////////////////////////////////////////////////
 
-MessageId=9001 SymbolicName=EVENT_NWWKSTA_NO_TRANSPORTS
+MessageId=9001 Severity=Error SymbolicName=EVENT_NWWKSTA_NO_TRANSPORTS
 Language=English
 The Microsoft Client Service for NetWare could not start because it did not bind to any transports.
 .
 
-MessageId=9002 SymbolicName=EVENT_NWWKSTA_CANT_BIND_TO_TRANSPORT
+MessageId=9002 Severity=Error SymbolicName=EVENT_NWWKSTA_CANT_BIND_TO_TRANSPORT
 Language=English
 The Microsoft Client Service for NetWare could not bind to the transport %1.
 .
 
-MessageId=9003 SymbolicName=EVENT_NWWKSTA_INVALID_REGISTRY_VALUE
+MessageId=9003 Severity=Warning SymbolicName=EVENT_NWWKSTA_INVALID_REGISTRY_VALUE
 Language=English
 The value named %1 in the Microsoft Client Service for NetWare registry key %2 was invalid.  The value was
 ignored, and processing continued.
 .
 
-MessageId=9004 SymbolicName=EVENT_NWWKSTA_CANT_CREATE_REDIRECTOR
+MessageId=9004 Severity=Error SymbolicName=EVENT_NWWKSTA_CANT_CREATE_REDIRECTOR
 Language=English
 The Microsoft Client Service for NetWare redirector (%1) could not be started.
 .
 
-MessageId=9005 SymbolicName=EVENT_NWWKSTA_GATEWAY_LOGON_FAILED
+MessageId=9005 Severity=Error SymbolicName=EVENT_NWWKSTA_GATEWAY_LOGON_FAILED
 Language=English
 The Gateway Account could not be logged on. The error %1 occurred.
 .
 
-MessageId=9006 SymbolicName=EVENT_NWWKSTA_CANNOT_REDIRECT_DEVICES
+MessageId=9006 Severity=Error SymbolicName=EVENT_NWWKSTA_CANNOT_REDIRECT_DEVICES
 Language=English
 Device %1 could not be reconnected to %2. Error %3 occurred.
 .
 
-MessageId=9007 SymbolicName=EVENT_NWWKSTA_WRONG_NWLINK_VERSION
+MessageId=9007 Severity=Error SymbolicName=EVENT_NWWKSTA_WRONG_NWLINK_VERSION
 Language=English
 The version of the NWLINK transport present does not support all the capabilities required to use the Microsoft Client Service for NetWare properly.
 .
@@ -142,32 +142,32 @@ The version of the NWLINK transport present does not support all the capabilitie
 ;//
 ;/////////////////////////////////////////////////////////////////////////
 
-MessageId=10001 SymbolicName=NW_MESSAGE_TITLE
+MessageId=10001 Severity=Informational SymbolicName=NW_MESSAGE_TITLE
 Language=English
 Client Service for NetWare%0
 .
 
-MessageId=10002 SymbolicName=NW_MESSAGE_FROM_SERVER
+MessageId=10002 Severity=Informational SymbolicName=NW_MESSAGE_FROM_SERVER
 Language=English
 Message from server %1. %n
 .
 
-MessageId=10003 SymbolicName=NW_PASSWORD_HAS_EXPIRED
+MessageId=10003 Severity=Warning SymbolicName=NW_PASSWORD_HAS_EXPIRED
 Language=English
 The password for %1 on %2 has expired, with %3 grace logins left.%n
 .
 
-MessageId=10004 SymbolicName=NW_LOGIN_DISABLED
+MessageId=10004 Severity=Error SymbolicName=NW_LOGIN_DISABLED
 Language=English
 Logins to the server has been disabled.%n
 .
 
-MessageId=10005 SymbolicName=NW_PASSWORD_HAS_EXPIRED1
+MessageId=10005 Severity=Error SymbolicName=NW_PASSWORD_HAS_EXPIRED1
 Language=English
 The password for %1 on %2 has expired.%n
 .
 
-MessageId=10006 SymbolicName=NW_MESSAGE_TITLE_NTAS
+MessageId=10006 Severity=Informational SymbolicName=NW_MESSAGE_TITLE_NTAS
 Language=English
 Gateway Service for NetWare%0
 .

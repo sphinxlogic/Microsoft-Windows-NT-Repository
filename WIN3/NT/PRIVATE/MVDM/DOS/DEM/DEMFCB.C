@@ -293,7 +293,7 @@ VOID demRenameFCB (VOID)
        // MoveFile does not return error if dst and src are the same,
        // but DOS does, so check first..
        //
-       if (!stricmp (CurrSrc, NewDst)) {
+       if (!_stricmp (CurrSrc, NewDst)) {
            setCF(1);
            setAX(0x5);
            FindClose(hFind);

@@ -20,9 +20,7 @@ Revision History:
 --*/
 
 #include "mi.h"
-#include "mm.h"
 
-extern KSPIN_LOCK KiDispatcherLock;
 
 PVOID
 MiMapPageInHyperSpace (
@@ -76,6 +74,11 @@ Environment:
 #endif //DBG
 
     LOCK_HYPERSPACE(OldIrql);
+
+    if( PageFrameIndex < MmKseg2Frame){
+        return (PVOID)(MM_KSEG0_BASE + (PageFrameIndex << PAGE_SHIFT));
+    }
+
     PointerPte = MmFirstReservedMappingPte;
     if (PointerPte->u.Hard.Valid == 1) {
 
@@ -123,7 +126,7 @@ Environment:
     ASSERT (PointerPte->u.Hard.Valid == 0);
 
 
-    TempPte = ValidKernelPte;
+    TempPte = ValidPtePte;
     TempPte.u.Hard.PageFrameNumber = PageFrameIndex;
     *PointerPte = TempPte;
 
@@ -172,7 +175,6 @@ Environment:
     MMPTE TempPte;
     PMMPTE PointerPte;
     KIRQL OldIrql;
-    KEVENT Event;
 
 #if DBG
     if (PageFrameIndex == 0) {
@@ -194,12 +196,10 @@ Environment:
         if (MmWorkingSetList->WaitingForImageMapping == (PKEVENT)NULL) {
 
             //
-            // Initialize an event (on our kernel stack) and issue a wait.
+            // Set the global event into the field and wait for it.
             //
 
-            KeInitializeEvent (&Event, NotificationEvent, FALSE);
-            MmWorkingSetList->WaitingForImageMapping = &Event;
-
+            MmWorkingSetList->WaitingForImageMapping = &MmImageMappingPteEvent;
         }
 
         //
@@ -207,6 +207,7 @@ Environment:
         // atomic operation.
         //
 
+        KeEnterCriticalRegion();
         UNLOCK_PFN_AND_THEN_WAIT(OldIrql);
 
         KeWaitForSingleObject(MmWorkingSetList->WaitingForImageMapping,
@@ -214,13 +215,14 @@ Environment:
                               KernelMode,
                               FALSE,
                               (PLARGE_INTEGER)NULL);
+        KeLeaveCriticalRegion();
 
         LOCK_PFN (OldIrql);
     }
 
     ASSERT (PointerPte->u.Long == 0);
 
-    TempPte = ValidKernelPte;
+    TempPte = ValidPtePte;
     TempPte.u.Hard.PageFrameNumber = PageFrameIndex;
 
     *PointerPte = TempPte;
@@ -279,8 +281,11 @@ Environment:
 
     ASSERT (PointerPte->u.Long != 0);
 
-    KeFlushSingleTb (IMAGE_MAPPING_PTE, TRUE, FALSE,
-                     (PHARDWARE_PTE)PointerPte, TempPte.u.Hard);
+    KeFlushSingleTb (IMAGE_MAPPING_PTE,
+                     TRUE,
+                     FALSE,
+                     (PHARDWARE_PTE)PointerPte,
+                     TempPte.u.Flush);
 
     UNLOCK_PFN (OldIrql);
 
@@ -290,7 +295,7 @@ Environment:
         // If there was an event specified, set the event.
         //
 
-        KeSetEvent (Event, 0, FALSE);
+        KePulseEvent (Event, 0, FALSE);
     }
 
     return;
@@ -339,16 +344,24 @@ Environment:
 #endif
 
     MM_PFN_LOCK_ASSERT();
+
+    if (PageFrameIndex < MmKseg2Frame) {
+        return (PVOID)(MM_KSEG0_BASE + (PageFrameIndex << PAGE_SHIFT));
+    }
+
     PointerPte = MiGetPteAddress (ZEROING_PAGE_PTE);
 
     MappedAddress = MiGetVirtualAddressMappedByPte (PointerPte);
 
     TempPte.u.Long = 0;
 
-    KeFlushSingleTb (MappedAddress, TRUE, FALSE,
-                     (PHARDWARE_PTE)PointerPte, TempPte.u.Hard);
+    KeFlushSingleTb (MappedAddress,
+                     TRUE,
+                     FALSE,
+                     (PHARDWARE_PTE)PointerPte,
+                     TempPte.u.Flush);
 
-    TempPte = ValidKernelPte;
+    TempPte = ValidPtePte;
     TempPte.u.Hard.PageFrameNumber = PageFrameIndex;
 
     *PointerPte = TempPte;

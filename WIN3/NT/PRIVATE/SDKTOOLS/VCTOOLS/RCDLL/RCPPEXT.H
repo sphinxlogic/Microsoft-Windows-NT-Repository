@@ -11,7 +11,6 @@ extern  WCHAR   PPendif_str[];
 extern  WCHAR   PPifel_str[];
 extern  WCHAR   Syntax_str[];
 
-extern  FILE    * Errfl;
 extern  FILE    * OUTPUTFILE;
 
 extern  WCHAR   * A_string;
@@ -26,6 +25,7 @@ extern  int     Cross_compile;
 extern  int     Ehxtension;
 extern  int     HugeModel;
 extern  LIST    Defs;
+extern  LIST    UnDefs;
 extern  LIST    Includes;
 extern  lextype_t yylval;
 extern  token_t Basic_token;

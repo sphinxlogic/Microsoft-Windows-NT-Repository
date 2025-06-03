@@ -37,7 +37,7 @@
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      SetRectEmpty                Windows API
 //
 // Comments:
@@ -45,7 +45,7 @@
 //********************************************************************
 CSimpleApp::CSimpleApp()
 {
-        OutputDebugString("In CSimpleApp's Constructor \r\n");
+        TestDebugOut("In CSimpleApp's Constructor \r\n");
 
         // Set Ref Count
         m_nCount = 0;
@@ -79,7 +79,7 @@ CSimpleApp::CSimpleApp()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      OleUninitialize             OLE API
 //
 // Comments:
@@ -88,7 +88,7 @@ CSimpleApp::CSimpleApp()
 
 CSimpleApp::~CSimpleApp()
 {
-        OutputDebugString("In CSimpleApp's Destructor\r\n");
+        TestDebugOut("In CSimpleApp's Destructor\r\n");
 
         // need to uninit the library...
         if (m_fInitialized)
@@ -149,7 +149,7 @@ void CSimpleApp::DestroyDocs()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      ResultFromScode             OLE API
 //
 // Comments:
@@ -158,7 +158,7 @@ void CSimpleApp::DestroyDocs()
 
 STDMETHODIMP CSimpleApp::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 {
-        OutputDebugString("In CSimpleApp::QueryInterface\r\n");
+        TestDebugOut("In CSimpleApp::QueryInterface\r\n");
 
         *ppvObj = NULL;     // must set out pointer parameters to NULL
 
@@ -185,7 +185,7 @@ STDMETHODIMP CSimpleApp::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -198,7 +198,7 @@ STDMETHODIMP CSimpleApp::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 
 STDMETHODIMP_(ULONG) CSimpleApp::AddRef()
 {
-        OutputDebugString("In CSimpleApp::AddRef\r\n");
+        TestDebugOut("In CSimpleApp::AddRef\r\n");
         return ++m_nCount;
 }
 
@@ -221,7 +221,7 @@ STDMETHODIMP_(ULONG) CSimpleApp::AddRef()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -229,7 +229,7 @@ STDMETHODIMP_(ULONG) CSimpleApp::AddRef()
 
 STDMETHODIMP_(ULONG) CSimpleApp::Release()
 {
-        OutputDebugString("In CSimpleApp::Release\r\n");
+        TestDebugOut("In CSimpleApp::Release\r\n");
 
         if (--m_nCount == 0) {
                 delete this;
@@ -351,7 +351,7 @@ BOOL CSimpleApp::fInitInstance (HANDLE hInstance, int nCmdShow)
         // check to see if we are compatible with this version of the libraries
         if (HIWORD(dwVer) != rmm || LOWORD(dwVer) < rup) {
 #ifdef _DEBUG
-                OutputDebugString("WARNING: Incompatible OLE library version\r\n");
+                TestDebugOut("WARNING: Incompatible OLE library version\r\n");
 #else
                 return FALSE;
 #endif

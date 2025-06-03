@@ -24,6 +24,17 @@ Environment:
 #include "precomp.h"
 #pragma hdrstop
 
+#ifdef FE_IME
+//#include <windowsx.h>
+#ifndef GET_WM_COMMAND_HWND
+#define GET_WM_COMMAND_HWND(wp, lp)             (HWND)(lp)
+#endif
+#ifndef GET_WM_COMMAND_CMD
+#define GET_WM_COMMAND_CMD(wp, lp)              HIWORD(wp)
+#endif
+#include <winnls32.h>
+#include <ime.h>
+#endif  // end of FE_IME
 
 #define PAGE (p->PaneLines-1)
 
@@ -139,230 +150,265 @@ LONG FAR PASCAL EXPORT MDIPaneWndProc(HWND hWnd, UINT message, WPARAM wParam, LO
 
     CheckMenu();
 
-    try {
+    __try {
 
-    switch (message) {
+        switch (message) {
 
-        case WM_CREATE:
-            lRet = CreatePaneWindow( hWnd, wParam, lParam);
-            return(lRet);
+            case WM_CREATE:
+                lRet = CreatePaneWindow( hWnd, wParam, lParam);
+                return(lRet);
 
-        case WM_MDIACTIVATE:
+            case WM_MDIACTIVATE:
 
-            //
-            // Activating a Window
-            //
+                //
+                // Activating a Window
+                //
 
-            if (hWnd == (HWND) lParam) {
+                if (hWnd == (HWND) lParam) {
 
-                hwndActive     = hWnd;
-                hwndActiveEdit = hWnd;
-                curView = p->iView;
-                EnableRibbonControls(ERC_ALL, FALSE);
-            }
+                    hwndActive     = hWnd;
+                    hwndActiveEdit = hWnd;
+                    curView = p->iView;
+                    EnableRibbonControls(ERC_ALL, FALSE);
+                }
 
-            //
-            //  Deactivating A Window
-            //
+                //
+                //  Deactivating A Window
+                //
 
-            else {
-                  hwndActive = NULL;
-                  hwndActiveEdit = NULL;
-                  curView = -1;
-            }
-            break;
+                else {
+                      hwndActive = NULL;
+                      hwndActiveEdit = NULL;
+                      curView = -1;
+                }
+                break;
 
-        case WM_DESTROY:
-            (*p->fnEditProc)(hWnd, message, 0, (LONG)p);
-            DeleteWindowMenuItem (p->iView);
-            Views[p->iView].Doc = -1; /* Clear the view out */
-            goto CallClient;
+            case WM_DESTROY:
+                (*p->fnEditProc)(hWnd, message, 0, (LONG)p);
+                DeleteWindowMenuItem (p->iView);
+                Views[p->iView].Doc = -1; /* Clear the view out */
+                goto CallClient;
 
-        case WM_SIZE:
+            case WM_SIZE:
 
-            SizePanels( p, LOWORD(lParam), HIWORD(lParam) );
+                SizePanels( p, LOWORD(lParam), HIWORD(lParam) );
 
-            // Button pane may have changed its top index, so
-            // make sure that we resync
+                // Button pane may have changed its top index, so
+                // make sure that we resync
 
-            SyncPanes(p,(WORD)-1);
+                SyncPanes(p,(WORD)-1);
 
-            WindowTitle( p->iView, 0 );
+                WindowTitle( p->iView, 0 );
 
-            // No Break Intended
-
-
-        case WM_PAINT:
-
-            if ( !IsIconic(hWnd) ) {
-                PaintSizer(p->hWndSizer);
-                PaintPane(hWnd);
-            }
-            goto CallClient;
+                // No Break Intended
 
 
-        case WM_MEASUREITEM:
-            ((LPMEASUREITEMSTRUCT)lParam)->itemHeight = p->LineHeight;
-            return(TRUE);
+            case WM_PAINT:
 
-        case WM_DRAWITEM:
-            DrawPaneItem( hWnd, p, (LPDRAWITEMSTRUCT)lParam );
-            return(TRUE);
+                if ( !IsIconic(hWnd) ) {
+                    PaintSizer(p->hWndSizer);
+                    PaintPane(hWnd);
+                }
+                goto CallClient;
 
 
-        case WM_SETCURSOR:
-
-            if ( (HWND)wParam == p->hWndSizer) {
-                SetCursor(LoadCursor(NULL,IDC_SIZEWE));
+            case WM_MEASUREITEM:
+                ((LPMEASUREITEMSTRUCT)lParam)->itemHeight = p->LineHeight;
                 return(TRUE);
-            }
-            goto CallClient;
 
-        case WM_SETFONT:
-            Cf = (LPCHOOSEFONT)lParam;
-            SetPaneFont( hWnd, p, Cf->lpLogFont);
-            InvalidateRect(hWnd, NULL, TRUE);
-            return(TRUE);
-
-        case WU_CLR_BACKCHANGE:
-            DeleteObject((HGDIOBJ)p->hbrBackground);
-            p->hbrBackground = CreateSolidBrush(StringColors[p->Type].BkgndColor);
-            return (TRUE);
-
-        case WM_CTLCOLORLISTBOX:
-            return ((LRESULT)(p->hbrBackground));
-
-        case WM_CLOSE:
-
-           (*p->fnEditProc)(hWnd, WM_CLOSE, 0, (LONG)p);
-            goto CallClient;
+            case WM_DRAWITEM:
+                DrawPaneItem( hWnd, p, (LPDRAWITEMSTRUCT)lParam );
+                return(TRUE);
 
 
-        case WM_SETFOCUS:
-            curView = p->iView;         // Make sure the doc's know we have it
+            case WM_SETCURSOR:
 
-                if ( p->hWndFocus == NULL)
-                 {
-                  p->hWndFocus = p->hWndLeft;
-                  p->nCtrlId   = ID_PANE_LEFT;
-                                          }
-                                     else
-                                                if ((p->hWndFocus == p->hWndLeft))
-                   p->nCtrlId   = ID_PANE_LEFT;
-                                             else
-                     if ((p->hWndFocus == p->hWndLeft))
-                      p->nCtrlId   = ID_PANE_RIGHT;
-                                                          else
-                                                                  if (p->hWndFocus == p->hWndButton)
-                                                                        p->nCtrlId   = ID_PANE_BUTTON;
+                if ( (HWND)wParam == p->hWndSizer) {
+                    SetCursor(LoadCursor(NULL,IDC_SIZEWE));
+                    return(TRUE);
+                }
+                goto CallClient;
 
-                SetFocus(p->hWndFocus);
+            case WM_SETFONT:
+                Cf = (LPCHOOSEFONT)lParam;
+                SetPaneFont( hWnd, p, Cf->lpLogFont);
+                InvalidateRect(hWnd, NULL, TRUE);
+                return(TRUE);
+
+            case WU_CLR_BACKCHANGE:
+                DeleteObject((HGDIOBJ)p->hbrBackground);
+                p->hbrBackground = CreateSolidBrush(StringColors[p->Type].BkgndColor);
+                return (TRUE);
+
+            case WM_CTLCOLORLISTBOX:
+                return ((LRESULT)(p->hbrBackground));
+
+            case WM_CLOSE:
+
+               (*p->fnEditProc)(hWnd, WM_CLOSE, 0, (LONG)p);
+                goto CallClient;
+
+
+            case WM_SETFOCUS:
+                curView = p->iView;         // Make sure the doc's know we have it
+
+                    if ( p->hWndFocus == NULL)
+                     {
+                      p->hWndFocus = p->hWndLeft;
+                      p->nCtrlId   = ID_PANE_LEFT;
+                                              }
+                                         else
+                                                    if ((p->hWndFocus == p->hWndLeft))
+                       p->nCtrlId   = ID_PANE_LEFT;
+                                                 else
+                         if ((p->hWndFocus == p->hWndLeft))
+                          p->nCtrlId   = ID_PANE_RIGHT;
+                                                              else
+                                                                      if (p->hWndFocus == p->hWndButton)
+                                                                            p->nCtrlId   = ID_PANE_BUTTON;
+
+                    SetFocus(p->hWndFocus);
+
+                    return(FALSE);
+
+            case WM_KILLFOCUS:
+
+                    HideCaret(p->hWndFocus);
+                    DestroyCaret();
+                    return FALSE;
+
+            case WM_VSCROLL:
+
+                              switch (LOWORD(wParam))
+                                      {
+                                            case SB_LINEDOWN:
+                                                        if (p->CurIdx < p->MaxIdx)
+                                                                     {
+                              PaneSetIdx(p,(SHORT)(p->CurIdx+1));
+                              PaneCaretNum(p);
+                                                                     }
+                                                    break;
+
+                                            case SB_LINEUP:
+                                                        if (p->CurIdx != 0xFFFF)
+                                                                     {
+                              PaneSetIdx(p,(SHORT)(p->CurIdx-1));
+                              PaneCaretNum(p);
+                                                                     }
+
+                                                    break;
+
+                                            case SB_PAGEDOWN:
+                                                        PaneSetIdx(p,(SHORT)(p->CurIdx+PAGE));
+                          PaneCaretNum(p);
+
+                                                    break;
+
+                                            case SB_PAGEUP:
+                                                       PaneSetIdx(p,(SHORT)(p->CurIdx-PAGE));
+                         PaneCaretNum(p);
+
+
+                                                    break;
+
+                                            case SB_THUMBPOSITION:
+                                            case SB_THUMBTRACK:
+                                                       PaneSetIdx(p,(SHORT)((int)HIWORD(wParam)));
+                          PaneCaretNum(p);
+
+                                                    break;
+
+
+                                      }
 
                 return(FALSE);
 
-        case WM_KILLFOCUS:
 
-                HideCaret(p->hWndFocus);
-                DestroyCaret();
-                return FALSE;
+            case WM_COMMAND:
+#ifdef FE_IME
+            {
+              static  BOOL    bOldImeStatus;
+              TCHAR   szClass[64];
+              WORD    wNotice1;
+              WORD    wNotice2;
 
-        case WM_VSCROLL:
-
-                          switch (LOWORD(wParam))
-                                  {
-                                        case SB_LINEDOWN:
-                                                    if (p->CurIdx < p->MaxIdx)
-                                                                 {
-                          PaneSetIdx(p,(SHORT)(p->CurIdx+1));
-                          PaneCaretNum(p);
-                                                                 }
-                                                break;
-
-                                        case SB_LINEUP:
-                                                    if (p->CurIdx >= 0)
-                                                                 {
-                          PaneSetIdx(p,(SHORT)(p->CurIdx-1));
-                          PaneCaretNum(p);
-                                                                 }
-
-                                                break;
-
-                                        case SB_PAGEDOWN:
-                                                    PaneSetIdx(p,(SHORT)(p->CurIdx+PAGE));
-                      PaneCaretNum(p);
-
-                                                break;
-
-                                        case SB_PAGEUP:
-                                                   PaneSetIdx(p,(SHORT)(p->CurIdx-PAGE));
-                     PaneCaretNum(p);
-
-
-                                                break;
-
-                                        case SB_THUMBPOSITION:
-                                        case SB_THUMBTRACK:
-                                                   PaneSetIdx(p,(SHORT)((int)HIWORD(wParam)));
-                      PaneCaretNum(p);
-
-                                                break;
-
-
-                                  }
-
-            return(FALSE);
-
-
-             case WM_COMMAND:
-            goto CallClient;
-
-        case WM_COPY:
-        case WM_PASTE:
-            PaneKeyboardHandler(p->hWndFocus, message, wParam, lParam);
-            return(TRUE);
-
-        case WU_INVALIDATE:
-
-            (*p->fnEditProc)(hWnd, message, wParam, (LONG)p);
-
-            CheckHorizontalScroll (p);
-             return(FALSE);
-
-        case WU_UPDATE:
-
-            (*p->fnEditProc)(hWnd, message, wParam, (LONG)p);
-
-            if ( p->ScrollBarUp ) {
-             SetScrollRange(p->hWndScroll, SB_CTL, 0, p->MaxIdx - 1, FALSE);
-             SetScrollPos( p->hWndScroll, SB_CTL, (INT)p->CurIdx, FALSE);
+              if (0 < GetClassName(
+                          GET_WM_COMMAND_HWND(wParam, lParam),
+                          szClass, sizeof(szClass)-1)) {
+                  if (lstrcmpi(szClass, TEXT("ListBox")) == 0) {
+                      wNotice1 = LBN_SETFOCUS;
+                      wNotice2 = LBN_KILLFOCUS;
+                  } else if (lstrcmpi(szClass, TEXT("Edit")) == 0) {
+                      wNotice1 = EN_SETFOCUS;
+                      wNotice2 = EN_KILLFOCUS;
+                  } else if (lstrcmpi(szClass, TEXT("Combobox")) == 0) {
+                      wNotice1 = CBN_SETFOCUS;
+                      wNotice2 = CBN_KILLFOCUS;
+                  } else {
+                      szClass[0] = TEXT('\0');
+                  }
+                  if (szClass[0]) {
+                      if (GET_WM_COMMAND_CMD(wParam, lParam) == wNotice1) {
+                          ImeSendVkey(
+                                  GET_WM_COMMAND_HWND(wParam, lParam),
+                                  VK_DBE_FLUSHSTRING);
+                          bOldImeStatus = ImeWINNLSEnableIME(NULL, FALSE);
+                      } else
+                      if (GET_WM_COMMAND_CMD(wParam, lParam) == wNotice2) {
+                          ImeWINNLSEnableIME(NULL, bOldImeStatus);
+                      }
+                  }
+              }
             }
-            ShowScrollBar( p->hWndScroll, SB_CTL, p->ScrollBarUp);
+            goto CallClient;
+#endif  // FE_IME end
 
-                 if (!p->ScrollBarUp)
-                       {
-                        p->TopIdx = 0;   //reset top if no scrolling
-                       }
+            case WM_COPY:
+            case WM_PASTE:
+                PaneKeyboardHandler(p->hWndFocus, message, wParam, lParam);
+                return(TRUE);
 
-            SyncPanes(p,(WORD)-1);
+            case WU_INVALIDATE:
 
-            CheckHorizontalScroll (p);
-             return(FALSE);
+                (*p->fnEditProc)(hWnd, message, wParam, (LONG)p);
 
-        case WU_DBG_LOADEM:
-        case WU_DBG_LOADEE:
-        case WU_DBG_UNLOADEM:
-        case WU_DBG_UNLOADEE:
-            (*p->fnEditProc)(hWnd, message, wParam, (LONG)p);
-            return(FALSE);
+                CheckHorizontalScroll (p);
+                 return(FALSE);
 
-        default:
-        CallClient:
+            case WU_UPDATE:
 
-        // Call MDI client for default actions.
-        return DefMDIChildProc(hWnd, message, wParam, lParam);
-    }
+                (*p->fnEditProc)(hWnd, message, wParam, (LONG)p);
 
-    } except(EXCEPTION_EXECUTE_HANDLER) {
+                if ( p->ScrollBarUp ) {
+                 SetScrollRange(p->hWndScroll, SB_CTL, 0, p->MaxIdx - 1, FALSE);
+                 SetScrollPos( p->hWndScroll, SB_CTL, (INT)p->CurIdx, FALSE);
+                }
+                ShowScrollBar( p->hWndScroll, SB_CTL, p->ScrollBarUp);
+
+                     if (!p->ScrollBarUp)
+                           {
+                            p->TopIdx = 0;   //reset top if no scrolling
+                           }
+
+                SyncPanes(p,(WORD)-1);
+
+                CheckHorizontalScroll (p);
+                 return(FALSE);
+
+            case WU_DBG_LOADEM:
+            case WU_DBG_LOADEE:
+            case WU_DBG_UNLOADEM:
+            case WU_DBG_UNLOADEE:
+                (*p->fnEditProc)(hWnd, message, wParam, (LONG)p);
+                return(FALSE);
+
+            default:
+            CallClient:
+
+            // Call MDI client for default actions.
+            return DefMDIChildProc(hWnd, message, wParam, lParam);
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
 
         return FALSE;
 
@@ -393,173 +439,208 @@ LONG FAR PASCAL EXPORT DLGPaneWndProc(HWND hWnd, UINT message, WPARAM wParam, LO
 
     CheckMenu();
 
-    try {
+    __try {
 
-    switch (message) {
+        switch (message) {
 
-        case WM_CREATE:
-            return( CreatePane( hWnd, 0, QUICKW_WIN) );
-            break;
-
-
-        case WM_DESTROY:
-
-            (*p->fnEditProc)(hWnd, message, 0, (LONG)p);
-            goto CallClient;
-
-        case WM_SIZE:
-
-            SizePanels( p, LOWORD(lParam), HIWORD(lParam) );
-            SyncPanes(p,(WORD)-1);
-
-            // No Break Intended
+            case WM_CREATE:
+                return( CreatePane( hWnd, 0, QUICKW_WIN) );
+                break;
 
 
-        case WM_PAINT:
+            case WM_DESTROY:
 
-            if ( !IsIconic(hWnd) ) {
-                PaintSizer(p->hWndSizer);
-                PaintPane(hWnd);
-            }
-            goto CallClient;
+                (*p->fnEditProc)(hWnd, message, 0, (LONG)p);
+                goto CallClient;
 
+            case WM_SIZE:
 
-        case WM_MEASUREITEM:
-            ((LPMEASUREITEMSTRUCT)lParam)->itemHeight = p->LineHeight;
-            return(TRUE);
+                SizePanels( p, LOWORD(lParam), HIWORD(lParam) );
+                SyncPanes(p,(WORD)-1);
 
-        case WM_DRAWITEM:
-            DrawPaneItem( hWnd, p, (LPDRAWITEMSTRUCT)lParam );
-             return(TRUE);
+                // No Break Intended
 
 
-        case WM_SETCURSOR:
+            case WM_PAINT:
 
-            if ( (HWND)wParam == p->hWndSizer) {
-                SetCursor(LoadCursor(NULL,IDC_SIZEWE));
-                return(TRUE);
-            }
-            goto CallClient;
-
-        case WM_SETFONT:
-            SetPaneFont(hWnd, p, &defaultFont);
-            return(TRUE);
-
-        case WM_CLOSE:
-
-                                (*p->fnEditProc)(hWnd, WM_CLOSE, 0, (LONG)p);
-            goto CallClient;
-
-
-        case WM_SETFOCUS:
-
-                          if ((p->hWndFocus != p->hWndLeft) && (p->hWndFocus != p->hWndRight) && (p->hWndFocus != p->hWndButton))
-                {
-                 p->hWndFocus = p->hWndButton;
-                 p->nCtrlId   = ID_PANE_BUTTON;
+                if ( !IsIconic(hWnd) ) {
+                    PaintSizer(p->hWndSizer);
+                    PaintPane(hWnd);
                 }
-            CreateCaret( p->hWndFocus, 0, 3, p->LineHeight);
-            PaneSwitchFocus(p, NULL, FALSE);
-            ShowCaret (p->hWndFocus);
-             break;
+                goto CallClient;
 
 
-        case WM_KILLFOCUS:
-            HideCaret(hWnd);
-            DestroyCaret();
-            break;
+            case WM_MEASUREITEM:
+                ((LPMEASUREITEMSTRUCT)lParam)->itemHeight = p->LineHeight;
+                return(TRUE);
 
-        case WM_VSCROLL:
-                          switch (LOWORD(wParam))
-                                  {
+            case WM_DRAWITEM:
+                DrawPaneItem( hWnd, p, (LPDRAWITEMSTRUCT)lParam );
+                 return(TRUE);
 
-                                        case SB_LINEDOWN:
-                                                    if (p->CurIdx < p->MaxIdx)
-                                                                 {
-                          PaneSetIdx(p,(SHORT)(p->CurIdx+1));
+
+            case WM_SETCURSOR:
+
+                if ( (HWND)wParam == p->hWndSizer) {
+                    SetCursor(LoadCursor(NULL,IDC_SIZEWE));
+                    return(TRUE);
+                }
+                goto CallClient;
+
+            case WM_SETFONT:
+                SetPaneFont(hWnd, p, &defaultFont);
+                return(TRUE);
+
+            case WM_CLOSE:
+
+                                    (*p->fnEditProc)(hWnd, WM_CLOSE, 0, (LONG)p);
+                goto CallClient;
+
+
+            case WM_SETFOCUS:
+
+                              if ((p->hWndFocus != p->hWndLeft) && (p->hWndFocus != p->hWndRight) && (p->hWndFocus != p->hWndButton))
+                    {
+                     p->hWndFocus = p->hWndButton;
+                     p->nCtrlId   = ID_PANE_BUTTON;
+                    }
+                CreateCaret( p->hWndFocus, 0, 3, p->LineHeight);
+                PaneSwitchFocus(p, NULL, FALSE);
+                ShowCaret (p->hWndFocus);
+                 break;
+
+
+            case WM_KILLFOCUS:
+                HideCaret(hWnd);
+                DestroyCaret();
+                break;
+
+            case WM_VSCROLL:
+                              switch (LOWORD(wParam))
+                                      {
+
+                                            case SB_LINEDOWN:
+                                                        if (p->CurIdx < p->MaxIdx)
+                                                                     {
+                              PaneSetIdx(p,(SHORT)(p->CurIdx+1));
+                              PaneCaretNum(p);
+                                                                     }
+                                                    break;
+
+                                            case SB_LINEUP:
+                                                        if (p->CurIdx >= 0)
+                                                                     {
+                              PaneSetIdx(p,(SHORT)(p->CurIdx-1));
+                              PaneCaretNum(p);
+                                                                     }
+
+                                                    break;
+
+                                            case SB_PAGEDOWN:
+                                                        PaneSetIdx(p,(SHORT)(p->CurIdx+PAGE));
                           PaneCaretNum(p);
-                                                                 }
-                                                break;
 
-                                        case SB_LINEUP:
-                                                    if (p->CurIdx >= 0)
-                                                                 {
-                          PaneSetIdx(p,(SHORT)(p->CurIdx-1));
+                                                    break;
+
+                                            case SB_PAGEUP:
+                                                       PaneSetIdx(p,(SHORT)(p->CurIdx-PAGE));
+                         PaneCaretNum(p);
+
+
+                                                    break;
+
+                                            case SB_THUMBPOSITION:
+                                            case SB_THUMBTRACK:
+                                                       PaneSetIdx(p,(SHORT)((int)HIWORD(wParam)));
                           PaneCaretNum(p);
-                                                                 }
 
-                                                break;
-
-                                        case SB_PAGEDOWN:
-                                                    PaneSetIdx(p,(SHORT)(p->CurIdx+PAGE));
-                      PaneCaretNum(p);
-
-                                                break;
-
-                                        case SB_PAGEUP:
-                                                   PaneSetIdx(p,(SHORT)(p->CurIdx-PAGE));
-                     PaneCaretNum(p);
+                                                    break;
 
 
-                                                break;
-
-                                        case SB_THUMBPOSITION:
-                                        case SB_THUMBTRACK:
-                                                   PaneSetIdx(p,(SHORT)((int)HIWORD(wParam)));
-                      PaneCaretNum(p);
-
-                                                break;
+                                      }
+                return(FALSE);
 
 
-                                  }
+          case WM_COMMAND:
+#ifdef FE_IME
+          {
+              static  BOOL    bOldImeStatus;
+              TCHAR   szClass[64];
+              WORD    wNotice1;
+              WORD    wNotice2;
 
-            return(FALSE);
-
-
-        case WM_COMMAND:
-            goto CallClient;
-
-        case WU_INVALIDATE:
-
-            (*p->fnEditProc)(hWnd, message, wParam, (LONG)p);
-
-            CheckHorizontalScroll (p);
-             return(FALSE);
-
-        case WU_UPDATE:
-            (*p->fnEditProc)(hWnd, message, wParam, (LONG)p);
-
-            if ( p->ScrollBarUp ) {
-             SetScrollRange(p->hWndScroll, SB_CTL, 0, p->MaxIdx - 1, FALSE);
-             SetScrollPos( p->hWndScroll, SB_CTL, (INT)p->CurIdx, FALSE);
+              if (0 < GetClassName(
+                          GET_WM_COMMAND_HWND(wParam, lParam),
+                          szClass, sizeof(szClass)-1)) {
+                  if (lstrcmpi(szClass, TEXT("ListBox")) == 0) {
+                      wNotice1 = LBN_SETFOCUS;
+                      wNotice2 = LBN_KILLFOCUS;
+                  } else if (lstrcmpi(szClass, TEXT("Edit")) == 0) {
+                      wNotice1 = EN_SETFOCUS;
+                      wNotice2 = EN_KILLFOCUS;
+                  } else if (lstrcmpi(szClass, TEXT("Combobox")) == 0) {
+                      wNotice1 = CBN_SETFOCUS;
+                      wNotice2 = CBN_KILLFOCUS;
+                  } else {
+                      szClass[0] = '\0';
+                  }
+                  if (szClass[0]) {
+                      if (GET_WM_COMMAND_CMD(wParam, lParam) == wNotice1) {
+                          ImeSendVkey(
+                                  GET_WM_COMMAND_HWND(wParam, lParam),
+                                  VK_DBE_FLUSHSTRING);
+                          bOldImeStatus = ImeWINNLSEnableIME(NULL, FALSE);
+                      } else
+                      if (GET_WM_COMMAND_CMD(wParam, lParam) == wNotice2) {
+                          ImeWINNLSEnableIME(NULL, bOldImeStatus);
+                      }
+                  }
+              }
             }
-            ShowScrollBar( p->hWndScroll, SB_CTL, p->ScrollBarUp);
+#endif  // FE_IME end
+              goto CallClient;
 
-                 if (!p->ScrollBarUp)
-                       {
-                        p->TopIdx = 0;   //reset top if no scrolling
-                       }
 
-            SyncPanes(p,(WORD)-1);
+            case WU_INVALIDATE:
 
-            return(FALSE);
+                (*p->fnEditProc)(hWnd, message, wParam, (LONG)p);
 
-        case WU_DBG_LOADEM:
-        case WU_DBG_LOADEE:
-        case WU_DBG_UNLOADEM:
-        case WU_DBG_UNLOADEE:
+                CheckHorizontalScroll (p);
+                 return(FALSE);
 
-            (*p->fnEditProc)(hWnd, message, wParam, (LONG)p);
-            return(FALSE);
+            case WU_UPDATE:
+                (*p->fnEditProc)(hWnd, message, wParam, (LONG)p);
 
-        default:
-        CallClient:
+                if ( p->ScrollBarUp ) {
+                 SetScrollRange(p->hWndScroll, SB_CTL, 0, p->MaxIdx - 1, FALSE);
+                 SetScrollPos( p->hWndScroll, SB_CTL, (INT)p->CurIdx, FALSE);
+                }
+                ShowScrollBar( p->hWndScroll, SB_CTL, p->ScrollBarUp);
 
-        // Call the default dialog proc
-        return ( DefWindowProc(hWnd, message, wParam, lParam) );
-    }
+                     if (!p->ScrollBarUp)
+                           {
+                            p->TopIdx = 0;   //reset top if no scrolling
+                           }
 
-    } except(EXCEPTION_EXECUTE_HANDLER) {
+                SyncPanes(p,(WORD)-1);
+
+                return(FALSE);
+
+            case WU_DBG_LOADEM:
+            case WU_DBG_LOADEE:
+            case WU_DBG_UNLOADEM:
+            case WU_DBG_UNLOADEE:
+
+                (*p->fnEditProc)(hWnd, message, wParam, (LONG)p);
+                return(FALSE);
+
+            default:
+            CallClient:
+
+            // Call the default dialog proc
+            return ( DefWindowProc(hWnd, message, wParam, lParam) );
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
 
         return FALSE;
 
@@ -592,21 +673,20 @@ LONG FAR PASCAL EXPORT PaneSizerWndProc(HWND hWnd, UINT message, WPARAM wParam, 
 
     CheckMenu();
 
-    try {
+    __try {
 
-    switch (message) {
+        switch (message) {
 
-    case WM_LBUTTONDOWN:
-         ResetSplitter( hWnd, lParam );
-         return(FALSE);
+        case WM_LBUTTONDOWN:
+             ResetSplitter( hWnd, lParam );
+             return(FALSE);
 
-    default:
+        default:
 
-        DAssert(lpfnSizerEditProc);
-        return(CallWindowProc(lpfnSizerEditProc,hWnd,message,wParam,lParam));
-    }
-
-    } except(EXCEPTION_EXECUTE_HANDLER) {
+            DAssert(lpfnSizerEditProc);
+            return(CallWindowProc(lpfnSizerEditProc,hWnd,message,wParam,lParam));
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
 
         return 0;
 
@@ -642,46 +722,55 @@ LONG FAR PASCAL EXPORT PaneButtonWndProc(HWND hWnd, UINT message, WPARAM wParam,
 
     CheckMenu();
 
-    try {
+    __try {
 
-    switch (message) {
-
-
-        case WM_SETFOCUS:
-            CreateCaret(hWnd, 0, 3, p->LineHeight);
-                                HideCaret(hWnd);
-            return FALSE;
-                                 break;
+        switch (message) {
 
 
-        case WM_KILLFOCUS:
-            DestroyCaret();
-            return FALSE;
-                                break;
+            case WM_SETFOCUS:
+                CreateCaret(hWnd, 0, 3, p->LineHeight);
+                                    HideCaret(hWnd);
+                return FALSE;
+                                     break;
+
+
+            case WM_KILLFOCUS:
+                DestroyCaret();
+                return FALSE;
+                                    break;
 
 
 
 
-    case WM_KEYDOWN:
-    case WM_CHAR:
-                   if (wParam == VK_SHIFT)
-                                return(0);
+        case WM_KEYDOWN:
+        case WM_CHAR:
+                       if (wParam == VK_SHIFT)
+                                    return(0);
 
-         PaneKeyboardHandler(hWnd, message, wParam, lParam);
-         return(0);
+             PaneKeyboardHandler(hWnd, message, wParam, lParam);
+             return(0);
 
 
-         case WM_LBUTTONDOWN:
-    case WM_LBUTTONDBLCLK:
-         PaneKeyboardHandler(hWnd, message, wParam, lParam);
-         return(0);
+             case WM_LBUTTONDOWN:
+        case WM_LBUTTONDBLCLK:
+             PaneKeyboardHandler(hWnd, message, wParam, lParam);
+             return(0);
 
-    default:
-        DAssert(lpfnButtonEditProc);
-        return(lpfnButtonEditProc(hWnd,message,wParam,lParam));
-    }
+#ifdef FE_IME
+        case WM_IME_REPORT:
+            if (IR_STRING == wParam) {
+                return TRUE;
+            }
+            DAssert(lpfnButtonEditProc);
+            return(lpfnButtonEditProc(hWnd,message,wParam,lParam));
+            break;
+#endif
 
-    } except(EXCEPTION_EXECUTE_HANDLER) {
+        default:
+            DAssert(lpfnButtonEditProc);
+            return(lpfnButtonEditProc(hWnd,message,wParam,lParam));
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
 
         return 0;
 
@@ -720,51 +809,60 @@ LONG FAR PASCAL EXPORT PaneLeftWndProc(HWND hWnd, UINT message, WPARAM wParam, L
 
     CheckMenu();
 
-    try {
+    __try {
 
-    switch (message) {
-
-
-        case WM_SETFOCUS:
-            CreateCaret(hWnd, 0, 3, p->LineHeight);
-                                SetCaretPos (p->X, p->Y);
-            ShowCaret (hWnd);
-            return FALSE;
-                                 break;
+        switch (message) {
 
 
-        case WM_KILLFOCUS:
-                           GetCaretPos(&pnt);
-                                p->X = pnt.x;
-                                p->Y = pnt.y;
-             HideCaret(hWnd);
-            DestroyCaret();
-            return FALSE;
-                                break;
+            case WM_SETFOCUS:
+                CreateCaret(hWnd, 0, 3, p->LineHeight);
+                                    SetCaretPos (p->X, p->Y);
+                ShowCaret (hWnd);
+                return FALSE;
+                                     break;
+
+
+            case WM_KILLFOCUS:
+                               GetCaretPos(&pnt);
+                                    p->X = pnt.x;
+                                    p->Y = pnt.y;
+                 HideCaret(hWnd);
+                DestroyCaret();
+                return FALSE;
+                                    break;
 
 
 
-    case WM_KEYDOWN:
-    case WM_CHAR:
-                   if (wParam == VK_SHIFT)
-                                return(0);
-         PaneKeyboardHandler(hWnd, message, wParam, lParam);
-        return(0);
+        case WM_KEYDOWN:
+        case WM_CHAR:
+                       if (wParam == VK_SHIFT)
+                                    return(0);
+             PaneKeyboardHandler(hWnd, message, wParam, lParam);
+            return(0);
 
 
-         case WM_MOUSEMOVE:
-    case WM_LBUTTONDOWN:
-    case WM_LBUTTONDBLCLK:
-         PaneKeyboardHandler(hWnd, message, wParam, lParam);
-    CheckMenu();
-        return(0);
+             case WM_MOUSEMOVE:
+        case WM_LBUTTONDOWN:
+        case WM_LBUTTONDBLCLK:
+             PaneKeyboardHandler(hWnd, message, wParam, lParam);
+        CheckMenu();
+            return(0);
 
-    default:
-        DAssert(lpfnEditEditProc);
-        return(lpfnEditEditProc(hWnd,message,wParam,lParam));
-    }
+#ifdef FE_IME
+        case WM_IME_REPORT:
+            if (IR_STRING == wParam) {
+                return TRUE;
+            }
+            DAssert(lpfnEditEditProc);
+            return(lpfnEditEditProc(hWnd,message,wParam,lParam));
+            break;
+#endif
 
-    } except(EXCEPTION_EXECUTE_HANDLER) {
+        default:
+            DAssert(lpfnEditEditProc);
+            return(lpfnEditEditProc(hWnd,message,wParam,lParam));
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
 
         CheckMenu();
         return FALSE;
@@ -804,50 +902,60 @@ LONG FAR PASCAL EXPORT PaneRightWndProc(HWND hWnd, UINT message, WPARAM wParam, 
 
     CheckMenu();
 
-    try {
+    __try {
 
-    switch (message) {
+        switch (message) {
 
-        case WM_SETFOCUS:
-            CreateCaret(hWnd, 0, 3, p->LineHeight);
-                                SetCaretPos (p->X, p->Y);
-            ShowCaret (hWnd);
-            return FALSE;
-                                 break;
-
-
-        case WM_KILLFOCUS:
-                           GetCaretPos(&pnt);
-                                p->X = pnt.x;
-                                p->Y = pnt.y;
-            HideCaret(hWnd);
-            DestroyCaret();
-            return FALSE;
-                                break;
+            case WM_SETFOCUS:
+                CreateCaret(hWnd, 0, 3, p->LineHeight);
+                                    SetCaretPos (p->X, p->Y);
+                ShowCaret (hWnd);
+                return FALSE;
+                                     break;
 
 
-    case WM_KEYDOWN:
-    case WM_CHAR:
-                   if (wParam == VK_SHIFT)
-                                return(0);
-         PaneKeyboardHandler(hWnd, message, wParam, lParam);
-         return(0);
+            case WM_KILLFOCUS:
+                               GetCaretPos(&pnt);
+                                    p->X = pnt.x;
+                                    p->Y = pnt.y;
+                HideCaret(hWnd);
+                DestroyCaret();
+                return FALSE;
+                                    break;
 
 
-    case WM_MOUSEMOVE:
-    case WM_LBUTTONDOWN:
-    case WM_LBUTTONDBLCLK:
-    case WM_RBUTTONDOWN:
-         PaneKeyboardHandler(hWnd, message, wParam, lParam);
-    CheckMenu();
-         return(0);
+        case WM_KEYDOWN:
+        case WM_CHAR:
+                       if (wParam == VK_SHIFT)
+                                    return(0);
+             PaneKeyboardHandler(hWnd, message, wParam, lParam);
+             return(0);
 
-    default:
+
+        case WM_MOUSEMOVE:
+        case WM_LBUTTONDOWN:
+        case WM_LBUTTONDBLCLK:
+        case WM_RBUTTONDOWN:
+             PaneKeyboardHandler(hWnd, message, wParam, lParam);
+        CheckMenu();
+             return(0);
+
+#ifdef FE_IME
+    case WM_IME_REPORT:
+        if (IR_STRING == wParam) {
+            return TRUE;
+        }
         DAssert(lpfnEditEditProc);
         return(lpfnEditEditProc(hWnd,message,wParam,lParam));
-    }
+        break;
+#endif
 
-    } except(EXCEPTION_EXECUTE_HANDLER) {
+        default:
+            DAssert(lpfnEditEditProc);
+            return(lpfnEditEditProc(hWnd,message,wParam,lParam));
+        }
+
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
 
         CheckMenu();
         return FALSE;
@@ -886,9 +994,10 @@ void OpenPanedWindow(int type, LPWININFO lpWinInfo, int Preference)
     char  title[MAX_MSG_TXT];
     char  final[MAX_MSG_TXT+4];
 
-
-
-    fZoomed = IsZoomed(hwndActive) || IsZoomed(GetParent(hwndActive));
+    if (hwndActive != NULL)
+       fZoomed = IsZoomed(hwndActive) || IsZoomed(GetParent(hwndActive));
+    else
+       fZoomed = FALSE;
 
     //  Figure out the details of what we're to do
 
@@ -971,15 +1080,15 @@ void OpenPanedWindow(int type, LPWININFO lpWinInfo, int Preference)
         }
         mcs.lParam  = (ULONG) (type | (view << 16));
 
+        Views[view].hwndClient = hwndMDIClient;
+        Views[view].NextView = -1;  /* No next view */
+        Views[view].Doc = -type;
+
         hWnd = (HANDLE)SendMessage(hwndMDIClient, WM_MDICREATE, 0,
                                     (LPARAM)(LPMDICREATESTRUCT)&mcs);
 
         SetWindowWord(hWnd, GWW_VIEW, (WORD)view);
-
         Views[view].hwndFrame = hWnd;
-        Views[view].hwndClient = hwndMDIClient;
-        Views[view].NextView = -1;  /* No next view */
-        Views[view].Doc = -type;
     }
 
 
@@ -1344,22 +1453,30 @@ LONG CreatePane( HWND hWnd, int iView, int iType )
         case WATCH_WIN:
             p->ColorItem = WatchWindow;
             p->fnEditProc = WatchEditProc;
+            if (Views[iView].Doc < 0)
+                Views[iView].hwndFrame = hWnd;
             break;
 
 
         case LOCALS_WIN:
             p->ColorItem = LocalsWindow;
             p->fnEditProc = LocalEditProc;
+            if (Views[iView].Doc < 0)
+                Views[iView].hwndFrame = hWnd;
             break;
 
         case CPU_WIN:
             p->ColorItem = RegistersWindow;
             p->fnEditProc = CPUEditProc;
+            if (Views[iView].Doc < 0)
+                Views[iView].hwndFrame = hWnd;
             break;
 
         case FLOAT_WIN:
             p->ColorItem = FloatingPointWindow;
             p->fnEditProc = CPUEditProc;
+            if (Views[iView].Doc < 0)
+                Views[iView].hwndFrame = hWnd;
             break;
 
         case QUICKW_WIN:
@@ -1512,7 +1629,8 @@ void SetPaneFont( HWND hWnd, PPANE p, LPLOGFONT LogFont )
 
     }
 
-    SendMessage (p->hWndLeft,WM_SETFOCUS,0,0L);
+    if ( p->hWndLeft)
+        SendMessage (p->hWndLeft,WM_SETFOCUS,0,0L);
 
     return;
 }

@@ -39,6 +39,8 @@ Revision History:
     03-Aug-1992 JohnRo
         RAID 1895: Net APIs and svcs should use OEM char set.
         Avoid compiler warnings.
+    13-Feb-1995 FloydR
+        Deleted NetpAllocStringFromTStr() - unused
 
 --*/
 
@@ -60,49 +62,6 @@ Revision History:
 #include <tstring.h>            // NetpNCopyStrToTStr(), some of my prototypes.
 #include <winerror.h>           // NO_ERROR.
 
-
-PSTRING                  // Returns NULL on err; free with NetApiBufferFree.
-NetpAllocStringFromTStr(
-    IN LPTSTR Src
-    )
-{
-    DWORD AllocSize;
-    NET_API_STATUS ApiStatus;
-    PSTRING Dest;
-    PCHAR DestChars;
-    DWORD StringSize;
-
-    NetpAssert( Src != NULL );
-    StringSize = STRSIZE(Src);
-
-    //
-    // Allocate memory for the structure and the array of chars all at once.
-    //
-    AllocSize = sizeof(STRING) + StringSize;
-    ApiStatus = NetApiBufferAllocate( AllocSize, (LPVOID *) & Dest );
-    if (ApiStatus != NO_ERROR) {
-        NetpAssert( ApiStatus == ERROR_NOT_ENOUGH_MEMORY );
-        return (NULL);
-    }
-
-    //
-    // Build the structure.
-    //
-    Dest->MaximumLength = (USHORT)StringSize;
-    Dest->Length = (USHORT)StringSize;
-    DestChars = (PCHAR) NetpPointerPlusSomeBytes( Dest, sizeof(STRING) );
-    NetpAssert( ALIGN_CHAR == 1 );  // We've blown it if we need alignment.
-    Dest->Buffer = DestChars;
-
-    //
-    // Now copy the string.
-    //
-
-    NetpCopyTStrToStr( Src, (LPSTR) DestChars );
-
-    return (Dest);  // Return pointer to structure.
-
-} // NetpAllocStringFromTStr
 
 LPSTR
 NetpAllocStrFromStr (

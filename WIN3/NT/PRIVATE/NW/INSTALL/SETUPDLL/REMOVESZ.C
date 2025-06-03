@@ -36,7 +36,7 @@ RemoveSzFromFile( DWORD nArgs, LPSTR apszArgs[], LPSTR * ppszResult )
     {
         while (fgets(szInput,1000,hsrcfile))
         {
-            if (stricmp(szInput,apszArgs[1])!=0)
+            if (_stricmp(szInput,apszArgs[1])!=0)
             {
                 fputs(szInput,hdesfile);
             }

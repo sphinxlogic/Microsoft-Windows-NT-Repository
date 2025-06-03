@@ -51,18 +51,17 @@ Revision History:
 #include <netlib.h>
 #include <netlibnt.h>
 #include <rpcutil.h>
-#include <secobj.h>
 #include <stddef.h>
 #include <uasp.h>
-#include <wcstr.h>
+#include <stdlib.h>
 
 
 
 NET_API_STATUS
 GrouppChangeMember(
-    IN LPWSTR ServerName OPTIONAL,
-    IN LPWSTR GroupName,
-    IN LPWSTR UserName,
+    IN LPCWSTR ServerName OPTIONAL,
+    IN LPCWSTR GroupName,
+    IN LPCWSTR UserName,
     IN BOOL AddMember
     )
 
@@ -116,9 +115,9 @@ Return Value:
 
     if ( NetStatus != NERR_Success ) {
         IF_DEBUG( UAS_DEBUG_GROUP ) {
-            NetpDbgPrint(
+            NetpKdPrint((
                 "GrouppChangeMember: UaspOpenDomain returned %ld\n",
-                NetStatus );
+                NetStatus ));
         }
         goto Cleanup;
     }
@@ -136,9 +135,9 @@ Return Value:
 
     if ( NetStatus != NERR_Success ) {
         IF_DEBUG( UAS_DEBUG_GROUP ) {
-            NetpDbgPrint(
+            NetpKdPrint((
                 "GrouppChangeMember: GrouppOpenGroup returned %ld\n",
-                NetStatus );
+                NetStatus ));
         }
         goto Cleanup;
     }
@@ -156,9 +155,9 @@ Return Value:
 
     if ( !NT_SUCCESS(Status) ) {
         IF_DEBUG( UAS_DEBUG_GROUP ) {
-            NetpDbgPrint(
+            NetpKdPrint((
                 "GrouppChangeMember: SamLookupNamesInDomain returned %lX\n",
-                Status );
+                Status ));
         }
         if ( Status == STATUS_NONE_MAPPED ) {
             NetStatus = NERR_UserNotFound;
@@ -204,9 +203,9 @@ Return Value:
     }
 
     IF_DEBUG( UAS_DEBUG_GROUP ) {
-        NetpDbgPrint(
+        NetpKdPrint((
             "GrouppChangeMember: SamAdd(orRemove)MemberFromGroup returned %lX\n",
-            Status );
+            Status ));
     }
 
     if ( !NT_SUCCESS(Status) ) {
@@ -454,7 +453,7 @@ Cleanup:
     }
 
     IF_DEBUG( UAS_DEBUG_GROUP ) {
-        NetpDbgPrint( "GrouppGetInfo: returns %ld\n", NetStatus );
+        NetpKdPrint(( "GrouppGetInfo: returns %ld\n", NetStatus ));
     }
     return NetStatus;
 
@@ -465,7 +464,7 @@ NET_API_STATUS
 GrouppOpenGroup(
     IN SAM_HANDLE DomainHandle,
     IN ACCESS_MASK DesiredAccess,
-    IN LPWSTR GroupName,
+    IN LPCWSTR GroupName,
     OUT PSAM_HANDLE GroupHandle OPTIONAL,
     OUT PULONG RelativeId OPTIONAL
     )
@@ -523,18 +522,18 @@ Return Value:
 
     if ( !NT_SUCCESS(Status) ) {
         IF_DEBUG( UAS_DEBUG_GROUP ) {
-            NetpDbgPrint( "GrouppOpenGroup: %wZ: SamLookupNamesInDomain %lX\n",
+            NetpKdPrint(( "GrouppOpenGroup: %wZ: SamLookupNamesInDomain %lX\n",
                 &NameString,
-                Status );
+                Status ));
         }
         return NetpNtStatusToApiStatus( Status );
     }
 
     if ( *NameUse != SidTypeGroup ) {
         IF_DEBUG( UAS_DEBUG_GROUP ) {
-            NetpDbgPrint( "GrouppOpenGroup: %wZ: Name is not a group %ld\n",
+            NetpKdPrint(( "GrouppOpenGroup: %wZ: Name is not a group %ld\n",
                 &NameString,
-                *NameUse );
+                *NameUse ));
         }
         NetStatus = NERR_GroupNotFound;
         goto Cleanup;
@@ -552,9 +551,9 @@ Return Value:
 
         if ( !NT_SUCCESS(Status) ) {
             IF_DEBUG( UAS_DEBUG_GROUP ) {
-                NetpDbgPrint( "GrouppOpenGroup: %wZ: SamOpenGroup %lX\n",
+                NetpKdPrint(( "GrouppOpenGroup: %wZ: SamOpenGroup %lX\n",
                     &NameString,
-                    Status );
+                    Status ));
             }
             NetStatus = NetpNtStatusToApiStatus( Status );
             goto Cleanup;
@@ -630,7 +629,7 @@ Return Value:
     DWORD EntryNumber;
     DWORD FixedSize;
     IF_DEBUG( UAS_DEBUG_GROUP ) {
-        NetpDbgPrint( "GrouppRelocationRoutine: entering\n" );
+        NetpKdPrint(( "GrouppRelocationRoutine: entering\n" ));
     }
 
     //
@@ -730,7 +729,7 @@ Return Value:
     DWORD EntryNumber;
     DWORD FixedSize;
     IF_DEBUG( UAS_DEBUG_GROUP ) {
-        NetpDbgPrint( "GrouppMemberRelocationRoutine: entering\n" );
+        NetpKdPrint(( "GrouppMemberRelocationRoutine: entering\n" ));
     }
 
     //
@@ -781,8 +780,8 @@ Return Value:
 
 NET_API_STATUS
 GrouppSetUsers (
-    IN LPWSTR ServerName OPTIONAL,
-    IN LPWSTR GroupName,
+    IN LPCWSTR ServerName OPTIONAL,
+    IN LPCWSTR GroupName,
     IN DWORD Level,
     IN LPBYTE Buffer,
     IN DWORD NewMemberCount,
@@ -901,8 +900,8 @@ Return Value:
 
     if ( NetStatus != NERR_Success ) {
         IF_DEBUG( UAS_DEBUG_GROUP ) {
-            NetpDbgPrint( "GrouppSetUsers: UaspOpenDomain returns %ld\n",
-                      NetStatus );
+            NetpKdPrint(( "GrouppSetUsers: UaspOpenDomain returns %ld\n",
+                      NetStatus ));
         }
         return (NetStatus);
     }
@@ -925,8 +924,8 @@ Return Value:
 
     if ( NetStatus != NERR_Success ) {
         IF_DEBUG( UAS_DEBUG_GROUP ) {
-            NetpDbgPrint( "GrouppSetUsers: GrouppOpenGroup returns %ld\n",
-                      NetStatus );
+            NetpKdPrint(( "GrouppSetUsers: GrouppOpenGroup returns %ld\n",
+                      NetStatus ));
         }
         goto Cleanup;
     }
@@ -951,9 +950,9 @@ Return Value:
 
         if ( !NT_SUCCESS(Status) ) {
             IF_DEBUG( UAS_DEBUG_GROUP ) {
-                NetpDbgPrint(
+                NetpKdPrint((
                     "GrouppSetUsers: SamQueryInformationGroup returns %lX\n",
-                    Status );
+                    Status ));
             }
             NetStatus = NetpNtStatusToApiStatus( Status );
             goto Cleanup;
@@ -1030,9 +1029,9 @@ Return Value:
 
         if ( !NT_SUCCESS( Status )) {
             IF_DEBUG( UAS_DEBUG_GROUP ) {
-                NetpDbgPrint(
+                NetpKdPrint((
                     "GrouppSetUsers: SamLookupNamesInDomain returns %lX\n",
-                    Status );
+                    Status ));
             }
             if ( Status == STATUS_NONE_MAPPED ) {
                 NetStatus = NERR_UserNotFound;
@@ -1126,9 +1125,9 @@ Return Value:
 
     if ( !NT_SUCCESS( Status ) ) {
         IF_DEBUG( UAS_DEBUG_GROUP ) {
-            NetpDbgPrint(
+            NetpKdPrint((
                 "GrouppSetUsers: SamGetMembersInGroup returns %lX\n",
-                Status );
+                Status ));
         }
         NetStatus = NetpNtStatusToApiStatus( Status );
         goto Cleanup;
@@ -1157,9 +1156,9 @@ Return Value:
 
         if ( !NT_SUCCESS( Status ) ) {
             IF_DEBUG( UAS_DEBUG_GROUP ) {
-                NetpDbgPrint(
+                NetpKdPrint((
                     "GrouppSetUsers: SamLookupIdsInDomain returns %lX\n",
-                    Status );
+                    Status ));
             }
 
             if ( Status == STATUS_NONE_MAPPED ) {
@@ -1280,9 +1279,9 @@ Return Value:
 
             if ( !NT_SUCCESS( Status ) ) {
                 IF_DEBUG( UAS_DEBUG_GROUP ) {
-                    NetpDbgPrint(
+                    NetpKdPrint((
                         "GrouppSetUsers: SamAddMemberToGroup returns %lX\n",
-                        Status );
+                        Status ));
                 }
                 NetStatus = NetpNtStatusToApiStatus( Status );
                 goto Cleanup;
@@ -1306,9 +1305,9 @@ Return Value:
 
             if ( !NT_SUCCESS( Status ) ) {
                 IF_DEBUG( UAS_DEBUG_GROUP ) {
-                    NetpDbgPrint(
+                    NetpKdPrint((
                         "GrouppSetUsers: SamRemoveMemberFromGroup returns %lX\n",
-                        Status );
+                        Status ));
                 }
                 NetStatus = NetpNtStatusToApiStatus( Status );
                 goto Cleanup;
@@ -1321,9 +1320,9 @@ Return Value:
 
             if ( !NT_SUCCESS( Status ) ) {
                 IF_DEBUG( UAS_DEBUG_GROUP ) {
-                    NetpDbgPrint(
+                    NetpKdPrint((
                         "GrouppSetUsers: SamSetMemberAttributesOfGroup returns %lX\n",
-                        Status );
+                        Status ));
                 }
                 NetStatus = NetpNtStatusToApiStatus( Status );
                 goto Cleanup;
@@ -1345,8 +1344,8 @@ Return Value:
 
         if ( !NT_SUCCESS( Status ) ) {
             IF_DEBUG( UAS_DEBUG_GROUP ) {
-                NetpDbgPrint( "GrouppSetUsers: SamDeleteGroup returns %lX\n",
-                    Status );
+                NetpKdPrint(( "GrouppSetUsers: SamDeleteGroup returns %lX\n",
+                    Status ));
             }
             NetStatus = NetpNtStatusToApiStatus( Status );
 
@@ -1447,7 +1446,7 @@ Cleanup:
     UaspCloseDomain( DomainHandle );
 
     IF_DEBUG( UAS_DEBUG_GROUP ) {
-        NetpDbgPrint( "GrouppSetUsers: returns %ld\n", NetStatus );
+        NetpKdPrint(( "GrouppSetUsers: returns %ld\n", NetStatus ));
     }
 
     return NetStatus;

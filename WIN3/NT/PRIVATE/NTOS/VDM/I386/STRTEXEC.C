@@ -158,12 +158,14 @@ Return Value:
 
         if (VdmTib->VdmContext.EFlags & EFLAGS_INTERRUPT_MASK) {
             _asm {
-                 mov  eax,FIXED_NTVDMSTATE_LINEAR     ; get pointer to VDM State
+
+                 mov  eax,VdmFixedStateLinear     ; get pointer to VDM State
                  lock or dword ptr [eax], dword ptr VDM_VIRTUAL_INTERRUPTS
             }
         } else {
             _asm {
-                 mov  eax,FIXED_NTVDMSTATE_LINEAR   ; get pointer to VDM State
+
+                 mov  eax,VdmFixedStateLinear   ; get pointer to VDM State
                  lock and dword ptr [eax], NOT VDM_VIRTUAL_INTERRUPTS
             }
         }

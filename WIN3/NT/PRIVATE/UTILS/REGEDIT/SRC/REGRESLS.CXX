@@ -150,10 +150,10 @@ Return Value:
     FullResource    = ( ( PCM_RESOURCE_LIST )Data )->List;
 
     TmpList = ( PARRAY )NEW( ARRAY );
-    DbgPtrAssert( TmpList );
+    DebugPtrAssert( TmpList );
     if( ( TmpList == NULL ) ||
         ( !TmpList->Initialize() ) ) {
-        DbgPrintf("REGEDT32: Out of memory" );
+        DebugPrintf("REGEDT32: Out of memory" );
         DELETE( TmpList );
         return( FALSE );
     }
@@ -175,7 +175,7 @@ Return Value:
                                                  BufferSize,
                                                  &FullDescriptorSize )
           ) {
-            DbgPrint( "REGEDT32: Unable to create or initialize FullResourcedescriptor \n" );
+            DebugPrint( "REGEDT32: Unable to create or initialize FullResourcedescriptor \n" );
             DELETE( FullResourceDescriptor );
             TmpList->DeleteAllMembers();
             DELETE( TmpList );
@@ -184,7 +184,7 @@ Return Value:
         TmpList->Put( FullResourceDescriptor );
 #if DBG
         if( BufferSize < FullDescriptorSize ) {
-            DbgPrintf( "REGEDT32: incorrect sizes, BufferSize = %d, FullDescriptorSize = %d \n",
+            DebugPrintf( "REGEDT32: incorrect sizes, BufferSize = %d, FullDescriptorSize = %d \n",
                        BufferSize, FullDescriptorSize );
         }
 #endif
@@ -220,8 +220,8 @@ Return Value:
     PITERATOR           Iterator;
     PFULL_DESCRIPTOR    Descriptor;
 
-    DbgPrintf( "*** Dumping RESOURCE_LIST \n\n" );
-    DbgPrintf( "_FullResourceDescriptors = %#lx \n", _FullResourceDescriptors );
+    DebugPrintf( "*** Dumping RESOURCE_LIST \n\n" );
+    DebugPrintf( "_FullResourceDescriptors = %#lx \n", _FullResourceDescriptors );
     if( _FullResourceDescriptors != NULL ) {
         Iterator = _FullResourceDescriptors->QueryIterator();
         while( Descriptor = ( PFULL_DESCRIPTOR ) Iterator->GetNext() ) {
@@ -229,7 +229,7 @@ Return Value:
         }
         DELETE( Iterator );
     } else {
-        DbgPrintf( "RESOURCE_LIST is empty \n\n" );
+        DebugPrintf( "RESOURCE_LIST is empty \n\n" );
     }
 
 }

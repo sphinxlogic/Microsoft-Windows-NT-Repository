@@ -1,6 +1,6 @@
+#ifndef SCRIPT_INCLUDED
+#define SCRIPT_INCLUDED
 /* script.h - contains information necessary for script file processing */
-
-#include <signal.h>
 
 typedef int SO;
 
@@ -22,6 +22,4 @@ typedef int SO;
 
 #define cchScrMax 512	/* size of buffer for reading script file */
 
-#ifndef SCRIPT_INCLUDED
-#define SCRIPT_INCLUDED
 #endif

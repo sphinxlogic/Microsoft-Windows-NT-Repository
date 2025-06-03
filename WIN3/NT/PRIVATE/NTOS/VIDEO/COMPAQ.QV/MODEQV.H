@@ -115,6 +115,7 @@ Revision History:
                                             //  synchronous reset
 #define END_SYNC_RESET_VALUE    0x03        // value for Sync Reset reg to end
 
+#define MEMORY_MAP_BASE 0x23c6              // Juniper memory map base register
 #define CTRL_REG_2      0x23c7              // Juniper control register 2
 #define CTRL_REG_3      0x63cb              // Juniper control register 3
 //
@@ -157,10 +158,10 @@ USHORT QV_TEXT_720x400x4[] = {
    0x67,                                    // with this value
 
 
-   OW,                
+   OW,
    GRAPH_ADDRESS_PORT,
    0x0e06,
-    
+
    OW,                                      // End sync reset
    SEQ_ADDRESS_PORT,
    IND_SYNC_RESET + (END_SYNC_RESET_VALUE << 8),
@@ -192,7 +193,7 @@ USHORT QV_TEXT_720x400x4[] = {
 
    OW,
    CRTC_ADDRESS_PORT_COLOR,
-   0x0511,                         
+   0x0511,
 
    //
    // Set all 25 CRT Controller registers.
@@ -211,7 +212,7 @@ USHORT QV_TEXT_720x400x4[] = {
 
    IB,                                      // prepare atc for writing
    INPUT_STATUS_1_COLOR,
-   
+
    METAOUT+ATCOUT,                          //
    ATT_ADDRESS_PORT,                        // port
    VGA_NUM_ATTRIB_CONT_PORTS,               // count
@@ -251,7 +252,7 @@ USHORT QV_TEXT_640x350x4[] = {
    OW,                                     // start sync reset
    SEQ_ADDRESS_PORT,
    IND_SYNC_RESET + (START_SYNC_RESET_VALUE << 8),
- 
+
    OWM,
    SEQ_ADDRESS_PORT,
    4,
@@ -261,10 +262,10 @@ USHORT QV_TEXT_640x350x4[] = {
    MISC_OUTPUT_REG_WRITE_PORT,
    0xA3,
 
-   OW,                
+   OW,
    GRAPH_ADDRESS_PORT,
    0x0e06,
-   
+
    OW,                                     // end sync reset
    SEQ_ADDRESS_PORT,
    IND_SYNC_RESET + (END_SYNC_RESET_VALUE << 8),
@@ -296,7 +297,7 @@ USHORT QV_TEXT_640x350x4[] = {
 
    OW,
    CRTC_ADDRESS_PORT_COLOR,
-   0x0511,                         
+   0x0511,
 
    METAOUT+INDXOUT,                        // program crtc registers
    CRTC_ADDRESS_PORT_COLOR,
@@ -321,9 +322,9 @@ USHORT QV_TEXT_640x350x4[] = {
    0x00,0x00,0x0F,0x00,0x00,
 
    METAOUT+INDXOUT,                        //
-   GRAPH_ADDRESS_PORT,                     // port        
-   VGA_NUM_GRAPH_CONT_PORTS,               // count       
-   0,                                      // start index 
+   GRAPH_ADDRESS_PORT,                     // port
+   VGA_NUM_GRAPH_CONT_PORTS,               // count
+   0,                                      // start index
    0x00,0x00,0x00,0x00,0x00,0x10,0x0e,0x00,0x0FF,
 
    OB,
@@ -366,7 +367,7 @@ USHORT QV_TEXT_640x480x4[] = {
    OW,                                      //{ SetGraphCmd,{ "\x05", 0x06, 1 } },
    GRAPH_ADDRESS_PORT,
    0x0506,
-   
+
    OW,                                      // End Sync reset
    SEQ_ADDRESS_PORT,
    IND_SYNC_RESET + (END_SYNC_RESET_VALUE << 8),
@@ -398,7 +399,7 @@ USHORT QV_TEXT_640x480x4[] = {
 
    OW,
    CRTC_ADDRESS_PORT_COLOR,
-   0x0511,                         
+   0x0511,
 
    METAOUT+INDXOUT,                         // program crtc registers
    CRTC_ADDRESS_PORT_COLOR,
@@ -440,7 +441,7 @@ USHORT QV_TEXT_640x480x4[] = {
    OB,                                      // turn video on.
    ATT_ADDRESS_PORT,
    VIDEO_ENABLE,
- 
+
    EOD
 
 }; // QV_TEXT_640x480x4
@@ -507,7 +508,7 @@ USHORT QV_640x480x8[] = {
    QVCMD+BYTE2PORT,                         // enable 8BPP Aries Mode
    ARIES_CTL_1,
    0x01,
-   0x03,                                             
+   0x03,
 
    QVNEW+ARIES,                             // make sure this is an aries mode
 
@@ -532,7 +533,7 @@ USHORT QV_640x480x8[] = {
    OW,                                      // unlock the CRTC registers
    CRTC_ADDRESS_PORT_COLOR,
    0x0011,
-                                            
+
    QVCMD+SETMONCRTC,                        // Set monitor specific CRTC registers
 
    QVCMD+SETMONOVFLW,                       // Set monitor specific overflow register
@@ -545,7 +546,7 @@ USHORT QV_640x480x8[] = {
    CO_COLOR_WRITE,
    0x01,
    0x00,
-   
+
    QVCMD+BYTE2PORT,                         // setup DAC control registers
    CO_COLOR_DATA,
    0x01,
@@ -655,7 +656,7 @@ USHORT QV_800x600x8[] = {
    QVCMD+BYTE2PORT,                         // enable 8BPP Aries Mode
    ARIES_CTL_1,
    0x01,
-   0x03,                                             
+   0x03,
 
    QVNEW+ARIES,                             // make sure this is an aries mode
 
@@ -680,7 +681,7 @@ USHORT QV_800x600x8[] = {
    OW,                                      // unlock the CRTC registers
    CRTC_ADDRESS_PORT_COLOR,
    0x0011,
-                                            
+
    QVCMD+SETMONCRTC,                        // Set monitor specific CRTC registers
 
    QVCMD+SETMONOVFLW,                       // Set monitor specific overflow register
@@ -693,7 +694,7 @@ USHORT QV_800x600x8[] = {
    CO_COLOR_WRITE,
    0x01,
    0x00,
-   
+
    QVCMD+BYTE2PORT,                         // setup DAC control registers
    CO_COLOR_DATA,
    0x01,
@@ -804,7 +805,7 @@ USHORT QV_1024x768x8[] = {
    QVCMD+BYTE2PORT,                         // setup DAC control registers
    ARIES_CTL_1,                             // 63ca
    0x01,
-   0x03,                                             
+   0x03,
 
    QVNEW+ARIES,                             // make sure this is an aries mode
 
@@ -835,14 +836,14 @@ USHORT QV_1024x768x8[] = {
    QVCMD+SETMONOVFLW,                       // Set monitor specific overflow register
 
    OW,                                      // Set the Overflow_reg_1
-   GRAPH_ADDRESS_PORT,                      
+   GRAPH_ADDRESS_PORT,
    0x0042,
 
    QVCMD+BYTE2PORT,                         // setup DAC control registers
    CO_COLOR_WRITE,                          // 83c8
    0x01,
    0x00,
-   
+
    QVCMD+BYTE2PORT,                         // setup DAC control registers
    CO_COLOR_DATA,                           // 83c9
    0x01,
@@ -953,7 +954,7 @@ USHORT QV_1280x1024x8[] = {
    QVCMD+BYTE2PORT,                         // setup DAC control registers
    ARIES_CTL_1,                             // 63ca
    0x01,
-   0x03,                                             
+   0x03,
 
    QVNEW+V32,                               // Set board in V32 mode
 
@@ -981,11 +982,11 @@ USHORT QV_1280x1024x8[] = {
    //            to value 20.  But if a Qvision monitor is being used
    //            (CPQ MON), then must changed this value to 30 !!!
    //            Otherwise, the screen will NOT sync in 1280 resolution
-   //       
+   //
    //            DAC_CMD_2 is set by the QVNEW+V32 command. It must NOT
    //            be set later in this stream !!! Otherwise, 1280 may
    //            may not sync on the monitor.
-   //                                             
+   //
    // VidalL 04/25/93
 
 //   QVCMD+BYTE2PORT,                         // setup DAC control registers
@@ -1008,14 +1009,14 @@ USHORT QV_1280x1024x8[] = {
    QVCMD+SETMONOVFLW,                       // Set monitor specific overflow register
 
    OW,                                      // Set the Overflow_reg_1
-   GRAPH_ADDRESS_PORT,                      
+   GRAPH_ADDRESS_PORT,
    0x0142,
 
    QVCMD+BYTE2PORT,                         // setup DAC control registers
    CO_COLOR_WRITE,                          // 83c8
    0x01,
    0x00,
-   
+
    QVCMD+BYTE2PORT,                         // setup DAC control registers
    CO_COLOR_DATA,                           // 83c9
    0x01,
@@ -1317,7 +1318,7 @@ MONTYPE MonData[] = {
    QV_1024x768x8_INDEX, VALID_MODE, 0x2b, 0x00,
       0xa9, 0x7f, 0x7f, 0x0a, 0x87, 0x9f, 0x2e, 0xf5, 0x00, 0x60,
       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06, 0xba, 0xff, 0x80,
-      0x00, 0xff, 0x2c, 0xe3, 0xff, 
+      0x00, 0xff, 0x2c, 0xe3, 0xff,
    QV_1280x1024x8_INDEX, INVALID_MODE, 0x00, 0x00,
       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -1477,7 +1478,7 @@ MONTYPE MonData[] = {
    QV_1024x768x8_INDEX, VALID_MODE, 0x2b, 0x00,
       0xa9, 0x7f, 0x7f, 0x0a, 0x87, 0x9f, 0x2e, 0xf5, 0x00, 0x60,
       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06, 0xba, 0xff, 0x80,
-      0x00, 0xff, 0x2c, 0xe3, 0xff, 
+      0x00, 0xff, 0x2c, 0xe3, 0xff,
    QV_1280x1024x8_INDEX, INVALID_MODE, 0x00, 0x00,
       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -1789,5 +1790,5 @@ BOOLEAN fValidMode[NUM_MONITOR_CLASSES][NUM_VIDEO_MODES] = {
    TRUE					    // 1280x1024x8
 
 }; // fValidMode
-
-
+
+

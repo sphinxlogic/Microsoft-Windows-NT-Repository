@@ -37,6 +37,8 @@ Revision History:
 
 #define Dbg                              (DEBUG_TRACE_IPX)
 
+extern BOOLEAN WorkerRunning;   //  From timer.c
+
 extern POBJECT_TYPE *IoFileObjectType;
 
 typedef TA_IPX_ADDRESS UNALIGNED *PUTA_IPX_ADDRESS;
@@ -105,11 +107,6 @@ CompletionLineChange(
     IN PVOID Context
     );
 
-VOID
-FspProcessLineChange(
-    IN PVOID Context
-    );
-
 #endif
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text( PAGE, IPX_Get_Local_Target )
@@ -134,13 +131,18 @@ FspProcessLineChange(
 #pragma alloc_text( PAGE, FspProcessLineChange )
 #endif
 
+#ifndef QFE_BUILD
 #pragma alloc_text( PAGE1, CompletionEvent )
+#endif
 
 #endif
 
 #if 0  // Not pageable
 BuildIpxAddress
 CompletionLineChange
+
+// see ifndef QFE_BUILD above
+
 #endif
 
 
@@ -452,6 +454,8 @@ Return Value:
 
     DebugTrace(+1, Dbg, "IpxOpenHandle\n", 0);
 
+    *pHandle = NULL;
+
     InitializeObjectAttributes (&AddressAttributes,
                                 &IpxTransportName,
                                 OBJ_CASE_INSENSITIVE,// Attributes
@@ -484,7 +488,7 @@ Return Value:
     if (!NT_SUCCESS(Status) ||
         !NT_SUCCESS(Status = IoStatusBlock.Status)) {
 
-        goto error_cleanup;
+        goto error_cleanup2;
 
     }
 
@@ -520,12 +524,13 @@ Return Value:
     DebugTrace(-1, Dbg, "IpxOpenHandle %X\n", Status);
     return Status;
 
-error_cleanup:
-    if ( IpxHandle != NULL ) {
-        ZwClose( pHandle );
-        pHandle = NULL;
-    }
+error_cleanup2:
 
+    ASSERT( *pHandle != NULL );
+    ZwClose( *pHandle );
+    *pHandle = NULL;
+
+error_cleanup:
     if (ProcessAttached) {
 
         //
@@ -1618,6 +1623,53 @@ Return Value:
         return( STATUS_MORE_PROCESSING_REQUIRED );
     }
 
+    //
+    // If the scavenger is running, simply make a note that
+    // we need to do this when it is finished.
+    //
+
+    KeAcquireSpinLockAtDpcLevel( &NwScavengerSpinLock );
+
+    if ( WorkerRunning ) {
+
+       if ( ( DelayedProcessLineChange != FALSE ) &&
+            ( DelayedLineChangeIrp != NULL ) ) {
+
+           //
+           // We've already got a line change.  Dump this one.
+           //
+
+           KeReleaseSpinLockFromDpcLevel( &NwScavengerSpinLock );
+
+           DebugTrace( 0, Dbg, "Dumping an additional line change request.\n", 0 );
+
+           FREE_POOL( Mdl->MappedSystemVa );
+           FREE_MDL( Mdl );
+           FREE_IRP( Irp );
+           return( STATUS_MORE_PROCESSING_REQUIRED );
+
+       } else {
+
+           DebugTrace( 0, Dbg, "Delaying a line change request.\n", 0 );
+
+           DelayedProcessLineChange = TRUE;
+           DelayedLineChangeIrp = Irp;
+
+           KeReleaseSpinLockFromDpcLevel( &NwScavengerSpinLock );
+           return STATUS_MORE_PROCESSING_REQUIRED;
+
+       }
+
+    } else {
+
+       //
+       // Don't let the scavenger start up while we're running.
+       //
+
+       WorkerRunning = TRUE;
+       KeReleaseSpinLockFromDpcLevel( &NwScavengerSpinLock );
+    }
+
     WorkQueueItem = ALLOCATE_POOL( NonPagedPool, sizeof( *WorkQueueItem ) );
     if ( WorkQueueItem == NULL ) {
         FREE_POOL( Mdl->MappedSystemVa );
@@ -1667,9 +1719,14 @@ FspProcessLineChange(
     //  Invalid all remote handles
     //
 
-    NwAcquireExclusiveRcb( &NwRcb, TRUE );
-    ActiveHandles = NwInvalidateAllHandles(NULL);
-    NwReleaseRcb( &NwRcb );
+    ActiveHandles = NwInvalidateAllHandles(NULL, NULL);
+
+    //
+    // Now that we're done walking all the servers, it's safe
+    // to let the scavenger run again.
+    //
+
+    WorkerRunning = FALSE;
 
     //
     //  Resubmit the IRP

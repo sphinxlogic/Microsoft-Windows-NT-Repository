@@ -26,8 +26,16 @@ Notes:
 
 #include "cluster.hxx"
 
+#if defined ( _AUTOCHECK_ )
+#define UFAT_EXPORT
+#elif defined ( _UFAT_MEMBER_ )
+#define UFAT_EXPORT    __declspec(dllexport)
+#else
+#define UFAT_EXPORT    __declspec(dllimport)
+#endif
+
 //
-//	Forward references
+//      Forward references
 //
 
 DECLARE_CLASS( EA_HEADER );
@@ -79,15 +87,17 @@ CONST USHORT    InvalidHandle       = 0xFFFF;
 
 class EA_HEADER : public CLUSTER_CHAIN {
 
-	public:
-
-		DECLARE_CONSTRUCTOR( EA_HEADER );
+        public:
+                UFAT_EXPORT
+                DECLARE_CONSTRUCTOR( EA_HEADER );
 
         VIRTUAL
+        UFAT_EXPORT
         ~EA_HEADER(
             );
 
         NONVIRTUAL
+        UFAT_EXPORT
         BOOLEAN
         Initialize(
             IN OUT  PMEM                Mem,
@@ -114,6 +124,7 @@ class EA_HEADER : public CLUSTER_CHAIN {
             ) CONST;
 
         NONVIRTUAL
+        UFAT_EXPORT
         USHORT
         QueryEaSetClusterNumber(
             IN  USHORT  Handle
@@ -121,10 +132,10 @@ class EA_HEADER : public CLUSTER_CHAIN {
 
     private:
 
-		NONVIRTUAL
-		VOID
-		Construct (
-			);
+                NONVIRTUAL
+                VOID
+                Construct (
+                        );
 
         NONVIRTUAL
         VOID

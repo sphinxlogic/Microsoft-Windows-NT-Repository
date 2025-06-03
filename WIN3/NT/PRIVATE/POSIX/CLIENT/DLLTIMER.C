@@ -24,20 +24,6 @@ Revision History:
 
 ULONG MagicMultiplier = 10000000;
 
-#if 0
-//
-// These no longer used, because the division seems to be
-// off -- 16 seconds of TIME converted to seconds is 15.
-//
-
-//
-// These magic numbers are generated, see ntos/rtl/recip.c
-// for details.
-//
-LARGE_INTEGER MagicDivisor = { 0xd6bf94d5, 0xe57a42bd };
-CCHAR MagicShiftCount = 23;
-#endif
-
 VOID
 SecondsToTime (
     OUT PLARGE_INTEGER Time,
@@ -65,8 +51,8 @@ Return Value:
 
 
 {
-    *Time = RtlEnlargedIntegerMultiply(Seconds, MagicMultiplier);
-    *Time = RtlLargeIntegerNegate(*Time);
+    Time->QuadPart = (LONGLONG)Seconds * (LONGLONG)MagicMultiplier;
+    Time->QuadPart = -Time->QuadPart;
 }
 
 ULONG

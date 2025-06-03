@@ -14,4 +14,3 @@
 #define typeNumMaxOver10	(214748364L)
 
 typedef long typeNum;
-

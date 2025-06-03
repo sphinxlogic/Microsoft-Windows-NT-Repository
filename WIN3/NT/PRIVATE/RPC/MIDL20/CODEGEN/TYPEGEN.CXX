@@ -39,7 +39,7 @@ CG_STATUS
 CG_TRANSMIT_AS::GenFree(
 	CCB		*	pCCB )
 	{
-	_expr_node * pPresented = pCCB->GetSourceExpression();
+	expr_node * pPresented = pCCB->GetSourceExpression();
 	if( !pCCB->IsRefAllocDone() )
 		pPresented = MakeAddressExpressionNoMatterWhat( pPresented );
 
@@ -54,15 +54,15 @@ CG_STATUS
 CG_TRANSMIT_AS::S_GenInitOutLocals(
 	CCB	*	pCCB )
 	{
-	_expr_node	*	pExpr;
+	expr_node	*	pExpr;
 
 	pExpr = MakeAddressExpressionNoMatterWhat( GetResource() );
 	Out_Assign( pCCB, pCCB->GetSourceExpression(), pExpr );
-	_expr_node	*	pSrc = pCCB->GetSourceExpression();
-	_expr_proc_call * pProc = new _expr_proc_call( MIDL_MEMSET_RTN_NAME );
-	pProc->SetParam( new _expr_param( pSrc ) );
-	pProc->SetParam( new _expr_param( new _expr_constant( 0L ) ) );
-	pProc->SetParam( new _expr_param( new _expr_sizeof( GetPresentedType())));
+	expr_node	*	pSrc = pCCB->GetSourceExpression();
+	expr_proc_call * pProc = new expr_proc_call( MIDL_MEMSET_RTN_NAME );
+	pProc->SetParam( new expr_param( pSrc ) );
+	pProc->SetParam( new expr_param( new expr_constant( 0L ) ) );
+	pProc->SetParam( new expr_param( new expr_sizeof( GetPresentedType())));
 	pCCB->GetStream()->NewLine();
 	pProc->PrintCall( pCCB->GetStream(), 0, 0 );
 	return CG_OK;
@@ -72,8 +72,8 @@ CG_STATUS
 CG_TRANSMIT_AS::GenMarshall(
 	CCB		*	pCCB )
 	{
-	_expr_node	*	pPresented	= pCCB->GetSourceExpression();
-	_expr_node	*	pXmitted	= GetResource();
+	expr_node	*	pPresented	= pCCB->GetSourceExpression();
+	expr_node	*	pXmitted	= GetResource();
 
 
 	// If we dont have a ptr to the presented type, make an address
@@ -120,8 +120,8 @@ CG_STATUS
 CG_TRANSMIT_AS::GenUnMarshall(
 	CCB		*	pCCB )
 	{
-	_expr_node	*	pPresented	= pCCB->GetDestExpression();
-	_expr_node	*	pXmitted;
+	expr_node	*	pPresented	= pCCB->GetDestExpression();
+	expr_node	*	pXmitted;
 	BOOL			fMakeAddress = FALSE;
 
 	if( !pCCB->IsRefAllocDone() )
@@ -171,8 +171,8 @@ CG_STATUS
 CG_TRANSMIT_AS::GenSizing(
 	CCB		*	pCCB )
 	{
-	_expr_node	*	pPresented	= pCCB->GetSourceExpression();
-	_expr_node	*	pXmitted	= GetResource();
+	expr_node	*	pPresented	= pCCB->GetSourceExpression();
+	expr_node	*	pXmitted	= GetResource();
 
 
 	// If we dont have a ptr to the presented type, make an address
@@ -221,16 +221,16 @@ CG_STATUS
 CG_REPRESENT_AS::S_GenInitOutLocals(
 	CCB	*	pCCB )
 	{
-	_expr_node	*	pExpr;
+	expr_node	*	pExpr;
 	node_skl	*	pNode = new node_def( GetRepAsTypeName() );
 
 	pExpr = MakeAddressExpressionNoMatterWhat( GetResource() );
 	Out_Assign( pCCB, pCCB->GetSourceExpression(), pExpr );
-	_expr_node	*	pSrc = pCCB->GetSourceExpression();
-	_expr_proc_call * pProc = new _expr_proc_call( MIDL_MEMSET_RTN_NAME );
-	pProc->SetParam( new _expr_param( pSrc ) );
-	pProc->SetParam( new _expr_param( new _expr_constant( 0L ) ) );
-	pProc->SetParam( new _expr_param( new _expr_sizeof( pNode ) ) );
+	expr_node	*	pSrc = pCCB->GetSourceExpression();
+	expr_proc_call * pProc = new expr_proc_call( MIDL_MEMSET_RTN_NAME );
+	pProc->SetParam( new expr_param( pSrc ) );
+	pProc->SetParam( new expr_param( new expr_constant( 0L ) ) );
+	pProc->SetParam( new expr_param( new expr_sizeof( pNode ) ) );
 	pCCB->GetStream()->NewLine();
 	pProc->PrintCall( pCCB->GetStream(), 0, 0 );
 	return CG_OK;

@@ -332,7 +332,7 @@
 // The following data was machine generated. DO NOT EDIT MANUALLY.
 //
 
-        .globl  __2divdata:
+        .globl  __2divdata
         .rdata
         .align  4
 __2divdata:

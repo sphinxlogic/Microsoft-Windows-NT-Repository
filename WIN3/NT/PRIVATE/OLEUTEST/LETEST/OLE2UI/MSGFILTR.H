@@ -62,4 +62,3 @@ STDAPI_(HWND) OleStdMsgFilter_SetParentWindow(
 
 
 #endif // _MSGFILTR_H_
-

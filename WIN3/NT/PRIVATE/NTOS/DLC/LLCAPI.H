@@ -42,7 +42,9 @@ Revision History:
 #define LLC_DBG  0
 #define DBG_MP   0   // enables the MP safe versions of the accounting macros
 
-extern NDIS_SPIN_LOCK DlcLock;
+#define DLC_TRACE_ENABLED 1	// Procedure call tracing, debug only.
+
+extern NDIS_SPIN_LOCK DlcDriverLock;
 
 //
 // ANY_IRQL: pseudo value used in ASSUME_IRQL to mean routine is not IRQL sensitive.
@@ -54,7 +56,7 @@ extern NDIS_SPIN_LOCK DlcLock;
 
 #if defined(LOCK_CHECK)
 
-extern LONG DlcLockLevel;
+extern LONG DlcDriverLockLevel;
 extern ULONG __line;
 extern PCHAR __file;
 extern LONG __last;
@@ -105,14 +107,14 @@ __inline char* _strip(char* s) {
         hprocess = (HANDLE)-1; \
         hthread = (HANDLE)-1; \
     } \
-    NdisAcquireSpinLock(&DlcLock); \
-    if (++DlcLockLevel != 1) { \
-        __last = DlcLockLevel; \
+    NdisAcquireSpinLock(&DlcDriverLock); \
+    if (++DlcDriverLockLevel != 1) { \
+        __last = DlcDriverLockLevel; \
         DbgPrint("%d.%d:" $$_PLACE ": ACQUIRE_DRIVER_LOCK: level = %d. Last = %d.%d:" $$_PLACE "\n", \
                  hprocess, \
                  hthread, \
                  $$_FILE_AND_LINE, \
-                 DlcLockLevel, \
+                 DlcDriverLockLevel, \
                  __process, \
                  __thread, \
                  __file, \
@@ -134,10 +136,10 @@ __inline char* _strip(char* s) {
 //
 
 #define RELEASE_DRIVER_LOCK() \
-    if (DlcLockLevel != 1) { \
+    if (DlcDriverLockLevel != 1) { \
         DbgPrint($$_PLACE ": RELEASE_DRIVER_LOCK: level = %d. Last = %d.%d:" $$_PLACE "\n", \
                  $$_FILE_AND_LINE, \
-                 DlcLockLevel, \
+                 DlcDriverLockLevel, \
                  __process, \
                  __thread, \
                  __file, \
@@ -145,10 +147,10 @@ __inline char* _strip(char* s) {
                  ); \
         DbgBreakPoint(); \
     } \
-    --DlcLockLevel; \
+    --DlcDriverLockLevel; \
     __file = _strip(__FILE__); \
     __line = __LINE__; \
-    NdisReleaseSpinLock(&DlcLock);
+    NdisReleaseSpinLock(&DlcDriverLock);
 
 //
 // ASSUME_IRQL - used to check that a routine is being called at the IRQL we
@@ -189,8 +191,8 @@ __inline char* _strip(char* s) {
 
 #else
 
-#define ACQUIRE_DRIVER_LOCK()   NdisAcquireSpinLock(&DlcLock)
-#define RELEASE_DRIVER_LOCK()   NdisReleaseSpinLock(&DlcLock)
+#define ACQUIRE_DRIVER_LOCK()   NdisAcquireSpinLock(&DlcDriverLock)
+#define RELEASE_DRIVER_LOCK()   NdisReleaseSpinLock(&DlcDriverLock)
 #define ASSUME_IRQL(level)      /* NOTHING */
 #define MY_ASSERT(x)            /* NOTHING */
 #define IF_LOCK_CHECK           if (FALSE)
@@ -819,148 +821,6 @@ LlcOpenAdapter(
     OUT PNDIS_MEDIUM pActualNdisMedium
     );
 
-#ifndef LLC_PRIVATE_PROTOTYPES
-
-//
-// LLCADDR.C...
-//
-
-UINT
-LlcCopyReceivedLanHeader(
-    IN PVOID hBindingContext,
-    IN PUCHAR DestinationAddress,
-    IN PUCHAR SourceAddress OPTIONAL
-    );
-
-//
-// LLCLINK.C...
-//
-
-DLC_STATUS
-LlcOpenLinkStation(
-    IN PVOID hSap,
-    IN UCHAR DestinationSap,
-    IN PUCHAR pDestinationAddress OPTIONAL,
-    IN PUCHAR pReceivedLanHeader OPTIONAL,
-    IN PVOID hClientStation,
-    OUT PVOID* phLlcHandle
-    );
-
-VOID
-LlcBindLinkStation(
-    IN PVOID hStation,
-    IN PVOID hClientHandle
-    );
-
-VOID
-LlcConnectStation(
-    IN PVOID hStation,
-    IN PVOID hConnect,
-    IN PVOID pSourceRouting OPTIONAL,
-    IN PUSHORT pusMaxInformationField
-    );
-
-VOID
-LlcDisconnectStation(
-    IN PVOID hStation,
-    IN PVOID hPacket
-    );
-
-DLC_STATUS
-LlcFlowControl(
-    IN PVOID hStation,
-    IN UCHAR FlowControlState
-    );
-
-//
-// LLCNDIS.C...
-//
-
-VOID
-LlcDisableAdapter(
-    IN PVOID hBindingContext
-    );
-
-DLC_STATUS
-LlcCloseAdapter(
-    IN PVOID hBindingContext,
-    IN BOOLEAN CloseAtNdisLevel
-    );
-
-DLC_STATUS
-LlcResetBroadcastAddresses(
-    IN PVOID hBindingContext
-    );
-
-VOID
-LlcNdisReset(
-    IN PVOID hBindingContext,
-    IN PLLC_PACKET pPacket
-    );
-
-//
-// LLCOBJ.C...
-//
-
-DLC_STATUS
-LlcOpenStation(
-    IN PVOID hBindingContext,
-    IN PVOID hClientHandle,
-    IN USHORT StationAddress,
-    IN UCHAR ObjectType,
-    IN USHORT OpenOptions,
-    OUT PVOID* phStation
-    );
-
-DLC_STATUS
-LlcCloseStation(
-    IN PVOID hStation,
-    IN PVOID hCompletionPacket
-    );
-
-VOID
-LlcSetDirectOpenOptions(
-    IN PVOID hDirect,
-    IN USHORT OpenOptions
-    );
-
-VOID
-CompleteObjectDelete(
-    IN PVOID hStation
-    );
-
-//
-// LLCRCV.C...
-//
-
-VOID
-LlcTransferData(
-    IN PVOID hBindingContext,
-    IN PLLC_PACKET pPacket,
-    IN PMDL pMdl,
-    IN UINT uiCopyOffset,
-    IN UINT cbCopyLength
-    );
-
-//
-// LLCSEND.C...
-//
-
-VOID
-LlcSendU(
-    IN PVOID hStation,
-    IN PLLC_PACKET pPacket,
-    IN UINT eFrameType,
-    IN UINT uDestinationSap
-    );
-
-VOID
-LlcSendI(
-    IN PVOID hStation,
-    IN PLLC_PACKET pPacket
-    );
-
-#endif
 
 #define LlcOpenSap(Context, Handle, Sap, Options, phSap) \
     LlcOpenStation(Context, Handle, (USHORT)(Sap), LLC_SAP_OBJECT, (USHORT)(Options), phSap)
@@ -1124,15 +984,13 @@ extern UINT InputIndex;
 #if LLC_DBG_MP
 
 #define DBG_INTERLOCKED_INCREMENT(Count)    \
-    ExInterlockedIncrementLong(             \
-        (PLONG)&(Count),                    \
-        &MemCheckLock.SpinLock              \
+    InterlockedIncrement(                   \
+        (PLONG)&(Count)                     \
         )
 
 #define DBG_INTERLOCKED_DECREMENT(Count)    \
-    ExInterlockedDecrementLong(             \
-        (PLONG)&(Count),                    \
-        &MemCheckLock.SpinLock              \
+    InterlockedDecrement(                   \
+        (PLONG)&(Count)                     \
         )
 
 #define DBG_INTERLOCKED_ADD(Added, Value)   \
@@ -1344,7 +1202,7 @@ VOID LlcInvalidObjectType(VOID);
     'N' = CompleteCloseStation (final)
     'O' = DereferenceLlcObject (in dlc)
     'P' = CompleteLlcObjectClose (final)
-    'Q' =
+    'Q' = DlcReadCancel
     'R' =
     'S' =
     'T' = DlcTransmit
@@ -1357,7 +1215,7 @@ VOID LlcInvalidObjectType(VOID);
 
 --*/
 
-#if LLC_DBG
+#if DBG & DLC_TRACE_ENABLED
 
 #define LLC_TRACE_TABLE_SIZE    0x400   // this must be exponent of 2!
 

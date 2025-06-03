@@ -130,7 +130,7 @@ Return Value:
 
         if (Comparison == IsEqual) {
 
-            FatBugCheck( 0, 0, 0 );
+            FatBugCheck( (ULONG)*RootNode, (ULONG)Name, (ULONG)Node );
         }
 
         //
@@ -265,7 +265,7 @@ Return Value:
 
             Parent->Specific.Dcb.RootOemNode = NewRoot;
 
-            RtlFreeOemString( &Fcb->LongName.Oem.Name.Oem );
+            FatFreeOemString( &Fcb->LongName.Oem.Name.Oem );
 
             ClearFlag( Fcb->FcbState, FCB_STATE_HAS_OEM_LONG_NAME );
         }
@@ -292,7 +292,8 @@ PFCB
 FatFindFcb (
     IN PIRP_CONTEXT IrpContext,
     IN OUT PRTL_SPLAY_LINKS *RootNode,
-    IN PSTRING Name
+    IN PSTRING Name,
+    OUT PBOOLEAN FileNameDos OPTIONAL
     )
 
 /*++
@@ -373,6 +374,15 @@ Return Value:
             //
 
             *RootNode = RtlSplay(Links);
+
+            //
+            //  Tell the caller what kind of name we hit
+            //
+
+            if (FileNameDos) {
+
+                *FileNameDos = Node->FileNameDos;
+            }
 
             return Node->Fcb;
         }

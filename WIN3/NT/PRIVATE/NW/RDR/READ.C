@@ -108,20 +108,22 @@ FreePacketList(
     PIRP_CONTEXT IrpContext
     );
 
-PMDL
+NTSTATUS
 BurstReadReceive(
     IN PIRP_CONTEXT IrpContext,
     IN ULONG BytesAvailable,
     IN PULONG BytesAccepted,
-    IN PUCHAR Response
+    IN PUCHAR Response,
+    OUT PMDL *pReceiveMdl
     );
 
-PMDL
+NTSTATUS
 ReadNcpReceive(
     IN PIRP_CONTEXT IrpContext,
     IN ULONG BytesAvailable,
     IN PULONG BytesAccepted,
-    IN PUCHAR Response
+    IN PUCHAR Response,
+    OUT PMDL *pReceiveMdl
     );
 
 NTSTATUS
@@ -143,6 +145,12 @@ AllocateReceivePartialMdl(
     ULONG BytesThisPacket
     );
 
+VOID
+SetConnectionTimeout(
+    PNONPAGED_SCB pNpScb,
+    ULONG Length
+    );
+
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text( PAGE, NwFsdRead )
 #pragma alloc_text( PAGE, NwCommonRead )
@@ -150,7 +158,9 @@ AllocateReceivePartialMdl(
 #pragma alloc_text( PAGE, BurstRead )
 #pragma alloc_text( PAGE, BuildBurstReadRequest )
 #pragma alloc_text( PAGE, ResubmitBurstRead )
+#pragma alloc_text( PAGE, SetConnectionTimeout )
 
+#ifndef QFE_BUILD
 #pragma alloc_text( PAGE1, ReadNcpCallback )
 #pragma alloc_text( PAGE1, ReadNcpReceive )
 #pragma alloc_text( PAGE1, BuildReadNcp )
@@ -163,6 +173,13 @@ AllocateReceivePartialMdl(
 #pragma alloc_text( PAGE1, BurstReadReceive )
 #pragma alloc_text( PAGE1, ParseBurstReadResponse )
 #pragma alloc_text( PAGE1, AllocateReceivePartialMdl )
+#endif
+
+#endif
+
+#if 0  // Not pageable
+
+// see ifndef QFE_BUILD above
 
 #endif
 
@@ -192,7 +209,7 @@ Return Value:
 --*/
 
 {
-    PIRP_CONTEXT pIrpContext;
+    PIRP_CONTEXT pIrpContext = NULL;
     NTSTATUS status;
     BOOLEAN TopLevel;
 
@@ -214,21 +231,40 @@ Return Value:
 
     } except(NwExceptionFilter( Irp, GetExceptionInformation() )) {
 
-        //
-        // We had some trouble trying to perform the requested
-        // operation, so we'll abort the I/O request with
-        // the error status that we get back from the
-        // execption code.
-        //
+        if ( pIrpContext == NULL ) {
 
-        status = NwProcessException( pIrpContext, GetExceptionCode() );
+            //
+            //  If we couldn't allocate an irp context, just complete
+            //  irp without any fanfare.
+            //
+
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            Irp->IoStatus.Status = status;
+            Irp->IoStatus.Information = 0;
+            IoCompleteRequest ( Irp, IO_NETWORK_INCREMENT );
+
+        } else {
+
+            //
+            //  We had some trouble trying to perform the requested
+            //  operation, so we'll abort the I/O request with
+            //  the error Status that we get back from the
+            //  execption code
+            //
+
+            status = NwProcessException( pIrpContext, GetExceptionCode() );
+        }
+
     }
 
-    if ( status != STATUS_PENDING ) {
-        NwDequeueIrpContext( pIrpContext, FALSE );
-    }
+    if ( pIrpContext ) {
 
-    NwCompleteRequest( pIrpContext, status );
+        if ( status != STATUS_PENDING ) {
+            NwDequeueIrpContext( pIrpContext, FALSE );
+        }
+
+        NwCompleteRequest( pIrpContext, status );
+    }
 
     if ( TopLevel ) {
         NwSetTopLevelIrp( NULL );
@@ -281,6 +317,7 @@ Return Value:
 
     ULONG BufferLength;         //  Size application requested to read
     ULONG ByteOffset;
+    ULONG PreviousByteOffset;
     ULONG BytesRead;
     ULONG NewBufferLength;
     PVOID SystemBuffer;
@@ -300,9 +337,15 @@ Return Value:
     // is not the root DCB then its an illegal parameter.
     //
 
-    if ((nodeTypeCode = NwDecodeFileObject( irpSp->FileObject,
-                                            &fsContext,
-                                            (PVOID *)&icb )) != NW_NTC_ICB) {
+    nodeTypeCode = NwDecodeFileObject( irpSp->FileObject,
+                                       &fsContext,
+                                       (PVOID *)&icb );
+
+    fcb = (PFCB)icb->SuperType.Fcb;
+
+    if (((nodeTypeCode != NW_NTC_ICB) &&
+         (nodeTypeCode != NW_NTC_ICB_SCB)) ||
+        (!icb->HasRemoteHandle) ) {
 
         DebugTrace(0, Dbg, "Not a file\n", 0);
 
@@ -318,10 +361,20 @@ Return Value:
 
     NwVerifyIcbSpecial( icb );
 
-    fcb = (PFCB)icb->SuperType.Fcb;
-    nodeTypeCode = fcb->NodeTypeCode;
+    if ( fcb->NodeTypeCode == NW_NTC_FCB ) {
 
-    if (nodeTypeCode != NW_NTC_FCB ) {
+        IrpContext->pScb = fcb->Scb;
+        IrpContext->pNpScb = IrpContext->pScb->pNpScb;
+        IrpContext->Icb = icb;
+
+    } else if ( fcb->NodeTypeCode == NW_NTC_SCB ) {
+
+        IrpContext->pScb = icb->SuperType.Scb;
+        IrpContext->pNpScb = IrpContext->pScb->pNpScb;
+        IrpContext->Icb = icb;
+        fcb = NULL;
+
+    } else {
 
         DebugTrace(0, Dbg, "Not a file\n", 0);
 
@@ -331,21 +384,8 @@ Return Value:
         return status;
     }
 
-    IrpContext->pScb = fcb->Scb;
-    IrpContext->pNpScb = IrpContext->pScb->pNpScb;
-    IrpContext->Icb = icb;
-
     BufferLength = irpSp->Parameters.Read.Length;
     ByteOffset = irpSp->Parameters.Read.ByteOffset.LowPart;
-
-    //
-    //  Special case 0 length read.
-    //
-
-    if ( BufferLength == 0 ) {
-        Irp->IoStatus.Information = 0;
-        return( STATUS_SUCCESS );
-    }
 
     //
     //  Fail reads beyond file offset 4GB.
@@ -356,91 +396,146 @@ Return Value:
     }
 
     //
-    //  First flush the write behind cache.
+    //  Special case 0 length read.
     //
 
-    status = FlushCache( IrpContext, fcb->NonPagedFcb );
-    if ( !NT_SUCCESS( status ) ) {
-        return( status );
-    }
-
-    //
-    //  Read as much as we can from cache.
-    //
-
-    NwMapUserBuffer( Irp, KernelMode, &SystemBuffer );
-
-    BytesRead = CacheRead(
-                    fcb->NonPagedFcb,
-                    ByteOffset,
-                    BufferLength,
-#if NWFASTIO
-                    SystemBuffer,
-                    FALSE );
-#else
-                    SystemBuffer );
-#endif
-
-    //
-    //  If all the data was the the cache, we are done.
-    //
-
-    if ( BytesRead == BufferLength ) {
-
-        Irp->IoStatus.Information = BytesRead;
-
-        //
-        //  Update the current byte offset in the file if it is a
-        //  synchronous file (and this is not paging I/O).
-        //
-
-        if (FlagOn(irpSp->FileObject->Flags, FO_SYNCHRONOUS_IO) &&
-            !FlagOn( Irp->Flags, IRP_PAGING_IO)) {
-
-            irpSp->FileObject->CurrentByteOffset = LiAdd (
-                      irpSp->FileObject->CurrentByteOffset,
-                      LiFromUlong ( BytesRead ));
-        }
-
-        //
-        //  Record read offset and size to discover a sequential read pattern.
-        //
-
-        fcb->LastReadOffset = irpSp->Parameters.Read.ByteOffset.LowPart;
-        fcb->LastReadSize = irpSp->Parameters.Read.Length;
-
-        DebugTrace(-1, Dbg, "CommonRead -> %08lx\n", STATUS_SUCCESS );
+    if ( BufferLength == 0 ) {
+        Irp->IoStatus.Information = 0;
         return( STATUS_SUCCESS );
     }
 
-    IrpContext->Specific.Read.CacheReadSize = BytesRead;
-    fcb->NonPagedFcb->CacheFileOffset = ByteOffset + BufferLength;
+    if (FlagOn(irpSp->FileObject->Flags, FO_SYNCHRONOUS_IO) &&
+        !FlagOn( Irp->Flags, IRP_PAGING_IO)) {
 
-    ByteOffset += BytesRead;
-    BufferLength -= BytesRead;
-
-    NewBufferLength = CalculateReadAheadSize(
-                          IrpContext,
-                          fcb->NonPagedFcb,
-                          BytesRead,
-                          ByteOffset,
-                          BufferLength );
-
-    IrpContext->Specific.Read.ReadAheadSize = NewBufferLength - BufferLength;
+        PreviousByteOffset = irpSp->FileObject->CurrentByteOffset.LowPart;
+        irpSp->FileObject->CurrentByteOffset.LowPart = ByteOffset;
+    }
 
     //
-    //  If burst mode is enabled, and this write to big to do in a single
-    //  core write NCP, use burst mode.
+    //  First flush the write behind cache unless this is a
+    //  file stream operation.
     //
 
-    if ( IrpContext->pNpScb->BurstModeEnabled &&
-         NewBufferLength > IrpContext->pNpScb->BufferSize ) {
+    if ( fcb ) {
+
+        status = AcquireFcbAndFlushCache( IrpContext, fcb->NonPagedFcb );
+        if ( !NT_SUCCESS( status ) ) {
+            goto ResetByteOffsetAndExit;
+        }
+
+        //
+        //  Read as much as we can from cache.
+        //
+
+        NwMapUserBuffer( Irp, KernelMode, &SystemBuffer );
+
+        BytesRead = CacheRead(
+                        fcb->NonPagedFcb,
+                        ByteOffset,
+                        BufferLength,
+#if NWFASTIO
+                        SystemBuffer,
+                        FALSE );
+#else
+                        SystemBuffer );
+#endif
+
+        //
+        //  If all the data was the the cache, we are done.
+        //
+
+        if ( BytesRead == BufferLength ) {
+
+            Irp->IoStatus.Information = BytesRead;
+
+            //
+            //  Update the current byte offset in the file if it is a
+            //  synchronous file (and this is not paging I/O).
+            //
+
+            if (FlagOn(irpSp->FileObject->Flags, FO_SYNCHRONOUS_IO) &&
+                !FlagOn( Irp->Flags, IRP_PAGING_IO)) {
+
+                irpSp->FileObject->CurrentByteOffset.QuadPart += BytesRead;
+            }
+
+            //
+            // If this is a paging read, we need to flush the MDL
+            // since on some systems the I-cache and D-cache
+            // are not synchronized.
+            //
+
+            if (FlagOn(Irp->Flags, IRP_PAGING_IO)) {
+                KeFlushIoBuffers( Irp->MdlAddress, TRUE, FALSE);
+            }
+
+            //
+            //  Record read offset and size to discover a sequential read pattern.
+            //
+
+            fcb->LastReadOffset = irpSp->Parameters.Read.ByteOffset.LowPart;
+            fcb->LastReadSize = irpSp->Parameters.Read.Length;
+
+            DebugTrace(-1, Dbg, "CommonRead -> %08lx\n", STATUS_SUCCESS );
+            return( STATUS_SUCCESS );
+        }
+
+        NwAppendToQueueAndWait( IrpContext );
+
+        //  Protect read cache
+        NwAcquireExclusiveFcb( fcb->NonPagedFcb, TRUE );
+
+        IrpContext->Specific.Read.CacheReadSize = BytesRead;
+        fcb->NonPagedFcb->CacheFileOffset = ByteOffset + BufferLength;
+
+        ByteOffset += BytesRead;
+        BufferLength -= BytesRead;
+
+        NewBufferLength = CalculateReadAheadSize(
+                              IrpContext,
+                              fcb->NonPagedFcb,
+                              BytesRead,
+                              ByteOffset,
+                              BufferLength );
+
+        IrpContext->Specific.Read.ReadAheadSize = NewBufferLength - BufferLength;
+
+    } else {
+
+        //
+        // This is a read from a ds file stream handle.  For now,
+        // there's no cache support.
+        //
+
+        NwAppendToQueueAndWait( IrpContext );
+
+        BytesRead = 0;
+
+        IrpContext->Specific.Read.CacheReadSize = BytesRead;
+        IrpContext->Specific.Read.ReadAheadSize = 0;
+    }
+
+    //
+    //  If burst mode is enabled, and this read is too big to do in a single
+    //  core read NCP, use burst mode.
+    //
+    //  BUGBUG: We don't support burst against a ds file stream yet.
+    //
+
+    if ( IrpContext->pNpScb->ReceiveBurstModeEnabled &&
+         NewBufferLength > IrpContext->pNpScb->BufferSize &&
+         fcb ) {
         status = BurstRead( IrpContext );
     } else {
         status = ReadNcp( IrpContext );
     }
 
-    DebugTrace(-1, Dbg, "CommonRead -> %08lx\n", status);
+    Irp->MdlAddress = IrpContext->pOriginalMdlAddress;
+
+    if (Irp->MdlAddress != NULL) {
+        //  Next might point to the cache mdl.
+        Irp->MdlAddress->Next = NULL;
+    }
 
     if ( NT_SUCCESS( status ) ) {
 
@@ -452,9 +547,7 @@ Return Value:
         if (FlagOn(irpSp->FileObject->Flags, FO_SYNCHRONOUS_IO) &&
             !FlagOn( Irp->Flags, IRP_PAGING_IO)) {
 
-            irpSp->FileObject->CurrentByteOffset = LiAdd (
-                      irpSp->FileObject->CurrentByteOffset,
-                      LiFromUlong ( Irp->IoStatus.Information ));
+            irpSp->FileObject->CurrentByteOffset.QuadPart += Irp->IoStatus.Information;
         }
 
         //
@@ -481,8 +574,28 @@ Return Value:
     //  Record read offset and size to discover a sequential read pattern.
     //
 
-    fcb->LastReadOffset = irpSp->Parameters.Read.ByteOffset.LowPart;
-    fcb->LastReadSize = irpSp->Parameters.Read.Length;
+    if ( fcb ) {
+
+        fcb->LastReadOffset = irpSp->Parameters.Read.ByteOffset.LowPart;
+        fcb->LastReadSize = irpSp->Parameters.Read.Length;
+
+        NwReleaseFcb( fcb->NonPagedFcb );
+
+    }
+
+    DebugTrace(-1, Dbg, "CommonRead -> %08lx\n", status);
+
+ResetByteOffsetAndExit:
+
+    if ( !NT_SUCCESS( status ) ) {
+
+        if (FlagOn(irpSp->FileObject->Flags, FO_SYNCHRONOUS_IO) &&
+            !FlagOn( Irp->Flags, IRP_PAGING_IO)) {
+
+            irpSp->FileObject->CurrentByteOffset.LowPart = PreviousByteOffset;
+
+        }
+    }
 
     return status;
 }
@@ -543,11 +656,17 @@ Return Value:
     DebugTrace( 0, Dbg, "Length  = %ld\n", BufferLength);
     DebugTrace( 0, Dbg, "Offset = %d\n", ByteOffset);
 
-    ASSERT (Icb->SuperType.Fcb->NodeTypeCode == NW_NTC_FCB);
+    if ( Icb->SuperType.Fcb->NodeTypeCode == NW_NTC_FCB ) {
 
-    pScb = Icb->SuperType.Fcb->Scb;
+        pScb = Icb->SuperType.Fcb->Scb;
 
-    ASSERT (pScb->NodeTypeCode == NW_NTC_SCB);
+    } else if ( Icb->SuperType.Fcb->NodeTypeCode == NW_NTC_SCB ) {
+
+        pScb = Icb->SuperType.Scb;
+
+    }
+
+    ASSERT( pScb );
 
     //
     //  Update the original MDL record in the Irp context so that we
@@ -572,7 +691,6 @@ Return Value:
     IrpContext->Specific.Read.Buffer = irp->UserBuffer;
     IrpContext->Specific.Read.ReadOffset = IrpContext->Specific.Read.CacheReadSize;
     IrpContext->Specific.Read.RemainingLength = BufferLength;
-    IrpContext->Specific.Read.LastReadLength = Length;
     IrpContext->Specific.Read.PartialMdl = NULL;
 
     //
@@ -663,6 +781,8 @@ Return Value:
             DataMdl->Next = Icb->NpFcb->CacheMdl;
         }
 
+        IrpContext->Specific.Read.LastReadLength = Length;
+
         //
         //  Build and send the request.
         //
@@ -670,7 +790,7 @@ Return Value:
         BuildReadNcp(
             IrpContext,
             IrpContext->Specific.Read.FileOffset,
-            (USHORT)Length );
+            (USHORT) MIN( Length, IrpContext->Specific.Read.RemainingLength ) );
 
         status = PrepareAndSendPacket( IrpContext );
         if ( NT_SUCCESS( status )) {
@@ -714,7 +834,6 @@ Return Value:
 
     while ( Mdl != NULL ) {
         NextMdl = Mdl->Next;
-        DebugTrace( 0, Dbg, "Freeing MDL %x\n", Mdl );
         FREE_MDL( Mdl );
         Mdl = NextMdl;
     }
@@ -774,7 +893,7 @@ Return Value:
 
         IrpContext->Specific.Read.Status = STATUS_REMOTE_NOT_LISTENING;
 
-        KeSetEvent( &IrpContext->Event, 0, FALSE );
+        NwSetIrpContextEvent( IrpContext );
         return STATUS_REMOTE_NOT_LISTENING;
     }
 
@@ -887,22 +1006,35 @@ returnstatus:
         irpSp = IoGetCurrentIrpStackLocation( Irp );
         NpFcb = IrpContext->Icb->NpFcb;
 
+        if ( IrpContext->Icb->NodeTypeCode == NW_NTC_ICB_SCB ) {
+            NpFcb = NULL;
+        }
+
         //
         //  Calculate how much data we read into the cache, and how much data
         //  we read into the users buffer.
         //
 
-        if ( IrpContext->Specific.Read.ReadOffset > irpSp->Parameters.Read.Length ) {
+        if ( NpFcb ) {
 
-            NpFcb->CacheDataSize =
-                IrpContext->Specific.Read.ReadOffset -
-                irpSp->Parameters.Read.Length;
+            if ( IrpContext->Specific.Read.ReadOffset > irpSp->Parameters.Read.Length ) {
 
-            Irp->IoStatus.Information = irpSp->Parameters.Read.Length;
+                ASSERT(NpFcb->CacheBuffer != NULL ) ; // had better be there..
+
+                NpFcb->CacheDataSize = IrpContext->Specific.Read.ReadOffset -
+                                       irpSp->Parameters.Read.Length;
+
+                Irp->IoStatus.Information = irpSp->Parameters.Read.Length;
+
+            } else {
+
+                NpFcb->CacheDataSize = 0;
+                Irp->IoStatus.Information = IrpContext->Specific.Read.ReadOffset;
+
+            }
 
         } else {
 
-            NpFcb->CacheDataSize = 0;
             Irp->IoStatus.Information = IrpContext->Specific.Read.ReadOffset;
 
         }
@@ -913,19 +1045,20 @@ returnstatus:
 
         IrpContext->Specific.Read.Status = Status;
 
-        KeSetEvent( &IrpContext->Event, 0, FALSE );
+        NwSetIrpContextEvent( IrpContext );
     }
 
     DebugTrace( 0, Dbg, "ReadNcpCallback -> %08lx\n", Status );
     return STATUS_SUCCESS;
 }
 
-PMDL
+NTSTATUS
 ReadNcpReceive(
     IN PIRP_CONTEXT IrpContext,
     IN ULONG BytesAvailable,
     IN PULONG BytesAccepted,
-    IN PUCHAR Response
+    IN PUCHAR Response,
+    OUT PMDL *pReceiveMdl
     )
 {
     PMDL ReceiveMdl;
@@ -938,7 +1071,6 @@ ReadNcpReceive(
 
     while ( Mdl != NULL ) {
         NextMdl = Mdl->Next;
-        DebugTrace( 0, Dbg, "Freeing MDL %x\n", Mdl );
         FREE_MDL( Mdl );
         Mdl = NextMdl;
     }
@@ -966,11 +1098,18 @@ ReadNcpReceive(
                          BytesAvailable - MmGetMdlByteCount( IrpContext->RxMdl ) );
 
         IrpContext->RxMdl->Next = ReceiveMdl;
+
+        //  Record Mdl to free when CopyIndicatedData or Irp completed.
         IrpContext->Specific.Read.PartialMdl = ReceiveMdl;
+
+    } else {
+
+        IrpContext->RxMdl->Next = NULL;
 
     }
 
-    return( IrpContext->RxMdl );
+    *pReceiveMdl = IrpContext->RxMdl;
+    return STATUS_SUCCESS;
 }
 
 
@@ -1070,8 +1209,6 @@ Return Value:
     PNONPAGED_SCB pNpScb;
     ULONG ByteOffset;
     ULONG BufferLength;
-    ULONG TimeInNwUnits;
-    LONG SingleTimeInNwUnits;
 
     BOOLEAN Done;
 
@@ -1098,9 +1235,9 @@ Return Value:
     DebugTrace( 0, Dbg, "irp     = %08lx\n", (ULONG)irp);
     DebugTrace( 0, Dbg, "File    = %wZ\n", &Icb->SuperType.Fcb->FullFileName);
     DebugTrace( 0, Dbg, "Length  = %ld\n", BufferLength);
-    DebugTrace( 0, Dbg, "Offset  = %x\n", ByteOffset);
+    DebugTrace( 0, Dbg, "Offset  = %ld\n", ByteOffset);
     DebugTrace( 0, Dbg, "Org Len = %ld\n", irpSp->Parameters.Read.Length );
-    DebugTrace( 0, Dbg, "Org Off = %x\n", irpSp->Parameters.Read.ByteOffset.LowPart );
+    DebugTrace( 0, Dbg, "Org Off = %ld\n", irpSp->Parameters.Read.ByteOffset.LowPart );
 
     ASSERT (Icb->SuperType.Fcb->NodeTypeCode == NW_NTC_FCB);
 
@@ -1109,8 +1246,8 @@ Return Value:
     ASSERT (pScb->NodeTypeCode == NW_NTC_SCB);
 
     //
-    //  Update the original MDL record in the Irp context so that the MDL
-    //  we allocated will get freed when the i/o completes.
+    //  Update the original MDL record in the Irp context so that we
+    //  can restore it on i/o completion.
     //
 
     IrpContext->pOriginalMdlAddress = irp->MdlAddress;
@@ -1143,34 +1280,27 @@ Return Value:
     IrpContext->PacketType = NCP_BURST;
 
     //
-    //  Set burst read timeouts to how long we think the burst should take.
+    //  Tell BurstWrite that it needs to send a dummy Ncp on the next write.
     //
 
-    pNpScb->RetryCount = 20;
+    pNpScb->BurstDataWritten = 0x00010000;
 
     //
     //  The server will pause NwReceiveDelay between packets. Make sure we have our timeout
     //  so that we will take that into account.
     //
 
-    SingleTimeInNwUnits = MAX( pNpScb->NwSingleBurstPacketTime, pNpScb->NwReceiveDelay );
-
-    TimeInNwUnits = SingleTimeInNwUnits * ((Length / IrpContext->pNpScb->MaxPacketSize) + 1) +
-        IrpContext->pNpScb->NwLoopTime;
-
-    //
-    //  Convert to 1/18ths of a second ticks and add a second.
-    //
-
-    pNpScb->MaxTimeOut = (SHORT)( (LONG)(TimeInNwUnits / 555) + 18);
-
-    pNpScb->TimeOut = pNpScb->MaxTimeOut;
-
-    DebugTrace( 0, DEBUG_TRACE_LIP, "pNpScb->MaxTimeout = %08lx\n", pNpScb->MaxTimeOut );
+    SetConnectionTimeout( IrpContext->pNpScb, Length );
 
     Done = FALSE;
 
     while ( !Done ) {
+
+         //
+         //  Set burst read timeouts to how long we think the burst should take.
+         //
+
+         pNpScb->RetryCount = 20;
 
         //
         //  Allocate and build an MDL for the users buffer.
@@ -1306,6 +1436,7 @@ Return Value:
             IrpContext->Specific.Read.BurstRequestOffset = 0;
             IrpContext->Specific.Read.BurstSize = 0;
             IrpContext->Specific.Read.DataReceived = FALSE;
+
         } else {
             Done = TRUE;
         }
@@ -1319,6 +1450,8 @@ Return Value:
     //
 
     if ( IrpContext->Specific.Read.ReadOffset > irpSp->Parameters.Read.Length ) {
+
+        ASSERT(Icb->NpFcb->CacheBuffer != NULL ) ;  // this had better be there
 
         Icb->NpFcb->CacheDataSize =
             IrpContext->Specific.Read.ReadOffset -
@@ -1360,7 +1493,10 @@ BuildBurstReadRequest(
     BurstRead->BurstHeader.StreamType = 0x02;
     BurstRead->BurstHeader.SourceConnection = pNpScb->SourceConnectionId;
     BurstRead->BurstHeader.DestinationConnection = pNpScb->DestinationConnectionId;
+
     LongByteSwap( BurstRead->BurstHeader.SendDelayTime, pNpScb->NwReceiveDelay );
+
+    pNpScb->CurrentBurstDelay = pNpScb->NwReceiveDelay;
 
     Temp = sizeof( NCP_BURST_READ_REQUEST ) - sizeof( NCP_BURST_HEADER );
     LongByteSwap( BurstRead->BurstHeader.DataSize, Temp);
@@ -1437,7 +1573,7 @@ Return Value:
         //
 
         IrpContext->Specific.Read.Status = STATUS_REMOTE_NOT_LISTENING;
-        KeSetEvent( &IrpContext->Event, 0, FALSE);
+        NwSetIrpContextEvent( IrpContext );
 
         DebugTrace( -1, Dbg, "BurstReadCallback -> %X\n", STATUS_REMOTE_NOT_LISTENING );
         return STATUS_REMOTE_NOT_LISTENING;
@@ -1490,6 +1626,8 @@ Return Value:
 
         DebugTrace(0, Dbg, "Waiting for another packet\n", 0);
 
+        IrpContext->pNpScb->OkToReceive = TRUE;
+
         DebugTrace( -1, Dbg, "BurstReadCallback -> %X\n", STATUS_SUCCESS );
         return( STATUS_SUCCESS );
     }
@@ -1508,8 +1646,18 @@ Return Value:
         //  the thread that is sending the data.
         //
 
-        IrpContext->Specific.Read.Status = STATUS_SUCCESS;
-        KeSetEvent( &IrpContext->Event, 0, FALSE );
+        if (NT_SUCCESS(IrpContext->Specific.Read.Status)) {
+
+            //
+            //  If Irp allocation fails then it is possible for the
+            //  packet to have been recorded but not copied into the
+            //  user buffer. In this case leave the failure status.
+            //
+
+            IrpContext->Specific.Read.Status = STATUS_SUCCESS;
+        }
+
+        NwSetIrpContextEvent( IrpContext );
 
     }
 
@@ -1572,7 +1720,7 @@ Return Value:
         //
 
         if ( VerifyBurstRead( IrpContext ) ) {
-            KeSetEvent( &IrpContext->Event, 0, FALSE );
+            NwSetIrpContextEvent( IrpContext );
         }
     }
 
@@ -1601,7 +1749,8 @@ Return Value:
 --*/
 {
     NTSTATUS Status;
-    ULONG Length;
+    ULONG Length, DataMdlBytes = 0 ;
+    PMDL  DataMdl ;
 
     DebugTrace( 0, Dbg, "ResubmitBurstRead\n", 0 );
 
@@ -1611,6 +1760,19 @@ Return Value:
 
     Length = MIN( IrpContext->pNpScb->MaxReceiveSize,
                   IrpContext->Specific.Read.RemainingLength );
+
+    //
+    // Make sure we dont ask for more than bytes described by MDL
+    //
+    DataMdl  =  IrpContext->Specific.Read.FullMdl;
+
+    while (DataMdl) {
+
+        DataMdlBytes += MmGetMdlByteCount( DataMdl );
+        DataMdl = DataMdl->Next;
+    }
+
+    Length = MIN( Length, DataMdlBytes ) ;
 
     DebugTrace( 0, Dbg, "Requesting another burst, length  = %ld\n", Length);
 
@@ -1628,6 +1790,8 @@ Return Value:
     IrpContext->Specific.Read.BurstSize = 0;
     IrpContext->Specific.Read.DataReceived = FALSE;
 
+    SetConnectionTimeout( IrpContext->pNpScb, Length );
+
     //
     //  Format and send the request.
     //
@@ -1637,6 +1801,10 @@ Return Value:
         *(ULONG UNALIGNED *)(&IrpContext->Icb->Handle[2]),
         IrpContext->Specific.Read.FileOffset,
         Length );
+
+    //  Avoid SendNow setting the RetryCount back to the default
+
+    SetFlag( IrpContext->Flags, IRP_FLAG_RETRY_SEND );
 
     Status = PrepareAndSendPacket( IrpContext );
 
@@ -1912,10 +2080,11 @@ Return Value:
             ByteCount = (USHORT)( BurstReadEntry->DataOffset - CurrentOffset );
             ShortByteSwap( MissingDataEntry->ByteCount, ByteCount );
 
-            ASSERT( BurstReadEntry->DataOffset - CurrentOffset < 0x8000 );
+            ASSERT( BurstReadEntry->DataOffset - CurrentOffset <= IrpContext->pNpScb->MaxReceiveSize );
 
-            DebugTrace(0, Dbg, "Missing data at offset %d\n", DataOffset );
+            DebugTrace(0, Dbg, "Missing data at offset %ld\n", DataOffset );
             DebugTrace(0, Dbg, "Missing %d bytes\n", ByteCount );
+            DebugTrace(0, Dbg, "CurrentOffset: %d\n", CurrentOffset );
 
             MissingFragmentCount++;
         }
@@ -1945,22 +2114,33 @@ Return Value:
         ByteCount = (USHORT)( IrpContext->Specific.Read.BurstSize - CurrentOffset );
         ShortByteSwap( MissingDataEntry->ByteCount, ByteCount );
 
-        ASSERT( IrpContext->Specific.Read.BurstSize - CurrentOffset < 0x8000 );
+        ASSERT( IrpContext->Specific.Read.BurstSize - CurrentOffset < IrpContext->pNpScb->MaxReceiveSize );
 
-        DebugTrace(0, Dbg, "Missing data at offset %d\n", MissingDataEntry->DataOffset );
+        DebugTrace(0, Dbg, "Missing data at offset %ld\n", MissingDataEntry->DataOffset );
         DebugTrace(0, Dbg, "Missing %d bytes\n", MissingDataEntry->ByteCount );
 
         MissingFragmentCount++;
     }
 
-    KeReleaseSpinLock(&IrpContext->pNpScb->NpScbSpinLock, OldIrql);
 
     if ( MissingFragmentCount == 0 ) {
 
+        //
+        //  This read is now complete. Don't process any more packets until
+        //  the next packet is sent.
+        //
+
+        IrpContext->pNpScb->OkToReceive = FALSE;
+
+        KeReleaseSpinLock(&IrpContext->pNpScb->NpScbSpinLock, OldIrql);
+
         DebugTrace(-1, Dbg, "VerifyBurstRead -> TRUE\n", 0 );
+
         return( TRUE );
 
     } else {
+
+        KeReleaseSpinLock(&IrpContext->pNpScb->NpScbSpinLock, OldIrql);
 
         //
         //  The server dropped a packet, adjust the timers.
@@ -2033,12 +2213,13 @@ Return Value:
     }
 }
 
-PMDL
+NTSTATUS
 BurstReadReceive(
     IN PIRP_CONTEXT IrpContext,
     IN ULONG BytesAvailable,
     IN PULONG BytesAccepted,
-    IN PUCHAR Response
+    IN PUCHAR Response,
+    PMDL *pReceiveMdl
     )
 /*++
 
@@ -2087,7 +2268,9 @@ Return Value:
                  &TotalBytesRead );
 
     if ( !NT_SUCCESS( Status ) ) {
-        ExRaiseStatus( Status );
+
+        DebugTrace(0, Dbg, "Failed to parse burst read response\n", 0);
+        return Status;
     }
 
     //
@@ -2111,13 +2294,17 @@ Return Value:
 
     if ( BytesThisPacket > 0 ) {
 
-        PartialMdl =
-            AllocateReceivePartialMdl(
-                IrpContext->Specific.Read.FullMdl,
-                DataOffset,
-                BytesThisPacket );
+        PartialMdl = AllocateReceivePartialMdl(
+                         IrpContext->Specific.Read.FullMdl,
+                         DataOffset,
+                         BytesThisPacket );
 
-        SetFlag( IrpContext->Flags, IRP_FLAG_FREE_RECEIVE_MDL );
+        if ( !PartialMdl ) {
+            IrpContext->Specific.Read.Status = STATUS_INSUFFICIENT_RESOURCES;
+        }
+
+        //  Record Mdl to free when CopyIndicatedData or Irp completed.
+        IrpContext->Specific.Read.PartialMdl = PartialMdl;
 
     } else {
 
@@ -2125,7 +2312,8 @@ Return Value:
 
     }
 
-    return( PartialMdl );
+    *pReceiveMdl = PartialMdl;
+    return( STATUS_SUCCESS );
 }
 
 NTSTATUS
@@ -2202,7 +2390,7 @@ Return Value:
 #endif
 
     //
-    //  If this isn't the last packet setup for the next burst packet.
+    //  If this isn't the last packet, setup for the next burst packet.
     //
 
     if ( !FlagOn( *Flags, BURST_FLAG_END_OF_BURST ) ) {
@@ -2214,9 +2402,8 @@ Return Value:
         //  about timing out while waiting for the rest of the burst.
         //
 
-        //  BUGBUG - Use same calc as normal read.
+        IrpContext->pNpScb->TimeOut = IrpContext->pNpScb->SendTimeout ;
 
-        IrpContext->pNpScb->TimeOut = 2 * IrpContext->pNpScb->TickCount + 2;
         IrpContext->pNpScb->OkToReceive = TRUE;
     }
 
@@ -2266,7 +2453,7 @@ Return Value:
             DebugTrace(0, Dbg, "Read completed, error = %X\n", Status );
 
             ClearFlag( IrpContext->Flags,  IRP_FLAG_BURST_REQUEST );
-            KeSetEvent( &IrpContext->Event, 0, FALSE );
+            NwSetIrpContextEvent( IrpContext );
 
             DebugTrace( -1, Dbg, "ParseBurstReadResponse -> %X\n", Status );
             return( Status );
@@ -2307,7 +2494,7 @@ Return Value:
     } else {
 
         //
-        //  Intermediate reponse packet.
+        //  Intermediate response packet.
         //
 
         *ReadData = Response + sizeof( NCP_BURST_HEADER );
@@ -2361,6 +2548,7 @@ Return Value:
 
 --*/
 {
+    NTSTATUS Status = STATUS_SUCCESS;
     PUCHAR BufferStart, BufferEnd;
     PMDL InitialMdl, NextMdl;
     PMDL ReceiveMdl, PreviousReceiveMdl;
@@ -2379,6 +2567,14 @@ Return Value:
         DataOffset -= MmGetMdlByteCount( FullMdl );
         FullMdl = FullMdl->Next;
 
+        //
+        // if more data than expected, dont dereference NULL! see next loop.
+        //
+        if (!FullMdl) {
+            ASSERT(FALSE) ;
+            break ;
+        }
+
         BufferStart = (PUCHAR)MmGetMdlVirtualAddress( FullMdl ) + DataOffset;
         BufferEnd = (PUCHAR)MmGetMdlVirtualAddress( FullMdl ) +
                          MmGetMdlByteCount( FullMdl );
@@ -2388,72 +2584,139 @@ Return Value:
     InitialMdl = NULL;
     BytesThisMdl = (ULONG)(BufferEnd - BufferStart);
 
-    try {
+    //
+    //  Check FullMdl to cover the case where the server returns more data
+    //  than requested.
+    //
 
-        while ( BytesThisPacket != 0 ) {
+    while (( BytesThisPacket != 0 ) &&
+           ( FullMdl != NULL )) {
 
-            ASSERT( FullMdl != NULL );
+        BytesThisMdl = MIN( BytesThisMdl, BytesThisPacket );
 
-            BytesThisMdl = MIN( BytesThisMdl, BytesThisPacket );
+        //
+        //  Some of the data fits in the first part of the MDL;
+        //
 
-            //
-            //  Some of the data fits in the first part of the MDL;
-            //
+        ReceiveMdl = ALLOCATE_MDL(
+                         BufferStart,
+                         BytesThisMdl,
+                         FALSE,
+                         FALSE,
+                         NULL );
 
-            ReceiveMdl = ALLOCATE_MDL(
-                            BufferStart,
-                            BytesThisMdl,
-                            FALSE,
-                            FALSE,
-                            NULL );
+        if ( ReceiveMdl == NULL ) {
 
-            if ( ReceiveMdl == NULL ) {
-                ExRaiseStatus( STATUS_INSUFFICIENT_RESOURCES );
-            }
-
-            if ( InitialMdl == NULL ) {
-                InitialMdl = ReceiveMdl;
-            }
-
-            IoBuildPartialMdl(
-                FullMdl,
-                ReceiveMdl,
-                BufferStart,
-                BytesThisMdl );
-
-             if ( PreviousReceiveMdl != NULL ) {
-                 PreviousReceiveMdl->Next = ReceiveMdl;
-             }
-
-             PreviousReceiveMdl = ReceiveMdl;
-
-             BytesThisPacket -= BytesThisMdl;
-
-             FullMdl = FullMdl->Next;
-
-             if ( FullMdl != NULL) {
-                 BytesThisMdl = MmGetMdlByteCount( FullMdl );
-                 BufferStart = MmGetMdlVirtualAddress( FullMdl );
-             }
+            Status = STATUS_INSUFFICIENT_RESOURCES;
+            break;
         }
 
-    } finally {
-
-        if ( AbnormalTermination() ) {
-
-            //
-            //  Cleanup allocated MDLs
-            //
-
-            while ( InitialMdl != NULL ) {
-                NextMdl = InitialMdl->Next;
-                FREE_MDL( InitialMdl );
-                InitialMdl = NextMdl;
-            }
+        if ( InitialMdl == NULL ) {
+            InitialMdl = ReceiveMdl;
         }
+
+        IoBuildPartialMdl(
+            FullMdl,
+            ReceiveMdl,
+            BufferStart,
+            BytesThisMdl );
+
+        if ( PreviousReceiveMdl != NULL ) {
+            PreviousReceiveMdl->Next = ReceiveMdl;
+        }
+
+        PreviousReceiveMdl = ReceiveMdl;
+
+        BytesThisPacket -= BytesThisMdl;
+
+        FullMdl = FullMdl->Next;
+
+        if ( FullMdl != NULL) {
+            BytesThisMdl = MmGetMdlByteCount( FullMdl );
+            BufferStart = MmGetMdlVirtualAddress( FullMdl );
+        }
+
     }
 
+    if ( Status == STATUS_INSUFFICIENT_RESOURCES ) {
+
+        //
+        //  Cleanup allocated MDLs
+        //
+
+        while ( InitialMdl != NULL ) {
+            NextMdl = InitialMdl->Next;
+            FREE_MDL( InitialMdl );
+            InitialMdl = NextMdl;
+        }
+
+        DebugTrace( 0, Dbg, "AllocateReceivePartialMdl Failed\n", 0 );
+    }
+
+    DebugTrace( 0, Dbg, "AllocateReceivePartialMdl -> %08lX\n", InitialMdl );
     return( InitialMdl );
+}
+
+
+VOID
+SetConnectionTimeout(
+    PNONPAGED_SCB pNpScb,
+    ULONG Length
+    )
+/*++
+
+Routine Description:
+
+
+    The server will pause NwReceiveDelay between packets. Make sure we have our timeout
+    so that we will take that into account.
+
+Arguments:
+
+    pNpScb  - Connection
+
+    Length  - Length of the burst in bytes
+
+Return Value:
+
+    None.
+
+--*/
+{
+
+    ULONG TimeInNwUnits;
+    LONG SingleTimeInNwUnits;
+
+    SingleTimeInNwUnits = pNpScb->NwSingleBurstPacketTime + pNpScb->NwReceiveDelay;
+
+    TimeInNwUnits = SingleTimeInNwUnits * ((Length / pNpScb->MaxPacketSize) + 1) +
+        pNpScb->NwLoopTime;
+
+    //
+    //  Convert to 1/18ths of a second ticks and multiply by a fudge
+    //  factor. The fudge factor is expressed as a percentage. 100 will
+    //  mean no fudge.
+    //
+
+    pNpScb->MaxTimeOut = (SHORT)( ((TimeInNwUnits / 555) *
+                                   (ULONG)ReadTimeoutMultiplier) / 100 + 1);
+
+    //
+    // Now make sure we have a meaningful lower and upper limit.
+    //
+    if (pNpScb->MaxTimeOut < 2)
+    {
+        pNpScb->MaxTimeOut = 2 ;
+    }
+
+    if (pNpScb->MaxTimeOut > (SHORT)MaxReadTimeout)
+    {
+        pNpScb->MaxTimeOut = (SHORT)MaxReadTimeout ;
+    }
+
+    pNpScb->TimeOut = pNpScb->SendTimeout = pNpScb->MaxTimeOut;
+
+    DebugTrace( 0, DEBUG_TRACE_LIP, "pNpScb->MaxTimeout = %08lx\n", pNpScb->MaxTimeOut );
 }
 
 #if NWFASTIO
@@ -2559,6 +2822,9 @@ Return Value:
         ASSERT( bytesRead == Length );
         IoStatus->Status = STATUS_SUCCESS;
         IoStatus->Information = bytesRead;
+#ifndef NT1057
+        FileObject->CurrentByteOffset.QuadPart += Length;
+#endif
         DebugTrace(-1, Dbg, "NwFastRead -> TRUE\n", 0);
         return( TRUE );
 
@@ -2570,4 +2836,3 @@ Return Value:
     }
 }
 #endif
-

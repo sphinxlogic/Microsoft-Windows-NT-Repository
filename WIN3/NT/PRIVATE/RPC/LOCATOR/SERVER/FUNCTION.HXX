@@ -83,7 +83,7 @@ extern ENTRY_BASE_NODEDict *EntryDict; // Dictionary of EntryItem's
 extern long waitOnRead;	        // time to wait on reading reply back
 extern long idleTime;		// time between net queries, in seconds
 
-#ifdef LDEBUG
+#if DBG
 
 extern ostream *OSdebug;	// trace dump buffer
 extern int debug;		// debug trace level

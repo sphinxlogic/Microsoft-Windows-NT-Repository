@@ -6,15 +6,20 @@
 /*                                                                          */
 /****************************************************************************/
 
-#include "prerc.h"
-#pragma hdrstop
+#include "rc.h"
 
 
 static BOOL fFontDirRead = FALSE;
 
+BOOL	bExternParse = FALSE;
+
 WORD    language = MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US);
 LONG    version = 0;
 LONG    characteristics = 0;
+
+static int rowError = 0;
+static int colError = 0;
+static int idError = 0;
 
 
 /*--------------------------------------------------------------------------*/
@@ -25,11 +30,21 @@ LONG    characteristics = 0;
 
 void ParseError2(int id, PWCHAR arg)
 {
+    // Don't get caught giving the same error over and over and over...
+    if (Nerrors > 0 &&
+	idError == id && rowError == token.row && colError == token.col)
+	quit("\n");
+
     SendError("\n");
     SET_MSG(Msg_Text, sizeof(Msg_Text), GET_MSG(id), curFile, token.row, arg);
     SendError(Msg_Text);
+
     if (++Nerrors > 25)
         quit("\n");
+
+    rowError = token.row;
+    colError = token.col;
+    idError = id;
 }
 
 
@@ -41,10 +56,21 @@ void ParseError2(int id, PWCHAR arg)
 
 void ParseError1(int id)
 {
+    // Don't get caught giving the same error over and over and over...
+    if (Nerrors > 0 &&
+	idError == id && rowError == token.row && colError == token.col)
+	quit("\n");
+
+    SendError("\n");
     SET_MSG(Msg_Text, sizeof(Msg_Text), GET_MSG(id), curFile, token.row);
     SendError(Msg_Text);
+
     if (++Nerrors > 25)
         quit("\n");
+
+    rowError = token.row;
+    colError = token.col;
+    idError = id;
 }
 
 
@@ -58,7 +84,7 @@ void ParseError1(int id)
 
 LONG GetFileName(VOID)
 {
-    FILE * fh;
+    PFILE fh;
     LONG size;
     CHAR szFilename[_MAX_PATH];
     CHAR buf[_MAX_PATH];
@@ -122,7 +148,12 @@ PWCHAR   pTypeName[] =
     L"GROUP_ICON",       //  RT_GROUP_ICON
     NULL,                //  RT_NAMETABLE
     L"VERSION",          //  RT_VERSION
-    L"DLGINCLUDE"        //  RT_DLGINCLUDE
+    L"DIALOGEX",         //  RT_DIALOGEX     ;internal
+    L"DLGINCLUDE",       //  RT_DLGINCLUDE
+    L"PLUGPLAY",         //  RT_PLUGPLAY
+    L"VXD",              //  RT_VXD
+    L"ANIICON",          //  RT_ANIICON	     ;internal
+    L"ANICURSOR"         //  RT_ANICURSOR    ;internal
 };
 
 /*--------------------------------------------------------------------------*/
@@ -163,54 +194,65 @@ LONG FileCount)
     if (fVerbose) {
         if (pType->typeord == 0) {
             if (pRes->nameord == 0)
-                sprintf(Msg_Text, "\nWriting %ws:%ws,\tlang:0x%x,\tsize %d",
+                wsprintfA(Msg_Text, "\nWriting %ws:%ws,\tlang:0x%x,\tsize %d",
                         pType->type, pRes->name, pRes->language, pRes->size);
             else
-                sprintf(Msg_Text, "\nWriting %ws:%d,\tlang:0x%x,\tsize %d",
+                wsprintfA(Msg_Text, "\nWriting %ws:%d,\tlang:0x%x,\tsize %d",
                         pType->type, pRes->nameord, pRes->language, pRes->size);
         }
         else {
             if (pRes->nameord == 0) {
-                if (pType->typeord <= 17)
-                    sprintf(Msg_Text, "\nWriting %ws:%ws,\tlang:0x%x,\tsize %d",
+                if (pType->typeord <= (int)RT_LAST)
+                    wsprintfA(Msg_Text, "\nWriting %ws:%ws,\tlang:0x%x,\tsize %d",
                               pTypeName[pType->typeord],
                               pRes->name, pRes->language, pRes->size);
                 else
-                    sprintf(Msg_Text, "\nWriting %d:%ws,\tlang:0x%x,\tsize %d",
+                    wsprintfA(Msg_Text, "\nWriting %d:%ws,\tlang:0x%x,\tsize %d",
                               pType->typeord,
                               pRes->name, pRes->language, pRes->size);
             }
             else {
-                if (pType->typeord <= 17)
-                    sprintf(Msg_Text, "\nWriting %ws:%d,\tlang:0x%x,\tsize %d",
+                if (pType->typeord <= (int)RT_LAST)
+                    wsprintfA(Msg_Text, "\nWriting %ws:%d,\tlang:0x%x,\tsize %d",
                               pTypeName[pType->typeord],
                               pRes->nameord, pRes->language, pRes->size);
                 else
-                    sprintf(Msg_Text, "\nWriting %d:%d,\tlang:0x%x,\tsize %d",
+                    wsprintfA(Msg_Text, "\nWriting %d:%d,\tlang:0x%x,\tsize %d",
                               pType->typeord,
                               pRes->nameord, pRes->language, pRes->size);
             }
         }
-        fprintf(stderr, Msg_Text);
+        printf(Msg_Text);
     }
 
-    /* add type, name, flags, and resource length */
-    pRes->HdrOffset = (LONG)MySeek(fhBin, 0L, SEEK_CUR);
-    MyWrite(fhBin, (PCHAR)&pRes->size, sizeof(ULONG));
-    MyWrite(fhBin, (PCHAR)&hdrSize, sizeof(ULONG));
+    if (fMacRsrcs)
+    {
+        /* record file location for the resource map and dump out
+        resource's size */
+        DWORD dwT;
+        pRes->BinOffset = (long)MySeek(fhBin,0L,1) - MACDATAOFFSET;
+        dwT = SwapLong(pRes->size);
+        MyWrite(fhBin, &dwT, 4);
+    }
+    else
+    {
+        /* add type, name, flags, and resource length */
+        MyWrite(fhBin, (PCHAR)&pRes->size, sizeof(ULONG));
+        MyWrite(fhBin, (PCHAR)&hdrSize, sizeof(ULONG));
 
-    AddStringToBin(pType->typeord, pType->type);
-    AddStringToBin(pRes->nameord , pRes->name);
-    MyAlign(fhBin);
+        AddStringToBin(pType->typeord, pType->type);
+        AddStringToBin(pRes->nameord , pRes->name);
+        MyAlign(fhBin);
 
-    MyWrite(fhBin, (PCHAR)&t0, sizeof(ULONG));  /* data version */
-    MyWrite(fhBin, (PCHAR)&pRes->flags, sizeof(WORD));
-    MyWrite(fhBin, (PCHAR)&pRes->language, sizeof(WORD));
-    MyWrite(fhBin, (PCHAR)&pRes->version, sizeof(ULONG));
-    MyWrite(fhBin, (PCHAR)&pRes->characteristics, sizeof(ULONG));
+        MyWrite(fhBin, (PCHAR)&t0, sizeof(ULONG));  /* data version */
+        MyWrite(fhBin, (PCHAR)&pRes->flags, sizeof(WORD));
+        MyWrite(fhBin, (PCHAR)&pRes->language, sizeof(WORD));
+        MyWrite(fhBin, (PCHAR)&pRes->version, sizeof(ULONG));
+        MyWrite(fhBin, (PCHAR)&pRes->characteristics, sizeof(ULONG));
 
-    /* record file location for the .EXE construction */
-    pRes->BinOffset = (LONG)MySeek(fhBin, 0L, SEEK_CUR);
+        /* record file location for the .EXE construction */
+        pRes->BinOffset = (LONG)MySeek(fhBin, 0L, SEEK_CUR);
+    }
 
     /* write array plus contents of resource source file */
     WriteControl(fhBin, Array, ArrayCount, FileCount);
@@ -396,6 +438,12 @@ VOID AddDefaultTypes(VOID)
     AddResType(L"PLUGPLAY", RT_PLUGPLAY);
     AddResType(L"VXD", RT_VXD);
 
+    // AFX resource types.
+    AddResType(L"DLGINIT", RT_DLGINIT);
+    AddResType(L"TOOLBAR", RT_TOOLBAR);
+
+    AddResType(L"ANIICON",   RT_ANIICON);
+    AddResType(L"ANICURSOR", RT_ANICURSOR);
 }
 
 
@@ -462,50 +510,56 @@ int  ReadRF(VOID)
     /* Initialize data structures. */
     AddDefaultTypes();
 
-    /* write 32-bit header for empty resource/signature */
-    MyWrite(fhBin, (PCHAR)&zero, sizeof(ULONG));
-    MyWrite(fhBin, (PCHAR)&hdrSize, sizeof(ULONG));
-    MyWrite(fhBin, (PCHAR)&ffff, sizeof(WORD));
-    MyWrite(fhBin, (PCHAR)&zero, sizeof(WORD));
-    MyWrite(fhBin, (PCHAR)&ffff, sizeof(WORD));
-    MyWrite(fhBin, (PCHAR)&zero, sizeof(WORD));
-    MyWrite(fhBin, (PCHAR)&zero, sizeof(ULONG));
-    MyWrite(fhBin, (PCHAR)&zero, sizeof(WORD));
-    MyWrite(fhBin, (PCHAR)&zero, sizeof(WORD));
-    MyWrite(fhBin, (PCHAR)&zero, sizeof(ULONG));
-    MyWrite(fhBin, (PCHAR)&zero, sizeof(ULONG));
+    if (!fMacRsrcs)
+    {
+        /* write 32-bit header for empty resource/signature */
+        MyWrite(fhBin, (PCHAR)&zero, sizeof(ULONG));
+        MyWrite(fhBin, (PCHAR)&hdrSize, sizeof(ULONG));
+        MyWrite(fhBin, (PCHAR)&ffff, sizeof(WORD));
+        MyWrite(fhBin, (PCHAR)&zero, sizeof(WORD));
+        MyWrite(fhBin, (PCHAR)&ffff, sizeof(WORD));
+        MyWrite(fhBin, (PCHAR)&zero, sizeof(WORD));
+        MyWrite(fhBin, (PCHAR)&zero, sizeof(ULONG));
+        MyWrite(fhBin, (PCHAR)&zero, sizeof(WORD));
+        MyWrite(fhBin, (PCHAR)&zero, sizeof(WORD));
+        MyWrite(fhBin, (PCHAR)&zero, sizeof(ULONG));
+        MyWrite(fhBin, (PCHAR)&zero, sizeof(ULONG));
+    }
 
     CtlAlloc();
 
     if (fAFXSymbols) {
-	char* pch = inname;
-	// write out first HWB resource 
-	
-	CtlInit();
+        char* pch = inname;
+        // write out first HWB resource
+
+        CtlInit();
         pRes = (PRESINFO)MyAlloc(sizeof(RESINFO));
         pRes->language = language;
         pRes->version = version;
         pRes->characteristics = characteristics;
 
-	pRes->size = sizeof(DWORD);
-	pRes->flags = 0;
-	pRes->name = 0;
-	pRes->nameord = 1;
-	WriteLong(0);		/* space for file pointer */
-	while (*pch) {
-	    WriteByte(*pch++);
-	    pRes->size++;
-	}
-	WriteByte(0);
-	pRes->size++;
+        pRes->size = sizeof(DWORD);
+        pRes->flags = 0;
+        pRes->name = 0;
+        pRes->nameord = 1;
+        WriteLong(0);           /* space for file pointer */
+        while (*pch) {
+            WriteByte(*pch++);
+            pRes->size++;
+        }
+        WriteByte(0);
+        pRes->size++;
 
-	pType = AddResType(L"HWB", 0);
-	SaveResFile(pType, pRes);
-	lOffIndex = pRes->BinOffset;
+        pType = AddResType(L"HWB", 0);
+        SaveResFile(pType, pRes);
+        lOffIndex = pRes->BinOffset;
     }
 
     /* Process the RC file. */
     do {
+        token.sym.name[0] = L'\0';
+        token.sym.nID = 0;
+
         /* Find the beginning of the next resource. */
         if (!GetNameOrd())
             break;
@@ -531,8 +585,7 @@ int  ReadRF(VOID)
 
         /* Print a dot for each resource processed. */
         if (fVerbose) {
-            fprintf(stderr, ".");
-            fflush(errfh);
+            printf(".");
         }
 
         /* Allocate space for the new resources Info structure. */
@@ -540,6 +593,13 @@ int  ReadRF(VOID)
         pRes->language = language;
         pRes->version = version;
         pRes->characteristics = characteristics;
+
+        if (token.sym.name[0]) {
+            /* token has a real symbol associated with it */
+            memcpy(&pRes->sym, &token.sym, sizeof(SYMINFO));
+        }
+        else
+            pRes->sym.name[0] = L'\0';
 
         if (!token.val) {
             if (wcslen(tokenbuf) > MAXTOKSTR-1) {
@@ -689,14 +749,27 @@ int  ReadRF(VOID)
 
             case (int)RT_ICON:
             case (int)RT_CURSOR:
+                WriteFileInfo(pRes, pType, tokenbuf);
                 pRes->size = GetFileName();
-                if (pRes->size) {
+		if (FileIsAnimated(pRes->size))
+		    goto ani;
+                else if (pRes->size) {
                     pRes->size = GetIcon(pRes->size);
                     SaveResFile(pType, pRes);
                 }
                 break;
 
+ani:
+                WriteFileInfo(pRes, pType, tokenbuf);
+                pRes->size = GetFileName();
+                if (pRes->size) {
+                    pRes->size = GetAniIconsAniCursors(pRes->size);
+                    SaveResFile(pType, pRes);
+                }
+                break;
+
             case (int)RT_BITMAP:
+                WriteFileInfo(pRes, pType, tokenbuf);
                 pRes->size = GetFileName();
                 if (pRes->size) {
                     /* Bitmap in DIB format */
@@ -706,20 +779,33 @@ int  ReadRF(VOID)
                 break;
 
             case (int)RT_GROUP_ICON:
+                WriteFileInfo(pRes, pType, tokenbuf);
                 pRes->size = GetFileName();
-                if (pRes->size) {
-                    GetNewIconsCursors(pType, pRes, RT_ICON);
+		if (FileIsAnimated(pRes->size))
+		    goto ani;
+                else if (pRes->size) {
+                    if (fMacRsrcs)
+                        GetMacIcon(pType, pRes);
+                    else
+                        GetNewIconsCursors(pType, pRes, RT_ICON);
                 }
                 break;
 
             case (int)RT_GROUP_CURSOR:
+                WriteFileInfo(pRes, pType, tokenbuf);
                 pRes->size = GetFileName();
-                if (pRes->size) {
-                    GetNewIconsCursors(pType, pRes, RT_CURSOR);
+		if (FileIsAnimated(pRes->size))
+		    goto ani;
+                else if (pRes->size) {
+                    if (fMacRsrcs)
+                        GetMacCursor(pType, pRes);
+                    else
+                        GetNewIconsCursors(pType, pRes, RT_CURSOR);
                 }
                 break;
 
             case (int)RT_FONT:
+                WriteFileInfo(pRes, pType, tokenbuf);
                 pRes->size = GetFileName();
                 if (pRes->name)
                     ParseError1(2143);
@@ -730,6 +816,7 @@ int  ReadRF(VOID)
                 break;
 
             case (int)RT_FONTDIR:
+                WriteFileInfo(pRes, pType, tokenbuf);
                 fFontDirRead = TRUE;
                 pRes->size = GetFileName();
                 if (pRes->size) {
@@ -754,17 +841,83 @@ int  ReadRF(VOID)
                 SaveResFile(pType, pRes);
                 break;
 
+            case (int)RT_TOOLBAR:
+                GetToolbar(pRes);
+                SaveResFile(pType, pRes);
+                break;
+
             case (int)RT_RCDATA:
+            case (int)RT_DLGINIT:
             default:
-                if (token.type == BEGIN)
-                    GetRCData(pRes);
-                else
-                {
+                if (token.type != BEGIN) {
                     pRes->size = GetFileName();
                     if (pRes->size) {
                         WriteFileInfo(pRes, pType, tokenbuf);
                     }
                 }
+		else {
+		    RESINFO_PARSE rip;
+
+		    bExternParse = FALSE;
+
+		    // Check to see if caller wants to parse this.
+		    if (lpfnParseCallback != NULL) {
+			rip.size = 0L;
+			rip.type = pType->type;
+			rip.typeord = pType->typeord;
+			rip.name = pRes->name;
+			rip.nameord = pRes->nameord;
+			rip.flags = pRes->flags;
+			rip.language = pRes->language;
+			rip.version = pRes->version;
+			rip.characteristics = pRes->characteristics;
+
+			bExternParse = (*lpfnParseCallback)(&rip, NULL, NULL);
+		    }
+
+		    if (!bExternParse)
+			    GetRCData(pRes);
+		    else {
+			CONTEXTINFO_PARSE cip;
+			CHAR mbuff[512];	// REVIEW: Long filenames??  See error.c also.
+
+			extern PCHAR CodeArray;
+			extern int CodeSize;
+			extern int CCount;
+
+			int nBegins = 1;
+			int nCountSave;	// CCount before END token reached
+
+			cip.hHeap = hHeap;
+			cip.hWndCaller = hWndCaller;
+			cip.lpfnMsg = lpfnMessageCallback;
+			cip.line = token.row;
+
+			wsprintfA(mbuff, "%s(%%d) : %%s", curFile);
+			cip.format = mbuff;
+
+			// Collect data for caller to parse.
+			while(nBegins > 0) {
+			    nCountSave = CCount;
+			    GetToken(FALSE);
+			    if (token.type == BEGIN)
+				nBegins++;
+			    else if (token.type == END)
+				nBegins--;
+			}
+
+			bExternParse = FALSE;
+
+			if ((rip.size = nCountSave) > 0 &&
+			    !(*lpfnParseCallback)(&rip, &CodeArray, &cip)) {
+			    // Assume caller gave error message, and quit.
+			    quit("\n");
+			}
+
+			pRes->size = CCount = CodeSize = rip.size;
+		    }
+		}
+
                 SaveResFile(pType, pRes);
                 break;
             }
@@ -781,8 +934,15 @@ int  ReadRF(VOID)
     if (pResString != NULL)
         WriteTable(pResString);
 
+    /* write Mac resource map */
+    if (fMacRsrcs)
+        WriteMacMap();
+
     CtlFree();
 
+    if (fVerbose) {
+        printf("\n");
+    }
     return(errorCount == 0);
 }
 

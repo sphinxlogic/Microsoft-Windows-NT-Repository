@@ -666,7 +666,7 @@ Return Value:
         }
     
         //
-        // BUGBUG: Delay here. I don't understand this latency between
+        // NOTE: Delay here. I don't understand this latency between
         //          when the device interrupts and the status of the ICB
         //          is success and when the data is actually available in
         //          the buffer.
@@ -859,7 +859,8 @@ Return Value:
             DebugPrint((1, "Wd7000ExStartIo: Abort request received\n"));
 
             //
-            // BUGBUG: Race condition (what if CCB to be aborted
+            // NOTE: Race condition if aborts occur
+            //     (what if CCB to be aborted
             //      completes after setting new SrbAddress?)
             //
 

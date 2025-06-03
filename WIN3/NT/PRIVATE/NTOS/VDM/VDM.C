@@ -24,6 +24,7 @@ Revision History:
 #include <ntvdmp.h>
 
 #include <zwapi.h>
+#include <fsrtl.h>
 
 
 typedef struct _QueryDirPoolData {
@@ -68,6 +69,7 @@ Return Value:
 --*/
 {
     PAGED_CODE();
+
 
     if (Service == VdmQueryDir) {
         return VdmQueryDirectoryFile(ServiceData);

@@ -2,24 +2,41 @@
 // File open related strings
 #define IDS_CHARTFILE        700
 #define IDS_CHARTFILEEXT     701
-#define IDS_ALERTFILE        702
-#define IDS_ALERTFILEEXT     703
-#define IDS_LOGFILE          704
-#define IDS_LOGFILEEXT       705
-#define IDS_REPORTFILE       706
-#define IDS_REPORTFILEEXT    707
-#define IDS_ALLFILES         708
-#define IDS_ALLFILESEXT      709
-#define IDS_SAVELOGFILE      710
-#define IDS_SAVELOGFILEEXT   711
-#define IDS_FILEOPEN_TITLE   712
-#define IDS_WORKSPACEFILE    713
-#define IDS_WORKSPACEFILEEXT 714
-#define IDS_EXPORTFILE       715
-#define IDS_EXPORTFILECSVEXT 716
-#define IDS_EXPORTFILETSV    717
-#define IDS_EXPORTFILETSVEXT 718
+#define IDS_DEF_CHART_EXT    702
 
+#define IDS_ALERTFILE        710
+#define IDS_ALERTFILEEXT     711
+#define IDS_DEF_ALERT_EXT    712
+
+#define IDS_LOGFILE          720
+#define IDS_LOGFILEEXT       721
+#define IDS_DEF_LOG_EXT      722
+
+#define IDS_REPORTFILE       730
+#define IDS_REPORTFILEEXT    731
+#define IDS_DEF_REPORT_EXT   732
+
+#define IDS_ALLFILES         740
+#define IDS_ALLFILESEXT      741
+#define IDS_DEF_ALLFILE_EXT  742
+
+#define IDS_SAVELOGFILE      750
+#define IDS_SAVELOGFILEEXT   751
+#define IDS_DEF_LOGFILE_EXT  752
+
+#define IDS_WORKSPACEFILE    760
+#define IDS_WORKSPACEFILEEXT 761
+#define IDS_DEF_WORKSPACE_EXT 762
+
+#define IDS_EXPORTFILE       770
+#define IDS_EXPORTFILECSVEXT 771
+#define IDS_DEF_EXPORT_CSV   772
+
+#define IDS_EXPORTFILETSV    780
+#define IDS_EXPORTFILETSVEXT 781
+#define IDS_DEF_EXPORT_TSV   782
+
+#define IDS_FILEOPEN_TITLE   799
 /*	STRING ID'S                */
 
 #define IDS_APPNAME	       800
@@ -149,6 +166,11 @@
 // string id for default scale factor
 #define IDS_DEFAULT           1120
 
+// string id for Alert msg when system down
+#define IDS_SYSTEM_DOWN       1121
+#define IDS_SYSTEM_UP         1122
+ 
+
 // the following are error strings
 // error relating to files
 #define ERR_LOG_FILE          2000
@@ -171,6 +193,9 @@
 #define ERR_BADVERTMAX        2204
 #define ERR_BADTIMEINTERVAL   2205
 
+// error in computer name specified on command line
+#define ERR_BADCOMPUTERNAME	2300
+// unable to access perf data
+#define ERR_ACCESS_DENIED   2301
 
-
-
+

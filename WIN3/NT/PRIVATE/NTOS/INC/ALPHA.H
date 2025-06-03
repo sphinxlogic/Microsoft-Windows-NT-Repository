@@ -28,23 +28,21 @@ Revision History:
 #ifndef _ALPHAH_
 #define _ALPHAH_
 
-// begin_ntddk begin_nthal begin_ntndis begin_updriver
+// begin_ntddk begin_nthal begin_ntndis
 
 #if defined(_ALPHA_)
 
-// end_ntddk end_nthal end_ntndis end_updriver (This is so the string "updriver" doesn't appear in nthal/ntddk/ntifs.)
-// begin_ntddk begin_nthal begin_ntndis
+//
+// Define maximum size of flush multple TB request.
+//
+
+#define FLUSH_MULTIPLE_MAXIMUM 16
+
 //
 // Indicate that the MIPS compiler supports the pragma textout construct.
 //
 
 #define ALLOC_PRAGMA 1
-
-//
-// Define function decoration for FASTCALL calling convention
-//
-
-#define FASTCALL
 
 // end_ntndis
 //
@@ -65,6 +63,7 @@ Revision History:
 // Define intrinsic PAL calls and their prototypes
 //
 void __di(void);
+void __MB(void);
 void __dtbis(void *);
 void __ei(void);
 void *__rdpcr(void);
@@ -77,6 +76,7 @@ void __tbisasn(void *, unsigned long);
 
 #ifdef _M_ALPHA
 #pragma intrinsic(__di)
+#pragma intrinsic(__MB)
 #pragma intrinsic(__dtbis)
 #pragma intrinsic(__ei)
 #pragma intrinsic(__rdpcr)
@@ -93,14 +93,20 @@ void __tbisasn(void *, unsigned long);
 //
 
 #if !defined(PROCESSOR_ALPHA_21064)
-
 #define PROCESSOR_ALPHA_21064 (21064)
+#endif // !PROCESSOR_ALPHA_21064
 
-#endif //!PROCESSOR_ALPHA_21064
-
+#if !defined(PROCESSOR_ALPHA_21164)
 #define PROCESSOR_ALPHA_21164 (21164)
+#endif // !PROCESSOR_ALPHA_21164
+
+#if !defined(PROCESSOR_ALPHA_21066)
 #define PROCESSOR_ALPHA_21066 (21066)
+#endif // !PROCESSOR_ALPHA_21066
+
+#if !defined(PROCESSOR_ALPHA_21068)
 #define PROCESSOR_ALPHA_21068 (21068)
+#endif // !PROCESSOR_ALPHA_21068
 
 // end_nthal
 
@@ -121,7 +127,7 @@ VOID
 // or a kernel component is being built.
 //
 
-#if defined(_NTDDK_) || defined(_NTIFS_) || defined(_NTHAL_)
+#if (defined(_NTDRIVER_) || defined(_NTDDK_) || defined(_NTIFS_) || defined(_NTHAL_)) && !defined (_BLDR_)
 
 #define NTKERNELAPI DECLSPEC_IMPORT
 
@@ -136,7 +142,7 @@ VOID
 // component is being build.
 //
 
-#if !defined(_NTHAL_)
+#if !defined(_NTHAL_) && !defined(_BLDR_)
 
 #define NTHALAPI DECLSPEC_IMPORT
 
@@ -301,12 +307,13 @@ typedef struct _KPCR {
     ULONG ReservedVectors;
 
 //
-// Profiling data.
+// Complement of processor affinity mask.
 //
 
-    PLIST_ENTRY ProfileListHead;
-    ULONG ProfileInterval;
-    ULONG ProfileCount;
+    KAFFINITY NotMember;
+
+    ULONG InterruptInProgress;
+    ULONG DpcRequested;
 
 //
 // Pointer to machine check handler
@@ -333,17 +340,18 @@ typedef struct _KPCR {
 // This section may change from release to release and should not be
 // addressed by vendor/platform specific HAL code.
 
-//
-// Function active flags.
-//
-
-    ULONG DpcRoutineActive;
-
-//
-// Spare fields.
-//
-
     ULONG Spare1;
+
+//
+// Current process id.
+//
+
+    ULONG CurrentPid;
+
+//
+// Spare field.
+//
+
     ULONG Spare2;
 
 //
@@ -395,6 +403,8 @@ typedef struct _HARDWARE_PTE {
     ULONG CopyOnWrite: 1;
     ULONG PageFrameNumber: 23;
 } HARDWARE_PTE, *PHARDWARE_PTE;
+
+#define HARDWARE_PTE_DIRTY_MASK     0x4
 
 //
 // Define initialize page directory base
@@ -559,8 +569,11 @@ typedef struct _ALPHA_RESTART_SAVE_AREA {
 #define APC_LEVEL       1
 #define DISPATCH_LEVEL  2
 #define HIGH_LEVEL      7
+#define SYNCH_LEVEL (IPI_LEVEL-1)
 
 // end_ntddk end_nthal
+
+#define KiProfileIrql PROFILE_LEVEL     // enable portable code
 
 //
 // Define interrupt levels that cannot be connected
@@ -738,13 +751,55 @@ typedef struct _KTRAP_FRAME {
 
     ULONG OldIrql;      // Previous Irql.
     ULONG PreviousMode; // Previous Mode.
-    ULONG Fill[4];      // padding for 32-byte stack frame alignment
+    ULONG TrapFrame;
+    ULONG Fill[3];      // padding for 32-byte stack frame alignment
 
 } KTRAP_FRAME, *PKTRAP_FRAME;
 
 #define KTRAP_FRAME_LENGTH (sizeof(KTRAP_FRAME) )
 #define KTRAP_FRAME_ALIGN (16)
 #define KTRAP_FRAME_ROUND (KTRAP_FRAME_ALIGN - 1)
+
+
+//
+// The frame saved by KiCallUserMode is defined here to allow
+// the kernel debugger to trace the entire kernel stack
+// when usermode callouts are pending.
+//
+
+typedef struct _KCALLOUT_FRAME {
+    ULONGLONG   F2;   // saved floating registers f2 - f9
+    ULONGLONG   F3;
+    ULONGLONG   F4;
+    ULONGLONG   F5;
+    ULONGLONG   F6;
+    ULONGLONG   F7;
+    ULONGLONG   F8;
+    ULONGLONG   F9;
+    ULONGLONG   S0;   // saved integer registers s0 - s5
+    ULONGLONG   S1;
+    ULONGLONG   S2;
+    ULONGLONG   S3;
+    ULONGLONG   S4;
+    ULONGLONG   S5;
+    ULONGLONG   FP;
+    ULONGLONG   CbStk;  // saved callback stack address
+    ULONGLONG   InStk;  // saved initial stack address
+    ULONGLONG   TrFr;   // saved callback trap frame address
+    ULONGLONG   TrFir;
+    ULONGLONG   Ra;     // saved return address
+    ULONGLONG   A0;     // saved argument registers a0-a2
+    ULONGLONG   A1;
+} KCALLOUT_FRAME, *PKCALLOUT_FRAME;
+
+typedef struct _UCALLOUT_FRAME {
+    PVOID Buffer;
+    ULONG Length;
+    ULONG ApiNumber;
+    ULONG Pad;
+    ULONGLONG Sp;
+    ULONGLONG Ra;
+} UCALLOUT_FRAME, *PUCALLOUT_FRAME;
 
 //
 // Define Machine Check Status code that is passed in the exception
@@ -770,6 +825,14 @@ typedef struct _MCES {
 } MCES, *PMCES;
 
 // end_nthal
+
+//
+// Non-volatile floating point state
+//
+
+typedef struct _KFLOATING_SAVE {
+    ULONG   Reserved;
+} KFLOATING_SAVE, *PKFLOATING_SAVE;
 
 //
 // Define Alpha status code aliases. These are internal to PALcode and
@@ -874,8 +937,20 @@ typedef struct _KPRCB {
     PVOID Spare2;
     PVOID Spare3;
     volatile ULONG IpiFrozen;
-    volatile struct _KPROCESSOR_STATE ProcessorState;
-    volatile PVOID RequestPacket[MAXIMUM_PROCESSORS];
+    struct _KPROCESSOR_STATE ProcessorState;
+    ULONG LastDpcCount;
+    ULONG DpcBypassCount;
+    ULONG SoftwareInterrupts;
+    ULONG InterruptActive;
+    ULONG ApcBypassCount;
+    ULONG DispatchInterruptCount;
+    PVOID Spares[7];
+
+//
+// Spares.
+//
+
+    PVOID MoreSpares[3];
     PKIPI_COUNTS IpiCounts;
 
 //
@@ -889,8 +964,8 @@ typedef struct _KPRCB {
 // File system runtime variables
 //
 
-    SINGLE_LIST_ENTRY   FsRtlFreeLockList;
-    SINGLE_LIST_ENTRY   FsRtlFreeWaitingLockList;
+    SINGLE_LIST_ENTRY   FsRtlFreeSharedLockList;
+    SINGLE_LIST_ENTRY   FsRtlFreeExclusiveLockList;
 
 //
 // Cache manager performance counters.
@@ -916,12 +991,47 @@ typedef struct _KPRCB {
     ULONG KeIcacheFlushCount;
     ULONG KeSecondLevelTbFills;
     ULONG KeSystemCalls;
+    ULONG KeByteWordEmulationCount;
 
 //
 //  Reserved for future counters.
 //
 
-    ULONG ReservedCounter[10];
+    ULONG ReservedCounter[1];
+
+//
+// I/O system per processor single entry lookaside lists.
+//
+
+    PVOID SmallIrpFreeEntry;
+    PVOID LargeIrpFreeEntry;
+    PVOID MdlFreeEntry;
+
+//
+// Object manager per processor single entry lookaside lists.
+//
+
+    PVOID CreateInfoFreeEntry;
+    PVOID NameBufferFreeEntry;
+
+//
+// Cache manager per processor single entry lookaside lists.
+//
+
+    PVOID SharedCacheMapEntry;
+
+//
+//  More filesystem runtime
+//
+
+    SINGLE_LIST_ENTRY   FsRtlFreeWaitingLockList;
+    SINGLE_LIST_ENTRY   FsRtlFreeLockTreeNodeList;
+
+//
+// Reserved pad.
+//
+
+    ULONG reservedPad[16 * 8];
 
 //
 // MP interprocessor request packet and summary.
@@ -930,8 +1040,9 @@ typedef struct _KPRCB {
 //
 
     volatile PVOID CurrentPacket[3];
+    volatile KAFFINITY TargetSet;
     volatile PKIPI_WORKER WorkerRoutine;
-    ULONG CachePad1[8];
+    ULONG CachePad1[11];
 
 //
 // N.B. These two longwords must be on a quadword boundary and adjacent.
@@ -939,7 +1050,20 @@ typedef struct _KPRCB {
 
     volatile ULONG RequestSummary;
     volatile struct _KPRCB *SignalDone;
-    ULONG CachePad2[8];
+
+//
+// Spare counters.
+//
+
+    ULONG Spare4[14];
+    ULONG DpcInterruptRequested;
+    ULONG Spare5[17];
+    ULONG CachePad2[2];
+    ULONG MaximumDpcQueueDepth;
+    ULONG MinimumDpcRate;
+    ULONG AdjustDpcThreshold;
+    ULONG DpcRequestRate;
+    LARGE_INTEGER StartCount;
 //
 // DPC list head, spinlock, and count.
 //
@@ -948,11 +1072,12 @@ typedef struct _KPRCB {
     KSPIN_LOCK DpcLock;
     ULONG DpcCount;
     ULONG QuantumEnd;
+    ULONG DpcRoutineActive;
+    ULONG DpcQueueDepth;
 
-    LARGE_INTEGER StartCount;
     BOOLEAN SkipTick;
 
-} KPRCB, *PKPRCB;                                   // ntddk nthal
+} KPRCB, *PKPRCB, *RESTRICTED_POINTER PRKPRCB;      // ntddk nthal
 
 // begin_ntddk begin_nthal begin_ntndis
 //
@@ -1174,6 +1299,9 @@ typedef enum _INTERLOCKED_RESULT {
 #define ExInterlockedDecrementLong(Addend, Lock) \
     ExAlphaInterlockedDecrementLong(Addend)
 
+#define ExInterlockedExchangeAddLargeInteger(Target, Value, Lock) \
+    ExpInterlockedExchangeAddLargeInteger(Target, Value)
+
 #define ExInterlockedExchangeUlong(Target, Value, Lock) \
     ExAlphaInterlockedExchangeUlong(Target, Value)
 
@@ -1190,25 +1318,26 @@ ExAlphaInterlockedDecrementLong (
     );
 
 NTKERNELAPI
+LARGE_INTEGER
+ExpInterlockedExchangeAddLargeInteger (
+    IN PLARGE_INTEGER Addend,
+    IN LARGE_INTEGER Increment
+    );
+
+NTKERNELAPI
 ULONG
 ExAlphaInterlockedExchangeUlong (
     IN PULONG Target,
     IN ULONG Value
     );
 
-// there is a lot of other stuff that could go in here
-//   probe macros
-//   others
-// end_ntddk end_nthal
-//
-// Intrinsic interlocked functions.
-//
-
 #if defined(_M_ALPHA) && !defined(RC_INVOKED)
 
 #define InterlockedIncrement _InterlockedIncrement
 #define InterlockedDecrement _InterlockedDecrement
 #define InterlockedExchange _InterlockedExchange
+#define InterlockedExchangeAdd _InterlockedExchangeAdd
+#define InterlockedCompareExchange _InterlockedCompareExchange
 
 LONG
 InterlockedIncrement(
@@ -1226,11 +1355,35 @@ InterlockedExchange(
     LONG Value
     );
 
+LONG
+InterlockedExchangeAdd(
+    IN OUT PLONG Addend,
+    IN LONG Value
+    );
+
+PVOID
+InterlockedCompareExchange (
+    IN OUT PVOID *Destination,
+    IN PVOID ExChange,
+    IN PVOID Comperand
+    );
+
 #pragma intrinsic(_InterlockedIncrement)
 #pragma intrinsic(_InterlockedDecrement)
 #pragma intrinsic(_InterlockedExchange)
+#pragma intrinsic(_InterlockedExchangeAdd)
+#pragma intrinsic(_InterlockedCompareExchange)
 
 #endif
+
+// there is a lot of other stuff that could go in here
+//   probe macros
+//   others
+// end_ntddk end_nthal
+//
+// Intrinsic interlocked functions.
+//
+
 
 // begin_ntddk begin_nthal begin_ntndis
 
@@ -1270,7 +1423,7 @@ InterlockedExchange(
 
 #define ALPHA_AXP_MAXIMUM_ASN 0xffffffff
 
-// begin_ntddk
+// begin_ntddk begin_nthal
 
 //
 // The highest user address reserves 64K bytes for a guard page. This
@@ -1287,7 +1440,10 @@ InterlockedExchange(
 
 #define MM_LOWEST_USER_ADDRESS  (PVOID)0x00010000
 
-// end_ntddk
+#define MmGetProcedureAddress(Address) (Address)
+#define MmLockPagableCodeSection(Address) MmLockPagableDataSection(Address)
+
+// end_ntddk end_nthal
 
 //
 // Define the page table base and the page directory base for
@@ -1317,6 +1473,9 @@ KeGetCurrentIrql();
 // end_nthal
 
 #define KeGetCurrentThread() ((struct _KTHREAD *) __rdthread())
+
+#define KeSaveFloatingPointState(a)         STATUS_SUCCESS
+#define KeRestoreFloatingPointState(a)      STATUS_SUCCESS
 
 // begin_nthal
 
@@ -1374,6 +1533,13 @@ KeSweepIcache (
     IN BOOLEAN AllProcessors
     );
 
+VOID
+KeSweepIcacheRange (
+    IN BOOLEAN AllProcessors,
+    IN PVOID BaseAddress,
+    IN ULONG Length
+    );
+
 #define KeSweepCurrentIcache() \
     HalSweepIcache();
 
@@ -1384,7 +1550,7 @@ KeFlushIcacheRange (
     IN ULONG Length
     );
 
-// begin_ntddk begin_ntndis
+// begin_ntddk begin_ntndis begin_nthal
 //
 // Cache and write buffer flush functions.
 //
@@ -1397,10 +1563,49 @@ KeFlushIoBuffers (
     );
 
 // end_ntddk end_ntndis
+
+//
+// Clock, profile, and interprocessor interrupt functions.
+//
+
+struct _KEXCEPTION_FRAME;
+struct _KTRAP_FRAME;
+
+NTKERNELAPI
+VOID
+KeIpiInterrupt (
+    IN struct _KTRAP_FRAME *TrapFrame
+    );
+
+NTKERNELAPI
+VOID
+KeProfileInterrupt (
+    IN struct _KTRAP_FRAME *TrapFrame
+    );
+
+NTKERNELAPI
+VOID
+KeProfileInterruptWithSource (
+    IN struct _KTRAP_FRAME *TrapFrame,
+    IN KPROFILE_SOURCE ProfileSource
+    );
+
+NTKERNELAPI
+VOID
+KeUpdateRuntime (
+    IN struct _KTRAP_FRAME *TrapFrame
+    );
+
+NTKERNELAPI
+VOID
+KeUpdateSystemTime (
+    IN struct _KTRAP_FRAME *TrapFrame
+    );
+
 //
 // The following function prototypes are exported for use in MP HALs.
 //
-// begin_nthal
+
 
 #if defined(NT_UP)
 
@@ -1463,6 +1668,13 @@ KiCopyInformation (
     );
 
 BOOLEAN
+KiEmulateByteWord(
+    IN OUT PEXCEPTION_RECORD ExceptionRecord,
+    IN OUT struct _KEXCEPTION_FRAME *ExceptionFrame,
+    IN OUT struct _KTRAP_FRAME *TrapFrame
+    );
+
+BOOLEAN
 KiEmulateFloating (
     IN OUT PEXCEPTION_RECORD ExceptionRecord,
     IN OUT struct _KEXCEPTION_FRAME *ExceptionFrame,
@@ -1507,6 +1719,11 @@ KiSetRegisterValue (
     OUT struct _KTRAP_FRAME *TrapFrame
     );
 
+VOID
+KiRequestSoftwareInterrupt (
+    KIRQL RequestIrql
+    );
+
 //
 // Define query system time macro.
 //
@@ -1519,10 +1736,10 @@ KiSetRegisterValue (
 //
 // begin_ntddk begin_nthal
 
-#if defined(_NTDDK_) || defined(_NTIFS_)
+#if defined(_NTDRIVER_) || defined(_NTDDK_) || defined(_NTIFS_)
 
 #define KeQueryTickCount(CurrentCount ) \
-    *(PULONGLONG)(CurrentCount) = **((PULONGLONG *)(&KeTickCount));
+    *(PULONGLONG)(CurrentCount) = **((volatile ULONGLONG **)(&KeTickCount));
 
 #else
 
@@ -1552,9 +1769,10 @@ KeQueryTickCount (
 // KeRaiseIrql is one instruction shorter than KeAcquireSpinLock on Alpha UP.
 // KeLowerIrql is one instruction shorter than KeReleaseSpinLock.
 //
-// begin_updriver
 
-#if defined(NT_UP)
+// begin_ntddk begin_ntifs
+
+#if defined(NT_UP) && !defined(_NTDDK_) && !defined(_NTIFS_)
 #define ExAcquireSpinLock(Lock, OldIrql) KeRaiseIrql(DISPATCH_LEVEL, (OldIrql))
 #define ExReleaseSpinLock(Lock, OldIrql) KeLowerIrql((OldIrql))
 #define ExAcquireSpinLockAtDpcLevel(Lock)
@@ -1566,7 +1784,8 @@ KeQueryTickCount (
 #define ExReleaseSpinLockFromDpcLevel(Lock) KeReleaseSpinLockFromDpcLevel(Lock)
 #endif
 
-// end_updriver
+// end_ntddk end_ntifs
+
 //
 // The acquire and release fast lock macros disable and enable interrupts
 // on UP nondebug systems. On MP or debug systems, the spinlock routines
@@ -1616,7 +1835,7 @@ KeQueryTickCount (
 //
 //--
 
-#define KiIsThreadNumericStateSaved(a)      TRUE
+#define KiIsThreadNumericStateSaved(a) TRUE
 
 //++
 //
@@ -1629,384 +1848,16 @@ KeQueryTickCount (
 
 #define KiRundownThread(a)
 
-
-// Alpha specific probe function definitions.
 //
+// Define macro to test if x86 feature is present.
 //
-// Probe for write functions definitions.
+// N.B. All x86 features test TRUE on Alpha systems.
 //
-//++
-//
-// VOID
-// ProbeForWriteBoolean(
-//     IN PBOOLEAN Address
-//     )
-//
-//--
 
-#define ProbeForWriteBoolean(Address) {                                      \
-    if ((Address) >= (BOOLEAN * const)MM_USER_PROBE_ADDRESS) {               \
-        *(volatile BOOLEAN * const)MM_USER_PROBE_ADDRESS = 0;                \
-    }                                                                        \
-                                                                             \
-    *(volatile BOOLEAN *)(Address) = *(volatile BOOLEAN *)(Address);         \
-}
+#define Isx86FeaturePresent(_f_) TRUE
 
-//++
-//
-// VOID
-// ProbeForWriteChar(
-//     IN PCHAR Address
-//     )
-//
-//--
-
-#define ProbeForWriteChar(Address) {                                         \
-    if ((Address) >= (CHAR * const)MM_USER_PROBE_ADDRESS) {                  \
-        *(volatile CHAR * const)MM_USER_PROBE_ADDRESS = 0;                   \
-    }                                                                        \
-                                                                             \
-    *(volatile CHAR *)(Address) = *(volatile CHAR *)(Address);               \
-}
-
-//++
-//
-// VOID
-// ProbeForWriteUchar(
-//     IN PUCHAR Address
-//     )
-//
-//--
-
-#define ProbeForWriteUchar(Address) {                                        \
-    if ((Address) >= (UCHAR * const)MM_USER_PROBE_ADDRESS) {                 \
-        *(volatile UCHAR * const)MM_USER_PROBE_ADDRESS = 0;                  \
-    }                                                                        \
-                                                                             \
-    *(volatile UCHAR *)(Address) = *(volatile UCHAR *)(Address);             \
-}
-
-//++
-//
-// VOID
-// ProbeForWriteIoStatus(
-//     IN PIO_STATUS_BLOCK Address
-//     )
-//
-//--
-
-#define ProbeForWriteIoStatus(Address) {                                     \
-    if ((Address) >= (IO_STATUS_BLOCK * const)MM_USER_PROBE_ADDRESS) {       \
-        *(volatile ULONG * const)MM_USER_PROBE_ADDRESS = 0;                  \
-    }                                                                        \
-                                                                             \
-    *(volatile IO_STATUS_BLOCK *)(Address) = *(volatile IO_STATUS_BLOCK *)(Address); \
-}
-
-//++
-//
-// VOID
-// ProbeForWriteShort(
-//     IN PSHORT Address
-//     )
-//
-//--
-
-#define ProbeForWriteShort(Address) {                                        \
-    if ((Address) >= (SHORT * const)MM_USER_PROBE_ADDRESS) {                 \
-        *(volatile SHORT * const)MM_USER_PROBE_ADDRESS = 0;                  \
-    }                                                                        \
-                                                                             \
-    *(volatile SHORT *)(Address) = *(volatile SHORT *)(Address);             \
-}
-
-//++
-//
-// VOID
-// ProbeForWriteUshort(
-//     IN PUSHORT Address
-//     )
-//
-//--
-
-#define ProbeForWriteUshort(Address) {                                       \
-    if ((Address) >= (USHORT * const)MM_USER_PROBE_ADDRESS) {                \
-        *(volatile USHORT * const)MM_USER_PROBE_ADDRESS = 0;                 \
-    }                                                                        \
-                                                                             \
-    *(volatile USHORT *)(Address) = *(volatile USHORT *)(Address);           \
-}
-
-//++
-//
-// VOID
-// ProbeForWriteHandle(
-//     IN PHANDLE Address
-//     )
-//
-//--
-
-#define ProbeForWriteHandle(Address) {                                       \
-    if ((Address) >= (HANDLE * const)MM_USER_PROBE_ADDRESS) {                \
-        *(volatile HANDLE * const)MM_USER_PROBE_ADDRESS = 0;                 \
-    }                                                                        \
-                                                                             \
-    *(volatile HANDLE *)(Address) = *(volatile HANDLE *)(Address);           \
-}
-
-//++
-//
-// VOID
-// ProbeForWriteLong(
-//     IN PLONG Address
-//     )
-//
-//--
-
-#define ProbeForWriteLong(Address) {                                        \
-    if ((Address) >= (LONG * const)MM_USER_PROBE_ADDRESS) {                 \
-        *(volatile LONG * const)MM_USER_PROBE_ADDRESS = 0;                  \
-    }                                                                       \
-                                                                            \
-    *(volatile LONG *)(Address) = *(volatile LONG *)(Address);              \
-}
-
-//++
-//
-// VOID
-// ProbeForWriteUlong(
-//     IN PULONG Address
-//     )
-//
-//--
-
-#define ProbeForWriteUlong(Address) {                                        \
-    if ((Address) >= (ULONG * const)MM_USER_PROBE_ADDRESS) {                 \
-        *(volatile ULONG * const)MM_USER_PROBE_ADDRESS = 0;                  \
-    }                                                                        \
-                                                                             \
-    *(volatile ULONG *)(Address) = *(volatile ULONG *)(Address);             \
-}
-
-//++
-//
-// VOID
-// ProbeForWriteQuad(
-//     IN PQUAD Address
-//     )
-//
-//--
-
-#define ProbeForWriteQuad(Address) {                                         \
-    if ((Address) >= (QUAD * const)MM_USER_PROBE_ADDRESS) {                  \
-        *(volatile LONG * const)MM_USER_PROBE_ADDRESS = 0;                   \
-    }                                                                        \
-                                                                             \
-    *(volatile QUAD *)(Address) = *(volatile QUAD *)(Address);               \
-}
-
-//++
-//
-// VOID
-// ProbeForWriteUquad(
-//     IN PUQUAD Address
-//     )
-//
-//--
-
-#define ProbeForWriteUquad(Address) {                                        \
-    if ((Address) >= (QUAD * const)MM_USER_PROBE_ADDRESS) {                  \
-        *(volatile ULONG * const)MM_USER_PROBE_ADDRESS = 0;                  \
-    }                                                                        \
-                                                                             \
-    *(volatile UQUAD *)(Address) = *(volatile UQUAD *)(Address);             \
-}
-
-//
-// Probe and write functions definitions.
-//
-//++
-//
-// VOID
-// ProbeAndWriteBoolean(
-//     IN PBOOLEAN Address,
-//     IN BOOLEAN Value
-//     )
-//
-//--
-
-#define ProbeAndWriteBoolean(Address, Value) {                               \
-    if ((Address) >= (BOOLEAN * const)MM_USER_PROBE_ADDRESS) {               \
-        *(volatile BOOLEAN * const)MM_USER_PROBE_ADDRESS = 0;                \
-    }                                                                        \
-                                                                             \
-    *(Address) = (Value);                                                    \
-}
-
-//++
-//
-// VOID
-// ProbeAndWriteChar(
-//     IN PCHAR Address,
-//     IN CHAR Value
-//     )
-//
-//--
-
-#define ProbeAndWriteChar(Address, Value) {                                  \
-    if ((Address) >= (CHAR * const)MM_USER_PROBE_ADDRESS) {                  \
-        *(volatile CHAR * const)MM_USER_PROBE_ADDRESS = 0;                   \
-    }                                                                        \
-                                                                             \
-    *(Address) = (Value);                                                    \
-}
-
-//++
-//
-// VOID
-// ProbeAndWriteUchar(
-//     IN PUCHAR Address,
-//     IN UCHAR Value
-//     )
-//
-//--
-
-#define ProbeAndWriteUchar(Address, Value) {                                 \
-    if ((Address) >= (UCHAR * const)MM_USER_PROBE_ADDRESS) {                 \
-        *(volatile UCHAR * const)MM_USER_PROBE_ADDRESS = 0;                  \
-    }                                                                        \
-                                                                             \
-    *(Address) = (Value);                                                    \
-}
-
-//++
-//
-// VOID
-// ProbeAndWriteShort(
-//     IN PSHORT Address,
-//     IN SHORT Value
-//     )
-//
-//--
-
-#define ProbeAndWriteShort(Address, Value) {                                 \
-    if ((Address) >= (SHORT * const)MM_USER_PROBE_ADDRESS) {                 \
-        *(volatile SHORT * const)MM_USER_PROBE_ADDRESS = 0;                  \
-    }                                                                        \
-                                                                             \
-    *(Address) = (Value);                                                    \
-}
-
-//++
-//
-// VOID
-// ProbeAndWriteUshort(
-//     IN PUSHORT Address,
-//     IN USHORT Value
-//     )
-//
-//--
-
-#define ProbeAndWriteUshort(Address, Value) {                                \
-    if ((Address) >= (USHORT * const)MM_USER_PROBE_ADDRESS) {                \
-        *(volatile USHORT * const)MM_USER_PROBE_ADDRESS = 0;                 \
-    }                                                                        \
-                                                                             \
-    *(Address) = (Value);                                                    \
-}
-
-//++
-//
-// VOID
-// ProbeAndWriteHandle(
-//     IN PHANDLE Address,
-//     IN HANDLE Value
-//     )
-//
-//--
-
-#define ProbeAndWriteHandle(Address, Value) {                                \
-    if ((Address) >= (HANDLE * const)MM_USER_PROBE_ADDRESS) {                \
-        *(volatile HANDLE * const)MM_USER_PROBE_ADDRESS = 0;                 \
-    }                                                                        \
-                                                                             \
-    *(Address) = (Value);                                                    \
-}
-
-//++
-//
-// VOID
-// ProbeAndWriteLong(
-//     IN PLONG Address,
-//     IN LONG Value
-//     )
-//
-//--
-
-#define ProbeAndWriteLong(Address, Value) {                                  \
-    if ((Address) >= (LONG * const)MM_USER_PROBE_ADDRESS) {                  \
-        *(volatile LONG * const)MM_USER_PROBE_ADDRESS = 0;                   \
-    }                                                                        \
-                                                                             \
-    *(Address) = (Value);                                                    \
-}
-
-//++
-//
-// VOID
-// ProbeAndWriteUlong(
-//     IN PULONG Address,
-//     IN ULONG Value
-//     )
-//
-//--
-
-#define ProbeAndWriteUlong(Address, Value) {                                 \
-    if ((Address) >= (ULONG * const)MM_USER_PROBE_ADDRESS) {                 \
-        *(volatile ULONG * const)MM_USER_PROBE_ADDRESS = 0;                  \
-    }                                                                        \
-                                                                             \
-    *(Address) = (Value);                                                    \
-}
-
-//++
-//
-// VOID
-// ProbeAndWriteQuad(
-//     IN PQUAD Address,
-//     IN QUAD Value
-//     )
-//
-//--
-
-#define ProbeAndWriteQuad(Address, Value) {                                  \
-    if ((Address) >= (QUAD * const)MM_USER_PROBE_ADDRESS) {                  \
-        *(volatile LONG * const)MM_USER_PROBE_ADDRESS = 0;                   \
-    }                                                                        \
-                                                                             \
-    *(Address) = (Value);                                                    \
-}
-
-//++
-//
-// VOID
-// ProbeAndWriteUquad(
-//     IN PUQUAD Address,
-//     IN UQUAD Value
-//     )
-//
-//--
-
-#define ProbeAndWriteUquad(Address, Value) {                                 \
-    if ((Address) >= (UQUAD * const)MM_USER_PROBE_ADDRESS) {                 \
-        *(volatile ULONG * const)MM_USER_PROBE_ADDRESS = 0;                  \
-    }                                                                        \
-                                                                             \
-    *(Address) = (Value);                                                    \
-}
-
-// begin_ntddk begin_nthal begin_ntndis begin_updriver
+// begin_ntddk begin_nthal begin_ntndis
 #endif // _ALPHA_
-// end_ntddk end_nthal end_ntndis end_updriver
+// end_ntddk end_nthal end_ntndis
 
 #endif // _ALPHAH_

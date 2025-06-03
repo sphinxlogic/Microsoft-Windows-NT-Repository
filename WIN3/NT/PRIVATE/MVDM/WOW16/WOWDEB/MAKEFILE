@@ -13,14 +13,14 @@
 
 
 !ifdef INCLUDE
-INCS	=
+INCS    =
 !else
 INCS    = -I..\inc -I..\..\inc
 !endif
 
-AOBJ	= -W2 -DSEGNAME=COMMAND $(INCS)
+AOBJ    = -W2 -DSEGNAME=COMMAND $(INCS)
 
-!ifdef NTDEBUG
+!if "$(NTDEBUG)"!="" && "$(NTDEBUG)"!="retail" && "$(NTDEBUG)" != "ntsdnodbg"
 !IF "$(OLD_WOW_BUILD)" != ""
 CW16    = -AS -G2sw -Os -W2 -Zp -DDEBUG -DOLD_WOW_BUILD $(INCS)
 !ELSE
@@ -34,33 +34,24 @@ CW16    = -AS -G2sw -Os -W2 -Zp $(INCS)
 !ENDIF
 !endif
 
-CW16L	= $(CW16) -B1 c1l.exe -B2 c2l.exe -B3 c3l.exe
+CW16L   = $(CW16) -B1 c1l.exe -B2 c2l.exe -B3 c3l.exe
 
 LINK    = /map /stack:8192 /align:16
 
-# work around stupid bug in RC 3.1 that doesn't allow rcpp.err to be
+########## Path definition so we find 16 bit tools ##########
+# Also works around stupid bug in RC 3.1 that doesn't allow rcpp.err to be
 # in a directory that is greater than 128 chars down the path, even if
 # rc 3.1 is running as an OS/2 app.
 
-PATH    = ..\..\tools16;$(PATH)
+PATH    = $(_NTBINDIR)\private\mvdm\tools16;$(PATH)
 
-!if "$(NTDEBUG)"!="" && "$(NTDEBUG)"!="retail"
-!if "$(NTDEBUGTYPE)"=="windbg"
-AOBJ    = $(AOBJ) -Zi
-CW16    = $(CW16) /Od /Oi /Zi
-LINK    = $(LINK) /CO
-!else
+!if "$(NTDEBUG)"!="" && "$(NTDEBUG)"!="retail" && "$(NTDEBUG)" != "ntsdnodbg"
 AOBJ    = $(AOBJ) -Zd
 CW16    = $(CW16) /Od /Oi /Zd
 LINK    = $(LINK) /LI
 !endif
-!endif
 
-!ifdef LIB
-W16LIBS = snocrt libw
-!else
 W16LIBS = ..\lib\snocrt.lib ..\lib\libw.lib
-!endif
 
 
 .h.inc:
@@ -91,10 +82,11 @@ W16LIBS = ..\lib\snocrt.lib ..\lib\libw.lib
     rc16 -r -fo $@ $(INCS) $*.rc
 
 all: wowdeb.exe wowdeb.sym
-    -binplace wowdeb.exe
-    -binplace wowdeb.sym
+    -binplace wowdeb.exe wowdeb.map wowdeb.sym
 
-clean:
+clean: cleanup all
+
+cleanup:
     if exist *.lrf del *.lrf
     if exist *.def del *.def
     if exist *.obj del *.obj

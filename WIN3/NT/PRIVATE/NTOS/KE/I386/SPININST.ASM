@@ -145,6 +145,7 @@ isl_overflow:
     ; Just use non-tracing locks from now on
         mov     eax, [esp+4]
         mov     dword ptr [eax], LOCK_NOTTRACED
+        popfd
         stdRET    _KeInitializeSpinLock
 
 stdENDP _KeInitializeSpinLock

@@ -131,6 +131,11 @@ FontShowHorzScroll(
 
     /* Make a fair guess as to how many characters are in the window */
     /* Convert sorta to hex too. */
+#ifdef JAPAN
+    if (font.AvgWidth == 0 ) {
+        font.AvgWidth = 1 ;
+    }
+#endif
     wChar=(WORD)(11*(rect.right-rect.left)/(font.AvgWidth*16));
 
     switch (code)
@@ -1047,3 +1052,4 @@ GetkStuff(
     GetWindowRect(hFont, (LPRECT)&rectWin);
     return (DWORD) (rectWin.bottom - rectWin.top) - (rect.bottom - rect.top);
 }
+

@@ -73,17 +73,17 @@ TestSupports(
     //
 
     IF_DEBUG(REMUTL) {
-        NetpDbgPrint("\nTestSupports: trying valid call...\n");
+        NetpKdPrint(("\nTestSupports: trying valid call...\n"));
     }
     Status = NetRemoteComputerSupports(
                 UncRemoteServer,
                 SUPPORTS_ANY,                // options wanted
                 & SupportFlags);
     IF_DEBUG(REMUTL) {
-        NetpDbgPrint("TestSupports: back, stat=" FORMAT_API_STATUS "\n",
-                Status);
-        NetpDbgPrint("TestSupports: SupportFlags = " FORMAT_HEX_DWORD ".\n",
-                SupportFlags);
+        NetpKdPrint(("TestSupports: back, stat=" FORMAT_API_STATUS "\n",
+                Status));
+        NetpKdPrint(("TestSupports: SupportFlags = " FORMAT_HEX_DWORD ".\n",
+                SupportFlags));
     }
 
     if (Status == NERR_Success) {
@@ -103,29 +103,29 @@ DisplaySupports(
     )
 {
     if ( (UncServerName != NULL) && ((*UncServerName) != (TCHAR) '\0') ) {
-        NetpDbgPrint("Machine '" FORMAT_LPTSTR "' supports:\n", UncServerName);
+        NetpKdPrint(("Machine '" FORMAT_LPTSTR "' supports:\n", UncServerName));
     } else {
-        NetpDbgPrint("Local machine supports:\n");
+        NetpKdPrint(("Local machine supports:\n"));
     }
 
     if (SupportFlags != 0) {
         if (SupportFlags & SUPPORTS_LOCAL) {
-            NetpDbgPrint(INDENT "is local machine\n");
+            NetpKdPrint((INDENT "is local machine\n"));
         }
         if (SupportFlags & SUPPORTS_REMOTE_ADMIN_PROTOCOL) {
-            NetpDbgPrint(INDENT "RAP\n");
+            NetpKdPrint((INDENT "RAP\n"));
         }
         if (SupportFlags & SUPPORTS_RPC) {
-            NetpDbgPrint(INDENT "RPC\n");
+            NetpKdPrint((INDENT "RPC\n"));
         }
         if (SupportFlags & SUPPORTS_SAM_PROTOCOL) {
-            NetpDbgPrint(INDENT "SAM protocol\n");
+            NetpKdPrint((INDENT "SAM protocol\n"));
         }
         if (SupportFlags & SUPPORTS_UNICODE) {
-            NetpDbgPrint(INDENT "Unicode\n");
+            NetpKdPrint((INDENT "Unicode\n"));
         }
     } else {
-        NetpDbgPrint(INDENT "Nothing!!!\n");
+        NetpKdPrint((INDENT "Nothing!!!\n"));
     }
 
 } // DisplaySupports

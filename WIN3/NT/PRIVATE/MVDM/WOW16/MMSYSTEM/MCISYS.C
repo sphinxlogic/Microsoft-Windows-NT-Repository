@@ -52,7 +52,7 @@ BOOL MCI_bDeviceListInitialized;
 // The next device ID to use for a new device
 UINT MCI_wNextDeviceID = 1;
 
-// The list of MCI devices.  This list grows and shrinks as needed.
+// The list of MCI devices. This list grows and shrinks as needed.
 // The first offset MCI_lpDeviceList[0] is a placeholder and is unused
 // because device 0 is defined as no device.
 LPMCI_DEVICE_NODE FAR * MCI_lpDeviceList;
@@ -75,18 +75,42 @@ static SZCODE szUnsignedFormat[] = "%u";
 
 static void PASCAL NEAR mciFreeDevice(LPMCI_DEVICE_NODE nodeWorking);
 
+BOOL NEAR PASCAL CouldBe16bitDrv(UINT wDeviceID)
+{
+    if (wDeviceID == MCI_ALL_DEVICE_ID) return TRUE;
+
+    if (MCI_VALID_DEVICE_ID(wDeviceID)) {
+        if (MCI_lpDeviceList[wDeviceID]->dwMCIFlags & MCINODE_16BIT_DRIVER) {
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+BOOL NEAR PASCAL Is16bitDrv(UINT wDeviceID)
+{
+    if (wDeviceID == MCI_ALL_DEVICE_ID) return FALSE;
+
+    if (MCI_VALID_DEVICE_ID(wDeviceID)) {
+        if (MCI_lpDeviceList[wDeviceID]->dwMCIFlags & MCINODE_16BIT_DRIVER) {
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
 //
 // Initialize device list
 // Called once by mciSendString or mciSendCommand
 // Returns TRUE on success
 BOOL NEAR PASCAL mciInitDeviceList(void)
 {
+
     if ((hMciHeap = HeapCreate(0)) == 0)
     {
         DOUT("Mci heap create failed!\r\n");
         return FALSE;
     }
-
     if ((MCI_lpDeviceList = mciAlloc (sizeof (LPMCI_DEVICE_NODE) *
                                   (MCI_INIT_DEVICE_LIST_SIZE + 1))) != NULL)
     {
@@ -126,7 +150,6 @@ LPCSTR lpstrType)
     if (lpstrType == NULL)
         return 0;
 
-
     wID = (UINT)mciMessage( THUNK_MCI_GETDEVIDFROMELEMID, dwElementID,
                             (DWORD)lpstrType, 0L, 0L );
     if ( wID == 0 ) {
@@ -140,14 +163,14 @@ LPCSTR lpstrType)
             if (nodeWorking == NULL)
                 continue;
 
-            if (nodeWorking->dwFlags & MCI_OPEN_ELEMENT_ID &&
+            if (nodeWorking->dwMCIOpenFlags & MCI_OPEN_ELEMENT_ID &&
                 nodeWorking->dwElementID == dwElementID)
 
                 if (LoadString (ghInst, nodeWorking->wDeviceType, strTemp,
                                 sizeof(strTemp)) != 0
                     && lstrcmpi ((LPSTR)strTemp, lpstrType) == 0) {
 
-                    return (wID | 0x8000);
+                    return (wID);
                 }
         }
         return 0;
@@ -157,6 +180,8 @@ LPCSTR lpstrType)
 
 // Retrieves the device ID corresponding to the name of an opened device
 // matching the given task
+// This fn only looks for 16-bit devices
+// See mciGetDeviceIDInternalEx that looks for all of them
 UINT NEAR PASCAL mciGetDeviceIDInternal (
 LPCSTR lpstrName,
 HTASK hTask)
@@ -180,7 +205,7 @@ HTASK hTask)
             continue;
 
 // If this device does not have a name then skip it
-        if (nodeWorking->dwFlags & MCI_OPEN_ELEMENT_ID)
+        if (nodeWorking->dwMCIOpenFlags & MCI_OPEN_ELEMENT_ID)
             continue;
 
 // If the names match
@@ -191,6 +216,7 @@ HTASK hTask)
 // Return this device ID
                 return wID;
     }
+
     return 0;
 }
 
@@ -228,16 +254,33 @@ LPCSTR lpstrName)
         */
         wDevID = mciGetDeviceIDInternal (lpstrName, GetCurrentTask());
 
-        /*
-        ** Only mangle the device ID if we were actually given one.
-        */
-        if ( wDevID != 0 ) {
-            wDevID |= 0x8000;
-        }
     }
 
     return wDevID;
 }
+
+//
+//  This function is same as mciGetDeviceID but it won't call GetCurrentTask
+//  Used when mci needs to verify the dev alias had not been allocated yet
+//
+//
+
+UINT NEAR PASCAL mciGetDeviceIDInternalEx(
+LPCSTR lpstrName,
+HTASK hTask)
+{
+    UINT uiDevID;
+
+    uiDevID = (UINT)mciMessage( THUNK_MCI_GETDEVICEID, (DWORD)lpstrName,
+                                0L, 0L, 0L );
+    if (0 == uiDevID) {
+
+        uiDevID = mciGetDeviceIDInternal(lpstrName, hTask);
+    }
+
+    return uiDevID;
+}
+
 
 /*
  * @doc EXTERNAL MCI
@@ -254,18 +297,12 @@ LPCSTR lpstrName)
 HTASK WINAPI mciGetCreatorTask (
 UINT wDeviceID)
 {
-
     /*
     ** Is this a 16 bit device ID
     */
-    if ( wDeviceID & 0x8000 ) {
+    if (Is16bitDrv(wDeviceID)) {
 
-        wDeviceID &= 0x7FFF;
-
-        if (MCI_VALID_DEVICE_ID(wDeviceID))
-            return MCI_lpDeviceList[wDeviceID]->hCreatorTask;
-
-        return NULL;
+        return MCI_lpDeviceList[wDeviceID]->hCreatorTask;
     }
 
     /*
@@ -494,37 +531,30 @@ LPMCI_SYSINFO_PARMS lpSysinfo)
 
 /*
  * @doc INTERNAL MCI
- * @func UINT | wReserveDeviceID | Copy the given global handle into the
- * first free entry in the MCI device table and return that entry's ID#
+ * @func UINT | wAddDeviceNodeToList | Add the given global handle into the
+ * MCI device table and return that entry's ID#
  *
  * @parm LPMCI_DEVICE_NODE | node | device description
  *
- * @rdesc The ID value that has been reserved for this device or 0 if
- * there is no memory to expand the device list
+ * @rdesc The ID value for this device or 0 if there is no memory to expand
+ * the device list
  *
  */
 STATICFN UINT PASCAL NEAR
-wReserveDeviceID(
+wAddDeviceNodeToList(
     LPMCI_DEVICE_NODE node
     )
 {
-    UINT wDeviceID;
+    UINT wDeviceID = node->wDeviceID;
     LPMCI_DEVICE_NODE FAR *lpTempList;
+    UINT iReallocSize;
 
-// Search for an empty slot
-    for (wDeviceID = 1; wDeviceID < MCI_wNextDeviceID; wDeviceID++)
-        if (MCI_lpDeviceList[wDeviceID] == NULL)
-            goto slot_found;
-
-// No empty slots found so add to end
-
-    if (wDeviceID >= MCI_wDeviceListSize)
-// The list is full so try to grow it
+    while (wDeviceID >= MCI_wDeviceListSize)
     {
-        if ((lpTempList = mciReAlloc (MCI_lpDeviceList,
-                    sizeof (LPMCI_DEVICE_NODE) * (MCI_wDeviceListSize + 1 +
-                                                  MCI_DEVICE_LIST_GROW_SIZE)))
-            == NULL)
+        // The list is full so try to grow it
+        iReallocSize = MCI_wDeviceListSize + 1 + MCI_DEVICE_LIST_GROW_SIZE;
+        iReallocSize *= sizeof(LPMCI_DEVICE_NODE);
+        if ((lpTempList = mciReAlloc(MCI_lpDeviceList, iReallocSize)) == NULL)
         {
             DOUT ("wReserveDeviceID:  cannot grow device list\r\n");
             return 0;
@@ -532,9 +562,10 @@ wReserveDeviceID(
         MCI_lpDeviceList = lpTempList;
         MCI_wDeviceListSize += MCI_DEVICE_LIST_GROW_SIZE;
     }
-    MCI_wNextDeviceID++;
 
-slot_found:;
+    if (wDeviceID >= MCI_wNextDeviceID) {
+        MCI_wNextDeviceID = wDeviceID + 1;
+    }
 
     MCI_lpDeviceList[wDeviceID] = node;
 
@@ -586,6 +617,7 @@ STATICFN UINT PASCAL NEAR mciAllocateNode(
     )
 {
     LPMCI_DEVICE_NODE   nodeWorking;
+    UINT wDeviceID;
 
     if ((nodeWorking = mciAlloc(sizeof(MCI_DEVICE_NODE))) == NULL)
     {
@@ -593,32 +625,42 @@ STATICFN UINT PASCAL NEAR mciAllocateNode(
         return 0;
     }
 
-/* Fill in the new node */
+    // The device ID is a global resource so we fetch it from 32-bit MCI.
+    // A node is also allocated on the 32-bit side, and marked as 16-bit. The
+    // node will be freed during mciFreeDevice, and acts as a place holder for
+    // the device ID.
 
-/* Get a new device ID, if there are none available then bail */
-    if ((nodeWorking->wDeviceID = wReserveDeviceID(nodeWorking)) == 0)
+    wDeviceID = (UINT) mciMessage(THUNK_MCI_ALLOCATE_NODE,
+                                  dwFlags,
+                                  (DWORD)lpDeviceName,
+                                  0L, 0L);
+
+    // Copy the working node to the device list
+    nodeWorking->wDeviceID = wDeviceID;
+    if (wAddDeviceNodeToList(nodeWorking) == 0)
     {
         DOUT ("mciAllocateNode:  Cannot allocate new node\r\n");
         mciFree(nodeWorking);
         return 0;
     }
 
-// Initialize node
-    nodeWorking->dwFlags = dwFlags;
+    // Initialize node
     nodeWorking->hCreatorTask = GetCurrentTask ();
+    nodeWorking->dwMCIFlags |= MCINODE_16BIT_DRIVER;
 
-    if (dwFlags & MCI_OPEN_ELEMENT_ID)
-// No device name, just an element ID
+    if (dwFlags & MCI_OPEN_ELEMENT_ID) {
+        // No device name, just an element ID
         nodeWorking->dwElementID = (DWORD)lpDeviceName;
-
-    else
+    }
+    else {
         if (!mciAddDeviceName (nodeWorking, lpDeviceName))
         {
             mciFree (nodeWorking);
             return 0;
         }
-
+    }
     *lpnodeNew = nodeWorking;
+
     return nodeWorking->wDeviceID;
 }
 
@@ -728,8 +770,6 @@ mciFindDriverName(
     UINT wEnumLen = 100;
     UINT wErr;
     LPSTR lpstrDriverTemp, lpstrProfTemp;
-
-
 
 // Enumerate values, trying until they fit into the buffer
     while (TRUE) {
@@ -932,8 +972,8 @@ mciLoadDevice(
     {
 // If the alias is default then we've already checked its uniqueness
         if (!bDefaultAlias &&
-            mciGetDeviceIDInternal (lpOpen->lpstrAlias,
-                                    lpOpenInfo->hCallingTask) != 0)
+            mciGetDeviceIDInternalEx (lpOpen->lpstrAlias,
+                                      lpOpenInfo->hCallingTask) != 0)
         {
             wErr = MCIERR_DUPLICATE_ALIAS;
             goto exit_fn;
@@ -1321,8 +1361,8 @@ LPMCI_INTERNAL_OPEN_INFO lpOpenInfo)
     if (dwFlags & MCI_OPEN_ELEMENT_ID)
         wID = mciGetDeviceIDFromElementID ((DWORD)lpstrDeviceName,
                                            lpOpen->lpstrDeviceType);
-    else
-        wID = mciGetDeviceIDInternal ((dwFlags & MCI_OPEN_ALIAS ?
+    else 
+        wID = mciGetDeviceIDInternalEx ((dwFlags & MCI_OPEN_ALIAS ?
                                        lpOpen->lpstrAlias : lpstrDeviceName),
                                        lpOpenInfo->hCallingTask);
 
@@ -1392,8 +1432,8 @@ LPMCI_INTERNAL_OPEN_INFO lpOpenInfo)
                 {
 // See if this element name is in use
                     if (!(dwFlags & MCI_OPEN_ALIAS))
-                        if (mciGetDeviceIDInternal (lpstrNewElement,
-                                                    lpOpenInfo->hCallingTask))
+                        if (mciGetDeviceIDInternalEx (lpstrNewElement,
+                                                      lpOpenInfo->hCallingTask))
                         {
                             wReturn = MCIERR_DEVICE_OPEN;
                             goto cleanup;
@@ -1457,8 +1497,9 @@ mciFreeDevice(
     LPMCI_DEVICE_NODE nodeWorking
     )
 {
-    LPMCI_DEVICE_NODE FAR *lpTempList;
     UINT wID = nodeWorking->wDeviceID;
+
+    mciMessage(THUNK_MCI_FREE_NODE, (DWORD) nodeWorking->wDeviceID, 0L, 0L, 0L);
 
     if (nodeWorking->lpstrName != NULL)
         mciFree (nodeWorking->lpstrName);
@@ -1470,23 +1511,8 @@ mciFreeDevice(
     MCI_lpDeviceList[wID] = NULL;
 
 /* If this was the last device in the list, decrement next ID value */
-    if (wID + 1 == MCI_wNextDeviceID)
-    {
+    if (wID + 1 == MCI_wNextDeviceID) {
         --MCI_wNextDeviceID;
-
-// Try to reclaim any excess free space
-        if (MCI_wDeviceListSize - MCI_wNextDeviceID + 1
-            > MCI_DEVICE_LIST_GROW_SIZE)
-        {
-            MCI_wDeviceListSize -= MCI_DEVICE_LIST_GROW_SIZE;
-
-            if ((lpTempList =
-                mciReAlloc (MCI_lpDeviceList, sizeof (LPMCI_DEVICE_NODE) *
-                                              MCI_wDeviceListSize)) == NULL)
-                MCI_wDeviceListSize += MCI_DEVICE_LIST_GROW_SIZE;
-            else
-                MCI_lpDeviceList = lpTempList;
-        }
     }
 }
 
@@ -1526,10 +1552,10 @@ BOOL bCloseDriver)
 
 // If a close is in progress (usually this message comes from a Yield
 // after a mciDriverNotify actuated by the active close) then exit
-    if (nodeWorking->bIsClosing)
+    if (nodeWorking->dwMCIFlags & MCINODE_ISCLOSING)
         return 0;
 
-    nodeWorking->bIsClosing = TRUE;
+    nodeWorking->dwMCIFlags |= MCINODE_ISCLOSING;
     if (bCloseDriver)
     {
         MCI_GENERIC_PARMS   GenericParms;
@@ -1673,19 +1699,13 @@ DWORD dwYieldData)
 {
     V_CALLBACK((FARPROC)fpYieldProc, FALSE);
 
-    if ( wDeviceID & 0x8000 ) {
+    if (Is16bitDrv(wDeviceID)) {
 
-        wDeviceID &= 0x7FFF;
-        if (MCI_VALID_DEVICE_ID(wDeviceID))
-        {
-            LPMCI_DEVICE_NODE node = MCI_lpDeviceList[wDeviceID];
+        LPMCI_DEVICE_NODE node = MCI_lpDeviceList[wDeviceID];
 
-            node->fpYieldProc = fpYieldProc;
-            node->dwYieldData = dwYieldData;
-            return TRUE;
-        }
-
-        return FALSE;
+        node->fpYieldProc = fpYieldProc;
+        node->dwYieldData = dwYieldData;
+        return TRUE;
     }
 
     return (BOOL)mciMessage( THUNK_MCI_SETYIELDPROC, (DWORD)wDeviceID,
@@ -1717,19 +1737,13 @@ LPDWORD lpdwYieldData)
     /*
     ** Is this a 16 bit device ID ?
     */
-    if ( wDeviceID & 0x8000 ) {
+    if (Is16bitDrv(wDeviceID)) {
 
-        wDeviceID &= 0x7FFF;
-
-        if (MCI_VALID_DEVICE_ID(wDeviceID))
-        {
-            if (lpdwYieldData != NULL) {
-                V_WPOINTER(lpdwYieldData, sizeof(DWORD), NULL);
-                *lpdwYieldData = MCI_lpDeviceList[wDeviceID]->dwYieldData;
-            }
-            return MCI_lpDeviceList[wDeviceID]->fpYieldProc;
+        if (lpdwYieldData != NULL) {
+            V_WPOINTER(lpdwYieldData, sizeof(DWORD), NULL);
+            *lpdwYieldData = MCI_lpDeviceList[wDeviceID]->dwYieldData;
         }
-        return NULL;
+        return MCI_lpDeviceList[wDeviceID]->fpYieldProc;
     }
 
     /*
@@ -1798,14 +1812,6 @@ UINT wDeviceID,
 int nVirtKey,
 HWND hwndTrap)
 {
-
-    /*
-    ** Turn on the 16 bit device ID flag.  If we don't do this
-    ** mciSetYieldProc gets confused and thinks its been passed a 32 bit
-    ** device ID.
-    */
-    wDeviceID |= 0x8000;
-
     return mciSetYieldProc (wDeviceID, mciBreakKeyYieldProc,
                          MAKELONG (nVirtKey, hwndTrap));
 }

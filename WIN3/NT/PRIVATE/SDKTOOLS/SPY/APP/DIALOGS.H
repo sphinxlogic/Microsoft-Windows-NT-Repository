@@ -33,3 +33,7 @@
 #define DID_MSGSSTM                 413
 #define DID_MSGSUSER                414
 #define DID_MSGSUNKNOWN             415
+#ifdef FE_IME
+#define DID_MSGSIME                 416
+#endif
+

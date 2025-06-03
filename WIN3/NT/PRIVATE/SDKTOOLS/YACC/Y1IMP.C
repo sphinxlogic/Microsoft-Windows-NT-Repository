@@ -60,4 +60,4 @@ int zzrrconf = 0;
 /* declared external only in user module    */
 
 int *pyield[NPROD];             /* from ycpres */
-char sarr[ISIZE];               /* from ywritm */
+char sarr[ISIZE];               /* from ywritm */

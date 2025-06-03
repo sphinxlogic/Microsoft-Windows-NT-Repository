@@ -1,6 +1,6 @@
 /*++
 
-Copyright (c) 1989  Microsoft Corporation
+Copyright (C) 1989  Microsoft Corporation
 
 Module Name:
 
@@ -44,25 +44,7 @@ Revision History:
 
 --*/
 
-#include "windows.h"
-
-#include <assert.h>
-#include <fcntl.h>
-#include <io.h>
-#include <malloc.h>
-#include <share.h>
-#include <stdarg.h>
-#include <stdio.h>
-#include <tchar.h>
-#include <sys\stat.h>
-#include <sys\types.h>
-
-#include "bufio.h"
-#define NO_PRECOMP
-#include "fileio.h"
-#undef NO_PRECOMP
-
-#include "msg.h"
+#include "compact.h"
 
 // Get Rid of Debug logging, this requires too much external support
 #define DBEXEC(flg, expr)
@@ -70,7 +52,7 @@ Revision History:
 
 #define RemoveConvertTempFiles()
 
-void ErrorExit(int, char *, char *);
+void ErrorExit(unsigned, const char *, const char *);
 
 #define Error(a, b, c) ErrorExit(a, b, c)
 #define OutOfMemory() ErrorExit(ERR_NOMEM, NULL, NULL)
@@ -137,23 +119,23 @@ static PFI pfiCloseOnBadExit[MAX_WRITEABLE_FILES];
 STATIC INT BufferedOpen(PFI, INT, INT, BOOL);
 STATIC INT BufferedCloseHard(PFI);
 STATIC LONG BufferedSeek(PFI, LONG, INT);
-STATIC ULONG BufferedWrite(PFI, const void *, ULONG);
-STATIC ULONG BufferedRead(PFI, PVOID, ULONG);
+STATIC DWORD BufferedWrite(PFI, const void *, DWORD);
+STATIC DWORD BufferedRead(PFI, PVOID, DWORD);
 STATIC INT BufferedChSize (PFI, LONG);
 
 /* mapped i/o routines */
 INT MappedOpen(PFI, LONG, BOOL);
 INT MappedCloseHard(PFI);
 LONG MappedSeek(PFI, LONG, INT);
-STATIC ULONG MappedWrite(PFI, const void *, ULONG);
-STATIC ULONG MappedRead(PFI, PVOID, ULONG);
-BOOL ExtendMapView(PFI pfi, ULONG ibNeeded);
+STATIC DWORD MappedWrite(PFI, const void *, DWORD);
+STATIC DWORD MappedRead(PFI, PVOID, DWORD);
+BOOL ExtendMapView(PFI pfi, DWORD ibNeeded);
 BOOL FMapPfi(PFI pfi);
 STATIC INT MappedChSize(PFI, LONG);
 
 /* logical file descriptor manipulators */
-STATIC PFI LookupCachedFiles (PUCHAR,INT,INT,BOOL *);
-STATIC PFI PfiClosedCached(PUCHAR);
+STATIC PFI LookupCachedFiles(const char *, INT, INT, BOOL *);
+STATIC PFI PfiClosedCached(const char *);
 STATIC PFI PfiNew(VOID);
 STATIC PFI PfiAlloc(VOID);
 STATIC VOID TransitionPFI(PFI, PPFI, PPFI, PPFI, PPFI, BOOL);
@@ -191,8 +173,8 @@ static LONG cfiTot = 0L;        // total number of logical file descriptors
 static LONG cfiCacheClosed = 0L;// current size of closed/cached pool
 static LONG cfiCacheClosedMax = 0L;  // maximum size of closed/cached pool
 static LONG cbufTot = 0L;       // total number of buffers
-static ULONG cfiInSystem;   // # of FI's chosen
-static ULONG cfiCacheableInSystem;  // # of FI's chosen
+static DWORD cfiInSystem;   // # of FI's chosen
+static DWORD cfiCacheableInSystem;  // # of FI's chosen
 
 /* logical file descriptor containers */
 static PFI pfiFree = NULL;      // free logical file handles
@@ -380,14 +362,14 @@ Return Value:
 
 STATIC VOID
 GrowMapTable(
-    IN PFI pfi)
+    PFI pfi)
 
 /*++
 
 Routine Description:
 
     Grow a the file buffer map table and set *pl to the new size.  This
-    routine assumes pfi->cbMap % cbBuf == 0.
+    routine assumes pfi->cbMap % cbIOBuf == 0.
 
 Arguments:
 
@@ -404,7 +386,7 @@ Return Value:
     LONG cbufOld;
 
     // get the old buffer table size
-    cbufOld = pfi->cbMap / cbBuf;
+    cbufOld = pfi->cbMap / cbIOBuf;
 
     // double the size of the old table
     cbufNew = cbufOld << 1;
@@ -418,7 +400,7 @@ Return Value:
     memset(&(pfi->rgpbuf[cbufOld]), '\0', sizeof(PBUF) * (cbufNew - cbufOld));
 
     // set the new size
-    pfi->cbMap = cbufNew * cbBuf;
+    pfi->cbMap = cbufNew * cbIOBuf;
 }
 
 STATIC PFI
@@ -461,7 +443,7 @@ Return Value:
 
 STATIC PFI
 PfiClosedCached (
-    PUCHAR szFileName)
+    const char *szFileName)
 
 /*++
 
@@ -639,8 +621,8 @@ Return Value:
         // shrink file
         cbuf = pfi->cbMap >> cshiftBuf;
 
-        // make sure pfi->cbMap is cbBuf aligned
-        assert((cbuf * cbBuf) == pfi->cbMap);
+        // make sure pfi->cbMap is cbIOBuf aligned
+        assert((cbuf * cbIOBuf) == pfi->cbMap);
 
         for(ibuf = cbSizeNew >> cshiftBuf; ibuf < cbuf; ibuf++) {
             pbuf = pfi->rgpbuf[ibuf];
@@ -664,10 +646,10 @@ Return Value:
 
 STATIC PFI
 LookupCachedFiles (
-    IN PUCHAR szFileName,
-    IN INT flags,
-    IN INT mode,
-    IN OUT BOOL *pfNewPfi
+    const char *szFileName,
+    INT flags,
+    INT mode,
+    BOOL *pfNewPfi
     )
 
 /*++
@@ -735,9 +717,9 @@ Return Value:
 
 INT
 FileOpen (
-    IN PUCHAR szFileName,
-    IN INT flags,
-    IN INT mode
+    const char *szFileName,
+    INT flags,
+    INT mode
     )
 
 /*++
@@ -786,10 +768,10 @@ Return Value:
     return (pfi->ifi);
 }
 
-ULONG
+DWORD
 RoundUp (
-    IN ULONG cb,
-    IN ULONG cbHigh
+    DWORD cb,
+    DWORD cbHigh
     )
 
 /*++
@@ -814,11 +796,11 @@ Return Value:
 
 INT
 FileOpenMapped (
-    IN PUCHAR szFileName,
-    IN INT flags,
-    IN INT mode,
-    IN OUT PULONG pMapAddr,
-    IN OUT PULONG pcb
+    const char *szFileName,
+    INT flags,
+    INT mode,
+    DWORD *pMapAddr,
+    DWORD *pcb
     )
 
 /*++
@@ -897,7 +879,7 @@ Return Value:
     }
 
     *pcb = (flags & O_CREAT) ? pfi->cbMapView : pfi->cbMapView - pfi->cbSoFar;
-    *pMapAddr = (ULONG)pfi->pvMapView;
+    *pMapAddr = (DWORD)pfi->pvMapView;
 
     return (pfi->ifi);
 }
@@ -906,9 +888,9 @@ Return Value:
 STATIC INT
 BufferedOpen (
     PFI pfi,
-    IN INT flags,
-    IN INT mode,
-    IN BOOL fNewPfi)
+    INT flags,
+    INT mode,
+    BOOL fNewPfi)
 
 /*++
 
@@ -991,8 +973,8 @@ Return Value:
             pfi->cb = cbDefaultFileSize;
         }
 
-        cbuf = (pfi->cb + cbBuf) / cbBuf;
-        pfi->cbMap = cbuf * cbBuf;
+        cbuf = (pfi->cb + cbIOBuf) / cbIOBuf;
+        pfi->cbMap = cbuf * cbIOBuf;
 
         // allocate file buffer map table
         pfi->rgpbuf = (PPBUF) PvAllocZ(cbuf * sizeof(PBUF));
@@ -1117,7 +1099,7 @@ Return Value:
 
     // close the physical handle
     if ((i = _close(pfi->fd)) == -1) {
-        Error(ERR_NONE, NULL, NULL);
+        Error(ERR_NOSPACE, NULL, NULL);
     }
 
     assert(pfi->szFileName);
@@ -1243,11 +1225,10 @@ Return Value:
 
     DBEXEC(DB_BUFVERBOSE, DBPRINT("Buffer summary\n"));
     DBEXEC(DB_BUFVERBOSE, DBPRINT("--------------\n"));
-    DBEXEC(DB_BUFVERBOSE, DBPRINT("# buffers = %d\n", cbufsInSystem));
     DBEXEC(DB_BUFVERBOSE, DBPRINT("# file handles = %d\n", cfiInSystem));
     DBEXEC(DB_BUFVERBOSE, DBPRINT("# cacheable file handles = %d\n",
         cfiCacheableInSystem));
-    DBEXEC(DB_BUFVERBOSE, DBPRINT("size of buffers = %d\n", cbBuf));
+    DBEXEC(DB_BUFVERBOSE, DBPRINT("size of buffers = %d\n", cbIOBuf));
     DBEXEC(DB_BUFVERBOSE, DBPRINT("buffer re-reads = %d\n", crereads));
 #if DBG
     assert(FPfiCheck());
@@ -1325,9 +1306,9 @@ Return Value:
 
 STATIC LONG
 BufferedSeek (
-    IN PFI pfi,
-    IN LONG ib,
-    IN INT origin
+    PFI pfi,
+    LONG ib,
+    INT origin
     )
 
 /*++
@@ -1397,7 +1378,7 @@ Return Value:
         pfi->pbufCur = NULL;
     }
 
-    if ((ULONG) pbuf <= 1) {
+    if ((DWORD) pbuf <= 1) {
         // no buffer or previously buffered, attempt to allocate a buffer
         pfi->pbufCur = PbufAlloc(pfi, ibFile);
         assert(!(pfi->pbufCur->flags & BUF_Current));
@@ -1421,7 +1402,7 @@ Return Value:
     }
 
     // found an entry in the buffer map table
-    if ((ULONG) pbuf > 1) {
+    if ((DWORD) pbuf > 1) {
         pfi->pbufCur = pbuf;
         assert(!(pbuf->flags & BUF_Current));
         pfi->pbufCur->flags |= BUF_Current;
@@ -1438,7 +1419,7 @@ Return Value:
         (pfi->pbufCur->ibCur > pfi->pbufCur->ibLast)) {
         pfi->pbufCur->ibLast = pfi->pbufCur->ibCur;
     }
-    assert((ibFile - pfi->pbufCur->ibStart) < cbBuf);
+    assert((ibFile - pfi->pbufCur->ibStart) < cbIOBuf);
     assert(pfi->ifi == pfi->pbufCur->ifi);
 #if DBG
     assert(FBufListCheck());
@@ -1454,9 +1435,9 @@ Return Value:
 
 LONG
 FileSeek (
-    IN INT fd,
-    IN LONG ib,
-    IN INT origin
+    INT fd,
+    LONG ib,
+    INT origin
     )
 
 /*++
@@ -1496,7 +1477,7 @@ Return Value:
 
 LONG
 FileLength (
-    IN INT fd
+    INT fd
     )
 
 /*++
@@ -1541,11 +1522,11 @@ Return Value:
     return(cbFile);
 }
 
-STATIC ULONG
+STATIC DWORD
 BufferedRead (
-    IN PFI pfi,
-    IN PVOID pvBuf,
-    IN ULONG cb)
+    PFI pfi,
+    PVOID pvBuf,
+    DWORD cb)
 
 /*++
 
@@ -1580,7 +1561,7 @@ Return Value:
            Trans_LOG(LOG_BufRead, pfi->ifi, pfi->pbufCur->ibCur, cb, 0, NULL));
 
     // check for reading past end of file
-    if ((pfi->pbufCur->ibCur + cb) > (ULONG)pfi->cbMap) {
+    if ((pfi->pbufCur->ibCur + cb) > (DWORD)pfi->cbMap) {
         cb = pfi->cb - pfi->pbufCur->ibCur;
     }
 
@@ -1601,14 +1582,14 @@ Return Value:
 // These asserts are not valid for os/2 (segment will change to ???)
 
         assert((LONG) (pfi->pbufCur->pbCur) <
-            (LONG) ((LONG) (pfi->pbufCur->rgbBuf) + (LONG) (cbBuf)));
+            (LONG) ((LONG) (pfi->pbufCur->rgbBuf) + (LONG) (cbIOBuf)));
         assert((LONG) pvBuf < (LONG) ((LONG) pvT + (LONG) cb));
         assert((cbRead <= pfi->pbufCur->ibLast - pfi->pbufCur->ibStart) ||
             (pfi->pbufCur->flags & BUF_PreviousWrite) ||
             (pfi->pbufCur->flags & BUF_Active));
 
-        assert((ULONG) cbRead <= cb);
-        memcpy(pvBuf, pfi->pbufCur->pbCur, (ULONG) cbRead);
+        assert((DWORD) cbRead <= cb);
+        memcpy(pvBuf, pfi->pbufCur->pbCur, (DWORD) cbRead);
 
         // adjust buffer pointers
         pfi->pbufCur->ibCur += cbRead;
@@ -1624,11 +1605,11 @@ Return Value:
     return (cb);
 }
 
-ULONG
+DWORD
 FileRead (
-    IN INT fd,
-    IN PVOID pvBuf,
-    IN ULONG cb)
+    INT fd,
+    PVOID pvBuf,
+    DWORD cb)
 
 /*++
 
@@ -1664,9 +1645,9 @@ Return Value:
     return(BufferedRead(rgpfi[fd], pvBuf, cb));
 }
 
-ULONG
+DWORD
 FileTell (
-    IN INT fd
+    INT fd
     )
 
 /*++
@@ -1701,11 +1682,11 @@ Return Value:
     }
 }
 
-STATIC ULONG
+STATIC DWORD
 BufferedWrite (
-    IN PFI pfi,
-    IN const void *pvBuf,
-    IN ULONG cb)
+    PFI pfi,
+    const void *pvBuf,
+    DWORD cb)
 
 /*++
 
@@ -1765,11 +1746,11 @@ Return Value:
         cbWrite = min(cbLeft, pfi->pbufCur->ibEnd - pfi->pbufCur->ibCur);
 
         assert((LONG) (pfi->pbufCur->pbCur) <
-            (LONG) ((LONG) (pfi->pbufCur->rgbBuf) + (LONG) (cbBuf)));
+            (LONG) ((LONG) (pfi->pbufCur->rgbBuf) + (LONG) (cbIOBuf)));
         assert((LONG) pvBuf < (LONG) ((LONG) pvT + (LONG) cb));
 
-        assert((ULONG) cbWrite <= cb);
-        memcpy(pfi->pbufCur->pbCur, pvBuf, (ULONG) cbWrite);
+        assert((DWORD) cbWrite <= cb);
+        memcpy(pfi->pbufCur->pbCur, pvBuf, (DWORD) cbWrite);
 
         // adjust buffer pointers
         pfi->pbufCur->ibCur += cbWrite;
@@ -1834,12 +1815,12 @@ Return Value:
     assert(ibSeek == pfi->pbufCur->ibStart);
 
     // calculate bytes to read
-    cbReRead = min(cbBuf, pfi->cbSoFar - pfi->pbufCur->ibStart);
+    cbReRead = min(cbIOBuf, pfi->cbSoFar - pfi->pbufCur->ibStart);
     assert((pfi->pbufCur->ibStart + cbReRead) <= pfi->cbSoFar);
 
     // read in buffer
     if ((cbRead = _read(pfi->fd, pfi->pbufCur->rgbBuf,
-        (ULONG) cbReRead)) != cbReRead) {
+        (DWORD) cbReRead)) != cbReRead) {
         Error(ERR_INVALIDEXE, NULL, NULL);
     }
 
@@ -1891,7 +1872,7 @@ Return Value:
 
     // get buffer table entry
     ibuf = pfi->pbufCur->ibStart >> cshiftBuf;
-    assert(((ibuf + 1) * cbBuf) < (pfi->cbMap));
+    assert(((ibuf + 1) * cbIOBuf) < (pfi->cbMap));
 
     // get the buffer table
     rgpbuf = pfi->rgpbuf;
@@ -1908,8 +1889,8 @@ Return Value:
         rgpbuf[ibuf + 1] = pfi->pbufCur;
 
         // set the buffers new range
-        pfi->pbufCur->ibStart += cbBuf;
-        pfi->pbufCur->ibEnd += cbBuf;
+        pfi->pbufCur->ibStart += cbIOBuf;
+        pfi->pbufCur->ibEnd += cbIOBuf;
         pfi->pbufCur->ibLast = pfi->pbufCur->ibStart;
 
         // set the buffer to containing random bits
@@ -1945,7 +1926,7 @@ Return Value:
         // set the current buffer to the one we ran into,
         // this assumes there will be no more writes to the
         // previous file offset in this buffer
-        assert(((ibuf + 1) * cbBuf) <= pfi->cbMap);
+        assert(((ibuf + 1) * cbIOBuf) <= pfi->cbMap);
         pfi->pbufCur = rgpbuf[ibuf + 1];
         assert(!(pfi->pbufCur->flags & BUF_Current));
         pfi->pbufCur->flags |= BUF_Current;
@@ -1957,11 +1938,11 @@ Return Value:
     assert(pfi->ifi == pfi->pbufCur->ifi);
 }
 
-ULONG
+DWORD
 FileWrite (
-    IN INT fd,
-    IN void *pvBuf,
-    IN ULONG cb)
+    INT fd,
+    void *pvBuf,
+    DWORD cb)
 
 /*++
 
@@ -2294,8 +2275,8 @@ Return Value:
 
 STATIC PBUF
 PbufAlloc(
-    IN PFI pfi,
-    IN LONG ib)
+    PFI pfi,
+    LONG ib)
 
 /*++
 
@@ -2345,16 +2326,16 @@ Return Value:
     assert(pbuf);
 
     // set the buffer range
-    pbuf->ibStart = (ib / cbBuf) * cbBuf;
-    pbuf->ibEnd = pbuf->ibStart + cbBuf;
+    pbuf->ibStart = (ib / cbIOBuf) * cbIOBuf;
+    pbuf->ibEnd = pbuf->ibStart + cbIOBuf;
     pbuf->ibCur = ib;
     pbuf->ibLast = pbuf->ibStart;
     assert((ib >= pbuf->ibStart) && (ib <= pbuf->ibEnd));
-    pbuf->pbCur = (PUCHAR) ((LONG) pbuf->rgbBuf + (ib - pbuf->ibStart));
+    pbuf->pbCur = (BYTE *) ((LONG) pbuf->rgbBuf + (ib - pbuf->ibStart));
 
     // if file is writable, clear the buffer
     if (pfi->flags & FI_Write) {
-        memset(pbuf->rgbBuf, '\0', cbBuf);
+        memset(pbuf->rgbBuf, '\0', cbIOBuf);
     }
 
     // if file is readable, set the random contents flag
@@ -2376,12 +2357,12 @@ Return Value:
 
 STATIC VOID
 TransitionPFI(
-    IN PFI pfi,
-    IN PPFI ppfiFromHead,
-    IN PPFI ppfiFromTail,
-    IN PPFI ppfiToHead,
-    IN PPFI ppfiToTail,
-    IN BOOL fAddToTail)
+    PFI pfi,
+    PPFI ppfiFromHead,
+    PPFI ppfiFromTail,
+    PPFI ppfiToHead,
+    PPFI ppfiToTail,
+    BOOL fAddToTail)
 
 /*++
 
@@ -2850,11 +2831,11 @@ Return Value:
     return(pfi->ibCur);
 }
 
-STATIC ULONG
+STATIC DWORD
 MappedRead(
     PFI pfi,
     PVOID pv,
-    ULONG cb)
+    DWORD cb)
 
 /*++
 
@@ -2896,7 +2877,7 @@ Return Value:
         }
     }
 
-    pvT = (PVOID) ((ULONG) (pfi->pvMapView) + (ULONG) (pfi->ibCur));
+    pvT = (PVOID) ((DWORD) (pfi->pvMapView) + (DWORD) (pfi->ibCur));
 
     memcpy(pv, pvT, cb);
     pfi->ibCur += cb;
@@ -2920,11 +2901,11 @@ Return Value:
 
 --*/
 
-STATIC ULONG
+STATIC DWORD
 MappedWrite(
     PFI pfi,
-    void *pv,
-    ULONG cb)
+    const void *pv,
+    DWORD cb)
 {
     PVOID pvT;
 
@@ -2939,7 +2920,7 @@ MappedWrite(
         }
     }
 
-    pvT = (PVOID) ((ULONG) (pfi->pvMapView) + (ULONG) (pfi->ibCur));
+    pvT = (PVOID) ((DWORD) (pfi->pvMapView) + (DWORD) (pfi->ibCur));
 
     if ((pfi->ibCur + (LONG) cb) > pfi->cbSoFar) {
         pfi->cbSoFar = pfi->ibCur + (LONG) cb;
@@ -3007,7 +2988,7 @@ Return Value:
 }
 
 BOOL
-ExtendMapView(PFI pfi, ULONG ibNeeded)
+ExtendMapView(PFI pfi, DWORD ibNeeded)
 // Makes the memory-map bigger for a mapped file.  This only makes sense
 // for writeable files, not readable files.
 {
@@ -3132,8 +3113,8 @@ BadExitCleanup(VOID)
 //      * return value is invalidated by subsequent operations on the same
 //        file handle.
 
-PUCHAR
-PbMappedRegion(IN INT fd, IN ULONG ibStart, IN ULONG cb)
+BYTE *
+PbMappedRegion(INT fd, DWORD ibStart, DWORD cb)
 {
     PFI pfi;
 
@@ -3146,13 +3127,13 @@ PbMappedRegion(IN INT fd, IN ULONG ibStart, IN ULONG cb)
     DBEXEC(DB_IO_WRITE,
            Trans_LOG(LOG_MapWrite, pfi->ifi, pfi->ibCur, cb, 0, NULL));
 
-    if (ibStart + cb > (ULONG)pfi->cbMapView) {
+    if (ibStart + cb > (DWORD)pfi->cbMapView) {
         if (!ExtendMapView(pfi, ibStart + cb)) {
             Error(ERR_NOSPACE, NULL, NULL);
         }
     }
 
-    if ((ibStart + cb) > (ULONG) pfi->cbSoFar) {
+    if ((ibStart + cb) > (DWORD) pfi->cbSoFar) {
         pfi->cbSoFar = ibStart + cb;
     }
 
@@ -3162,7 +3143,7 @@ PbMappedRegion(IN INT fd, IN ULONG ibStart, IN ULONG cb)
 
 VOID
 FileSetSize (
-    IN INT fd
+    INT fd
     )
 
 /*++
@@ -3193,7 +3174,7 @@ Return Value:
 
 VOID
 FileCloseMap (
-    IN INT fd
+    INT fd
     )
 
 /*++

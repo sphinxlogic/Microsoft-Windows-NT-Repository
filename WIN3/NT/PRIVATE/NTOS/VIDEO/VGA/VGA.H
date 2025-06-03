@@ -648,10 +648,6 @@ extern ULONG NumVideoModes;
 #define NUM_VGA_ACCESS_RANGES  4
 extern VIDEO_ACCESS_RANGE VgaAccessRange[];
 
-#ifdef DEADMAN_KEY
-extern VIDEO_ACCESS_RANGE ExclusiveVgaAccessRange[];
-#endif
-
 #define VGA_NUM_EMULATOR_ACCESS_ENTRIES     8
 extern EMULATOR_ACCESS_ENTRY VgaEmulatorAccessEntries[];
 

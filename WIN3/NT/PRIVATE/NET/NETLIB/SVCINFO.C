@@ -47,7 +47,7 @@ Revision History:
 #include <lmerr.h>              // ERROR_ and NERR_ equates.
 #include <lmsvc.h>              // SERVICE_INFO_2, etc.
 #include <netlib.h>             // NetpSetOptionalArg().
-#include <netdebug.h>           // NetpDbgPrint().
+#include <netdebug.h>           // NetpKdPrint(()).
 #include <prefix.h>     // PREFIX_ equates.
 #include <remdef.h>             // REM16_, REM32_, REMSmb_ equates.
 #include <strucinf.h>           // My prototype.
@@ -156,19 +156,19 @@ NetpServiceStructureInfo (
 
     IF_DEBUG(STRUCINF) {
         if (DataDesc16) {
-            NetpDbgPrint( PREFIX_NETLIB
+            NetpKdPrint(( PREFIX_NETLIB
                     "NetpServiceStructureInfo: desc 16 is "
-                    FORMAT_LPDESC ".\n", *DataDesc16 );
+                    FORMAT_LPDESC ".\n", *DataDesc16 ));
         }
         if (DataDesc32) {
-            NetpDbgPrint( PREFIX_NETLIB
+            NetpKdPrint(( PREFIX_NETLIB
                     "NetpServiceStructureInfo: desc 32 is "
-                    FORMAT_LPDESC ".\n", *DataDesc32 );
+                    FORMAT_LPDESC ".\n", *DataDesc32 ));
         }
         if (DataDescSmb) {
-            NetpDbgPrint( PREFIX_NETLIB
+            NetpKdPrint(( PREFIX_NETLIB
                     "NetpServiceStructureInfo: desc Smb is "
-                    FORMAT_LPDESC ".\n", *DataDescSmb );
+                    FORMAT_LPDESC ".\n", *DataDescSmb ));
         }
     }
 

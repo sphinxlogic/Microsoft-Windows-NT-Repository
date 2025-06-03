@@ -62,7 +62,14 @@ Revision History:
 
 // These must be included first:
 
-#include <windows.h>    // IN, LPBYTE, DWORD, etc.
+
+#include <nt.h>                  // DbgPrint prototype
+#include <ntrtl.h>                  // DbgPrint
+#include <nturtl.h>                 // Needed by winbase.h
+
+#include <windef.h>                 // DWORD
+#include <winbase.h>                // LocalFree
+// #include <windows.h>    // IN, LPBYTE, DWORD, etc.
 #include <lmcons.h>             // NET_API_STATUS, etc.
 #include <rap.h>                // LPDESC, etc.  (Needed by <RxServer.h>)
 #include <lmerr.h>      // NERR_ and ERROR_ equates.  (Needed by rxp.h)
@@ -81,6 +88,7 @@ Revision History:
 #include <rxp.h>        // MAX_TRANSACT_RET_DATA_SIZE, RxpFatalErrorCode().
 #include <rxpdebug.h>           // IF_DEBUG().
 #include <rxserver.h>           // My prototype, etc.
+#include <rpcutil.h>           // MIDL_user_allocate
 
 
 #define OVERHEAD 0
@@ -89,31 +97,332 @@ Revision History:
 #define INITIAL_MAX_SIZE        (1024 * 16)
 
 
-NET_API_STATUS
-RxNetServerEnum (
-    IN LPTSTR UncServerName,
-    IN LPTSTR TransportName,
+VOID
+ServerRelocationRoutine(
     IN DWORD Level,
-    OUT LPBYTE *BufPtr,
-    IN DWORD PrefMaxSize,
-    OUT LPDWORD EntriesRead,
-    OUT LPDWORD TotalEntries,
-    IN DWORD ServerType,
-    IN LPTSTR Domain OPTIONAL,
-    IN OUT LPDWORD Resume_Handle OPTIONAL
+    IN DWORD FixedSize,
+    IN DWORD EntryCount,
+    IN LPBYTE Buffer,
+    IN PTRDIFF_T Offset
     )
 
 /*++
 
 Routine Description:
 
-    RxNetServerEnum performs the same function as NetServerEnum,
-    except that the server name is known to refer to a downlevel server.
+   Routine to relocate the pointers from the fixed portion of a NetServerEnum
+   enumeration buffer to the string portion of an enumeration buffer.
+
+Arguments:
+
+    Level - Level of information in the  buffer.
+
+    FixedSize - Size of each entry in Buffer.
+
+    EntryCount - Number of entries in Buffer.
+
+    Buffer - Array of SERVER_INFO_X structures.
+
+    Offset - Offset to add to each pointer in the fixed portion.
+
+Return Value:
+
+    Returns the error code for the operation.
+
+--*/
+
+{
+
+//
+// Local macro to add a byte offset to a pointer.
+//
+
+#define RELOCATE_ONE( _fieldname, _offset ) \
+    if ( (_fieldname) != NULL ) { \
+        _fieldname = (PVOID) ((LPBYTE)(_fieldname) + _offset); \
+    }
+
+    DWORD EntryNumber;
+
+    //
+    // Loop relocating each field in each fixed size structure
+    //
+
+    for ( EntryNumber=0; EntryNumber<EntryCount; EntryNumber++ ) {
+
+        LPBYTE TheStruct = Buffer + FixedSize * EntryNumber;
+
+        switch ( Level ) {
+        case 101:
+            RELOCATE_ONE( ((PSERVER_INFO_101)TheStruct)->sv101_comment, Offset );
+
+            //
+            // Drop through to case 100
+            //
+
+        case 100:
+            RELOCATE_ONE( ((PSERVER_INFO_100)TheStruct)->sv100_name, Offset );
+            break;
+
+        default:
+            return;
+
+        }
+
+    }
+
+    return;
+
+}
+
+
+NET_API_STATUS
+AppendServerList(
+    IN OUT LPBYTE *CurrentServerList,
+    IN OUT LPDWORD CurrentEntriesRead,
+    IN OUT LPDWORD CurrentTotalEntries,
+    IN DWORD Level,
+    IN DWORD FixedSize,
+    IN LPBYTE *NewServerList,
+    IN DWORD NewEntriesRead,
+    IN DWORD NewTotalEntries
+    )
+
+/*++
+
+Routine Description:
+
+    Concatenates two ServerList Arrays.
+
+Arguments:
+
+    CurrentServerList -- Pointer to the current server list.  The resultant server list
+        is returned here.
+        Pass a pointer to NULL if there is no current list.
+        The returned list should be free by MIDL_user_free().
+
+    CurrentEntriesRead -- Pointer to the number of entries is CurrentServerList.
+        Updated to reflect entries added.
+
+    CurrentTotalEtnries -- Pointer to the total number of entries available at server.
+        Updated to reflect new information.
+
+    Level -- Info level of CurrentServerList and NewServerList.
+
+    FixedSize -- Fixed size of each entry.
+
+    NewServerList -- Pointer to the server list to append to CurrentServerList.
+        NULL is returned if this routine deallocates the buffer.
+
+    NewEntriesRead -- Number of entries in NewServerList.
+
+    NewTotalEntries -- Total number of entries the server believes it has.
+
+Return Value:
+
+    NERR_Success -- All OK
+
+    ERROR_NO_MEMORY -- Can't reallocate the buffer.
+
+--*/
+
+
+{
+    LPBYTE TempServerList;
+    LPBYTE Where;
+
+    LPBYTE LocalCurrentServerList;
+    LPBYTE LocalNewServerList;
+    DWORD CurrentFixedSize;
+    DWORD NewFixedSize;
+    DWORD CurrentAllocatedSize;
+    DWORD NewAllocatedSize;
+
+    //
+    // If this is the first list to append,
+    //  simply capture this list and return it to the caller.
+    //
+
+    if ( *CurrentServerList == NULL ) {
+        *CurrentServerList = *NewServerList;
+        *NewServerList = NULL;
+        *CurrentEntriesRead = NewEntriesRead;
+        *CurrentTotalEntries = NewTotalEntries;
+        return NERR_Success;
+    }
+
+    //
+    // Early out if there's nothing to return.
+    //
+
+    if ( NewEntriesRead == 0 ) {
+        return NERR_Success;
+    }
+
+    //
+    // Handle the case where the first entry appended is equal to the current last entry.
+    //
+
+    CurrentAllocatedSize = MIDL_user_size( *CurrentServerList );
+    NewAllocatedSize = MIDL_user_size( *NewServerList );
+
+    TempServerList = *NewServerList;
+
+    if ( NewEntriesRead != 0 &&
+         *CurrentEntriesRead != 0 &&
+        wcscmp( ((LPSERVER_INFO_100)(*NewServerList))->sv100_name,
+                ((LPSERVER_INFO_100)((*CurrentServerList)+ ((*CurrentEntriesRead)-1) * FixedSize))->sv100_name ) == 0 ) {
+
+        TempServerList += FixedSize;
+        NewEntriesRead -= 1;
+        NewAllocatedSize -= FixedSize;
+
+        //
+        // Early out if there's nothing to return.
+        //
+
+        if ( NewEntriesRead == 0 ) {
+            return NERR_Success;
+        }
+    }
+
+    //
+    // Allocate a buffer for to return the combined data into.
+    //
+
+    LocalCurrentServerList = MIDL_user_allocate( CurrentAllocatedSize +
+                                                 NewAllocatedSize );
+
+    if ( LocalCurrentServerList == NULL ) {
+        return ERROR_NOT_ENOUGH_MEMORY;
+    }
+
+    Where = LocalCurrentServerList;
+
+
+    //
+    // Copy the fixed part of the current buffer into the result buffer.
+    //
+
+    CurrentFixedSize = (*CurrentEntriesRead) * FixedSize;
+    RtlCopyMemory( LocalCurrentServerList, *CurrentServerList, CurrentFixedSize );
+    Where += CurrentFixedSize;
+
+    //
+    // Copy the fixed part of the appended buffer into the result buffer.
+    //
+
+    LocalNewServerList = Where;
+    NewFixedSize = NewEntriesRead * FixedSize;
+
+    RtlCopyMemory( LocalNewServerList, TempServerList, NewFixedSize );
+    Where += NewFixedSize;
+
+    //
+    // Copy the variable portion of current buffer into the result buffer.
+    //  Relocate the pointers from the fixed portion to the variable portion.
+    //
+
+    RtlCopyMemory( Where,
+                   (*CurrentServerList) + CurrentFixedSize,
+                   CurrentAllocatedSize - CurrentFixedSize );
+
+    ServerRelocationRoutine( Level,
+                             FixedSize,
+                             *CurrentEntriesRead,
+                             LocalCurrentServerList,
+                             Where - ((*CurrentServerList) + CurrentFixedSize) );
+
+    Where += CurrentAllocatedSize - CurrentFixedSize;
+
+    //
+    // Copy the variable portion of appended buffer into the result buffer.
+    //  Relocate the pointers from the fixed portion to the variable portion.
+    //
+
+    RtlCopyMemory( Where,
+                   TempServerList + NewFixedSize,
+                   NewAllocatedSize - NewFixedSize );
+
+    ServerRelocationRoutine( Level,
+                             FixedSize,
+                             NewEntriesRead,
+                             LocalNewServerList,
+                             Where - (TempServerList + NewFixedSize ));
+
+    Where += NewAllocatedSize - NewFixedSize;
+    ASSERT( ((ULONG)(Where - LocalCurrentServerList)) <= CurrentAllocatedSize + NewAllocatedSize );
+
+
+    //
+    // Free the Old buffer passed in.
+    //
+
+    MIDL_user_free( *CurrentServerList );
+    *CurrentServerList = NULL;
+
+    //
+    // Pass out the new buffer.
+    //
+
+    *CurrentServerList = LocalCurrentServerList;
+
+    //
+    // Adjust the entry counts
+    //
+
+    *CurrentEntriesRead += NewEntriesRead;
+
+    if ( *CurrentTotalEntries < NewTotalEntries ) {
+        *CurrentTotalEntries = NewTotalEntries;
+    }
+
+    return NERR_Success;
+
+}
+
+NET_API_STATUS
+RxNetServerEnumWorker (
+    IN LPCWSTR UncServerName,
+    IN LPCWSTR TransportName,
+    IN DWORD Level,
+    OUT LPBYTE *BufPtr,
+    IN DWORD PrefMaxSize,
+    OUT LPDWORD EntriesRead,
+    OUT LPDWORD TotalEntries,
+    IN DWORD ServerType,
+    IN LPCWSTR Domain OPTIONAL,
+    IN LPCWSTR FirstNameToReturn OPTIONAL,
+    IN BOOLEAN InternalContinuation
+    )
+
+/*++
+
+Routine Description:
+
+    RxNetServerEnumWorker performs a single RXACT-style API call to a specified server.
+    It automatically determines whether to use the Enum2 (old) or Enum3 (new) RXACT API.
+    It automatically determines whether to use a null session or an authenticated session.
+
+    Since Enum2 is not resumable and is the only level implemented on some servers,
+    this function ignores PrefMaxSize when using that level and returns ALL of the
+    information available from Enum2.
+
+    Since this routine was originally designed for Enum2 (with the above restriction), we
+    always return the maximum available Enum3 also.
 
 Arguments:
 
     (Same as NetServerEnum, except UncServerName must not be null, and
     must not refer to the local computer.)
+
+    FirstNameToReturn: Must be uppercase
+
+        Passed name must be the canonical form of the name.
+
+    InternalContinuation: TRUE if the caller has previously called RxNetServerEnumWorker
+        to return all the possible entries using Enum2. This flag is used to prevent
+        an automatic fallback to using Enum2.
 
 Return Value:
 
@@ -140,8 +449,13 @@ Return Value:
     NET_API_STATUS Status;              // Status of this actual API.
     NET_API_STATUS TempStatus;          // Short-term status of random stuff.
     BOOL TryNullSession = TRUE;         // Try null session (OK for Winball).
+    BOOL TryEnum3;                      // Use NetServerEnum3 to remote server
 
-    UNREFERENCED_PARAMETER(Resume_Handle);
+    LPVOID OldInfoEntry = OldInfoArray;
+    LPVOID NewInfoArray;
+    DWORD NewInfoArraySize;
+    LPVOID NewInfoEntry;
+    LPVOID NewStringArea;
 
     // Make sure caller didn't get confused.
     NetpAssert(UncServerName != NULL);
@@ -152,8 +466,8 @@ Return Value:
     // Level for enum is a subset of all possible server info levels, so
     // we have to check that here.
     if ( (Level != 100) && (Level != 101) ) {
-        *BufPtr = NULL;
-        return (ERROR_INVALID_LEVEL);
+        Status = ERROR_INVALID_LEVEL;
+        goto Cleanup;
     }
 
     Status = RxGetServerInfoLevelEquivalent(
@@ -173,8 +487,7 @@ Return Value:
             NULL);               // don't need to know if this is incomplete
     if (Status != NO_ERROR) {
         NetpAssert(Status != ERROR_INVALID_LEVEL);  // Already checked subset!
-        *BufPtr = NULL;
-        return (Status);
+        goto Cleanup;
     }
 
     //
@@ -206,6 +519,20 @@ Return Value:
     NetpAssert( EntryCount > 0 );       // Code below assumes as least 1 entry.
 
     //
+    // If a FirstNameToReturn was passed in,
+    //  use the new NetServerEnum3 API.
+    //
+    // The assumption is that this routine will typically be called with a FirstNameToReturn
+    // only if the NetServerEnum2 list is exhausted.  There's certainly no requirement
+    // that's true.  So, below we revert to NetServerEnum2 if NetServerEnum3 isn't supported.
+    //
+    // On the other hand, we always use NetServerEnum2 to pick up the first part of the list
+    // since it's supported by all servers.
+    //
+
+    TryEnum3 = (FirstNameToReturn != NULL  && *FirstNameToReturn != L'\0' );
+
+    //
     // Loop until we have enough memory or we die for some other reason.
     // Also loop trying null session first (for speedy Winball access), then
     // non-null session (required by Lanman).
@@ -234,9 +561,9 @@ TryTheApi:
         // We'll let RxRemoteApi allocate the old info array for us.
         //
         Status = RxRemoteApi(
-                API_NetServerEnum2,         // api number
-                UncServerName,              // \\servername
-                REMSmb_NetServerEnum2_P,    // parm desc (SMB version)
+                TryEnum3 ? API_NetServerEnum3 : API_NetServerEnum2 , // api number
+                (LPWSTR)UncServerName,              // \\servername
+                TryEnum3 ? REMSmb_NetServerEnum3_P : REMSmb_NetServerEnum2_P,    // parm desc (SMB version)
                 OldDataDesc16,
                 OldDataDesc32,
                 OldDataDescSmb,
@@ -250,11 +577,12 @@ TryTheApi:
                 // rest of API's arguments in LM 2.x format:
                 OldLevel,                   // sLevel: info level (old)
                 & OldInfoArray,             // pbBuffer: old info lvl array
-                OldInfoArraySize,           // cbBuffer: old info lvl array len
+                TryEnum3 ? MAX_TRANSACT_RET_DATA_SIZE : OldInfoArraySize, // cbBuffer: old info lvl array len
                 & OldEntriesRead,           // pcEntriesRead
                 & OldTotalAvail,            // pcTotalAvail
                 ServerType,                 // flServerType
-                Domain);                    // pszDomain (may be null ptr).
+                Domain,                     // pszDomain (may be null ptr).
+                FirstNameToReturn );        // Used only for NetServerEnum3
 
         //
         // There are a couple of situations where null session might not
@@ -284,18 +612,77 @@ TryTheApi:
             }
         }
 
+        //
+        // If the server doesn't support the new API,
+        //  Try the old API.
+        //
+
+        if ( TryEnum3 ) {
+
+            //
+            // Unfortunately, NT 3.5x servers return ERROR_ACCESS_DENIED for bogus
+            //  API Numbers since they have a NULL session check prior to their API
+            //  Number range check.
+            //
+
+            if ( Status == ERROR_ACCESS_DENIED ||   // NT 3.5x with NULL session checking
+                 Status == ERROR_NOT_SUPPORTED ) {  // Windows 95
+
+                //
+                // If the original caller is asking for this continuation,
+                //  we need to oblige him.
+                //  Fall back to Enum2
+                //
+                if ( !InternalContinuation ) {
+                    TryNullSession = TRUE;
+                    TryEnum3 = FALSE;
+                    goto TryTheApi;
+
+                //
+                // Otherwise, we know we've gotten all the data this server has to give.
+                //
+                //  Just tell the caller there is more data, but we can't return it.
+                //
+
+                } else {
+                    Status = ERROR_MORE_DATA;
+                    *EntriesRead = 0;
+                    *TotalEntries = 0;
+                    goto Cleanup;
+                }
+            }
+
+            //
+            // Set OldInfoArraySize to the actual value we used above.
+            //
+            // We couldn't set the variable before this because we wanted to use the
+            // original value in the case that we had to fall back to Enum2.
+            //
+            OldInfoArraySize = MAX_TRANSACT_RET_DATA_SIZE;
+        }
+
+        //
+        // If we still have an error at this point,
+        //  return it to the caller.
+        //
+
+        if ( Status != NERR_Success && Status != ERROR_MORE_DATA ) {
+            goto Cleanup;
+        }
+
+
         if ((OldEntriesRead == EntryCount) && (Status==ERROR_MORE_DATA) ) {
             // Bug in loop, or lower level code, or remote system?
             NetpKdPrint(( PREFIX_NETAPI
                     "RxNetServerEnum: **WARNING** Got same sizes twice in "
                     "a row; returning internal error.\n" ));
             Status = NERR_InternalError;
-            break;
+            goto Cleanup;
         }
 
         EntryCount = OldEntriesRead;
         *EntriesRead = EntryCount;
-        NetpSetOptionalArg(TotalEntries, OldTotalAvail);
+        *TotalEntries = OldTotalAvail;
 
         //
         // If the server returned ERROR_MORE_DATA, free the buffer and try
@@ -305,18 +692,8 @@ TryTheApi:
         NetpAssert( OldInfoArraySize <= MAX_TRANSACT_RET_DATA_SIZE );
         if (Status != ERROR_MORE_DATA) {
             break;
-        } else if (OldInfoArraySize == MAX_TRANSACT_RET_DATA_SIZE) {
-            // BUGBUG: Log this?
-
-            if (ServerType != SV_TYPE_DOMAIN_ENUM) {
-                NetpKdPrint(( PREFIX_NETAPI
-                        "RxNetServerEnum: **WARNING** design limit reached. "
-                        "Consider decreasing domain size.\n" ));
-            } else {
-                NetpKdPrint(( PREFIX_NETAPI
-                        "RxNetServerEnum: **WARNING** design limit reached. "
-                        "Consider decreasing number of domains.\n" ));
-            }
+        } else if (OldInfoArraySize == MAX_TRANSACT_RET_DATA_SIZE ) {
+            // Let the calling code handle this problem.
             break;
         } else if (OldEntriesRead == 0) {
             // We ran into WFW bug (always says ERROR_MORE_DATA, but 0 read).
@@ -324,7 +701,7 @@ TryTheApi:
                     "RxNetServerEnum: Downlevel returns 0 entries and says "
                     "ERROR_MORE_DATA!  Returning NERR_InternalError.\n" ));
             Status = NERR_InternalError;
-            break;
+            goto Cleanup;
         }
 
         //
@@ -351,7 +728,6 @@ TryTheApi:
         //
 
         (void) NetApiBufferFree(OldInfoArray);
-
         OldInfoArray = NULL;
 
 
@@ -363,6 +739,8 @@ TryTheApi:
 
     } while (Status == ERROR_MORE_DATA);
 
+    ASSERT( Status == NERR_Success || Status == ERROR_MORE_DATA );
+
     //
     // Some versions of Windows For Workgroups (WFW) lie about entries read,
     // total available, and what they actually return.  If we didn't get an
@@ -371,69 +749,127 @@ TryTheApi:
     if (OldInfoArray == NULL) {
         *EntriesRead = 0;
         *TotalEntries = 0;
+        goto Cleanup;
     }
 
     if (*EntriesRead == 0) {
-
-        if (OldInfoArray != NULL) {
-            (void) NetApiBufferFree(OldInfoArray);
-            OldInfoArray = NULL;
-        }
-
-        *BufPtr = NULL;
-
-        return Status;
+        goto Cleanup;
     }
 
-    if (! RxpFatalErrorCode(Status)) {
 
-        // Convert array of structures from old info level to new.
-        LPVOID OldInfoEntry = OldInfoArray;
-        LPVOID NewInfoArray;
-        DWORD NewInfoArraySize;
-        LPVOID NewInfoEntry;
-        LPVOID NewStringArea;
+    //
+    // Convert array of structures from old info level to new.
+    //
+    // Skip any returned entries that are before the ones we want.
+    //
 
-        NewInfoArraySize = (EntryCount * NewMaxSize) + OVERHEAD;
+    OldInfoEntry = OldInfoArray;
+
+    while (EntryCount > 0) {
+        IF_DEBUG(SERVER) {
+            NetpKdPrint(( PREFIX_NETAPI "RxNetServerEnum: " FORMAT_DWORD
+                    " entries left.\n", EntryCount ));
+        }
 
         //
-        // Alloc memory for new info level arrays.
+        // Break out of loop if we need to return this entry.
         //
-        TempStatus = NetApiBufferAllocate( NewInfoArraySize, & NewInfoArray );
+
+        if ( wcscmp( FirstNameToReturn, ((LPSERVER_INFO_0)OldInfoEntry)->sv0_name) <= 0 ) {
+            break;
+        }
+
+        *EntriesRead -= 1;
+        *TotalEntries -= 1;
+        OldInfoEntry = NetpPointerPlusSomeBytes(
+                OldInfoEntry, OldFixedSize);
+        --EntryCount;
+    }
+
+    //
+    // If there were no entries we actually wanted,
+    //  indicate so.
+    //
+
+    if ( *EntriesRead == 0 ) {
+        goto Cleanup;
+    }
+
+    //
+    // Compute the largest possible size of buffer we'll return.
+    //
+    // It is never larger than the number of entries available times the largest
+    //  possible structure size.
+    //
+    // It is never larger than the number of entries available times the fixed structure
+    // size PLUS the maximum possible text returned from the remote server. For the
+    // latter case, we assume that every byte the remote server returned us is an OEM
+    // character that we translate to UNICODE.
+    //
+    // The second limit prevents us from allocating mondo large structures
+    // when a large number of entries with short strings are returned.
+
+    NewInfoArraySize = min(
+        EntryCount * NewMaxSize,
+        (EntryCount * NewFixedSize) + (OldInfoArraySize * sizeof(WCHAR))) + OVERHEAD;
+
+
+    //
+    // Alloc memory for new info level arrays.
+    //
+
+    TempStatus = NetApiBufferAllocate( NewInfoArraySize, & NewInfoArray );
+    if (TempStatus != NO_ERROR) {
+        Status = TempStatus;
+        goto Cleanup;
+    }
+    NewStringArea = NetpPointerPlusSomeBytes(NewInfoArray,NewInfoArraySize);
+
+    NewInfoEntry = NewInfoArray;
+    while (EntryCount > 0) {
+        IF_DEBUG(SERVER) {
+            NetpKdPrint(( PREFIX_NETAPI "RxNetServerEnum: " FORMAT_DWORD
+                    " entries left.\n", EntryCount ));
+        }
+
+        TempStatus = NetpConvertServerInfo (
+                OldLevel,           // from level
+                OldInfoEntry,       // from info (fixed part)
+                TRUE,               // from native format
+                Level,              // to level
+                NewInfoEntry,       // to info (fixed part)
+                NewFixedSize,
+                NewEntryStringSize,
+                TRUE,               // to native format
+                (LPTSTR *)&NewStringArea);  // to string area (ptr updated)
+
         if (TempStatus != NO_ERROR) {
-            (VOID) NetApiBufferFree(OldInfoArray);
-            *BufPtr = NULL;
-            return (TempStatus);
+            Status = TempStatus;
+            goto Cleanup;
         }
-        NewStringArea = NetpPointerPlusSomeBytes(NewInfoArray,NewInfoArraySize);
 
-        NewInfoEntry = NewInfoArray;
-        while (EntryCount > 0) {
-            IF_DEBUG(SERVER) {
-                NetpKdPrint(( PREFIX_NETAPI "RxNetServerEnum: " FORMAT_DWORD
-                        " entries left.\n", EntryCount ));
-            }
-            TempStatus = NetpConvertServerInfo (
-                    OldLevel,           // from level
-                    OldInfoEntry,       // from info (fixed part)
-                    TRUE,               // from native format
-                    Level,              // to level
-                    NewInfoEntry,       // to info (fixed part)
-                    NewFixedSize,
-                    NewEntryStringSize,
-                    TRUE,               // to native format
-                    (LPTSTR *)&NewStringArea);  // to string area (ptr updated)
-            NetpAssert(TempStatus == NO_ERROR);
-            NewInfoEntry = NetpPointerPlusSomeBytes(
-                    NewInfoEntry, NewFixedSize);
-            OldInfoEntry = NetpPointerPlusSomeBytes(
-                    OldInfoEntry, OldFixedSize);
-            --EntryCount;
-        }
-        *BufPtr = NewInfoArray;
-    } else {
+        NewInfoEntry = NetpPointerPlusSomeBytes( NewInfoEntry, NewFixedSize);
+        OldInfoEntry = NetpPointerPlusSomeBytes( OldInfoEntry, OldFixedSize);
+        --EntryCount;
+    }
 
-        // Fatal error.
+    *BufPtr = NewInfoArray;
+
+
+    //
+    // Free locally used resources and exit.
+    //
+
+Cleanup:
+    //
+    // Reset Output parameters on error
+
+    if ( Status != NERR_Success && Status != ERROR_MORE_DATA ) {
+        *EntriesRead = 0;
+        *TotalEntries = 0;
+    }
+
+    if (*EntriesRead == 0) {
         *BufPtr = NULL;
     }
 
@@ -444,4 +880,314 @@ TryTheApi:
 
     return (Status);
 
-} // RxNetServerEnum
+} // RxNetServerEnumWorker
+
+
+NET_API_STATUS
+RxNetServerEnum (
+    IN LPCWSTR UncServerName,
+    IN LPCWSTR TransportName,
+    IN DWORD Level,
+    OUT LPBYTE *BufPtr,
+    IN DWORD PrefMaxSize,
+    OUT LPDWORD EntriesRead,
+    OUT LPDWORD TotalEntries,
+    IN DWORD ServerType,
+    IN LPCWSTR Domain OPTIONAL,
+    IN LPCWSTR FirstNameToReturn OPTIONAL
+    )
+
+/*++
+
+Routine Description:
+
+    RxNetServerEnumIntoTree calls RxNetServerEnumWorker repeatedly until it returns
+    all entries or until at least PrefMaxSize data has been returned.
+
+    One of the callers is EnumServersForTransport (on behalf of NetServerEnumEx).  It
+    depends on the fact that we return at least PrefMaxSize entries for this transport.
+    Otherwise, NetServerEnumEx might return a last entry from a different transport even
+    though there are entries on this transport with names that are less than lexically
+    smaller names.  Such entries on this transport would never be returned.
+
+Arguments:
+
+    (Same as NetServerEnum, except UncServerName must not be null, and
+    must not refer to the local computer.)
+
+    FirstNameToReturn: Must be uppercase
+
+        Passed name must be the canonical form of the name.
+
+Return Value:
+
+    (Same as NetServerEnum.)
+
+--*/
+
+
+{
+    NET_API_STATUS NetStatus;
+    NET_API_STATUS TempNetStatus;
+    ULONG BytesGatheredSoFar = 0;
+    ULONG BytesDuplicated = 0;
+    LPBYTE LocalBuffer = NULL;
+    DWORD LocalEntriesRead;
+    DWORD LocalTotalEntries;
+    WCHAR LocalFirstNameToReturn[CNLEN+1];
+    BOOLEAN InternalContinuation = FALSE;
+
+    // Variable to build the returned information into.
+    LPBYTE CurrentServerList = NULL;
+    DWORD CurrentEntriesRead = 0;
+    DWORD CurrentTotalEntries = 0;
+
+    DWORD MaxSize;
+    DWORD FixedSize;
+
+    //
+    // Initialization.
+    //
+
+    *TotalEntries = 0;
+    *EntriesRead = 0;
+
+    if ( FirstNameToReturn == NULL) {
+        LocalFirstNameToReturn[0] = L'\0';
+    } else {
+        wcsncpy( LocalFirstNameToReturn, FirstNameToReturn, CNLEN+1 );
+        LocalFirstNameToReturn[CNLEN] = L'\0';
+    }
+
+    //
+    // Get information about the array returned from RxNetServerEnumWorker.
+    //
+
+    NetStatus = RxGetServerInfoLevelEquivalent(
+            Level,                      // from level
+            TRUE,                       // from native
+            TRUE,                       // to native
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            &MaxSize,                   // "from" max length
+            &FixedSize,                 // "from" fixed length
+            NULL,                       // "from" string length
+            NULL,                       // "to" max length
+            NULL,                       // "to" fixed length
+            NULL,                       // don't need "to" string length
+            NULL);               // don't need to know if this is incomplete
+
+    if (NetStatus != NO_ERROR) {
+        goto Cleanup;
+    }
+
+    //
+    // Loop calling the server getting more entries on each call.
+    //
+
+    for (;;) {
+
+        //
+        // Get the next chunk of data from the server.
+        //  Return an extra entry to account for FirstNameToReturn being returned on the
+        //  previous call.
+        //
+
+        NetStatus = RxNetServerEnumWorker(
+                            UncServerName,
+                            TransportName,
+                            Level,
+                            &LocalBuffer,
+                            PrefMaxSize - BytesGatheredSoFar + BytesDuplicated,
+                            &LocalEntriesRead,
+                            &LocalTotalEntries,
+                            ServerType,
+                            Domain,
+                            LocalFirstNameToReturn,
+                            InternalContinuation );
+
+        if ( NetStatus != NERR_Success && NetStatus != ERROR_MORE_DATA ) {
+            goto Cleanup;
+        }
+
+        //
+        // If we have as many entries as the server has to give,
+        //  tell our caller.
+        //
+        // This is the case where the server doesn't support the ENUM3 protocol.
+        //
+
+        if ( NetStatus == ERROR_MORE_DATA && LocalEntriesRead == 0 ) {
+            goto Cleanup;
+        }
+
+        //
+        // If there is more data available,
+        //  and we only want a limited amount of data.
+        // Compute the amount of data returned on this call.
+        //
+        // Determine the number of bytes to ask for on the next call.
+        //
+        // If our caller asked for all entries,
+        //  simply ask for all entries from the server.
+        //
+
+        if ( NetStatus == ERROR_MORE_DATA && PrefMaxSize != 0xFFFFFFFF ) {
+            DWORD i;
+            LPBYTE Current = LocalBuffer;
+
+
+            //
+            // Loop through the entries returned on the current call
+            //  computing the size returned.
+            //
+
+            for ( i=0; i<LocalEntriesRead; i++) {
+
+                //
+                // Add the size of the current entry.
+                //
+
+                BytesGatheredSoFar += FixedSize;
+
+                if ( ((LPSERVER_INFO_100)Current)->sv100_name != NULL ) {
+                    BytesGatheredSoFar = (wcslen(((LPSERVER_INFO_100)Current)->sv100_name) + 1) * sizeof(WCHAR);
+                }
+
+                if ( Level == 101 &&
+                    ((LPSERVER_INFO_101)Current)->sv101_comment != NULL ) {
+                    BytesGatheredSoFar += (wcslen(((LPSERVER_INFO_101)Current)->sv101_comment) + 1) * sizeof(WCHAR);
+                }
+
+                //
+                // Move to the next entry.
+                //
+
+                Current += FixedSize;
+            }
+
+
+            //
+            // Account for the fact that the first entry returned is identical to the
+            //  last entry returned on the previous call.
+
+            BytesDuplicated = MaxSize;
+
+        }
+
+        //
+        // Append the new server list to the one we've been collecting
+        //
+
+        TempNetStatus = AppendServerList(
+                            &CurrentServerList,
+                            &CurrentEntriesRead,
+                            &CurrentTotalEntries,
+                            Level,
+                            FixedSize,
+                            &LocalBuffer,
+                            LocalEntriesRead,
+                            LocalTotalEntries );
+
+        if ( TempNetStatus != NERR_Success ) {
+            NetStatus = TempNetStatus;
+            goto Cleanup;
+        }
+
+        //
+        // Free the buffer if AppendServerList didn't already.
+        //
+        //  Now free up the remaining parts of the list.
+        //
+
+        if (LocalBuffer != NULL) {
+            NetApiBufferFree(LocalBuffer);
+            LocalBuffer = NULL;
+        }
+
+
+        //
+        // If we've returned everything from the server,
+        //  simply return now.
+        //
+
+        if ( NetStatus == NERR_Success ) {
+            goto Cleanup;
+        }
+
+
+        //
+        // Handle calling the server again to get the next several entries.
+        //
+
+        //
+        // Pass the name of the next server to return
+        //
+
+        wcscpy( LocalFirstNameToReturn,
+                ((LPSERVER_INFO_100)(CurrentServerList + (CurrentEntriesRead-1) * FixedSize))->sv100_name );
+        InternalContinuation = TRUE;
+
+        //
+        // If we've already gathered all the bytes we need,
+        //  we're done.
+        //
+        // If the worker routine returned what we needed, it'll be a few bytes under
+        // PrefMaxSize. So stop here if we're within one element of our goal.
+        //
+
+        if ( BytesGatheredSoFar + BytesDuplicated >= PrefMaxSize ) {
+            NetStatus = ERROR_MORE_DATA;
+            goto Cleanup;
+        }
+
+    }
+
+Cleanup:
+
+    //
+    // Return the collected data to the caller.
+    //
+
+    if ( NetStatus == NERR_Success || NetStatus == ERROR_MORE_DATA ) {
+
+
+        //
+        // Return the entries.
+        //
+
+        *BufPtr = CurrentServerList;
+        CurrentServerList = NULL;
+
+        *EntriesRead = CurrentEntriesRead;
+
+        //
+        // Adjust TotalEntries returned for reality.
+        //
+
+        if ( NetStatus == NERR_Success ) {
+            *TotalEntries = *EntriesRead;
+        } else {
+            *TotalEntries = max( CurrentTotalEntries, CurrentEntriesRead + 1 );
+        }
+
+    }
+
+    //
+    //  Free locally used resources
+    //
+
+    if (LocalBuffer != NULL) {
+        NetApiBufferFree(LocalBuffer);
+        LocalBuffer = NULL;
+    }
+
+    if ( CurrentServerList != NULL ) {
+        NetApiBufferFree( CurrentServerList );
+    }
+
+    return NetStatus;
+}
+

@@ -44,114 +44,164 @@ Revision History:
 
 --*/
 
+#include <nt.h>
+#include <ntrtl.h>
+#include <nturtl.h>
+#include <windows.h>
+#include <imagehlp.h>
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <memory.h>
 #include <ctype.h>
-#include <nt.h>
-#include <ntrtl.h>
-#include <nturtl.h>
-#include <windows.h>
-#include <imagehlp.h>
+#include <..\pperf\pstat.h>
 
+
+#define SYM_HANDLE ((HANDLE)0xffffffff)
 #define DBG_PROFILE 0
+#define MAX_BYTE_PER_LINE  72
+#define MAX_PROFILE_COUNT  50
+#define MAXIMUM_PROCESSORS 32
 
-void
-SetSymbolSearchPath (void);
+typedef struct _PROFILE_BLOCK {
+    HANDLE      Handle[MAXIMUM_PROCESSORS];
+    PVOID       ImageBase;
+    PULONG      CodeStart;
+    ULONG       CodeLength;
+    PULONG      Buffer[MAXIMUM_PROCESSORS];
+    ULONG       BufferSize;
+    ULONG       TextNumber;
+    ULONG       BucketSize;
+    LPSTR       ModuleName;
+    BOOL        SymbolsLoaded;
+} PROFILE_BLOCK;
 
-NTSTATUS
-InitializeKernelProfile ( VOID );
 
-NTSTATUS
-StartProfile (
+#define MAX_SYMNAME_SIZE  1024
+CHAR symBuffer[sizeof(IMAGEHLP_SYMBOL)+MAX_SYMNAME_SIZE];
+PIMAGEHLP_SYMBOL ThisSymbol = (PIMAGEHLP_SYMBOL) symBuffer;
+
+CHAR LastSymBuffer[sizeof(IMAGEHLP_SYMBOL)+MAX_SYMNAME_SIZE];
+PIMAGEHLP_SYMBOL LastSymbol = (PIMAGEHLP_SYMBOL) LastSymBuffer;
+
+
+
+VOID
+InitializeProfileSourceMapping (
     VOID
     );
 
 NTSTATUS
-StopProfile (
+InitializeKernelProfile(
     VOID
     );
 
 NTSTATUS
-AnalyzeProfile (
+StartProfile(
+    VOID
+    );
+
+NTSTATUS
+StopProfile(
+    VOID
+    );
+
+NTSTATUS
+AnalyzeProfile(
     ULONG Threshold
     );
 
-NTSTATUS
-RtlpCaptureSymbolInformation(
-    IN PIMAGE_SYMBOL SymbolEntry,
-    IN PCHAR StringTable,
-    OUT PRTL_SYMBOL_INFORMATION SymbolInformation
+VOID
+OutputSymbolCount(
+    IN ULONG CountAtSymbol,
+    IN PROFILE_BLOCK *ProfileObject,
+    IN PIMAGEHLP_SYMBOL SymbolInfo,
+    IN ULONG Threshold,
+    IN PULONG CounterStart,
+    IN PULONG CounterStop
     );
 
-NTSTATUS
-KProfLookupSymbolByAddress(
-	IN PIMAGE_COFF_SYMBOLS_HEADER DebugInfo,
-    IN PVOID ImageBase,
-    IN PVOID Address,
-    IN ULONG ClosenessLimit,
-    OUT PRTL_SYMBOL_INFORMATION SymbolInformation,
-    OUT PRTL_SYMBOL_INFORMATION NextSymbolInformation OPTIONAL,
-    OUT PULONG pFunctionLen
-    );
-
+#ifdef _ALPHA_
+#define PAGE_SIZE 8192
+#else
 #define PAGE_SIZE 4096
+#endif
 
-typedef enum {
-	NO_SYM,
-	SPLIT_SYM,
-	IMAGE_SYM
-} SYMFLAG;
 
-typedef struct _PROFILE_BLOCK {
-    SYMFLAG SymFlag;
-    HANDLE Handle;
-    PVOID ImageBase;
-    PULONG CodeStart;
-    ULONG CodeLength;
-    PULONG Buffer;
-    ULONG BufferSize;
-    ULONG TextNumber;
-    ULONG BucketSize;
-	PIMAGE_COFF_SYMBOLS_HEADER DebugInfo;
-    PVOID MappedImageBase;  //actual base where mapped locally.
-    UNICODE_STRING ImageName;
-} PROFILE_BLOCK;
-
-#define MAX_BYTE_PER_LINE	72
-#define MAX_PROFILE_COUNT  50
 
 PROFILE_BLOCK ProfileObject[MAX_PROFILE_COUNT];
 
 ULONG NumberOfProfileObjects = 0;
-LPSTR lpSymbolSearchPath = NULL;
+ULONG MaxProcessors = 1;
+
+CHAR SymbolSearchPathBuf[4096];
+LPSTR lpSymbolSearchPath = SymbolSearchPathBuf;
 
 // display flags
-BOOL	bDisplayAddress=FALSE;
-BOOL	bDisplayCounters=FALSE;
+BOOL    bDisplayAddress=FALSE;
+BOOL    bDisplayDensity=FALSE;
+BOOL    bDisplayCounters=FALSE;
+BOOL    bDisplayContextSwitch=FALSE;
+BOOL    bPerProcessor = FALSE;
+BOOL    Verbose = FALSE;
+
 //
 // Image name to perform kernel mode analysis upon.
 //
 
 #define IMAGE_NAME "\\SystemRoot\\system32\\ntoskrnl.exe"
 
-//
-// Define map data file if the produced data file should be
-// a mapped file (currently named "kernprof.dat").
-//
-
-// #define MAP_DATA_FILE
-
-//
-// Define map as image if the image to be profiled should be mapped
-// as an image rather than as data.
-//
-
-// #define MAP_AS_IMAGE
-
 HANDLE DoneEvent;
+HANDLE DelayEvent;
+
+KPROFILE_SOURCE ProfileSource = ProfileTime;
+
+//
+// define the mappings between arguments and KPROFILE_SOURCE types
+//
+
+typedef struct _PROFILE_SOURCE_MAPPING {
+    PCHAR   ShortName;
+    PCHAR   Description;
+    KPROFILE_SOURCE Source;
+} PROFILE_SOURCE_MAPPING, *PPROFILE_SOURCE_MAPPING;
+
+#if defined(_ALPHA_)
+
+PROFILE_SOURCE_MAPPING ProfileSourceMapping[] = {
+    {"align", "", ProfileAlignmentFixup},
+    {"totalissues", "", ProfileTotalIssues},
+    {"pipelinedry", "", ProfilePipelineDry},
+    {"loadinstructions", "", ProfileLoadInstructions},
+    {"pipelinefrozen", "", ProfilePipelineFrozen},
+    {"branchinstructions", "", ProfileBranchInstructions},
+    {"totalnonissues", "", ProfileTotalNonissues},
+    {"dcachemisses", "", ProfileDcacheMisses},
+    {"icachemisses", "", ProfileIcacheMisses},
+    {"branchmispredicts", "", ProfileBranchMispredictions},
+    {"storeinstructions", "", ProfileStoreInstructions},
+    {NULL,0}
+    };
+
+#elif defined(_MIPS_)
+
+PROFILE_SOURCE_MAPPING ProfileSourceMapping[] = {
+    {"align", },
+    {NULL,0}
+    };
+
+#elif defined(_X86_)
+
+PPROFILE_SOURCE_MAPPING ProfileSourceMapping;
+
+#else
+
+PROFILE_SOURCE_MAPPING ProfileSourceMapping[] = {
+    {NULL,0}
+    };
+#endif
+
 BOOL
 CtrlcH(
     DWORD dwCtrlType
@@ -167,14 +217,27 @@ CtrlcH(
 void PrintUsage (void)
 {
     printf ("Kernel Profiler Usage:\n\n");
-    printf ("Kernprof [-a] [-c] [<sample time> [<low threshold>]]\n");
+    printf ("Kernprof [-a] [-c] [-w <wait time>] [-x] [-p] [s Source] [<sample time> [<low threshold>]]\n");
     printf ("      -a           - display function address and length and bucket size\n");
+    printf ("      -d           - compute hit Density for each function\n");
     printf ("      -c           - display individual counters\n");
+    printf ("      -w           - wait for <wait time> before starting collection\n");
+    printf ("      -x           - display context switch counters\n");
+    printf ("      -p           - Per-processor profile objects\n");
+    printf ("      -v           - Display verbose symbol information\n");
+    printf ("      -s Source    - use Source instead of clock as profile source\n");
     printf ("   <sample time>   - Specify, in seconds, how long to collect\n");
     printf ("                     profile information.\n");
     printf ("                     Default is wait until Ctrl-C\n");
     printf ("   <low threshold> - Minimum number of counts to report.\n");
     printf ("                     Defaults is 100\n\n");
+#if defined (_ALPHA_)
+    printf("Currently supported profile sources are 'align', 'totalissues', 'pipelinedry'\n");
+    printf("  'loadinstructions', 'pipelinefrozen', 'branchinstructions', 'totalnonissues',\n");
+    printf("  'dcachemisses', 'icachemisses', 'branchmispredicts', 'storeinstructions'\n");
+#elif defined (_MIPS_)
+    printf("Currently supported profile sources are 'align'\n");
+#endif
 }
 
 _CRTAPI1 main(
@@ -183,17 +246,27 @@ _CRTAPI1 main(
     char *envp[]
     )
 {
-
-    ULONG i;
     int j;
-    ULONG Count;
     ULONG Seconds = (ULONG)-1;
     NTSTATUS status;
     ULONG Threshold = 100;
     BOOL  bGetSample = TRUE;
+    ULONG DelaySeconds = (ULONG)-1;
+    SYSTEM_CONTEXT_SWITCH_INFORMATION StartContext;
+    SYSTEM_CONTEXT_SWITCH_INFORMATION StopContext;
+    PPROFILE_SOURCE_MAPPING ProfileMapping;
+    SYSTEM_INFO SystemInfo;
+    CHAR SymPath[256];
 
 
-	SetSymbolSearchPath();
+    ThisSymbol->SizeOfStruct  = sizeof(IMAGEHLP_SYMBOL);
+    ThisSymbol->MaxNameLength = MAX_SYMNAME_SIZE;
+    LastSymbol->SizeOfStruct  = sizeof(IMAGEHLP_SYMBOL);
+    LastSymbol->MaxNameLength = MAX_SYMNAME_SIZE;
+
+    SymSetOptions( SYMOPT_UNDNAME | SYMOPT_CASE_INSENSITIVE );
+    SymInitialize( SYM_HANDLE, NULL, FALSE );
+    SymGetSearchPath( SYM_HANDLE, SymbolSearchPathBuf, sizeof(SymbolSearchPathBuf) );
 
     //
     // Parse the input string.
@@ -207,36 +280,90 @@ _CRTAPI1 main(
             return ERROR_SUCCESS;
         }
 
-		  for (j = 1; j < argc; j++) {
-				if (argv[j][0] == '-' && 
-               (argv[j][1] == 'a' || argv[j][1] == 'A')) {
-					bDisplayAddress = TRUE;
-				}
-				else if (argv[j][0] == '-' && 
-               (argv[j][1] == 'c' || argv[j][1] == 'C')) {
-					bDisplayCounters = TRUE;
-				}
-				else if (bGetSample) {
-               bGetSample = FALSE;
-	            Seconds = 0;
-               if ( argv[j][0] == '-' ) {
-                  Seconds = 0;
-               }
-               else {
-                  for (i = 0; isdigit(argv[j][i]); i += 1) {
-                     Seconds = Seconds * 10 + argv[j][i] - '0';
-                  }
-               }
-            }
-				else {
-               Count = 0;
-               for (i = 0; isdigit(argv[j][i]); i += 1) {
-                  Count = Count * 10 + argv[j][i] - '0';
-               }
-               Threshold = Count;
+        for (j = 1; j < argc; j++) {
+            if (argv[j][0] == '-') {
+                switch (toupper(argv[j][1])) {
+                    case 'A':
+                        bDisplayAddress = TRUE;
+                        break;
 
-               // we got everything we need
-               break;  
+                    case 'D':
+                        bDisplayDensity = TRUE;
+                        break;
+
+                    case 'C':
+                        bDisplayCounters = TRUE;
+                        break;
+
+                    case 'S':
+                        if (!ProfileSourceMapping) {
+                            InitializeProfileSourceMapping();
+                        }
+
+                        if (!argv[j+1]) {
+                            break;
+                        }
+
+                        if (argv[j+1][0] == '?') {
+                            ProfileMapping = ProfileSourceMapping;
+                            if (ProfileMapping) {
+                                printf ("kernprof: profile sources\n");
+                                while (ProfileMapping->ShortName != NULL) {
+                                    printf ("  %-10s %s\n",
+                                        ProfileMapping->ShortName,
+                                        ProfileMapping->Description
+                                        );
+                                    ++ProfileMapping;
+                                }
+                            } else {
+                                printf ("kernprof: no alternative profile sources\n");
+                            }
+                            return 0;
+                        }
+
+                        ProfileMapping = ProfileSourceMapping;
+                        if (ProfileMapping) {
+                            while (ProfileMapping->ShortName != NULL) {
+                                if (_stricmp(ProfileMapping->ShortName, argv[j+1])==0) {
+                                    ProfileSource = ProfileMapping->Source;
+                                    printf ("ProfileSource %x\n", ProfileMapping->Source);
+                                    ++j;
+                                    break;
+                                }
+                                ++ProfileMapping;
+                            }
+                        }
+                        break;
+
+                    case 'W':
+                        DelayEvent = CreateEvent(NULL,FALSE,FALSE,NULL);
+                        DelaySeconds = atoi(argv[++j]);
+                        SetPriorityClass(GetCurrentProcess(), REALTIME_PRIORITY_CLASS);
+                        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+                        break;
+
+                    case 'X':
+                        bDisplayContextSwitch = TRUE;
+                        break;
+
+                    case 'V':
+                        Verbose = TRUE;
+                        break;
+
+                    case 'P':
+                        GetSystemInfo(&SystemInfo);
+                        MaxProcessors = SystemInfo.dwNumberOfProcessors;
+                        bPerProcessor = TRUE;
+                        break;
+
+                }
+            } else {
+                if (bGetSample) {
+                    bGetSample = FALSE;
+                    Seconds = atoi(argv[j]);
+                } else {
+                    Threshold = atoi(argv[j]);
+                }
             }
         }
     }
@@ -251,6 +378,18 @@ _CRTAPI1 main(
 
     SetConsoleCtrlHandler(CtrlcH,TRUE);
 
+    if (DelaySeconds != -1) {
+        printf("starting profile after %d seconds\n",DelaySeconds);
+        WaitForSingleObject(DelayEvent, DelaySeconds*1000);
+    }
+
+    if (bDisplayContextSwitch) {
+        NtQuerySystemInformation(SystemContextSwitchInformation,
+                                 &StartContext,
+                                 sizeof(StartContext),
+                                 NULL);
+    }
+
     status = StartProfile ();
     if (!NT_SUCCESS(status)) {
         printf("start profile failed status - %lx\n",status);
@@ -262,7 +401,7 @@ _CRTAPI1 main(
         }
     else {
         printf("delaying for %ld seconds... report on values with %ld hits\n",
-			Seconds, Threshold);
+                        Seconds, Threshold);
         }
     if ( Seconds ) {
         if ( Seconds != -1 ) {
@@ -286,12 +425,145 @@ _CRTAPI1 main(
         printf("stop profile failed status - %lx\n",status);
         return(status);
     }
+
+    SetConsoleCtrlHandler(CtrlcH,FALSE);
+
+    if (bDisplayContextSwitch) {
+        status = NtQuerySystemInformation(SystemContextSwitchInformation,
+                                          &StopContext,
+                                          sizeof(StopContext),
+                                          NULL);
+        if (!NT_SUCCESS(status)) {
+            printf("QuerySystemInformation for context switch information failed %08lx\n",status);
+            bDisplayContextSwitch = FALSE;
+        }
+    }
+
+    if (DelaySeconds != -1) {
+        SetPriorityClass(GetCurrentProcess(), NORMAL_PRIORITY_CLASS);
+        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_NORMAL);
+    }
     status = AnalyzeProfile (Threshold);
 
     if (!NT_SUCCESS(status)) {
         printf("analyze profile failed status - %lx\n",status);
     }
+
+    if (bDisplayContextSwitch) {
+        printf("\n");
+        printf("Context Switch Information\n");
+        printf("    Find any processor        %6ld\n", StopContext.FindAny - StartContext.FindAny);
+        printf("    Find last processor       %6ld\n", StopContext.FindLast - StartContext.FindLast);
+        printf("    Idle any processor        %6ld\n", StopContext.IdleAny - StartContext.IdleAny);
+        printf("    Idle current processor    %6ld\n", StopContext.IdleCurrent - StartContext.IdleCurrent);
+        printf("    Idle last processor       %6ld\n", StopContext.IdleLast - StartContext.IdleLast);
+        printf("    Preempt any processor     %6ld\n", StopContext.PreemptAny - StartContext.PreemptAny);
+        printf("    Preempt current processor %6ld\n", StopContext.PreemptCurrent - StartContext.PreemptCurrent);
+        printf("    Preempt last processor    %6ld\n", StopContext.PreemptLast - StartContext.PreemptLast);
+        printf("    Switch to idle            %6ld\n", StopContext.SwitchToIdle - StartContext.SwitchToIdle);
+        printf("\n");
+        printf("    Total context switches    %6ld\n", StopContext.ContextSwitches - StartContext.ContextSwitches);
+    }
     return(status);
+}
+
+VOID
+InitializeProfileSourceMapping (
+    VOID
+    )
+{
+#if defined(_X86_)
+    UNICODE_STRING              DriverName;
+    NTSTATUS                    status;
+    OBJECT_ATTRIBUTES           ObjA;
+    IO_STATUS_BLOCK             IOSB;
+    UCHAR                       buffer[400];
+    ULONG                       i, j, Count;
+    PEVENTID                    Event;
+    HANDLE                      DriverHandle;
+
+    //
+    // Open PStat driver
+    //
+
+    RtlInitUnicodeString(&DriverName, L"\\Device\\PStat");
+    InitializeObjectAttributes(
+            &ObjA,
+            &DriverName,
+            OBJ_CASE_INSENSITIVE,
+            0,
+            0 );
+
+    status = NtOpenFile (
+            &DriverHandle,                      // return handle
+            SYNCHRONIZE | FILE_READ_DATA,       // desired access
+            &ObjA,                              // Object
+            &IOSB,                              // io status block
+            FILE_SHARE_READ | FILE_SHARE_WRITE, // share access
+            FILE_SYNCHRONOUS_IO_ALERT           // open options
+            );
+
+    if (!NT_SUCCESS(status)) {
+        return ;
+    }
+
+    //
+    // Initialize possible counters
+    //
+
+    // determine how many events there are
+
+    Event = (PEVENTID) buffer;
+    Count = 0;
+    do {
+        *((PULONG) buffer) = Count;
+        Count += 1;
+
+        status = NtDeviceIoControlFile(
+                    DriverHandle,
+                    (HANDLE) NULL,          // event
+                    (PIO_APC_ROUTINE) NULL,
+                    (PVOID) NULL,
+                    &IOSB,
+                    PSTAT_QUERY_EVENTS,
+                    buffer,                 // input buffer
+                    sizeof (buffer),
+                    NULL,                   // output buffer
+                    0
+                    );
+    } while (NT_SUCCESS(status));
+
+    ProfileSourceMapping = malloc(sizeof(*ProfileSourceMapping) * Count);
+    Count -= 1;
+    for (i=0, j=0; i < Count; i++) {
+        *((PULONG) buffer) = i;
+        NtDeviceIoControlFile(
+           DriverHandle,
+           (HANDLE) NULL,          // event
+           (PIO_APC_ROUTINE) NULL,
+           (PVOID) NULL,
+           &IOSB,
+           PSTAT_QUERY_EVENTS,
+           buffer,                 // input buffer
+           sizeof (buffer),
+           NULL,                   // output buffer
+           0
+           );
+
+        if (Event->ProfileSource > ProfileTime) {
+            ProfileSourceMapping[j].Source      = Event->ProfileSource;
+            ProfileSourceMapping[j].ShortName   = _strdup (Event->Buffer);
+            ProfileSourceMapping[j].Description = _strdup (Event->Buffer + Event->DescriptionOffset);
+            j++;
+        }
+    }
+
+    ProfileSourceMapping[j].Source      = (KPROFILE_SOURCE) 0;
+    ProfileSourceMapping[j].ShortName   = NULL;
+    ProfileSourceMapping[j].Description = NULL;
+
+    NtClose (DriverHandle);
+#endif
 }
 
 
@@ -319,42 +591,33 @@ Return Value:
 
 {
     ULONG i;
-    PCHAR s;
-    IO_STATUS_BLOCK IoStatus;
-    HANDLE FileHandle, KernelSection;
-    OBJECT_ATTRIBUTES ObjectAttributes;
+    ULONG ModuleNumber;
     ULONG ViewSize;
     PULONG CodeStart;
     ULONG CodeLength;
-    NTSTATUS status, LocalStatus;
+    NTSTATUS LocalStatus;
+    NTSTATUS status;
     HANDLE CurrentProcessHandle;
     QUOTA_LIMITS QuotaLimits;
     PVOID Buffer;
     ULONG Cells;
     ULONG BucketSize;
-    ULONG DebugSize;
-    PVOID KernelBase;
-    PIMAGE_DEBUG_DIRECTORY DebugDirectory;
     WCHAR StringBuf[500];
-    CHAR ModuleInfo[64000];
+    CHAR ModuleInfoBuffer[64000];
     ULONG ReturnedLength;
     PRTL_PROCESS_MODULES Modules;
     PRTL_PROCESS_MODULE_INFORMATION Module;
-    ANSI_STRING String;
-    UNICODE_STRING Unicode;
     UNICODE_STRING Sysdisk;
     UNICODE_STRING Sysroot;
     UNICODE_STRING Sysdll;
     UNICODE_STRING NameString;
     BOOLEAN PreviousProfilePrivState;
     BOOLEAN PreviousQuotaPrivState;
-    PIMAGE_NT_HEADERS KernelNtHeaders;
-	PIMAGE_DEBUG_INFORMATION pImageDbgInfo = NULL;
-	ANSI_STRING AnsiImageName;
-    PVOID DbgMappedBase;
-    PVOID ImageBase;
-	SYMFLAG SymFlag;
-	PIMAGE_COFF_SYMBOLS_HEADER KernelDebugInfo;
+    CHAR ImageName[256];
+    HANDLE hFile;
+    HANDLE hMap;
+    PVOID MappedBase;
+    PIMAGE_NT_HEADERS NtHeaders;
 
 
     CurrentProcessHandle = NtCurrentProcess();
@@ -365,8 +628,8 @@ Return Value:
 
     status = NtQuerySystemInformation (
                     SystemModuleInformation,
-                    ModuleInfo,
-                    sizeof( ModuleInfo ),
+                    ModuleInfoBuffer,
+                    sizeof( ModuleInfoBuffer ),
                     &ReturnedLength);
 
     if (!NT_SUCCESS(status)) {
@@ -391,7 +654,7 @@ Return Value:
 
     if (!NT_SUCCESS(status) || status == STATUS_NOT_ALL_ASSIGNED) {
         printf("Enable system profile privilege failed - status 0x%lx\n",
-			status);
+                        status);
     }
 
     status = RtlAdjustPrivilege(
@@ -403,254 +666,96 @@ Return Value:
 
     if (!NT_SUCCESS(status) || status == STATUS_NOT_ALL_ASSIGNED) {
         printf("Unable to increase quota privilege (status=0x%lx)\n",
-			status);
+                        status);
     }
 
 
-    Modules = (PRTL_PROCESS_MODULES)ModuleInfo;
+    Modules = (PRTL_PROCESS_MODULES)ModuleInfoBuffer;
     Module = &Modules->Modules[ 0 ];
-    for (i=0; i<Modules->NumberOfModules; i++) {
+    for (ModuleNumber=0; ModuleNumber < Modules->NumberOfModules; ModuleNumber++,Module++) {
+
 #if DBG_PROFILE
         printf("module base %lx\n",Module->ImageBase);
         printf("module full path name: %s (%u)\n",
-            Module->FullPathName,
-            Module->OffsetToFileName);
+                Module->FullPathName,
+                Module->OffsetToFileName);
 #endif
 
-        s = &Module->FullPathName[ Module->OffsetToFileName ];
-        RtlInitString(&String, s);
-        RtlAnsiStringToUnicodeString( &Unicode, &String, TRUE );
-
-        NameString.Length = 0;
-        status = RtlAppendUnicodeStringToString (&NameString, &Sysdisk);
-        if (!NT_SUCCESS(status)) {
-            printf("append string failed status - %lx\n",status);
-            return(status);
-        }
-        status = RtlAppendUnicodeStringToString (&NameString, &Unicode);
-        if (!NT_SUCCESS(status)) {
-            printf("append string failed status - %lx\n",status);
-            return(status);
-        }
-
-        InitializeObjectAttributes( &ObjectAttributes,
-                                    &NameString,
-                                    OBJ_CASE_INSENSITIVE,
-                                    NULL,
-                                    NULL );
-
-        //
-        // Open the file as readable and executable.
-        //
-#if DBG_PROFILE
-        printf("Opening file name %wZ\n",&NameString);
-#endif
-        status = NtOpenFile ( &FileHandle,
-                              FILE_READ_DATA | FILE_EXECUTE,
-                              &ObjectAttributes,
-                              &IoStatus,
-                              FILE_SHARE_READ,
-                              0L);
-
-        if (!NT_SUCCESS(status)) {
-
-            //
-            // Try a different name - in SystemRoot\Driver directory.
-            //
-            NameString.Length = 0;
-            status = RtlAppendUnicodeStringToString (&NameString, &Sysroot);
-            if (!NT_SUCCESS(status)) {
-                printf("append string failed status - %lx\n",status);
-                return(status);
+        if (SymLoadModule(
+                (HANDLE)SYM_HANDLE,
+                NULL,
+                &Module->FullPathName[Module->OffsetToFileName],
+                NULL,
+                (DWORD)Module->ImageBase,
+                Module->ImageSize
+                )) {
+            ProfileObject[NumberOfProfileObjects].SymbolsLoaded = TRUE;
+            if (Verbose) {
+                printf( "Symbols loaded: %08x  %s\n",
+                    (DWORD)Module->ImageBase,
+                    &Module->FullPathName[Module->OffsetToFileName]
+                    );
             }
-
-            status = RtlAppendUnicodeStringToString (&NameString, &Unicode);
-            if (!NT_SUCCESS(status)) {
-                printf("append string failed status - %lx\n",status);
-                return(status);
-            }
-
-            InitializeObjectAttributes( &ObjectAttributes,
-                                        &NameString,
-                                        OBJ_CASE_INSENSITIVE,
-                                        NULL,
-                                        NULL );
-
-            //
-            // Open the file as readable and executable.
-            //
-#if DBG_PROFILE
-            printf("Opening file name %wZ\n",&NameString);
-#endif
-            status = NtOpenFile ( &FileHandle,
-                                  FILE_READ_DATA,
-                                  &ObjectAttributes,
-                                  &IoStatus,
-                                  FILE_SHARE_READ,
-                                  0L);
-
-            if (!NT_SUCCESS(status)) {
-
-                //
-                // Try a different name - in SystemRoot\System32
-                //
-                NameString.Length = 0;
-                status = RtlAppendUnicodeStringToString (&NameString, &Sysdll);
-                if (!NT_SUCCESS(status)) {
-                    printf("append string failed status - %lx\n",status);
-                    return(status);
-                }
-
-                status = RtlAppendUnicodeStringToString (&NameString, &Unicode);
-                if (!NT_SUCCESS(status)) {
-                    printf("append string failed status - %lx\n",status);
-                    return(status);
-                }
-
-                InitializeObjectAttributes( &ObjectAttributes,
-                                            &NameString,
-                                            OBJ_CASE_INSENSITIVE,
-                                            NULL,
-                                            NULL );
-
-                //
-                // Open the file as readable and executable.
-                //
-#if DBG_PROFILE
-                printf("Opening file name %wZ\n",&NameString);
-#endif
-                status = NtOpenFile ( &FileHandle,
-                                      FILE_READ_DATA,
-                                      &ObjectAttributes,
-                                      &IoStatus,
-                                      FILE_SHARE_READ,
-                                      0L);
-
-				if (!NT_SUCCESS(status)) {
-					printf("Unable to open file %wZ (status=0x%lx)\n",
-						&NameString, status);
-					Module++;
-					continue;
-				}
+        } else {
+            ProfileObject[NumberOfProfileObjects].SymbolsLoaded = FALSE;
+            if (Verbose) {
+                printf( "*** Could not load symbols: %08x  %s\n",
+                    (DWORD)Module->ImageBase,
+                    &Module->FullPathName[Module->OffsetToFileName]
+                    );
             }
         }
 
-        InitializeObjectAttributes( &ObjectAttributes, NULL, 0, NULL, NULL );
+        hFile = FindExecutableImage(
+            &Module->FullPathName[Module->OffsetToFileName],
+            lpSymbolSearchPath,
+            ImageName
+            );
 
-        //
-        // For normal images they would be mapped as an image, but
-        // the kernel has no debug section (as yet) information, hence it
-        // must be mapped as a file.
-        //
-
-        status = NtCreateSection (&KernelSection,
-                                  SECTION_MAP_READ,
-                                  &ObjectAttributes,
-                                  0,
-                                  PAGE_READONLY,
-                                  SEC_COMMIT,
-                                  FileHandle);
-
-        if (!NT_SUCCESS(status)) {
-            printf("create image section failed  status %lx\n", status);
-            return(status);
+        if (!hFile) {
+            continue;
         }
 
-        ViewSize = 0;
-
-        //
-        // Map a view of the section into the address space.
-        //
-
-        KernelBase = NULL;
-
-        status = NtMapViewOfSection (KernelSection,
-                                     CurrentProcessHandle,
-                                     &KernelBase,
-                                     0L,
-                                     0,
-                                     NULL,
-                                     &ViewSize,
-                                     ViewUnmap,
-                                     0,
-                                     PAGE_READONLY);
-
-        if (!NT_SUCCESS(status)) {
-            if (status != STATUS_IMAGE_NOT_AT_BASE) {
-                printf("map section status %lx base %lx size %lx\n", status,
-                    (ULONG)KernelBase, ViewSize);
-            }
+        hMap = CreateFileMapping(
+            hFile,
+            NULL,
+            PAGE_READONLY,
+            0,
+            0,
+            NULL
+            );
+        if (!hMap) {
+            CloseHandle( hFile );
+            continue;
         }
 
-		ImageBase = Module->ImageBase;
-		DbgMappedBase = NULL;
-		KernelNtHeaders = RtlImageNtHeader(KernelBase);
+        MappedBase = MapViewOfFile(
+            hMap,
+            FILE_MAP_READ,
+            0,
+            0,
+            0
+            );
+        if (!MappedBase) {
+            CloseHandle( hMap );
+            CloseHandle( hFile );
+            continue;
+        }
 
-		if (KernelNtHeaders->FileHeader.Characteristics &
-			IMAGE_FILE_DEBUG_STRIPPED) {
-			SymFlag = SPLIT_SYM;
-		    RtlUnicodeStringToAnsiString (&AnsiImageName, &NameString, TRUE);
-			pImageDbgInfo = MapDebugInformation (0L,
-												 AnsiImageName.Buffer,
-												 lpSymbolSearchPath,
-												 (DWORD)ImageBase);
-			if (pImageDbgInfo == NULL) {
-				printf("No debug directory for %wZ [.DBG]\n", &NameString);
-				SymFlag = NO_SYM;
-			}
-			else if ( pImageDbgInfo->CoffSymbols == NULL ) {
-				printf("No debug directory for %wZ [.DBG]\n", &NameString);
-				SymFlag = NO_SYM;
-			}
-			else {
-				KernelDebugInfo = pImageDbgInfo->CoffSymbols;
-				DbgMappedBase = pImageDbgInfo->MappedBase;
-			}
-		}
-		else {
-			SymFlag = IMAGE_SYM;
-			DebugDirectory = (PIMAGE_DEBUG_DIRECTORY)RtlImageDirectoryEntryToData(
-                    KernelBase, FALSE, IMAGE_DIRECTORY_ENTRY_DEBUG, &DebugSize);
+        NtHeaders = ImageNtHeader( MappedBase );
 
-			if (!DebugDirectory ) {
-				printf("No debug directory for %wZ\n", &NameString);
-				SymFlag = NO_SYM;
-			}
-			//
-			// point debug directory at coff debug directory
-			//
-			{
-				int ndebugdirs;
+        CodeLength = NtHeaders->OptionalHeader.SizeOfImage;
+        if (NtHeaders->FileHeader.Machine == IMAGE_FILE_MACHINE_R4000 ||
+            NtHeaders->FileHeader.Machine == IMAGE_FILE_MACHINE_R10000 ) {
+                CodeLength -=
+                    NtHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].Size;
+        }
 
-				ndebugdirs = DebugSize / sizeof(*DebugDirectory);
+        CodeStart = (PULONG)(ULONG)Module->ImageBase;
 
-				while ( ndebugdirs-- ) {
-					if ( DebugDirectory->Type == IMAGE_DEBUG_TYPE_COFF ) {
-						break;
-					}
-					DebugDirectory++;
-				}
-
-			}
-
-			if (!DebugDirectory || DebugDirectory->Type != IMAGE_DEBUG_TYPE_COFF ) {
-				printf("No debug directory for %wZ\n", &NameString);
-				SymFlag = NO_SYM;
-			}
-
-			KernelDebugInfo = (PIMAGE_COFF_SYMBOLS_HEADER)((ULONG)KernelBase + DebugDirectory->PointerToRawData);
-			DbgMappedBase = KernelBase;
-		}
-
-//		if (SymFlag == NO_SYM) {
-			CodeLength = KernelNtHeaders->OptionalHeader.SizeOfCode;
-			CodeStart = (PULONG)((ULONG)ImageBase +
-				KernelNtHeaders->OptionalHeader.BaseOfCode);
-//		}
-//		else {
-//			CodeStart = (PULONG)((ULONG)ImageBase + KernelDebugInfo->RvaToFirstByteOfCode);
-//			CodeLength = (KernelDebugInfo->RvaToLastByteOfCode - KernelDebugInfo->RvaToFirstByteOfCode) - 1;
-//		}
+        UnmapViewOfFile( MappedBase );
+        CloseHandle( hMap );
+        CloseHandle( hFile );
 
         if (CodeLength > 1024*512) {
 
@@ -664,109 +769,111 @@ Return Value:
             ViewSize = CodeLength + PAGE_SIZE;
         }
 
-        Buffer = NULL;
-
-        status = NtAllocateVirtualMemory (CurrentProcessHandle,
-                                          (PVOID *)&Buffer,
-                                          0,
-                                          &ViewSize,
-                                          MEM_RESERVE | MEM_COMMIT,
-                                          PAGE_READWRITE);
-
-        if (!NT_SUCCESS(status)) {
-            printf ("alloc VM failed %lx\n",status);
-            return(status);
-        }
-
-        //
-        // Calculate the bucket size for the profile.
-        //
-
-        Cells = ((CodeLength / (ViewSize >> 2)) >> 2);
-        BucketSize = 2;
-
-        while (Cells != 0) {
-            Cells = Cells >> 1;
-            BucketSize += 1;
-        }
-
-        ProfileObject[NumberOfProfileObjects].Buffer = Buffer;
-        ProfileObject[NumberOfProfileObjects].DebugInfo = KernelDebugInfo;
-        ProfileObject[NumberOfProfileObjects].MappedImageBase = DbgMappedBase;
-        ProfileObject[NumberOfProfileObjects].BufferSize = 1 + (CodeLength >> (BucketSize - 2));
         ProfileObject[NumberOfProfileObjects].CodeStart = CodeStart;
         ProfileObject[NumberOfProfileObjects].CodeLength = CodeLength;
-        ProfileObject[NumberOfProfileObjects].SymFlag = SymFlag;
         ProfileObject[NumberOfProfileObjects].TextNumber = 1;
-        ProfileObject[NumberOfProfileObjects].ImageBase = ImageBase;
-        ProfileObject[NumberOfProfileObjects].ImageName = NameString;
-        ProfileObject[NumberOfProfileObjects].ImageName.Buffer = RtlAllocateHeap(RtlProcessHeap(), 0,NameString.MaximumLength);
-        RtlMoveMemory(
-            ProfileObject[NumberOfProfileObjects].ImageName.Buffer,
-            NameString.Buffer,
-            NameString.MaximumLength
-            );
+        ProfileObject[NumberOfProfileObjects].ImageBase = Module->ImageBase;
+        ProfileObject[NumberOfProfileObjects].ModuleName = _strdup(&Module->FullPathName[Module->OffsetToFileName]);
 
-        ProfileObject[NumberOfProfileObjects].BucketSize = BucketSize;
+        for (i=0; i<MaxProcessors; i++) {
 
-        //
-        // Increase the working set to lock down a bigger buffer.
-        //
+            Buffer = NULL;
 
-        status = NtQueryInformationProcess (CurrentProcessHandle,
-                                            ProcessQuotaLimits,
-                                            &QuotaLimits,
-                                            sizeof(QUOTA_LIMITS),
-                                            NULL );
+            status = NtAllocateVirtualMemory (CurrentProcessHandle,
+                                              (PVOID *)&Buffer,
+                                              0,
+                                              &ViewSize,
+                                              MEM_RESERVE | MEM_COMMIT,
+                                              PAGE_READWRITE);
 
-        if (!NT_SUCCESS(status)) {
-            printf ("query process info failed %lx\n",status);
-            return(status);
-        }
+            if (!NT_SUCCESS(status)) {
+                printf ("alloc VM failed %lx\n",status);
+                return(status);
+            }
 
-        QuotaLimits.MaximumWorkingSetSize += ViewSize;
-        QuotaLimits.MinimumWorkingSetSize += ViewSize;
+            //
+            // Calculate the bucket size for the profile.
+            //
 
-        status = NtSetInformationProcess (CurrentProcessHandle,
-                                      ProcessQuotaLimits,
-                                      &QuotaLimits,
-                                      sizeof(QUOTA_LIMITS));
-#if 0
-        if (!NT_SUCCESS(status)) {
-            printf ("setting working set failed %lx\n",status);
-            return status;
-        }
-#endif //0
+            Cells = ((CodeLength / (ViewSize >> 2)) >> 2);
+            BucketSize = 2;
+
+            while (Cells != 0) {
+                Cells = Cells >> 1;
+                BucketSize += 1;
+            }
+
+            ProfileObject[NumberOfProfileObjects].Buffer[i] = Buffer;
+            ProfileObject[NumberOfProfileObjects].BufferSize = 1 + (CodeLength >> (BucketSize - 2));
+            ProfileObject[NumberOfProfileObjects].BucketSize = BucketSize;
+
+            //
+            // Increase the working set to lock down a bigger buffer.
+            //
+
+            status = NtQueryInformationProcess (CurrentProcessHandle,
+                                                ProcessQuotaLimits,
+                                                &QuotaLimits,
+                                                sizeof(QUOTA_LIMITS),
+                                                NULL );
+
+            if (!NT_SUCCESS(status)) {
+                printf ("query process info failed %lx\n",status);
+                return(status);
+            }
+
+            QuotaLimits.MaximumWorkingSetSize += ViewSize;
+            QuotaLimits.MinimumWorkingSetSize += ViewSize;
+
+            status = NtSetInformationProcess (CurrentProcessHandle,
+                                          ProcessQuotaLimits,
+                                          &QuotaLimits,
+                                          sizeof(QUOTA_LIMITS));
 
 #if DBG_PROFILE
-        printf("code start %lx len %lx, bucksize %lx buffer %lx bsize %lx\n",
-            ProfileObject[NumberOfProfileObjects].CodeStart,
-            ProfileObject[NumberOfProfileObjects].CodeLength,
-            ProfileObject[NumberOfProfileObjects].BucketSize,
-            ProfileObject[NumberOfProfileObjects].Buffer ,
-            ProfileObject[NumberOfProfileObjects].BufferSize);
+            printf("code start %lx len %lx, bucksize %lx buffer %lx bsize %lx\n",
+                ProfileObject[NumberOfProfileObjects].CodeStart,
+                ProfileObject[NumberOfProfileObjects].CodeLength,
+                ProfileObject[NumberOfProfileObjects].BucketSize,
+                ProfileObject[NumberOfProfileObjects].Buffer ,
+                ProfileObject[NumberOfProfileObjects].BufferSize);
 #endif
 
-        status = NtCreateProfile (
-                    &ProfileObject[NumberOfProfileObjects].Handle,
-                    0,
-                    ProfileObject[NumberOfProfileObjects].CodeStart,
-                    ProfileObject[NumberOfProfileObjects].CodeLength,
-                    ProfileObject[NumberOfProfileObjects].BucketSize,
-                    ProfileObject[NumberOfProfileObjects].Buffer ,
-                    ProfileObject[NumberOfProfileObjects].BufferSize);
+            if (bPerProcessor) {
+                status = NtCreateProfile (
+                            &ProfileObject[NumberOfProfileObjects].Handle[i],
+                            0,
+                            ProfileObject[NumberOfProfileObjects].CodeStart,
+                            ProfileObject[NumberOfProfileObjects].CodeLength,
+                            ProfileObject[NumberOfProfileObjects].BucketSize,
+                            ProfileObject[NumberOfProfileObjects].Buffer[i] ,
+                            ProfileObject[NumberOfProfileObjects].BufferSize,
+                            ProfileSource,
+                            1 << i);
+            } else {
+                status = NtCreateProfile (
+                            &ProfileObject[NumberOfProfileObjects].Handle[i],
+                            0,
+                            ProfileObject[NumberOfProfileObjects].CodeStart,
+                            ProfileObject[NumberOfProfileObjects].CodeLength,
+                            ProfileObject[NumberOfProfileObjects].BucketSize,
+                            ProfileObject[NumberOfProfileObjects].Buffer[i] ,
+                            ProfileObject[NumberOfProfileObjects].BufferSize,
+                            ProfileSource,
+                            (KAFFINITY)-1);
+            }
 
-        if (status != STATUS_SUCCESS) {
-            printf("create kernel profile %wZ failed - status %lx\n",
-                &ProfileObject[NumberOfProfileObjects].ImageName, status);
+            if (status != STATUS_SUCCESS) {
+                printf("create kernel profile %s failed - status %lx\n",
+                    ProfileObject[NumberOfProfileObjects].ModuleName, status);
+            }
+
         }
 
         NumberOfProfileObjects += 1;
         if (NumberOfProfileObjects == MAX_PROFILE_COUNT) {
             return STATUS_SUCCESS;
         }
-
-        Module++;
     }
 
     if (PreviousProfilePrivState == FALSE) {
@@ -796,7 +903,8 @@ Return Value:
     }
     return status;
 }
-
+
+
 NTSTATUS
 StartProfile (
     VOID
@@ -818,61 +926,60 @@ Return Value:
 --*/
 
 {
-    ULONG i;
+    ULONG Object;
+    ULONG Processor;
     NTSTATUS status;
     QUOTA_LIMITS QuotaLimits;
 
-    NtSetIntervalProfile(10000);
+    NtSetIntervalProfile(10000,ProfileSource);
 
-    for (i = 0; i < NumberOfProfileObjects; i++) {
+    for (Object = 0; Object < NumberOfProfileObjects; Object++) {
 
-        status = NtStartProfile (ProfileObject[i].Handle);
+        for (Processor = 0;Processor < MaxProcessors; Processor++) {
+            status = NtStartProfile (ProfileObject[Object].Handle[Processor]);
 
-        if (status == STATUS_WORKING_SET_QUOTA) {
+            if (status == STATUS_WORKING_SET_QUOTA) {
 
-           //
-           // Increase the working set to lock down a bigger buffer.
-           //
+               //
+               // Increase the working set to lock down a bigger buffer.
+               //
 
-           status = NtQueryInformationProcess (NtCurrentProcess(),
-                                               ProcessQuotaLimits,
-                                               &QuotaLimits,
-                                               sizeof(QUOTA_LIMITS),
-                                               NULL );
+               status = NtQueryInformationProcess (NtCurrentProcess(),
+                                                   ProcessQuotaLimits,
+                                                   &QuotaLimits,
+                                                   sizeof(QUOTA_LIMITS),
+                                                   NULL );
 
-           if (!NT_SUCCESS(status)) {
-               printf ("query process info failed %lx\n",status);
-               return status;
+               if (!NT_SUCCESS(status)) {
+                   printf ("query process info failed %lx\n",status);
+                   return status;
 
-           }
+               }
 
-           QuotaLimits.MaximumWorkingSetSize +=
-                 (20 * PAGE_SIZE) + (ProfileObject[i].BufferSize);
-           QuotaLimits.MinimumWorkingSetSize +=
-                 (20 * PAGE_SIZE) + (ProfileObject[i].BufferSize);
+               QuotaLimits.MaximumWorkingSetSize +=
+                     (20 * PAGE_SIZE) + (ProfileObject[Object].BufferSize);
+               QuotaLimits.MinimumWorkingSetSize +=
+                     (20 * PAGE_SIZE) + (ProfileObject[Object].BufferSize);
 
-           status = NtSetInformationProcess (NtCurrentProcess(),
-                                         ProcessQuotaLimits,
-                                         &QuotaLimits,
-                                         sizeof(QUOTA_LIMITS));
-#if 0
-           if (!NT_SUCCESS(status)) {
-               printf ("setting working set failed %lx\n",status);
-               return status;
-           }
-#endif //0
+               status = NtSetInformationProcess (NtCurrentProcess(),
+                                             ProcessQuotaLimits,
+                                             &QuotaLimits,
+                                             sizeof(QUOTA_LIMITS));
 
-           status = NtStartProfile (ProfileObject[i].Handle);
-        }
+               status = NtStartProfile (ProfileObject[Object].Handle[Processor]);
+            }
 
-        if (!NT_SUCCESS(status)) {
-            printf("start profile %wZ failed - status %lx\n",
-                &ProfileObject[i].ImageName, status);
-            return status;
+            if (!NT_SUCCESS(status)) {
+                printf("start profile %s failed - status %lx\n",
+                    ProfileObject[Object].ModuleName, status);
+                return status;
+            }
         }
     }
     return status;
 }
+
+
 NTSTATUS
 StopProfile (
     VOID
@@ -896,19 +1003,23 @@ Return Value:
 
 {
     ULONG i;
+    ULONG Processor;
     NTSTATUS status;
 
     for (i = 0; i < NumberOfProfileObjects; i++) {
-        status = NtStopProfile (ProfileObject[i].Handle);
-        if (status != STATUS_SUCCESS) {
-            printf("stop profile %wZ failed - status %lx\n",
-				&ProfileObject[i].ImageName,status);
-            return status;
+        for (Processor=0; Processor < MaxProcessors; Processor++) {
+            status = NtStopProfile (ProfileObject[i].Handle[Processor]);
+            if (status != STATUS_SUCCESS) {
+                printf("stop profile %s failed - status %lx\n",
+                                    ProfileObject[i].ModuleName,status);
+                return status;
+            }
         }
     }
     return status;
 }
-
+
+
 NTSTATUS
 AnalyzeProfile (
     ULONG Threshold
@@ -932,463 +1043,177 @@ Return Value:
 --*/
 
 {
-
-    RTL_SYMBOL_INFORMATION ThisSymbol;
-    RTL_SYMBOL_INFORMATION LastSymbol;
     ULONG CountAtSymbol;
-    NTSTATUS Status;
     ULONG Va;
     int i;
     PULONG Counter;
-    PULONG pInitialCounter;
+    ULONG Displacement;
     ULONG TotalCounts;
+    ULONG Processor;
+    ULONG TotalHits = 0;
     PULONG BufferEnd;
     PULONG Buffer;
+    PULONG pInitialCounter;
     STRING NoSymbolFound = {16,15,"No Symbol Found"};
-	 ULONG  FunctionLen, LastFunctionLen;
-	 int    ByteCount;
+    BOOL   UseLastSymbol = FALSE;
+
 
     for (i = 0; i < (int)NumberOfProfileObjects; i++) {
-        NtStopProfile (ProfileObject[i].Handle);
-    }
-
-    for (i = 0; i < (int)NumberOfProfileObjects; i++) {
-
-		  LastFunctionLen = 0;
-        LastSymbol.Value = 0;
-        CountAtSymbol = 0;
-        //
-        // Sum the total number of cells written.
-        //
-        BufferEnd = ProfileObject[i].Buffer + (
-                    ProfileObject[i].BufferSize / sizeof(ULONG));
-        Buffer = ProfileObject[i].Buffer;
-        Counter = BufferEnd;
-
-        TotalCounts = 0;
-        while (Counter > Buffer) {
-            Counter -= 1;
-            TotalCounts += *Counter;
+        for (Processor=0;Processor < MaxProcessors;Processor++) {
+            NtStopProfile (ProfileObject[i].Handle[Processor]);
         }
-        printf("\n%9d %42wZ --Total Hits-- %s\n",
-			TotalCounts,
-			&ProfileObject[i].ImageName,
-			((ProfileObject[i].SymFlag == NO_SYM) ? "(NO SYMBOLS)" : "")
-			);
-
-        if (ProfileObject[i].SymFlag != NO_SYM) {
-                        
-			pInitialCounter = Buffer;
-			for ( Counter = Buffer; Counter < BufferEnd; Counter += 1 ) {
-				if ( *Counter ) {
-					//
-					// Now we have an an address relative to the buffer
-					// base.
-					//
-					Va = (ULONG)((PUCHAR)Counter - (PUCHAR)Buffer);
-					Va = Va * ( 1 << (ProfileObject[i].BucketSize - 2));
-
-					//
-					// Add in the image base and the base of the
-					// code to get the Va in the image
-					//
-					Va = Va + (ULONG)ProfileObject[i].CodeStart;
-	
-					Status = KProfLookupSymbolByAddress(
-							ProfileObject[i].DebugInfo,
-							ProfileObject[i].ImageBase,
-							(PVOID)Va,
-							0x4000,
-							&ThisSymbol,
-							NULL,
-							&FunctionLen
-							);
-
-					if ( NT_SUCCESS(Status) ) {
-						if ( LastSymbol.Value && LastSymbol.Value == ThisSymbol.Value ) {
-							CountAtSymbol += *Counter;
-						}
-						else {
-							if ( LastSymbol.Value ) {
-								if (CountAtSymbol && (CountAtSymbol >= Threshold)) {
-									printf(
-					               bDisplayAddress == FALSE ? 
-      		   			         "%9d %42wZ %Z" :
-            		      			"%9d %42wZ %Z 0x0%lx %d %d",
-										CountAtSymbol,
-										&ProfileObject[i].ImageName,
-										&LastSymbol.Name,
-                              (ULONG)LastSymbol.Value + (ULONG)ProfileObject[i].ImageBase,
-										LastFunctionLen,
-                              ProfileObject[i].BucketSize
-										);
-
-									if (bDisplayCounters) {
-										ByteCount = MAX_BYTE_PER_LINE + 1;
-      	                     for (; pInitialCounter < Counter; ++pInitialCounter) {
-                                 if (ByteCount >= MAX_BYTE_PER_LINE) {
-												ByteCount = 1;
-											   printf ("\n>");
-										   }
-            	                  ByteCount += printf(" %d", *pInitialCounter);
-               	            }
-									}
-								   printf ("\n");
-								}
-							}
-                     pInitialCounter = Counter;
-							CountAtSymbol = *Counter;
-							LastSymbol = ThisSymbol;
-						   LastFunctionLen = FunctionLen;
-						}
-					}	// if (NT_SUCCESS)
-					else {
-						if (CountAtSymbol && (CountAtSymbol >= Threshold)) {
-							printf(
-			               bDisplayAddress == FALSE  ? 
-         			         "%9d %42wZ %Z" :
-                  			"%9d %42wZ %Z 0x0%lx %d %d",
-								CountAtSymbol,
-								&ProfileObject[i].ImageName,
-								&LastSymbol.Name,
-                        (ULONG)LastSymbol.Value + (ULONG)ProfileObject[i].ImageBase,
-								LastFunctionLen,
-                        ProfileObject[i].BucketSize
-								);
-							if (bDisplayCounters) {
-								ByteCount = MAX_BYTE_PER_LINE + 1;
-	                     for (; pInitialCounter < Counter; ++pInitialCounter) {
-                        	if (ByteCount >= MAX_BYTE_PER_LINE) {
-										ByteCount = 1;
-										printf ("\n>");
-										}
-      	                  ByteCount += printf(" %d", *pInitialCounter);
-         	            }
-							}
-						   printf ("\n");
-
-                     pInitialCounter = Counter;
-							CountAtSymbol = *Counter;
-							LastSymbol.Name = NoSymbolFound;
-						   LastFunctionLen = FunctionLen;
-						}
-					}	// else !(NT_SUCCESS)
-				}	// if (*Counter)
-         }	// for (Counter)
-
-			if (CountAtSymbol && (CountAtSymbol >= Threshold)) {
-				printf(
-               bDisplayAddress == FALSE ? 
-                  "%9d %42wZ %Z" :
-                  "%9d %42wZ %Z 0x0%lx %d %d",
-					CountAtSymbol,
-					&ProfileObject[i].ImageName,
-					&LastSymbol.Name,
-               (ULONG)LastSymbol.Value + (ULONG)ProfileObject[i].ImageBase,
-					LastFunctionLen,
-               ProfileObject[i].BucketSize
-               );
-				if (bDisplayCounters) {
-					ByteCount = MAX_BYTE_PER_LINE + 1;
-	            for (; pInitialCounter < BufferEnd; ++pInitialCounter) {
-                  if (ByteCount >= MAX_BYTE_PER_LINE) {
-							ByteCount = 1;
-							printf ("\n>");
-							}
-      	         ByteCount += printf(" %d", *pInitialCounter);
-					}
-            }
-			   printf ("\n");
-			}
-		}
     }
 
+    for (Processor = 0; Processor < MaxProcessors; Processor++) {
+        if (bPerProcessor) {
+            printf("\nPROCESSOR %d\n",Processor);
+        }
+        for (i = 0; i < (int)NumberOfProfileObjects; i++) {
+            CountAtSymbol = 0;
+            //
+            // Sum the total number of cells written.
+            //
+            BufferEnd = ProfileObject[i].Buffer[Processor] + (
+                        ProfileObject[i].BufferSize / sizeof(ULONG));
+            Buffer = ProfileObject[i].Buffer[Processor];
+            Counter = BufferEnd;
+
+            TotalCounts = 0;
+            while (Counter > Buffer) {
+                Counter -= 1;
+                TotalCounts += *Counter;
+            }
+
+            TotalHits += TotalCounts;
+
+            if (TotalCounts < Threshold) {
+                continue;
+            }
+            printf("\n%9d %20s --Total Hits-- %s\n",
+                            TotalCounts,
+                            ProfileObject[i].ModuleName,
+                            ((ProfileObject[i].SymbolsLoaded) ? "" : "(NO SYMBOLS)")
+                            );
+
+            if (!ProfileObject[i].SymbolsLoaded) {
+                continue;
+            }
+
+            pInitialCounter = Buffer;
+            for ( Counter = Buffer; Counter < BufferEnd; Counter += 1 ) {
+                if ( *Counter ) {
+                    //
+                    // Now we have an an address relative to the buffer
+                    // base.
+                    //
+                    Va = (ULONG)((PUCHAR)Counter - (PUCHAR)Buffer);
+                    Va = Va * ( 1 << (ProfileObject[i].BucketSize - 2));
+
+                    //
+                    // Add in the image base and the base of the
+                    // code to get the Va in the image
+                    //
+                    Va = Va + (ULONG)ProfileObject[i].CodeStart;
+
+                    if (SymGetSymFromAddr( SYM_HANDLE, Va, &Displacement, ThisSymbol )) {
+                        if ( UseLastSymbol && LastSymbol->Address && (LastSymbol->Address == ThisSymbol->Address) ) {
+                            CountAtSymbol += *Counter;
+                        } else {
+                            OutputSymbolCount(CountAtSymbol,
+                                              &ProfileObject[i],
+                                              LastSymbol,
+                                              Threshold,
+                                              pInitialCounter,
+                                              Counter);
+                            pInitialCounter = Counter;
+                            CountAtSymbol = *Counter;
+                            memcpy( LastSymBuffer, symBuffer, sizeof(symBuffer) );
+                            UseLastSymbol = TRUE;
+                        }
+                    } else {
+                        OutputSymbolCount(CountAtSymbol,
+                                          &ProfileObject[i],
+                                          LastSymbol,
+                                          Threshold,
+                                          pInitialCounter,
+                                          Counter);
+                    }       // else !(NT_SUCCESS)
+                }       // if (*Counter)
+            }      // for (Counter)
+
+            OutputSymbolCount(
+                CountAtSymbol,
+                &ProfileObject[i],
+                LastSymbol,
+                Threshold,
+                pInitialCounter,
+                Counter
+                );
+        }
+
+    }
+
+    printf("%d Total hits in kernel\n",TotalHits);
+
     for (i = 0; i < (int)NumberOfProfileObjects; i++) {
-        Buffer = ProfileObject[i].Buffer;
-        RtlZeroMemory(Buffer,ProfileObject[i].BufferSize);
+        for (Processor=0; Processor < MaxProcessors; Processor++) {
+            Buffer = ProfileObject[i].Buffer[Processor];
+            RtlZeroMemory(Buffer,ProfileObject[i].BufferSize);
+        }
     }
 
     return STATUS_SUCCESS;
 }
 
 
-
-void SetSymbolSearchPath (void)
-{
-    LPSTR lpSymPathEnv;
-	LPSTR lpAltSymPathEnv;
-	LPSTR lpSystemRootEnv;
-    CHAR SymbolPath [MAX_PATH];
-    ULONG cbSymPath;
-    DWORD dw;
-
-
-    cbSymPath = 18;
-    if (lpSymPathEnv = getenv("_NT_SYMBOL_PATH")) {
-        cbSymPath += strlen(lpSymPathEnv) + 1;
-    }
-    if (lpAltSymPathEnv = getenv("_NT_ALT_SYMBOL_PATH")) {
-        cbSymPath += strlen(lpAltSymPathEnv) + 1;
-    }
-    if (lpSystemRootEnv = getenv("SystemRoot")) {
-        cbSymPath += strlen(lpSystemRootEnv) + 1;
-        cbSymPath += strlen(lpSystemRootEnv) + 1 + strlen("\\symbols");
-    }
-
-    lpSymbolSearchPath = (LPSTR)calloc(cbSymPath,1);
-
-    if (lpAltSymPathEnv) {
-        dw = GetFileAttributes(lpAltSymPathEnv);
-        if ( dw != 0xffffffff && dw & FILE_ATTRIBUTE_DIRECTORY ) {
-            strcat(lpSymbolSearchPath,lpAltSymPathEnv);
-            strcat(lpSymbolSearchPath,";");
-            }
-    }
-    if (lpSymPathEnv) {
-        dw = GetFileAttributes(lpSymPathEnv);
-        if ( dw != 0xffffffff && dw & FILE_ATTRIBUTE_DIRECTORY ) {
-            strcat(lpSymbolSearchPath,lpSymPathEnv);
-            strcat(lpSymbolSearchPath,";");
-            }
-    }
-    if (lpSystemRootEnv) {
-        dw = GetFileAttributes(lpSystemRootEnv);
-        if ( dw != 0xffffffff && dw & FILE_ATTRIBUTE_DIRECTORY ) {
-            strcat(lpSymbolSearchPath,lpSystemRootEnv);
-            strcat(lpSymbolSearchPath,";");
-
-            // put in SystemRoot\symbols
-            strcpy(SymbolPath, lpSystemRootEnv);
-            strcat(SymbolPath, "\\symbols");
-            dw = GetFileAttributes(SymbolPath);
-            if ( dw != 0xffffffff && dw & FILE_ATTRIBUTE_DIRECTORY ) {
-                strcat(lpSymbolSearchPath,SymbolPath);
-                strcat(lpSymbolSearchPath,";");
-            }
-        }
-    }
-
-    strcat(lpSymbolSearchPath,".;");
-
-} /* SetSymbolSearchPath () */
-
-
-NTSTATUS
-KProfLookupSymbolByAddress(
-	IN PIMAGE_COFF_SYMBOLS_HEADER DebugInfo,
-    IN PVOID ImageBase,
-    IN PVOID Address,
-    IN ULONG ClosenessLimit,
-    OUT PRTL_SYMBOL_INFORMATION SymbolInformation,
-    OUT PRTL_SYMBOL_INFORMATION NextSymbolInformation OPTIONAL,
-	 OUT PULONG pFunctionLen
-    )
-/*++
-
-Routine Description:
-
-    Given a code address, this routine returns the nearest symbol
-    name and the offset from the symbol to that name.  If the
-    nearest symbol is not within ClosenessLimit of the location,
-    STATUS_ENTRYPOINT_NOT_FOUND is returned.
-
-	NOTE:  This is different than RtlLookupSymbolByAddress() call.  This
-		   routine takes a valid (no checking is done) coff debug info header
-		   parameter which could be form the exe of a DBG file.  Currently
-		   (8/93) the RTL call doesn't handle DBG mapped addresses therefore
-		   the RTL code was copied and modified here. [RezaB]
-
-Arguments:
-
-    DebugInfo - Coff debug header - must be valid
-
-    ImageBase - Supplies the base address of the image containing
-                eAddress
-
-    Address - Supplies the address to lookup a symbol for.
-
-    ClosenessLimit - Specifies the maximum distance that Address
-                      can be from the value of a symbol to be
-                      considered "found".  Symbol's whose value
-                      is further away then this are not "found".
-
-    SymbolInformation - Points to a structure that is filled in by
-                        this routine if a symbol table entry is found.
-
-    NextSymbolInformation - Optional parameter, that if specified, is
-                        filled in with information about these symbol
-                        whose value is the next address above Address
-
-
-Return Value:
-
-    Status of operation.
-
---*/
-
-{
-    NTSTATUS Status;
-    ULONG AddressOffset, i;
-    PIMAGE_SYMBOL PreviousSymbolEntry;
-    PIMAGE_SYMBOL SymbolEntry;
-    IMAGE_SYMBOL Symbol;
-    PUCHAR StringTable;
-    BOOLEAN SymbolFound;
-
-
-    AddressOffset = (ULONG)Address - (ULONG)ImageBase;
-
-    if (pFunctionLen) {
-	     *pFunctionLen = 0;
-    }
-
-    if (DebugInfo == NULL) {
-        return STATUS_INVALID_IMAGE_FORMAT;
-    }
-
-    //
-    // Crack the symbol table.
-    //
-
-    SymbolEntry = (PIMAGE_SYMBOL)
-        ((ULONG)DebugInfo + DebugInfo->LvaToFirstSymbol);
-
-    StringTable = (PUCHAR)
-        ((ULONG)SymbolEntry + DebugInfo->NumberOfSymbols * (ULONG)IMAGE_SIZEOF_SYMBOL);
-
-
-    //
-    // Find the "header" symbol (skipping all the section names)
-    //
-
-    for (i = 0; i < DebugInfo->NumberOfSymbols; i++) {
-        if (!strcmp( &SymbolEntry->N.ShortName[ 0 ], "header" )) {
-            break;
-            }
-
-        SymbolEntry = (PIMAGE_SYMBOL)((ULONG)SymbolEntry +
-                        IMAGE_SIZEOF_SYMBOL);
-        }
-
-    //
-    // If no "header" symbol found, just start at the first symbol.
-    //
-
-    if (i >= DebugInfo->NumberOfSymbols) {
-        SymbolEntry = (PIMAGE_SYMBOL)((ULONG)DebugInfo + DebugInfo->LvaToFirstSymbol);
-        i = 0;
-        }
-
-    //
-    // Loop through all symbols in the symbol table.  For each symbol,
-    // if it is within the code section, subtract off the bias and
-    // see if there are any hits within the profile buffer for
-    // that symbol.
-    //
-
-    SymbolFound = FALSE;
-    for (; i < DebugInfo->NumberOfSymbols; i++) {
-
-        //
-        // Skip over any Auxilliary entries.
-        //
-        try {
-            while (SymbolEntry->NumberOfAuxSymbols) {
-                i = i + 1 + SymbolEntry->NumberOfAuxSymbols;
-                SymbolEntry = (PIMAGE_SYMBOL)
-                    ((ULONG)SymbolEntry + IMAGE_SIZEOF_SYMBOL +
-                     SymbolEntry->NumberOfAuxSymbols * IMAGE_SIZEOF_SYMBOL
-                    );
-
-                }
-
-            RtlMoveMemory( &Symbol, SymbolEntry, IMAGE_SIZEOF_SYMBOL );
-            }
-        except(EXCEPTION_EXECUTE_HANDLER) {
-            return( GetExceptionCode() );
-            }
-
-        //
-        // If this symbol value is less than the value we are looking for.
-        //
-
-        if (Symbol.Value <= AddressOffset) {
-            //
-            // Then remember this symbol entry.
-            //
-
-            PreviousSymbolEntry = SymbolEntry;
-            SymbolFound = TRUE;
-            }
-        else {
-            //
-            // All done looking if value of symbol is greater than
-            // what we are looking for, as symbols are in address order
-            //
-		      if (pFunctionLen) {
-               *pFunctionLen = (ULONG)Symbol.Value - 
-						(ULONG)PreviousSymbolEntry->Value;
-				   }
-            break;
-            }
-
-        SymbolEntry = (PIMAGE_SYMBOL)
-            ((ULONG)SymbolEntry + IMAGE_SIZEOF_SYMBOL);
-
-        }
-
-    if (!SymbolFound || (AddressOffset - PreviousSymbolEntry->Value) > ClosenessLimit) {
-        return( STATUS_ENTRYPOINT_NOT_FOUND );
-        }
-
-    Status = RtlpCaptureSymbolInformation( PreviousSymbolEntry, StringTable, SymbolInformation );
-    if (NT_SUCCESS( Status ) && ARGUMENT_PRESENT( NextSymbolInformation )) {
-        Status = RtlpCaptureSymbolInformation( SymbolEntry, StringTable, NextSymbolInformation );
-        }
-
-    return( Status );
-}
-
-NTSTATUS
-RtlpCaptureSymbolInformation(
-    IN PIMAGE_SYMBOL SymbolEntry,
-    IN PCHAR StringTable,
-    OUT PRTL_SYMBOL_INFORMATION SymbolInformation
+VOID
+OutputSymbolCount(
+    IN ULONG CountAtSymbol,
+    IN PROFILE_BLOCK *ProfileObject,
+    IN PIMAGEHLP_SYMBOL SymbolInfo,
+    IN ULONG Threshold,
+    IN PULONG CounterStart,
+    IN PULONG CounterStop
     )
 {
-    USHORT MaximumLength;
-    PCHAR s;
+    ULONG Density;
+    ULONG ByteCount;
 
-    SymbolInformation->SectionNumber = SymbolEntry->SectionNumber;
-    SymbolInformation->Type = SymbolEntry->Type;
-    SymbolInformation->Value = SymbolEntry->Value;
 
-    if (SymbolEntry->N.Name.Short) {
-        MaximumLength = 8;
-        s = &SymbolEntry->N.ShortName[ 0 ];
+    if (CountAtSymbol < Threshold) {
+        return;
+    }
+
+    printf("%9d ", CountAtSymbol);
+
+    if (bDisplayDensity) {
+        //
+        // Compute hit density = hits * 100 / function length
+        //
+        Density = CountAtSymbol * 100 / SymbolInfo->Size;
+        printf("%5d ",Density);
+    }
+
+    printf("%20s %s",
+           ProfileObject->ModuleName,
+           SymbolInfo->Name);
+
+    if (bDisplayAddress) {
+        printf(" 0x0%lx %d %d",
+               SymbolInfo->Address,
+               SymbolInfo->Size,
+               ProfileObject->BucketSize);
+    }
+
+    if (bDisplayCounters) {
+        ByteCount = MAX_BYTE_PER_LINE + 1;
+        for (; CounterStart < CounterStop; ++CounterStart) {
+            if (ByteCount >= MAX_BYTE_PER_LINE) {
+                ByteCount = 1;
+                printf ("\n>");
+            }
+            ByteCount += printf(" %d", *CounterStart);
         }
-
-    else {
-        MaximumLength = 64;
-        s = &StringTable[ SymbolEntry->N.Name.Long ];
-        }
-
-#if i386
-    if (*s == '_') {
-        s++;
-        MaximumLength--;  
-        }
-#endif
-
-    SymbolInformation->Name.Buffer = s;
-    SymbolInformation->Name.Length = 0;
-    while (*s && MaximumLength--) {
-        SymbolInformation->Name.Length++;
-        s++;
-        }
-
-    SymbolInformation->Name.MaximumLength = SymbolInformation->Name.Length;
-    return( STATUS_SUCCESS );
+    }
+    printf ("\n");
 }
-
-

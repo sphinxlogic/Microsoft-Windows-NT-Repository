@@ -842,4 +842,3 @@ expectstring(
     printf("'\n");
     return;
 }
-

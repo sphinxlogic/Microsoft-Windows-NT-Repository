@@ -42,11 +42,21 @@ OpenEndpoint (
     OUT PENDPOINT *Endpoint,
     IN PUNICODE_STRING NetworkName,
     IN PUNICODE_STRING TransportName,
-    IN PANSI_STRING TransportAddress
+    IN PANSI_STRING TransportAddress,
+    IN PUNICODE_STRING DomainName,
+    IN ULONG         PrimaryMachineFlags,
+    IN BOOLEAN       AlternateEndpoint
     );
 
 NTSTATUS
 OpenNetbiosAddress (
+    IN OUT PENDPOINT Endpoint,
+    IN PVOID DeviceName,
+    IN PVOID NetbiosName
+    );
+
+NTSTATUS
+OpenNetbiosExAddress (
     IN OUT PENDPOINT Endpoint,
     IN PVOID DeviceName,
     IN PVOID NetbiosName
@@ -78,9 +88,13 @@ OpenIpxSocket (
 #pragma alloc_text( PAGE, OpenNonNetbiosAddress )
 #pragma alloc_text( PAGE, OpenIpxSocket )
 #pragma alloc_text( PAGE, SrvRestartAccept )
-#pragma alloc_text( PAGE, SrvShutDownEndpoints )
 #pragma alloc_text( PAGE, RestartStartSend )
 #pragma alloc_text( PAGE, GetIpxMaxBufferSize )
+
+#ifdef  SRV_PNP_POWER
+#pragma alloc_text( PAGE, SrvPnpProcessor )
+#endif
+
 #endif
 #if 0
 NOT PAGEABLE -- SrvOpenConnection
@@ -94,7 +108,9 @@ NTSTATUS
 SrvAddServedNet(
     IN PUNICODE_STRING NetworkName,
     IN PUNICODE_STRING TransportName,
-    IN PANSI_STRING TransportAddress
+    IN PANSI_STRING TransportAddress,
+    IN PUNICODE_STRING DomainName,
+    IN ULONG         fPrimaryMach
     )
 
 /*++
@@ -116,6 +132,8 @@ Arguments:
         server's endpoint.  This name is used exactly as specified.  For
         NETBIOS-compatible networks, the caller must upcase and
         blank-fill the name.  For example, "NTSERVERbbbbbbbb".
+
+    DomainName - The name of the domain to service
 
 Return Value:
 
@@ -140,8 +158,10 @@ Return Value:
                 &endpoint,
                 NetworkName,
                 TransportName,
-                TransportAddress
-                );
+                TransportAddress,
+                DomainName,
+                fPrimaryMach,
+                FALSE);              // primary endpoint
 
     if ( !NT_SUCCESS(status) ) {
 
@@ -158,7 +178,39 @@ Return Value:
     // count was incremented to account for our pointer.)
     //
 
+
     SrvDereferenceEndpoint( endpoint );
+
+    if (fPrimaryMach) {
+       NTSTATUS LocalStatus;
+
+       //
+       // Call OpenEndpoint to open the transport provider, bind to the
+       // server address, and register the FSD receive event handler. This is
+       // the auxillary endpoint registration in the new TDI address format. SInce
+       // this is not supported by all the transports it cannot be deemed an error.
+       //
+       //
+
+       LocalStatus = OpenEndpoint(
+                   &endpoint,
+                   NetworkName,
+                   TransportName,
+                   TransportAddress,
+                   DomainName,
+                   fPrimaryMach,
+                   TRUE);              // Alternate endpoint
+
+       if ( !NT_SUCCESS(LocalStatus) ) {
+
+           IF_DEBUG(ERRORS) {
+               KdPrint(( "SrvAddServedNet: unable to open endpoint \"%wZ%Z\", "
+                           "status %X\n", TransportName, TransportAddress, LocalStatus ));
+           }
+       } else {
+           SrvDereferenceEndpoint( endpoint );
+       }
+    }
 
     IF_DEBUG(TRACE1) {
         KdPrint(( "SrvAddServedNet complete: %X\n", STATUS_SUCCESS ));
@@ -379,6 +431,7 @@ Return Value:
     SHORT sidIndex;
     CSHORT i;
     PTABLE_ENTRY entry = NULL;
+    TDI_PROVIDER_INFO providerInfo;
 
     //
     // Allocate a connection block.
@@ -551,6 +604,32 @@ Return Value:
         }
 
     } // if ( !Endpoint->IsConnectionless )
+
+    //
+    // Initialize the MaximumSendSize for the transport that we're using
+    //
+
+    status = SrvIssueTdiQuery(
+                connection->FileObject,
+                &connection->DeviceObject,
+                (PCHAR)&providerInfo,
+                sizeof(providerInfo),
+                TDI_QUERY_PROVIDER_INFO
+                );
+
+    //
+    // If we got the provider info, make sure the maximum send size is at
+    // least 1K-1. If we have no provider info, then maximum send size is 64KB.
+    //
+
+    if ( NT_SUCCESS(status) ) {
+        connection->MaximumSendSize = providerInfo.MaxSendSize;
+        if ( connection->MaximumSendSize < MIN_SEND_SIZE ) {
+            connection->MaximumSendSize = MIN_SEND_SIZE;
+        }
+    } else {
+        connection->MaximumSendSize = MAX_PARTIAL_BUFFER_SIZE;
+    }
 
     //
     // Set the reference count on the connection to zero, in order to
@@ -777,7 +856,10 @@ OpenEndpoint (
     OUT PENDPOINT *Endpoint,
     IN PUNICODE_STRING NetworkName,
     IN PUNICODE_STRING TransportName,
-    IN PANSI_STRING TransportAddress
+    IN PANSI_STRING TransportAddress,
+    IN PUNICODE_STRING DomainName,
+    IN DWORD         PrimaryMachine,
+    IN BOOLEAN       AlternateEndpoint
     )
 
 /*++
@@ -803,6 +885,8 @@ Arguments:
         caller must upcase and blank-fill the name.  For example,
         "NTSERVERbbbbbbbb".
 
+    DomainName - name of domain to serve
+
 Return Value:
 
     NTSTATUS - Indicates whether the network was successfully opened.
@@ -825,7 +909,8 @@ Return Value:
         &endpoint,
         NetworkName,
         TransportName,
-        TransportAddress
+        TransportAddress,
+        DomainName
         );
 
     if ( endpoint == NULL ) {
@@ -836,31 +921,81 @@ Return Value:
         return STATUS_INSUFF_SERVER_RESOURCES;
     }
 
-    //
-    // Assume that the transport is a NetBIOS provider, and try to
-    // open the server's address using the NetBIOS name.
-    //
-
-    status = OpenNetbiosAddress(
-                endpoint,
-                TransportName,
-                TransportAddress->Buffer
-                );
-
-    if ( !NT_SUCCESS(status) ) {
-
-        //
-        // Apparently the transport is not a NetBIOS provider.  Try
-        // to open it as a connectionless provider.
-        //
-
-        status = OpenNonNetbiosAddress(
-                    endpoint,
-                    TransportName,
-                    TransportAddress->Buffer
-                    );
-
+    if(PrimaryMachine)
+    {
+        endpoint->IsPrimaryName = 1;
     }
+
+    if (AlternateEndpoint) {
+        status = OpenNetbiosExAddress(
+                     endpoint,
+                     TransportName,
+                     TransportAddress->Buffer);
+    } else {
+
+       //
+       // Assume that the transport is a NetBIOS provider, and try to
+       // open the server's address using the NetBIOS name.
+       //
+
+       status = OpenNetbiosAddress(
+                   endpoint,
+                   TransportName,
+                   TransportAddress->Buffer
+                   );
+
+       if ( !NT_SUCCESS(status) ) {
+
+           BOOLEAN isDuplicate = FALSE;
+           PLIST_ENTRY listEntry;
+
+           //
+           // Apparently the transport is not a NetBIOS provider.  We can
+           //  not open multiple connectionless providers through the same
+           //  TransportName.
+           //
+
+           ACQUIRE_LOCK( &SrvEndpointLock );
+
+           for( listEntry = SrvEndpointList.ListHead.Flink;
+                listEntry != &SrvEndpointList.ListHead;
+                listEntry = listEntry->Flink ) {
+
+               PENDPOINT tmpEndpoint;
+
+               tmpEndpoint = CONTAINING_RECORD( listEntry, ENDPOINT, GlobalEndpointListEntry );
+
+               if( GET_BLOCK_STATE( tmpEndpoint ) == BlockStateActive &&
+                   tmpEndpoint->IsConnectionless &&
+                   RtlCompareUnicodeString( &tmpEndpoint->TransportName, TransportName, TRUE ) == 0 ) {
+
+                   IF_DEBUG(ERRORS) {
+                       KdPrint(( "OpenEndpoint: Only one connectionless endpoint on %wZ allowed!\n",
+                                 TransportName ));
+                   }
+
+                   isDuplicate = TRUE;
+                   status = STATUS_TOO_MANY_NODES;
+                   break;
+               }
+           }
+
+           RELEASE_LOCK( &SrvEndpointLock );
+
+           //
+           // Try to open it as a connectionless provider.
+           //
+           if( isDuplicate == FALSE ) {
+               status = OpenNonNetbiosAddress(
+                           endpoint,
+                           TransportName,
+                           TransportAddress->Buffer
+                           );
+           }
+
+       }
+    }
+
 
     if ( !NT_SUCCESS(status) ) {
 
@@ -929,6 +1064,170 @@ Return Value:
 
 } // OpenEndpoint
 
+NTSTATUS
+SetupConnectionEndpointHandlers(
+   IN OUT PENDPOINT Endpoint)
+{
+   NTSTATUS status;
+   ULONG    i;
+
+   Endpoint->IsConnectionless = FALSE;
+
+   status = SrvVerifyDeviceStackSize(
+                               Endpoint->EndpointHandle,
+                               TRUE,
+                               &Endpoint->FileObject,
+                               &Endpoint->DeviceObject,
+                               NULL
+                               );
+
+   if ( !NT_SUCCESS( status ) ) {
+
+       INTERNAL_ERROR(
+           ERROR_LEVEL_EXPECTED,
+           "OpenNetbiosAddress: Verify Device Stack Size failed: %X\n",
+           status,
+           NULL
+           );
+
+       goto cleanup;
+   }
+
+   //
+   // Find the network address of the adapter used by corresponding to
+   // this endpoint.
+   //
+
+   GetNetworkAddress( Endpoint );
+
+   //
+   // Register the server's Receive event handler.
+   //
+
+   status = SrvIssueSetEventHandlerRequest(
+               Endpoint->FileObject,
+               &Endpoint->DeviceObject,
+               TDI_EVENT_RECEIVE,
+               (PVOID)SrvFsdTdiReceiveHandler,
+               Endpoint
+               );
+
+   if ( !NT_SUCCESS(status) ) {
+       INTERNAL_ERROR(
+           ERROR_LEVEL_EXPECTED,
+           "OpenNetbiosAddress: set receive event handler failed: %X",
+           status,
+           NULL
+           );
+
+       SrvLogServiceFailure( SRV_SVC_NT_IOCTL_FILE, status );
+       goto cleanup;
+   }
+
+   //
+   // Register the server's Disconnect event handler.
+   //
+
+   status = SrvIssueSetEventHandlerRequest(
+               Endpoint->FileObject,
+               &Endpoint->DeviceObject,
+               TDI_EVENT_DISCONNECT,
+               (PVOID)SrvFsdTdiDisconnectHandler,
+               Endpoint
+               );
+
+   if ( !NT_SUCCESS(status) ) {
+       INTERNAL_ERROR(
+           ERROR_LEVEL_UNEXPECTED,
+           "OpenNetbiosAddress: set disconnect event handler failed: %X",
+           status,
+           NULL
+           );
+
+       SrvLogServiceFailure( SRV_SVC_NT_IOCTL_FILE, status );
+       goto cleanup;
+   }
+
+   //
+   // Create a number of free connections for the endpoint.  These
+   // connections will be used to service Connect events.
+   //
+   // *** If we fail in an attempt to create a connection, but we can
+   //     successfully create at least one, we keep the endpoint.  The
+   //     cleanup code below depends on this behavior.
+   //
+
+   for ( i = 0; i < SrvFreeConnectionMinimum; i++ ) {
+
+       status = SrvOpenConnection( Endpoint );
+       if ( !NT_SUCCESS(status) ) {
+           INTERNAL_ERROR(
+               ERROR_LEVEL_EXPECTED,
+               "OpenNetbiosAddress: SrvOpenConnection failed: %X",
+               status,
+               NULL
+               );
+           if ( i == 0 ) {
+               goto cleanup;
+           } else {
+               break;
+           }
+       }
+
+   }
+
+   //
+   // Register the server's Connect event handler.
+   //
+   // *** Note that Connect events can be delivered IMMEDIATELY upon
+   //     completion of this request!
+   //
+
+   status = SrvIssueSetEventHandlerRequest(
+               Endpoint->FileObject,
+               &Endpoint->DeviceObject,
+               TDI_EVENT_CONNECT,
+               (PVOID)SrvFsdTdiConnectHandler,
+               Endpoint
+               );
+
+   if ( !NT_SUCCESS(status) ) {
+       INTERNAL_ERROR(
+           ERROR_LEVEL_UNEXPECTED,
+           "OpenNetbiosAddress: set connect event handler failed: %X",
+           status,
+           NULL
+           );
+
+       SrvLogServiceFailure( SRV_SVC_NT_IOCTL_FILE, status );
+       goto cleanup;
+   }
+
+   return STATUS_SUCCESS;
+
+   //
+   // Out-of-line error cleanup.
+   //
+
+cleanup:
+
+   //
+   // Something failed.  Clean up as appropriate.
+   //
+
+   if ( Endpoint->FileObject != NULL ) {
+       ObDereferenceObject( Endpoint->FileObject );
+       Endpoint->FileObject = NULL;
+   }
+   if ( Endpoint->EndpointHandle != NULL ) {
+       SRVDBG_RELEASE_HANDLE( Endpoint->EndpointHandle, "END", 14, Endpoint );
+       SrvNtClose( Endpoint->EndpointHandle, FALSE );
+       Endpoint->EndpointHandle = NULL;
+   }
+
+   return status;
+}
+
 
 NTSTATUS
 OpenNetbiosAddress (
@@ -956,163 +1255,109 @@ OpenNetbiosAddress (
         return status;
     }
 
-    Endpoint->IsConnectionless = FALSE;
-
-    status = SrvVerifyDeviceStackSize(
-                                Endpoint->EndpointHandle,
-                                TRUE,
-                                &Endpoint->FileObject,
-                                &Endpoint->DeviceObject,
-                                NULL
-                                );
-
-    if ( !NT_SUCCESS( status ) ) {
-
-        INTERNAL_ERROR(
-            ERROR_LEVEL_EXPECTED,
-            "OpenNetbiosAddress: Verify Device Stack Size failed: %X\n",
-            status,
-            NULL
-            );
-
-        goto cleanup;
-    }
-
-    //
-    // Find the network address of the adapter used by corresponding to
-    // this endpoint.
-    //
-
-    GetNetworkAddress( Endpoint );
-
-    //
-    // Register the server's Receive event handler.
-    //
-
-    status = SrvIssueSetEventHandlerRequest(
-                Endpoint->FileObject,
-                &Endpoint->DeviceObject,
-                TDI_EVENT_RECEIVE,
-                (PVOID)SrvFsdTdiReceiveHandler,
-                Endpoint
-                );
-
-    if ( !NT_SUCCESS(status) ) {
-        INTERNAL_ERROR(
-            ERROR_LEVEL_EXPECTED,
-            "OpenNetbiosAddress: set receive event handler failed: %X",
-            status,
-            NULL
-            );
-
-        SrvLogServiceFailure( SRV_SVC_NT_IOCTL_FILE, status );
-        goto cleanup;
-    }
-
-    //
-    // Register the server's Disconnect event handler.
-    //
-
-    status = SrvIssueSetEventHandlerRequest(
-                Endpoint->FileObject,
-                &Endpoint->DeviceObject,
-                TDI_EVENT_DISCONNECT,
-                (PVOID)SrvFsdTdiDisconnectHandler,
-                Endpoint
-                );
-
-    if ( !NT_SUCCESS(status) ) {
-        INTERNAL_ERROR(
-            ERROR_LEVEL_UNEXPECTED,
-            "OpenNetbiosAddress: set disconnect event handler failed: %X",
-            status,
-            NULL
-            );
-
-        SrvLogServiceFailure( SRV_SVC_NT_IOCTL_FILE, status );
-        goto cleanup;
-    }
-
-    //
-    // Create a number of free connections for the endpoint.  These
-    // connections will be used to service Connect events.
-    //
-    // *** If we fail in an attempt to create a connection, but we can
-    //     successfully create at least one, we keep the endpoint.  The
-    //     cleanup code below depends on this behavior.
-    //
-
-    for ( i = 0; i < SrvFreeConnectionMinimum; i++ ) {
-
-        status = SrvOpenConnection( Endpoint );
-        if ( !NT_SUCCESS(status) ) {
-            INTERNAL_ERROR(
-                ERROR_LEVEL_EXPECTED,
-                "OpenNetbiosAddress: SrvOpenConnection failed: %X",
-                status,
-                NULL
-                );
-            if ( i == 0 ) {
-                goto cleanup;
-            } else {
-                break;
-            }
-        }
-
-    }
-
-    //
-    // Register the server's Connect event handler.
-    //
-    // *** Note that Connect events can be delivered IMMEDIATELY upon
-    //     completion of this request!
-    //
-
-    status = SrvIssueSetEventHandlerRequest(
-                Endpoint->FileObject,
-                &Endpoint->DeviceObject,
-                TDI_EVENT_CONNECT,
-                (PVOID)SrvFsdTdiConnectHandler,
-                Endpoint
-                );
-
-    if ( !NT_SUCCESS(status) ) {
-        INTERNAL_ERROR(
-            ERROR_LEVEL_UNEXPECTED,
-            "OpenNetbiosAddress: set connect event handler failed: %X",
-            status,
-            NULL
-            );
-
-        SrvLogServiceFailure( SRV_SVC_NT_IOCTL_FILE, status );
-        goto cleanup;
-    }
-
-    return STATUS_SUCCESS;
-
-    //
-    // Out-of-line error cleanup.
-    //
-
-cleanup:
-
-    //
-    // Something failed.  Clean up as appropriate.
-    //
-
-    if ( Endpoint->FileObject != NULL ) {
-        ObDereferenceObject( Endpoint->FileObject );
-        Endpoint->FileObject = NULL;
-    }
-    if ( Endpoint->EndpointHandle != NULL ) {
-        SRVDBG_RELEASE_HANDLE( Endpoint->EndpointHandle, "END", 14, Endpoint );
-        SrvNtClose( Endpoint->EndpointHandle, FALSE );
-        Endpoint->EndpointHandle = NULL;
-    }
+    status = SetupConnectionEndpointHandlers(Endpoint);
 
     return status;
-
 } // OpenNetbiosAddress
+
+NTSTATUS
+OpenNetbiosExAddress(
+    IN OUT PENDPOINT Endpoint,
+    IN PVOID DeviceName,
+    IN PVOID NetbiosName
+    )
+{
+   NTSTATUS status;
+
+   PFILE_FULL_EA_INFORMATION ea;
+   OBJECT_ATTRIBUTES         objectAttributes;
+   IO_STATUS_BLOCK           iosb;
+
+   ULONG length;
+   CHAR  buffer[sizeof(FILE_FULL_EA_INFORMATION) +
+                 TDI_TRANSPORT_ADDRESS_LENGTH + 1 +
+                 sizeof(TA_NETBIOS_EX_ADDRESS)];
+
+   TA_NETBIOS_EX_ADDRESS     NetbiosExAddress;
+   PTDI_ADDRESS_NETBIOS_EX   pTdiNetbiosExAddress;
+   PTDI_ADDRESS_NETBIOS      pNetbiosAddress;
+
+   ULONG NetbiosExAddressLength;
+
+   PAGED_CODE( );
+
+   //
+   // Build the NETBIOS Extended address.
+   //
+
+   NetbiosExAddress.TAAddressCount = 1;
+   NetbiosExAddress.Address[0].AddressLength = TDI_ADDRESS_LENGTH_NETBIOS_EX;
+   NetbiosExAddress.Address[0].AddressType = TDI_ADDRESS_TYPE_NETBIOS_EX;
+
+   pTdiNetbiosExAddress = NetbiosExAddress.Address[0].Address;
+   pNetbiosAddress = &pTdiNetbiosExAddress->NetbiosAddress;
+   pNetbiosAddress->NetbiosNameType = TDI_ADDRESS_NETBIOS_TYPE_UNIQUE;
+
+   NetbiosExAddressLength =   FIELD_OFFSET(TRANSPORT_ADDRESS,Address)
+                        + FIELD_OFFSET(TA_ADDRESS,Address)
+                        + FIELD_OFFSET(TDI_ADDRESS_NETBIOS_EX,NetbiosAddress)
+                        + TDI_ADDRESS_LENGTH_NETBIOS;
+
+   RtlCopyMemory(
+         pNetbiosAddress->NetbiosName,
+         NetbiosName,
+         NETBIOS_NAME_LEN);
+
+   // Copy the default endpoint name onto the NETBIOS Extended address.
+   RtlCopyMemory(
+         pTdiNetbiosExAddress->EndpointName,
+         SMBSERVER_LOCAL_ENDPOINT_NAME,
+         NETBIOS_NAME_LEN);
+
+   length = FIELD_OFFSET( FILE_FULL_EA_INFORMATION, EaName[0] ) +
+                               TDI_TRANSPORT_ADDRESS_LENGTH + 1 +
+                               NetbiosExAddressLength;
+   ea = (PFILE_FULL_EA_INFORMATION)buffer;
+
+   ea->NextEntryOffset = 0;
+   ea->Flags = 0;
+   ea->EaNameLength = TDI_TRANSPORT_ADDRESS_LENGTH;
+   ea->EaValueLength = (USHORT)NetbiosExAddressLength;
+
+   RtlCopyMemory( ea->EaName, StrTransportAddress, ea->EaNameLength + 1 );
+
+   RtlCopyMemory(
+       &ea->EaName[ea->EaNameLength + 1],
+       &NetbiosExAddress,
+       NetbiosExAddressLength
+       );
+
+   InitializeObjectAttributes( &objectAttributes, DeviceName, OBJ_CASE_INSENSITIVE, NULL, NULL );
+
+   status = NtCreateFile (
+                &Endpoint->EndpointHandle,
+                FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES, // desired access
+                &objectAttributes,     // object attributes
+                &iosb,                 // returned status information
+                NULL,                  // block size (unused)
+                0,                     // file attributes
+                FILE_SHARE_READ | FILE_SHARE_WRITE, // share access
+                FILE_CREATE,           // create disposition
+                0,                     // create options
+                buffer,                // EA buffer
+                length                 // EA length
+                );
+
+   IF_DEBUG(TDI) KdPrint(("Opening NETBIOS_EX address returns %lx\n",status));
+   if ( !NT_SUCCESS(status) ) {
+       return status;
+   }
+
+   Endpoint->IsNoNetBios = TRUE;
+   status = SetupConnectionEndpointHandlers(Endpoint);
+
+   return status;
+}
 
 
 NTSTATUS
@@ -1371,6 +1616,28 @@ OpenNonNetbiosAddress (
         goto cleanup;
     }
 
+    //
+    // Register the server Chained Receive Datagram event handler.
+    //
+
+    status = SrvIssueSetEventHandlerRequest(
+                Endpoint->FileObject,
+                &Endpoint->DeviceObject,
+                TDI_EVENT_CHAINED_RECEIVE_DATAGRAM,
+                (PVOID)SrvIpxServerChainedDatagramHandler,
+                Endpoint
+                );
+    if ( !NT_SUCCESS(status) ) {
+        INTERNAL_ERROR(
+            ERROR_LEVEL_EXPECTED,
+            "OpenNonNetbiosAddress: set chained receive datagram event handler failed: %X",
+            status,
+            NULL
+            );
+        SrvLogServiceFailure( SRV_SVC_NT_IOCTL_FILE, status );
+        goto cleanup;
+    }
+
     return STATUS_SUCCESS;
 
     //
@@ -1384,6 +1651,7 @@ cleanup:
     //
 
     if ( maxPktArray != NULL ) {
+        Endpoint->IpxMaxPacketSizeArray = NULL;
         FREE_HEAP( maxPktArray );
     }
     if ( Endpoint->FileObject != NULL ) {
@@ -1576,7 +1844,7 @@ Return Value:
         // Queue the prepared receive work item to the FSD list.
         //
 
-        GET_SERVER_TIME( &WorkContext->Timestamp );
+        GET_SERVER_TIME( WorkContext->CurrentWorkQueue, &WorkContext->Timestamp );
         RETURN_FREE_WORKITEM( WorkContext );
 
     } else {
@@ -1596,7 +1864,7 @@ Return Value:
 } // SrvPrepareReceiveWorkItem
 
 
-VOID
+VOID SRVFASTCALL
 SrvRestartAccept (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -1715,95 +1983,6 @@ Return Value:
 
 
 VOID
-SrvShutDownEndpoints (
-    VOID
-    )
-
-/*++
-
-Routine Description:
-
-    This function shuts down all active transport endpoints.  It is
-    called when the system is shut down in order make it look like the
-    server has disappeared.  This is accomplished by closing all active
-    endpoints, thus disconnecting all connections.
-
-    Note that this is not intended to be a clean server shutdown, with
-    proper freeing of resources, etc.  Because the system is being shut
-    down anyway, a clean shutdown isn't required.
-
-Arguments:
-
-    None.
-
-Return Value:
-
-    None.
-
---*/
-
-{
-    PLIST_ENTRY listEntry;
-    PENDPOINT endpoint;
-
-    PAGED_CODE( );
-
-    //
-    // We need to look at every endpoint, so we walk the global endpoint
-    // list.
-    //
-
-    IF_DEBUG(TDI) {
-        KdPrint(( "SrvShutDownEndpoints entered\n" ));
-    }
-
-    ACQUIRE_LOCK( &SrvEndpointLock );
-
-    listEntry = SrvEndpointList.ListHead.Flink;
-
-    while ( listEntry != &SrvEndpointList.ListHead ) {
-
-        endpoint = CONTAINING_RECORD(
-                        listEntry,
-                        ENDPOINT,
-                        GlobalEndpointListEntry
-                        );
-
-        if ( GET_BLOCK_STATE(endpoint) != BlockStateActive ) {
-            listEntry = listEntry->Flink;
-            continue;
-        }
-
-        //
-        // We don't want to hold the endpoint lock while we close the
-        // endpoint (this causes lock level problems), so we have to
-        // play some games.
-        //
-        // Reference the endpoint to ensure that it doesn't go away.
-        // (We'll need its Flink later.) Close the endpoint.  This
-        // releases the endpoint lock.  Reacquire the endpoint lock.
-        // Capture the address of the next endpoint.  Dereference the
-        // current endpoint.
-        //
-
-        SrvReferenceEndpoint( endpoint );
-        SrvCloseEndpoint( endpoint );
-
-        ACQUIRE_LOCK( &SrvEndpointLock );
-
-        listEntry = listEntry->Flink;
-        SrvDereferenceEndpoint( endpoint );
-
-    } // walk endpoint list
-
-    RELEASE_LOCK( &SrvEndpointLock );
-
-    return;
-
-} // SrvShutDownEndpoints
-
-
-VOID
 SrvStartSend (
     IN OUT PWORK_CONTEXT WorkContext,
     IN PIO_COMPLETION_ROUTINE SendCompletionRoutine,
@@ -1876,7 +2055,7 @@ Return Value:
     // Set ProcessingCount to zero so this send cannot be cancelled.
     // This is used together with setting the cancel flag to false below.
     //
-    // BUGBUG: This still presents us with a tiny window where this
+    // WARNING: This still presents us with a tiny window where this
     // send could be cancelled.
     //
 
@@ -1917,7 +2096,7 @@ Return Value:
     ASSERT( irp->StackCount >= deviceObject->StackSize );
 
     irp->Tail.Overlay.OriginalFileObject = fileObject;
-    irp->Tail.Overlay.Thread = SrvIrpThread;
+    irp->Tail.Overlay.Thread = WorkContext->CurrentWorkQueue->IrpThread;
     DEBUG irp->RequestorMode = KernelMode;
     //
     // Get a pointer to the next stack location.  This one is used to
@@ -1982,7 +2161,7 @@ Return Value:
     if ( SmbTraceActive[SMBTRACE_SERVER] ) {
 
         if ((KeGetCurrentIrql() == DISPATCH_LEVEL) ||
-            (SRV_CURRENT_PROCESS != SERVER_PROCESS) ) {
+            (IoGetCurrentProcess() != SrvServerProcess) ) {
 
             irpSp->MajorFunction = IRP_MJ_INTERNAL_DEVICE_CONTROL;
             irpSp->MinorFunction = TDI_SEND;
@@ -2095,7 +2274,7 @@ Return Value:
     // Set ProcessingCount to zero so this send cannot be cancelled.
     // This is used together with setting the cancel flag to false below.
     //
-    // BUGBUG: This still presents us with a tiny window where this
+    // WARNING: This still presents us with a tiny window where this
     // send could be cancelled.
     //
 
@@ -2121,7 +2300,7 @@ Return Value:
     ASSERT( irp->StackCount >= deviceObject->StackSize );
 
     irp->Tail.Overlay.OriginalFileObject = fileObject;
-    irp->Tail.Overlay.Thread = SrvIrpThread;
+    irp->Tail.Overlay.Thread = WorkContext->CurrentWorkQueue->IrpThread;
     DEBUG irp->RequestorMode = KernelMode;
 
     //
@@ -2186,7 +2365,7 @@ Return Value:
     if ( SmbTraceActive[SMBTRACE_SERVER] ) {
 
         if ((KeGetCurrentIrql() == DISPATCH_LEVEL) ||
-            (SRV_CURRENT_PROCESS != SERVER_PROCESS) ) {
+            (IoGetCurrentProcess() != SrvServerProcess) ) {
 
             irpSp->MajorFunction = IRP_MJ_INTERNAL_DEVICE_CONTROL;
             irpSp->MinorFunction = TDI_SEND;
@@ -2238,7 +2417,7 @@ Return Value:
 } // SrvStartSend2
 
 
-VOID
+VOID SRVFASTCALL
 RestartStartSend (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -2379,4 +2558,48 @@ Return Value:
     return (maxBufferSize & ~3);
 
 } // GetMaxIpxPacketSize
+
+#ifdef  SRV_PNP_POWER
+
+VOID SRVFASTCALL
+SrvPnpProcessor (
+    IN OUT PWORK_CONTEXT WorkContext
+    )
+/*++
+
+Routine Description:
+
+    This routine gets called by a worker thread to handle
+    PNP notifications.
+
+Arguments:
+
+    WorkContext - contains information in Parameters.Pnp detailing the
+                PNP activity we need to perform.
+--*/
+{
+    PAGED_CODE();
+
+    //
+    // Send the request to the srvsvc
+    //
+    SrvXsPnpOperation( WorkContext->Parameters.Pnp.Bind,
+                       WorkContext->Parameters.Pnp.Index
+                     );
+
+    //
+    // Signal our caller that the bind is completed
+    //
+    KeSetEvent(
+            WorkContext->Parameters.Pnp.Event,
+            EVENT_INCREMENT,
+            FALSE
+            );
+
+    WorkContext->FspRestartRoutine = SrvRestartReceive;
+    WorkContext->BlockHeader.ReferenceCount = 0;
+    RETURN_FREE_WORKITEM( WorkContext );
+}
+
+#endif
 

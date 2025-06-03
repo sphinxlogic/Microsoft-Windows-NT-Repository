@@ -44,6 +44,11 @@
 
 #include <stdlib.h>
 #include <string.h>
+#if defined(DBCS) && !defined(UNICODE)
+#define _MBCS
+#include <mbstring.h>
+#define strtok      _mbstok
+#endif
 
 STATICFN BOOL InitApplication(HANDLE hInstance);
 STATICFN BOOL InitInstance(HANDLE hInstance, INT nCmdShow);
@@ -1378,4 +1383,4 @@ STATICFN VOID DialogTerminate(VOID)
     if (lpfnRegisterPenApp)
         (*lpfnRegisterPenApp)((WORD)1, FALSE);
 }
-
+

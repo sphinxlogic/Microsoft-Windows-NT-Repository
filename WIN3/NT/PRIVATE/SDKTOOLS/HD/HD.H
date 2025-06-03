@@ -202,4 +202,4 @@ typedef enum _YESNO {           // Options for DumpAscii
         YES,
         NO
 }       YESNO;
-
+

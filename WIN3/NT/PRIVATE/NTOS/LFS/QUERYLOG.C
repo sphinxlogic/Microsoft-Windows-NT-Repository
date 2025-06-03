@@ -428,9 +428,13 @@ Return Value:
             UnwindRememberLcbFields = TRUE;
 
             UnwindRecordHeaderBcb = Lcb->RecordHeaderBcb;
+            Lcb->RecordHeaderBcb = NULL;
+
             UnwindRecordHeader = Lcb->RecordHeader;
             UnwindCurrentLogRecord = Lcb->CurrentLogRecord;
+
             UnwindAuxilaryBuffer = Lcb->AuxilaryBuffer;
+            Lcb->AuxilaryBuffer = FALSE;
 
             //
             //  Find the next Lsn number based on the current Lsn number in
@@ -521,6 +525,37 @@ Return Value:
                         && UnwindAuxilaryBuffer == TRUE) {
 
                         ExFreePool( UnwindCurrentLogRecord );
+                    }
+
+                //
+                //  Restore the Bcb and auxilary buffer field for the final
+                //  cleanup.
+                //
+
+                } else {
+
+                    if (UnwindRecordHeaderBcb != NULL) {
+
+                        if (Lcb->RecordHeaderBcb != NULL) {
+
+                            CcUnpinData( UnwindRecordHeaderBcb );
+
+                        } else {
+
+                            Lcb->RecordHeaderBcb = UnwindRecordHeaderBcb;
+                        }
+                    }
+
+                    if (UnwindAuxilaryBuffer) {
+
+                        if (Lcb->CurrentLogRecord == UnwindCurrentLogRecord) {
+
+                            Lcb->AuxilaryBuffer = TRUE;
+
+                        } else {
+
+                            ExFreePool( UnwindCurrentLogRecord );
+                        }
                     }
                 }
             }

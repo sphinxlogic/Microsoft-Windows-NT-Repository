@@ -126,7 +126,7 @@ yyabort:
          return(1);
 
 
-      case 3:  /* no shift yet; clobber input char */
+      case 3:  /* no shift yet; clobber input char */
          if( yydebug ) printf( "error recovery discards char %d\n", yychar );
 
          if( yychar == 0 ) goto yyabort; /* don't discard EOF, quit */

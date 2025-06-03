@@ -95,7 +95,7 @@ PCLIENTINFO pci)
         }
 
         IncHszCount(LOWORD(pXferInfo->hszItem));    // structure copy
-        _fmemmove((LPBYTE)&pcqd->XferInfo, (LPBYTE)pXferInfo, sizeof(XFERINFO));
+        hmemcpy((LPBYTE)&pcqd->XferInfo, (LPBYTE)pXferInfo, sizeof(XFERINFO));
         pcqd->xad.state = XST_CONNECTED;
         pcqd->xad.pdata = 0L;
         pcqd->xad.LastError = DMLERR_NO_ERROR;
@@ -136,6 +136,16 @@ PCLIENTINFO pci)
             SendClientReq(pci->ci.pai, &pci->ci.xad, (HWND)pci->ci.hConvPartner, hwnd)) ==
             DMLERR_SERVER_DIED) {
         return(0);
+    }
+
+    // HACK
+    // If this is an EXEC and the timeout is 1 sec then this
+    // is probably PC Tools 2.0 trying to add items to the shell so
+    // crank up the timout.
+
+    if ((pXferInfo->wType == XTYP_EXECUTE) && (pXferInfo->ulTimeout == 1*1000))
+    {
+        pXferInfo->ulTimeout = 10*1000;
     }
 
     timeout(pci->ci.pai, pXferInfo->ulTimeout, hwnd);
@@ -480,7 +490,7 @@ WORD cLoops)
 
         pali->fsStatus |= ADVST_WAITING;
 
-        lpFlags = (LPWORD)GLOBALLOCK(HIWORD(hData));
+        lpFlags = (LPWORD)GLOBALPTR(HIWORD(hData));
         if (lpFlags == NULL) {
             SETLASTERROR(psi->ci.pai, DMLERR_MEMORY_ERROR);
             return;
@@ -490,12 +500,10 @@ WORD cLoops)
                 // can't mess with it, must use a copy.
                 hMem = HIWORD(hData);
                 hData = CopyHDDEDATA(psi->ci.pai, hData);
-                GlobalUnlock(hMem);
                 lpFlags = (LPWORD)GLOBALLOCK(HIWORD(hData));
             }
             *lpFlags |= DDE_FACKREQ;
         }
-        GlobalUnlock(HIWORD(hData));
     }
     /*
      * remove local data handle from local list
@@ -663,13 +671,14 @@ HDDEDATA hDataRet)
          * Clean up the status incase the app is messed up.
          */
         fsStatus = StatusRet & ~DDE_FACKRESERVED;
-        if (fsStatus & DDE_FBUSY)
-            fsStatus &= ~DDE_FACK;
 
         if (HIWORD(pcbi->hData) &&
                 (pcbi->fsStatus & DDE_FRELEASE) &&
                 (fsStatus & DDE_FACK || !(pcbi->fsStatus & DDE_FACKREQ)))
             FreeDataHandle(psi->ci.pai, pcbi->hData, TRUE);
+
+        if (fsStatus & DDE_FBUSY)
+            fsStatus &= ~DDE_FACK;
 
         if (HIWORD(pcbi->hData) && !(fsStatus & DDE_FACK)) {
             msgAssoc = WM_DDE_DATA;
@@ -770,8 +779,8 @@ passexit:
                 *pErr = DMLERR_ADVACKTIMEOUT;
             goto failexit;
         }
-        AssertF(XTYPF_ACKREQ << 12 == DDE_FACKREQ &&
-                XTYPF_NODATA << 12 == DDE_FDEFERUPD,
+        AssertF((UINT)(XTYPF_ACKREQ << 12) == DDE_FACKREQ &&
+                (UINT)(XTYPF_NODATA << 12) == DDE_FDEFERUPD,
                 "XTYPF_ constants are wrong");
         if (!AddAdvList(pci->pClientAdvList, hwndClient, 0,
                 LOWORD(pXad->pXferInfo->hszItem),
@@ -811,5 +820,3 @@ failexit:
     return(0);
 }
 
-
-

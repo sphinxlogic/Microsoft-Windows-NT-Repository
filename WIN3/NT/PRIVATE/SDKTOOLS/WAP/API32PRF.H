@@ -79,4 +79,4 @@ extern WORD      FAR PASCAL ApfGetApiCount   	 (void);
 extern NTSTATUS  			ApfCreateDataSection (PAPFCONTROL *);
 extern void     _CRTAPI1   	CalibCdeclApi 	 	 (DWORD64ARGS);
 
-
+

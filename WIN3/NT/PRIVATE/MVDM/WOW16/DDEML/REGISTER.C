@@ -27,7 +27,7 @@
  * except to hwndSkip.
  */
 VOID SendMessageToClass(
-PSTR szClass,
+ATOM atomClass,
 UINT msg,
 GATOM ga,
 HWND hwndFrom,
@@ -36,41 +36,30 @@ int chwndSkip,
 BOOL fPost)
 {
     HWND hwnd;
-    PSTR psz;
-    int cch;
     int i;
     BOOL fSkipIt;
 
-    cch = strlen(szClass) + 1 + 1;
-    psz = (PSTR)LocalAlloc(LPTR, cch);
-    if (psz == NULL) {
-        return;
-    }
     hwnd = GetWindow(GetDesktopWindow(), GW_CHILD);
     while (hwnd != NULL) {
-        if (GetClassName(hwnd, psz, cch)) {
-            psz[cch - 1] = '\0';
-            if (stricmp(szClass, psz) == 0) {
-                fSkipIt = FALSE;
-                for (i = 0; i < chwndSkip; i++) {
-                    if (hwnd == ahwndSkip[i]) {
-                        fSkipIt = TRUE;
-                        break;
-                    }
+        if (GetClassWord(hwnd, GCW_ATOM) == atomClass) {
+            fSkipIt = FALSE;
+            for (i = 0; i < chwndSkip; i++) {
+                if (hwnd == ahwndSkip[i]) {
+                    fSkipIt = TRUE;
+                    break;
                 }
-                if (!fSkipIt) {
-                    IncHszCount(ga);    // receiver frees
-                    if (fPost) {
-                        PostMessage(hwnd, msg, (WPARAM)ga, (LPARAM)hwndFrom);
-                    } else {
-                        SendMessage(hwnd, msg, (WPARAM)ga, (LPARAM)hwndFrom);
-                    }
+            }
+            if (!fSkipIt) {
+                IncHszCount(ga);    // receiver frees
+                if (fPost) {
+                    PostMessage(hwnd, msg, (WPARAM)ga, (LPARAM)hwndFrom);
+                } else {
+                    SendMessage(hwnd, msg, (WPARAM)ga, (LPARAM)hwndFrom);
                 }
             }
         }
         hwnd = GetWindow(hwnd, GW_HWNDNEXT);
     }
-    LocalFree((HLOCAL)psz);
 }
 
 
@@ -87,6 +76,8 @@ HWND hwndListen)
     int cSkips = 1;
     HWND *ahwndSkip;
     int i;
+    extern ATOM gatomDDEMLMom;
+    extern ATOM gatomDMGClass;
 
     /*
      * First send (always!) to our own guys the same way we used to
@@ -112,15 +103,18 @@ HWND hwndListen)
         ahwndSkip[i] = paiT->hwndDmg;
     }
 
+    AssertF(gatomDDEMLMom, "gatomDDEMLMom not initialized in RegisterService");
+    AssertF(gatomDMGClass, "gatomDMGClass not initialized in RegisterService");
+
     /*
      * Send notification to each DDEML32 listening window.
      */
-    SendMessageToClass("DDEMLMom", fRegister ? UM_REGISTER : UM_UNREGISTER,
+    SendMessageToClass(gatomDDEMLMom, fRegister ? UM_REGISTER : UM_UNREGISTER,
             gaApp, hwndListen, ahwndSkip, i, fRegister);
     /*
      * Send notification to each DDEML16 listening window.
      */
-    SendMessageToClass("DMGClass", fRegister ? UM_REGISTER : UM_UNREGISTER,
+    SendMessageToClass(gatomDMGClass, fRegister ? UM_REGISTER : UM_UNREGISTER,
             gaApp, hwndListen, ahwndSkip, i, fRegister);
 
     LocalFree((HLOCAL)ahwndSkip);

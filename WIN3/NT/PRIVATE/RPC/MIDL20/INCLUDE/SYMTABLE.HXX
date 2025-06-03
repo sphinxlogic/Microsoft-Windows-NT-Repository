@@ -89,9 +89,60 @@ public:
 	void	Print(void)				{ printf("<%s,%d>", name, kind); }
 
 	friend	class SymTable;
+    friend  class CaselessDictionary;
+    friend  class CaselessList;
+    friend  class GlobalSymTable;
+    friend  class CaselessEntry;
+};
+
+class SymEntry;
+
+class CaselessEntry
+{
+private:
+    SymEntry * pSymEntry;
+    unsigned hash;
+public:
+    CaselessEntry(SymEntry * pItem);
+    int Compare(CaselessEntry * pEntry2);
+
+    friend class CaselessDictionary;
+    friend class GlobalSymTable;
+    friend class SymTable;
+    friend  class CaselessList;
+    friend class CaselessEntry;
 };
 
 class named_node;
+
+class CaselessListElement
+{
+public:
+    CaselessListElement * pNext;
+    CaselessEntry * pEntry;
+
+    CaselessListElement(CaselessEntry * p)
+    {
+        pEntry = p;
+        pNext = NULL;
+    }
+};
+
+class CaselessList
+{
+private:
+    CaselessListElement * pHead;
+public:
+    CaselessList()
+    {
+        pHead = NULL;
+    }
+    ~CaselessList();
+    CaselessEntry * Add(CaselessEntry * pEl);
+    CaselessEntry * Find(CaselessEntry * pEntry);
+    CaselessEntry * Delete(CaselessEntry * pEntry);
+    CaselessEntry * DeleteExact(CaselessEntry *pEntry);
+};
 
 /**********************************************************************\
 
@@ -125,20 +176,27 @@ HISTORY:
 class SymTable : public Dictionary
 {
 	SymTable *		pPrevScope;		// pointer to container symbol table
+	BOOL			fHasFwds;
+    CaselessList    caseless_list;
 
 public:
 
 					SymTable()
 						{
-							pPrevScope = (SymTable *)0;
+							pPrevScope	= (SymTable *)0;
+							fHasFwds	= FALSE;
 						}
-	named_node *	SymInsert(SymKey, SymTable *, named_node *);
-	named_node *	SymDelete(SymKey);
-	named_node *	SymSearch(SymKey);
+	virtual named_node *	SymInsert(SymKey, SymTable *, named_node *);
+	virtual named_node *	SymDelete(SymKey);
+	virtual named_node *	SymSearch(SymKey);
 	STATUS_T		EnterScope(SymKey, SymTable **);
 	STATUS_T		ExitScope(SymTable **);
+	void			DiscardScope();
+	void			SetHasFwds()
+						{
+							fHasFwds	= TRUE;
+						}
 
-	virtual
 	int 			Compare (pUserType pL, pUserType pR);
 
 	virtual
@@ -155,5 +213,81 @@ public:
 
 
 };
+
+class CaselessDictionary : public Dictionary
+{
+public:
+					CaselessDictionary()
+						{
+						}
+
+	int 			Compare (pUserType pL, pUserType pR);
+
+	void	*	operator new ( size_t size )
+					{
+					return AllocateOnceNew( size );
+					}
+	void		operator delete( void * ptr )
+					{
+					AllocateOnceDelete( ptr );
+					}
+};
+
+class GlobalSymTable: public SymTable
+{
+private:
+    CaselessDictionary * pCaselessDictionary;
+public:
+					GlobalSymTable()
+						{
+                        pCaselessDictionary = new CaselessDictionary;
+						}
+    virtual named_node *	SymInsert(SymKey, SymTable *, named_node *);
+	virtual named_node *	SymDelete(SymKey);
+	virtual named_node *	SymSearch(SymKey);
+};
+
+class CSNODE
+{
+public:
+    BOOL fStackValue;
+    class CSNODE * pNext;
+    CSNODE(BOOL f, CSNODE * p) 
+    {
+        fStackValue = f; 
+        pNext = p;
+    }
+};
+
+class CaseStack
+{
+private:
+    CSNODE * pHead;
+public:
+    CaseStack()
+        {
+            pHead = NULL;
+        }
+    void Push(BOOL fVal)
+    {
+        pHead = new CSNODE(fVal, pHead);
+    }
+    void Pop(BOOL &fVal)
+    {
+        if (!pHead)
+        {
+            // default to case sensitive mode
+            fVal = TRUE;    
+            return;
+        }
+        fVal = pHead->fStackValue;
+        CSNODE * pTemp = pHead;
+        pHead = pTemp->pNext;
+        delete pTemp;
+    }
+};
+
+extern CaseStack gCaseStack;
+extern BOOL gfCaseSensitive;
 
 #endif // __SYMTABLE_HXX__

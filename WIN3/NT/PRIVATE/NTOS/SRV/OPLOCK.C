@@ -93,6 +93,35 @@ GenerateOplockBreakRequest(
 #pragma alloc_text( PAGECONN, SrvSendDelayedOplockBreak )
 #endif
 
+#if    SRVDBG
+
+//
+// Unfortunately, when KdPrint is given a %wZ conversion, it calls a
+//    pageable Rtl routine to convert.  This is bad if we're calling
+//    KdPrint from DPC level, as we are below.  So we've introduced
+//    SrvPrintwZ() here to get around the problem.  This is only for
+//    debugging anyway....
+//
+VOID
+SrvPrintwZ( PWSTR string );
+
+#ifdef ALLOC_PRAGMA
+#pragma alloc_text( PAGE8FIL, SrvCheckDeferredOpenOplockBreak )
+#endif
+
+VOID
+SrvPrintwZ( PWSTR string )
+{
+    while( *string != UNICODE_NULL )
+        KdPrint(( "%c", *(char *)string++ ));
+}
+
+#else
+
+#define    SrvPrintwZ( x )
+
+#endif
+
 VOID
 DereferenceRfcbInternal (
     IN PRFCB Rfcb,
@@ -100,9 +129,9 @@ DereferenceRfcbInternal (
     );
 
 
-VOID
+VOID SRVFASTCALL
 SrvOplockBreakNotification(
-    IN PRFCB Rfcb
+    IN PWORK_CONTEXT WorkContext
     )
 
 /*++
@@ -124,6 +153,7 @@ Return Value:
     NTSTATUS status;
     PCONNECTION connection;
     KIRQL oldIrql;
+    PRFCB Rfcb = (PRFCB)WorkContext;
     PPAGED_RFCB pagedRfcb = Rfcb->PagedRfcb;
 
     UNLOCKABLE_CODE( 8FIL );
@@ -140,9 +170,19 @@ Return Value:
     connection = Rfcb->Connection;
 
     IF_DEBUG( OPLOCK ) {
-        KdPrint(( "SrvOplockBreakNotification: Received notification for"
-            " file %wZ\n", &Rfcb->Mfcb->FileName ));
+
+        KdPrint(( "SrvOplockBreakNotification: Received notification for " ));
+        SrvPrintwZ( Rfcb->Mfcb->FileName.Buffer );
+        KdPrint(( "\n" ));
+        KdPrint(( "  status 0x%x, information %X, connection %X\n",
+                     status, information, connection ));
+        KdPrint(( "  Rfcb->OplockState = %X\n", Rfcb->OplockState ));
     }
+
+    //
+    // Check the oplock break request.
+    //
+    ACQUIRE_SPIN_LOCK( &connection->SpinLock, &oldIrql );
 
     //
     // Mark this rfcb as not cacheable since the oplock has been broken.
@@ -154,29 +194,20 @@ Return Value:
 
     Rfcb->IsCacheable = FALSE;
 
-    //
-    // Check the oplock break request.
-    //
-
-    ACQUIRE_SPIN_LOCK( &connection->SpinLock, &oldIrql );
-
     if ( !NT_SUCCESS(status) ||
          Rfcb->OplockState == OplockStateNone ||
          ((GET_BLOCK_STATE( Rfcb ) == BlockStateClosing) &&
           (Rfcb->OplockState != OplockStateOwnServerBatch)) ) {
 
-#if DBG
-        if( status == STATUS_INVALID_OPLOCK_PROTOCOL ) {
-            //ASSERT( GET_BLOCK_STATE( Rfcb ) == BlockStateClosing );
-            IF_DEBUG(SMB_ERRORS) {
-                KdPrint(( "SrvOplockBreakNotification: %wZ is closing\n",
-                            &Rfcb->Mfcb->FileName ));
+        IF_DEBUG( SMB_ERRORS ) {
+            if( status == STATUS_INVALID_OPLOCK_PROTOCOL ) {
                 if ( GET_BLOCK_STATE( Rfcb ) != BlockStateClosing ) {
-                    KdPrint(("     BUG: Rfcb is not closing\n"));
+                    KdPrint(( "BUG: SrvOplockBreakNotification: " ));
+                    SrvPrintwZ( Rfcb->Mfcb->FileName.Buffer );
+                    KdPrint(( " is not closing.\n" ));
                 }
             }
         }
-#endif
 
         //
         // One of the following is true:
@@ -197,7 +228,16 @@ Return Value:
 
         Rfcb->OplockState = OplockStateNone;
 
-        RELEASE_SPIN_LOCK( &connection->SpinLock, oldIrql );
+        if( Rfcb->CachedOpen ) {
+            //
+            // SrvCloseCachedRfcb releases the spinlock
+            //
+            SrvCloseCachedRfcb( Rfcb, oldIrql );
+
+        } else {
+
+            RELEASE_SPIN_LOCK( &connection->SpinLock, oldIrql );
+        }
 
         //
         // Free the IRP we used to the oplock request.
@@ -224,15 +264,17 @@ Return Value:
         //
 
         IF_DEBUG(FILE_CACHE) {
-            KdPrint(( "SrvOplockBreakNotification: server oplock broken for %wZ\n",
-                        &Rfcb->Mfcb->FileName ));
+            KdPrint(( "SrvOplockBreakNotification: server oplock broken for " ));
+            SrvPrintwZ( Rfcb->Mfcb->FileName.Buffer );
+            KdPrint(( "\n" ));
         }
 
         if ( !Rfcb->CachedOpen ) {
 
             IF_DEBUG(FILE_CACHE) {
-                KdPrint(( "SrvOplockBreakNotification: ack close pending for %wZ\n",
-                            &Rfcb->Mfcb->FileName ));
+                KdPrint(( "SrvOplockBreakNotification: ack close pending for " ));
+                SrvPrintwZ( Rfcb->Mfcb->FileName.Buffer );
+                KdPrint(( "\n" ));
             }
             UpdateRfcbHistory( Rfcb, 'pcao' );
 
@@ -263,8 +305,9 @@ Return Value:
             //
 
             IF_DEBUG(FILE_CACHE) {
-                KdPrint(( "SrvOplockBreakNotification: closing cached rfcb for %wZ\n",
-                            &Rfcb->Mfcb->FileName ));
+                KdPrint(( "SrvOplockBreakNotification: closing cached rfcb for "));
+                SrvPrintwZ( Rfcb->Mfcb->FileName.Buffer );
+                KdPrint(( "\n" ));
             }
             UpdateRfcbHistory( Rfcb, '$bpo' );
 
@@ -380,9 +423,7 @@ Return Value:
     // Attempt to allocate a work context block for the oplock break.
     //
 
-    KeRaiseIrql( DISPATCH_LEVEL, &oldIrql );
-    workContext = SrvFsdGetReceiveWorkItem();
-    KeLowerIrql( oldIrql );
+    ALLOCATE_WORK_CONTEXT( connection->CurrentWorkQueue, &workContext );
 
     if ( workContext == NULL ) {
 
@@ -544,7 +585,7 @@ Return Value:
 
 } // SrvFillOplockBreakRequest
 
-VOID
+VOID SRVFASTCALL
 SrvRestartOplockBreakSend(
     IN PWORK_CONTEXT WorkContext
     )
@@ -647,6 +688,7 @@ Return Value:
                 (ULONG)-1,
                 WorkContext->Connection->EndpointSpinLock
                 );
+
 
             //
             // Remove the queue reference.
@@ -756,9 +798,10 @@ Return Value:
     // Initialize the header
     //
 
-    SET_BLOCK_TYPE( *WaitForOplockBreak, BlockTypeWaitForOplockBreak );
-    SET_BLOCK_SIZE( *WaitForOplockBreak, sizeof(WAIT_FOR_OPLOCK_BREAK) );
-    DEBUG SET_BLOCK_STATE( *WaitForOplockBreak, BlockStateActive );
+    SET_BLOCK_TYPE_STATE_SIZE( *WaitForOplockBreak,
+                               BlockTypeWaitForOplockBreak,
+                               BlockStateActive,
+                               sizeof( WAIT_FOR_OPLOCK_BREAK ));
 
     //
     // Set the reference count to 2 to account for the workcontext
@@ -938,8 +981,9 @@ Return Value:
     if ( rfcb->OplockState != OplockStateNone ) {
         UpdateRfcbHistory( rfcb, 'poer' );
         IF_DEBUG(FILE_CACHE) {
-            KdPrint(( "SrvRequestOplock: already own server oplock for %wZ\n",
-                        &rfcb->Mfcb->FileName ));
+            KdPrint(( "SrvRequestOplock: already own server oplock for "));
+            SrvPrintwZ( rfcb->Mfcb->FileName.Buffer );
+            KdPrint(( "\n" ));
         }
         ASSERT( ((rfcb->OplockState == OplockStateOwnBatch) &&
                  (*OplockType == OplockTypeBatch)) ||
@@ -960,8 +1004,9 @@ Return Value:
     }
 
     IF_DEBUG(OPLOCK) {
-        KdPrint(("SrvRequestOplock: Attempting to obtain oplock for RFCB %08lx"
-                     "file %wZ\n", rfcb, &lfcb->Mfcb->FileName ));
+        KdPrint(("SrvRequestOplock: Attempting to obtain oplock for RFCB %08lx ", rfcb ));
+        SrvPrintwZ( rfcb->Mfcb->FileName.Buffer );
+        KdPrint(( "\n" ));
     }
 
     //
@@ -981,8 +1026,9 @@ Return Value:
     } else if ( *OplockType == OplockTypeServerBatch ) {
 
         IF_DEBUG(FILE_CACHE) {
-            KdPrint(( "SrvRequestOplock: requesting server oplock for %wZ\n",
-                        &rfcb->Mfcb->FileName ));
+            KdPrint(( "SrvRequestOplock: requesting server oplock for " ));
+            SrvPrintwZ( rfcb->Mfcb->FileName.Buffer );
+            KdPrint(( "\n" ));
         }
         UpdateRfcbHistory( rfcb, 'osqr' );
 
@@ -1888,7 +1934,7 @@ Return Value:
 
 } // SrvSendOplockRequest
 
-VOID
+VOID SRVFASTCALL
 SrvCheckDeferredOpenOplockBreak(
     IN PWORK_CONTEXT WorkContext
     )

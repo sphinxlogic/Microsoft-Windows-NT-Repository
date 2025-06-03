@@ -30,11 +30,14 @@ Revision History:
 #include "precomp.h"
 #pragma hdrstop
 
-DBGSTATIC
+VOID
+BowserCriticalThreadWorker(
+    IN PVOID Ctx
+    );
+
 KSPIN_LOCK
 BowserIrpContextInterlock = {0};
 
-DBGSTATIC
 LIST_ENTRY
 BowserIrpContextList = {0};
 
@@ -56,6 +59,146 @@ BowserIrpQueueSpinLock = {0};
 #endif
 
 
+
+//
+// Variables describing browsers use of a Critical system thread.
+//
+
+BOOLEAN BowserCriticalThreadRunning = FALSE;
+
+LIST_ENTRY BowserCriticalThreadQueue;
+
+WORK_QUEUE_ITEM BowserCriticalThreadWorkItem;
+
+
+
+VOID
+BowserQueueCriticalWorkItem (
+    IN PWORK_QUEUE_ITEM WorkItem
+    )
+
+/*++
+
+Routine Description:
+
+    This routine queues an item onto the critical work queue.
+
+    This routine ensures that at most one critical system thread is consumed
+    by the browser by actually queing this item onto a browser specific queue
+    then enqueing a critical work queue item that processes that queue.
+
+Arguments:
+
+    WorkItem -- Work item to be processed on the critical work queue.
+
+Return Value:
+
+    NONE
+
+--*/
+
+
+{
+    KIRQL OldIrql;
+
+    //
+    // Insert the queue entry into the browser specific queue.
+    //
+    ACQUIRE_SPIN_LOCK(&BowserIrpQueueSpinLock, &OldIrql);
+    InsertTailList( &BowserCriticalThreadQueue, &WorkItem->List );
+
+    //
+    // If the browser doesn't have a critical system thread running,
+    //  start one now.
+    //
+
+    if ( !BowserCriticalThreadRunning ) {
+
+        //
+        // Mark that the thread is running now
+        //
+        BowserCriticalThreadRunning = TRUE;
+        RELEASE_SPIN_LOCK(&BowserIrpQueueSpinLock, OldIrql);
+
+        ExInitializeWorkItem( &BowserCriticalThreadWorkItem,
+                              BowserCriticalThreadWorker,
+                              NULL );
+
+        ExQueueWorkItem(&BowserCriticalThreadWorkItem, CriticalWorkQueue );
+
+    } else {
+        RELEASE_SPIN_LOCK(&BowserIrpQueueSpinLock, OldIrql);
+    }
+
+}
+
+VOID
+BowserCriticalThreadWorker(
+    IN PVOID Ctx
+    )
+/*++
+
+Routine Description:
+
+    This routine processes critical browser workitems.
+
+    This routine runs in a critical system thread.  It is the only critical
+    system thread used by the browser.
+
+Arguments:
+
+    Ctx - Not used
+
+Return Value:
+
+    NONE
+
+--*/
+
+{
+    KIRQL OldIrql;
+    PLIST_ENTRY Entry;
+    PWORK_QUEUE_ITEM WorkItem;
+
+    UNREFERENCED_PARAMETER( Ctx );
+
+    //
+    // Loop processing work items
+    //
+
+    while( TRUE ) {
+
+        //
+        // If the queue is empty,
+        //  indicate that this thread is no longer running.
+        //  return.
+        //
+
+        ACQUIRE_SPIN_LOCK(&BowserIrpQueueSpinLock, &OldIrql);
+
+        if ( IsListEmpty( &BowserCriticalThreadQueue ) ) {
+            BowserCriticalThreadRunning = FALSE;
+            RELEASE_SPIN_LOCK(&BowserIrpQueueSpinLock, OldIrql);
+            return;
+        }
+
+        //
+        // Remove an entry from the queue.
+        //
+
+        Entry = RemoveHeadList( &BowserCriticalThreadQueue )
+        RELEASE_SPIN_LOCK(&BowserIrpQueueSpinLock, OldIrql);
+
+        WorkItem = CONTAINING_RECORD(Entry, WORK_QUEUE_ITEM, List);
+
+        //
+        // Call the queued routine
+        //
+
+        (*WorkItem->WorkerRoutine)(WorkItem->Parameter);
+
+    }
+}
 PIRP_CONTEXT
 BowserAllocateIrpContext (
     VOID
@@ -260,9 +403,7 @@ Arguments:
     KIRQL OldIrql;
     PLIST_ENTRY Entry, NextEntry;
     PIRP Request;
-    PIRP_QUEUE Queue = (PIRP_QUEUE )Irp->IoStatus.Information;
-
-    ASSERT (Queue != NULL);
+    PIRP_QUEUE Queue;
 
     //
     //  Clear the cancel routine from the IRP - It can't be canceled anymore.
@@ -277,28 +418,32 @@ Arguments:
     //
 
     ACQUIRE_SPIN_LOCK(&BowserIrpQueueSpinLock, &OldIrql);
+    Queue = (PIRP_QUEUE )Irp->IoStatus.Information;
 
-    for (Entry = Queue->Queue.Flink ;
-         Entry != &Queue->Queue ;
-         Entry = NextEntry) {
+    if (Queue != NULL) {
+        for (Entry = Queue->Queue.Flink ;
+             Entry != &Queue->Queue ;
+             Entry = NextEntry) {
 
-        Request = CONTAINING_RECORD(Entry, IRP, Tail.Overlay.ListEntry);
+            Request = CONTAINING_RECORD(Entry, IRP, Tail.Overlay.ListEntry);
 
-        if (Request->Cancel) {
+            if (Request->Cancel) {
 
-            NextEntry = Entry->Flink;
+                NextEntry = Entry->Flink;
 
-            RemoveEntryList(Entry);
+                RemoveEntryList(Entry);
 
-            Request->IoStatus.Information = 0;
+                Request->IoStatus.Information = 0;
 
-            BowserCompleteRequest(Request, STATUS_CANCELLED);
+                BowserCompleteRequest(Request, STATUS_CANCELLED);
 
-        } else {
-            NextEntry = Entry->Flink;
+            } else {
+                NextEntry = Entry->Flink;
+            }
+
         }
-
     }
+
 
     RELEASE_SPIN_LOCK(&BowserIrpQueueSpinLock, OldIrql);
 
@@ -376,6 +521,7 @@ Arguments:
 
 {
     KIRQL OldIrql;
+    LARGE_INTEGER CurrentTickCount;
     PIO_STACK_LOCATION NextStackLocation;
 
     DISCARDABLE_CODE( BowserDiscardableCodeSection );
@@ -418,8 +564,12 @@ Arguments:
     //  for this IRP.  This allows us to figure out if these IRP's have been
     //  around for "too long".
     //
+    // Beware:the IRP stack location is unaligned.
+    //
 
-    KeQueryTickCount((PLARGE_INTEGER)&NextStackLocation->Parameters.Others.Argument1);
+    KeQueryTickCount( &CurrentTickCount );
+    *((LARGE_INTEGER UNALIGNED *)&NextStackLocation->Parameters.Others.Argument1) =
+        CurrentTickCount;
 
     //
     //  Link the queue into the IRP.
@@ -481,13 +631,13 @@ Return Value:
     //  Compute the timeout time into 100ns units.
     //
 
-    Timeout = LiXMul(LiFromUlong(NumberOfSecondsToTimeOut), 10000*1000);
+    Timeout.QuadPart = (LONGLONG)NumberOfSecondsToTimeOut * (LONGLONG)(10000*1000);
 
     //
     //  Now convert the timeout into a number of ticks.
     //
 
-    Timeout = LiXDiv(Timeout, KeQueryTimeIncrement());
+    Timeout.QuadPart = Timeout.QuadPart / (LONGLONG)KeQueryTimeIncrement();
 
     ASSERT (Timeout.HighPart == 0);
 
@@ -527,6 +677,7 @@ Return Value:
             PIO_STACK_LOCATION NextIrpStackLocation;
             LARGE_INTEGER CurrentTickCount;
             LARGE_INTEGER RequestTime;
+            LARGE_INTEGER Temp;
             NextIrpStackLocation = IoGetNextIrpStackLocation(Irp);
 
             //
@@ -539,7 +690,9 @@ Return Value:
             //  Figure out how many seconds this request has been active for
             //
 
-            RequestTime = LiSub(CurrentTickCount, *((PLARGE_INTEGER)&NextIrpStackLocation->Parameters.Others.Argument1));
+            Temp.LowPart = (*((LARGE_INTEGER UNALIGNED *)&NextIrpStackLocation->Parameters.Others.Argument1)).LowPart;
+            Temp.HighPart= (*((LARGE_INTEGER UNALIGNED *)&NextIrpStackLocation->Parameters.Others.Argument1)).HighPart;
+            RequestTime.QuadPart = CurrentTickCount.QuadPart - Temp.QuadPart;
 
             ASSERT (RequestTime.HighPart == 0);
 
@@ -704,5 +857,6 @@ BowserpInitializeIrpQueue(
     )
 {
     KeInitializeSpinLock(&BowserIrpQueueSpinLock);
+    InitializeListHead( &BowserCriticalThreadQueue );
 
 }

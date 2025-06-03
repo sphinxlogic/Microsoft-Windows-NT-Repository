@@ -20,10 +20,8 @@ Revision History:
 --*/
 
 #include "mi.h"
-
-extern KSPIN_LOCK KiDispatcherLock;
 
-BOOLEAN
+ULONG
 FASTCALL
 MiIsPteDecommittedPage (
     IN PMMPTE PointerPte
@@ -120,7 +118,7 @@ ULONG MmCompatibleProtectionMask[8] = {
 
 
 
-BOOLEAN
+ULONG
 FASTCALL
 MiIsProtectionCompatible (
     IN ULONG OldProtect,
@@ -321,11 +319,11 @@ Environment:
     return ProtectCode;
 }
 
-BOOLEAN
+ULONG
 MiDoesPdeExistAndMakeValid (
     IN PMMPTE PointerPde,
     IN PEPROCESS TargetProcess,
-    IN BOOLEAN PfnMutexHeld
+    IN ULONG PfnMutexHeld
     )
 
 /*++
@@ -403,11 +401,11 @@ Environment:
     return TRUE;
 }
 
-BOOLEAN
+ULONG
 MiMakePdeExistAndMakeValid (
     IN PMMPTE PointerPde,
     IN PEPROCESS TargetProcess,
-    IN BOOLEAN PfnMutexHeld
+    IN ULONG PfnMutexHeld
     )
 
 /*++
@@ -451,7 +449,7 @@ Environment:
 {
     PMMPTE PointerPte;
     KIRQL OldIrql = APC_LEVEL;
-    BOOLEAN ReturnValue;
+    ULONG ReturnValue;
 
     if (PointerPde->u.Hard.Valid == 1) {
 
@@ -492,7 +490,7 @@ Environment:
     return ReturnValue;
 }
 
-BOOLEAN
+ULONG
 FASTCALL
 MiMakeSystemAddressValid (
     IN PVOID VirtualAddress,
@@ -524,7 +522,7 @@ Environment:
 
 {
     NTSTATUS status;
-    BOOLEAN Waited = FALSE;
+    ULONG Waited = FALSE;
 
     ASSERT (VirtualAddress > MM_HIGHEST_USER_ADDRESS);
 
@@ -561,7 +559,7 @@ Environment:
 }
 
 
-BOOLEAN
+ULONG
 FASTCALL
 MiMakeSystemAddressValidPfnWs (
     IN PVOID VirtualAddress,
@@ -595,7 +593,7 @@ Environment:
 
 {
     NTSTATUS status;
-    BOOLEAN Waited = FALSE;
+    ULONG Waited = FALSE;
     KIRQL OldIrql = APC_LEVEL;
 
     ASSERT (VirtualAddress > MM_HIGHEST_USER_ADDRESS);
@@ -631,7 +629,7 @@ Environment:
     return Waited;
 }
 
-BOOLEAN
+ULONG
 FASTCALL
 MiMakeSystemAddressValidPfn (
     IN PVOID VirtualAddress
@@ -662,7 +660,7 @@ Environment:
     NTSTATUS status;
     KIRQL OldIrql = APC_LEVEL;
 
-    BOOLEAN Waited = FALSE;
+    ULONG Waited = FALSE;
 
     ASSERT (VirtualAddress > MM_HIGHEST_USER_ADDRESS);
 
@@ -694,11 +692,11 @@ Environment:
     return Waited;
 }
 
-BOOLEAN
+ULONG
 FASTCALL
 MiLockPagedAddress (
     IN PVOID VirtualAddress,
-    IN BOOLEAN PfnLockHeld
+    IN ULONG PfnLockHeld
     )
 
 /*++
@@ -729,7 +727,7 @@ Environment:
     PMMPTE PointerPte;
     PMMPFN Pfn1;
     KIRQL OldIrql;
-    BOOLEAN Waited = FALSE;
+    ULONG Waited = FALSE;
 
     PointerPte = MiGetPteAddress(VirtualAddress);
 
@@ -749,7 +747,7 @@ Environment:
     }
 
     Pfn1 = MI_PFN_ELEMENT (PointerPte->u.Hard.PageFrameNumber);
-    Pfn1->ReferenceCount += 1;
+    Pfn1->u3.e2.ReferenceCount += 1;
 
     if (PfnLockHeld == FALSE) {
         UNLOCK_PFN2 (OldIrql);
@@ -762,7 +760,7 @@ VOID
 FASTCALL
 MiUnlockPagedAddress (
     IN PVOID VirtualAddress,
-    IN BOOLEAN PfnLockHeld
+    IN ULONG PfnLockHeld
     )
 
 /*++
@@ -805,7 +803,7 @@ Environment:
     {   PMMPFN Pfn;
         ASSERT (PointerPte->u.Hard.Valid == 1);
         Pfn = MI_PFN_ELEMENT (PointerPte->u.Hard.PageFrameNumber);
-        ASSERT (Pfn->ReferenceCount > 1);
+        ASSERT (Pfn->u3.e2.ReferenceCount > 1);
     }
 #endif //DBG
 
@@ -854,6 +852,8 @@ Environment:
     HalZeroPage((PVOID)((PageColor & MM_COLOR_MASK) << PAGE_SHIFT),
                 (PVOID)((PageColor & MM_COLOR_MASK) << PAGE_SHIFT),
                 PageFrameIndex);
+#elif defined(_PPC_)
+    KeZeroPage(PageFrameIndex);
 #else
     va = (PULONG)MiMapPageInHyperSpace (PageFrameIndex, &OldIrql);
 
@@ -920,12 +920,13 @@ Environment:
             // map the page into hyperspace and reference it that way.
             //
 
-            PointerPte = MiMapPageInHyperSpace (Pfn1->u3.e1.PteFrame, &OldIrql);
+            PointerPte = MiMapPageInHyperSpace (Pfn1->PteFrame, &OldIrql);
             PointerPte = (PMMPTE)((PCHAR)PointerPte +
                                     MiGetByteOffset(Pfn1->PteAddress));
         }
 
-        ASSERT (PointerPte->u.Trans.PageFrameNumber == PageFrameIndex);
+        ASSERT ((PointerPte->u.Trans.PageFrameNumber == PageFrameIndex) &&
+                 (PointerPte->u.Hard.Valid == 0));
 
         //
         // This page is referenced by a prototype PTE.  The
@@ -939,7 +940,6 @@ Environment:
             // The prototype PTE is in subsection format, calculate the
             // address of the control area for the subsection and decrement
             // the number of PFN references to the control area.
-            //
             //
             // Calculate address of subsection for this prototype PTE.
             //
@@ -957,13 +957,19 @@ Environment:
         //
         // The page points to a page table page which may not be
         // for the current process.  Map the page into hyperspace
-        // reference it through hyperspace.
+        // reference it through hyperspace.  If the page resides in
+        // system space, it does not need to be mapped as all PTEs for
+        // system space must be resident.
         //
 
-        PointerPte = MiMapPageInHyperSpace (Pfn1->u3.e1.PteFrame, &OldIrql);
-        PointerPte = (PMMPTE)((PCHAR)PointerPte +
+        PointerPte = Pfn1->PteAddress;
+        if (PointerPte < MiGetPteAddress (MM_SYSTEM_SPACE_START)) {
+            PointerPte = MiMapPageInHyperSpace (Pfn1->PteFrame, &OldIrql);
+            PointerPte = (PMMPTE)((PCHAR)PointerPte +
                                        MiGetByteOffset(Pfn1->PteAddress));
-        ASSERT (PointerPte->u.Trans.PageFrameNumber == PageFrameIndex);
+        }
+        ASSERT ((PointerPte->u.Trans.PageFrameNumber == PageFrameIndex) &&
+                 (PointerPte->u.Hard.Valid == 0));
     }
 
     ASSERT (Pfn1->OriginalPte.u.Hard.Valid == 0);
@@ -982,7 +988,7 @@ Environment:
     // the page table page which contains the PTE.
     //
 
-    MiDecrementShareCount (Pfn1->u3.e1.PteFrame);
+    MiDecrementShareCount (Pfn1->PteFrame);
 
     return;
 }
@@ -1100,6 +1106,54 @@ Environment:
     if ((VirtualAddress >= MmPagedPoolStart) &&
         (VirtualAddress <= MmPagedPoolEnd)) {
         return FALSE;
+    }
+
+    return TRUE;
+}
+
+BOOLEAN
+MmIsSystemAddressAccessable (
+    IN PVOID VirtualAddress
+    )
+
+/*++
+
+Routine Description:
+
+    For a given virtual address this function returns TRUE if the address
+    is accessable without an access violation (it may incur a page fault).
+
+Arguments:
+
+    VirtualAddress - Supplies the virtual address to check.
+
+Return Value:
+
+    TRUE if the address is accessable without an access violation.
+    FALSE otherwise.
+
+Environment:
+
+    Kernel mode.  APC_LEVEL or below.
+
+--*/
+
+{
+    PMMPTE PointerPte;
+
+    if (!MI_IS_PHYSICAL_ADDRESS(VirtualAddress)) {
+        PointerPte = MiGetPdeAddress (VirtualAddress);
+        if ((PointerPte->u.Long == MM_ZERO_PTE) ||
+            (PointerPte->u.Long == MM_ZERO_KERNEL_PTE) ||
+            (PointerPte->u.Soft.Protection == 0)) {
+            return FALSE;
+        }
+        PointerPte = MiGetPteAddress (VirtualAddress);
+        if ((PointerPte->u.Long == MM_ZERO_PTE) ||
+            (PointerPte->u.Long == MM_ZERO_KERNEL_PTE) ||
+            (PointerPte->u.Soft.Protection == 0)) {
+            return FALSE;
+        }
     }
 
     return TRUE;

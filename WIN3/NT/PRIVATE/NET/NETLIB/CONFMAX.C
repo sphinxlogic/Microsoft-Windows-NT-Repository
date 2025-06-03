@@ -54,7 +54,7 @@ Revision History:
 
 #include <configp.h>    // NET_CONFIG_HANDLE, BOGUS_CONFIG_SIZE.
 #include <debuglib.h>   // IF_DEBUG()
-#include <netdebug.h>   // NetpDbgPrint(), etc.
+#include <netdebug.h>   // NetpKdPrint(()), etc.
 #include <netlib.h>     // NetpSetOptionalArg().
 #include <prefix.h>     // PREFIX_ equates.
 #include <winerror.h>   // NO_ERROR.
@@ -100,17 +100,17 @@ NetpGetWinRegConfigMaxSizes (
             &LastWriteTime
             );
     IF_DEBUG(CONFIG) {
-        NetpDbgPrint( PREFIX_NETLIB
+        NetpKdPrint(( PREFIX_NETLIB
                 "NetpGetWinRegConfigMaxSizes: RegQueryInfoKey returned "
                 FORMAT_LONG ", key size " FORMAT_DWORD ", data size "
                 FORMAT_DWORD ".\n",
-                Error, MaxValueNameLength, MaxValueDataLength );
+                Error, MaxValueNameLength, MaxValueDataLength ));
     }
     if (Error != ERROR_SUCCESS) {
-        NetpDbgPrint( PREFIX_NETLIB
+        NetpKdPrint(( PREFIX_NETLIB
                 "NetpGetWinRegConfigMaxSizes: bad status " FORMAT_LONG
                 " from RegQueryInfoKey, handle was " FORMAT_HEX_DWORD
-                ".\n", Error, (DWORD) WinRegHandle );
+                ".\n", Error, (DWORD) WinRegHandle ));
         NetpAssert( FALSE );
         return ( (NET_API_STATUS) Error );
     }

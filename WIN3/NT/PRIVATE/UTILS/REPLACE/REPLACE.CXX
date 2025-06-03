@@ -239,6 +239,9 @@ Notes:
         _Pattern                        =       NULL;
         _FilesInSrc             =       NULL;
 
+        _AddSwitch = FALSE;   // use by DisplayMessageAndExit before any
+                              // of those boolean _*Switch is being initialized
+
 
 }
 
@@ -310,15 +313,15 @@ Notes:
         //
         GetDirectoryAndPattern( _SourcePath, &_SourceDirectory, &_Pattern );
 
-        DbgPtrAssert( _SourceDirectory );
-        DbgPtrAssert( _Pattern );
+        DebugPtrAssert( _SourceDirectory );
+        DebugPtrAssert( _Pattern );
 
         //
         //      Get the destination directory
         //
         GetDirectory( _DestinationPath, &DestinationDirectory );
 
-        DbgPtrAssert( DestinationDirectory );
+        DebugPtrAssert( DestinationDirectory );
 
         //
         //      Wait if requested
@@ -355,7 +358,7 @@ Notes:
         //      information over and over when the Subdir switch is set.
         //
         _FilesInSrc = GetFileArray( _SourceDirectory, _Pattern );
-        DbgPtrAssert( _FilesInSrc );
+        DebugPtrAssert( _FilesInSrc );
 
         if ( _SubdirSwitch ) {
 
@@ -390,10 +393,10 @@ Notes:
 
 VOID
 REPLACE::GetDirectoryAndPattern(
-	IN		PPATH			Path,
-	OUT 	PFSN_DIRECTORY	*Directory,
+   IN    PPATH       Path,
+   OUT   PFSN_DIRECTORY *Directory,
     OUT     PWSTRING        *Pattern
-	)
+   )
 
 /*++
 
@@ -419,14 +422,14 @@ Notes:
 --*/
 
 {
-	PATH				TmpPath;
+   PATH           TmpPath;
     PWSTRING            Name;
-	PFSN_DIRECTORY		Dir;
+   PFSN_DIRECTORY    Dir;
     PWSTRING            Ptrn;
 
-    DbgAssert( Path );
-    DbgAssert( Directory );
-    DbgAssert( Pattern );
+    DebugAssert( Path );
+    DebugAssert( Directory );
+    DebugAssert( Pattern );
 
     //
     // If the name passed is a directory, it is an error.
@@ -511,9 +514,9 @@ Notes:
 
 PARRAY
 REPLACE::GetFileArray(
-	IN		PFSN_DIRECTORY	Directory,
+   IN    PFSN_DIRECTORY Directory,
     IN      PWSTRING        Pattern
-	)
+   )
 
 /*++
 
@@ -538,8 +541,8 @@ Notes:
         PARRAY          Array;
         FSN_FILTER      Filter;
 
-        DbgPtrAssert( Directory );
-        DbgPtrAssert( Pattern );
+        DebugPtrAssert( Directory );
+        DebugPtrAssert( Pattern );
 
         Filter.Initialize();
         Filter.SetFileName( Pattern );
@@ -547,7 +550,7 @@ Notes:
 
         Array = Directory->QueryFsnodeArray( &Filter );
 
-        DbgPtrAssert( Array );
+        DebugPtrAssert( Array );
 
         return Array;
 
@@ -585,8 +588,8 @@ Notes:
 
 {
 
-        DbgAssert( DummyPath == NULL );
-        DbgAssert( DirectoryNode->IsDirectory() );
+        DebugAssert( DummyPath == NULL );
+        DebugAssert( DirectoryNode->IsDirectory() );
 
     ((PREPLACE)This)->AbortIfCtrlC();
 
@@ -625,14 +628,14 @@ Notes:
 
 {
 
-	PARRAY_ITERATOR 	Iterator;
-	PFSN_FILE			File;
-	PFSN_FILE			FileToCreate;
-	PATH				DestinationPath;
+   PARRAY_ITERATOR   Iterator;
+   PFSN_FILE         File;
+   PFSN_FILE         FileToCreate;
+   PATH           DestinationPath;
     PWSTRING            Name;
 
-        DbgPtrAssert( DestinationDirectory );
-        DbgPtrAssert( _FilesInSrc );
+        DebugPtrAssert( DestinationDirectory );
+        DebugPtrAssert( _FilesInSrc );
 
         //
         //      Get destination path
@@ -643,7 +646,7 @@ Notes:
         //      Obtain an iterator for going thru the files
         //
         Iterator =      ( PARRAY_ITERATOR )_FilesInSrc->QueryIterator( );
-        DbgPtrAssert( Iterator );
+        DebugPtrAssert( Iterator );
 
         //
         //      For each file in the array, see if it exists in the destination
@@ -651,10 +654,10 @@ Notes:
         //
         while ( File =  (PFSN_FILE)Iterator->GetNext() ) {
 
-                DbgAssert( !(((PFSNODE)File)->IsDirectory()) );
+                DebugAssert( !(((PFSNODE)File)->IsDirectory()) );
 
                 Name = File->QueryName();
-                DbgPtrAssert( Name );
+                DebugPtrAssert( Name );
 
                 //
                 //      Form the path in the target file
@@ -731,8 +734,8 @@ Notes:
     PTIMEINFO           TimeDst;
         BOOLEAN                         Proceed = TRUE;
 
-        DbgPtrAssert( DestinationDirectory );
-        DbgPtrAssert( _FilesInSrc );
+        DebugPtrAssert( DestinationDirectory );
+        DebugPtrAssert( _FilesInSrc );
 
         //
         //      Get destination path
@@ -743,7 +746,7 @@ Notes:
         //      Obtain an iterator for going thru the files
         //
         Iterator =      ( PARRAY_ITERATOR )_FilesInSrc->QueryIterator( );
-        DbgPtrAssert( Iterator );
+        DebugPtrAssert( Iterator );
 
         //
         //      For each file in the array, see if it exists in the destination
@@ -753,10 +756,10 @@ Notes:
 
         AbortIfCtrlC();
 
-        DbgAssert( !(((PFSNODE)File)->IsDirectory()) );
+        DebugAssert( !(((PFSNODE)File)->IsDirectory()) );
 
                 Name = File->QueryName();
-                DbgPtrAssert( Name );
+                DebugPtrAssert( Name );
 
                 //
                 //      Form the path in the target file
@@ -780,8 +783,8 @@ Notes:
                 TimeSrc = File->QueryTimeInfo();
                 TimeDst = FileToReplace->QueryTimeInfo();
 
-                DbgPtrAssert( TimeSrc );
-                DbgPtrAssert( TimeDst );
+                DebugPtrAssert( TimeSrc );
+                DebugPtrAssert( TimeDst );
 
                 Proceed = *TimeDst < *TimeSrc;
 
@@ -898,8 +901,8 @@ Return Value:
 
         ULONG   Size;
 
-        DbgPtrAssert( SrcPath );
-        DbgPtrAssert( DstPath );
+        DebugPtrAssert( SrcPath );
+        DebugPtrAssert( DstPath );
 
         //
         //      Make sure that the buffers are big enough to hold the
@@ -908,14 +911,14 @@ Return Value:
         Size = (SrcPath->GetPathString()->QueryChCount() + 1) * 2;
         if ( Size > _PathString1Size ) {
         _PathString1 = (LPWSTR)REALLOC( _PathString1, (unsigned int)Size );
-                DbgPtrAssert( _PathString1 );
+                DebugPtrAssert( _PathString1 );
                 _PathString1Size = Size;
         }
 
         Size = (DstPath->GetPathString()->QueryChCount() + 1) * 2;
         if ( Size > _PathString2Size ) {
         _PathString2 = (LPWSTR)REALLOC( _PathString2, (unsigned int)Size );
-                DbgPtrAssert( _PathString2 );
+                DebugPtrAssert( _PathString2 );
                 _PathString2Size = Size;
         }
 
@@ -942,3 +945,4 @@ Return Value:
         return TRUE;
 
 }
+

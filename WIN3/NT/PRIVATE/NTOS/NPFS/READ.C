@@ -323,8 +323,6 @@ Return Value:
         return TRUE;
     }
 
-    NonpagedCcb = Ccb->NonpagedCcb;
-
     //
     //  Now we only will allow Read operations on the pipe and not a directory
     //  or the device
@@ -341,6 +339,8 @@ Return Value:
     }
 
     NpAcquireExclusiveCcb(Ccb);
+
+    NonpagedCcb = Ccb->NonpagedCcb;
 
     try {
         //

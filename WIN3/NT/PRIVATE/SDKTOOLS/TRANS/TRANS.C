@@ -146,8 +146,8 @@ char *v[];
         fatal ("Invalid pattern\n");
     p = v[2];
     if (c == 3) {
-        setmode(0, O_BINARY);
-        setmode(1, O_BINARY);
+        _setmode(0, O_BINARY);
+        _setmode(1, O_BINARY);
         fDoTrans (stdin, stdout, p);
     }
     else
@@ -171,7 +171,7 @@ char *v[];
                         printf ("[OK]\n");
                     }
                 else {
-                    unlink ("trans$$$.$$$");
+                    _unlink ("trans$$$.$$$");
                     printf ("[No change]\n");
                     }
                 }
@@ -179,4 +179,3 @@ char *v[];
             }
     return( 0 );
 }
-

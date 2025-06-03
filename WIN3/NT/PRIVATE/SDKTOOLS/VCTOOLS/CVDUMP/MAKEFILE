@@ -10,39 +10,77 @@
 
 !ELSE
 
-!if "$(LANGAPI)" == ""
+!ifndef LANGAPI
 LANGAPI = \langapi
 !endif
 
-# Win32 hosted
-
-!ifndef RELEASE
-CDEBUG	= -Zi -Od
-!else
-CDEBUG	= -O2
+!if "$(verbose)" == ""
+V	= -nologo
 !endif
-CC	= cl
-CFLAGS	= -W3 -DWIN32 -nologo -I$(LANGAPI)\include $(CCMISC) $(CDEBUG)
 
-OBJS1	= cvdump4.obj \
-	  dumpsym6.obj \
-	  dumpsym7.obj \
-	  dumptyp6.obj \
-	  dumptyp7.obj \
-	  type6.obj \
-	  type7.obj \
-	  utils.obj
+CFLAGS	= $V /c /Fd$(ODIR)\cvdump.pdb /GF /Gy /I$(LANGAPI)\include /W3 $(EXTRA_CFLAGS)
 
-cvdump.exe: $(OBJS1)
-	$(CC) @<<cl.rsp
-$(CFLAGS)
--Fe$@
-$(OBJS1: = ^
+!if "$(DBC)" != "0"
+CFLAGS	= $(CFLAGS) /D_MBCS
+!message --- building _MBCS version
+!endif
+
+!ifdef	RELEASE
+ODIR	= release
+LFLAGS	= /map
+CFLAGS	= $(CFLAGS) /DDBG=0 /DNDEBUG /MD /O2
+CRTLIB	= msvcrt.lib
+!else
+ODIR	= debug
+LFLAGS	= /debug /map /pdb:$(ODIR)\cvdump.pdb
+CFLAGS	= $(CFLAGS) /DDBG=1 /MDd /Od /Zi
+CRTLIB	= msvcrtd.lib
+!endif
+
+!ifdef BROWSER
+CFLAGS = $(CFLAGS) -FR$(ODIR)/
+!endif
+
+.c{$(ODIR)}.obj:
+	$(CC) $(CFLAGS) /Fo$@ $<
+
+.rc{$(ODIR)}.res:
+	if exist $@ del $@
+	rc -r -i$(LANGAPI)/include -Fo$@ $<
+
+OBJS	= \
+	$(ODIR)\cvdump.obj	\
+	$(ODIR)\dumpsym6.obj	\
+	$(ODIR)\dumpsym7.obj	\
+	$(ODIR)\dumptyp6.obj	\
+	$(ODIR)\dumptyp7.obj	\
+	$(ODIR)\type6.obj	\
+	$(ODIR)\type7.obj	\
+	$(ODIR)\utils.obj	\
+	$(ODIR)\cvdump.res
+
+
+all: $(ODIR)\cvdump.exe
+
+
+$(ODIR):
+	@-mkdir $(ODIR)
+
+
+$(ODIR)\cvdump.exe: $(ODIR) $(OBJS)
+	link @<<
+$(LFLAGS)
+-out:$@
+$(OBJS: = ^
 )
-<<KEEP
+mspdb.lib
+<<
+!ifdef BROWSER
+	bscmake /n /o$(ODIR)\cvdump.bsc $(ODIR)\*.sbr
+!endif
 
 
-cvdump4.obj:	cvdump.h version.h cvdef.h $(LANGAPI)\include\cvexefmt.h $(LANGAPI)\include\cvinfo.h cvtdef.h
+cvdump.obj:	cvdump.h version.h cvdef.h $(LANGAPI)\include\cvexefmt.h $(LANGAPI)\include\cvinfo.h cvtdef.h
 
 dumpsym6.obj:	cvdump.h cvdef.h $(LANGAPI)\include\cvexefmt.h debsym.h symrec.h
 

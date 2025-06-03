@@ -23,6 +23,8 @@ Abstract:
         QueueDlcCommand
         AbortCommand
         CancelDlcCommand
+        PurgeDlcEventQueue
+        PurgeDlcFlowControlQueue
 
 Author:
 
@@ -218,10 +220,13 @@ Return Value:
                                 );
 
             if (DeallocateEvent) {
-                DeallocatePacket(pFileContext->hPacketPool, pPacket);
+
+                DEALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool, pPacket);
+
             }
 
-            DeallocatePacket(pFileContext->hPacketPool, pDlcCommand);
+            DEALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool, pDlcCommand);
+
             return;
         }
     }
@@ -243,7 +248,8 @@ MakeDlcEvent(
     IN USHORT StationId,
     IN PDLC_OBJECT pDlcObject,
     IN PVOID pEventInformation,
-    IN ULONG SecondaryInfo
+    IN ULONG SecondaryInfo,
+    IN BOOLEAN FreeEventInfo
     )
 
 /*++
@@ -255,17 +261,13 @@ Routine Description:
 
 Arguments:
 
-    pFileContext - process specific adapter context
-
-    Event - event code
-
-    StationId - station id the event is destined
-
-    pDlcObject - the optional dlc object used in the event completion
-
-    pEventInformation - generic event information
-
-    SecondaryInfo - optional misc. data
+    pFileContext        - process specific adapter context
+    Event               - event code
+    StationId           - station id the event is destined
+    pDlcObject          - the optional dlc object used in the event completion
+    pEventInformation   - generic event information
+    SecondaryInfo       - optional misc. data
+    FreeEventInfo       - TRUE if pEventInformation should be deallocated
 
 Return Value:
 
@@ -286,7 +288,8 @@ Return Value:
     // queue the event.
     //
 
-    pDlcEvent = AllocatePacket(pFileContext->hPacketPool);
+    pDlcEvent = ALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool);
+
     if (pDlcEvent ==  NULL) {
         return DLC_STATUS_NO_MEMORY;
     }
@@ -295,6 +298,7 @@ Return Value:
     pDlcEvent->pOwnerObject = pDlcObject;
     pDlcEvent->SecondaryInfo = SecondaryInfo;
     pDlcEvent->pEventInformation = pEventInformation;
+    pDlcEvent->bFreeEventInfo = FreeEventInfo;
     QueueDlcEvent(pFileContext, (PDLC_PACKET)pDlcEvent);
     return STATUS_SUCCESS;
 }
@@ -313,7 +317,7 @@ Routine Description:
     Searches the command queue of a DLC file context for a 'request handle'
     which is the address (in user space) of a command CCB, such as a READ
 
-    If RequestHandle is located, a pointer to the DLC_STRUCTURE containing
+    If RequestHandle is located, a pointer to the DLC_COMMAND containing
     it is returned, else NULL
 
     Note: Assumes that handles are not shared between processes (it looks
@@ -652,7 +656,9 @@ Return Value:
                                               pEvent->SecondaryInfo
                                               );
         if (DeallocateEvent) {
-            DeallocatePacket(pFileContext->hPacketPool, pEvent);
+
+            DEALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool, pEvent);
+
         }
     } else {
 
@@ -662,7 +668,8 @@ Return Value:
         // queue the event.
         //
 
-        pDlcCommand = (PDLC_COMMAND)AllocatePacket(pFileContext->hPacketPool);
+        pDlcCommand = (PDLC_COMMAND)ALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool);
+
         if (pDlcCommand ==  NULL) {
             return DLC_STATUS_NO_MEMORY;
         }
@@ -828,7 +835,88 @@ Return Value:
         pDlcCommand->pIrp->UserEvent = NULL;
     }
     CompleteAsyncCommand(pFileContext, CancelStatus, pDlcCommand->pIrp, pOldCcbLink, FALSE);
-    DeallocatePacket(pFileContext->hPacketPool, pDlcCommand);
+
+    DEALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool, pDlcCommand);
+
+}
+
+
+VOID
+PurgeDlcEventQueue(
+    IN PDLC_FILE_CONTEXT pFileContext
+    )
+
+/*++
+
+Routine Description:
+
+    Deletes all events from a FILE_CONTEXT event queue. Called when the
+    FILE_CONTEXT is being deleted and before we deallocate the packet pool from
+    which the events were allocated
+
+Arguments:
+
+    pFileContext    - pointer to FILE_CONTEXT owning the queue
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    PDLC_EVENT p;
+
+    while (!IsListEmpty(&pFileContext->EventQueue)) {
+        p = (PDLC_EVENT)RemoveHeadList(&pFileContext->EventQueue);
+        if (p->bFreeEventInfo && p->pEventInformation) {
+
+#if DBG
+            DbgPrint("PurgeDlcEventQueue: deallocating pEventInformation: %x\n", p->pEventInformation);
+#endif
+
+            DEALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool, p->pEventInformation);
+
+        }
+
+        DEALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool, p);
+
+    }
+}
+
+
+VOID
+PurgeDlcFlowControlQueue(
+    IN PDLC_FILE_CONTEXT pFileContext
+    )
+
+/*++
+
+Routine Description:
+
+    Deletes all packets from the flow control queue. Called when the FILE_CONTEXT
+    is being deleted and before we deallocate the packet pool from which flow
+    control packets were allocated
+
+Arguments:
+
+    pFileContext    - pointer to FILE_CONTEXT owning the queue
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    PDLC_RESET_LOCAL_BUSY_CMD p;
+
+    while (!IsListEmpty(&pFileContext->FlowControlQueue)) {
+        p = (PDLC_RESET_LOCAL_BUSY_CMD)RemoveHeadList(&pFileContext->FlowControlQueue);
+
+        DEALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool, p);
+
+    }
 }
 
 

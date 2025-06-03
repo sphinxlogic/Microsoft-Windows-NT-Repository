@@ -62,7 +62,7 @@ BOOL CALLBACK SimpsvrMsgCallBack(MSG *pmsg)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      SetRectEmpty                Windows API
 //
 // Comments:
@@ -72,7 +72,7 @@ BOOL CALLBACK SimpsvrMsgCallBack(MSG *pmsg)
 
 CSimpSvrApp::CSimpSvrApp()
 {
-    OutputDebugString(TEXT("In CSimpSvrApp's Constructor \r\n"));
+    TestDebugOut(TEXT("In CSimpSvrApp's Constructor \r\n"));
 
     // Set Ref Count
     m_nCount = 0;
@@ -108,7 +108,7 @@ CSimpSvrApp::CSimpSvrApp()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      DestroyWindow               Windows API
 //      CSimpSvrApp::IsInitialized  APP.H
 //      OleUninitialize             OLE API
@@ -117,7 +117,7 @@ CSimpSvrApp::CSimpSvrApp()
 
 CSimpSvrApp::~CSimpSvrApp()
 {
-    OutputDebugString(TEXT("In CSimpSvrApp's Destructor\r\n"));
+    TestDebugOut(TEXT("In CSimpSvrApp's Destructor\r\n"));
 
     /* The Simple Server is structured so that SimpSvrApp is ALWAYS the
      * last one to be released, after all the SimpSvrDoc and SimpSvrObj are
@@ -160,7 +160,7 @@ CSimpSvrApp::~CSimpSvrApp()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      ResultFromScode             OLE API
 //      IUnknown::AddRef            APP.CPP
 //
@@ -170,7 +170,7 @@ CSimpSvrApp::~CSimpSvrApp()
 
 STDMETHODIMP CSimpSvrApp::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 {
-    OutputDebugString(TEXT("In CSimpSvrApp::QueryInterface\r\n"));
+    TestDebugOut(TEXT("In CSimpSvrApp::QueryInterface\r\n"));
 
     SCODE sc = S_OK;
 
@@ -208,7 +208,7 @@ STDMETHODIMP CSimpSvrApp::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -221,7 +221,7 @@ STDMETHODIMP CSimpSvrApp::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 
 STDMETHODIMP_(ULONG) CSimpSvrApp::AddRef()
 {
-    OutputDebugString(TEXT("In CSimpSvrApp::AddRef\r\n"));
+    TestDebugOut(TEXT("In CSimpSvrApp::AddRef\r\n"));
     return ++m_nCount;
 }
 
@@ -244,7 +244,7 @@ STDMETHODIMP_(ULONG) CSimpSvrApp::AddRef()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -257,7 +257,7 @@ STDMETHODIMP_(ULONG) CSimpSvrApp::AddRef()
 
 STDMETHODIMP_(ULONG) CSimpSvrApp::Release()
 {
-    OutputDebugString(TEXT("In CSimpSvrApp::Release\r\n"));
+    TestDebugOut(TEXT("In CSimpSvrApp::Release\r\n"));
 
     if (--m_nCount==0)
     {
@@ -395,7 +395,7 @@ BOOL CSimpSvrApp::fInitInstance (HANDLE hInstance, int nCmdShow,
     if (HIWORD(dwVer) != rmm || LOWORD(dwVer) < rup)
     {
 #ifdef _DEBUG
-        OutputDebugString("WARNING: Incompatible OLE library version\r\n");
+        TestDebugOut("WARNING: Incompatible OLE library version\r\n");
 #else
         return FALSE;
 #endif
@@ -411,7 +411,7 @@ BOOL CSimpSvrApp::fInitInstance (HANDLE hInstance, int nCmdShow,
     if ((m_hAccel = LoadAccelerators(m_hInst, TEXT("SimpsvrAccel"))) == NULL)
     {
         // Load failed so abort
-        OutputDebugString(TEXT("ERROR: Accelerator Table Load FAILED\r\n"));
+        TestDebugOut(TEXT("ERROR: Accelerator Table Load FAILED\r\n"));
         return FALSE;
     }
 
@@ -441,7 +441,7 @@ BOOL CSimpSvrApp::fInitInstance (HANDLE hInstance, int nCmdShow,
     if (pmf == NULL)
     {
         // this call failed so we are hosed. So fail the whole thing
-        OutputDebugString(
+        TestDebugOut(
             TEXT("CSimpSvrApp::fInitInstance OleStdMsgFilter_Create fails\n"));
         return FALSE;
     }
@@ -451,7 +451,7 @@ BOOL CSimpSvrApp::fInitInstance (HANDLE hInstance, int nCmdShow,
     if (FAILED(hr))
     {
         // this call failed so we are hosed. So fail the whole thing
-        OutputDebugString(
+        TestDebugOut(
             TEXT("CSimpSvrApp::fInitInstance CoRegisterMessageFilter fails\n"));
         return FALSE;
     }
@@ -490,7 +490,7 @@ BOOL CSimpSvrApp::fInitInstance (HANDLE hInstance, int nCmdShow,
                                   REGCLS_SINGLEUSE,
                                   &m_dwRegisterClass) != S_OK
            )
-           OutputDebugString(TEXT("CSimpSvrApp::fInitInstance \
+           TestDebugOut(TEXT("CSimpSvrApp::fInitInstance \
                                    CoRegisterClassObject fails\n"));
 
         // remove artificial Ref. count
@@ -517,7 +517,7 @@ BOOL CSimpSvrApp::fInitInstance (HANDLE hInstance, int nCmdShow,
 //  History:    dd-mmm-yy Author    Comment
 //              02-May-94 ricksa    author
 //
-//  Notes:      
+//  Notes:
 //
 //--------------------------------------------------------------------------
 void CSimpSvrApp::HandleDrawItem(LPDRAWITEMSTRUCT lpdis)
@@ -551,7 +551,7 @@ void CSimpSvrApp::HandleDrawItem(LPDRAWITEMSTRUCT lpdis)
 //  History:    dd-mmm-yy Author    Comment
 //              02-May-94 ricksa    author
 //
-//  Notes:      
+//  Notes:
 //
 //--------------------------------------------------------------------------
 void CSimpSvrApp::HandleChangeColors(void)
@@ -946,7 +946,7 @@ BOOL CSimpSvrApp::IsInPlaceActive()
 void CSimpSvrApp::ShowAppWnd(int nCmdShow)
 {
     if (CoLockObjectExternal(this, TRUE, FALSE) != S_OK)
-       OutputDebugString(TEXT("CSimpSvrApp::ShowAppWnd  \
+       TestDebugOut(TEXT("CSimpSvrApp::ShowAppWnd  \
                                CoLockObjectExternal fails\n"));
     ShowWindow (m_hAppWnd, nCmdShow);
     UpdateWindow (m_hAppWnd);
@@ -979,10 +979,9 @@ void CSimpSvrApp::ShowAppWnd(int nCmdShow)
 void CSimpSvrApp::HideAppWnd()
 {
     if (CoLockObjectExternal(this, FALSE, TRUE) != S_OK)
-       OutputDebugString(TEXT("CSimpSvrApp::HideAppWnd  \
+       TestDebugOut(TEXT("CSimpSvrApp::HideAppWnd  \
                                CoLockObjectExternal fails\n"));
     ShowWindow (m_hAppWnd, SW_HIDE);
 }
 
 
-

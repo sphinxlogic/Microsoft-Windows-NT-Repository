@@ -95,7 +95,7 @@ WsWSPOpen( PSZ pszFileName, FILE **phFile, PFN pfnExit, wsphdr_t *pWspHdr,
 #endif /* DEBUG */
 
 	/* Validate the WSP file header. */
-	if (strcmpi(pWspHdr->wsphdr_chSignature, "WSP"))
+	if (_strcmpi(pWspHdr->wsphdr_chSignature, "WSP"))
 		(*pfnExit)(ERROR, PRINT_MSG, MSG_FILE_BAD_HDR, (ULONG)-1, pszFileName);
 
 	return(NO_ERROR);
@@ -332,5 +332,3 @@ Return Value:
 }
 
 
-
-

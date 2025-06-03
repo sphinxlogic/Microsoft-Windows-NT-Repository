@@ -9,6 +9,7 @@ include pdb.inc
 include eems.inc
 ifdef WOW
 include vint.inc
+include wowcmpat.inc
 endif
 .list
 
@@ -24,6 +25,11 @@ externFP GetAppCompatFlags
 
 ifdef DBCS
 externFP FarMyIsDBCSLeadByte
+endif
+
+ifdef WOW
+externFP WowShouldWeSayWin95
+externFP IGetModuleFileName
 endif
 
 DataBegin
@@ -72,6 +78,11 @@ externNP Reschedule
 externNP DeleteTask
 externNP InsertTask
 endif ; WOW
+
+ifdef WOW
+externFP MyGetAppWOWCompatFlagsEx
+endif
+
 ifndef WOW
 ;-----------------------------------------------------------------------;
 ; WaitEvent                                                             ;
@@ -365,6 +376,8 @@ endif
 yld3:
 cEnd
 
+endif           ; !WOW
+
         assumes ds, nothing
         assumes es, nothing
 
@@ -388,6 +401,9 @@ gt1:    mov     es,ax
         ret
 ;gt2:   kerror  ERR_TASKID,<GetTaskHandle: Invalid task handle>
 ;       ret
+
+ifndef WOW
+
 ;;
 ;; PostEvent( taskID ) - increment the event counter for a task.  Return
 ;; false if invalid task handle passed.  Otherwise return true, after
@@ -404,6 +420,8 @@ cBegin  nogen
         inc     es:[TDB_nEvents]        ; indicate one more event
         ret     2
 cEnd    nogen
+
+endif           ; !WOW
 
 ;-------------------------------------------------------
 ;
@@ -485,6 +503,8 @@ cBegin  nogen
         xchg    ax,es:[TDB_queue]
         ret     4
 cEnd    nogen
+
+ifndef WOW
 
 ;--------------------------------------------------------
 ;
@@ -975,31 +995,61 @@ cProc	IsTaskLocked,<PUBLIC,FAR>
 cBegin  nogen
         xor ax,ax
 	ret
-cEnd	nogen
+cEnd    nogen
 
-;--------------------------------------------------------------------------
-;
-;  Get the Task pull model event queue handle
-;
-;  Always return TRUE as 0xffff. So that in case the app tries to uses this
-;  as a selector, it will GP and we will know about it. Since all wowtasks
-;  have queues we return TRUE.
-;
-;  Currently called by QuickC
-;
-;                                                       - Nanduri
-;--------------------------------------------------------------------------
+endif           ; WOW
+
         assumes ds, nothing
         assumes es, nothing
 
-cProc   GetTaskQueue,<PUBLIC,FAR>
-;       parmW   taskID
-cBegin  nogen
-        mov     ax,0ffffh
-        ret     2
-cEnd    nogen
+cProc   GetVersion,<PUBLIC,FAR>
+cBegin nogen
+        push    ds
+        SetKernelDS
+ifdef WOW
+        call    MyGetAppWOWCompatFlagsEx
+        test    dx, word ptr cs:[gv_GACFEX_GETVERSIONHACK+2]
+        jz      gv_nohack
 
-endif ; WOW
+        ;
+        ; Call WOW32 to ask if we should lie about the version.
+        ; WowShouldWeSayWin95 will return zero if we should
+        ; return the "real" windows version (3.1), or will
+        ; return the word we should return in AX.  For
+        ; InstallShield versions less than 3.00.088.0 it
+        ; will return 5f03, e.g. 3.95, since they don't work
+        ; on the newshell otherwise.
+        ;
+
+        pop     cx                    ; CX = caller DS
+        push    cx
+        sub     sp, 256               ; make room for module path
+        mov     dx, 256
+        mov     bx, sp
+        push    cx                    ; save caller DS
+        cCall   IGetModuleFileName, <cx, ss, bx, dx>
+        pop     cx
+        mov     bx, sp
+        cCall   WowShouldWeSayWin95, <ss, bx, cx>
+        add     sp, 256
+        test    ax,ax                 ; Did WOW32 provide a version?
+        jz      gv_nohack             ; Nope
+        jmp     short gv_setdosversion
+
+gv_GACFEX_GETVERSIONHACK:
+        DD WOWCFEX_GETVERSIONHACK
+endif
+
+gv_nohack:
+        mov     ax,winVer
+        xchg    ah,al
+gv_setdosversion:
+        mov     dh,DOS_version
+        mov     dl,DOS_revision
+        pop     ds
+        UnSetKernelDS
+        ret
+cEnd nogen
 
 
 sEnd    CODE
@@ -1090,33 +1140,6 @@ endif
 cEnd nogen
 
 
-        assumes ds, nothing
-        assumes es, nothing
-
-cProc   GetVersion,<PUBLIC,FAR>
-cBegin nogen
-        push    ds
-        call    MISCMapDStoDATA
-        ReSetKernelDS
-        mov     ax,winVer
-        xchg    ah,al
-        mov     dh,DOS_version
-        mov     dl,DOS_revision
-        pop     ds
-        UnSetKernelDS
-        ret
-cEnd nogen
-
-ifdef    JAPAN
-
-cProc   GetInternalVersion, <PUBLIC,FAR>
-cBegin nogen
-        mov     ax, 3                   ; build 55
-        ret
-cEnd nogen
-
-endif
-
 ;--------------------------------------------------------
 ;
 ;  GetExeVersion - return the current task's expected Windows version
@@ -1136,6 +1159,7 @@ cBegin  nogen
         ret
 cEnd    nogen
 
+ifndef WOW
 ;-----------------------------------------------------------------------;
 ; WinOldApCall                                                          ;
 ;                                                                       ;
@@ -1212,6 +1236,7 @@ woa_exit:
         ret     2
 
 cEnd nogen
+endif
 
 
 ;-----------------------------------------------------------------------;

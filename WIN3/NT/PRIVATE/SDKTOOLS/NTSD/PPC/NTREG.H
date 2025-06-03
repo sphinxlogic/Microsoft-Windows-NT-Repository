@@ -34,6 +34,10 @@ enum {
 
     REGHID0,  REGHID1,  REGHID2,  REGHID5,
 
+    // 603 only SPRs
+    SPRDMISS, SPRDCMP,  SPRHASH1, SPRHASH2, SPRIMISS, SPRICMP, SPRRPA, SPRIABR,
+    // end of 603 only registers
+
     SPRMQ, SPREAR, SPRPVR, SPRRTCUF, SPRRTCLF, SPRRTCUT, SPRRTCLT, SPRDECF, SPRDECT,
 
     CR0, CR1, CR2, CR3, CR4, CR5, CR6, CR7,
@@ -67,4 +71,4 @@ enum {
 #define FLAGBASE        SPRDSISR                      // Temporary
 #define PREGBASE        PREGEA
 #define REGDUMPEND      SPRDSISR-GPR0
-
+

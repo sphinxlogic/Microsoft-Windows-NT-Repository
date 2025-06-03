@@ -24,29 +24,6 @@ Revision History:
 
 #include <windows.h>
 
-NTSTATUS
-BaseRtlCreateAtomTable(
-    IN ULONG NumberOfBuckets,
-    IN ULONG MaxAtomTableSize,
-    OUT PVOID *AtomTableHandle
-    );
-
-NTSTATUS
-BaseRtlAddAtomToAtomTable(
-    IN PVOID AtomTableHandle,
-    IN PSTRING AtomName,
-    IN PULONG AtomValue OPTIONAL,
-    OUT PULONG Atom OPTIONAL
-    );
-
-NTSTATUS
-BaseRtlLookupAtomInAtomTable(
-    IN PVOID AtomTableHandle,
-    IN PSTRING AtomName,
-    OUT PULONG AtomValue OPTIONAL,
-    OUT PULONG Atom OPTIONAL
-    );
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>

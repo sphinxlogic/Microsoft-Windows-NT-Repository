@@ -17,6 +17,19 @@
 *
 ***********************************************************************/
 
+//
+// This __JET500 essentially creates two version of this file in this
+// same file. All the jet500 stuff is in __JET500 macro
+//
+#if __JET500
+#include "jet500.h"
+//
+// End of 500 series jet.h
+#else
+//
+// Original jet.h starts here. i.e jet.h of 200 series db.
+//
+
 #if !defined(_JET_INCLUDED)
 #define _JET_INCLUDED
 
@@ -29,26 +42,20 @@ extern "C" {
 #if defined(_M_ALPHA)				/* 0:32 Flat Model (Alpha AXP) */
 
 #define _far
-#define JET_API
-#define JET_NODSAPI
+#define JET_API   __stdcall
+#define JET_NODSAPI __stdcall
 
 #elif	defined(M_MRX000)				/* 0:32 Flat Model (MIPS Rx000) */
 
 #define _far
-#define JET_API
-#define JET_NODSAPI
-
-#elif	defined(_M_PPC)				/* 0:32 Flat Model (PowerPC) */
-
-#define _far
-#define JET_API
-#define JET_NODSAPI
+#define JET_API   __stdcall
+#define JET_NODSAPI  __stdcall
 
 #else										/*	0:32 flat model (Intel 32-bit ) */
 
 #define _far
-#define JET_API     __cdecl		/* CONSIDER: Switch to __stdcall */
-#define JET_NODSAPI __cdecl		/* CONSIDER: Switch to __stdcall */
+#define JET_API     __stdcall		/* CONSIDER: Switch to __stdcall */
+#define JET_NODSAPI __stdcall		/* CONSIDER: Switch to __stdcall */
 
 #endif
 
@@ -74,15 +81,11 @@ typedef double JET_DATESERIAL;		/* JET_coltypDateTime format */
 
 #if defined(_M_ALPHA)				/* 0:32 Flat Model (Intel 80x86) */
 
-typedef JET_ERR (*JET_PFNSTATUS)(JET_SESID sesid, JET_SNP snp, JET_SNT snt, void _far *pv);
+typedef JET_ERR (__stdcall *JET_PFNSTATUS)(JET_SESID sesid, JET_SNP snp, JET_SNT snt, void _far *pv);
 
 #elif	defined(M_MRX000)				/* 0:32 Flat Model (MIPS Rx000) */
 
-typedef JET_ERR (*JET_PFNSTATUS)(JET_SESID sesid, JET_SNP snp, JET_SNT snt, void _far *pv);
-
-#elif	defined(_M_PPC)				/* 0:32 Flat Model (PowerPC) */
-
-typedef JET_ERR (*JET_PFNSTATUS)(JET_SESID sesid, JET_SNP snp, JET_SNT snt, void _far *pv);
+typedef JET_ERR (__stdcall *JET_PFNSTATUS)(JET_SESID sesid, JET_SNP snp, JET_SNT snt, void _far *pv);
 
 #else										/*	0:32 flat model (Alpha AXP ) */
 
@@ -347,7 +350,7 @@ typedef struct
 	} JET_MGBLIST;
 
 /*** Property Manager Structure ***/
-typedef struct 
+typedef struct
 	{
 	unsigned long	cbStruct;
 	JET_TABLEID 	tableid;
@@ -1827,7 +1830,7 @@ typedef struct {
 #define JET_errInvalidDatabaseM		-8188 /* Unrecognized database format */
 #define JET_errOrderVsUnion 		-8189 /* You can only order by an outputted column in a union */
 #define JET_errTLVCouldNotBindRef 	-8190 /* Unknown token in TLV expression */
-#define JET_errCouldNotBindRef		-8191 /* Unknown token in FastFind expression */ 
+#define JET_errCouldNotBindRef		-8191 /* Unknown token in FastFind expression */
 #define JET_errQueryPKeyNotOutput	-8192 /* Primary key not output */
 #define JET_errQueryJKeyNotOutput	-8193 /* Join key not output */
 #define JET_errExclusiveDBConflict	-8194 /* Conflict with exclusive user */
@@ -2107,7 +2110,7 @@ JET_ERR JET_API JetGetBookmark(JET_SESID sesid, JET_TABLEID tableid,
 	void _far *pvBookmark, unsigned long cbMax,
 	unsigned long _far *pcbActual);
 	
-JET_ERR JET_API JetRefreshLink(JET_SESID sesid, JET_DBID dbid, 
+JET_ERR JET_API JetRefreshLink(JET_SESID sesid, JET_DBID dbid,
 	const char _far *szLinkName, const char _far *szConnect,
 	const char _far *szDatabase);
 
@@ -2202,20 +2205,20 @@ JET_ERR JET_API JetGetOwner(JET_SESID sesid, JET_DBID dbid,
 
 *****************************************************************************/
 JET_ERR JET_API JetSetProperty(JET_SESID sesid, JET_DBID dbid,
-	const char _far *szContainerName, const char _far *szObjectName, 
+	const char _far *szContainerName, const char _far *szObjectName,
 	const char _far *szSubObjectName, const char _far *szPropertyName,
-	void _far *pvData, unsigned long cbData, JET_COLTYP coltyp, 
+	void _far *pvData, unsigned long cbData, JET_COLTYP coltyp,
 	JET_GRBIT grbit);
 
 JET_ERR JET_API JetRetrieveProperty(JET_SESID sesid, JET_DBID dbid,
-	const char _far *szContainerName, const char _far *szObjectName, 
+	const char _far *szContainerName, const char _far *szObjectName,
 	const char _far *szSubObjectName, const char _far *szPropertyName,
-	void _far *pvData, unsigned long cbData, unsigned long _far *pcbActual, 
+	void _far *pvData, unsigned long cbData, unsigned long _far *pcbActual,
 	JET_COLTYP _far *pcoltyp, JET_GRBIT grbit, unsigned long InfoLevel);
 
 JET_ERR JET_API JetSetTableProperty(JET_SESID sesid, JET_TABLEID tableid,
 	const char _far *szSubObjectName, const char _far *szPropertyName,
-	void _far *pvData, unsigned long cbData, JET_COLTYP coltyp, 
+	void _far *pvData, unsigned long cbData, JET_COLTYP coltyp,
 	JET_GRBIT grbit);
 
 JET_ERR JET_API JetRetrieveTableProperty(JET_SESID sesid, JET_TABLEID tableid,
@@ -2261,7 +2264,7 @@ JET_ERR JET_API JetSetQoSql(JET_SESID sesid, JET_TABLEID tableid,
 
 JET_ERR JET_API JetRetrieveQoSql(JET_SESID sesid, JET_TABLEID tableid,
 	char _far *rgchSql, unsigned long cchMax,
-	unsigned long _far *pcchActual, void _far *pvConnect, 
+	unsigned long _far *pcchActual, void _far *pvConnect,
 	unsigned long cbConnectMax, unsigned long _far *pcbConnectActual,
 	JET_GRBIT _far *pgrbit);
 
@@ -2386,4 +2389,7 @@ JET_ERR JET_API JetGetObjidFromName(JET_SESID sesid,
 }
 #endif
 
+
 #endif	/* _JET_INCLUDED */
+
+#endif  __JET500

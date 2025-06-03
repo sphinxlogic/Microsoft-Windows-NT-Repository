@@ -77,6 +77,8 @@ Revision History:
 #define SPOOL_LMCAT                     83
 #define SPOOL_LMGetPrintId              0x60
 
+// Used in remdef.h for structure definition to marshall data
+#define MAX_DEPENDENT_FILES             20
 /**END_INTERNAL**/
 
 
@@ -203,6 +205,23 @@ typedef struct _PRQINFO3% {  /* prq */
 } PRQINFO3%;
 typedef PRQINFO3% far *PPRQINFO3%;
 typedef PRQINFO3% near *NPPRQINFO3%;
+
+
+typedef struct _PRQINFO52% {  /* prq */
+    WORD        uVersion;
+    LPTSTR%     pszModelName;
+    LPTSTR%     pszDriverName;
+    LPTSTR%     pszDataFileName;
+    LPTSTR%     pszMonitorName;
+    LPTSTR%     pszDriverPath;
+    LPTSTR%     pszDefaultDataType;
+    LPTSTR%     pszHelpFile;
+    LPTSTR%     pszConfigFile;
+    WORD        cDependentNames;
+    LPTSTR%     pszDependentNames[MAX_DEPENDENT_FILES];
+} PRQINFO52%;
+typedef PRQINFO52% far *PPRQINFO52%;
+typedef PRQINFO52% near *NPPRQINFO52%;
 
 
 /*

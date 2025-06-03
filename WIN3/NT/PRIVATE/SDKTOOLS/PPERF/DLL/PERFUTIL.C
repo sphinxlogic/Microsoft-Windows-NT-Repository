@@ -28,7 +28,7 @@ Revision History:
 #include <windows.h>
 #include <string.h>
 #include <winperf.h>
-#include "p5ctrs.h"     // error message definition
+#include "p5ctrmsg.h"     // error message definition
 #include "p5msg.h"
 #include "perfutil.h"
 
@@ -438,4 +438,5 @@ MonBuildInstanceDefinition(
     *pBufferNext = (PVOID) ((PCHAR) pBuffer + pBuffer->ByteLength);
     return 0;
 }
+
 

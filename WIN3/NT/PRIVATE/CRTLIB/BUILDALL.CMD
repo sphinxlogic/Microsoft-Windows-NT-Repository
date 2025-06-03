@@ -1,17 +1,11 @@
-@setlocal
-@set _targetcpu=
-@if "%1" == "-alpha" set _targetcpu=alpha
-@if "%1" == "alpha" set _targetcpu=alpha
-@if "%1" == "ALPHA" set _targetcpu=alpha
-@if "%1" == "-mips" set _targetcpu=mips
-@if "%1" == "mips" set _targetcpu=mips
-@if "%1" == "MIPS" set _targetcpu=mips
-@if "%1" == "-i386" set _targetcpu=386
-@if "%1" == "-386" set _targetcpu=386
-@if "%1" == "386" set _targetcpu=386
-@if "%1" == "i386" set _targetcpu=386
-@if "%_targetcpu%" == "" goto bogus
-@set _buildopts=-%_targetcpu% %2 %3 %4 %5 %6 %7 %8 %9
+setlocal
+@set _targetcpu=%PROCESSOR_ARCHITECTURE%
+@if "%_targetcpu%" == "x86" set _targetcpu=386
+@if "%_targetcpu%" == "PPC" set _targetcpu=ppc
+@if "%_targetcpu%" == "MIPS" set _targetcpu=mips
+@if "%_targetcpu%" == "ALPHA" set _targetcpu=alpha
+echo Building %_targetcpu%
+@set _buildopts=-%_targetcpu% %1 %2 %3 %4 %5 %6 %7 %8 %9
 @cd ..\fp32nt
 @echo Building NT Subset of Single Thread C Floating Point Runtimes
 @call buildcrt nt %_buildopts%
@@ -42,6 +36,7 @@
 :buildlibs
 @if "%_targetcpu%" == "mips" goto linkmips
 @if "%_targetcpu%" == "alpha" goto linkalpha
+@if "%_targetcpu%" == "ppc" goto linkppc
 @cd ..\crtlib
 @echo Building libcnt.lib libc.lib libcmt.lib libcpsx.lib crtdll.lib crtdll.dll for i386
 @nmake 386=1
@@ -56,7 +51,12 @@
 @echo Building libcnt.lib libc.lib libcmt.lib libcpsx.lib crtdll.lib crtdll.dll for ALPHA
 @nmake ALPHA=1
 @goto done
+:linkppc
+@cd ..\crtlib
+@echo Building libcnt.lib libc.lib libcmt.lib libcpsx.lib crtdll.lib crtdll.dll for PPC
+@nmake PPC=1
+@goto done
 :bogus
-@echo Usage: BUILDALL (386 or MIPS or ALPHA) [BuildOptions]
+@echo Usage: BUILDALL (386 or MIPS or ALPHA or PPC) [BuildOptions]
 :done
 @endlocal

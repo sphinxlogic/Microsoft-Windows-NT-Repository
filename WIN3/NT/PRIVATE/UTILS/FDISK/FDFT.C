@@ -983,7 +983,7 @@ Return Value:
             wsprintf(name, DiskN, disk);
             if (Disks[disk]->SigWasCreated) {
                 if (ConfirmationDialog(MSG_NO_SIGNATURE, MB_ICONEXCLAMATION | MB_YESNO, name) == IDYES) {
-                    b1 = (MasterBootCode(disk, TRUE, Disks[disk]->Signature) == NO_ERROR);
+                    b1 = (MasterBootCode(disk, Disks[disk]->Signature, TRUE, TRUE) == NO_ERROR);
                 } else {
                     Disks[disk]->OffLine = TRUE;
                     continue;
@@ -1300,9 +1300,6 @@ Return Value:
 
             if (ftObject = GET_FT_OBJECT(regionDescriptor)) {
                 PREGION_DESCRIPTOR tmpDescriptor;
-                STATUS_CODE    status;
-                FT_SET_STATUS  setState;
-                ULONG          numberOfMembers;
 
                 ftSet = ftObject->Set;
 
@@ -1316,6 +1313,9 @@ Return Value:
 // need to do something here, but currently this does not work.
 
                 if (tmpDescriptor) {
+                ULONG          numberOfMembers;
+                FT_SET_STATUS  setState;
+                STATUS_CODE    status;
 
                     // If the partition number is zero, then this set
                     // has not been committed to the disk yet.  Only

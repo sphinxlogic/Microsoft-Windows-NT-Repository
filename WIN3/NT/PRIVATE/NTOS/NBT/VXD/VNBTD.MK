@@ -44,14 +44,16 @@ CHIDVNBTOBJD=$(CDEBOBJ)
 SNOVNBTOBJD =$(SNODEBOBJ)
 SNODVNBTOBJD=$(SDEBOBJ)
 
+RC=$(CHICAGO)\dev\sdk\bin\rc
+ADRC2VXD=adrc2vxd
+
 VNBTOBJS=\
           $(SNODEBOBJ)\cxport.obj       \
           $(SNODEBOBJ)\vfirst.obj       \
           $(SNODEBOBJ)\vnbtd.obj        \
-          $(SNODEBOBJ)\client.obj     \
+          $(SNODEBOBJ)\client.obj       \
           $(SNODEBOBJ)\fileio.obj       \
-          $(SNODEBOBJ)\vxdfile.obj      \
-          $(SNODEBOBJ)\init.obj         \
+          $(SNODEBOBJ)\cinit.obj        \
           $(SNODEBOBJ)\ncb.obj          \
           $(SNODEBOBJ)\vxdisol.obj      \
           $(SNODEBOBJ)\tdicnct.obj      \
@@ -59,7 +61,7 @@ VNBTOBJS=\
           $(SNODEBOBJ)\util.obj         \
           $(SNODEBOBJ)\tdiaddr.obj      \
           $(SNODEBOBJ)\tdihndlr.obj     \
-          $(SNODEBOBJ)\timer.obj        \
+          $(SNODEBOBJ)\ctimer.obj       \
           $(SNODEBOBJ)\nbtinfo.obj      \
           $(SNODEBOBJ)\vxddebug.obj     \
           $(SNODEBOBJ)\chic.obj         \
@@ -67,11 +69,15 @@ VNBTOBJS=\
           $(SNODEBOBJ)\wfw.obj          \
           $(SNODEBOBJ)\wfwasm.obj
 
-SNOVNBTOBJS=$(VNBTOBJS)
+VXDFILEOBJ=$(SNODEBOBJ)\vxdfile.obj
+CVXDFILEOBJ=$(SNODEBOBJ)\cvxdfile.obj
+
+SNOVNBTOBJS=$(VNBTOBJS) $(VXDFILEOBJ)
 SNODVNBTOBJS=$(SNOVNBTOBJS:nodebug=debug)
 
 
-CHIVNBTOBJS=$(SNOVNBTOBJS:snowball=chicago)
+SNOVNBTOBJS_C=$(VNBTOBJS) $(CVXDFILEOBJ)
+CHIVNBTOBJS=$(SNOVNBTOBJS_C:snowball=chicago)
 CHIDVNBTOBJS=$(CHIVNBTOBJS:nodebug=debug)
 
 VTSF1=$(VNBTSRC:\=/)
@@ -81,7 +87,7 @@ TCPF=$(TCP:\=/)
 
 VNBTBINCS= $(BLT)\netvxd.inc $(BLT)\cxport.inc $(TCP)\inc\vtdi.inc
 
-VNBTAFLAGS   = -DIS_32 -nologo -W2 -Zd -Cp -Cx -DMASM6 -DVMMSYS -Zm
+VNBTAFLAGS   = -DIS_32 -nologo -W2 -Zd -Cp -Cx -DMASM6 -DVMMSYS
 
 SNOVNBTAFLAGS= $(VNBTAFLAGS) -DWIN31COMPAT
 SNOVNBTAINC=$(VNBTSRC);$(NBT)\vxd;$(INC);$(BLT);$(WIN32INC);$(COMMON)\inc;$(NDIS3INC);$(IMPORT)\wininc;$(TCP)\inc;$(TCP)\blt
@@ -101,10 +107,10 @@ VNBTAINC=$(VNBTSRC);$(INC);$(BLT);$(NDIS3INC);$(WIN32INC);$(COMMON)\inc;$(IMPORT
 #CVNBTAINC=$(VNBTAINC);$(TCP)\blt
 
 SNOVNBTCFLAGS= $(VNBTCFLAGS)
-SNOVNBTCINC=.;..\inc;..\..\inc;$(BASEDIR)\private\inc;$(BASEDIR)\public\sdk\inc;$(BASEDIR)\public\sdk\inc\crt;$(NDIS3INC);$(WIN32INC);$(IMPORT)\c8386\inc32;$(IMPORT)\common\h;$(IMPORT)\wininc;$(TCP)\h;$(BLT)
+SNOVNBTCINC=.;..\inc;$(TCP)\h;..\..\inc;$(BASEDIR)\private\inc;$(BASEDIR)\public\sdk\inc;$(BASEDIR)\public\sdk\inc\crt;$(NDIS3INC);$(WIN32INC);$(IMPORT)\c8386\inc32;$(IMPORT)\common\h;$(IMPORT)\wininc;$(BLT)
 
 CHIVNBTCFLAGS= $(VNBTCFLAGS) -DCHICAGO
-CHIVNBTCINC=.;..\inc;..\..\inc;$(BASEDIR)\private\inc;$(BASEDIR)\public\sdk\inc;$(BASEDIR)\public\sdk\inc\crt;$(CHICAGO)\dev\ddk\inc;$(CHICAGO)\dev\inc;$(NDIS3INC);$(WIN32INC);$(IMPORT)\c8386\inc32;$(IMPORT)\common\h;$(IMPORT)\wininc;$(TCP)\h;$(BLT)
+CHIVNBTCINC=.;..\inc;$(TCP)\h;..\..\inc;$(BASEDIR)\private\inc;$(BASEDIR)\public\sdk\inc;$(BASEDIR)\public\sdk\inc\crt;$(CHICAGO)\dev\ddk\inc;$(CHICAGO)\dev\inc;$(NDIS3INC);$(WIN32INC);$(IMPORT)\c8386\inc32;$(IMPORT)\common\h;$(IMPORT)\wininc;$(BLT)
 
 #
 #  \Common rules
@@ -255,6 +261,8 @@ $(CNODEBBIN)\VNBT.map
 $(NBTLIBS) $(NDISLIBR)
 $(VNBTSRC)\VNBTD.def
 <<
+        $(RC) -i $(CHICAGO)\dev\ddk\inc -i $(CHICAGO)\dev\inc -r VNBT.RCV
+        $(ADRC2VXD) $(CNODEBBIN)\VNBT.386 VNBT.RES
         $(MAPSYM386) $(CNODEBBIN)\VNBT
         -del $(CNODEBBIN)\VNBT.sym
         $(MV) VNBT.sym $(CNODEBBIN)
@@ -270,6 +278,8 @@ $(CDEBBIN)\VNBT.map
 $(NBTDLIBS) $(NDISLIBD)
 $(VNBTSRC)\VNBTD.def
 <<
+        $(RC) -i $(CHICAGO)\dev\ddk\inc -i $(CHICAGO)\dev\inc -r VNBT.RCV
+        $(ADRC2VXD) $(CDEBBIN)\VNBT.386 VNBT.RES
         $(MAPSYM386) $(CDEBBIN)\VNBT
         -del $(CDEBBIN)\VNBT.sym
         $(MV) VNBT.sym $(CDEBBIN)

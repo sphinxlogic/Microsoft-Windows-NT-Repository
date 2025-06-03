@@ -58,6 +58,12 @@ Revision History:
 
 
 //
+//  Types of Ne2000 cards.
+//
+#define NE2000_ISA                  0
+#define NE2000_PCMCIA               1
+
+//
 // ID for MCA Ne2000 clone cards
 //
 #define AE2_ADAPTER_ID               0x67b0
@@ -82,6 +88,7 @@ Revision History:
 //
 #define DEFAULT_IOBASEADDR (PVOID)0x300
 
+#define CIS_NET_ADDR_OFFSET 0xff0
 
 //
 // Default value for Adapter->InterruptNumber
@@ -92,7 +99,7 @@ Revision History:
 //
 // Default value for Adapter->MulticastListMax
 //
-#define DEFAULT_MULTICASTLISTMAX 16
+#define DEFAULT_MULTICASTLISTMAX 8
 
 
 //

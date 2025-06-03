@@ -19,7 +19,11 @@ Revision History:
 
 --*/
 
+#ifdef WIN
+#include <windows.h>
+#endif
 
+#include <rpc.h>
 #include <regapi.h>
 #include <stdio.h>
 #include <string.h>
@@ -27,6 +31,62 @@ Revision History:
 
 #include <rpcreg.h>
 #include <globals.h>
+
+#ifdef MAC
+
+#include <Files.h>
+#include <Resource.h>
+#include <Folders.h>
+#include <Errors.h>
+#include <OSUtils.h>
+#include <ToolUtil.h>
+#include <Types.h>
+#include <Memory.h>
+#include <Standard.h>
+#include <Aliases.h>
+
+
+//BUGBUG: not a cool way of doing things. 
+char *PathNameFromDirID(DirID, vRefNum, s)
+	long		DirID;
+	short	vRefNum;
+	char		*s;
+{
+	CInfoPBRec	block;
+	Str255		directoryName;
+	*s = 0;
+	block.dirInfo.ioNamePtr = directoryName;
+	block.dirInfo.ioDrParID = DirID;
+	do {
+		block.dirInfo.ioVRefNum = vRefNum;
+		block.dirInfo.ioFDirIndex = -1;
+		block.dirInfo.ioDrDirID = block.dirInfo.ioDrParID;
+		PBGetCatInfo(&block,false);
+
+		directoryName[*directoryName+1] = 0 ;
+		strcat(directoryName,":");
+		strcat(directoryName,s);
+		strcpy(s,directoryName+1);
+	} while (block.dirInfo.ioDrDirID != fsRtDirID);
+	return(s);
+}
+
+void GetRegistryFileName()
+{
+	OSErr retCode;
+	short prefsVRefNum;
+	long prefsDirID;
+
+	retCode = FindFolder(kOnSystemDisk, kPreferencesFolderType, kCreateFolder,
+				&prefsVRefNum, &prefsDirID);
+	if (retCode == noErr) {
+		PathNameFromDirID(prefsDirID, prefsVRefNum, RegistryDataFileName) ;
+		strcat(RegistryDataFileName, DEFAULT_RPC_REG_DATA_FILE) ;
+		return ;
+	}
+	*RegistryDataFileName= 0 ;	
+}
+#endif
 
 int
 OpenRegistryFileIfNecessary( 
@@ -59,6 +119,20 @@ Return Value:
 
     if (RegistryDataFile == NULL)
         {
+#ifdef MAC
+		if(!*RegistryDataFileName)
+			GetRegistryFileName() ;
+		ASSERT(strlen(RegistryDataFileName) < MAX_FILE_NAME_LEN) ;
+#else
+#ifdef WIN
+        if ( GetProfileString(RPC_SECTION, RPC_REG_DATA_FILE_ENV,
+                               DEFAULT_RPC_REG_DATA_FILE, RegistryDataFileName,
+                               MAX_FILE_NAME_LEN) == (MAX_FILE_NAME_LEN -1))
+           {
+           return 0;
+           }
+
+#else
         pRegDataFileName = getenv(RPC_REG_DATA_FILE_ENV);
         if (pRegDataFileName == NULL)
             {
@@ -68,7 +142,8 @@ Return Value:
             {
             strcpy(RegistryDataFileName, pRegDataFileName);
             }
-        
+#endif
+#endif        
             
         RegistryDataFile = fopen(RegistryDataFileName, "r+t");
         if (RegistryDataFile == NULL)

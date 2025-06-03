@@ -18,7 +18,7 @@ unsigned short  nsym = 0;
 unsigned short  hashstore = TRUE;
 unsigned short  f386 = TRUE;
 
-extern char             *strdup();
+extern char             *_strdup();
 extern char             *malloc();
 extern unsigned short   hash();
 extern unsigned short   atoi();
@@ -50,7 +50,7 @@ _CRTAPI1 main( ac, av )
 
                 while (*++a){
 
-                        if (stricmp(a, "dnoV386") == 0){
+                        if (_stricmp(a, "dnoV386") == 0){
                             f386 = FALSE;
                             break;
                         }
@@ -202,8 +202,8 @@ void enter ( ent, lex, size )
         p->t_link = table[hashval];
         table[hashval] = p;
 
-        if ((p->t_name = strdup( ent )) == NULL
-                 || (p->t_lex = strdup( lex )) == NULL)
+        if ((p->t_name = _strdup( ent )) == NULL
+                 || (p->t_lex = _strdup( lex )) == NULL)
                 memerror();
         }
 
@@ -428,7 +428,7 @@ memerror ()
 
 #ifdef XENIX
 
-int stricmp ( first, last )
+int _stricmp ( first, last )
         register char *first;
         register char *last;
         {
@@ -447,4 +447,3 @@ int stricmp ( first, last )
         }
 
 #endif /* XENIX */
-

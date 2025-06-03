@@ -277,7 +277,9 @@ CHAR_PTR numeral )  // I/O - buffer in which to build the numeral
                *w++        = *n++;
           }
           else {
-               *w++        = mwThousandBuffer[0];
+               if ( mwThousandBuffer[0] ) {
+                    *w++        = mwThousandBuffer[0];
+               }
                comma_index = UI_COMMA_SPACING;
           }
      }
@@ -343,14 +345,15 @@ INT UI_CountLetters ( CHAR string[], INT index )
 VOID UI_CurrentDate ( LPSTR szDateBuffer )
 
 {
-     LONG         lCurTime;
+     SYSTEMTIME loc_time ;
 
-     //  get the current date, and send that to UI_LongToDate
+     GetLocalTime( &loc_time ) ;
 
-     time ( &lCurTime );
+     UI_MakeDateString ( szDateBuffer, loc_time.wMonth,
+                         loc_time.wDay, loc_time.wYear -1900 );
 
-     UI_LongToDate( szDateBuffer, lCurTime );
      return;
+
 }
 /***************************************************
 
@@ -794,10 +797,16 @@ VOID UI_InitTime ( )
 
      mwfIs24Hour = (BOOL) GetProfileInt( TEXT("intl"), TEXT("iTime"), 0 );
 
-#ifdef JAPAN
-/* v-hirot      July.12.1993 for New Prefix */
-     mwfIsTimePrefix = (BOOL) GetProfileInt( TEXT("intl"), TEXT("iTimePrefix"), 0 );
-#endif
+     if ( GetLocaleInfo( LOCALE_USER_DEFAULT, LOCALE_STIMEFORMAT, szBuffer, TEMP_STR_SIZE*sizeof(CHAR) ) ) {
+          if ( *szBuffer == 'H') {
+               mwfIs24Hour = (BOOL)TRUE ;
+          }
+     }
+
+     if ( IS_JAPAN() ) {
+          /* v-hirot      July.12.1993 for New Prefix */
+          mwfIsTimePrefix = (BOOL) GetProfileInt( TEXT("intl"), TEXT("iTimePrefix"), 0 );
+     }
 
      // Get the AM string.
 
@@ -1147,50 +1156,94 @@ INT   nSeconds )         // I - number of seconds
 
      //  minutes and seconds always have leading 0's; hours might not
 
-#ifdef JAPAN
-/* v-hirot      July.12.1993 for New Prefix */
+     if ( IS_JAPAN() ) {
+          /* v-hirot      July.12.1993 for New Prefix */
         if( mwfIsTimePrefix ){
-                wsprintf ( szProfile,
+                if ( mwfIs24Hour ) {
+                     wsprintf ( szProfile,
+                        TEXT("%s%c%%02d%c%%02d"),
+                        ( mwfLeadTime ? TEXT("%02d") : TEXT("%d") ),
+                        mwcTimeSeparator,
+                        mwcTimeSeparator );
+
+                     wsprintf ( lpszTimeBuffer,
+                        szProfile,
+                        nTempHours,
+                        nMinutes,
+                        nSeconds );
+                } else {
+                     wsprintf ( szProfile,
                         TEXT("%%s %s%c%%02d%c%%02d"),
                         ( mwfLeadTime ? TEXT("%02d") : TEXT("%d") ),
                         mwcTimeSeparator,
                         mwcTimeSeparator );
 
-                wsprintf ( lpszTimeBuffer,
+                     wsprintf ( lpszTimeBuffer,
                         szProfile,
-                        ( ( !mwfIs24Hour && nHours < 12 ) ? mwszAMString : mwszPMString ),
+                        ( (nHours < 12 ) ? mwszAMString : mwszPMString ),
                         nTempHours,
                         nMinutes,
                         nSeconds );
+                }
         }
         else{
 
-                wsprintf ( szProfile,
-                TEXT("%s%c%%02d%c%%02d %%s"),
-                ( mwfLeadTime ? TEXT("%02d") : TEXT("%d") ),
-                mwcTimeSeparator,
-                mwcTimeSeparator );
+                if ( mwfIs24Hour ) {
+                     wsprintf ( szProfile,
+                          TEXT("%s%c%%02d%c%%02d"),
+                          ( mwfLeadTime ? TEXT("%02d") : TEXT("%d") ),
+                          mwcTimeSeparator,
+                          mwcTimeSeparator );
 
-                wsprintf ( lpszTimeBuffer,
-                szProfile,
-                nTempHours,
-                nMinutes,
-                nSeconds,
-                ( ( !mwfIs24Hour && nHours < 12 ) ? mwszAMString : mwszPMString ) );        }
-#else
-     wsprintf ( szProfile,
-                TEXT("%s%c%%02d%c%%02d %%s"),
-                ( mwfLeadTime ? TEXT("%02d") : TEXT("%d") ),
-                mwcTimeSeparator,
-                mwcTimeSeparator );
+                     wsprintf ( lpszTimeBuffer,
+                          szProfile,
+                          nTempHours,
+                          nMinutes,
+                          nSeconds ) ;
+                } else {
+                     wsprintf ( szProfile,
+                          TEXT("%s%c%%02d%c%%02d %%s"),
+                          ( mwfLeadTime ? TEXT("%02d") : TEXT("%d") ),
+                          mwcTimeSeparator,
+                          mwcTimeSeparator );
 
-     wsprintf ( lpszTimeBuffer,
-                szProfile,
-                nTempHours,
-                nMinutes,
-                nSeconds,
-                ( ( !mwfIs24Hour && nHours < 12 ) ? mwszAMString : mwszPMString ) );
-#endif  //JAPAN
+                     wsprintf ( lpszTimeBuffer,
+                          szProfile,
+                          nTempHours,
+                          nMinutes,
+                          nSeconds,
+                          ( (nHours < 12 ) ? mwszAMString : mwszPMString ) );
+                } 
+        }
+     } else {
+          if ( !mwfIs24Hour ) {
+               wsprintf ( szProfile,
+                     TEXT("%s%c%%02d%c%%02d %%s"),
+                     ( mwfLeadTime ? TEXT("%02d") : TEXT("%d") ),
+                     mwcTimeSeparator,
+                     mwcTimeSeparator );
+
+               wsprintf ( lpszTimeBuffer,
+                     szProfile,
+                     nTempHours,
+                     nMinutes,
+                     nSeconds,
+                     ( (nHours < 12 ) ? mwszAMString : mwszPMString ) );
+          } else {
+               wsprintf ( szProfile,
+                     TEXT("%s%c%%02d%c%%02d"),
+                     ( mwfLeadTime ? TEXT("%02d") : TEXT("%d") ),
+                     mwcTimeSeparator,
+                     mwcTimeSeparator );
+
+               wsprintf ( lpszTimeBuffer,
+                     szProfile,
+                     nTempHours,
+                     nMinutes,
+                     nSeconds,
+                     TEXT("") );
+          }
+     }
 
 }
 
@@ -1237,44 +1290,82 @@ INT   nMinutes )         // I - number of minutes
 
      //  minutes and seconds always have leading 0's; hours might not
 
-#ifdef JAPAN
-/* v-hirot      July.12.1993 for New Prefix */
+     if ( IS_JAPAN() ) {
+         /* v-hirot      July.12.1993 for New Prefix */
         if( mwfIsTimePrefix ){
-                wsprintf ( szProfile,
+             if ( mwfIs24Hour ) {
+                  wsprintf ( szProfile,
+                        TEXT("%s%c%%02d"),
+                        ( mwfLeadTime ? TEXT("%02d") : TEXT("%d") ),
+                        mwcTimeSeparator );
+
+                  wsprintf ( lpszTimeBuffer,
+                        szProfile,
+                        nTempHours,
+                        nMinutes );
+             } else {
+                  wsprintf ( szProfile,
                         TEXT("%%s %s%c%%02d"),
                         ( mwfLeadTime ? TEXT("%02d") : TEXT("%d") ),
-            mwcTimeSeparator );
+                        mwcTimeSeparator );
 
-                wsprintf ( lpszTimeBuffer,
+                  wsprintf ( lpszTimeBuffer,
                         szProfile,
-                        ( ( !mwfIs24Hour && nHours < 12 ) ? mwszAMString : mwszPMString ),
+                        ( ( nHours < 12 ) ? mwszAMString : mwszPMString ),
                         nTempHours,
-            nMinutes );
+                        nMinutes );
+             }
         }
         else{
-                wsprintf ( szProfile,
-                TEXT("%s%c%%02d %%s"),
-            ( mwfLeadTime ? TEXT("%02d") : TEXT("%d") ),
-            mwcTimeSeparator );
+             if ( mwfIs24Hour ) {
+                  wsprintf ( szProfile,
+                       TEXT("%s%c%%02d"),
+                       ( mwfLeadTime ? TEXT("%02d") : TEXT("%d") ),
+                       mwcTimeSeparator );
 
-                wsprintf ( lpszTimeBuffer,
-                szProfile,
-            nTempHours,
-            nMinutes,
-            ( ( !mwfIs24Hour && nHours < 12 ) ? mwszAMString : mwszPMString ) );
+                  wsprintf ( lpszTimeBuffer,
+                       szProfile,
+                       nTempHours,
+                       nMinutes ) ;
+             } else {
+
+                  wsprintf ( szProfile,
+                       TEXT("%s%c%%02d %%s"),
+                       ( mwfLeadTime ? TEXT("%02d") : TEXT("%d") ),
+                       mwcTimeSeparator );
+
+                  wsprintf ( lpszTimeBuffer,
+                       szProfile,
+                       nTempHours,
+                       nMinutes,
+                       ( ( nHours < 12 ) ? mwszAMString : mwszPMString ) );
+             }
         }
-#else
-     wsprintf ( szProfile,
-                TEXT("%s%c%%02d %%s"),
-                ( mwfLeadTime ? TEXT("%02d") : TEXT("%d") ),
-                mwcTimeSeparator );
+     } else {
+          if ( mwfIs24Hour ) {
+               wsprintf ( szProfile,
+                    TEXT("%s%c%%02d"),
+                    ( mwfLeadTime ? TEXT("%02d") : TEXT("%d") ),
+                    mwcTimeSeparator );
 
-     wsprintf ( lpszTimeBuffer,
-                szProfile,
-                nTempHours,
-                nMinutes,
-                ( ( !mwfIs24Hour && nHours < 12 ) ? mwszAMString : mwszPMString ) );
-#endif  //JAPAN
+               wsprintf ( lpszTimeBuffer,
+                    szProfile,
+                    nTempHours,
+                    nMinutes ) ;
+          } else {
+               wsprintf ( szProfile,
+                    TEXT("%s%c%%02d %%s"),
+                    ( mwfLeadTime ? TEXT("%02d") : TEXT("%d") ),
+                    mwcTimeSeparator );
+
+               wsprintf ( lpszTimeBuffer,
+                    szProfile,
+                    nTempHours,
+                    nMinutes,
+                    ( ( nHours < 12 ) ? mwszAMString : mwszPMString ) );
+          }
+     }
+
 
 }
 
@@ -1440,3 +1531,30 @@ BOOL WM_IsMultiTaskBusy ( VOID )
 
 } /* end WM_IsMultiTaskBusy() */
 
+BOOLEAN IS_JAPAN( void )
+{
+     static INT lastAnswer = -1 ;
+     CHAR szMachNLCode[4];
+
+     if ( lastAnswer == -1 ) {
+          // Get this machines NL code.
+     
+          GetProfileString ( TEXT("intl"), TEXT("sLanguage"), TEXT("ENU"), szMachNLCode, sizeof( szMachNLCode ) );
+     
+          // The third character is unimportant to us, just the first two.
+     
+          szMachNLCode[2] = 0;
+     
+          CharUpper ( szMachNLCode );
+     
+          // Scan for the matching NL code(s).
+     
+          if ( !memcmp( TEXT("JP"), szMachNLCode, 2*sizeof(CHAR) ) ) {
+               lastAnswer = 1 ;
+               return TRUE ;
+          }
+          lastAnswer = 0 ;
+          return FALSE ;
+     }
+     return (BOOLEAN)lastAnswer ;
+}

@@ -194,6 +194,8 @@ Return Value:
     BOOLEAN AcquiredVcb = FALSE;
     BOOLEAN AcquiredFcb = FALSE;
 
+    BOOLEAN SetArchiveBit;
+
     BOOLEAN UpdateFileSize;
     BOOLEAN UpdateLastWriteTime;
     BOOLEAN UpdateLastAccessTime;
@@ -266,6 +268,34 @@ Return Value:
         (VOID)FatAcquireExclusiveFcb( IrpContext, Fcb );
 
         AcquiredFcb = TRUE;
+
+        //
+        //  Do a check here if this was a DELETE_ON_CLOSE FileObject, and
+        //  set the Fcb flag appropriately.
+        //
+
+        if (FlagOn(Ccb->Flags, CCB_FLAG_DELETE_ON_CLOSE)) {
+
+            SetFlag(Fcb->FcbState, FCB_STATE_DELETE_ON_CLOSE);
+
+            //
+            //  Report this to the dir notify package for a directory.
+            //
+
+            if (TypeOfOpen == UserDirectoryOpen) {
+
+                FsRtlNotifyFullChangeDirectory( Vcb->NotifySync,
+                                                &Vcb->DirNotifyList,
+                                                FileObject->FsContext,
+                                                NULL,
+                                                FALSE,
+                                                FALSE,
+                                                0,
+                                                NULL,
+                                                NULL,
+                                                NULL );
+            }
+        }
 
         //
         //  Now if we may delete the file, drop the Fcb and acquire the Vcb
@@ -378,12 +408,17 @@ Return Value:
             DebugTrace(0, Dbg, "Cleanup UserVolumeOpen\n", 0);
 
             //
-            //  If this handle had write access, set the verify bit now
+            //  If this handle had write access, and actually wrote something,
+            //  flush the device buffers, and then set the verify bit now
             //  just to be safe (in case there is no dismount).
             //
 
             if (FileObject->WriteAccess &&
                 FlagOn(FileObject->Flags, FO_FILE_MODIFIED)) {
+
+                (VOID)FatHijackIrpAndFlushDevice( IrpContext,
+                                                  Irp,
+                                                  Vcb->TargetDeviceObject );
 
                 SetFlag(Vcb->Vpb->RealDevice->Flags, DO_VERIFY_VOLUME);
             }
@@ -394,8 +429,7 @@ Return Value:
             //
 
             if (FlagOn(Vcb->VcbState, VCB_STATE_FLAG_LOCKED) &&
-                (Vcb->FileObjectWithVcbLocked == FileObject) &&
-                (Vcb->VcbCondition == VcbGood)) {
+                (Vcb->FileObjectWithVcbLocked == FileObject)) {
 
                 FatAutoUnlock( IrpContext, Vcb );
             }
@@ -425,7 +459,8 @@ Return Value:
             if ((Fcb->UncleanCount == 1) &&
                 (Fcb->OpenCount == 1) &&
                 (Fcb->Specific.Dcb.DirectoryFileOpenCount == 0) &&
-                !FlagOn(Fcb->FcbState, FCB_STATE_DELETE_ON_CLOSE)) {
+                !FlagOn(Fcb->FcbState, FCB_STATE_DELETE_ON_CLOSE) &&
+                Fcb->FcbCondition == FcbGood) {
 
                 //
                 //  Delay our close.
@@ -446,77 +481,91 @@ Return Value:
                 (Fcb->FcbCondition != FcbBad) &&
                 !FlagOn(Vcb->VcbState, VCB_STATE_FLAG_WRITE_PROTECTED)) {
 
-                //
-                //  Even if something goes wrong, we cannot turn back!
-                //
-
-                try {
-
-                    DELETE_CONTEXT DeleteContext;
+                if (!FatIsDirectoryEmpty(IrpContext, Fcb)) {
 
                     //
-                    //  Before truncating file allocation remember this
-                    //  info for FatDeleteDirent.
+                    //  If there are files in the directory at this point,
+                    //  forget that we were trying to delete it.
                     //
 
-                    DeleteContext.FileSize = Fcb->Header.FileSize.LowPart;
-                    DeleteContext.FirstClusterOfFile = Fcb->FirstClusterOfFile;
+                    ClearFlag( Fcb->FcbState, FCB_STATE_DELETE_ON_CLOSE );
+
+                } else {
 
                     //
-                    //  Synchronize here with paging IO
+                    //  Even if something goes wrong, we cannot turn back!
                     //
-
-                    (VOID)ExAcquireResourceExclusive( Fcb->Header.PagingIoResource,
-                                                      TRUE );
-
-                    Fcb->Header.FileSize.LowPart = 0;
-
-                    ExReleaseResource( Fcb->Header.PagingIoResource );
-
-                    if (Vcb->VcbCondition == VcbGood) {
-
+        
+                    try {
+        
+                        DELETE_CONTEXT DeleteContext;
+        
                         //
-                        //  Truncate the file allocation down to zero
+                        //  Before truncating file allocation remember this
+                        //  info for FatDeleteDirent.
                         //
-
-                        DebugTrace(0, Dbg, "Delete File allocation\n", 0);
-
-                        FatTruncateFileAllocation( IrpContext, Fcb, 0 );
-
+        
+                        DeleteContext.FileSize = Fcb->Header.FileSize.LowPart;
+                        DeleteContext.FirstClusterOfFile = Fcb->FirstClusterOfFile;
+        
                         //
-                        //  Remove the dirent for the directory
+                        //  Synchronize here with paging IO
                         //
+        
+                        (VOID)ExAcquireResourceExclusive( Fcb->Header.PagingIoResource,
+                                                          TRUE );
+        
+                        Fcb->Header.FileSize.LowPart = 0;
+        
+                        ExReleaseResource( Fcb->Header.PagingIoResource );
+        
+                        if (Vcb->VcbCondition == VcbGood) {
+        
+                            //
+                            //  Truncate the file allocation down to zero
+                            //
+        
+                            DebugTrace(0, Dbg, "Delete File allocation\n", 0);
+        
+                            FatTruncateFileAllocation( IrpContext, Fcb, 0 );
+        
+                            //
+                            //  Tunnel and remove the dirent for the directory
+                            //
+        
+                            DebugTrace(0, Dbg, "Delete the directory dirent\n", 0);
+        
+                            FatTunnelFcbOrDcb( Fcb, NULL );
+        
+                            FatDeleteDirent( IrpContext, Fcb, &DeleteContext, TRUE );
+        
+                            //
+                            //  Report that we have removed an entry.
+                            //
+    
+                            FatNotifyReportChange( IrpContext,
+                                                   Vcb,
+                                                   Fcb,
+                                                   FILE_NOTIFY_CHANGE_DIR_NAME,
+                                                   FILE_ACTION_REMOVED );
+                        }
 
-                        DebugTrace(0, Dbg, "Delete the directory dirent\n", 0);
-
-                        FatDeleteDirent( IrpContext, Fcb, &DeleteContext, TRUE );
-
-                        //
-                        //  Report that we have removed an entry.
-                        //
-
-                        FatNotifyReportChange( IrpContext,
-                                               Vcb,
-                                               Fcb,
-                                               FILE_NOTIFY_CHANGE_DIR_NAME,
-                                               FILE_ACTION_REMOVED );
+                    } except( FsRtlIsNtstatusExpected(GetExceptionCode()) ?
+                              EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH ) {
+    
+                        NOTHING;
                     }
 
-                } except( FsRtlIsNtstatusExpected(GetExceptionCode()) ?
-                          EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH ) {
-
-                    NOTHING;
+                    //
+                    //  Remove the entry from the name table.
+                    //  This will ensure that
+                    //  we will not collide with the Dcb if the user wants
+                    //  to recreate the same file over again before we
+                    //  get a close irp.
+                    //
+    
+                    FatRemoveNames( IrpContext, Fcb );
                 }
-
-                //
-                //  Remove the entry from the name table.
-                //  This will ensure that
-                //  we will not collide with the Dcb if the user wants
-                //  to recreate the same file over again before we
-                //  get a close irp.
-                //
-
-                FatRemoveNames( IrpContext, Fcb );
             }
 
             //
@@ -542,7 +591,8 @@ Return Value:
                 (FileObject->SectionObjectPointer->ImageSectionObject == NULL) &&
                 (Fcb->UncleanCount == 1) &&
                 (Fcb->OpenCount == 1) &&
-                !FlagOn(Fcb->FcbState, FCB_STATE_DELETE_ON_CLOSE)) {
+                !FlagOn(Fcb->FcbState, FCB_STATE_DELETE_ON_CLOSE) &&
+                Fcb->FcbCondition == FcbGood) {
 
                 //
                 //  Delay our close.
@@ -573,6 +623,8 @@ Return Value:
             //
 
             UpdateFileSize = BooleanFlagOn(FileObject->Flags, FO_FILE_SIZE_CHANGED);
+
+            SetArchiveBit = BooleanFlagOn(FileObject->Flags, FO_FILE_MODIFIED);
 
             UpdateLastWriteTime = FlagOn(FileObject->Flags, FO_FILE_MODIFIED) &&
                                   !FlagOn(Ccb->Flags, CCB_FLAG_USER_SET_LAST_WRITE);
@@ -615,7 +667,8 @@ Return Value:
                 UpdateLastAccessTime = FALSE;
             }
 
-            if ((UpdateFileSize || UpdateLastWriteTime || UpdateLastAccessTime) &&
+            if ((UpdateFileSize || SetArchiveBit ||
+                 UpdateLastWriteTime || UpdateLastAccessTime) &&
                 !FlagOn(Vcb->VcbState, VCB_STATE_FLAG_WRITE_PROTECTED)) {
 
                 PDIRENT Dirent;
@@ -641,8 +694,16 @@ Return Value:
                         if (UpdateLastWriteTime || UpdateLastAccessTime) {
 
                             (VOID)FatNtTimeToFatTime( IrpContext,
-                                                      CurrentTime,
-                                                      &CurrentFatTime );
+                                                      &CurrentTime,
+                                                      TRUE,
+                                                      &CurrentFatTime,
+                                                      NULL );
+                        }
+
+                        if (SetArchiveBit) {
+
+                            Dirent->Attributes |= FILE_ATTRIBUTE_ARCHIVE;
+                            Fcb->DirentFatFlags |= FILE_ATTRIBUTE_ARCHIVE;
                         }
 
                         if (UpdateLastWriteTime) {
@@ -654,20 +715,7 @@ Return Value:
 
                             Fcb->LastWriteTime = CurrentTime;
 
-                            //
-                            //  Now we have to round this time up to the
-                            //  nearest two seconds.
-                            //
-
-                            Fcb->LastWriteTime.QuadPart =
-
-                                ((Fcb->LastWriteTime.QuadPart +
-                                  AlmostTwoSeconds) /
-                                 TwoSeconds) * TwoSeconds;
-
                             Dirent->LastWriteTime = CurrentFatTime;
-
-                            Dirent->Attributes |= FILE_ATTRIBUTE_ARCHIVE;
 
                             //
                             //  We call the notify package to report that the
@@ -788,6 +836,7 @@ Return Value:
 
                     Fcb->Header.FileSize.LowPart = 0;
                     Fcb->Header.ValidDataLength.LowPart = 0;
+                    Fcb->ValidDataToDisk = 0;
 
                     ExReleaseResource( Fcb->Header.PagingIoResource );
 
@@ -812,20 +861,29 @@ Return Value:
                     if (!FlagOn(Fcb->FcbState, FCB_STATE_PAGING_FILE) &&
                         (Fcb->Header.ValidDataLength.LowPart < Fcb->Header.FileSize.LowPart)) {
 
+                        ULONG ValidDataLength;
+
+                        ValidDataLength = Fcb->Header.ValidDataLength.LowPart;
+
+                        if (ValidDataLength < Fcb->ValidDataToDisk) {
+                            ValidDataLength = Fcb->ValidDataToDisk;
+                        }
+
                         try {
 
                             (VOID)FatZeroData( IrpContext,
                                                Vcb,
                                                FileObject,
-                                               Fcb->Header.ValidDataLength.LowPart,
+                                               ValidDataLength,
                                                Fcb->Header.FileSize.LowPart -
-                                               Fcb->Header.ValidDataLength.LowPart );
+                                               ValidDataLength );
 
                             //
                             //  Since we just zeroed this, we can now bump
                             //  up VDL in the Fcb.
                             //
 
+                            Fcb->ValidDataToDisk =
                             Fcb->Header.ValidDataLength.LowPart =
                             Fcb->Header.FileSize.LowPart;
 
@@ -882,8 +940,10 @@ Return Value:
                         DebugTrace(0, Dbg, "Delete File\n", 0);
 
                         //
-                        //  Now delete the dirent
+                        //  Now tunnel and delete the dirent
                         //
+
+                        FatTunnelFcbOrDcb( Fcb, Ccb );
 
                         FatDeleteDirent( IrpContext, Fcb, &DeleteContext, TRUE );
 
@@ -933,6 +993,29 @@ Return Value:
 
             ASSERT( Fcb->UncleanCount != 0 );
             Fcb->UncleanCount -= 1;
+            if (!FlagOn( FileObject->Flags, FO_CACHE_SUPPORTED )) {
+                ASSERT( Fcb->NonCachedUncleanCount != 0 );
+                Fcb->NonCachedUncleanCount -= 1;
+            }
+
+            //
+            //  If this was the last cached open, and there are open
+            //  non-cached handles, attempt a flush and purge operation
+            //  to avoid cache coherency overhead from these non-cached
+            //  handles later.  We ignore any I/O errors from the flush.
+            //
+
+            if (FlagOn( FileObject->Flags, FO_CACHE_SUPPORTED ) &&
+                (Fcb->NonCachedUncleanCount != 0) &&
+                (Fcb->NonCachedUncleanCount == Fcb->UncleanCount) &&
+                (Fcb->NonPaged->SectionObjectPointers.DataSectionObject != NULL)) {
+
+                CcFlushCache( &Fcb->NonPaged->SectionObjectPointers, NULL, 0, NULL );
+                CcPurgeCacheSection( &Fcb->NonPaged->SectionObjectPointers,
+                                     NULL,
+                                     0,
+                                     FALSE );
+            }
 
             //
             //  cleanup the cache map

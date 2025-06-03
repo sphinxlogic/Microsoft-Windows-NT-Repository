@@ -7,10 +7,13 @@
 
 /**********************       PolyTron RCS Utilities
    
-    $Revision:   1.0  $
-    $Date:   31 Jan 1994 11:50:04  $
-    $Author:   RWOLFF  $
+    $Revision:   1.1  $
+    $Date:   20 Jul 1995 18:02:24  $
+    $Author:   mgrubac  $
     $Log:   S:/source/wnt/ms11/miniport/vcs/vdpdata.h  $
+ * 
+ *    Rev 1.1   20 Jul 1995 18:02:24   mgrubac
+ * Added support for VDIF files.
  * 
  *    Rev 1.0   31 Jan 1994 11:50:04   RWOLFF
  * Initial revision.
@@ -159,6 +162,7 @@ typedef struct {
     long clock_freq;
 } clk_infoT;
 
+#ifdef INCLUDE_VDPDATA
 #if 0
 /* These are the pixel clocks for the 18810 Clock Chip */
 clk_infoT clock_info[16] = {
@@ -202,4 +206,6 @@ clk_infoT clock_info[16] = {
     { -1         ,         0L }
 };
 #endif
-
+#else
+extern clk_infoT clock_info[16];
+#endif

@@ -53,6 +53,10 @@ AfdReceive (
     LARGE_INTEGER bytesExpected;
     BOOLEAN isDataOnConnection;
     BOOLEAN isExpeditedDataOnConnection;
+    PAFD_RECV_INFO recvInfo;
+    ULONG recvFlags;
+    ULONG afdFlags;
+    ULONG recvLength;
 
     //
     // Make sure that the endpoint is in the correct state.
@@ -81,48 +85,119 @@ AfdReceive (
     }
 
     //
-    // If this is a datagram endpoint, format up a receive datagram request
-    // and pass it on to the TDI provider.
+    // If this is an IOCTL_AFD_RECEIVE, then grab the parameters from the
+    // supplied AFD_RECV_INFO structure, build an MDL chain describing
+    // the WSABUF array, and attach the MDL chain to the IRP.
+    //
+    // If this is an IRP_MJ_READ IRP, just grab the length from the IRP
+    // and set the flags to zero.
     //
 
-    if ( endpoint->EndpointType == AfdEndpointTypeDatagram ) {
-        return AfdReceiveDatagram( Irp, IrpSp );
-    }
-
-    //
-    // If this is an endpoint on a nonbufferring transport, use another
-    // routine to handle the request.
-    //
-
-    if ( !endpoint->TdiBufferring ) {
-        return AfdBReceive( Irp, IrpSp );
-    }
-
-    //
-    // Find the TDI_REQUEST_RECEIVE structure that contains the ReceiveFlags
-    // to use on this receive.  Note that if this is a read IRP we must
-    // set the receive flags to default flags.
-    //
-
-    if ( IrpSp->MajorFunction == IRP_MJ_READ ) {
+    if ( IrpSp->MajorFunction == IRP_MJ_DEVICE_CONTROL ) {
 
         //
-        // Allocate a buffer for the receive request structure.
+        // Sanity check.
         //
 
-        receiveRequest = AFD_ALLOCATE_POOL( NonPagedPool, sizeof(TDI_REQUEST_RECEIVE) );
-        if ( receiveRequest == NULL ) {
-            status = STATUS_NO_MEMORY;
-            goto complete;
+        ASSERT( IrpSp->Parameters.DeviceIoControl.IoControlCode ==
+                    IOCTL_AFD_RECEIVE );
+
+        if ( IrpSp->Parameters.DeviceIoControl.InputBufferLength >=
+                sizeof(*recvInfo) ) {
+
+            try {
+
+                //
+                // Probe the input structure.
+                //
+
+                recvInfo = IrpSp->Parameters.DeviceIoControl.Type3InputBuffer;
+
+                if( Irp->RequestorMode != KernelMode ) {
+
+                    ProbeForRead(
+                        recvInfo,
+                        sizeof(*recvInfo),
+                        sizeof(ULONG)
+                        );
+
+                }
+
+                //
+                // Snag the receive flags.
+                //
+
+                recvFlags = recvInfo->TdiFlags;
+                afdFlags = recvInfo->AfdFlags;
+
+                //
+                // Validate the receive flags & WSABUF parameters.
+                // Note that either TDI_RECEIVE_NORMAL or
+                // TDI_RECEIVE_EXPEDITED (but not both) must be set
+                // in the receive flags.
+                //
+
+                if ( ( recvFlags & TDI_RECEIVE_EITHER ) != 0 &&
+                     ( recvFlags & TDI_RECEIVE_EITHER ) != TDI_RECEIVE_EITHER &&
+                     recvInfo->BufferArray != NULL &&
+                     recvInfo->BufferCount > 0 ) {
+
+                    //
+                    // Create the MDL chain describing the WSABUF array.
+                    //
+
+                    status = AfdAllocateMdlChain(
+                                 Irp,
+                                 recvInfo->BufferArray,
+                                 recvInfo->BufferCount,
+                                 IoWriteAccess,
+                                 &recvLength
+                                 );
+
+                } else {
+
+                    //
+                    // Invalid receive flags, BufferArray, or
+                    // BufferCount fields.
+                    //
+
+                    status = STATUS_INVALID_PARAMETER;
+
+                }
+
+            } except ( EXCEPTION_EXECUTE_HANDLER ) {
+
+                //
+                // Exception accessing input structure.
+                //
+
+                status = GetExceptionCode();
+
+            }
+
+        } else {
+
+            //
+            // Invalid input buffer length.
+            //
+
+            status = STATUS_INVALID_PARAMETER;
+
         }
 
-        allocatedReceiveRequest = TRUE;
+        if( !NT_SUCCESS(status) ) {
 
-        //
-        // Set up the default receive request structure.
-        //
+            goto complete;
 
-        receiveRequest->ReceiveFlags = TDI_RECEIVE_NORMAL;
+        }
+
+    } else {
+
+        ASSERT( IrpSp->MajorFunction == IRP_MJ_READ );
+
+        recvFlags = TDI_RECEIVE_NORMAL;
+        afdFlags = AFD_OVERLAPPED;
+        recvLength = IrpSp->Parameters.Read.Length;
 
         //
         // Convert this stack location to a proper one for a receive
@@ -134,47 +209,53 @@ AfdReceive (
         IrpSp->Parameters.DeviceIoControl.InputBufferLength =
             sizeof(*receiveRequest);
 
-    } else {
-
-        PTDI_REQUEST_RECEIVE userTdiReceiveRequest;
-
-        //
-        // If a too-small input buffer was used, assume that the user
-        // wanted a default receive.
-        //
-
-        if ( IrpSp->Parameters.DeviceIoControl.InputBufferLength <
-                 sizeof(TDI_REQUEST_RECEIVE) ) {
-            userTdiReceiveRequest = &AfdGlobalTdiRequestReceive;
-        } else {
-            userTdiReceiveRequest = Irp->AssociatedIrp.SystemBuffer;
-        }
-
-        //
-        // For simplicity, allocate a new receive request structure.
-        // Since we must do it for read IRP support, it is easier to
-        // always do it and copy over the request block.
-        //
-
-        receiveRequest = AFD_ALLOCATE_POOL( NonPagedPool, sizeof(TDI_REQUEST_RECEIVE) );
-        if ( receiveRequest == NULL ) {
-            status = STATUS_NO_MEMORY;
-            goto complete;
-        }
-
-        allocatedReceiveRequest = TRUE;
-
-        //
-        // Copy over the receive request from the IRP to the buffer we
-        // allocated.
-        //
-
-        RtlMoveMemory(
-            receiveRequest,
-            userTdiReceiveRequest,
-            sizeof(*userTdiReceiveRequest)
-            );
     }
+
+    //
+    // If this is a datagram endpoint, format up a receive datagram request
+    // and pass it on to the TDI provider.
+    //
+
+    if ( IS_DGRAM_ENDPOINT(endpoint) ) {
+        return AfdReceiveDatagram( Irp, IrpSp, recvFlags, afdFlags );
+    }
+
+    //
+    // If this is an endpoint on a nonbufferring transport, use another
+    // routine to handle the request.
+    //
+
+    if ( !endpoint->TdiBufferring ) {
+        return AfdBReceive( Irp, IrpSp, recvFlags, afdFlags, recvLength );
+    }
+
+    //
+    // Allocate a buffer for the receive request structure.
+    //
+
+    receiveRequest = AFD_ALLOCATE_POOL(
+                         NonPagedPool,
+                         sizeof(TDI_REQUEST_RECEIVE),
+                         AFD_TDI_POOL_TAG
+                         );
+
+    if ( receiveRequest == NULL ) {
+        status = STATUS_INSUFFICIENT_RESOURCES;
+        goto complete;
+    }
+
+    allocatedReceiveRequest = TRUE;
+
+    //
+    // Set up the receive request structure.
+    //
+
+    RtlZeroMemory(
+        receiveRequest,
+        sizeof(*receiveRequest)
+        );
+
+    receiveRequest->ReceiveFlags = (USHORT)recvFlags;
 
     connection = endpoint->Common.VcConnecting.Connection;
     ASSERT( connection != NULL );
@@ -186,8 +267,7 @@ AfdReceive (
     //
 
     if ( endpoint->InLine ) {
-        receiveRequest->ReceiveFlags |= TDI_RECEIVE_NORMAL;
-        receiveRequest->ReceiveFlags |= TDI_RECEIVE_EXPEDITED;
+        receiveRequest->ReceiveFlags |= TDI_RECEIVE_EITHER;
     }
 
     //
@@ -196,14 +276,14 @@ AfdReceive (
 
     peek = (BOOLEAN)( (receiveRequest->ReceiveFlags & TDI_RECEIVE_PEEK) != 0 );
 
-    KeAcquireSpinLock( &AfdSpinLock, &oldIrql );
+    AfdAcquireSpinLock( &AfdSpinLock, &oldIrql );
 
     if ( endpoint->NonBlocking ) {
         isDataOnConnection = IS_DATA_ON_CONNECTION( connection );
         isExpeditedDataOnConnection = IS_EXPEDITED_DATA_ON_CONNECTION( connection );
     }
 
-    if ( (receiveRequest->ReceiveFlags & TDI_RECEIVE_NORMAL) != 0 ) {
+    if ( endpoint->InLine ) {
 
         //
         // If the endpoint is nonblocking, check whether the receive can
@@ -212,59 +292,85 @@ AfdReceive (
         // yet--there may be expedited data available to be read.
         //
 
-        if ( endpoint->NonBlocking && !endpoint->InLine &&
-                 IrpSp->MajorFunction != IRP_MJ_READ ) {
+        if ( endpoint->NonBlocking && !( afdFlags & AFD_OVERLAPPED ) ) {
 
             if ( !isDataOnConnection &&
+                     !isExpeditedDataOnConnection &&
                      !connection->AbortIndicated &&
                      !connection->DisconnectIndicated ) {
 
                 IF_DEBUG(RECEIVE) {
-                    KdPrint(( "AfdReceive: failing nonblocking receive, ind %ld, "
+                    KdPrint(( "AfdReceive: failing nonblocking IL receive, ind %ld, "
                               "taken %ld, out %ld\n",
                                   connection->Common.Bufferring.ReceiveBytesIndicated.LowPart,
                                   connection->Common.Bufferring.ReceiveBytesTaken.LowPart,
                                   connection->Common.Bufferring.ReceiveBytesOutstanding.LowPart ));
+                    KdPrint(( "    EXP ind %ld, taken %ld, out %ld\n",
+                                  connection->Common.Bufferring.ReceiveExpeditedBytesIndicated.LowPart,
+                                  connection->Common.Bufferring.ReceiveExpeditedBytesTaken.LowPart,
+                                  connection->Common.Bufferring.ReceiveExpeditedBytesOutstanding.LowPart ));
                 }
 
-                KeReleaseSpinLock( &AfdSpinLock, oldIrql );
+                AfdReleaseSpinLock( &AfdSpinLock, oldIrql );
+
                 status = STATUS_DEVICE_NOT_READY;
                 goto complete;
             }
         }
 
         //
-        // If this is a nonblocking endpoint for a message-oriented 
-        // transport, limit the number of bytes that can be received to the 
+        // If this is a nonblocking endpoint for a message-oriented
+        // transport, limit the number of bytes that can be received to the
         // amount that has been indicated.  This prevents the receive
         // from blocking in the case where only part of a message has been
         // received.
         //
-    
+
         if ( endpoint->EndpointType != AfdEndpointTypeStream &&
                  endpoint->NonBlocking ) {
-    
-            bytesExpected = RtlLargeIntegerSubtract(
-                                connection->Common.Bufferring.ReceiveBytesIndicated,
-                                RtlLargeIntegerAdd(
-                                    connection->Common.Bufferring.ReceiveBytesTaken,
-                                    connection->Common.Bufferring.ReceiveBytesOutstanding )
-                                );
+
+            LARGE_INTEGER expBytesExpected;
+
+            bytesExpected.QuadPart =
+                connection->Common.Bufferring.ReceiveBytesIndicated.QuadPart -
+                    (connection->Common.Bufferring.ReceiveBytesTaken.QuadPart +
+                     connection->Common.Bufferring.ReceiveBytesOutstanding.QuadPart);
             ASSERT( bytesExpected.HighPart == 0 );
-    
+
+            expBytesExpected.QuadPart =
+                connection->Common.Bufferring.ReceiveExpeditedBytesIndicated.QuadPart -
+                    (connection->Common.Bufferring.ReceiveExpeditedBytesTaken.QuadPart +
+                     connection->Common.Bufferring.ReceiveExpeditedBytesOutstanding.QuadPart);
+            ASSERT( expBytesExpected.HighPart == 0 );
+
+            IF_DEBUG(RECEIVE) {
+                KdPrint(( "AfdReceive: %lx normal bytes expected, %ld exp bytes expected",
+                              bytesExpected.LowPart, expBytesExpected.LowPart ));
+            }
+
             //
-            // If the request is for more bytes than are available, cut back 
-            // the number of bytes requested to what we know is actually 
-            // available.  
+            // If expedited data exists on the connection, use the lower
+            // count between the available expedited and normal receive
+            // data.
             //
-    
-            if ( IrpSp->Parameters.DeviceIoControl.OutputBufferLength >
-                     bytesExpected.LowPart ) {
-                IrpSp->Parameters.DeviceIoControl.OutputBufferLength =
-                    bytesExpected.LowPart;
+
+            if ( (isExpeditedDataOnConnection &&
+                     bytesExpected.LowPart > expBytesExpected.LowPart) ||
+                 !isDataOnConnection ) {
+                bytesExpected = expBytesExpected;
+            }
+
+            //
+            // If the request is for more bytes than are available, cut back
+            // the number of bytes requested to what we know is actually
+            // available.
+            //
+
+            if ( recvLength > bytesExpected.LowPart ) {
+                recvLength = bytesExpected.LowPart;
             }
         }
-    
+
         //
         // Increment the count of posted receive bytes outstanding.
         // This count is used for polling and nonblocking receives.
@@ -278,7 +384,101 @@ AfdReceive (
             KdPrint(( "AfdReceive: conn %lx for %ld bytes, ind %ld, "
                       "taken %ld, out %ld %s\n",
                          connection,
-                         IrpSp->Parameters.DeviceIoControl.OutputBufferLength,
+                         recvLength,
+                         connection->Common.Bufferring.ReceiveBytesIndicated.LowPart,
+                         connection->Common.Bufferring.ReceiveBytesTaken.LowPart,
+                         connection->Common.Bufferring.ReceiveBytesOutstanding.LowPart,
+                         peek ? "PEEK" : "" ));
+            KdPrint(( "    EXP ind %ld, taken %ld, out %ld\n",
+                         connection->Common.Bufferring.ReceiveExpeditedBytesIndicated.LowPart,
+                         connection->Common.Bufferring.ReceiveExpeditedBytesTaken.LowPart,
+                         connection->Common.Bufferring.ReceiveExpeditedBytesOutstanding.LowPart ));
+        }
+
+        if ( !peek ) {
+
+            connection->Common.Bufferring.ReceiveBytesOutstanding.QuadPart =
+                connection->Common.Bufferring.ReceiveBytesOutstanding.QuadPart +
+                    recvLength;
+
+            connection->Common.Bufferring.ReceiveExpeditedBytesOutstanding.QuadPart =
+                connection->Common.Bufferring.ReceiveExpeditedBytesOutstanding.QuadPart +
+                    recvLength;
+        }
+    }
+
+    if ( !endpoint->InLine &&
+             (receiveRequest->ReceiveFlags & TDI_RECEIVE_NORMAL) != 0 ) {
+
+        //
+        // If the endpoint is nonblocking, check whether the receive can
+        // be performed immediately.
+        //
+
+        if ( endpoint->NonBlocking && !( afdFlags & AFD_OVERLAPPED ) ) {
+
+            if ( !isDataOnConnection &&
+                     !connection->AbortIndicated &&
+                     !connection->DisconnectIndicated ) {
+
+                IF_DEBUG(RECEIVE) {
+                    KdPrint(( "AfdReceive: failing nonblocking receive, ind %ld, "
+                              "taken %ld, out %ld\n",
+                                  connection->Common.Bufferring.ReceiveBytesIndicated.LowPart,
+                                  connection->Common.Bufferring.ReceiveBytesTaken.LowPart,
+                                  connection->Common.Bufferring.ReceiveBytesOutstanding.LowPart ));
+                }
+
+                AfdReleaseSpinLock( &AfdSpinLock, oldIrql );
+
+                status = STATUS_DEVICE_NOT_READY;
+                goto complete;
+            }
+        }
+
+        //
+        // If this is a nonblocking endpoint for a message-oriented
+        // transport, limit the number of bytes that can be received to the
+        // amount that has been indicated.  This prevents the receive
+        // from blocking in the case where only part of a message has been
+        // received.
+        //
+
+        if ( endpoint->EndpointType != AfdEndpointTypeStream &&
+                 endpoint->NonBlocking ) {
+
+            bytesExpected.QuadPart =
+                connection->Common.Bufferring.ReceiveBytesIndicated.QuadPart -
+                    (connection->Common.Bufferring.ReceiveBytesTaken.QuadPart +
+                     connection->Common.Bufferring.ReceiveBytesOutstanding.QuadPart);
+
+            ASSERT( bytesExpected.HighPart == 0 );
+
+            //
+            // If the request is for more bytes than are available, cut back
+            // the number of bytes requested to what we know is actually
+            // available.
+            //
+
+            if ( recvLength > bytesExpected.LowPart ) {
+                recvLength = bytesExpected.LowPart;
+            }
+        }
+
+        //
+        // Increment the count of posted receive bytes outstanding.
+        // This count is used for polling and nonblocking receives.
+        // Note that we do not increment this count if this is only
+        // a PEEK receive, since peeks do not actually take any data
+        // they should not affect whether data is available to be read
+        // on the endpoint.
+        //
+
+        IF_DEBUG(RECEIVE) {
+            KdPrint(( "AfdReceive: conn %lx for %ld bytes, ind %ld, "
+                      "taken %ld, out %ld %s\n",
+                         connection,
+                         recvLength,
                          connection->Common.Bufferring.ReceiveBytesIndicated.LowPart,
                          connection->Common.Bufferring.ReceiveBytesTaken.LowPart,
                          connection->Common.Bufferring.ReceiveBytesOutstanding.LowPart,
@@ -287,77 +487,65 @@ AfdReceive (
 
         if ( !peek ) {
 
-            connection->Common.Bufferring.ReceiveBytesOutstanding =
-                RtlLargeIntegerAdd(
-                    connection->Common.Bufferring.ReceiveBytesOutstanding,
-                    RtlConvertUlongToLargeInteger(
-                        IrpSp->Parameters.DeviceIoControl.OutputBufferLength )
-                    );
+            connection->Common.Bufferring.ReceiveBytesOutstanding.QuadPart =
+                connection->Common.Bufferring.ReceiveBytesOutstanding.QuadPart +
+                    recvLength;
         }
     }
 
-    if ( (receiveRequest->ReceiveFlags & TDI_RECEIVE_EXPEDITED) != 0 ) {
+    if ( !endpoint->InLine &&
+             (receiveRequest->ReceiveFlags & TDI_RECEIVE_EXPEDITED) != 0 ) {
 
-        if ( endpoint->NonBlocking && IrpSp->MajorFunction != IRP_MJ_READ &&
+        if ( endpoint->NonBlocking && !( afdFlags & AFD_OVERLAPPED ) &&
                  !isExpeditedDataOnConnection &&
                  !connection->AbortIndicated &&
                  !connection->DisconnectIndicated ) {
 
-            //
-            // If this is an inline endpoint and there is normal data,
-            // don't fail.
-            //
-
-            if ( !(endpoint->InLine && isDataOnConnection) ) {
-
-                IF_DEBUG(RECEIVE) {
-                    KdPrint(( "AfdReceive: failing nonblocking EXP receive, ind %ld, "
-                              "taken %ld, out %ld\n",
-                                  connection->Common.Bufferring.ReceiveExpeditedBytesIndicated.LowPart,
-                                  connection->Common.Bufferring.ReceiveExpeditedBytesTaken.LowPart,
-                                  connection->Common.Bufferring.ReceiveExpeditedBytesOutstanding.LowPart ));
-                }
-
-                KeReleaseSpinLock( &AfdSpinLock, oldIrql );
-                status = STATUS_DEVICE_NOT_READY;
-                goto complete;
+            IF_DEBUG(RECEIVE) {
+                KdPrint(( "AfdReceive: failing nonblocking EXP receive, ind %ld, "
+                          "taken %ld, out %ld\n",
+                              connection->Common.Bufferring.ReceiveExpeditedBytesIndicated.LowPart,
+                              connection->Common.Bufferring.ReceiveExpeditedBytesTaken.LowPart,
+                              connection->Common.Bufferring.ReceiveExpeditedBytesOutstanding.LowPart ));
             }
+
+            AfdReleaseSpinLock( &AfdSpinLock, oldIrql );
+
+            status = STATUS_DEVICE_NOT_READY;
+            goto complete;
         }
 
         //
-        // If this is a nonblocking endpoint for a message-oriented 
-        // transport, limit the number of bytes that can be received to the 
+        // If this is a nonblocking endpoint for a message-oriented
+        // transport, limit the number of bytes that can be received to the
         // amount that has been indicated.  This prevents the receive
         // from blocking in the case where only part of a message has been
         // received.
         //
-    
+
         if ( endpoint->EndpointType != AfdEndpointTypeStream &&
                  endpoint->NonBlocking &&
                  IS_EXPEDITED_DATA_ON_CONNECTION( connection ) ) {
-    
-            bytesExpected = RtlLargeIntegerSubtract(
-                                connection->Common.Bufferring.ReceiveExpeditedBytesIndicated,
-                                RtlLargeIntegerAdd(
-                                    connection->Common.Bufferring.ReceiveExpeditedBytesTaken,
-                                    connection->Common.Bufferring.ReceiveExpeditedBytesOutstanding )
-                                );
+
+            bytesExpected.QuadPart =
+                connection->Common.Bufferring.ReceiveExpeditedBytesIndicated.QuadPart -
+                    (connection->Common.Bufferring.ReceiveExpeditedBytesTaken.QuadPart +
+                     connection->Common.Bufferring.ReceiveExpeditedBytesOutstanding.QuadPart);
+
             ASSERT( bytesExpected.HighPart == 0 );
             ASSERT( bytesExpected.LowPart != 0 );
-    
+
             //
-            // If the request is for more bytes than are available, cut back 
-            // the number of bytes requested to what we know is actually 
-            // available.  
+            // If the request is for more bytes than are available, cut back
+            // the number of bytes requested to what we know is actually
+            // available.
             //
-    
-            if ( IrpSp->Parameters.DeviceIoControl.OutputBufferLength >
-                     bytesExpected.LowPart ) {
-                IrpSp->Parameters.DeviceIoControl.OutputBufferLength =
-                    bytesExpected.LowPart;
+
+            if ( recvLength > bytesExpected.LowPart ) {
+                recvLength = bytesExpected.LowPart;
             }
         }
-    
+
         //
         // Increment the count of posted expedited receive bytes
         // outstanding.  This count is used for polling and nonblocking
@@ -369,7 +557,7 @@ AfdReceive (
             KdPrint(( "AfdReceive: conn %lx for %ld bytes, ind %ld, "
                       "taken %ld, out %ld EXP %s\n",
                          connection,
-                         IrpSp->Parameters.DeviceIoControl.OutputBufferLength,
+                         recvLength,
                          connection->Common.Bufferring.ReceiveExpeditedBytesIndicated.LowPart,
                          connection->Common.Bufferring.ReceiveExpeditedBytesTaken.LowPart,
                          connection->Common.Bufferring.ReceiveExpeditedBytesOutstanding.LowPart,
@@ -378,16 +566,13 @@ AfdReceive (
 
         if ( !peek ) {
 
-            connection->Common.Bufferring.ReceiveExpeditedBytesOutstanding =
-                RtlLargeIntegerAdd(
-                    connection->Common.Bufferring.ReceiveExpeditedBytesOutstanding,
-                    RtlConvertUlongToLargeInteger(
-                        IrpSp->Parameters.DeviceIoControl.OutputBufferLength )
-                    );
+            connection->Common.Bufferring.ReceiveExpeditedBytesOutstanding.QuadPart =
+                connection->Common.Bufferring.ReceiveExpeditedBytesOutstanding.QuadPart +
+                    recvLength;
         }
     }
 
-    KeReleaseSpinLock( &AfdSpinLock, oldIrql );
+    AfdReleaseSpinLock( &AfdSpinLock, oldIrql );
 
     //
     // Build the TDI receive request.
@@ -395,13 +580,13 @@ AfdReceive (
 
     TdiBuildReceive(
         Irp,
-        connection->FileObject->DeviceObject,
+        connection->DeviceObject,
         connection->FileObject,
         AfdRestartReceive,
         endpoint,
         Irp->MdlAddress,
         receiveRequest->ReceiveFlags,
-        IrpSp->Parameters.DeviceIoControl.OutputBufferLength
+        recvLength
         );
 
     //
@@ -410,22 +595,22 @@ AfdReceive (
     //
 
     IrpSp->Parameters.DeviceIoControl.Type3InputBuffer = receiveRequest;
+    IrpSp->Parameters.DeviceIoControl.OutputBufferLength = recvLength;
 
 
     //
     // Call the transport to actually perform the connect operation.
     //
 
-    return AfdIoCallDriver(
-               endpoint,
-               connection->FileObject->DeviceObject,
-               Irp
-               );
+    return AfdIoCallDriver( endpoint, connection->DeviceObject, Irp );
 
 complete:
 
     if ( allocatedReceiveRequest ) {
-        AFD_FREE_POOL( receiveRequest );
+        AFD_FREE_POOL(
+            receiveRequest,
+            AFD_TDI_POOL_TAG
+            );
     }
 
     Irp->IoStatus.Information = 0;
@@ -449,8 +634,9 @@ AfdRestartReceive (
     PIO_STACK_LOCATION irpSp;
     LARGE_INTEGER actualBytes;
     LARGE_INTEGER requestedBytes;
-    KIRQL oldIrql;
+    KIRQL oldIrql1, oldIrql2;
     ULONG receiveFlags;
+    ULONG eventMask;
     BOOLEAN expedited;
     PTDI_REQUEST_RECEIVE receiveRequest;
 
@@ -483,7 +669,10 @@ AfdRestartReceive (
     // Free the receive request structure.
     //
 
-    AFD_FREE_POOL( receiveRequest );
+    AFD_FREE_POOL(
+        receiveRequest,
+        AFD_TDI_POOL_TAG
+        );
 
     //
     // If this was a PEEK receive, don't update the counts of received
@@ -509,7 +698,26 @@ AfdRestartReceive (
     // Update the count of bytes actually received on the connection.
     //
 
-    KeAcquireSpinLock( &AfdSpinLock, &oldIrql );
+    AfdAcquireSpinLock( &AfdSpinLock, &oldIrql1 );
+    AfdAcquireSpinLock( &endpoint->SpinLock, &oldIrql2 );
+
+    if( expedited ) {
+        eventMask = endpoint->InLine
+                        ? (ULONG)~AFD_POLL_RECEIVE
+                        : (ULONG)~AFD_POLL_RECEIVE_EXPEDITED;
+    } else {
+        eventMask = (ULONG)~AFD_POLL_RECEIVE;
+    }
+
+    endpoint->EventsActive &= eventMask;
+
+    IF_DEBUG(EVENT_SELECT) {
+        KdPrint((
+            "AfdReceive: Endp %08lX, Active %08lX\n",
+            endpoint,
+            endpoint->EventsActive
+            ));
+    }
 
     connection = endpoint->Common.VcConnecting.Connection;
     ASSERT( connection->Type == AfdBlockTypeConnection );
@@ -520,8 +728,9 @@ AfdRestartReceive (
             ASSERT( actualBytes.HighPart == 0 );
             connection->VcZeroByteReceiveIndicated = FALSE;
         } else {
-            connection->Common.Bufferring.ReceiveBytesTaken =
-                RtlLargeIntegerAdd( actualBytes, connection->Common.Bufferring.ReceiveBytesTaken );
+            connection->Common.Bufferring.ReceiveBytesTaken.QuadPart =
+                actualBytes.QuadPart +
+                connection->Common.Bufferring.ReceiveBytesTaken.QuadPart;
         }
 
         //
@@ -531,9 +740,8 @@ AfdRestartReceive (
         // the amount indicated equal to the amount received.
         //
 
-        if ( RtlLargeIntegerGreaterThan(
-                 connection->Common.Bufferring.ReceiveBytesTaken,
-                 connection->Common.Bufferring.ReceiveBytesIndicated ) ) {
+        if ( connection->Common.Bufferring.ReceiveBytesTaken.QuadPart >
+                 connection->Common.Bufferring.ReceiveBytesIndicated.QuadPart ) {
 
             connection->Common.Bufferring.ReceiveBytesIndicated =
                 connection->Common.Bufferring.ReceiveBytesTaken;
@@ -544,11 +752,9 @@ AfdRestartReceive (
         // by the receive size that was requested.
         //
 
-        connection->Common.Bufferring.ReceiveBytesOutstanding =
-            RtlLargeIntegerSubtract(
-                connection->Common.Bufferring.ReceiveBytesOutstanding,
-                requestedBytes
-                );
+        connection->Common.Bufferring.ReceiveBytesOutstanding.QuadPart =
+                connection->Common.Bufferring.ReceiveBytesOutstanding.QuadPart -
+                requestedBytes.QuadPart;
 
         //
         // If the endpoint is inline, decrement the count of outstanding
@@ -556,11 +762,21 @@ AfdRestartReceive (
         //
 
         if ( endpoint->InLine ) {
-            connection->Common.Bufferring.ReceiveExpeditedBytesOutstanding =
-                RtlLargeIntegerSubtract(
-                    connection->Common.Bufferring.ReceiveExpeditedBytesOutstanding,
-                    requestedBytes
-                    );
+            connection->Common.Bufferring.ReceiveExpeditedBytesOutstanding.QuadPart =
+                connection->Common.Bufferring.ReceiveExpeditedBytesOutstanding.QuadPart -
+                requestedBytes.QuadPart;
+        }
+
+        if( connection->Common.Bufferring.ReceiveBytesOutstanding.QuadPart > 0 ||
+            ( endpoint->InLine &&
+              connection->Common.Bufferring.ReceiveExpeditedBytesOutstanding.QuadPart > 0 ) ) {
+
+            AfdIndicateEventSelectEvent(
+                endpoint,
+                AFD_POLL_RECEIVE_BIT,
+                STATUS_SUCCESS
+                );
+
         }
 
         IF_DEBUG(RECEIVE) {
@@ -579,8 +795,9 @@ AfdRestartReceive (
 
     } else {
 
-        connection->Common.Bufferring.ReceiveExpeditedBytesTaken =
-            RtlLargeIntegerAdd( actualBytes, connection->Common.Bufferring.ReceiveExpeditedBytesTaken );
+        connection->Common.Bufferring.ReceiveExpeditedBytesTaken.QuadPart =
+            actualBytes.QuadPart +
+            connection->Common.Bufferring.ReceiveExpeditedBytesTaken.QuadPart;
 
         //
         // If the number taken exceeds the number indicated, then this
@@ -589,9 +806,8 @@ AfdRestartReceive (
         // the amount indicated equal to the amount received.
         //
 
-        if ( RtlLargeIntegerGreaterThan(
-                 connection->Common.Bufferring.ReceiveExpeditedBytesTaken,
-                 connection->Common.Bufferring.ReceiveExpeditedBytesIndicated ) ) {
+        if ( connection->Common.Bufferring.ReceiveExpeditedBytesTaken.QuadPart >
+                 connection->Common.Bufferring.ReceiveExpeditedBytesIndicated.QuadPart ) {
 
             connection->Common.Bufferring.ReceiveExpeditedBytesIndicated =
                 connection->Common.Bufferring.ReceiveExpeditedBytesTaken;
@@ -606,11 +822,9 @@ AfdRestartReceive (
                     connection->Common.Bufferring.ReceiveExpeditedBytesOutstanding.HighPart > 0 ||
                     requestedBytes.LowPart == 0 );
 
-        connection->Common.Bufferring.ReceiveExpeditedBytesOutstanding =
-            RtlLargeIntegerSubtract(
-                connection->Common.Bufferring.ReceiveExpeditedBytesOutstanding,
-                requestedBytes
-                );
+        connection->Common.Bufferring.ReceiveExpeditedBytesOutstanding.QuadPart =
+            connection->Common.Bufferring.ReceiveExpeditedBytesOutstanding.QuadPart -
+            requestedBytes.QuadPart;
 
         //
         // If the endpoint is inline, decrement the count of outstanding
@@ -618,11 +832,34 @@ AfdRestartReceive (
         //
 
         if ( endpoint->InLine ) {
-            connection->Common.Bufferring.ReceiveBytesOutstanding =
-                RtlLargeIntegerSubtract(
-                    connection->Common.Bufferring.ReceiveBytesOutstanding,
-                    requestedBytes
+
+            connection->Common.Bufferring.ReceiveBytesOutstanding.QuadPart =
+                connection->Common.Bufferring.ReceiveBytesOutstanding.QuadPart -
+                requestedBytes.QuadPart;
+
+            if( connection->Common.Bufferring.ReceiveBytesOutstanding.QuadPart > 0 ||
+                connection->Common.Bufferring.ReceiveExpeditedBytesOutstanding.QuadPart > 0 ) {
+
+                AfdIndicateEventSelectEvent(
+                    endpoint,
+                    AFD_POLL_RECEIVE_BIT,
+                    STATUS_SUCCESS
                     );
+
+            }
+
+        } else {
+
+            if( connection->Common.Bufferring.ReceiveExpeditedBytesOutstanding.QuadPart > 0 ) {
+
+                AfdIndicateEventSelectEvent(
+                    endpoint,
+                    AFD_POLL_RECEIVE_EXPEDITED_BIT,
+                    STATUS_SUCCESS
+                    );
+
+            }
+
         }
 
         IF_DEBUG(RECEIVE) {
@@ -641,7 +878,8 @@ AfdRestartReceive (
 
     }
 
-    KeReleaseSpinLock( &AfdSpinLock, oldIrql );
+    AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql2 );
+    AfdReleaseSpinLock( &AfdSpinLock, oldIrql1 );
 
     AfdCompleteOutstandingIrp( endpoint, Irp );
 
@@ -676,7 +914,10 @@ AfdReceiveEventHandler (
     KIRQL oldIrql;
 
     connection = (PAFD_CONNECTION)ConnectionContext;
+    ASSERT( connection != NULL );
+
     endpoint = connection->Endpoint;
+    ASSERT( endpoint != NULL );
 
     ASSERT( connection->Type == AfdBlockTypeConnection );
     ASSERT( endpoint->Type == AfdBlockTypeVcConnecting ||
@@ -690,7 +931,7 @@ AfdReceiveEventHandler (
     // the bytes indicated by this event.
     //
 
-    KeAcquireSpinLock( &AfdSpinLock, &oldIrql );
+    AfdAcquireSpinLock( &AfdSpinLock, &oldIrql );
 
     if ( BytesAvailable == 0 ) {
 
@@ -698,11 +939,9 @@ AfdReceiveEventHandler (
 
     } else {
 
-        connection->Common.Bufferring.ReceiveBytesIndicated =
-            RtlLargeIntegerAdd(
-                connection->Common.Bufferring.ReceiveBytesIndicated,
-                RtlConvertUlongToLargeInteger( BytesAvailable )
-                );
+        connection->Common.Bufferring.ReceiveBytesIndicated.QuadPart =
+            connection->Common.Bufferring.ReceiveBytesIndicated.QuadPart +
+                BytesAvailable;
     }
 
     IF_DEBUG(RECEIVE) {
@@ -729,13 +968,11 @@ AfdReceiveEventHandler (
                         BytesAvailable, endpoint );
 #endif
 
-        connection->Common.Bufferring.ReceiveBytesTaken =
-            RtlLargeIntegerAdd(
-                connection->Common.Bufferring.ReceiveBytesTaken,
-                RtlConvertUlongToLargeInteger( BytesAvailable )
-                );
+        connection->Common.Bufferring.ReceiveBytesTaken.QuadPart =
+            connection->Common.Bufferring.ReceiveBytesTaken.QuadPart +
+                BytesAvailable;
 
-        KeReleaseSpinLock( &AfdSpinLock, oldIrql );
+        AfdReleaseSpinLock( &AfdSpinLock, oldIrql );
 
         *BytesTaken = BytesAvailable;
 
@@ -747,10 +984,10 @@ AfdReceiveEventHandler (
         (VOID)AfdBeginAbort( connection );
 
         return STATUS_SUCCESS;
-         
+
     } else {
 
-        KeReleaseSpinLock( &AfdSpinLock, oldIrql );
+        AfdReleaseSpinLock( &AfdSpinLock, oldIrql );
 
         //
         // Note to the TDI provider that we didn't take any of the data here.
@@ -764,7 +1001,11 @@ AfdReceiveEventHandler (
         // event, complete them.
         //
 
-        AfdIndicatePollEvent( endpoint, AFD_POLL_RECEIVE, STATUS_SUCCESS );
+        AfdIndicatePollEvent(
+            endpoint,
+            AFD_POLL_RECEIVE_BIT,
+            STATUS_SUCCESS
+            );
 
         return STATUS_DATA_NOT_ACCEPTED;
     }
@@ -789,7 +1030,10 @@ AfdReceiveExpeditedEventHandler (
     KIRQL oldIrql;
 
     connection = (PAFD_CONNECTION)ConnectionContext;
+    ASSERT( connection != NULL );
+
     endpoint = connection->Endpoint;
+    ASSERT( endpoint != NULL );
 
     ASSERT( connection->Type == AfdBlockTypeConnection );
 
@@ -798,13 +1042,11 @@ AfdReceiveExpeditedEventHandler (
     // the expedited bytes indicated by this event.
     //
 
-    KeAcquireSpinLock( &AfdSpinLock, &oldIrql );
+    AfdAcquireSpinLock( &AfdSpinLock, &oldIrql );
 
-    connection->Common.Bufferring.ReceiveExpeditedBytesIndicated =
-        RtlLargeIntegerAdd(
-            connection->Common.Bufferring.ReceiveExpeditedBytesIndicated,
-            RtlConvertUlongToLargeInteger( BytesAvailable )
-            );
+    connection->Common.Bufferring.ReceiveExpeditedBytesIndicated.QuadPart =
+        connection->Common.Bufferring.ReceiveExpeditedBytesIndicated.QuadPart +
+            BytesAvailable;
 
     IF_DEBUG(RECEIVE) {
         KdPrint(( "AfdReceiveExpeditedEventHandler: conn %lx, bytes %ld, "
@@ -829,13 +1071,11 @@ AfdReceiveExpeditedEventHandler (
                       "%ld bytes dropped.\n", BytesAvailable ));
         }
 
-        connection->Common.Bufferring.ReceiveExpeditedBytesTaken =
-            RtlLargeIntegerAdd(
-                connection->Common.Bufferring.ReceiveExpeditedBytesTaken,
-                RtlConvertUlongToLargeInteger( BytesAvailable )
-                );
+        connection->Common.Bufferring.ReceiveExpeditedBytesTaken.QuadPart =
+            connection->Common.Bufferring.ReceiveExpeditedBytesTaken.QuadPart +
+                BytesAvailable;
 
-        KeReleaseSpinLock( &AfdSpinLock, oldIrql );
+        AfdReleaseSpinLock( &AfdSpinLock, oldIrql );
 
         *BytesTaken = BytesAvailable;
 
@@ -848,7 +1088,7 @@ AfdReceiveExpeditedEventHandler (
 
     } else {
 
-        KeReleaseSpinLock( &AfdSpinLock, oldIrql );
+        AfdReleaseSpinLock( &AfdSpinLock, oldIrql );
 
         //
         // Note to the TDI provider that we didn't take any of the data here.
@@ -866,12 +1106,14 @@ AfdReceiveExpeditedEventHandler (
 
         AfdIndicatePollEvent(
             endpoint,
-            endpoint->InLine ? AFD_POLL_RECEIVE : AFD_POLL_RECEIVE_EXPEDITED,
+            endpoint->InLine
+                ? AFD_POLL_RECEIVE_BIT
+                : AFD_POLL_RECEIVE_EXPEDITED_BIT,
             STATUS_SUCCESS
             );
     }
 
-    return STATUS_SUCCESS;
+    return STATUS_DATA_NOT_ACCEPTED;
 
 } // AfdReceiveExpeditedEventHandler
 
@@ -907,9 +1149,9 @@ AfdQueryReceiveInformation (
     receiveInformation = Irp->AssociatedIrp.SystemBuffer;
 
     if ( endpoint->TdiBufferring ) {
-        KeAcquireSpinLock( &AfdSpinLock, &oldIrql );
+        AfdAcquireSpinLock( &AfdSpinLock, &oldIrql );
     } else {
-        KeAcquireSpinLock( &endpoint->SpinLock, &oldIrql );
+        AfdAcquireSpinLock( &endpoint->SpinLock, &oldIrql );
     }
 
     connection = AFD_CONNECTION_FROM_ENDPOINT( endpoint );
@@ -927,33 +1169,31 @@ AfdQueryReceiveInformation (
                 connection->VcBufferredExpeditedBytes;
 
         } else {
-    
+
             //
             // Determine the number of bytes available to be read.
             //
-    
-            result = RtlLargeIntegerSubtract(
-                         connection->Common.Bufferring.ReceiveBytesIndicated,
-                         RtlLargeIntegerAdd(
-                             connection->Common.Bufferring.ReceiveBytesTaken,
-                             connection->Common.Bufferring.ReceiveBytesOutstanding ) );
-    
+
+            result.QuadPart =
+                connection->Common.Bufferring.ReceiveBytesIndicated.QuadPart -
+                    (connection->Common.Bufferring.ReceiveBytesTaken.QuadPart +
+                     connection->Common.Bufferring.ReceiveBytesOutstanding.QuadPart);
+
             ASSERT( result.HighPart == 0 );
-    
+
             receiveInformation->BytesAvailable = result.LowPart;
-    
+
             //
             // Determine the number of expedited bytes available to be read.
             //
-    
-            result = RtlLargeIntegerSubtract(
-                         connection->Common.Bufferring.ReceiveExpeditedBytesIndicated,
-                         RtlLargeIntegerAdd(
-                             connection->Common.Bufferring.ReceiveExpeditedBytesTaken,
-                             connection->Common.Bufferring.ReceiveExpeditedBytesOutstanding ) );
-    
+
+            result.QuadPart =
+                connection->Common.Bufferring.ReceiveExpeditedBytesIndicated.QuadPart -
+                    (connection->Common.Bufferring.ReceiveExpeditedBytesTaken.QuadPart +
+                     connection->Common.Bufferring.ReceiveExpeditedBytesOutstanding.QuadPart);
+
             ASSERT( result.HighPart == 0 );
-    
+
             receiveInformation->ExpeditedBytesAvailable = result.LowPart;
         }
 
@@ -963,7 +1203,7 @@ AfdQueryReceiveInformation (
         // Determine the number of bytes available to be read.
         //
 
-        if ( endpoint->EndpointType == AfdEndpointTypeDatagram ) {
+        if ( IS_DGRAM_ENDPOINT(endpoint) ) {
 
             //
             // Return the amount of bytes of datagrams that are
@@ -991,9 +1231,9 @@ AfdQueryReceiveInformation (
     }
 
     if ( endpoint->TdiBufferring ) {
-        KeReleaseSpinLock( &AfdSpinLock, oldIrql );
+        AfdReleaseSpinLock( &AfdSpinLock, oldIrql );
     } else {
-        KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+        AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
     }
 
     Irp->IoStatus.Information = sizeof(AFD_RECEIVE_INFORMATION);

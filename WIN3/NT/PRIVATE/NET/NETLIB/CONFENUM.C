@@ -8,7 +8,7 @@ Module Name:
 
 Abstract:
 
-    This module contains helper routines to read fields out of the NT
+    This module contains helper routines to _read fields out of the NT
     configuration files.  This is for temporary use until the Configuration
     Registry is available.
 
@@ -196,9 +196,9 @@ Return Value:
         // (Win32 reg APIs convert from TCHARs to UNICODE for us.)
         //
         IF_DEBUG(CONFIG) {
-            NetpDbgPrint( PREFIX_NETLIB
+            NetpKdPrint(( PREFIX_NETLIB
                     "NetpEnumConfigSectionValues: getting entry "
-                    FORMAT_DWORD "...\n", lpnetHandle->LastEnumIndex );
+                    FORMAT_DWORD "...\n", lpnetHandle->LastEnumIndex ));
         }
         Error = RegEnumValue (
                 lpnetHandle->WinRegKey,         // handle to key (section)
@@ -211,9 +211,9 @@ Return Value:
                 & MaxValueSize );               // value size (updated)
 
         IF_DEBUG(CONFIG) {
-            NetpDbgPrint( PREFIX_NETLIB
+            NetpKdPrint(( PREFIX_NETLIB
                     "NetpEnumConfigSectionValues: RegEnumValue() ret "
-                    FORMAT_LONG ".\n", Error );
+                    FORMAT_LONG ".\n", Error ));
         }
         NetpAssert( Error == ERROR_SUCCESS );  // BUGBUG
 

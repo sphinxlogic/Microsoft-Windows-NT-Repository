@@ -82,16 +82,13 @@ BOOL GetThreadIDHTASKALIAS(
 
     Status = NtOpenThread(
                 &hThread,
-                THREAD_SET_CONTEXT
-                  | THREAD_GET_CONTEXT
-                  | THREAD_QUERY_INFORMATION,
+                THREAD_QUERY_INFORMATION,
                 &obja,
                 &cid );
 
     if ( !NT_SUCCESS(Status) ) {
 #if DBG
         DbgPrint("WOW32: Could not get open thread handle\n");
-        DbgBreakPoint();
 #endif
         return( FALSE );
     }

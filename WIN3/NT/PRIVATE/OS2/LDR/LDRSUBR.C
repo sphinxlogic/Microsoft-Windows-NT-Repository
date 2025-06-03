@@ -1480,6 +1480,11 @@ LDRDosGetResource(
             if (RegionSize == 0) {
                 RegionSize = _64K;
             }
+
+            if (Protect == PAGE_EXECUTE_WRITECOPY) {
+                ViewSize = RegionSize;
+            }
+
             Status = NtMapViewOfSection(SectionHandle,
                                         CurrentThread->Process->ProcessHandle,
                                         &MemoryAddress,
@@ -1955,4 +1960,3 @@ ldrReturnProgramAndLibMTE(
 
     return;
 }
-

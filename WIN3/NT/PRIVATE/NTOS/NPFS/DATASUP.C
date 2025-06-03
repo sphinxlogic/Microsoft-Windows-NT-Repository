@@ -42,6 +42,35 @@ Revision History:
     DebugTrace(0,Dbg,"", NpDumpDataQueue(P));  \
 }
 
+//
+//  This is a debugging aid
+//
+
+_inline BOOLEAN
+NpfsVerifyDataQueue( IN ULONG Line, IN PDATA_QUEUE DataQueue ) {
+    PDATA_ENTRY Entry;
+    ULONG BytesInQueue = 0;
+    ULONG EntriesInQueue = 0;
+    for (Entry = DataQueue->FrontOfQueue; Entry != NULL; Entry = Entry->Next) {
+        BytesInQueue += Entry->DataSize;
+        EntriesInQueue += 1;
+        if (Entry->Next == NULL) {
+            if (Entry != DataQueue->EndOfQueue) {
+                DbgPrint("%d DataQueue does not end corretly %08lx\n", Line, DataQueue );
+                DbgBreakPoint();
+            }
+        }
+    }
+    if ((DataQueue->EntriesInQueue != EntriesInQueue) ||
+        (DataQueue->BytesInQueue != BytesInQueue)) {
+        DbgPrint("%d DataQueue is illformed %08lx %x %x\n", Line, DataQueue, BytesInQueue, EntriesInQueue);
+        DbgBreakPoint();
+        return FALSE;
+    }
+    return TRUE;
+}
+
+
 VOID
 NpCancelDataQueueIrp (
     IN PDEVICE_OBJECT DevictObject,
@@ -87,7 +116,7 @@ Return Value:
     //  then this call will raise status
     //
 
-    ObReferenceObjectByPointer( Process, 0, NULL, KernelMode );
+    ObReferenceObject( Process );
     PsChargePoolQuota( Process, NonPagedPool, Quota );
 
     //
@@ -940,6 +969,15 @@ Return Value:
 
                     DataQueue->EndOfQueue = NULL;
                     DataQueue->QueueState = Empty;
+
+                //
+                //  If we removed the last entry in the list then we need to update
+                //  the end of the queue
+                //
+
+                } else if (DataEntry == DataQueue->EndOfQueue) {
+
+                    DataQueue->EndOfQueue = (PDATA_ENTRY)Previous;
                 }
 
                 //
@@ -972,6 +1010,13 @@ Return Value:
 
                     DataQueue->QuotaUsed -= DataSize;
                 }
+
+                //
+                //  Update the data queue header information
+                //
+
+                DataQueue->BytesInQueue   -= DataSize;
+                DataQueue->EntriesInQueue -= 1;
 
                 //
                 //  Zero our the data entry
@@ -1030,4 +1075,3 @@ Return Value:
 
     return;
 }
-

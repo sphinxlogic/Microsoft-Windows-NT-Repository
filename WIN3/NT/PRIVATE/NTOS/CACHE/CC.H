@@ -45,15 +45,17 @@ Revision History:
 //  Tag all of our allocations if tagging is turned on
 //
 
-#ifdef POOL_TAGGING
+#undef FsRtlAllocatePool
+#undef FsRtlAllocatePoolWithQuota
 
 #define FsRtlAllocatePool(a,b) FsRtlAllocatePoolWithTag(a,b,'  cC')
 #define FsRtlAllocatePoolWithQuota(a,b) FsRtlAllocatePoolWithQuotaTag(a,b,'  cC')
 
+#undef ExAllocatePool
+#undef ExAllocatePoolWithQuota
+
 #define ExAllocatePool(a,b) ExAllocatePoolWithTag(a,b,'  cC')
 #define ExAllocatePoolWithQuota(a,b) ExAllocatePoolWithQuotaTag(a,b,'  cC')
-
-#endif
 
 //
 //  Peek at number of available pages.
@@ -83,6 +85,7 @@ KeSweepDcache (
 #define CACHE_NTC_BCB                    (0x2FD)
 #define CACHE_NTC_DEFERRED_WRITE         (0x2FC)
 #define CACHE_NTC_MBCB                   (0x2FB)
+#define CACHE_NTC_OBCB                   (0x2FA)
 
 //
 //  The following definitions are used to generate meaningful blue bugcheck
@@ -119,6 +122,13 @@ KeSweepDcache (
 #define DEFAULT_EXTEND_MODULO            ((ULONG)(0x00100000))
 
 //
+//  For FO_SEQUENTIAL_ONLY files, define how far we go before umapping
+//  views.
+//
+
+#define SEQUENTIAL_ONLY_MAP_LIMIT       ((ULONG)(0x00080000))
+
+//
 //  Define some constants to drive read ahead
 //
 
@@ -144,6 +154,25 @@ KeSweepDcache (
 #define MAX_ZEROS_IN_CACHE               (0x10000)
 
 //
+//  Define constants controlling when the Bcb list is broken into a
+//  pendaflex-style array of listheads, and how the correct listhead
+//  is found.  Begin when file size exceeds 2MB, and cover 512KB per
+//  listhead.  At 512KB per listhead, the BcbListArray is the same
+//  size as the Vacb array, i.e., it doubles the size.
+//
+
+#define BEGIN_BCB_LIST_ARRAY             (0x200000)
+#define SIZE_PER_BCB_LIST                (VACB_MAPPING_GRANULARITY * 2)
+#define BCB_LIST_SHIFT                   (VACB_OFFSET_SHIFT + 1)
+
+#define GetBcbListHead(SCM,OFF) (                                                               \
+  (((SCM)->SectionSize.QuadPart > BEGIN_BCB_LIST_ARRAY) &&                                      \
+   FlagOn((SCM)->Flags, MODIFIED_WRITE_DISABLED)) ?                                             \
+  ((PLIST_ENTRY)((SCM)->Vacbs) + (((SCM)->SectionSize.QuadPart + (OFF)) >> BCB_LIST_SHIFT)) :   \
+  &(SCM)->BcbList                                                                               \
+  )
+
+//
 //  NOISE_BITS defines how many bits are masked off when testing for
 //  sequential reads.  This allows the reader to skip up to 7 bytes
 //  for alignment purposes, and we still consider the next read to be
@@ -164,7 +193,7 @@ KeSweepDcache (
 //  The following target should best be a power of 2
 //
 
-#define LAZY_WRITER_MAX_AGE_TARGET       ((ULONG)(4))
+#define LAZY_WRITER_MAX_AGE_TARGET       ((ULONG)(8))
 
 //
 //  The global Cache Manager debug level variable, its values are:
@@ -339,17 +368,17 @@ typedef struct _PRIVATE_CACHE_MAP {
     KSPIN_LOCK ReadAheadSpinLock;
 
     //
+    //  Read Ahead mask formed from Read Ahead granularity - 1
+    //
+
+    ULONG ReadAheadMask;
+
+    //
     // Links for list of all PrivateCacheMaps linked to the same
     // SharedCacheMap.
     //
 
     LIST_ENTRY PrivateLinks;
-
-    //
-    //  Read Ahead mask formed from Read Ahead granularity - 1
-    //
-
-    ULONG ReadAheadMask;
 
     //
     //  This flag says read ahead is currently active, which means either
@@ -399,8 +428,26 @@ typedef struct _SHARED_CACHE_MAP {
     //  Actual size of file, primarily for restricting Read Ahead.  Initialized
     //  on creation and maintained by extend and truncate operations.
     //
+    //  NOTE:   This field may never be moved, thanks to the late DavidGoe,
+    //          who should have written this comment himself :-(   cache.h
+    //          exports a macro which "knows" that FileSize is the second
+    //          longword in the Cache Map!
+    //
 
     LARGE_INTEGER FileSize;
+
+    //
+    //  Bcb Listhead.  The BcbList is ordered by descending
+    //  FileOffsets, to optimize misses in the sequential I/O case.
+    //
+
+    LIST_ENTRY BcbList;
+
+    //
+    //  Size of section created.
+    //
+
+    LARGE_INTEGER SectionSize;
 
     //
     //  ValidDataLength for file, as currently stored by the file system.
@@ -415,10 +462,12 @@ typedef struct _SHARED_CACHE_MAP {
     LARGE_INTEGER ValidDataGoal;
 
     //
-    //  Size of section created.
+    //  Pointer to a contiguous array of Vacb pointers which control mapping
+    //  to this file, along with Vacbs (currently) for a 1MB file.
     //
 
-    LARGE_INTEGER SectionSize;
+    PVACB InitialVacbs[PREALLOCATED_VACBS];
+    PVACB * Vacbs;
 
     //
     //  Referenced pointer to original File Object on which the SharedCacheMap
@@ -426,14 +475,6 @@ typedef struct _SHARED_CACHE_MAP {
     //
 
     PFILE_OBJECT FileObject;
-
-    //
-    //  Pointer to a contiguous array of Vacb pointers which control mapping
-    //  to this file, along with Vacbs (currently) for a 1MB file.
-    //
-
-    PVACB * Vacbs;
-    PVACB InitialVacbs[PREALLOCATED_VACBS];
 
     //
     //  Describe Active Vacb and Page for copysup optimizations.
@@ -453,8 +494,17 @@ typedef struct _SHARED_CACHE_MAP {
     //  Fields for synchronizing on active requests.
     //
 
-    PKEVENT WaitOnActiveCount;
+    KSPIN_LOCK ActiveVacbSpinLock;
     ULONG VacbActiveCount;
+
+    //
+    //  THE NEXT TWO FIELDS MUST BE ADJACENT, TO SUPPORT
+    //  SHARED_CACHE_MAP_LIST_CURSOR!
+    //
+    //  Links for Global SharedCacheMap List
+    //
+
+    LIST_ENTRY SharedCacheMapLinks;
 
     //
     //  Shared Cache Map flags (defined below)
@@ -501,22 +551,20 @@ typedef struct _SHARED_CACHE_MAP {
     PKEVENT CreateEvent;
 
     //
-    //  This event pointer is used to allow a file system to be notified when
-    //  the deletion of a shared cache map.
-    //
-    //  This has to be provided here because the cache manager may decide to
-    //  "Lazy Delete" the shared cache map, and some network file systems
-    //  will want to know when the lazy delete completes.
+    //  This points to an event used to wait for active count to go to zero
     //
 
-    PCACHE_UNINITIALIZE_EVENT UninitializeEvent;
+    PKEVENT WaitOnActiveCount;
 
     //
-    //  Bcb Listhead.  The BcbList is ordered by descending
-    //  FileOffsets, to optimize misses in the sequential I/O case.
+    //  These two fields control the writing of large metadata
+    //  streams.  The first field gives a target for the current
+    //  flush interval, and the second field stores the end of
+    //  the last flush that occurred on this file.
     //
 
-    LIST_ENTRY BcbList;
+    ULONG PagesToWrite;
+    LONGLONG BeyondLastFlush;
 
     //
     //  Pointer to structure of routines used by the Lazy Writer to Acquire
@@ -527,12 +575,6 @@ typedef struct _SHARED_CACHE_MAP {
     PCACHE_MANAGER_CALLBACKS Callbacks;
 
     PVOID LazyWriteContext;
-
-    //
-    //  Links for Global SharedCacheMap List
-    //
-
-    LIST_ENTRY SharedCacheMapLinks;
 
     //
     //  Listhead of all PrivateCacheMaps linked to this SharedCacheMap.
@@ -568,6 +610,42 @@ typedef struct _SHARED_CACHE_MAP {
 
     ULONG LazyWritePassCount;
 
+    //
+    //  This event pointer is used to allow a file system to be notified when
+    //  the deletion of a shared cache map.
+    //
+    //  This has to be provided here because the cache manager may decide to
+    //  "Lazy Delete" the shared cache map, and some network file systems
+    //  will want to know when the lazy delete completes.
+    //
+
+    PCACHE_UNINITIALIZE_EVENT UninitializeEvent;
+
+    //
+    //  Reserved for alignment
+    //
+
+    ULONG Reserved;
+
+    //
+    //  This is a scratch event which can be used either for
+    //  a CreateEvent or a WaitOnActiveCount event.  It is
+    //  difficult to share this event, because of the very
+    //  careful semantics by which they are cleared.  On the
+    //  other hand, both events are relatively rarely used
+    //  (especially the CreateEvent), so it will be rare that
+    //  we will actually use both for the same file, and have
+    //  to allocate one.
+    //
+
+    KEVENT Event;
+
+    //
+    //  Preallocate on PrivateCacheMap to reduce pool allocations.
+    //
+
+    PRIVATE_CACHE_MAP PrivateCacheMap;
+
 } SHARED_CACHE_MAP;
 
 typedef SHARED_CACHE_MAP *PSHARED_CACHE_MAP;
@@ -596,12 +674,6 @@ typedef SHARED_CACHE_MAP *PSHARED_CACHE_MAP;
 #define PIN_ACCESS                       0x0004
 
 //
-//  This flag instructs the Lazy Writer to delete this SharedCacheMap.
-//
-
-#define LAZY_DELETE                      0x0008
-
-//
 //  This flag indicates that a truncate is required when OpenCount
 //  goes to 0.
 //
@@ -613,6 +685,14 @@ typedef SHARED_CACHE_MAP *PSHARED_CACHE_MAP;
 //
 
 #define WRITE_QUEUED                     0x0020
+
+//
+//  This flag indicates that we have never seen anyone cache
+//  the file except for with FO_SEQUENTIAL_ONLY, so we should
+//  tell MM to dump pages when we unmap.
+//
+
+#define ONLY_SEQUENTIAL_ONLY_SEEN        0x0040
 
 //
 //  Active Page is locked
@@ -637,6 +717,37 @@ typedef SHARED_CACHE_MAP *PSHARED_CACHE_MAP;
 //
 
 #define LAZY_WRITE_OCCURRED              0x0400
+
+//
+//  Flag that indicates this structure is only a cursor, only the
+//  SharedCacheMapLinks and Flags are valid!
+//
+
+#define IS_CURSOR                        0x0800
+
+//
+//  Cursor structure for traversing the SharedCacheMap lists.  Anyone
+//  scanning these lists must verify that the IS_CURSOR flag is clear
+//  before looking at other SharedCacheMap fields.
+//
+
+
+typedef struct _SHARED_CACHE_MAP_LIST_CURSOR {
+
+    //
+    //  Links for Global SharedCacheMap List
+    //
+
+    LIST_ENTRY SharedCacheMapLinks;
+
+    //
+    //  Shared Cache Map flags, IS_CURSOR must be set.
+    //
+
+    ULONG Flags;
+
+} SHARED_CACHE_MAP_LIST_CURSOR, *PSHARED_CACHE_MAP_LIST_CURSOR;
+
 
 
 //
@@ -719,6 +830,12 @@ typedef struct _BCB {
     LARGE_INTEGER FileOffset;
 
     //
+    //  Links for BcbList in SharedCacheMap
+    //
+
+    LIST_ENTRY BcbLinks;
+
+    //
     //  Byte FileOffset of last byte in buffer (used for searching)
     //
 
@@ -779,12 +896,6 @@ typedef struct _BCB {
     PSHARED_CACHE_MAP SharedCacheMap;
 
     //
-    //  Links for BcbList in SharedCacheMap
-    //
-
-    LIST_ENTRY BcbLinks;
-
-    //
     //  This is the Base Address at which the buffer can be seen in
     //  system space.  All access to buffer data should go through this
     //  address.
@@ -801,6 +912,39 @@ typedef struct _BCB {
 } BCB;
 
 typedef BCB *PBCB;
+
+//
+//  This is the Overlap Buffer Control Block structure for representing data which
+//  is "pinned" in memory and must be represented by multiple Bcbs due to overlaps.
+//
+//  NOTE: The first four fields must be the same as the PUBLIC_BCB.
+//
+
+typedef struct _OBCB {
+
+    //
+    //  Type and size of this record
+    //
+
+    CSHORT NodeTypeCode;
+    CSHORT NodeByteSize;
+
+    //
+    //  Byte FileOffset and and length of entire buffer
+    //
+
+    ULONG  ByteLength;
+    LARGE_INTEGER FileOffset;
+
+    //
+    //  Vector of Bcb pointers.
+    //
+
+    PBCB Bcbs[ANYSIZE_ARRAY];
+
+} OBCB;
+
+typedef OBCB *POBCB;
 
 
 //
@@ -874,13 +1018,6 @@ typedef struct _LAZY_WRITER {
     LIST_ENTRY WorkQueue;
 
     //
-    //  Zone for Transfer of Worker Information from Lazywriter Into
-    //  Gather/Hold Temporary structure
-    //
-
-    ZONE_HEADER TwilightZone;
-
-    //
     //  Zone for Bcbs.
     //
 
@@ -933,18 +1070,6 @@ typedef struct _WORK_QUEUE_ENTRY {
     LIST_ENTRY WorkQueueLinks;
 
     //
-    //  Remember whether allocated from zone or not.
-    //
-
-    BOOLEAN AllocatedFromZone;
-
-    //
-    //  Function code for this entry:
-    //
-
-    UCHAR Function;
-
-    //
     //  Define a union to contain function-specific parameters.
     //
 
@@ -967,6 +1092,12 @@ typedef struct _WORK_QUEUE_ENTRY {
         } Write;
 
     } Parameters;
+
+    //
+    //  Function code for this entry:
+    //
+
+    UCHAR Function;
 
 } WORK_QUEUE_ENTRY, *PWORK_QUEUE_ENTRY;
 
@@ -1008,63 +1139,169 @@ typedef struct _MDL_WRITE {
 //  Common Private routine definitions for the Cache Manager
 //
 
-#define GetActiveVacb(SCM,V,P,D) {                                      \
+#define GetActiveVacb(SCM,IRQ,V,P,D) {                                  \
+    ExAcquireFastLock(&(SCM)->ActiveVacbSpinLock, &(IRQ));              \
     (V) = (SCM)->ActiveVacb;                                            \
     if ((V) != NULL) {                                                  \
         (P) = (SCM)->ActivePage;                                        \
         (SCM)->ActiveVacb = NULL;                                       \
         (D) = (SCM)->Flags & ACTIVE_PAGE_IS_DIRTY;                      \
-        if ((D)) {                                                      \
-            (SCM)->DirtyPages -= 1;                                     \
-            CcTotalDirtyPages -= 1;                                     \
-        }                                                               \
     }                                                                   \
+    ExReleaseFastLock(&(SCM)->ActiveVacbSpinLock, (IRQ));               \
 }
 
-#define SetActiveVacb(SCM,IRQ,V,P,D) {                                              \
-    ExAcquireFastLock(&CcMasterSpinLock, &(IRQ));                       \
-    do {                                                                \
-        if ((SCM)->ActiveVacb == NULL) {                                \
-            (SCM)->ActiveVacb = (V);                                    \
-            (SCM)->ActivePage = (P);                                    \
-            (V) = NULL;                                                 \
-            (SCM)->Flags = (SCM)->Flags & ~ACTIVE_PAGE_IS_DIRTY | (D);  \
-            if (D) {                                                    \
-                CcTotalDirtyPages += 1;                                 \
-                (SCM)->DirtyPages += 1;                                 \
-                if ((SCM)->DirtyPages == 1) {                           \
-                    PLIST_ENTRY Blink;                                  \
-                    PLIST_ENTRY Entry;                                  \
-                    PLIST_ENTRY Flink;                                  \
-                    PLIST_ENTRY Head;                                   \
-                    Entry = &(SCM)->SharedCacheMapLinks;                \
-                    Blink = Entry->Blink;                               \
-                    Flink = Entry->Flink;                               \
-                    Blink->Flink = Flink;                               \
-                    Flink->Blink = Blink;                               \
-                    Head = &CcDirtySharedCacheMapList;                  \
-                    Blink = Head->Blink;                                \
-                    Entry->Flink = Head;                                \
-                    Entry->Blink = Blink;                               \
-                    Blink->Flink = Entry;                               \
-                    Head->Blink = Entry;                                \
-                    if (!LazyWriter.ScanActive) {                       \
-                        LazyWriter.ScanActive = TRUE;                   \
-                        ExReleaseFastLock(&CcMasterSpinLock, (IRQ));    \
-                        KeSetTimer( &LazyWriter.ScanTimer,              \
-                                    CcFirstDelay,                       \
-                                    &LazyWriter.ScanDpc );              \
-                        break;                                          \
-                    }                                                   \
-                }                                                       \
-            }                                                           \
-        }                                                               \
-        ExReleaseFastLock(&CcMasterSpinLock, (IRQ));                    \
-        if ((V) != NULL) {                                              \
-            CcFreeActiveVacb( (SCM), (V), (P), (D));                    \
-        }                                                               \
-    } while (FALSE);                                                    \
+#define GetActiveVacbAtDpcLevel(SCM,V,P,D) {                            \
+    ExAcquireSpinLockAtDpcLevel(&(SCM)->ActiveVacbSpinLock);            \
+    (V) = (SCM)->ActiveVacb;                                            \
+    if ((V) != NULL) {                                                  \
+        (P) = (SCM)->ActivePage;                                        \
+        (SCM)->ActiveVacb = NULL;                                       \
+        (D) = (SCM)->Flags & ACTIVE_PAGE_IS_DIRTY;                      \
+    }                                                                   \
+    ExReleaseSpinLockFromDpcLevel(&(SCM)->ActiveVacbSpinLock);          \
 }
+
+//
+//  When setting dirty, when we set ACTIVE_PAGE_IS_DIRTY the first time,
+//  we increment the dirty counts, and they never get decremented until
+//  CcFreeActiveVacb.  If we are trying to set and there is already an
+//  active Vacb *or* we are trying to set a clean one and the flag above
+//  is set, we do not allow it, and we just free the vacb (we only want
+//  to handle the clean transition in one place).
+//
+//  MP & UP cases are separately defined, because I do not trust the compiler
+//  to otherwise generate the optimal UP code.
+//
+
+
+//
+//  In the MP case, we test if we are setting the page dirty, because then
+//  we must acquire CcMasterSpinLock to diddle CcDirtyPages.
+//
+
+#if !defined(NT_UP)                                                                     \
+
+#define SetActiveVacb(SCM,IRQ,V,P,D) {                                                  \
+    if (D) {                                                                            \
+        ExAcquireSpinLock(&CcMasterSpinLock, &(IRQ));                                   \
+        ExAcquireSpinLockAtDpcLevel(&(SCM)->ActiveVacbSpinLock);                        \
+    } else {                                                                            \
+        ExAcquireSpinLock(&(SCM)->ActiveVacbSpinLock, &(IRQ));                          \
+    }                                                                                   \
+    do {                                                                                \
+        if ((SCM)->ActiveVacb == NULL) {                                                \
+            if (((SCM)->Flags & ACTIVE_PAGE_IS_DIRTY) != (D)) {                         \
+                if (D) {                                                                \
+                    (SCM)->ActiveVacb = (V);                                            \
+                    (SCM)->ActivePage = (P);                                            \
+                    (V) = NULL;                                                         \
+                    SetFlag((SCM)->Flags, ACTIVE_PAGE_IS_DIRTY);                        \
+                    CcTotalDirtyPages += 1;                                             \
+                    (SCM)->DirtyPages += 1;                                             \
+                    if ((SCM)->DirtyPages == 1) {                                       \
+                        PLIST_ENTRY Blink;                                              \
+                        PLIST_ENTRY Entry;                                              \
+                        PLIST_ENTRY Flink;                                              \
+                        PLIST_ENTRY Head;                                               \
+                        Entry = &(SCM)->SharedCacheMapLinks;                            \
+                        Blink = Entry->Blink;                                           \
+                        Flink = Entry->Flink;                                           \
+                        Blink->Flink = Flink;                                           \
+                        Flink->Blink = Blink;                                           \
+                        Head = &CcDirtySharedCacheMapList.SharedCacheMapLinks;          \
+                        Blink = Head->Blink;                                            \
+                        Entry->Flink = Head;                                            \
+                        Entry->Blink = Blink;                                           \
+                        Blink->Flink = Entry;                                           \
+                        Head->Blink = Entry;                                            \
+                        if (!LazyWriter.ScanActive) {                                   \
+                            LazyWriter.ScanActive = TRUE;                               \
+                            ExReleaseSpinLockFromDpcLevel(&(SCM)->ActiveVacbSpinLock);  \
+                            ExReleaseSpinLock(&CcMasterSpinLock, (IRQ));                \
+                            KeSetTimer( &LazyWriter.ScanTimer,                          \
+                                        CcFirstDelay,                                   \
+                                        &LazyWriter.ScanDpc );                          \
+                            break;                                                      \
+                        }                                                               \
+                    }                                                                   \
+                }                                                                       \
+            } else {                                                                    \
+                (SCM)->ActiveVacb = (V);                                                \
+                (SCM)->ActivePage = (P);                                                \
+                (V) = NULL;                                                             \
+            }                                                                           \
+        }                                                                               \
+        if (D) {                                                                        \
+            ExReleaseSpinLockFromDpcLevel(&(SCM)->ActiveVacbSpinLock);                  \
+            ExReleaseSpinLock(&CcMasterSpinLock, (IRQ));                                \
+        } else {                                                                        \
+            ExReleaseSpinLock(&(SCM)->ActiveVacbSpinLock, (IRQ));                       \
+        }                                                                               \
+        if ((V) != NULL) {                                                              \
+            CcFreeActiveVacb( (SCM), (V), (P), (D));                                    \
+        }                                                                               \
+    } while (FALSE);                                                                    \
+}
+
+//
+//  In the UP case, any FastLock will do, so we just use the ActiveVacb lock, and do not
+//  explicitly acquire CcMasterSpinLock.
+//
+
+#else
+
+#define SetActiveVacb(SCM,IRQ,V,P,D) {                                                  \
+    ExAcquireFastLock(&(SCM)->ActiveVacbSpinLock, &(IRQ));                              \
+    do {                                                                                \
+        if ((SCM)->ActiveVacb == NULL) {                                                \
+            if (((SCM)->Flags & ACTIVE_PAGE_IS_DIRTY) != (D)) {                         \
+                if (D) {                                                                \
+                    (SCM)->ActiveVacb = (V);                                            \
+                    (SCM)->ActivePage = (P);                                            \
+                    (V) = NULL;                                                         \
+                    SetFlag((SCM)->Flags, ACTIVE_PAGE_IS_DIRTY);                        \
+                    CcTotalDirtyPages += 1;                                             \
+                    (SCM)->DirtyPages += 1;                                             \
+                    if ((SCM)->DirtyPages == 1) {                                       \
+                        PLIST_ENTRY Blink;                                              \
+                        PLIST_ENTRY Entry;                                              \
+                        PLIST_ENTRY Flink;                                              \
+                        PLIST_ENTRY Head;                                               \
+                        Entry = &(SCM)->SharedCacheMapLinks;                            \
+                        Blink = Entry->Blink;                                           \
+                        Flink = Entry->Flink;                                           \
+                        Blink->Flink = Flink;                                           \
+                        Flink->Blink = Blink;                                           \
+                        Head = &CcDirtySharedCacheMapList.SharedCacheMapLinks;          \
+                        Blink = Head->Blink;                                            \
+                        Entry->Flink = Head;                                            \
+                        Entry->Blink = Blink;                                           \
+                        Blink->Flink = Entry;                                           \
+                        Head->Blink = Entry;                                            \
+                        if (!LazyWriter.ScanActive) {                                   \
+                            LazyWriter.ScanActive = TRUE;                               \
+                            ExReleaseFastLock(&(SCM)->ActiveVacbSpinLock, (IRQ));       \
+                            KeSetTimer( &LazyWriter.ScanTimer,                          \
+                                        CcFirstDelay,                                   \
+                                        &LazyWriter.ScanDpc );                          \
+                            break;                                                      \
+                        }                                                               \
+                    }                                                                   \
+                }                                                                       \
+            } else {                                                                    \
+                (SCM)->ActiveVacb = (V);                                                \
+                (SCM)->ActivePage = (P);                                                \
+                (V) = NULL;                                                             \
+            }                                                                           \
+        }                                                                               \
+        ExReleaseFastLock(&(SCM)->ActiveVacbSpinLock, (IRQ));                           \
+        if ((V) != NULL) {                                                              \
+            CcFreeActiveVacb( (SCM), (V), (P), (D));                                    \
+        }                                                                               \
+    } while (FALSE);                                                                    \
+}
+
+#endif
 
 VOID
 CcPostDeferredWrites (
@@ -1115,7 +1352,7 @@ CcSetDirtyInMask (
     IN ULONG Length
     );
 
-VOID
+NTSTATUS
 FASTCALL
 CcWriteBehind (
     IN PSHARED_CACHE_MAP SharedCacheMap
@@ -1171,9 +1408,11 @@ CcStartLazyWriter (
     IN PVOID NotUsed
     );
 
-PWORK_QUEUE_ENTRY
-CcAllocateWorkQueueEntry (
-    );
+#define CcAllocateWorkQueueEntry() \
+    (PWORK_QUEUE_ENTRY)ExAllocateFromNPagedLookasideList(&CcTwilightLookasideList)
+
+#define CcFreeWorkQueueEntry(_entry_)         \
+    ExFreeToNPagedLookasideList(&CcTwilightLookasideList, (_entry_))
 
 VOID
 FASTCALL
@@ -1191,7 +1430,8 @@ VOID
 FASTCALL
 CcDeleteSharedCacheMap (
     IN PSHARED_CACHE_MAP SharedCacheMap,
-    IN KIRQL ListIrql
+    IN KIRQL ListIrql,
+    IN ULONG ReleaseFile
     );
 
 //
@@ -1229,10 +1469,18 @@ CcInitializeVacbs(
     );
 
 PVOID
+CcGetVirtualAddressIfMapped (
+    IN PSHARED_CACHE_MAP SharedCacheMap,
+    IN LONGLONG FileOffset,
+    OUT PVACB *Vacb,
+    OUT PULONG ReceivedLength
+    );
+
+PVOID
 CcGetVirtualAddress (
     IN PSHARED_CACHE_MAP SharedCacheMap,
     IN LARGE_INTEGER FileOffset,
-    OUT PVACB *OpaqueVacb,
+    OUT PVACB *Vacb,
     OUT PULONG ReceivedLength
     );
 
@@ -1260,10 +1508,12 @@ CcExtendVacbArray (
     IN LARGE_INTEGER NewSectionSize
     );
 
-VOID
+BOOLEAN
 FASTCALL
 CcUnmapVacbArray (
-    IN PSHARED_CACHE_MAP SharedCacheMap
+    IN PSHARED_CACHE_MAP SharedCacheMap,
+    IN PLARGE_INTEGER FileOffset OPTIONAL,
+    IN ULONG Length
     );
 
 //
@@ -1272,7 +1522,9 @@ CcUnmapVacbArray (
 
 extern KSPIN_LOCK CcMasterSpinLock;
 extern LIST_ENTRY CcCleanSharedCacheMapList;
-extern LIST_ENTRY CcDirtySharedCacheMapList;
+extern SHARED_CACHE_MAP_LIST_CURSOR CcDirtySharedCacheMapList;
+extern SHARED_CACHE_MAP_LIST_CURSOR CcLazyWriterCursor;
+extern NPAGED_LOOKASIDE_LIST CcTwilightLookasideList;
 extern KSPIN_LOCK CcWorkQueueSpinlock;
 extern ULONG CcNumberWorkerThreads;
 extern LIST_ENTRY CcIdleWorkerThreadList;
@@ -1298,6 +1550,9 @@ extern ULONG CcPagesYetToWrite;
 extern ULONG CcPagesWrittenLastTime;
 extern ULONG CcAvailablePagesThreshold;
 extern ULONG CcTotalDirtyPages;
+extern ULONG CcTune;
+extern ULONG CcLazyWriteHotSpots;
+extern MM_SYSTEMSIZE CcCapturedSystemSize;
 
 
 //

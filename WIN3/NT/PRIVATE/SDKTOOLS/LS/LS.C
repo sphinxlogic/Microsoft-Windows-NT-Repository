@@ -1,4 +1,5 @@
-/* ls - fancy schmancy dir list program
+
+ /* ls - fancy schmancy dir list program
  *
  * HISTORY:
  * 17-Mar-87    danl    Added q switch
@@ -102,6 +103,7 @@ struct fpfile {
 struct fppath far *toppath, far *curpath;
 unsigned totalloc = 0;
 char tmpfile1[MAX_PATH], tmpfile2[MAX_PATH];
+char szStarDotStar[] = "*.*";
 
 /**     Procedure prototypes
  */
@@ -246,7 +248,7 @@ void savefile (char *p, struct findType *b, void * dummy)
         case TYS_ALPHA:
             memmove (tmpfile1, tmp1->name, tmp1->cchName);
             memmove (tmpfile2, tmp->name, tmp->cchName);
-            i = strcmpi (tmpfile1, tmpfile2) > 0;
+            i = _strcmpi (tmpfile1, tmpfile2) > 0;
             break;
     case TYS_TIME:
         i = (unsigned long)tmp1->mtime < (unsigned long)tmp->mtime;
@@ -264,7 +266,7 @@ void savefile (char *p, struct findType *b, void * dummy)
         curpath->first = tmp;
 
     if (fSubDir && TESTFLAG (tmp->attr, FILE_ATTRIBUTE_DIRECTORY))
-        savepath (p, "*.*");
+        savepath (p, szStarDotStar);
 
     dummy;
 }
@@ -276,7 +278,7 @@ void savepat (struct fppath far *toppath, char *pat)
     struct fppat far *tmp, far *tmp1, far *tmp2;
 
     if (!pat)
-        pat = "*.*";
+        pat = szStarDotStar;
     i = strlen (pat);
     tmp = (struct fppat far *) alloc (sizeof (*tmp) +i);
     tmp->cchName = strlen (pat) + 1;
@@ -286,7 +288,7 @@ void savepat (struct fppath far *toppath, char *pat)
     tmp2 = NULL;
     while (tmp1) {
         memmove (tmpfile1, tmp1->name, tmp1->cchName);
-        if (!strcmpi (pat, tmpfile1)) {
+        if (!_strcmpi (pat, tmpfile1)) {
             free (tmp);
             return;
             }
@@ -347,8 +349,25 @@ void savepath (char *p, char *pat)
     tmp->bytesAlloc = 0L;
     tmp->bPerA = AllocSize (dirbuf);
 
+
+Retry:
     if (!GetVolumeInformation (dirbuf, NULL, 0, NULL, NULL,
                                &dwFileSystemFlags, NULL, 0)) {
+        if (GetLastError() == ERROR_DIR_NOT_ROOT) {
+           p = dirbuf + strlen (dirbuf) - 1;
+
+           if (fPathChr(*p)) {
+               *p = 0;
+
+               p = strrchr(dirbuf, '\\');
+
+               if (p) {
+                   p[1] = 0;
+                   goto Retry;
+               }
+           }
+        }
+
         dwFileSystemFlags = 0;
         }
     tmp->fToLower = dwFileSystemFlags != 0 ? FALSE : TRUE;
@@ -362,7 +381,7 @@ void savepath (char *p, char *pat)
     while (tmp1) {
         memmove (tmpfile1, tmp1->name, tmp1->cchName);
         memmove ( tmpfile2, tmp->name, tmp->cchName);
-        switch (strcmpi (tmpfile1, tmpfile2)) {
+        switch (_strcmpi (tmpfile1, tmpfile2)) {
         case 0:
             free (tmp);
             tmp = NULL;
@@ -503,23 +522,23 @@ int _CRTAPI1 main (int c, char *v[])
 
     if (c == 0) {
         c++; v--;
-        *v = "*.*";
+        *v = szStarDotStar;
         }
     curpath = toppath = NULL;
     while (c) {
         pname (*v);
         p = *v + strlen (*v) - 1;
         if (fPathChr (*p))
-            savepath (*v, "*.*");
+            savepath (*v, szStarDotStar);
         else
         if (*p == ':') {
             if (strlen (*v) != 2)
                 break;
-            savepath (*v, "*.*");
+            savepath (*v, szStarDotStar);
             }
         else
         if (fIsDir (*v))
-            savepath (*v, fD ? "" : "*.*");
+            savepath (*v, fD ? "" : szStarDotStar);
         else
             savepath (NULL, *v);
         SHIFT (c, v);

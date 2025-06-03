@@ -20,10 +20,6 @@ Revision History may be found at the end of this file.
 --*/
 
 //
-// VGA specific register definitions.
-//
-
-//
 // VGA Miscellaneous Output Register
 //
 
@@ -45,13 +41,9 @@ Revision History may be found at the end of this file.
 
 #define VGA_FREQ    2832                // Default VGA Video Freq in dHz
 
-/*++
+//
+// Base address of VGA memory range and video memory size. 
+//
 
-Revision History:
-
-    $Log:   N:/ntdrv.vcs/miniport.new/vga.h_v  $
- *
- *    Rev 1.0   14 Jan 1994 22:42:36   robk
- * Initial revision.
-
---*/
+#define MEM_VGA_ADDR        0xA0000
+#define MEM_VGA_SIZE        0x20000

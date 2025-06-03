@@ -28,6 +28,8 @@
 //
 // Revision History:
 //
+//      Nigel Haslock 05-May-1995       preserve fpcr across system calls
+//
 //--
 
 
@@ -52,6 +54,13 @@ HandlerFrameLength:
 //     kernel debugger to walk call frames backwards through an exception
 //     to support unwinding through exceptions for system services, and to
 //     support get/set user context.
+//
+//    N.B. The volatile registers must be saved in this prologue because
+//         the compiler will occasionally generate code that uses volatile
+//         registers to save the contents of nonvolatile registers when
+//         a function only calls another function with a known register
+//         signature (such as _OtsDivide)
+//
 //--
 
         NESTED_ENTRY( KiGeneralExceptionDispatch, TrapFrameLength, zero )
@@ -64,6 +73,27 @@ HandlerFrameLength:
         stq     gp, TrIntGp(sp)         // save global pointer
         bis     sp, sp, fp              // set frame pointer
         .set    reorder
+
+        stq     v0, TrIntV0(sp)         // save integer register v0
+        stq     t0, TrIntT0(sp)         // save integer registers t0 - t7
+        stq     t1, TrIntT1(sp)         //
+        stq     t2, TrIntT2(sp)         //
+        stq     t3, TrIntT3(sp)         //
+        stq     t4, TrIntT4(sp)         //
+        stq     t5, TrIntT5(sp)         //
+        stq     t6, TrIntT6(sp)         //
+        stq     t7, TrIntT7(sp)         //
+        stq     a4, TrIntA4(sp)         // save integer registers a4 - a5
+        stq     a5, TrIntA5(sp)         //
+        stq     t8, TrIntT8(sp)         // save integer registers t8 - t12
+        stq     t9, TrIntT9(sp)         //
+        stq     t10, TrIntT10(sp)       //
+        stq     t11, TrIntT11(sp)       //
+        stq     t12, TrIntT12(sp)       //
+
+        .set    noat
+        stq     AT, TrIntAt(sp)         // save integer register AT
+        .set    at
 
         PROLOGUE_END
 
@@ -226,8 +256,9 @@ HandlerFrameLength:
         //
 
         GET_CURRENT_THREAD              // v0 = current thread addr
-        ldbu    t0, ThApcState+AsUserApcPending(v0) // get user APC pending
-        ZeroByte( ThAlerted(v0) ) // clear kernel mode alerted
+        ldq_u   t1, ThApcState+AsUserApcPending(v0)         // get user APC pending
+        extbl   t1, (ThApcState+AsUserApcPending) % 8, t0   //
+        ZeroByte( ThAlerted(v0) )       // clear kernel mode alerted
         cmovne  t0, APC_INTERRUPT, a1   // if pending set APC interrupt
 
 30:
@@ -251,6 +282,12 @@ HandlerFrameLength:
 //     kernel debugger to walk call frames backwards through an exception
 //     to support unwinding through exceptions for system services, and to
 //     support get/set user context.
+//
+//    N.B. The volatile registers must be saved in this prologue because
+//         the compiler will occasionally generate code that uses volatile
+//         registers to save the contents of nonvolatile registers when
+//         a function only calls another function with a known register
+//         signature (such as _OtsMove)
 //--
 
         NESTED_ENTRY( KiMemoryManagementDispatch, TrapFrameLength, zero )
@@ -263,6 +300,26 @@ HandlerFrameLength:
         stq     gp, TrIntGp(sp)         // save global pointer
         bis     sp, sp, fp              // set frame pointer
         .set    reorder
+        stq     v0, TrIntV0(sp)         // save integer register v0
+        stq     t0, TrIntT0(sp)         // save integer registers t0 - t7
+        stq     t1, TrIntT1(sp)         //
+        stq     t2, TrIntT2(sp)         //
+        stq     t3, TrIntT3(sp)         //
+        stq     t4, TrIntT4(sp)         //
+        stq     t5, TrIntT5(sp)         //
+        stq     t6, TrIntT6(sp)         //
+        stq     t7, TrIntT7(sp)         //
+        stq     a4, TrIntA4(sp)         // save integer registers a4 - a5
+        stq     a5, TrIntA5(sp)         //
+        stq     t8, TrIntT8(sp)         // save integer registers t8 - t12
+        stq     t9, TrIntT9(sp)         //
+        stq     t10, TrIntT10(sp)       //
+        stq     t11, TrIntT11(sp)       //
+        stq     t12, TrIntT12(sp)       //
+
+        .set    noat
+        stq     AT, TrIntAt(sp)         // save integer register AT
+        .set    at
 
         PROLOGUE_END
 
@@ -321,12 +378,9 @@ HandlerFrameLength:
         // Check if working set watch is enabled.
         //
         ldl     t0, PsWatchEnabled      // get working set watch enable flag
-        ldl     t1, TrExceptionRecord + ErExceptionCode(fp) // get previous PSR
         bis     v0, zero, a0            // get status of fault resolution
         blt     v0, 40f                 // if fault status ltz, unsuccessful
-        and     t1, PSR_MODE_MASK, t1   // get previous mode
-        and     t0, t1, t2              // check if user mode and watch enabled
-        beq     t2, 35f                 // if eq. zero, not user mode and watch enabled
+        beq     t0, 35f                 // if eq. zero, watch not enabled
         ldl     a1, TrExceptionRecord + ErExceptionAddress(fp)      // get exception address
         ldl     a2, TrExceptionRecord + ErExceptionInformation + 4(fp)  // set bad address
         bsr     ra, PsWatchWorkingSet   // record working set information.
@@ -342,8 +396,6 @@ HandlerFrameLength:
 
         bsr     ra, KdSetOwedBreakpoints
 37:
-        bis     zero, zero, v0                  // set status to success
-
         //
         // if success then mem mgmt handled the exception, otherwise
         //      fill in remainder of the exception record and attempt
@@ -351,7 +403,7 @@ HandlerFrameLength:
         //
 
         ldl     a0, TrPsr(fp)                   // get previous psr
-        bge     v0, KiAlternateExit             // exception handled
+        br      zero, KiAlternateExit           // exception handled
 
         //
         // failure returned from MmAccessFault
@@ -460,6 +512,12 @@ HandlerFrameLength:
 //    to support unwinding through exceptions for system services, and to
 //    support get/set user context.
 //
+//    N.B. The volatile registers must be saved in this prologue because
+//         the compiler will occasionally generate code that uses volatile
+//         registers to save the contents of nonvolatile registers when
+//         a function only calls another function with a known register
+//         signature (such as _OtsMove)
+//
 //--
 
         EXCEPTION_HANDLER(KiInterruptHandler)
@@ -474,6 +532,26 @@ HandlerFrameLength:
         stq     gp,TrIntGp(sp)          // save general pointer
         bis     sp, sp, fp              // set frame pointer
         .set    reorder
+        stq     v0, TrIntV0(sp)         // save integer register v0
+        stq     t0, TrIntT0(sp)         // save integer registers t0 - t7
+        stq     t1, TrIntT1(sp)         //
+        stq     t2, TrIntT2(sp)         //
+        stq     t3, TrIntT3(sp)         //
+        stq     t4, TrIntT4(sp)         //
+        stq     t5, TrIntT5(sp)         //
+        stq     t6, TrIntT6(sp)         //
+        stq     t7, TrIntT7(sp)         //
+        stq     a4, TrIntA4(sp)         // save integer registers a4 - a5
+        stq     a5, TrIntA5(sp)         //
+        stq     t8, TrIntT8(sp)         // save integer registers t8 - t12
+        stq     t9, TrIntT9(sp)         //
+        stq     t10, TrIntT10(sp)       //
+        stq     t11, TrIntT11(sp)       //
+        stq     t12, TrIntT12(sp)       //
+
+        .set    noat
+        stq     AT, TrIntAt(sp)         // save integer register AT
+        .set    at
 
         PROLOGUE_END
 
@@ -514,11 +592,21 @@ HandlerFrameLength:
 // Count the number of interrupts
 //
 
-        bsr     ra, KeGetCurrentPrcb    // get Prcb address in v0
-        ldl     t0, PbInterruptCount(v0) // get current count of interrupts
-        bis     a0, zero, t12           // save interrupt vector
-        addl    t0, 1, t0               // increment count
-        stl     t0, PbInterruptCount(v0) // save new interrupt count
+        GET_PROCESSOR_CONTROL_BLOCK_BASE    // v0 = PRCB
+        ldl     t0, PbInterruptCount(v0)    // get current count of interrupts
+        addl    t0, 1, t1                   // increment count
+        stl     t1, PbInterruptCount(v0)    // save new interrupt count
+
+//
+// If interrupt vector > DISPATCH_LEVEL, indicate interrupt active in PRCB
+//
+        cmpule  a0, DISPATCH_LEVEL, t4      // compare vector to DISPATCH_LEVEL
+        bne     t4, 12f                     // if ne, <= DISPATCH_LEVEL
+        ldl     t2, PbInterruptActive(v0)   // get current interrupt active
+        addl    t2, 1, t3                   // increment
+        stl     t3, PbInterruptActive(v0)   // store new interrupt active
+
+12:
 
         s4addl  a0, a1, a0              // convert index to offset + PCR base
         ldl     a0, PcInterruptRoutine(a0) // get service routine address
@@ -528,8 +616,40 @@ HandlerFrameLength:
 // Restore state and exit interrupt.
 //
 
-        ldl     a0, TrPsr(fp)                   // get previous processor status
+        ldl     a0, TrPsr(fp)               // get previous processor status
 
+        GET_PROCESSOR_CONTROL_BLOCK_BASE    // v0 = PRCB
+        ldl     t0, PbInterruptActive(v0)   // get current interrupt active
+        beq     t0, 50f                     // if eq, original vector <= DISPATCH_LEVEL
+        subl    t0, 1, t1                   // decrement
+        stl     t1, PbInterruptActive(v0)
+        bne     t1, 50f                     // if an interrupt is still active,
+                                            // skip the SW interrupt check
+//
+// If a dispatch interrupt is pending, lower IRQL  to DISPATCH_LEVEL,  and
+// directly call the dispatch interrupt handler.
+//
+        ldl     t2, PbSoftwareInterrupts(v0)        // get pending SW interrupts
+        beq     t2, 50f                             // skip if no pending SW interrupts
+        stl     zero, PbSoftwareInterrupts(v0)      // clear pending SW interrupts
+        and     a0, PSR_IRQL_MASK, a1               // extract IRQL from PSR
+        cmpult  a1, DISPATCH_LEVEL << PSR_IRQL, t3  // check return IRQL
+        beq     t3, 70f                             // if not lt DISPATCH_LEVEL, can't bypass
+//
+// Update count of bypassed dispatch interrupts
+//
+        ldl     t4, PbDpcBypassCount(v0)            // get old bypass count
+        addl    t4, 1, t5                           // increment
+        stl     t5, PbDpcBypassCount(v0)            // store new bypass count
+
+        ldil    a0, DISPATCH_LEVEL
+        SWAP_IRQL                                   // lower IRQL to DISPATCH_LEVEL
+        bsr     ra, KiDispatchInterrupt             // directly dispatch interrupt
+
+        GET_PROCESSOR_CONTROL_BLOCK_BASE    // v0 = PRCB
+45:
+        ldl     a0, TrPsr(fp)                       // restore a0.
+50:
 //
 // Check if an APC interrupt should be generated.
 //
@@ -539,18 +659,28 @@ HandlerFrameLength:
 
         GET_CURRENT_THREAD              // v0 = current thread address
 
-        ldbu    t0, ThApcState+AsUserApcPending(v0) // get user APC pending
+        ldq_u   t1, ThApcState+AsUserApcPending(v0)         // get user APC pending
+        extbl   t1, (ThApcState+AsUserApcPending) % 8, t0   //
         ZeroByte( ThAlerted(v0) ) // clear kernel mode alerted
 
         cmovne  t0, APC_INTERRUPT, a1   // if pending set APC interrupt
 
 
-60:     bsr     ra, KiRestoreVolatileIntegerState // restore volatile state
+60:
+        bsr     ra, KiRestoreVolatileIntegerState // restore volatile state
 
                 // a0 = previous mode
                 // a1 = sfw interrupt requests
         RETURN_FROM_TRAP_OR_INTERRUPT   // return from trap/interrupt
 
+70:
+//
+// Previous IRQL is >= DISPATCH_LEVEL, so a pending software interrupt cannot
+// be short-circuited. Request a software interrupt from the PAL.
+//
+        ldil    a0, DISPATCH_LEVEL
+        REQUEST_SOFTWARE_INTERRUPT                  // request interrupt from PAL
+        br      zero, 45b                           // rejoin common code
         .end    KiInterruptDistribution
 
 
@@ -682,6 +812,9 @@ SyscallFrameLength:
 
         START_REGION(KiSystemServiceDispatchStart)
 
+        mf_fpcr f0
+        stt     f0, TrFpcr(fp)          // save fp control register
+
         lda     sp, -SyscallFrameLength(sp) // allocate local frame
         stl     t1, ScThread(sp)        // save thread value
 
@@ -708,6 +841,9 @@ SyscallFrameLength:
         jsr     ra, KiSetServerWaitClientEvent // call the kernel service
 
 10:
+        ldt     f0, TrFpcr(fp)
+        mt_fpcr f0                      // restore fp control register
+
         ldl     a0, TrPsr(fp)           // get previous processor status
         ldl     t5, ScThread(sp)        // get current thread address
 //
@@ -716,7 +852,8 @@ SyscallFrameLength:
 
         bis     zero, zero, a1          // clear sfw interrupt request
 
-        ldbu    t0, ThApcState+AsUserApcPending(t5) // get user APC pending
+        ldq_u   t1, ThApcState+AsUserApcPending(t5)         // get user APC pending
+        extbl   t1, (ThApcState+AsUserApcPending) % 8, t0   //
         ZeroByte( ThAlerted(t5) ) // clear kernel mode alerted
 
         cmovne  t0, APC_INTERRUPT, a1   // if pending set APC interrupt
@@ -746,32 +883,87 @@ SyscallFrameLength:
 
 StandardService:
 
-        ldbu    t3, ThPreviousMode(t1)  // get old previous thread mode
-        stl     t3, TrPreviousMode(fp)  // save old previous mode of thread
-        StoreByteAligned( t0, ThPreviousMode, t1 ) // set new previous mode in thread
+        ldq_u   t4, ThPreviousMode(t1)      // get old previous thread mode
+        ldl     t5, ThTrapFrame(t1)         // get current trap frame address
+        extbl   t4, ThPreviousMode % 8, t3
+        stl     t3, TrPreviousMode(fp)      // save old previous mode of thread
+        StoreByte( t0, ThPreviousMode(t1) ) // set new previous mode in thread
+        stl     t5, TrTrapFrame(fp)         // save current trap frame address
 
-        lda     t10, KiServiceLimit     // get service limit address
-        ldl     t10, 0(t10)             // get service number limit
+//
+// If the specified system service number is not within range, then
+// attempt to convert the thread to a GUI thread and retry the service
+// dispatch.
+//
+// N.B. The argument registers a0-a3, the system service number in v0,
+//      and the thread address in t1 must be preserved while attempting
+//      to convert the thread to a GUI thread.
+//
 
-        cmpult  v0, t10, t4             // check if valid service number
+        ALTERNATE_ENTRY(KiSystemServiceRepeat)
+
+        stl     fp, ThTrapFrame(t1)     // save address of trap frame
+        ldl     t10, ThServiceTable(t1) // get service descriptor table address
+        srl     v0, SERVICE_TABLE_SHIFT, t2 // isolate service descriptor offset
+        and     t2, SERVICE_TABLE_MASK, t2 //
+        addl    t2, t10, t10            // compute service descriptor address
+        ldl     t3, SdLimit(t10)        // get service number limit
+        and     v0, SERVICE_NUMBER_MASK, t7 // isolate service table offset
+
+        cmpult  t7, t3, t4              // check if valid service number
         beq     t4, 80f                 // if eq[false] not valid
 
-        lda     t4, KiServiceTable      // get system service table address
+        ldl     t4, SdBase(t10)         // get service table address
 
-        s4addl  v0, t4, t3              // compute address in service table
+        s4addl  t7, t4, t3              // compute address in service table
         ldl     t5, 0(t3)               // get address of service routine
-        lda     t10, KiArgumentTable    // get argument table address
 
 #if DBG
-        ldl     t6, KeServiceCountTable // get service count table address
-        s4addl  v0, t6, t7              // compute system service offset value
-        ldl     t6, 0(t7)               // increment system service count
-        addl    t6, 1, t6
-        stl     t6, 0(t7)               // store result
+        ldl     t6, SdCount(t10)        // get service count table address
+        beq     t6, 5f                  // if eq, table not defined
+        s4addl  t7, t6, t6              // compute system service offset value
+        ldl     t11, 0(t6)              // increment system service count
+        addl    t11, 1, t11
+        stl     t11, 0(t6)              // store result
+5:
 #endif
 
-        addl    v0, t10, t11            // compute address in argument table
+//
+// If the system service is a GUI service and the GDI user batch queue is
+// not empty, then call the appropriate service to flush the user batch.
+//
+
+        cmpeq   t2, SERVICE_TABLE_TEST, t2 // check if GUI system service
+        beq     t2, 15f                 // if eq, not GUI system service
+        ldl     t3, ThTeb(t1)           // get current thread TEB address
+        stq     t5, TrIntT5(fp)         // save service routine address
+        ldl     t4, TeGdiBatchCount(t3) // get number of batched GDI calls
+        beq     t4, 15f                 // if eq, no batched calls
+        ldl     t5, KeGdiFlushUserBatch // get address of flush routine
+        stq     a0, TrIntA0(fp)         // save possible arguments
+        stq     a1, TrIntA1(fp)         //
+        stq     a2, TrIntA2(fp)         //
+        stq     a3, TrIntA3(fp)         //
+        stq     a4, TrIntA4(fp)         //
+        stq     a5, TrIntA5(fp)         //
+        stq     t10, TrIntT10(fp)       // save service descriptor address
+        stq     t7, TrIntT7(fp)         // save service table offset
+        jsr     ra, (t5)                // flush GDI user batch
+        ldq     t5, TrIntT5(fp)         // restore service routine address
+        ldq     a0, TrIntA0(fp)         // restore possible arguments
+        ldq     a1, TrIntA1(fp)         //
+        ldq     a2, TrIntA2(fp)         //
+        ldq     a3, TrIntA3(fp)         //
+        ldq     a4, TrIntA4(fp)         //
+        ldq     a5, TrIntA5(fp)         //
+        ldq     t10, TrIntT10(fp)       // restore service descriptor address
+        ldq     t7, TrIntT7(fp)         // restore service table offset
+
+15:
         blbc    t5, 30f                 // if clear no in-memory arguments
+
+        ldl     t10, SdNumber(t10)      // get argument table address
+        addl    t7, t10, t11            // compute address in argument table
 
 //
 // The following code captures arguments that were passed in memory on the
@@ -790,9 +982,10 @@ StandardService:
         cmoveq  t4, t2, t10             // set invalid user stack address
                                         // if stack not lt MM_USER_PROBE
 
-10:     ldbu    t11, 0(t11)             // get number of memory arguments * 8
+10:     ldq_u   t4, 0(t11)
+        extbl   t4, t11, t9             // get number of memory arguments * 8
 
-        addl    t11, 0x1f, t3           // round up to hexaword (32 bytes)
+        addl    t9, 0x1f, t3            // round up to hexaword (32 bytes)
         bic     t3, 0x1f, t3            // insure hexaword alignment
 
         subl    sp, t3, sp              // allocate space on kernel stack
@@ -837,6 +1030,9 @@ StandardService:
 //
 
         ALTERNATE_ENTRY(KiSystemServiceExit)
+//
+// Restore old trap frame address from the current trap frame.
+//
 
 //
 // Update the number of system calls
@@ -846,18 +1042,22 @@ StandardService:
 
         GET_PROCESSOR_CONTROL_BLOCK_BASE // get processor block address
 
+        ldl     t2, -SyscallFrameLength + ScThread(fp)        // get current thread address
+        ldl     t3, TrTrapFrame(fp)     // get old trap frame address
         ldl     t10, PbSystemCalls(v0)  // increment number of calls
         addl    t10, 1, t10             //
         stl     t10, PbSystemCalls(v0)  // store result
+        stl     t3, ThTrapFrame(t2)     // restore old trap frame address
         bis     t1, zero, v0            // restore return status
 
+        ldt     f0, TrFpcr(fp)
+        mt_fpcr f0                      // restore fp control register
+
         ldl     a0, TrPsr(fp)           // get previous processor status
-//      ldl     t5, ScThread(sp)        // get current thread address
-        ldl     t5, -SyscallFrameLength + ScThread(fp)
 
-        ldl     t2, TrPreviousMode(fp)  // get old previous mode
+        ldl     t5, TrPreviousMode(fp)  // get old previous mode
 
-        StoreByteAligned( t2, ThPreviousMode, t5 ) // store previous mode in thread
+        StoreByte( t5, ThPreviousMode(t2) ) // store previous mode in thread
 
 //
 // Check if an APC interrupt should be generated.
@@ -866,8 +1066,9 @@ StandardService:
         bis     zero, zero, a1          // clear sfw interrupt request
         blbc    a0, 70f                 // if kernel mode skip apc check
 
-        ldbu    t0, ThApcState+AsUserApcPending(t5) // get user APC pending
-        ZeroByte( ThAlerted(t5) ) // clear kernel mode alerted
+        ldq_u   t1, ThApcState+AsUserApcPending(t2)         // get user APC pending
+        extbl   t1, (ThApcState+AsUserApcPending) % 8, t0   //
+        ZeroByte( ThAlerted(t2) )                           // clear kernel mode alerted
 
         cmovne  t0, APC_INTERRUPT, a1   // if pending set APC interrupt
 
@@ -877,12 +1078,44 @@ StandardService:
                 // a1 = sfw interrupt requests
         RETURN_FROM_SYSTEM_CALL         // return to caller
 
+//
+// The specified system service number is not within range. Attempt to
+// convert the thread to a GUI thread if specified system service is a
+// a GUI service.
+//
+// N.B. The argument register a0-a5, the system service number in v0
+//      must be preserved if an attempt is made to convert the thread to
+//      a GUI thread.
+//
+
+80:     cmpeq   t2, SERVICE_TABLE_TEST, t2 // check if GUI system service
+        beq     t2, 55f                 // if eq, not GUI system service
+        stq     v0, TrIntV0(fp)         // save system service number
+        stq     a0, TrIntA0(fp)         // save argument register a0
+        stq     a1, TrIntA1(fp)         // save argument registers a1-a5
+        stq     a2, TrIntA2(fp)
+        stq     a3, TrIntA3(fp)
+        stq     a4, TrIntA4(fp)
+        stq     a5, TrIntA5(fp)
+        bsr     ra, PsConvertToGuiThread    // attempt to convert to GUI thread
+        bis     v0, zero, t0                // save completion status
+        addq    sp, SyscallFrameLength, fp  // reset trap frame address
+        GET_CURRENT_THREAD
+        bis     v0, zero, t1            // get current thread address
+        ldq     v0, TrIntV0(fp)         // restore system service number
+        ldq     a0, TrIntA0(fp)         // restore argument registers a0-a5
+        ldq     a1, TrIntA1(fp)
+        ldq     a2, TrIntA2(fp)
+        ldq     a3, TrIntA3(fp)
+        ldq     a4, TrIntA4(fp)
+        ldq     a5, TrIntA5(fp)
+        beq     t0, KiSystemServiceRepeat   // if eq, successful conversion
 
 //
 // Return invalid system service status for invalid service code.
 //
-
-80:     ldil    v0, STATUS_INVALID_SYSTEM_SERVICE       // completion status
+55:
+        ldil    v0, STATUS_INVALID_SYSTEM_SERVICE       // completion status
         br      zero, KiSystemServiceExit               //
 
         START_REGION(KiSystemServiceDispatchEnd)
@@ -1001,7 +1234,8 @@ StandardService:
 
 10:
         GET_CURRENT_THREAD              // v0 = current thread address
-        ldbu    t1, ThPreviousMode(v0)  // get previous mode from thread
+        ldq_u   t4, ThPreviousMode(v0)  // get previous mode from thread
+        extbl   t4, ThPreviousMode % 8, t1
         bne     t1, 20f                 // if ne, previous mode was user
 
 //
@@ -1053,7 +1287,8 @@ StandardService:
 
         GET_CURRENT_THREAD              // v0 = current thread address
         ldl     t1, CxIntFp(a2)         // get address of trap frame
-        ldbu    t3, ThPreviousMode(v0)  // get previous mode from thread
+        ldq_u   t4, ThPreviousMode(v0)  // get previous mode from thread
+        extbl   t4, ThPreviousMode % 8, t3
         ldl     t4,TrPreviousMode(t1)   // get previous mode from trap frame
         bne     t3, 50f                 // if ne, previous mode was user
 
@@ -1062,7 +1297,7 @@ StandardService:
 // operation.
 //
 
-        StoreByteAligned( t4, ThPreviousMode, v0 ) // restore previous mode from trap frame
+        StoreByte( t4, ThPreviousMode(v0) ) // restore previous mode from trap frame
 
         ldil    v0, ExceptionContinueSearch     // set disposition value
         lda     sp, HandlerFrameLength(sp)      // deallocate stack frame
@@ -1143,6 +1378,7 @@ StandardService:
 
         ALTERNATE_ENTRY( KiPanicException )
 
+        stq     ra, TrIntRa(fp)         // PAL is supposed to do this, but it doesn't!
 //
 // Save state, volatile float and integer state via KiGenerateTrapFrame
 //
@@ -1185,5 +1421,3 @@ StandardService:
         ret     zero, (ra)              // return to caller
 
         .end    KiBreakinBreakpoint
-
-

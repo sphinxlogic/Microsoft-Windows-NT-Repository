@@ -1277,7 +1277,7 @@ Return Value:
             if (!NcrDecodeSynchronousRequest(
                 DeviceExtension,
                 targetState,
-                !(savedAdapterFlags & PD_SYNCHRONOUS_TRANSFER_SENT)
+                (BOOLEAN)(!(savedAdapterFlags & PD_SYNCHRONOUS_TRANSFER_SENT))
                 )) {
 
                 //
@@ -2010,7 +2010,7 @@ Return Value:
     SCSI_WRITE(
         deviceExtension->Adapter,
         ClockConversionFactor,
-        (dataByte & 0x07)
+        (UCHAR)(dataByte & 0x07)
         );
 
     //

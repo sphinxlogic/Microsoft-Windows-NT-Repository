@@ -53,13 +53,13 @@ fMatchTag(
         pBuf = strbscan (p = strbskip (pBuf, space), space);
         c = *pBuf;
         *pBuf = 0;
-        if (!stricmp (p, pTag)) {
+        if (!_stricmp (p, pTag)) {
             *pBuf = c;
-	    *pEnd = RB;
-	    return TRUE;
+            *pEnd = RB;
+            return TRUE;
             }
         *pBuf = c;
-	}
+        }
     *pEnd = RB;
     return FALSE;
 }
@@ -113,7 +113,9 @@ flagType swchng (
     flagType fInTag = FALSE;
     flagType fFound = FALSE;
 
-    if ((fhin = pathopen (strSwFile, strSwBuf, "rb")) == NULL) {
+    strncpy(strSwTmp, strSwFile, MAXPATHLEN);
+
+    if ((fhin = pathopen (strSwTmp, strSwBuf, "rb")) == NULL) {
         return FALSE;
         }
     upd (strSwBuf, ".$$$", strSwTmp);
@@ -175,7 +177,7 @@ flagType swchng (
     fclose (fhin);
     fclose (fhout);
     if ( fNoUndel )
-        unlink (strSwBuf);
+        _unlink (strSwBuf);
     else
         fdelete (strSwBuf);
     frenameNO (strSwBuf, strSwTmp);

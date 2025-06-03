@@ -6,6 +6,7 @@
  *
  *      History:
  *          10-Aug-1993 bens    Initial version
+ *          03-May-1994 bens    Add err.code and err.pv fields
  */
 
 #include "types.h"
@@ -45,6 +46,8 @@ void ErrClear(PERROR perr)
     Assert(perr != NULL);
     perr->fError = FALSE;   // No error
     perr->ach[0] = '\0';    // No message
+    perr->code   = 0;
+    perr->pv     = NULL;
 }
 
 
@@ -59,4 +62,3 @@ BOOL ErrIsError(PERROR perr)
     return perr->fError;
 }
 #endif
-

@@ -48,9 +48,9 @@ Revision History:
 
 #define SizeOfVacbArray(LSZ) (                                        \
     ((LSZ).HighPart != 0) ?                                           \
-    ((ULONG)((ULONGLONG)((LSZ).QuadPart) >> VACB_OFFSET_SHIFT) * sizeof(PVACB)) + 4 :    \
+    ((ULONG)((ULONGLONG)((LSZ).QuadPart) >> VACB_OFFSET_SHIFT) * sizeof(PVACB)) :    \
     (LSZ).LowPart > (PREALLOCATED_VACBS * VACB_MAPPING_GRANULARITY) ? \
-    (((LSZ).LowPart >> VACB_OFFSET_SHIFT) * sizeof(PVACB)) + 4 :      \
+    (((LSZ).LowPart >> VACB_OFFSET_SHIFT) * sizeof(PVACB)) :      \
     (PREALLOCATED_VACBS * sizeof(PVACB))                              \
 )
 
@@ -117,10 +117,84 @@ Return Value:
 
 
 PVOID
+CcGetVirtualAddressIfMapped (
+    IN PSHARED_CACHE_MAP SharedCacheMap,
+    IN LONGLONG FileOffset,
+    OUT PVACB *Vacb,
+    OUT PULONG ReceivedLength
+    )
+
+/*++
+
+Routine Description:
+
+    This routine returns a virtual address for the specified FileOffset,
+    iff it is mapped.  Otherwise, it informs the caller that the specified
+    virtual address was not mapped.  In the latter case, it still returns
+    a ReceivedLength, which may be used to advance to the next view boundary.
+
+Arguments:
+
+    SharedCacheMap - Supplies a pointer to the Shared Cache Map for the file.
+
+    FileOffset - Supplies the desired FileOffset within the file.
+
+    Vach - Returns a Vacb pointer which must be supplied later to free
+           this virtual address, or NULL if not mapped.
+
+    ReceivedLength - Returns the number of bytes to the next view boundary,
+                     whether the desired file offset is mapped or not.
+
+Return Value:
+
+    The virtual address at which the desired data is mapped, or NULL if it
+    is not mapped.
+
+--*/
+
+{
+    KIRQL OldIrql;
+    ULONG VacbOffset = (ULONG)FileOffset & (VACB_MAPPING_GRANULARITY - 1);
+    PVOID Value = NULL;
+
+    ASSERT(KeGetCurrentIrql() < DISPATCH_LEVEL);
+
+    //
+    //  Generate ReceivedLength return right away.
+    //
+
+    *ReceivedLength = VACB_MAPPING_GRANULARITY - VacbOffset;
+
+    //
+    //  Acquire the Vacb lock to see if the desired offset is already mapped.
+    //
+
+    ExAcquireFastLock( &CcVacbSpinLock, &OldIrql );
+
+    ASSERT( FileOffset <= SharedCacheMap->SectionSize.QuadPart );
+
+    if ((*Vacb = GetVacb( SharedCacheMap, *(PLARGE_INTEGER)&FileOffset )) != NULL) {
+
+        if ((*Vacb)->Overlay.ActiveCount == 0) {
+            SharedCacheMap->VacbActiveCount += 1;
+        }
+
+        (*Vacb)->Overlay.ActiveCount += 1;
+
+
+        Value = (PVOID)((PCHAR)(*Vacb)->BaseAddress + VacbOffset);
+    }
+
+    ExReleaseFastLock( &CcVacbSpinLock, OldIrql );
+    return Value;
+}
+
+
+PVOID
 CcGetVirtualAddress (
     IN PSHARED_CACHE_MAP SharedCacheMap,
     IN LARGE_INTEGER FileOffset,
-    OUT PVACB *OpaqueVacb,
+    OUT PVACB *Vacb,
     OUT PULONG ReceivedLength
     )
 
@@ -145,8 +219,8 @@ Arguments:
 
     FileOffset - Supplies the desired FileOffset within the file.
 
-    OpaqueVach - Returns a Vacb pointer which must be supplied later to free
-                 this virtual address.
+    Vacb - Returns a Vacb pointer which must be supplied later to free
+           this virtual address.
 
     ReceivedLength - Returns the number of bytes which are contiguously
                      mapped starting at the virtual address returned.
@@ -158,8 +232,8 @@ Return Value:
 --*/
 
 {
-    PVACB Vacb;
     KIRQL OldIrql;
+    PVACB TempVacb;
     ULONG VacbOffset = FileOffset.LowPart & (VACB_MAPPING_GRANULARITY - 1);
 
     ASSERT(KeGetCurrentIrql() < DISPATCH_LEVEL);
@@ -170,19 +244,19 @@ Return Value:
 
     ExAcquireSpinLock( &CcVacbSpinLock, &OldIrql );
 
-    ASSERT( LiLeq( FileOffset, SharedCacheMap->SectionSize ));
+    ASSERT( FileOffset.QuadPart <= SharedCacheMap->SectionSize.QuadPart );
 
-    if ((Vacb = GetVacb( SharedCacheMap, FileOffset )) == NULL) {
+    if ((TempVacb = GetVacb( SharedCacheMap, FileOffset )) == NULL) {
 
-        Vacb = CcGetVacbMiss( SharedCacheMap, FileOffset, &OldIrql );
+        TempVacb = CcGetVacbMiss( SharedCacheMap, FileOffset, &OldIrql );
 
     } else {
 
-        if (Vacb->Overlay.ActiveCount == 0) {
+        if (TempVacb->Overlay.ActiveCount == 0) {
             SharedCacheMap->VacbActiveCount += 1;
         }
 
-        Vacb->Overlay.ActiveCount += 1;
+        TempVacb->Overlay.ActiveCount += 1;
     }
 
     ExReleaseSpinLock( &CcVacbSpinLock, OldIrql );
@@ -191,12 +265,12 @@ Return Value:
     //  Now form all outputs.
     //
 
-    *OpaqueVacb = Vacb;
+    *Vacb = TempVacb;
     *ReceivedLength = VACB_MAPPING_GRANULARITY - VacbOffset;
 
     ASSERT(KeGetCurrentIrql() < DISPATCH_LEVEL);
 
-    return (PVOID)((PCHAR)Vacb->BaseAddress + VacbOffset);
+    return (PVOID)((PCHAR)TempVacb->BaseAddress + VacbOffset);
 }
 
 
@@ -250,6 +324,35 @@ Return Value:
 
     NormalOffset = FileOffset;
     NormalOffset.LowPart -= VacbOffset;
+
+    //
+    //  For Sequential only files, we periodically unmap unused views
+    //  behind us as we go, to keep from hogging memory.
+    //
+
+    if (FlagOn(SharedCacheMap->Flags, ONLY_SEQUENTIAL_ONLY_SEEN) &&
+        ((NormalOffset.LowPart & (SEQUENTIAL_ONLY_MAP_LIMIT - 1)) == 0) &&
+        (NormalOffset.QuadPart >= (SEQUENTIAL_ONLY_MAP_LIMIT * 2))) {
+
+        //
+        //  Use MappedLength as a scratch variable to form the offset
+        //  to start unmapping.  We are not synchronized with these past
+        //  views, so it is possible that CcUnmapVacbArray will kick out
+        //  early when it sees an active view.  That is why we go back
+        //  twice the distance, and effectively try to unmap everything
+        //  twice.  The second time should normally do it.  If the file
+        //  is truly sequential only, then the only collision expected
+        //  might be the previous view if we are being called from readahead,
+        //  or there is a small chance that we can collide with the
+        //  Lazy Writer during the small window where he briefly maps
+        //  the file to push out the dirty bits.
+        //
+
+        ExReleaseSpinLock( &CcVacbSpinLock, *OldIrql );
+        MappedLength.QuadPart = NormalOffset.QuadPart - (SEQUENTIAL_ONLY_MAP_LIMIT * 2);
+        CcUnmapVacbArray( SharedCacheMap, &MappedLength, (SEQUENTIAL_ONLY_MAP_LIMIT * 2) );
+        ExAcquireSpinLock( &CcVacbSpinLock, OldIrql );
+    }
 
     //
     //  Scan from the next victim for a free Vacb
@@ -339,7 +442,7 @@ Return Value:
                     //  Get the active Vacb.
                     //
 
-                    GetActiveVacb( Vacb->SharedCacheMap, ActiveVacb, ActivePage, PageIsDirty );
+                    GetActiveVacbAtDpcLevel( Vacb->SharedCacheMap, ActiveVacb, ActivePage, PageIsDirty );
                 }
 
             //
@@ -478,15 +581,29 @@ Return Value:
         OldSharedCacheMap->OpenCount -= 1;
 
         if ((OldSharedCacheMap->OpenCount == 0) &&
-            !FlagOn(OldSharedCacheMap->Flags, WRITE_QUEUED | LAZY_DELETE) &&
+            !FlagOn(OldSharedCacheMap->Flags, WRITE_QUEUED) &&
             (OldSharedCacheMap->DirtyPages == 0)) {
 
-            CcDeleteSharedCacheMap( OldSharedCacheMap, *OldIrql );
+            //
+            //  Move to the dirty list.
+            //
 
-        } else {
+            RemoveEntryList( &OldSharedCacheMap->SharedCacheMapLinks );
+            InsertTailList( &CcDirtySharedCacheMapList.SharedCacheMapLinks,
+                            &OldSharedCacheMap->SharedCacheMapLinks );
 
-            ExReleaseSpinLock( &CcMasterSpinLock, *OldIrql );
+            //
+            //  Make sure the Lazy Writer will wake up, because we
+            //  want him to delete this SharedCacheMap.
+            //
+
+            LazyWriter.OtherWork = TRUE;
+            if (!LazyWriter.ScanActive) {
+                CcScheduleLazyWriteScan();
+            }
         }
+
+        ExReleaseSpinLock( &CcMasterSpinLock, *OldIrql );
     }
 
     //
@@ -502,7 +619,7 @@ Return Value:
         //  is too large.
         //
 
-        MappedLength = LiSub( SharedCacheMap->SectionSize, NormalOffset );
+        MappedLength.QuadPart = SharedCacheMap->SectionSize.QuadPart - NormalOffset.QuadPart;
 
         if ((MappedLength.HighPart != 0) ||
             (MappedLength.LowPart > VACB_MAPPING_GRANULARITY)) {
@@ -573,12 +690,7 @@ Return Value:
             //  wake them here.
             //
 
-            if ((SharedCacheMap->WaitOnActiveCount != NULL)
-
-                    &&
-
-                (SharedCacheMap->VacbActiveCount == 0)) {
-
+            if (SharedCacheMap->WaitOnActiveCount != NULL) {
                 KeSetEvent( SharedCacheMap->WaitOnActiveCount, 0, FALSE );
             }
 
@@ -702,12 +814,7 @@ Return Value:
             //  wake them here.
             //
 
-            if ((SharedCacheMap->WaitOnActiveCount != NULL)
-
-                    &&
-
-                (SharedCacheMap->VacbActiveCount == 0)) {
-
+            if (SharedCacheMap->WaitOnActiveCount != NULL) {
                 KeSetEvent( SharedCacheMap->WaitOnActiveCount, 0, FALSE );
             }
         }
@@ -726,12 +833,17 @@ CcWaitOnActiveCount (
 
 Routine Description:
 
-    This routine may be called to wait for all outstanding mappings for
+    This routine may be called to wait for outstanding mappings for
     a given SharedCacheMap to go inactive.  It is intended to be called
     from CcUninitializeCacheMap, which is called by the file systems
     during cleanup processing.  In that case this routine only has to
     wait if the user closed a handle without waiting for all I/Os on the
     handle to complete.
+
+    This routine returns each time the active count is decremented.  The
+    caller must recheck his wait conditions on return, either waiting for
+    the ActiveCount to go to 0, or for specific views to go inactive
+    (CcPurgeCacheSection case).
 
 Arguments:
 
@@ -768,8 +880,20 @@ Return Value:
 
         if ((Event = SharedCacheMap->WaitOnActiveCount) == NULL) {
 
-            Event = (PKEVENT)ExAllocatePool( NonPagedPoolMustSucceed,
-                                             sizeof(KEVENT) );
+            //
+            //  If the local even is not being used as a create event,
+            //  then we can use it.
+            //
+
+            if (SharedCacheMap->CreateEvent == NULL) {
+
+                Event = &SharedCacheMap->Event;
+
+            } else {
+
+                Event = (PKEVENT)ExAllocatePool( NonPagedPoolMustSucceed,
+                                                 sizeof(KEVENT) );
+            }
         }
 
         KeInitializeEvent( Event,
@@ -835,7 +959,8 @@ Return Value:
     DebugTrace( 0, mm, "    BaseAddress = %08lx\n", Vacb->BaseAddress );
 
     MmUnmapViewInSystemCache( Vacb->BaseAddress,
-                              SharedCacheMap->Section );
+                              SharedCacheMap->Section,
+                              FlagOn(SharedCacheMap->Flags, ONLY_SEQUENTIAL_ONLY_SEEN) );
 
     Vacb->BaseAddress = NULL;
 }
@@ -871,7 +996,10 @@ Return Value:
 
 {
     PVACB *NewAddresses;
-    ULONG NewSize = SizeOfVacbArray(NewSectionSize);
+    ULONG NewSize, SizeToAllocate;
+    PLIST_ENTRY BcbListHead;
+
+    NewSize = SizeToAllocate = SizeOfVacbArray(NewSectionSize);
 
     //
     //  The following limit is greater than the MM limit
@@ -898,10 +1026,47 @@ Return Value:
 
     } else {
 
-        NewAddresses = FsRtlAllocatePool( NonPagedPool, NewSize );
+        //
+        //  For large metadata streams, double the size to allocate
+        //  an array of Bcb listheads.  Each two Vacb pointers also
+        //  gets its own Bcb listhead, thus requiring double the size.
+        //
+
+        ASSERT(SIZE_PER_BCB_LIST == (VACB_MAPPING_GRANULARITY * 2));
+
+        //
+        //  Does this stream get a Bcb Listhead array?
+        //
+
+        if (FlagOn(SharedCacheMap->Flags, MODIFIED_WRITE_DISABLED) &&
+            (NewSectionSize.QuadPart > BEGIN_BCB_LIST_ARRAY)) {
+
+            SizeToAllocate *= 2;
+        }
+
+        NewAddresses = ExAllocatePool( NonPagedPool, SizeToAllocate );
+        if (NewAddresses == NULL) {
+            SharedCacheMap->Status = STATUS_INSUFFICIENT_RESOURCES;
+            ExRaiseStatus( STATUS_INSUFFICIENT_RESOURCES );
+        }
     }
 
     RtlZeroMemory( NewAddresses, NewSize );
+
+    //
+    //  Loop to insert the Bcb listheads (if any) in the *descending* order
+    //  Bcb list.
+    //
+
+    if (SizeToAllocate != NewSize) {
+
+        for (BcbListHead = (PLIST_ENTRY)((PCHAR)NewAddresses + NewSize);
+             BcbListHead < (PLIST_ENTRY)((PCHAR)NewAddresses + SizeToAllocate);
+             BcbListHead++) {
+
+            InsertHeadList( &SharedCacheMap->BcbList, BcbListHead );
+        }
+    }
 
     SharedCacheMap->Vacbs = NewAddresses;
     SharedCacheMap->SectionSize = NewSectionSize;
@@ -940,7 +1105,8 @@ Return Value:
     PVACB *OldAddresses;
     PVACB *NewAddresses;
     ULONG OldSize;
-    ULONG NewSize;
+    ULONG NewSize, SizeToAllocate;
+    ULONG GrowingBcbListHeads = FALSE;
 
     //
     //  The following limit is greater than the MM limit
@@ -954,19 +1120,34 @@ Return Value:
     }
 
     //
-    //  Acquire the spin lock to serialize with anyone who might like
-    //  to "steal" one of the mappings we are going to move.
+    //  See if we will be growing the Bcb ListHeads, and take out the
+    //  master lock if so.
     //
 
-    ExAcquireSpinLock( &CcVacbSpinLock, &OldIrql );
+    if (FlagOn(SharedCacheMap->Flags, MODIFIED_WRITE_DISABLED) &&
+        (NewSectionSize.QuadPart > BEGIN_BCB_LIST_ARRAY)) {
+
+        GrowingBcbListHeads = TRUE;
+        ExAcquireSpinLock( &CcMasterSpinLock, &OldIrql );
+        ExAcquireSpinLockAtDpcLevel( &CcVacbSpinLock );
+
+    } else {
+
+        //
+        //  Acquire the spin lock to serialize with anyone who might like
+        //  to "steal" one of the mappings we are going to move.
+        //
+
+        ExAcquireSpinLock( &CcVacbSpinLock, &OldIrql );
+    }
 
     //
     //  It's all a noop if the new size is not larger...
     //
 
-    if (LiGtr(NewSectionSize, SharedCacheMap->SectionSize)) {
+    if (NewSectionSize.QuadPart > SharedCacheMap->SectionSize.QuadPart) {
 
-        NewSize = SizeOfVacbArray(NewSectionSize);
+        NewSize = SizeToAllocate = SizeOfVacbArray(NewSectionSize);
         OldSize = SizeOfVacbArray(SharedCacheMap->SectionSize);
 
         //
@@ -975,21 +1156,119 @@ Return Value:
 
         if (NewSize > OldSize) {
 
-            NewAddresses = ExAllocatePool( NonPagedPool, NewSize );
+            //
+            //  Does this stream get a Bcb Listhead array?
+            //
+
+            if (GrowingBcbListHeads) {
+                SizeToAllocate *= 2;
+            }
+
+            NewAddresses = ExAllocatePool( NonPagedPool, SizeToAllocate );
 
             if (NewAddresses == NULL) {
-                ExReleaseSpinLock( &CcVacbSpinLock, OldIrql );
+                if (GrowingBcbListHeads) {
+                    ExReleaseSpinLockFromDpcLevel( &CcVacbSpinLock );
+                    ExReleaseSpinLock( &CcMasterSpinLock, OldIrql );
+                } else {
+                    ExReleaseSpinLock( &CcVacbSpinLock, OldIrql );
+                }
                 ExRaiseStatus(STATUS_INSUFFICIENT_RESOURCES);
             }
 
             OldAddresses = SharedCacheMap->Vacbs;
-            RtlCopyMemory( NewAddresses, OldAddresses, OldSize );
+            if (OldAddresses != NULL) {
+                RtlCopyMemory( NewAddresses, OldAddresses, OldSize );
+            } else {
+                OldSize = 0;
+            }
 
             RtlZeroMemory( (PCHAR)NewAddresses + OldSize, NewSize - OldSize );
 
+            //
+            //  See if we have to initialize Bcb Listheads.
+            //
+
+            if (SizeToAllocate != NewSize) {
+
+                LARGE_INTEGER Offset;
+                PLIST_ENTRY BcbListHeadNew, TempEntry;
+
+                Offset.QuadPart = 0;
+                BcbListHeadNew = (PLIST_ENTRY)((PCHAR)NewAddresses + NewSize);
+
+                //
+                //  Handle case where the old array had Bcb Listheads.
+                //
+
+                if ((SharedCacheMap->SectionSize.QuadPart > BEGIN_BCB_LIST_ARRAY) &&
+                    (OldAddresses != NULL)) {
+
+                    PLIST_ENTRY BcbListHeadOld;
+
+                    BcbListHeadOld = (PLIST_ENTRY)((PCHAR)OldAddresses + OldSize);
+
+                    //
+                    //  Loop to remove each old listhead and insert the new one
+                    //  in its place.
+                    //
+
+                    do {
+                        TempEntry = BcbListHeadOld->Flink;
+                        RemoveEntryList( BcbListHeadOld );
+                        InsertTailList( TempEntry, BcbListHeadNew );
+                        Offset.QuadPart += SIZE_PER_BCB_LIST;
+                        BcbListHeadOld += 1;
+                        BcbListHeadNew += 1;
+                    } while (Offset.QuadPart < SharedCacheMap->SectionSize.QuadPart);
+
+                //
+                //  Otherwise, handle the case where we are adding Bcb
+                //  Listheads.
+                //
+
+                } else {
+
+                    TempEntry = SharedCacheMap->BcbList.Blink;
+
+                    //
+                    //  Loop through any/all Bcbs to insert the new listheads.
+                    //
+
+                    while (TempEntry != &SharedCacheMap->BcbList) {
+
+                        //
+                        //  Sit on this Bcb until we have inserted all listheads
+                        //  that go before it.
+                        //
+
+                        while (Offset.QuadPart <= ((PBCB)CONTAINING_RECORD(TempEntry, BCB, BcbLinks))->FileOffset.QuadPart) {
+
+                            InsertHeadList(TempEntry, BcbListHeadNew);
+                            Offset.QuadPart += SIZE_PER_BCB_LIST;
+                            BcbListHeadNew += 1;
+                        }
+                        TempEntry = TempEntry->Blink;
+                    }
+                }
+
+                //
+                //  Now insert the rest of the new listhead entries that were
+                //  not finished in either loop above.
+                //
+
+                while (Offset.QuadPart < NewSectionSize.QuadPart) {
+
+                    InsertHeadList(&SharedCacheMap->BcbList, BcbListHeadNew);
+                    Offset.QuadPart += SIZE_PER_BCB_LIST;
+                    BcbListHeadNew += 1;
+                }
+            }
+
             SharedCacheMap->Vacbs = NewAddresses;
 
-            if (OldAddresses != &SharedCacheMap->InitialVacbs[0]) {
+            if ((OldAddresses != &SharedCacheMap->InitialVacbs[0]) &&
+                (OldAddresses != NULL)) {
                 ExFreePool( OldAddresses );
             }
         }
@@ -997,14 +1276,21 @@ Return Value:
         SharedCacheMap->SectionSize = NewSectionSize;
     }
 
-    ExReleaseSpinLock( &CcVacbSpinLock, OldIrql );
+    if (GrowingBcbListHeads) {
+        ExReleaseSpinLockFromDpcLevel( &CcVacbSpinLock );
+        ExReleaseSpinLock( &CcMasterSpinLock, OldIrql );
+    } else {
+        ExReleaseSpinLock( &CcVacbSpinLock, OldIrql );
+    }
 }
 
 
-VOID
+BOOLEAN
 FASTCALL
 CcUnmapVacbArray (
-    IN PSHARED_CACHE_MAP SharedCacheMap
+    IN PSHARED_CACHE_MAP SharedCacheMap,
+    IN PLARGE_INTEGER FileOffset OPTIONAL,
+    IN ULONG Length
     )
 
 /*++
@@ -1019,23 +1305,41 @@ Arguments:
     SharedCacheMap - Supplies a pointer to the shared cache map
                      which is about to be deleted.
 
+    FileOffset - If supplied, only unmap the specified offset and length
+
+    Length - Completes range to unmap if FileOffset specified.  If FileOffset
+             is specified, Length of 0 means unmap to the end of the section.
+
 Return Value:
 
-    None.
+    FALSE -- if an the unmap was not done due to an active vacb
+    TRUE -- if the unmap was done
 
 --*/
 
 {
     PVACB Vacb;
     KIRQL OldIrql;
-    LARGE_INTEGER FileOffset = {0,0};
+    LARGE_INTEGER StartingFileOffset = {0,0};
+    LARGE_INTEGER EndingFileOffset = SharedCacheMap->SectionSize;
 
     //
     //  We could be just cleaning up for error recovery.
     //
 
     if (SharedCacheMap->Vacbs == NULL) {
-        return;
+        return TRUE;
+    }
+
+    //
+    //  See if a range was specified.
+    //
+
+    if (ARGUMENT_PRESENT(FileOffset)) {
+        StartingFileOffset = *FileOffset;
+        if (Length != 0) {
+            EndingFileOffset.QuadPart = FileOffset->QuadPart + Length;
+        }
     }
 
     //
@@ -1044,23 +1348,39 @@ Return Value:
 
     ExAcquireSpinLock( &CcVacbSpinLock, &OldIrql );
 
-    while (LiLtr( FileOffset, SharedCacheMap->SectionSize)) {
+    while (StartingFileOffset.QuadPart < EndingFileOffset.QuadPart) {
 
+        //
+        //  Note that the caller with an explicit range may be off the
+        //  end of the section (example CcPurgeCacheSection for cache
+        //  coherency).  That is the reason for the first part of the
+        //  test below.
         //
         //  Check the next cell once without the spin lock, it probably will
         //  not change, but we will handle it if it does not.
         //
 
-        if ((Vacb = GetVacb( SharedCacheMap, FileOffset )) != NULL) {
+        if ((StartingFileOffset.QuadPart < SharedCacheMap->SectionSize.QuadPart) &&
+            ((Vacb = GetVacb( SharedCacheMap, StartingFileOffset )) != NULL)) {
 
-            ASSERT(Vacb->Overlay.ActiveCount == 0);
+            //
+            //  Return here if we are unlucky and see an active
+            //  Vacb.  It could be Purge calling, and the Lazy Writer
+            //  may have done a CcGetVirtualAddressIfMapped!
+            //
+
+            if (Vacb->Overlay.ActiveCount != 0) {
+
+                ExReleaseSpinLock( &CcVacbSpinLock, OldIrql );
+                return FALSE;
+            }
 
             //
             //  Unlink it from the other SharedCacheMap, so the other
             //  guy will not try to use it when we free the spin lock.
             //
 
-            SetVacb( SharedCacheMap, FileOffset, NULL );
+            SetVacb( SharedCacheMap, StartingFileOffset, NULL );
             Vacb->SharedCacheMap = NULL;
 
             //
@@ -1090,10 +1410,12 @@ Return Value:
             Vacb->Overlay.ActiveCount -= 1;
         }
 
-        FileOffset = LiAdd( FileOffset, LiFromUlong(VACB_MAPPING_GRANULARITY) );
+        StartingFileOffset.QuadPart = StartingFileOffset.QuadPart + VACB_MAPPING_GRANULARITY;
     }
 
     ExReleaseSpinLock( &CcVacbSpinLock, OldIrql );
+
+    return TRUE;
 }
 
-
+

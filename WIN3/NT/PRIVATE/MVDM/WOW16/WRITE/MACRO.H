@@ -21,4 +21,3 @@ Mac Word. */
 
 #define TextWidth(rgch, w, cch) LOWORD(GetTextExtent(vhMDC, (LPSTR)rgch, cch))
 
-

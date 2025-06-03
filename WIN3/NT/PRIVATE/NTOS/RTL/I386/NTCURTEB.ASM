@@ -11,8 +11,6 @@
 ;
 ;    Efficient NtCurrentTeb code.
 ;
-;    BUGBUG - this is a good candidate for an inline intrinsic
-;
 ; Author:
 ;
 ;    Bryan Willman (bryanwi) 28 feb 90

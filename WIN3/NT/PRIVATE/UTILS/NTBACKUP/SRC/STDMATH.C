@@ -1485,11 +1485,7 @@ VOID main()
           if( *value == TEXT('\0') ) {
                exit(1) ;
           }
-#ifndef UNICODE
           printf( TEXT("Converting %s to UINT64\n"), value ) ;
-#else //UNICODE
-          printf( TEXT("Converting %ws to UINT64\n"), value ) ;
-#endif //UNICODE
           t1 = U64_Atoli( value, &bRetVal ) ;
 
           printf( TEXT("Raw t1 = %08lX:%08lX\n"), t1.msw, t1.lsw ) ;
@@ -1497,27 +1493,15 @@ VOID main()
                printf( TEXT("Error returned from Atoli()\n") ) ;
           }
 
-#ifndef UNICODE
           printf( TEXT("t1 = %s Decimal\n"), U64_Litoa( t1, buffer2, 10, &bRetVal ) ) ;
-#else //UNICODE
-          printf( TEXT("t1 = %ws Decimal\n"), U64_Litoa( t1, buffer2, 10, &bRetVal ) ) ;
-#endif //UNICODE
           if( bRetVal == FALSE ) {
                printf( TEXT("Error returned from Litoa()\n") ) ;
           }
-#ifndef UNICODE
           printf( TEXT("t1 = %s Octal\n"), U64_Litoa( t1, buffer2, 8, &bRetVal ) ) ;
-#else //UNICODE
-          printf( TEXT("t1 = %ws Octal\n"), U64_Litoa( t1, buffer2, 8, &bRetVal ) ) ;
-#endif //UNICODE
           if( bRetVal == FALSE ) {
                printf( TEXT("Error returned from Litoa()\n") ) ;
           }
-#ifndef UNICODE
           printf( TEXT("t1 = %s Hex\n"), U64_Litoa( t1, buffer2, 16, &bRetVal ) ) ;
-#else //UNICODE
-          printf( TEXT("t1 = %ws Hex\n"), U64_Litoa( t1, buffer2, 16, &bRetVal ) ) ;
-#endif //UNICODE
           if( bRetVal == FALSE ) {
                printf( TEXT("Error returned from Litoa()\n") ) ;
           }
@@ -1539,11 +1523,7 @@ VOID main()
           printf( TEXT("Error returned from Atoli()\n") ) ;
      }
 
-#ifndef UNICODE
      printf( TEXT("t1 = %s\n"), U64_Litoa( t1, buffer2, 10, &bRetVal ) ) ;
-#else //UNICODE
-     printf( TEXT("t1 = %ws\n"), U64_Litoa( t1, buffer2, 10, &bRetVal ) ) ;
-#endif //UNICODE
      if( bRetVal == FALSE ) {
           printf( TEXT("Error returned from Litoa()\n") ) ;
      }
@@ -1613,11 +1593,7 @@ VOID main()
 
      printf( TEXT("Mult of %08lX:%08lXh by %08lX:%08lX\n"),
              arg1.msw, arg1.lsw, arg2.msw, arg2.lsw ) ;
-#ifndef UNICODE
      printf( TEXT("%s dec * %s dec\n"), U64_Litoa( arg1, buffer2, 10, &bRetVal ),
-#else //UNICODE
-     printf( TEXT("%ws dec * %ws dec\n"), U64_Litoa( arg1, buffer2, 10, &bRetVal ),
-#endif //UNICODE
              U64_Litoa( arg2, buffer2, 10, &bRetVal ) ) ;
 
      result = U64_Mult( arg1, arg2 ) ;
@@ -1634,38 +1610,22 @@ VOID main()
      }
 
      t1 = U64_Atoli( TEXT("0x0000000F80000001"), &bRetVal ) ;
-#ifndef UNICODE
      printf( TEXT("t1 = %sH\n"), U64_Litoa( t1, buffer2, 16, &bRetVal ) ) ;
-#else //UNICODE
-     printf( TEXT("t1 = %wsH\n"), U64_Litoa( t1, buffer2, 16, &bRetVal ) ) ;
-#endif //UNICODE
      if( bRetVal == FALSE ) {
           printf( TEXT("Error returned from Litoa()\n") ) ;
      }
 
-#ifndef UNICODE
      printf( TEXT("t1 = %sD\n"), U64_Litoa( t1, buffer2, 10, &bRetVal ) ) ;
-#else //UNICODE
-     printf( TEXT("t1 = %wsD\n"), U64_Litoa( t1, buffer2, 10, &bRetVal ) ) ;
-#endif //UNICODE
      if( bRetVal == FALSE ) {
           printf( TEXT("Error returned from Litoa()\n") ) ;
      }
-#ifndef UNICODE
      printf( TEXT("t1 = %sO\n"), U64_Litoa( t1, buffer2, 8, &bRetVal ) ) ;
-#else //UNICODE
-     printf( TEXT("t1 = %wsO\n"), U64_Litoa( t1, buffer2, 8, &bRetVal ) ) ;
-#endif //UNICODE
      if( bRetVal == FALSE ) {
           printf( TEXT("Error returned from Litoa()\n") ) ;
      }
 
      t1 = U64_Atoli( TEXT("0x0000000000000001"), &bRetVal ) ;
-#ifndef UNICODE
      printf( TEXT("t1 = %sH\n"), U64_Litoa( t1, buffer2, 16, &bRetVal ) ) ;
-#else //UNICODE
-     printf( TEXT("t1 = %wsH\n"), U64_Litoa( t1, buffer2, 16, &bRetVal ) ) ;
-#endif //UNICODE
      if( bRetVal == FALSE ) {
           printf( TEXT("Error returned from Litoa()\n") ) ;
      }
@@ -1674,54 +1634,30 @@ VOID main()
      if( bRetVal == FALSE ) {
           printf( TEXT("Error returned from Atoli()\n") ) ;
      }
-#ifndef UNICODE
      printf( TEXT("t1 = %sH\n"), U64_Litoa( t1, buffer2, 16, &bRetVal ) ) ;
-#else //UNICODE
-     printf( TEXT("t1 = %wsH\n"), U64_Litoa( t1, buffer2, 16, &bRetVal ) ) ;
-#endif //UNICODE
      if( bRetVal == FALSE ) {
           printf( TEXT("Error returned from Litoa()\n") ) ;
      }
-#ifndef UNICODE
      printf( TEXT("t1 = %sD\n"), U64_Litoa( t1, buffer2, 10, &bRetVal ) ) ;
-#else //UNICODE
-     printf( TEXT("t1 = %wsD\n"), U64_Litoa( t1, buffer2, 10, &bRetVal ) ) ;
-#endif //UNICODE
      if( bRetVal == FALSE ) {
           printf( TEXT("Error returned from Litoa()\n") ) ;
      }
-#ifndef UNICODE
      printf( TEXT("t1 = %sO\n"), U64_Litoa( t1, buffer2, 8, &bRetVal ) ) ;
-#else //UNICODE
-     printf( TEXT("t1 = %wsO\n"), U64_Litoa( t1, buffer2, 8, &bRetVal ) ) ;
-#endif //UNICODE
      if( bRetVal == FALSE ) {
           printf( TEXT("Error returned from Litoa()\n") ) ;
      }
 
      t1 = U64_Atoli( TEXT("0x00000000F0000001"), &bRetVal ) ;
-#ifndef UNICODE
      printf( TEXT("t1 = %sH\n"), U64_Litoa( t1, buffer2, 16, &bRetVal ) ) ;
-#else //UNICODE
-     printf( TEXT("t1 = %wsH\n"), U64_Litoa( t1, buffer2, 16, &bRetVal ) ) ;
-#endif //UNICODE
      if( bRetVal == FALSE ) {
           printf( TEXT("Error returned from Litoa()\n") ) ;
      }
 
-#ifndef UNICODE
      printf( TEXT("t1 = %sD\n"), U64_Litoa( t1, buffer2, 10, &bRetVal ) ) ;
-#else //UNICODE
-     printf( TEXT("t1 = %wsD\n"), U64_Litoa( t1, buffer2, 10, &bRetVal ) ) ;
-#endif //UNICODE
      if( bRetVal == FALSE ) {
           printf( TEXT("Error returned from Litoa()\n") ) ;
      }
-#ifndef UNICODE
      printf( TEXT("t1 = %sO\n"), U64_Litoa( t1, buffer2, 8, &bRetVal ) ) ;
-#else //UNICODE
-     printf( TEXT("t1 = %wsO\n"), U64_Litoa( t1, buffer2, 8, &bRetVal ) ) ;
-#endif //UNICODE
      if( bRetVal == FALSE ) {
           printf( TEXT("Error returned from Litoa()\n") ) ;
      }
@@ -1732,24 +1668,12 @@ VOID main()
      t2 = U64_Init( 0x00000004L, 0x00000000L ) ;
      save_t1 = t1 ;
      save_t2 = t2 ;
-#ifndef UNICODE
      printf( TEXT("(%sH / %sH) = "), U64_Litoa( t1, buffer, 16, &bRetVal ),
-#else //UNICODE
-     printf( TEXT("(%wsH / %wsH) = "), U64_Litoa( t1, buffer, 16, &bRetVal ),
-#endif //UNICODE
              U64_Litoa( t2, buffer2, 16, &bRetVal ) ) ;
 
      t4 = U64_Div( t1, t2, &t3, &RetVal ) ;
-#ifndef UNICODE
      printf( TEXT("%sH\n"), U64_Litoa( t4, buffer, 16, &bRetVal ) ) ;
-#else //UNICODE
-     printf( TEXT("%wsH\n"), U64_Litoa( t4, buffer, 16, &bRetVal ) ) ;
-#endif //UNICODE
-#ifndef UNICODE
      printf( TEXT("Remainder = %sH and status = %d\n"),
-#else //UNICODE
-     printf( TEXT("Remainder = %wsH and status = %d\n"),
-#endif //UNICODE
              U64_Litoa( t3, buffer, 16, &bRetVal ), RetVal ) ;
 
      t1 = U64_Init( 0x00000000L, 0x00000001L ) ;
@@ -1759,146 +1683,74 @@ VOID main()
      t2 = U64_Init( 0x00000002L, 0x00000000L ) ;
      save_t1 = t1 ;
      save_t2 = t2 ;
-#ifndef UNICODE
      printf( TEXT("(%sH / %sH) = "), U64_Litoa( t1, buffer, 16, &bRetVal ),
-#else //UNICODE
-     printf( TEXT("(%wsH / %wsH) = "), U64_Litoa( t1, buffer, 16, &bRetVal ),
-#endif //UNICODE
              U64_Litoa( t2, buffer2, 16, &bRetVal ) ) ;
 
      t4 = U64_Div( t1, t2, &t3, &RetVal ) ;
-#ifndef UNICODE
      printf( TEXT("%sH\n"), U64_Litoa( t4, buffer, 16, &bRetVal ) ) ;
-#else //UNICODE
-     printf( TEXT("%wsH\n"), U64_Litoa( t4, buffer, 16, &bRetVal ) ) ;
-#endif //UNICODE
-#ifndef UNICODE
      printf( TEXT("Remainder = %sH and status = %d\n"),
-#else //UNICODE
-     printf( TEXT("Remainder = %wsH and status = %d\n"),
-#endif //UNICODE
              U64_Litoa( t3, buffer, 16, &bRetVal ), RetVal ) ;
 
      t1 = U64_Atoli( TEXT("0x0000000100000043"), &bRetVal ) ;
      /* 3 % 4 */
      printf( TEXT("Divide by 0\n") ) ;
      t2 = U64_Atoli( TEXT("0x0000000000000000"), &bRetVal ) ;
-#ifndef UNICODE
      printf( TEXT("(%sH / %sH) = "), U64_Litoa( t1, buffer, 16, &bRetVal ),
-#else //UNICODE
-     printf( TEXT("(%wsH / %wsH) = "), U64_Litoa( t1, buffer, 16, &bRetVal ),
-#endif //UNICODE
              U64_Litoa( t2, buffer2, 16, &bRetVal ) ) ;
 
      t4 = U64_Div( t1, t2, &t3, &RetVal ) ;
-#ifndef UNICODE
      printf( TEXT("%sH\n"), U64_Litoa( t4, buffer, 16, &bRetVal ) ) ;
-#else //UNICODE
-     printf( TEXT("%wsH\n"), U64_Litoa( t4, buffer, 16, &bRetVal ) ) ;
-#endif //UNICODE
-#ifndef UNICODE
      printf( TEXT("Remainder = %sH and status = %d\n"),
-#else //UNICODE
-     printf( TEXT("Remainder = %wsH and status = %d\n"),
-#endif //UNICODE
              U64_Litoa( t3, buffer, 16, &bRetVal ), RetVal ) ;
 
      t1 = U64_Atoli( TEXT("0x0000000100000043"), &bRetVal ) ;
      printf( TEXT("Divide by 1\n") ) ;
      t2 = U64_Atoli( TEXT("0x0000000000000001"), &bRetVal ) ;
-#ifndef UNICODE
      printf( TEXT("(%sH / %sH) = "), U64_Litoa( t1, buffer, 16, &bRetVal ),
-#else //UNICODE
-     printf( TEXT("(%wsH / %wsH) = "), U64_Litoa( t1, buffer, 16, &bRetVal ),
-#endif //UNICODE
              U64_Litoa( t2, buffer2, 16, &bRetVal ) ) ;
 
      t4 = U64_Div( t1, t2, &t3, &RetVal ) ;
-#ifndef UNICODE
      printf( TEXT("%sH\n"), U64_Litoa( t4, buffer, 16, &bRetVal ) ) ;
-#else //UNICODE
-     printf( TEXT("%wsH\n"), U64_Litoa( t4, buffer, 16, &bRetVal ) ) ;
-#endif //UNICODE
-#ifndef UNICODE
      printf( TEXT("Remainder = %sH and status = %d\n"),
-#else //UNICODE
-     printf( TEXT("Remainder = %wsH and status = %d\n"),
-#endif //UNICODE
              U64_Litoa( t3, buffer, 8, &bRetVal ), RetVal ) ;
 
      t1 = U64_Atoli( TEXT("0x0000000100000043"), &bRetVal ) ;
      printf( TEXT("t1 == t2\n") ) ;
      t2 = U64_Atoli( TEXT("0x0000000100000043"), &bRetVal ) ;
-#ifndef UNICODE
      printf( TEXT("(%sH / %sH) = "), U64_Litoa( t1, buffer, 16, &bRetVal ),
-#else //UNICODE
-     printf( TEXT("(%wsH / %wsH) = "), U64_Litoa( t1, buffer, 16, &bRetVal ),
-#endif //UNICODE
              U64_Litoa( t2, buffer2, 16, &bRetVal ) ) ;
 
      t4 = U64_Div( t1, t2, &t3, &RetVal ) ;
-#ifndef UNICODE
      printf( TEXT("%sH\n"), U64_Litoa( t4, buffer, 16, &bRetVal ) ) ;
-#else //UNICODE
-     printf( TEXT("%wsH\n"), U64_Litoa( t4, buffer, 16, &bRetVal ) ) ;
-#endif //UNICODE
-#ifndef UNICODE
      printf( TEXT("Remainder = %sH and status = %d\n"),
-#else //UNICODE
-     printf( TEXT("Remainder = %wsH and status = %d\n"),
-#endif //UNICODE
              U64_Litoa( t3, buffer, 16, &bRetVal ), RetVal ) ;
 
      t1 = U64_Atoli( TEXT("0x0000000000000008"), &bRetVal ) ;
      t2 = U64_Atoli(TEXT("0x0000000000000002"), &bRetVal ) ;
      t1 = save_t1 ;
      t2 = save_t2 ;
-#ifndef UNICODE
      printf( TEXT("(%sH %c %sH) = "), U64_Litoa( t1, buffer, 16, &bRetVal ), TEXT('%'),
-#else //UNICODE
-     printf( TEXT("(%wsH %wc %wsH) = "), U64_Litoa( t1, buffer, 16, &bRetVal ), TEXT('%'),
-#endif //UNICODE
              U64_Litoa( t2, buffer2, 16, &bRetVal ) ) ;
 
      t4 = U64_Mod( t1, t2, &RetVal ) ;
-#ifndef UNICODE
      printf( TEXT("%sH and status = %d\n"), U64_Litoa( t4, buffer, 16, &bRetVal ),
-#else //UNICODE
-     printf( TEXT("%wsH and status = %d\n"), U64_Litoa( t4, buffer, 16, &bRetVal ),
-#endif //UNICODE
                                                                    RetVal ) ;
 
 
      t1 = U64_Atoli(TEXT("0x0001000110001000"), &bRetVal ) ;
 
-#ifndef UNICODE
      printf( TEXT("UINT64 t1 = %sH before setting bits 62 and 2\n"),
-#else //UNICODE
-     printf( TEXT("UINT64 t1 = %wsH before setting bits 62 and 2\n"),
-#endif //UNICODE
              U64_Litoa( t1, buffer, 16, &bRetVal ) ) ;
 
      t1 = U64_SET( t1, U64_Init( 0x00000002L, 0x40000000L ) ) ;
-#ifndef UNICODE
      printf( TEXT("UINT64 t1 = %sH after set bits 62 and 2\n\n"),
-#else //UNICODE
-     printf( TEXT("UINT64 t1 = %wsH after set bits 62 and 2\n\n"),
-#endif //UNICODE
              U64_Litoa( t1, buffer, 16, &bRetVal ) ) ;
 
      t1 = U64_Atoli(TEXT("0x4000002001010002"), &bRetVal ) ;
-#ifndef UNICODE
      printf( TEXT("UINT64 t1 = %sH before clear bits 62 and 2\n"),
-#else //UNICODE
-     printf( TEXT("UINT64 t1 = %wsH before clear bits 62 and 2\n"),
-#endif //UNICODE
              U64_Litoa( t1, buffer, 16, &bRetVal ) ) ;
      t1 = U64_CLR( t1, U64_Init( 0x00000002L, 0x40000000L ) ) ;
-#ifndef UNICODE
      printf( TEXT("UINT64 t1 = %sH after clear bits 62 and 2\n\n"),
-#else //UNICODE
-     printf( TEXT("UINT64 t1 = %wsH after clear bits 62 and 2\n\n"),
-#endif //UNICODE
              U64_Litoa( t1, buffer, 16, &bRetVal ) ) ;
 
      // Now check out the bit test
@@ -1909,11 +1761,7 @@ VOID main()
      }
 
      t1 = U64_SET( t1, U64_Init( 0x00000002L, 0x40000000L ) ) ;
-#ifndef UNICODE
      printf( TEXT("UINT64 t1 = %sH after set bits 62 and 2\n\n"),
-#else //UNICODE
-     printf( TEXT("UINT64 t1 = %wsH after set bits 62 and 2\n\n"),
-#endif //UNICODE
              U64_Litoa( t1, buffer, 16, &bRetVal ) ) ;
 
      // Now check out the bit test
@@ -1924,19 +1772,11 @@ VOID main()
      }
 
      t1 = U64_XOR( t1, U64_Init( 0x00000002L, 0x00000000L ) ) ;
-#ifndef UNICODE
      printf( TEXT("UINT64 t1 = %sH after XOR bit 2\n\n"),
-#else //UNICODE
-     printf( TEXT("UINT64 t1 = %wsH after XOR bit 2\n\n"),
-#endif //UNICODE
              U64_Litoa( t1, buffer, 16, &bRetVal ) ) ;
 
      t1 = U64_XOR( t1, U64_Init( 0x00000002L, 0x00000000L ) ) ;
-#ifndef UNICODE
      printf( TEXT("UINT64 t1 = %sH after XOR bit 2 again\n\n"),
-#else //UNICODE
-     printf( TEXT("UINT64 t1 = %wsH after XOR bit 2 again\n\n"),
-#endif //UNICODE
              U64_Litoa( t1, buffer, 16, &bRetVal ) ) ;
 
      t1 = U64_Atoli(TEXT("0x0000000100000002"), &bRetVal ) ;
@@ -1952,11 +1792,7 @@ VOID main()
                printf( TEXT("(%2d) (%08lX%08lX - "), i, t1.msw, t1.lsw ) ;
                printf( TEXT("%08lX%08lX) = "), t2.msw,t2.lsw ) ;
                t3 = U64_Sub( t1, t2, &bRetVal ) ;
-#ifndef UNICODE
                printf( TEXT("%sH %s\n"), U64_Litoa( t3, buffer, 16, &bRetVal1 ),
-#else //UNICODE
-               printf( TEXT("%wsH %ws\n"), U64_Litoa( t3, buffer, 16, &bRetVal1 ),
-#endif //UNICODE
                                             bRetVal == TRUE ? TEXT("") : TEXT("Uflw") ) ;
                t2 = U64_SHL( t2, 1 ) ;
                if( i == 0 ) {
@@ -1974,11 +1810,7 @@ VOID main()
                printf( TEXT("(%2d) (%08lX%08lX + "), i, t1.msw, t1.lsw ) ;
                printf( TEXT("%08lX%08lX) = "), t2.msw,t2.lsw ) ;
                t3 = U64_Add( t1, t2, &bRetVal ) ;
-#ifndef UNICODE
                printf( TEXT("%sH %s\n"), U64_Litoa( t3, buffer, 16, &bRetVal1 ),
-#else //UNICODE
-               printf( TEXT("%wsH %ws\n"), U64_Litoa( t3, buffer, 16, &bRetVal1 ),
-#endif //UNICODE
                                              bRetVal == TRUE ? TEXT("") : TEXT("Ovfl")) ;
                t2 = U64_SHL( t2, 1 ) ;
                if( i == 0 ) {
@@ -1990,34 +1822,18 @@ VOID main()
 
           for ( i = 0; i <= 64; i++ ) {
                t1 = U64_Atoli( TEXT("0x0000000000000001"), &bRetVal ) ;
-#ifndef UNICODE
                printf( TEXT("%sH is "), U64_Litoa( t1, buffer, 16, &bRetVal ) ) ;
-#else //UNICODE
-               printf( TEXT("%wsH is "), U64_Litoa( t1, buffer, 16, &bRetVal ) ) ;
-#endif //UNICODE
                t1 = U64_SHL( t1, i ) ;
-#ifndef UNICODE
                printf( TEXT("%sH after SHL by %2d\n"),
-#else //UNICODE
-               printf( TEXT("%wsH after SHL by %2d\n"),
-#endif //UNICODE
                        U64_Litoa( t1, buffer, 16, &bRetVal1 ),i ) ;
           }
 
           printf( TEXT("Testing Right Shift\n") ) ;
           for ( i = 0; i <= 64; i++ ) {
                t1 = U64_Atoli( TEXT("0x8000000000000000"), &bRetVal ) ;
-#ifndef UNICODE
                printf( TEXT("%sH is "), U64_Litoa( t1, buffer, 16, &bRetVal ) ) ;
-#else //UNICODE
-               printf( TEXT("%wsH is "), U64_Litoa( t1, buffer, 16, &bRetVal ) ) ;
-#endif //UNICODE
                t1 = U64_SHR( t1, i ) ;
-#ifndef UNICODE
                printf( TEXT("%sH after SHR by %2d\n"),
-#else //UNICODE
-               printf( TEXT("%wsH after SHR by %2d\n"),
-#endif //UNICODE
                        U64_Litoa( t1, buffer, 16, &bRetVal1 ), i ) ;
           }
      } /* End of local block */

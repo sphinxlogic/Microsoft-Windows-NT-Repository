@@ -14,11 +14,11 @@ static char ReMap [256];
 
 int PASCAL GetNewFile ()
 {
-    char    FileName [40];
+    char    FileName [160];
     struct  Flist  FAR *pOrig;
 
     SyncReader ();
-    GetInput ("File...> ", FileName, 40);
+    GetInput ("File...> ", FileName, 160);
     if (FileName[0] == 0)  {
   SetUpdate (U_HEAD);
   DosSemClear (vSemReader);
@@ -47,7 +47,7 @@ void PASCAL InitSearchReMap ()
     unsigned  i;
 
     if (vStatCode & S_NOCASE)
-  strupr (vSearchString);
+  _strupr (vSearchString);
 
     /*
      *  Build ReMap

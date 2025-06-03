@@ -32,19 +32,43 @@ Revision History:
 #define MAX(a,b) ( ((a) < (b)) ? (b) : (a) )
 
 //
+// Compute a hash value for the string which is invairant to case
+//
+#define COMPUTE_STRING_HASH( _pus, _phash ) {           \
+    PWCHAR _p = (_pus)->Buffer;                         \
+    PWCHAR _ep = _p + ((_pus)->Length/sizeof(PWCHAR));  \
+    ULONG _hashvalue = 0;                               \
+                                                        \
+    while( _p < _ep ) {                                 \
+        _hashvalue <<= 1;                               \
+        _hashvalue ^= RtlUpcaseUnicodeChar( *_p++ );    \
+    }                                                   \
+                                                        \
+    *(_phash) = _hashvalue;                             \
+}
+
+//
+// Convert the output of one of the above hash functions to an index into
+//  a hash table
+//
+#define HASH_TO_MFCB_INDEX( _hash )    ((_hash) & (NMFCB_HASH_TABLE-1))
+
+#define HASH_TO_SHARE_INDEX( _hash )   ((_hash) & (NSHARE_HASH_TABLE-1))
+
+//
 // GET_SERVER_TIME retrieves the server's concept of the current system time.
 //
 
-#define GET_SERVER_TIME(a) (*(a) = SrvSystemTime)
+#define GET_SERVER_TIME(_queue, a) (*(a) = (_queue)->stats.SystemTime)
 
 //
 // SET_SERVER_TIME updates the server's concept of the current system time.
 //
 
-#define SET_SERVER_TIME() {                 \
+#define SET_SERVER_TIME( _queue ) {         \
     LARGE_INTEGER currentTime;              \
     KeQueryTickCount( &currentTime );       \
-    SrvSystemTime = currentTime.LowPart;    \
+    (_queue)->stats.SystemTime = currentTime.LowPart; \
 }
 
 //++
@@ -192,8 +216,7 @@ Revision History:
 #define CHECK_PAGING_IO_ACCESS( WorkContext, GrantedAccess, Status ) {           \
                                                                             \
             if ( ((GrantedAccess) & FILE_EXECUTE) &&                        \
-                 ( WorkContext->Connection->SmbDialect !=                   \
-                    SmbDialectNtLanMan ||                                   \
+                 ( !IS_NT_DIALECT( WorkContext->Connection->SmbDialect ) || \
                    WorkContext->RequestHeader->Flags2 &                     \
                        SMB_FLAGS2_PAGING_IO ) ) {                           \
                 *Status = STATUS_SUCCESS;                                   \
@@ -491,6 +514,8 @@ Revision History:
 #define SRV_FILE_SVCXPORT   0x00460000
 #define SRV_FILE_WORKER     0x00470000
 #define SRV_FILE_XSSUPP     0x00480000
+#define SRV_FILE_BLKDIR     0x00490000
+#define SRV_FILE_DFS        0x004A0000
 
 //
 // Error levels used with INTERNAL_ERROR
@@ -575,6 +600,65 @@ Revision History:
             InitializeObjectAttributes(ObjectAttributes,p1,p2,p3,p4); \
             (ObjectAttributes)->SecurityQualityOfService = (PVOID)&SrvSecurityQOS;
 
+
+//
+// Macro used to map from NT attributes to SMB attributes.  The output is placed
+//   in *_SmbAttributes
+//
+#define SRV_NT_ATTRIBUTES_TO_SMB( _NtAttributes, _Directory, _SmbAttributes ) {\
+    if ( _NtAttributes == FILE_ATTRIBUTE_NORMAL ) {             \
+        *(_SmbAttributes) = 0;                                  \
+    } else {                                                    \
+        *(_SmbAttributes) = (USHORT)(_NtAttributes &            \
+                            ( FILE_ATTRIBUTE_READONLY |         \
+                              FILE_ATTRIBUTE_HIDDEN   |         \
+                              FILE_ATTRIBUTE_SYSTEM   |         \
+                              FILE_ATTRIBUTE_ARCHIVE  |         \
+                              FILE_ATTRIBUTE_DIRECTORY )) ;    \
+    }                                                           \
+    if ( _Directory ) {                                         \
+        *(_SmbAttributes) |= SMB_FILE_ATTRIBUTE_DIRECTORY;     \
+    }                                                           \
+}
+
+
+//    This macro converts attributes from SMB format to NT format.
+//
+//   The attribute bits in the SMB protocol (same as OS/2) have the
+//    following meanings:
+//
+//      bit 0 - read only file
+//      bit 1 - hidden file
+//      bit 2 - system file
+//      bit 3 - reserved
+//      bit 4 - directory
+//      bit 5 - archive file
+//
+//    NT file attributes are similar, but have a bit set for a "normal"
+//    file (no other bits set) and do not have a bit set for directories.
+//    Instead, directory information is passed to and from APIs as a
+//    BOOLEAN parameter.
+
+#define SRV_SMB_ATTRIBUTES_TO_NT( _SmbAttributes, _Directory, _NtAttributes ) {\
+    ULONG _attr = (_SmbAttributes);                                     \
+    *(_NtAttributes) = _attr &                                          \
+                            ( SMB_FILE_ATTRIBUTE_READONLY |             \
+                              SMB_FILE_ATTRIBUTE_HIDDEN   |             \
+                              SMB_FILE_ATTRIBUTE_SYSTEM   |             \
+                              SMB_FILE_ATTRIBUTE_ARCHIVE  |             \
+                              SMB_FILE_ATTRIBUTE_DIRECTORY );           \
+    if ( _attr == 0 ) {                                                 \
+        *(_NtAttributes) = FILE_ATTRIBUTE_NORMAL;                       \
+    }                                                                   \
+    if( _Directory ) {                                                  \
+        if ( (_attr & SMB_FILE_ATTRIBUTE_DIRECTORY) != 0 ) {            \
+            *(PBOOLEAN)(_Directory) = TRUE;                             \
+        } else {                                                        \
+            *(PBOOLEAN)(_Directory) = FALSE;                            \
+        }                                                               \
+    }                                                                   \
+}
+
 //
 // ULONG
 // MAP_SMB_INFO_TYPE_TO_NT (
@@ -602,6 +686,31 @@ Revision History:
 #define MAP_SMB_INFO_TYPE_TO_NT( Map, Level )   Map[Level - Map[0] + 1]
 
 //
+// ULONG
+// MAP_SMB_INFO_TO_MIN_NT_SIZE (
+//     IN PULONG Map,
+//     IN ULONG SmbINformationLevel
+//     )
+//
+// Routine Description:
+//
+//  This macro maps SMB_INFO level to the minimum buffer size needed to make the
+//    NtQueryInformationFile call
+//
+// Arguments:
+//     Map - An array of ULONGS.  The first ulong is the base SMB info level,
+//          the second is the NT info level, and the third through Nth are the
+//          NT mapings for the sizes of the NT info levels.
+//
+//     Level - The SMB info level to find the buffer size
+//
+// Return Value:
+//
+//    NtMinumumBufferSIze - the minumum buffer size for the request
+
+#define MAP_SMB_INFO_TO_MIN_NT_SIZE( Map, Level )  Map[ Level - Map[0] + 2]
+
+//
 // BOOLEAN
 // SMB_IS_UNICODE(
 //     IN PWORK_CONTEXT WorkContext
@@ -625,6 +734,81 @@ Revision History:
 #define SMB_IS_UNICODE( WorkContext )  \
             (BOOLEAN)( ((WorkContext)->RequestHeader->Flags2 & SMB_FLAGS2_UNICODE ) != 0 )
 
+//
+// BOOLEAN
+// SMB_CONTAINS_DFS_NAME(
+//      IN PWORK_CONTEXT WorkContext
+//      )
+//
+// Routine description:
+//
+//      This macro discovers whether or not an SMB contains a pathname
+//      referring to the DFS namespace.
+//
+// Arguments:
+//
+//      WorkContext - A pointer to the active work context
+//
+// Return Value:
+//
+//      TRUE  - The SMB has a DFS name in it
+//      FALSE - The SMB does not have a DFS name in it
+//
+
+#define SMB_CONTAINS_DFS_NAME( WorkContext ) \
+            (BOOLEAN)( ((WorkContext)->RequestHeader->Flags2 & SMB_FLAGS2_DFS ) != 0 )
+
+//
+// BOOLEAN
+// SMB_MARK_AS_DFS_NAME(
+//      IN PWORK_CONTEXT WorkContext
+//      )
+//
+// Routine description:
+//
+//      This macro marks the WorkContext as containing a Dfs name. This is
+//      used when processing SMBs that contain two path names; after the first
+//      path name has been canonicalized, the SMB is marked as being
+//      Dfs-Translated by SrvCanonicalizePathName, so the attempt to
+//      canonicalize the second path in the SMB will fail to do the
+//      Dfs translation. Calling this macro will ensure that the next call
+//      to SrvCanonicalizePathName will go through Dfs translation
+//
+// Arguments:
+//
+//      WorkContext - A pointer to the active work context
+//
+// Return Value:
+//
+//      None
+//
+
+#define SMB_MARK_AS_DFS_NAME( WorkContext ) \
+        (WorkContext)->RequestHeader->Flags2 |= SMB_FLAGS2_DFS
+
+//
+// BOOLEAN
+// SMB_MARK_AS_DFS_TRANSLATED(
+//      IN PWORK_CONTEXT WorkContext
+//      )
+//
+// Routine description:
+//
+//      This macro marks the WorkContext as having been through a Dfs
+//      translation for the express purpose of preventing a second attempt
+//      at Dfs translation on the translated name.
+//
+// Arguments:
+//
+//      WorkContext - A pointer to the active work context
+//
+// Return Value:
+//
+//      None
+//
+
+#define SMB_MARK_AS_DFS_TRANSLATED( WorkContext ) \
+        (WorkContext)->RequestHeader->Flags2 &= (~SMB_FLAGS2_DFS)
 
 //
 // BOOLEAN
@@ -827,9 +1011,8 @@ Revision History:
             ASSERT( (_sess_)->NonpagedHeader->ReferenceCount > 0 );     \
             ASSERT( GET_BLOCK_TYPE(_sess_) == BlockTypeSession );       \
             UPDATE_REFERENCE_HISTORY( (_sess_), FALSE );                \
-            ExInterlockedIncrementLong(                                 \
-                &(_sess_)->NonpagedHeader->ReferenceCount,              \
-                &(_sess_)->Connection->Interlock                        \
+            InterlockedIncrement(                                       \
+                &(_sess_)->NonpagedHeader->ReferenceCount               \
                 );                                                      \
             IF_DEBUG(REFCNT) {                                          \
                 SrvPrint2(                                              \
@@ -861,9 +1044,8 @@ Revision History:
             ASSERT( (_trans_)->NonpagedHeader->ReferenceCount > 0 );    \
             ASSERT( GET_BLOCK_TYPE(_trans_) == BlockTypeTransaction );  \
             UPDATE_REFERENCE_HISTORY( (_trans_), FALSE );               \
-            ExInterlockedIncrementLong(                                 \
-                &(_trans_)->NonpagedHeader->ReferenceCount,             \
-                &(_trans_)->Connection->Interlock                       \
+            InterlockedIncrement(                                       \
+                &(_trans_)->NonpagedHeader->ReferenceCount              \
                 );                                                      \
             IF_DEBUG(REFCNT) {                                          \
                 SrvPrint2(                                              \
@@ -896,9 +1078,8 @@ Revision History:
             ASSERT( (_tree_)->NonpagedHeader->ReferenceCount > 0 );     \
             ASSERT( GET_BLOCK_TYPE(_tree_) == BlockTypeTreeConnect );   \
             UPDATE_REFERENCE_HISTORY( (_tree_), FALSE );                \
-            ExInterlockedIncrementLong(                                 \
-                &(_tree_)->NonpagedHeader->ReferenceCount,              \
-                &(_tree_)->Connection->Interlock                        \
+            InterlockedIncrement(                                       \
+                &(_tree_)->NonpagedHeader->ReferenceCount               \
                 );                                                      \
             IF_DEBUG(REFCNT) {                                          \
                 SrvPrint2(                                              \
@@ -1064,7 +1245,7 @@ Revision History:
 //
 
 #if SRVDBG_STATS
-VOID
+VOID SRVFASTCALL
 SrvUpdateStatistics2 (
     PWORK_CONTEXT WorkContext,
     UCHAR SmbCommand
@@ -1074,27 +1255,19 @@ SrvUpdateStatistics2 (
 #define UPDATE_STATISTICS2(_work,_cmd)
 #endif
 
-#define UPDATE_STATISTICS(_work,_sent,_cmd ) {                              \
-    ULONG _start;                                                           \
-    SrvStatisticsShadow.BytesSent += (_sent);                               \
-    _start = (_work)->StartTime;                                            \
-    if ( _start != 0 ) {                                                    \
-        if ( ++SrvStatisticsUpdateSmbCount == STATISTICS_SMB_INTERVAL ) {   \
-            SrvStatisticsUpdateSmbCount = 0;                                \
-            SET_SERVER_TIME( );                                             \
-        }                                                                   \
-    }                                                                       \
-    UPDATE_STATISTICS2((_work),(_cmd));                                     \
+#define UPDATE_STATISTICS(_work,_sent,_cmd ) {                 \
+    _work->CurrentWorkQueue->stats.BytesSent += (_sent);       \
+    UPDATE_STATISTICS2((_work),(_cmd));                        \
 }
 
-#define UPDATE_READ_STATS(_count) {                     \
-    SrvStatisticsShadow.ReadOperations++;               \
-    SrvStatisticsShadow.BytesRead += (_count);          \
+#define UPDATE_READ_STATS( _work, _count) {                    \
+    _work->CurrentWorkQueue->stats.ReadOperations++;           \
+    _work->CurrentWorkQueue->stats.BytesRead += (_count);      \
 }
 
-#define UPDATE_WRITE_STATS(_count) {                    \
-    SrvStatisticsShadow.WriteOperations++;              \
-    SrvStatisticsShadow.BytesWritten += (_count);       \
+#define UPDATE_WRITE_STATS(_work, _count) {                    \
+    _work->CurrentWorkQueue->stats.WriteOperations++;          \
+    _work->CurrentWorkQueue->stats.BytesWritten += (_count);   \
 }
 
 //
@@ -1201,7 +1374,7 @@ SrvUpdateStatistics2 (
 
 #define CHECK_SEND_COMPLETION_STATUS( _status ) {                       \
     if ( !NT_SUCCESS( _status ) ) {                                     \
-        SrvCheckSendCompletionStatus( _status );                        \
+        SrvCheckSendCompletionStatus( _status, __LINE__ );              \
     } else {                                                            \
         SrvUpdateErrorCount( &SrvNetworkErrorRecord, FALSE );           \
     }                                                                   \
@@ -1239,58 +1412,17 @@ SrvDereferenceUnlockableCodeSection (
     IN ULONG CodeSection
     );
 
+//
+// We only need to lock these sections on the workstation product,
+//  since we lock them down in InitializeServer() if we're NTAS
+//
 #define REFERENCE_UNLOCKABLE_CODE( _section ) \
-    SrvReferenceUnlockableCodeSection( SRV_CODE_SECTION_##_section## )
+    if( !SrvProductTypeServer ) SrvReferenceUnlockableCodeSection( SRV_CODE_SECTION_##_section## )
 
 #define DEREFERENCE_UNLOCKABLE_CODE( _section ) \
-    SrvDereferenceUnlockableCodeSection( SRV_CODE_SECTION_##_section## )
-
-//
-// Returns the work item to the free list.
-//
-
-#define RETURN_FREE_WORKITEM( _workContext ) {                      \
-    KIRQL oldIrql;                                                  \
-    ACQUIRE_GLOBAL_SPIN_LOCK( WorkItem, &oldIrql );                 \
-    if ( (_workContext)->PartOfInitialAllocation ) {                \
-        PushEntryList(                                              \
-            &SrvInitialReceiveWorkItemList,                         \
-            &(_workContext)->SingleListEntry                        \
-            );                                                      \
-    } else {                                                        \
-        PushEntryList(                                              \
-            &SrvNormalReceiveWorkItemList,                          \
-            &(_workContext)->SingleListEntry                        \
-            );                                                      \
-    }                                                               \
-    SrvFreeWorkItems++;                                             \
-    RELEASE_GLOBAL_SPIN_LOCK( WorkItem, oldIrql );                  \
-}
-
-//
-// Returns the work item to the free list at dpc level.
-//
-
-#define RETURN_FREE_WORKITEM_DPC( _workContext ) {                  \
-    ACQUIRE_DPC_GLOBAL_SPIN_LOCK( WorkItem );                       \
-    if ( (_workContext)->PartOfInitialAllocation ) {                \
-        PushEntryList(                                              \
-            &SrvInitialReceiveWorkItemList,                         \
-            &(_workContext)->SingleListEntry                        \
-            );                                                      \
-    } else {                                                        \
-        PushEntryList(                                              \
-            &SrvNormalReceiveWorkItemList,                          \
-            &(_workContext)->SingleListEntry                        \
-            );                                                      \
-    }                                                               \
-    SrvFreeWorkItems++;                                             \
-    RELEASE_DPC_GLOBAL_SPIN_LOCK( WorkItem );                       \
-}
-
+    if( !SrvProductTypeServer) SrvDereferenceUnlockableCodeSection( SRV_CODE_SECTION_##_section## )
 
 
-#if !defined(SRV_ASM) || !defined(i386)
 //
 // VOID
 // SrvInsertWorkQueueTail (
@@ -1301,7 +1433,7 @@ SrvDereferenceUnlockableCodeSection (
 #if SRVDBG_STATS2
 #define SrvInsertWorkQueueTail( _workQ, _workItem ) {                   \
     ULONG depth;                                                        \
-    GET_SERVER_TIME( &(_workItem)->Timestamp );                         \
+    GET_SERVER_TIME( _workQ, &(_workItem)->Timestamp );                 \
     depth = KeInsertQueue( &(_workQ)->Queue, &(_workItem)->ListEntry ); \
     (_workQ)->ItemsQueued++;                                            \
     if ( (LONG)depth > (_workQ)->MaximumDepth ) {                       \
@@ -1310,11 +1442,89 @@ SrvDereferenceUnlockableCodeSection (
 }
 #else
 #define SrvInsertWorkQueueTail( _workQ, _workItem ) {                   \
-    GET_SERVER_TIME( &(_workItem)->Timestamp );                         \
+    GET_SERVER_TIME( _workQ, &(_workItem)->Timestamp );                 \
     (VOID)KeInsertQueue( &(_workQ)->Queue, &(_workItem)->ListEntry );   \
 }
 #endif // SRVDBG_STATS2
-#endif // !defined(SRV_ASM) || !defined(i386)
+
+//
+// VOID
+// SrvInsertWorkQueueHead (
+//     IN OUT PWORK_QUEUE WorkQueue,
+//     IN PQUEUEABLE_BLOCK_HEADER WorkItem
+//     )
+#define SrvInsertWorkQueueHead( _workQ, _workItem ) {                    \
+    GET_SERVER_TIME( _workQ, &(_workItem)->Timestamp );                  \
+    (VOID)KeInsertHeadQueue( &(_workQ)->Queue, &(_workItem)->ListEntry );\
+}
+
+
+
+#if DBG_STUCK
+#define SET_OPERATION_START_TIME( _context ) \
+    if( *(_context) != NULL ) KeQuerySystemTime( &((*(_context))->OpStartTime) );
+#else
+#define SET_OPERATION_START_TIME( _context )
+#endif
+
+//
+// Allocate a WORK_CONTEXT structure.
+//
+#define INITIALIZE_WORK_CONTEXT( _queue, _context ) {\
+    (_context)->BlockHeader.ReferenceCount = 1; \
+    GET_SERVER_TIME( _queue, &(_context)->Timestamp ); \
+    RtlZeroMemory( &(_context)->Endpoint, sizeof( struct _WorkContextZeroBeforeReuse ) ); \
+}
+
+#define ALLOCATE_WORK_CONTEXT( _queue, _context ) {             \
+    *(_context) = NULL;                                         \
+    *(_context) = (PWORK_CONTEXT)InterlockedExchange( (PLONG)&(_queue)->FreeContext, (LONG)(*_context) ); \
+    if( *(_context) != NULL ) {                                 \
+        INITIALIZE_WORK_CONTEXT( _queue, *(_context) );         \
+    } else {                                                    \
+        *(_context) = SrvFsdGetReceiveWorkItem( _queue );       \
+    }                                                           \
+    SET_OPERATION_START_TIME( _context ) \
+}
+
+//
+// Returns the work item to the free list.
+//
+
+#define RETURN_FREE_WORKITEM( _wc ) \
+    do {                                                                \
+        PWORK_QUEUE _queue  = _wc->CurrentWorkQueue;                    \
+        ASSERT( _queue >= SrvWorkQueues && _queue < eSrvWorkQueues );   \
+        ASSERT( _wc->BlockHeader.ReferenceCount == 0 );                 \
+        ASSERT( _wc->FreeList != NULL );                                \
+        if( _queue->NeedWorkItem ) {                                    \
+            if( InterlockedDecrement( &(_queue->NeedWorkItem) ) >= 0 ){ \
+                _wc->FspRestartRoutine = SrvServiceWorkItemShortage;    \
+                SrvInsertWorkQueueHead( _queue, _wc );                  \
+                break;                                                  \
+            } else {                                                    \
+                InterlockedIncrement( &(_queue->NeedWorkItem) );        \
+            }                                                           \
+        }                                                               \
+        _wc = (PWORK_CONTEXT)InterlockedExchange( (PLONG)&_queue->FreeContext, (LONG)_wc ); \
+        if( _wc ) {                                                     \
+            ExInterlockedPushEntrySList( _wc->FreeList, &_wc->SingleListEntry, &_queue->SpinLock );\
+            InterlockedIncrement( &_queue->FreeWorkItems );             \
+        }                                                               \
+    } while (0);
+
+//
+// Our current work queue, based on our current processor
+//
+
+#if MULTIPROCESSOR
+
+#define PROCESSOR_TO_QUEUE()  (&SrvWorkQueues[ KeGetCurrentProcessorNumber() ])
+
+#else
+
+#define PROCESSOR_TO_QUEUE() (&SrvWorkQueues[0])
+
+#endif
 
 #endif // def _SRVMACRO_
-

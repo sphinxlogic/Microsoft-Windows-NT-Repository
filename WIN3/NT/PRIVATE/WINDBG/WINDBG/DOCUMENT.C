@@ -622,6 +622,13 @@ CheckSyntax(
 
             for (i = 0, prevCh = ' ', prevLevel = 0;
                                              i < pCurLine->Length - LHD; i++) {
+#ifdef DBCS
+                if (IsDBCSLeadByte(pCurLine->Text[i]) && pCurLine->Text[i+1]) {
+                      prevCh = ' ';
+                      i++;
+                      continue;
+                }
+#endif
                 ch = pCurLine->Text[i];
                 if (prevCh == '/' && ch == '*') {
                     prevLevel++;
@@ -654,6 +661,13 @@ CheckSyntax(
         curStatus = pCurLine->Status & COMMENT_LINE;
         for (i = 0, prevCh = ' ', curLevel = 0; i < pCurLine->Length - LHD;
                                                                          i++) {
+#ifdef DBCS
+            if (IsDBCSLeadByte(pCurLine->Text[i]) && pCurLine->Text[i+1]) {
+                prevCh = ' ';
+                i++;
+                continue;
+            }
+#endif
             ch = pCurLine->Text[i];
 
             if (prevCh == '/' && ch == '*') {
@@ -781,6 +795,12 @@ ExpandTabs(
 
     memset(el, ' ', MAX_USER_LINE * 2);
     while (i < len) {
+#ifdef DBCS
+        if (IsDBCSLeadByte((BYTE)pc[i])) {
+            el[j++] = pc[i++];
+            el[j++] = pc[i++];
+        } else
+#endif
         if (pc[i] == TAB) {
             j += tabSize - (j % tabSize);
             i++;
@@ -810,6 +830,11 @@ AlignToTabs(
             col += (editCol - realCol);
             break;
         }
+#ifdef DBCS
+        if (IsDBCSLeadByte(pc[col]))
+              realCol += 2;
+        else
+#endif
         if (pc[col] == TAB) {
             realCol += tabSize - (realCol % tabSize);
         } else {
@@ -817,6 +842,11 @@ AlignToTabs(
         }
 
         if (realCol <= editCol) {
+#ifdef DBCS
+            if (IsDBCSLeadByte(pc[col]))
+                col += 2;
+            else
+#endif
             col++;
         }
     }
@@ -2133,7 +2163,7 @@ DumpDocument(
 
     pb = d->FirstBlock;
     while (pb != NULL) {
-        itoa(HIWORD((DWORD)pb), t, 16);
+        _itoa(HIWORD((DWORD)pb), t, 16);
         while ((int)strlen(t) <= 4) {
             strcat(t, " ");
         }
@@ -2144,7 +2174,7 @@ DumpDocument(
             s[0]='\0';
             if (d->CurrentBlock == pb) {
                 if (d->CurrentLineOffset == ((LPSTR)pl - (LPSTR)pb->Data)) {
-                    itoa((int)d->CurrentLine, s, 10);
+                    _itoa((int)d->CurrentLine, s, 10);
                 }
             }
 
@@ -2154,6 +2184,9 @@ DumpDocument(
 
             _fstrncpy((LPSTR)szTmp, pl->Text, pl->Length - LHD);
             for (i = 0; i < (int)strlen(szTmp); i++) {
+#ifdef DBCS
+                if(IsDBCSLeadByte((BYTE)szTmp[i])) i++;
+#endif
                 if (szTmp[i] == TAB) {
                     szTmp[i] = 126;
                 }

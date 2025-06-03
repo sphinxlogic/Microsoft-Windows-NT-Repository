@@ -1,39 +1,53 @@
-/*
-  +-------------------------------------------------------------------------+
-  |                         Utility Routines                                |
-  +-------------------------------------------------------------------------+
-  |                        (c) Copyright 1994                               |
-  |                          Microsoft Corp.                                |
-  |                        All rights reserved                              |
-  |                                                                         |
-  | Program               : [utils.c]                                       |
-  | Programmer            : Arthur Hanson                                   |
-  | Original Program Date : [Jul 27, 1993]                                  |
-  | Last Update           : [Jul 30, 1993]  Time : 18:30                    |
-  |                                                                         |
-  | Description:                                                            |
-  |                                                                         |
-  | History:                                                                |
-  |   arth  Jul 27, 1993    0.10    Original Version.                       |
-  +-------------------------------------------------------------------------+
-*/
+/*++
+
+Copyright (c) 1993-1995  Microsoft Corporation
+
+Module Name:
+
+   nwconv.c
+
+Abstract:
+
+
+Author:
+
+    Arthur Hanson (arth) 27-Jul-1994
+
+Revision History:
+
+--*/
 
 
 #include "globals.h"
 
-LPTSTR alpsz[TOTAL_STRINGS];       /* String resource array cache. */
+LPTSTR alpsz[TOTAL_STRINGS];       // String resource array cache.
 static UINT cswitch = 0;
 static HCURSOR hCursor;
 
-/*+-------------------------------------------------------------------------+
-  | Lids()                                                                  |
-  |                                                                         |
-  |    Returns the requested string from the string table.  Caches the      |
-  |    strings in an internal buffer.  Will return a NULL string if  the    |
-  |    string can't be loaded.                                              |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-LPTSTR Lids(WORD idsStr) {
+
+/////////////////////////////////////////////////////////////////////////
+LPTSTR 
+Lids(
+   WORD idsStr
+   )
+
+/*++
+
+Routine Description:
+
+    Returns the requested string from the string table.  Caches the
+    strings in an internal buffer.  Will return a NULL string if  the
+    string can't be loaded.
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    WORD idsString;
     static TCHAR  szEmpty[] = TEXT("");
     TCHAR Buffer[MAX_STRING_SIZE];
@@ -61,13 +75,25 @@ LPTSTR Lids(WORD idsStr) {
 } // Lids
 
 
-/*+-------------------------------------------------------------------------+
-  | StringTableDestroy()                                                    |
-  |                                                                         |
-  |    Frees up all the memory allocated in the string table.               |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void StringTableDestroy() {
+/////////////////////////////////////////////////////////////////////////
+VOID 
+StringTableDestroy()
+
+/*++
+
+Routine Description:
+
+   Frees up all the memory allocated in the string table.
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
     int i;
 
     for (i=0; i < TOTAL_STRINGS ; i++ ) {
@@ -79,11 +105,24 @@ void StringTableDestroy() {
 } // StringTableDestroy
 
 
-/*+-------------------------------------------------------------------------+
-  | CursorHourGlass()                                                       |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void CursorHourGlass() {
+/////////////////////////////////////////////////////////////////////////
+VOID
+CursorHourGlass()
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    if (!cswitch) {
       hCursor = SetCursor(LoadCursor(NULL, IDC_WAIT));
       ShowCursor(TRUE);
@@ -93,11 +132,25 @@ void CursorHourGlass() {
 
 } // CursorHourGlass
 
-/*+-------------------------------------------------------------------------+
-  | CursorNormal()                                                          |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void CursorNormal() {
+
+/////////////////////////////////////////////////////////////////////////
+VOID
+CursorNormal()
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
 
    if (cswitch == 0)
       return;
@@ -112,11 +165,27 @@ void CursorNormal() {
 } // Cursor Normal
 
 
-/*+-------------------------------------------------------------------------+
-  | BitTest()                                                               |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-BOOL BitTest(int Bit, BYTE *Bits) {
+/////////////////////////////////////////////////////////////////////////
+BOOL
+BitTest(
+   int Bit, 
+   BYTE *Bits
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    int i, j;
 
    i = Bit / 8;
@@ -130,11 +199,27 @@ BOOL BitTest(int Bit, BYTE *Bits) {
 } // BitTest
 
 
-/*+-------------------------------------------------------------------------+
-  | CenterWindow()                                                          |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-BOOL CenterWindow( HWND hwndChild, HWND hwndParent ) {
+/////////////////////////////////////////////////////////////////////////
+BOOL 
+CenterWindow( 
+   HWND hwndChild, 
+   HWND hwndParent
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    RECT    rChild, rParent;
    int     wChild, hChild, wParent, hParent;
    int     wScreen, hScreen, xNew, yNew;
@@ -176,12 +261,27 @@ BOOL CenterWindow( HWND hwndChild, HWND hwndParent ) {
 } // CenterWindow
 
 
+/////////////////////////////////////////////////////////////////////////
+TCHAR *
+lstrchr(
+   LPTSTR String, 
+   TCHAR c
+   )
 
-/*+-------------------------------------------------------------------------+
-  | lstrchr()                                                               |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-TCHAR *lstrchr(LPTSTR String, TCHAR c) {
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    TCHAR *ptrChar = String;
    BOOL Found = FALSE;
 
@@ -200,11 +300,26 @@ TCHAR *lstrchr(LPTSTR String, TCHAR c) {
 } // lstrchr
 
 
-/*+-------------------------------------------------------------------------+
-  | IsPath                                                                  |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-BOOL IsPath(LPTSTR Path) {
+/////////////////////////////////////////////////////////////////////////
+BOOL
+IsPath(
+   LPTSTR Path
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    ULONG len;
    LPTSTR ptr;
 
@@ -231,11 +346,26 @@ BOOL IsPath(LPTSTR Path) {
 } // IsPath
 
 
-/*+-------------------------------------------------------------------------+
-  | lToStr                                                                  |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-LPTSTR lToStr(ULONG Number) {
+/////////////////////////////////////////////////////////////////////////
+LPTSTR 
+lToStr(
+   ULONG Number
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    static TCHAR String[15];
    TCHAR tString[15];
    LPTSTR sptr, dptr;
@@ -262,11 +392,26 @@ LPTSTR lToStr(ULONG Number) {
 } // lToStr;
 
 
-/*+-------------------------------------------------------------------------+
-  | TimeToStr                                                               |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-LPTSTR TimeToStr(ULONG TotTime) {
+/////////////////////////////////////////////////////////////////////////
+LPTSTR 
+TimeToStr(
+   ULONG TotTime
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    static TCHAR String[10];
    ULONG Hours, Minutes, Seconds;
 
@@ -281,37 +426,81 @@ LPTSTR TimeToStr(ULONG TotTime) {
 } // TimeToStr;
 
 
+/////////////////////////////////////////////////////////////////////////
+LPTSTR 
+DateToStr(
+   ULONG TotTime
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
+   static TCHAR String[10];
+   ULONG Hours, Minutes, Seconds;
+
+   Hours = TotTime / 3600;
+   TotTime -= (Hours * 3600);
+   Minutes = TotTime / 60;
+   Seconds = TotTime - (Minutes * 60);
+
+   wsprintf(String, TEXT("%3lu:%2lu:%2lu"), Hours, Minutes, Seconds);
+
+   return String;
+} // DateToStr;
+
+
 /*+-----------------------------------------------------------------------+
   |   Took the _splitpath and _makepath routines and converted them to    |
   |   be NT (long file name) and Unicode friendly.                        |
   +-----------------------------------------------------------------------+*/
 
 
-/*+-------------------------------------------------------------------------+
-  | Name: lsplitpath()                                                      |
-  |                                                                         |
-  | Description:                                                            |
-  |   Splits a path name into its individual components                     |
-  |                                                                         |
-  | Entry:                                                                  |
-  |   path  - pointer to path name to be parsed                             |
-  |   drive - pointer to buffer for drive component, if any                 |
-  |   dir   - pointer to buffer for subdirectory component, if any          |
-  |   fname - pointer to buffer for file base name component, if any        |
-  |   ext   - pointer to buffer for file name extension component, if any   |
-  |                                                                         |
-  | Exit:                                                                   |
-  |   drive - pointer to drive string.  Includes ':' if a drive was given.  |
-  |   dir   - pointer to subdirectory string.  Includes leading and         |
-  |           trailing '/' or '\', if any.                                  |
-  |   fname - pointer to file base name                                     |
-  |   ext   - pointer to file extension, if any.  Includes leading '.'.     |
-  |                                                                         |
-  |                                                                         |
-  | History:                                                                |
-  |   arth      Dec 10, 1993    Original version - modified from CRT.       |
-  +-------------------------------------------------------------------------+*/
-void  lsplitpath(const TCHAR *path, TCHAR *drive, TCHAR *dir, TCHAR *fname, TCHAR *ext) {
+/////////////////////////////////////////////////////////////////////////
+VOID
+lsplitpath(
+   const TCHAR *path, 
+   TCHAR *drive, 
+   TCHAR *dir, 
+   TCHAR *fname, 
+   TCHAR *ext
+   )
+
+/*++
+
+Routine Description:
+
+   Splits a path name into its individual components
+
+Arguments:
+
+   path  - pointer to path name to be parsed
+   drive - pointer to buffer for drive component, if any
+   dir   - pointer to buffer for subdirectory component, if any
+   fname - pointer to buffer for file base name component, if any
+   ext   - pointer to buffer for file name extension component, if any
+
+Return Value:
+
+   drive - pointer to drive string.  Includes ':' if a drive was given.
+   dir   - pointer to subdirectory string.  Includes leading and
+           trailing '/' or '\', if any.
+   fname - pointer to file base name
+   ext   - pointer to file extension, if any.  Includes leading '.'.
+
+--*/
+
+{
     TCHAR *p;
     TCHAR *last_slash = NULL, *dot = NULL;
     unsigned len;
@@ -456,27 +645,40 @@ void  lsplitpath(const TCHAR *path, TCHAR *drive, TCHAR *dir, TCHAR *fname, TCHA
 } // lsplitpath
 
 
-/*+-------------------------------------------------------------------------+
-  | Name: lmakepath()                                                       |
-  |                                                                         |
-  | Description:                                                            |
-  |   create a path name from its individual components.                    |
-  |                                                                         |
-  | Entry:                                                                  |
-  |   char *path - pointer to buffer for constructed path                   |
-  |   char *drive - pointer to drive component, may or may not contain      |
-  |       trailing ':'                                                      |
-  |   char *dir - pointer to subdirectory component, may or may not include |
-  |       leading and/or trailing '/' or '\' characters                     |
-  |   char *fname - pointer to file base name component                     |
-  |   char *ext - pointer to extension component, may or may not contain    |
-  |       a leading '.'.                                                    |
-  |                                                                         |
-  | Exit:                                                                   |
-  |   path - pointer to constructed path name                               |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void  lmakepath(TCHAR *path, const TCHAR *drive, const TCHAR *dir, const TCHAR *fname, const TCHAR *ext) {
+/////////////////////////////////////////////////////////////////////////
+VOID
+lmakepath(
+   TCHAR *path, 
+   const TCHAR *drive, 
+   const TCHAR *dir, 
+   const TCHAR *fname, 
+   const TCHAR *ext
+   )
+
+/*++
+
+Routine Description:
+
+   create a path name from its individual components.
+
+Arguments:
+
+   char *path - pointer to buffer for constructed path
+   char *drive - pointer to drive component, may or may not contain
+       trailing ':'
+   char *dir - pointer to subdirectory component, may or may not include
+       leading and/or trailing '/' or '\' characters
+   char *fname - pointer to file base name component
+   char *ext - pointer to extension component, may or may not contain
+       a leading '.'.
+
+Return Value:
+
+   path - pointer to constructed path name
+
+--*/
+
+{
     const TCHAR *p;
 
     /*+---------------------------------------------------------------------+
@@ -537,5 +739,92 @@ void  lmakepath(TCHAR *path, const TCHAR *drive, const TCHAR *dir, const TCHAR *
     }
 
 } // lmakepath
+
+
+#ifndef _UNICODE
+#error "Function below not DBCS safe"
+#endif
+
+VOID
+EscapeFormattingChars(
+    LPTSTR String,
+    ULONG BufferLength
+    )
+
+/*++
+
+Routine Description:
+
+    Escapes any formatting chars (ie. % chars) in the string so 
+    if you sprintf it, you dont trap out as a result of trying to
+    access bogus stack data.
+
+Arguments:
+
+    String - String to fix up. Escaping is done IN PLACE.
+    BufferLength - Size of the buffer the string is in. We need to know
+        this since we are inserting characters. BufferLength is in 
+        characters, not bytes.
+
+Return Value:
+
+    None
+
+--*/
+{
+
+
+    ULONG Length; LONG Avail ;
+    LPTSTR End, Tmp = String ;
+
+    if (!Tmp)
+        return ;
+
+    Length = lstrlen(String) ;
+
+    //
+    // Point past end of string. We use this to figure out
+    // via pointer substraction how much needs to be shifted
+    // down as we insert chars.
+    //
+    End = Tmp + Length + 1 ;     
+
+    //
+    // How much is avail for escape chars
+    //
+    Avail = BufferLength - (Length+1) ;  
+
+    while (*Tmp) {
+
+        if (*Tmp == TEXT('%')) {
+
+            //
+            // If no more space, just change to '_'.
+            //
+            if (Avail <= 0) {
+
+                *Tmp == TEXT('_') ;
+            }
+            else {
+
+                //
+                // Move string over and add escape character.
+                // This is not very efficient but we assume
+                // that this is not common.
+                //
+                --Avail ;
+                memmove(Tmp+1,
+                        Tmp,
+                        ((LPBYTE)End - (LPBYTE)Tmp)) ;
+                *Tmp = TEXT('%') ;
+                Tmp++ ;
+            }
+
+
+        }
+
+        ++Tmp ;
+    }
+}
 
 

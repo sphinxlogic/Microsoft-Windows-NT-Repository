@@ -24,6 +24,8 @@ Modifications:
 #include "fdisk.h"
 #include <process.h>
 
+extern HWND    InitDlg;
+extern BOOLEAN StartedAsIcon;
 
 BOOL
 AllDisksOffLine(
@@ -326,6 +328,18 @@ Return Value:
 {
     TCHAR   MsgBuf[MESSAGE_BUFFER_SIZE];
 
+    if (!StartedAsIcon) {
+//        Flags |= MB_SETFOREGROUND;
+    }
+
+    if (InitDlg) {
+
+        PostMessage(InitDlg,
+                    (WM_USER + 1),
+                    0,
+                    0);
+        InitDlg = (HWND) 0;
+    }
     _RetreiveAndFormatMessage(MsgCode, MsgBuf, sizeof(MsgBuf), arglist);
     return MessageBox(GetActiveWindow(), MsgBuf, Caption, Flags);
 }
@@ -1100,7 +1114,7 @@ Return Value:
 
 {
     WCHAR DriveLetterW;
-    CHAR  DriveLetter;
+    CHAR  DriveLetter = '\0';
     PWSTR LinkTarget;
     WCHAR DosDevicesName[sizeof(L"\\DosDevices\\A:")];
     int   DiskNo,
@@ -1117,6 +1131,10 @@ Return Value:
 
     LoadExistingPageFileInfo();
 
+    // Initialize network information.
+    
+    NetworkInitialize();
+
     // For each drive letter c-z, query the symbolic link.
 
     for (DriveLetterW=L'C'; DriveLetterW<=L'Z'; DriveLetterW++) {
@@ -1127,7 +1145,7 @@ Return Value:
 
             // Check if it is a Cdrom
 
-            if (wcsnicmp(LinkTarget, L"\\Device\\CdRom", 13) == 0) {
+            if (_wcsnicmp(LinkTarget, L"\\Device\\CdRom", 13) == 0) {
 
                 // Save the information on this CdRom away
 

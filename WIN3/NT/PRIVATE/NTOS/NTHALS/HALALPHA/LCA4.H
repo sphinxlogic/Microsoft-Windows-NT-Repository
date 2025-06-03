@@ -38,15 +38,15 @@ Revision History:
 
 #endif //QVA_ENABLE
 
-#define QVA_SELECTORS (0xE0000000)	// Identify QVA bits
+#define QVA_SELECTORS (0xE0000000)      // Identify QVA bits
 
-#define IO_BIT_SHIFT 0x05		// Bits to shift QVA
+#define IO_BIT_SHIFT 0x05               // Bits to shift QVA
 
-#define IO_BYTE_OFFSET  0x20		// Offset to next byte
-#define IO_SHORT_OFFSET 0x40		// Offset to next short
-#define IO_LONG_OFFSET  0x80		// Offset to next long
+#define IO_BYTE_OFFSET  0x20            // Offset to next byte
+#define IO_SHORT_OFFSET 0x40            // Offset to next short
+#define IO_LONG_OFFSET  0x80            // Offset to next long
 
-#define IO_BYTE_LEN     0x00		// Byte length
+#define IO_BYTE_LEN     0x00            // Byte length
 #define IO_WORD_LEN     0x08            // Word length
 #define IO_TRIBYTE_LEN  0x10            // TriByte length
 #define IO_LONG_LEN     0x18            // Longword length
@@ -57,11 +57,11 @@ Revision History:
 
 #define PCI_MAX_IO_ADDRESS       0xFFFFFF         // 16 Mb of IO Space
 
-// 
+//
 // Due we have 128MB total sparse space, of which some of it are holes
 //
 
-#define PCI_MAX_SPARSE_MEMORY_ADDRESS   ((128*1024*1024) - 1)  
+#define PCI_MAX_SPARSE_MEMORY_ADDRESS   ((128*1024*1024) - 1)
 #define PCI_MIN_DENSE_MEMORY_ADDRESS    PCI_MAX_SPARSE_MEMORY_ADDRESS + 1   // 128 Mb
 #define PCI_MAX_DENSE_MEMORY_ADDRESS    (0xa0000000 -1)                     // 2.5 Gb
 
@@ -98,7 +98,7 @@ Revision History:
 //
 
 #define HAL_MAKE_QVA(PA)    \
-    ( (PVOID)( QVA_ENABLE | (ULONG)(PA >> IO_BIT_SHIFT) ) ) 
+    ( (PVOID)( QVA_ENABLE | (ULONG)(PA >> IO_BIT_SHIFT) ) )
 
 
 //
@@ -126,7 +126,7 @@ typedef enum _LCA4_REVISIONS{
 #define LCA4_PASS2_IOC_TBTAG_PHYSICAL        ((ULONGLONG)0x181000000)
 #define LCA4_PASS2_PCI_INTACK_BASE_PHYSICAL  ((ULONGLONG)0x1A0000000)
 #define LCA4_PASS2_PCI_IO_BASE_PHYSICAL      ((ULONGLONG)0x1C0000000)
-#define LCA4_PASS2_PCI_DENSE_BASE_PHYSICAL   ((ULONGLONG)0x300000000)          
+#define LCA4_PASS2_PCI_DENSE_BASE_PHYSICAL   ((ULONGLONG)0x300000000)
 
 
 //
@@ -139,7 +139,7 @@ typedef enum _LCA4_REVISIONS{
 //
 // N.B. The structure below defines the offsets of the registers within
 //      the memory controller.  These are "real" address offsets, not
-//      QVA offsets.  Unfortunately, since these offsets represent "real" 
+//      QVA offsets.  Unfortunately, since these offsets represent "real"
 //      quadword addresses, they cannot be used as QVAs.  Therefore,
 //      the routines to read and write the memory controller will take
 //      the base QVA and an offset as 2 address parameters, rather than
@@ -169,7 +169,7 @@ typedef struct _LCA4_MEMC_CSRS{
     ULONGLONG Foreground;
 } LCA4_MEMC_CSRS, *PLCA4_MEMC_CSRS;
 
- 
+
 //
 // Define IO Controller CSRs.
 //
@@ -257,7 +257,7 @@ typedef struct _LCA4_IOC_STAT0{
 
 typedef enum _LCA4_IOC_STAT0_CODE{
     IocErrorRetryLimit = 0x0,
-    IocErrorNoDevice = 0x1,    
+    IocErrorNoDevice = 0x1,
     IocErrorBadDataParity = 0x2,
     IocErrorTargetAbort = 0x3,
     IocErrorBadAddressParity = 0x4,
@@ -271,7 +271,7 @@ typedef struct _LCA4_IOC_STAT1{
     ULONG Addr;
     ULONG Reserved;
 } LCA4_IO_STAT1, *PLCA4_IO_STAT1;
-    
+
 typedef struct _LCA4_IOC_WMASK{
     ULONG Reserved1: 20;
     ULONG MaskValue: 12;
@@ -283,7 +283,7 @@ typedef struct _LCA4_IOC_WBASE{
     ULONG BaseValue: 12;
     ULONG Sg: 1;
     ULONG Wen: 1;
-    ULONG Reserved2: 30; 
+    ULONG Reserved2: 30;
 } LCA4_IOC_WBASE, *PLCA4_IOC_WBASE;
 
 typedef struct _LCA4_IOC_TBASE{
@@ -406,7 +406,7 @@ HalpLca4ProgramDmaWindow(
 
 //
 // VOID
-// INITIALIZE_ISA_DMA_CONTROL( 
+// INITIALIZE_ISA_DMA_CONTROL(
 //     PWINDOW_CONTROL_REGISTERS WindowRegisters
 //     )
 //
@@ -430,7 +430,7 @@ HalpLca4ProgramDmaWindow(
 
 //
 // VOID
-// INITIALIZE_MASTER_DMA_CONTROL( 
+// INITIALIZE_MASTER_DMA_CONTROL(
 //     PWINDOW_CONTROL_REGISTERS WindowRegisters
 //     )
 //
@@ -578,8 +578,9 @@ typedef struct _TRANSLATION_ENTRY{
 //
 
 typedef struct _LCA4_PCR{
-    ULONGLONG HalpCycleCount;	// 64-bit per-processor cycle count
-    EV4IrqStatus IrqStatusTable[MaximumIrq];	// Irq status table
+    ULONGLONG HalpCycleCount;   // 64-bit per-processor cycle count
+    EV4ProfileCount ProfileCount;   // Profile counter state, do not move
+    EV4IrqStatus IrqStatusTable[MaximumIrq];    // Irq status table
 } LCA4_PCR, *PLCA4_PCR;
 
 #define HAL_PCR ( (PLCA4_PCR)(&(PCR->HalReserved)) )

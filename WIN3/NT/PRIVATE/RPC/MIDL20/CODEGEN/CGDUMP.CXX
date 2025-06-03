@@ -100,12 +100,22 @@ CG_CLASS::Dump( unsigned short xxx )
 		case ID_CG_UNION_FIELD:
 		case ID_CG_TRANSMIT_AS:
 		case ID_CG_REPRESENT_AS:
+		case ID_CG_USER_MARSHAL:
 		case ID_CG_ERROR_STATUS_T:
 		case ID_CG_INTERFACE:
 		case ID_CG_OBJECT_INTERFACE:
 		case ID_CG_INHERITED_OBJECT_INTERFACE:
+		case ID_CG_COM_CLASS:
+		case ID_CG_COM_SERVER_DLL:
+		case ID_CG_COM_SERVER_EXE:
 		case ID_CG_HRESULT:
 		case ID_CG_INTERFACE_PTR:
+        case ID_CG_INTERFACE_REFERENCE:
+        case ID_CG_MODULE:
+        case ID_CG_DISPINTERFACE:
+        case ID_CG_COCLASS:
+        case ID_CG_LIBRARY:
+        case ID_CG_SAFEARRAY:
 
 			pAdditional = GetType()->GetSymName();
 			break;
@@ -189,10 +199,21 @@ static char * pArray[] =
 	,"CG_CONTEXT_HDL"
 	,"CG_TRANSMIT_AS"
 	,"CG_REPRESENT_AS"
+	,"CG_USER_MARSHAL"
 	,"CG_INTERFACE"
 	,"CG_OBJECT_INTERFACE"
 	,"CG_INH_OBJECT_INTERFACE"
+	,"CG_COM_CLASS"
+	,"CG_COM_SERVER_DLL"
+	,"CG_COM_SERVER_EXE"
 	,"CG_HRESULT"
+    ,"CG_TYPELIBRARY_FILE"
+    ,"CG_INTERFACE_REFERENCE"
+    ,"CG_MODULE"
+    ,"CG_DISPINTERFACE"
+    ,"CG_COCLASS"
+    ,"CG_LIBRARY"
+    ,"CG_SAFEARRAY"
 	};
 
 	fprintf( stderr,
@@ -210,4 +231,4 @@ static char * pArray[] =
 
 #endif // MIDL_INTERNAL
 
-
+

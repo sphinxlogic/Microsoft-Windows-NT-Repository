@@ -12,27 +12,29 @@
 #include <stdio.h>
 #include <tools.h>
 
-forfile (pat, attr, rtn, args)
-char *pat;
-int attr;
-void (*rtn)(char *, struct findType *, void *);
-void * args;
+int
+forfile (
+    char *pat,
+    int attr,
+    void (*rtn)(char *, struct findType *, void *),
+    void * args
+    )
 {
     struct findType *fbuf;
     char *buf;
 
     if ((fbuf = (struct findType *) (*tools_alloc) (sizeof (*fbuf))) == NULL)
-	return FALSE;
+	    return FALSE;
 
     if (ffirst (pat, attr, fbuf)) {
-	free ((char *) fbuf);
-	return FALSE;
+	    free ((char *) fbuf);
+	    return FALSE;
 	}
 
-    if ((buf = (*tools_alloc) (MAX_PATH)) == NULL) {
-	findclose (fbuf);
-	free ((char *) fbuf);
-	return FALSE;
+    if ((buf = (*tools_alloc) (_MAX_DRIVE + _MAX_DIR + _MAX_FNAME + _MAX_EXT + 1)) == NULL) {
+	    findclose (fbuf);
+	    free ((char *) fbuf);
+	    return FALSE;
 	}
 
     drive (pat, buf);
@@ -40,10 +42,10 @@ void * args;
     pat = strend (buf);
 
     do {
-	/*  Assume the case correct form has been returned by ffirst/fnext
-	 */
-	strcpy (pat, fbuf->fbuf.cFileName);
-	(*rtn) (buf, fbuf, args);
+    	/*  Assume the case correct form has been returned by ffirst/fnext
+    	 */
+    	strcpy (pat, fbuf->fbuf.cFileName);
+    	(*rtn) (buf, fbuf, args);
     } while (!fnext (fbuf));
 
     findclose (fbuf);

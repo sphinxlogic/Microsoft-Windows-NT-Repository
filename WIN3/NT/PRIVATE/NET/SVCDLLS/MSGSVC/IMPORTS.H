@@ -3,9 +3,7 @@
 
 #ifdef MIDL_PASS
 #ifdef UNICODE
-#define LPTSTR [string] wchar_t*
-#else
-#define LPTSTR [string] LPTSTR
+#define LPWSTR [string] wchar_t*
 #endif
 #endif
 

@@ -1,82 +1,5 @@
 #include "cmd.h"
-#include "cmdproto.h"
 
-/*
-                NT Command Interpreter
-
-   This file contains all of the routines which make up Command's
-   parser.  The main routines below have names like ParseXXX where
-   XXX refers to the name of the production that routine is supposed
-   to parse.
-
-   None of the routines in this file, except Parser, will return if
-   they detect a syntax error.  Instead, they will all call PSError() or
-   PError().  These routines do a longjmp() back to Parser.
-
-    Command Language Grammar:
-
-    statement -> s0
-              s0 -> s1 "&" s0 | s1
-              s1 -> s2 "||" s1 | s2
-              s2 -> s3 "&&" s2 | s3
-              s3 -> s4 "|" s3 | s4
-              s4 -> redir s5 | s5 redir | s5
-              s5 -> "(" statement ")" |
-                    FOR var IN "(" arglist ")" DO statement |
-                    IF condition statement ELSE statement |
-                    IF condition statement |
-                    DETACH statement |
-                    cmd arglist
-
-             var -> "%"c | "%%"c
-               c -> any-character
-         arglist -> (arg)*
-             arg -> any-string
-       condition -> NOT cond | cond
-            cond -> ERRORLEVEL n | arg == arg | EXIST fname
-               n -> any-number
-           fname -> any-file-name
-             cmd -> internal-command | external-command
-
-           redir -> in out | out in
-              in -> "<" arg | epsilon
-             out -> ( ">" | ">>" ) arg | epsilon
-
-
-        Operator precedence from lowest to highest:
-            &       Command Separator
-            ||      Or Operator
-            &&      And Operator
-            |       Pipe Operator
-            < > >>  I/O Redirectors
-            ()      Command Grouper
-
-        Examples:
-            x & y | z   =>  x & (y | z)
-     x | y & z   =>  (x | y) & z
-     x || y | z  =>  x || (y | z)
-     a & b || c && d | e || f    =>  a & ((b || (c && (d | e))) || f)
-
-*/
-
-
-
-
-//
-// The following are definitions of the debugging group and level bits
-// for the code in this file.
-//
-
-#define MNGRP   0x0001                  // Main command loop code group
-#define MNLVL   0x0001                  // Main function level
-#define DPLVL   0x0002                  // Dispatch function level
-#define RDLVL   0x0004                  // Redirection function level
-#if DBG
-void AlwaysDeb(ULONG MsgGroup, ULONG MsgLevel, CHAR *msg, ...);
-#define ALWAYS(a) Deb a
-#else
-#define ALWAYS
-#endif
 
 //
 // Used in rebuilding command lines for display
@@ -84,35 +7,9 @@ void AlwaysDeb(ULONG MsgGroup, ULONG MsgLevel, CHAR *msg, ...);
 #define NSPC    0                                                               // Don't use space
 #define YSPC    1                                                               // Do use space
 
-#if defined( JAPAN )  // v-junm - 06/03/93
-// Sets the Language Id in the TEB to Japanese if console output CP is 
-// Japanese.  This is done in order for FormatMessage to display Japanese
-// when cmd is running in Japanese code page.  All messages displayed in
-// non-JP console output code page will be displayed in English.
-
-#define SetTEBLangID() \
-	if ( CurrentCP == 932 )  					\
-	    SetThreadLocale(  						\
-		MAKELCID(						\
-		    MAKELANGID( LANG_JAPANESE, SUBLANG_ENGLISH_US ),	\
-		    SORT_DEFAULT					\
-		    )							\
-		);							\
-	else								\
-	    SetThreadLocale( 						\
-		MAKELCID(						\
-		    MAKELANGID( LANG_ENGLISH, SUBLANG_ENGLISH_US ),	\
-		    SORT_DEFAULT					\
-		    )							\
-		);
-
-#else  // not JAPAN
-#define SetTEBLangID()
-#endif  // JAPAN
-
 extern CPINFO CurrentCPInfo;
-extern UINT CurrentCP;
-
+extern UINT   CurrentCP;
+extern ULONG  LastMsgNo;
 //
 // Jump buffers used to return to main loop after some error condition
 //
@@ -195,15 +92,8 @@ extern TCHAR AppendStr[] ;
 //
 // flag if control-c was seen
 //
-extern  BOOLEAN CtrlCSeen;
+extern  BOOL CtrlCSeen;
 extern  BOOLEAN fPrintCtrlC;
-
-//
-// console mode at program startup time. Used to reset mode
-// after running another process.
-//
-extern  DWORD   dwCurInputConMode;
-extern  DWORD   dwCurOutputConMode;
 
 extern PTCHAR    pszTitleCur;
 extern BOOLEAN  fTitleChanged;
@@ -246,6 +136,26 @@ argstr1();
 VOID    SetCtrlC();
 VOID    ResetCtrlC();
 
+
+//
+// to monitor stack usage
+//
+extern BOOLEAN  flChkStack;
+extern PVOID    FixedPtrOnStack;
+
+typedef struct {
+    PVOID   Base;
+    PVOID   GuardPage;
+    PVOID   Bottom;
+    PVOID   ApprxSP;
+} STACK_USE;
+
+extern STACK_USE   GlStackUsage;
+
+extern int ChkStack (PVOID pFixed, STACK_USE *pStackUse);
+
+
+
 _CRTAPI1
 main()
 
@@ -273,12 +183,14 @@ Return Value:
 --*/
 
 {
+    CHAR        VarOnStack;
     struct node *pnodeCmdTree ;
 
     //
     // When in multi-cmd mode tells parser where to get input from.
     //
     int InputType ;
+
 
     //
     // Pointer to current command line
@@ -293,6 +205,38 @@ Return Value:
     unsigned ReturnCode;
 
     //
+    // flChkStack is turned ON initially here and it stays ON while
+    // I believe the information returned by ChkStack() is correct.
+    //
+    // It is turned OFF the first time I don't believe that info and
+    // therefore I don't want to make any decisions changing the CMD's
+    // behavior.
+    //
+    // It will stay OFF until CMD terminates so we will never check
+    // stack usage again.
+    //
+    // I implemented one method to prevent CMD.EXE from the stack overflow:
+    // Have count and limit of recursion in batch file processing and check
+    // stack every time we exceed the limit of recursion until we reach 90%
+    // of stack usage.
+    // If (stack usage >= 90% of 1 MByte) then terminate batch file
+    // unconditionally and handle such termination properly (freeing memory
+    // and stack and saving CMD.EXE)
+    //
+    // It is also possible to implement SEH but then we won't know about
+    // CMD problems.
+    //
+
+    flChkStack = 1;
+
+    FixedPtrOnStack = (VOID *) &VarOnStack;     // to be used in ChkStack()
+
+    if ( ChkStack (FixedPtrOnStack, &GlStackUsage) == FAILURE ) {
+        flChkStack = 0;
+    }
+
+
+    //
     // Initialize the DBCS lead byte table based on the current locale.
     //
 
@@ -301,10 +245,9 @@ Return Value:
     //
     // Set base APIs to operate in OEM mode
     //
-
 #ifndef UNICODE
     SetFileApisToOEM();
-#endif	/* Unicode */
+#endif  /* Unicode */
 
     SetTEBLangID();
 
@@ -320,7 +263,7 @@ Return Value:
             if ( fSingleBatchLine ){
                 fIgnore = TRUE;
             } else {
-                exit(0xff) ;
+                CMDexit(0xff) ;
             }
         }
 
@@ -328,26 +271,36 @@ Return Value:
 
             DEBUG((MNGRP, MNLVL, "MAIN: Single command mode on `%ws'", pszCmdLine)) ;
 
-            //
-            // BUGBUG:
-            // An assumption is made about the address space for pnodeCmdTree
-            // pointers. PARSEERROR (1) and EOF (-1) are taken out of the
-            // address space. This is bogus and should be fixed.
-            //
             if ((pnodeCmdTree = Parser(READSTRING, (int)pszCmdLine, DCount)) == (struct node *) PARSERROR)
-                exit(MAINERROR) ;
+                CMDexit(MAINERROR) ;
 
             if (pnodeCmdTree == (struct node *) EOF)
-                exit(SUCCESS) ;
+                CMDexit(SUCCESS) ;
 
             DEBUG((MNGRP, MNLVL, "MAIN: Single command parsed successfully.")) ;
             ReturnCode = Dispatch(RIO_MAIN, pnodeCmdTree);
 
-            SetConsoleMode(GetStdHandle(STD_INPUT_HANDLE),dwCurInputConMode);
-            SetConsoleMode(GetStdHandle(STD_OUTPUT_HANDLE), dwCurOutputConMode);
+            //
+            // Make sure we have the correct console modes.
+            //
+            ResetConsoleMode();
 
+#ifdef JAPAN
+            //
+            // Get current CodePage Info.  We need this to decide whether
+            // or not to use half-width characters.
+            //
+            GetCPInfo((CurrentCP=GetConsoleOutputCP()), &CurrentCPInfo);
+            //
+            // Maybe console output code page was changed by CHCP or MODE,
+            // so need to reset LanguageID to correspond to code page.
+            //
+            SetTEBLangID();
+#endif
             if ( !fSingleBatchLine )
-                return( ReturnCode );
+                CMDexit( ReturnCode );
+
+            fSingleBatchLine = FALSE;       // Allow ASync exec of GUI apps now
         }
     }
 
@@ -363,7 +316,7 @@ Return Value:
         //        eof on stdin redirected.
 
         if (ReturnCode == EXIT_EOF) {
-            exit(SUCCESS);
+            CMDexit(SUCCESS);
         }
     }
 
@@ -381,7 +334,7 @@ Return Value:
     // seek around in the file.
     //
     if(InputType == READFILE) {
-        setmode(STDIN,_O_BINARY);
+        _setmode(STDIN,_O_BINARY);
     }
 
     //
@@ -398,29 +351,35 @@ Return Value:
             DEBUG((MNGRP, MNLVL, "MAIN: Parse failed.")) ;
 
         } else if (pnodeCmdTree == (struct node *) EOF)
-            exit(SUCCESS) ;
+            CMDexit(SUCCESS) ;
 
         else {
             ResetCtrlC();
             DEBUG((MNGRP, MNLVL, "MAIN: Parsed OK, DISPATCHing.")) ;
             Dispatch(RIO_MAIN, pnodeCmdTree) ;
 
-            SetConsoleMode(GetStdHandle(STD_INPUT_HANDLE),dwCurInputConMode);
-            SetConsoleMode(GetStdHandle(STD_OUTPUT_HANDLE), dwCurOutputConMode);
-	    //
-	    // Get current CodePage Info.  We need this to decide whether
-	    // or not to use half-width characters.
-	    //
-	    GetCPInfo((CurrentCP=GetConsoleOutputCP()), &CurrentCPInfo);
-	    //
-	    // Maybe console output code page was changed by CHCP or MODE,
-	    // so need to reset LanguageID to correspond to code page.
-	    //
-	    SetTEBLangID();
+            //
+            // Make sure we have the correct console modes.
+            //
+            ResetConsoleMode();
+
+            //
+            // Get current CodePage Info.  We need this to decide whether
+            // or not to use half-width characters.
+            //
+            GetCPInfo((CurrentCP=GetConsoleOutputCP()), &CurrentCPInfo);
+            //
+            // Maybe console output code page was changed by CHCP or MODE,
+            // so need to reset LanguageID to correspond to code page.
+            //
+            SetTEBLangID();
 
             DEBUG((MNGRP, MNLVL, "MAIN: Dispatch returned.")) ;
         }
     }
+
+    CMDexit(SUCCESS);
+    return(SUCCESS);
 }
 
 
@@ -445,9 +404,6 @@ Routine Description:
     in like manner, Dispatch() only calls ResetRedir if redirection was
     actually performed.
 
-    Dispatch() handles execution of the detach command rather than
-    eDetach which merely performs the setup.
-
     The conditional that determines whether newline will be issued
     following commands (prior to prompt), had to be altered so that the
     execution of piped commands did not each issue a newline.  The pre-
@@ -470,19 +426,16 @@ Return Value:
 
     int comretcode ;                // Retcode of the cmnd executed
     struct cmdnode *pcmdnode ;      // pointer to current command node
-    PTCHAR pbCmdBuf ;               // Buffer used in building command (Detach)
+    PTCHAR pbCmdBuf ;               // Buffer used in building command
 
 
     DEBUG((MNGRP, DPLVL, "DISP: pnodeCmdTree = 0x%04x, RioType = %d", pnodeCmdTree, RioType)) ;
 
 
     //
-    // BUGBUG: EXTTYPE maybe taken out later
-    //
     // If we don't have a parse tree or
-    // we havea goto label or
-    // we have a comment line or
-    // we have an external command processor
+    // we have a goto label or
+    // we have a comment line
     // then don't execute anything and return.
     //
     if (!pnodeCmdTree ||
@@ -520,12 +473,11 @@ Return Value:
     pcmdnode = (struct cmdnode *)pnodeCmdTree ;
 
     //
-    // If we are called from eDetach or (called from ePipe and PIPE command)
-    // then we need to rebuild the command in ascii form (UnParse) and
-    // fork off another cmd.exe to execute it.
+    // If we are called from ePipe and PIPE command then we need
+    // to rebuild the command in ascii form (UnParse) and fork
+    // off another cmd.exe to execute it.
     //
-    if ( RioType == RIO_DETACH ||
-        (RioType == RIO_PIPE && pcmdnode->type != PIPTYP)) {
+    if ((RioType == RIO_PIPE && pcmdnode->type != PIPTYP)) {
 
         //
         // pbCmdbuf is used as tmp in FindCmd and SFE
@@ -563,6 +515,11 @@ Return Value:
             // Will be exec'd later after redirection is applied
             //
             pcmdnode = (struct cmdnode *)mknode() ;
+
+            if (pcmdnode == NULL)  {
+                return(DISPERROR) ;
+            }
+
             pcmdnode->type = CMDTYP ;
             pcmdnode->cmdline = GetEnvVar(ComSpecStr) ;
             pcmdnode->argptr = pbCmdBuf ;
@@ -575,28 +532,19 @@ Return Value:
             return(DISPERROR) ;
         }
 
-        //
-        // If called by eDetach then do async exec and descard return code
-        // else do async exec and save return code.
-        //
-        if (RioType == RIO_DETACH) {
-            comretcode = ECWork(pcmdnode, AI_DSCD, CW_W_NO) ;
-        } else {
+        DEBUG((MNGRP, DPLVL, "DISP:Calling ECWork on piped cmd")) ;
 
-            DEBUG((MNGRP, DPLVL, "DISP:Calling ECWork on piped cmd")) ;
+        pbCmdBuf[1] = SwitChar ;
+        pbCmdBuf[2] = TEXT('S') ;
 
-            pbCmdBuf[1] = SwitChar ;
-            pbCmdBuf[2] = TEXT('S') ;
-
-            comretcode = ECWork(pcmdnode, AI_KEEP, CW_W_NO) ;
-        } ;
+        comretcode = ECWork(pcmdnode, AI_KEEP, CW_W_NO) ;
 
         DEBUG((MNGRP, DPLVL, "DISP: ECWork returned %d", comretcode)) ;
 
     } else {
 
         //
-        // We are here if command was not DETACH or PIPE
+        // We are here if command was not PIPE
         //
         // If it was a command node or a paren or a silent operator and
         // we have redirection then set redirection.
@@ -648,12 +596,11 @@ SetRedir(
 
 Routine Description:
 
-    Perform the redirection required by the current node (explicit
-    or detached).
+    Perform the redirection required by the current node
 
     Only individual commands and parenthesised statement groups can have
     explicit I/O redirection.  All nodes, however, can tolerate redirection of an
-    implicit nature such as that arising from detach.
+    implicit nature.
 
 Arguments:
 
@@ -688,7 +635,7 @@ Return Value:
 
 
 
-    ALWAYS((MNGRP, RDLVL, "SETRD:RioType = %d.",RioType)) ;
+    DEBUG((MNGRP, RIOLVL, "SETRD:RioType = %d.",RioType)) ;
 
     prelemT = pnodeCmdTree->rio ;
 
@@ -715,8 +662,7 @@ Return Value:
             *(prelemT->fname+i) = NULLC ;
 
         //
-        // If input redirection specified then set flag for later use to
-        // decide if detach commands need to be set to \DEV\NUL
+        // If input redirection specified then set flag for later use
         //
         if (prelemT->rdhndl == STDIN) {
             fInputRedirected = TRUE ;
@@ -725,7 +671,7 @@ Return Value:
         prelemT = prelemT->nxt ;
     }
 
-    ALWAYS((MNGRP, RDLVL, "SETRD: fInputRedirected = %d",fInputRedirected)) ;
+    DEBUG((MNGRP, RIOLVL, "SETRD: fInputRedirected = %d",fInputRedirected)) ;
 
     //
     // Allocate, activate and initialize the rio list element.
@@ -743,62 +689,11 @@ Return Value:
         prio->rnod = pnodeCmdTree ;
         prio->type = RioType ;
 
-        ALWAYS((MNGRP, RDLVL, "SETRD: rio element built.")) ;
+        DEBUG((MNGRP, RIOLVL, "SETRD: rio element built.")) ;
 
     } else {
 
         prio = rioCur;
-    }
-
-    // Detached nodes with no explicit input redirection must use \DEV\NUL.
-    // 'fInputRedirected' is used to determine this and if so, a new
-    // element is built at the head of the list.
-    //
-    // This will fail automatically if RioType == RIO_REPROCESS.
-
-    if (RioType == RIO_DETACH && !fInputRedirected) {
-
-        if (!(prelemT=(struct relem *)mkstr(sizeof(struct relem)))) {
-
-            PutStdErr(ERROR_NOT_ENOUGH_MEMORY, NOARGS);
-            return(FAILURE) ;
-
-        }
-
-        //
-        // redirect standard in to the NULL device when detaching
-        // otherwise detach program will interfer with cmd.exe input
-        //
-        // We don't do this if the input is already being redirected
-        // (fInputRedirected == TRUE)
-        //
-        prelemT->rdhndl = STDIN ;
-        prelemT->fname = DevNul ;
-        prelemT->rdop = TEXT('<') ;
-        prelemT->nxt = NULL;
-
-        //
-        // If we do not currently have any redirection make this new
-        // redirection node it otherwise link this new node into
-        // redirection list
-        //
-        if ( !pnodeCmdTree->rio ){
-
-            pnodeCmdTree->rio = prelemT;
-
-        } else {
-
-            //
-            // locate end of list
-            //
-            for (prelemT2 = pnodeCmdTree->rio; prelemT2->nxt ; prelemT2 = prelemT2->nxt) {
-                ;
-            }
-
-            prelemT2->nxt = prelemT;
-        }
-
-        ALWAYS((MNGRP, RDLVL, "SETRD: input = \\DEV\\NUL.")) ;
     }
 
     //
@@ -809,64 +704,65 @@ Return Value:
     //
     prelemT = pnodeCmdTree->rio ;
     while (prelemT) {
-
         //
         // Skip any already done.
         //
         if (prelemT->svhndl) {
-
             prelemT = prelemT->nxt ;
             continue ;
-
         } ;
 
-	ALWAYS((MNGRP, RDLVL, "SETRD: Old osf handle = %x", CRTTONT(prelemT->rdhndl))) ;
+        DEBUG((MNGRP, RIOLVL, "SETRD: Old osf handle = %x", CRTTONT(prelemT->rdhndl))) ;
 
         //
         // Make sure read handle is open and valid before saving it.
         //
         if (FileIsDevice(prelemT->rdhndl) || FileIsPipe(prelemT->rdhndl) ||
             SetFilePointer(CRTTONT(prelemT->rdhndl), 0L, NULL, FILE_CURRENT) != -1) {
-                ALWAYS((MNGRP, RDLVL, "SETRD: duping %d", prelemT->rdhndl)) ;
+                DEBUG((MNGRP, RIOLVL, "SETRD: duping %d", prelemT->rdhndl)) ;
                 if ((prelemT->svhndl = Cdup(prelemT->rdhndl)) == BADHANDLE) {
 
-		    ALWAYS((MNGRP, RDLVL, "SETRD: Cdup error=%d, errno=%d", GetLastError(), errno)) ;
+                    DEBUG((MNGRP, RIOLVL, "SETRD: Cdup error=%d, errno=%d", GetLastError(), errno)) ;
                     PutStdErr(MSG_RDR_HNDL_CREATE, ONEARG, argstr1(TEXT("%d"), (unsigned long)prelemT->rdhndl)) ;
                     prelemT->svhndl = 0 ;
                     ResetRedir() ;
                     return(FAILURE) ;
                 }
 
-                ALWAYS((MNGRP, RDLVL, "SETRD: closing %d", prelemT->rdhndl)) ;
+                DEBUG((MNGRP, RIOLVL, "SETRD: closing %d", prelemT->rdhndl)) ;
                 Cclose(prelemT->rdhndl) ;
 
-                ALWAYS((MNGRP,RDLVL,"SETRD: save handle = %d", prelemT->svhndl));
-		ALWAYS((MNGRP,RDLVL,"SETRD: --->osf handle = %x", CRTTONT(prelemT->svhndl))) ;
+                DEBUG((MNGRP,RIOLVL,"SETRD: save handle = %d", prelemT->svhndl));
+                DEBUG((MNGRP,RIOLVL,"SETRD: --->osf handle = %x", CRTTONT(prelemT->svhndl))) ;
 
         } else {
 
-            ALWAYS((MNGRP, RDLVL, "SETRD: FileIsOpen ret'd FALSE")) ;
-            prelemT->svhndl = BADHANDLE ;
+            DEBUG((MNGRP, RIOLVL, "SETRD: FileIsOpen ret'd FALSE")) ;
+            PutStdErr(MSG_RDR_HNDL_OPEN, ONEARG, argstr1(TEXT("%d"), (unsigned long)prelemT->rdhndl)) ;
+            prelemT->svhndl = 0 ;
+            ResetRedir() ;
+            return(FAILURE) ;
 
         }
+
 
         //
         // Is file name the command seperator character '&'
         //
         if (*prelemT->fname == CSOP) {
 
-            ALWAYS((MNGRP,RDLVL,"SETRD: Handle substitution, %ws %d", prelemT->fname, prelemT->rdhndl)) ;
+            DEBUG((MNGRP,RIOLVL,"SETRD: Handle substitution, %ws %d", prelemT->fname, prelemT->rdhndl)) ;
 
             *(prelemT->fname+2) = NULLC ;
             if (Cdup2(*(prelemT->fname+1) - TEXT('0'), prelemT->rdhndl) == BADHANDLE) {
-		ALWAYS((MNGRP, RDLVL, "SETRD: Cdup2 error=%d, errno=%d", GetLastError(), errno)) ;
+                DEBUG((MNGRP, RIOLVL, "SETRD: Cdup2 error=%d, errno=%d", GetLastError(), errno)) ;
                 ResetRedir() ;
 
                 PutStdErr(MSG_RDR_HNDL_CREATE, ONEARG, argstr1(TEXT("%d"), (ULONG)prelemT->rdhndl)) ;
                 return(FAILURE) ;
             } ;
 
-            ALWAYS((MNGRP,RDLVL,"SETRD: %c forced to %d",*(prelemT->fname+1), (ULONG)prelemT->rdhndl)) ;
+            DEBUG((MNGRP,RIOLVL,"SETRD: %c forced to %d",*(prelemT->fname+1), (ULONG)prelemT->rdhndl)) ;
 
         } else {
 
@@ -876,7 +772,7 @@ Return Value:
             //
             if (prelemT->rdop == INOP) {
 
-                ALWAYS((MNGRP,RDLVL,"SETRD: File in = %ws",prelemT->fname)) ;
+                DEBUG((MNGRP,RIOLVL,"SETRD: File in = %ws",prelemT->fname)) ;
 
                 //
                 // Try to open file localy first
@@ -902,7 +798,7 @@ Return Value:
                 // We are not redirecting input so must be output
                 //
 
-                ALWAYS((MNGRP,RDLVL,"SETRD: File out = %ws",prelemT->fname)) ;
+                DEBUG((MNGRP,RIOLVL,"SETRD: File out = %ws",prelemT->fname)) ;
 
                 //
                 // Make sure sure we can open the file for output
@@ -919,12 +815,12 @@ Return Value:
             //
             if (OpenStatus != BADHANDLE && OpenStatus != prelemT->rdhndl) {
 
-                ALWAYS((MNGRP,RDLVL,"SETRD: Handles don't match...")) ;
-                ALWAYS((MNGRP,RDLVL,"SETRD: ...forcing %d to %d", i, (ULONG)prelemT->rdhndl)) ;
+                DEBUG((MNGRP,RIOLVL,"SETRD: Handles don't match...")) ;
+                DEBUG((MNGRP,RIOLVL,"SETRD: ...forcing %d to %d", i, (ULONG)prelemT->rdhndl)) ;
 
                 if (Cdup2(OpenStatus, prelemT->rdhndl) == BADHANDLE) {
 
-		    ALWAYS((MNGRP, RDLVL, "SETRD: Cdup2 error=%d, errno=%d", GetLastError(), errno)) ;
+                    DEBUG((MNGRP, RIOLVL, "SETRD: Cdup2 error=%d, errno=%d", GetLastError(), errno)) ;
                     Cclose(OpenStatus) ;
                     ResetRedir() ;
 
@@ -946,15 +842,15 @@ Return Value:
             //
             if (OpenStatus == BADHANDLE) {
 
-                ALWAYS((MNGRP,RDLVL,"SETRD: Bad Open, DosErr = %d",DosErr)) ;
+                DEBUG((MNGRP,RIOLVL,"SETRD: Bad Open, DosErr = %d",DosErr)) ;
                 ResetRedir() ;
 
                 PrtErr(DosErr) ;
                 return(FAILURE) ;
             }
 
-            ALWAYS((MNGRP, RDLVL, "SETRD: new handle = %d", OpenStatus)) ;
-	    ALWAYS((MNGRP,RDLVL,"SETRD: --->osf handle = %x", CRTTONT(OpenStatus))) ;
+            DEBUG((MNGRP, RIOLVL, "SETRD: new handle = %d", OpenStatus)) ;
+            DEBUG((MNGRP,RIOLVL,"SETRD: --->osf handle = %x", CRTTONT(OpenStatus))) ;
 
             //
             // Keep highest numbered handle
@@ -966,6 +862,8 @@ Return Value:
         prelemT = prelemT->nxt ;
 
     } // while
+
+
     return(SUCCESS) ;
 }
 
@@ -1023,7 +921,7 @@ Return Value:
 
     if (!(prelemEnd = prelemOriginal = pcmdnodeOriginal->rio)) {
 
-        ALWAYS((MNGRP, RDLVL, "ADDRD: No old redirection.")) ;
+        DEBUG((MNGRP, RIOLVL, "ADDRD: No old redirection.")) ;
 
         //
         // New list becomes original
@@ -1043,7 +941,7 @@ Return Value:
         rn->rnod = (struct node *)pcmdnodeOriginal ;
         rn->type = RIO_BATLOOP ;
 
-        ALWAYS((MNGRP, RDLVL, "ADDRD: rio element built.")) ;
+        DEBUG((MNGRP, RIOLVL, "ADDRD: rio element built.")) ;
 
         fSetStackMin = TRUE ;       /* Must save current datacount     */
         prelemNew = NULL ;            /* Skip the while loops            */
@@ -1157,7 +1055,7 @@ Return Value:
     struct relem *prelemT ;
     CRTHANDLE handleT;
 
-    ALWAYS((MNGRP, RDLVL, "RESETR: Entered.")) ;
+    DEBUG((MNGRP, RIOLVL, "RESETR: Entered.")) ;
 
     prelemT = prio->rnod->rio ;
 
@@ -1165,19 +1063,19 @@ Return Value:
 
         if (prelemT->svhndl && (prelemT->svhndl != BADHANDLE)) {
 
-            ALWAYS((MNGRP,RDLVL,"RESETR: Resetting %d",(ULONG)prelemT->rdhndl)) ;
-            ALWAYS((MNGRP,RDLVL,"RESETR: From save %d",(ULONG)prelemT->svhndl)) ;
+            DEBUG((MNGRP,RIOLVL,"RESETR: Resetting %d",(ULONG)prelemT->rdhndl)) ;
+            DEBUG((MNGRP,RIOLVL,"RESETR: From save %d",(ULONG)prelemT->svhndl)) ;
 
             handleT = Cdup2(prelemT->svhndl, prelemT->rdhndl) ;
             Cclose(prelemT->svhndl) ;
 
-            ALWAYS((MNGRP,RDLVL,"RESETR: Dup2 retcode = %d", handleT)) ;
+            DEBUG((MNGRP,RIOLVL,"RESETR: Dup2 retcode = %d", handleT)) ;
 
         } else {
 
             if (prelemT->svhndl == BADHANDLE) {
 
-                ALWAYS((MNGRP,RDLVL,"RESETR: Closing %d",(ULONG)prelemT->rdhndl)) ;
+                DEBUG((MNGRP,RIOLVL,"RESETR: Closing %d",(ULONG)prelemT->rdhndl)) ;
 
                 Cclose(prelemT->rdhndl) ;
             }
@@ -1192,7 +1090,7 @@ Return Value:
     //
     rioCur = prio->back ;
 
-    ALWAYS((MNGRP, RDLVL, "RESETR: List element destroyed.")) ;
+    DEBUG((MNGRP, RIOLVL, "RESETR: List element destroyed.")) ;
 }
 
 
@@ -1237,6 +1135,18 @@ Return Value:
     PTCHAR   pszTitle;
     ULONG   rc;
 
+
+    //
+    // I haven't found where in CMD we end up with NULL pointer here
+    // (all failing mallocs cause CMD to exit)
+    // however I saw one strange stress failure.
+    // So lets not cause AV and just return FAILURE if NULL.
+    //
+
+    if (pcmdnode->cmdline == NULL)
+        return(FAILURE) ;
+
+
     //
     // Validate any drive letter
     //
@@ -1257,29 +1167,29 @@ Return Value:
             }
         }
 
-	//
-	// Pull out drive letter and convert to drive number
-	// BUGBUG: it is   not neccessary to do this conversion
-	//
-	DriveNum = (USHORT)(_totupper(*pcmdnode->cmdline) - SILOP) ;
+        //
+        // Pull out drive letter and convert to drive number
+        // BUGBUG: it is   not neccessary to do this conversion
+        //
+        DriveNum = (USHORT)(_totupper(*pcmdnode->cmdline) - SILOP) ;
 
-	//
-	// If this is just a change in drive do it here
-	//
-	if (mystrlen(pcmdnode->cmdline) == 2) {
+        //
+        // If this is just a change in drive do it here
+        //
+        if (mystrlen(pcmdnode->cmdline) == 2) {
 
-	    //
-	    // ChangeDrive set CurDrvDir in addition to changing the drive
-	    ChangeDrive(DriveNum) ;
-	    DEBUG((MNGRP,DPLVL,"FFAR: Drv chng to %ws", CurDrvDir)) ;
-	    return(SUCCESS) ;
-	}
+            //
+            // ChangeDrive set CurDrvDir in addition to changing the drive
+            ChangeDrive(DriveNum) ;
+            DEBUG((MNGRP,DPLVL,"FFAR: Drv chng to %ws", CurDrvDir)) ;
+            return(SUCCESS) ;
+        }
 
-	//
-	// Note that if the cmdline contains a drivespec, no attempt is made at
-	// internal command matching whatsoever.
-	//
-	return(ExtCom(pcmdnode)) ;
+        //
+        // Note that if the cmdline contains a drivespec, no attempt is made at
+        // internal command matching whatsoever.
+        //
+        return(ExtCom(pcmdnode)) ;
     }
 
     //
@@ -1344,8 +1254,11 @@ Return Value:
 
     // this hack to allow environment variables to contain /?
     if (JmpTblIdx != SETTYP || !pszTokStr || (_tcsncmp(pszTokStr,TEXT("/\0?"),4) == 0)) {
-        if (CheckHelpSwitch(JmpTblIdx, pszTokStr) ) {
-            return( FAILURE );
+        // this is to exclude START command
+        if (JmpTblIdx != STRTTYP) {
+            if (CheckHelpSwitch(JmpTblIdx, pszTokStr) ) {
+                return( FAILURE );
+            }
         }
     }
     DEBUG((MNGRP, DPLVL, "FFAR: Internal command, about to validate args")) ;
@@ -1482,8 +1395,12 @@ Return Value:
         else {
 
             break ;
-	}
+        }
     }
+    if (iCmdStr == 0) {
+        return -1;
+    }
+
     rgchCmdStr[iCmdStr] = NULLC ;
 
 
@@ -1496,7 +1413,8 @@ Return Value:
         if (FindCmd(CMDMAX, rgchCmdStr, pbCmdFlags) == REMTYP) {
                     return(REMTYP) ;
         }
-    }
+    } else if (JmpTableIdx == GOTYP)
+        pcmdnode->flag = CMDNODE_FLAG_GOTO;
 
     fQuoteFound = FALSE;
     fQuoteFound2 = FALSE;
@@ -1535,7 +1453,7 @@ Return Value:
     if (iCmdStr != (cbCmdStr = mystrlen(pcmdnode->cmdline))) {
         int ArgLen;
 
-	ArgLen = mystrlen(pcmdnode->argptr);
+        ArgLen = mystrlen(pcmdnode->argptr);
         ArgLen += cbCmdStr;
 
         if (!(pszArgT = mkstr(ArgLen*sizeof(TCHAR)))) {
@@ -1660,7 +1578,6 @@ Return Value:
     struct cmdnode *pcmdnode;
     struct fornode *pfornode ;
     struct ifnode *pifnode ;
-    struct detnode *pdetnode ;
     PTCHAR op ;
 
     DEBUG((MNGRP, DPLVL, "UNBLD: Entered")) ;
@@ -1770,15 +1687,6 @@ Return Value:
         } ;
         break ;
 
-    case DETTYP:
-
-        DEBUG((MNGRP, DPLVL, "UNBLD: Found DETTYP")) ;
-        pdetnode = (struct detnode *) pnode ;
-
-        SPutC( pbCmdBuf, pdetnode->cmdline,YSPC) ;
-        UnBuild(pdetnode->body, pbCmdBuf) ;
-        break ;
-
     case NOTTYP:
 
         DEBUG((MNGRP, DPLVL, "UNBLD: Found NOTTYP")) ;
@@ -1800,6 +1708,24 @@ Return Value:
                 SPutC( pbCmdBuf, pcmdnode->argptr,NSPC) ;
         UnDuRd((struct node *)pcmdnode, pbCmdBuf) ;
         break ;
+
+    case HELPTYP:
+        DEBUG((MNGRP, DPLVL, "UNBLD: Found HELPTYP")) ;
+        if (LastMsgNo == MSG_HELP_FOR) {
+            SPutC( pbCmdBuf, TEXT("FOR /?"), YSPC) ;
+        }
+        else if (LastMsgNo == MSG_HELP_IF) {
+            SPutC( pbCmdBuf, TEXT("IF /?"), YSPC) ;
+        }
+        else if (LastMsgNo == MSG_HELP_REM) {
+            SPutC( pbCmdBuf, TEXT("REM /?"), YSPC) ;
+        }
+        else {
+            DEBUG((MNGRP, DPLVL, "UNBLD: Unknown Type!")) ;
+            longjmp(CmdJBuf2,-1) ;
+        }
+
+        break;
 
     default:
 

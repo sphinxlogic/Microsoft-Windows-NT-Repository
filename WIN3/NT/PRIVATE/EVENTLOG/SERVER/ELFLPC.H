@@ -52,4 +52,3 @@ typedef struct _ELF_REPLY_MESSAGE {
 } ELF_REPLY_MESSAGE, *PELF_REPLY_MESSAGE;
 
 #endif // ifndef _ELFLPC_
-

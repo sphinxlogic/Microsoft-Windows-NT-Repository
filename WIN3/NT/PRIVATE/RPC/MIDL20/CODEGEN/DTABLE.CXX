@@ -176,4 +176,3 @@ DISPATCH_TABLE::GetProcList(
 
 	return ListCount;
 }
-

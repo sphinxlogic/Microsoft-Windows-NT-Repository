@@ -62,7 +62,7 @@ Arguments:
     ServiceContext - Supplies a pointer to an arbitrary data structure which is
         to be passed to the function specified by the ServiceRoutine parameter.
 
-    SpinLock - Supplies a pointer to an executive spin lock.
+    SpinLock - Supplies an optional pointer to an executive spin lock.
 
     Vector - Supplies the index of the entry in the Interrupt Dispatch Table
         that is to be associated with the ServiceRoutine function.
@@ -115,10 +115,12 @@ Return Value:
     Interrupt->ServiceRoutine = ServiceRoutine;
     Interrupt->ServiceContext = ServiceContext;
 
-    // ****** begin temp ******
-    Interrupt->SpinLock = 0;
-    Interrupt->ActualLock = &Interrupt->SpinLock;
-    // ****** end temp ******
+    if (ARGUMENT_PRESENT(SpinLock)) {
+        Interrupt->ActualLock = SpinLock;
+    } else {
+        Interrupt->SpinLock = 0;
+        Interrupt->ActualLock = &Interrupt->SpinLock;
+    }
 
     Interrupt->Vector = Vector;
     Interrupt->Irql = Irql;
@@ -184,7 +186,6 @@ Return Value:
     KIRQL Irql;
     CHAR Number;
     KIRQL OldIrql;
-    KIRQL PreviousIrql;
     ULONG Vector;
 
     //
@@ -264,7 +265,7 @@ Return Value:
                 if (Interrupt->Mode == Interruptx->Mode) {
                     Connected = TRUE;
                     Interrupt->Connected = TRUE;
-                    KeRaiseIrql(Irql, &PreviousIrql);
+                    ASSERT (Irql <= KiSynchIrql);
                     if (Interruptx->DispatchAddress != KiChainedDispatch) {
                         InitializeListHead(&Interruptx->InterruptListEntry);
                         Interruptx->DispatchAddress = KiChainedDispatch;
@@ -272,7 +273,6 @@ Return Value:
 
                     InsertTailList(&Interruptx->InterruptListEntry,
                                    &Interrupt->InterruptListEntry);
-                    KeLowerIrql(PreviousIrql);
                 }
             }
         }
@@ -331,7 +331,6 @@ Return Value:
     PKINTERRUPT Interrupty;
     KIRQL Irql;
     KIRQL OldIrql;
-    KIRQL PreviousIrql;
     ULONG Vector;
 
     //
@@ -371,7 +370,7 @@ Return Value:
                                        DispatchCode[0]);
 
         if (Interruptx->DispatchAddress == KiChainedDispatch) {
-            KeRaiseIrql(Irql, &PreviousIrql);
+            ASSERT (Irql <= KiSynchIrql);
             if (Interrupt == Interruptx) {
                 Interruptx = CONTAINING_RECORD(Interruptx->InterruptListEntry.Flink,
                                                KINTERRUPT, InterruptListEntry);
@@ -405,8 +404,6 @@ Return Value:
                                (PKINTERRUPT_ROUTINE)(&Interrupty->DispatchCode);
 
                 }
-
-            KeLowerIrql(PreviousIrql);
 
         } else {
             HalDisableSystemInterrupt(Vector, Irql);

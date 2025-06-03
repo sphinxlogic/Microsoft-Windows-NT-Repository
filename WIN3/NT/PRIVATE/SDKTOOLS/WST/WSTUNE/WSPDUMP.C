@@ -114,7 +114,7 @@ BOOL wspDumpMain(INT vargc, CHAR **vargv)
    	// Initialize global variable containing name of program.
 	//
    	strcpy(szProgName, vargv[0]);
-   	strupr(szProgName);
+   	_strupr(szProgName);
 
    	/*
    	 * Parse command line.
@@ -247,7 +247,7 @@ BOOL wspDumpMain(INT vargc, CHAR **vargv)
 	else
 		wspDumpSeq();
 		
-	fcloseall();
+	_fcloseall();
 	return(NO_ERROR);
 }
 
@@ -768,4 +768,3 @@ int _CRTAPI1 wspCompare(const void *fxn1, const void *fxn2)
 			((PFXN)fxn1)->ulOrigIndex == ((PFXN)fxn2)->ulOrigIndex ? 0:
 			1);
 }
-

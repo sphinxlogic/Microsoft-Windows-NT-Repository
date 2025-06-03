@@ -30,6 +30,15 @@ Revision History:
 #include "scsi.h"
 #include "class.h"
 
+#define MAX_SCSI_PRINT_XFER   0x00ffffff
+
+VOID
+SplitRequest(
+    IN PDEVICE_OBJECT DeviceObject,
+    IN PIRP Irp,
+    IN ULONG MaximumBytes
+    );
+
 
 NTSTATUS
 ScsiPrinterOpenClose(
@@ -157,6 +166,12 @@ Return Value:
     srb->DataTransferLength = currentIrpStack->Parameters.Write.Length;
 
     //
+    // Transfer length should never be greater than 3 bytes.
+    //
+    
+    ASSERT(srb->DataTransferLength <= MAX_SCSI_PRINT_XFER);
+
+    //
     // Initialize the queue actions field.
     //
 
@@ -191,7 +206,7 @@ Return Value:
     srb->NextSrb = 0;
 
     //
-    // Calculate number of blocks to transfer.
+    // Get number of bytes to transfer.
     //
 
     transferLength = currentIrpStack->Parameters.Write.Length;
@@ -319,11 +334,20 @@ Return Value:
                         currentIrpStack->Parameters.Write.Length);
 
     //
+    // Check if hardware maximum transfer length is larger than SCSI
+    // print command can handle.  If so, lower the maximum allowed to
+    // the SCSI print maximum.
+    //
+
+    if (maximumTransferLength > MAX_SCSI_PRINT_XFER)
+        maximumTransferLength = MAX_SCSI_PRINT_XFER;
+
+    //
     // Check if request length is greater than the maximum number of
     // bytes that the hardware can transfer.
     //
 
-    if (currentIrpStack->Parameters.Read.Length > maximumTransferLength ||
+    if (currentIrpStack->Parameters.Write.Length > maximumTransferLength ||
         transferPages > deviceExtension->PortCapabilities->MaximumPhysicalPages) {
 
          transferPages =
@@ -346,18 +370,12 @@ Return Value:
         // Break up into smaller routines.
         //
 
-        ScsiClassSplitRequest(DeviceObject,
-                              Irp,
-                              maximumTransferLength);
+        SplitRequest(DeviceObject,
+                     Irp,
+                     maximumTransferLength);
 
         return STATUS_PENDING;
     }
-
-    //
-    // Return the results of the call to the port driver.
-    //
-
-    return IoCallDriver(deviceExtension->PortDeviceObject, Irp);
 
     //
     // Build SRB and CDB for this IRP.
@@ -799,7 +817,7 @@ Return Value:
 
 {
     PIO_SCSI_CAPABILITIES portCapabilities;
-    PULONG printerCount;
+    ULONG printerCount;
     PCHAR buffer;
     PSCSI_INQUIRY_DATA lunInfo;
     PSCSI_ADAPTER_BUS_INFO  adapterInfo;
@@ -875,7 +893,7 @@ Return Value:
                                                    RegistryPath,
                                                    PortDeviceObject,
                                                    PortNumber,
-                                                   printerCount,
+						   &printerCount,
                                                    portCapabilities,
                                                    lunInfo);
 
@@ -885,7 +903,7 @@ Return Value:
                     // Increment printer count.
                     //
 
-                    (*printerCount)++;
+		    printerCount++;
 
                     //
                     // Indicate that a printer was found.
@@ -1025,5 +1043,194 @@ Return Value:
     }
 
 } // end DriverEntry()
+
+VOID
+SplitRequest(
+    IN PDEVICE_OBJECT DeviceObject,
+    IN PIRP Irp,
+    IN ULONG MaximumBytes
+    )
 
-
+/*++
+
+Routine Description:
+
+    Break request into smaller requests.  Each new request will be the
+    maximum transfer size that the port driver can handle or if it
+    is the final request, it may be the residual size.
+
+    The number of IRPs required to process this request is written in the
+    current stack of the original IRP. Then as each new IRP completes
+    the count in the original IRP is decremented. When the count goes to
+    zero, the original IRP is completed.
+
+Arguments:
+
+    DeviceObject - Pointer to the class device object to be addressed.
+
+    Irp - Pointer to Irp the orginal request.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    PDEVICE_EXTENSION deviceExtension = DeviceObject->DeviceExtension;
+    PIO_STACK_LOCATION currentIrpStack = IoGetCurrentIrpStackLocation(Irp);
+    PIO_STACK_LOCATION nextIrpStack = IoGetNextIrpStackLocation(Irp);
+    ULONG transferByteCount = currentIrpStack->Parameters.Read.Length;
+    LARGE_INTEGER startingOffset = currentIrpStack->Parameters.Read.ByteOffset;
+    PVOID dataBuffer = MmGetMdlVirtualAddress(Irp->MdlAddress);
+    ULONG dataLength = MaximumBytes;
+    ULONG irpCount = (transferByteCount + MaximumBytes - 1) / MaximumBytes;
+    PSCSI_REQUEST_BLOCK srb;
+    ULONG i;
+
+    DebugPrint((2, "SplitRequest: Requires %d IRPs\n", irpCount));
+    DebugPrint((2, "SplitRequest: Original IRP %lx\n", Irp));
+
+    //
+    // If all partial transfers complete successfully then the status and
+    // bytes transferred are already set up. Failing a partial-transfer IRP
+    // will set status to error and bytes transferred to 0 during
+    // IoCompletion. Setting bytes transferred to 0 if an IRP fails allows
+    // asynchronous partial transfers. This is an optimization for the
+    // successful case.
+    //
+
+    Irp->IoStatus.Status = STATUS_SUCCESS;
+    Irp->IoStatus.Information = transferByteCount;
+
+    //
+    // Save number of IRPs to complete count on current stack
+    // of original IRP.
+    //
+
+    nextIrpStack->Parameters.Others.Argument1 = (PVOID) irpCount;
+
+    for (i = 0; i < irpCount; i++) {
+
+        PIRP newIrp;
+        PIO_STACK_LOCATION newIrpStack;
+
+        //
+        // Allocate new IRP.
+        //
+
+        newIrp = IoAllocateIrp(DeviceObject->StackSize, FALSE);
+
+        if (newIrp == NULL) {
+
+            DebugPrint((1,"SplitRequest: Can't allocate Irp\n"));
+
+            //
+            // If an Irp can't be allocated then the orginal request cannot
+            // be executed.  If this is the first request then just fail the
+            // orginal request; otherwise just return.  When the pending
+            // requests complete, they will complete the original request.
+            // In either case set the IRP status to failure.
+            //
+
+            Irp->IoStatus.Status = STATUS_INSUFFICIENT_RESOURCES;
+            Irp->IoStatus.Information = 0;
+
+            if (i == 0) {
+                IoCompleteRequest(Irp, IO_NO_INCREMENT);
+            }
+
+            return;
+        }
+
+        DebugPrint((2, "SplitRequest: New IRP %lx\n", newIrp));
+
+        //
+        // Write MDL address to new IRP. In the port driver the SRB data
+        // buffer field is used as an offset into the MDL, so the same MDL
+        // can be used for each partial transfer. This saves having to build
+        // a new MDL for each partial transfer.
+        //
+
+        newIrp->MdlAddress = Irp->MdlAddress;
+
+        //
+        // At this point there is no current stack. IoSetNextIrpStackLocation
+        // will make the first stack location the current stack so that the
+        // SRB address can be written there.
+        //
+
+        IoSetNextIrpStackLocation(newIrp);
+        newIrpStack = IoGetCurrentIrpStackLocation(newIrp);
+
+        newIrpStack->MajorFunction = currentIrpStack->MajorFunction;
+        newIrpStack->Parameters.Read.Length = dataLength;
+        newIrpStack->Parameters.Read.ByteOffset = startingOffset;
+        newIrpStack->DeviceObject = DeviceObject;
+
+        //
+        // Build SRB and CDB.
+        //
+
+        BuildPrintRequest(DeviceObject, newIrp);
+
+        //
+        // Adjust SRB for this partial transfer.
+        //
+
+        newIrpStack = IoGetNextIrpStackLocation(newIrp);
+
+        srb = newIrpStack->Parameters.Others.Argument1;
+        srb->DataBuffer = dataBuffer;
+
+        //
+        // Write original IRP address to new IRP.
+        //
+
+        newIrp->AssociatedIrp.MasterIrp = Irp;
+
+        //
+        // Set the completion routine to ScsiClassIoCompleteAssociated.
+        //
+
+        IoSetCompletionRoutine(newIrp,
+                               ScsiClassIoCompleteAssociated,
+                               srb,
+                               TRUE,
+                               TRUE,
+                               TRUE);
+
+        //
+        // Call port driver with new request.
+        //
+
+        IoCallDriver(deviceExtension->PortDeviceObject, newIrp);
+
+        //
+        // Set up for next request.
+        //
+
+        dataBuffer = (PCHAR)dataBuffer + MaximumBytes;
+
+        transferByteCount -= MaximumBytes;
+
+        if (transferByteCount > MaximumBytes) {
+
+            dataLength = MaximumBytes;
+
+        } else {
+
+            dataLength = transferByteCount;
+        }
+
+        //
+        // Adjust disk byte offset.
+        //
+
+        startingOffset.QuadPart = startingOffset.QuadPart + MaximumBytes;
+    }
+
+    return;
+
+} // end SplitRequest()
+

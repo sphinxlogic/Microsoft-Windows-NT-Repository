@@ -196,4 +196,3 @@ typedef PRINTDLG16 UNALIGNED *PPRINTDLG16;
 /* XLATOFF */
 #pragma pack()
 /* XLATON */
-

@@ -19,14 +19,13 @@ Revision History:
 --*/
 
 #include "psp.h"
-#include <zwapi.h>
-#include <string.h>
 
 #define ROUND_UP(VALUE,ROUND) ((ULONG)(((ULONG)VALUE + \
                                ((ULONG)ROUND - 1L)) & (~((ULONG)ROUND - 1L))))
 
 extern ULONG PsMinimumWorkingSet;
 extern ULONG PsMaximumWorkingSet;
+ULONG PsPrioritySeperation;
 
 #if DBG
 
@@ -82,7 +81,7 @@ GENERIC_MAPPING PspThreadMapping = {
 #pragma alloc_text(INIT,PsInitSystem)
 #pragma alloc_text(INIT,PspInitPhase0)
 #pragma alloc_text(INIT,PspInitPhase1)
-#pragma alloc_text(INIT,PspLocateSystemDll)
+#pragma alloc_text(INIT,PsLocateSystemDll)
 #pragma alloc_text(INIT,PspInitializeSystemDll)
 #pragma alloc_text(INIT,PspLookupSystemDllEntryPoint)
 #pragma alloc_text(INIT,PspNameToOrdinal)
@@ -95,7 +94,7 @@ GENERIC_MAPPING PspThreadMapping = {
 
 POBJECT_TYPE PsThreadType;
 POBJECT_TYPE PsProcessType;
-PVOID PspCidTable;
+PHANDLE_TABLE PspCidTable;
 PEPROCESS PsInitialSystemProcess;
 HANDLE PspInitialSystemProcessHandle;
 PACCESS_TOKEN PspBootAccessToken;
@@ -109,6 +108,7 @@ PVOID PsSystemDllDllBase;
 ULONG PspDefaultPagedLimit;
 ULONG PspDefaultNonPagedLimit;
 ULONG PspDefaultPagefileLimit;
+SCHAR PspForegroundQuantum[3];
 
 EPROCESS_QUOTA_BLOCK PspDefaultQuotaBlock;
 BOOLEAN PspDoingGiveBacks;
@@ -222,9 +222,13 @@ Return Value:
     PETHREAD Thread;
     MM_SYSTEMSIZE SystemSize;
 
-
+    PsPrioritySeperation = 2;
     SystemSize = MmQuerySystemSize();
     PspDefaultPagefileLimit = (ULONG)-1;
+
+    if ( sizeof(TEB) > 4096 || sizeof(PEB) > 4096 ) {
+        KeBugCheckEx(PROCESS_INITIALIZATION_FAILED,99,sizeof(TEB),sizeof(PEB),99);
+        }
 
     switch ( SystemSize ) {
 
@@ -243,6 +247,26 @@ Return Value:
             break;
         }
 
+    if ( MmIsThisAnNtAsSystem() ) {
+        PspForegroundQuantum[0] = 6*THREAD_QUANTUM;
+        PspForegroundQuantum[1] = 6*THREAD_QUANTUM;
+        PspForegroundQuantum[2] = 6*THREAD_QUANTUM;
+        }
+    else {
+
+        //
+        // For Workstation:
+        //
+        // BG is THREAD_QUANTUM
+        // FG is THREAD_QUANTUM                 50/50 fg/bg
+        // FG is 2 * THREAD_QUANTUM             65/35 fg/bg
+        // FG is 3 * THREAD_QUANTUM             75/25 fg/bg
+        //
+
+        PspForegroundQuantum[0] = THREAD_QUANTUM;
+        PspForegroundQuantum[1] = 2*THREAD_QUANTUM;
+        PspForegroundQuantum[2] = 3*THREAD_QUANTUM;
+        }
     //
     // Quotas grow as needed automatically
     //
@@ -381,6 +405,7 @@ Return Value:
 
     RtlZeroMemory( &ObjectTypeInitializer, sizeof( ObjectTypeInitializer ) );
     ObjectTypeInitializer.Length = sizeof( ObjectTypeInitializer );
+    ObjectTypeInitializer.InvalidAttributes = OBJ_OPENLINK;
     ObjectTypeInitializer.SecurityRequired = TRUE;
     ObjectTypeInitializer.PoolType = NonPagedPool;
     ObjectTypeInitializer.InvalidAttributes = OBJ_PERMANENT |
@@ -430,19 +455,17 @@ Return Value:
     ExInitializeFastMutex(&PspActiveProcessMutex);
 
     //
-    // Initialize Cid Table
+    // Initialize CID handle table.
+    //
+    // N.B. The CID handle table is removed from the handle table list so
+    //      it will not be enumerated for object handle queries.
     //
 
-    PspCidTable = ExCreateHandleTable(
-                    NULL,
-                    0L,
-                    0L,
-                    0L
-                    );
-
+    PspCidTable = ExCreateHandleTable(NULL, 0, 0);
     if ( ! PspCidTable ) {
         return FALSE;
     }
+    ExRemoveHandleTable(PspCidTable);
 
 #ifdef i386
 
@@ -511,8 +534,8 @@ Return Value:
         return FALSE;
     }
 
-    strcpy(&PsGetCurrentProcess()->ImageFileName,"Idle");
-    strcpy(&PsInitialSystemProcess->ImageFileName,"System");
+    strcpy(&PsGetCurrentProcess()->ImageFileName[0],"Idle");
+    strcpy(&PsInitialSystemProcess->ImageFileName[0],"System");
 
     //
     // Phase 1 System initialization
@@ -594,12 +617,6 @@ Return Value:
 
     NTSTATUS st;
 
-    st = PspLocateSystemDll();
-
-    if ( !NT_SUCCESS(st) ) {
-        return FALSE;
-    }
-
     st = PspInitializeSystemDll();
 
     if ( !NT_SUCCESS(st) ) {
@@ -610,7 +627,7 @@ Return Value:
 }
 
 NTSTATUS
-PspLocateSystemDll (
+PsLocateSystemDll (
     VOID
     )
 
@@ -619,7 +636,7 @@ PspLocateSystemDll (
 Routine Description:
 
     This function locates the system dll and creates a section for the
-    DLL.
+    DLL and maps it into the system process.
 
 Arguments:
 
@@ -671,7 +688,7 @@ Return Value:
     if (!NT_SUCCESS(st)) {
 
 #if DBG
-        DbgPrint("PS: PspLocateSystemDll - NtOpenFile( LDRDLL.DLL ) failed.  Status == %lx\n",
+        DbgPrint("PS: PsLocateSystemDll - NtOpenFile( NTDLL.DLL ) failed.  Status == %lx\n",
             st
             );
 #endif
@@ -720,7 +737,7 @@ Return Value:
 
     if (!NT_SUCCESS(st)) {
 #if DBG
-        DbgPrint("PS: PspLocateSystemDll: NtCreateSection Status == %lx\n",st);
+        DbgPrint("PS: PsLocateSystemDll: NtCreateSection Status == %lx\n",st);
 #endif
         KeBugCheckEx(PROCESS1_INITIALIZATION_FAILED,st,3,0,0);
         return st;
@@ -746,6 +763,19 @@ Return Value:
         KeBugCheckEx(PROCESS1_INITIALIZATION_FAILED,st,4,0,0);
         return st;
     }
+
+    //
+    // Map the system dll into the user part of the address space
+    //
+
+    st = PspMapSystemDll(PsGetCurrentProcess(),&PspSystemDll.DllBase);
+    PsSystemDllDllBase = PspSystemDll.DllBase;
+
+    if ( !NT_SUCCESS(st) ) {
+        KeBugCheckEx(PROCESS1_INITIALIZATION_FAILED,st,5,0,0);
+        return st;
+    }
+    PsSystemDllBase = PspSystemDll.DllBase;
 
     return STATUS_SUCCESS;
 }
@@ -842,19 +872,6 @@ Return Value:
     NTSTATUS st;
     PSZ dll_entrypoint;
     PVOID R3EmulatorTable;
-
-    //
-    // Map the system dll into the user part of the address space
-    //
-
-    st = PspMapSystemDll(PsGetCurrentProcess(),&PspSystemDll.DllBase);
-    PsSystemDllDllBase = PspSystemDll.DllBase;
-
-    if ( !NT_SUCCESS(st) ) {
-        KeBugCheckEx(PROCESS1_INITIALIZATION_FAILED,st,5,0,0);
-        return st;
-    }
-    PsSystemDllBase = PspSystemDll.DllBase;
 
     //
     // Locate the important system dll entrypoints

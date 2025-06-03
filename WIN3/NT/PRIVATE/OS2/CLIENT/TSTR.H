@@ -290,4 +290,3 @@ wtol (
 #define DOWN_LEVEL_STRSIZE(n)   ((n) / sizeof(_CHAR_TYPE))
 
 #endif  // _TSTR_H_INCLUDED
-

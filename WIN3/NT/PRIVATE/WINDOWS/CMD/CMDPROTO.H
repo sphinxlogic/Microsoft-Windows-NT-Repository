@@ -35,11 +35,13 @@ struct node *
 // Define function prototypes.
 //
 
+void CMDexit(int rc);
+
 VOID
 InitializeDbcsLeadCharTable(
     );
-TCHAR * mystrchr(register TCHAR const *string, int c);
-TCHAR * mystrrchr(register TCHAR const *string, int c);
+TCHAR * mystrchr(register TCHAR const *string, TCHAR c);
+TCHAR * mystrrchr(register TCHAR const *string, TCHAR c);
 size_t mystrcspn(TCHAR const *str1, TCHAR const *str2);
 
 #if DBG
@@ -57,17 +59,20 @@ CRTHANDLE OpenPosBat(struct batdata     *);
 int eEcho(struct cmdnode   *);
 int eKeys(struct cmdnode   *);
 void FvarRestore(void );
-        int eFor(struct fornode *);
+int eFor(struct fornode *);
 int FWork(struct node   *,BOOL);
 int SubFor(struct node   *,BOOL);
 int SFWork(struct node   *,TCHAR   *   *,int ,BOOL);
 int ForFree(int );
 int eGoto(struct cmdnode   *);
 int eIf(struct ifnode   *);
+int eCmdExtVer(struct cmdnode   *);
 int eErrorLevel(struct cmdnode   *);
+int eDefined(struct cmdnode   *);
 int eExist(struct cmdnode   *);
 int eNot(struct cmdnode   *);
 int eStrCmp(struct cmdnode   *);
+int eGenCmp(struct cmdnode   *);
 int ePause(struct cmdnode   *);
 int eShift(struct cmdnode   *);
 int eSetlocal(struct cmdnode   *);
@@ -92,11 +97,14 @@ int DirDevCheck(TCHAR   *,int );
 void DirPrintPerFileInfo(PWIN32_FIND_DATA, int, TCHAR *, int *);
 long DiskFreeSpace(TCHAR );
 void DirError(unsigned int );
+unsigned SetLastRetCodeIfError(unsigned);
 int ePath(struct cmdnode   *);
 int PathWork(struct cmdnode   *,int );
 int ePrompt(struct cmdnode   *);
 int eSet(struct cmdnode   *);
 int SetWork(struct cmdnode   *);
+int DisplayEnvVariable(TCHAR *);
+TCHAR *MyGetEnvVarPtr(TCHAR *);
 int DisplayEnv(void );
 int SetEnvVar(TCHAR *,TCHAR *,struct envdata   *);
 TCHAR *DeleteEnvVar(struct envdata   *,TCHAR *,TCHAR *);
@@ -105,20 +113,28 @@ int AddEnvVar(struct envdata   *,TCHAR *,TCHAR *,TCHAR *,int );
 PTCHAR GetEnvVar(PTCHAR);
 struct envdata   *CopyEnv(void );
 void ResetEnv(struct envdata   *);
-int MoveEnv(PWCHAR, PWCHAR, ULONG );
-int eAppend(struct cmdnode   *);
-int ExtCom(struct cmdnode   *);
-int ECWork(struct cmdnode   *,unsigned int ,unsigned int );
-int ExecPgm(TCHAR *,unsigned int ,unsigned int, TCHAR *, TCHAR *, TCHAR *  );
+int MoveEnv(TCHAR *, TCHAR *, ULONG );
+int eAppend(struct cmdnode *);
+int ExtCom(struct cmdnode *);
+int ECWork(struct cmdnode *,unsigned int ,unsigned int );
+int ExecPgm(struct cmdnode *,TCHAR *,unsigned int ,unsigned int, TCHAR *, TCHAR *, TCHAR *  );
 int SearchForExecutable(struct cmdnode   *,TCHAR   *);
 int DoFind(TCHAR   *,int ,TCHAR   *, BOOL);
-void ExecError(TCHAR   *);
-int eCopy(struct cmdnode   *);
-int eDelete(struct cmdnode   *);
+void ExecError(TCHAR *);
+int eAssoc(struct cmdnode *);
+int AssocWork(struct cmdnode *);
+int DisplayAssoc(HKEY, TCHAR *);
+int SetAssoc(HKEY, TCHAR *, TCHAR *);
+int eFType(struct cmdnode *);
+int FTypeWork(struct cmdnode *);
+int DisplayFType(HKEY, TCHAR *);
+int SetFType(HKEY, TCHAR *, TCHAR *);
+int eCopy(struct cmdnode *);
+int eDelete(struct cmdnode *);
 int DelWork(TCHAR   *);
-int eMove(struct cmdnode   *);
-int MoveParse(struct cmdnode *,TCHAR *,TCHAR *,struct cpyinfo **,unsigned, unsigned);
-int Move(TCHAR *,TCHAR *,struct cpyinfo *);
+int eMove(struct cmdnode *);
+int MoveParse(struct cmdnode *,TCHAR *,TCHAR *,struct cpyinfo **, unsigned int *,unsigned, unsigned);
+int Move(TCHAR *,TCHAR *,struct cpyinfo *, unsigned int);
 void MoveError(unsigned int );
 int eRename(struct cmdnode   *);
 int RenWork(struct cmdnode   *);
@@ -133,6 +149,7 @@ int eVersion(struct cmdnode   *);
 int eVolume(struct cmdnode   *);
 int VolWork(TCHAR   *);
 PTCHAR Init(void );
+BOOL GetRegistryValues(void);
 TCHAR   *CheckSwitches(TCHAR   *);
 void SetUpEnvironment(void);
 void InitLex(unsigned int ,int );
@@ -145,7 +162,8 @@ int LexCopy(TCHAR   *,TCHAR   *,int );
 void PrintPrompt(void );
 int IsData(void );
 void SubVar(void );
-TCHAR   *MSEnvVar(TCHAR   *,int   *);
+TCHAR   *MSEnvVar(jmp_buf *, TCHAR   *,int   *, TCHAR);
+TCHAR   *MSCmdVar(jmp_buf *, TCHAR   *,int   *, TCHAR *, TCHAR **);
 int  _CRTAPI1 main(void );
 int Dispatch(int ,struct node   *);
 int SetRedir(struct node   *,int );
@@ -153,9 +171,9 @@ int AddRedir(struct cmdnode   *,struct cmdnode   *);
 void ResetRedir(void );
 int FindFixAndRun(struct cmdnode   *);
 int FindAndFix(struct cmdnode   *,TCHAR   *);
-void FreeBigBuf(void );
+void FreeBigBuf(int );
 void FreeStack(ULONG );
-PVOID GetBigBuf(ULONG, ULONG, unsigned int *);
+PVOID GetBigBuf(ULONG, ULONG, unsigned int *, int);
 struct node   *mknode(void );
 void   *mkstr(int );
 void   *gmkstr(int );
@@ -173,7 +191,7 @@ int eCls(struct cmdnode   *);
 int eExit(struct cmdnode   *);
 int eVerify(struct cmdnode   *);
 int VerifyWork(struct cmdnode   *);
-TCHAR GetSetVerMode(TCHAR );
+BOOLEAN GetSetVerMode(BYTE);
 struct node   *Parser(unsigned int ,int ,int );
 struct node   *ParseStatement(void );
 struct node   *ParseFor(void );
@@ -215,7 +233,7 @@ int ChdirWork(TCHAR *);
 int eRmdir(struct cmdnode   *);
 int RdWork(TCHAR   *);
 void parse_args(TCHAR   *,struct cpyinfo   *,struct cpyinfo   *);
-void handle_switch(TCHAR*,struct cpyinfo*, struct cpyinfo*, int, int*, BOOL*);
+void handle_switch(TCHAR*,struct cpyinfo*, struct cpyinfo*, int, int*, BOOL*,BOOL*);
 int found_file(TCHAR*,int,struct cpyinfo**,struct cpyinfo**,int*,int*,int);
 void set_mode(int ,int ,int ,struct cpyinfo   *);
 struct cpyinfo   *add_filespec_to_struct(struct cpyinfo   *,TCHAR   *,int );
@@ -227,13 +245,15 @@ int FullPath(TCHAR   *,TCHAR   *, unsigned);
 int FileIsConsole( CRTHANDLE );
 int FileIsDevice( CRTHANDLE );
 int FileIsPipe( CRTHANDLE );
+int FileIsRemote( LPTSTR );
 int GetDir(TCHAR   *,TCHAR );
 int ChangeDir(TCHAR   *);
 int ChangeDir2(TCHAR *, BOOL);
-
+void FixupPath(TCHAR *, BOOL);
 
 int ePushDir( struct cmdnode *);
 int ePopDir( struct cmdnode *);
+int GetDirStackDepth(void);
 
 int ePriv( struct cmdnode *);
 
@@ -244,7 +264,15 @@ LoopThroughArgs (
     int
     );
 
+  STATUS EraseFile ( PSCREEN, ULONG, ULONG, PLARGE_INTEGER, PFS, PFF );
+  STATUS BuildFSFromPatterns ( PDRP, BOOLEAN, PFS * );
+  STATUS ParseDirParms( PTCHAR, PDRP );
+  STATUS GetFS( PFS, ULONG, ULONG, ULONG, ULONG, PSCREEN,
+                BOOLEAN (*) (STATUS, PTCHAR),
+                STATUS  (* ) ( PSCREEN, ULONG, ULONG, PLARGE_INTEGER, PFS, PFF )
+              );
   void ScanFSpec(struct cpyinfo   *);
+
   struct cpyinfo   *SetFsSetSaveDir(TCHAR   *);
   int exists(TCHAR   *);
   int exists_ex(TCHAR   *, BOOL);      /*@@4*/
@@ -299,13 +327,14 @@ LoopThroughArgs (
   int copy_was_ascii(struct cpyinfo   *);
   int eDate(struct cmdnode   *);
   int eTime(struct cmdnode   *);
-  void PrintDate(struct tm *, int, TCHAR * );
-  void PrintTime(struct tm *, int, TCHAR * );
+  int PrintDate(struct tm *, int, TCHAR *, int );
+  int PrintTime(struct tm *, int, TCHAR *, int );
   int GetVerSetDateTime(TCHAR   *,int );
   int VerifyDateString(LPSYSTEMTIME, TCHAR   *,TCHAR   *);
   int VerifyTimeString(LPSYSTEMTIME, TCHAR   *,TCHAR   *);
   BOOLEAN ffirst(PTCHAR, ULONG, PWIN32_FIND_DATA, PHANDLE);
   BOOLEAN fnext(PWIN32_FIND_DATA, ULONG, HANDLE);
+  int     f_how_many (PTCHAR, ULONG);
   int hstoi(TCHAR   *);
   TCHAR   *lastc(TCHAR   *);
   TCHAR   *penulc(TCHAR   *);
@@ -322,16 +351,18 @@ void InitLocale( VOID );
 
 TCHAR *stripit( TCHAR * );
 
-ULONG GetEnvCb( PWCHAR );
+ULONG GetEnvCb( TCHAR *);
 
 int cmdfound;        /* command found from parser         */
 int cpyfirst;        /* first time for DOSQFILEMODE           */
 int cpydflag;        /* flag for DOSQFILEMODE fr pars         */
 int cpydest;         /* flag for not disp bad dev msg twice   */
 int cdevfail;        /* flag for dev failed ScanFSpec         */
-BOOLEAN  fOutputUnicode; /* Unicode/Ansi output */
 int first_file;          /* @@5@J1 1st file flag from copy cmd    */
 int first_fflag;         /* @@5@J3 1st file flag from copy EAs    */
+#ifdef UNICODE
+BOOLEAN  fOutputUnicode; /* Unicode/Ansi output */
+#endif // UNICODE
 
 BOOLEAN
 ConvertTimeToFileTime (
@@ -347,7 +378,7 @@ ConvertFileTimeToTime (
 
 STATUS   DisplayFileListHeader( PSCREEN, ULONG, PTCHAR );
 STATUS   DisplayFileList ( PSCREEN, PULONG, PLARGE_INTEGER, ULONG, ULONG, PFS );
-STATUS   DisplayFile ( PSCREEN, ULONG, ULONG, PLARGE_INTEGER, PTCHAR, PFF );
+STATUS   DisplayFile ( PSCREEN, ULONG, ULONG, PLARGE_INTEGER, PFS, PFF );
 STATUS   DisplayBare ( PSCREEN, ULONG, PTCHAR, PWIN32_FIND_DATA );
 VOID     SetDotForm ( PTCHAR, ULONG );
 STATUS   DisplayDotForm ( PSCREEN, ULONG, PTCHAR );
@@ -374,7 +405,7 @@ VOID     CheckPause( PSCREEN );
 VOID     SetTab( PSCREEN, ULONG );
 VOID     FillToCol ( PSCREEN, ULONG );
 
-TCHAR    PromptUser ( PTCHAR, ULONG, TCHAR, TCHAR );
+BOOLEAN  PromptUser ( PTCHAR, ULONG );
 void     CheckCtrlC();
 
 BOOLEAN  TokStrAndCheckHelp(struct cmdnode *, ULONG );
@@ -384,12 +415,43 @@ BOOLEAN  TokBufCheckHelp(PTCHAR , ULONG );
 PTCHAR GetTitle(struct cmdnode * );
 VOID SetConTitle(PTCHAR );
 VOID ResetConTitle( PTCHAR );
-void mywcsnset ( PTCHAR string, TCHAR val, int count);
+void ResetConsoleMode( void );
+void mytcsnset ( PTCHAR string, TCHAR val, int count);
 
 DWORD MyFormatMessageW( unsigned, DWORD, LPVOID, DWORD, DWORD, LPTSTR, DWORD, va_list *Arguments );
 
-BOOL ReadBufFromInput	(HANDLE h, TCHAR*pBuf, int cch, int*pcch);
-BOOL ReadBufFromConsole	(HANDLE h, TCHAR*pBuf, int cch, int*pcch);
-BOOL ReadBufFromFile	(HANDLE h, TCHAR*pBuf, int cch, int*pcch);
-BOOL IsFullWidth(WCHAR wch);
-int  SizeOfHalfWidthString(PWCHAR pwch);
+BOOL ReadBufFromInput   (HANDLE h, TCHAR*pBuf, int cch, int*pcch);
+BOOL ReadBufFromConsole (HANDLE h, TCHAR*pBuf, int cch, int*pcch);
+BOOL ReadBufFromFile    (HANDLE h, TCHAR*pBuf, int cch, int*pcch);
+#if defined(JAPAN) && defined(UNICODE)
+BOOL IsFullWidth(TCHAR wch);
+int  SizeOfHalfWidthString(TCHAR *pwch);
+#endif /* defined(JAPAN) && defined(UNICODE) */
+
+typedef
+BOOL
+(WINAPI *LPCOPYFILEEX_ROUTINE)(
+    LPCWSTR lpExistingFileName,
+    LPCWSTR lpNewFileName,
+    LPPROGRESS_ROUTINE lpProgressRoutine OPTIONAL,
+    LPVOID lpData OPTIONAL,
+    LPBOOL pbCancel OPTIONAL,
+    DWORD dwCopyFlags
+    );
+
+LPCOPYFILEEX_ROUTINE lpCopyFileExW;
+
+typedef
+BOOL
+(WINAPI *LPISDEBUGGERPRESENT_ROUTINE)( VOID );
+
+LPISDEBUGGERPRESENT_ROUTINE lpIsDebuggerPresent;
+
+int SetColor(WORD attr);
+int DoComplete(TCHAR *buffer,int len ,int bForward,int bTouched);
+
+#ifdef WIN95_CMD
+BOOL Win95ReadConsoleA(HANDLE hIn,LPSTR pBuf,DWORD cch,LPDWORD pcch,LPVOID lpReserved);
+#undef ReadConsole
+#define ReadConsole Win95ReadConsoleA
+#endif

@@ -558,6 +558,11 @@ BYTE attr )             // I - select or deselect ?
      case WMTYPE_DISKS:
                           VLM_SelectDisks( attr );
                           break;
+#ifdef OEM_EMS
+     case WMTYPE_EXCHANGE:
+                          VLM_SelectExchangeShares( attr, wininfo );
+                          break;
+#endif
      case WMTYPE_SERVERS:
                           VLM_SelectVolumes( attr );
                           break;
@@ -726,6 +731,11 @@ INT32 lParam )             // I - nothing
               VLM_ExpandTree( WM_GetActiveDoc() );
               WM_ShowWaitCursor( FALSE );
            }
+#ifdef OEM_EMS
+           if ( wininfo->wType == WMTYPE_EXCHANGE ) {
+                SLM_EMSExpandTree( WM_GetActiveDoc() );
+           }
+#endif   
            break;
 
       case ID_EXPANDONE:
@@ -737,6 +747,12 @@ INT32 lParam )             // I - nothing
                 ( wininfo->wType == WMTYPE_TAPETREE ) ) {
               VLM_ExpandOne( WM_GetActiveDoc() );
            }
+
+#ifdef OEM_EMS
+           if ( wininfo->wType == WMTYPE_EXCHANGE ) {
+                SLM_EMSExpandOne( WM_GetActiveDoc() );
+           }
+#endif   
            break;
 
       case ID_EXPANDBRANCH:
@@ -750,6 +766,11 @@ INT32 lParam )             // I - nothing
               VLM_ExpandBranch( WM_GetActiveDoc() );
               WM_ShowWaitCursor( FALSE );
            }
+#ifdef OEM_EMS
+           if ( wininfo->wType == WMTYPE_EXCHANGE ) {
+                SLM_EMSExpandBranch( WM_GetActiveDoc() );
+           }
+#endif   
            break;
 
       case ID_COLLAPSEBRANCH:
@@ -761,6 +782,11 @@ INT32 lParam )             // I - nothing
                 ( wininfo->wType == WMTYPE_TAPETREE ) ) {
               VLM_CollapseBranch( WM_GetActiveDoc() );
            }
+#ifdef OEM_EMS
+           if ( wininfo->wType == WMTYPE_EXCHANGE ) {
+                SLM_EMSCollapseBranch( WM_GetActiveDoc() );
+           }
+#endif   
            break;
 
       case ID_CLOSEALL:
@@ -777,7 +803,12 @@ INT32 lParam )             // I - nothing
 
               VLM_PrevBrotherDir( WM_GetActiveDoc() );
            }
-           break;
+#ifdef OEM_EMS
+           if ( wininfo->wType == WMTYPE_EXCHANGE ) {
+                SLM_EMSPrevBrotherDir( WM_GetActiveDoc() );
+           }
+#endif   
+          break;
 
       case ID_CTRLARROWDOWN:
            wininfo = WM_GetInfoPtr( WM_GetActiveDoc() );
@@ -786,6 +817,11 @@ INT32 lParam )             // I - nothing
 
               VLM_NextBrotherDir( WM_GetActiveDoc() );
            }
+#ifdef OEM_EMS
+           if ( wininfo->wType == WMTYPE_EXCHANGE ) {
+                SLM_EMSNextBrotherDir( WM_GetActiveDoc() );
+           }
+#endif   
            break;
 
       case ID_ARROWLEFT:
@@ -795,6 +831,11 @@ INT32 lParam )             // I - nothing
 
               VLM_UpOneDir( WM_GetActiveDoc() );
            }
+#ifdef OEM_EMS
+           if ( wininfo->wType == WMTYPE_EXCHANGE ) {
+                SLM_EMSUpOneDir( WM_GetActiveDoc() );
+           }
+#endif   
            break;
 
       case ID_ARROWRIGHT:
@@ -804,6 +845,11 @@ INT32 lParam )             // I - nothing
 
               VLM_DownOneDir( WM_GetActiveDoc() );
            }
+#ifdef OEM_EMS
+           if ( wininfo->wType == WMTYPE_EXCHANGE ) {
+                SLM_EMSDownOneDir( WM_GetActiveDoc() );
+           }
+#endif   
            break;
 
       case ID_DELETE:
@@ -868,7 +914,6 @@ Q_HEADER_PTR vlm_list )   // I - queue to use
 
 
 }
-
 
 /**********************
 

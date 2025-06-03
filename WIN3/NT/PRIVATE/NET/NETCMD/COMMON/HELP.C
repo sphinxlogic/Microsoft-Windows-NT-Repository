@@ -131,11 +131,16 @@ help_help( SHORT ali, SHORT amt)
 
     if ( err = MGetHelpFileName(file_path, (USHORT) MAXPATHLEN) )
         ErrorExit (err);
-    
+
     /* BUGBUG */
     wcstombs(abuf, file_path, MAXPATHLEN);
 
-    if ( (hfile = fopen(abuf, "r")) == 0 )
+    /* 
+       we need to open help files in binary mode
+       because unicode text might contain 0x1a but
+       it's not EOF.
+    */
+    if ( (hfile = fopen(abuf, "rb")) == 0 )
         ErrorExit(APE_HelpFileDoesNotExist);
 
     if (!(fgetsW(text, LINE_LEN+1, hfile)))
@@ -226,8 +231,18 @@ help_help( SHORT ali, SHORT amt)
     }
 
     ali = pind;
-    GenOutput(outfile, TEXT("\n"));
+    GenOutput(outfile, TEXT("\r\n"));
     /* look for the specific entry (or path) and find its corresponding data */
+
+    /* KKBUGFIX */
+    /* U.S. bug.  find_entry strcat's to options but options is
+                  uninitialized.  The U.S. version is lucky that the malloc
+                  returns memory with mostly zeroes so this works.  With recent
+                  changes things are a little different and a malloc returns
+                  memory with no zeroes so find_entry overwrites the buffer.  */
+
+    options[0] = '\0';
+
     while ((r = find_entry(option_level, ali, outfile, &out_len)) >= 0) {
 	if (r) {
 	    options[0] = NULLC;
@@ -255,7 +270,7 @@ help_help( SHORT ali, SHORT amt)
 	    break;
 	case USAGE_ONLY:
 	    print_syntax(outfile, out_len);
-	    GenOutput(outfile, TEXT("\n"));
+	    GenOutput(outfile, TEXT("\r\n"));
 	    NetcmdExit(1);
 	    break;
 	case OPTIONS_ONLY:
@@ -352,7 +367,7 @@ print_syntax(int out, int out_len)
 		/* replace 'found space' with null for fprintf */
 		*++rtmp = NULLC;
 		rtmp++;
-		GenOutput1(out, TEXT("%s\n"), otmp);
+		GenOutput1(out, TEXT("%s\r\n"), otmp);
 
 		/* indent next line */
 		tmp = rtmp - out_len;
@@ -360,11 +375,11 @@ print_syntax(int out, int out_len)
 		while (rtmp != tmp)
 		    *tmp++ = BLANK;
 	    }
-	    GenOutput1(out, TEXT("%s]\n"), otmp);
+	    GenOutput1(out, TEXT("%s]\r\n"), otmp);
 	    *tmp = NULLC;
 	}
     else
-        GenOutput(out, TEXT("\n"));
+        GenOutput(out, TEXT("\r\n"));
 
     do {
 	if (*tmp)
@@ -510,16 +525,16 @@ help_helpmsg(TCHAR *msgid)
         ErrorExitInsTxt(APE_BAD_MSGID, msgid);
 
     /* if error num is a Win error */
-    if (err < NERR_BASE || err >= APPERR2_BASE) 
+    if (err < NERR_BASE || err >= APPERR2_BASE)
     {
-        TCHAR *lpMessage = NULL ;
-        
+        LPWSTR lpMessage = NULL ;
+
         if (!FormatMessageW(
                 FORMAT_MESSAGE_ALLOCATE_BUFFER|FORMAT_MESSAGE_FROM_SYSTEM,
                 NULL,
                 err,
                 0,
-                &lpMessage,
+                (LPWSTR)&lpMessage,
                 1024,
                 NULL))
         {
@@ -527,7 +542,7 @@ help_helpmsg(TCHAR *msgid)
         }
         else
         {
-	    WriteToCon(TEXT("\n%s\n"), lpMessage);
+	    WriteToCon(TEXT("\r\n%s\r\n"), lpMessage);
             (void) LocalFree((HLOCAL)lpMessage) ;
             return ;
         }

@@ -22,7 +22,15 @@ Revision History:
 #define _PSP_
 
 #include "ntos.h"
+#include "ntrtl.h"
+#include "nturtl.h"
+#include "zwapi.h"
 #include "ki.h"
+#ifdef _X86_
+#include <vdmntos.h>
+#endif
+#include "ntdbg.h"
+#include <string.h>
 
 #ifdef POOL_TAGGING
 #define ExAllocatePool(a,b) ExAllocatePoolWithTag(a,b,'  sP')
@@ -128,9 +136,6 @@ PspInitPhase1 (
     );
 
 NTSTATUS
-PspLocateSystemDll( VOID );
-
-NTSTATUS
 PspInitializeSystemDll( VOID );
 
 NTSTATUS
@@ -163,6 +168,11 @@ PspMapSystemDll(
 // Internal Creation Functions
 //
 
+#define PSP_MAX_CREATE_PROCESS_NOTIFY 8
+
+ULONG PspCreateProcessNotifyRoutineCount;
+PCREATE_PROCESS_NOTIFY_ROUTINE PspCreateProcessNotifyRoutine[ PSP_MAX_CREATE_PROCESS_NOTIFY ];
+
 NTSTATUS
 PspCreateProcess(
     OUT PHANDLE ProcessHandle,
@@ -174,6 +184,11 @@ PspCreateProcess(
     IN HANDLE DebugPort OPTIONAL,
     IN HANDLE ExceptionPort OPTIONAL
     );
+
+#define PSP_MAX_CREATE_THREAD_NOTIFY 8
+
+ULONG PspCreateThreadNotifyRoutineCount;
+PCREATE_THREAD_NOTIFY_ROUTINE PspCreateThreadNotifyRoutine[ PSP_MAX_CREATE_THREAD_NOTIFY ];
 
 NTSTATUS
 PspCreateThread(
@@ -318,13 +333,6 @@ PspAssignPrimaryToken(
     IN HANDLE Token
     );
 
-
-NTSTATUS
-PspAssignImpersonationToken(
-    IN PETHREAD Thread,
-    IN HANDLE Token
-    );
-
 //
 // VOID
 // PspLockProcessSecurityFields(VOID)
@@ -414,7 +422,7 @@ PspQueryDescriptorThread (
 // Global Data
 //
 
-extern PVOID PspCidTable;
+extern PHANDLE_TABLE PspCidTable;
 extern HANDLE PspInitialSystemProcessHandle;
 extern PACCESS_TOKEN PspBootAccessToken;
 extern KSPIN_LOCK PspEventPairLock;
@@ -429,6 +437,12 @@ extern ULONG PspDefaultPagefileLimit;
 
 extern EPROCESS_QUOTA_BLOCK PspDefaultQuotaBlock;
 extern BOOLEAN PspDoingGiveBacks;
+
+extern PKWIN32_PROCESS_CALLOUT PspW32ProcessCallout;
+extern PKWIN32_THREAD_CALLOUT PspW32ThreadCallout;
+extern ULONG PspW32ProcessSize;
+extern ULONG PspW32ThreadSize;
+extern SCHAR PspForegroundQuantum[3];
 
 #if DBG
 

@@ -1,3 +1,9 @@
+#ifndef __NTSDP_H__
+#define __NTSDP_H__
+
+
+#pragma warning( disable : 4101 )
+
 #define MULTIMODE   1
 
 #ifndef KERNEL
@@ -16,12 +22,12 @@
 // which is referenced in xxsetjmp.
 #include "xxsetjmp.h"
 
-#define _PORTABLE_32BIT_CONTEXT
 #include <nt.h>
 #include <ntdbg.h>
 #include <ntrtl.h>
 
 #ifdef  KERNEL
+#define KD_SYM_HANDLE   ((HANDLE)0xf0f0f0f0)
 //
 // MBH - BUG - our acc compiler does not support const.
 // the presence of these lines results in the multiple declarations
@@ -32,14 +38,14 @@
 #ifndef _M_ALPHA
 #undef const
 #define const const
-#endif
-#endif
+#endif  // _M_ALPHA
+#endif  // KERNEL
 
 #include <nturtl.h>
 #ifdef KERNEL
 #include <ntos.h>
 #include <iop.h>
-#endif
+#endif  // KERNEL
 #define NOMINMAX
 #include <windows.h>
 #include <imagehlp.h>
@@ -48,9 +54,10 @@
 #include <wdbgexts.h>
 #include <ntsdexts.h>
 #include <vdmdbg.h>
+#include <ntverp.h>
 
-#define BUILD_MAJOR_VERSION 3
-#define BUILD_MINOR_VERSION 5
+#define BUILD_MAJOR_VERSION (VER_PRODUCTVERSION_W >> 8)
+#define BUILD_MINOR_VERSION (VER_PRODUCTVERSION_W & 0xff)
 #define BUILD_REVISION      API_VERSION_NUMBER
 
 
@@ -60,16 +67,31 @@ extern long       vm86DefaultSeg;
 
 #define SYMBOL_PATH "_NT_SYMBOL_PATH"
 #define ALTERNATE_SYMBOL_PATH "_NT_ALT_SYMBOL_PATH"
+#define SRC_DRIVE "_NT_SRC_DRIVE"
 
 #ifdef i386
 #define VM86(x) ((unsigned short)((x>>17)&1))
 #define X86REGCS        REGCS
 #define X86REGDS        REGDS
-#else
+#else   // i386
 #define VM86(x)         (FALSE)
 #define X86REGCS        0
 #define X86REGDS        0
-#endif
+#endif  // i386
+
+#define MAX_SYMNAME_SIZE  1024
+#define SYM_BUFFER_SIZE   (sizeof(IMAGEHLP_SYMBOL)+MAX_SYMNAME_SIZE)
+extern PIMAGEHLP_SYMBOL sym;
+extern PIMAGEHLP_SYMBOL symStart;
+
+//
+// Abstraction for get/set context
+//
+#ifdef KERNEL
+typedef USHORT THREADORPROCESSOR;
+#else   // KERNEL
+typedef HANDLE THREADORPROCESSOR;
+#endif  // KERNEL
 
 typedef struct _ADDR {
     USHORT      type;
@@ -102,6 +124,28 @@ typedef struct _ADDR {
 #define Off(x)          ((x).off)
 #define Type(x)         ((x).type)
 #define NotFlat(x)      (x).type&=~FLAT_COMPUTED
+
+//
+// register abstractions
+//
+#if defined(ALPHA)
+#define REGPC(cxt)    (cxt)->Fir
+#elif defined(_PPC_)
+#define REGPC(cxt)    (cxt)->Iar
+#elif defined(MIPS)
+#define REGPC(cxt)    (cxt)->XFir
+#elif defined(i386)
+#define REGPC(cxt)    (cxt)->Eip
+#else
+#error( "unknown processor type" )
+#endif
+
+#if defined(_PPC_)
+VOID
+ToggleRegisterNames (
+    VOID
+    );
+#endif
 
 #ifndef i386
 //
@@ -146,184 +190,41 @@ typedef struct _DESCRIPTOR_TABLE_ENTRY {
 
 #include <assert.h>
 #include <malloc.h>
+#include <memory.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <crt\io.h>
+#include <fcntl.h>
 
 #include "ntsdtok.h"
 
-/////////////////////////////////////////////////////
-
-#define SYMBOL_TYPE_SYMBOL      ((UCHAR)0)
-#define SYMBOL_TYPE_EXPORT      ((UCHAR)1)
-
-typedef struct _node {
-    struct _node *pParent;
-    struct _node *pLchild;
-    struct _node *pRchild;
-    } NODE, *PNODE;
-
-typedef struct _symcontext {
-    PNODE   pNodeRoot;
-    PNODE   pNodeMax;
-    int     (*pfnCompare)(PNODE, PNODE, PBOOLEAN);
-    LONG    nodeDisplacement;
-    } SYMCONTEXT, *PSYMCONTEXT;
-
-//      SYMBOL-specific macros and structures
-
-#define PNODE_TO_PSYMBOL(pnode, psymcontext) \
-        ((PSYMBOL) ((LONG) (pnode) - (psymcontext)->nodeDisplacement))
-
-#define PSYMBOL_TO_PNODE(psymbol, psymcontext) \
-        ((PNODE) ((LONG) (psymbol) + (psymcontext)->nodeDisplacement))
-
-#define NODE_SYMBOL_DISPLACEMENT(node) \
-        ((LONG) (&((PSYMBOL) 0)->node))
-
-typedef struct _locals {
-    struct  _locals *next;
-    USHORT  type;
-    ULONG   value;
-    ULONG   aux;
-    CHAR    pszLocalName[1];
-    } LOCAL, *PLOCAL;
-
-typedef struct _symbol {
-    NODE    nodeOffset;
-    NODE    nodeString;
-    ULONG   offset;
-    CHAR    underscores;                // signed value
-    CHAR    modIndex;                   // signed value
-    UCHAR   type;
-    PLOCAL  pLocal;
-    USHORT  stdCallParams;
-    UCHAR   string[3];
-    } SYMBOL, *PSYMBOL;
-
-
-typedef struct _field {
-    struct  _field *next;
-    USHORT  type;
-    ULONG   value;
-    ULONG   aux;
-    CHAR    pszFieldName[1];
-    } FIELD, *PFIELD;
-
-typedef struct _struct {
-    NODE    nodeOffset;
-    NODE    nodeString;
-    ULONG   offset;
-    CHAR    underscores;                // signed value
-    CHAR    modIndex;                   // signed value
-    UCHAR   type;
-    PFIELD  pField;
-    UCHAR   string[3];
-    } STRUCT, *PSTRUCT;
-
-//      SYMFILE-specific macros and structures
-
-#define PNODE_TO_PSYMFILE(pnode, psymcontext) \
-        ((PSYMFILE) ((LONG) (pnode) - (psymcontext)->nodeDisplacement))
-
-#define PSYMFILE_TO_PNODE(psymfile, psymcontext) \
-        ((PNODE) ((LONG) (psymfile) + (psymcontext)->nodeDisplacement))
-
-#define NODE_SYMFILE_DISPLACEMENT(node) \
-        ((LONG) (&((PSYMFILE) 0)->node))
-
-typedef struct _lineno {
-    ULONG   memoryOffset;       //  memory offset (set from COFF)
-    USHORT  breakLineNumber;    //  line number in file for break (from COFF)
-    USHORT  topLineNumber;      //  line to start display (-1 if not set)
-    ULONG   topFileOffset;      //  offset in file of topLineNumber
-    } LINENO, *PLINENO, **PPLINENO;
-
-typedef struct _symfile {
-    NODE    nodeOffset;
-    NODE    nodeString;
-    PUCHAR  pchPath;            //  path (no filename or extension)
-    PUCHAR  pchName;            //  filename only
-    PUCHAR  pchExtension;       //  extension only (with '.' if nonnull)
-    USHORT  cLineno;
-    PLINENO pLineno;            //  first LINENO in list
-    PLINENO pLinenoNext;        //  next LINENO to process in ordering list
-    ULONG   startOffset;
-    ULONG   endOffset;
-    CHAR    modIndex;           //  signed value
-    ULONG   nextFileOffset;     //  file offset for next LINENO scan
-    USHORT  nextLineNumber;     //  line number for next LINENO scan
-    UCHAR   nextScanState;      //  scanner state for next LINENO scan
-    PPLINENO ppLinenoSrcLine;   //  pointer to PLINENO array for src ordering
-    PPLINENO ppLinenoSrcNext;   //  next ptr to PLINENO array for src ordering
-    SYMCONTEXT symcontextFunctionOffset;
-    SYMCONTEXT symcontextFunctionString;
-    SYMBOL     maxSymbol;
-    USHORT  tableOffset;
-    } SYMFILE, *PSYMFILE, **PPSYMFILE;
-
-//      states of line scanning for comment considerations for .c files
-
-enum {
-    stStart,            //  no comment
-    stSlash,            //  '/' of possible comment start
-    stSlStar,           //  '/*' in multiline comment
-    stSlStStar,         //  '/*'...'*' of possible comment end
-    stSlSlash,          //  '//' in single line comment
-    stLine,             //  active char - no comment
-    stLSlash,           //  active char - '/' of possible comment start
-    stLSlStar,          //  active char - '/*' in multiline comment
-    stLSlStStar,        //  active char - '/*'...'*' of possible comment end
-    stLSlSlash          //  active char - '//' in single line comment
-    };
-
-/////////////////////////////////////////////
-
 LPSTR DebuggerName;
-LPSTR SymbolSearchPath;
-
-typedef struct OMAP
-{
-    DWORD rva;
-    DWORD rvaTo;
-} OMAP, *POMAP;
 
 #define ORG_ADDR_NOT_AVAIL  0xffffffffL
 
 typedef struct _IMAGE_INFO {
     struct _IMAGE_INFO       *pImageNext;
     UCHAR                    index;
-    BOOLEAN                  fDebugInfoLoaded;  // TRUE if lpDebugInfo valid
-    BOOLEAN                  fSymbolsSeparate;  // TRUE if lpDebugInfo points to parts of .DBG file
-    BOOLEAN                  fSymbolsLoaded;    // TRUE if info extracted from lpDebugInfo
-    BOOLEAN                  fHasOmap;          // TRUE if image has offset map
-    POMAP                    rgomapToSource;    // For OmapToSource data
-    POMAP                    rgomapFromSource;  // For OmapFromSource data
-    DWORD                    comapToSrc;
-    DWORD                    comapFromSrc;
-    HANDLE                   hFile;             // From debug message (NULL for remote debug)
-    LPVOID                   ImageBase;         // From debug message
-    DWORD                    dwCheckSum;        // From debug message
-    PIMAGE_DEBUG_INFORMATION lpDebugInfo;       // non-NULL for deferred loads only
+    HANDLE                   hFile;
     LPVOID                   lpBaseOfImage;
     DWORD                    dwSizeOfImage;
-    ULONG                    offsetLow;
-    ULONG                    offsetHigh;
-    union {
-        struct {
-            ULONG            LowAddress;
-            ULONG            HighAddress;
-            ULONG            NumberOfFunctions;
-            PIMAGE_FUNCTION_ENTRY   FunctionTable;
-        };  // MIPS
-        struct {
-            PFPO_DATA        pFpoData;
-            DWORD            dwFpoEntries;
-        };  // x86
-    };
+    DWORD                    dwCheckSum;
+    DWORD                    DateTimeStamp;
+    BOOL                     GoodCheckSum;
     UCHAR                    szModuleName[ 32 ];
     UCHAR                    szImagePath[ MAX_PATH ];
     UCHAR                    szDebugPath[ MAX_PATH ];
-    } IMAGE_INFO, *PIMAGE_INFO;
+} IMAGE_INFO, *PIMAGE_INFO;
+
+#define PSYMBOL PIMAGEHLP_SYMBOL
+
+BOOL
+SymbolCallbackFunction(
+    HANDLE  hProcess,
+    ULONG   ActionCode,
+    PVOID   CallbackData,
+    PVOID   UserContext
+    );
 
 #ifndef KERNEL
 typedef struct _THREAD_INFO {
@@ -339,31 +240,26 @@ typedef struct _THREAD_INFO {
     ULONG                    DReg7;
     UCHAR                    cntDReg;
 #endif
-    UCHAR                    index;
-    } THREAD_INFO, *PTHREAD_INFO;
+    ULONG                    index;
+} THREAD_INFO, *PTHREAD_INFO;
 #endif
 
 typedef struct _PROCESS_INFO {
     struct _PROCESS_INFO     *pProcessNext;
     PIMAGE_INFO              pImageHead;
     DWORD                    MaxIndex;
-    PIMAGE_INFO             *pImageByIndex;
+    PIMAGE_INFO              *pImageByIndex;
+    HANDLE                   hProcess;
 #ifndef KERNEL
     DWORD                    dwProcessId;
-    HANDLE                   hProcess;
     PTHREAD_INFO             pThreadHead;
     PTHREAD_INFO             pThreadEvent;
     PTHREAD_INFO             pThreadCurrent;
     BOOLEAN                  fStopOnBreakPoint;
+    BOOLEAN                  fWx86Process;
 #endif
-    SYMCONTEXT               symcontextSymbolOffset;
-    SYMCONTEXT               symcontextSymbolString;
-    SYMCONTEXT               symcontextSymfileOffset;
-    SYMCONTEXT               symcontextSymfileString;
-    SYMCONTEXT               symcontextStructOffset;
-    SYMCONTEXT               symcontextStructString;
-    UCHAR                    index;
-    } PROCESS_INFO, *PPROCESS_INFO;
+    ULONG                    index;
+} PROCESS_INFO, *PPROCESS_INFO;
 
 extern PPROCESS_INFO    pProcessHead;
 extern PPROCESS_INFO    pProcessEvent;
@@ -391,6 +287,7 @@ struct SubReg {
 //  defined in ntcmd.c
 
 extern UCHAR   *pchCommand;
+extern UCHAR   chCommand[];
 extern UCHAR   cmdState;
 extern UCHAR   chSymbolSuffix;
 extern CONTEXT RegisterContext;
@@ -409,13 +306,11 @@ extern BOOLEAN KdVerbose;
 extern void    ProcessStateChange(ULONG, PDBGKD_CONTROL_REPORT, PCHAR);
 #endif
 
-#if MULTIMODE
 extern void    ComputeFlatAddress(PADDR, PDESCRIPTOR_TABLE_ENTRY);
 extern void    ComputeNativeAddress(PADDR);
 extern void    FormAddress(PADDR, ULONG, ULONG);
 extern PADDR   AddrAdd(PADDR, ULONG);
 extern PADDR   AddrSub(PADDR, ULONG);
-#endif
 
 extern NTSTATUS WriteBreakPoint(ADDR,PULONG);
 
@@ -459,20 +354,24 @@ extern void    WriteCachedMemory(PADDR, PUCHAR, ULONG);
 
 extern PCONTEXT GetRegContext(void);
 
-BOOLEAN ReadVirtualMemory(PUCHAR, PUCHAR, ULONG, PULONG);
 BOOLEAN WriteVirtualMemory(PUCHAR, PUCHAR, ULONG, PULONG);
 BOOLEAN ReadPhysicalMemory(PHYSICAL_ADDRESS, PUCHAR, ULONG, PULONG);
 BOOLEAN WritePhysicalMemory(PHYSICAL_ADDRESS, PUCHAR, ULONG, PULONG);
 #endif
+BOOLEAN ReadVirtualMemory(PUCHAR, PUCHAR, ULONG, PULONG);
+BOOL GetHeaderInfo(DWORD,LPDWORD,LPDWORD,LPDWORD);
 
 // defined in fpo.c
 
-#ifdef i386
 PFPO_DATA    FindFpoDataForModule(DWORD dwPCAddr);
-PIMAGE_INFO  FpoGetImageForPC( DWORD dwPCAddr);
 BOOL         FpoValidateReturnAddress (DWORD dwRetAddr);
+
+#ifdef i386
+PIMAGE_INFO  FpoGetImageForPC( DWORD dwPCAddr);
 DWORD        FpoGetReturnAddress (DWORD *pdwStackAddr);
 #endif
+
+void         CreateModuleNameFromPath(LPSTR,LPSTR);
 
 //  defined in ntreg.c
 
@@ -489,17 +388,57 @@ extern struct SubReg subregname[];
 extern ULONG   TerseLevel;
 #endif
 
-extern ULONG   GetRegFlagValue(ULONG);
-extern ULONG   GetRegValue(ULONG);
+BOOL
+DbgGetThreadContext(
+    THREADORPROCESSOR TorP,
+    PCONTEXT Context
+    );
+
+BOOL
+DbgSetThreadContext(
+    THREADORPROCESSOR TorP,
+    PCONTEXT Context
+    );
+
+#ifdef TARGET_MIPS
+
+typedef enum { Ctx32Bit, Ctx64Bit } MIPSCONTEXTSIZE;
+extern MIPSCONTEXTSIZE MipsContextSize;
+
+VOID
+CoerceContext64To32(
+    PCONTEXT Context
+    );
+
+VOID
+CoerceContext32To64(
+    PCONTEXT Context
+    );
+#endif
+
+#ifdef TARGET_ALPHA
+VOID
+MoveQuadContextToInt(
+    PCONTEXT Context
+    );
+
+VOID
+MoveIntContextToQuad(
+    PCONTEXT Context
+    );
+#endif
+
+extern ULONGLONG GetRegFlagValue(ULONG);
+extern ULONGLONG GetRegValue(ULONG);
 extern void    GetRegPCValue(PADDR);
 extern PADDR   GetRegFPValue(void);
-extern void    SetRegFlagValue(ULONG, ULONG);
-extern void    SetRegValue(ULONG, ULONG);
+extern void    SetRegFlagValue(ULONG, LONGLONG);
+extern void    SetRegValue(ULONG, LONGLONG);
 extern void    SetRegPCValue(PADDR);
 extern ULONG   GetRegName(void);
 extern ULONG   GetRegString(PUCHAR);
-extern void    OutputAllRegs(void);
-extern void    OutputOneReg(ULONG);
+extern void    OutputAllRegs(BOOL);
+extern void    OutputOneReg(ULONG, BOOL);
 extern void    OutputHelp(void);
 extern void    pause(void);
 extern void    ClearTraceFlag(void);
@@ -508,41 +447,42 @@ extern void    SetTraceFlag(void);
 #endif
 extern PUCHAR  RegNameFromIndex(ULONG);
 
-#if defined(MIPS) || defined(ALPHA)
-extern PIMAGE_FUNCTION_ENTRY LookupFunctionEntry(ULONG);
-#endif
-
 //  defined in ntsym.c
 
-extern BOOLEAN     fSourceOnly;
-extern BOOLEAN     fSourceMixed;
+BOOLEAN     fSourceOnly;
+BOOLEAN     fSourceMixed;
 
-extern void        GetSymbol(ULONG, PUCHAR, PULONG);
-extern void        GetSymbolStdCall(ULONG, PUCHAR, PULONG, PUSHORT);
+void        GetSymbolStdCall(ULONG, PUCHAR, PULONG, PUSHORT);
 
-void               SetSymbolSearchPath(BOOL);
-extern void        DeferSymbolLoad(PIMAGE_INFO);
-extern void        LoadSymbols(PIMAGE_INFO);
-extern void        UnloadSymbols(PIMAGE_INFO);
-extern BOOLEAN     GetOffsetFromSym(PUCHAR, PULONG, CHAR);
-extern void        GetAdjacentSymOffsets (ULONG, PULONG, PULONG);
+void        SetSymbolSearchPath(BOOL);
+void        DeferSymbolLoad(PIMAGE_INFO);
+void        LoadSymbols(PIMAGE_INFO);
+void        UnloadSymbols(PIMAGE_INFO);
+BOOLEAN     GetOffsetFromSym(PUCHAR, PULONG, CHAR);
+void        GetAdjacentSymOffsets (ULONG, PULONG, PULONG);
 
-extern PLINENO     GetLinenoFromFilename(PUCHAR, PPSYMFILE, USHORT, CHAR);
-extern PLINENO     GetCurrentLineno(PPSYMFILE);
-extern PLINENO     GetLinenoFromOffset(PPSYMFILE, ULONG);
-extern void        GetCurrentMemoryOffsets(PULONG, PULONG);
-extern BOOLEAN     OutputLines(PSYMFILE, PLINENO, USHORT, USHORT);
-extern void        UpdateLineno(PSYMFILE, PLINENO);
-extern void        GetLinenoString(PUCHAR, ULONG);
-extern BOOLEAN     OutputSourceFromOffset(ULONG, BOOLEAN);
-extern PLINENO     GetLastLineno(PPSYMFILE, PUSHORT);
-extern PSYMBOL     GetFunctionFromOffset(PPSYMFILE, ULONG );
+//PLINENO     GetLinenoFromFilename(PUCHAR, PPSYMFILE, USHORT, CHAR);
+//PLINENO     GetCurrentLineno(PPSYMFILE);
+//PLINENO     GetLinenoFromOffset(PPSYMFILE, ULONG);
+//void        GetLinenoString(PUCHAR, ULONG);
+//BOOLEAN     OutputLines(PSYMFILE, PLINENO, USHORT, USHORT);
+//void        UpdateLineno(PSYMFILE, PLINENO);
+//PLINENO     GetLastLineno(PPSYMFILE, PUSHORT);
+//USHORT  GetSrcExpression(PPSYMFILE, PPLINENO);
 
-extern PIMAGE_INFO GetModuleIndex(PUCHAR);
-extern PIMAGE_INFO GetCurrentModuleIndex(void);
+PSYMBOL     GetFunctionFromOffset(ULONG);
 
-extern void    parseExamine(void);
-extern BOOLEAN MatchPattern(PUCHAR, PUCHAR);
+void        GetCurrentMemoryOffsets(PULONG, PULONG);
+BOOLEAN     OutputSourceFromOffset(ULONG, BOOLEAN);
+int         EnsureOffsetSymbolsLoaded(ULONG);
+
+PIMAGE_INFO GetModuleIndex(PUCHAR);
+PIMAGE_INFO GetCurrentModuleIndex(void);
+BOOL        GetModnameFromImage(DWORD,HANDLE,LPSTR);
+void        DumpModuleTable(BOOLEAN);
+
+void    parseExamine(void);
+BOOLEAN MatchPattern(PUCHAR, PUCHAR);
 
 DWORD ConvertOmapToSrc(DWORD, PIMAGE_INFO, DWORD *);
 DWORD ConvertOmapFromSrc(DWORD, PIMAGE_INFO, DWORD *);
@@ -555,15 +495,13 @@ PIMAGE_INFO GetImageInfoFromOffset( ULONG );
 void ExtractOmapData(PIMAGE_INFO);
 
 //  defined in ntexpr.c
-extern PADDR   GetAddrExpression(ULONG, PADDR);
-extern ULONG   GetExpression(void);
-extern UCHAR   PeekChar(void);
-extern void    fnListNear(ULONG);
-extern USHORT  GetSrcExpression(PPSYMFILE, PPLINENO);
+PADDR   GetAddrExpression(ULONG, PADDR);
+ULONG   GetExpression(void);
+UCHAR   PeekChar(void);
+void    fnListNear(ULONG);
 
 //  defined in ntsdk.c (kernel)
 
-extern USHORT ProcessorType;
 #ifdef  KERNEL
 extern USHORT NtsdCurrentProcessor;
 extern USHORT DefaultProcessor;
@@ -577,56 +515,57 @@ extern USHORT DefaultProcessor;
 #ifndef KERNEL
 extern void    BrkptInit(void);
 #ifdef ADDR_BKPTS
-extern NTSTATUS AddrWriteBreakPoint(ADDR, PULONG);
-extern NTSTATUS AddrRestoreBreakPoint(ULONG);
-#else
-extern NTSTATUS DbgKdWriteBreakPoint(PVOID, PULONG);
-extern NTSTATUS DbgKdRestoreBreakPoint(ULONG);
+NTSTATUS AddrWriteBreakPoint(ADDR, PULONG);
+NTSTATUS AddrRestoreBreakPoint(ULONG);
 #endif
-extern NTSTATUS DbgKdReadVirtualMemory(PVOID, PVOID, ULONG, PULONG);
-extern NTSTATUS DbgKdWriteVirtualMemory(PVOID, PVOID, ULONG, PULONG);
-extern NTSTATUS DbgKdGetVersion(PDBGKD_GET_VERSION GetVersion);
+#else
+NTSTATUS DbgKdWriteBreakPoint(PVOID, PULONG);
+NTSTATUS DbgKdRestoreBreakPoint(ULONG);
+NTSTATUS DbgKdReadVirtualMemory(PVOID, PVOID, ULONG, PULONG);
+NTSTATUS DbgKdWriteVirtualMemory(PVOID, PVOID, ULONG, PULONG);
+NTSTATUS DbgKdGetVersion(PDBGKD_GET_VERSION GetVersion);
+NTSTATUS DbgKdPageIn(ULONG Address);
 #endif
 
 //  defined in 86dis.c
 
-extern BOOLEAN X86disasm(PADDR, PUCHAR, BOOLEAN);
-extern BOOLEAN X86fDelayInstruction(void);
-extern void    X86GetNextOffset(PADDR, BOOLEAN);
-void X86GetReturnAddress (PADDR retaddr);
+BOOLEAN X86disasm(PADDR, PUCHAR, BOOLEAN);
+BOOLEAN X86fDelayInstruction(void);
+void    X86GetNextOffset(PADDR, BOOLEAN);
+void    X86GetReturnAddress (PADDR retaddr);
 
 //  defined in dbgkdapi.c
 
-extern NTSTATUS DbgKdSetInternalBp(ULONG, ULONG);
-extern NTSTATUS DbgKdGetInternalBp(ULONG, PULONG, PULONG, PULONG, PULONG, PULONG, PULONG);
+NTSTATUS DbgKdSetInternalBp(ULONG, ULONG);
+NTSTATUS DbgKdGetInternalBp(ULONG, PULONG, PULONG, PULONG, PULONG, PULONG, PULONG);
 
 
 //  defined in ntdis.c
 
-extern BOOLEAN disasm(PADDR, PUCHAR, BOOLEAN);
-extern BOOLEAN fDelayInstruction(void);
-extern void    GetNextOffset(PADDR, BOOLEAN);
+BOOLEAN disasm(PADDR, PUCHAR, BOOLEAN);
+BOOLEAN fDelayInstruction(void);
+void    GetNextOffset(PADDR, BOOLEAN);
 #define ComputeNextOffset(Next, fStep) GetNextOffset(&(Next), fStep)
 void GetReturnAddress (PADDR retaddr);
 
 //  defined in 86asm.c
 
-extern void    X86assem(PADDR, PUCHAR);
+void    X86assem(PADDR, PUCHAR);
 
 //  defined in ntasm.c
 
-extern void    assem(PADDR, PUCHAR);
+void    assem(PADDR, PUCHAR);
 
 //  defined in nt3000.c (MIPS only)
 
 #if defined(MIPS) && defined(KERNEL)
-extern void    fnDumpTb3000(ULONG, ULONG);
+void    fnDumpTb3000(ULONG, ULONG);
 #endif
 
 //  defined in nt4000.c (MIPS only)
 
 #if defined(MIPS) && defined(KERNEL)
-extern void    fnDumpTb4000(ULONG, ULONG);
+void    fnDumpTb4000(ULONG, ULONG);
 #endif
 
 #ifdef KERNEL
@@ -704,7 +643,18 @@ StackTrace(
     ULONG           StackPointer,
     ULONG           InstructionPointer,
     LPSTACKFRAME    StackFrames,
-    ULONG           NumFrames
+    ULONG           NumFrames,
+    ULONG           ExtThread
     );
 
+#include <crash.h>
 
+#ifdef KERNEL
+#define MAX_NUMBER_OF_BREAKPOINTS    BREAKPOINT_TABLE_SIZE
+#else
+#define MAX_NUMBER_OF_BREAKPOINTS    1000
+#endif // KERNEL
+
+#define ALL_BREAKPOINTS              MAX_NUMBER_OF_BREAKPOINTS + 1
+
+#endif // ifndef __NTSDP_H__

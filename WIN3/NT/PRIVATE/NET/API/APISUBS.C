@@ -51,8 +51,9 @@ Revision History:
 #include <stdio.h>
 #include <rpcutil.h>
 #include <thread.h>
-#include <wcstr.h>
+#include <stdlib.h>
 #include <netbios.h>
+#include <dfsp.h>
 
 
 BOOLEAN
@@ -64,9 +65,9 @@ NetapipInitialize (
 {
 
 #if 0
-    NetpDbgPrint(PREFIX_NETAPI "Initializing, Reason=" FORMAT_DWORD
+    NetpKdPrint((PREFIX_NETAPI "Initializing, Reason=" FORMAT_DWORD
             ", thread ID " FORMAT_NET_THREAD_ID ".\n",
-            (DWORD) Reason, NetpCurrentThread() );
+            (DWORD) Reason, NetpCurrentThread() ));
 #endif
 
     //
@@ -80,9 +81,9 @@ NetapipInitialize (
 
         if ( !DisableThreadLibraryCalls( DllHandle ) )
         {
-            NetpDbgPrint(
+            NetpKdPrint((
                     PREFIX_NETAPI "DisableThreadLibraryCalls failed: "
-                    FORMAT_API_STATUS "\n", GetLastError());
+                    FORMAT_API_STATUS "\n", GetLastError()));
         }
 
         //
@@ -99,25 +100,12 @@ NetapipInitialize (
         NetpInitRpcBindCache();
 
         //
-        // Initialize well-known sids so they can be used anywhere within
-        // the DLL.
-        //
-
-        if (! NT_SUCCESS (Status = NetpCreateWellKnownSids(NULL))) {
-            NetpDbgPrint(
-                    PREFIX_NETAPI "Failed to create well-known SIDs "
-                    FORMAT_NTSTATUS "\n", Status);
-            return FALSE;
-        }
-
-
-        //
         // Initialize the NetUser/NetGroup Sam cache
         //
 
         if (( NetStatus = UaspInitialize()) != NERR_Success) {
-            NetpDbgPrint( PREFIX_NETAPI "Failed initialize Uas APIs "
-                    FORMAT_API_STATUS "\n", NetStatus);
+            NetpKdPrint(( PREFIX_NETAPI "Failed initialize Uas APIs "
+                    FORMAT_API_STATUS "\n", NetStatus));
             return FALSE;
         }
 
@@ -126,10 +114,15 @@ NetapipInitialize (
         //
 
         if (( NetStatus = DCNameInitialize()) != NERR_Success) {
-            NetpDbgPrint( "[netapi.dll] Failed initialize DCName APIs%lu\n",
-                          NetStatus);
+            NetpKdPrint(( "[netapi.dll] Failed initialize DCName APIs%lu\n",
+                          NetStatus));
             return FALSE;
         }
+
+        //
+        // Initialize the NetDfsXXX API Critical Section
+
+        InitializeCriticalSection( &NetDfsApiCriticalSection );
 
 #if defined(FAKE_PER_PROCESS_RW_CONFIG)
 
@@ -156,21 +149,21 @@ NetapipInitialize (
 #if defined(USE_WIN32_CONFIG)
 #elif defined(FAKE_PER_PROCESS_RW_CONFIG)
 
-        NetpDbgPrint( PREFIX_NETAPI "Cleaning up fake config stuff...\n");
+        NetpKdPrint(( PREFIX_NETAPI "Cleaning up fake config stuff...\n"));
         if (NetpFakePerProcessRWConfigData != NULL) {
             NetpMemoryFree(NetpFakePerProcessRWConfigData);
         }
 
         NetpAssert( NetpFakePerProcessRWConfigLock != NULL );
         NetpDeleteLock( NetpFakePerProcessRWConfigLock );
-        NetpDbgPrint( PREFIX_NETAPI "Done cleaning up fake config stuff.\n");
+        NetpKdPrint(( PREFIX_NETAPI "Done cleaning up fake config stuff.\n"));
 
 #endif // FAKE_PER_PROCESS_RW_CONFIG
 
         //
-        // Free memory used by well-known SIDs
-        //
-        NetpFreeWellKnownSids();
+        // Delete the NetDfsXXX API critical section
+
+        DeleteCriticalSection( &NetDfsApiCriticalSection );
     }
 
     return TRUE;

@@ -11,46 +11,37 @@
 
 
 !ifdef INCLUDE
-INCS	=
+INCS    =
 !else
 INCS    = -I..\inc -I..\..\inc
 !endif
 
-AOBJ	= -W2 -DSEGNAME=COMMAND $(INCS)
+AOBJ    = -W2 -DSEGNAME=COMMAND $(INCS)
 
-!ifdef NTDEBUG
+!if "$(NTDEBUG)"!="" && "$(NTDEBUG)"!="retail" && "$(NTDEBUG)" != "ntsdnodbg"
 CW16    = -AS -G2sw -Os -W2 -Zp -DDEBUG $(INCS)
 !else
 CW16    = -AS -G2sw -Os -W2 -Zp $(INCS)
 !endif
 
-CW16L	= $(CW16) -B1 c1l.exe -B2 c2l.exe -B3 c3l.exe
+CW16L   = $(CW16) -B1 c1l.exe -B2 c2l.exe -B3 c3l.exe
 
 LINK    = /map /stack:5120 /align:16
 
-# work around stupid bug in RC 3.1 that doesn't allow rcpp.err to be
+########## Path definition so we find 16 bit tools ##########
+# Also works around stupid bug in RC 3.1 that doesn't allow rcpp.err to be
 # in a directory that is greater than 128 chars down the path, even if
 # rc 3.1 is running as an OS/2 app.
 
-PATH    = ..\..\tools16;$(PATH)
+PATH    = $(_NTBINDIR)\private\mvdm\tools16;$(PATH)
 
-!if "$(NTDEBUG)"!="" && "$(NTDEBUG)"!="retail"
-!if "$(NTDEBUGTYPE)"=="windbg"
-AOBJ    = $(AOBJ) -Zi
-CW16    = $(CW16) /Od /Oi /Zi
-LINK    = $(LINK) /CO
-!else
+!if "$(NTDEBUG)"!="" && "$(NTDEBUG)"!="retail" && "$(NTDEBUG)" != "ntsdnodbg"
 AOBJ    = $(AOBJ) -Zd
 CW16    = $(CW16) /Od /Oi /Zd
 LINK    = $(LINK) /LI
 !endif
-!endif
 
-!ifdef LIB
-W16LIBS = snocrt libw
-!else
 W16LIBS = ..\lib\snocrt.lib ..\lib\libw.lib
-!endif
 
 
 .h.inc:
@@ -78,18 +69,15 @@ W16LIBS = ..\lib\snocrt.lib ..\lib\libw.lib
     mapsym $*
 
 .rc.res:
-!IFDEF NTVDM_BASED_BUILD
     rc16 -r -fo $@ $(INCS) $*.rc
-!ELSE
-    $(LPATH)\rc -r -fo $@ $(INCS) $*.rc
-!ENDIF
 
 
 all: winoldap.mod winoldap.sym
-    -binplace winoldap.mod
-    -binplace winoldap.sym
+    binplace winoldap.mod winoldap.map winoldap.sym
 
-clean:
+clean: cleanup all
+
+cleanup:
     if exist *.lrf del *.lrf
     if exist *.def del *.def
     if exist *.obj del *.obj
@@ -114,15 +102,10 @@ winoldap.def: makefile
     echo data preload moveable multiple    >>winoldap.def
     echo heapsize 512                      >>winoldap.def
     echo exports                           >>winoldap.def
-    echo   WndProc                         >>winoldap.def
+
 
 winoldap.mod: winoldap.obj winoldap.lrf winoldap.def winoldap.res
-!IFDEF NTVDM_BASED_BUILD
     link16 @winoldap.lrf;
     rc16 -t winoldap.res winoldap.mod
-!ELSE
-    $(LPATH)\link @winoldap.lrf;
-    $(LPATH)\rc -t winoldap.res winoldap.mod
-!ENDIF
 
 winoldap.res: $*.rc $*.rcv ..\inc\common.ver

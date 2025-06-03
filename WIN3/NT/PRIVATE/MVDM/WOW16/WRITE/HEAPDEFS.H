@@ -106,4 +106,3 @@ extern ENV envMem;
 #define cwof(i)         ((sizeof(i)+sizeof(int)-1)/sizeof(int))
 
 #endif /* OURHEAP */
-

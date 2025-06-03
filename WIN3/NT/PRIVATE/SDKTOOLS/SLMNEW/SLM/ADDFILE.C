@@ -1,66 +1,68 @@
 /* addfile - add the given files to the project */
 
-#include "slm.h"
-#include "sys.h"
-#include "util.h"
-#include "stfile.h"
-#include "ad.h"
-#include "slmproto.h"
-#include "proto.h"
-#include <sys\types.h>
-#include <sys\stat.h>
+#include "precomp.h"
+#pragma hdrstop
 
-F FAddFInit(pad)
-AD *pad;
-	{
-        CheckProjectDiskSpace(pad, cbProjectFreeMin);
+EnableAssert
 
-	/* Files should exist locally, except for version files (which are
-	 * overwritten by FAddFile).  Version file pre-existence is also
-	 * checked by FAddFile.
-	 */
-	if (pad->fk == fkVersion)
-		pad->pecmd->gl |= fglNoExist;
+F
+FAddFInit(
+    AD *pad
+    )
+{
+    CheckProjectDiskSpace(pad, cbProjectFreeMin);
 
-	return fTrue;
-	}
+    /* Files should exist locally, except for version files (which are
+     * overwritten by FAddFile).  Version file pre-existence is also
+     * checked by FAddFile.
+     */
+    if (pad->fk == fkVersion)
+        pad->pecmd->gl |= fglNoExist;
+
+    return fTrue;
+}
 
 
-F FAddFDir(pad)
 /* Add the files in pad->pneFiles to the project */
-AD *pad;
-	{
-	NE *pne;
-	F fOk = fTrue;
-	F fAny = fFalse;
+F
+FAddFDir(
+    AD *pad
+    )
+{
+    NE *pne;
+    F fOk = fTrue;
+    F fAny = fFalse;
 
-	/* LATER: maybe prompt the user to continue if one of the
-	 * file names  is invalid....
-	 */
-	ForEachNe(pne, pad->pneFiles)
-		ValidateFileName(SzOfNe(pne));
+    /* LATER: maybe prompt the user to continue if one of the
+     * file names  is invalid....
+     */
+    ForEachNe(pne, pad->pneFiles)
+        if (ValidateFileName(SzOfNe(pne), FALSE) == FALSE) {
+            Warn("%s is a SLM System or DOS filename.  Not adding\n");
+            RemoveNe(&pad->pneFiles, pne);
+        }
 
-	if (!FLoadStatus(pad, lckAll, (LS)FlsFromCfiAdd(Cne(pad->pneFiles))))
-		return fFalse;
+    if (!FLoadStatus(pad, lckAll, (LS)FlsFromCfiAdd(Cne(pad->pneFiles))))
+        return fFalse;
 
-	OpenLog(pad, fTrue);
+    OpenLog(pad, fTrue);
 
-	UnMarkAll(pad);
+    UnMarkAll(pad);
 
-	ForEachNeWhileF(pne, pad->pneFiles, (fOk = FAddFile(pad, SzOfNe(pne), pad->fk)))
-                {
-                CheckForBreak();
-		fAny = fTrue;
-                }
+    ForEachNeWhileF(pne, pad->pneFiles, (fOk = FAddFile(pad, SzOfNe(pne), pad->fk)))
+    {
+        CheckForBreak();
+        fAny = fTrue;
+    }
 
-	CloseLog();
+    CloseLog();
 
-	if (fAny)
-		ProjectChanged(pad);
+    if (fAny)
+        ProjectChanged(pad);
 
-	if (pad->iedCur != iedNil)
-		SyncVerH(pad, NULL);
+    if (pad->iedCur != iedNil)
+        SyncVerH(pad, NULL);
 
-	FlushStatus(pad);
-	return fOk;
-	}
+    FlushStatus(pad);
+    return fOk;
+}

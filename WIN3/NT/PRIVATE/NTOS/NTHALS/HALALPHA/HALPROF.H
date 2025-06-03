@@ -50,20 +50,20 @@ Revision History:
 
 #define PIC_SCALE_FACTOR 10 * 1000  // # of microsecond units times 10.
 
-// 
+//
 // Define a macro to set and enable the system profiler timer.
-// Note that the interval 'c' is in 100nS units. 
+// Note that the interval 'c' is in 100nS units.
 // Note that also the interval is incremented AFTER it is scaled.
 // This is due to the fact that the timer counts down to 1 in mode 2
 //
 
 #define PIC_PROFILER_ON(c)\
      WRITE_PORT_UCHAR(&((PEISA_CONTROL) HalpEisaControlBase)->CommandMode1,\
-          (ULONG)(PIC_BINARY | PIC_MODE2 | PIC_RWLSBMSB | PIC_SC0));\
+          (UCHAR)(PIC_BINARY | PIC_MODE2 | PIC_RWLSBMSB | PIC_SC0));\
      WRITE_PORT_UCHAR(&((PEISA_CONTROL) HalpEisaControlBase)->Timer1,\
-          (ULONG)((c) & 0xff) );\
+          (UCHAR)((c) & 0xff) );\
      WRITE_PORT_UCHAR(&((PEISA_CONTROL) HalpEisaControlBase)->Timer1,\
-          (ULONG)(((c)>> 8) & 0xff) )
+          (UCHAR)(((c)>> 8) & 0xff) )
 
 //
 // Define a macro to shut down the profiler

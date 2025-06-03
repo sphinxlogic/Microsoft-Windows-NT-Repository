@@ -31,6 +31,9 @@ MIPS=0
 !IFNDEF ALPHA
 ALPHA=0
 !ENDIF
+!IFNDEF PPC
+PPC=0
+!ENDIF
 
 #
 # Default to building for i386 target, if no targets specified.
@@ -38,15 +41,21 @@ ALPHA=0
 
 !IF !$(386)
 ! IF !$(MIPS)
-!  IFDEF NTMIPSDEFAULT
+!  IF !$(PPC)
+!   IFDEF NTMIPSDEFAULT
 MIPS=1
-!  ELSE
-!   IFDEF NTALPHADEFAULT
-ALPHA=1
 !   ELSE
+!    IFDEF NTALPHADEFAULT
+ALPHA=1
+!    ELSE
+!     IFDEF NTPPCDEFAULT
+PPC=1
+!     ELSE
 386=1
+!     ENDIF
+!    ENDIF
 !   ENDIF
-!  ENDIF 
+!  ENDIF
 ! ENDIF
 !ENDIF
 
@@ -161,25 +170,12 @@ COMPONENTS_SUPPOBJS=\
         $(ROOT_LIBCMT)\stdio\obj\*\ncommode.obj \
         $(ROOT_LIBCMT)\startup\obj\*\tlssup.obj  \
         $(ROOT_LIBCMT)\startup\obj\*\atlssup.obj  \
-        $(ROOT_CRTDLL)\dllstuff\*\cinitexe.obj  \
+        $(ROOT_CRTDLL)\dllstuff\obj\*\cinitexe.obj  \
         $(SRCDIR_CRTDLL)\dllsupp.obj \
         lib\*\chkstk.obj
-!ELSE
-!IF $(ALPHA)
-EXSUP_OBJECTS=
-RELEASE_EXSUP=
 
-COMPONENTS_SUPPOBJS=\
-        $(SRCDIR_CRTDLL)\crtexe.obj  \
-        $(SRCDIR_CRTDLL)\crtexew.obj \
-        $(SRCDIR_CRTDLL)\crtdll.obj  \
-        $(SRCDIR_CRTDLL)\dllargv.obj \
-        $(SRCDIR_CRTDLL)\dllmain.obj \
-        $(ROOT_LIBCMT)\lowio\obj\*\txtmode.obj  \
-        $(ROOT_LIBCMT)\stdio\obj\*\ncommode.obj \
-        $(ROOT_CRTDLL)\dllstuff\*\cinitexe.obj  \
-        lib\*\chkstk.obj
-!ELSE
+!ELSEIF $(ALPHA) || $(MIPS)
+
 EXSUP_OBJECTS=
 RELEASE_EXSUP=
 
@@ -192,9 +188,26 @@ COMPONENTS_SUPPOBJS=\
         $(ROOT_LIBCMT)\lowio\obj\*\txtmode.obj  \
         $(ROOT_LIBCMT)\stdio\obj\*\ncommode.obj \
         $(ROOT_LIBCMT)\startup\obj\*\tlssup.obj  \
-        $(ROOT_CRTDLL)\dllstuff\*\cinitexe.obj  \
+        $(ROOT_CRTDLL)\dllstuff\obj\*\cinitexe.obj  \
         lib\*\chkstk.obj
-!ENDIF
+
+!ELSE
+
+EXSUP_OBJECTS=
+RELEASE_EXSUP=
+
+COMPONENTS_SUPPOBJS=\
+        $(SRCDIR_CRTDLL)\crtexe.obj  \
+        $(SRCDIR_CRTDLL)\crtexew.obj \
+        $(SRCDIR_CRTDLL)\crtdll.obj  \
+        $(SRCDIR_CRTDLL)\dllargv.obj \
+        $(SRCDIR_CRTDLL)\dllmain.obj \
+        $(ROOT_LIBCMT)\lowio\obj\*\txtmode.obj  \
+        $(ROOT_LIBCMT)\stdio\obj\*\ncommode.obj \
+        $(ROOT_LIBCMT)\startup\obj\*\tlssup.obj  \
+        $(ROOT_CRTDLL)\dllstuff\obj\*\cinitexe.obj  \
+        $(ROOT_CRTDLL)\helper\obj\*\*.obj \
+        lib\*\chkstk.obj
 !ENDIF
 
 COMPONENTS_CRTDLL=\
@@ -238,6 +251,10 @@ RCMIPS_DEFS=-DMIPS=1 -D_MIPS_=1 -DNO_EXT_KEYS -DWIN32_LEAN_AND_MEAN=1 \
             -DR3000 -D_M_MRX000=3000 -DDBG=0 -DDEVL=1 -DNOFIREWALLS \
             -DNDEBUG -D_WIN32_=1 -D__stdcall= -D__cdecl= -D_INTL
 
+RCPPC_DEFS=-D_PPC_=1 -DNO_EXT_KEYS -DWIN32_LEAN_AND_MEAN=1 \
+           -DPPCEL -DCONDITION_HANDLING=1 -DNT_INST=0 -DNT_UP=1 \
+           -D_M_PPC=601 -DDBG=0 -DDEVL=1 -DNOFIREWALLS \
+           -DNDEBUG -D_WIN32_=1 -D__stdcall= -D__cdecl= -D_INTL
 #
 # release targets
 #
@@ -302,9 +319,8 @@ TARGETLIBS=$(TARGETLIBS) \
            $(RELEASE_CRTDLL:*=i386)
 
 # TARGETLIBS=$(RELEASE_CRTDLL:*=i386)
-!ENDIF
 
-!IF $(MIPS)
+!ELSEIF $(MIPS)
 TARGETLIBS=$(TARGETLIBS) \
            $(RELEASE_OBJECTS:*=mips) \
            $(RELEASE_CRTNT:*=mips) \
@@ -313,9 +329,8 @@ TARGETLIBS=$(TARGETLIBS) \
            $(RELEASE_LIBCMT:*=mips) \
            $(RELEASE_LIBCPSX:*=mips) \
            $(RELEASE_CRTDLL:*=mips)
-!ENDIF
 
-!IF $(ALPHA)
+!ELSEIF $(ALPHA)
 TARGETLIBS=$(TARGETLIBS) \
            $(RELEASE_OBJECTS:*=alpha) \
            $(RELEASE_CRTNT:*=alpha) \
@@ -324,6 +339,16 @@ TARGETLIBS=$(TARGETLIBS) \
            $(RELEASE_LIBCMT:*=alpha) \
            $(RELEASE_LIBCPSX:*=alpha) \
            $(RELEASE_CRTDLL:*=alpha)
+
+!ELSEIF $(PPC)
+TARGETLIBS=$(TARGETLIBS) \
+           $(RELEASE_OBJECTS:*=ppc) \
+           $(RELEASE_CRTNT:*=ppc) \
+           $(RELEASE_SMALL:*=ppc) \
+           $(RELEASE_LIBC:*=ppc) \
+           $(RELEASE_LIBCMT:*=ppc) \
+           $(RELEASE_LIBCPSX:*=ppc) \
+           $(RELEASE_CRTDLL:*=ppc)
 !ENDIF
 
 all: $(TARGETLIBS)
@@ -365,20 +390,24 @@ release:
     -copy $(DSTDIR_OBJECTS:*=i386)\*.obj $(_NTDRIVE)\nt\public\sdk\lib\i386
     -copy $(DSTDIR_OBJECTS:*=i386)\*.lib $(_NTDRIVE)\nt\public\sdk\lib\i386
     -copy $(DSTDIR_OBJECTS:*=i386)\*.dll $(_NTDRIVE)\nt\public\sdk\lib\i386
-!ENDIF
 
-!IF $(MIPS)
+!ELSEIF $(MIPS)
 release:
     -copy $(DSTDIR_OBJECTS:*=mips)\*.obj $(_NTDRIVE)\nt\public\sdk\lib\mips
     -copy $(DSTDIR_OBJECTS:*=mips)\*.lib $(_NTDRIVE)\nt\public\sdk\lib\mips
     -copy $(DSTDIR_OBJECTS:*=mips)\*.dll $(_NTDRIVE)\nt\public\sdk\lib\mips
-!ENDIF
 
-!IF $(ALPHA)
+!ELSEIF $(ALPHA)
 release:
     -copy $(DSTDIR_OBJECTS:*=alpha)\*.obj $(_NTDRIVE)\nt\public\sdk\lib\alpha
     -copy $(DSTDIR_OBJECTS:*=alpha)\*.lib $(_NTDRIVE)\nt\public\sdk\lib\alpha
     -copy $(DSTDIR_OBJECTS:*=alpha)\*.dll $(_NTDRIVE)\nt\public\sdk\lib\alpha
+
+!ELSEIF $(PPC)
+release:
+    -copy $(DSTDIR_OBJECTS:*=ppc)\*.obj $(_NTDRIVE)\nt\public\sdk\lib\ppc
+    -copy $(DSTDIR_OBJECTS:*=ppc)\*.lib $(_NTDRIVE)\nt\public\sdk\lib\ppc
+    -copy $(DSTDIR_OBJECTS:*=ppc)\*.dll $(_NTDRIVE)\nt\public\sdk\lib\ppc
 !ENDIF
 
 
@@ -386,12 +415,12 @@ srcrel:
     chmode -r $(TARGETLIBS:lib\=^%_NTDRIVE^%\nt\public\sdk\lib\)
 !IF $(386)
     upd /anfe $(DSTDIR_OBJECTS:*=i386) $(_NTDRIVE)\nt\public\sdk\lib\i386$(TARGETLIBS:lib\i386\=)
-!ENDIF
-!IF $(MIPS)
+!ELSEIF $(MIPS)
     upd /anfe $(DSTDIR_OBJECTS:*=mips) $(_NTDRIVE)\nt\public\sdk\lib\mips$(TARGETLIBS:lib\mips\=)
-!ENDIF
-!IF $(ALPHA)
+!ELSEIF $(ALPHA)
     upd /anfe $(DSTDIR_OBJECTS:*=alpha) $(_NTDRIVE)\nt\public\sdk\lib\alpha$(TARGETLIBS:lib\alpha\=)
+!ELSEIF $(PPC)
+    upd /anfe $(DSTDIR_OBJECTS:*=ppc) $(_NTDRIVE)\nt\public\sdk\lib\ppc$(TARGETLIBS:lib\ppc\=)
 !ENDIF
     chmode +r $(TARGETLIBS:lib\=^%_NTDRIVE^%\nt\public\sdk\lib\)
 
@@ -408,22 +437,22 @@ $(RELEASE_INCLUDES): $(COMPONENTS_INCLUDES)
 #
 
 $(RELEASE_CRTNT:*=i386): $(COMPONENTS_CRTNT:*=i386)
-    lib -out:$@ @<<
+    link -lib -out:$@ @<<
 $(COMPONENTS_CRTNT:*=i386)
 <<
 
 $(RELEASE_LIBC:*=i386): $(COMPONENTS_LIBC:*=i386)
-    lib -out:$@ @<<
+    link -lib -out:$@ @<<
 $(COMPONENTS_LIBC:*=i386)
 <<
 
 $(RELEASE_LIBCMT:*=i386): $(COMPONENTS_LIBCMT:*=i386)
-    lib -out:$@ @<<
+    link -lib -out:$@ @<<
 $(COMPONENTS_LIBCMT:*=i386)
 <<
 
 $(RELEASE_LIBCPSX:*=i386): $(COMPONENTS_LIBCPSX:*=i386)
-    lib -out:$@ @<<
+    link -lib -out:$@ @<<
 $(COMPONENTS_LIBCPSX:*=i386)
 <<
 
@@ -440,6 +469,7 @@ $(DSTDIR_OBJECTS:*=i386)\chkstk.obj: $(SRCDIR_LIBC:*=i386)\chkstk.obj
     copy $** $@
 
 386_DLL=$(RELEASE_DLL:*=i386)
+386_DLL=$(386_DLL: =)
 386_LIBCDLL=$(COMPONENTS_CRTDLL:*=i386)
 386_OBJECTS=$(COMPONENTS_SUPPOBJS:*=i386)
 386_DEF=$(COMPONENTS_DLLDEF:*=i386)
@@ -447,28 +477,34 @@ $(DSTDIR_OBJECTS:*=i386)\chkstk.obj: $(SRCDIR_LIBC:*=i386)\chkstk.obj
 386_DLLBASE=0x10010000
 
 lib\i386\exsup.lib: $(EXSUP_OBJECTS:*=i386)
-    lib -out:$(@R).lib $(EXSUP_OBJECTS:*=i386)
+    link -lib -out:$(@R).lib $(EXSUP_OBJECTS:*=i386)
 
 $(386_DEF): lib\crtdll.def $(386_DEF:.def=.x86)
     copy lib\crtdll.def+$(386_DEF:.def=.x86) $(386_DEF)
 
 $(386_DLL:.dll=.exp) $(386_DLL:.dll=.lib): $(386_DEF) $(386_OBJECTS)
-    lib -out:$(@R).lib -machine:i386 -def:$(386_DEF) $(386_LIBCDLL)
+    link -lib -out:$(@R).lib -machine:i386 -debugtype:cv -def:$(386_DEF) $(386_LIBCDLL)
     ren $(386_DLL:.dll=.lib) tmp.lib
-    lib -out:$(@R).lib -machine:i386 $(@D)\tmp.lib $(386_OBJECTS)
+    link -lib -out:$(@R).lib -machine:i386 $(@D)\tmp.lib $(386_OBJECTS)
     del $(@D)\tmp.lib
 
 $(386_DLL): $(386_DLL:.dll=.lib) $(386_DLL:.dll=.exp) $(386_LIBCDLL) $(386_LINKLIBS) crtdll.rc
     rc -l 409 -r -fo $(386_DLL:.dll=.tmp) $(RCX86_DEFS) -x $(RC_INCL) crtdll.rc
-    cvtres -i386 $(386_DLL:.dll=.tmp) -r -o $(386_DLL:.dll=.res)
-    link32 @<<
+    cvtres -machine:x86 $(386_DLL:.dll=.tmp) -readonly -out:$(386_DLL:.dll=.res)
+    link @<<
 -dll
 -out:$@
 -machine:i386
 -debugtype:both
--debug:minimal
+-debug:full
 -release
 -pdb:none
+-opt:ref
+-optidata
+-merge:.rdata=.text
+-subsystem:console,4.00
+-osversion:4.00
+-version:4.00
 -base:$(386_DLLBASE)
 -entry:_CRTDLL_INIT@12
 $(386_DLL:.dll=.res)
@@ -482,7 +518,7 @@ $(386_LINKLIBS)
 #
 
 $(RELEASE_CRTNT:*=mips): $(COMPONENTS_CRTNT:*=mips)
-    lib -out:$@ @<<
+    link -lib -out:$@ @<<
 $(COMPONENTS_CRTNT:*=mips)
 <<
 
@@ -490,17 +526,17 @@ $(RELEASE_SMALL:*=mips): $(COMPONENTS_SMALL:*=mips)
         copy $** $@
 
 $(RELEASE_LIBC:*=mips): $(COMPONENTS_LIBC:*=mips)
-    lib -out:$@ @<<
+    link -lib -out:$@ @<<
 $(COMPONENTS_LIBC:*=mips)
 <<
 
 $(RELEASE_LIBCMT:*=mips): $(COMPONENTS_LIBCMT:*=mips)
-    lib -out:$@ @<<
+    link -lib -out:$@ @<<
 $(COMPONENTS_LIBCMT:*=mips)
 <<
 
 $(RELEASE_LIBCPSX:*=mips): $(COMPONENTS_LIBCPSX:*=mips)
-    lib -out:$@ @<<
+    link -lib -out:$@ @<<
 $(COMPONENTS_LIBCPSX:*=mips)
 <<
 
@@ -518,6 +554,7 @@ $(DSTDIR_OBJECTS:*=mips)\chkstk.obj: $(SRCDIR_LIBC:*=mips)\chkstk.obj
 
 
 MIPS_DLL=$(RELEASE_DLL:*=mips)
+MIPS_DLL=$(MIPS_DLL: =)
 MIPS_LIBCDLL=$(COMPONENTS_CRTDLL:*=mips)
 MIPS_OBJECTS=$(COMPONENTS_SUPPOBJS:*=mips)
 MIPS_DEF=$(COMPONENTS_DLLDEF:*=mips)
@@ -525,9 +562,9 @@ MIPS_LINKLIBS=$(LINKLIBS:*=mips)
 MIPS_DLLBASE=0x10010000
 
 $(MIPS_DLL:.dll=.lib) $(MIPS_DLL:.dll=.exp): $(MIPS_DEF)
-    lib -out:$(@R).lib -machine:mips -def:$(MIPS_DEF)
+    link -lib -out:$(@R).lib -machine:mips -debugtype:cv -def:$(MIPS_DEF)
     ren $(MIPS_DLL:.dll=.lib) tmp.lib
-    lib -out:$(@R).lib -machine:mips $(@D)\tmp.lib $(MIPS_OBJECTS)
+    link -lib -out:$(@R).lib -machine:mips $(@D)\tmp.lib $(MIPS_OBJECTS)
     del $(@D)\tmp.lib
 
 $(MIPS_DEF): lib\crtdll.def $(MIPS_DEF:.def=.mip)
@@ -535,29 +572,43 @@ $(MIPS_DEF): lib\crtdll.def $(MIPS_DEF:.def=.mip)
 
 $(MIPS_DLL): $(MIPS_DLL:.dll=.lib) $(MIPS_DLL:.dll=.exp) $(MIPS_LIBCDLL) $(MIPS_LINKLIBS) crtdll.rc
     rc -l 409 -r -fo $(MIPS_DLL:.dll=.tmp) $(RCMIPS_DEFS) -x $(RC_INCL) crtdll.rc
-    cvtres -mips $(MIPS_DLL:.dll=.tmp) -r -o $(MIPS_DLL:.dll=.res)
-    link32 @<<
+    cvtres -machine:mips $(MIPS_DLL:.dll=.tmp) -readonly -out:$(MIPS_DLL:.dll=.res)
+    link @<<
 -dll
 -out:$@
 -debugtype:both
--debug:minimal
+-debug:full
 -machine:mips
 -release
 -pdb:none
+-opt:ref
+-optidata
+-merge:.rdata=.text
+-subsystem:console,4.00
+-osversion:4.00
+-version:4.00
 -base:$(MIPS_DLLBASE)
 -entry:_CRTDLL_INIT
+-merge:asincosm=.text
+-merge:atanm=.text
+-merge:floorm=.text
+-merge:fmodm=.text
+-merge:trigm=.text
 $(MIPS_DLL:.dll=.exp)
 $(MIPS_DLL:.dll=.res)
 $(MIPS_LIBCDLL)
 $(MIPS_LINKLIBS)
 <<
 
+# BUGBUG: The merge directives can be removed if v-rogerl determines a src change can
+#   be made.  BryanT - 3/7/95
+
 #
 # alpha targets
 #
 
 $(RELEASE_CRTNT:*=alpha): $(COMPONENTS_CRTNT:*=alpha)
-    lib -out:$@ @<<
+    link -lib -out:$@ @<<
 $(COMPONENTS_CRTNT:*=alpha)
 <<
 
@@ -565,17 +616,17 @@ $(RELEASE_SMALL:*=alpha): $(COMPONENTS_SMALL:*=alpha)
     copy $** $@
 
 $(RELEASE_LIBC:*=alpha): $(COMPONENTS_LIBC:*=alpha)
-    lib -out:$@ @<<
+    link -lib -out:$@ @<<
 $(COMPONENTS_LIBC:*=alpha)
 <<
 
 $(RELEASE_LIBCMT:*=alpha): $(COMPONENTS_LIBCMT:*=alpha)
-    lib -out:$@ @<<
+    link -lib -out:$@ @<<
 $(COMPONENTS_LIBCMT:*=alpha)
 <<
 
 $(RELEASE_LIBCPSX:*=alpha): $(COMPONENTS_LIBCPSX:*=alpha)
-    lib -out:$@ @<<
+    link -lib -out:$@ @<<
 $(COMPONENTS_LIBCPSX:*=alpha)
 <<
 
@@ -593,6 +644,7 @@ $(DSTDIR_OBJECTS:*=alpha)\chkstk.obj: $(SRCDIR_LIBC:*=alpha)\chkstk.obj
 
 
 ALPHA_DLL=$(RELEASE_DLL:*=alpha)
+ALPHA_DLL=$(ALPHA_DLL: =)
 ALPHA_LIBCDLL=$(COMPONENTS_CRTDLL:*=alpha)
 ALPHA_OBJECTS=$(COMPONENTS_SUPPOBJS:*=alpha)
 ALPHA_DEF=$(COMPONENTS_DLLDEF:*=alpha)
@@ -600,26 +652,122 @@ ALPHA_LINKLIBS=$(LINKLIBS:*=alpha)
 ALPHA_DLLBASE=0x10010000
 
 $(ALPHA_DLL:.dll=.lib) $(ALPHA_DLL:.dll=.exp): $(ALPHA_DEF)
-    lib -out:$(@R).lib -machine:alpha -def:$(ALPHA_DEF)
+    link -lib -out:$(@R).lib -machine:alpha -debugtype:cv -def:$(ALPHA_DEF)
     ren $(ALPHA_DLL:.dll=.lib) tmp.lib
-    lib -out:$(@R).lib -machine:alpha $(@D)\tmp.lib $(ALPHA_OBJECTS)
+    link -lib -out:$(@R).lib -machine:alpha $(@D)\tmp.lib $(ALPHA_OBJECTS)
     del $(@D)\tmp.lib
 
 $(ALPHA_DEF): lib\crtdll.def $(ALPHA_DEF:.def=.alp)
     copy lib\crtdll.def+$(ALPHA_DEF:.def=.alp) $(ALPHA_DEF)
 
-$(ALPHA_DLL): $(ALPHA_DLL:.dll=.lib) $(ALPHA_DLL:.dll=.exp) $(ALPHA_LIBCDLL) $(ALPHA_LINKLIBS)
-    link32 @<<
+$(ALPHA_DLL): $(ALPHA_DLL:.dll=.lib) $(ALPHA_DLL:.dll=.exp) $(ALPHA_LIBCDLL) $(ALPHA_LINKLIBS) crtdll.rc
+    rc -l 409 -r -fo $(ALPHA_DLL:.dll=.tmp) $(RCALPHA_DEFS) -x $(RC_INCL) crtdll.rc
+    cvtres -machine:alpha $(ALPHA_DLL:.dll=.tmp) -readonly -out:$(ALPHA_DLL:.dll=.res)
+    link @<<
 -dll
 -out:$@
 -machine:alpha
 -base:$(ALPHA_DLLBASE)
 -debugtype:both
--debug:minimal
+-debug:full
 -release
 -pdb:none
+-opt:ref
+-optidata
+-merge:.rdata=.text
+-subsystem:console,4.00
+-osversion:4.00
+-version:4.00
 -entry:_CRTDLL_INIT
+$(ALPHA_DLL:.dll=.res)
 $(ALPHA_DLL:.dll=.exp)
 $(ALPHA_LIBCDLL)
 $(ALPHA_LINKLIBS)
+<<
+
+#
+# ppc targets
+#
+
+$(RELEASE_CRTNT:*=ppc): $(COMPONENTS_CRTNT:*=ppc)
+    link -lib -out:$@ @<<
+-machine:ppc
+$(COMPONENTS_CRTNT:*=ppc)
+<<
+
+$(RELEASE_SMALL:*=ppc): $(COMPONENTS_SMALL:*=ppc)
+    copy $** $@
+
+$(RELEASE_LIBC:*=ppc): $(COMPONENTS_LIBC:*=ppc)
+    link -lib -out:$@ @<<
+-machine:ppc
+$(COMPONENTS_LIBC:*=ppc)
+<<
+
+$(RELEASE_LIBCMT:*=ppc): $(COMPONENTS_LIBCMT:*=ppc)
+    link -lib -out:$@ @<<
+-machine:ppc
+$(COMPONENTS_LIBCMT:*=ppc)
+<<
+
+$(RELEASE_LIBCPSX:*=ppc): $(COMPONENTS_LIBCPSX:*=ppc)
+    link -lib -out:$@ @<<
+-machine:ppc
+$(COMPONENTS_LIBCPSX:*=ppc)
+<<
+
+$(DSTDIR_OBJECTS:*=ppc)\binmode.obj: $(SRCDIR_LIBC:*=ppc)\binmode.obj
+    copy $** $@
+
+$(DSTDIR_OBJECTS:*=ppc)\commode.obj: $(SRCDIR_LIBC:*=ppc)\commode.obj
+    copy $** $@
+
+$(DSTDIR_OBJECTS:*=ppc)\setargv.obj: $(SRCDIR_LIBC:*=ppc)\setargv.obj
+    copy $** $@
+
+$(DSTDIR_OBJECTS:*=ppc)\chkstk.obj: $(SRCDIR_LIBC:*=ppc)\chkstk.obj
+    copy $** $@
+
+
+PPC_DLL=$(RELEASE_DLL:*=ppc)
+PPC_DLL=$(PPC_DLL: =)
+PPC_LIBCDLL=$(COMPONENTS_CRTDLL:*=ppc)
+PPC_OBJECTS=$(COMPONENTS_SUPPOBJS:*\=ppc\)
+PPC_DEF=$(COMPONENTS_DLLDEF:*=ppc)
+PPC_LINKLIBS=$(LINKLIBS:*=ppc)
+PPC_DLLBASE=0x10010000
+
+$(PPC_DLL:.dll=.lib) $(PPC_DLL:.dll=.exp): $(PPC_DEF)
+    link -lib -out:$(@R).lib -machine:ppc -debugtype:cv -def:$(PPC_DEF)
+    ren $(PPC_DLL:.dll=.lib) tmp.lib
+    link -lib -out:$(@R).lib -machine:ppc $(@D)\tmp.lib $(PPC_OBJECTS)
+    del $(@D)\tmp.lib
+
+$(PPC_DEF): lib\crtdll.def $(PPC_DEF:.def=.ppc)
+    copy lib\crtdll.def+$(PPC_DEF:.def=.ppc) $(PPC_DEF)
+
+$(PPC_DLL): $(PPC_DLL:.dll=.lib) $(PPC_DLL:.dll=.exp) $(PPC_LIBCDLL) $(PPC_LINKLIBS) crtdll.rc
+    rc -l 409 -r -fo $(PPC_DLL:.dll=.tmp) $(RCPPC_DEFS) -x $(RC_INCL) crtdll.rc
+    cvtres -machine:ppc $(PPC_DLL:.dll=.tmp) -readonly -out:$(PPC_DLL:.dll=.res)
+    link @<<
+-dll
+-out:$@
+-debugtype:both
+-debug:full
+-machine:ppc
+-base:$(PPC_DLLBASE)
+-release
+-pdb:none
+-opt:ref
+-optidata
+-merge:.rdata=.text
+-subsystem:console,4.00
+-osversion:4.00
+-version:4.00
+-entry:_CRTDLL_INIT
+-NODEFAULTLIB
+$(PPC_DLL:.dll=.exp)
+$(PPC_DLL:.dll=.res)
+$(PPC_LIBCDLL)
+$(PPC_LINKLIBS)
 <<

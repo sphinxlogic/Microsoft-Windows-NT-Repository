@@ -31,7 +31,7 @@ Initial revision.
 
 /* size used at a minimum for VCB buffers
  * for those translators which don't care */
-#define   TF_DEFAULT_VCB_SIZE      4096
+#define   TF_DEFAULT_VCB_SIZE      (32*1024)
 
 #endif
 

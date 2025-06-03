@@ -1311,6 +1311,7 @@ void ObjGetDrop(HANDLE hDrop, BOOL bOpenFile)
     OBJPICINFO picInfo;
     BOOL bError=FALSE;
     static char szPackage[] = "Package";
+    MSG msg;
 
     if (!FWriteOk( fwcInsert ))
         return;
@@ -1319,6 +1320,7 @@ void ObjGetDrop(HANDLE hDrop, BOOL bOpenFile)
     nNumFiles = DragQueryFile(hDrop,0xFFFF,NULL,0);
 
     /* See what the user wants us to do */
+    PeekMessage(&msg, (HWND)NULL, NULL, NULL, PM_NOREMOVE);
     bKeyState = ((((GetKeyState(VK_SHIFT) < 0) << 2)
                 | ((GetKeyState(VK_CONTROL) < 0) << 1)));
 
@@ -1968,4 +1970,3 @@ BOOL ObjInitServerInfo(LPOBJINFO lpObjInfo)
 
     return FALSE;
 }
-

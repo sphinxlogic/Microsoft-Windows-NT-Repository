@@ -121,3 +121,54 @@ VOID eresprintf( INT res_id, ... )
      }
      return ;
 }
+
+BOOLEAN eresprintf_cancel( INT res_id, ... )
+{
+     UINT16	error ;
+     CHAR_PTR  fmt ;
+     UINT16	tmp ;
+     va_list   arg_ptr ;
+     BOOLEAN   ret_val = FALSE ;
+
+     fmt = (CHAR_PTR)RM_GetResource( rm, (UINT) SES_ENG_ERR, res_id, &tmp, &error ) ;
+
+     if ( fmt )
+     {
+        CHAR_PTR  messageBuffer;
+     
+        msassert( fmt != NULL ) ;
+        msassert( error == RM_NO_ERROR ) ;
+
+        va_start( arg_ptr, res_id ) ;
+
+        tprintf( fmt, arg_ptr ) ;
+
+        messageBuffer = malloc( strsize( gszTprintfBuffer ) );
+
+        if ( messageBuffer != NULL )
+        {
+            strcpy( messageBuffer, gszTprintfBuffer );
+        }
+
+        lvprintf( LOGGING_FILE, fmt, arg_ptr ) ;
+
+        va_end( arg_ptr ) ;
+
+        // Concatenate CR/LF after string.
+
+        lprintf ( LOGGING_FILE, TEXT("\n") ) ;
+
+        if ( WM_MessageBox( ID( IDS_MSGTITLE_ERROR ),
+                       messageBuffer == NULL ? TEXT("") : messageBuffer,
+                       WMMB_OKCANCEL | WMMB_NOYYCHECK,
+                       WMMB_ICONEXCLAMATION,
+                       NULL, 0, 0 ) != WMMB_IDOK ) {
+
+                       ret_val = TRUE ;
+        }
+
+        free( messageBuffer );
+     }
+     return ret_val ;
+}
+

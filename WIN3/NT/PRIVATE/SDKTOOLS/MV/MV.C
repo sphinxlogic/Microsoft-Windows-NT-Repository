@@ -58,7 +58,7 @@ nextArg:
         } else {
             findpath (v[i], src, FALSE);
             pname (src);
-            v[i] = strdup (src);
+            v[i] = _strdup (src);
         }
     }
 

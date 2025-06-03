@@ -565,7 +565,7 @@ DIALOGPROC PasteOptionsDlgProc(
                     EndDialog(hwnd, IDCANCEL);
                     break;
 
-                case IDHELP:
+                case ID_IMAGE_HELP:
                     WinHelp(ghwndMain, gszHelpFile, HELP_CONTEXT,
                             HELPID_PASTEOPTIONS);
                     break;
@@ -604,4 +604,3 @@ VOID PickSetRect(
     gcxPick = (grcPick.right - grcPick.left) + 1;
     gcyPick = (grcPick.bottom - grcPick.top) + 1;
 }
-

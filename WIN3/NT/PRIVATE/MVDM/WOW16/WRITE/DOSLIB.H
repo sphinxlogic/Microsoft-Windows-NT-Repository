@@ -92,4 +92,3 @@ int     FpeRenameSzFfname( CHAR *, CHAR * );
 #define FpeFromCchDisk(cch) (cch)
 
 #define fpeNoErr            0
-

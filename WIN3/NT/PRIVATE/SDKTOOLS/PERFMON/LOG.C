@@ -274,7 +274,7 @@ PLOG AllocateLogData (HWND hWndLog)
 
 void FreeLogData (PLOG pLog)
    {  // FreeLogData
-   MemoryFree (pLog->pLogData) ;
+   MemoryFree ((LPMEMORY)pLog->pLogData) ;
    }  // FreeLogData
 
 
@@ -738,8 +738,10 @@ int OnCtlColor (HWND hDlg,
                        HDC hDC)
    {
    SetTextColor (hDC, crBlack) ;
-   SetBkColor (hDC, crLightGray) ;
-   return ((int) hbLightGray) ;
+//   SetBkColor (hDC, crLightGray) ;
+//   return ((int) hbLightGray) ;
+   SetBkColor (hDC, ColorBtnFace) ;
+   return ((int) hBrushFace) ;
    }
 
 
@@ -796,8 +798,8 @@ void static OnDrawItem (HWND hWnd, LPDRAWITEMSTRUCT lpDI)
    RECT           rectComputer, rectObject ;
    PLOGENTRY      pLogEntry ;
    PLOG           pLog ;
-   COLORREF       preBkColor ;
-   COLORREF       preTextColor ;
+   COLORREF       preBkColor = 0;
+   COLORREF       preTextColor = 0;
 
    pLog = LogData (hWnd) ;
 
@@ -1090,15 +1092,15 @@ BOOL StartLog (HWND hWnd, PLOG pLog, BOOL bSameFile)
             // the time is not in order.  So, forget it if the
             // last log time in the Log file is greater than the First
             // log time of the playback log file.
-            TimeDiff = SystemTimeDifference (&(FirstSystemTime),
-                                             &(pLog->LastLogTime)) ;
-            if (TimeDiff > 0)
-               {
-               // error , time not in order
-               CloseHandle (pLog->hFile) ;
-               RetCode = ERR_CANT_RELOG_DATA ;
-               }
-            }
+            TimeDiff = SystemTimeDifference (&(pLog->LastLogTime),
+                                            &(FirstSystemTime), FALSE) ;
+            if (TimeDiff < 0)
+                {
+                // error , time not in order
+                CloseHandle (pLog->hFile) ;
+                RetCode = ERR_CANT_RELOG_DATA ;
+                }
+            }   
          }
       
       if (RetCode == 0)
@@ -1172,7 +1174,7 @@ BOOL LogAddEntry (HWND hWndLog,
 
    pLog = LogData (hWndLog) ;
    
-   pCurrentSystem = SystemAdd (&(pLog->pSystemFirst), lpszComputer) ;
+   pCurrentSystem = SystemAdd (&(pLog->pSystemFirst), lpszComputer, hWndLog) ;
 
    pLogEntry = MemoryAllocate (sizeof (LOGENTRY)) ;
    if (!pLogEntry)
@@ -1223,7 +1225,7 @@ BOOL LogAddEntry (HWND hWndLog,
 
    LogAddEntryToList (&(pLog->pLogEntryFirst), pLogEntry) ;
 
-
+   return TRUE;
    }  // LogAddEntry
 
 
@@ -1292,8 +1294,7 @@ int SelectLogObjects(LPTSTR      lpszComputer,
 
    {
    PLOGENTRY      pLogEntry ;
-   PPERF_OBJECT_TYPE
-                  pObject ;
+   PPERFOBJECT    pObject ;
    DWORD          TotalBytes ;
    DWORD          NumObjects ;
    PBYTE          pNextObject ;
@@ -1303,9 +1304,9 @@ int SelectLogObjects(LPTSTR      lpszComputer,
    if (!*ppLogData || !pPerfData)
       return -1 ;
 
-   memcpy (*ppLogData, pPerfData, pPerfData->HeaderLength) ;
+   memcpy ((LPVOID)*ppLogData, (LPVOID)pPerfData, pPerfData->HeaderLength) ;
    TotalBytes = pPerfData->HeaderLength ;
-   MaxLogDataSize = MemorySize(*ppLogData) ;
+   MaxLogDataSize = MemorySize((LPMEMORY)*ppLogData) ;
    NumObjects = 0;
 
    
@@ -1324,7 +1325,7 @@ int SelectLogObjects(LPTSTR      lpszComputer,
             {
             if (MaxLogDataSize < TotalBytes + pObject->TotalByteLength)
                {
-               *ppLogData = MemoryResize(*ppLogData,
+               *ppLogData = MemoryResize((LPMEMORY)*ppLogData,
                                          TotalBytes + pObject->TotalByteLength) ;
                if (!*ppLogData)
                   return -1 ;
@@ -1332,7 +1333,7 @@ int SelectLogObjects(LPTSTR      lpszComputer,
                }
 
             pNextObject = (PBYTE) *ppLogData + TotalBytes ;
-            memcpy (pNextObject, pObject, pObject->TotalByteLength);
+            memcpy ((LPVOID)pNextObject, (LPVOID)pObject, pObject->TotalByteLength);
             TotalBytes += pObject->TotalByteLength ;
             NumObjects++;
             }
@@ -1607,7 +1608,8 @@ BOOL NextIntervalIndexPosition (PLOG pLog, PLOGPOSITION pLP, int *pNumTics)
          return TRUE ;
          }
       LogPositionSystemTime (&LP, &SystemTime2) ;
-      TimeDiff = (DWORD) SystemTimeDifference (&SystemTime1, &SystemTime2) ;
+      TimeDiff = (DWORD) SystemTimeDifference (&SystemTime1,
+            &SystemTime2, TRUE) ;
       if (TimeDiff * 1000 >= pLog->iIntervalMSecs)
          {  // if
          *pLP = LP ;
@@ -2242,7 +2244,7 @@ BOOL ResetLog (HWND hWndLog)
       pLog->pSystemFirst = NULL ;
       }
 
-   MemoryFree (pLog->pLogData) ;
+   MemoryFree ((LPMEMORY)pLog->pLogData) ;
 
    pLog->pLogData = (PPERFDATA) MemoryAllocate (STARTING_SYSINFO_SIZE) ;
 
@@ -2582,7 +2584,7 @@ BOOL LogWriteCounterName (HWND hWnd,
    LOGHEADER            LogFileHeader ;
    long                 lDataOffset, lCurPosition ;
    TCHAR                Dummy [sizeof(DWORD)] ;
-   int                  PatchBytes ;
+   int                  PatchBytes = 0;
 
    if (pSystem->bSystemCounterNameSaved == TRUE)
       return FALSE ;
@@ -2696,4 +2698,4 @@ BOOL LogWriteCounterName (HWND hWnd,
    }
 
      
-
+

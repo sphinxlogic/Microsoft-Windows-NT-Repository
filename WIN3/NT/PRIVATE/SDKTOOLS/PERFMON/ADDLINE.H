@@ -12,4 +12,4 @@ BOOL EditLine (HWND hWndParent,
                PPERFSYSTEM *ppSystemFirstView,
                PLINE pLineToEdit,
                int iLineTypeToEdit) ;
-
+

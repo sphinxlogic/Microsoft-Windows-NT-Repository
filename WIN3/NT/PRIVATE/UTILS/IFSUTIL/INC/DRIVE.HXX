@@ -61,8 +61,8 @@ Abstract:
 
 Author:
 
-	Mark Shavlik (marks) Jun-90
-	Norbert P. Kusters (norbertk) 22-Feb-91
+        Mark Shavlik (marks) Jun-90
+        Norbert P. Kusters (norbertk) 22-Feb-91
 
 --*/
 
@@ -75,8 +75,18 @@ Author:
 #include "wstring.hxx"
 #include "bigint.hxx"
 
+#if defined ( _AUTOCHECK_ )
+#define IFSUTIL_EXPORT
+#elif defined ( _IFSUTIL_MEMBER_ )
+#define IFSUTIL_EXPORT    __declspec(dllexport)
+#else
+#define IFSUTIL_EXPORT    __declspec(dllimport)
+#endif
+
+
+
 //
-//	Forward references
+//      Forward references
 //
 
 DECLARE_CLASS( DRIVE );
@@ -88,6 +98,8 @@ DECLARE_CLASS( NUMBER_SET );
 DECLARE_CLASS( MESSAGE );
 DECLARE_CLASS( DRIVE_CACHE );
 
+#if !defined _PARTITION_SYSTEM_ID_DEFINED_
+#define _PARTITION_SYSTEM_ID_DEFINED_
 enum PARTITION_SYSTEM_ID {
      SYSID_NONE         = 0,
      SYSID_FAT12BIT     = 1,
@@ -96,7 +108,7 @@ enum PARTITION_SYSTEM_ID {
      SYSID_IFS          = 7,
      SYSID_EXTENDED     = 5
 };
-
+#endif
 
 DEFINE_TYPE( ULONG, SECTORCOUNT );      // count of sectors
 DEFINE_TYPE( ULONG, LBN );              // Logical buffer number
@@ -105,12 +117,12 @@ DEFINE_POINTER_AND_REFERENCE_TYPES( MEDIA_TYPE );
 DEFINE_POINTER_AND_REFERENCE_TYPES( DISK_GEOMETRY );
 
 struct _DRTYPE {
-	MEDIA_TYPE  MediaType;
-	ULONG       SectorSize;
-	BIG_INT     Sectors;            // w/o hidden sectors.
-	BIG_INT     HiddenSectors;
-	SECTORCOUNT SectorsPerTrack;
-	ULONG       Heads;
+        MEDIA_TYPE  MediaType;
+        ULONG       SectorSize;
+        BIG_INT     Sectors;            // w/o hidden sectors.
+        BIG_INT     HiddenSectors;
+        SECTORCOUNT SectorsPerTrack;
+        ULONG       Heads;
 };
 
 // Hosted volumes always have certain values fixed.  Define
@@ -127,9 +139,9 @@ DEFINE_TYPE( struct _DRTYPE, DRTYPE );
 
 class DRIVE : public OBJECT {
 
-	public:
+    public:
 
-		DECLARE_CONSTRUCTOR(DRIVE);
+        DECLARE_CONSTRUCTOR(DRIVE);
 
         VIRTUAL
         ~DRIVE(
@@ -139,7 +151,7 @@ class DRIVE : public OBJECT {
         BOOLEAN
         Initialize(
             IN      PCWSTRING    NtDriveName,
-            IN OUT  PMESSAGE            Message DEFAULT NULL
+            IN OUT  PMESSAGE     Message DEFAULT NULL
             );
 
         NONVIRTUAL
@@ -149,10 +161,10 @@ class DRIVE : public OBJECT {
 
     private:
 
-		NONVIRTUAL
-		VOID
-		Construct(
-			);
+        NONVIRTUAL
+        VOID
+        Construct(
+                );
 
         NONVIRTUAL
         VOID
@@ -192,86 +204,108 @@ class DP_DRIVE : public DRIVE {
 
     public:
 
-		DECLARE_CONSTRUCTOR(DP_DRIVE);
+        IFSUTIL_EXPORT
+        DECLARE_CONSTRUCTOR(DP_DRIVE);
 
-		VIRTUAL
-		~DP_DRIVE(
-			);
+        VIRTUAL
+        IFSUTIL_EXPORT
+        ~DP_DRIVE(
+                );
 
-		NONVIRTUAL
-		BOOLEAN
-		Initialize(
+        NONVIRTUAL
+        IFSUTIL_EXPORT
+        BOOLEAN
+        Initialize(
             IN      PCWSTRING    NtDriveName,
-            IN OUT  PMESSAGE            Message         DEFAULT NULL,
-            IN      BOOLEAN             IsTransient     DEFAULT FALSE,
-            IN      BOOLEAN             ExclusiveWrite  DEFAULT FALSE
-			);
+            IN OUT  PMESSAGE     Message         DEFAULT NULL,
+            IN      BOOLEAN      IsTransient     DEFAULT FALSE,
+            IN      BOOLEAN      ExclusiveWrite  DEFAULT FALSE
+            );
 
-		NONVIRTUAL
-		MEDIA_TYPE
-		QueryMediaType(
-			) CONST;
+        NONVIRTUAL
+        IFSUTIL_EXPORT
+        BOOLEAN
+        Initialize(
+            IN      PCWSTRING   NtDriveName,
+            IN      PCWSTRING   HostFileName,
+            IN OUT  PMESSAGE    Message         DEFAULT NULL,
+            IN      BOOLEAN     IsTransient     DEFAULT FALSE,
+            IN      BOOLEAN     ExclusiveWrite  DEFAULT FALSE
+            );
 
-		NONVIRTUAL
-		UCHAR
-		QueryMediaByte(
-			) CONST;
+        NONVIRTUAL
+        MEDIA_TYPE
+        QueryMediaType(
+            ) CONST;
+
+        NONVIRTUAL
+        IFSUTIL_EXPORT
+        UCHAR
+        QueryMediaByte(
+            ) CONST;
 
         VIRTUAL
-		ULONG
-		QuerySectorSize(
-			) CONST;
+        IFSUTIL_EXPORT
+        ULONG
+        QuerySectorSize(
+            ) CONST;
 
         VIRTUAL
+        IFSUTIL_EXPORT
         BIG_INT
-		QuerySectors(
-			) CONST;
+        QuerySectors(
+            ) CONST;
 
         NONVIRTUAL
         BIG_INT
-		QueryHiddenSectors(
-			) CONST;
+        QueryHiddenSectors(
+            ) CONST;
 
         NONVIRTUAL
         SECTORCOUNT
-		QuerySectorsPerTrack(
-			) CONST;
+        QuerySectorsPerTrack(
+            ) CONST;
 
-		NONVIRTUAL
-		ULONG
-		QueryHeads(
-			) CONST;
+        NONVIRTUAL
+        ULONG
+        QueryHeads(
+            ) CONST;
 
-		NONVIRTUAL
+        NONVIRTUAL
         BIG_INT
-		QueryTracks(
-			) CONST;
+        QueryTracks(
+            ) CONST;
 
-		NONVIRTUAL
+        NONVIRTUAL
         BIG_INT
-		QueryCylinders(
-			) CONST;
+        QueryCylinders(
+            ) CONST;
 
-		NONVIRTUAL
-		BOOLEAN
-		IsRemovable(
-			) CONST;
+        NONVIRTUAL
+        BOOLEAN
+        IsRemovable(
+            ) CONST;
 
-		NONVIRTUAL
-		BOOLEAN
-		IsFloppy(
-			) CONST;
+        NONVIRTUAL
+        BOOLEAN
+        IsFloppy(
+            ) CONST;
+
+        NONVIRTUAL
+        BOOLEAN
+        IsSuperFloppy(
+            ) CONST;
 
         NONVIRTUAL
         BOOLEAN
         IsFixed(
             ) CONST;
 
-		NONVIRTUAL
-		BOOLEAN
-		IsSupported(
-			IN  MEDIA_TYPE  MediaType
-			) CONST;
+        NONVIRTUAL
+        BOOLEAN
+        IsSupported(
+            IN  MEDIA_TYPE  MediaType
+            ) CONST;
 
         NONVIRTUAL
         PCDRTYPE
@@ -280,6 +314,7 @@ class DP_DRIVE : public DRIVE {
             ) CONST;
 
         NONVIRTUAL
+        IFSUTIL_EXPORT
         MEDIA_TYPE
         QueryRecommendedMediaType(
             ) CONST;
@@ -292,6 +327,11 @@ class DP_DRIVE : public DRIVE {
         NONVIRTUAL
         NTSTATUS
         QueryLastNtStatus(
+            ) CONST;
+
+        NONVIRTUAL
+        HANDLE
+        GetVolumeFileHandle(
             ) CONST;
 
 #if defined ( DBLSPACE_ENABLED )
@@ -325,15 +365,6 @@ class DP_DRIVE : public DRIVE {
             IN  MEDIA_TYPE  MediaType   DEFAULT Unknown
             );
 
-        NONVIRTUAL
-        BOOLEAN
-        Initialize(
-            IN      PCWSTRING   NtDriveName,
-            IN      PCWSTRING   HostFileName,
-            IN OUT  PMESSAGE    Message         DEFAULT NULL,
-            IN      BOOLEAN     IsTransient     DEFAULT FALSE,
-            IN      BOOLEAN     ExclusiveWrite  DEFAULT FALSE
-			);
 
         // On a normal drive, _handle is a handle to the drive
         // and _alternate_drive is zero.  On a hosted drive,
@@ -351,16 +382,16 @@ class DP_DRIVE : public DRIVE {
         ULONG       _old_attributes;
         NTSTATUS    _last_status;
 
-	private:
+    private:
 
-		NONVIRTUAL
-		VOID
-		Construct(
-			);
+        NONVIRTUAL
+        VOID
+        Construct(
+            );
 
-		NONVIRTUAL
-		VOID
-		Destroy(
+        NONVIRTUAL
+        VOID
+        Destroy(
             );
 
         STATIC
@@ -394,6 +425,7 @@ class DP_DRIVE : public DRIVE {
         PDRTYPE     _supported_list;
         INT         _num_supported;
         ULONG       _alignment_mask;
+        BOOLEAN     _super_floppy;
 
 };
 
@@ -401,12 +433,12 @@ class DP_DRIVE : public DRIVE {
 INLINE
 MEDIA_TYPE
 DP_DRIVE::QueryMediaType(
-	) CONST
+        ) CONST
 /*++
 
 Routine Description:
 
-	This routine computes the media type.
+        This routine computes the media type.
 
 Arguments:
 
@@ -414,11 +446,11 @@ Arguments:
 
 Return Value:
 
-	The media type.
+        The media type.
 
 --*/
 {
-	return _actual.MediaType;
+        return _actual.MediaType;
 }
 
 
@@ -563,7 +595,7 @@ Return Value:
 
 --*/
 {
-	return _actual.MediaType != FixedMedia;
+        return _actual.MediaType != FixedMedia;
 }
 
 
@@ -583,12 +615,37 @@ Arguments:
 
 Return Value:
 
-	FALSE   - The disk is not a floppy disk.
-	TRUE    - The disk is a floppy disk.
+        FALSE   - The disk is not a floppy disk.
+        TRUE    - The disk is a floppy disk.
 
 --*/
 {
-	return IsRemovable() && _actual.MediaType != RemovableMedia;
+        return IsRemovable() && _actual.MediaType != RemovableMedia;
+}
+
+INLINE
+BOOLEAN
+DP_DRIVE::IsSuperFloppy(
+    ) CONST
+/*++
+
+Routine Description:
+
+    This routine tells whether the media is non-floppy unpartitioned
+    removable media.
+
+Arguments:
+
+    None.
+
+Return Value:
+
+    FALSE   - The disk is not a floppy disk.
+    TRUE    - The disk is a floppy disk.
+
+--*/
+{
+    return _super_floppy;
 }
 
 
@@ -695,29 +752,32 @@ class IO_DP_DRIVE : public DP_DRIVE {
 
     FRIEND class DRIVE_CACHE;
 
-	public:
+        public:
 
-		VIRTUAL
-		~IO_DP_DRIVE(
-			);
+                VIRTUAL
+                ~IO_DP_DRIVE(
+                        );
 
-		NONVIRTUAL
-		BOOLEAN
-		Read(
-			IN  BIG_INT     StartingSector,
-			IN  SECTORCOUNT NumberOfSectors,
-			OUT PVOID       Buffer
-			);
+                NONVIRTUAL
+                IFSUTIL_EXPORT
+                BOOLEAN
+                Read(
+                        IN  BIG_INT     StartingSector,
+                        IN  SECTORCOUNT NumberOfSectors,
+                        OUT PVOID       Buffer
+                        );
 
-		NONVIRTUAL
-		BOOLEAN
-		Write(
-			IN  BIG_INT     StartingSector,
-			IN  SECTORCOUNT NumberOfSectors,
-			IN  PVOID       Buffer
-			);
+                NONVIRTUAL
+                IFSUTIL_EXPORT
+                BOOLEAN
+                Write(
+                        IN  BIG_INT     StartingSector,
+                        IN  SECTORCOUNT NumberOfSectors,
+                        IN  PVOID       Buffer
+                        );
 
         NONVIRTUAL
+        IFSUTIL_EXPORT
         BOOLEAN
         Verify(
             IN  BIG_INT StartingSector,
@@ -725,6 +785,7 @@ class IO_DP_DRIVE : public DP_DRIVE {
             );
 
         NONVIRTUAL
+        IFSUTIL_EXPORT
         BOOLEAN
         Verify(
             IN      BIG_INT     StartingSector,
@@ -732,9 +793,15 @@ class IO_DP_DRIVE : public DP_DRIVE {
             IN OUT  PNUMBER_SET BadSectors
             );
 
-		NONVIRTUAL
-		BOOLEAN
-		Lock(
+                NONVIRTUAL
+                IFSUTIL_EXPORT
+                BOOLEAN
+                Lock(
+            );
+
+        NONVIRTUAL
+        BOOLEAN
+        Unlock(
             );
 
         NONVIRTUAL
@@ -742,28 +809,30 @@ class IO_DP_DRIVE : public DP_DRIVE {
         ForceDirty(
             );
 
-		NONVIRTUAL
-		BOOLEAN
-		FormatVerifyFloppy(
-			IN      MEDIA_TYPE  MediaType   DEFAULT Unknown,
+                NONVIRTUAL
+                BOOLEAN
+                FormatVerifyFloppy(
+                        IN      MEDIA_TYPE  MediaType   DEFAULT Unknown,
             IN OUT  PNUMBER_SET BadSectors  DEFAULT NULL,
             IN OUT  PMESSAGE    Message     DEFAULT NULL,
             IN      BOOLEAN     IsDmfFormat DEFAULT FALSE
-			);
+                        );
 
         NONVIRTUAL
+        IFSUTIL_EXPORT
         VOID
         SetCache(
             IN OUT  PDRIVE_CACHE    Cache
             );
 
         NONVIRTUAL
+        IFSUTIL_EXPORT
         BOOLEAN
         FlushCache(
             );
 
-		//	Note that the following three methods, provided to
-		//	support SimBad, are _not_ in ifsutil.dll.
+                //      Note that the following three methods, provided to
+                //      support SimBad, are _not_ in ifsutil.dll.
 
         NONVIRTUAL
         BOOLEAN
@@ -791,26 +860,26 @@ class IO_DP_DRIVE : public DP_DRIVE {
             );
 
 
-	protected:
+        protected:
 
-		DECLARE_CONSTRUCTOR(IO_DP_DRIVE);
+                DECLARE_CONSTRUCTOR(IO_DP_DRIVE);
 
-		NONVIRTUAL
-		BOOLEAN
-		Initialize(
+                NONVIRTUAL
+                BOOLEAN
+                Initialize(
             IN      PCWSTRING    NtDriveName,
             IN OUT  PMESSAGE            Message        DEFAULT NULL,
             IN      BOOLEAN             ExclusiveWrite DEFAULT FALSE
             );
 
         NONVIRTUAL
-		BOOLEAN
-		Initialize(
+                BOOLEAN
+                Initialize(
             IN      PCWSTRING   NtDriveName,
             IN      PCWSTRING   HostFileName,
             IN OUT  PMESSAGE    Message         DEFAULT NULL,
             IN      BOOLEAN     ExclusiveWrite  DEFAULT FALSE
-			);
+                        );
 
     private:
 
@@ -818,10 +887,10 @@ class IO_DP_DRIVE : public DP_DRIVE {
         BOOLEAN         _is_exclusive_write;
         PDRIVE_CACHE    _cache;
 
-		NONVIRTUAL
-		VOID
-		Construct(
-			);
+                NONVIRTUAL
+                VOID
+                Construct(
+                        );
 
         NONVIRTUAL
         VOID
@@ -838,66 +907,64 @@ class IO_DP_DRIVE : public DP_DRIVE {
         NONVIRTUAL
         BOOLEAN
         HardRead(
-			IN  BIG_INT     StartingSector,
-			IN  SECTORCOUNT NumberOfSectors,
-			OUT PVOID       Buffer
+                        IN  BIG_INT     StartingSector,
+                        IN  SECTORCOUNT NumberOfSectors,
+                        OUT PVOID       Buffer
             );
 
         NONVIRTUAL
         BOOLEAN
         HardWrite(
-			IN  BIG_INT     StartingSector,
-			IN  SECTORCOUNT NumberOfSectors,
+                        IN  BIG_INT     StartingSector,
+                        IN  SECTORCOUNT NumberOfSectors,
             IN  PVOID       Buffer
             );
 
         NONVIRTUAL
-		BOOLEAN
-		Dismount(
-			);
-
-		NONVIRTUAL
-		BOOLEAN
-		Unlock(
-			);
+                BOOLEAN
+                Dismount(
+                        );
 
 };
 
 
 class LOG_IO_DP_DRIVE : public IO_DP_DRIVE {
 
-	public:
+    public:
 
-		DECLARE_CONSTRUCTOR(LOG_IO_DP_DRIVE);
+        IFSUTIL_EXPORT
+        DECLARE_CONSTRUCTOR(LOG_IO_DP_DRIVE);
 
-		VIRTUAL
-		~LOG_IO_DP_DRIVE(
-			);
-
-		NONVIRTUAL
-		BOOLEAN
-		Initialize(
-            IN      PCWSTRING    NtDriveName,
-            IN OUT  PMESSAGE            Message        DEFAULT NULL,
-            IN      BOOLEAN             ExclusiveWrite DEFAULT FALSE
-			);
+        VIRTUAL
+        IFSUTIL_EXPORT
+        ~LOG_IO_DP_DRIVE(
+                );
 
         NONVIRTUAL
+        IFSUTIL_EXPORT
+        BOOLEAN
+        Initialize(
+            IN      PCWSTRING    NtDriveName,
+            IN OUT  PMESSAGE     Message        DEFAULT NULL,
+            IN      BOOLEAN      ExclusiveWrite DEFAULT FALSE
+            );
+
+        NONVIRTUAL
+        IFSUTIL_EXPORT
         BOOLEAN
         SetSystemId(
             IN  PARTITION_SYSTEM_ID   SystemId
             );
 
-    protected:
-
         NONVIRTUAL
-		BOOLEAN
-		Initialize(
+        IFSUTIL_EXPORT
+        BOOLEAN
+        Initialize(
             IN      PCWSTRING   NtDriveName,
             IN      PCWSTRING   HostFileName,
             IN OUT  PMESSAGE    Message         DEFAULT NULL,
             IN      BOOLEAN     ExclusiveWrite  DEFAULT FALSE
-			);
+        );
 
     private:
 
@@ -934,21 +1001,21 @@ Return Value:
 
 class PHYS_IO_DP_DRIVE : public IO_DP_DRIVE {
 
-	public:
+        public:
 
-		DECLARE_CONSTRUCTOR(PHYS_IO_DP_DRIVE);
+                DECLARE_CONSTRUCTOR(PHYS_IO_DP_DRIVE);
 
-		VIRTUAL
-		~PHYS_IO_DP_DRIVE(
-			);
+                VIRTUAL
+                ~PHYS_IO_DP_DRIVE(
+                        );
 
-		NONVIRTUAL
-		BOOLEAN
-		Initialize(
+                NONVIRTUAL
+                BOOLEAN
+                Initialize(
             IN      PCWSTRING    NtDriveName,
             IN OUT  PMESSAGE            Message        DEFAULT NULL,
             IN      BOOLEAN             ExclusiveWrite DEFAULT FALSE
-			);
+                        );
 
     private:
 
@@ -980,6 +1047,30 @@ Return Value:
 
 --*/
 {
+}
+
+INLINE
+HANDLE
+DP_DRIVE::GetVolumeFileHandle(
+    ) CONST
+/*++
+
+Routine Description:
+
+    This routine is a hack for NTFS->OFS convert...  it returns the
+    handle open on the ntfs volume-file.
+
+Arguments:
+
+    None.
+
+Return Value:
+
+    The handle.
+
+--*/
+{
+    return _handle;
 }
 
 #endif // DRIVE_DEFN

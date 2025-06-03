@@ -7,6 +7,7 @@
  */
 
 #include "cmd.h"
+#include <winconp.h>
 #include <cmdsvc.h>
 #include <softpc.h>
 #include <mvdm.h>
@@ -78,7 +79,7 @@ VOID cmdGetKbdLayout( VOID )
 
 // Get Keyboard Layout Code (hec string)
 
-    if (!GetKeyboardLayoutName(szKeybCode)) {
+    if (!GetConsoleKeyboardLayoutName(szKeybCode)) {
         goto NoInstallkb16;
     }
 
@@ -156,8 +157,8 @@ VOID cmdGetKbdLayout( VOID )
 // If keycode, code page and keyboard id aren't changed, do nothing more
 
     if(bPifFastPaste && iNewCP == iPrevCP &&
-       !stricmp(szBuf, szPrev) &&
-       !stricmp(szNewKbdID, szPrevKbdID)) {
+       !_stricmp(szBuf, szPrev) &&
+       !_stricmp(szNewKbdID, szPrevKbdID)) {
         goto NoInstallkb16;
     }
 
@@ -171,7 +172,7 @@ VOID cmdGetKbdLayout( VOID )
 // If keyboard ID not found or it is US then return
 
     if( bPifFastPaste &&
-        !stricmp(szBuf, DEFAULT_KB_ID) && !iKeyb) {
+        !_stricmp(szBuf, DEFAULT_KB_ID) && !iKeyb) {
         goto NoInstallkb16;
     }
 

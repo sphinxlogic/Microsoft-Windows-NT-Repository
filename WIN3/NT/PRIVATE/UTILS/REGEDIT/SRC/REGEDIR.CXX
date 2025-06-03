@@ -138,37 +138,38 @@ Return Value:
     DSTRING             Name;
     DSTRING             ParentName;
 
-    DbgPtrAssert( RootName );
-    DbgPtrAssert( Registry );
+    DebugPtrAssert( RootName );
+    DebugPtrAssert( Registry );
 
-    DbgAssert( ( PredefinedKey == PREDEFINED_KEY_CLASSES_ROOT ) ||
+    DebugAssert( ( PredefinedKey == PREDEFINED_KEY_CLASSES_ROOT ) ||
                ( PredefinedKey == PREDEFINED_KEY_CURRENT_USER ) ||
                ( PredefinedKey == PREDEFINED_KEY_LOCAL_MACHINE ) ||
-               ( PredefinedKey == PREDEFINED_KEY_USERS ) );
+               ( PredefinedKey == PREDEFINED_KEY_USERS ) ||
+               ( PredefinedKey == PREDEFINED_KEY_CURRENT_CONFIG ) );
 
     _PredefinedKey = PredefinedKey;
     _Registry = Registry;
     if( !_RootName.Initialize( RootName ) ) {
-        DbgPrint( "_RootName.Initialize() failed" );
+        DebugPrint( "_RootName.Initialize() failed" );
         return( FALSE );
     }
 
     if( !Name.Initialize( ( PSTR )"" ) ) {
-        DbgPrint( "Name.Initialize() failed" );
+        DebugPrint( "Name.Initialize() failed" );
         return( FALSE );
     }
     if( !ParentName.Initialize( ( PSTR )"" ) ) {
-        DbgPrint( "ParentName.Initialize() failed" );
+        DebugPrint( "ParentName.Initialize() failed" );
         return( FALSE );
     }
 
     if( !Class.Initialize( ( PSTR )"" ) ) {
-        DbgPrint( "Class.Initialize() failed" );
+        DebugPrint( "Class.Initialize() failed" );
         return( FALSE );
     }
 
     KeyInfo = ( PREGISTRY_KEY_INFO ) NEW( REGISTRY_KEY_INFO );
-    DbgPtrAssert( KeyInfo );
+    DebugPtrAssert( KeyInfo );
 
     if( !_Registry->QueryKeyInfo( _PredefinedKey,
                                   &ParentName,
@@ -176,14 +177,14 @@ Return Value:
                                   KeyInfo,
                                   &ErrorCode ) ) {
 
-        DbgPrint( "_Registry->QueryKeyInfo() failed" );
-        DbgPrintf( "_Registry->QueryKeyInfo() failed, ErrorCode = %#x \n", ErrorCode );
+        DebugPrint( "_Registry->QueryKeyInfo() failed" );
+        DebugPrintf( "_Registry->QueryKeyInfo() failed, ErrorCode = %#x \n", ErrorCode );
         DELETE( KeyInfo );
         return( FALSE );
     }
 
     if( !_RootNode.Initialize( KeyInfo, NULL, 0, TRUE, TRUE ) ) {
-        DbgPrint( "_RootNode.Initialize() failed" );
+        DebugPrint( "_RootNode.Initialize() failed" );
         return( FALSE );
     }
     //
@@ -239,9 +240,9 @@ Return Value:
     PCREGISTRY_VALUE_ENTRY  ValueEntry;
     PSORTED_LIST            TmpList;
 
-    DbgPtrAssert( Node );
-    DbgPtrAssert( Value );
-    DbgPtrAssert( ErrorCode );
+    DebugPtrAssert( Node );
+    DebugPtrAssert( Value );
+    DebugPtrAssert( ErrorCode );
 
 
     //
@@ -253,10 +254,10 @@ Return Value:
         //  The node doesn't have any value
         //
         TmpList = ( PSORTED_LIST ) NEW( SORTED_LIST );
-        DbgPtrAssert( TmpList );
+        DebugPtrAssert( TmpList );
         if( ( TmpList == NULL ) ||
             ( !TmpList->Initialize() ) ) {
-            DbgPrint( "TmpList->Initilize() failed" );
+            DebugPrint( "TmpList->Initilize() failed" );
             *ErrorCode = REGEDIT_ERROR_INITIALIZATION_FAILURE;
             DELETE( TmpList );
             return( FALSE );
@@ -271,10 +272,10 @@ Return Value:
     //
 
     KeyInfo = Node->GetKeyInfo();
-    DbgPtrAssert( KeyInfo );
+    DebugPtrAssert( KeyInfo );
 
     ValueEntry = Value->GetValueEntry();
-    DbgPtrAssert( ValueEntry );
+    DebugPtrAssert( ValueEntry );
 
     if( !_Registry->AddValueEntry( _PredefinedKey,
                                    KeyInfo,
@@ -282,8 +283,8 @@ Return Value:
                                    FailIfExists,
                                    ErrorCode ) ) {
 
-        DbgPrint( "Registry->AddValueEntry() failed" );
-        DbgPrintf( "Registry->AddValueEntry() failed, ErrorCode = %#x \n", *ErrorCode );
+        DebugPrint( "Registry->AddValueEntry() failed" );
+        DebugPrintf( "Registry->AddValueEntry() failed, ErrorCode = %#x \n", *ErrorCode );
         *ErrorCode = MapRegistryToRegeditError( *ErrorCode );
         return( FALSE );
     }
@@ -294,7 +295,7 @@ Return Value:
     //
 
     if( !( ( PREGEDIT_NODE )Node )->AddValueToListOfValues( Value ) ) {
-        DbgPrint( "Node-AddValueToListOfValues() failed" );
+        DebugPrint( "Node-AddValueToListOfValues() failed" );
         *ErrorCode = REGEDIT_ERROR_NODE_NOT_UPDATED;
         return( FALSE );
     }
@@ -348,17 +349,17 @@ Return Value:
     PREGISTRY_KEY_INFO      KeyInfo;
     PREGISTRY_VALUE_ENTRY   NewValueEntry;
 
-    DbgPtrAssert( Node );
-    DbgPtrAssert( Value );
-    DbgPtrAssert( NewData );
+    DebugPtrAssert( Node );
+    DebugPtrAssert( Value );
+    DebugPtrAssert( NewData );
 
     //
     //  If a value is being modified, then the list of values should
     //  be loaded in memory.
     //
 
-    DbgPtrAssert( Node->GetValues() );
-//    DbgAssert( Node->GetNumberOfValues() != 0 );
+    DebugPtrAssert( Node->GetValues() );
+//    DebugAssert( Node->GetNumberOfValues() != 0 );
 
     //
     //  Now that there is a list of values in memory, create a new value
@@ -366,17 +367,17 @@ Return Value:
     //
 
     KeyInfo = Node->GetKeyInfo();
-    DbgPtrAssert( KeyInfo );
+    DebugPtrAssert( KeyInfo );
 
     NewValueEntry = ( PREGISTRY_VALUE_ENTRY )NEW( REGISTRY_VALUE_ENTRY );
-    DbgPtrAssert( NewValueEntry );
+    DebugPtrAssert( NewValueEntry );
 
     if( !NewValueEntry->Initialize( Value->GetName(),
                                     Value->GetTitleIndex(),
                                     Value->GetType(),
                                     NewData,
                                     Size ) ) {
-        DbgPrint( "TmpNewValueEntry->Initilaize() failed" );
+        DebugPrint( "TmpNewValueEntry->Initilaize() failed" );
         *ErrorCode = REGEDIT_ERROR_INITIALIZATION_FAILURE;
         return( FALSE );
     }
@@ -387,8 +388,8 @@ Return Value:
                                    FALSE,
                                    ErrorCode ) ) {
 
-        DbgPrint( "Registry->AddValueEntry() failed" );
-        DbgPrintf( "Registry->AddValueEntry() failed, ErrorCode = %#x \n", *ErrorCode );
+        DebugPrint( "Registry->AddValueEntry() failed" );
+        DebugPrintf( "Registry->AddValueEntry() failed, ErrorCode = %#x \n", *ErrorCode );
         *ErrorCode = MapRegistryToRegeditError( *ErrorCode );
         return( FALSE );
     }
@@ -398,7 +399,7 @@ Return Value:
     //  was modified so that it contains the new data.
     //
     if( !( ( PREGEDIT_FORMATTED_VALUE_ENTRY )Value )->Initialize( NewValueEntry ) ) {
-        DbgPrint( "Value->Initialize() failed" );
+        DebugPrint( "Value->Initialize() failed" );
         *ErrorCode = REGEDIT_ERROR_NODE_NOT_UPDATED;
         return( FALSE );
     }
@@ -451,9 +452,9 @@ Return Value:
     PSORTED_LIST            TmpList;
     PREGEDIT_NODE           TmpNode;
 
-    DbgPtrAssert( ParentNode );
-    DbgPtrAssert( ChildKeyInfo );
-    DbgPtrAssert( ChildNode );
+    DebugPtrAssert( ParentNode );
+    DebugPtrAssert( ChildKeyInfo );
+    DebugPtrAssert( ChildNode );
 
     //
     //  First check whether the list of children in Node is loaded in
@@ -464,10 +465,10 @@ Return Value:
         //  The node doesn't have any children
         //
         TmpList = ( PSORTED_LIST ) NEW( SORTED_LIST );
-        DbgPtrAssert( TmpList );
+        DebugPtrAssert( TmpList );
         if( ( TmpList == NULL ) ||
             ( !TmpList->Initialize() ) ) {
-            DbgPrint( "TmpList->Initilize() failed" );
+            DebugPrint( "TmpList->Initilize() failed" );
             if( ErrorCode != NULL ) {
                 *ErrorCode = REGEDIT_ERROR_INITIALIZATION_FAILURE;
             }
@@ -481,7 +482,7 @@ Return Value:
         //  The node has children
         //
         TmpList = GetChildren( ParentNode, ErrorCode );
-        DbgPtrAssert( TmpList );
+        DebugPtrAssert( TmpList );
     }
 
     //
@@ -490,7 +491,7 @@ Return Value:
     //
 
     KeyInfo = ParentNode->GetKeyInfo();
-    DbgPtrAssert( KeyInfo );
+    DebugPtrAssert( KeyInfo );
 
     if( !_Registry->CreateKey( _PredefinedKey,
                                KeyInfo,
@@ -498,10 +499,10 @@ Return Value:
                                ErrorCode,
                                Volatile ) ) {
 
-        DbgPrint( "Registry->CreateKey() failed" );
+        DebugPrint( "Registry->CreateKey() failed" );
         if( ErrorCode != NULL ) {
             *ErrorCode = MapRegistryToRegeditError( *ErrorCode );
-            DbgPrintf( "Registry->CreateKey() failed, ErrorCode = %#x \n", *ErrorCode );
+            DebugPrintf( "Registry->CreateKey() failed, ErrorCode = %#x \n", *ErrorCode );
         }
         return( FALSE );
     }
@@ -511,14 +512,14 @@ Return Value:
     //  Children in Node
     //
     TmpNode = ( PREGEDIT_NODE ) NEW( REGEDIT_NODE );
-    DbgPtrAssert( TmpNode );
+    DebugPtrAssert( TmpNode );
 
     if( !TmpNode->Initialize( ChildKeyInfo,
                               ParentNode,
                               ParentNode->GetLevel() + 1,
                               TRUE,
                               FALSE ) ) {
-        DbgPrint( "TmpNode->Initialize() failed" );
+        DebugPrint( "TmpNode->Initialize() failed" );
         if( ErrorCode != NULL ) {
             *ErrorCode = REGEDIT_ERROR_INITIALIZATION_FAILURE;
         }
@@ -527,7 +528,7 @@ Return Value:
     *ChildNode = TmpNode;
 
     if( !( (PREGEDIT_NODE )ParentNode )->AddChildToListOfChildren( TmpNode ) ) {
-        DbgPrint( "ParentNode->AddValueToListOfValues() failed" );
+        DebugPrint( "ParentNode->AddValueToListOfValues() failed" );
         if( ErrorCode != NULL ) {
             *ErrorCode = REGEDIT_ERROR_UNKNOWN_ERROR;
         }
@@ -584,10 +585,10 @@ Return Value:
     }
 
     ParentKeyInfo = ParentNode->GetKeyInfo();
-    DbgPtrAssert( ParentKeyInfo );
+    DebugPtrAssert( ParentKeyInfo );
 
     KeyName = Node->GetKeyInfo()->GetName();
-    DbgPtrAssert( KeyName );
+    DebugPtrAssert( KeyName );
 
     if( !_Registry->DeleteKey( _PredefinedKey,
                                ParentKeyInfo,
@@ -595,14 +596,14 @@ Return Value:
                                ErrorCode ) ) {
 
         ( ( PREGEDIT_NODE )Node )->DeleteListOfChildren();
-        DbgPrint( "_Registry->DeleteKey() failed" );
-        DbgPrintf( "_Registry->DeleteKey() failed, ErrorCode = %#x \n", *ErrorCode );
+        DebugPrint( "_Registry->DeleteKey() failed" );
+        DebugPrintf( "_Registry->DeleteKey() failed, ErrorCode = %#x \n", *ErrorCode );
         *ErrorCode  = MapRegistryToRegeditError( *ErrorCode );
         return( FALSE );
     }
 
     if( !ParentNode->RemoveChildFromListOfChildren( Node ) ) {
-        DbgPrint( "ParentNode->removeChildFromListOfChildren() failed" );
+        DebugPrint( "ParentNode->removeChildFromListOfChildren() failed" );
         if( ErrorCode != NULL ) {
             *ErrorCode = REGEDIT_ERROR_UNKNOWN_ERROR;
         }
@@ -649,8 +650,8 @@ Return Value:
 --*/
 
 {
-    DbgPtrAssert( Node );
-    DbgPtrAssert( Value );
+    DebugPtrAssert( Node );
+    DebugPtrAssert( Value );
 
     PCWSTRING               ValueName;
     PREGISTRY_KEY_INFO      KeyInfo;
@@ -658,29 +659,29 @@ Return Value:
 
 
     KeyInfo = Node->GetKeyInfo();
-    DbgPtrAssert( KeyInfo );
+    DebugPtrAssert( KeyInfo );
 
     ValueEntry = Value->GetValueEntry();
-    DbgPtrAssert( ValueEntry );
+    DebugPtrAssert( ValueEntry );
 
     ValueName = ValueEntry->GetName();
-    DbgPtrAssert( ValueName );
+    DebugPtrAssert( ValueName );
 
     if( !_Registry->DeleteValueEntry( _PredefinedKey,
                                       KeyInfo,
                                       ValueName,
                                       ErrorCode ) ) {
-        DbgPrint( "_Registry->DeleteValueEntry() failed" );
+        DebugPrint( "_Registry->DeleteValueEntry() failed" );
         if( ErrorCode != NULL ) {
             *ErrorCode = MapRegistryToRegeditError( *ErrorCode );
-            DbgPrintf( "_Registry->DeleteValueEntry() failed, ErrorCode = %#x \n",
+            DebugPrintf( "_Registry->DeleteValueEntry() failed, ErrorCode = %#x \n",
                         *ErrorCode );
         }
         return( FALSE );
     }
 
     if( !( ( PREGEDIT_NODE )Node )->RemoveValueFromListOfValues( Value ) ) {
-        DbgPrint( "Node->RemoveValueFromListOfValues() failed" );
+        DebugPrint( "Node->RemoveValueFromListOfValues() failed" );
         if( ErrorCode != NULL ) {
             *ErrorCode = REGEDIT_ERROR_UNKNOWN_ERROR;
         }
@@ -727,7 +728,7 @@ Return Value:
 {
     DSTRING             TmpName;
 
-    DbgPtrAssert( Node );
+    DebugPtrAssert( Node );
     if( !Node->QueryCompleteName( &TmpName ) ) {
         if( ErrorCode != NULL ) {
             *ErrorCode = REGEDIT_ERROR_INITIALIZATION_FAILURE;
@@ -786,23 +787,23 @@ Return Value:
     PCWSTRING               ValueName;
 
 
-    DbgPtrAssert( Node );
-    DbgPtrAssert( Value );
+    DebugPtrAssert( Node );
+    DebugPtrAssert( Value );
 
     KeyInfo = Node->GetKeyInfo();
-    DbgPtrAssert( KeyInfo );
+    DebugPtrAssert( KeyInfo );
 
     ParentName = KeyInfo->GetParentName();
-    DbgPtrAssert( ParentName );
+    DebugPtrAssert( ParentName );
 
     KeyName = KeyInfo->GetName();
-    DbgPtrAssert( KeyName );
+    DebugPtrAssert( KeyName );
 
     ValueEntry = Value->GetValueEntry();
-    DbgPtrAssert( ValueEntry );
+    DebugPtrAssert( ValueEntry );
 
     ValueName = ValueEntry->GetName();
-    DbgPtrAssert( ValueName );
+    DebugPtrAssert( ValueName );
 
     if( !_Registry->DoesValueExist( _PredefinedKey,
                                     ParentName,
@@ -863,7 +864,7 @@ Return Value:
     PREGEDIT_NODE           TmpNode;
 
 
-    DbgPtrAssert( Node );
+    DebugPtrAssert( Node );
 
     //
     //  If node has no children, return NULL
@@ -890,10 +891,10 @@ Return Value:
     //
 
     SubKeys = ( PARRAY )NEW( ARRAY );
-    DbgPtrAssert( SubKeys );
+    DebugPtrAssert( SubKeys );
 
     if( !SubKeys->Initialize() ) {
-        DbgPrint( "SubKeys->Initialize() failed" );
+        DebugPrint( "SubKeys->Initialize() failed" );
         if( ErrorCode != NULL ) {
             *ErrorCode = 0;
         }
@@ -901,9 +902,9 @@ Return Value:
     }
 
     ParentName = Node->GetKeyInfo()->GetParentName();
-    DbgPtrAssert( ParentName );
+    DebugPtrAssert( ParentName );
     KeyName = Node->GetKeyInfo()->GetName();
-    DbgPtrAssert( KeyName );
+    DebugPtrAssert( KeyName );
 
     if( !_Registry->QuerySubKeysInfo( _PredefinedKey,
                                       ParentName,
@@ -911,7 +912,7 @@ Return Value:
                                       SubKeys,
                                       ErrorCode ) ) {
         *ErrorCode = MapRegistryToRegeditError( *ErrorCode );
-        DbgPrint( "QuerySubKeys() failed" );
+        DebugPrint( "QuerySubKeys() failed" );
         DELETE( SubKeys );
         return( NULL );
     }
@@ -919,13 +920,13 @@ Return Value:
     Count = SubKeys->QueryMemberCount();
 
     Iterator = SubKeys->QueryIterator();
-    DbgPtrAssert( Iterator );
+    DebugPtrAssert( Iterator );
 
     TmpList = ( PSORTED_LIST )NEW( SORTED_LIST );
-    DbgPtrAssert( TmpList );
+    DebugPtrAssert( TmpList );
     if( ( TmpList == NULL ) ||
         ( !TmpList->Initialize() ) ){
-        DbgPrint( "TmpList->Initialize() failed" );
+        DebugPrint( "TmpList->Initialize() failed" );
         DELETE( TmpList );
         DELETE( Iterator );
         if( ErrorCode != NULL ) {
@@ -939,7 +940,7 @@ Return Value:
     Index = 0;
     while( ( TmpKeyInfo = ( PREGISTRY_KEY_INFO )Iterator->GetNext() ) != NULL ) {
         TmpNode = ( PREGEDIT_NODE ) NEW( REGEDIT_NODE );
-        DbgPtrAssert( TmpNode );
+        DebugPtrAssert( TmpNode );
 
         TmpNode->Initialize( TmpKeyInfo,
                              Node,
@@ -958,7 +959,7 @@ Return Value:
 
     Iterator = TmpList->QueryIterator();
     if( Iterator == NULL ) {
-        DbgPrint( "Unable to get iterator" );
+        DebugPrint( "Unable to get iterator" );
         return( TmpList );
     }
     Index = 0;
@@ -1021,7 +1022,7 @@ Return Value:
     PREGISTRY_VALUE_ENTRY           TmpValue;
 
 
-    DbgPtrAssert( Node );
+    DebugPtrAssert( Node );
 
 
     //
@@ -1043,11 +1044,11 @@ Return Value:
 #if DBG
         if( TmpList->QueryMemberCount() != Node->GetNumberOfValues() ) {
 
-            DbgPrintf( "TmpList->QueryMemberCount() = %d, Node->GetNumberOfValues() = %d, _PredefinedKey = %d \n",
+            DebugPrintf( "TmpList->QueryMemberCount() = %d, Node->GetNumberOfValues() = %d, _PredefinedKey = %d \n",
                         TmpList->QueryMemberCount(),
                         Node->GetNumberOfValues(),
                         _PredefinedKey );
-            DbgPrint( "TmpList->QueryMemberCount() != Node->GetNumberOfValues()" );
+            DebugPrint( "TmpList->QueryMemberCount() != Node->GetNumberOfValues()" );
 
         }
 #endif
@@ -1060,11 +1061,11 @@ Return Value:
     //
 
     Values = ( PARRAY )NEW( ARRAY );
-    DbgPtrAssert( Values );
+    DebugPtrAssert( Values );
 
     if( ( Values == NULL ) ||
         ( !Values->Initialize() ) ) {
-        DbgPrint( "Values->Initialize() failed" );
+        DebugPrint( "Values->Initialize() failed" );
         if( ErrorCode != NULL ) {
             *ErrorCode = 0;
         }
@@ -1072,9 +1073,9 @@ Return Value:
     }
 
     ParentName = Node->GetKeyInfo()->GetParentName();
-    DbgPtrAssert( ParentName );
+    DebugPtrAssert( ParentName );
     KeyName = Node->GetKeyInfo()->GetName();
-    DbgPtrAssert( KeyName );
+    DebugPtrAssert( KeyName );
 
     if( !_Registry->QueryValues( _PredefinedKey,
                                  ParentName,
@@ -1082,7 +1083,7 @@ Return Value:
                                  Values,
                                  ErrorCode ) ) {
         *ErrorCode = MapRegistryToRegeditError( *ErrorCode );
-        DbgPrint( "QueryValues() failed" );
+        DebugPrint( "QueryValues() failed" );
         DELETE( Values );
         return( NULL );
     }
@@ -1091,21 +1092,21 @@ Return Value:
 
 #if DBG
     if( Count != Node->GetNumberOfValues() ) {
-        DbgPrintf( "Count = %d, Node->GetNumberOfValues() = %d \n",
+        DebugPrintf( "Count = %d, Node->GetNumberOfValues() = %d \n",
                    Count,
                    Node->GetNumberOfValues() );
 
-        DbgPrint( "Count != Node->GetNumberOfValues()" );
+        DebugPrint( "Count != Node->GetNumberOfValues()" );
     }
 #endif
     Iterator = Values->QueryIterator();
-    DbgPtrAssert( Iterator );
+    DebugPtrAssert( Iterator );
 
     TmpList = ( PSORTED_LIST )NEW( SORTED_LIST );
-    DbgPtrAssert( TmpList );
+    DebugPtrAssert( TmpList );
     if( ( TmpList == NULL ) ||
         ( !TmpList->Initialize() ) ) {
-        DbgPrint( "TmpList->Initialize() failed" );
+        DebugPrint( "TmpList->Initialize() failed" );
         DELETE( TmpList );
         DELETE( Iterator );
         if( ErrorCode != NULL ) {
@@ -1117,7 +1118,7 @@ Return Value:
     Index = 0;
     while( ( TmpValue = ( PREGISTRY_VALUE_ENTRY )Iterator->GetNext() ) != NULL ) {
         TmpFormattedValue = ( PREGEDIT_FORMATTED_VALUE_ENTRY ) NEW( REGEDIT_FORMATTED_VALUE_ENTRY );
-        DbgPtrAssert( TmpFormattedValue );
+        DebugPtrAssert( TmpFormattedValue );
 
         TmpFormattedValue->Initialize( TmpValue );
 
@@ -1127,7 +1128,7 @@ Return Value:
 
 #if DBG
     if( Index != Count ) {
-        DbgPrintf( "ERROR: Index = %d, Count = %d \n", Index, Count );
+        DebugPrintf( "ERROR: Index = %d, Count = %d \n", Index, Count );
     }
 #endif
     DELETE( Iterator );
@@ -1178,8 +1179,8 @@ Return Value:
 {
     PREGISTRY_KEY_INFO  KeyInfo;
 
-    DbgPtrAssert( Node );
-    DbgPtrAssert( SecurityDescriptor );
+    DebugPtrAssert( Node );
+    DebugPtrAssert( SecurityDescriptor );
 
     KeyInfo = Node->GetKeyInfo();
     if( !_Registry->QueryKeySecurity( _PredefinedKey,
@@ -1188,7 +1189,7 @@ Return Value:
                                       SecurityDescriptor,
                                       ErrorCode ) ) {
         *ErrorCode = MapRegistryToRegeditError( *ErrorCode );
-        DbgPrint( "_Registry->QueryKeySecurity() failed" );
+        DebugPrint( "_Registry->QueryKeySecurity() failed" );
         return( FALSE );
     }
     return( TRUE );
@@ -1238,8 +1239,8 @@ Return Value:
 {
     PREGISTRY_KEY_INFO  KeyInfo;
 
-    DbgPtrAssert( Node );
-    DbgPtrAssert( SecurityDescriptor );
+    DebugPtrAssert( Node );
+    DebugPtrAssert( SecurityDescriptor );
 
     KeyInfo = Node->GetKeyInfo();
     if( !_Registry->SetKeySecurity( _PredefinedKey,
@@ -1248,7 +1249,7 @@ Return Value:
                                     SecurityDescriptor,
                                     ErrorCode,
                                     Recurse ) ) {
-        DbgPrint( "_Registry->SetKeySecurity() failed" );
+        DebugPrint( "_Registry->SetKeySecurity() failed" );
         *ErrorCode = MapRegistryToRegeditError( *ErrorCode );
         return( FALSE );
     }
@@ -1293,15 +1294,15 @@ Return Value:
     PITERATOR           Iterator;
 
 
-    DbgPtrAssert( Children );
-    DbgPtrAssert( NodeName );
+    DebugPtrAssert( Children );
+    DebugPtrAssert( NodeName );
 
     if( ( Count = Children->QueryMemberCount() ) == 0 ) {
         return( FALSE );
     }
     Iterator = Children->QueryIterator();
     if( Iterator == NULL ) {
-        DbgPrint( "Unable to get iterator" );
+        DebugPrint( "Unable to get iterator" );
         return( FALSE );
     }
     while( ( ( TmpNode = ( PCREGEDIT_NODE )Iterator->GetNext() ) != NULL ) &&
@@ -1359,35 +1360,35 @@ Return Value:
 
 
 
-    DbgPtrAssert( Root );
+    DebugPtrAssert( Root );
 
     ( ( PREGEDIT_NODE )Root )->DeleteListOfValues();
 // ( ( PREGEDIT_NODE )Root )->QueryCompleteName( &DbgNodeName );
 // DbgNodeNameSTR = DbgNodeName.QuerySTR();
-// DbgPtrAssert( DbgNodeNameSTR );
-// DbgPrintf( "Removing values from %s \n", DbgNodeNameSTR );
+// DebugPtrAssert( DbgNodeNameSTR );
+// DebugPrintf( "Removing values from %s \n", DbgNodeNameSTR );
     TmpKeyInfo = ( ( PREGEDIT_NODE )Root )->GetKeyInfo();
-    DbgPtrAssert( TmpKeyInfo );
+    DebugPtrAssert( TmpKeyInfo );
     if( !_Registry->UpdateKeyInfo( _PredefinedKey, TmpKeyInfo ) ) {
         ( ( PREGEDIT_NODE )Root )->DeleteListOfChildren();
-//	 DbgPrint( "Unable to update KeyInfo" );
+//       DebugPrint( "Unable to update KeyInfo" );
         return;
     }
 
     if( TmpKeyInfo->GetNumberOfSubKeys() == 0 ) {
         ( ( PREGEDIT_NODE )Root )->DeleteListOfChildren();
-// DbgPrintf( "Number of Subkeys in node %s is 0 \n", DbgNodeNameSTR );
+// DebugPrintf( "Number of Subkeys in node %s is 0 \n", DbgNodeNameSTR );
         return;
     }
 
     Children = ( ( PREGEDIT_NODE )Root )->GetChildren();
     if( Children == NULL ) {
-// DbgPrintf( "Children of %s are not in memory \n", DbgNodeNameSTR );
+// DebugPrintf( "Children of %s are not in memory \n", DbgNodeNameSTR );
         return;
     }
     Iterator = Children->QueryIterator();
     if( Iterator == NULL ) {
-        DbgPrint( "Unable to get iterator" );
+        DebugPrint( "Unable to get iterator" );
         return;
     }
     while( ( TmpNode = ( PREGEDIT_NODE )Iterator->GetPrevious() ) != NULL ) {
@@ -1395,7 +1396,7 @@ Return Value:
         ParentName = ( ( PREGEDIT_NODE )TmpNode )->GetParentName();
         if( !_Registry->DoesKeyExist( _PredefinedKey, ParentName, KeyName ) ) {
             RemovedNode = ( PREGEDIT_NODE )Children->Remove( Iterator );
-// DbgPrintf( "Removing %s \n", DbgNodeNameSTR );
+// DebugPrintf( "Removing %s \n", DbgNodeNameSTR );
             DELETE( RemovedNode );
         } else {
             UpdateSubTree( TmpNode );
@@ -1404,7 +1405,7 @@ Return Value:
     DELETE( Iterator );
 
     if( !NewSubKeysInfo.Initialize() ) {
-        DbgPrint( "NewKeyInfo.Initialize() failed" );
+        DebugPrint( "NewKeyInfo.Initialize() failed" );
         return;
     }
 
@@ -1418,13 +1419,13 @@ Return Value:
 
     Iterator = NewSubKeysInfo.QueryIterator();
     if( Iterator == NULL ) {
-        DbgPrint( "Unable to get iterator" );
+        DebugPrint( "Unable to get iterator" );
         return;
     }
     while( ( TmpKeyInfo = ( PREGISTRY_KEY_INFO )Iterator->GetPrevious() ) != NULL ) {
-// DbgPrintf( "Reading Sub Keys of node %s, Count = %d \n", DbgNodeNameSTR, Count );
+// DebugPrintf( "Reading Sub Keys of node %s, Count = %d \n", DbgNodeNameSTR, Count );
         KeyName = TmpKeyInfo->GetName();
-        DbgPtrAssert( KeyName );
+        DebugPtrAssert( KeyName );
         if( IsKeyInListOfChildren( KeyName, Children ) ) {
             NewSubKeysInfo.Remove( Iterator );
             DELETE( TmpKeyInfo );
@@ -1434,13 +1435,13 @@ Return Value:
     Iterator->Reset();
 
 // Count = NewSubKeysInfo.QueryMemberCount();
-// DbgPrintf( "New count in node %s is NewCount = %d \n", DbgNodeNameSTR, Count );
+// DebugPrintf( "New count in node %s is NewCount = %d \n", DbgNodeNameSTR, Count );
     while( ( TmpKeyInfo = ( PREGISTRY_KEY_INFO )Iterator->GetNext() ) != NULL ) {
         TmpNode = ( PREGEDIT_NODE )NEW( REGEDIT_NODE );
-        DbgPtrAssert( TmpNode );
+        DebugPtrAssert( TmpNode );
         if( ( TmpNode == NULL ) ||
             !TmpNode->Initialize( TmpKeyInfo, Root, Root->GetLevel() + 1, FALSE, FALSE ) ) {
-            DbgPrint( "TmpNode->Initialize() failed" );
+            DebugPrint( "TmpNode->Initialize() failed" );
             DELETE( TmpNode );
             continue;
         }
@@ -1450,7 +1451,7 @@ Return Value:
 
     Iterator = Children->QueryIterator();
     if( Iterator == NULL ) {
-        DbgPrint( "Unable to get iterator" );
+        DebugPrint( "Unable to get iterator" );
         return;
     }
     Index = 0;
@@ -1462,32 +1463,32 @@ Return Value:
 
     }
     DELETE( Iterator );
-// DbgPrintf( "Children of %s were updated \n", DbgNodeNameSTR );
+// DebugPrintf( "Children of %s were updated \n", DbgNodeNameSTR );
 
 
 #if 0
     ( ( PREGEDIT_NODE )Root )->DeleteListOfValues();
 // ( ( PREGEDIT_NODE )Root )->QueryCompleteName( &DbgNodeName );
 // DbgNodeNameSTR = DbgNodeName.QuerySTR();
-// DbgPtrAssert( DbgNodeNameSTR );
-// DbgPrintf( "Removing values from %s \n", DbgNodeNameSTR );
+// DebugPtrAssert( DbgNodeNameSTR );
+// DebugPrintf( "Removing values from %s \n", DbgNodeNameSTR );
     TmpKeyInfo = ( ( PREGEDIT_NODE )Root )->GetKeyInfo();
-    DbgPtrAssert( TmpKeyInfo );
+    DebugPtrAssert( TmpKeyInfo );
     if( !_Registry->UpdateKeyInfo( _PredefinedKey, TmpKeyInfo ) ) {
         ( ( PREGEDIT_NODE )Root )->DeleteListOfChildren();
-        DbgPrint( "Unable to update KeyInfo" );
+        DebugPrint( "Unable to update KeyInfo" );
         return;
     }
 
     if( TmpKeyInfo->GetNumberOfSubKeys() == 0 ) {
         ( ( PREGEDIT_NODE )Root )->DeleteListOfChildren();
-// DbgPrintf( "Number of Subkeys in node %s is 0 \n", DbgNodeNameSTR );
+// DebugPrintf( "Number of Subkeys in node %s is 0 \n", DbgNodeNameSTR );
         return;
     }
 
     Children = ( ( PREGEDIT_NODE )Root )->GetChildren();
     if( Children == NULL ) {
-// DbgPrintf( "Children of %s are not in memory \n", DbgNodeNameSTR );
+// DebugPrintf( "Children of %s are not in memory \n", DbgNodeNameSTR );
         return;
     }
     Count = Children->QueryMemberCount();
@@ -1497,13 +1498,13 @@ Return Value:
         ParentName = ( ( PREGEDIT_NODE )TmpNode )->GetParentName();
         if( !_Registry->DoesKeyExist( _PredefinedKey, ParentName, KeyName ) ) {
             Children->RemoveAt( Index - 1 );
-// DbgPrintf( "Removing %s \n", DbgNodeNameSTR );
+// DebugPrintf( "Removing %s \n", DbgNodeNameSTR );
         } else {
             UpdateSubTree( TmpNode );
         }
     }
     if( !NewSubKeysInfo.Initialize() ) {
-        DbgPrint( "NewKeyInfo.Initialize() failed" );
+        DebugPrint( "NewKeyInfo.Initialize() failed" );
         return;
     }
 
@@ -1515,12 +1516,12 @@ Return Value:
         return;
     }
     Count = NewSubKeysInfo.QueryMemberCount();
-// DbgPrintf( "Reading Sub Keys of node %s, Count = %d \n", DbgNodeNameSTR, Count );
+// DebugPrintf( "Reading Sub Keys of node %s, Count = %d \n", DbgNodeNameSTR, Count );
     for( Index = Count; Index != 0; Index-- ) {
         TmpKeyInfo = ( PREGISTRY_KEY_INFO )NewSubKeysInfo.GetAt( Index - 1 );
-        DbgPtrAssert( TmpKeyInfo );
+        DebugPtrAssert( TmpKeyInfo );
         KeyName = TmpKeyInfo->GetName();
-        DbgPtrAssert( KeyName );
+        DebugPtrAssert( KeyName );
         if( IsKeyInListOfChildren( KeyName, Children ) ) {
             NewSubKeysInfo.RemoveAt( Index - 1 );
             DELETE( TmpKeyInfo );
@@ -1528,14 +1529,14 @@ Return Value:
     }
 
     Count = NewSubKeysInfo.QueryMemberCount();
-// DbgPrintf( "New count in node %s is NewCount = %d \n", DbgNodeNameSTR, Count );
+// DebugPrintf( "New count in node %s is NewCount = %d \n", DbgNodeNameSTR, Count );
     for( Index = 0; Index < Count; Index++ ) {
         TmpKeyInfo = ( PREGISTRY_KEY_INFO )NewSubKeysInfo.GetAt( Index );
-        DbgPtrAssert( TmpKeyInfo );
+        DebugPtrAssert( TmpKeyInfo );
         TmpNode = ( PREGEDIT_NODE )NEW( REGEDIT_NODE );
-        DbgPtrAssert( TmpNode );
+        DebugPtrAssert( TmpNode );
         if( !TmpNode->Initialize( TmpKeyInfo, Root, Root->GetLevel() + 1, FALSE, FALSE ) ) {
-            DbgPrint( "TmpNode->Initialize() failed" );
+            DebugPrint( "TmpNode->Initialize() failed" );
             return;
         }
         Children->Put( TmpNode );
@@ -1543,11 +1544,11 @@ Return Value:
     Count = Children->QueryMemberCount();
     for( Index = 0; Index < Count; Index++ ) {
         TmpNode = ( PREGEDIT_NODE )Children->GetAt( Index );
-        DbgPtrAssert( TmpNode );
+        DebugPtrAssert( TmpNode );
         TmpNode->SetPosition( ( Index == 0 )? TRUE : FALSE,
                               ( Index == Count - 1 )? TRUE : FALSE );
     }
-// DbgPrintf( "Children of %s were updated \n", DbgNodeNameSTR );
+// DebugPrintf( "Children of %s were updated \n", DbgNodeNameSTR );
 #endif
 }
 
@@ -1659,7 +1660,7 @@ Return Value:
 
         default:
 
-        DbgPrintf( "Unknown Regedit %x\n", Status );
+        DebugPrintf( "Unknown Regedit %x\n", Status );
         return( REGEDIT_ERROR_UNKNOWN_ERROR );
     }
 }
@@ -1715,7 +1716,7 @@ Return Value:
 
 
     if( CurrentNode == NULL ) {
-        DbgPtrAssert( CurrentNode );
+        DebugPtrAssert( CurrentNode );
     }
 
     if( ( LastTraversedNode == NULL ) ||
@@ -1726,14 +1727,14 @@ Return Value:
         if( CurrentNode->GetNumberOfChildren() != 0 ) {
             Children = GetChildren( CurrentNode, &ErrorCode );
             if( Children == NULL ) {
-                DbgPrint( "CurrentNode->GetChildren() returned NULL pointer" );
-                DbgPrintf( "CurrentNode->GetChildren() returned NULL pointer, ErrorCode = %#x \n",
+                DebugPrint( "CurrentNode->GetChildren() returned NULL pointer" );
+                DebugPrintf( "CurrentNode->GetChildren() returned NULL pointer, ErrorCode = %#x \n",
                            ErrorCode );
-                DbgPtrAssert( Children );
+                DebugPtrAssert( Children );
                 return( NULL );
             }
             if( ( Iterator = Children->QueryIterator() ) == NULL ) {
-                DbgPrint( "Unable to get iterator" );
+                DebugPrint( "Unable to get iterator" );
                 return( NULL );
             }
             TmpNode = ( PCREGEDIT_NODE )Iterator->GetNext();
@@ -1752,16 +1753,16 @@ Return Value:
         Children = GetChildren( CurrentNode, &ErrorCode );
         if( ( Children == NULL ) ||
             ( ( Iterator = Children->QueryIterator() ) == NULL ) ) {
-            DbgPrint( "CurrentNode->GetChildren() returned NULL pointer" );
-            DbgPrintf( "CurrentNode->GetChildren() returned NULL pointer, ErrorCode = %#x \n",
+            DebugPrint( "CurrentNode->GetChildren() returned NULL pointer" );
+            DebugPrintf( "CurrentNode->GetChildren() returned NULL pointer, ErrorCode = %#x \n",
                        ErrorCode );
-            DbgPtrAssert( Children );
+            DebugPtrAssert( Children );
             return( NULL );
         }
 
         TmpNode = ( PCREGEDIT_NODE )Iterator->FindNext( ( POBJECT )LastTraversedNode );
         if( TmpNode == NULL ) {
-            DbgPrint( "ERROR: Object not member of list" );
+            DebugPrint( "ERROR: Object not member of list" );
             DELETE( Iterator );
             return( NULL );
         }
@@ -1832,7 +1833,7 @@ Return Value:
 
 
     if( CurrentNode == NULL ) {
-        DbgPtrAssert( CurrentNode );
+        DebugPtrAssert( CurrentNode );
     }
 
     if( LastTraversedNode == NULL ) {
@@ -1849,16 +1850,16 @@ Return Value:
         if( CurrentNode->GetNumberOfChildren() != 0 ) {
             Children = GetChildren( CurrentNode, &ErrorCode );
             if( Children == NULL ) {
-                DbgPrint( "CurrentNode->GetChildren() returned NULL pointer" );
-                DbgPrintf( "CurrentNode->GetChildren() returned NULL pointer, ErrorCode = %#x \n",
+                DebugPrint( "CurrentNode->GetChildren() returned NULL pointer" );
+                DebugPrintf( "CurrentNode->GetChildren() returned NULL pointer, ErrorCode = %#x \n",
                            ErrorCode );
-                DbgPtrAssert( Children );
+                DebugPtrAssert( Children );
                 return( NULL );
             }
             Index = Children->QueryMemberCount();
             if( Index == 0 ) {
-                DbgPrint( "Error: Index = 0" );
-                DbgAssert( Index != 0 );
+                DebugPrint( "Error: Index = 0" );
+                DebugAssert( Index != 0 );
                 return( NULL );
             }
 
@@ -1874,20 +1875,20 @@ Return Value:
 
         Children = GetChildren( CurrentNode, &ErrorCode );
         if( Children == NULL ) {
-            DbgPrint( "CurrentNode->GetChildren() returned NULL pointer" );
-            DbgPrintf( "CurrentNode->GetChildren() returned NULL pointer, ErrorCode = %#x \n",
+            DebugPrint( "CurrentNode->GetChildren() returned NULL pointer" );
+            DebugPrintf( "CurrentNode->GetChildren() returned NULL pointer, ErrorCode = %#x \n",
                        ErrorCode );
-            DbgPtrAssert( Children );
+            DebugPtrAssert( Children );
             return( NULL );
         }
         Iterator = Children->QueryIterator();
         if( Iterator == NULL ) {
-            DbgPrint( "Unable to get iterator" );
+            DebugPrint( "Unable to get iterator" );
             return( NULL );
         }
         TmpNode = ( PCREGEDIT_NODE )Iterator->FindNext( ( POBJECT )LastTraversedNode );
         if( TmpNode == NULL ) {
-            DbgPrint( "ERROR: Object not member of list" );
+            DebugPrint( "ERROR: Object not member of list" );
             DELETE( Iterator );
             return( NULL );
         }
@@ -1958,8 +1959,8 @@ Return Value:
     DSTRING         St2;
 
 
-    DbgPtrAssert( NodeName );
-    DbgPtrAssert( StartNode );
+    DebugPtrAssert( NodeName );
+    DebugPtrAssert( StartNode );
 
     Node = StartNode;
     while( TRUE ) {
@@ -2041,9 +2042,9 @@ Return Value:
     PREGEDIT_NODE           TmpNode;
 
 
-    DbgPtrAssert( ParentNode );
-    DbgPtrAssert( HiveInfo );
-    DbgPtrAssert( FileName );
+    DebugPtrAssert( ParentNode );
+    DebugPtrAssert( HiveInfo );
+    DebugPtrAssert( FileName );
 
 
     //
@@ -2055,9 +2056,9 @@ Return Value:
         //  The node doesn't have any children
         //
         TmpList = ( PSORTED_LIST ) NEW( SORTED_LIST );
-        DbgPtrAssert( TmpList );
+        DebugPtrAssert( TmpList );
         if( !TmpList->Initialize() ) {
-            DbgPrint( "TmpList->Initilize() failed" );
+            DebugPrint( "TmpList->Initilize() failed" );
             if( ErrorCode != NULL ) {
                 *ErrorCode = REGEDIT_ERROR_INITIALIZATION_FAILURE;
             }
@@ -2071,7 +2072,7 @@ Return Value:
         //  The node has children
         //
         TmpList = GetChildren( ParentNode, ErrorCode );
-        DbgPtrAssert( TmpList );
+        DebugPtrAssert( TmpList );
     }
 
     //
@@ -2082,7 +2083,7 @@ Return Value:
                               HiveInfo,
                               FileName,
                               ErrorCode ) ) {
-        DbgPrint( "_Registry->LoadHive() failed" );
+        DebugPrint( "_Registry->LoadHive() failed" );
         *ErrorCode = MapRegistryToRegeditError( *ErrorCode );
         return( FALSE );
     }
@@ -2092,14 +2093,14 @@ Return Value:
     //  Children in Node
     //
     TmpNode = ( PREGEDIT_NODE ) NEW( REGEDIT_NODE );
-    DbgPtrAssert( TmpNode );
+    DebugPtrAssert( TmpNode );
 
     if( !TmpNode->Initialize( HiveInfo,
                               ParentNode,
                               ParentNode->GetLevel() + 1,
                               TRUE,
                               FALSE ) ) {
-        DbgPrint( "TmpNode->Initialize() failed" );
+        DebugPrint( "TmpNode->Initialize() failed" );
         if( ErrorCode != NULL ) {
             *ErrorCode = REGEDIT_ERROR_INITIALIZATION_FAILURE;
         }
@@ -2108,7 +2109,7 @@ Return Value:
     *HiveNode = TmpNode;
 
     if( !( (PREGEDIT_NODE )ParentNode )->AddChildToListOfChildren( TmpNode ) ) {
-        DbgPrint( "ParentNode->AddValueToListOfValues() failed" );
+        DebugPrint( "ParentNode->AddValueToListOfValues() failed" );
         if( ErrorCode != NULL ) {
             *ErrorCode = REGEDIT_ERROR_INITIALIZATION_FAILURE;
         }
@@ -2153,7 +2154,7 @@ Return Value:
 
 
 
-    DbgPtrAssert( Node );
+    DebugPtrAssert( Node );
 
 
     ParentNode = ( PREGEDIT_NODE )Node->GetParentNode();
@@ -2170,13 +2171,13 @@ Return Value:
     if( !_Registry->UnLoadHive( _PredefinedKey,
                                 KeyInfo,
                                 ErrorCode ) ) {
-        DbgPrint( "_Registry->UnLoadHive() failed" );
+        DebugPrint( "_Registry->UnLoadHive() failed" );
         *ErrorCode = MapRegistryToRegeditError( *ErrorCode );
         return( FALSE );
     }
 
     if( !ParentNode->RemoveChildFromListOfChildren( Node ) ) {
-        DbgPrint( "ParentNode->removeChildFromListOfChildren() failed" );
+        DebugPrint( "ParentNode->removeChildFromListOfChildren() failed" );
         if( ErrorCode != NULL ) {
             *ErrorCode = REGEDIT_ERROR_UNKNOWN_ERROR;
         }
@@ -2220,8 +2221,8 @@ Return Value:
 
 
 
-    DbgPtrAssert( Node );
-    DbgPtrAssert( FileName );
+    DebugPtrAssert( Node );
+    DebugPtrAssert( FileName );
 
 
     KeyInfo = Node->GetKeyInfo();
@@ -2229,7 +2230,7 @@ Return Value:
                                    KeyInfo,
                                    FileName,
                                    ErrorCode ) ) {
-        DbgPrint( "_Registry->SaveKeyToFile() failed" );
+        DebugPrint( "_Registry->SaveKeyToFile() failed" );
         *ErrorCode = MapRegistryToRegeditError( *ErrorCode );
         return( FALSE );
     }
@@ -2278,8 +2279,8 @@ Return Value:
 
 
 
-    DbgPtrAssert( Node );
-    DbgPtrAssert( FileName );
+    DebugPtrAssert( Node );
+    DebugPtrAssert( FileName );
 
 
     KeyInfo = Node->GetKeyInfo();
@@ -2288,14 +2289,14 @@ Return Value:
                                         FileName,
                                         Volatile,
                                         ErrorCode ) ) {
-       DbgPrint( "_Registry->RestoreKeyFromFile() failed" );
+       DebugPrint( "_Registry->RestoreKeyFromFile() failed" );
        *ErrorCode = MapRegistryToRegeditError( *ErrorCode );
        return( FALSE );
    }
    ((PREGEDIT_NODE)Node)->DeleteListOfValues();
    ((PREGEDIT_NODE)Node)->DeleteListOfChildren();
    if( !_Registry->UpdateKeyInfo( _PredefinedKey, KeyInfo ) ) {
-       DbgPrint( "Unable to update KeyInfo" );
+       DebugPrint( "Unable to update KeyInfo" );
     }
 
 
@@ -2337,7 +2338,7 @@ Return Value:
 {
     PREGISTRY_KEY_INFO  KeyInfo;
 
-    DbgPtrAssert( Node );
+    DebugPtrAssert( Node );
 
     KeyInfo = Node->GetKeyInfo();
     if( !_Registry->IsAccessAllowed( _PredefinedKey,
@@ -2345,7 +2346,7 @@ Return Value:
                                      SamDesired,
                                      ErrorCode ) ) {
         *ErrorCode = MapRegistryToRegeditError( *ErrorCode );
-        DbgPrint( "_Registry->QueryKeySecurity() failed" );
+        DebugPrint( "_Registry->QueryKeySecurity() failed" );
         return( FALSE );
     }
     return( TRUE );

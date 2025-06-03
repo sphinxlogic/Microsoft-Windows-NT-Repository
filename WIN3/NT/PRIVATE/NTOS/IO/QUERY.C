@@ -25,10 +25,6 @@ Revision History:
 --*/
 
 #include "iop.h"
-#include "ntiolog.h"
-#include "ntseapi.h"
-#include "zwapi.h"
-
 
 typedef struct _IO_QUERY_DESC {
     PINTERFACE_TYPE BusType;
@@ -520,7 +516,8 @@ Notes:
 
             if ((QueryDescription->BusNumber !=NULL ) &&
                 (*(QueryDescription->BusNumber) == *BusNum)) {
-
+                ZwClose( handle );
+                handle = NULL;
                 continue;
 
             }
@@ -536,7 +533,7 @@ Notes:
                      registryPathName,
                      handle,
                      BusNum,
-                     !HighKey );
+                     (BOOLEAN)!HighKey );
 
         //
         // If the sub function enumerated all the buses till the end, then
@@ -550,6 +547,7 @@ Notes:
         }
 
         ZwClose( handle );
+        handle = NULL;
 
     }
 
@@ -1015,4 +1013,4 @@ IoQueryDeviceControllerLoop:
 
     return( status );
 }
-
+

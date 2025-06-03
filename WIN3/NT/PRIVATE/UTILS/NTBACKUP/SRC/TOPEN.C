@@ -187,6 +187,7 @@ Initial revision.
 
 **/
 #include <windows.h>
+#include <winioctl.h>
 #include <string.h>
 #include <malloc.h>
 #include <stdlib.h>
@@ -221,6 +222,15 @@ Initial revision.
 
 static INT16 NTFS_OpenFile( FSYS_HAND fsh, FILE_HAND hand, NTFS_DBLK_PTR fdb, INT16 MODE );
 static INT16 NTFS_OpenDir( FSYS_HAND fsh, FILE_HAND hand, NTFS_DBLK_PTR fdb, INT16 MODE );
+
+static HANDLE NTFS_TryOpenNormal( FSYS_HAND fsh, 
+                                  FILE_HAND hand,
+                                  NTFS_DBLK_PTR ddblk, 
+                                  CHAR_PTR path, 
+                                  INT16 mode, 
+                                  BOOLEAN in_use,
+                                  INT posix_flag,
+                                  INT_PTR status ) ;
 
 static HANDLE NTFS_TryOpenRegistryFile( FILE_HAND fsh, NTFS_DBLK_PTR ddblk, CHAR_PTR path, BOOLEAN *log_file ) ;
 static HANDLE NTFS_TryOpenEventFile( FILE_HAND fsh, NTFS_DBLK_PTR ddblk, CHAR_PTR path ) ;
@@ -344,7 +354,34 @@ OPEN_MODE mode ;   /* I - open mode                              */
           }
      }
 
-     if( ( ret_val != SUCCESS ) && ( ret_val != FS_OPENED_INUSE ) ) {
+     if ( ( fsh->attached_dle->info.ntfs->vol_flags & FS_FILE_COMPRESSION ) && 
+          ( mode == FS_WRITE ) &&
+          !(ddblk->b.f.linkOnly) &&
+          ( ret_val == SUCCESS ) ) {
+
+          INT16 compress_mode= 0 ;
+          INT   bytes_returned ;
+
+          if ( ddblk->dta.os_attr & FILE_ATTRIBUTE_COMPRESSED ) {
+               compress_mode = 1 ;
+          }
+          if ( !DeviceIoControl(
+               ((NTFS_OBJ_HAND_PTR)(*hand)->obj_hand.ptr)->fhand,
+               FSCTL_SET_COMPRESSION,
+               &compress_mode,
+               2, 
+               NULL,
+               0,
+               &bytes_returned,
+               NULL) ) {
+                    
+               ret_val = FS_COMPRES_RESET_FAIL;
+          }
+     }
+
+     if ( ( ret_val != FS_COMPRES_RESET_FAIL ) && 
+          ( ret_val != SUCCESS ) && 
+          ( ret_val != FS_OPENED_INUSE ) ) {
           if( fsh->file_hand == *hand ) {
                fsh->hand_in_use = FALSE ;
                memset( *hand, 0, sizeof( FILE_HAND_STRUCT ) ) ;
@@ -397,6 +434,7 @@ INT16       mode )   /* I - open mode                              */
      NTFS_OBJ_HAND_PTR           nt_hand ;
      INT                         posix_flag = 0 ;
      BOOLEAN                     log_file ;
+     INT                         status ;
 
      nt_hand = ((NTFS_OBJ_HAND_PTR)hand->obj_hand.ptr) ;
 
@@ -417,27 +455,6 @@ INT16       mode )   /* I - open mode                              */
           return OUT_OF_MEMORY ;
      }
 
-     open_share = FILE_SHARE_READ ;
-
-     switch ( mode ) {
-
-     case FS_VERIFY:
-          open_share |= FILE_SHARE_WRITE ;
-     case FS_READ:
-          open_mode =  GENERIC_READ | FILE_WRITE_ATTRIBUTES;
-          create_mode = OPEN_EXISTING  ;
-          break ;
-
-     case FS_WRITE:
-          open_mode = GENERIC_WRITE | WRITE_DAC | WRITE_OWNER ;
-          create_mode = OPEN_ALWAYS  ;
-          break ;
-
-     default :
-          msassert( FALSE );
-     }
-
-
      if ( ddblk->b.f.PosixFile ) {
           posix_flag = FILE_FLAG_POSIX_SEMANTICS ;
      }
@@ -456,35 +473,8 @@ INT16       mode )   /* I - open mode                              */
                path = NTFS_GetTempName( path );
           }
 
-          temp_hand = CreateFile( path,
-                                  open_mode,
-                                  open_share,
-                                  NULL,
-                                  create_mode,
-                                  NTFS_OPEN_FLAGS | posix_flag,
-                                  NULL ) ;
 
-          if ( (temp_hand == INVALID_HANDLE_VALUE) &&
-               (mode == FS_READ || mode == FS_VERIFY) )
-          {
-               NTFS_DebugPrint( TEXT("NTFS_OpenFile: CreateFile(1) error %d")
-                                TEXT(" on file \"%s\""),
-                                (int)GetLastError(),
-                                path );
-
-               open_mode &= ~FILE_WRITE_ATTRIBUTES;
-
-               temp_hand = CreateFile( path,
-                                       open_mode,
-                                       open_share,
-                                       NULL,
-                                       create_mode,
-                                       NTFS_OPEN_FLAGS | posix_flag,
-                                       NULL ) ;
-
-               open_mode |= FILE_WRITE_ATTRIBUTES;
-          }
-
+          temp_hand  = NTFS_TryOpenNormal( fsh, hand, ddblk, path, mode, FALSE, posix_flag, &status ) ;
 
           if ( temp_hand != INVALID_HANDLE_VALUE )
           {
@@ -492,57 +482,8 @@ INT16       mode )   /* I - open mode                              */
           }
           else
           {
-               NTFS_DebugPrint( TEXT("NTFS_OpenFile: CreateFile(2) error %d")
-                                TEXT(" on file \"%s\""),
-                                (int)GetLastError(),
-                                path );
+               ret_val = TranslateOpenError( hand, status );
 
-               ret_val = TranslateOpenError( hand, GetLastError( ) );
-
-               /*
-                * If we opened with the POSIX bit and the file wasn't found,
-                * let's try to open without POSIX and see what happens.
-                */
-               if ( ddblk->b.f.PosixFile && (ret_val == FS_NOT_FOUND) ) {
-
-                    posix_flag = 0;
-
-                    temp_hand = CreateFile( path,
-                                            open_mode,
-                                            open_share,
-                                            NULL,
-                                            create_mode,
-                                            NTFS_OPEN_FLAGS,
-                                            NULL ) ;
-
-                    if ( (temp_hand == INVALID_HANDLE_VALUE) &&
-                         (mode == FS_READ || mode == FS_VERIFY) )
-                    {
-                         open_mode &= ~FILE_WRITE_ATTRIBUTES;
-
-                         temp_hand = CreateFile( path,
-                                                 open_mode,
-                                                 open_share,
-                                                 NULL,
-                                                 create_mode,
-                                                 NTFS_OPEN_FLAGS,
-                                                 NULL ) ;
-                    }
-
-                    if ( temp_hand == INVALID_HANDLE_VALUE )
-                    {
-                         NTFS_DebugPrint( TEXT("NTFS_OpenFile: CreateFile(3) error %d")
-                                          TEXT(" on file \"%s\""),
-                                          (int)GetLastError(),
-                                          path );
-
-                         ret_val = TranslateOpenError( hand, GetLastError( ) );
-                    }
-                    else
-                    {
-                         ret_val = SUCCESS;
-                    }
-               }
           }
 
           if ( (ret_val == FS_IN_USE_ERROR ) &&
@@ -553,15 +494,14 @@ INT16       mode )   /* I - open mode                              */
                 * If the file is in use, opening with ability to reset
                 * attributes and dates is pointless.
                 */
-               open_mode &= ~FILE_WRITE_ATTRIBUTES;
-
-               temp_hand = CreateFile( path,
-                                       open_mode,
-                                       FILE_SHARE_READ | FILE_SHARE_WRITE,
-                                       NULL,
-                                       create_mode,
-                                       NTFS_OPEN_FLAGS | posix_flag,
-                                       NULL ) ;
+               temp_hand  = NTFS_TryOpenNormal( fsh,
+                                   hand,
+                                   ddblk, 
+                                   path, 
+                                   mode, 
+                                   TRUE,
+                                   posix_flag,
+                                   &status ) ;
 
 
                if ( temp_hand != INVALID_HANDLE_VALUE )
@@ -571,16 +511,15 @@ INT16       mode )   /* I - open mode                              */
                }
                else
                {
-                    NTFS_DebugPrint( TEXT("NTFS_OpenFile: CreateFile(4) error %d")
-                                     TEXT(" on file \"%s\""),
-                                     (int)GetLastError(),
-                                     path );
+
+                    ret_val = TranslateOpenError( hand, status );
+
                }
 
 
                if ( ret_val == SUCCESS )
                {
-                    if ( LockFile( temp_hand, 0L, 0L, 0xffffffffL, 0xffffffffL ) == SUCCESS )
+                    if ( LockFile( temp_hand, 0L, 0L, 0xffffffffL, 0x7fffffffL ) )
                     {
                          hand->opened_in_use = TRUE ;
                          ddblk->b.f.fdb_attrib |= FILE_IN_USE_BIT ;
@@ -702,6 +641,189 @@ INT16       mode )   /* I - open mode                              */
 /**/
 /**
 
+     Name:         NTFS_TryOpenNormalFile()
+
+     Description:  This function opens a file a "normal" file specified
+          by the path passed in.  A "normal" file is one that can be
+          opened with CreateFile().  It is not a Registry file or an
+          event file.
+
+          Since we want to open with the most possible access, we have to
+          try the highest access mode and then move to less access as we
+          get failures.
+
+     Modified:     1/7/95
+
+     Returns:      NT file handle
+
+     Declaration:
+
+**/
+static HANDLE NTFS_TryOpenNormal( FSYS_HAND fsh, 
+                                  FILE_HAND hand,
+                                  NTFS_DBLK_PTR ddblk, 
+                                  CHAR_PTR path, 
+                                  INT16 mode, 
+                                  BOOLEAN in_use,
+                                  INT posix_flag,
+                                  INT_PTR status ) {
+
+     DWORD                       open_mode ;
+     DWORD                       open_share ;
+     DWORD                       create_mode ;
+     HANDLE                      temp_hand ;
+     INT16                       ret_val ;
+
+     open_share = FILE_SHARE_READ ;
+
+     switch ( mode ) {
+
+     case FS_VERIFY:
+          open_share |= FILE_SHARE_WRITE ;
+     case FS_READ:
+          open_mode = GENERIC_READ | FILE_WRITE_ATTRIBUTES | ACCESS_SYSTEM_SECURITY ;
+          create_mode = OPEN_EXISTING  ;
+
+          if ( in_use ) {
+               open_share |= FILE_SHARE_WRITE ;
+               open_mode &= ~FILE_WRITE_ATTRIBUTES ;
+          }
+
+          break ;
+
+     case FS_WRITE:
+     default :
+          msassert( FALSE );
+     }
+
+
+     temp_hand = CreateFile( path,
+                             open_mode,
+                             open_share,
+                             NULL,
+                             create_mode,
+                             NTFS_OPEN_FLAGS | posix_flag,
+                             NULL ) ;
+
+
+     if ( temp_hand == INVALID_HANDLE_VALUE )
+     {
+          *status = GetLastError();
+
+          NTFS_DebugPrint( TEXT("NTFS_OpenFile: CreateFile(1) error %d")
+                                TEXT(" on file \"%s\""),
+                                *status,
+                                path );
+
+          ret_val = TranslateOpenError( hand, *status );
+
+          /*
+           * If we opened with the POSIX bit and the file wasn't found,
+           * let's try to open without POSIX and see what happens.
+           */
+
+          if ( posix_flag && ddblk->b.f.PosixFile && (ret_val == FS_NOT_FOUND) ) {
+
+               posix_flag = 0;
+
+               temp_hand = NTFS_TryOpenNormal( fsh, hand, ddblk, path, mode, in_use, posix_flag, status ) ;
+
+          } else if ( mode == FS_WRITE ) {
+               return ( temp_hand ) ;
+
+          } else {
+               ret_val = SUCCESS ;
+               if ( open_mode & FILE_WRITE_ATTRIBUTES ) {
+                    open_mode &= ~FILE_WRITE_ATTRIBUTES ;
+
+                    temp_hand = CreateFile( path,
+                             open_mode,
+                             open_share,
+                             NULL,
+                             create_mode,
+                             NTFS_OPEN_FLAGS | posix_flag,
+                             NULL ) ;
+               }
+
+
+               if ( temp_hand == INVALID_HANDLE_VALUE )
+               {
+                    *status = GetLastError();
+
+                    NTFS_DebugPrint( TEXT("NTFS_OpenFile: CreateFile(2) error %d")
+                                TEXT(" on file \"%s\""),
+                                *status,
+                                path );
+
+                    ret_val = TranslateOpenError( hand, *status );
+               }
+
+               if ( ret_val == FS_ACCESS_DENIED ) 
+               {
+
+                    ret_val = SUCCESS ;
+                    if ( !in_use ) {
+                         open_mode |= FILE_WRITE_ATTRIBUTES ;
+                    }
+                    open_mode &= ~ACCESS_SYSTEM_SECURITY ;
+     
+                    temp_hand = CreateFile( path,
+                             open_mode,
+                             open_share,
+                             NULL,
+                             create_mode,
+                             NTFS_OPEN_FLAGS | posix_flag,
+                             NULL ) ;
+
+
+                    if ( temp_hand == INVALID_HANDLE_VALUE )
+                    {
+                         *status = GetLastError();
+
+                         NTFS_DebugPrint( TEXT("NTFS_OpenFile: CreateFile(3) error %d")
+                                TEXT(" on file \"%s\""),
+                                *status,
+                                path );
+
+                         ret_val = TranslateOpenError( hand, *status );
+                    }
+               }
+
+               if ( !in_use && (ret_val == FS_ACCESS_DENIED)  ) 
+               {
+
+                    ret_val = SUCCESS ;
+                    open_mode &= ~FILE_WRITE_ATTRIBUTES ;
+     
+                    temp_hand = CreateFile( path,
+                             open_mode,
+                             open_share,
+                             NULL,
+                             create_mode,
+                             NTFS_OPEN_FLAGS | posix_flag,
+                             NULL ) ;
+
+
+                    if ( temp_hand == INVALID_HANDLE_VALUE )
+                    {
+                         *status = GetLastError();
+
+                         NTFS_DebugPrint( TEXT("NTFS_OpenFile: CreateFile(4) error %d")
+                                TEXT(" on file \"%s\""),
+                                *status,
+                                path );
+     
+                    }
+               }
+          }
+     }
+     return temp_hand ;
+}
+
+
+/**/
+/**
+
      Name:         NTFS_OpenDir()
 
      Description:  This function opens a directory for for processing.
@@ -747,12 +869,12 @@ INT16       mode )   /* I - open mode                              */
 
      case FS_READ:
      case FS_VERIFY:
-          open_mode =  GENERIC_READ;
+          open_mode =  GENERIC_READ | ACCESS_SYSTEM_SECURITY ;
           create_mode = OPEN_EXISTING  ;
           break ;
 
      case FS_WRITE:
-          open_mode = GENERIC_WRITE | WRITE_DAC | WRITE_OWNER ;
+          open_mode = GENERIC_WRITE | ACCESS_SYSTEM_SECURITY | WRITE_DAC | WRITE_OWNER ;
           create_mode = OPEN_ALWAYS  ;
           share_write = FILE_SHARE_WRITE ;
           break ;
@@ -771,14 +893,17 @@ INT16       mode )   /* I - open mode                              */
                              NULL ) ;
 
 
-     if ( temp_hand == INVALID_HANDLE_VALUE )
+     if ( temp_hand == INVALID_HANDLE_VALUE ) 
      {
           DWORD dirAttrs;
 
+          osError = GetLastError();
+
           NTFS_DebugPrint( TEXT("NTFS_OpenDir: CreateFile(1) error %d")
                            TEXT(" on dir \"%s\""),
-                           (int)GetLastError(),
+                           (int)osError,
                            path );
+
 
           dirAttrs = GetFileAttributes( path );
 
@@ -790,8 +915,8 @@ INT16       mode )   /* I - open mode                              */
            * open still failed, restore the attributes to what they were.
            */
 
-          if ( (dirAttrs != FILE_ATTRIBUTE_NORMAL) &&
-               (dirAttrs != 0xffffffff) )
+          if ( (dirAttrs != FILE_ATTRIBUTE_NORMAL) && 
+               (dirAttrs != 0xffffffff) && ( mode == FS_WRITE ) )
           {
 
                SetFileAttributes( path, FILE_ATTRIBUTE_NORMAL );
@@ -807,15 +932,64 @@ INT16       mode )   /* I - open mode                              */
                if ( temp_hand == INVALID_HANDLE_VALUE )
                {
                     osError = GetLastError();
-                    SetFileAttributes( path, dirAttrs );
 
-                    NTFS_DebugPrint( TEXT("NTFS_OpenDir: CreateFile(1) error %d")
+                    NTFS_DebugPrint( TEXT("NTFS_OpenDir: CreateFile(2) error %d")
                                      TEXT(" on dir \"%s\""),
                                      (int)osError,
                                      path );
+
+                    open_mode &= ~ACCESS_SYSTEM_SECURITY ;
+
+                    temp_hand = CreateFile( path,
+                             open_mode,
+                             FILE_SHARE_READ | share_write,
+                             NULL,
+                             create_mode,
+                             NTFS_OPEN_FLAGS,
+                             NULL ) ;
+               }
+
+               if ( temp_hand == INVALID_HANDLE_VALUE )
+               {
+                    osError = GetLastError();
+                    SetFileAttributes( path, dirAttrs );
+
+                    NTFS_DebugPrint( TEXT("NTFS_OpenDir: CreateFile(3) error %d")
+                                     TEXT(" on dir \"%s\""),
+                                     (int)osError,
+                                     path );
+
+
                }
           }
-     }
+          else
+          {
+
+               open_mode &= ~ACCESS_SYSTEM_SECURITY ;
+
+               temp_hand = CreateFile( path,
+                             open_mode,
+                             FILE_SHARE_READ | share_write,
+                             NULL,
+                             create_mode,
+                             NTFS_OPEN_FLAGS,
+                             NULL ) ;
+
+
+               if ( temp_hand == INVALID_HANDLE_VALUE ) 
+               {
+                    DWORD dirAttrs;
+     
+                    osError = GetLastError();
+
+                    NTFS_DebugPrint( TEXT("NTFS_OpenDir: CreateFile(4) error %d")
+                           TEXT(" on dir \"%s\""),
+                           (int)osError,
+                           path );
+               }
+          }
+     } 
+
 
      NTFS_ReleaseWorkPath( fsh ) ;
 
@@ -995,31 +1169,29 @@ CHAR_PTR      path )
                          return INVALID_HANDLE_VALUE ;
                     }
                }
+
+               CloseEventLog( evt_hand ) ;
+
+               temp_hand = CreateFile( temp_name,
+                                        GENERIC_READ | FILE_WRITE_ATTRIBUTES,
+                                        FILE_SHARE_READ,
+                                        NULL,
+                                        OPEN_EXISTING,
+                                        NTFS_OPEN_FLAGS,
+                                        NULL ) ;
+
+               if ( temp_hand != INVALID_HANDLE_VALUE )
+               {
+                    nt_hand->temp_file = temp_name ;
+                    nt_hand->registry_file = TRUE ;
+               }
                else
                {
-                    CloseEventLog( evt_hand ) ;
-
-                    temp_hand = CreateFile( temp_name,
-                                            GENERIC_READ | FILE_WRITE_ATTRIBUTES,
-                                            FILE_SHARE_READ,
-                                            NULL,
-                                            OPEN_EXISTING,
-                                            NTFS_OPEN_FLAGS,
-                                            NULL ) ;
-
-                    if ( temp_hand != INVALID_HANDLE_VALUE )
-                    {
-                         nt_hand->temp_file = temp_name ;
-                         nt_hand->registry_file = TRUE ;
-                    }
-                    else
-                    {
-                         NTFS_DebugPrint( TEXT("NTFS_TryOpenEventFile: CreateFile error %d")
-                                          TEXT(" on file \"%s\" as temp file \"%s\""),
-                                          GetLastError(),
-                                          path,
-                                          temp_name );
-                    }
+                    NTFS_DebugPrint( TEXT("NTFS_TryOpenEventFile: CreateFile error %d")
+                                        TEXT(" on file \"%s\" as temp file \"%s\""),
+                                        GetLastError(),
+                                        path,
+                                        temp_name );
                }
           }
      }
@@ -1117,6 +1289,7 @@ static INT16 TranslateOpenError( FILE_HAND hand, DWORD error )
                ret_val = SUCCESS;
                break;
 
+          case ERROR_PRIVILEGE_NOT_HELD :
           case ERROR_ACCESS_DENIED:
                ret_val = FS_ACCESS_DENIED;
                break;

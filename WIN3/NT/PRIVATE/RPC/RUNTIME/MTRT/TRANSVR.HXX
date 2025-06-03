@@ -86,6 +86,7 @@ private:
 #endif // NTENV
 
 public:
+    BOOL IsSlaveAddress ;
 
     TRANS_ADDRESS (
         IN RPC_SERVER_TRANSPORT_INFO PAPI * RpcServerInfo,
@@ -110,19 +111,25 @@ public:
     RPC_STATUS
     SetupAddressWithEndpoint (
         IN RPC_CHAR PAPI * Endpoint,
-        OUT RPC_CHAR PAPI * PAPI * NetworkAddress,
+        OUT RPC_CHAR PAPI * PAPI * lNetworkAddress,        
+        OUT unsigned int PAPI *NumNetworkAddress,
         IN void PAPI * SecurityDescriptor, OPTIONAL
         IN unsigned int PendingQueueSize,
-        IN RPC_CHAR PAPI * RpcProtocolSequence
+        IN RPC_CHAR PAPI * RpcProtocolSequence,
+        IN unsigned long EndpointFlags,
+        IN unsigned long NICFlags
         );
 
     RPC_STATUS
     SetupAddressUnknownEndpoint (
         OUT RPC_CHAR PAPI * PAPI * Endpoint,
-        OUT RPC_CHAR PAPI * PAPI * NetworkAddress,
+        OUT RPC_CHAR PAPI * PAPI * lNetworkAddress,
+        OUT unsigned int PAPI * NumNetworkAddress,
         IN void PAPI * SecurityDescriptor, OPTIONAL
         IN unsigned int PendingQueueSize,
-        IN RPC_CHAR PAPI * RpcProtocolSequence
+        IN RPC_CHAR PAPI * RpcProtocolSequence,
+        IN unsigned long EndpointFlags,
+        IN unsigned long NICFlags
         );
 
     TRANS_SCONNECTION *
@@ -151,10 +158,16 @@ public:
         );
 
     void * operator new (
-	unsigned int allocBlock,
-	char	     chInit,
-	unsigned int xtraBytes
-	);
+    unsigned int allocBlock,
+    char         chInit,
+    unsigned int xtraBytes
+    );
+
+#if defined(NTENV) || defined(WIN96)
+    RPC_STATUS
+    StartListening (
+        );
+#endif
 
 };
 
@@ -220,10 +233,10 @@ Arguments:
 
 inline void *
 TRANS_ADDRESS::operator new (
-	unsigned int allocBlock,
-	char	     chInit,
-	unsigned int xtraBytes
-	)
+    unsigned int allocBlock,
+    char         chInit,
+    unsigned int xtraBytes
+    )
 {
     void * pvTemp = RpcpFarAllocate(allocBlock + xtraBytes);
 
@@ -269,6 +282,12 @@ Fields:
 
     ReceiveDirectFlag - Contains a flag indicating whether the transport
         connection should be received directly.
+
+    CanMigrateToReceiveAny - equals 1 when the call depth of a receive
+        direct call is 1 otherwise, it is 0. Used by I_RpcTransMaybeMakeAny,
+        which is called by the transport to inquire if it is safe to migrate the
+        thread to ReceiveAny. 
+
 --*/
 {
 private:
@@ -276,12 +295,13 @@ private:
     RPC_SERVER_TRANSPORT_INFO * ServerInfo;
     int ConnectionKey;
     int DictKey;
-    unsigned int ConnectionClosedFlag;
+    unsigned int ConnectionClosedFlag; 
     unsigned int ReceiveAnyFlag;
     TRANS_ADDRESS * Address;
     QUEUE BufferQueue;
     EVENT ConnectionEvent;
     unsigned int ReceiveDirectFlag;
+    unsigned int CanMigrateToReceiveAny ;
 
 public:
 
@@ -298,7 +318,8 @@ public:
     RPC_STATUS
     TransReceive (
         IN OUT void * * Buffer,
-        IN OUT unsigned int * BufferLength
+        IN OUT unsigned int * BufferLength,
+        IN unsigned int CanMigrate
         );
 
     int
@@ -374,16 +395,78 @@ public:
         IN unsigned int ReceiveDirectFlag
         );
 
+#if defined(NTENV) || defined(WIN96)
+    unsigned int
+    TRANS_SCONNECTION::TransGetReceiveDirectFlag (
+        );
+
+    unsigned int
+    TRANS_SCONNECTION::TransGetReceiveAnyFlag (
+        );
+
+    unsigned int
+    TRANS_SCONNECTION::InqMigratePossibleToReceiveAny(
+        ) ;
+
+    void
+    TRANS_SCONNECTION::SetReceiveAnyFlag(
+        IN unsigned int Flag
+        ) ;
+
+    unsigned int
+    TRANS_SCONNECTION::InqReceiveDirectFlag(
+        ) ;
+
+    unsigned int
+    TRANS_SCONNECTION::InqReceiveAnyFlag(
+        ) ;
+
+#endif
+
     void * operator new (
-	unsigned int allocBlock,
-	char	     chInit,
-	unsigned int xtraBytes
-	);
+    unsigned int allocBlock,
+    char         chInit,
+    unsigned int xtraBytes
+    );
 
     void
     Delete (
         );
 };
+
+#if defined(NTENV) || defined(WIN96)
+
+inline unsigned int
+TRANS_SCONNECTION::InqMigratePossibleToReceiveAny(
+        )
+{
+    ASSERT(InvalidHandle(SCONNECTION_TYPE) == 0) ;
+
+    return CanMigrateToReceiveAny ;
+}
+
+inline void
+TRANS_SCONNECTION::SetReceiveAnyFlag(
+        IN unsigned int Flag
+        )
+{
+    ReceiveAnyFlag = Flag ;
+}
+
+inline unsigned int
+TRANS_SCONNECTION::InqReceiveDirectFlag(
+    )
+{
+    return ReceiveDirectFlag ;
+}
+
+inline unsigned int
+TRANS_SCONNECTION::InqReceiveAnyFlag(
+    )
+{
+    return ReceiveAnyFlag ;
+}
+#endif
 
 
 inline void
@@ -461,6 +544,8 @@ Routine Description:
 
 --*/
 {
+    ASSERT(InvalidHandle(SCONNECTION_TYPE) == 0) ;
+
     ReceiveAnyFlag = 0;
 }
 
@@ -477,15 +562,39 @@ Routine Description:
 
 --*/
 {
+    ASSERT(InvalidHandle(SCONNECTION_TYPE) == 0) ;
+
     this->ReceiveDirectFlag = ReceiveDirectFlag;
 }
 
+#if defined(NTENV) || defined(WIN96)
+
+inline unsigned int
+TRANS_SCONNECTION::TransGetReceiveDirectFlag (
+   )
+{
+    ASSERT(InvalidHandle(SCONNECTION_TYPE) == 0) ;
+
+   return ReceiveDirectFlag ;
+}
+
+
+inline unsigned int
+TRANS_SCONNECTION::TransGetReceiveAnyFlag (
+    )
+{
+    ASSERT(InvalidHandle(SCONNECTION_TYPE) == 0) ;
+
+    return ReceiveAnyFlag ;
+}
+#endif
+
 inline void *
 TRANS_SCONNECTION::operator new (
-	unsigned int allocBlock,
-	char	     chInit,
-	unsigned int xtraBytes
-	)
+    unsigned int allocBlock,
+    char         chInit,
+    unsigned int xtraBytes
+    )
 {
     void * pvTemp = RpcpFarAllocate(allocBlock + xtraBytes);
 

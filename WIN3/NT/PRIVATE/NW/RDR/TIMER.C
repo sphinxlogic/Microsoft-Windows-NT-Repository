@@ -36,6 +36,9 @@ KDPC NwDpc;                               // DPC object for timeouts.
 KTIMER Timer;                           // kernel timer for this request.
 ULONG ScavengerTickCount;
 
+BOOLEAN WorkerRunning = FALSE;
+WORK_QUEUE_ITEM WorkItem;
+
 #ifdef NWDBG
 BOOLEAN DisableTimer = FALSE;
 #endif
@@ -89,7 +92,7 @@ Return Value:
     //  We need 18.21 ticks per second
     //
 
-    DueTime = LiNeg(LiXDiv(LiNMul( 100000, MILLISECONDS ),1821));
+    DueTime.QuadPart = (( 100000 * MILLISECONDS ) / 1821) * -1;
 
     //
     // This is the first connection with timeouts specified.
@@ -104,6 +107,8 @@ Return Value:
     KeInitializeTimer( &Timer );
 
     (VOID)KeSetTimer(&Timer, DueTime, &NwDpc);
+
+    DebugTrace(+0, Dbg, "StartTimer\n", 0);
 }
 
 
@@ -132,6 +137,7 @@ Return Value:
     if (TimerStop == FALSE) {
         TimerStop = TRUE;
 
+        DebugTrace(+0, Dbg, "StopTimer\n", 0);
         KeWaitForSingleObject (&TimerStopped, Executive, KernelMode, FALSE, NULL);
     }
 }
@@ -171,15 +177,18 @@ Return Value:
     PLIST_ENTRY NextIrpContextEntry;
     SHORT RetryCount;
     PIRP_CONTEXT pIrpContext;
-
-    //
-    //  For each Server see if there is a timeout to process.
-    //
+    LARGE_INTEGER CurrentTime = {0, 0};
+    WCHAR AnonymousName[] = L"UNKNOWN";
+    PWCHAR ServerLogName;
 
     if ( TimerStop ) {
         KeSetEvent( &TimerStopped, 0, FALSE );
         return;
     }
+
+    //
+    //  For each Server see if there is a timeout to process.
+    //
 
 #ifdef NWDBG
     if ( DisableTimer ) {
@@ -201,7 +210,16 @@ Return Value:
 
     KeAcquireSpinLockAtDpcLevel( &ScbSpinLock );
 
-    for (ScbQueueEntry = ScbQueue.Flink ;
+    ScbQueueEntry = ScbQueue.Flink;
+
+    if (ScbQueueEntry != &ScbQueue) {
+        PNONPAGED_SCB pNpScb = CONTAINING_RECORD(ScbQueueEntry,
+                                                    NONPAGED_SCB,
+                                                    ScbLinks);
+        NwQuietReferenceScb( pNpScb );
+    }
+
+    for (;
          ScbQueueEntry != &ScbQueue ;
          ScbQueueEntry = NextScbQueueEntry ) {
 
@@ -209,7 +227,24 @@ Return Value:
                                                     NONPAGED_SCB,
                                                     ScbLinks);
 
-        NwReferenceScb( pNpScb );
+        //  Obtain a pointer to the next SCB in the SCB list before
+        //  dereferencing the current one.
+        //
+
+        NextScbQueueEntry = pNpScb->ScbLinks.Flink;
+
+        if (NextScbQueueEntry != &ScbQueue) {
+            PNONPAGED_SCB pNextNpScb = CONTAINING_RECORD(NextScbQueueEntry,
+                                                        NONPAGED_SCB,
+                                                        ScbLinks);
+            //
+            //  Reference the next entry in the list to ensure the scavenger
+            //  doesn't put it on another list or destroy it.
+            //
+
+            NwQuietReferenceScb( pNextNpScb );
+        }
+
         KeReleaseSpinLockFromDpcLevel( &ScbSpinLock );
 
         //
@@ -218,13 +253,6 @@ Return Value:
         //
 
         KeAcquireSpinLockAtDpcLevel( &pNpScb->NpScbSpinLock );
-
-        //
-        //  Obtain a pointer to the next SCB in the SCB list before
-        //  dereferencing the current one.
-        //
-
-        NextScbQueueEntry = pNpScb->ScbLinks.Flink;
 
         //
         //  Look at the first request on the queue only (since it is
@@ -254,7 +282,7 @@ Return Value:
             //
 
             RetryCount = --pNpScb->RetryCount;
-            NwDereferenceScb( pNpScb );
+            NwQuietDereferenceScb( pNpScb );
 
             //
             //  Set OkToReceive to FALSE, so that if we receive a response
@@ -275,11 +303,6 @@ Return Value:
 
                 DebugTrace(+0, Dbg, "Timer cancel IRP %X\n", pIrpContext->pOriginalIrp );
                 pIrpContext->pEx( pIrpContext, 0, NULL );
-#if 0
-                NwDequeueIrpContext( pIrpContext, FALSE );
-                NwCompleteRequest( pIrpContext, STATUS_CANCELLED );
-                KickQueue( pNpScb );
-#endif
 
             } else if ( RetryCount >= 0) {
 
@@ -302,10 +325,13 @@ Return Value:
                 }
 
                 pNpScb->TimeOut = pNpScb->SendTimeout;
+                DebugTrace(+0, Dbg, "Adjusting send timeout: %x\n", pIrpContext );
                 DebugTrace(+0, Dbg, "Adjusting send timeout to: %d\n", pNpScb->TimeOut );
 
                 if ( pIrpContext->TimeoutRoutine != NULL ) {
 
+                    DebugTrace(+0, Dbg, "Timeout Routine, retry %x\n", RetryCount+1);
+                    DebugTrace(+0, Dbg, "Calling TimeoutRoutine, %x\n", pIrpContext->TimeoutRoutine);
                     pIrpContext->TimeoutRoutine( pIrpContext );
 
                 } else {
@@ -352,13 +378,43 @@ Return Value:
 
                         pIrpContext->pNpScb->State = SCB_STATE_ATTACHING;
 
-                        Error(
-                            EVENT_NWRDR_TIMEOUT,
-                            STATUS_UNEXPECTED_NETWORK_ERROR,
-                            NULL,
-                            0,
-                            1,
-                            pNpScb->ServerName.Buffer );
+                        //
+                        //  Determine the CurrentTime. We need to know if
+                        //  TimeOutEventInterval minutes have passed before
+                        //  we log the next time-out event.
+                        //
+
+                        KeQuerySystemTime( &CurrentTime );
+
+                        if ( CanLogTimeOutEvent( pNpScb->NwNextEventTime,
+                                                CurrentTime
+                                                )) {
+
+                            if ( pNpScb->ServerName.Buffer != NULL ) {
+                                ServerLogName = pNpScb->ServerName.Buffer;
+                            } else {
+                                ServerLogName = &AnonymousName[0];
+                            }
+
+                            Error(
+                                EVENT_NWRDR_TIMEOUT,
+                                STATUS_UNEXPECTED_NETWORK_ERROR,
+                                NULL,
+                                0,
+                                1,
+                                ServerLogName );
+
+                            //
+                            //  Set the LastEventTime to the CurrentTime
+                            //
+
+                            UpdateNextEventTime(
+                                    pNpScb->NwNextEventTime,
+                                    CurrentTime,
+                                    TimeOutEventInterval
+                                    );
+                        }
+
                     }
 
                     pIrpContext->ResponseParameters.Error = ERROR_UNEXP_NET_ERR;
@@ -386,13 +442,20 @@ Return Value:
 
         } else {
 
+            if ( ( !IsListEmpty( &pNpScb->Requests )) &&
+                 ( !pNpScb->Sending ) &&
+                 ( pNpScb->OkToReceive ) ) {
+
+                DebugTrace( 0, Dbg, "TimeOut %d\n", pNpScb->TimeOut );
+            }
+
             //
             //  Nothing to do for this SCB.  Dereference this SCB and
             //  release the spin lock.
             //
 
             KeReleaseSpinLockFromDpcLevel( &pNpScb->NpScbSpinLock );
-            NwDereferenceScb( pNpScb );
+            NwQuietDereferenceScb( pNpScb );
         }
 
         KeAcquireSpinLockAtDpcLevel( &ScbSpinLock );
@@ -403,30 +466,19 @@ Return Value:
 
     //
     //  Now see if the scavenger routine needs to be run.
+    //  Only ever queue one workitem.
     //
 
     KeAcquireSpinLockAtDpcLevel( &NwScavengerSpinLock );
 
     NwScavengerTickCount++;
-    if ( NwScavengerTickCount > NwScavengerTickRunCount ) {
+    if (( !WorkerRunning ) &&
+        ( NwScavengerTickCount > NwScavengerTickRunCount )) {
 
-        PWORK_QUEUE_ITEM WorkItem;
-
-        WorkItem = ALLOCATE_POOL( NonPagedPool, sizeof( WORK_QUEUE_ITEM ) );
-
-        //
-        //  We are about to run the ScavengerRoutine.  Reset Scavenger
-        //  tick count.  If we can't even allocate a work item, the
-        //  system is in bad shape, so simply defer running the
-        //  ScavengerRoutine.
-        //
-
-        if ( WorkItem != NULL ) {
-
-            ExInitializeWorkItem( WorkItem, NwScavengerRoutine, WorkItem );
-            ExQueueWorkItem( WorkItem, DelayedWorkQueue );
-            NwScavengerTickCount = 0;
-        }
+        ExInitializeWorkItem( &WorkItem, NwScavengerRoutine, &WorkItem );
+        ExQueueWorkItem( &WorkItem, DelayedWorkQueue );
+        NwScavengerTickCount = 0;
+        WorkerRunning = TRUE;
     }
 
     KeReleaseSpinLockFromDpcLevel( &NwScavengerSpinLock );
@@ -443,6 +495,11 @@ Return Value:
 
         NextIrpContextEntry = IrpContextEntry->Flink;
         pIrpContext = CONTAINING_RECORD( IrpContextEntry, IRP_CONTEXT, NextRequest );
+
+        //
+        //  BUGBUG surely we can't use the key like this to control the number
+        //  of retries.
+        //
 
         if ( --pIrpContext->Specific.Lock.Key <= 0 ) {
 

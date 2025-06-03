@@ -3,8 +3,9 @@
 #endif
 
 #include "types.h"
-#include "cvtypes.h"
-#include "shapi.h"          // for convenience, since almost everyone will
+#include "cvinfo.h"
+#include "cvtypes.hxx"
+#include "shapi.hxx"          // for convenience, since almost everyone will
                             // be including od.h, which needs this
 
 #include <stdio.h>

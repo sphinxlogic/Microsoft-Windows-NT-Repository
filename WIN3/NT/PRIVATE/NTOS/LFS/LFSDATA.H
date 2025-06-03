@@ -43,6 +43,19 @@ extern LARGE_INTEGER LfsLi1;
 extern LSN LfsStartingLsn;
 
 //
+//  Turn on pseudo-asserts if NTFS_FREE_ASSERTS is defined.
+//
+
+#if !DBG
+#ifdef NTFS_FREE_ASSERTS
+#undef ASSERT
+#undef ASSERTMSG
+#define ASSERT(exp)        if (!(exp)) { extern BOOLEAN KdDebuggerEnabled; DbgPrint("%s:%d %s\n",__FILE__,__LINE__,#exp); if (KdDebuggerEnabled) { DbgBreakPoint(); } }
+#define ASSERTMSG(msg,exp) if (!(exp)) { extern BOOLEAN KdDebuggerEnabled; DbgPrint("%s:%d %s %s\n",__FILE__,__LINE__,msg,#exp); if (KdDebuggerEnabled) { DbgBreakPoint(); } }
+#endif
+#endif
+
+//
 //  The global Lfs debug level variable, its values are:
 //
 //      0x00000000      Always gets printed (used when about to bug check)

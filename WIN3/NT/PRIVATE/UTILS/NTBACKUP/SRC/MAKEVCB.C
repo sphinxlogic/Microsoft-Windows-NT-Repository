@@ -204,6 +204,12 @@ GEN_VCB_DATA_PTR    data )
      vcb->on_tape_cat_ver      = data->on_tape_cat_ver ;
      vcb->vendor_id            = data->vendor_id ;
 
+     if ( vcb->set_cat_info_valid ) {
+          vcb->set_cat_num_dirs    = data->set_cat_num_dirs ;
+          vcb->set_cat_num_files   = data->set_cat_num_files ;
+          vcb->set_cat_num_corrupt = data->set_cat_num_corrupt ;
+     }
+
      /* tape name */
      vcb->tape_name = sizeof( *vcb ) ;
      SetStringInVCB( &vcb_str[ vcb->tape_name ],
@@ -370,13 +376,13 @@ BOOLEAN        out_str_asci )
 
      if ( in_str_asci && !out_str_asci ) {        // asci to unicode
 
-          WCHAR_PTR temp_ptr ;
+          WCHAR UNALIGNED * temp_ptr ;
 
           target_size = *target_length_ptr = source_length * sizeof(WCHAR) ;
 
           mapAnsiToUnic( (ACHAR_PTR)source, (WCHAR_PTR)target, &target_size ) ;
           
-          temp_ptr = (WCHAR_PTR)(&target[*target_length_ptr]) ;
+          temp_ptr = (WCHAR UNALIGNED *)(&target[*target_length_ptr]) ;
           if ( *(temp_ptr -1) != 0 ) {
                *temp_ptr = 0 ;
                ( *target_length_ptr ) +=sizeof(WCHAR) ;
@@ -396,11 +402,11 @@ BOOLEAN        out_str_asci )
 
      } else if ( !in_str_asci && !out_str_asci) { // unicode to unicode
 
-          WCHAR_PTR temp_ptr ;
+          WCHAR UNALIGNED *temp_ptr ;
 
           memcpy( target, source, source_length ) ;
 
-          temp_ptr = (WCHAR_PTR)(&target[source_length]) ;
+          temp_ptr = (WCHAR UNALIGNED *)(&target[source_length]) ;
           if ( *(temp_ptr -1) != 0 ) {
                *temp_ptr = 0 ;
                ( *target_length_ptr ) += sizeof(WCHAR) ;

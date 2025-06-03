@@ -488,7 +488,7 @@ Return Value:
     //  add milliseconds to the whole day milliseconds
     //
 
-    Temp = RtlLargeIntegerAdd( Temp, Temp2 );
+    Temp.QuadPart = Temp.QuadPart + Temp2.QuadPart;
 
     //
     //  Finally convert the milliseconds to 100ns resolution
@@ -683,7 +683,7 @@ RtlCutoverTimeToSystemTime(
             return FALSE;
             }
 
-        if ( RtlLargeIntegerLessThan(*SystemTime,*CurrentSystemTime) ) {
+        if (SystemTime->QuadPart < CurrentSystemTime->QuadPart) {
             return FALSE;
             }
         return TRUE;
@@ -804,7 +804,7 @@ try_next_year:
                 }
             if ( WorkingTimeField.Day == CurrentTimeFields.Day ) {
 
-                if ( RtlLargeIntegerLessThan(ScratchTime,*CurrentSystemTime) ) {
+                if (ScratchTime.QuadPart < CurrentSystemTime->QuadPart) {
                     MonthMatches = FALSE;
                     TargetYear++;
                     goto try_next_year;
@@ -1066,8 +1066,7 @@ Return Value:
     //  Then subtract the number of seconds from 1601 to 1980.
     //
 
-    Seconds = RtlLargeIntegerSubtract( Seconds,
-                                       SecondsToStartOf1980 );
+    Seconds.QuadPart = Seconds.QuadPart - SecondsToStartOf1980.QuadPart;
 
     //
     //  If the results is negative then the date was before 1980 or if
@@ -1135,8 +1134,7 @@ Return Value:
     //  convert number of seconds from 1980 to number of seconds from 1601
     //
 
-    Seconds = RtlLargeIntegerAdd( Seconds,
-                                  SecondsToStartOf1980 );
+    Seconds.QuadPart = Seconds.QuadPart + SecondsToStartOf1980.QuadPart;
 
     //
     //  Convert seconds to 100ns resolution
@@ -1193,8 +1191,7 @@ Return Value:
     //  Then subtract the number of seconds from 1601 to 1970.
     //
 
-    Seconds = RtlLargeIntegerSubtract( Seconds,
-                                       SecondsToStartOf1970 );
+    Seconds.QuadPart = Seconds.QuadPart - SecondsToStartOf1970.QuadPart;
 
     //
     //  If the results is negative then the date was before 1970 or if
@@ -1262,8 +1259,7 @@ Return Value:
     //  Convert number of seconds from 1970 to number of seconds from 1601
     //
 
-    Seconds = RtlLargeIntegerAdd( Seconds,
-                                  SecondsToStartOf1970 );
+    Seconds.QuadPart = Seconds.QuadPart + SecondsToStartOf1970.QuadPart;
 
     //
     //  Convert seconds to 100ns resolution
@@ -1330,7 +1326,7 @@ RtlLocalTimeToSystemTime (
     // SystemTime = LocalTime + TimeZoneBias
     //
 
-    *SystemTime = RtlLargeIntegerAdd(*LocalTime,TimeOfDay.TimeZoneBias);
+    SystemTime->QuadPart = LocalTime->QuadPart + TimeOfDay.TimeZoneBias.QuadPart;
 
     return STATUS_SUCCESS;
 }

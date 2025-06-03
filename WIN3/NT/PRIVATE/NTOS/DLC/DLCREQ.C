@@ -46,6 +46,8 @@ Revision History:
 #include <dlc.h>
 #include "dlcdebug.h"
 
+#if 0
+
 //
 // if DLC and LLC share the same driver then we can use macros to access fields
 // in the BINDING_CONTEXT and ADAPTER_CONTEXT structures
@@ -58,6 +60,7 @@ Revision History:
 #include "llcdef.h"
 #include "llctyp.h"
 #include "llcapi.h"
+#endif
 #endif
 
 
@@ -164,7 +167,9 @@ Return Value:
     }
 
     pDlcParms->BufferFree.cBuffersLeft = (USHORT)BufferPoolCount(pFileContext->hBufferPool);
+
     DereferenceBufferPool(pFileContext);
+
     return status;
 }
 
@@ -364,6 +369,9 @@ Return Value:
             //
 
             Status = BufferPoolAllocate(
+#if DBG
+                        pFileContext,
+#endif
                         (PDLC_BUFFER_POOL)pFileContext->hBufferPool,
                         BufferSize,
                         0,                  // FrameHeaderSize,
@@ -374,7 +382,11 @@ Return Value:
                         &BufferSize
                         );
 
+#if DBG
+            BufferPoolExpand(pFileContext, (PDLC_BUFFER_POOL)pFileContext->hBufferPool);
+#else
             BufferPoolExpand((PDLC_BUFFER_POOL)pFileContext->hBufferPool);
+#endif
 
             //
             // Don't try to expand buffer pool any more, if it doesn't help!
@@ -551,7 +563,8 @@ Return Value:
         return Status;
     }
 
-    pPacket = AllocatePacket(pFileContext->hPacketPool);
+    pPacket = ALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool);
+
     if (pPacket == NULL) {
         return DLC_STATUS_NO_MEMORY;
     }
@@ -578,7 +591,7 @@ Return Value:
     //
 
     LlcConnectStation(pLinkStation->hLlcObject,
-                      pPacket,
+                      (PLLC_PACKET)pPacket,
                       pSourceRouting,
                       &pLinkStation->u.Link.MaxInfoFieldLength
                       );
@@ -657,7 +670,8 @@ Return Value:
 
         PDLC_RESET_LOCAL_BUSY_CMD pClearCmd;
 
-        pClearCmd = (PDLC_RESET_LOCAL_BUSY_CMD)AllocatePacket(pFileContext->hPacketPool);
+        pClearCmd = (PDLC_RESET_LOCAL_BUSY_CMD)ALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool);
+
         if (pClearCmd == NULL) {
             return DLC_STATUS_NO_MEMORY;
         }
@@ -776,7 +790,11 @@ Return Value:
 
                 LEAVE_DLC(pFileContext);
 
+#if DBG
+                BufferPoolExpand(pFileContext, pFileContext->hBufferPool);
+#else
                 BufferPoolExpand(pFileContext->hBufferPool);
+#endif
 
                 ENTER_DLC(pFileContext);
             }
@@ -813,8 +831,11 @@ Return Value:
                 break;
             }
         }
-        DeallocatePacket(pFileContext->hPacketPool, pClearCmd);
+
+        DEALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool, pClearCmd);
+
     }
+
     DereferenceBufferPool(pFileContext);
 }
 
@@ -968,7 +989,8 @@ Return Value:
 
         PDLC_CLOSE_WAIT_INFO pClosingInfo;
 
-        pClosingInfo = AllocatePacket(pFileContext->hPacketPool);
+        pClosingInfo = ALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool);
+
         if (pClosingInfo == NULL) {
             Status = DLC_STATUS_NO_MEMORY;
         } else {
@@ -1003,7 +1025,8 @@ Return Value:
         // the sap station itself
         //
 
-        pClosingInfo = AllocatePacket(pFileContext->hPacketPool);
+        pClosingInfo = ALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool);
+
         if (pClosingInfo == NULL) {
             return DLC_STATUS_NO_MEMORY;
         }
@@ -1355,6 +1378,8 @@ Return Value:
     UNREFERENCED_PARAMETER(InputBufferLength);
     UNREFERENCED_PARAMETER(OutputBufferLength);
 
+    DLC_TRACE('Q');
+
     return AbortCommand(pFileContext,
                         (USHORT)DLC_IGNORE_STATION_ID,
                         (USHORT)DLC_STATION_MASK_SPECIFIC,
@@ -1450,6 +1475,7 @@ Return Value:
             // handle is not valid.
             //
 
+			pFileContext->pBindingContext = NULL;
             return DLC_STATUS_INVALID_BUFFER_LENGTH;
         }
     }
@@ -1669,7 +1695,7 @@ Return Value:
     }
 
     //
-    // We must use the static closing packet, because the adaopter close
+    // We must use the static closing packet, because the adapter close
     // must succeed even if we could not allocate any packets
     //
 
@@ -1715,6 +1741,13 @@ Return Value:
     ASSUME_IRQL(DISPATCH_LEVEL);
 
     DLC_TRACE('K');
+
+    //
+    // reference the file context to stop any of the dereferences below, or in
+    // functions called by this routine destroying it
+    //
+
+    ReferenceFileContext(pFileContext);
 
     //
     // Disconnect (or unbind) llc driver from us
@@ -1827,6 +1860,7 @@ Return Value:
                         pDlcParms->CompleteCommand.StationId,
                         NULL,
                         pDlcParms->CompleteCommand.pCcbPointer,
-                        pDlcParms->CompleteCommand.CommandCompletionFlag
+                        pDlcParms->CompleteCommand.CommandCompletionFlag,
+                        FALSE
                         );
 }

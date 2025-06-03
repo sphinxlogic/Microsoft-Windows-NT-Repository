@@ -34,6 +34,9 @@
 #define MTF_TYPE_STM                0x00800000
 #define MTF_TYPE_CB                 0x01000000
 #define MTF_TYPE_EM                 0x02000000
+#ifdef FE_IME
+#define MTF_TYPE_IME                0x04000000
+#endif
 
 
 //
@@ -54,6 +57,20 @@
 
 #define MENU_START                  1300
 #define MENU_STOP                   1301
+
+//
+// Resource file constants
+//
+#define IDS_APPLICATION_NAME        2000
+#define IDS_MENU_START              2001
+#define IDS_MENU_STOP               2002
+#define IDS_PARENT                  2003
+#define IDS_NOPARENT                2004
+#define IDS_UNDEFINED               2005
+#define IDS_ERROR_WND_LINE          2006
+#define IDS_ERROR_CANT_OPEN_FILE    2007
+#define IDS_ERROR_CANT_OPEN_COM1    2008
+#define IDS_ERROR_CANT_LOAD_DLL     2009
 
 //
 // Position of the top level Start/Stop menu item.
@@ -108,12 +125,19 @@ extern BOOL gfOutputWin;
 extern BOOL gfOutputCom1;
 extern BOOL gfOutputFile;
 extern HFILE gfhFile;
+#ifdef JAPAN    // DBCS_FIX
+extern HANDLE gfhCom1;
+#endif
 extern CHAR gszFile[];
 extern INT gcxBorder;
 extern INT gcyBorder;
 extern BOOL gfMsgsUser;
 extern BOOL gfMsgsUnknown;
 extern CHAR gszAppName[];
+#ifdef JAPAN
+// BUGBUG Should the Japan code be the standard? FloydR
+extern UCHAR gszWindowName[];
+#endif
 extern WINDOWPLACEMENT gwndpl;
 
 extern MSGDESC gaMsgs[];
@@ -126,3 +150,9 @@ extern INT gaiSelected2[];
 
 #include "spyfuncs.h"
 #include "wprintf.h"
+
+#ifdef FE_IME
+#include <ime.h>               //  For WM_IME_REPORT
+#include <winuser.h>           //  For WM_IMEKEYDOWN, WM_IMEKEYUP
+#endif
+

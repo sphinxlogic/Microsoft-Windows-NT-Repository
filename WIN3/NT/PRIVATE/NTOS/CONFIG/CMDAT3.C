@@ -48,6 +48,9 @@ WCHAR   CmDefaultLanguageId[ 12 ] = { 0 };
 ULONG   CmDefaultLanguageIdLength = sizeof( CmDefaultLanguageId );
 ULONG   CmDefaultLanguageIdType = REG_NONE;
 
+extern ULONG ObpProtectionMode;
+extern ULONG ObpAuditBaseDirectories;
+extern ULONG ObpAuditBaseObjects;
 extern ULONG CmNtGlobalFlag;
 extern ULONG MmSizeOfPagedPoolInBytes;
 extern ULONG MmSizeOfNonPagedPoolInBytes;
@@ -55,6 +58,8 @@ extern ULONG MmOverCommit;
 extern ULONG MmLockLimitInBytes;
 extern ULONG MmLargeSystemCache;
 extern ULONG MmNumberOfSystemPtes;
+extern ULONG MmSecondaryColors;
+extern ULONG MmDisablePagingExecutive;
 extern ULONG CmRegistrySizeLimit;
 extern ULONG CmRegistrySizeLimitLength;
 extern ULONG CmRegistrySizeLimitType;
@@ -63,30 +68,68 @@ extern ULONG PspDefaultNonPagedLimit;
 extern ULONG PspDefaultPagefileLimit;
 extern ULONG ExpResourceTimeoutCount;
 extern ULONG MmCritsectTimeoutSeconds;
+extern ULONG MmHeapSegmentReserve;
+extern ULONG MmHeapSegmentCommit;
+extern ULONG MmHeapDeCommitTotalFreeThreshold;
+extern ULONG MmHeapDeCommitFreeBlockThreshold;
 extern ULONG ExpAdditionalCriticalWorkerThreads;
 extern ULONG ExpAdditionalDelayedWorkerThreads;
 extern ULONG MmProductType;
 extern ULONG IopLargeIrpStackLocations;
-extern ULONG IopKeepNonZonedIrps;
+extern ULONG MmZeroPageFile;
+extern ULONG ExpNtExpirationData[3];
+extern ULONG ExpNtExpirationDataLength;
+extern ULONG ExpMaxTimeSeperationBeforeCorrect;
 
-#if DBG
-extern ULONG ExSpecialPoolTag;
-#endif //DBG
-
-#ifdef _ALPHA_
+#if defined(_ALPHA_) || defined(_PPC_)
 extern ULONG KiEnableAlignmentFaultExceptions;
+#endif
+#ifdef _ALPHA_
+extern ULONG KiEnableByteWordInstructionEmulation;
 extern ULONG KiForceQuadwordFixupsKernel;
 extern ULONG KiForceQuadwordFixupsUser;
 #endif
 
-#if !defined(NT_UP)
-extern ULONG KeRegisteredProcessors;
+extern ULONG KiMaximumDpcQueueDepth;
+extern ULONG KiMinimumDpcRate;
+extern ULONG KiAdjustDpcThreshold;
+extern ULONG KiIdealDpcRate;
+extern LARGE_INTEGER ExpLastShutDown;
+ULONG shutdownlength;
+
+#if defined (i386)
+extern ULONG KeI386ForceNpxEmulation;
 #endif
+
 
 //
 //  Vector - see ntos\inc\cm.h for definition
 //
 CM_SYSTEM_CONTROL_VECTOR   CmControlVector[] = {
+
+    { L"Session Manager",
+      L"ProtectionMode",
+      &ObpProtectionMode,
+      NULL,
+      NULL
+    },
+
+
+    { L"LSA",
+      L"AuditBaseDirectories",
+      &ObpAuditBaseDirectories,
+      NULL,
+      NULL
+    },
+
+
+    { L"LSA",
+      L"AuditBaseObjects",
+      &ObpAuditBaseObjects,
+      NULL,
+      NULL
+    },
+
 
     { L"TimeZoneInformation",
       L"ActiveTimeBias",
@@ -180,10 +223,31 @@ CM_SYSTEM_CONTROL_VECTOR   CmControlVector[] = {
       NULL
     },
 
+    { L"Session Manager\\Memory Management",
+      L"DisablePagingExecutive",
+      &MmDisablePagingExecutive,
+      NULL,
+      NULL
+    },
+
+    { L"Session Manager\\Memory Management",
+      L"SecondLevelDataCache",
+      &MmSecondaryColors,
+      NULL,
+      NULL
+    },
+
+    { L"Session Manager\\Memory Management",
+      L"ClearPageFileAtShutdown",
+      &MmZeroPageFile,
+      NULL,
+      NULL
+    },
+
 #if DBG
     { L"Session Manager\\Memory Management",
       L"PoolTag",
-      &ExSpecialPoolTag,
+      &MmSpecialPoolTag,
       NULL,
       NULL
     },
@@ -196,6 +260,7 @@ CM_SYSTEM_CONTROL_VECTOR   CmControlVector[] = {
       NULL
     },
 
+
     { L"Session Manager\\Executive",
       L"AdditionalDelayedWorkerThreads",
       &ExpAdditionalDelayedWorkerThreads,
@@ -203,17 +268,44 @@ CM_SYSTEM_CONTROL_VECTOR   CmControlVector[] = {
       NULL
     },
 
-    { L"Session Manager\\I/O System",
-      L"LargeIrpStackLocations",
-      &IopLargeIrpStackLocations,
+    { L"Session Manager\\Executive",
+      L"PriorityQuantumMatrix",
+      &ExpNtExpirationData,
+      &ExpNtExpirationDataLength,
+      NULL
+    },
+
+    { L"Session Manager\\Kernel",
+      L"DpcQueueDepth",
+      &KiMaximumDpcQueueDepth,
       NULL,
       NULL
     },
 
-    {
-      L"Session Manager\\I/O System",
-      L"KeepNonZonedIrps",
-      &IopKeepNonZonedIrps,
+    { L"Session Manager\\Kernel",
+      L"MinimumDpcRate",
+      &KiMinimumDpcRate,
+      NULL,
+      NULL
+    },
+
+    { L"Session Manager\\Kernel",
+      L"AdjustDpcThreshold",
+      &KiAdjustDpcThreshold,
+      NULL,
+      NULL
+    },
+
+    { L"Session Manager\\Kernel",
+      L"IdealDpcRate",
+      &KiIdealDpcRate,
+      NULL,
+      NULL
+    },
+
+    { L"Session Manager\\I/O System",
+      L"LargeIrpStackLocations",
+      &IopLargeIrpStackLocations,
       NULL,
       NULL
     },
@@ -232,11 +324,50 @@ CM_SYSTEM_CONTROL_VECTOR   CmControlVector[] = {
       NULL
     },
 
-#ifdef _ALPHA_
+    { L"Session Manager",
+      L"HeapSegmentReserve",
+      &MmHeapSegmentReserve,
+      NULL,
+      NULL
+    },
+
+    { L"Session Manager",
+      L"HeapSegmentCommit",
+      &MmHeapSegmentCommit,
+      NULL,
+      NULL
+    },
+
+    { L"Session Manager",
+      L"HeapDeCommitTotalFreeThreshold",
+      &MmHeapDeCommitTotalFreeThreshold,
+      NULL,
+      NULL
+    },
+
+    { L"Session Manager",
+      L"HeapDeCommitFreeBlockThreshold",
+      &MmHeapDeCommitFreeBlockThreshold,
+      NULL,
+      NULL
+    },
+
+#if defined(_ALPHA_) || defined(_PPC_)
 
     { L"Session Manager",
       L"EnableAlignmentFaultExceptions",
       &KiEnableAlignmentFaultExceptions,
+      NULL,
+      NULL
+    },
+
+#endif
+
+#ifdef _ALPHA_
+
+    { L"Session Manager",
+      L"EnableByteWordInstructionEmulation",
+      &KiEnableByteWordInstructionEmulation,
       NULL,
       NULL
     },
@@ -264,7 +395,7 @@ CM_SYSTEM_CONTROL_VECTOR   CmControlVector[] = {
       NULL
     },
 
-    { L"ProductOptions",
+    { L"Windows",
       L"CSDVersion",
       &CmNtCSDVersion,
       NULL,
@@ -285,6 +416,16 @@ CM_SYSTEM_CONTROL_VECTOR   CmControlVector[] = {
       &CmRegistrySizeLimitType
     },
 
+#if defined(i386)
+    { L"Session Manager",
+      L"ForceNpxEmulation",
+      &KeI386ForceNpxEmulation,
+      NULL,
+      NULL
+    },
+
+#endif
+
 #if !defined(NT_UP)
     { L"Session Manager",
       L"RegisteredProcessors",
@@ -292,7 +433,27 @@ CM_SYSTEM_CONTROL_VECTOR   CmControlVector[] = {
       NULL,
       NULL
     },
+    { L"Session Manager",
+      L"LicensedProcessors",
+      &KeLicensedProcessors,
+      NULL,
+      NULL
+    },
 #endif
+
+    { L"Session Manager\\Executive",
+      L"MaxTimeSeparationBeforeCorrect",
+      &ExpMaxTimeSeperationBeforeCorrect,
+      NULL,
+      NULL
+    },
+
+    { L"Windows",
+      L"ShutdownTime",
+      &ExpLastShutDown,
+      &shutdownlength,
+      NULL
+    },
 
     { NULL, NULL, NULL, NULL, NULL }    // end marker
     };

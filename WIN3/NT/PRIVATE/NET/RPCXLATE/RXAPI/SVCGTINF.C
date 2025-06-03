@@ -44,7 +44,7 @@ Revision History:
 #include <lmerr.h>              // ERROR_ and NERR_ equates.
 #include <lmsvc.h>
 #include <rxp.h>                // RxpFatalErrorCode().
-#include <netdebug.h>           // DBGSTATIC, NetpDbgPrint(), FORMAT_ equates.
+#include <netdebug.h>           // DBGSTATIC, NetpKdPrint(()), FORMAT_ equates.
 #include <rap.h>                // LPDESC.
 #include <remdef.h>             // REM16_, REM32_, REMSmb_ equates.
 #include <rx.h>                 // RxRemoteApi().
@@ -90,8 +90,8 @@ Return Value:
     LPSERVICE_INFO_2 serviceInfo2;
 
     IF_DEBUG(SERVICE) {
-        NetpDbgPrint("RxNetServiceGetInfo: starting, server=" FORMAT_LPTSTR
-                ", lvl=" FORMAT_DWORD ".\n", UncServerName, Level);
+        NetpKdPrint(("RxNetServiceGetInfo: starting, server=" FORMAT_LPTSTR
+                ", lvl=" FORMAT_DWORD ".\n", UncServerName, Level));
     }
 
     //
@@ -133,8 +133,8 @@ Return Value:
         return (Status);
     }
     IF_DEBUG(SERVICE) {
-        NetpDbgPrint( "RxNetServiceGetInfo: allocated buffer at "
-                FORMAT_LPVOID "\n", (LPVOID) ApiBuffer32 );
+        NetpKdPrint(( "RxNetServiceGetInfo: allocated buffer at "
+                FORMAT_LPVOID "\n", (LPVOID) ApiBuffer32 ));
     }
 
     //

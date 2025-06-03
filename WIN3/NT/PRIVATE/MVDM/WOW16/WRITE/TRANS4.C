@@ -439,4 +439,3 @@ NextFn: ;
     MeltHp();
     }
 #endif /* WIN30 */
-

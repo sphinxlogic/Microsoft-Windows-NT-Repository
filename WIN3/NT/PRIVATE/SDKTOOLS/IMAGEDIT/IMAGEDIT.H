@@ -130,12 +130,13 @@ typedef VOID (*DRAWPROC)(HWND, UINT, POINT);
 #define IDS_DEFEXTCUR               50
 #define IDS_DEFEXTPAL               51
 #define IDS_UNKNOWNIMAGEFORMAT      52
+#define IDS_ICONDEVNAMEWIN95        53
 
 /*
  * The total number of strings.  This MUST be updated if strings are
  * added or removed.
  */
-#define CSTRINGS                    53
+#define CSTRINGS                    54
 
 
 /*
@@ -336,3 +337,15 @@ typedef HELPMAP *PHELPMAP;
 #include "iefuncs.h"
 
 #include "globals.h"
+
+#ifdef DBCS
+#ifdef strcmpi
+#undef strcmpi
+#endif
+#define strcmpi     lstrcmpi
+#define strtok      My_mbstok
+#define strncat     My_mbsncat
+unsigned char * _CRTAPI1 My_mbstok(unsigned char *, unsigned char *);
+unsigned char * _CRTAPI1 My_mbsncat(
+                    unsigned char *, const unsigned char *, size_t);
+#endif  // DBCS

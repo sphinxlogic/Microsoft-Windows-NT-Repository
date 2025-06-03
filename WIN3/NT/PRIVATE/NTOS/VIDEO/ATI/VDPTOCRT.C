@@ -7,10 +7,31 @@
 
 /**********************       PolyTron RCS Utilities
    
-    $Revision:   1.0  $
-    $Date:   31 Jan 1994 11:24:14  $
-    $Author:   RWOLFF  $
+    $Revision:   1.8  $
+    $Date:   20 Jul 1995 18:03:48  $
+    $Author:   mgrubac  $
     $Log:   S:/source/wnt/ms11/miniport/vcs/vdptocrt.c  $
+ * 
+ *    Rev 1.8   20 Jul 1995 18:03:48   mgrubac
+ * Added support for VDIF files.
+ * 
+ *    Rev 1.7   02 Jun 1995 14:34:28   RWOLFF
+ * Switched from toupper() to UpperCase(), since toupper() led to unresolved
+ * externals on some platforms.
+ * 
+ *    Rev 1.6   08 Mar 1995 11:35:52   ASHANMUG
+ * Cleaned-up Warnings
+ * 
+ *    Rev 1.5   31 Aug 1994 16:33:38   RWOLFF
+ * Now gets resolution definitions from ATIMP.H.
+ * 
+ *    Rev 1.4   19 Aug 1994 17:15:14   RWOLFF
+ * Added support for non-standard pixel clock generators.
+ * 
+ *    Rev 1.3   22 Mar 1994 15:39:12   RWOLFF
+ * Workaround for abs() not working properly.
+ * 
+ *    Rev 1.2   03 Mar 1994 12:38:46   ASHANMUG
  * 
  *    Rev 1.0   31 Jan 1994 11:24:14   RWOLFF
  * Initial revision.
@@ -63,8 +84,14 @@ End of PolyTron RCS section                             *****************/
 #include "video.h"
 
 // APPLICATION INCLUDES
+#define INCLUDE_VDPDATA
+#define INCLUDE_VDPTOCRT
+
 #include "stdtyp.h"       
+#include "amach1.h"
+#include "atimp.h"
 #include "cvtvga.h"
+#include "services.h"
 #include "vdptocrt.h"
 #include "vdpdata.h"      
 
@@ -73,14 +100,11 @@ End of PolyTron RCS section                             *****************/
  */
 static long MaxHorz,MaxVert;     // used to record maximum resolution
 static unsigned long MaxRate;    // used to record maximum vert scan rate
-static BOOL skip1=FALSE;
 
 
 /*
  * FUNCTION PROTYPES
  */
-unsigned long SynthAToF(char *InputString);
-char *PointToData(char *BufPtr,char *KeyWord);
 char *GetString(char *InBuffer, char *KeyWord);
 unsigned char *FindSection(char *Name, unsigned char *Buffer);
 long CountSection(char *Name,char *BufPtr);
@@ -89,7 +113,6 @@ long GetPolarity(char *InBufPtr,char *PolName);
 BOOL GetMode(P_TIMINGDATA TP, char *BestPtr);
 BOOL GetBestMode(long HorzRes,long VertRes,P_TIMINGDATA TimingsPtr,
                  long TotalTimings,char *InBufPtr);
-long normal_to_skip2(long normal_number);
 clockT match_pixel_clock(unsigned long *dot_clock);
 void CalcData(P_LIMITSDATA LimitsArray,crtT *OutData);
 long VdpToCrt(char *Buffer, long Mode, struct st_book_data *OutTable);
@@ -139,6 +162,7 @@ long VdpToCrt(char *Buffer, long Mode, struct st_book_data *OutTable);
  * Example:
  *  InputString contains "1.0179". This function will return 1017.
  */
+
 unsigned long SynthAToF(char *InputString)
 {
     long BuildNumber = 0;       /* Place to build the number */
@@ -161,11 +185,25 @@ unsigned long SynthAToF(char *InputString)
     if ((NextDecimal = strchr(InputString, '.')) != NULL)
         {
         /*
-         * Check that the decimal point is before the end of the current
-         * line. If it isn't, then the current number has no fractional
-         * portion (decimal point we found belongs to another field).
+         * Ensure that the decimal point we found belongs to the numeric
+         * string we are looking at. Depending on the calling routine,
+         * the input string will meet one of the following criteria:
+         *
+         * 1. It represents a "snapshot" of a disk file image, including
+         *    lines that follow the one we are working on. The decimal
+         *    point we found may be on either the current line or one
+         *    that follows, but there will be a linefeed character.
+         *
+         * 2. It represents a single line, with the linefeed removed.
+         *    If the numeric string we are looking at does not contain
+         *    a decimal point, we will not reach this point because the
+         *    "if" statment above will not have found a decimal point.
+         *
+         * If the numeric string we are working on does not contain a
+         * decimal point, then the current number has no fractional portion.
          */
-        if (NextDecimal < (NextEOL = strchr(InputString, LINEFEED)))
+        NextEOL = strchr(InputString, LINEFEED);
+        if ((NextDecimal < NextEOL) || !NextEOL)
             {
             /*
              * Read in the fractional portion of the number. We can't
@@ -181,6 +219,7 @@ unsigned long SynthAToF(char *InputString)
              * Ensure that we generate exactly 3 places of decimal by
              * padding out shorter strings and truncating longer ones.
              */
+     // printf("Fractional part = %s\n", FractionalPart);
             BuildNumber = atol(FractionalPart);
             if (PlacesOfDecimal < 3)
                 {
@@ -211,56 +250,103 @@ unsigned long SynthAToF(char *InputString)
     return BuildNumber;
 
 }   /* end SynthAToF() */
-
+ 
 
 /*
  *****************************************************************************
- */
+ *
+ *char *PointToData(BufStart, BufEnd, KeyWord)
+ *
+ * char *KeyWord;    String for which data is requested
+ * char *BufStart;   Ptr. to location from where to start search for 
+ *                   the given Keyword
+ * char *BufEnd;     Ptr. to the end of searching area. If it equals
+ *                   NULL search up to a null character.
 
-/*
- * char *PointToData(BufPtr, KeyWord);
+ * DESCRIPTION:
+ * Searches for the given keyword in the data buffer, from BufPtr up to
+ * BufEnd, or up to the end of buffer, i.e. up to a null character if 
+ * BufEnd equals NULL.
  *
- * char *BufPtr;    Pointer into the data buffer
- * char *KeyWord;   String for which data is requested
- *
- * Find the given keyword in the data buffer
- *
- * Returns:
+ * RETURN VALUE:
  *  Pointer to the start of the data for the keyword.
  *  NULL if no data found
- */
+ *
+ * GLOBALS CHANGED:
+ *  None
+ *
+ * CALLED BY:
+ *  GetParameterValue, GetString, GetMode, GetBestMode
+ *
+ * AUTHOR:
+ *  Robert Wolff
+ *
+ * CHANGE HISTORY:
+ *  95 07 12 Miroslav Grubac
+ *  Adapted to handle VDIF ASCII (.VDA) files.
+ *
+ * TEST HISTORY:
+ *
+ ***************************************************************************/
 
-char *PointToData(char *BufPtr,char *KeyWord)
+char *PointToData(char *BufStart, char *BufEnd, char *KeyWord)
 {
-    // find keyword in buffer
-    if((BufPtr = strstr(BufPtr,KeyWord)) == NULL)
-        {
-        return NULL;
-        }
+    char *pTemp1;  
+    char *pTemp2; 
+    char *BufPtr = BufStart;
 
-    // find equals sign and point to byte after
-    if((BufPtr = strchr(BufPtr,'=')) == NULL)
-        {
-        // unable to find = sign, so assume no data - error!
-        return NULL;
-        }
-    BufPtr++;
 
-    // find start of data or end of line
-    
-    while(*BufPtr == ' ' || *BufPtr == HORIZTAB)
-        ++BufPtr;
-
-    // make sure that some data was found before the end of the line
-    if(*BufPtr == LINEFEED || *BufPtr == ';')
-        {
-        // end of line reached and no ascii data - error!
-        return NULL;
+    while(*BufPtr && (BufPtr <= BufEnd || !BufEnd))  {
+        /*
+         * If comment sign encountered, skip the rest of line
+         */
+        if (*BufPtr == '/' && *(BufPtr + 1) == '/')  {
+            while(* ++BufPtr && *BufPtr != LINEFEED);
+            if (! *BufPtr)
+                return NULL;         /* Comment in last line */
+            ++BufPtr;                /* Go to start of the next line */
         }
-    
-    // return pointer to user
-    return(BufPtr);    
-}   /* end PointToData() */
+        /*
+         * Find keyword in buffer
+         */
+        else  {
+            pTemp1 = BufPtr;
+            pTemp2 = KeyWord;
+            while(*pTemp2 && *pTemp1 == *pTemp2 && 
+                                   (pTemp1 <= BufEnd || !BufEnd))  {
+                ++pTemp1;
+                ++pTemp2;
+            }
+            /*
+             * Make sure the string found ends with a delimiter
+             */
+            if (! *pTemp2 && (*pTemp1 == ' ' || *pTemp1 == '=' || *pTemp1 ==  
+                HORIZTAB)) {
+                while(*pTemp1 == ' ' || *pTemp1 == HORIZTAB || *pTemp1 == '=')
+                    ++pTemp1;
+                BufPtr = pTemp1;  // KeyWord found
+                /*
+                 * If comment sign follows, skip the rest of line and 
+                 * start search for the KeyWord from the next line on
+                 */
+                if (*BufPtr == '/' && *(BufPtr + 1) == '/')  {
+                    while(* ++BufPtr && *BufPtr != LINEFEED);
+                if (! *BufPtr)
+                    return NULL;              /* Comment in last line */
+                ++BufPtr;             /* Go to start of the next line */
+                continue;
+                }
+
+                return BufPtr;        /* KeyWord found */
+
+            }
+            ++BufPtr;         /* Start search from the next character */
+        }
+    }
+
+    return NULL;              /* No KeyWord found */
+
+}   /* PointToData() */
 
 
 /*
@@ -291,7 +377,7 @@ char *GetString(char *InBuffer, char *KeyWord)
           EndChar;              // holds char at end of data
 
     // point to data for keyword
-    if ((StrPtr = PointToData(InBuffer,KeyWord)) == NULL)
+    if ((StrPtr = PointToData(InBuffer, NULL,KeyWord)) == NULL)
         return NULL;
 
     // copy string data into static string buffer
@@ -451,7 +537,7 @@ long GetPolarity(char *InBufPtr,char *PolName)
 {
     char *RetVal;   /* Value returned by PointToData() */
 
-    if ((RetVal = PointToData(InBufPtr,PolName)) == NULL)
+    if ((RetVal = PointToData(InBufPtr, NULL,PolName)) == NULL)
         return INTERNAL_ERROR;
     if(strncmp(RetVal,"NEGATIVE",8))
         return(POSITIVE);
@@ -487,7 +573,7 @@ BOOL GetMode(P_TIMINGDATA TP, char *BestPtr)
     long iRetVal;           /* Integer returned by called function */
 
     // record name of mode into outdata
-    if ((WorkBufPtr = PointToData(BestPtr,"MODEID")) == NULL)
+    if ((WorkBufPtr = PointToData(BestPtr, NULL,"MODEID")) == NULL)
         return 0;
     Count = 0;
     while(WorkBufPtr[Count] != LINEFEED && WorkBufPtr[Count] != ';' && Count < 33)
@@ -495,7 +581,7 @@ BOOL GetMode(P_TIMINGDATA TP, char *BestPtr)
     TP->ModeName[Count] = 0;    // null terminate name
 
     // record interlaced or non-interlaced mode
-    if ((pcRetVal = PointToData(BestPtr,"SCANTYPE")) == NULL)
+    if ((pcRetVal = PointToData(BestPtr, NULL,"SCANTYPE")) == NULL)
         return 0;
     if(strncmp(pcRetVal,"INTERLACED",10))
         TP->Interlaced = NONINTERLACED;
@@ -503,37 +589,37 @@ BOOL GetMode(P_TIMINGDATA TP, char *BestPtr)
         TP->Interlaced = INTERLACED;
 
     // record the horizontal timings data
-    if ((pcRetVal = PointToData(BestPtr,"HORRESOLUTION")) == NULL)
+    if ((pcRetVal = PointToData(BestPtr, NULL,"HORRESOLUTION")) == NULL)
         return 0;
     TP->HorzData.Resolution = atoi(pcRetVal);
     if(TP->HorzData.Resolution > MaxHorz)
         MaxHorz = TP->HorzData.Resolution;
-    if ((pcRetVal = PointToData(BestPtr,"HORFREQ")) == NULL)
+    if ((pcRetVal = PointToData(BestPtr, NULL,"HORFREQ")) == NULL)
         return 0;
     TP->HorzData.ScanFrequency = SynthAToF(pcRetVal);
     if ((iRetVal = GetPolarity(BestPtr,"HORSYNCPOLARITY")) == INTERNAL_ERROR)
         return 0;
-    TP->HorzData.Polarity = iRetVal;
-    if ((pcRetVal = PointToData(BestPtr,"HORPULSEWIDTH")) == NULL)
+    TP->HorzData.Polarity = (UCHAR)iRetVal;
+    if ((pcRetVal = PointToData(BestPtr, NULL,"HORPULSEWIDTH")) == NULL)
         return 0;
     TP->HorzData.SyncWidth = SynthAToF(pcRetVal);
-    if ((pcRetVal = PointToData(BestPtr,"HORFRONTPORCH")) == NULL)
+    if ((pcRetVal = PointToData(BestPtr, NULL,"HORFRONTPORCH")) == NULL)
         return 0;
     TP->HorzData.FrontPorch = SynthAToF(pcRetVal);
-    if ((pcRetVal = PointToData(BestPtr,"HORBACKPORCH")) == NULL)
+    if ((pcRetVal = PointToData(BestPtr, NULL,"HORBACKPORCH")) == NULL)
         return 0;
     TP->HorzData.BackPorch = SynthAToF(pcRetVal);
-    if ((pcRetVal = PointToData(BestPtr,"HORACTIVE")) == NULL)
+    if ((pcRetVal = PointToData(BestPtr, NULL,"HORACTIVE")) == NULL)
         return 0;
     TP->HorzData.ActiveTime = SynthAToF(pcRetVal);
     TP->HorzData.BlankTime = TP->HorzData.FrontPorch + TP->HorzData.SyncWidth
                                      + TP->HorzData.BackPorch;
       
     // record the vertical timings data
-    if ((pcRetVal = PointToData(BestPtr,"VERRESOLUTION")) == NULL)
+    if ((pcRetVal = PointToData(BestPtr, NULL,"VERRESOLUTION")) == NULL)
         return 0;
     TP->VertData.Resolution = atoi(pcRetVal);
-    if ((pcRetVal = PointToData(BestPtr,"VERFREQ")) == NULL)
+    if ((pcRetVal = PointToData(BestPtr, NULL,"VERFREQ")) == NULL)
         return 0;
     TP->VertData.ScanFrequency = SynthAToF(pcRetVal);
     if(TP->VertData.Resolution > MaxVert)
@@ -545,17 +631,17 @@ BOOL GetMode(P_TIMINGDATA TP, char *BestPtr)
         MaxRate = TP->VertData.ScanFrequency;
     if ((iRetVal = GetPolarity(BestPtr,"VERSYNCPOLARITY")) == INTERNAL_ERROR)
         return 0;
-    TP->VertData.Polarity = iRetVal;
-    if ((pcRetVal = PointToData(BestPtr,"VERPULSEWIDTH")) == NULL)
+    TP->VertData.Polarity = (UCHAR)iRetVal;
+    if ((pcRetVal = PointToData(BestPtr, NULL,"VERPULSEWIDTH")) == NULL)
         return 0;
     TP->VertData.SyncWidth = SynthAToF(pcRetVal);
-    if ((pcRetVal = PointToData(BestPtr,"VERFRONTPORCH")) == NULL)
+    if ((pcRetVal = PointToData(BestPtr, NULL,"VERFRONTPORCH")) == NULL)
         return 0;
     TP->VertData.FrontPorch = SynthAToF(pcRetVal);
-    if ((pcRetVal = PointToData(BestPtr,"VERBACKPORCH")) == NULL)
+    if ((pcRetVal = PointToData(BestPtr, NULL,"VERBACKPORCH")) == NULL)
         return 0;
     TP->VertData.BackPorch = SynthAToF(pcRetVal);
-    if ((pcRetVal = PointToData(BestPtr,"VERACTIVE")) == NULL)
+    if ((pcRetVal = PointToData(BestPtr, NULL,"VERACTIVE")) == NULL)
         return 0;
     TP->VertData.ActiveTime = SynthAToF(pcRetVal);
     TP->VertData.BlankTime = TP->VertData.FrontPorch + TP->VertData.SyncWidth
@@ -609,17 +695,17 @@ BOOL GetBestMode(long HorzRes,long VertRes,P_TIMINGDATA TimingsPtr,
             return 0;
 
         // correct horizontal resolution?
-        if ((DataPtr = PointToData(InBufPtr,"HORRESOLUTION")) == NULL)
+        if ((DataPtr = PointToData(InBufPtr, NULL,"HORRESOLUTION")) == NULL)
             return 0;
         if(atoi(DataPtr) == HorzRes)
             {
             // correct vertical resolution?
-            if ((DataPtr = PointToData(InBufPtr,"VERRESOLUTION")) == NULL)
+            if ((DataPtr = PointToData(InBufPtr, NULL,"VERRESOLUTION")) == NULL)
                 return 0;
             if(atoi(DataPtr) == VertRes)
                 {
                 // get the vertical frequency for this display mode
-                if ((DataPtr = PointToData(InBufPtr,"VERFREQ")) == NULL)
+                if ((DataPtr = PointToData(InBufPtr, NULL,"VERFREQ")) == NULL)
                     return 0;
                 FreqData = SynthAToF(DataPtr);
 
@@ -729,14 +815,12 @@ clockT match_pixel_clock(unsigned long *dot_clock)
 {
     long Select;    /* Clock select value */
     long Divisor;   /* Clock divisor */
-
-    long ClockFreq;
+    long ClockFreq; /* Clock frequency */
 
     for(Select=0; Select<16; Select++)
         {
         for(Divisor=1; Divisor<=2; Divisor++)
             {
-
             ClockFreq = clock_info[Select].clock_freq / Divisor;
 
             if ( ((ClockFreq - (signed long)*dot_clock) < (100 * THOUSAND)) &&
@@ -849,7 +933,7 @@ void CalcData(P_LIMITSDATA LimitsArray,crtT *OutData)
              */
 
             // OutData->h_total = ((PC/HSF)/8) - 0.5
-            OutData->h_total = ((ResDotClock / LimitsArray->TimingsPtr->HorzData.ScanFrequency) - 4) / 8;
+            OutData->h_total = (UCHAR)(((ResDotClock / LimitsArray->TimingsPtr->HorzData.ScanFrequency) - 4) / 8);
 
             // OutData->v_total = n_to_s2((HSF/VSF) - 0.5))
             OutData->v_total = normal_to_skip2((((LimitsArray->TimingsPtr->HorzData.ScanFrequency * 2 * THOUSAND)
@@ -954,7 +1038,7 @@ long VdpToCrt(char *Buffer, long Mode, struct st_book_data *OutTable)
     char *InBufPtr;         // pointer into VDP data buffer
 
     // make all ascii data in .VDP file uppercase
-    strupr(Buffer);
+    UpperCase(Buffer);
 
     // count the number of operational limits
     if((TotalLimits = CountSection(LIMITSSECTION,Buffer)) == 0 || TotalLimits > 1)
@@ -1044,16 +1128,17 @@ long VdpToCrt(char *Buffer, long Mode, struct st_book_data *OutTable)
     if(OutData.h_total != 0)
         {
         // mode supported - transfer OutData to OutTable
-        OutTable->HTotal = OutData.h_total;         /* Horizontal total */
-        OutTable->HDisp = OutData.h_disp;           /* Horizontal displayed */
-        OutTable->HSyncStrt = OutData.h_sync_strt;  /* Horizontal sync start */
-        OutTable->HSyncWid = OutData.h_sync_wid;    /* Horizontal sync width */
-        OutTable->VTotal = OutData.v_total;         /* Vertical total */
-        OutTable->VDisp = OutData.v_disp;           /* Vertical displayed */
-        OutTable->VSyncStrt = OutData.v_sync_strt;  /* Vertical sync start */
-        OutTable->VSyncWid = OutData.v_sync_wid;    /* Vertical sync width */
-        OutTable->DispCntl = OutData.disp_cntl;     /* Display control */
-        OutTable->ClockSel = OutData.clk_sel;       /* Clock Select */
+        OutTable->HTotal = OutData.h_total;                 /* Horizontal total */
+        OutTable->HDisp = OutData.h_disp;                   /* Horizontal displayed */
+        OutTable->HSyncStrt = OutData.h_sync_strt;          /* Horizontal sync start */
+        OutTable->HSyncWid = OutData.h_sync_wid;            /* Horizontal sync width */
+        OutTable->VTotal = (USHORT)OutData.v_total;         /* Vertical total */
+        OutTable->VDisp = (USHORT)OutData.v_disp;           /* Vertical displayed */
+        OutTable->VSyncStrt = (USHORT)OutData.v_sync_strt;  /* Vertical sync start */
+        OutTable->VSyncWid = OutData.v_sync_wid;            /* Vertical sync width */
+        OutTable->DispCntl = OutData.disp_cntl;             /* Display control */
+        OutTable->ClockSel = OutData.clk_sel;               /* Clock Select */
+        OutTable->ClockFreq = OutData.pixel_clk;            /* Pixel clock frequency */
         }
     else
         {

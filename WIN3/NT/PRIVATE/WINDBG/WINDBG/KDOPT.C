@@ -64,8 +64,8 @@ COMPORT_INFO   ComPortInfo[100];
 DWORD         MaxComPorts;
 DWORD         CurComPort;
 
-LPSTR KdPlatforms[]  = { "X86", "MIPS", "ALPHA" };
-DWORD KdCacheSizes[] = { 102400, 512000, 1024000 };
+LPSTR KdPlatforms[]  = { "X86", "MIPS", "ALPHA", "PPC" };
+DWORD KdCacheSizes[] = { 102400, 512000, 1024000, 1024000};
 
 KDBAUDRATE KdBaudRates[] =
     {
@@ -342,6 +342,7 @@ ValidateCrashDump(
             break;
 
         case IMAGE_FILE_MACHINE_R4000:
+        case IMAGE_FILE_MACHINE_R10000:
             runDebugParams.KdParams.dwPlatform = 1;
             SetDllKey( DLL_EXEC_MODEL, "emmip" );
             SetDllKey( DLL_EXPR_EVAL,  "mips c++" );
@@ -351,6 +352,12 @@ ValidateCrashDump(
             runDebugParams.KdParams.dwPlatform = 2;
             SetDllKey( DLL_EXEC_MODEL, "emalpha" );
             SetDllKey( DLL_EXPR_EVAL,  "alpha c++" );
+            break;
+
+        case IMAGE_FILE_MACHINE_POWERPC:
+            runDebugParams.KdParams.dwPlatform = 3;
+            SetDllKey( DLL_EXEC_MODEL, "emppc" );
+            SetDllKey( DLL_EXPR_EVAL,  "ppc c++" );
             break;
     }
 
@@ -426,6 +433,7 @@ DlgKernelDbg(
     BOOL            b;
     DWORD           i;
     DWORD           j;
+    DWORD           k;
     HWND            hCtl;
     PIOCTLGENERIC   pig;
 
@@ -513,7 +521,7 @@ DlgKernelDbg(
                 EndDialog(hDlg, TRUE);
                 return (TRUE);
 
-            case IDHELP:
+            case IDWINDBGHELP:
                 Dbg(WinHelp(hDlg, szHelpFileName, (DWORD) HELP_CONTEXT,(DWORD)ID_KDOPT_HELP));
                 return (TRUE);
 
@@ -524,15 +532,16 @@ DlgKernelDbg(
                                            ID_KD_PORT, CB_GETCURSEL, 0, 0);
                     hCtl = GetDlgItem(hDlg,ID_KD_BAUDRATE);
                     SendMessage(hCtl, CB_RESETCONTENT, 0, 0);
-                    for (i=0; i<KdMaxBaudRates; i++) {
+                    for (i=0,k=0; i<KdMaxBaudRates; i++) {
                         if (KdBaudRates[i].dwBaudMask
                             & ComPortInfo[j].dwSettableBaud) {
                             sprintf(rgch,"%d",KdBaudRates[i].dwBaudRate);
                             SendMessage(hCtl, CB_ADDSTRING, 0, (LPARAM)rgch);
+                            k += 1;
                         }
                         if (runDebugParams.KdParams.dwBaudRate
                             == KdBaudRates[i].dwBaudRate) {
-                            SendMessage(hCtl, CB_SETCURSEL, i, 0);
+                            SendMessage(hCtl, CB_SETCURSEL, k-1, 0);
                         }
                     }
                     CurComPort = j;

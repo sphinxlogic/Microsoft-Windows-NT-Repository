@@ -78,6 +78,9 @@ Revision History:
 #include <string.h>             // memcpy(), strlen(), etc.
 #include <wchar.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 LPWSTR
 ultow (
@@ -289,5 +292,8 @@ wtol (
 
 #define DOWN_LEVEL_STRSIZE(n)   ((n) / sizeof(_CHAR_TYPE))
 
+#ifdef __cplusplus
+}
+#endif
+
 #endif  // _TSTR_H_INCLUDED
-

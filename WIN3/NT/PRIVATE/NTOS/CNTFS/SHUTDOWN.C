@@ -83,7 +83,7 @@ Return Value:
 
     UNREFERENCED_PARAMETER( VolumeDeviceObject );
 
-    DebugTrace(+1, Dbg, "NtfsFsdShutdown\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsFsdShutdown\n") );
 
     //
     //  Allocate an Irp Context that we can use in our procedure calls
@@ -101,7 +101,7 @@ Return Value:
     //  our target device objects
     //
 
-    NtfsAllocateKevent( &Event );
+    Event = (PKEVENT)ExAllocateFromNPagedLookasideList( &NtfsKeventLookasideList );
     KeInitializeEvent( Event, NotificationEvent, FALSE );
 
     //
@@ -182,7 +182,7 @@ Return Value:
                     NtfsReleaseCheckpoint( IrpContext, Vcb );
                     AcquiredCheckpoint = TRUE;
 
-                    NtfsAcquireAllFiles( IrpContext, Vcb, TRUE );
+                    NtfsAcquireAllFiles( IrpContext, Vcb, TRUE, TRUE );
                     AcquiredFiles = TRUE;
 
                     SetFlag( Vcb->VcbState, VCB_STATE_VOL_PURGE_IN_PROGRESS );
@@ -190,7 +190,7 @@ Return Value:
                     NtfsCheckpointVolumeUntilDone( IrpContext, Vcb );
                     NtfsCommitCurrentTransaction( IrpContext );
 
-                    NtfsStopLogFile( IrpContext, Vcb );
+                    NtfsStopLogFile( Vcb );
 
                     NewIrp = IoBuildSynchronousFsdRequest( IRP_MJ_SHUTDOWN,
                                                            Vcb->TargetDeviceObject,
@@ -213,7 +213,7 @@ Return Value:
                                                       FALSE,
                                                       NULL );
 
-                        (VOID)KeResetEvent( Event );
+                        KeClearEvent( Event );
                     }
                 }
 
@@ -225,7 +225,8 @@ Return Value:
             if (AcquiredCheckpoint) {
 
                 NtfsAcquireCheckpoint( IrpContext, Vcb );
-                ClearFlag( Vcb->CheckpointFlags, VCB_CHECKPOINT_IN_PROGRESS );
+                ClearFlag( Vcb->CheckpointFlags,
+                           VCB_CHECKPOINT_IN_PROGRESS | VCB_DUMMY_CHECKPOINT_POSTED);
                 NtfsSetCheckpointNotify( IrpContext, Vcb );
                 NtfsReleaseCheckpoint( IrpContext, Vcb );
             }
@@ -235,7 +236,7 @@ Return Value:
 
             if (AcquiredFiles) {
 
-                NtfsReleaseAllFiles( IrpContext, Vcb );
+                NtfsReleaseAllFiles( IrpContext, Vcb, TRUE );
             }
         }
 
@@ -245,14 +246,14 @@ Return Value:
             NtfsRestoreTopLevelIrp( ThreadTopLevelContext );
         }
 
-        NtfsFreeKevent( Event );
+        ExFreeToNPagedLookasideList( &NtfsKeventLookasideList, Event );
 
         NtfsReleaseGlobal( IrpContext );
 
         NtfsCompleteRequest( &IrpContext, &Irp, STATUS_SUCCESS );
     }
 
-    DebugTrace(-1, Dbg, "NtfsFsdShutdown -> STATUS_SUCCESS\n", 0);
+    DebugTrace( -1, Dbg, ("NtfsFsdShutdown -> STATUS_SUCCESS\n") );
 
     return STATUS_SUCCESS;
 }
@@ -317,6 +318,15 @@ Return Value:
             //
 
             if (Status == STATUS_LOG_FILE_FULL) {
+
+                //
+                //  Make sure we don't leave the error code in the top-level
+                //  IrpContext field.
+                //
+
+                ASSERT( IrpContext->TransactionId == 0 );
+                IrpContext->ExceptionStatus = STATUS_SUCCESS;
+
                 NtfsCheckpointVolume( IrpContext,
                                       Vcb,
                                       TRUE,

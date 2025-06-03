@@ -31,6 +31,20 @@ Revision History:
 #define Dbg                              (0x04000000)
 
 #ifdef ALLOC_PRAGMA
+#pragma alloc_text(PAGE, FsRtlCopyRead)
+#pragma alloc_text(PAGE, FsRtlCopyWrite)
+#pragma alloc_text(PAGE, FsRtlMdlRead)
+#pragma alloc_text(PAGE, FsRtlMdlReadDev)
+#pragma alloc_text(PAGE, FsRtlPrepareMdlWrite)
+#pragma alloc_text(PAGE, FsRtlPrepareMdlWriteDev)
+#pragma alloc_text(PAGE, FsRtlMdlWriteComplete)
+#pragma alloc_text(PAGE, FsRtlMdlWriteCompleteDev)
+#pragma alloc_text(PAGE, FsRtlAcquireFileForModWrite)
+#pragma alloc_text(PAGE, FsRtlReleaseFileForModWrite)
+#pragma alloc_text(PAGE, FsRtlAcquireFileForCcFlush)
+#pragma alloc_text(PAGE, FsRtlReleaseFileForCcFlush)
+#pragma alloc_text(PAGE, FsRtlAcquireFileExclusive)
+#pragma alloc_text(PAGE, FsRtlReleaseFile)
 #pragma alloc_text(PAGE, FsRtlGetFileSize)
 #pragma alloc_text(PAGE, FsRtlSetFileSize)
 #endif
@@ -88,6 +102,8 @@ Return Value:
     LARGE_INTEGER BeyondLastByte;
     PDEVICE_OBJECT targetVdo;
 
+    PAGED_CODE();
+
     //
     //  Special case a read of zero length
     //
@@ -99,7 +115,7 @@ Return Value:
         //
 
         BeyondLastByte.QuadPart = FileOffset->QuadPart + (LONGLONG)Length;
-        Header = (PFSRTL_COMMON_FCB_HEADER)((ULONG)FileObject->FsContext & 0xfffffff8);
+        Header = (PFSRTL_COMMON_FCB_HEADER)FileObject->FsContext;
 
         //
         //  Enter the file system
@@ -113,7 +129,7 @@ Return Value:
 
         if (Wait) {
 
-            HOT_STATISTIC(CcFastReadWait) += PageCount;
+            HOT_STATISTIC(CcFastReadWait) += 1;
 
             //
             //  Acquired shared on the common fcb header
@@ -123,7 +139,7 @@ Return Value:
 
         } else {
 
-            HOT_STATISTIC(CcFastReadNoWait) += PageCount;
+            HOT_STATISTIC(CcFastReadNoWait) += 1;
 
             //
             //  Acquired shared on the common fcb header, and return if we
@@ -134,7 +150,7 @@ Return Value:
 
                 FsRtlExitFileSystem();
 
-                CcFastReadResourceMiss += PageCount;
+                CcFastReadResourceMiss += 1;
 
                 return FALSE;
             }
@@ -152,7 +168,7 @@ Return Value:
             ExReleaseResource( Header->Resource );
             FsRtlExitFileSystem();
 
-            HOT_STATISTIC(CcFastReadNotPossible) += PageCount;
+            HOT_STATISTIC(CcFastReadNotPossible) += 1;
 
             return FALSE;
         }
@@ -166,19 +182,7 @@ Return Value:
 
             PFAST_IO_DISPATCH FastIoDispatch;
 
-            //
-            //  We cannot ask the question if we are executing at DPC level
-            //
-
-            if (KeIsExecutingDpc()) {
-
-                ExReleaseResource( Header->Resource );
-                FsRtlExitFileSystem();
-
-                HOT_STATISTIC(CcFastReadNotPossible) += PageCount;
-
-                return FALSE;
-            }
+            ASSERT(!KeIsExecutingDpc());
 
             targetVdo = IoGetRelatedDeviceObject( FileObject );
             FastIoDispatch = targetVdo->DriverObject->FastIoDispatch;
@@ -214,7 +218,7 @@ Return Value:
                 ExReleaseResource( Header->Resource );
                 FsRtlExitFileSystem();
 
-                HOT_STATISTIC(CcFastReadNotPossible) += PageCount;
+                HOT_STATISTIC(CcFastReadNotPossible) += 1;
 
                 return FALSE;
             }
@@ -248,7 +252,7 @@ Return Value:
         //  levels will not attempt a pop-up
         //
 
-        PsGetCurrentThread()->TopLevelIrp |= FSRTL_FAST_IO_TOP_LEVEL_IRP;
+        PsGetCurrentThread()->TopLevelIrp = FSRTL_FAST_IO_TOP_LEVEL_IRP;
 
         try {
 
@@ -278,7 +282,12 @@ Return Value:
                 FileObject->Flags |= FO_FILE_FAST_IO_READ;
 
                 ASSERT( !Status || (IoStatus->Status == STATUS_END_OF_FILE) ||
-                        ((FileOffset->LowPart + IoStatus->Information) <= Header->FileSize.LowPart));
+                        ((FileOffset->QuadPart + IoStatus->Information) <= Header->FileSize.QuadPart));
+            }
+
+            if (Status) {
+
+                FileObject->CurrentByteOffset.QuadPart = FileOffset->QuadPart + IoStatus->Information;
             }
 
         } except( FsRtlIsNtstatusExpected(GetExceptionCode())
@@ -288,7 +297,7 @@ Return Value:
             Status = FALSE;
         }
 
-        PsGetCurrentThread()->TopLevelIrp &= ~FSRTL_FAST_IO_TOP_LEVEL_IRP;
+        PsGetCurrentThread()->TopLevelIrp = 0;
 
         ExReleaseResource( Header->Resource );
         FsRtlExitFileSystem();
@@ -361,11 +370,13 @@ Return Value:
     BOOLEAN WriteToEndOfFile = (BOOLEAN)((FileOffset->LowPart == FILE_WRITE_TO_END_OF_FILE) &&
                                          (FileOffset->HighPart == -1));
 
+    PAGED_CODE();
+
     //
     //  Get a real pointer to the common fcb header
     //
 
-    Header = (PFSRTL_COMMON_FCB_HEADER)((ULONG)FileObject->FsContext & 0xfffffff8);
+    Header = (PFSRTL_COMMON_FCB_HEADER)FileObject->FsContext;
 
     //
     //  Do we need to verify the volume?  If so, we must go to the file
@@ -467,10 +478,15 @@ Return Value:
                 //  do not have to extend. If not then release the fcb and
                 //  return.
                 //
+                //  Get out if we have too much to zero.  This case is not important
+                //  for performance, and a file system supporting sparseness may have
+                //  a way to do this more efficiently.
+                //
 
                 if ((FileObject->PrivateCacheMap == NULL) ||
                     (Header->IsFastIoPossible == FastIoIsNotPossible) ||
                     (NewFileSize > Header->AllocationSize.LowPart) ||
+                    (Offset >= (Header->ValidDataLength.LowPart + 0x2000)) ||
                     (Header->AllocationSize.HighPart != 0) || Wrapped) {
 
                     ExReleaseResource( Header->Resource );
@@ -541,8 +557,11 @@ Return Value:
                     //  take the fast I/O path.
                     //
 
+                    ASSERT(FILE_WRITE_TO_END_OF_FILE == 0xffffffff);
+
                     if (!FastIoDispatch->FastIoCheckIfPossible( FileObject,
-                                                                FileOffset,
+                                                                FileOffset->QuadPart != (LONGLONG)-1 ?
+                                                                  FileOffset : &Header->FileSize,
                                                                 Length,
                                                                 TRUE,
                                                                 LockKey,
@@ -585,7 +604,7 @@ Return Value:
                 //  system levels will not attempt a pop-up
                 //
 
-                PsGetCurrentThread()->TopLevelIrp |= FSRTL_FAST_IO_TOP_LEVEL_IRP;
+                PsGetCurrentThread()->TopLevelIrp = FSRTL_FAST_IO_TOP_LEVEL_IRP;
 
                 try {
 
@@ -618,7 +637,7 @@ Return Value:
                     Status = FALSE;
                 }
 
-                PsGetCurrentThread()->TopLevelIrp &= ~FSRTL_FAST_IO_TOP_LEVEL_IRP;
+                PsGetCurrentThread()->TopLevelIrp = 0;
 
                 //
                 //  If we succeeded, see if we have to update FileSize or
@@ -650,6 +669,13 @@ Return Value:
 
                         FileObject->Flags |= FO_FILE_SIZE_CHANGED;
                     }
+
+                    //
+                    //  Also update the file position pointer
+                    //
+
+                    FileObject->CurrentByteOffset.LowPart = Offset + Length;
+                    FileObject->CurrentByteOffset.HighPart = 0;
 
                 //
                 //  If we did not succeed, then we must restore the original
@@ -683,17 +709,7 @@ Return Value:
                 LARGE_INTEGER OldFileSize;
                 LARGE_INTEGER OldValidDataLength;
 
-                //
-                //  Quick fix until DPC goes away
-                //
-
-                if (KeIsExecutingDpc()) {
-
-                    FsRtlExitFileSystem();
-
-                    return FALSE;
-                }
-
+                ASSERT(!KeIsExecutingDpc());
 
                 //
                 //  Make our best guess on whether we need the file exclusive
@@ -757,11 +773,12 @@ Return Value:
                 //  do not have to extend. If not then release the fcb and
                 //  return.
                 //
+                //  Get out if we are about to zero too much as well, as commented above.
+                //
 
                 if ((FileObject->PrivateCacheMap == NULL) ||
                     (Header->IsFastIoPossible == FastIoIsNotPossible) ||
-                    ( (Header->IsFastIoPossible == FastIoIsQuestionable) &&
-                      (KeIsExecutingDpc()) ) ||
+                      (Offset.QuadPart >= (Header->ValidDataLength.QuadPart + 0x2000)) ||
                       ( NewFileSize.QuadPart > Header->AllocationSize.QuadPart ) ) {
 
                     ExReleaseResource( Header->Resource );
@@ -834,8 +851,11 @@ Return Value:
                     //  take the fast I/O path.
                     //
 
+                    ASSERT(FILE_WRITE_TO_END_OF_FILE == 0xffffffff);
+
                     if (!FastIoDispatch->FastIoCheckIfPossible( FileObject,
-                                                                FileOffset,
+                                                                FileOffset->QuadPart != (LONGLONG)-1 ?
+                                                                  FileOffset : &Header->FileSize,
                                                                 Length,
                                                                 Wait,
                                                                 LockKey,
@@ -894,7 +914,7 @@ Return Value:
                 //  system levels will not attempt a pop-up
                 //
 
-                PsGetCurrentThread()->TopLevelIrp |= FSRTL_FAST_IO_TOP_LEVEL_IRP;
+                PsGetCurrentThread()->TopLevelIrp = FSRTL_FAST_IO_TOP_LEVEL_IRP;
 
                 try {
 
@@ -926,7 +946,7 @@ Return Value:
                     Status = FALSE;
                 }
 
-                PsGetCurrentThread()->TopLevelIrp &= ~FSRTL_FAST_IO_TOP_LEVEL_IRP;
+                PsGetCurrentThread()->TopLevelIrp = 0;
 
                 //
                 //  If we succeeded, see if we have to update FileSize or
@@ -973,6 +993,12 @@ Return Value:
 
                         FileObject->Flags |= FO_FILE_SIZE_CHANGED;
                     }
+
+                    //
+                    //  Also update the current file position pointer
+                    //
+
+                    FileObject->CurrentByteOffset.QuadPart = Offset.QuadPart + Length;
 
                 //
                 // If we did not succeed, then we must restore the original
@@ -1024,6 +1050,212 @@ Return Value:
 
 
 BOOLEAN
+FsRtlMdlReadDev (
+    IN PFILE_OBJECT FileObject,
+    IN PLARGE_INTEGER FileOffset,
+    IN ULONG Length,
+    IN ULONG LockKey,
+    OUT PMDL *MdlChain,
+    OUT PIO_STATUS_BLOCK IoStatus,
+    IN PDEVICE_OBJECT DeviceObject
+    )
+
+/*++
+
+Routine Description:
+
+    This routine does a fast cached mdl read bypassing the usual file system
+    entry routine (i.e., without the Irp).  It is used to do a copy read
+    of a cached file object.  For a complete description of the arguments
+    see CcMdlRead.
+
+Arguments:
+
+    FileObject - Pointer to the file object being read.
+
+    FileOffset - Byte offset in file for desired data.
+
+    Length - Length of desired data in bytes.
+
+    MdlChain - On output it returns a pointer to an MDL chain describing
+        the desired data.
+
+    IoStatus - Pointer to standard I/O status block to receive the status
+               for the transfer.
+
+    DeviceObject - Supplies DeviceObject for callee.
+
+Return Value:
+
+    FALSE - if the data was not delivered, or if there is an I/O error.
+
+    TRUE - if the data is being delivered
+
+--*/
+
+{
+    PFSRTL_COMMON_FCB_HEADER Header;
+    BOOLEAN Status = TRUE;
+    LARGE_INTEGER BeyondLastByte;
+
+    PAGED_CODE();
+
+    //
+    //  Special case a read of zero length
+    //
+
+    if (Length == 0) {
+
+        IoStatus->Status = STATUS_SUCCESS;
+        IoStatus->Information = 0;
+
+        return TRUE;
+    }
+
+    //
+    //  Get a real pointer to the common fcb header
+    //
+
+    BeyondLastByte.QuadPart = FileOffset->QuadPart + (LONGLONG)Length;
+    Header = (PFSRTL_COMMON_FCB_HEADER)FileObject->FsContext;
+
+    //
+    //  Enter the file system
+    //
+
+    FsRtlEnterFileSystem();
+
+    CcFastMdlReadWait += 1;
+
+    //
+    //  Acquired shared on the common fcb header
+    //
+
+    (VOID)ExAcquireResourceShared( Header->Resource, TRUE );
+
+    //
+    //  Now that the File is acquired shared, we can safely test if it is
+    //  really cached and if we can do fast i/o and if not
+    //  then release the fcb and return.
+    //
+
+    if ((FileObject->PrivateCacheMap == NULL) ||
+        (Header->IsFastIoPossible == FastIoIsNotPossible)) {
+
+        ExReleaseResource( Header->Resource );
+        FsRtlExitFileSystem();
+
+        CcFastMdlReadNotPossible += 1;
+
+        return FALSE;
+    }
+
+    //
+    //  Check if fast I/O is questionable and if so then go ask the file system
+    //  the answer
+    //
+
+    if (Header->IsFastIoPossible == FastIoIsQuestionable) {
+
+        PFAST_IO_DISPATCH FastIoDispatch;
+
+        ASSERT(!KeIsExecutingDpc());
+
+        FastIoDispatch = IoGetRelatedDeviceObject( FileObject )->DriverObject->FastIoDispatch;
+
+
+        //
+        //  All file system then set "Is Questionable" had better support fast I/O
+        //
+
+        ASSERT(FastIoDispatch != NULL);
+        ASSERT(FastIoDispatch->FastIoCheckIfPossible != NULL);
+
+        //
+        //  Call the file system to check for fast I/O.  If the answer is anything
+        //  other than GoForIt then we cannot take the fast I/O path.
+        //
+
+        if (!FastIoDispatch->FastIoCheckIfPossible( FileObject,
+                                                    FileOffset,
+                                                    Length,
+                                                    TRUE,
+                                                    LockKey,
+                                                    TRUE, // read operation
+                                                    IoStatus,
+                                                    IoGetRelatedDeviceObject( FileObject ) )) {
+
+            //
+            //  Fast I/O is not possible so release the Fcb and return.
+            //
+
+            ExReleaseResource( Header->Resource );
+            FsRtlExitFileSystem();
+
+            CcFastMdlReadNotPossible += 1;
+
+            return FALSE;
+        }
+    }
+
+    //
+    //  Check for read past file size.
+    //
+
+    if ( BeyondLastByte.QuadPart > Header->FileSize.QuadPart ) {
+
+        if ( FileOffset->QuadPart >= Header->FileSize.QuadPart ) {
+            IoStatus->Status = STATUS_END_OF_FILE;
+            IoStatus->Information = 0;
+
+            ExReleaseResource( Header->Resource );
+            FsRtlExitFileSystem();
+
+            return TRUE;
+        }
+
+        Length = (ULONG)( Header->FileSize.QuadPart - FileOffset->QuadPart );
+    }
+
+    //
+    //  We can do fast i/o so call the cc routine to do the work and then
+    //  release the fcb when we've done.  If for whatever reason the
+    //  mdl read fails, then return FALSE to our caller.
+    //
+    //
+    //  Also mark this as the top level "Irp" so that lower file system levels
+    //  will not attempt a pop-up
+    //
+
+    PsGetCurrentThread()->TopLevelIrp = FSRTL_FAST_IO_TOP_LEVEL_IRP;
+
+    try {
+
+        CcMdlRead( FileObject, FileOffset, Length, MdlChain, IoStatus );
+
+        FileObject->Flags |= FO_FILE_FAST_IO_READ;
+
+    } except( FsRtlIsNtstatusExpected(GetExceptionCode())
+                                   ? EXCEPTION_EXECUTE_HANDLER
+                                   : EXCEPTION_CONTINUE_SEARCH ) {
+
+        Status = FALSE;
+    }
+
+    PsGetCurrentThread()->TopLevelIrp = 0;
+
+    ExReleaseResource( Header->Resource );
+    FsRtlExitFileSystem();
+
+    return Status;
+}
+
+
+//
+//  The old routine will either dispatch or call FsRtlMdlReadDev
+//
+
+BOOLEAN
 FsRtlMdlRead (
     IN PFILE_OBJECT FileObject,
     IN PLARGE_INTEGER FileOffset,
@@ -1065,192 +1297,170 @@ Return Value:
 --*/
 
 {
-    PFSRTL_COMMON_FCB_HEADER Header;
-    BOOLEAN Status = TRUE;
-    ULONG PageCount = COMPUTE_PAGES_SPANNED(((PVOID)FileOffset->LowPart), Length);
-    LARGE_INTEGER BeyondLastByte;
+    PDEVICE_OBJECT DeviceObject, VolumeDeviceObject;
+    PFAST_IO_DISPATCH FastIoDispatch;
+
+    DeviceObject = IoGetRelatedDeviceObject( FileObject );
+    FastIoDispatch = DeviceObject->DriverObject->FastIoDispatch;
 
     //
-    //  Do we need to verify the volume?  If so, we must go to the
-    //  file system.
+    //  See if the (top-level) FileSystem has a FastIo routine, and if so, call it.
     //
 
-    if (FlagOn( FileObject->DeviceObject->Flags, DO_VERIFY_VOLUME)) {
+    if ((FastIoDispatch != NULL) &&
+        (FastIoDispatch->SizeOfFastIoDispatch > FIELD_OFFSET(FAST_IO_DISPATCH, MdlRead)) &&
+        (FastIoDispatch->MdlRead != NULL)) {
 
-        return FALSE;
-    }
+        return FastIoDispatch->MdlRead( FileObject, FileOffset, Length, LockKey, MdlChain, IoStatus, DeviceObject );
 
-    //
-    //  Special case a read of zero length
-    //
-
-    if (Length == 0) {
-
-        IoStatus->Status = STATUS_SUCCESS;
-        IoStatus->Information = 0;
-
-        return TRUE;
-    }
-
-    //
-    //  Get a real pointer to the common fcb header
-    //
-
-    BeyondLastByte.QuadPart = FileOffset->QuadPart + (LONGLONG)Length;
-    Header = (PFSRTL_COMMON_FCB_HEADER)((ULONG)FileObject->FsContext & 0xfffffff8);
-
-    //
-    //  Enter the file system
-    //
-
-    FsRtlEnterFileSystem();
-
-    CcFastMdlReadWait += PageCount;
-
-    //
-    //  Acquired shared on the common fcb header
-    //
-
-    (VOID)ExAcquireResourceShared( Header->Resource, TRUE );
-
-    //
-    //  Now that the File is acquired shared, we can safely test if it is
-    //  really cached and if we can do fast i/o and if not
-    //  then release the fcb and return.
-    //
-
-    if ((FileObject->PrivateCacheMap == NULL) ||
-        (Header->IsFastIoPossible == FastIoIsNotPossible)) {
-
-        ExReleaseResource( Header->Resource );
-        FsRtlExitFileSystem();
-
-        CcFastMdlReadNotPossible += PageCount;
-
-        return FALSE;
-    }
-
-    //
-    //  Check if fast I/O is questionable and if so then go ask the file system
-    //  the answer
-    //
-
-    if (Header->IsFastIoPossible == FastIoIsQuestionable) {
-
-        PFAST_IO_DISPATCH FastIoDispatch;
+    } else {
 
         //
-        //  We cannot ask the question if we are executing at DPC level
+        //  Get the DeviceObject for the volume.  If that DeviceObject is different, and
+        //  it specifies the FastIo routine, then we have to return FALSE here and cause
+        //  an Irp to get generated.
         //
 
-        if (KeIsExecutingDpc()) {
-
-            ExReleaseResource( Header->Resource );
-            FsRtlExitFileSystem();
-
-            CcFastReadNotPossible += PageCount;
+        VolumeDeviceObject = IoGetBaseFileSystemDeviceObject( FileObject );
+        if ((VolumeDeviceObject != DeviceObject) &&
+            (FastIoDispatch = VolumeDeviceObject->DriverObject->FastIoDispatch) &&
+            (FastIoDispatch->SizeOfFastIoDispatch > FIELD_OFFSET(FAST_IO_DISPATCH, MdlRead)) &&
+            (FastIoDispatch->MdlRead != NULL)) {
 
             return FALSE;
+
+        //
+        //  Otherwise, call the default routine.
+        //
+
+        } else {
+
+            return FsRtlMdlReadDev( FileObject, FileOffset, Length, LockKey, MdlChain, IoStatus, DeviceObject );
         }
+    }
+}
 
-        FastIoDispatch = IoGetRelatedDeviceObject( FileObject )->DriverObject->FastIoDispatch;
+
+//
+//  The old routine will either dispatch or call FsRtlMdlReadCompleteDev
+//
 
+BOOLEAN
+FsRtlMdlReadComplete (
+    IN PFILE_OBJECT FileObject,
+    IN PMDL MdlChain
+    )
+
+/*++
+
+Routine Description:
+
+    This routine does a fast cached mdl read bypassing the usual file system
+    entry routine (i.e., without the Irp).  It is used to do a copy read
+    of a cached file object.
+
+Arguments:
+
+    FileObject - Pointer to the file object being read.
+
+    MdlChain - Supplies a pointer to an MDL chain returned from CcMdlRead.
+
+Return Value:
+
+    None
+
+--*/
+
+{
+    PDEVICE_OBJECT DeviceObject, VolumeDeviceObject;
+    PFAST_IO_DISPATCH FastIoDispatch;
+
+    DeviceObject = IoGetRelatedDeviceObject( FileObject );
+    FastIoDispatch = DeviceObject->DriverObject->FastIoDispatch;
+
+    //
+    //  See if the (top-level) FileSystem has a FastIo routine, and if so, call it.
+    //
+
+    if ((FastIoDispatch != NULL) &&
+        (FastIoDispatch->SizeOfFastIoDispatch > FIELD_OFFSET(FAST_IO_DISPATCH, MdlReadComplete)) &&
+        (FastIoDispatch->MdlReadComplete != NULL)) {
+
+        return FastIoDispatch->MdlReadComplete( FileObject, MdlChain, DeviceObject );
+
+    } else {
 
         //
-        //  All file system then set "Is Questionable" had better support fast I/O
+        //  Get the DeviceObject for the volume.  If that DeviceObject is different, and
+        //  it specifies the FastIo routine, then we have to return FALSE here and cause
+        //  an Irp to get generated.
         //
 
-        ASSERT(FastIoDispatch != NULL);
-        ASSERT(FastIoDispatch->FastIoCheckIfPossible != NULL);
-
-        //
-        //  Call the file system to check for fast I/O.  If the answer is anything
-        //  other than GoForIt then we cannot take the fast I/O path.
-        //
-
-        if (!FastIoDispatch->FastIoCheckIfPossible( FileObject,
-                                                    FileOffset,
-                                                    Length,
-                                                    TRUE,
-                                                    LockKey,
-                                                    TRUE, // read operation
-                                                    IoStatus,
-                                                    IoGetRelatedDeviceObject( FileObject ) )) {
-
-            //
-            //  Fast I/O is not possible so release the Fcb and return.
-            //
-
-            ExReleaseResource( Header->Resource );
-            FsRtlExitFileSystem();
-
-            CcFastMdlReadNotPossible += PageCount;
+        VolumeDeviceObject = IoGetBaseFileSystemDeviceObject( FileObject );
+        if ((VolumeDeviceObject != DeviceObject) &&
+            (FastIoDispatch = VolumeDeviceObject->DriverObject->FastIoDispatch) &&
+            (FastIoDispatch->SizeOfFastIoDispatch > FIELD_OFFSET(FAST_IO_DISPATCH, MdlReadComplete)) &&
+            (FastIoDispatch->MdlReadComplete != NULL)) {
 
             return FALSE;
+
+        //
+        //  Otherwise, call the default routine.
+        //
+
+        } else {
+
+            return FsRtlMdlReadCompleteDev( FileObject, MdlChain, DeviceObject );
         }
     }
-
-    //
-    //  Check for read past file size.
-    //
-
-    if ( BeyondLastByte.QuadPart > Header->FileSize.QuadPart ) {
-
-        if ( FileOffset->QuadPart >= Header->FileSize.QuadPart ) {
-            IoStatus->Status = STATUS_END_OF_FILE;
-            IoStatus->Information = 0;
-
-            ExReleaseResource( Header->Resource );
-            FsRtlExitFileSystem();
-
-            return TRUE;
-        }
-
-        Length = (ULONG)( Header->FileSize.QuadPart - FileOffset->QuadPart );
-    }
-
-    //
-    //  We can do fast i/o so call the cc routine to do the work and then
-    //  release the fcb when we've done.  If for whatever reason the
-    //  mdl read fails, then return FALSE to our caller.
-    //
-    //
-    //  Also mark this as the top level "Irp" so that lower file system levels
-    //  will not attempt a pop-up
-    //
-
-    PsGetCurrentThread()->TopLevelIrp |= FSRTL_FAST_IO_TOP_LEVEL_IRP;
-
-    try {
-
-        CcMdlRead( FileObject, FileOffset, Length, MdlChain, IoStatus );
-
-        FileObject->Flags |= FO_FILE_FAST_IO_READ;
-
-    } except( FsRtlIsNtstatusExpected(GetExceptionCode())
-                                   ? EXCEPTION_EXECUTE_HANDLER
-                                   : EXCEPTION_CONTINUE_SEARCH ) {
-
-        Status = FALSE;
-    }
-
-    PsGetCurrentThread()->TopLevelIrp &= ~FSRTL_FAST_IO_TOP_LEVEL_IRP;
-
-    ExReleaseResource( Header->Resource );
-    FsRtlExitFileSystem();
-
-    return Status;
 }
 
 
 BOOLEAN
-FsRtlPrepareMdlWrite (
+FsRtlMdlReadCompleteDev (
+    IN PFILE_OBJECT FileObject,
+    IN PMDL MdlChain,
+    IN PDEVICE_OBJECT DeviceObject
+    )
+
+/*++
+
+Routine Description:
+
+    This routine does a fast cached mdl read bypassing the usual file system
+    entry routine (i.e., without the Irp).  It is used to do a copy read
+    of a cached file object.
+
+Arguments:
+
+    FileObject - Pointer to the file object being read.
+
+    MdlChain - Supplies a pointer to an MDL chain returned from CcMdlRead.
+
+    DeviceObject - Supplies the DeviceObject for the callee.
+
+Return Value:
+
+    None
+
+--*/
+
+
+{
+    CcMdlReadComplete2( FileObject, MdlChain );
+    return TRUE;
+}
+
+
+BOOLEAN
+FsRtlPrepareMdlWriteDev (
     IN PFILE_OBJECT FileObject,
     IN PLARGE_INTEGER FileOffset,
     IN ULONG Length,
     IN ULONG LockKey,
     OUT PMDL *MdlChain,
-    OUT PIO_STATUS_BLOCK IoStatus
+    OUT PIO_STATUS_BLOCK IoStatus,
+    IN PDEVICE_OBJECT DeviceObject
     )
 
 /*++
@@ -1276,6 +1486,8 @@ Arguments:
     IoStatus - Pointer to standard I/O status block to receive the status
                for the transfer.
 
+    DeviceObject - Supplies the DeviceObject for the callee.
+
 Return Value:
 
     FALSE - if the data was not written, or if there is an I/O error.
@@ -1295,14 +1507,14 @@ Return Value:
     BOOLEAN WriteToEndOfFile = (BOOLEAN)((FileOffset->LowPart == FILE_WRITE_TO_END_OF_FILE) &&
                                          (FileOffset->HighPart == -1));
 
+    PAGED_CODE();
+
     //
-    //  Do we need to verify the volume?  If so, we must go to the
-    //  file system.  Also return FALSE if FileObject is write through,
+    //  Call CcCanIWrite.  Also return FALSE if FileObject is write through,
     //  the File System must do that.
     //
 
-    if ( FlagOn( FileObject->DeviceObject->Flags, DO_VERIFY_VOLUME ) ||
-         !CcCanIWrite( FileObject, Length, TRUE, FALSE ) ||
+    if ( !CcCanIWrite( FileObject, Length, TRUE, FALSE ) ||
          FlagOn( FileObject->Flags, FO_WRITE_THROUGH )) {
 
         return FALSE;
@@ -1327,7 +1539,7 @@ Return Value:
     //  Get a real pointer to the common fcb header
     //
 
-    Header = (PFSRTL_COMMON_FCB_HEADER)((ULONG)FileObject->FsContext & 0xfffffff8);
+    Header = (PFSRTL_COMMON_FCB_HEADER)FileObject->FsContext;
 
     //
     //  Enter the file system
@@ -1510,7 +1722,7 @@ Return Value:
     //  will not attempt a pop-up
     //
 
-    PsGetCurrentThread()->TopLevelIrp |= FSRTL_FAST_IO_TOP_LEVEL_IRP;
+    PsGetCurrentThread()->TopLevelIrp = FSRTL_FAST_IO_TOP_LEVEL_IRP;
 
     try {
 
@@ -1538,7 +1750,7 @@ Return Value:
         Status = FALSE;
     }
 
-    PsGetCurrentThread()->TopLevelIrp &= ~FSRTL_FAST_IO_TOP_LEVEL_IRP;
+    PsGetCurrentThread()->TopLevelIrp = 0;
 
     //
     //  If we succeeded, see if we have to update FileSize or ValidDataLength.
@@ -1619,6 +1831,206 @@ Return Value:
 
     return Status;
 }
+
+
+//
+//  The old routine will either dispatch or call FsRtlPrepareMdlWriteDev
+//
+
+BOOLEAN
+FsRtlPrepareMdlWrite (
+    IN PFILE_OBJECT FileObject,
+    IN PLARGE_INTEGER FileOffset,
+    IN ULONG Length,
+    IN ULONG LockKey,
+    OUT PMDL *MdlChain,
+    OUT PIO_STATUS_BLOCK IoStatus
+    )
+
+/*++
+
+Routine Description:
+
+    This routine does a fast cached mdl read bypassing the usual file system
+    entry routine (i.e., without the Irp).  It is used to do a copy read
+    of a cached file object.  For a complete description of the arguments
+    see CcMdlRead.
+
+Arguments:
+
+    FileObject - Pointer to the file object being read.
+
+    FileOffset - Byte offset in file for desired data.
+
+    Length - Length of desired data in bytes.
+
+    MdlChain - On output it returns a pointer to an MDL chain describing
+        the desired data.
+
+    IoStatus - Pointer to standard I/O status block to receive the status
+               for the transfer.
+
+Return Value:
+
+    FALSE - if the data was not written, or if there is an I/O error.
+
+    TRUE - if the data is being written
+
+--*/
+
+{
+    PDEVICE_OBJECT DeviceObject, VolumeDeviceObject;
+    PFAST_IO_DISPATCH FastIoDispatch;
+
+    DeviceObject = IoGetRelatedDeviceObject( FileObject );
+    FastIoDispatch = DeviceObject->DriverObject->FastIoDispatch;
+
+    //
+    //  See if the (top-level) FileSystem has a FastIo routine, and if so, call it.
+    //
+
+    if ((FastIoDispatch != NULL) &&
+        (FastIoDispatch->SizeOfFastIoDispatch > FIELD_OFFSET(FAST_IO_DISPATCH, PrepareMdlWrite)) &&
+        (FastIoDispatch->PrepareMdlWrite != NULL)) {
+
+        return FastIoDispatch->PrepareMdlWrite( FileObject, FileOffset, Length, LockKey, MdlChain, IoStatus, DeviceObject );
+
+    } else {
+
+        //
+        //  Get the DeviceObject for the volume.  If that DeviceObject is different, and
+        //  it specifies the FastIo routine, then we have to return FALSE here and cause
+        //  an Irp to get generated.
+        //
+
+        VolumeDeviceObject = IoGetBaseFileSystemDeviceObject( FileObject );
+        if ((VolumeDeviceObject != DeviceObject) &&
+            (FastIoDispatch = VolumeDeviceObject->DriverObject->FastIoDispatch) &&
+            (FastIoDispatch->SizeOfFastIoDispatch > FIELD_OFFSET(FAST_IO_DISPATCH, PrepareMdlWrite)) &&
+            (FastIoDispatch->PrepareMdlWrite != NULL)) {
+
+            return FALSE;
+
+        //
+        //  Otherwise, call the default routine.
+        //
+
+        } else {
+
+            return FsRtlPrepareMdlWriteDev( FileObject, FileOffset, Length, LockKey, MdlChain, IoStatus, DeviceObject );
+        }
+    }
+}
+
+
+//
+//  The old routine will either dispatch or call FsRtlMdlWriteCompleteDev
+//
+
+BOOLEAN
+FsRtlMdlWriteComplete (
+    IN PFILE_OBJECT FileObject,
+    IN PLARGE_INTEGER FileOffset,
+    IN PMDL MdlChain
+    )
+
+/*++
+
+Routine Description:
+
+    This routine completes an Mdl write.
+
+Arguments:
+
+    FileObject - Pointer to the file object being read.
+
+    MdlChain - Supplies a pointer to an MDL chain returned from CcMdlPrepareMdlWrite.
+
+Return Value:
+
+
+
+--*/
+
+{
+    PDEVICE_OBJECT DeviceObject, VolumeDeviceObject;
+    PFAST_IO_DISPATCH FastIoDispatch;
+
+    DeviceObject = IoGetRelatedDeviceObject( FileObject );
+    FastIoDispatch = DeviceObject->DriverObject->FastIoDispatch;
+
+    //
+    //  See if the (top-level) FileSystem has a FastIo routine, and if so, call it.
+    //
+
+    if ((FastIoDispatch != NULL) &&
+        (FastIoDispatch->SizeOfFastIoDispatch > FIELD_OFFSET(FAST_IO_DISPATCH, MdlWriteComplete)) &&
+        (FastIoDispatch->MdlWriteComplete != NULL)) {
+
+        return FastIoDispatch->MdlWriteComplete( FileObject, FileOffset, MdlChain, DeviceObject );
+
+    } else {
+
+        //
+        //  Get the DeviceObject for the volume.  If that DeviceObject is different, and
+        //  it specifies the FastIo routine, then we have to return FALSE here and cause
+        //  an Irp to get generated.
+        //
+
+        VolumeDeviceObject = IoGetBaseFileSystemDeviceObject( FileObject );
+        if ((VolumeDeviceObject != DeviceObject) &&
+            (FastIoDispatch = VolumeDeviceObject->DriverObject->FastIoDispatch) &&
+            (FastIoDispatch->SizeOfFastIoDispatch > FIELD_OFFSET(FAST_IO_DISPATCH, MdlWriteComplete)) &&
+            (FastIoDispatch->MdlWriteComplete != NULL)) {
+
+            return FALSE;
+
+        //
+        //  Otherwise, call the default routine.
+        //
+
+        } else {
+
+            return FsRtlMdlWriteCompleteDev( FileObject, FileOffset, MdlChain, DeviceObject );
+        }
+    }
+}
+
+
+BOOLEAN
+FsRtlMdlWriteCompleteDev (
+    IN PFILE_OBJECT FileObject,
+    IN PLARGE_INTEGER FileOffset,
+    IN PMDL MdlChain,
+    IN PDEVICE_OBJECT DeviceObject
+    )
+
+/*++
+
+Routine Description:
+
+    This routine completes an Mdl write.
+
+Arguments:
+
+    FileObject - Pointer to the file object being read.
+
+    MdlChain - Supplies a pointer to an MDL chain returned from CcMdlPrepareMdlWrite.
+
+    DeviceObject - Supplies the DeviceObject for the callee.
+
+Return Value:
+
+
+
+--*/
+
+
+{
+    CcMdlWriteComplete2( FileObject, FileOffset, MdlChain );
+    return TRUE;
+}
+
 
 NTKERNELAPI
 BOOLEAN
@@ -1659,10 +2071,52 @@ Return Value:
 {
     PFSRTL_COMMON_FCB_HEADER Header;
     PERESOURCE ResourceAcquired;
+    PDEVICE_OBJECT DeviceObject;
+    PFAST_IO_DISPATCH FastIoDispatch;
 
     BOOLEAN AcquireExclusive;
 
-    Header = (PFSRTL_COMMON_FCB_HEADER)((ULONG)FileObject->FsContext & 0xfffffff8);
+    PAGED_CODE();
+
+    Header = (PFSRTL_COMMON_FCB_HEADER)FileObject->FsContext;
+
+    //
+    //  First see if we have to call the file system.
+    //
+
+    DeviceObject = IoGetBaseFileSystemDeviceObject( FileObject );
+
+    FastIoDispatch = DeviceObject->DriverObject->FastIoDispatch;
+    if ((FastIoDispatch->SizeOfFastIoDispatch >
+         FIELD_OFFSET( FAST_IO_DISPATCH, AcquireForModWrite )) &&
+        (FastIoDispatch->AcquireForModWrite != NULL)) {
+
+        NTSTATUS Status;
+
+        Status = FastIoDispatch->AcquireForModWrite(FileObject,
+                                                  EndingOffset,
+                                                  ResourceToRelease,
+                                                  DeviceObject);
+
+        if (Status == STATUS_SUCCESS) {
+            return( TRUE );
+        } else if (Status == STATUS_CANT_WAIT) {
+            return( FALSE );
+        } else {
+
+            //
+            // Fall through. When dealing with layered file systems, it might
+            // be the case that the layered file system has the above dispatch
+            // routine, but the FS it is layered on top of does not. In that
+            // case, the layered file system will return an error code other
+            // than STATUS_SUCCESS or STATUS_CANT_WAIT, and we simply handle
+            // it as if the file system did not have the dispatch routine to
+            // begin with.
+            //
+
+            NOTHING;
+        }
+    }
 
     //
     //  We follow the following rules to determine which resource
@@ -1854,6 +2308,216 @@ Return Value:
 
     return TRUE;
 }
+
+
+NTKERNELAPI
+VOID
+FsRtlReleaseFileForModWrite (
+    IN PFILE_OBJECT FileObject,
+    IN PERESOURCE ResourceToRelease
+    )
+
+/*++
+
+Routine Description:
+
+    This routine releases a file system resource previously acquired for
+    the modified page writer.
+
+Arguments:
+
+    FileObject - Pointer to the file object being written.
+
+    ResourceToRelease - Supplies the resource to release.  Not defined if
+        FALSE is returned.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    PDEVICE_OBJECT DeviceObject;
+    PFAST_IO_DISPATCH FastIoDispatch;
+    NTSTATUS Status = STATUS_INVALID_DEVICE_REQUEST;
+
+    PAGED_CODE();
+
+    //
+    //  First see if we have to call the file system. Note that in the case
+    //  of layered file systems, the layered file system might have the
+    //  dispatch routine, but the file system on which it is layered on may
+    //  not. In that case, the layered file system will return
+    //  STATUS_INVALID_DEVICE_REQUEST.
+    //
+
+    DeviceObject = IoGetBaseFileSystemDeviceObject( FileObject );
+
+    FastIoDispatch = DeviceObject->DriverObject->FastIoDispatch;
+    if ((FastIoDispatch->SizeOfFastIoDispatch >
+         FIELD_OFFSET( FAST_IO_DISPATCH, ReleaseForModWrite )) &&
+        (FastIoDispatch->ReleaseForModWrite != NULL)) {
+
+        Status = FastIoDispatch->ReleaseForModWrite( FileObject, ResourceToRelease, DeviceObject );
+    }
+
+    ASSERT( (Status == STATUS_SUCCESS) || (Status == STATUS_INVALID_DEVICE_REQUEST) );
+
+    if (Status == STATUS_INVALID_DEVICE_REQUEST) {
+        ExReleaseResource( ResourceToRelease );
+    }
+}
+
+
+NTKERNELAPI
+VOID
+FsRtlAcquireFileForCcFlush (
+    IN PFILE_OBJECT FileObject
+    )
+
+/*++
+
+Routine Description:
+
+    This routine acquires a file system resource prior to a call to CcFlush.
+
+Arguments:
+
+    FileObject - Pointer to the file object being written.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    PDEVICE_OBJECT DeviceObject;
+    PFAST_IO_DISPATCH FastIoDispatch;
+    NTSTATUS Status = STATUS_INVALID_DEVICE_REQUEST;
+
+    PAGED_CODE();
+
+    //
+    //  First see if we have to call the file system. Note that in the case
+    //  of layered file systems, the layered file system might have the
+    //  dispatch routine, but the file system on which it is layered on may
+    //  not. In that case, the layered file system will return
+    //  STATUS_INVALID_DEVICE_REQUEST.
+    //
+
+    DeviceObject = IoGetBaseFileSystemDeviceObject( FileObject );
+
+    FastIoDispatch = DeviceObject->DriverObject->FastIoDispatch;
+    if ((FastIoDispatch->SizeOfFastIoDispatch >
+         FIELD_OFFSET( FAST_IO_DISPATCH, AcquireForCcFlush )) &&
+        (FastIoDispatch->AcquireForCcFlush != NULL)) {
+
+        Status = FastIoDispatch->AcquireForCcFlush( FileObject, DeviceObject );
+
+    }
+
+
+    ASSERT( (Status == STATUS_SUCCESS) || (Status == STATUS_INVALID_DEVICE_REQUEST) );
+
+    if (Status == STATUS_INVALID_DEVICE_REQUEST) {
+
+        PFSRTL_COMMON_FCB_HEADER Header = FileObject->FsContext;
+
+        //
+        //  If not already owned get the main resource exclusive because me may
+        //  extend ValidDataLength.  Otherwise acquire it one more time recursively.
+        //
+
+        if (Header->Resource != NULL) {
+            if (!ExIsResourceAcquiredShared(Header->Resource)) {
+                ExAcquireResourceExclusive( Header->Resource, TRUE );
+            } else {
+                ExAcquireResourceShared( Header->Resource, TRUE );
+            }
+        }
+
+        //
+        //  Also get the paging I/O resource ahead of any MM resources.
+        //
+
+        if (Header->PagingIoResource != NULL) {
+            ExAcquireResourceShared( Header->PagingIoResource, TRUE );
+        }
+    }
+}
+
+
+NTKERNELAPI
+VOID
+FsRtlReleaseFileForCcFlush (
+    IN PFILE_OBJECT FileObject
+    )
+
+/*++
+
+Routine Description:
+
+    This routine releases a file system resource previously acquired for
+    the CcFlush.
+
+Arguments:
+
+    FileObject - Pointer to the file object being written.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    PDEVICE_OBJECT DeviceObject;
+    PFAST_IO_DISPATCH FastIoDispatch;
+    NTSTATUS Status = STATUS_INVALID_DEVICE_REQUEST;
+
+    PAGED_CODE();
+
+    //
+    //  First see if we have to call the file system. Note that in the case
+    //  of layered file systems, the layered file system might have the
+    //  dispatch routine, but the file system on which it is layered on may
+    //  not. In that case, the layered file system will return
+    //  STATUS_INVALID_DEVICE_REQUEST.
+    //
+
+    DeviceObject = IoGetBaseFileSystemDeviceObject( FileObject );
+
+    FastIoDispatch = DeviceObject->DriverObject->FastIoDispatch;
+    if ((FastIoDispatch->SizeOfFastIoDispatch >
+         FIELD_OFFSET( FAST_IO_DISPATCH, ReleaseForCcFlush )) &&
+        (FastIoDispatch->ReleaseForCcFlush != NULL)) {
+
+        Status = FastIoDispatch->ReleaseForCcFlush( FileObject, DeviceObject );
+
+    }
+
+    ASSERT( (Status == STATUS_SUCCESS) || (Status == STATUS_INVALID_DEVICE_REQUEST) );
+
+    if (Status == STATUS_INVALID_DEVICE_REQUEST) {
+
+        PFSRTL_COMMON_FCB_HEADER Header = FileObject->FsContext;
+
+        //
+        //  Free whatever we acquired.
+        //
+
+        if (Header->PagingIoResource != NULL) {
+            ExReleaseResource( Header->PagingIoResource );
+        }
+
+        if (Header->Resource != NULL) {
+            ExReleaseResource( Header->Resource );
+        }
+    }
+}
+
 
 NTKERNELAPI
 VOID
@@ -1889,17 +2553,19 @@ Return Value:
     PFAST_IO_DISPATCH FastIoDispatch;
     PFSRTL_COMMON_FCB_HEADER Header;
 
+    PAGED_CODE();
+
     //
     //  First see if we have to call the file system.
     //
 
-    if ((DeviceObject = IoGetRelatedDeviceObject(FileObject)) &&
-        (FastIoDispatch = DeviceObject->DriverObject->FastIoDispatch) &&
+    DeviceObject = IoGetBaseFileSystemDeviceObject( FileObject );
+
+    if ((FastIoDispatch = DeviceObject->DriverObject->FastIoDispatch) &&
         (FastIoDispatch->SizeOfFastIoDispatch >
          FIELD_OFFSET( FAST_IO_DISPATCH, AcquireFileForNtCreateSection )) &&
         (FastIoDispatch->AcquireFileForNtCreateSection != NULL)) {
 
-        IoSetTopLevelIrp((PIRP)FSRTL_FSP_TOP_LEVEL_IRP);
         FastIoDispatch->AcquireFileForNtCreateSection( FileObject );
 
         return;
@@ -1912,7 +2578,6 @@ Return Value:
     if ((Header = (PFSRTL_COMMON_FCB_HEADER)FileObject->FsContext) &&
         (Header->Resource != NULL)) {
 
-        IoSetTopLevelIrp((PIRP)FSRTL_FSP_TOP_LEVEL_IRP);
         ExAcquireResourceExclusive( Header->Resource, TRUE );
 
         return;
@@ -1952,17 +2617,19 @@ Return Value:
     PFAST_IO_DISPATCH FastIoDispatch;
     PFSRTL_COMMON_FCB_HEADER Header;
 
+    PAGED_CODE();
+
     //
     //  First see if we have to call the file system.
     //
 
-    if ((DeviceObject = IoGetRelatedDeviceObject(FileObject)) &&
-        (FastIoDispatch = DeviceObject->DriverObject->FastIoDispatch) &&
-        (FastIoDispatch->SizeOfFastIoDispatch >
-         FIELD_OFFSET( FAST_IO_DISPATCH, AcquireFileForNtCreateSection )) &&
-        (FastIoDispatch->AcquireFileForNtCreateSection != NULL)) {
+    DeviceObject = IoGetBaseFileSystemDeviceObject( FileObject );
 
-        IoSetTopLevelIrp((PIRP)NULL);
+    if ((FastIoDispatch = DeviceObject->DriverObject->FastIoDispatch) &&
+        (FastIoDispatch->SizeOfFastIoDispatch >
+         FIELD_OFFSET( FAST_IO_DISPATCH, ReleaseFileForNtCreateSection )) &&
+        (FastIoDispatch->ReleaseFileForNtCreateSection != NULL)) {
+
         FastIoDispatch->ReleaseFileForNtCreateSection( FileObject );
         return;
     }
@@ -1974,7 +2641,6 @@ Return Value:
     if ((Header = (PFSRTL_COMMON_FCB_HEADER)FileObject->FsContext) &&
         (Header->Resource != NULL)) {
 
-        IoSetTopLevelIrp((PIRP)NULL);
         ExReleaseResource( Header->Resource );
         return;
     }
@@ -2292,4 +2958,3 @@ Return Value:
 
     return IoStatus.Status;
 }
-

@@ -18,43 +18,26 @@ Revision History may be found at the end of this file.
 
 --*/
 
-#include "dderror.h"
-#include "devioctl.h"
-
-#include "miniport.h"
-#include "ntddvdeo.h"
-#include "video.h"
-#include "dac.h"
 #include "p9.h"
 #include "p9gbl.h"
 #include "p9000.h"
 #include "pci.h"
 #include "vga.h"
+#include "p91regs.h"
 
 //
 // OEM specific static data.
 //
 
-//
-// The default adapter description structure for the Weitek P9 PCI
-// boards.
-//
+extern VOID
+VLSetModeP91(
+    PHW_DEVICE_EXTENSION HwDeviceExtension
+    );
 
-ADAPTER_DESC    WtkPciDesc =
-{
-    0L,                                 // P9 Memconf value (un-initialized)
-    HSYNC_INTERNAL | VSYNC_INTERNAL |
-    COMPOSITE_SYNC | VIDEO_NORMAL,      // P9 Srctl value
-    2L,                                 // Number of OEM specific registers
-    TRUE,                               // Should autodetection be attempted?
-    PciGetBaseAddr,                     // Routine to detect/map P9 base addr
-    VLSetMode,                          // Routine to set the P9 mode
-    VLEnableP9,                         // Routine to enable P9 video
-    VLDisableP9,                        // Routine to disable P9 video
-    PciP9MemEnable,                     // Routine to enable memory/io
-    8,                                  // Clock divisor value
-    TRUE                                // Is a Wtk 5x86 VGA present?
-};
+
+extern VOID VLEnableP91(
+    PHW_DEVICE_EXTENSION HwDeviceExtension
+    );
 
 VIDEO_ACCESS_RANGE Pci9001DefDACRegRange[] =
 {
@@ -320,6 +303,90 @@ VIDEO_ACCESS_RANGE Pci9002DefDACRegRange[] =
      }
 };
 
+ /******************************************************************************
+ ** bIntergraphBoard
+ *
+ *  PARAMETERS: HwDeviceExtension
+ *
+ *  DESCRIPTION:    Determine if we're trying to init an Intergraph Board
+ *
+ *  RETURNS:    TRUE  - if this is an Intergraph Board
+ *              FALSE - if this is not an Intergraph Board
+ *
+ *  CREATED:    02/20/95    13:33:23
+ *
+ *  BY: c-jeffn
+ *
+ *  copyright (c) 1995, Newman Consulting
+ *
+ ******************************************************************************/
+BOOLEAN
+bIntergraphBoard(
+    PHW_DEVICE_EXTENSION HwDeviceExtension
+    )
+{
+    ULONG   ulRet;
+    UCHAR   jConfig66, jOEMId, *pjOEMId;
+    VP_STATUS   vpStatus;
+    VIDEO_ACCESS_RANGE  AccessRange;
+    BOOLEAN bRet;
+
+    VideoDebugPrint((2, "P9!bIntergraphBoard - Entry\n"));
+
+    // Note that the P9100 must be in native mode before this function
+    // is called.
+
+    bRet = FALSE;
+
+    // Test to see if the P9100 indicates external io device is there
+ 	// If not, can't be Intergraph board
+
+    if ( (HwDeviceExtension->p91State.ulPuConfig & P91_PUC_EXT_IO) == 0 )
+        goto exit;
+        	
+    // Set Bit 4 of Config 66.  This will allow access to the Intergraph
+    // Specific registers.
+
+    jConfig66 = 0x10;
+    ulRet = VideoPortSetBusData(HwDeviceExtension,
+                                PCIConfiguration,
+                                HwDeviceExtension->PciSlotNum,
+                                &jConfig66,
+                                0x42,
+                                sizeof (UCHAR));
+    if (ulRet != 1)
+    {
+        VideoDebugPrint((2, "P9!bIntergraphBoard - failed VideoPortSetBusData\n"));
+        VideoDebugPrint((2, "\tulRet: %x\n", ulRet));
+        goto exit;
+    }
+
+    //       Check P9100 register 0x208 for ID in native mode
+
+    ulRet = P9_RD_REG(P91_EXT_IO_ID);    // Get the external io id value
+	jOEMId = (UCHAR)(ulRet >> 16);		 // per Weitek programmer's manual
+
+    if (jOEMId == 0xFE)					 // This is the id assigned to Intergraph
+        bRet = TRUE;
+
+    // Need to reset Config register 66 bit 4.
+
+    jConfig66 = 0x00;
+    ulRet = VideoPortSetBusData(HwDeviceExtension,
+                                PCIConfiguration,
+                                HwDeviceExtension->PciSlotNum,
+                                &jConfig66,
+                                0x42,
+                                sizeof (UCHAR));
+
+exit:
+    VideoDebugPrint((2, "P9!bIntergraphBoard - Exit: %x\n", bRet));
+
+    return (bRet);
+
+}
+
+
 BOOLEAN
 PciGetBaseAddr(
     PHW_DEVICE_EXTENSION HwDeviceExtension
@@ -346,30 +413,100 @@ FALSE   - Board not found.
 --*/
 {
 
-    VIDEO_ACCESS_RANGE          PciAccessRange;
-    PVIDEO_ACCESS_RANGE         DefaultDACRegRange;
-    ULONG                       ulSlotNum;
-    ULONG                       ulTempAddr;
-    ULONG                       ulBiosAddr;
-    ULONG                       ulBoardAddr;
-    ULONG                       ulTemp;
-    LONG                        i;
-    USHORT                      usTemp;
+    VIDEO_ACCESS_RANGE  PciAccessRange;
+    PVIDEO_ACCESS_RANGE DefaultDACRegRange;
+    ULONG               ulTempAddr;
+    ULONG               ulBiosAddr;
+    ULONG               ulBoardAddr;
+    ULONG               ulTemp;
+    LONG                i;
+    VP_STATUS           status;
 
+    ULONG               wcpID;
+
+    //
+    // Only the viper p9000 works on the Siemens boxes
+    //
+
+    if (HwDeviceExtension->MachineType == SIEMENS
+    ||  HwDeviceExtension->MachineType == SIEMENS_P9100_VLB)
+    {
+        return FALSE;
+    }
 
     //
     // See if the PCI HAL can locate a Weitek 9001 PCI Board.
     //
 
-    PCI_SLOT_NUM = 0;
-
+    //
+    // First check for a P9100
+    //
 
     if (PciFindDevice(HwDeviceExtension,
+                      WTK_9100_ID,
+                      WTK_VENDOR_ID,
+                      &HwDeviceExtension->PciSlotNum))
+    {
+        wcpID = P9100_ID;
+        HwDeviceExtension->usBusType = PCI;
+
+        // Just a hack to get things working.
+        // NOTE: !!! WE should really do the detection.
+
+        HwDeviceExtension->p91State.bVideoPowerEnabled = FALSE;
+
+        // Now make sure we are looking for a P9100, if were not
+        // then fail.
+
+        if (HwDeviceExtension->P9CoprocInfo.CoprocId != P9100_ID)
+        {
+            return(FALSE);
+        }
+
+#ifdef	_MIPS_
+                //
+                // SNI platform recognition and specific stuff
+                //
+        {
+
+        extern VP_STATUS                GetCPUIdCallback(
+               PVOID                    HwDeviceExtension,
+               PVOID                    Context,
+               VIDEO_DEVICE_DATA_TYPE   DeviceDataType,
+               PVOID                    Identifier,
+               ULONG                    IdentifierLength,
+               PVOID                    ConfigurationData,
+               ULONG                    ConfigurationDataLength,
+               PVOID                    ComponentInformation,
+               ULONG                    ComponentInformationLength
+		);
+        if(VideoPortIsCpu(L"RM200PCI")
+        || VideoPortIsCpu(L"RM300PCI")
+        || VideoPortIsCpu(L"RM300PCI MP")
+        || VideoPortIsCpu(L"RM400PCI")
+        || VideoPortIsCpu(L"RM4x0PCI"))
+                {
+                // adjust the VGA physical address with the E/ISA I/O space
+                DriverAccessRanges[1].RangeStart.LowPart += 0x14000000 ;
+                        HwDeviceExtension->MachineType = SIEMENS_P9100_PCi;
+                }
+        }
+#endif
+    }
+    else if (PciFindDevice(HwDeviceExtension,
                       WTK_9001_ID,
                       WTK_VENDOR_ID,
-                      &PCI_SLOT_NUM))
+                      &HwDeviceExtension->PciSlotNum))
     {
+        wcpID = P9000_ID;
 
+        // Now make sure we are looking for a P9000, if were not
+        // then fail.
+
+        if (HwDeviceExtension->P9CoprocInfo.CoprocId != P9000_ID)
+        {
+            return(FALSE);
+        }
 
         //
         // Read the config space to determine if
@@ -377,11 +514,12 @@ FALSE   - Board not found.
         // the DAC registers are mapped.
         //
 
-        if (!PciReadConfigReg(HwDeviceExtension,
-                                PCI_SLOT_NUM,
-                                P9001_REV_ID,
-                                &ulTemp,
-                                sizeof(ulTemp)))
+        if (!VideoPortGetBusData(HwDeviceExtension,
+                                 PCIConfiguration,
+                                 HwDeviceExtension->PciSlotNum,
+                                 &ulTemp,
+                                 P9001_REV_ID,
+                                 sizeof(ulTemp)))
         {
             return(FALSE);
         }
@@ -419,54 +557,83 @@ FALSE   - Board not found.
                 // determine if this is a Viper PCI adapter.
                 //
 
+                PciAccessRange.RangeStart.LowPart = 0;
+                PciAccessRange.RangeStart.HighPart = 0;
 
-                if (!PciReadConfigReg(HwDeviceExtension,
-                                        PCI_SLOT_NUM,
+                if (VideoPortGetBusData(HwDeviceExtension,
+                                        PCIConfiguration,
+                                        HwDeviceExtension->PciSlotNum,
+                                        &PciAccessRange.RangeStart.LowPart,
                                         P9001_BIOS_BASE_ADDR,
-                                        &ulTempAddr,
-                                        sizeof(ulTempAddr)))
+                                        sizeof(ULONG)) == 0)
                 {
-                    return(FALSE);
+                    return FALSE;
                 }
-                else if (ulTempAddr == 0)
+
+                if (PciAccessRange.RangeStart.LowPart)
+                {
+                    //
+                    // We found an address for the BIOS.  Verify it.
+                    //
+                    // Set up the access range so we can map out the BIOS ROM
+                    // space. This will allow us to scan the ROM and detect the
+                    // presence of a Viper PCI adapter.
+                    //
+
+                    PciAccessRange.RangeInIoSpace = FALSE;
+                    PciAccessRange.RangeVisible = TRUE;
+                    PciAccessRange.RangeShareable = TRUE;
+                    PciAccessRange.RangeLength = BIOS_RANGE_LEN;
+
+                    //
+                    // Check to see if another miniport driver has allocated the
+                    // BIOS' memory space.
+                    //
+
+                    if (VideoPortVerifyAccessRanges(HwDeviceExtension,
+                                                    1L,
+                                                    &PciAccessRange) != NO_ERROR)
+                    {
+                        PciAccessRange.RangeStart.LowPart = 0;
+                    }
+                }
+
+
+                if (PciAccessRange.RangeStart.LowPart == 0)
                 {
                     //
                     // The Adapter has not been enabled, so we need to map the
                     // BIOS address.
                     //
 
-                    if (!PciMapMemory(HwDeviceExtension,
-                                        BIOS_RANGE_LEN,
-                                        FALSE,
-                                        &ulTempAddr))
+                    IO_RESOURCE_DESCRIPTOR ioResource = {
+                        IO_RESOURCE_PREFERRED,
+                        CmResourceTypeMemory,
+                        CmResourceShareDeviceExclusive,
+                        0,
+                        CM_RESOURCE_MEMORY_READ_WRITE,
+                        0,
+                        {
+                          BIOS_RANGE_LEN,    // Length
+                          BIOS_RANGE_LEN,    // Alignment
+                          { 0x10000000, 0 }, // Minimum start address
+                          { 0xefffffff, 0}   // Maximum end address
+                        }
+                    };
+
+                    status = VideoPortGetAccessRanges(HwDeviceExtension,
+                                                      1,
+                                                      &ioResource,
+                                                      1,
+                                                      &PciAccessRange,
+                                                      NULL,
+                                                      NULL,
+                                                      &HwDeviceExtension->PciSlotNum);
+
+                    if (status != NO_ERROR)
                     {
                         return(FALSE);
                     }
-                }
-
-                //
-                // Set up the access range so we can map out the BIOS ROM
-                // space. This will allow us to scan the ROM and detect the
-                // presence of a Viper PCI adapter.
-                //
-
-                PciAccessRange.RangeInIoSpace = FALSE;
-                PciAccessRange.RangeVisible = TRUE;
-                PciAccessRange.RangeShareable = TRUE;
-                PciAccessRange.RangeStart.LowPart = ulTempAddr;
-                PciAccessRange.RangeStart.HighPart = 0L;
-                PciAccessRange.RangeLength = BIOS_RANGE_LEN;
-
-                //
-                // Check to see if another miniport driver has allocated the
-                // BIOS' memory space.
-                //
-
-                if (VideoPortVerifyAccessRanges(HwDeviceExtension,
-                                                 1L,
-                                                 &PciAccessRange) != NO_ERROR)
-                {
-                    return(FALSE);
                 }
 
                 //
@@ -476,33 +643,25 @@ FALSE   - Board not found.
 
                 if ((ulBiosAddr = (ULONG)
                         VideoPortGetDeviceBase(HwDeviceExtension,
-                                                PciAccessRange.RangeStart,
-                                                PciAccessRange.RangeLength,
-                                                PciAccessRange.RangeInIoSpace)) == 0)
+                                               PciAccessRange.RangeStart,
+                                               PciAccessRange.RangeLength,
+                                               PciAccessRange.RangeInIoSpace)) == 0)
                 {
                     return(FALSE);
                 }
 
                 //
-                // If the Adapter BIOS is disabled, enable it.
+                // Enable the Adapter BIOS.
                 //
 
-                if (!(ulTempAddr & PCI_BIOS_ENB))
-                {
+                ulTemp = PciAccessRange.RangeStart.LowPart | PCI_BIOS_ENB;
 
-                    //
-                    // Enable the Adapter BIOS.
-                    //
-                    //
-                    if (!PciWriteConfigReg(HwDeviceExtension,
-                                            PCI_SLOT_NUM,
-                                            P9001_BIOS_BASE_ADDR,
-                                            ulTempAddr | PCI_BIOS_ENB,
-                                            sizeof(ulTempAddr)))
-                    {
-                        return(FALSE);
-                    }
-                }
+                VideoPortSetBusData(HwDeviceExtension,
+                                    PCIConfiguration,
+                                    HwDeviceExtension->PciSlotNum,
+                                    &ulTemp,
+                                    P9001_BIOS_BASE_ADDR,
+                                    sizeof(ULONG));
 
                 if (VideoPortScanRom(HwDeviceExtension,
                                      (PUCHAR) ulBiosAddr,
@@ -535,45 +694,35 @@ FALSE   - Board not found.
 
                 }
 
-
                 //
-                // Restore the BIOS enable bit to its original state.
+                // Restore the BIOS register to it's original value.
                 //
 
-                if (!(ulTempAddr & PCI_BIOS_ENB))
-                {
-                    if (!PciWriteConfigReg(HwDeviceExtension,
-                                             PCI_SLOT_NUM,
-                                             P9001_BIOS_BASE_ADDR,
-                                             ulTempAddr,
-                                             sizeof(ulTempAddr)))
-                    {
-                        return(FALSE);
-                    }
-                }
+                VideoPortSetBusData(HwDeviceExtension,
+                                    PCIConfiguration,
+                                    HwDeviceExtension->PciSlotNum,
+                                    &ulTempAddr,
+                                    P9001_BIOS_BASE_ADDR,
+                                    sizeof(ULONG));
 
-                VideoPortFreeDeviceBase(HwDeviceExtension, ulBiosAddr);
+                VideoPortFreeDeviceBase(HwDeviceExtension, (PVOID) ulBiosAddr);
+
                 break;
         }
 
     }
-    else
-    {
-
-        //
-        // Search for a Weitek 9002.
-        //
-
-        PCI_SLOT_NUM = 0;
-        if (!PciFindDevice(HwDeviceExtension,
+    else if (PciFindDevice(HwDeviceExtension,   // Search for a Weitek 9002.
                            WTK_9002_ID,
                            WTK_VENDOR_ID,
-                           &PCI_SLOT_NUM))
-        {
-            //
-            // No Weitek PCI devices were found, return an error.
-            //
+                           &HwDeviceExtension->PciSlotNum))
+    {
+        wcpID = P9000_ID;
 
+        // Now make sure we are looking for a P9000, if were not
+        // then fail.
+
+        if (HwDeviceExtension->P9CoprocInfo.CoprocId != P9000_ID)
+        {
             return(FALSE);
         }
 
@@ -584,81 +733,121 @@ FALSE   - Board not found.
 
         DefaultDACRegRange = Pci9002DefDACRegRange;
     }
+    else
+    {
+        //
+        // No Weitek PCI devices were found, return an error.
+        //
+
+        return(FALSE);
+    }
 
     //
-    // Get the P9 base address from the PCI configuration space.
+    // Get the base address of the adapter.
+    // Some machines rely on the address not changing - if the address changes
+    // the machine randomly appears to corrupt memory.
+    // So use the pre-configured address if it is available.
     //
 
-    if (!PciReadConfigReg(HwDeviceExtension,
-                            PCI_SLOT_NUM,
-                            P9001_BASE_ADDR,
-                            &HwDeviceExtension->P9PhysAddr.LowPart,
-                            sizeof(HwDeviceExtension->P9PhysAddr.LowPart)))
+    HwDeviceExtension->P9PhysAddr.LowPart = 0;
+
+    VideoPortGetBusData(HwDeviceExtension,
+                        PCIConfiguration,
+                        HwDeviceExtension->PciSlotNum,
+                        &HwDeviceExtension->P9PhysAddr.LowPart,
+                        P9001_BASE_ADDR,
+                        sizeof(ULONG));
+
+    if (HwDeviceExtension->P9PhysAddr.LowPart == 0)
+    {
+        IO_RESOURCE_DESCRIPTOR ioResource = {
+            IO_RESOURCE_PREFERRED,
+            CmResourceTypeMemory,
+            CmResourceShareDeviceExclusive,
+            0,
+            CM_RESOURCE_MEMORY_READ_WRITE,
+            0,
+            {
+              RESERVE_PCI_ADDRESS_SPACE,  // Length
+              RESERVE_PCI_ADDRESS_SPACE,  // Alignment
+              { 0x10000000, 0 },          // Minimum start address
+              { 0xefffffff, 0}            // Maximum end address
+            }
+        };
+
+        status = VideoPortGetAccessRanges(HwDeviceExtension,
+                                          1,
+                                          &ioResource,
+                                          1,
+                                          &PciAccessRange,
+                                          NULL,
+                                          NULL,
+                                          &HwDeviceExtension->PciSlotNum);
+
+        if (status == NO_ERROR)
+        {
+            HwDeviceExtension->P9PhysAddr = PciAccessRange.RangeStart;
+
+            //
+            // Save the physical base address in the PCI config space.
+            //
+
+            VideoPortSetBusData(HwDeviceExtension,
+                                PCIConfiguration,
+                                HwDeviceExtension->PciSlotNum,
+                                &HwDeviceExtension->P9PhysAddr.LowPart,
+                                P9001_BASE_ADDR,
+                                sizeof(ULONG));
+        }
+    }
+
+    if (HwDeviceExtension->P9PhysAddr.LowPart == 0)
     {
         return(FALSE);
     }
-    else if (HwDeviceExtension->P9PhysAddr.LowPart == 0)
+
+    //
+    // The P9100 can access the DAC directly, so no I/O space needs to be
+    // allocated for DAC access.
+    //
+
+    if (wcpID == P9000_ID)
     {
-        //
-        // The Adapter has not been enabled, so we need to map the
-        // base address.
-        //
 
-        if (!PciMapMemory(HwDeviceExtension,
-                          P9000_ADDR_SPACE,
-                          FALSE,
-                          &(HwDeviceExtension->P9PhysAddr.LowPart)))
-        {
-            return(FALSE);
-        }
-
-        //
-        // Save the physical base address in the PCI config space.
-        //
-
-        if (!PciWriteConfigReg(HwDeviceExtension,
-                                    PCI_SLOT_NUM,
-                                    P9001_BASE_ADDR,
-                                    HwDeviceExtension->P9PhysAddr.LowPart,
-                                    sizeof(HwDeviceExtension->P9PhysAddr.LowPart)))
-        {
-            return(FALSE);
-        }
-    }
-
-    //
-    // Initialize the register and framebuffer offsets from the
-    // base address.
-    //
-
-    HwDeviceExtension->P9PhysAddr.HighPart = 0L;
-
-
-    //
-    // Get the Base address for the DAC Registers, provided this is
-    // NOT a 9001 rev 1 board (which uses the standard VL addresses).
-    //
-
-    if (!PciReadConfigReg(HwDeviceExtension,
-                            PCI_SLOT_NUM,
-                            P9001_REG_BASE,
-                            &PCI_REG_BASE,
-                            sizeof(PCI_REG_BASE)))
-    {
-            return(FALSE);
-    }
-
-    else if (PCI_REG_BASE == 0)
-    {
         //
         // The Adapter has not been enabled, so we need to map the
         // base IO address.
         //
 
-        if (!PciMapMemory(HwDeviceExtension,
-                          P9001_IO_RANGE,
-                          TRUE,
-                          &(PCI_REG_BASE)))
+        IO_RESOURCE_DESCRIPTOR ioResource = {
+            IO_RESOURCE_PREFERRED,
+            CmResourceTypePort,
+            CmResourceShareDeviceExclusive,
+            0,
+            CM_RESOURCE_PORT_IO,
+            0,
+            {
+              P9001_IO_RANGE,    // Length
+              P9001_IO_RANGE,    // Alignment
+              { 0x00001000, 0 }, // Minimum start address
+              { 0x0000ffff, 0}   // Maximum end address
+            }
+        };
+
+        status = VideoPortGetAccessRanges(HwDeviceExtension,
+                                          1,
+                                          &ioResource,
+                                          1,
+                                          &PciAccessRange,
+                                          NULL,
+                                          NULL,
+                                          &HwDeviceExtension->PciSlotNum);
+
+        if (status == NO_ERROR)
+        {
+            HwDeviceExtension->P9001PhysicalAddress = PciAccessRange.RangeStart;
+        }
+        else
         {
             return(FALSE);
         }
@@ -667,94 +856,117 @@ FALSE   - Board not found.
         // Save the physical base address in the PCI config space.
         //
 
-        if (!PciWriteConfigReg(HwDeviceExtension,
-                                    PCI_SLOT_NUM,
-                                    P9001_REG_BASE,
-                                    PCI_REG_BASE | 0x01,
-                                    sizeof(PCI_REG_BASE)))
-        {
-            return(FALSE);
-        }
-    }
+        ulTemp = HwDeviceExtension->P9001PhysicalAddress.LowPart | 0x01;
 
-    //
-    // Compute the actual base address.
-    //
+        VideoPortSetBusData(HwDeviceExtension,
+                            PCIConfiguration,
+                            HwDeviceExtension->PciSlotNum,
+                            &ulTemp,
+                            P9001_REG_BASE,
+                            sizeof(ULONG));
 
-    PCI_REG_BASE &= 0xFFFFFFFE;
-
-    //
-    // If this is a 9002 board, map in and read the VGA id register.
-    //
-
-    if (DefaultDACRegRange == Pci9002DefDACRegRange)
-    {
         //
-        // Set up the access range so we can map out the VGA ID register.
+        // Compute the actual base address.
+        //
+
+        HwDeviceExtension->P9001PhysicalAddress.LowPart &= 0xFFFFFFFE;
+
+        //
+        // If this is a 9002 board, map in and read the VGA id register.
+        //
+
+        if (DefaultDACRegRange == Pci9002DefDACRegRange)
+        {
+            //
+            // Set up the access range so we can map out the VGA ID register.
+            //
+
+            PciAccessRange.RangeInIoSpace = TRUE;
+            PciAccessRange.RangeVisible = TRUE;
+            PciAccessRange.RangeShareable = TRUE;
+            PciAccessRange.RangeLength = 1;
+
+            PciAccessRange.RangeStart = HwDeviceExtension->P9001PhysicalAddress;
+            PciAccessRange.RangeStart.LowPart += P9002_VGA_ID;
+
+            //
+            // Map in the VGA ID register. If it can't be mapped,
+            // we can't determine the VGA type, so just use the default.
+            //
+
+            if ((ulBoardAddr = (ULONG)
+                    VideoPortGetDeviceBase(HwDeviceExtension,
+                                           PciAccessRange.RangeStart,
+                                           PciAccessRange.RangeLength,
+                                           PciAccessRange.RangeInIoSpace)) != 0)
+            {
+                HwDeviceExtension->AdapterDesc.bWtk5x86 =
+                    (VideoPortReadPortUchar((PUCHAR) ulBoardAddr) & VGA_MSK == WTK_VGA);
+
+                VideoPortFreeDeviceBase(HwDeviceExtension,
+                                        (PVOID) ulBoardAddr);
+            }
+            else
+            {
+                //
+                // Assume this is a 5x86 VGA.
+                //
+
+                HwDeviceExtension->AdapterDesc.bWtk5x86 = TRUE;
+            }
+        }
+
+        //
+        // Compute the actual DAC register addresses relative to the PCI
+        // base address.
+        //
+
+        for (i = 0; i < HwDeviceExtension->Dac.cDacRegs; i++)
+        {
+            //
+            // If this is not a palette addr or data register, and the board
+            // is not using the standard VL addresses, compute the register
+            // address relative to the register base address.
+            //
+
+            if ((i > 3) && (DefaultDACRegRange != VLDefDACRegRange))
+            {
+                DefaultDACRegRange[i].RangeStart.LowPart +=
+                    HwDeviceExtension->P9001PhysicalAddress.LowPart;
+            }
+        }
+
+        //
+        // Copy the DAC register access range into the global list of access
+        // ranges.
+        //
+
+        VideoPortMoveMemory(&DriverAccessRanges[NUM_DRIVER_ACCESS_RANGES],
+                            DefaultDACRegRange,
+                            sizeof(VIDEO_ACCESS_RANGE) *
+                            HwDeviceExtension->Dac.cDacRegs);
+
+        //
+        // This is a hack. Initialize an additional access range to map out
+        // the entire 4K range of contiguous IO space starting at PCI_REG_BASE.
+        // apparently the 9001 decodes accesses over this entire range rather
+        // than the individual register offsets within this range.
+        //
+        //
+        // Set up the access range so we can map the entire 4k IO range.
         //
 
         PciAccessRange.RangeInIoSpace = TRUE;
         PciAccessRange.RangeVisible = TRUE;
         PciAccessRange.RangeShareable = TRUE;
-        PciAccessRange.RangeStart.LowPart = PCI_REG_BASE + P9002_VGA_ID;
-        PciAccessRange.RangeStart.HighPart = 0L;
-        PciAccessRange.RangeLength = 1;
+        PciAccessRange.RangeLength = P9001_IO_RANGE;
+        PciAccessRange.RangeStart = HwDeviceExtension->P9001PhysicalAddress;
 
-
-        //
-        // Map in the VGA ID register. If it can't be mapped,
-        // we can't determine the VGA type, so just use the default.
-        //
-
-        if ((ulBoardAddr = (ULONG)
-                VideoPortGetDeviceBase(HwDeviceExtension,
-                                       PciAccessRange.RangeStart,
-                                       PciAccessRange.RangeLength,
-                                       PciAccessRange.RangeInIoSpace)) != 0)
-        {
-            HwDeviceExtension->AdapterDesc.bWtk5x86 =
-                (VideoPortReadPortUchar(ulBoardAddr) & VGA_MSK == WTK_VGA);
-            VideoPortFreeDeviceBase(HwDeviceExtension, ulBoardAddr);
-        }
-        else
-        {
-            //
-            // Assume this is a 5x86 VGA.
-            //
-
-            HwDeviceExtension->AdapterDesc.bWtk5x86 = TRUE;
-        }
+        VideoPortMoveMemory(&DriverAccessRanges[NUM_DRIVER_ACCESS_RANGES +
+                                                NUM_DAC_ACCESS_RANGES],
+                            &PciAccessRange,
+                            sizeof(VIDEO_ACCESS_RANGE));
     }
-
-    //
-    // Compute the actual DAC register addresses relative to the PCI
-    // base address.
-    //
-
-    for (i = 0; i < HwDeviceExtension->Dac.cDacRegs; i++)
-    {
-       //
-        // If this is not a palette addr or data register, and the board
-        // is not using the standard VL addresses, compute the register
-        // address relative to the register base address.
-        //
-
-        if ((i > 3) && (DefaultDACRegRange != VLDefDACRegRange))
-        {
-            DefaultDACRegRange[i].RangeStart.LowPart += PCI_REG_BASE;
-        }
-
-    }
-
-    //
-    // Copy the DAC register access range into the global list of access
-    // ranges.
-    //
-
-    VideoPortMoveMemory(&DriverAccessRanges[NUM_DRIVER_ACCESS_RANGES],
-                        DefaultDACRegRange,
-                        sizeof(VIDEO_ACCESS_RANGE) *
-                        HwDeviceExtension->Dac.cDacRegs);
 
     return(TRUE);
 
@@ -817,6 +1029,8 @@ Return Value:
     // Look at each device.
     //
 
+    *pulSlotNum = 0;
+
     while (*pulSlotNum < 32)
     {
         slotData.u.bits.DeviceNumber = *pulSlotNum;
@@ -875,191 +1089,6 @@ Return Value:
 
 
 BOOLEAN
-PciReadConfigReg(
-    IN  PHW_DEVICE_EXTENSION    HwDeviceExtension,
-    IN  ULONG                   ulSlotNum,
-    IN  USHORT                  usRegNum,
-    OUT PULONG                  pulValue,
-    IN  USHORT                  usSize
-    )
-
-/*++
-
-Routine Description:
-
-    Reads a PCI config register for a particular PCI device.
-
-Arguments:
-
-    HwDeviceExtension - Pointer to the device extension,
-    ulSlotNum - The slot number of the device.
-    usRegNum - Number of the desired config register.
-    pulValue - If successful, the value of the config register.
-    usSize - Size of the data to be read.
-
-Return Value:
-
-    TRUE if successful.
-
---*/
-{
-    if (VideoPortGetBusData(HwDeviceExtension,
-                            PCIConfiguration,
-                            ulSlotNum,
-                            pulValue,
-                            usRegNum,
-                            usSize) == 0)
-    {
-        return(FALSE);
-    }
-    else
-    {
-        return(TRUE);
-    }
-}
-
-
-BOOLEAN
-PciWriteConfigReg(
-    IN  PHW_DEVICE_EXTENSION    HwDeviceExtension,
-    IN  ULONG                   ulSlotNum,
-    IN  USHORT                  usRegNum,
-    IN  ULONG                   ulValue,
-    IN  USHORT                  usSize
-    )
-
-/*++
-
-Routine Description:
-
-    Writes a PCI config register for a particular PCI device.
-
-Arguments:
-
-    HwDeviceExtension - Pointer to the device extension,
-    ulSlotNum - The slot number of the device.
-    usRegNum - Number of the desired config register.
-    pulValue - Value to be written to the config register.
-
-Return Value:
-
-    TRUE if successful.
-
---*/
-{
-    if (VideoPortSetBusData(HwDeviceExtension,
-                            PCIConfiguration,
-                            ulSlotNum,
-                            &ulValue,
-                            usRegNum,
-                            usSize) == 0)
-    {
-        return(FALSE);
-    }
-    else
-    {
-        return(TRUE);
-    }
-}
-
-
-BOOLEAN
-PciMapMemory(
-    IN      PHW_DEVICE_EXTENSION    HwDeviceExtension,
-    IN      ULONG                   ulRangeLen,
-    IN      BOOLEAN                 bInIoSpace,
-    IN OUT  PULONG                  pulPhysAddr
-    )
-
-/*++
-
-Routine Description:
-
-    Attempts to find empty address space for adapter  memory and IO resources.
-    This is required since the 9001 is not properly initialized by the PCI HAL
-    due to its request for 4k of contiguous io space.
-
-Arguments:
-
-    HwDeviceExtension - Pointer to the device extension.
-    ulRangeLen - Size of the range to be mapped.
-    bInIoSpace - TRUE if the request is for Io space, FALSE if for mem space.
-    pulPhysAddr - If successful, the physical address.
-
-Return Value:
-
-    TRUE if space was found.
-
---*/
-{
-    VIDEO_ACCESS_RANGE  AccessRange;
-    LONG        nRanges;
-    LONG        i;
-
-    //
-    // Initialize common fields in the access range struct.
-    //
-
-    AccessRange.RangeVisible = TRUE;
-    AccessRange.RangeShareable = TRUE;
-    AccessRange.RangeLength = ulRangeLen;
-
-    //
-    // Set the starting address for the address space search.
-    //
-
-    AccessRange.RangeStart.HighPart = 0;
-
-    if (bInIoSpace)
-    {
-        //
-        // Start at the top of the 64K Io space, continue until we reach the 1st
-        // 4k Page.
-        //
-
-        AccessRange.RangeStart.LowPart = 0x0000f000;
-        nRanges = (LONG) ((AccessRange.RangeStart.LowPart - 0x00001000)
-                    / ulRangeLen);
-        AccessRange.RangeInIoSpace = TRUE;
-
-    }
-    else
-    {
-        //
-        // Start at the upper reaches of memory space, continue to the bottom.
-        //
-
-        AccessRange.RangeStart.LowPart = 0x0f0000000;
-        nRanges = (LONG) (AccessRange.RangeStart.LowPart / ulRangeLen);
-        AccessRange.RangeInIoSpace = FALSE;
-    }
-
-    for (i = 0; i < nRanges; i++)
-    {
-        if (VideoPortVerifyAccessRanges(HwDeviceExtension,
-                                        1L,
-                                        &AccessRange) == NO_ERROR)
-
-        {
-            //
-            // If the memory range can be accessed, the search is done.
-            //
-
-            *pulPhysAddr = AccessRange.RangeStart.LowPart;
-            return(TRUE);
-        }
-        else
-        {
-            AccessRange.RangeStart.LowPart -= ulRangeLen;
-        }
-
-    }
-
-    return(FALSE);
-}
-
-
-BOOLEAN
 PciP9MemEnable(
     PHW_DEVICE_EXTENSION HwDeviceExtension
     )
@@ -1081,28 +1110,32 @@ Return Value:
 --*/
 
 {
-    USHORT  usTemp;
+   ULONG    ulTemp;
 
     //
     // Read the PCI command register to determine if the memory/io
     // resources are enabled. If not, enable them.
     //
 
-    if (!PciReadConfigReg(HwDeviceExtension,
-                            PCI_SLOT_NUM,
-                            P9001_CMD_REG,
-                            &usTemp,
-                            sizeof(usTemp)))
+    if (!VideoPortGetBusData(HwDeviceExtension,
+                             PCIConfiguration,
+                             HwDeviceExtension->PciSlotNum,
+                             &ulTemp,
+                             P9001_CMD_REG,
+                             sizeof(ulTemp)))
     {
         return(FALSE);
     }
-    else if (!(usTemp & (P9001_MEM_ENB | P9001_IO_ENB)))
+    else if (!(ulTemp & (P9001_MEM_ENB | P9001_IO_ENB)))
     {
-        if (!PciWriteConfigReg(HwDeviceExtension,
-                                PCI_SLOT_NUM,
-                                P9001_CMD_REG,
-                                usTemp | (P9001_MEM_ENB | P9001_IO_ENB),
-                                sizeof(usTemp)))
+        ulTemp |= (P9001_MEM_ENB | P9001_IO_ENB);
+
+        if (!VideoPortSetBusData(HwDeviceExtension,
+                                 PCIConfiguration,
+                                 HwDeviceExtension->PciSlotNum,
+                                 &ulTemp,
+                                 P9001_CMD_REG,
+                                 sizeof(ulTemp)))
         {
             return(FALSE);
         }
@@ -1190,7 +1223,7 @@ Return Value:
 }
 
 
-VOID
+BOOLEAN
 ViperPciP9Disable(
     PHW_DEVICE_EXTENSION HwDeviceExtension
     )
@@ -1209,7 +1242,7 @@ Arguments:
 
 Return Value:
 
-    None.
+    TRUE, indicating no int10 is needed to complete the switch
 
 --*/
 
@@ -1246,16 +1279,5 @@ Return Value:
         LockVGARegs(HwDeviceExtension);
     }
 
-    return;
+    return TRUE;
 }
-
-/*++
-
-Revision History:
-
-    $Log:   N:/ntdrv.vcs/miniport.new/pci.c_v  $
- *
- *    Rev 1.0   14 Jan 1994 22:41:04   robk
- * Initial revision.
-
---*/

@@ -1,3 +1,5 @@
+#ifndef STFILE_INCLUDED
+#define STFILE_INCLUDED
 /* Must include slm.h, sys.h, and util.h first. */
 
 /*
@@ -177,7 +179,7 @@ typedef unsigned short FM;
 #define FValidFm(fm)    (((fm) <= fmMerge) || \
                          ((fm) >= fmVerify && (fm) < fmMax))
 
-extern char *mpfmsz[];
+extern char const * mpfmsz[];
 
 /* BI - Base Id: unique number for producing the name of baseline files.
    Base files are named:
@@ -205,7 +207,7 @@ typedef unsigned short  FK;             /* file kind */
 #define fkUserMin       (FK)16          /* NYI future enhancement */
 #define fkMax           (FK)26
 
-extern char *mpfksz[];
+extern char const * mpfksz[];
 
 /* Status Header */
 typedef struct
@@ -254,10 +256,13 @@ typedef struct
         PTH pthEd[cchPthMax];   /* path to user's root directory */
         NM nmOwner[cchUserMax]; /* user who enlisted the directory */
         BIT  fLocked:1;         /* ed is locked */
-        BIT  fNewVer:1;
-        BITS rgfSpare:14;
+        BIT  fNewVer:1;         /* ed is has new local version checked out */
+        BIT  fFreeEd:1;         /* ed is free and can be reused by enlist */
+        BITS rgfSpare:13;
         BITS wSpare:16;
         } ED;
+
+#define FIsFreeEdValid(psh) ((psh)->version > VERSION_NO_FREE_ED)
 
 /* File Status; rgfs same size and order as rgfi */
 typedef struct
@@ -283,6 +288,4 @@ extern PTH pthUpdSlm[];
 
 BOOL fSetTime;
 
-#ifndef STFILE_INCLUDED
-#define STFILE_INCLUDED
 #endif

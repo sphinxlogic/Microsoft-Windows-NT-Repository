@@ -2,9 +2,7 @@
 #include "winapp.hxx"
 #include "regsys.hxx"
 
-extern "C" {
-    #include <stdio.h>
-};
+#include <stdio.h>
 
 //    #define FORMAT_MESSAGE_FROM_HMODULE    0x00000800
 
@@ -90,8 +88,8 @@ Return Value:
                     UnformattedMessage,
                     1024 ) == 0 ) {
         Status = GetLastError();
-        DbgPrint( "LoadStringW() failed" );
-        DbgPrintf("LoadStringW() failed. Error = %d \n", Status );
+        DebugPrint( "LoadStringW() failed" );
+        DebugPrintf("LoadStringW() failed. Error = %d \n", Status );
         return FALSE;
     }
 
@@ -103,8 +101,8 @@ Return Value:
                        sizeof( display_buffer ),
                        &VarPointer ) == 0 ) {
          Status = GetLastError();
-         DbgPrint( "FormatMessageW() failed" );
-         DbgPrintf("FormatMessageW() failed. Error = %d \n", Status );
+         DebugPrint( "FormatMessageW() failed" );
+         DebugPrintf("FormatMessageW() failed. Error = %d \n", Status );
          return FALSE;
     }
 

@@ -308,9 +308,8 @@ Return Value:
     if (linkage != NULL) {
         NdisPacket = CONTAINING_RECORD( linkage, NDIS_PACKET, ProtocolReserved[0] );
     } else {
-        (VOID)ExInterlockedIncrementLong(
-            (PLONG)&DeviceContext->ReceivePacketExhausted,
-            &DeviceContext->Interlock);
+        (VOID)InterlockedIncrement((PLONG)&DeviceContext->ReceivePacketExhausted);
+
         return NDIS_STATUS_RESOURCES;
     }
     ReceiveTag = (PRECEIVE_PACKET_TAG)(NdisPacket->ProtocolReserved);
@@ -326,9 +325,8 @@ Return Value:
             &DeviceContext->ReceivePacketPool,
             (PSINGLE_LIST_ENTRY)&ReceiveTag->Linkage,
             &DeviceContext->Interlock);
-        (VOID)ExInterlockedIncrementLong(
-            (PLONG)&DeviceContext->ReceiveBufferExhausted,
-            &DeviceContext->Interlock);
+        (VOID)InterlockedIncrement((PLONG)&DeviceContext->ReceiveBufferExhausted);
+
         return NDIS_STATUS_RESOURCES;
     }
 

@@ -53,7 +53,7 @@ PCHAR	aSVCNames[] = {
      "DemSetDPB",
      "DemGetDPB",
      "DemSleazeFunc",
-     "DemCommit",
+     "demCommit",
      "DemExtHandle",
      "DemAbsDRD",
      "DemAbsDWRT",
@@ -84,7 +84,9 @@ PCHAR	aSVCNames[] = {
      "DemFastWrite",
      "DemCheckPath",
      "DemSystemSymbolOp",
-     "DemGetDpbList"
+     "DemGetDpbList",
+     "DemPipeFileDataEOF",
+     "DemPipeFileEOF"
 };
 
 #endif   // DBG
@@ -133,7 +135,7 @@ PFNSVC  apfnSVC [] = {
      demNotYetImplemented,	//SVC_DEMSETDPB
      demGetDPB,			//SVC_DEMGETDPB
      demNotYetImplemented,	//SVC_DEMSLEAZEFUNC
-     demNotYetImplemented,	//SVC_DEMCOMMIT
+     demCommit,			//SVC_DEMCOMMIT
      demNotYetImplemented,	//SVC_DEMEXTHANDLE
      demAbsRead,		//SVC_DEMABSDRD
      demAbsWrite,		//SVC_DEMABSDWRT
@@ -164,7 +166,9 @@ PFNSVC  apfnSVC [] = {
      demNotYetImplemented,	//SVC_DEMFASTWRITE
      demCheckPath,		//SVC_DEMCHECKPATH
      demSystemSymbolOp,		//SVC_DEMSYSTEMSYMBOLOP
-     demGetDPBList            //SVC_DEMBUILDDPBLIST
+     demGetDPBList,		//SVC_DEMBUILDDPBLIST
+     demPipeFileDataEOF,	//SVC_DEMPIPEFILEDATAEOF
+     demPipeFileEOF		//SVC_DEMPIPEFILEEOF
 };
 
 

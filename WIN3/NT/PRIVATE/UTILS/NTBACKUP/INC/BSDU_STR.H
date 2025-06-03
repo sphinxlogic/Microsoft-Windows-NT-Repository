@@ -199,7 +199,8 @@ typedef struct BSD {
      INT16           match_buffer_size ; /* internaly used by the matcher    */
      UINT8           tape_cat_ver ;      /* MTF on tape catalog version      */
      UINT32          cat_status ;        /* Catalog status word - valid on restore only */
-
+     UINT8           set_os_id ;
+     UINT8           set_os_ver ;
 } BSD, *BSD_PTR ;
 
 /*

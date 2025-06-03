@@ -29,11 +29,10 @@ Notes:
 
 #define _STRRESID_
 
-
 #define IDS_APPLICATION_NAME                        (   1 )
 #define IDS_NO_MATCHING_FILES                       (   2 )
-#define IDS_FILE_FILTER                             (   3 )
-#define IDS_BROWSE                                  (   4 )
+#define IDS_NT_REQUIRED                             (   3 )
+
 #define IDS_DISPLAY_FILE_WINDOW_CLASS               (   5 )
 #define IDS_HELP_FILE_MENU                          (   6 )
 #define IDS_HELP_TOOL_MENU                          (   7 )
@@ -73,13 +72,14 @@ Notes:
 #define IDS_VFT2_FONT_RASTER                        (  41 )
 #define IDS_VFT2_FONT_VECTOR                        (  42 )
 #define IDS_VFT2_FONT_TRUETYPE                      (  43 )
-#define IDS_PROCESSOR_INTEL_386                     (  44 )
-#define IDS_PROCESSOR_INTEL_486                     (  45 )
-#define IDS_PROCESSOR_INTEL_PENTIUM                 (  46 )
-#define IDS_PROCESSOR_INTEL_860                     (  47 )
-#define IDS_PROCESSOR_MIPS_R2000                    (  48 )
-#define IDS_PROCESSOR_MIPS_R3000                    (  49 )
-#define IDS_PROCESSOR_MIPS_R4000                    (  50 )
+#define IDS_PROCESSOR_ARCHITECTURE_INTEL            (  44 )
+#define IDS_PROCESSOR_ARCHITECTURE_MIPS             (  45 )
+#define IDS_PROCESSOR_ARCHITECTURE_ALPHA            (  46 )
+#define IDS_PROCESSOR_ARCHITECTURE_PPC              (  47 )
+#define IDS_PROCESSOR_ARCHITECTURE_PPC              (  47 )
+#define IDS_PROCESSOR_ARCHITECTURE_UNKNOWN1         (  48 )
+#define IDS_PROCESSOR_ARCHITECTURE_UNKNOWN2         (  49 )
+#define IDS_PROCESSOR_ARCHITECTURE_UNKNOWN3         (  50 )
 #define IDS_SERVICE_FILE_SYSTEM_DRIVER              (  51 )
 #define IDS_SERVICE_WIN32_OWN_PROCESS               (  52 )
 #define IDS_SERVICE_WIN32_SHARE_PROCESS             (  53 )
@@ -106,7 +106,7 @@ Notes:
 #define IDS_SERVICE_KERNEL_DRIVER                   (  75 )
 #define IDS_IDC_PUSH_DRIVES_HELP                    (  76 )
 #define IDS_VFT2_UNKNOWN                            (  77 )
-#define IDS_PROCESSOR_ALPHA_21064                   (  78 )
+#define IDS_PROCESSOR_ARCHITECTURE_UNKNOWN4         (  78 )
 #define IDS_HELP_FILE_FIND_FILE                     (  79 )
 #define IDS_HELP_FILE_EXIT                          (  80 )
 #define IDS_HELP_TOOL_EVENTVWR                      (  81 )
@@ -178,27 +178,19 @@ Notes:
 #define IDS_SERVICE_INTERACTIVE_WIN32_OWN            ( 143 )
 #define IDS_SERVICE_INTERACTIVE_WIN32_SHARE          ( 144 )
 
+
 #define SERVICE_INTERACTIVE_WIN32_OWN   ( SERVICE_INTERACTIVE_PROCESS |\
                                           SERVICE_WIN32_OWN_PROCESS )
 #define SERVICE_INTERACTIVE_WIN32_SHARE ( SERVICE_INTERACTIVE_PROCESS |\
                                           SERVICE_WIN32_SHARE_PROCESS )
 
-/*
-#define IDS_IDC_TEXT__DLG               ( 111 )
-#define IDS_IDC_TEXT__DLG               ( 112 )
-#define IDS_IDC_TEXT__DLG               ( 113 )
-#define IDS_IDC_TEXT__DLG               ( 114 )
-#define IDS_IDC_TEXT__DLG               ( 115 )
-#define IDS_IDC_TEXT__DLG               ( 116 )
-#define IDS_IDC_TEXT__DLG               ( 117 )
-#define IDS_IDC_TEXT__DLG               ( 118 )
-#define IDS_IDC_TEXT__DLG               ( 119 )
-#define IDS_IDC_TEXT__DLG               ( 120 )
-*/
+#define IDS_PROCESSOR_PPC_603                        ( 146 )
+#define IDS_PROCESSOR_PPC_604                        ( 147 )
+#define IDS_PROCESSOR_PPC_620                        ( 148 )
 
 #define IDS_DRIVES_REPORT                            ( 1000 )
 #define IDS_ENVIRON_REPORT                           ( 1001 )
-#define IDS_HARDWARE_REPORT                          ( 1002 )
+#define IDS_VIDEO_REPORT                             ( 1002 )
 #define IDS_MEMORY_REPORT                            ( 1003 )
 #define IDS_NETWORK_REPORT                           ( 1004 )
 #define IDS_OSVER_REPORT                             ( 1005 )
@@ -210,6 +202,7 @@ Notes:
 #define IDS_SYSTEM_REPORT                            ( 1011 )
 #define IDS_REPORT_TITLE                             ( 1012 )
 #define IDS_DOC_TITLE                                ( 1013 )
+#define IDS_CANCEL_REPORT                            ( 1050 )
 #define IDS_START_DOC                                ( 1014 )
 #define IDS_START_PAGE                               ( 1015 )
 #define IDS_END_PAGE                                 ( 1016 )
@@ -229,6 +222,18 @@ Notes:
 #define IDS_PROCESSOR_STEP                           ( 1030 )
 
 #define IDS_BITS_PER_PIXEL                           ( 1031 )
+//Added by kylesh on 8/31
+#define IDS_IRQ_REPORT_VECTOR                        ( 1032 )
+#define IDS_IRQ_REPORT_LEVEL                         ( 1033 )
+#define IDS_IRQ_REPORT_AFFINITY                      ( 1034 )
+#define IDS_REPORT_DEVICE_NAME                       ( 1035 )
+#define IDS_REPORT_PHYS_ADD                          ( 1036 )
+#define IDS_REPORT_LENGTH                            ( 1037 )
+#define IDS_DMA_REPORT_CHANNEL                       ( 1038 )
+#define IDS_DMA_REPORT_PORT                          ( 1039 )
+#define IDS_NETWORK_REPORT_WAN                       ( 1040 )
+#define IDS_NETWORK_REPORT_VC                        ( 1041 )
+
 
 #define IDS_COMPUTER_NAME                            ( 1100 )
 #define IDS_PLATFORM_ID                              ( 1101 )
@@ -317,7 +322,8 @@ Notes:
 #define IDS_FAILED_SESS                              ( 1172 )
 #define IDS_RECONNECTS                               ( 1173 )
 #define IDS_CORE_CONNECTS                            ( 1174 )
-#define IDS_LM2X_CONNECTS                            ( 1175 )
+#define IDS_LM20_CONNECTS                            ( 1175 )
+#define IDS_LM21_CONNECTS                            ( 1199 )
 #define IDS_LMNT_CONNECTS                            ( 1176 )
 #define IDS_SVR_DISC                                 ( 1177 )
 #define IDS_HUNG_SESS                                ( 1178 )
@@ -341,7 +347,7 @@ Notes:
 #define IDS_AVG_RESP_TIME                            ( 1193 )
 #define IDS_REQ_BUFS_NEEDED                          ( 1194 )
 #define IDS_BIG_BUFS_NEEDED                          ( 1195 )
-
+                                                 // 1199 used above
 #define IDS_NOT_SUPPORTED                            ( 1200 )
 
 #define IDS_PLATFORM_DOS                             ( 1201 )
@@ -362,4 +368,217 @@ Notes:
 #define IDS_SC_ERROR                                 ( 1215 )
 #define IDS_PREVIOUS_USER                            ( 1216 )
 
+#define IDS_NO_DEFUALT_PRINTER                       ( 1217 )
+#define IDS_PRINT_ERROR                              ( 1218 )
+
+//new for 4.0
+#define IDS_MY_COMPUTER                              ( 1219 )
+#define IDS_APPLICATION_FULLNAME                     ( 1198 )
+#define IDS_DRIVE_PROPERTY_NOT_AVAILABLE             ( 1220 )
+#define IDS_GENERAL_TAB                              ( 1221 )
+#define IDS_FILESYSTEM_TAB                           ( 1222 )
+
+#define IDS_VERSION                                  ( 1223 )
+#define IDS_HARDWARE                                 ( 1224 )
+#define IDS_VIDEO                                    ( 1225 )
+#define IDS_DRIVES                                   ( 1226 )
+#define IDS_MEMORY                                   ( 1227 )
+//#define IDS_INSTALL                                  ( 1228 )
+#define IDS_DRIVERS_SERVICES                         ( 1228 )
+#define IDS_IRQ_PORT_DMA_MEM                         ( 1229 )
+#define IDS_ENVIRONMENT                              ( 1230 )
+//#define IDS_PRINTING                                 ( 1232 )
+#define IDS_NETWORK                                  ( 1231 )
+#define IDS_FIRST_TAB                                IDS_VERSION
+#define IDS_LAST_TAB                                 IDS_NETWORK
+#define IDS_ALIAS_NAME                               ( 1233 )
+
+#define IDS_NOT_AVAILABLE_REMOTE                     ( 1234 )
+#define IDS_NO_REMOTE_DRIVES                         ( 1235 )
+#define IDS_TOTAL_MB                                 ( 1240 )
+#define IDS_FREE_MB                                  ( 1245 )
+
+
+#define IDS_VERSION_HELP                             ( 1250 )
+#define IDS_SYSTEM_HELP                              ( 1251 )
+#define IDS_DISPLAY_HELP                             ( 1252 )
+#define IDS_DRIVES_HELP                              ( 1253 )
+#define IDS_MEMORY_HELP                              ( 1254 )
+#define IDS_SERVICES_HELP                            ( 1255 )
+#define IDS_RESOURCES_HELP                           ( 1256 )
+#define IDS_ENVIRONMENT_HELP                         ( 1257 )
+#define IDS_NETWORK_HELP                             ( 1258 )
+
+//drives tab
+#define IDS_VIEW_BY_TYPE                             ( 1300 )
+#define IDS_VIEW_BY_LETTER                           ( 1301 )
+#define IDS_VIEW_BY_SCSI                             ( 1302 )
+#define IDS_VIEW_BY_PHYSICAL                         ( 1303 )
+#define IDS_DRV_BASE                                 ( 1310 )
+#define IDS_DRV_REMOVABLE                            ( IDS_DRV_BASE + DRIVE_REMOVABLE )  // 1312
+#define IDS_DRV_FIXED                                ( IDS_DRV_BASE + DRIVE_FIXED )      // 1313
+#define IDS_DRV_REMOTE                               ( IDS_DRV_BASE + DRIVE_REMOTE )     // 1314
+#define IDS_DRV_CDROM                                ( IDS_DRV_BASE + DRIVE_CDROM )      // 1315
+#define IDS_BYTES_PER_CLUSTER                        ( 1320 )
+#define IDS_SECTORS_PER_CLUSTER                      ( 1325 )
+#define IDS_CHARS_IN_FILENAME                        ( 1330 )
+#define IDS_DRIVE_SERIAL_NUM                         ( 1335 )
+
+
+#define IDS_VERSIONMSG                               ( 1400 )
+#define IDS_DEBUG                                    ( 1412 )
+#define IDS_NOT_AVAILABLE                            ( 1419 )
+#define IDS_CPU                                      ( 1422 )
+#define IDS_CPU_DESCRIPTION                          ( 1423 )
+#define IDS_BIOSDATE                                 ( 1424 )
+#define IDS_CURRENTBUILDNUMBER                       ( 1425 )
+#define IDS_VERSIONMSG2                              ( 1426 )
+#define IDS_HAL                                      ( 1435 )
+
+//video strings
+#define IDS_REFRESH                                  ( 1500 )
+#define IDS_NON_INTERLACED                           ( 1505 )
+#define IDS_INTERLACED                               ( 1510 )
+#define IDS_HARDWARE_DEFAULT                         ( 1515 )
+#define IDS_DSP_TXT_COMPATABLE_DEV                   ( 1520 )
+#define IDS_TEXT_VIDEO_RES                           ( 1525 )
+#define IDS_TEXT_VIDEO_ADAPTER                       ( 1530 )
+#define IDS_VIDEO_DRIVER_BOX                         ( 1535 )
+#define IDS_VIDEO_ADAPTER_BOX                        ( 1540 )
+#define IDS_TEXT_VIDEO_DRIVERS                       ( 1545 )
+#define IDS_TEXT_VIDEO_MANUFACTURER                  ( 1550 )
+#define IDS_TEXT_VIDEO_DRV_VER                       ( 1555 )
+#define IDS_TEXT_VIDEO_CHIP                          ( 1560 )
+#define IDS_TEXT_VIDEO_DAC                           ( 1565 )
+#define IDS_TEXT_VIDEO_MEM                           ( 1570 )
+#define IDS_TEXT_VIDEO_STRING                        ( 1575 )
+
+
+#define IDS_SERVICE                                  ( 1600 )
+#define IDS_DRIVER                                   ( 1610 )
+#define IDS_STATE                                    ( 1620 )
+#define IDS_DEPENDENCIES_TAB                         ( 1625 )
+#define IDS_SERVICE_NOT_AVAILABLE                    ( 1630 )
+#define IDS_SERVICE_INTERACTIVE                      ( 1635 )
+#define IDS_SERVICE_ACCOUNT_NAME                     ( 1640 )
+#define IDS_ERROR_SEVERITY                           ( 1645 )
+#define IDS_SERVICE_FLAGS                            ( 1650 )
+#define IDS_SERVICE_DEPENDENCIES                     ( 1655 )
+#define IDS_GROUP_DEPENDENCIES                       ( 1660 )
+
+#define IDS_HISTORY                                  ( 1700 )
+#define IDS_PROGRAMFILTERS                           ( 1705 )
+#define IDS_BROWSE                                   ( 1710 )
+
+#define IDS_DEVICE                                   ( 1800 )
+#define IDS_IRQ                                      ( 1805 )
+#define IDS_DMA                                      ( 1810 )
+#define IDS_PORT                                     ( 1815 )
+#define IDS_MEM                                      ( 1820 )
+#define IDS_VECTOR                                   ( 1825 )
+#define IDS_AFFINITY                                 ( 1830 )
+#define IDS_ADDRESS                                  ( 1835 )
+#define IDS_LENGTH                                   ( 1840 )
+#define IDS_BUS                                      ( 1845 )
+#define IDS_INTERFACE_TYPE                           ( 1850 )
+#define IDS_CHANNEL                                  ( 1855 )
+#define IDS_DMA_PORT                                 ( 1860 )
+#define IDS_PORTADDRESS                              ( 1865 )
+#define IDS_PORTLENGTH                               ( 1870 )
+#define IDS_ACCESS_TYPE                              ( 1875 )
+#define IDS_RESOURCE_TYPE                            ( 1880 )
+#define IDS_SETTING                                  ( 1882 )
+#define IDS_MEMORY_RANGE                             ( 1884 )
+#define IDS_IO_RANGE                                 ( 1886 )
+#define IDS_INTERRUPT                                ( 1888 )
+#define IDS_DMA_CHANNEL                              ( 1890 )
+
+
+#define IDS_EVENTVWR                                 ( 1901 )
+#define IDS_REGEDT32                                 ( 1902 )
+#define IDS_WINDISK                                  ( 1903 )
+#define IDS_CONTROLP                                 ( 1904 )
+#define IDS_NOTEPAD                                  ( 1905 )
+#define IDS_AUTOEXEC_NT                              ( 1906 )
+#define IDS_CONFIG_NT                                ( 1907 )
+#define IDS_BOOTINI                                  ( 1908 )
+#define IDS_EXPLORER                                 ( 1909 )
+#define IDS_MSINFO                                   ( 1910 )
+#define IDS_SYSTEDIT                                 ( 1911 )
+#define IDS_PERFMON                                  ( 1912 )
+#define IDS_TASKMGR									 ( 1913 )
+
+//
+// Be careful about changing this numbering, it is based
+// on the INTERFACE_TYPE defined in ntioapi.h.  Note that
+// the first enum in this TYPE is (-1), thus IDS_UNDEFINED
+// is set to 1999.  This allows:
+// GetString( (IDS_BASE_BUS_TYPE + INTERFACE_TYPE) );
+// to return the proper string. Used in resource.c
+//
+#define IDS_UNDEFINED                                ( 1999 )
+#define IDS_INTERNAL                                 ( 2000 )
+#define IDS_BASE_BUS_TYPE                            IDS_INTERNAL
+#define IDS_ISA                                      ( 2001 )
+#define IDS_EISA                                     ( 2002 )
+#define IDS_MC                                       ( 2003 )
+#define IDS_TC                                       ( 2004 )
+#define IDS_PCI                                      ( 2005 )
+#define IDS_VME                                      ( 2006 )
+#define IDS_NUBUS                                    ( 2007 )
+#define IDS_PCMCIA                                   ( 2008 )
+#define IDS_CBUS                                     ( 2009 )
+#define IDS_MPI                                      ( 2010 )
+#define IDS_MPSA                                     ( 2011 )
+#define IDS_P_INT                                    ( 2012 )
+#define IDS_INT_PB                                   ( 2013 )
+
+#define IDS_GENERAL                                  ( 2100 )
+#define IDS_STATISTIC                                ( 2101 )
+#define IDS_TRANSPORT                                ( 2102 )
+#define IDS_VALUE                                    ( 2104 )
+#define IDS_NAME                                     ( 2105 )
+#define IDS_VC                                       ( 2106 )
+#define IDS_WAN                                      ( 2107 )
+#define IDS_LANROOT                                  ( 2110 )
+#define IDS_IDENTIFIER                               ( 2115 )
+
+#define IDS_VARIABLE                                 ( 2200 )
+#define IDS_SYSTEM_VARS                              ( 2205 )
+#define IDS_CURRENT_USERS_VARS                       ( 2210 )
+
+
+// memory tab
+#define IDS_NO_PAGING_FILES                          ( 2300 )
+#define IDS_PAGEFILE                                 ( 2305 )
+#define IDS_PAGEFILE_TOTAL                           ( 2310 )
+#define IDS_PAGEFILE_INUSE                           ( 2315 )
+#define IDS_PAGEFILE_PEAKUSE                         ( 2320 )
+#define IDS_HANDLES                                  ( 2325 )
+#define IDS_THREADS                                  ( 2330 )
+#define IDS_PROCESSES                                ( 2335 )
+#define IDS_PHYSICAL_MEMORY                          ( 2340 )
+#define IDS_TOTAL                                    ( 2345 )
+#define IDS_AVAILABLE                                ( 2350 )
+#define IDS_FILECACHE                                ( 2355 )
+#define IDS_COMMITCHARGE                             ( 2360 )
+#define IDS_LIMIT                                    ( 2365 )
+#define IDS_PEAK                                     ( 2370 )
+#define IDS_KERNELMEMORY                             ( 2375 )
+#define IDS_PAGED                                    ( 2380 )
+#define IDS_NONPAGED                                 ( 2385 )
+#define IDS_PAGEFILESPACE                            ( 2390 )
+#define IDS_TOTAL_IN_USE                             ( 2395 )
+
+    
+// misc
+#define IDS_REPORT_FAILED                            ( 2400 )
+#define IDS_UNEXPECTED_NETWORK_FAILURE               ( 2410 )
+#define IDS_NETWORK_STATISTICS_FAILURE               ( 2420 )
+#define IDS_REMOTE_NOT_NT                            ( 2430 )
+#define IDS_DENIED_ACCESS_REMOTE                     ( 2440 )
+#define IDS_KB                                       ( 2450 )
+
 #endif // _STRRESID_
+
+

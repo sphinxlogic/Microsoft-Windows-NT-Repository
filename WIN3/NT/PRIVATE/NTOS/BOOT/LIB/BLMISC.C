@@ -8,7 +8,7 @@ Module Name:
 
 Abstract:
 
-    This module contains miscellaneous routines for use by 
+    This module contains miscellaneous routines for use by
     the boot loader and setupldr.
 
 Author:
@@ -21,6 +21,12 @@ Revision History:
 
 #include "bootlib.h"
 
+//
+// Value indicating whether a dbcs locale is active.
+// If this value is non-0 we use alternate display routines, etc,
+// and fetch messages in this language.
+//
+ULONG DbcsLangId;
 
 PCHAR
 BlGetArgumentValue (
@@ -94,4 +100,32 @@ Return Value:
     }
 
     return NULL;
+}
+
+//
+// Line draw chars -- different scheme in Far East vs. SBCS
+//
+UCHAR
+GetGraphicsChar(
+    IN GraphicsChar WhichOne
+    )
+{
+#ifdef _X86_
+    UCHAR TextGetGraphicsCharacter(GraphicsChar);
+
+    return(TextGetGraphicsCharacter(WhichOne));
+#else
+    //
+    // ARC machines don't support dbcs for now
+    //
+    static UCHAR ArcGraphicsChars[GraphicsCharMax] = { (UCHAR)'\311',   // right-down
+                                                       (UCHAR)'\273',   // left-down
+                                                       (UCHAR)'\310',   // right-up
+                                                       (UCHAR)'\274',   // left-up
+                                                       (UCHAR)'\272',   // vertical
+                                                       (UCHAR)'\315'    // horizontal
+                                                     };
+
+    return(((unsigned)WhichOne < (unsigned)GraphicsCharMax) ? ArcGraphicsChars[WhichOne] : ' ');
+#endif
 }

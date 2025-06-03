@@ -86,4 +86,3 @@ unsigned dxa;
 	}
     }
 #endif /* RULERALSO */
-

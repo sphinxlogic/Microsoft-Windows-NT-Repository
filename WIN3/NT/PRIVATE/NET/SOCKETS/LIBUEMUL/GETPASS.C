@@ -189,4 +189,3 @@ getpass(
 	
     return(pbuf);
 }
-

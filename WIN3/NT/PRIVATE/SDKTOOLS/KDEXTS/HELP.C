@@ -22,8 +22,6 @@ Revision History:
 
 --*/
 
-
-
 VOID
 CommonHelp (
     VOID
@@ -71,6 +69,7 @@ CommonHelp (
     dprintf("calldata <table name>       - Dump call data hash table\n" );
     dprintf("db <physical address>       - Display physical memory\n");
     dprintf("dd <physical address>       - Display physical memory\n");
+    dprintf("dblink <address> [count]    - Dumps a list via its blinks\n");
     dprintf("devobj <device address>     - Dump the device object and Irp queue\n");
     dprintf("drvobj <driver address>     - Dump the driver object and related information\n");
     dprintf("drivers                     - Display information about all loaded system modules\n");
@@ -79,6 +78,7 @@ CommonHelp (
     dprintf("errlog                      - Dump the error log contents\n");
     dprintf("exr <address>               - Dump exception record at specified address\n");
     dprintf("filecache                   - Dumps information about the file system cache\n");
+    dprintf("filelock <address>          - Dump a file lock structure\n");
     dprintf("frag [flags]                - Kernel mode pool fragmentation\n");
     dprintf("     flags:  1 - List all fragment information\n");
     dprintf("             2 - List allocation information\n");
@@ -95,10 +95,13 @@ CommonHelp (
     dprintf("help                        - Displays this list\n" );
     dprintf("ib <port>                   - Read a byte from an I/O port\n");
     dprintf("id <port>                   - Read a double-word from an I/O port\n");
-    dprintf("id <port>                   - Read a double-word from an I/O port\n");
+    dprintf("iw <port>                   - Read a word from an I/O port\n");
     dprintf("irp <address>               - Dump Irp at specified address\n");
-    dprintf("irpzone                     - Walk the Irp zones looking for active Irps\n");
+    dprintf("irpfind                     - Search non-paged pool for active Irps\n");
     dprintf("locks [-v] <address>        - Dump kernel mode resource locks\n");
+    dprintf("lookaside <address> <options> <depth> - Dump lookaside lists\n");
+    dprintf("       options - 1 Reset Counters\n");
+    dprintf("       options - 2 <depth> Set depth\n");
     dprintf("lpc                         - Dump lpc ports and messages\n");
     dprintf("memusage                    - Dumps the page frame database table\n");
     dprintf("ob <port>                   - Write a byte to an I/O port\n");
@@ -115,12 +118,18 @@ CommonHelp (
     dprintf("              1 - Above + location/size of regions\n");
     dprintf("              3 - Above + allocated/free blocks in committed regions\n");
     dprintf("              4 - Above + free lists\n");
+    dprintf("poolfind Tag [pooltype] -   - Finds occurrences of the specified Tag\n");
+    dprintf("     Tag is 4 character tag, * and ? are wild cards\n");
+    dprintf("     pooltype is 0 for nonpaged (default, and 1 for paged\n");
+    dprintf("   NOTE - this can take a long time!\n");
     dprintf("poolused [flags]            - Dump usage by pool tag\n");
     dprintf("       flags:  1 Verbose\n");
     dprintf("       flags:  2 Sort by NonPagedPool Usage\n");
     dprintf("       flags:  4 Sort by PagedPool Usage\n");
     dprintf("process [flags]             - Dumps process at specified address\n");
     dprintf("processfields               - Show offsets to all fields in a process\n");
+    dprintf("ptov PhysicalPageNumber     - Dump all valid physical<->virtual mappings\n");
+    dprintf("                              for the given page directory\n");
     dprintf("ready                       - Dumps state of all READY system threads\n");
     dprintf("regkcb                      - Dump registry key-control-blocks\n");
     dprintf("regpool [s|r]               - Dump registry allocated paged pool\n");
@@ -134,6 +143,7 @@ CommonHelp (
     dprintf("timer                       - Dumps timer tree\n");
     dprintf("token [flags]               - Dump token at specified address\n");
     dprintf("tokenfields                 - Show offsets to all fields in a token\n");
+    dprintf("tunnel <address>            - Dump a file property tunneling cache\n");
     dprintf("trap <address>              - Dump a trap frame\n");
     dprintf("vad                         - Dumps VADs\n");
     dprintf("version                     - Version of extension dll\n");

@@ -35,7 +35,7 @@ Revision History:
 
 // These may be included in any order:
 
-#include <netdebug.h>           // NetpAssert(), NetpDbgPrint(), etc.
+#include <netdebug.h>           // NetpAssert(), NetpKdPrint(()), etc.
 #include <thread.h>             // NET_THREAD_ID, NetpCurrentThread().
 
 

@@ -122,4 +122,3 @@ struct FIB
 
 #define CONVFROMWORD (TRUE + 2)  /* used by FWriteFn to convert Word file
                                   characters to Write ANSI set */
-

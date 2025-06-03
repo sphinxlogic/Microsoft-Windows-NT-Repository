@@ -99,4 +99,3 @@ SHORT ILUI_setup_list(
 SHORT  ILUI_traverse_slist( PCHAR pszStr,
 			    searchlist * slist,
 			    SHORT * pusVal) ;
-

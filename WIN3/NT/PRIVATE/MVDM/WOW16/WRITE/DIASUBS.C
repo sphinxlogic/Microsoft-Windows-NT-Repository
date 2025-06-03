@@ -604,4 +604,3 @@ OurEndDialog(hDlg, wParam)
     EndLongOp(vhcIBeam);    /* See StartLongOp() above */
 #endif
     }
-

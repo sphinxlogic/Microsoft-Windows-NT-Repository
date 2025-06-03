@@ -34,7 +34,7 @@ Revision History:
 // These may be included in any order:
 
 #include <lmerr.h>
-#include <netdebug.h>           // NetpDbgPrint(), FORMAT_ equates.
+#include <netdebug.h>           // NetpKdPrint(()), FORMAT_ equates.
 #include <rap.h>                // My prototype, RapConvertSingleEntry(), etc.
 #include <rapdebug.h>           // IF_DEBUG().
 
@@ -102,8 +102,8 @@ Return Value:
     NetpAssert( status == NERR_Success );
 
     IF_DEBUG(TOTALSIZ) {
-        NetpDbgPrint("RapTotalSize: size is " FORMAT_DWORD ".\n",
-                BytesRequired);
+        NetpKdPrint(("RapTotalSize: size is " FORMAT_DWORD ".\n",
+                BytesRequired));
     }
 
     return (BytesRequired);

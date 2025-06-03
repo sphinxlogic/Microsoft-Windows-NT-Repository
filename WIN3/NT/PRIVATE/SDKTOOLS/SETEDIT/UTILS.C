@@ -34,6 +34,7 @@
 #include "pmemory.h"        // for MemoryXXX (mallloc-type) routines
 #include "utils.h"
 #include "pmhelpid.h"       // IDs for WinHelp
+#include "perfmops.h"
 
 //==========================================================================//
 //                                  Constants                               //
@@ -952,7 +953,7 @@ int CBAddInt (HWND hWndCB,
    TCHAR       szValue [ShortTextLen + 1] ;
    CHAR        szCharValue [ShortTextLen + 1] ;
 
-   itoa (iValue, (LPSTR)szCharValue, 10) ;
+   _itoa (iValue, (LPSTR)szCharValue, 10) ;
 #ifdef UNICODE
    mbstowcs (szValue, (LPSTR)szCharValue, strlen((LPSTR)szCharValue)+1) ;
    return (CBAdd (hWndCB, szValue)) ;
@@ -971,6 +972,7 @@ void DialogSetInterval (HDLG hDlg,
    TSPRINTF (szValue, TEXT("%3.3f"),
             (FLOAT)(IntervalMSec) / (FLOAT)1000.0) ;
 
+   ConvertDecimalPoint (szValue);
    SetDlgItemText (hDlg, wControlID, szValue) ;
    }
 
@@ -995,6 +997,7 @@ void DialogSetFloat (HDLG hDlg,
       TSPRINTF (szValue, TEXT("%14.6e"), eValue) ;
       }
 
+   ConvertDecimalPoint (szValue);
    SetDlgItemText (hDlg, wControlID, szValue) ;
    }
 
@@ -1014,7 +1017,8 @@ FLOAT DialogFloat (HDLG hDlg,
    FLOAT          eValue ;
    int            iNumScanned ;
 
-   DialogText (hDlg, wControlID, szValue) ;   
+   DialogText (hDlg, wControlID, szValue) ;
+   ReconvertDecimalPoint (szValue);
    iNumScanned = swscanf (szValue, TEXT("%e"), &eValue) ;
 
    if (pbOK)
@@ -1587,4 +1591,3 @@ DWORD MenuIDToHelpID (DWORD MenuID)
    return (HelpID) ;
    }
 
-

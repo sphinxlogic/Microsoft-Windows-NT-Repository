@@ -29,17 +29,35 @@ Revision History:
 #include <netlogon.h>
 
 
+// Free list of 512-byte buffers.
 LIST_ENTRY
 BowserMailslotBufferList = {0};
 
 KSPIN_LOCK
 BowserMailslotSpinLock = {0};
 
-ULONG
-BowserMaxDatagramSize = {0};
+// Largest "typical" datagram size
+#define BOWSER_MAX_DATAGRAM_SIZE 512
 
+// Total number of mailslot buffers currently allocated.
 LONG
 BowserNumberOfMailslotBuffers = {0};
+
+// Number of 512-byte buffers currently allocated.
+LONG
+BowserNumberOfMaxSizeMailslotBuffers = {0};
+
+// Number of 512-byte buffers currently in the free list.
+LONG
+BowserNumberOfFreeMailslotBuffers = {0};
+
+#if DBG
+ULONG
+BowserMailslotCacheHitCount = 0;
+
+ULONG
+BowserMailslotCacheMissCount = 0;
+#endif // DBG
 
 
 //
@@ -82,6 +100,7 @@ BowserProcessNetlogonMailslotWrite(
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE5NETLOGON, BowserNetlogonCopyMessage)
 #pragma alloc_text(PAGE5NETLOGON, BowserNetlogonTrimMessageQueue)
+#pragma alloc_text(PAGE5NETLOGON, BowserNetlogonDeleteTransportFromMessageQueue )
 #pragma alloc_text(PAGE5NETLOGON, BowserProcessNetlogonMailslotWrite)
 #pragma alloc_text(PAGE5NETLOGON, NetlogonMailslotEnable )
 #pragma alloc_text(PAGE5NETLOGON, NetlogonMailslotRead )
@@ -127,6 +146,9 @@ Return Value:
     OEM_STRING MailslotNameA;
     UNICODE_STRING MailslotNameU;
     UNICODE_STRING TransportName;
+#ifdef _CAIRO_
+    UNICODE_STRING DestinationName;
+#endif // _CAIRO_
     USHORT DataCount;
 
     PNETLOGON_MAILSLOT NetlogonMailslot;
@@ -150,11 +172,15 @@ Return Value:
     DataCount = SmbGetUshort(&MailslotSmb->DataCount);
 
     //
-    // Get the name of the transport the mailslot message arrived on.
+    // Get the name of the transport and netbios name the mailslot message arrived on.
     //
 
     TransportName =
         MailslotBuffer->TransportName->Transport->PagedTransport->TransportName;
+#ifdef _CAIRO_
+    DestinationName =
+        MailslotBuffer->TransportName->PagedTransportName->Name->Name;
+#endif // _CAIRO_
     IrpSp = IoGetCurrentIrpStackLocation(Irp);
 
     try {
@@ -232,6 +258,21 @@ Return Value:
         Where += MailslotNameU.Length;
         *((PWCH)Where) = L'\0';
         Where += sizeof(WCHAR);
+
+#ifdef _CAIRO_
+
+        //
+        // Copy the destination netbios name to the buffer
+        //
+
+        NetlogonMailslot->DestinationNameSize = DestinationName.Length;
+        NetlogonMailslot->DestinationNameOffset = Where - (PUCHAR)NetlogonMailslot;
+
+        RtlCopyMemory( Where, DestinationName.Buffer, DestinationName.Length );
+        Where += DestinationName.Length;
+        *((PWCH)Where) = L'\0';
+        Where += sizeof(WCHAR);
+#endif // _CAIRO_
 
 
         Status = STATUS_SUCCESS;
@@ -316,6 +357,91 @@ Return Value:
 
 }
 
+
+VOID
+BowserNetlogonDeleteTransportFromMessageQueue (
+    PTRANSPORT Transport
+    )
+
+/*++
+
+Routine Description:
+
+    This routines removes queued mailslot messages that arrived on the specified
+    transport.
+
+Arguments:
+
+    Transport - Transport who's mailslot messages are to be deleted.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    KIRQL OldIrql;
+    PLIST_ENTRY ListEntry;
+
+    dprintf(DPRT_NETLOGON, ("Bowser: remove messages queued by transport %lx\n", Transport ));
+
+    //
+    //
+    BowserReferenceDiscardableCode( BowserNetlogonDiscardableCodeSection );
+
+    DISCARDABLE_CODE( BowserNetlogonDiscardableCodeSection );
+
+    //
+    // Loop through all of the queued messages.
+    //
+
+    ACQUIRE_SPIN_LOCK(&BowserMailslotSpinLock, &OldIrql);
+    for ( ListEntry = BowserNetlogonMailslotMessageQueue.Flink;
+          ListEntry != &BowserNetlogonMailslotMessageQueue;
+          ) {
+
+        PMAILSLOT_BUFFER MailslotBuffer;
+
+        //
+        // If the message wasn't queued by this transport,
+        //  go on to the next entry.
+        //
+
+        MailslotBuffer = CONTAINING_RECORD(ListEntry, MAILSLOT_BUFFER, Overlay.NextBuffer);
+
+        if ( MailslotBuffer->TransportName->Transport != Transport ) {
+            ListEntry = ListEntry->Flink;
+
+        //
+        // Otherwise,
+        //  delete the entry.
+        //
+
+        } else {
+
+            dprintf(DPRT_ALWAYS, ("Bowser: removing message %lx queued by transport %lx\n", MailslotBuffer, Transport ));
+            RemoveEntryList( ListEntry );
+            BowserNetlogonCurrentMessageCount--;
+
+            RELEASE_SPIN_LOCK(&BowserMailslotSpinLock, OldIrql);
+            BowserFreeMailslotBuffer( MailslotBuffer );
+            ACQUIRE_SPIN_LOCK(&BowserMailslotSpinLock, &OldIrql);
+
+            //
+            // Start over at the beginning of the list since we dropped the spinlock.
+            //
+
+            ListEntry = BowserNetlogonMailslotMessageQueue.Flink;
+
+        }
+
+    }
+    RELEASE_SPIN_LOCK(&BowserMailslotSpinLock, OldIrql);
+    BowserDereferenceDiscardableCode( BowserNetlogonDiscardableCodeSection );
+
+}
+
 BOOLEAN
 BowserProcessNetlogonMailslotWrite(
     IN PMAILSLOT_BUFFER MailslotBuffer
@@ -361,8 +487,8 @@ Return Value:
     SmbHeader = (PSMB_HEADER )MailslotBuffer->Buffer;
     MailslotSmb = (PSMB_TRANSACT_MAILSLOT)(SmbHeader+1);
 
-    if ( stricmp( MailslotSmb->Buffer, NETLOGON_LM_MAILSLOT_A ) != 0 &&
-         stricmp( MailslotSmb->Buffer, NETLOGON_NT_MAILSLOT_A ) != 0 ) {
+    if ( _stricmp( MailslotSmb->Buffer, NETLOGON_LM_MAILSLOT_A ) != 0 &&
+         _stricmp( MailslotSmb->Buffer, NETLOGON_NT_MAILSLOT_A ) != 0 ) {
 
         ReturnValue = FALSE;
 
@@ -690,9 +816,13 @@ Return Value:
 
     MailslotNameU.MaximumLength = MAXIMUM_FILENAME_LENGTH*sizeof(WCHAR)+sizeof(WCHAR);
 
+#define DEVICE_PREFIX_LENGTH 7
     strcpy(MailslotName, "\\Device");
 
-    strcat(MailslotName, MailslotSmb->Buffer);
+    strncpy( MailslotName+DEVICE_PREFIX_LENGTH,
+             MailslotSmb->Buffer,
+             sizeof(MailslotName)-DEVICE_PREFIX_LENGTH);
+    MailslotName[sizeof(MailslotName)-1] = '\0';
 
     RtlInitString(&MailslotNameA, MailslotName);
 
@@ -811,7 +941,8 @@ try_exit:NOTHING;
 
 PMAILSLOT_BUFFER
 BowserAllocateMailslotBuffer(
-    IN PTRANSPORT_NAME TransportName
+    IN PTRANSPORT_NAME TransportName,
+    IN ULONG RequestedBufferSize
     )
 /*++
 
@@ -825,7 +956,9 @@ Routine Description:
 
 Arguments:
 
-    PTRANSPORT_NAME TransportName - The transport name for this request.
+    TransportName - The transport name for this request.
+
+    RequestedBufferSize - Minimum size of buffer to allocate.
 
 Return Value:
 
@@ -835,47 +968,30 @@ Return Value:
 {
     KIRQL OldIrql;
     PMAILSLOT_BUFFER Buffer = NULL;
-    ULONG BufferSize = FIELD_OFFSET(MAILSLOT_BUFFER, Buffer) + BowserMaxDatagramSize;
+    ULONG BufferSize;
 
-Restart:
+
+
+    //
+    // If the request fits into a cached buffer,
+    //  and there is a cache buffer available,
+    //  use it.
+    //
+
     ACQUIRE_SPIN_LOCK(&BowserMailslotSpinLock, &OldIrql);
-
-    if (!IsListEmpty(&BowserMailslotBufferList)) {
+    if ( RequestedBufferSize <= BOWSER_MAX_DATAGRAM_SIZE &&
+         !IsListEmpty(&BowserMailslotBufferList)) {
         PMAILSLOT_BUFFER Buffer;
         PLIST_ENTRY Entry;
 
         Entry = RemoveHeadList(&BowserMailslotBufferList);
+        BowserNumberOfFreeMailslotBuffers --;
 
         Buffer = CONTAINING_RECORD(Entry, MAILSLOT_BUFFER, Overlay.NextBuffer);
 
-        //
-        //  If this particular entry is smaller than the currently configured
-        //  maximum datagram size, we want to free it up and allocate a new
-        //  buffer - We can't use this buffer, it's too small.
-        //
-
-        if (Buffer->BufferSize < BowserMaxDatagramSize) {
-
-            BowserNumberOfMailslotBuffers -= 1;
-
-            ASSERT (BowserNumberOfMailslotBuffers >= 0);
-
-            RELEASE_SPIN_LOCK(&BowserMailslotSpinLock, OldIrql);
-
-            //
-            //  Free up the too small buffer.
-            //
-
-            FREE_POOL(Buffer);
-
-            //
-            //  Go back and allocate a new buffer that is big enough.
-            //
-
-            goto Restart;
-
-        }
-
+#if DBG
+        BowserMailslotCacheHitCount++;
+#endif // DBG
         RELEASE_SPIN_LOCK(&BowserMailslotSpinLock, OldIrql);
 
         Buffer->TransportName = TransportName;
@@ -885,9 +1001,48 @@ Restart:
         return Buffer;
     }
 
+    //
+    // If we've got too many buffers allocated,
+    //  don't allocate any more.
+    //
+    // BowserData.NumberOfMailslotBuffers is the maximum number we're allowed to have
+    //  in the cache at once.  It defaults to 3.
+    //
+    // BowserNetlogonMaxMessageCount is the number of buffers the netlogon service may
+    //  have queued at any one point in time.  It may be zero when netlogon isn't
+    //  running or if we're running on a non-DC.  On DC's it defaults to 500.
+    //
+    // Add 50, to ensure we don't limit it by too much.
+    //
+
+    if ( (ULONG)BowserNumberOfMailslotBuffers >=
+         max( (ULONG)BowserData.NumberOfMailslotBuffers, BowserNetlogonMaxMessageCount+50 )) {
+
+        BowserStatistics.NumberOfMissedMailslotDatagrams += 1;
+        BowserNumberOfMissedMailslotDatagrams += 1;
+        RELEASE_SPIN_LOCK(&BowserMailslotSpinLock, OldIrql);
+        return NULL;
+    }
+
+    //
+    // The first few buffers we allocate should be maximum size so we can keep a preallocated
+    //  cache of huge buffers.
+    //
+
+    if ( BowserNumberOfMaxSizeMailslotBuffers < BowserData.NumberOfMailslotBuffers ) {
+        BufferSize = FIELD_OFFSET(MAILSLOT_BUFFER, Buffer) + BOWSER_MAX_DATAGRAM_SIZE;
+        BowserNumberOfMaxSizeMailslotBuffers += 1;
+    } else {
+        BufferSize = FIELD_OFFSET(MAILSLOT_BUFFER, Buffer) + RequestedBufferSize;
+    }
+
     BowserNumberOfMailslotBuffers += 1;
 
-    ASSERT (BufferSize < 0xffff);
+    ASSERT ( (BufferSize - FIELD_OFFSET(MAILSLOT_BUFFER, Buffer)) <= 0xffff);
+
+#if DBG
+    BowserMailslotCacheMissCount++;
+#endif // DBG
 
     RELEASE_SPIN_LOCK(&BowserMailslotSpinLock, OldIrql);
 
@@ -903,6 +1058,9 @@ Restart:
         ASSERT (BowserNumberOfMailslotBuffers);
 
         BowserNumberOfMailslotBuffers -= 1;
+        if ( BowserNumberOfMaxSizeMailslotBuffers != 0 ) {
+            BowserNumberOfMaxSizeMailslotBuffers -= 1;
+        }
 
         RELEASE_SPIN_LOCK(&BowserMailslotSpinLock, OldIrql);
 
@@ -977,8 +1135,8 @@ Return Value:
     //  free it, don't stick it on our lookaside list.
     //
 
-    if (Buffer->BufferSize < BowserMaxDatagramSize ||
-        BowserNumberOfMailslotBuffers > BowserData.NumberOfMailslotBuffers) {
+    if (Buffer->BufferSize != BOWSER_MAX_DATAGRAM_SIZE ||
+        BowserNumberOfFreeMailslotBuffers > BowserData.NumberOfMailslotBuffers) {
 
         //
         //  Since we're returning this buffer to pool, we shouldn't count it
@@ -999,10 +1157,42 @@ Return Value:
     }
 
     InsertTailList(&BowserMailslotBufferList, &Buffer->Overlay.NextBuffer);
+    BowserNumberOfFreeMailslotBuffers ++;
 
     RELEASE_SPIN_LOCK(&BowserMailslotSpinLock, OldIrql);
 
     BowserDereferenceDiscardableCode( BowserDiscardableCodeSection );
+}
+
+VOID
+BowserFreeMailslotBufferHighIrql(
+    IN PMAILSLOT_BUFFER Buffer
+    )
+/*++
+
+Routine Description:
+
+    This routine will return a mailslot buffer to the view buffer pool if the
+    caller is at raised irql.
+
+Arguments:
+
+    Buffer - Supplies the buffer to free
+
+Return Value:
+
+    None.
+
+--*/
+{
+    //
+    // Queue the request to a worker routine.
+    //
+    ExInitializeWorkItem(&Buffer->Overlay.WorkHeader,
+                         (PWORKER_THREAD_ROUTINE) BowserFreeMailslotBuffer,
+                         Buffer);
+
+    ExQueueWorkItem(&Buffer->Overlay.WorkHeader, DelayedWorkQueue);
 }
 
 

@@ -98,7 +98,7 @@ Return Value:
     ULONG StringLen;
     PSZ NameBuffer;
 
-    if (stricmp(FileName_A->Buffer, Od2CanonicalDiskConfigDotSys) != 0) {
+    if (_stricmp(FileName_A->Buffer, Od2CanonicalDiskConfigDotSys) != 0) {
         *ResultStatus = STATUS_OBJECT_TYPE_MISMATCH;
         return(FALSE);
     }

@@ -64,10 +64,20 @@ Revision History:
 #endif
 
 
-// In DosPrtP.c:
+// In DosPrtP.c, Unicode version:
+NET_API_STATUS
+CommandALocalPrinterW(
+    IN LPWSTR  PrinterName,
+    IN DWORD   Command     //  PRINTER_CONTROL_PAUSE, etc.
+    );
+
+// In DosPrtP.c, Ansi version:
 NET_API_STATUS
 CommandALocalJob(
+    IN HANDLE  PrinterHandle, OPTIONAL
     IN DWORD   JobId,
+    IN DWORD   Level,
+    IN LPBYTE  pJob,
     IN DWORD   Command     //  JOB_CONTROL_PAUSE, etc.
     );
 
@@ -128,7 +138,7 @@ FindQueueNameInPrinterNameW(
 #define NetpIsPrintQLevelValid(Level,SetInfo) \
     /*lint -save -e506 */  /* don't complain about constant values here */ \
     ( ( (SetInfo) && (((Level)==1) || ((Level)==3)) ) \
-      || ( (Level) <= 5 ) ) \
+      || ( (Level) <= 5 ) || ( (Level) == 52 ) ) \
     /*lint -restore */
 
 
@@ -138,13 +148,6 @@ NetpJobCountForQueue(
     IN DWORD QueueLevel,
     IN LPVOID Queue,
     IN BOOL HasUnicodeStrings
-    );
-
-// In DosPrtP.c:
-NET_API_STATUS
-QueueNameToPrinterNameW(
-    IN LPCWSTR QueueName,
-    OUT LPWSTR * PrinterName   // Must free with NetApiBufferFree().
     );
 
 

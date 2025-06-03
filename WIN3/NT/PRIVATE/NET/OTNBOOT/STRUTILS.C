@@ -140,7 +140,7 @@ SavePathToRegistry (
 /*++
 
 Routine Description:
-    
+
     splits the path (which must be a UNC path) into server & sharepoint
         for loading into the system registry. The key used is the
         \HKEY_CURRENT_USER\Software\Microsoft\Windows NT\CurrentVersion\Network
@@ -152,13 +152,13 @@ Arguments:
 
     LPCTSTR szPath
         UNC path to store
-        
+
     LPCTSTR szServerKey
         name of registry value to store server under
 
     LPCTSTR szShareKey
         name of registry value to store share under
-    
+
 Return Value:
 
     TRUE    values stored OK
@@ -178,9 +178,9 @@ Return Value:
     szShare = GlobalAlloc (GPTR, MAX_PATH_BYTES);
     if (szShare == NULL) {
         // unable to alloc memory.
-        return FALSE;   
+        return FALSE;
     }
-    
+
     if (IsUncPath (szPath)) {
         // open registry key containing net apps
 
@@ -274,7 +274,7 @@ QuietGetPrivateProfileString (
 /*++
 
 Routine Description:
-    
+
     Reads data from profile file without triggering OS error message if
         unable to access file.
 
@@ -310,7 +310,7 @@ Return Value:
     // call function
     dwReturn = GetPrivateProfileString (
         lpszSection, lpszKey, lpszDefault, lpszReturnBuffer,
-        cchReturnBuffer, lpszFile);   
+        cchReturnBuffer, lpszFile);
 
     SetErrorMode (nErrorMode);  // restore old error mode
 
@@ -354,8 +354,8 @@ Return Value:
     *szDest = 0;
 
     if (*szSource != 0) {
-        // copy all chars from start to the equal sign 
-        //  (or the end of the string) 
+        // copy all chars from start to the equal sign
+        //  (or the end of the string)
         while ((*szSource != cEqual) && (*szSource != 0)) {
             *szDest++ = *szSource++;
         }
@@ -460,7 +460,7 @@ GetFileNameFromEntry (
 /*++
 
 Routine Description:
-    
+
     returns pointer into szEntry where file name is found.
         first character after the ":"
 
@@ -493,7 +493,7 @@ TrimSpaces (
 /*++
 
 Routine Description:
-    
+
     Trims leading and trailing spaces from szString argument, modifying
         the buffer passed in
 
@@ -549,7 +549,7 @@ IsUncPath (
 /*++
 
 Routine Description:
-    
+
     examines path as a string looking for "tell-tale" double
         backslash indicating the machine name syntax of a UNC path
 
@@ -717,8 +717,8 @@ GetStringResource (
 /*++
 
 Routine Description:
-    
-    look up string resource and return string    
+
+    look up string resource and return string
 
 Arguments:
 
@@ -726,7 +726,7 @@ Arguments:
         Resource ID of string to look up
 
 Return Value:
-    
+
     pointer to string referenced by ID in arg list
 
 --*/
@@ -756,7 +756,7 @@ GetMultiSzLen (
 /*++
 
 Routine Description:
-    
+
     Counts the number of characters in the multi-sz string (including
         NULL's between strings and terminating NULL char)
 
@@ -786,13 +786,93 @@ Return Value:
                 // this is the end of the MSZ
                 dwCharsInString++; // for the CTRL-Z
                 bEnd = TRUE;
-            } 
+            }
         } else {
             szEndChar++;
             dwCharsInString++;
         }
     }
-    
+
     return dwCharsInString;
 }
-
+
+DWORD
+TranslateEscapeChars (
+    IN  LPTSTR szNewString,
+    IN  LPTSTR szString
+)
+/*++
+
+    Translates the following escape sequences if found in the string.
+    The translation is performed on szString and written to szNewString.
+
+    The return value is the length of the resulting string in characters;
+
+--*/
+{
+    LPTSTR szSource;
+    LPTSTR szDest;
+
+    szSource = szString;
+    szDest = szNewString;
+
+    while (*szSource != 0) {
+        if (*szSource == '\\') {
+            // this is an escape sequence so go to the next char
+            // and see which one.
+            szSource++;
+            switch (*szSource) {
+                case _T('b'):
+                    *szDest = _T('\b');
+                    break;
+
+                case _T('f'):
+                    *szDest = _T('\f');
+                    break;
+
+                case _T('n'):
+                    *szDest = _T('\n');
+                    break;
+
+                case _T('r'):
+                    *szDest = _T('\r');
+                    break;
+
+                case _T('t'):
+                    *szDest = _T('\t');
+                    break;
+
+                case _T('v'):
+                    *szDest = _T('\v');
+                    break;
+
+                case _T('?'):
+                    *szDest = _T('\?');
+                    break;
+
+                case _T('\''):
+                    *szDest = _T('\'');
+                    break;
+
+                case _T('\"'):
+                    *szDest = _T('\"');
+                    break;
+
+                case _T('\\'):
+                    *szDest = _T('\\');
+                    break;
+
+                default:
+                    *szDest = *szSource;
+                    break;
+            }
+            szDest++;
+            szSource++;
+        } else {
+            // just a plain old character so copy it
+            *szDest++ = *szSource++;
+        }
+    }
+    return (DWORD)(szDest - szNewString);
+
+}

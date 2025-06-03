@@ -44,7 +44,8 @@ Environment:
 
 HANDLE  hInst;
 
-extern  UCHAR Buffer[];
+extern UCHAR Buffer[];
+extern HANDLE   DriverHandle;
 
 //
 // Selected Display Mode (read from wp2.ini), default set here.
@@ -65,65 +66,24 @@ ULONG   GlobalMax;
 PDISPLAY_ITEM   Calc1, Calc2;
 BOOLEAN LazyOp;
 
-#define MAX_P5_COUNTERS         2
+#define MAX_EVENTS         2
 
 struct {
+    ULONG   EventId;
+    PUCHAR  ShortName;
     PUCHAR  PerfName;
-    ULONG   encoding;
-} P5Counters[] = {
-    "Data Read",                        0x00,
-    "Data Write",                       0x01,
-    "Data TLB miss",                    0x02,
-    "Data Read miss",                   0x03,
-    "Data Write miss",                  0x04,
-    "Write hit to M/E line",            0x05,
-    "Data cache line WB",               0x06,
-    "Data cache snoops",                0x07,
-    "Data cache snoop hits",            0x08,
-    "Memory accesses in pipes",         0x09,
-    "Bank conflicts",                   0x0a,
-    "Misadligned data ref",             0x0b,
-    "Code Read",                        0x0c,
-    "Code TLB miss",                    0x0d,
-    "Code cache miss",                  0x0e,
-    "Segment loads",                    0x0f,
-    "Segment cache accesses",           0x10,
-    "Segment cache hits",               0x11,
-    "Branches",                         0x12,
-    "BTB hits",                         0x13,
-    "Taken branch or BTB hits",         0x14,
-    "Pipeline flushes",                 0x15,
-    "Instructions executed",            0x16,
-    "Instructions executed in vpipe",   0x17,
-    "Bus utilization (clks)",           0x18,
-    "Pipe stalled on writes (clks)",    0x19,
-    "Pipe stalled on read (clks)",      0x1a,
-    "Stalled while EWBE#",              0x1b,
-    "Locked bus cycle",                 0x1c,
-    "IO r/w cycle",                     0x1d,
-    "non-cached memory ref",            0x1e,
-    "Pipe stalled on addr gen (clks)",  0x1f,
-    "FLOPs",                            0x22,
-    "Debug Register 0",                 0x23,
-    "Debug Register 1",                 0x24,
-    "Debug Register 2",                 0x25,
-    "Debug Register 3",                 0x26,
-    "Interrupts",                       0x27,
-    "Data R/W",                         0x28,
-    "Data R/W miss",                    0x29,
-    NULL
-};
+} *Counters;
 
 struct {
-    ULONG           WhichCounter;       // index into P5Counters[]
+    ULONG           WhichCounter;
     ULONG           ComboBoxIndex;
     PDISPLAY_ITEM   pWhichGraph;
     BOOLEAN         R0;
     BOOLEAN         R3;
     UCHAR           na[2];
-} P5ActiveCounters [MAX_P5_COUNTERS];
+} ActiveCounters [MAX_EVENTS];
 
-ULONG   P5CounterEncoding[MAX_P5_COUNTERS];
+SETEVENT CounterEvents[MAX_EVENTS];
 
 
 typedef struct {
@@ -139,10 +99,10 @@ GENCOUNTER GenCounts[] = {
     IDM_SCALE,          NULL, 0, NULL,            0, NULL,
     IDM_LOGIT,          NULL, 0, NULL,            0, NULL,
 
-    IDM_SPIN_ACQUIRE,   NULL, 0, SnapPrivateInfo, OFFSET(P5STATS, SpinLockAcquires),   "KRes[0]",
-    IDM_SPIN_COLL,      NULL, 0, SnapPrivateInfo, OFFSET(P5STATS, SpinLockCollisions), "KRes[1]",
-    IDM_SPIN_SPIN,      NULL, 0, SnapPrivateInfo, OFFSET(P5STATS, SpinLockSpins),      "KRes[2]",
-    IDM_IRQL,           NULL, 0, SnapPrivateInfo, OFFSET(P5STATS, Irqls),              "KRes[3]",
+    IDM_SPIN_ACQUIRE,   NULL, 0, SnapPrivateInfo, OFFSET(PSTATS, SpinLockAcquires),   "KRes[0]",
+    IDM_SPIN_COLL,      NULL, 0, SnapPrivateInfo, OFFSET(PSTATS, SpinLockCollisions), "KRes[1]",
+    IDM_SPIN_SPIN,      NULL, 0, SnapPrivateInfo, OFFSET(PSTATS, SpinLockSpins),      "KRes[2]",
+    IDM_IRQL,           NULL, 0, SnapPrivateInfo, OFFSET(PSTATS, Irqls),              "KRes[3]",
     IDM_INT,            NULL, 0, SnapInterrupts,  0, "Interrupts",
 //  IDM_PERCENT,        NULL, 0, SnapPercent,     0, "Percent 1-2",
 
@@ -160,8 +120,19 @@ GENCOUNTER GenCounts[] = {
 };
 
 
-VOID InitComboBox (HWND hDlg, ULONG id, ULONG p5counter);
-PDISPLAY_ITEM SetDisplayToFalse (PDISPLAY_ITEM pPerf);
+VOID
+InitComboBox (
+    HWND hDlg,
+    ULONG id,
+    ULONG counter
+);
+
+VOID
+SetGenPerf (
+    HWND hDlg,
+    PGENCOUNTER GenCount
+);
+
 
 int
 _CRTAPI1
@@ -288,8 +259,8 @@ Revision History:
                             MAKEINTRESOURCE(WINPERF_ICON)); // Load Winperf icon
     wc.hCursor       = LoadCursor((HANDLE)NULL, IDC_ARROW); // Load default cursor
     wc.hbrBackground = hBackground;;                        // Use background passed to routine
-    wc.lpszMenuName  = "p5perfMenu";                        // Name of menu resource in .RC file.
-    wc.lpszClassName = "P5PerfClass";                       // Name used in call to CreateWindow.
+    wc.lpszMenuName  = "pperfMenu";                         // Name of menu resource in .RC file.
+    wc.lpszClassName = "PPerfClass";                        // Name used in call to CreateWindow.
 
     ReturnStatus = RegisterClass(&wc);
 
@@ -362,15 +333,15 @@ Revision History:
 
     // InitProfileData(&WinperfInfo);
 
-    WinperfInfo.hMenu = LoadMenu(hInstance,"p5perfMenu");
+    WinperfInfo.hMenu = LoadMenu(hInstance,"pperfMenu");
 
     //
     // Create a main window for this application instance.
     //
 
     WinperfInfo.hWndMain = CreateWindow(
-        "P5PerfClass",                  // See RegisterClass() call.
-        "P5 Perf Meter",                // Text for window title bar.
+        "PPerfClass",                   // See RegisterClass() call.
+        "x86 Perf Meter",               // Text for window title bar.
         WS_OVERLAPPEDWINDOW,            // window style
         WinperfInfo.WindowPositionX,    // Default horizontal position.
         WinperfInfo.WindowPositionY,    // Default vertical position.
@@ -414,6 +385,70 @@ Revision History:
 
     return (TRUE);
 
+}
+
+
+VOID
+InitPossibleEventList()
+{
+    UCHAR               buffer[400];
+    ULONG               i, Count;
+    NTSTATUS            status;
+    PEVENTID            Event;
+    IO_STATUS_BLOCK     IOSB;
+
+
+    //
+    // Initialize possible counters
+    //
+
+    // determine how many events there are
+
+    Event = (PEVENTID) buffer;
+    Count = 0;
+    do {
+        *((PULONG) buffer) = Count;
+        Count += 1;
+
+        status = NtDeviceIoControlFile(
+                    DriverHandle,
+                    (HANDLE) NULL,          // event
+                    (PIO_APC_ROUTINE) NULL,
+                    (PVOID) NULL,
+                    &IOSB,
+                    PSTAT_QUERY_EVENTS,
+                    buffer,                 // input buffer
+                    sizeof (buffer),
+                    NULL,                   // output buffer
+                    0
+                    );
+    } while (NT_SUCCESS(status));
+
+    Counters = malloc(sizeof(*Counters) * Count);
+    Count -= 1;
+    for (i=0; i < Count; i++) {
+        *((PULONG) buffer) = i;
+        NtDeviceIoControlFile(
+           DriverHandle,
+           (HANDLE) NULL,          // event
+           (PIO_APC_ROUTINE) NULL,
+           (PVOID) NULL,
+           &IOSB,
+           PSTAT_QUERY_EVENTS,
+           buffer,                 // input buffer
+           sizeof (buffer),
+           NULL,                   // output buffer
+           0
+           );
+
+        Counters[i].EventId   = Event->EventId;
+        Counters[i].ShortName = _strdup (Event->Buffer);
+        Counters[i].PerfName  = _strdup (Event->Buffer + Event->DescriptionOffset);
+    }
+
+    Counters[i].EventId   = 0;
+    Counters[i].ShortName = NULL;
+    Counters[i].PerfName  = NULL;
 }
 
 
@@ -1055,7 +1090,7 @@ Revision History:
 }
 
 
-
+VOID
 RefitWindows (HWND hWnd, HDC CurhDC)
 {
     PDISPLAY_ITEM   pPerf;
@@ -1093,7 +1128,7 @@ RefitWindows (HWND hWnd, HDC CurhDC)
 }
 
 VOID
-InitComboBox (HWND hDlg, ULONG id, ULONG p5counter)
+InitComboBox (HWND hDlg, ULONG id, ULONG counter)
 {
     HWND    ComboList;
     ULONG   i, nIndex;
@@ -1102,71 +1137,83 @@ InitComboBox (HWND hDlg, ULONG id, ULONG p5counter)
     SendMessage(ComboList, CB_RESETCONTENT, 0, 0);
     SendMessage(ComboList, CB_SETITEMDATA, 0L, 0L);
 
-    for (i=0; P5Counters[i].PerfName; i++) {
-        nIndex = SendMessage(
-                        ComboList,
-                        CB_ADDSTRING,
-                        0,
-                        (DWORD) P5Counters[i].PerfName
-                        );
+    if (Counters) {
+        for (i=0; Counters[i].PerfName; i++) {
+            nIndex = SendMessage(
+                            ComboList,
+                            CB_ADDSTRING,
+                            0,
+                            (DWORD) Counters[i].PerfName
+                            );
 
-        SendMessage(
-            ComboList,
-            CB_SETITEMDATA,
-            nIndex,
-            (DWORD) i
-            );
+            SendMessage(
+                ComboList,
+                CB_SETITEMDATA,
+                nIndex,
+                (DWORD) i
+                );
+        }
     }
 
-    SendMessage(ComboList, CB_SETCURSEL, P5ActiveCounters[p5counter].ComboBoxIndex, 0L);
+    SendMessage(ComboList, CB_SETCURSEL, ActiveCounters[counter].ComboBoxIndex, 0L);
 }
 
-SetP5Perf (HWND hDlg, ULONG IdCombo, ULONG p5counter)
+VOID
+SetP5Perf (HWND hDlg, ULONG IdCombo, ULONG counter)
 {
     static  PUCHAR NameSuffix[] = { "", " (R0)", " (R3)", "" };
     HWND    ComboList;
-    ULONG   nIndex, R0, R3, Mega, DU, BSEncoding, encoding, flag;
+    ULONG   nIndex, Mega, DU, BSEncoding, flag;
     PDISPLAY_ITEM   pPerf;
     PUCHAR  name;
+    SETEVENT   Event;
 
     ComboList = GetDlgItem(hDlg, IdCombo);
     nIndex = (int)SendMessage(ComboList, CB_GETCURSEL, 0, 0);
-    P5ActiveCounters[p5counter].ComboBoxIndex = nIndex;
+    ActiveCounters[counter].ComboBoxIndex = nIndex;
 
-    R0   = SendDlgItemMessage(hDlg,IdCombo+1,BM_GETCHECK,0,0) ? 1 : 0;
-    R3   = SendDlgItemMessage(hDlg,IdCombo+2,BM_GETCHECK,0,0) ? 1 : 0;
+    memset (&Event, 0, sizeof (Event));
+    Event.Active = TRUE;
+    Event.KernelMode = SendDlgItemMessage(hDlg,IdCombo+1,BM_GETCHECK,0,0) ? TRUE : FALSE;
+    Event.UserMode = SendDlgItemMessage(hDlg,IdCombo+2,BM_GETCHECK,0,0) ? TRUE : FALSE;
+    BSEncoding = (Event.UserMode << 1) | Event.KernelMode;
+
     Mega = SendDlgItemMessage(hDlg,IdCombo+3,BM_GETCHECK,0,0) ? 1 : 0;
     //DU = SendDlgItemMessage(hDlg,IdCombo+3,BM_GETCHECK,0,0) ? 1 : 0;
     DU = 0;
 
     // get encoding for counter
-    BSEncoding = R0 | (R3 << 1);
-    if (BSEncoding == 0  ||  nIndex == -1) {
+    if ((!Event.KernelMode && !Event.UserMode)  ||  nIndex == -1) {
 
         // no counter selected, done
-        if (P5ActiveCounters[p5counter].pWhichGraph != NULL) {
-            ClearGraph (P5ActiveCounters[p5counter].pWhichGraph);
+        if (ActiveCounters[counter].pWhichGraph != NULL) {
+            ClearGraph (ActiveCounters[counter].pWhichGraph);
         }
         return ;
     }
 
     // select counter
     nIndex = SendMessage(ComboList, CB_GETITEMDATA, nIndex, 0);
-    P5ActiveCounters[p5counter].WhichCounter = nIndex;
-    if (P5ActiveCounters[p5counter].pWhichGraph == NULL) {
-        P5ActiveCounters[p5counter].pWhichGraph = AllocateDisplayItem();
+    Event.EventId = Counters[nIndex].EventId;
+
+    ActiveCounters[counter].WhichCounter = nIndex;
+    if (ActiveCounters[counter].pWhichGraph == NULL) {
+        ActiveCounters[counter].pWhichGraph = AllocateDisplayItem();
     }
 
-    pPerf = P5ActiveCounters[p5counter].pWhichGraph;    // which window
-    sprintf (pPerf->PerfName, "%s%s", P5Counters[nIndex].PerfName, NameSuffix[BSEncoding]);
-    encoding = P5Counters[nIndex].encoding | (BSEncoding << 6) | (DU << 7);
-    flag = (P5CounterEncoding[p5counter] & 0x23f) == (encoding & 0x23f) && Mega == pPerf->Mega;
+    pPerf = ActiveCounters[counter].pWhichGraph;    // which window
+    sprintf (pPerf->PerfName, "%s%s", Counters[nIndex].PerfName, NameSuffix[BSEncoding]);
 
-    P5CounterEncoding[p5counter] = encoding;
-    SetP5CounterEncodings (P5CounterEncoding);
+    flag = TRUE;
+    if (Mega != pPerf->Mega || memcmp (&Event, CounterEvents+counter, sizeof (Event))) {
+
+        flag = FALSE;
+        CounterEvents[counter] = Event;
+        SetCounterEvents (CounterEvents, sizeof CounterEvents);
+    }
 
     pPerf->SnapData   = SnapPrivateInfo;                // generic snap
-    pPerf->SnapParam1 = OFFSET(P5STATS, P5Counters[ p5counter ]);
+    pPerf->SnapParam1 = OFFSET(PSTATS, Counters[ counter ]);
     pPerf->Mega       = Mega;
     SetDisplayToTrue (pPerf, IdCombo);
 
@@ -1189,6 +1236,7 @@ SetP5Perf (HWND hDlg, ULONG IdCombo, ULONG p5counter)
     pPerf->SnapData (pPerf);
 }
 
+VOID
 ClearGraph (
     PDISPLAY_ITEM   pPerf
 )
@@ -1212,6 +1260,7 @@ ClearGraph (
     pPerf->ChangeScale = TRUE;
 }
 
+VOID
 SetGenPerf (HWND hDlg, PGENCOUNTER GenCount)
 {
     PDISPLAY_ITEM   pPerf;
@@ -1240,6 +1289,7 @@ SetGenPerf (HWND hDlg, PGENCOUNTER GenCount)
     SetDisplayToTrue (pPerf, GenCount->IdSel);
 }
 
+VOID
 SetDisplayToTrue (
     PDISPLAY_ITEM   pPerf,
     ULONG           sort
@@ -1308,6 +1358,7 @@ SetDisplayToFalse (
     return *p;
 }
 
+VOID
 SetDefaultDisplayMode (HWND hWnd, ULONG mode)
 {
     HDC hDC;
@@ -1333,7 +1384,7 @@ PDISPLAY_ITEM
 AllocateDisplayItem()
 {
     PDISPLAY_ITEM   pPerf;
-    int     Index1, Index2;
+    UINT    Index1, Index2;
     PULONG  pDL;
 
     pPerf = malloc(sizeof (DISPLAY_ITEM));
@@ -1359,7 +1410,7 @@ AllocateDisplayItem()
     return pPerf;
 }
 
-
+VOID
 FreeDisplayItem(PDISPLAY_ITEM pPerf)
 {
     ULONG   i;
@@ -1387,7 +1438,7 @@ struct s_ThreadInfo {
 DWORD
 WorkerCsTestThread (
     struct s_ThreadInfo *TInfo
-    )
+)
 {
     HDC     hDC;
     HDC     hDCmem;
@@ -1407,9 +1458,12 @@ WorkerCsTestThread (
     }
 
     ReleaseDC(TInfo->hWnd,hDC);
+
+    return 0;
 }
 
 
+VOID
 DoCSTest(HWND hWnd)
 {
     static  ULONG   ThreadCount = 0;

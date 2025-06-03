@@ -34,6 +34,45 @@ Revision History:
 #include "precomp.h"
 #pragma hdrstop
 
+#ifdef notdef // RASAUTODIAL
+#include <acd.h>
+#include <acdapi.h>
+#endif // RASAUTODIAL
+
+#ifdef notdef // RASAUTODIAL
+extern BOOLEAN fAcdLoadedG;
+extern ACD_DRIVER AcdDriverG;
+
+//
+// Imported functions.
+//
+VOID
+NbfRetryPreTdiConnect(
+    IN BOOLEAN fSuccess,
+    IN PVOID *pArgs
+    );
+
+BOOLEAN
+NbfAttemptAutoDial(
+    IN PTP_CONNECTION         Connection,
+    IN ULONG                  ulFlags,
+    IN ACD_CONNECT_CALLBACK   pProc,
+    IN PVOID                  pArg
+    );
+
+VOID
+NbfCancelPreTdiConnect(
+    IN PDEVICE_OBJECT pDeviceObject,
+    IN PIRP pIrp
+    );
+#endif // RASAUTODIAL
+
+NTSTATUS
+NbfTdiConnectCommon(
+    IN PIRP Irp
+    );
+
+
 
 NTSTATUS
 NbfTdiAccept(
@@ -534,6 +573,7 @@ Return Value:
 
 } /* TdiDisassociateAddress */
 
+
 
 NTSTATUS
 NbfTdiConnect(
@@ -559,13 +599,10 @@ Return Value:
 {
     NTSTATUS status;
     PTP_CONNECTION connection;
-    LARGE_INTEGER timeout = {0,0};
-    KIRQL oldirql, cancelirql;
-    PTP_REQUEST tpRequest;
+    KIRQL oldirql;
     PIO_STACK_LOCATION irpSp;
     PTDI_REQUEST_KERNEL parameters;
     TDI_ADDRESS_NETBIOS UNALIGNED * RemoteAddress;
-    ULONG NameQueryTimeout;
 
     IF_NBFDBG (NBF_DEBUG_CONNECT) {
         NbfPrint0 ("NbfTdiConnect: Entered.\n");
@@ -589,35 +626,6 @@ Return Value:
     }
 
     parameters = (PTDI_REQUEST_KERNEL)(&irpSp->Parameters);
-
-    //
-    // fix up the timeout if required; no connect request should take more
-    // than 15 seconds if there is someone out there. We'll assume that's
-    // what the user wanted if they specify -1 as the timer length.
-    //
-
-    if (parameters->RequestSpecific != NULL) {
-        if ((((PLARGE_INTEGER)(parameters->RequestSpecific))->LowPart == -1) &&
-             (((PLARGE_INTEGER)(parameters->RequestSpecific))->HighPart == -1)) {
-
-            IF_NBFDBG (NBF_DEBUG_RESOURCE) {
-                NbfPrint1 ("TdiConnect: Modifying user timeout to %lx seconds.\n",
-                    TDI_TIMEOUT_CONNECT);
-            }
-
-            timeout.LowPart = (ULONG)(-TDI_TIMEOUT_CONNECT * 10000000L);    // n * 10 ** 7 => 100ns units
-            if (timeout.LowPart != 0) {
-                timeout.HighPart = -1L;
-            } else {
-                timeout.HighPart = 0;
-            }
-
-        } else {
-
-            timeout.LowPart = ((PLARGE_INTEGER)(parameters->RequestSpecific))->LowPart;
-            timeout.HighPart = ((PLARGE_INTEGER)(parameters->RequestSpecific))->HighPart;
-        }
-    }
 
     //
     // Check that the remote is a Netbios address.
@@ -651,6 +659,122 @@ Return Value:
         connection->CalledAddress.NetbiosName,
         RemoteAddress->NetbiosName,
         16);
+
+#ifdef notdef // RASAUTODIAL
+    if (fAcdLoadedG) {
+        KIRQL adirql;
+        BOOLEAN fEnabled;
+
+        //
+        // See if the automatic connection driver knows
+        // about this address before we search the
+        // network.  If it does, we return STATUS_PENDING,
+        // and we will come back here via NbfRetryTdiConnect().
+        //
+        ACQUIRE_SPIN_LOCK(&AcdDriverG.SpinLock, &adirql);
+        fEnabled = AcdDriverG.fEnabled;
+        RELEASE_SPIN_LOCK(&AcdDriverG.SpinLock, adirql);
+        if (fEnabled && NbfAttemptAutoDial(
+                          connection,
+                          ACD_NOTIFICATION_PRECONNECT,
+                          NbfRetryPreTdiConnect,
+                          Irp))
+        {
+            ACQUIRE_SPIN_LOCK(&connection->SpinLock, &oldirql);
+            connection->Flags2 |= CONNECTION_FLAGS2_AUTOCONNECT;
+            connection->Status = STATUS_PENDING;
+            RELEASE_SPIN_LOCK(&connection->SpinLock, oldirql);
+            NbfDereferenceConnection ("Automatic connection", connection, CREF_BY_ID);
+            //
+            // Set a special cancel routine on the irp
+            // in case we get cancelled during the
+            // automatic connection.
+            //
+            IoSetCancelRoutine(Irp, NbfCancelPreTdiConnect);
+            return STATUS_PENDING;
+        }
+    }
+#endif // RASAUTODIAL
+
+    return NbfTdiConnectCommon(Irp);
+} // NbfTdiConnect
+
+
+
+NTSTATUS
+NbfTdiConnectCommon(
+    IN PIRP Irp
+    )
+
+/*++
+
+Routine Description:
+
+    This routine performs the TdiConnect request for the transport provider.
+    Note: the caller needs to call NbfVerifyConnectionObject(pConnection)
+    before calling this routine.
+
+Arguments:
+
+    Irp - Pointer to the I/O Request Packet for this request.
+
+Return Value:
+
+    NTSTATUS - status of operation.
+
+--*/
+
+{
+    NTSTATUS status;
+    PTP_CONNECTION connection;
+    LARGE_INTEGER timeout = {0,0};
+    KIRQL oldirql, cancelirql;
+    PTP_REQUEST tpRequest;
+    PIO_STACK_LOCATION irpSp;
+    PTDI_REQUEST_KERNEL parameters;
+    TDI_ADDRESS_NETBIOS UNALIGNED * RemoteAddress;
+    ULONG NameQueryTimeout;
+
+    IF_NBFDBG (NBF_DEBUG_CONNECT) {
+        NbfPrint0 ("NbfTdiConnectCommon: Entered.\n");
+    }
+
+    //
+    // is the file object a connection?
+    //
+
+    irpSp = IoGetCurrentIrpStackLocation (Irp);
+    connection  = irpSp->FileObject->FsContext;
+    parameters = (PTDI_REQUEST_KERNEL)(&irpSp->Parameters);
+
+    //
+    // fix up the timeout if required; no connect request should take more
+    // than 15 seconds if there is someone out there. We'll assume that's
+    // what the user wanted if they specify -1 as the timer length.
+    //
+
+    if (parameters->RequestSpecific != NULL) {
+        if ((((PLARGE_INTEGER)(parameters->RequestSpecific))->LowPart == -1) &&
+             (((PLARGE_INTEGER)(parameters->RequestSpecific))->HighPart == -1)) {
+
+            IF_NBFDBG (NBF_DEBUG_RESOURCE) {
+                NbfPrint1 ("TdiConnect: Modifying user timeout to %lx seconds.\n",
+                    TDI_TIMEOUT_CONNECT);
+            }
+
+            timeout.LowPart = (ULONG)(-TDI_TIMEOUT_CONNECT * 10000000L);    // n * 10 ** 7 => 100ns units
+            if (timeout.LowPart != 0) {
+                timeout.HighPart = -1L;
+            } else {
+                timeout.HighPart = 0;
+            }
+
+        } else {
+
+            timeout.LowPart = ((PLARGE_INTEGER)(parameters->RequestSpecific))->LowPart;
+            timeout.HighPart = ((PLARGE_INTEGER)(parameters->RequestSpecific))->HighPart;
+        }
+    }
 
     //
     // We need a request object to keep track of this TDI request.
@@ -712,24 +836,31 @@ Return Value:
                 connection->Flags2 |= (CONNECTION_FLAGS2_CONNECTOR | // we're the initiator.
                                        CONNECTION_FLAGS2_WAIT_NR); // wait for NAME_RECOGNIZED.
 
-                connection->Flags2 |= CONNECTION_FLAGS2_GROUP_LSN;
+                //
+                // Because we may call NbfTdiConnect twice
+                // via an automatic connection, check to see
+                // if an LSN has already been assigned.
+                //
+                if (!(connection->Flags2 & CONNECTION_FLAGS2_GROUP_LSN)) {
+                    connection->Flags2 |= CONNECTION_FLAGS2_GROUP_LSN;
 
-                if (NbfAssignGroupLsn(connection) != STATUS_SUCCESS) {
+                    if (NbfAssignGroupLsn(connection) != STATUS_SUCCESS) {
 
-                    //
-                    // Could not find an empty LSN; have to fail.
-                    //
+                        //
+                        // Could not find an empty LSN; have to fail.
+                        //
+                        RemoveEntryList(&tpRequest->Linkage);
+                        RELEASE_DPC_C_SPIN_LOCK (&connection->SpinLock);
+                        IoReleaseCancelSpinLock (cancelirql);
+                        NbfCompleteRequest (
+                            tpRequest,
+                            connection->Status,
+                            0);
+                        KeLowerIrql (oldirql);
+                        NbfDereferenceConnection("Temporary Use 1", connection, CREF_BY_ID);
+                        return STATUS_PENDING;
 
-                    RELEASE_DPC_C_SPIN_LOCK (&connection->SpinLock);
-                    IoReleaseCancelSpinLock (cancelirql);
-                    NbfCompleteRequest (
-                        tpRequest,
-                        connection->Status,
-                        0);
-                    KeLowerIrql (oldirql);
-                    NbfDereferenceConnection("Temporary Use 1", connection, CREF_BY_ID);
-                    return STATUS_PENDING;
-
+                    }
                 }
 
                 if (!connection->Provider->MediumSpeedAccurate) {
@@ -773,7 +904,7 @@ Return Value:
                 return STATUS_PENDING;
             }
 
-            Irp->CancelRoutine = NbfCancelConnection;
+            IoSetCancelRoutine(Irp, NbfCancelConnection);
             IoReleaseCancelSpinLock(cancelirql);
 
         }
@@ -881,6 +1012,7 @@ Return Value:
 
 } /* TdiConnect */
 
+
 
 NTSTATUS
 NbfTdiDisconnect(
@@ -969,12 +1101,12 @@ Return Value:
         //
 
         if ((connection->Flags2 & CONNECTION_FLAGS2_REQ_COMPLETED) &&
-            (connection->DisconnectIrp == NULL)) {
+            (connection->Flags2 & CONNECTION_FLAGS2_LDISC) == 0) {
 #if DBG
             DbgPrint ("NBF: Queueing disconnect irp %lx\n", Irp);
 #endif
-            connection->DisconnectIrp = Irp;
-            status = STATUS_PENDING;
+            connection->Flags2 |= CONNECTION_FLAGS2_LDISC;
+            status = STATUS_SUCCESS;
         } else {
             status = connection->Status;
         }
@@ -989,7 +1121,9 @@ Return Value:
     connection->Flags2 &= ~ (CONNECTION_FLAGS2_ACCEPTED |
                              CONNECTION_FLAGS2_PRE_ACCEPT |
                              CONNECTION_FLAGS2_WAITING_SC);
+
     connection->Flags2 |= CONNECTION_FLAGS2_DISCONNECT;
+    connection->Flags2 |= CONNECTION_FLAGS2_LDISC;
 
     //
     // Set this flag so the disconnect IRP is completed.
@@ -1001,7 +1135,7 @@ Return Value:
 
     connection->Flags2 |= CONNECTION_FLAGS2_REQ_COMPLETED;
 
-    connection->DisconnectIrp = Irp;
+//    connection->DisconnectIrp = Irp;
 
     //
     // fix up the timeout if required; no disconnect request should take very
@@ -1072,7 +1206,7 @@ Return Value:
     // the connection reference count drops to 0.
     //
 
-    return STATUS_PENDING;
+    return STATUS_SUCCESS;
 } /* TdiDisconnect */
 
 
@@ -1242,7 +1376,7 @@ Return Value:
             return STATUS_PENDING;
         }
 
-        Irp->CancelRoutine = NbfCancelConnection;
+        IoSetCancelRoutine(Irp, NbfCancelConnection);
         IoReleaseCancelSpinLock(cancelirql);
 
     }
@@ -1562,4 +1696,5 @@ Return Value:
     return STATUS_PENDING;
 
 } /* NbfCloseConnection */
+
 

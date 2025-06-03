@@ -121,7 +121,11 @@ RDEXT=
 !if "$(NTDEBUG)" == "retail"
 BUILDTYPE=RELEASE
 !else
+!if "$(NTDEBUG)" == "ntsdnodbg"
+BUILDTYPE=RELEASE
+!else
 BUILDTYPE=DEBUG
+!endif
 !endif
 
 
@@ -1301,7 +1305,7 @@ RPCLIBDIR=      $(OSLIBDIR)
 
 RPCNDRLIB=      $(RPCLIBDIR)\RpcNdr.lib
 RPCRTLIB=       $(RPCLIBDIR)\RpcRt4.lib
-RPCLIBS=        $(RPCNDRLIB) $(RPCRTLIB)
+RPCLIBS=        $(RPCRTLIB) $(RPCLIBDIR)\ntdll.lib
 
 ! if "$(SUBSYSTEMVER)" == ""
 SUBSYSTEMVER = 3.10

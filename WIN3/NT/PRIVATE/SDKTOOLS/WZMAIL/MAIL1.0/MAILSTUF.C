@@ -230,12 +230,12 @@ INT     PASCAL INTERNAL IdocToFile ( INT idoc, PSTR pDestName, INT sepEOH )
 		    pTmp2++;
 		memmove(pTmp1, pTmp2, (strlen(pTmp2) + 1)*sizeof(CHAR));
 	    }
-	    write ( fileno ( fp ), pHdr, strlen ( pHdr ) * sizeof(CHAR));
+	    write ( _fileno ( fp ), pHdr, strlen ( pHdr ) * sizeof(CHAR));
 	    ZMfree ( pHdr );
 	    if ( sepEOH )
-		write ( fileno ( fp ), strEOH, strlen ( strEOH ) );
-	    write ( fileno ( fp ), "\n", 1 );
-	    getbdy ( dMsg, fileno ( fp ) );
+		write ( _fileno ( fp ), strEOH, strlen ( strEOH ) );
+	    write ( _fileno ( fp ), "\n", 1 );
+	    getbdy ( dMsg, _fileno ( fp ) );
 	    putdoc ( dMsg );
 	    fclose ( fp );
 	    return OK;
@@ -243,7 +243,7 @@ INT     PASCAL INTERNAL IdocToFile ( INT idoc, PSTR pDestName, INT sepEOH )
     }
     if ( fp ) {
         fclose ( fp );
-        unlink ( pDestName );
+        _unlink ( pDestName );
     }
     return ERROR;
 }
@@ -296,14 +296,14 @@ INT     PASCAL INTERNAL FileToMsg ( PSTR pSrcFN, INT msgNum, FLAG flags )
 
         dh = getdoc ( fhMailBox, DOC_SPEC, IDOCTODOC ( msgNum ) );
         if ( dh != ERROR ) {
-            puttext ( dh, fileno ( fpDest ) );
+            puttext ( dh, _fileno ( fpDest ) );
             putdoc ( dh );
             retVal = OK;
         }
     }
     if ( fpDest ) {
         fclose ( fpDest );
-        unlink ( pTmpFN );
+        _unlink ( pTmpFN );
 
     }
     ZMfree ( pTmpFN );
@@ -642,13 +642,13 @@ INT PASCAL INTERNAL AddMsgToFld ( PSTR pFileNm, PSTR pFldNm, FLAG fAddFrom )
         goto done;
     }
     else {
-        puttext ( dhRF, fileno ( fpTmp ) );
+        puttext ( dhRF, _fileno ( fpTmp ) );
         putdoc ( dhRF );
     }
     putfolder ( fhRF );
 done:
     fclose ( fpTmp );
-    unlink ( pTmpFN);
+    _unlink ( pTmpFN);
     free ( pTmpFN);
     fclose ( fpMsg );
     if ( !strcmpis ( pExpFileN, mboxName ) )
@@ -761,7 +761,7 @@ INT PASCAL INTERNAL inc ( PSTR pSrcFile, long startPos )
             if ( ( dh = getdoc ( fh, DOC_CREATE, FALSE) ) == ERROR ) {
                 SendMessage ( hCommand, DISPLAY, "Can't create document.");
                 fclose ( fpPres );
-                unlink ( pTmpFN);
+                _unlink ( pTmpFN);
                 free ( pTmpFN);
                 putfolder ( fh );
                 fclose ( fpMbox );
@@ -773,7 +773,7 @@ INT PASCAL INTERNAL inc ( PSTR pSrcFile, long startPos )
 		//
 		inWatchArea = TRUE;
 
-		if (! puttext ( dh, fileno ( fpPres ) ) )  {
+		if (! puttext ( dh, _fileno ( fpPres ) ) )  {
 		    putdoc ( dh );
 		}
 		if ( dherrno )	{  /* write of body or index failed - back out */
@@ -788,7 +788,7 @@ INT PASCAL INTERNAL inc ( PSTR pSrcFile, long startPos )
 		    cMsg++;
 		}
 		fclose ( fpPres );
-		unlink ( pTmpFN);
+		_unlink ( pTmpFN);
 		free ( pTmpFN);
 		//
 		// BUGBUG - flag to catch message add failure
@@ -909,7 +909,7 @@ VOID PASCAL INTERNAL GetXenixDL ( PSTR pXDL, PSTR pTOOLSINI )
             }
             fclose ( fpTmp );
         }
-        unlink ( pTmpFN );
+        _unlink ( pTmpFN );
         ZMfree ( pTmpFN );
         if ( fErr ) {
             SendMessage ( hCommand, DISPLAYSTR, pBOT );
@@ -1097,7 +1097,7 @@ INT PASCAL INTERNAL lookfor ( PSTR pSrcFN, FILE *fpOut, PSTR p )
                 //
 
                 strcpy ( buflwr, buf );
-                strlwr ( buflwr );
+                _strlwr ( buflwr );
                 if ( strstr ( buflwr, p ) ) {
                      cnt++;
                      fprintf ( fpOut, "%s\n", buf );
@@ -1123,7 +1123,7 @@ INT PASCAL INTERNAL lookfor ( PSTR pSrcFN, FILE *fpOut, PSTR p )
 
         while ( fgetl ( buf, MAXLINELEN, fpSrc ) ) {
             strcpy ( buflwr, buf );
-            strlwr ( buflwr );
+            _strlwr ( buflwr );
             if ( strstr ( buflwr, p ) ) {
                 cnt++;
                 fprintf ( fpOut, "%s\n", buf );

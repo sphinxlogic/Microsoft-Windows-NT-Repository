@@ -29,7 +29,7 @@ Revision History:
 //
 
 #ifndef DBG
-DBG=0
+#define DBG 0
 #endif
 
 #if DBG
@@ -88,7 +88,7 @@ DBG=0
     if (Os2Debug & ((OS2_DEBUG_ ## Component1Flag) | (OS2_DEBUG_ ## Component2Flag)))
 
 #define IF_OD2_DEBUG3( Component1Flag, Component2Flag, Component3Flag ) \
-    if (Os2Debug & ((OS2_DEBUG_ ## Component1Flag) | (OS2_DEBUG_ ## Component2Flag) || \
+    if (Os2Debug & ((OS2_DEBUG_ ## Component1Flag) | (OS2_DEBUG_ ## Component2Flag) | \
             (OS2_DEBUG_ ## Component3Flag)))
 
 #define IF_OS2_DEBUG( ComponentFlag ) \
@@ -98,7 +98,7 @@ DBG=0
     if (Os2Debug & ((OS2_DEBUG_ ## Component1Flag) | (OS2_DEBUG_ ## Component2Flag)))
 
 #define IF_OS2_DEBUG3( Component1Flag, Component2Flag, Component3Flag ) \
-    if (Os2Debug & ((OS2_DEBUG_ ## Component1Flag) | (OS2_DEBUG_ ## Component2Flag) || \
+    if (Os2Debug & ((OS2_DEBUG_ ## Component1Flag) | (OS2_DEBUG_ ## Component2Flag) | \
             (OS2_DEBUG_ ## Component3Flag)))
 
 #else
@@ -127,4 +127,3 @@ DBG=0
 #define IF_OS2_DEBUG3( Component1Flag, Component2Flag, Component3Flag ) if (FALSE)
 
 #endif  // DBG
-

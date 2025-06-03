@@ -21,6 +21,7 @@ main(
     WCHAR computername[COMPUTERNAME_LENGTH];
     WCHAR server[CNLEN + 3];
     WCHAR buildNumber[BUILD_NUMBER_BUFFER_LENGTH];
+    BOOLEAN bBrief = FALSE;
 
     //
     // All server names start with \\.
@@ -35,6 +36,14 @@ main(
 
     argc--;
     argv++;
+
+    if (argc > 0) {
+        if ( (*argv[0]=='-' || *argv[0]=='/') &&  (argv[0][1]=='b' || argv[0][1]=='B') ) {
+            bBrief=TRUE;
+            argc--;
+            argv++;
+        }
+    }
 
     //
     // Get the build number of the local machine
@@ -51,6 +60,8 @@ main(
 
             printf( "Error %d querying build number for %ws\n", error, computername );
 
+        } else if (bBrief) {
+            printf( "%ws", buildNumber );
         } else {
             printf( "%ws is running build %ws\n", computername, buildNumber );
         }
@@ -58,19 +69,25 @@ main(
     } else {
 
     while ( argc ) {
+        CHAR *p = *argv;
 
-        if ( !stricmp( *argv, "/?" ) || !stricmp( *argv, "-?" ) ) {
-            printf( "Usage: BUILD ServerName\n" );
+        if ( !_stricmp( p, "/?" ) || !_stricmp( p, "-?" ) ) {
+            printf( "Usage: BUILDNUM [-b] [ServerName [servername]...]\n" );
+            printf( "   If no servername, then local machine is assumed.\n" );
+            printf( "   -b prints only the build number digits (must be 1st arg if used).\n" );
             return 0;
         }
 
-        if ( strlen( *argv ) > CNLEN ) {
+        if ( !strncmp( "\\\\", p, 2 ) ) {
+            p += 2;
+        }
+
+        if ( strlen( p ) > CNLEN ) {
 
             printf( "Computer name \\\\%s is too long\n", *argv );
 
         } else {
 
-            CHAR *p = *argv;
             WCHAR *q = &server[2];
 
             while ( *p ) {
@@ -83,6 +100,8 @@ main(
 
                 printf( "Error %d querying build number for %ws\n", error, server );
 
+            } else if (bBrief) {
+                printf( "%ws", buildNumber );
             } else {
 
                 printf( "%ws is running build %ws\n", server, buildNumber );

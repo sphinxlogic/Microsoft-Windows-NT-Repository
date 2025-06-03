@@ -796,4 +796,3 @@ void DrawBlank(HDC hDC, RECT FAR *rc)
     SelectObject( hDC, hOldBrush );
 }
 
-

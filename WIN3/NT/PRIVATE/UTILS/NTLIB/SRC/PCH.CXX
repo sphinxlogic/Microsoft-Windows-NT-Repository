@@ -21,6 +21,9 @@ Author:
 //
 
 #include "ulib.hxx"
+#if defined(JAPAN) && defined(_X86_)
+#include "machine.hxx"
+#endif // defined(JAPAN) && defined(_X86_)
 #include "smsg.hxx"
 #include "cmem.hxx"
 #include "basesys.hxx"
@@ -89,39 +92,6 @@ Author:
 #include "reloclus.hxx"
 #include "rfatsa.hxx"
 #include "rootdir.hxx"
-
-//
-// UHPFS headers.
-//
-
-#include "uhpfs.hxx"
-#include "alsec.hxx"
-#include "badblk.hxx"
-#include "bitmap.hxx"
-#include "bmind.hxx"
-#include "cpinfo.hxx"
-#include "defer.hxx"
-#include "dirblk.hxx"
-#include "dircache.hxx"
-#include "dirmap.hxx"
-#include "dirtree.hxx"
-#include "fnode.hxx"
-#include "hfsecrun.hxx"
-#include "hotfix.hxx"
-#include "hpcensus.hxx"
-#include "hpfsacl.hxx"
-#include "hpfsea.hxx"
-#include "hpfseal.hxx"
-#include "hpfsname.hxx"
-#include "hpfssa.hxx"
-#include "hpfsvol.hxx"
-#include "ods.hxx"
-#include "orphan.hxx"
-#include "sid.hxx"
-#include "spareb.hxx"
-#include "store.hxx"
-#include "superb.hxx"
-#include "verify.hxx"
 
 //
 // UNTFS headers.

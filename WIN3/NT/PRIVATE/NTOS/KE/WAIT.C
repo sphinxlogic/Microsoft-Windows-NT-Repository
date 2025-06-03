@@ -35,78 +35,6 @@ Revision History:
 #include "ki.h"
 
 //
-// Compute new priority.
-//
-// If the client runs at a realtime priority level and the server runs
-// at a realtime level that is greater than or equal to the client, then
-// no priority computation is necessary and a fast switch to the server
-// can be performed.
-//
-// If the client runs at a variable priority level and the server runs
-// at a realtime level, then no priority computation is necessary and
-// a fast switch to the server can always be performed.
-//
-// If both the client and the server run a variable priority level, then
-// a fast switch to the server can be performed by boosting the server
-// priority level. This is only allowed when the difference between the
-// priority levels of the client and server is not greater than a specifed
-// value, the server is not already boosted and has exhausted its boost
-// time, and the boosted server priority is greater than or equla to the
-// client priority.
-//
-
-#define ComputeNewPriority()                                              \
-    if (Thread->Priority < LOW_REALTIME_PRIORITY) {                       \
-        if (NextThread->Priority < LOW_REALTIME_PRIORITY) {               \
-            if (NextThread->PriorityDecrement == 0) {                     \
-                NewPriority =  NextThread->BasePriority + LongWayBoost;   \
-                if (NewPriority >= Thread->Priority) {                    \
-                    if (NewPriority >= LOW_REALTIME_PRIORITY) {           \
-                        NextThread->Priority = LOW_REALTIME_PRIORITY - 1; \
-                                                                          \
-                    } else {                                              \
-                        NextThread->Priority = (SCHAR)NewPriority;        \
-                    }                                                     \
-                                                                          \
-                } else {                                                  \
-                    if (NextThread->BasePriority >= BASE_PRIORITY_THRESHOLD) { \
-                        NextThread->PriorityDecrement =                   \
-                            Thread->Priority - NextThread->BasePriority;  \
-                        NextThread->DecrementCount = KiDecrementCount;    \
-                        NextThread->Priority = Thread->Priority;          \
-                                                                          \
-                    } else {                                              \
-                        goto LongWay;                                     \
-                    }                                                     \
-                }                                                         \
-                                                                          \
-            } else {                                                      \
-                NextThread->DecrementCount -= 1;                          \
-                if (NextThread->DecrementCount == 0) {                    \
-                    NextThread->Priority = NextThread->BasePriority;      \
-                    NextThread->PriorityDecrement = 0;                    \
-                    LongWayBoost = 0;                                     \
-                    goto LongWay;                                         \
-                }                                                         \
-                                                                          \
-                if (NextThread->Priority < Thread->Priority) {            \
-                    goto LongWay;                                         \
-                }                                                         \
-            }                                                             \
-                                                                          \
-        } else {                                                          \
-            NextThread->Quantum = Process->ThreadQuantum;                 \
-        }                                                                 \
-                                                                          \
-    } else {                                                              \
-        if (NextThread->Priority < Thread->Priority) {                    \
-            goto LongWay;                                                 \
-        }                                                                 \
-                                                                          \
-        NextThread->Quantum = Process->ThreadQuantum;                     \
-    }
-
-//
 // Test for alertable condition.
 //
 // If alertable is TRUE and the thread is alerted for a processor
@@ -184,13 +112,12 @@ Return Value:
 {
 
     LARGE_INTEGER NewTime;
-    KIRQL OldIrql;
-    PKTHREAD NextThread;
+    PLARGE_INTEGER OriginalTime;
     PKPRCB Prcb;
     KPRIORITY Priority;
-    PKQUEUE Queue;
-    PKTHREAD Thread;
-    PKTIMER Timer;
+    PRKQUEUE Queue;
+    PRKTHREAD Thread;
+    PRKTIMER Timer;
     PKWAIT_BLOCK WaitBlock;
     NTSTATUS WaitStatus;
 
@@ -205,8 +132,7 @@ Return Value:
         Thread->WaitNext = FALSE;
 
     } else {
-        KiLockDispatcherDatabase(&OldIrql);
-        Thread->WaitIrql = OldIrql;
+        KiLockDispatcherDatabase(&Thread->WaitIrql);
     }
 
     //
@@ -217,13 +143,9 @@ Return Value:
     // the loop.
     //
 
+    OriginalTime = Interval;
+    WaitBlock = &Thread->WaitBlock[TIMER_WAIT_BLOCK];
     do {
-
-        //
-        // Set address of wait block list in thread object.
-        //
-
-        Thread->WaitBlockList = &Thread->WaitBlock[0];
 
         //
         // Test to determine if a kernel APC is pending.
@@ -259,26 +181,18 @@ Return Value:
             // insert timer in timer queue, put thread in wait state, select
             // next thread to execute, and context switch to next thread.
             //
+            // N.B. The timer wait block is initialized when the respective
+            //      thread is initialized. Thus the constant fields are not
+            //      reinitialized. These include the wait object, wait key,
+            //      wait type, and the wait list entry link pointers.
+            //
 
+            Thread->WaitBlockList = WaitBlock;
             Thread->WaitStatus = (NTSTATUS)0;
             Timer = &Thread->Timer;
-            WaitBlock = &Thread->WaitBlock[0];
-            WaitBlock->Object = (PVOID)Timer;
             WaitBlock->NextWaitBlock = WaitBlock;
-            WaitBlock->WaitKey = (CSHORT)(STATUS_SUCCESS);
-            WaitBlock->WaitType = WaitAny;
-            WaitBlock->Thread = Thread;
-
-            //
-            // Insert wait block in timer wait list and insert timer in timer
-            // tree. Since it is known that there can be only one entry in the
-            // timer list, the header is merely initialized.
-            //
-
             Timer->Header.WaitListHead.Flink = &WaitBlock->WaitListEntry;
             Timer->Header.WaitListHead.Blink = &WaitBlock->WaitListEntry;
-            WaitBlock->WaitListEntry.Flink = &Timer->Header.WaitListHead;
-            WaitBlock->WaitListEntry.Blink = &Timer->Header.WaitListHead;
 
             //
             // If the timer is inserted in the timer tree, then place the
@@ -291,8 +205,6 @@ Return Value:
                 //
                 // If the thread is not a realtime thread, then drop the
                 // thread priority to the base priority.
-                // to round robin the thread with other threads at the
-                // same priority.
                 //
 
                 Prcb = KeGetCurrentPrcb();
@@ -311,8 +223,7 @@ Return Value:
 
                 if (Prcb->NextThread == NULL) {
                     Prcb->NextThread = KiFindReadyThread(Thread->NextProcessor,
-                                                         Priority,
-                                                         Priority);
+                                                         Thread->Priority);
                 }
 
                 //
@@ -320,11 +231,11 @@ Return Value:
                 // switch immediately to the selected thread.
                 //
 
-                NextThread = Prcb->NextThread;
-                if (NextThread != NULL) {
+                if (Prcb->NextThread != NULL) {
 
                     //
-                    // Switch context to selected thread.
+                    // Give the current thread a new qunatum and switch
+                    // context to selected thread.
                     //
                     // N.B. Control is returned at the original IRQL.
                     //
@@ -332,13 +243,15 @@ Return Value:
                     ASSERT(KeIsExecutingDpc() == FALSE);
                     ASSERT(Thread->WaitIrql <= DISPATCH_LEVEL);
 
-                    Prcb->NextThread = NULL;
                     Thread->Preempted = FALSE;
-                    WaitStatus = KiSwapContext(NextThread, TRUE);
+                    Thread->Quantum = Thread->ApcState.Process->ThreadQuantum;
+
+                    KiReadyThread(Thread);
+                    WaitStatus = KiSwapThread();
                     goto WaitComplete;
 
                 } else {
-                    WaitStatus = (NTSTATUS)STATUS_TIMEOUT;
+                    WaitStatus = (NTSTATUS)STATUS_SUCCESS;
                     break;
                 }
             }
@@ -347,11 +260,8 @@ Return Value:
             // If the current thread is processing a queue entry, then attempt
             // to activate another thread that is blocked on the queue object.
             //
-            // N.B. The normal context field of the thread suspend APC object
-            //      is used to hold the address of the queue object.
-            //
 
-            Queue = (PKQUEUE)Thread->SuspendApc.NormalContext;
+            Queue = Thread->Queue;
             if (Queue != NULL) {
                 KiActivateWaiterQueue(Queue);
             }
@@ -361,19 +271,12 @@ Return Value:
             // to Waiting, and insert the thread in the wait list.
             //
 
-            KeWaitReason[DelayExecution] += 1;
             Thread->Alertable = Alertable;
             Thread->WaitMode = WaitMode;
             Thread->WaitReason = DelayExecution;
             Thread->WaitTime= KiQueryLowTickCount();
             Thread->State = Waiting;
-            InsertTailList(&KiWaitInListHead, &Thread->WaitListEntry);
-
-            //
-            // Select next thread to execute.
-            //
-
-            NextThread = KiSelectNextThread(Thread);
+            KiInsertWaitList(WaitMode, Thread);
 
             //
             // Switch context to selected thread.
@@ -384,7 +287,7 @@ Return Value:
             ASSERT(KeIsExecutingDpc() == FALSE);
             ASSERT(Thread->WaitIrql <= DISPATCH_LEVEL);
 
-            WaitStatus = KiSwapContext(NextThread, FALSE);
+            WaitStatus = KiSwapThread();
 
             //
             // If the thread was not awakened to deliver a kernel mode APC,
@@ -393,6 +296,10 @@ Return Value:
 
         WaitComplete:
             if (WaitStatus != STATUS_KERNEL_APC) {
+                if (WaitStatus == STATUS_TIMEOUT) {
+                    WaitStatus = STATUS_SUCCESS;
+                }
+
                 return WaitStatus;
             }
 
@@ -400,16 +307,14 @@ Return Value:
             // Reduce the time remaining before the time delay expires.
             //
 
-            Interval = KiComputeWaitInterval(Timer, &NewTime);
+            Interval = KiComputeWaitInterval(Timer, OriginalTime, &NewTime);
         }
 
         //
         // Raise IRQL to DISPATCH_LEVEL and lock the dispatcher database.
         //
 
-        KiLockDispatcherDatabase(&OldIrql);
-        Thread->WaitIrql = OldIrql;
-
+        KiLockDispatcherDatabase(&Thread->WaitIrql);
     } while (TRUE);
 
     //
@@ -426,8 +331,8 @@ NTSTATUS
 KeReleaseWaitForSemaphore (
     IN PKSEMAPHORE Server,
     IN PKSEMAPHORE Client,
-    IN KWAIT_REASON WaitReason,
-    IN KPROCESSOR_MODE WaitMode
+    IN ULONG WaitReason,
+    IN ULONG WaitMode
     )
 
 /*++
@@ -437,8 +342,8 @@ Routine Description:
     This function releases a semaphore and waits on another semaphore. The
     wait is performed such that an optimal switch to the waiting thread
     occurs if possible. No timeout is associated with the wait, and thus,
-    the issuing thread will wait until the semaphore is signaled, an APC
-    occurs, or the thread is alerted.
+    the issuing thread will wait until the semaphore is signaled or an APC
+    is delivered.
 
 Arguments:
 
@@ -461,19 +366,12 @@ Return Value:
 
 {
 
-    KPRIORITY LongWayBoost = LPC_RELEASE_WAIT_INCREMENT;
-    PKTHREAD NextThread;
-    KIRQL OldIrql;
+    PRKTHREAD NextThread;
     LONG OldState;
-    PKPRCB Prcb;
-    PKQUEUE Queue;
-    KPRIORITY NewPriority;
-    PKPROCESS Process;
-    ULONG Processor;
-    PKTHREAD Thread;
+    PRKQUEUE Queue;
+    PRKTHREAD Thread;
     PKWAIT_BLOCK WaitBlock;
     PLIST_ENTRY WaitEntry;
-    NTSTATUS WaitStatus;
 
     //
     // Raise the IRQL to dispatch level and lock the dispatcher database.
@@ -483,202 +381,81 @@ Return Value:
 
     ASSERT(Thread->WaitNext == FALSE);
 
-    KiLockDispatcherDatabase(&OldIrql);
-    Thread->WaitIrql = OldIrql;
+    KiLockDispatcherDatabase(&Thread->WaitIrql);
 
     //
-    // If the client semaphore is not in the Signaled state, the server
-    // semaphore queue is not empty, and another thread has not already
-    // been selected for the current processor, then attempt to do a
-    // direct dispatch to the target thread.
+    // If the client semaphore is not in the Signaled state and the server
+    // semaphore wait queue is not empty, then attempt a direct dispatch
+    // to the target thread.
     //
 
-    Prcb = KeGetCurrentPrcb();
     if ((Client->Header.SignalState == 0) &&
-
-#if !defined(NT_UP)
-
-        (Prcb->NextThread == NULL) &&
-
-#endif
-
         (IsListEmpty(&Server->Header.WaitListHead) == FALSE)) {
 
         //
-        // If the target thread's kernel stack is resident, the target
-        // thread's process is in the balance set, and the target thread
-        // can run on the current processor, then do a direct dispatch to
-        // the target thread bypassing all the general wait logic, thread
-        // priorities permiting.
+        // Get the address of the first waiting server thread.
         //
 
         WaitEntry = Server->Header.WaitListHead.Flink;
         WaitBlock = CONTAINING_RECORD(WaitEntry, KWAIT_BLOCK, WaitListEntry);
         NextThread = WaitBlock->Thread;
-        Process = NextThread->ApcState.Process;
 
-#if !defined(NT_UP)
+        //
+        // Remove the wait block from the semaphore wait list and remove the
+        // target thread from the system wait list.
+        //
 
-        Processor = Thread->NextProcessor;
+        RemoveEntryList(&WaitBlock->WaitListEntry);
+        RemoveEntryList(&NextThread->WaitListEntry);
 
-#endif
+        //
+        // If the next thread is processing a queue entry, then increment
+        // the current number of threads.
+        //
 
-        if ((Process->State == ProcessInMemory) &&
-
-#if !defined(NT_UP)
-
-            ((NextThread->Affinity & (1 << Processor)) != 0) &&
-
-#endif
-
-            (NextThread->KernelStackResident != FALSE)) {
-
-            //
-            // Compute the new thread priority.
-            //
-            // N.B. This is a macro and may exit and perform the wait
-            //      operation the long way.
-            //
-
-            ComputeNewPriority();
-
-            //
-            // Decrement the wait reason count, remove the wait block from
-            // the wait list of the low event, and remove the target thread
-            // from the wait list.
-            //
-
-            KeWaitReason[NextThread->WaitReason] -= 1;
-            RemoveEntryList(&WaitBlock->WaitListEntry);
-            RemoveEntryList(&NextThread->WaitListEntry);
-
-            //
-            // Remove the current thread from the active matrix.
-            //
-
-#if !defined(NT_UP)
-
-            RemoveActiveMatrix(Processor, Thread->Priority);
-
-            //
-            // Insert the target thread in the active matrix and set the
-            // next processor number.
-            //
-
-            InsertActiveMatrix(Processor, NextThread->Priority);
-            NextThread->NextProcessor = (CCHAR)Processor;
-
-#endif
-
-            //
-            // If the next thread is processing a queue entry, then increment
-            // the current number of threads.
-            //
-            // N.B. The normal context field of the thread suspend APC object
-            //      is used to hold the address of the queue object.
-            //
-
-            Queue = (PKQUEUE)NextThread->SuspendApc.NormalContext;
-            if (Queue != NULL) {
-                Queue->CurrentCount += 1;
-            }
-
-            //
-            // Set address of wait block list in thread object.
-            //
-
-            Thread->WaitBlockList = &Thread->WaitBlock[SEMAPHORE_WAIT_BLOCK];
-
-            //
-            // Complete the initialization of the builtin semaphore wait
-            // block and insert the wait block in the client semaphore
-            // wait list.
-            //
-
-            Thread->WaitStatus = (NTSTATUS)0;
-            Thread->WaitBlock[SEMAPHORE_WAIT_BLOCK].Object = Client;
-            InsertTailList(&Client->Header.WaitListHead,
-                           &Thread->WaitBlock[SEMAPHORE_WAIT_BLOCK].WaitListEntry);
-
-            //
-            // If the current thread is processing a queue entry, then attempt
-            // to activate another thread that is blocked on the queue object.
-            //
-            // N.B. The normal context field of the thread suspend APC object
-            //      is used to hold the address of the queue object.
-            //
-
-            Queue = (PKQUEUE)Thread->SuspendApc.NormalContext;
-            if (Queue != NULL) {
-                Prcb->NextThread = NextThread;
-                KiActivateWaiterQueue(Queue);
-                NextThread = Prcb->NextThread;
-                Prcb->NextThread = NULL;
-            }
-
-            //
-            // Set the current thread wait parameters, set the thread state
-            // to Waiting, and insert the thread in the wait list.
-            //
-
-            KeWaitReason[WaitReason] += 1;
-            Thread->Alertable = FALSE;
-            Thread->WaitMode = WaitMode;
-            Thread->WaitReason = WaitReason;
-            Thread->WaitTime= KiQueryLowTickCount();
-            Thread->State = Waiting;
-            InsertTailList(&KiWaitInListHead, &Thread->WaitListEntry);
-
-            //
-            // Switch context to target thread.
-            //
-            // Control is returned at the original IRQL.
-            //
-
-            WaitStatus = KiSwapContext(NextThread, FALSE);
-
-            //
-            // If the thread was not awakened to deliver a kernel mode APC,
-            // then return wait status.
-            //
-
-            if (WaitStatus != STATUS_KERNEL_APC) {
-                return WaitStatus;
-            }
-
-            //
-            // Raise IRQL to DISPATCH_LEVEL and lock the dispatcher database.
-            //
-
-            KiLockDispatcherDatabase(&OldIrql);
-            Thread->WaitIrql = OldIrql;
-            goto ContinueWait;
+        Queue = NextThread->Queue;
+        if (Queue != NULL) {
+            Queue->CurrentCount += 1;
         }
+
+        //
+        // Attempt to switch directly to the target thread.
+        //
+
+        return KiSwitchToThread(NextThread, WaitReason, WaitMode, Client);
+
+    } else {
+
+        //
+        // If the server sempahore is at the maximum limit, then unlock the
+        // dispatcher database and raise an exception.
+        //
+
+        OldState = Server->Header.SignalState;
+        if (OldState == Server->Limit) {
+            KiUnlockDispatcherDatabase(Thread->WaitIrql);
+            ExRaiseStatus(STATUS_SEMAPHORE_LIMIT_EXCEEDED);
+        }
+
+        //
+        // Signal the server semaphore and test to determine if any wait can be
+        // satisfied.
+        //
+
+        Server->Header.SignalState += 1;
+        if ((OldState == 0) && (IsListEmpty(&Server->Header.WaitListHead) == FALSE)) {
+            KiWaitTest(Server, 1);
+        }
+
+        //
+        // Continue the semaphore wait and return the wait completion status.
+        //
+        // N.B. The wait continuation routine is called with the dispatcher
+        //      database locked.
+        //
+
+        return KiContinueClientWait(Client, WaitReason, WaitMode);
     }
-
-    //
-    // Signal the server semaphore and test to determine if any wait can be
-    // satisfied.
-    //
-
-LongWay:
-
-    OldState = Server->Header.SignalState;
-    Server->Header.SignalState += 1;
-    if ((OldState == 0) && (IsListEmpty(&Server->Header.WaitListHead) == FALSE)) {
-        KiWaitTest(Server, LongWayBoost);
-    }
-
-    //
-    // Continue the semaphore wait and return the wait completion status.
-    //
-    // N.B. The wait continuation routine is called with the dispatcher
-    //      database locked.
-    //
-
-ContinueWait:
-
-    return KiContinueClientWait(Client, WaitReason, WaitMode);
 }
 
 NTSTATUS
@@ -743,17 +520,18 @@ Return Value:
 
 {
 
-    LARGE_INTEGER NewTime;
     ULONG Index;
-    PKTHREAD NextThread;
+    LARGE_INTEGER NewTime;
+    PRKTHREAD NextThread;
     PKMUTANT Objectx;
-    KIRQL OldIrql;
-    PKQUEUE Queue;
-    PKTHREAD Thread;
-    PKTIMER Timer;
-    PKWAIT_BLOCK WaitBlock;
+    PLARGE_INTEGER OriginalTime;
+    PRKQUEUE Queue;
+    PRKTHREAD Thread;
+    PRKTIMER Timer;
+    PRKWAIT_BLOCK WaitBlock;
     BOOLEAN WaitSatisfied;
     NTSTATUS WaitStatus;
+    PKWAIT_BLOCK WaitTimer;
 
     //
     // If the dispatcher database lock is not already held, then set the wait
@@ -766,8 +544,7 @@ Return Value:
         Thread->WaitNext = FALSE;
 
     } else {
-        KiLockDispatcherDatabase(&OldIrql);
-        Thread->WaitIrql = OldIrql;
+        KiLockDispatcherDatabase(&Thread->WaitIrql);
     }
 
     //
@@ -775,7 +552,7 @@ Return Value:
     // objects that can be waited on is specified by MAXIMUM_WAIT_OBJECTS.
     // Otherwise the builtin wait blocks in the thread object are used and
     // the maximum number of objects that can be waited on is specified by
-    // THREAD_WAIT_BLOCKS. If the specified number of objects is not within
+    // THREAD_WAIT_OBJECTS. If the specified number of objects is not within
     // limits, then bug check.
     //
 
@@ -800,6 +577,7 @@ Return Value:
     // the loop.
     //
 
+    OriginalTime = Timeout;
     do {
 
         //
@@ -865,8 +643,9 @@ Return Value:
                             (Thread == Objectx->OwnerThread)) {
                             if (Objectx->Header.SignalState != MINLONG) {
                                 KiWaitSatisfyMutant(Objectx, Thread);
+                                WaitStatus = (NTSTATUS)(Index) | Thread->WaitStatus;
                                 KiUnlockDispatcherDatabase(Thread->WaitIrql);
-                                return (NTSTATUS)(Index) | Thread->WaitStatus;
+                                return WaitStatus;
 
                             } else {
                                 KiUnlockDispatcherDatabase(Thread->WaitIrql);
@@ -936,8 +715,8 @@ Return Value:
 
             if ((WaitType == WaitAll) && (WaitSatisfied)) {
                 WaitBlock->NextWaitBlock = &WaitBlockArray[0];
-                KiWaitSatisfy(WaitBlock);
-                WaitStatus = (NTSTATUS)(0) | Thread->WaitStatus;
+                KiWaitSatisfyAll(WaitBlock);
+                WaitStatus = Thread->WaitStatus;
                 break;
             }
 
@@ -969,14 +748,16 @@ Return Value:
                 // initialize timer wait list head, insert the timer in the
                 // timer tree, and increment the number of wait objects.
                 //
+                // N.B. The timer wait block is initialized when the respective
+                //      thread is initialized. Thus the constant fields are not
+                //      reinitialized. These include the wait object, wait key,
+                //      wait type, and the wait list entry link pointers.
+                //
 
-                WaitBlock->NextWaitBlock = &Thread->WaitBlock[TIMER_WAIT_BLOCK];
+                WaitTimer = &Thread->WaitBlock[TIMER_WAIT_BLOCK];
+                WaitBlock->NextWaitBlock = WaitTimer;
+                WaitBlock = WaitTimer;
                 Timer = &Thread->Timer;
-                WaitBlock = &Thread->WaitBlock[TIMER_WAIT_BLOCK];
-                WaitBlock->Object = (PVOID)Timer;
-                WaitBlock->WaitKey = (CSHORT)(STATUS_TIMEOUT);
-                WaitBlock->WaitType = WaitAny;
-                WaitBlock->Thread = Thread;
                 InitializeListHead(&Timer->Header.WaitListHead);
                 if (KiInsertTreeTimer(Timer, *Timeout) == FALSE) {
                     WaitStatus = (NTSTATUS)STATUS_TIMEOUT;
@@ -1005,11 +786,8 @@ Return Value:
             // If the current thread is processing a queue entry, then attempt
             // to activate another thread that is blocked on the queue object.
             //
-            // N.B. The normal context field of the thread suspend APC object
-            //      is used to hold the address of the queue object.
-            //
 
-            Queue = (PKQUEUE)Thread->SuspendApc.NormalContext;
+            Queue = Thread->Queue;
             if (Queue != NULL) {
                 KiActivateWaiterQueue(Queue);
             }
@@ -1019,19 +797,12 @@ Return Value:
             // to Waiting, and insert the thread in the wait list.
             //
 
-            KeWaitReason[WaitReason] += 1;
             Thread->Alertable = Alertable;
             Thread->WaitMode = WaitMode;
             Thread->WaitReason = WaitReason;
             Thread->WaitTime= KiQueryLowTickCount();
             Thread->State = Waiting;
-            InsertTailList(&KiWaitInListHead, &Thread->WaitListEntry);
-
-            //
-            // Select next thread to execute.
-            //
-
-            NextThread = KiSelectNextThread(Thread);
+            KiInsertWaitList(WaitMode, Thread);
 
             //
             // Switch context to selected thread.
@@ -1042,7 +813,7 @@ Return Value:
             ASSERT(KeIsExecutingDpc() == FALSE);
             ASSERT(Thread->WaitIrql <= DISPATCH_LEVEL);
 
-            WaitStatus = KiSwapContext(NextThread, FALSE);
+            WaitStatus = KiSwapThread();
 
             //
             // If the thread was not awakened to deliver a kernel mode APC,
@@ -1059,7 +830,7 @@ Return Value:
                 // Reduce the amount of time remaining before timeout occurs.
                 //
 
-                Timeout = KiComputeWaitInterval(Timer, &NewTime);
+                Timeout = KiComputeWaitInterval(Timer, OriginalTime, &NewTime);
             }
         }
 
@@ -1067,9 +838,7 @@ Return Value:
         // Raise IRQL to DISPATCH_LEVEL and lock the dispatcher database.
         //
 
-        KiLockDispatcherDatabase(&OldIrql);
-        Thread->WaitIrql = OldIrql;
-
+        KiLockDispatcherDatabase(&Thread->WaitIrql);
     } while (TRUE);
 
     //
@@ -1132,14 +901,15 @@ Return Value:
 {
 
     LARGE_INTEGER NewTime;
-    PKTHREAD NextThread;
+    PRKTHREAD NextThread;
     PKMUTANT Objectx;
-    KIRQL OldIrql;
-    PKQUEUE Queue;
-    PKTHREAD Thread;
-    PKTIMER Timer;
+    PLARGE_INTEGER OriginalTime;
+    PRKQUEUE Queue;
+    PRKTHREAD Thread;
+    PRKTIMER Timer;
     PKWAIT_BLOCK WaitBlock;
     NTSTATUS WaitStatus;
+    PKWAIT_BLOCK WaitTimer;
 
     //
     // Collect call data.
@@ -1162,8 +932,7 @@ Return Value:
         Thread->WaitNext = FALSE;
 
     } else {
-        KiLockDispatcherDatabase(&OldIrql);
-        Thread->WaitIrql = OldIrql;
+        KiLockDispatcherDatabase(&Thread->WaitIrql);
     }
 
     //
@@ -1174,13 +943,9 @@ Return Value:
     // the loop.
     //
 
+    OriginalTime = Timeout;
+    WaitBlock = &Thread->WaitBlock[0];
     do {
-
-        //
-        // Set address of wait block list in thread object.
-        //
-
-        Thread->WaitBlockList = &Thread->WaitBlock[0];
 
         //
         // Test to determine if a kernel APC is pending.
@@ -1250,11 +1015,10 @@ Return Value:
             // Construct a wait block for the object.
             //
 
-            WaitBlock = &Thread->WaitBlock[0];
+            Thread->WaitBlockList = WaitBlock;
             WaitBlock->Object = Object;
             WaitBlock->WaitKey = (CSHORT)(STATUS_SUCCESS);
             WaitBlock->WaitType = WaitAny;
-            WaitBlock->Thread = Thread;
 
             //
             // Test for alert pending.
@@ -1284,46 +1048,39 @@ Return Value:
                 // wait block in timer wait list, insert the timer in the timer
                 // tree.
                 //
+                // N.B. The timer wait block is initialized when the respective
+                //      thread is initialized. Thus the constant fields are not
+                //      reinitialized. These include the wait object, wait key,
+                //      wait type, and the wait list entry link pointers.
+                //
 
                 Timer = &Thread->Timer;
-                WaitBlock->NextWaitBlock = &Thread->WaitBlock[1];
-                WaitBlock = &Thread->WaitBlock[1];
-                WaitBlock->Object = (PVOID)Timer;
-                WaitBlock->WaitKey = (CSHORT)(STATUS_TIMEOUT);
-                WaitBlock->WaitType = WaitAny;
-                WaitBlock->Thread = Thread;
-                Timer->Header.WaitListHead.Flink = &WaitBlock->WaitListEntry;
-                Timer->Header.WaitListHead.Blink = &WaitBlock->WaitListEntry;
-                WaitBlock->WaitListEntry.Flink = &Timer->Header.WaitListHead;
-                WaitBlock->WaitListEntry.Blink = &Timer->Header.WaitListHead;
+                WaitTimer = &Thread->WaitBlock[TIMER_WAIT_BLOCK];
+                WaitBlock->NextWaitBlock = WaitTimer;
+                Timer->Header.WaitListHead.Flink = &WaitTimer->WaitListEntry;
+                Timer->Header.WaitListHead.Blink = &WaitTimer->WaitListEntry;
+                WaitTimer->NextWaitBlock = WaitBlock;
                 if (KiInsertTreeTimer(Timer, *Timeout) == FALSE) {
                     WaitStatus = (NTSTATUS)STATUS_TIMEOUT;
                     break;
                 }
+
+            } else {
+                WaitBlock->NextWaitBlock = WaitBlock;
             }
-
-            //
-            // Close up the circular list of wait control blocks.
-            //
-
-            WaitBlock->NextWaitBlock = &Thread->WaitBlock[0];
 
             //
             // Insert wait block in object wait list.
             //
 
-            WaitBlock = &Thread->WaitBlock[0];
             InsertTailList(&Objectx->Header.WaitListHead, &WaitBlock->WaitListEntry);
 
             //
             // If the current thread is processing a queue entry, then attempt
             // to activate another thread that is blocked on the queue object.
             //
-            // N.B. The normal context field of the thread suspend APC object
-            //      is used to hold the address of the queue object.
-            //
 
-            Queue = (PKQUEUE)Thread->SuspendApc.NormalContext;
+            Queue = Thread->Queue;
             if (Queue != NULL) {
                 KiActivateWaiterQueue(Queue);
             }
@@ -1333,19 +1090,12 @@ Return Value:
             // to Waiting, and insert the thread in the wait list.
             //
 
-            KeWaitReason[WaitReason] += 1;
             Thread->Alertable = Alertable;
             Thread->WaitMode = WaitMode;
             Thread->WaitReason = WaitReason;
             Thread->WaitTime= KiQueryLowTickCount();
             Thread->State = Waiting;
-            InsertTailList(&KiWaitInListHead, &Thread->WaitListEntry);
-
-            //
-            // Select next thread to execute.
-            //
-
-            NextThread = KiSelectNextThread(Thread);
+            KiInsertWaitList(WaitMode, Thread);
 
             //
             // Switch context to selected thread.
@@ -1356,7 +1106,7 @@ Return Value:
             ASSERT(KeIsExecutingDpc() == FALSE);
             ASSERT(Thread->WaitIrql <= DISPATCH_LEVEL);
 
-            WaitStatus = KiSwapContext(NextThread, FALSE);
+            WaitStatus = KiSwapThread();
 
             //
             // If the thread was not awakened to deliver a kernel mode APC,
@@ -1373,7 +1123,7 @@ Return Value:
                 // Reduce the amount of time remaining before timeout occurs.
                 //
 
-                Timeout = KiComputeWaitInterval(Timer, &NewTime);
+                Timeout = KiComputeWaitInterval(Timer, OriginalTime, &NewTime);
             }
         }
 
@@ -1381,9 +1131,7 @@ Return Value:
         // Raise IRQL to DISPATCH_LEVEL and lock the dispatcher database.
         //
 
-        KiLockDispatcherDatabase(&OldIrql);
-        Thread->WaitIrql = OldIrql;
-
+        KiLockDispatcherDatabase(&Thread->WaitIrql);
     } while (TRUE);
 
     //
@@ -1395,29 +1143,23 @@ Return Value:
     KiUnlockDispatcherDatabase(Thread->WaitIrql);
     return WaitStatus;
 }
-
-#if !defined(_ALPHA_)
-#if !defined(_MIPS_)
-#if !defined(_PPC_)
-#if !defined(i386)
-
 
 NTSTATUS
 KiSetServerWaitClientEvent (
     IN PKEVENT ServerEvent,
     IN PKEVENT ClientEvent,
-    IN KPROCESSOR_MODE WaitMode
+    IN ULONG WaitMode
     )
 
 /*++
 
 Routine Description:
 
-    This function sets the specified server event waits on specified client
-    event. The wait is performed such that an optimal switch to the waiting
-    thread occurs if possible. No timeout is associated with the wait, and
-    thus, the issuing thread will wait until the client event is signaled,
-    an APC occurs, or the thread is alerted.
+    This function sets the specified server event and waits on specified
+    client event. The wait is performed such that an optimal switch to
+    the waiting thread occurs if possible. No timeout is associated with
+    the wait, and thus, the issuing thread will wait until the client event
+    is signaled or an APC is delivered.
 
 Arguments:
 
@@ -1438,18 +1180,13 @@ Return Value:
 
 {
 
-    KPRIORITY LongWayBoost = EVENT_PAIR_INCREMENT;
     PKTHREAD NextThread;
-    KIRQL OldIrql;
-    LONG OldState;
-    PKPRCB Prcb;
     KPRIORITY NewPriority;
-    PKPROCESS Process;
-    ULONG Processor;
+    LONG OldState;
+    PKQUEUE Queue;
     PKTHREAD Thread;
     PKWAIT_BLOCK WaitBlock;
     PLIST_ENTRY WaitEntry;
-    NTSTATUS WaitStatus;
 
     //
     // Raise the IRQL to dispatch level and lock the dispatcher database.
@@ -1459,214 +1196,78 @@ Return Value:
 
     ASSERT(Thread->WaitNext == FALSE);
 
-    KiLockDispatcherDatabase(&OldIrql);
-    Thread->WaitIrql = OldIrql;
+    KiLockDispatcherDatabase(&Thread->WaitIrql);
 
     //
-    // If the client event is not in the Signaled state, the server event
-    // queue is not empty, and another thread has not already been selected
-    // for the current processor, then attempt to do a direct dispatch to
-    // the target thread.
+    // If the client event is not in the Signaled state and the server
+    // event wait queue is not empty, then attempt to do a direct dispatch
+    // to the target thread.
     //
 
-    Prcb = KeGetCurrentPrcb();
     if ((ClientEvent->Header.SignalState == 0) &&
-
-#if !defined(NT_UP)
-
-        (Prcb->NextThread == NULL) &&
-
-#endif
-
         (IsListEmpty(&ServerEvent->Header.WaitListHead) == FALSE)) {
 
         //
-        // If the target thread's kernel stack is resident, the target
-        // thread's process is in the balance set, and the target thread
-        // can run on the current processor, then do a direct dispatch to
-        // the target thread bypassing all the general wait logic, thread
-        // priorities permiting.
+        // Get the address of the first waiting server thread.
         //
 
         WaitEntry = ServerEvent->Header.WaitListHead.Flink;
         WaitBlock = CONTAINING_RECORD(WaitEntry, KWAIT_BLOCK, WaitListEntry);
         NextThread = WaitBlock->Thread;
-        Process = NextThread->ApcState.Process;
 
-#if !defined(NT_UP)
+        //
+        // Remove the wait block from the event wait list and remove the
+        // target thread from the system wait list.
+        //
 
-        Processor = Thread->NextProcessor;
+        RemoveEntryList(&WaitBlock->WaitListEntry);
+        RemoveEntryList(&NextThread->WaitListEntry);
 
-#endif
+        //
+        // If the next thread is processing a queue entry, then increment
+        // the current number of threads.
+        //
 
-        if ((Process->State == ProcessInMemory) &&
-
-#if !defined(NT_UP)
-
-            ((NextThread->Affinity & (1 << Processor)) != 0) &&
-
-#endif
-
-            (NextThread->KernelStackResident != FALSE)) {
-
-            //
-            // Compute the new thread priority.
-            //
-            // N.B. This is a macro and may exit and perform the wait
-            //      operation the long way.
-            //
-
-            ComputeNewPriority();
-
-            //
-            // Remove the wait block from the wait list of the server event,
-            // and remove the target thread from the wait list.
-            //
-
-            RemoveEntryList(&WaitBlock->WaitListEntry);
-            RemoveEntryList(&NextThread->WaitListEntry);
-
-            //
-            // Remove the current thread from the active matrix.
-            //
-
-#if !defined(NT_UP)
-
-            RemoveActiveMatrix(Processor, Thread->Priority);
-
-            //
-            // Insert the target thread in the active matrix and set the
-            // next processor number.
-            //
-
-            InsertActiveMatrix(Processor, NextThread->Priority);
-            NextThread->NextProcessor = (CCHAR)Processor;
-
-#endif
-
-            //
-            // If the next thread is processing a queue entry, then increment
-            // the current number of threads.
-            //
-            // N.B. The normal context field of the thread suspend APC object
-            //      is used to hold the address of the queue object.
-            //
-
-            Queue = (PKQUEUE)NextThread->SuspendApc.NormalContext;
-            if (Queue != NULL) {
-                Queue->CurrentCount += 1;
-            }
-
-            //
-            // Set address of wait block list in thread object.
-            //
-
-            Thread->WaitBlockList = &Thread->WaitBlock[EVENT_WAIT_BLOCK];
-
-            //
-            // Complete the initialization of the builtin event wait block
-            // and insert the wait block in the client event wait list.
-            //
-
-            Thread->WaitStatus = (NTSTATUS)0;
-            Thread->WaitBlock[EVENT_WAIT_BLOCK].Object = ClientEvent;
-            InsertTailList(&ClientEvent->Header.WaitListHead,
-                           &Thread->WaitBlock[EVENT_WAIT_BLOCK].WaitListEntry);
-
-            //
-            // If the current thread is processing a queue entry, then attempt
-            // to activate another thread that is blocked on the queue object.
-            //
-            // N.B. The normal context field of the thread suspend APC object
-            //      is used to hold the address of the queue object.
-            //
-
-            Queue = (PKQUEUE)Thread->SuspendApc.NormalContext;
-            if (Queue != NULL) {
-                Prcb->NextThread = NextThread;
-                KiActivateWaiterQueue(Queue);
-                NextThread = Prcb->NextThread;
-                Prcb->NextThread = NULL;
-            }
-
-            //
-            // Set the current thread wait parameters, set the thread state
-            // to Waiting, and insert the thread in the wait list.
-            //
-            // N.B. It is not necessary to increment and decrement the wait
-            //      reason count since both the server and the client have
-            //      the same wait reason.
-            //
-
-            Thread->Alertable = FALSE;
-            Thread->WaitMode = WaitMode;
-            Thread->WaitReason = WrEventPair;
-            Thread->WaitTime= KiQueryLowTickCount();
-            Thread->State = Waiting;
-            InsertTailList(&KiWaitInListHead, &Thread->WaitListEntry);
-
-            //
-            // Switch context to target thread.
-            //
-            // Control is returned at the original IRQL.
-            //
-
-            WaitStatus = KiSwapContext(NextThread, FALSE);
-
-            //
-            // If the thread was not awakened to deliver a kernel mode APC,
-            // then return wait status.
-            //
-
-            if (WaitStatus != STATUS_KERNEL_APC) {
-                return WaitStatus;
-            }
-
-            //
-            // Raise IRQL to DISPATCH_LEVEL and lock the dispatcher database.
-            //
-
-            KiLockDispatcherDatabase(&OldIrql);
-            Thread->WaitIrql = OldIrql;
-            goto ContinueWait;
+        Queue = NextThread->Queue;
+        if (Queue != NULL) {
+            Queue->CurrentCount += 1;
         }
+
+        //
+        // Attempt to switch directly to the target thread.
+        //
+
+        return KiSwitchToThread(NextThread, WrEventPair, WaitMode, ClientEvent);
+
+    } else {
+
+        //
+        // Signal the server event and test to determine if any wait can be
+        // satisfied.
+        //
+
+        OldState = ServerEvent->Header.SignalState;
+        ServerEvent->Header.SignalState = 1;
+        if ((OldState == 0) && (IsListEmpty(&ServerEvent->Header.WaitListHead) == FALSE)) {
+            KiWaitTest(ServerEvent, 1);
+        }
+
+        //
+        // Continue the event pair wait and return the wait completion status.
+        //
+        // N.B. The wait continuation routine is called with the dispatcher
+        //      database locked.
+        //
+
+        return KiContinueClientWait(ClientEvent, WrEventPair, WaitMode);
     }
-
-    //
-    // Set the server event and test to determine if any wait can be satisfied.
-    //
-
-LongWay:
-
-    OldState = ServerEvent->Header.SignalState;
-    ServerEvent->Header.SignalState = 1;
-    if ((OldState == 0) && (IsListEmpty(&ServerEvent->Header.WaitListHead) == FALSE)) {
-        KiWaitTest(ServerEvent, LongWayBoost);
-    }
-
-    //
-    // Continue the event pair wait and return the wait completion status.
-    //
-    // N.B. The wait continuation routine is called with the dispatcher
-    //      database locked.
-    //
-
-ContinueWait:
-
-    return KiContinueClientWait(ClientEvent, WrEventPair, WaitMode);
 }
-
-#endif
-#endif
-#endif
-#endif
-
 
 NTSTATUS
 KiContinueClientWait (
     IN PVOID ClientObject,
-    IN KWAIT_REASON WaitReason,
-    IN KPROCESSOR_MODE WaitMode
+    IN ULONG WaitReason,
+    IN ULONG WaitMode
     )
 
 /*++
@@ -1699,9 +1300,10 @@ Return Value:
 {
 
     PKEVENT ClientEvent;
-    KIRQL OldIrql;
-    PKQUEUE Queue;
-    PKTHREAD Thread;
+    PRKTHREAD NextThread;
+    PRKQUEUE Queue;
+    PRKTHREAD Thread;
+    PKWAIT_BLOCK WaitBlock;
     NTSTATUS WaitStatus;
 
     //
@@ -1714,13 +1316,14 @@ Return Value:
 
     ClientEvent = (PKEVENT)ClientObject;
     Thread = KeGetCurrentThread();
+    WaitBlock = &Thread->WaitBlock[0];
     do {
 
         //
         // Set address of wait block list in thread object.
         //
 
-        Thread->WaitBlockList = &Thread->WaitBlock[EVENT_WAIT_BLOCK];
+        Thread->WaitBlockList = WaitBlock;
 
         //
         // Test to determine if a kernel APC is pending.
@@ -1755,14 +1358,17 @@ Return Value:
             }
 
             //
-            // Complete the initialization of the builtin event wait block
-            // and check to determine if the wait is already satisfied. If
-            // the wait is satisfied, then perform wait completion and return.
-            // Otherwise put current thread in a wait state.
+            // Initialize the event\semaphore wait block and check to determine
+            // if the wait is already satisfied. If the wait is satisfied, then
+            // perform wait completion and return. Otherwise, put current thread
+            // in a wait state.
             //
 
             Thread->WaitStatus = (NTSTATUS)0;
-            Thread->WaitBlock[EVENT_WAIT_BLOCK].Object = ClientEvent;
+            WaitBlock->Object = ClientEvent;
+            WaitBlock->NextWaitBlock = WaitBlock;
+            WaitBlock->WaitKey = (CSHORT)(STATUS_SUCCESS);
+            WaitBlock->WaitType = WaitAny;
 
             //
             // If the signal state is not equal to zero, then satisfy the wait.
@@ -1779,17 +1385,14 @@ Return Value:
             //
 
             InsertTailList(&ClientEvent->Header.WaitListHead,
-                           &Thread->WaitBlock[EVENT_WAIT_BLOCK].WaitListEntry);
+                           &WaitBlock->WaitListEntry);
 
             //
             // If the current thread is processing a queue entry, then attempt
             // to activate another thread that is blocked on the queue object.
             //
-            // N.B. The normal context field of the thread suspend APC object
-            //      is used to hold the address of the queue object.
-            //
 
-            Queue = (PKQUEUE)Thread->SuspendApc.NormalContext;
+            Queue = Thread->Queue;
             if (Queue != NULL) {
                 KiActivateWaiterQueue(Queue);
             }
@@ -1799,13 +1402,12 @@ Return Value:
             // to Waiting, and insert the thread in the wait list.
             //
 
-            KeWaitReason[WaitReason] += 1;
             Thread->Alertable = FALSE;
-            Thread->WaitMode = WaitMode;
-            Thread->WaitReason = WaitReason;
+            Thread->WaitMode = (KPROCESSOR_MODE)WaitMode;
+            Thread->WaitReason = (UCHAR)WaitReason;
             Thread->WaitTime= KiQueryLowTickCount();
             Thread->State = Waiting;
-            InsertTailList(&KiWaitInListHead, &Thread->WaitListEntry);
+            KiInsertWaitList(WaitMode, Thread);
 
             //
             // Switch context to selected thread.
@@ -1813,7 +1415,7 @@ Return Value:
             // Control is returned at the original IRQL.
             //
 
-            WaitStatus = KiSwapContext(KiSelectNextThread(Thread), FALSE);
+            WaitStatus = KiSwapThread();
 
             //
             // If the thread was not awakened to deliver a kernel mode APC,
@@ -1829,8 +1431,7 @@ Return Value:
         // Raise IRQL to DISPATCH_LEVEL and lock the dispatcher database.
         //
 
-        KiLockDispatcherDatabase(&OldIrql);
-        Thread->WaitIrql = OldIrql;
+        KiLockDispatcherDatabase(&Thread->WaitIrql);
     } while (TRUE);
 
     //
@@ -1846,7 +1447,8 @@ Return Value:
 PLARGE_INTEGER
 FASTCALL
 KiComputeWaitInterval (
-    IN PKTIMER Timer,
+    IN PRKTIMER Timer,
+    IN PLARGE_INTEGER OriginalTime,
     IN OUT PLARGE_INTEGER NewTime
     )
 
@@ -1861,6 +1463,8 @@ Arguments:
 
     Timer - Supplies a pointer to a dispatcher object of type timer.
 
+    OriginalTime - Supplies a pointer to the original timeout value.
+
     NewTime - Supplies a pointer to a variable that receives the
         recomputed wait interval.
 
@@ -1873,10 +1477,300 @@ Return Value:
 {
 
     //
-    // Reduce the time remaining before the time delay expires.
+    // If the original wait time was absolute, then return the same
+    // absolute time. Otherwise, reduce the wait time remaining before
+    // the time delay expires.
     //
 
-    KiQueryInterruptTime(NewTime);
-    NewTime->QuadPart -= Timer->DueTime.QuadPart;
-    return NewTime;
+    if (Timer->Header.Absolute != FALSE) {
+        return OriginalTime;
+
+    } else {
+        KiQueryInterruptTime(NewTime);
+        NewTime->QuadPart -= Timer->DueTime.QuadPart;
+        return NewTime;
+    }
 }
+
+#if !defined(_MIPS_) && !defined(_ALPHA_) && !defined(_PPC_) && !defined(_X86_)
+
+
+NTSTATUS
+KiSwitchToThread (
+    IN PKTHREAD NextThread,
+    IN ULONG WaitReason,
+    IN ULONG WaitMode,
+    IN PKEVENT WaitObject
+    )
+
+/*++
+
+Routine Description:
+
+    This function performs an optimal switch to the specified target thread
+    if possible. No timeout is associated with the wait, thus the issuing
+    thread will wait until the wait event is signaled or an APC is deliverd.
+
+    N.B. This routine is called with the dispatcher database locked.
+
+    N.B. The wait IRQL is assumed to be set for the current thread and the
+        wait status is assumed to be set for the target thread.
+
+    N.B. It is assumed that if a queue is associated with the target thread,
+        then the concurrency count has been incremented.
+
+    N.B. Control is returned from this function with the dispatcher database
+        unlocked.
+
+Arguments:
+
+    NextThread - Supplies a pointer to a dispatcher object of type thread.
+
+    WaitReason - Supplies the reason for the wait operation.
+
+    WaitMode  - Supplies the processor wait mode.
+
+    WaitObject - Supplies a pointer to a dispatcher object of type event
+        or semaphore.
+
+Return Value:
+
+    The wait completion status. A value of STATUS_SUCCESS is returned if
+    the specified object satisfied the wait. A value of STATUS_USER_APC is
+    returned if the wait was aborted to deliver a user APC to the current
+    thread.
+
+--*/
+
+{
+
+    KPRIORITY NewPriority;
+    PKPRCB Prcb;
+    PKPROCESS Process;
+    ULONG Processor;
+    PKQUEUE Queue;
+    PKTHREAD Thread;
+    PKWAIT_BLOCK WaitBlock;
+    PLIST_ENTRY WaitEntry;
+    PKEVENT WaitForEvent = (PKEVENT)WaitObject;
+    NTSTATUS WaitStatus;
+
+    //
+    // If the target thread's kernel stack is resident, the target
+    // thread's process is in the balance set, the target thread can
+    // can run on the current processor, and another thread has not
+    // already been selected to run on the current processor, then
+    // do a direct dispatch to the target thread bypassing all the
+    // general wait logic, thread priorities permiting.
+    //
+
+    Prcb = KeGetCurrentPrcb();
+    Process = NextThread->ApcState.Process;
+    Thread = KeGetCurrentThread();
+
+#if !defined(NT_UP)
+
+    Processor = Thread->NextProcessor;
+
+#endif
+
+    if ((NextThread->KernelStackResident != FALSE) &&
+
+#if !defined(NT_UP)
+
+        ((NextThread->Affinity & (1 << Processor)) != 0) &&
+        (Prcb->NextThread == NULL) &&
+
+#endif
+
+        (Process->State == ProcessInMemory)) {
+
+        //
+        // Compute the new thread priority and check if a direct switch
+        // to the target thread can be made.
+        //
+
+        if (Thread->Priority < LOW_REALTIME_PRIORITY) {
+            if (NextThread->Priority < LOW_REALTIME_PRIORITY) {
+
+                //
+                // Both the current and target threads run at a variable
+                // priority level. If the target thread is not running
+                // at a boosted level, then attempt to boost its priority
+                // to a level that is equal or greater than the current
+                // thread.
+                //
+
+                if (NextThread->PriorityDecrement == 0) {
+
+                    //
+                    // The target thread is not running at a boosted level.
+                    //
+
+                    NewPriority =  NextThread->BasePriority + 1;
+                    if (NewPriority >= Thread->Priority) {
+                        if (NewPriority >= LOW_REALTIME_PRIORITY) {
+                            NextThread->Priority = LOW_REALTIME_PRIORITY - 1;
+
+                        } else {
+                            NextThread->Priority = (SCHAR)NewPriority;
+                        }
+
+                    } else {
+                        if (NextThread->BasePriority >= BASE_PRIORITY_THRESHOLD) {
+                            NextThread->PriorityDecrement =
+                                Thread->Priority - NextThread->BasePriority;
+                            NextThread->DecrementCount = ROUND_TRIP_DECREMENT_COUNT;
+                            NextThread->Priority = Thread->Priority;
+
+                        } else {
+                            NextThread->Priority = (SCHAR)NewPriority;
+                            goto LongWay;
+                        }
+                    }
+
+                } else {
+
+                    //
+                    // The target thread is running at a boosted level.
+                    //
+
+                    NextThread->DecrementCount -= 1;
+                    if (NextThread->DecrementCount == 0) {
+                        NextThread->Priority = NextThread->BasePriority;
+                        NextThread->PriorityDecrement = 0;
+                        goto LongWay;
+                    }
+
+                    if (NextThread->Priority < Thread->Priority) {
+                        goto LongWay;
+                    }
+                }
+
+            } else {
+
+                //
+                // The current thread runs at a variable priority level
+                // and the target thread runs at a realtime priority
+                // level. A direct switch to the target thread can be
+                // made.
+                //
+
+                NextThread->Quantum = Process->ThreadQuantum;
+            }
+
+        } else {
+
+            //
+            // The current thread runs in at a realtime priority level.
+            // If the priority of the current thread is less than or
+            // equal to the priority of the target thread, then a direct
+            // switch to the target thread can be made.
+            //
+
+            if (NextThread->Priority < Thread->Priority) {
+                goto LongWay;
+            }
+
+            NextThread->Quantum = Process->ThreadQuantum;
+        }
+
+        //
+        // Set the next processor number.
+        //
+
+#if !defined(NT_UP)
+
+        NextThread->NextProcessor = (CCHAR)Processor;
+
+#endif
+
+        //
+        // Initialization the event wait block and insert the wait block
+        // in the wait for event wait list.
+        //
+
+        WaitBlock = &Thread->WaitBlock[0];
+        Thread->WaitBlockList = WaitBlock;
+        Thread->WaitStatus = (NTSTATUS)0;
+        WaitBlock->Object = WaitForEvent;
+        WaitBlock->NextWaitBlock = WaitBlock;
+        WaitBlock->WaitKey = (CSHORT)(STATUS_SUCCESS);
+        WaitBlock->WaitType = WaitAny;
+        InsertTailList(&WaitForEvent->Header.WaitListHead,
+                       &WaitBlock->WaitListEntry);
+
+        //
+        // If the current thread is processing a queue entry, then attempt
+        // to activate another thread that is blocked on the queue object.
+        //
+
+        Queue = Thread->Queue;
+        Prcb->NextThread = NextThread;
+        if (Queue != NULL) {
+            KiActivateWaiterQueue(Queue);
+        }
+
+        //
+        // Set the current thread wait parameters, set the thread state
+        // to Waiting, and insert the thread in the wait list.
+        //
+        // N.B. It is not necessary to increment and decrement the wait
+        //      reason count since both the server and the client have
+        //      the same wait reason.
+        //
+
+        Thread->Alertable = FALSE;
+        Thread->WaitMode = (KPROCESSOR_MODE)WaitMode;
+        Thread->WaitReason = (UCHAR)WaitReason;
+        Thread->WaitTime= KiQueryLowTickCount();
+        Thread->State = Waiting;
+        KiInsertWaitList(WaitMode, Thread);
+
+        //
+        // Switch context to target thread.
+        //
+        // Control is returned at the original IRQL.
+        //
+
+        WaitStatus = KiSwapThread();
+
+        //
+        // If the thread was not awakened to deliver a kernel mode APC,
+        // then return wait status.
+        //
+
+        if (WaitStatus != STATUS_KERNEL_APC) {
+            return WaitStatus;
+        }
+
+        //
+        // Raise IRQL to DISPATCH_LEVEL and lock the dispatcher database.
+        //
+
+        KiLockDispatcherDatabase(&Thread->WaitIrql);
+        goto ContinueWait;
+    }
+
+    //
+    // Ready the target thrread for execution and wait on the specified
+    // object.
+    //
+
+LongWay:
+
+    KiReadyThread(NextThread);
+
+    //
+    // Continue the wait and return the wait completion status.
+    //
+    // N.B. The wait continuation routine is called with the dispatcher
+    //      database locked.
+    //
+
+ContinueWait:
+
+    return KiContinueClientWait(WaitForEvent, WaitReason, WaitMode);
+}
+
+#endif

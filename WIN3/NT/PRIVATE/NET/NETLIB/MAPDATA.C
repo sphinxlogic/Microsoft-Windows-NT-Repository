@@ -54,7 +54,7 @@ Revision History:
 #include <lmserver.h>           // New server info level structures.
 #include <lmwksta.h>            // New wksta info level structures.
 #include <mapsupp.h>            // MOVESTRING, my prototypes.
-//#include <netdebug.h>           // NetpDbgPrint(), FORMAT_ equates, etc.
+//#include <netdebug.h>           // NetpKdPrint(()), FORMAT_ equates, etc.
 //#include <netlib.h>             // NetpPointerPlusSomeBytes().
 //#include <tstring.h>            // STRLEN().
 //#include <xsdef16.h> // xactsrv defaults for values not supported on NT

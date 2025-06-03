@@ -23,7 +23,7 @@ Revision History:
 #define INCL_OS2V20_ERRORS
 #define INCL_OS2V20_TASKING
 #include "os2dll.h"
-
+#include "os2dll16.h"
 
 
 POR2_QHANDLE_TABLE
@@ -525,6 +525,7 @@ DosPurgeQueue(
                          );
 
     if (rc == ERROR_QUE_INVALID_HANDLE) {
+        AcquireHandleTableLock( QueueTable );
         Or2DestroyQHandle( QueueTable, (ULONG)(a->QueueHandle));
     }
     //
@@ -597,6 +598,7 @@ DosQueryQueue(
                          );
 
     if (rc == ERROR_QUE_INVALID_HANDLE) {
+        AcquireHandleTableLock( QueueTable );
         Or2DestroyQHandle( QueueTable, (ULONG)(a->QueueHandle));
     }
     if (rc == NO_ERROR) {
@@ -706,7 +708,7 @@ DosPeekQueue(
 
     rc = Od2CallSubsystem( &m,
                            NULL,
-			   Os2PeekQueue,
+               Os2PeekQueue,
                            sizeof( *a )
                          );
 
@@ -822,8 +824,31 @@ DosReadQueue(
                          );
 
     *RequestInfo = a->RequestInfo ;
-    *DataLength = a->DataLength;
-    *Data = (ULONG)a->Data;
+    if (rc == 0 && (LONG)a->DataLength < 0) {
+        //
+        // This is the indication that we read from termination queue
+        //
+        SEL sel;
+        PUSHORT ptr;
+
+        rc = DosAllocSeg(4 * sizeof(USHORT), &sel, SEG_NONSHARED);
+        if (!rc) {
+            ptr = SELTOFLAT(sel);
+            ptr[0] = *(PUSHORT) &a->DataLength;
+            ptr[1] = *(PUSHORT) &a->Data;
+            ptr[2] = ptr[3] = 0;
+            *DataLength = 4 * sizeof(USHORT);
+            *Data = (ULONG) ptr;
+        }
+        else {
+            *DataLength = 0;
+            *Data = 0;
+        }
+    }
+    else {
+        *DataLength = a->DataLength;
+        *Data = (ULONG)a->Data;
+    }
     *ElementPriority = a->ElementPriority;
 
     //

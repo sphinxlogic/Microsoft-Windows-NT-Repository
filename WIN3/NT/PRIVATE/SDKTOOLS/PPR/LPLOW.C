@@ -31,7 +31,7 @@ void SetupRedir()
     CHAR    szRemoteName[256];
     DWORD   BufferSize = sizeof(szRemoteName)/sizeof(szRemoteName[0]);
 
-    if (*szNet == '\0' || strcmpi(szNet, "None") == 0)
+    if (*szNet == '\0' || _strcmpi(szNet, "None") == 0)
         return;		/* don't try to make connection */
 
     if(szPass) {

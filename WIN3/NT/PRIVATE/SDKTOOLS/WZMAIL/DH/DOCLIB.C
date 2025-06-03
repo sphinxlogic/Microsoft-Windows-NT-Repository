@@ -20,13 +20,13 @@ extern int	open();
 extern int	close();
 extern int	read();
 extern int	write();
-extern long	lseek();
+extern long	_lseek();
 extern int	exit();
 extern char	*strcat();
 extern char	*strchr();
 extern int	strcmp();
 extern char	*strcpy();
-extern char	*strdup();
+extern char	*_strdup();
 extern int	strlen();
 extern char	*strncpy();
 
@@ -146,7 +146,7 @@ Folder *fp;
 	int len;
 
 	if ( strchr(name, PATHSEP) != NULL ) {
-		fp->f_name = strdup(name);
+		fp->f_name = _strdup(name);
 	} else {
 		if ( dhpath == NULL && (dhpath = getenv("DHPATH")) == NULL ) {
 			fprintf(stderr, "DHPATH not set.\n");
@@ -222,7 +222,7 @@ Folder *fp;
 	char *path;
 
 	if ( strchr(name, PATHSEP) != NULL ) {
-		fp->f_name = strdup(name);
+		fp->f_name = _strdup(name);
 		if ( (fp->f_fd = open(fp->f_name, O_RDWR|O_BINARY)) < 0 ) {
 			(*dh_free) (fp->f_name);
 			return ERROR;
@@ -341,7 +341,7 @@ Fhandle fh;
 		return;
 
 	if ( fp->f_flags & F_CDIRTY ) {
-		lseek(fp->f_fd, 0L, 0);
+		_lseek(fp->f_fd, 0L, 0);
 		write(fp->f_fd, &fp->f_control, sizeof(Control));
 		fp->f_flags &= ~F_CDIRTY;
 	}
@@ -378,7 +378,7 @@ Fhandle fh;
 	if ( (fp = fhtofp(fh)) == NULL )
 		return NULL;
 
-	return strdup(fp->f_name);
+	return _strdup(fp->f_name);
 }
 
 /*** fhtofp - convert folder handle to folder pointer
@@ -538,7 +538,7 @@ int flag;
 	for (; fp->f_extnum != number; pos = fp->f_extent->e_link) {
 		if ( pos == 0L )
 			break;
-		lseek(fp->f_fd, pos, 0);
+		_lseek(fp->f_fd, pos, 0);
 		read(fp->f_fd, fp->f_extent, fp->f_extsize);
 		fp->f_extnum += 1;
 		fp->f_extpos = pos;
@@ -582,7 +582,7 @@ int number;
 	if ( fp->f_extent->e_link != 0 ) {
 		fprintf(stderr, "Warning: trying to add extent that exists.\n");
 	}
-	pos = lseek(fp->f_fd, 0L, 2);	/* end of file */
+	pos = _lseek(fp->f_fd, 0L, 2);	/* end of file */
 	fp->f_extent->e_link = pos;
 	flushextent(fp);
 	fp->f_extpos = pos;
@@ -597,7 +597,7 @@ int number;
 static void flushextent(fp)
 Folder *fp;
 {
-	lseek(fp->f_fd, fp->f_extpos, 0);
+	_lseek(fp->f_fd, fp->f_extpos, 0);
 	write(fp->f_fd, fp->f_extent, fp->f_extsize);
 	fp->f_flags &= ~F_EDIRTY;
 }
@@ -871,7 +871,7 @@ Dhandle dh;
 
 	size = (int)dp->d_index.i_hlen;
 	cp = (*dh_alloc)(size + 1);
-	lseek(dp->d_fp->f_fd, dp->d_index.i_hpos, 0);
+	_lseek(dp->d_fp->f_fd, dp->d_index.i_hpos, 0);
 	read(dp->d_fp->f_fd, cp, size);
 	cp[size] = '\0';
 	return cp;
@@ -906,7 +906,7 @@ int file;
 	pos = dp->d_index.i_bpos;
 	fd = dp->d_fp->f_fd;
 
-	lseek(fd, pos, 0L);
+	_lseek(fd, pos, 0L);
 
 	while ( length > 0 ) {
 		if ( length > BUFFERSIZE )
@@ -951,7 +951,7 @@ int file;
 		return ERROR;
 
 	fd = dp->d_fp->f_fd;
-	dp->d_index.i_hpos = lseek(fd, 0L, 2);
+	dp->d_index.i_hpos = _lseek(fd, 0L, 2);
 	dp->d_index.i_hlen = 0;
 
 	/* read in header */
@@ -1032,7 +1032,7 @@ int ifd;
 		return ERROR;
 
 	fd = dp->d_fp->f_fd;
-	dp->d_index.i_bpos = lseek(fd, 0L, 2);
+	dp->d_index.i_bpos = _lseek(fd, 0L, 2);
 	dp->d_index.i_blen = 0;
 
 	while ( (cnt = read(ifd, bufp, BUFFERSIZE)) > 0 ) {
@@ -1074,9 +1074,9 @@ char *bp;
 		return ERROR;
 
 	if (l <= dp->d_index.i_hlen)
-	    lseek (dp->d_fp->f_fd, dp->d_index.i_hpos, 0);
+	    _lseek (dp->d_fp->f_fd, dp->d_index.i_hpos, 0);
 	else
-	    dp->d_index.i_hpos = lseek(dp->d_fp->f_fd, 0L, 2);
+	    dp->d_index.i_hpos = _lseek(dp->d_fp->f_fd, 0L, 2);
 
 	dp->d_index.i_hlen = l;
 	write(dp->d_fp->f_fd, bp, dp->d_index.i_hlen);

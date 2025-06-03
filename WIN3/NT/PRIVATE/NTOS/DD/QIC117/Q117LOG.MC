@@ -94,9 +94,9 @@ Volume directory full.
 From device: %1
 .
 
-MessageId=0x0069  Facility=Q117 Severity=Warning SymbolicName=QIC117_RDNCUNSC
+MessageId=0x0069  Facility=Q117 Severity=Error SymbolicName=QIC117_RDNCUNSC
 Language=English
-Error correction failed to correct data on tape.
+Error correction failed to recover data from tape.
 From device: %1
 .
 
@@ -131,7 +131,7 @@ No volumes on tape.  Tape is empty.
 From device: %1
 .
 
-MessageId=0x006f Facility=Q117 Severity=Warning SymbolicName=QIC117_UNFORMAT 
+MessageId=0x006f Facility=Q117 Severity=Warning SymbolicName=QIC117_UNFORMAT
 Language=English
 Tape not formatted.  Please format tape before use.
 From device: %1
@@ -143,9 +143,9 @@ Unknown tape format.  You must format this tape before use.
 From device: %1
 .
 
-MessageId=0x0071 Facility=Q117 Severity=Error SymbolicName=QIC117_BADBLK
+MessageId=0x0071 Facility=Q117 Severity=Warning SymbolicName=QIC117_BADBLK
 Language=English
-Bad block detected (unrecoverable read error).
+A data error occurred on the tape.  Using error correction to recover data.
 From device: %1
 .
 
@@ -156,7 +156,7 @@ From device: %1
 .
 
 MessageId=0x0073 Facility=Q117 Severity=Error SymbolicName=QIC117_DRIVEFLT
-Language=English						    
+Language=English
 Communication error between host and drive.  Re-try operation.
 If this does not work,  try Shutting down the system and cycling power.
 From device: %1
@@ -306,9 +306,7 @@ From device: %1
 
 MessageId=0x008a Facility=Q117 Severity=Informational SymbolicName=QIC117_WRONGFMT
 Language=English
-Attempt to write on QIC40 formatted tape with QIC80 drive.  You must
-format this tape if you wish to write data on it.  Formatting will destroy
-all existing data on the tape.
+The tape being used is incompatible with this drive.
 From device: %1
 .
 
@@ -320,7 +318,7 @@ From device: %1
 
 MessageId=0x008c Facility=Q117 Severity=Informational SymbolicName=QIC117_INCOMPTAPEFMT
 Language=English
-QIC80 formatted tape detected in a QIC40 drive.
+QIC80 formatted tape detected in a QIC40 drive or QIC3020 in a QIC3010 drive.
 From device: %1
 .
 
@@ -378,10 +376,34 @@ Incompatible or unknown media.
 From device: %1
 .
 
-MessageId=0x0096 Facility=Q117 Severity=Error SymbolicName=QIC117_BOGUS       
+MessageId=0x0096 Facility=Q117 Severity=Error SymbolicName=QIC117_BOGUS
 Language=English
 Unmapped error value returned from device %1
 .
 
+MessageId=0x0097 Facility=Q117 Severity=Error SymbolicName=QIC117_NO_BUFFERS
+Language=English
+The driver could not allocate memory for data transfer buffers.
+Try restarting the system.  If this error persists,  more system RAM may
+be required.
+From device: %1
+.
+
+MessageId=0x0098 Facility=Q117 Severity=Error SymbolicName=QIC117_WRITE_FAULT
+Language=English
+A write error occurred near end of tape that caused this session to terminate.
+The block was added to the bad sector map, and future sessions should not have
+this problem.
+From device: %1
+.
+
+MessageId=0x0099 Facility=Q117 Severity=Error SymbolicName=QIC117_DESPOOLED
+Language=English
+An error occurred on the drive that could the tape has spun off the reel.  Verify
+that the cartridge in the drive has tape visible behind the door.  If this
+error occurs when a good cartridge is present,  then the drive has a defective
+tape hole sensor or there is an obstruction related to the sensor.
+From device: %1
+.
+
 ;#endif /* _Q117LOG_ */
-

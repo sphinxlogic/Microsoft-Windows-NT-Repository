@@ -32,7 +32,11 @@ Revision History:
 #define STATE_FOUND_EXACT   1
 #define STATE_FOUND_PARENT  2
 
-static char TmpFile[]="x:\\rpcreg.bak";
+#ifdef MAC
+static char TmpFile[]="rpcreg.bak";
+#else
+static char TmpFile[129];
+#endif
 
 long
 RPC_ENTRY
@@ -65,32 +69,32 @@ Arguments:
 
 Return Value:
 
-    ERROR_SUCCESS               
-    ERROR_BADDB                 
-    ERROR_BADKEY                
-    ERROR_CANTOPEN              
+    ERROR_SUCCESS
+    ERROR_BADDB
+    ERROR_BADKEY
+    ERROR_CANTOPEN
     ERROR_CANTREAD
     ERROR_CANTWRITE
-    ERROR_OUTOFMEMORY           
+    ERROR_OUTOFMEMORY
 
 --*/
-        
+
 {
     int             FullKeyNameLen;
     int             State;
     int             Status;
     FILE *          TmpFileHandle;
-    
+
     #ifdef WIN
     static
     #endif
     char            FullKeyName[MAX_KEY_NAME_LEN+1];
-    
+
     #ifdef WIN
     static
     #endif
     char            LineInFile[MAX_DATA_FILE_LINE_LEN+1];
-    
+
     #ifdef WIN
     static
     #endif
@@ -102,36 +106,67 @@ Return Value:
     //
 
     ConvPreDefinedKey(hKey);
-    
+
     if (!KeyIsValid(hKey))
         {
         return ERROR_BADKEY;
         }
-            
+
     //
     // If the registry hasn't been opened yet, then do so.
     //
 
     if (!OpenRegistryFileIfNecessary())
         {
-        return ERROR_BADDB; 
+        return ERROR_BADDB;
+        }
+
+#ifndef MAC
+
+    //
+    // Create a tmp file to which we will copy the current registry.
+    // Use the same filespec as the registry, but with an extension of ".bak".
+    //
+    // If there is a period after the final backslash, the registry filename
+    // has an extension and we write over it.  Otherwise, it has no extension
+    // and we append ours to the filespec.
+    //
+    {
+    unsigned i = 0;
+    unsigned Point = 0;
+
+    while ( RegistryDataFileName[i] )
+        {
+        TmpFile[i] = RegistryDataFileName[i];
+        if (TmpFile[i] == '.')
+            {
+            Point = i;
+            }
+        if (TmpFile[i] == '\\')
+            {
+            Point = 0;
+            }
+        ++i;
+        }
+
+    if (!Point)
+        {
+        Point = i;
         }
 
     //
-    // Create a tmp file that we will copy the current registry to. If
-    // our registry file name has a drive letter on it, then make sure
-    // to fill in our temp one with that, else make it 'c'.
+    // This seems smaller and faster than an inline strcpy.
+    // Not that it matters much either way.
     //
+    TmpFile[Point++] = '.';
+    TmpFile[Point++] = 'b';
+    TmpFile[Point++] = 'a';
+    TmpFile[Point++] = 'k';
+    TmpFile[Point++] = '\0';
+    }
 
-    if (RegistryDataFileName[1] == ':')
-        {
-        TmpFile[0] = RegistryDataFileName[0];
-        }
-    else
-        {
-        TmpFile[0] = 'c';
-        }
-        
+#endif
+
     remove(TmpFile);
 
     TmpFileHandle = fopen(TmpFile, "wt");
@@ -140,19 +175,19 @@ Return Value:
         return ERROR_CANTWRITE;
         }
 
-    //    
+    //
     // Build the full key name.
     //
 
     FullKeyNameLen = BuildFullKeyName(hKey, lpSubKey, FullKeyName);
-    
+
     //
     // Scan the file for such a key. If we hit the end of file, then we didn't
     // find the key we were looking for.
     //
 
     State = STATE_SEARCHING;
-    
+
     for (;;)    // return or break from inside loop
         {
         if (fgets(LineInFile, MAX_DATA_FILE_LINE_LEN+1, RegistryDataFile) ==
@@ -202,13 +237,13 @@ Return Value:
                 State = STATE_FOUND_PARENT;
                 }
             }
-            
+
         if (fputs(LineInFile, TmpFileHandle) != 0)
             {
             fclose(TmpFileHandle);
             return ERROR_CANTWRITE;
             }
-        
+
         }
 
 
@@ -223,7 +258,7 @@ Return Value:
             // If we didn't find the key, simply add it to the end of the
             // file (just as if we found the parent).
             //
-            
+
         case STATE_FOUND_PARENT:
             strcpy(TmpLine, FullKeyName);
             strcat(TmpLine, "=");
@@ -240,7 +275,7 @@ Return Value:
         default:
             ;
         }
-        
+
     Status = fclose(TmpFileHandle);
     ASSERT(Status == 0);
 
@@ -251,18 +286,18 @@ Return Value:
     Status = fclose(RegistryDataFile);
     ASSERT(Status == 0);
     RegistryDataFile=NULL;
-    
+
     if (remove(RegistryDataFileName) != 0)
         {
         return ERROR_BADDB;
         }
-    
+
     if (rename(TmpFile, RegistryDataFileName) != 0)
         {
         return ERROR_BADDB;
         }
 
-    return ERROR_SUCCESS;    
-}        
-        
-        
+    return ERROR_SUCCESS;
+}
+
+

@@ -38,7 +38,8 @@ typedef struct _ARRAY {
 
 typedef struct _HAL_BUS_HANDLER {
     LIST_ENTRY      AllHandlers;
-    BUSHANDLER      Handler;
+    ULONG           ReferenceCount;
+    BUS_HANDLER     Handler;
 } HAL_BUS_HANDLER, *PHAL_BUS_HANDLER;
 
 //
@@ -81,11 +82,11 @@ LIST_ENTRY  HalpAllBusHandlers;
     KiAcquireSpinLock(&HalpBusDatabaseSpinLock);
 
 #define UnlockBusDatabase(oldirql)                  \
-    KeLowerIrql(oldirql);                           \
-    KiReleaseSpinLock(&HalpBusDatabaseSpinLock);
+    KiReleaseSpinLock(&HalpBusDatabaseSpinLock);    \
+    KeLowerIrql(oldirql);
 
 
-#ifdef POWER_MANAGEMENT
+#ifdef _PNP_POWER_
 extern HAL_CALLBACKS    HalCallback;
 #endif
 
@@ -104,14 +105,12 @@ HalpGrowArray (
     IN PARRAY   *NewArray
     );
 
-#ifdef POWER_MANAGEMENT
 NTSTATUS
 HalpQueryInstalledBusInformation (
     OUT PVOID   Buffer,
     IN  ULONG   BufferLength,
     OUT PULONG  ReturnedLength
     );
-#endif
 
 ULONG
 HalpNoBusData (
@@ -152,9 +151,49 @@ HalpNoQueryBusSlots (
     );
 
 NTSTATUS
-HalpNoSlotControl (
-    IN PHAL_SLOT_CONTROL_CONTEXT Context
+HalpNoDeviceControl (
+    IN PHAL_DEVICE_CONTROL_CONTEXT Context
     );
+
+PDEVICE_HANDLER_OBJECT
+HalpNoReferenceDeviceHandler (
+    IN PBUS_HANDLER         BusHandler,
+    IN PBUS_HANDLER         RootHandler,
+    IN ULONG                SlotNumber
+    );
+
+ULONG
+HalpNoGetDeviceData (
+    IN PBUS_HANDLER             BusHandler,
+    IN PBUS_HANDLER             RootHandler,
+    IN PDEVICE_HANDLER_OBJECT   DeviceHandler,
+    IN ULONG                    DataType,
+    IN PVOID                    Buffer,
+    IN ULONG                    Offset,
+    IN ULONG                    Length
+    );
+
+ULONG
+HalpNoSetDeviceData (
+    IN PBUS_HANDLER             BusHandler,
+    IN PBUS_HANDLER             RootHandler,
+    IN PDEVICE_HANDLER_OBJECT   DeviceHandler,
+    IN ULONG                    DataType,
+    IN PVOID                    Buffer,
+    IN ULONG                    Offset,
+    IN ULONG                    Length
+    );
+
+
+
+//
+// Prototypes for DeviceControls
+//
+
+typedef struct _SYNCHRONOUS_REQUEST {
+    NTSTATUS    Status;
+    KEVENT      Event;
+} SYNCHRONOUS_REQUEST, *PSYNCHRONOUS_REQUEST;
 
 
 #ifdef ALLOC_PRAGMA
@@ -167,12 +206,11 @@ HalpNoSlotControl (
 #pragma alloc_text(PAGE,HalGetInterruptVector)
 #pragma alloc_text(PAGE,HalpNoAssignSlotResources)
 #pragma alloc_text(PAGE,HalpNoQueryBusSlots)
-#pragma alloc_text(PAGE,HalpNoSlotControl)
+#pragma alloc_text(PAGE,HalpNoReferenceDeviceHandler)
 #pragma alloc_text(PAGE,HaliQueryBusSlots)
-#pragma alloc_text(PAGE,HaliSlotControl)
-
-#ifdef POWER_MANAGEMENT
 #pragma alloc_text(PAGE,HalpQueryInstalledBusInformation)
+
+#ifdef _PNP_POWER_
 #pragma alloc_text(PAGELK,HaliSuspendHibernateSystem)
 #endif
 
@@ -212,6 +250,19 @@ Routine Description:
     HalpConfigTable = HalpAllocateArray (0);
     InitializeListHead (&HalpAllBusHandlers);
 
+    //
+    // Fill in HAL API handlers
+    //
+
+    HalRegisterBusHandler = HaliRegisterBusHandler;
+    HalHandlerForBus = HaliHandlerForBus;
+    HalHandlerForConfigSpace = HaliHandlerForConfigSpace;
+    HalQueryBusSlots = HaliQueryBusSlots;
+    HalDeviceControl = HaliDeviceControl;
+    HalCompleteDeviceControl = HaliCompleteDeviceControl;
+    HalReferenceHandlerForBus = HaliReferenceHandlerForBus;
+    HalReferenceBusHandler = HaliReferenceBusHandler;
+    HalDereferenceBusHandler = HaliDereferenceBusHandler;
 }
 
 NTSTATUS
@@ -223,7 +274,7 @@ HaliRegisterBusHandler (
     IN ULONG                   ParentBusNumber,
     IN ULONG                   SizeofBusExtensionData,
     IN PINSTALL_BUS_HANDLER    InstallBusHandler,
-    OUT PBUSHANDLER            *ReturnedBusHandler
+    OUT PBUS_HANDLER           *ReturnedBusHandler
     )
 /*++
 
@@ -237,10 +288,12 @@ Routine Description:
 Arguments:
 
     InterfaceType   - Identifies the bus type
-                      -1 if no interface type for this handler
+                      InterfaceTypeUndefined if no interface type for this
+                      handler.
 
     ConfigType      - Identifies the configuration space type
-                      -1 if no configuration space type for this handler
+                      ConfigurationSpaceUndefined if no configuration space
+                      type for this handler.
 
     BusNumber       - Identifies the instance of the bus & config space.
                       -1 if the next available bus number for this bus
@@ -262,7 +315,7 @@ Return Value:
 --*/
 {
     PHAL_BUS_HANDLER    Bus, *pBusHandler, OldHandler;
-    PBUSHANDLER         ParentHandler;
+    PBUS_HANDLER        ParentHandler;
     KIRQL               OldIrql;
     NTSTATUS            Status;
     PARRAY              InterfaceArray, InterfaceBusNumberArray;
@@ -273,7 +326,7 @@ Return Value:
     // Must add the handler to at least one table
     //
 
-    ASSERT (InterfaceType != -1 || ConfigType != -1);
+    ASSERT (InterfaceType != InterfaceTypeUndefined || ConfigType != ConfigurationSpaceUndefined);
 
     Status = STATUS_SUCCESS;
     OldHandler = NULL;
@@ -290,14 +343,14 @@ Return Value:
             );
 
     if (!Bus) {
-        return STATUS_NO_MEMORY;
+        return STATUS_INSUFFICIENT_RESOURCES;
     }
 
     //
     // Lock pagable code down
     //
 
-    CodeLockHandle = MmLockPagableImageSection (&HaliRegisterBusHandler);
+    CodeLockHandle = MmLockPagableCodeSection (&HaliRegisterBusHandler);
 
     //
     // Synchronize adding new bus handlers
@@ -319,7 +372,7 @@ Return Value:
     //
 
     if (BusNumber == -1) {
-        ASSERT (InterfaceType != -1);
+        ASSERT (InterfaceType != InterfaceTypeUndefined);
 
         BusNumber = 0;
         while (HaliHandlerForBus (InterfaceType, BusNumber)) {
@@ -342,7 +395,7 @@ Return Value:
         !ConfigArray                    ||
         !ConfigBusNumberArray) {
 
-        Status = STATUS_NO_MEMORY;
+        Status = STATUS_INSUFFICIENT_RESOURCES;
     }
 
     if (NT_SUCCESS(Status)) {
@@ -351,13 +404,15 @@ Return Value:
         // Lookup parent handler (if any)
         //
 
-        ParentHandler = HaliHandlerForBus (ParentBusType, ParentBusNumber);
+        ParentHandler = HaliReferenceHandlerForBus (ParentBusType, ParentBusNumber);
 
         //
         // Initialize new bus handlers values
         //
 
         RtlZeroMemory (Bus, sizeof (HAL_BUS_HANDLER) + SizeofBusExtensionData);
+
+        Bus->ReferenceCount = 1;
 
         Bus->Handler.BusNumber           = BusNumber;
         Bus->Handler.InterfaceType       = InterfaceType;
@@ -368,12 +423,15 @@ Return Value:
         // Set to dumby handlers
         //
 
-        Bus->Handler.GetBusData          = HalpNoBusData;
-        Bus->Handler.SetBusData          = HalpNoBusData;
-        Bus->Handler.AdjustResourceList  = HalpNoAdjustResourceList;
-        Bus->Handler.AssignSlotResources = HalpNoAssignSlotResources;
-        Bus->Handler.QueryBusSlots       = HalpNoQueryBusSlots;
-        Bus->Handler.SlotControl         = HalpNoSlotControl;
+        Bus->Handler.GetBusData           = HalpNoBusData;
+        Bus->Handler.SetBusData           = HalpNoBusData;
+        Bus->Handler.AdjustResourceList   = HalpNoAdjustResourceList;
+        Bus->Handler.AssignSlotResources  = HalpNoAssignSlotResources;
+        Bus->Handler.QueryBusSlots        = HalpNoQueryBusSlots;
+        Bus->Handler.ReferenceDeviceHandler = HalpNoReferenceDeviceHandler;
+        Bus->Handler.DeviceControl        = HalpNoDeviceControl;
+        Bus->Handler.GetDeviceData        = HalpNoGetDeviceData;
+        Bus->Handler.SetDeviceData        = HalpNoSetDeviceData;
 
         if (SizeofBusExtensionData) {
             Bus->Handler.BusData = Bus + 1;
@@ -384,15 +442,17 @@ Return Value:
         //
 
         if (ParentHandler) {
-
-            Bus->Handler.GetBusData          = ParentHandler->GetBusData;
-            Bus->Handler.SetBusData          = ParentHandler->SetBusData;
-            Bus->Handler.AdjustResourceList  = ParentHandler->AdjustResourceList;
-            Bus->Handler.AssignSlotResources = ParentHandler->AssignSlotResources;
-            Bus->Handler.TranslateBusAddress = ParentHandler->TranslateBusAddress;
-            Bus->Handler.QueryBusSlots       = ParentHandler->QueryBusSlots;
-            Bus->Handler.SlotControl         = ParentHandler->SlotControl;
-            Bus->Handler.GetInterruptVector  = ParentHandler->GetInterruptVector;
+            Bus->Handler.GetBusData           = ParentHandler->GetBusData;
+            Bus->Handler.SetBusData           = ParentHandler->SetBusData;
+            Bus->Handler.AdjustResourceList   = ParentHandler->AdjustResourceList;
+            Bus->Handler.AssignSlotResources  = ParentHandler->AssignSlotResources;
+            Bus->Handler.TranslateBusAddress  = ParentHandler->TranslateBusAddress;
+            Bus->Handler.GetInterruptVector   = ParentHandler->GetInterruptVector;
+            Bus->Handler.QueryBusSlots        = ParentHandler->QueryBusSlots;
+            Bus->Handler.ReferenceDeviceHandler = ParentHandler->ReferenceDeviceHandler;
+            Bus->Handler.DeviceControl        = ParentHandler->DeviceControl;
+            Bus->Handler.GetDeviceData        = ParentHandler->GetDeviceData;
+            Bus->Handler.SetDeviceData        = ParentHandler->SetDeviceData;
         }
 
         //
@@ -418,7 +478,7 @@ Return Value:
 
             HalpGrowArray (&HalpBusTable, &InterfaceArray);
 
-            if (InterfaceType != -1) {
+            if (InterfaceType != InterfaceTypeUndefined) {
 
                 //
                 // Grow HalpBusTable if needed
@@ -452,14 +512,13 @@ Return Value:
                 *pBusHandler = Bus;
             }
 
-
             //
             // Grow HalpConfigTable if needed
             //
 
             HalpGrowArray (&HalpConfigTable, &ConfigArray);
 
-            if (ConfigType != -1) {
+            if (ConfigType != ConfigurationSpaceUndefined) {
 
                 //
                 // Grow HalpConfigTable if needed
@@ -509,6 +568,10 @@ Return Value:
             //
 
             UnlockBusDatabase (OldIrql);
+        } else {
+            if (ParentHandler) {
+                HaliDereferenceBusHandler (ParentHandler);
+            }
         }
     }
 
@@ -548,15 +611,15 @@ Return Value:
         ExFreePool (ConfigBusNumberArray);
     }
 
-#ifdef POWER_MANAGEMENT
+#ifdef _PNP_POWER_
     //
     // A bus was added to the system, notify the BusInsertionCheck callback
     // of this bus
     //
 
-    if (NT_SUCCESS(Status)  &&  InterfaceType != -1) {
+    if (NT_SUCCESS(Status)  &&  InterfaceType != InterfaceTypeUndefined) {
         ExNotifyCallback (
-            HalCallback.BusInsertionCheck,
+            HalCallback.BusCheck,
             (PVOID) InterfaceType,
             (PVOID) BusNumber
         );
@@ -654,7 +717,100 @@ Arguments:
     }
 }
 
-PBUSHANDLER
+PBUS_HANDLER
+FASTCALL
+HalpLookupHandler (
+    IN PARRAY   Array,
+    IN ULONG    Type,
+    IN ULONG    Number,
+    IN BOOLEAN  AddReference
+    )
+{
+    PHAL_BUS_HANDLER    Bus;
+    PBUS_HANDLER        Handler;
+    KIRQL               OldIrql;
+
+    LockBusDatabase (&OldIrql);
+
+    //
+    // Index by type
+    //
+
+    Handler = NULL;
+    if (Array->ArraySize >= Type) {
+        Array = (PARRAY) Array->Element[Type];
+
+        //
+        // Index by instance numberr
+        //
+
+        if (Array && Array->ArraySize >= Number) {
+            Bus = (PHAL_BUS_HANDLER) Array->Element[Number];
+            Handler = &Bus->Handler;
+
+            if (AddReference) {
+                Bus->ReferenceCount += 1;
+            }
+        }
+    }
+
+    UnlockBusDatabase (OldIrql);
+    return Handler;
+}
+
+VOID
+FASTCALL
+HaliReferenceBusHandler (
+    IN PBUS_HANDLER   Handler
+    )
+/*++
+
+Routine Description:
+
+
+--*/
+{
+    KIRQL               OldIrql;
+    PHAL_BUS_HANDLER    Bus;
+
+
+    LockBusDatabase (&OldIrql);
+
+    Bus = CONTAINING_RECORD(Handler, HAL_BUS_HANDLER, Handler);
+    Bus->ReferenceCount += 1;
+
+    UnlockBusDatabase (OldIrql);
+}
+
+VOID
+FASTCALL
+HaliDereferenceBusHandler (
+    IN PBUS_HANDLER   Handler
+    )
+/*++
+
+Routine Description:
+
+
+--*/
+{
+    KIRQL               OldIrql;
+    PHAL_BUS_HANDLER    Bus;
+
+
+    LockBusDatabase (&OldIrql);
+
+    Bus = CONTAINING_RECORD(Handler, HAL_BUS_HANDLER, Handler);
+    Bus->ReferenceCount -= 1;
+
+    UnlockBusDatabase (OldIrql);
+
+    // BUGBUG: for now totally removing a bus is not supported
+    ASSERT (Bus->ReferenceCount != 0);
+}
+
+
+PBUS_HANDLER
 FASTCALL
 HaliHandlerForBus (
     IN INTERFACE_TYPE InterfaceType,
@@ -669,35 +825,10 @@ Routine Description:
 
 --*/
 {
-    PBUSHANDLER     Bus;
-    KIRQL           OldIrql;
-    PARRAY          Array;
-
-    LockBusDatabase (&OldIrql);
-
-    //
-    // Index by type
-    //
-
-    Bus = NULL;
-    if (HalpBusTable->ArraySize >= (ULONG) InterfaceType) {
-        Array = (PARRAY) HalpBusTable->Element[InterfaceType];
-
-        //
-        // Index by instance numberr
-        //
-
-        if (Array && Array->ArraySize >= BusNumber) {
-            Bus = &((PHAL_BUS_HANDLER) Array->Element[BusNumber])->Handler;
-        }
-    }
-
-    UnlockBusDatabase (OldIrql);
-
-    return Bus;
+    return HalpLookupHandler (HalpBusTable, (ULONG) InterfaceType, BusNumber, FALSE);
 }
 
-PBUSHANDLER
+PBUS_HANDLER
 FASTCALL
 HaliHandlerForConfigSpace (
     IN BUS_DATA_TYPE  ConfigType,
@@ -712,35 +843,46 @@ Routine Description:
 
 --*/
 {
-    PBUSHANDLER     Bus;
-    KIRQL           OldIrql;
-    PARRAY          Array;
-
-    LockBusDatabase (&OldIrql);
-
-    //
-    // Index by type
-    //
-
-    Bus = NULL;
-    if (HalpConfigTable->ArraySize >= (ULONG) ConfigType) {
-        Array = (PARRAY) HalpConfigTable->Element[ConfigType];
-
-        //
-        // Index by instance numberr
-        //
-
-        if (Array && Array->ArraySize >= BusNumber) {
-            Bus = &((PHAL_BUS_HANDLER) Array->Element[BusNumber])->Handler;
-        }
-    }
-
-    UnlockBusDatabase (OldIrql);
-
-    return Bus;
+    return HalpLookupHandler (HalpConfigTable, (ULONG) ConfigType, BusNumber, FALSE);
 }
 
-#ifdef POWER_MANAGEMENT
+
+PBUS_HANDLER
+FASTCALL
+HaliReferenceHandlerForBus (
+    IN INTERFACE_TYPE InterfaceType,
+    IN ULONG          BusNumber
+    )
+/*++
+
+Routine Description:
+
+    Returns the BusHandler structure InterfaceType,BusNumber
+    or NULL if no such handler exists.
+
+--*/
+{
+    return HalpLookupHandler (HalpBusTable, (ULONG) InterfaceType, BusNumber, TRUE);
+}
+
+PBUS_HANDLER
+FASTCALL
+HaliReferenceHandlerForConfigSpace (
+    IN BUS_DATA_TYPE  ConfigType,
+    IN ULONG          BusNumber
+    )
+/*++
+
+Routine Description:
+
+    Returns the BusHandler structure ConfigType,BusNumber
+    or NULL if no such handler exists.
+
+--*/
+{
+    return HalpLookupHandler (HalpConfigTable, (ULONG) ConfigType, BusNumber, TRUE);
+}
+
 NTSTATUS
 HalpQueryInstalledBusInformation (
     OUT PVOID   Buffer,
@@ -751,7 +893,7 @@ HalpQueryInstalledBusInformation (
 
 Routine Description:
 
-    Returns an array HAL_INSTALLED_BUS_INFORMATION, one for each
+    Returns an array HAL_BUS_INFORMATION, one for each
     bus handler installed.
 
 Arguments:
@@ -768,12 +910,14 @@ Return Value:
 
 --*/
 {
-    PHAL_INSTALLED_BUS_INFORMATION      Info;
-    PHAL_BUS_HANDLER                    Handler;
-    ULONG                               i, j;
-    ULONG                               Length;
-    NTSTATUS                            Status;
-    PARRAY                              Array;
+    PHAL_BUS_INFORMATION    Info;
+    PHAL_BUS_HANDLER        Handler;
+    ULONG                   i, j;
+    ULONG                   Length;
+    NTSTATUS                Status;
+    PARRAY                  Array;
+
+    PAGED_CODE ();
 
     //
     // Synchronize adding new bus handlers
@@ -795,8 +939,8 @@ Return Value:
     for (i=0; i <= HalpBusTable->ArraySize; i++) {
         Array = (PARRAY) HalpBusTable->Element[i];
         if (Array) {
-            Length += sizeof (HAL_INSTALLED_BUS_INFORMATION) *
-                      Array->ArraySize;
+            Length += sizeof (HAL_BUS_INFORMATION) *
+                      (Array->ArraySize + 1);
         }
     }
 
@@ -812,7 +956,7 @@ Return Value:
 
     if (Length <= BufferLength) {
 
-        Info = (PHAL_INSTALLED_BUS_INFORMATION) Buffer;
+        Info = (PHAL_BUS_INFORMATION) Buffer;
 
         for (i=0; i <= HalpBusTable->ArraySize; i++) {
             Array = (PARRAY) HalpBusTable->Element[i];
@@ -824,6 +968,7 @@ Return Value:
                         Info->BusType = Handler->Handler.InterfaceType;
                         Info->ConfigurationType = Handler->Handler.ConfigurationType;
                         Info->BusNumber = Handler->Handler.BusNumber;
+                        Info->Reserved = 0;
                         Info += 1;
                     }
                 }
@@ -844,7 +989,6 @@ Return Value:
     KeSetEvent (&HalpBusDatabaseEvent, 0, FALSE);
     return Status;
 }
-#endif
 
 //
 // Default dispatchers to BusHandlers
@@ -861,6 +1005,7 @@ HalGetBusData(
 {
     return HalGetBusDataByOffset (BusDataType,BusNumber,SlotNumber,Buffer,0,Length);
 }
+
 
 ULONG
 HalGetBusDataByOffset (
@@ -879,14 +1024,17 @@ Routine Description:
 
 --*/
 {
-    PBUSHANDLER Handler;
+    PBUS_HANDLER Handler;
+    NTSTATUS     Status;
 
-    Handler = HaliHandlerForConfigSpace (BusDataType, BusNumber);
+    Handler = HaliReferenceHandlerForConfigSpace (BusDataType, BusNumber);
     if (!Handler) {
         return 0;
     }
 
-    return Handler->GetBusData (Handler, Handler, SlotNumber, Buffer, Offset, Length);
+    Status = Handler->GetBusData (Handler, Handler, SlotNumber, Buffer, Offset, Length);
+    HaliDereferenceBusHandler (Handler);
+    return Status;
 }
 
 ULONG
@@ -918,14 +1066,17 @@ Routine Description:
 
 --*/
 {
-    PBUSHANDLER Handler;
+    PBUS_HANDLER Handler;
+    NTSTATUS     Status;
 
-    Handler = HaliHandlerForConfigSpace (BusDataType, BusNumber);
+    Handler = HaliReferenceHandlerForConfigSpace (BusDataType, BusNumber);
     if (!Handler) {
         return 0;
     }
 
-    return Handler->SetBusData (Handler, Handler, SlotNumber, Buffer, Offset, Length);
+    Status = Handler->SetBusData (Handler, Handler, SlotNumber, Buffer, Offset, Length);
+    HaliDereferenceBusHandler (Handler);
+    return Status;
 }
 
 NTSTATUS
@@ -940,9 +1091,10 @@ Routine Description:
 
 --*/
 {
-    PBUSHANDLER Handler;
+    PBUS_HANDLER Handler;
+    NTSTATUS     Status;
 
-    Handler = HaliHandlerForBus (
+    Handler = HaliReferenceHandlerForBus (
                 (*pResourceList)->InterfaceType,
                 (*pResourceList)->BusNumber
               );
@@ -950,7 +1102,9 @@ Routine Description:
         return STATUS_SUCCESS;
     }
 
-    return Handler->AdjustResourceList (Handler, Handler, pResourceList);
+    Status = Handler->AdjustResourceList (Handler, Handler, pResourceList);
+    HaliDereferenceBusHandler (Handler);
+    return Status;
 }
 
 NTSTATUS
@@ -972,14 +1126,15 @@ Routine Description:
 
 --*/
 {
-    PBUSHANDLER Handler;
+    PBUS_HANDLER Handler;
+    NTSTATUS     Status;
 
-    Handler = HaliHandlerForBus (BusType, BusNumber);
+    Handler = HaliReferenceHandlerForBus (BusType, BusNumber);
     if (!Handler) {
         return STATUS_NOT_FOUND;
     }
 
-    return Handler->AssignSlotResources (
+    Status = Handler->AssignSlotResources (
                 Handler,
                 Handler,
                 RegistryPath,
@@ -989,6 +1144,9 @@ Routine Description:
                 SlotNumber,
                 AllocatedResources
             );
+
+    HaliDereferenceBusHandler (Handler);
+    return Status;
 }
 
 
@@ -1009,9 +1167,10 @@ Routine Description:
 
 --*/
 {
-    PBUSHANDLER Handler;
+    PBUS_HANDLER Handler;
+    ULONG        Vector;
 
-    Handler = HaliHandlerForBus (InterfaceType, BusNumber);
+    Handler = HaliReferenceHandlerForBus (InterfaceType, BusNumber);
     *Irql = 0;
     *Affinity = 0;
 
@@ -1019,8 +1178,11 @@ Routine Description:
         return 0;
     }
 
-    return Handler->GetInterruptVector (Handler, Handler,
+    Vector = Handler->GetInterruptVector (Handler, Handler,
               BusInterruptLevel, BusInterruptVector, Irql, Affinity);
+
+    HaliDereferenceBusHandler (Handler);
+    return Vector;
 }
 
 BOOLEAN
@@ -1039,21 +1201,24 @@ Routine Description:
 
 --*/
 {
-    PBUSHANDLER Handler;
+    PBUS_HANDLER Handler;
+    BOOLEAN      Status;
 
-    Handler = HaliHandlerForBus (InterfaceType, BusNumber);
+    Handler = HaliReferenceHandlerForBus (InterfaceType, BusNumber);
     if (!Handler) {
         return FALSE;
     }
 
-    return Handler->TranslateBusAddress (Handler, Handler,
+    Status = Handler->TranslateBusAddress (Handler, Handler,
               BusAddress, AddressSpace, TranslatedAddress);
+
+    HaliDereferenceBusHandler (Handler);
+    return Status;
 }
 
 NTSTATUS
 HaliQueryBusSlots (
-    IN INTERFACE_TYPE       InterfaceType,
-    IN ULONG                BusNumber,
+    IN PBUS_HANDLER         BusHandler,
     IN ULONG                BufferSize,
     OUT PULONG              SlotNumbers,
     OUT PULONG              ReturnedLength
@@ -1066,154 +1231,189 @@ Routine Description:
 
 --*/
 {
-    PBUSHANDLER Handler;
+    PAGED_CODE();
 
-    Handler = HaliHandlerForBus (InterfaceType, BusNumber);
-    if (!Handler) {
-        return STATUS_UNSUCCESSFUL;
-    }
-
-    return Handler->QueryBusSlots (Handler, Handler,
+    return BusHandler->QueryBusSlots (BusHandler, BusHandler,
             BufferSize, SlotNumbers, ReturnedLength);
-
 }
 
 NTSTATUS
-HaliSlotControl (
-    IN INTERFACE_TYPE           InterfaceType,
-    IN ULONG                    BusNumber,
-    IN ULONG                    SlotNumber,
+HaliDeviceControl (
+    IN PDEVICE_HANDLER_OBJECT   DeviceHandler,
     IN PDEVICE_OBJECT           DeviceObject,
     IN ULONG                    ControlCode,
-    IN PVOID                    Buffer OPTIONAL,
-    IN ULONG                    BufferLength,
+    IN OUT PVOID                Buffer OPTIONAL,
+    IN OUT PULONG               BufferLength OPTIONAL,
     IN PVOID                    CompletionContext,
-    IN PSLOT_CONTROL_COMPLETION CompletionRoutine
+    IN PDEVICE_CONTROL_COMPLETION CompletionRoutine
     )
 /*++
 
 Routine Description:
 
-    Allocates and initializes a HalSlotControlContext and then dispatches
+    Allocates and initializes a HalDeviceControlContext and then dispatches
     that context to the appriopate bus handler.
 
 --*/
 {
     NTSTATUS                    Status;
-    HAL_SLOT_CONTROL_CONTEXT    Context;
-    PHAL_SLOT_CONTROL_CONTEXT   pContext;
-
+    PHAL_DEVICE_CONTROL_CONTEXT pContext;
+    HAL_DEVICE_CONTROL_CONTEXT  Context;
+    SYNCHRONOUS_REQUEST         SyncRequest;
 
     //
-    // Initialize local SlotControl context
+    // Initialize local DeviceControl context
     //
 
-    Status                            = STATUS_PENDING;
-    Context.SlotControl.InterfaceType = InterfaceType;
-    Context.SlotControl.BusNumber     = BusNumber;
-    Context.SlotControl.SlotNumber    = SlotNumber;
-    Context.SlotControl.DeviceObject  = DeviceObject;
-    Context.SlotControl.ControlCode   = ControlCode;
-    Context.SlotControl.Buffer        = Buffer;
-    Context.SlotControl.BufferLength  = BufferLength;
-    Context.SlotControl.Context       = CompletionContext;
+    Context.DeviceControl.DeviceHandler = DeviceHandler;
+    Context.DeviceControl.DeviceObject  = DeviceObject;
+    Context.DeviceControl.ControlCode   = ControlCode;
+    Context.DeviceControl.Buffer        = Buffer;
+    Context.DeviceControl.BufferLength  = BufferLength;
+    Context.DeviceControl.Context       = CompletionContext;
     Context.CompletionRoutine         = CompletionRoutine;
+    Context.Handler                   = DeviceHandler->BusHandler;
+    Context.RootHandler               = DeviceHandler->BusHandler;
 
     //
-    // Lookup handler
+    // Allocate HalDeviceControlContext structure
+    // (for now, just do it from pool)
     //
 
-    Context.Handler = HaliHandlerForBus (InterfaceType, BusNumber);
-    if (Context.Handler) {
+    pContext = ExAllocatePoolWithTag (
+                    NonPagedPool,
+                    sizeof (HAL_DEVICE_CONTROL_CONTEXT) +
+                        Context.Handler->DeviceControlExtensionSize,
+                    'sLAH'
+                    );
+
+
+    if (pContext) {
 
         //
-        // Allocate HalSlotControlContext structure
-        // (for now, just do it from pool)
+        // Initialize HalDeviceControlContext
         //
 
-        pContext = ExAllocatePoolWithTag (
-                        NonPagedPool,
-                        sizeof (HAL_SLOT_CONTROL_CONTEXT) +
-                            Context.Handler->SlotControlExtensionSize,
-                        'sLAH'
-                        );
+        RtlCopyMemory (pContext, &Context, sizeof (HAL_DEVICE_CONTROL_CONTEXT));
 
-        if (pContext) {
-
-            //
-            // Initialize HalSlotControlContext
-            //
-
-            Context.RootHandler = Context.Handler;
-            RtlCopyMemory (pContext, &Context, sizeof (HAL_SLOT_CONTROL_CONTEXT));
-
-
-            pContext->BusExtensionData   = NULL;
-            if (Context.Handler->SlotControlExtensionSize) {
-                pContext->BusExtensionData = pContext + 1;
-            }
-
-        } else {
-            //
-            // Out of memory
-            //
-
-            Status = STATUS_NO_MEMORY;
+        pContext->BusExtensionData  = NULL;
+        if (pContext->Handler->DeviceControlExtensionSize) {
+            pContext->BusExtensionData = pContext + 1;
         }
+
+
+        if (!Context.CompletionRoutine) {
+
+            //
+            // There's no completion routine, associate an event to make it a
+            // synchronous request
+            //
+
+            KeInitializeEvent (&SyncRequest.Event, SynchronizationEvent, FALSE);
+            pContext->DeviceControl.Context = &SyncRequest;
+        }
+
+        //
+        // If there's no buffer length, pass in a zero
+        //
+
+        if (!pContext->DeviceControl.BufferLength) {
+            pContext->DeviceControl.BufferLength = pContext->HalReserved;
+            pContext->HalReserved[0] = 0;
+        }
+
+        //
+        // Allocated context complete, dispatch it to the appopiate bus handler
+        //
+
+        pContext->DeviceControl.Status = STATUS_PENDING;
+        Status = Context.Handler->DeviceControl(pContext);
+
+        //
+        // If the DeviceControl is pending and this is a synchronous call
+        // wait for it to complete
+        //
+
+        if (Status == STATUS_PENDING  &&  CompletionRoutine == NULL) {
+
+            //
+            // Wait for it to complete
+            //
+
+            KeWaitForSingleObject (
+                &SyncRequest.Event,
+                WrExecutive,
+                KernelMode,
+                FALSE,
+                NULL
+                );
+
+            //
+            // Return results
+            //
+
+            Status = SyncRequest.Status;
+            ASSERT (Status != STATUS_PENDING);
+        }
+
+        return Status;
 
     } else {
 
         //
-        // Handler not found
+        // Out of memory
         //
 
-        Status = STATUS_UNSUCCESSFUL;
+        Status = STATUS_INSUFFICIENT_RESOURCES;
     }
 
+
     //
-    // If pending give to bus handler; otherwise complete with error code
+    // Immediate error, complete request with local context
+    // structure with error code
     //
 
-    if (Status == STATUS_PENDING) {
-
-        //
-        // Allocated context completed, dispatch it
-        //
-
-        pContext->SlotControl.Status = STATUS_PENDING;
-        Status = Context.Handler->SlotControl(pContext);
-        ASSERT (Status != STATUS_PENDING  ||  CompletionRoutine != NULL);
-
-    } else {
-
-        //
-        // Immediate error, complete request with local context
-        // structure with error code
-        //
-
-        if (CompletionRoutine) {
-            Context.SlotControl.Status = Status;
-            CompletionRoutine (&Context.SlotControl);
-        }
+    if (CompletionRoutine) {
+        Context.DeviceControl.Status = Status;
+        CompletionRoutine (&Context.DeviceControl);
     }
 
     return Status;
 }
 
 NTSTATUS
-HaliCompleteSlotControl (
-    IN PHAL_SLOT_CONTROL_CONTEXT    Context
+HaliCompleteDeviceControl (
+    IN PHAL_DEVICE_CONTROL_CONTEXT    Context
     )
 {
-    NTSTATUS        Status;
+    NTSTATUS                Status;
+    PSYNCHRONOUS_REQUEST    SyncRequest;
 
     //
-    // Notify completion routine
+    // Get results
     //
+
+    Status = Context->DeviceControl.Status;
 
     if (Context->CompletionRoutine) {
-        Status = Context->SlotControl.Status;
-        Context->CompletionRoutine (&Context->SlotControl);
+
+        //
+        // Notify completion routine
+        //
+
+        Context->CompletionRoutine (&Context->DeviceControl);
+
+
+    } else {
+
+        //
+        // This is a synchronous request, return the status, and set
+        // the event
+        //
+
+        SyncRequest = (PSYNCHRONOUS_REQUEST) Context->DeviceControl.Context;
+        SyncRequest->Status = Context->DeviceControl.Status;
+        KeSetEvent (&SyncRequest->Event, 0, FALSE);
     }
 
     //
@@ -1221,10 +1421,8 @@ HaliCompleteSlotControl (
     //
 
     ExFreePool (Context);
-
     return Status;
 }
-
 
 //
 // Null handlers
@@ -1306,19 +1504,53 @@ HalpNoQueryBusSlots (
 
 
 NTSTATUS
-HalpNoSlotControl (
-    IN PHAL_SLOT_CONTROL_CONTEXT    Context
+HalpNoDeviceControl (
+    IN PHAL_DEVICE_CONTROL_CONTEXT    Context
     )
 {
-    Context->SlotControl.Status = STATUS_NOT_SUPPORTED;
-    return HaliCompleteSlotControl (Context);
+    Context->DeviceControl.Status = STATUS_NOT_SUPPORTED;
+    return HaliCompleteDeviceControl (Context);
 }
 
-
-
-
+PDEVICE_HANDLER_OBJECT
+HalpNoReferenceDeviceHandler (
+    IN PBUS_HANDLER         BusHandler,
+    IN PBUS_HANDLER         RootHandler,
+    IN ULONG                SlotNumber
+    )
+{
+    return NULL;
+}
 
-#ifdef POWER_MANAGEMENT
+ULONG
+HalpNoGetDeviceData (
+    IN PBUS_HANDLER             BusHandler,
+    IN PBUS_HANDLER             RootHandler,
+    IN PDEVICE_HANDLER_OBJECT   DeviceHandler,
+    IN ULONG                    DataType,
+    IN PVOID                    Buffer,
+    IN ULONG                    Offset,
+    IN ULONG                    Length
+    )
+{
+    return 0;
+}
+
+ULONG
+HalpNoSetDeviceData (
+    IN PBUS_HANDLER             BusHandler,
+    IN PBUS_HANDLER             RootHandler,
+    IN PDEVICE_HANDLER_OBJECT   DeviceHandler,
+    IN ULONG                    DataType,
+    IN PVOID                    Buffer,
+    IN ULONG                    Offset,
+    IN ULONG                    Length
+    )
+{
+    return 0;
+}
+
+#ifdef _PNP_POWER_
 NTSTATUS
 HaliSuspendHibernateSystem (
     IN PTIME_FIELDS         ResumeTime OPTIONAL,

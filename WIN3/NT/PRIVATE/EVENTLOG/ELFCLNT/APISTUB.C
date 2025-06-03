@@ -25,7 +25,7 @@ Revision History:
 
 #include <elfclntp.h>
 #include <lmerr.h>
-#include <wcstr.h>
+#include <stdlib.h>
 #include <string.h>
 
 //
@@ -63,7 +63,7 @@ Return Value:
     PANSI_STRING        pNameA;
     LPSTR           pName;
     NTSTATUS            Error;
-    NTSTATUS            Status;
+    NTSTATUS            status;
 
 
     pNameU = MIDL_user_allocate (sizeof (UNICODE_STRING));
@@ -91,7 +91,7 @@ Return Value:
         //
         // Set up the UNICODE_STRING structure.
         //
-        Status = RtlAnsiStringToUnicodeString (
+        status = RtlAnsiStringToUnicodeString (
                             pNameU,
                             pNameA,
                             TRUE
@@ -102,14 +102,14 @@ Return Value:
         // Otherwise, free the buffer allocated by ElfpGetComputerName
         // and leave the global variables unchanged.
         //
-        if (NT_SUCCESS(Status)) {
+        if (NT_SUCCESS(status)) {
 
             pGlobalComputerNameU = pNameU;    // Set global variable if no error
             pGlobalComputerNameA = pNameA;      // Set global ANSI variable
 
         } else {
 
-            DbgPrint("[ELFCLNT] GetComputerName - Error 0x%lx\n", Status);
+            DbgPrint("[ELFCLNT] GetComputerName - Error 0x%lx\n", status);
             LocalFree(pName);
             MIDL_user_free (pNameU);        // Free the buffers
             MIDL_user_free (pNameA);
@@ -190,7 +190,6 @@ ElfNumberOfRecords(
     OUT     PULONG      NumberOfRecords
     )
 {
-
     NTSTATUS status;
 
     //
@@ -231,7 +230,6 @@ ElfOldestRecord(
     OUT     PULONG      OldestRecordNumber
     )
 {
-
     NTSTATUS status;
 
     //
@@ -355,10 +353,10 @@ Return Value:
     EVENTLOG_HANDLE_W   ServerNameString;
 
     //
-    // Make sure the output pointer is valid
+    // Make sure input & output pointers are valid
     //
 
-    if (!LogHandle) {
+    if (!LogHandle || !LogName || LogName->Length == 0) {
        return(STATUS_INVALID_PARAMETER);
     }
 
@@ -442,10 +440,10 @@ Return Value:
     EVENTLOG_HANDLE_W   ServerNameString;
 
     //
-    // Make sure the output pointer is valid
+    // Make sure input & output pointers are valid
     //
 
-    if (!LogHandle) {
+    if (!LogHandle || !ModuleName || ModuleName->Length == 0) {
        return(STATUS_INVALID_PARAMETER);
     }
 
@@ -528,10 +526,10 @@ Return Value:
     EVENTLOG_HANDLE_W   ServerNameString;
 
     //
-    // Make sure the output pointer is valid
+    // Make sure input & output pointers are valid
     //
 
-    if (!LogHandle) {
+    if (!LogHandle || !BackupFileName || BackupFileName->Length == 0) {
        return(STATUS_INVALID_PARAMETER);
     }
 
@@ -663,6 +661,14 @@ Return Value:
 --*/
 {
     NTSTATUS status;
+
+    //
+    // Make sure input pointers are valid
+    //
+
+    if (!BackupFileName || BackupFileName->Length == 0) {
+       return(STATUS_INVALID_PARAMETER);
+    }
 
     //
     // Do the RPC call with an exception handler since RPC will raise an
@@ -929,7 +935,6 @@ Note:
     LARGE_INTEGER Time;
     ULONG EventTime;
 
-
     //
     // Generate the time of the event. This is done on the client side
     // since that is where the event occurred.
@@ -1029,10 +1034,10 @@ Return Value:
     EVENTLOG_HANDLE_A   ServerNameString;
 
     //
-    // Make sure the output pointer is valid
+    // Make sure input & output pointers are valid
     //
 
-    if (!LogHandle) {
+    if (!LogHandle || !LogName || LogName->Length == 0) {
        return(STATUS_INVALID_PARAMETER);
     }
 
@@ -1120,10 +1125,10 @@ Return Value:
     EVENTLOG_HANDLE_A   ServerNameString;
 
     //
-    // Make sure the output pointer is valid
+    // Make sure input & output pointers are valid
     //
 
-    if (!LogHandle) {
+    if (!LogHandle || !ModuleName || ModuleName->Length == 0) {
        return(STATUS_INVALID_PARAMETER);
     }
 
@@ -1211,10 +1216,10 @@ Return Value:
     NTSTATUS            status;
 
     //
-    // Make sure the output pointer is valid
+    // Make sure input & output pointers are valid
     //
 
-    if (!LogHandle) {
+    if (!LogHandle || !FileName || FileName->Length == 0) {
        return(STATUS_INVALID_PARAMETER);
     }
 
@@ -1345,6 +1350,14 @@ Return Value:
 --*/
 {
     NTSTATUS status;
+
+    //
+    // Make sure input pointers are valid
+    //
+
+    if (!BackupFileName || BackupFileName->Length == 0) {
+       return(STATUS_INVALID_PARAMETER);
+    }
 
     //
     // Do the RPC call with an exception handler since RPC will raise an
@@ -1562,4 +1575,3 @@ Note:
     return (status);
 
 }
-

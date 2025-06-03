@@ -33,7 +33,9 @@ Revision History:
 // The compiler has a bug which does not handle the \0 character in a unicode
 // string correctly.  This flag implements a workaround for the bug.
 //
+#if _MSC_VER < 1000
 #define WORKAROUND 1
+#endif
 
 //
 //  Private memory allocation routines
@@ -58,6 +60,15 @@ DetectFreeHeap(
     )
 */
 #define DetectFreeHeap( BaseAddress ) RtlFreeHeap( RtlProcessHeap(), 0, (BaseAddress) )
+
+
+BOOLEAN
+LoadAdapterInformation(
+	IN	PWSTR	BusName,
+	IN	UINT	AdapterEntrySize,
+	OUT	PVOID	*AdapterList,
+	OUT UINT	*CountOfAdapters
+	);
 
 
 //
@@ -171,6 +182,21 @@ LONG
     IN  LONG  BufferSize
     );
 
+typedef struct _COMMON_ADAPTER_INFO
+{
+	LONG					Index;
+	PWCHAR					InfId;
+	ULONG					Id;
+	ULONG					Mask;
+	PWCHAR					Parameters;
+	NC_DETECT_FIRST_NEXT	FirstNext;
+
+	ULONG					BusNumber;
+	ULONG					SlotNumber;
+}
+	COMMON_ADAPTER_INFO,
+	*PCOMMON_ADAPTER_INFO;
+
 //
 // Main structure
 //
@@ -230,6 +256,10 @@ extern WCHAR TransceiverString[];
 extern WCHAR ZeroWaitStateString[];
 extern WCHAR SlotNumberString[];
 extern WCHAR IoChannelReadyString[];
+extern WCHAR CardTypeString[];
+extern WCHAR PcmciaString[];
+extern WCHAR PCCARDAttributeMemLengthString[];
+extern WCHAR PCCARDAttributeMemString[];
 
 
 //
@@ -324,6 +354,22 @@ DeleteEisaKey(
     IN PVOID BusHandle
     );
 
+BOOLEAN PcmciaGetCardInfo(
+   OUT PHANDLE phCardInfo,
+   IN  PWSTR   pCardName
+);
+
+VOID PcmciaFreeCardInfo(
+   HANDLE   hCardInfo
+);
+
+BOOLEAN PcmciaQueryCardResource(
+   OUT PVOID   *ppvValue,
+   IN  HANDLE  hCardInfo,
+   IN  ULONG   ulResource
+);
+
+
 //
 // Structure for the individual drivers for holding card info
 //
@@ -352,6 +398,12 @@ typedef struct _ADAPTER_HANDLE {
 //
 // Non-network detection routines
 //
+
+VOID
+FreeAdapterInformation(
+	IN	PVOID	AdapterList,
+	IN	UINT	NumberOfAdapters
+	);
 
 extern
 VOID
@@ -760,6 +812,15 @@ extern LONG Ne1000QueryParameterNameHandler(
 //
 // Mca Detection routines
 //
+extern VOID
+FreeMcaAdapterInfo(
+	VOID
+	);
+
+extern BOOLEAN
+LoadMcaAdapterInfo(
+	VOID
+	);
 
 extern LONG McaIdentifyHandler(
     IN LONG Index,
@@ -825,6 +886,15 @@ extern LONG McaQueryParameterNameHandler(
 //
 // Eisa Detection routines
 //
+extern VOID
+FreeEisaAdapterInfo(
+	VOID
+	);
+
+extern BOOLEAN
+LoadEisaAdapterInfo(
+	VOID
+	);
 
 extern LONG EisaIdentifyHandler(
     IN LONG Index,
@@ -886,6 +956,147 @@ extern LONG EisaQueryParameterNameHandler(
     OUT WCHAR *Buffer,
     IN  LONG BufferSize
     );
+
+//
+// Pci Detection routines
+//
+extern VOID
+FreePciAdapterInfo(
+	VOID
+	);
+
+extern BOOLEAN
+LoadPciAdapterInfo(
+	VOID
+	);
+
+
+extern LONG PciIdentifyHandler(
+    IN LONG Index,
+    IN WCHAR *Buffer,
+    IN LONG BuffSize
+    );
+
+extern LONG PciFirstNextHandler(
+    IN  LONG NetcardId,
+    IN INTERFACE_TYPE InterfaceType,
+    IN ULONG BusNumber,
+    IN  BOOL First,
+    OUT PVOID *Token,
+    OUT LONG *Confidence
+    );
+
+extern LONG PciOpenHandleHandler(
+    IN  PVOID Token,
+    OUT PVOID *Handle
+    );
+
+extern LONG PciCreateHandleHandler(
+    IN  LONG NetcardId,
+    IN INTERFACE_TYPE InterfaceType,
+    IN ULONG BusNumber,
+    OUT PVOID *Handle
+    );
+
+extern LONG PciCloseHandleHandler(
+    IN PVOID Handle
+    );
+
+extern LONG PciQueryCfgHandler(
+    IN  PVOID Handle,
+    OUT WCHAR *Buffer,
+    IN  LONG BuffSize
+    );
+
+extern LONG PciVerifyCfgHandler(
+    IN PVOID Handle,
+    IN WCHAR *Buffer
+    );
+
+extern LONG PciQueryMaskHandler(
+    IN  LONG NetcardId,
+    OUT WCHAR *Buffer,
+    IN  LONG BuffSize
+    );
+
+extern LONG PciParamRangeHandler(
+    IN  LONG NetcardId,
+    IN  WCHAR *Param,
+    OUT LONG *plValues,
+    OUT LONG *plBuffSize
+    );
+
+extern LONG PciQueryParameterNameHandler(
+    IN  WCHAR *Param,
+    OUT WCHAR *Buffer,
+    IN  LONG BufferSize
+    );
+
+//
+// PCMCIA Detection routines
+//
+extern LONG PcmciaIdentifyHandler(
+    IN LONG Index,
+    IN WCHAR *Buffer,
+    IN LONG BuffSize
+    );
+
+extern LONG PcmciaFirstNextHandler(
+    IN  LONG NetcardId,
+    IN INTERFACE_TYPE InterfaceType,
+    IN ULONG BusNumber,
+    IN  BOOL First,
+    OUT PVOID *Token,
+    OUT LONG *Confidence
+    );
+
+extern LONG PcmciaOpenHandleHandler(
+    IN  PVOID Token,
+    OUT PVOID *Handle
+    );
+
+extern LONG PcmciaCreateHandleHandler(
+    IN  LONG NetcardId,
+    IN INTERFACE_TYPE InterfaceType,
+    IN ULONG BusNumber,
+    OUT PVOID *Handle
+    );
+
+extern LONG PcmciaCloseHandleHandler(
+    IN PVOID Handle
+    );
+
+extern LONG PcmciaQueryCfgHandler(
+    IN  PVOID Handle,
+    OUT WCHAR *Buffer,
+    IN  LONG BuffSize
+    );
+
+extern LONG PcmciaVerifyCfgHandler(
+    IN PVOID Handle,
+    IN WCHAR *Buffer
+    );
+
+extern LONG PcmciaQueryMaskHandler(
+    IN  LONG NetcardId,
+    OUT WCHAR *Buffer,
+    IN  LONG BuffSize
+    );
+
+extern LONG PcmciaParamRangeHandler(
+    IN  LONG NetcardId,
+    IN  WCHAR *Param,
+    OUT LONG *plValues,
+    OUT LONG *plBuffSize
+    );
+
+extern LONG PcmciaQueryParameterNameHandler(
+    IN  WCHAR *Param,
+    OUT WCHAR *Buffer,
+    IN  LONG BufferSize
+    );
+
+
 
 //
 // UB Detection routines
@@ -1148,6 +1359,72 @@ extern LONG Ee16QueryParameterNameHandler(
     IN  LONG BufferSize
     );
 
+//
+// EPro Detection routines
+//
+
+extern LONG EProIdentifyHandler(
+    IN LONG Index,
+    IN WCHAR *Buffer,
+    IN LONG BuffSize
+    );
+
+extern LONG EProFirstNextHandler(
+    IN  LONG NetcardId,
+    IN INTERFACE_TYPE InterfaceType,
+    IN ULONG BusNumber,
+    IN  BOOL First,
+    OUT PVOID *Token,
+    OUT LONG *Confidence
+    );
+
+extern LONG EProOpenHandleHandler(
+    IN  PVOID Token,
+    OUT PVOID *Handle
+    );
+
+extern LONG EProCreateHandleHandler(
+    IN  LONG NetcardId,
+    IN INTERFACE_TYPE InterfaceType,
+    IN ULONG BusNumber,
+    OUT PVOID *Handle
+    );
+
+extern LONG EProCloseHandleHandler(
+    IN PVOID Handle
+    );
+
+extern LONG EProQueryCfgHandler(
+    IN  PVOID Handle,
+    OUT WCHAR *Buffer,
+    IN  LONG BuffSize
+    );
+
+extern LONG EProVerifyCfgHandler(
+    IN PVOID Handle,
+    IN WCHAR *Buffer
+    );
+
+extern LONG EProQueryMaskHandler(
+    IN  LONG NetcardId,
+    OUT WCHAR *Buffer,
+    IN  LONG BuffSize
+    );
+
+extern LONG EProParamRangeHandler(
+    IN  LONG NetcardId,
+    IN  WCHAR *Param,
+    OUT LONG *plValues,
+    OUT LONG *plBuffSize
+    );
+
+extern LONG EProQueryParameterNameHandler(
+    IN  WCHAR *Param,
+    OUT WCHAR *Buffer,
+    IN  LONG BufferSize
+    );
+
+
 
 //
 // Mips Detection routines
@@ -1345,4 +1622,10 @@ extern LONG Tok162QueryParameterNameHandler(
     IN  LONG BufferSize
     );
 
+VOID
+AcquireAllPcmciaResources(
+	VOID
+	);
+
 #endif
+

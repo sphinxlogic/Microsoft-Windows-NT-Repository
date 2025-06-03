@@ -47,7 +47,7 @@ Revision History:
 #include <nturtl.h>             // needed for winbase.h
 #include <winbase.h>            // LocalAlloc
 
-#include <wcstr.h>      // for wcscpy wcscat
+#include <stdlib.h>      // for wcscpy wcscat
 #include <tstr.h>       // WCSSIZE
 
 #include <nwrpcp.h>

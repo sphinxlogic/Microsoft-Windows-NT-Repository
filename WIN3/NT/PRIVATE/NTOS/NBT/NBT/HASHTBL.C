@@ -47,7 +47,7 @@ Return Value:
 
     uSize = (lNumBuckets-1)*sizeof(LIST_ENTRY) + sizeof(tHASHTABLE);
 
-    *pHashTable = (tHASHTABLE *)CTEAllocInitMem((USHORT)uSize);
+    *pHashTable = (tHASHTABLE *)CTEAllocInitMem(uSize);
 
     if (*pHashTable)
     {
@@ -272,7 +272,7 @@ Return Value:
         //
         // Allocate memory for another hash table entry
         //
-        pNameAddress = (tNAMEADDR *)CTEAllocMem(sizeof(tNAMEADDR));
+        pNameAddress = (tNAMEADDR *)NbtAllocMem(sizeof(tNAMEADDR),NBT_TAG('0'));
         if (pNameAddress)
         {
             CTEZeroMemory(pNameAddress,sizeof(tNAMEADDR));
@@ -376,11 +376,13 @@ Return Value:
             // the scope is a variable length string, so allocate enough
             // memory for the tNameAddr structure based on this string length
             //
-            pScopeAddr = (tNAMEADDR *)CTEAllocMem((USHORT)(sizeof(tNAMEADDR)
+            pScopeAddr = (tNAMEADDR *)NbtAllocMem((USHORT)(sizeof(tNAMEADDR)
                                                         + iIndex
-                                                        - NETBIOS_NAME_SIZE));
+                                                        - NETBIOS_NAME_SIZE),NBT_TAG('1'));
             if ( !pScopeAddr )
             {
+                RemoveEntryList(&pNameAddress->Linkage);
+
                 CTEMemFree( pNameAddress );
                 CTESpinFree(&NbtConfig,OldIrq);
                 return STATUS_INSUFFICIENT_RESOURCES ;
@@ -595,9 +597,7 @@ Return Value:
             uNameSize = NETBIOS_NAME_SIZE;
 
 
-        if (uNameSize == CTEMemCmp((PVOID)pName,
-                                   (PVOID)pNameAddr->Name,
-                                   uNameSize))
+        if (CTEMemEqu((PVOID)pName, (PVOID)pNameAddr->Name, uNameSize))
         {
 
             // now check if the scopes match. Scopes are stored differently
@@ -629,8 +629,7 @@ Return Value:
                 if (pNameAddr->pScope == NULL)
                 {
                     // NULL  scope, in table so check if passed in scope
-                    // points to a null... this is a faster check than calling the
-                    // RtlCompareMemory routine below...
+                    // points to a null.
                     if (*pScope == '\0')
                     {
                         *pNameAddress = pNameAddr;
@@ -653,9 +652,7 @@ Return Value:
            }
 
 
-           if (uNameSize == CTEMemCmp((PVOID)pScope,
-                                      (PVOID)pScopeTbl,
-                                      uNameSize))
+           if (CTEMemEqu((PVOID)pScope, (PVOID)pScopeTbl, uNameSize))
            {
                // the scopes match so return
                *pNameAddress = pNameAddr;
@@ -669,79 +666,3 @@ Return Value:
     return(STATUS_UNSUCCESSFUL);
 
 }
-#if 0
-//----------------------------------------------------------------------------
-NTSTATUS
-FindNoScopeInHashTable(
-    tHASHTABLE          *pHashTable,
-    PCHAR               pName,
-    tNAMEADDR           **pNameAddress
-    )
-/*++
-
-Routine Description:
-
-    This routine checks if the name passed in matches a hash table entry.
-    It does not attempt to account for scope as FindInHashTable does.
-
-Arguments:
-
-
-Return Value:
-
-    The function value is the status of the operation.
-
---*/
-{
-    PLIST_ENTRY              pEntry;
-    PLIST_ENTRY              pHead;
-    tNAMEADDR                *pNameAddr;
-    int                      iIndex;
-    ULONG                    uNameSize;
-
-    // first hash the name to an index...
-    // take the lower nibble of the first 2 characters.. mod table size
-    iIndex = ((pName[0] & 0x0F) << 4) + (pName[1] & 0x0F);
-    iIndex = iIndex % pHashTable->lNumBuckets;
-
-
-    // check if the name is already in the table
-    pHead = &pHashTable->Bucket[iIndex];
-
-    pEntry = pHead;
-
-    // check each entry in the hash list...until the end of the list
-    while ((pEntry = pEntry->Flink) != pHead)
-    {
-
-        pNameAddr = CONTAINING_RECORD(pEntry,tNAMEADDR,Linkage);
-
-        if (pNameAddr->NameTypeState & NAMETYPE_SCOPE)
-        {
-            // scope names are treated differently since they are not
-            // 16 bytes long - the size of the scope is stored in same place
-            // as the IpAddress since scopes do not need ip addresses
-            uNameSize = pNameAddr->IpAddress;
-        }
-        else
-            uNameSize = NETBIOS_NAME_SIZE;
-
-
-        if (uNameSize == CTEMemCmp(
-                            (PVOID)pName,
-                            (PVOID)pNameAddr->Name,
-                            uNameSize))
-        {
-            // no scope to check so the names match
-            *pNameAddress = pNameAddr;
-            return(STATUS_SUCCESS);
-
-        }
-
-    }
-
-    return(STATUS_UNSUCCESSFUL);
-
-}
-#endif
-

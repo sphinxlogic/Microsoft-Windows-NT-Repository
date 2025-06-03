@@ -170,6 +170,7 @@ Return Value:
                     return STATUS_INSUFFICIENT_RESOURCES ;
 
                 InitRcvContext( prcvCont, pLowerConn, NULL ) ;
+                prcvCont->usFlags = TDI_RECEIVE_NORMAL;
                 pevrcvbuf->erb_buffer  = &prcvCont->ndisBuff ;
                 pevrcvbuf->erb_rtn     = (CTEReqCmpltRtn) NewSessionCompletionRoutine ;
                 pevrcvbuf->erb_size    = sizeof( pLowerConn->Hdr ) ;
@@ -267,8 +268,11 @@ Return Value:
 
                 //
                 //  If the data is available, then just grab it now
+                //  (also, if flag is set to TDI_RECEIVE_NO_RESPONSE_EXP, we
+                //  need to give hint to the xport, so let xport do the copying)
                 //
-                if ( BytesIndicated >= BytesToCopy )
+                if ( ( BytesIndicated >= BytesToCopy ) &&
+                     ( prcvCont->usFlags == TDI_RECEIVE_NORMAL ) )
                 {
                     CTEMemCopy( prcvCont->ndisBuff.VirtualAddress,
                                 pTsdu,
@@ -282,7 +286,10 @@ Return Value:
                 pevrcvbuf->erb_rtn     = CompletionRcv ;
                 pevrcvbuf->erb_size    = BytesToCopy ;
                 pevrcvbuf->erb_context = prcvCont ;
-                pevrcvbuf->erb_flags   = &usFlags ;
+                if (prcvCont->usFlags == TDI_RECEIVE_NO_RESPONSE_EXP)
+                    pevrcvbuf->erb_flags   = &prcvCont->usFlags ;
+                else
+                    pevrcvbuf->erb_flags   = &usFlags ;
 
                 DbgPrint("\tTRH: Rcv Dest Buff: 0x") ;
                 DbgPrintNum((ULONG)pevrcvbuf->erb_buffer->VirtualAddress) ; DbgPrint("\r\n") ;
@@ -293,8 +300,14 @@ Return Value:
                 // the client received some, all or none of the data
                 // For Keep Alives the PduSize is zero so this check
                 // will work correctly and go to the else
+                // Also, if we were attempting to complete a zero-len message
+                // but failed because there was no receive pending then we
+                // must go in PARTIAL_RCV state
                 //
-                if (*BytesTaken < PduSize)
+                if ( (*BytesTaken < PduSize) ||
+                     ((status == STATUS_DATA_NOT_ACCEPTED) &&
+                      (pConnectEle->TotalPcktLen == 0) &&
+                      (pConnectEle->state == NBT_SESSION_UP)) )
                 {
                     //
                     // took some of the data, so keep track of the
@@ -497,6 +510,15 @@ Return Value:
                         pTsdu,
                         &prcvCont
                         );
+    }
+
+    //
+    // maybe disconnect is going on: reject the data
+    //
+    else
+    {
+        *BytesTaken = BytesAvailable;
+        status = STATUS_SUCCESS;
     }
 
     //
@@ -1099,7 +1121,7 @@ Return Value:
         //  First remove it from pDeviceContext->LowerConnection
         //
         RemoveEntryList( &pLowerConn->Linkage ) ;
-        CTEInterlockedDecrementLong(&pLowerConn->RefCount,&pLowerConn->SpinLock);
+        CTEInterlockedDecrementLong(&pLowerConn->RefCount);
         InsertHeadList(&pDeviceContext->LowerConnFreeHead,
                        &pLowerConn->Linkage);
 
@@ -1496,10 +1518,10 @@ Return Value:
 }
 
 //----------------------------------------------------------------------------
-NTSTATUS
+VOID
 CompletionRcvDgram(
     IN PVOID      Context,
-    IN TDI_STATUS tdistatus,
+    IN UINT       tdistatus,
     IN UINT       RcvdSize
     )
 /*++
@@ -1558,8 +1580,7 @@ Arguments:
 
                 pClientEle = CONTAINING_RECORD(pEntry,tCLIENTELE,Linkage);
 
-                CTEInterlockedIncrementLong(&pClientEle->RefCount,
-                                            &pClientEle->SpinLock);
+                CTEInterlockedIncrementLong(&pClientEle->RefCount);
 
                 if (pClientEle == pClientList->pClientEle)
                 {
@@ -1619,8 +1640,7 @@ Arguments:
 
                 pEntry = pEntry->Flink;
 
-                CTEInterlockedDecrementLong(&pClientEle->RefCount,
-                                            &pClientEle->SpinLock);
+                CTEInterlockedDecrementLong(&pClientEle->RefCount);
 
 
             } // of while(pEntry != pHead)
@@ -1640,7 +1660,7 @@ Arguments:
             // Call the ProxyDoDgramDist
             //
             status = ProxyDoDgramDist(
-                              pncb->ncb_buffer,
+                              (tDGRAMHDR *)pncb->ncb_buffer,
                               RcvdSize,
                               (tNAMEADDR *)pClientList->pAddress, //NameAddr
                               pClientList->pRemoteAddress //device context
@@ -1665,8 +1685,6 @@ Arguments:
     //
     CTEIoComplete( pncb, tdistatus, RcvdSize ) ;
     CTEMemFree( prcvdgContext ) ;
-
-    return(STATUS_SUCCESS);
 
 }
 //----------------------------------------------------------------------------
@@ -1699,4 +1717,3 @@ Return Value:
     DbgPrint("Nbt: Error Event HAndler hit unexpectedly\r\n");
     return TDI_INVALID_REQUEST ;
 }
-

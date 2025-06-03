@@ -1,15 +1,4 @@
 #include "cmd.h"
-#include "cmdproto.h"
-
-/* The following are definitions of the debugging group and level bits
- * for the code in this file.
- */
-
-#define PCGRP   0x0010  /* Path commands group      */
-#define MDLVL   0x0001  /* Mkdir level              */
-#define CDLVL   0x0002  /* Chdir level              */
-#define RDLVL   0x0004  /* Rmdir level              */
-
 
 extern TCHAR SwitChar, PathChar;
 
@@ -19,12 +8,6 @@ extern TCHAR CurDrvDir[] ;
 
 extern int LastRetCode ; /* @@ */
 extern TCHAR TmpBuf[] ;
-
-
-#define SIZEOFSTACK 25
-PTCHAR		StrStack[SIZEOFSTACK];
-USHORT	TopOfStack = 0;
-USHORT	BottomOfStack = 0;
 
 
 /**************** START OF SPECIFICATIONS ***********************/
@@ -110,7 +93,7 @@ int MdWork(arg)
 TCHAR *arg ;
 {
         unsigned  i;
-	LPWSTR	lpw;
+        TCHAR *lpw;
 
         /*  Check if drive is valid because Dosmkdir does not
             return invalid drive   @@5 */
@@ -121,10 +104,10 @@ TCHAR *arg ;
              return(FAILURE) ;
         }
 
-	if (!GetFullPathName(arg, TMPBUFLEN, TmpBuf, &lpw)) {
-	    PutStdErr( GetLastError(), NOARGS);
-	    return FAILURE;
-	}
+        if (!GetFullPathName(arg, TMPBUFLEN, TmpBuf, &lpw)) {
+            PutStdErr( GetLastError(), NOARGS);
+            return FAILURE;
+        }
 
         if(!CreateDirectory( arg, NULL )) {
             i = GetLastError();
@@ -134,12 +117,59 @@ TCHAR *arg ;
 
              } else if ( i == ERROR_PATH_NOT_FOUND) {
 
+                //
+                // If extensions are enabled, then loop over input path and
+                // create any needed intermediary directories.
+                //
+                if (fEnableExtensions) {
+                    if (TmpBuf[1] == COLON) {
+                        lpw = TmpBuf+3;
+                    } else if (TmpBuf[0] == BSLASH && TmpBuf[1] == BSLASH) {
+                        lpw = TmpBuf+2;
+                        while (*lpw && *lpw != BSLASH) {
+                            lpw++;
+                        }
+                        if (*lpw) {
+                            lpw++;
+                        }
+
+                        while (*lpw && *lpw != BSLASH) {
+                            lpw++;
+                        }
+                        if (*lpw) {
+                            lpw++;
+                        }
+                    } else {
+                        goto cantmakeError;
+                    }
+
+                    while (*lpw) {
+                        while (*lpw && *lpw != BSLASH) {
+                            lpw++;
+                        }
+
+                        if (*lpw == BSLASH) {
+                            *lpw = NULLC;
+                            if (!CreateDirectory( TmpBuf, NULL )) {
+                                i = GetLastError();
+                                if (i != ERROR_ALREADY_EXISTS) {
+                                    goto cantmakeError;
+                                }
+                            }
+                            *lpw++ = BSLASH;
+                        }
+                    }
+
+                    if (!CreateDirectory( TmpBuf, NULL )) {
+                        goto cantmakeError;
+                    }
+                    return(SUCCESS);
+                }
                 PutStdErr(ERROR_CANNOT_MAKE, NOARGS);
 
              } else {
-
+cantmakeError:
                 PutStdErr( i, NOARGS);
-
              }
              return(FAILURE) ;
         } ;
@@ -175,18 +205,38 @@ TCHAR *arg ;
 int eChdir(n)
 struct cmdnode *n ;
 {
-	// return( LastRetCode = ChdirWork( n ) );
+        // return( LastRetCode = ChdirWork( n ) );
 
         TCHAR szT[10] ;
-	TCHAR *tas ;		/* Tokenized arg string */
-	TCHAR dirstr[MAX_PATH] ;/* Holds current dir of specified drive */
+        TCHAR *tas, *s;         /* Tokenized arg string */
+        TCHAR dirstr[MAX_PATH] ;/* Holds current dir of specified drive */
 
         szT[0] = SwitChar ;
         szT[1] = NULLC ;
-        tas = TokStr(n->argptr, szT, TS_SDTOKENS) ;
+        //
+        // If extensions are enabled, dont treat spaces as delimeters so it is
+        // easier to CHDIR to directory names with embedded spaces without having
+        // to quote the directory name
+        //
+        tas = TokStr(n->argptr, szT, fEnableExtensions ? TS_WSPACE|TS_SDTOKENS : TS_SDTOKENS) ;
+        if (fEnableExtensions) {
+            //
+            // If extensions were enabled we could have some trailing spaces
+            // that need to be nuked since there weren't treated as delimeters
+            // by TokStr call above.
+            //
+            s = lastc(tas);
+            while (s > tas) {
+                if (_istspace(*s))
+                    *s-- = NULLC;
+                else
+                    break;
+            }
+        }
+
         DEBUG((PCGRP, CDLVL, "CHDIR: tas = `%ws'", tas)) ;
 
-		/*509*/ mystrcpy( tas, stripit( tas ) );
+        mystrcpy( tas, stripit( tas ) );
 
         if (*tas == NULLC) {
                 GetDir(CurDrvDir, GD_DEFAULT) ;
@@ -194,11 +244,11 @@ struct cmdnode *n ;
         } else if (mystrlen(tas) == 2 && *(tas+1) == COLON && _istalpha(*tas)) {
                 GetDir(dirstr, *tas) ;
                 cmd_printf(Fmt17, dirstr) ;
-		} else {
+                } else {
 
-				return( LastRetCode = ChdirWork(tas) );
-		}
-	return( LastRetCode = SUCCESS );
+                                return( LastRetCode = ChdirWork(tas) );
+                }
+        return( LastRetCode = SUCCESS );
 
 }
 
@@ -209,8 +259,9 @@ TCHAR *tas ; /* Tokenized arg string */
 
 
         if (*tas == SwitChar) {
-                if (!_tcsicmp(tas+2, TEXT("D"))) {
-                        i = ChangeDir2(tas+4, TRUE);
+                if (!_tcsnicmp(tas+2, TEXT("D"), 1)) {
+                        mystrcpy( tas, stripit( tas+4 ) );
+                        i = ChangeDir2(tas, TRUE);
                 } else {
                         i = MSG_BAD_SYNTAX;
                 }
@@ -218,142 +269,191 @@ TCHAR *tas ; /* Tokenized arg string */
                 i = ChangeDir((TCHAR *)tas);
         }
 
-        if (i == 0) {
-
-		//
-		// BUGBUG this may not be needed. ChangeDir does this too?
-		//
-		GetDir(CurDrvDir, GD_DEFAULT);
-
-	} else {
-
-		PutStdErr( i, NOARGS);
-		return(FAILURE) ;
-	}
-	return(SUCCESS) ;
+        if (i != 0) {
+            PutStdErr( i, ONEARG, tas);
+            return(FAILURE) ;
+        }
+        return(SUCCESS) ;
 }
 
-VOID
+#define SIZEOFSTACK 25
+PTCHAR  StrStack[SIZEOFSTACK];
+TCHAR   StrStackNetDriveCreated[SIZEOFSTACK];
+int StrStackDepth = 0;
+
+
+int GetDirStackDepth(void)
+{
+        return StrStackDepth;
+}
+
+int
 PushStr ( PTCHAR pszString )
 {
-	TopOfStack = (USHORT)((TopOfStack + 1) % SIZEOFSTACK);
-	StrStack[TopOfStack] = pszString;
-	if (TopOfStack == BottomOfStack) {
-		BottomOfStack = (USHORT)((BottomOfStack + 1) % SIZEOFSTACK);
-	}
+        if (StrStackDepth == SIZEOFSTACK)
+            return FALSE;
+
+        StrStackNetDriveCreated[StrStackDepth] = NULLC;
+        StrStack[StrStackDepth] = pszString;
+        StrStackDepth += 1;
+        return TRUE;
 }
 
 PTCHAR
 PopStr ()
 {
 
-	PTCHAR pszString;
+        PTCHAR pszString;
 
-	if (TopOfStack == BottomOfStack) {
-		return( NULL );
-	}
-	pszString = StrStack[TopOfStack];
-	StrStack[TopOfStack] = NULL;
-	if (TopOfStack == 0) {
-		TopOfStack = SIZEOFSTACK;
-	} else {
-		TopOfStack--;
-	}
-	return( pszString );
+        if (StrStackDepth == 0) {
+                return( NULL );
+        }
+        StrStackDepth -= 1;
+        pszString = StrStack[StrStackDepth];
+        if (StrStackNetDriveCreated[StrStackDepth] != NULLC) {
+            TCHAR szLocalName[4];
+
+            szLocalName[0] = StrStackNetDriveCreated[StrStackDepth];
+            szLocalName[1] = COLON;
+            szLocalName[2] = NULLC;
+            StrStackNetDriveCreated[StrStackDepth] = NULLC;
+            WNetCancelConnection2(szLocalName, 0, TRUE);
+        }
+        StrStack[StrStackDepth] = NULL;
+        return( pszString );
 }
 
 VOID
 DumpStrStack() {
 
-	int top = TopOfStack;
-	int bottom = BottomOfStack;
+        int i;
 
-	while (top != bottom) {
-
-		cmd_printf(Fmt17, StrStack[top]);
-		if (top == 0) {
-			top = SIZEOFSTACK - 1;
-		} else {
-			top--;
-		}
-	}
-	return;
+        for (i=StrStackDepth-1; i>=0; i--) {
+                cmd_printf(Fmt17, StrStack[i]);
+        }
+        return;
 }
 
 BOOLEAN
 PushCurDir()
 {
 
-	PTCHAR pszCurDir;
+        PTCHAR pszCurDir;
 
-	GetDir(CurDrvDir, GD_DEFAULT) ;
-	if ((pszCurDir=malloc((mystrlen(CurDrvDir)+1)*sizeof(TCHAR))) != NULL) {
-		mystrcpy(pszCurDir, CurDrvDir);
-		PushStr( pszCurDir );
-		return( TRUE );
-
-	}
-	return( FALSE );
+        GetDir(CurDrvDir, GD_DEFAULT) ;
+        if ((pszCurDir=HeapAlloc(GetProcessHeap(), 0, (mystrlen(CurDrvDir)+1)*sizeof(TCHAR))) != NULL) {
+                mystrcpy(pszCurDir, CurDrvDir);
+                if (PushStr( pszCurDir ))
+                    return( TRUE );
+                HeapFree(GetProcessHeap(), 0, pszCurDir);
+        }
+        return( FALSE );
 
 }
 
 int ePushDir(n)
 struct cmdnode *n ;
 {
-		TCHAR *tas ;		/* Tokenized arg string */
-		PTCHAR pszTmp;
-                TCHAR DriveLetter=GD_DEFAULT;
+        TCHAR *tas ;            /* Tokenized arg string */
+        PTCHAR pszTmp;
 
+        //
+        // If extensions are enabled, dont treat spaces as delimeters so it is
+        // easier to CHDIR to directory names with embedded spaces without having
+        // to quote the directory name
+        //
+        tas = TokStr(n->argptr, NULL, fEnableExtensions ? TS_WSPACE|TS_NOFLAGS : TS_NOFLAGS) ;
+        mystrcpy(tas, stripit(tas) );
 
-        tas = TokStr(n->argptr, NULL, TS_NOFLAGS) ;
-        DEBUG((PCGRP, CDLVL, "CHDIR: tas = `%ws'", tas)) ;
+        LastRetCode = SUCCESS;
+        if (*tas == NULLC) {
+            //
+            // Print out entire stack
+            //
+            DumpStrStack();
 
-		/*509*/ mystrcpy( tas, stripit( tas ) );
+        } else {
+            if (PushCurDir()) {
+                LastRetCode = SUCCESS;
+                //
+                // If extensions are enabled and a UNC name was given, then do
+                // a temporary NET USE to define a drive letter that we can
+                // use to change drive/directory to.  The matching POPD will
+                // delete the temporary drive letter.
+                //
+                if (fEnableExtensions && tas[0] == BSLASH && tas[1] == BSLASH) {
+                    NETRESOURCE netResource;
+                    TCHAR szLocalName[4];
+                    PTCHAR s;
 
-		LastRetCode = SUCCESS;
+                    if (s = _tcschr(&tas[2], BSLASH))
+                        if (s = _tcschr(s+1, BSLASH))
+                            *s++ = NULLC;
 
-		if (*tas == NULLC) {
+                    szLocalName[0] = TEXT('Z');
+                    szLocalName[1] = COLON;
+                    szLocalName[2] = NULLC;
+                    netResource.dwType = RESOURCETYPE_DISK;
+                    netResource.lpLocalName = szLocalName;
+                    netResource.lpRemoteName = tas;
+                    netResource.lpProvider = NULL;
+                    while (LastRetCode == NO_ERROR && szLocalName[0] != TEXT('A')) {
+                        switch(LastRetCode = WNetAddConnection2(&netResource,NULL,NULL,0)) {
+                        case NO_ERROR:
+                            StrStackNetDriveCreated[StrStackDepth-1] = szLocalName[0];
+                            tas[0] = szLocalName[0];
+                            tas[1] = szLocalName[1];
+                            tas[2] = BSLASH;
+                            if (s != NULL)
+                                _tcscpy(&tas[3], s);
+                            else
+                                tas[3] = NULLC;
+                            goto godrive;
+                        case ERROR_ALREADY_ASSIGNED:
+                        case ERROR_DEVICE_ALREADY_REMEMBERED:
+                            szLocalName[0] = (TCHAR)((UCHAR)szLocalName[0] - 1);
+                            LastRetCode = NO_ERROR;
+                            break;
+                        default:
+                            PutStdErr(LastRetCode, NOARGS);
+                            break;
+                        }
+                    }
+godrive:        ;
+                }
+                if (LastRetCode == NO_ERROR &&
+                    (LastRetCode = ChangeDir2( tas, TRUE )) == SUCCESS) {
+                    if (tas[1] == ':')
+                        GetDir(CurDrvDir,tas[0]);
+                    return( LastRetCode );
+                };
 
-				//
-				// Print out entire stack
-				//
-				DumpStrStack();
+                pszTmp = PopStr();
+                HeapFree(GetProcessHeap(), 0, pszTmp);
+                LastRetCode = FAILURE;
+            }
+        }
 
-		} else {
-
-			if (PushCurDir()) {
-
-				if ((LastRetCode = ChangeDir2( tas, TRUE )) == SUCCESS) {
-                                    if (tas[1] == ':')
-                                        GetDir(CurDrvDir,tas[0]);
-		                    return( LastRetCode );
-				};
-
-				pszTmp = PopStr();
-				free( pszTmp );
-				LastRetCode = FAILURE;
-			}
-
-		}
-
-	return( LastRetCode );
+        return( LastRetCode );
 }
 
 int ePopDir(n)
 struct cmdnode *n ;
 {
 
-	PTCHAR pszCurDir;
+        PTCHAR pszCurDir;
 
-	UNREFERENCED_PARAMETER( n );
-	if (pszCurDir = PopStr()) {
-		if (ChangeDir2( pszCurDir,TRUE ) == SUCCESS) {
-			free( pszCurDir );
-			return( SUCCESS );
-		}
-	}
-	return( FAILURE );
+        UNREFERENCED_PARAMETER( n );
+        if (pszCurDir = PopStr()) {
+                if (ChangeDir2( pszCurDir,TRUE ) == SUCCESS) {
+                        HeapFree(GetProcessHeap(), 0, pszCurDir);
+                        return( SUCCESS );
+                }
+                HeapFree(GetProcessHeap(), 0, pszCurDir);
+        }
+        return( FAILURE );
 }
+
 
 /***    eRmdir - begin the execution of the Rmdir command
  *
@@ -374,46 +474,6 @@ struct cmdnode *n ;
 int eRmdir(n)
 struct cmdnode *n ;
 {
-#if 0
     DEBUG((PCGRP, RDLVL, "RMDIR: Entered.")) ;
-    return(LastRetCode = LoopThroughArgs(n->argptr, RdWork, LTA_CONT /* @@5 */ )) ;
-#endif
-
-    return(RdWork(n->argptr));
+    return(RdWork(n->argptr));              // in del.c
 }
-
-
-#if 0
-
-/***    RdWork - remove a directory
- *
- *  Purpose:
- *      Remove the directory specified by arg.
- *
- *  int RdWork(TCHAR *arg)
- *
- *  Args:
- *      arg - the name of the directory to be removed
- *
- *  Returns:
- *      SUCCESS if the directory was successfully deleted.
- *      FAILURE if it wasn't.
- *
- */
-
-int RdWork(arg)
-TCHAR *arg ;
-{
-    unsigned i;
-
-        if (!RemoveDirectory( (TCHAR *)arg)) {
-                i = GetLastError();
-                PutStdErr( i == ERROR_ACCESS_DENIED ?
-                ERROR_CURRENT_DIRECTORY : i, NOARGS);      /* M004     */
-                return(FAILURE) ;
-        } ;
-
-        return(SUCCESS) ;
-}
-
-#endif

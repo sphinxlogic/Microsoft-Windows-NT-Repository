@@ -21,11 +21,6 @@ Revision History:
 --*/
 
 #include "mi.h"
-#include "zwapi.h"
-#include "ntimage.h"
-#include "stdio.h"
-#include "string.h"
-#include "zwapi.h"
 
 extern ULONG MmPagedPoolCommit;
 
@@ -46,7 +41,6 @@ ULONG MmDriverCommit;
 extern KSPIN_LOCK PsLoadedModuleSpinLock;
 
 #if DBG
-UNICODE_STRING MiFileBeingLoaded;
 ULONG MiPagesConsumed;
 #endif
 
@@ -58,7 +52,9 @@ CacheImageSymbols(
 NTSTATUS
 MiResolveImageReferences(
     PVOID ImageBase,
-    IN PUNICODE_STRING ImageFileDirectory
+    IN PUNICODE_STRING ImageFileDirectory,
+    OUT PCHAR *MissingProcedureName,
+    OUT PWSTR *MissingDriverName
     );
 
 NTSTATUS
@@ -66,7 +62,10 @@ MiSnapThunk(
     IN PVOID DllBase,
     IN PVOID ImageBase,
     IN OUT PIMAGE_THUNK_DATA Thunk,
-    IN PIMAGE_EXPORT_DIRECTORY ExportDirectory
+    IN PIMAGE_EXPORT_DIRECTORY ExportDirectory,
+    IN ULONG ExportSize,
+    IN BOOLEAN SnapForwarder,
+    OUT PCHAR *MissingProcedureName
     );
 
 NTSTATUS
@@ -112,6 +111,17 @@ MiMapCacheExceptionFilter (
     IN PEXCEPTION_POINTERS ExceptionPointer
     );
 
+VOID
+MiSetImageProtectWrite (
+    IN PSEGMENT Segment
+    );
+
+ULONG
+MiSetProtectionOnTransitionPte (
+    IN PMMPTE PointerPte,
+    IN ULONG ProtectionMask
+    );
+
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE,MmCheckSystemImage)
@@ -120,10 +130,18 @@ MiMapCacheExceptionFilter (
 #pragma alloc_text(PAGE,MiSnapThunk)
 #pragma alloc_text(PAGE,MiUnloadSystemImageByForce)
 #pragma alloc_text(PAGE,MiEnablePagingOfDriver)
+#pragma alloc_text(PAGE,MmPageEntireDriver)
+#pragma alloc_text(PAGE,MiSetImageProtectWrite)
+
+#if !defined(NT_UP)
+#pragma alloc_text(PAGE,MmVerifyImageIsOkForMpUse)
+#endif // NT_UP
+
 #pragma alloc_text(PAGELK,MiLoadImageSection)
 #pragma alloc_text(PAGELK,MmFreeDriverInitialization)
 #pragma alloc_text(PAGELK,MmUnloadSystemImage)
 #pragma alloc_text(PAGELK,MiSetPagingOfDriver)
+#pragma alloc_text(PAGELK,MmResetDriverPaging)
 #endif
 
 
@@ -171,16 +189,14 @@ Return Value:
     UNICODE_STRING BaseName;
     UNICODE_STRING BaseDirectory;
     OBJECT_ATTRIBUTES ObjectAttributes;
-    HANDLE FileHandle;
+    HANDLE FileHandle = (HANDLE)0;
     HANDLE SectionHandle;
     IO_STATUS_BLOCK IoStatus;
     CHAR NameBuffer[ MAXIMUM_FILENAME_LENGTH ];
-    PVOID UnlockHandle;
     PLIST_ENTRY NextEntry;
     ULONG NumberOfPtes;
-#if DBG
-    UNICODE_STRING PreviousLoad;
-#endif
+    PCHAR MissingProcedureName;
+    PWSTR MissingDriverName;
 
     PAGED_CODE();
 
@@ -191,12 +207,12 @@ Return Value:
                            (PLARGE_INTEGER)NULL);
 
 #if DBG
-    PreviousLoad = MiFileBeingLoaded;
-    MiFileBeingLoaded = *ImageFileName;
     if ( NtGlobalFlag & FLG_SHOW_LDR_SNAPS ) {
         DbgPrint( "MM:SYSLDR Loading %wZ\n", ImageFileName );
     }
 #endif
+    MissingProcedureName = NULL;
+    MissingDriverName = NULL;
 
     //
     // Attempt to open the driver image itself.  If this fails, then the
@@ -217,28 +233,16 @@ Return Value:
                          0 );
 
     if (!NT_SUCCESS( Status )) {
-        goto return1;
+
+        //
+        // Don't raise hard error status for file not found.
+        //
+
+        goto return2;
     }
 
     Status = MmCheckSystemImage(FileHandle);
-    if ( Status == STATUS_IMAGE_CHECKSUM_MISMATCH ) {
-        ULONG ErrorParameters;
-        ULONG ErrorResponse;
-
-        ZwClose(FileHandle);
-
-        //
-        // Hard error time. A driver is corrupt.
-        //
-
-        ErrorParameters = (ULONG)ImageFileName;
-
-        ZwRaiseHardError (Status,
-                          1,
-                          1,
-                          &ErrorParameters,
-                          OptionOk,
-                          &ErrorResponse);
+    if ( Status == STATUS_IMAGE_CHECKSUM_MISMATCH  || Status == STATUS_IMAGE_MP_UP_MISMATCH) {
         goto return1;
     }
 
@@ -277,12 +281,11 @@ Return Value:
                     (PSTRING)&DataTableEntry->FullDllName,
                     TRUE)) {
 
-            ZwClose(FileHandle);
             *ImageHandle = DataTableEntry;
             *ImageBaseAddress = DataTableEntry->DllBase;
             DataTableEntry->LoadCount = +1;
             Status = STATUS_IMAGE_ALREADY_LOADED;
-            goto return1;
+            goto return2;
         }
 
         NextEntry = NextEntry->Flink;
@@ -293,14 +296,13 @@ Return Value:
     // then the driver file is not an image.
     //
 
-    Status = ZwCreateSection( &SectionHandle,
+    Status = ZwCreateSection (&SectionHandle,
                               SECTION_ALL_ACCESS,
                               (POBJECT_ATTRIBUTES) NULL,
                               (PLARGE_INTEGER) NULL,
                               PAGE_EXECUTE,
                               SEC_IMAGE,
                               FileHandle );
-    ZwClose( FileHandle );
     if (!NT_SUCCESS( Status )) {
         goto return1;
     }
@@ -309,44 +311,39 @@ Return Value:
     // Now reference the section handle.
     //
 
-    Status = ObReferenceObjectByHandle( SectionHandle,
+    Status = ObReferenceObjectByHandle (SectionHandle,
                                         SECTION_MAP_EXECUTE,
                                         MmSectionObjectType,
                                         KernelMode,
                                         (PVOID *) &SectionPointer,
                                         (POBJECT_HANDLE_INFORMATION) NULL );
 
-    ZwClose( SectionHandle );
-    if (!NT_SUCCESS( Status )) {
+    ZwClose (SectionHandle);
+    if (!NT_SUCCESS (Status)) {
         goto return1;
     }
 
-    UnlockHandle = MmLockPagableImageSection((PVOID)MiLoadImageSection);
-    ASSERT(UnlockHandle);
-
+    if ((SectionPointer->Segment->BasedAddress == (PVOID)MmSystemSpaceViewStart) &&
+        (SectionPointer->Segment->ControlArea->NumberOfMappedViews == 0)) {
+        NumberOfPtes = 0;
+        Status = MmMapViewInSystemSpace (SectionPointer,
+                                         ImageBaseAddress,
+                                         &NumberOfPtes);
+        if ((NT_SUCCESS( Status ) &&
+            (*ImageBaseAddress == SectionPointer->Segment->BasedAddress))) {
+            SectionPointer->Segment->ControlArea->u.Flags.ImageMappedInSystemSpace = 1;
+            NumberOfPtes = (NumberOfPtes + 1) >> PAGE_SHIFT;
+            MiSetImageProtectWrite (SectionPointer->Segment);
+            goto BindImage;
+        }
+    }
+    MmLockPagableSectionByHandle (ExPageLockHandle);
     Status = MiLoadImageSection (SectionPointer, ImageBaseAddress);
 
-    MmUnlockPagableImageSection(UnlockHandle);
+    MmUnlockPagableImageSection(ExPageLockHandle);
     NumberOfPtes = SectionPointer->Segment->TotalNumberOfPtes;
     ObDereferenceObject (SectionPointer);
-
-    if ( Status == STATUS_INVALID_IMAGE_FORMAT) {
-        ULONG ErrorParameters;
-        ULONG ErrorResponse;
-
-        //
-        // Hard error time. A driver is corrupt.
-        //
-
-        ErrorParameters = (ULONG)ImageFileName;
-
-        ZwRaiseHardError (Status,
-                          1,
-                          1,
-                          &ErrorParameters,
-                          OptionOk,
-                          &ErrorResponse);
-    }
+    SectionPointer = (PVOID)0xFFFFFFFF;
 
     if (!NT_SUCCESS( Status )) {
         goto return1;
@@ -360,8 +357,8 @@ Return Value:
         Status = (NTSTATUS)LdrRelocateImage(*ImageBaseAddress,
                                             "SYSLDR",
                                             (ULONG)STATUS_SUCCESS,
-                                            (ULONG)STATUS_INVALID_IMAGE_FORMAT,
-                                            (ULONG)STATUS_CONFLICTING_ADDRESSES
+                                            (ULONG)STATUS_CONFLICTING_ADDRESSES,
+                                            (ULONG)STATUS_INVALID_IMAGE_FORMAT
                                             );
     } except (EXCEPTION_EXECUTE_HANDLER) {
         Status = GetExceptionCode();
@@ -378,9 +375,15 @@ Return Value:
         goto return1;
     }
 
+BindImage:
 
     try {
-        Status = MiResolveImageReferences(*ImageBaseAddress, &BaseDirectory);
+        MissingProcedureName = NameBuffer;
+        Status = MiResolveImageReferences(*ImageBaseAddress,
+                                          &BaseDirectory,
+                                          &MissingProcedureName,
+                                          &MissingDriverName
+                                         );
     } except (EXCEPTION_EXECUTE_HANDLER) {
         Status = GetExceptionCode();
         KdPrint(("MM:sysload - ResolveImageReferences failed status %lx\n",
@@ -389,35 +392,6 @@ Return Value:
     if ( !NT_SUCCESS(Status) ) {
         MiUnloadSystemImageByForce (NumberOfPtes, *ImageBaseAddress);
         goto return1;
-    }
-
-    if (CacheImageSymbols (*ImageBaseAddress)) {
-
-        //
-        //  TEMP TEMP TEMP rip out when debugger converted
-        //
-
-        ANSI_STRING AnsiName;
-        UNICODE_STRING UnicodeName;
-
-        //
-        //  \SystemRoot is 11 characters in length
-        //
-        if (ImageFileName->Length > (11 * sizeof( WCHAR )) &&
-            !wcsnicmp( ImageFileName->Buffer, L"\\SystemRoot", 11 )
-           ) {
-            UnicodeName = *ImageFileName;
-            UnicodeName.Buffer += 11;
-            UnicodeName.Length -= (11 * sizeof( WCHAR ));
-            sprintf( NameBuffer, "%s%wZ", NtSystemPath + 2, &UnicodeName );
-        } else {
-            sprintf( NameBuffer, "%wZ", &BaseName );
-        }
-        RtlInitString( &AnsiName, NameBuffer );
-        DbgLoadImageSymbols( &AnsiName,
-                             *ImageBaseAddress,
-                             (ULONG)-1
-                           );
     }
 
 #if DBG
@@ -430,10 +404,10 @@ Return Value:
     // Allocate a data table entry for structured exception handling.
     //
 
-    DataTableEntry = ExAllocatePoolWithTag(NonPagedPool,
-                                           sizeof(LDR_DATA_TABLE_ENTRY) +
-                                           BaseName.Length + 4,
-                                           'dLmM');
+    DataTableEntry = ExAllocatePoolWithTag (NonPagedPool,
+                                            sizeof(LDR_DATA_TABLE_ENTRY) +
+                                            BaseName.Length + sizeof(UNICODE_NULL),
+                                            'dLmM');
     if (DataTableEntry == NULL) {
         MiUnloadSystemImageByForce (NumberOfPtes, *ImageBaseAddress);
         Status = STATUS_INSUFFICIENT_RESOURCES;
@@ -452,7 +426,7 @@ Return Value:
         (PVOID)((ULONG)*ImageBaseAddress + NtHeaders->OptionalHeader.AddressOfEntryPoint);
     DataTableEntry->SizeOfImage = NumberOfPtes << PAGE_SHIFT;
     DataTableEntry->CheckSum = NtHeaders->OptionalHeader.CheckSum;
-    DataTableEntry->SectionPointer = (PVOID)0xFFFFFFFF;
+    DataTableEntry->SectionPointer = (PVOID)SectionPointer;
 
     //
     // Store the DLL name.
@@ -464,9 +438,10 @@ Return Value:
     RtlMoveMemory (DataTableEntry->BaseDllName.Buffer,
                    BaseName.Buffer,
                    BaseName.Length );
+    DataTableEntry->BaseDllName.Buffer[BaseName.Length/sizeof(WCHAR)] = UNICODE_NULL;
 
     DataTableEntry->FullDllName.Buffer = ExAllocatePoolWithTag (PagedPool,
-                                                         ImageFileName->Length,
+                                                         ImageFileName->Length + sizeof(UNICODE_NULL),
                                                          'TDmM');
     if (DataTableEntry->FullDllName.Buffer == NULL) {
 
@@ -482,6 +457,7 @@ Return Value:
         RtlMoveMemory (DataTableEntry->FullDllName.Buffer,
                        ImageFileName->Buffer,
                        ImageFileName->Length);
+        DataTableEntry->FullDllName.Buffer[ImageFileName->Length/sizeof(WCHAR)] = UNICODE_NULL;
     }
 
     //
@@ -491,6 +467,36 @@ Return Value:
 
     DataTableEntry->Flags = LDRP_ENTRY_PROCESSED;
     DataTableEntry->LoadCount = 1;
+
+    if (CacheImageSymbols (*ImageBaseAddress)) {
+
+        //
+        //  TEMP TEMP TEMP rip out when debugger converted
+        //
+
+        ANSI_STRING AnsiName;
+        UNICODE_STRING UnicodeName;
+
+        //
+        //  \SystemRoot is 11 characters in length
+        //
+        if (ImageFileName->Length > (11 * sizeof( WCHAR )) &&
+            !_wcsnicmp( ImageFileName->Buffer, L"\\SystemRoot", 11 )
+           ) {
+            UnicodeName = *ImageFileName;
+            UnicodeName.Buffer += 11;
+            UnicodeName.Length -= (11 * sizeof( WCHAR ));
+            sprintf( NameBuffer, "%ws%wZ", &SharedUserData->NtSystemRoot[2], &UnicodeName );
+        } else {
+            sprintf( NameBuffer, "%wZ", &BaseName );
+        }
+        RtlInitString( &AnsiName, NameBuffer );
+        DbgLoadImageSymbols( &AnsiName,
+                             *ImageBaseAddress,
+                             (ULONG)-1
+                           );
+        DataTableEntry->Flags |= LDRP_DEBUG_SYMBOLS_LOADED;
+    }
 
     //
     // Acquire the loaded module list resource and insert this entry
@@ -512,15 +518,82 @@ Return Value:
     //
 
     KeSweepIcache (TRUE);
-#if DBG
-    MiFileBeingLoaded = PreviousLoad;
-#endif
     *ImageHandle = DataTableEntry;
     Status = STATUS_SUCCESS;
 
-    MiEnablePagingOfDriver (DataTableEntry);
+    if (SectionPointer == (PVOID)0xFFFFFFFF) {
+        MiEnablePagingOfDriver (DataTableEntry);
+    }
 
 return1:
+
+    if (FileHandle) {
+        ZwClose (FileHandle);
+    }
+    if (!NT_SUCCESS(Status)) {
+        ULONG ErrorParameters[ 3 ];
+        ULONG NumberOfParameters;
+        ULONG UnicodeStringParameterMask;
+        ULONG ErrorResponse;
+        ANSI_STRING AnsiString;
+        UNICODE_STRING ProcedureName;
+        UNICODE_STRING DriverName;
+
+        //
+        // Hard error time. A driver could not be loaded.
+        //
+
+        KeReleaseMutant (&MmSystemLoadLock, 1, FALSE, FALSE);
+        ErrorParameters[ 0 ] = (ULONG)ImageFileName;
+        NumberOfParameters = 1;
+        UnicodeStringParameterMask = 1;
+
+        RtlInitUnicodeString( &ProcedureName, NULL );
+        if (Status == STATUS_DRIVER_ORDINAL_NOT_FOUND ||
+            Status == STATUS_DRIVER_ENTRYPOINT_NOT_FOUND ||
+            Status == STATUS_PROCEDURE_NOT_FOUND
+           ) {
+            NumberOfParameters = 3;
+            UnicodeStringParameterMask = 0x5;
+            RtlInitUnicodeString( &DriverName, MissingDriverName );
+            ErrorParameters[ 2 ] = (ULONG)&DriverName;
+            if ((ULONG)MissingProcedureName & 0xFFFF0000) {
+                //
+                // If not an ordinal, pass as unicode string
+                //
+
+                RtlInitAnsiString( &AnsiString, MissingProcedureName );
+                RtlAnsiStringToUnicodeString( &ProcedureName, &AnsiString, TRUE );
+                ErrorParameters[ 1 ] = (ULONG)&ProcedureName;
+                UnicodeStringParameterMask |= 0x2;
+            } else {
+                //
+                // Just pass ordinal values as is.
+                //
+
+                ErrorParameters[ 1 ] = (ULONG)MissingProcedureName;
+            }
+        } else {
+            NumberOfParameters = 2;
+            ErrorParameters[ 1 ] = (ULONG)Status;
+            Status = STATUS_DRIVER_UNABLE_TO_LOAD;
+            }
+
+        ZwRaiseHardError (Status,
+                          NumberOfParameters,
+                          UnicodeStringParameterMask,
+                          ErrorParameters,
+                          OptionOk,
+                          &ErrorResponse);
+
+        if (ProcedureName.Buffer != NULL) {
+            RtlFreeUnicodeString( &ProcedureName );
+        }
+        return Status;
+    }
+
+return2:
+
     KeReleaseMutant (&MmSystemLoadLock, 1, FALSE, FALSE);
     return Status;
 }
@@ -614,7 +687,7 @@ Return Value:
 
     FirstPte = MiReserveSystemPtes (SectionPointer->Segment->TotalNumberOfPtes,
                                     SystemPteSpace,
-                                    X64K,
+                                    0,
                                     0,
                                     FALSE );
 
@@ -690,11 +763,20 @@ Return Value:
             MiEnsureAvailablePageOrWait (NULL, NULL);
             PageFrameIndex = MiRemoveAnyPage(
                                 MI_GET_PAGE_COLOR_FROM_PTE (PointerPte));
+            PointerPte->u.Long = MM_KERNEL_DEMAND_ZERO_PTE;
+            MiInitializePfn (PageFrameIndex, PointerPte, 1);
             UNLOCK_PFN (OldIrql);
             TempPte.u.Hard.PageFrameNumber = PageFrameIndex;
             *PointerPte = TempPte;
             LastPte = PointerPte;
-            MiInitializePfn (PageFrameIndex, PointerPte, 1);
+#if DBG
+
+            {
+                PMMPFN Pfn;
+                Pfn = MI_PFN_ELEMENT (PageFrameIndex);
+                ASSERT (Pfn->u1.WsIndex == 0);
+            }
+#endif //DBG
 
             try {
 
@@ -725,7 +807,7 @@ Return Value:
                         //
 
                         Pfn1 = MI_PFN_ELEMENT (PageFrameIndex);
-                        MiDecrementShareAndValidCount (Pfn1->u3.e1.PteFrame);
+                        MiDecrementShareAndValidCount (Pfn1->PteFrame);
                         MI_SET_PFN_DELETED (Pfn1);
                         MiDecrementShareCountOnly (PageFrameIndex);
 
@@ -735,7 +817,6 @@ Return Value:
                 }
 
                 MmResidentAvailablePages += PagesRequired;
-                KeFlushEntireTb (TRUE, TRUE);
                 UNLOCK_PFN (OldIrql);
                 MiReleaseSystemPtes (FirstPte,
                                      SectionPointer->Segment->TotalNumberOfPtes,
@@ -811,26 +892,25 @@ Return Value:
 
 {
     PLDR_DATA_TABLE_ENTRY DataTableEntry;
-    PMMPTE LastPte;
-    PMMPTE PointerPte;
-    PMMPFN Pfn;
-    ULONG PageFrameIndex;
-    ULONG NumberOfPtes;
     KIRQL OldIrql;
+    PMMPTE PointerPte;
+    PMMPTE LastPte;
+    ULONG NumberOfPtes;
     PVOID Base;
     ULONG i;
     PIMAGE_NT_HEADERS NtHeaders;
     PIMAGE_SECTION_HEADER NtSection;
     PIMAGE_SECTION_HEADER FoundSection;
-    PVOID UnlockHandle;
+    ULONG PagesDeleted;
+    ULONG ResidentPages;
 
+
+    MmLockPagableSectionByHandle(ExPageLockHandle);
     DataTableEntry = (PLDR_DATA_TABLE_ENTRY)ImageHandle;
     Base = DataTableEntry->DllBase;
 
     NumberOfPtes = DataTableEntry->SizeOfImage >> PAGE_SHIFT;
-
-    UnlockHandle = MmLockPagableImageSection((PVOID)MmFreeDriverInitialization);
-    ASSERT(UnlockHandle);
+    LastPte = MiGetPteAddress (Base) + NumberOfPtes;
 
     NtHeaders = (PIMAGE_NT_HEADERS)RtlImageNtHeader(Base);
 
@@ -839,6 +919,7 @@ Return Value:
                         sizeof(IMAGE_FILE_HEADER) +
                         NtHeaders->FileHeader.SizeOfOptionalHeader
                         );
+
     NtSection += NtHeaders->FileHeader.NumberOfSections;
 
     FoundSection = NULL;
@@ -862,45 +943,22 @@ Return Value:
 
         PointerPte = MiGetPteAddress (ROUND_TO_PAGES (
                                     (ULONG)Base + FoundSection->VirtualAddress));
-        LastPte = MiGetPteAddress (Base) + NumberOfPtes;
+        NumberOfPtes = LastPte - PointerPte;
 
-        //
-        // Remove all pages from the relocation information to the
-        // end of the image.
-        //
+        PagesDeleted = MiDeleteSystemPagableVm (PointerPte,
+                                                NumberOfPtes,
+                                                ZeroKernelPte.u.Long,
+                                                &ResidentPages);
 
-        LOCK_PFN (OldIrql);
-        while ((PointerPte < LastPte) && (PointerPte->u.Hard.Valid == 1)) {
-
-            //
-            // Delete the page.
-            //
-
-            PageFrameIndex = PointerPte->u.Hard.PageFrameNumber;
-
-            //
-            // Set the pointer to PTE as empty so the page
-            // is deleted when the reference count goes to zero.
-            //
-
-            Pfn = MI_PFN_ELEMENT (PageFrameIndex);
-            MiDecrementShareAndValidCount (Pfn->u3.e1.PteFrame);
-            MI_SET_PFN_DELETED (Pfn);
-
-            MiDecrementShareCountOnly (PageFrameIndex);
-            MmResidentAvailablePages += 1;
-            MiReturnCommitment (1);
-            MmDriverCommit -= 1;
+        MmResidentAvailablePages += PagesDeleted;
+        MiReturnCommitment (PagesDeleted);
+        MmDriverCommit -= PagesDeleted;
 #if DBG
-            MiPagesConsumed -= 1;
+        MiPagesConsumed -= PagesDeleted;
 #endif
-            *PointerPte = ZeroKernelPte;
-            PointerPte += 1;
-        }
-        UNLOCK_PFN (OldIrql);
     }
 
-    MmUnlockPagableImageSection(UnlockHandle);
+    MmUnlockPagableImageSection(ExPageLockHandle);
     return;
 }
 VOID
@@ -918,17 +976,16 @@ MiEnablePagingOfDriver (
     PIMAGE_SECTION_HEADER FoundSection;
 
     //
-    // If the driver has pagable code, make it paged.
+    // Don't page kernel mode code if customer does not want it paged.
     //
 
-    if (NtGlobalFlag & FLG_DISABLE_PAGING_EXECUTIVE) {
-
-        //
-        // Don't page drivers.
-        //
-
+    if (MmDisablePagingExecutive) {
         return;
     }
+
+    //
+    // If the driver has pagable code, make it paged.
+    //
 
     DataTableEntry = (PLDR_DATA_TABLE_ENTRY)ImageHandle;
     Base = DataTableEntry->DllBase;
@@ -952,7 +1009,14 @@ MiEnablePagingOfDriver (
                     &DataTableEntry->FullDllName);
             }
 #endif //DBG
-        if (*(PULONG)FoundSection->Name == 'EGAP') {
+
+        //
+        // Mark as pagable any section which starts with the
+        // first 4 characters PAGE or .eda (for the .edata section).
+        //
+
+        if ((*(PULONG)FoundSection->Name == 'EGAP') ||
+           (*(PULONG)FoundSection->Name == 'ade.')) {
 
             //
             // This section is pagable, save away the start and end.
@@ -1022,62 +1086,376 @@ Return Value:
     ULONG PageFrameIndex;
     PMMPFN Pfn;
     MMPTE TempPte;
-    PVOID UnlockHandle;
+    MMPTE PreviousPte;
+    KIRQL OldIrql1;
     KIRQL OldIrql;
 
-    UnlockHandle = MmLockPagableImageSection((PVOID)MiSetPagingOfDriver);
-    ASSERT(UnlockHandle);
+    PAGED_CODE ();
 
+    if (MI_IS_PHYSICAL_ADDRESS(MiGetVirtualAddressMappedByPte(PointerPte))) {
+
+        //
+        // No need to lock physical addresses.
+        //
+
+        return;
+    }
+
+    //
+    // Lock this routine into memory.
+    //
+
+    MmLockPagableSectionByHandle(ExPageLockHandle);
+
+    LOCK_SYSTEM_WS (OldIrql1);
     LOCK_PFN (OldIrql);
 
     Base = MiGetVirtualAddressMappedByPte (PointerPte);
 
     while (PointerPte <= LastPte) {
 
-        ASSERT (PointerPte->u.Hard.Valid == 1);
-        PageFrameIndex = PointerPte->u.Hard.PageFrameNumber;
-        Pfn = MI_PFN_ELEMENT (PageFrameIndex);
-        ASSERT (Pfn->u2.ShareCount == 1);
-
         //
-        // Set the working set index to zero.  This allows page table
-        // pages to be brough back in with the proper WSINDEX.
+        // Check to make sure this PTE has not already been
+        // made pagable (or deleted).  It is pagable if it
+        // is not valid, or if the PFN database wsindex element
+        // is non zero.
         //
 
-        Pfn->u1.WsIndex = 0;
-        Pfn->OriginalPte.u.Long = MM_KERNEL_DEMAND_ZERO_PTE;
-        Pfn->u3.e1.Modified = 1;
-        TempPte = *PointerPte;
+        if (PointerPte->u.Hard.Valid == 1) {
+            PageFrameIndex = PointerPte->u.Hard.PageFrameNumber;
+            Pfn = MI_PFN_ELEMENT (PageFrameIndex);
+            ASSERT (Pfn->u2.ShareCount == 1);
 
-        MI_MAKE_VALID_PTE_TRANSITION (TempPte,
-                                      Pfn->OriginalPte.u.Soft.Protection);
+            //
+            // Original PTE may need to be set for drivers loaded
+            // via osldr.
+            //
 
+            if (Pfn->OriginalPte.u.Long == 0) {
+                Pfn->OriginalPte.u.Long = MM_KERNEL_DEMAND_ZERO_PTE;
+            }
 
-        KeFlushSingleTb (Base,
-                         TRUE,
-                         TRUE,
-                         (PHARDWARE_PTE)PointerPte,
-                         TempPte.u.Hard);
+            if (Pfn->u1.WsIndex == 0) {
 
-        //
-        // Flush the translation buffer and decrement the number of valid
-        // PTEs within the containing page table page.  Note that for a
-        // private page, the page table page is still needed because the
-        // page is in transiton.
-        //
+                TempPte = *PointerPte;
 
-        MiDecrementShareCount (PageFrameIndex);
+                MI_MAKE_VALID_PTE_TRANSITION (TempPte,
+                                           Pfn->OriginalPte.u.Soft.Protection);
+
+                PreviousPte.u.Flush = KeFlushSingleTb (Base,
+                                                       TRUE,
+                                                       TRUE,
+                                                       (PHARDWARE_PTE)PointerPte,
+                                                       TempPte.u.Flush);
+
+                MI_CAPTURE_DIRTY_BIT_TO_PFN (&PreviousPte, Pfn);
+
+                //
+                // Flush the translation buffer and decrement the number of valid
+                // PTEs within the containing page table page.  Note that for a
+                // private page, the page table page is still needed because the
+                // page is in transiton.
+                //
+
+                MiDecrementShareCount (PageFrameIndex);
+                MmResidentAvailablePages += 1;
+                MmTotalSystemDriverPages += 1;
+            }
+        }
         Base = (PVOID)((PCHAR)Base + PAGE_SIZE);
         PointerPte += 1;
-        MmResidentAvailablePages += 1;
-        MmTotalSystemDriverPages++;
     }
 
     UNLOCK_PFN (OldIrql);
-    MmUnlockPagableImageSection(UnlockHandle);
+    UNLOCK_SYSTEM_WS (OldIrql1);
+    MmUnlockPagableImageSection(ExPageLockHandle);
     return;
 }
 
+
+VOID
+MiLockPagesOfDriver (
+    IN PMMPTE PointerPte,
+    IN PMMPTE LastPte
+    )
+
+/*++
+
+Routine Description:
+
+    This routine marks the specified range of PTEs as NONpagable.
+
+Arguments:
+
+    PointerPte - Supplies the starting PTE.
+
+    LastPte - Supplies the ending PTE.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    PVOID Base;
+    ULONG PageFrameIndex;
+    PMMPFN Pfn;
+    MMPTE TempPte;
+    KIRQL OldIrql;
+    KIRQL OldIrql1;
+
+    PAGED_CODE ();
+
+    //
+    // Lock this routine in memory.
+    //
+
+    MmLockPagableSectionByHandle(ExPageLockHandle);
+
+    LOCK_SYSTEM_WS (OldIrql1);
+    LOCK_PFN (OldIrql);
+
+    Base = MiGetVirtualAddressMappedByPte (PointerPte);
+
+    while (PointerPte <= LastPte) {
+
+        //
+        // Check to make sure this PTE has not already been
+        // made pagable (or deleted).  It is pagable if it
+        // is not valid, or if the PFN database wsindex element
+        // is non zero.
+        //
+
+        if (PointerPte->u.Hard.Valid == 1) {
+            PageFrameIndex = PointerPte->u.Hard.PageFrameNumber;
+            Pfn = MI_PFN_ELEMENT (PageFrameIndex);
+            ASSERT (Pfn->u2.ShareCount == 1);
+
+            if (Pfn->u1.WsIndex == 0) {
+
+                TempPte = *PointerPte;
+
+                MI_MAKE_VALID_PTE_TRANSITION (TempPte,
+                                           Pfn->OriginalPte.u.Soft.Protection);
+
+                KeFlushSingleTb (Base,
+                                 TRUE,
+                                 TRUE,
+                                 (PHARDWARE_PTE)PointerPte,
+                                 TempPte.u.Flush);
+
+                //
+                // Flush the translation buffer and decrement the number of valid
+                // PTEs within the containing page table page.  Note that for a
+                // private page, the page table page is still needed because the
+                // page is in transiton.
+                //
+
+                MiDecrementShareCount (PageFrameIndex);
+                Base = (PVOID)((PCHAR)Base + PAGE_SIZE);
+                PointerPte += 1;
+                MmResidentAvailablePages += 1;
+                MmTotalSystemDriverPages++;
+            }
+        }
+    }
+
+    UNLOCK_PFN (OldIrql);
+    UNLOCK_SYSTEM_WS (OldIrql1);
+    MmUnlockPagableImageSection(ExPageLockHandle);
+    return;
+}
+
+
+PVOID
+MmPageEntireDriver (
+    IN PVOID AddressWithinSection
+    )
+
+/*++
+
+Routine Description:
+
+    This routine allows a driver to page out all of its code and
+    data regardless of the attributes of the various image sections.
+
+    Note, this routine can be called multiple times with no
+    intervening calls to MmResetDriverPaging.
+
+Arguments:
+
+    AddressWithinSection - Supplies an address within the driver, e.g.
+                            DriverEntry.
+
+Return Value:
+
+    Base address of driver.
+
+Environment:
+
+    Kernel mode, APC_LEVEL or below.
+
+--*/
+
+
+{
+    PLDR_DATA_TABLE_ENTRY DataTableEntry;
+    PMMPTE FirstPte;
+    PMMPTE LastPte;
+    PVOID BaseAddress;
+
+    //
+    // Don't page kernel mode code if disabled via registry.
+    //
+
+    DataTableEntry = MiLookupDataTableEntry (AddressWithinSection, FALSE);
+    if ((DataTableEntry->SectionPointer != (PVOID)0xffffffff) ||
+        (MmDisablePagingExecutive)) {
+
+        //
+        // Driver is mapped as image, always pagable.
+        //
+
+        return DataTableEntry->DllBase;
+    }
+    BaseAddress = DataTableEntry->DllBase;
+    FirstPte = MiGetPteAddress (DataTableEntry->DllBase);
+    LastPte = (FirstPte - 1) + (DataTableEntry->SizeOfImage >> PAGE_SHIFT);
+    MiSetPagingOfDriver (FirstPte, LastPte);
+
+    return BaseAddress;
+}
+
+
+VOID
+MmResetDriverPaging (
+    IN PVOID AddressWithinSection
+    )
+
+/*++
+
+Routine Description:
+
+    This routines resets the driver paging to what the image specified.
+    Hence image sections such as the IAT, .text, .data will be locked
+    down in memory.
+
+    Note, there is no requirement that MmPageEntireDriver was called.
+
+Arguments:
+
+     AddressWithinSection - Supplies an address within the driver, e.g.
+                            DriverEntry.
+
+Return Value:
+
+    None.
+
+Environment:
+
+    Kernel mode, APC_LEVEL or below.
+
+--*/
+
+{
+    PLDR_DATA_TABLE_ENTRY DataTableEntry;
+    PMMPTE LastPte;
+    PMMPTE PointerPte;
+    PVOID Base;
+    ULONG i;
+    PIMAGE_NT_HEADERS NtHeaders;
+    PIMAGE_SECTION_HEADER FoundSection;
+    KIRQL OldIrql;
+
+    PAGED_CODE();
+
+    //
+    // Don't page kernel mode code if disabled via registry.
+    //
+
+    if (MmDisablePagingExecutive) {
+        return;
+    }
+
+    if (MI_IS_PHYSICAL_ADDRESS(AddressWithinSection)) {
+        return;
+    }
+
+    //
+    // If the driver has pagable code, make it paged.
+    //
+
+    DataTableEntry = MiLookupDataTableEntry (AddressWithinSection, FALSE);
+
+    if (DataTableEntry->SectionPointer != (PVOID)0xFFFFFFFF) {
+
+        //
+        // Driver is mapped by image hence already paged.
+        //
+
+        return;
+    }
+
+    Base = DataTableEntry->DllBase;
+
+    NtHeaders = (PIMAGE_NT_HEADERS)RtlImageNtHeader(Base);
+
+    FoundSection = (PIMAGE_SECTION_HEADER)((ULONG)NtHeaders +
+                        sizeof(ULONG) +
+                        sizeof(IMAGE_FILE_HEADER) +
+                        NtHeaders->FileHeader.SizeOfOptionalHeader
+                        );
+
+    i = NtHeaders->FileHeader.NumberOfSections;
+    PointerPte = NULL;
+
+    while (i > 0) {
+#if DBG
+            if ((*(PULONG)FoundSection->Name == 'tini') ||
+                (*(PULONG)FoundSection->Name == 'egap')) {
+                DbgPrint("driver %wZ has lower case sections (init or pagexxx)\n",
+                    &DataTableEntry->FullDllName);
+            }
+#endif //DBG
+
+        //
+        // Don't lock down code for sections marked as discardable or
+        // sections marked with the first 4 characters PAGE or .eda
+        // (for the .edata section) or INIT.
+        //
+
+        if (((FoundSection->Characteristics & IMAGE_SCN_MEM_DISCARDABLE) != 0) ||
+           (*(PULONG)FoundSection->Name == 'EGAP') ||
+           (*(PULONG)FoundSection->Name == 'ade.') ||
+           (*(PULONG)FoundSection->Name == 'TINI')) {
+
+            NOTHING;
+
+        } else {
+
+            //
+            // This section is nonpagable.
+            //
+
+            PointerPte = MiGetPteAddress (
+                                   (ULONG)Base + FoundSection->VirtualAddress);
+            LastPte = MiGetPteAddress ((ULONG)Base +
+                                       FoundSection->VirtualAddress +
+                                      (FoundSection->SizeOfRawData - 1));
+            ASSERT (PointerPte <= LastPte);
+            MmLockPagableSectionByHandle(ExPageLockHandle);
+            LOCK_PFN (OldIrql);
+            MiLockCode (PointerPte, LastPte, MM_LOCK_BY_NONPAGE);
+            UNLOCK_PFN (OldIrql);
+            MmUnlockPagableImageSection(ExPageLockHandle);
+        }
+        i -= 1;
+        FoundSection += 1;
+    }
+    return;
+}
+
 NTSTATUS
 MiUnloadSystemImageByForce (
     IN ULONG NumberOfPtes,
@@ -1127,7 +1505,6 @@ Return Value:
     ULONG NumberOfPtes;
     KIRQL OldIrql;
     PVOID BasedAddress;
-    PVOID UnlockHandle;
 
     KeWaitForSingleObject (&MmSystemLoadLock,
                            WrVirtualMemory,
@@ -1135,24 +1512,47 @@ Return Value:
                            FALSE,
                            (PLARGE_INTEGER)NULL);
 
-    UnlockHandle = MmLockPagableImageSection((PVOID)MmUnloadSystemImage);
-    ASSERT(UnlockHandle);
+    MmLockPagableSectionByHandle(ExPageLockHandle);
 
     DataTableEntry = (PLDR_DATA_TABLE_ENTRY)ImageHandle;
     BasedAddress = DataTableEntry->DllBase;
+
+    //
+    // Unload symbols from debugger.
+    //
+
+    if (DataTableEntry->Flags & LDRP_DEBUG_SYMBOLS_LOADED) {
+
+        //
+        //  TEMP TEMP TEMP rip out when debugger converted
+        //
+
+        ANSI_STRING AnsiName;
+        NTSTATUS Status;
+
+        Status = RtlUnicodeStringToAnsiString( &AnsiName,
+                                               &DataTableEntry->BaseDllName,
+                                               TRUE );
+
+        if (NT_SUCCESS( Status)) {
+            DbgUnLoadImageSymbols( &AnsiName,
+                                   BasedAddress,
+                                   (ULONG)-1);
+            RtlFreeAnsiString( &AnsiName );
+        }
+    }
 
     FirstPte = MiGetPteAddress (BasedAddress);
     PointerPte = FirstPte;
     NumberOfPtes = DataTableEntry->SizeOfImage >> PAGE_SHIFT;
 
-    LOCK_PFN (OldIrql);
     PagesRequired = MiDeleteSystemPagableVm (PointerPte,
                                              NumberOfPtes,
                                              ZeroKernelPte.u.Long,
                                              &ResidentPages);
 
+    LOCK_PFN (OldIrql);
     MmResidentAvailablePages += ResidentPages;
-    KeFlushEntireTb (TRUE, TRUE);
     UNLOCK_PFN (OldIrql);
     MiReleaseSystemPtes (FirstPte,
                          NumberOfPtes,
@@ -1183,7 +1583,7 @@ Return Value:
         ExReleaseResource (&PsLoadedModuleResource);
         KeLeaveCriticalRegion();
     }
-    MmUnlockPagableImageSection(UnlockHandle);
+    MmUnlockPagableImageSection(ExPageLockHandle);
 
     KeReleaseMutant (&MmSystemLoadLock, 1, FALSE, FALSE);
     return STATUS_SUCCESS;
@@ -1193,7 +1593,9 @@ Return Value:
 NTSTATUS
 MiResolveImageReferences (
     PVOID ImageBase,
-    IN PUNICODE_STRING ImageFileDirectory
+    IN PUNICODE_STRING ImageFileDirectory,
+    OUT PCHAR *MissingProcedureName,
+    OUT PWSTR *MissingDriverName
     )
 
 /*++
@@ -1232,6 +1634,8 @@ Return Value:
     UNICODE_STRING DllToLoad;
     PVOID Section;
     PVOID BaseAddress;
+    ULONG LinkWin32k = 0;
+    ULONG LinkNonWin32k = 0;
 
     PAGED_CODE();
 
@@ -1243,9 +1647,63 @@ Return Value:
 
     if (ImportDescriptor) {
 
+        //
+        // We do not support bound images in the kernel
+        //
+
+        if (ImportDescriptor->TimeDateStamp == (ULONG)-1) {
+#if DBG
+            KeBugCheckEx (BOUND_IMAGE_UNSUPPORTED,
+                          (ULONG)ImportDescriptor,
+                          (ULONG)ImageBase,
+                          (ULONG)ImageFileDirectory,
+                          (ULONG)ImportSize);
+#else
+            return (STATUS_PROCEDURE_NOT_FOUND);
+#endif
+        }
+
         while (ImportDescriptor->Name && ImportDescriptor->FirstThunk) {
 
             ImportName = (PSZ)((ULONG)ImageBase + ImportDescriptor->Name);
+
+            //
+            // A driver can link with win32k.sys if and only if it is a GDI
+            // driver.
+            // Also display drivers can only link to win32k.sys (and lego ...).
+            //
+            // So if we get a driver that links to win32k.sys and has more
+            // than one set of imports, we will fail to load it.
+            //
+
+            LinkWin32k = LinkWin32k |
+                 (!_strnicmp(ImportName, "win32k", sizeof("win32k") - 1));
+
+            //
+            // We don't want to count coverage, win32k and irt (lego) since
+            // display drivers CAN link against these.
+            //
+
+            LinkNonWin32k = LinkNonWin32k |
+                ((_strnicmp(ImportName, "win32k", sizeof("win32k") - 1)) &&
+                 (_strnicmp(ImportName, "coverage", sizeof("coverage") - 1)) &&
+                 (_strnicmp(ImportName, "irt", sizeof("irt") - 1)));
+
+
+            if (LinkNonWin32k && LinkWin32k) {
+                return (STATUS_PROCEDURE_NOT_FOUND);
+            }
+
+            if ((!_strnicmp(ImportName, "ntdll",    sizeof("ntdll") - 1))    ||
+                (!_strnicmp(ImportName, "winsrv",   sizeof("winsrv") - 1))   ||
+                (!_strnicmp(ImportName, "advapi32", sizeof("advapi32") - 1)) ||
+                (!_strnicmp(ImportName, "kernel32", sizeof("kernel32") - 1)) ||
+                (!_strnicmp(ImportName, "user32",   sizeof("user32") - 1))   ||
+                (!_strnicmp(ImportName, "gdi32",    sizeof("gdi32") - 1)) ) {
+
+                return (STATUS_PROCEDURE_NOT_FOUND);
+            }
+
 ReCheck:
             RtlInitAnsiString(&AnsiString, ImportName);
             st = RtlAnsiStringToUnicodeString(&ImportDescriptorName_U,
@@ -1311,6 +1769,8 @@ ReCheck:
             }
 
             RtlFreeUnicodeString( &ImportDescriptorName_U );
+            *MissingDriverName = DataTableEntry->BaseDllName.Buffer;
+
             ExportDirectory = (PIMAGE_EXPORT_DIRECTORY)RtlImageDirectoryEntryToData(
                                         ImportBase,
                                         TRUE,
@@ -1319,7 +1779,7 @@ ReCheck:
                                         );
 
             if (!ExportDirectory) {
-                return STATUS_PROCEDURE_NOT_FOUND;
+                return STATUS_DRIVER_ENTRYPOINT_NOT_FOUND;
             }
 
             //
@@ -1332,7 +1792,10 @@ ReCheck:
                     st = MiSnapThunk(ImportBase,
                            ImageBase,
                            Thunk++,
-                           ExportDirectory
+                           ExportDirectory,
+                           ExportSize,
+                           FALSE,
+                           MissingProcedureName
                            );
                     if (!NT_SUCCESS(st) ) {
                         return st;
@@ -1352,7 +1815,10 @@ MiSnapThunk(
     IN PVOID DllBase,
     IN PVOID ImageBase,
     IN OUT PIMAGE_THUNK_DATA Thunk,
-    IN PIMAGE_EXPORT_DIRECTORY ExportDirectory
+    IN PIMAGE_EXPORT_DIRECTORY ExportDirectory,
+    IN ULONG ExportSize,
+    IN BOOLEAN SnapForwarder,
+    OUT PCHAR *MissingProcedureName
     )
 
 /*++
@@ -1366,7 +1832,7 @@ Routine Description:
 
 Arguments:
 
-    DllBase - Base of Dll.
+    DllBase - Base if DLL being snapped to
 
     ImageBase - Base of image that contains the thunks to snap.
 
@@ -1376,9 +1842,14 @@ Arguments:
 
     ExportDirectory - Supplies the Export Section data from a DLL.
 
+    SnapForwarder - determine if the snap is for a forwarder, and therefore
+       Address of Data is already setup.
+
 Return Value:
 
-    STATUS_SUCCESS or STATUS_PROCEDURE_NOT_FOUND
+
+    STATUS_SUCCESS or STATUS_DRIVER_ENTRYPOINT_NOT_FOUND or
+        STATUS_DRIVER_ORDINAL_NOT_FOUND
 
 --*/
 
@@ -1404,15 +1875,28 @@ Return Value:
 
     Ordinal = (BOOLEAN)IMAGE_SNAP_BY_ORDINAL(Thunk->u1.Ordinal);
 
-    if (Ordinal) {
-        OrdinalNumber = (USHORT)(IMAGE_ORDINAL(Thunk->u1.Ordinal) - ExportDirectory->Base);
+    if (Ordinal && !SnapForwarder) {
+
+        OrdinalNumber = (USHORT)(IMAGE_ORDINAL(Thunk->u1.Ordinal) -
+                         ExportDirectory->Base);
+
+        *MissingProcedureName = (PCHAR)(ULONG)OrdinalNumber;
+
     } else {
+
         //
         // Change AddressOfData from an RVA to a VA.
         //
 
-        Thunk->u1.AddressOfData = (PIMAGE_IMPORT_BY_NAME)((ULONG)ImageBase +
-                                           (ULONG)Thunk->u1.AddressOfData);
+        if (!SnapForwarder) {
+            Thunk->u1.AddressOfData = (PIMAGE_IMPORT_BY_NAME)((ULONG)ImageBase +
+                                               (ULONG)Thunk->u1.AddressOfData);
+        }
+
+        strncpy( *MissingProcedureName,
+                 &Thunk->u1.AddressOfData->Name[0],
+                 MAXIMUM_FILENAME_LENGTH - 1
+               );
 
         //
         // Lookup Name in NameTable
@@ -1433,6 +1917,7 @@ Return Value:
             !strcmp((PSZ)Thunk->u1.AddressOfData->Name,
              (PSZ)((ULONG)DllBase + NameTableBase[HintIndex]))) {
             OrdinalNumber = NameOrdinalTableBase[HintIndex];
+
         } else {
 
             //
@@ -1441,6 +1926,7 @@ Return Value:
 
             Low = 0;
             High = ExportDirectory->NumberOfNames - 1;
+
             while (High >= Low) {
 
                 //
@@ -1470,13 +1956,7 @@ Return Value:
             //
 
             if (High < Low) {
-
-                KdPrint(("MM:SYSLDR %wZ reference to %s not found\n",
-                         &MiFileBeingLoaded,
-                         Thunk->u1.AddressOfData->Name
-                        ));
-                return (STATUS_PROCEDURE_NOT_FOUND);
-
+                return (STATUS_DRIVER_ENTRYPOINT_NOT_FOUND);
             } else {
                 OrdinalNumber = NameOrdinalTableBase[Middle];
             }
@@ -1489,11 +1969,122 @@ Return Value:
     //
 
     if ((ULONG)OrdinalNumber >= ExportDirectory->NumberOfFunctions) {
-        Status = STATUS_PROCEDURE_NOT_FOUND;
+        Status = STATUS_DRIVER_ORDINAL_NOT_FOUND;
+
     } else {
+
         Addr = (PULONG)((ULONG)DllBase + (ULONG)ExportDirectory->AddressOfFunctions);
         Thunk->u1.Function = (PULONG)((ULONG)DllBase + Addr[OrdinalNumber]);
+
         Status = STATUS_SUCCESS;
+
+        if ( ((ULONG)Thunk->u1.Function > (ULONG)ExportDirectory) &&
+             ((ULONG)Thunk->u1.Function < ((ULONG)ExportDirectory + ExportSize)) ) {
+
+            UNICODE_STRING UnicodeString;
+            ANSI_STRING ForwardDllName;
+
+            PLIST_ENTRY NextEntry;
+            PLDR_DATA_TABLE_ENTRY DataTableEntry;
+            ULONG ExportSize;
+            PIMAGE_EXPORT_DIRECTORY ExportDirectory;
+
+            Status = STATUS_DRIVER_ENTRYPOINT_NOT_FOUND;
+
+            //
+            // Include the dot in the length so we can do prefix later on.
+            //
+
+            ForwardDllName.Buffer = (PCHAR)Thunk->u1.Function;
+            ForwardDllName.Length = strchr(ForwardDllName.Buffer, '.') -
+                                           ForwardDllName.Buffer + 1;
+            ForwardDllName.MaximumLength = ForwardDllName.Length;
+
+            if (NT_SUCCESS(RtlAnsiStringToUnicodeString(&UnicodeString,
+                                                        &ForwardDllName,
+                                                        TRUE))) {
+
+                NextEntry = PsLoadedModuleList.Flink;
+
+                while (NextEntry != &PsLoadedModuleList) {
+
+                    DataTableEntry = CONTAINING_RECORD(NextEntry,
+                                                       LDR_DATA_TABLE_ENTRY,
+                                                       InLoadOrderLinks);
+
+                    //
+                    // We have to do a case INSENSITIVE comparison for
+                    // forwarder because the linker just took what is in the
+                    // def file, as opposed to looking in the exporting
+                    // image for the name.
+                    // we alos use the prefix function to ignore the .exe or
+                    // .sys or .dll at the end.
+                    //
+
+                    if (RtlPrefixString((PSTRING)&UnicodeString,
+                                        (PSTRING)&DataTableEntry->BaseDllName,
+                                        TRUE)) {
+
+                        ExportDirectory = (PIMAGE_EXPORT_DIRECTORY)
+                            RtlImageDirectoryEntryToData(DataTableEntry->DllBase,
+                                                         TRUE,
+                                                         IMAGE_DIRECTORY_ENTRY_EXPORT,
+                                                         &ExportSize);
+
+                        if (ExportDirectory) {
+
+                            IMAGE_THUNK_DATA thunkData;
+                            PIMAGE_IMPORT_BY_NAME addressOfData;
+                            ULONG length;
+
+                            // one extra byte for NULL,
+
+                            length = strlen(ForwardDllName.Buffer +
+                                                ForwardDllName.Length) + 1;
+
+                            addressOfData = (PIMAGE_IMPORT_BY_NAME)
+                                ExAllocatePoolWithTag (PagedPool,
+                                                      length +
+                                                   sizeof(IMAGE_IMPORT_BY_NAME),
+                                                   '  mM');
+
+                            if (addressOfData) {
+
+                                RtlCopyMemory(&(addressOfData->Name[0]),
+                                              ForwardDllName.Buffer +
+                                                  ForwardDllName.Length,
+                                              length);
+
+                                addressOfData->Hint = 0;
+
+                                thunkData.u1.AddressOfData = addressOfData;
+
+                                Status = MiSnapThunk(DataTableEntry->DllBase,
+                                                     ImageBase,
+                                                     &thunkData,
+                                                     ExportDirectory,
+                                                     ExportSize,
+                                                     TRUE,
+                                                     MissingProcedureName
+                                                    );
+
+                                ExFreePool(addressOfData);
+
+                                Thunk->u1 = thunkData.u1;
+                            }
+                        }
+
+                        break;
+                    }
+
+                    NextEntry = NextEntry->Flink;
+                }
+
+                RtlFreeUnicodeString(&UnicodeString);
+            }
+
+        }
+
     }
     return Status;
 }
@@ -1654,6 +2245,11 @@ Return Value:
             if (!LdrVerifyMappedImageMatchesChecksum(ViewBase,StandardInfo.EndOfFile.LowPart)) {
                 Status = STATUS_IMAGE_CHECKSUM_MISMATCH;
             }
+#if !defined(NT_UP)
+            if ( !MmVerifyImageIsOkForMpUse(ViewBase) ) {
+                Status = STATUS_IMAGE_MP_UP_MISMATCH;
+                }
+#endif // NT_UP
         } except (EXCEPTION_EXECUTE_HANDLER) {
             Status = STATUS_IMAGE_CHECKSUM_MISMATCH;
         }
@@ -1663,6 +2259,33 @@ Return Value:
     NtClose(Section);
     return Status;
 }
+
+#if !defined(NT_UP)
+BOOLEAN
+MmVerifyImageIsOkForMpUse(
+    IN PVOID BaseAddress
+    )
+{
+    PIMAGE_NT_HEADERS NtHeaders;
+
+    PAGED_CODE();
+
+    //
+    // If the file is an image file, then subtract the two checksum words
+    // in the optional header from the computed checksum before adding
+    // the file length, and set the value of the header checksum.
+    //
+
+    NtHeaders = RtlImageNtHeader(BaseAddress);
+    if (NtHeaders != NULL) {
+        if ( KeNumberProcessors > 1 &&
+             (NtHeaders->FileHeader.Characteristics & IMAGE_FILE_UP_SYSTEM_ONLY) ) {
+            return FALSE;
+        }
+    }
+    return TRUE;
+}
+#endif // NT_UP
 
 
 ULONG
@@ -1703,9 +2326,13 @@ Return Value:
     ULONG ValidPages = 0;
     ULONG PagesRequired = 0;
     MMPTE NewContents;
+    ULONG WsIndex;
+    KIRQL OldIrql;
+    MMPTE_FLUSH_LIST PteFlushList;
 
-    MM_PFN_LOCK_ASSERT();
+    ASSERT (KeGetCurrentIrql() <= APC_LEVEL);
 
+    PteFlushList.Count = 0;
     NewContents.u.Long = NewPteValue;
     while (NumberOfPtes != 0) {
         PteContents = *PointerPte;
@@ -1713,6 +2340,14 @@ Return Value:
         if (PteContents.u.Long != ZeroKernelPte.u.Long) {
 
             if (PteContents.u.Hard.Valid == 1) {
+
+                LOCK_SYSTEM_WS (OldIrql)
+
+                PteContents = *(volatile MMPTE *)PointerPte;
+                if (PteContents.u.Hard.Valid == 0) {
+                    UNLOCK_SYSTEM_WS (OldIrql);
+                    continue;
+                }
 
                 //
                 // Delete the page.
@@ -1732,32 +2367,52 @@ Return Value:
                 // case it needs to be removed from the working set list.
                 //
 
-                if (Pfn1->u1.WsIndex != 0) {
-                    MiRemoveWsle ((USHORT)Pfn1->u1.WsIndex,
-                                  MmSystemCacheWorkingSetList );
-                    MiReleaseWsle ((USHORT)Pfn1->u1.WsIndex, &MmSystemCacheWs);
-                } else {
+                WsIndex = Pfn1->u1.WsIndex;
+                if (WsIndex == 0) {
                     ValidPages += 1;
+                } else {
+                    MiRemoveWsle (WsIndex,
+                                  MmSystemCacheWorkingSetList );
+                    MiReleaseWsle (WsIndex, &MmSystemCacheWs);
                 }
+                UNLOCK_SYSTEM_WS (OldIrql);
+
+                LOCK_PFN (OldIrql);
 #if DBG
-                if ((Pfn1->ReferenceCount > 1) &&
+                if ((Pfn1->u3.e2.ReferenceCount > 1) &&
                     (Pfn1->u3.e1.WriteInProgress == 0)) {
                     DbgPrint ("MM:SYSLOAD - deleting pool locked for I/O %lx\n",
                              PageFrameIndex);
-                    ASSERT (Pfn1->ReferenceCount == 1);
+                    ASSERT (Pfn1->u3.e2.ReferenceCount == 1);
                 }
 #endif //DBG
-
-                MiDecrementShareAndValidCount (Pfn1->u3.e1.PteFrame);
+                MiDecrementShareAndValidCount (Pfn1->PteFrame);
                 MI_SET_PFN_DELETED (Pfn1);
                 MiDecrementShareCountOnly (PageFrameIndex);
-                KeFlushSingleTb (MiGetVirtualAddressMappedByPte (PointerPte),
-                                 TRUE,
-                                 TRUE,
-                                 (PHARDWARE_PTE)PointerPte,
-                                 NewContents.u.Hard);
+                *PointerPte = NewContents;
+                UNLOCK_PFN (OldIrql);
+
+                //
+                // Flush the TB for this page.
+                //
+
+                if (PteFlushList.Count != MM_MAXIMUM_FLUSH_COUNT) {
+                    PteFlushList.FlushPte[PteFlushList.Count] = PointerPte;
+                    PteFlushList.FlushVa[PteFlushList.Count] =
+                                    MiGetVirtualAddressMappedByPte (PointerPte);
+                    PteFlushList.Count += 1;
+                }
 
             } else if (PteContents.u.Soft.Transition == 1) {
+
+                LOCK_PFN (OldIrql);
+
+                PteContents = *(volatile MMPTE *)PointerPte;
+
+                if (PteContents.u.Soft.Transition == 0) {
+                    UNLOCK_PFN (OldIrql);
+                    continue;
+                }
 
                 //
                 // Transition, release page.
@@ -1771,11 +2426,10 @@ Return Value:
                 //
 
                 Pfn1 = MI_PFN_ELEMENT (PageFrameIndex);
-                ASSERT (Pfn1->ValidPteCount == 0);
 
                 MI_SET_PFN_DELETED (Pfn1);
 
-                MiDecrementShareCount (Pfn1->u3.e1.PteFrame);
+                MiDecrementShareCount (Pfn1->PteFrame);
 
                 //
                 // Check the reference count for the page, if the reference
@@ -1785,35 +2439,95 @@ Return Value:
                 // free list.
                 //
 
-                if (Pfn1->ReferenceCount == 0) {
+                if (Pfn1->u3.e2.ReferenceCount == 0) {
                     MiUnlinkPageFromList (Pfn1);
                     MiReleasePageFileSpace (Pfn1->OriginalPte);
                     MiInsertPageInList (MmPageLocationList[FreePageList],
                                         PageFrameIndex);
                 }
 #if DBG
-                if (Pfn1->ReferenceCount != 0) {
+                if ((Pfn1->u3.e2.ReferenceCount > 1) &&
+                    (Pfn1->u3.e1.WriteInProgress == 0)) {
                     DbgPrint ("MM:SYSLOAD - deleting pool locked for I/O %lx\n",
                              PageFrameIndex);
+                    DbgBreakPoint();
                 }
 #endif //DBG
 
                 *PointerPte = NewContents;
+                UNLOCK_PFN (OldIrql);
             } else {
 
                 //
                 // Demand zero, release page file space.
                 //
+                if (PteContents.u.Soft.PageFileHigh != 0) {
+                    LOCK_PFN (OldIrql);
+                    MiReleasePageFileSpace (PteContents);
+                    UNLOCK_PFN (OldIrql);
+                }
 
-                MiReleasePageFileSpace (PteContents);
                 *PointerPte = NewContents;
             }
 
             PagesRequired += 1;
         }
+
         NumberOfPtes -= 1;
         PointerPte += 1;
     }
+    LOCK_PFN (OldIrql);
+    MiFlushPteList (&PteFlushList, TRUE, NewContents);
+    UNLOCK_PFN (OldIrql);
+
     *ResidentPages = ValidPages;
     return PagesRequired;
+}
+
+VOID
+MiSetImageProtectWrite (
+    IN PSEGMENT Segment
+    )
+
+/*++
+
+Routine Description:
+
+    This function sets the protection of all prototype PTEs to writable.
+
+Arguments:
+
+     Segment - a pointer to the segment to protect.
+
+Return Value:
+
+     None.
+
+--*/
+
+{
+    PMMPTE PointerPte;
+    PMMPTE LastPte;
+    MMPTE PteContents;
+
+    PointerPte = Segment->PrototypePte;
+    LastPte = PointerPte + Segment->NonExtendedPtes;
+
+    do {
+        PteContents = *PointerPte;
+        ASSERT (PteContents.u.Hard.Valid == 0);
+        if (PteContents.u.Long != ZeroPte.u.Long) {
+            if ((PteContents.u.Soft.Prototype == 0) &&
+                (PteContents.u.Soft.Transition == 1)) {
+                if (MiSetProtectionOnTransitionPte (PointerPte,
+                                                     MM_EXECUTE_READWRITE)) {
+                    continue;
+                }
+            } else {
+                PointerPte->u.Soft.Protection = MM_EXECUTE_READWRITE;
+            }
+        }
+        PointerPte += 1;
+    } while (PointerPte < LastPte  );
+    return;
 }

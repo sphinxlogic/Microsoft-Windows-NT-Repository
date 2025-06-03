@@ -1,6 +1,6 @@
 /*++
 
-Copyright (c) 1989  Microsoft Corporation
+Copyright (C) 1989  Microsoft Corporation
 
 Module Name:
 
@@ -29,19 +29,19 @@ VOID FileInit(LONG cbuf,
               USHORT cfiForSystem_NT, USHORT cfiCacheClosedT_NT,
               USHORT cfiForSystem_TNT, USHORT cfiCacheClosedT_TNT,
               BOOL fTryMapped);
-INT FileOpen(PUCHAR, INT, INT);
+INT FileOpen(const char *, INT, INT);
 INT FileClose(INT, BOOL);
 VOID FileCloseAll(VOID);
 LONG FileSeek(INT, LONG, INT);
 LONG FileLength(INT);
-ULONG FileRead(INT, PVOID, ULONG);
-ULONG FileTell(INT);
-ULONG FileWrite(INT, const void *, ULONG);
+DWORD FileRead(INT, PVOID, DWORD);
+DWORD FileTell(INT);
+DWORD FileWrite(INT, const void *, DWORD);
 INT FileChSize(INT, LONG);
 VOID BadExitCleanup(VOID);
-PUCHAR PbMappedRegion(IN INT fd, IN ULONG ibStart, IN ULONG cb);
+BYTE *PbMappedRegion(INT fd, DWORD ibStart, DWORD cb);
 
-INT FileOpenMapped(PUCHAR, INT, INT, PULONG, PULONG);
+INT FileOpenMapped(const char *, INT, INT, DWORD *, DWORD *);
 VOID FileSetSize(INT);
 VOID FileCloseMap(INT);
 

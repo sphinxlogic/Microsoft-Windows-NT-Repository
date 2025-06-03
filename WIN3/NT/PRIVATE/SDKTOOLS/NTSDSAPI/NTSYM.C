@@ -76,7 +76,7 @@
 #else
     #define CV_OPEN(nam,acc,pro)	open(nam,acc,pro);
     #define CV_READ(hnd,buf,siz)	read(hnd, buf, siz);
-    #define CV_SEEK(hnd,off,org)	lseek(hnd,off,org);
+    #define CV_SEEK(hnd,off,org)	_lseek(hnd,off,org);
     #define CV_CLOSE(hnd)		close(hnd);
     #define CV_TELL(hnd);		tell(hnd);
 #endif
@@ -835,14 +835,14 @@ void LoadSymbols (PIMAGE_INFO pImage)
                 pFilename = realloc(pFilename, cName + 1);
                 strncpy(pFilename, pchName, cName);
                 *(pFilename + cName) = '\0';
-                strlwr(pFilename);
+                _strlwr(pFilename);
 
                 //  allocate a string and copy the extension part of the
                 //  path, if any, and convert to lower case.
 
                 pExtension = realloc(pExtension, strlen(pchName + cName) + 1);
                 strcpy(pExtension, pchName + cName);
-                strlwr(pExtension);
+                _strlwr(pExtension);
 
                 //  remove filename and extension from pathname by
                 //      null-terminating at the start of the filename
@@ -1372,14 +1372,14 @@ void LoadSymbols (PIMAGE_INFO pImage)
                 pFilename = realloc(pFilename, cName + 1);
                 strncpy(pFilename, pchName, cName);
                 *(pFilename + cName) = '\0';
-                strlwr(pFilename);
+                _strlwr(pFilename);
 
                 //  allocate a string and copy the extension part of the
                 //  path, if any, and convert to lower case.
 
                 pExtension = realloc(pExtension, strlen(pchName + cName) + 1);
                 strcpy(pExtension, pchName + cName);
-                strlwr(pExtension);
+                _strlwr(pExtension);
 
                 //  remove filename and extension from pathname by
                 //      null-terminating at the start of the filename
@@ -1942,7 +1942,7 @@ PUCHAR GetModuleName (PUCHAR pszPath)
 
     //  special case for module "ntoskrnl", change to "nt"
 
-    if ((pszEnd - pszStart) == 9 && !strnicmp(pszStart + 1, "ntoskrnl", 8))
+    if ((pszEnd - pszStart) == 9 && !_strnicmp(pszStart + 1, "ntoskrnl", 8))
         pszEnd = pszStart + 3;
 
     pszReturn = (PUCHAR)malloc(pszEnd - pszStart);
@@ -3562,7 +3562,7 @@ BOOLEAN GetLocalFromString(PUCHAR pszLocal, PULONG pValue)
 	   }
       }
       for(pL=pLocal;pL;pL=pL->next){
-	     if (stricmp(pszLocal, pL->pszLocalName)) continue;
+	     if (_stricmp(pszLocal, pL->pszLocalName)) continue;
  	     *pValue = GetLocalValue(pL->value, pL->type, FALSE);
 	     return TRUE;
      }

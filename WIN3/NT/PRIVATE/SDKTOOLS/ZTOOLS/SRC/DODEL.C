@@ -31,7 +31,7 @@ fDoDel (
                 return;
             }
         }
-        unlink (name);
+        _unlink (name);
 
     } else if( strcmp( pBuf->fbuf.cFileName, "." ) &&
                strcmp( pBuf->fbuf.cFileName, ".." ) ) {
@@ -55,7 +55,7 @@ fDoDel (
         //    return;
         //}
         *p = 0;
-        rmdir (name);
+        _rmdir (name);
     }
 
     dummy;
@@ -66,4 +66,3 @@ char *name;
 {
     return (flagType)forfile(name, FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM | FILE_ATTRIBUTE_DIRECTORY, fDoDel, NULL) ;
 }
-

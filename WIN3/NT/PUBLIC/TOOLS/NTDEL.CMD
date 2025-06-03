@@ -1,4 +1,4 @@
-@echo off
+@if "%_echo%"=="" echo off
 setlocal
 set _NTADDDEL=%_NTDRIVE%\nt\ntadddel.cmd
 :loop

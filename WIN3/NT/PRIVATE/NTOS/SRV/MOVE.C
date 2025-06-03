@@ -45,7 +45,9 @@ DoRename (
     IN PSHARE TargetShare,
     IN USHORT SmbOpenFunction,
     IN PUSHORT SmbFlags,
-    IN BOOLEAN FailIfTargetIsDirectory
+    IN BOOLEAN FailIfTargetIsDirectory,
+    IN USHORT InformationLevel,
+    IN ULONG ClusterCount
     );
 
 #ifdef ALLOC_PRAGMA
@@ -63,7 +65,8 @@ SrvMoveFile(
     IN OUT PUSHORT SmbFlags,
     IN USHORT SmbSearchAttributes,
     IN BOOLEAN FailIfTargetIsDirectory,
-    IN BOOLEAN RenameOperation,
+    IN USHORT InformationLevel,
+    IN ULONG ClusterCount,
     IN PUNICODE_STRING Source,
     IN OUT PUNICODE_STRING Target
     )
@@ -104,7 +107,9 @@ Arguments:
         a directory, fail the operation.  Otherwise, rename the file
         into the directory.
 
-    RenameOperation - true if this is a rename operation.
+    InformationLevel - Move/Rename/CopyOnWrite/Link/MoveCluster
+
+    ClusterCount - MoveCluster count
 
     Source - a pointer to a string describing the name of the source file
         relative to the share directory in which it is located.
@@ -132,9 +137,12 @@ Return Value:
     OBJECT_ATTRIBUTES sourceObjectAttributes;
     IO_STATUS_BLOCK ioStatusBlock;
     ULONG sourceAccess;
+    BOOLEAN isNtRename;
 
     PSESSION session;
     PSHARE sourceShare;
+
+    PSRV_LOCK mfcbLock;
 
     PAGED_CODE( );
 
@@ -157,6 +165,8 @@ Return Value:
     session = WorkContext->Session;
     sourceShare = WorkContext->TreeConnect->Share;
 
+    isNtRename = (BOOLEAN)(WorkContext->RequestHeader->Command == SMB_COM_NT_RENAME);
+
     //
     // See if we already have this file open in compatibility mode.  If
     // we do, and this session owns it, then we must use that open
@@ -166,13 +176,11 @@ Return Value:
     // *** SrvFindMfcb references the MFCB--remember to dereference it.
     //
 
-    ACQUIRE_LOCK( &SrvMfcbListLock );
-
     if ( (WorkContext->RequestHeader->Flags & SMB_FLAGS_CASE_INSENSITIVE) ||
          WorkContext->Session->UsingUppercasePaths ) {
-        mfcb = SrvFindMfcb( Source, TRUE );
+        mfcb = SrvFindMfcb( Source, TRUE, &mfcbLock );
     } else {
-        mfcb = SrvFindMfcb( Source, FALSE );
+        mfcb = SrvFindMfcb( Source, FALSE, &mfcbLock );
     }
 
     if ( mfcb != NULL ) {
@@ -180,11 +188,7 @@ Return Value:
         ACQUIRE_LOCK( &nonpagedMfcb->Lock );
     }
 
-    RELEASE_LOCK( &SrvMfcbListLock );
-
-    ASSERT( mfcb == NULL ||
-            !mfcb->CompatibilityOpen ||
-            mfcb->LfcbList.Flink == mfcb->LfcbList.Blink );
+    RELEASE_LOCK( mfcbLock );
 
     if ( mfcb == NULL || !mfcb->CompatibilityOpen ) {
 
@@ -201,13 +205,26 @@ Return Value:
 
         //
         // Use DELETE access for a rename, and the appropriate copy access
-        // for a copy.
+        // for Copy/Link/Move/MoveCluster.
         //
 
-        if ( RenameOperation ) {
+        switch (InformationLevel) {
+        case SMB_NT_RENAME_RENAME_FILE:
             sourceAccess = DELETE;
-        } else {
+            break;
+
+        case SMB_NT_RENAME_MOVE_CLUSTER_INFO:
+            sourceAccess = SRV_COPY_TARGET_ACCESS & ~(WRITE_DAC | WRITE_OWNER);
+            break;
+
+        case SMB_NT_RENAME_SET_COPY_ON_WRITE:
+        case SMB_NT_RENAME_SET_LINK_INFO:
+        case SMB_NT_RENAME_MOVE_FILE:
             sourceAccess = SRV_COPY_SOURCE_ACCESS;
+            break;
+
+        default:
+            ASSERT(FALSE);
         }
 
         SrvInitializeObjectAttributes_U(
@@ -313,11 +330,7 @@ Return Value:
         // an FCB open.
         //
 
-        lfcb = CONTAINING_RECORD(
-                        mfcb->LfcbList.Flink,
-                        LFCB,
-                        MfcbListEntry
-                        );
+        lfcb = CONTAINING_RECORD( mfcb->LfcbList.Blink, LFCB, MfcbListEntry );
 
         //
         // Make sure that the session which sent this request is the
@@ -354,7 +367,7 @@ Return Value:
     // on the file.
     //
 
-    status = SrvCheckSearchAttributes( sourceHandle, SmbSearchAttributes );
+    status = SrvCheckSearchAttributesForHandle( sourceHandle, SmbSearchAttributes );
 
     if ( !NT_SUCCESS(status) ) {
         goto exit;
@@ -381,10 +394,11 @@ Return Value:
     // to rename or copy the file.
     //
 
-    if ( RenameOperation ) {
+    if (InformationLevel != SMB_NT_RENAME_MOVE_FILE) {
 
 #ifdef SLMDBG
-        if ( SrvIsSlmStatus( Source ) || SrvIsSlmStatus( Target ) ) {
+        if (InformationLevel == SMB_NT_RENAME_RENAME_FILE &&
+            SrvIsSlmStatus( Source ) || SrvIsSlmStatus( Target ) ) {
 
             ULONG offset;
 
@@ -420,7 +434,9 @@ Return Value:
                      TargetShare,
                      SmbOpenFunction,
                      SmbFlags,
-                     FailIfTargetIsDirectory
+                     FailIfTargetIsDirectory,
+                     InformationLevel,
+                     ClusterCount
                      );
 
     } else {
@@ -493,7 +509,8 @@ exit:
     if ( sourceHandle != NULL && !isCompatibilityOpen ) {
         SRVDBG_RELEASE_HANDLE( sourceHandle, "MOV", 9, 0 );
         SrvNtClose( sourceHandle, TRUE );
-    } else if ( isCompatibilityOpen && RenameOperation ) {
+    } else if (isCompatibilityOpen &&
+               InformationLevel == SMB_NT_RENAME_RENAME_FILE) {
         SrvCloseRfcbsOnLfcb( lfcb );
     }
 
@@ -839,7 +856,9 @@ DoRename (
     IN PSHARE TargetShare,
     IN USHORT SmbOpenFunction,
     IN OUT PUSHORT SmbFlags,
-    IN BOOLEAN FailIfTargetIsDirectory
+    IN BOOLEAN FailIfTargetIsDirectory,
+    IN USHORT InformationLevel,
+    IN ULONG ClusterCount
     )
 
 /*++
@@ -884,6 +903,10 @@ Arguments:
         a directory, fail the operation.  Otherwise, rename the file
         into the directory.
 
+    InformationLevel - Rename/CopyOnWrite/Link/MoveCluster
+
+    ClusterCount - MoveCluster count
+
 Return Value:
 
     Status.
@@ -895,6 +918,7 @@ Return Value:
     IO_STATUS_BLOCK ioStatusBlock;
     PFILE_RENAME_INFORMATION fileRenameInformation;
     ULONG renameBlockSize;
+    USHORT NtInformationLevel;
     UNICODE_STRING sourceBaseName;
     UNICODE_STRING targetBaseName;
     PWCH s;
@@ -946,8 +970,14 @@ Return Value:
     // Set up the rename block.
     //
 
-    fileRenameInformation->ReplaceIfExists =
-        SmbOfunTruncate( SmbOpenFunction );
+    if (InformationLevel == SMB_NT_RENAME_MOVE_CLUSTER_INFO) {
+        ((FILE_MOVE_CLUSTER_INFORMATION *)fileRenameInformation)->ClusterCount =
+            ClusterCount;
+    } else {
+        fileRenameInformation->ReplaceIfExists =
+            SmbOfunTruncate( SmbOpenFunction );
+    }
+
     fileRenameInformation->RootDirectory = TargetShare->RootDirectoryHandle;
 
     //
@@ -958,6 +988,10 @@ Return Value:
 
         ULONG tempUlong;
         UNICODE_STRING newTargetBaseName;
+
+        if (InformationLevel != SMB_NT_RENAME_RENAME_FILE) {
+            return(STATUS_OBJECT_PATH_SYNTAX_BAD);
+        }
 
         //
         // Get source and target filenames.  The target filename is to be
@@ -1104,6 +1138,26 @@ Return Value:
         name.Buffer = fileRenameInformation->FileName;
         SrvPrint2( "Renaming %wZ to %wZ\n", Source, &name );
     }
+    switch (InformationLevel) {
+    case SMB_NT_RENAME_RENAME_FILE:
+        NtInformationLevel = FileRenameInformation;
+        break;
+
+    case SMB_NT_RENAME_SET_COPY_ON_WRITE:
+        NtInformationLevel = FileCopyOnWriteInformation;
+        break;
+
+    case SMB_NT_RENAME_MOVE_CLUSTER_INFO:
+        NtInformationLevel = FileMoveClusterInformation;
+        break;
+
+    case SMB_NT_RENAME_SET_LINK_INFO:
+        NtInformationLevel = FileLinkInformation;
+        break;
+
+    default:
+        ASSERT(FALSE);
+    }
 
     IMPERSONATE( WorkContext );
 
@@ -1112,13 +1166,14 @@ Return Value:
                  &ioStatusBlock,
                  fileRenameInformation,
                  renameBlockSize,
-                 FileRenameInformation
+                 NtInformationLevel
                  );
 
     REVERT( );
 
     if ( NT_SUCCESS(status) ) {
         status = ioStatusBlock.Status;
+        SrvRemoveCachedDirectoryName( WorkContext, Source );
     }
 
     //
@@ -1183,7 +1238,7 @@ Return Value:
                      &ioStatusBlock,
                      fileRenameInformation,
                      renameBlockSize,
-                     FileRenameInformation
+                     NtInformationLevel
                      );
 
         REVERT( );
@@ -1212,4 +1267,3 @@ Return Value:
     return status;
 
 } // DoRename
-

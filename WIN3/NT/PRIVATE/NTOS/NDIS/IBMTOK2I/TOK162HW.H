@@ -1080,56 +1080,6 @@ typedef struct _TOK162_DATA_BLOCK {
 } TOK162_DATA_BLOCK,*PTOK162_DATA_BLOCK;
 
 //
-// TOK162 Configuration Block
-//
-// This structure contains configuration data for the TOK162. This
-// structure is filled in based on the switches.
-//
-typedef struct _TOK162_CONFIGURATION_BLOCK {
-
-    //
-    // This is the adapter mode;
-    //
-    USHORT AdapterMode;
-
-    //
-    // This field contains the wait state
-    //
-    USHORT WaitState;
-
-    //
-    // This field contains the RPL
-    //
-    BOOLEAN RPL;
-
-    //
-    // This field contains the RPL Address
-    //
-    UNALIGNED UINT RPLAddress;
-
-    //
-    // This field contains the DMA Channel
-    //
-    USHORT DMAChannel;
-
-    //
-    // This field contains the Ring Speed
-    //
-    USHORT RingSpeed;
-
-    //
-    // Interrupt level
-    //
-    USHORT  InterruptLevel;
-
-    //
-    // This field contains the connector type
-    //
-    USHORT UTPorSTP;
-
-} TOK162_CONFIGURATION_BLOCK, *PTOK162_CONFIGURATION_BLOCK;
-
-//
 // Numerical values for switches
 // (e.g. - Interrupt 5 instead of 00 [switch value])
 //

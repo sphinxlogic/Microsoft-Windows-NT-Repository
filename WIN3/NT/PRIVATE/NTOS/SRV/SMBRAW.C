@@ -42,27 +42,27 @@ Revision History:
 // Forward declarations
 //
 
-VOID
+VOID SRVFASTCALL
 AbortRawWrite(
     IN OUT PWORK_CONTEXT WorkContext
     );
 
-VOID
+VOID SRVFASTCALL
 PrepareRawCopyWrite (
     IN OUT PWORK_CONTEXT WorkContext
     );
 
-BOOLEAN
+BOOLEAN SRVFASTCALL
 ReadRawPipe (
     IN PWORK_CONTEXT WorkContext
     );
 
-VOID
+VOID SRVFASTCALL
 RestartMdlReadRawResponse (
     IN OUT PWORK_CONTEXT WorkContext
     );
 
-VOID
+VOID SRVFASTCALL
 RestartPipeReadRawPeek (
     IN OUT PWORK_CONTEXT WorkContext
     );
@@ -510,6 +510,8 @@ Return Value:
     //
 
     readLength = SmbGetUshort( &request->MaxCount );
+    WorkContext->Parameters.ReadRaw.ReadRawOtherInfo.Length = readLength;
+
     if ( //0 &&
          (readLength <= SrvMdlReadSwitchover) ) {
 
@@ -590,13 +592,14 @@ do_copy_read:
 
             INCREMENT_DEBUG_STAT2( SrvDbgStatistics.FastReadsAttempted );
 
-            if ( FsRtlMdlRead(
+            if ( lfcb->MdlRead(
                     lfcb->FileObject,
                     &offset,
                     readLength,
                     key,
                     &WorkContext->Irp->MdlAddress,
-                    &WorkContext->Irp->IoStatus
+                    &WorkContext->Irp->IoStatus,
+                    lfcb->DeviceObject
                     ) ) {
 
                 //
@@ -1409,6 +1412,7 @@ Return Value:
     //
 
     rawWorkContext->Parameters.WriteRaw.MdlWrite = TRUE;
+    rawWorkContext->Parameters.WriteRaw.Length = writeLength;
 
     //
     // Try the fast path first.
@@ -1423,13 +1427,14 @@ Return Value:
 
     INCREMENT_DEBUG_STAT2( SrvDbgStatistics.FastWritesAttempted );
 
-    if ( FsRtlPrepareMdlWrite(
+    if ( lfcb->PrepareMdlWrite(
             lfcb->FileObject,
             &offset,
             writeLength,
             key,
             &WorkContext->Irp->MdlAddress,
-            &WorkContext->Irp->IoStatus
+            &WorkContext->Irp->IoStatus,
+            lfcb->DeviceObject
             ) ) {
 
         //
@@ -1524,7 +1529,7 @@ error_exit_no_rfcb:
 
 } // SrvSmbWriteRaw
 
-VOID
+VOID SRVFASTCALL
 AbortRawWrite(
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -1557,6 +1562,7 @@ Return Value:
 {
     PMDL cacheMdl;
     PMDL partialMdl;
+    NTSTATUS status;
 
     PAGED_CODE( );
 
@@ -1621,11 +1627,25 @@ Return Value:
     }
 #endif
 
-    FsRtlMdlWriteComplete(
-       WorkContext->Rfcb->Lfcb->FileObject,
-       &WorkContext->Parameters.WriteRaw.Offset,
-       cacheMdl
-       );
+    if( WorkContext->Rfcb->Lfcb->MdlWriteComplete == NULL ||
+
+        WorkContext->Rfcb->Lfcb->MdlWriteComplete(
+           WorkContext->Rfcb->Lfcb->FileObject,
+           &WorkContext->Parameters.WriteRaw.Offset,
+           cacheMdl,
+           WorkContext->Rfcb->Lfcb->DeviceObject ) == FALSE ) {
+
+        status = SrvIssueMdlCompleteRequest( WorkContext, NULL,
+                                             cacheMdl,
+                                             IRP_MJ_WRITE,
+                                             &WorkContext->Parameters.WriteRaw.Offset,
+                                             WorkContext->Parameters.WriteRaw.Length
+                                           );
+
+        if( !NT_SUCCESS( status ) ) {
+            SrvLogServiceFailure( SRV_SVC_MDL_COMPLETE, status );
+        }
+    }
 
     SrvRestartWriteCompleteResponse( WorkContext );
 
@@ -1634,7 +1654,7 @@ Return Value:
 } // AbortRawWrite
 
 
-VOID
+VOID SRVFASTCALL
 PrepareRawCopyWrite (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -1903,7 +1923,7 @@ abort:
 
 } // PrepareRawCopyWrite
 
-BOOLEAN
+BOOLEAN SRVFASTCALL
 ReadRawPipe (
     IN PWORK_CONTEXT WorkContext
     )
@@ -2391,7 +2411,7 @@ Return Value:
 
 } // ReadRawPipe
 
-VOID
+VOID SRVFASTCALL
 RestartMdlReadRawResponse (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -2417,6 +2437,7 @@ Return Value:
 --*/
 
 {
+    NTSTATUS status;
     PAGED_CODE( );
 
     IF_DEBUG(FSD2) KdPrint(( " - RestartMdlReadRawResponse\n" ));
@@ -2428,10 +2449,26 @@ Return Value:
     //
 
     if ( WorkContext->Irp->MdlAddress ) {
-        FsRtlMdlReadComplete(
-            WorkContext->Rfcb->Lfcb->FileObject,
-            WorkContext->Irp->MdlAddress
-            );
+
+        if( WorkContext->Rfcb->Lfcb->MdlReadComplete == NULL ||
+
+            WorkContext->Rfcb->Lfcb->MdlReadComplete(
+                WorkContext->Rfcb->Lfcb->FileObject,
+                WorkContext->Irp->MdlAddress,
+                WorkContext->Rfcb->Lfcb->DeviceObject ) == FALSE ) {
+
+            status = SrvIssueMdlCompleteRequest( WorkContext, NULL,
+                                            WorkContext->Irp->MdlAddress,
+                                            IRP_MJ_READ,
+                                            &WorkContext->Parameters.ReadRaw.ReadRawOtherInfo.Offset,
+                                            WorkContext->Parameters.ReadRaw.ReadRawOtherInfo.Length
+                     );
+
+            if( !NT_SUCCESS( status ) ) {
+                SrvLogServiceFailure( SRV_SVC_MDL_COMPLETE, status );
+            }
+        }
+          
     }
 
     //
@@ -2453,7 +2490,7 @@ Return Value:
 } // RestartMdlReadRawResponse
 
 
-VOID
+VOID SRVFASTCALL
 RestartPipeReadRawPeek (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -2611,7 +2648,7 @@ Return Value:
 } // RestartPipeReadRawPeek
 
 
-VOID
+VOID SRVFASTCALL
 SrvDecrementRawWriteCount (
     IN PRFCB Rfcb
     )
@@ -2704,7 +2741,7 @@ Return Value:
 
 } // SrvDecrementRawWriteCount
 
-VOID
+VOID SRVFASTCALL
 SrvRestartRawReceive (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -2742,6 +2779,7 @@ Return Value:
     PVOID finalResponseBuffer;
     CLONG immediateLength;
     ULONG key;
+    NTSTATUS status;
 
     PAGED_CODE( );
 
@@ -2760,7 +2798,7 @@ Return Value:
     connection = WorkContext->Connection;
     irp = WorkContext->Irp;
 
-    SrvStatisticsShadow.BytesReceived += irp->IoStatus.Information;
+    WorkContext->CurrentWorkQueue->stats.BytesReceived += irp->IoStatus.Information;
 
     if ( irp->Cancel ||
          !NT_SUCCESS(irp->IoStatus.Status) ||
@@ -2846,11 +2884,25 @@ Return Value:
         }
 #endif
 
-        FsRtlMdlWriteComplete(
-           lfcb->FileObject,
-           &WorkContext->Parameters.WriteRaw.Offset,
-           mdl
-           );
+        if( lfcb->MdlWriteComplete == NULL ||
+
+            lfcb->MdlWriteComplete(
+               lfcb->FileObject,
+               &WorkContext->Parameters.WriteRaw.Offset,
+               mdl,
+               lfcb->DeviceObject ) == FALSE ) {
+
+            status = SrvIssueMdlCompleteRequest( WorkContext, NULL,
+                                                 mdl,
+                                                 IRP_MJ_WRITE,
+                                                 &WorkContext->Parameters.WriteRaw.Offset,
+                                                 WorkContext->Parameters.WriteRaw.Length
+                    );
+
+            if( !NT_SUCCESS( status ) ) {
+                SrvLogServiceFailure( SRV_SVC_MDL_COMPLETE, status );
+            }
+        }
 
         SrvFsdRestartWriteRaw( WorkContext );
 
@@ -3008,7 +3060,7 @@ Return Value:
 } // SrvRestartRawReceive
 
 
-VOID
+VOID SRVFASTCALL
 SrvRestartReadRawComplete (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -3054,7 +3106,7 @@ Return Value:
 } // SrvRestartReadRawComplete
 
 
-VOID
+VOID SRVFASTCALL
 SrvRestartWriteCompleteResponse (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -3117,7 +3169,7 @@ Return Value:
 } // SrvRestartWriteCompleteResponse
 
 
-VOID
+VOID SRVFASTCALL
 SrvBuildAndSendWriteCompleteResponse (
     IN OUT PWORK_CONTEXT WorkContext
     )

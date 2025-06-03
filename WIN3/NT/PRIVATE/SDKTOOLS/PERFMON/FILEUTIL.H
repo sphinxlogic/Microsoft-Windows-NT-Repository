@@ -42,7 +42,7 @@ BOOL FileWrite (HANDLE hFile,
 #define FileHandleReadOnly(lpszFilePath)     \
    (HANDLE) CreateFile (lpszFilePath,        \
       GENERIC_READ ,                         \
-      FILE_SHARE_READ,                       \
+      FILE_SHARE_READ | FILE_SHARE_WRITE,    \
       NULL, OPEN_EXISTING,                   \
       FILE_ATTRIBUTE_NORMAL, NULL)
 
@@ -81,5 +81,5 @@ void FileDriveDirectory (LPTSTR lpszFileSpec,
 
 void FileNameExtension (LPTSTR lpszSpec,
                         LPTSTR lpszFileNameExtension) ;
-
-
+
+

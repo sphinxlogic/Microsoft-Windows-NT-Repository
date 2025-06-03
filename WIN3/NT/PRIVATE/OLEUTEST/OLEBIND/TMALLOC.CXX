@@ -7,12 +7,13 @@ BOOL TestStdMalloc(void)
 {
     // Get the allocator
     IMalloc *pIMalloc;
-    SCODE sc = CoGetMalloc(MEMCTX_TASK, &pIMalloc);
+    HRESULT hr = CoGetMalloc(MEMCTX_TASK, &pIMalloc);
 
-    TEST_FAILED(FAILED(sc), "CoGetMalloc failed");
+    TEST_FAILED_HR(FAILED(hr), "CoGetMalloc failed");
 
     // Test AddRef/Release
     ULONG cOrigRefs = pIMalloc->AddRef();
+
 #ifdef WIN32
     //  On Win32, we only guarantee that the reference count will be either
     //  zero (if we released the object) or nonzero (if we didn't)
@@ -26,9 +27,9 @@ BOOL TestStdMalloc(void)
     // Test query interface
     IUnknown *punk;
 
-    sc = pIMalloc->QueryInterface(IID_IMalloc, (void **) &punk);
+    hr = pIMalloc->QueryInterface(IID_IMalloc, (void **) &punk);
 
-    TEST_FAILED(FAILED(sc), "IMalloc QueryInterface failed");
+    TEST_FAILED_HR(FAILED(hr), "IMalloc QueryInterface failed");
 
     punk->Release();
 

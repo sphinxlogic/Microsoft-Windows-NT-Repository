@@ -445,4 +445,3 @@ void NEAR PASCAL MakeMenuString(char *szCtrl, char *szMenuStr, char *szVerb, cha
         }
     }
 }
-

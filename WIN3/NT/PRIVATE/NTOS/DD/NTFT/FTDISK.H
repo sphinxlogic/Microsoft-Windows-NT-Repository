@@ -1,6 +1,6 @@
 /*++
 
-Copyright (c) 1991  Microsoft Corporation
+Copyright (c) 1991-4 Microsoft Corporation
 
 Module Name:
 
@@ -30,6 +30,13 @@ Revision History:
 
 #if DBG
 extern ULONG FtDebug;
+#endif
+
+#ifdef POOL_TAGGING
+#undef ExAllocatePool
+#undef ExAllocatePoolWithQuota
+#define ExAllocatePool(a,b) ExAllocatePoolWithTag(a,b,'tFtN')
+#define ExAllocatePoolWithQuota(a,b) ExAllocatePoolWithQuotaTag(a,b,'tFtN')
 #endif
 
 //
@@ -69,7 +76,7 @@ struct _RCB;
 #define FtLowIrpMasterIrp           Parameters.Others.Argument4
 
 //
-// Delays for allocation problems.  BUGBUG: These are WAGs!
+// Delays for allocation problems.  NOTE:  These are WAGs!
 // These delays are used in the FT thread context for allocating Irps
 // and buffers.
 //
@@ -81,13 +88,11 @@ struct _RCB;
 // Macros for managing I/O queue lengths on extensions.
 //
 
-#define DECREMENT_QUEUELENGTH(EXTENSION)    ExInterlockedDecrementLong(       \
-                                              (PLONG)&EXTENSION->QueueLength, \
-                                              &EXTENSION->QueueLengthSpinLock)
+#define DECREMENT_QUEUELENGTH(EXTENSION)    InterlockedDecrement(       \
+                                              (PLONG)&EXTENSION->QueueLength)
 
-#define INCREMENT_QUEUELENGTH(EXTENSION)    ExInterlockedIncrementLong(       \
-                                              (PLONG)&EXTENSION->QueueLength, \
-                                              &EXTENSION->QueueLengthSpinLock)
+#define INCREMENT_QUEUELENGTH(EXTENSION)    InterlockedIncrement(       \
+                                              (PLONG)&EXTENSION->QueueLength)
 
 
 //
@@ -116,8 +121,7 @@ typedef enum _FT_ADAPTOR_TYPE {
 
 //
 // Indicator of member type.
-// BUGBUG: Temporary until next checkin.  This belongs in the enum
-// for FT_TYPE.
+// NOTE:  This is not in the enum for FT_TYPE.
 //
 
 #define FtRoot (-1)
@@ -215,7 +219,7 @@ typedef enum _FT_REGENERATE_LOCATION {
 typedef struct _FT_REGENERATE_REGION {
 
     //
-    // BUGBUG: Must have a MUTEX in the lock region for removal.
+    // NOTE: Must have a MUTEX in the lock region for removal.
     //
 
     KSPIN_LOCK SpinLock;
@@ -443,9 +447,8 @@ typedef struct _FT_REGENERATE_REGION {
 //     None.
 //
 #define LockNextRegion(REGION)             \
-            ExInterlockedIncrementLong(    \
-                (PLONG)&REGION->RowNumber, \
-                &REGION->SpinLock)
+            InterlockedIncrement(          \
+                (PLONG)&REGION->RowNumber)
 
 //
 // VOID
@@ -754,11 +757,10 @@ typedef struct _DEVICE_EXTENSION {
     KSPIN_LOCK         QueueLengthSpinLock;
 
     //
-    // Zone for stripe control packets.
+    // Lookaside list for stripe control packets.
     //
 
-    ZONE_HEADER RcbZone;
-    KSPIN_LOCK  RcbZoneLock;
+    NPAGED_LOOKASIDE_LIST RcbLookasideListHead;
 
     //
     // Emergency buffers for StripeWithParity writes.
@@ -817,7 +819,7 @@ typedef struct _DEVICE_EXTENSION {
 #define FTF_NO_SECTOR_MAPPING           0x00000004
 #define FTF_EMERGENCY_BUFFER_IN_USE     0x00000008
 #define FTF_CLEAN_SHUTDOWN              0x00000010
-#define FTF_RCB_ZONE_ALLOCATED          0x00000020
+#define FTF_RCB_LOOKASIDE_ALLOCATED     0x00000020
 #define FTF_RESTART_THREAD_STARTED      0x00000040
 #define FTF_RECOVERY_THREAD_STARTED     0x00000080
 #define FTF_EMERGENCY_BUFFER_ALLOCATED  0x00000100
@@ -991,7 +993,7 @@ typedef struct _RCB {
 
 #define RCB_FLAGS_RECOVERY_ATTEMPTED        0x0001
 #define RCB_FLAGS_PARITY_REQUEST            0x0002
-#define RCB_FLAGS_FROM_ZONE                 0x0004
+#define RCB_FLAGS_SPARE_UNUSED              0x0004
 #define RCB_FLAGS_EMERGENCY_BUFFERS         0x0008
 #define RCB_FLAGS_REGENERATION_ACTIVE       0x0010
 #define RCB_FLAGS_KEEP_RCB_ALIGNED          0x0020
@@ -1021,6 +1023,7 @@ typedef struct _FT_SYNC_CONTEXT {
     FT_SYNC_INFORMATION SyncInfo;
     PDEVICE_EXTENSION DeviceExtension;
     ULONG IoctlCode;
+    PIRP Irp;
 } FT_SYNC_CONTEXT, *PFT_SYNC_CONTEXT;
 
 
@@ -1242,8 +1245,8 @@ PDEVICE_EXTENSION
 FtpFindDeviceExtension(
     IN PDEVICE_EXTENSION FtRootExtension,
     IN ULONG             Signature,
-    IN PLARGE_INTEGER    StartingOffset,
-    IN PLARGE_INTEGER    Length
+    IN LARGE_INTEGER     StartingOffset,
+    IN LARGE_INTEGER     Length
     );
 
 VOID
@@ -1292,7 +1295,7 @@ FtpFreeRcb(
     );
 
 VOID
-FtpInitializeRcbZone(
+FtpInitializeRcbLookasideListHead(
     IN PDEVICE_EXTENSION FtRootExtension
     );
 

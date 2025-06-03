@@ -7,10 +7,59 @@
 
 /**********************       PolyTron RCS Utilities
    
-    $Revision:   1.5  $
-    $Date:   16 Mar 1994 15:28:02  $
-    $Author:   RWOLFF  $
-    $Log:   S:/source/wnt/ms11/miniport/vcs/modes_m.c  $
+    $Revision:   1.18  $
+    $Date:   10 Apr 1996 17:00:44  $
+    $Author:   RWolff  $
+    $Log:   S:/source/wnt/ms11/miniport/archive/modes_m.c_v  $
+ * 
+ *    Rev 1.18   10 Apr 1996 17:00:44   RWolff
+ * Microsoft-originated change.
+ * 
+ *    Rev 1.17   23 Jan 1996 11:46:36   RWolff
+ * Eliminated level 3 warnings.
+ * 
+ *    Rev 1.16   08 Feb 1995 13:54:38   RWOLFF
+ * Updated FIFO depth entries to correspond to more recent table.
+ * 
+ *    Rev 1.15   20 Jan 1995 16:23:04   RWOLFF
+ * Optimized video FIFO depth for the installed RAM size and selected
+ * resolution, pixel depth, and refresh rate. This gives a slight performance
+ * improvement on low-res, low-depth, low frequency modes while eliminating
+ * noise on high-res, high-depth, high frequency modes.
+ * 
+ *    Rev 1.14   23 Dec 1994 10:47:24   ASHANMUG
+ * ALPHA/Chrontel-DAC
+ * 
+ *    Rev 1.13   18 Nov 1994 11:40:54   RWOLFF
+ * Added support for STG1702/1703 in native mode, as opposed to being
+ * strapped into STG1700 emulation.
+ * 
+ *    Rev 1.12   19 Aug 1994 17:11:26   RWOLFF
+ * Added support for SC15026 DAC and non-standard pixel clock
+ * generators, removed dead code.
+ * 
+ *    Rev 1.11   09 Aug 1994 11:53:58   RWOLFF
+ * Shifting of colours when setting up palette is now done in
+ * display driver.
+ * 
+ *    Rev 1.10   06 Jul 1994 16:23:58   RWOLFF
+ * Fix for screen doubling when warm booting from ATI driver to 8514/A
+ * driver on Mach 32.
+ * 
+ *    Rev 1.9   30 Jun 1994 18:10:44   RWOLFF
+ * Andre Vachon's change: don't clear screen on switch into text mode.
+ * The HAL will do it, and we aren't allowed to do the memory mapping
+ * needed to clear the screen.
+ * 
+ *    Rev 1.8   20 May 1994 14:00:40   RWOLFF
+ * Ajith's change: clears the screen on shutdown.
+ * 
+ *    Rev 1.7   18 May 1994 17:01:18   RWOLFF
+ * Fixed colour scramble in 16 and 24BPP on IBM ValuePoint (AT&T 49[123]
+ * DAC), got rid of debug print statements and commented-out code.
+ * 
+ *    Rev 1.6   31 Mar 1994 15:07:00   RWOLFF
+ * Added debugging code.
  * 
  *    Rev 1.5   16 Mar 1994 15:28:02   RWOLFF
  * Now determines DAC type using q_DAC_type field of query structure,
@@ -192,8 +241,10 @@ static BYTE GetClkSrc_m(ULONG far *rom_address);
 static void SetBlankAdj_m(BYTE adjust);
 static void Init68860_m(WORD ext_ge_config);
 static void InitSTG1700_m(WORD ext_ge_config, BOOL DoublePixel);
+static void InitSTG1702_m(WORD ext_ge_config, BOOL DoublePixel);
 static void InitATT498_m(WORD ext_ge_config, BOOL DoublePixel);
 static void InitSC15021_m(WORD ext_ge_config, BOOL DoublePixel);
+static void InitSC15026_m(WORD ext_ge_config);
 static void ReadDac4(void);
 
 
@@ -214,8 +265,10 @@ static void ReadDac4(void);
 #pragma alloc_text(PAGE_M, InitTi_24_m)
 #pragma alloc_text(PAGE_M, Init68860_m)
 #pragma alloc_text(PAGE_M, InitSTG1700_m)
+#pragma alloc_text(PAGE_M, InitSTG1702_m)
 #pragma alloc_text(PAGE_M, InitATT498_m)
 #pragma alloc_text(PAGE_M, InitSC15021_m)
+#pragma alloc_text(PAGE_M, InitSC15026_m)
 #pragma alloc_text(PAGE_M, ReadDac4)
 #pragma alloc_text(PAGE_M, UninitTiDac_m)
 #pragma alloc_text(PAGE_M, SetPalette_m)
@@ -270,9 +323,20 @@ void Passth8514_m(int status)
  */
 void setmode_m (struct st_mode_table *crttable, ULONG rom_address, ULONG CardType)
 {
-BYTE clock;
-WORD overscan;
-BYTE low,high;
+    BYTE clock;
+    WORD overscan;
+    BYTE low,high;
+    WORD ClockSelect;   /* Value to write to CLOCK_SEL register */
+    struct query_structure *QueryPtr;   /* Query information for the card */
+    ULONG BaseClock;    /* Pixel rate not adjusted for DAC type and pixel depth */
+
+    /*
+     * Get a formatted pointer into the query section of HwDeviceExtension.
+     * The CardInfo[] field is an unformatted buffer.
+     */
+    QueryPtr = (struct query_structure *) (phwDeviceExtension->CardInfo);
+
+    ClockSelect = (crttable->m_clock_select & CLOCK_SEL_STRIP) | GetShiftedSelector(crttable->ClockFreq);
 
     WaitForIdle_m();
 
@@ -293,7 +357,7 @@ BYTE low,high;
     OUTP(DISP_CNTL,0x53);
     delay(10);
 
-    OUTP(CLOCK_SEL,	(UCHAR)((crttable->m_clock_select) | 0x01 ));	/* Disable passthrough */
+    OUTP(CLOCK_SEL,	(UCHAR)(ClockSelect | 0x01 ));  /* Disable passthrough */
     DEC_DELAY
     OUTP(V_SYNC_WID,	crttable->m_v_sync_wid);
     DEC_DELAY
@@ -320,26 +384,279 @@ BYTE low,high;
     OUTP(DISP_CNTL,	crttable->m_disp_cntl);
     delay(10);
 
-    switch (crttable->m_pixel_depth)
+    /*
+     * Set up the Video FIFO depth. This field is used only on DRAM cards.
+     * Since the required FIFO depth depends on 4 values (memory size,
+     * pixel depth, resolution, and refresh rate) which are not enumerated
+     * types, implementing the selection as an array indexed by these
+     * values would require a very large, very sparse array.
+     *
+     * Select DRAM cards by excluding all known VRAM types rather than
+     * by including all known DRAM types because only 7 of the 8 possible
+     * memory types are defined. If the eighth type is VRAM and we include
+     * it because it's not in the exclusion list, the value we assign will
+     * be ignored. If it's DRAM and we exclude it because it's not in the
+     * inclusion list, we will have problems.
+     */
+    if ((QueryPtr->q_memory_type != VMEM_VRAM_256Kx4_SER512) &&
+        (QueryPtr->q_memory_type != VMEM_VRAM_256Kx4_SER256) &&
+        (QueryPtr->q_memory_type != VMEM_VRAM_256Kx4_SPLIT512) &&
+        (QueryPtr->q_memory_type != VMEM_VRAM_256Kx16_SPLIT256))
         {
-	case 24:
-            clock=crttable->m_vfifo_24;
-            break;
+        /*
+         * We can't switch on the refresh rate because if we're setting
+         * the mode from the installed mode table rather than one of the
+         * "canned" tables, the refresh rate field will hold a reserved
+         * value rather than the true rate. Instead, use the pixel rate,
+         * which varies with refresh rate. We can't simply use the pixel
+         * clock frequency, since it will have been boosted for certain
+         * DAC and pixel depth combinations. Instead, we must undo this
+         * boost in order to get the pixel rate.
+         */
+        switch (crttable->m_pixel_depth)
+            {
+            case 24:
+                if ((QueryPtr->q_DAC_type == DAC_BT48x) ||
+                    (QueryPtr->q_DAC_type == DAC_SC15026) ||
+                    (QueryPtr->q_DAC_type == DAC_ATT491))
+                    {
+                    BaseClock = crttable->ClockFreq / 3;
+                    }
+                else if ((QueryPtr->q_DAC_type == DAC_SC15021) ||
+                    (QueryPtr->q_DAC_type == DAC_STG1702) ||
+                    (QueryPtr->q_DAC_type == DAC_STG1703))
+                    {
+                    BaseClock = crttable->ClockFreq * 2;
+                    BaseClock /= 3;
+                    }
+                else if ((QueryPtr->q_DAC_type == DAC_STG1700) ||
+                    (QueryPtr->q_DAC_type == DAC_ATT498))
+                    {
+                    BaseClock = crttable->ClockFreq / 2;
+                    }
+                else
+                    {
+                    BaseClock = crttable->ClockFreq;
+                    }
+                break;
 
-        case 16:
-            clock=crttable->m_vfifo_16;
-            break;
+            case 16:
+                if ((QueryPtr->q_DAC_type == DAC_BT48x) ||
+                    (QueryPtr->q_DAC_type == DAC_SC15026) ||
+                    (QueryPtr->q_DAC_type == DAC_ATT491))
+                    {
+                    BaseClock = crttable->ClockFreq / 2;
+                    }
+                else
+                    {
+                    BaseClock = crttable->ClockFreq;
+                    }
+                break;
 
-	default:
-        case 8:
-            clock=(BYTE)(crttable->m_clock_select >> 8)&0xff;
-            break;
-	}
-    WaitForIdle_m();
+            case 8:
+            default:
+                BaseClock = crttable->ClockFreq;
+                break;
+            }
 
-    /* This is really only necessary when DRAM is installed */
-    OUTPW (CLOCK_SEL, (WORD)((clock << 8) | crttable->m_clock_select | 0x01)); 
-    DEC_DELAY
+        /*
+         * 1M cards include Mach 8 combo cards which report the total
+         * (accelerator plus VGA) memory in q_memory_size. Since the
+         * maximum VGA memory on these cards is 512k, none of them will
+         * report 2M. If we were to look for 1M cards, we'd also have to
+         * check for 1.25M and 1.5M cards in order to catch the combos.
+         *
+         * Some threshold values of BaseClock are chosen to catch both
+         * straight-through (DAC displays 1 pixel per clock) and adjusted
+         * (DAC needs more than 1 clock per pixel) cases, and so do not
+         * correspond to the pixel clock frequency for any mode.
+         */
+        if (QueryPtr->q_memory_size == VRAM_2mb)
+            {
+            switch (crttable->m_pixel_depth)
+                {
+                case 24:
+                    /*
+                     * Only 640x480 and 800x600 suported.
+                     */
+                    if (crttable->m_x_size == 640)
+                        {
+                        if (BaseClock < 30000000L)    /* 60Hz */
+                            clock = 0x08;
+                        else    /* 72Hz */
+                            clock = 0x0A;
+                        }
+                    else    /* 800x600 */
+                        {
+                        if (BaseClock <= 32500000)  /* 89Hz  interlaced */
+                            clock = 0x0A;
+                        else if (BaseClock <= 36000000) /* 95Hz interlaced and 56Hz */
+                            clock = 0x0C;
+                        else if (BaseClock <= 40000000) /* 60Hz */
+                            clock = 0x0D;
+                        else    /* 70Hz and 72Hz */
+                            clock = 0x0E;
+                        }
+                    break;
+
+                case 16:
+                    /*
+                     * All resolutions except 1280x1024 supported.
+                     */
+                    if (crttable->m_x_size == 640)
+                        {
+                        if (BaseClock < 30000000L)    /* 60Hz */
+                            clock = 0x04;
+                        else    /* 72Hz */
+                            clock = 0x05;
+                        }
+                    else if (crttable->m_x_size == 800)
+                        {
+                        if (BaseClock <= 40000000) /* 89Hz and 95Hz interlaced, 56Hz, and 60Hz */
+                            clock = 0x05;
+                        else if (BaseClock <= 46000000) /* 70Hz */
+                            clock = 0x07;
+                        else    /* 72Hz */
+                            clock = 0x08;
+                        }
+                    else    /* 1024x768 */
+                        {
+                        if (BaseClock < 45000000)   /* 87Hz interlaced */
+                            {
+                            clock = 0x07;
+                            }
+                        else if (BaseClock < 70000000)  /* 60Hz */
+                            {
+                            clock = 0x0B;
+                            }
+                        else    /* 66Hz, 70Hz, and 72Hz */
+                            {
+                            clock = 0x0D;
+                            }
+                        }
+                    break;
+
+                case 8:
+                default:    /* If 4BPP is implemented, it will be treated like 8BPP */
+                    if (crttable->m_x_size == 640)
+                        {
+                        /*
+                         * Both available refresh rates use the same value
+                         */
+                        clock = 0x02;
+                        }
+                    else if (crttable->m_x_size == 800)
+                        {
+                        if (BaseClock <= 46000000) /* 89Hz and 95Hz interlaced, 56Hz, 60Hz, and 70Hz */
+                            clock = 0x02;
+                        else    /* 72Hz */
+                            clock = 0x04;
+                        }
+                    else if (crttable->m_x_size == 1024)
+                        {
+                        if (BaseClock < 45000000)   /* 87Hz interlaced */
+                            {
+                            clock = 0x03;
+                            }
+                        else if (BaseClock < 70000000)  /* 60Hz */
+                            {
+                            clock = 0x05;
+                            }
+                        else    /* 66Hz, 70Hz, and 72Hz */
+                            {
+                            clock = 0x06;
+                            }
+                        }
+                    else    /* 1280x1024 */
+                        {
+                        if (BaseClock < 100000000)  /* both interlaced modes */
+                            clock = 0x07;
+                        else    /* 60Hz - only DRAM noninterlaced mode */
+                            clock = 0x0A;
+                        }    
+                    break;
+                }
+            }
+        else    /* 1M cards */
+            {
+            switch (crttable->m_pixel_depth)
+                {
+                case 24:
+                    /*
+                     * Only 640x480 fits in 1M. Both 60Hz and 72Hz
+                     * use the same FIFO depth.
+                     */
+                    clock = 0x0E;
+                    break;
+
+                case 16:
+                    /*
+                     * Only 640x480 and 800x600 suported.
+                     */
+                    if (crttable->m_x_size == 640)
+                        {
+                        if (BaseClock < 30000000L)    /* 60Hz */
+                            clock = 0x08;
+                        else    /* 72Hz */
+                            clock = 0x0A;
+                        }
+                    else    /* 800x600 */
+                        {
+                        if (BaseClock <= 32500000)  /* 89Hz  interlaced */
+                            clock = 0x0A;
+                        else    /* 95Hz interlaced and 56Hz, higher rates not supported in 1M */
+                            clock = 0x0C;
+                        }
+                    break;
+
+                case 8:
+                default:    /* If 4BPP is implemented, it will be treated like 8BPP */
+                    if (crttable->m_x_size == 640)
+                        {
+                        if (BaseClock < 30000000L)    /* 60Hz */
+                            clock = 0x04;
+                        else    /* 72Hz */
+                            clock = 0x05;
+                        }
+                    else if (crttable->m_x_size == 800)
+                        {
+                        if (BaseClock <= 32500000)  /* 89Hz  interlaced */
+                            clock = 0x05;
+                        else if (BaseClock <= 40000000) /* 95Hz interlaced, 56Hz, and 60Hz */
+                            clock = 0x06;
+                        else if (BaseClock <= 46000000) /* 70Hz */
+                            clock = 0x07;
+                        else    /* 72Hz */
+                            clock = 0x08;
+                        }
+                    else if (crttable->m_x_size == 1024)
+                        {
+                        if (BaseClock < 45000000)   /* 87Hz interlaced */
+                            {
+                            clock = 0x07;
+                            }
+                        else    /* 60Hz, 66Hz, 70Hz, and 72Hz */
+                            {
+                            clock = 0x08;
+                            }
+                        }
+                    else    /* 1280x1024 */
+                        {
+                        /*
+                         * Only interlaced modes supported in 1M (4BPP only),
+                         * both use the same FIFO depth.
+                         */
+                        clock = 0x03;
+                        }    
+              
+                    break;
+                }
+            }
+
+        WaitForIdle_m();
+        OUTPW (CLOCK_SEL, (WORD)((clock << 8) | (ClockSelect & 0x00FF) | 0x01)); 
+        DEC_DELAY
+        }
 
     overscan=crttable->m_h_overscan;
     low=(BYTE)(overscan&0xff);
@@ -354,6 +671,7 @@ BYTE low,high;
     high=high<<4;
     low=low|high;
 
+    WaitForIdle_m();
     OUTPW(HORZ_OVERSCAN,(WORD)(low & 0x00FF));
     DEC_DELAY
 
@@ -370,13 +688,6 @@ BYTE low,high;
 
     OUTPW(VERT_OVERSCAN,overscan);
     DEC_DELAY
-#if 0
-    if(crttable->m_x_size == 1280)          // 1280 mode?
-        if (crttable->m_pixel_depth==8)
-	    InitTIMux_m(0x11a, rom_address);
-        else
-	    InitTIMux_m(0x10a, rom_address);
-#endif
     return;
 
 }   /* setmode_m() */
@@ -406,7 +717,7 @@ void InitTIMux_m(int config,ULONG rom_address)
     if (QueryPtr->q_DAC_type == DAC_TI34075)
         {
         reg=INPW(CLOCK_SEL);
-        temp=reg & 0xff00 | 0x11;    /* guarantee a low pixel clock (50 MHz) */
+        temp = (reg & CLOCK_SEL_STRIP) | GetShiftedSelector(50000000L);
         OUTPW(CLOCK_SEL,temp);
         OUTPW(EXT_GE_CONFIG,0x201a);        /* Set EXT_DAC_ADDR field */
         OUTP(DAC_MASK,9);	/* OUTPut clock is SCLK/2 and VCLK/2 */
@@ -443,20 +754,8 @@ BYTE GetClkSrc_m(ULONG far *rom_address)
     BYTE clock_sel=0;
     int	i;
 
-#ifdef MSDOS
-
-    if(INP(SCRATCH_PAD_0)&80)
-        {
-        rom=(INPW(SCRATCH_PAD_0)&0x7f)*0x80+0xc000<<4;
-        if (*rom==VIDEO_ROM_ID)
-            clock_sel=rom[0x47];
-        if (clock_sel==0)
-            clock_sel=3;
-        }
-
-#else
         rom= (PUSHORT)*rom_address++;
-        if (VideoPortReadRegisterUshort ((PUSHORT)rom)==VIDEO_ROM_ID)
+        if (rom && VideoPortReadRegisterUshort ((PUSHORT)rom)==VIDEO_ROM_ID)
             {
     	    crom=(BYTE far *)rom;
     	    clock_sel=VideoPortReadRegisterUchar (&crom[0x47]);
@@ -464,8 +763,6 @@ BYTE GetClkSrc_m(ULONG far *rom_address)
             }
         if (clock_sel==0)
         clock_sel=1;
-
-#endif
 
     return(clock_sel);
 
@@ -504,12 +801,17 @@ void InitTi_8_m(WORD ext_ge_config)
 {
 struct query_structure *QueryPtr;   /* Query information for the card */
 WORD ClockSelect;                   /* Value from CLOCK_SEL register */
+struct st_mode_table *CrtTable;     /* Pointer to current mode table */
 
     /*
-     * Get a formatted pointer into the query section of HwDeviceExtension.
-     * The CardInfo[] field is an unformatted buffer.
+     * Get a formatted pointer into the query section of HwDeviceExtension,
+     * and another pointer to the current mode table. The CardInfo[] field
+     * is an unformatted buffer.
      */
     QueryPtr = (struct query_structure *) (phwDeviceExtension->CardInfo);
+    CrtTable = (struct st_mode_table *)QueryPtr;
+    ((struct query_structure *)CrtTable)++;
+    CrtTable += phwDeviceExtension->ModeIndex;
 
     switch(QueryPtr->q_DAC_type)
         {
@@ -533,9 +835,15 @@ WORD ClockSelect;                   /* Value from CLOCK_SEL register */
              */
             ClockSelect = INPW(CLOCK_SEL);
             if ((QueryPtr->q_desire_x == 1280) &&
-                (GetFrequency((BYTE)((ClockSelect & 0x007C) >> 2)) >= 110000000L))
+                ((CrtTable->m_clock_select & CLOCK_SEL_MUX) ||
+                (CrtTable->ClockFreq >= 110000000)))
                 {
-                OUTPW(CLOCK_SEL, (WORD)(ClockSelect | 0x0040));
+                if (CrtTable->ClockFreq >= 110000000)
+                    {
+                    ClockSelect &= CLOCK_SEL_STRIP;
+                    ClockSelect |= GetShiftedSelector((CrtTable->ClockFreq) / 2);
+                    OUTPW(CLOCK_SEL, ClockSelect);
+                    }
                 ext_ge_config |= 0x0100;
                 InitSTG1700_m(ext_ge_config, TRUE);
                 }
@@ -545,11 +853,12 @@ WORD ClockSelect;                   /* Value from CLOCK_SEL register */
                 }
             break;
 
-        case DAC_ATT498:
+        case DAC_STG1702:
+        case DAC_STG1703:
             /*
              * If we are running 1280x1024 noninterlaced, cut the
              * clock frequency in half, set the MUX bit in
-             * ext_ge_config, and tell InitSTG1700_m() to use the
+             * ext_ge_config, and tell InitSTG1702_m() to use the
              * 8BPP double pixel mode.
              *
              * All 1280x1024 noninterlaced modes use a pixel clock
@@ -558,9 +867,46 @@ WORD ClockSelect;                   /* Value from CLOCK_SEL register */
              */
             ClockSelect = INPW(CLOCK_SEL);
             if ((QueryPtr->q_desire_x == 1280) &&
-                (GetFrequency((BYTE)((ClockSelect & 0x007C) >> 2)) >= 110000000L))
+                ((CrtTable->m_clock_select & CLOCK_SEL_MUX) ||
+                (CrtTable->ClockFreq >= 110000000)))
                 {
-                OUTPW(CLOCK_SEL, (WORD)(ClockSelect | 0x0040));
+                if (CrtTable->ClockFreq >= 110000000)
+                    {
+                    ClockSelect &= CLOCK_SEL_STRIP;
+                    ClockSelect |= GetShiftedSelector((CrtTable->ClockFreq) / 2);
+                    OUTPW(CLOCK_SEL, ClockSelect);
+                    }
+                ext_ge_config |= 0x0100;
+                InitSTG1702_m(ext_ge_config, TRUE);
+                }
+            else
+                {
+                InitSTG1702_m(ext_ge_config, FALSE);
+                }
+            break;
+
+        case DAC_ATT498:
+            /*
+             * If we are running 1280x1024 noninterlaced, cut the
+             * clock frequency in half, set the MUX bit in
+             * ext_ge_config, and tell InitATT498_m() to use the
+             * 8BPP double pixel mode.
+             *
+             * All 1280x1024 noninterlaced modes use a pixel clock
+             * frequency of 110 MHz or higher, with the clock
+             * frequency divided by 1.
+             */
+            ClockSelect = INPW(CLOCK_SEL);
+            if ((QueryPtr->q_desire_x == 1280) &&
+                ((CrtTable->m_clock_select & CLOCK_SEL_MUX) ||
+                (CrtTable->ClockFreq >= 110000000)))
+                {
+                if (CrtTable->ClockFreq >= 110000000)
+                    {
+                    ClockSelect &= CLOCK_SEL_STRIP;
+                    ClockSelect |= GetShiftedSelector((CrtTable->ClockFreq) / 2);
+                    OUTPW(CLOCK_SEL, ClockSelect);
+                    }
                 ext_ge_config |= 0x0100;
                 InitATT498_m(ext_ge_config, TRUE);
                 }
@@ -574,7 +920,7 @@ WORD ClockSelect;                   /* Value from CLOCK_SEL register */
             /*
              * If we are running 1280x1024 noninterlaced, cut the
              * clock frequency in half, set the MUX bit in
-             * ext_ge_config, and tell InitSTG1700_m() to use the
+             * ext_ge_config, and tell InitSC15021_m() to use the
              * 8BPP double pixel mode.
              *
              * All 1280x1024 noninterlaced modes use a pixel clock
@@ -583,7 +929,8 @@ WORD ClockSelect;                   /* Value from CLOCK_SEL register */
              */
             ClockSelect = INPW(CLOCK_SEL);
             if ((QueryPtr->q_desire_x == 1280) &&
-                (GetFrequency((BYTE)((ClockSelect & 0x007C) >> 2)) >= 110000000L))
+                ((CrtTable->m_clock_select & CLOCK_SEL_MUX) ||
+                (CrtTable->ClockFreq >= 110000000)))
                 {
                 /*
                  * NOTE: The only SC15021 card available for testing
@@ -591,7 +938,12 @@ WORD ClockSelect;                   /* Value from CLOCK_SEL register */
                  *       noninterlaced is only available on VRAM cards,
                  *       it has not been tested.
                  */
-                OUTPW(CLOCK_SEL, (WORD)(ClockSelect | 0x0040));
+                if (CrtTable->ClockFreq >= 110000000)
+                    {
+                    ClockSelect &= CLOCK_SEL_STRIP;
+                    ClockSelect |= GetShiftedSelector((CrtTable->ClockFreq) / 2);
+                    OUTPW(CLOCK_SEL, ClockSelect);
+                    }
                 ext_ge_config |= 0x0100;
                 InitSC15021_m(ext_ge_config, TRUE);
                 }
@@ -599,6 +951,10 @@ WORD ClockSelect;                   /* Value from CLOCK_SEL register */
                 {
                 InitSC15021_m(ext_ge_config, FALSE);
                 }
+            break;
+
+        case DAC_SC15026:
+            InitSC15026_m(ext_ge_config);
             break;
 
         case DAC_TI34075:
@@ -655,7 +1011,6 @@ WORD ClockSelect;                   /* Value from CLOCK_SEL register */
  */
 void InitTi_16_m(WORD ext_ge_config, ULONG rom_address)
 {
-    WORD    clock_sel;
     WORD    ReadExtGeConfig;
     BYTE dummy;
     struct query_structure *QueryPtr;   /* Query information for the card */
@@ -771,7 +1126,7 @@ void InitTi_16_m(WORD ext_ge_config, ULONG rom_address)
          */
         case DAC_ATT491:
             OUTP (DAC_MASK,0);
-            SetBlankAdj_m(0xC);           /* BLANK_ADJUST=0, PIXEL_DELAY=3 */
+            SetBlankAdj_m(0x0C);        /* BLANK_ADJUST=0, PIXEL_DELAY=3 */
             OUTPW(EXT_GE_CONFIG,0x101a);        /* set EXT_DAC_ADDR */
 
             /*
@@ -784,21 +1139,16 @@ void InitTi_16_m(WORD ext_ge_config, ULONG rom_address)
             else
                 OUTP (DAC_MASK,0xa0);       // 555, 8 bit   UNTESTED MODE
 
-//            clock_sel = INPW(CLOCK_SEL);
-
-            /*
-             * Re-write the I/O vs. memory mapped flag (bit 5 of
-             * LOCAL_CONTROL set). If this is not done, and memory
-             * mapped registers are being used, the clock select
-             * value won't be interpreted properly.
-             */
-//            OUTPW(LOCAL_CONTROL, INPW(LOCAL_CONTROL));
             OUTPW(EXT_GE_CONFIG,ext_ge_config);
-//            OUTPW(CLOCK_SEL,clock_sel);
             break;
 
         case DAC_STG1700:
             InitSTG1700_m(ext_ge_config, FALSE);
+            break;
+
+        case DAC_STG1702:
+        case DAC_STG1703:
+            InitSTG1702_m(ext_ge_config, FALSE);
             break;
 
         case DAC_ATT498:
@@ -809,6 +1159,10 @@ void InitTi_16_m(WORD ext_ge_config, ULONG rom_address)
             InitSC15021_m(ext_ge_config, FALSE);
             break;
 
+        case DAC_SC15026:
+            InitSC15026_m(ext_ge_config);
+            break;
+
         case DAC_ATI_68860:
             SetBlankAdj_m(0x0C);        /* BLANK_ADJUST=0, PIXEL_DELAY=3 */
             Init68860_m(ext_ge_config);
@@ -816,7 +1170,7 @@ void InitTi_16_m(WORD ext_ge_config, ULONG rom_address)
             break;
 
         default:
-	    OUTPW(EXT_GE_CONFIG,ext_ge_config);
+            OUTPW(EXT_GE_CONFIG,ext_ge_config);
 
             /* set pixel delay (3) for non-TI_DACs */
             SetBlankAdj_m(0xc);
@@ -939,7 +1293,6 @@ void InitTi_24_m(WORD ext_ge_config, ULONG rom_address)
 
             ReadExtGeConfig = INPW(R_EXT_GE_CONFIG) & 0x000f;
             ReadExtGeConfig |= (ext_ge_config & 0x0ff0);
-//	    OUTP(DAC_MASK,0);
             OUTPW(EXT_GE_CONFIG, (WORD)(ReadExtGeConfig | 0x1000));
 
             /*
@@ -954,33 +1307,21 @@ void InitTi_24_m(WORD ext_ge_config, ULONG rom_address)
 
             OUTPW(EXT_GE_CONFIG, ReadExtGeConfig);
 
-//---            SetBlankAdj_m(0);      /* BLANK_ADJUST=0, PIXEL_DELAY=0 */
             SetBlankAdj_m(0x0C);       /* set BLANK_ADJUST=0, PIXEL_DELAY=3    */
 
-//---	    OUTPW(EXT_GE_CONFIG,0x101a);        /* set EXT_DAC_ADDR field */
-
-            
-//---       OUTP(DAC_MASK,0xe2);   /* set 24bpp bypass mode */
-
-//---	    OUTPW(EXT_GE_CONFIG,ext_ge_config);
             break;
+
 
         case DAC_ATT491:        /* ATT20C491 initialization */
             OUTP(DAC_MASK,0);
 
-            /* BLANK_ADJ=0, PIXEL_DELAY=3 */
-            SetBlankAdj_m(0xC);
+            SetBlankAdj_m(0x0C);       /* set BLANK_ADJUST=0, PIXEL_DELAY=3    */
 
             /* set EXT_DAC_ADDR field */
             OUTPW(EXT_GE_CONFIG,0x101a);
 
             /* set 24bpp bypass mode */
             OUTP(DAC_MASK,0xe2);
-
-            /* set pixel clock to 75 MHz (640x480/60 is only valid mode) */
-//            clock_sel = INPW(CLOCK_SEL);
-//            clock_sel &= 0x0FF83;
-//            clock_sel |= 0x38;
 
             /*
              * Re-write the I/O vs. memory mapped flag (bit 5 of
@@ -991,11 +1332,15 @@ void InitTi_24_m(WORD ext_ge_config, ULONG rom_address)
             OUTPW(LOCAL_CONTROL, INPW(LOCAL_CONTROL));
 
             OUTPW(EXT_GE_CONFIG,ext_ge_config);
-//            OUTPW(CLOCK_SEL, clock_sel);
             break;
 
         case DAC_STG1700:
             InitSTG1700_m(ext_ge_config, FALSE);
+            break;
+
+        case DAC_STG1702:
+        case DAC_STG1703:
+            InitSTG1702_m(ext_ge_config, FALSE);
             break;
 
         case DAC_ATT498:
@@ -1004,6 +1349,10 @@ void InitTi_24_m(WORD ext_ge_config, ULONG rom_address)
 
         case DAC_SC15021:
             InitSC15021_m(ext_ge_config, FALSE);
+            break;
+
+        case DAC_SC15026:
+            InitSC15026_m(ext_ge_config);
             break;
 
         case DAC_ATI_68860:
@@ -1039,7 +1388,6 @@ void Init68860_m(WORD ext_ge_config)
     QueryPtr = (struct query_structure *) (phwDeviceExtension->CardInfo);
 
     OUTPW(EXT_GE_CONFIG, (WORD)(ext_ge_config | 0x3000));   /* 6 bit DAC, DAC_EXT_ADDR = 3 */
-//    OUTP(EXT_GE_CONFIG+1, 0x30);    /* 6 bit DAC, DAC_EXT_ADDR = 3 */
 
     /*
      * Initialize Device Setup Register A. Select 6-bit DAC operation,
@@ -1053,7 +1401,6 @@ void Init68860_m(WORD ext_ge_config)
         OUTP(DAC_W_INDEX, 0x6D);
 
     OUTPW(EXT_GE_CONFIG, (WORD)(ext_ge_config | 0x2000));   /* 6 bit DAC, DAC_EXT_ADDR = 2 */
-//    OUTP(EXT_GE_CONFIG+1, 0x20);    /* 6 bit DAC, DAC_EXT_ADDR = 2 */
 
     /*
      * Initialize Clock Selection Register. Select activate SCLK, enable
@@ -1211,6 +1558,106 @@ void InitSTG1700_m(WORD ext_ge_config, BOOL DoublePixel)
     return;
 
 }   /* end InitSTG1700_m() */
+
+
+
+/***************************************************************************
+ *
+ * void InitSTG1702_m(ext_ge_config, DoublePixel);
+ *
+ * WORD ext_ge_config;      Value to be written to EXT_GE_CONFIG register
+ * BOOL DoublePixel;        Whether or not to use 8BPP double pixel mode
+ *
+ * DESCRIPTION:
+ *  Initializes the STG1702/1703 DAC to the desired colour depth.
+ *
+ * GLOBALS CHANGED:
+ *  none
+ *
+ * CALLED BY:
+ *  InitTi_<depth>_m(), UninitTiDac_m()
+ *
+ * AUTHOR:
+ *  Robert Wolff
+ *
+ * CHANGE HISTORY:
+ *
+ * TEST HISTORY:
+ *
+ ***************************************************************************/
+
+void InitSTG1702_m(WORD ext_ge_config, BOOL DoublePixel)
+{
+    unsigned char PixModeSelect;    /* Value to write to DAC Pixel Mode Select registers */
+    unsigned char Dummy;            /* Scratch variable */
+
+
+    /*
+     * Get the value to be written to the DAC's Pixel Mode Select registers.
+     */
+    switch (ext_ge_config & 0x06F0)
+        {
+        case (PIX_WIDTH_16BPP | ORDER_16BPP_555):
+            PixModeSelect = 0x02;
+            break;
+
+        case (PIX_WIDTH_16BPP | ORDER_16BPP_565):
+            PixModeSelect = 0x03;
+            break;
+
+        case (PIX_WIDTH_24BPP | ORDER_24BPP_RGB):
+        case (PIX_WIDTH_24BPP | ORDER_24BPP_RGBx):
+            /*
+             * Use double 24BPP direct colour. In this mode,
+             * two pixels are passed as
+             * RRRRRRRRGGGGGGGG BBBBBBBBrrrrrrrr ggggggggbbbbbbbb
+             * rather than
+             * RRRRRRRRGGGGGGGG BBBBBBBBxxxxxxxx rrrrrrrrgggggggg bbbbbbbbxxxxxxxx
+             */
+            PixModeSelect = 0x09;
+            break;
+
+        default:    /* 4 and 8 BPP */
+            if (DoublePixel == TRUE)
+                PixModeSelect = 0x05;
+            else
+                PixModeSelect = 0x00;
+            break;
+        }
+
+    /*
+     * Enable extended register/pixel mode.
+     */
+    ReadDac4();
+    OUTP(DAC_MASK, 0x18);
+
+    /*
+     * Skip over the Pixel Command register, then write to indexed
+     * registers 3 and 4 (Primrary and Secondary Pixel Mode Select
+     * registers). Registers auto-increment when written.
+     */
+    ReadDac4();
+    Dummy = INP(DAC_MASK);
+    OUTP(DAC_MASK, 0x03);               /* Index low */
+    OUTP(DAC_MASK, 0x00);               /* Index high */
+    OUTP(DAC_MASK, PixModeSelect);      /* Primrary pixel mode select */
+    OUTP(DAC_MASK, PixModeSelect);      /* Secondary pixel mode select */
+
+    /*
+     * In 8BPP double pixel mode, we must also set the PLL control
+     * register. Since this mode is only used for 1280x1024 noninterlaced,
+     * which always has a pixel clock frequency greater than 64 MHz,
+     * the setting for this register is a constant.
+     */
+    if (DoublePixel == TRUE)
+        OUTP(DAC_MASK, 0x02);       /* Input is 32 to 67.5 MHz, output 64 to 135 MHz */
+
+    OUTPW(EXT_GE_CONFIG, ext_ge_config);
+    Dummy = INP(DAC_W_INDEX);               /* Clear counter */
+
+    return;
+
+}   /* end InitSTG1702_m() */
 
 
 
@@ -1383,6 +1830,92 @@ void InitSC15021_m(WORD ext_ge_config, BOOL DoublePixel)
 
 /***************************************************************************
  *
+ * void InitSC15026_m(ext_ge_config);
+ *
+ * WORD ext_ge_config;      Value to be written to EXT_GE_CONFIG register
+ *
+ * DESCRIPTION:
+ *  Initializes the Sierra 15026 DAC to the desired colour depth.
+ *
+ * GLOBALS CHANGED:
+ *  none
+ *
+ * CALLED BY:
+ *  InitTi_<depth>_m(), UninitTiDac_m()
+ *
+ * AUTHOR:
+ *  Robert Wolff
+ *
+ * CHANGE HISTORY:
+ *
+ * TEST HISTORY:
+ *
+ ***************************************************************************/
+
+void InitSC15026_m(WORD ext_ge_config)
+{
+    unsigned char ColourMode;       /* Colour mode to write to Command register */
+
+
+    /*
+     * Get the values to be written to the DAC's Repack (external to
+     * internal data translation) and Command registers.
+     */
+    switch (ext_ge_config & 0x06F0)
+        {
+        case (PIX_WIDTH_16BPP | ORDER_16BPP_555):
+            ColourMode = 0xA0;
+            break;
+
+        case (PIX_WIDTH_16BPP | ORDER_16BPP_565):
+            ColourMode = 0xE0;
+            break;
+
+        case (PIX_WIDTH_24BPP | ORDER_24BPP_RGB):
+        case (PIX_WIDTH_24BPP | ORDER_24BPP_RGBx):
+            ColourMode = 0x60;
+            break;
+
+        default:    /* 4 and 8 BPP */
+            ColourMode = 0x00;
+            break;
+        }
+
+    OUTPW(EXT_GE_CONFIG, ext_ge_config);
+
+    /*
+     * Get to the "hidden" Command register and set Extended
+     * Register Programming Flag.
+     */
+    ReadDac4();
+    OUTP(DAC_MASK, 0x10);
+
+    /*
+     * Write to the Extended Index register so the Extended Data
+     * register points to the Repack register.
+     */
+    OUTP(DAC_R_INDEX, 0x10);
+
+    /*
+     * Write out the values for the Repack and Command registers.
+     * Clearing bit 4 of the Command register (all our ColourMode
+     * values have this bit clear) will clear the Extended Register
+     * Programming flag. All of our supported pixel depths use
+     * a Repack value of zero.
+     */
+    OUTP(DAC_W_INDEX, 0);
+    OUTP(DAC_MASK, ColourMode);
+
+    OUTPW(EXT_GE_CONFIG, ext_ge_config);
+
+    return;
+
+}   /* end InitSC15026_m() */
+
+
+
+/***************************************************************************
+ *
  * void ReadDac4(void);
  *
  * DESCRIPTION:
@@ -1398,7 +1931,7 @@ void InitSC15021_m(WORD ext_ge_config, BOOL DoublePixel)
  *  none
  *
  * CALLED BY:
- *  InitSTG1700_m()
+ *  Init<DAC type>_m()
  *
  * AUTHOR:
  *  Robert Wolff
@@ -1467,12 +2000,21 @@ void UninitTiDac_m (void)
             InitSTG1700_m(PIX_WIDTH_8BPP | 0x000A, FALSE);
             break;
 
+        case DAC_STG1702:
+        case DAC_STG1703:
+            InitSTG1702_m(PIX_WIDTH_8BPP | 0x000A, FALSE);
+            break;
+
         case DAC_ATT498:
             InitATT498_m(PIX_WIDTH_8BPP | 0x000A, FALSE);
             break;
 
         case DAC_SC15021:
             InitSC15021_m(PIX_WIDTH_8BPP | 0x000A, FALSE);
+            break;
+
+        case DAC_SC15026:
+            InitSC15026_m(PIX_WIDTH_8BPP | 0x000A);
             break;
 
         case DAC_ATT491:
@@ -1526,18 +2068,18 @@ void UninitTiDac_m (void)
 
 void SetPalette_m(PULONG lpPalette, USHORT StartIndex, USHORT Count)
 {
-int     i;
+int	i;
 BYTE far *pPal=(BYTE far *)lpPalette;
 
-    OUTP(DAC_W_INDEX,(BYTE)StartIndex);     // load DAC_W_INDEX with StartIndex
+	OUTP(DAC_W_INDEX,(BYTE)StartIndex);	// load DAC_W_INDEX with StartIndex
 
-    for (i=0; i<Count; i++)         // this is number of colours to update
-        {
-        OUTP(DAC_DATA, *pPal++);  // red
-        OUTP(DAC_DATA, *pPal++);  // green
-        OUTP(DAC_DATA, *pPal++);  // blue
-        pPal++;
-        }
+	for (i=0; i<Count; i++) 	// this is number of colours to update
+	    {
+	    OUTP(DAC_DATA, *pPal++);    // red
+	    OUTP(DAC_DATA, *pPal++);    // green
+	    OUTP(DAC_DATA, *pPal++);    // blue
+	    pPal++;
+	    }
 
     return;
 
@@ -1588,7 +2130,6 @@ void SetTextMode_m(void)
      * accelerator controllers, so no further action needs to be taken
      * once this is done. Mach 32 cards need to be put into VGA text mode.
      */
-VideoDebugPrint((0, "Start of SetTextMode_m()\n"));
     Passth8514_m(SHOW_VGA);
     if (phwDeviceExtension->ModelNumber != MACH32_ULTRA)
         return;
@@ -1662,7 +2203,6 @@ VideoDebugPrint((0, "Start of SetTextMode_m()\n"));
     Scratch = LioInp(regVGA_END_BREAK_PORT, GENS1_COLOUR_OFFSET);
     OUTP(regVGA_END_BREAK_PORT, 0x20);
 
-#ifdef i386
     /*
      * No need to clear the screen.
      * First, the driver should not call Map Frame while the machine is
@@ -1670,21 +2210,6 @@ VideoDebugPrint((0, "Start of SetTextMode_m()\n"));
      * Second, it is not necessary to clear the screen since the HAL will
      * do it.
      */
-
-    // /*
-    //  * Clear Screen
-    //  */
-    // TextScreen = MapFramebuffer(0xB8000, 0x2000);
-    // if (TextScreen != 0)
-    //     {
-    //     for (LoopCount=0; LoopCount<0x1000; LoopCount++)
-    //         {
-    //         TextScreen[LoopCount] = 0x0;
-    //         }
-    //     }
-
-#endif
-
 
     /*
      * Initialize the 8x16 font. Start by saving the registers which
@@ -1797,16 +2322,13 @@ VideoDebugPrint((0, "Start of SetTextMode_m()\n"));
             OUTPW(DEST_Y_END, 256);
             }
         }
-
-   
+    
     /*
      * Restore the graphics engine registers we changed.
      */
-VideoDebugPrint((0, "About to restore engine registers\n"));
     OUTPW(EXT_GE_CONFIG, ExtGeConfig);
     OUTPW(MISC_OPTIONS, MiscOptions);
 
-VideoDebugPrint((0, "About to restore font load registers\n"));
     /*
      * Restore the registers we changed to load the font.
      */
@@ -1814,6 +2336,17 @@ VideoDebugPrint((0, "About to restore font load registers\n"));
     OUTPW(reg3CE, (WORD) ((Gra05 << 8) | 5));
     OUTPW(HI_SEQ_ADDR, (WORD) ((Seq04 << 8) | 4));
     OUTPW(HI_SEQ_ADDR, (WORD) ((Seq02 << 8) | 2));
+
+    /*
+     * Set up the engine and CRT pitches for 1024x768, to avoid screen
+     * doubling when warm-booting from our driver to the 8514/A driver.
+     * This is only necessary on the Mach 32 (Mach 8 never reaches this
+     * point in the code) because on the Mach 8, writing to ADVFUNC_CNTL
+     * (done as part of Passth8514_m()) sets both registers up for
+     * 1024x768.
+     */
+    OUTPW(GE_PITCH, 128);
+    OUTPW(CRT_PITCH, 128);
 
     return;
 

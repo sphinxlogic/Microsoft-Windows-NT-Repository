@@ -691,4 +691,3 @@ ReturnValue:
 
 	return (msg.wParam); // Returns the value from PostQuitMessage
 }
-

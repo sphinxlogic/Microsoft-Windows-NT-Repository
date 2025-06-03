@@ -1,26 +1,30 @@
-/*
-  +-------------------------------------------------------------------------+
-  |                         File Operations                                 |
-  +-------------------------------------------------------------------------+
-  |                        (c) Copyright 1994                               |
-  |                          Microsoft Corp.                                |
-  |                        All rights reserved                              |
-  |                                                                         |
-  | Program               : [FileDLG.c]                                     |
-  | Programmer            : Arthur Hanson                                   |
-  | Original Program Date : [Feb 10, 1994]                                  |
-  | Last Update           : [Feb 20, 1994]                                  |
-  |                                                                         |
-  | Version:  1.00                                                          |
-  |                                                                         |
-  | Description:                                                            |
-  |                                                                         |
-  | History:                                                                |
-  |   arth  Feb 10, 1994    1.00    Original Version.                       |
-  |                                                                         |
-  +-------------------------------------------------------------------------+
-*/
+/*++
 
+Copyright (c) 1993-1995  Microsoft Corporation
+
+Module Name:
+
+   FileSel.c
+
+Abstract:
+
+   Handles processing for the file selection listbox.  This is a
+   hierarchical file/directory tree with checkboxes besides the files
+   and directories.
+
+   If the checkbox is checked then that file or directory will be
+   copied, otherwise it won't.  There are some directories that are
+   excluded by default.  These are directories on the NW server that
+   are known to contain binaries that are not needed on the NT side
+   (such as the NetWare administration tools).
+
+Author:
+
+    Arthur Hanson (arth) 10-Feb-1994
+
+Revision History:
+
+--*/
 
 #include "globals.h"
 
@@ -31,6 +35,7 @@
 #include "nwnetapi.h"
 #include "columnlb.h"
 #include "statbox.h"
+#include "userdlg.h"
 
 #include <math.h>    // For pow function
 
@@ -58,6 +63,12 @@ static LPARAM mouseHit = 0;
 static WORD LastFocus = 0;
 static HWND ListFocus = NULL;
 
+static ULONG TCount;
+
+static WNDPROC _wpOrigWndProc;
+static WNDPROC _wpOrigWndProc2;
+
+
 HEIRDRAWSTRUCT HierDrawStruct;
 BOOL SysDir = FALSE;
 
@@ -76,11 +87,24 @@ static WIN32_FIND_DATA *ffd = NULL;
   +-------------------------------------------------------------------------+*/
 
 
-/*+-------------------------------------------------------------------------+
-  | FilePathInit()                                                          |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-FILE_PATH_BUFFER *FilePathInit() {
+/////////////////////////////////////////////////////////////////////////
+FILE_PATH_BUFFER *
+FilePathInit()
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    FILE_PATH_BUFFER *fpBuf = NULL;
 
    fpBuf = AllocMemory(sizeof(FILE_PATH_BUFFER));
@@ -93,11 +117,27 @@ FILE_PATH_BUFFER *FilePathInit() {
 } // FilePathInit
 
 
-/*+-------------------------------------------------------------------------+
-  | FilePathServerSet()                                                     |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void FilePathServerSet(FILE_PATH_BUFFER *fpBuf, LPTSTR Server) {
+/////////////////////////////////////////////////////////////////////////
+VOID 
+FilePathServerSet(
+   FILE_PATH_BUFFER *fpBuf, 
+   LPTSTR Server
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    fpBuf->Server = Server;
 
    if (fpBuf->Server == NULL)
@@ -108,11 +148,27 @@ void FilePathServerSet(FILE_PATH_BUFFER *fpBuf, LPTSTR Server) {
 } // FilePathServerSet
 
 
-/*+-------------------------------------------------------------------------+
-  | FilePathShareSet()                                                      |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void FilePathShareSet(FILE_PATH_BUFFER *fpBuf, LPTSTR Share) {
+/////////////////////////////////////////////////////////////////////////
+VOID
+FilePathShareSet(
+   FILE_PATH_BUFFER *fpBuf,
+   LPTSTR Share
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    fpBuf->Share = Share;
    if ((fpBuf->Server == NULL) || (fpBuf->Share == NULL))
       return;
@@ -123,11 +179,27 @@ void FilePathShareSet(FILE_PATH_BUFFER *fpBuf, LPTSTR Share) {
 } // FilePathShareSet
 
 
-/*+-------------------------------------------------------------------------+
-  | FilePathPathSet()                                                       |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void FilePathPathSet(FILE_PATH_BUFFER *fpBuf, LPTSTR Path) {
+/////////////////////////////////////////////////////////////////////////
+VOID
+FilePathPathSet(
+   FILE_PATH_BUFFER *fpBuf,
+   LPTSTR Path
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    if ((fpBuf->Server == NULL) || (fpBuf->Share == NULL))
       return;
 
@@ -141,11 +213,28 @@ void FilePathPathSet(FILE_PATH_BUFFER *fpBuf, LPTSTR Path) {
 
 
 
-/*+-------------------------------------------------------------------------+
-  | TreeDelete()                                                            |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void TreeDelete(DIR_BUFFER *Dir) {
+/////////////////////////////////////////////////////////////////////////
+VOID
+TreeDelete(
+   DIR_BUFFER *Dir
+   )
+
+/*++
+
+Routine Description:
+
+   Walks an in-memory directory tree and free's up all the memory associated
+   with it and all child nodes.
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    DIR_BUFFER *DList;
    ULONG i;
 
@@ -166,18 +255,32 @@ void TreeDelete(DIR_BUFFER *Dir) {
 } // TreeDelete
 
 
-/*+-------------------------------------------------------------------------+
-  | TreePrune()                                                             |
-  |                                                                         |
-  |   Prunes a tree down by removing un-needed nodes.  If a node is marked  |
-  |   as CONVERT_ALL or CONVERT_NONE then we don't need any of the child    |
-  |   leaves as we know these will be the same.  Only CONVERT_PARTIAL       |
-  |   needs to be saved.                                                    |
-  |                                                                         |
-  |   This is used so we only copy/save the minimum needed.                 |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void TreePrune(DIR_BUFFER *Dir) {
+/////////////////////////////////////////////////////////////////////////
+VOID
+TreePrune(
+   DIR_BUFFER *Dir
+   )
+
+/*++
+
+Routine Description:
+
+   Prunes a tree down by removing un-needed nodes.  If a node is marked
+   as CONVERT_ALL or CONVERT_NONE then we don't need any of the child
+   leaves as we know these will be the same.  Only CONVERT_PARTIAL
+   needs to be saved.
+
+   This is used so we only copy/save the minimum needed.
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    BYTE Convert;
    DIR_BUFFER *DList;
    ULONG i;
@@ -218,13 +321,28 @@ void TreePrune(DIR_BUFFER *Dir) {
 } // TreePrune
 
 
-/*+-------------------------------------------------------------------------+
-  | TreeCount()                                                             |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-static ULONG TCount;
+/////////////////////////////////////////////////////////////////////////
+VOID
+_TreeCountR(
+   DIR_BUFFER *Dir
+   )
 
-void _TreeCountR(DIR_BUFFER *Dir) {
+/*++
+
+Routine Description:
+
+   Count all the files under a sub-dir.  This recuses down all the child
+   nodes.
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    BYTE Convert;
    DIR_BUFFER *DList;
    ULONG i;
@@ -232,10 +350,6 @@ void _TreeCountR(DIR_BUFFER *Dir) {
    if ((Dir == NULL) || (!Dir->Convert))
       return;
 
-   // First visit all of the children sub-dirs and prune them.  Next:
-   // if partial convert then we can't delete this node, else we can
-   // clean up all the children - we leave it to the parent node to 
-   // delete the current node.
    Convert = Dir->Convert;
    if (Dir->DirList) {
       DList = Dir->DirList->DirBuffer;
@@ -263,15 +377,29 @@ ULONG TreeCount(DIR_BUFFER *Dir) {
 } // TreeCount
 
 
-/*+-------------------------------------------------------------------------+
-  | TreeCopy()                                                              |
-  |                                                                         |
-  |   Duplicates a directory/File tree structure in memory.                 |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void _TreeCopyR(DIR_BUFFER *Dir) {
+/////////////////////////////////////////////////////////////////////////
+VOID 
+_TreeCopyR(
+   DIR_BUFFER *Dir
+   )
+
+/*++
+
+Routine Description:
+
+   Duplicates a directory/File tree structure in memory.
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    DIR_LIST *DList;
-   DIR_BUFFER *DBuff;
+    DIR_BUFFER *DBuff;
    FILE_LIST *FList;
    FILE_BUFFER *FBuff;
    ULONG Size;
@@ -326,7 +454,26 @@ void _TreeCopyR(DIR_BUFFER *Dir) {
 } // _TreeCopyR
 
 
-DIR_BUFFER *TreeCopy(DIR_BUFFER *Dir) {
+/////////////////////////////////////////////////////////////////////////
+DIR_BUFFER *
+TreeCopy(
+   DIR_BUFFER *Dir
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    DIR_BUFFER *nDir = NULL;
 
    if (Dir == NULL)
@@ -344,11 +491,27 @@ DIR_BUFFER *TreeCopy(DIR_BUFFER *Dir) {
 
 
 
-/*+-------------------------------------------------------------------------+
-  | FileBufferCompare()                                                     |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-int __cdecl FileBufferCompare(const void *arg1, const void *arg2) {
+/////////////////////////////////////////////////////////////////////////
+int __cdecl 
+FileBufferCompare(
+   const VOID *arg1, 
+   const VOID *arg2
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    WIN32_FIND_DATA *Farg1, *Farg2;
 
    Farg1 = (WIN32_FIND_DATA *) arg1;
@@ -360,14 +523,28 @@ int __cdecl FileBufferCompare(const void *arg1, const void *arg2) {
 } // FileBufferCompare
 
 
-/*+-------------------------------------------------------------------------+
-  | DirAdjustConvert()                                                      |
-  |                                                                         |
-  |  Need to adjust convert flag (none, full, partial) down the tree to the |
-  |  root.                                                                  |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void DirAdjustConvert(DIR_BUFFER *Dir) {
+/////////////////////////////////////////////////////////////////////////
+VOID
+DirAdjustConvert(
+   DIR_BUFFER *Dir
+   )
+
+/*++
+
+Routine Description:
+
+  Need to adjust convert flag (none, full, partial) down the tree to the
+  root.
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    BOOL Partial = FALSE;
    ULONG ChildCount = 0;
    ULONG ChildSelected = 0;
@@ -425,11 +602,27 @@ DirAdjRecurse:
 } // DirAdjustConvert
 
 
-/*+-------------------------------------------------------------------------+
-  | DirAdjustConvertChildren()                                              |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void DirAdjustConvertChildren(DIR_BUFFER *Dir, BYTE Convert) {
+/////////////////////////////////////////////////////////////////////////
+VOID
+DirAdjustConvertChildren(
+   DIR_BUFFER *Dir,
+   BYTE Convert
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    DIR_LIST *DirList = NULL;
    FILE_LIST *FileList = NULL;
    ULONG i;
@@ -454,19 +647,42 @@ void DirAdjustConvertChildren(DIR_BUFFER *Dir, BYTE Convert) {
 } // DirAdjustConvertChildren
 
 
-/*+-------------------------------------------------------------------------+
-  | SubdirRestrict()                                                        |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-BOOL SubdirRestrict(LPTSTR Path, LPTSTR Subdir) {
-   ULONG i;
-   LPTSTR RestrictPath[5];
+/////////////////////////////////////////////////////////////////////////
+BOOL
+SubdirRestrict(
+   LPTSTR Path, 
+   LPTSTR Subdir
+   )
 
-   RestrictPath[0] = Lids(IDS_S_2);
-   RestrictPath[1] = Lids(IDS_S_3);
-   RestrictPath[2] = Lids(IDS_S_4);
-   RestrictPath[3] = Lids(IDS_S_5);
-   RestrictPath[4] = NULL;
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
+   ULONG i = 0;
+   LPTSTR RestrictPath[5];
+   CONVERT_OPTIONS * ConvertOptions;
+
+   // if the user has specified the 'transfer netware specific info'
+   // option the we should transfer the mail directory by default...
+   ConvertOptions = (CONVERT_OPTIONS *)CurrentConvertList->ConvertOptions;
+
+   if (ConvertOptions->NetWareInfo)
+      RestrictPath[i++] = Lids(IDS_S_3);
+
+   RestrictPath[i++] = Lids(IDS_S_2);
+   RestrictPath[i++] = Lids(IDS_S_4);
+   RestrictPath[i++] = Lids(IDS_S_5);
+   RestrictPath[i++] = NULL;
 
    i = 0;
    while(RestrictPath[i] != NULL) {
@@ -481,11 +697,24 @@ BOOL SubdirRestrict(LPTSTR Path, LPTSTR Subdir) {
 } // SubdirRestrict
 
 
-/*+-------------------------------------------------------------------------+
-  | FillDirInit()                                                           |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void FillDirInit() {
+/////////////////////////////////////////////////////////////////////////
+VOID
+FillDirInit()
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    if (ffd == NULL) {
       ffd = AllocMemory(sizeof(WIN32_FIND_DATA) * DEF_NUM_RECS);
       BufferSize = DEF_NUM_RECS;
@@ -494,14 +723,31 @@ void FillDirInit() {
 } // FillDirInit
 
 
-/*+-------------------------------------------------------------------------+
-  | FillDir()                                                               |
-  |                                                                         |
-  |   Given a DIR_BUFFER, enumerate the files and sub-dirs under it and     |
-  |   attach them (one level-deep only).                                    |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void FillDir(UINT Level, LPTSTR Path, DIR_BUFFER *Dir, BOOL DoDirs) {
+/////////////////////////////////////////////////////////////////////////
+VOID
+FillDir(
+   UINT Level, 
+   LPTSTR Path, 
+   DIR_BUFFER *Dir, 
+   BOOL DoDirs
+   )
+
+/*++
+
+Routine Description:
+
+   Given a DIR_BUFFER, enumerate the files and sub-dirs under it and
+   attach them (one level-deep only).
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    static TCHAR NewPath[MAX_UNC_PATH + 1];
    DIR_LIST *DirList = NULL;
    DIR_LIST *OldDirList = NULL;
@@ -527,7 +773,7 @@ void FillDir(UINT Level, LPTSTR Path, DIR_BUFFER *Dir, BOOL DoDirs) {
 dprintf(TEXT("Working on dir: %u %s\r\n"), Level, Path);
 #endif
 
-   Panel_Line(7, Path);
+   Panel_Line(7, TEXT("%s"), Path);
    fHandle = FindFirstFile(NewPath, &ffd[Count]);
 
    ret = (fHandle != INVALID_HANDLE_VALUE);
@@ -673,7 +919,7 @@ dprintf(TEXT("   Num Dirs / Files: %li %li\r\n"), DirCount, FileCount);
          }
       } else {
          // Files
-         Panel_Line(8, ffd[i].cFileName);
+         Panel_Line(8, TEXT("%s"), ffd[i].cFileName);
 
          // Check our Flag
          if (ffd[i].cAlternateFileName[0] == 1) {
@@ -685,7 +931,7 @@ dprintf(TEXT("   Num Dirs / Files: %li %li\r\n"), DirCount, FileCount);
             FBuff->Size = ffd[i].nFileSizeLow;
 
             TotalFileSize += ffd[i].nFileSizeLow;
-            Panel_Line(9, lToStr(TotalFileSize));
+            Panel_Line(9, TEXT("%s"), lToStr(TotalFileSize));
             FileCount++;
          }
       }
@@ -778,12 +1024,29 @@ dprintf(TEXT("   Num Dirs / Files: %li %li\r\n"), DirCount, FileCount);
 } // FillDir
 
 
-/*+-------------------------------------------------------------------------+
-  | TreeFillRecurse()                                                       |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void _TreeFillRecurse(UINT Level, LPTSTR Path, DIR_BUFFER *Dir) {
-   static TCHAR NewPath[MAX_UNC_PATH + 1];
+/////////////////////////////////////////////////////////////////////////
+VOID
+_TreeFillRecurse(
+   UINT Level, 
+   LPTSTR Path, 
+   DIR_BUFFER *Dir
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
+   TCHAR NewPath[MAX_UNC_PATH + 1];
    DIR_LIST *DirList = NULL;
    ULONG i;
 
@@ -805,27 +1068,62 @@ void _TreeFillRecurse(UINT Level, LPTSTR Path, DIR_BUFFER *Dir) {
 } // _TreeFillRecurse
 
 
-void TreeFillRecurse(UINT Level, LPTSTR Path, DIR_BUFFER *Dir) {
+/////////////////////////////////////////////////////////////////////////
+VOID
+TreeFillRecurse(
+   UINT Level, 
+   LPTSTR Path, 
+   DIR_BUFFER *Dir
+   )
+{
    TotalFileSize = 0;
    FillDirInit();
    _TreeFillRecurse(Level, Path, Dir);
 } // TreeFillRecurse
 
 
-/*+-------------------------------------------------------------------------+
-  | TotalFileSizeGet()                                                      |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-ULONG TotalFileSizeGet() {
+/////////////////////////////////////////////////////////////////////////
+ULONG 
+TotalFileSizeGet()
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    return TotalFileSize;
 } // TotalFileSizeGet
 
 
-/*+-------------------------------------------------------------------------+
-  | TreeRecurseCurrentShareSet()                                            |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void TreeRecurseCurrentShareSet(SHARE_BUFFER *CShare) {
+/////////////////////////////////////////////////////////////////////////
+VOID
+TreeRecurseCurrentShareSet(
+   SHARE_BUFFER *CShare
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    CurrentShare = CShare;
 
    SysDir = FALSE;
@@ -840,11 +1138,27 @@ void TreeRecurseCurrentShareSet(SHARE_BUFFER *CShare) {
 } // TreeRecurseCurrentShareSet
 
 
-/*+-------------------------------------------------------------------------+
-  | TreeRootInit()                                                          |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void TreeRootInit(SHARE_BUFFER *CShare, LPTSTR NewPath) {
+/////////////////////////////////////////////////////////////////////////
+VOID
+   TreeRootInit(
+   SHARE_BUFFER *CShare,
+   LPTSTR NewPath
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    TreeRecurseCurrentShareSet(CShare);
 
    if (CShare->Root)
@@ -871,11 +1185,28 @@ void TreeRootInit(SHARE_BUFFER *CShare, LPTSTR NewPath) {
 } // TreeRootInit
 
 
-/*+-------------------------------------------------------------------------+
-  | ControlsResize()                                                        |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void ControlsResize(HWND hDlg, int Height, int Width) {
+/////////////////////////////////////////////////////////////////////////
+VOID
+ControlsResize(
+   HWND hDlg, 
+   int Height, 
+   int Width
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    HWND hCtrl;
    int nHeight, nWidth, BtnWidth, BtnHeight;
    RECT rc;
@@ -924,17 +1255,33 @@ void ControlsResize(HWND hDlg, int Height, int Width) {
    MoveWindow(hCtrl, nWidth, nHeight, BtnWidth, BtnHeight, TRUE);
    nWidth += BtnWidth + BUTTON_X_BORDER;
 
-   hCtrl = GetDlgItem(hDlg, IDC_HELP);
+   hCtrl = GetDlgItem(hDlg, IDHELP);
    MoveWindow(hCtrl, nWidth, nHeight, BtnWidth, BtnHeight, TRUE);
 
 } // ControlsResize
 
 
-/*+-------------------------------------------------------------------------+
-  | FileSelect_OnDrawItem()                                                 |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-VOID FileSelect_OnDrawItem(HWND hwnd, DRAWITEMSTRUCT FAR* lpDrawItem, BOOL FileBox) {
+/////////////////////////////////////////////////////////////////////////
+VOID 
+FileSelect_OnDrawItem(
+   HWND hwnd, 
+   DRAWITEMSTRUCT FAR* lpDrawItem
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    TCHAR  szText[MAX_PATH + 1];
    DWORD dwData;
    int nLevel = 0;
@@ -947,10 +1294,17 @@ VOID FileSelect_OnDrawItem(HWND hwnd, DRAWITEMSTRUCT FAR* lpDrawItem, BOOL FileB
    DIR_BUFFER *Dir, *Dir2;
    FILE_BUFFER *File;
    DIR_LIST *DirList, *DirList2;
+   BOOL FileBox = FALSE;
 
    dwData = lpDrawItem->itemData;
    if (dwData == 0)
       return;
+
+   if ((lpDrawItem->CtlID != IDC_LIST1) && (lpDrawItem->CtlID != IDC_LIST2))
+      return;
+
+   if (lpDrawItem->CtlID == IDC_LIST2)
+      FileBox = TRUE;
 
    // Select the correct icon, open folder, closed folder, or document.
 
@@ -1013,11 +1367,27 @@ VOID FileSelect_OnDrawItem(HWND hwnd, DRAWITEMSTRUCT FAR* lpDrawItem, BOOL FileB
 } // FileSelect_OnDrawItem
 
 
-/*+-------------------------------------------------------------------------+
-  | RecursePath()                                                           |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void RecursePath(LPTSTR Path, DIR_BUFFER *Dir) {
+/////////////////////////////////////////////////////////////////////////
+VOID
+RecursePath(
+   LPTSTR Path, 
+   DIR_BUFFER *Dir
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    DIR_LIST *DirList;
    ULONG i;
 
@@ -1035,11 +1405,28 @@ void RecursePath(LPTSTR Path, DIR_BUFFER *Dir) {
 } // RecursePath
 
 
-/*+-------------------------------------------------------------------------+
-  | CloseList()                                                             |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-VOID CloseList(HWND hWndList, DIR_BUFFER *Dir, WORD wItemNum) {
+/////////////////////////////////////////////////////////////////////////
+VOID 
+CloseList(
+   HWND hWndList, 
+   DIR_BUFFER *Dir, 
+   WORD wItemNum
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    DWORD dwIncr;
    DWORD Count;
    DIR_LIST *DirList;
@@ -1071,13 +1458,30 @@ VOID CloseList(HWND hWndList, DIR_BUFFER *Dir, WORD wItemNum) {
 } // CloseList
 
 
-/*+-------------------------------------------------------------------------+
-  | FileSelect_ActionItem()                                                 |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-VOID FileSelect_ActionItem(HWND hWndList, DWORD dwData, WORD wItemNum) {
+/////////////////////////////////////////////////////////////////////////
+VOID 
+FileSelect_ActionItem(
+   HWND hWndList, 
+   DWORD dwData, 
+   WORD wItemNum
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    static TCHAR NewPath[MAX_PATH + 1];
-   DWORD Count;
+   DWORD Count = 0;
    DIR_BUFFER *Dir;
    DIR_LIST *DirList;
    FILE_LIST *FileList;
@@ -1122,6 +1526,7 @@ dprintf(TEXT("Opening dir: %s\r\n"), Dir->Name);
       // Check if we have visited this node, if not allocate and fill it in.
       if (Dir->DirList != NULL) {
          DirList = (DIR_LIST *) Dir->DirList;
+         Count = DirList->Count;
 
          for (i = 0; i < DirList->Count; i++) {
             SendMessage(hWndList, LB_INSERTSTRING, (WPARAM) wItemNum + i + 1, (LPARAM) &DirList->DirBuffer[i]);
@@ -1159,11 +1564,27 @@ dprintf(TEXT("FileList Count: %li\r\n"), FileList->Count);
 } // FileSelect_ActionItem
 
 
-/*+-------------------------------------------------------------------------+
-  | TreeOpenRecurse()                                                       |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void TreeOpenRecurse(DIR_BUFFER *Dir, WORD *wItemNum) {
+/////////////////////////////////////////////////////////////////////////
+VOID
+TreeOpenRecurse(
+   DIR_BUFFER *Dir,
+   WORD *wItemNum
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    DIR_LIST *DirList = NULL;
    ULONG i;
 
@@ -1184,11 +1605,26 @@ void TreeOpenRecurse(DIR_BUFFER *Dir, WORD *wItemNum) {
 } // TreeOpenRecurse
 
 
-/*+-------------------------------------------------------------------------+
-  | FileSelect_UpdateFiles()                                                |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void FileSelect_UpdateFiles(HWND hDlg) {
+/////////////////////////////////////////////////////////////////////////
+VOID
+FileSelect_UpdateFiles(
+   HWND hDlg
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    static TCHAR NewPath[MAX_PATH + 1];
    WORD wItemNum;
    DWORD dwData;
@@ -1248,11 +1684,28 @@ dprintf(TEXT("FileList Count: %li\r\n"), FileList->Count);
 } // FileSelect_UpdateFiles
 
 
-/*+-------------------------------------------------------------------------+
-  | FileSelect_OnCommand()                                                  |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void FileSelect_OnCommand(HWND hDlg, WPARAM wParam, LPARAM lParam) {
+/////////////////////////////////////////////////////////////////////////
+VOID
+FileSelect_OnCommand(
+   HWND hDlg, 
+   WPARAM wParam, 
+   LPARAM lParam
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    static TCHAR NewPath[MAX_PATH + 1];
    int wmId, wmEvent;
    WORD wItemNum;
@@ -1295,6 +1748,11 @@ void FileSelect_OnCommand(HWND hDlg, WPARAM wParam, LPARAM lParam) {
          break;
 
       case IDCANCEL:
+
+         // Disable listboxes since we are deleting their item data
+         SendDlgItemMessage(hDlg, IDC_LIST1, WM_SETREDRAW, FALSE, 0L);
+         SendDlgItemMessage(hDlg, IDC_LIST2, WM_SETREDRAW, FALSE, 0L);
+
          // Get back our old tree
          if (CurrentShare->Root != NULL)
             TreeDelete(CurrentShare->Root);
@@ -1303,7 +1761,7 @@ void FileSelect_OnCommand(HWND hDlg, WPARAM wParam, LPARAM lParam) {
          EndDialog(hDlg, 0);
          break;
 
-      case IDC_HELP:
+      case IDHELP:
          WinHelp(hDlg, HELP_FILE, HELP_CONTEXT, (DWORD) IDC_HELP_FTRANS);
          break;
 
@@ -1412,8 +1870,11 @@ ExpandTree:
                if (DirList != NULL)
                   nLevel = DirList->Level;
 
-               if (!HierFile_InCheck(nLevel, LOWORD(mouseHit), &HierDrawStruct))
+               if (!HierFile_InCheck(nLevel, LOWORD(mouseHit), &HierDrawStruct)) {
+                  CursorHourGlass();
                   FileSelect_ActionItem(hCtrl, dwData, wItemNum);
+                  CursorNormal();
+               }
 
                break;
 
@@ -1453,18 +1914,31 @@ dprintf(TEXT("Root Path: %s\n"), NewPath);
 } // FileSelect_OnCommand
 
 
-static WNDPROC _wpOrigWndProc;
-static WNDPROC _wpOrigWndProc2;
+/////////////////////////////////////////////////////////////////////////
+LRESULT CALLBACK 
+FileSelectSubClassProc(
+   HWND hWnd, 
+   UINT message, 
+   WPARAM wParam, 
+   LPARAM lParam
+   )
+
+/*++
+
+Routine Description:
+
+    Handles key processing for the hierarchical listbox.  Specifically
+    the up/down arrow keys and the letter keys.
+
+Arguments:
 
 
-/*+-------------------------------------------------------------------------+
-  | FileSelectSubClassProc()                                                |
-  |                                                                         |
-  |    Handles key processing for the hierarchical listbox.  Specifically   |
-  |    the up/down arrow keys and the letter keys.                          |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-LRESULT CALLBACK FileSelectSubClassProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
+Return Value:
+
+
+--*/
+
+{
    LRESULT lResult = 0;
    BOOL fCallOrigProc = TRUE;
    WORD wItemNum, wNewNum;
@@ -1723,11 +2197,29 @@ LRESULT CALLBACK FileSelectSubClassProc(HWND hWnd, UINT message, WPARAM wParam, 
 } // FileSelectSubClassProc
 
 
-/*+-------------------------------------------------------------------------+
-  | DlgFileSelect()                                                         |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-LRESULT CALLBACK DlgFileSelect(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam) {
+/////////////////////////////////////////////////////////////////////////
+LRESULT CALLBACK 
+DlgFileSelect(
+   HWND hDlg, 
+   UINT message, 
+   WPARAM wParam, 
+   LPARAM lParam
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    int xPos;
    int yPos;
    BOOL InRange;
@@ -1772,25 +2264,13 @@ LRESULT CALLBACK DlgFileSelect(HWND hDlg, UINT message, WPARAM wParam, LPARAM lP
          ControlsResize(hDlg, HIWORD(lParam), LOWORD(lParam));
          break;
 
-
-#ifdef Ctl3d
-      case WM_SYSCOLORCHANGE:
-         Ctl3dColorChange();
-         break;
-#endif
-
-
       case WM_SETFONT:
          // Set the text height
           HierFile_DrawSetTextHeight(GetDlgItem(hDlg, IDC_LIST1), (HFONT)wParam, &HierDrawStruct);
          break;
 
       case WM_DRAWITEM:
-         // figure out if this is for the directory (IDC_LIST1) or file (IDC_LIST2) listbox
-         if (wParam == IDC_LIST2)
-            FileSelect_OnDrawItem(hDlg, (DRAWITEMSTRUCT FAR*)(lParam), TRUE);
-         else
-            FileSelect_OnDrawItem(hDlg, (DRAWITEMSTRUCT FAR*)(lParam), FALSE);
+         FileSelect_OnDrawItem(hDlg, (DRAWITEMSTRUCT FAR*)(lParam));
          return TRUE;
 
       case WM_MEASUREITEM:
@@ -1826,11 +2306,28 @@ LRESULT CALLBACK DlgFileSelect(HWND hDlg, UINT message, WPARAM wParam, LPARAM lP
 } // DlgFileSelect
 
 
-/*+-------------------------------------------------------------------------+
-  | FileSelect_Do()                                                         |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void FileSelect_Do(HWND hDlg, SOURCE_SERVER_BUFFER *SourceServ, SHARE_BUFFER *CShare) {
+/////////////////////////////////////////////////////////////////////////
+VOID 
+FileSelect_Do(
+   HWND hDlg, 
+   SOURCE_SERVER_BUFFER *SourceServ, 
+   SHARE_BUFFER *CShare
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    DLGPROC lpfnDlg;
 
    TreeRecurseCurrentShareSet(CShare);
@@ -1850,7 +2347,3 @@ void FileSelect_Do(HWND hDlg, SOURCE_SERVER_BUFFER *SourceServ, SHARE_BUFFER *CS
    HierFile_DrawTerm(&HierDrawStruct);
 
 } // FileSelect_Do
-
-
-
-

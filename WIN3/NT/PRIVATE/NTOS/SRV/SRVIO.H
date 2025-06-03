@@ -97,6 +97,16 @@ SrvBuildMailslotWriteRequest (
     );
 
 NTSTATUS
+SrvIssueMdlCompleteRequest (
+    IN PWORK_CONTEXT WorkContext OPTIONAL,
+    IN PFILE_OBJECT FileObject OPTIONAL,
+    IN PMDL Mdl,
+    IN UCHAR Function,
+    IN PLARGE_INTEGER ByteOffset,
+    IN ULONG Length
+    );
+
+NTSTATUS
 SrvIssueAssociateRequest (
     IN PFILE_OBJECT FileObject,
     IN PDEVICE_OBJECT *DeviceObject,
@@ -135,7 +145,8 @@ SrvIssueQueryDirectoryRequest (
     IN FILE_INFORMATION_CLASS FileInformationClass,
     IN PUNICODE_STRING FileName OPTIONAL,
     IN PULONG FileIndex OPTIONAL,
-    IN BOOLEAN RestartScan
+    IN BOOLEAN RestartScan,
+    IN BOOLEAN SingleEntriesOnly
     );
 
 NTSTATUS

@@ -48,7 +48,7 @@
 
 STDMETHODIMP COleObject::QueryInterface ( REFIID riid, LPVOID FAR* ppvObj)
 {
-	OutputDebugString("In COleObject::QueryInterface\r\n");
+	TestDebugOut("In COleObject::QueryInterface\r\n");
 	return m_lpObj->QueryInterface(riid, ppvObj);
 }
 
@@ -82,7 +82,7 @@ STDMETHODIMP COleObject::QueryInterface ( REFIID riid, LPVOID FAR* ppvObj)
 
 STDMETHODIMP_(ULONG) COleObject::AddRef ()
 {
-	OutputDebugString("In COleObject::AddRef\r\n");
+	TestDebugOut("In COleObject::AddRef\r\n");
 	++m_nCount;
 	return m_lpObj->AddRef();
 }
@@ -107,7 +107,7 @@ STDMETHODIMP_(ULONG) COleObject::AddRef ()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      CSimpSvrObj::Release        OBJ.CPP
 //
 // Comments:
@@ -117,7 +117,7 @@ STDMETHODIMP_(ULONG) COleObject::AddRef ()
 
 STDMETHODIMP_(ULONG) COleObject::Release ()
 {
-	OutputDebugString("In COleObject::Release\r\n");
+	TestDebugOut("In COleObject::Release\r\n");
 	--m_nCount;
 	return m_lpObj->Release();
 }
@@ -141,7 +141,7 @@ STDMETHODIMP_(ULONG) COleObject::Release ()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      IOleClientSite::Release     Container
 //      IOleClientSite::AddRef      Container
 //
@@ -152,7 +152,7 @@ STDMETHODIMP_(ULONG) COleObject::Release ()
 
 STDMETHODIMP COleObject::SetClientSite  ( LPOLECLIENTSITE pClientSite)
 {
-	OutputDebugString("In COleObject::SetClientSite\r\n");
+	TestDebugOut("In COleObject::SetClientSite\r\n");
 
 	// if we already have a client site, release it.
 	if (m_lpObj->m_lpOleClientSite)
@@ -192,7 +192,7 @@ STDMETHODIMP COleObject::SetClientSite  ( LPOLECLIENTSITE pClientSite)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      CreateOleAdviseHolder       OLE API
 //      IOleAdviseHolder::Advise    OLE
 //
@@ -203,7 +203,7 @@ STDMETHODIMP COleObject::SetClientSite  ( LPOLECLIENTSITE pClientSite)
 
 STDMETHODIMP COleObject::Advise ( LPADVISESINK pAdvSink, DWORD FAR* pdwConnection)
 {
-	OutputDebugString("In COleObject::Advise\r\n");
+	TestDebugOut("In COleObject::Advise\r\n");
 
 	// if we haven't made an OleAdviseHolder yet, make one.
 	if (!m_lpObj->m_lpOleAdviseHolder)
@@ -234,7 +234,7 @@ STDMETHODIMP COleObject::Advise ( LPADVISESINK pAdvSink, DWORD FAR* pdwConnectio
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -245,7 +245,7 @@ STDMETHODIMP COleObject::Advise ( LPADVISESINK pAdvSink, DWORD FAR* pdwConnectio
 
 STDMETHODIMP COleObject::SetHostNames  ( LPCSTR szContainerApp, LPCSTR szContainerObj)
 {
-	OutputDebugString("In COleObject::SetHostNames\r\n");
+	TestDebugOut("In COleObject::SetHostNames\r\n");
 
 	return ResultFromScode( S_OK);
 };
@@ -289,7 +289,7 @@ STDMETHODIMP COleObject::SetHostNames  ( LPCSTR szContainerApp, LPCSTR szContain
 // Function Calls:
 //      Function                            Location
 //
-//      OutputDebugString                   Windows API
+//      TestDebugOut                   Windows API
 //      ShowWindow                          Windows API
 //      CSimpSvrObj::DoInPlaceActivate      OBJ.CPP
 //      CSimpSvrObj::DoInPlaceHide          OBJ.CPP
@@ -312,7 +312,7 @@ STDMETHODIMP COleObject::DoVerb  (  LONG iVerb,
 									HWND hwndParent,
 									LPCRECT lprcPosRect)
 {
-	OutputDebugString("In COleObject::DoVerb\r\n");
+	TestDebugOut("In COleObject::DoVerb\r\n");
 
 	switch (iVerb)
 		{
@@ -391,7 +391,7 @@ STDMETHODIMP COleObject::DoVerb  (  LONG iVerb,
 // Function Calls:
 //      Function                        Location
 //
-//      OutputDebugString               Windows API
+//      TestDebugOut               Windows API
 //      XformWidthInPixelsToHimetric    OLE2UI
 //      XformHeightInPixelsToHimetric   OLE2UI
 //
@@ -402,7 +402,7 @@ STDMETHODIMP COleObject::DoVerb  (  LONG iVerb,
 
 STDMETHODIMP COleObject::GetExtent  ( DWORD dwDrawAspect, LPSIZEL lpsizel)
 {
-	OutputDebugString("In COleObject::GetExtent\r\n");
+	TestDebugOut("In COleObject::GetExtent\r\n");
 
 	SCODE sc = E_FAIL;
 
@@ -438,7 +438,7 @@ STDMETHODIMP COleObject::GetExtent  ( DWORD dwDrawAspect, LPSIZEL lpsizel)
 // Function Calls:
 //      Function                            Location
 //
-//      OutputDebugString                   Windows API
+//      TestDebugOut                   Windows API
 //      IDataAdviseHolder::SendOnDataChange OLE
 //
 // Comments:
@@ -448,7 +448,7 @@ STDMETHODIMP COleObject::GetExtent  ( DWORD dwDrawAspect, LPSIZEL lpsizel)
 
 STDMETHODIMP COleObject::Update()
 {
-	OutputDebugString("In COleObject::Update\r\n");
+	TestDebugOut("In COleObject::Update\r\n");
 
 	// force an update
 	m_lpObj->SendOnDataChange();
@@ -476,7 +476,7 @@ STDMETHODIMP COleObject::Update()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      CSimpSvrDoc::Close          DOC.CPP
 //
 // Comments:
@@ -486,7 +486,7 @@ STDMETHODIMP COleObject::Update()
 
 STDMETHODIMP COleObject::Close  ( DWORD dwSaveOption)
 {
-	OutputDebugString("In COleObject::Close\r\n");
+	TestDebugOut("In COleObject::Close\r\n");
 
 	// delegate to the document object.
 	m_lpObj->m_lpDoc->Close();
@@ -513,7 +513,7 @@ STDMETHODIMP COleObject::Close  ( DWORD dwSaveOption)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      IOleAdviseHolder::Unadvise  OLE
 //
 // Comments:
@@ -523,7 +523,7 @@ STDMETHODIMP COleObject::Close  ( DWORD dwSaveOption)
 
 STDMETHODIMP COleObject::Unadvise ( DWORD dwConnection)
 {
-	OutputDebugString("In COleObject::Unadvise\r\n");
+	TestDebugOut("In COleObject::Unadvise\r\n");
 
 	// pass on to OleAdviseHolder.
 	return m_lpObj->m_lpOleAdviseHolder->Unadvise(dwConnection);
@@ -550,7 +550,7 @@ STDMETHODIMP COleObject::Unadvise ( DWORD dwConnection)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -563,7 +563,7 @@ STDMETHODIMP COleObject::Unadvise ( DWORD dwConnection)
 
 STDMETHODIMP COleObject::EnumVerbs  ( LPENUMOLEVERB FAR* ppenumOleVerb)
 {
-	OutputDebugString("In COleObject::EnumVerbs\r\n");
+	TestDebugOut("In COleObject::EnumVerbs\r\n");
 
 	return ResultFromScode( OLE_S_USEREG );
 };
@@ -588,7 +588,7 @@ STDMETHODIMP COleObject::EnumVerbs  ( LPENUMOLEVERB FAR* ppenumOleVerb)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -597,7 +597,7 @@ STDMETHODIMP COleObject::EnumVerbs  ( LPENUMOLEVERB FAR* ppenumOleVerb)
 
 STDMETHODIMP COleObject::GetClientSite  ( LPOLECLIENTSITE FAR* ppClientSite)
 {
-	OutputDebugString("In COleObject::GetClientSite\r\n");
+	TestDebugOut("In COleObject::GetClientSite\r\n");
 	*ppClientSite = m_lpObj->m_lpOleClientSite;
 	return ResultFromScode( S_OK );
 }
@@ -622,7 +622,7 @@ STDMETHODIMP COleObject::GetClientSite  ( LPOLECLIENTSITE FAR* ppClientSite)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -631,7 +631,7 @@ STDMETHODIMP COleObject::GetClientSite  ( LPOLECLIENTSITE FAR* ppClientSite)
 
 STDMETHODIMP COleObject::SetMoniker  ( DWORD dwWhichMoniker, LPMONIKER pmk)
 {
-	OutputDebugString("In COleObject::SetMoniker\r\n");
+	TestDebugOut("In COleObject::SetMoniker\r\n");
 
 	LPMONIKER lpmk;
 
@@ -682,7 +682,7 @@ STDMETHODIMP COleObject::SetMoniker  ( DWORD dwWhichMoniker, LPMONIKER pmk)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -692,7 +692,7 @@ STDMETHODIMP COleObject::SetMoniker  ( DWORD dwWhichMoniker, LPMONIKER pmk)
 STDMETHODIMP COleObject::GetMoniker  (  DWORD dwAssign, DWORD dwWhichMoniker,
 										LPMONIKER FAR* ppmk)
 {
-	OutputDebugString("In COleObject::GetMoniker\r\n");
+	TestDebugOut("In COleObject::GetMoniker\r\n");
 	// need to NULL the out parameter
 	*ppmk = NULL;
 
@@ -724,7 +724,7 @@ STDMETHODIMP COleObject::GetMoniker  (  DWORD dwAssign, DWORD dwWhichMoniker,
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -737,7 +737,7 @@ STDMETHODIMP COleObject::InitFromData  ( LPDATAOBJECT pDataObject,
 										 BOOL fCreation,
 										 DWORD dwReserved)
 {
-	OutputDebugString("In COleObject::InitFromData\r\n");
+	TestDebugOut("In COleObject::InitFromData\r\n");
 
 	return ResultFromScode( S_FALSE );
 };
@@ -763,7 +763,7 @@ STDMETHODIMP COleObject::InitFromData  ( LPDATAOBJECT pDataObject,
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -774,7 +774,7 @@ STDMETHODIMP COleObject::InitFromData  ( LPDATAOBJECT pDataObject,
 STDMETHODIMP COleObject::GetClipboardData  ( DWORD dwReserved,
 											 LPDATAOBJECT FAR* ppDataObject)
 {
-	OutputDebugString("In COleObject::GetClipboardData\r\n");
+	TestDebugOut("In COleObject::GetClipboardData\r\n");
 	// NULL the out ptr
 	*ppDataObject = NULL;
 	return ResultFromScode( E_NOTIMPL );
@@ -799,7 +799,7 @@ STDMETHODIMP COleObject::GetClipboardData  ( DWORD dwReserved,
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -810,7 +810,7 @@ STDMETHODIMP COleObject::GetClipboardData  ( DWORD dwReserved,
 
 STDMETHODIMP COleObject::IsUpToDate()
 {
-	OutputDebugString("In COleObject::IsUpToDate\r\n");
+	TestDebugOut("In COleObject::IsUpToDate\r\n");
 	return ResultFromScode( S_OK );
 };
 
@@ -833,7 +833,7 @@ STDMETHODIMP COleObject::IsUpToDate()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      CPersistStorage::GetClassID IPS.CPP
 //
 // Comments:
@@ -844,7 +844,7 @@ STDMETHODIMP COleObject::IsUpToDate()
 
 STDMETHODIMP COleObject::GetUserClassID  ( CLSID FAR* pClsid)
 {
-	OutputDebugString("In COleObject::GetUserClassID\r\n");
+	TestDebugOut("In COleObject::GetUserClassID\r\n");
 
 	m_lpObj->m_PersistStorage.GetClassID(pClsid);
 	return ResultFromScode( S_OK );
@@ -871,7 +871,7 @@ STDMETHODIMP COleObject::GetUserClassID  ( CLSID FAR* pClsid)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -880,7 +880,7 @@ STDMETHODIMP COleObject::GetUserClassID  ( CLSID FAR* pClsid)
 
 STDMETHODIMP COleObject::GetUserType  ( DWORD dwFormOfType, LPSTR FAR* pszUserType)
 {
-	OutputDebugString("In COleObject::GetUserType\r\n");
+	TestDebugOut("In COleObject::GetUserType\r\n");
 
 	return ResultFromScode( OLE_S_USEREG );
 };
@@ -906,7 +906,7 @@ STDMETHODIMP COleObject::GetUserType  ( DWORD dwFormOfType, LPSTR FAR* pszUserTy
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -915,7 +915,7 @@ STDMETHODIMP COleObject::GetUserType  ( DWORD dwFormOfType, LPSTR FAR* pszUserTy
 
 STDMETHODIMP COleObject::SetExtent  ( DWORD dwDrawAspect, LPSIZEL lpsizel)
 {
-	OutputDebugString("In COleObject::SetExtent\r\n");
+	TestDebugOut("In COleObject::SetExtent\r\n");
 	return ResultFromScode( E_NOTIMPL);
 };
 
@@ -940,7 +940,7 @@ STDMETHODIMP COleObject::SetExtent  ( DWORD dwDrawAspect, LPSIZEL lpsizel)
 // Function Calls:
 //      Function                        Location
 //
-//      OutputDebugString               Windows API
+//      TestDebugOut               Windows API
 //      IOleAdviseHolder::EnumAdvise    OLE
 //
 // Comments:
@@ -950,7 +950,7 @@ STDMETHODIMP COleObject::SetExtent  ( DWORD dwDrawAspect, LPSIZEL lpsizel)
 
 STDMETHODIMP COleObject::EnumAdvise  ( LPENUMSTATDATA FAR* ppenumAdvise)
 {
-	OutputDebugString("In COleObject::EnumAdvise\r\n");
+	TestDebugOut("In COleObject::EnumAdvise\r\n");
 	// need to NULL the out parameter
 	*ppenumAdvise = NULL;
 
@@ -979,7 +979,7 @@ STDMETHODIMP COleObject::EnumAdvise  ( LPENUMSTATDATA FAR* ppenumAdvise)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -988,7 +988,7 @@ STDMETHODIMP COleObject::EnumAdvise  ( LPENUMSTATDATA FAR* ppenumAdvise)
 
 STDMETHODIMP COleObject::GetMiscStatus  ( DWORD dwAspect, DWORD FAR* pdwStatus)
 {
-	OutputDebugString("In COleObject::GetMiscStatus\r\n");
+	TestDebugOut("In COleObject::GetMiscStatus\r\n");
 	// need to NULL the out parameter
 	*pdwStatus = NULL;
 	return ResultFromScode( OLE_S_USEREG );
@@ -1013,7 +1013,7 @@ STDMETHODIMP COleObject::GetMiscStatus  ( DWORD dwAspect, DWORD FAR* pdwStatus)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -1023,7 +1023,7 @@ STDMETHODIMP COleObject::GetMiscStatus  ( DWORD dwAspect, DWORD FAR* pdwStatus)
 
 STDMETHODIMP COleObject::SetColorScheme  ( LPLOGPALETTE lpLogpal)
 {
-	OutputDebugString("In COleObject::SetColorScheme\r\n");
+	TestDebugOut("In COleObject::SetColorScheme\r\n");
 	return ResultFromScode( S_OK );
 };
 
@@ -1049,7 +1049,7 @@ STDMETHODIMP COleObject::SetColorScheme  ( LPLOGPALETTE lpLogpal)
 //      IOleClientSite::OnShowWindow    Container
 //      ShowWindow                      Windows API
 //      UpdateWindow                    Windows API
-//      OutputDebugString               Windows API
+//      TestDebugOut               Windows API
 //      CSimpSvrDoc::GethAppWnd         DOC.H
 //      CSimpSvrDoc::GethHatchWnd       DOC.H
 //

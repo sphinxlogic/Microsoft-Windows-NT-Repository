@@ -231,6 +231,16 @@ Language=English
 This volume cannot be formatted to the FAT file system.  FAT can only support volumes up to 4GB in size.
 .
 
+MessageID=9031 SymbolicName=MSG_NO_DISK_INFO
+Language=English
+The configuration selected does not contain any disk configuration information.  No change will be made to the current configuration.
+.
+
+MessageID=9032 SymbolicName=MSG_DISK_INFO_BUSY
+Language=English
+The configuration selected is currently open by another application.  Close the other accesses to this file and try again.
+.
+
 ;#if i386
 
 MessageID=9100 SymbolicName=MSG_DISK0_ACTIVE
@@ -582,9 +592,9 @@ Language=English
 exit due to cancel return.
 .
 
-MessageID=9903 SymbolicName=MSG_STEP
+MessageID=9903 SymbolicName=MSG_CANNOT_MOVE_CDROM
 Language=English
-Next step in the format.
+The new drive letter for the CdRom is still in use.  Commit current Disk Administrator changes, verify network drive letter assignments and try again.
 .
 
 MessageID=9904 SymbolicName=MSG_NOT_COMMITTED
@@ -601,7 +611,7 @@ Do you wish to continue?
 
 MessageID=9910 SymbolicName=MSG_NO_COMMIT
 Language=English
-Not all of the affected disks can be changed without restarting the NT system.
+Not all of the affected disks can be changed without restarting the Windows NT system.
 .
 
 MessageID=9911 SymbolicName=MSG_CANT_BREAK_WHILE_INITIALIZING

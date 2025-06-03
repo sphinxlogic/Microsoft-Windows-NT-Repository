@@ -163,7 +163,7 @@ Return Values:
 
             ObjectAttributes->RootDirectory = NULL;
 
-            Status = LsarOpenPolicy(
+            Status = LsarOpenPolicy2(
                          ServerName,
                          (PLSAPR_OBJECT_ATTRIBUTES) ObjectAttributes,
                          DesiredAccess,
@@ -176,6 +176,34 @@ Return Values:
         Status = LsapApiReturnResult(I_RpcMapWin32Status(RpcExceptionCode()));
 
     } RpcEndExcept;
+
+    //
+    // If the open failed because the new API doesn't exist, try the
+    // old one.
+    //
+
+    if ((Status == RPC_NT_UNKNOWN_IF) ||
+        (Status == RPC_NT_PROCNUM_OUT_OF_RANGE)) {
+
+        RpcTryExcept {
+            ASSERT(*PolicyHandle == NULL);
+            ASSERT(ObjectAttributes->RootDirectory == NULL);
+
+            Status = LsarOpenPolicy(
+                         ServerName,
+                         (PLSAPR_OBJECT_ATTRIBUTES) ObjectAttributes,
+                         DesiredAccess,
+                         (PLSAPR_HANDLE) PolicyHandle
+                         );
+
+
+        } RpcExcept( EXCEPTION_EXECUTE_HANDLER ) {
+
+            Status = LsapApiReturnResult(I_RpcMapWin32Status(RpcExceptionCode()));
+
+        } RpcEndExcept;
+
+    }
 
     //
     // If necessary, free the NULL-terminated server name buffer.
@@ -695,6 +723,10 @@ Return Value:
     } RpcExcept( EXCEPTION_EXECUTE_HANDLER ) {
 
         Status = LsapApiReturnResult(I_RpcMapWin32Status(RpcExceptionCode()));
+        if ((Status != RPC_NT_SS_CONTEXT_MISMATCH) &&
+            (Status != RPC_NT_INVALID_BINDING)) {
+            (void) RpcSsDestroyClientContext(&Handle);
+        }
 
     } RpcEndExcept;
 
@@ -3682,6 +3714,84 @@ QuerySecretError:
     }
 
     goto QuerySecretFinish;
+}
+
+
+NTSTATUS
+LsaGetUserName(
+    OUT PUNICODE_STRING * UserName,
+    OUT OPTIONAL PUNICODE_STRING * DomainName
+    )
+
+/*++
+
+Routine Description:
+
+    This function returns the callers user name and domain name
+
+
+Arguments:
+
+    UserName - Receives a pointer to the user's name.
+
+    DomainName - Optionally receives a pointer to the user's domain name.
+
+
+Return Value:
+
+    NTSTATUS - The privilege was found and returned.
+
+
+--*/
+
+{
+
+    NTSTATUS Status;
+    PLSAPR_UNICODE_STRING UserNameBuffer = NULL;
+    PLSAPR_UNICODE_STRING DomainNameBuffer = NULL;
+
+    RpcTryExcept {
+
+        //
+        // Call the Client Stub for LsaGetUserName
+        //
+
+        Status = LsarGetUserName(
+                     NULL,
+                     &UserNameBuffer,
+                     ARGUMENT_PRESENT(DomainName) ? &DomainNameBuffer : NULL
+                     );
+
+        (*UserName) = (PUNICODE_STRING)UserNameBuffer;
+
+        if (ARGUMENT_PRESENT(DomainName)) {
+            (*DomainName) = (PUNICODE_STRING)DomainNameBuffer;
+        }
+
+    } RpcExcept( EXCEPTION_EXECUTE_HANDLER ) {
+
+        //
+        // If memory was allocated for the return buffer, free it.
+        //
+
+        if (UserNameBuffer != NULL) {
+
+            MIDL_user_free(UserNameBuffer);
+        }
+
+        if (DomainNameBuffer != NULL) {
+
+            MIDL_user_free(DomainNameBuffer);
+        }
+
+        Status = LsapApiReturnResult(I_RpcMapWin32Status(RpcExceptionCode()));
+
+    } RpcEndExcept;
+
+
+    return(Status);
+
+
 }
 
 

@@ -120,6 +120,39 @@ enum _DLC_OBJECT_STATES {
 };
 
 //
+// The Token-Ring status codes documented in Appendix B of the IBM LAN
+// Tech Reference are shifted right one bit from the NDIS values 
+// documented in "ntddndis.h."
+//
+// In versions 3.xx of Windows NT, DLC returns a Network Status that
+// agrees with the NDIS values.  In version 4.xx and newer, IBM
+// compatible values are used.
+//
+// These macros may be used to convert between the two conventions.
+//
+
+#define NDIS_RING_STATUS_TO_DLC_RING_STATUS(status) ((status)>>1)
+#define DLC_RING_STATUS_TO_NDIS_RING_STATUS(status) ((status)<<1)
+
+
+#define NDIS_RING_STATUS_MASK \
+	NDIS_RING_SIGNAL_LOSS\
+	|NDIS_RING_HARD_ERROR\
+	|NDIS_RING_SOFT_ERROR\
+	|NDIS_RING_TRANSMIT_BEACON\
+	|NDIS_RING_LOBE_WIRE_FAULT\
+	|NDIS_RING_AUTO_REMOVAL_ERROR\
+	|NDIS_RING_REMOVE_RECEIVED\
+	|NDIS_RING_COUNTER_OVERFLOW\
+	|NDIS_RING_SINGLE_STATION\
+	|NDIS_RING_RING_RECOVERY
+
+#define DLC_RING_STATUS_MASK NDIS_RING_STATUS_TO_DLC_RING_STATUS(NDIS_RING_STATUS_MASK)
+
+#define IS_NDIS_RING_STATUS(status) (((status)&NDIS_RING_STATUS_MASK)!=0)
+#define IS_DLC_RING_STATUS(status) (((status)&DLC_RING_STATUS_MASK)!=0)
+
+//
 // ENTER/LEAVE_DLC - acquires or releases the per-file context spin lock. Use
 // Ndis spin locking calls
 //
@@ -143,30 +176,46 @@ enum _DLC_OBJECT_STATES {
 #if DBG
 
 #define DereferenceFileContext(pFileContext)                \
-    if (pFileContext->ReferenceCount == 0) {                \
-        DbgPrint("DLC.DereferenceFileContext: Error: file context %08x: reference count already 0\n",\
-                pFileContext                                \
-                );                                          \
-        DbgBreakPoint();                                    \
-    }                                                       \
-    (pFileContext)->ReferenceCount--;
-
-#define DereferenceFileContextByTwo(pFileContext)           \
-    if (pFileContext->ReferenceCount <= 1) {                \
-        DbgPrint("DLC.DereferenceFileContextByTwo: Error: file context %08x: reference count %d\n",\
+    if (pFileContext->ReferenceCount <= 0) {                \
+        DbgPrint("DLC.DereferenceFileContext: Error: file context %08x: reference count %x\n",\
                 pFileContext,                               \
                 pFileContext->ReferenceCount                \
                 );                                          \
         DbgBreakPoint();                                    \
     }                                                       \
-    (pFileContext)->ReferenceCount -= 2;
+    (pFileContext)->ReferenceCount--;                       \
+    if ((pFileContext)->ReferenceCount <= 0) {              \
+        DlcKillFileContext(pFileContext);                   \
+    }
+
+#define DereferenceFileContextByTwo(pFileContext)           \
+    if (pFileContext->ReferenceCount <= 1) {                \
+        DbgPrint("DLC.DereferenceFileContextByTwo: Error: file context %08x: reference count %x\n",\
+                pFileContext,                               \
+                pFileContext->ReferenceCount                \
+                );                                          \
+        DbgBreakPoint();                                    \
+    }                                                       \
+    (pFileContext)->ReferenceCount -= 2;                    \
+    if ((pFileContext)->ReferenceCount <= 0) {              \
+        DlcKillFileContext(pFileContext);                   \
+    }
 
 #else
 
-#define DereferenceFileContext(pFileContext)        (pFileContext)->ReferenceCount--
-#define DereferenceFileContextByTwo(pFileContext)   (pFileContext)->ReferenceCount -= 2
+#define DereferenceFileContext(pFileContext)                \
+    (pFileContext)->ReferenceCount--;                       \
+    if ((pFileContext)->ReferenceCount <= 0) {              \
+        DlcKillFileContext(pFileContext);                   \
+    }
 
-#endif
+#define DereferenceFileContextByTwo(pFileContext)           \
+    (pFileContext)->ReferenceCount -= 2;                    \
+    if ((pFileContext)->ReferenceCount <= 0) {              \
+        DlcKillFileContext(pFileContext);                   \
+    }
+
+#endif  // DBG
 
 #define BufferPoolCount(hBufferPool) \
     (((PDLC_BUFFER_POOL)hBufferPool)->FreeSpace >= (256L * 0x0000ffffL) ? \

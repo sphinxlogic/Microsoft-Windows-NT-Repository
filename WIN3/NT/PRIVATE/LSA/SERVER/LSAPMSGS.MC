@@ -41,7 +41,7 @@ Language=English
 ;//                                                                        //
 ;//                                                                        //
 ;//                         Well Known SID & RID Names                     //
-;//                                                                         
+;//
 ;//
 ;//                                                                        //
 ;//                                                                        //
@@ -121,6 +121,21 @@ SYSTEM
 MessageId=0x200E SymbolicName=LSAP_SID_NAME_ANONYMOUS
 Language=English
 ANONYMOUS LOGON
+.
+
+MessageId=0x200f SymbolicName=LSAP_SID_NAME_CREATOR_OWNER_SERVER
+Language=English
+CREATOR OWNER SERVER
+.
+
+MessageId=0x2010 SymbolicName=LSAP_SID_NAME_CREATOR_GROUP_SERVER
+Language=English
+CREATOR GROUP SERVER
+.
+
+MessageId=0x2011 SymbolicName=LSAP_SID_NAME_SERVER
+Language=English
+SERVER LOGON
 .
 
 

@@ -63,13 +63,13 @@ _CRTAPI1 main( int argc, char **argv )
     }
 
     s++;
-    if ( !stricmp( s, "add" ) || !stricmp( s, "a" ) ) {
+    if ( !_stricmp( s, "add" ) || !_stricmp( s, "a" ) ) {
         add = TRUE;
-    } else if ( !stricmp( s, "del" ) || !stricmp( s, "d" ) ) {
+    } else if ( !_stricmp( s, "del" ) || !_stricmp( s, "d" ) ) {
         delete = TRUE;
-    } else if ( !stricmp( s, "list" ) || !stricmp( s, "l" ) ) {
+    } else if ( !_stricmp( s, "list" ) || !_stricmp( s, "l" ) ) {
         list = TRUE;
-    } else if ( !stricmp( s, "clear" ) || !stricmp( s, "c" ) ) {
+    } else if ( !_stricmp( s, "clear" ) || !_stricmp( s, "c" ) ) {
         clear = TRUE;
     } else {
         printf("Invalid operation %s.\n", s);
@@ -89,9 +89,9 @@ _CRTAPI1 main( int argc, char **argv )
     }
 
     s++;
-    if ( !stricmp( s, "share" ) || !stricmp( s, "s" ) ) {
+    if ( !_stricmp( s, "share" ) || !_stricmp( s, "s" ) ) {
         pipes = FALSE;
-    } else if ( !stricmp( s, "pipe" ) || !stricmp( s, "p" ) ) {
+    } else if ( !_stricmp( s, "pipe" ) || !_stricmp( s, "p" ) ) {
         pipes = TRUE;
     } else {
         printf("Invalid resource type %s.\n", s);

@@ -22,6 +22,9 @@
 #define HANDLE_32BIT       0x02
 #define HANDLE_16BITRES    0x04
 
+#define CIALIAS_TASKISGONE  0x01
+#define CIALIAS_HMOD        0x02
+#define CIALIAS_HTASK       0x04
 
 typedef struct _CURSORICONALIAS {
     struct _CURSORICONALIAS FAR *lpNext;
@@ -30,6 +33,7 @@ typedef struct _CURSORICONALIAS {
     HAND16 h16;
     HAND32 h32;
     HAND16 hInst16;
+    HAND16 hMod16;
     HTASK16 hTask16;
     WORD    hRes16;         // 16bit resource handle
     WORD    cbData;
@@ -58,7 +62,7 @@ HAND16 GetCursorIconAlias16(HAND32 h32, UINT flType);
 LPCURSORICONALIAS AllocCursorIconAlias();
 LPCURSORICONALIAS FindCursorIconAlias(ULONG hCI, UINT flHandleSize);
 BOOL DeleteCursorIconAlias(ULONG hCI, UINT flHandleSize);
-BOOL FreeCursorIconAlias(HTASK16 hTask16);
+BOOL FreeCursorIconAlias(HAND16 hand16, ULONG ulFLags);
 HAND16 SetupCursorIconAlias(HAND16 hInst16, HAND32 h32, HAND16 h16, UINT flType,
                                LPBYTE lpResName, WORD hRes16);
 HAND16 SetupResCursorIconAlias(HAND16 hInst16, HAND32 h32, LPBYTE lpResName, WORD hRes16, UINT flType);
@@ -89,6 +93,4 @@ VOID InvalidateCursorIconAlias(LPCURSORICONALIAS lpT);
 
 HANDLE WINAPI WOWLoadCursorIcon(HANDLE hInstance, LPCSTR lpIconName,
                                                  LPTSTR rt, LPHANDLE lphRes16);
-BOOL SetCursorContents(HCURSOR hCur, HCURSOR hCurNew);
 HAND16 W32CheckIfAlreadyLoaded(VPVOID pData, WORD ResType);
-

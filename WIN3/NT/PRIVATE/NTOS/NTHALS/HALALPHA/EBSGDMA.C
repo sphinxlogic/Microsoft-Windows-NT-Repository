@@ -42,6 +42,8 @@ Revision History:
 --*/
 
 #include "halp.h"
+#include "pci.h"
+#include "pcip.h"
 
 
 //
@@ -255,6 +257,8 @@ Return Value:
 {
     ULONG MaximumMapRegistersPerChannel;
     PADAPTER_OBJECT adapterObject;
+    PBUS_HANDLER BusHandler;
+    PPCIPBUSDATA PciBusData;
 
     //
     // Make sure this is the correct version.
@@ -267,16 +271,84 @@ Return Value:
     }
 
     //
-    // If the device is not a master device then it must be an
-    // EISA or ISA device.
+    // If the device is not a bus master, then it must be an ISA, EISA
+    // or PCI device on hardware bus 0.  PCI devices on hardware busses
+    // other than 0 cannot support slave DMA devices because the DMAC
+    // needed to support slave DMA is part of the ISA/EISA bridge, (which
+    // is located on h/w bus 0).
     //
 
-    if( (DeviceDescription->Master != TRUE) &&
-        (DeviceDescription->InterfaceType != Isa) &&
-        (DeviceDescription->InterfaceType != Eisa) &&
-        (DeviceDescription->InterfaceType != PCIBus) ){
+    if( DeviceDescription->Master != TRUE ){
 
-        return NULL;
+        //
+        // This device requires slave DMA h/w support.  Determine which
+        // type of device it is.
+        //
+
+        switch( DeviceDescription->InterfaceType ){
+
+        case Isa:
+        case Eisa:
+
+            //
+            // The ISA/EISA bridge implements the DMA controller logic
+            // needed to support slave DMA.
+            //
+
+            break;
+
+        case PCIBus:
+
+            //
+            // Get the bus handler for the PCI bus.
+            //
+
+            BusHandler = HaliHandlerForBus(
+                             PCIBus,
+                             DeviceDescription->BusNumber
+                         );
+
+            //
+            // If a bus handler does not exist, then there is a s/w bug
+            // somewhere.  Just return failure.
+            //
+
+            if( BusHandler == NULL ){
+
+                return NULL;
+
+            }
+
+            //
+            // Get a pointer to the PCI private bus data for this bus.
+            // The h/w bus number is located therein.
+            //
+
+            PciBusData = (PPCIPBUSDATA)BusHandler->BusData;
+
+            //
+            // The DMA controller we use to support slave DMA is located
+            // on the ISA/EISA bridge in h/w bus 0.  If this PCI bus is
+            // not located on h/w bus 0, return failure.
+            //
+
+            if( PciBusData->HwBusNumber != 0 ){
+
+                return NULL;
+
+            }
+
+            break;
+
+        default:
+
+            //
+            // We only support ISA, EISA and PCI slave DMA.
+            //
+
+            return NULL;
+
+        }
 
     }
 
@@ -688,6 +760,16 @@ Return Value:
     PMAP_REGISTER_ADAPTER mapAdapter;
 
     //
+    // Some devices do DMA prefetch.  This is bad since it will cause certain
+    // chipsets to generate a PFN error because a map register has not been
+    // allocated and validated.  To fix this, we'll put in a hack.  We'll
+    // allocate one extra map register and map it to some junk page to avoid
+    // this nasty problem.
+    //
+
+    NumberOfMapRegisters += 1;
+
+    //
     // Acquire a pointer to the map adapter that contains the map registers
     // for the adapter.
     //
@@ -733,7 +815,7 @@ Return Value:
 
             ExtentBegin = RtlFindClearBits(
                                     mapAdapter->MapRegisterAllocation,
-                                    (NumberOfMapRegisters * 2) - 1,
+                                    NumberOfMapRegisters + 7,
                                     0 );
 
             if( ExtentBegin != -1 ){
@@ -746,19 +828,7 @@ Return Value:
                 //
 
                 AllocationMask = (__64K >> PAGE_SHIFT) - 1;
-                HintIndex = ExtentBegin;
-
-                if( (ExtentBegin + NumberOfMapRegisters) >
-                    ((ExtentBegin + AllocationMask) & ~AllocationMask) ){
-
-                    //
-                    // Allocation would have spanned a 64K boundary.
-                    // Round up to next 64K boundary.
-                    //
-
-                    HintIndex = (ExtentBegin+AllocationMask) & ~AllocationMask;
-
-                }
+                HintIndex = (ExtentBegin+AllocationMask) & ~AllocationMask;
 
                 MapRegisterIndex = RtlFindClearBitsAndSet(
                                          mapAdapter->MapRegisterAllocation,
@@ -774,10 +844,19 @@ Return Value:
             // This allocation is not subject to the Isa 64K restriction.
             //
 
+            ExtentBegin = RtlFindClearBits(
+                                    mapAdapter->MapRegisterAllocation,
+                                    NumberOfMapRegisters + 7,
+                                    0 );
+
+            AllocationMask = (__64K >> PAGE_SHIFT) - 1;
+
+            HintIndex = (ExtentBegin + AllocationMask) & ~AllocationMask;
+
             MapRegisterIndex = RtlFindClearBitsAndSet(
                                      mapAdapter->MapRegisterAllocation,
                                      NumberOfMapRegisters,
-                                     0 );
+                                     HintIndex );
 
         } //endif HalpBusType == MACHINE_TYPE_ISA
 
@@ -944,11 +1023,12 @@ Return Value:
 
 }
 
+
 
 PVOID
 HalAllocateCrashDumpRegisters(
     IN PADAPTER_OBJECT AdapterObject,
-    IN ULONG NumberOfMapRegisters
+    IN PULONG NumberOfMapRegisters
     )
 /*++
 
@@ -961,7 +1041,8 @@ Arguments:
 
     AdapterObject - Pointer to the adapter control object to allocate to the
         driver.
-    NumberOfMapRegisters - Number of map registers requested.
+    NumberOfMapRegisters - Number of map registers requested and updated to
+        show number actually allocated.
 
 Return Value:
 
@@ -988,7 +1069,7 @@ Return Value:
     // the request.
     //
 
-    if (NumberOfMapRegisters > MapAdapter->NumberOfMapRegisters) {
+    if (*NumberOfMapRegisters > MapAdapter->NumberOfMapRegisters) {
         AdapterObject->NumberOfMapRegisters = 0;
         return NULL;
     }
@@ -1019,7 +1100,7 @@ Return Value:
 
         ExtentBegin = RtlFindClearBits(
                                     MapAdapter->MapRegisterAllocation,
-                                    (NumberOfMapRegisters * 2) - 1,
+                                    (*NumberOfMapRegisters * 2) - 1,
                                     0 );
         if( ExtentBegin != -1){
 
@@ -1033,7 +1114,7 @@ Return Value:
             AllocationMask = (__64K >> PAGE_SHIFT) - 1;
             HintIndex = ExtentBegin;
 
-            if( (ExtentBegin + NumberOfMapRegisters) >
+            if( (ExtentBegin + *NumberOfMapRegisters) >
                 ((ExtentBegin + AllocationMask) & ~AllocationMask) ){
 
                 //
@@ -1047,7 +1128,7 @@ Return Value:
 
             MapRegisterIndex = RtlFindClearBitsAndSet(
                                     MapAdapter->MapRegisterAllocation,
-                                    NumberOfMapRegisters,
+                                    *NumberOfMapRegisters,
                                     HintIndex );
 
         }
@@ -1062,7 +1143,7 @@ Return Value:
 
         MapRegisterIndex = RtlFindClearBitsAndSet(
                                 MapAdapter->MapRegisterAllocation,
-                                NumberOfMapRegisters,
+                                *NumberOfMapRegisters,
                                 0 );
 
     }
@@ -1079,7 +1160,7 @@ Return Value:
         RtlSetBits(
             MapAdapter->MapRegisterAllocation,
             HintIndex,
-            NumberOfMapRegisters
+            *NumberOfMapRegisters
             );
         MapRegisterIndex = HintIndex;
 
@@ -1094,6 +1175,7 @@ Return Value:
 
     return AdapterObject->MapRegisterBase;
 }
+
 
 
 VOID
@@ -1134,6 +1216,13 @@ Return Value:
    PWAIT_CONTEXT_BLOCK Wcb;
    PMAP_REGISTER_ADAPTER mapAdapter;
 
+
+    //
+    // Deallocate the extra map register that we originally allocated to fix
+    // the DMA prefetch problem.
+    //
+
+    NumberOfMapRegisters += 1;
 
     //
     // Begin by getting the address of the map register adapter.
@@ -1493,6 +1582,7 @@ N.B. - The MapRegisterBase must point to the mapping intended for
     ULONG i;
     PMAP_REGISTER_ADAPTER mapAdapter;
     PTRANSLATION_ENTRY mapRegister;
+    PHYSICAL_ADDRESS ReturnAddress;
 
     DebugPrint( (HALDBG_IOMT,
                  "\nIoMT: CurrentVA = %x, Length = %x, WriteToDevice = %x\n",
@@ -1588,6 +1678,17 @@ N.B. - The MapRegisterBase must point to the mapping intended for
         mapRegister += 1;
     }
 
+    // 
+    // If the operation is a write to device (transfer from memory to device),
+    // we will validate the extra map register so we don't generate a PFN
+    // error due to DMA prefetch by some devices.
+    //
+
+    if (WriteToDevice) {
+      PageFrameNumber -= 1;
+      HAL_MAKE_VALID_TRANSLATION( mapRegister, *PageFrameNumber );
+    }
+
     //
     // Synchronize the scatter/gather entry writes with any subsequent writes
     // to the device.
@@ -1628,7 +1729,8 @@ N.B. - The MapRegisterBase must point to the mapping intended for
 
     }
 
-    return(RtlConvertUlongToLargeInteger(Offset));
+    ReturnAddress.QuadPart = Offset;
+    return(ReturnAddress);
 }
 
 
@@ -1792,6 +1894,10 @@ Return Value:
                      "Invalidate mapRegister = %x, PageFrame=%x\n",
                      mapRegister, (PTRANSLATION_ENTRY)mapRegister->Pfn) );
         mapRegister += 1;
+    }
+
+    if( WriteToDevice ){
+        HAL_INVALIDATE_TRANSLATION( mapRegister );
     }
 
     //

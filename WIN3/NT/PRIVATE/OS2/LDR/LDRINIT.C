@@ -569,11 +569,12 @@ BOOLEAN ldrInit()
     strncpy(&SystemDir[SizeOfSystemDir],
             Os2ServerSystemDirectory,
             size);
-    strupr(&SystemDir[SizeOfSystemDir]);
+    _strupr(&SystemDir[SizeOfSystemDir]);
     SizeOfSystemDir += size;
     strcpy(&SystemDir[SizeOfSystemDir], "\\OS2\\DLL\\");
     SizeOfSystemDir += 9;
 
+/*
     Ol2Heap =  RtlCreateHeap( HEAP_GROWABLE,
                                NULL,
                                64 * 1024, // Initial size of heap is 64K
@@ -589,7 +590,7 @@ BOOLEAN ldrInit()
 #endif
         return(FALSE);
     }
-
+*/
     LDRNEHeap = RtlCreateHeap( HEAP_GROWABLE,
                                NULL,
                                64 * 1024, // Initial size of heap is 64K
@@ -1216,15 +1217,15 @@ BOOLEAN ldrInit()
 
 #ifdef DBCS
 // MSKK Dec.15.1992 V-AkihiS
-	imdaemonmte.mte_magic[0] = 'N';
-	imdaemonmte.mte_magic[1] = 'E';
+    imdaemonmte.mte_magic[0] = 'N';
+    imdaemonmte.mte_magic[1] = 'E';
     imdaemonmte.mte_usecnt = 1;
         imdaemonmte.mte_mflags = CLASS_GLOBAL | LIBRARYMOD | GINIDONE | DOSMOD | MTEPROCESSED;
-	imdaemonmte.mte_swapmte = &imdaemonsmte;
-	imdaemonmte.mte_modname = (ULONG) &imdrestab;
-	imdaemonmte.mte_link = &viocallmte;
+    imdaemonmte.mte_swapmte = &imdaemonsmte;
+    imdaemonmte.mte_modname = (ULONG) &imdrestab;
+    imdaemonmte.mte_link = &viocallmte;
         Allocate16BHandle(&imdaemonmte.mte_handle, (ULONG) &imdaemonsmte);
-	imdaemonsmte.smte_restab = (ULONG) &imdrestab;
+    imdaemonsmte.smte_restab = (ULONG) &imdrestab;
         imdaemonsmte.smte_nrestab = (ULONG) &imdnrestab;
         imdaemonsmte.smte_cbnrestab = 10;
         imdaemonsmte.smte_enttab = (ULONG) &imdenttab;

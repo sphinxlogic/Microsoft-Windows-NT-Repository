@@ -1,6 +1,46 @@
 #include "kxalpha.h"
 
 //
+// Wait Reason and Wait Type Enumerated Type Values
+//
+
+#define WrExecutive 0x0
+
+//
+// Bug Check Code Definitions
+//
+
+#define APC_INDEX_MISMATCH 0x1
+#define DATA_BUS_ERROR 0x2e
+#define DATA_COHERENCY_EXCEPTION 0x55
+#define HAL1_INITIALIZATION_FAILED 0x61
+#define INSTRUCTION_BUS_ERROR 0x2f
+#define INSTRUCTION_COHERENCY_EXCEPTION 0x56
+#define INTERRUPT_EXCEPTION_NOT_HANDLED 0x3d
+#define INTERRUPT_UNWIND_ATTEMPTED 0x3c
+#define INVALID_AFFINITY_SET 0x3
+#define INVALID_DATA_ACCESS_TRAP 0x4
+#define IRQL_GT_ZERO_AT_SYSTEM_SERVICE 0x4a
+#define IRQL_NOT_LESS_OR_EQUAL 0xa
+#define KMODE_EXCEPTION_NOT_HANDLED 0x1e
+#define NMI_HARDWARE_FAILURE 0x80
+#define NO_USER_MODE_CONTEXT 0xe
+#define PAGE_FAULT_WITH_INTERRUPTS_OFF 0x49
+#define PANIC_STACK_SWITCH 0x2b
+#define SPIN_LOCK_INIT_FAILURE 0x81
+#define SYSTEM_EXIT_OWNED_MUTEX 0x39
+#define SYSTEM_SERVICE_EXCEPTION 0x3b
+#define SYSTEM_UNWIND_PREVIOUS_USER 0x3a
+#define TRAP_CAUSE_UNKNOWN 0x12
+#define UNEXPECTED_KERNEL_MODE_TRAP 0x7f
+
+//
+// Breakpoint type definitions
+//
+
+#define DBG_STATUS_CONTROL_C 0x1
+
+//
 // Exception Record Offset, Flag, and Enumerated Type Definitions
 //
 
@@ -12,6 +52,9 @@
 #define EXCEPTION_TARGET_UNWIND 0x20
 #define EXCEPTION_COLLIDED_UNWIND 0x40
 #define EXCEPTION_UNWIND 0x66
+#define EXCEPTION_EXECUTE_HANDLER 0x1
+#define EXCEPTION_CONTINUE_SEARCH 0x0
+#define EXCEPTION_CONTINUE_EXECUTION 0xffffffff
 
 #define ExceptionContinueExecution 0x0
 #define ExceptionContinueSearch 0x1
@@ -25,6 +68,28 @@
 #define ErNumberParameters 0x10
 #define ErExceptionInformation 0x14
 #define ExceptionRecordLength 0x50
+
+//
+// Fast Mutex Structure Offset Definitions
+//
+
+#define FmCount 0x0
+#define FmOwner 0x4
+#define FmContention 0x8
+#define FmEvent 0xc
+#define FmOldIrql 0x1c
+
+//
+// Interrupt Priority Request Level Definitions
+//
+
+#define APC_LEVEL 0x1
+#define DISPATCH_LEVEL 0x2
+#define IPI_LEVEL 0x6
+#define POWER_LEVEL 0x7
+#define PROFILE_LEVEL 0x3
+#define HIGH_LEVEL 0x7
+#define SYNCH_LEVEL 0x5
 
 //
 // Large Integer Structure Offset Definitions
@@ -47,6 +112,54 @@
 #define StrLength 0x0
 #define StrMaximumLength 0x2
 #define StrBuffer 0x4
+
+//
+// Time Structure Offset Definitions
+//
+
+#define TmLowTime 0x0
+#define TmHighTime 0x4
+
+//
+// DPC object Structure Offset Definitions
+//
+
+#define DpType 0x0
+#define DpNumber 0x2
+#define DpImportance 0x3
+#define DpDpcListEntry 0x4
+#define DpDeferredRoutine 0xc
+#define DpDeferredContext 0x10
+#define DpSystemArgument1 0x14
+#define DpSystemArgument2 0x18
+#define DpLock 0x1c
+#define DpcObjectLength 0x20
+
+//
+// Interrupt Object Structure Offset Definitions
+//
+
+#define InLevelSensitive 0x0
+#define InLatched 0x1
+
+#define InType 0x0
+#define InSize 0x2
+#define InInterruptListEntry 0x4
+#define InServiceRoutine 0xc
+#define InServiceContext 0x10
+#define InSpinLock 0x14
+#define InActualLock 0x1c
+#define InDispatchAddress 0x20
+#define InVector 0x24
+#define InIrql 0x28
+#define InSynchronizeIrql 0x29
+#define InFloatingSave 0x2a
+#define InConnected 0x2b
+#define InNumber 0x2c
+#define InMode 0x30
+#define InShareVector 0x2d
+#define InDispatchCode 0x3c
+#define InterruptObjectLength 0x4c
 
 //
 // Processor Control Registers Structure Offset Definitions
@@ -95,12 +208,10 @@
 #define PcIrqlMask 0xed0
 #define PcInterruptRoutine 0x10e0
 #define PcReservedVectors 0x14e0
-#define PcProfileListHead 0x14e4
-#define PcProfileInterval 0x14e8
-#define PcProfileCount 0x14ec
 #define PcMachineCheckError 0x14f0
 #define PcDpcStack 0x14f4
-#define PcDpcRoutineActive 0x14f8
+#define PcNotMember 0x14e4
+#define PcCurrentPid 0x14fc
 #define PcSystemServiceDispatchStart 0x1504
 #define PcSystemServiceDispatchEnd 0x1508
 #define PcIdleThread 0x150c
@@ -126,26 +237,6 @@
 #define PbBuildType 0x12
 #define PbSetMember 0x14
 #define PbRestartBlock 0x18
-
-//
-// Time Structure Offset Definitions
-//
-
-#define TmLowTime 0x0
-#define TmHighTime 0x4
-
-//
-// DPC object Structure Offset Definitions
-//
-
-#define DpType 0x0
-#define DpSize 0x2
-#define DpDpcListEntry 0x4
-#define DpDeferredRoutine 0xc
-#define DpDeferredContext 0x10
-#define DpSystemArgument1 0x14
-#define DpSystemArgument2 0x18
-#define DpLock 0x1c
 
 //
 // Context Frame Offset and Flag Definitions
@@ -336,6 +427,7 @@
 #define TrOldIrql 0x1e8
 #define TrPreviousMode 0x1ec
 #define TrIntRa 0x40
+#define TrTrapFrame 0x1f0
 #define TrapFrameLength 0x200
 
 //
@@ -495,16 +587,6 @@
 #define PAGE_SHIFT 0xd
 #define PDI_SHIFT 0x18
 #define PTI_SHIFT 0xd
-
-//
-// Interrupt Priority Request Level Definitions
-//
-
-#define APC_LEVEL 0x1
-#define DISPATCH_LEVEL 0x2
-#define IPI_LEVEL 0x6
-#define POWER_LEVEL 0x7
-#define HIGH_LEVEL 0x7
 
 //
 // Breakpoint Definitions

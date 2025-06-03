@@ -8,6 +8,10 @@
  *  Copyright (c) 1992-1994, Microsoft Corporation.
  *  Reza Baghai.
  *
+ *  THIS CODE NEEDS TO BE CLEANED UP!
+ *  There is no reason to patch imports and the code will be much
+ *  cleaner when this is removed.  The call to PatchDll has been
+ *  commented out already but I didn't have time to clean it up.
  *
  * Description:
  *
@@ -26,6 +30,11 @@
  *  builds:
  *
  *  (All debugging options are undefined for free/retail builds)
+ *
+ *  PPC 
+ *  ---
+ *
+ *  PPC experiences problems when reading symbols in CRTDLL.dll
  *
  *  #ifdef INFODBG   : Displays messages to indicate when data dumping/
  *     				   clearing operations are completed.  It has no effect
@@ -81,6 +90,7 @@ char *VERSION = "2.1  (94.02.08)";
 #endif
 
 
+
 /* * * * * * * * * * * * *  I N C L U D E    F I L E S	* * * * * * * * * * */
 
 #include <nt.h>
@@ -110,12 +120,18 @@ extern void _asm(char *, ...);
 typedef double DWORDLONG;
 void SaveAllRegs (DWORDLONG *pSaveRegs) ;
 void RestoreAllRegs (DWORDLONG *pSaveRegs) ;
-void GetCaller (DWORD * pdwAddr, DWORD StackSize);
-void GetCalCaller (DWORD * pdwAddr, DWORD StackSize);
-void GetStubCaller (DWORD * pdwPrevAddr, DWORD StackSize);
+//void GetCaller (DWORD * pdwAddr, DWORD StackSize);
+//void GetCalCaller (DWORD * pdwAddr, DWORD StackSize);
+//void GetStubCaller (DWORD * pdwPrevAddr, DWORD StackSize);
 void penter(void);
 #endif
-
+#if defined(_PPC_)
+void SaveAllRegs (void ) ;
+void RestoreAllRegs (void ) ;
+void GetCalCaller (void );
+void c_penter (ULONG , ULONG );
+void penter(void);
+#endif
 
 void     SetSymbolSearchPath  (void);
 LPSTR    lpSymbolSearchPath = NULL;
@@ -123,14 +139,9 @@ LPSTR    lpSymbolSearchPath = NULL;
 
 /* * * * * * * * * *  G L O B A L   D E C L A R A T I O N S  * * * * * * * * */
 
-#ifdef MIPS
+#if defined(MIPS) || defined(ALPHA) || defined(_PPC_)
 PATCHCODE            PatchStub;
 #endif
-
-#ifdef ALPHA
-PATCHCODE            PatchStub;
-#endif
-
 
 
 
@@ -192,6 +203,9 @@ BOOL	   WstGetCoffDebugDirectory (PIMAGE_DEBUG_DIRECTORY *pDbgDir, ULONG ulDbgDi
 BOOL     WstOpenBatchFile (VOID);
 #endif
 
+#if defined(_PPC_)
+//BOOL  WINAPI _CRT_INIT(HINSTANCE, DWORD, LPVOID);
+#endif
 
 
 /* * * * * * * * * * *	G L O B A L    V A R I A B L E S  * * * * * * * * * */
@@ -286,6 +300,10 @@ BOOLEAN WSTMain (IN PVOID DllHandle,
       //
       // Initialize the DLL data
       //
+#if defined(_PPC_LIBC)
+      if (!_CRT_INIT(DllHandle, Reason, Context))
+        return(FALSE);
+#endif
       KdPrint (("WST:  DLL_PROCESS_ATTACH\n"));
       WstDllInitializations ();
       }
@@ -293,6 +311,10 @@ BOOLEAN WSTMain (IN PVOID DllHandle,
       //
       // Cleanup time
       //
+#if defined(_PPC_LIBC)
+      if (!_CRT_INIT(DllHandle, Reason, Context))
+        return(FALSE);
+#endif
       KdPrint (("WST:  DLL_PROCESS_DETACH\n"));
       WstDllCleanups ();
       }
@@ -675,7 +697,7 @@ BOOLEAN WstDllInitializations ()
    else
       {
       achPatchBuffer [iostatus.Information] = '\0';
-      strupr (achPatchBuffer);
+      _strupr (achPatchBuffer);
 
       if ( pchPatchExes = strstr (achPatchBuffer, PATCHEXELIST) )
          {
@@ -717,8 +739,8 @@ BOOLEAN WstDllInitializations ()
 
    // Initialize for allocating global storage for WSPs
    //
-   ultoa ((ULONG)pteb->ClientId.UniqueProcess, atchProfObjsName+75, 10);
-   ultoa ((ULONG)pteb->ClientId.UniqueThread,  atchProfObjsName+95, 10);
+   _ultoa ((ULONG)pteb->ClientId.UniqueProcess, atchProfObjsName+75, 10);
+   _ultoa ((ULONG)pteb->ClientId.UniqueThread,  atchProfObjsName+95, 10);
    strcat (atchProfObjsName, atchProfObjsName+75);
    strcat (atchProfObjsName, atchProfObjsName+95);
 
@@ -840,7 +862,7 @@ BOOLEAN WstDllInitializations ()
 
          pImageNtHeader = RtlImageNtHeader (ImageBase);
 
-         strupr (strcpy (achTmpImageName, ImageName));
+         _strupr (strcpy (achTmpImageName, ImageName));
          pchEntry = strstr (pchPatchExes, achTmpImageName);
          if (pchEntry)
             {
@@ -915,75 +937,31 @@ BOOLEAN WstDllInitializations ()
                // Locate the code range.
                //
                fFoundSymbols = FALSE;
-               if (pImageNtHeader->FileHeader.Characteristics &
-                  IMAGE_FILE_DEBUG_STRIPPED)
-                  {
-                  pImageDbgInfo = MapDebugInformation (0L,
+               pImageDbgInfo = MapDebugInformation (0L,
                      ImageName,
                      lpSymbolSearchPath,
                      (DWORD)ImageBase);
-                  pImg->pszName = Wststrdup (ImageName);
-                  pImg->ulCodeStart = 0L;
-                  pImg->ulCodeEnd = 0L;
-                  pImg->iSymCnt = 0;
 
-                  if (pImageDbgInfo == NULL)
-                     {
-                     IdPrint (("WST:  DoDllInitializations() - "
+               if (pImageDbgInfo == NULL)
+                  {
+                   IdPrint (("WST:  DoDllInitializations() - "
                         "No symbols for %s\n", ImageName));
-                     }
-                  else if ( pImageDbgInfo->CoffSymbols == NULL )
-                     {
-                     IdPrint (("WST:  DoDllInitializations() - "
+                  }
+               else if ( pImageDbgInfo->CoffSymbols == NULL )
+                  {
+                   IdPrint (("WST:  DoDllInitializations() - "
                         "No coff symbols for %s\n", ImageName));
-                     }
-                  else
-                     {
-                     DebugInfo = pImageDbgInfo->CoffSymbols;
-                     fFoundSymbols = TRUE;
-                     }
                   }
                else
                   {
-                  ulDbgDirSz = (pImageNtHeader->OptionalHeader).DataDirectory[IMAGE_DIRECTORY_ENTRY_DEBUG].Size;
-                  DebugDirectory = (PIMAGE_DEBUG_DIRECTORY)
-                     RtlImageDirectoryEntryToData (
-                        ImageBase,
-                        TRUE,
-                        IMAGE_DIRECTORY_ENTRY_DEBUG,
-                        &DebugSize);
-
-                  pImg->pszName = Wststrdup (ImageName);
-                  pImg->ulCodeStart = 0L;
-                  pImg->ulCodeEnd = 0L;
-                  pImg->iSymCnt = 0;
-
-				   
-                  if (!DebugDirectory)
-                     {
-                     IdPrint (("WST:  WstDllInitializations() - "
-                        "No symbols for %s\n", ImageName));
-                     }
-                  else if (!WstGetCoffDebugDirectory(&DebugDirectory, ulDbgDirSz))
-                     {
-                     IdPrint (("WST:  WstDllInitializations() - "
-                        "No coff symbols for %s\n", ImageName));
-                     }
-                  else if (DebugDirectory->AddressOfRawData == 0L)
-                     {
-                     IdPrint (("WST:  WstDllInitializations() - "
-                        "AddressOfRawData in coff DebugDirectory "
-                        "not set for %s\n", ImageName));
-                     }
-      
-                  else
-                     {
-                     DebugInfo = (PIMAGE_COFF_SYMBOLS_HEADER)((ULONG)ImageBase +
-                        DebugDirectory->AddressOfRawData);
-                     fFoundSymbols = TRUE;
-                     }
+                   DebugInfo = pImageDbgInfo->CoffSymbols;
+                   fFoundSymbols = TRUE;
                   }
 
+               pImg->pszName = Wststrdup (ImageName);
+               pImg->ulCodeStart = 0L;
+               pImg->ulCodeEnd = 0L;
+               pImg->iSymCnt = 0;
 
                if (fFoundSymbols)
                   {
@@ -1011,11 +989,11 @@ BOOLEAN WstDllInitializations ()
                //
                // Do we need to patch this image?
                //
-               if ( WstPatchDll (pchPatchImports, pchPatchCallers,
-                  achTmpImageName, ImageBase) )
-                  {
-                  iPatchCnt++;
-                  }
+               //if ( WstPatchDll (pchPatchImports, pchPatchCallers,
+               //   achTmpImageName, ImageBase) )
+               //   {
+               //   iPatchCnt++;
+               //   }
                pImg->pWsp[pImg->iSymCnt].pszSymbol = UNKNOWN_SYM;
                pImg->pWsp[pImg->iSymCnt].ulFuncAddr = UNKNOWN_ADDR;
                (pImg->iSymCnt)++;
@@ -1312,11 +1290,13 @@ BOOLEAN WstDllInitializations ()
          ULONG   ulRegA1;        // a1
          ULONG   ulRegA2;        // a2
          ULONG   ulRegA3;        // a3
+		 ULONG	 ulRegT9;		 // t9 = caller's actual return address
+		                         // passed for CAP, but we must preserve it
          PULONG  UNALIGNED       pulAddr;
 
          _asm (".set      noreorder             ");
       
-         _asm ("or        %t0, %a0, $0          ");
+         _asm ("or        %t0, %a0, $0          ");  
          _asm ("sw        %t0, 0(%0)", &ulRegA0  ); // Save org a0
          _asm ("sw        %a1, 0(%0)", &ulRegA1  ); // Save org a1
          _asm ("sw        %a2, 0(%0)", &ulRegA2  ); // Save org a2
@@ -1324,6 +1304,7 @@ BOOLEAN WstDllInitializations ()
          _asm ("sw        %s6, 0(%0)", &ulRegS6  ); // Save org s6
          _asm ("sw        %s7, 0(%0)", &ulRegS7  ); // Save org s7
          _asm ("sw        %s8, 0(%0)", &ulRegS8  ); // Save org s8
+         _asm ("sw        %t9, 0(%0)", &ulRegT9  ); // Save org t9
       
          _asm (".set      reorder               ");
       
@@ -1363,7 +1344,7 @@ BOOLEAN WstDllInitializations ()
          DWORDLONG SaveRegisters [64] ;
 
          SaveAllRegs (SaveRegisters);
-         GetCalCaller (&dwAddr, 0x0280);
+         // GetCalCaller (&dwAddr, 0x0220);
 
          pulAddr = (PULONG UNALIGNED) dwAddr;
          pulAddr -= 1;
@@ -1372,6 +1353,9 @@ BOOLEAN WstDllInitializations ()
          }
 #else
          SaveAllRegs ();
+#if defined(_PPC_)
+         GetCalCaller();
+#endif
          RestoreAllRegs ();
 #endif
          WSTUSAGE(NtCurrentTeb()) = 0L;
@@ -1381,9 +1365,10 @@ BOOLEAN WstDllInitializations ()
             KdPrint (("WST:  WstDllInitilizations() - "
                "Wait for LOCAL semaphore failed - 0x%lx\n", Status));
             }
-         liStart = RtlLargeIntegerSubtract(liStart, liStart);
-         liStart = RtlLargeIntegerAdd(liStart, liStart);
-         liStart = RtlLargeIntegerAdd(liStart, liStart);
+         liStart.QuadPart = liStart.QuadPart - liStart.QuadPart ;
+         liStart.QuadPart = liStart.QuadPart + liStart.QuadPart ;
+         liStart.QuadPart = liStart.QuadPart + liStart.QuadPart ;
+         
          Status = NtReleaseSemaphore (hLocalSem, 1, NULL);
 			if (!NT_SUCCESS(Status))
             {
@@ -1459,17 +1444,18 @@ BOOLEAN WstDllInitializations ()
  */
 #ifdef i386
 void _CRTAPI1 _penter ()
-#endif
-#ifdef MIPS
+#elif defined(MIPS) 
 void penter ()
-#endif
-#ifdef ALPHA
-void c_penter ()
+#elif defined(ALPHA) || defined(_PPC_)
+void c_penter (ULONG dwPrevious, ULONG dwCurrent)
 #endif
 {
    DWORD        dwAddr;
    DWORD        dwPrevAddr;
    ULONG        ulInWst ;
+#if defined(MIPS) || defined(ALPHA) || defined(_PPC)
+   PULONG  UNALIGNED       pulAddr;
+#endif
 
 #ifdef MIPS
    ULONG   ulRegS7;        // s7 = address where RealRetAddr is saved on stack
@@ -1479,17 +1465,29 @@ void c_penter ()
    ULONG   ulRegA1;        // a1
    ULONG   ulRegA2;        // a2
    ULONG   ulRegA3;        // a3
-   PULONG  UNALIGNED       pulAddr;
+   ULONG   ulRegT9;		   // t9 = Caller's return address
+                           // Passed for CAP, but we need to preserve it
 #endif
-
 #ifdef ALPHA
    DWORDLONG SaveRegisters [64];
-   PULONG  UNALIGNED       pulAddr;
-#endif
-
-#ifdef ALPHA
    SaveAllRegs(SaveRegisters) ;
 #endif
+
+#ifdef MIPS
+   _asm (".set      noreorder             ");
+
+   _asm ("or        %t0, %a0, $0          ");
+   _asm ("sw        %t0, 0(%0)", &ulRegA0  ); // Save org a0
+   _asm ("sw        %a1, 0(%0)", &ulRegA1  ); // Save org a1
+   _asm ("sw        %a2, 0(%0)", &ulRegA2  ); // Save org a2
+   _asm ("sw        %a3, 0(%0)", &ulRegA3  ); // Save org a3
+   _asm ("sw        %s6, 0(%0)", &ulRegS6  ); // Save org s6
+   _asm ("sw        %s7, 0(%0)", &ulRegS7  ); // Save org s7
+   _asm ("sw        %s8, 0(%0)", &ulRegS8  ); // Save org s8
+   _asm ("sw        %t9, 0(%0)", &ulRegT9  ); // Save t9
+
+   _asm (".set      reorder               ");
+#endif MIPS
 
    dwAddr = 0L;
    dwPrevAddr = 0L;
@@ -1519,26 +1517,9 @@ void c_penter ()
 		pop 	edi
       }
 #endif
+
 #ifdef MIPS
-   //
-   // We store the parent stack offset in $s8 since we know our parent
-   // routine will restore $s8 to whatever it is now after it returns
-   // to penterReturn. We need to make sure _penter does save and
-   // restore $s8 correctly.
-   //
 
-   _asm (".set      noreorder             ");
-
-   _asm ("or        %t0, %a0, $0          ");
-   _asm ("sw        %t0, 0(%0)", &ulRegA0  ); // Save org a0
-   _asm ("sw        %a1, 0(%0)", &ulRegA1  ); // Save org a1
-   _asm ("sw        %a2, 0(%0)", &ulRegA2  ); // Save org a2
-   _asm ("sw        %a3, 0(%0)", &ulRegA3  ); // Save org a3
-   _asm ("sw        %s6, 0(%0)", &ulRegS6  ); // Save org s6
-   _asm ("sw        %s7, 0(%0)", &ulRegS7  ); // Save org s7
-   _asm ("sw        %s8, 0(%0)", &ulRegS8  ); // Save org s8
-
-   _asm (".set      reorder               ");
 
    dwPrevAddr = NO_CALLER;
 
@@ -1572,9 +1553,11 @@ void c_penter ()
 
       }
 #endif
+
 #ifdef ALPHA
    dwPrevAddr = NO_CALLER;
-   GetCaller (&dwAddr, 0x0280);  // FIXFIX StackSize
+   dwAddr = dwCurrent;
+   // GetCaller (&dwAddr, 0x0220);  // FIXFIX StackSize
 
    // now check if we are calling from the stub we created
    pulAddr = (PULONG UNALIGNED) dwAddr;
@@ -1597,10 +1580,15 @@ void c_penter ()
       dwAddr |= *(pulAddr + 5) & 0x0000ffff;
 
       // get the caller to the stub
-      GetStubCaller (&dwPrevAddr, 0x0280);   // FIXFIX StackSize
+	  dwPrevAddr = dwPrevious;
+      // GetStubCaller (&dwPrevAddr, 0x0220);   // FIXFIX StackSize
       }
 
 
+#endif
+#if defined(_PPC_)       
+   dwAddr     = dwCurrent;
+   dwPrevAddr = dwPrevious; 
 #endif
 
 
@@ -1617,22 +1605,24 @@ void c_penter ()
    RestoreAllRegs ();
 #endif
 
+
+Exit0:
+
 #ifdef MIPS
    _asm (".set      noreorder             ");
+
    _asm ("lw        %a1, (%0)", &ulRegA1   ); // restore org $a1            (2)
    _asm ("lw        %a2, (%0)", &ulRegA2   ); // restore org $a2            (2)
    _asm ("lw        %a3, (%0)", &ulRegA3   ); // restore org $a3            (2)
    _asm ("lw        %s6, (%0)", &ulRegS6   ); // restore org $s6            (2)
    _asm ("lw        %s7, (%0)", &ulRegS7   ); // restore org $s7            (2)
    _asm ("lw        %s8, (%0)", &ulRegS8   ); // restore org $s8            (2)
+   _asm ("lw        %t9, (%0)", &ulRegT9   ); // restore org $t9            (2)
    _asm ("lw        %a0, (%0)", &ulRegA0   ); // restore org $a0            (2)
+
    _asm (".set      reorder               ");
 #endif
-
-
-
-Exit0:
-
+	
 #ifdef ALPHA
    RestoreAllRegs (SaveRegisters);
 #endif
@@ -1704,7 +1694,8 @@ void WstRecordInfo (DWORD dwAddress, DWORD dwPrevAddress)
       }
 
    NtQueryPerformanceCounter(&liNow, NULL);
-   liElapsed = RtlLargeIntegerSubtract(liNow, liStart);
+   liElapsed.QuadPart = liNow.QuadPart - liStart.QuadPart ;
+   
 
 //   SdPrint(("WST:  WstRecordInfo() - Elapsed time: %ld\n", liElapsed.LowPart));
 
@@ -1887,9 +1878,9 @@ void WstRecordInfo (DWORD dwAddress, DWORD dwPrevAddress)
    //	required for doing our work
    //
    NtQueryPerformanceCounter(&liTmp, NULL);
-   liElapsed = RtlLargeIntegerSubtract(liTmp, liNow);
-   liStart = RtlLargeIntegerAdd(liStart, liElapsed);
-   liStart = RtlLargeIntegerAdd(liStart, liOverhead);
+   liElapsed.QuadPart = liTmp.QuadPart - liNow.QuadPart ;
+   liStart.QuadPart = liStart.QuadPart + liElapsed.QuadPart ;
+   liStart.QuadPart = liStart.QuadPart + liOverhead.QuadPart ;  
 
    //
    // Release semaphore to continue execution of other threads
@@ -2441,14 +2432,14 @@ void WstGetSymbols (PIMG pCurImg,
      ULONG ulCodeLength,
      PIMAGE_COFF_SYMBOLS_HEADER DebugInfo)
 {
-   IMAGE_SYMBOL      			Symbol;
-   IMAGE_SYMBOL * UNALIGNED  	SymbolEntry;
-   PUCHAR    					   StringTable;
-   ULONG     					   i;
-   char                       achTmp[9];
-   PWSP                       pCurWsp;
-   BOOL                       fOurSym;
-   PSZ                        ptchSymName;
+   IMAGE_SYMBOL      		Symbol;
+   PIMAGE_SYMBOL			SymbolEntry;
+   PUCHAR    				StringTable;
+   ULONG     				i;
+   char                     achTmp[9];
+   PWSP                     pCurWsp;
+   BOOL                     fOurSym;
+   PSZ                      ptchSymName;
 
 
    pCurWsp = pCurImg->pWsp;
@@ -2457,8 +2448,8 @@ void WstGetSymbols (PIMG pCurImg,
    //
    // Crack the symbol table
    //
-   SymbolEntry = (IMAGE_SYMBOL * UNALIGNED)
-      ((ULONG)DebugInfo + DebugInfo->LvaToFirstSymbol);
+   SymbolEntry = (PIMAGE_SYMBOL)
+   					((ULONG)DebugInfo + DebugInfo->LvaToFirstSymbol);
    StringTable = (PUCHAR)((ULONG)DebugInfo + DebugInfo->LvaToFirstSymbol +
       DebugInfo->NumberOfSymbols * (ULONG)IMAGE_SIZEOF_SYMBOL);
 
@@ -2555,8 +2546,7 @@ void WstGetSymbols (PIMG pCurImg,
             pCurWsp++;
             }
          }
-      SymbolEntry = (IMAGE_SYMBOL * UNALIGNED)
-                    ((ULONG)SymbolEntry + IMAGE_SIZEOF_SYMBOL);
+      SymbolEntry = (PIMAGE_SYMBOL)((ULONG)SymbolEntry + IMAGE_SIZEOF_SYMBOL);
       }
 
 } /* WstGetSymbols () */
@@ -2957,12 +2947,7 @@ BOOL WstPatchDll (PCHAR pchPatchImports,
    BOOL                        fCrtDllPatched = FALSE;
    BOOL                        fKernel32Patched = FALSE;
 
-#ifdef MIPS
-   PULONG UNALIGNED            pulAddr;
-   PPATCHCODE                  pPatchStub;
-   BOOL                        fAlreadyPatched = FALSE;
-#endif
-#ifdef ALPHA
+#if defined(MIPS) || defined(ALPHA) || defined(_PPC_)
    PULONG UNALIGNED            pulAddr;
    PPATCHCODE                  pPatchStub;
    BOOL                        fAlreadyPatched = FALSE;
@@ -3006,7 +2991,7 @@ BOOL WstPatchDll (PCHAR pchPatchImports,
          {
          strcpy (achTmpImageName,
             (PUCHAR)((ULONG)pvImageBase+pImportsTmp->Name));
-         pchName = strupr (achTmpImageName);
+         pchName = _strupr (achTmpImageName);
 
          if ( (strcmp(pchName, CRTDLL) == 0) ||
             (strcmp(pchName, CAIROCRT) == 0))
@@ -3123,7 +3108,7 @@ BOOL WstPatchDll (PCHAR pchPatchImports,
             {
             strcpy (achTmpImageName,
                (PUCHAR)((ULONG)pvImageBase+pImports->Name));
-            pchName = strupr (achTmpImageName);
+            pchName = _strupr (achTmpImageName);
             pchEntry = strstr (pchPatchCallers, pchName);
             if (pchEntry)
                {
@@ -3209,7 +3194,7 @@ BOOL WstPatchDll (PCHAR pchPatchImports,
             PatchStub.Ori_t0_ra  |= 0x35080000;
             PatchStub.Jalr_t0    |= 0x0100f809;
 
-            if ( stricmp (pchName, WSTDLL) &&
+            if ( _stricmp (pchName, WSTDLL) &&
                (bPatchAllImports || pchEntry) )
                {
                IdPrint (("WST:    -- %s\n", pchName));
@@ -3376,7 +3361,7 @@ BOOL WstPatchDll (PCHAR pchPatchImports,
             PatchStub.OurSignature     = STUB_SIGNATURE;
 
 
-            if ( stricmp (pchName, WSTDLL) &&
+            if ( _stricmp (pchName, WSTDLL) &&
                (bPatchAllImports || pchEntry) )
                {
                IdPrint (("WST:    -- %s\n", pchName));
@@ -3481,6 +3466,141 @@ BOOL WstPatchDll (PCHAR pchPatchImports,
                   }
                }
 #endif   // ifdef ALPHA
+#if defined(_PPC_) // after ALPHA
+            // Initialization of our stub
+            //
+//          PatchStub.Lda_sp_sp_imm    = 0x23defff0;
+//          PatchStub.Stq_ra_sp        = 0xb75e0008;
+//          PatchStub.Stq_v0_sp        = 0xb41e0000;
+//          PatchStub.Ldah_t12_ra      = (((ULONG) &penter) & 0xffff0000) >> 16;
+//          PatchStub.Ldah_t12_ra     |= 0x277f0000;
+
+            if (((ULONG) &penter) & 0x00008000)
+               {
+               // need to add one to the upper address because Lda 
+               // will substract one from it.
+//             PatchStub.Ldah_t12_ra += 1;
+               }
+
+//          PatchStub.Lda_t12_ra       = ((ULONG) &penter) & 0x0000ffff;
+//          PatchStub.Lda_t12_ra      |= 0x237b0000;
+//          PatchStub.Jsr_t12          = 0x681b4000;
+//          PatchStub.Ldq_ra_sp        = 0xa75e0008;
+//          PatchStub.Ldq_v0_sp        = 0xa41e0000;
+//          PatchStub.Lda_sp_sp        = 0x23de0010;
+//          PatchStub.Ldah_t12         = 0x277f0000;
+//          PatchStub.Lda_t12          = 0x237b0000;
+//          PatchStub.Jmp_t12          = 0x6bfb0000;
+//          PatchStub.Bis_0            = 0x47ff041f;
+//          PatchStub.OurSignature     = STUB_SIGNATURE;
+
+
+            if ( _stricmp (pchName, WSTDLL) &&
+               (bPatchAllImports || pchEntry) )
+               {
+               IdPrint (("WST:    -- %s\n", pchName));
+               ThunkNames = (PIMAGE_THUNK_DATA)
+                  ((ULONG)pvImageBase +
+                     (ULONG)pImports->FirstThunk);
+
+               if ( !strcmp (pchName, CRTDLL))
+                  {
+                  fCrtDllPatched = TRUE;
+                  }
+               if ( !strcmp (pchName, KERNEL32))
+                  {
+                  fKernel32Patched = TRUE;
+                  }
+
+               //
+               // Are we already patched?  If so set a flag.
+               // Check for our signature:
+               //
+
+               pulAddr = (ULONG UNALIGNED *) (ThunkNames->u1.AddressOfData);
+                                         
+               if ( 
+//                (*pulAddr                     == 0x23defff0) &&
+//                (*(pulAddr  + 1)                == 0xb75e0008) &&
+//                (*(pulAddr  + 2)                == 0xb41e0008) &&
+//                ((*(pulAddr + 3)  & 0xffff0000) == 0x277f0000) &&
+//                ((*(pulAddr + 4)  & 0xffff0000) == 0x237b0000) &&
+//                (*(pulAddr  + 5)                == 0x681b4000) &&
+//                (*(pulAddr  + 6)                == 0xa75e0008) &&
+//                (*(pulAddr  + 7)                == 0xa41e0000) &&
+//                (*(pulAddr  + 8)                == 0x23de0010) &&
+//                ((*(pulAddr + 9)  & 0xffff0000) == 0x277f0000) &&
+//                ((*(pulAddr + 10) & 0xffff0000) == 0x237b0000) &&
+//                (*(pulAddr  + 11)               == 0x6bfb0000) &&
+//                (*(pulAddr  + 12)               == 0x47ff041f) &&
+                  (*(pulAddr  + 13)               == 0xfefe55aa) )
+                  {
+                  fAlreadyPatched = TRUE;
+                  }
+
+               if ( !fAlreadyPatched )
+                  {
+                  while (ThunkNames->u1.AddressOfData)
+                     {
+                     pvPatchSecThunk = pvPatchSec;
+
+                     SdPrint(("WST: Patching [%s] Imports of [%s]\n",
+                        pchName,
+                        pchDllName));
+
+                     { // Move the stub into the shared memory
+                     int i;
+                     pPatchStub = &PatchStub;
+                     for (i = 0; i < sizeof(PATCHCODE); i++)
+                        {
+                        (BYTE) *((PBYTE)pvPatchSec + i) =
+                           *((PBYTE)pPatchStub + i);
+                        }
+                     }
+
+                     pPatchStub = (PPATCHCODE) pvPatchSec;
+                        (PBYTE) pvPatchSec += sizeof(PATCHCODE);
+
+                     // now move in the actual thunk address
+// jhs todo          pPatchStub->Ldah_t12 |= (DWORD)
+//                      ((ULONG) ThunkNames->u1.AddressOfData &
+//                         0xffff0000) >> 16;
+                     if ((ULONG) ThunkNames->u1.AddressOfData &
+                        0x000008000)
+                        {
+// jhs todo             pPatchStub->Ldah_t12 += 1;
+                        }
+
+// jhs todo          pPatchStub->Lda_t12 |= (DWORD)
+//                      ThunkNames->u1.AddressOfData & 0x0000ffff;
+
+                     // Point the thunk to the PatchSec
+                     try
+                        {
+                        ThunkNames->u1.AddressOfData =
+                           (PIMAGE_IMPORT_BY_NAME)pvPatchSecThunk;
+                        }
+                     except (WstUnprotectThunkFilter (
+                        &(ThunkNames->u1.AddressOfData),
+                        GetExceptionInformation()))
+                        {
+                        return (FALSE);
+                        }
+
+                     ThunkNames++;
+                     }  // while (ThunkNames->u1.AddressOfData)
+                  }  // if ( !fAlreadyPatched )
+
+               if ( fAlreadyPatched )
+                  {
+                  IdPrint (("WST:    -- %s\n", pchName));
+                  }
+               else
+                  {
+                  IdPrint (("WST:    ++ %s\n", pchName));
+                  }
+               }
+#endif   // ifdef PPC 
 
          }
       }
@@ -3546,11 +3666,11 @@ int WstCompare (PWSP val1, PWSP val2)
 
 int WstBCompare (PDWORD pdwVal1, PWSP val2)
 {
-#ifdef i386
+#if  defined(_X86_)
    return (*pdwVal1 < val2->ulFuncAddr ? -1:
       *pdwVal1 == val2->ulFuncAddr ? 0:
          1);
-#else
+#elif defined(_MIPS_) || defined(_ALPHA_)
    int dwCompareCode = 0;
 
    if (*pdwVal1 < val2->ulFuncAddr)
@@ -3562,7 +3682,13 @@ int WstBCompare (PDWORD pdwVal1, PWSP val2)
       dwCompareCode = 1;
       }
    return (dwCompareCode);
-
+#elif defined(_PPC_)
+   if (*pdwVal1 == val2->ulFuncAddr + 12)
+      return 0;
+   if (*pdwVal1 > val2->ulFuncAddr + 12)
+      return 1;
+   else
+      return -1;
 #endif
 
 } /* WstBCompare () */
@@ -4661,4 +4787,3 @@ Naked void RestoreAllRegs(void)
 
 #endif
 
-

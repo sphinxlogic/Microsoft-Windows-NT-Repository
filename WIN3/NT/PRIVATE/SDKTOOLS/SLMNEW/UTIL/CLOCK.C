@@ -4,12 +4,7 @@
 *
 */
 
-#if defined(_WIN32)
 #include <windows.h>
-#elif defined(DOS) || defined(OS2)
-#define INCL_DOS
-#include <os2.h>
-#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -86,7 +81,7 @@ int cookie_free(char *lockname, int autotype)
     else
         NewCookiebuf[0]='\0';
 
-    while ((bufbytes = read(hfCookieFile, NewCookiebuf, cbCookieMax)) > 0)
+    while ((bufbytes = _read(hfCookieFile, NewCookiebuf, cbCookieMax)) > 0)
         {
         Totread += bufbytes;
         if (Totread >= cbCookieMax)
@@ -157,7 +152,7 @@ passlock:   /* do not free this lock, just move into next buffer and loop */
 
     free(Cookiebuf);    /* only the new buffer needed now */
 
-    if (chsize(hfCookieFile, 0) != 0)
+    if (_chsize(hfCookieFile, 0) != 0)
         {
         sprintf(szErr, "%s: cookie truncation error\n", pszProject);
         perror(szErr);
@@ -167,7 +162,7 @@ passlock:   /* do not free this lock, just move into next buffer and loop */
         return(OP_SYSERR);
         }
 
-    if (lseek(hfCookieFile, 0L, SEEK_SET) == -1)
+    if (_lseek(hfCookieFile, 0L, SEEK_SET) == -1)
         {
         sprintf(szErr, "%s: cookie lseek error\n", pszProject);
         perror(szErr);
@@ -177,7 +172,7 @@ passlock:   /* do not free this lock, just move into next buffer and loop */
         return(OP_SYSERR);
         }
 
-    bufbytes = write(hfCookieFile, NewCookiebuf, strlen(NewCookiebuf));
+    bufbytes = _write(hfCookieFile, NewCookiebuf, strlen(NewCookiebuf));
     if (bufbytes == -1 || bufbytes != (int)strlen(NewCookiebuf))
         {
         sprintf(szErr, "%s: cookie write error\n", pszProject);

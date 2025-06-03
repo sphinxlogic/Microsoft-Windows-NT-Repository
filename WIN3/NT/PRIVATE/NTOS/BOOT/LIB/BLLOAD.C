@@ -24,7 +24,6 @@ Revision History:
 --*/
 #include "bldr.h"
 #include "stdio.h"
-
 
 ARC_STATUS
 BlLoadSystemHive(
@@ -131,7 +130,7 @@ Return Value:
     // Read the SYSTEM hive into the allocated memory.
     //
 
-    SeekValue = RtlConvertUlongToLargeInteger(0);
+    SeekValue.QuadPart = 0;
     Status = BlSeek(FileId, &SeekValue, SeekAbsolute);
     if (Status != ESUCCESS) {
         BlClose(FileId);
@@ -215,6 +214,20 @@ Return Value:
     PVOID LocalPointer;
     LARGE_INTEGER SeekValue;
     ULONG Count;
+    BOOLEAN OemIsSameAsAnsi = FALSE;
+
+    //
+    // Under the Japanese version of NT, ANSI code page and OEM codepage
+    // is same. In this case, we share the same data to save and memory.
+    //
+
+    if ( (AnsiCodepage->Length == OemCodepage->Length) &&
+         (_wcsnicmp(AnsiCodepage->Buffer,
+                   OemCodepage->Buffer,
+                   AnsiCodepage->Length) == 0)) {
+
+        OemIsSameAsAnsi = TRUE;
+    }
 
     //
     // Open the ANSI data file
@@ -235,18 +248,22 @@ Return Value:
     //
     // Open the OEM data file
     //
-    sprintf(Filename, "%s%wZ", DirectoryPath, OemCodepage);
-    BlOutputLoadMessage(DeviceName, Filename);
-    Status = BlOpen(DeviceId, Filename, ArcOpenReadOnly, &OemFileId);
-    if (Status != ESUCCESS) {
-        goto NlsLoadFailed;
+    if (OemIsSameAsAnsi) {
+        OemFileSize = 0;
+    } else {
+        sprintf(Filename, "%s%wZ", DirectoryPath, OemCodepage);
+        BlOutputLoadMessage(DeviceName, Filename);
+        Status = BlOpen(DeviceId, Filename, ArcOpenReadOnly, &OemFileId);
+        if (Status != ESUCCESS) {
+            goto NlsLoadFailed;
+        }
+        Status = BlGetFileInformation(OemFileId, &FileInformation);
+        BlClose(OemFileId);
+        if (Status != ESUCCESS) {
+            goto NlsLoadFailed;
+        }
+        OemFileSize = FileInformation.EndingAddress.LowPart;
     }
-    Status = BlGetFileInformation(OemFileId, &FileInformation);
-    BlClose(OemFileId);
-    if (Status != ESUCCESS) {
-        goto NlsLoadFailed;
-    }
-    OemFileSize = FileInformation.EndingAddress.LowPart;
 
     //
     // Open the language codepage file
@@ -289,6 +306,13 @@ Return Value:
                                              ROUND_TO_PAGES(OemFileSize));
 
     //
+    // Let OemCodePageData point as same location as AnsiCodePageData.
+    //
+    if( OemIsSameAsAnsi ) {
+        BlLoaderBlock->NlsData->OemCodePageData = BlLoaderBlock->NlsData->AnsiCodePageData;
+    }
+
+    //
     // Read NLS data into memory
     //
     // open and read ANSI file
@@ -299,7 +323,7 @@ Return Value:
     if (Status != ESUCCESS) {
         goto NlsLoadFailed;
     }
-    SeekValue = RtlConvertUlongToLargeInteger(0);
+    SeekValue.QuadPart = 0;
     Status = BlSeek(AnsiFileId, &SeekValue, SeekAbsolute);
     if (Status != ESUCCESS) {
         goto NlsLoadFailed;
@@ -316,24 +340,26 @@ Return Value:
     //
     // Open and read OEM file
     //
-    sprintf(Filename, "%s%wZ", DirectoryPath, OemCodepage);
-    Status = BlOpen(DeviceId, Filename, ArcOpenReadOnly, &OemFileId);
-    if (Status != ESUCCESS) {
-        goto NlsLoadFailed;
+    if (!OemIsSameAsAnsi) {
+        sprintf(Filename, "%s%wZ", DirectoryPath, OemCodepage);
+        Status = BlOpen(DeviceId, Filename, ArcOpenReadOnly, &OemFileId);
+        if (Status != ESUCCESS) {
+            goto NlsLoadFailed;
+        }
+        SeekValue.QuadPart = 0;
+        Status = BlSeek(OemFileId, &SeekValue, SeekAbsolute);
+        if (Status != ESUCCESS) {
+            goto NlsLoadFailed;
+        }
+        Status = BlRead(OemFileId,
+                        BlLoaderBlock->NlsData->OemCodePageData,
+                        OemFileSize,
+                        &Count);
+        if (Status != ESUCCESS) {
+            goto NlsLoadFailed;
+        }
+        BlClose(OemFileId);
     }
-    SeekValue = RtlConvertUlongToLargeInteger(0);
-    Status = BlSeek(OemFileId, &SeekValue, SeekAbsolute);
-    if (Status != ESUCCESS) {
-        goto NlsLoadFailed;
-    }
-    Status = BlRead(OemFileId,
-                    BlLoaderBlock->NlsData->OemCodePageData,
-                    OemFileSize,
-                    &Count);
-    if (Status != ESUCCESS) {
-        goto NlsLoadFailed;
-    }
-    BlClose(OemFileId);
 
     //
     // open and read Language file
@@ -344,7 +370,7 @@ Return Value:
     if (Status != ESUCCESS) {
         goto NlsLoadFailed;
     }
-    SeekValue = RtlConvertUlongToLargeInteger(0);
+    SeekValue.QuadPart = 0;
     Status = BlSeek(LanguageFileId, &SeekValue, SeekAbsolute);
     if (Status != ESUCCESS) {
         goto NlsLoadFailed;
@@ -504,7 +530,7 @@ Return Value:
     // Check if the file has an OS/2 header.
     //
 
-    if ((FileSize < sizeof(IMAGE_DOS_HEADER)) || (FileSize < DosHeader->e_lfanew)) {
+    if ((FileSize < sizeof(IMAGE_DOS_HEADER)) || (FileSize < (ULONG)DosHeader->e_lfanew)) {
         goto OemLoadExit;
     }
 
@@ -698,10 +724,13 @@ Return Value:
                                              *DriverDataTableEntry);
 
         if (Status != ESUCCESS) {
+            //
+            // Remove the driver from the load order list.
+            //
+            RemoveEntryList(&(*DriverDataTableEntry)->InLoadOrderLinks);
             return Status;
         }
 
     }
     return ESUCCESS;
 }
-

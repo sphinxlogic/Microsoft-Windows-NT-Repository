@@ -102,7 +102,6 @@ OBJS	= \
 
 !if "$(REL)" != "yes"
 OBJS =	$(OBJS) 		\
-	$(ODIR)\pedump.obj	\
 	$(ODIR)\dmalloc.obj
 !endif
 
@@ -171,8 +170,6 @@ $(ODIR)\pelines.obj: pelines.c compact.h $(ODIR)\precomp.obj
 
 $(ODIR)\bufio.obj: bufio.c bufio.h fileio.h
 	$(CC) $(CFLAGS) -Fo$(ODIR)\bufio.obj bufio.c
-
-$(ODIR)\pedump.obj: pedump.c compact.h $(ODIR)\precomp.obj
 
 $(ODIR)\dmalloc.obj: dmalloc.c dmalloc.h dmalloc_.h compact.h $(ODIR)\precomp.obj
 

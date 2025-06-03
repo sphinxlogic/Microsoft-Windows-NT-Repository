@@ -20,6 +20,7 @@ Revision History:
 #include "parallel.h"
  
 #if DBG
+#define PARALWAYS             ((ULONG)0x00000000)
 #define PARCONFIG             ((ULONG)0x00000001)
 #define PARUNLOAD             ((ULONG)0x00000002)
 #define PARINITDEV            ((ULONG)0x00000004)
@@ -28,12 +29,13 @@ Revision History:
 #define PARPUSHER             ((ULONG)0x00000020)
 #define PARERRORS             ((ULONG)0x00000040)
 #define PARTHREAD             ((ULONG)0x00000080)
+#define PARDEFERED            ((ULONG)0x00000100)
 
 extern ULONG ParDebugLevel;
 #define ParDump(LEVEL,STRING) \
         do { \
             ULONG _level = (LEVEL); \
-            if (ParDebugLevel & _level) { \
+            if ((_level == PARALWAYS)||(ParDebugLevel & _level)) { \
                 DbgPrint STRING; \
             } \
         } while (0)
@@ -115,6 +117,17 @@ typedef struct _DEVICE_EXTENSION {
     PVOID PortContext;
 
     //
+    // This parameter specifies the number of microseconds to
+    // wait after strobing a byte before checking the BUSY line.
+    //
+    ULONG BusyDelay;
+
+    //
+    // Indicates if the BusyDelay parameter has been computed yet.
+    //
+    BOOLEAN BusyDelayDetermined;
+
+    //
     // This specifies whether or not to use processor independant
     // write loop.
     //
@@ -126,12 +139,21 @@ typedef struct _DEVICE_EXTENSION {
     //
     BOOLEAN Initialized;
 
-    BOOLEAN TimeToTerminateThread;
+    //
+    // Set to true before the deferred initialization routine is run
+    // and false once it has completed.  Used to synchronize the deferred
+    // initialization worker thread and the parallel port thread
+    //
+
+    BOOLEAN Initializing;
 
     //
-    // Image section handling for page locks.
+    // Holds the work item used to defer printer initialization
     //
-    PVOID ImageSectionHandle;
+
+    PWORK_QUEUE_ITEM DeferredWorkItem;
+
+    BOOLEAN TimeToTerminateThread;
 
     //
     // Records whether we actually created the symbolic link name
@@ -145,6 +167,25 @@ typedef struct _DEVICE_EXTENSION {
     // linked to the actual nt device name.
     //
     UNICODE_STRING SymbolicLinkName;
+
+    //
+    // If the registry entry by the same name is set, run the parallel
+    // thread at the priority we used for NT 3.5 - this solves some 
+    // cases where a dos app spinning for input in the foreground is 
+    // starving the parallel thread
+    //
+
+    BOOLEAN UseNT35Priority;
+
+    //
+    // Seconds to wait for the device to respond to an initialization request.
+    // Note that if no printer is attached, we will spin for the maximum amount
+    // of time.
+    // Default is 15 seconds - value is overridden by registry entry of the
+    // same name.
+    //
+
+    ULONG InitializationTimeout;
 
     //
     // Miscelaneous contstants that are cheaper to put here than
@@ -177,6 +218,66 @@ typedef struct _DEVICE_EXTENSION {
 #define PAR_CONTROL_DIR         0x20 //direction = read
 #define PAR_CONTROL_WR_CONTROL  0xc0 //the 2 highest bits of the control
                                      // register must be 1
+//
+// More bit definitions.
+//
+
+#define DATA_OFFSET         0
+#define DSR_OFFSET          1
+#define DCR_OFFSET          2
+
+//
+// Bit definitions for the DSR.
+//
+
+#define DSR_NOT_BUSY            0x80
+#define DSR_NOT_ACK             0x40
+#define DSR_PERROR              0x20
+#define DSR_SELECT              0x10
+#define DSR_NOT_FAULT           0x08
+
+//
+// More bit definitions for the DSR.
+//
+
+#define DSR_NOT_PTR_BUSY        0x80
+#define DSR_NOT_PERIPH_ACK      0x80
+#define DSR_WAIT                0x80
+#define DSR_PTR_CLK             0x40
+#define DSR_PERIPH_CLK          0x40
+#define DSR_INTR                0x40
+#define DSR_ACK_DATA_REQ        0x20
+#define DSR_NOT_ACK_REVERSE     0x20
+#define DSR_XFLAG               0x10
+#define DSR_NOT_DATA_AVAIL      0x08
+#define DSR_NOT_PERIPH_REQUEST  0x08
+
+//
+// Bit definitions for the DCR.
+//
+
+#define DCR_RESERVED            0xC0
+#define DCR_DIRECTION           0x20
+#define DCR_ACKINT_ENABLED      0x10
+#define DCR_SELECT_IN           0x08
+#define DCR_NOT_INIT            0x04
+#define DCR_AUTOFEED            0x02
+#define DCR_STROBE              0x01
+
+//
+// More bit definitions for the DCR.
+//
+
+#define DCR_NOT_1284_ACTIVE     0x08
+#define DCR_ASTRB               0x08
+#define DCR_NOT_REVERSE_REQUEST 0x04
+#define DCR_NOT_HOST_BUSY       0x02
+#define DCR_NOT_HOST_ACK        0x02
+#define DCR_DSTRB               0x02
+#define DCR_NOT_HOST_CLK        0x01
+#define DCR_WRITE               0x01
+
+#define DCR_NEUTRAL (DCR_RESERVED | DCR_SELECT_IN | DCR_NOT_INIT)
 
 //
 // not error, not busy, selected.
@@ -284,7 +385,8 @@ ULONG
 ParWriteLoopPI(
     IN  PUCHAR  Controller,
     IN  PUCHAR  WriteBuffer,
-    IN  ULONG   NumBytesToWrite
+    IN  ULONG   NumBytesToWrite,
+    IN  ULONG   BusyDelay
     );
 
 NTSTATUS
@@ -306,7 +408,7 @@ ParCleanup(
     );
 
 NTSTATUS
-ParWrite(
+ParReadWrite(
     IN  PDEVICE_OBJECT  DeviceObject,
     IN  PIRP            Irp
     );

@@ -47,6 +47,10 @@ Revision History:
 #define _ICANON_
 
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 //
 // keep old names for now
 //
@@ -415,5 +419,9 @@ NetpListTraverse(
 #define   ITYPE_DEVICE_CON      (ITYPE_DEVICE|ITYPE_CON)
 #define   ITYPE_DEVICE_NUL      (ITYPE_DEVICE|ITYPE_NUL)
 
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // ndef _ICANON_

@@ -37,6 +37,10 @@ Revision History:
 
 #include <time.h>
 
+#include <windef.h>
+#include <winbase.h>
+#undef DeleteFile
+
 extern VOID
 PsxFreeDirectories(
         IN PPSX_PROCESS
@@ -133,10 +137,14 @@ Return Value:
         st = NtGetContextThread(p->Thread, &Context);
         ASSERT(NT_SUCCESS(st));
 
+        InitialTeb.OldInitialTeb.OldStackBase = NULL;
+        InitialTeb.OldInitialTeb.OldStackLimit = NULL;
         InitialTeb.StackBase = args->StackBase;
         InitialTeb.StackLimit = args->StackLimit;
+        InitialTeb.StackAllocationBase = args->StackAllocationBase;
 
         SetPsxForkReturn(Context);
+
         st = NtCreateThread(&NewThreadHandle, THREAD_ALL_ACCESS, NULL,
                 NewProcessHandle, &ClientId, &Context, &InitialTeb, TRUE);
 
@@ -239,8 +247,12 @@ Return Value:
 
         m->ReturnValue = NewProcess->Pid;
 
+
         st = NtResumeThread(NewThreadHandle, &Psp);
+
         ASSERT(NT_SUCCESS(st));
+
+Sleep(250);
         return TRUE;
 }
 
@@ -1512,6 +1524,9 @@ XXX.mjb:
 
         Status = NtWriteVirtualMemory(p->Process, args->GroupList,
                 GroupList, j * sizeof(gid_t), NULL);
+
+        RtlFreeHeap(PsxHeap, 0, (PVOID)GroupList);
+
         if (!NT_SUCCESS(Status)) {
                 m->Error = PsxStatusToErrno(Status);
                 RtlFreeHeap(PsxHeap, 0, (PVOID)pGroups);

@@ -124,4 +124,3 @@ EhGetKeySecurity(
     IN HANDLE HiveHandle,
     IN HANDLE KeyHandle
     );
-

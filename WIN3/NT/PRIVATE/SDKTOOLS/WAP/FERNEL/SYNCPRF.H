@@ -8,6 +8,8 @@
 	   7/30/92: Created by t-chris to keep the data recorded for all the
 		   syncronization activity (events, semaphores and mutexes).
 
+	   8/8/95: Modified type info buffer usage to match NtQueryObject API
+	    
       Note: The file has the same structure as the baseprf.h file
 
  --*/
@@ -47,9 +49,8 @@
 #define  NAMEOFTYPEINFOMUTEX	(L"FileSyncTypeInfoMutex")
 
 #define  BUFFERLEN      	256     // Length of temporary buffer
-					// holding the name to the sync object
-#define  BUFSIZE		50	// Length of buffer for handle type info
-
+									// holding the name to the sync object
+#define  MAXTYPENAME		50		// Max length of object type name
 
 // a. Overall statistics
 typedef struct _overallsync
@@ -167,14 +168,14 @@ HANDLE                  hSMutex[NUMOFSYNC];
 // The handle to the mutex object for the buffer wsSNameBuffer
 HANDLE			hBufferMutex;
 
-// The address of the buffer holding the type information for handles passed to
-// the fernel32 dll
-OBJECT_TYPE_INFORMATION tiTypeInfo;
-
-// The actual buffer holding the type names of the handles passed to the
-// fernel32.dll
-TCHAR			TypeInfoBuffer[BUFSIZE];
-
+// Composite Type info buffer for calls to NtQueryObject
+// (NtQueryObject expects an OBJECT_TYPE_INFORMATION ptr and appends the type
+//  name to the end of the structure.)
+struct {
+  OBJECT_TYPE_INFORMATION TypeInfo;
+  TCHAR		TypeName[MAXTYPENAME];
+} QueryBuf;
+	
 // The mutex object for the type info buffer
 HANDLE			hTypeMutex;
 
@@ -224,4 +225,4 @@ extern void     SyncProfDumpData      (HFILE);
 
 extern void		FAR PASCAL RtlLargeIntegerPrint (LARGE_INTEGER, LPTSTR);
 
-
+

@@ -2386,4 +2386,3 @@ BOOL ObjCloneScrapToNewDoc(LHCLIENTDOC lhNewClientDoc)
 }
 
 
-

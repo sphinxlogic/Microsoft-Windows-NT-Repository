@@ -18,6 +18,8 @@ Author:
 
 Revision History:
 
+    TomH Jan 1995  added VINES IP definitions
+
 --*/
 
 //
@@ -99,7 +101,8 @@ typedef struct _TRANSPORT_ADDRESS {
 #define TDI_ADDRESS_TYPE_8022      ((USHORT)18) //
 #define TDI_ADDRESS_TYPE_OSI_TSAP  ((USHORT)19) //
 #define TDI_ADDRESS_TYPE_NETONE    ((USHORT)20) // for WzMail
-
+#define TDI_ADDRESS_TYPE_VNS       ((USHORT)21) // Banyan VINES IP
+#define TDI_ADDRESS_TYPE_NETBIOS_EX   ((USHORT)22) // NETBIOS address extensions
 
 //
 // Definition of address structures. These need to be packed
@@ -125,6 +128,16 @@ typedef struct _TDI_ADDRESS_NETBIOS {
 
 #define TDI_ADDRESS_LENGTH_NETBIOS sizeof (TDI_ADDRESS_NETBIOS)
 
+//
+// NETBIOS Extended address
+//
+
+typedef struct _TDI_ADDRESS_NETBIOS_EX {
+   UCHAR  EndpointName[16];               // the called name to be used in NETBT session setup
+   TDI_ADDRESS_NETBIOS NetbiosAddress;
+} TDI_ADDRESS_NETBIOS_EX, *PTDI_ADDRESS_NETBIOS_EX;
+
+#define TDI_ADDRESS_LENGTH_NETBIOS_EX sizeof(TDI_ADDRESS_NETBIOS_EX)
 
 //
 // Xns address for UB
@@ -177,7 +190,6 @@ typedef struct _TDI_ADDRESS_IP {
 
 #define TDI_ADDRESS_LENGTH_IP sizeof (TDI_ADDRESS_IP)
 
-
 //
 // IPX address
 //
@@ -204,11 +216,52 @@ typedef struct _TDI_ADDRESS_NS {
 
 #define TDI_ADDRESS_LENGTH_NS sizeof (TDI_ADDRESS_NS)
 
+//
+// Banyan VINES IP address
+//
+
+typedef struct _TDI_ADDRESS_VNS {
+    UCHAR   net_address[4];		// network address (static)
+    UCHAR   subnet_addr[2];		// subnet address (dynamic)
+    UCHAR   port[2];
+    UCHAR   hops;			// # hops for broadcasts
+    UCHAR   filler[5];			// filler, zeros
+} TDI_ADDRESS_VNS, *PTDI_ADDRESS_VNS;
+
+#define TDI_ADDRESS_LENGTH_VNS sizeof (TDI_ADDRESS_VNS)
+
 
 // OSI TSAP
 
-// TBD
+/*
+ *   The maximum size of the tranport address (tp_addr field of a
+ *   sockaddr_tp structure) is 64.
+ */
 
+#define ISO_MAX_ADDR_LENGTH 64
+
+/*
+ *   There are two types of ISO addresses, hierarchical and
+ *   non-hierarchical.  For hierarchical addresses, the tp_addr
+ *   field contains both the transport selector and the network
+ *   address.  For non-hierarchical addresses, tp_addr contains only
+ *   the transport address, which must be translated by the ISO TP4
+ *   transport provider into the transport selector and network address.
+ */
+
+#define ISO_HIERARCHICAL            0
+#define ISO_NON_HIERARCHICAL        1
+
+typedef struct _TDI_ADDRESS_OSI_TSAP {
+   USHORT tp_addr_type;  /* ISO_HIERARCHICAL or ISO_NON_HIERARCHICAL
+*/
+   USHORT tp_taddr_len;  /* Length of transport address, <= 52 */
+   USHORT tp_tsel_len;   /* Length of transport selector, <= 32 */
+                         /* 0 if ISO_NON_HIERARCHICAL */
+   UCHAR tp_addr[ISO_MAX_ADDR_LENGTH];
+} TDI_ADDRESS_OSI_TSAP, *PTDI_ADDRESS_OSI_TSAP;
+
+#define TDI_ADDRESS_LENGTH_OSI_TSAP sizeof (TDI_ADDRESS_OSI_TSAP)
 
 //
 // Some pre-defined structures to make life easier for
@@ -223,6 +276,15 @@ typedef struct _TA_ADDRESS_NETBIOS {
         TDI_ADDRESS_NETBIOS Address[1];
     } Address [1];
 } TA_NETBIOS_ADDRESS, *PTA_NETBIOS_ADDRESS;
+
+typedef struct _TA_ADDRESS_NETBIOS_EX {
+    LONG TAAddressCount;
+    struct _AddrNetbiosEx {
+        USHORT AddressLength;       // length in bytes of this address == 36
+        USHORT AddressType;         // this will == TDI_ADDRESS_TYPE_NETBIOS_EX
+        TDI_ADDRESS_NETBIOS_EX Address[1];
+    } Address [1];
+} TA_NETBIOS_EX_ADDRESS, *PTA_NETBIOS_EX_ADDRESS;
 
 typedef struct _TA_APPLETALK_ADDR {
     LONG TAAddressCount;
@@ -259,6 +321,15 @@ typedef struct _TA_ADDRESS_NS {
         TDI_ADDRESS_NS Address[1];
     } Address [1];
 } TA_NS_ADDRESS, *PTA_NS_ADDRESS;
+
+typedef struct _TA_ADDRESS_VNS {
+    LONG TAAddressCount;
+    struct _AddrVns {
+        USHORT AddressLength;       // length in bytes of this address == 14
+        USHORT AddressType;         // this will == TDI_ADDRESS_TYPE_VNS
+        TDI_ADDRESS_VNS Address[1];
+    } Address [1];
+} TA_VNS_ADDRESS, *PTA_VNS_ADDRESS;
 
 #include <packoff.h>
 

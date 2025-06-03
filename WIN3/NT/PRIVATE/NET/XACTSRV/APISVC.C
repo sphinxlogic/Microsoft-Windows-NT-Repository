@@ -83,8 +83,8 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(SERVICE) {
-        NetpDbgPrint( "XsNetServiceControl: header at %lx, params at %lx\n",
-                      Header, parameters );
+        NetpKdPrint(( "XsNetServiceControl: header at %lx, params at %lx\n",
+                      Header, parameters ));
     }
 
     //
@@ -113,8 +113,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetServiceControl: NetServiceControl failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetServiceControl: NetServiceControl failed: "
+                          "%X\n", status ));
         }
 
         Header->Status = (WORD)status;
@@ -137,8 +137,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetServiceControl: NetpTranslateNamesInServiceArray failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetServiceControl: NetpTranslateNamesInServiceArray failed: "
+                          "%X\n", status ));
         }
 
         Header->Status = NERR_InternalError;
@@ -196,8 +196,8 @@ Return Value:
 
     if ( status != NERR_Success ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetServiceControl: RapConvertSingleEntry failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetServiceControl: RapConvertSingleEntry failed: "
+                          "%X\n", status ));
         }
 
         Header->Status = NERR_InternalError;
@@ -205,9 +205,9 @@ Return Value:
     }
 
     IF_DEBUG(SERVICE ) {
-        NetpDbgPrint( "32-bit data at %lx, 16-bit data at %lx, %ld BR\n",
+        NetpKdPrint(( "32-bit data at %lx, 16-bit data at %lx, %ld BR\n",
                       newOutBuffer, SmbGetUlong( &parameters->Buffer ),
-                      bytesRequired );
+                      bytesRequired ));
     }
 
     //
@@ -222,7 +222,7 @@ Return Value:
              )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetServiceControl: Buffer too small.\n" );
+            NetpKdPrint(( "XsNetServiceControl: Buffer too small.\n" ));
         }
         Header->Status = NERR_BufTooSmall;
 
@@ -290,10 +290,10 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(SERVICE) {
-        NetpDbgPrint( "XsNetServiceEnum: header at %lx, params at %lx, "
+        NetpKdPrint(( "XsNetServiceEnum: header at %lx, params at %lx, "
                       "level %ld, buf size %ld\n",
                       Header, parameters, SmbGetUshort( &parameters->Level ),
-                      SmbGetUshort( &parameters->BufLen ));
+                      SmbGetUshort( &parameters->BufLen )));
     }
 
     //
@@ -323,16 +323,16 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetServiceEnum: NetServiceEnum failed: %X\n",
-                          status );
+            NetpKdPrint(( "XsNetServiceEnum: NetServiceEnum failed: %X\n",
+                          status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
     }
 
     IF_DEBUG(SERVICE) {
-        NetpDbgPrint( "XsNetServiceEnum: received %ld entries at %lx\n",
-                      entriesRead, outBuffer );
+        NetpKdPrint(( "XsNetServiceEnum: received %ld entries at %lx\n",
+                      entriesRead, outBuffer ));
     }
 
     //
@@ -349,8 +349,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetServiceEnum: NetpTranslateNamesInServiceArray failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetServiceEnum: NetpTranslateNamesInServiceArray failed: "
+                          "%X\n", status ));
         }
 
         Header->Status = NERR_InternalError;
@@ -461,10 +461,10 @@ Return Value:
         );
 
     IF_DEBUG(SERVICE) {
-        NetpDbgPrint( "32-bit data at %lx, 16-bit data at %lx, %ld BR,"
+        NetpKdPrint(( "32-bit data at %lx, 16-bit data at %lx, %ld BR,"
                       " Entries %ld of %ld\n",
                       newOutBuffer, SmbGetUlong( &parameters->Buffer ),
-                      bytesRequired, entriesFilled, totalEntries );
+                      bytesRequired, entriesFilled, totalEntries ));
     }
 
     //
@@ -549,9 +549,9 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(SERVICE) {
-        NetpDbgPrint( "XsNetServiceGetInfo: header at %lx, "
+        NetpKdPrint(( "XsNetServiceGetInfo: header at %lx, "
                       "params at %lx, level %d\n",
-                      Header, parameters, SmbGetUshort( &parameters->Level ));
+                      Header, parameters, SmbGetUshort( &parameters->Level )));
     }
 
     //
@@ -583,8 +583,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetServiceGetInfo: NetServiceGetInfo failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetServiceGetInfo: NetServiceGetInfo failed: "
+                          "%X\n", status ));
         }
 
         Header->Status = (WORD)status;
@@ -606,8 +606,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetServiceGetInfo: NetpTranslateNamesInServiceArray failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetServiceGetInfo: NetpTranslateNamesInServiceArray failed: "
+                          "%X\n", status ));
         }
 
         Header->Status = NERR_InternalError;
@@ -706,8 +706,8 @@ Return Value:
 
     if ( status != NERR_Success ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetServiceGetInfo: RapConvertSingleEntry failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetServiceGetInfo: RapConvertSingleEntry failed: "
+                          "%X\n", status ));
         }
 
         Header->Status = NERR_InternalError;
@@ -715,9 +715,9 @@ Return Value:
     }
 
     IF_DEBUG(SERVICE ) {
-        NetpDbgPrint( "32-bit data at %lx, 16-bit data at %lx, %ld BR\n",
+        NetpKdPrint(( "32-bit data at %lx, 16-bit data at %lx, %ld BR\n",
                       newOutBuffer, SmbGetUlong( &parameters->Buffer ),
-                      bytesRequired );
+                      bytesRequired ));
     }
 
     //
@@ -732,7 +732,7 @@ Return Value:
              )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetServiceGetInfo: Buffer too small.\n" );
+            NetpKdPrint(( "XsNetServiceGetInfo: Buffer too small.\n" ));
         }
         Header->Status = NERR_BufTooSmall;
 
@@ -812,10 +812,10 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(SERVICE) {
-        NetpDbgPrint( "XsNetServiceInstall: header at %lx, "
+        NetpKdPrint(( "XsNetServiceInstall: header at %lx, "
                       "params at %lx, service %s\n",
                       Header, parameters,
-                      (LPSTR)SmbGetUlong( &parameters->Service ) );
+                      (LPSTR)SmbGetUlong( &parameters->Service ) ));
     }
 
     //
@@ -904,8 +904,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetServiceInstall: NetServiceInstall failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetServiceInstall: NetServiceInstall failed: "
+                          "%X\n", status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
@@ -926,8 +926,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetServiceInstall: NetpTranslateNamesInServiceArray failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetServiceInstall: NetpTranslateNamesInServiceArray failed: "
+                          "%X\n", status ));
         }
 
         Header->Status = NERR_InternalError;
@@ -985,8 +985,8 @@ Return Value:
 
     if ( status != NERR_Success ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetServiceInstall: RapConvertSingleEntry failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetServiceInstall: RapConvertSingleEntry failed: "
+                          "%X\n", status ));
         }
 
         Header->Status = NERR_InternalError;
@@ -994,8 +994,8 @@ Return Value:
     }
 
     IF_DEBUG(SERVICE) {
-        NetpDbgPrint( "32-bit data at %lx, 16-bit data at %lx, %ld BR\n",
-                      newOutBuffer, &parameters->RetBuffer, bytesRequired );
+        NetpKdPrint(( "32-bit data at %lx, 16-bit data at %lx, %ld BR\n",
+                      newOutBuffer, &parameters->RetBuffer, bytesRequired ));
     }
 
     //

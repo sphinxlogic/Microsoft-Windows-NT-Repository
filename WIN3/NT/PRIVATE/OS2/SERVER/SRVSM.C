@@ -318,10 +318,11 @@ Return Value:
     OS2_DOSWRITEQUEUE_MSG a;
     ULONG           i;
     APIRET          Rc = NO_ERROR;
+    ULONG           SessionId;
 
     if (Session == NULL)
     {
-	return NULL;
+    return NULL;
     }
 
     try
@@ -359,17 +360,23 @@ Return Value:
 
         SessionTable[Session->SessionId - 1].Session = NULL;
         Session->ProcessId = 0;
+        SessionId = Session->SessionId;
         Session->SessionId = 0;
         Session->ReferenceCount = (ULONG)-1;
         RemoveEntryList( &Session->SessionLink );
 
-        if (Session->hWaitThread)
-        {
+        //if (Session->hWaitThread)
+        //{
             //NtAlertThread(Session->hWaitThread);
             //TerminateThread(Session->hWaitThread, 0L);
             //WaitForSingleObject(Session->hWaitThread, (ULONG) SEM_INDEFINITE_WAIT);
             //CloseHandle(Session->hWaitThread);
             //Session->hWaitThread = NULL;
+        //}
+
+        if (( Session->RelatedSession ) && ( Session->RelatedSession->BindSession == Session ))
+        {
+            Session->RelatedSession->BindSession = NULL;
         }
 
         for ( i = 0 ; i < OS2_MAX_SESSION ; i++ )
@@ -378,18 +385,26 @@ Return Value:
                 ( SessionTable[i].Session->RelatedSession == Session ))
             {
                 SessionTable[i].Session->RelatedSession = NULL;
+                StopSessionAndChildSessions(SessionTable[i].Session);
             }
         }
 
-        if (( Session->RelatedSession ) && ( Session->RelatedSession->BindSession == Session ))
+        //
+        // If it's a win32 session, terminate child sessions, by pid.
+        //
+        if (Session->WinSession)
         {
-            Session->RelatedSession->BindSession = NULL;
+            for ( i = 0 ; i < OS2_MAX_SESSION ; i++ )
+            {
+                if ( SessionTable[i].Session &&
+                    ( SessionTable[i].Session->dwParentProcessId == Session->dwProcessId ))
+                {
+                    StopSessionAndChildSessions(SessionTable[i].Session);
+                }
+            }
         }
-
-        if (( Session->BindSession ) && ( Session->BindSession->RelatedSession == Session ))
-        {
-            Session->BindSession->RelatedSession = NULL;
-        }
+        Session->dwProcessId = 0;
+        Session->dwParentProcessId = 0;
 
         if ( Session->TerminationQueue )
         {
@@ -405,8 +420,8 @@ Return Value:
 
                 a.QueueHandle = (HQUEUE)Session->TerminationQueueHandle;
                 a.SenderData = 0L;
-                a.DataLength = 0;
-                a.Data = (PVOID) Session;
+                a.DataLength = 0x80000000 | SessionId;
+                a.Data = (PVOID) msg->ExitResult;
                 a.ElementPriority = 0;
 
                 Os2WriteQueueByHandle(&a,Os2RootProcess->ProcessId);
@@ -454,8 +469,12 @@ Return Value:
             }
         }
 
-	RtlFreeHeap( Os2Heap, 0, Session );
-	return NULL;
+        RtlFreeHeap( Os2Heap, 0, Session );
+#if DBG
+        IF_OS2_DEBUG( SESSIONMGR )
+            DumpSessionTable("Os2DereferenceSession");
+#endif // DBG
+        return NULL;
     }
     return Session;
 }
@@ -598,27 +617,38 @@ WaitOnWinSessionObject(
     POS2_SESSION    Session = (POS2_SESSION)Parm;
     ULONG           ExitCode = 0;
     HANDLE          hCurrThread = Session->hWaitThread;
+    OS2_TERMINATEPROCESS_MSG a;
+    NTSTATUS        Status;
 
     if (NtTestAlert() != STATUS_ALERTED)
     {
-        WaitForSingleObject( Session->hProcess, (ULONG) -1 );
-        if (NtTestAlert() != STATUS_ALERTED)
+        Status = NtWaitForSingleObject( Session->hProcess, TRUE, NULL );
+#if DBG
+        IF_OS2_DEBUG( SESSIONMGR )
+            KdPrint(("WaitOnWinSessionObject: Wait for Win32 process, status=0x%0X\n", Status));
+#endif // DBG
+        if (Status != STATUS_ALERTED)
         {
-            // BUGBUG: Do we need the ExitCode ???
-
             if (!GetExitCodeProcess(Session->hProcess, &ExitCode))
             {
                 ExitCode = GetLastError();
             }
         }
+        else
+        {
+            TerminateProcess(Session->hProcess, 0);
+        }
     }
 
-    CloseHandle( Session->hProcess);
+    CloseHandle(Session->hProcess);
 
     if (Session->ReferenceCount)
     {
-        Os2DereferenceSession(Session, NULL, TRUE);
         Session->hWaitThread = NULL;
+        a.ExitResult = ExitCode;
+        a.ExitReason = 0;
+        a.ErrorText[0] = '\0';
+        Os2DereferenceSession(Session, &a, FALSE);
     }
 
     CloseHandle(hCurrThread);

@@ -608,6 +608,9 @@ Return Value:
     ULONG i, j, InitialIdCount;
     PTOKEN_USER User;
     PTOKEN_GROUPS Groups;
+    PTOKEN_PRIMARY_GROUP PrimaryGroup;
+    PSID PrimaryGroupSid;
+    PULONG PrimaryGroupAttributes;
 
 
 
@@ -624,9 +627,11 @@ Return Value:
     if (TokenInformationType == LsaTokenInformationNull) {
         User = NULL;
         Groups = ((PLSA_TOKEN_INFORMATION_NULL)(*TokenInformation))->Groups;
+        PrimaryGroup = NULL;
     } else {
         User  = &((PLSA_TOKEN_INFORMATION_V1)(*TokenInformation))->User;
         Groups = ((PLSA_TOKEN_INFORMATION_V1)(*TokenInformation))->Groups;
+        PrimaryGroup = &((PLSA_TOKEN_INFORMATION_V1)(*TokenInformation))->PrimaryGroup;
     }
 
 
@@ -652,39 +657,60 @@ Return Value:
 
         FinalIds[j] = User->User;
         IdProperties[j] = LSAP_AU_SID_PROP_COPY;
+        j++;
 
-    } else {
-
-        //
-        // No UserId provided.  Use WORLD.
-        //
-
-        FinalIds[j].Sid = LsapWorldSid;
-        FinalIds[j].Attributes = SE_GROUP_ENABLED_BY_DEFAULT |
-                                 SE_GROUP_ENABLED            |
-                                 SE_GROUP_MANDATORY          |
-                                 SE_GROUP_OWNER;
-        IdProperties[j] = LSAP_AU_SID_PROP_COPY;
     }
-    j++;
 
+    if (PrimaryGroup != NULL) {
+        //
+        // TokenInformation included a primary group ID.
+        //
+
+        FinalIds[j].Sid = PrimaryGroup->PrimaryGroup;
+        FinalIds[j].Attributes = 0;
+
+        //
+        // Store a pointer to the attributes and the sid so we can later
+        // fill in the attributes from the rest of the group memebership.
+        //
+
+        PrimaryGroupAttributes = &FinalIds[j].Attributes;
+        PrimaryGroupSid = PrimaryGroup->PrimaryGroup;
+        IdProperties[j] = LSAP_AU_SID_PROP_COPY;
+        j++;
+    }
 
     if (Groups != NULL) {
         for (i=0; i < Groups->GroupCount; i++) {
-            FinalIds[j] = Groups->Groups[i];
-            IdProperties[j] = LSAP_AU_SID_PROP_COPY;
 
             //
-            // if this SID is a logon SID, then set the SE_GROUP_LOGON_ID
-            // attribute
+            // If this sid is the primary group, it is already in the list
+            // of final IDs but we need to add the attribute
             //
 
-            if (LsapIsSidLogonSid(FinalIds[j].Sid) == TRUE)  {
-                FinalIds[j].Attributes |= SE_GROUP_LOGON_ID;
+            if (RtlEqualSid(
+                    PrimaryGroupSid,
+                    Groups->Groups[i].Sid
+                    )) {
+                *PrimaryGroupAttributes = Groups->Groups[i].Attributes;
+            } else {
+
+                FinalIds[j] = Groups->Groups[i];
+                IdProperties[j] = LSAP_AU_SID_PROP_COPY;
+
+                //
+                // if this SID is a logon SID, then set the SE_GROUP_LOGON_ID
+                // attribute
+                //
+
+                if (LsapIsSidLogonSid(FinalIds[j].Sid) == TRUE)  {
+                    FinalIds[j].Attributes |= SE_GROUP_LOGON_ID;
+                }
+                j++;
+
             }
 
 
-            j++;
         }
     }
 
@@ -696,8 +722,10 @@ Return Value:
     // We expect the user and primary group to be high hit rate IDs
     //
 
-    IdProperties[0] |= (LSAP_AU_SID_PROP_HIGH_RATE);
-    IdProperties[1] |= (LSAP_AU_SID_PROP_HIGH_RATE);
+    if (InitialIdCount >= 2) {
+        IdProperties[0] |= (LSAP_AU_SID_PROP_HIGH_RATE);
+        IdProperties[1] |= (LSAP_AU_SID_PROP_HIGH_RATE);
+    }
 
     return(STATUS_SUCCESS);
 
@@ -814,8 +842,7 @@ Return Value:
     Length = (ULONG)sizeof(ACL) +
              (3*((ULONG)sizeof(ACCESS_ALLOWED_ACE))) +
              RtlLengthSid( FinalIds[FinalOwnerIndex].Sid ) +
-             RtlLengthSid( LsapLocalSystemSid ) +
-             100; // Just to leave room for user changes
+             RtlLengthSid( LsapLocalSystemSid );
 
     Acl = (PACL)RtlAllocateHeap( RtlProcessHeap(), 0, Length);
 
@@ -949,7 +976,7 @@ Return Value:
     if ( i + 2 > LSAP_CONTEXT_SID_LIMIT) {
         return(STATUS_TOO_MANY_CONTEXT_IDS);
     }
-    
+
     //
     // WORLD
     //
@@ -990,7 +1017,7 @@ Return Value:
                               );
     IdProperties[i] = LSAP_AU_SID_PROP_COPY;
     i++;
-      
+
 
     (*FinalIdCount) = i;
     return(STATUS_SUCCESS);
@@ -1968,7 +1995,7 @@ Return Value:
     }
 
 
-    ChangeNotify = RtlConvertLongToLargeInteger(SE_CHANGE_NOTIFY_PRIVILEGE);
+    ChangeNotify = RtlConvertLongToLuid(SE_CHANGE_NOTIFY_PRIVILEGE);
 
     for ( i=0; i<PrivilegeCount; i++) {
         if (RtlEqualLuid(&Privileges[i].Luid, &ChangeNotify) == TRUE) {

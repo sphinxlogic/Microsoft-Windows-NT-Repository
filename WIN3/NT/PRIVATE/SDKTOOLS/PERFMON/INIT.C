@@ -48,7 +48,55 @@ DWORD FAR PASCAL MessageFilterProc (int nCode, WPARAM wParam,
 //                              Local Functions                             //
 //==========================================================================//
 
+static
+LONG
+EnablePrivilege (
+	IN	LPTSTR	szPrivName
+)
+{
+    LUID SePrivNameValue;
+    TOKEN_PRIVILEGES tkp;
 
+    HANDLE hToken = NULL;
+
+    /* Retrieve a handle of the access token. */
+
+    if (!OpenProcessToken(GetCurrentProcess(),
+            TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY,
+            &hToken)) {
+		goto Exit_Point;
+    }
+
+    /*
+     * Enable the privilege by name and get the ID
+     */
+
+    if (!LookupPrivilegeValue((LPTSTR) NULL,
+            szPrivName,
+            &SePrivNameValue)) {
+		goto Exit_Point;
+    }
+
+    tkp.PrivilegeCount = 1;
+    tkp.Privileges[0].Luid = SePrivNameValue;
+    tkp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+
+    AdjustTokenPrivileges(hToken,
+        FALSE,
+        &tkp,
+        sizeof(TOKEN_PRIVILEGES),
+        (PTOKEN_PRIVILEGES) NULL,
+        (PDWORD) NULL);
+
+    /* The return value of AdjustTokenPrivileges be texted. */
+
+Exit_Point:
+
+	if (hToken != NULL) CloseHandle (hToken);
+    return GetLastError();
+
+}
+
 void GetScalesFonts (void)
    {
    LOGFONT        lf ;
@@ -223,6 +271,13 @@ BOOL InitializeInstance (int nCmdShow, LPCSTR lpszCmdLine)
    DWORD          ComputerNameLength;
    TCHAR          szApplication [WindowCaptionLen] ;
 
+   bCloseLocalMachine = FALSE;
+
+   // enable privileges needed to profile system 
+   // if this fails, that's ok for now.
+   
+   EnablePrivilege (SE_SYSTEM_PROFILE_NAME);    // to access perfdata
+   EnablePrivilege (SE_INC_BASE_PRIORITY_NAME); // to raise priority
 
    //=============================//
    // Set Priority high           //
@@ -263,7 +318,7 @@ BOOL InitializeInstance (int nCmdShow, LPCSTR lpszCmdLine)
    // computer names have the prefix and are therefore compatible with
    // I_SetSystemFocus (see perfmops.c).
 
-   ComputerNameLength = MAX_COMPUTERNAME_LENGTH + 1;
+   ComputerNameLength = MAX_PATH + 1;
    lstrcpy (LocalComputerName, szComputerPrefix) ;
    GetComputerName (LocalComputerName + lstrlen (szComputerPrefix), 
                     &ComputerNameLength);
@@ -313,7 +368,7 @@ BOOL InitializeInstance (int nCmdShow, LPCSTR lpszCmdLine)
 						i++ ;
 					lpszNewCL[i] = '\0' ;
 
-					if ((*lpszNewCL != '\0') && (strlen(lpszNewCL) <= MAX_COMPUTERNAME_LENGTH)) {
+					if ((*lpszNewCL != '\0') && (strlen(lpszNewCL) <= MAX_PATH)) {
 						int nSizePrefix ;
 					
 						nSizePrefix = lstrlen (szComputerPrefix) ;
@@ -521,6 +576,7 @@ BOOL PerfmonInitialize (HINSTANCE hCurrentInstance,
 
 void PerfmonClose (HWND hWndMain)
    {
+   DWORD          dwException;
    // close the log file for now.
    // need to query the user later..!!
 #if 0
@@ -542,11 +598,20 @@ void PerfmonClose (HWND hWndMain)
    ResetLogView (hWndLog) ;
    ResetReportView (hWndReport) ;
 
-   // close the local machine
-   if (bCloseLocalMachine)
-      {
-      RegCloseKey (HKEY_PERFORMANCE_DATA) ;
-      }
+   try {
+        // if the key has already been closed, this will 
+        // generate an exception so we'll catch that here 
+        // and continue...
+        //
+        // close the local machine
+        if (bCloseLocalMachine)
+            {
+            RegCloseKey (HKEY_PERFORMANCE_DATA) ;
+            }
+   } except (EXCEPTION_EXECUTE_HANDLER) {
+        // get the exception for the debugger user, that's all
+        dwException = GetExceptionCode();
+   }
 
 
    // free all the filenames
@@ -581,4 +646,4 @@ void PerfmonClose (HWND hWndMain)
    SaveMainWindowPlacement (hWndMain) ;
    DestroyWindow (hWndMain) ;
    }  // PerfmonClose
-
+

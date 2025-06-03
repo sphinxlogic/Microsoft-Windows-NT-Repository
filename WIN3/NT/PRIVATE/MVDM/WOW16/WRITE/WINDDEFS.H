@@ -76,4 +76,3 @@ struct PICINFOX {
 
 #define cchPICINFOX     (sizeof(struct PICINFOX))
 #endif /* ifndef NOMETAFILE */
-

@@ -1,8 +1,11 @@
 #include <pch.cxx>
 
 #define _NTAPI_ULIB_
+#define _IFSUTIL_MEMBER_
 
 #include "ulib.hxx"
+#include "ifsutil.hxx"
+
 #include "ifssys.hxx"
 #include "bigint.hxx"
 #include "wstring.hxx"
@@ -63,7 +66,9 @@ Return Value:
     } else if ((bytes_per_sector != 128) &&
                (bytes_per_sector != 256) &&
                (bytes_per_sector != 512) &&
-               (bytes_per_sector != 1024)) {
+               (bytes_per_sector != 1024) &&
+               (bytes_per_sector != 2048) &&
+               (bytes_per_sector != 4096)) {
 
         r = FALSE;
 
@@ -182,24 +187,6 @@ Return Value:
     return r;
 }
 
-#if 0
-typedef struct _PACKED_BIOS_PARAMETER_BLOCK {
-    UCHAR  BytesPerSector[2];                       //  offset = 0x000
-    UCHAR  SectorsPerCluster[1];                    //  offset = 0x002
-    UCHAR  ReservedSectors[2];                      //  offset = 0x003 (zero)
-    UCHAR  Fats[1];                                 //  offset = 0x005 (zero)
-    UCHAR  RootEntries[2];                          //  offset = 0x006 (zero)
-    UCHAR  Sectors[2];                              //  offset = 0x008 (zero)
-    UCHAR  Media[1];                                //  offset = 0x00A
-    UCHAR  SectorsPerFat[2];                        //  offset = 0x00B (zero)
-    UCHAR  SectorsPerTrack[2];                      //  offset = 0x00D
-    UCHAR  Heads[2];                                //  offset = 0x00F
-    UCHAR  HiddenSectors[4];                        //  offset = 0x011
-    UCHAR  LargeSectors[4];                         //  offset = 0x015 (zero)
-} PACKED_BIOS_PARAMETER_BLOCK;                      //  sizeof = 0x019 (zero)
-typedef PACKED_BIOS_PARAMETER_BLOCK *PPACKED_BIOS_PARAMETER_BLOCK;
-#endif
-
 #if !defined _AUTOCHK_ && !defined _AUTOCONV_
 
 typedef struct _PACKED_BOOT_SECTOR {
@@ -210,8 +197,10 @@ typedef struct _PACKED_BOOT_SECTOR {
     LARGE_INTEGER NumberSectors;                    //  offset = 0x028
     LARGE_INTEGER MftStartLcn;                      //  offset = 0x030
     LARGE_INTEGER Mft2StartLcn;                     //  offset = 0x038
-    ULONG ClustersPerFileRecordSegment;             //  offset = 0x040
-    ULONG DefaultClustersPerIndexAllocationBuffer;  //  offset = 0x044
+    CHAR  ClustersPerFileRecordSegment;             //  offset = 0x040
+    UCHAR Unused1[3];                               //  offset = 0x041
+    CHAR  DefaultClustersPerIndexAllocationBuffer;  //  offset = 0x044
+    UCHAR Unused2[3];                               //  offset = 0x047
     LARGE_INTEGER SerialNumber;                     //  offset = 0x048
     ULONG Checksum;                                 //  offset = 0x050
     UCHAR BootStrap[0x200-0x054];                   //  offset = 0x054
@@ -220,6 +209,7 @@ typedef PACKED_BOOT_SECTOR *PPACKED_BOOT_SECTOR;
 
 #endif // _AUTOCHK_ && _AUTOCONV_
 
+IFSUTIL_EXPORT
 BOOLEAN
 IFS_SYSTEM::IsThisNtfs(
     IN  BIG_INT Sectors,
@@ -304,7 +294,21 @@ Return Value:
                BootSector->Mft2StartLcn >= Sectors) {
 
         r = FALSE;
+    }
 
+    if (!r) {
+        return r;
+    }
+
+    if (BootSector->ClustersPerFileRecordSegment < 0) {
+
+        LONG temp = LONG(BootSector->ClustersPerFileRecordSegment);
+
+        temp = 2 << -temp;
+
+        if (temp < 512) {
+            return FALSE;
+        }
     } else if ((BootSector->ClustersPerFileRecordSegment != 0x1) &&
                (BootSector->ClustersPerFileRecordSegment != 0x2) &&
                (BootSector->ClustersPerFileRecordSegment != 0x4) &&
@@ -314,8 +318,18 @@ Return Value:
                (BootSector->ClustersPerFileRecordSegment != 0x40) &&
                (BootSector->ClustersPerFileRecordSegment != 0x80)) {
 
-        r = FALSE;
+        return FALSE;
+    }
 
+    if (BootSector->DefaultClustersPerIndexAllocationBuffer < 0) {
+
+        LONG temp = LONG(BootSector->DefaultClustersPerIndexAllocationBuffer);
+
+        temp = 2 << -temp;
+
+        if (temp < 512) {
+            return FALSE;
+        }
     } else if ((BootSector->DefaultClustersPerIndexAllocationBuffer != 0x1) &&
                (BootSector->DefaultClustersPerIndexAllocationBuffer != 0x2) &&
                (BootSector->DefaultClustersPerIndexAllocationBuffer != 0x4) &&
@@ -326,132 +340,10 @@ Return Value:
                (BootSector->DefaultClustersPerIndexAllocationBuffer != 0x80)) {
 
         r = FALSE;
-
     }
 
     return r;
 }
-
-#ifdef INCLUDE_OFS
-
-typedef LARGE_INTEGER LSN, *PLSN;
-#define MAXIMUM_VOLUME_LABEL_LENGTH  (32 * sizeof(WCHAR)) // 32 characters
-
-#include "ofsglob.h"
-#include "ofsdisk.h"
-
-//+--------------------------------------------------------------------------
-// Function:    IsThisOfs
-//
-// Purpose:     Determine if the volume is an OFS volume.
-//
-// Arguments:   [Drive]                 -- Drive (volume) to be checked.
-//              [PackedBootSect]        -- Ptr to packed boot sector of drive.
-//
-// Returns:     TRUE if Drive is an OFS volume; FALSE otherwise.
-//
-//---------------------------------------------------------------------------
-
-BOOLEAN
-IsThisOfs(
-    IN      LOG_IO_DP_DRIVE *           Drive,
-    IN      DSKPACKEDBOOTSECT *         PackedBootSect
-    )
-{
-    USHORT              BytesPerSector;
-    ULONG               CheckSum =      0;
-    UCHAR               ClusterFactor;
-    ULONG               Clusters;
-    BIG_INT             Sectors;
-
-    // Does the Oem field identify this as an OFS volume?
-
-    if (memcmp(PackedBootSect->Oem, "OFS     ", 8))
-        return FALSE;
-
-    // Is the checksum okay?
-
-    {
-        ULONG           CheckSumUlongs;
-        ULONG           i;
-        ULONG *         pul = (ULONG *)(PackedBootSect);
-
-        CheckSumUlongs =
-            (ULONG)(&((DSKPACKEDBOOTSECT *) 0)->CheckSum) / sizeof(ULONG);
-
-        for (i = 0; i < CheckSumUlongs; i++)
-            CheckSum += *pul++;
-    }
-
-    if (PackedBootSect->CheckSum != CheckSum)
-        return FALSE;
-
-    // Is the sector count okay?  Note that we allow the sector count to be
-    // lower in the boot block than in the partition table, because this may
-    // be the case for mirror volumes.
-
-    Sectors = *((BIG_INT* )&PackedBootSect->Sectors);
-
-    if (Sectors > Drive->QuerySectors()         ||
-        Sectors > (ULONG) MAXVOLSECTORS         ||
-        Sectors == 0)
-    {
-        return FALSE;
-    }
-
-    // Is the cluster factor okay (within legal range, and a power of two)?
-
-    ClusterFactor = PackedBootSect->PackedBpb.SectorsPerCluster[0];
-
-    if (ClusterFactor < 1                               ||
-        ClusterFactor > MAXSECTORSPERCLUSTER            ||
-        (ClusterFactor & (ClusterFactor - 1)) != 0)
-    {
-        return FALSE;
-    }
-
-    // Do the boot block and partition table agree on bytes per sector, and
-    // is the value within the valid range and a power of two? (note that
-    // all of this also insures that bytes per sector is an integral number
-    // of quadwords).
-
-    memcpy(&BytesPerSector, PackedBootSect->PackedBpb.BytesPerSector,
-            sizeof(BytesPerSector));
-
-    if (BytesPerSector != Drive->QuerySectorSize()      ||
-        BytesPerSector < CBMINSECTOR                    ||
-        BytesPerSector > CBMAXSECTOR                    ||
-        (BytesPerSector & (BytesPerSector - 1)) != 0)
-    {
-        return FALSE;
-    }
-
-    // Is the volume catalog extent believable?
-
-    Clusters = Sectors.GetLowPart() / ClusterFactor;
-
-    if (PackedBootSect->OfsVolCatExtent == EXTENTINVALID        ||
-        ExtentAddr(PackedBootSect->OfsVolCatExtent) +
-        ExtentSize(PackedBootSect->OfsVolCatExtent) > Clusters)
-    {
-        return FALSE;
-    }
-
-    // Verify the boot block signature.
-
-    {
-        DSKBOOTSIG *    pdbs = (DSKBOOTSIG *)((UCHAR *)PackedBootSect +
-                               Drive->QuerySectorSize() -
-                               sizeof(DSKBOOTSIG));
-
-        if (pdbs->BootSig[0] != BOOTSIG0 || pdbs->BootSig[1] != BOOTSIG1)
-            return FALSE;
-    }
-
-    return TRUE;
-}
-
-#else
 
 #define BOOTBLKSECTORS 4
 typedef int DSKPACKEDBOOTSECT;
@@ -464,10 +356,10 @@ IsThisOfs(
 {
     return(FALSE);
 }
-#endif
 
 #if !defined( _SETUP_LOADER_ )
 
+IFSUTIL_EXPORT
 BOOLEAN
 IFS_SYSTEM::QueryFileSystemName(
     IN  PCWSTRING    NtDriveName,
@@ -507,6 +399,7 @@ Return Value:
     BOOLEAN         could_be_ntfs;
     BOOLEAN         could_be_ofs;
     ULONG           num_boot_sectors;
+    BOOLEAN         first_read_failed = FALSE;
 
     if (ErrorCode) {
         *ErrorCode = 0;
@@ -537,11 +430,18 @@ Return Value:
     if (!bootsec.Read()) {
 
         could_be_fat = could_be_hpfs = FALSE;
+        first_read_failed = TRUE;
 
-        bootsec.Relocate(drive.QuerySectors()/2);
+        bootsec.Relocate(drive.QuerySectors());
 
         if (!bootsec.Read()) {
-            could_be_ntfs = FALSE;
+
+            bootsec.Relocate(drive.QuerySectors()/2);
+
+            if (!bootsec.Read()) {
+
+                could_be_ntfs = FALSE;
+            }
         }
     }
 
@@ -553,20 +453,12 @@ Return Value:
         return FileSystemName->Initialize("NTFS");
     }
 
-    if (!bootsec.Read()) {
+    if (first_read_failed) {
 
-        could_be_fat = could_be_hpfs = FALSE;
-
-        bootsec.Relocate(drive.QuerySectors()/2);
+        bootsec.Relocate(BOOTBLKSECTORS);
 
         if (!bootsec.Read()) {
-            could_be_ntfs = FALSE;
-
-            bootsec.Relocate(BOOTBLKSECTORS);
-
-            if (!bootsec.Read()) {
-                could_be_ofs = FALSE;
-            }
+            could_be_ofs = FALSE;
         }
     }
 
@@ -612,6 +504,7 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 IFS_SYSTEM::DosDriveNameToNtDriveName(
     IN  PCWSTRING    DosDriveName,
@@ -663,6 +556,7 @@ Return Value:
 
 VOID
 IFS_SYSTEM::Reboot (
+    IN BOOLEAN PowerOff
     )
 /*++
 
@@ -672,7 +566,8 @@ Routine Description:
 
 Arguments:
 
-    None
+    PowerOff -- if TRUE, we will ask the system to shut down and
+                power off.
 
 Return Value:
 
@@ -702,7 +597,7 @@ Return Value:
     memset( TokenPrivileges, 0, PrivilegeBufferSize );
 
     TokenPrivileges->PrivilegeCount = 1;
-    TokenPrivileges->Privileges[0].Luid = RtlConvertUlongToLargeInteger( SE_SHUTDOWN_PRIVILEGE );
+    TokenPrivileges->Privileges[0].Luid = RtlConvertUlongToLuid( SE_SHUTDOWN_PRIVILEGE );
     TokenPrivileges->Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
 
     Status = NtAdjustPrivilegesToken( TokenHandle,
@@ -718,8 +613,7 @@ Return Value:
         return;
     }
 
-
-    Status = NtShutdownSystem( ShutdownReboot );
+    Status = NtShutdownSystem( PowerOff ? ShutdownPowerOff: ShutdownReboot );
 
     if( !NT_SUCCESS( Status ) ) {
 
@@ -733,6 +627,7 @@ Return Value:
 
 PCANNED_SECURITY IFS_SYSTEM::_CannedSecurity = NULL;
 
+IFSUTIL_EXPORT
 PCANNED_SECURITY
 IFS_SYSTEM::GetCannedSecurity(
     )
@@ -767,7 +662,7 @@ Return Value:
         if( _CannedSecurity == NULL ||
             !_CannedSecurity->Initialize() ) {
 
-            DbgPrint( "IFSUTIL: cannot initialize canned security.\n" );
+            DebugPrint( "IFSUTIL: cannot initialize canned security.\n" );
             DELETE( _CannedSecurity );
         }
 
@@ -778,6 +673,7 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 IFS_SYSTEM::QueryFreeDiskSpace(
     IN  PCWSTRING   DosDriveName,
@@ -814,7 +710,7 @@ Return Value:
     DWORD NumberOfFreeClusters;
     DWORD TotalNumberOfClusters;
 
-    DbgPtrAssert( DosDriveName );
+    DebugPtrAssert( DosDriveName );
 
     Drive = DosDriveName->QueryWSTR( 0, TO_END, Buffer, MAX_PATH );
 
@@ -883,6 +779,7 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 IFS_SYSTEM::EnableFileSystem(
     IN  PCWSTRING    FileSystemName
@@ -913,6 +810,7 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 IFS_SYSTEM::IsFileSystemEnabled(
     IN  PCWSTRING   FileSystemName,
@@ -952,6 +850,7 @@ Return Value:
 #endif // _SETUP_LOADER_
 
 
+IFSUTIL_EXPORT
 VOID
 IFS_SYSTEM::QueryHpfsTime(
     OUT PULONG HpfsTime
@@ -980,6 +879,7 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 VOID
 IFS_SYSTEM::QueryNtfsTime(
     OUT PLARGE_INTEGER NtfsTime
@@ -1015,6 +915,7 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 VOID
 IFS_SYSTEM::ConvertHpfsTimeToNtfsTime(
     IN  ULONG HpfsTime,
@@ -1098,6 +999,7 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 ULONG
 IFS_SYSTEM::QueryPageSize(
     )
@@ -1150,6 +1052,7 @@ Return Value:
 
 CONST   MaxNtNameLength = 260;
 
+IFSUTIL_EXPORT
 BOOLEAN
 IFS_SYSTEM::QueryCanonicalNtDriveName(
     IN  PCWSTRING   NtDriveName,
@@ -1324,7 +1227,7 @@ Return Value:
 
     if( !NT_SUCCESS( Status ) ) {
 
-        DbgPrintf( "IFSUTIL: Could not adjust privileges (Status 0x%x).\n", Status );
+        DebugPrintf( "IFSUTIL: Could not adjust privileges (Status 0x%x).\n", Status );
         return FALSE;
     }
 
@@ -1342,7 +1245,7 @@ Return Value:
 
     if( !NT_SUCCESS( Status ) ) {
 
-        DbgPrintf( "IFSUTIL: Couldn't query system variable--status 0x%x\n", Status );
+        DebugPrintf( "IFSUTIL: Couldn't query system variable--status 0x%x\n", Status );
         return FALSE;
 
     } else {
@@ -1353,6 +1256,7 @@ Return Value:
 
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 IFS_SYSTEM::IsArcSystemPartition(
     IN  PCWSTRING   NtDriveName,
@@ -1402,8 +1306,8 @@ Notes:
     ULONG RemainingLength, CurrentNameLength, i;
     USHORT ValueLength = 0;
 
-    DbgPtrAssert( NtDriveName );
-    DbgPtrAssert( Error );
+    DebugPtrAssert( NtDriveName );
+    DebugPtrAssert( Error );
 
     // Assume innocent until...
     //
@@ -1600,6 +1504,7 @@ Return Value:
     return( NT_SUCCESS( Status ) );
 }
 
+IFSUTIL_EXPORT
 BOOLEAN
 IFS_SYSTEM::FileSetAttributes(
     IN  PCWSTRING FileName,
@@ -1666,6 +1571,7 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 IFS_SYSTEM::WriteToFile(
     IN  PCWSTRING   QualifiedFileName,
@@ -1756,7 +1662,7 @@ Return Value:
 
         // Can't open or create the file.
         //
-        DbgPrintf( "IFSUTIL: Error opening/creating file--status 0x%x\n", Status );
+        DebugPrintf( "IFSUTIL: Error opening/creating file--status 0x%x\n", Status );
         return FALSE;
     }
 
@@ -1774,7 +1680,7 @@ Return Value:
 
     if( !NT_SUCCESS( Status ) ) {
 
-        DbgPrintf( "IFSUTIL: NtWriteFile failed with status 0x%s\n", Status );
+        DebugPrintf( "IFSUTIL: NtWriteFile failed with status 0x%s\n", Status );
         return FALSE;
 
     } else {
@@ -1783,8 +1689,7 @@ Return Value:
     }
 }
 
-#if defined( _NTFS_COMPRESSION_ENABLED_ )
-
+IFSUTIL_EXPORT
 BOOLEAN
 IFS_SYSTEM::EnableVolumeCompression(
     IN  PCWSTRING   NtDriveName
@@ -1799,7 +1704,7 @@ Routine Description:
 Arguments:
 
     NtDriveName     -- the name of the volume
-    
+
 
 Return Value:
 
@@ -1837,7 +1742,7 @@ Return Value:
 
     Status = NtOpenFile(
                 &Handle,
-                SYNCHRONIZE,
+                FILE_READ_DATA|FILE_WRITE_DATA|SYNCHRONIZE,
                 &Obja,
                 &IoStatusBlock,
                 FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
@@ -1869,6 +1774,405 @@ Return Value:
 
     return TRUE;
 }
-#endif
+
+typedef struct _KNOWN_ACE {
+    ACE_HEADER Header;
+    ACCESS_MASK Mask;
+    ULONG SidStart;
+} KNOWN_ACE, *PKNOWN_ACE;
+
+#define LongAlign(Ptr) (                       \
+    (PVOID)((((ULONG)(Ptr)) + 3) & 0xfffffffc) \
+    )
+
+#define LongAligned( ptr )  (LongAlign((ptr)) == ((PVOID)(ptr)))
+
+IFSUTIL_EXPORT
+BOOLEAN
+IFS_SYSTEM::CheckValidSecurityDescriptor(
+    IN ULONG Length,
+    IN PSECURITY_DESCRIPTOR SecurityDescriptor
+    )
+/*++
+
+Routine Description:
+
+    Validates a security descriptor for structural correctness.
+
+Arguments:
+
+    Length - Length in bytes of passed Security Descriptor.
+
+    SecurityDescriptor - Points to the Security Descriptor (in kernel memory) to be
+        validatated.
+
+Return Value:
+
+    TRUE - The passed security descriptor is correctly structured
+    FALSE - The passed security descriptor is badly formed
+
+--*/
+{
+    PISECURITY_DESCRIPTOR ISecurityDescriptor = (PISECURITY_DESCRIPTOR)SecurityDescriptor;
+    PISID OwnerSid;
+    PISID GroupSid;
+    PACE_HEADER Ace;
+    PISID Sid;
+    PACL Dacl;
+    PACL Sacl;
+    ULONG i;
+
+    if (Length < sizeof(SECURITY_DESCRIPTOR)) {
+        return(FALSE);
+    }
+
+    //
+    // Check the revision information.
+    //
+
+    if (ISecurityDescriptor->Revision != SECURITY_DESCRIPTOR_REVISION) {
+        return(FALSE);
+    }
+
+    //
+    // Make sure the passed SecurityDescriptor is in self-relative form
+    //
+
+    if (!(ISecurityDescriptor->Control & SE_SELF_RELATIVE)) {
+        return(FALSE);
+    }
+
+    //
+    // Check the owner.  A valid SecurityDescriptor must have an owner.
+    // It must also be long aligned.
+    //
+
+    if (ISecurityDescriptor->Owner == NULL || !LongAligned(ISecurityDescriptor->Owner) ||
+        (ULONG)((PCHAR)(ISecurityDescriptor->Owner)+sizeof(SID)) > Length) {
+
+        return(FALSE);
+    }
+
+    //
+    // It is safe to reference the owner's SubAuthorityCount, compute the
+    // expected length of the SID
+    //
+
+    OwnerSid = (PISID)RtlOffsetToPointer( ISecurityDescriptor, ISecurityDescriptor->Owner );
+
+    if (OwnerSid->Revision != SID_REVISION) {
+        return(FALSE);
+    }
+
+    if (OwnerSid->SubAuthorityCount > SID_MAX_SUB_AUTHORITIES) {
+        return(FALSE);
+    }
+
+    if ((ULONG)((PCHAR)ISecurityDescriptor->Owner+RtlLengthSid(OwnerSid)) > Length) {
+        return(FALSE);
+    }
+
+    //
+    // The owner appears to be a structurally valid SID that lies within
+    // the bounds of the security descriptor.  Do the same for the Group
+    // if there is one.
+    //
+
+    if (ISecurityDescriptor->Group != NULL) {
+
+        //
+        // Check alignment
+        //
+
+        if (!LongAligned(ISecurityDescriptor->Group)) {
+            return(FALSE);
+        }
+
+        if ((ULONG)((PCHAR)(ISecurityDescriptor->Group)+sizeof(SID)) > Length) {
+            return(FALSE);
+        }
+
+        //
+        // It is safe to reference the Group's SubAuthorityCount, compute the
+        // expected length of the SID
+        //
+
+        GroupSid = (PISID)RtlOffsetToPointer( ISecurityDescriptor, ISecurityDescriptor->Group );
+
+        if (GroupSid->Revision != SID_REVISION) {
+            return(FALSE);
+        }
+
+        if (GroupSid->SubAuthorityCount > SID_MAX_SUB_AUTHORITIES) {
+            return(FALSE);
+        }
+
+        if ((ULONG)((PCHAR)ISecurityDescriptor->Group+RtlLengthSid(GroupSid)) > Length) {
+            return(FALSE);
+        }
+    }
+
+    //
+    // Validate the DACL.  A structurally valid SecurityDescriptor may not necessarily
+    // have a DACL.
+    //
+
+    if (ISecurityDescriptor->Dacl != NULL) {
+
+        //
+        // Check alignment
+        //
+
+        if (!LongAligned(ISecurityDescriptor->Dacl)) {
+            return(FALSE);
+        }
+
+        //
+        // Make sure the DACL structure is within the bounds of the security descriptor.
+        //
+
+        if ((ULONG)((PCHAR)(ISecurityDescriptor->Dacl)+sizeof(ACL)) > Length) {
+            return(FALSE);
+        }
+
+        Dacl = (PACL)RtlOffsetToPointer( ISecurityDescriptor, ISecurityDescriptor->Dacl );
+
+        if (Dacl->AclRevision != ACL_REVISION) {
+            return(FALSE);
+        }
+
+        if (!LongAligned(Dacl->AclSize)) {
+            return(FALSE);
+        }
+
+        if ((ULONG)((PUCHAR)ISecurityDescriptor->Dacl + Dacl->AclSize) > Length) {
+            return(FALSE);
+        }
+
+        //
+        // Validate all of the ACEs.
+        //
+
+        Ace = (PACE_HEADER)((PVOID)((PUCHAR)(Dacl) + sizeof(ACL)));
+
+        for (i = 0; i < Dacl->AceCount; i++) {
+
+            //
+            //  Check to make sure we haven't overrun the Acl buffer
+            //  with our ace pointer.
+            //
+
+            if ((PVOID)Ace >= (PVOID)((PUCHAR)Dacl + Dacl->AclSize)) {
+                return(FALSE);
+            }
+
+            //
+            // The ACE fits into the ACL, if this is a known type of ACE,
+            // make sure the SID is within the bounds of the ACE
+            //
+
+            if (Ace->AceType == ACCESS_ALLOWED_ACE_TYPE || Ace->AceType == ACCESS_DENIED_ACE_TYPE) {
+
+                if (!LongAligned(Ace->AceSize)) {
+                    return(FALSE);
+                }
+
+                if (Ace->AceSize < sizeof(KNOWN_ACE) - sizeof(ULONG) + sizeof(SID)) {
+                    return(FALSE);
+                }
+
+                //
+                // It's now safe to reference the parts of the SID structure, though
+                // not the SID itself.
+                //
+
+                Sid = (PISID) & (((PKNOWN_ACE)Ace)->SidStart);
+
+                if (Sid->Revision != SID_REVISION) {
+                    return(FALSE);
+                }
+
+                if (Sid->SubAuthorityCount > SID_MAX_SUB_AUTHORITIES) {
+                    return(FALSE);
+                }
+
+                //
+                // RtlLengthSid computes the size of the SID based on the subauthority count,
+                // so it is safe to use even though we don't know that the body of the SID
+                // is safe to reference.
+                //
+
+                if (Ace->AceSize < sizeof(KNOWN_ACE) - sizeof(ULONG) + RtlLengthSid( Sid )) {
+                    return(FALSE);
+                }
+            }
+
+            //
+            //  And move Ace to the next ace position
+            //
+
+            Ace = (PACE_HEADER)((PVOID)((PUCHAR)(Ace) +
+                ((PACE_HEADER)(Ace))->AceSize));
+        }
+    }
+
+    //
+    // Validate the SACL.  A structurally valid SecurityDescriptor may not
+    // have a SACL.
+    //
+
+    if (ISecurityDescriptor->Sacl != NULL) {
+
+        //
+        // Check alignment
+        //
+
+        if (!LongAligned(ISecurityDescriptor->Sacl)) {
+            return(FALSE);
+        }
+
+        if ((ULONG)((PCHAR)(ISecurityDescriptor->Sacl)+sizeof(ACL)) > Length) {
+            return(FALSE);
+        }
+
+        Sacl = (PACL)RtlOffsetToPointer( ISecurityDescriptor, ISecurityDescriptor->Sacl );
+
+        if (!LongAligned(Sacl->AclSize)) {
+            return(FALSE);
+        }
+
+        if (Sacl->AclRevision != ACL_REVISION) {
+            return(FALSE);
+        }
+
+        if ((ULONG)((PUCHAR)ISecurityDescriptor->Sacl + Sacl->AclSize) > Length) {
+            return(FALSE);
+        }
+
+        //
+        // Validate all of the ACEs.
+        //
+
+        Ace = (PACE_HEADER)((PVOID)((PUCHAR)(Sacl) + sizeof(ACL)));
+
+        for (i = 0; i < Sacl->AceCount; i++) {
+
+            //
+            //  Check to make sure we haven't overrun the Acl buffer
+            //  with our ace pointer.
+            //
+
+            if ((PVOID)Ace >= (PVOID)((PUCHAR)Sacl + Sacl->AclSize)) {
+                return(FALSE);
+            }
+
+            //
+            // The ACE fits into the ACL, if this is a known type of ACE,
+            // make sure the SID is within the bounds of the ACE
+            //
+
+            if (Ace->AceType == SYSTEM_AUDIT_ACE_TYPE || Ace->AceType == SYSTEM_ALARM_ACE_TYPE) {
+
+                if (!LongAligned(Ace->AceSize)) {
+                    return(FALSE);
+                }
+
+                if (Ace->AceSize < sizeof(KNOWN_ACE) - sizeof(ULONG) + sizeof(SID)) {
+                    return(FALSE);
+                }
+
+                Sid = (PISID) & ((PKNOWN_ACE)Ace)->SidStart;
+
+                if (Sid->Revision != SID_REVISION) {
+                    return(FALSE);
+                }
+
+                if (Sid->SubAuthorityCount > SID_MAX_SUB_AUTHORITIES) {
+                    return(FALSE);
+                }
+
+                if (Ace->AceSize < sizeof(KNOWN_ACE) - sizeof(ULONG) + RtlLengthSid( Sid )) {
+                    return(FALSE);
+                }
+            }
+
+            //
+            //  And move Ace to the next ace position
+            //
+
+            Ace = (PACE_HEADER)((PVOID)((PUCHAR)(Ace) +
+                ((PACE_HEADER)(Ace))->AceSize));
+        }
+    }
+
+    return(TRUE);
+}
+
+IFSUTIL_EXPORT
+BOOLEAN
+IFS_SYSTEM::IsVolumeDirty(
+    IN  PWSTRING    NtDriveName,
+    OUT PBOOLEAN    Result
+    )
+/*++
+
+Routine Description:
+
+    This routine opens the given nt drive and sends down
+    FSCTL_IS_VOLUME_DIRTY to determine the state of that volume's
+    dirty bit.
+
+Arguments:
+
+    NtDriveName     -- supplies the volume in question
+    Result          -- returns the state of the dirty bit
+
+Return Value:
+
+    FALSE           -- the dirty bit could not be queried
+    TRUE            -- success
+
+--*/
+{
+    UNICODE_STRING      u;
+    OBJECT_ATTRIBUTES   obj;
+    NTSTATUS            status;
+    IO_STATUS_BLOCK     iosb;
+    HANDLE              h;
+    ULONG               r;
+
+    u.Length = (USHORT)NtDriveName->QueryChCount() * sizeof(WCHAR);
+    u.MaximumLength = u.Length;
+    u.Buffer = (PWSTR)NtDriveName->GetWSTR();
+
+    InitializeObjectAttributes(&obj, &u, OBJ_CASE_INSENSITIVE, 0, 0);
+
+    status = NtOpenFile(&h,
+                        SYNCHRONIZE | FILE_READ_DATA,
+                        &obj,
+                        &iosb,
+                        FILE_SHARE_READ|FILE_SHARE_WRITE,
+                        FILE_SYNCHRONOUS_IO_ALERT);
+
+    if (!NT_SUCCESS(status)) {
+
+        return FALSE;
+    }
+
+    status = NtFsControlFile(h, NULL, NULL, NULL,
+                             &iosb,
+                             FSCTL_IS_VOLUME_DIRTY,
+                             NULL, 0,
+                             &r, sizeof(r));
+
+    if (!NT_SUCCESS(status)) {
+
+        return FALSE;
+    }
+
+    *Result = (BOOLEAN)r;
+
+    return TRUE;
+}
 
 #endif // _SETUP_LOADER_

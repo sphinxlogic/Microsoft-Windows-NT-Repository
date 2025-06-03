@@ -1,6 +1,6 @@
 !IF 0
 
-Copyright (c) 1994  Microsoft Corporation
+Copyright (c) 1994-1996  Microsoft Corporation
 
 Module Name:
 
@@ -11,10 +11,6 @@ Abstract:
         This module contains the MIPs specific build controls.  It is included
         by makefile.def.
 
-Author:
-
-    Jeff Havens (jhavens) 13-Feb-1994
-
 Revision History:
 
 !ENDIF
@@ -23,12 +19,15 @@ Revision History:
 # Mips option control
 #
 
+!undef USE_MAPSYM
+
 UMBASE=$(UMBASE:*=mips)
 UMLIBS=$(UMLIBS:*=mips)
 NTRES=$(NTRES:*=mips)
 UMRES=$(UMRES:*=mips)
 UMOBJS=$(UMOBJS:*=mips)
 LINKLIBS=$(LINKLIBS:*=mips)
+GDI_DRIVER_LIBS=$(GDI_DRIVER_LIBS:*=mips)
 DLLBASE=$(DLLBASE:*=mips)
 DLLDEF=$(DLLDEF:*=mips)
 MACHINE_TARGETLIBS=$(MACHINE_TARGETLIBS:*=mips)
@@ -45,6 +44,10 @@ HEADEROBJ=$(HEADEROBJ:*=mips)
 PRECOMPILED=$(PRECOMPILED:*=mips)
 PRECOMPILED_CXX=$(PRECOMPILED_CXX:*=mips)
 PRECOMPILED_TARGET=$(PRECOMPILED_TARGET:*=mips)
+MFC_STATIC_LIB=$(MFC_STATIC_LIB:*=mips)
+CRT_LIB_PATH=$(CRT_LIB_PATH:*=mips)
+SDK_LIB_PATH=$(SDK_LIB_PATH:*=mips)
+ORDER=$(ORDER:*=mips)
 
 !ifdef NTTARGETFILES
 NTTARGETFILES=$(NTTARGETFILES:*=mips)
@@ -58,26 +61,47 @@ NTTARGETFILE1=$(NTTARGETFILE1:*=mips)
 
 !IF "$(GPSIZE)" != "0"
 
-LIBC_LIB=$(BASEDIR)\public\sdk\lib\mips\small.lib $(LIBC_LIB)
+!ifdef DEBUG_CRTS
+LIBC_LIB=$(SDK_LIB_PATH)\smalld.lib $(LIBC_LIB)
+!else
+LIBC_LIB=$(SDK_LIB_PATH)\small.lib $(LIBC_LIB)
+!endif
 
 LINKGPSIZE=-gpsize:$(GPSIZE)
 
 !ENDIF
 
+LINKER_FLAGS = $(LINKER_FLAGS) -merge:.xdata=.rdata
+
 MIPS_ENDIAN=MIPSEL
 
-!IF "$(MIPS_F77)" == ""
-MIPS_F77=f772.20
-!ENDIF
-
 ENTRY_SUFFIX=
+GDI_ENTRY_SUFFIX=
 
 !IFDEF MIPS_WARNING_LEVEL
 MSC_WARNING_LEVEL=$(MIPS_WARNING_LEVEL)
 !ENDIF
-!IFDEF MIPS_OPTIMIZATION
+
+!ifdef MIPS_PERFFLAGS
+PERFFLAGS = $(MIPS_PERFFLAGS)
+!endif
+
+DEFAULT_MSC_OPT = $(DEFAULT_MSC_OPT:/Oxs=/Ox)
+
+# Set MSC_OPTIMIZATION.
+# Order of precedence:
+#   Platform specific override
+#   Environment variable
+#   System Default
+
+!if defined(MIPS_OPTIMIZATION)
 MSC_OPTIMIZATION=$(MIPS_OPTIMIZATION)
-!ENDIF
+!elseif !defined(MSC_OPTIMIZATION)
+MSC_OPTIMIZATION=$(DEFAULT_MSC_OPT)
+!endif
+
+DBGFLAGS=$(DBGFLAGS) $(MSC_OPTIMIZATION)
+
 !IFDEF MIPS_CPPFLAGS
 MSC_CPPFLAGS=$(MIPS_CPPFLAGS)
 !ENDIF
@@ -86,11 +110,26 @@ MSC_CPPFLAGS=$(MIPS_CPPFLAGS)
 # Now a bunch of MIPS stuff
 #
 
-!IF "$(MSC_OPTFLAGS)" == "/Oxs"
-DBGFLAGS=$(MSC_OPTFLAGS:/Oxs=/Ox)
-!ENDIF
+!ifndef USE_PDB_TO_COMPILE
+DBGFLAGS=$(DBGFLAGS:/Zi=-Z7)
+DBGFLAGS=$(DBGFLAGS:-Zi=-Z7)
+!else
+! if "$(TARGETTYPE)" == "LIBRARY"
+DBGFLAGS=$(DBGFLAGS) /Fd$(TARGETPATH)\$(TARGET_DIRECTORY)\$(TARGETNAME).pdb
+! else
+DBGFLAGS=$(DBGFLAGS) /Fd$(MAKEDIR)\$(_OBJ_DIR)\mips^\
+! endif
+!endif
 
-DBGFLAGS = $(DBGFLAGS:/Zi=/Z7) /QmipsOb4000
+!ifdef BROWSER_INFO
+DBGFLAGS=$(DBGFLAGS) /FR$(MAKEDIR)\$(_OBJ_DIR)\mips^\
+!endif
+
+!IFDEF NTBBT
+DBGFLAGS=$(DBGFLAGS) /Z7
+LINKER_FLAGS=$(LINKER_FLAGS) -debug:full -debugtype:cv,fixup
+USE_PDB=1
+!ENDIF
 
 !IFNDEF MIPS_R3000
 MIPS_CPU=-DR4000 -D_M_MRX000=4000
@@ -103,220 +142,120 @@ MIPS_TRAP_FILE=x3trap.obj
 MIPS_ASM_DEFINES=$(MIPS_ASMCPP)
 ENV_DEFINES=$(LIBC_DEFINES) $(C_DEFINES) $(NET_C_DEFINES) $(MSC_CPPFLAGS) $(NTCPPFLAGS)
 
-STD_DEFINES=-DMIPS=1 -D_MIPS_=1 -D$(MIPS_ENDIAN) -DNO_EXT_KEYS -DCONDITION_HANDLING=1 $(STD_DEFINES)
+STD_DEFINES=-DENABLE_RESTRICTED -DMIPS=1 -D_MIPS_=1 -D$(MIPS_ENDIAN) -DNO_EXT_KEYS -DCONDITION_HANDLING=1 $(STD_DEFINES)
 
-!IFDEF MIPS_CC
-
-#
-# Old compiler code
-#
-
-!   IFNDEF MIPS_WARNINGS
-MIPS_WARNINGS=-std
-!   ENDIF
-!   IFNDEF MIPS_OPTIMIZATION
-MIPS_OPTIMIZATION=-g0
-!   ENDIF
-!   IFNDEF MIPS_OPTIONS
-!      IFNDEF MIPS_R3000
-MIPS_OPTIONS=-nodwalign
-!      ELSE
-MIPS_OPTIONS=
-!      ENDIF
-!   ENDIF
-
-DBGFLAGS=
-!IF "$(NTDEBUG)" == ""
-TARGET_DBG_DEFINES=-DDBG=0 -DDEVL=1 -DBETA=0
-!ELSE
-!IF "$(NTDEBUG)" == "retail"
-TARGET_DBG_DEFINES=-DDBG=0 -DDEVL=1 -DBETA=1
-!ELSE
-TARGET_DBG_DEFINES=-DDBG=1 -DDEVL=1 -DBETA=1
-!ENDIF
-!ENDIF
-
-MIP2COFF=mip2coff $(MIP2COFF_SWITCHES)
-
-#
-# Use the MIPS CC compiler
-#
-
-MIPS_C_COMPILER_NAME=cc
-
-!IFNDEF MIPS_R3000
-MIPS_CPU_SWITCHES=-Wab,-mips2 -Wab,-diag
-!ELSE
-MIPS_CPU_SWITCHES=
-!ENDIF
-
-!IF "$(NTDEBUGTYPE)" == "windbg"
-MIP2COFF_SWITCHES=-c
-!      IFNDEF MIPS_OPTIMIZATION
-MIPS_OPTIMIZATION=-g2
-!      ENDIF
-!ENDIF
-
-CDEFINES=$(STD_DEFINES) $(MIPS_CPU) $(TARGET_DBG_DEFINES) $(ENV_DEFINES)
-CFLAGS=$(MIPS_FLAGS) $(NTMIPSFLAGS) $(STDFLAGS) $(DBGFLAGS) $(MIPS_PERFFLAGS) $(USER_C_FLAGS)
-
-C_PREPROCESSOR=$(MIPS_C_COMPILER_NAME) $(MIPS_WARNINGS) -EP -Imips\ -I. $(INCPATH0) \
-          $(CDEFINES) $(CFLAGS) -D_LANGUAGE_C -DLANGUAGE_C /Tc
-C_COMPILER=$(MIPS_C_COMPILER_NAME) $(MIPS_WARNINGS) $(MIPS_OPTIONS) \
-            -G $(GPSIZE) -checkstack 2048 -excpt $(MIPS_OPTIMIZATION) -O \
-            -EL -c $(MIPS_CPU_SWITCHES) -Imips\ -I. $(INCPATH0) \
-            $(CDEFINES) $(CFLAGS) -D_LANGUAGE_C -DLANGUAGE_C
-CXX_COMPILER=$(MIPS_C_COMPILER_NAME) $(MIPS_WARNINGS) $(MIPS_OPTIONS) \
-                -G $(GPSIZE) -checkstack 2048 -excpt $(MIPS_OPTIMIZATION) -O -EL \
-                -c $(MIPS_CPU_SWITCHES) -Imips\ -I. $(INCPATH0) $(CDEFINES) \
-                $(CFLAGS) -D_LANGUAGE_C -DLANGUAGE_C
-
-MIPS_FORTRAN_COMPILER=$(MIPS_F77) $(MIPS_WARNINGS) $(MIPS_OPTIONS) -G $(GPSIZE) \
-                       -excpt -G0 $(MIPS_OPTIMIZATION) -O -EL -c $(MIPS_CPU_SWITCHES) \
-                       -Imips\ -I. $(INCPATH0) $(CDEFINES) $(CFLAGS)
-MIPS_ASSEMBLER=$(MIPS_C_COMPILER_NAME) $(MIPS_WARNINGS) $(MIPS_OPTIONS) -G $(GPSIZE) \
-                -checkstack 2048 -excpt $(MIPS_OPTIMIZATION) -O -EL -c \
-                $(MIPS_CPU_SWITCHES) -Imips\ -I. $(INCPATH0) $(CDEFINES) \
-                $(CFLAGS) -D_LANGUAGE_ASSEMBLY
-MIPS_PASCAL=$(MIPS_C_COMPILER_NAME) $(MIPS_OPTIONS) -G $(GPSIZE) -excpt \
-             $(MIPS_OPTIMZATION) -O -EL -c $(MIPS_CPU_SWITCHES) -Imips\ \
-             -I. $(INCPATH0) $(CDEFINES) $(CFLAGS) -DLANGUAGE_PASCAL \
-             -D_LANGUAGE_PASCAL
-
-#
-# Use Mips CC for assembler files.
-#
-
-!IFNDEF MIPS_R3000
-MIPS_CPU_SWITCHES=-Wab,-mips2 -Wab,-diag
-!ELSE
-MIPS_CPU_SWITCHES=
-!ENDIF
-CDEFINES=$(STD_DEFINES) $(MIPS_CPU) $(TARGET_DBG_DEFINES) $(ENV_DEFINES)
-MIPS_ASSEMBLER=cc -std -nodwalign -G $(GPSIZE) \
-                -checkstack 2048 -excpt -g0 -O -EL -c $(MIPS_CPU_SWITCHES) \
-                -Imips\ -I. $(INCPATH0) $(CDEFINES) $(CFLAGS) \
-                -D_LANGUAGE_ASSEMBLY
-
-{..\mips\}.s{obj\mips\}.obj:
-    @-erase $@ >nul 2>&1
-    @echo AsMips $<            " $(MIPS_ASSEMBLER) "
-    @$(MIPS_ASSEMBLER) -o $@ $(MAKEDIR)\..\mips\$(<F)
-    @$(MIP2COFF) $@
-
-{mips\}.s{obj\mips\}.obj:
-    @-erase $@ >nul 2>&1
-    @echo AsMips $<            " $(MIPS_ASSEMBLER) "
-    @$(MIPS_ASSEMBLER) -o $@ $(MAKEDIR)\mips\$(<F)
-    @$(MIP2COFF) $@
-
-!ELSE
-
-#
-# Use the Microsoft Mips compiler, aka Centaur
-#
-
-STDFLAGS= /c /Zel /Zp8 /Gy $(MSC_WARNING_LEVEL)
+STDFLAGS=-c
 MS_MIPS=1
 
-MSC_C_COMPILER_NAME=cl $(CBSTRING)
+!if 0
+# Enable when /GF and /cbstring are tested together
+! ifdef NO_READONLY_STRINGS
+STRING_POOLING = /Gf
+! else
+STRING_POOLING = /GF
+! endif
+!else
+# STRING_POOLING = /Gf
+STRING_POOLING=
+!endif
+
+!ifdef USE_NATIVE_EH
+EH_FLAGS=/GX /GR
+!else
+EH_FLAGS=/GX- /GR-
+!endif
+
+!ifndef DOWNLEVEL_COMPILE
+DOWNLEVEL_COMPILE = 0
+!endif
+!if $(DOWNLEVEL_COMPILE)
+MIPS3_INSTR = -QMmips2
+MACHINE_TARGETLIBS=$(MACHINE_TARGETLIBS) $(SDK_LIB_PATH)\tlssup35.obj
+!else
+MIPS3_INSTR = -QMmips3 -d2QMGtlsa
+!endif
+
+MSC_C_COMPILER_NAME=cl -nologo
 
 CDEFINES=$(STD_DEFINES) $(MIPS_CPU) $(TARGET_DBG_DEFINES) $(ENV_DEFINES)
-CFLAGS=$(MIPS_FLAGS) $(NTMIPSFLAGS) $(STDFLAGS) $(DBGFLAGS) $(MIPS_PERFFLAGS) $(USER_C_FLAGS)
-AFLAGS=$(MIPS_FLAGS) $(NTMIPSFLAGS) $(STDFLAGS) $(DBGFLAGS) $(MIPS_PERFFLAGS)
+CFLAGS=$(MIPS_FLAGS) $(NTMIPSFLAGS) $(STDFLAGS) $(DBGFLAGS) $(PERFFLAGS) $(USER_C_FLAGS)
+AFLAGS=-Gy $(MIPS_FLAGS) $(NTMIPSFLAGS) $(STDFLAGS) $(DBGFLAGS) $(PERFFLAGS) $(MIPS3_INSTR)
 
 MIPS_CDEFINES=$(CDEFINES)
-MIPS_CFLAGS=$(CFLAGS)
+MIPS_CFLAGS=$(CFLAGS) -Zel -Zp8 -Gy $(MSC_WARNING_LEVEL) -QMOb4000 $(MIPS3_INSTR) $(CBSTRING) $(EH_FLAGS) $(STRING_POOLING) -Gt$(GPSIZE)
+MIPS_CFLAGS=$(MIPS_CFLAGS:-Qmips=-QM)
 
-C_PREPROCESSOR=$(MSC_C_COMPILER_NAME) -nologo /EP -I mips\ -I. $(INCPATH0) $(CDEFINES) \
-          $(CFLAGS) $(PRECOMPILED) -D__stdcall= -D__cdecl= /Tc
-C_COMPILER=$(MSC_C_COMPILER_NAME) -nologo -I mips\ -I. $(INCPATH0) $(CDEFINES) \
-            $(CFLAGS) -Gt$(GPSIZE) $(PRECOMPILED) -D__stdcall= -D__cdecl= \
-            $(CAIRO_WARNINGS) -D_LANGUAGE_C -DLANGUAGE_C
-CXX_COMPILER=$(MSC_C_COMPILER_NAME) -nologo -I mips\ -I. $(INCPATH0) $(CDEFINES) \
-                $(CFLAGS) -Gt$(GPSIZE) $(PRECOMPILED_CXX) -D__stdcall= -D__cdecl= \
-                $(CAIRO_WARNINGS) -D_LANGUAGE_C -DLANGUAGE_C
+C_PREPROCESSOR_NAME  = $(MSC_C_COMPILER_NAME)
+C_COMPILER_NAME      = $(MSC_C_COMPILER_NAME)
+CXX_COMPILER_NAME    = $(MSC_C_COMPILER_NAME)
+MIPS_ASSEMBLER_NAME  = $(MSC_C_COMPILER_NAME)
 
-ECHO_MSG=echo ClMips $<            " $(C_COMPILER) "
-ECHO_PRECOMPILED_MSG=echo CpMips $(PRECOMPILED_INCLUDE) " $(C_COMPILER) /Yl$(TARGETNAME) /Yc$(?F) $(HEADERFILE) $(HEADEROBJ) $(PRECOMPILED_FLAG)"
+GLOBAL_C_FLAGS       = -Imips\ -I. $(INCPATH0) $(CDEFINES) $(MIPS_CFLAGS) \
+                       -DFPO=1 -D__stdcall= -D__cdecl= -D_LANGUAGE_C -DLANGUAGE_C $(MFC_FLAGS)
 
-MIPS_FORTRAN_COMPILER=$(MIPS_F77) $(MSC_WARNINGS) $(MIPS_OPTIONS) -G $(GPSIZE) \
-                       -excpt -G0 $(MSC_OPTIMIZATION) -O -EL -c
+NP_COMPILER_FLAGS = $(GLOBAL_C_FLAGS) $(COMPILER_WARNINGS)
+
+C_COMPILER_FLAGS = $(NP_COMPILER_FLAGS) $(PRECOMPILED)
+CXX_COMPILER_FLAGS = $(NP_COMPILER_FLAGS) $(PRECOMPILED_CXX)
+C_PREPROCESSOR_FLAGS = $(GLOBAL_C_FLAGS) -EP -Tc
+
+C_PREPROCESSOR = $(C_PREPROCESSOR_NAME) $(C_PREPROCESSOR_FLAGS)
+C_COMPILER     = $(C_COMPILER_NAME) $(C_COMPILER_FLAGS)
+CXX_COMPILER   = $(CXX_COMPILER_NAME) $(CXX_COMPILER_FLAGS)
+
+ECHO_MSG=ClMips $< " $(C_COMPILER) "
+ECHO_CXX_MSG=ClMips $< " $(CXX_COMPILER) "
+
+ECHO_PRECOMPILED_MSG1=CpMips $(PRECOMPILED_INCLUDE) \
+                     "$(C_COMPILER_NAME) $(PRECOMPILED_FLAG) $(PRECOMPILED_SOURCEFILE) \
+		      $(C_COMPILER_FLAGS) /Yl$(TARGETNAME) /Yc$(?F) $(HEADERFILE) $(HEADEROBJ)"
+
+ECHO_PRECOMPILED_MSG2=CpMips $(PRECOMPILED_INCLUDE) \
+                     "$(C_COMPILER_NAME) $(PRECOMPILED_FLAG) \
+		      $(C_COMPILER_FLAGS) /Yl$(TARGETNAME) /Yc$(?F) $(HEADERFILE) $(HEADEROBJ)"
+
 MIPS_CRFILTER=echo SHOULDN'T NEED TO CRFILTER THIS!
+
+!if $(FREEBUILD)
+!IFNDEF MIPS_ENABLE_DIVIDE_CHECK
+MIPS_CFLAGS=$(MIPS_CFLAGS)  -d2aNoDivCheck
+!ENDIF
+!ENDIF
 
 #
 # Use Mips MCL for assembler files.
 #
 
-MIPS_ASSEMBLER=$(MSC_C_COMPILER_NAME) -nologo -Gt$(GPSIZE) -Ge -O -c $(MIPS_CPU_SWITCHES) -Imips\ -I. $(INCPATH0) $(CDEFINES) $(AFLAGS) -D_LANGUAGE_ASSEMBLY
+MIPS_ASSEMBLER_FLAGS = -nologo -Gt$(GPSIZE) -Ge -c $(MIPS_CPU_SWITCHES) \
+                        -Imips\ -I. $(INCPATH0) $(CDEFINES) \
+                        $(AFLAGS) -D_LANGUAGE_ASSEMBLY
 
-{..\mips\}.s{obj\mips\}.obj:
+MIPS_ASSEMBLER = $(MIPS_ASSEMBLER_NAME) $(MIPS_ASSEMBLER_FLAGS)
+
+{..\mips\}.s{$(_OBJ_DIR)\mips\}.obj:
     @-erase $@ >nul 2>&1
-    @echo AsMips $<            " $(MIPS_ASSEMBLER) "
-    @$(MIPS_ASSEMBLER) -Fo$(MAKEDIR)\$@ $<
+    @echo AsMips $<     " $(MIPS_ASSEMBLER) "
+    @$(MIPS_ASSEMBLER_NAME) @<< -Fo$(MAKEDIR)\$@ $<
+$(MIPS_ASSEMBLER_FLAGS: =
+)
+<<NOKEEP
 
-{mips\}.s{obj\mips\}.obj:
+{mips\}.s{$(_OBJ_DIR)\mips\}.obj:
     @-erase $@ >nul 2>&1
-    @echo AsMips $<            " $(MIPS_ASSEMBLER) "
-    @$(MIPS_ASSEMBLER) -Fo$(MAKEDIR)\$@ $<
-
-#
-# Use Mips CC for Pascal.
-#
-
-MIPS_PASCAL_COMPILER_NAME=cc
-
-!   IFNDEF MIPS_PASCAL_WARNINGS
-MIPS_PASCAL_WARNINGS=-std
-!   ENDIF
-!   IFNDEF MIPS_PASCAL_OPTIMIZATION
-MIPS_PASCAL_OPTIMIZATION=-g0
-!   ENDIF
-
-MIP2COFF=mip2coff $(MIP2COFF_SWITCHES)
-
-!IFNDEF MIPS_R3000
-MIPS_PASCAL_CPU_SWITCHES=-Wab,-mips2 -Wab,-diag
-!ELSE
-MIPS_PASCAL_CPU_SWITCHES=
-!ENDIF
-
-!IF "$(NTDEBUGTYPE)" == "windbg"
-MIP2COFF_SWITCHES=-c
-!      IFNDEF MIPS_OPTIMIZATION
-MIPS_PASCAL_OPTIMIZATION=-g2
-!      ENDIF
-!ENDIF
-
-MIPS_PASCAL=$(MIPS_PASCAL_COMPILER_NAME) $(MIPS_PASCAL_OPTIONS) -G $(GPSIZE) \
-             -excpt $(MIPS_PASCAL_OPTIMZATION) -O -EL -c \
-             $(MIPS_PASCAL_CPU_SWITCHES) -Imips\ \
-             -I. $(INCPATH0) $(CDEFINES) $(CFLAGS) -DLANGUAGE_PASCAL \
-             -D_LANGUAGE_PASCAL
-
-{}.p{obj\mips\}.obj:
-    @-erase $@ >nul 2>&1
-    @echo ClMips $<            " $(MIPS_PASCAL) "
-    @$(MIPS_PASCAL) -o $@ $(MAKEDIR)\$(<F)
-    @$(MIP2COFF) $@
-
-{mips\}.p{obj\mips\}.obj:
-    @-erase $@ >nul 2>&1
-    @echo ClMips $<            " $(MIPS_PASCALL) "
-    @$(MIPS_PASCAL) -o $@ $(MAKEDIR)\mips\$(<F)
-    @$(MIP2COFF) $@
-
-!ENDIF
-
-LINKFLAGS=$(LNKFLAGS) -NODEFAULTLIB
-LIBRARY_OBJS=
+    @echo AsMips $<     " $(MIPS_ASSEMBLER) $(MIPS_ASSEMBLER_FLAGS)"
+    @$(MIPS_ASSEMBLER_NAME) @<< -Fo$(MAKEDIR)\$@ $<
+$(MIPS_ASSEMBLER_FLAGS: =
+)
+<<NOKEEP
 
 !IFDEF CAIRO_PRODUCT
 !IFDEF _CAIROMIPSTREE
 _NTTREE=$(_CAIROMIPSTREE)
+_NTTREE_NO_SPLIT=$(_CAIROMIPSTREE_NS)
 !ENDIF
 !ELSEIFDEF _NTMIPSTREE
 _NTTREE=$(_NTMIPSTREE)
+_NTTREE_NO_SPLIT=$(_NTMIPSTREE_NS)
 !ENDIF
 
 !IFDEF _NTMIPSLIBS
@@ -327,88 +266,3 @@ COPYDST=$(MIPSCOPYDST)
 LIB_COPY=ntmipscp.cmd
 
 NTTEST_LINK_OPTIONS= -base:0x10000 -entry:KiSystemStartup
-
-!IFDEF MIPS_CC
-
-#
-# Disable the standard build rules
-#
-
-NO_C_RULES=1
-
-{..\}.c{}.pp:
-    $(C_PREPROCESSOR) $< > $(<B).pp
-
-{..\mips\}.c{}.pp:
-    $(C_PREPROCESSOR) $< > $(<B).pp
-
-{..\}.cxx{}.pp:
-    $(C_PREPROCESSOR) $< > $(<B).pp
-
-{..\mips\}.cxx{}.pp:
-    $(C_PREPROCESSOR) $< > $(<B).pp
-
-{}.c{}.pp:
-    $(C_PREPROCESSOR) $< > $(<B).pp
-
-{mips\}.c{}.pp:
-    $(C_PREPROCESSOR) $< > $(<B).pp
-
-{}.cxx{}.pp:
-    $(C_PREPROCESSOR) $< > $(<B).pp
-
-{mips\}.cxx{}.pp:
-    $(C_PREPROCESSOR) $< > $(<B).pp
-
-{}.c{}.cod:
-    @-erase $@ >nul 2>&1
-    @echo ClMips  $<            " $(C_COMPILER) "
-    @$(C_COMPILER) -o obj\mips\$(<B).o $(MAKEDIR)\$(<F)
-    @dis -S obj\mips\$(<B).o >$(<B).cod
-    @del obj\mips\$(<B).o
-
-{mips\}.c{}.cod:
-    @-erase $@ >nul 2>&1
-    @echo ClMips $<            " $(C_COMPILER) "
-    @$(C_COMPILER) -o obj\mips\$(<B).o $(MAKEDIR)\mips\$(<F)
-    @dis -S obj\mips\$(<B).o >$(<B).cod
-    @del obj\mips\$(<B).o
-
-{}.c{obj\mips\}.obj:
-    @-erase $@ >nul 2>&1
-    @echo ClMips $<            " $(C_COMPILER) "
-    @$(C_COMPILER) -o $@ $(MAKEDIR)\$(<F)
-    @$(MIP2COFF) $@
-
-{mips\}.c{obj\mips\}.obj:
-    @-erase $@ >nul 2>&1
-    @echo ClMips $<            " $(C_COMPILER) "
-    @$(C_COMPILER) -o $@ $(MAKEDIR)\mips\$(<F)
-    @$(MIP2COFF) $@
-
-{}.p{obj\mips\}.obj:
-    @-erase $@ >nul 2>&1
-    @echo ClMips $<            " $(MIPS_PASCAL) "
-    @$(MIPS_PASCAL) -o $@ $(MAKEDIR)\$(<F)
-    @$(MIP2COFF) $@
-
-{mips\}.p{obj\mips\}.obj:
-    @-erase $@ >nul 2>&1
-    @echo ClMips $<            " $(MIPS_PASCALL) "
-    @$(MIPS_PASCAL) -o $@ $(MAKEDIR)\mips\$(<F)
-    @$(MIP2COFF) $@
-
-{}.f{obj\mips\}.obj:
-    @-erase $@ >nul 2>&1
-    @echo F77Mips $<            " $(MIPS_FORTRAN_COMPILER) "
-    $(MIPS_FORTRAN_COMPILER) -o $@ $(MAKEDIR)\$(<F)
-    @$(MIP2COFF) $@
-
-
-{mips\}.f{obj\mips\}.obj:
-    @-erase $@ >nul 2>&1
-    @echo F77Mips $<            " $(MIPS_FORTRAN_COMPILER) "
-    $(MIPS_FORTRAN_COMPILER)  -o $@ $(MAKEDIR)\mips\$(<F)
-    @$(MIP2COFF) $@
-
-!ENDIF # MIPS_CC

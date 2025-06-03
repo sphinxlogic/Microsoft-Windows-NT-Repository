@@ -5,8 +5,15 @@
 #ifndef _TRANSFER_
 #define _TRANSFER_
 
-BOOL MapFileCreate(LPTSTR FileName, LPTSTR Server);
+#ifdef __cplusplus
+extern "C"{
+#endif
+
 void DoConversion(HWND hDlg, BOOL TrialConversion);
 BOOL ConversionSuccessful();
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

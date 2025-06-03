@@ -1,28 +1,18 @@
-#include "slm.h"
-#include "sys.h"
-#include "util.h"
-#include "stfile.h"
-#include "log.h"
-#include "ad.h"
-#include "da.h"
-
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <stdio.h>
-
-#include "proto.h"
+#include "precomp.h"
+#pragma hdrstop
+EnableAssert
 
 private FI far *PfiAdd(P6(AD *pad, FI far *pfi, F fExists, char *sz, FK fk, FV fv));
 private void DelFi(P2(AD *pad, FI far *pfi));
 
 extern short wStart;                    // start time
 
-EnableAssert
+#define szRes  "reserved"
+#define szUser "user defined"
+#define szA    "a"
+#define szAn   "an"
 
-static char szRes[]      = "reserved";
-static char szUser[] = "user defined";
-
-char *mpfmsz[] = {
+char const * mpfmsz[] = {
     " deleted",
     " in",
     " out",
@@ -38,7 +28,7 @@ char *mpfmsz[] = {
     " ghost"
 };
 
-char *mpfksz[] = {
+char const * mpfksz[] = {
     "???",
     "dir",
     "text",
@@ -54,6 +44,21 @@ char *mpfksz[] = {
     szUser, szUser, szUser, szUser, szUser
 };
 
+char const * rgszA[] = {
+    szA,
+    szA,
+    szA,
+    szAn,
+    szA,
+    szA,
+    szAn,
+    szA,
+    szAn,
+    szAn,
+    szA, szA, szA, szA, szA, szA,
+    szAn, szAn, szAn, szAn, szAn,
+    szAn, szAn, szAn, szAn, szAn
+};
 
 FK
 FkForCh(
@@ -76,10 +81,14 @@ PfsForPfi(
 {
     unsigned long ifi = ((unsigned long)pfi - (unsigned long)pad->rgfi)
                             /sizeof(FI) ;
-    FS far *fsTemp = pad->mpiedrgfs[ied];
+    FS far *fsTemp;
+
+    if (pad->fQuickIO)
+        fsTemp = pad->rgfs;
+    else
+        fsTemp = pad->mpiedrgfs[ied];
 
     return fsTemp + ifi;
-    //return (FS far *)(&pad->mpiedrgfs[ied][pfi - pad->rgfi]);
 }
 
 
@@ -99,8 +108,10 @@ FAddFile(
 {
     F fDir, fExists;
     FI far *pfi;
+    IED ied;
+    int cchURoot, cchURootMax;
     char *szComment;
-    struct stat st;
+    struct _stat st;
     PTH pthDir[cchPthMax];
     char szDiff[cchFileMax + 1];
 
@@ -134,11 +145,23 @@ FAddFile(
     if (fDir) {
         if ((strlen(pad->pthSRoot)+
               strlen(pad->pthSSubDir)+
-               strlen(pad->nmProj) + 31 ) >= cchPthMax-1 ||
-            (strlen(pad->pthURoot)+strlen(pad->pthUSubDir)+25) >= cchPthMax-1) {
-            Error("ADDFILE of DIRECTORY exceeds MAXPATH.\n%&C\n", pad);
+               strlen(pad->nmProj) + 31 ) >= cchPthMax-1) {
+            Error("ADDFILE of DIRECTORY exceeds MAXPATH on server\n%&C\n", pad);
             return fFalse;
         }
+
+        cchURootMax = strlen(pad->pthURoot);
+        for (ied=0; ied<pad->psh->iedMac; ied++) {
+            cchURoot = strlen(pad->rged[ied].pthEd);
+            if (cchURoot > cchURootMax)
+                cchURootMax = cchURoot;
+        }
+
+        if ((cchURootMax+strlen(pad->pthUSubDir)+cchFileMax+4) >= cchPthMax-1) {
+            Error("ADDFILE of DIRECTORY exceeds MAXPATH on for some enlistment\n%&C\n", pad);
+            return fFalse;
+        }
+
         if (fk != fkDir && fk != fkNil)
                 Warn("%s is a directory\n", sz);
         fk = fkDir;
@@ -155,7 +178,7 @@ FAddFile(
                 fk = fkUnicode;
                 break;
         }
-        Warn("adding %s as an %s file\n", sz, mpfksz[fk]);
+        Warn("adding %s as %s %s file\n", sz, rgszA[fk], mpfksz[fk]);
     }
     else if (fk == fkText) {
         if (FBinaryPth(pthDir) == fTrue &&
@@ -331,11 +354,7 @@ PfiInsert(
     AssertF(pad->cfiAdd != 0);
     pad->cfiAdd--;
 
-#if defined(DOS) || defined(OS2)
-    ifiNew = (IFI)((unsigned long) pfiNew - (unsigned long)rgfi)/sizeof(FI);
-#elif defined(_WIN32)
     ifiNew = (IFI)(pfiNew - rgfi);  /* NOTE: ifiNew may change below */
-#endif
 
     //ifiNew = pfiNew - rgfi;               /* NOTE: ifiNew may change below */
 
@@ -447,7 +466,8 @@ SetupFi(
                 pfs->fv = 0;
             }
         }
-        else {
+        else
+        if (!FIsFreeEdValid(pad->psh) || !pad->rged[ied].fFreeEd) {
             /* some other status; add */
             pfs->fm = fmAdd;
             pfs->fv = 0;
@@ -479,7 +499,8 @@ FDelFMarked(
 
         /* check the fm for all ed */
         for (ied = 0; ied < iedMac; ied++) {
-            if (FCheckedOut(pad, ied, pfi)) {
+            if ((!FIsFreeEdValid(pad->psh) || !pad->rged[ied].fFreeEd) &&
+                FCheckedOut(pad, ied, pfi)) {
                 if (!FCanQuery("%&C/F is still checked out to %&O; not deleting\n", pad, pfi, pad, ied) ||
                     !FQueryUser("%&/C/F is still checked out to %&O; delete anyway ? ", pad, pfi, pad, ied)) {
                     if (!FQContinue())
@@ -535,8 +556,10 @@ DelFi(
 
     /* change the fm for all ed */
     for (ied = 0; ied < iedMac; ied++) {
-        pfs = PfsForPfi(pad, ied, pfi);
-        pfs->fm = FmMapFm(pfs->fm, mpNonDelToDel);
+        if (!FIsFreeEdValid(pad->psh) || !pad->rged[ied].fFreeEd) {
+            pfs = PfsForPfi(pad, ied, pfi);
+            pfs->fm = FmMapFm(pfs->fm, mpNonDelToDel);
+        }
     }
 
     /* we leave the system files because we want the other
@@ -628,6 +651,7 @@ SetupEd(
     NM nmUser[],
     int fGhost)
 {
+    IED ied;
     IFI ifi;
     SH far *psh;
     ED far *ped;
@@ -641,7 +665,25 @@ SetupEd(
     psh = pad->psh;
 
     /* init ed; assume zeroed when allocated */
-    ped = &pad->rged[psh->iedMac];
+
+    //
+    // Look for free ED first, from a previous defect.  If
+    // none found, we will use the extra one already allocated
+    // by FLoadStatus(..., flsExtraEd)
+    //
+
+    if (FIsFreeEdValid(pad->psh))
+        for (ied = 0, ped = &pad->rged[ied]; ied < psh->iedMac; ied++, ped++) {
+            if (ped->fFreeEd) {
+                ped->fFreeEd = fFalse;
+                break;
+            }
+        }
+    else {
+        ied = psh->iedMac;
+        ped = &pad->rged[ied];
+    }
+
     if (fSetTime) {
         if (fVerbose)
             printf("Setting enlistment timestamp...\n");
@@ -653,7 +695,7 @@ SetupEd(
     NmCopy(ped->nmOwner, nmUser, cchUserMax);
 
     rgfi = pad->rgfi;
-    rgfs = pad->mpiedrgfs[psh->iedMac];
+    rgfs = pad->mpiedrgfs[ied];
     fmDefault = fGhost ? fmGhost : fmAdd;
 
     for (ifi = 0; ifi < psh->ifiMac; ifi++) {
@@ -665,8 +707,10 @@ SetupEd(
         rgfs[ifi].bi = biNil;
     }
 
-    pad->iedCur = iedNil;
-    psh->iedMac++;
+    if (ied == psh->iedMac) {
+        psh->iedMac++;
+    }
+    pad->iedCur = ied;
     pad->fExtraEd = fFalse;
 }
 
@@ -691,8 +735,6 @@ AddCurEd(
 
     SetupEd(pad, pad->pthURoot, pad->nmInvoker, fGhost);
 
-    pad->iedCur = (IED)(pad->psh->iedMac-1);
-
     if (FTopUDir(pad) && !FPthExists(PthForRc(pad, (FI far *)0, pth), fFalse))
         /* create top level rc file; others created in sync */
         CreateRc(pad, (FI far *)0);
@@ -709,9 +751,12 @@ RemoveEd(
     AD *pad)
 {
     IED ied, iedCur = pad->iedCur;
+    IFS ifs;
     SH far *psh = pad->psh;
     ED far *rged = pad->rged;
     FS far * far *mpiedrgfs = pad->mpiedrgfs;
+    FS *rgfs;
+    FS *pfs;
 
     AssertLoaded(pad);
     AssertF(!pad->fExtraEd);
@@ -721,15 +766,32 @@ RemoveEd(
     if (fVerbose)
         PrErr("Defecting %!&/U/Q from %&P\n", pad, pad);
 
-    psh->iedMac--;
-    pad->iedCur = iedNil;
-    for (ied = iedCur; ied < psh->iedMac; ied++) {
-        rged[ied] = rged[ied+1];
-        mpiedrgfs[ied] = mpiedrgfs[ied+1];
+    if (FIsFreeEdValid(pad->psh)) {
+        rged[iedCur].fFreeEd = fTrue;
+        rged[iedCur].wSpare = 0;
+        memset(rged[iedCur].pthEd, 0, sizeof(rged[iedCur].pthEd));
+        memset(rged[iedCur].nmOwner, 0, sizeof(rged[iedCur].nmOwner));
+
+        rgfs = mpiedrgfs[iedCur];
+        for (ifs = 0; ifs < pad->psh->ifiMac; ifs++) {
+            pfs = &rgfs[ifs];
+            pfs->fm = fmNonExistent;
+            pfs->bi = biNil;
+            pfs->fv = 0;
+        }
+    } else {
+        psh->iedMac--;
+        pad->iedCur = iedNil;
+        for (ied = iedCur; ied < psh->iedMac; ied++) {
+            rged[ied] = rged[ied+1];
+            mpiedrgfs[ied] = mpiedrgfs[ied+1];
+        }
     }
 
-    if (FTopUDir(pad) && FCmpRcPfi(pad, (FI far *)0) )
+    if (FTopUDir(pad) && FCmpRcPfi(pad, (FI far *)0) ) {
         DeleteRc(pad, (FI far *)0);
+        RemoveIedCache(pad);
+    }
 
     AppendLog(pad, (FI far *)0, (char *)0, (char *)0);
 }
@@ -766,8 +828,12 @@ CopyAd(
     pad2->rgfi = 0;
     pad2->cfiAdd = 0;
     pad2->rged = 0;
+    pad2->rged1 = 0;
     pad2->mpiedrgfs = 0;
+    pad2->rgfs = 0;
     pad2->fExtraEd = fFalse;
+    pad2->fMappedIO = fFalse;
+    pad2->fQuickIO = fFalse;
     pad2->iedCur = iedNil;
     pad2->pneFiles = 0;
 }
@@ -779,9 +845,15 @@ AssertLoaded(
     AD *pad)
 {
     AssertF(pad->psh != 0);
-    AssertF(pad->rged != 0);
     AssertF(pad->rgfi != 0);
-    AssertF(pad->mpiedrgfs != 0);
+    if (pad->fQuickIO) {
+        AssertF(pad->rged1 != 0);
+        AssertF(pad->rgfs != 0);
+    }
+    else {
+        AssertF(pad->rged != 0);
+        AssertF(pad->mpiedrgfs != 0);
+    }
 }
 
 
@@ -916,23 +988,3 @@ F mpfmfOut[] =
 /* fmConflict   **/ fTrue,
 /* fmGhost       */ fFalse,
                     };
-
-#if 0
-/* Map from to */
-FM mpfmfm[] =
-                    {
-/* fmNonExistent */ fmNonExistent,
-/* fmIn          */ fmIn,
-/* fmOut         */ fmOut,
-/* fmAdd         */ fmAdd,
-/* fmDelIn       */ fmDelIn,
-/* fmDelOut      */ fmDelOut,
-/* fmCopyIn      */ fmCopyIn,
-/* fmMerge       */ fmMerge,
-/* obsolete      */ fmNil,
-/* obsolete      */ fmNil,
-/* fmVerify      */ fmVerify,
-/* fmConflict    */ fmConflict,
-/* fmGhost       */ fmGhost
-                    };
-#endif

@@ -103,7 +103,7 @@ BOOL ChooseFontHookProc (HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 
         switch( LOWORD( wParam )) {
 
-        case IDHELP:
+        case IDWINDBGHELP:
         case pshHelp:
 
             Dbg(WinHelp(hDlg, szHelpFileName, (DWORD) HELP_CONTEXT,(DWORD)ID_FONTDLG_HELP));
@@ -160,6 +160,9 @@ BOOL SelectFont (HWND hWnd)
                           | CF_SCREENFONTS
                           | CF_FORCEFONTEXIST
                           | CF_NOSIMULATIONS
+#ifdef DBCS
+                          | CF_NOVERTFONTS
+#endif
                           | CF_SHOWHELP;
 
     Cf.rgbColors        = RGB (0, 0, 0);
@@ -227,6 +230,10 @@ BOOL SelectFont (HWND hWnd)
                                   0,
                                   MAX_CHARS_IN_FONT - 1,
                                   (LPINT)v->charWidth);
+
+#ifdef DBCS
+                     GetDBCSCharWidth(hDC, &tm, v);
+#endif
 
                      //ComputeOverhangs (hDC, 0,MAX_CHARS_IN_FONT -1, (LPINT)v->charWidth);
 

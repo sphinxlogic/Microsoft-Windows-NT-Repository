@@ -78,7 +78,7 @@ main(
     if (envp != NULL) {
         pp = envp;
         while (Src = *pp++) {
-            if (!strnicmp( Src, "PATH=", 5 )) {
+            if (!_strnicmp( Src, "PATH=", 5 )) {
                 PathVariable = Src+5;
                 break;
                 }

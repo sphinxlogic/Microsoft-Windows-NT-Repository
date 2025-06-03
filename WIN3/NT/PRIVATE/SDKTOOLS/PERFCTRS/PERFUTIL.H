@@ -24,10 +24,6 @@ Revision History:
 #ifndef _PERFUTIL_H_
 #define _PERFUTIL_H_
 
-// enable this define to log process heap data to the event log
-#ifdef PROBE_HEAP_USAGE
-#undef PROBE_HEAP_USAGE
-#endif
 //
 //  Utility macro.  This is used to reserve a DWORD multiple of
 //  bytes for Unicode strings embedded in the definitional data,
@@ -66,43 +62,9 @@ VOID MonCloseEventLog ();
 DWORD GetQueryType (IN LPWSTR);
 BOOL IsNumberInUnicodeList (DWORD, LPWSTR);
 
-typedef struct _LOCAL_HEAP_INFO_BLOCK {
-    DWORD   AllocatedEntries;
-    DWORD   AllocatedBytes;
-    DWORD   FreeEntries;
-    DWORD   FreeBytes;
-} LOCAL_HEAP_INFO, *PLOCAL_HEAP_INFO;
-
-
-NTSTATUS
-memprobe (
-    IN PVOID    pBuffer,
-    IN DWORD    dwBufSize,
-    OUT PDWORD  pdwRetBufSize OPTIONAL);
-
 //
-//  Memory Probe macro
+//  Memory Probe macro (not implemented)
 //
-#ifdef PROBE_HEAP_USAGE
-
-#define HEAP_PROBE()    { \
-    DWORD   dwHeapStatus[5]; \
-    NTSTATUS CallStatus; \
-    dwHeapStatus[4] = __LINE__; \
-    if (!(CallStatus = memprobe (dwHeapStatus, 16L, NULL))) { \
-        REPORT_INFORMATION_DATA (TCP_HEAP_STATUS, LOG_DEBUG,    \
-            &dwHeapStatus, sizeof(dwHeapStatus));  \
-    } else {  \
-        REPORT_ERROR_DATA (TCP_HEAP_STATUS_ERROR, LOG_DEBUG, \
-            &CallStatus, sizeof (DWORD)); \
-    } \
-}
-
-#else
-
 #define HEAP_PROBE()    ;
 
-#endif
-
 #endif  //_PERFUTIL_H_
-

@@ -1,3 +1,4 @@
+
 /*++
 
 Copyright (c) 1989  Microsoft Corporation
@@ -27,9 +28,9 @@ Revision History:
 //
 
 #define ATALKDDP_DEVICENAME		L"\\Device\\AtalkDdp"
-#define ATALKATP_DEVICENAME		L"\\Device\\AtalkAtp"
 #define ATALKADSP_DEVICENAME	L"\\Device\\AtalkAdsp"
-#define ATALKASP_DEVICENAME		L"\\Device\\AtalkAsp"
+#define ATALKASPS_DEVICENAME	L"\\Device\\AtalkAspServer"
+#define ATALKASPC_DEVICENAME	L"\\Device\\AtalkAspClient"
 #define ATALKPAP_DEVICENAME		L"\\Device\\AtalkPap"
 
 //
@@ -81,7 +82,7 @@ typedef	union
 //
 // *IMPORTANT*
 // These are tightly integrated with the dispatch table for the action
-// routines in MAININT.C.
+// routines in ATKINIT.C
 //
 
 
@@ -126,28 +127,30 @@ typedef	union
 #define ADSP_SPECIFIC_ACTIONCODES		(MAX_ADSPACTIONCODE - MIN_ADSPACTIONCODE + 1)
 
 //
-// ATP
+// ASP Client
 //
 
-#define ATP_ACTIONBASE					(MAX_ADSPACTIONCODE + 0x01)
-#define MIN_ATPACTIONCODE				(ATP_ACTIONBASE)
+#define ASPC_ACTIONBASE					(MAX_ADSPACTIONCODE + 0x01)
+#define MIN_ASPCACTIONCODE				(ATP_ACTIONBASE)
 
-#define ACTION_ATPPOSTREQ				(ATP_ACTIONBASE)
-#define ACTION_ATPPOSTREQCANCEL			(ATP_ACTIONBASE+0x01)
-#define ACTION_ATPGETREQ				(ATP_ACTIONBASE+0x02)
-#define ACTION_ATPGETREQCANCEL			(ATP_ACTIONBASE+0x03)
-#define ACTION_ATPPOSTRESP				(ATP_ACTIONBASE+0x04)
-#define ACTION_ATPPOSTRESPCANCEL		(ATP_ACTIONBASE+0x05)
+#define ACTION_ASPCGETSTATUS			(ASPC_ACTIONBASE)
+#define ACTION_ASPCCOMMAND				(ASPC_ACTIONBASE+0x01)
+#define ACTION_ASPCWRITE				(ASPC_ACTIONBASE+0x02)
 
-#define MAX_ATPACTIONCODE				(ATP_ACTIONBASE+0x05)
-#define ATP_SPECIFIC_ACTIONCODES		(MAX_ATPACTIONCODE - MIN_ATPACTIONCODE + 1)
+// The following 2 are for NBP, stole 2 slots here that were reserved
+#define COMMON_ACTION_NBPREGISTER_BY_ADDR	(ASPC_ACTIONBASE+0x03)
+#define COMMON_ACTION_NBPREMOVE_BY_ADDR		(ASPC_ACTIONBASE+0x04)
+#define ACTION_ASPCRESERVED3			(ASPC_ACTIONBASE+0x05)
+
+#define MAX_ASPCACTIONCODE				(ASPC_ACTIONBASE+0x05)
+#define ASPC_SPECIFIC_ACTIONCODES		(MAX_ASPCACTIONCODE - MIN_ASPCACTIONCODE + 1)
 
 
 //
-// ASP
+// ASP Server
 //
 
-#define ASP_ACTIONBASE					(MAX_ATPACTIONCODE + 0x01)
+#define ASP_ACTIONBASE					(MAX_ASPCACTIONCODE + 0x01)
 #define MIN_ASPACTIONCODE				(ASP_ACTIONBASE)
 	
 #define	ACTION_ASP_BIND					(ASP_ACTIONBASE)
@@ -184,7 +187,7 @@ typedef	union
 
 //
 // **WARNING**
-// The structure WSH_NBP_NAME is defined to be exactly like this in atksock.h
+// The structure WSH_NBP_NAME is defined to be exactly like this in atalkwsh.h
 // Change both if they ever need to be changed
 //
 
@@ -382,182 +385,95 @@ typedef struct _ADSP_FORWARDRESET_ACTION
 
 
 //
-// ATP Interface- specific action routines for ATP
+// ASP Client Interface- specific action routines for ASP Client
 //
 
 //
-// ATP Post Request
+// ASP GetStatus
 //
+typedef struct
+{
+	TA_APPLETALK_ADDRESS		ServerAddr;
+
+} ASPC_GETSTATUS_PARAMS, *PASPC_GETSTATUS_PARAMS;
 
 typedef struct
 {
-	TA_APPLETALK_ADDRESS	DestinationAddr;
-	BOOLEAN					ModeXO;
-	SHORT					RetryCount;
-	USHORT					RetryInterval;
-	USHORT					RemoteTRelInterval;
-	CHAR					RequestUserBytes[4];
-	CHAR					ResponseUserBytes[4];
-	USHORT					RequestBufLen;
-	USHORT					TransactionId;
+	TDI_ACTION_HEADER			ActionHeader;
+	ASPC_GETSTATUS_PARAMS		Params;
 
-} ATP_POSTREQ_PARAMS, *PATP_POSTREQ_PARAMS;
+} ASPC_GETSTATUS_ACTION, *PASPC_GETSTATUS_ACTION;
 
-typedef struct _ATP_POSTREQUEST
+//
+// ASP Command or Write
+//
+typedef struct
 {
-	TDI_ACTION_HEADER		ActionHeader;
-	ATP_POSTREQ_PARAMS		Params;
-	//
-	// CHAR					Request[]
-	// CHAR					Response[]
-	//
+	USHORT						CmdSize;
+	USHORT						WriteAndReplySize;
+	// BYTE						CmdBuff[CmdSize];
+	// BYTE						WriteAndReplyBuf[ReplySize];
 
-} ATP_POSTREQ_ACTION, *PATP_POSTREQ_ACTION;
-
-
-//
-// ATP Cancel Post Request
-//
+} ASPC_COMMAND_OR_WRITE_PARAMS, *PASPC_COMMAND_OR_WRITE_PARAMS;
 
 typedef struct
 {
-	USHORT					TransactionId;
+	TDI_ACTION_HEADER			ActionHeader;
+	ASPC_COMMAND_OR_WRITE_PARAMS Params;
 
-} ATP_POSTREQCANCEL_PARAMS, *PATP_POSTREQCANCEL_PARAMS;
-
-typedef struct _ATP_CANCEL_POSTREQ
-{
-	TDI_ACTION_HEADER		ActionHeader;
-	ATP_POSTREQCANCEL_PARAMS Params;
-
-} ATP_POSTREQCANCEL_ACTION, *PATP_POSTREQCANCEL_ACTION;
-
-//
-// ATP GetRequest
-//
+} ASPC_COMMAND_OR_WRITE_ACTION, *PASPC_COMMAND_OR_WRITE_ACTION;
 
 typedef struct
 {
-	TA_APPLETALK_ADDRESS	SourceAddr;
-	ULONG					GetRequestId;
-	CHAR					RequestUserBytes[4];
-	USHORT					ResponseBitmap;
-	BOOLEAN 				ModeXO;
-	USHORT					TransactionId;
-	USHORT					TrelTimerValue;
+	TDI_ACTION_HEADER			ActionHeader;
 
-} ATP_GETREQ_PARAMS, *PATP_GETREQ_PARAMS;
-
-typedef struct _ATP_GETREQ_ACTION
-{
-	TDI_ACTION_HEADER		ActionHeader;
-	ATP_GETREQ_PARAMS		Params;
-
-	//
-	// CHAR					Request[]
-	//
-
-} ATP_GETREQ_ACTION, *PATP_GETREQ_ACTION;
-
+} ASPC_RESERVED_ACTION, *PASPC_RESERVED_ACTION;
 
 //
-// ATP Get Request Cancel
-//
-
-typedef struct
-{
-	ULONG					GetRequestId;
-
-} ATP_GETREQCANCEL_PARAMS, *PATP_GETREQCANCEL_PARAMS;
-
-typedef struct _ATP_GETREQ_CANCEL
-{
-	TDI_ACTION_HEADER		ActionHeader;
-	ATP_GETREQCANCEL_PARAMS Params;
-
-} ATP_GETREQCANCEL_ACTION, *PATP_GETREQCANCEL_ACTION;
-
-
-//
-// ATP Post Response
-//
-
-typedef struct
-{
-	TA_APPLETALK_ADDRESS	DestinationAddr;
-	CHAR					ResponseUserBytes[4];
-	USHORT					TransactionId;
-	BOOLEAN 				ModeXO;
-
-} ATP_POSTRESP_PARAMS, *PATP_POSTRESP_PARAMS;
-
-typedef struct _ATP_POSTRESP
-{
-	TDI_ACTION_HEADER		ActionHeader;
-	ATP_POSTRESP_PARAMS		Params;
-
-	//
-	// CHAR					Response[];
-	//
-
-} ATP_POSTRESP_ACTION, *PATP_POSTRESP_ACTION;
-
-//
-// ATP Cancel Post Response
-//
-
-typedef struct
-{
-	USHORT	TransactionId;
-	TA_APPLETALK_ADDRESS	DestinationAddr;
-
-} ATP_POSTRESPCANCEL_PARAMS, *PATP_POSTRESPCANCEL_PARAMS;
-
-typedef struct _ATP_POSTRESP_CANCEL
-{
-	TDI_ACTION_HEADER		ActionHeader;
-	ATP_POSTRESPCANCEL_PARAMS Params;
-
-} ATP_POSTRESPCANCEL_ACTION, *PATP_POSTRESPCANCEL_ACTION;
-
-
-//
-// ASP Interface- action routines specific to ASP
+// ASP Server Interface- action routines specific to ASP Server
 //
 
 typedef	PVOID	CONNCTXT;
 
-typedef	VOID		(*CLIENT_CLOSE_COMPLETION)(
+typedef struct
+{
+	PUCHAR		rq_RequestBuf;
+	LONG		rq_RequestSize;
+	union
+	{
+		PMDL	rq_WriteMdl;
+		PMDL	rq_ReplyMdl;
+	};
+} REQUEST, *PREQUEST;
+
+typedef	VOID		(FASTCALL *CLIENT_CLOSE_COMPLETION)(
 					IN	NTSTATUS				Status,
 					IN	PVOID					pCloseCtxt);
 
-typedef	VOID		(*CLIENT_REPLY_COMPLETION)(
+typedef	VOID		(FASTCALL *CLIENT_REPLY_COMPLETION)(
 					IN	NTSTATUS				Status,
 					IN	PVOID					pReplyCtxt,
 					IN	PMDL					pReplyMdl);
 
-typedef	CONNCTXT	(*CLIENT_SESSION_NOTIFY)(	// Returns context to associate for this session
+typedef	CONNCTXT	(FASTCALL *CLIENT_SESSION_NOTIFY)(	// Returns context to associate for this session
 					IN	PVOID					pConnection);
 
-typedef	VOID		(*CLIENT_REQUEST_NOTIFY)(
+typedef	VOID		(FASTCALL *CLIENT_REQUEST_NOTIFY)(
 					IN	NTSTATUS				Status,
 					IN	PVOID					ConnCtxt,
-					IN	PVOID					ReqCtxt,
-					IN	PUCHAR					RequestBuf,
-					IN	LONG					RequestSize,
-					IN	PMDL					WriteMdl);
+					IN	PREQUEST				Request);
 
-typedef	PMDL		(*CLIENT_GET_WRITEBUFFER)(	// Returns MDL describing the buffer
+typedef	PMDL		(FASTCALL *CLIENT_GET_WRITEBUFFER)(	// Returns MDL describing the buffer
 					IN	PUCHAR					pRequest,
 					IN	USHORT					ReqLen);
 
-typedef	VOID		(*CLIENT_ATTN_COMPLETION)(
+typedef	VOID		(FASTCALL *CLIENT_ATTN_COMPLETION)(
 					IN	PVOID					pContext);
 
 typedef	NTSTATUS	(*ASP_CLOSE_CONN)(
 					IN	PVOID					pConnection);
 
-typedef	NTSTATUS	(*ASP_LISTEN_CONTROL)(		// Synchronous
+typedef	NTSTATUS	(FASTCALL *ASP_LISTEN_CONTROL)(		// Synchronous
 					IN	PVOID					pAspCtxt,
 					IN	BOOLEAN					Active);
 
@@ -566,10 +482,9 @@ typedef	NTSTATUS	(*ASP_SET_STATUS)(			// Synchronous
 					IN	PUCHAR					pStatus,
 					IN	USHORT					StatusSize);
 
-typedef	NTSTATUS	(*ASP_REPLY)(
-					IN	PVOID					pRequest,
-					IN	PUCHAR					ResultCode,
-					IN	PMDL					pReplyMdl);
+typedef	NTSTATUS	(FASTCALL *ASP_REPLY)(
+					IN	PREQUEST				pRequest,
+					IN	PUCHAR					ResultCode);
 
 typedef	NTSTATUS	(*ASP_SEND_ATTENTION)(
 					IN	PVOID					pConnection,
@@ -661,4 +576,3 @@ typedef struct
 #else
 	;
 #endif
-

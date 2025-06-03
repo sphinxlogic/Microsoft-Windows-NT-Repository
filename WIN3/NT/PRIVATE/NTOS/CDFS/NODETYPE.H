@@ -15,7 +15,7 @@ Abstract:
 
 Author:
 
-    Brian Andrew    [BrianAn]   02-Jan-1991
+    Brian Andrew    [BrianAn]   01-July-1995
 
 Revision History:
 
@@ -30,15 +30,14 @@ typedef NODE_TYPE_CODE *PNODE_TYPE_CODE;
 #define NTC_UNDEFINED                   ((NODE_TYPE_CODE)0x0000)
 
 #define CDFS_NTC_DATA_HEADER            ((NODE_TYPE_CODE)0x0301)
-#define CDFS_NTC_IRP_CONTEXT            ((NODE_TYPE_CODE)0x0302)
-#define CDFS_NTC_UNIQUE_DEV             ((NODE_TYPE_CODE)0x0303)
-#define CDFS_NTC_MVCB                   ((NODE_TYPE_CODE)0x0304)
-#define CDFS_NTC_VCB                    ((NODE_TYPE_CODE)0x0305)
-#define CDFS_NTC_ROOT_DCB               ((NODE_TYPE_CODE)0x0306)
-#define CDFS_NTC_DCB                    ((NODE_TYPE_CODE)0x0307)
-#define CDFS_NTC_FCB                    ((NODE_TYPE_CODE)0x0308)
-#define CDFS_NTC_NONPAGED_SECT_OBJ      ((NODE_TYPE_CODE)0x0309)
-#define CDFS_NTC_CCB                    ((NODE_TYPE_CODE)0x030a)
+#define CDFS_NTC_VCB                    ((NODE_TYPE_CODE)0x0302)
+#define CDFS_NTC_FCB_PATH_TABLE         ((NODE_TYPE_CODE)0x0303)
+#define CDFS_NTC_FCB_INDEX              ((NODE_TYPE_CODE)0x0304)
+#define CDFS_NTC_FCB_DATA               ((NODE_TYPE_CODE)0x0305)
+#define CDFS_NTC_FCB_NONPAGED           ((NODE_TYPE_CODE)0x0306)
+#define CDFS_NTC_CCB                    ((NODE_TYPE_CODE)0x0307)
+#define CDFS_NTC_IRP_CONTEXT            ((NODE_TYPE_CODE)0x0308)
+#define CDFS_NTC_IRP_CONTEXT_LITE       ((NODE_TYPE_CODE)0x0309)
 
 typedef CSHORT NODE_BYTE_SIZE;
 
@@ -53,7 +52,8 @@ typedef CSHORT NODE_BYTE_SIZE;
 //  typedef RECORD_NAME *PRECORD_NAME;
 //
 
-#define NodeType(Ptr) (*((PNODE_TYPE_CODE)(Ptr)))
+#define NodeType(P) ((P) != NULL ? (*((PNODE_TYPE_CODE)(P))) : NTC_UNDEFINED)
+#define SafeNodeType(Ptr) (*((PNODE_TYPE_CODE)(Ptr)))
 
 
 //
@@ -97,48 +97,7 @@ typedef CSHORT NODE_BYTE_SIZE;
 #define CDFS_BUG_CHECK_VERFYSUP          (0x00190000)
 #define CDFS_BUG_CHECK_VOLINFO           (0x001a0000)
 #define CDFS_BUG_CHECK_WORKQUE           (0x001b0000)
-#define CDFS_BUG_CHECK_WRITE             (0x001c0000)
 
 #define CdBugCheck(A,B,C) { KeBugCheckEx(CDFS_FILE_SYSTEM, BugCheckFileId | __LINE__, A, B, C ); }
 
-
-//
-//  In this module we'll also define some globally known constants
-//
-
-#define UCHAR_NUL                        0x00
-#define UCHAR_SOH                        0x01
-#define UCHAR_STX                        0x02
-#define UCHAR_ETX                        0x03
-#define UCHAR_EOT                        0x04
-#define UCHAR_ENQ                        0x05
-#define UCHAR_ACK                        0x06
-#define UCHAR_BEL                        0x07
-#define UCHAR_BS                         0x08
-#define UCHAR_HT                         0x09
-#define UCHAR_LF                         0x0a
-#define UCHAR_VT                         0x0b
-#define UCHAR_FF                         0x0c
-#define UCHAR_CR                         0x0d
-#define UCHAR_SO                         0x0e
-#define UCHAR_SI                         0x0f
-#define UCHAR_DLE                        0x10
-#define UCHAR_DC1                        0x11
-#define UCHAR_DC2                        0x12
-#define UCHAR_DC3                        0x13
-#define UCHAR_DC4                        0x14
-#define UCHAR_NAK                        0x15
-#define UCHAR_SYN                        0x16
-#define UCHAR_ETB                        0x17
-#define UCHAR_CAN                        0x18
-#define UCHAR_EM                         0x19
-#define UCHAR_SUB                        0x1a
-#define UCHAR_ESC                        0x1b
-#define UCHAR_FS                         0x1c
-#define UCHAR_GS                         0x1d
-#define UCHAR_RS                         0x1e
-#define UCHAR_US                         0x1f
-#define UCHAR_SP                         0x20
-
 #endif // _NODETYPE_
-

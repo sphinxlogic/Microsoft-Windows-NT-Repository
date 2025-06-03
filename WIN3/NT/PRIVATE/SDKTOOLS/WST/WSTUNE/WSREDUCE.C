@@ -189,7 +189,7 @@ BOOL wsReduceMain(INT vargc, CHAR **vargv)
 
 	/* Initialize global variable containing name of program. */
 	strcpy(szProgName, vargv[0]);
-	strupr(szProgName);
+	_strupr(szProgName);
 
 #ifdef TMR
 	DosTmrQueryTime((PQWORD)pqwTime0);
@@ -388,7 +388,7 @@ wsRedInitModules()
 				&WspHdr, ERROR);
 
 		strcpy(szFileTMI, pWsrMod->wsrmod_un.wsrmod_pchModFile);
-		strupr(szFileTMI);
+		_strupr(szFileTMI);
 		strcpy(strstr(szFileTMI,".WSP"),".TMI");
 
 
@@ -409,7 +409,7 @@ wsRedInitModules()
 
 		/* Keep module name in memory. */
 		if ((pWsrMod->wsrmod_un.wsrmod_pchModName =
-			strdup(szModPath)) == NULL)
+			_strdup(szModPath)) == NULL)
 			wsRedExit(ERROR, PRINT_MSG, MSG_NO_MEM,
 					WspHdr.wsphdr_dtqo.dtqo_cbPathname,
 					szModPath);
@@ -519,7 +519,7 @@ wsRedInitFunctions()
 				WsTMIReadRec(szFxnName,&ulFxnIndex,&ulTmp,pWsrMod->wsrmod_hFileTMI,
 					 (PFN) wsRedExit, (PCHAR)0);
 			if ((WsrFxn[uiFxn].wsrfxn_pchFxnName
-				= strdup(szFxnName)) == NULL)
+				= _strdup(szFxnName)) == NULL)
 				wsRedExit(ERROR, PRINT_MSG, MSG_NO_MEM,
 					strlen(szFxnName) + 1,
 					szFxnName);
@@ -1705,4 +1705,3 @@ VOID wsRedWriteWlk(VOID)
 	fclose(hTmiFile);
 		
 }
-

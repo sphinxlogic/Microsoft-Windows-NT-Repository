@@ -24,6 +24,7 @@ Revision History:
 --*/
 
 #include "ki.h"
+#pragma hdrstop
 #include "vdmntos.h"
 
 #define IDT_ACCESS_DPL_USER 0x6000
@@ -45,23 +46,19 @@ Ki386GetSelectorParameters(
     );
 
 //
-// Low level assembler support procedures
-//
-
-VOID
-KiLoadInt21Entry(
-    VOID
-    );
-
-//
-// Local service procedures
+// Define forward referenced function prototypes.
 //
 
 VOID
 Ki386LoadTargetInt21Entry (
-    IN PVOID Argument,
-    IN PVBOOLEAN ReadyFlag
+    IN PKIPI_CONTEXT SignalDone,
+    IN PVOID Parameter1,
+    IN PVOID Parameter2,
+    IN PVOID Parameter3
     );
+
+#define KiLoadInt21Entry() \
+    KeGetPcr()->IDT[0x21] = PsGetCurrentProcess()->Pcb.Int21Descriptor
 
 NTSTATUS
 Ke386SetVdmInterruptHandler (
@@ -71,6 +68,7 @@ Ke386SetVdmInterruptHandler (
     ULONG       Offset,
     BOOLEAN     Gate32
     )
+
 /*++
 
 Routine Description:
@@ -92,7 +90,7 @@ Arguments:
     Interrupt - The software interrupt vector which will be updated.
 
     Selector, offset - Specified the address of the new handler.
-    
+
     Gate32 - True if the gate should be 32 bit, false otherwise
 
 Return Value:
@@ -102,10 +100,10 @@ Return Value:
 --*/
 
 {
-    KIRQL   OldIrql;
+
+    KIRQL OldIrql;
     BOOLEAN LocalProcessor;
     KAFFINITY TargetProcessors;
-    KAFFINITY CurrentProcessor;
     PKPRCB  Prcb;
     KIDTENTRY IdtDescriptor;
     ULONG Flags, Base, Limit;
@@ -116,12 +114,10 @@ Return Value:
     // 2. The specified interrupt handler must be in user space.
     //
 
-
     if (Interrupt != 0x21 || Offset >= (ULONG)MM_HIGHEST_USER_ADDRESS ||
         !Ki386GetSelectorParameters(Selector, &Flags, &Base, &Limit) ){
         return(STATUS_INVALID_PARAMETER);
     }
-
 
     //
     // Initialize the contents of the IDT entry
@@ -133,18 +129,16 @@ Return Value:
     IdtDescriptor.Access = IDT_ACCESS_DPL_USER | IDT_ACCESS_PRESENT;
     if (Gate32) {
         IdtDescriptor.Access |= IDT_ACCESS_TYPE_386_TRAP;
+
     } else {
         IdtDescriptor.Access |= IDT_ACCESS_TYPE_286_TRAP;
     }
 
     //
-    // We raise to IPI_LEVEL-1 so we don't deadlock with device interrupts.
-    // Lock the distpather database, and take the FreezeExecutionLock
+    // Acquire the context swap lock so a context switch will not occur.
     //
 
-    KeRaiseIrql (IPI_LEVEL-1, &OldIrql);
-    KiAcquireSpinLock (&KiDispatcherLock);
-    KiAcquireSpinLock (&KiFreezeExecutionLock);
+    KiLockContextSwap(&OldIrql);
 
     //
     // Set the Ldt fields in the process object
@@ -156,50 +150,52 @@ Return Value:
     // Tell all processors active for this process to reload their LDTs
     //
 
+#if !defined(NT_UP)
+
     Prcb = KeGetCurrentPrcb();
-    TargetProcessors = Process->ActiveProcessors;
-    CurrentProcessor = Prcb->SetMember;
-
-    LocalProcessor = FALSE;
-    if ((TargetProcessors & CurrentProcessor) != 0) {
-
-        //
-        // This processor is included in the set
-        //
-
-        TargetProcessors = TargetProcessors & (KAFFINITY)~CurrentProcessor;
-        LocalProcessor = TRUE;
+    TargetProcessors = Process->ActiveProcessors & ~Prcb->SetMember;
+    if (TargetProcessors != 0) {
+        KiIpiSendPacket(TargetProcessors,
+                        Ki386LoadTargetInt21Entry,
+                        NULL,
+                        NULL,
+                        NULL);
     }
+
+#endif
+
+    KiLoadInt21Entry();
+
+#if !defined(NT_UP)
+
+    //
+    // Wait until all of the target processors have finished reloading
+    // their LDT.
+    //
 
     if (TargetProcessors != 0) {
-        KiIpiSendPacket(TargetProcessors, Ki386LoadTargetInt21Entry);
-    }
-
-    if (LocalProcessor) {
-        KiLoadInt21Entry();
-    }
-
-    if (TargetProcessors != 0) {
-        //
-        //  Stall until target processor(s) release us
-        //
-
         KiIpiStallOnPacketTargets();
     }
 
+#endif
+
     //
-    // Restore IRQL and unlock the dispatcher database
+    // Restore IRQL and unlock the context swap lock.
     //
-    KiReleaseSpinLock(&KiFreezeExecutionLock);
-    KiReleaseSpinLock(&KiDispatcherLock);
-    KeLowerIrql(OldIrql);
-    return (STATUS_SUCCESS);
+
+    KiUnlockContextSwap(OldIrql);
+    return STATUS_SUCCESS;
 }
+
+#if !defined(NT_UP)
+
 
 VOID
 Ki386LoadTargetInt21Entry (
-    IN PVOID Argument,
-    OUT PVBOOLEAN ReadyFlag
+    IN PKIPI_CONTEXT    PacketContext,
+    IN PVOID            Parameter1,
+    IN PVOID            Parameter2,
+    IN PVOID            Parameter3
     )
 /*++
 
@@ -217,42 +213,16 @@ Return Value:
     none.
 
 --*/
+
 {
+
     //
     // Set the int 21 entry of IDT from currently active process object
     //
 
     KiLoadInt21Entry();
-
-    //
-    // Tell caller we are done
-    //
-
-    *ReadyFlag = TRUE;
+    KiIpiSignalPacketDone(PacketContext);
     return;
 }
-
-VOID
-KiLoadInt21Entry(
-    VOID
-    )
-/*++
 
-Routine Description:
-
-    Update the int 21 entry of IDT of current processor.
-
-Arguments:
-
-    None.
-
-Return Value:
-
-    None.
-
---*/
-{
-    KeGetPcr()->IDT[0x21] = PsGetCurrentProcess()->Pcb.Int21Descriptor;
-}
-
-
+#endif

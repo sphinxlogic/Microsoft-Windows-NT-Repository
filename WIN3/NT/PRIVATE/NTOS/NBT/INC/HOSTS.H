@@ -276,5 +276,4 @@ inet_addr(
 
 
 #endif // _LMHOSTS_H_
-
-
+

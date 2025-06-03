@@ -22,6 +22,8 @@ Revision History:
 
 --*/
 
+#include "precomp.h"
+#pragma hdrstop
 
 
 DECLARE_API( ready )
@@ -83,12 +85,14 @@ Return Value:
                         dprintf("Could not read contents of thread %lx\n", ThreadBaseAddress);
                     }
 
-                    DumpThread("    ", &Thread, ThreadBaseAddress, Flags);
+                    DumpThread(dwProcessor,"    ", &Thread, ThreadBaseAddress, Flags);
                     ThreadDumped = TRUE;
 
                 }
             } else {
-                ASSERT(ReadyList[i].Flink == ReadyList[i].Blink);
+                if (ReadyList[i].Flink != ReadyList[i].Blink) {
+                    dprintf("Ready linked list may to be corrupt...\n");
+                }
             }
         }
 

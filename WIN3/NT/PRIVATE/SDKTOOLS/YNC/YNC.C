@@ -81,27 +81,26 @@ char *argv[];
                 printf("ync: invalid switch - %s\n", argv[0]);
             }
         else {
-            cputs(*argv);
-            putch(' ');
+            _cputs(*argv);
+            _putch(' ');
             }
         SHIFT(argc, argv);
     }
 
-    putch('[');
-    cputs(pChoices);
-    putch(']');
-    while (!(s = strchr(pChoices, ch = (char)getch()))) {
+    _putch('[');
+    _cputs(pChoices);
+    _putch(']');
+    while (!(s = strchr(pChoices, ch = (char)_getch()))) {
         if (ch == CTRLC) {
             exit(-1);
         } else {
-            putch(BEL);
+            _putch(BEL);
         }
     }
 
-    putch(ch);
-    putch(LF);
-    putch(CR);
+    _putch(ch);
+    _putch(LF);
+    _putch(CR);
 
     return( s - pChoices );
 }
-

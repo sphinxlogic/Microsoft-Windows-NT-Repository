@@ -101,6 +101,33 @@ Revision History:
 #define BP_SIGN_MASKY         0x02
 
 //
+// Microsoft Magellan Mouse.
+//
+
+#define Z_SYNCH_BIT          0x40
+#define Z_EXTRA_BIT          0x20
+
+#define Z_BUTTON_LEFT        0x20
+#define Z_BUTTON_RIGHT       0x10
+#define Z_BUTTON_MIDDLE      0x10
+
+#define Z_BUTTON_LEFT_SR     5
+#define Z_BUTTON_RIGHT_SR    3
+#define Z_BUTTON_MIDDLE_SR   3
+
+#define Z_BUTTON_MIDDLE_MASK 0x04
+
+#define Z_UPPER_MASKX        0x03
+#define Z_UPPER_MASKY        0x0C
+#define Z_UPPER_MASKZ        0x0F
+
+#define Z_LOWER_MASKZ        0x0F
+
+#define Z_UPPER_MASKX_SL     6
+#define Z_UPPER_MASKY_SL     4
+#define Z_UPPER_MASKZ_SL     4
+
+//
 // Type definitions.
 //
 
@@ -120,6 +147,10 @@ static PROTOCOL Protocol[] = {
     },
     {
     MSerHandlerBP,  // BALLPOINT
+    ACE_7BW | ACE_1SB
+    },
+    {
+    MSerHandlerZ,   // Magellan Mouse
     ACE_7BW | ACE_1SB
     }
 };
@@ -387,6 +418,10 @@ Return Value:
             if (receiveBuffer[i + 1] == '3') {
                 SerMouPrint((2, "SERMOUSE-Detected MSeries 3 buttons\n"));
                 mouseType = MOUSE_3B;
+            }
+            else if (receiveBuffer[i + 1] == 'Z') {
+                SerMouPrint((2, "SERMOUSE-Detected Wheel Mouse\n"));
+                mouseType = MOUSE_Z;
             }
             else {
                 SerMouPrint((2, "SERMOUSE-Detected MSeries 2 buttons\n"));
@@ -693,9 +728,9 @@ Return Value:
                 (HandlerData->Raw[0] & BP_BUTTON_RIGHT) >> BP_BUTTON_RIGHT_SR;
 
 #if 0
-            CurrentInput->Buttons |=
+            CurrentInput->ButtonFlags |=
                 (HandlerData->Raw[3] & BP_BUTTON_3) << BP_BUTTON_3_SL;
-            CurrentInput->Buttons |=
+            CurrentInput->ButtonFlags |=
                 (HandlerData->Raw[3] & BP_BUTTON_4) << BP_BUTTON_4_SL;
 #endif
             CurrentInput->LastX = HandlerData->Raw[3] & BP_SIGN_MASKX ?
@@ -729,3 +764,202 @@ LExit:
     return retval;
 
 }
+
+BOOLEAN
+MSerHandlerZ(
+    IN PMOUSE_INPUT_DATA CurrentInput,
+    IN PHANDLER_DATA HandlerData,
+    IN UCHAR Value,
+    IN UCHAR LineState
+    )
+
+/*++
+
+Routine Description:
+
+    This is the protocol handler routine for the Microsoft Magellan Mouse
+    (wheel mouse)
+
+Arguments:
+
+    CurrentInput - Pointer to the report packet.
+
+    HandlerData - Instance specific static data for the handler.
+
+    Value - The input buffer value.
+
+    LineState - The serial port line state.
+
+Return Value:
+
+    Returns TRUE if the handler has a complete report ready.
+
+--*/
+
+{
+    BOOLEAN retval = FALSE;
+    ULONG   middleButton;
+    CHAR    zMotion = 0;
+
+    SerMouPrint((2, "SERMOUSE-Z protocol handler: enter\n"));
+
+
+    if ((Value & Z_SYNCH_BIT) && (HandlerData->State != STATE0)) {
+        if ((HandlerData->State != STATE3)) {
+
+            //
+            // We definitely have a synchronization problem (likely a data 
+            // overrun).
+            //
+
+            HandlerData->Error++;
+        }
+
+        SerMouPrint((
+            1,
+            "SERMOUSE-Z Synch error. State: %u\n", HandlerData->State
+            ));
+
+        HandlerData->State = STATE0;
+    }
+    else if (!(Value & Z_SYNCH_BIT) && (HandlerData->State == STATE0)) {
+        HandlerData->Error++;
+        SerMouPrint((
+            1,
+            "SERMOUSE-Z Synch error. State: %u\n", HandlerData->State
+            ));
+        goto LExit;
+    }
+
+    //
+    // Check for a line state error.
+    //
+
+    if (LineState & ACE_LERR) {
+
+        //
+        // Reset the handler state.
+        //
+
+        HandlerData->State = STATE0;
+        HandlerData->Error++;
+        SerMouPrint((1, "SERMOUSE-Z Line status error: %#x\n", LineState));
+    }
+    else {
+
+        //
+        // Set the untranslated value.
+        //
+
+        HandlerData->Raw[HandlerData->State] = Value;
+        SerMouPrint((3, "SERMOUSE-Z State%u\n", HandlerData->State));
+
+        switch (HandlerData->State) {
+        case STATE0:
+        case STATE1:
+        case STATE2:
+            HandlerData->State++;
+            break;
+
+        case STATE3:
+
+            //
+            // Check to see if the mouse is going to the high bits of
+            // the wheel movement.  If not, this is the last bit - transition
+            // back to state0
+            //
+
+            if((HandlerData->Raw[STATE3] & Z_EXTRA_BIT) == 0) {
+
+                HandlerData->State = STATE0;
+                HandlerData->Raw[STATE4] = 0;
+                retval = TRUE;
+            }
+
+            break;
+
+        case STATE4:
+
+            DbgPrint("SERMOUSE-Z Got that 5th byte\n");
+            HandlerData->State = STATE0;
+            retval = TRUE;
+            break;
+
+        default:
+            SerMouPrint((
+                0, 
+                "SERMOUSE-Z Handler failure: incorrect state value.\n"
+                ));
+            ASSERT(FALSE);
+        }
+
+        if(retval) {
+
+            CurrentInput->RawButtons = 0;
+            
+            if(HandlerData->Raw[STATE0] & Z_BUTTON_LEFT) {
+                CurrentInput->RawButtons |= MOUSE_BUTTON_LEFT;
+            }
+
+            if(HandlerData->Raw[STATE0] & Z_BUTTON_RIGHT) {
+                CurrentInput->RawButtons |= MOUSE_BUTTON_RIGHT;
+            }
+
+            if(HandlerData->Raw[STATE3] & Z_BUTTON_MIDDLE) {
+                CurrentInput->RawButtons |= MOUSE_BUTTON_MIDDLE;
+            }
+
+            CurrentInput->LastX =
+                (SCHAR)(HandlerData->Raw[STATE1] |
+                ((HandlerData->Raw[0] & Z_UPPER_MASKX) << Z_UPPER_MASKX_SL));
+            CurrentInput->LastY =
+                (SCHAR)(HandlerData->Raw[STATE2] |
+                ((HandlerData->Raw[0] & Z_UPPER_MASKY) << Z_UPPER_MASKY_SL));
+
+            //
+            // If the extra bit isn't set then the 4th byte contains
+            // a 4 bit signed quantity for the wheel movement.  if it
+            // is set, then we need to combine the z info from the
+            // two bytes
+            //
+
+            if((HandlerData->Raw[STATE3] & Z_EXTRA_BIT) == 0) {
+
+                zMotion = HandlerData->Raw[STATE3] & Z_LOWER_MASKZ;
+
+                //
+                // Sign extend the 4 bit 
+                //
+
+                if(zMotion & 0x08)  {
+                    zMotion |= 0xf0;
+                }
+            } else {
+                zMotion = ((HandlerData->Raw[STATE3] & Z_LOWER_MASKZ) |
+                           ((HandlerData->Raw[STATE4] & Z_UPPER_MASKZ)
+                                << Z_UPPER_MASKZ_SL));
+            }
+
+            if(zMotion == 0) {
+                CurrentInput->ButtonData = 0;
+            } else {
+                CurrentInput->ButtonData = 0x0078;
+                if(zMotion & 0x80) {
+                    CurrentInput->ButtonData = 0x0078;
+                } else {
+                    CurrentInput->ButtonData = 0xff88;
+                }
+                CurrentInput->ButtonFlags |= MOUSE_WHEEL;
+            }
+
+        }
+
+    }
+
+LExit:
+    SerMouPrint((2, "SERMOUSE-Z protocol handler: exit\n"));
+
+    return retval;
+
+}
+

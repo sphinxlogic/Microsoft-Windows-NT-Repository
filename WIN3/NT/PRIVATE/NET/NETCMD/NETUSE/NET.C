@@ -348,7 +348,7 @@ xxcondition(index,xxvar)int index;register TCHAR * xxvar[]; {switch(index) {
 			return(!IsDeviceName(xxvar[0]) && !IsWildCard(xxvar[0]));
 #line 257 "msnet.nt"
 		case 17 :
-			return(IsComputerName(xxvar[0]));
+			return(!IsWildCard(xxvar[0]));
 		}}
 xxaction(index,xxvar)int index;register TCHAR * xxvar[]; {switch(index) {
 #line 138 "msnet.nt"

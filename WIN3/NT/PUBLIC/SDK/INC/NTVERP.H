@@ -1,8 +1,8 @@
 /****************************************************************************
  *                                                                          *
  *      ntverp.H        -- Version information for internal builds          *
- *									    *
- *	This file is only modified by the official builder to update the    *
+ *                                                                          *
+ *      This file is only modified by the official builder to update the    *
  *      VERSION, VER_PRODUCTVERSION, VER_PRODUCTVERSION_STR and             *
  *      VER_PRODUCTBETA_STR values.                                         *
  *                                                                          *
@@ -11,12 +11,33 @@
 /*--------------------------------------------------------------*/
 /* the following values should be modified by the official      */
 /* builder for each build                                       */
+/*                                                              */
+/* the VER_PRODUCTBUILD lines must contain the product          */
+/* comments (Win9x or NT) and end with the build#<CR><LF>       */
+/*                                                              */
+/* the VER_PRODUCTBETA_STR lines must contain the product       */
+/* comments (Win9x or NT) and end with "some string"<CR><LF>    */
 /*--------------------------------------------------------------*/
 
-#define VER_PRODUCTBUILD            782
-#define VER_PRODUCTVERSION_STR      "3.50"
-#define VER_PRODUCTVERSION          3,50,VER_PRODUCTBUILD,1
-#define VER_PRODUCTBETA_STR         "Release Candidate"
+#define VER_PRODUCTBUILD_QFE        3
+
+#if defined(NASHVILLE)
+#define VER_PRODUCTBUILD            /* Win9x */  1089
+#define VER_PRODUCTBETA_STR         /* Win9x */  ""
+#define VER_PRODUCTVERSION_STR      "4.70"
+#define VER_PRODUCTVERSION          4,70,VER_PRODUCTBUILD,VER_PRODUCTBUILD_QFE
+#define VER_PRODUCTVERSION_W        (0x0446)
+#define VER_PRODUCTVERSION_DW       (0x04460000 | VER_PRODUCTBUILD)
+
+#else
+#define VER_PRODUCTBUILD            /* NT */     1381
+#define VER_PRODUCTBETA_STR         /* NT */     ""
+#define VER_PRODUCTVERSION_STR      "4.00"
+#define VER_PRODUCTVERSION          4,00,VER_PRODUCTBUILD,VER_PRODUCTBUILD_QFE
+#define VER_PRODUCTVERSION_W        (0x0400)
+#define VER_PRODUCTVERSION_DW       (0x04000000 | VER_PRODUCTBUILD)
+
+#endif
 
 /*--------------------------------------------------------------*/
 /* the following section defines values used in the version     */
@@ -42,6 +63,6 @@
 #define VER_FILEFLAGS               (VER_PRERELEASE|VER_DEBUG)
 
 #define VER_COMPANYNAME_STR         "Microsoft Corporation"
-#define VER_PRODUCTNAME_STR	    "Microsoft\256 Windows NT(TM) Operating System"
+#define VER_PRODUCTNAME_STR         "Microsoft(R) Windows NT(TM) Operating System"
 #define VER_LEGALTRADEMARKS_STR     \
-"Microsoft\256 is a registered trademark of Microsoft Corporation. Windows NT(TM) is a trademark of Microsoft Corporation."
+"Microsoft(R) is a registered trademark of Microsoft Corporation. Windows NT(TM) is a trademark of Microsoft Corporation."

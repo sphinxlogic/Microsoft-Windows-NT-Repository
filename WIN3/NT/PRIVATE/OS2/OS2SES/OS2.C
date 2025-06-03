@@ -37,8 +37,13 @@ Revision History:
 #define INCL_32BIT
 #include "pmnt.h"
 extern ULONG PMNTGetOurWindow(void);
+extern ULONG PMSubprocSem32;
+extern BOOLEAN Ow2WriteBackCloseEvent();
+extern APIRET DosSemClear(ULONG hsem);
 #endif
 
+BOOLEAN fService = FALSE;   // Are we running as a service ?
+BOOLEAN fRootService = FALSE;   // Directly invoked by the service
 
 /*
  *  External prototypes
@@ -126,6 +131,81 @@ EXCEPTION_POINTERS   ExPtrs;
 EXCEPTION_RECORD     ExRec;
 WORD wSavedFpStatus = 0, wSavedFpCtrl = 0;
 
+/*
+ * Os2ServiceThread:
+ *  Created to allow the service who started this copy of OS2.EXE to terminate
+ *  the process tree.
+ */
+VOID
+Os2ServiceThread(
+    IN PVOID Parameter
+    )
+{
+    CHAR SemName[MAX_PATH];
+    HANDLE hServiceEvent;
+
+    wsprintf(SemName, "OS2SSService-%d", GetCurrentProcessId());
+
+    //
+    // Create the service event for this process
+    //
+    hServiceEvent = CreateEventA(
+                NULL,
+                FALSE, // automatic reset
+                FALSE, // initial state = non-signaled
+                SemName);
+
+    if (hServiceEvent == NULL)
+    {
+#if DBG
+        DbgPrint("OS2: Os2ServiceThread(), error at CreateEvent, error=%d\n",
+            GetLastError());
+#endif
+    }
+
+    // Wait on the Service semaphore
+    if (WaitForSingleObject(
+        hServiceEvent,
+        INFINITE) == WAIT_FAILED)
+    {
+#if DBG
+        DbgPrint("OS2: Os2ServiceThread(), failed to NtWaitForSingleObject PMShellEvent, error=%d\n",
+            GetLastError());
+#endif
+    }
+
+#if DBG
+    DbgPrint("OS2: Os2ServiceThread() - event signaled\n");
+#endif
+#if PMNT
+    //
+    // PM apps handling
+    //
+    if (ProcessIsPMProcess())
+    {
+        // Regular app (i.e. not PMShell)
+        if (!ProcessIsPMShell())
+        {
+            if (!Ow2WriteBackCloseEvent())
+            {
+                // We failed to write-back a close event:
+                //  must be DosExecPgm proc; Pass event through semaphore
+                DosSemClear(PMSubprocSem32);
+                Sleep(7900L);
+            }
+        }
+        else // PMSHELL
+        {
+#if DBG
+            DbgPrint("OS2: Os2ServiceThread(), ignoring signal - process is PMShell\n");
+#endif
+        }
+        return;
+    }
+#endif // PMNT
+    SendSignalToOs2Srv(XCPT_SIGNAL_KILLPROC);
+}
+
 DWORD Ow2FaultFilter(ULONG wFaultFilter, PEXCEPTION_POINTERS lpExP)
 {
 
@@ -189,7 +269,6 @@ main (int argc,
     // Ow2ForegroundWindow below is used by PM/NT call(s).
     Ow2ForegroundWindow = GetForegroundWindow();
 
-
         //
         // Put the entire execution of the os/2 program inside a try/except.
         // This way we ensure that we recover from 32 bit exceptions
@@ -226,8 +305,41 @@ main (int argc,
             Ow2Exit(StringCode, Od2PgmFullPathBuf, 1);
         }
 
+        if (!fService)
+        {
+            char TmpBuffer[256];
+
+            // OS/2 child processes of OS/2 apps started from a service don't
+            // have the /S switch but they should find a variable 'Os2SSService'
+            // in their environment
+
+            if (GetEnvironmentVariable(
+                "Os2SSService",
+                &TmpBuffer[0],
+                256))
+            {
+                // non-zero return code means variable was found
+                fService = TRUE;
+            }
+        }
+        else
+        {
+            if (!SetEnvironmentVariable(
+                "Os2SSService",
+                "1"))
+            {
 #if DBG
-        KdPrint(("Os2: Loading %s\n", Od2PgmFullPathBuf));
+                KdPrint(("OS2: failed to SetEnvironment variable Os2SSService, error=%d\n",
+                    GetLastError()));
+#endif
+            }
+        }
+
+#if DBG
+        if (fService)
+            KdPrint(("Os2: Loading %s (as a service)\n", Od2PgmFullPathBuf));
+        else
+            KdPrint(("Os2: Loading %s\n", Od2PgmFullPathBuf));
 #endif
         /*
          * Set event handlers to handle Ctrl-C etc.
@@ -343,6 +455,37 @@ main (int argc,
                 else
                     Ow2Exit(ConStringCode, NULL, 1);
 **/
+            }
+        }
+
+        if (fRootService)
+        {
+            HANDLE ThreadHandle;
+            ULONG Tid;
+
+            ThreadHandle = CreateThread( NULL,
+                                    0,
+                                    (LPTHREAD_START_ROUTINE)Os2ServiceThread,
+                                    NULL,
+                                    0,
+                                    &Tid);
+
+            if (!ThreadHandle)
+            {
+#if DBG
+                DbgPrint("OS2: main(), fail to create service thread, error %d\n",
+                    GetLastError());
+#endif
+            }
+            else
+            {
+                if (!CloseHandle(ThreadHandle))
+                {
+#if DBG
+                    DbgPrint("OS2: main(), CloseHandle(service thread=%x) failed, error=%d\n",
+                            ThreadHandle, GetLastError());
+#endif // DBG
+                }
             }
         }
 
@@ -625,6 +768,21 @@ GetPgmName(
                     fTrace = TRUE;
                     break;
 #endif
+                case 's':
+                    fService = TRUE;
+#if PMNT
+                    // Don't consider PMSHELL a root service, i.e. don't
+                    // create a termination thread for it. We don't want
+                    // PMSHELL to terminate even if the service which started it
+                    // is stopped because there may be PM apps out there which
+                    // weren't started by services.
+                    if (!ProcessIsPMShell())
+                        fRootService = TRUE;
+#else
+                    fRootService = TRUE;
+#endif
+                    break;
+
                 default:
                     strncpy(Od2PgmFullPathBuf, ArgvPtr, MAX_PATH);
                     Od2PgmFullPathBuf[MAX_PATH - 1] = '\0';
@@ -874,7 +1032,7 @@ SesGrpInit()
 #if DBG
                 IF_OD2_DEBUG( OS2_EXE )
                 {
-                    DbgPrint("OS2SES(SesGrpInit): GetFileType(handle %lx) failed, LastError = %lx\n",
+                    DbgPrint("OS2SES(SesGrpInit): GetFileType(handle %lx) failed, LastError = %ld\n",
                         *Handle, GetLastError());
                 }
 #endif
@@ -1555,6 +1713,38 @@ Return Value:
                   MB_APPLMODAL | MB_ICONSTOP | MB_OK | MB_SETFOREGROUND,
                   0
                  );
+}
+
+// PatrickQ: This function is called from another module (client\dllpmnt.c) and
+//   is here just because os2ses\os2.c has the right set of include files for
+//   WIN32 calls.
+
+VOID PMNTRemoveCloseMenuItem()
+{
+    HMENU SystemMenu;
+    DWORD rc;
+
+    SystemMenu = GetSystemMenu(Ow2ForegroundWindow, FALSE);
+    if (SystemMenu == 0)
+    {
+#if DBG
+        DbgPrint("Failed to get system menu !\n");
+#endif
+        return;
+    }
+
+    rc = DeleteMenu(
+            SystemMenu,
+            SC_CLOSE,
+            MF_BYCOMMAND);
+
+#if DBG
+    if (!rc)
+    {
+        DbgPrint("Failed to delete menu - last error=%d\n",
+            GetLastError());
+    }
+#endif
 }
 
 #endif //PMNT

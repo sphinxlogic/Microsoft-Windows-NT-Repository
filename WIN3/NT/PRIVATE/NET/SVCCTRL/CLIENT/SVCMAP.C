@@ -1036,9 +1036,9 @@ Note:
     }
     NetpAssert( (*DestString) != TCHAR_EOS );
     IF_DEBUG( TRANSLATE ) {
-        NetpDbgPrint( PREFIX_NETAPI
+        NetpKdPrint(( PREFIX_NETAPI
                 "TranslateStatus: built svc info at " FORMAT_LPVOID ", level "
-                FORMAT_DWORD ".\n", (LPVOID) BufPtr, Level );
+                FORMAT_DWORD ".\n", (LPVOID) BufPtr, Level ));
         NetpDbgDisplayService(
                 Level,
                 (LPVOID) BufPtr );

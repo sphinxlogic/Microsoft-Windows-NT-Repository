@@ -1,17 +1,9 @@
 /* in - checkin the specified files */
 
-#include "slm.h"
-#include "sys.h"
-#include "util.h"
-#include "stfile.h"
-#include "ad.h"
-#include "da.h"
-
-#include <sys/types.h>
-#include <sys/stat.h>
-#include "slmproto.h"
-#include "proto.h"
+#include "precomp.h"
+#pragma hdrstop
 #include "messages.h"
+EnableAssert
 
 private void    IgnMarked(P1(AD *));
 private void    IgnFi(P3(AD *, FI far *, FS far *));
@@ -21,7 +13,6 @@ private F       FInOutFile(P3(AD *pad, FI far *pfi, FS far *pfs));
 
 int SpawnFilter(P7(char *, char *, char *, char *, char *,int, char *));
 
-EnableAssert
 
 
 F

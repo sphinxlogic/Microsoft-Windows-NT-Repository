@@ -53,7 +53,7 @@ Revision History:
         Quiet more debug output.
         Made changes suggested by PC-LINT.
     23-Sep-1992 JohnRo
-        RAID 5373: server manager: access violation changing downlevel comment.
+        RAID 5373: server manager: _access violation changing downlevel comment.
         Finished implementing SetComment().
         Added user-mode option.
         Fixed UNICODE bugs

@@ -27,8 +27,12 @@ DriverEntry(
     IN PUNICODE_STRING RegistryPath
     );
 
+BOOLEAN
+MuppIsDfsEnabled();
+
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text( PAGE, DriverEntry )
+#pragma alloc_text( PAGE, MuppIsDfsEnabled )
 #endif
 
 NTSTATUS
@@ -70,6 +74,19 @@ Return Value:
     MupInitializeData();
 
     //
+    // Initialize the Dfs client
+    //
+
+    MupEnableDfs = MuppIsDfsEnabled();
+
+    if (MupEnableDfs) {
+        status = DfsDriverEntry( DriverObject, RegistryPath );
+        if (!NT_SUCCESS( status )) {
+            MupEnableDfs = FALSE;
+        }
+    }
+
+    //
     // Create the MUP device object.
     //
 
@@ -89,6 +106,10 @@ Return Value:
 
     //
     // Initialize the driver object with this driver's entry points.
+    //
+    // 2/27/96 MilanS - Be careful with these. If you add to this list
+    // of dispatch routines, you'll need to make appropriate calls to the
+    // corresponding Dfs fsd routine.
     //
 
     DriverObject->MajorFunction[IRP_MJ_CREATE] =
@@ -120,4 +141,87 @@ Return Value:
     //
 
     return( STATUS_SUCCESS );
+}
+
+
+BOOLEAN
+MuppIsDfsEnabled()
+
+/*++
+
+Routine Description:
+
+    This routine checks a registry key to see if the Dfs client is enabled.
+    The client is assumed to be enabled by default, and disabled only if there
+    is a registry value indicating that it should be disabled.
+
+Arguments:
+
+    None
+
+Return Value:
+
+    TRUE if Dfs client is enabled, FALSE otherwise.
+
+--*/
+
+{
+    NTSTATUS status;
+    HANDLE mupRegHandle;
+    OBJECT_ATTRIBUTES objectAttributes;
+    ULONG valueSize;
+    BOOLEAN dfsEnabled = TRUE;
+
+#define MUP_KEY L"\\Registry\\Machine\\System\\CurrentControlSet\\Services\\Mup"
+#define DISABLE_DFS_VALUE_NAME  L"DisableDfs"
+
+    UNICODE_STRING mupRegKey = {
+        sizeof(MUP_KEY) - sizeof(WCHAR),
+        sizeof(MUP_KEY),
+        MUP_KEY};
+
+    UNICODE_STRING disableDfs = {
+        sizeof(DISABLE_DFS_VALUE_NAME) - sizeof(WCHAR),
+        sizeof(DISABLE_DFS_VALUE_NAME),
+        DISABLE_DFS_VALUE_NAME};
+
+    struct {
+        KEY_VALUE_PARTIAL_INFORMATION Info;
+        ULONG Buffer;
+    } disableDfsValue;
+
+
+    InitializeObjectAttributes(
+        &objectAttributes,
+        &mupRegKey,
+        OBJ_CASE_INSENSITIVE,
+        0,
+        NULL
+        );
+
+    status = ZwOpenKey(&mupRegHandle, KEY_READ, &objectAttributes);
+
+    if (NT_SUCCESS(status)) {
+
+        status = ZwQueryValueKey(
+                    mupRegHandle,
+                    &disableDfs,
+                    KeyValuePartialInformation,
+                    (PVOID) &disableDfsValue,
+                    sizeof(disableDfsValue),
+                    &valueSize);
+
+        if (NT_SUCCESS(status) && disableDfsValue.Info.Type == REG_DWORD) {
+
+            if ( (*((PULONG) disableDfsValue.Info.Data)) == 1 )
+                dfsEnabled = FALSE;
+
+        }
+
+        ZwClose( mupRegHandle );
+
+    }
+
+    return( dfsEnabled );
+
 }

@@ -51,6 +51,15 @@ IsRegionCommitted(
     PREGION_DESCRIPTOR RegionDescriptor
     );
 
+BOOLEAN
+ChangeCommittedOnDisk(
+    IN ULONG Disk
+    );
+
+VOID
+ClearCommittedDiskInformation(
+    );
+
 // stuff in fdisk.c
 
 LONG
@@ -99,6 +108,10 @@ StartThread2(
 
 #endif
 
+VOID
+DisplayInitializationMessage(
+    VOID
+    );
 
 // stuff in fdlistbx.c
 
@@ -527,7 +540,7 @@ RescanDevices(
 
 // Commit interface routines.
 
-BOOL
+LETTER_ASSIGNMENT_RESULT
 CommitDriveLetter(
     IN PREGION_DESCRIPTOR RegionDescriptor,
     IN CHAR OldDrive,
@@ -632,8 +645,9 @@ MyDiskRegistryGet(
 ULONG
 MasterBootCode(
     IN ULONG   Disk,
-    IN BOOLEAN SetSignature,
-    IN ULONG   Signature
+    IN ULONG   Signature,
+    IN BOOLEAN SetBootCode,
+    IN BOOLEAN SetSignature
     );
 
 ULONG
@@ -974,6 +988,18 @@ LowFtVolumeStatusByLetter(
     IN PULONG         NumberOfMembers
     );
 
+STATUS_CODE
+LowSetDiskLayout(
+    IN PCHAR                     Path,
+    IN PDRIVE_LAYOUT_INFORMATION DriveLayout
+    );
+
+STATUS_CODE
+LowGetDiskLayout(
+    IN  PCHAR                      Path,
+    OUT PDRIVE_LAYOUT_INFORMATION *DriveLayout
+    );
+
 // Partition engine definitions
 
 ULONG
@@ -1235,3 +1261,41 @@ ConfigureOSPartitions(
     VOID
     );
 
+// Network support function definitions.  stuff from network.c
+
+VOID
+NetworkRemoveShare(
+    IN LPCTSTR DriveLetter
+    );
+
+VOID
+NetworkShare(
+    IN LPCTSTR DriveLetter
+    );
+
+VOID
+NetworkInitialize(
+    );
+
+// Debugging support for opens
+
+#ifdef DBG
+
+NTSTATUS
+DmOpenFile(
+    OUT PHANDLE           FileHandle,
+    IN ACCESS_MASK        DesiredAccess,
+    IN POBJECT_ATTRIBUTES ObjectAttributes,
+    OUT PIO_STATUS_BLOCK  IoStatusBlock,
+    IN ULONG              ShareAccess,
+    IN ULONG              OpenOptions
+    );
+
+NTSTATUS
+DmClose(
+    IN HANDLE Handle
+    );
+#else
+#define DmOpenFile NtOpenFile
+#define DmClose    NtClose
+#endif

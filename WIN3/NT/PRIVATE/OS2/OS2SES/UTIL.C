@@ -33,6 +33,11 @@ Revision History:
 #include <string.h>
 #include <ctype.h>
 
+#if PMNT
+#define INCL_32BIT
+#include "pmnt.h"
+#endif
+
 /* ExitReason values (from os2v12.h/os2v20.h) */
 
 #define TC_EXIT          0
@@ -85,6 +90,9 @@ SetSessionParameters(
     IN  PVOID   SessionStartData,
     OUT PDWORD  pCreateFlags,
     IN  PSZ     ImageFileName,
+#if PMNT
+    IN  ULONG   IsPMApp,
+#endif // PMNT
     OUT LPSTARTUPINFO pStartInfo
     );
 
@@ -181,6 +189,9 @@ Ow2ExecPgm(
     IN  PSZ     Arguments OPTIONAL,
     IN  PSZ     Variables OPTIONAL,
     IN  PSZ     ImageFileName,
+#if PMNT
+    IN  ULONG   IsPMApp,
+#endif // PMNT
     IN  PVOID   SessionStartData OPTIONAL,
     IN  POS2_STDHANDLES StdStruc,
     OUT HANDLE  *pHandle,
@@ -252,6 +263,9 @@ Ow2ExecPgm(
             SessionStartData,
             &dwCreateFlags,
             ImageFileName,
+#if PMNT
+            IsPMApp,
+#endif // PMNT
             &StartInfo
             );
     }
@@ -412,7 +426,20 @@ CreateOS2SRV(
     StartInfo.cb = sizeof(STARTUPINFOW);
     StartInfo.wShowWindow = SW_SHOWDEFAULT;
 
-    b = CreateProcessW(Path,
+    if (fService)
+        b = CreateProcessW(Path,
+                      L"OS2SRV /S",
+                      NULL,
+                      NULL,
+                      FALSE,
+                      DETACHED_PROCESS,
+                      NULL,
+                      CdString_U.Buffer, //getenv("SYSTEMROOT"),
+                      &StartInfo,
+                      &ProcessInfo
+                     );
+    else
+        b = CreateProcessW(Path,
                       L"",
                       NULL,
                       NULL,
@@ -718,6 +745,9 @@ SetSessionParameters(
     IN  PVOID   SessionStartData,
     OUT PDWORD  pCreateFlags,
     IN  PSZ     ImageFileName,
+#if PMNT
+    IN  ULONG   IsPMApp,
+#endif // PMNT
     OUT LPSTARTUPINFO pStartInfo
     )
 {
@@ -725,7 +755,17 @@ SetSessionParameters(
     ULONG       Length = pStartData->Length, i;
     PUCHAR      Title;
 
-    *pCreateFlags |= CREATE_NEW_CONSOLE;
+#if PMNT
+    //
+    // Don't create console for PM process that is the child session of other PM
+    // process.
+    //
+    if (!ProcessIsPMApp() || (!IsPMApp) || (!pStartData->Related)) {
+#endif
+        *pCreateFlags |= CREATE_NEW_CONSOLE;
+#if PMNT
+    }
+#endif
 
     Title = (pStartData->PgmTitle) ? pStartData->PgmTitle : ImageFileName;
     i = strlen(Title);

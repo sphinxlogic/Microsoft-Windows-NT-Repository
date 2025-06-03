@@ -126,7 +126,7 @@ BOOL FAR PASCAL EXPORT DlgConfirm(HWND hDlg, UINT message, WPARAM wParam, LONG l
             SetWindowText(GetDlgItem(hDlg, IDCANCEL),   (LPSTR)szTmp);
             return TRUE;
             
-          case IDHELP :
+          case IDWINDBGHELP :
             Dbg(WinHelp(hDlg, szHelpFileName, HELP_CONTEXT, ID_CONFIRM_HELP));
             return TRUE;
         }
@@ -140,4 +140,4 @@ BOOL FAR PASCAL EXPORT DlgConfirm(HWND hDlg, UINT message, WPARAM wParam, LONG l
     
     return (FALSE);
 }
-
+

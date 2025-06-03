@@ -21,11 +21,51 @@ Author:
 
 Revision History:
 
+Notes:
+
+    The Nbt routines have been modified to include an additional parameter, i.e,
+    the transport type. This transport type is used primarily to distinguish the
+    NETBIOS over TCP/IP implementation from the Messaging Over TCP/IP implementation.
+
+    The primary difference between the two being that the later uses the NETBT framing
+    without the associated NETBIOS name registartion/resolution. It primarily uses
+    DNS for name resolution. All the names that are registered for the new transport
+    are local names and are not defended on the network.
+
+    The primary usage is in conjuntion with an extended NETBIOS address type defined
+    in tdi.h. The NETBIOS name resolution/registration traffic occurs in two phases.
+    The first phase contains all the broadcast traffic that ensues during NETBIOS
+    name registration. Subsequently the NETBT implementation queries the remote
+    adapter status to choose the appropriate called name. This approach results in
+    additional traffic for querying the remote adapter status. The new address type
+    defined in tdi.h enables the client of netbt to supply the name to be used in
+    NETBT session setup. This avoids the network traffic for querying the adapter
+    status.
+
+    The original design which has not been fully implemented involved exposing two
+    device objects from the NetBt driver -- the NetBt device object which would be
+    the full implementation of NETBIOS over TCP/IP and the MoTcp device object which
+    would be the implementation of Messaging over TCP/IP. The MoTcp device object
+    would use the same port address as NetBt and use the same session setup protocol
+    to talk to remote machines running old NetBt drivers and machines running new
+    NetBt drivers.
+
+    The transport type variations combined with the address type changes present us
+    with four different cases which need to be handled -- the NetBt transport being
+    presented with a TDI_ADDRESS_NETBIOS_EX structure, the NetBt transport being
+    prsented with a TDI_ADDRESS_NETBIOS structure and the same two cases for the
+    MoTcp transport.
+
 --*/
 
 #include "types.h"
 #include "nbtprocs.h"
+#include "ntprocs.h"
 #include <nbtioctl.h>
+#ifdef RASAUTODIAL
+#include <acd.h>
+#include <acdapi.h>
+#endif // RASAUTODIAL
 
 NTSTATUS
 SendCompletion(
@@ -50,11 +90,38 @@ DpcSendSession(
     IN  PVOID           SystemArgument2
     );
 
-VOID
+NBT_WORK_ITEM_CONTEXT *
 DnsIrpCancelPaged(
     IN PDEVICE_OBJECT DeviceContext,
     IN PIRP pIrp
     );
+
+NBT_WORK_ITEM_CONTEXT *
+FindCheckAddrIrpCancel(
+    IN PDEVICE_OBJECT DeviceContext,
+    IN PIRP pIrp
+    );
+
+NTSTATUS
+NTCancelCancelRoutine(
+    IN  PIRP            pIrp
+    );
+
+#ifdef RASAUTODIAL
+extern ACD_DRIVER AcdDriverG;
+
+BOOLEAN
+NbtCancelPostConnect(
+    IN PIRP pIrp
+    );
+#endif // RASAUTODIAL
+
+NTSTATUS
+NbtQueryGetAddressInfo(
+    IN PIO_STACK_LOCATION   pIrpSp,
+    OUT PVOID               *ppBuffer,
+    OUT ULONG               *pSize
+);
 
 //*******************  Pageable Routine Declarations ****************
 #ifdef ALLOC_PRAGMA
@@ -69,9 +136,11 @@ DnsIrpCancelPaged(
 #pragma CTEMakePageable(PAGE, NTCleanUpConnection)
 #pragma CTEMakePageable(PAGE, NTCleanUpAddress)
 #pragma CTEMakePageable(PAGE, NTDisAssociateAddress)
-#pragma CTEMakePageable(PAGE, NTConnect)
 #pragma CTEMakePageable(PAGE, NTListen)
-#pragma CTEMakePageable(PAGE, NTQueryInformation)
+//
+// Should not be pageable since AFD can call us at raised Irql in case of AcceptEx.
+//
+// #pragma CTEMakePageable(PAGE, NTQueryInformation)
 #pragma CTEMakePageable(PAGE, DispatchIoctls)
 #endif
 //*******************  Pageable Routine Declarations ****************
@@ -82,7 +151,6 @@ DnsIrpCancelPaged(
 NTOpenControl(
     IN  tDEVICECONTEXT  *pDeviceContext,
     IN  PIRP            pIrp)
-
 /*++
 Routine Description:
 
@@ -107,7 +175,8 @@ Return Value:
     CTEPagedCode();
 
     pIrpSp = IoGetCurrentIrpStackLocation(pIrp);
-    pIrpSp->FileObject->FsContext2 =(PVOID)NBT_CONTROL_TYPE;
+
+    pIrpSp->FileObject->FsContext2 = (PVOID)(NBT_CONTROL_TYPE);
 
     // return a ptr the control endpoint
     pIrpSp->FileObject->FsContext = (PVOID)pNbtGlobConfig->pControlObj;
@@ -134,7 +203,6 @@ Return Value:
 NTOpenAddr(
     IN  tDEVICECONTEXT  *pDeviceContext,
     IN  PIRP            pIrp)
-
 /*++
 Routine Description:
 
@@ -153,12 +221,11 @@ Return Value:
 --*/
 
 {
-
     TDI_REQUEST                 Request;
     PVOID                       pSecurityDesc;
     TRANSPORT_ADDRESS UNALIGNED *pTransportAddr; // structure containing counted array of TA_ADDRESS
-    TA_ADDRESS UNALIGNED        *pAddressName;
-    PTDI_ADDRESS_NETBIOS        pAddress;
+    TA_ADDRESS UNALIGNED        *pAddress;
+    PTDI_ADDRESS_NETBIOS        pNetbiosAddress;
     PFILE_FULL_EA_INFORMATION   ea;
     int                         j;
     NTSTATUS                    status=STATUS_INVALID_ADDRESS_COMPONENT;
@@ -171,7 +238,7 @@ Return Value:
     ea = (PFILE_FULL_EA_INFORMATION)pIrp->AssociatedIrp.SystemBuffer;
     pTransportAddr = (PTRANSPORT_ADDRESS)&ea->EaName[ea->EaNameLength+1];
 
-    pAddressName = NULL;
+    pAddress = NULL;
 
     // loop through the addresses passed in until ONE is successfully used
     // *TODO* is it really necessary to have this loop or can we just assume
@@ -180,30 +247,55 @@ Return Value:
     for (j=0;j < pTransportAddr->TAAddressCount ;j++ )
     {
         // this includes the address type as well as the actual address
-        pAddressName = &pTransportAddr->Address[j];
-        if (pAddressName->AddressType == TDI_ADDRESS_TYPE_NETBIOS)
-        {
-            if (pAddressName->AddressLength == 0)
-                // zero length addresses mean the broadcast address
-                pAddress = NULL;
-            else
-                pAddress = (PTDI_ADDRESS_NETBIOS)pAddressName->Address;
+        pAddress = &pTransportAddr->Address[j];
+        switch (pAddress->AddressType) {
+        case TDI_ADDRESS_TYPE_NETBIOS:
+           {
+              if (pAddress->AddressLength == 0)
+              {
+                 // zero length addresses mean the broadcast address
+                 pAddress = NULL;
+              }
 
-            // call the non-NT specific function to open an address
-            status = NbtOpenAddress(&Request,
-                                    (PTDI_ADDRESS_NETBIOS)pAddress,
-                                    pDeviceContext->IpAddress,
-                                    &pSecurityDesc,
-                                    pDeviceContext,
-                                    (PVOID)pIrp);
+              // call the non-NT specific function to open an address
+              status = NbtOpenAddress(&Request,
+                                      pAddress,
+                                      pDeviceContext->IpAddress,
+                                      &pSecurityDesc,
+                                      pDeviceContext,
+                                      (PVOID)pIrp);
+           }
+           break;
+        case TDI_ADDRESS_TYPE_NETBIOS_EX:
+           {
 
-            break;
+               TDI_ADDRESS_NETBIOS     NetbiosAddress;
+               PTDI_ADDRESS_NETBIOS_EX pNetbiosExAddress;
+
+               pNetbiosExAddress = (PTDI_ADDRESS_NETBIOS_EX)pAddress->Address;
+
+               IF_DBG(NBT_DEBUG_NETBIOS_EX)
+                   KdPrint(("NETBT..Opening NETBIOS_EX Address with Endpoint Name %16s\n",pNetbiosExAddress->EndpointName));
+
+               if (pAddress->AddressLength == 0) {
+                  status = STATUS_INVALID_ADDRESS_COMPONENT;
+               } else {
+                  // call the non-NT specific function to open an address
+                  status = NbtOpenAddress(&Request,
+                                          pAddress,
+                                          pDeviceContext->IpAddress,
+                                          &pSecurityDesc,
+                                          pDeviceContext,
+                                          (PVOID)pIrp);
+               }
+           }
+           break;
+        default:
+           break;
         }
     }
 
-
     return(status);
-
 }
 //----------------------------------------------------------------------------
 NTSTATUS
@@ -323,12 +415,11 @@ Return Value:
         // fill the IRP with successful completion information so we can
         // find the connection object given the fileObject later.
         pFileObject->FsContext = Request.Handle.ConnectionContext;
-        pFileObject->FsContext2 = (PVOID)NBT_CONNECTION_TYPE;
+        pFileObject->FsContext2 = (PVOID)(NBT_CONNECTION_TYPE);
         status = STATUS_SUCCESS;
     }
 
     return(status);
-
 }
 
 
@@ -455,7 +546,7 @@ Return Value:
 //----------------------------------------------------------------------------
 VOID
 NTSetFileObjectContexts(
-    IN  tCLIENTELE      *pClientEle,
+    IN  PIRP            pIrp,
     IN  PVOID           FsContext,
     IN  PVOID           FsContext2)
 
@@ -491,7 +582,7 @@ Return Value:
     // in the complete routine for the Irp, if the completion code is not
     // good, it Nulls these two context values.
     //
-    pIrpSp = IoGetCurrentIrpStackLocation((PIRP)pClientEle->pIrp);
+    pIrpSp = IoGetCurrentIrpStackLocation(pIrp);
     pFileObject = pIrpSp->FileObject;
     pFileObject->FsContext = FsContext;
     pFileObject->FsContext2 =FsContext2;
@@ -917,6 +1008,42 @@ Return Value:
 
 }
 
+NTSTATUS
+NbtpConnectCompletionRoutine(
+   PDEVICE_OBJECT pDeviceObject,
+   PIRP           pIrp,
+   PVOID          pCompletionContext)
+
+/*++
+Routine Description:
+
+    This Routine is the completion routine for local IRPS that are generated
+    to handle compound transport addresses
+
+Arguments:
+
+    pDeviceObject - the device object
+
+    pIrp - a  ptr to an IRP
+
+    pCompletionContext - the completion context
+
+Return Value:
+
+    NTSTATUS - status of the request
+
+--*/
+
+{
+   KEVENT *pEvent = pCompletionContext;
+
+   IF_DBG(NBT_DEBUG_NETBIOS_EX)
+      KdPrint(("NETBT: Completing local irp %lx\n",pIrp));
+   KeSetEvent((PKEVENT )pEvent, 0, FALSE);
+
+   return STATUS_MORE_PROCESSING_REQUIRED;
+}
+
 //----------------------------------------------------------------------------
 NTSTATUS
 NTConnect(
@@ -940,31 +1067,211 @@ Return Value:
 --*/
 
 {
-
     TDI_REQUEST                   Request;
     PIO_STACK_LOCATION            pIrpSp;
-    NTSTATUS                      status;
+    NTSTATUS                      Status;
     PTDI_REQUEST_KERNEL           pRequestKernel;
-
-
-    CTEPagedCode();
+    PTDI_CONNECTION_INFORMATION   pRequestConnectionInformation;
+    PTRANSPORT_ADDRESS            pRemoteAddress;
+    tCONNECTELE                   *pConnEle;
 
     pIrpSp = IoGetCurrentIrpStackLocation(pIrp);
     pRequestKernel = (PTDI_REQUEST_KERNEL)&pIrpSp->Parameters;
 
     Request.Handle.ConnectionContext = pIrpSp->FileObject->FsContext;
+    pConnEle = Request.Handle.ConnectionContext;
 
-    // call the non-NT specific function to setup the connection
-    status = NbtConnect(
-                        &Request,
-                        pRequestKernel->RequestSpecific, // Ulong
-                        pRequestKernel->RequestConnectionInformation,
-                        pRequestKernel->ReturnConnectionInformation,
-                        pIrp
-                        );
+    pRequestConnectionInformation = pRequestKernel->RequestConnectionInformation;
+    pRemoteAddress                = pRequestConnectionInformation->RemoteAddress;
 
-    return(status);
+    if (pRequestConnectionInformation->RemoteAddressLength < sizeof(TRANSPORT_ADDRESS)) {
+       return STATUS_INVALID_ADDRESS_COMPONENT;
+    }
 
+    //
+    // The round about path of creating a Local IRP and processing the request is taken if
+    // we are either presented with a compound address, i.e., a transport address having
+    // multiple TA_ADDRESSes or if it is not a locally generated IRP(completion routine check)
+    // and the address type is not TDI_ADDRESS_TYPE_NETBIOS.
+    //
+    if ((pRemoteAddress->TAAddressCount > 1) ||
+        ((pIrpSp->CompletionRoutine != NbtpConnectCompletionRoutine) &&
+         (pRemoteAddress->Address[0].AddressType != TDI_ADDRESS_TYPE_NETBIOS))) {
+        PIRP pLocalIrp;
+
+        IF_DBG(NBT_DEBUG_NETBIOS_EX)
+           KdPrint(("NETBT: Taking the roundabout path\n"));
+
+        pLocalIrp = IoAllocateIrp(pDeviceContext->DeviceObject.StackSize,FALSE);
+        if (pLocalIrp != NULL) {
+            TDI_CONNECTION_INFORMATION LocalConnectionInformation;
+            PTRANSPORT_ADDRESS    pTransportAddress;
+            PCHAR                 pTaAddress;
+            USHORT                TaAddressLength,TransportAddressLength,AddressIndex;
+            USHORT                TaAddressType;
+            KEVENT                IrpCompletionEvent;
+
+            IF_DBG(NBT_DEBUG_NETBIOS_EX)
+               KdPrint(("NETBT: Allocated local irp %lx\n",pLocalIrp));
+
+            IF_DBG(NBT_DEBUG_NETBIOS_EX)
+               KdPrint(("NETBT: Compound Transport address %lx Count %lx\n",pRemoteAddress,pRemoteAddress->TAAddressCount));
+
+            TaAddressLength = 0;
+            pTaAddress    = (PCHAR)&pRemoteAddress->Address[0] - FIELD_OFFSET(TA_ADDRESS,Address);
+
+            for (AddressIndex = 0;
+                 AddressIndex < pRemoteAddress->TAAddressCount;
+                 AddressIndex++) {
+               pTaAddress = (pTaAddress + TaAddressLength + FIELD_OFFSET(TA_ADDRESS,Address));
+
+               RtlCopyMemory(
+                  &TaAddressLength,
+                  (pTaAddress + FIELD_OFFSET(TA_ADDRESS,AddressLength)),
+                  sizeof(USHORT));
+
+               RtlCopyMemory(
+                  &TaAddressType,
+                  (pTaAddress + FIELD_OFFSET(TA_ADDRESS,AddressType)),
+                  sizeof(USHORT));
+
+               if (pConnEle->RemoteNameDoesNotExistInDNS) {
+                  IF_DBG(NBT_DEBUG_NETBIOS_EX)
+                     KdPrint(("Skipping address type %lx length %lx for nonexistent name, pIrp %lx\n",TaAddressType,TaAddressLength,pIrp));
+
+                  // If the address type is such that we rely on DNS name resolution and
+                  // if a prior attempt failed, there is no point in reissuing the request.
+                  // We can fail them without having to go on the NET.
+                  switch (TaAddressType) {
+                  case TDI_ADDRESS_TYPE_NETBIOS:
+                     if (TaAddressLength == TDI_ADDRESS_LENGTH_NETBIOS) {
+                        Status = STATUS_SUCCESS;
+                        break;
+                     }
+                     // lack of break intentional.
+                  case TDI_ADDRESS_TYPE_NETBIOS_EX:
+                     Status = STATUS_BAD_NETWORK_PATH;
+                     break;
+                  default:
+                     Status = STATUS_INVALID_ADDRESS_COMPONENT;
+                  }
+
+                  if (Status != STATUS_SUCCESS) {
+                     continue;
+                  }
+               }
+
+               IF_DBG(NBT_DEBUG_NETBIOS_EX)
+                  KdPrint(("NETBT: pTaAddress %lx TaAddressLength %lx\n",pTaAddress,TaAddressLength));
+
+               // Allocate a buffer for copying the address and building a TRANSPORT_ADDRESS
+               // data structure.
+               TransportAddressLength = FIELD_OFFSET(TRANSPORT_ADDRESS,Address) +
+                                        FIELD_OFFSET(TA_ADDRESS,Address)        +
+                                        TaAddressLength;
+
+               pTransportAddress = NbtAllocMem(TransportAddressLength,NBT_TAG('b'));
+               if (pTransportAddress == NULL) {
+                   Status = STATUS_INSUFFICIENT_RESOURCES;
+                   break;
+               }
+
+               pTransportAddress->TAAddressCount = 1;
+
+               KeInitializeEvent(&IrpCompletionEvent, NotificationEvent, FALSE);
+
+               RtlCopyMemory(
+                  &pTransportAddress->Address[0],
+                  pTaAddress,
+                  (TaAddressLength + FIELD_OFFSET(TA_ADDRESS,Address)));
+
+               pConnEle->AddressType = pTransportAddress->Address[0].AddressType;
+
+               LocalConnectionInformation = *(pRequestKernel->RequestConnectionInformation);
+               LocalConnectionInformation.RemoteAddress = pTransportAddress;
+               LocalConnectionInformation.RemoteAddressLength = TransportAddressLength;
+
+               IF_DBG(NBT_DEBUG_NETBIOS_EX)
+                  KdPrint(("NETBT: Building Connect Irp %lx\n",pLocalIrp));
+
+               TdiBuildConnect(
+                             pLocalIrp,
+                             &pDeviceContext->DeviceObject,
+                             pIrpSp->FileObject,
+                             NbtpConnectCompletionRoutine,
+                             &IrpCompletionEvent,
+                             pRequestKernel->RequestSpecific,
+                             &LocalConnectionInformation,
+                             pRequestKernel->ReturnConnectionInformation);
+
+               IF_DBG(NBT_DEBUG_NETBIOS_EX)
+                  KdPrint(("Local IoCallDriver Invoked %lx %lx\n",pLocalIrp,pIrp));
+
+               Status = IoCallDriver(&pDeviceContext->DeviceObject,pLocalIrp);
+
+               IF_DBG(NBT_DEBUG_NETBIOS_EX)
+                  KdPrint(("NETBT: IoCallDriver returned %lx\n",Status));
+
+               if (Status == STATUS_PENDING) {
+                  // Await the completion of the Irp.
+                  Status = KeWaitForSingleObject(&IrpCompletionEvent,  // Object to wait on.
+                                                 Executive,            // Reason for waiting
+                                                 KernelMode,           // Processor mode
+                                                 FALSE,                // Alertable
+                                                 NULL);                // Timeout
+
+                  IF_DBG(NBT_DEBUG_NETBIOS_EX)
+                     KdPrint(("NETBT: KeWiatForSingleObject returned %lx\n",Status));
+
+                  // retrieve the completion status from the IRP. if it was successful exit,
+                  // otherwise proceed to the next TA_ADDRESS in the transport address data
+                  // structure.
+                  Status = pLocalIrp->IoStatus.Status;
+               }
+
+               if (Status != STATUS_SUCCESS) {
+                  // Ensure that the original IRP was not cancelled before continuing.
+                  IoAcquireCancelSpinLock(&pIrp->CancelIrql);
+
+                  if (pIrp->Cancel)
+                  {
+                      Status = STATUS_CANCELLED;
+                  }
+
+                  IoReleaseCancelSpinLock(pIrp->CancelIrql);
+               }
+
+               if (pTransportAddress != NULL) {
+                  CTEFreeMem(pTransportAddress);
+               }
+
+               if ((Status == STATUS_SUCCESS) ||
+                   (Status == STATUS_CANCELLED)) {
+                  IF_DBG(NBT_DEBUG_NETBIOS_EX)
+                     KdPrint(("NETBT: exiting because of cancellation or success %lx\n",Status));
+                  break;
+               } else {
+                  IF_DBG(NBT_DEBUG_NETBIOS_EX)
+                     KdPrint(("NETBT: trying next component because of failure %lx\n",Status));
+               }
+            }
+
+            IoFreeIrp(pLocalIrp);
+        } else {
+            Status = STATUS_INSUFFICIENT_RESOURCES;
+        }
+    } else {
+        // call the non-NT specific function to setup the connection
+        Status = NbtConnect(
+                           &Request,
+                           pRequestKernel->RequestSpecific, // Ulong
+                           pRequestKernel->RequestConnectionInformation,
+                           pRequestKernel->ReturnConnectionInformation,
+                           pIrp
+                           );
+    }
+
+    return(Status);
 }
 
 //----------------------------------------------------------------------------
@@ -1195,8 +1502,21 @@ Return Value:
 
     IoReleaseCancelSpinLock(pIrp->CancelIrql);
 
-    CTESpinLock(&NbtConfig.JointLock,OldIrq);
+#ifdef RASAUTODIAL
+    //
+    // Cancel the automatic connection if one's
+    // in progress.  If we don't find the
+    // connection block in the automatic
+    // connection driver, then it's already
+    // been completed.
+    //
+    if (pConnEle->fAutoConnecting) {
+        if (!NbtCancelPostConnect(pIrp))
+            return;
+    }
+#endif // RASAUTODIAL
 
+    CTESpinLock(&NbtConfig.JointLock,OldIrq);
 
     //
     // the irp could get completed between calling this cancel routine
@@ -1241,6 +1561,11 @@ Return Value:
                 //
                 CTESpinFree(&NbtConfig.JointLock,OldIrq);
                 SessionTimedOut(pTracker,(PVOID)STATUS_CANCELLED,(PVOID)1);
+            } else {
+                //
+                // Free the lock
+                //
+                CTESpinFree(&NbtConfig.JointLock,OldIrq);
             }
         }
         else
@@ -1250,6 +1575,58 @@ Return Value:
     }
     else
         CTESpinFree(&NbtConfig.JointLock,OldIrq);
+
+    return;
+
+}
+
+//----------------------------------------------------------------------------
+VOID
+CheckAddrIrpCancel(
+    IN PDEVICE_OBJECT DeviceContext,
+    IN PIRP pIrp
+    )
+/*++
+
+Routine Description:
+
+    This routine handles the cancelling a DNS name query Irp that is passed
+    down to NBT from Lmhsvc, for the purpose of resolving a name with DNS.
+    Nbt will complete this irp each time it has a name to resolve with DNS.
+
+    This routine will get the Resource Lock, and Null the Irp ptr in the
+    DnsQueries structure and then return the irp.
+
+Arguments:
+
+
+Return Value:
+
+    The final status from the operation.
+
+--*/
+{
+    BOOLEAN              DerefConnEle=FALSE;
+    KIRQL                OldIrq;
+
+
+    IF_DBG(NBT_DEBUG_NAMESRV)
+    KdPrint(("Nbt:Got a Dns Irp Cancel !!! *****************\n"));
+
+    IoReleaseCancelSpinLock(pIrp->CancelIrql);
+
+    CTESpinLock(&NbtConfig.JointLock,OldIrq);
+    if (CheckAddr.QueryIrp)
+    {
+        pIrp->IoStatus.Status = STATUS_CANCELLED;
+        CheckAddr.QueryIrp = NULL;
+
+        CTESpinFree(&NbtConfig.JointLock,OldIrq);
+        IoCompleteRequest(pIrp,IO_NETWORK_INCREMENT);
+    }
+    else
+        CTESpinFree(&NbtConfig.JointLock,OldIrq);
+
 
     return;
 
@@ -1282,6 +1659,7 @@ Return Value:
 --*/
 {
     BOOLEAN              DerefConnEle=FALSE;
+    KIRQL                OldIrq;
 
 
     IF_DBG(NBT_DEBUG_NAMESRV)
@@ -1289,22 +1667,23 @@ Return Value:
 
     IoReleaseCancelSpinLock(pIrp->CancelIrql);
 
-    CTEExAcquireResourceExclusive(&DnsQueries.Resource,TRUE);
+    CTESpinLock(&NbtConfig.JointLock,OldIrq);
     if (DnsQueries.QueryIrp)
     {
         pIrp->IoStatus.Status = STATUS_CANCELLED;
         DnsQueries.QueryIrp = NULL;
 
-        CTEExReleaseResource(&DnsQueries.Resource);
+        CTESpinFree(&NbtConfig.JointLock,OldIrq);
         IoCompleteRequest(pIrp,IO_NETWORK_INCREMENT);
     }
     else
-        CTEExReleaseResource(&DnsQueries.Resource);
+        CTESpinFree(&NbtConfig.JointLock,OldIrq);
 
 
     return;
 
 }
+
 //----------------------------------------------------------------------------
 VOID
 DiscWaitCancel(
@@ -1336,7 +1715,7 @@ Return Value:
 {
     tCONNECTELE          *pConnEle;
     PIO_STACK_LOCATION   pIrpSp;
-
+    CTELockHandle           OldIrq;
 
 
     IF_DBG(NBT_DEBUG_NAMESRV)
@@ -1348,10 +1727,14 @@ Return Value:
 
     IoReleaseCancelSpinLock(pIrp->CancelIrql);
 
+    CTESpinLock(pConnEle,OldIrq);
+
     if (pConnEle->pIrpClose == pIrp)
     {
         pConnEle->pIrpClose = NULL;
     }
+
+    CTESpinFree(pConnEle,OldIrq);
 
     pIrp->IoStatus.Status = STATUS_CANCELLED;
 
@@ -1385,6 +1768,11 @@ Return Value:
 --*/
 {
     BOOLEAN                 FoundIt = FALSE;
+    NBT_WORK_ITEM_CONTEXT   *Context;
+    CTELockHandle           OldIrq;
+    tDGRAM_SEND_TRACKING    *pTracker;
+    PVOID                   pClientCompletion;
+    PVOID                   pClientContext;
 
 
     IF_DBG(NBT_DEBUG_NAMESRV)
@@ -1392,7 +1780,114 @@ Return Value:
 
     IoReleaseCancelSpinLock(pIrp->CancelIrql);
 
-    DnsIrpCancelPaged(DeviceContext,pIrp);
+    CTESpinLock(&NbtConfig.JointLock,OldIrq);
+
+    Context = DnsIrpCancelPaged(DeviceContext,pIrp);
+
+    CTESpinFree(&NbtConfig.JointLock,OldIrq);
+
+    //
+    // Now complete the clients request to return the irp to the client
+    //
+    if (Context)
+    {
+        //
+        // this is the name Query tracker
+        //
+        pTracker = Context->pTracker;
+        pClientCompletion = Context->ClientCompletion;
+        pClientContext = Context->pClientContext;
+
+        // for dns names (NameLen>16), pTracker would be NULL
+        if (pTracker)
+        {
+            // name did not resolve, so delete from table
+            RemoveName(pTracker->pNameAddr);
+
+            DereferenceTracker(pTracker);
+        }
+
+        //
+        // this should complete any name queries that are waiting on
+        // this first name query - i.e. queries to the resolving name
+        //
+        CompleteClientReq(pClientCompletion,
+                          pClientContext,
+                          STATUS_CANCELLED);
+
+    }
+
+}
+
+//----------------------------------------------------------------------------
+NBT_WORK_ITEM_CONTEXT *
+FindCheckAddrIrpCancel(
+    IN PDEVICE_OBJECT DeviceContext,
+    IN PIRP pIrp
+    )
+/*++
+
+Routine Description:
+
+    This routine handles the cancelling a Query to LmHost, so that the client's
+    irp can be returned to the client.  This cancellation is instigated
+    by the client (i.e. RDR).
+
+Arguments:
+
+
+Return Value:
+
+    The final status from the operation.
+
+--*/
+{
+    tDGRAM_SEND_TRACKING    *pTracker;
+    NBT_WORK_ITEM_CONTEXT   *Context;
+    BOOLEAN                 FoundIt = FALSE;
+    PLIST_ENTRY             pHead;
+    PLIST_ENTRY             pEntry;
+
+    if (CheckAddr.ResolvingNow && CheckAddr.Context)
+    {
+        // this is the session setup tracker
+        //
+        pTracker = (tDGRAM_SEND_TRACKING *)((NBT_WORK_ITEM_CONTEXT *)CheckAddr.Context)->pClientContext;
+        if (pTracker->pClientIrp == pIrp)
+        {
+
+            Context = (NBT_WORK_ITEM_CONTEXT *)CheckAddr.Context;
+            CheckAddr.Context = NULL;
+            FoundIt = TRUE;
+
+        }
+    }
+    else
+    {
+        //
+        // go through the list of Queued requests to find the correct one
+        // and cancel it
+        //
+        pHead = pEntry = &CheckAddr.ToResolve;
+
+        while ((pEntry = pEntry->Flink) != pHead)
+        {
+            Context = CONTAINING_RECORD(pEntry,NBT_WORK_ITEM_CONTEXT,Item.List);
+
+            // this is the session setup tracker
+            //
+            pTracker = (tDGRAM_SEND_TRACKING *)Context->pClientContext;
+            if (pTracker->pClientIrp == pIrp)
+            {
+                RemoveEntryList(pEntry);
+                FoundIt = TRUE;
+                break;
+
+            }
+        }
+    }
+
+    return( FoundIt ? Context : NULL );
 }
 
 //----------------------------------------------------------------------------
@@ -1423,9 +1918,6 @@ Return Value:
     BOOLEAN                 FoundIt = FALSE;
     PLIST_ENTRY             pHead;
     PLIST_ENTRY             pEntry;
-    CTELockHandle           OldIrq;
-
-    CTESpinLock(&NbtConfig.JointLock,OldIrq);
 
     if (LmHostQueries.ResolvingNow && LmHostQueries.Context)
     {
@@ -1447,7 +1939,7 @@ Return Value:
         // go through the list of Queued requests to find the correct one
         // and cancel it
         //
-        pHead = pEntry = &DnsQueries.ToResolve;
+        pHead = pEntry = &LmHostQueries.ToResolve;
 
         while ((pEntry = pEntry->Flink) != pHead)
         {
@@ -1466,18 +1958,11 @@ Return Value:
         }
     }
 
-    CTESpinFree(&NbtConfig.JointLock,OldIrq);
-
-    if (FoundIt)
-    {
-        return(Context);
-    }
-    else
-        return(NULL);
+    return( FoundIt ? Context : NULL );
 }
 
 //----------------------------------------------------------------------------
-VOID
+NBT_WORK_ITEM_CONTEXT *
 DnsIrpCancelPaged(
     IN PDEVICE_OBJECT DeviceContext,
     IN PIRP pIrp
@@ -1499,99 +1984,78 @@ Return Value:
 
 --*/
 {
-    tDGRAM_SEND_TRACKING    *pTracker;
-    PVOID                   pClientCompletion;
-    PVOID                   pClientContext;
+    tDGRAM_SEND_TRACKING    *pClientTracker;
     NBT_WORK_ITEM_CONTEXT   *Context;
     BOOLEAN                 FoundIt = FALSE;
     PLIST_ENTRY             pHead;
     PLIST_ENTRY             pEntry;
-    CTELockHandle           OldIrq;
 
     //
     // First check the lmhost list, then the Dns list
     //
     Context = LmHostIrpCancel(DeviceContext,pIrp);
 
-    CTESpinLock(&NbtConfig.JointLock,OldIrq);
     if (!Context)
     {
 
-        if (DnsQueries.ResolvingNow && DnsQueries.Context)
+        Context = FindCheckAddrIrpCancel(DeviceContext,pIrp);
+
+        if (!Context)
         {
-            //
-            // this is the session setup tracker
-            //
-            pTracker = (tDGRAM_SEND_TRACKING *)((NBT_WORK_ITEM_CONTEXT *)DnsQueries.Context)->pClientContext;
-            if (pTracker->pClientIrp == pIrp)
+
+            if (DnsQueries.ResolvingNow && DnsQueries.Context)
             {
-
-                Context = (NBT_WORK_ITEM_CONTEXT *)DnsQueries.Context;
-                DnsQueries.Context = NULL;
-                FoundIt = TRUE;
-
-            }
-        }
-        else
-        {
-            //
-            // go through the list of Queued requests to find the correct one
-            // and cancel it
-            //
-            pHead = &DnsQueries.ToResolve;
-            pEntry = pHead->Flink;
-            while (pEntry != pHead)
-            {
-                Context = CONTAINING_RECORD(pEntry,NBT_WORK_ITEM_CONTEXT,Item.List);
-
+                //
                 // this is the session setup tracker
                 //
-                pTracker = (tDGRAM_SEND_TRACKING *)Context->pClientContext;
-                if (pTracker->pClientIrp == pIrp)
+                pClientTracker = (tDGRAM_SEND_TRACKING *)((NBT_WORK_ITEM_CONTEXT *)DnsQueries.Context)->pClientContext;
+                if (pClientTracker->pClientIrp == pIrp)
                 {
-                    RemoveEntryList(pEntry);
+
+                    Context = (NBT_WORK_ITEM_CONTEXT *)DnsQueries.Context;
+                    DnsQueries.Context = NULL;
                     FoundIt = TRUE;
-                    break;
 
                 }
-                pEntry = pEntry->Flink;
             }
+            else
+            {
+                //
+                // go through the list of Queued requests to find the correct one
+                // and cancel it
+                //
+                pHead = &DnsQueries.ToResolve;
+                pEntry = pHead->Flink;
+                while (pEntry != pHead)
+                {
+                    Context = CONTAINING_RECORD(pEntry,NBT_WORK_ITEM_CONTEXT,Item.List);
+
+                    // this is the session setup tracker
+                    //
+                    pClientTracker = (tDGRAM_SEND_TRACKING *)Context->pClientContext;
+                    if (pClientTracker->pClientIrp == pIrp)
+                    {
+                        RemoveEntryList(pEntry);
+                        FoundIt = TRUE;
+                        break;
+
+                    }
+                    pEntry = pEntry->Flink;
+                }
+            }
+        } else {
+
+            // IF_DBG(NBT_DEBUG_NAMESRV)
+            KdPrint(("Found tracker in CheckAddr list: %lx\n", Context));
+            FoundIt = TRUE;
         }
     }
     else
     {
         FoundIt = TRUE;
     }
-    CTESpinFree(&NbtConfig.JointLock,OldIrq);
 
-    //
-    // Now complete the clients request to return the irp to the client
-    //
-    if (FoundIt)
-    {
-        //
-        // this is the name Query tracker
-        //
-        pTracker = Context->pTracker;
-        pClientCompletion = Context->ClientCompletion;
-        pClientContext = Context->pClientContext;
-
-        // name did not resolve, so delete from table
-        RemoveName(pTracker->pNameAddr);
-
-        DereferenceTracker(pTracker);
-
-        //
-        // this should complete any name queries that are waiting on
-        // this first name query - i.e. queries to the resolving name
-        //
-        CompleteClientReq(pClientCompletion,
-                          pClientContext,
-                          STATUS_CANCELLED);
-
-    }
-
-    return;
+    return( FoundIt ? Context : NULL );
 
 }
 
@@ -1688,28 +2152,29 @@ Return Value:
                                   TDI_SERVICE_ROUTE_DIRECTED;
 
         pProvider->MinimumLookaheadData = 128;
-    }
 
-    //
-    // Check if any of the adapters with the same subnet address have
-    // the PointtoPoint bit set - and if so set it in the response.
-    //
-    pDeviceContext = (tDEVICECONTEXT *)DeviceContext;
-    SubnetAddr = pDeviceContext->IpAddress & pDeviceContext->SubnetMask;
+        //
+        // Check if any of the adapters with the same subnet address have
+        // the PointtoPoint bit set - and if so set it in the response.
+        //
+        pDeviceContext = (tDEVICECONTEXT *)DeviceContext;
+        SubnetAddr = pDeviceContext->IpAddress & pDeviceContext->SubnetMask;
 
-    pEntry = pHead = &NbtConfig.DeviceContexts;
-    while ((pEntry = pEntry->Flink) != pHead)
-    {
-        pDevContext = CONTAINING_RECORD(pEntry,tDEVICECONTEXT,Linkage);
-        ThisSubnetAddr = pDevContext->IpAddress & pDevContext->SubnetMask;
-
-        if ((SubnetAddr == ThisSubnetAddr) &&
-            (pDevContext->PointToPoint))
+        pEntry = pHead = &NbtConfig.DeviceContexts;
+        while ((pEntry = pEntry->Flink) != pHead)
         {
-            pProvider->ServiceFlags |= TDI_SERVICE_POINT_TO_POINT;
-            break;
+            pDevContext = CONTAINING_RECORD(pEntry,tDEVICECONTEXT,Linkage);
+            ThisSubnetAddr = pDevContext->IpAddress & pDevContext->SubnetMask;
+
+            if ((SubnetAddr == ThisSubnetAddr) &&
+                (pDevContext->PointToPoint))
+            {
+                pProvider->ServiceFlags |= TDI_SERVICE_POINT_TO_POINT;
+                break;
+            }
         }
     }
+
 
     //
     //  Must return a non-error status otherwise the IO system will not copy
@@ -1752,8 +2217,12 @@ Return Value:
     PTA_NETBIOS_ADDRESS                     BroadcastAddress;
     ULONG                                   AddressLength;
     ULONG                                   BytesCopied;
+    PDEVICE_OBJECT                          pDeviceObject;
 
-    CTEPagedCode();
+    //
+    // Should not be pageable since AFD can call us at raised Irql in case of AcceptEx.
+    //
+    // CTEPagedCode();
 
 
     pIrpSp   = IoGetCurrentIrpStackLocation(pIrp);
@@ -1769,8 +2238,8 @@ Return Value:
 
             // the broadcast address is the netbios name "*0000000..."
 
-            BroadcastAddress = (PTA_NETBIOS_ADDRESS)CTEAllocMem(
-                                            sizeof(TA_NETBIOS_ADDRESS));
+            BroadcastAddress = (PTA_NETBIOS_ADDRESS)NbtAllocMem(
+                                            sizeof(TA_NETBIOS_ADDRESS),NBT_TAG('b'));
 
             if (!BroadcastAddress)
             {
@@ -1833,7 +2302,8 @@ Return Value:
                                         pIrp->MdlAddress);
             }
 
-            status = IoCallDriver(pDeviceContext->pControlDeviceObject,pIrp);
+            CHECK_COMPLETION(pIrp);
+        status = IoCallDriver(pDeviceContext->pControlDeviceObject,pIrp);
             //
             // we must return the next drivers ret code back to the IO subsystem
             //
@@ -1849,6 +2319,9 @@ Return Value:
             if (Query->RequestConnectionInformation &&
                 Query->RequestConnectionInformation->RemoteAddress)
             {
+                PCHAR                   pName;
+                ULONG                   lNameType;
+                ULONG                   NameLen;
 
                 //
                 //
@@ -1856,10 +2329,23 @@ Return Value:
                 //
                 IoMarkIrpPending(pIrp);
 
-                status = NbtSendNodeStatus(Query->RequestConnectionInformation,
-                                           pDeviceContext,
-                                           pIrp,
-                                           0);
+                status = GetNetBiosNameFromTransportAddress(
+                                Query->RequestConnectionInformation->RemoteAddress,
+                                &pName,
+                                &NameLen,
+                                &lNameType);
+
+                if ( NT_SUCCESS(status) &&
+                     (lNameType == TDI_ADDRESS_NETBIOS_TYPE_UNIQUE) &&
+                     (NameLen <= NETBIOS_NAME_SIZE))
+                {
+                   status = NbtSendNodeStatus(pDeviceContext,
+                                              pName,
+                                              pIrp,
+                                              0,
+                                              0,
+                                              NodeStatusDone);
+                }
 
                 // only complete the irp (below) for failure status's
                 if (status == STATUS_PENDING)
@@ -1913,15 +2399,17 @@ Return Value:
             // Simply pass the Irp on by to the Transport, and let it
             // fill in the info
             //
+            pDeviceObject = IoGetRelatedDeviceObject( pLowerConn->pFileObject );
+
             TdiBuildQueryInformation(pIrp,
-                                    pLowerConn->pFileObject->DeviceObject,
+                                    pDeviceObject,
                                     pLowerConn->pFileObject,
                                     NULL, NULL,
                                     TDI_QUERY_CONNECTION_INFO,
                                     pIrp->MdlAddress);
 
 
-            status = IoCallDriver(pLowerConn->pFileObject->DeviceObject,pIrp);
+            status = IoCallDriver(pDeviceObject,pIrp);
 
             //
             // we must return the next drivers ret code back to the IO subsystem
@@ -1955,87 +2443,19 @@ Return Value:
             break;
 
         case TDI_QUERY_ADDRESS_INFO:
-        {
-            BOOLEAN         IsGroup;
-            PLIST_ENTRY     p;
-            tADDRESSELE     *pAddressEle;
-            tNAMEADDR       *pNameAddr;
-            tADDRESS_INFO   *pAddressInfo;
-            tCLIENTELE      *pClientEle;
-
-            pClientEle = pIrpSp->FileObject->FsContext;
-            if (pClientEle->Verify != NBT_VERIFY_CLIENT)
-            {
-                status = STATUS_INVALID_HANDLE;
-            }
-            else
-            {
-                pAddressInfo = CTEAllocMem(sizeof(tADDRESS_INFO));
-                if (pAddressInfo)
-                {
-                    //
-                    // count the clients attached to this address
-                    //
-                    pAddressInfo->ActivityCount = 0;
-                    pAddressEle = pClientEle->pAddress;
-                    for (p = pAddressEle->ClientHead.Flink;
-                         p != &pAddressEle->ClientHead;
-                         p = p->Flink) {
-                        ++pAddressInfo->ActivityCount;
-                    }
-
-                    pNameAddr = pAddressEle->pNameAddr;
-
-                    IsGroup = (pNameAddr->NameTypeState & NAMETYPE_UNIQUE) ?
-                                    FALSE : TRUE;
-
-                    TdiBuildNetbiosAddress((PUCHAR)pNameAddr->Name,
-                                                    IsGroup,
-                                                    &pAddressInfo->NetbiosAddress);
-
-                    pBuffer = (PVOID)pAddressInfo;
-                    Size = sizeof(tADDRESS_INFO);
-                    status = STATUS_SUCCESS;
-
-                }
-                else
-                {
-                    status = STATUS_INSUFFICIENT_RESOURCES;
-                }
-            }
-
+            status = NbtQueryGetAddressInfo(
+                        pIrpSp,
+                        &pBuffer,
+                        &Size
+                     );
             break;
-        }
 
-#if 0
-        case TDI_QUERY_PROVIDER_STATISTICS:
-        {
-            PTDI_PROVIDER_STATISTICS    pProvider;
-
-            pProvider = CTEAllocMem(sizeof(TDI_PROVIDER_STATISTICS));
-            if (pProvider)
-            {
-                CTEZeroMemory(pProvider,sizeof(TDI_PROVIDER_STATISTICS));
-                pProvider->DataFrameBytesSent     = pDeviceContext->BytesSent;
-                pProvider->DataFrameBytesReceived = pDeviceContext->BytesRcvd;
-                pProvider->DatagramBytesSent     = pDeviceContext->DgramBytesSent;
-                pProvider->DatagramBytesReceived = pDeviceContext->DgramBytesRcvd;
-
-                pBuffer = pProvider;
-                Size = sizeof(TDI_PROVIDER_STATISTICS);
-            }
-            else
-            {
-                status = STATUS_INSUFFICIENT_RESOURCES;
-            }
-            break;
-        }
-#endif
         case TDI_QUERY_SESSION_STATUS:
         default:
             IF_DBG(NBT_DEBUG_NAMESRV)
             KdPrint(("Nbt Query Info NOT SUPPORTED = %X\n",Query->QueryType));
             status = STATUS_NOT_SUPPORTED;
+            break;
 
     }
 
@@ -2043,10 +2463,6 @@ Return Value:
     if (!NT_ERROR(status) &&        // allow buffer overflow to pass by
         ((Query->QueryType == TDI_QUERY_ADAPTER_STATUS) ||
         (Query->QueryType == TDI_QUERY_ADDRESS_INFO)))
-#if 0
-         ||
-        (Query->QueryType == TDI_QUERY_PROVIDER_STATISTICS))
-#endif
     {
         Locstatus = TdiCopyBufferToMdl(
                             pBuffer,
@@ -2072,6 +2488,162 @@ Return Value:
     return(status);
 
 }
+
+//----------------------------------------------------------------------------
+NTSTATUS
+NbtQueryGetAddressInfo(
+    IN PIO_STACK_LOCATION   pIrpSp,
+    OUT PVOID               *ppBuffer,
+    OUT ULONG               *pSize
+)
+{
+    NTSTATUS            status;
+    BOOLEAN             IsGroup;
+    PLIST_ENTRY         p;
+    tADDRESSELE         *pAddressEle;
+    tNAMEADDR           *pNameAddr;
+    tADDRESS_INFO       *pAddressInfo;
+    tCLIENTELE          *pClientEle;
+    tCONNECTELE         *pConnectEle;
+    CTELockHandle       OldIrq;
+
+    pClientEle = pIrpSp->FileObject->FsContext;
+    if (pClientEle->Verify != NBT_VERIFY_CLIENT)
+    {
+        CTELockHandle   OldIrq1;
+        pConnectEle = (tCONNECTELE *)pClientEle;
+
+        //
+        // We crashed here since the pLowerConn was NULL below.
+        // Check the state of the connection, since it is possible that the connection
+        // was aborted and the disconnect indicated, but this query came in before the client
+        // got the disconnect indication.
+        // If the state is idle (in case of TDI_DISCONNECT_ABORT) or DISCONNECTED
+        // (TDI_DISCONNECT_RELEASE), error out.
+        // Also check for NBT_ASSOCIATED.
+        //
+        // NOTE: If NbtOpenConnection is unable to allocate the lower conn block (say, if the session fileobj
+        // has not been created yet), the state will be still be IDLE, so we are covered here.
+        //
+        CTESpinLock(pConnectEle,OldIrq1);
+
+        if ((pConnectEle->Verify != NBT_VERIFY_CONNECTION) ||
+            (pConnectEle->state <= NBT_ASSOCIATED) ||   // includes NBT_IDLE
+            (pConnectEle->state == NBT_DISCONNECTED))
+        {
+            status = STATUS_INVALID_HANDLE;
+        }
+        else
+        {
+            //
+            // A TdiQueryInformation() call requesting TDI_QUERY_ADDRESS_INFO
+            // on a connection.  Fill in a TDI_ADDRESS_INFO containing both the
+            // NetBIOS address and the IP address of the remote.  Some of the
+            // fields are fudged.
+            //
+
+            PNBT_ADDRESS_PAIR_INFO pAddressPairInfo;
+            pAddressPairInfo = NbtAllocMem(sizeof (NBT_ADDRESS_PAIR_INFO), NBT_TAG('c'));
+
+            if (pAddressPairInfo)
+            {
+                memset ( pAddressPairInfo, 0, sizeof(NBT_ADDRESS_PAIR_INFO) );
+
+                pAddressPairInfo->ActivityCount = 1;
+
+                pAddressPairInfo->AddressPair.TAAddressCount = 2;
+
+                pAddressPairInfo->AddressPair.AddressNetBIOS.AddressLength =
+                    TDI_ADDRESS_LENGTH_NETBIOS;
+
+                pAddressPairInfo->AddressPair.AddressNetBIOS.AddressType =
+                    TDI_ADDRESS_TYPE_NETBIOS;
+
+                pAddressPairInfo->AddressPair.AddressNetBIOS.Address.NetbiosNameType =
+                    TDI_ADDRESS_NETBIOS_TYPE_UNIQUE;
+
+                memcpy( &pAddressPairInfo->AddressPair.AddressNetBIOS.Address.NetbiosName[0],
+                        &pConnectEle->RemoteName[0],
+                        16
+                    );
+
+                pAddressPairInfo->AddressPair.AddressIP.AddressLength =
+                    TDI_ADDRESS_LENGTH_IP;
+
+                pAddressPairInfo->AddressPair.AddressIP.AddressType =
+                    TDI_ADDRESS_TYPE_IP;
+
+                //
+                // Check for NULL (should not be NULL here since we check for states above).
+                //
+                // BUGBUG: Remove this check once we are sure that we are not hitting this condition
+                //
+                if (pConnectEle->pLowerConnId) {
+                    pAddressPairInfo->AddressPair.AddressIP.Address.in_addr =
+                        pConnectEle->pLowerConnId->SrcIpAddr;
+
+                    *ppBuffer = (PVOID)pAddressPairInfo;
+                    *pSize = sizeof(NBT_ADDRESS_PAIR_INFO);
+                    status = STATUS_SUCCESS;
+                } else {
+                    DbgPrint("pLowerConn NULL in pConnEle%lx, state: %lx\n", pConnectEle, pConnectEle->state);
+                    status = STATUS_INVALID_HANDLE;
+                }
+            }
+            else
+            {
+                status = STATUS_INSUFFICIENT_RESOURCES;
+            }
+        }
+
+        CTESpinFree(pConnectEle,OldIrq1);
+    }
+    else
+    {
+        pAddressInfo = NbtAllocMem(sizeof(tADDRESS_INFO),NBT_TAG('c'));
+        if (pAddressInfo)
+        {
+            //
+            // count the clients attached to this address
+            // We need to spinlock the address element, which
+            // is why this routine is not pageable
+            //
+            pAddressInfo->ActivityCount = 0;
+            pAddressEle = pClientEle->pAddress;
+
+            CTESpinLock(pAddressEle,OldIrq);
+
+            for (p = pAddressEle->ClientHead.Flink;
+                 p != &pAddressEle->ClientHead;
+                 p = p->Flink) {
+                ++pAddressInfo->ActivityCount;
+            }
+
+            CTESpinFree(pAddressEle,OldIrq);
+
+            pNameAddr = pAddressEle->pNameAddr;
+
+            IsGroup = (pNameAddr->NameTypeState & NAMETYPE_UNIQUE) ?
+                            FALSE : TRUE;
+
+            TdiBuildNetbiosAddress((PUCHAR)pNameAddr->Name,
+                                            IsGroup,
+                                            &pAddressInfo->NetbiosAddress);
+
+            *ppBuffer = (PVOID)pAddressInfo;
+            *pSize = sizeof(tADDRESS_INFO);
+            status = STATUS_SUCCESS;
+
+        }
+        else
+        {
+            status = STATUS_INSUFFICIENT_RESOURCES;
+        }
+    }
+
+    return status;
+}
+
 //----------------------------------------------------------------------------
 NTSTATUS
 DispatchIoctls(
@@ -2136,30 +2708,53 @@ Return Value:
 
             if (pIrp->MdlAddress)
             {
-                PIO_STACK_LOCATION                      pIrpSp;
-                TDI_CONNECTION_INFORMATION              ConnInfo;
-                tIPANDNAMEINFO                          *pIpAndNameInfo;
+                PIO_STACK_LOCATION      pIrpSp;
+                tIPANDNAMEINFO         *pIpAndNameInfo;
+                PCHAR                   pName;
+                ULONG                   lNameType;
+                ULONG                   NameLen;
+                ULONG                   IpAddrsList[2];
 
-                //
                 //
                 // in case the call results in a name query on the wire...
                 //
                 IoMarkIrpPending(pIrp);
 
-                CTEZeroMemory(&ConnInfo,sizeof(TDI_CONNECTION_INFORMATION));
-
                 pIrpSp   = IoGetCurrentIrpStackLocation(pIrp);
                 pIpAndNameInfo = pIrp->AssociatedIrp.SystemBuffer;
 
+                // this routine gets a ptr to the netbios name out of the wierd
+                // TDI address syntax.
+                status = GetNetBiosNameFromTransportAddress(
+                                            &pIpAndNameInfo->NetbiosAddress,
+                                            &pName,
+                                            &NameLen,
+                                            &lNameType);
 
-                ConnInfo.RemoteAddress = &pIpAndNameInfo->NetbiosAddress;
-                ConnInfo.RemoteAddressLength = sizeof(TA_NETBIOS_ADDRESS);
+                if ( NT_SUCCESS(status) &&
+                     (lNameType == TDI_ADDRESS_NETBIOS_TYPE_UNIQUE) &&
+                     (NameLen <= NETBIOS_NAME_SIZE))
+                {
+                    //
+                    // Nbtstat sends down * in the first byte on Nbtstat -A <IP address>
+                    // Make sure we let that case go ahead.
+                    //
+                    if ((pName[0] == '*') &&
+                        (pIpAndNameInfo->IpAddress == 0)) {
 
-                status = NbtSendNodeStatus(&ConnInfo,
-                                           pDeviceContext,
-                                           pIrp,
-                                           pIpAndNameInfo->IpAddress);
+                        status = STATUS_BAD_NETWORK_PATH;
+                    } else {
+                        IpAddrsList[0] = pIpAndNameInfo->IpAddress;
+                        IpAddrsList[1] = 0;
+                        status = NbtSendNodeStatus(pDeviceContext,
+                                                   pName,
+                                                   pIrp,
+                                                   &IpAddrsList[0],
+                                                   0,
+                                                   NodeStatusDone);
+                    }
 
+                }
                 // only complete the irp (below) for failure status's
                 if (status == STATUS_PENDING)
                 {
@@ -2204,17 +2799,167 @@ Return Value:
 
         break;
 
+    case IOCTL_NETBT_ENABLE_EXTENDED_ADDR: {
+            //
+            // Enable extended addressing - pass up IP addrs on Datagram Recvs.
+            //
+            PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation (pIrp);
+            tCLIENTELE  *pClientEle = (tCLIENTELE *)pIrpSp->FileObject->FsContext;
+
+            status = STATUS_SUCCESS;
+
+            if (pIrpSp->FileObject->FsContext2 != (PVOID)NBT_ADDRESS_TYPE) {
+                status = STATUS_INVALID_ADDRESS;
+            } else {
+                pClientEle->ExtendedAddress = TRUE;
+            }
+            break;
+        }
+
+    case IOCTL_NETBT_DISABLE_EXTENDED_ADDR: {
+            //
+            // Disnable extended addressing - dont pass up IP addrs on Datagram Recvs.
+            //
+            PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation (pIrp);
+            tCLIENTELE  *pClientEle = (tCLIENTELE *)pIrpSp->FileObject->FsContext;
+
+            status = STATUS_SUCCESS;
+
+            if (pIrpSp->FileObject->FsContext2 != (PVOID)NBT_ADDRESS_TYPE) {
+                status = STATUS_INVALID_ADDRESS;
+            } else {
+                pClientEle->ExtendedAddress = FALSE;
+            }
+            break;
+        }
+
     case IOCTL_NETBT_NEW_IPADDRESS:
 
         {
-            tNEW_IP_ADDRESS *pNewAddress;
 
-            pNewAddress = (tNEW_IP_ADDRESS *)pIrp->AssociatedIrp.SystemBuffer;
+            tNEW_IP_ADDRESS *pNewAddress = (tNEW_IP_ADDRESS *)pIrp->AssociatedIrp.SystemBuffer;
+
             status = NbtNewDhcpAddress(pDeviceContext,
                                        pNewAddress->IpAddress,
                                        pNewAddress->SubnetMask);
 
             break;
+        }
+
+    case IOCTL_NETBT_ADD_INTERFACE:
+        //
+        // Creates a dummy devicecontext which can be primed by the layer above
+        // with a DHCP address. This is to support multiple IP addresses per adapter
+        // for the Clusters group; but can be used by any module that needs support
+        // for more than one IP address per adapter. This private interface hides the
+        // devices thus created from the setup/regisrty and that is fine since the
+        // component (say, the clusters client) takes the responsibility for ensuring
+        // that the server (above us) comes to know of this new device.
+        //
+        {
+
+            PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation (pIrp);
+            // IF_DBG(NBT_DEBUG_PNP_POWER)
+            KdPrint(("Ioctl Value is %X (IOCTL_NETBT_ADD_INTERFACE)\n",ControlCode));
+            pBuffer = pIrp->AssociatedIrp.SystemBuffer;
+            Size = pIrpSp->Parameters.DeviceIoControl.OutputBufferLength;
+
+            //
+            // return the export string created.
+            //
+            status = NbtAddNewInterface(pIrp, pBuffer, Size);
+
+            NTIoComplete(pIrp,status,(ULONG)-1);
+            return status;
+        }
+
+    case IOCTL_NETBT_DELETE_INTERFACE:
+        {
+#if 0
+            PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation (pIrp);
+            //
+            // Validate input buffer size
+            //
+            Size = pIrpSp->Parameters.DeviceIoControl.InputBufferLength;
+            if (Size < sizeof(NETBT_ADD_DEL_IF)) {
+                // IF_DBG(NBT_DEBUG_PNP_POWER)
+                    KdPrint(("NbtAddNewInterface: Output buffer too small for struct\n"));
+                status = STATUS_INVALID_PARAMETER;
+            } else {
+                pBuffer = pIrp->AssociatedIrp.SystemBuffer;
+                status = NbtDestroyDeviceObject(pBuffer);
+            }
+#endif
+            //
+            // Delete the device this came down on..
+            //
+            ASSERT(!pDeviceContext->IsDestroyed);
+            ASSERT(pDeviceContext->IsDynamic);
+
+            status = NbtDestroyDeviceObject(pDeviceContext);
+
+            break;
+        }
+
+    case IOCTL_NETBT_QUERY_INTERFACE_INSTANCE:
+        {
+            PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation (pIrp);
+
+            //
+            // Validate input/output buffer size
+            //
+            Size = pIrpSp->Parameters.DeviceIoControl.OutputBufferLength;
+            if (Size < sizeof(NETBT_ADD_DEL_IF)) {
+                // IF_DBG(NBT_DEBUG_PNP_POWER)
+                    KdPrint(("NbtQueryInstance: Output buffer too small for struct\n"));
+                status = STATUS_INVALID_PARAMETER;
+            } else {
+                PNETBT_ADD_DEL_IF   pAddDelIf = (PNETBT_ADD_DEL_IF)pIrp->AssociatedIrp.SystemBuffer;
+                status = STATUS_SUCCESS;
+
+                ASSERT(pDeviceContext->IsDynamic);
+                pAddDelIf->InstanceNumber = pDeviceContext->InstanceNumber;
+                pAddDelIf->Status = status;
+                pIrp->IoStatus.Information = sizeof(NETBT_ADD_DEL_IF);
+
+                NTIoComplete(pIrp,status,(ULONG)-1);
+                return status;
+
+            }
+            break;
+        }
+
+    case IOCTL_NETBT_SET_WINS_ADDRESS: {
+            //
+            // Sets the WINS addresses for a dynamic adapter
+            //
+
+            PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation (pIrp);
+
+            //
+            // Validate input/output buffer size
+            //
+            Size = pIrpSp->Parameters.DeviceIoControl.InputBufferLength;
+            if (Size < sizeof(NETBT_SET_WINS_ADDR)) {
+                // IF_DBG(NBT_DEBUG_PNP_POWER)
+                    KdPrint(("NbtSetWinsAddr: Input buffer too small for struct\n"));
+                status = STATUS_INVALID_PARAMETER;
+            } else {
+                PNETBT_SET_WINS_ADDR   pSetWinsAddr = (PNETBT_SET_WINS_ADDR)pIrp->AssociatedIrp.SystemBuffer;
+                status = STATUS_SUCCESS;
+
+                ASSERT(pDeviceContext->IsDynamic);
+
+                pDeviceContext->lNameServerAddress = pSetWinsAddr->PrimaryWinsAddr;
+                pDeviceContext->lBackupServer = pSetWinsAddr->SecondaryWinsAddr;
+
+                pSetWinsAddr->Status = status;
+                pIrp->IoStatus.Information = sizeof(NETBT_SET_WINS_ADDR);
+
+                NTIoComplete(pIrp,status,(ULONG)-1);
+                return status;
+
+            }
         }
 
     case IOCTL_NETBT_DNS_NAME_RESOLVE:
@@ -2228,9 +2973,23 @@ Return Value:
                 status = NtDnsNameResolve(pDeviceContext,pBuffer,Size,pIrp);
 
                 return(status);
+            }
+            break;
+        }
 
-                break;
+    case IOCTL_NETBT_CHECK_IP_ADDR: {
+            IF_DBG(NBT_DEBUG_NAMESRV)
+            KdPrint(("Ioctl Value is %X (IOCTL_NETBT_CHECK_IP_ADDR)\n",ControlCode));
 
+            if (pIrp->MdlAddress)
+            {
+                Size = MmGetMdlByteCount( pIrp->MdlAddress ) ;
+                pBuffer = MmGetSystemAddressForMdl(pIrp->MdlAddress);
+
+                // return an array of netbios names that are registered
+                status = NtCheckForIPAddr(pDeviceContext,pBuffer,Size,pIrp);
+
+                return(status);
             }
             break;
         }
@@ -2301,38 +3060,55 @@ Return Value:
             if (pIrp->MdlAddress)
             {
                 Length = MmGetMdlByteCount( pIrp->MdlAddress );
-                if (Length < sizeof(ULONG)*(NbtConfig.AdapterCount + 1))
-                {
-                    status = STATUS_BUFFER_OVERFLOW;
+
+                if (Length < sizeof(ULONG)) {
+                    status = STATUS_BUFFER_TOO_SMALL;
                 }
-                else
-                {
+                else {
                     //
                     // Put this adapter first in the list
                     //
                     pIpAddr = (PULONG )MmGetSystemAddressForMdl(pIrp->MdlAddress);
                     *pIpAddr = pDeviceContext->IpAddress;
                     pIpAddr++;
+                    Length -= sizeof(ULONG);
+                    status = STATUS_SUCCESS;
 
                     pEntry = pHead = &NbtConfig.DeviceContexts;
                     while ((pEntry = pEntry->Flink) != pHead)
                     {
-                        pDevContext = CONTAINING_RECORD(pEntry,tDEVICECONTEXT,Linkage);
+                        if (Length < sizeof(ULONG)) {
+                            status = STATUS_BUFFER_OVERFLOW;
+                            break;
+                        }
+
+                        pDevContext = CONTAINING_RECORD(
+                                          pEntry,
+                                          tDEVICECONTEXT,
+                                          Linkage
+                                          );
+
                         if ((pDevContext != pDeviceContext) &&
                             (pDevContext->IpAddress))
                         {
                             *pIpAddr = pDevContext->IpAddress;
                             pIpAddr++;
+                            Length -= sizeof(ULONG);
                         }
                     }
-                    //
-                    // put a 0 address on the end
-                    //
-                    *pIpAddr = 0;
 
-                    status = STATUS_SUCCESS;
+                    if (status == STATUS_SUCCESS) {
+                        if (Length < sizeof(ULONG)) {
+                            status = STATUS_BUFFER_OVERFLOW;
+                        }
+                        else {
+                            //
+                            // put a 0 address on the end
+                            //
+                            *pIpAddr = 0;
+                        }
+                    }
                 }
-
             }
 
             break;
@@ -2413,10 +3189,9 @@ Return Value:
                             0,
                             (PULONG)&pIrp->IoStatus.Information);
 
-        if ((Locstatus == STATUS_BUFFER_OVERFLOW) ||
-            (status == STATUS_BUFFER_OVERFLOW))
+        if (Locstatus == STATUS_BUFFER_OVERFLOW)
         {
-            status == STATUS_BUFFER_OVERFLOW;
+            status = STATUS_BUFFER_OVERFLOW;
         }
         CTEMemFree((PVOID)pBuffer);
     }
@@ -2648,7 +3423,7 @@ Return Value:
 
             pIrpSp->MajorFunction = IRP_MJ_INTERNAL_DEVICE_CONTROL;
             pIrpSp->MinorFunction = TDI_RECEIVE;
-            pIrpSp->DeviceObject = pConnEle->pLowerConnId->pFileObject->DeviceObject;
+            pIrpSp->DeviceObject = IoGetRelatedDeviceObject(pConnEle->pLowerConnId->pFileObject);
             pIrpSp->FileObject = pConnEle->pLowerConnId->pFileObject;
 
             pParams = (PTDI_REQUEST_KERNEL_RECEIVE)&pIrpSp->Parameters;
@@ -2956,22 +3731,6 @@ Return Value:
             // and we need to return it to the user
             //
             pConnEle->FreeBytesInMdl = pParams->ReceiveLength;
-#if 0
-            //
-            // Set the amount of data that we will receive so when the
-            // irp completes in completionRcv, we can fill in that
-            // info in the Irp
-            //
-            RemainingPdu = pConnEle->TotalPcktLen - pConnEle->BytesRcvd;
-            if (ClientRcvLen > RemainingPdu)
-            {
-                pConnEle->CurrentRcvLen = RemainingPdu;
-            }
-            else
-            {
-                pConnEle->CurrentRcvLen = pClientParams->ReceiveLength;
-            }
-#endif
             // Force the system to map and lock the user buffer
             MmGetSystemAddressForMdl(pIrp->MdlAddress);
 
@@ -2981,7 +3740,8 @@ Return Value:
             pConnEle->pIrpRcv = NULL;
             CTESpinFree(pLowerConn,OldIrq);
 
-            status = IoCallDriver(pLowerConn->pFileObject->DeviceObject,pIrp);
+            CHECK_COMPLETION(pIrp);
+        status = IoCallDriver(IoGetRelatedDeviceObject(pLowerConn->pFileObject),pIrp);
 
         }
 
@@ -3044,7 +3804,7 @@ Return Value:
     {
         // now search the client's listen queue looking for this connection
         //
-        CTESpinLock(pClientEle,OldIrq);
+        CTESpinLock(&NbtConfig.JointLock,OldIrq);
 
         pHead = &pClientEle->RcvDgramHead;
         pEntry = pHead->Flink;
@@ -3058,7 +3818,7 @@ Return Value:
                 // complete the irp
                 pIrp->IoStatus.Status = STATUS_CANCELLED;
 
-                CTESpinFree(pClientEle,OldIrq);
+                CTESpinFree(&NbtConfig.JointLock,OldIrq);
                 IoReleaseCancelSpinLock(pIrp->CancelIrql);
 
                 IoCompleteRequest(pIrp,IO_NETWORK_INCREMENT);
@@ -3074,7 +3834,7 @@ Return Value:
 
     }
 
-    CTESpinFree(pClientEle,OldIrq);
+    CTESpinFree(&NbtConfig.JointLock,OldIrq);
     IoReleaseCancelSpinLock(pIrp->CancelIrql);
 
     return;
@@ -3177,6 +3937,7 @@ Return Value:
     tSESSIONHDR                     *pSessionHdr;
     tCONNECTELE                     *pConnEle;
     KIRQL                           OldIrq;
+    KIRQL                           OldIrq1;
     PTDI_REQUEST_KERNEL_SEND        pParams;
     PFILE_OBJECT                    pFileObject;
     tLOWERCONNECTION                *pLowerConn;
@@ -3192,6 +3953,27 @@ Return Value:
 
     if (pConnEle)
     {
+        pLowerConn =  pConnEle->pLowerConnId;
+        if (pLowerConn)
+        {
+            //
+            // make sure lowerconn stays valid until the irp is done
+            //
+            CTESpinLock(pLowerConn,OldIrq1);
+            pLowerConn->RefCount++;
+            CTESpinFree(pLowerConn,OldIrq1);
+        }
+        else
+        {
+            IF_DBG(NBT_DEBUG_SEND)
+            KdPrint(("Nbt:attempting send when LowerConn has been freed!\n"));
+
+            status = STATUS_INVALID_HANDLE;
+
+            // to save on indent levels use a goto here
+            goto ErrorExit;
+        }
+
         CTESpinLock(pConnEle,OldIrq);
 
         // check the state of the connection
@@ -3203,10 +3985,13 @@ Return Value:
             // put the users buffer on after that, chained to the session hdr MDL.
             //
             CTESpinLockAtDpc(&NbtConfig);
+
             if (NbtConfig.SessionMdlFreeSingleList.Next)
             {
                 pSingleListEntry = PopEntryList(&NbtConfig.SessionMdlFreeSingleList);
                 pMdl = CONTAINING_RECORD(pSingleListEntry,MDL,Next);
+
+                ASSERT ( MmGetMdlByteCount ( pMdl ) == sizeof ( tSESSIONHDR ) );
 
             }
             else
@@ -3252,55 +4037,64 @@ Return Value:
 
 
             pIrpSp->CompletionRoutine = SendCompletion;
-            pIrpSp->Context = (PVOID)pMdl;
+            pIrpSp->Context = (PVOID)pLowerConn;
             pIrpSp->Control = SL_INVOKE_ON_SUCCESS | SL_INVOKE_ON_ERROR | SL_INVOKE_ON_CANCEL;
 
             pIrpSp->MajorFunction = IRP_MJ_INTERNAL_DEVICE_CONTROL;
             pIrpSp->MinorFunction = TDI_SEND;
 
-            pLowerConn =  pConnEle->pLowerConnId;
             pFileObject = pLowerConn->pFileObject;
             pLowerConn->BytesSent += pParams->SendLength;
 
             pIrpSp->FileObject = pFileObject;
-            pIrpSp->DeviceObject = pFileObject->DeviceObject;
+            pIrpSp->DeviceObject = IoGetRelatedDeviceObject(pFileObject);
 
 
             CTESpinFree(pConnEle,OldIrq);
-            status = IoCallDriver(pFileObject->DeviceObject,pIrp);
 
-            return(status);
+            CHECK_COMPLETION(pIrp);
+        status = IoCallDriver(IoGetRelatedDeviceObject(pFileObject),pIrp);
+
+        return(status);
 
         }//correct state
         else
-        {
+    {
             CTESpinFree(pConnEle,OldIrq);
-            IF_DBG(NBT_DEBUG_SEND)
+        //
+        // Release pLowerConn->RefCount, grabbed above.
+        //
+        CTESpinLock(pLowerConn,OldIrq1);
+        pLowerConn->RefCount--;
+        CTESpinFree(pLowerConn,OldIrq1);
+
+        IF_DBG(NBT_DEBUG_SEND)
             KdPrint(("Nbt:Invalid state for connection on an attempted send, %X\n",
                     pConnEle));
-            status = STATUS_INVALID_HANDLE;
+        status = STATUS_INVALID_HANDLE;
         }
     }
-    else
+    else    // pConnEle
     {
+    IF_DBG(NBT_DEBUG_SEND)
+    KdPrint(("Nbt:attempting send with NULL Connection element!\n"));
         status = STATUS_INVALID_HANDLE;
-        return(status);
     }
 
 
 ErrorExit:
 
     //
+    // Reset the Irp pending flag
+    //
+    pIrpSp->Control &= ~SL_PENDING_RETURNED;
+    //
     // complete the irp, since there must have been some sort of error
     // to get to here
     //
-    // Reset the Irp pending flag
-    pIrpSp->Control &= ~SL_PENDING_RETURNED;
-
     NTIoComplete(pIrp,status,0);
 
     return(status);
-
 
 }
 
@@ -3334,7 +4128,8 @@ Return Value:
 
 --*/
 {
-    PMDL            pMdl;
+    PMDL               pMdl;
+    tLOWERCONNECTION  *pLowerConn;
 
     //
     // Do some checking to keep the Io system happy - propagate the pending
@@ -3350,6 +4145,42 @@ Return Value:
     // as it was before the send
     pMdl = Irp->MdlAddress;
     Irp->MdlAddress = pMdl->Next;
+
+    ASSERT ( MmGetMdlByteCount ( pMdl ) == sizeof ( tSESSIONHDR ) );
+
+#if DBG
+    IF_DBG(NBT_DEBUG_SEND)
+    {
+    PMDL             pMdl1;
+    ULONG            ulen1,ulen2,ulen3;
+    UCHAR            uc;
+    tSESSIONHDR      *pSessionHdr;
+    PSINGLE_LIST_ENTRY   pSingleListEntry;
+    KIRQL            OldIrq;
+
+    pSessionHdr = (tSESSIONHDR *)MmGetMdlVirtualAddress(pMdl);
+    ulen1 = htonl ( pSessionHdr->UlongLength );
+
+    for ( ulen2 = 0 , pMdl1 = pMdl ; ( pMdl1 = pMdl1->Next ) != NULL ; ) {
+        ulen3 = MmGetMdlByteCount ( pMdl1 );
+        ASSERT ( ulen3 > 0 );
+        uc = ( ( UCHAR * ) MmGetMdlVirtualAddress ( pMdl1 ) ) [ ulen3 - 1 ];
+        ulen2 += ulen3;
+    }
+
+    ASSERT ( ulen2 == ulen1 );
+
+    CTESpinLock(&NbtConfig,OldIrq);
+    for ( pSingleListEntry = &NbtConfig.SessionMdlFreeSingleList ;
+        ( pSingleListEntry = pSingleListEntry->Next ) != NULL ;
+        )
+    {
+        pMdl1 = CONTAINING_RECORD(pSingleListEntry,MDL,Next);
+        ASSERT ( pMdl1 != pMdl  );
+    }
+    CTESpinFree(&NbtConfig,OldIrq);
+    }
+#endif  // DBG
 
     ExInterlockedPushEntryList(&NbtConfig.SessionMdlFreeSingleList,
                                (PSINGLE_LIST_ENTRY)pMdl,
@@ -3369,6 +4200,18 @@ Return Value:
         IF_DBG(NBT_DEBUG_SEND)
         KdPrint(("Nbt:Zero Send Length for a session send!\n"));
     }
+
+    //
+    // we incremented this before the send: deref it now
+    //
+    pLowerConn = (tLOWERCONNECTION *)Context;
+#if DBG
+    if (!pLowerConn || pLowerConn->Verify != NBT_VERIFY_LOWERCONN)
+    {
+        ASSERTMSG("Nbt: LowerConn is not valid!\n",0);
+    }
+#endif
+    NbtDereferenceLowerConnection(pLowerConn);
 
     return(STATUS_SUCCESS);
 
@@ -3419,13 +4262,14 @@ Return Value:
 
     lSentLength = 0;
     status = NbtSendDatagram(
-                    &Request,
-                    pTdiRequest->SendDatagramInformation,
-                    pTdiRequest->SendLength,
-                    &lSentLength,
-                    (PVOID)pIrp->MdlAddress,   // user data
-                    (tDEVICECONTEXT *)pDeviceContext,
-                    pIrp);
+                     &Request,
+                     pTdiRequest->SendDatagramInformation,
+                     pTdiRequest->SendLength,
+                     &lSentLength,
+                     (PVOID)pIrp->MdlAddress,   // user data
+                     (tDEVICECONTEXT *)pDeviceContext,
+                     pIrp);
+
 
     //
     // either Success or an Error
@@ -3434,7 +4278,6 @@ Return Value:
     NTIoComplete(pIrp,status,lSentLength);
 
     return(status);
-
 }
 
 //----------------------------------------------------------------------------
@@ -3472,7 +4315,8 @@ NTQueueToWorkerThread(
     IN  tDGRAM_SEND_TRACKING    *pTracker,
     IN  PVOID                   pClientContext,
     IN  PVOID                   ClientCompletion,
-    IN  PVOID                   CallBackRoutine
+    IN  PVOID                   CallBackRoutine,
+    IN  PVOID                   pDeviceContext
     )
 /*++
 
@@ -3484,6 +4328,9 @@ Routine Description:
 Arguments:
     pTracker        - the tracker block for context
     CallbackRoutine - the routine for the Workerthread to call
+    pDeviceContext  - the device context which is this delayed event
+                      pertains to.  This could be NULL (meaning it's an event
+                      pertaining to not any specific device context)
 
 Return Value:
 
@@ -3494,7 +4341,7 @@ Return Value:
     NTSTATUS                status = STATUS_UNSUCCESSFUL ;
     NBT_WORK_ITEM_CONTEXT   *pContext;
 
-    pContext = (NBT_WORK_ITEM_CONTEXT *)CTEAllocMem(sizeof(NBT_WORK_ITEM_CONTEXT));
+    pContext = (NBT_WORK_ITEM_CONTEXT *)NbtAllocMem(sizeof(NBT_WORK_ITEM_CONTEXT),NBT_TAG('e'));
     if (pContext)
     {
         pContext->pTracker = pTracker;
@@ -3561,7 +4408,7 @@ Return Value:
 {
     PKDPC   pDpc;
 
-    pDpc = CTEAllocMem(sizeof(KDPC));
+    pDpc = NbtAllocMem(sizeof(KDPC),NBT_TAG('f'));
     if (!pDpc)
     {
         return;
@@ -3693,6 +4540,37 @@ Return Value:
     {
         pIrp->IoStatus.Information = SentLength;
     }
+
+#if DBG
+    if ( (Status != STATUS_SUCCESS) &&
+         (Status != STATUS_PENDING) &&
+         (Status != STATUS_INVALID_DEVICE_REQUEST) &&
+         (Status != STATUS_INVALID_PARAMETER) &&
+         (Status != STATUS_IO_TIMEOUT) &&
+         (Status != STATUS_BUFFER_OVERFLOW) &&
+         (Status != STATUS_BUFFER_TOO_SMALL) &&
+         (Status != STATUS_INVALID_HANDLE) &&
+         (Status != STATUS_INSUFFICIENT_RESOURCES) &&
+         (Status != STATUS_CANCELLED) &&
+         (Status != STATUS_DUPLICATE_NAME) &&
+         (Status != STATUS_TOO_MANY_NAMES) &&
+         (Status != STATUS_TOO_MANY_SESSIONS) &&
+         (Status != STATUS_REMOTE_NOT_LISTENING) &&
+         (Status != STATUS_BAD_NETWORK_PATH) &&
+         (Status != STATUS_HOST_UNREACHABLE) &&
+         (Status != STATUS_CONNECTION_REFUSED) &&
+         (Status != STATUS_WORKING_SET_QUOTA) &&
+         (Status != STATUS_REMOTE_DISCONNECT) &&
+         (Status != STATUS_LOCAL_DISCONNECT) &&
+         (Status != STATUS_LINK_FAILED) &&
+         (Status != STATUS_SHARING_VIOLATION) &&
+         (Status != STATUS_UNSUCCESSFUL) &&
+         (Status != STATUS_ACCESS_VIOLATION) &&
+         (Status != STATUS_NONEXISTENT_EA_ENTRY) )
+    {
+        KdPrint(("Nbt: returning unusual status = %X\n",Status));
+    }
+#endif
 
     // set the Irps cancel routine to null or the system may bugcheck
     // with a bug code of CANCEL_STATE_IN_COMPLETED_IRP
@@ -3857,4 +4735,139 @@ Return Value:
     return(status);
 
 }
-
+
+//----------------------------------------------------------------------------
+VOID
+NTClearContextCancel(
+    IN NBT_WORK_ITEM_CONTEXT    *pContext
+    )
+/*++
+Routine Description:
+
+    This Routine sets the cancel routine for
+    ((tDGRAM_SEND_TRACKING *)(pContext->pClientContext))->pClientIrp
+    to NULL.
+
+    NbtConfig.JointLock should be held when this routine is called.
+
+Arguments:
+
+    status - a completion status for the Irp
+
+Return Value:
+
+    NTSTATUS - status of the request
+
+--*/
+{
+    NTSTATUS status;
+    status = NTCancelCancelRoutine( ((tDGRAM_SEND_TRACKING *)(pContext->pClientContext))->pClientIrp );
+    ASSERT ( status != STATUS_CANCELLED );
+}
+
+//----------------------------------------------------------------------------
+NTSTATUS
+NTCancelCancelRoutine(
+    IN  PIRP            pIrp
+    )
+
+/*++
+Routine Description:
+
+    This Routine sets the cancel routine for an Irp to NULL
+
+Arguments:
+
+    status - a completion status for the Irp
+
+Return Value:
+
+    NTSTATUS - status of the request
+
+--*/
+
+{
+    NTSTATUS status = STATUS_SUCCESS;
+
+    if ( pIrp )
+    {
+        //
+        // Check if the irp was cancelled yet and if not, then set the
+        // irp cancel routine.
+        //
+        IoAcquireCancelSpinLock(&pIrp->CancelIrql);
+
+        if (pIrp->Cancel)
+        {
+            status = STATUS_CANCELLED;
+        }
+        IoSetCancelRoutine(pIrp,NULL);
+
+        IoReleaseCancelSpinLock(pIrp->CancelIrql);
+    }
+
+    return(status);
+}
+
+//----------------------------------------------------------------------------
+VOID
+FindNameCancel(
+    IN PDEVICE_OBJECT DeviceContext,
+    IN PIRP pIrp
+    )
+/*++
+
+Routine Description:
+
+    This routine handles the cancelling a FindName Irp - which has
+    been passed down by a client (e.g. ping).  Typically, when ping succeeds
+    on another adapter, it will issue this cancel.
+    On receiving the cancel, we stop any timer that is running in connection
+    with name query and then complete the irp with status_cancelled.
+
+Arguments:
+
+
+Return Value:
+
+    The final status from the operation.
+
+--*/
+{
+    tDGRAM_SEND_TRACKING    *pTracker;
+    PIO_STACK_LOCATION      pIrpSp;
+
+
+    IF_DBG(NBT_DEBUG_NAMESRV)
+    KdPrint(("Nbt:Got a FindName Irp Cancel !!! *****************\n"));
+
+    pIrpSp = IoGetCurrentIrpStackLocation(pIrp);
+    pTracker = pIrpSp->Parameters.Others.Argument4;
+
+    //
+    // We want to ensure that the tracker supplied by FsContext
+    // is the right Tracker for this Irp
+    //
+    if (pTracker && (pIrp == pTracker->pClientIrp))
+    {
+        //
+        // if pClientIrp still valid, completion routine hasn't run yet: go ahead
+        // and complete the irp here
+        //
+        pIrpSp->Parameters.Others.Argument4 = NULL;
+        pTracker->pClientIrp = NULL;
+        IoReleaseCancelSpinLock(pIrp->CancelIrql);
+
+        NTIoComplete(pIrp,STATUS_CANCELLED,(ULONG)-1);
+
+    } else
+    {
+        //
+        // the completion routine has run.
+        //
+        IoReleaseCancelSpinLock(pIrp->CancelIrql);
+    }
+
+    return;
+}
+

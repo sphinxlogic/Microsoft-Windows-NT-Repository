@@ -153,7 +153,7 @@ MouDeterminePortsServiced(
     IN OUT PULONG NumberPortsServiced
     );
 
-NTSTATUS 
+NTSTATUS
 MouDeviceMapQueryCallback(
     IN PWSTR ValueName,
     IN ULONG ValueType,
@@ -224,36 +224,36 @@ Return Value:
 --*/
 
 {
-    DEVICE_EXTENSION tmpDeviceExtension;
-    PDEVICE_OBJECT classDeviceObject = NULL;
-    PDEVICE_EXTENSION deviceExtension = NULL;
-    NTSTATUS status;
-    ULONG i;
-    ULONG portConnectionSuccessful;
-    UNICODE_STRING fullClassName;
-    UNICODE_STRING fullPortName;
-    UNICODE_STRING baseClassName;
-    UNICODE_STRING basePortName;
-    UNICODE_STRING deviceNameSuffix;
-    UNICODE_STRING registryPath;
-    PIO_ERROR_LOG_PACKET errorLogEntry;
-    ULONG uniqueErrorValue;
-    ULONG dumpCount = 0;
-    NTSTATUS errorCode = STATUS_SUCCESS;
-
 #define NAME_MAX 256
-    WCHAR baseClassBuffer[NAME_MAX];
-    WCHAR basePortBuffer[NAME_MAX];
-
 #define DUMP_COUNT 4
-    ULONG dumpData[DUMP_COUNT];
+    DEVICE_EXTENSION        tmpDeviceExtension;
+    NTSTATUS                errorCode = STATUS_SUCCESS;
+    NTSTATUS                status;
+    PDEVICE_EXTENSION       deviceExtension = NULL;
+    PDEVICE_OBJECT          classDeviceObject = NULL;
+    PDEVICE_OBJECT          *tempDeviceObjectList = NULL;
+    PIO_ERROR_LOG_PACKET    errorLogEntry;
+    ULONG                   dumpCount = 0;
+    ULONG                   dumpData[DUMP_COUNT];
+    ULONG                   i;
+    ULONG                   j;
+    ULONG                   portConnectionSuccessful;
+    ULONG                   uniqueErrorValue;
+    UNICODE_STRING          fullClassName;
+    UNICODE_STRING          fullPortName;
+    UNICODE_STRING          baseClassName;
+    UNICODE_STRING          basePortName;
+    UNICODE_STRING          deviceNameSuffix;
+    UNICODE_STRING          registryPath;
+    WCHAR                   baseClassBuffer[NAME_MAX];
+    WCHAR                   basePortBuffer[NAME_MAX];
+
 
     MouPrint((1,"\n\nMOUCLASS-MouseClassInitialize: enter\n"));
 
     //
     // Zero-initialize various structures.
     //
-
     RtlZeroMemory(&tmpDeviceExtension, sizeof(DEVICE_EXTENSION));
 
     fullClassName.MaximumLength = 0;
@@ -297,7 +297,7 @@ Return Value:
     } else {
 
         registryPath.Length = RegistryPath->Length;
-        registryPath.MaximumLength = 
+        registryPath.MaximumLength =
             registryPath.Length + sizeof(UNICODE_NULL);
 
         RtlZeroMemory(
@@ -328,63 +328,58 @@ Return Value:
     //
 
     RtlInitUnicodeString(&deviceNameSuffix, NULL);
-    
     deviceNameSuffix.MaximumLength = POINTER_PORTS_MAXIMUM * sizeof(WCHAR);
     deviceNameSuffix.MaximumLength += sizeof(UNICODE_NULL);
-    
     deviceNameSuffix.Buffer = ExAllocatePool(
-                                  PagedPool,
-                                  deviceNameSuffix.MaximumLength
-                                  );
-    
+        PagedPool,
+        deviceNameSuffix.MaximumLength
+        );
+
     if (!deviceNameSuffix.Buffer) {
-    
+
         MouPrint((
             1,
             "MOUCLASS-MouseClassInitialize: Couldn't allocate string for device object suffix\n"
             ));
-    
+
         status = STATUS_UNSUCCESSFUL;
         errorCode = MOUCLASS_INSUFFICIENT_RESOURCES;
         uniqueErrorValue = MOUSE_ERROR_VALUE_BASE + 4;
         dumpData[0] = (ULONG) deviceNameSuffix.MaximumLength;
         dumpCount = 1;
         goto MouseClassInitializeExit;
-    
+
     }
 
     RtlZeroMemory(deviceNameSuffix.Buffer, deviceNameSuffix.MaximumLength);
 
     //
-    // Set up space for the class's full device object name.  
+    // Set up space for the class's full device object name.
     //
 
     RtlInitUnicodeString(&fullClassName, NULL);
-    
     fullClassName.MaximumLength = sizeof(L"\\Device\\") +
-                                      baseClassName.Length +
-                                      deviceNameSuffix.MaximumLength;
-                                      
-    
+        baseClassName.Length +
+        deviceNameSuffix.MaximumLength;
     fullClassName.Buffer = ExAllocatePool(
-                                   PagedPool,
-                                   fullClassName.MaximumLength
+        PagedPool,
+        fullClassName.MaximumLength
                                    );
-    
+
     if (!fullClassName.Buffer) {
-    
+
         MouPrint((
             1,
             "MOUCLASS-MouseClassInitialize: Couldn't allocate string for device object name\n"
             ));
-    
+
         status = STATUS_UNSUCCESSFUL;
         errorCode = MOUCLASS_INSUFFICIENT_RESOURCES;
         uniqueErrorValue = MOUSE_ERROR_VALUE_BASE + 6;
         dumpData[0] = (ULONG) fullClassName.MaximumLength;
         dumpCount = 1;
         goto MouseClassInitializeExit;
-    
+
     }
 
     RtlZeroMemory(fullClassName.Buffer, fullClassName.MaximumLength);
@@ -396,26 +391,25 @@ Return Value:
     // It is the same as the base class name, with "Class" replaced
     // by "Port".
     //
-
     RtlCopyUnicodeString(&basePortName, &baseClassName);
-
     basePortName.Length -= (sizeof(L"Class") - sizeof(UNICODE_NULL));
-
     RtlAppendUnicodeToString(&basePortName, L"Port");
 
     //
     // Determine how many ports this class driver is to service.
     //
-
     status = MouDeterminePortsServiced(&basePortName, &i);
-
     if (NT_SUCCESS(status)) {
-        if (i < tmpDeviceExtension.MaximumPortsServiced)
+
+        if (i < tmpDeviceExtension.MaximumPortsServiced) {
+
             tmpDeviceExtension.MaximumPortsServiced = i;
+
+        }
+
     }
 
     status = STATUS_SUCCESS;
-
     MouPrint((
         1,
         "MOUCLASS-MouseClassInitialize: Will service %d port devices\n",
@@ -423,34 +417,32 @@ Return Value:
         ));
 
     //
-    // Set up space for the full device object name for the ports.  
+    // Set up space for the full device object name for the ports.
     //
-
     RtlInitUnicodeString(&fullPortName, NULL);
-    
     fullPortName.MaximumLength = sizeof(L"\\Device\\") +
-                                     basePortName.Length +
-                                     deviceNameSuffix.MaximumLength;
-                                      
+        basePortName.Length +
+        deviceNameSuffix.MaximumLength;
+
     fullPortName.Buffer = ExAllocatePool(
-                                  PagedPool,
-                                  fullPortName.MaximumLength
-                                  );
-    
+        PagedPool,
+        fullPortName.MaximumLength
+        );
+
     if (!fullPortName.Buffer) {
-    
+
         MouPrint((
             1,
             "MOUCLASS-MouseClassInitialize: Couldn't allocate string for port device object name\n"
             ));
-    
+
         status = STATUS_UNSUCCESSFUL;
         errorCode = MOUCLASS_INSUFFICIENT_RESOURCES;
         uniqueErrorValue = MOUSE_ERROR_VALUE_BASE + 8;
         dumpData[0] = (ULONG) fullPortName.MaximumLength;
         dumpCount = 1;
         goto MouseClassInitializeExit;
-    
+
     }
 
     RtlZeroMemory(fullPortName.Buffer, fullPortName.MaximumLength);
@@ -460,19 +452,17 @@ Return Value:
     //
     // Allocate memory for the port device object pointer list.
     //
-
-    (PDEVICE_OBJECT *) tmpDeviceExtension.PortDeviceObjectList = 
+    (PDEVICE_OBJECT *) tmpDeviceExtension.PortDeviceObjectList =
         ExAllocatePool(
             NonPagedPool,
             sizeof(PDEVICE_OBJECT) * tmpDeviceExtension.MaximumPortsServiced
             );
 
     if (!tmpDeviceExtension.PortDeviceObjectList) {
-   
+
         //
         // Could not allocate memory for the port device object pointers.
         //
-
         MouPrint((
             1,
             "MOUCLASS-MouseClassInitialize: Could not allocate PortDeviceObjectList for %ws\n",
@@ -490,15 +480,16 @@ Return Value:
     }
 
     //
-    // Set up the class device object(s) to handle the associated 
+    // Set up the class device object(s) to handle the associated
     // port devices.
     //
-
     portConnectionSuccessful = 0;
+    for (i = 0;
+        i < 10 &&
+        portConnectionSuccessful < tmpDeviceExtension.MaximumPortsServiced;
+        i++
+        ) {
 
-
-    for (i = 0; i < tmpDeviceExtension.MaximumPortsServiced; i++) {
-    
         //
         // Append the suffix to the device object name string.  E.g., turn
         // \Device\PointerClass into \Device\PointerClass0.  Then attempt
@@ -507,20 +498,20 @@ Return Value:
         //
 
         status = RtlIntegerToUnicodeString(
-                     i,
-                     10,
-                     &deviceNameSuffix
-                     );
+            i,
+            10,
+            &deviceNameSuffix
+            );
 
         if (!NT_SUCCESS(status)) {
-            continue;
-        }
 
+            continue;
+
+        }
         RtlAppendUnicodeStringToString(
             &fullClassName,
             &deviceNameSuffix
         );
-
         RtlAppendUnicodeStringToString(
             &fullPortName,
             &deviceNameSuffix
@@ -529,66 +520,69 @@ Return Value:
         //
         // Create the class device object.
         //
+        if (tmpDeviceExtension.ConnectOneClassToOnePort ||
+            classDeviceObject == NULL) {
 
-        if (tmpDeviceExtension.ConnectOneClassToOnePort 
-                || (classDeviceObject == NULL)) {
             classDeviceObject = NULL;
             status = MouCreateClassObject(
-                         DriverObject,
-                         &tmpDeviceExtension,
-                         &registryPath,
-                         &fullClassName,
-                         &baseClassName,
-                         &classDeviceObject
-                         );
+                DriverObject,
+                &tmpDeviceExtension,
+                &registryPath,
+                &fullClassName,
+                &baseClassName,
+                &classDeviceObject
+                );
+
         }
 
         //
         // Connect to the port device.
         //
-
         if (NT_SUCCESS(status)) {
+
+            //
+            // Store the device object in the next free array location
+            //
             status = MouConnectToPort(
-                         classDeviceObject,
-                         &fullPortName,
-                         i
-                         );
+                classDeviceObject,
+                &fullPortName,
+                portConnectionSuccessful
+                );
+
         }
 
         if (NT_SUCCESS(status)) {
 
             portConnectionSuccessful += 1;
 
-            if (tmpDeviceExtension.ConnectOneClassToOnePort 
+            if (tmpDeviceExtension.ConnectOneClassToOnePort
                     || (portConnectionSuccessful == 1)) {
 
                 //
-                // Load the device map information into the registry so 
-                // that setup can determine which mouse class driver is active.  
+                // Load the device map information into the registry so
+                // that setup can determine which mouse class driver is active.
                 //
-            
                 status = RtlWriteRegistryValue(
-                             RTL_REGISTRY_DEVICEMAP,
-                             baseClassName.Buffer,
-                             fullClassName.Buffer,
-                             REG_SZ,
-                             registryPath.Buffer,
-                             registryPath.Length + sizeof(UNICODE_NULL)
-                             );
-                
+                    RTL_REGISTRY_DEVICEMAP,
+                    baseClassName.Buffer,
+                    fullClassName.Buffer,
+                    REG_SZ,
+                    registryPath.Buffer,
+                    registryPath.Length + sizeof(UNICODE_NULL)
+                    );
+
                 if (!NT_SUCCESS(status)) {
-                
+
                     MouPrint((
-                        1, 
+                        1,
                         "MOUCLASS-MouseClassInitialize: Could not store %ws in DeviceMap\n",
                         fullClassName.Buffer
                             ));
-                
-                
+
+
                     //
                     // Stop making connections, and log an error.
                     //
-    
                     errorCode = MOUCLASS_NO_DEVICEMAP_CREATED;
                     uniqueErrorValue = MOUSE_ERROR_VALUE_BASE + 14;
                     dumpCount = 0;
@@ -598,23 +592,23 @@ Return Value:
                     // go to KeyboardClassInitializeExit (otherwise
                     // do an explicit 'goto').
                     //
-
                     break;
-            
+
                 } else {
-                
+
                     MouPrint((
-                        1, 
+                        1,
                         "MOUCLASS-MouseClassInitialize: Stored %ws in DeviceMap\n",
                         fullClassName.Buffer
                         ));
+
                 }
+
             }
 
             //
             // Try the next one.
             //
-
             fullClassName.Length -= deviceNameSuffix.Length;
             fullPortName.Length -= deviceNameSuffix.Length;
 
@@ -625,16 +619,65 @@ Return Value:
             // a failure.
             //
             // Note that if we are doing 1:many class-port connections
-            // and we encounter an error, we continue to try to connect 
-            // to port devices. 
+            // and we encounter an error, we continue to try to connect
+            // to port devices.
             //
-
             break;
+
         }
 
-    }
+    } // for
 
-    if (!portConnectionSuccessful) {
+    //
+    // Get a pointer to the device Extension
+    //
+    deviceExtension = classDeviceObject->DeviceExtension;
+
+    //
+    // Did we use up all the ports that we allocated?
+    //
+    if (portConnectionSuccessful != tmpDeviceExtension.MaximumPortsServiced &&
+        portConnectionSuccessful > 0 &&
+        deviceExtension != NULL) {
+
+        //
+        // Allocate memory for the new port device list
+        //
+        tempDeviceObjectList = ExAllocatePool(
+            NonPagedPool,
+            sizeof(PDEVICE_OBJECT) * portConnectionSuccessful
+            );
+
+        if (tempDeviceObjectList) {
+
+            //
+            // If we couldn't allocate the memory from nonpaged pool, then
+            // we shouldn't really worry about it
+            //
+            RtlCopyMemory(
+                tempDeviceObjectList,
+                deviceExtension->PortDeviceObjectList,
+                sizeof(PDEVICE_OBJECT) * portConnectionSuccessful
+                );
+
+            //
+            // Free the old memory buffer
+            //
+            ExFreePool( deviceExtension->PortDeviceObjectList );
+
+            //
+            // Store a pointer to the new pool
+            //
+            deviceExtension->PortDeviceObjectList = tempDeviceObjectList;
+
+        }
+
+        //
+        // Update the count of ports serviced
+        //
+        deviceExtension->MaximumPortsServiced = portConnectionSuccessful;
+
+    } else if (portConnectionSuccessful == 0) {
 
         //
         // The class driver was unable to connect to any port devices.
@@ -656,7 +699,7 @@ MouseClassInitializeExit:
 
         errorLogEntry = (PIO_ERROR_LOG_PACKET)
             IoAllocateErrorLogEntry(
-                (classDeviceObject == NULL) ? 
+                (classDeviceObject == NULL) ?
                     (PVOID) DriverObject : (PVOID) classDeviceObject,
                 (UCHAR) (sizeof(IO_ERROR_LOG_PACKET)
                          + (dumpCount * sizeof(ULONG)))
@@ -665,7 +708,7 @@ MouseClassInitializeExit:
         if (errorLogEntry != NULL) {
 
             errorLogEntry->ErrorCode = errorCode;
-            errorLogEntry->DumpDataSize = dumpCount * sizeof(ULONG);
+            errorLogEntry->DumpDataSize = (USHORT) (dumpCount * sizeof(ULONG));
             errorLogEntry->SequenceNumber = 0;
             errorLogEntry->MajorFunctionCode = 0;
             errorLogEntry->IoControlCode = 0;
@@ -682,17 +725,28 @@ MouseClassInitializeExit:
     //
     // Free the unicode strings.
     //
+    if (deviceNameSuffix.MaximumLength != 0) {
 
-    if (deviceNameSuffix.MaximumLength != 0)
         ExFreePool(deviceNameSuffix.Buffer);
-    if (fullClassName.MaximumLength != 0)
+
+    }
+    if (fullClassName.MaximumLength != 0) {
+
         ExFreePool(fullClassName.Buffer);
-    if (fullPortName.MaximumLength != 0)
+
+    }
+    if (fullPortName.MaximumLength != 0) {
+
         ExFreePool(fullPortName.Buffer);
-    if (registryPath.MaximumLength != 0)
+
+    }
+    if (registryPath.MaximumLength != 0) {
+
         ExFreePool(registryPath.Buffer);
 
-    if ((tmpDeviceExtension.ConnectOneClassToOnePort 
+    }
+
+    if ((tmpDeviceExtension.ConnectOneClassToOnePort
              && (!NT_SUCCESS(status))) ||
          !portConnectionSuccessful) {
 
@@ -704,14 +758,17 @@ MouseClassInitializeExit:
         // failed to make ANY connections.  In either case, we
         // free the ring buffer and delete the class device object.
         //
-
         if (classDeviceObject) {
-            deviceExtension =
-                (PDEVICE_EXTENSION) classDeviceObject->DeviceExtension;
-            if ((deviceExtension) && (deviceExtension->InputData))
+
+            if (deviceExtension && deviceExtension->InputData) {
+
                 ExFreePool(deviceExtension->InputData);
+
+            }
             IoDeleteDevice(classDeviceObject);
+
         }
+
     }
 
     //
@@ -724,27 +781,23 @@ MouseClassInitializeExit:
         //
         // Set up the device driver entry points.
         //
-
         DriverObject->DriverStartIo = MouseClassStartIo;
-        DriverObject->MajorFunction[IRP_MJ_CREATE] = MouseClassOpenClose;
-        DriverObject->MajorFunction[IRP_MJ_CLOSE]  = MouseClassOpenClose;
-        DriverObject->MajorFunction[IRP_MJ_READ]   = MouseClassRead;
-        DriverObject->MajorFunction[IRP_MJ_FLUSH_BUFFERS]  =
-                                                 MouseClassFlush;
-        DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] =
-                                                 MouseClassDeviceControl;
-        DriverObject->MajorFunction[IRP_MJ_CLEANUP] = MouseClassCleanup;
+        DriverObject->MajorFunction[IRP_MJ_CREATE]         = MouseClassOpenClose;
+        DriverObject->MajorFunction[IRP_MJ_CLOSE]          = MouseClassOpenClose;
+        DriverObject->MajorFunction[IRP_MJ_READ]           = MouseClassRead;
+        DriverObject->MajorFunction[IRP_MJ_FLUSH_BUFFERS]  = MouseClassFlush;
+        DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = MouseClassDeviceControl;
+        DriverObject->MajorFunction[IRP_MJ_CLEANUP]        = MouseClassCleanup;
 
         //
         // NOTE: Don't allow this driver to unload.  Otherwise, we would set
         // DriverObject->DriverUnload = MouseClassUnload.
         //
-
         status = STATUS_SUCCESS;
+
     }
 
     MouPrint((1,"MOUCLASS-MouseClassInitialize: exit\n"));
-
     return(status);
 
 }
@@ -793,13 +846,13 @@ Return Value:
 
     IoReleaseCancelSpinLock(Irp->CancelIrql);
     KeAcquireSpinLock(&deviceExtension->SpinLock, &currentIrql);
-    
-    if ((deviceExtension->RequestIsPending) 
+
+    if ((deviceExtension->RequestIsPending)
         && (Irp == DeviceObject->CurrentIrp)) {
 
         //
         // The current request is being cancelled.  Set the CurrentIrp to
-        // null, clear the RequestIsPending flag, and release the mouse class 
+        // null, clear the RequestIsPending flag, and release the mouse class
         // spinlock before starting the next packet.
         //
 
@@ -811,7 +864,7 @@ Return Value:
 
         //
         // Cancel a request in the device queue.  Reacquire the cancel
-        // spinlock, remove the request from the queue, and release the 
+        // spinlock, remove the request from the queue, and release the
         // cancel spinlock.  Release the mouse class spinlock.
         //
 
@@ -821,7 +874,7 @@ Return Value:
                         &Irp->Tail.Overlay.DeviceQueueEntry
                         )) {
             MouPrint((
-                1, 
+                1,
                 "MOUCLASS-MouseClassCancel: Irp 0x%x not in device queue?!?\n",
                 Irp
                 ));
@@ -855,7 +908,7 @@ Routine Description:
 
     This routine is the dispatch routine for cleanup requests.
     All requests queued to the mouse class device (on behalf of
-    the thread for whom the cleanup request was generated) are 
+    the thread for whom the cleanup request was generated) are
     completed with STATUS_CANCELLED.
 
 Arguments:
@@ -890,23 +943,23 @@ Return Value:
     IoAcquireCancelSpinLock(&cancelIrql);
 
     //
-    // Get a pointer to the current stack location for this request.  
+    // Get a pointer to the current stack location for this request.
     //
 
     irpSp = IoGetCurrentIrpStackLocation(Irp);
 
     //
-    // If the file object's FsContext is non-null, then the cleanup 
-    // request is being executed by the trusted subsystem.  Since the 
-    // trusted subsystem is the only one with sufficient privilege to make 
-    // Read requests to the driver, and since only Read requests get queued 
-    // to the device queue, a cleanup request from the trusted subsystem is 
+    // If the file object's FsContext is non-null, then the cleanup
+    // request is being executed by the trusted subsystem.  Since the
+    // trusted subsystem is the only one with sufficient privilege to make
+    // Read requests to the driver, and since only Read requests get queued
+    // to the device queue, a cleanup request from the trusted subsystem is
     // handled by cancelling all queued requests.
-    // 
+    //
     // If the FsContext is null, there is no cleanup work to perform
     // (only read requests can be cancelled).
-    // 
-    // NOTE:  If this driver is to allow more than one trusted subsystem 
+    //
+    // NOTE:  If this driver is to allow more than one trusted subsystem
     //        to make read requests to the same device object some day in
     //        the future, then there needs to be a mechanism that
     //        allows Cleanup to remove only those queued requests that
@@ -925,50 +978,50 @@ Return Value:
 
         //
         // Complete all requests queued by this thread with STATUS_CANCELLED.
-        // Start with the real CurrentIrp, and run down the list of requests 
-        // in the device queue.  Be sure to set the real CurrentIrp to NULL 
+        // Start with the real CurrentIrp, and run down the list of requests
+        // in the device queue.  Be sure to set the real CurrentIrp to NULL
         // and the RequestIsPending flag to FALSE, so that the class
-        // service callback routine won't attempt to complete CurrentIrp.  
+        // service callback routine won't attempt to complete CurrentIrp.
         // Note that we can really only trust CurrentIrp when RequestIsPending.
         //
 
         currentIrp = DeviceObject->CurrentIrp;
         DeviceObject->CurrentIrp = NULL;
         deviceExtension->RequestIsPending = FALSE;
-    
+
         while (currentIrp != NULL) {
-    
+
             //
             // Remove the CurrentIrp from the cancellable state.
             //
             //
-    
+
             IoSetCancelRoutine(currentIrp, NULL);
-    
+
             //
             // Set Status to CANCELLED, release the spinlocks,
             // and complete the request.  Note that the IRQL is reset to
             // DISPATCH_LEVEL when we release the spinlocks.
             //
-    
+
             currentIrp->IoStatus.Status = STATUS_CANCELLED;
             currentIrp->IoStatus.Information = 0;
-    
+
             IoReleaseCancelSpinLock(cancelIrql);
             KeReleaseSpinLock(&deviceExtension->SpinLock, spinlockIrql);
-            IoCompleteRequest(currentIrp, IO_MOUSE_INCREMENT);
-    
+            IoCompleteRequest(currentIrp, IO_NO_INCREMENT);
+
             //
             // Reacquire the spinlocks.
             //
-    
+
             KeAcquireSpinLock(&deviceExtension->SpinLock, &spinlockIrql);
             IoAcquireCancelSpinLock(&cancelIrql);
-    
+
             //
             // Dequeue the next packet (IRP) from the device work queue.
             //
-    
+
             packet = KeRemoveDeviceQueue(&DeviceObject->DeviceQueue);
             if (packet != NULL) {
                 currentIrp =
@@ -976,7 +1029,7 @@ Return Value:
             } else {
                 currentIrp = (PIRP) NULL;
             }
-    
+
         } // end while
     }
 
@@ -1012,7 +1065,7 @@ MouseClassDeviceControl(
 Routine Description:
 
     This routine is the dispatch routine for device control requests.
-    All device control subfunctions are passed, asynchronously, to the 
+    All device control subfunctions are passed, asynchronously, to the
     connected port driver for processing and completion.
 
 Arguments:
@@ -1053,7 +1106,7 @@ Return Value:
     // Check for adequate input buffer length.  The input buffer
     // should, at a minimum, contain the unit ID specifying one of
     // the connected port devices.  If there is no input buffer (i.e.,
-    // the input buffer length is zero), then we assume the unit ID 
+    // the input buffer length is zero), then we assume the unit ID
     // is zero (for backwards compatibility).
     //
 
@@ -1062,12 +1115,12 @@ Return Value:
     } else if (irpSp->Parameters.DeviceIoControl.InputBufferLength <
                   sizeof(MOUSE_UNIT_ID_PARAMETER)) {
         status = STATUS_BUFFER_TOO_SMALL;
-        
+
     } else {
         unitId = ((PMOUSE_UNIT_ID_PARAMETER)
                      Irp->AssociatedIrp.SystemBuffer)->UnitId;
         if (unitId >= deviceExtension->MaximumPortsServiced) {
-            status = STATUS_INVALID_PARAMETER; 
+            status = STATUS_INVALID_PARAMETER;
         }
     }
 
@@ -1075,30 +1128,30 @@ Return Value:
 
         //
         // Pass the device control request on to the port driver,
-        // asynchronously.  Get the next IRP stack location and copy the 
-        // input parameters to the next stack location.  Change the major 
+        // asynchronously.  Get the next IRP stack location and copy the
+        // input parameters to the next stack location.  Change the major
         // function to internal device control.
         //
-    
+
         nextSp = IoGetNextIrpStackLocation(Irp);
         ASSERT(nextSp != NULL);
-        nextSp->Parameters.DeviceIoControl = 
+        nextSp->Parameters.DeviceIoControl =
             irpSp->Parameters.DeviceIoControl;
         nextSp->MajorFunction = IRP_MJ_INTERNAL_DEVICE_CONTROL;
-    
+
         //
         // Mark the packet pending.
         //
-    
+
         IoMarkIrpPending(Irp);
-    
+
         //
-        // Pass the IRP on to the connected port device (specified by 
+        // Pass the IRP on to the connected port device (specified by
         // the unit ID).  The port device driver will process the request.
         //
-    
+
         status = IoCallDriver(
-                     deviceExtension->PortDeviceObjectList[unitId], 
+                     deviceExtension->PortDeviceObjectList[unitId],
                      Irp
                      );
     } else {
@@ -1110,7 +1163,7 @@ Return Value:
         Irp->IoStatus.Status = status;
         Irp->IoStatus.Information = 0;
         IoCompleteRequest(Irp, IO_NO_INCREMENT);
-    } 
+    }
 
     MouPrint((2,"MOUCLASS-MouseClassDeviceControl: exit\n"));
 
@@ -1209,6 +1262,7 @@ Return Value:
     PIO_ERROR_LOG_PACKET errorLogEntry;
     BOOLEAN SomeEnableDisableSucceeded = FALSE;
     ULONG i;
+    LUID priv;
 
     MouPrint((2,"MOUCLASS-MouseClassOpenClose: enter\n"));
 
@@ -1232,7 +1286,7 @@ Return Value:
     switch (irpSp->MajorFunction) {
 
         //
-        // For the create/open operation, send a MOUSE_ENABLE internal 
+        // For the create/open operation, send a MOUSE_ENABLE internal
         // device control request to the port driver to enable interrupts.
         //
 
@@ -1245,15 +1299,19 @@ Return Value:
             // FsContext to determine if the requestor has sufficient
             // privilege to perform the read operation).
             //
+            // Only allow one trusted subsystem to do READs.
+            //
 
-            if (SeSinglePrivilegeCheck(RtlConvertLongToLargeInteger(
-                                                 SE_TCB_PRIVILEGE),
-                                                 Irp->RequestorMode 
-                                                 )) {
+            priv = RtlConvertLongToLuid(SE_TCB_PRIVILEGE);
+
+            if (SeSinglePrivilegeCheck(priv, Irp->RequestorMode)) {
 
                 KeAcquireSpinLock(&deviceExtension->SpinLock, &oldIrql);
-                deviceExtension->CleanupWasInitiated = FALSE;
-                irpSp->FileObject->FsContext = (PVOID) 1;
+                if (!deviceExtension->TrustedSubsystemConnected) {
+                    deviceExtension->CleanupWasInitiated = FALSE;
+                    irpSp->FileObject->FsContext = (PVOID) 1;
+                    deviceExtension->TrustedSubsystemConnected = TRUE;
+                }
                 KeReleaseSpinLock(&deviceExtension->SpinLock, oldIrql);
             }
 
@@ -1267,8 +1325,14 @@ Return Value:
         //
 
         case IRP_MJ_CLOSE:
-
+            KeAcquireSpinLock(&deviceExtension->SpinLock, &oldIrql);
+            if (irpSp->FileObject->FsContext) {
+                ASSERT(deviceExtension->TrustedSubsystemConnected);
+                deviceExtension->TrustedSubsystemConnected = FALSE;
+            }
+            KeReleaseSpinLock(&deviceExtension->SpinLock, oldIrql);
             break;
+
     }
 
     //
@@ -1298,7 +1362,7 @@ Return Value:
 
             if (errorLogEntry != NULL) {
 
-                errorLogEntry->ErrorCode = 
+                errorLogEntry->ErrorCode =
                     enableFlag? MOUCLASS_PORT_INTERRUPTS_NOT_ENABLED:
                                 MOUCLASS_PORT_INTERRUPTS_NOT_DISABLED;
                 errorLogEntry->SequenceNumber = 0;
@@ -1381,12 +1445,12 @@ Return Value:
     }
     else if (irpSp->Parameters.Read.Length % sizeof(MOUSE_INPUT_DATA)) {
         status = STATUS_BUFFER_TOO_SMALL;
-    } 
+    }
     else if (irpSp->FileObject->FsContext) {
 
         //
-        // If the file object's FsContext is non-null, then we've already 
-        // done the Read privilege check once before for this thread.  Skip 
+        // If the file object's FsContext is non-null, then we've already
+        // done the Read privilege check once before for this thread.  Skip
         // the privilege check.
         //
 
@@ -1395,7 +1459,7 @@ Return Value:
     else {
 
         //
-        // We only allow a trusted subsystem with the appropriate privilege 
+        // We only allow a trusted subsystem with the appropriate privilege
         // level to execute a Read call.
         //
 
@@ -1485,7 +1549,7 @@ Return Value:
     *InputDataConsumed = 0;
 
     //
-    // Acquire the spinlock that  protects the class device extension 
+    // Acquire the spinlock that  protects the class device extension
     // (so we can look at RequestIsPending synchronously).  If there is
     // a pending read request, satisfy it.
     //
@@ -1499,7 +1563,7 @@ Return Value:
     if (deviceExtension->RequestIsPending) {
 
         //
-        // Acquire the cancel spinlock, remove the request from the 
+        // Acquire the cancel spinlock, remove the request from the
         // cancellable state, and free the cancel spinlock.
         //
 
@@ -1510,8 +1574,8 @@ Return Value:
         IoReleaseCancelSpinLock(cancelIrql);
 
         //
-        // An outstanding read request exists.   Clear the RequestIsPending 
-        // flag to indicate there is no longer an outstanding read request 
+        // An outstanding read request exists.   Clear the RequestIsPending
+        // flag to indicate there is no longer an outstanding read request
         // pending.
         //
 
@@ -1553,7 +1617,7 @@ Return Value:
             );
 
         //
-        // Set the flag so that we start the next packet and complete 
+        // Set the flag so that we start the next packet and complete
         // this read request (with STATUS_SUCCESS) prior to return.
         //
 
@@ -1601,7 +1665,7 @@ Return Value:
         if (bytesInQueue == 0) {
 
             //
-            // Refuse to move any bytes that would cause a class input data 
+            // Refuse to move any bytes that would cause a class input data
             // queue overflow.  Just drop the bytes on the floor, and
             // log an overrun error.
             //
@@ -1616,28 +1680,28 @@ Return Value:
                 //
                 // Log an error.
                 //
-        
+
                 errorLogEntry = (PIO_ERROR_LOG_PACKET)IoAllocateErrorLogEntry(
                                                          DeviceObject,
                                                          sizeof(IO_ERROR_LOG_PACKET)
                                                          + (2 * sizeof(ULONG))
                                                          );
-        
+
                 if (errorLogEntry != NULL) {
-        
+
                     errorLogEntry->ErrorCode = MOUCLASS_MOU_BUFFER_OVERFLOW;
                     errorLogEntry->DumpDataSize = 2 * sizeof(ULONG);
                     errorLogEntry->SequenceNumber = 0;
                     errorLogEntry->MajorFunctionCode = 0;
                     errorLogEntry->IoControlCode = 0;
                     errorLogEntry->RetryCount = 0;
-                    errorLogEntry->UniqueErrorValue = 
+                    errorLogEntry->UniqueErrorValue =
                         MOUSE_ERROR_VALUE_BASE + 210;
                     errorLogEntry->FinalStatus = 0;
                     errorLogEntry->DumpData[0] = bytesToMove;
-                    errorLogEntry->DumpData[1] = 
+                    errorLogEntry->DumpData[1] =
                         deviceExtension->MouseAttributes.InputDataQueueLength;
-        
+
                     IoWriteErrorLogEntry(errorLogEntry);
                 }
 
@@ -1650,10 +1714,10 @@ Return Value:
             // There is room in the class input data queue, so move
             // the remaining port input data to it.
             //
-            // bytesToMove <- MIN(Number of unused bytes in class input data 
-            //                    queue, Number of bytes remaining in port 
+            // bytesToMove <- MIN(Number of unused bytes in class input data
+            //                    queue, Number of bytes remaining in port
             //                    input queue).
-            // This is the total number of bytes that actually will move from 
+            // This is the total number of bytes that actually will move from
             // the port input data queue to the class input data queue.
             //
 
@@ -1666,7 +1730,7 @@ Return Value:
             // the end of the class input data queue (i.e., until the buffer
             // wraps).
             //
-    
+
             bytesInQueue = ((PCHAR) deviceExtension->InputData +
                         deviceExtension->MouseAttributes.InputDataQueueLength) -
                         (PCHAR) deviceExtension->DataIn;
@@ -1675,17 +1739,17 @@ Return Value:
                 "MOUCLASS-MouseClassServiceCallback: total number of bytes to move to class queue 0x%lx\n",
                 bytesToMove
                 ));
-    
+
             MouPrint((
                 3,
                 "MOUCLASS-MouseClassServiceCallback: number of bytes to end of class buffer 0x%lx\n",
                 bytesInQueue
                 ));
-    
+
             //
             // moveSize <- Number of bytes to handle in the first move.
             //
-    
+
             moveSize = (bytesToMove < bytesInQueue) ?
                                       bytesToMove:bytesInQueue;
             MouPrint((
@@ -1693,11 +1757,11 @@ Return Value:
                 "MOUCLASS-MouseClassServiceCallback: number of bytes in first move to class 0x%lx\n",
                 moveSize
                 ));
-    
+
             //
             // Do the move from the port data queue to the class data queue.
             //
-    
+
             MouPrint((
                 3,
                 "MOUCLASS-MouseClassServiceCallback: move bytes from 0x%lx to 0x%lx\n",
@@ -1710,13 +1774,13 @@ Return Value:
                 (PCHAR) InputDataStart,
                 moveSize
                 );
-    
+
             //
             // Increment the port data queue pointer and the class input
             // data queue insertion pointer.  Wrap the insertion pointer,
             // if necessary.
             //
-    
+
             InputDataStart = (PMOUSE_INPUT_DATA)
                              (((PCHAR) InputDataStart) + moveSize);
             deviceExtension->DataIn = (PMOUSE_INPUT_DATA)
@@ -1726,25 +1790,25 @@ Return Value:
                  deviceExtension->MouseAttributes.InputDataQueueLength)) {
                 deviceExtension->DataIn = deviceExtension->InputData;
             }
-    
+
             if ((bytesToMove - moveSize) > 0) {
-    
+
                 //
                 // Special case.  The data must wrap in the class input data buffer.
                 // Copy the rest of the port input data into the beginning of the
                 // class input data queue.
                 //
-    
+
                 //
                 // moveSize <- Number of bytes to handle in the second move.
                 //
-    
+
                 moveSize = bytesToMove - moveSize;
-    
+
                 //
                 // Do the move from the port data queue to the class data queue.
                 //
-    
+
                 MouPrint((
                     3,
                     "MOUCLASS-MouseClassServiceCallback: number of bytes in second move to class 0x%lx\n",
@@ -1756,25 +1820,25 @@ Return Value:
                     (PCHAR) InputDataStart,
                     (PCHAR) deviceExtension->DataIn
                     ));
-    
+
                 RtlMoveMemory(
                     (PCHAR) deviceExtension->DataIn,
                     (PCHAR) InputDataStart,
                     moveSize
                     );
-    
+
                 //
                 // Update the class input data queue insertion pointer.
                 //
-    
+
                 deviceExtension->DataIn = (PMOUSE_INPUT_DATA)
                                  (((PCHAR) deviceExtension->DataIn) + moveSize);
             }
-    
+
             //
             // Update the input data queue counter.
             //
-    
+
             deviceExtension->InputCount +=
                     (bytesToMove / sizeof(MOUSE_INPUT_DATA));
             *InputDataConsumed += (bytesToMove / sizeof(MOUSE_INPUT_DATA));
@@ -1804,10 +1868,10 @@ Return Value:
 
     KeReleaseSpinLockFromDpcLevel(&deviceExtension->SpinLock);
 
-    // 
+    //
     // If we satisfied an outstanding read request, start the next
     // packet and complete the request.
-    // 
+    //
 
     if (satisfiedPendingReadRequest) {
 
@@ -2055,7 +2119,7 @@ Return Value:
             // the ring buffer has been emptied, and then stop logging errors
             // until it gets cleared out and overflows again.
             //
-    
+
             MouPrint((
                 1,
                 "MOUCLASS-MouseClassStartIo: Okay to log overflow\n"
@@ -2176,7 +2240,7 @@ Arguments:
 
     DeviceExtension - Pointer to the device extension.
 
-    RegistryPath - Pointer to the null-terminated Unicode name of the 
+    RegistryPath - Pointer to the null-terminated Unicode name of the
         registry path for this driver.
 
     DeviceName - Pointer to the Unicode string that will receive
@@ -2212,56 +2276,56 @@ Return Value:
         //
         // Allocate the Rtl query table.
         //
-    
+
         parameters = ExAllocatePool(
                          PagedPool,
                          sizeof(RTL_QUERY_REGISTRY_TABLE) * queriesPlusOne
                          );
-    
+
         if (!parameters) {
-    
+
             MouPrint((
                 1,
                 "MOUCLASS-MouConfiguration: Couldn't allocate table for Rtl query to parameters for %ws\n",
                  path
                  ));
-    
+
             status = STATUS_UNSUCCESSFUL;
-    
+
         } else {
-    
+
             RtlZeroMemory(
                 parameters,
                 sizeof(RTL_QUERY_REGISTRY_TABLE) * queriesPlusOne
                 );
-    
+
             //
             // Form a path to this driver's Parameters subkey.
             //
-    
+
             RtlInitUnicodeString(
                 &parametersPath,
                 NULL
                 );
-    
+
             parametersPath.MaximumLength = RegistryPath->Length +
                                            sizeof(L"\\Parameters");
-    
+
             parametersPath.Buffer = ExAllocatePool(
                                         PagedPool,
                                         parametersPath.MaximumLength
                                         );
-    
+
             if (!parametersPath.Buffer) {
-    
+
                 MouPrint((
                     1,
                     "MOUCLASS-MouConfiguration: Couldn't allocate string for path to parameters for %ws\n",
                      path
                     ));
-    
+
                 status = STATUS_UNSUCCESSFUL;
-    
+
             }
         }
     }
@@ -2271,7 +2335,7 @@ Return Value:
         //
         // Form the parameters path.
         //
-    
+
         RtlZeroMemory(
             parametersPath.Buffer,
             parametersPath.MaximumLength
@@ -2284,7 +2348,7 @@ Return Value:
             &parametersPath,
             L"\\Parameters"
             );
-    
+
         MouPrint((
             1,
             "MOUCLASS-MouConfiguration: parameters path is %ws\n",
@@ -2297,18 +2361,18 @@ Return Value:
         //
 
         RtlInitUnicodeString(
-            &defaultUnicodeName, 
+            &defaultUnicodeName,
             DD_POINTER_CLASS_BASE_NAME_U
             );
-    
+
         //
         // Gather all of the "user specified" information from
         // the registry.
         //
-    
+
         parameters[0].Flags = RTL_QUERY_REGISTRY_DIRECT;
         parameters[0].Name = L"MouseDataQueueSize";
-        parameters[0].EntryContext = 
+        parameters[0].EntryContext =
             &DeviceExtension->MouseAttributes.InputDataQueueLength;
         parameters[0].DefaultType = REG_DWORD;
         parameters[0].DefaultData = &defaultDataQueueSize;
@@ -2316,7 +2380,7 @@ Return Value:
 
         parameters[1].Flags = RTL_QUERY_REGISTRY_DIRECT;
         parameters[1].Name = L"MaximumPortsServiced";
-        parameters[1].EntryContext = 
+        parameters[1].EntryContext =
             &DeviceExtension->MaximumPortsServiced;
         parameters[1].DefaultType = REG_DWORD;
         parameters[1].DefaultData = &defaultMaximumPortsServiced;
@@ -2331,7 +2395,7 @@ Return Value:
 
         parameters[3].Flags = RTL_QUERY_REGISTRY_DIRECT;
         parameters[3].Name = L"ConnectMultiplePorts";
-        parameters[3].EntryContext = 
+        parameters[3].EntryContext =
             &DeviceExtension->ConnectOneClassToOnePort;
         parameters[3].DefaultType = REG_DWORD;
         parameters[3].DefaultData = &defaultConnectMultiplePorts;
@@ -2360,10 +2424,10 @@ Return Value:
         // Go ahead and assign driver defaults.
         //
 
-        DeviceExtension->MouseAttributes.InputDataQueueLength = 
+        DeviceExtension->MouseAttributes.InputDataQueueLength =
             defaultDataQueueSize;
         DeviceExtension->MaximumPortsServiced = defaultMaximumPortsServiced;
-        DeviceExtension->ConnectOneClassToOnePort = 
+        DeviceExtension->ConnectOneClassToOnePort =
             !defaultConnectMultiplePorts;
         RtlCopyUnicodeString(DeviceName, &defaultUnicodeName);
     }
@@ -2382,11 +2446,11 @@ Return Value:
             DeviceExtension->MouseAttributes.InputDataQueueLength
             ));
 
-        DeviceExtension->MouseAttributes.InputDataQueueLength = 
+        DeviceExtension->MouseAttributes.InputDataQueueLength =
             defaultDataQueueSize;
     }
 
-    DeviceExtension->MouseAttributes.InputDataQueueLength *= 
+    DeviceExtension->MouseAttributes.InputDataQueueLength *=
         sizeof(MOUSE_INPUT_DATA);
 
     MouPrint((
@@ -2406,7 +2470,7 @@ Return Value:
     // We used it in the RtlQuery call in an inverted fashion.
     //
 
-    DeviceExtension->ConnectOneClassToOnePort = 
+    DeviceExtension->ConnectOneClassToOnePort =
         !DeviceExtension->ConnectOneClassToOnePort;
 
     MouPrint((
@@ -2438,8 +2502,8 @@ MouConnectToPort(
 Routine Description:
 
     This routine creates the mouse class device object and connects
-    to the port device.  
-    
+    to the port device.
+
 
 Arguments:
 
@@ -2448,7 +2512,7 @@ Arguments:
     FullPortName - Pointer to the Unicode string that is the full path name
         for the port device object.
 
-    PortIndex - The index into the PortDeviceObjectList[] for the 
+    PortIndex - The index into the PortDeviceObjectList[] for the
         current connection.
 
 Return Value:
@@ -2458,34 +2522,33 @@ Return Value:
 --*/
 
 {
-    PDEVICE_EXTENSION deviceExtension = NULL;
-    NTSTATUS status;
-    PFILE_OBJECT fileObject = NULL;
-    PDEVICE_OBJECT portDeviceObject = NULL;
-    PIO_ERROR_LOG_PACKET errorLogEntry;
-    ULONG uniqueErrorValue;
-    NTSTATUS errorCode = STATUS_SUCCESS;
+    NTSTATUS                errorCode = STATUS_SUCCESS;
+    NTSTATUS                status;
+    PDEVICE_EXTENSION       deviceExtension = NULL;
+    PDEVICE_OBJECT          portDeviceObject = NULL;
+    PFILE_OBJECT            fileObject = NULL;
+    PIO_ERROR_LOG_PACKET    errorLogEntry;
+    ULONG                   uniqueErrorValue;
 
     MouPrint((1,"\n\nMOUCLASS-MouConnectToPort: enter\n"));
 
     //
     // Get a pointer to the port device object.
     //
-
     MouPrint((
         2,
-        "MOUCLASS-MouConnectToPort: Pointer port name %ws\n", 
+        "MOUCLASS-MouConnectToPort: Pointer port name %ws\n",
         FullPortName->Buffer
         ));
 
     status = IoGetDeviceObjectPointer(
-                 FullPortName,
-                 FILE_READ_ATTRIBUTES,
-                 &fileObject,
-                 &portDeviceObject
-                 );
-
+        FullPortName,
+        FILE_READ_ATTRIBUTES,
+        &fileObject,
+        &portDeviceObject
+        );
     if (status != STATUS_SUCCESS) {
+
         MouPrint((
             1,
             "MOUCLASS-MouConnectToPort: Could not get port device object %ws\n",
@@ -2493,8 +2556,12 @@ Return Value:
             ));
 
         goto MouConnectToPortExit;
+
     }
 
+    //
+    // Store a pointer to the returned device object
+    //
     deviceExtension =
         (PDEVICE_EXTENSION) ClassDeviceObject->DeviceExtension;
     deviceExtension->PortDeviceObjectList[PortIndex] = portDeviceObject;
@@ -2503,27 +2570,26 @@ Return Value:
     // Set the IRP stack size (add 1 for the class layer).
     //
     // NOTE:  This is a bit funky for 1:many connections (we end up setting
-    //        StackSize each time through this routine). Note also that 
-    //        there is an assumption that the number of layers in the 
-    //        class/port driver model is always the same (i.e., if there is 
-    //        a layer between the class and the port driver for one device, 
+    //        StackSize each time through this routine). Note also that
+    //        there is an assumption that the number of layers in the
+    //        class/port driver model is always the same (i.e., if there is
+    //        a layer between the class and the port driver for one device,
     //        that is true for every device).
     //
-
     ClassDeviceObject->StackSize =
         (CCHAR) deviceExtension->PortDeviceObjectList[PortIndex]->StackSize + 1;
 
     //
     // Connect to port device.
     //
-
     status = MouSendConnectRequest(
-                ClassDeviceObject,
-                (PVOID)MouseClassServiceCallback,
-                PortIndex
-                );
+        ClassDeviceObject,
+        (PVOID)MouseClassServiceCallback,
+        PortIndex
+        );
 
     if (status != STATUS_SUCCESS) {
+
         MouPrint((
             1,
             "MOUCLASS-MouConnectToPort: Could not connect to port device %ws\n",
@@ -2533,10 +2599,10 @@ Return Value:
         //
         // Log an error.
         //
-
         errorCode = MOUCLASS_NO_PORT_CONNECT;
         uniqueErrorValue = MOUSE_ERROR_VALUE_BASE + 30;
         goto MouConnectToPortExit;
+
     }
 
 MouConnectToPortExit:
@@ -2544,18 +2610,18 @@ MouConnectToPortExit:
     if (status != STATUS_SUCCESS) {
 
         //
-        // Some part of the initialization failed.  Log an error, and 
+        // Some part of the initialization failed.  Log an error, and
         // clean up the resources for the failed part of the initialization.
         //
-
         if (errorCode != STATUS_SUCCESS) {
+
             errorLogEntry = (PIO_ERROR_LOG_PACKET)IoAllocateErrorLogEntry(
-                                                     ClassDeviceObject,
-                                                     sizeof(IO_ERROR_LOG_PACKET)
-                                                     );
+                ClassDeviceObject,
+                sizeof( IO_ERROR_LOG_PACKET )
+                );
 
             if (errorLogEntry != NULL) {
-    
+
                 errorLogEntry->ErrorCode = errorCode;
                 errorLogEntry->SequenceNumber = 0;
                 errorLogEntry->MajorFunctionCode = 0;
@@ -2563,13 +2629,16 @@ MouConnectToPortExit:
                 errorLogEntry->RetryCount = 0;
                 errorLogEntry->UniqueErrorValue = uniqueErrorValue;
                 errorLogEntry->FinalStatus = status;
-    
                 IoWriteErrorLogEntry(errorLogEntry);
+
             }
+
         }
-    
+
         if (fileObject) {
+
             ObDereferenceObject(fileObject);
+
         }
 
         //
@@ -2577,9 +2646,8 @@ MouConnectToPortExit:
         // the class device object.
         //
     }
-    
+
     MouPrint((1,"MOUCLASS-MouConnectToPort: exit\n"));
-    
     return(status);
 
 }
@@ -2599,15 +2667,15 @@ MouCreateClassObject(
 Routine Description:
 
     This routine creates the mouse class device object.
-    
+
 
 Arguments:
 
     DriverObject - Pointer to driver object created by system.
 
     TmpDeviceExtension - Pointer to the template device extension.
-        
-    RegistryPath - Pointer to the null-terminated Unicode name of the 
+
+    RegistryPath - Pointer to the null-terminated Unicode name of the
         registry path for this driver.
 
     FullDeviceName - Pointer to the Unicode string that is the full path name
@@ -2660,8 +2728,16 @@ Return Value:
             FullDeviceName->Buffer
             ));
         goto MouCreateClassObjectExit;
-      
-    } 
+
+    }
+
+#ifdef _PNP_POWER_
+    //
+    // Let the port driver worry about the power management
+    //
+
+    (*ClassDeviceObject)->DeviceObjectExtension->PowerControlNeeded = FALSE;
+#endif
 
     //
     // Do buffered I/O.  I.e., the I/O system will copy to/from user data
@@ -2680,7 +2756,7 @@ Return Value:
     KeInitializeSpinLock(&deviceExtension->SpinLock);
 
     //
-    // Initialize mouse class flags to indicate there is no outstanding 
+    // Initialize mouse class flags to indicate there is no outstanding
     // read request pending and cleanup has not been initiated.
     //
 
@@ -2688,17 +2764,23 @@ Return Value:
     deviceExtension->CleanupWasInitiated = FALSE;
 
     //
+    // No trusted subsystem has sent us an open yet.
+    //
+
+    deviceExtension->TrustedSubsystemConnected = FALSE;
+
+    //
     // Allocate the ring buffer for the mouse class input data.
     //
 
-    deviceExtension->InputData = 
+    deviceExtension->InputData =
         ExAllocatePool(
             NonPagedPool,
             deviceExtension->MouseAttributes.InputDataQueueLength
             );
 
     if (!deviceExtension->InputData) {
-   
+
         //
         // Could not allocate memory for the mouse class data queue.
         //
@@ -2731,20 +2813,20 @@ MouCreateClassObjectExit:
     if (status != STATUS_SUCCESS) {
 
         //
-        // Some part of the initialization failed.  Log an error, and 
+        // Some part of the initialization failed.  Log an error, and
         // clean up the resources for the failed part of the initialization.
         //
 
         if (errorCode != STATUS_SUCCESS) {
             errorLogEntry = (PIO_ERROR_LOG_PACKET)
                 IoAllocateErrorLogEntry(
-                    (*ClassDeviceObject == NULL) ? 
+                    (*ClassDeviceObject == NULL) ?
                         (PVOID) DriverObject : (PVOID) *ClassDeviceObject,
                     sizeof(IO_ERROR_LOG_PACKET)
                     );
 
             if (errorLogEntry != NULL) {
-    
+
                 errorLogEntry->ErrorCode = errorCode;
                 errorLogEntry->SequenceNumber = 0;
                 errorLogEntry->MajorFunctionCode = 0;
@@ -2752,11 +2834,11 @@ MouCreateClassObjectExit:
                 errorLogEntry->RetryCount = 0;
                 errorLogEntry->UniqueErrorValue = uniqueErrorValue;
                 errorLogEntry->FinalStatus = status;
-    
+
                 IoWriteErrorLogEntry(errorLogEntry);
             }
         }
-    
+
         if ((deviceExtension) && (deviceExtension->InputData))
             ExFreePool(deviceExtension->InputData);
         if (*ClassDeviceObject) {
@@ -2764,9 +2846,9 @@ MouCreateClassObjectExit:
             *ClassDeviceObject = NULL;
         }
     }
-    
+
     MouPrint((1,"MOUCLASS-MouCreateClassObject: exit\n"));
-    
+
     return(status);
 
 }
@@ -2812,7 +2894,7 @@ Return Value:
 
     va_end(ap);
 
-} 
+}
 #endif
 
 NTSTATUS
@@ -2827,10 +2909,10 @@ Routine Description:
 
     This routine reads the DEVICEMAP portion of the registry to determine
     how many ports the class driver is to service.  Depending on the
-    value of DeviceExtension->ConnectOneClassToOnePort, the class driver 
+    value of DeviceExtension->ConnectOneClassToOnePort, the class driver
     will eventually create one device object per port device serviced, or
-    one class device object that connects to multiple port device objects. 
-    
+    one class device object that connects to multiple port device objects.
+
     Assumptions:
 
         1.  If the base device name for the class driver is "PointerClass",
@@ -2840,28 +2922,28 @@ Routine Description:
                     ^^^^
 
         2.  The port device objects are created with suffixes in strictly
-            ascending order, starting with suffix 0.  E.g., 
-            \Device\PointerPort0 indicates the first pointer port device, 
-            \Device\PointerPort1 the second, and so on.  There are no gaps 
+            ascending order, starting with suffix 0.  E.g.,
+            \Device\PointerPort0 indicates the first pointer port device,
+            \Device\PointerPort1 the second, and so on.  There are no gaps
             in the list.
 
-        3.  If ConnectOneClassToOnePort is non-zero, there is a 1:1 
-            correspondence between class device objects and port device 
-            objects.  I.e., \Device\PointerClass0 will connect to 
+        3.  If ConnectOneClassToOnePort is non-zero, there is a 1:1
+            correspondence between class device objects and port device
+            objects.  I.e., \Device\PointerClass0 will connect to
             \Device\PointerPort0, \Device\PointerClass1 to
             \Device\PointerPort1, and so on.
 
         4.  If ConnectOneClassToOnePort is zero, there is a 1:many
-            correspondence between class device objects and port device 
-            objects.  I.e., \Device\PointerClass0 will connect to 
+            correspondence between class device objects and port device
+            objects.  I.e., \Device\PointerClass0 will connect to
             \Device\PointerPort0, and \Device\PointerPort1, and so on.
 
 
     Note that for Product 1, the Raw Input Thread (Windows USER) will
-    only deign to open and read from one pointing device.  Hence, it is 
-    safe to make simplifying assumptions because the driver is basically 
+    only deign to open and read from one pointing device.  Hence, it is
+    safe to make simplifying assumptions because the driver is basically
     providing  much more functionality than the RIT will use.
-            
+
 Arguments:
 
     BasePortName - Pointer to the Unicode string that is the base path name
@@ -2872,7 +2954,7 @@ Arguments:
 
 Return Value:
 
-    The function value is the final status from the operation.  
+    The function value is the final status from the operation.
 
 --*/
 
@@ -2881,7 +2963,7 @@ Return Value:
     NTSTATUS status;
     PRTL_QUERY_REGISTRY_TABLE registryTable = NULL;
     USHORT queriesPlusOne = 2;
-    
+
     //
     // Initialize the result.
     //
@@ -2891,23 +2973,23 @@ Return Value:
     //
     // Allocate the Rtl query table.
     //
-    
+
     registryTable = ExAllocatePool(
                         PagedPool,
                         sizeof(RTL_QUERY_REGISTRY_TABLE) * queriesPlusOne
                      );
-    
+
     if (!registryTable) {
-    
+
         MouPrint((
             1,
             "MOUCLASS-MouDeterminePortsServiced: Couldn't allocate table for Rtl query\n"
             ));
-    
+
         status = STATUS_UNSUCCESSFUL;
-    
+
     } else {
-    
+
         RtlZeroMemory(
             registryTable,
             sizeof(RTL_QUERY_REGISTRY_TABLE) * queriesPlusOne
@@ -2918,13 +3000,13 @@ Return Value:
         // called once for every value in the pointer port section
         // of the registry's hardware devicemap.
         //
-    
+
         registryTable[0].QueryRoutine = MouDeviceMapQueryCallback;
         registryTable[0].Name = NULL;
 
         status = RtlQueryRegistryValues(
                      RTL_REGISTRY_DEVICEMAP | RTL_REGISTRY_OPTIONAL,
-                     BasePortName->Buffer, 
+                     BasePortName->Buffer,
                      registryTable,
                      NumberPortsServiced,
                      NULL
@@ -2944,7 +3026,7 @@ Return Value:
     return(status);
 }
 
-NTSTATUS 
+NTSTATUS
 MouDeviceMapQueryCallback(
     IN PWSTR ValueName,
     IN ULONG ValueType,
@@ -2961,7 +3043,7 @@ Routine Description:
     This is the callout routine specified in a call to
     RtlQueryRegistryValues.  It increments the value pointed
     to by the Context parameter.
-            
+
 Arguments:
 
     ValueName - Unused.
@@ -2980,7 +3062,7 @@ Arguments:
 
 Return Value:
 
-    The function value is the final status from the operation.  
+    The function value is the final status from the operation.
 
 --*/
 
@@ -3043,7 +3125,7 @@ Return Value:
     //
     // Build the synchronous request to be sent to the port driver
     // to perform the request.  Allocate an IRP to issue the port internal
-    // device control Enable/Disable call.  
+    // device control Enable/Disable call.
     //
 
     irp = IoBuildDeviceIoControlRequest(
@@ -3129,7 +3211,7 @@ Return Value:
     deviceExtension = (PDEVICE_EXTENSION)Context;
 
     //
-    // Acquire the spinlock to protect the input data 
+    // Acquire the spinlock to protect the input data
     // queue and associated pointers.
     //
 

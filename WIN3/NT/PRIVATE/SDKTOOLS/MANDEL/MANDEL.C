@@ -718,4 +718,4 @@ PaintThread (THREADTABLE *pPaintTable)
 BreakPoint ()
 {
 }
-
+

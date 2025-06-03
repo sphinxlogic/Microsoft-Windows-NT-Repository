@@ -43,7 +43,7 @@ Revision History:
 // These may be included in any order:
 
 #include <debuglib.h>   // IF_DEBUG().
-#include <netdebug.h>   // FORMAT_DWORD, NetpDbgPrint().
+#include <netdebug.h>   // FORMAT_DWORD, NetpKdPrint(()).
 #include <netlib.h>     // My prototype, NetpSetOptionalArg().
 
 
@@ -106,18 +106,18 @@ Return Value:
     }
 
     IF_DEBUG(PREFMAX) {
-        NetpDbgPrint("NetpAdjustPreferedMaximum: "
+        NetpKdPrint(("NetpAdjustPreferedMaximum: "
                 "pref max=" FORMAT_DWORD ", "
                 "entry size=" FORMAT_DWORD ", "
                 "overhead=" FORMAT_DWORD ".\n",
-                PreferedMaximum, EntrySize, Overhead);
+                PreferedMaximum, EntrySize, Overhead));
         if (BytesToAllocate != NULL) {
-            NetpDbgPrint("NetpAdjustPreferedMaximum: bytes to allocate="
-                    FORMAT_DWORD ".\n", *BytesToAllocate);
+            NetpKdPrint(("NetpAdjustPreferedMaximum: bytes to allocate="
+                    FORMAT_DWORD ".\n", *BytesToAllocate));
         }
         if (EntriesToAllocate != NULL) {
-            NetpDbgPrint("NetpAdjustPreferedMaximum: Entries to allocate="
-                    FORMAT_DWORD ".\n", *EntriesToAllocate);
+            NetpKdPrint(("NetpAdjustPreferedMaximum: Entries to allocate="
+                    FORMAT_DWORD ".\n", *EntriesToAllocate));
         }
     }
 

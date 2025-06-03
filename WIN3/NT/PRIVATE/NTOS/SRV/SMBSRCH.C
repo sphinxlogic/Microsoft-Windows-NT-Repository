@@ -23,6 +23,10 @@ Revision History:
 
 #define BugCheckFileId SRV_FILE_SMBSRCH
 
+#define VOLUME_BUFFER_SIZE \
+        FIELD_OFFSET(FILE_FS_VOLUME_INFORMATION,VolumeLabel) + \
+        MAXIMUM_FILENAME_LENGTH * sizeof(WCHAR)
+
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text( PAGE, SrvSmbSearch )
 #endif
@@ -73,7 +77,7 @@ Return Value:
     PSMB_DIRECTORY_INFORMATION smbDirInfo;
     USHORT smbFileAttributes;
     PSEARCH search = NULL;
-    PDIRECTORY_CACHE dirCache;
+    PDIRECTORY_CACHE dirCache, dc;
     USHORT count;
     USHORT maxCount;
     USHORT i;
@@ -89,6 +93,9 @@ Return Value:
     PSESSION session;
     PCONNECTION connection;
     PPAGED_CONNECTION pagedConnection;
+
+    WCHAR unicodeResumeName[ sizeof( dirCache->UnicodeResumeName ) / sizeof( WCHAR ) ];
+    USHORT unicodeResumeNameLength = 0;
 
     PAGED_CODE( );
 
@@ -124,6 +131,14 @@ Return Value:
     response = (PRESP_SEARCH)WorkContext->ResponseParameters;
     command = WorkContext->RequestHeader->Command;
 
+    //
+    // Set up a pointer in the SMB buffer where we will write
+    // information about files.  The +3 is to account for the
+    // SMB_FORMAT_VARIABLE and the word that holds the data length.
+    //
+
+    smbDirInfo = (PSMB_DIRECTORY_INFORMATION)(response->Buffer + 3);
+
     fileName.Buffer = NULL;
 
     //
@@ -140,7 +155,8 @@ Return Value:
     status = SrvVerifyUidAndTid(
                 WorkContext,
                 &session,
-                &treeConnect
+                &treeConnect,
+                ShareTypeDisk
                 );
 
     if ( !NT_SUCCESS(status) ) {
@@ -179,6 +195,7 @@ Return Value:
         maxCount = MIN( maxCount, (USHORT)MAX_DIRECTORY_CACHE_SIZE );
         nonPagedBufferSize = MIN_SEARCH_BUFFER_SIZE;
 
+
     } else {
 
         if ( maxCount > MAX_FILES_FOR_MED_SEARCH ) {
@@ -190,29 +207,13 @@ Return Value:
         }
     }
 
-    directoryInformation = ALLOCATE_NONPAGED_POOL(
-                               nonPagedBufferSize,
-                               BlockTypeDataBuffer
-                               );
-
-    if ( directoryInformation == NULL ) {
-
-        INTERNAL_ERROR(
-            ERROR_LEVEL_EXPECTED,
-            "SrvSmbSearch: unable to allocate nonpaged pool",
-            NULL,
-            NULL
-            );
-
-        status = STATUS_INSUFF_SERVER_RESOURCES;
-        goto error_exit;
-    }
-
-    directoryInformation->DirectoryHandle = NULL;
-
-    IF_SMB_DEBUG(SEARCH2) {
-        SrvPrint2( "Allocated buffer space of %ld bytes at 0x%lx\n",
-                      nonPagedBufferSize, directoryInformation );
+    //
+    // The response to a search is never unicode, though the request may be.
+    //
+    if( isUnicode ) {
+        USHORT flags2 = SmbGetAlignedUshort( &WorkContext->RequestHeader->Flags2 );
+        flags2 &= ~SMB_FLAGS2_UNICODE;
+        SmbPutAlignedUshort( &WorkContext->ResponseHeader->Flags2, flags2 );
     }
 
     //
@@ -276,16 +277,18 @@ Return Value:
         // request SMB.
         //
 
-        if ( !SrvCanonicalizePathName(
+        status = SrvCanonicalizePathName(
                 WorkContext,
+                treeConnect->Share,
+                NULL,
                 (PVOID)(request->Buffer + 1),
                 END_OF_REQUEST_SMB( WorkContext ),
                 FALSE,
                 isUnicode,
                 &fileName
-                ) ) {
+                );
 
-            status = STATUS_OBJECT_PATH_SYNTAX_BAD;
+        if( !NT_SUCCESS( status ) ) {
             goto error_exit;
         }
 
@@ -305,17 +308,10 @@ Return Value:
 
             //
             // Allocate enough space to store the volume information structure
-            // and 256 bytes for the volume label name.
+            // and MAXIMUM_FILENAME_LENGTH bytes for the volume label name.
             //
 
-            DEALLOCATE_NONPAGED_POOL( directoryInformation );
-            directoryInformation = NULL;
-
-            volumeInformation = ALLOCATE_HEAP(
-                                    sizeof(FILE_FS_VOLUME_INFORMATION) +
-                                                        256 * sizeof(WCHAR),
-                                    BlockTypeDataBuffer
-                                    );
+            volumeInformation = ALLOCATE_HEAP( VOLUME_BUFFER_SIZE, BlockTypeDataBuffer );
 
             if ( volumeInformation == NULL ) {
 
@@ -330,10 +326,7 @@ Return Value:
                 goto error_exit;
             }
 
-            RtlZeroMemory(
-                volumeInformation,
-                sizeof(FILE_FS_VOLUME_INFORMATION) + 256 * sizeof(WCHAR)
-                );
+            RtlZeroMemory( volumeInformation, VOLUME_BUFFER_SIZE );
 
             //
             // Get the Share root handle.
@@ -356,8 +349,7 @@ Return Value:
                          treeConnect->Share->RootDirectoryHandle,
                          &ioStatusBlock,
                          volumeInformation,
-                         sizeof(FILE_FS_VOLUME_INFORMATION) +
-                                                    256 * sizeof(WCHAR),
+                         VOLUME_BUFFER_SIZE,
                          FileFsVolumeInformation
                          );
 
@@ -411,8 +403,6 @@ Return Value:
                     sizeof(SMB_DIRECTORY_INFORMATION)
                     );
 
-                smbDirInfo = (PSMB_DIRECTORY_INFORMATION)(response->Buffer + 3);
-
                 //
                 // *** Is there anything that we must set in the resume key?
                 //
@@ -429,7 +419,7 @@ Return Value:
                     //
                     // Volume labels may be longer than 11 bytes, but we
                     // truncate then to this length in order to make sure that
-                    // the label will fit into the 13-byte space in the
+                    // the label will fit into the 8.3+NULL -byte space in the
                     // SMB_DIRECTORY_INFORMATION structure.  Also, the LM 1.2
                     // ring 3 and Pinball servers do this.
                     //
@@ -437,9 +427,9 @@ Return Value:
                     unicodeString.Length =
                                     (USHORT) MIN(
                                         volumeInformation->VolumeLabelLength,
-                                        12 * sizeof(WCHAR) );
+                                        11 * sizeof(WCHAR) );
 
-                    unicodeString.MaximumLength = unicodeString.Length;
+                    unicodeString.MaximumLength = 13;
                     unicodeString.Buffer = volumeInformation->VolumeLabel;
 
                     oemString.MaximumLength = 13;
@@ -450,6 +440,22 @@ Return Value:
                         &unicodeString,
                         FALSE
                         );
+
+                    //
+                    // If the volume label is greater than 8 characters, it
+                    // needs to be turned into 8.3 format.
+                    //
+                    if( oemString.Length > 8 ) {
+                        //
+                        // Slide the last three characters one position to the
+                        // right and insert a '.' to formulate an 8.3 name
+                        //
+                        smbDirInfo->FileName[11] = smbDirInfo->FileName[10];
+                        smbDirInfo->FileName[10] = smbDirInfo->FileName[9];
+                        smbDirInfo->FileName[9] = smbDirInfo->FileName[8];
+                        smbDirInfo->FileName[8] = '.';
+                        oemString.Length++;
+                    }
 
                     smbDirInfo->FileName[oemString.Length] = '\0';
 
@@ -515,7 +521,269 @@ Return Value:
 
             FREE_HEAP( volumeInformation );
 
+            if ( !isUnicode &&
+                fileName.Buffer != NULL &&
+                fileName.Buffer != nameBuffer ) {
+                RtlFreeUnicodeString( &fileName );
+            }
+
             return SmbStatusSendResponse;
+        }
+
+        //
+        // If this is a core search without patterns, short circuit the
+        //  whole thing right here.
+        //
+        if( isCoreSearch && fileName.Length <= sizeof( nameBuffer ) &&
+            ( fileName.Length == 0 ||
+              !FsRtlDoesNameContainWildCards( &fileName )) ) {
+
+            IO_STATUS_BLOCK ioStatus;
+            OBJECT_ATTRIBUTES objectAttributes;
+            ULONG attributes;
+            ULONG inclusiveSearchAttributes, exclusiveSearchAttributes;
+            USHORT searchAttributes;
+            UNICODE_STRING baseFileName;
+            BOOLEAN returnDirectories, returnDirectoriesOnly;
+            FILE_NETWORK_OPEN_INFORMATION fileInformation;
+            PSZ dirInfoName;
+            SMB_DATE dosDate;
+            SMB_TIME dosTime;
+            UNICODE_STRING foundFileName;
+
+            UNICODE_STRING ObjectNameString;
+
+            ObjectNameString.Buffer = fileName.Buffer;
+            ObjectNameString.Length = fileName.Length;
+            ObjectNameString.MaximumLength = fileName.Length;
+
+            if( fileName.Length == 0 ) {
+
+                //
+                // Since we are opening the root of the share, set the attribute to
+                // case insensitive, as this is how we opened the share when it was added
+                //
+                ObjectNameString = WorkContext->TreeConnect->Share->NtPathName;
+                attributes = OBJ_CASE_INSENSITIVE;
+
+            } else {
+
+                attributes =
+                    (WorkContext->RequestHeader->Flags & SMB_FLAGS_CASE_INSENSITIVE ||
+                     WorkContext->Session->UsingUppercasePaths ) ?
+                    OBJ_CASE_INSENSITIVE : 0;
+
+            }
+
+            SrvInitializeObjectAttributes_U(
+                &objectAttributes,
+                &ObjectNameString,
+                attributes,
+                NULL,
+                NULL
+                );
+
+            IMPERSONATE( WorkContext );
+
+            status = SrvGetShareRootHandle( treeConnect->Share );
+
+            if( NT_SUCCESS( status ) ) {
+
+                //
+                // The file name is always relative to the share root
+                //
+                objectAttributes.RootDirectory = treeConnect->Share->RootDirectoryHandle;
+
+                //
+                // Get the attributes of the object
+                //
+                if( IoFastQueryNetworkAttributes(
+                                        &objectAttributes,
+                                        FILE_READ_ATTRIBUTES,
+                                        0,
+                                        &ioStatus,
+                                        &fileInformation
+                                        ) == FALSE ) {
+
+                    SrvLogServiceFailure( SRV_SVC_IO_FAST_QUERY_NW_ATTRS, 0 );
+                    ioStatus.Status = STATUS_OBJECT_PATH_NOT_FOUND;
+                }
+
+                status = ioStatus.Status;
+
+                SrvReleaseShareRootHandle( treeConnect->Share );
+            }
+
+            REVERT();
+
+            if( !NT_SUCCESS( status ) ) {
+                //
+                // Do error mapping to keep the DOS clients happy
+                //
+                if ( status == STATUS_NO_SUCH_FILE ||
+                     status == STATUS_OBJECT_NAME_NOT_FOUND ) { 
+                    status = STATUS_NO_MORE_FILES;
+                }
+                goto error_exit;
+            }
+
+            searchAttributes = SmbGetUshort( &request->SearchAttributes );
+            searchAttributes &= SMB_FILE_ATTRIBUTE_READONLY |
+                                SMB_FILE_ATTRIBUTE_HIDDEN |
+                                SMB_FILE_ATTRIBUTE_SYSTEM |
+                                SMB_FILE_ATTRIBUTE_VOLUME |
+                                SMB_FILE_ATTRIBUTE_DIRECTORY |
+                                SMB_FILE_ATTRIBUTE_ARCHIVE;
+
+            //
+            // The file or directory exists, now we need to see if it matches the
+            // criteria given by the client
+            //
+            SRV_SMB_ATTRIBUTES_TO_NT(
+                searchAttributes & 0xff,
+                &returnDirectories,
+                &inclusiveSearchAttributes
+            );
+
+            inclusiveSearchAttributes |= FILE_ATTRIBUTE_NORMAL |
+                                         FILE_ATTRIBUTE_ARCHIVE |
+                                         FILE_ATTRIBUTE_READONLY;
+
+            SRV_SMB_ATTRIBUTES_TO_NT(
+                searchAttributes >> 8,
+                &returnDirectoriesOnly,
+                &exclusiveSearchAttributes
+            );
+
+            exclusiveSearchAttributes &= ~FILE_ATTRIBUTE_NORMAL;
+
+            //
+            // See if the returned file meets our objectives
+            //
+            if(
+                //
+                // If we're only supposed to return directories, then we don't want it
+                //
+                returnDirectoriesOnly
+                ||
+
+                //
+                // If there are bits set in FileAttributes that are
+                //  not set in inclusiveSearchAttributes, then we don't want it
+                //
+                ((fileInformation.FileAttributes << 24 ) |
+                ( inclusiveSearchAttributes << 24 )) !=
+                ( inclusiveSearchAttributes << 24 )
+
+                ||
+                //
+                // If the file doesn't have attribute bits specified as exclusive
+                // bits, we don't want it
+                //
+                ( ((fileInformation.FileAttributes << 24 ) |
+                  (exclusiveSearchAttributes << 24 )) !=
+                   (fileInformation.FileAttributes << 24) )
+
+            ) {
+                //
+                // Just as though the file was never there!
+                //
+                status = STATUS_OBJECT_PATH_NOT_FOUND;
+                goto error_exit;
+            }
+
+            //
+            // We want this entry!
+            // Fill in the response
+            //
+
+            //
+            // Switch over to a private name buffer, to avoid overwriting info
+            //  in the SMB buffer.
+            //
+            RtlCopyMemory( nameBuffer, fileName.Buffer, fileName.Length );
+            foundFileName.Buffer = nameBuffer;
+            foundFileName.Length = fileName.Length;
+            foundFileName.MaximumLength = fileName.MaximumLength;
+
+            SrvGetBaseFileName( &foundFileName, &baseFileName );
+            SrvUnicodeStringTo8dot3(
+                &baseFileName,
+                (PSZ)smbDirInfo->ResumeKey.FileName,
+                TRUE
+            );
+
+            //
+            // Resume Key doesn't matter, since the client will not come back.  But
+            // just in case it does, make sure we have a bum resume key
+            //
+            SET_RESUME_KEY_INDEX( (PSMB_RESUME_KEY)smbDirInfo, 0xff );
+            SET_RESUME_KEY_SEQUENCE(   (PSMB_RESUME_KEY)smbDirInfo, 0xff );
+            SmbPutUlong( &((PSMB_RESUME_KEY)smbDirInfo)->FileIndex, 0 );
+            SmbPutUlong( (PSMB_ULONG)&((PSMB_RESUME_KEY)smbDirInfo)->Consumer[0], 0 );
+
+            //
+            // Fill in the name (even though they knew what it was!)
+            //
+            oemString.Buffer = smbDirInfo->FileName;
+            oemString.MaximumLength = sizeof( smbDirInfo->FileName );
+            RtlUpcaseUnicodeStringToOemString( &oemString, &baseFileName, FALSE );
+            //
+            // Null terminate and blank-pad the name
+            //
+            oemString.Buffer[ oemString.Length ] = '\0';
+
+            for( i=(USHORT)oemString.Length+1; i < sizeof( smbDirInfo->FileName); i++ ) {
+                oemString.Buffer[i] = ' ';
+            }
+
+            SRV_NT_ATTRIBUTES_TO_SMB(
+                fileInformation.FileAttributes,
+                fileInformation.FileAttributes & FILE_ATTRIBUTE_DIRECTORY,
+                &smbFileAttributes
+                );
+            smbDirInfo->FileAttributes = (UCHAR)smbFileAttributes;
+
+            SrvTimeToDosTime(
+                &fileInformation.LastWriteTime,
+                &dosDate,
+                &dosTime
+                );
+
+            SmbPutDate( &smbDirInfo->LastWriteDate, dosDate );
+            SmbPutTime( &smbDirInfo->LastWriteTime, dosTime );
+
+            SmbPutUlong( &smbDirInfo->FileSize, fileInformation.EndOfFile.LowPart );
+
+            totalBytesWritten = sizeof(SMB_DIRECTORY_INFORMATION);
+            count = 1;
+            goto done_core;
+        }
+slow_way:
+
+        directoryInformation = ALLOCATE_NONPAGED_POOL(
+                                   nonPagedBufferSize,
+                                   BlockTypeDataBuffer
+                                   );
+
+        if ( directoryInformation == NULL ) {
+
+            INTERNAL_ERROR(
+                ERROR_LEVEL_EXPECTED,
+                "SrvSmbSearch: unable to allocate nonpaged pool",
+                NULL,
+                NULL
+                );
+
+            status = STATUS_INSUFF_SERVER_RESOURCES;
+            goto error_exit;
+        }
+
+        directoryInformation->DirectoryHandle = NULL;
+
+        IF_SMB_DEBUG(SEARCH2) {
+            SrvPrint2( "Allocated buffer space of %ld bytes at 0x%lx\n",
+                          nonPagedBufferSize, directoryInformation );
         }
 
         //
@@ -734,6 +1002,30 @@ Return Value:
         sequence = SID_SEQUENCE( resumeKey );
         sidIndex = SID_INDEX( resumeKey );
 
+        directoryInformation = ALLOCATE_NONPAGED_POOL(
+                                   nonPagedBufferSize,
+                                   BlockTypeDataBuffer
+                                   );
+
+        if ( directoryInformation == NULL ) {
+
+            INTERNAL_ERROR(
+                ERROR_LEVEL_EXPECTED,
+                "SrvSmbSearch: unable to allocate nonpaged pool",
+                NULL,
+                NULL
+                );
+
+            status = STATUS_INSUFF_SERVER_RESOURCES;
+            goto error_exit;
+        }
+
+        directoryInformation->DirectoryHandle = NULL;
+
+        IF_SMB_DEBUG(SEARCH2) {
+            SrvPrint2( "Allocated buffer space of %ld bytes at 0x%lx\n",
+                          nonPagedBufferSize, directoryInformation );
+        }
         //
         // Verify the SID in the resume key.  SrvVerifySid also fills in
         // fields of directoryInformation so it is ready to be used by
@@ -906,17 +1198,20 @@ Return Value:
             dirCache = &search->DirectoryCache[dirCacheIndex];
 
             IF_SMB_DEBUG(SEARCH2) {
-                SrvPrint3( "Accessing dircache, real file = %s, index = 0x%lx, "
+                SrvPrint3( "Accessing dircache, real file = %ws, index = 0x%lx, "
                           "cache index = %ld\n",
-                              dirCache->FileName, dirCache->FileIndex,
+                              dirCache->UnicodeResumeName, dirCache->FileIndex,
                               dirCacheIndex );
             }
 
             SmbPutUlong( &resumeKey->FileIndex, dirCache->FileIndex );
+            unicodeResumeNameLength = dirCache->UnicodeResumeNameLength;
 
-            for ( j = 0; j < 11; j++ ) {
-                resumeKey->FileName[j] = dirCache->FileName[j];
-            }
+            ASSERT( unicodeResumeNameLength <= sizeof( unicodeResumeName ) );
+
+            RtlCopyMemory( unicodeResumeName,
+                           dirCache->UnicodeResumeName,
+                           unicodeResumeNameLength );
 
             //
             // Free the directory cache--it is no longer needed.
@@ -980,12 +1275,22 @@ Return Value:
         // what search to resume on.
         //
 
-        fileName.Buffer = nameBuffer;
 
-        Srv8dot3ToUnicodeString(
-            (PSZ)resumeKey->FileName,
-            &fileName
-            );
+        if( unicodeResumeNameLength != 0 ) {
+
+            fileName.Buffer = unicodeResumeName;
+            fileName.Length = fileName.MaximumLength = unicodeResumeNameLength;
+
+        } else {
+
+            fileName.Buffer = nameBuffer;
+
+            Srv8dot3ToUnicodeString(
+                (PSZ)resumeKey->FileName,
+                &fileName
+                );
+        }
+
 
         //
         // Set calledQueryDirectory to TRUE will indicate to
@@ -1039,29 +1344,64 @@ Return Value:
     }
 
     //
-    // If the search name ends in ????????.???, replace it with *, so that
-    // we can return NTFS files with short names.
+    // Simplify the search patterns if possible.  This makes the filesystems more
+    //  efficient, as they special case the '*' pattern
     //
+    if ( (fileName.Length >= (12 * sizeof(WCHAR))) &&
+         (RtlEqualMemory(
+            &fileName.Buffer[fileName.Length/sizeof(WCHAR) - 12],
+            StrQuestionMarks,
+            12 * sizeof(WCHAR)))) {
 
-    if ( fileName.Length >= 12 &&
-         wcsncmp(
-             fileName.Buffer + fileName.Length/sizeof(WCHAR) - 12,
-             StrQuestionMarks,
-             12
-             ) == 0 ) {
+            if( fileName.Length == (12 * sizeof( WCHAR )) ||
+                fileName.Buffer[ fileName.Length/sizeof(WCHAR) - 13 ] == L'\\' ) {
 
-        *(fileName.Buffer + fileName.Length/sizeof(WCHAR) - 12) = L'*';
-        fileName.Length -= 11;
+                //
+                // The search name ends in ????????.???, replace it with *
+                //
+                fileName.Buffer[fileName.Length/sizeof(WCHAR)-12] = L'*';
+                fileName.Length -= 11 * sizeof(WCHAR);
 
+            }
+
+    } else if ((fileName.Length >= (3 * sizeof(WCHAR))) &&
+         (RtlEqualMemory(
+            &fileName.Buffer[fileName.Length/sizeof(WCHAR) - 3],
+            StrStarDotStar,
+            3 * sizeof(WCHAR)))) {
+
+            if( fileName.Length == (3 * sizeof( WCHAR )) ||
+                fileName.Buffer[ fileName.Length/sizeof(WCHAR) - 4 ] == L'\\' ) {
+
+                //
+                // The search name ends in *.*, replace it with *
+                //
+
+                fileName.Length -= 2 * sizeof(WCHAR);
+
+            }
     }
 
-    //
-    // Set up a pointer in the SMB buffer where we will write
-    // information about files.  The +3 is to account for the
-    // SMB_FORMAT_VARIABLE and the word that holds the data length.
-    //
+    if( isCoreSearch ) {
+        dirCache = (PDIRECTORY_CACHE)ALLOCATE_HEAP(
+                                     maxCount * sizeof(DIRECTORY_CACHE),
+                                     BlockTypeDataBuffer
+                                     );
 
-    smbDirInfo = (PSMB_DIRECTORY_INFORMATION)(response->Buffer + 3);
+        if( dirCache == NULL ) {
+            INTERNAL_ERROR(
+                ERROR_LEVEL_EXPECTED,
+                "SrvSmbSearch: Unable to allocate %d bytes from heap",
+                maxCount * sizeof(DIRECTORY_CACHE),
+                NULL
+                );
+
+            status = STATUS_INSUFF_SERVER_RESOURCES;
+            goto error_exit;
+        }
+
+        RtlZeroMemory( dirCache, maxCount * sizeof(DIRECTORY_CACHE) );
+    }
 
     //
     // Now we can start getting files.  We do this until one of three
@@ -1074,6 +1414,7 @@ Return Value:
 
     count = 0;
     totalBytesWritten = 0;
+    dc = dirCache;
 
     do {
 
@@ -1103,11 +1444,7 @@ Return Value:
         // file.
         //
 
-        effectiveBufferSize = MAX(
-                                  effectiveBufferSize,
-                                  sizeof(FILE_BOTH_DIR_INFORMATION) +
-                                                        256*sizeof(WCHAR)
-                                  );
+        effectiveBufferSize = MAX( effectiveBufferSize, MIN_SEARCH_BUFFER_SIZE );
 
         status = SrvQueryDirectoryFile(
                        WorkContext,
@@ -1115,6 +1452,7 @@ Return Value:
                        TRUE,                        // filter long names
                        FALSE,                       // not for backup intent
                        FileBothDirectoryInformation,
+                       0,
                        &fileName,
                        (PULONG)( (findFirst || count != 0) ?
                                   NULL : &resumeFileIndex ),
@@ -1145,6 +1483,9 @@ Return Value:
                                   &fileName );
                 }
 
+                if( isCoreSearch ) {
+                    FREE_HEAP( dirCache );
+                }
                 goto error_exit;
             }
 
@@ -1156,6 +1497,10 @@ Return Value:
                     "SrvSmbSearch: SrvQueryDirectoryFile returned %X\n",
                     status
                     );
+            }
+
+            if( isCoreSearch ) {
+                FREE_HEAP( dirCache );
             }
 
             goto error_exit;
@@ -1191,20 +1536,23 @@ Return Value:
         }
 
         //
-        // If a short name exists, use it.  Otherwise the file name must
-        // be a valid 8.3 name.
+        // Use the FileName, unless it is not legal 8.3
         //
+        name.Buffer = bothDirInfo->FileName;
+        name.Length = (SHORT)bothDirInfo->FileNameLength;
 
-        if ( bothDirInfo->ShortNameLength == 0 ) {
+        if( bothDirInfo->ShortNameLength != 0 ) {
 
-            name.Buffer = bothDirInfo->FileName;
-            name.Length = (SHORT)bothDirInfo->FileNameLength;
+            if( !SrvIsLegalFatName( bothDirInfo->FileName,
+                                    bothDirInfo->FileNameLength ) ) {
 
-        } else {
-
-            name.Buffer = bothDirInfo->ShortName;
-            name.Length = (SHORT)bothDirInfo->ShortNameLength;
-
+                //
+                // FileName is not legal 8.3, so switch to the
+                //  ShortName
+                //
+                name.Buffer = bothDirInfo->ShortName;
+                name.Length = (SHORT)bothDirInfo->ShortNameLength;
+            }
         }
 
         name.MaximumLength = name.Length;
@@ -1220,6 +1568,15 @@ Return Value:
                 (PSZ)smbDirInfo->ResumeKey.FileName,
                 filterLongNames
                 );
+
+            //
+            // Save the unicode version of the 8.3 name in the dirCache
+            //
+            dc->UnicodeResumeNameLength = name.Length;
+            RtlCopyMemory( dc->UnicodeResumeName, name.Buffer, name.Length );
+            dc->FileIndex = bothDirInfo->FileIndex;
+
+            ++dc;
 
         } else {
 
@@ -1296,9 +1653,9 @@ Return Value:
         // Fill in other fields in the file entry.
         //
 
-        SrvNtAttributesToSmb(
+        SRV_NT_ATTRIBUTES_TO_SMB(
             bothDirInfo->FileAttributes,
-            (BOOLEAN)((bothDirInfo->FileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0),
+            bothDirInfo->FileAttributes & FILE_ATTRIBUTE_DIRECTORY,
             &smbFileAttributes
             );
 
@@ -1372,6 +1729,8 @@ Return Value:
 
         if ( count == 0 ) {
 
+            FREE_HEAP( dirCache );
+
             IF_SMB_DEBUG(SEARCH1) {
                 SrvPrint3( "SrvSmbSearch: prematurely closing search %lx, "
                            "index %lx sequence %lx\n",
@@ -1381,30 +1740,6 @@ Return Value:
             SrvCloseSearch( search );
             goto done_core;
         }
-
-        //
-        // Allocate a directory cache from server heap.
-        //
-
-        dirCache = (PDIRECTORY_CACHE)ALLOCATE_HEAP(
-                                         count * sizeof(DIRECTORY_CACHE),
-                                         BlockTypeDataBuffer
-                                         );
-
-        if ( dirCache == NULL ) {
-
-            INTERNAL_ERROR(
-                ERROR_LEVEL_EXPECTED,
-                "SrvSmbSearch: Unable to allocate %d bytes from heap",
-                count * sizeof(DIRECTORY_CACHE),
-                NULL
-                );
-
-            status = STATUS_INSUFF_SERVER_RESOURCES;
-            goto error_exit;
-        }
-
-        RtlZeroMemory( dirCache, count * sizeof(DIRECTORY_CACHE) );
 
         //
         // Modify the CoreSequence field of the search block.  This is
@@ -1425,23 +1760,11 @@ Return Value:
         search->NumberOfCachedFiles = count;
 
         //
-        // Loop through the files, saving the necessary information in
-        // the directory cache and changing information about the files
+        // Loop through the files changing information about the files
         // in the SMB buffer to conform to what the core client expects.
         //
 
         for ( i = 0; i < count; i++ ) {
-
-            OEM_STRING name;
-
-            dirCache->FileIndex =
-                SmbGetUlong( &smbDirInfo->ResumeKey.FileIndex );
-
-            name.Buffer = (PCHAR)smbDirInfo->FileName;
-            name.Length = (USHORT)strlen( name.Buffer );
-            name.MaximumLength = name.Length;
-
-            SrvOemStringTo8dot3( &name, dirCache->FileName );
 
             SmbPutUlong(
                 &smbDirInfo->ResumeKey.FileIndex,
@@ -1604,35 +1927,32 @@ done_core:
         (USHORT)totalBytesWritten
         );
 
-    IF_SMB_DEBUG(SEARCH2) {
-        SrvPrint2( "totalBytesWritten = %ld, ->Buffer = 0x%lx\n",
-                      totalBytesWritten, response->Buffer );
-        SrvPrint2( "last smbDirInfo: 0x%lx, resume key name: %s\n",
-                      smbDirInfo, (smbDirInfo-1)->ResumeKey.FileName );
-    }
-
     WorkContext->ResponseParameters = NEXT_LOCATION(
                                           response,
                                           RESP_SEARCH,
                                           SmbGetUshort( &response->ByteCount )
                                           );
 
-
     //
     // Remove our pointer's reference.
     //
 
-    search->InUse = FALSE;
-    SrvDereferenceSearch( search );
+    if( search ) {
+        search->InUse = FALSE;
+        SrvDereferenceSearch( search );
+    }
 
     if ( !isUnicode &&
-        (fileName.Buffer != NULL) &&
-        (fileName.Buffer != nameBuffer) ) {
+        fileName.Buffer != NULL &&
+        fileName.Buffer != nameBuffer &&
+        fileName.Buffer != unicodeResumeName ) {
 
         RtlFreeUnicodeString( &fileName );
     }
 
-    DEALLOCATE_NONPAGED_POOL( directoryInformation );
+    if( directoryInformation ) {
+        DEALLOCATE_NONPAGED_POOL( directoryInformation );
+    }
 
     return SmbStatusSendResponse;
 
@@ -1677,17 +1997,23 @@ error_exit:
     }
 
     if ( !isUnicode &&
-        (fileName.Buffer != NULL) &&
-        (fileName.Buffer != nameBuffer) ) {
+        fileName.Buffer != NULL &&
+        fileName.Buffer != nameBuffer &&
+        fileName.Buffer != unicodeResumeName ) {
 
         RtlFreeUnicodeString( &fileName );
     }
 
-    SrvSetSmbError(
-        WorkContext,
-        isCoreSearch && (status != STATUS_OBJECT_PATH_NOT_FOUND) ?
-            STATUS_NO_MORE_FILES : status
+    if( status == STATUS_PATH_NOT_COVERED ) {
+        SrvSetSmbError( WorkContext, status );
+
+    } else {
+        SrvSetSmbError(
+            WorkContext,
+            isCoreSearch && (status != STATUS_OBJECT_PATH_NOT_FOUND) ?
+                STATUS_NO_MORE_FILES : status
         );
+    }
 
     return SmbStatusSendResponse;
 

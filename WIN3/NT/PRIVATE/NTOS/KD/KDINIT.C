@@ -114,7 +114,7 @@ Return Value:
 
         if (LoaderBlock->LoadOptions != NULL) {
             Options = LoaderBlock->LoadOptions;
-            strupr(Options);
+            _strupr(Options);
 
             //
             // If any of the port option, baud option, or debug is specified,

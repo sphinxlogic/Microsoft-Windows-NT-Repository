@@ -71,6 +71,7 @@ ULONG FASTCALL   WG32GetBkColor(PVDMFRAME pFrame);
 ULONG FASTCALL   WG32GetBkMode(PVDMFRAME pFrame);
 ULONG FASTCALL   WG32GetBrushOrg(PVDMFRAME pFrame);
 ULONG FASTCALL   WG32GetClipBox(PVDMFRAME pFrame);
+ULONG FASTCALL   WG32GetCurLogFont(PVDMFRAME pFrame);
 ULONG FASTCALL   WG32GetCurrentObject(PVDMFRAME pFrame);
 ULONG FASTCALL   WG32GetCurrentPosition(PVDMFRAME pFrame);
 ULONG FASTCALL   WG32GetDCOrg(PVDMFRAME pFrame);
@@ -123,7 +124,7 @@ ULONG FASTCALL   WG32ScaleViewportExt(PVDMFRAME pFrame);
 ULONG FASTCALL   WG32ScaleWindowExt(PVDMFRAME pFrame);
 ULONG FASTCALL   WG32SelectClipRgn(PVDMFRAME pFrame);
 ULONG FASTCALL   WG32SelectObject(PVDMFRAME pFrame);
-LONG    W32AbortProc(HDC hPr, int code);
+LONG     W32AbortProc(HDC hPr, int code);
 ULONG FASTCALL   WG32SetBitmapBits(PVDMFRAME pFrame);
 ULONG FASTCALL   WG32SetBitmapDimension(PVDMFRAME pFrame);
 ULONG FASTCALL   WG32SetBkColor(PVDMFRAME pFrame);
@@ -151,3 +152,11 @@ ULONG FASTCALL   WG32UnrealizeObject(PVDMFRAME pFrame);
 ULONG FASTCALL   WG32CreateDIBSection(PVDMFRAME pFrame);
 ULONG FASTCALL   WG32GetDIBColorTable(PVDMFRAME pFrame);
 ULONG FASTCALL   WG32SetDIBColorTable(PVDMFRAME pFrame);
+ULONG FASTCALL   WG32DMBitBlt(PVDMFRAME pFrame);
+
+BOOL  IsFaxPrinterSupportedDevice(PSZ pszDevice);
+BOOL  IsFaxPrinterWriteProfileString(PSZ szSection, PSZ szKey, PSZ szString);
+DWORD GetFaxPrinterProfileString(PSZ szSection, PSZ szKey, PSZ szDefault, PSZ szRetBuf, DWORD cbBufSize);
+
+HANDLE hConvert16to32 (int h16);
+HAND16 hConvert32to16 (DWORD h32);

@@ -40,8 +40,8 @@ ULONG SR802_5Lengths[8] = {  516,  1500,  2052,  4472,
 
 
 #ifdef ALLOC_PRAGMA
-#pragma alloc_text(INIT,MacInitializeMacInfo)
-#pragma alloc_text(INIT,MacSetNetBIOSMulticast)
+#pragma alloc_text(PAGE,MacInitializeMacInfo)
+#pragma alloc_text(PAGE,MacSetNetBIOSMulticast)
 #endif
 
 

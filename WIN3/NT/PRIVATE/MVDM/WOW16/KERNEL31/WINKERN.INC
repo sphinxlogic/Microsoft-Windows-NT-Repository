@@ -484,8 +484,6 @@ NUM_DPMI_BLOCKS equ 20
 endif
 endif
 
-ifdef WOW
-if PMODE32 
+ifdef WOW_x86
 FLAT_SEL equ 23H
-endif
 endif

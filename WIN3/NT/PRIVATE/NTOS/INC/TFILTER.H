@@ -48,57 +48,48 @@ typedef ULONG TR_GROUP_ADDRESS;
 
 //
 //
-#define TR_IS_NOT_DIRECTED(Address, Result) \
+#define TR_IS_NOT_DIRECTED(_Address, _Result) \
 { \
-    PUCHAR _A = Address; \
-    PBOOLEAN _R = Result; \
-    *_R = (BOOLEAN)(_A[0] & ((UCHAR)0x80));\
+    *(_Result) = (BOOLEAN)((_Address)[0] & ((UCHAR)0x80));\
 }
 
 //
 //
-#define TR_IS_FUNCTIONAL(Address, Result) \
+#define TR_IS_FUNCTIONAL(_Address, _Result) \
 { \
-    PUCHAR _A = Address; \
-    PBOOLEAN _R = Result; \
-    *_R = (BOOLEAN)((_A[0] & ((UCHAR)0x80)) &&\
-                     !(_A[2] & ((UCHAR)0x80))); \
+    *(_Result) = (BOOLEAN)(((_Address)[0] & ((UCHAR)0x80)) &&\
+                           !((_Address)[2] & ((UCHAR)0x80))); \
 }
 
 //
 //
-#define TR_IS_GROUP(Address, Result) \
+#define TR_IS_GROUP(_Address, _Result) \
 { \
-    PUCHAR _A = Address; \
-    PBOOLEAN _R = Result; \
-    *_R = (BOOLEAN)(_A[0] & _A[2] & ((UCHAR)0x80)); \
+    *(_Result) = (BOOLEAN)((_Address)[0] & (_Address)[2] & ((UCHAR)0x80)); \
 }
 
 //
 //
-#define TR_IS_SOURCE_ROUTING(Address, Result) \
-{ \
-    PUCHAR _A = Address; \
-    PBOOLEAN _R = Result; \
-    *_R = (BOOLEAN)(_A[0] >> 7);\
+#define TR_IS_SOURCE_ROUTING(_Address, _Result)   \
+{ 												  \
+    *(_Result) = (BOOLEAN)((_Address)[0] & 0x80); \
 }
+
+//
+//	Check for NDIS_PACKET_TYPE_MAC_FRAME
+//
+#define TR_IS_MAC_FRAME(_PacketHeader)			\
+	((((PUCHAR)_PacketHeader)[1] & 0xFC) == 0)
 
 
 //
-// Check whether an address is broadcast.
+// Check whether an address is broadcast. This is a little-endian check.
 //
-#define TR_IS_BROADCAST(Address, Result) \
+#define TR_IS_BROADCAST(_Address, _Result) \
 { \
-    PUCHAR _A = Address; \
-    PBOOLEAN _R = Result; \
-    *_R = (BOOLEAN)((((_A[0] == ((UCHAR)0xff)) && \
-                      (_A[1] == ((UCHAR)0xff))) || \
-                     ((_A[0] == ((UCHAR)0xc0)) && \
-                      (_A[1] == ((UCHAR)0x00)))) && \
-                    (_A[2] == ((UCHAR)0xff)) && \
-                    (_A[3] == ((UCHAR)0xff)) && \
-                    (_A[4] == ((UCHAR)0xff)) && \
-                    (_A[5] == ((UCHAR)0xff)));  \
+    *(_Result) = (BOOLEAN)(((*(UNALIGNED USHORT *)&(_Address)[0] == 0xFFFF) || \
+                            (*(UNALIGNED USHORT *)&(_Address)[0] == 0x00C0)) && \
+                           (*(UNALIGNED ULONG *)&(_Address)[2] == 0xFFFFFFFF)); \
 }
 
 
@@ -119,24 +110,31 @@ typedef ULONG TR_GROUP_ADDRESS;
 // defined relation on network addresses.  This is ad-hoc!
 //
 //
-#define TR_COMPARE_NETWORK_ADDRESSES(A, B, Result) \
+#define TR_COMPARE_NETWORK_ADDRESSES(_A, _B, _Result)              \
 {                                                                  \
-    PUCHAR _A = (PUCHAR)(A);                                       \
-    PUCHAR _B = (PUCHAR)(B);                                       \
-    if ( *(ULONG UNALIGNED *)&_A[2] >                              \
-         *(ULONG UNALIGNED *)&_B[2] ) {                            \
-        *Result = 1;                                               \
-    } else if ( *(ULONG UNALIGNED *)&_A[2] <                       \
-                *(ULONG UNALIGNED *)&_B[2] ) {                     \
-        *Result = (UINT)-1;                                        \
-    } else if ( *(USHORT UNALIGNED *)_A >                          \
-                *(USHORT UNALIGNED *)_B ) {                        \
-        *Result = 1;                                               \
-    } else if ( *(USHORT UNALIGNED *)_A <                          \
-                *(USHORT UNALIGNED *)_B ) {                        \
-        *Result = (UINT)-1;                                        \
-    } else {                                                       \
-        *Result = 0;                                               \
+    if (*(ULONG UNALIGNED *)&(_A)[2] >                             \
+         *(ULONG UNALIGNED *)&(_B)[2])                             \
+	{                                                              \
+        *(_Result) = 1;                                            \
+    }                                                              \
+	else if (*(ULONG UNALIGNED *)&(_A)[2] <                        \
+                *(ULONG UNALIGNED *)&(_B)[2])                      \
+	{                                                              \
+        *(_Result) = (UINT)-1;                                     \
+    }                                                              \
+	else if (*(USHORT UNALIGNED *)(_A) >                           \
+                *(USHORT UNALIGNED *)(_B))                         \
+	{                                                              \
+        *(_Result) = 1;                                            \
+    }                                                              \
+	else if (*(USHORT UNALIGNED *)(_A) <                           \
+                *(USHORT UNALIGNED *)(_B))                         \
+	{                                                              \
+        *(_Result) = (UINT)-1;                                     \
+    }                                                              \
+	else                                                           \
+	{                                                              \
+        *(_Result) = 0;                                            \
     }                                                              \
 }
 
@@ -153,17 +151,18 @@ typedef ULONG TR_GROUP_ADDRESS;
 //  Result == 0 Implies equality.
 //
 //
-#define TR_COMPARE_NETWORK_ADDRESSES_EQ(A,B,Result)                \
+#define TR_COMPARE_NETWORK_ADDRESSES_EQ(_A, _B, _Result)           \
 {                                                                  \
-    PUCHAR _A = (PUCHAR)(A);                                       \
-    PUCHAR _B = (PUCHAR)(B);                                       \
-    if ( ( *(ULONG UNALIGNED *)&_A[2] ==                           \
-           *(ULONG UNALIGNED *)&_B[2] ) &&                         \
-         ( *(USHORT UNALIGNED *)_A ==                              \
-           *(USHORT UNALIGNED *)_B ) ) {                           \
-        *Result = 0;                                               \
-    } else {                                                       \
-        *Result = 1;                                               \
+    if ((*(ULONG UNALIGNED *)&(_A)[2] ==                           \
+           *(ULONG UNALIGNED *)&(_B)[2]) &&                        \
+         (*(USHORT UNALIGNED *)(_A) ==                             \
+           *(USHORT UNALIGNED *)(_B)))                             \
+	{                                                              \
+        *(_Result) = 0;                                            \
+    }                                                              \
+	else                                                           \
+	{                                                              \
+        *(_Result) = 1;                                            \
     }                                                              \
 }
 
@@ -172,16 +171,10 @@ typedef ULONG TR_GROUP_ADDRESS;
 // This macro is used to copy from one network address to
 // another.
 //
-#define TR_COPY_NETWORK_ADDRESS(D, S) \
+#define TR_COPY_NETWORK_ADDRESS(_D, _S) \
 { \
-    PCHAR _D = (D); \
-    PCHAR _S = (S); \
-    _D[0] = _S[0]; \
-    _D[1] = _S[1]; \
-    _D[2] = _S[2]; \
-    _D[3] = _S[3]; \
-    _D[4] = _S[4]; \
-    _D[5] = _S[5]; \
+    *((ULONG UNALIGNED *)(_D)) = *((ULONG UNALIGNED *)(_S)); \
+    *((USHORT UNALIGNED *)((UCHAR *)(_D)+4)) = *((USHORT UNALIGNED *)((UCHAR *)(_S)+4)); \
 }
 
 
@@ -189,7 +182,7 @@ typedef ULONG TR_GROUP_ADDRESS;
 //UINT
 //TR_QUERY_FILTER_CLASSES(
 //    IN PTR_FILTER Filter
-//    )
+//   )
 //
 // This macro returns the currently enabled filter classes.
 //
@@ -203,7 +196,7 @@ typedef ULONG TR_GROUP_ADDRESS;
 //TR_QUERY_PACKET_FILTER(
 //    IN PTR_FILTER Filter,
 //    IN NDIS_HANDLE NdisFilterHandle
-//    )
+//   )
 //
 // This macro returns the currently enabled filter classes for a specific
 // open instance.
@@ -219,7 +212,7 @@ typedef ULONG TR_GROUP_ADDRESS;
 //UINT
 //TR_QUERY_FILTER_ADDRESSES(
 //    IN PTR_FILTER Filter
-//    )
+//   )
 //
 // This macro returns the currently enabled functional address.
 //
@@ -233,7 +226,7 @@ typedef ULONG TR_GROUP_ADDRESS;
 //UINT
 //TR_QUERY_FILTER_GROUP(
 //    IN PTR_FILTER Filter
-//    )
+//   )
 //
 // This macro returns the currently enabled Group address.
 //
@@ -249,7 +242,7 @@ typedef ULONG TR_GROUP_ADDRESS;
 //TR_QUERY_FILTER_BINDING_ADDRESS(
 //    IN PTR_FILTER Filter
 //    IN NDIS_HANDLE NdisFilterHandle,
-//    )
+//   )
 //
 // This macro returns the currently desired functional addresses
 // for the specified binding.
@@ -267,7 +260,7 @@ typedef ULONG TR_GROUP_ADDRESS;
 //TR_QUERY_FILTER_BINDING_GROUP(
 //    IN PTR_FILTER Filter
 //    IN NDIS_HANDLE NdisFilterHandle,
-//    )
+//   )
 //
 // This macro returns TRUE if the specified binding is using the
 // current group address.
@@ -293,7 +286,7 @@ NDIS_STATUS
     IN NDIS_HANDLE MacBindingHandle,
     IN PNDIS_REQUEST NdisRequest,
     IN BOOLEAN Set
-    );
+   );
 
 //
 // This action routine is called when the functional address
@@ -310,7 +303,7 @@ NDIS_STATUS
     IN NDIS_HANDLE MacBindingHandle,
     IN PNDIS_REQUEST NdisRequest,
     IN BOOLEAN Set
-    );
+   );
 
 
 //
@@ -328,7 +321,7 @@ NDIS_STATUS
     IN NDIS_HANDLE MacBindingHandle,
     IN PNDIS_REQUEST NdisRequest,
     IN BOOLEAN Set
-    );
+   );
 
 
 
@@ -345,34 +338,47 @@ typedef
 VOID
 (*TR_DEFERRED_CLOSE)(
     IN NDIS_HANDLE MacBindingHandle
-    );
+   );
 
 
 //
 // The binding info is threaded on two lists.  When
 // the binding is free it is on a single freelist.
 //
-// When the binding is being used it is on a doubly linked
-// index list.
+// When the binding is being used it is on an index list
+// and possibly on seperate broadcast and directed lists.
 //
-typedef struct _TR_BINDING_INFO {
+typedef struct _TR_BINDING_INFO
+{
     NDIS_HANDLE MacBindingHandle;
     NDIS_HANDLE NdisBindingContext;
     UINT PacketFilters;
     TR_FUNCTIONAL_ADDRESS FunctionalAddress;
-    struct _TR_BINDING_INFO *NextOpen;
-    struct _TR_BINDING_INFO *PrevOpen;
+	struct _TR_BINDING_INFO *NextOpen;
+	ULONG					dummy1;
     UINT References;
     UCHAR FilterIndex;
     BOOLEAN UsingGroupAddress;
     BOOLEAN ReceivedAPacket;
+
+    //
+    //	the following pointers are used to traverse the specific
+    //	filter lists.
+    //
+    TR_FUNCTIONAL_ADDRESS   OldFunctionalAddress;
+    UINT                    OldPacketFilters;
+	BOOLEAN					OldUsingGroupAddress;
+    struct _TR_BINDING_INFO	*NextDirected;
+    struct _TR_BINDING_INFO *NextBFG;
+
 } TR_BINDING_INFO,*PTR_BINDING_INFO;
 
 //
 // An opaque type that contains a filter database.
 // The MAC need not know how it is structured.
 //
-typedef struct _TR_FILTER {
+typedef struct _TR_FILTER
+{
 
     //
     // Spin lock used to protect the filter from multiple accesses.
@@ -422,7 +428,22 @@ typedef struct _TR_FILTER {
     //
     ULONG FreeBindingMask;
 
-} TR_FILTER,*PTR_FILTER;
+    //
+    //	Filter specific list for optimization.
+    //
+    TR_FUNCTIONAL_ADDRESS   OldCombinedFunctionalAddress;
+    TR_FUNCTIONAL_ADDRESS   OldGroupAddress;
+    UINT                    OldGroupReferences;
+    UINT                    OldCombinedPacketFilter;
+	//
+	// The list of bindings are seperated for directed and broadcast/multicast
+	// Promiscuous bindings are on both lists
+	//
+    PTR_BINDING_INFO        DirectedList;	// List of bindings for directed packets
+    PTR_BINDING_INFO        BFGList;		// List of bindings for broadcast/functional packets
+
+	struct _NDIS_MINIPORT_BLOCK *Miniport;
+} TR_FILTER, *PTR_FILTER;
 
 //
 // Only for internal wrapper use.
@@ -430,17 +451,17 @@ typedef struct _TR_FILTER {
 VOID
 TrInitializePackage(
     VOID
-    );
+   );
 
 VOID
 TrReferencePackage(
     VOID
-    );
+   );
 
 VOID
 TrDereferencePackage(
     VOID
-    );
+   );
 
 //
 // Exported functions
@@ -455,13 +476,13 @@ TrCreateFilter(
     IN PUCHAR AdapterAddress,
     IN PNDIS_SPIN_LOCK Lock,
     OUT PTR_FILTER *Filter
-    );
+   );
 
 EXPORT
 VOID
 TrDeleteFilter(
     IN PTR_FILTER Filter
-    );
+   );
 
 EXPORT
 BOOLEAN
@@ -470,7 +491,7 @@ TrNoteFilterOpenAdapter(
     IN NDIS_HANDLE MacBindingHandle,
     IN NDIS_HANDLE NdisBindingContext,
     OUT PNDIS_HANDLE NdisFilterHandle
-    );
+   );
 
 EXPORT
 NDIS_STATUS
@@ -478,7 +499,7 @@ TrDeleteFilterOpenAdapter(
     IN PTR_FILTER Filter,
     IN NDIS_HANDLE NdisFilterHandle,
     IN PNDIS_REQUEST NdisRequest
-    );
+   );
 
 EXPORT
 NDIS_STATUS
@@ -488,7 +509,7 @@ TrChangeFunctionalAddress(
     IN PNDIS_REQUEST NdisRequest,
     IN CHAR FunctionalAddressArray[TR_LENGTH_OF_FUNCTIONAL],
     IN BOOLEAN Set
-    );
+   );
 
 EXPORT
 NDIS_STATUS
@@ -498,7 +519,106 @@ TrChangeGroupAddress(
     IN PNDIS_REQUEST NdisRequest,
     IN CHAR GroupAddressArray[TR_LENGTH_OF_FUNCTIONAL],
     IN BOOLEAN Set
-    );
+   );
+
+#define	TrShouldAddressLoopBackMacro(_Filter,													\
+									 _DAddress,													\
+									 _SAddress,													\
+									 _pfLoopback,												\
+									 _pfSelfDirected)											\
+{																								\
+	/* Holds the result of address determinations. */											\
+	BOOLEAN ResultOfAddressCheck;																\
+																								\
+	BOOLEAN IsSourceRouting;																	\
+																								\
+	UINT CombinedFilters;																		\
+																								\
+	ULONG GroupAddress;																			\
+																								\
+	*(_pfLoopback) = FALSE;																		\
+	*(_pfSelfDirected) = FALSE;																	\
+																								\
+	do																							\
+	{																							\
+		/* Convert the 32 bits of the address to a longword. */									\
+		RetrieveUlong(&GroupAddress, ((_DAddress) + 2));										\
+																								\
+		/* Check if the destination is a preexisting group address */							\
+		TR_IS_GROUP((_DAddress), &ResultOfAddressCheck);										\
+																								\
+		if ((ResultOfAddressCheck) &&															\
+			(GroupAddress == (_Filter)->GroupAddress) &&										\
+			((_Filter)->GroupReferences != 0))													\
+		{																						\
+			*(_pfLoopback) = TRUE;																\
+			break;																				\
+		}																						\
+		else																					\
+		{																						\
+			CombinedFilters = TR_QUERY_FILTER_CLASSES(_Filter);									\
+																								\
+			TR_IS_SOURCE_ROUTING((_SAddress), &IsSourceRouting);								\
+																								\
+			if (IsSourceRouting && (CombinedFilters & NDIS_PACKET_TYPE_SOURCE_ROUTING)) 		\
+			{																					\
+				*(_pfLoopback) = TRUE;															\
+				break;																			\
+			}																					\
+			else                                                                                \
+			{                                                                                   \
+				/* First check if it *at least* has the functional address bit. */				\
+				TR_IS_NOT_DIRECTED((_DAddress), &ResultOfAddressCheck);							\
+																								\
+				if (ResultOfAddressCheck)														\
+				{																				\
+					/* It is at least a functional address.  Check to see if */					\
+					/* it is a broadcast address. */											\
+																								\
+					TR_IS_BROADCAST((_DAddress), &ResultOfAddressCheck);						\
+																								\
+					if (ResultOfAddressCheck)													\
+					{																			\
+						if (CombinedFilters & NDIS_PACKET_TYPE_BROADCAST)						\
+						{																		\
+							*(_pfLoopback) = TRUE;												\
+							break;																\
+						}																		\
+					}																			\
+					else																		\
+					{																			\
+						if (CombinedFilters &													\
+							(NDIS_PACKET_TYPE_ALL_FUNCTIONAL | NDIS_PACKET_TYPE_FUNCTIONAL))	\
+						{																		\
+							*(_pfLoopback) = TRUE;												\
+							break;																\
+						}																		\
+					}																			\
+				}																				\
+				else																			\
+				{																				\
+					/* See if it is self-directed. */											\
+																								\
+					if ((*(ULONG UNALIGNED  *)(_DAddress + 2) ==								\
+						 *(ULONG UNALIGNED  *)(&(_Filter)->AdapterAddress[2])) &&				\
+						(*(USHORT UNALIGNED *)(_DAddress) ==									\
+						 *(USHORT UNALIGNED *)(&(_Filter)->AdapterAddress[0])))					\
+					{																			\
+						*(_pfLoopback) = TRUE;													\
+						*(_pfSelfDirected) = FALSE;												\
+						break;																	\
+					}																			\
+				}																				\
+																								\
+			}                                                                                   \
+		}                                                                                       \
+	} while (FALSE);																			\
+																								\
+	if (CombinedFilters & (NDIS_PACKET_TYPE_PROMISCUOUS | NDIS_PACKET_TYPE_ALL_LOCAL)) 			\
+	{																							\
+		*(_pfLoopback) = TRUE;																	\
+	}																							\
+}
 
 EXPORT
 BOOLEAN
@@ -506,7 +626,7 @@ TrShouldAddressLoopBack(
     IN PTR_FILTER Filter,
     IN CHAR DestinationAddress[TR_LENGTH_OF_ADDRESS],
     IN CHAR SourceAddress[TR_LENGTH_OF_ADDRESS]
-    );
+   );
 
 EXPORT
 NDIS_STATUS
@@ -516,7 +636,7 @@ TrFilterAdjust(
     IN PNDIS_REQUEST NdisRequest,
     IN UINT FilterClasses,
     IN BOOLEAN Set
-    );
+   );
 
 EXPORT
 VOID
@@ -528,7 +648,7 @@ TrFilterIndicateReceive(
     IN PVOID LookaheadBuffer,
     IN UINT LookaheadBufferSize,
     IN UINT PacketSize
-    );
+   );
 
 EXPORT
 VOID
@@ -540,19 +660,28 @@ TrFilterDprIndicateReceive(
     IN PVOID LookaheadBuffer,
     IN UINT LookaheadBufferSize,
     IN UINT PacketSize
-    );
+   );
+
+EXPORT
+VOID
+TrFilterDprIndicateReceivePacket(
+	IN NDIS_HANDLE	MiniportHandle,
+	IN PPNDIS_PACKET ReceivedPackets,
+	IN UINT NumberOfPackets
+   );
 
 EXPORT
 VOID
 TrFilterIndicateReceiveComplete(
     IN PTR_FILTER Filter
-    );
+   );
 
 EXPORT
 VOID
 TrFilterDprIndicateReceiveComplete(
     IN PTR_FILTER Filter
-    );
+   );
 
 
 #endif // _TR_FILTER_DEFS_
+

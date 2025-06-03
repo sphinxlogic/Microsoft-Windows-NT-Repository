@@ -130,10 +130,10 @@ Return Value:
                 & ValueSize
                 );
         IF_DEBUG(CONFIG) {
-            NetpDbgPrint( PREFIX_NETLIB
+            NetpKdPrint(( PREFIX_NETLIB
                     "NetpGetConfigTStrArray: RegQueryValueEx("
                     FORMAT_LPTSTR ") returned " FORMAT_LONG ".\n",
-                    Keyword, Error );
+                    Keyword, Error ));
         }
         if (Error == ERROR_FILE_NOT_FOUND) {
             NetpMemoryFree( ArrayStart );
@@ -144,9 +144,9 @@ Return Value:
         } else if (dwType != REG_MULTI_SZ) {
             NetpMemoryFree( ArrayStart );
             IF_DEBUG(CONFIG) {
-                NetpDbgPrint( PREFIX_NETLIB
+                NetpKdPrint(( PREFIX_NETLIB
                         "NetpGetConfigTStrArray: got unexpected reg type "
-                        FORMAT_DWORD ".\n", dwType );
+                        FORMAT_DWORD ".\n", dwType ));
             }
             return (ERROR_INVALID_DATA);
         }
@@ -158,8 +158,8 @@ Return Value:
     // BUGBUG: realloc array to shrink it.
 
     IF_DEBUG(CONFIG) {
-        NetpDbgPrint( PREFIX_NETLIB "NetpGetConfigTStrArray: value for '"
-                FORMAT_LPTSTR "':\n", Keyword);
+        NetpKdPrint(( PREFIX_NETLIB "NetpGetConfigTStrArray: value for '"
+                FORMAT_LPTSTR "':\n", Keyword));
         NetpDisplayTStrArray( ArrayStart );
     }
 
@@ -167,11 +167,11 @@ Return Value:
     return NERR_Success;
 
 #elif defined(FAKE_PER_PROCESS_RW_CONFIG)
-    
+
     return (ERROR_NOT_SUPPORTED);
 
 #else  // NT RTL read-only temporary stuff
-    
+
     return (ERROR_NOT_SUPPORTED);
 
 #endif  // NT RTL read-only temporary stuff

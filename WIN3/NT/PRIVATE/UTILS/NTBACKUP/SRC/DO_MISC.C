@@ -592,4 +592,170 @@ BOOLEAN GetOriginalOwnerOfTape( DBLK_PTR   vcb_ptr,
    return( FALSE );                 // no tape found
 
 }
+/*****************************************************************************
+
+     Name:         UI_AddSpecialIncOrExc
+
+     Description:  Abort current operation at the end of the current file.
+
+     Returns:      SUCCESS
+
+*****************************************************************************/
+VOID UI_AddSpecialIncOrExc( BSD_PTR bsd, BOOLEAN IsInclude ) 
+{
+   INT    index = 0;
+   CHAR   *name;
+   LONG   ret;
+   ULONG  ulOptions = 0L ;
+   HKEY   key2;
+   REGSAM samDesired = KEY_QUERY_VALUE;
+   CHAR   data[ 512 ];
+   CHAR   ValueKey[ 512 ];
+   INT    value_size;
+   INT    data_size;
+   FSE_PTR fse ;
+   INT16   dir_size ;
+   CHAR_PTR p;
+   CHAR_PTR q;
+   CHAR     log_name[256] ;
+
+   ret = GetEnvironmentVariable( TEXT("SystemRoot"), &data, 256 ) ;
+
+   if ( ret && IsInclude ) {
+       strcat( data, TEXT("\\profiles") ) ;
+       p = strchr( data, TEXT('\\') ) ;
+       if ( p == NULL ) {
+          p = data ;
+       } else {
+          p++ ;
+       }
+       dir_size = strsize( p ) ;
+       q = p ;
+       while (*q ) {
+          if (*q == TEXT('\\') ) {
+             *q = 0;
+          }
+          q++ ;
+       }
+       if ( SUCCESS == BSD_CreatFSE ( &fse,
+                                     (IsInclude?INCLUDE:EXCLUDE),
+                                      p,
+                                      dir_size,
+                                      TEXT("*") ,
+                                      2 * sizeof(CHAR),
+                                      TRUE,
+                                      TRUE ) ) {
+          BSD_AddFSE( bsd, fse ) ;
+       }
+   }
+
+
+   ret = RegOpenKeyEx( HKEY_LOCAL_MACHINE,
+                       TEXT("system\\currentcontrolset\\control\\hivelist"),
+                       ulOptions, samDesired, &key2 ) ;
+
+   if ( ret ) {
+      return ;
+   }
+
+   do {
+
+      value_size = 512 ;
+      data_size = 512 ;
+
+      ret = RegEnumValue( key2,
+                          index,
+                          ValueKey,
+                          (LPDWORD)&value_size,
+                          NULL,
+                          NULL,
+                          (LPBYTE)
+                          data,
+                          (LPDWORD)&data_size );
+
+      if ( ! ret ) {
+
+         // separate file name from end of data.
+
+         data_size /= sizeof(CHAR);
+
+         data[ data_size ] = 0;
+
+         while ( ( data[ data_size ] != TEXT( '\\' ) ) && data_size )
+         {
+            data_size--;
+         }
+
+         if ( data_size )
+         {
+            name = &data[ data_size + 1 ];
+            data[data_size] = 0 ;
+            p = strchr( data, TEXT('\\') ) ;
+            if ( p ) {
+               p = strchr( p+1, TEXT('\\') ) ;
+            }
+            if ( p ) {
+               p = strchr( p+1, TEXT('\\') ) ;
+            }
+            if ( p ) {
+               p = strchr( p+1, TEXT('\\') ) ;
+            }
+            if ( p ) {
+               q = p + 1 ;
+               dir_size = strsize( q ) ;
+               while (*q ) {
+                    if (*q == TEXT('\\') ) {
+                         *q = 0;
+                    }
+                    q++ ;
+               }
+               if ( SUCCESS == BSD_CreatFSE ( &fse,
+                                               (IsInclude?INCLUDE:EXCLUDE),
+                                               p+1,
+                                               dir_size,
+                                               name,
+                                               strsize( name ),
+                                               FALSE,
+                                               FALSE ) ) {
+                    BSD_AddFSE( bsd, fse ) ;
+               }
+               strcpy( log_name, name ) ;
+               strcat( log_name, TEXT(".LOG") ) ;
+
+               if ( SUCCESS == BSD_CreatFSE ( &fse,
+                                               EXCLUDE,
+                                               p+1,
+                                               dir_size,
+                                               log_name,
+                                               strsize( log_name ),
+                                               FALSE,
+                                               FALSE ) ) {
+                    BSD_AddFSE( bsd, fse ) ;
+               }
+
+               strcpy( log_name, name ) ;
+               strcat( log_name, TEXT(".ALT") ) ;
+               if ( SUCCESS == BSD_CreatFSE ( &fse,
+                                               EXCLUDE,
+                                               p+1,
+                                               dir_size,
+                                               log_name,
+                                               strsize( log_name ),
+                                               FALSE,
+                                               FALSE ) ) {
+                    BSD_AddFSE( bsd, fse ) ;
+               }
+            }
+                                               
+
+         }
+      }
+
+      index++;
+
+   } while ( ! ret );
+
+   RegCloseKey( key2 );
+
+}
 

@@ -262,6 +262,22 @@ Return Value:
     }
 
     //
+    //  Now we only will allow write operations on the pipe and not a directory
+    //  or the device
+    //
+
+    if (NodeTypeCode != NPFS_NTC_CCB) {
+
+        DebugTrace(0, Dbg, "FileObject is not for a named pipe\n", 0);
+
+        NpCompleteRequest( Irp, STATUS_INVALID_PARAMETER );
+        Status = STATUS_INVALID_PARAMETER;
+
+        DebugTrace(-1, Dbg, "NpCommonQueryInformation -> %08lx\n", Status );
+        return Status;
+    }
+
+    //
     //  Call the security routine to do the actual query
     //
 
@@ -328,8 +344,6 @@ Return Value:
 
     PSECURITY_DESCRIPTOR OldSecurityDescriptor;
 
-    extern POBJECT_TYPE *IoFileObjectType;
-
     PAGED_CODE();
 
     //
@@ -357,6 +371,22 @@ Return Value:
 
         NpCompleteRequest( Irp, STATUS_PIPE_DISCONNECTED );
         Status = STATUS_PIPE_DISCONNECTED;
+
+        DebugTrace(-1, Dbg, "NpCommonQueryInformation -> %08lx\n", Status );
+        return Status;
+    }
+
+    //
+    //  Now we only will allow write operations on the pipe and not a directory
+    //  or the device
+    //
+
+    if (NodeTypeCode != NPFS_NTC_CCB) {
+
+        DebugTrace(0, Dbg, "FileObject is not for a named pipe\n", 0);
+
+        NpCompleteRequest( Irp, STATUS_INVALID_PARAMETER );
+        Status = STATUS_INVALID_PARAMETER;
 
         DebugTrace(-1, Dbg, "NpCommonQueryInformation -> %08lx\n", Status );
         return Status;

@@ -108,7 +108,7 @@ VOID GenerateGroupFiles(HKEY KeyHandle, BOOL bCommonGroup)
                 }
                 lpt = ChildKeyName;
 
-                while (*lpt && i < 8) {
+                while (*lpt) {
                     if (isalnum(*lpt)) {
                         Filename[i++] = *lpt;
                     }

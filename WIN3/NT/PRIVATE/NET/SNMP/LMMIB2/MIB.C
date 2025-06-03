@@ -1,71 +1,29 @@
-//-------------------------- MODULE DESCRIPTION ----------------------------
-//
-//  mib.c
-//
-//  Copyright 1992 Technology Dynamics, Inc.
-//
-//  All Rights Reserved!!!
-//
-//      This source code is CONFIDENTIAL and PROPRIETARY to Technology
-//      Dynamics. Unauthorized distribution, adaptation or use may be
-//      subject to civil and criminal penalties.
-//
-//  All Rights Reserved!!!
-//
-//---------------------------------------------------------------------------
-//
-//  Contains definition of LAN Manager MIB.
-//
-//  Project:  Implementation of an SNMP Agent for Microsoft's NT Kernel
-//
-//  $Revision:   1.3  $
-//  $Date:   10 Sep 1992 18:19:40  $
-//  $Author:   mlk  $
-//
-//  $Log:   N:/lmmib2/vcs/mib.c_v  $
-//
-//     Rev 1.3   10 Sep 1992 18:19:40   mlk
-//  BUG #: ? - remove domLogonDomain.
-//
-//     Rev 1.2   04 Sep 1992 17:37:04   mlk
-//  BUG #: ?? - remove domLogonDomain from MIB.
-//
-//     Rev 1.1   04 Jun 1992  9:24:34   todd
-//  Removed conflicts with the new LM Alert MIB
-//
-//     Rev 1.0   20 May 1992 15:10:26   mlk
-//  Initial revision.
-//
-//     Rev 1.6   02 May 1992 19:08:58   todd
-//  code cleanup
-//
-//     Rev 1.5   29 Apr 1992 11:19:08   todd
-//  Corrected problem with BIG BUFS Lan Man ID
-//
-//     Rev 1.4   26 Apr 1992 14:47:52   todd
-//
-//     Rev 1.3   25 Apr 1992 14:33:34   todd
-//  Added 0's to all of the leaf variables.
-//
-//     Rev 1.2   24 Apr 1992 14:33:52   todd
-//  Has support for leafs and tables.
-//
-//     Rev 1.1   23 Apr 1992 17:58:28   todd
-//
-//     Rev 1.0   22 Apr 1992 17:05:42   todd
-//  Initial revision.
-//
-//---------------------------------------------------------------------------
+/*++
 
-//--------------------------- VERSION INFO ----------------------------------
+Copyright (c) 1992-1996  Microsoft Corporation
 
-static char *vcsid = "@(#) $Logfile:   N:/lmmib2/vcs/mib.c_v  $ $Revision:   1.3  $";
+Module Name:
 
+    mib.c
+
+Abstract:
+
+    Contains definition of LAN Manager MIB.
+
+Environment:
+
+    User Mode - Win32
+
+Revision History:
+
+    10-May-1996 DonRyan
+        Removed banner from Technology Dynamics, Inc.
+
+--*/
+ 
 //--------------------------- WINDOWS DEPENDENCIES --------------------------
 
 //--------------------------- STANDARD DEPENDENCIES -- #include<xxxxx.h> ----
-
-#include <malloc.h>
 
 //--------------------------- MODULE DEPENDENCIES -- #include"xxxxx.h" ------
 
@@ -246,7 +204,7 @@ MIB_ENTRY Mib[] = {
             NULL, NULL, MIB_LM_SVSVCTABLE,
             &Mib[MIB_SV_START+3] },
           { { 3, MIB_svSvcEntry }, MIB_TABLE, // { svSvcTable 1 }
-            MIB_ACCESS_READ, MIB_STATUS_MANDATORY, FALSE,
+            MIB_ACCESS_NOT, MIB_STATUS_MANDATORY, FALSE,
             NULL, MIB_srvcs_func, MIB_LM_SVSVCENTRY,
             &Mib[MIB_SV_START+4] },
           { { 3, MIB_svStatOpens }, ASN_RFC1155_COUNTER, // { server 4 }
@@ -314,11 +272,11 @@ MIB_ENTRY Mib[] = {
             MIB_server_func, MIB_leaf_func, MIB_LM_SVSESSIONNUMBER,
             &Mib[MIB_SV_START+21] },
           { { 2, MIB_svSessionTable }, MIB_AGGREGATE, // { server 20 }
-            MIB_ACCESS_READ, MIB_STATUS_MANDATORY, FALSE,
+            MIB_ACCESS_NOT, MIB_STATUS_MANDATORY, FALSE,
             NULL, NULL, MIB_LM_SVSESSIONTABLE,
             &Mib[MIB_SV_START+21] },
           { { 3, MIB_svSessionEntry }, MIB_TABLE, // { svSessionTable 1 }
-            MIB_ACCESS_READ, MIB_STATUS_MANDATORY, FALSE,
+            MIB_ACCESS_NOT, MIB_STATUS_MANDATORY, FALSE,
             NULL, MIB_sess_func, MIB_LM_SVSESSIONENTRY,
             &Mib[MIB_SV_START+22] },
           { { 3, MIB_svAutoDisconnects }, ASN_INTEGER, // { server 21 }
@@ -328,9 +286,13 @@ MIB_ENTRY Mib[] = {
           { { 3, MIB_svDisConTime }, ASN_INTEGER, // { server 22 }
             MIB_ACCESS_READWRITE, MIB_STATUS_MANDATORY, TRUE,
             MIB_server_func, MIB_leaf_func, MIB_LM_SVDISCONTIME,
+#if 0
             &Mib[MIB_SV_START+24] },
+#else
+            &Mib[MIB_SV_START+25] },
+#endif
           { { 3, MIB_svAuditLogSize }, ASN_INTEGER, // { server 23 }
-            MIB_ACCESS_READWRITE, MIB_STATUS_MANDATORY, TRUE,
+            MIB_ACCESS_NOT, MIB_STATUS_MANDATORY, TRUE,
             MIB_server_func, MIB_leaf_func, MIB_LM_SVAUDITLOGSIZE,
             &Mib[MIB_SV_START+25] },
           { { 3, MIB_svUserNumber }, ASN_INTEGER, // { server 24 }
@@ -396,9 +358,13 @@ MIB_ENTRY Mib[] = {
           { { 3, MIB_wkstaStatAutoRecs }, ASN_RFC1155_COUNTER, // { wrksta 5 }
             MIB_ACCESS_READ, MIB_STATUS_MANDATORY, TRUE,
             MIB_workstation_func, MIB_leaf_func, MIB_LM_WKSTASTATAUTORECS,
+#if 0
             &Mib[MIB_WKSTA_START+5] },
+#else
+            &Mib[MIB_WKSTA_START+6] },
+#endif
           { { 3, MIB_wkstaErrorLogSize }, ASN_INTEGER, // { wrksta 6 }
-            MIB_ACCESS_READWRITE, MIB_STATUS_MANDATORY, TRUE,
+            MIB_ACCESS_NOT, MIB_STATUS_MANDATORY, TRUE,
             MIB_workstation_func, MIB_leaf_func, MIB_LM_WKSTAERRORLOGSIZE,
             &Mib[MIB_WKSTA_START+6] },
           { { 3, MIB_wkstaUseNumber }, ASN_INTEGER, // { wrksta 7 }
@@ -514,7 +480,7 @@ MIB_ENTRY           *pResult;
 
 
    // Check prefix
-   if ( SNMP_oidncmp(&MIB_OidPrefix, Oid, MIB_PREFIX_LEN) )
+   if ( SnmpUtilOidNCmp(&MIB_OidPrefix, Oid, MIB_PREFIX_LEN) )
       {
       pResult = NULL;
       goto Exit;
@@ -532,7 +498,7 @@ MIB_ENTRY           *pResult;
       {
       for ( I=0;I < MIB_table_list_size;I++ )
          {
-         if ( !SNMP_oidncmp(&TempOid, &MIB_Tables[I]->Oid,
+         if ( !SnmpUtilOidNCmp(&TempOid, &MIB_Tables[I]->Oid,
                             MIB_Tables[I]->Oid.idLength) )
             {
             pResult = MIB_Tables[I];
@@ -568,7 +534,7 @@ UINT    I;
 SNMPAPI nResult;
 
 
-   if ( NULL == (Oid->ids = malloc((Str->length+1) * sizeof(UINT))) )
+   if ( NULL == (Oid->ids = SnmpUtilMemAlloc((Str->length+1) * sizeof(UINT))) )
       {
       nResult = SNMP_MEM_ALLOC_ERROR;
       goto Exit;
@@ -591,4 +557,3 @@ Exit:
 } // MakeOidFromStr
 
 //-------------------------------- END --------------------------------------
-

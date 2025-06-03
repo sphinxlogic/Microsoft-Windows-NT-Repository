@@ -2740,4 +2740,4 @@ _CRTAPI1 CDECL main (argc, argv)
     DeleteFileA(pszTempFile2Log);
     return(0);
 }
-
+

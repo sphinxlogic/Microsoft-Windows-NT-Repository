@@ -8,34 +8,33 @@
 
 BOOL
 FindModule(
-    HANDLE hProcess,
-    HMODULE hModule,
-    PLDR_DATA_TABLE_ENTRY LdrEntryData
+    IN HANDLE hProcess,
+    IN HMODULE hModule,
+    OUT PLDR_DATA_TABLE_ENTRY LdrEntryData
     )
 
 /*++
 
 Routine Description:
 
-    This function retrieves the full pathname of the executable file
-    from which the specified module was loaded.  The function copies the
-    null-terminated filename into the buffer pointed to by the
-    lpFilename parameter.
+    This function retrieves the loader table entry for the specified
+    module.  The function copies the entry into the buffer pointed to
+    by the LdrEntryData parameter.
 
-Routine Description:
+Arguments:
 
-    hModule - Identifies the module whose executable file name is being
+    hProcess - Supplies the target process.
+
+    hModule - Identifies the module whose loader entry is being
         requested.  A value of NULL references the module handle
         associated with the image file that was used to create the
         process.
 
+    LdrEntryData - Returns the requested table entry.
+
 Return Value:
 
-    The return value specifies the actual length of the string copied to
-    the buffer.  A return value of zero indicates an error and extended
-    error status is available using the GetLastError function.
-
-Arguments:
+    TRUE if a matching entry was found.
 
 --*/
 

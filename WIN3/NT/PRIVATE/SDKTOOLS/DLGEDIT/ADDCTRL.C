@@ -31,6 +31,10 @@ STATICFN VOID AdjustDefaultSizes(VOID);
 STATICFN VOID DeleteControl2(NPCTYPE npcDel);
 STATICFN VOID FreeCTYPE(NPCTYPE npc);
 
+#ifdef JAPAN
+int CALLBACK GetFontCharSetEnumFunc(LPLOGFONT,LPTEXTMETRIC,int,LPARAM);
+STATICFN BYTE NEAR GetFontCharSet(LPTSTR);
+#endif
 
 
 /************************************************************************
@@ -535,7 +539,12 @@ HWND CreateControl(
         hwnd = CreateWindowEx(
                 flExtStyle,
                 pszCreateClass,
+#ifdef JAPAN
+                // pszText is ordnum for icon control.
+                iType == W_ICON ? pszText : TEXT(""),
+#else /* not JAPAN */
                 pszText,
+#endif
                 flStyle | WS_VISIBLE,
                 rcT.left, rcT.top,
                 rcT.right - rcT.left,
@@ -544,6 +553,15 @@ HWND CreateControl(
                 0,
                 ghInst,
                 NULL);
+#ifdef JAPAN
+        // It isn't necessary for ICON control to handle accel in text.
+        if( iType != W_ICON ) {
+            TCHAR   szTmp[CCHTEXTMAX];
+
+            KKExpandCopy(szTmp, pszText, CCHTEXTMAX);
+            SetWindowText(hwnd, szTmp);
+        }
+#endif
     }
 
     if (!hwnd) {
@@ -746,7 +764,12 @@ STATICFN HFONT CreateDlgFont(
      */
     memset(&lf, 0, sizeof(LOGFONT));
     lf.lfHeight = (SHORT)-PointSizeToPixels(nPointSize);
+#ifdef JAPAN
+    if ((lf.lfCharSet = GetFontCharSet(pszFontName)) != SHIFTJIS_CHARSET)
+        lf.lfWeight = FW_BOLD; // allow boldface on non ShiftJIS fonts
+#else
     lf.lfWeight = FW_BOLD;
+#endif
     lstrcpy(lf.lfFaceName, pszFontName);
 
     if (!(hFont = CreateFontIndirect(&lf)))
@@ -1093,3 +1116,78 @@ STATICFN VOID FreeCTYPE(
 
     MyFree(npc);
 }
+
+#ifdef JAPAN
+/************************************************************************
+*
+*
+*
+************************************************************************/
+
+int CALLBACK GetFontCharSetEnumFunc(LPLOGFONT lpLf,
+				    LPTEXTMETRIC lpTm,
+				    int nFontType,
+				    LPARAM lParam)
+{
+    LPBYTE lpB = (LPBYTE)lParam;
+    *lpB = lpTm->tmCharSet;
+    return 0; // no more enum
+}
+
+/************************************************************************
+*
+*
+*
+************************************************************************/
+
+STATICFN BYTE NEAR GetFontCharSet(LPTSTR lpStr)
+{
+    HDC hDC;
+    BYTE cbCharset = SHIFTJIS_CHARSET;
+    FONTENUMPROC lpEFCB = (FONTENUMPROC)MakeProcInstance(
+                              (FARPROC)GetFontCharSetEnumFunc,
+                              ghInst);
+    if (hDC = GetDC(ghwndMain)) {
+        EnumFonts(hDC, lpStr, lpEFCB, (LPARAM)&cbCharset);
+        ReleaseDC(ghwndMain,hDC);
+    }
+    FreeProcInstance(lpEFCB);
+    return cbCharset;
+}
+
+/************************************************************************
+* Copy strings to the buffer. Codes \036 and \037 are expend to
+* text string "\036" and "\037" respectively. t-Yoshio
+************************************************************************/
+
+VOID KDExpandCopy(LPTSTR pszDest, LPTSTR pszSrc, WORD wLimit)
+{
+    int  i;
+    LPTSTR p = pszSrc;
+
+    wLimit--;
+    for (i = 0; i < wLimit && p && *p; i++) {
+        if (*p == 036 || *p == 037) {
+            if (i < wLimit-4) {
+                lstrcpy(&pszDest[i], (*p == 036) ? TEXT("\\036") : TEXT("\\037"));
+                i += 3;
+            } else {
+                break;
+            }
+        } else {
+            pszDest[i] = *p;
+        }
+#if defined(DBCS) && !defined(UNICODE)
+        if (IsDBCSLeadByte((BYTE)*p)) {
+            if (i == wLimit - 1) {
+                break;
+            }
+            pszDest[++i] = *(p+1);
+        }
+#endif
+
+        p = CharNext(p);
+    }
+    pszDest[i] = '\0';
+}
+#endif  //JAPAN

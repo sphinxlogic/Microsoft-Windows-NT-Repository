@@ -6,10 +6,10 @@
 #define WU_DRAWMETER        WM_USER+102
 #define WU_COPY_DONE        WM_USER+103
 
-#define MACH_I386           1
-#define MACH_MIPS           2
-#define MACH_ALPHA          3
-
+#define MACH_I386   PROCESSOR_ARCHITECTURE_INTEL
+#define MACH_MIPS   PROCESSOR_ARCHITECTURE_MIPS
+#define MACH_ALPHA  PROCESSOR_ARCHITECTURE_ALPHA
+#define MACH_PPC    PROCESSOR_ARCHITECTURE_PPC
 
 typedef struct ADDSERVERS {
     CHAR        PreferredServer[64];
@@ -62,7 +62,7 @@ typedef struct SERVERLIST {
 typedef BOOL (CALLBACK* COPYCALLBACKPROC)(DWORD, DWORD, DWORD, LPARAM);
 
 DWORD
-CopyFileEx(
+MyCopyFileEx(
     LPSTR lpExistingFileName,
     LPSTR lpNewFileName,
     COPYCALLBACKPROC lpCallBack,

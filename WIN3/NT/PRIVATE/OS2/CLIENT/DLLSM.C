@@ -81,6 +81,9 @@ DosStartSession(
     PSZ             VariablesBuffer, ArgumentsBuffer;
     PSZ             ExecFileName;
     NTSTATUS        Status, ExePgmFileType;
+#if PMNT
+    ULONG           IsPMApp;
+#endif // PMNT
     HANDLE          hThread, hProcess, hRedirectedFile;
     THREAD_BASIC_INFORMATION ThreadInfo;
     OS2_STDHANDLES  StdStruc;
@@ -190,7 +193,7 @@ DosStartSession(
         PgmName = "CMD.EXE";
     }
 
-    VariablesBuffer = (TmpInheritOpt) ? (PSZ)StartData->Environment : (PSZ)NULL;
+    VariablesBuffer = (PSZ)StartData->Environment;
     ArgumentsBuffer = (PgmInput) ? (PSZ)PgmInput : (PSZ)StartData->PgmInputs;
     ExecFileName = PgmName ? PgmName : StartData->PgmName;
 
@@ -200,6 +203,9 @@ DosStartSession(
     rc = Od2FormatExecPgmMessage( a,
                                   &CaptureBuffer,
                                   &ExePgmFileType,
+#if PMNT
+                                  &IsPMApp,
+#endif // PMNT
                                   TmpObjectBuffer,
                                   TmpObjectBuffLen,
                                   Flags | 0x80000000,
@@ -235,7 +241,7 @@ DosStartSession(
         // to server.
         //
 
-        if ( StartData->TermQ )
+        if ( StartData->TermQ && (*(StartData->TermQ) != '\0'))
         {
 
         //
@@ -250,7 +256,7 @@ DosStartSession(
                 RtlFreeHeap( Od2Heap, 0, ExecFileName );
                 Od2FreeCaptureBuffer( CaptureBuffer );
                 NtClose(a->hRedirectedFile);
-                return rc;
+                return ERROR_QUE_NAME_NOT_EXIST;
             }
 
             b->QueueHandleIndex |= 0x80000000;
@@ -354,6 +360,9 @@ DosStartSession(
            ArgumentsBuffer,
            VariablesBuffer,
            ExecFileName,
+#if PMNT
+           IsPMApp,
+#endif // PMNT
            StartData,
            &StdStruc,          // will do the redirection if Win32 program
            &hProcess,

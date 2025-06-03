@@ -19,31 +19,45 @@ Revision History:
 
 --*/
 
-#include <string.h>
-
-#include <sysinc.h>
-#include <rpc.h>
-#include <rpcdcep.h>
-#include <rpcerrp.h>
-#include <util.hxx>
-#include <rpcuuid.hxx>
-#include <binding.hxx>
-#include <linklist.hxx>
-#include <threads.hxx>
-#include <mutex.hxx>
-#include <handle.hxx>
+#include <precomp.hxx>
 #include <epmap.h>
+
+#ifdef DOSWIN32RPC
+#define DBCS_ENABLED 1
+#endif
 
 #ifdef WIN
 
 //NotifyRegister writes over hTask:0x28.
 //We sacrifice the 0x40 bytes to appease the Win31 gods here
 //
-char near *LeaveSomeRoom = "SomeSpaceToSacrifice";
-char near *LeaveSomeRoom2 = "Cannot Really Use it and this is bad";
-char near *LeaveSomeRoom3 = "Cannot Really Use it and this is bad";
+
+char LeaveSomeRoom[0x30] = { 'x' };
+
 #endif
 
+
+#ifdef WIN32RPC
+
+UUID   MgmtIf = { 0xafa8bd80,0x7d8a,0x11c9,
+                    {0xbe,0xf4,0x08,0x00,0x2b,0x10,0x29,0x89} };
+UUID   NullUuid = { 0L, 0, 0, {0,0,0,0,0,0,0,0} };
+
+
+int
+IsMgmtIfUuid(
+   UUID PAPI * IfId
+   )
+{
+
+  if (RpcpMemoryCompare(IfId, &MgmtIf, sizeof(UUID)) == 0)
+      {
+      return 1;
+      }
+
+  return 0;
+}
+#endif
 
 
 RPC_CHAR *
@@ -220,6 +234,23 @@ Return Value:
 
 --*/
 {
+#ifdef DBCS_ENABLED
+    ASSERT(IsDBCSLeadByte((RPC_CHAR)Character) == FALSE);
+    ASSERT(IsDBCSLeadByte(RPC_CONST_CHAR('\\')) == FALSE);
+
+    while(*String != (RPC_CHAR)Character)
+        {
+        if (*String == 0)
+            return(0);
+
+        if (*String == RPC_CONST_CHAR('\\'))
+            {
+            String = (RPC_CHAR *)CharNext((LPCSTR)String);
+            }
+        String = (RPC_CHAR *)CharNext((LPCSTR)String);
+        }
+    return(String);
+#else
     while (*String != (RPC_CHAR) Character)
         {
         if (*String == 0)
@@ -229,6 +260,7 @@ Return Value:
         String++;
         }
     return(String);
+#endif
 }
 
 
@@ -259,15 +291,46 @@ Return Value:
 
 --*/
 {
+    BOOL fLastQuote = FALSE;
+
+#ifdef DBCS_ENABLED
+    ASSERT(IsDBCSLeadByte('\\') == FALSE);
+#endif
+
+
     while ((*Destination = *Source) != 0)
         {
-        if (*Source == RPC_CONST_CHAR('\\'))
+#ifdef DBCS_ENABLED
+        if (IsDBCSLeadByte(*Source))
             {
-            Source += 1;
+            // Copy the whole DBCS character; don't look for
+            // escapes within the character.
+            Destination++;
+            Source++;
             *Destination = *Source;
+            if (*Source == 0)
+                {
+                ASSERT(0);  // Bad string, NULL following a lead byte.
+                return;
+                }
+            Destination++;
+            Source++;
             }
-        Destination += 1;
-        Source += 1;
+        else
+#endif
+            {
+            if (   *Source != RPC_CONST_CHAR('\\')
+                || fLastQuote == TRUE)
+                {
+                Destination++;
+                fLastQuote = FALSE;
+                }
+            else
+                {
+                fLastQuote = TRUE;
+                }
+            Source++;
+            }
         }
 }
 
@@ -801,16 +864,26 @@ Return Value:
     Length = 0;
     while (*String != 0)
         {
-        if (   (*String == RPC_CONST_CHAR('@'))
-            || (*String == RPC_CONST_CHAR(':'))
-            || (*String == RPC_CONST_CHAR('\\'))
-            || (*String == RPC_CONST_CHAR('['))
-            || (*String == RPC_CONST_CHAR(']'))
-            || (*String == RPC_CONST_CHAR(',')))
+#ifdef DBCS_ENABLED
+        if (IsDBCSLeadByte(*String))
+            {
+            String += 2;
             Length += 2;
+            }
         else
-            Length += 1;
-        String += 1;
+#endif
+            {
+            if (   (*String == RPC_CONST_CHAR('@'))
+                || (*String == RPC_CONST_CHAR(':'))
+                || (*String == RPC_CONST_CHAR('\\'))
+                || (*String == RPC_CONST_CHAR('['))
+                || (*String == RPC_CONST_CHAR(']'))
+                || (*String == RPC_CONST_CHAR(',')))
+                Length += 2;
+            else
+                Length += 1;
+            String += 1;
+            }
         }
     return(Length);
 }
@@ -842,15 +915,26 @@ Return Value:
 {
     while ((*Destination = *Source) != 0)
         {
-        if (   (*Source == RPC_CONST_CHAR('@'))
-            || (*Source == RPC_CONST_CHAR(':'))
-            || (*Source == RPC_CONST_CHAR('\\'))
-            || (*Source == RPC_CONST_CHAR('['))
-            || (*Source == RPC_CONST_CHAR(']'))
-            || (*Source == RPC_CONST_CHAR(',')))
+#ifdef DBCS_ENABLED
+        if (IsDBCSLeadByte(*Source))
             {
-            *Destination++ = RPC_CONST_CHAR('\\');
+            Destination++;
+            Source++;
             *Destination = *Source;
+            }
+        else
+#endif
+            {
+            if (   (*Source == RPC_CONST_CHAR('@'))
+                || (*Source == RPC_CONST_CHAR(':'))
+                || (*Source == RPC_CONST_CHAR('\\'))
+                || (*Source == RPC_CONST_CHAR('['))
+                || (*Source == RPC_CONST_CHAR(']'))
+                || (*Source == RPC_CONST_CHAR(',')))
+                {
+                *Destination++ = RPC_CONST_CHAR('\\');
+                *Destination = *Source;
+                }
             }
         Destination++;
         Source++;
@@ -1038,7 +1122,7 @@ Return Value:
     return(StringBinding);
 }
 
-#ifdef WIN
+#if defined(WIN) || defined(MAC)
 
 RPC_CHAR PAPI *
 AllocateEmptyStringPAPI (
@@ -1340,12 +1424,30 @@ Return Value:
     void * TransportInterface;
 
 #ifdef WIN32RPC
+#ifndef NTENV
+        if ( RpcpMemoryCompare(RpcProtocolSequence, RPC_CONST_STRING("mswmsg"),
+                    6) == 0 )
+        {
 
+        BindingHandle = WmsgCreateBindingHandle();
+
+        if (BindingHandle == 0)
+            {
+            delete this;
+            *Status = RPC_S_OUT_OF_MEMORY;
+            return(0);
+            }
+        }
+    else
+#endif
     if ( RpcpMemoryCompare(RpcProtocolSequence, RPC_CONST_STRING("ncalrpc"),
                 8 * sizeof(RPC_CHAR)) == 0 )
         {
-
+#ifdef NTENV
+        BindingHandle = WmsgCreateBindingHandle();
+#else
         BindingHandle = SpcCreateBindingHandle();
+#endif
 
         if (BindingHandle == 0)
             {
@@ -1368,7 +1470,7 @@ Return Value:
 
 #endif // WIN32RPC
 
-#ifndef DOSWIN32RPC
+#if !defined(MAC) && (!defined(DOSWIN32RPC) || defined(WIN96))
 
     else if ( RpcpMemoryCompare(RpcProtocolSequence,
                     RPC_CONST_STRING("ncadg_"), 6*sizeof(RPC_CHAR)) == 0)
@@ -1395,6 +1497,15 @@ Return Value:
         }
 #endif // DOSWIN32RPC
 
+#ifdef MAC
+    else if ( RpcpMemoryCompare(RpcProtocolSequence,
+                    RPC_CONST_STRING("ncadg_"), 6*sizeof(RPC_CHAR)) == 0)
+        {
+    delete this ;
+    *Status = RPC_S_PROTSEQ_NOT_SUPPORTED ;
+    return 0 ;
+    }
+#endif
     else if ( RpcpMemoryCompare(RPC_CONST_STRING("ncacn_"),
                 RpcProtocolSequence, 6 * sizeof(RPC_CHAR)) == 0 )
         {
@@ -1463,7 +1574,8 @@ DCE_BINDING::ResolveEndpointIfNecessary (
     IN PRPC_CLIENT_INTERFACE RpcInterfaceInformation,
     IN RPC_UUID * ObjectUuid,
     IN OUT void PAPI * PAPI * EpLookupHandle,
-    IN BOOL UseEpMapperEp
+    IN BOOL UseEpMapperEp,
+    IN unsigned Timeout
     )
 /*++
 
@@ -1579,6 +1691,20 @@ Return Value:
             Endpoint = 0;
             }
 
+        //
+        // We cannot allow management interfaces to be resolved if they dont contain
+        // an object uuid.
+        //
+#ifdef WIN32RPC
+        if (  (IsMgmtIfUuid ((UUID PAPI * )
+                  &RpcInterfaceInformation->InterfaceId.SyntaxGUID))
+              &&( (ObjectUuid == 0) ||
+                  (RpcpMemoryCompare(ObjectUuid, &NullUuid, sizeof(UUID)) == 0) ) )
+           {
+           return(RPC_S_BINDING_INCOMPLETE);
+           }
+#endif
+
         if ( (RpcpMemoryCompare(RpcProtocolSequence,
                     RPC_CONST_STRING("ncadg_"), 6*sizeof(RPC_CHAR)) == 0)
               && (UseEpMapperEp != 0) )
@@ -1598,7 +1724,7 @@ Return Value:
           return(EpResolveEndpoint((UUID PAPI *) ObjectUuid,
             &RpcInterfaceInformation->InterfaceId,
             &RpcInterfaceInformation->TransferSyntax,
-            RpcProtocolSequence, NetworkAddress, EpLookupHandle,
+            RpcProtocolSequence, NetworkAddress, EpLookupHandle, Timeout,
             (RPC_CHAR * PAPI *) &Endpoint));
           }
         }
@@ -1801,7 +1927,22 @@ Return Value:
 {
     RPC_STATUS Status;
 
-#ifdef NTENV
+
+#ifdef WIN32
+    if ( RpcpMemoryCompare(RpcProtocolSequence, RPC_CONST_STRING("mswmsg"),
+                7 * sizeof(RPC_CHAR)) == 0 )
+        {
+        return(RPC_S_OK);
+        }
+#else
+    if ( RpcpMemoryCompare(RpcProtocolSequence, RPC_CONST_STRING("mswmsg"),
+                7 * sizeof(RPC_CHAR)) == 0 )
+        {
+        return(RPC_S_PROTSEQ_NOT_SUPPORTED);
+        }
+#endif
+
+#ifdef WIN32
 
     if ( RpcpMemoryCompare(RpcProtocolSequence, RPC_CONST_STRING("ncalrpc"),
                 8 * sizeof(RPC_CHAR)) == 0 )
@@ -1809,7 +1950,7 @@ Return Value:
         return(RPC_S_OK);
         }
 
-#else // NTENV
+#else // WIN32
 
     if ( RpcpMemoryCompare(RpcProtocolSequence, RPC_CONST_STRING("ncalrpc"),
                 8 * sizeof(RPC_CHAR)) == 0 )

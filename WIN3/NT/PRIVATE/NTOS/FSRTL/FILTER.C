@@ -118,6 +118,8 @@ Return Value:
 }
 
 
+#undef FsRtlAllocatePool
+
 PVOID
 FsRtlAllocatePool (
     IN POOL_TYPE PoolType,
@@ -159,6 +161,8 @@ Return Value:
 
     return p;
 }
+
+#undef FsRtlAllocatePoolWithQuota
 
 
 PVOID
@@ -204,9 +208,7 @@ Return Value:
 }
 
 
-
 #undef FsRtlAllocatePoolWithTag
-#undef FsRtlAllocatePoolWithQuotaTag
 
 PVOID
 FsRtlAllocatePoolWithTag (
@@ -250,6 +252,9 @@ Return Value:
 
     return p;
 }
+
+
+#undef FsRtlAllocatePoolWithQuotaTag
 
 PVOID
 FsRtlAllocatePoolWithQuotaTag (

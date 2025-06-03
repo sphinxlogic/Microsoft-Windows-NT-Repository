@@ -21,7 +21,6 @@
 #include        <netdebug.h>
 #include        <lmaccess.h>
 #include        <lmerr.h>
-#include        <wcstr.h>
 
 #include <ntsam.h>
 #include <netlogon.h>
@@ -37,7 +36,7 @@
 
 
 //
-//  AddAccess       
+//  AddAccess
 //
 //
 void
@@ -62,9 +61,9 @@ DWORD    perms;
     acl->acl_access = perms;
 
     if (err = NetAccessAdd(server, 1, ebuf, NULL ))
-        NetpDbgPrint("NetAccessAdd failed, ret = %d\n", err);
+        NetpKdPrint(("NetAccessAdd failed, ret = %d\n", err));
     else
-        NetpDbgPrint("%ws added successfully\n", resource);
+        NetpKdPrint(("%ws added successfully\n", resource));
 }
 
 
@@ -79,9 +78,9 @@ LPWSTR resource;
     NET_API_STATUS err;
 
     if (err = NetAccessDel(server, resource))
-        NetpDbgPrint("NetAccessDel failed, ret = %d\n", err);
+        NetpKdPrint(("NetAccessDel failed, ret = %d\n", err));
     else
-        NetpDbgPrint("%ws deleted successfully\n", resource);
+        NetpKdPrint(("%ws deleted successfully\n", resource));
 }
 
 
@@ -101,11 +100,11 @@ LPWSTR resource;
 
     for (level = 0; level < 2; level++) {
         if (err = NetAccessGetInfo(server, resource, level, &buf))
-            NetpDbgPrint("NetAccessGetInfo failed, ret = %d\n", err);
+            NetpKdPrint(("NetAccessGetInfo failed, ret = %d\n", err));
         else {
-            NetpDbgPrint("NetAccessGetInfo: Level %d OK\n", level);
+            NetpKdPrint(("NetAccessGetInfo: Level %d OK\n", level));
             NetApiBufferFree( buf );
-        } 
+        }
     }
 }
 

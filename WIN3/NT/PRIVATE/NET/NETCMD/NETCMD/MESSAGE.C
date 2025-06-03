@@ -325,7 +325,7 @@ VOID send_domain ( int is_switch )
 {
     USHORT		    err;		/* API return status */
     struct wksta_info_10 FAR * wi10_p;
-    TCHAR		    domain_buf[CNLEN+2];
+    TCHAR		    domain_buf[MAX_PATH+2];
     int 		    i, have_name = 0;
     TCHAR *		    ptr;
 
@@ -449,14 +449,14 @@ VOID send_broadcast ( int is_switch )
 		0 );
 }
 
-#define MSGBUF 512
+#define MSGBUF 1024
 
 VOID NEAR _sendmsg ( int firstarg, int dest, TCHAR FAR * v_dest,
     TCHAR FAR * t_list, USHORT2ULONG t_num, USHORT2ULONG t_size )
 {
     USHORT	    err;
     TCHAR*	    message_buffer ;
-    int 	    a_index, msglen, buflen = MSGBUF*sizeof(TCHAR);
+    int 	    a_index, msglen, buflen = MSGBUF;
     USHORT2ULONG    t_index;
     int 	    src;
     TCHAR      FAR * tf_recipient;
@@ -482,7 +482,7 @@ VOID NEAR _sendmsg ( int firstarg, int dest, TCHAR FAR * v_dest,
 	do
 	{
             int needed = _tcslen(ArgList[a_index]) ;
-            if (msglen+needed > (buflen-2)*sizeof(TCHAR))  // 2 not 1 because " " is appended
+            if ((msglen+needed) > (int)(buflen-2))  // 2 not 1 because " " is appended
 	    {
                 // reallocate the buffer as need
                 buflen *= 2 ;

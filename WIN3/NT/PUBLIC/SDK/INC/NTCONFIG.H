@@ -127,7 +127,7 @@ typedef enum _CM_ERROR_CONTROL_TYPE {
 // Resource List definitions
 //
 
-// begin_ntminiport
+// begin_ntminiport begin_ntndis
 
 //
 // Defines the Type in the RESOURCE_DESCRIPTOR
@@ -170,6 +170,9 @@ typedef enum _CM_SHARE_DISPOSITION {
 #define CM_RESOURCE_MEMORY_WRITE_ONLY       0x0002
 #define CM_RESOURCE_MEMORY_PREFETCHABLE     0x0004
 
+#define CM_RESOURCE_MEMORY_COMBINEDWRITE    0x0008
+#define CM_RESOURCE_MEMORY_24               0x0010
+
 //
 // Define the bit masks for Flags when type is CmResourceTypePort
 //
@@ -177,7 +180,15 @@ typedef enum _CM_SHARE_DISPOSITION {
 #define CM_RESOURCE_PORT_MEMORY 0
 #define CM_RESOURCE_PORT_IO 1
 
-// end_ntminiport
+//
+// Define the bit masks for Flags when type is CmResourceTypeDma
+//
+
+#define CM_RESOURCE_DMA_8                   0x0000
+#define CM_RESOURCE_DMA_16                  0x0001
+#define CM_RESOURCE_DMA_32                  0x0002
+
+// end_ntminiport end_ntndis
 
 //
 // This structure defines one type of resource used by a driver.
@@ -512,6 +523,54 @@ typedef struct _CM_EISA_FUNCTION_INFORMATION {
     UCHAR InitializationData[60];
 } CM_EISA_FUNCTION_INFORMATION, *PCM_EISA_FUNCTION_INFORMATION;
 
+//
+// The followings define the way pnp bios information is stored in
+// the registry \\HKEY_LOCAL_MACHINE\HARDWARE\Description\System\
+// MultifunctionAdapter\x key, where x is an integer number indicating
+// adapter instance. The "Identifier" of the key must equal to "PNP BIOS"
+// and the "ConfigurationData" is organized as follow:
+//
+//      CM_PNP_BIOS_INSTALLATION_CHECK        +
+//      CM_PNP_BIOS_DEVICE_NODE for device 1  +
+//      CM_PNP_BIOS_DEVICE_NODE for device 2  +
+//                ...
+//      CM_PNP_BIOS_DEVICE_NODE for device n
+//
+
+//
+// Pnp BIOS device node structure
+//
+
+typedef struct _CM_PNP_BIOS_DEVICE_NODE {
+    USHORT Size;
+    UCHAR Node;
+    ULONG ProductId;
+    UCHAR DeviceType[3];
+    USHORT DeviceAttributes;
+    // followed by AllocatedResourceBlock, PossibleResourceBlock
+    // and CompatibleDeviceId
+} CM_PNP_BIOS_DEVICE_NODE,*PCM_PNP_BIOS_DEVICE_NODE;
+
+//
+// Pnp BIOS Installation check
+//
+
+typedef struct _CM_PNP_BIOS_INSTALLATION_CHECK {
+    UCHAR Signature[4];             // $PnP (ascii)
+    UCHAR Revision;
+    UCHAR Length;
+    USHORT ControlField;
+    UCHAR Checksum;
+    ULONG EventFlagAddress;         // Physical address
+    USHORT RealModeEntryOffset;
+    USHORT RealModeEntrySegment;
+    USHORT ProtectedModeEntryOffset;
+    ULONG ProtectedModeCodeBaseAddress;
+    ULONG OemDeviceId;
+    USHORT RealModeDataBaseAddress;
+    ULONG ProtectedModeDataBaseAddress;
+} CM_PNP_BIOS_INSTALLATION_CHECK, *PCM_PNP_BIOS_INSTALLATION_CHECK;
+
 #include "poppack.h"
 
 //
@@ -711,6 +770,7 @@ typedef struct _CM_DISK_GEOMETRY_DEVICE_DATA {
 //
 
 #define IO_RESOURCE_PREFERRED       0x01
+#define IO_RESOURCE_DEFAULT         0x02
 #define IO_RESOURCE_ALTERNATIVE     0x08
 
 

@@ -1,4 +1,4 @@
-/********************************************************************/ 
+/********************************************************************/
 /**         Microsoft Windows NT                                   **/
 /**       Copyright(c) Microsoft Corp., 1992                       **/
 /********************************************************************/
@@ -73,21 +73,21 @@ NetuComputerDel(
 VOID computer_add(TCHAR *pszComputer)
 {
     USHORT          err;
-    TCHAR            szComputerAccount[UNCLEN+1+1] ;  // extra 1 for $ at end
-    TCHAR            controller[UNCLEN+1];
+    TCHAR            szComputerAccount[MAX_PATH+1+1] ;  // extra 1 for $ at end
+    TCHAR            controller[MAX_PATH+1];
 
     // no need validate pszComputer since parser has done so
     _tcscpy(szComputerAccount, pszComputer) ;
 
     //
-    // block operation if attempted on local WinNT machine 
+    // block operation if attempted on local WinNT machine
     //
     CheckForLanmanNT() ;
 
     //
-    // determine where to make the API call 
+    // determine where to make the API call
     //
-    if (err = GetSAMLocation(controller, DIMENSION(controller), 
+    if (err = GetSAMLocation(controller, DIMENSION(controller),
                              NULL, 0, TRUE))
          ErrorExit(err);
 
@@ -97,7 +97,7 @@ VOID computer_add(TCHAR *pszComputer)
     err = (USHORT) NetuComputerAdd( controller,
                                     szComputerAccount + 2 );
 
-    switch (err ) 
+    switch (err )
     {
         case NERR_Success :
             InfoSuccess();
@@ -116,28 +116,28 @@ VOID computer_del(TCHAR *pszComputer)
 {
 
     USHORT err;
-    TCHAR   szComputerAccount[UNCLEN+1+1] ;  // extra 1 for $ at end
-    TCHAR   controller[UNCLEN+1];
+    TCHAR   szComputerAccount[MAX_PATH+1+1] ;  // extra 1 for $ at end
+    TCHAR   controller[MAX_PATH+1];
 
     // no need validate pszComputer since parser has done so
     _tcscpy(szComputerAccount, pszComputer) ;
 
     //
-    // block operation if attempted on local WinNT machine 
+    // block operation if attempted on local WinNT machine
     //
     CheckForLanmanNT() ;
 
     //
-    // determine where to make the API call 
+    // determine where to make the API call
     //
-    if (err = GetSAMLocation(controller, DIMENSION(controller), 
+    if (err = GetSAMLocation(controller, DIMENSION(controller),
                              NULL, 0, TRUE))
          ErrorExit(err);
 
 
     err = (USHORT) NetuComputerDel( controller, szComputerAccount+2 );
 
-    switch (err ) 
+    switch (err )
     {
         case NERR_Success :
             InfoSuccess();
@@ -184,8 +184,8 @@ Return Value:
     DWORD           parm_err;
     NET_API_STATUS  NetStatus;
     USER_INFO_1     ComputerAccount;
-    WCHAR           UnicodeComputerName[CNLEN+1+1] ;  // extra 1 for $ at end
-    WCHAR           UnicodePassword[LM20_PWLEN+UNCLEN]; 
+    WCHAR           UnicodeComputerName[MAX_PATH+1+1] ;  // extra 1 for $ at end
+    WCHAR           UnicodePassword[LM20_PWLEN+MAX_PATH];
                     // guaranteed to be enough since we add the two
 
     //
@@ -201,13 +201,12 @@ Return Value:
 
 
     //
-    // since LM20_PWLEN is shorter
-    // than CNLEN, we truncate by zapping the last char. then lowercase
+    // We truncate by zapping the last char. then lowercase
     // as this is the convention.
     //
     wcscpy(UnicodePassword, ComputerName);
-    UnicodePassword[LM20_PWLEN < CNLEN ? LM20_PWLEN : CNLEN] = 0 ;
-    wcslwr(UnicodePassword) ;
+    UnicodePassword[LM20_PWLEN < MAX_PATH ? LM20_PWLEN : MAX_PATH] = 0 ;
+    _wcslwr(UnicodePassword) ;
 
     //
     // add the $ postfix
@@ -227,7 +226,7 @@ Return Value:
     ComputerAccount.usri1_script_path = NULL;
 
 
-    // 
+    //
     // call API to actually add it
     //
     NetStatus = NetUserAdd( Server,
@@ -238,15 +237,15 @@ Return Value:
     if( NetStatus != NERR_Success ) {
 
         if( NetStatus == ERROR_INVALID_PARAMETER ) {
-            NetpDbgPrint(
+            NetpKdPrint((
                 "[NETCMD] NetuComputerAdd : "
                 "NetUserAdd returns ERROR_INVALID_PARAMETER "
-                "parm_err = %lu \n", parm_err);
+                "parm_err = %lu \r\n", parm_err));
         }
         else {
-            NetpDbgPrint(
+            NetpKdPrint((
                 "[NETCMD] NetuComputerAdd : "
-                "NetUserAdd returns %lu \n ", NetStatus );
+                "NetUserAdd returns %lu \r\n ", NetStatus ));
         }
 
     }
@@ -280,10 +279,10 @@ Return Value:
 --*/
 {
     NET_API_STATUS  NetStatus;
-    WCHAR           UnicodeComputerName[CNLEN+1+1] ; // extra 1 for $ at end
+    WCHAR           UnicodeComputerName[MAX_PATH+1+1] ; // extra 1 for $ at end
 
     //
-    // convert computer name to wide character string and 
+    // convert computer name to wide character string and
     // canonicalize for NetBios
     //
     if (NetStatus = LUI_CanonForNetBios(UnicodeComputerName,
@@ -298,9 +297,9 @@ Return Value:
                             UnicodeComputerName );
     if( NetStatus != NERR_Success ) {
 
-        NetpDbgPrint(
+        NetpKdPrint((
             "[NETCMD] NetuComputerAdd : "
-            "NetUserAdd returns %lu \n ", NetStatus );
+            "NetUserAdd returns %lu \r\n ", NetStatus ));
     }
 
 Cleanup :

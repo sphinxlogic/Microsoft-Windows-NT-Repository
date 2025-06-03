@@ -51,16 +51,15 @@ Revision History:
 #define FRACTION 1
 #define BULK     1
 
+#define TOO_BIG (FLOAT)1500000000
+
 
 //==========================================================================//
 //                              Local Functions                             //
 //==========================================================================//
 
 
-#define LargeIntegerLessThanOrEqualZero(X) (\
-    (X).HighPart < 0 ? TRUE : \
-    ((X).HighPart == 0) && ((X).LowPart == 0) ? TRUE : \
-    FALSE)
+#define LargeIntegerLessThanOrEqualZero(X) ((X).QuadPart <= 0)
 
 
 FLOAT
@@ -83,8 +82,6 @@ Return Value:
     Floating point representation of Large Integer passed in arg. list
 --*/
 {
-    FLOAT   eHighPart;
-    FLOAT   eLowPart;
     FLOAT   eSum;
 
     if (pLargeInt->HighPart == 0) {
@@ -137,9 +134,8 @@ Return Value:
 
     // Get the number of counts that have occured since the last sample
 
-    liDifference = RtlLargeIntegerSubtract (
-            *pliCurrentTime,
-            *pliPreviousTime);
+    liDifference.QuadPart = pliCurrentTime->QuadPart -
+            pliPreviousTime->QuadPart;
 
     if (LargeIntegerLessThanOrEqualZero(liDifference)) {
         return (FLOAT) 0.0f;
@@ -187,8 +183,6 @@ Return Value:
 --*/
 {
     FLOAT   eTimeInterval;
-    FLOAT   eCurrentCount;
-    FLOAT   ePreviousCount;
     FLOAT   eDifference;
     FLOAT   eCount ;
 
@@ -199,9 +193,8 @@ Return Value:
         liDifference.LowPart = pLineStruct->lnaCounterValue[0].LowPart -
                             pLineStruct->lnaOldCounterValue[0].LowPart;
     } else {
-        liDifference = RtlLargeIntegerSubtract (
-                        pLineStruct->lnaCounterValue[0],
-                        pLineStruct->lnaOldCounterValue[0]);
+        liDifference.QuadPart = pLineStruct->lnaCounterValue[0].QuadPart -
+                        pLineStruct->lnaOldCounterValue[0].QuadPart;
     }
     
     if (LargeIntegerLessThanOrEqualZero(liDifference)) {
@@ -306,9 +299,8 @@ Return Value:
 
     // Get the bulk count increment since the last sample
 
-    liBulkDelta = RtlLargeIntegerSubtract(
-            pLineStruct->lnaCounterValue[0],
-            pLineStruct->lnaOldCounterValue[0]);
+    liBulkDelta.QuadPart = pLineStruct->lnaCounterValue[0].QuadPart -
+            pLineStruct->lnaOldCounterValue[0].QuadPart;
 
     if (LargeIntegerLessThanOrEqualZero(liBulkDelta)) {
         return (FLOAT) 0.0f;
@@ -383,9 +375,8 @@ Return Value:
         iType == NS100_INVERT ||
         iType == NS100_MULTI ||
         iType == NS100_MULTI_INVERT) {
-            liTimeInterval = RtlLargeIntegerSubtract (
-                pLineStruct->lnNewTime100Ns,
-                pLineStruct->lnOldTime100Ns) ;
+            liTimeInterval.QuadPart = pLineStruct->lnNewTime100Ns.QuadPart -
+                pLineStruct->lnOldTime100Ns.QuadPart;
             eTimeInterval = eLIntToFloat (&liTimeInterval);
     } else {
             eTimeInterval = eGetTimeInterval(&pLineStruct->lnNewTime,
@@ -398,9 +389,8 @@ Return Value:
 
     // Get the current and previous counts.
 
-    liDifference = RtlLargeIntegerSubtract (
-            pLineStruct->lnaCounterValue[0],
-            pLineStruct->lnaOldCounterValue[0]) ;
+    liDifference.QuadPart = pLineStruct->lnaCounterValue[0].QuadPart -
+            pLineStruct->lnaOldCounterValue[0].QuadPart;
 
     // Get the number of counts in this time interval.
     // (1, 2, 3 or any number of seconds could have gone by since
@@ -491,9 +481,8 @@ Return Value:
         // invalid value
         return (0.0f);
     } else {
-        liNumerator = RtlEnlargedIntegerMultiply (
-                pLineStruct->lnaCounterValue[0].LowPart,
-                100L);
+        liNumerator.QuadPart =
+            pLineStruct->lnaCounterValue[0].LowPart * 100L;
         eCount = eLIntToFloat(&liNumerator)  /
                  (FLOAT) pLineStruct->lnaCounterValue[1].LowPart;
         return(eCount) ;
@@ -534,9 +523,9 @@ Return Value:
         return (FLOAT) 0.0f;
     } else {
         // otherwise compute difference between current time and start time
-        liDifference = RtlLargeIntegerSubtract (
-            pLineStruct->lnNewTime,             // sample time in obj. units
-            pLineStruct->lnaCounterValue[0]);   // start time in obj. units
+        liDifference.QuadPart =
+            pLineStruct->lnNewTime.QuadPart - // sample time in obj. units
+            pLineStruct->lnaCounterValue[0].QuadPart;   // start time in obj. units
 
         if (LargeIntegerLessThanOrEqualZero(liDifference) ||
             LargeIntegerLessThanOrEqualZero(pLineStruct->lnObject.PerfFreq)) {
@@ -798,7 +787,13 @@ FLOAT Counter_Rawcount(PLINESTRUCT pLineStruct)
 #endif
 
 /*****************************************************************************
- * Counter_Null - The counters that return nothing go here.
+ * Counter_Large_Rawcount - This is just a raw count.
+ ****************************************************************************/
+#define Counter_Large_Rawcount(pLineStruct)     \
+   ((FLOAT) eLIntToFloat(&(pLineStruct->lnaCounterValue[0])))
+
+/*****************************************************************************
+ * Counter_Elapsed_Time -
  ****************************************************************************/
 #define Counter_Elapsed_Time(pLineStruct)         \
     eElapsedTime (pLineStruct, 0)
@@ -845,7 +840,12 @@ CounterEntry (
             return Counter_Null (pLine);
 
         case  PERF_COUNTER_RAWCOUNT:
+        case  PERF_COUNTER_RAWCOUNT_HEX:
             return Counter_Rawcount(pLine);
+
+        case  PERF_COUNTER_LARGE_RAWCOUNT:
+        case  PERF_COUNTER_LARGE_RAWCOUNT_HEX:
+            return Counter_Large_Rawcount(pLine);
 
         case  PERF_SAMPLE_FRACTION:
             return Sample_Fraction(pLine);
@@ -916,6 +916,9 @@ IsCounterSupported (
         case  PERF_COUNTER_QUEUELEN_TYPE:
         case  PERF_COUNTER_BULK_COUNT:
         case  PERF_COUNTER_RAWCOUNT:
+        case  PERF_COUNTER_RAWCOUNT_HEX:
+        case  PERF_COUNTER_LARGE_RAWCOUNT:
+        case  PERF_COUNTER_LARGE_RAWCOUNT_HEX:
         case  PERF_SAMPLE_FRACTION:
         case  PERF_SAMPLE_COUNTER:
         case  PERF_COUNTER_TIMER_INV:
@@ -957,5 +960,5 @@ IsCounterSupported (
 
 
 
-
-
+
+

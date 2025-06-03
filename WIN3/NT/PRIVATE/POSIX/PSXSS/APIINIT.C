@@ -102,31 +102,14 @@ PsxApiPortInitialize( VOID )
 		AlarmThreadHandle = CreateThread(NULL, (DWORD)0,
 			 (LPTHREAD_START_ROUTINE)AlarmThreadRoutine, NULL,
 			 CREATE_SUSPENDED, &ThreadId);
-		ASSERT(NULL != AlarmThreadHandle);
 		if (NULL == AlarmThreadHandle) {
 			NtTerminateProcess(NtCurrentProcess(), 1);
+			return STATUS_INSUFFICIENT_RESOURCES;
 		}
 
 		Status = ResumeThread(AlarmThreadHandle);
 		ASSERT(-1 != Status);
 	}
-
-#if 0
-    {
-    DWORD Temp;
-    NTSTATUS
-    PsxDebugAttachThread(
-        IN PVOID Parameter
-        );
-
-    CreateThread( NULL,
-		  (DWORD)0,
-		  (LPTHREAD_START_ROUTINE)PsxDebugAttachThread,
-		  NULL,
-		  (DWORD)0,
-		  (LPDWORD)&Temp);
-    }
-#endif
 
     return Status;
 }

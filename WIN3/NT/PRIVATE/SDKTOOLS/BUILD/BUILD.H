@@ -1,22 +1,20 @@
 /*++ BUILD Version: 0001    // Increment this if a change has global effects
 
-Copyright (c) 1989  Microsoft Corporation
-
-Module Name:
-
-    build.h
-
-Abstract:
-
-    This is the main include file for the NT Build Tool (BUILD.EXE)
-
-Author:
-
-    Steve Wood (stevewo) 16-May-1989
-
-Revision History:
-
 --*/
+
+//+---------------------------------------------------------------------------
+//
+//  Microsoft Windows
+//  Copyright (C) Microsoft Corporation, 1994
+//
+//  File:       build.h
+//
+//  Contents:   Main Include file for build.exe
+//
+//  History:    16-May-89     SteveWo  Created
+//              26-Jul-94     LyleC    Cleanup/Add Support for Pass0
+//
+//----------------------------------------------------------------------------
 
 #include <assert.h>
 #include <process.h>
@@ -71,8 +69,9 @@ typedef struct _TARGET_MACHINE_INFO {
     LPSTR SourceVariable;       // "i386_SOURCES"
     LPSTR ObjectVariable;       // "386_OBJECTS"
     LPSTR SourceDirectory;      // "i386"
-    LPSTR ObjectDirectory;      // "obj\\i386"
-    LPSTR ObjectDirectory2;     // "obj\\i386d"
+    LPSTR ObjectDirectory[2];   // "i386" -- initialize only first entry
+    LPSTR ObjectMacro;          // don't initialize
+
 } TARGET_MACHINE_INFO, *PTARGET_MACHINE_INFO;
 
 // It's possible to have SOURCES= entries of the following forms:
@@ -146,7 +145,7 @@ typedef struct _INCLUDEREC {
     struct _FILEREC *pfrCycleRoot;
     struct _FILEREC *pfrInclude;
     USHORT Version;
-    USHORT Flags;
+    USHORT IncFlags;
     char Name[1];
 } INCLUDEREC, *PINCLUDEREC;
 
@@ -166,12 +165,18 @@ typedef struct _INCLUDEREC {
 
 
 
-
-#define AssertCleanTree(pir)            \
- assert(                                \
-  (pir)->NextTree == NULL &&            \
-  ((pir)->Flags &                       \
+#define IsCleanTree(pir)        \
+  ((pir)->NextTree == NULL &&   \
+   ((pir)->IncFlags &           \
     (INCLUDEDB_CYCLEALLOC | INCLUDEDB_CYCLEROOT | INCLUDEDB_CYCLEORPHAN)) == 0)
+
+
+#if DBG
+VOID AssertCleanTree(INCLUDEREC *pir, OPTIONAL struct _FILEREC *pfr);
+#else
+#define AssertCleanTree(pir, pfr)       assert(IsCleanTree(pir))
+#endif
+
 
 typedef struct _FILEREC {
     SigCheck(ULONG Sig;)
@@ -180,12 +185,12 @@ typedef struct _FILEREC {
     INCLUDEREC *IncludeFiles;       // static list describes original arcs
     INCLUDEREC *IncludeFilesTree;   // dynamic list -- cycles are collapsed
     struct _FILEREC *NewestDependency;
-    LPSTR pszCommentToEOL;          // comment-to-eol string in source
-    ULONG DateTime;
-    ULONG DateTimeTree;             // Newest DateTime for included tree
-    LONG TotalSourceLines;          // line count in all included files
-    SHORT SourceLines;
-    USHORT Flags;
+    LPSTR  pszCommentToEOL;         // comment-to-eol string in source
+    ULONG  DateTime;
+    ULONG  DateTimeTree;            // Newest DateTime for included tree
+    ULONG  TotalSourceLines;        // line count in all included files
+    ULONG  FileFlags;
+    ULONG  SourceLines;
     USHORT Attr;
     USHORT SubDirIndex;
     USHORT Version;
@@ -200,26 +205,37 @@ typedef struct _FILEREC {
 #define MAKE_DATE_TIME( date, time )    \
     ((ULONG)(((USHORT)(time)) | ((ULONG)((USHORT)(date))) << 16))
 
-#define FILEDB_SOURCE           0x0001
-#define FILEDB_DIR              0x0002
-#define FILEDB_HEADER           0x0004
-#define FILEDB_ASM              0x0008
-#define FILEDB_MASM             0x0010
-#define FILEDB_RC               0x0020
-#define FILEDB_C                0x0040
-#define FILEDB_SCANNED          0x1000
-#define FILEDB_OBJECTS_LIST     0x2000
-#define FILEDB_FILE_MISSING     0x4000
+#define FILEDB_SOURCE           0x00000001
+#define FILEDB_DIR              0x00000002
+#define FILEDB_HEADER           0x00000004
+#define FILEDB_ASM              0x00000008
+#define FILEDB_MASM             0x00000010
+#define FILEDB_RC               0x00000020
+#define FILEDB_C                0x00000040
+#define FILEDB_MIDL             0x00000080
+#define FILEDB_ASN              0x00000100
+// 0x200-0x800 available
+#define FILEDB_SCANNED          0x00001000
+#define FILEDB_OBJECTS_LIST     0x00002000
+#define FILEDB_FILE_MISSING     0x00004000
+#define FILEDB_MKTYPLIB         0x00008000
+#define FILEDB_MULTIPLEPASS     0x00010000
+#define FILEDB_PASS0            0x00020000
 
 // Flags preserved when loading build.dat:
 
-#define FILEDB_DBPRESERVE       (FILEDB_SOURCE |        \
-                                 FILEDB_DIR |           \
-                                 FILEDB_HEADER |        \
-                                 FILEDB_ASM |           \
-                                 FILEDB_MASM |          \
-                                 FILEDB_RC |            \
-                                 FILEDB_C)
+#define FILEDB_DBPRESERVE       (FILEDB_SOURCE |       \
+                                 FILEDB_DIR |          \
+                                 FILEDB_HEADER |       \
+                                 FILEDB_ASM |          \
+                                 FILEDB_MASM |         \
+                                 FILEDB_RC |           \
+                                 FILEDB_C |            \
+                                 FILEDB_MIDL |         \
+                                 FILEDB_ASN |          \
+                                 FILEDB_MKTYPLIB |     \
+                                 FILEDB_MULTIPLEPASS | \
+                                 FILEDB_PASS0)
 
 
 typedef struct _SOURCEREC {
@@ -227,7 +243,7 @@ typedef struct _SOURCEREC {
     struct _SOURCEREC *psrNext;
     FILEREC *pfrSource;
     UCHAR SourceSubDirMask;
-    UCHAR Flags;
+    UCHAR SrcFlags;
 } SOURCEREC;
 
 #define SOURCEDB_SOURCES_LIST           0x01
@@ -244,7 +260,12 @@ typedef struct _DIRSUP {
     LPSTR PchInclude;
     LPSTR PchTargetDir;
     LPSTR PchTarget;
+    LPSTR PassZeroHdrDir;
+    LPSTR PassZeroSrcDir1;
+    LPSTR PassZeroSrcDir2;
     LPSTR ConditionalIncludes;
+    ULONG DateTimeSources;
+    ULONG IdlType;
     LPSTR SourcesVariables[MAX_TARGET_MACHINES + 1];
     SOURCEREC *psrSourcesList[MAX_TARGET_MACHINES + 1];
 } DIRSUP;
@@ -253,6 +274,7 @@ typedef struct _DIRSUP {
 typedef struct _DIRREC {
     SigCheck(ULONG Sig;)
     struct _DIRREC *Next;
+    DIRSUP *pds;                 // Used to preserve info from pass zero
     PFILEREC Files;
     LPSTR TargetPath;
     LPSTR TargetName;
@@ -260,13 +282,17 @@ typedef struct _DIRREC {
     LPSTR KernelTest;
     LPSTR UserAppls;
     LPSTR UserTests;
+    LPSTR NTTargetFile0;
+    LPSTR Pch;
     LPSTR PchObj;
     LONG SourceLinesToCompile;
-    ULONG Flags;
+    LONG PassZeroLines;
+    ULONG DirFlags;
     ULONG RecurseLevel;
     USHORT FindCount;
     USHORT CountSubDirs;
     SHORT CountOfFilesToCompile;
+    SHORT CountOfPassZeroFiles;
     USHORT CheckSum;                // Name checksum
     char Name[1];
 } DIRREC, *PDIRREC;
@@ -279,7 +305,7 @@ typedef struct _DIRREC {
 #define DIRDB_TARGETFILE0       0x00000010
 #define DIRDB_TARGETFILES       0x00000020
 #define DIRDB_RESOURCE          0x00000040
-//#define DIRDB_UNUSED          0x00000080
+#define DIRDB_PASS0             0x00000080
 
 #define DIRDB_SOURCES_SET       0x00000100
 #define DIRDB_FULL_DEBUG        0x00000200
@@ -293,13 +319,16 @@ typedef struct _DIRREC {
 
 #define DIRDB_SYNCHRONIZE_BLOCK 0x00010000
 #define DIRDB_SYNCHRONIZE_DRAIN 0x00020000
-#define DIRDB_COMPILENEEDED	0x00040000
-#define DIRDB_COMPILEERRORS	0x00080000
+#define DIRDB_COMPILENEEDED     0x00040000
+#define DIRDB_COMPILEERRORS     0x00080000
 
-#define DIRDB_SOURCESREAD	0x00100000
-#define DIRDB_DLLTARGET		0x00200000
-#define DIRDB_LINKNEEDED	0x00400000
-#define DIRDB_FORCELINK		0x00800000
+#define DIRDB_SOURCESREAD       0x00100000
+#define DIRDB_DLLTARGET         0x00200000
+#define DIRDB_LINKNEEDED        0x00400000
+#define DIRDB_FORCELINK         0x00800000
+#define DIRDB_PASS0NEEDED       0x01000000
+#define DIRDB_MAKEFIL1          0x02000000
+#define DIRDB_CHECKED_ALT_DIR   0x04000000
 
 // Flags preserved when loading build.dat:
 
@@ -318,10 +347,9 @@ typedef struct _TARGET {
 } TARGET, *PTARGET;
 
 
-#define BUILD_VERSION           0x0304
+#define BUILD_VERSION           0x0402
 #define DBMASTER_NAME           "build.dat"
 #define DB_MAX_PATH_LENGTH      256
-
 
 // If you change or add any values to this enum,
 // also fix MemTab in buildutl.c:
@@ -333,6 +361,7 @@ typedef enum _MemType {
     MT_CHILDDATA,
     MT_CMDSTRING,
     MT_DIRDB,
+    MT_DIRSUP,
     MT_DIRPATH,
     MT_DIRSTRING,
     MT_EVENTHANDLES,
@@ -351,40 +380,69 @@ typedef enum _MemType {
     MT_INVALID = 255,
 } MemType;
 
+struct _THREADSTATE;
+
+typedef BOOL (*FILTERPROC)(struct _THREADSTATE *ThreadState, LPSTR p);
+
+typedef struct _THREADSTATE {
+    USHORT cRowTotal;
+    USHORT cColTotal;
+    BOOL IsStdErrTty;
+    FILE *ChildOutput;
+    UINT ChildState;
+    UINT ChildFlags;
+    LPSTR ChildTarget;
+    UINT LinesToIgnore;
+    FILTERPROC FilterProc;
+    ULONG ThreadIndex;
+    CHAR UndefinedId[ DB_MAX_PATH_LENGTH ];
+    CHAR ChildCurrentDirectory[ DB_MAX_PATH_LENGTH ];
+    CHAR ChildCurrentFile[ DB_MAX_PATH_LENGTH ];
+    DIRREC *CompileDirDB;
+} THREADSTATE, *PTHREADSTATE;
+
 //
-// Global Data
+// Global Data (uninit will always be FALSE)
 //
 
-BOOL fUsage;
-BOOL fStatus;
-BOOL fStatusTree;
-BOOL fShowTree;
-BOOL fShowTreeIncludes;
-BOOL fClean;
-BOOL fCleanLibs;
-BOOL fCleanRestart;
-BOOL fRestartClean;
-BOOL fRestartCleanLibs;
-BOOL fPause;
-BOOL fParallel;
-BOOL fQuery;
-BOOL fQuicky;
-BOOL fSemiQuicky;
-BOOL fShowOutOfDateFiles;
-BOOL fEnableVersionCheck;
-BOOL fForce;
-BOOL fSilent;
-BOOL fKeep;
-BOOL fCompileOnly;
-BOOL fLinkOnly;
-BOOL fErrorLog;
-BOOL fGenerateObjectsDotMacOnly;
-BOOL fLineCleared;
-BOOL fPrintElapsed;
-BOOL fShowWarningsOnScreen;
-BOOL fFullErrors;
-BOOL fCairoProduct;
-BOOL fChicagoProduct;
+BOOL fUsage;                     // Set when usage message is to be displayed
+BOOL fStatus;                    // Set by -s and -S options
+BOOL fStatusTree;                // Set by -S option
+BOOL fShowTree;                  // Set by -t and -T options
+BOOL fShowTreeIncludes;          // Set by -T option
+BOOL fClean;                     // Set by -c option
+BOOL fCleanLibs;                 // Set by -C option
+BOOL fCleanRestart;              // Set by -r option
+BOOL fRestartClean;              // Set if -c and -r were both given
+BOOL fRestartCleanLibs;          // Set if -C and -r were both given
+BOOL fPause;                     // Set by -p option
+BOOL fParallel;                  // Set on a multiprocessor machine or by -M
+BOOL fPrintElapsed;              // Set by -P option
+BOOL fQuery;                     // Set by -q option
+BOOL fQuicky;                    // Set by -z and -Z options
+BOOL fSemiQuicky;                // Set by -Z option
+BOOL fShowOutOfDateFiles;        // Set by -o option
+BOOL fForce;                     // Set by -f option
+BOOL fEnableVersionCheck;        // Set by -v option
+BOOL fSilent;                    // Set by -i option
+BOOL fKeep;                      // Set by -k option
+BOOL fCompileOnly;               // Set by -L option
+BOOL fLinkOnly;                  // Set by -l option
+BOOL fErrorLog;                  // Set by -e option
+BOOL fGenerateObjectsDotMacOnly; // Set by -O option
+BOOL fShowWarningsOnScreen;      // Set by -w option
+BOOL fNoisyScan;                 // Set by -y option
+BOOL fFullErrors;                // Set by -b option
+BOOL fWhyBuild;                  // Set by -why option
+BOOL fCairoProduct;              // Set if CAIRO_PRODUCT is set in environment
+BOOL fChicagoProduct;            // Set if CHICAGO_PRODUCT is set in environment
+BOOL fLineCleared;               // Current line on screen clear?
+BOOL fPassZero;                  // Indicates we've found pass zero dirs
+BOOL fFirstScan;                 // Indicates this is the first scan
+BOOL fAlwaysPrintFullPath;       // Set by -F option
+BOOL fAlwaysKeepLogfile;         // Set by -E option
+BOOL fShowUnusedDirs;            // Set by -u option
+
 LPSTR MakeProgram;
 char MakeParameters[ 512 ];
 LPSTR MakeParametersTail;
@@ -393,11 +451,21 @@ char RestartDir[ 256 ];
 char NtRoot[ 256 ];
 char DbMasterName[ 256 ];
 char szNewLine[];
-char szOakInc[];
-char szSdkInc[];
-extern ULONG NumberProcesses;
-extern CRITICAL_SECTION TTYCriticalSection;
 
+char *pszIncOak;
+char *pszIncSdk;
+char *pszIncMfc;
+char *pszIncCrt;
+
+char *pszObjDir;
+char *pszObjDirSlash;
+char *pszObjDirSlashStar;
+BOOL fCheckedBuild;
+ULONG iObjectDir;
+extern ULONG NumberProcesses;
+CRITICAL_SECTION TTYCriticalSection;
+
+CHAR const *cmdexe;
 
 LONG TotalFilesToCompile;
 LONG TotalFilesCompiled;
@@ -407,7 +475,6 @@ LONG TotalLinesCompiled;
 
 ULONG ElapsedCompileTime;
 DIRREC *CurrentCompileDirDB;
-
 
 // Fixed length arrays...
 
@@ -421,29 +488,27 @@ TARGET_MACHINE_INFO PpcTargetMachine;
 UINT TargetToPossibleTarget[MAX_TARGET_MACHINES];
 
 
-
 #define MAX_OPTIONAL_DIRECTORIES        256
 UINT CountOptionalDirs;
 LPSTR OptionalDirs[MAX_OPTIONAL_DIRECTORIES];
-
+BOOLEAN OptionalDirsUsed[MAX_OPTIONAL_DIRECTORIES];
 
 
 #define MAX_EXCLUDE_DIRECTORIES         MAX_OPTIONAL_DIRECTORIES
 UINT CountExcludeDirs;
 LPSTR ExcludeDirs[MAX_EXCLUDE_DIRECTORIES];
-
+BOOLEAN ExcludeDirsUsed[MAX_OPTIONAL_DIRECTORIES];
 
 
 #define MAX_FULL_DEBUG_DIRECTORIES      MAX_OPTIONAL_DIRECTORIES
 UINT CountFullDebugDirs;
 LPSTR FullDebugDirectories[MAX_FULL_DEBUG_DIRECTORIES];
-
+BOOLEAN FullDebugDirsUsed[MAX_OPTIONAL_DIRECTORIES];
 
 
 #define MAX_EXCLUDE_INCS                128
 UINT CountExcludeIncs;
 LPSTR ExcludeIncs[MAX_EXCLUDE_INCS];
-
 
 
 #define MAX_INCLUDE_DIRECTORIES         128
@@ -454,6 +519,10 @@ DIRREC *IncludeDirs[MAX_INCLUDE_DIRECTORIES];
 
 
 #define MAX_BUILD_DIRECTORIES           4096
+
+UINT CountPassZeroDirs;
+DIRREC *PassZeroDirs[MAX_BUILD_DIRECTORIES];
+
 UINT CountCompileDirs;
 DIRREC *CompileDirs[MAX_BUILD_DIRECTORIES];
 
@@ -471,6 +540,11 @@ CHAR CurrentDirectory[DB_MAX_PATH_LENGTH];
 BOOL AllDirsInitialized;
 BOOL AllDirsModified;
 
+USHORT GlobalSequence;
+USHORT LocalSequence;
+
+BOOLEAN fConsoleInitialized;
+DWORD NewConsoleMode;
 
 LPSTR BuildDefault;
 LPSTR BuildParameters;
@@ -497,6 +571,13 @@ UINT NumberLibraryErrors;
 UINT NumberLinks;
 UINT NumberLinkWarnings;
 UINT NumberLinkErrors;
+
+char szAsterisks[];
+ULONG BuildStartTime;
+
+VOID ReportDirsUsage(VOID);
+
+VOID SetObjDir(BOOL fAlternate);
 
 //
 // Data Base functions defined in builddb.c
@@ -538,13 +619,16 @@ InsertSourceDB(
     SOURCEREC **ppsrNext,
     FILEREC *pfr,
     UCHAR SubDirMask,
-    UCHAR Flags);
+    UCHAR SrcFlags);
 
 VOID
 FreeSourceDB(SOURCEREC **ppsr);
 
 VOID
 UnsnapIncludeFiles(FILEREC *pfr, BOOL fUnsnapGlobal);
+
+VOID
+UnsnapAllDirectories(VOID);
 
 VOID
 FreeAllDirs(VOID);
@@ -561,7 +645,7 @@ InsertFileDB(
     LPSTR FileName,
     ULONG DateTime,
     USHORT Attr,
-    USHORT Flags);
+    ULONG  FileFlags);
 
 VOID
 DeleteUnscannedFiles(PDIRREC DirDB);
@@ -570,7 +654,7 @@ PINCLUDEREC
 InsertIncludeDB(
     PFILEREC FileDB,
     LPSTR IncludeFileName,
-    UINT Flags);
+    USHORT IncFlags);
 
 VOID
 LinkToCycleRoot(INCLUDEREC *pir, FILEREC *pfrRoot);
@@ -642,27 +726,14 @@ VOID
 ScanSourceDirectories(LPSTR DirName);
 
 VOID
+CompilePassZeroDirectories(VOID);
+
+VOID
 CompileSourceDirectories(VOID);
 
 VOID
 LinkSourceDirectories(VOID);
 
-BOOL
-MakeMacroString(LPSTR *pp, LPSTR p);
-
-VOID
-FormatLinkTarget(
-    LPSTR path,
-    LPSTR ObjectDirectory,
-    LPSTR TargetPath,
-    LPSTR TargetName,
-    LPSTR TargetExt);
-
-VOID
-GenerateObjectsDotMac(DIRREC *DirDB, DIRSUP *pds, ULONG DateTimeSources);
-
-BOOL
-ReadSourcesFile(DIRREC *DirDB, DIRSUP *pds, ULONG *pDateTimeSources);
 
 VOID
 FreeDirSupData(DIRSUP *pds);
@@ -670,6 +741,27 @@ FreeDirSupData(DIRSUP *pds);
 VOID
 FreeDirData(DIRREC *pdr);
 
+BOOL
+CheckDependencies(
+    PTARGET Target,
+    FILEREC *FileDB,
+    BOOL CheckDate,
+    FILEREC **ppFileDBRoot);
+
+BOOL
+CreateBuildDirectory(LPSTR Name);
+
+VOID
+CreatedBuildFile(LPSTR DirName, LPSTR FileName);
+
+VOID
+GenerateObjectsDotMac(DIRREC *DirDB, DIRSUP *pds, ULONG DateTimeSources);
+
+VOID
+ExpandObjAsterisk(
+    LPSTR pbuf,
+    LPSTR pszpath,
+    LPSTR *ppszObjectDirectory);
 
 //
 // Utility functions defined in buildutl.c
@@ -690,7 +782,8 @@ MyOpenFile(
     LPSTR DirName,
     LPSTR FileName,
     LPSTR Access,
-    FILE **Stream);
+    FILE **Stream,
+    BOOL fBufferedIO);
 
 BOOL
 SetupReadFile(LPSTR pszdir, LPSTR pszfile, LPSTR pszCommentToEOL, FILE **ppf);
@@ -706,10 +799,23 @@ ProbeFile(
     LPSTR DirName,
     LPSTR FileName);
 
+BOOL
+EnsureDirectoriesExist(
+    LPSTR DirName);
+
 ULONG
 DateTimeFile(
     LPSTR DirName,
     LPSTR FileName);
+
+ULONG
+DateTimeFile2(
+    LPSTR DirName,
+    LPSTR FileName);
+
+ULONG (*pDateTimeFile)(LPSTR, LPSTR);
+
+BOOL (WINAPI * pGetFileAttributesExA)(LPCSTR, GET_FILEEX_INFO_LEVELS, LPVOID);
 
 BOOL
 DeleteSingleFile(
@@ -801,3 +907,57 @@ VOID BuildMsgRaw(char *pszfmt, ...);
 VOID BuildError(char *pszfmt, ...);
 VOID BuildErrorRaw(char *pszfmt, ...);
 
+//
+// Functions in buildsrc.c
+//
+
+VOID
+StartElapsedTime(VOID);
+
+VOID
+PrintElapsedTime(VOID);
+
+BOOL
+ReadDirsFile(DIRREC *DirDB);
+
+
+VOID
+ProcessLinkTargets(PDIRREC DirDB, LPSTR CurrentDirectory);
+
+BOOL
+SplitToken(LPSTR pbuf, char chsep, LPSTR *ppstr);
+
+BOOL
+MakeMacroString(LPSTR *pp, LPSTR p);
+
+VOID
+SaveMacro(LPSTR pszName, LPSTR pszValue);
+
+VOID
+FormatLinkTarget(
+    LPSTR path,
+    LPSTR *ObjectDirectory,
+    LPSTR TargetPath,
+    LPSTR TargetName,
+    LPSTR TargetExt);
+
+BOOL
+ReadSourcesFile(DIRREC *DirDB, DIRSUP *pds, ULONG *pDateTimeSources);
+
+VOID
+PostProcessSources(DIRREC *pdr, DIRSUP *pds);
+
+VOID
+PrintDirSupData(DIRSUP *pds);
+
+//+---------------------------------------------------------------------------
+//
+//  Function:   IsFullPath
+//
+//----------------------------------------------------------------------------
+
+__inline BOOL
+IsFullPath(char *pszfile)
+{
+    return(pszfile[0] == '\\' || (isalpha(pszfile[0]) && pszfile[1] == ':'));
+}

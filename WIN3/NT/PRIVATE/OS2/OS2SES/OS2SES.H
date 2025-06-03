@@ -29,6 +29,7 @@ Revision History:
 #ifdef NTOS2_ONLY
 #include <nt.h>
 #include <ntrtl.h>
+#include <nturtl.h>
 #include "os2win.h"
 #endif  // NTOS2_ONLY
 
@@ -38,6 +39,8 @@ Revision History:
 #include <windows.h>
 #include "os2nt.h"
 #endif // WIN32_ONLY
+
+#include "os2crt.h"
 
 #if DBG
 extern ULONG Os2Debug;
@@ -69,6 +72,8 @@ extern ULONG Os2Debug;
 #else   // DBG
 #define ASSERT1( str, exp )
 #endif // DBG
+
+extern BOOLEAN fService;   // Are we running as a service ?
 
 #include "sesport.h"
 
@@ -317,4 +322,3 @@ DWORD AddConAfterWinProcess();
 #define XCPT_SIGNAL_BREAK       4
 
 HANDLE Ow2ForegroundWindow;
-

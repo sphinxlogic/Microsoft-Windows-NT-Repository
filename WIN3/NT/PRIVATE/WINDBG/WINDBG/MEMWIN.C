@@ -25,6 +25,10 @@ Environment:
 #include "precomp.h"
 #pragma hdrstop
 
+#ifdef FE_IME
+#include <ime.h>
+#include <winnls32.h>
+#endif
 
 
 
@@ -35,6 +39,11 @@ extern unsigned int InMemUpdate; // prevent multiple viemem() calls
 extern  EI      Ei;
 #define Lpei    (&Ei)
 #define SHpFrameFrompCXF(a)     (&(a)->Frame)
+#if defined(DBCS)
+BOOL IsDBCSCharSet(DWORD cs);
+#else
+#define IsDBCSCharSet(c)       TRUE     // temporary
+#endif
 extern  CXF     CxfIp;
 
 void FAR * PASCAL MMLpvLockMb(HDEP hmem);
@@ -342,6 +351,111 @@ GotoField(
 }                                       /* GotoField() */
 
 
+#ifdef DBCS // ***************************************************************
+/***    RecreateAsciiStrings
+**
+**  Synopsis:
+**
+**  Entry:
+**
+**  Returns:
+**
+**  Description:
+**      This function will recreate ASCII and Shift JIS strings
+**      in the right part of 'Byte Memory Window'.
+*/
+
+VOID RecreateAsciiPart(int doc, UINT cBits, BOOL fTwoFields)
+{
+    UINT       cb;
+    int        nbLines;
+    int        nbPerLine;
+    int        x, y;
+    BOOL       bDBCS;
+    char FAR *  lpb;
+    char FAR *  lpb2;
+    char FAR *  lpbData;
+    int        x1, x2, x3;
+    LPLINEREC  pl = NULL;
+    LPBLOCKDEF pb = NULL;
+    HCURSOR    hOldCursor;
+    int        nHead;
+
+    hOldCursor = SetCursor(LoadCursor((HANDLE)NULL, IDC_WAIT));
+
+    Dbg (OSDSetAddr (LppdCur->hpid, LptdCur->htid, adrCurrent, &MemWinDesc[memView].addr) == xosdNone);
+
+    // Compute number of lines for MAX_CHUNK_TOREAD k of data
+    nbPerLine = MemWinDesc[memView].cPerLine;
+    nbLines = ((MAX_CHUNK_TOREAD / nbPerLine) / (cBits / 8));
+    nHead = fTwoFields ? nbPerLine + 1 : 1;
+
+    // Compute number of bytes to malloc for this space
+    cb = ((nbPerLine * nbLines) * (cBits / 8));
+
+    lpbData = _fmalloc( cb );
+    OSDPtrace( osdReadBuf, cb, lpbData, LppdCur->hpid, LptdCur->htid );
+
+    bDBCS = FALSE;
+
+    for (y = 0, lpb = lpbData; y < nbLines; y++) {
+        lpb2 = lpb;
+
+        //  Now deal with the line data
+        for (x = 0; x < nbPerLine; x++) {
+            if (bDBCS) {
+                bDBCS = FALSE;
+                if (x == 0) {
+                    //This means that current *lpb is the 2nd byte
+                    //of a splited DBCS
+                    *lpb = '.';
+                }
+            } else if (IsDBCSLeadByte(*lpb)) {
+                bDBCS = TRUE;
+            }
+#ifdef DBCS
+            else if (!((BYTE)*lpb >= (BYTE)0x20 && (BYTE)*lpb <= (BYTE)0x7E)
+            &&       !IsDBCSLeadByte(*lpb))
+                //not ascii and 'Hankaku Kana' displayable
+#else
+            else if (*lpb < 0x20 || *lpb > 0x7E) //not ascii displayable
+#endif
+            {
+                *lpb = '.'; // replace with .
+            }
+            lpb++;
+        }
+        x1 = MemWinDesc[memView].lpMi[nHead].iStart;
+        x2 = MemWinDesc[memView].lpMi[nHead + x - 1].iStart;
+        x3 = x2;
+
+        if (FirstLine(doc, &pl, &y, &pb)) {
+            if (elLen > x2 + 1) {
+                //This means that 2nd byte of DBCS has been added.
+                x2++;
+            }
+            CloseLine(doc, &pl, y, &pb);
+            //FirstLine() incremented 'y', so we have to decrement it.
+            y--;
+            if (DeleteBlock(doc, x1, y, x2 + 1, y)) {
+                if (bDBCS) {
+                    //If DBC is separated by new line, add 2nd byte.
+                    x3++;
+                }
+                InsertBlock(doc, x1, y, x3 - x1 + 1, lpb2);
+            } else {
+                MessageBeep(0);
+            }
+        }
+    }
+    //  Free up used space
+    _ffree(lpbData);
+    InvalidateLines(memView, 0, y-1, FALSE);
+    SetCursor (hOldCursor);
+}
+#endif  // DBCS end **********************************************************
+
+
 /***    FValidateEdit
 **
 **  Synopsis:
@@ -581,6 +695,16 @@ FValidateEdit(
                                                                     EENOERROR);
 
             if (!fAscii) {
+#ifdef DBCS
+               /********************************************************/
+               /* In this case, we have to recreate ASCII(& Shift JIS) */
+               /* string. But it takes long time to recreate whole     */
+               /* string of ASCII side.                                */
+               /********************************************************/
+               if (IsDBCSCharSet(Views[memView].wCharSet)) {
+                   RecreateAsciiPart(doc, cBits, TRUE);
+               }
+#else   // !DBCS
                 if (rgb[0] < 0x21 || rgb[0] > 0x7E) { //not ascii displayable
                     rgb[0] = '.'; // replace with .
                 }
@@ -599,6 +723,7 @@ FValidateEdit(
                               MemWinDesc[memView].lpMi[iArea].iStart+1,
                               Views[memView].Y,
                               rgch[1]);
+#endif
 
             } else {
 
@@ -614,8 +739,19 @@ FValidateEdit(
                                   iStart+1,
                               Views[memView].Y,
                               rgch[1]);
+#ifdef DBCS
+                if (IsDBCSCharSet(Views[memView].wCharSet)) {
+                    RecreateAsciiPart(doc, cBits, TRUE);
+                }
+#endif
             }
         }
+#ifdef DBCS
+        else if (MemWinDesc[memView].iFormat == MW_ASCII &&
+                 IsDBCSCharSet(Views[memView].wCharSet)) {
+                RecreateAsciiPart(doc, cBits, FALSE);
+        }
+#endif
     }
 
     return TRUE;
@@ -671,6 +807,48 @@ InEntryArea(
     return TRUE;
 }                                       /* InEntryArea() */
 
+#ifdef DBCS // ***************************************************************
+/***
+**
+**  Synopsis:
+**
+**  Entry:
+**
+**  Returns:
+**
+**  Description:
+*/
+
+BOOL RestoreDBCS(char *pszSrc, char *pszTgt, int x, BOOL bDBCS)
+{
+    if (bDBCS) {
+        if (x == 0) {
+            //This means that current *pszSrc is the 2nd byte
+            //of a splited DBCS
+            pszTgt[x] = '.';
+        } else {
+            //This DBC is changed to '.' by EEFormatMemory().
+            //So I restore it.
+            pszTgt[x - 1] = *(pszSrc - 1);
+            pszTgt[x]     = *pszSrc;
+            pszTgt[x + 1] = '\0';
+        }
+        bDBCS = FALSE;
+    } else if (IsDBCSLeadByte(*pszSrc)) {
+        bDBCS = TRUE;
+    }
+#ifdef DBCS
+    else if (IsDBCSLeadByte(*pszSrc)) {
+       //'Hankaku Kana' is changed to '.' by EEFormatMemory().
+        pszTgt[x]     = *pszSrc;
+        pszTgt[x + 1] = '\0';
+    }
+#endif
+    return bDBCS;
+}
+#endif  // DBCS end **********************************************************
+
+
 /***    ViewMem
 **
 **  Synopsis:
@@ -722,6 +900,10 @@ ViewMem(
     NPDOCREC    d = &Docs[doc];
     HCURSOR     hOldCursor, hWaitCursor;
     EESTATUS    eeErr = EENOERROR;
+#ifdef DBCS
+    BOOL        bDBCS = FALSE;
+    char        *psz;
+#endif
 
 
 
@@ -948,7 +1130,8 @@ ViewMem(
     }
 
     //  If necessary clean up the formatted area and re-compute
-    _ffree(MemWinDesc[memView].lpMi);
+    if (MemWinDesc[memView].lpMi)
+        _ffree(MemWinDesc[memView].lpMi);
     MemWinDesc[memView].cMi = nbPerLine + 1;
 
     if (MemWinDesc[memView].iFormat == MW_BYTE) {
@@ -966,6 +1149,10 @@ ViewMem(
         DeleteAll (doc); // void the window first
     }
 
+#ifdef DBCS
+    //Initialize
+    bDBCS = FALSE;
+#endif
     for (y=0, lpb = lpbData; y < nbLines; y++) {
         x = 0;
 
@@ -989,6 +1176,9 @@ ViewMem(
             strcat (cDoc," ");
             x += 1;
         }
+#ifdef DBCS
+        psz = cDoc + x;
+#endif
 
 
         //  Now deal with the line data
@@ -1005,7 +1195,22 @@ ViewMem(
                 if (fTwoFields) {
                     Dbg(EEFormatMemory(&rgchT2[n], 2, lpb, 8, fmtAscii, 10) ==
                                                                      EENOERROR);
+#ifdef DBCS
+                    if (IsDBCSCharSet(Views[memView].wCharSet)) {
+                        bDBCS = RestoreDBCS(lpb, rgchT2, n, bDBCS);
+                    }
+#endif
                 }
+#ifdef DBCS
+              else if (MemWinDesc[memView].iFormat == MW_ASCII &&
+                       IsDBCSCharSet(Views[memView].wCharSet)) {
+                  psz[n] = rgchT[0];
+                  psz[n+1] = '\0';
+                  bDBCS = RestoreDBCS(lpb, psz, n, bDBCS);
+                  rgchT[0] = psz[n];
+                  psz[n] = '\0';
+              }
+#endif
 
                 cb = strlen( rgchT );
             } else {
@@ -1047,6 +1252,16 @@ ViewMem(
         }
 
         if (fTwoFields) {
+#ifdef DBCS
+          if (bDBCS && IsDBCSCharSet(Views[memView].wCharSet)) {
+             //If DBC is separated by new line, add 2nd byte.
+             //This DBC is changed to '.' by EEFormatMemory().
+             //So I restore it.
+             rgchT2[n - 1] = *(lpb - 1);
+             rgchT2[n]     = *lpb;
+             rgchT2[n + 1] = '\0';
+          }
+#endif
             strcat (cDoc," ");
             x++;
             strcat (cDoc,rgchT2);
@@ -1063,6 +1278,19 @@ ViewMem(
 
             x += n;
         }
+#ifdef DBCS
+         else if (MemWinDesc[memView].iFormat == MW_ASCII &&
+                  IsDBCSCharSet(Views[memView].wCharSet)) {
+             if (bDBCS) {
+                 //If DBC is separated by new line, add 2nd byte.
+                 //This DBC is changed to '.' by EEFormatMemory().
+                 //So I restore it.
+                 psz[n-1] = *(lpb - 1);
+                 psz[n  ] = *lpb;
+                 psz[n+1] = '\0';
+             }
+         }
+#endif
 
 
         //  Now add the CR/LF at the end of all lines except last line
@@ -1225,6 +1453,9 @@ Return Value:
     BOOL        fInEntry = FALSE;
     SHORT       isShiftDown;
     SHORT       isCtrlDown;
+#ifdef FE_IME
+    static  BOOL    bOldImeStatus;
+#endif
 
 
     switch (message) {
@@ -1509,6 +1740,20 @@ Return Value:
         }
         break;
 
+#ifdef FE_IME
+      case WM_IME_REPORT:
+         return TRUE;
+         break;
+
+      case WM_SETFOCUS:
+         bOldImeStatus = ImeWINNLSEnableIME(NULL, FALSE);
+         break;
+
+      case WM_KILLFOCUS:
+         ImeWINNLSEnableIME(NULL, bOldImeStatus);
+         break;
+#endif
+
     case WM_CHAR:
 
         if (!DebuggeeActive() ||
@@ -1628,3 +1873,20 @@ Return Value:
 }                                       /* MemoryEditProc() */
 
 
+
+#ifdef DBCS
+BOOL IsDBCSCharSet ( DWORD cs )
+/* cs is charset to check for dbcs-ness */
+{
+    switch(cs) {
+	case SHIFTJIS_CHARSET:
+	case HANGEUL_CHARSET:
+	case GB2312_CHARSET:
+	case CHINESEBIG5_CHARSET:
+	case JOHAB_CHARSET:
+	    return TRUE;
+	default:
+	    return FALSE;
+    }
+}
+#endif /* DBCS */

@@ -19,7 +19,7 @@
 #include <cruntime.h>
 #include <string.h>
 
-#if     defined(_M_MRX000)
+#if defined(_M_ALPHA) || defined(_M_MRX000) || defined(_M_PPC)
 #pragma function(_strset)
 #endif
 

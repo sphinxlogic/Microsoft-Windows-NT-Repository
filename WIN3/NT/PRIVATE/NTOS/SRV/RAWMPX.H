@@ -43,17 +43,22 @@ SrvFsdBuildWriteCompleteResponse (
     IN ULONG BytesWritten
     );
 
+VOID SRVFASTCALL
+RestartMdlReadRawResponse (
+    IN OUT PWORK_CONTEXT WorkContext
+    );
+
 //
 // Raw mode routines callable from both FSD and FSP.  Implemented in
 // fsdraw.c.
 //
 
-VOID
+VOID SRVFASTCALL
 SrvFsdRestartPrepareRawMdlWrite (
     IN OUT PWORK_CONTEXT WorkContext
     );
 
-VOID
+VOID SRVFASTCALL
 SrvFsdRestartWriteRaw (
     IN OUT PWORK_CONTEXT WorkContext
     );
@@ -63,7 +68,7 @@ SrvFsdRestartWriteRaw (
 // Implemented in fsdraw.c.
 //
 
-VOID
+VOID SRVFASTCALL
 SrvFsdRestartReadRaw (
     IN OUT PWORK_CONTEXT WorkContext
     );
@@ -73,27 +78,27 @@ SrvFsdRestartReadRaw (
 // modules other than smbraw.c.  Implemented in smbraw.c.
 //
 
-VOID
+VOID SRVFASTCALL
 SrvBuildAndSendWriteCompleteResponse (
     IN OUT PWORK_CONTEXT WorkContext
     );
 
-VOID
+VOID SRVFASTCALL
 SrvDecrementRawWriteCount (
     IN PRFCB Rfcb
     );
 
-VOID
+VOID SRVFASTCALL
 SrvRestartRawReceive (
     IN OUT PWORK_CONTEXT WorkContext
     );
 
-VOID
+VOID SRVFASTCALL
 SrvRestartReadRawComplete (
     IN OUT PWORK_CONTEXT WorkContext
     );
 
-VOID
+VOID SRVFASTCALL
 SrvRestartWriteCompleteResponse (
     IN OUT PWORK_CONTEXT WorkContext
     );
@@ -102,7 +107,7 @@ SrvRestartWriteCompleteResponse (
 // Special receive restart routine for Write Mpx.
 //
 
-VOID
+VOID SRVFASTCALL
 SrvRestartReceiveWriteMpx (
     IN OUT PWORK_CONTEXT WorkContext
     );

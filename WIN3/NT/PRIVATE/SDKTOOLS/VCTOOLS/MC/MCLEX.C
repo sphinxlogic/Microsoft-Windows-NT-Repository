@@ -19,9 +19,11 @@ Revision History:
 --*/
 
 
-#include <mc.h>
+#include "mc.h"
 
-WCHAR LineBuffer[ 256 ];
+#define MAXLINELENGTH  8192
+
+WCHAR LineBuffer[ MAXLINELENGTH ];
 WCHAR *CurrentChar;
 BOOLEAN ReturnCurrentToken;
 
@@ -48,6 +50,7 @@ McInitLexer( void )
     McAddName( &KeywordNames, L"SymbolicName",       MCTOK_SYMBOLNAME_KEYWORD, NULL );
     McAddName( &KeywordNames, L"Language",           MCTOK_LANGUAGE_KEYWORD,   NULL );
     McAddName( &KeywordNames, L"OutputBase",         MCTOK_OUTBASE_KEYWORD,    NULL );
+    McAddName( &KeywordNames, L"MessageIdTypedefMacro",  MCTOK_MSGTYPEDEF_KEYWORD, NULL );
     return( TRUE );
 }
 
@@ -61,17 +64,17 @@ McOpenInputFile( void )
     PatchExt = NULL;
     s = MessageFileName + strlen( MessageFileName );
     FilePart = MessageFileName;
-    while (--s > MessageFileName) {
+//    while (--s > MessageFileName) {
+    while ((s = CharPrev(MessageFileName, s)) > MessageFileName) {
         if (*s == '.' && PatchExt == NULL) {
             PatchExt = s;
             *PatchExt = '\0';
-            }
-        else
+        } else
         if (*s == ':' || *s == '\\' || *s == '/') {
             FilePart = s+1;
             break;
-            }
         }
+    }
     MessageFileNameNoExt = malloc( strlen( FilePart ) + 1 );
     strcpy( MessageFileNameNoExt, FilePart );
 
@@ -85,10 +88,9 @@ McOpenInputFile( void )
 
     if (PatchExt == NULL) {
         strcat( MessageFileName, ".mc" );
-        }
-    else {
+    } else {
         *PatchExt = '.';
-        }
+    }
 
     MessageFileLineNumber = 0;
     LineBuffer[ 0 ] = L'\0';
@@ -98,40 +100,36 @@ McOpenInputFile( void )
     MessageFile = fopen( MessageFileName, "rb" );
     if (MessageFile == NULL) {
         McInputErrorA( "unable to open input file", TRUE, NULL );
-        }
-    else {
+    } else {
 
         if (GenerateDebugFile) {
             DebugFile = fopen( DebugFileName, "wb" );
             if (DebugFile == NULL) {
                 McInputErrorA( "unable to open output file - %s", TRUE, DebugFileName );
                 goto fail;
-                }
             }
+        }
 
         HeaderFile = fopen( HeaderFileName, "wb" );
         if (HeaderFile == NULL) {
             McInputErrorA( "unable to open output file - %s", TRUE, HeaderFileName );
-            }
-        else {
+        } else {
             RcInclFile = fopen( RcInclFileName, "wb" );
             if (RcInclFile == NULL) {
                 McInputErrorA( "unable to open output file - %s", TRUE, RcInclFileName );
-                }
-            else {
+            } else {
                 Result = TRUE;
-                }
             }
         }
+    }
 
 fail:
     if (!Result) {
         McCloseInputFile();
-        McCloseOutputFiles();
-        }
-    else {
-        return( TRUE );
-        }
+        McCloseOutputFiles(Result);
+    }
+
+    return( Result );
 }
 
 
@@ -143,24 +141,54 @@ McCloseInputFile( void )
         MessageFile = NULL;
         CurrentChar = NULL;
         LineBuffer[ 0 ] = L'\0';
-        }
+    }
 }
 
 
 void
-McCloseOutputFiles( void )
+McClearArchiveBit( LPSTR Name )
+{
+    DWORD Attributes;
+
+    Attributes = GetFileAttributes(Name);
+    if (Attributes != -1 && (Attributes & FILE_ATTRIBUTE_ARCHIVE)) {
+        SetFileAttributes(Name, Attributes & ~FILE_ATTRIBUTE_ARCHIVE);
+    }
+
+    return;
+}
+
+void
+McCloseOutputFiles(
+    BOOLEAN Success
+    )
 {
     if (DebugFile != NULL) {
         fclose( DebugFile );
+        if (!Success) {
+            _unlink(DebugFileName);
+        } else {
+            McClearArchiveBit(DebugFileName);
         }
+    }
 
     if (HeaderFile != NULL) {
         fclose( HeaderFile );
+        if (!Success) {
+            _unlink(HeaderFileName);
+        } else {
+            McClearArchiveBit(HeaderFileName);
         }
+    }
 
     if (RcInclFile != NULL) {
         fclose( RcInclFile );
+        if (!Success) {
+            _unlink(RcInclFileName);
+        } else {
+            McClearArchiveBit(RcInclFileName);
         }
+    }
 }
 
 
@@ -171,6 +199,10 @@ McInputErrorA(
     PVOID Argument
     )
 {
+    if (Error) {
+        InputErrorCount += 1;
+    }
+
     fprintf( stderr,
              "%s(%d) : %s : ",
              MessageFileName,
@@ -193,11 +225,15 @@ McInputErrorW(
     WCHAR buffer[ 256 * 2 ];
 
     fprintf( stderr,
-             "%s (%d) : %s: ",
+             "%s(%d) : %s : ",
              MessageFileName,
              MessageFileLineNumber,
-             Error ? "Error" : "Warning"
+             Error ? "error" : "warning"
            );
+
+    if (Error) {
+        InputErrorCount += 1;
+    }
 
     swprintf( buffer, Message, Argument );
     wcscat( buffer, L"\n" );
@@ -207,19 +243,18 @@ McInputErrorW(
         DWORD cbWritten;
         HANDLE fh;
 
-        fh = (HANDLE) _get_osfhandle( fileno( stderr ) );
+        fh = (HANDLE) _get_osfhandle( _fileno( stderr ) );
         if (GetConsoleMode( fh, &dwMode ))
             WriteConsoleW( fh, buffer, wcslen( buffer ), &cbWritten, NULL );
         else
             fwprintf( stderr, buffer );
-        }
-    else {
+    } else {
         BYTE chBuf[ 256 * 2 ];
 
         memset( chBuf, 0, sizeof( chBuf ) );
         WideCharToMultiByte( CP_OEMCP, 0, buffer, -1, chBuf, sizeof(chBuf), NULL, NULL );
         fprintf( stderr, chBuf );
-        }
+    }
 }
 
 
@@ -230,12 +265,13 @@ McGetLine( void )
 
     if (MessageFile == NULL || feof( MessageFile )) {
         return( NULL );
-        }
+    }
 
-    if (fgetsW( LineBuffer, sizeof( LineBuffer ) / sizeof( WCHAR ),
+    if (fgetsW( LineBuffer,
+                (sizeof( LineBuffer ) / sizeof( WCHAR )) - 1,
                 MessageFile ) == NULL) {
         return( NULL );
-        }
+    }
 
     s = LineBuffer + wcslen( LineBuffer );
     if (s > LineBuffer && *--s == L'\n') {
@@ -243,8 +279,8 @@ McGetLine( void )
             *++s = L'\r';
             *++s = L'\n';
             *++s = L'\0';
-            }
         }
+    }
 
     MessageFileLineNumber++;
     return( CurrentChar = LineBuffer );
@@ -278,7 +314,7 @@ tryagain:
             }
 
         SawNewLine = TRUE;
-        }
+    }
 
     if (SkipWhiteSpace) {
         while (*CurrentChar <= L' ') {
@@ -286,9 +322,9 @@ tryagain:
             if (!*CurrentChar++) {
                 CurrentChar = NULL;
                 break;
-                }
             }
         }
+    }
 
     if (SawNewLine) {
         if (CurrentChar != NULL) {
@@ -306,27 +342,25 @@ tryagain:
                 wcscpy( p->Text, CurrentChar );
                 if (CurrentComment == NULL) {
                     Comments = p;
-                    }
-                else {
+                } else {
                     CurrentComment->Next = p;
-                    }
+                }
                 CurrentComment = p;
 
                 CurrentChar = NULL;
-                }
             }
         }
+    }
 
     if (CurrentChar == NULL && SkipWhiteSpace) {
         goto tryagain;
-        }
+    }
 
     if (SawWhiteSpace) {
         return( L' ' );
-        }
-    else {
+    } else {
         return( *CurrentChar++ );
-        }
+    }
 }
 
 
@@ -340,7 +374,7 @@ McFlushComments( void )
 
         Comments = Comments->Next;
         free( p );
-        }
+    }
     Comments = NULL;
     CurrentComment = NULL;
 
@@ -356,12 +390,11 @@ McUnGetChar(
 {
     if (CurrentChar > LineBuffer) {
         *--CurrentChar = c;
-        }
-    else {
+    } else {
         LineBuffer[ 0 ] = c;
         LineBuffer[ 1 ] = L'\0';
         CurrentChar = LineBuffer;
-        }
+    }
 }
 
 
@@ -379,14 +412,13 @@ McGetToken(
             if (TokenKeyword == NULL) {
                 McInputErrorW( L"expected keyword - %s", TRUE, TokenCharValue );
                 Token = MCTOK_END_OF_FILE;
-                }
-            else {
+            } else {
                 Token = (unsigned int)TokenKeyword->Id;
-                }
             }
+        }
 
         return( Token );
-        }
+    }
 
     Token = MCTOK_END_OF_FILE;
     dst = TokenCharValue;
@@ -402,26 +434,22 @@ McGetToken(
                 (c >= L'A' && c <= L'F')
                ) {
                 *dst++ = c;
-                }
-            else {
+            } else {
                 McUnGetChar( c );
                 *dst = L'\0';
 
                 if (!McCharToInteger( TokenCharValue, 0, &TokenNumericValue )) {
                     McInputErrorW( L"invalid number - %s", TRUE, TokenCharValue );
                     Token = MCTOK_END_OF_FILE;
-                    }
-                else {
+                } else {
                     return( Token );
-                    }
                 }
             }
-        else
+        } else
         if (Token == MCTOK_NAME) {
             if (iswcsym( c )) {
                 *dst++ = c;
-                }
-            else {
+            } else {
                 McUnGetChar( c );
                 *dst = L'\0';
 
@@ -430,77 +458,65 @@ McGetToken(
                     if (TokenKeyword == NULL) {
                         McInputErrorW( L"expected keyword - %s", TRUE, TokenCharValue );
                         Token = MCTOK_END_OF_FILE;
-                        }
-                    else {
+                    } else {
                         Token = (unsigned int)TokenKeyword->Id;
-                        }
                     }
-                return( Token );
                 }
+                return( Token );
             }
-        else
+        } else
         if (iswdigit( c )) {
             *dst++ = c;
             Token = MCTOK_NUMBER;
-            }
-        else
+        } else
         if (iswcsymf( c )) {
             *dst++ = c;
             Token = MCTOK_NAME;
-            }
-        else
+        } else
         if (c == L'=') {
             *dst++ = c;
             *dst = L'\0';
             Token = MCTOK_EQUAL;
             return( Token );
-            }
-        else
+        } else
         if (c == L'(') {
             *dst++ = c;
             *dst = L'\0';
             Token = MCTOK_LEFT_PAREN;
             return( Token );
-            }
-        else
+        } else
         if (c == L')') {
             *dst++ = c;
             *dst = L'\0';
             Token = MCTOK_RIGHT_PAREN;
             return( Token );
-            }
-        else
+        } else
         if (c == L':') {
             *dst++ = c;
             *dst = L'\0';
             Token = MCTOK_COLON;
             return( Token );
-            }
-        else
+        } else
         if (c == L'+') {
             *dst++ = c;
             *dst = L'\0';
             Token = MCTOK_PLUS;
             return( Token );
-            }
-        else
+        } else
         if (c == L' ') {
-            }
-        else
+        } else
         if (c == MCCHAR_END_OF_LINE_COMMENT) {
             Token = MCTOK_END_OF_LINE_COMMENT;
             wcscpy( TokenCharValue, CurrentChar );
             CurrentChar = NULL;
             return( Token );
-            }
-        else
+        } else
         if (c == L'\0') {
             return( Token );
-            }
-        else {
-            McInputErrorW( L"invalid character '%c'", TRUE, (PVOID)(ULONG)c );
-            }
+        } else {
+            McInputErrorW( L"invalid character (0x%02x)", TRUE, (PVOID)(ULONG)(UCHAR)c );
         }
+    }
 }
 
 
@@ -519,8 +535,8 @@ McSkipWhiteSpace(
         if (!*s++) {
             s = NULL;
             break;
-            }
         }
+    }
 
     return( s );
 }

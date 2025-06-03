@@ -34,6 +34,7 @@ externFP FreeSelector
 ifdef WOW
 externFP WowGetModuleFileName
 externFP HandleAbortProc
+externFP WowGetModuleHandle
 endif
 
 ifdef DBCS
@@ -220,7 +221,7 @@ cBegin
         xchg    ax,dx
         cmp     ax,dx
         je      gchExit
-%OUT Need pmode lru stuff here
+; %OUT Need pmode lru stuff here
 gchExit:
 cEnd
 
@@ -386,8 +387,6 @@ cEnd
 ; Put in the Excel hack and added this nifty comment block.
 ;-----------------------------------------------------------------------;
 
-msdos   db      "MSDOS"
-
         assumes ds,nothing
         assumes es,nothing
 
@@ -423,33 +422,25 @@ cBegin
         smov    es,ss
         call    NResGetPureName
         cCall   FindExeFile,<ss,di>
-;        jmps    gmexit
-
-if 1
-        or      ax,ax
-        jnz     gmexit
-
-; The problem here is that Excel 2.1 and below determine
-;  if they are runtime by looking for MSDOS.  Well, if
-;  ExeHeaders are above the line then it won't be found,
-;  or if a different shell is used it won't be found either.
-;  So we return 1 in this case.  If this selector is accessed
-;  then a GP will be generated.
-
-        mov     si,Offset msdos
-        lea     di,namebuf[1]
-        push    ds
-        smov    ds,cs
-        smov    es,ss
-        mov     cx,5
-        rep     cmpsb
-        pop     ds
-        jnz     gmexit
-        inc     ax
         jmps    gmexit
-endif
+
 gm1:    cCall   GetExePtr,<OFF_pname>
 gmexit:
+
+ifdef WOW
+;
+; If we didn't find a matching module, call WOW32 to see if
+; the module name matches the module name of a child app
+; spawned via WinOldAp.  If it does, WOW32 will return
+; that WinOldAp's hmodule.  If not, WOW32 will return zero.
+;
+        or      ax,ax
+        jnz     @F
+        lea     di,namebuf[1]
+        cCall   WowGetModuleHandle, <ss,di>
+@@:
+endif
+
         mov     dx,hExeHead             ; return this as a freebie
 cEnd
 

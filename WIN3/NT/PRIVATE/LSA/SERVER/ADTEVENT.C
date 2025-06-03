@@ -97,15 +97,15 @@ Arguments:
     PSID ClientSid;
 
 
-    Status = LsapQueryClientInfo(      
-                 &TokenUserInformation,         
-                 &ClientAuthenticationId 
+    Status = LsapQueryClientInfo(
+                 &TokenUserInformation,
+                 &ClientAuthenticationId
                  );
 
     if ( !NT_SUCCESS( Status )) {
 
         //
-        // We can't generate an audit without a 
+        // We can't generate an audit without a
         // user Sid.
         //
 
@@ -121,7 +121,7 @@ Arguments:
                     case SE_AUDITID_POLICY_CHANGE:
                         {
 
-                            (VOID) LsapAdtPolicyChange( 
+                            (VOID) LsapAdtPolicyChange(
                                         (USHORT)AuditEventCategory,
                                         AuditEventId,
                                         EVENTLOG_AUDIT_SUCCESS,
@@ -385,13 +385,13 @@ Return Value:
 
 
 VOID
-LsapAdtPolicyChange( 
+LsapAdtPolicyChange(
     IN USHORT EventCategory,
     IN ULONG  EventID,
     IN USHORT EventType,
     IN PSID ClientSid,
     IN LUID CallerAuthenticationId,
-    IN PLSARM_POLICY_AUDIT_EVENTS_INFO LsapAdtEventsInformation 
+    IN PLSARM_POLICY_AUDIT_EVENTS_INFO LsapAdtEventsInformation
     )
 /*++
 
@@ -458,23 +458,54 @@ Return Value:
     LsapSetParmTypeString( AuditParameters, AuditParameters.ParameterCount, &LsapSubsystemName );
     AuditParameters.ParameterCount++;
 
-    for ( i=0; i<POLICY_AUDIT_EVENT_TYPE_COUNT; i++ ) {
+    //
+    // If auditing is disabled, mark all options as disabled. Otherwise
+    // mark them as the appropriate
+    //
 
-        LsapSetParmTypeString( 
-            AuditParameters, 
-            AuditParameters.ParameterCount, 
-            (EventAuditingOptions[i] & POLICY_AUDIT_EVENT_SUCCESS ? &Enabled : &Disabled)
-            );
+    if (LsapAdtEventsInformation->AuditingMode) {
+        for ( i=0; i<POLICY_AUDIT_EVENT_TYPE_COUNT; i++ ) {
 
-        AuditParameters.ParameterCount++;
+            LsapSetParmTypeString(
+                AuditParameters,
+                AuditParameters.ParameterCount,
+                (EventAuditingOptions[i] & POLICY_AUDIT_EVENT_SUCCESS ? &Enabled : &Disabled)
+                );
 
-        LsapSetParmTypeString( 
-            AuditParameters, 
-            AuditParameters.ParameterCount, 
-            (EventAuditingOptions[i] & POLICY_AUDIT_EVENT_FAILURE ? &Enabled : &Disabled)
-            );
+            AuditParameters.ParameterCount++;
 
-        AuditParameters.ParameterCount++;
+            LsapSetParmTypeString(
+                AuditParameters,
+                AuditParameters.ParameterCount,
+                (EventAuditingOptions[i] & POLICY_AUDIT_EVENT_FAILURE ? &Enabled : &Disabled)
+                );
+
+            AuditParameters.ParameterCount++;
+        }
+    } else {
+        //
+        // Auditing is disabled - mark them all disabled.
+        //
+
+        for ( i=0; i<POLICY_AUDIT_EVENT_TYPE_COUNT; i++ ) {
+
+            LsapSetParmTypeString(
+                AuditParameters,
+                AuditParameters.ParameterCount,
+                &Disabled
+                );
+
+            AuditParameters.ParameterCount++;
+
+            LsapSetParmTypeString(
+                AuditParameters,
+                AuditParameters.ParameterCount,
+                &Disabled
+                );
+
+            AuditParameters.ParameterCount++;
+        }
+
     }
 
     //
@@ -501,10 +532,10 @@ LsapQueryClientInfo(
 
 Routine Description:
 
-    This routine impersonates our client, opens the thread token, and 
-    extracts the User Sid.  It puts the Sid in memory allocated via   
-    LsapAllocateLsaHeap, which must be freed by the caller.           
-                                                                      
+    This routine impersonates our client, opens the thread token, and
+    extracts the User Sid.  It puts the Sid in memory allocated via
+    LsapAllocateLsaHeap, which must be freed by the caller.
+
 Arguments:
 
     None.

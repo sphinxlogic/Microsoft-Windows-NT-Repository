@@ -186,4 +186,15 @@ Initial revision.
 #define IDRBM_FLOPPY           226
 #define IDRBM_INFO             227
 #define IDRBM_INFO_GRAY        228
-
+#define IDRBM_COLINDICATOR     229
+#define IDRBM_EMS_ENTERPRISE   230
+#define IDRBM_EMS_SITE         231
+#define IDRBM_EMS_SERVER       232
+#define IDRBM_EMS_MDB          233
+#define IDRBM_EMS_DSA          234
+#define IDRBM_RCVR_STATUS      235
+#define IDRBM_EMS_MDBX         236
+#define IDRBM_EMS_DSAX         237
+#define IDRBM_EMS_MDBP         238
+#define IDRBM_EMS_DSAP         239
+#define IDRBM_BLANK16x16       240

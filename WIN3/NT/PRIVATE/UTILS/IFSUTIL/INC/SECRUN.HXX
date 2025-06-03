@@ -24,21 +24,33 @@ Author:
 #include "drive.hxx"
 #include "mem.hxx"
 
+#if defined ( _AUTOCHECK_ )
+#define IFSUTIL_EXPORT
+#elif defined ( _IFSUTIL_MEMBER_ )
+#define IFSUTIL_EXPORT    __declspec(dllexport)
+#else
+#define IFSUTIL_EXPORT    __declspec(dllimport)
+#endif
+
+
 DECLARE_CLASS( SECRUN );
 
 class SECRUN : public OBJECT {
 
-	public:
+        public:
 
-		DECLARE_CONSTRUCTOR( SECRUN );
+                IFSUTIL_EXPORT
+                DECLARE_CONSTRUCTOR( SECRUN );
 
-		VIRTUAL
-		~SECRUN(
-			);
+                VIRTUAL
+                IFSUTIL_EXPORT
+                ~SECRUN(
+                        );
 
-		NONVIRTUAL
-		BOOLEAN
-		Initialize(
+                NONVIRTUAL
+                IFSUTIL_EXPORT
+                BOOLEAN
+                Initialize(
             IN OUT  PMEM            Mem,
             IN OUT  PIO_DP_DRIVE    Drive,
             IN      BIG_INT         StartSector,
@@ -52,11 +64,13 @@ class SECRUN : public OBJECT {
             );
 
         VIRTUAL
+        IFSUTIL_EXPORT
         BOOLEAN
         Read(
             );
 
         VIRTUAL
+        IFSUTIL_EXPORT
         BOOLEAN
         Write(
             );
@@ -83,10 +97,10 @@ class SECRUN : public OBJECT {
 
     private:
 
-		NONVIRTUAL
-		VOID
-		Construct (
-			);
+                NONVIRTUAL
+                VOID
+                Construct (
+                        );
 
         NONVIRTUAL
         VOID
@@ -194,7 +208,7 @@ Return Value:
 
 --*/
 {
-    DbgAssert(_start_sector.GetHighPart() == 0);
+    DebugAssert(_start_sector.GetHighPart() == 0);
     return _start_sector.GetLowPart();
 }
 

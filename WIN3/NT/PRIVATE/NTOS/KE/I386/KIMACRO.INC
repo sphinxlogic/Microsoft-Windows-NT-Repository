@@ -77,10 +77,11 @@ POLL_DEBUGGER   macro
 local   a, b, c_
 
 if  DEVL
+        EXTRNP   _DbgBreakPointWithStatus,1
         stdCall _KdPollBreakIn
         or      al,al
         jz      short c_
-        int     3
+        stdCall _DbgBreakPointWithStatus,<DBG_STATUS_CONTROL_C>
 c_:
 endif   ; DEVL
 endm
@@ -128,7 +129,7 @@ endm
 
 SET_DEBUG_DATA  macro
 
-if DBG
+ife FPO
 
 ;
 ; This macro is used by ENTER_SYSTEM_CALL, ENTER_TRAP and ENTER_INTERRUPT
@@ -186,7 +187,6 @@ endm
 ;     Abios work:
 ;     v86 work:
 ;
-;   BUGBUG - The name of the macro should be changed to ENTER_ASSIST
 ;--
 
 ENTER_DR_ASSIST macro   EnterLabel, ExitLabel, NoAbiosAssist, NoV86Assist, V86R
@@ -360,62 +360,65 @@ ENTER_SYSCALL macro     AssistLabel, TargetLabel
 ifdef KERNELONLY
 
 ;
-;   Fill in parts of frame we care about
+; Construct trap frame.
+;
+; N.B. The initial part of the trap frame is constructed by pushing values
+;      on the stack. If the format of the trap frame is changed, then the
+;      following code must alos be changed.
 ;
 
-        push    0                   ; Put pad dword for error on stack
-
-        push    ebp                 ; Save the non-volatile registers
-        push    ebx
-        push    esi
-        push    edi
-
-        push    fs                  ; Save and set FS to PCR.
-        mov     ebx,KGDT_R0_PCR
-        mov     fs,bx
+        push    0                       ; put pad dword for error on stack
+        push    ebp                     ; save the non-volatile registers
+        push    ebx                     ;
+        push    esi                     ;
+        push    edi                     ;
+        push    fs                      ; save and set FS to PCR.
+        mov     ebx,KGDT_R0_PCR         ; set PCR segment number
+        mov     fs,bx                   ;
 
 ;
-;   Skip over volatiles, and allocate rest of frame, at same time.
+; Save the old exception list in trap frame and initialize a new empty
+; exception list.
 ;
 
-        sub     esp, TsSegFs
+        push    PCR[PcExceptionList]    ; save old exception list
+        mov     PCR[PcExceptionList],EXCEPTION_CHAIN_END ; set new empty list
 
 ;
-; Save ExceptionList in trap frame
+; Save the old previous mode in trap frame, allocate remainder of trap frame,
+; and set the new previous mode.
 ;
 
-        mov     ebx, PCR[PcExceptionList] ;Save, set ExceptionList
-        mov     PCR[PcExceptionList],EXCEPTION_CHAIN_END
-        mov     [esp]+TsExceptionList, ebx
+        mov     esi,PCR[PcPrcbData+PbCurrentThread] ; get current thread address
+        push    [esi]+ThPreviousMode    ; save old previous mode
+        sub     esp,TsPreviousPreviousMode ; allocate remainder of trap frame
+        mov     ebx,[esp+TsSegCS]       ; compute new previous mode
+        and     ebx,MODE_MASK           ;
+        mov     [esi]+ThPreviousMode,bl ; set new previous mode
 
 ;
-; Save PreviousPreviousMode in trap frame; Compute and save new
-; Previous Mode in Current Thread Object.
+; Save the old trap frame address and set the new trap frame address.
 ;
 
-        mov     esi,PCR[PcPrcbData+PbCurrentThread]
-        mov     ebx,[esp+TsSegCS]
-        mov     edi, [esi]+ThPreviousMode ; Get Previous mode
-        mov     ebp,esp             ; (ebp)->Trap Frame
-        and     ebx,MODE_MASK
-        mov     [esp]+TsPreviousPreviousMode, edi ; Save PreviousMode
-        mov     [esi]+ThPreviousMode,bl
+        mov     ebp,esp                 ; set trap frame address
+        mov     ebx,[esi].ThTrapFrame   ; save current trap frame address
+        mov     [ebp].TsEdx,ebx         ;
+        mov     [esi].ThTrapFrame,ebp   ; set new trap frame address
+        cld                             ; make sure direction is forward
 
-        cld
+        SET_DEBUG_DATA                  ; Note this destroys edi
 
-        SET_DEBUG_DATA              ; Note this destroys edi
+        test    byte ptr [esi]+ThDebugActive,-1 ; test if debugging active
+        jnz     Dr_&AssistLabel         ; if nz, debugging is active on thread
 
-        test    byte ptr [esi]+ThDebugActive,-1
-        jnz     Dr_&AssistLabel
-
-Dr_&TargetLabel:
+Dr_&TargetLabel:                        ;
+        sti                             ; enable interrupts
 
 else
         %out    ENTER_SYSCAL outside of kernel
         .err
 endif
         endm
-
 
 ;++
 ;
@@ -597,20 +600,9 @@ ENTER_TRAP macro    AssistLabel, TargetLabel
 ;
 
 if DBG
-
-ifndef  _KiAbiosException
-    EXTRNP   _KiAbiosException
+ifndef  _Ki16BitStackException
+    EXTRNP   _Ki16BitStackException
 endif
-
-;
-; The code here check if the exception occurred in ring 0
-; ABIOS code. If yes, this is a fatal condition.  We will
-; put out message and bugcheck.
-;
-
-        cmp     esp, 10000h             ; Is the trap in abios?
-        jb      _KiAbiosException       ; if b, yes, switch stack and bugcheck.
-
 endif ; DBG
 
         mov     word ptr [esp+2], 0 ; Clear upper word of ErrorCode
@@ -646,6 +638,18 @@ endif
         sub     esp,TsSegGs
         mov     ds,ax
         mov     es,ax
+
+if DBG
+;
+; The code here check if the exception occurred in ring 0
+; ABIOS code. If yes, this is a fatal condition.  We will
+; put out message and bugcheck.
+;
+
+        cmp     esp, 10000h             ; Is the trap in abios?
+        jb      _Ki16BitStackException       ; if b, yes, switch stack and bugcheck.
+
+endif ; DBG
 
         mov     ebp,esp
         test    dword ptr [esp].TsEflags,EFLAGS_V86_MASK
@@ -756,10 +760,8 @@ Db_A:   sub     [esp]+TsDbgArgMark,0BADB0D00h
         jne     Db_NotATrapFrame
 endif
 
-        cli     ; BUGBUG - remove this once the above debug code verifies
-                ; all callers get here with interrupts disabled
-
         ASSERT_FS
+
         mov     edx, [esp]+TsExceptionList
 if DBG
         or      edx, edx
@@ -926,11 +928,9 @@ Abios_ExitHelp:
 ;       (esp)->TsEip.
 ;
 ;
-; BUGBUG shielint We should check if there is any other H/W interrupt
-;        pending.  If yes, don't switch back to 16 bit stack.  This way
-;        we can get better performance.
-; BUGBUG It appears Error code is not a good place to store the 16-bit
-;        stack pointer.  We should change it.
+; PERFNOTE shielint We should check if there is any other H/W interrupt
+;          pending.  If yes, don't switch back to 16 bit stack.  This way
+;          we can get better performance.
 ;
 
         cmp     word ptr [esp+2], 0     ; (esp+2) = Low word of error code
@@ -1196,7 +1196,9 @@ endm
 ; Taken from ntos\vdm\i386\vdmtb.inc
 ;
 
-FIXED_NTVDMSTATE_LINEAR equ 0714H
+FIXED_NTVDMSTATE_LINEAR_PC_AT equ 0714H
+FIXED_NTVDMSTATE_LINEAR_PC_98 equ 0614H
+MACHINE_TYPE_MASK equ 0ff00H
 VDM_VIRTUAL_INTERRUPTS  equ 0200H
 
 ;++

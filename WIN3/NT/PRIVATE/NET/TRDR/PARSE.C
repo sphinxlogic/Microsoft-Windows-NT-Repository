@@ -192,7 +192,10 @@ Return Value:
         //
         //      Create a timer to sleep on.
         //
-        Status = NtCreateTimer(&SleepTimer, TIMER_ALL_ACCESS, NULL);
+        Status = NtCreateTimer(&SleepTimer,
+                               TIMER_ALL_ACCESS,
+                               NULL,
+                               NotificationTimer);
 
         if (!NT_SUCCESS(Status)) {
             dprintf(("NtCreateTimer failed, Status = %X\n", Status));
@@ -221,7 +224,13 @@ Return Value:
             TimerDueTime.LowPart = - (10*1000*1000);
             TimerDueTime.HighPart = -1;
 
-            Status = NtSetTimer(SleepTimer, &TimerDueTime, NULL, NULL, NULL);
+            Status = NtSetTimer(SleepTimer,
+                                &TimerDueTime,
+                                NULL,
+                                NULL,
+                                FALSE,
+                                0,
+                                NULL);
 
             if (!NT_SUCCESS(Status)) {
                 dprintf(("NtSetTimer failed, Status = %X\n", Status));

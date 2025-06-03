@@ -107,6 +107,13 @@ Revision History:
 #include "ntddk.h"
 #include "ftdisk.h"
 
+#ifdef POOL_TAGGING
+#ifdef ExAllocatePool
+#undef ExAllocatePool
+#endif
+#define ExAllocatePool(a,b) ExAllocatePoolWithTag(a,b,' CtF')
+#endif
+
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE, FtpConfigure)
 #endif
@@ -404,7 +411,7 @@ Routine Description:
     registry and link FT device extensions to create the
     FT components.
 
-    BUGBUG: How does the potential registry update that this routine
+    WARNING: How does the potential registry update that this routine
     performs get synchronized with a registry update due to orphaning
     an existing FT set?  This can happen in the dynamic partitioning
     case.
@@ -530,8 +537,8 @@ Return Value:
 
             currentMember = FtpFindDeviceExtension(FtRootExtension,
                                                    ftMember->Signature,
-                                                   &diskPartition->StartingOffset,
-                                                   &diskPartition->Length);
+                                                   diskPartition->StartingOffset,
+                                                   diskPartition->Length);
             if (currentMember == NULL) {
 
                 //
@@ -648,8 +655,6 @@ Return Value:
             // If these fields are already set up and haven't changed
             // then leave them alone.
             //
-            // BUGBUG: who maintains the Modified bit?
-            //
 
             if (!MaintenanceMode || diskPartition->Modified) {
 
@@ -691,9 +696,6 @@ Return Value:
                 // This is a very primitive mechanism to synchronize this
                 // routine with active IO.
                 //
-                // BUGBUG: is this really necessary?  The partition
-                // should not be in use at this time.
-                //
                 // What about dynamic configuration? (ie Maintanance mode)
                 //
 
@@ -714,7 +716,7 @@ Return Value:
 
                 //
                 // Check if Stripe or StripeWithParity to determine if
-                // zones should be initialized.
+                // lookaside listhead should be initialized.
                 //
 
                 switch (zeroMember->Type) {
@@ -722,16 +724,16 @@ Return Value:
                 case Stripe:
 
                     //
-                    // Initialize RCB zone if necessary.
+                    // Initialize RCB lookaside listhead if necessary.
                     //
 
-                    if (!(FtRootExtension->Flags & FTF_RCB_ZONE_ALLOCATED)) {
+                    if (!(FtRootExtension->Flags & FTF_RCB_LOOKASIDE_ALLOCATED)) {
 
                         //
-                        // Set up zone for RCBs.
+                        // Set up lookaside listhead for RCBs.
                         //
 
-                        FtpInitializeRcbZone(FtRootExtension);
+                        FtpInitializeRcbLookasideListHead(FtRootExtension);
 
                         //
                         // Zero active stripe recovery thread count.
@@ -740,10 +742,10 @@ Return Value:
                         FtRootExtension->StripeThreadCount = 0;
 
                         //
-                        // Indicate zone is ready.
+                        // Indicate lookaside listhead is ready.
                         //
 
-                        FtRootExtension->Flags |= FTF_RCB_ZONE_ALLOCATED;
+                        FtRootExtension->Flags |= FTF_RCB_LOOKASIDE_ALLOCATED;
                     }
 
                     break;
@@ -751,16 +753,16 @@ Return Value:
                 case StripeWithParity:
 
                     //
-                    // Initialize RCB zone if necessary.
+                    // Initialize RCB lookaside listhead if necessary.
                     //
 
-                    if (!(FtRootExtension->Flags & FTF_RCB_ZONE_ALLOCATED)) {
+                    if (!(FtRootExtension->Flags & FTF_RCB_LOOKASIDE_ALLOCATED)) {
 
                         //
-                        // Set up zone for RCBs.
+                        // Set up lookaside listhead for RCBs.
                         //
 
-                        FtpInitializeRcbZone(FtRootExtension);
+                        FtpInitializeRcbLookasideListHead(FtRootExtension);
 
                         //
                         // Zero active stripe recovery thread count.
@@ -769,10 +771,10 @@ Return Value:
                         FtRootExtension->StripeThreadCount = 0;
 
                         //
-                        // Indicate zone is ready.
+                        // Indicate lookaside listhead is ready.
                         //
 
-                        FtRootExtension->Flags |= FTF_RCB_ZONE_ALLOCATED;
+                        FtRootExtension->Flags |= FTF_RCB_LOOKASIDE_ALLOCATED;
                     }
 
                     //
@@ -841,9 +843,8 @@ Return Value:
                     // this is a configuration error.
                     //
 
-                    if (LiLtr(
-                            currentMember->FtUnion.Identity.PartitionLength,
-                            previousMember->FtUnion.Identity.PartitionLength)) {
+                    if (currentMember->FtUnion.Identity.PartitionLength.QuadPart <
+                        previousMember->FtUnion.Identity.PartitionLength.QuadPart) {
 
                         //
                         // Orphan this member and set it up so it will
@@ -1452,7 +1453,7 @@ Return Value:
 
 
 VOID
-FtpInitializeRcbZone(
+FtpInitializeRcbLookasideListHead(
     IN PDEVICE_EXTENSION FtRootExtension
     )
 
@@ -1460,7 +1461,7 @@ FtpInitializeRcbZone(
 
 Routine Description:
 
-    This routine sets up a zoned pool for request control blocks.
+    This routine sets up a lookaside listhead for request control blocks.
 
 Arguments:
 
@@ -1473,48 +1474,21 @@ Return Value:
 --*/
 
 {
-    ULONG packetSize;
-    ULONG numberOfPackets;
-    ULONG poolSize;
-    PVOID address;
 
     //
-    // Set packsize for RCBs.
+    // Initialize Rcb lookaide listhead.
     //
 
-    packetSize = (sizeof(RCB));
-    packetSize = (packetSize + 7) & ~7;
+    ExInitializeNPagedLookasideList(&FtRootExtension->RcbLookasideListHead,
+                                    NULL,
+                                    NULL,
+                                    0,
+                                    sizeof(RCB),
+                                    'crTF',
+                                    4096 / sizeof(RCB));
 
-    //
-    // Allocate as many packets as fit in a page.
-    //
-
-    numberOfPackets = (4000 - sizeof(ZONE_SEGMENT_HEADER)) / packetSize;
-    poolSize = (numberOfPackets * packetSize) + sizeof(ZONE_SEGMENT_HEADER);
-
-    //
-    // Initialize spinlock for zone.
-    //
-
-    KeInitializeSpinLock(&FtRootExtension->RcbZoneLock);
-
-    address = ExAllocatePool(NonPagedPool, poolSize);
-
-    if (address == NULL) {
-        DebugPrint((1, "FtpInitializeRcbZone: failed allocate pool\n"));
-        return;
-    }
-
-    //
-    // Initialize zone.
-    //
-
-    ExInitializeZone(&FtRootExtension->RcbZone,
-                     packetSize,
-                     address,
-                     poolSize);
     return;
-} // end FtpInitializeRcbZone()
+} // end FtpInitializeRcbLookasideListHead()
 
 
 NTSTATUS
@@ -1577,7 +1551,7 @@ Return Value:
         //
 
         if ((partitionEntry->PartitionType != PARTITION_ENTRY_UNUSED) &&
-            (partitionEntry->PartitionType != PARTITION_EXTENDED)) {
+            !IsContainerPartition(partitionEntry->PartitionType)) {
 
             //
             // Bump count of recognized partitions.
@@ -1627,4 +1601,3 @@ Return Value:
 
 } // end FtpAttachDevices()
 
-

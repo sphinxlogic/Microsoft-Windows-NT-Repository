@@ -1,9 +1,6 @@
-#if DBG
-
 #include "cmd.h"
-#include "cmdproto.h"
-#include <stdio.h>
 
+#if DBG
 /***	MSDOS Ver 4.0 Command Interpreter    Part 20 of 22  CDEBUG.C
  *
  *  This file contains all of the C routines in Command's debugging
@@ -138,38 +135,4 @@ Deb(ULONG MsgGroup, ULONG MsgLevel, CHAR *msg, ...)
 	}
 }
 
-/***	AlwaysDeb - conditionally print debugging messages
- *
- *  AlwaysDeb(MsgGroup, MsgLevel, msg, arg0, arg1, arg2, arg3, arg4)
- *
- *  Args:
- *	MsgGroup - The group of the message that wants to be printed.
- *	MsgLevel - The level of the message that wants to be printed.
- *	msg  - A printf style message string.
- *	arg0-4	 - The other args to be printed.
- *
- */
-void
-AlwaysDeb(ULONG MsgGroup, ULONG MsgLevel, CHAR *msg, ...)
-{
-	CHAR  Buffer[ 512 ];
-	va_list     args;
-	CHAR	*pch = Buffer;
-	int	cb;
-
-
-	va_start( args, msg );
-	cb = _vsnprintf( Buffer, 512, msg, args );
-	va_end( args );
-	if (cb > 512)
-	    fprintf(stderr, "Debug output buffer length exceeded - crash imminent\n");
-	while (*pch) {
-		if (*pch == '\n' || *pch == '\r')
-			*pch = '#';
-		pch++;
-	}
-
-	OutputDebugStringA(Buffer);
-	OutputDebugStringA("\n");
-}
-#endif
+#endif  // DBG

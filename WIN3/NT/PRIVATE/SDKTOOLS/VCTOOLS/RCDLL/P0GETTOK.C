@@ -8,8 +8,7 @@
 /*                                                                      */
 /************************************************************************/
 
-#include "prerc.h"
-#pragma hdrstop
+#include "rc.h"
 
 /************************************************************************
 **      MAP_TOKEN : a token has two representations and additional information.
@@ -54,7 +53,7 @@ first_switch:
         case LX_ASCII:
             if (fAFXSymbols && PREVCH() == SYMUSESTART || PREVCH() == SYMDEFSTART
                 || PREVCH() == SYMDELIMIT) {
-                fwrite(&(PREVCH()), sizeof(WCHAR), 1, OUTPUTFILE);
+                myfwrite(&(PREVCH()), sizeof(WCHAR), 1, OUTPUTFILE);
                 continue;
             }
             Msg_Temp = GET_MSG(2018);
@@ -205,7 +204,7 @@ first_switch:
                     error(2138); /* (nested comments) */
                 }
                 else {
-                    fwrite(L"*/", 2 * sizeof(WCHAR), 1, OUTPUTFILE);
+                    myfwrite(L"*/", 2 * sizeof(WCHAR), 1, OUTPUTFILE);
                 }
                 continue;
             case LX_EQ:
@@ -280,7 +279,7 @@ first_switch:
                 do_newline();   /* may be a 'real' prepro line */
             }
             else {
-                fwrite(L"#", sizeof(WCHAR), 1, OUTPUTFILE);
+                myfwrite(L"#", sizeof(WCHAR), 1, OUTPUTFILE);
             }
             continue;
             break;
@@ -293,9 +292,9 @@ first_switch:
                     }
                 }
                 else {
-                    fwrite(L"\\", sizeof(WCHAR), 1, OUTPUTFILE);
+                    myfwrite(L"\\", sizeof(WCHAR), 1, OUTPUTFILE);
                     *buf = get_non_eof();
-                    fwrite(buf, sizeof(WCHAR), 1, OUTPUTFILE);
+                    myfwrite(buf, sizeof(WCHAR), 1, OUTPUTFILE);
                 }
                 continue;
             }
@@ -336,7 +335,7 @@ first_switch:
             }
             if(Prep) {
                 // must manually write '\r' with '\n' when writing 16-bit strings
-                fwrite(L"\r\n", 2 * sizeof(WCHAR), 1, OUTPUTFILE);
+                myfwrite(L"\r\n", 2 * sizeof(WCHAR), 1, OUTPUTFILE);
             }
             do_newline();
             continue;
@@ -352,7 +351,7 @@ first_switch:
 
                 c = PREVCH();
                 do {
-                    fwrite(&c, sizeof(WCHAR), 1, OUTPUTFILE);
+                    myfwrite(&c, sizeof(WCHAR), 1, OUTPUTFILE);
                 } while(LXC_IS_WHITE(c = GETCH()));
             }
             UNGETCH();
@@ -364,7 +363,7 @@ first_switch:
                 SET_MSG (Msg_Text, sizeof(Msg_Text), Msg_Temp, PREVCH());
                 error(2018);/* unknown character */
             } else {
-                fwrite(&(PREVCH()), sizeof(WCHAR), 1, OUTPUTFILE);
+                myfwrite(&(PREVCH()), sizeof(WCHAR), 1, OUTPUTFILE);
             }
             continue;
             break;
@@ -376,9 +375,9 @@ first_switch:
                 }
             }
             else {
-                fwrite(L"\\", sizeof(WCHAR), 1, OUTPUTFILE);
+                myfwrite(L"\\", sizeof(WCHAR), 1, OUTPUTFILE);
                 *buf = get_non_eof();
-                fwrite(buf, sizeof(WCHAR), 1, OUTPUTFILE);
+                myfwrite(buf, sizeof(WCHAR), 1, OUTPUTFILE);
             }
             continue;
             break;
@@ -452,7 +451,7 @@ avoid_expand:
                     return(L_IDENT);
                 }
                 else {
-                    fwrite(Reuse_W, (Reuse_W_length - 1) * sizeof(WCHAR), 1, OUTPUTFILE);
+                    myfwrite(Reuse_W, (Reuse_W_length - 1) * sizeof(WCHAR), 1, OUTPUTFILE);
                     return(NOMAP_TOKEN(L_NOTOKEN));
                 }
             }

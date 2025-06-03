@@ -14,6 +14,9 @@
 * HISTORY:
 *		$Log:   J:\se.vcs\driver\q117kdi\nt\src\0x15a18.c  $
 *	
+*	   Rev 1.2   10 Aug 1994 09:53:22   BOBLEHMA
+*	Changed cast from a dUDDWordPtr to dSDDWordPtr.
+*	
 *	   Rev 1.1   18 Jan 1994 16:30:34   KEVINKES
 *	Fixed compile errors and added debug changes.
 *
@@ -113,4 +116,3 @@ dVoid kdi_LockUnlockDMA
 
 	return;
 }
-

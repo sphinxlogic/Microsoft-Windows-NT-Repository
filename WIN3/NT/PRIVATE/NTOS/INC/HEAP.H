@@ -96,29 +96,59 @@ typedef struct _HEAP_ENTRY {
 //
 
 typedef struct _HEAP_ENTRY_EXTRA {
-    //
-    // This field is for debugging purposes.  It will normally contain a
-    // stack back trace index of the allocator for x86 systems.
-    //
+    union {
+        struct {
+            //
+            // This field is for debugging purposes.  It will normally contain a
+            // stack back trace index of the allocator for x86 systems.
+            //
 
-    USHORT AllocatorBackTraceIndex;
+            USHORT AllocatorBackTraceIndex;
 
-    //
-    // This field is currently unused, but is intended for storing
-    // any encoded value that will give the that gives the type of object
-    // allocated.
-    //
+            //
+            // This field is currently unused, but is intended for storing
+            // any encoded value that will give the that gives the type of object
+            // allocated.
+            //
 
-    USHORT TagIndex;
+            USHORT TagIndex;
 
-    //
-    // This field is a 32-bit settable value that a higher level heap package
-    // can use.  The Win32 heap manager stores handle values in this field.
-    //
+            //
+            // This field is a 32-bit settable value that a higher level heap package
+            // can use.  The Win32 heap manager stores handle values in this field.
+            //
 
-    ULONG Settable;
+            ULONG Settable;
+        };
+        ULONGLONG ZeroInit;
+    };
 } HEAP_ENTRY_EXTRA, *PHEAP_ENTRY_EXTRA;
 
+//
+// This structure is present at the end of a free block if HEAP_ENTRY_EXTRA_PRESENT
+// is set in the Flags field of a HEAP_FREE_ENTRY structure.  It is used to save the
+// tag index that was associated with the allocated block after it has been freed.
+// Works best when coalesce on free is disabled, along with decommitment.
+//
+
+typedef struct _HEAP_FREE_ENTRY_EXTRA {
+    USHORT TagIndex;
+    USHORT FreeBackTraceIndex;
+} HEAP_FREE_ENTRY_EXTRA, *PHEAP_FREE_ENTRY_EXTRA;
+
+//
+// This structure describes a block that lies outside normal heap memory
+// as it was allocated with NtAllocateVirtualMemory and has the
+// HEAP_ENTRY_VIRTUAL_ALLOC flag set.
+//
+
+typedef struct _HEAP_VIRTUAL_ALLOC_ENTRY {
+    LIST_ENTRY Entry;
+    HEAP_ENTRY_EXTRA ExtraStuff;
+    ULONG CommitSize;
+    ULONG ReserveSize;
+    HEAP_ENTRY BusyBlock;
+} HEAP_VIRTUAL_ALLOC_ENTRY, *PHEAP_VIRTUAL_ALLOC_ENTRY;
 
 typedef struct _HEAP_FREE_ENTRY {
     //
@@ -146,16 +176,11 @@ typedef struct _HEAP_FREE_ENTRY {
 
     //
     // This field contains various flag bits associated with this block.
-    // Currently these are:
+    // Currently for free blocks these can be:
     //
-    //  0x01 - HEAP_ENTRY_BUSY
     //  0x02 - HEAP_ENTRY_EXTRA_PRESENT
     //  0x04 - HEAP_ENTRY_FILL_PATTERN
-    //  0x08 - HEAP_ENTRY_VIRTUAL_ALLOC
     //  0x10 - HEAP_ENTRY_LAST_ENTRY
-    //  0x20 - HEAP_ENTRY_SETTABLE_FLAG1
-    //  0x40 - HEAP_ENTRY_SETTABLE_FLAG2
-    //  0x80 - HEAP_ENTRY_SETTABLE_FLAG3
     //
 
     UCHAR Flags;
@@ -239,7 +264,7 @@ typedef struct _HEAP_SEGMENT {
 typedef struct _HEAP_LOCK {
     union {
         RTL_CRITICAL_SECTION CriticalSection;
-	ERESOURCE Resource;
+        ERESOURCE Resource;
     } Lock;
 } HEAP_LOCK, *PHEAP_LOCK;
 
@@ -252,21 +277,26 @@ typedef struct _HEAP_UCR_SEGMENT {
 
 
 typedef struct _HEAP_TAG_ENTRY {
-    USHORT TagIndex;
-    USHORT CreatorBackTraceIndex;
     ULONG Allocs;
     ULONG Frees;
-    ULONG Bytes;
-    CHAR TagName[ 48 ];
-} HEAP_TAG_ENTRY, *PHEAP_TAG_ENTRY;
+    ULONG Size;
+    USHORT TagIndex;
+    USHORT CreatorBackTraceIndex;
+    WCHAR TagName[ 24 ];
+} HEAP_TAG_ENTRY, *PHEAP_TAG_ENTRY;     // sizeof( HEAP_TAG_ENTRY ) must divide page size evenly
+
+typedef struct _HEAP_PSEUDO_TAG_ENTRY {
+    ULONG Allocs;
+    ULONG Frees;
+    ULONG Size;
+} HEAP_PSEUDO_TAG_ENTRY, *PHEAP_PSEUDO_TAG_ENTRY;
 
 typedef struct _HEAP {
     HEAP_ENTRY Entry;
 
     ULONG Signature;
-    USHORT Flags;
-    USHORT ForceFlags;
-    ULONG MaximumAllocationSize;
+    ULONG Flags;
+    ULONG ForceFlags;
     ULONG VirtualMemoryThreshold;
 
     ULONG SegmentReserve;
@@ -275,14 +305,20 @@ typedef struct _HEAP {
     ULONG DeCommitTotalFreeThreshold;
 
     ULONG TotalFreeSize;
-    PHEAP_LOCK LockVariable;
-    LIST_ENTRY ProcessHeapsList;
+    ULONG MaximumAllocationSize;
+    USHORT ProcessHeapsListIndex;
+    USHORT HeaderValidateLength;
+    PVOID HeaderValidateCopy;
 
-    USHORT CurrentTagIndex;
+    USHORT NextAvailableTagIndex;
     USHORT MaximumTagIndex;
     PHEAP_TAG_ENTRY TagEntries;
     PHEAP_UCR_SEGMENT UCRSegments;
     PHEAP_UNCOMMMTTED_RANGE UnusedUnCommittedRanges;
+
+    ULONG AlignRound;
+    ULONG AlignMask;
+    LIST_ENTRY VirtualAllocdBlocks;
 
     PHEAP_SEGMENT Segments[ HEAP_MAXIMUM_SEGMENTS ];
 
@@ -290,16 +326,35 @@ typedef struct _HEAP {
         ULONG FreeListsInUseUlong[ HEAP_MAXIMUM_FREELISTS / 32 ];
         UCHAR FreeListsInUseBytes[ HEAP_MAXIMUM_FREELISTS / 8 ];
     } u;
-    LIST_ENTRY FreeLists[ HEAP_MAXIMUM_FREELISTS ];
 
+    USHORT FreeListsInUseTerminate;
     USHORT AllocatorBackTraceIndex;
-    USHORT Reserved[ 1 ];
     PRTL_TRACE_BUFFER TraceBuffer;
     ULONG EventLogMask;
+    PHEAP_PSEUDO_TAG_ENTRY PseudoTagEntries;
+
+    LIST_ENTRY FreeLists[ HEAP_MAXIMUM_FREELISTS ];
+
+    PHEAP_LOCK LockVariable;
+    PRTL_HEAP_COMMIT_ROUTINE CommitRoutine;
+    ULONG Reserved[ 2 ];
 } HEAP, *PHEAP;
 
-#define HEAP_SIGNATURE              (ULONG)0xEEFFEEFF
-#define HEAP_LOCK_USER_ALLOCATED    (ULONG)0x80000000
+#define HEAP_SIGNATURE                      (ULONG)0xEEFFEEFF
+#define HEAP_LOCK_USER_ALLOCATED            (ULONG)0x80000000
+#define HEAP_VALIDATE_PARAMETERS_ENABLED    (ULONG)0x40000000
+#define HEAP_VALIDATE_ALL_ENABLED           (ULONG)0x20000000
+#define HEAP_SKIP_VALIDATION_CHECKS         (ULONG)0x10000000
+
+#define CHECK_HEAP_TAIL_SIZE HEAP_GRANULARITY
+#define CHECK_HEAP_TAIL_FILL 0xAB
+#define FREE_HEAP_FILL 0xFEEEFEEE
+#define ALLOC_HEAP_FILL 0xBAADF00D
+
+#define HEAP_MAXIMUM_SMALL_TAG              0xFF
+#define HEAP_SMALL_TAG_MASK                 (HEAP_MAXIMUM_SMALL_TAG << HEAP_TAG_SHIFT)
+#define HEAP_NEED_EXTRA_FLAGS ((HEAP_TAG_MASK ^ HEAP_SMALL_TAG_MASK) | HEAP_SETTABLE_USER_VALUE)
+#define HEAP_NUMBER_OF_PSEUDO_TAG           (HEAP_MAXIMUM_FREELISTS+1)
 
 
 #if (HEAP_ENTRY_SETTABLE_FLAG1 ^    \
@@ -332,27 +387,39 @@ typedef struct _HEAP {
 #error HEAP_SETTABLE_USER_FLAGS in ntrtl.h conflicts with HEAP_ENTRY_SETTABLE_FLAGS in heap.h
 #endif
 
-#define HEAP_TRACE_ALLOC_START           0
-#define HEAP_TRACE_ALLOC_END             1
-#define HEAP_TRACE_REALLOC_START         2
-#define HEAP_TRACE_REALLOC_END           3
-#define HEAP_TRACE_FREE_START            4
-#define HEAP_TRACE_FREE_END              5
-#define HEAP_TRACE_SIZE_START            6
-#define HEAP_TRACE_SIZE_END              7
-#define HEAP_TRACE_LOCK_HEAP             8
-#define HEAP_TRACE_UNLOCK_HEAP           9
-#define HEAP_TRACE_GET_VALUE            10
-#define HEAP_TRACE_SET_VALUE            11
-#define HEAP_TRACE_GET_FLAGS            12
-#define HEAP_TRACE_SET_FLAGS            13
-#define HEAP_TRACE_COMMIT_MEMORY        14
-#define HEAP_TRACE_COMMIT_INSERT        15
-#define HEAP_TRACE_COMMIT_NEW_ENTRY     16
-#define HEAP_TRACE_INSERT_FREE_BLOCK    17
-#define HEAP_TRACE_UNLINK_FREE_BLOCK    18
-#define HEAP_TRACE_COALESCE_FREE_BLOCKS 19
-#define HEAP_TRACE_EXTEND_HEAP          20
-#define HEAP_TRACE_MAX_EVENT            21
+typedef struct _HEAP_STOP_ON_TAG {
+    union {
+        ULONG HeapAndTagIndex;
+        struct {
+            USHORT TagIndex;
+            USHORT HeapIndex;
+        };
+    };
+} HEAP_STOP_ON_TAG, *PHEAP_STOP_ON_TAG;
+
+typedef struct _HEAP_STOP_ON_VALUES {
+    ULONG AllocAddress;
+    HEAP_STOP_ON_TAG AllocTag;
+    ULONG ReAllocAddress;
+    HEAP_STOP_ON_TAG ReAllocTag;
+    ULONG FreeAddress;
+    HEAP_STOP_ON_TAG FreeTag;
+} HEAP_STOP_ON_VALUES, *PHEAP_STOP_ON_VALUES;
+
+#ifndef NTOS_KERNEL_RUNTIME
+
+extern BOOLEAN RtlpDebugHeap;
+extern BOOLEAN RtlpDebugPageHeap;
+extern BOOLEAN RtlpValidateHeapHdrsEnable; // Set to TRUE if headers are being corrupted
+extern BOOLEAN RtlpValidateHeapTagsEnable; // Set to TRUE if tag counts are off and you want to know why
+extern HEAP RtlpGlobalTagHeap;
+extern HEAP_STOP_ON_VALUES RtlpHeapStopOn;
+
+BOOLEAN
+RtlpHeapIsLocked(
+    IN PVOID HeapHandle
+    );
+
+#endif // NTOS_KERNEL_RUNTIME
 
 #endif //  _RTL_HEAP_

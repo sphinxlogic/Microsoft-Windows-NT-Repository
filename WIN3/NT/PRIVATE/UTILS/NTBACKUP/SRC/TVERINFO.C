@@ -121,6 +121,7 @@ DBLK_PTR  dblk ;    /* I - On entry it is minimal on exit Complete */
      HANDLE           old_scan_hand ;
      WIN32_FIND_DATA  find_data ;
      CHAR_PTR         path_string ;
+     CHAR_PTR         org_path_string ;
 
      msassert( dblk != NULL );
      msassert( fsh->attached_dle != NULL )  ;
@@ -155,7 +156,7 @@ DBLK_PTR  dblk ;    /* I - On entry it is minimal on exit Complete */
                          ( error == ERROR_UNEXP_NET_ERR ) ||
                          ( error == ERROR_BAD_NET_NAME ) )
                     {
-                         ret_val == FS_COMM_FAILURE ;
+                         ret_val = FS_COMM_FAILURE ;
                     }
 
                     else if ( error ==  ERROR_FILE_NOT_FOUND )
@@ -198,6 +199,10 @@ DBLK_PTR  dblk ;    /* I - On entry it is minimal on exit Complete */
           {
                return OUT_OF_MEMORY ;
           }
+
+          org_path_string = path_string ;
+          path_string = NTFS_GetTempName( path_string );
+
           memset( &find_data, 0, sizeof( find_data ) ) ;
           old_scan_hand = FindFirstFile( path_string, &find_data ) ;
 
@@ -207,6 +212,7 @@ DBLK_PTR  dblk ;    /* I - On entry it is minimal on exit Complete */
            */
           if ( ( old_scan_hand != INVALID_HANDLE_VALUE ) &&
                ( fsh->attached_dle->feature_bits & DLE_FEAT_CASE_PRESERVING ) &&
+               ( path_string == org_path_string ) &&
                strcmp( ddblk->full_name_ptr->name, find_data.cFileName ) ) {
 
 
@@ -228,7 +234,7 @@ DBLK_PTR  dblk ;    /* I - On entry it is minimal on exit Complete */
                if ( ( error == ERROR_NETNAME_DELETED ) ||
                     ( error == ERROR_BAD_NET_NAME ) )
                {
-                    ret_val == FS_COMM_FAILURE ;
+                    ret_val = FS_COMM_FAILURE ;
                }
                else if ( error ==  ERROR_FILE_NOT_FOUND )
                {

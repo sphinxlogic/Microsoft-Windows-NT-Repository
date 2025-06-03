@@ -7,8 +7,7 @@
 /*                                                                          */
 /****************************************************************************/
 
-#include "prerc.h"
-#pragma hdrstop
+#include "rc.h"
 
 
 static BOOL fComma;
@@ -18,7 +17,7 @@ static BOOL fComma;
         dialogName DIALOGEX x, y, cx, cy [, helpID]
         [style ...]
         [exStyle ...]
-        [FONT height, name [, [weight] [, [italic]]]]
+        [FONT height, name [, [weight] [, [italic [, [charset]]]]]]
         [caption ...]
         [menu ...]
         [memFlags [pure] [discard n] [preload]]
@@ -117,6 +116,11 @@ static BOOL fComma;
 
 #define CTLSTYLE(s) (WS_CHILD | WS_VISIBLE | (s))
 
+/* list of control id's to check for duplicates */
+static  PDWORD  pid;
+static  int     cidMac;
+static  int     cidMax;
+
 BOOL CheckStr(PWCHAR pStr)
 {
     if (token.type == STRLIT || token.type == LSTRLIT)
@@ -213,9 +217,18 @@ int GetDlgItems(BOOL fDlgEx)
     CTRL ctrl;
     int i;
 
+    cidMac = 0;
+    cidMax = 100;
+    pid = MyAlloc(sizeof(DWORD)*cidMax);
+    if (!pid)
+        return FALSE;
+
     GetToken(TRUE);
 
     /* read all the controls in the dialog */
+
+    ctrl.id = 0L;  // initialize the control's id to 0
+
     while (token.type != END)
     {
         ctrl.dwHelpID = 0L;
@@ -239,6 +252,18 @@ int GetDlgItems(BOOL fDlgEx)
             }
 
             ctrl.dwStyle |= ctrlTypes[i].dwStyle;
+            if (fMacRsrcs &&
+                (token.type == TKPUSHBUTTON ||
+                token.type == TKDEFPUSHBUTTON ||
+                token.type == TKCHECKBOX ||
+                token.type == TKAUTO3 ||
+                token.type == TKAUTOCHECK ||
+                token.type == TKPUSHBOX ||
+                token.type == TK3STATE ||
+                token.type == TKUSERBUTTON))
+            {
+                ctrl.dwStyle &= ~WS_TABSTOP;
+            }
             if (ctrlTypes[i].bCode)
             {
                 ctrl.Class[0] = 0xFFFF;
@@ -276,14 +301,21 @@ int GetDlgItems(BOOL fDlgEx)
 
         SetUpItem(&ctrl, fDlgEx); /* gen the code for it  */
 
-        if (token.type == BEGIN)
+        if (fDlgEx && token.type == BEGIN)
         {
+	    /* align any CreateParams are there */
+	    //WriteAlign(); not yet!!!
+
             // we're ok passing NULL in for pRes here because PreBeginParse
             // won't have to use pRes
-            SetItemExtraCount(GetRCData(NULL));
+	    // Note that passing fDlgEx is actually redundant since it
+	    // will always be TRUE here, but we'll do it in case someone
+	    // else ever calls SetItemExtraCount
+            SetItemExtraCount(GetRCData(NULL), fDlgEx);
             GetToken(TOKEN_NOEXPRESSION);
         }
     }
+    MyFree(pid);
 }
 
 /*---------------------------------------------------------------------------*/
@@ -309,14 +341,14 @@ int GetDlg(PRESINFO pRes, PDLGHDR pDlg, BOOL fDlgEx)
 
     /* get optional parameters */
     if (!DLexOptionalArgs(pRes, pDlg, fDlgEx))
-	return FALSE;
+        return FALSE;
 
     if (pDlg->pointsize)
         pDlg->dwStyle |= DS_SETFONT;
     else
         pDlg->dwStyle &= ~DS_SETFONT;
 
-    /* output header  to the resource buffer */
+    /* output header to the resource buffer */
     SetUpDlg(pDlg, fDlgEx);
 
     /* make sure we have a BEGIN */
@@ -325,6 +357,9 @@ int GetDlg(PRESINFO pRes, PDLGHDR pDlg, BOOL fDlgEx)
 
     /* get the dialog items */
     GetDlgItems(fDlgEx);
+
+    if (fMacRsrcs)
+        SwapItemCount();
 
     /* make sure this ended on an END */
     if (token.type != END)
@@ -382,7 +417,7 @@ void ParseCtl(PCTRL LocCtl, BOOL fDlgEx)
         // USER. This provides some space savings in resource files.
         for (i = C_CTRLNAMES; i; )
         {
-            if (!wcsicmp(tokenbuf, ctrlNames[--i].pszName))
+            if (!_wcsicmp(tokenbuf, ctrlNames[--i].pszName))
                 goto Found1;
         }
         CheckStr(LocCtl->Class);
@@ -446,6 +481,7 @@ VOID GetCtlText(PCTRL pLocCtl)
 VOID GetCtlID(PCTRL pLocCtl, BOOL fDlgEx)
 {
     WORD    wGFE = GFE_ZEROINIT;
+    int i;
 
     ICGetTok();
 
@@ -454,8 +490,33 @@ VOID GetCtlID(PCTRL pLocCtl, BOOL fDlgEx)
     if (!fDlgEx)
         wGFE |= GFE_SHORT;
 
-    if (!GetFullExpression(&pLocCtl->id, wGFE))
+    if (GetFullExpression(&pLocCtl->id, wGFE)) {
+        if (!fDlgEx && pLocCtl->id != (DWORD)(WORD)-1 ||
+	     fDlgEx && pLocCtl->id != (DWORD)-1) {
+            for (i=0 ; i<cidMac ; i++) {
+                if (pLocCtl->id == *(pid+i)) {
+                    i = (int)pLocCtl->id;
+                    SET_MSG(Msg_Text, sizeof(Msg_Text), GET_MSG(2182),
+                            curFile, token.row, i);
+                    SendError(Msg_Text);
+                    break;
+                }
+            }
+            if (cidMac == cidMax) {
+                PDWORD pidNew;
+
+                cidMax += 100;
+                pidNew = MyAlloc(cidMax*sizeof(DWORD));
+                memcpy(pidNew, pid, cidMac*sizeof(DWORD));
+                MyFree(pid);
+                pid = pidNew;
+            }
+            *(pid+cidMac++) = pLocCtl->id;
+        }
+    }
+    else {
         ParseError1(2116); //"Expecting number for ID"
+    }
 
     if (token.type == COMMA)
         ICGetTok();
@@ -539,7 +600,7 @@ BOOL DLexOptionalArgs(PRESINFO pRes, PDLGHDR pDlg, BOOL fDlgEx)
 
             default:
                 ParseError1(2112); //"BEGIN expected in dialog");
-		return FALSE;
+                return FALSE;
         }
     }
     return TRUE;
@@ -555,6 +616,7 @@ BOOL DLexOptionalArgs(PRESINFO pRes, PDLGHDR pDlg, BOOL fDlgEx)
 void DGetFont(PDLGHDR pDlg, BOOL fDlgEx)
 {
     WORD w;
+    int i;
 
     GetToken(TRUE);
     if (!GetFullExpression(&pDlg->pointsize, GFE_ZEROINIT | GFE_SHORT))
@@ -566,7 +628,19 @@ void DGetFont(PDLGHDR pDlg, BOOL fDlgEx)
     if (!CheckStr(pDlg->Font))
         ParseError1(2118); //"Expected font face name"
 
+    if (_wcsicmp(pDlg->Font, L"System") &&
+        szSubstituteFontName[0] != UNICODE_NULL) {
+        for (i=0; i<nBogusFontNames; i++) {
+            if (!_wcsicmp(pszBogusFontNames[i], pDlg->Font)) {
+                GenWarning4(4510, (PCHAR)pDlg->Font, (PCHAR)szSubstituteFontName, 0 ); // Warning for hard coded fonts
+                wcscpy(pDlg->Font, szSubstituteFontName);
+            }
+        }
+    }
+
     GetToken(TRUE);
+
+    pDlg->bCharSet = DEFAULT_CHARSET;
 
     if (fDlgEx && (token.type == COMMA))
     {
@@ -581,6 +655,13 @@ void DGetFont(PDLGHDR pDlg, BOOL fDlgEx)
             {
                 pDlg->bItalic = (token.val) ? TRUE : FALSE;
                 GetToken(TOKEN_NOEXPRESSION);
+
+                if (token.type == COMMA)
+                {
+                    GetToken(TOKEN_NOEXPRESSION);
+                    if (GetFullExpression(&w, GFE_ZEROINIT | GFE_SHORT))
+                        pDlg->bCharSet = (UCHAR) w;
+                }
             }
         }
     }
@@ -886,16 +967,17 @@ int ParseOldMenu(int fRecursing, PRESINFO pRes) // 8 char proc name limitation!
 
 int     VersionParse(VOID)
 {
-    PUSHORT pw;
+    int Index;
 
     /* Get the fixed structure entries */
-    if (!(pw = VersionParseFixed()))
-        return FALSE;
+    /* Note that VersionParseFixed doesn't actually fail! */
+    /* This is because VersionBlockStruct doesn't fail. */
+    Index = VersionParseFixed();
 
     /* Put the following blocks in as sub-blocks.  Fix up the length when
      *  we're done.
      */
-    *pw += VersionParseBlock();
+    SetItemCount(Index, (USHORT)(GetItemCount(Index) + VersionParseBlock()));
 
     /* The return data buffer is global */
     return TRUE;
@@ -909,7 +991,7 @@ int     VersionParse(VOID)
  *      portion added in.
  */
 
-PUSHORT VersionParseFixed(VOID)
+int VersionParseFixed(VOID)
 {
     VS_FIXEDFILEINFO FixedInfo;
 
@@ -1053,7 +1135,7 @@ VOID VersionGetDWord(ULONG *pdw)
 USHORT  VersionParseBlock(VOID)
 {
     USHORT      wLen;
-    PUSHORT pwLen;
+    int         IndexLen;
     USHORT      wType;
 
     /* Get the current position in the buffer */
@@ -1084,13 +1166,13 @@ USHORT  VersionParseBlock(VOID)
                 ParseError1(2131); //"Expecting quoted string for key"
 
             /* Now feed in the key string and value items */
-            pwLen = VersionBlockVariable(tokenbuf);
+            IndexLen = VersionBlockVariable(tokenbuf);
 
             /* A "BLOCK" item causes recursion.  Current token should be
              *  "BEGIN"
              */
             if (wType == TKBLOCK) {
-                *pwLen += VersionParseBlock();
+                SetItemCount(IndexLen, (USHORT)(GetItemCount(IndexLen) + VersionParseBlock()));
                 GetToken(TRUE);
             }
             break;
@@ -1117,12 +1199,13 @@ USHORT  VersionParseBlock(VOID)
  *      a pointer to the block length is returned so that it can be modified.
  *      This call uses a pre-parsed value item.  Use VersionBlockVariable()
  *      to parse the value items instead.
+ *      Note that this actually can't fail!
  */
 
-PUSHORT VersionBlockStruct(PWCHAR pstrKey, PCHAR pstrValue, USHORT wLenValue)
+int VersionBlockStruct(PWCHAR pstrKey, PCHAR pstrValue, USHORT wLenValue)
 {
     USHORT wLen;
-    PUSHORT pwLen;
+    int Index;
     ULONG dwPadding = 0L;
     USHORT wAlign;
 
@@ -1135,7 +1218,7 @@ PUSHORT VersionBlockStruct(PWCHAR pstrKey, PCHAR pstrValue, USHORT wLenValue)
     wLen = GetBufferLen();
 
     /* Write a zero for the length for now */
-    pwLen = (PUSHORT)GetBufferPtr();
+    Index = GetBufferLen();
     WriteWord(0);
 
     /* Write the length of the value field */
@@ -1145,7 +1228,7 @@ PUSHORT VersionBlockStruct(PWCHAR pstrKey, PCHAR pstrValue, USHORT wLenValue)
     WriteWord(0);
 
     /* Write the key string now */
-    WriteString(pstrKey);
+    WriteString(pstrKey, TRUE);
 
     /* Write the value data if there is any */
     if (wLenValue) {
@@ -1159,9 +1242,9 @@ PUSHORT VersionBlockStruct(PWCHAR pstrKey, PCHAR pstrValue, USHORT wLenValue)
     }
 
     /* Now fix up the block length and return a pointer to it */
-    *pwLen = GetBufferLen() - wLen;
+    SetItemCount(Index, (USHORT)(GetBufferLen() - wLen));
 
-    return pwLen;
+    return Index;
 }
 
 
@@ -1174,12 +1257,12 @@ PUSHORT VersionBlockStruct(PWCHAR pstrKey, PCHAR pstrValue, USHORT wLenValue)
  *      RC script as RCDATA.
  */
 
-PUSHORT VersionBlockVariable(PWCHAR pstrKey)
+int VersionBlockVariable(PWCHAR pstrKey)
 {
     USHORT wLen;
-    PUSHORT pwLen;
-    PUSHORT pwType;
-    PUSHORT pwValueLen;
+    int IndexLen;
+    int IndexType;
+    int IndexValueLen;
     ULONG dwPadding = 0L;
     USHORT wAlign;
 
@@ -1192,27 +1275,27 @@ PUSHORT VersionBlockVariable(PWCHAR pstrKey)
     wLen = GetBufferLen();
 
     /* Write a zero for the length for now */
-    pwLen = (PUSHORT)GetBufferPtr();
+    IndexLen = GetBufferLen();
     WriteWord(0);
 
     /* Write the length of the value field.  We fill this in later */
-    pwValueLen = (PUSHORT)GetBufferPtr();
+    IndexValueLen = GetBufferLen();
     WriteWord(0);
 
     /* Assume string data */
-    pwType = (PUSHORT)GetBufferPtr();
+    IndexType = GetBufferLen();
     WriteWord(1);
 
     /* Write the key string now */
-    WriteString(pstrKey);
+    WriteString(pstrKey, TRUE);
 
     /* Parse and write the value data if there is any */
-    *pwValueLen = VersionParseValue(pwType);
+    SetItemCount(IndexValueLen, VersionParseValue(IndexType));
 
     /* Now fix up the block length and return a pointer to it */
-    *pwLen = GetBufferLen() - wLen;
+    SetItemCount(IndexLen, (USHORT)(GetBufferLen() - wLen));
 
-    return pwLen;
+    return IndexLen;
 }
 
 
@@ -1224,7 +1307,7 @@ PUSHORT VersionBlockVariable(PWCHAR pstrKey)
  *      DWORD aligned.  Returns the length of the value block.
  */
 
-USHORT VersionParseValue(PUSHORT pwType)
+USHORT VersionParseValue(int IndexType)
 {
     USHORT wFirst = FALSE;
     USHORT wToken;
@@ -1248,26 +1331,33 @@ USHORT VersionParseValue(PUSHORT pwType)
                 WriteBuffer((PCHAR)&dwPadding, wAlign);
         }
 
-        switch (wToken)     {
+    switch (wToken) {
         case TKVALUE:
         case TKBLOCK:
         case BEGIN:
         case END:
             return wLen;
 
-        case LSTRLIT:          /* If it's a string, write a character at a time */
-            if (tokenbuf[0] == 0)  /* ignore strings with nothing in them */
+        case LSTRLIT:                   /* String, write characters */
+            if (tokenbuf[0] == L'\0')   /* ignore null strings */
                 break;
-            wAlign = token.val + 1;  /* want the character count */
+
+            /* remove extra nuls */
+            while (tokenbuf[token.val-1] == L'\0')
+                token.val--;
+
+            wAlign = token.val + 1;     /* want the character count */
             wLen += wAlign;
             if (fComma)
-                WriteString(tokenbuf);
-            else
-                AppendString(tokenbuf);
+                WriteString(tokenbuf, TRUE);
+            else {
+                AppendString(tokenbuf, TRUE);
+                wLen--;
+            }
             break;
 
         case NUMLIT:            /* Write the computed number out */
-            *pwType = 0;        /* mark data binary */
+            SetItemCount(IndexType, 0);        /* mark data binary */
             if (token.flongval) {
                 WriteLong(token.longval);
                 wLen += sizeof(LONG);
@@ -1300,13 +1390,13 @@ VOID  DlgIncludeParse(PRESINFO pRes)
     // the DLGINCLUDE statement must be written in ANSI (8-bit) for compatibility
 //    WriteString(tokenbuf);
     nbytes = WideCharToMultiByte (CP_ACP, 0, tokenbuf, -1, NULL, 0, NULL, NULL);
-    lpbuf = malloc (nbytes);
+    lpbuf = MyAlloc (nbytes);
     WideCharToMultiByte (CP_ACP, 0, tokenbuf, -1, lpbuf, nbytes, NULL, NULL);
 
-    for (i = 0; i <= nbytes; i++)
+    for (i = 0; i < nbytes; i++)
          WriteByte (lpbuf[i]);
 
-    free(lpbuf);
+    MyFree(lpbuf);
     return;
 }
 
@@ -1478,4 +1568,3 @@ VOID GetCtlCoords(PCTRL pLocCtl)
 }
 
 #endif
-

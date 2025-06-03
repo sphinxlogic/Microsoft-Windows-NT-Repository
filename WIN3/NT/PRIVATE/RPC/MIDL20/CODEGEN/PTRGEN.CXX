@@ -40,7 +40,7 @@ CG_STATUS
 CG_POINTER::GenFree(
 	CCB	*	pCCB )
 	{
-	_expr_node * pSrc;
+	expr_node * pSrc;
 	BOOL		 fChildOnStack = (((CG_NDR *)GetChild())->GetResource() != 0);
 
 	if( pCCB->IsRefAllocDone() )
@@ -293,14 +293,14 @@ CG_POINTER::S_GenInitOutLocals(
 	The source expression field of the ccb has the final presented expression.
 ----------------------------------------------------------------------------*/
 {
-	_expr_node	*	pExpr;
+	expr_node	*	pExpr;
 
 	if( pCCB->IsRefAllocDone() )
 		{
 		pExpr = MakeAddressExpressionNoMatterWhat( GetResource() );
 		Out_Assign( pCCB, pCCB->GetSourceExpression(), pExpr );
 		pExpr = pCCB->SetSourceExpression( GetResource() );
-		Out_Assign( pCCB, GetResource(), new _expr_constant( 0L ) );
+		Out_Assign( pCCB, GetResource(), new expr_constant( 0L ) );
 		}
 	else
 		pExpr = pCCB->GetSourceExpression();
@@ -321,7 +321,7 @@ CG_POINTER::S_GenInitOutLocals(
 		{
 		PNAME	pName = ((CG_BYTE_COUNT_POINTER *)this)->GetByteCountParam()->GetSymName();
 
-		_expr_node * pByteCountExpr = new expr_variable( pName );
+		expr_node * pByteCountExpr = new expr_variable( pName );
 
 		Out_Alloc(pCCB,
 				  pExpr,
@@ -331,8 +331,10 @@ CG_POINTER::S_GenInitOutLocals(
 		}
 	else if( IsQualifiedPointer() && !(GetCGID() == ID_CG_STRING_PTR) && IsRef() )
 		{
-		_expr_node * pElementExpr;
-		_expr_node * pFinalExpr;
+		expr_node * pElementExpr;
+		expr_node * pFinalExpr;
+		expr_node * pCheckExpr;
+		BOOL        fIsSigned;
 
 		// Fool the presented expression to beleive it is marshalling, so that
 		// it generates the correct expression.
@@ -342,16 +344,30 @@ CG_POINTER::S_GenInitOutLocals(
 
 		// The proper size of the allocation is size times the element size.
 
-		pElementExpr = new _expr_constant(
+		pElementExpr = new expr_constant(
 						 (long) (((CG_NDR *)GetChild())->GetMemorySize()) );
 
 		pFinalExpr = FinalSizeExpression( pCCB );
 
-		pFinalExpr = new _expr_op_binary( OP_STAR,
+		fIsSigned = !((node_base_type *)pFinalExpr->GetType()->GetBasicType())->IsUnsigned();
+
+		pFinalExpr = new expr_op_binary( OP_STAR,
 										  pFinalExpr,
 										  pElementExpr );
 										  
 		// Allocate the proper size.
+		// If the size expression is signed and the value is less than 0, we
+		// need to raise an exception.
+
+		if( pCCB->MustCheckBounds() && fIsSigned )
+		    {
+		    pCheckExpr = new expr_op_binary( OP_LESS,
+		                                     pFinalExpr,
+		                                     new expr_constant(0L));
+		    Out_If( pCCB, pCheckExpr);
+		    Out_RaiseException( pCCB, "RPC_X_INVALID_BOUND" );
+		    Out_Endif( pCCB );
+		    }
 
 		Out_Alloc(pCCB,
 				  pExpr,
@@ -407,15 +423,15 @@ CG_STATUS
 CG_QUALIFIED_POINTER::GenQPMarshall( CCB * pCCB )
 	{
 	STM_ACTION			Action;
-	_expr_node		*	pDest	= pCCB->GetDestExpression();
-	_expr_node		*	pSrc	= pCCB->GetSourceExpression();
+	expr_node		*	pDest	= pCCB->GetDestExpression();
+	expr_node		*	pSrc	= pCCB->GetSourceExpression();
 	ALIGNMENT_PROPERTY	Al;
 	node_skl		*	pType;
 	BOOL				fNeedsMaxCount;
 	BOOL				fNeedsFirstAndLength;
-	_expr_node		*	XmittedLengthExpr;
-	_expr_node		*	XmittedFirstExpr;
-	_expr_node		*	pElementSizeExpr;
+	expr_node		*	XmittedLengthExpr;
+	expr_node		*	XmittedFirstExpr;
+	expr_node		*	pElementSizeExpr;
 	
 	GetBaseTypeNode( &pType, SIGN_UNSIGNED, SIZE_LONG, TYPE_INT );
 
@@ -492,20 +508,20 @@ CG_QUALIFIED_POINTER::GenQPMarshall( CCB * pCCB )
 
 		// Call memcopy to copy into the destination.
 
-		pElementSizeExpr = new _expr_constant(
+		pElementSizeExpr = new expr_constant(
 								((CG_NDR*)GetChild())->GetMemorySize());
 
-		XmittedLengthExpr = new _expr_b_arithmetic( OP_STAR,
+		XmittedLengthExpr = new expr_b_arithmetic( OP_STAR,
 													XmittedLengthExpr,
 													pElementSizeExpr );
 
 		XmittedFirstExpr  = FinalFirstExpression( pCCB );
-		XmittedFirstExpr  = new _expr_b_arithmetic( OP_STAR,
+		XmittedFirstExpr  = new expr_b_arithmetic( OP_STAR,
 													XmittedFirstExpr,
 													pElementSizeExpr );
 		Out_Copy(pCCB,
 			 	pDest,
-			 	new _expr_b_arithmetic(OP_PLUS,pSrc,XmittedFirstExpr),
+			 	new expr_b_arithmetic(OP_PLUS,pSrc,XmittedFirstExpr),
 			 	XmittedLengthExpr,
 			 	pDest
 				);
@@ -528,16 +544,16 @@ CG_STATUS
 CG_STRING_POINTER::GenCorePteMarshall(
 	CCB		*	pCCB )
 	{
-	_expr_node		*	pDest	= pCCB->GetDestExpression();
-	_expr_node		*	pSrc	= pCCB->GetSourceExpression();
+	expr_node		*	pDest	= pCCB->GetDestExpression();
+	expr_node		*	pSrc	= pCCB->GetSourceExpression();
 	ALIGNMENT_PROPERTY	Al = ((CG_NDR *)GetChild())->GetWireAlignment();
-	_expr_node		*	pSizeExpr;
+	expr_node		*	pSizeExpr;
 
 	// Alignment done by the marshalling rtn itseld.
 	// The count of elements are marshalled by the marshalling routine itself.
 	// Call the marshalling routine.
 
-	pSizeExpr	= new _expr_constant( ((CG_NDR *)GetChild())->GetMemorySize());
+	pSizeExpr	= new expr_constant( ((CG_NDR *)GetChild())->GetMemorySize());
 	Out_StringMarshall(
 						   pCCB,
 						   pSrc,
@@ -562,9 +578,9 @@ CG_STRING_POINTER::GenCorePteSizing(
 	RESOURCE	*	pSTLengthResource	= pCCB->GetStandardResource(
 										 ST_RES_LENGTH_VARIABLE );
 	unsigned short Size	= (unsigned short )((CG_NDR *)GetChild())->GetMemorySize();
-	_expr_proc_call	*	pProc;
+	expr_proc_call	*	pProc;
 	PNAME				pName;
-	_expr_node		*	pExpr;
+	expr_node		*	pExpr;
 
 	if( Size == 1 )
 		{
@@ -577,13 +593,13 @@ CG_STRING_POINTER::GenCorePteSizing(
 	else
 		pName = "MIDL_NChar_strlen";
 
-	pProc	= new _expr_proc_call( pName );
-	pProc->SetParam( new _expr_param( pCCB->GetSourceExpression() ));
-	pExpr	= new _expr_b_arithmetic( OP_PLUS,
+	pProc	= new expr_proc_call( pName );
+	pProc->SetParam( new expr_param( pCCB->GetSourceExpression() ));
+	pExpr	= new expr_b_arithmetic( OP_PLUS,
 									  pProc,
-									  new _expr_constant( 1L ));
+									  new expr_constant( 1L ));
 
-	pExpr = new _expr_assign( pLen, pExpr );
+	pExpr = new expr_assign( pLen, pExpr );
 	Out_PlusEquals( pCCB, pSTLengthResource, pExpr );
 	return CG_OK;
 	}
@@ -594,19 +610,19 @@ CG_QUALIFIED_POINTER::GenCorePteSizing(
 {
 	RESOURCE	*	pSTLengthResource	= pCCB->GetStandardResource(
 										 ST_RES_LENGTH_VARIABLE );
-	_expr_node	*	pElementSizeExpr	= new _expr_constant( 
+	expr_node	*	pElementSizeExpr	= new expr_constant( 
 							((CG_NDR *)GetChild())->GetMemorySize() );
-	_expr_node	*	pExpr;
+	expr_node	*	pExpr;
 
 	if( NeedsFirstAndLengthMarshall() )
 		{
 		ITERATOR	MangleVarList;
 
-		_expr_node * pFinalLengthExpr = FinalLengthExpression( pCCB );
+		expr_node * pFinalLengthExpr = FinalLengthExpression( pCCB );
 
 		SetPrefixes( MangleVarList, pCCB->GetPrefix(), pFinalLengthExpr );
 
-		pExpr = new _expr_b_arithmetic( OP_STAR,
+		pExpr = new expr_b_arithmetic( OP_STAR,
 										pFinalLengthExpr,
 										pElementSizeExpr );
 
@@ -618,10 +634,10 @@ CG_QUALIFIED_POINTER::GenCorePteSizing(
 	else if( NeedsMaxCountMarshall() )
 		{
 		ITERATOR	MangleVarList;
-		_expr_node * pFinalSizeExpr = FinalSizeExpression( pCCB );
+		expr_node * pFinalSizeExpr = FinalSizeExpression( pCCB );
 
 		SetPrefixes( MangleVarList, pCCB->GetPrefix(), pFinalSizeExpr );
-		pExpr = new _expr_b_arithmetic( OP_STAR,
+		pExpr = new expr_b_arithmetic( OP_STAR,
 										pFinalSizeExpr,
 										pElementSizeExpr );
 
@@ -635,7 +651,7 @@ CG_QUALIFIED_POINTER::GenCorePteSizing(
 /*****************************************************************************
  	utility functions
  *****************************************************************************/
-_expr_node *
+expr_node *
 CG_POINTER::GenBindOrUnBindExpression(
 	CCB	*	pCCB,
 	BOOL	fBind )
@@ -659,7 +675,7 @@ CG_POINTER::GenBindOrUnBindExpression(
 
 	assert( pCCB->GetSourceExpression() );
 
-	return new _expr_u_deref( pCCB->GetSourceExpression() );
+	return new expr_u_deref( pCCB->GetSourceExpression() );
 }
 
 CG_STATUS
@@ -681,7 +697,7 @@ CG_POINTER::GenRefChecks(
 
 ----------------------------------------------------------------------------*/
 {
-	_expr_node * pSrc = pCCB->GetSourceExpression();
+	expr_node * pSrc = pCCB->GetSourceExpression();
 
 	if( IsRef() )
 		{
@@ -692,7 +708,7 @@ CG_POINTER::GenRefChecks(
 
 		// using the source expression, check for null ref pointers.
 
-		Out_If( pCCB, new _expr_u_not( pSrc ) );
+		Out_If( pCCB, new expr_u_not( pSrc ) );
 		Out_RaiseException( pCCB,  "RPC_X_NULL_REF_POINTER" );
 		Out_Endif( pCCB );
 
@@ -726,7 +742,7 @@ CG_POINTER::S_GenInitInLocals(
 
 ----------------------------------------------------------------------------*/
 {
-	_expr_node * pSrc = pCCB->GetSourceExpression();
+	expr_node * pSrc = pCCB->GetSourceExpression();
 
 	if( IsRef() )
 		{
@@ -740,26 +756,26 @@ CG_POINTER::S_GenInitInLocals(
 
 	return CG_OK;
 }
-_expr_node *
+expr_node *
 CG_POINTER::FinalSizeExpression(
 	CCB		*	pCCB )
 	{
 	return PresentedSizeExpression( pCCB );
 	}
-_expr_node *
+expr_node *
 CG_POINTER::FinalFirstExpression(
 	CCB		*	pCCB )
 	{
 	return PresentedFirstExpression( pCCB );
 	}
-_expr_node *
+expr_node *
 CG_POINTER::FinalLengthExpression(
 	CCB		*	pCCB )
 	{
 	return PresentedLengthExpression( pCCB );
 	}
 
-_expr_node *
+expr_node *
 CG_STRING_POINTER::PresentedSizeExpression(
 	 CCB * pCCB )
 	{
@@ -772,7 +788,7 @@ CG_STRING_POINTER::PresentedSizeExpression(
 		return PresentedLengthExpression( pCCB );
 		}
 	}
-_expr_node *
+expr_node *
 CG_STRING_POINTER::PresentedLengthExpression(
 	CCB	*	pCCB )
 	{
@@ -787,9 +803,9 @@ CG_STRING_POINTER::PresentedLengthExpression(
 	else
 		{
 		unsigned short Size	= (unsigned short )((CG_NDR *)GetChild())->GetMemorySize();
-		_expr_proc_call	*	pProc;
+		expr_proc_call	*	pProc;
 		PNAME				pName;
-		_expr_node		*	pExpr;
+		expr_node		*	pExpr;
 
 		if( Size == 1 )
 			{
@@ -802,11 +818,11 @@ CG_STRING_POINTER::PresentedLengthExpression(
 		else
 			pName = "MIDL_NChar_strlen";
 	
-		pProc	= new _expr_proc_call( pName );
-		pProc->SetParam( new _expr_param( pCCB->GetSourceExpression() ));
-		pExpr	= new _expr_b_arithmetic( OP_PLUS,
+		pProc	= new expr_proc_call( pName );
+		pProc->SetParam( new expr_param( pCCB->GetSourceExpression() ));
+		pExpr	= new expr_b_arithmetic( OP_PLUS,
 									  	pProc,
-									  	new _expr_constant( 1L ));
+									  	new expr_constant( 1L ));
 
 		return pExpr;
 		}
@@ -817,7 +833,7 @@ CG_SIZE_STRING_POINTER::GenCorePteMarshall(
 	{
 	return GenQPMarshall( pCCB );
 	}
-_expr_node *
+expr_node *
 CG_SIZE_STRING_POINTER::PresentedSizeExpression(
 	CCB	*	pCCB )
 	{
@@ -831,7 +847,7 @@ CG_SIZE_STRING_POINTER::PresentedSizeExpression(
 		}
 	}
 
-_expr_node *
+expr_node *
 CG_SIZE_POINTER::PresentedSizeExpression(
 	CCB	*	pCCB )
 	{
@@ -844,7 +860,7 @@ CG_SIZE_POINTER::PresentedSizeExpression(
 		return GetSizeIsExpr();
 		}
 	}
-_expr_node *
+expr_node *
 CG_LENGTH_POINTER::PresentedLengthExpression(
 	CCB		*	pCCB )
 	{
@@ -857,7 +873,7 @@ CG_LENGTH_POINTER::PresentedLengthExpression(
 		return GetLengthIsExpr();
 		}
 	}
-_expr_node *
+expr_node *
 CG_LENGTH_POINTER::PresentedFirstExpression(
 	CCB		*	pCCB )
 	{
@@ -870,7 +886,7 @@ CG_LENGTH_POINTER::PresentedFirstExpression(
 		return GetFirstIsExpr();
 		}
 	}
-_expr_node *
+expr_node *
 CG_SIZE_LENGTH_POINTER::PresentedSizeExpression(
 	CCB	*	pCCB )
 	{
@@ -883,7 +899,7 @@ CG_SIZE_LENGTH_POINTER::PresentedSizeExpression(
 		return GetSizeIsExpr();
 		}
 	}
-_expr_node *
+expr_node *
 CG_SIZE_LENGTH_POINTER::PresentedLengthExpression(
 	CCB		*	pCCB )
 	{
@@ -896,7 +912,7 @@ CG_SIZE_LENGTH_POINTER::PresentedLengthExpression(
 		return GetLengthIsExpr();
 		}
 	}
-_expr_node *
+expr_node *
 CG_SIZE_LENGTH_POINTER::PresentedFirstExpression(
 	CCB		*	pCCB )
 	{
@@ -929,11 +945,11 @@ CG_INTERFACE_POINTER::S_GenInitOutLocals(
 
 ----------------------------------------------------------------------------*/
 {
-	_expr_node	*	pExpr;
+	expr_node	*	pExpr;
 
 	if( !pCCB->IsRefAllocDone() )
 		{
-		pExpr	= new _expr_sizeof( GetType() );
+		pExpr	= new expr_sizeof( GetType() );
 		Out_Alloc( pCCB, pCCB->GetSourceExpression(), 0, pExpr );
 		}
 	else
@@ -941,7 +957,7 @@ CG_INTERFACE_POINTER::S_GenInitOutLocals(
 		pExpr = MakeAddressExpressionNoMatterWhat( GetResource() );
 		Out_Assign( pCCB, pCCB->GetSourceExpression(), pExpr );
 		pExpr = pCCB->SetSourceExpression( GetResource() );
-		Out_Assign( pCCB, GetResource(), new _expr_constant( 0L ) );
+		Out_Assign( pCCB, GetResource(), new expr_constant( 0L ) );
 		}
 
 	return CG_OK;

@@ -95,6 +95,10 @@ Revision History:
 
 #if DBG
 #define NbfReferenceLink( Reason, Link, Type)\
+    if ((Link)->Destroyed) { \
+        DbgPrint("NBF: Attempt to reference destroyed link %lx\n", Link); \
+        DbgBreakPoint(); \
+    } \
     IF_REFDBG {   \
         DbgPrint ("RefL %x: %s %s, %ld : %ld\n", Link, Reason, __FILE__, __LINE__, (Link)->ReferenceCount);\
     }\
@@ -105,6 +109,10 @@ Revision History:
     NbfRefLink (Link)
 
 #define NbfDereferenceLink(Reason, Link, Type)\
+    if ((Link)->Destroyed) { \
+        DbgPrint("NBF: Attempt to dereference destroyed link %lx\n", Link); \
+        DbgBreakPoint(); \
+    } \
     IF_REFDBG { \
         DbgPrint ("DeRefL %x: %s %s, %ld : %ld\n", Link, Reason, __FILE__, __LINE__, (Link)->ReferenceCount);\
     } \
@@ -118,6 +126,10 @@ Revision History:
     NbfDereferenceLink(Reason, Link, Type)
 
 #define NbfReferenceLinkSpecial( Reason, Link, Type)\
+    if ((Link)->Destroyed) { \
+        DbgPrint("NBF: Attempt to special reference destroyed link %lx\n", Link); \
+        DbgBreakPoint(); \
+    } \
     IF_REFDBG {   \
         DbgPrint ("RefLS %x: %s %s, %ld : %ld\n", Link, Reason, __FILE__, __LINE__, (Link)->SpecialRefCount);\
     }\
@@ -128,6 +140,10 @@ Revision History:
     NbfRefLinkSpecial (Link)
 
 #define NbfDereferenceLinkSpecial(Reason, Link, Type)\
+    if ((Link)->Destroyed) { \
+        DbgPrint("NBF: Attempt to special dereference destroyed link %lx\n", Link); \
+        DbgBreakPoint(); \
+    } \
     IF_REFDBG { \
         DbgPrint ("DeRefLS %x: %s %s, %ld : %ld\n", Link, Reason, __FILE__, __LINE__, (Link)->SpecialRefCount);\
     } \
@@ -138,6 +154,10 @@ Revision History:
     NbfDerefLinkSpecial (Link)
 
 #define NbfReferenceConnection(Reason, Connection, Type)\
+    if ((Connection)->Destroyed) { \
+        DbgPrint("NBF: Attempt to reference destroyed conn %lx\n", Connection); \
+        DbgBreakPoint(); \
+    } \
     IF_REFDBG { \
         DbgPrint ("RefC %x: %s %s, %ld : %ld\n", Connection, Reason, __FILE__, __LINE__, (Connection)->ReferenceCount);\
     } \
@@ -148,6 +168,10 @@ Revision History:
     NbfRefConnection (Connection)
 
 #define NbfDereferenceConnection(Reason, Connection, Type)\
+    if ((Connection)->Destroyed) { \
+        DbgPrint("NBF: Attempt to dereference destroyed conn %lx\n", Connection); \
+        DbgBreakPoint(); \
+    } \
     IF_REFDBG { \
         DbgPrint ("DeRefC %x: %s %s, %ld : %ld\n", Connection, Reason, __FILE__, __LINE__, (Connection)->ReferenceCount);\
     } \
@@ -171,6 +195,10 @@ Revision History:
     NbfDerefConnectionSpecial (Connection)
 
 #define NbfReferenceRequest( Reason, Request, Type)\
+    if ((Request)->Destroyed) { \
+        DbgPrint("NBF: Attempt to reference destroyed req %lx\n", Request); \
+        DbgBreakPoint(); \
+    } \
     IF_REFDBG {   \
         DbgPrint ("RefR %x: %s %s, %ld : %ld\n", Request, Reason, __FILE__, __LINE__, (Request)->ReferenceCount);}\
     (VOID)ExInterlockedAddUlong ( \
@@ -180,6 +208,10 @@ Revision History:
     NbfRefRequest (Request)
 
 #define NbfDereferenceRequest(Reason, Request, Type)\
+    if ((Request)->Destroyed) { \
+        DbgPrint("NBF: Attempt to dereference destroyed req %lx\n", Request); \
+        DbgBreakPoint(); \
+    } \
     IF_REFDBG { \
         DbgPrint ("DeRefR %x: %s %s, %ld : %ld\n", Request, Reason, __FILE__, __LINE__, (Request)->ReferenceCount);\
     } \
@@ -267,9 +299,8 @@ Revision History:
     }
 #else
 #define NbfReferenceLink(Reason, Link, Type) \
-    if (ExInterlockedIncrementLong( \
-            &(Link)->ReferenceCount, \
-            (Link)->ProviderInterlock) == ResultZero) { \
+    if (InterlockedIncrement( \
+            &(Link)->ReferenceCount) == 0) { \
         NbfReferenceLinkSpecial ("first ref", (Link), LREF_SPECIAL_TEMP); \
     }
 #endif
@@ -288,9 +319,8 @@ Revision History:
 }
 #else
 #define NbfDereferenceLinkMacro(Reason, Link, Type){ \
-    if (ExInterlockedDecrementLong( \
-            &(Link)->ReferenceCount, \
-            (Link)->ProviderInterlock) == ResultNegative) { \
+    if (InterlockedDecrement( \
+            &(Link)->ReferenceCount) < 0) { \
         NbfDisconnectLink (Link); \
         NbfDerefLinkSpecial (Link); \
     } \
@@ -304,9 +334,8 @@ Revision History:
     NbfDerefLinkSpecial (Link)
 
 #define NbfReferenceConnection(Reason, Connection, Type)\
-    if (ExInterlockedIncrementLong( \
-            &(Connection)->ReferenceCount, \
-            (Connection)->ProviderInterlock) == ResultZero) { \
+    if (InterlockedIncrement( \
+            &(Connection)->ReferenceCount) == 0) { \
         ExInterlockedAddUlong( \
             (PULONG)(&(Connection)->SpecialRefCount), \
             1, \
@@ -317,9 +346,8 @@ Revision History:
     NbfDerefConnection (Connection)
 
 #define NbfDereferenceConnectionMacro(Reason, Connection, Type){ \
-    if (ExInterlockedDecrementLong( \
-            &(Connection)->ReferenceCount, \
-            (Connection)->ProviderInterlock) == ResultNegative) { \
+    if (InterlockedDecrement( \
+            &(Connection)->ReferenceCount) < 0) { \
         if (NbfDisconnectFromLink (Connection, TRUE)) { \
             NbfIndicateDisconnect (Connection); \
         } \
@@ -331,23 +359,20 @@ Revision History:
     NbfDerefConnectionSpecial (Connection)
 
 #define NbfReferenceRequest(Reason, Request, Type)\
-    (VOID)ExInterlockedIncrementLong( \
-        &(Request)->ReferenceCount, \
-        (Request)->ProviderInterlock)
+    (VOID)InterlockedIncrement( \
+        &(Request)->ReferenceCount)
 
 #define NbfDereferenceRequest(Reason, Request, Type)\
     NbfDerefRequest (Request)
 
 #define NbfReferenceSendIrp(Reason, IrpSp, Type)\
-    (VOID)ExInterlockedIncrementLong( \
-        &IRP_SEND_REFCOUNT(IrpSp), \
-        &(IRP_DEVICE_CONTEXT(IrpSp)->Interlock))
+    (VOID)InterlockedIncrement( \
+        &IRP_SEND_REFCOUNT(IrpSp))
 
 #define NbfDereferenceSendIrp(Reason, IrpSp, Type) {\
     PIO_STACK_LOCATION _IrpSp = (IrpSp); \
-    if (ExInterlockedDecrementLong( \
-            &IRP_SEND_REFCOUNT(_IrpSp), \
-            &(IRP_DEVICE_CONTEXT(_IrpSp)->Interlock))== ResultZero) { \
+    if (InterlockedDecrement( \
+            &IRP_SEND_REFCOUNT(_IrpSp)) == 0) { \
         PIRP _Irp = IRP_SEND_IRP(_IrpSp); \
         IRP_SEND_REFCOUNT(_IrpSp) = 0; \
         IRP_SEND_IRP (_IrpSp) = NULL; \
@@ -371,9 +396,7 @@ Revision History:
 }
 
 #define NbfReferenceAddress(Reason, Address, Type)\
-    (VOID)ExInterlockedIncrementLong( \
-        &(Address)->ReferenceCount, \
-        &(Address)->Provider->Interlock)
+    (VOID)InterlockedIncrement(&(Address)->ReferenceCount)
 
 #define NbfDereferenceAddress(Reason, Address, Type)\
     NbfDerefAddress (Address)
@@ -385,14 +408,11 @@ Revision History:
     NbfDerefDeviceContext (DeviceContext)
 
 #define NbfReferencePacket(Packet) \
-    (VOID)ExInterlockedIncrementLong( \
-        &(Packet)->ReferenceCount, \
-        (Packet)->ProviderInterlock)
+    (VOID)InterlockedIncrement(&(Packet)->ReferenceCount)
 
 #define NbfDereferencePacket(Packet){ \
-    if (ExInterlockedDecrementLong ( \
-            &(Packet)->ReferenceCount, \
-            (Packet)->ProviderInterlock) == ResultZero) { \
+    if (InterlockedDecrement ( \
+            &(Packet)->ReferenceCount) == 0) { \
         NbfDestroyPacket (Packet); \
     } \
 }
@@ -757,6 +777,10 @@ VOID
 NbfDestroyPacket(
     IN PTP_PACKET Packet
     );
+VOID 
+NbfGrowSendPacketPool(
+    IN PDEVICE_CONTEXT DeviceContext
+    );
 
 #if DBG
 VOID
@@ -778,6 +802,7 @@ NbfWaitPacket(
 
 #if DBG
 #define MAGIC 1
+extern BOOLEAN NbfEnableMagic;
 #else
 #define MAGIC 0
 #endif
@@ -995,7 +1020,7 @@ NbfSendCompletionHandler(
 
 NTSTATUS
 BuildBufferChainFromMdlChain (
-    IN NDIS_HANDLE BufferPoolHandle,
+    IN PDEVICE_CONTEXT DeviceContext,
     IN PMDL CurrentMdl,
     IN ULONG ByteOffset,
     IN ULONG DesiredLength,
@@ -2194,6 +2219,14 @@ NbfFreeResources(
     );
 
 
+extern
+ULONG
+NbfInitializeOneDeviceContext(
+    OUT PNDIS_STATUS NdisStatus,
+    IN PDRIVER_OBJECT DriverObject,  
+    IN PCONFIG_DATA NbfConfig,
+    IN INT AdapterIndex
+    );
 //
 // routines in nbfcnfg.c
 //

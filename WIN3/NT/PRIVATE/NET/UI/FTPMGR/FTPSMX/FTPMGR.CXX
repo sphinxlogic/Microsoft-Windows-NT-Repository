@@ -1,2 +1,0 @@
-#include "..\cpl\ftpmgr.cxx"
-

@@ -27,15 +27,11 @@ Revision History:
         Changed algorithm and implementation.  No longer based on RPC.
         Platform specific functions in uuidsup.cxx (win32) and
         dos\uuid16 (dos/win16).
+
 --*/
 
 
-#include <sysinc.h>
-#include <rpc.h>
-#include <util.hxx>
-#include <rpcuuid.hxx>
-#include <mutex.hxx>
-#include <threads.hxx>
+#include <precomp.hxx>
 #include <uuidsup.hxx>
 
 // Contain a cached block of uuids to reduce the
@@ -54,21 +50,18 @@ I_UuidCreate(
     OUT UUID PAPI * Uuid
     )
 /*++
-    Historically this function was used for cheap hopefully unique
-    uuid's.  Now it's just a wrapper for UuidCreate.
-
-    TMPBUGBUG: To prevent any major regressions, this will return
-    'fake' uuids on retail builds until we are sure it is okay.
-
+    Historically this function was used for cheap sometimes unique
+    uuid's for context handles and such.  Now it's just a wrapper
+    for UuidCreate.
 --*/
 {
-#ifdef BUGBUG_THIS_DOES_NOT_WORK_YET
+#ifndef WINNT35_UUIDS
     RPC_STATUS Status = UuidCreate(Uuid);
     if (Status == RPC_S_UUID_LOCAL_ONLY)
         return(RPC_S_OK);
 
     return(Status);
-#else  // ! DEBUG
+#else  // WINNT35 used this
     typedef struct _RPC_GUID_GENERATE
         {
         unsigned long AgentSequenceLow;
@@ -104,8 +97,7 @@ I_UuidCreate(
     RpcGuid->IdentifierAuthority[4] = RpcGuidIdentifierAuthority[4];
     RpcGuid->IdentifierAuthority[5] = RpcGuidIdentifierAuthority[5];
     return(RPC_S_OK);
-
-#endif // DEBUG
+#endif // WINNT35_UUIDS
 
 }
 
@@ -147,8 +139,9 @@ Return Value:
     RPC_STATUS Status = RPC_S_OK;
 
 #ifdef WIN32RPC
-    // InitalizeRpcIfNecessary() is not necessary here.
+   InitializeIfNecessary();
 #endif
+
     RequestGlobalMutex();
 
     // The first time we must lookup the NodeId and set time to 0;
@@ -172,11 +165,10 @@ Return Value:
             return(RPC_S_UUID_NO_ADDRESS);
             }
 
-        UuidCachedValues.NextTime.LowPart
-            = UuidCachedValues.NextTime.HighPart
-            = UuidCachedValues.LastTime.LowPart
-            = UuidCachedValues.LastTime.HighPart
-            = 0;
+        UuidCachedValues.NextTime.LowPart  =
+        UuidCachedValues.NextTime.HighPart =
+        UuidCachedValues.LastTime.LowPart  =
+        UuidCachedValues.LastTime.HighPart = 0;
         }
 
     //
@@ -435,36 +427,18 @@ Note:
                 {
                 if ( Uuid1->Data3 == Uuid2->Data3 )
                     {
-                    return(RpcpMemoryCompare(&Uuid1->Data4[0],
-                           &Uuid2->Data4[0],
-                           8));
-#if 0
-                    if ( Uuid1->Data4[0] == Uuid2->Data4[0] )
-                        {
-                        if ( Uuid1->Data4[1] == Uuid2->Data4[1] )
-                            {
-                            return(RpcpMemoryCompare(&Uuid1->Data4[2],
-                                                     &Uuid2->Data4[2],
-                                                     6));
-                            }
-                        else if ( Uuid1->Data4[1] > Uuid2->Data4[1] )
-                            {
-                            return(1);
-                            }
-                        else
-                            {
-                            return(-1);
-                            }
-                        }
-                    else if ( Uuid1->Data4[0] > Uuid2->Data4[0] )
+                    int compare = RpcpMemoryCompare(&Uuid1->Data4[0],
+                                                    &Uuid2->Data4[0],
+                                                    8);
+                    if (compare > 0)
                         {
                         return(1);
                         }
-                    else
+                    else if (compare < 0 )
                         {
                         return(-1);
                         }
-#endif
+                    return(0);
                     }
                 else if ( Uuid1->Data3 > Uuid2->Data3 )
                     {

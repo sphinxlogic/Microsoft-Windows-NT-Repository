@@ -79,6 +79,7 @@ Return Value:
     BOOLEAN ObjectNamePresent;
     BOOLEAN ClientIdPresent;
     ACCESS_STATE AccessState;
+    AUX_ACCESS_DATA AuxData;
     BOOLEAN DebugPrivilege;
 
     PAGED_CODE();
@@ -143,6 +144,7 @@ Return Value:
 
     Status = SeCreateAccessState(
                  &AccessState,
+                 &AuxData,
                  DesiredAccess,
                  &PsProcessType->TypeInfo.GenericMapping
                  );
@@ -162,11 +164,9 @@ Return Value:
     // Note that this routine performs auditing as appropriate.
     //
 
-#if DBG
     if (NtGlobalFlag & FLG_IGNORE_DEBUG_PRIV) {
         DebugPrivilege = TRUE;
     } else
-#endif
     DebugPrivilege =  SeSinglePrivilegeCheck(
                           SeDebugPrivilege,
                           PreviousMode
@@ -333,6 +333,7 @@ Return Value:
     BOOLEAN ObjectNamePresent;
     BOOLEAN ClientIdPresent;
     ACCESS_STATE AccessState;
+    AUX_ACCESS_DATA AuxData;
     BOOLEAN DebugPrivilege;
 
     PAGED_CODE();
@@ -389,6 +390,7 @@ Return Value:
 
     Status = SeCreateAccessState(
                  &AccessState,
+                 &AuxData,
                  DesiredAccess,
                  &PsProcessType->TypeInfo.GenericMapping
                  );
@@ -405,11 +407,9 @@ Return Value:
     // and recording what we want him to have in the PreviouslyGrantedAccess
     // field.
 
-#if DBG
     if (NtGlobalFlag & FLG_IGNORE_DEBUG_PRIV) {
         DebugPrivilege = TRUE;
     } else
-#endif
     DebugPrivilege =  SeSinglePrivilegeCheck(
                           SeDebugPrivilege,
                           PreviousMode

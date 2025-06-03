@@ -24,18 +24,17 @@ Revision History:
 
 #include "ki.h"
 
-#define Cx486_SLC    ( 0x0  + 1 )
-#define Cx486_DLC    ( 0x1  + 1 )
-#define Cx486_SLC2   ( 0x2  + 1 )
-#define Cx486_DLC2   ( 0x3  + 1 )
-#define Cx486_SRx    ( 0x4  + 1 )   // Retail Upgrade Cx486SLC
-#define Cx486_DRx    ( 0x5  + 1 )   // Retail Upgrade Cx486DLC
-#define Cx486_SRx2   ( 0x6  + 1 )   // Retail Upgrade 2x Cx486SLC
-#define Cx486_DRx2   ( 0x7  + 1 )   // Retail Upgrade 2x Cx486DLC
-#define Cx486DX      ( 0x1a + 1 )
-#define Cx486DX2     ( 0x1b + 1 )
-#define M1           ( 0x30 + 1 )
-
+#define Cx486_SLC    0x0
+#define Cx486_DLC    0x1
+#define Cx486_SLC2   0x2
+#define Cx486_DLC2   0x3
+#define Cx486_SRx    0x4    // Retail Upgrade Cx486SLC
+#define Cx486_DRx    0x5    // Retail Upgrade Cx486DLC
+#define Cx486_SRx2   0x6    // Retail Upgrade 2x Cx486SLC
+#define Cx486_DRx2   0x7    // Retail Upgrade 2x Cx486DLC
+#define Cx486DX      0x1a
+#define Cx486DX2     0x1b
+#define M1           0x30
 
 #define CCR0    0xC0
 #define CCR1    0xC1
@@ -80,8 +79,12 @@ Ke386ConfigureCyrixProcessor (
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE,Ke386CyrixId)
-#pragma alloc_text(PAGE,Ke386ConfigureCyrixProcessor)
+#pragma alloc_text(PAGELK,Ke386ConfigureCyrixProcessor)
 #endif
+
+
+extern UCHAR CmpCyrixID[];
+
 
 
 ULONG
@@ -122,26 +125,14 @@ Return Value:
     CyrixID = 0;
 
     Prcb = KeGetCurrentPrcb();
-    if (Prcb->CpuID) {
+    if (Prcb->CpuID  &&  strcmp (Prcb->VendorString, CmpCyrixID)) {
 
         //
-        // CpuID instruction present - that is used for processor
-        // type detection instead
-        //
-
-        return 0;
-    }
-
-    if (Prcb->CpuType < 4) {
-        //
-        // All Cyrix processors are at least 486 level or better.
-        // (note: if 386 level and div test passes then it's a
-        // fifth generation NexGen processor)
+        // Not a Cyrix processor
         //
 
         return 0;
     }
-
 
     //
     // Test Div instruction to see if the flags
@@ -281,44 +272,79 @@ Ke386ConfigureCyrixProcessor (
     )
 {
     UCHAR   r0, r1;
+    ULONG   id, rev;
+    PVOID   LockHandle;
+
 
     PAGED_CODE();
 
-    switch (Ke386CyrixId()) {
-        case Cx486_SRx:
-        case Cx486_DRx:
-        case Cx486_SRx2:
-        case Cx486_DRx2:
+    id = Ke386CyrixId();
+    if (id) {
+
+        LockHandle = MmLockPagableCodeSection (&Ke386ConfigureCyrixProcessor);
+
+        id  = id - 1;
+        rev = ReadCyrixRegister(DIR1);
+
+        if ((id >= 0x20  &&  id <= 0x27) ||
+            ((id & 0xF0) == M1  &&  rev < 0x17)) {
 
             //
-            // These processors have an internal cache feature
-            // let's turn it on.
+            // These steppings have a write-back cache problem.
+            // On these chips the L1 w/b cache can be disabled by
+            // setting only the NW bit.
             //
 
-            r0  = ReadCyrixRegister(CCR0);
-            r0 |=  CCR0_NC1 | CCR0_FLUSH;
-            r0 &= ~CCR0_NC0;
-            WriteCyrixRegister(CCR0, r0);
+            _asm {
+                cli
 
-            // Clear Non-Cacheable Region 1
-            WriteCyrixRegister(0xC4, 0);
-            WriteCyrixRegister(0xC5, 0);
-            WriteCyrixRegister(0xC6, 0);
-            break;
+                mov     eax, cr0
+                or      eax, CR0_NW
+                mov     cr0, eax
 
-        case Cx486DX:
-        case Cx486DX2:
-            //
-            // Set NO_LOCK flag on these processors according to
-            // the number of booted processors
-            //
-
-            r1  = ReadCyrixRegister(CCR1);
-            r1 |= CCR1_NO_LOCK;
-            if (KeNumberProcessors > 1) {
-                r1 &= ~CCR1_NO_LOCK;
+                sti
             }
-            WriteCyrixRegister(CCR1, r1);
-            break;
+        }
+
+
+        switch (id) {
+            case Cx486_SRx:
+            case Cx486_DRx:
+            case Cx486_SRx2:
+            case Cx486_DRx2:
+
+                //
+                // These processors have an internal cache feature
+                // let's turn it on.
+                //
+
+                r0  = ReadCyrixRegister(CCR0);
+                r0 |=  CCR0_NC1 | CCR0_FLUSH;
+                r0 &= ~CCR0_NC0;
+                WriteCyrixRegister(CCR0, r0);
+
+                // Clear Non-Cacheable Region 1
+                WriteCyrixRegister(0xC4, 0);
+                WriteCyrixRegister(0xC5, 0);
+                WriteCyrixRegister(0xC6, 0);
+                break;
+
+            case Cx486DX:
+            case Cx486DX2:
+                //
+                // Set NO_LOCK flag on these processors according to
+                // the number of booted processors
+                //
+
+                r1  = ReadCyrixRegister(CCR1);
+                r1 |= CCR1_NO_LOCK;
+                if (KeNumberProcessors > 1) {
+                    r1 &= ~CCR1_NO_LOCK;
+                }
+                WriteCyrixRegister(CCR1, r1);
+                break;
+        }
+
+        MmUnlockPagableImageSection (LockHandle);
     }
 }

@@ -51,7 +51,7 @@
 *
 *     Basically, for each external command, we create a pipe, spawn the command
 *     and let the child fill the pipe.	When the child exits, the pipe gets
-*     broken (we already closed the write handle on our side) and fgetl gets
+*     broken (we already closed the _write handle on our side) and fgetl gets
 *     back an EOF.
 *
 *
@@ -505,7 +505,8 @@ BThread (
 	    HANDLE  SavedStdOut;		//  Original Standard Output
 	    HANDLE  SavedStdErr;		//  Original Standard Error
 	    HANDLE  PipeRead;			//  Pipe - read end
-	    HANDLE  PipeWrite;			//  Pipe - write end
+            HANDLE  PipeWrite;                  //  Pipe - write end
+            HANDLE  OutHandle, ErrHandle;
 	    STARTUPINFO 	StartupInfo;	//  Startup information
 	    linebuf LineBuf;			//  Buffer for 1 line
 	    READ_BUFFER  ReadBuffer;
@@ -553,7 +554,7 @@ BThread (
 	    //	Redirect standard handles
 	    //
 
-        SetStdHandle(STD_INPUT_HANDLE,  INVALID_HANDLE_VALUE);
+            SetStdHandle(STD_INPUT_HANDLE,  INVALID_HANDLE_VALUE);
 	    SetStdHandle(STD_OUTPUT_HANDLE, PipeWrite);
 	    SetStdHandle(STD_ERROR_HANDLE,  PipeWrite);
 
@@ -578,9 +579,14 @@ BThread (
 	    //
 	    //	Now restore the original handles
 	    //
+            OutHandle = GetStdHandle(STD_OUTPUT_HANDLE);
+            CloseHandle(OutHandle);
 
-	    CloseHandle(GetStdHandle(STD_OUTPUT_HANDLE));
-	    CloseHandle(GetStdHandle(STD_ERROR_HANDLE));
+            ErrHandle = GetStdHandle(STD_ERROR_HANDLE);
+
+            if (ErrHandle != OutHandle && ErrHandle != INVALID_HANDLE_VALUE)
+                CloseHandle(ErrHandle);
+
 
 	    SetStdHandle(STD_INPUT_HANDLE,  SavedStdIn);
 	    SetStdHandle(STD_OUTPUT_HANDLE, SavedStdOut);
@@ -605,8 +611,8 @@ BThread (
 			//  Append the new line
 			//
 
-            WaitForSingleObject( semIdle, INFINITE);
-			AppFile (LineBuf, pBTD->pBTFile);
+                        WaitForSingleObject( semIdle, INFINITE);
+                            AppFile (LineBuf, pBTD->pBTFile);
 
 			//
 			//  If the update flag is on, then we must update
@@ -629,13 +635,12 @@ BThread (
 		    }
 
 		//
-		//  Close the pipe handles
-		//
+                //  Close the pipe handles (Note that the PipeWrite handle
+                //  was closed above)
 
-        WaitForSingleObject( semIdle, INFINITE);
-		CloseHandle(PipeRead);
-		CloseHandle(PipeWrite);
-		SetEvent( semIdle );
+                WaitForSingleObject( semIdle, INFINITE);
+                CloseHandle(PipeRead);
+                SetEvent( semIdle );
 
 		//
 		// Wait for the spawned process to terminate

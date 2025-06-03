@@ -474,4 +474,3 @@ extern void 		RpcError(char *, short, STATUS_T , char *);
 void				ParseError( STATUS_T , char *);
 
 #endif // __ERRORS_HXX__
-

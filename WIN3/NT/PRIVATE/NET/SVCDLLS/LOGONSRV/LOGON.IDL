@@ -71,6 +71,8 @@ import   "imports.idl"; // import all the include files
 #define NETLOGON_CONTROL_PDC_REPLICATE 4    // Force PDC to broadcast change
 #define NETLOGON_CONTROL_REDISCOVER    5    // Force to re-discover trusted domain DCs
 #define NETLOGON_CONTROL_TC_QUERY      6    // Query status of specified trusted channel status
+#define NETLOGON_CONTROL_TRANSPORT_NOTIFY 7 // Notify netlogon that a new transport has come online
+#define NETLOGON_CONTROL_FIND_USER     8    // Find named user in a trusted domain
 
 // Debug function codes
 
@@ -737,6 +739,7 @@ typedef [switch_type(DWORD)] union _NETLOGON_CONTROL_DATA_INFORMATION {
     [case(NETLOGON_CONTROL_REDISCOVER,
             NETLOGON_CONTROL_TC_QUERY)] [string] wchar_t * TrustedDomainName;
     [case(NETLOGON_CONTROL_SET_DBFLAG)] DWORD DebugFlag;
+    [case(NETLOGON_CONTROL_FIND_USER)] [string] wchar_t * UserName;
     [default]
         ;
 } NETLOGON_CONTROL_DATA_INFORMATION, * PNETLOGON_CONTROL_DATA_INFORMATION;
@@ -744,6 +747,8 @@ typedef [switch_type(DWORD)] union _NETLOGON_CONTROL_DATA_INFORMATION {
 typedef [switch_type(DWORD)] union _NETLOGON_CONTROL_QUERY_INFORMATION {
     [case(1)] PNETLOGON_INFO_1 NetlogonInfo1;
     [case(2)] PNETLOGON_INFO_2 NetlogonInfo2;
+    [case(3)] PNETLOGON_INFO_3 NetlogonInfo3;
+    [case(4)] PNETLOGON_INFO_4 NetlogonInfo4;
     [default] ;
 } NETLOGON_CONTROL_QUERY_INFORMATION, * PNETLOGON_CONTROL_QUERY_INFORMATION;
 
@@ -821,6 +826,32 @@ NetrDatabaseRedo(
     [in, size_is(ChangeLogEntrySize)] PUCHAR ChangeLogEntry,
     [in] DWORD ChangeLogEntrySize,
     [out] PNETLOGON_DELTA_ENUM_ARRAY *DeltaArray
+    );
+
+// Same as NetrLogonControl2, but support QueryLevel of 4
+// and function code of NETLOGON_CONTROL_FIND_USER
+NET_API_STATUS
+NetrLogonControl2Ex(
+    [in, unique, string] LOGONSRV_HANDLE ServerName,
+    [in] DWORD FunctionCode,
+    [in] DWORD QueryLevel,
+    [in,switch_is(FunctionCode)] PNETLOGON_CONTROL_DATA_INFORMATION Data,
+    [out,switch_is(QueryLevel)] PNETLOGON_CONTROL_QUERY_INFORMATION Buffer
+    );
+
+//
+// Routine to enumerate trusted domains.
+//
+
+typedef struct _DOMAIN_NAME_BUFFER {
+    ULONG DomainNameByteCount;
+    [unique, size_is(DomainNameByteCount)] PUCHAR DomainNames;
+} DOMAIN_NAME_BUFFER, *PDOMAIN_NAME_BUFFER;
+
+NTSTATUS
+NetrEnumerateTrustedDomains (
+    [in, unique, string] LOGONSRV_HANDLE ServerName,
+    [out] PDOMAIN_NAME_BUFFER DomainNameBuffer
     );
 
 }

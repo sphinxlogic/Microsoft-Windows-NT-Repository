@@ -2,9 +2,9 @@
 #include <nt.h>
 #include <ntrtl.h>
 #include <nturtl.h>
+#include <ntdddisk.h>
 
 #include <windows.h>
-#include <winioctl.h>
 #include "id.h"
 
 typedef struct _DISK {
@@ -60,5 +60,5 @@ ConfigMonitor(
     WPARAM wParam,
     LPARAM lParam
     );
-
-
+
+

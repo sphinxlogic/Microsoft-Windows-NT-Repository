@@ -1,6 +1,9 @@
-#include "prerc.h"
+#include "rc.h"
 
-int CALLBACK RC(HWND hWnd, int fStatus, RC_CALLBACK lpfn, int argc, PCHAR *argv);
+int CALLBACK RC(HWND hWnd, int fStatus,
+	RC_MESSAGE_CALLBACK lpfnMsg, RC_PARSE_CALLBACK lpfnParse,
+	int argc, PCHAR *argv);
+
 extern BOOL WINAPI     Handler(DWORD fdwCtrlType);
 
 int CALLBACK UpdateRCStatus(ULONG u, ULONG dw, PCHAR p)
@@ -49,7 +52,7 @@ int _CRTAPI1 main(int nArgC, char** pArgV)
     int rc;
 
     SetConsoleCtrlHandler(Handler, TRUE);
-    rc = RC(NULL, 0, UpdateRCStatus, nArgC, (PCHAR*)pArgV);
+    rc = RC(NULL, 0, UpdateRCStatus, NULL, nArgC, (PCHAR*)pArgV);
     SetConsoleCtrlHandler(Handler, FALSE);
     exit(rc);
     return 0;

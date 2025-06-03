@@ -249,7 +249,7 @@ LfsInitializeLogFile (
     IN LONGLONG FileSize
     );
 
-VOID
+ULONG
 LfsOpenLogFile (
     IN PFILE_OBJECT LogFile,
     IN UNICODE_STRING ClientName,
@@ -262,6 +262,11 @@ LfsOpenLogFile (
 
 VOID
 LfsCloseLogFile (
+    IN LFS_LOG_HANDLE LogHandle
+    );
+
+VOID
+LfsDeleteLogHandle (
     IN LFS_LOG_HANDLE LogHandle
     );
 

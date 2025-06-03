@@ -173,4 +173,3 @@ public:
 #endif  __MOPTYPE_HXX__
 
 
-

@@ -885,4 +885,3 @@ int NEAR PASCAL CopyScrapToTmp(void)
     return docReturn;
 }
 #endif
-

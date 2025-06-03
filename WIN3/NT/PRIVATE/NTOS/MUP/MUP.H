@@ -26,6 +26,8 @@ Revision History:
 // "System" include files
 //
 
+#include <dfsprocs.h>
+
 #ifdef MUPDBG
 #include <ntos.h>
 #include <string.h>
@@ -33,8 +35,6 @@ Revision History:
 #else
 #include <ntifs.h>
 #endif
-
-#include <ntddmup.h>
 
 //
 // Local, independent include files

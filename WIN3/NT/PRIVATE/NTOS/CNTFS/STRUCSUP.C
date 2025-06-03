@@ -24,7 +24,7 @@ Revision History:
 #include "NtfsProc.h"
 
 //
-//**** include this file for our quick hacked quota check in NtfsFreePagedPool
+//**** include this file for our quick hacked quota check in NtfsFreePool
 //
 
 //#include <pool.h>
@@ -33,13 +33,39 @@ Revision History:
 //  Temporarily reference our local attribute definitions
 //
 
-extern ATTRIBUTE_DEFINITION_COLUMNS NtfsAttributeDefinitions[$EA + 1];
+extern ATTRIBUTE_DEFINITION_COLUMNS NtfsAttributeDefinitions[];
 
 //
 //  The debug trace level
 //
 
 #define Dbg                              (DEBUG_TRACE_STRUCSUP)
+
+//
+//  Define a tag for general pool allocations from this module
+//
+
+#undef MODULE_POOL_TAG
+#define MODULE_POOL_TAG                  ('sFtN')
+
+//
+//  Define a structure to use when renaming or moving Lcb's so that
+//  all the allocation for new filenames will succeed before munging names.
+//  This new allocation can be for the filename attribute in an Lcb or the
+//  filename in a Ccb.
+//
+
+typedef struct _NEW_FILENAME {
+
+    //
+    //  Ntfs structure which needs the allocation.
+    //
+
+    PVOID Structure;
+    PVOID NewAllocation;
+
+} NEW_FILENAME;
+typedef NEW_FILENAME *PNEW_FILENAME;
 
 //
 //  This is just a macro to do a sanity check for duplicate scbs on an Fcb
@@ -51,7 +77,6 @@ extern ATTRIBUTE_DEFINITION_COLUMNS NtfsAttributeDefinitions[$EA + 1];
 
 VOID
 NtfsCheckScbForCache (
-    IN PIRP_CONTEXT IrpContext,
     IN OUT PSCB Scb
     );
 
@@ -59,6 +84,7 @@ BOOLEAN
 NtfsRemoveScb (
     IN PIRP_CONTEXT IrpContext,
     IN PSCB Scb,
+    IN BOOLEAN CheckForAttributeTable,
     OUT PBOOLEAN HeldByStream
     );
 
@@ -66,7 +92,8 @@ BOOLEAN
 NtfsPrepareFcbForRemoval (
     IN PIRP_CONTEXT IrpContext,
     IN PFCB Fcb,
-    IN PSCB StartingScb OPTIONAL
+    IN PSCB StartingScb OPTIONAL,
+    IN BOOLEAN CheckForAttributeTable
     );
 
 VOID
@@ -75,6 +102,7 @@ NtfsTeardownFromLcb (
     IN PVCB Vcb,
     IN PFCB StartingFcb,
     IN PLCB StartingLcb,
+    IN BOOLEAN CheckForAttributeTable,
     IN BOOLEAN DontWaitForAcquire,
     OUT PBOOLEAN RemovedStartingLcb,
     OUT PBOOLEAN RemovedStartingFcb
@@ -91,18 +119,6 @@ NtfsFcbTableCompare (
     IN PRTL_GENERIC_TABLE FcbTable,
     IN PVOID FirstStruct,
     IN PVOID SecondStruct
-    );
-
-PVOID
-NtfsAllocateFcbTableEntry (
-    IN PRTL_GENERIC_TABLE FcbTable,
-    IN CLONG ByteSize
-    );
-
-VOID
-NtfsDeallocateFcbTableEntry (
-    IN PRTL_GENERIC_TABLE FcbTable,
-    IN PVOID Buffer
     );
 
 //
@@ -127,14 +143,24 @@ NtfsDeallocateFcbTableEntry (
 
 
 #ifdef ALLOC_PRAGMA
+#pragma alloc_text(PAGE, NtfsBuildNormalizedName)
 #pragma alloc_text(PAGE, NtfsCheckScbForCache)
 #pragma alloc_text(PAGE, NtfsCombineLcbs)
-#pragma alloc_text(PAGE, NtfsDeleteNtfsData)
+#pragma alloc_text(PAGE, NtfsCreateCcb)
+#pragma alloc_text(PAGE, NtfsCreateFcb)
+#pragma alloc_text(PAGE, NtfsCreateFileLock)
+#pragma alloc_text(PAGE, NtfsCreateLcb)
+#pragma alloc_text(PAGE, NtfsCreatePrerestartScb)
+#pragma alloc_text(PAGE, NtfsCreateRootFcb)
+#pragma alloc_text(PAGE, NtfsCreateScb)
+#pragma alloc_text(PAGE, NtfsDeleteCcb)
+#pragma alloc_text(PAGE, NtfsDeleteFcb)
+#pragma alloc_text(PAGE, NtfsDeleteLcb)
+#pragma alloc_text(PAGE, NtfsDeleteScb)
 #pragma alloc_text(PAGE, NtfsDeleteVcb)
 #pragma alloc_text(PAGE, NtfsFcbTableCompare)
 #pragma alloc_text(PAGE, NtfsGetNextFcbTableEntry)
 #pragma alloc_text(PAGE, NtfsGetNextScb)
-#pragma alloc_text(PAGE, NtfsInitializeNtfsData)
 #pragma alloc_text(PAGE, NtfsInitializeVcb)
 #pragma alloc_text(PAGE, NtfsLookupLcbByFlags)
 #pragma alloc_text(PAGE, NtfsMoveLcb)
@@ -144,200 +170,6 @@ NtfsDeallocateFcbTableEntry (
 #pragma alloc_text(PAGE, NtfsUpdateNormalizedName)
 #pragma alloc_text(PAGE, NtfsUpdateScbSnapshots)
 #endif
-
-
-VOID
-NtfsInitializeNtfsData (
-    IN PDRIVER_OBJECT DriverObject
-    )
-
-/*++
-
-Routine Description:
-
-    This routine initializes the global ntfs data record
-
-Arguments:
-
-    DriverObject - Supplies the driver object for NTFS
-
-Return Value:
-
-    None.
-
---*/
-
-{
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "NtfsInitializeNtfsData\n", 0);
-
-    //
-    //  Zero the record and set its node type code and size
-    //
-
-    RtlZeroMemory( &NtfsData, sizeof(NTFS_DATA));
-
-    NtfsData.NodeTypeCode = NTFS_NTC_DATA_HEADER;
-    NtfsData.NodeByteSize = sizeof(NTFS_DATA);
-
-    //
-    //  Initialize the queue of mounted Vcbs
-    //
-
-    InitializeListHead(&NtfsData.VcbQueue);
-
-    //
-    //  This list head keeps track of closes yet to be done.
-    //
-
-    InitializeListHead( &NtfsData.AsyncCloseList );
-    InitializeListHead( &NtfsData.DelayedCloseList );
-
-    ExInitializeWorkItem( &NtfsData.NtfsCloseItem,
-                          (PWORKER_THREAD_ROUTINE)NtfsFspClose,
-                          NULL );
-
-    //
-    //  Set the driver object, device object, and initialize the global
-    //  resource protecting the file system
-    //
-
-    NtfsData.DriverObject = DriverObject;
-
-    ExInitializeResource( &NtfsData.Resource );
-
-    //
-    //  Now allocate and initialize the zone structures used as our pool
-    //  of IRP context records.  The size of the zone is based on the
-    //  system memory size.  We also initialize the spin lock used to protect
-    //  the zone.
-    //
-
-    KeInitializeSpinLock( &NtfsData.StrucSupSpinLock );
-
-    {
-        ULONG ZoneSegmentSize;
-
-        switch ( MmQuerySystemSize() ) {
-
-        case MmSmallSystem:
-
-            SetFlag( NtfsData.Flags, NTFS_FLAGS_SMALL_SYSTEM );
-            NtfsMaxDelayedCloseCount = MAX_DELAYED_CLOSE_COUNT_SMALL;
-
-            ZoneSegmentSize = (4 * QuadAlign(sizeof(IRP_CONTEXT))) + sizeof(ZONE_SEGMENT_HEADER);
-            break;
-
-        case MmMediumSystem:
-
-            SetFlag( NtfsData.Flags, NTFS_FLAGS_MEDIUM_SYSTEM );
-            NtfsMaxDelayedCloseCount = MAX_DELAYED_CLOSE_COUNT_MEDIUM;
-
-            ZoneSegmentSize = (8 * QuadAlign(sizeof(IRP_CONTEXT))) + sizeof(ZONE_SEGMENT_HEADER);
-            break;
-
-        case MmLargeSystem:
-
-            SetFlag( NtfsData.Flags, NTFS_FLAGS_LARGE_SYSTEM );
-            NtfsMaxDelayedCloseCount = MAX_DELAYED_CLOSE_COUNT_LARGE;
-
-            ZoneSegmentSize = (16 * QuadAlign(sizeof(IRP_CONTEXT))) + sizeof(ZONE_SEGMENT_HEADER);
-            break;
-        }
-
-        NtfsMinDelayedCloseCount = NtfsMaxDelayedCloseCount * 4 / 5;
-
-        (VOID) ExInitializeZone( &NtfsData.IrpContextZone,
-                                 QuadAlign(sizeof(IRP_CONTEXT)),
-                                 FsRtlAllocatePool( NonPagedPool, ZoneSegmentSize ),
-                                 ZoneSegmentSize );
-    }
-
-    //
-    //  Initialize the cache manager callback routines,  First are the routines
-    //  for normal file manipulations, followed by the routines for
-    //  volume manipulations.
-    //
-
-    {
-        PCACHE_MANAGER_CALLBACKS Callbacks = &NtfsData.CacheManagerCallbacks;
-
-        Callbacks->AcquireForLazyWrite  = &NtfsAcquireScbForLazyWrite;
-        Callbacks->ReleaseFromLazyWrite = &NtfsReleaseScbFromLazyWrite;
-        Callbacks->AcquireForReadAhead  = &NtfsAcquireScbForReadAhead;
-        Callbacks->ReleaseFromReadAhead = &NtfsReleaseScbFromReadAhead;
-    }
-
-    {
-        PCACHE_MANAGER_CALLBACKS Callbacks = &NtfsData.CacheManagerVolumeCallbacks;
-
-        Callbacks->AcquireForLazyWrite  = &NtfsAcquireVolumeFileForLazyWrite;
-        Callbacks->ReleaseFromLazyWrite = &NtfsReleaseVolumeFileFromLazyWrite;
-        Callbacks->AcquireForReadAhead  = NULL;
-        Callbacks->ReleaseFromReadAhead = NULL;
-    }
-
-    //
-    //  Initialize the queue of read ahead threads
-    //
-
-    InitializeListHead(&NtfsData.ReadAheadThreads);
-
-    //
-    //  Set up global pointer to our process.
-    //
-
-    NtfsData.OurProcess = PsGetCurrentProcess();
-
-    //
-    //  And return to our caller
-    //
-
-    DebugTrace(-1, Dbg, "NtfsInitializeNtfsData -> VOID\n", 0);
-
-    return;
-}
-
-
-VOID
-NtfsDeleteNtfsData (
-    IN PIRP_CONTEXT IrpContext
-    )
-
-/*++
-
-Routine Description:
-
-    This routine uninitializes the global ntfs data record
-
-Arguments:
-
-Return Value:
-
-    None.
-
---*/
-
-{
-    ASSERT_IRP_CONTEXT( IrpContext );
-
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "NtfsDeleteNtfsData\n", 0);
-
-    //
-    //  **** We do not yet have a way to unload file systems
-    //
-
-    //
-    //  And return to our caller
-    //
-
-    DebugTrace(-1, Dbg, "NtfsDeleteNtfsData -> VOID\n", 0);
-
-    return;
-}
 
 
 VOID
@@ -372,11 +204,14 @@ Return Value:
 --*/
 
 {
+    ULONG i;
+    ULONG NumberProcessors;
+
     ASSERT_IRP_CONTEXT( IrpContext );
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsInitializeVcb, Vcb = %08lx\n", Vcb);
+    DebugTrace( +1, Dbg, ("NtfsInitializeVcb, Vcb = %08lx\n", Vcb) );
 
     //
     //  First zero out the Vcb
@@ -437,7 +272,6 @@ Return Value:
     ExInitializeFastMutex( &Vcb->FcbSecurityMutex );
     ExInitializeFastMutex( &Vcb->CheckpointMutex );
 
-
     KeInitializeEvent( &Vcb->CheckpointNotifyEvent, NotificationEvent, TRUE );
 
     //
@@ -447,21 +281,44 @@ Return Value:
     RtlInitializeGenericTable( &Vcb->FcbTable,
                                NtfsFcbTableCompare,
                                NtfsAllocateFcbTableEntry,
-                               NtfsDeallocateFcbTableEntry,
+                               NtfsFreeFcbTableEntry,
                                NULL );
 
     //
     //  Initialize the list head and mutex for the dir notify Irps.
+    //  Also the rename resource.
     //
 
     InitializeListHead( &Vcb->DirNotifyList );
     FsRtlNotifyInitializeSync( &Vcb->NotifySync );
 
     //
+    //  Allocate and initialize struct array for performance data.  This
+    //  attempt to allocate could raise STATUS_INSUFFICIENT_RESOURCES.
+    //
+
+    NumberProcessors = **((PCHAR *)&KeNumberProcessors);
+    Vcb->Statistics = NtfsAllocatePool( NonPagedPool,
+                                         sizeof(FILESYSTEM_STATISTICS) * NumberProcessors );
+
+    RtlZeroMemory( Vcb->Statistics, sizeof(FILESYSTEM_STATISTICS) * NumberProcessors );
+
+    for (i = 0; i < NumberProcessors; i += 1) {
+        Vcb->Statistics[i].FileSystemType = FILESYSTEM_STATISTICS_TYPE_NTFS;
+        Vcb->Statistics[i].Version = 1;
+    }
+
+    //
+    //  Initialize the property tunneling structure
+    //
+
+    FsRtlInitializeTunnelCache(&Vcb->Tunnel);
+
+    //
     //  And return to our caller
     //
 
-    DebugTrace(-1, Dbg, "NtfsInitializeVcb -> VOID\n", 0);
+    DebugTrace( -1, Dbg, ("NtfsInitializeVcb -> VOID\n") );
 
     return;
 }
@@ -470,8 +327,7 @@ Return Value:
 VOID
 NtfsDeleteVcb (
     IN PIRP_CONTEXT IrpContext,
-    IN OUT PVCB *Vcb,
-    IN PFILE_OBJECT FileObject OPTIONAL
+    IN OUT PVCB *Vcb
     )
 
 /*++
@@ -485,9 +341,6 @@ Arguments:
 
     Vcb - Supplies the Vcb to be removed
 
-    FileObject - Optionally supplies the file object whose VPB pointer we need to
-        zero out
-
 Return Value:
 
     None
@@ -496,6 +349,9 @@ Return Value:
 
 {
     PVOLUME_DEVICE_OBJECT VolDo;
+    BOOLEAN AcquiredFcb;
+    PSCB Scb;
+    PFCB Fcb;
 
     ASSERT_IRP_CONTEXT( IrpContext );
     ASSERT_VCB( *Vcb );
@@ -504,7 +360,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsDeleteVcb, *Vcb = %08lx\n", *Vcb);
+    DebugTrace( +1, Dbg, ("NtfsDeleteVcb, *Vcb = %08lx\n", *Vcb) );
 
     //
     //  Make sure that we can really delete the vcb
@@ -512,19 +368,47 @@ Return Value:
 
     ASSERT( (*Vcb)->CloseCount == 0 );
 
-    //
-    //  Remove this record from the global list of all VCB records
-    //
-
-    RemoveEntryList( &(*Vcb)->VcbLinks );
+#ifdef _CAIRO_
+    NtOfsPurgeSecurityCache( *Vcb );
+#endif
 
     //
-    //  Free the Mcb and buffers for the lookaside Mcb's.
+    //  If the Vcb log file object is present then we need to
+    //  dereference it and uninitialize it through the cache.
     //
 
-    if ((*Vcb)->FreeSpaceLruArray != NULL) {
+    if ((*Vcb)->LogFileObject != NULL) {
 
-        NtfsUninitializeCachedBitmap( IrpContext, (*Vcb) );
+        CACHE_UNINITIALIZE_EVENT UninitializeCompleteEvent;
+        NTSTATUS WaitStatus;
+
+        KeInitializeEvent( &UninitializeCompleteEvent.Event,
+                           SynchronizationEvent,
+                           FALSE);
+
+        CcUninitializeCacheMap( (*Vcb)->LogFileObject,
+                                &NtfsLarge0,
+                                &UninitializeCompleteEvent );
+
+        //
+        //  Now wait for the cache manager to finish purging the file.
+        //  This will garentee that Mm gets the purge before we
+        //  delete the Vcb.
+        //
+
+        WaitStatus = KeWaitForSingleObject( &UninitializeCompleteEvent.Event,
+                                            Executive,
+                                            KernelMode,
+                                            FALSE,
+                                            NULL);
+
+        ASSERT( NT_SUCCESS( WaitStatus ) );
+
+        (*Vcb)->LogFileObject->FsContext = NULL;
+        (*Vcb)->LogFileObject->FsContext2 = NULL;
+
+        ObDereferenceObject( (*Vcb)->LogFileObject );
+        (*Vcb)->LogFileObject = NULL;
     }
 
     //
@@ -534,30 +418,81 @@ Return Value:
     if ((*Vcb)->PriorDeallocatedClusters != NULL) {
 
         FsRtlUninitializeLargeMcb( &(*Vcb)->PriorDeallocatedClusters->Mcb );
+        (*Vcb)->PriorDeallocatedClusters = NULL;
     }
 
     if ((*Vcb)->ActiveDeallocatedClusters != NULL) {
 
         FsRtlUninitializeLargeMcb( &(*Vcb)->ActiveDeallocatedClusters->Mcb );
+        (*Vcb)->ActiveDeallocatedClusters = NULL;
     }
 
     //
-    //  Delete the vcb resource and also free the restart tables
+    //  Clean up the Root Lcb if present.
     //
 
-    ExDeleteResource( &(*Vcb)->Resource );
+    if ((*Vcb)->RootLcb != NULL) {
 
-    NtfsFreeRestartTable( IrpContext, &(*Vcb)->OpenAttributeTable );
-    NtfsFreeRestartTable( IrpContext, &(*Vcb)->TransactionTable );
+        //
+        //  Cleanup the Lcb so the DeleteLcb routine won't look at any
+        //  other structures.
+        //
+
+        InitializeListHead( &(*Vcb)->RootLcb->ScbLinks );
+        InitializeListHead( &(*Vcb)->RootLcb->FcbLinks );
+        ClearFlag( (*Vcb)->RootLcb->LcbState,
+                   LCB_STATE_EXACT_CASE_IN_TREE | LCB_STATE_IGNORE_CASE_IN_TREE );
+
+        NtfsDeleteLcb( IrpContext, &(*Vcb)->RootLcb );
+        (*Vcb)->RootLcb = NULL;
+    }
 
     //
-    //  Free the upcase table and attribute definitions.
+    //  Make sure the Fcb table is completely emptied.  It is possible that an occasional Fcb
+    //  (along with its Scb) will not be deleted when the file object closes come in.
     //
 
-    if ((*Vcb)->UpcaseTable != NULL)          { ExFreePool( (*Vcb)->UpcaseTable ); }
+    while (TRUE) {
+
+        PVOID RestartKey;
+
+        //
+        //  Always reinitialize the search so we get the first element in the tree.
+        //
+
+        RestartKey = NULL;
+        NtfsAcquireFcbTable( IrpContext, *Vcb );
+        Fcb = NtfsGetNextFcbTableEntry( *Vcb, &RestartKey );
+        NtfsReleaseFcbTable( IrpContext, *Vcb );
+
+        if (Fcb == NULL) { break; }
+
+        while ((Scb = NtfsGetNextChildScb( Fcb, NULL )) != NULL) {
+
+            NtfsDeleteScb( IrpContext, &Scb );
+        }
+
+        NtfsAcquireFcbTable( IrpContext, *Vcb );
+        NtfsDeleteFcb( IrpContext, &Fcb, &AcquiredFcb );
+    }
+
+    //
+    //  Free the upcase table and attribute definitions.  The upcase
+    //  table only gets freed if it is not the global table.
+    //
+
+    if (((*Vcb)->UpcaseTable != NULL) && ((*Vcb)->UpcaseTable != NtfsData.UpcaseTable)) {
+
+        NtfsFreePool( (*Vcb)->UpcaseTable );
+    }
+
+    (*Vcb)->UpcaseTable = NULL;
+
     if (((*Vcb)->AttributeDefinitions != NULL) &&
         ((*Vcb)->AttributeDefinitions != NtfsAttributeDefinitions)) {
-        ExFreePool( (*Vcb)->AttributeDefinitions );
+
+        NtfsFreePool( (*Vcb)->AttributeDefinitions );
+        (*Vcb)->AttributeDefinitions = NULL;
     }
 
     //
@@ -566,18 +501,72 @@ Return Value:
 
     if ((*Vcb)->DeviceName.Buffer != NULL) {
 
-        ExFreePool( (*Vcb)->DeviceName.Buffer );
+        NtfsFreePool( (*Vcb)->DeviceName.Buffer );
+        (*Vcb)->DeviceName.Buffer = NULL;
+    }
+
+    FsRtlNotifyUninitializeSync( &(*Vcb)->NotifySync );
+
+    //
+    //  We will free the structure allocated for the Lfs handle.
+    //
+
+    LfsDeleteLogHandle( (*Vcb)->LogHandle );
+    (*Vcb)->LogHandle = NULL;
+
+    //
+    //  Delete the vcb resource and also free the restart tables
+    //
+
+    NtfsFreeRestartTable( &(*Vcb)->OpenAttributeTable );
+    NtfsFreeRestartTable( &(*Vcb)->TransactionTable );
+
+    //
+    //  The Vpb in the Vcb may be a temporary Vpb and we should free it here.
+    //
+
+    if (FlagOn( (*Vcb)->VcbState, VCB_STATE_TEMP_VPB )) {
+
+        NtfsFreePool( (*Vcb)->Vpb );
+        (*Vcb)->Vpb = NULL;
+    }
+
+    ExDeleteResource( &(*Vcb)->Resource );
+
+    //
+    //  Delete the space used to store performance counters.
+    //
+
+    if ((*Vcb)->Statistics != NULL) {
+        NtfsFreePool( (*Vcb)->Statistics );
+        (*Vcb)->Statistics = NULL;
     }
 
     //
-    //  Now get rid of the temporary Vpb that we created in perform dismount on vcb
+    //  Tear down the file property tunneling structure
     //
 
-    //ExFreePool( (*Vcb)->Vpb );
+    FsRtlDeleteTunnelCache(&(*Vcb)->Tunnel);
 
-    if (ARGUMENT_PRESENT(FileObject)) { FileObject->Vpb = NULL; }
+#ifdef NTFS_CHECK_BITMAP
+    if ((*Vcb)->BitmapCopy != NULL) {
 
-    FsRtlNotifyUninitializeSync( &(*Vcb)->NotifySync );
+        ULONG Count = 0;
+
+        while (Count < (*Vcb)->BitmapPages) {
+
+            if (((*Vcb)->BitmapCopy + Count)->Buffer != NULL) {
+
+                NtfsFreePool( ((*Vcb)->BitmapCopy + Count)->Buffer );
+            }
+
+            Count += 1;
+        }
+
+        NtfsFreePool( (*Vcb)->BitmapCopy );
+        (*Vcb)->BitmapCopy = NULL;
+    }
+#endif
 
     //
     //  Return the Vcb (i.e., the VolumeDeviceObject) to pool and null out
@@ -593,7 +582,7 @@ Return Value:
     //  And return to our caller
     //
 
-    DebugTrace(-1, Dbg, "NtfsDeleteVcb -> VOID\n", 0);
+    DebugTrace( -1, Dbg, ("NtfsDeleteVcb -> VOID\n") );
 
     return;
 }
@@ -631,13 +620,16 @@ Return Value:
     //  The following variables are only used for abnormal termination
     //
 
-    PVOID UnwindStorage[4] = { NULL, NULL, NULL, NULL };
+    PVOID UnwindStorage = NULL;
     PERESOURCE UnwindResource = NULL;
+    PFAST_MUTEX UnwindFastMutex = NULL;
+
+    PAGED_CODE();
 
     ASSERT_IRP_CONTEXT( IrpContext );
     ASSERT_VCB( Vcb );
 
-    DebugTrace(+1, Dbg, "NtfsCreateRootFcb, Vcb = %08lx\n", Vcb);
+    DebugTrace( +1, Dbg, ("NtfsCreateRootFcb, Vcb = %08lx\n", Vcb) );
 
     try {
 
@@ -646,9 +638,10 @@ Return Value:
         //  don't have to continually go through the Vcb
         //
 
-        NtfsAllocateFcb( &UnwindStorage[0] ); RootFcb = UnwindStorage[0];
+        RootFcb =
+        UnwindStorage = (PFCB)ExAllocateFromPagedLookasideList( &NtfsFcbIndexLookasideList );
 
-        RtlZeroMemory( RootFcb, sizeof(FCB) );
+        RtlZeroMemory( RootFcb, sizeof(FCB_INDEX) );
 
         //
         //  Set the proper node type code and byte size
@@ -656,6 +649,8 @@ Return Value:
 
         RootFcb->NodeTypeCode = NTFS_NTC_FCB;
         RootFcb->NodeByteSize = sizeof(FCB);
+
+        SetFlag( RootFcb->FcbState, FCB_STATE_COMPOUND_INDEX );
 
         //
         //  Initialize the Lcb queue and point back to our Vcb.
@@ -669,7 +664,9 @@ Return Value:
         //  File Reference
         //
 
-        RootFcb->FileReference.LowPart = ROOT_FILE_NAME_INDEX_NUMBER;
+        NtfsSetSegmentNumber( &RootFcb->FileReference,
+                              0,
+                              ROOT_FILE_NAME_INDEX_NUMBER );
         RootFcb->FileReference.SequenceNumber = ROOT_FILE_NAME_INDEX_NUMBER;
 
         //
@@ -682,8 +679,15 @@ Return Value:
         //  Allocate and initialize the resource variable
         //
 
-        NtfsAllocateEresource( &UnwindStorage[1] ); RootFcb->Resource = UnwindStorage[1];
-        UnwindResource = RootFcb->Resource;
+        UnwindResource = RootFcb->Resource = NtfsAllocateEresource();
+
+        //
+        //  Allocate and initialize the Fcb fast mutex.
+        //
+
+        UnwindFastMutex =
+        RootFcb->FcbMutex = NtfsAllocatePool( NonPagedPool, sizeof( FAST_MUTEX ));
+        ExInitializeFastMutex( UnwindFastMutex );
 
         //
         //  Insert this new fcb into the fcb table
@@ -700,13 +704,10 @@ Return Value:
 
         {
             //
-            //  Allocate the root lcb, zero it out and node type code/size, also have
-            //  the vcb point to this lcb
+            //  Use the root Lcb within the Fcb.
             //
 
-            NtfsAllocateLcb( &UnwindStorage[2] ); RootLcb = Vcb->RootLcb = UnwindStorage[2];
-
-            RtlZeroMemory( RootLcb, sizeof(LCB) );
+            RootLcb = Vcb->RootLcb = (PLCB) &((PFCB_INDEX) RootFcb)->Lcb;
 
             RootLcb->NodeTypeCode = NTFS_NTC_LCB;
             RootLcb->NodeByteSize = sizeof(LCB);
@@ -719,12 +720,10 @@ Return Value:
             RootLcb->Fcb = RootFcb;
 
             //
-            //  Set up the lastt component file name with the proper file name flags
+            //  Use the embedded file name attribute.
             //
 
-            RootLcb->FileNameAttr =
-            UnwindStorage[3] = NtfsAllocatePagedPool( 2 +
-                                                      NtfsFileNameSizeFromLength( 2 ));
+            RootLcb->FileNameAttr = (PFILE_NAME) &RootLcb->ParentDirectory;
 
             RootLcb->FileNameAttr->ParentDirectory = RootFcb->FileReference;
             RootLcb->FileNameAttr->FileNameLength = 1;
@@ -732,7 +731,7 @@ Return Value:
 
             RootLcb->ExactCaseLink.LinkName.Buffer = (PWCHAR) &RootLcb->FileNameAttr->FileName;
 
-            RootLcb->IgnoreCaseLink.LinkName.Buffer = Add2Ptr( UnwindStorage[3],
+            RootLcb->IgnoreCaseLink.LinkName.Buffer = Add2Ptr( RootLcb->FileNameAttr,
                                                                NtfsFileNameSizeFromLength( 2 ));
 
             RootLcb->ExactCaseLink.LinkName.MaximumLength =
@@ -743,7 +742,7 @@ Return Value:
             RootLcb->ExactCaseLink.LinkName.Buffer[0] =
             RootLcb->IgnoreCaseLink.LinkName.Buffer[0] = L'\\';
 
-            SetFlag( RootLcb->FileNameFlags, FILE_NAME_NTFS | FILE_NAME_DOS );
+            SetFlag( RootLcb->FileNameAttr->Flags, FILE_NAME_NTFS | FILE_NAME_DOS );
 
             //
             //  Initialize both the ccb.
@@ -758,14 +757,13 @@ Return Value:
 
         if (AbnormalTermination()) {
 
-            if (UnwindResource)   { ExDeleteResource( UnwindResource ); }
-            if (UnwindStorage[0]) { ExFreePool( UnwindStorage[0] ); }
-            if (UnwindStorage[1]) { ExFreePool( UnwindStorage[1] ); }
-            if (UnwindStorage[2]) { ExFreePool( UnwindStorage[2] ); }
+            if (UnwindResource)   { NtfsFreeEresource( UnwindResource ); }
+            if (UnwindStorage) { NtfsFreePool( UnwindStorage ); }
+            if (UnwindFastMutex) { NtfsFreePool( UnwindFastMutex ); }
         }
     }
 
-    DebugTrace(-1, Dbg, "NtfsCreateRootFcb -> %8lx\n", RootFcb);
+    DebugTrace( -1, Dbg, ("NtfsCreateRootFcb -> %8lx\n", RootFcb) );
 
     return RootFcb;
 }
@@ -777,6 +775,7 @@ NtfsCreateFcb (
     IN PVCB Vcb,
     IN FILE_REFERENCE FileReference,
     IN BOOLEAN IsPagingFile,
+    IN BOOLEAN LargeFcb,
     OUT PBOOLEAN ReturnedExistingFcb OPTIONAL
     )
 
@@ -799,6 +798,8 @@ Arguments:
     IsPagingFile - Indicates if we are creating an FCB for a paging file
         or some other type of file.
 
+    LargeFcb - Indicates if we should use the larger of the compound Fcb's.
+
     ReturnedExistingFcb - Optionally indicates to the caller if the
         returned Fcb already existed
 
@@ -815,19 +816,21 @@ Return Value:
     PFCB Fcb;
 
     BOOLEAN LocalReturnedExistingFcb;
-    BOOLEAN NonpagedFcb = FALSE;
 
     //
     //  The following variables are only used for abnormal termination
     //
 
-    PVOID UnwindStorage[2] = { NULL, NULL };
+    PVOID UnwindStorage = NULL;
     PERESOURCE UnwindResource = NULL;
+    PFAST_MUTEX UnwindFastMutex = NULL;
+
+    PAGED_CODE();
 
     ASSERT_IRP_CONTEXT( IrpContext );
     ASSERT_VCB( Vcb );
 
-    DebugTrace(+1, Dbg, "NtfsCreateFcb\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsCreateFcb\n") );
 
     if (!ARGUMENT_PRESENT(ReturnedExistingFcb)) { ReturnedExistingFcb = &LocalReturnedExistingFcb; }
 
@@ -857,8 +860,7 @@ Return Value:
             //  Fcb below.
             //
 
-            NtfsDeleteFcbTableEntry( IrpContext,
-                                     Fcb->Vcb,
+            NtfsDeleteFcbTableEntry( Fcb->Vcb,
                                      Fcb->FileReference );
 
             ClearFlag( Fcb->FcbState, FCB_STATE_IN_FCB_TABLE );
@@ -885,21 +887,49 @@ Return Value:
             //  Allocate a new FCB and zero it out.
             //
 
-            if (IsPagingFile || ((FileReference.HighPart == 0) &&
-                                 ((FileReference.LowPart <= MASTER_FILE_TABLE2_NUMBER) ||
-                                  (FileReference.LowPart == BAD_CLUSTER_FILE_NUMBER) ||
-                                  (FileReference.LowPart == BIT_MAP_FILE_NUMBER)))) {
+            if (IsPagingFile ||
+                NtfsSegmentNumber( &FileReference ) <= MASTER_FILE_TABLE2_NUMBER ||
+                NtfsSegmentNumber( &FileReference ) == BAD_CLUSTER_FILE_NUMBER ||
+                NtfsSegmentNumber( &FileReference ) == BIT_MAP_FILE_NUMBER) {
 
-                Fcb = UnwindStorage[0] = FsRtlAllocatePool( NtfsNonPagedPool, sizeof(FCB) );
-                NonpagedFcb = TRUE;
+                Fcb = UnwindStorage = NtfsAllocatePoolWithTag( NonPagedPool,
+                                                               sizeof(FCB),
+                                                               'fftN' );
+                RtlZeroMemory( Fcb, sizeof(FCB) );
+
+                if (IsPagingFile) {
+
+                    SetFlag( Fcb->FcbState, FCB_STATE_PAGING_FILE );
+
+                    //
+                    //  We don't want to dismount this volume now that
+                    //  we have a pagefile open on it.
+                    //
+
+                    SetFlag( Vcb->VcbState, VCB_STATE_DISALLOW_DISMOUNT );
+                }
+
+                SetFlag( Fcb->FcbState, FCB_STATE_NONPAGED );
 
             } else {
 
-                NtfsAllocateFcb( &UnwindStorage[0] ); Fcb = UnwindStorage[0];
+                if (LargeFcb) {
+
+                    Fcb = UnwindStorage =
+                        (PFCB)ExAllocateFromPagedLookasideList( &NtfsFcbIndexLookasideList );
+
+                    RtlZeroMemory( Fcb, sizeof( FCB_INDEX ));
+                    SetFlag( Fcb->FcbState, FCB_STATE_COMPOUND_INDEX );
+
+                } else {
+
+                    Fcb = UnwindStorage =
+                        (PFCB)ExAllocateFromPagedLookasideList( &NtfsFcbDataLookasideList );
+
+                    RtlZeroMemory( Fcb, sizeof( FCB_DATA ));
+                    SetFlag( Fcb->FcbState, FCB_STATE_COMPOUND_DATA );
+                }
             }
-
-
-            RtlZeroMemory( Fcb, sizeof(FCB) );
 
             //
             //  Set the proper node type code and byte size
@@ -907,16 +937,6 @@ Return Value:
 
             Fcb->NodeTypeCode = NTFS_NTC_FCB;
             Fcb->NodeByteSize = sizeof(FCB);
-
-            if (IsPagingFile) {
-
-                SetFlag( Fcb->FcbState, FCB_STATE_PAGING_FILE );
-            }
-
-            if (NonpagedFcb) {
-
-                SetFlag( Fcb->FcbState, FCB_STATE_NONPAGED );
-            }
 
             //
             //  Initialize the Lcb queue and point back to our Vcb, and indicate
@@ -943,8 +963,14 @@ Return Value:
             //  Allocate and initialize the resource variable
             //
 
-            NtfsAllocateEresource( &UnwindStorage[1] ); Fcb->Resource = UnwindStorage[1];
-            UnwindResource = Fcb->Resource;
+            UnwindResource = Fcb->Resource = NtfsAllocateEresource();
+
+            //
+            //  Allocate and initialize fast mutex for the Fcb.
+            //
+
+            UnwindFastMutex = Fcb->FcbMutex = NtfsAllocatePool( NonPagedPool, sizeof( FAST_MUTEX ));
+            ExInitializeFastMutex( UnwindFastMutex );
 
             //
             //  Insert this new fcb into the fcb table
@@ -953,20 +979,29 @@ Return Value:
             NtfsInsertFcbTableEntry( IrpContext, Vcb, Fcb, FileReference );
             SetFlag( Fcb->FcbState, FCB_STATE_IN_FCB_TABLE );
 
+            //
+            //  Set the flag to indicate if this is a system file.
+            //
+
+            if (NtfsSegmentNumber( &FileReference ) <= FIRST_USER_FILE_NUMBER) {
+
+                SetFlag( Fcb->FcbState, FCB_STATE_SYSTEM_FILE );
+            }
+
         } finally {
 
             DebugUnwind( NtfsCreateFcb );
 
             if (AbnormalTermination()) {
 
-                if (UnwindResource)   { ExDeleteResource( UnwindResource ); }
-                if (UnwindStorage[0]) { ExFreePool( UnwindStorage[0] ); }
-                if (UnwindStorage[1]) { ExFreePool( UnwindStorage[1] ); }
+                if (UnwindFastMutex) { NtfsFreePool( UnwindFastMutex ); }
+                if (UnwindResource)   { NtfsFreeEresource( UnwindResource ); }
+                if (UnwindStorage) { NtfsFreePool( UnwindStorage ); }
             }
         }
     }
 
-    DebugTrace(-1, Dbg, "NtfsCreateFcb -> %08lx\n", Fcb);
+    DebugTrace( -1, Dbg, ("NtfsCreateFcb -> %08lx\n", Fcb) );
 
     return Fcb;
 }
@@ -1001,13 +1036,14 @@ Return Value:
 --*/
 
 {
+    PAGED_CODE();
+
     ASSERT_IRP_CONTEXT( IrpContext );
     ASSERT_FCB( *Fcb );
-    ASSERT( IsListEmpty(&(*Fcb)->LcbQueue) );
     ASSERT( IsListEmpty(&(*Fcb)->ScbQueue) );
     ASSERT( (NodeType(*Fcb) == NTFS_NTC_FCB) );
 
-    DebugTrace(+1, Dbg, "NtfsDeleteFcb, *Fcb = %08lx\n", *Fcb);
+    DebugTrace( +1, Dbg, ("NtfsDeleteFcb, *Fcb = %08lx\n", *Fcb) );
 
     //
     //  First free any possible Scb snapshots.
@@ -1021,14 +1057,23 @@ Return Value:
     //  And release the global resource.
     //
 
-    if ((*Fcb)->ExclusivePagingIoLinks.Flink != NULL) {
-
-        RemoveEntryList( &(*Fcb)->ExclusivePagingIoLinks );
-    }
-
     if ((*Fcb)->ExclusiveFcbLinks.Flink != NULL) {
 
         RemoveEntryList( &(*Fcb)->ExclusiveFcbLinks );
+    }
+
+    //
+    //  Clear the IrpContext field for any request which may own the paging
+    //  IO resource for this Fcb.
+    //
+
+    if (IrpContext->FcbWithPagingExclusive == *Fcb) {
+
+        IrpContext->FcbWithPagingExclusive = NULL;
+
+    } else if (IrpContext->TopLevelIrpContext->FcbWithPagingExclusive == *Fcb) {
+
+        IrpContext->TopLevelIrpContext->FcbWithPagingExclusive = NULL;
     }
 
     //
@@ -1038,11 +1083,34 @@ Return Value:
     ASSERT((*Fcb)->Resource->NumberOfSharedWaiters == 0);
     ASSERT((*Fcb)->Resource->NumberOfExclusiveWaiters == 0);
 
-    { PERESOURCE t = (*Fcb)->Resource; NtfsFreeEresource( t ); }
+#ifdef NTFSDBG
+
+    //
+    //  Either we own the FCB or nobody should own it.  The extra acquire
+    //  here does not matter since we will free the resource below.
+    //
+
+    ASSERT(ExAcquireResourceExclusiveLite( (*Fcb)->Resource, FALSE ));
+#endif
+
+    NtfsFreeEresource( (*Fcb)->Resource );
 
     if ( (*Fcb)->PagingIoResource != NULL ) {
 
-        { PERESOURCE t = (*Fcb)->PagingIoResource; NtfsFreeEresource( t ); }
+        if (IrpContext->FcbWithPagingExclusive == *Fcb) {
+            IrpContext->FcbWithPagingExclusive = NULL;
+        }
+
+        NtfsFreeEresource( (*Fcb)->PagingIoResource );
+    }
+
+    //
+    //  Deallocate the fast mutex.
+    //
+
+    if ((*Fcb)->FcbMutex != NULL) {
+
+        NtfsFreePool( (*Fcb)->FcbMutex );
     }
 
     //
@@ -1051,7 +1119,7 @@ Return Value:
 
     if (FlagOn( (*Fcb)->FcbState, FCB_STATE_IN_FCB_TABLE )) {
 
-        NtfsDeleteFcbTableEntry( IrpContext, (*Fcb)->Vcb, (*Fcb)->FileReference );
+        NtfsDeleteFcbTableEntry( (*Fcb)->Vcb, (*Fcb)->FileReference );
         ClearFlag( (*Fcb)->FcbState, FCB_STATE_IN_FCB_TABLE );
     }
 
@@ -1062,20 +1130,18 @@ Return Value:
     //  Dereference and possibly deallocate the security descriptor if present.
     //
 
+    NtfsAcquireFcbSecurity( (*Fcb)->Vcb );
+
     if ((*Fcb)->SharedSecurity != NULL) {
 
-        NtfsDereferenceSharedSecurity( IrpContext, *Fcb );
+        NtfsDereferenceSharedSecurity( *Fcb );
     }
 
     //
-    //  Now check if we have a security descriptor for children.  We only need to
-    //  acquire the security event after testing for the existence of this.  Nobody
-    //  will be adding to this from below now.
+    //  Now check and free if we have a security descriptor for children.
     //
 
     if ((*Fcb)->ChildSharedSecurity != NULL) {
-
-        NtfsAcquireFcbSecurity( IrpContext, (*Fcb)->Vcb );
 
         (*Fcb)->ChildSharedSecurity->ReferenceCount -= 1;
         (*Fcb)->ChildSharedSecurity->ParentFcb = NULL;
@@ -1087,13 +1153,26 @@ Return Value:
 
         if ((*Fcb)->ChildSharedSecurity->ReferenceCount == 0) {
 
-            NtfsFreePagedPool( (*Fcb)->ChildSharedSecurity );
+            NtfsFreePool( (*Fcb)->ChildSharedSecurity );
         }
 
         (*Fcb)->ChildSharedSecurity = NULL;
 
-        NtfsReleaseFcbSecurity( IrpContext, (*Fcb)->Vcb );
     }
+
+    NtfsReleaseFcbSecurity( (*Fcb)->Vcb );
+
+#ifdef _CAIRO_
+
+    //
+    //  Release the quota control block.
+    //
+
+    if (NtfsPerformQuotaOperation( *Fcb )) {
+        NtfsDereferenceQuotaControlBlock( (*Fcb)->Vcb, &(*Fcb)->QuotaControl );
+    }
+
+#endif // _CAIRO_
 
     //
     //  Deallocate the Fcb itself
@@ -1101,11 +1180,18 @@ Return Value:
 
     if (FlagOn( (*Fcb)->FcbState, FCB_STATE_NONPAGED )) {
 
-        ExFreePool( *Fcb );
+        NtfsFreePool( *Fcb );
 
     } else {
 
-        NtfsFreeFcb( *Fcb );
+        if (FlagOn( (*Fcb)->FcbState, FCB_STATE_COMPOUND_INDEX )) {
+
+            ExFreeToPagedLookasideList( &NtfsFcbIndexLookasideList, *Fcb );
+
+        } else {
+
+            ExFreeToPagedLookasideList( &NtfsFcbDataLookasideList, *Fcb );
+        }
     }
 
     //
@@ -1118,7 +1204,7 @@ Return Value:
     //  And return to our caller
     //
 
-    DebugTrace(-1, Dbg, "NtfsDeleteFcb -> VOID\n", 0);
+    DebugTrace( -1, Dbg, ("NtfsDeleteFcb -> VOID\n") );
 
     return;
 }
@@ -1126,9 +1212,8 @@ Return Value:
 
 PFCB
 NtfsGetNextFcbTableEntry (
-    IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb,
-    IN PFCB PreviousFcb
+    IN PVOID *RestartKey
     )
 
 /*++
@@ -1142,8 +1227,9 @@ Arguments:
 
     Vcb - Supplies the Vcb used in this operation
 
-    PreviousFcb - Supplies the previous fcb that we returned, NULL
-        if we are to restart the enumeration
+    RestartKey - This value is used by the table package to maintain
+        its position in the enumeration.  It is initialized to NULL
+        for the first search.
 
 Return Value:
 
@@ -1157,7 +1243,7 @@ Return Value:
 
     PAGED_CODE();
 
-    Fcb = (PFCB)RtlEnumerateGenericTable(&Vcb->FcbTable, (BOOLEAN)(PreviousFcb == NULL));
+    Fcb = (PFCB) RtlEnumerateGenericTableWithoutSplaying( &Vcb->FcbTable, RestartKey );
 
     if (Fcb != NULL) {
 
@@ -1171,10 +1257,10 @@ Return Value:
 PSCB
 NtfsCreateScb (
     IN PIRP_CONTEXT IrpContext,
-    IN PVCB Vcb,
     IN PFCB Fcb,
     IN ATTRIBUTE_TYPE_CODE AttributeTypeCode,
-    IN UNICODE_STRING AttributeName,
+    IN PUNICODE_STRING AttributeName,
+    IN BOOLEAN ReturnExistingOnly,
     OUT PBOOLEAN ReturnedExistingScb OPTIONAL
     )
 
@@ -1188,14 +1274,15 @@ Routine Description:
 
 Arguments:
 
-    Vcb - Supplies the Vcb to associate the new SCB under.
-
     Fcb - Supplies the Fcb to associate the new SCB under.
 
     AttributeTypeCode - Supplies the attribute type code for the new Scb
 
     AttributeName - Supplies the attribute name for the new Scb, with
-        AttributeName.Length == 0 if there is no name.
+        AttributeName->Length == 0 if there is no name.
+
+    ReturnExistingOnly - If specified as TRUE then only an existing Scb
+        will be returned.  If no matching Scb exists then NULL is returned.
 
     ReturnedExistingScb - Indicates if this procedure found an existing
         Scb with the identical attribute record (variable is set to TRUE)
@@ -1204,7 +1291,8 @@ Arguments:
 
 Return Value:
 
-    PSCB - Returns a pointer to the newly allocated SCB
+    PSCB - Returns a pointer to the newly allocated SCB or NULL if there is
+        no Scb and ReturnExistingOnly is TRUE.
 
 --*/
 
@@ -1214,14 +1302,17 @@ Return Value:
     NODE_BYTE_SIZE NodeByteSize;
     BOOLEAN LocalReturnedExistingScb;
     BOOLEAN PagingIoResource = FALSE;
+#ifdef SYSCACHE
+    BOOLEAN SyscacheFile = FALSE;
+#endif
 
     //
     //  The following variables are only used for abnormal termination
     //
 
-    PVOID UnwindStorage[3] = { NULL, NULL, NULL };
+    PVOID UnwindStorage[4] = { NULL, NULL, NULL, NULL };
     POPLOCK UnwindOplock = NULL;
-    PLARGE_MCB UnwindMcb = NULL;
+    PNTFS_MCB UnwindMcb = NULL;
 
     PLARGE_MCB UnwindAddedClustersMcb = NULL;
     PLARGE_MCB UnwindRemovedClustersMcb = NULL;
@@ -1230,12 +1321,14 @@ Return Value:
 
     BOOLEAN Nonpaged = FALSE;
 
+    PAGED_CODE();
+
     ASSERT_IRP_CONTEXT( IrpContext );
     ASSERT_FCB( Fcb );
 
     ASSERT( AttributeTypeCode >= $STANDARD_INFORMATION );
 
-    DebugTrace(+1, Dbg, "NtfsCreateScb\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsCreateScb\n") );
 
     if (!ARGUMENT_PRESENT(ReturnedExistingScb)) { ReturnedExistingScb = &LocalReturnedExistingScb; }
 
@@ -1244,8 +1337,10 @@ Return Value:
     //  attribute type code and attribute name
     //
 
+    NtfsLockFcb( IrpContext, Fcb );
+
     Scb = NULL;
-    while ((Scb = NtfsGetNextChildScb(IrpContext, Fcb, Scb)) != NULL) {
+    while ((Scb = NtfsGetNextChildScb( Fcb, Scb )) != NULL) {
 
         ASSERT_SCB( Scb );
 
@@ -1257,19 +1352,32 @@ Return Value:
 
         if (!FlagOn( Scb->ScbState, SCB_STATE_ATTRIBUTE_DELETED) &&
             (AttributeTypeCode == Scb->AttributeTypeCode) &&
-            NtfsAreNamesEqual( IrpContext, &Scb->AttributeName, &AttributeName, FALSE )) {
+            NtfsAreNamesEqual( IrpContext->Vcb->UpcaseTable, &Scb->AttributeName, AttributeName, FALSE )) {
 
             *ReturnedExistingScb = TRUE;
+
+            NtfsUnlockFcb( IrpContext, Fcb );
 
             if (NtfsIsExclusiveScb(Scb)) {
 
                 NtfsSnapshotScb( IrpContext, Scb );
             }
 
-            DebugTrace(-1, Dbg, "NtfsCreateScb -> %08lx\n", Scb);
+            DebugTrace( -1, Dbg, ("NtfsCreateScb -> %08lx\n", Scb) );
 
             return Scb;
         }
+    }
+
+    //
+    //  If the user only wanted an existing Scb then return NULL.
+    //
+
+    if (ReturnExistingOnly) {
+
+        NtfsUnlockFcb( IrpContext, Fcb );
+        DebugTrace( -1, Dbg, ("NtfsCreateScb -> %08lx\n", NULL) );
+        return NULL;
     }
 
     //
@@ -1280,8 +1388,6 @@ Return Value:
 
     try {
 
-        BOOLEAN ScbShare = FALSE;
-
         //
         //  Decide the node type and size of the Scb.  Also decide if it will be
         //  allocated from paged or non-paged pool.
@@ -1289,9 +1395,7 @@ Return Value:
 
         if (AttributeTypeCode == $INDEX_ALLOCATION) {
 
-            if ((Fcb->FileReference.HighPart == 0) &&
-                (Fcb->FileReference.LowPart == ROOT_FILE_NAME_INDEX_NUMBER)) {
-
+            if (NtfsSegmentNumber( &Fcb->FileReference ) == ROOT_FILE_NAME_INDEX_NUMBER) {
                 NodeTypeCode = NTFS_NTC_SCB_ROOT_INDEX;
             } else {
                 NodeTypeCode = NTFS_NTC_SCB_INDEX;
@@ -1299,14 +1403,7 @@ Return Value:
 
             NodeByteSize = SIZEOF_SCB_INDEX;
 
-            //
-            //  Remember that this Scb has a share access structure.
-            //
-
-            ScbShare = TRUE;
-
-        } else if ((Fcb->FileReference.HighPart == 0)
-                   && (Fcb->FileReference.LowPart <= MASTER_FILE_TABLE2_NUMBER)
+        } else if (NtfsSegmentNumber( &Fcb->FileReference ) <= MASTER_FILE_TABLE2_NUMBER
                    && (AttributeTypeCode == $DATA)) {
 
             NodeTypeCode = NTFS_NTC_SCB_MFT;
@@ -1319,29 +1416,26 @@ Return Value:
 
             //
             //  If this is a user data stream then remember that we need
-            //  an Scb with a share access structure.
+            //  a paging IO resource.
             //
 
-            if (((Fcb->FileReference.HighPart != 0)
-                 || (Fcb->FileReference.LowPart == ROOT_FILE_NAME_INDEX_NUMBER)
-                 || (Fcb->FileReference.LowPart == VOLUME_DASD_NUMBER)
-                 || (Fcb->FileReference.LowPart >= FIRST_USER_FILE_NUMBER))
+            if (((NtfsSegmentNumber( &Fcb->FileReference ) == ROOT_FILE_NAME_INDEX_NUMBER) ||
+                 (NtfsSegmentNumber( &Fcb->FileReference ) == VOLUME_DASD_NUMBER) ||
+                 (NtfsSegmentNumber( &Fcb->FileReference ) == BIT_MAP_FILE_NUMBER) ||
+#ifdef _CAIRO_
+                 (NtfsSegmentNumber( &Fcb->FileReference ) == QUOTA_TABLE_NUMBER) ||
+#endif
+                 (NtfsSegmentNumber( &Fcb->FileReference ) >= FIRST_USER_FILE_NUMBER))
 
-                && ((AttributeTypeCode == $DATA)
-                    || (AttributeTypeCode >= $FIRST_USER_DEFINED_ATTRIBUTE))) {
-
-                ScbShare = TRUE;
-                NodeByteSize = SIZEOF_SCB_SHARE_DATA;
+                && (NtfsIsTypeCodeUserData( AttributeTypeCode ) ||
+                    (AttributeTypeCode == $EA) ||
+                    (AttributeTypeCode >= $FIRST_USER_DEFINED_ATTRIBUTE))) {
 
                 //
                 //  Remember that this stream needs a paging io resource.
                 //
 
                 PagingIoResource = TRUE;
-
-            } else {
-
-                NodeByteSize = SIZEOF_SCB_DATA;
             }
         }
 
@@ -1350,49 +1444,66 @@ Return Value:
         //  it is an attribute list.
         //
 
-        if (FlagOn( Fcb->FcbState, FCB_STATE_NONPAGED )
-            || (AttributeTypeCode == $ATTRIBUTE_LIST)) {
+        if (FlagOn( Fcb->FcbState, FCB_STATE_NONPAGED ) ||
+            (AttributeTypeCode == $ATTRIBUTE_LIST)) {
 
-            UnwindStorage[0] = FsRtlAllocatePool( NtfsNonPagedPool, NodeByteSize );
+            Scb = UnwindStorage[0] = NtfsAllocatePoolWithTag( NonPagedPool, NodeByteSize, 'nftN' );
             Nonpaged = TRUE;
 
         } else if (AttributeTypeCode == $INDEX_ALLOCATION) {
 
-            NtfsAllocateScbIndex( &UnwindStorage[0] );
+            //
+            //  If the Fcb is an INDEX Fcb and the Scb is unused, then
+            //  use that.  Otherwise allocate from the lookaside list.
+            //
 
-        } else if (ScbShare) {
+            if (FlagOn( Fcb->FcbState, FCB_STATE_COMPOUND_INDEX ) &&
+                (SafeNodeType( &((PFCB_INDEX) Fcb)->Scb ) == 0)) {
 
-            NtfsAllocateScbShareData( &UnwindStorage[0] );
+                Scb = (PSCB) &((PFCB_INDEX) Fcb)->Scb;
+
+            } else {
+
+                Scb = UnwindStorage[0] = (PSCB)NtfsAllocatePoolWithTag( PagedPool, SIZEOF_SCB_INDEX, 'SftN' );
+            }
 
         } else {
 
-            NtfsAllocateScbData( &UnwindStorage[0] );
+            //
+            //  We can use the Scb field in the Fcb in all cases if it is
+            //  unused.  We will only use it for a data stream since
+            //  it will have the longest life.
+            //
+
+            if ((AttributeTypeCode == $DATA) &&
+                (SafeNodeType( &((PFCB_INDEX) Fcb)->Scb ) == 0)) {
+
+                Scb = (PSCB) &((PFCB_INDEX) Fcb)->Scb;
+
+            } else {
+
+                Scb = UnwindStorage[0] = (PSCB)ExAllocateFromPagedLookasideList( &NtfsScbDataLookasideList );
+            }
+
+#ifdef SYSCACHE
+            if (FsRtlIsSyscacheFile(IoGetCurrentIrpStackLocation(IrpContext->OriginatingIrp)->FileObject)) {
+
+                SyscacheFile = TRUE;
+            }
+#endif
         }
 
         //
         //  Store the Scb address and zero it out.
         //
 
-        Scb = UnwindStorage[0];
         RtlZeroMemory( Scb, NodeByteSize );
 
-        //
-        //  Remember if the Scb is from Nonpaged pool.
-        //
-
-        if (Nonpaged) {
-
-            SetFlag( Scb->ScbState, SCB_STATE_NONPAGED );
+#ifdef SYSCACHE
+        if (SyscacheFile) {
+            SetFlag( Scb->ScbState, SCB_STATE_SYSCACHE_FILE );
         }
-
-        //
-        //  Remember if the Scb has a sharing structure.
-        //
-
-        if (ScbShare) {
-
-            SetFlag( Scb->ScbState, SCB_STATE_SHARE_ACCESS );
-        }
+#endif
 
         //
         //  Set the proper node type code and byte size
@@ -1420,12 +1531,10 @@ Return Value:
 
             if (Fcb->PagingIoResource == NULL) {
 
-                { PERESOURCE t; NtfsAllocateEresource( &t ); Fcb->PagingIoResource = t; }
+                Fcb->PagingIoResource = NtfsAllocateEresource();
             }
 
             Scb->Header.PagingIoResource = Fcb->PagingIoResource;
-
-            SetFlag( Scb->ScbState, SCB_STATE_USE_PAGING_IO_RESOURCE );
         }
 
         //
@@ -1437,22 +1546,37 @@ Return Value:
         UnwindFromQueue = TRUE;
 
         Scb->Fcb = Fcb;
-        Scb->Vcb = Vcb;
+        Scb->Vcb = Fcb->Vcb;
 
         //
         //  If the attribute name exists then allocate a buffer for the
         //  attribute name and iniitalize it.
         //
 
-        if (AttributeName.Length != 0) {
+        if (AttributeName->Length != 0) {
 
-            Scb->AttributeName.Length = AttributeName.Length;
-            Scb->AttributeName.MaximumLength = (USHORT)(AttributeName.Length + 2);
+            //
+            //  The typical case is the $I30 string.  If this matches then
+            //  point to a common string.
+            //
 
-            Scb->AttributeName.Buffer = UnwindStorage[1] = NtfsAllocatePagedPool( AttributeName.Length + 2 );
+            if ((AttributeName->Length == NtfsFileNameIndex.Length) &&
+                (RtlEqualMemory( AttributeName->Buffer,
+                                 NtfsFileNameIndex.Buffer,
+                                 AttributeName->Length ) )) {
 
-            RtlCopyMemory( Scb->AttributeName.Buffer, AttributeName.Buffer, AttributeName.Length );
-            Scb->AttributeName.Buffer[AttributeName.Length / 2] = L'\0';
+                Scb->AttributeName = NtfsFileNameIndex;
+
+            } else {
+
+                Scb->AttributeName.Length = AttributeName->Length;
+                Scb->AttributeName.MaximumLength = (USHORT)(AttributeName->Length + 2);
+
+                Scb->AttributeName.Buffer = UnwindStorage[1] = NtfsAllocatePool(PagedPool, AttributeName->Length + 2 );
+
+                RtlCopyMemory( Scb->AttributeName.Buffer, AttributeName->Buffer, AttributeName->Length );
+                Scb->AttributeName.Buffer[AttributeName->Length / 2] = L'\0';
+            }
         }
 
         //
@@ -1460,11 +1584,9 @@ Return Value:
         //
 
         Scb->AttributeTypeCode = AttributeTypeCode;
-
-        FsRtlInitializeLargeMcb( &Scb->Mcb,
-                                 FlagOn( Scb->ScbState, SCB_STATE_NONPAGED )
-                                 ? NtfsNonPagedPool : NtfsPagedPool);
-        UnwindMcb = &Scb->Mcb;
+        if (NtfsIsTypeCodeSubjectToQuota( AttributeTypeCode )){
+            SetFlag( Scb->ScbState, SCB_STATE_SUBJECT_TO_QUOTA );
+        }
 
         //
         //  If this is an Mft Scb then initialize the cluster Mcb's.
@@ -1472,24 +1594,59 @@ Return Value:
 
         if (NodeTypeCode == NTFS_NTC_SCB_MFT) {
 
-            FsRtlInitializeLargeMcb( &Scb->ScbType.Mft.AddedClusters, NtfsNonPagedPool );
+            FsRtlInitializeLargeMcb( &Scb->ScbType.Mft.AddedClusters, NonPagedPool );
             UnwindAddedClustersMcb = &Scb->ScbType.Mft.AddedClusters;
 
-            FsRtlInitializeLargeMcb( &Scb->ScbType.Mft.RemovedClusters, NtfsNonPagedPool );
+            FsRtlInitializeLargeMcb( &Scb->ScbType.Mft.RemovedClusters, NonPagedPool );
             UnwindRemovedClustersMcb = &Scb->ScbType.Mft.RemovedClusters;
+        }
+
+        //
+        //  Get the mutex for the Scb.  We may be able to use the one in the Fcb.
+        //  We can if the Scb is paged.
+        //
+
+        if (Nonpaged) {
+
+            SetFlag( Scb->ScbState, SCB_STATE_NONPAGED );
+            UnwindStorage[3] =
+            Scb->Header.FastMutex = NtfsAllocatePool( NonPagedPool, sizeof( FAST_MUTEX ));
+            ExInitializeFastMutex( Scb->Header.FastMutex );
+
+        } else {
+
+            Scb->Header.FastMutex = Fcb->FcbMutex;
         }
 
         //
         //  Allocate the Nonpaged portion of the Scb.
         //
 
-        NtfsAllocateScbNonpaged( &UnwindStorage[2] );
-        Scb->NonpagedScb = UnwindStorage[2];
+        Scb->NonpagedScb =
+        UnwindStorage[2] = (PSCB_NONPAGED)ExAllocateFromNPagedLookasideList( &NtfsScbNonpagedLookasideList );
+
         RtlZeroMemory( Scb->NonpagedScb, sizeof( SCB_NONPAGED ));
 
         Scb->NonpagedScb->NodeTypeCode = NTFS_NTC_SCB_NONPAGED;
         Scb->NonpagedScb->NodeByteSize = sizeof( SCB_NONPAGED );
-        Scb->NonpagedScb->Vcb = Vcb;
+        Scb->NonpagedScb->Vcb = Scb->Vcb;
+
+        //
+        //  Fill in the advanced fields
+        //
+
+        SetFlag( Scb->Header.Flags, FSRTL_FLAG_ADVANCED_HEADER );
+        Scb->Header.PendingEofAdvances = &Scb->EofListHead;
+        InitializeListHead( &Scb->EofListHead );
+        Scb->Header.SectionObjectPointers = &Scb->NonpagedScb->SegmentObject;
+
+        NtfsInitializeNtfsMcb( &Scb->Mcb,
+                               &Scb->Header,
+                               &Scb->McbStructs,
+                               FlagOn( Scb->ScbState, SCB_STATE_NONPAGED )
+                               ? NonPagedPool : PagedPool);
+
+        UnwindMcb = &Scb->Mcb;
 
         //
         //  Do that data stream specific initialization.
@@ -1518,32 +1675,36 @@ Return Value:
             }
         }
 
+        //
+        //  If this Scb should be marked as containing Lsn's or
+        //  Update Sequence Arrays, do so now.
+        //
+
+        NtfsCheckScbForCache( Scb );
+
     } finally {
 
         DebugUnwind( NtfsCreateScb );
 
+        NtfsUnlockFcb( IrpContext, Fcb );
+
         if (AbnormalTermination()) {
 
             if (UnwindFromQueue) { RemoveEntryList( &Scb->FcbLinks ); }
-            if (UnwindMcb != NULL) { FsRtlUninitializeLargeMcb( UnwindMcb ); }
+            if (UnwindMcb != NULL) { NtfsUninitializeNtfsMcb( UnwindMcb ); }
 
             if (UnwindAddedClustersMcb != NULL) { FsRtlUninitializeLargeMcb( UnwindAddedClustersMcb ); }
             if (UnwindRemovedClustersMcb != NULL) { FsRtlUninitializeLargeMcb( UnwindRemovedClustersMcb ); }
             if (UnwindOplock != NULL) { FsRtlUninitializeOplock( UnwindOplock ); }
-            if (UnwindStorage[0]) { ExFreePool( UnwindStorage[0] ); }
-            if (UnwindStorage[1]) { ExFreePool( UnwindStorage[1] ); }
-            if (UnwindStorage[2]) { ExFreePool( UnwindStorage[2] ); }
+            if (UnwindStorage[0]) { NtfsFreePool( UnwindStorage[0] );
+            } else if (Scb != NULL) { Scb->Header.NodeTypeCode = 0; }
+            if (UnwindStorage[1]) { NtfsFreePool( UnwindStorage[1] ); }
+            if (UnwindStorage[2]) { NtfsFreePool( UnwindStorage[2] ); }
+            if (UnwindStorage[3]) { NtfsFreePool( UnwindStorage[3] ); }
         }
     }
 
-    //
-    //  If this Scb should be marked as containing Lsn's or
-    //  Update Sequence Arrays, do so now.
-    //
-
-    NtfsCheckScbForCache( IrpContext, Scb );
-
-    DebugTrace(-1, Dbg, "NtfsCreateScb -> %08lx\n", Scb);
+    DebugTrace( -1, Dbg, ("NtfsCreateScb -> %08lx\n", Scb) );
 
     return Scb;
 }
@@ -1596,11 +1757,13 @@ Return Value:
     NODE_TYPE_CODE NodeTypeCode;
     NODE_BYTE_SIZE NodeByteSize;
 
+    PAGED_CODE();
+
     ASSERT_IRP_CONTEXT( IrpContext );
     ASSERT_VCB( Vcb );
     ASSERT( AttributeTypeCode >= $STANDARD_INFORMATION );
 
-    DebugTrace(+1, Dbg, "NtfsCreatePrerestartScb\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsCreatePrerestartScb\n") );
 
     //
     //  First make sure we have an Fcb of the proper file reference
@@ -1611,9 +1774,8 @@ Return Value:
                          Vcb,
                          *FileReference,
                          FALSE,
+                         TRUE,
                          NULL );
-
-    SetFlag( Fcb->FcbState, FCB_STATE_FROM_PRERESTART );
 
     //
     //  Search the child scbs of this fcb for a matching Scb (based on
@@ -1623,7 +1785,7 @@ Return Value:
     //
 
     Scb = NULL;
-    while ((Scb = NtfsGetNextChildScb(IrpContext, Fcb, Scb)) != NULL) {
+    while ((Scb = NtfsGetNextChildScb(Fcb, Scb)) != NULL) {
 
         ASSERT_SCB( Scb );
 
@@ -1646,7 +1808,7 @@ Return Value:
 
                 break;
 
-            } else if (NtfsAreNamesEqual( IrpContext,
+            } else if (NtfsAreNamesEqual( IrpContext->Vcb->UpcaseTable,
                                           AttributeName,
                                           &Scb->AttributeName,
                                           FALSE )) { // Ignore Case
@@ -1671,8 +1833,7 @@ Return Value:
 
         if (AttributeTypeCode == $INDEX_ALLOCATION) {
 
-            if ((FileReference->HighPart == 0) &&
-                (FileReference->LowPart == ROOT_FILE_NAME_INDEX_NUMBER)) {
+            if (NtfsSegmentNumber( FileReference ) == ROOT_FILE_NAME_INDEX_NUMBER) {
 
                 NodeTypeCode = NTFS_NTC_SCB_ROOT_INDEX;
             } else {
@@ -1681,10 +1842,7 @@ Return Value:
 
             NodeByteSize = SIZEOF_SCB_INDEX;
 
-            ShareScb = TRUE;
-
-        } else if ((FileReference->HighPart == 0)
-                   && (FileReference->LowPart <= MASTER_FILE_TABLE2_NUMBER)
+        } else if (NtfsSegmentNumber( FileReference ) <= MASTER_FILE_TABLE2_NUMBER
                    && (AttributeTypeCode == $DATA)) {
 
             NodeTypeCode = NTFS_NTC_SCB_MFT;
@@ -1693,12 +1851,10 @@ Return Value:
         } else {
 
             NodeTypeCode = NTFS_NTC_SCB_DATA;
-            NodeByteSize = SIZEOF_SCB_SHARE_DATA;
-
-            ShareScb = TRUE;
+            NodeByteSize = SIZEOF_SCB_DATA;
         }
 
-        Scb = FsRtlAllocatePool( NtfsNonPagedPool, NodeByteSize );
+        Scb = NtfsAllocatePoolWithTag( NonPagedPool, NodeByteSize, 'tftN' );
 
         RtlZeroMemory( Scb, NodeByteSize );
 
@@ -1714,15 +1870,6 @@ Return Value:
         //
 
         SetFlag( Scb->ScbState, SCB_STATE_NONPAGED );
-
-        //
-        //  Mark whether this Scb has a share access structure.
-        //
-
-        if (ShareScb) {
-
-            SetFlag( Scb->ScbState, SCB_STATE_SHARE_ACCESS );
-        }
 
         //
         //  Set a back pointer to the resource we will be using
@@ -1747,23 +1894,35 @@ Return Value:
 
         if (ARGUMENT_PRESENT( AttributeName ) && (AttributeName->Length != 0)) {
 
-            Scb->AttributeName.Length = AttributeName->Length;
-            Scb->AttributeName.MaximumLength = (USHORT)(AttributeName->Length + 2);
+            //
+            //  The typical case is the $I30 string.  If this matches then
+            //  point to a common string.
+            //
 
-            Scb->AttributeName.Buffer = NtfsAllocatePagedPool( AttributeName->Length + 2 );
+            if ((AttributeName->Length == NtfsFileNameIndex.Length) &&
+                (RtlEqualMemory( AttributeName->Buffer,
+                                 NtfsFileNameIndex.Buffer,
+                                 AttributeName->Length ) )) {
 
-            RtlCopyMemory( Scb->AttributeName.Buffer, AttributeName->Buffer, AttributeName->Length );
-            Scb->AttributeName.Buffer[AttributeName->Length/2] = L'\0';
+                Scb->AttributeName = NtfsFileNameIndex;
+
+            } else {
+
+                Scb->AttributeName.Length = AttributeName->Length;
+                Scb->AttributeName.MaximumLength = (USHORT)(AttributeName->Length + 2);
+
+                Scb->AttributeName.Buffer = NtfsAllocatePool(PagedPool, AttributeName->Length + 2 );
+
+                RtlCopyMemory( Scb->AttributeName.Buffer, AttributeName->Buffer, AttributeName->Length );
+                Scb->AttributeName.Buffer[AttributeName->Length/2] = L'\0';
+            }
         }
 
         //
-        //  Set the attribute type code and initialize the mcb for this file and recently
-        //  deallocated information structures.
+        //  Set the attribute type code recently deallocated information structures.
         //
 
         Scb->AttributeTypeCode = AttributeTypeCode;
-
-        FsRtlInitializeLargeMcb( &Scb->Mcb, NtfsNonPagedPool);
 
         //
         //  If this is an Mft Scb then initialize the cluster Mcb's.
@@ -1771,17 +1930,31 @@ Return Value:
 
         if (NodeTypeCode == NTFS_NTC_SCB_MFT) {
 
-            FsRtlInitializeLargeMcb( &Scb->ScbType.Mft.AddedClusters, NtfsNonPagedPool );
+            FsRtlInitializeLargeMcb( &Scb->ScbType.Mft.AddedClusters, NonPagedPool );
 
-            FsRtlInitializeLargeMcb( &Scb->ScbType.Mft.RemovedClusters, NtfsNonPagedPool );
+            FsRtlInitializeLargeMcb( &Scb->ScbType.Mft.RemovedClusters, NonPagedPool );
         }
 
-        { PSCB_NONPAGED t; NtfsAllocateScbNonpaged( &t ); Scb->NonpagedScb = t; }
+        Scb->NonpagedScb = (PSCB_NONPAGED)ExAllocateFromNPagedLookasideList( &NtfsScbNonpagedLookasideList );
+
         RtlZeroMemory( Scb->NonpagedScb, sizeof( SCB_NONPAGED ));
 
         Scb->NonpagedScb->NodeTypeCode = NTFS_NTC_SCB_NONPAGED;
         Scb->NonpagedScb->NodeByteSize = sizeof( SCB_NONPAGED );
         Scb->NonpagedScb->Vcb = Vcb;
+
+        //
+        //  Fill in the advanced fields
+        //
+
+        SetFlag( Scb->Header.Flags, FSRTL_FLAG_ADVANCED_HEADER );
+        Scb->Header.PendingEofAdvances = &Scb->EofListHead;
+        InitializeListHead( &Scb->EofListHead );
+        Scb->Header.SectionObjectPointers = &Scb->NonpagedScb->SegmentObject;
+        Scb->Header.FastMutex = NtfsAllocatePool( NonPagedPool, sizeof( FAST_MUTEX ));
+        ExInitializeFastMutex( Scb->Header.FastMutex );
+
+        NtfsInitializeNtfsMcb( &Scb->Mcb, &Scb->Header, &Scb->McbStructs, NonPagedPool );
 
         //
         //  Do that data stream specific initialization.
@@ -1816,10 +1989,10 @@ Return Value:
         //  Update Sequence Arrays, do so now.
         //
 
-        NtfsCheckScbForCache( IrpContext, Scb );
+        NtfsCheckScbForCache( Scb );
     }
 
-    DebugTrace(-1, Dbg, "NtfsCreatePrerestartScb -> %08lx\n", Scb);
+    DebugTrace( -1, Dbg, ("NtfsCreatePrerestartScb -> %08lx\n", Scb) );
 
     return Scb;
 }
@@ -1851,17 +2024,68 @@ Return Value:
 
 {
     PVCB Vcb;
+    PFCB Fcb;
     POPEN_ATTRIBUTE_ENTRY AttributeEntry;
+    USHORT ThisNodeType;
+
+    PAGED_CODE();
 
     ASSERT_IRP_CONTEXT( IrpContext );
     ASSERT_SCB( *Scb );
     ASSERT( (*Scb)->CleanupCount == 0 );
 
-    DebugTrace(+1, Dbg, "NtfsDeleteScb, *Scb = %08lx\n", *Scb);
+    DebugTrace( +1, Dbg, ("NtfsDeleteScb, *Scb = %08lx\n", *Scb) );
 
-    Vcb = (*Scb)->Fcb->Vcb;
+    Fcb = (*Scb)->Fcb;
+    Vcb = Fcb->Vcb;
 
     RemoveEntryList( &(*Scb)->FcbLinks );
+
+    ThisNodeType = SafeNodeType( *Scb );
+
+    //
+    //  If this is a bitmap Scb for a directory then make sure the record
+    //  allocation structure is uninitialized.  Otherwise we will leave a
+    //  stale pointer for the record allocation package.
+    //
+
+    if (((*Scb)->AttributeTypeCode == $BITMAP) &&
+        IsDirectory( &Fcb->Info)) {
+
+        PLIST_ENTRY Links;
+        PSCB IndexAllocationScb;
+
+        Links = Fcb->ScbQueue.Flink;
+
+        while (Links != &Fcb->ScbQueue) {
+
+            IndexAllocationScb = CONTAINING_RECORD( Links, SCB, FcbLinks );
+
+            if (IndexAllocationScb->AttributeTypeCode == $INDEX_ALLOCATION) {
+
+                NtfsUninitializeRecordAllocation( IrpContext,
+                                                  &IndexAllocationScb->ScbType.Index.RecordAllocationContext );
+
+                IndexAllocationScb->ScbType.Index.AllocationInitialized = FALSE;
+
+                break;
+            }
+
+            Links = Links->Flink;
+        }
+    }
+
+    //
+    //  Delete the write mask, if one is being maintained.
+    //
+
+#ifdef SYSCACHE
+    if ((ThisNodeType == NTFS_NTC_SCB_DATA) &&
+        ((*Scb)->ScbType.Data.WriteMask != (PULONG)NULL)) {
+
+        NtfsFreePool((*Scb)->ScbType.Data.WriteMask);
+    }
+#endif
 
     //
     //  Mark our entry in the Open Attribute Table as free,
@@ -1893,25 +2117,25 @@ Return Value:
     //  allocation Mcb's.
     //
 
-    FsRtlUninitializeLargeMcb( &(*Scb)->Mcb );
+    NtfsUninitializeNtfsMcb( &(*Scb)->Mcb );
 
-    if (NodeType( *Scb ) == NTFS_NTC_SCB_DATA ) {
+    if (ThisNodeType == NTFS_NTC_SCB_DATA ) {
 
         FsRtlUninitializeOplock( &(*Scb)->ScbType.Data.Oplock );
 
         if ((*Scb)->ScbType.Data.FileLock != NULL) {
 
             FsRtlUninitializeFileLock( (*Scb)->ScbType.Data.FileLock );
-            { PFILE_LOCK t = (*Scb)->ScbType.Data.FileLock; NtfsFreeFileLock( t); }
+            ExFreeToNPagedLookasideList( &NtfsFileLockLookasideList, (*Scb)->ScbType.Data.FileLock );
         }
 
-    } else if (NodeType( *Scb ) != NTFS_NTC_SCB_MFT) {
+    } else if (ThisNodeType != NTFS_NTC_SCB_MFT) {
 
         ASSERT(IsListEmpty(&(*Scb)->ScbType.Index.LcbQueue));
 
         if ((*Scb)->ScbType.Index.NormalizedName.Buffer != NULL) {
 
-            NtfsFreePagedPool( (*Scb)->ScbType.Index.NormalizedName.Buffer );
+            NtfsFreePool( (*Scb)->ScbType.Index.NormalizedName.Buffer );
             (*Scb)->ScbType.Index.NormalizedName.Buffer = NULL;
         }
 
@@ -1933,35 +2157,105 @@ Return Value:
     }
 
     //
+    //  Deallocate the fast mutex if not in the Fcb.
+    //
+
+    if ((*Scb)->Header.FastMutex != (*Scb)->Fcb->FcbMutex) {
+
+        NtfsFreePool( (*Scb)->Header.FastMutex );
+    }
+
+    //
     //  Deallocate the non-paged scb.
     //
 
-    { PSCB_NONPAGED t = (*Scb)->NonpagedScb; NtfsFreeScbNonpaged( t ); }
+    ExFreeToNPagedLookasideList( &NtfsScbNonpagedLookasideList, (*Scb)->NonpagedScb );
 
     //
     //  Deallocate the attribute name and the scb itself
     //
 
-    if ((*Scb)->AttributeName.Buffer != NULL) {
+    if (((*Scb)->AttributeName.Buffer != NULL) &&
+        ((*Scb)->AttributeName.Buffer != NtfsFileNameIndexName)) {
 
-        NtfsFreePagedPool( (*Scb)->AttributeName.Buffer );
+        NtfsFreePool( (*Scb)->AttributeName.Buffer );
+        DebugDoit( (*Scb)->AttributeName.Buffer = NULL );
     }
 
-    if (FlagOn( (*Scb)->ScbState, SCB_STATE_NONPAGED )) {
+#ifdef _CAIRO_
+    //
+    //  See if CollationData is to be deleted.
+    //
 
-        ExFreePool( *Scb );
+    if (FlagOn((*Scb)->ScbState, SCB_STATE_DELETE_COLLATION_DATA)) {
+        NtfsFreePool((*Scb)->ScbType.Index.CollationData);
+    }
+#endif _CAIRO_
 
-    } else if (NodeType( *Scb ) == NTFS_NTC_SCB_INDEX) {
+    //
+    //  Always directly free the Mft and non-paged Scb's.
+    //
 
-        NtfsFreeScbIndex( *Scb );
+    if (FlagOn( (*Scb)->ScbState, SCB_STATE_NONPAGED ) ||
+        (ThisNodeType == NTFS_NTC_SCB_MFT)) {
 
-    } else if (FlagOn( (*Scb)->ScbState, SCB_STATE_SHARE_ACCESS )) {
-
-        NtfsFreeScbShareData( *Scb );
+        NtfsFreePool( *Scb );
 
     } else {
 
-        NtfsFreeScbData( *Scb );
+        //
+        //  Free any final reserved clusters for data Scb's.
+        //
+
+
+        if (ThisNodeType == NTFS_NTC_SCB_DATA) {
+
+            //
+            //  Free any reserved clusters directly into the Vcb
+            //
+
+            if (((*Scb)->ScbType.Data.TotalReserved != 0) &&
+                FlagOn((*Scb)->ScbState, SCB_STATE_WRITE_ACCESS_SEEN)) {
+
+#ifdef SYSCACHE
+                if (!FlagOn((*Scb)->Header.Flags, FSRTL_FLAG_USER_MAPPED_FILE)) {
+                    DbgPrint( "Freeing final reserved clusters for Scb\n" );
+                }
+#endif
+                NtfsFreeFinalReservedClusters( Vcb,
+                                               LlClustersFromBytes(Vcb, (*Scb)->ScbType.Data.TotalReserved) );
+            }
+
+            //
+            //  Free the reserved bitmap if present.
+            //
+
+            if ((*Scb)->ScbType.Data.ReservedBitMap != NULL) {
+
+                NtfsFreePool( (*Scb)->ScbType.Data.ReservedBitMap );
+            }
+        }
+
+        //
+        //  Now free the Scb itself.
+        //
+        //  Check if this is an embedded Scb.  This could be part of either an INDEX_FCB
+        //  or a DATA_FCB.  We depend on the fact that the Scb would be in the same
+        //  location in either case.
+        //
+
+        if ((*Scb) == (PSCB) &((PFCB_DATA) (*Scb)->Fcb)->Scb) {
+
+            (*Scb)->Header.NodeTypeCode = 0;
+
+        } else if (SafeNodeType( *Scb ) == NTFS_NTC_SCB_DATA) {
+
+            ExFreeToPagedLookasideList( &NtfsScbDataLookasideList, *Scb );
+
+        } else {
+
+            NtfsFreePool( *Scb );
+        }
     }
 
     //
@@ -1974,7 +2268,7 @@ Return Value:
     //  And return to our caller
     //
 
-    DebugTrace(-1, Dbg, "NtfsDeleteScb -> VOID\n", 0);
+    DebugTrace( -1, Dbg, ("NtfsDeleteScb -> VOID\n") );
 
     return;
 }
@@ -1985,7 +2279,8 @@ NtfsUpdateNormalizedName (
     IN PIRP_CONTEXT IrpContext,
     IN PSCB ParentScb,
     IN PSCB Scb,
-    IN PFILE_NAME FileName OPTIONAL
+    IN PFILE_NAME FileName OPTIONAL,
+    IN BOOLEAN CheckBufferSizeOnly
     )
 
 /*++
@@ -1996,7 +2291,9 @@ Routine Description:
     This name will be the path from the root without any short name components.
     This routine will append the given name if present provided this is not a
     DOS only name.  In any other case this routine will go to the disk to
-    find the name.
+    find the name.  This routine will handle the case where there is an existing buffer
+    and the data will fit, as well as the case where the buffer doesn't exist
+    or is too small.
 
 Arguments:
 
@@ -2007,6 +2304,9 @@ Arguments:
 
     FileName - If present this is a filename attribute for this Scb.  We check
         that it is not a DOS-only name.
+
+    CheckBufferSizeOnly - Indicates that we don't want to change the name yet.  Just
+        verify that the buffer is the correct size.
 
 Return Value:
 
@@ -2019,6 +2319,9 @@ Return Value:
     BOOLEAN CleanupContext = FALSE;
     BOOLEAN Found;
     ULONG Length;
+    PVOID NewBuffer = Scb->ScbType.Index.NormalizedName.Buffer;
+    PVOID OldBuffer = NULL;
+    PCHAR NextChar;
 
     PAGED_CODE();
 
@@ -2039,7 +2342,7 @@ Return Value:
         //
 
         if (!ARGUMENT_PRESENT( FileName ) ||
-            FileName->Flags == FILE_NAME_DOS) {
+            (FileName->Flags == FILE_NAME_DOS)) {
 
             NtfsInitializeAttributeContext( &Context );
             CleanupContext = TRUE;
@@ -2097,41 +2400,423 @@ Return Value:
             Length -= sizeof( WCHAR );
         }
 
-        Scb->ScbType.Index.NormalizedName.MaximumLength =
-        Scb->ScbType.Index.NormalizedName.Length = (USHORT) Length;
-
-        Scb->ScbType.Index.NormalizedName.Buffer = NtfsAllocatePagedPool( Length );
-
         //
-        //  Now copy the name in.  Don't forget to add the separator if the parent isn't
-        //  the root.
+        //  If the current buffer is insufficient then allocate a new one.
         //
 
-        RtlCopyMemory( Scb->ScbType.Index.NormalizedName.Buffer,
-                       ParentScb->ScbType.Index.NormalizedName.Buffer,
-                       ParentScb->ScbType.Index.NormalizedName.Length );
+        if ((NewBuffer == NULL) ||
+            (Scb->ScbType.Index.NormalizedName.MaximumLength < Length)) {
 
-        Length = ParentScb->ScbType.Index.NormalizedName.Length;
+            OldBuffer = NewBuffer;
+            NewBuffer = NtfsAllocatePool( PagedPool, Length );
 
-        if (ParentScb != ParentScb->Vcb->RootIndexScb) {
+            if (OldBuffer != NULL) {
 
-            Scb->ScbType.Index.NormalizedName.Buffer[Length / 2] = '\\';
-            Length += 2;
+                RtlCopyMemory( NewBuffer,
+                               OldBuffer,
+                               Scb->ScbType.Index.NormalizedName.MaximumLength );
+            }
+
+            //
+            //  Now swap the buffers.
+            //
+
+            Scb->ScbType.Index.NormalizedName.Buffer = NewBuffer;
+            Scb->ScbType.Index.NormalizedName.MaximumLength = (USHORT) Length;
         }
 
         //
-        //  Now append this name to the parent name.
+        //  If we are setting the buffer sizes only then make sure we set the length
+        //  to zero if there is nothing in the buffer.
         //
 
-        RtlCopyMemory( Add2Ptr( Scb->ScbType.Index.NormalizedName.Buffer, Length ),
-                       FileName->FileName,
-                       FileName->FileNameLength * 2 );
+        if (CheckBufferSizeOnly) {
+
+            if (OldBuffer == NULL) {
+
+                Scb->ScbType.Index.NormalizedName.Length = 0;
+            }
+
+        } else {
+
+            Scb->ScbType.Index.NormalizedName.Length = (USHORT) Length;
+            NextChar = (PCHAR) Scb->ScbType.Index.NormalizedName.Buffer;
+
+            //
+            //  Now copy the name in.  Don't forget to add the separator if the parent isn't
+            //  the root.
+            //
+
+            RtlCopyMemory( NextChar,
+                           ParentScb->ScbType.Index.NormalizedName.Buffer,
+                           ParentScb->ScbType.Index.NormalizedName.Length );
+
+            NextChar += ParentScb->ScbType.Index.NormalizedName.Length;
+
+            if (ParentScb != ParentScb->Vcb->RootIndexScb) {
+
+                *((PWCHAR) NextChar) = L'\\';
+                NextChar += sizeof( WCHAR );
+            }
+
+            //
+            //  Now append this name to the parent name.
+            //
+
+            RtlCopyMemory( NextChar,
+                           FileName->FileName,
+                           FileName->FileNameLength * sizeof( WCHAR ));
+        }
+
+        if (OldBuffer != NULL) {
+
+            NtfsFreePool( OldBuffer );
+        }
 
     } finally {
 
         if (CleanupContext) {
 
-            NtfsCleanupAttributeContext( IrpContext, &Context );
+            NtfsCleanupAttributeContext( &Context );
+        }
+    }
+
+    return;
+}
+
+
+VOID
+NtfsBuildNormalizedName (
+    IN PIRP_CONTEXT IrpContext,
+    IN PSCB Scb,
+    OUT PUNICODE_STRING PathName
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called to build a normalized name for an scb by looking
+    up the file name attributes up to the root directory.
+
+Arguments:
+
+    Scb - Supplies the starting point.
+
+Return Value:
+
+    None
+
+--*/
+
+{
+    PFCB ThisFcb = Scb->Fcb;
+    PFCB NextFcb;
+    PSCB NextScb;
+    PLCB NextLcb;
+    BOOLEAN AcquiredNextFcb = FALSE;
+    BOOLEAN AcquiredThisFcb = FALSE;
+
+    BOOLEAN AcquiredFcbTable = FALSE;
+
+    USHORT NewMaximumLength;
+    PWCHAR NewBuffer;
+    UNICODE_STRING NormalizedName;
+    UNICODE_STRING ComponentName;
+
+    BOOLEAN FoundEntry = TRUE;
+    BOOLEAN CleanupAttrContext = FALSE;
+    PFILE_NAME FileName;
+    ATTRIBUTE_ENUMERATION_CONTEXT AttrContext;
+
+    PAGED_CODE();
+
+    ASSERT_SCB( Scb );
+    ASSERT_SHARED_RESOURCE( &Scb->Vcb->Resource );
+
+    NormalizedName.Buffer = NULL;
+    NormalizedName.MaximumLength =
+    NormalizedName.Length = 0;
+
+    //
+    //  Special case the root directory.
+    //
+
+    if (ThisFcb == ThisFcb->Vcb->RootIndexScb->Fcb) {
+
+        NormalizedName.Buffer = NtfsAllocatePool( PagedPool, sizeof( WCHAR ) );
+        NormalizedName.Buffer[0] = L'\\';
+        NormalizedName.MaximumLength =
+        NormalizedName.Length = sizeof( WCHAR );
+
+        *PathName = NormalizedName;
+        return;
+    }
+
+    //
+    //  Use a try-finally to facilitate cleanup.
+    //
+
+    try {
+
+        while (TRUE) {
+
+            //
+            //  Find a non-dos name for the current Scb.  There better be one.
+            //
+
+            if (CleanupAttrContext) {
+
+                NtfsCleanupAttributeContext( &AttrContext );
+            }
+
+            NtfsInitializeAttributeContext( &AttrContext );
+            CleanupAttrContext = TRUE;
+
+            FoundEntry = NtfsLookupAttributeByCode( IrpContext,
+                                                    ThisFcb,
+                                                    &ThisFcb->FileReference,
+                                                    $FILE_NAME,
+                                                    &AttrContext );
+
+            while (FoundEntry) {
+
+                FileName = (PFILE_NAME) NtfsAttributeValue( NtfsFoundAttribute( &AttrContext ));
+
+                if (FileName->Flags != FILE_NAME_DOS ) { break; }
+
+                FoundEntry = NtfsLookupNextAttributeByCode( IrpContext,
+                                                            ThisFcb,
+                                                            $FILE_NAME,
+                                                            &AttrContext );
+            }
+
+            if (!FoundEntry) {
+
+                NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, NextFcb );
+            }
+
+            //
+            //  Add the name from the filename attribute to the buffer we are building up.
+            //  We always allow space for the leadingseparator.  If we need to grow the buffer then
+            //  always round up to reduce the number of allocations we make.
+            //
+
+            NewMaximumLength = NormalizedName.Length +
+                               ((1 + FileName->FileNameLength) * sizeof( WCHAR ));
+
+            if (NormalizedName.MaximumLength < NewMaximumLength) {
+
+                //
+                //  Round up to a pool block boundary, allow for the pool header as well.
+                //
+
+                NewMaximumLength = ((NewMaximumLength + 8 + 0x40 - 1) & ~(0x40 - 1)) - 8;
+
+                NewBuffer = NtfsAllocatePool( PagedPool, NewMaximumLength );
+
+                //
+                //  Copy over the existing part of the name to the correct location.
+                //
+
+                if (NormalizedName.Length != 0) {
+
+                    RtlCopyMemory( (NewBuffer + FileName->FileNameLength + 1),
+                                   NormalizedName.Buffer,
+                                   NormalizedName.Length );
+
+                    NtfsFreePool( NormalizedName.Buffer );
+                }
+
+                NormalizedName.Buffer = NewBuffer;
+                NormalizedName.MaximumLength = NewMaximumLength;
+
+            } else {
+
+                //
+                //  Move the existing data down in the buffer.
+                //
+
+                RtlMoveMemory( &NormalizedName.Buffer[FileName->FileNameLength + 1],
+                               NormalizedName.Buffer,
+                               NormalizedName.Length );
+
+            }
+
+            //
+            //  Update the length of the normalized name.
+            //
+
+            NormalizedName.Length += (1 + FileName->FileNameLength) * sizeof( WCHAR );
+
+            //
+            //  Now copy over the new component name along with a preceding backslash.
+            //
+
+            NormalizedName.Buffer[0] = L'\\';
+
+            RtlCopyMemory( &NormalizedName.Buffer[1],
+                           FileName->FileName,
+                           FileName->FileNameLength * sizeof( WCHAR ));
+
+            //
+            //  Now get the parent for the current component.  Acquire the Fcb for synchronization.
+            //  We can either walk up the Lcb chain or look it up in the Fcb table.  It
+            //  must be for the same name as the file name since there is only one path
+            //  up the tree for a directory.
+            //
+
+            if (!IsListEmpty( &ThisFcb->LcbQueue )) {
+
+                NextLcb = (PLCB) CONTAINING_RECORD( ThisFcb->LcbQueue.Flink, LCB, FcbLinks );
+                NextScb = NextLcb->Scb;
+                NextFcb = NextScb->Fcb;
+
+                NtfsAcquireExclusiveFcb( IrpContext, NextFcb, NULL, TRUE, FALSE );
+                AcquiredNextFcb = TRUE;
+
+                ASSERT( NtfsEqualMftRef( &FileName->ParentDirectory, &NextFcb->FileReference ));
+
+            } else {
+
+                NtfsAcquireFcbTable( IrpContext, Scb->Vcb );
+                AcquiredFcbTable = TRUE;
+
+                NextFcb = NtfsCreateFcb( IrpContext,
+                                         Scb->Vcb,
+                                         FileName->ParentDirectory,
+                                         FALSE,
+                                         TRUE,
+                                         NULL );
+
+                NextFcb->ReferenceCount -= 1;
+
+                //
+                //  Try to do an unsafe acquire.  Otherwise we must drop the Fcb table
+                //  and acquire the Fcb and then reacquire the Fcb table.
+                //
+
+                if (!NtfsAcquireExclusiveFcb( IrpContext, NextFcb, NULL, TRUE, TRUE )) {
+
+                    NtfsReleaseFcbTable( IrpContext, Scb->Vcb );
+                    NtfsAcquireExclusiveFcb( IrpContext, NextFcb, NULL, TRUE, FALSE );
+                    NtfsAcquireFcbTable( IrpContext, Scb->Vcb );
+                }
+
+                NextFcb->ReferenceCount -= 1;
+                NtfsReleaseFcbTable( IrpContext, Scb->Vcb );
+                AcquiredFcbTable = FALSE;
+                AcquiredNextFcb = TRUE;
+
+                NextScb = NtfsCreateScb( IrpContext,
+                                         NextFcb,
+                                         $INDEX_ALLOCATION,
+                                         &NtfsFileNameIndex,
+                                         FALSE,
+                                         NULL );
+
+                ComponentName.Buffer = FileName->FileName;
+                ComponentName.MaximumLength =
+                ComponentName.Length = FileName->FileNameLength * sizeof( WCHAR );
+
+                NextLcb = NtfsCreateLcb( IrpContext,
+                                         NextScb,
+                                         ThisFcb,
+                                         ComponentName,
+                                         FileName->Flags,
+                                         NULL );
+            }
+
+            //
+            //  If we reach the root then exit.  The preceding backslash is already stored.
+            //
+
+            if (NextScb == NextScb->Vcb->RootIndexScb) { break; }
+
+            //
+            //  If we reach an Scb which has a normalized name then prepend it
+            //  to the name we have built up and store it into the normalized
+            //  name buffer and exit.
+            //
+
+            if ((NextScb->ScbType.Index.NormalizedName.Buffer != NULL) &&
+                (NextScb->ScbType.Index.NormalizedName.Length != 0)) {
+
+                //
+                //  Compute the new maximum length value.
+                //
+
+                NewMaximumLength = NextScb->ScbType.Index.NormalizedName.Length + NormalizedName.Length;
+
+                //
+                //  Allocate a new buffer if needed.
+                //
+
+                if (NewMaximumLength > NormalizedName.MaximumLength) {
+
+                    NewBuffer = NtfsAllocatePool( PagedPool, NewMaximumLength );
+
+                    RtlCopyMemory( Add2Ptr( NewBuffer, NextScb->ScbType.Index.NormalizedName.Length ),
+                                   NormalizedName.Buffer,
+                                   NormalizedName.Length );
+
+                    NtfsFreePool( NormalizedName.Buffer );
+
+                    NormalizedName.Buffer = NewBuffer;
+                    NormalizedName.MaximumLength = NewMaximumLength;
+
+                } else {
+
+                    RtlMoveMemory( Add2Ptr( NormalizedName.Buffer, NextScb->ScbType.Index.NormalizedName.Length ),
+                                   NormalizedName.Buffer,
+                                   NormalizedName.Length );
+                }
+
+                //
+                //  Now copy over the name from the root to this point.
+                //
+
+                RtlCopyMemory( NormalizedName.Buffer,
+                               NextScb->ScbType.Index.NormalizedName.Buffer,
+                               NextScb->ScbType.Index.NormalizedName.Length );
+
+                NormalizedName.Length = NewMaximumLength;
+
+                break;
+            }
+
+            //
+            //  Release the current Fcb and move up the tree.
+            //
+
+            if (AcquiredThisFcb) { NtfsReleaseFcb( IrpContext, ThisFcb ); }
+
+            ThisFcb = NextFcb;
+            AcquiredThisFcb = TRUE;
+            AcquiredNextFcb = FALSE;
+        }
+
+        //
+        //  Now store the normalized name into the callers filename structure.
+        //
+
+        *PathName = NormalizedName;
+        NormalizedName.Buffer = NULL;
+
+    } finally {
+
+        if (AcquiredFcbTable) { NtfsReleaseFcbTable( IrpContext, Scb->Vcb ); }
+        if (AcquiredNextFcb) { NtfsReleaseFcb( IrpContext, NextFcb ); }
+        if (AcquiredThisFcb) { NtfsReleaseFcb( IrpContext, ThisFcb ); }
+
+        if (CleanupAttrContext) {
+
+            NtfsCleanupAttributeContext( &AttrContext );
+        }
+
+        if (NormalizedName.Buffer != NULL) {
+
+            NtfsFreePool( NormalizedName.Buffer );
         }
     }
 
@@ -2169,7 +2854,7 @@ Return Value:
 
     ASSERT_EXCLUSIVE_SCB(Scb);
 
-    ScbSnapshot = &IrpContext->TopLevelIrpContext->ScbSnapshot;
+    ScbSnapshot = &IrpContext->ScbSnapshot;
 
     //
     //  Only do the snapshot if the Scb is initialized, we have not done
@@ -2186,9 +2871,9 @@ Return Value:
 
         if (ScbSnapshot->SnapshotLinks.Flink != NULL) {
 
-            NtfsAllocateScbSnapshot( &ScbSnapshot );
+            ScbSnapshot = (PSCB_SNAPSHOT)ExAllocateFromNPagedLookasideList( &NtfsScbSnapshotLookasideList );
 
-            InsertTailList( &IrpContext->TopLevelIrpContext->ScbSnapshot.SnapshotLinks,
+            InsertTailList( &IrpContext->ScbSnapshot.SnapshotLinks,
                             &ScbSnapshot->SnapshotLinks );
 
         //
@@ -2213,10 +2898,33 @@ Return Value:
 
         ScbSnapshot->FileSize = Scb->Header.FileSize.QuadPart;
         ScbSnapshot->ValidDataLength = Scb->Header.ValidDataLength.QuadPart;
+        ScbSnapshot->ValidDataToDisk = Scb->ValidDataToDisk;
         ScbSnapshot->Scb = Scb;
         ScbSnapshot->LowestModifiedVcn = MAXLONGLONG;
+        ScbSnapshot->HighestModifiedVcn = 0;
+
+        ScbSnapshot->TotalAllocated = Scb->TotalAllocated;
+
+#ifdef _CAIRO_
+
+        ScbSnapshot->ScbState = FlagOn( Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT |
+                                                       SCB_STATE_QUOTA_ENLARGED );
+#endif // _CAIRO_
 
         Scb->ScbSnapshot = ScbSnapshot;
+
+        //
+        //  If this is the Mft Scb then initialize the cluster Mcb structures.
+        //
+
+        if (Scb == Scb->Vcb->MftScb) {
+
+            FsRtlTruncateLargeMcb( &Scb->ScbType.Mft.AddedClusters, 0 );
+            FsRtlTruncateLargeMcb( &Scb->ScbType.Mft.RemovedClusters, 0 );
+
+            Scb->ScbType.Mft.FreeRecordChange = 0;
+            Scb->ScbType.Mft.HoleRecordChange = 0;
+        }
     }
 }
 
@@ -2249,7 +2957,7 @@ Return Value:
 
     PAGED_CODE();
 
-    ScbSnapshot = &IrpContext->TopLevelIrpContext->ScbSnapshot;
+    ScbSnapshot = &IrpContext->ScbSnapshot;
 
     //
     //  There is no snapshot data to update if the Flink is still NULL.
@@ -2294,11 +3002,20 @@ Return Value:
 
                 ScbSnapshot->FileSize = Scb->Header.FileSize.QuadPart;
                 ScbSnapshot->ValidDataLength = Scb->Header.ValidDataLength.QuadPart;
+                ScbSnapshot->ValidDataToDisk = Scb->ValidDataToDisk;
+                ScbSnapshot->TotalAllocated = Scb->TotalAllocated;
+#ifdef _CAIRO_
+
+                ScbSnapshot->ScbState = FlagOn( Scb->ScbState,
+                                                SCB_STATE_ATTRIBUTE_RESIDENT |
+                                                SCB_STATE_QUOTA_ENLARGED );
+#endif // _CAIRO_
+
             }
 
             ScbSnapshot = (PSCB_SNAPSHOT)ScbSnapshot->SnapshotLinks.Flink;
 
-        } while (ScbSnapshot != &IrpContext->TopLevelIrpContext->ScbSnapshot);
+        } while (ScbSnapshot != &IrpContext->ScbSnapshot);
     }
 }
 
@@ -2328,13 +3045,12 @@ Return Value:
 --*/
 
 {
+    BOOLEAN UpdateCc;
     PSCB_SNAPSHOT ScbSnapshot;
     PSCB Scb;
     PVCB Vcb = IrpContext->Vcb;
 
     ASSERT(FIELD_OFFSET(SCB_SNAPSHOT, SnapshotLinks) == 0);
-
-    ASSERT( IrpContext->TopLevelIrpContext == IrpContext );
 
     ScbSnapshot = &IrpContext->ScbSnapshot;
 
@@ -2353,6 +3069,7 @@ Return Value:
         do {
 
             PSECTION_OBJECT_POINTERS SectionObjectPointer;
+            PFILE_OBJECT PseudoFileObject;
 
             Scb = ScbSnapshot->Scb;
 
@@ -2363,81 +3080,118 @@ Return Value:
             }
 
             //
-            //  We may be truncating and/or wraping, so just acquire the
-            //  paging Io resource exclusive here if there is one.
-            //
-
-            if (Scb->Header.PagingIoResource != NULL) {
-
-                NtfsAcquireExclusivePagingIo( IrpContext, Scb->Fcb );
-            }
-
-            //
             //  Increment the cleanup count so the Scb won't go away.
             //
 
-            Scb->CleanupCount += 1;
+            InterlockedIncrement( &Scb->CleanupCount );
 
             //
-            //  Absolutely smash the first unknown Vcn to zero.
+            //  We update the Scb file size in the correct pass.  We always do
+            //  the extend/truncate pair.
+            //
+            //  Only do sizes if our caller was changing these fields, which we can
+            //  see from the Fcb PagingIo being acquired exclusive, the Scb is
+            //  locked for IoAtEof, or else it is metadata.
+            //
+            //  The one unusual case is where we are converting a stream to
+            //  nonresident when this is not the stream for the request.  We
+            //  must restore the Scb for this case as well.
             //
 
-            Scb->FirstUnknownVcn = 0;
-
-            //
-            //  Proceed to restore all values which are in higher or not
-            //  higher.
-            //
-            //  Note that the low bit of the allocation size being set
-            //  can only affect the tests if the sizes were equal anyway,
-            //  i.e., sometimes we will execute this code unnecessarily,
-            //  when the values did not change.
-            //
-
-            if (Higher == (ScbSnapshot->AllocationSize >=
-                           Scb->Header.AllocationSize.QuadPart)) {
+            UpdateCc = FALSE;
+            if (FlagOn(Scb->ScbState, SCB_STATE_MODIFIED_NO_WRITE | SCB_STATE_CONVERT_UNDERWAY) ||
+                (Scb->Fcb == IrpContext->FcbWithPagingExclusive) ||
+                (Scb == (PSCB)IrpContext->FcbWithPagingExclusive)) {
 
                 //
-                //  If this is the maximize pass, we want to extend the cache section.
-                //  In all cases we restore the allocation size in the Scb and
-                //  recover the resident bit.
+                //  Proceed to restore all values which are in higher or not
+                //  higher.
+                //
+                //  Note that the low bit of the allocation size being set
+                //  can only affect the tests if the sizes were equal anyway,
+                //  i.e., sometimes we will execute this code unnecessarily,
+                //  when the values did not change.
                 //
 
-                Scb->Header.AllocationSize.QuadPart = ScbSnapshot->AllocationSize;
+                if (Higher == (ScbSnapshot->AllocationSize >=
+                               Scb->Header.AllocationSize.QuadPart)) {
 
-                if (FlagOn(Scb->Header.AllocationSize.LowPart, 1)) {
+                    //
+                    //  If this is the maximize pass, we want to extend the cache section.
+                    //  In all cases we restore the allocation size in the Scb and
+                    //  recover the resident bit.
+                    //
 
-                    Scb->Header.AllocationSize.LowPart -= 1;
-                    SetFlag(Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT);
+                    Scb->Header.AllocationSize.QuadPart = ScbSnapshot->AllocationSize;
 
-                } else {
+                    if (FlagOn(Scb->Header.AllocationSize.LowPart, 1)) {
 
-                    ClearFlag(Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT);
+                        Scb->Header.AllocationSize.LowPart -= 1;
+                        SetFlag(Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT);
+
+                    } else {
+
+                        ClearFlag(Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT);
+                    }
+
+                    //
+                    //  Calculate FastIoPossible
+                    //
+
+                    if (Scb->CompressionUnit != 0) {
+                        NtfsAcquireFsrtlHeader( Scb );
+                        Scb->Header.IsFastIoPossible = NtfsIsFastIoPossible( Scb );
+                        NtfsReleaseFsrtlHeader( Scb );
+                    }
+                }
+
+                NtfsAcquireFsrtlHeader( Scb );
+                if (Higher == (ScbSnapshot->FileSize >
+                               Scb->Header.FileSize.QuadPart)) {
+
+                    Scb->Header.FileSize.QuadPart = ScbSnapshot->FileSize;
+
+                    //
+                    //  We really only need to update Cc if FileSize changes,
+                    //  since he does not look at ValidDataLength, and he
+                    //  only cares about successfully reached highwatermarks
+                    //  on AllocationSize (making section big enough).
+                    //
+                    //  Note that setting this flag TRUE also implies we
+                    //  are correctly synchronized with FileSize!
+                    //
+
+                    UpdateCc = TRUE;
+                }
+
+                if (Higher == (ScbSnapshot->ValidDataLength >
+                               Scb->Header.ValidDataLength.QuadPart)) {
+
+                    Scb->Header.ValidDataLength.QuadPart = ScbSnapshot->ValidDataLength;
                 }
 
                 //
-                //  If the compression unit is non-zero or this is a resident file
-                //  then set the flag in the common header for the Modified page writer.
+                //  If this is the unnamed data attribute, we have to update
+                //  some Fcb fields for standard information as well.
                 //
 
-                if (Scb->CompressionUnit != 0
-                    || FlagOn( Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT )) {
+                if (FlagOn( Scb->ScbState, SCB_STATE_UNNAMED_DATA )) {
 
-                    SetFlag( Scb->Header.Flags, FSRTL_FLAG_ACQUIRE_MAIN_RSRC_EX );
-
-                } else {
-
-                    ClearFlag( Scb->Header.Flags, FSRTL_FLAG_ACQUIRE_MAIN_RSRC_EX );
+                    Scb->Fcb->Info.FileSize = Scb->Header.FileSize.QuadPart;
                 }
+
+                NtfsReleaseFsrtlHeader( Scb );
             }
 
             if (!Higher) {
+
+                Scb->ValidDataToDisk = ScbSnapshot->ValidDataToDisk;
 
                 //
                 //  We always truncate the Mcb to the original allocation size.
                 //  If the Mcb has shrunk beyond this, this becomes a noop.
                 //  If the file is resident, then we will uninitialize
-                //  and reinitialize the Mcb and Scb.
+                //  and reinitialize the Mcb.
                 //
 
                 if (FlagOn( Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT )) {
@@ -2446,19 +3200,19 @@ Return Value:
                     //  Remove all of the mappings in the Mcb.
                     //
 
-                    FsRtlTruncateLargeMcb( &Scb->Mcb, (LONGLONG)0 );
+                    NtfsUnloadNtfsMcbRange( &Scb->Mcb, (LONGLONG)0, MAXLONGLONG, FALSE, FALSE );
 
                     //
-                    //  If we attempted a convert to non-resident and failed then
-                    //  we need to nuke the pages in the section if this is not
-                    //  a user file.  This is because for resident system attributes
-                    //  we always update the attribute directly and don't want to
-                    //  reference stale data in the section if we do a convert to
-                    //  non-resident later.
+                    //  If we attempted a convert a data attribute to non-
+                    //  resident and failed then need to nuke the pages in the
+                    //  section if this is not a user file.  This is because for
+                    //  resident system attributes we always update the attribute
+                    //  directly and don't want to reference stale data in the
+                    //  section if we do a convert to non-resident later.
                     //
 
-                    if ((Scb->AttributeTypeCode != $DATA)
-                        && (Scb->FileObject != NULL)) {
+                    if ((Scb->AttributeTypeCode != $DATA) &&
+                        (Scb->NonpagedScb->SegmentObject.SharedCacheMap != NULL)) {
 
                         if (!CcPurgeCacheSection( &Scb->NonpagedScb->SegmentObject,
                                                   NULL,
@@ -2469,70 +3223,60 @@ Return Value:
                         }
 
                         //
-                        //  We want to modify this Scb so it won't be used again.
+                        //  If the attribute is for non-user data, then we
+                        //  want to modify this Scb so it won't be used again.
                         //  Set the sizes to zero, mark it as being initialized
                         //  and deleted and then change the attribute type code
                         //  so we won't ever return it via NtfsCreateScb.
                         //
 
-                        Scb->Header.AllocationSize =
-                        Scb->Header.FileSize =
-                        Scb->Header.ValidDataLength = Li0;
+#ifdef _CAIRO_
+                        if (!NtfsIsTypeCodeUserData( Scb->AttributeTypeCode )) {
+#endif  //  _CAIRO_
+                            NtfsAcquireFsrtlHeader( Scb );
+                            Scb->Header.AllocationSize =
+                            Scb->Header.FileSize =
+                            Scb->Header.ValidDataLength = Li0;
+                            NtfsReleaseFsrtlHeader( Scb );
+                            Scb->ValidDataToDisk = 0;
 
-                        SetFlag( Scb->ScbState,
-                                 SCB_STATE_FILE_SIZE_LOADED |
-                                 SCB_STATE_HEADER_INITIALIZED |
-                                 SCB_STATE_ATTRIBUTE_DELETED );
+                            SetFlag( Scb->ScbState,
+                                     SCB_STATE_FILE_SIZE_LOADED |
+                                     SCB_STATE_HEADER_INITIALIZED |
+                                     SCB_STATE_ATTRIBUTE_DELETED );
 
-                        Scb->AttributeTypeCode = $UNUSED;
-
-                    } else {
-
-                        ClearFlag( Scb->ScbState,
-                                   SCB_STATE_FILE_SIZE_LOADED
-                                   | SCB_STATE_HEADER_INITIALIZED );
-
+                            Scb->AttributeTypeCode = $UNUSED;
+#ifdef _CAIRO_
+                        }
+#endif  //  _CAIRO_
                     }
 
                 //
                 //  If we have modified this Mcb and want to back out any
-                //  changes then truncate the Mcb.
+                //  changes then truncate the Mcb.  Don't do the Mft, because
+                //  that is handled elsewhere.
                 //
 
-                } else if (ScbSnapshot->LowestModifiedVcn != MAXLONGLONG) {
+                } else if ((ScbSnapshot->LowestModifiedVcn != MAXLONGLONG) &&
+                           (Scb != Vcb->MftScb)) {
 
                     //
-                    //  We would like to simply call the Mcb package to
-                    //  truncate at this point but this is broken except
-                    //  when truncating to zero.
+                    //  Truncate the Mcb.
                     //
 
-                    FsRtlTruncateLargeMcb( &Scb->Mcb, ScbSnapshot->LowestModifiedVcn );
+                    NtfsUnloadNtfsMcbRange( &Scb->Mcb, ScbSnapshot->LowestModifiedVcn, ScbSnapshot->HighestModifiedVcn, FALSE, FALSE );
                 }
+
+                Scb->TotalAllocated = ScbSnapshot->TotalAllocated;
 
                 //
                 //  If the compression unit is non-zero then set the flag in the
                 //  common header for the Modified page writer.
                 //
 
-                ASSERT(Scb->CompressionUnit == 0
-                       || Scb->AttributeTypeCode == $INDEX_ROOT
-                       || Scb->AttributeTypeCode == $DATA );
-
-                //
-                //  If the compression unit is non-zero or this is a resident file
-                //  then set the flag in the common header for the Modified page writer.
-                //
-
-                if (Scb->CompressionUnit != 0
-                    || FlagOn( Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT )) {
-
-                    SetFlag( Scb->Header.Flags, FSRTL_FLAG_ACQUIRE_MAIN_RSRC_EX );
-
-                } else {
-
-                    ClearFlag( Scb->Header.Flags, FSRTL_FLAG_ACQUIRE_MAIN_RSRC_EX );
-                }
+                ASSERT( (Scb->CompressionUnit == 0) ||
+                        (Scb->AttributeTypeCode == $INDEX_ROOT) ||
+                        NtfsIsTypeCodeCompressible( Scb->AttributeTypeCode ));
 
             } else {
 
@@ -2545,22 +3289,13 @@ Return Value:
                 SetFlag( Scb->ScbState, SCB_STATE_RESTORE_UNDERWAY );
             }
 
-            //
-            //  We update the Scb file size in the correct pass.  We always do
-            //  the extend/truncate pair.
-            //
+#ifdef _CAIRO_
 
-            if (Higher == (ScbSnapshot->FileSize >
-                           Scb->Header.FileSize.QuadPart)) {
+            ClearFlag( Scb->ScbState, SCB_STATE_QUOTA_ENLARGED );
+            SetFlag( Scb->ScbState, FlagOn( ScbSnapshot->ScbState, SCB_STATE_QUOTA_ENLARGED ));
 
-                Scb->Header.FileSize.QuadPart = ScbSnapshot->FileSize;
-            }
+#endif // _CAIRO_
 
-            if (Higher == (ScbSnapshot->ValidDataLength >
-                           Scb->Header.ValidDataLength.QuadPart)) {
-
-                Scb->Header.ValidDataLength.QuadPart = ScbSnapshot->ValidDataLength;
-            }
 
             //
             //  Be sure to update Cache Manager.  The interface here uses a file
@@ -2569,7 +3304,10 @@ Return Value:
             //  cast some prior value as a file object pointer.
             //
 
-            SectionObjectPointer = &Scb->NonpagedScb->SegmentObject;
+            PseudoFileObject = (PFILE_OBJECT) CONTAINING_RECORD( &SectionObjectPointer,
+                                                                 FILE_OBJECT,
+                                                                 SectionObjectPointer );
+            PseudoFileObject->SectionObjectPointer = &Scb->NonpagedScb->SegmentObject;
 
             //
             //  Now tell the cache manager the sizes.
@@ -2583,19 +3321,20 @@ Return Value:
             //  We don't need to make this call if the top level request is a
             //  paging Io write.
             //
+            //  We only do this if there is a shared cache map for this stream.
+            //  Otherwise CC will cause a flush to happen which could screw up
+            //  the transaction and abort logic.
+            //
 
-#ifdef NTFS_ALLOW_COMPRESSED
-            if (IrpContext->OriginatingIrp == NULL ||
-                IrpContext->OriginatingIrp->Type != IO_TYPE_IRP ||
-                IrpContext->MajorFunction != IRP_MJ_WRITE ||
-                !FlagOn( IrpContext->OriginatingIrp->Flags, IRP_PAGING_IO )) {
-#endif
+            if (UpdateCc && CcIsFileCached( PseudoFileObject ) &&
+                (IrpContext->OriginatingIrp == NULL ||
+                 IrpContext->OriginatingIrp->Type != IO_TYPE_IRP ||
+                 IrpContext->MajorFunction != IRP_MJ_WRITE ||
+                 !FlagOn( IrpContext->OriginatingIrp->Flags, IRP_PAGING_IO ))) {
 
                 try {
 
-                    CcSetFileSizes( (PFILE_OBJECT) CONTAINING_RECORD( &SectionObjectPointer,
-                                                                      FILE_OBJECT,
-                                                                      SectionObjectPointer ),
+                    CcSetFileSizes( PseudoFileObject,
                                     (PCC_FILE_SIZES)&Scb->Header.AllocationSize );
 
                 } except(FsRtlIsNtstatusExpected(GetExceptionCode()) ?
@@ -2603,10 +3342,7 @@ Return Value:
                                     EXCEPTION_CONTINUE_SEARCH) {
                     NOTHING;
                 }
-
-#ifdef NTFS_ALLOW_COMPRESSED
             }
-#endif
 
             //
             //  If this is the unnamed data attribute, we have to update
@@ -2615,8 +3351,7 @@ Return Value:
 
             if (FlagOn( Scb->ScbState, SCB_STATE_UNNAMED_DATA )) {
 
-                Scb->Fcb->Info.AllocatedLength = Scb->Header.AllocationSize.QuadPart;
-                Scb->Fcb->Info.FileSize = Scb->Header.FileSize.QuadPart;
+                Scb->Fcb->Info.AllocatedLength = Scb->TotalAllocated;
             }
 
             //
@@ -2677,9 +3412,6 @@ Return Value:
                     (LONG) Vcb->MftFreeRecords -= Scb->ScbType.Mft.FreeRecordChange;
                     (LONG) Vcb->MftHoleRecords -= Scb->ScbType.Mft.HoleRecordChange;
 
-                    Scb->ScbType.Mft.FreeRecordChange = 0;
-                    Scb->ScbType.Mft.HoleRecordChange = 0;
-
                     if (FlagOn( IrpContext->Flags, IRP_CONTEXT_MFT_RECORD_15_USED )) {
 
                         ClearFlag( IrpContext->Flags, IRP_CONTEXT_MFT_RECORD_15_USED );
@@ -2704,13 +3436,11 @@ Return Value:
 
                         if (Lcn != UNUSED_LCN) {
 
-                            FsRtlRemoveLargeMcbEntry( &Scb->Mcb, Vcn, Clusters );
+                            NtfsRemoveNtfsMcbEntry( &Scb->Mcb, Vcn, Clusters );
                         }
 
                         RunIndex += 1;
                     }
-
-                    FsRtlTruncateLargeMcb( &Scb->ScbType.Mft.AddedClusters, (LONGLONG)0 );
 
                     RunIndex = 0;
 
@@ -2722,13 +3452,11 @@ Return Value:
 
                         if (Lcn != UNUSED_LCN) {
 
-                            FsRtlAddLargeMcbEntry( &Scb->Mcb, Vcn, Lcn, Clusters );
+                            NtfsAddNtfsMcbEntry( &Scb->Mcb, Vcn, Lcn, Clusters, FALSE );
                         }
 
                         RunIndex += 1;
                     }
-
-                    FsRtlTruncateLargeMcb( &Scb->ScbType.Mft.RemovedClusters, (LONGLONG)0 );
 
                 } else if (Scb->AttributeTypeCode == $INDEX_ALLOCATION) {
 
@@ -2740,7 +3468,7 @@ Return Value:
             //  Decrement the cleanup count to restore the previous value.
             //
 
-            Scb->CleanupCount -= 1;
+            InterlockedDecrement( &Scb->CleanupCount );
 
             ScbSnapshot = (PSCB_SNAPSHOT)ScbSnapshot->SnapshotLinks.Flink;
 
@@ -2819,14 +3547,21 @@ Return Value:
 
             //
             //  If there is an Scb, then clear its snapshot pointer.
-            //  Always clear the UNINITIALIZE_ON_RESTORE flag and the RESTORE_UNDERWAY
-            //  flag.
+            //  Always clear the UNINITIALIZE_ON_RESTORE flag, RESTORE_UNDERWAY and
+            //  CONVERT_UNDERWAY flags.
             //
 
             if (ScbSnapshot->Scb != NULL) {
 
-                ClearFlag( ScbSnapshot->Scb->ScbState,
-                           SCB_STATE_UNINITIALIZE_ON_RESTORE | SCB_STATE_RESTORE_UNDERWAY );
+                if (FlagOn( ScbSnapshot->Scb->ScbState,
+                            SCB_STATE_UNINITIALIZE_ON_RESTORE | SCB_STATE_RESTORE_UNDERWAY | SCB_STATE_CONVERT_UNDERWAY )) {
+
+                    NtfsAcquireFsrtlHeader( ScbSnapshot->Scb );
+                    ClearFlag( ScbSnapshot->Scb->ScbState,
+                               SCB_STATE_UNINITIALIZE_ON_RESTORE | SCB_STATE_RESTORE_UNDERWAY | SCB_STATE_CONVERT_UNDERWAY );
+                    NtfsReleaseFsrtlHeader( ScbSnapshot->Scb );
+                }
+
                 ScbSnapshot->Scb->ScbSnapshot = NULL;
             }
 
@@ -2842,7 +3577,7 @@ Return Value:
 
                 RemoveEntryList(&ScbSnapshot->SnapshotLinks);
 
-                NtfsFreeScbSnapshot( ScbSnapshot );
+                ExFreeToNPagedLookasideList( &NtfsScbSnapshotLookasideList, ScbSnapshot );
             }
 
             ScbSnapshot = NextScbSnapshot;
@@ -2854,7 +3589,6 @@ Return Value:
 
 BOOLEAN
 NtfsCreateFileLock (
-    IN PIRP_CONTEXT IrpContext OPTIONAL,
     IN PSCB Scb,
     IN BOOLEAN RaiseOnError
     )
@@ -2884,7 +3618,7 @@ Return Value:
     PFILE_LOCK FileLock = NULL;
     BOOLEAN Success = TRUE;
 
-    UNREFERENCED_PARAMETER(IrpContext);
+    PAGED_CODE();
 
     //
     //  Use a try-except to catch all errors.
@@ -2892,27 +3626,24 @@ Return Value:
 
     try {
 
-        NtfsAllocateFileLock( &FileLock );
+        FileLock = (PFILE_LOCK)ExAllocateFromNPagedLookasideList( &NtfsFileLockLookasideList );
 
         FsRtlInitializeFileLock( FileLock, NULL, NULL );
 
         //
-        //  Grab the paging Io resource if present.
+        //  Use the FsRtl header mutex to synchronize storing
+        //  the lock structure, and only store it if no one
+        //  else beat us.
         //
 
-        if (Scb->Header.PagingIoResource != NULL) {
+        NtfsAcquireFsrtlHeader(Scb);
 
-            (VOID) ExAcquireResourceExclusive( Scb->Header.PagingIoResource, TRUE );
+        if (Scb->ScbType.Data.FileLock == NULL) {
+            Scb->ScbType.Data.FileLock = FileLock;
+            FileLock = NULL;
         }
 
-        Scb->ScbType.Data.FileLock = FileLock;
-
-        if (Scb->Header.PagingIoResource != NULL) {
-
-            ExReleaseResource( Scb->Header.PagingIoResource );
-        }
-
-        FileLock = NULL;
+        NtfsReleaseFsrtlHeader(Scb);
 
     } except( (!FsRtlIsNtstatusExpected( GetExceptionCode() ) || RaiseOnError)
               ? EXCEPTION_CONTINUE_SEARCH
@@ -2922,8 +3653,7 @@ Return Value:
     }
 
     if (FileLock != NULL) {
-
-        NtfsFreeFileLock( FileLock );
+        ExFreeToNPagedLookasideList( &NtfsFileLockLookasideList, FileLock );
     }
 
     return Success;
@@ -2932,7 +3662,6 @@ Return Value:
 
 PSCB
 NtfsGetNextScb (
-    IN PIRP_CONTEXT IrpContext,
     IN PSCB Scb,
     IN PSCB TerminationScb
     )
@@ -2968,11 +3697,9 @@ Return Value:
 {
     PSCB Results;
 
-    UNREFERENCED_PARAMETER(IrpContext);
-
     PAGED_CODE();
 
-    DebugTrace2(+1, Dbg, "NtfsGetNextScb, Scb = %08lx, TerminationScb = %08lx\n", Scb, TerminationScb);
+    DebugTrace( +1, Dbg, ("NtfsGetNextScb, Scb = %08lx, TerminationScb = %08lx\n", Scb, TerminationScb) );
 
     //
     //  If this is an index (i.e., not a file) and it has children then return
@@ -2996,7 +3723,7 @@ Return Value:
     //       Results
     //
 
-    if (((NodeType(Scb) == NTFS_NTC_SCB_INDEX) || (NodeType(Scb) == NTFS_NTC_SCB_ROOT_INDEX))
+    if (((SafeNodeType(Scb) == NTFS_NTC_SCB_INDEX) || (SafeNodeType(Scb) == NTFS_NTC_SCB_ROOT_INDEX))
 
                 &&
 
@@ -3009,7 +3736,7 @@ Return Value:
         //  locate the first lcb out of this scb and also the corresponding fcb
         //
 
-        ChildLcb = NtfsGetNextChildLcb(IrpContext, Scb, NULL);
+        ChildLcb = NtfsGetNextChildLcb(Scb, NULL);
         ChildFcb = ChildLcb->Fcb;
 
         //
@@ -3027,7 +3754,13 @@ Return Value:
 
         ASSERT( !IsListEmpty(&ChildFcb->ScbQueue) );
 
-        Results = NtfsGetNextChildScb(IrpContext, ChildFcb, NULL);
+        //
+        //  Acquire and drop the Fcb in order to look at the Scb list.
+        //
+
+        ExAcquireResourceExclusive( ChildFcb->Resource, TRUE );
+        Results = NtfsGetNextChildScb( ChildFcb, NULL );
+        ExReleaseResource( ChildFcb->Resource );
 
     //
     //  We could be processing an empty index
@@ -3045,7 +3778,13 @@ Return Value:
         PLCB SiblingLcb;
         PFCB SiblingFcb;
 
-        SiblingScb = NtfsGetNextChildScb( IrpContext, Scb->Fcb, Scb );
+        //
+        //  Acquire and drop the Fcb in order to look at the Scb list.
+        //
+
+        ExAcquireResourceExclusive( Scb->Fcb->Resource, TRUE );
+        SiblingScb = NtfsGetNextChildScb( Scb->Fcb, Scb );
+        ExReleaseResource( Scb->Fcb->Resource );
 
         while (TRUE) {
 
@@ -3101,7 +3840,7 @@ Return Value:
 
             ParentFcb = Scb->Fcb;
 
-            ParentLcb = NtfsGetNextParentLcb(IrpContext, ParentFcb, NULL);
+            ParentLcb = NtfsGetNextParentLcb(ParentFcb, NULL);
 
             //
             //  Try to find a sibling Lcb which does not point to an Fcb
@@ -3110,7 +3849,7 @@ Return Value:
 
             SiblingLcb = ParentLcb;
 
-            while ((SiblingLcb = NtfsGetNextChildLcb( IrpContext, ParentLcb->Scb, SiblingLcb)) != NULL) {
+            while ((SiblingLcb = NtfsGetNextChildLcb( ParentLcb->Scb, SiblingLcb)) != NULL) {
 
                 PLCB PrevChildLcb;
                 PFCB PotentialSiblingFcb;
@@ -3132,7 +3871,7 @@ Return Value:
                     continue;
                 }
 
-                while ((PrevChildLcb = NtfsGetPrevChildLcb( IrpContext, ParentLcb->Scb, PrevChildLcb )) != NULL) {
+                while ((PrevChildLcb = NtfsGetPrevChildLcb( ParentLcb->Scb, PrevChildLcb )) != NULL) {
 
                     //
                     //  If the parent Fcb and the Fcb for this Lcb are the same,
@@ -3176,7 +3915,13 @@ Return Value:
 
                 ASSERT( !IsListEmpty(&SiblingFcb->ScbQueue) );
 
-                Results = NtfsGetNextChildScb(IrpContext, SiblingFcb, NULL);
+                //
+                //  Acquire and drop the Fcb in order to look at the Scb list.
+                //
+
+                ExAcquireResourceExclusive( SiblingFcb->Resource, TRUE );
+                Results = NtfsGetNextChildScb( SiblingFcb, NULL );
+                ExReleaseResource( SiblingFcb->Resource );
                 break;
             }
 
@@ -3211,11 +3956,17 @@ Return Value:
                 break;
             }
 
-            SiblingScb = NtfsGetNextChildScb(IrpContext, Scb->Fcb, Scb );
+            //
+            //  Acquire and drop the Fcb in order to look at the Scb list.
+            //
+
+            ExAcquireResourceExclusive( Scb->Fcb->Resource, TRUE );
+            SiblingScb = NtfsGetNextChildScb( Scb->Fcb, Scb );
+            ExReleaseResource( Scb->Fcb->Resource );
         }
     }
 
-    DebugTrace(-1, Dbg, "NtfsGetNextScb -> %08lx\n", Results);
+    DebugTrace( -1, Dbg, ("NtfsGetNextScb -> %08lx\n", Results) );
 
     return Results;
 }
@@ -3261,21 +4012,22 @@ Return Value:
 --*/
 
 {
-    PLCB Lcb;
+    PLCB Lcb = NULL;
     BOOLEAN LocalReturnedExistingLcb;
 
     //
     //  The following variables are only used for abnormal termination
     //
 
-    PVOID UnwindStorage[3] = { NULL, NULL, NULL };
+    PVOID UnwindStorage[2] = { NULL, NULL };
 
+    PAGED_CODE();
     ASSERT_IRP_CONTEXT( IrpContext );
     ASSERT_SCB( Scb );
     ASSERT_FCB( Fcb );
     ASSERT(NodeType(Scb) != NTFS_NTC_SCB_DATA);
 
-    DebugTrace(+1, Dbg, "NtfsCreateLcb...\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsCreateLcb...\n") );
 
     if (!ARGUMENT_PRESENT(ReturnedExistingLcb)) { ReturnedExistingLcb = &LocalReturnedExistingLcb; }
 
@@ -3287,11 +4039,12 @@ Return Value:
     //
 
     Lcb = NULL;
-    while ((Lcb = NtfsGetNextChildLcb(IrpContext, Scb, Lcb)) != NULL) {
+
+    while ((Lcb = NtfsGetNextParentLcb(Fcb, Lcb)) != NULL) {
 
         ASSERT_LCB( Lcb );
 
-        if ((Fcb == Lcb->Fcb)
+        if ((Scb == Lcb->Scb)
 
                 &&
 
@@ -3299,7 +4052,7 @@ Return Value:
 
                 &&
 
-            (FileNameFlags == Lcb->FileNameFlags)
+            (FileNameFlags == Lcb->FileNameAttr->Flags)
 
                 &&
 
@@ -3307,13 +4060,13 @@ Return Value:
 
                 &&
 
-            (RtlCompareMemory( LastComponentFileName.Buffer,
-                               Lcb->ExactCaseLink.LinkName.Buffer,
-                               LastComponentFileName.Length ) == (ULONG)LastComponentFileName.Length)) {
+            (RtlEqualMemory( LastComponentFileName.Buffer,
+                             Lcb->ExactCaseLink.LinkName.Buffer,
+                             LastComponentFileName.Length ) )) {
 
             *ReturnedExistingLcb = TRUE;
 
-            DebugTrace(-1, Dbg, "NtfsCreateLcb -> %08lx\n", Lcb);
+            DebugTrace( -1, Dbg, ("NtfsCreateLcb -> %08lx\n", Lcb) );
 
             return Lcb;
         }
@@ -3323,23 +4076,58 @@ Return Value:
 
     try {
 
+        UCHAR MaxNameLength;
+
         //
         //  Allocate a new lcb, zero it out and set the node type information
+        //  Check if we can allocate the Lcb out of a compound Fcb.  Check here if
+        //  we can use the embedded name as well.
         //
 
-        NtfsAllocateLcb( &UnwindStorage[0] ); Lcb = UnwindStorage[0];
+        if (FlagOn( Fcb->FcbState, FCB_STATE_COMPOUND_DATA) &&
+            (SafeNodeType( &((PFCB_DATA) Fcb)->Lcb ) == 0)) {
+
+            Lcb = (PLCB) &((PFCB_DATA) Fcb)->Lcb;
+            MaxNameLength = MAX_DATA_FILE_NAME;
+
+        } else if (FlagOn( Fcb->FcbState, FCB_STATE_COMPOUND_INDEX ) &&
+            (SafeNodeType( &((PFCB_INDEX) Fcb)->Lcb ) == 0)) {
+
+            Lcb = (PLCB) &((PFCB_INDEX) Fcb)->Lcb;
+            MaxNameLength = MAX_INDEX_FILE_NAME;
+
+        } else {
+
+            Lcb = UnwindStorage[0] = ExAllocateFromPagedLookasideList( &NtfsLcbLookasideList );
+            MaxNameLength = 0;
+        }
+
         RtlZeroMemory( Lcb, sizeof(LCB) );
 
         Lcb->NodeTypeCode = NTFS_NTC_LCB;
         Lcb->NodeByteSize = sizeof(LCB);
 
         //
-        //  Allocate the last component part of the lcb and copy over the data
+        //  Check if we will have to allocate a separate filename attr.
         //
 
-        Lcb->FileNameAttr =
-        UnwindStorage[1] = NtfsAllocatePagedPool( LastComponentFileName.Length +
-                                                  NtfsFileNameSizeFromLength( LastComponentFileName.Length ));
+        if (MaxNameLength < (USHORT) (LastComponentFileName.Length / sizeof( WCHAR ))) {
+
+            //
+            //  Allocate the last component part of the lcb and copy over the data.
+            //  Check if there is space in the Fcb for this.
+            //
+
+            Lcb->FileNameAttr =
+            UnwindStorage[1] = NtfsAllocatePool(PagedPool, LastComponentFileName.Length +
+                                                      NtfsFileNameSizeFromLength( LastComponentFileName.Length ));
+
+            MaxNameLength = LastComponentFileName.Length / sizeof( WCHAR );
+
+        } else {
+
+            Lcb->FileNameAttr = (PFILE_NAME) &Lcb->ParentDirectory;
+        }
 
         Lcb->FileNameAttr->ParentDirectory = Scb->Fcb->FileReference;
         Lcb->FileNameAttr->FileNameLength = (USHORT) LastComponentFileName.Length / sizeof( WCHAR );
@@ -3347,13 +4135,14 @@ Return Value:
 
         Lcb->ExactCaseLink.LinkName.Buffer = (PWCHAR) &Lcb->FileNameAttr->FileName;
 
-        Lcb->IgnoreCaseLink.LinkName.Buffer = Add2Ptr( UnwindStorage[1],
-                                                       NtfsFileNameSizeFromLength( LastComponentFileName.Length ));
+        Lcb->IgnoreCaseLink.LinkName.Buffer = Add2Ptr( Lcb->FileNameAttr,
+                                                       NtfsFileNameSizeFromLength( MaxNameLength * sizeof( WCHAR )));
+
+        Lcb->ExactCaseLink.LinkName.Length =
+        Lcb->IgnoreCaseLink.LinkName.Length = LastComponentFileName.Length;
 
         Lcb->ExactCaseLink.LinkName.MaximumLength =
-        Lcb->ExactCaseLink.LinkName.Length =
-        Lcb->IgnoreCaseLink.LinkName.MaximumLength =
-        Lcb->IgnoreCaseLink.LinkName.Length = LastComponentFileName.Length;
+        Lcb->IgnoreCaseLink.LinkName.MaximumLength = MaxNameLength * sizeof( WCHAR );
 
         RtlCopyMemory( Lcb->ExactCaseLink.LinkName.Buffer,
                        LastComponentFileName.Buffer,
@@ -3363,8 +4152,9 @@ Return Value:
                        LastComponentFileName.Buffer,
                        LastComponentFileName.Length );
 
-        NtfsUpcaseName( IrpContext, &Lcb->IgnoreCaseLink.LinkName );
-        Lcb->FileNameFlags = FileNameFlags;
+        NtfsUpcaseName( IrpContext->Vcb->UpcaseTable,
+                        IrpContext->Vcb->UpcaseTableSize,
+                        &Lcb->IgnoreCaseLink.LinkName );
 
         //
         //  Now put this Lcb into the queues for the scb and the fcb
@@ -3388,12 +4178,13 @@ Return Value:
 
         if (AbnormalTermination()) {
 
-            if (UnwindStorage[0]) { ExFreePool( UnwindStorage[0] ); }
-            if (UnwindStorage[1]) { ExFreePool( UnwindStorage[1] ); }
+            if (UnwindStorage[0]) { NtfsFreePool( UnwindStorage[0] );
+            } else if (Lcb != NULL) { Lcb->NodeTypeCode = 0; }
+            if (UnwindStorage[1]) { NtfsFreePool( UnwindStorage[1] ); }
         }
     }
 
-    DebugTrace(-1, Dbg, "NtfsCreateLcb -> %08lx\n", Lcb);
+    DebugTrace( -1, Dbg, ("NtfsCreateLcb -> %08lx\n", Lcb) );
 
     return Lcb;
 }
@@ -3427,17 +4218,16 @@ Return Value:
     PCCB Ccb;
     PLIST_ENTRY Links;
 
+    PAGED_CODE();
     ASSERT_IRP_CONTEXT( IrpContext );
 
-    ASSERT((*Lcb)->Scb != NULL);
-
-    DebugTrace(+1, Dbg, "NtfsDeleteLcb, *Lcb = %08lx\n", *Lcb);
+    DebugTrace( +1, Dbg, ("NtfsDeleteLcb, *Lcb = %08lx\n", *Lcb) );
 
     //
     //  Get rid of any prefixes that might still be attached to us
     //
 
-    NtfsRemovePrefix( IrpContext, (*Lcb) );
+    NtfsRemovePrefix( (*Lcb) );
 
     //
     //  Walk through the Ccb's for this link and clear the Lcb
@@ -3453,9 +4243,8 @@ Return Value:
                                  CCB,
                                  LcbLinks );
 
-        Ccb->Lcb = NULL;
-
         Links = Links->Flink;
+        NtfsUnlinkCcbFromLcb( IrpContext, Ccb );
     }
 
     //
@@ -3470,8 +4259,26 @@ Return Value:
     //  Free up the last component part and then free ourselves
     //
 
-    NtfsFreePagedPool( (*Lcb)->FileNameAttr );
-    NtfsFreeLcb( (*Lcb) );
+    if ((*Lcb)->FileNameAttr != (PFILE_NAME) &(*Lcb)->ParentDirectory) {
+
+        NtfsFreePool( (*Lcb)->FileNameAttr );
+        DebugDoit( (*Lcb)->FileNameAttr = NULL );
+    }
+
+    //
+    //  Check if we are part of an embedded structure otherwise free back to the
+    //  lookaside list
+    //
+
+    if (((*Lcb) == (PLCB) &((PFCB_DATA) (*Lcb)->Fcb)->Lcb) ||
+        ((*Lcb) == (PLCB) &((PFCB_INDEX) (*Lcb)->Fcb)->Lcb)) {
+
+        (*Lcb)->NodeTypeCode = 0;
+
+    } else {
+
+        ExFreeToPagedLookasideList( &NtfsLcbLookasideList, *Lcb );
+    }
 
     //
     //  And for safety sake null out the pointer
@@ -3479,7 +4286,7 @@ Return Value:
 
     *Lcb = NULL;
 
-    DebugTrace(-1, Dbg, "NtfsDeleteLcb -> VOID\n", 0);
+    DebugTrace( -1, Dbg, ("NtfsDeleteLcb -> VOID\n") );
 
     return;
 }
@@ -3491,31 +4298,38 @@ NtfsMoveLcb (
     IN PLCB Lcb,
     IN PSCB Scb,
     IN PFCB Fcb,
-    IN PUNICODE_STRING TargetFileName,
-    IN UCHAR FileNameFlags
+    IN PUNICODE_STRING TargetDirectoryName,
+    IN PUNICODE_STRING LastComponentName,
+    IN UCHAR FileNameFlags,
+    IN BOOLEAN CheckBufferSizeOnly
     )
 
 /*++
 
 Routine Description:
 
-    This routine completely moves the input lcb to join
-    different fcbs and scbs.  It uses the target directory
+    This routine completely moves the input lcb to join different fcbs and
+    scbs.  It hasIt uses the target directory
     file object to supply the complete new name to use.
 
 Arguments:
 
-    Lcb - Supplies the Lcb being moved
+    Lcb - Supplies the Lcb being moved.
 
     Scb - Supplies the new parent scb
 
     Fcb - Supplies the new child fcb
 
-    TargetFileName - This is the full path name for this Lcb.  The maximum
-        length value describes the full path name.  The length value
-        points to the offset of the separator before the final component length.
+    TargetDirectoryName - This is the path used to reach the new parent directory
+        for this Lcb.  It will only be from the root.
+
+    LastComponentName - This is the last component name to store in this relocated Lcb.
 
     FileNameFlags - Indicates if this is an NTFS, DOS or hard link
+
+    CheckBufferSizeOnly - If TRUE we just want to pass through and verify that
+        the buffer sizes of the various structures will be large enough for the
+        new name.
 
 Return Value:
 
@@ -3524,230 +4338,282 @@ Return Value:
 --*/
 
 {
-    PVCB Vcb;
-    ULONG LastFileNameOffset;
-
+    PVCB Vcb = Scb->Vcb;
     ULONG BytesNeeded;
+    PVOID NewAllocation;
+    PCHAR NextChar;
+
+    PSCB NextScb;
+    PSCB ChildScb;
+    PLCB TempLcb;
     PCCB Ccb;
 
     ASSERT_IRP_CONTEXT( IrpContext );
     ASSERT_LCB( Lcb );
     ASSERT_SCB( Scb );
     ASSERT_FCB( Fcb );
-    ASSERT(NodeType(Scb) != NTFS_NTC_SCB_DATA);
+    ASSERT( NodeType( Scb ) != NTFS_NTC_SCB_DATA );
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsMoveLcb, Lcb = %08lx\n", Lcb);
-
-    Vcb = Scb->Vcb;
+    DebugTrace( +1, Dbg, ("NtfsMoveLcb, Lcb = %08lx\n", Lcb) );
 
     //
-    //  Clear the index offset pointer so we will look this up again.
+    //  Use a try finally to cleanup any new allocation.
     //
 
-    Lcb->QuickIndex.BufferOffset = 0;
+    try {
 
-    //
-    //  Up the length to describe the full path but only after computing the
-    //  last component offset.
-    //
+        //
+        //  If we're not just checking sizes then remove entries from the prefix table
+        //  and the normalized name for descendents of the current scb.
+        //
 
-    LastFileNameOffset = TargetFileName->Length;
-    TargetFileName->Length = TargetFileName->MaximumLength;
-
-    //
-    //  Check if we need to adjust the offset to step over the beginning
-    //  backslash.
-    //
-
-    if (TargetFileName->Buffer[LastFileNameOffset / 2] == L'\\') {
-
-        LastFileNameOffset += sizeof( WCHAR );
-    }
-
-    //
-    //  Get rid of any prefixes that might still be attached to us
-    //
-
-    NtfsRemovePrefix( IrpContext, Lcb );
-
-    //
-    //  And then traverse the graph underneath our fcb and remove all prefixes
-    //  also used there.  For each child scb under the fcb we will traverse all of
-    //  its descendant Scb children and for each lcb we encounter we will remove its prefixes.
-    //
-
-    {
-        PSCB ChildScb;
-        PLCB TempLcb;
-        PSCB NextScb;
-
-        ChildScb = NULL;
-        while ((ChildScb = NtfsGetNextChildScb( IrpContext, Lcb->Fcb, ChildScb )) != NULL) {
+        if (!CheckBufferSizeOnly) {
 
             //
-            //  If this is an index Scb with a normalized name, then free
-            //  the normalized name.
+            //  Clear the index offset pointer so we will look this up again.
             //
 
-            if (NodeType( ChildScb ) == NTFS_NTC_SCB_INDEX &&
-                ChildScb->ScbType.Index.NormalizedName.Buffer != NULL) {
-
-                NtfsFreePagedPool( ChildScb->ScbType.Index.NormalizedName.Buffer );
-
-                ChildScb->ScbType.Index.NormalizedName.Buffer = NULL;
-            }
+            Lcb->QuickIndex.BufferOffset = 0;
 
             //
-            //  Loop through his Lcb's and remove the prefix entries.
+            //  Get rid of any prefixes that might still be attached to us
             //
 
-            TempLcb = NULL;
-            while ((TempLcb = NtfsGetNextChildLcb(IrpContext, ChildScb, TempLcb)) != NULL) {
-
-                NtfsRemovePrefix( IrpContext, TempLcb );
-            }
+            NtfsRemovePrefix( Lcb );
 
             //
-            //  Now we have to descend into this Scb subtree, if it exists.
-            //  Then remove the prefix entries on all of the links found.
+            //  And then traverse the graph underneath our fcb and remove all prefixes
+            //  also used there.  For each child scb under the fcb we will traverse all of
+            //  its descendant Scb children and for each lcb we encounter we will remove its prefixes.
             //
 
-            NextScb = ChildScb;
-
-            while ((NextScb = NtfsGetNextScb(IrpContext, NextScb, ChildScb)) != NULL) {
+            ChildScb = NULL;
+            while ((ChildScb = NtfsGetNextChildScb( Lcb->Fcb, ChildScb )) != NULL) {
 
                 //
-                //  If this is an index Scb with a normalized name, then free
-                //  the normalized name.
+                //  Loop through his Lcb's and remove the prefix entries.
                 //
-
-                if (NodeType( NextScb ) == NTFS_NTC_SCB_INDEX &&
-                    NextScb->ScbType.Index.NormalizedName.Buffer != NULL) {
-
-                    NtfsFreePagedPool( NextScb->ScbType.Index.NormalizedName.Buffer );
-
-                    NextScb->ScbType.Index.NormalizedName.Buffer = NULL;
-                }
 
                 TempLcb = NULL;
-                while ((TempLcb = NtfsGetNextChildLcb(IrpContext, NextScb, TempLcb)) != NULL) {
+                while ((TempLcb = NtfsGetNextChildLcb(ChildScb, TempLcb)) != NULL) {
 
-                    NtfsRemovePrefix( IrpContext, TempLcb );
+                    NtfsRemovePrefix( TempLcb );
+                }
+
+                //
+                //  Now we have to descend into this Scb subtree, if it exists.
+                //  Then remove the prefix entries on all of the links found.
+                //
+
+                NextScb = ChildScb;
+                while ((NextScb = NtfsGetNextScb( NextScb, ChildScb )) != NULL) {
+
+                    //
+                    //  If this is an index Scb with a normalized name, then free
+                    //  the normalized name.
+                    //
+
+                    if ((SafeNodeType( NextScb ) == NTFS_NTC_SCB_INDEX) &&
+                        (NextScb->ScbType.Index.NormalizedName.Buffer != NULL)) {
+
+                        NtfsFreePool( NextScb->ScbType.Index.NormalizedName.Buffer );
+
+                        NextScb->ScbType.Index.NormalizedName.Buffer = NULL;
+                        NextScb->ScbType.Index.NormalizedName.Length = 0;
+                    }
+
+                    TempLcb = NULL;
+                    while ((TempLcb = NtfsGetNextChildLcb(NextScb, TempLcb)) != NULL) {
+
+                        NtfsRemovePrefix( TempLcb );
+                    }
                 }
             }
         }
-    }
-
-    //
-    //  Change the last component name, first compute its size and then
-    //  see if we need to allocate a bigger chunk.
-    //
-
-    BytesNeeded = TargetFileName->Length - LastFileNameOffset;
-
-    if ((ULONG)Lcb->ExactCaseLink.LinkName.MaximumLength < BytesNeeded) {
-
-        PVOID NewAllocation;
-
-        NewAllocation = NtfsAllocatePagedPool( BytesNeeded +
-                                               NtfsFileNameSizeFromLength( BytesNeeded ));
-
-        NtfsFreePagedPool( Lcb->FileNameAttr );
-
-        Lcb->FileNameAttr = (PFILE_NAME) NewAllocation;
-
-        Lcb->ExactCaseLink.LinkName.Buffer = (PWCHAR) &Lcb->FileNameAttr->FileName;
-
-        Lcb->IgnoreCaseLink.LinkName.Buffer = Add2Ptr( NewAllocation,
-                                                       NtfsFileNameSizeFromLength( BytesNeeded ));
-
-        Lcb->ExactCaseLink.LinkName.MaximumLength =
-        Lcb->IgnoreCaseLink.LinkName.MaximumLength = (USHORT) BytesNeeded;
-    }
-
-    Lcb->FileNameAttr->ParentDirectory = Scb->Fcb->FileReference;
-    Lcb->FileNameAttr->FileNameLength = (USHORT) BytesNeeded / sizeof( WCHAR );
-    Lcb->FileNameAttr->Flags = FileNameFlags;
-
-    Lcb->ExactCaseLink.LinkName.Length =
-    Lcb->IgnoreCaseLink.LinkName.Length = (USHORT)BytesNeeded;
-
-    RtlCopyMemory( Lcb->ExactCaseLink.LinkName.Buffer,
-                   &TargetFileName->Buffer[LastFileNameOffset / 2],
-                   BytesNeeded );
-
-    RtlCopyMemory( Lcb->IgnoreCaseLink.LinkName.Buffer,
-                   &TargetFileName->Buffer[LastFileNameOffset / 2],
-                   BytesNeeded );
-
-    NtfsUpcaseName( IrpContext, &Lcb->IgnoreCaseLink.LinkName );
-    Lcb->FileNameFlags = FileNameFlags;
-
-    //
-    //  Now for every ccb attached to us we need to munge it file object name by
-    //  copying over the entire new name
-    //
-
-    Ccb = NULL;
-    while ((Ccb = NtfsGetNextCcb(IrpContext, Lcb, Ccb)) != NULL) {
 
         //
-        //  We ignore any Ccb's which are associated with open by File Id
-        //  file objects.  We also ignore any Ccb's which don't have a file
-        //  object pointer.
+        //  Remember the number of bytes needed for the last component.
         //
 
-        if (!FlagOn( Ccb->Flags, CCB_FLAG_OPEN_BY_FILE_ID ) &&
-            !FlagOn( Ccb->Flags, CCB_FLAG_CLEANUP )) {
+        BytesNeeded = LastComponentName->Length;
 
-            if (Ccb->FullFileName.MaximumLength < TargetFileName->Length) {
+        //
+        //  Check if we need to allocate a new filename attribute.  If so allocate
+        //  it and store it into the new allocation buffer.
+        //
 
-                PWSTR Temp;
+        if (Lcb->ExactCaseLink.LinkName.MaximumLength < BytesNeeded) {
 
-                Temp = NtfsAllocatePagedPool( TargetFileName->Length );
+            NewAllocation = NtfsAllocatePool( PagedPool,
+                                              BytesNeeded + NtfsFileNameSizeFromLength( BytesNeeded ));
 
-                if (FlagOn( Ccb->Flags, CCB_FLAG_ALLOCATED_FILE_NAME )) {
+            //
+            //  Set up the existing names into the new buffer.  That way if we have an allocation
+            //  failure below with the Ccb's the Lcb is still in a valid state.
+            //
 
-                    NtfsFreePagedPool( Ccb->FullFileName.Buffer );
-                }
+            RtlCopyMemory( NewAllocation,
+                           Lcb->FileNameAttr,
+                           NtfsFileNameSizeFromLength( Lcb->ExactCaseLink.LinkName.MaximumLength ));
 
-                Ccb->FullFileName.Buffer = Temp;
-                Ccb->FullFileName.MaximumLength = TargetFileName->Length;
+            RtlCopyMemory( Add2Ptr( NewAllocation, NtfsFileNameSizeFromLength( BytesNeeded )),
+                           Lcb->IgnoreCaseLink.LinkName.Buffer,
+                           Lcb->IgnoreCaseLink.LinkName.MaximumLength );
 
-                SetFlag( Ccb->Flags, CCB_FLAG_ALLOCATED_FILE_NAME );
+            if (Lcb->FileNameAttr != (PFILE_NAME) &Lcb->ParentDirectory) {
+
+                NtfsFreePool( Lcb->FileNameAttr );
             }
 
-            Ccb->FullFileName.Length = TargetFileName->Length;
+            Lcb->FileNameAttr = NewAllocation;
 
-            RtlCopyMemory( Ccb->FullFileName.Buffer,
-                           TargetFileName->Buffer,
-                           TargetFileName->Length );
+            Lcb->ExactCaseLink.LinkName.MaximumLength =
+            Lcb->IgnoreCaseLink.LinkName.MaximumLength = (USHORT) BytesNeeded;
 
-            Ccb->LastFileNameOffset = (USHORT)LastFileNameOffset;
+            Lcb->ExactCaseLink.LinkName.Buffer = (PWCHAR) &Lcb->FileNameAttr->FileName;
+            Lcb->IgnoreCaseLink.LinkName.Buffer = Add2Ptr( Lcb->FileNameAttr,
+                                                           NtfsFileNameSizeFromLength( BytesNeeded ));
         }
+
+        //
+        //  Compute the full length of the name for the CCB, assume we will need a
+        //  separator.
+        //
+
+        BytesNeeded += (TargetDirectoryName->Length + sizeof( WCHAR ));
+
+        //
+        //  Now for every ccb attached to us we need to check if we need a new
+        //  filename buffer.
+        //
+
+        Ccb = NULL;
+        while ((Ccb = NtfsGetNextCcb(Lcb, Ccb)) != NULL) {
+
+            //
+            //  Check if the name buffer currently in the Ccb is large enough.
+            //
+
+            if (!FlagOn( Ccb->Flags, CCB_FLAG_OPEN_BY_FILE_ID | CCB_FLAG_CLEANUP )) {
+
+                if (Ccb->FullFileName.MaximumLength < BytesNeeded) {
+
+                    //
+                    //  Allocate a new file name buffer and copy the existing data back into it.
+                    //
+
+                    NewAllocation = NtfsAllocatePool( PagedPool, BytesNeeded );
+
+                    RtlCopyMemory( NewAllocation,
+                                   Ccb->FullFileName.Buffer,
+                                   Ccb->FullFileName.Length );
+
+                    if (FlagOn( Ccb->Flags, CCB_FLAG_ALLOCATED_FILE_NAME )) {
+
+                        NtfsFreePool( Ccb->FullFileName.Buffer );
+                    }
+
+                    Ccb->FullFileName.Buffer = NewAllocation;
+                    Ccb->FullFileName.MaximumLength = (USHORT) BytesNeeded;
+
+                    SetFlag( Ccb->Flags, CCB_FLAG_ALLOCATED_FILE_NAME );
+                }
+            }
+        }
+
+        //
+        //  Now update the Lcb with the new values if we are to rewrite the buffers.
+        //
+
+        if (!CheckBufferSizeOnly) {
+
+            Lcb->FileNameAttr->ParentDirectory = Scb->Fcb->FileReference;
+            Lcb->FileNameAttr->FileNameLength = (USHORT) LastComponentName->Length / sizeof( WCHAR );
+            Lcb->FileNameAttr->Flags = FileNameFlags;
+
+            Lcb->ExactCaseLink.LinkName.Length =
+            Lcb->IgnoreCaseLink.LinkName.Length = (USHORT) LastComponentName->Length;
+
+            RtlCopyMemory( Lcb->ExactCaseLink.LinkName.Buffer,
+                           LastComponentName->Buffer,
+                           LastComponentName->Length );
+
+            RtlCopyMemory( Lcb->IgnoreCaseLink.LinkName.Buffer,
+                           LastComponentName->Buffer,
+                           LastComponentName->Length );
+
+            NtfsUpcaseName( IrpContext->Vcb->UpcaseTable,
+                            IrpContext->Vcb->UpcaseTableSize,
+                            &Lcb->IgnoreCaseLink.LinkName );
+
+            //
+            //  Now for every ccb attached to us we need to munge it file object name by
+            //  copying over the entire new name
+            //
+
+            Ccb = NULL;
+            while ((Ccb = NtfsGetNextCcb(Lcb, Ccb)) != NULL) {
+
+                //
+                //  We ignore any Ccb's which are associated with open by File Id
+                //  file objects or their file objects have gone through cleanup.
+                //
+
+                if (!FlagOn( Ccb->Flags, CCB_FLAG_OPEN_BY_FILE_ID | CCB_FLAG_CLEANUP )) {
+
+                    Ccb->FullFileName.Length = (USHORT) BytesNeeded;
+                    NextChar = (PCHAR) Ccb->FullFileName.Buffer;
+
+                    RtlCopyMemory( NextChar,
+                                   TargetDirectoryName->Buffer,
+                                   TargetDirectoryName->Length );
+
+                    NextChar += TargetDirectoryName->Length;
+
+                    if (TargetDirectoryName->Length != sizeof( WCHAR )) {
+
+                        *((PWCHAR) NextChar) = L'\\';
+                        NextChar += sizeof( WCHAR );
+
+                    } else {
+
+                        Ccb->FullFileName.Length -= sizeof( WCHAR );
+                    }
+
+                    RtlCopyMemory( NextChar,
+                                   LastComponentName->Buffer,
+                                   LastComponentName->Length );
+
+                    Ccb->LastFileNameOffset = (USHORT) (Ccb->FullFileName.Length - LastComponentName->Length);
+                }
+            }
+
+            //
+            //  Now dequeue ourselves from our old scb and fcb and put us in the
+            //  new fcb and scb queues.
+            //
+
+            RemoveEntryList( &Lcb->ScbLinks );
+            RemoveEntryList( &Lcb->FcbLinks );
+
+            InsertTailList( &Scb->ScbType.Index.LcbQueue, &Lcb->ScbLinks );
+            Lcb->Scb = Scb;
+
+            InsertTailList( &Fcb->LcbQueue, &Lcb->FcbLinks );
+            Lcb->Fcb = Fcb;
+        }
+
+    } finally {
+
+        DebugTrace( -1, Dbg, ("NtfsMoveLcb -> VOID\n") );
     }
-
-    //
-    //  Now dequeue ourselves from our old scb and fcb and put us in the
-    //  new fcb and scb queues.
-    //
-
-    RemoveEntryList( &Lcb->ScbLinks );
-    RemoveEntryList( &Lcb->FcbLinks );
-
-    InsertTailList( &Scb->ScbType.Index.LcbQueue, &Lcb->ScbLinks );
-    Lcb->Scb = Scb;
-
-    InsertTailList( &Fcb->LcbQueue, &Lcb->FcbLinks );
-    Lcb->Fcb = Fcb;
 
     //
     //  And return to our caller
     //
 
-    DebugTrace(-1, Dbg, "NtfsMoveLcb -> VOID\n", 0);
 
     return;
 }
@@ -3757,8 +4623,9 @@ VOID
 NtfsRenameLcb (
     IN PIRP_CONTEXT IrpContext,
     IN PLCB Lcb,
-    IN UNICODE_STRING LastComponentFileName,
-    IN UCHAR FileNameFlags
+    IN PUNICODE_STRING LastComponentFileName,
+    IN UCHAR FileNameFlags,
+    IN BOOLEAN CheckBufferSizeOnly
     )
 
 /*++
@@ -3778,6 +4645,11 @@ Arguments:
 
     FileNameFlags - Indicates if this is an NTFS, DOS or hard link
 
+    CheckBufferSizeOnly - If TRUE we just want to pass through and verify that
+        the buffer sizes of the various structures will be large enough for the
+        new name.
+
+
 Return Value:
 
     None.
@@ -3785,9 +4657,13 @@ Return Value:
 --*/
 
 {
-    PVCB Vcb;
-
+    PVCB Vcb = Lcb->Fcb->Vcb;
     ULONG BytesNeeded;
+    PVOID NewAllocation;
+
+    PSCB ChildScb;
+    PLCB TempLcb;
+    PSCB NextScb;
     PCCB Ccb;
 
     ASSERT_IRP_CONTEXT( IrpContext );
@@ -3795,57 +4671,42 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsRenameLcb, Lcb = %08lx\n", Lcb);
-
     //
-    //  Clear the index offset pointer so we will look this up again.
-    //
-
-    Lcb->QuickIndex.BufferOffset = 0;
-
-    //
-    //  Get rid of any prefixes that might still be attached to us
+    //  If we're not just checking sizes then remove entries from the prefix table
+    //  and the normalized name for descendents of the current scb.
     //
 
-    Vcb = Lcb->Fcb->Vcb;
+    if (!CheckBufferSizeOnly) {
 
-    NtfsRemovePrefix( IrpContext, Lcb );
+        //
+        //  Clear the index offset pointer so we will look this up again.
+        //
 
-    //
-    //  And then traverse the graph underneath our fcb and remove all prefixes
-    //  also used there.  For each child scb under the fcb we will traverse all of
-    //  its descendant Scb children and for each lcb we encounter we will remove its prefixes.
-    //
+        Lcb->QuickIndex.BufferOffset = 0;
 
-    {
-        PSCB ChildScb;
-        PLCB TempLcb;
-        PSCB NextScb;
+        //
+        //  Get rid of any prefixes that might still be attached to us
+        //
+
+        NtfsRemovePrefix( Lcb );
+
+        //
+        //  And then traverse the graph underneath our fcb and remove all prefixes
+        //  also used there.  For each child scb under the fcb we will traverse all of
+        //  its descendant Scb children and for each lcb we encounter we will remove its prefixes.
+        //
 
         ChildScb = NULL;
-        while ((ChildScb = NtfsGetNextChildScb( IrpContext, Lcb->Fcb, ChildScb )) != NULL) {
-
-            //
-            //  If this is an index Scb with a normalized name, then free
-            //  the normalized name.
-            //
-
-            if (NodeType( ChildScb ) == NTFS_NTC_SCB_INDEX &&
-                ChildScb->ScbType.Index.NormalizedName.Buffer != NULL) {
-
-                NtfsFreePagedPool( ChildScb->ScbType.Index.NormalizedName.Buffer );
-
-                ChildScb->ScbType.Index.NormalizedName.Buffer = NULL;
-            }
+        while ((ChildScb = NtfsGetNextChildScb( Lcb->Fcb, ChildScb )) != NULL) {
 
             //
             //  Loop through his Lcb's and remove the prefix entries.
             //
 
             TempLcb = NULL;
-            while ((TempLcb = NtfsGetNextChildLcb(IrpContext, ChildScb, TempLcb)) != NULL) {
+            while ((TempLcb = NtfsGetNextChildLcb(ChildScb, TempLcb)) != NULL) {
 
-                NtfsRemovePrefix( IrpContext, TempLcb );
+                NtfsRemovePrefix( TempLcb );
             }
 
             //
@@ -3854,84 +4715,81 @@ Return Value:
             //
 
             NextScb = ChildScb;
-
-            while ((NextScb = NtfsGetNextScb(IrpContext, NextScb, ChildScb)) != NULL) {
+            while ((NextScb = NtfsGetNextScb(NextScb, ChildScb)) != NULL) {
 
                 //
                 //  If this is an index Scb with a normalized name, then free
                 //  the normalized name.
                 //
 
-                if (NodeType( NextScb ) == NTFS_NTC_SCB_INDEX &&
-                    NextScb->ScbType.Index.NormalizedName.Buffer != NULL) {
+                if ((SafeNodeType( NextScb ) == NTFS_NTC_SCB_INDEX) &&
+                    (NextScb->ScbType.Index.NormalizedName.Buffer != NULL)) {
 
-                    NtfsFreePagedPool( NextScb->ScbType.Index.NormalizedName.Buffer );
-
+                    NtfsFreePool( NextScb->ScbType.Index.NormalizedName.Buffer );
                     NextScb->ScbType.Index.NormalizedName.Buffer = NULL;
+                    NextScb->ScbType.Index.NormalizedName.Length = 0;
                 }
 
                 TempLcb = NULL;
-                while ((TempLcb = NtfsGetNextChildLcb(IrpContext, NextScb, TempLcb)) != NULL) {
+                while ((TempLcb = NtfsGetNextChildLcb(NextScb, TempLcb)) != NULL) {
 
-                    NtfsRemovePrefix( IrpContext, TempLcb );
+                    NtfsRemovePrefix( TempLcb );
                 }
             }
         }
     }
 
     //
-    //  Now change the last component name.  First check if the current
-    //  buffer is large enough.  If it is then free it and allocate
-    //  a bigger chunk.
+    //  Remember the number of bytes needed for the last component.
     //
 
-    if (Lcb->ExactCaseLink.LinkName.MaximumLength < LastComponentFileName.Length) {
+    BytesNeeded = LastComponentFileName->Length;
 
-        PFILE_NAME NewAllocation;
+    //
+    //  Check if we need to allocate a new filename attribute.  If so allocate
+    //  it and store it into the new allocation buffer.
+    //
 
-        NewAllocation = NtfsAllocatePagedPool( LastComponentFileName.Length +
-                                               NtfsFileNameSizeFromLength( LastComponentFileName.Length ));
+    if (Lcb->ExactCaseLink.LinkName.MaximumLength < BytesNeeded) {
 
+        NewAllocation = NtfsAllocatePool( PagedPool,
+                                          BytesNeeded + NtfsFileNameSizeFromLength( BytesNeeded ));
 
-        NewAllocation->ParentDirectory = Lcb->FileNameAttr->ParentDirectory;
+        //
+        //  Set up the existing names into the new buffer.  That way if we have an allocation
+        //  failure below with the Ccb's the Lcb is still in a valid state.
+        //
 
-        NtfsFreePagedPool( Lcb->FileNameAttr );
+        RtlCopyMemory( NewAllocation,
+                       Lcb->FileNameAttr,
+                       NtfsFileNameSizeFromLength( Lcb->ExactCaseLink.LinkName.MaximumLength ));
+
+        RtlCopyMemory( Add2Ptr( NewAllocation, NtfsFileNameSizeFromLength( BytesNeeded )),
+                       Lcb->IgnoreCaseLink.LinkName.Buffer,
+                       Lcb->IgnoreCaseLink.LinkName.MaximumLength );
+
+        if (Lcb->FileNameAttr != (PFILE_NAME) &Lcb->ParentDirectory) {
+
+            NtfsFreePool( Lcb->FileNameAttr );
+        }
 
         Lcb->FileNameAttr = NewAllocation;
 
-        Lcb->ExactCaseLink.LinkName.Buffer = (PWCHAR) &Lcb->FileNameAttr->FileName;
-
-        Lcb->IgnoreCaseLink.LinkName.Buffer = Add2Ptr( NewAllocation,
-                                                       NtfsFileNameSizeFromLength( LastComponentFileName.Length ));
-
         Lcb->ExactCaseLink.LinkName.MaximumLength =
-        Lcb->IgnoreCaseLink.LinkName.MaximumLength = LastComponentFileName.Length;
+        Lcb->IgnoreCaseLink.LinkName.MaximumLength = (USHORT) BytesNeeded;
+
+        Lcb->ExactCaseLink.LinkName.Buffer = (PWCHAR) &Lcb->FileNameAttr->FileName;
+        Lcb->IgnoreCaseLink.LinkName.Buffer = Add2Ptr( Lcb->FileNameAttr,
+                                                       NtfsFileNameSizeFromLength( BytesNeeded ));
     }
 
-    Lcb->FileNameAttr->FileNameLength = (USHORT) LastComponentFileName.Length / sizeof( WCHAR );
-    Lcb->FileNameAttr->Flags = FileNameFlags;
-
-    Lcb->ExactCaseLink.LinkName.Length =
-    Lcb->IgnoreCaseLink.LinkName.Length = LastComponentFileName.Length;
-
-    RtlCopyMemory( Lcb->ExactCaseLink.LinkName.Buffer,
-                   LastComponentFileName.Buffer,
-                   LastComponentFileName.Length );
-
-    RtlCopyMemory( Lcb->IgnoreCaseLink.LinkName.Buffer,
-                   LastComponentFileName.Buffer,
-                   LastComponentFileName.Length );
-
-    NtfsUpcaseName( IrpContext, &Lcb->IgnoreCaseLink.LinkName );
-
-    Lcb->FileNameFlags = FileNameFlags;
-
     //
-    //  Now for every ccb attached to use we need to munge it file object name
+    //  Now for every ccb attached to us we need to check if we need a new
+    //  filename buffer.
     //
 
     Ccb = NULL;
-    while ((Ccb = NtfsGetNextCcb(IrpContext, Lcb, Ccb)) != NULL) {
+    while ((Ccb = NtfsGetNextCcb(Lcb, Ccb)) != NULL) {
 
         //
         //  If the Ccb last component length is zero, this Ccb is for a
@@ -3940,45 +4798,87 @@ Return Value:
         //  compute the length of the new name and see if we have enough space
         //
 
-        if (!FlagOn( Ccb->Flags, CCB_FLAG_OPEN_BY_FILE_ID ) &&
-            !FlagOn( Ccb->Flags, CCB_FLAG_CLEANUP )) {
+        if (!FlagOn( Ccb->Flags, CCB_FLAG_OPEN_BY_FILE_ID | CCB_FLAG_CLEANUP )) {
 
-            BytesNeeded = Ccb->LastFileNameOffset + LastComponentFileName.Length;
+            BytesNeeded = Ccb->LastFileNameOffset + LastComponentFileName->Length;
 
             if ((ULONG)Ccb->FullFileName.MaximumLength < BytesNeeded) {
 
-                PWSTR Temp;
-
                 //
-                //  We don't have enough space so allocate a new buffer and copy over
-                //  the early part of the file name, before deallocating the buffer
-                //  that is too small
+                //  Allocate a new file name buffer and copy the existing data back into it.
                 //
 
-                Temp = NtfsAllocatePagedPool( BytesNeeded );
+                NewAllocation = NtfsAllocatePool( PagedPool, BytesNeeded );
 
-                RtlCopyMemory( Temp, Ccb->FullFileName.Buffer, Ccb->LastFileNameOffset );
+                RtlCopyMemory( NewAllocation,
+                               Ccb->FullFileName.Buffer,
+                               Ccb->FullFileName.Length );
 
                 if (FlagOn( Ccb->Flags, CCB_FLAG_ALLOCATED_FILE_NAME )) {
 
-                    NtfsFreePagedPool( Ccb->FullFileName.Buffer );
+                    NtfsFreePool( Ccb->FullFileName.Buffer );
                 }
 
-                Ccb->FullFileName.Buffer = (PVOID)Temp;
-                Ccb->FullFileName.MaximumLength = (USHORT)BytesNeeded;
+                Ccb->FullFileName.Buffer = NewAllocation;
+                Ccb->FullFileName.MaximumLength = (USHORT) BytesNeeded;
 
                 SetFlag( Ccb->Flags, CCB_FLAG_ALLOCATED_FILE_NAME );
             }
-
-            Ccb->FullFileName.Length = (USHORT)BytesNeeded;
-
-            RtlCopyMemory( &Ccb->FullFileName.Buffer[Ccb->LastFileNameOffset / 2],
-                           LastComponentFileName.Buffer,
-                           LastComponentFileName.Length );
         }
     }
 
-    DebugTrace(-1, Dbg, "NtfsRenameLcb -> VOID\n", 0);
+    //
+    //  Now update the Lcb and Ccb's with the new values if we are to rewrite the buffers.
+    //
+
+    if (!CheckBufferSizeOnly) {
+
+        BytesNeeded = LastComponentFileName->Length;
+
+        Lcb->FileNameAttr->FileNameLength = (USHORT) BytesNeeded / sizeof( WCHAR );
+        Lcb->FileNameAttr->Flags = FileNameFlags;
+
+        Lcb->ExactCaseLink.LinkName.Length =
+        Lcb->IgnoreCaseLink.LinkName.Length = (USHORT) LastComponentFileName->Length;
+
+        RtlCopyMemory( Lcb->ExactCaseLink.LinkName.Buffer,
+                       LastComponentFileName->Buffer,
+                       BytesNeeded );
+
+        RtlCopyMemory( Lcb->IgnoreCaseLink.LinkName.Buffer,
+                       LastComponentFileName->Buffer,
+                       BytesNeeded );
+
+        NtfsUpcaseName( IrpContext->Vcb->UpcaseTable,
+                        IrpContext->Vcb->UpcaseTableSize,
+                        &Lcb->IgnoreCaseLink.LinkName );
+
+        //
+        //  Now for every ccb attached to us we need to munge it file object name by
+        //  copying over the entire new name
+        //
+
+        Ccb = NULL;
+        while ((Ccb = NtfsGetNextCcb(Lcb, Ccb)) != NULL) {
+
+            //
+            //  We ignore any Ccb's which are associated with open by File Id
+            //  file objects.  We also ignore any Ccb's which don't have a file
+            //  object pointer.
+            //
+
+            if (!FlagOn( Ccb->Flags, CCB_FLAG_OPEN_BY_FILE_ID | CCB_FLAG_CLEANUP )) {
+
+                RtlCopyMemory( &Ccb->FullFileName.Buffer[ Ccb->LastFileNameOffset / sizeof( WCHAR ) ],
+                               LastComponentFileName->Buffer,
+                               BytesNeeded );
+
+                Ccb->FullFileName.Length = Ccb->LastFileNameOffset + (USHORT) BytesNeeded;
+            }
+        }
+    }
+
+    return;
 }
 
 
@@ -4016,7 +4916,7 @@ Return Value:
     PLIST_ENTRY Links;
     PCCB NextCcb;
 
-    DebugTrace(+1, Dbg, "NtfsCombineLcbs:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsCombineLcbs:  Entered\n") );
 
     ASSERT_IRP_CONTEXT( IrpContext );
     ASSERT_LCB( PrimaryLcb );
@@ -4033,9 +4933,7 @@ Return Value:
          Links = AuxLcb->CcbQueue.Flink) {
 
         NextCcb = CONTAINING_RECORD( Links, CCB, LcbLinks );
-
         NtfsUnlinkCcbFromLcb( IrpContext, NextCcb );
-
         NtfsLinkCcbToLcb( IrpContext, NextCcb, PrimaryLcb );
     }
 
@@ -4043,7 +4941,7 @@ Return Value:
     //  Now do the prefix entries.
     //
 
-    NtfsRemovePrefix( IrpContext, AuxLcb );
+    NtfsRemovePrefix( AuxLcb );
 
     //
     //  Finally we need to transfer the unclean counts from the
@@ -4052,7 +4950,7 @@ Return Value:
 
     PrimaryLcb->CleanupCount += AuxLcb->CleanupCount;
 
-    DebugTrace(-1, Dbg, "NtfsCombineLcbs:  Entered\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsCombineLcbs:  Entered\n") );
 
     return;
 }
@@ -4060,7 +4958,6 @@ Return Value:
 
 PLCB
 NtfsLookupLcbByFlags (
-    IN PIRP_CONTEXT IrpContext,
     IN PFCB Fcb,
     IN UCHAR FileNameFlags
     )
@@ -4093,7 +4990,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsLookupLcbByFlags:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsLookupLcbByFlags:  Entered\n") );
 
     Lcb = NULL;
 
@@ -4105,14 +5002,14 @@ Return Value:
 
         ThisLcb = CONTAINING_RECORD( Links, LCB, FcbLinks );
 
-        if (ThisLcb->FileNameFlags == FileNameFlags) {
+        if (ThisLcb->FileNameAttr->Flags == FileNameFlags) {
 
             Lcb = ThisLcb;
             break;
         }
     }
 
-    DebugTrace( -1, Dbg, "NtfsLookupLcbByFlags:  Exit\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsLookupLcbByFlags:  Exit\n") );
 
     return Lcb;
 }
@@ -4121,7 +5018,6 @@ Return Value:
 
 ULONG
 NtfsLookupNameLengthViaLcb (
-    IN PIRP_CONTEXT IrpContext,
     IN PFCB Fcb,
     OUT PBOOLEAN LeadingBackslash
     )
@@ -4149,7 +5045,7 @@ Return Value:
 {
     ULONG NameLength;
 
-    DebugTrace( +1, Dbg, "NtfsLookupNameLengthViaLcb:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsLookupNameLengthViaLcb:  Entered\n") );
 
     //
     //  Initialize the return values.
@@ -4226,21 +5122,19 @@ Return Value:
     //  If this is a system file we use the hard coded name.
     //
 
-    } else if (Fcb->FileReference.HighPart == 0
-               && Fcb->FileReference.LowPart <= UPCASE_TABLE_NUMBER) {
+    } else if (NtfsSegmentNumber( &Fcb->FileReference ) <= UPCASE_TABLE_NUMBER) {
 
-        NameLength = NtfsSystemFiles[Fcb->FileReference.LowPart].Length;
+        NameLength = NtfsSystemFiles[NtfsSegmentNumber( &Fcb->FileReference )].Length;
         *LeadingBackslash = TRUE;
     }
 
-    DebugTrace( -1, Dbg, "NtfsLookupNameLengthViaLcb:  Exit - %08lx\n", NameLength );
+    DebugTrace( -1, Dbg, ("NtfsLookupNameLengthViaLcb:  Exit - %08lx\n", NameLength) );
     return NameLength;
 }
 
 
 VOID
 NtfsFileNameViaLcb (
-    IN PIRP_CONTEXT IrpContext,
     IN PFCB Fcb,
     IN PWCHAR FileName,
     ULONG Length,
@@ -4277,7 +5171,7 @@ Return Value:
     ULONG BytesToDrop;
 
     PWCHAR ThisName;
-    DebugTrace( +1, Dbg, "NtfsFileNameViaLcb:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsFileNameViaLcb:  Entered\n") );
 
     //
     //  If there is no Lcb or there are no bytes to copy we are done.
@@ -4384,21 +5278,20 @@ Return Value:
         //  If this is a system file, we use the hard coded name.
         //
 
-        } else if (Fcb->FileReference.HighPart == 0
-                   && Fcb->FileReference.LowPart <= UPCASE_TABLE_NUMBER) {
+        } else if (NtfsSegmentNumber(&Fcb->FileReference) <= UPCASE_TABLE_NUMBER) {
 
-            if (BytesToCopy > NtfsSystemFiles[Fcb->FileReference.LowPart].Length) {
+            if (BytesToCopy > NtfsSystemFiles[NtfsSegmentNumber( &Fcb->FileReference )].Length) {
 
-                BytesToCopy = NtfsSystemFiles[Fcb->FileReference.LowPart].Length;
+                BytesToCopy = NtfsSystemFiles[NtfsSegmentNumber( &Fcb->FileReference )].Length;
             }
 
             RtlCopyMemory( FileName,
-                           NtfsSystemFiles[Fcb->FileReference.LowPart].Buffer,
+                           NtfsSystemFiles[NtfsSegmentNumber( &Fcb->FileReference )].Buffer,
                            BytesToCopy );
         }
     }
 
-    DebugTrace( -1, Dbg, "NtfsFileNameViaLcb:  Exit\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsFileNameViaLcb:  Exit\n") );
     return;
 }
 
@@ -4406,6 +5299,8 @@ Return Value:
 PCCB
 NtfsCreateCcb (
     IN PIRP_CONTEXT IrpContext,
+    IN PFCB Fcb,
+    IN BOOLEAN Indexed,
     IN USHORT EaModificationCount,
     IN ULONG Flags,
     IN UNICODE_STRING FileName,
@@ -4420,14 +5315,17 @@ Routine Description:
 
 Arguments:
 
-    RemainingName - This is the name to store in the Ccb.
+    Fcb - This is the Fcb for the file.  We will check if we can allocate
+        the Ccb from an embedded structure.
+
+    Indexed - Indicates if we need an index Ccb.
 
     EaModificationCount - This is the current modification count in the
         Fcb for this file.
 
     Flags - Informational flags for this Ccb.
 
-    FileObject - Supplies the file object corresponding to this Ccb
+    FileName - Full path used to open this file.
 
     LastFileNameOffset - Supplies the offset (in bytes) of the last component
         for the name that the user is opening.  If this is the root
@@ -4443,24 +5341,77 @@ Return Value:
 {
     PCCB Ccb;
 
+    PAGED_CODE();
+
     ASSERT_IRP_CONTEXT( IrpContext );
 
-    DebugTrace(+1, Dbg, "NtfsCreateCcb\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsCreateCcb\n") );
 
     //
-    //  Allocate a new CCB Record.
+    //  Allocate a new CCB Record.  If the Fcb is nonpaged then we must allocate
+    //  a non-paged ccb.  Then test if we can allocate this out of the Fcb.
     //
 
-    NtfsAllocateCcb( &Ccb );
+    if (FlagOn( Fcb->FcbState, FCB_STATE_NONPAGED )) {
 
-    RtlZeroMemory( Ccb, sizeof(CCB) );
+        if (Indexed) {
+
+            Ccb = NtfsAllocatePoolWithTag( NonPagedPool, sizeof(CCB), 'CftN' );
+
+        } else {
+
+            Ccb = NtfsAllocatePoolWithTag( NonPagedPool, sizeof(CCB_DATA), 'cftN' );
+        }
+
+    } else if (FlagOn( Fcb->FcbState, FCB_STATE_COMPOUND_INDEX ) &&
+               (SafeNodeType( &((PFCB_INDEX) Fcb)->Ccb ) == 0)) {
+
+        Ccb = (PCCB) &((PFCB_INDEX) Fcb)->Ccb;
+
+    } else if (!Indexed &&
+               FlagOn( Fcb->FcbState, FCB_STATE_COMPOUND_DATA ) &&
+               (SafeNodeType( &((PFCB_DATA) Fcb)->Ccb ) == 0)) {
+
+        Ccb = (PCCB) &((PFCB_DATA) Fcb)->Ccb;
+
+    } else {
+
+        if (Indexed) {
+
+            Ccb = (PCCB)ExAllocateFromPagedLookasideList( &NtfsCcbLookasideList );
+
+        } else {
+
+            Ccb = (PCCB)ExAllocateFromPagedLookasideList( &NtfsCcbDataLookasideList );
+        }
+    }
 
     //
-    //  Set the proper node type code and node byte size
+    //  Zero and initialize the correct structure.
     //
 
-    Ccb->NodeTypeCode = NTFS_NTC_CCB;
-    Ccb->NodeByteSize = sizeof(CCB);
+    if (Indexed) {
+
+        RtlZeroMemory( Ccb, sizeof(CCB) );
+
+        //
+        //  Set the proper node type code and node byte size
+        //
+
+        Ccb->NodeTypeCode = NTFS_NTC_CCB_INDEX;
+        Ccb->NodeByteSize = sizeof(CCB);
+
+    } else {
+
+        RtlZeroMemory( Ccb, sizeof(CCB_DATA) );
+
+        //
+        //  Set the proper node type code and node byte size
+        //
+
+        Ccb->NodeTypeCode = NTFS_NTC_CCB_DATA;
+        Ccb->NodeByteSize = sizeof(CCB_DATA);
+    }
 
     //
     //  Copy the Ea modification count.
@@ -4487,7 +5438,26 @@ Return Value:
 
     InitializeListHead( &Ccb->LcbLinks );
 
-    DebugTrace(-1, Dbg, "NtfsCreateCcb -> %08lx\n", Ccb);
+#ifdef _CAIRO_
+
+    if (FlagOn( Fcb->Vcb->QuotaFlags, QUOTA_FLAG_TRACKING_ENABLED )) {
+
+        //
+        //  CAIROBUG: Consider doing this if VCB_QUOTA_TRACKING_REQUESTED
+        //  is on too.
+        //
+
+        //
+        //  Get the owner id of the calling thread.  This must be done at
+        //  create time since that is the only time the owner is valid.
+        //
+
+        Ccb->OwnerId = NtfsGetCallersUserId( IrpContext );
+    }
+
+#endif _CAIRO_
+
+    DebugTrace( -1, Dbg, ("NtfsCreateCcb -> %08lx\n", Ccb) );
 
     return Ccb;
 }
@@ -4496,6 +5466,7 @@ Return Value:
 VOID
 NtfsDeleteCcb (
     IN PIRP_CONTEXT IrpContext,
+    IN PFCB Fcb,
     IN OUT PCCB *Ccb
     )
 
@@ -4506,6 +5477,9 @@ Routine Description:
     This routine deallocates the specified CCB record.
 
 Arguments:
+
+    Fcb - This is the Fcb for the file.  We will check if we can allocate
+        the Ccb from an embedded structure.
 
     Ccb - Supplies the CCB to remove
 
@@ -4519,48 +5493,63 @@ Return Value:
     ASSERT_IRP_CONTEXT( IrpContext );
     ASSERT_CCB( *Ccb );
 
-    DebugTrace(+1, Dbg, "NtfsDeleteCcb, Ccb = %08lx\n", Ccb);
+    PAGED_CODE();
+
+    DebugTrace( +1, Dbg, ("NtfsDeleteCcb, Ccb = %08lx\n", Ccb) );
 
     //
-    //  Deallocate any structures the Ccb is pointing to
+    //  Deallocate any structures the Ccb is pointing to.  The following
+    //  are only in index Ccb.
     //
 
-    if ((*Ccb)->QueryBuffer != NULL)  { NtfsFreePagedPool( (*Ccb)->QueryBuffer ); }
-    if ((*Ccb)->IndexEntry != NULL)   { NtfsFreePagedPool( (*Ccb)->IndexEntry ); }
+    if (SafeNodeType( *Ccb ) == NTFS_NTC_CCB_INDEX) {
 
-    if ((*Ccb)->IndexContext != NULL) {
+        if ((*Ccb)->QueryBuffer != NULL)  { NtfsFreePool( (*Ccb)->QueryBuffer ); }
+        if ((*Ccb)->IndexEntry != NULL)   { NtfsFreePool( (*Ccb)->IndexEntry ); }
 
-        PINDEX_CONTEXT IndexContext;
+        if ((*Ccb)->IndexContext != NULL) {
 
-        if ((*Ccb)->IndexContext->Base != (*Ccb)->IndexContext->LookupStack) {
-            ExFreePool( (*Ccb)->IndexContext->Base );
+            PINDEX_CONTEXT IndexContext;
+
+            if ((*Ccb)->IndexContext->Base != (*Ccb)->IndexContext->LookupStack) {
+                NtfsFreePool( (*Ccb)->IndexContext->Base );
+            }
+
+            //
+            //  Copy the IndexContext pointer into the stack so we don't dereference the
+            //  paged Ccb while holding a spinlock.
+            //
+
+            IndexContext = (*Ccb)->IndexContext;
+            ExFreeToPagedLookasideList( &NtfsIndexContextLookasideList, IndexContext );
         }
-
-        //
-        //  Copy the IndexContext pointer into the stack so we don't dereference the
-        //  paged Ccb while holding a spinlock.
-        //
-
-        IndexContext = (*Ccb)->IndexContext;
-        NtfsFreeIndexContext( IndexContext );
     }
-
-    //
-    //  Remove the ccb from its lcb
-    //
-
-    RemoveEntryList( &(*Ccb)->LcbLinks );
 
     if (FlagOn( (*Ccb)->Flags, CCB_FLAG_ALLOCATED_FILE_NAME )) {
 
-        NtfsFreePagedPool( (*Ccb)->FullFileName.Buffer );
+        NtfsFreePool( (*Ccb)->FullFileName.Buffer );
     }
 
     //
-    //  Deallocate the Ccb.
+    //  Deallocate the Ccb simply clear the flag in the Ccb header.
     //
 
-    NtfsFreeCcb( *Ccb );
+    if ((*Ccb == (PCCB) &((PFCB_DATA) Fcb)->Ccb) ||
+        (*Ccb == (PCCB) &((PFCB_INDEX) Fcb)->Ccb)) {
+
+        (*Ccb)->NodeTypeCode = 0;
+
+    } else {
+
+        if (SafeNodeType( *Ccb ) == NTFS_NTC_CCB_INDEX) {
+
+            ExFreeToPagedLookasideList( &NtfsCcbLookasideList, *Ccb );
+
+        } else {
+
+            ExFreeToPagedLookasideList( &NtfsCcbDataLookasideList, *Ccb );
+        }
+    }
 
     //
     //  Zero out the input pointer
@@ -4572,7 +5561,7 @@ Return Value:
     //  And return to our caller
     //
 
-    DebugTrace(-1, Dbg, "NtfsDeleteCcb -> VOID\n", 0);
+    DebugTrace( -1, Dbg, ("NtfsDeleteCcb -> VOID\n") );
 
     return;
 }
@@ -4604,14 +5593,14 @@ Return Value:
 --*/
 
 {
-    KIRQL SavedIrql;
-    PIRP_CONTEXT IrpContext;
+    PIRP_CONTEXT IrpContext = NULL;
     PIO_STACK_LOCATION IrpSp;
     PVCB Vcb = NULL;
+    BOOLEAN AllocateFromPool = FALSE;
 
     ASSERT_OPTIONAL_IRP( Irp );
 
-    //  DebugTrace(+1, Dbg, "NtfsCreateIrpContext\n", 0);
+    //  DebugTrace( +1, Dbg, ("NtfsCreateIrpContext\n") );
 
     if (ARGUMENT_PRESENT( Irp )) {
 
@@ -4627,51 +5616,19 @@ Return Value:
 
             ExRaiseStatus( STATUS_INVALID_DEVICE_REQUEST );
         }
+
     }
 
     //
-    //  Take out a spin lock and check if the zone is full.  If it is full
-    //  then we release the spinlock and allocate and Irp Context from
-    //  nonpaged pool.
+    //  Allocate an IrpContext from zone if available, otherwise from
+    //  non-paged pool.
     //
 
-    KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &SavedIrql );
     DebugDoit( NtfsFsdEntryCount += 1);
 
-    if (ExIsFullZone( &NtfsData.IrpContextZone )) {
+    IrpContext = (PIRP_CONTEXT)ExAllocateFromNPagedLookasideList( &NtfsIrpContextLookasideList );
 
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, SavedIrql );
-
-        IrpContext = FsRtlAllocatePool( NonPagedPool, sizeof(IRP_CONTEXT) );
-
-        //
-        //  Zero out the irp context and indicate that it is from pool and
-        //  not zone allocated
-        //
-
-        RtlZeroMemory( IrpContext, sizeof(IRP_CONTEXT) );
-
-        SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_FROM_POOL );
-
-    } else {
-
-        //
-        //  At this point we now know that the zone has at least one more
-        //  IRP context record available.  So allocate from the zone and
-        //  then release the spin lock
-        //
-
-        IrpContext = ExAllocateFromZone( &NtfsData.IrpContextZone );
-
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, SavedIrql );
-
-        //
-        //  Zero out the irp context and indicate that it is from zone and
-        //  not pool allocated
-        //
-
-        RtlZeroMemory( IrpContext, sizeof(IRP_CONTEXT) );
-    }
+    RtlZeroMemory( IrpContext, sizeof(IRP_CONTEXT) );
 
     //
     //  Set the proper node type code and node byte size
@@ -4708,10 +5665,7 @@ Return Value:
 
             VolumeDeviceObject = (PVOLUME_DEVICE_OBJECT)IrpSp->DeviceObject;
             Vcb = &VolumeDeviceObject->Vcb;
-            if (IsFileWriteThrough( FileObject, Vcb )
-                && (IrpSp->MajorFunction != IRP_MJ_CREATE)
-                && (IrpSp->MajorFunction != IRP_MJ_CLEANUP)
-                && (IrpSp->MajorFunction != IRP_MJ_CLOSE)) {
+            if (IsFileWriteThrough( FileObject, Vcb )) {
 
                 SetFlag(IrpContext->Flags, IRP_CONTEXT_FLAG_WRITE_THROUGH);
             }
@@ -4752,13 +5706,18 @@ Return Value:
 
     InitializeListHead( &IrpContext->RecentlyDeallocatedQueue );
     InitializeListHead( &IrpContext->ExclusiveFcbList );
-    InitializeListHead( &IrpContext->ExclusivePagingIoList );
+
+    //
+    //  Set up LogFull testing
+    //
+
+    DebugDoit( IrpContext->CurrentFailCount = IrpContext->NextFailCount = NtfsFailCheck );
 
     //
     //  return and tell the caller
     //
 
-    //  DebugTrace(-1, Dbg, "NtfsCreateIrpContext -> %08lx\n", IrpContext);
+    //  DebugTrace( -1, Dbg, ("NtfsCreateIrpContext -> %08lx\n", IrpContext) );
 
     return IrpContext;
 }
@@ -4788,14 +5747,16 @@ Return Value:
 --*/
 
 {
-    KIRQL SavedIrql;
     PFCB Fcb;
 
     ASSERT_IRP_CONTEXT( *IrpContext );
 
-    //  DebugTrace(+1, Dbg, "NtfsDeleteIrpContext, *IrpContext = %08lx\n", *IrpContext);
+    //  DebugTrace( +1, Dbg, ("NtfsDeleteIrpContext, *IrpContext = %08lx\n", *IrpContext) );
 
-    NtfsDeallocateRecordsComplete( *IrpContext );
+    if (!IsListEmpty( &(*IrpContext)->RecentlyDeallocatedQueue )) {
+
+        NtfsDeallocateRecordsComplete( *IrpContext );
+    }
 
     //
     //  Just in case we somehow get here with a transaction ID, clear
@@ -4807,18 +5768,24 @@ Return Value:
     (*IrpContext)->TransactionId = 0;
 
     //
-    //  Finally, now that we have written the forget record, we can free
-    //  any exclusive PagingIo resource that we have been holding.
+    //  Free any exclusive paging I/O resource, or IoAtEof condition,
+    //  this field is overlayed, minimally in write.c.
     //
 
-    while (!IsListEmpty(&(*IrpContext)->ExclusivePagingIoList)) {
+    Fcb = (*IrpContext)->FcbWithPagingExclusive;
+    if (Fcb != NULL) {
 
-        Fcb = (PFCB)CONTAINING_RECORD((*IrpContext)->ExclusivePagingIoList.Flink,
-                                      FCB,
-                                      ExclusivePagingIoLinks );
+        if (Fcb->NodeTypeCode == NTFS_NTC_FCB) {
 
-        NtfsReleasePagingIo( *IrpContext, Fcb );
+            NtfsReleasePagingIo((*IrpContext), Fcb );
+
+        } else {
+
+            FsRtlUnlockFsRtlHeader( (PFSRTL_ADVANCED_FCB_HEADER) Fcb );
+            (*IrpContext)->FcbWithPagingExclusive = NULL;
+        }
     }
+
     //
     //  Finally, now that we have written the forget record, we can free
     //  any exclusive Scbs that we have been holding.
@@ -4830,22 +5797,16 @@ Return Value:
                                       FCB,
                                       ExclusiveFcbLinks );
 
-        //
-        //  If this is the Fcb for the Mft then clear out the clusters
-        //  for the Mft Scb.
-        //
-
-        if (Fcb->Vcb->MftScb != NULL
-            && Fcb == Fcb->Vcb->MftScb->Fcb) {
-
-            FsRtlTruncateLargeMcb( &Fcb->Vcb->MftScb->ScbType.Mft.AddedClusters, (LONGLONG)0 );
-            FsRtlTruncateLargeMcb( &Fcb->Vcb->MftScb->ScbType.Mft.RemovedClusters, (LONGLONG)0 );
-
-            Fcb->Vcb->MftScb->ScbType.Mft.FreeRecordChange = 0;
-            Fcb->Vcb->MftScb->ScbType.Mft.HoleRecordChange = 0;
-        }
-
         NtfsReleaseFcb( *IrpContext, Fcb );
+    }
+
+    //
+    //  Go through and free any Scb's in the queue of shared Scb's for transactions.
+    //
+
+    if ((*IrpContext)->SharedScb != NULL) {
+
+        NtfsReleaseSharedResources( *IrpContext );
     }
 
     //
@@ -4868,7 +5829,7 @@ Return Value:
         if (FlagOn( (*IrpContext)->Flags, IRP_CONTEXT_FLAG_ALLOC_CONTEXT )
             && ((*IrpContext)->Union.NtfsIoContext != NULL)) {
 
-            NtfsFreeIoContext( (*IrpContext)->Union.NtfsIoContext );
+            ExFreeToNPagedLookasideList( &NtfsIoContextLookasideList, (*IrpContext)->Union.NtfsIoContext );
         }
 
         //
@@ -4880,25 +5841,15 @@ Return Value:
 
             SeReleaseSubjectContext( (*IrpContext)->Union.SubjectContext );
 
-            ExFreePool( (*IrpContext)->Union.SubjectContext );
+            NtfsFreePool( (*IrpContext)->Union.SubjectContext );
         }
 
         //
-        //  Return the IRP context record to the zone or to pool depending on its flag
+        // Return the IRP context record to the lookaside or to pool depending
+        // how much is currently in the lookaside
         //
 
-        if (FlagOn((*IrpContext)->Flags, IRP_CONTEXT_FLAG_FROM_POOL)) {
-
-            ExFreePool( *IrpContext );
-
-        } else {
-
-            KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &SavedIrql );
-
-            ExFreeToZone( &NtfsData.IrpContextZone, *IrpContext );
-
-            KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, SavedIrql );
-        }
+        ExFreeToNPagedLookasideList( &NtfsIrpContextLookasideList, *IrpContext );
 
         //
         //  Zero out the input pointer
@@ -4908,14 +5859,20 @@ Return Value:
 
     } else {
 
+        //
+        //  Set up the Irp Context for retry.
+        //
+
         ClearFlag( (*IrpContext)->Flags, IRP_CONTEXT_FLAGS_CLEAR_ON_RETRY );
+        (*IrpContext)->DeallocatedClusters = 0;
+        (*IrpContext)->FreeClusterChange = 0;
     }
 
     //
     //  And return to our caller
     //
 
-    //  DebugTrace(-1, Dbg, "NtfsDeleteIrpContext -> VOID\n", 0);
+    //  DebugTrace( -1, Dbg, ("NtfsDeleteIrpContext -> VOID\n") );
 
     return;
 }
@@ -4926,9 +5883,9 @@ NtfsTeardownStructures (
     IN PIRP_CONTEXT IrpContext,
     IN PVOID FcbOrScb,
     IN PLCB Lcb OPTIONAL,
-    IN BOOLEAN HoldVcbExclusive,
-    OUT PBOOLEAN RemovedFcb OPTIONAL,
-    BOOLEAN DontWaitForAcquire
+    IN BOOLEAN CheckForAttributeTable,
+    IN BOOLEAN DontWaitForAcquire,
+    OUT PBOOLEAN RemovedFcb OPTIONAL
     )
 
 /*++
@@ -4968,14 +5925,16 @@ Arguments:
     Lcb - If specified, this is the path up the tree to perform the
         teardown.
 
-    HoldVcbExclusive - Indicates if this request holds the Vcb
-        exclusively.
-
-    RemovedFcb - Address to store TRUE if we delete the starting Fcb.
+    CheckForAttributeTable - Indicates that we should not teardown an
+        Scb which is in the attribute table.  Instead we will attempt
+        to put an entry on the async close queue.  This will be TRUE
+        if we may need the Scb to abort the current transaction.
 
     DontWaitForAcquire - Indicates whether we should abort the teardown when
-        we can't acquire a parent.  Used to prevent deadlocks for a create
-        cleanup which may be holding the MftScb.
+        we can't acquire a parent.  When called from some path where we may
+        hold the MftScb or another resource in another path up the tree.
+
+    RemovedFcb - Address to store TRUE if we delete the starting Fcb.
 
 Return Value:
 
@@ -5001,13 +5960,13 @@ Return Value:
 
     if (FlagOn( IrpContext->TopLevelIrpContext->Flags, IRP_CONTEXT_FLAG_IN_TEARDOWN )) {
 
-        DebugTrace( 0, Dbg, "Recursive teardown call\n", 0 );
-        DebugTrace(-1, Dbg, "NtfsTeardownStructures -> VOID\n", 0);
+        DebugTrace( 0, Dbg, ("Recursive teardown call\n") );
+        DebugTrace( -1, Dbg, ("NtfsTeardownStructures -> VOID\n") );
 
         return;
     }
 
-    if (NodeType(FcbOrScb) == NTFS_NTC_FCB) {
+    if (SafeNodeType(FcbOrScb) == NTFS_NTC_FCB) {
 
         Fcb = FcbOrScb;
 
@@ -5016,8 +5975,6 @@ Return Value:
         StartingScb = FcbOrScb;
         FcbOrScb = Fcb = StartingScb->Fcb;
     }
-
-    ASSERT_EXCLUSIVE_FCB( Fcb );
 
     SetFlag( IrpContext->TopLevelIrpContext->Flags, IRP_CONTEXT_FLAG_IN_TEARDOWN );
 
@@ -5038,22 +5995,27 @@ Return Value:
 
         //
         //  Check this Fcb for removal.  Remember if all of the Scb's
-        //  and file objects are gone.
+        //  and file objects are gone.  We will try to remove the Fcb
+        //  if the cleanup count is zero or if we are walking up
+        //  one directory path of a mult-link file.  If the Fcb has
+        //  a non-zero cleanup count but the current Scb has a zero
+        //  cleanup count then try to delete the Scb at the very least.
         //
 
-        //
-        //  If the cleanup count for this Fcb is non-zero then we can return immediately.
-        //
+        FcbCanBeRemoved = FALSE;
 
-        if (Fcb->CleanupCount != 0) {
-
-            FcbCanBeRemoved = FALSE;
-
-        } else {
+        if (Fcb->CleanupCount == 0) {
 
             FcbCanBeRemoved = NtfsPrepareFcbForRemoval( IrpContext,
                                                         Fcb,
-                                                        StartingScb );
+                                                        StartingScb,
+                                                        CheckForAttributeTable );
+
+        } else if (ARGUMENT_PRESENT( StartingScb ) &&
+                   (StartingScb->CleanupCount == 0) &&
+                   (StartingScb->AttributeTypeCode != $ATTRIBUTE_LIST)) {
+
+            NtfsRemoveScb( IrpContext, StartingScb, CheckForAttributeTable, &RemovedLcb );
         }
 
         //
@@ -5071,6 +6033,7 @@ Return Value:
                                      CONTAINING_RECORD( Fcb->LcbQueue.Flink,
                                                         LCB,
                                                         FcbLinks ),
+                                     CheckForAttributeTable,
                                      DontWaitForAcquire,
                                      &RemovedLcb,
                                      &LocalRemovedFcb );
@@ -5092,7 +6055,7 @@ Return Value:
             //  go away.  Otherwise we will leave one.
             //
 
-            if (HoldVcbExclusive) {
+            if (NtfsIsExclusiveVcb( Fcb->Vcb )) {
 
                 Links = Fcb->LcbQueue.Flink;
 
@@ -5111,7 +6074,8 @@ Return Value:
                                          Fcb->Vcb,
                                          Fcb,
                                          CONTAINING_RECORD( Links, LCB, FcbLinks ),
-                                         DontWaitForAcquire,
+                                         CheckForAttributeTable,
+                                         FALSE,
                                          &RemovedLcb,
                                          &LocalRemovedFcb );
 
@@ -5137,9 +6101,9 @@ Return Value:
                     //
 
                     if (LocalRemovedFcb ||
-                        NextLink == &Fcb->LcbQueue ||
+                        (NextLink == &Fcb->LcbQueue) ||
                         (!FcbCanBeRemoved &&
-                         NextLink->Flink == &Fcb->LcbQueue)) {
+                         (NextLink->Flink == &Fcb->LcbQueue))) {
 
                         try_return( NOTHING );
                     }
@@ -5161,10 +6125,10 @@ Return Value:
                                      Fcb->Vcb,
                                      Fcb,
                                      Lcb,
+                                     CheckForAttributeTable,
                                      DontWaitForAcquire,
                                      &RemovedLcb,
                                      &LocalRemovedFcb );
-
             }
         }
 
@@ -5181,6 +6145,8 @@ Return Value:
 
             *RemovedFcb = TRUE;
         }
+
+        ClearFlag( IrpContext->TopLevelIrpContext->Flags, IRP_CONTEXT_FLAG_IN_TEARDOWN );
     }
 
     return;
@@ -5189,10 +6155,9 @@ Return Value:
 
 VOID
 NtfsIncrementCleanupCounts (
-    IN PIRP_CONTEXT IrpContext,
     IN PSCB Scb,
     IN PLCB Lcb OPTIONAL,
-    IN ULONG IncrementCount
+    IN BOOLEAN NonCachedHandle
     )
 
 /*++
@@ -5207,8 +6172,7 @@ Arguments:
 
     Lcb - Optionally supplies the Lcb used in this operation
 
-    IncrementCount - Supplies the positive delta to add to the cleanup counts for
-        the Scb, [Lcb,] Fcb, and Vcb.
+    NonCachedHandle - Indicates this handle is for a user non-cached handle.
 
 Return Value:
 
@@ -5225,14 +6189,17 @@ Return Value:
     //  and decrements cleanup counts
     //
 
-    if (ARGUMENT_PRESENT(Lcb)) { Lcb->CleanupCount += IncrementCount; }
+    if (ARGUMENT_PRESENT(Lcb)) { Lcb->CleanupCount += 1; }
 
-    Scb->CleanupCount += IncrementCount;
-    Scb->Fcb->CleanupCount += IncrementCount;
+    InterlockedIncrement( &Scb->CleanupCount );
+    Scb->Fcb->CleanupCount += 1;
 
-    ExInterlockedAddUlong( &Vcb->CleanupCount,
-                           IncrementCount,
-                           &NtfsData.VolumeCheckpointSpinLock );
+    if (NonCachedHandle) {
+
+        Scb->NonCachedCleanupCount += 1;
+    }
+
+    InterlockedIncrement( &Vcb->CleanupCount );
 
     return;
 }
@@ -5240,9 +6207,7 @@ Return Value:
 
 VOID
 NtfsIncrementCloseCounts (
-    IN PIRP_CONTEXT IrpContext,
     IN PSCB Scb,
-    IN ULONG IncrementCount,
     IN BOOLEAN SystemFile,
     IN BOOLEAN ReadOnly
     )
@@ -5256,9 +6221,6 @@ Routine Description:
 Arguments:
 
     Scb - Supplies the Scb used in this operation
-
-    IncrementCount - Supplies the positive delta to add to the close counts for
-        the Scb, Fcb, and Vcb
 
     SystemFile - Indicates if the Scb is for a system file  (if so then
         the Vcb system file close count in also incremented)
@@ -5281,25 +6243,19 @@ Return Value:
     //  and decrements close counts
     //
 
-    Scb->CloseCount += IncrementCount;
-    Scb->Fcb->CloseCount += IncrementCount;
+    InterlockedIncrement( &Scb->CloseCount );
+    InterlockedIncrement( &Scb->Fcb->CloseCount );
 
-    ExInterlockedAddUlong( &Vcb->CloseCount,
-                           IncrementCount,
-                           &NtfsData.VolumeCheckpointSpinLock );
+    InterlockedIncrement( &Vcb->CloseCount );
 
     if (SystemFile) {
 
-        ExInterlockedAddUlong( &Vcb->SystemFileCloseCount,
-                               IncrementCount,
-                               &NtfsData.VolumeCheckpointSpinLock );
+        InterlockedIncrement( &Vcb->SystemFileCloseCount );
     }
 
     if (ReadOnly) {
 
-        ExInterlockedAddUlong( &Vcb->ReadOnlyCloseCount,
-                               IncrementCount,
-                               &NtfsData.VolumeCheckpointSpinLock );
+        InterlockedIncrement( &Vcb->ReadOnlyCloseCount );
     }
 
     //
@@ -5313,10 +6269,9 @@ Return Value:
 
 VOID
 NtfsDecrementCleanupCounts (
-    IN PIRP_CONTEXT IrpContext,
     IN PSCB Scb,
     IN PLCB Lcb OPTIONAL,
-    IN ULONG DecrementCount
+    IN BOOLEAN NonCachedHandle
     )
 
 /*++
@@ -5332,8 +6287,7 @@ Arguments:
 
     Lcb - Optionally supplies the Lcb used in this operation
 
-    DecrementCount - Supplies the positive delta to subtract from the cleanup counts
-        of the Scb, [Lcb,] Fcb, and Vcb.
+    NonCachedHandle - Indicates this handle is for a user non-cached handle.
 
 Return Value:
 
@@ -5343,139 +6297,83 @@ Return Value:
 
 {
     PVCB Vcb = Scb->Vcb;
-    LONG DecrementLong;
 
     ASSERT_SCB( Scb );
     ASSERT_FCB( Scb->Fcb );
     ASSERT_VCB( Scb->Fcb->Vcb );
     ASSERT_OPTIONAL_LCB( Lcb );
 
-    DecrementLong = 0 - DecrementCount;
-
     //
     //  First we decrement the appropriate cleanup counts
     //
 
-    if (ARGUMENT_PRESENT(Lcb)) { Lcb->CleanupCount += (ULONG) DecrementLong; }
+    if (ARGUMENT_PRESENT(Lcb)) { Lcb->CleanupCount -= 1; }
 
-    Scb->CleanupCount += (ULONG) DecrementLong;
-    Scb->Fcb->CleanupCount += (ULONG) DecrementLong;
+    InterlockedDecrement( &Scb->CleanupCount );
+    Scb->Fcb->CleanupCount -= 1;
 
-    ExInterlockedAddUlong( &Vcb->CleanupCount,
-                           (ULONG) DecrementLong,
-                           &NtfsData.VolumeCheckpointSpinLock );
+    if (NonCachedHandle) {
+
+        Scb->NonCachedCleanupCount -= 1;
+    }
+
+    InterlockedDecrement( &Vcb->CleanupCount );
 
     //
     //  Now if the Fcb's cleanup count is zero that indicates that we are
     //  done with this Fcb from a user handle standpoint and we should
-    //  now scan through all of the Scb that are opened under this
+    //  now scan through all of the Scb's that are opened under this
     //  Fcb and shutdown any internal attributes streams we have open.
-    //  For example, EAs and ACLs
+    //  For example, EAs and ACLs.  We only need to do one.  The domino effect
+    //  will take of the rest.
     //
 
     if (Scb->Fcb->CleanupCount == 0) {
 
-        PSCB TempScb;
         PSCB NextScb;
-        BOOLEAN IncrementNextScbCleanup = FALSE;
 
         //
         //  Remember if we are dealing with a system file and return immediately.
         //
 
-        if (Scb->Fcb->FileReference.LowPart < FIRST_USER_FILE_NUMBER
-            && Scb->Fcb->FileReference.HighPart == 0
-            && Scb->Fcb->FileReference.LowPart != ROOT_FILE_NAME_INDEX_NUMBER) {
+        if (NtfsSegmentNumber( &Scb->Fcb->FileReference ) < FIRST_USER_FILE_NUMBER &&
+            NtfsSegmentNumber( &Scb->Fcb->FileReference ) != ROOT_FILE_NAME_INDEX_NUMBER) {
 
             return;
         }
 
-        //
-        //  Loop through all of the existing Scbs.
-        //
+        for (NextScb = CONTAINING_RECORD(Scb->Fcb->ScbQueue.Flink, SCB, FcbLinks);
+             &NextScb->FcbLinks != &Scb->Fcb->ScbQueue;
+             NextScb = CONTAINING_RECORD( NextScb->FcbLinks.Flink, SCB, FcbLinks )) {
 
-        try {
+            //
+            //  Skip the root index on the volume.
+            //
 
-            for (TempScb = CONTAINING_RECORD(Scb->Fcb->ScbQueue.Flink, SCB, FcbLinks);
-                 &TempScb->FcbLinks != &Scb->Fcb->ScbQueue;
-                 TempScb = NextScb) {
+            if (SafeNodeType( NextScb ) == NTFS_NTC_SCB_ROOT_INDEX) {
 
-                //
-                //  We keep one ahead of the queue because our later call to delete
-                //  attribute stream might just remove the Scb while we are using it.
-                //
-
-                NextScb = CONTAINING_RECORD( TempScb->FcbLinks.Flink, SCB, FcbLinks );
-
-                //
-                //  Skip over the Scb that we were called with unless there is
-                //  an internal stream file we may want to get rid of now.
-                //
-
-                if (((TempScb->FileObject == NULL)
-                     && ((Scb->Fcb->LinkCount != 0) || (TempScb == Scb)))
-
-                    || (NodeType( TempScb ) == NTFS_NTC_SCB_ROOT_INDEX)
-
-                    || (NodeType( TempScb ) == NTFS_NTC_SCB_INDEX
-                        && !IsListEmpty( &TempScb->ScbType.Index.LcbQueue ))) {
-
-                    continue;
-                }
-
-                //
-                //  The call to uninitialize below may generate a close call.
-                //  We increment the cleanup count of the next Scb to prevent
-                //  it from going away in a TearDownStructures as part of that
-                //  close.
-                //
-
-                if (TempScb->FcbLinks.Flink != &Scb->Fcb->ScbQueue) {
-
-                    NextScb->CleanupCount += 1;
-                    IncrementNextScbCleanup = TRUE;
-                }
-
-                //
-                //  If we do not have a file object, we just have to create one.
-                //  before we do the uninitialize
-                //
-
-                if (TempScb->FileObject == NULL) {
-
-                    NtfsCreateInternalAttributeStream( IrpContext, TempScb, FALSE );
-                }
-
-                //
-                //  Make sure the stream file goes away too.
-                //
-
-                NtfsDeleteInternalAttributeStream( IrpContext,
-                                                   TempScb,
-                                                   (BOOLEAN) (Scb->Fcb->LinkCount == 0) );
-
-                //
-                //  Decrement the cleanup count of the next Scb if we incremented
-                //  it.
-                //
-
-                if (IncrementNextScbCleanup) {
-
-                    NextScb->CleanupCount -= 1;
-                    IncrementNextScbCleanup = FALSE;
-                }
+                continue;
             }
 
-        } finally {
-
             //
-            //  If this is an abnormal termination and we incremented the cleanup
-            //  count, we decrement it here.
+            //  If we have an index with children then break out.
             //
 
-            if (AbnormalTermination() && IncrementNextScbCleanup) {
+            if ((SafeNodeType( NextScb ) == NTFS_NTC_SCB_INDEX) &&
+                !IsListEmpty( &NextScb->ScbType.Index.LcbQueue )) {
 
-                NextScb->CleanupCount -= 1;
+                break;
+            }
+
+            //
+            //  If there is an internal stream then dereference it and get out.
+            //
+
+            if (NextScb->FileObject != NULL) {
+
+                NtfsDeleteInternalAttributeStream( NextScb,
+                                                   (BOOLEAN) (Scb->Fcb->LinkCount == 0) );
+                break;
             }
         }
     }
@@ -5493,12 +6391,9 @@ NtfsDecrementCloseCounts (
     IN PIRP_CONTEXT IrpContext,
     IN PSCB Scb,
     IN PLCB Lcb OPTIONAL,
-    IN ULONG DecrementCount,
-    IN BOOLEAN HoldVcbExclusive,
     IN BOOLEAN SystemFile,
     IN BOOLEAN ReadOnly,
-    IN BOOLEAN DecrementCountsOnly,
-    OUT PBOOLEAN RemovedFcb OPTIONAL
+    IN BOOLEAN DecrementCountsOnly
     )
 
 /*++
@@ -5514,19 +6409,12 @@ Arguments:
 
     Lcb - Used if calling teardown to know which path to take.
 
-    DecrementCount - Supplies the positive delta to substract from the close counts
-        for the Scb, Fcb, and Vcb.
-
-    HoldVcbExclusive - Used if calling teardown to know how the Vcb was acquired.
-
     SystemFile - Indicates if the Scb is for a system file
 
     ReadOnly - Indicates if the Scb was opened readonly
 
     DecrementCountsOnly - Indicates if this operation should only modify the
         count fields.
-
-    RemovedFcb - Address to store TRUE if we remove this Fcb.
 
 Return Value:
 
@@ -5538,37 +6426,27 @@ Return Value:
     PFCB Fcb = Scb->Fcb;
     PVCB Vcb = Scb->Vcb;
 
-    LONG DecrementLong;
-
     ASSERT_SCB( Scb );
     ASSERT_FCB( Fcb );
     ASSERT_VCB( Fcb->Vcb );
-
-    DecrementLong = 0 - DecrementCount;
 
     //
     //  Decrement the close counts
     //
 
-    Scb->CloseCount += (ULONG) DecrementLong;
-    Fcb->CloseCount += (ULONG) DecrementLong;
+    InterlockedDecrement( &Scb->CloseCount );
+    InterlockedDecrement( &Fcb->CloseCount );
 
-    ExInterlockedAddUlong( &Vcb->CloseCount,
-                           (ULONG) DecrementLong,
-                           &NtfsData.VolumeCheckpointSpinLock );
+    InterlockedDecrement( &Vcb->CloseCount );
 
     if (SystemFile) {
 
-        ExInterlockedAddUlong( &Vcb->SystemFileCloseCount,
-                               (ULONG) DecrementLong,
-                               &NtfsData.VolumeCheckpointSpinLock );
+        InterlockedDecrement( &Vcb->SystemFileCloseCount );
     }
 
     if (ReadOnly) {
 
-        ExInterlockedAddUlong( &Vcb->ReadOnlyCloseCount,
-                               (ULONG) DecrementLong,
-                               &NtfsData.VolumeCheckpointSpinLock );
+        InterlockedDecrement( &Vcb->ReadOnlyCloseCount );
     }
 
     //
@@ -5599,18 +6477,17 @@ Return Value:
 
             (Scb->CleanupCount == 0
              && Scb->FileObject != NULL
-             && (Scb->Fcb->FileReference.LowPart >= FIRST_USER_FILE_NUMBER
-                 || Scb->Fcb->FileReference.HighPart != 0)
-             && ((NodeType( Scb ) == NTFS_NTC_SCB_DATA)
-                 || (NodeType( Scb ) == NTFS_NTC_SCB_MFT)
+             && (NtfsSegmentNumber( &Scb->Fcb->FileReference ) >= FIRST_USER_FILE_NUMBER)
+             && ((SafeNodeType( Scb ) == NTFS_NTC_SCB_DATA)
+                 || (SafeNodeType( Scb ) == NTFS_NTC_SCB_MFT)
                  || IsListEmpty( &Scb->ScbType.Index.LcbQueue )))) {
 
             NtfsTeardownStructures( IrpContext,
                                     Scb,
                                     Lcb,
-                                    HoldVcbExclusive,
-                                    RemovedFcb,
-                                    FALSE );
+                                    FALSE,
+                                    FALSE,
+                                    NULL );
         }
     }
 
@@ -5621,239 +6498,150 @@ Return Value:
     return;
 }
 
+PERESOURCE
+NtfsAllocateEresource (
+    )
+{
+    KIRQL _SavedIrql;
+    PERESOURCE Eresource;
+
+    KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &_SavedIrql );
+    if (NtfsData.FreeEresourceSize > 0) {
+        Eresource = NtfsData.FreeEresourceArray[--NtfsData.FreeEresourceSize];
+        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );
+    } else {
+        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );
+        Eresource = NtfsAllocatePoolWithTag( NonPagedPool, sizeof(ERESOURCE), 'rftN' );
+        ExInitializeResource( Eresource );
+        NtfsData.FreeEresourceMiss += 1;
+    }
+
+    return Eresource;
+}
+
+VOID
+NtfsFreeEresource (
+    IN PERESOURCE Eresource
+    )
+{
+    KIRQL _SavedIrql;
+
+    //
+    //  Do an unsafe test to see if we should put this on our list.
+    //  We want to reinitialize this before adding to the list so
+    //  we don't have a bunch of resources which appear to be held.
+    //
+
+    if (NtfsData.FreeEresourceSize < NtfsData.FreeEresourceTotal) {
+
+        ExReinitializeResourceLite( Eresource );
+
+        //
+        //  Now acquire the spinlock and do a real test.
+        //
+
+        KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &_SavedIrql );
+        if (NtfsData.FreeEresourceSize < NtfsData.FreeEresourceTotal) {
+            NtfsData.FreeEresourceArray[NtfsData.FreeEresourceSize++] = Eresource;
+            KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );
+        } else {
+            KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );
+            ExDeleteResource( Eresource );
+            NtfsFreePool( Eresource );
+        }
+
+    } else {
+
+        ExDeleteResource( Eresource );
+        NtfsFreePool( Eresource );
+    }
+
+    return;
+}
+
 
 PVOID
-NtfsAllocatePagedPool (
-    IN ULONG NumberOfBytes
+NtfsAllocateFcbTableEntry (
+    IN PRTL_GENERIC_TABLE FcbTable,
+    IN CLONG ByteSize
     )
 
 /*++
 
 Routine Description:
 
-    This routine allocates paged pool for NTFS.  It uses a cached number of
-    free blocks to speed itself up.
+    This is a generic table support routine to allocate memory
 
 Arguments:
 
-    NumberOfBytes - Supplies the number of bytes to allocate
+    FcbTable - Supplies the generic table being used
+
+    ByteSize - Supplies the number of bytes to allocate
 
 Return Value:
 
-    PVOID - returns a pointer to the allocated block
+    PVOID - Returns a pointer to the allocated data
 
 --*/
 
 {
-    PVOID Results;
     KIRQL _SavedIrql;
+    PVOID FcbTableEntry;
 
-    //
-    //  If the bytes size we are allocating fits in 128 bytes minus our known
-    //  header then we will try the 128 byte size cache.
-    //
+    UNREFERENCED_PARAMETER( FcbTable );
 
-    if (NumberOfBytes <= (128 - 8)) {
-
-        KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &_SavedIrql );
-
-        if (NtfsData.Free128ByteSize > 0) {
-
-            Results = NtfsData.Free128ByteArray[--NtfsData.Free128ByteSize];
-            KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );
-
-        } else {
-
-            KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );
-            Results = FsRtlAllocatePool( NtfsPagedPool, 128-8 );
-
-        }
-
-    //
-    //  Do the same test for 256 bytes
-    //
-
-    } else if (NumberOfBytes <= (256-8)) {
-
-        KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &_SavedIrql );
-
-        if (NtfsData.Free256ByteSize > 0) {
-
-            Results = NtfsData.Free256ByteArray[--NtfsData.Free256ByteSize];
-            KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );
-
-        } else {
-
-            KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );
-            Results = FsRtlAllocatePool( NtfsPagedPool, 256-8 );
-        }
-
-    //
-    //  Do the same test for 512 bytes
-    //
-
-    } else if (NumberOfBytes <= (512-8)) {
-
-        KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &_SavedIrql );
-
-        if (NtfsData.Free512ByteSize > 0) {
-
-            Results = NtfsData.Free512ByteArray[--NtfsData.Free512ByteSize];
-            KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );
-
-        } else {
-
-            KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );
-            Results = FsRtlAllocatePool( NtfsPagedPool, 512-8 );
-        }
-
-    //
-    //  The amount to allocate is larger than we have available so
-    //  now call pool to get this larger chunk
-    //
-
+    KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &_SavedIrql );
+    if (NtfsData.FreeFcbTableSize > 0) {
+        FcbTableEntry = NtfsData.FreeFcbTableArray[--NtfsData.FreeFcbTableSize];
+        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );
     } else {
-
-        Results = FsRtlAllocatePool( NtfsPagedPool, NumberOfBytes );
+        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );
+        FcbTableEntry = NtfsAllocatePool( PagedPool, ByteSize );
     }
 
-    return Results;
+    return FcbTableEntry;
 }
 
-
 VOID
-NtfsFreePagedPool (
-    IN PVOID PoolBlock
+NtfsFreeFcbTableEntry (
+    IN PRTL_GENERIC_TABLE FcbTable,
+    IN PVOID Buffer
     )
 
 /*++
 
 Routine Description:
 
-    This routine frees previously allocated paged pool using a small cache
-    of free blocks to speed itself up
+    This is a generic table support routine that deallocates memory
 
 Arguments:
 
-    PoolBlock - Supplies a pointer to the block being freed
+    FcbTable - Supplies the generic table being used
+
+    Buffer - Supplies the buffer being deallocated
 
 Return Value:
 
-    None
+    None.
 
 --*/
 
 {
-    ULONG PoolBlockSize;
     KIRQL _SavedIrql;
-    BOOLEAN QuotaCharged;
 
-    //
-    //  Determine the pool block size
-    //
+    UNREFERENCED_PARAMETER( FcbTable );
 
-    PoolBlockSize = ExQueryPoolBlockSize( PoolBlock, &QuotaCharged );
-
-    //
-    //**** check to see if it was allocated with quota. At a later date
-    //     ExQueryPoolBlockSize will return this information but for now
-    //     we'll compute it ourselves
-    //
-
-//  {
-//      PPOOL_HEADER Entry = (PPOOL_HEADER)((PCH)PoolBlock - POOL_OVERHEAD);
-//
-//      if ((PoolBlockSize >= POOL_PAGE_SIZE) || (Entry->ProcessBilled != NULL)) {
-//
-//          ExFreePool( PoolBlock );
-//          return;
-//      }
-//  }
-
-    if (PoolBlockSize > PAGE_SIZE || QuotaCharged) {
-
-        ExFreePool( PoolBlock );
-        return;
-    }
-
-    //
-    //  If the block size is less then 128 minus our fixed header then
-    //  send this block back to pool
-    //
-
-    if (PoolBlockSize < (128-8)) {
-
-        ExFreePool( PoolBlock );
-
-    //
-    //  Otherwise if the block is less then 256 minus the fixed header then
-    //  we know it will satisfy our 128 byte requests to add it to the
-    //  128 byte free queue
-    //
-
-    } else if (PoolBlockSize < (256-8)) {
-
-        KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &_SavedIrql );
-
-        if (NtfsData.Free128ByteSize < FREE_128_BYTE_SIZE) {
-
-            NtfsData.Free128ByteArray[NtfsData.Free128ByteSize++] = PoolBlock;
-            KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );
-
-        } else {
-
-            KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );
-            ExFreePool( PoolBlock );
-        }
-
-    //
-    //  Do the test for blocks less than 512 bytes
-    //
-
-    } else if (PoolBlockSize < (512-8)) {
-
-        KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &_SavedIrql );
-
-        if (NtfsData.Free256ByteSize < FREE_256_BYTE_SIZE) {
-
-            NtfsData.Free256ByteArray[NtfsData.Free256ByteSize++] = PoolBlock;
-            KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );
-
-        } else {
-
-            KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );
-            ExFreePool( PoolBlock );
-        }
-
-    //
-    //  Do the test for blocks less than 1024 bytes
-    //
-
-    } else if (PoolBlockSize < (1024-8)) {
-
-        KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &_SavedIrql );
-
-        if (NtfsData.Free512ByteSize < FREE_512_BYTE_SIZE) {
-
-            NtfsData.Free512ByteArray[NtfsData.Free512ByteSize++] = PoolBlock;
-            KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );
-
-        } else {
-
-            KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );
-            ExFreePool( PoolBlock );
-        }
-
-    //
-    //  Otherwise this is a big block so just return it to pool
-    //
-
+    KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &_SavedIrql );
+    if (NtfsData.FreeFcbTableSize < FREE_FCB_TABLE_SIZE) {
+        NtfsData.FreeFcbTableArray[NtfsData.FreeFcbTableSize++] = Buffer;
+        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );
     } else {
-
-        ExFreePool( PoolBlock );
+        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );
+        NtfsFreePool( Buffer );
     }
-}
 
+    return;
+}
 
 
 //
@@ -5862,7 +6650,6 @@ Return Value:
 
 VOID
 NtfsCheckScbForCache (
-    IN PIRP_CONTEXT IrpContext,
     IN OUT PSCB Scb
     )
 
@@ -5929,6 +6716,7 @@ BOOLEAN
 NtfsRemoveScb (
     IN PIRP_CONTEXT IrpContext,
     IN PSCB Scb,
+    IN BOOLEAN CheckForAttributeTable,
     OUT PBOOLEAN HeldByStream
     )
 
@@ -5958,6 +6746,11 @@ Arguments:
 
     Scb - Supplies the Scb to test
 
+    CheckForAttributeTable - Indicates that we don't want to remove this
+        Scb in this thread if it is in the open attribute table.  We will
+        queue an async close in this case.  This is to prevent us from
+        deleting an Scb which may be needed in the abort path.
+
     HeldByStream - Indicates that this Scb was held by a stream file which
         we started the close on.
 
@@ -5975,8 +6768,8 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsRemoveScb:  Entered\n", 0 );
-    DebugTrace(  0, Dbg, "Scb   ->  %08lx\n", Scb );
+    DebugTrace( +1, Dbg, ("NtfsRemoveScb:  Entered\n") );
+    DebugTrace( 0, Dbg, ("Scb   ->  %08lx\n", Scb) );
 
     ScbRemoved = FALSE;
     *HeldByStream = FALSE;
@@ -5986,7 +6779,7 @@ Return Value:
     //  then this Scb is a candidate for removal.
     //
 
-    if (NodeType( Scb ) != NTFS_NTC_SCB_ROOT_INDEX
+    if (SafeNodeType( Scb ) != NTFS_NTC_SCB_ROOT_INDEX
         && Scb->CleanupCount == 0) {
 
         //
@@ -5997,32 +6790,44 @@ Return Value:
         //  can start the cleanup on the file object.
         //
 
-        if (NodeType( Scb ) == NTFS_NTC_SCB_DATA
-            || NodeType( Scb ) == NTFS_NTC_SCB_MFT
-            || IsListEmpty( &Scb->ScbType.Index.LcbQueue )) {
-
-            if (Scb->CloseCount == 0) {
-
-                NtfsDeleteScb( IrpContext, &Scb );
-                ScbRemoved = TRUE;
+        if ((SafeNodeType( Scb ) == NTFS_NTC_SCB_DATA) ||
+            (SafeNodeType( Scb ) == NTFS_NTC_SCB_MFT) ||
+            IsListEmpty( &Scb->ScbType.Index.LcbQueue )) {
 
             //
-            //  Else we know the open count is 1.  If there is a stream
-            //  file, we discard it (but not for the special system
-            //  files) that get removed on dismount
+            //  Check if we need to post a request to the async queue.
             //
 
-            } else if ((Scb->FileObject != NULL) && (Scb->Fcb->FileReference.LowPart >= FIRST_USER_FILE_NUMBER)) {
+            if (CheckForAttributeTable &&
+                (Scb->NonpagedScb->OpenAttributeTableIndex != 0)) {
 
-                NtfsDeleteInternalAttributeStream( IrpContext,
-                                                   Scb,
-                                                   FALSE );
-                *HeldByStream = TRUE;
+                NtfsAddScbToFspClose( IrpContext, Scb, FALSE );
+
+            } else {
+
+                if (Scb->CloseCount == 0) {
+
+                    NtfsDeleteScb( IrpContext, &Scb );
+                    ScbRemoved = TRUE;
+
+                //
+                //  Else we know the open count is 1 or 2.  If there is a stream
+                //  file, we discard it (but not for the special system
+                //  files) that get removed on dismount
+                //
+
+                } else if (((Scb->FileObject != NULL) || (Scb->Header.FileObjectC != NULL)) &&
+                           (NtfsSegmentNumber( &Scb->Fcb->FileReference ) >= FIRST_USER_FILE_NUMBER)) {
+
+                    NtfsDeleteInternalAttributeStream( Scb,
+                                                       FALSE );
+                    *HeldByStream = TRUE;
+                }
             }
         }
     }
 
-    DebugTrace( -1, Dbg, "NtfsRemoveScb:  Exit  ->  %04x\n", ScbRemoved );
+    DebugTrace( -1, Dbg, ("NtfsRemoveScb:  Exit  ->  %04x\n", ScbRemoved) );
 
     return ScbRemoved;
 }
@@ -6036,7 +6841,8 @@ BOOLEAN
 NtfsPrepareFcbForRemoval (
     IN PIRP_CONTEXT IrpContext,
     IN PFCB Fcb,
-    IN PSCB StartingScb OPTIONAL
+    IN PSCB StartingScb OPTIONAL,
+    IN BOOLEAN CheckForAttributeTable
     )
 
 /*++
@@ -6054,6 +6860,11 @@ Arguments:
     Fcb - This is the Fcb to remove.
 
     StartingScb - This is the Scb to remove first.
+
+    CheckForAttributeTable - Indicates that we should not teardown an
+        Scb which is in the attribute table.  Instead we will attempt
+        to put an entry on the async close queue.  This will be TRUE
+        if we may need the Scb to abort the current transaction.
 
 Return Value:
 
@@ -6104,7 +6915,7 @@ Return Value:
         //  case we can delete the Scb now.
         //
 
-        if (!NtfsRemoveScb( IrpContext, Scb, &HeldByStream )) {
+        if (!NtfsRemoveScb( IrpContext, Scb, CheckForAttributeTable, &HeldByStream )) {
 
             if (HeldByStream &&
                 Scb->CloseCount == 0) {
@@ -6134,6 +6945,7 @@ NtfsTeardownFromLcb (
     IN PVCB Vcb,
     IN PFCB StartingFcb,
     IN PLCB StartingLcb,
+    IN BOOLEAN CheckForAttributeTable,
     IN BOOLEAN DontWaitForAcquire,
     OUT PBOOLEAN RemovedStartingLcb,
     OUT PBOOLEAN RemovedStartingFcb
@@ -6159,10 +6971,14 @@ Arguments:
         this may be a bogus pointer.  It is only valid if there
         is at least one Fcb in the queue.
 
-    DontWaitForAcquire - Indicates if we should not wait to acquire the
-        parent resource in the teardown path.  Use to prevent deadlocks in
-        the case where we are cleaning up after a create and may hold
-        the MftScb.
+    CheckForAttributeTable - Indicates that we should not teardown an
+        Scb which is in the attribute table.  Instead we will attempt
+        to put an entry on the async close queue.  This will be TRUE
+        if we may need the Scb to abort the current transaction.
+
+    DontWaitForAcquire - Indicates whether we should abort the teardown when
+        we can't acquire a parent.  When called from some path where we may
+        hold the MftScb or another resource in another path up the tree.
 
     RemovedStartingLcb - Address to store TRUE if we remove the
         starting Lcb.
@@ -6195,10 +7011,11 @@ Return Value:
 
     try {
 
-        if (!FlagOn( Fcb->FcbState, FCB_STATE_FILE_DELETED )
-            && !FlagOn( StartingLcb->LcbState, LCB_STATE_LINK_IS_GONE )
-            && !FlagOn( Fcb->Vcb->VcbState, VCB_STATE_VOL_PURGE_IN_PROGRESS)
-            && IrpContext->TopLevelIrpContext->ExceptionStatus == STATUS_SUCCESS) {
+        if (!FlagOn( Fcb->FcbState, FCB_STATE_FILE_DELETED | FCB_STATE_SYSTEM_FILE ) &&
+            !FlagOn( StartingLcb->LcbState, LCB_STATE_LINK_IS_GONE ) &&
+            (FlagOn( Fcb->Vcb->VcbState,
+                     VCB_STATE_VOL_PURGE_IN_PROGRESS | VCB_STATE_VOLUME_MOUNTED ) == VCB_STATE_VOLUME_MOUNTED) &&
+            (IrpContext->TopLevelIrpContext->ExceptionStatus == STATUS_SUCCESS)) {
 
             FcbUpdateDuplicate = TRUE;
 
@@ -6256,7 +7073,7 @@ Return Value:
                 if (!NtfsAcquireExclusiveFcb( IrpContext,
                                               ParentScb->Fcb,
                                               ParentScb,
-                                              FALSE,
+                                              TRUE,
                                               DontWaitForAcquire )) {
 
                     try_return( NOTHING );
@@ -6281,9 +7098,8 @@ Return Value:
                 //
 
                 if (FcbUpdateDuplicate &&
-                    (Fcb->InfoFlags != 0 ||
-                     !LastAccessInFcb ||
-                     Lcb->InfoFlags != 0)) {
+                    (FlagOn( (Fcb->InfoFlags | Lcb->InfoFlags), FCB_INFO_DUPLICATE_FLAGS ) ||
+                     !LastAccessInFcb)) {
 
                     if (!LastAccessInFcb) {
 
@@ -6305,9 +7121,11 @@ Return Value:
                         }
 
                         NtfsUpdateDuplicateInfo( IrpContext, Fcb, Lcb, ParentScb );
-                        NtfsUpdateLcbDuplicateInfo( IrpContext, Fcb, Lcb );
+                        NtfsUpdateLcbDuplicateInfo( Fcb, Lcb );
 
-                    } except( EXCEPTION_EXECUTE_HANDLER ) {
+                    } except( FsRtlIsNtstatusExpected( GetExceptionCode() ) ?
+                              EXCEPTION_EXECUTE_HANDLER :
+                              EXCEPTION_CONTINUE_SEARCH ) {
 
                         NOTHING;
                     }
@@ -6354,8 +7172,7 @@ Return Value:
                 //
 
                 if (FcbUpdateDuplicate &&
-                    (!LastAccessInFcb ||
-                     Fcb->InfoFlags != 0)) {
+                    (!LastAccessInFcb || FlagOn( Fcb->InfoFlags, FCB_INFO_DUPLICATE_FLAGS ))) {
 
                     if (!LastAccessInFcb) {
 
@@ -6395,7 +7212,7 @@ Return Value:
                                              SCB,
                                              FcbLinks );
 
-                    NtfsDeleteInternalAttributeStream( IrpContext, Scb, TRUE );
+                    NtfsDeleteInternalAttributeStream( Scb, TRUE );
                 }
 
                 //
@@ -6448,14 +7265,15 @@ Return Value:
             //  Check if this Fcb can be removed.
             //
 
-            if (!NtfsPrepareFcbForRemoval( IrpContext, Fcb, NULL )) {
+            if (!NtfsPrepareFcbForRemoval( IrpContext, Fcb, NULL, CheckForAttributeTable )) {
 
                 try_return( NOTHING );
             }
 
-            if (!FlagOn( Fcb->FcbState, FCB_STATE_FILE_DELETED )
-                && !FlagOn( Fcb->Vcb->VcbState, VCB_STATE_VOL_PURGE_IN_PROGRESS)
-                && IrpContext->TopLevelIrpContext->ExceptionStatus == STATUS_SUCCESS) {
+            if (!FlagOn( Fcb->FcbState, FCB_STATE_FILE_DELETED ) &&
+                (FlagOn( Fcb->Vcb->VcbState,
+                         VCB_STATE_VOL_PURGE_IN_PROGRESS | VCB_STATE_VOLUME_MOUNTED ) == VCB_STATE_VOLUME_MOUNTED) &&
+                (IrpContext->TopLevelIrpContext->ExceptionStatus == STATUS_SUCCESS)) {
 
                 FcbUpdateDuplicate = TRUE;
 
@@ -6562,80 +7380,4 @@ Return Value:
     }
 
     return GenericEqual;
-}
-
-
-//
-//  Local support routine
-//
-
-PVOID
-NtfsAllocateFcbTableEntry (
-    IN PRTL_GENERIC_TABLE FcbTable,
-    IN CLONG ByteSize
-    )
-
-/*++
-
-Routine Description:
-
-    This is a generic table support routine to allocate memory
-
-Arguments:
-
-    FcbTable - Supplies the generic table being used
-
-    ByteSize - Supplies the number of bytes to allocate
-
-Return Value:
-
-    PVOID - Returns a pointer to the allocated data
-
---*/
-
-{
-    PVOID Results;
-
-    UNREFERENCED_PARAMETER( FcbTable );
-
-    NtfsAllocateFcbTable( &Results, ByteSize );
-
-    return Results;
-}
-
-
-//
-//  Local support routine
-//
-
-VOID
-NtfsDeallocateFcbTableEntry (
-    IN PRTL_GENERIC_TABLE FcbTable,
-    IN PVOID Buffer
-    )
-
-/*++
-
-Routine Description:
-
-    This is a generic table support routine that deallocates memory
-
-Arguments:
-
-    FcbTable - Supplies the generic table being used
-
-    Buffer - Supplies the buffer being deallocated
-
-Return Value:
-
-    None.
-
---*/
-
-{
-    UNREFERENCED_PARAMETER( FcbTable );
-
-    NtfsFreeFcbTable( Buffer );
-
-    return;
 }

@@ -9,15 +9,15 @@
  ******************************************************************/
 
 /*
- *	 /usr/projects/tcp/SCCS.rel3/rel/src/include/0/s.resolv.h
- *	@(#)resolv.h	5.3
+ *   /usr/projects/tcp/SCCS.rel3/rel/src/include/0/s.resolv.h
+ *  @(#)resolv.h    5.3
  *
- *	Last delta created	14:05:35 3/4/91
- *	This file extracted	11:19:25 3/8/91
+ *  Last delta created  14:05:35 3/4/91
+ *  This file extracted 11:19:25 3/8/91
  *
- *	Modifications:
+ *  Modifications:
  *
- *		GSS	20 Jul 90	New File
+ *      GSS 20 Jul 90   New File
  */
 
 /*
@@ -38,7 +38,7 @@
  * IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
  *
- *	@(#)resolv.h	5.10 (Berkeley) 6/1/90
+ *  @(#)resolv.h    5.10 (Berkeley) 6/1/90
  */
 
 #ifndef _RESOLV_INCLUDED
@@ -47,53 +47,50 @@
 /*
  * Global defines and variables for resolver stub.
  */
-#define	MAXNS		3		/* max # name servers we'll track */
-#define	MAXDFLSRCH	3		/* # default domain levels to try */
-#define	MAXDNSRCH	6		/* max # domains in search path */
-#define	LOCALDOMAINPARTS 2		/* min levels in name that is "local" */
+#define MAXNS            8  /* max # name servers we'll track per list */
+#define MAXNSLIST        4  /* max # name servers lists we'll track */
+#define MAXDFLSRCH       3  /* # default domain levels to try */
+#define MAXDNSRCH        6  /* max # domains in search path */
+#define LOCALDOMAINPARTS 2  /* min levels in name that is "local" */
+#define RES_TIMEOUT      5  /* min. seconds between retries */
 
-#define	RES_TIMEOUT	5		/* min. seconds between retries */
+typedef struct _ADDR_LIST {
+    u_long ServerCount;
+    u_long Servers[MAXNS];
+
+} ADDR_LIST, FAR * LPADDR_LIST;
 
 struct state {
-	int	 retrans;	 	   /* retransmition time interval */
-	int	 retry;			   /* number of times to retransmit */
-	long	 options;		   /* option flags - see below. */
-	int	 nscount;		   /* number of name servers */
-	struct	 sockaddr_in nsaddr_list[MAXNS];  /* address of name server */
-#define	nsaddr	 nsaddr_list[0]		   /* for backward compatibility */
-	unsigned short	id;		   /* current packet id */
-	char	 defdname[MAXDNAME];	   /* default domain */
-	char	*dnsrch[MAXDNSRCH+1];      /* components of domain to search */
+    long       options;             /* option flags - see below. */
+    int        retrans;             /* retransmition time interval */
+    u_short    retry;               /* number of times to retransmit */
+    u_short    id;                  /* current packet id */
+    ADDR_LIST  nslist[MAXNSLIST];   /* the server lists */
+    char       defdname[MAXDNAME];  /* default domain */
+    char      *dnsrch[MAXDNSRCH+1]; /* components of domain to search */
 };
 
 /*
  * Resolver options
  */
-#define RES_INIT	0x0001		/* address initialized */
-#define RES_DEBUG	0x0002		/* print debug messages */
-#define RES_AAONLY	0x0004		/* authoritative answers only */
-#define RES_USEVC	0x0008		/* use virtual circuit */
-#define RES_PRIMARY	0x0010		/* query primary server only */
-#define RES_IGNTC	0x0020		/* ignore trucation errors */
-#define RES_RECURSE	0x0040		/* recursion desired */
-#define RES_DEFNAMES	0x0080		/* use default domain name */
-#define RES_STAYOPEN	0x0100		/* Keep TCP socket open */
-#define RES_DNSRCH	0x0200		/* search up local domain tree */
-#define RES_MODE_HOST_ONLY 0x0400          /* use the host file only */
-#define RES_MODE_DNS_ONLY  0x0800          /* use the DNS only */
-#define RES_MODE_HOST_DNS  0x1000          /* use the host file then the DNS */
-#define RES_MODE_DNS_HOST  0x2000          /* use the DNS then the host file */
+#define RES_INIT        0x0001      /* address initialized */
+#define RES_DEBUG       0x0002      /* print debug messages */
+#define RES_AAONLY      0x0004      /* authoritative answers only */
+#define RES_USEVC       0x0008      /* use virtual circuit */
+#define RES_PRIMARY     0x0010      /* query primary server only */
+#define RES_IGNTC       0x0020      /* ignore trucation errors */
+#define RES_RECURSE     0x0040      /* recursion desired */
+#define RES_DEFNAMES    0x0080      /* use default domain name */
+#define RES_STAYOPEN    0x0100      /* Keep TCP socket open */
+#define RES_DNSRCH      0x0200      /* search up local domain tree */
 
-#define RES_DEFAULT	(RES_RECURSE | RES_DEFNAMES | RES_DNSRCH)
-
-extern struct state _res;
-extern char *p_cdname(), *p_rr(), *p_type(), *p_class(), *p_time();
+#define RES_DEFAULT (RES_RECURSE | RES_DEFNAMES | RES_DNSRCH)
 
 
 //
 // Resolver function prototypes
 //
-	
+
 int
 dn_expand(
     IN  unsigned char *msg,
@@ -145,15 +142,15 @@ res_search(
 
 int
 res_mkquery(
-    IN  int          op,		     // opcode of query
-    IN  char        *dname,		     // domain name
+    IN  int          op,             // opcode of query
+    IN  char        *dname,          // domain name
     IN  int          class,                  // class of query
-    IN  int          type,	             // type of query
-    IN  char        *data,    OPTIONAL	     // resource record data
-    IN  int          datalen, OPTIONAL	     // length of data
+    IN  int          type,               // type of query
+    IN  char        *data,    OPTIONAL       // resource record data
+    IN  int          datalen, OPTIONAL       // length of data
     IN  struct rrec *newrr,   OPTIONAL       // new rr for modify or append
-    OUT char        *buf,		     // buffer to put query
-    IN  int          buflen 	             // size of buffer
+    OUT char        *buf,            // buffer to put query
+    IN  int          buflen                  // size of buffer
     );
 
 #endif    // _RESOLV_INCLUDED

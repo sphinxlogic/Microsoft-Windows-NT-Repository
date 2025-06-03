@@ -65,7 +65,7 @@ Revision History:
 
 NET_API_STATUS NET_API_FUNCTION
 NetRemoteComputerSupports(
-    IN LPTSTR UncServerName OPTIONAL,   // Must start with "\\".
+    IN LPCWSTR UncServerName OPTIONAL,   // Must start with "\\".
     IN DWORD OptionsWanted,             // Set SUPPORT_ bits wanted.
     OUT LPDWORD OptionsSupported        // Supported features, masked.
     )
@@ -123,8 +123,8 @@ Return Value:
     DWORD TempSupported = 0;
 
     IF_DEBUG(SUPPORTS) {
-        NetpDbgPrint( PREFIX_NETAPI "NetRemoteComputerSupports: input mask is "
-                FORMAT_HEX_DWORD ".\n", OptionsWanted);
+        NetpKdPrint(( PREFIX_NETAPI "NetRemoteComputerSupports: input mask is "
+                FORMAT_HEX_DWORD ".\n", OptionsWanted));
     }
 
     // Error check what caller gave us.
@@ -144,23 +144,23 @@ Return Value:
 
     } else {
 
-        TCHAR CanonServerName[UNCLEN+1];
+        TCHAR CanonServerName[MAX_PATH];
         DWORD LocalOrRemote;    // Will be set to ISLOCAL or ISREMOTE.
 
         //
         // Name was given.  Canonicalize it and check if it's remote.
         //
         Status = NetpIsRemote(
-            UncServerName,      // input: uncanon name
+            (LPWSTR)UncServerName,      // input: uncanon name
             & LocalOrRemote,    // output: local or remote flag
             CanonServerName,    // output: canon name
             0);                 // flags: normal
         IF_DEBUG(SUPPORTS) {
-            NetpDbgPrint( PREFIX_NETAPI
+            NetpKdPrint(( PREFIX_NETAPI
                     "NetRemoteComputerSupports: canon status is "
                     FORMAT_API_STATUS ", Lcl/rmt=" FORMAT_HEX_DWORD
                     ", canon buf is '" FORMAT_LPTSTR "'.\n",
-                    Status, LocalOrRemote, CanonServerName);
+                    Status, LocalOrRemote, CanonServerName));
         }
         if (Status != NERR_Success) {
             return (Status);
@@ -182,7 +182,7 @@ Return Value:
             DWORD RedirCapabilities;
             PLMR_CONNECTION_INFO_2 RedirConnInfo;
             DWORD RedirConnInfoSize = sizeof(LMR_CONNECTION_INFO_2)
-                    + ( (RMLEN+1 + UNLEN+1) * sizeof(TCHAR) );
+                    + ( (MAX_PATH+1 + MAX_PATH+1) * sizeof(TCHAR) );
 
             PLMR_REQUEST_PACKET RedirRequest;
             DWORD RedirRequestSize = sizeof(LMR_REQUEST_PACKET);
@@ -234,9 +234,9 @@ Return Value:
                     FALSE);                     // not a "null session" API.
 
             IF_DEBUG(SUPPORTS) {
-                NetpDbgPrint( PREFIX_NETAPI
+                NetpKdPrint(( PREFIX_NETAPI
                         "NetRemoteComputerSupports: back from fsctl, "
-                        "status is " FORMAT_API_STATUS ".\n", Status);
+                        "status is " FORMAT_API_STATUS ".\n", Status));
             }
 
             // Handle remote machine not found.
@@ -249,9 +249,9 @@ Return Value:
             RedirCapabilities = RedirConnInfo->Capabilities;
 
             IF_DEBUG(SUPPORTS) {
-                NetpDbgPrint( PREFIX_NETAPI
+                NetpKdPrint(( PREFIX_NETAPI
                         "NetRemoteComputerSupports: redir mask is "
-                        FORMAT_HEX_DWORD ".\n", RedirCapabilities);
+                        FORMAT_HEX_DWORD ".\n", RedirCapabilities));
             }
 
 #else // def CDEBUG
@@ -290,8 +290,8 @@ Return Value:
     }
 
     IF_DEBUG(SUPPORTS) {
-        NetpDbgPrint( PREFIX_NETAPI "NetRemoteComputerSupports: output mask is "
-                FORMAT_HEX_DWORD ".\n", TempSupported);
+        NetpKdPrint(( PREFIX_NETAPI "NetRemoteComputerSupports: output mask is "
+                FORMAT_HEX_DWORD ".\n", TempSupported));
     }
 
     // Make sure we don't tell caller anything he/she didn't want to know.

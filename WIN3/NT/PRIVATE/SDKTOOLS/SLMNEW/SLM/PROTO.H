@@ -1,9 +1,21 @@
-#include    <stdarg.h>      //make sure that va_list is defined
+char *  LpbResStat(unsigned);
+#define HpbResStat(cb) LpbResStat((unsigned)(cb))
+#define QD_TEXT  0
+#define QD_EDIT  1
+#define QD_BREAK 2
+int     QueryDialog(const char *, char *, int);
+extern  BOOL (WINAPI * TestForUnicode)(PVOID, ULONG, PULONG);
+extern  BOOL (WINAPI * DebuggerPresent)(VOID);
+void    FakeCtrlC(void);
+void    FakeCtrlBreak(void);
+F       CheckForBreak(void);
+#undef  CopyFile
+#define CopyFile        SlmCopyFile
+#define ReadLpbCb       _read
 
-#ifdef AD_INCLUDED
-/* "well known" procedures */
+// "well known" procedures
 void    OpenLog(AD *, int);
-void    AppendLog(AD *, FI far *, char *, char *);
+void    AppendLog(AD *, FI *, char *, char *);
 void    CloseLog(void);
 void    Usage(AD *);
 void    SetCmd(AD *, char *, ECMD **);
@@ -11,7 +23,6 @@ F       FInitScript(AD *, LCK);
 void    RunScript(void);
 void    AbortScript(void);
 
-void    main(int, char * []);
 void    ParseArgs(AD *, char * [], int);
 F       FParsPv(TD *, char *);
 void    GlobArgs(AD *);
@@ -21,19 +32,19 @@ F       FDelFMarked(AD *, F *);
 
 void    InitLogHandle(AD *, char *);
 void    CloseLogHandle(void);
-#endif /* AD_INCLUDED */
+MF      *OpenLocalMf(char *);
+void    CloseLocalMf(AD *);
 
-#ifdef DIR_INCLUDED
+
 void    OpenDir(PDE, char [], short);
 void    OpenPatDir(PDE, char [], char [], short);
 F       FGetDirSz(PDE, char [], short *);
 void    CloseDir(PDE);
 int     findfirst(PDE, char *, int);
 int     findnext(PDE);
-#endif /* DIR_INCLUDED */
 
-#ifdef LOG_INCLUDED
-void    WrLogInfo(MF *, AD *, FI far *, char *, char *);
+
+void    WrLogInfo(MF *, AD *, FI *, char *, char *);
 F       FGetLe(LE *);
 void    CreateLog(AD *);
 
@@ -47,47 +58,30 @@ long    PosOfLog(void);
 void    FreeLe(LE *);
 F       FCopyLog(AD *, NE *, PFNL, SM);
 void    LogOpPne(AD *pad, NE *pneFiles);
-#endif /* LOG_INCLUDED */
 
-#ifdef SCRIPT_INCLUDED
+
 F       FClnScript(void);
 F       FDoAllScripts(AD *pad, LCK lck, F fPrompt, F fPrScripts);
 void    AppendScript(FX, char *, ...);
-#endif /* SCRIPT_INCLUDED */
 
-#ifdef SLM_INCLUDED
-#if defined(DOS) || defined(OS2)
-#define CopyLrgb(lpbSrc, lpbDest, cbCopy) \
-    (void)_fmemcpy(lpbDest, lpbSrc, (size_t) cbCopy)
-#define CopyOverlapLrgb(lpbSrc, lpbDest, cbCopy) \
-    (void)_fmemmove(lpbDest,lpbSrc,(size_t) cbCopy)
-#endif /* DOS || OS2 */
-
-#include    <string.h>
-long    time(long *);
-long    lseek(int, long, int);
-#endif /* SLM_INCLUDED */
-
-
-#ifdef STFILE_INCLUDED
 BI      GetBiNext(PTH *); /* actually located in ckutil.c */
 F       FSyncMarked(AD *pad, int *pcfi);
 F       FSyncDelDirs(AD *pad);
-void    SyncDel(AD *, FI far *, FS far *);
+void    SyncDel(AD *, FI *, FS *);
 void    GhostMarked(AD *, F);
-F       FCopyIn(AD *, FI far *, FS far *, TD far *);
-void    FreshCopy(AD *, FI far *);
-void    LocalBase(AD *, FI far *, FS far *, int);
-void    LocalCopy(AD *, FI far *);
-void    BreakFi(AD *, FI far *);
-void    InstallNewSrc(AD *, FI far *, F);
-void    RmSFile(AD *, FI far *);
-void    EnsureCachedDiff(AD *pad, FI far *pfi, FLAGS fDashB, PTH *pthDiff);
-void    DeleteCachedDiff(AD *pad, FI far *pfi);
-void    MkTmpDiff(AD *, FI far *, FS far *, FLAGS, F, F, PTH *);
+F       FCopyIn(AD *, FI *, FS *, TD *);
+void    FreshCopy(AD *, FI *);
+void    LocalBase(AD *, FI *, FS *, int);
+void    LocalCopy(AD *, FI *);
+void    BreakFi(AD *, FI *);
+void    InstallNewSrc(AD *, FI *, F);
+void    RmSFile(AD *, FI *);
+void    EnsureCachedDiff(AD *pad, FI *pfi, FLAGS fDashB, PTH *pthDiff);
+void    DeleteCachedDiff(AD *pad, FI *pfi);
+void    MkTmpDiff(AD *, FI *, FS *, FLAGS, F, F, PTH *);
 BI      BiAlloc(AD *);
-void    MakeBase(AD *, FI far *, BI);
-void    DelBase(AD *, FI far *, FS far *);
+void    MakeBase(AD *, FI *, BI);
+void    DelBase(AD *, FI *, FS *);
 F       FClnStatus(void);
 unsigned long CbStatusFromPsh(SH *psh);
 F       FLoadStatus(AD *, LCK, LS);
@@ -95,7 +89,9 @@ void    FlushStatus(AD *);
 void    AbortStatus(void);
 F       FFakeStatus(AD *);
 void    CreateStatus(AD *, AD *);
-SH far *PshAlloc(void);
+SH *PshAlloc(F);
+F       PshCommit(SH *, FI **, ED **, FS **);
+void    PshFree(SH *, F);
 F       FAllocStatus(AD *);
 void    FreeStatus(AD *);
 F       FInstall1Ed(char *, char *);
@@ -103,11 +99,11 @@ char    *SzLockers(AD *, char *, unsigned);
 void    InferUSubDir(AD *pad);
 
 FK      FkForCh(char);
-FS far  *PfsForPfi(AD *, IED, FI far *);
+FS  *PfsForPfi(AD *, IED, FI *);
 F       FAddFile(AD *, char *, FK);
-F       FRenameFile(AD *pad, FI far *pfiOld, char *szNew);
-FI      far *PfiInsert(AD *, FI far *, char *, FK, FV);
-void    SetupFi(AD *, FI far *, char *, FK, FV);
+F       FRenameFile(AD *pad, FI *pfiOld, char *szNew);
+FI      *PfiInsert(AD *, FI *, char *, FK, FV);
+void    SetupFi(AD *, FI *, char *, FK, FV);
 void    SetupEd(AD *, PTH [], char [], int);
 void    AddCurEd(AD *, int);
 void    RemoveEd(AD *);
@@ -130,19 +126,9 @@ void    CheckLocalVersion(AD *);
 void    WritePvFile(AD *, IED, PTH *, FX);
 void    SyncVerH(AD *, int *);
 
-
-#if defined(DOS)
-char huge *HpbResStat(long);
-#elif defined(OS2) || defined(_WIN32)
-char far *LpbResStat(unsigned);
-#define HpbResStat(cb) LpbResStat((unsigned)(cb))
-#endif
-
 #define FreeResStat(pb) FreeLpb(pb)
 #define FreeHResStat(pb) FreeLpb(pb)
-#endif /* STFILE_INCLUDED */
 
-#ifdef SYS_INCLUDED
 void    AssertNoMf(void);
 F       FIsValidMf(MF *);
 F       FIsOpenMf(MF *);
@@ -153,6 +139,11 @@ void    FreeMf(MF *);
 #define ReadOnly 1
 #define ReadWrite 2
 void    *MapMf(MF *, int);
+F       OpenMappedFile(PTH *,BOOL,unsigned,PHANDLE,void **);
+F       GrowMappedFile(HANDLE,void **,unsigned);
+void    CloseMappedFile(PTH *,HANDLE *,void **);
+void    CreatePeekThread(AD *);
+void    DestroyPeekThread(void);
 
 MF      *PmfRunPwd(void);
 
@@ -161,11 +152,6 @@ void    DeferSignals(char *);
 void    RestoreSignals(void);
 void    IgnoreSignals(void);
 void    DeignoreSignals(void);
-#if defined(_WIN32)
-void    CheckForBreak(void);
-#else
-#define CheckForBreak()
-#endif
 void    Abort(void);
 
 MF      *PmfSetTemp(PTH *, FX);
@@ -173,6 +159,7 @@ MF      *PmfMkTemp(PTH [], int, FX);
 MF      *PmfMkLocalTemp(int, PTH []);
 void    CreateMf(MF *, int);
 MF      *PmfOpen(PTH *, int, FX);
+MF      *PmfOpenNoBuffering(PTH *, int, FX);
 MF      *PmfReopen(PTH *, char *, int, FX);
 void    CheckAppendMf(MF *, F);
 long    LcbSpacesMf(MF *);
@@ -181,10 +168,10 @@ F       FLockMf(MF *);
 void    UnlockMf(MF *);
 void    CloseOnly(MF *);
 void    CloseMf(MF *);
-void    ReadMf(MF *, char far *, unsigned);
-unsigned CbReadMf(MF *, char far *, unsigned);
-F       FWriteMf(MF *, char far *, unsigned);
-void    WriteMf(MF *, char far *, unsigned);
+void    ReadMf(MF *, char *, unsigned);
+unsigned CbReadMf(MF *, char *, unsigned);
+F       FWriteMf(MF *, char *, unsigned);
+void    WriteMf(MF *, char *, unsigned);
 POS     PosCurMf(MF *);
 long    SeekMf(MF *, long, int);
 F       FLinkPth(PTH *, PTH *, FX);
@@ -192,9 +179,9 @@ void    UnlinkPth(PTH *, FX);
 void    RenamePth(NM [], PTH [], FX);
 void    UnlinkNow(PTH [], F);
 void    RenameMf(MF *, F);
-struct stat; /* forward reference for MIPS compiler */
-F       FStatPth(PTH [], struct stat *);
-void    StatPth(PTH [], struct stat *);
+F       FStatPth(PTH [], struct _stat *);
+void    StatPth(PTH [], struct _stat *);
+F       FExistSz(char *);
 F       FPthExists(PTH *, F);
 unsigned long CbFile(char *);
 void    UtimeMf(MF *, MF *);
@@ -203,17 +190,13 @@ F       FEnsurePth(PTH *pth);
 F       FMkPth(PTH *, int *, int);
 void    RmPth(PTH *);
 void    ChngErrToOut(void);
-int     RunSz(char *, MF *, char *, ...);
+int     RunSz(char *, MF *, char *, char *, char *, char *, char *, char *, char *, char *, char *);
 char    *SzForMode(int);
 F       FCopyPmfPmf(MF *, MF *, int, F);
 void    CreateNow(PTH *pth, int mode, FX fx);
 void    CopyNow(PTH [], PTH [], int, FX);
-F       FCopyFile(PTH [], PTH [], ...);
-#if defined(_WIN32)
-#undef CopyFile
-#define CopyFile    SlmCopyFile
-#endif
-void    CopyFile(PTH [], PTH [], ...);
+F       FCopyFile( PTH [], PTH [], int, F, FX);
+void    CopyFile( PTH [], PTH [], int, int, FX);
 void    SleepCsecs(int);
 void    CheckClock(void);
 void    InitPath(void);
@@ -227,59 +210,36 @@ F       FDriveId(char *, int *);
 F       FPthLogicalSz(PTH *, char *);
 void    ConvTmpLog(PTH *, char *);
 
-#if defined(OS2)
-#define read    SLM_Read
-int     SLM_Read(int, void *, unsigned int);
-#endif /* OS2 */
-
-#include     <io.h>
 int     SLM_Unlink(char *);
 int     SLM_Rename(char *, char *);
-int     creat(const char *, int);
 
 extern int hide(char *szFile);
 
 int     ucreat(char *, int);
-int     dup(int);
 int     setro(char *, int);
 int     lockfile(int, int);
-#if defined(DOS) || defined(OS2)
-int     mkdir(char *);
-int     rmdir(char *);
-#endif
 int     InitInt24(void);
 int     FiniInt24(void);
 int     ExecExe(char *, ...);
-int     ReadLpbCb(int, void far *, unsigned int);
-#if defined(OS2) || defined(_WIN32)
-#define ReadLpbCb       read
-#endif /* OS2 */
 
-int WRetryError(int, char *, MF *, char *);
+int     WRetryError(int, char *, MF *, char *);
 
 int     WriteLpbCb(int, void *, unsigned int);
-#if defined(DOS) || defined(OS2)
-#define WriteLpbCb      write
-#endif /* DOS || OS2 */
 
-#endif /* SYS_INCLUDED */
-
-#ifdef UTIL_INCLUDED
-void    StatSEd(AD *);
+void    StatSEd(AD *,MF *,MF *);
 int     Cne(NE *);
 NE      *PneLstInDir(AD *);
-NE      *PneLstFiles(AD *, F (*)(FI far *));
-F       FAddMDir(FI far *);
-F       FAddADir(FI far *);
-F       FAddAFi(FI far *);
+NE      *PneLstFiles(AD *, F (*)(FI *));
+F       FAddMDir(FI *);
+F       FAddADir(FI *);
+F       FAddAFi(FI *);
 NE      *PneLstBroken(AD *pad);
 void    InitAppendNe(NE ***pppneLast, NE **ppneHead);
 void    AppendNe(NE ***pppneLast, NE *pne);
 void    InsertNe(NE **ppneList, NE *pne);
+void    RemoveNe(NE **ppneList, NE *pne);
 NE      *PneCopy(NE *);
-#ifdef DIR_INCLUDED
-NE      *PneNewNm(char far *, int, FA);
-#endif /* DIR_INCLUDED */
+NE      *PneNewNm(char *, int, FA);
 void    FreeNe(NE *);
 NE      *PneReverse(NE *);
 NE      *PneLookup(NE *, char *);
@@ -292,12 +252,15 @@ void    MarkOSync(AD *, IED, F, F);
 void    MarkBroken(AD *);
 void    MarkAOut(AD *);
 void    MarkAll(AD *);
+void    MarkAllDir(AD *);
+void    MarkAllDirOnly(AD *);
 void    MarkNonDel(AD *);
 void    MarkDelDir(AD *);
 void    InitQuery(FLAGS);
 F       FInteractive(void);
 F       FCanPrompt(void);
 F       FForce(void);
+F       FWindowsQuery(void);
 F       FCanQuery(const char *, ...);
 F       FQueryUser(char *, ...);
 F       FQueryApp(char *, char *, ...);
@@ -307,14 +270,20 @@ F       FQContinue(void);
 F       FValidResp(char *);
 
 F       FLoadRc(AD *);
-void    CreateRc(AD *, FI far *);
-void    DeleteRc(AD *, FI far *);
-F       FCmpRcPfi(AD *, FI far *);
+void    CreateRc(AD *, FI *);
+void    DeleteRc(AD *, FI *);
+F       FCmpRcPfi(AD *, FI *);
 F       FScanLn(char * *, char *, char * *, unsigned);
+F       FLoadIedCache(AD *);
+void    RemoveIedCache(AD *);
+IED     FLookupIedCache(AD *);
+void    FInvalidateLastLookupIedCache(void);
+F       FUpdateIedCache(IED, AD *);
+void    FUnloadIedCache(void);
 void    Error(const char *, ...);
 void    VaError(const char *, va_list);
 void    FatalError(const char *, ...);
-void    Fail(char *, int);
+void    Fail(char *, int, char *);
 void    Warn(const char *, ...);
 void    ExitSlm(void);
 void    GetRoot(AD *);
@@ -335,12 +304,12 @@ void    CopyRgbCb(char *pbDest, char *pbSrc, int cb);
 void    ConvToSlash(char *);
 void    ConvFromSlash(char *);
 char    *SzDup(char *);
-void    LowerLsz(char far *);
+void    LowerLsz(char *);
 char    *PchGetW(char *, int *);
-F       FLookupSz(AD *, char *, FI far * *, F *);
-F       FBroken(AD *, FI far *, FS far *, int);
+F       FLookupSz(AD *, char *, FI * *, F *);
+F       FBroken(AD *, FI *, FS *, int);
 F       FAllFiDel(AD *);
-F       FAllFsDel(AD *, FI far *);
+F       FAllFsDel(AD *, FI *);
 F       FHaveCurDir(AD *);
 void    ChngDir(AD *, char *);
 void    PushDir(AD *, char *);
@@ -348,13 +317,13 @@ void    PopDir(AD *);
 char    *PbAllocCb(unsigned int, int);
 char    *PbReallocPbCb(char *, unsigned);
 char    *SzTime(long);
+char    *SzTimeSortable(long);
 F       FBinaryPth(PTH []);
-F       FCheckedOut(AD *pad, IED ied, FI far *pfi);
-F       FOutUsers(char *, int, AD *, FI far *);
+F       FCheckedOut(AD *pad, IED ied, FI *pfi);
+F       FOutUsers(char *, int, AD *, FI *);
 F       FAnyFileTimes(NE *);
-void    free(void *);
 
-void    FreeLpb(char far *);
+void    FreeLpb(char *);
 
 F       FMatch(char *, char *);
 F       FWildSz(char *);
@@ -367,11 +336,11 @@ F       FIsF(int);
 
 char    ChForTdff(TDFF tdff);
 void    CheckDiffEntry(PTH *pthFile);
-void    ComputeCkSum(unsigned char far *pch, unsigned cb, long *pCkSum);
+void    ComputeCkSum(unsigned char *pch, unsigned cb, long *pCkSum);
 TDFF    TdffForCh(char ch);
 void    GetTdffIdaeFromSzDiFile(AD *pad, char *szDiFile, TDFF *ptdff, int *pidae);
 F       FIsValidFileNm(NM *nm);
-void    ValidateFileName(char *szFile);
+BOOL    ValidateFileName(char *szFile, BOOL fAbortOnSystemFile);
 
 F       FLocalDn(int);
 void    InitDtMap(void);
@@ -380,8 +349,8 @@ int     DnRedirTemp(PTH [], PTH []);
 void    ExtMach(PTH [], PTH [], char *);
 void    UpperCaseSz(char *);
 
-#if defined(_WIN32)
-extern BOOL (WINAPI * TestForUnicode)(PVOID, ULONG, PULONG);
-#endif  // WIN32
-
-#endif /* UTIL_INCLUDED */
+F       FLoadCacheRc(AD*);
+F       FCacheFilePfi(AD*, PTH*, FI*);
+F       FCacheStatusFile(AD*, PTH*);
+PTH*    PthForCachedSFile(AD*, FI*, PTH*);
+PTH*    PthForCachedStatus(AD*, PTH*);

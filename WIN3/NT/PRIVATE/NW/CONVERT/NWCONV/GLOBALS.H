@@ -5,6 +5,10 @@
 #ifndef _HGLOBALS_
 #define _HGLOBALS_
 
+#ifdef __cplusplus
+extern "C"{
+#endif
+
 #include "switches.h"
 #include "constant.h"
 
@@ -20,7 +24,6 @@
 #include <commdlg.h>
 
 #include "resource.h"
-#include "ctl3d\ctl3d.h"
 #include "debug.h"
 #include "nwlog.h"
 #include "tab.h"
@@ -37,5 +40,9 @@ extern HINSTANCE hInst;
 #define SWAPWORDS(d)    ((d) = DXCHG(d))
 
 #define HELP_FILE TEXT("NWConv.HLP")
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

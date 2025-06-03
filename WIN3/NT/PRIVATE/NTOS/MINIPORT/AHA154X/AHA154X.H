@@ -16,7 +16,7 @@ Abstract:
 Author:
 
     Mike Glass  December 1990
-
+    Bill Williams (Adaptec)
 
 Revision History:
 
@@ -52,6 +52,15 @@ typedef struct _THREE_BYTE {
     (Four)->Byte2 = (Three)->Msb;                   \
     (Four)->Byte3 = 0;                              \
 }
+
+//
+// Context information for adapter scan/sniff
+//
+
+typedef struct _SCAN_CONTEXT {
+    ULONG   adapterCount;
+    ULONG   biosScanStart;
+} SCAN_CONTEXT, *PSCAN_CONTEXT;
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -247,10 +256,25 @@ typedef struct _CCB {
 #define AC_READ_FIFO_BUFFER       0x1D
 #define AC_ECHO_COMMAND_DATA      0x1F
 #define AC_SET_HA_OPTION          0x21
+#define AC_RETURN_EEPROM          0x23
 #define AC_GET_BIOS_INFO          0x28
 #define AC_SET_MAILBOX_INTERFACE  0x29
 #define AC_EXTENDED_SETUP_INFO    0x8D
 
+//
+//Adapter commands new to the AHA-154xCP are defined below.
+//
+#define AC_SET_DMS_BUS_SPEED            0x2B
+#define AC_TERMINATION_AND_CABLE_STATUS 0x2C
+#define AC_DEVICE_INQUIRY               0x2D
+#define AC_SCSI_DEVICE_TABLE            0x2E
+#define AC_PERFORM_SCAM                 0x2F
+
+//
+// EEPROM define for SCAM
+//
+#define SCSI_BUS_CONTROL_FLAG           0x06
+#define SCAM_ENABLED                    0x40
 
 //
 // DMA Transfer Speeds
@@ -446,4 +470,3 @@ typedef struct _X330_REGISTER {
     UCHAR InterruptRegister;
     UCHAR DiagRegister;
 } X330_REGISTER, *PX330_REGISTER;
-

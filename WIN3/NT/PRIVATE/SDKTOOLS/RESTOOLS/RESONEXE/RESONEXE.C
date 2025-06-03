@@ -104,19 +104,19 @@ Exit Value:
         s1 = argv[i];
         if (*s1 == '/' || *s1 == '-') {
             s1++;
-            if (!stricmp(s1, "fo")) {
+            if (!_stricmp(s1, "fo")) {
                 szOutFile = argv[++i];
 	    }
-            else if (!stricmp(s1, "d")) {
+            else if (!_stricmp(s1, "d")) {
                 fDebug = TRUE;
 	    }
-            else if (!stricmp(s1, "v")) {
+            else if (!_stricmp(s1, "v")) {
                 fVerbose = TRUE;
 	    }
-            else if (!stricmp(s1, "r")) {
+            else if (!_stricmp(s1, "r")) {
                 fReplace = TRUE;
 	    }
-            else if (!stricmp(s1, "x")) {
+            else if (!_stricmp(s1, "x")) {
                 fDelete = TRUE;
 		if (i+1 == argc)
 		    usage(1);
@@ -138,10 +138,10 @@ Exit Value:
 		printf("Unrecognized type,name,lang triplet <%s>\n", s1);
 		usage(1);
 	    }
-            else if (!stricmp(s1, "h")) {
+            else if (!_stricmp(s1, "h")) {
                 usage(1);
 	    }
-            else if (!stricmp(s1, "?")) {
+            else if (!_stricmp(s1, "?")) {
                 usage(1);
 	    }
             else {
@@ -171,12 +171,12 @@ Exit Value:
 	if (szInFile && !szExeFile) {
 	    szExeFile = szInFile;
 	    if (!szOutFile)
-		szOutFile = strdup(szInFile);
+		szOutFile = _strdup(szInFile);
 	    szInFile = NULL;
 	if (idType == 0)
-	    strupr(szType);
+	    _strupr(szType);
 	if (idName == 0)
-	    strupr(szName);
+	    _strupr(szName);
 	}
     }
     else if (!szInFile) {
@@ -337,7 +337,7 @@ MyRead(int fh, UCHAR*p, ULONG n )
 {
     USHORT      n1;
 
-    if ((n1 = read( fh, p, n )) != n) {
+    if ((n1 = _read( fh, p, n )) != n) {
         eprintf( "a file read error occured" );
         exit(1);
     }
@@ -349,7 +349,7 @@ MyRead(int fh, UCHAR*p, ULONG n )
 LONG
 MySeek( int fh, long pos, int cmd )
 {
-    if ((pos = lseek( fh, pos, cmd )) == -1) {
+    if ((pos = _lseek( fh, pos, cmd )) == -1) {
         eprintf( "seek error" );
         exit(1);
     }

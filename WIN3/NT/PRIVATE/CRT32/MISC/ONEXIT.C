@@ -31,24 +31,20 @@
 #include <stdlib.h>
 #include <internal.h>
 
-#ifdef _POSIX_
-#define _CRUISER_  /* POSIX uses the same code as CRUISER */
-#endif
+void __cdecl _onexitinit(void);
 
-#ifdef	_WIN32_
+#ifdef  _MSC_VER
+
+#pragma data_seg(".CRT$XIC")
+static void (__cdecl *pinit)(void) = _onexitinit;
+#pragma data_seg()
+
+#endif  /* _MSC_VER */
+
 #include <malloc.h>
 #include <rterr.h>
-#endif	/* _WIN32_ */
 
 typedef void (_CALLTYPE1 *PF)(void);	   /* pointer to function */
-
-#ifdef	_CRUISER_
-
-extern PF *__onexittable;	/* pointer to the table, ends with NULL */
-
-#else	/* ndef _CRUISER_ */
-
-#ifdef	_WIN32_
 
 /*
  * Define pointers to beginning and end of the table of function pointers
@@ -61,14 +57,6 @@ extern PF *__onexitend;
  * Define increment (in entries) for growing the _onexit/atexit table
  */
 #define ONEXITTBLINCR	4
-
-#else	/* ndef _WIN32_ */
-
-#error ERROR - ONLY CRUISER OR WIN32 TARGET SUPPORTED!
-
-#endif	/* _WIN32_ */
-
-#endif	/* _CRUISER_ */
 
 /***
 *_onexit(func), atexit(func) - add function to be executed upon exit
@@ -105,55 +93,6 @@ extern PF *__onexitend;
 _onexit_t _CALLTYPE1 _onexit (
 	_onexit_t func
 	)
-
-#ifdef	_CRUISER_
-
-{
-	int i;
-	int size;			/* current size */
-	PF *tbl;
-
-#ifdef MTHREAD
-	_lockexit();			/* lock the exit code */
-#endif
-
-	/* scan the table to find how many entries we have so far */
-	if (__onexittable) {
-		for (size = 0; __onexittable[size] != NULL; ++size)
-			;
-	}
-	else {
-		size = 0;
-	}
-
-	/* attempt to allocate space for another entry */
-	if ((tbl = (PF *)realloc(__onexittable, sizeof(PF) * (size + 2)))
-	== NULL) {
-#ifdef MTHREAD
-		_unlockexit();
-#endif
-		return NULL;
-	}
-
-	/* need LIFO order, so move every entry down one */
-	for (i = size; i > 0; --i)
-		tbl[i] = tbl[i-1];
-
-	tbl[0] = (PF)func;
-	tbl[size+1] = NULL;		/* mark end of table */
-
-#ifdef MTHREAD
-	_unlockexit();			/* allow exit() access again */
-#endif
-
-	__onexittable = tbl;		/* store ptr to new table */
-	return func;			/* success! */
-}
-
-#else	/* ndef _CRUISER_ */
-
-#ifdef	_WIN32_
-
 {
 	PF	*p;
 
@@ -202,23 +141,12 @@ _onexit_t _CALLTYPE1 _onexit (
 
 }
 
-#else	/* ndef _WIN32_ */
-
-#error ERROR - ONLY CRUISER OR WIN32 TARGET SUPPORTED!
-
-#endif	/* _WIN32_ */
-
-#endif	/* _CRUISER_ */
-
-
 int _CALLTYPE1 atexit (
 	PF func
 	)
 {
 	return (_onexit((_onexit_t)func) == NULL) ? -1 : 0;
 }
-
-#ifdef	_WIN32_
 
 /***
 * void _onexitinit(void) - initialization routine for the function table
@@ -253,8 +181,6 @@ int _CALLTYPE1 atexit (
 *
 *******************************************************************************/
 
-extern int __c_onexit;
-
 void _CALLTYPE1 _onexitinit (
 	void
 	)
@@ -265,8 +191,6 @@ void _CALLTYPE1 _onexitinit (
 		 * fatal runtime error.
 		 */
 		_amsg_exit(_RT_ONEXIT);
-
-	++__c_onexit;	/* necessary to pull in the assembler module */
 
 	*(__onexitbegin) = (PF) NULL;
 	__onexitend = __onexitbegin;
@@ -360,5 +284,3 @@ _onexit_t _CALLTYPE1 __dllonexit (
 
 }
 #endif /* CRTDLL */
-
-#endif	/* _WIN32_ */

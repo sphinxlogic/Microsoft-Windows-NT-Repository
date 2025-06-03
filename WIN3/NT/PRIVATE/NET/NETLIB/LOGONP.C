@@ -43,7 +43,6 @@ Revision History:
 #include <netlib.h>     // NetpMemoryAllcate(
 #include <netlogon.h>   // Definition of mailslot messages
 #include <stdlib.h>     // C library functions (rand, etc)
-#include <wcstr.h>      // UNICODE string functions
 #include <logonp.h>     // These routines
 #include <time.h>       // time() function from C runtime
 

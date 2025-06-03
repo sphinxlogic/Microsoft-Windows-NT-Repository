@@ -105,6 +105,7 @@ Return Value:
 
     ULONG
         i,
+        Index,
         SystemAccess;
 
 
@@ -240,60 +241,84 @@ Return Value:
         //          SingleProcessProfile
         //          LoadDriver
         //          CreatePagefile
+        //          IncreaseQuota
         //
 
 
         SystemAccess = SECURITY_ACCESS_INTERACTIVE_LOGON |
                        SECURITY_ACCESS_NETWORK_LOGON;
+        Index = 0;
 
-        Privileges->Privilege[0].Luid =
+        Privileges->Privilege[Index].Luid =
             ConvertLongToOldLargeInteger(SE_SECURITY_PRIVILEGE);
+        Index++;
 
-        Privileges->Privilege[1].Luid =
+        Privileges->Privilege[Index].Luid =
             ConvertLongToOldLargeInteger(SE_BACKUP_PRIVILEGE);
+        Index++;
 
-        Privileges->Privilege[2].Luid =
+        Privileges->Privilege[Index].Luid =
             ConvertLongToOldLargeInteger(SE_RESTORE_PRIVILEGE);
+        Index++;
 
-        Privileges->Privilege[3].Luid =
+        Privileges->Privilege[Index].Luid =
             ConvertLongToOldLargeInteger(SE_SYSTEMTIME_PRIVILEGE);
+        Index++;
 
-        Privileges->Privilege[4].Luid =
+        Privileges->Privilege[Index].Luid =
             ConvertLongToOldLargeInteger(SE_SHUTDOWN_PRIVILEGE);
+        Index++;
 
-        Privileges->Privilege[5].Luid =
+        Privileges->Privilege[Index].Luid =
             ConvertLongToOldLargeInteger(SE_REMOTE_SHUTDOWN_PRIVILEGE);
+        Index++;
 
-        Privileges->Privilege[6].Luid =
+        Privileges->Privilege[Index].Luid =
             ConvertLongToOldLargeInteger(SE_TAKE_OWNERSHIP_PRIVILEGE);
+        Index++;
 
-        Privileges->Privilege[7].Luid =
+        Privileges->Privilege[Index].Luid =
             ConvertLongToOldLargeInteger(SE_DEBUG_PRIVILEGE);
+        Index++;
 
-        Privileges->Privilege[8].Luid =
+        Privileges->Privilege[Index].Luid =
             ConvertLongToOldLargeInteger(SE_SYSTEM_ENVIRONMENT_PRIVILEGE);
+        Index++;
 
-        Privileges->Privilege[9].Luid =
+        Privileges->Privilege[Index].Luid =
             ConvertLongToOldLargeInteger(SE_SYSTEM_PROFILE_PRIVILEGE);
+        Index++;
 
-        Privileges->Privilege[10].Luid =
+        Privileges->Privilege[Index].Luid =
             ConvertLongToOldLargeInteger(SE_PROF_SINGLE_PROCESS_PRIVILEGE);
+        Index++;
 
-        Privileges->Privilege[11].Luid =
+        Privileges->Privilege[Index].Luid =
             ConvertLongToOldLargeInteger(SE_INC_BASE_PRIORITY_PRIVILEGE);
+        Index++;
 
-        Privileges->Privilege[12].Luid =
+        Privileges->Privilege[Index].Luid =
             ConvertLongToOldLargeInteger(SE_LOAD_DRIVER_PRIVILEGE);
+        Index++;
 
-        Privileges->Privilege[13].Luid =
+        Privileges->Privilege[Index].Luid =
             ConvertLongToOldLargeInteger(SE_CREATE_PAGEFILE_PRIVILEGE);
+        Index++;
 
-        // to add another privilege, vvvv increment this, and add a line ^^^
+        Privileges->Privilege[Index].Luid =
+            ConvertLongToOldLargeInteger(SE_INCREASE_QUOTA_PRIVILEGE);
+        Index++;
 
-        Privileges->PrivilegeCount    = 14;
+        // to add another privilege, and add another group of lines ^^^
+
+        Privileges->PrivilegeCount    = Index;
 
         (*RtlSubAuthoritySid(BuiltinAccountSid, 1)) = DOMAIN_ALIAS_RID_ADMINS;
         Status = LsapDbInitializeAccount(BuiltinAccountSid, Privileges, SystemAccess);
+        if (!NT_SUCCESS(Status)) {
+            KdPrint(("LSA DB INSTALL: Creation of Administrators privileged account failed.\n"
+                     "                Status: 0x%lx\n", Status));
+        }
 
     }
 

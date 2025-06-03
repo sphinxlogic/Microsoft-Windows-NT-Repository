@@ -117,50 +117,50 @@ TestGetDCName(
     NET_API_STATUS Status;
 
     IF_DEBUG(DOMAIN) {
-        NetpDbgPrint( "\nTestGetDCName: starting " FORMAT_LPTSTR " test.\n",
-                Header );
+        NetpKdPrint(( "\nTestGetDCName: starting " FORMAT_LPTSTR " test.\n",
+                Header ));
     }
     Status = RxNetGetDCName(
             UncServerName,
             OptionalDomain,
             (LPBYTE *) (LPVOID) &DCName );
     IF_DEBUG(DOMAIN) {
-        NetpDbgPrint( "TestGetDCName: back from RxNetGetDCName, stat="
-                FORMAT_API_STATUS "\n", Status );
+        NetpKdPrint(( "TestGetDCName: back from RxNetGetDCName, stat="
+                FORMAT_API_STATUS "\n", Status ));
     }
     if (Status == NERR_Success) {
         if (DCName == NULL) {
-            NetpDbgPrint( "TestGetDCName: status as expected "
-                    "but null ptr from RxNetGetDCName\n" );
+            NetpKdPrint(( "TestGetDCName: status as expected "
+                    "but null ptr from RxNetGetDCName\n" ));
             Fail( NERR_InternalError );
         }
 
         IF_DEBUG(DOMAIN) {
-            NetpDbgPrint( "TestGetDCName: Got " FORMAT_LPTSTR " as DCName.\n",
-                    DCName );
+            NetpKdPrint(( "TestGetDCName: Got " FORMAT_LPTSTR " as DCName.\n",
+                    DCName ));
         }
         if ( !NetpIsUncComputerNameValid(DCName) ) {
-            NetpDbgPrint( "TestGetDCName: got bad name back!\n" );
+            NetpKdPrint(( "TestGetDCName: got bad name back!\n" ));
             Fail( NERR_InternalError );
         }
 
         IF_DEBUG(DOMAIN) {
-            NetpDbgPrint( "TestGetDCName: Freeing buffer...\n" );
+            NetpKdPrint(( "TestGetDCName: Freeing buffer...\n" ));
         }
         Status = NetApiBufferFree( DCName );
         if (Status != NERR_Success ) {
-            NetpDbgPrint( "TestGetDCName: unexpected return code "
-                    FORMAT_API_STATUS " from NetApiBufferFree.\n", Status );
+            NetpKdPrint(( "TestGetDCName: unexpected return code "
+                    FORMAT_API_STATUS " from NetApiBufferFree.\n", Status ));
             FailGotWrongStatus( "NetApiBufferFree(call from TestGetDCName)",
                     NO_ERROR, Status );
         }
     }
     if (Status != ExpectedStatus ) {
-        NetpDbgPrint( "TestGetDCName: unexpected return code " FORMAT_API_STATUS
-                " from RxNetGetDCName.\n", Status );
+        NetpKdPrint(( "TestGetDCName: unexpected return code " FORMAT_API_STATUS
+                " from RxNetGetDCName.\n", Status ));
         if (Status == NERR_DCNotFound) {
-            NetpDbgPrint(
-                "TestGetDCName: DC not found (net too busy?), continuing.\n" );
+            NetpKdPrint((
+                "TestGetDCName: DC not found (net too busy?), continuing.\n" ));
         } else if (Status == ERROR_NOT_SUPPORTED) {
             return;   // WFW does not implement this API.
         } else {

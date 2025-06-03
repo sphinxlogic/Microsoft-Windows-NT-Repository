@@ -100,4 +100,3 @@ int FrameTools_FB_GetState(LPFRAMETOOLS lpft);
 LRESULT FAR PASCAL FrameToolsWndProc(HWND hWnd, UINT Message, WPARAM wParam, LPARAM lParam);
 
 #endif // _FRAMETLS_H_
-

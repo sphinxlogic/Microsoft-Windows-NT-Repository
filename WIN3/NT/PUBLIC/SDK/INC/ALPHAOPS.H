@@ -1,6 +1,6 @@
 /*++
 
-Copyright (c) 1992  Digital Equipment Corporation
+Copyright (c) 1992-1996  Digital Equipment Corporation
 
 Module Name:
 
@@ -11,9 +11,6 @@ Abstract:
     Alpha AXP instruction and floating constant definitions.
 
 Author:
-
-    Steve Jenness (jenness) 1-Apr-1992
-    Thomas Van Baak (tvb) 28-May-1992
 
 Revision History:
 
@@ -56,13 +53,18 @@ Revision History:
 #define _05_OP          0x05    // - reserved opcode
 #define _06_OP          0x06    // - reserved opcode
 #define _07_OP          0x07    // - reserved opcode
+#define _0A_OP			0x0A	// - reserved opcode
+#define _0C_OP			0x0C	// - reserved opcode
+#define _0D_OP			0x0D	// - reserved opcode
+#define _0E_OP			0x0E	// - reserved opcode
+#define _1C_OP			0x1C	// - reserved opcode
 #define LDA_OP          0x08    // ALPHA_MEMORY
 #define LDAH_OP         0x09    // ALPHA_MEMORY
-#define _0A_OP          0x0A    // - reserved opcode
+#define LDBU_OP         0x0A    // ALPHA_MEMORY
 #define LDQ_U_OP        0x0B    // ALPHA_MEMORY
-#define _0C_OP          0x0C    // - reserved opcode
-#define _0D_OP          0x0D    // - reserved opcode
-#define _0E_OP          0x0E    // - reserved opcode
+#define LDWU_OP         0x0C    // ALPHA_MEMORY
+#define STW_OP          0x0D    // ALPHA_MEMORY
+#define STB_OP          0x0E    // ALPHA_MEMORY
 #define STQ_U_OP        0x0F    // ALPHA_MEMORY
 #define ARITH_OP        0x10    // ALPHA_OPERATE or ALPHA_LITERAL
 #define BIT_OP          0x11    // ALPHA_OPERATE or ALPHA_LITERAL
@@ -77,7 +79,7 @@ Revision History:
 //#define MFPR_OP         0x19    // ALPHA_MFPR
 #define JMP_OP          0x1A    // ALPHA_JUMP
 #define PAL1B_OP        0x1B    // - reserved for PAL mode
-#define _1C_OP          0x1C    // - reserved opcode
+#define SEXT_OP         0x1C    // ALPHA_OPERATE
 #define PAL1D_OP        0x1D    // - reserved for PAL mode
 //#define MTPR_OP         0x1D    // ALPHA_MTPR
 #define PAL1E_OP        0x1E    // - reserved for PAL mode
@@ -117,12 +119,14 @@ Revision History:
 
 #define LDA_OP_STR      "lda"
 #define LDAH_OP_STR     "ldah"
+#define LDBU_OP_STR     "ldbu"
 #define LDQ_U_OP_STR    "ldq_u"
 #define STQ_U_OP_STR    "stq_u"
 #define LDF_OP_STR      "ldf"
 #define LDG_OP_STR      "ldg"
 #define LDS_OP_STR      "lds"
 #define LDT_OP_STR      "ldt"
+#define LDWU_OP_STR     "ldwu"
 #define STF_OP_STR      "stf"
 #define STG_OP_STR      "stg"
 #define STS_OP_STR      "sts"
@@ -131,10 +135,13 @@ Revision History:
 #define LDQ_OP_STR      "ldq"
 #define LDL_L_OP_STR    "ldl_l"
 #define LDQ_L_OP_STR    "ldq_l"
+#define SEXT_OP_STR     "sext"
+#define STB_OP_STR      "stb"
 #define STL_OP_STR      "stl"
 #define STQ_OP_STR      "stq"
 #define STL_C_OP_STR    "stl_c"
 #define STQ_C_OP_STR    "stq_c"
+#define STW_OP_STR      "stw"
 #define BR_OP_STR       "br"
 #define FBEQ_OP_STR     "fbeq"
 #define FBLT_OP_STR     "fblt"
@@ -502,6 +509,16 @@ typedef struct _Alpha_OpLit_Format {
 #define MULQ_FUNC_STR   "mulq"
 #define MULQV_FUNC_STR  "mulq/v"
 #define UMULH_FUNC_STR  "umulh"
+
+//
+// Sign extend operate function codes (in Function, Opcode 1c, SEXT_OP).
+//
+
+#define SEXTB_FUNC 0
+#define SEXTW_FUNC 1
+
+#define SEXTB_FUNC_STR      "sextb"
+#define SEXTW_FUNC_STR      "sextw"
 
 //
 // Type (7) Floating-point Operate Instruction Format.
@@ -920,7 +937,7 @@ typedef struct _Alpha_EV4_PR_Format {
 //  3         2 2       2 2       1 1
 //  1         6 5       1 0       6 5                              0
 // +-----------+---------+---------+-------------------------------+
-// |   opcode  |   Ra    |   Rb    |            Index              | 
+// |   opcode  |   Ra    |   Rb    |            Index              |
 // +-----------+---------+---------+-------------------------------+
 //
 

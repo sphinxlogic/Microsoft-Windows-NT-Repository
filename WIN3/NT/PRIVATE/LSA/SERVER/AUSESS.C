@@ -60,11 +60,66 @@ Return Value:
 
     NewSession = LsapAllocateLsaHeap( (ULONG)sizeof(LSAP_LOGON_SESSION) );
     ASSERT ( NewSession != NULL );
+
+    RtlZeroMemory(
+        NewSession,
+        sizeof(LSAP_LOGON_SESSION)
+        );
+
     NewSession->Packages = NULL;
-    NewSession->AccountName = NULL;
-    NewSession->AuthorityName = NULL;
-    NewSession->UserSid = NULL;
+
+    //
+    // Fill in the account name from the well known sids
+    //
+
+    NewSession->AccountName = LsapAllocateLsaHeap(sizeof(UNICODE_STRING));
+    if (NewSession->AccountName == NULL) {
+        goto Cleanup;
+    }
+
+    NewSession->AccountName->Buffer = LsapAllocateLsaHeap(LsapDbWellKnownSidName(LsapLocalSystemSidIndex)->Length + sizeof(WCHAR));
+    if (NewSession->AccountName->Buffer == NULL) {
+        goto Cleanup;
+    }
+
+    NewSession->AccountName->MaximumLength = LsapDbWellKnownSidName(LsapLocalSystemSidIndex)->Length + sizeof(WCHAR);
+    RtlCopyUnicodeString(
+        NewSession->AccountName,
+        LsapDbWellKnownSidName(LsapLocalSystemSidIndex)
+        );
+
+    //
+    // Fill in the authority name from the well known sids
+    //
+    NewSession->AuthorityName = LsapAllocateLsaHeap(sizeof(UNICODE_STRING));
+    if (NewSession->AuthorityName == NULL) {
+        goto Cleanup;
+    }
+
+    NewSession->AuthorityName->Buffer = LsapAllocateLsaHeap(LsapDbWellKnownSidDescription(LsapLocalSystemSidIndex)->Length + sizeof(WCHAR));
+    if (NewSession->AuthorityName->Buffer == NULL) {
+        goto Cleanup;
+    }
+
+    NewSession->AuthorityName->MaximumLength = LsapDbWellKnownSidDescription(LsapLocalSystemSidIndex)->Length + sizeof(WCHAR);
+    RtlCopyUnicodeString(
+        NewSession->AuthorityName,
+        LsapDbWellKnownSidDescription(LsapLocalSystemSidIndex)
+        );
+
+    NewSession->UserSid = LsapAllocateLsaHeap(RtlLengthSid(LsapLocalSystemSid));
+    if (NewSession->UserSid == NULL) {
+        goto Cleanup;
+    }
+
+    RtlCopyMemory(
+        NewSession->UserSid,
+        LsapLocalSystemSid,
+        RtlLengthSid(LsapLocalSystemSid)
+        );
+
     NewSession->LogonType = 0;
+    NewSession->LicenseHandle = INVALID_HANDLE_VALUE;
     RtlCopyLuid( &NewSession->LogonId, &LsapSystemLogonId );
 
     NewSession->NextSession = LsapLogonSessionList;
@@ -72,6 +127,29 @@ Return Value:
 
 
     return TRUE;
+Cleanup:
+    if (NewSession != NULL) {
+        if (NewSession->AccountName != NULL) {
+            if (NewSession->AccountName->Buffer != NULL)
+            {
+                LsapFreeLsaHeap(NewSession->AccountName->Buffer);
+            }
+            LsapFreeLsaHeap(NewSession->AccountName);
+        }
+
+        if (NewSession->AuthorityName != NULL) {
+            if (NewSession->AuthorityName->Buffer != NULL)
+            {
+                LsapFreeLsaHeap(NewSession->AuthorityName->Buffer);
+            }
+            LsapFreeLsaHeap(NewSession->AuthorityName);
+        }
+        if (NewSession->UserSid != NULL) {
+            LsapFreeLsaHeap(NewSession->UserSid);
+        }
+        LsapFreeLsaHeap(NewSession);
+    }
+    return(FALSE);
 
 }
 
@@ -154,6 +232,7 @@ Return Value:
     NewSession->AuthorityName = NULL;
     NewSession->UserSid = NULL;
     NewSession->LogonType = 0;
+    NewSession->LicenseHandle = INVALID_HANDLE_VALUE;
     RtlCopyLuid( &NewSession->LogonId, LogonId );
 
 
@@ -217,6 +296,8 @@ Routine Description:
 
     This function deletes a logon session context record.  It is expected
     that no TOKEN objects were ever created within this logon session.
+    This means we must inform the Reference Monitor to clean up its
+    information on the logon session.
 
     If TOKEN objecs were created within this logon session, then deletion
     of those tokens will cause the logon session to be deleted.
@@ -244,7 +325,7 @@ Return Value:
 
 {
 
-    return ( LsapInternalDeleteLogonSession ( LogonId, FALSE ) );
+    return ( LsapInternalDeleteLogonSession ( LogonId, TRUE ) );
 
 }
 
@@ -357,6 +438,7 @@ Return Value:
             DbgPrint("     Session existed in reference monitor but not in LSA.\n");
         }
 
+        LsapAuUnlock();
         return STATUS_NO_SUCH_LOGON_SESSION;
 
     }
@@ -414,6 +496,12 @@ Return Value:
     ASSERT(GoodByeSession != NULL);
 
     LsapAuUnlock();
+
+    //
+    // Close the license held by the logon session.
+    //
+
+    LsaFreeLicenseHandle( GoodByeSession->LicenseHandle );
 
     //
     // Free credentials associated with the package.
@@ -607,7 +695,8 @@ Return Value:
 
 
     //
-    // Delete the LSA portion of the logon session record
+    // Delete the LSA portion of the logon session record.
+    // Don't notify the reference monitor (since it is notifying us).
     //
 
     Status = LsapInternalDeleteLogonSession( &LogonId, FALSE );

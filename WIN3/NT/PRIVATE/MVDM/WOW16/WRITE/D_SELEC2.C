@@ -681,4 +681,4 @@ int WbFromKanjiChCh(ch1, ch2)
 }
 #endif
 
-
+

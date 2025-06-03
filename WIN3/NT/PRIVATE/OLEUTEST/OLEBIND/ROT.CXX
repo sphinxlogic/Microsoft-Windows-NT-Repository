@@ -102,9 +102,9 @@ BOOL TestROT(REFCLSID clsid)
     XEnumMoniker	 penummk;
 
 
-    HRESULT hres = GetRunningObjectTable(0, &prot);
+    HRESULT hr = GetRunningObjectTable(0, &prot);
 
-    TEST_FAILED(FAILED(hres), "GetRunningObjectTable failed!\n")
+    TEST_FAILED_HR(FAILED(hr), "GetRunningObjectTable failed!")
 
     // Make sure that we can do something on the pointer that
     // we got back.
@@ -114,37 +114,37 @@ BOOL TestROT(REFCLSID clsid)
     // Create an IUnknown pointer for the class.
     IUnknown *punk = new CRotTestObject(L"First Test Object");
 
-    hres = CreateItemMoniker(L"\\", wszPid, &pmk2);
+    hr = CreateItemMoniker(L"\\", wszPid, &pmk2);
 
-    TEST_FAILED(FAILED(hres), "CreateItemMoniker for \\Bob failed\n")
+    TEST_FAILED_HR(FAILED(hr), "CreateItemMoniker for \\Bob failed")
 
     // Do a get object to make sure that this is not in the ROT already
 
-    hres = prot->GetObject(pmk2, &punk2);
+    hr = prot->GetObject(pmk2, &punk2);
 
-    TEST_FAILED(SUCCEEDED(hres), "GetObject on nonexistent succeeded")
+    TEST_FAILED_HR(SUCCEEDED(hr), "GetObject on nonexistent succeeded")
 
     // Cookie for deregistering object
     DWORD dwRegister;
 
-    hres = prot->Register(0, punk, pmk2, &dwRegister);
+    hr = prot->Register(0, punk, pmk2, &dwRegister);
 
-    TEST_FAILED(FAILED(hres), "Register in ROT for \\PID failed\n")
+    TEST_FAILED_HR(FAILED(hr), "Register in ROT for \\PID failed")
 
-    hres = prot->IsRunning(pmk2);
+    hr = prot->IsRunning(pmk2);
 
-    TEST_FAILED((hres != S_OK),
-	"Unexpected return from IsRunning\n")
+    TEST_FAILED_HR((hr != S_OK),
+	"Unexpected return from IsRunning")
 
     // Test Get Object
-    hres = prot->GetObject(pmk2, &punk2);
+    hr = prot->GetObject(pmk2, &punk2);
 
-    TEST_FAILED((hres != S_OK), "Unexpected from GetObject\n")
+    TEST_FAILED_HR((hr != S_OK), "Unexpected from GetObject")
 
     // Confirm object identity
     WCHAR *pwszID = (WCHAR *) punk2->AddRef();
 
-    TEST_FAILED((wcscmp(pwszID, L"First Test Object") != 0),
+    TEST_FAILED_HR((wcscmp(pwszID, L"First Test Object") != 0),
 	"GetObject ID is invalid");
 
     // Make sure pointer == original pointer
@@ -161,33 +161,33 @@ BOOL TestROT(REFCLSID clsid)
 
     memset(&filetime, 'A', sizeof(filetime));
 
-    hres = prot->NoteChangeTime(dwRegister, &filetime);
+    hr = prot->NoteChangeTime(dwRegister, &filetime);
 
-    TEST_FAILED((hres != S_OK), "NoteChangeTime Failed\n")
+    TEST_FAILED_HR((hr != S_OK), "NoteChangeTime Failed")
 
     // Test get the time
     FILETIME filetime2;
 
-    hres = prot->GetTimeOfLastChange(pmk2, &filetime2);
+    hr = prot->GetTimeOfLastChange(pmk2, &filetime2);
 
-    TEST_FAILED((hres != S_OK), "NoteChangeTime Failed\n")
+    TEST_FAILED_HR((hr != S_OK), "NoteChangeTime Failed")
 
     TEST_FAILED((memcmp(&filetime, &filetime2, sizeof(filetime)) != 0),
 	"GetTimeOfLastChange != NoteChangeTime value")
 
     // Enumerate all the running monikers
 
-    hres = prot->EnumRunning(&penummk);
+    hr = prot->EnumRunning(&penummk);
 
-    TEST_FAILED(FAILED(hres), "EnumRunning Failed\n")
+    TEST_FAILED_HR(FAILED(hr), "EnumRunning Failed")
 
     // Cycle through running object table
     BOOL fFound = FALSE;
     int cIdx = 0;
     int cOurMoniker;
 
-    while (SUCCEEDED(hres = penummk->Next(1, &pmk, NULL))
-	&& (hres != S_FALSE))
+    while (SUCCEEDED(hr = penummk->Next(1, &pmk, NULL))
+	&& (hr != S_FALSE))
     {
 	if (pmk2->IsEqual(pmk) == S_OK)
 	{
@@ -199,24 +199,24 @@ BOOL TestROT(REFCLSID clsid)
 	cIdx++;
     }
 
-    TEST_FAILED(FAILED(hres), "ROT Moniker Enumeration ended in failure")
+    TEST_FAILED_HR(FAILED(hr), "ROT Moniker Enumeration ended in failure")
 
     TEST_FAILED((!fFound), "Did not find our moniker in the table");
 
     // Reset the pointer
-    hres = penummk->Reset();
+    hr = penummk->Reset();
 
-    TEST_FAILED(FAILED(hres), "ROT IEnumMoniker::Reset Failed");
+    TEST_FAILED_HR(FAILED(hr), "ROT IEnumMoniker::Reset Failed");
 
     // Skip to our moniker
-    hres = penummk->Skip(cOurMoniker);
+    hr = penummk->Skip(cOurMoniker);
 
-    TEST_FAILED(FAILED(hres), "ROT IEnumMoniker::Skip Failed");
+    TEST_FAILED_HR(FAILED(hr), "ROT IEnumMoniker::Skip Failed");
 
     // Read it from the enumerator
-    hres = penummk->Next(1, &pmk, NULL);
+    hr = penummk->Next(1, &pmk, NULL);
 
-    TEST_FAILED(FAILED(hres), "ROT IEnumMoniker::Next Failed");
+    TEST_FAILED_HR(FAILED(hr), "ROT IEnumMoniker::Next Failed");
 
     TEST_FAILED((pmk2->IsEqual(pmk) != S_OK),
 	"ROT IEnumMoniker::Next after skip monikers !=");
@@ -229,32 +229,32 @@ BOOL TestROT(REFCLSID clsid)
     // Test duplicate registration
     DWORD dwRegister2;
 
-    hres = prot->Register(0, punk, pmk2, &dwRegister2);
+    hr = prot->Register(0, punk, pmk2, &dwRegister2);
 
-    TEST_FAILED((hres != MK_S_MONIKERALREADYREGISTERED),
-	"2nd Register in ROT for \\PID failed\n")
+    TEST_FAILED_HR((hr != MK_S_MONIKERALREADYREGISTERED),
+	"2nd Register in ROT for \\PID failed")
 
     // Revoke non-existent object
     DWORD dwDummy = (DWORD) &dwRegister2;
 
-    hres = prot->Revoke(dwDummy);
+    hr = prot->Revoke(dwDummy);
 
-    TEST_FAILED((hres != E_INVALIDARG), "Revoke for bad item wrong result\n")
+    TEST_FAILED_HR((hr != E_INVALIDARG), "Revoke for bad item wrong result")
 
     // Revoke the object
-    hres = prot->Revoke(dwRegister);
+    hr = prot->Revoke(dwRegister);
 
-    TEST_FAILED(FAILED(hres), "Revoke of first reg in ROT failed\n")
+    TEST_FAILED_HR(FAILED(hr), "Revoke of first reg in ROT failed")
 
     // Revoke duplicate registration
-    hres = prot->Revoke(dwRegister2);
+    hr = prot->Revoke(dwRegister2);
 
-    TEST_FAILED(FAILED(hres), "2nd Revoke in ROT failed\n")
+    TEST_FAILED_HR(FAILED(hr), "2nd Revoke in ROT failed")
 
     // Make sure it is no longer running
-    hres = prot->IsRunning(pmk2);
+    hr = prot->IsRunning(pmk2);
 
-    TEST_FAILED((hres != S_FALSE),
+    TEST_FAILED_HR((hr != S_FALSE),
 	"Revoked ROT entry unexpected error")
 
     // If we get to here the test passed

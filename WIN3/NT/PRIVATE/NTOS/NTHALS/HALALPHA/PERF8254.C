@@ -87,6 +87,16 @@ Return Value:
 --*/
 
 {
+    PKPRCB Prcb = PCR->Prcb;
+
+    //
+    // If this isn't the primary processor, then return.
+    //
+
+    if( Prcb->Number != HAL_PRIMARY_PROCESSOR ){
+        return;
+    }
+
     //
     // If the counter has already been initialized then simply return.
     //

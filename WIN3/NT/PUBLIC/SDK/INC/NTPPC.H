@@ -29,8 +29,11 @@ Revision History:
 #define _NTPPC_
 #include "ppcinst.h"
 
-// begin_ntddk begin_nthal
+// begin_ntddk begin_nthal begin_windbgkd begin_winnt
+
 #if defined(_PPC_)
+
+// end_windbgkd end_winnt
 
 //
 // Define system time structure.
@@ -48,11 +51,8 @@ typedef struct _KSYSTEM_TIME {
 
 #define _cdecl
 
-// begin_windbgkd
-
-#if defined(_PPC_)
-
 // end_ntddk end_nthal
+// begin_windbgkd
 
 //
 // Define PowerPC specific kernel debugger information.
@@ -76,8 +76,6 @@ typedef struct _DBGKD_CONTROL_REPORT {
 //
 
 typedef ULONG DBGKD_CONTROL_SET, *PDBGKD_CONTROL_SET;
-
-#endif                          // ntddk nthal
 
 // end_windbgkd
 
@@ -137,16 +135,16 @@ typedef ULONG DBGKD_CONTROL_SET, *PDBGKD_CONTROL_SET;
 #define KERNEL_STACK_SIZE 16384
 
 //
-// Define length of exception code dispatch vector.
+// Define size of large kernel mode stack for callbacks.
 //
 
-#define XCODE_VECTOR_LENGTH 32
+#define KERNEL_LARGE_STACK_SIZE 61440
 
 //
-// Define length of interrupt vector table.
+// Define number of pages to initialize in a large kernel stack.
 //
 
-#define MAXIMUM_VECTOR 256
+#define KERNEL_LARGE_STACK_COMMIT 16384
 
 //
 // Define bus error routine type.
@@ -166,6 +164,21 @@ VOID
     IN PHYSICAL_ADDRESS PhysicalAddress
     );
 
+//
+// Macros to emit eieio, sync, and isync instructions.
+//
+
+#if defined(_M_PPC) && defined(_MSC_VER) && (_MSC_VER>=1000)
+void __emit( unsigned const __int32 );
+#define __builtin_eieio() __emit( 0x7C0006AC )
+#define __builtin_sync()  __emit( 0x7C0004AC )
+#define __builtin_isync() __emit( 0x4C00012C )
+#else
+void __builtin_eieio(void);
+void __builtin_sync(void);
+void __builtin_isync(void);
+#endif
+
 // end_ntddk end_nthal  - Added to replace comment in the KPCR from ntmips.h
 
 //
@@ -174,31 +187,46 @@ VOID
 
 #define USER_SHARED_DATA ((KUSER_SHARED_DATA * const)0xFFFFE000)
 
-//
-// Access to TEB address is via fast-path system call for user code,
-// and directly from SPRG 1 for kernel code.
-//
-
-#if defined(NTOS_KERNEL_RUNTIME)
-#     define NtCurrentTeb() ((PTEB)(PCR->Teb))
-#else
-      struct _TEB *NtCurrentTeb();
-#endif
-
 // begin_winnt
 
-#if defined(_PPC_)
+//
+// The address of the TEB is placed into GPR 13 at context switch time
+// and should never be destroyed.  To get the address of the TEB use
+// the compiler intrinsic to access it directly from GPR 13.
+//
+
+#if defined(_M_PPC) && defined(_MSC_VER) && (_MSC_VER>=1000)
+unsigned __gregister_get( unsigned const regnum );
+#define NtCurrentTeb() ((struct _TEB *)__gregister_get(13))
+#elif defined(_M_PPC)
+struct _TEB * __builtin_get_gpr13(VOID);
+#define NtCurrentTeb() ((struct _TEB *)__builtin_get_gpr13())
+#endif
+
+
+//
+// Define functions to get the address of the current fiber and the
+// current fiber data.
+//
+
+#define GetCurrentFiber() (((PNT_TIB)NtCurrentTeb())->FiberData)
+#define GetFiberData() (*(PVOID *)(GetCurrentFiber()))
 
 // begin_ntddk begin_nthal
 //
 // The following flags control the contents of the CONTEXT structure.
 //
 
+#if !defined(RC_INVOKED)
+
 #define CONTEXT_CONTROL         0x00000001L
 #define CONTEXT_FLOATING_POINT  0x00000002L
 #define CONTEXT_INTEGER         0x00000004L
+#define CONTEXT_DEBUG_REGISTERS 0x00000008L
 
 #define CONTEXT_FULL (CONTEXT_CONTROL | CONTEXT_FLOATING_POINT | CONTEXT_INTEGER)
+
+#endif
 
 //
 // Context Frame
@@ -327,6 +355,21 @@ typedef struct _CONTEXT {
     ULONG ContextFlags;
 
     ULONG Fill[3];                      // Pad out to multiple of 16 bytes
+
+    //
+    // This section is specified/returned if CONTEXT_DEBUG_REGISTERS is
+    // set in ContextFlags.  Note that CONTEXT_DEBUG_REGISTERS is NOT
+    // included in CONTEXT_FULL.
+    //
+    ULONG Dr0;                          // Breakpoint Register 1
+    ULONG Dr1;                          // Breakpoint Register 2
+    ULONG Dr2;                          // Breakpoint Register 3
+    ULONG Dr3;                          // Breakpoint Register 4
+    ULONG Dr4;                          // Breakpoint Register 5
+    ULONG Dr5;                          // Breakpoint Register 6
+    ULONG Dr6;                          // Debug Status Register
+    ULONG Dr7;                          // Debug Control Register
+
 } CONTEXT, *PCONTEXT;
 
 // end_ntddk end_nthal
@@ -363,8 +406,6 @@ typedef struct _STACK_FRAME_HEADER {    // GPR 1 points here
 
 } STACK_FRAME_HEADER,*PSTACK_FRAME_HEADER;
 
-#endif // _PPC_
-
 // end_winnt
 
 
@@ -379,7 +420,7 @@ typedef struct _STACK_FRAME_HEADER {    // GPR 1 points here
 //
 
 typedef struct _KNONVOLATILE_CONTEXT_POINTERS {
-    PULONG FloatingContext[32];
+    DOUBLE *FloatingContext[32];
     PULONG FpscrContext;
     PULONG IntegerContext[32];
     PULONG CrContext;
@@ -516,8 +557,8 @@ typedef struct _FPSCR {
 
 #define KUSEG_BASE 0x0                  // base of user segment
 #define KSEG0_BASE 0x80000000           // base of kernel BAT
-#define KSEG1_BASE 0x80800000           // end of kernel BAT
-#define KSEG2_BASE 0x80800000           // end of kernel BAT
+#define KSEG1_BASE PCR->Kseg0Top        // end of kernel BAT
+#define KSEG2_BASE KSEG1_BASE           // end of kernel BAT
 
 //
 // A valid Page Table Entry has the following definition
@@ -537,6 +578,8 @@ typedef struct _HARDWARE_PTE {
     ULONG rsvd1            :  1;
     ULONG PageFrameNumber  : 20;
 } HARDWARE_PTE, *PHARDWARE_PTE;
+
+#define HARDWARE_PTE_DIRTY_MASK     0x3
 
 // end_nthal
 
@@ -595,7 +638,9 @@ RtlVirtualUnwind (
     IN OUT PCONTEXT ContextRecord,
     OUT PBOOLEAN InFunction,
     OUT PULONG EstablisherFrame,
-    IN OUT PKNONVOLATILE_CONTEXT_POINTERS ContextPointers OPTIONAL
+    IN OUT PKNONVOLATILE_CONTEXT_POINTERS ContextPointers OPTIONAL,
+    IN ULONG LowStackLimit,
+    IN ULONG HighStackLimit
     );
 
 //
@@ -624,11 +669,8 @@ VOID
     BOOLEAN is_abnormal
     );
 
-// begin_winnt
-
-#if defined(_PPC_)
-
 // **FINISH** This may need alteration for PowerPC
+// begin_winnt
 
 VOID
 __jump_unwind (
@@ -636,12 +678,11 @@ __jump_unwind (
     PVOID TargetPc
     );
 
-#endif // _PPC_
-
 // end_winnt
 
-// begin_ntddk begin_nthal
+// begin_ntddk begin_nthal begin_windbgkd begin_winnt
 #endif // defined(_PPC_)
-// end_ntddk end_nthal
+// end_ntddk end_nthal end_windbgkd end_winnt
 
 #endif // _NTPPC_
+

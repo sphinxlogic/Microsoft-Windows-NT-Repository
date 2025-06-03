@@ -88,8 +88,8 @@ NetpDbgDisplayRepl(
 {
     LPREPL_INFO_0 ApiRecord = Info;  // superset info level
 
-    NetpDbgPrint( "repl info (level " FORMAT_DWORD ") at " FORMAT_LPVOID ":\n",
-            Level, (LPVOID) Info );
+    NetpKdPrint(( "repl info (level " FORMAT_DWORD ") at " FORMAT_LPVOID ":\n",
+            Level, (LPVOID) Info ));
     NetpAssert( Info != NULL );
     NetpAssert( Level == 0 );
 
@@ -209,9 +209,9 @@ NetpDbgDisplayReplExportDir(
 {
     LPREPL_EDIR_INFO_2 ApiRecord = Info;  // superset info level
 
-    NetpDbgPrint(
+    NetpKdPrint((
             "repl export dir info (level " FORMAT_DWORD ") at " FORMAT_LPVOID
-            ":\n", Level, (LPVOID) Info );
+            ":\n", Level, (LPVOID) Info ));
     NetpAssert( Info != NULL );
     NetpAssert( Level <= 2 );
 
@@ -287,8 +287,8 @@ NetpDbgDisplayReplImportDir(
 {
     LPREPL_IDIR_INFO_1 ApiRecord = Info;  // superset info level
 
-    NetpDbgPrint( "repl import dir info (level " FORMAT_DWORD ") at "
-            FORMAT_LPVOID ":\n", Level, (LPVOID) Info );
+    NetpKdPrint(( "repl import dir info (level " FORMAT_DWORD ") at "
+            FORMAT_LPVOID ":\n", Level, (LPVOID) Info ));
     NetpAssert( Info != NULL );
     NetpAssert( Level <= 1 );
 

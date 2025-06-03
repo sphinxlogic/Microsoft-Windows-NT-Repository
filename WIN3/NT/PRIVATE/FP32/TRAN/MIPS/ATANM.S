@@ -15,8 +15,6 @@
  */
 /* $Header: atan.s,v 3000.10.1.3 91/07/17 14:05:38 zaineb Exp $ */
 
-.globl atan
-.globl atan2
 
 /* These functions are based on the 4.3bsd algorithm. */
 
@@ -50,15 +48,16 @@
 #define p2      -1.9999999999979536924E-1
 #define p1       3.3333333333333942106E-1
 
-.text
 
 /* double atan(double y) */
 
+.text .text$atanm
+.globl atan
 .ent atan
 atan:
 	.set	noreorder
 	.frame	sp, 0, ra
-    .prologue 0
+	.prologue 0
 	c.un.d	$f12, $f12		/* if Y is NaN */
 	mfc1	t0, $f13		/* save sign of Y */
 	li	t7, OP_ATAN
@@ -79,10 +78,12 @@ atan:
 
 /* double atan2(double y, double x) */
 
+.text .text$atanm
+.globl atan2
 .ent atan2
 atan2:
 	.frame	sp, 0, ra
-    .prologue 0
+	.prologue 0
 	c.un.d	$f12, $f14		/* if either Y or X is NaN */
 	mfc1	t0, $f13		/* save signs of Y and X */
 	mfc1	t1, $f15
@@ -246,7 +247,7 @@ setup_atan2_error:
 	.mask   0x80000000, -4
 	subu    sp, FSIZE
 	sw      ra, FSIZE-4(sp)
-    .prologue 1
+	.prologue 1
 	li	$4, FP_I 	// exception mask
 	move	$5, t7  	// operation code (funtion name index)
 	mfc1.d	$6, $f12   	// arg1

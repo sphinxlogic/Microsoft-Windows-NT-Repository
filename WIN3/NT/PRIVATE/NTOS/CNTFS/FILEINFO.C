@@ -33,10 +33,38 @@ Revision History:
 
 #define Dbg                              (DEBUG_TRACE_FILEINFO)
 
-LONGLONG LargeAllocation = 0x10000000;
+//
+//  Define a tag for general pool allocations from this module
+//
+
+#undef MODULE_POOL_TAG
+#define MODULE_POOL_TAG                  ('FFtN')
 
 #define SIZEOF_FILE_NAME_INFORMATION (FIELD_OFFSET( FILE_NAME_INFORMATION, FileName[0]) \
                                       + sizeof( WCHAR ))
+
+//
+//  Local flags for rename and set link
+//
+
+#define TRAVERSE_MATCH              (0x00000001)
+#define EXACT_CASE_MATCH            (0x00000002)
+#define ACTIVELY_REMOVE_SOURCE_LINK (0x00000004)
+#define REMOVE_SOURCE_LINK          (0x00000008)
+#define REMOVE_TARGET_LINK          (0x00000010)
+#define ADD_TARGET_LINK             (0x00000020)
+#define REMOVE_TRAVERSE_LINK        (0x00000040)
+#define REUSE_TRAVERSE_LINK         (0x00000080)
+#define MOVE_TO_NEW_DIR             (0x00000100)
+#define ADD_PRIMARY_LINK            (0x00000200)
+#define OVERWRITE_SOURCE_LINK       (0x00000400)
+
+//
+//  Additional local flags for set link
+//
+
+#define CREATE_IN_NEW_DIR           (0x00000400)
+
 //
 //  Local procedure prototypes
 //
@@ -138,6 +166,16 @@ NtfsQueryCompressedFileSize (
     IN OUT PULONG Length
     );
 
+VOID
+NtfsQueryNetworkOpenInfo (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFILE_OBJECT FileObject,
+    IN PSCB Scb,
+    IN PCCB Ccb,
+    IN OUT PFILE_NETWORK_OPEN_INFORMATION Buffer,
+    IN OUT PULONG Length
+    );
+
 NTSTATUS
 NtfsSetBasicInfo (
     IN PIRP_CONTEXT IrpContext,
@@ -169,7 +207,6 @@ NtfsSetRenameInfo (
 NTSTATUS
 NtfsSetLinkInfo (
     IN PIRP_CONTEXT IrpContext,
-    IN PFILE_OBJECT FileObject,
     IN PIRP Irp,
     IN PVCB Vcb,
     IN PSCB Scb,
@@ -199,14 +236,15 @@ NtfsSetEndOfFileInfo (
     IN PFILE_OBJECT FileObject,
     IN PIRP Irp,
     IN PSCB Scb,
-    IN PCCB Ccb,
+    IN PCCB Ccb OPTIONAL,
     IN BOOLEAN VcbAcquired
     );
 
 NTSTATUS
 NtfsCheckScbForLinkRemoval (
-    IN PIRP_CONTEXT IrpContext,
-    IN PSCB Scb
+    IN PSCB Scb,
+    OUT PSCB *BatchOplockScb,
+    OUT PULONG BatchOplockCount
     );
 
 VOID
@@ -214,45 +252,33 @@ NtfsFindTargetElements (
     IN PIRP_CONTEXT IrpContext,
     IN PFILE_OBJECT TargetFileObject,
     IN PSCB ParentScb,
-    OUT PFCB *TargetParentFcb,
     OUT PSCB *TargetParentScb,
+    OUT PUNICODE_STRING FullTargetFileName,
     OUT PUNICODE_STRING TargetFileName
     );
 
 BOOLEAN
 NtfsCheckLinkForNewLink (
-    IN PIRP_CONTEXT IrpContext,
     IN PFCB Fcb,
     IN PFILE_NAME FileNameAttr,
     IN FILE_REFERENCE FileReference,
-    IN UNICODE_STRING TargetFileName,
-    OUT PBOOLEAN TraverseMatch
+    IN PUNICODE_STRING NewLinkName,
+    OUT PULONG LinkFlags
     );
 
 VOID
 NtfsCheckLinkForRename (
-    IN PIRP_CONTEXT IrpContext,
     IN PFCB Fcb,
     IN PLCB Lcb,
     IN PFILE_NAME FileNameAttr,
     IN FILE_REFERENCE FileReference,
-    IN UNICODE_STRING TargetFileName,
+    IN PUNICODE_STRING TargetFileName,
     IN BOOLEAN IgnoreCase,
-    IN BOOLEAN MoveToNewDir,
-    OUT PBOOLEAN TraverseMatch,
-    OUT PBOOLEAN ExactCaseMatch,
-    OUT PBOOLEAN RemoveTargetLink,
-    OUT PBOOLEAN RemoveSourceLink,
-    OUT PBOOLEAN AddTargetLink,
-    OUT PBOOLEAN OverwriteSourceLink
+    IN OUT PULONG RenameFlags
     );
 
-NTSTATUS
-NtfsCheckLinkForRemoval (
-    IN PIRP_CONTEXT IrpContext,
-    IN PVCB Vcb,
-    IN PSCB ParentScb,
-    IN PINDEX_ENTRY IndexEntry,
+VOID
+NtfsCleanupLinkForRemoval (
     IN PFCB PreviousFcb,
     IN BOOLEAN ExistingFcb
     );
@@ -267,38 +293,27 @@ NtfsUpdateFcbFromLinkRemoval (
     );
 
 VOID
-NtfsCreateLinkInNewDir (
+NtfsReplaceLinkInDir (
     IN PIRP_CONTEXT IrpContext,
-    IN PFILE_OBJECT TargetFileObject,
     IN PSCB ParentScb,
     IN PFCB Fcb,
+    IN PUNICODE_STRING NewLinkName,
     IN UCHAR FileNameFlags,
-    IN UNICODE_STRING PrevLinkName,
+    IN PUNICODE_STRING PrevLinkName,
     IN UCHAR PrevLinkNameFlags
     );
 
 VOID
 NtfsMoveLinkToNewDir (
     IN PIRP_CONTEXT IrpContext,
-    IN PFILE_OBJECT TargetFileObject,
+    IN PUNICODE_STRING NewFullLinkName,
+    IN PUNICODE_STRING NewLinkName,
+    IN UCHAR NewLinkNameFlags,
     IN PSCB ParentScb,
     IN PFCB Fcb,
     IN OUT PLCB Lcb,
-    IN UCHAR FileNameFlags,
-    IN BOOLEAN RemovedTraverseLink,
-    IN BOOLEAN ReusedTraverseLink,
-    IN UNICODE_STRING PrevLinkName,
-    IN UCHAR PrevLinkNameFlags
-    );
-
-VOID
-NtfsCreateLinkInSameDir (
-    IN PIRP_CONTEXT IrpContext,
-    IN PSCB ParentScb,
-    IN PFCB Fcb,
-    IN UNICODE_STRING NewLinkName,
-    IN UCHAR NewFileNameFlags,
-    IN UNICODE_STRING PrevLinkName,
+    IN ULONG RenameFlags,
+    IN PUNICODE_STRING PrevLinkName,
     IN UCHAR PrevLinkNameFlags
     );
 
@@ -308,12 +323,10 @@ NtfsRenameLinkInDir (
     IN PSCB ParentScb,
     IN PFCB Fcb,
     IN OUT PLCB Lcb,
-    IN UNICODE_STRING NewLinkName,
-    IN UCHAR NewFileNameFlags,
-    IN BOOLEAN RemovedTraverseLink,
-    IN BOOLEAN ReusedTraverseLink,
-    IN BOOLEAN OverwriteSourceLink,
-    IN UNICODE_STRING PrevLinkName,
+    IN PUNICODE_STRING NewLinkName,
+    IN UCHAR FileNameFlags,
+    IN ULONG RenameFlags,
+    IN PUNICODE_STRING PrevLinkName,
     IN UCHAR PrevLinkNameFlags
     );
 
@@ -326,13 +339,11 @@ NtfsUpdateFileDupInfo (
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE, NtfsCheckLinkForNewLink)
-#pragma alloc_text(PAGE, NtfsCheckLinkForRemoval)
 #pragma alloc_text(PAGE, NtfsCheckLinkForRename)
 #pragma alloc_text(PAGE, NtfsCheckScbForLinkRemoval)
+#pragma alloc_text(PAGE, NtfsCleanupLinkForRemoval)
 #pragma alloc_text(PAGE, NtfsCommonQueryInformation)
 #pragma alloc_text(PAGE, NtfsCommonSetInformation)
-#pragma alloc_text(PAGE, NtfsCreateLinkInNewDir)
-#pragma alloc_text(PAGE, NtfsCreateLinkInSameDir)
 #pragma alloc_text(PAGE, NtfsFindTargetElements)
 #pragma alloc_text(PAGE, NtfsFsdQueryInformation)
 #pragma alloc_text(PAGE, NtfsFsdSetInformation)
@@ -346,7 +357,9 @@ NtfsUpdateFileDupInfo (
 #pragma alloc_text(PAGE, NtfsQueryStandardInfo)
 #pragma alloc_text(PAGE, NtfsQueryStreamsInfo)
 #pragma alloc_text(PAGE, NtfsQueryCompressedFileSize)
+#pragma alloc_text(PAGE, NtfsQueryNetworkOpenInfo)
 #pragma alloc_text(PAGE, NtfsRenameLinkInDir)
+#pragma alloc_text(PAGE, NtfsReplaceLinkInDir)
 #pragma alloc_text(PAGE, NtfsSetAllocationInfo)
 #pragma alloc_text(PAGE, NtfsSetBasicInfo)
 #pragma alloc_text(PAGE, NtfsSetDispositionInfo)
@@ -391,12 +404,13 @@ Return Value:
     NTSTATUS Status = STATUS_SUCCESS;
     PIRP_CONTEXT IrpContext = NULL;
 
-    UNREFERENCED_PARAMETER( VolumeDeviceObject );
     ASSERT_IRP( Irp );
+
+    UNREFERENCED_PARAMETER( VolumeDeviceObject );
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsFsdQueryInformation\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsFsdQueryInformation\n") );
 
     //
     //  Call the common query Information routine
@@ -452,7 +466,7 @@ Return Value:
     //  And return to our caller
     //
 
-    DebugTrace(-1, Dbg, "NtfsFsdQueryInformation -> %08lx\n", Status);
+    DebugTrace( -1, Dbg, ("NtfsFsdQueryInformation -> %08lx\n", Status) );
 
     return Status;
 }
@@ -489,13 +503,15 @@ Return Value:
 
     NTSTATUS Status = STATUS_SUCCESS;
     PIRP_CONTEXT IrpContext = NULL;
+    ULONG LogFileFullCount = 0;
+
+    ASSERT_IRP( Irp );
 
     UNREFERENCED_PARAMETER( VolumeDeviceObject );
-    ASSERT_IRP( Irp );
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsFsdSetInformation\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsFsdSetInformation\n") );
 
     //
     //  Call the common set Information routine
@@ -521,6 +537,11 @@ Return Value:
             } else if (Status == STATUS_LOG_FILE_FULL) {
 
                 NtfsCheckpointForLogFileFull( IrpContext );
+
+                if (++LogFileFullCount >= 2) {
+
+                    SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_EXCESS_LOG_FULL );
+                }
             }
 
             Status = NtfsCommonSetInformation( IrpContext, Irp );
@@ -564,7 +585,7 @@ Return Value:
     //  And return to our caller
     //
 
-    DebugTrace(-1, Dbg, "NtfsFsdSetInformation -> %08lx\n", Status);
+    DebugTrace( -1, Dbg, ("NtfsFsdSetInformation -> %08lx\n", Status) );
 
     return Status;
 }
@@ -594,7 +615,7 @@ Return Value:
 --*/
 
 {
-    NTSTATUS Status;
+    NTSTATUS Status = STATUS_SUCCESS;
     PIO_STACK_LOCATION IrpSp;
     PFILE_OBJECT FileObject;
 
@@ -608,8 +629,10 @@ Return Value:
     FILE_INFORMATION_CLASS FileInformationClass;
     PVOID Buffer;
 
-    BOOLEAN OpenById;
-    BOOLEAN FcbAcquired;
+    BOOLEAN OpenById = FALSE;
+    BOOLEAN FcbAcquired = FALSE;
+    BOOLEAN VcbAcquired = FALSE;
+    BOOLEAN FsRtlHeaderLocked = FALSE;
     PFILE_ALL_INFORMATION AllInfo;
 
     ASSERT_IRP_CONTEXT( IrpContext );
@@ -623,12 +646,12 @@ Return Value:
 
     IrpSp = IoGetCurrentIrpStackLocation( Irp );
 
-    DebugTrace(+1, Dbg, "NtfsCommonQueryInformation\n", 0);
-    DebugTrace( 0, Dbg, "IrpContext           = %08lx\n", IrpContext);
-    DebugTrace( 0, Dbg, "Irp                  = %08lx\n", Irp);
-    DebugTrace( 0, Dbg, "Length               = %08lx\n", IrpSp->Parameters.QueryFile.Length);
-    DebugTrace( 0, Dbg, "FileInformationClass = %08lx\n", IrpSp->Parameters.QueryFile.FileInformationClass);
-    DebugTrace( 0, Dbg, "Buffer               = %08lx\n", Irp->AssociatedIrp.SystemBuffer);
+    DebugTrace( +1, Dbg, ("NtfsCommonQueryInformation\n") );
+    DebugTrace( 0, Dbg, ("IrpContext           = %08lx\n", IrpContext) );
+    DebugTrace( 0, Dbg, ("Irp                  = %08lx\n", Irp) );
+    DebugTrace( 0, Dbg, ("Length               = %08lx\n", IrpSp->Parameters.QueryFile.Length) );
+    DebugTrace( 0, Dbg, ("FileInformationClass = %08lx\n", IrpSp->Parameters.QueryFile.FileInformationClass) );
+    DebugTrace( 0, Dbg, ("Buffer               = %08lx\n", Irp->AssociatedIrp.SystemBuffer) );
 
     //
     //  Reference our input parameters to make things easier
@@ -644,10 +667,6 @@ Return Value:
 
     FileObject = IrpSp->FileObject;
     TypeOfOpen = NtfsDecodeFileObject( IrpContext, FileObject, &Vcb, &Fcb, &Scb, &Ccb, TRUE );
-
-    FcbAcquired = FALSE;
-    Status = STATUS_SUCCESS;
-    OpenById = FALSE;
 
     try {
 
@@ -666,18 +685,53 @@ Return Value:
             Status = STATUS_INVALID_PARAMETER;
             break;
 
-        case UserOpenFileById:
-        case UserOpenDirectoryById:
-
-            OpenById = TRUE;
-
         case UserFileOpen:
+#ifdef _CAIRO_
+        case UserPropertySetOpen:
+#endif  //  _CAIRO_
         case UserDirectoryOpen:
+
+            if (FlagOn( Ccb->Flags, CCB_FLAG_OPEN_BY_FILE_ID )) {
+                OpenById = TRUE;
+            }
 
         case StreamFileOpen:
 
+            //
+            //  Acquire the Vcb if there is no Ccb.  This is for the
+            //  case where the cache manager is querying the name.
+            //
+
+            if (Ccb == NULL) {
+
+                NtfsAcquireSharedVcb( IrpContext, Vcb, FALSE );
+                VcbAcquired = TRUE;
+            }
+
+            if ((Scb->Header.PagingIoResource != NULL) &&
+
+                ((FileInformationClass == FileAllInformation) ||
+                 (FileInformationClass == FileStandardInformation) ||
+                 (FileInformationClass == FileCompressionInformation))) {
+
+                ExAcquireResourceShared( Scb->Header.PagingIoResource, TRUE );
+
+                FsRtlLockFsRtlHeader( &Scb->Header );
+                FsRtlHeaderLocked = TRUE;
+            }
+
             NtfsAcquireSharedFcb( IrpContext, Fcb, Scb, FALSE );
             FcbAcquired = TRUE;
+
+            //
+            //  Make sure the volume is still mounted.  We need to test this
+            //  with the Fcb acquired.
+            //
+            
+            if (FlagOn( Scb->ScbState, SCB_STATE_VOLUME_DISMOUNTED )) {
+
+                NtfsRaiseStatus( IrpContext, STATUS_VOLUME_DISMOUNTED, NULL, NULL );
+            }
 
             //
             //  Based on the information class we'll do different
@@ -792,6 +846,11 @@ Return Value:
                 Status = NtfsQueryCompressedFileSize( IrpContext, Scb, Buffer, &Length );
                 break;
 
+            case FileNetworkOpenInformation:
+
+                NtfsQueryNetworkOpenInfo( IrpContext, FileObject, Scb, Ccb, Buffer, &Length );
+                break;
+
             default:
 
                 Status = STATUS_INVALID_PARAMETER;
@@ -816,20 +875,26 @@ Return Value:
         //  Abort transaction on error by raising.
         //
 
-        NtfsCleanupTransaction( IrpContext, Status );
+        NtfsCleanupTransaction( IrpContext, Status, FALSE );
 
     } finally {
 
         DebugUnwind( NtfsCommonQueryInformation );
 
+        if (FsRtlHeaderLocked) {
+            FsRtlUnlockFsRtlHeader( &Scb->Header );
+            ExReleaseResource( Scb->Header.PagingIoResource );
+        }
+
         if (FcbAcquired) { NtfsReleaseFcb( IrpContext, Fcb ); }
+        if (VcbAcquired) { NtfsReleaseVcb( IrpContext, Vcb ); }
 
         if (!AbnormalTermination()) {
 
             NtfsCompleteRequest( &IrpContext, &Irp, Status );
         }
 
-        DebugTrace(-1, Dbg, "NtfsCommonQueryInformation -> %08lx\n", Status);
+        DebugTrace( -1, Dbg, ("NtfsCommonQueryInformation -> %08lx\n", Status) );
     }
 
     return Status;
@@ -860,7 +925,7 @@ Return Value:
 --*/
 
 {
-    NTSTATUS Status;
+    NTSTATUS Status = STATUS_SUCCESS;
     PIO_STACK_LOCATION IrpSp;
     PFILE_OBJECT FileObject;
 
@@ -871,10 +936,10 @@ Return Value:
     PCCB Ccb;
 
     FILE_INFORMATION_CLASS FileInformationClass;
-    BOOLEAN VcbAcquired;
-    BOOLEAN FcbAcquired;
-
-    PSECURITY_SUBJECT_CONTEXT SubjectContext = NULL;
+    BOOLEAN VcbAcquired = FALSE;
+    BOOLEAN ReleaseScbPaging = FALSE;
+    BOOLEAN LazyWriterCallback = FALSE;
+    ULONG WaitState;
 
     ASSERT_IRP_CONTEXT( IrpContext );
     ASSERT_IRP( Irp );
@@ -887,14 +952,14 @@ Return Value:
 
     IrpSp = IoGetCurrentIrpStackLocation( Irp );
 
-    DebugTrace(+1, Dbg, "NtfsCommonSetInformation\n", 0);
-    DebugTrace( 0, Dbg, "IrpContext           = %08lx\n", IrpContext);
-    DebugTrace( 0, Dbg, "Irp                  = %08lx\n", Irp);
-    DebugTrace( 0, Dbg, "Length               = %08lx\n", IrpSp->Parameters.SetFile.Length);
-    DebugTrace( 0, Dbg, "FileInformationClass = %08lx\n", IrpSp->Parameters.SetFile.FileInformationClass);
-    DebugTrace( 0, Dbg, "FileObject           = %08lx\n", IrpSp->Parameters.SetFile.FileObject);
-    DebugTrace( 0, Dbg, "ReplaceIfExists      = %08lx\n", IrpSp->Parameters.SetFile.ReplaceIfExists);
-    DebugTrace( 0, Dbg, "Buffer               = %08lx\n", Irp->AssociatedIrp.SystemBuffer);
+    DebugTrace( +1, Dbg, ("NtfsCommonSetInformation\n") );
+    DebugTrace( 0, Dbg, ("IrpContext           = %08lx\n", IrpContext) );
+    DebugTrace( 0, Dbg, ("Irp                  = %08lx\n", Irp) );
+    DebugTrace( 0, Dbg, ("Length               = %08lx\n", IrpSp->Parameters.SetFile.Length) );
+    DebugTrace( 0, Dbg, ("FileInformationClass = %08lx\n", IrpSp->Parameters.SetFile.FileInformationClass) );
+    DebugTrace( 0, Dbg, ("FileObject           = %08lx\n", IrpSp->Parameters.SetFile.FileObject) );
+    DebugTrace( 0, Dbg, ("ReplaceIfExists      = %08lx\n", IrpSp->Parameters.SetFile.ReplaceIfExists) );
+    DebugTrace( 0, Dbg, ("Buffer               = %08lx\n", Irp->AssociatedIrp.SystemBuffer) );
 
     //
     //  Reference our input parameters to make things easier
@@ -918,22 +983,32 @@ Return Value:
 
         NtfsCompleteRequest( &IrpContext, &Irp, STATUS_INVALID_PARAMETER );
 
-        DebugTrace(-1, Dbg, "NtfsCommonSetInformation -> STATUS_INVALID_PARAMETER\n", 0);
+        DebugTrace( -1, Dbg, ("NtfsCommonSetInformation -> STATUS_INVALID_PARAMETER\n") );
         return STATUS_INVALID_PARAMETER;
     }
 
-    //
-    //  We defer other checking until we know which action is being done.
-    //
-
-    VcbAcquired = FALSE;
-    FcbAcquired = FALSE;
-    Status = STATUS_SUCCESS;
-
     try {
 
-        if (TypeOfOpen == UserFileOpen
-            && !FlagOn( Fcb->FcbState, FCB_STATE_PAGING_FILE )) {
+        //
+        //  The typical path here is for the lazy writer callback.  Go ahead and
+        //  remember this first.
+        //
+
+        if (FileInformationClass == FileEndOfFileInformation) {
+
+            LazyWriterCallback = IrpSp->Parameters.SetFile.AdvanceOnly;
+        }
+
+        //
+        //  Perform the oplock check for changes to allocation or EOF if called
+        //  by the user.
+        //
+
+        if (!LazyWriterCallback &&
+            ((FileInformationClass == FileEndOfFileInformation) ||
+             (FileInformationClass == FileAllocationInformation)) &&
+            (TypeOfOpen == UserFileOpen) &&
+            !FlagOn( Fcb->FcbState, FCB_STATE_PAGING_FILE )) {
 
             //
             //  We check whether we can proceed based on the state of the file oplocks.
@@ -952,93 +1027,183 @@ Return Value:
             }
 
             //
-            //  Set the flag indicating if Fast I/O is possible
+            //  Update the FastIoField.
             //
 
+            NtfsAcquireFsrtlHeader( Scb );
             Scb->Header.IsFastIoPossible = NtfsIsFastIoPossible( Scb );
+            NtfsReleaseFsrtlHeader( Scb );
         }
 
         //
-        //  If this is a rename or link operation then allocate and capture
-        //  the subject context.
+        //  If this call is for EOF then we need to acquire the Vcb if we may
+        //  have to perform an update duplicate call.  Don't block waiting for
+        //  the Vcb in the Valid data callback case.
+        //  We don't want to block the lazy write threads in the clean checkpoint
+        //  case.
         //
 
-        if ((FileInformationClass == FileRenameInformation
-             || FileInformationClass == FileLinkInformation)
-            && !FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_ALLOC_SECURITY )) {
+        if (FileInformationClass == FileEndOfFileInformation) {
 
-            SubjectContext = FsRtlAllocatePool( PagedPool,
-                                                sizeof( SECURITY_SUBJECT_CONTEXT ));
+            //
+            //  If this is not a system file then we will need to update duplicate info.
+            //
 
-            SeCaptureSubjectContext( SubjectContext );
+            if (!FlagOn( Fcb->FcbState, FCB_STATE_SYSTEM_FILE )) {
 
-            IrpContext->Union.SubjectContext = SubjectContext;
-            SubjectContext = NULL;
-
-            SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_ALLOC_SECURITY );
-        }
-
-        //
-        //  If this is a delete, link or rename operation, we also acquire
-        //  the vcb exclusively.
-        //
-
-        if (FileInformationClass == FileDispositionInformation
-            || FileInformationClass == FileRenameInformation
-            || FileInformationClass == FileLinkInformation ) {
-
-            NtfsAcquireExclusiveVcb( IrpContext, Vcb, TRUE );
-            VcbAcquired = TRUE;
-
-        //
-        //  If this is a set allocation or end of file call we will acquire the
-        //  Vcb shared to perform the update duplicate information.  It is
-        //  possible that we are being called on behalf of MM during the create
-        //  section operation.  In that case we cannot wait to acquire any
-        //  resources other than the file itself because he has acquired the
-        //  file in that case.  If we can't acquire the Vcb without waiting
-        //  we push on and defer the update duplicate information call.
-        //
-
-        } else if (FlagOn( Scb->ScbState, SCB_STATE_UNNAMED_DATA ) ||
-                   Scb->AttributeTypeCode == $INDEX_ALLOCATION) {
-
-            if (FileInformationClass == FileAllocationInformation ||
-                FileInformationClass == FileBasicInformation) {
-
-                NtfsAcquireSharedVcb( IrpContext, Vcb, TRUE );
-                VcbAcquired = TRUE;
-
-            } else if (FileInformationClass == FileEndOfFileInformation &&
-                       !IrpSp->Parameters.SetFile.AdvanceOnly) {
+                WaitState = FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_WAIT );
+                ClearFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_WAIT );
 
                 //
-                //  If we don't already own the file then acquire the Vcb and wait.
+                //  Only acquire the Vcb for the Lazy writer if we know the file size in the Fcb
+                //  is out of date or can compare the Scb with that in the Fcb.  An unsafe comparison
+                //  is OK because if they are changing then someone else can do the work.
+                //  We also want to update the duplicate information if the total allocated
+                //  has changed and there are no user handles remaining to perform the update.
                 //
 
-                if (!NtfsIsExclusiveFcb( Fcb )) {
+                if (LazyWriterCallback) {
 
-                    NtfsAcquireSharedVcb( IrpContext, Vcb, TRUE );
-                    VcbAcquired = TRUE;
+                    if ((FlagOn( Fcb->InfoFlags, FCB_INFO_CHANGED_FILE_SIZE ) ||
+                         ((Scb->Header.FileSize.QuadPart != Fcb->Info.FileSize) &&
+                          FlagOn( Scb->ScbState, SCB_STATE_UNNAMED_DATA ))) ||
+                        (FlagOn( Scb->ScbState, SCB_STATE_COMPRESSED ) &&
+                         (Scb->CleanupCount == 0) &&
+                         (Scb->ValidDataToDisk >= Scb->Header.ValidDataLength.QuadPart) &&
+                         (FlagOn( Fcb->InfoFlags, FCB_INFO_CHANGED_ALLOC_SIZE ) ||
+                          (FlagOn( Scb->ScbState, SCB_STATE_UNNAMED_DATA ) &&
+                           (Scb->TotalAllocated != Fcb->Info.AllocatedLength))))) {
+
+                        //
+                        //  Go ahead and try to acquire the Vcb without waiting.
+                        //
+
+                        if (NtfsAcquireSharedVcb( IrpContext, Vcb, FALSE )) {
+
+                            VcbAcquired = TRUE;
+
+                        } else {
+
+                            SetFlag( IrpContext->Flags, WaitState );
+
+                            //
+                            //  If we could not get the Vcb for any reason then return.  Let's
+                            //  not block an essential thread waiting for the Vcb.  Typically
+                            //  we will only be blocked during a clean checkpoint.  The Lazy
+                            //  Writer will periodically come back and retry this call.
+                            //
+
+                            try_return( Status = STATUS_FILE_LOCK_CONFLICT );
+                        }
+                    }
 
                 //
-                //  This case is the case where MM is creating a section.  Don't
-                //  wait to acquire the Vcb.  Defer the update if we don't
-                //  get this.
+                //  Otherwise we always want to wait for the Vcb except if we were called from
+                //  MM extending a section.  We will try to get this without waiting and test
+                //  if called from MM if unsuccessful.
                 //
 
                 } else {
 
-                    ClearFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_WAIT );
-
                     if (NtfsAcquireSharedVcb( IrpContext, Vcb, FALSE )) {
 
                         VcbAcquired = TRUE;
-                    }
 
-                    SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_WAIT );
+                    } else if ((Scb->Header.PagingIoResource == NULL) ||
+                               !NtfsIsExclusiveResource( Scb->Header.PagingIoResource )) {
+
+                        SetFlag( IrpContext->Flags, WaitState );
+
+                        NtfsAcquireSharedVcb( IrpContext, Vcb, TRUE );
+                        VcbAcquired = TRUE;
+                    }
                 }
+
+                SetFlag( IrpContext->Flags, WaitState );
             }
+
+        //
+        //  Acquire the Vcb shared for changes to allocation or basic
+        //  information.
+        //
+
+        } else if ((FileInformationClass == FileAllocationInformation) ||
+                   (FileInformationClass == FileBasicInformation) ||
+                   (FileInformationClass == FileDispositionInformation)) {
+
+            NtfsAcquireSharedVcb( IrpContext, Vcb, TRUE );
+            VcbAcquired = TRUE;
+
+        //
+        //  If this is a rename or link operation then we need to make sure
+        //  we have the user's context and acquire the Vcb.
+        //
+
+        } else if ((FileInformationClass == FileRenameInformation) ||
+                   (FileInformationClass == FileLinkInformation)) {
+
+            if (!FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_ALLOC_SECURITY )) {
+
+                IrpContext->Union.SubjectContext = NtfsAllocatePool( PagedPool,
+                                                                      sizeof( SECURITY_SUBJECT_CONTEXT ));
+
+                SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_ALLOC_SECURITY );
+
+                SeCaptureSubjectContext( IrpContext->Union.SubjectContext );
+            }
+
+            if (IsDirectory( &Fcb->Info )) {
+
+                SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_ACQUIRE_VCB_EX );
+            }
+
+            if (FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_ACQUIRE_VCB_EX )) {
+
+                NtfsAcquireExclusiveVcb( IrpContext, Vcb, TRUE );
+
+            } else {
+
+                NtfsAcquireSharedVcb( IrpContext, Vcb, TRUE );
+            }
+
+            VcbAcquired = TRUE;
+        }
+
+        //
+        //  The Lazy Writer must still synchronize with Eof to keep the
+        //  stream sizes from changing.  This will be cleaned up when we
+        //  complete.
+        //
+
+        if (LazyWriterCallback) {
+
+            //
+            //  Acquire either the paging io resource shared to serialize with
+            //  the flush case where the main resource is acquired before IoAtEOF
+            //
+
+            if (Scb->Header.PagingIoResource != NULL) {
+
+                ExAcquireResourceShared( Scb->Header.PagingIoResource, TRUE );
+                ReleaseScbPaging = TRUE;
+            }
+
+            FsRtlLockFsRtlHeader( &Scb->Header );
+            IrpContext->FcbWithPagingExclusive = (PFCB)Scb;
+
+        //
+        //  Anyone potentially shrinking/deleting allocation must get the paging I/O
+        //  resource first.  Also acquire this in the rename path to lock the
+        //  mapped page writer out of this file.
+        //
+
+        } else if ((Scb->Header.PagingIoResource != NULL) &&
+                   ((FileInformationClass == FileEndOfFileInformation) ||
+                    (FileInformationClass == FileAllocationInformation) ||
+                    (FileInformationClass == FileRenameInformation) ||
+                    (FileInformationClass == FileLinkInformation))) {
+
+            NtfsAcquireExclusivePagingIo( IrpContext, Fcb );
         }
 
         //
@@ -1050,16 +1215,17 @@ Return Value:
         //
 
         NtfsAcquireExclusiveFcb( IrpContext, Fcb, Scb, FALSE, FALSE );
-        FcbAcquired = TRUE;
 
-        if (TypeOfOpen == UserFileOpen
-            && !FlagOn( Fcb->FcbState, FCB_STATE_PAGING_FILE )) {
+        //
+        //  The lazy writer callback is the only caller who can get this far if the
+        //  volume has been dismounted.  We know that there are no user handles or
+        //  writeable file objects or dirty pages.  Make one last check to see
+        //  if the volume is dismounted.
+        //
 
-            //
-            //  Set the flag indicating if Fast I/O is possible
-            //
+        if (!FlagOn( Vcb->VcbState, VCB_STATE_VOLUME_MOUNTED )) {
 
-            Scb->Header.IsFastIoPossible = NtfsIsFastIoPossible( Scb );
+            NtfsRaiseStatus( IrpContext, STATUS_FILE_INVALID, NULL, NULL );
         }
 
         //
@@ -1092,13 +1258,12 @@ Return Value:
 
         case FileLinkInformation:
 
-            Status = NtfsSetLinkInfo( IrpContext, FileObject, Irp, Vcb, Scb, Ccb );
+            Status = NtfsSetLinkInfo( IrpContext, Irp, Vcb, Scb, Ccb );
             break;
 
         case FileAllocationInformation:
 
-            if (TypeOfOpen == UserDirectoryOpen
-                || (TypeOfOpen == UserOpenDirectoryById)) {
+            if (TypeOfOpen == UserDirectoryOpen) {
 
                 Status = STATUS_INVALID_PARAMETER;
 
@@ -1111,8 +1276,7 @@ Return Value:
 
         case FileEndOfFileInformation:
 
-            if (TypeOfOpen == UserDirectoryOpen
-                || (TypeOfOpen == UserOpenDirectoryById)) {
+            if (TypeOfOpen == UserDirectoryOpen) {
 
                 Status = STATUS_INVALID_PARAMETER;
 
@@ -1133,33 +1297,44 @@ Return Value:
         //  Abort transaction on error by raising.
         //
 
-        NtfsCleanupTransaction( IrpContext, Status );
+        if (Status != STATUS_PENDING) {
+
+            NtfsCleanupTransaction( IrpContext, Status, FALSE );
+        }
 
     try_exit:  NOTHING;
     } finally {
 
         DebugUnwind( NtfsCommonSetInformation );
 
-        if (FcbAcquired) {
+        //
+        //  Release the paging io resource if acquired shared.
+        //
 
-            NtfsReleaseFcb( IrpContext, Fcb );
+        if (ReleaseScbPaging) {
+
+            ExReleaseResource( Scb->Header.PagingIoResource );
         }
 
-        if (VcbAcquired) {
+        if (Status != STATUS_PENDING) {
 
-            NtfsReleaseVcb( IrpContext, Vcb, NULL );
+            if (VcbAcquired) {
+
+                NtfsReleaseVcb( IrpContext, Vcb );
+            }
+
+            //
+            //  Complete the request unless it is being done in the oplock
+            //  package.
+            //
+
+            if (!AbnormalTermination()) {
+
+                NtfsCompleteRequest( &IrpContext, &Irp, Status );
+            }
         }
 
-        if (!AbnormalTermination()) {
-
-            NtfsCompleteRequest( &IrpContext, &Irp, Status );
-
-        } else if (SubjectContext != NULL) {
-
-            ExFreePool( SubjectContext );
-        }
-
-        DebugTrace(-1, Dbg, "NtfsCommonSetInformation -> %08lx\n", Status);
+        DebugTrace( -1, Dbg, ("NtfsCommonSetInformation -> %08lx\n", Status) );
     }
 
     return Status;
@@ -1215,71 +1390,17 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsQueryBasicInfo...\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsQueryBasicInfo...\n") );
 
     Fcb = Scb->Fcb;
 
     //
-    //  Make sure the buffer is large enough, zero it out, and update the
-    //  output length.
+    //  Zero the output buffer and update the length.
     //
-
-    if (*Length < sizeof(FILE_BASIC_INFORMATION)) {
-
-        *Length = 0;
-        NtfsRaiseStatus( IrpContext, STATUS_BUFFER_OVERFLOW, NULL, NULL );
-    }
 
     RtlZeroMemory( Buffer, sizeof(FILE_BASIC_INFORMATION) );
 
     *Length -= sizeof( FILE_BASIC_INFORMATION );
-
-    //
-    //  Check if there was any fast io activity on this file object.
-    //
-
-    if (FlagOn( FileObject->Flags, FO_FILE_MODIFIED | FO_FILE_FAST_IO_READ )) {
-
-        LONGLONG CurrentTime;
-
-        KeQuerySystemTime( (PLARGE_INTEGER)&CurrentTime );
-
-        if (FlagOn( FileObject->Flags, FO_FILE_MODIFIED )) {
-
-            if (!FlagOn( Ccb->Flags, CCB_FLAG_USER_SET_LAST_CHANGE_TIME )) {
-
-                Fcb->Info.LastChangeTime = CurrentTime;
-                SetFlag( Fcb->InfoFlags, FCB_INFO_CHANGED_LAST_CHANGE );
-                SetFlag( Fcb->FcbState, FCB_STATE_UPDATE_STD_INFO );
-            }
-
-            if (FlagOn( Scb->ScbState, SCB_STATE_UNNAMED_DATA )
-                && !FlagOn( Ccb->Flags, CCB_FLAG_USER_SET_LAST_MOD_TIME )) {
-
-                Fcb->Info.LastModificationTime = CurrentTime;
-                SetFlag( Fcb->InfoFlags, FCB_INFO_CHANGED_LAST_MOD);
-                SetFlag( Fcb->FcbState, FCB_STATE_UPDATE_STD_INFO );
-
-            } else if (Scb->AttributeName.Length != 0
-                       && Scb->AttributeTypeCode == $DATA) {
-
-              SetFlag( Scb->ScbState, SCB_STATE_NOTIFY_MODIFY_STREAM );
-            }
-        }
-
-        if (FlagOn( Scb->ScbState, SCB_STATE_UNNAMED_DATA )
-            && !FlagOn( Ccb->Flags, CCB_FLAG_USER_SET_LAST_ACCESS_TIME )) {
-
-                Fcb->CurrentLastAccess = CurrentTime;
-        }
-
-        //
-        //  Clear the file object modified flag at this point
-        //  since we will now know to update it in cleanup.
-        //
-
-        ClearFlag( FileObject->Flags, FO_FILE_MODIFIED | FO_FILE_FAST_IO_READ );
-    }
 
     //
     //  Copy over the time information
@@ -1300,17 +1421,12 @@ Return Value:
     Buffer->FileAttributes = Fcb->Info.FileAttributes;
 
     ClearFlag( Buffer->FileAttributes,
-               ~FILE_ATTRIBUTE_VALID_FLAGS
-               | FILE_ATTRIBUTE_TEMPORARY );
+               ~FILE_ATTRIBUTE_VALID_FLAGS | FILE_ATTRIBUTE_TEMPORARY );
 
     if (IsDirectory( &Fcb->Info )
         && FlagOn( Ccb->Flags, CCB_FLAG_OPEN_AS_FILE )) {
 
         SetFlag( Buffer->FileAttributes, FILE_ATTRIBUTE_DIRECTORY );
-
-    } else if (Buffer->FileAttributes == 0) {
-
-        Buffer->FileAttributes = FILE_ATTRIBUTE_NORMAL;
     }
 
     //
@@ -1320,7 +1436,7 @@ Return Value:
 
     if (!FlagOn( Ccb->Flags, CCB_FLAG_OPEN_AS_FILE )) {
 
-        if (FlagOn( Scb->ScbState, SCB_STATE_COMPRESSED )) {
+        if (FlagOn( Scb->AttributeFlags, ATTRIBUTE_FLAG_COMPRESSION_MASK )) {
 
             SetFlag( Buffer->FileAttributes, FILE_ATTRIBUTE_COMPRESSED );
 
@@ -1340,11 +1456,20 @@ Return Value:
     }
 
     //
+    //  If there are no flags set then explicitly set the NORMAL flag.
+    //
+
+    if (Buffer->FileAttributes == 0) {
+
+        Buffer->FileAttributes = FILE_ATTRIBUTE_NORMAL;
+    }
+
+    //
     //  And return to our caller
     //
 
-    DebugTrace( 0, Dbg, "*Length = %08lx\n", *Length);
-    DebugTrace(-1, Dbg, "NtfsQueryBasicInfo -> VOID\n", 0);
+    DebugTrace( 0, Dbg, ("*Length = %08lx\n", *Length) );
+    DebugTrace( -1, Dbg, ("NtfsQueryBasicInfo -> VOID\n") );
 
     return;
 }
@@ -1397,13 +1522,11 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsQueryStandardInfo...\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsQueryStandardInfo...\n") );
 
-    if (*Length < sizeof(FILE_STANDARD_INFORMATION)) {
-
-        *Length = 0;
-        NtfsRaiseStatus( IrpContext, STATUS_BUFFER_OVERFLOW, NULL, NULL );
-    }
+    //
+    //  Zero out the output buffer and update the length field.
+    //
 
     RtlZeroMemory( Buffer, sizeof(FILE_STANDARD_INFORMATION) );
 
@@ -1416,7 +1539,7 @@ Return Value:
     if (!FlagOn( Scb->ScbState, SCB_STATE_HEADER_INITIALIZED )
         && (Scb->AttributeTypeCode != $INDEX_ALLOCATION)) {
 
-        DebugTrace( 0, Dbg, "Initializing Scb  ->  %08lx\n", Scb );
+        DebugTrace( 0, Dbg, ("Initializing Scb  ->  %08lx\n", Scb) );
         NtfsUpdateScbFromAttribute( IrpContext, Scb, NULL );
     }
 
@@ -1424,7 +1547,7 @@ Return Value:
     //  Both the allocation and file size is in the scb header
     //
 
-    Buffer->AllocationSize = Scb->Header.AllocationSize;
+    Buffer->AllocationSize.QuadPart = Scb->TotalAllocated;
     Buffer->EndOfFile      = Scb->Header.FileSize;
     Buffer->NumberOfLinks = Scb->Fcb->LinkCount;
 
@@ -1463,8 +1586,8 @@ Return Value:
     //  And return to our caller
     //
 
-    DebugTrace( 0, Dbg, "*Length = %08lx\n", *Length);
-    DebugTrace(-1, Dbg, "NtfsQueryStandardInfo -> VOID\n", 0);
+    DebugTrace( 0, Dbg, ("*Length = %08lx\n", *Length) );
+    DebugTrace( -1, Dbg, ("NtfsQueryStandardInfo -> VOID\n") );
 
     return;
 }
@@ -1514,13 +1637,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsQueryInternalInfo...\n", 0);
-
-    if (*Length < sizeof(FILE_INTERNAL_INFORMATION)) {
-
-        *Length = 0;
-        NtfsRaiseStatus( IrpContext, STATUS_BUFFER_OVERFLOW, NULL, NULL );
-    }
+    DebugTrace( +1, Dbg, ("NtfsQueryInternalInfo...\n") );
 
     RtlZeroMemory( Buffer, sizeof(FILE_INTERNAL_INFORMATION) );
 
@@ -1536,8 +1653,8 @@ Return Value:
     //  And return to our caller
     //
 
-    DebugTrace( 0, Dbg, "*Length = %08lx\n", *Length);
-    DebugTrace(-1, Dbg, "NtfsQueryInternalInfo -> VOID\n", 0);
+    DebugTrace( 0, Dbg, ("*Length = %08lx\n", *Length) );
+    DebugTrace( -1, Dbg, ("NtfsQueryInternalInfo -> VOID\n") );
 
     return;
 }
@@ -1587,13 +1704,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsQueryEaInfo...\n", 0);
-
-    if (*Length < sizeof(FILE_EA_INFORMATION)) {
-
-        *Length = 0;
-        NtfsRaiseStatus( IrpContext, STATUS_BUFFER_OVERFLOW, NULL, NULL );
-    }
+    DebugTrace( +1, Dbg, ("NtfsQueryEaInfo...\n") );
 
     RtlZeroMemory( Buffer, sizeof(FILE_EA_INFORMATION) );
 
@@ -1614,8 +1725,8 @@ Return Value:
     //  And return to our caller
     //
 
-    DebugTrace( 0, Dbg, "*Length = %08lx\n", *Length);
-    DebugTrace(-1, Dbg, "NtfsQueryEaInfo -> VOID\n", 0);
+    DebugTrace( 0, Dbg, ("*Length = %08lx\n", *Length) );
+    DebugTrace( -1, Dbg, ("NtfsQueryEaInfo -> VOID\n") );
 
     return;
 }
@@ -1665,13 +1776,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsQueryPositionInfo...\n", 0);
-
-    if (*Length < sizeof(FILE_POSITION_INFORMATION)) {
-
-        *Length = 0;
-        NtfsRaiseStatus( IrpContext, STATUS_BUFFER_OVERFLOW, NULL, NULL );
-    }
+    DebugTrace( +1, Dbg, ("NtfsQueryPositionInfo...\n") );
 
     RtlZeroMemory( Buffer, sizeof(FILE_POSITION_INFORMATION) );
 
@@ -1687,8 +1792,8 @@ Return Value:
     //  And return to our caller
     //
 
-    DebugTrace( 0, Dbg, "*Length = %08lx\n", *Length);
-    DebugTrace(-1, Dbg, "NtfsQueryPositionInfo -> VOID\n", 0);
+    DebugTrace( 0, Dbg, ("*Length = %08lx\n", *Length) );
+    DebugTrace( -1, Dbg, ("NtfsQueryPositionInfo -> VOID\n") );
 
     return;
 }
@@ -1738,11 +1843,9 @@ Return Value:
 
 {
     ULONG BytesToCopy;
-    ULONG RemainingBytes;
-    ULONG FileNameLength;
     NTSTATUS Status;
-    BOOLEAN GenerateName;
-    BOOLEAN LeadingBackslash;
+    UNICODE_STRING NormalizedName;
+    PUNICODE_STRING SourceName;
 
     ASSERT_IRP_CONTEXT( IrpContext );
     ASSERT_FILE_OBJECT( FileObject );
@@ -1750,17 +1853,13 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsQueryNameInfo...\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsQueryNameInfo...\n") );
+
+    NormalizedName.Buffer = NULL;
 
     //
     //  Reduce the buffer length by the size of the fixed part of the structure.
     //
-
-    if (*Length < SIZEOF_FILE_NAME_INFORMATION ) {
-
-        *Length = 0;
-        NtfsRaiseStatus( IrpContext, STATUS_BUFFER_OVERFLOW, NULL, NULL );
-    }
 
     RtlZeroMemory( Buffer, SIZEOF_FILE_NAME_INFORMATION );
 
@@ -1774,127 +1873,110 @@ Return Value:
 
     if (Ccb == NULL) {
 
-        RemainingBytes = NtfsLookupNameLengthViaLcb( IrpContext, Scb->Fcb, &LeadingBackslash );
+        FILE_REFERENCE FileReference;
 
-        if (!LeadingBackslash) {
+        NtfsSetSegmentNumber( &FileReference, 0, UPCASE_TABLE_NUMBER );
 
-            RemainingBytes += sizeof( WCHAR );
+        //
+        //  If this is a system file with a known name then just use our constant names.
+        //
+
+        if (NtfsLeqMftRef( &Scb->Fcb->FileReference, &FileReference )) {
+
+            SourceName = &NtfsSystemFiles[ Scb->Fcb->FileReference.SegmentNumberLowPart ];
+
+        } else {
+
+            NtfsBuildNormalizedName( IrpContext, Scb, &NormalizedName );
+            SourceName = &NormalizedName;
         }
-
-        GenerateName = TRUE;
 
     } else {
 
-        RemainingBytes = Ccb->FullFileName.Length;
-        GenerateName = FALSE;
+        SourceName = &Ccb->FullFileName;
     }
 
-    FileNameLength = RemainingBytes;
+    Buffer->FileNameLength = SourceName->Length;
 
-    if (Scb->AttributeName.Length != 0
-        && Scb->AttributeTypeCode == $DATA) {
+    if ((Scb->AttributeName.Length != 0) &&
+        NtfsIsTypeCodeUserData( Scb->AttributeTypeCode )) {
 
-        RemainingBytes += sizeof( WCHAR ) + Scb->AttributeName.Length;
+        Buffer->FileNameLength += sizeof( WCHAR ) + Scb->AttributeName.Length;
     }
-
-    //
-    //  Copy the number of bytes (not characters).
-    //
-
-    Buffer->FileNameLength = RemainingBytes;
 
     //
     //  Figure out how many bytes we can copy.
     //
 
-    if (*Length >= RemainingBytes) {
+    if (*Length >= Buffer->FileNameLength) {
 
         Status = STATUS_SUCCESS;
 
     } else {
 
         Status = STATUS_BUFFER_OVERFLOW;
-
-        RemainingBytes = *Length;
+        Buffer->FileNameLength = *Length;
     }
 
     //
     //  Update the Length
     //
 
-    *Length -= RemainingBytes;
+    *Length -= Buffer->FileNameLength;
 
     //
     //  Copy over the file name
     //
 
-    if (FileNameLength <= RemainingBytes) {
+    if (SourceName->Length <= Buffer->FileNameLength) {
 
-        BytesToCopy = FileNameLength;
+        BytesToCopy = SourceName->Length;
 
     } else {
 
-        BytesToCopy = RemainingBytes;
+        BytesToCopy = Buffer->FileNameLength;
     }
 
     if (BytesToCopy) {
 
-        if (GenerateName) {
-
-            ULONG StartOffset = 0;
-
-            if (!LeadingBackslash) {
-
-                Buffer->FileName[0] = L'\\';
-                BytesToCopy -= 1;
-                StartOffset = 1;
-            }
-
-            //
-            //  Copy the range of bytes from the Lcb that will fit in the buffer.
-            //
-
-            NtfsFileNameViaLcb( IrpContext,
-                                Scb->Fcb,
-                                &Buffer->FileName[StartOffset],
-                                FileNameLength,
-                                BytesToCopy );
-
-        } else {
-
-            RtlCopyMemory( &Buffer->FileName[0],
-                           Ccb->FullFileName.Buffer,
-                           BytesToCopy );
-        }
+        RtlCopyMemory( &Buffer->FileName[0],
+                       SourceName->Buffer,
+                       BytesToCopy );
     }
 
-    RemainingBytes -= BytesToCopy;
+    BytesToCopy = Buffer->FileNameLength - BytesToCopy;
 
-    if (RemainingBytes) {
+    if (BytesToCopy) {
 
         PWCHAR DestBuffer;
 
-        DestBuffer = (PWCHAR) Add2Ptr( &Buffer->FileName, BytesToCopy );
+        DestBuffer = (PWCHAR) Add2Ptr( &Buffer->FileName, SourceName->Length );
 
         *DestBuffer = L':';
         DestBuffer += 1;
 
-        RemainingBytes -= sizeof( WCHAR );
+        BytesToCopy -= sizeof( WCHAR );
 
-        if (RemainingBytes) {
+        if (BytesToCopy) {
 
             RtlCopyMemory( DestBuffer,
                            Scb->AttributeName.Buffer,
-                           RemainingBytes );
+                           BytesToCopy );
         }
+    }
+
+    if ((SourceName == &NormalizedName) &&
+        (SourceName->Buffer != NULL)) {
+
+        NtfsFreePool( SourceName->Buffer );
     }
 
     //
     //  And return to our caller
     //
 
-    DebugTrace( 0, Dbg, "*Length = %08lx\n", *Length);
-    DebugTrace(-1, Dbg, "NtfsQueryNameInfo -> 0x%8lx\n", Status);
+    DebugTrace( 0, Dbg, ("*Length = %08lx\n", *Length) );
+    DebugTrace( -1, Dbg, ("NtfsQueryNameInfo -> 0x%8lx\n", Status) );
 
     return Status;
 }
@@ -1963,15 +2045,15 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsQueryAlternateNameInfo...\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsQueryAlternateNameInfo...\n") );
 
     //
     //  If the Lcb is not a primary link we can return immediately.
     //
 
-    if (!FlagOn( Lcb->FileNameFlags, FILE_NAME_DOS | FILE_NAME_NTFS )) {
+    if (!FlagOn( Lcb->FileNameAttr->Flags, FILE_NAME_DOS | FILE_NAME_NTFS )) {
 
-        DebugTrace(-1, Dbg, "NtfsQueryAlternateNameInfo:  Lcb not a primary link\n", 0 );
+        DebugTrace( -1, Dbg, ("NtfsQueryAlternateNameInfo:  Lcb not a primary link\n") );
         return STATUS_OBJECT_NAME_NOT_FOUND;
     }
 
@@ -2001,7 +2083,7 @@ Return Value:
         //  We can special case for the case where the name is in the Lcb.
         //
 
-        if (FlagOn( Lcb->FileNameFlags, FILE_NAME_DOS )) {
+        if (FlagOn( Lcb->FileNameAttr->Flags, FILE_NAME_DOS )) {
 
             AlternateName = Lcb->ExactCaseLink.LinkName;
 
@@ -2053,7 +2135,7 @@ Return Value:
 
             if (!MoreToGo) {
 
-                DebugTrace(0, Dbg, "NtfsQueryAlternateNameInfo:  No Dos link\n", 0 );
+                DebugTrace( 0, Dbg, ("NtfsQueryAlternateNameInfo:  No Dos link\n") );
                 try_return( Status = STATUS_OBJECT_NAME_NOT_FOUND );
 
                 //
@@ -2097,14 +2179,14 @@ Return Value:
     try_exit:  NOTHING;
     } finally {
 
-        NtfsCleanupAttributeContext( IrpContext, &AttrContext );
+        NtfsCleanupAttributeContext( &AttrContext );
 
         //
         //  And return to our caller
         //
 
-        DebugTrace( 0, Dbg, "*Length = %08lx\n", *Length);
-        DebugTrace(-1, Dbg, "NtfsQueryAlternateNameInfo -> 0x%8lx\n", Status);
+        DebugTrace( 0, Dbg, ("*Length = %08lx\n", *Length) );
+        DebugTrace( -1, Dbg, ("NtfsQueryAlternateNameInfo -> 0x%8lx\n", Status) );
     }
 
     return Status;
@@ -2167,6 +2249,7 @@ Return Value:
     UNICODE_STRING AttributeCodeString;
 
     ATTRIBUTE_ENUMERATION_CONTEXT AttrContext;
+    ATTRIBUTE_TYPE_CODE TypeCode = $DATA;
 
     ULONG NextEntry;
     ULONG LastEntry;
@@ -2179,7 +2262,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsQueryStreamsInfo...\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsQueryStreamsInfo...\n") );
 
     Status = STATUS_SUCCESS;
 
@@ -2195,167 +2278,186 @@ Return Value:
 
     RtlZeroMemory( UserBuffer, *Length );
 
-    NtfsInitializeAttributeContext( &AttrContext );
-
     //
     //  Use a try-finally to facilitate cleanup.
     //
 
     try {
 
-        //
-        //  There should always be at least one attribute.
-        //
+        while (TRUE) {
 
-        MoreToGo = NtfsLookupAttribute( IrpContext,
-                                        Fcb,
-                                        &Fcb->FileReference,
-                                        &AttrContext );
-
-        Attribute = NtfsFoundAttribute( &AttrContext );
-
-        //
-        //  Walk through all of the entries, checking if we can return this
-        //  entry to the user and if it will fit in the buffer.
-        //
-
-        while (MoreToGo) {
+            NtfsInitializeAttributeContext( &AttrContext );
 
             //
-            //  If we can return this entry to the user, compute it's size.
-            //  We only return user defined attributes or data streams
-            //  unless we are allowing access to all attributes for
-            //  debugging.
+            //  There should always be at least one attribute.
             //
 
-            if ((Attribute->TypeCode == $DATA)
+            MoreToGo = NtfsLookupAttribute( IrpContext,
+                                            Fcb,
+                                            &Fcb->FileReference,
+                                            &AttrContext );
 
-                    &&
+            Attribute = NtfsFoundAttribute( &AttrContext );
 
-                (NtfsIsAttributeResident(Attribute) ||
-                 (Attribute->Form.Nonresident.LowestVcn == 0))) {
+            //
+            //  Walk through all of the entries, checking if we can return this
+            //  entry to the user and if it will fit in the buffer.
+            //
 
-                PWCHAR StreamName;
-
-                //
-                //  Lookup the attribute definition for this attribute code.
-                //
-
-                AttrDefinition = NtfsGetAttributeDefinition( IrpContext,
-                                                             Fcb->Vcb,
-                                                             Attribute->TypeCode );
+            while (MoreToGo) {
 
                 //
-                //  Generate a unicode string for the attribute code name.
+                //  If we can return this entry to the user, compute it's size.
+                //  We only return user defined attributes or data streams
+                //  unless we are allowing access to all attributes for
+                //  debugging.
                 //
 
-                RtlInitUnicodeString( &AttributeCodeString, AttrDefinition->AttributeName );
+                if ((Attribute->TypeCode == TypeCode)
 
-                //
-                //
-                //  The size is a combination of the length of the attribute
-                //  code name and the attribute name plus the separating
-                //  colons plus the size of the structure.  We first compute
-                //  the name length.
-                //
+                        &&
 
-                NameLength = ((2 + Attribute->NameLength) * sizeof( WCHAR ))
-                             + AttributeCodeString.Length;
+                    (NtfsIsAttributeResident(Attribute) ||
+                     (Attribute->Form.Nonresident.LowestVcn == 0))) {
 
-                ThisLength = FIELD_OFFSET( FILE_STREAM_INFORMATION, StreamName[0] ) + NameLength;
+                    PWCHAR StreamName;
 
-                //
-                //  If the entry doesn't fit, we return buffer overflow.
-                //
-                //  ****    This doesn't seem like a good scheme.  Maybe we should
-                //          let the user know how much buffer was needed.
-                //
+                    //
+                    //  Lookup the attribute definition for this attribute code.
+                    //
 
-                if (ThisLength + LastQuadAlign > *Length) {
+                    AttrDefinition = NtfsGetAttributeDefinition( Fcb->Vcb,
+                                                                 Attribute->TypeCode );
 
-                    DebugTrace( 0, Dbg, "Next entry won't fit in the buffer \n", 0 );
+                    //
+                    //  Generate a unicode string for the attribute code name.
+                    //
 
-                    try_return( Status = STATUS_BUFFER_OVERFLOW );
+                    RtlInitUnicodeString( &AttributeCodeString, AttrDefinition->AttributeName );
+
+                    //
+                    //
+                    //  The size is a combination of the length of the attribute
+                    //  code name and the attribute name plus the separating
+                    //  colons plus the size of the structure.  We first compute
+                    //  the name length.
+                    //
+
+                    NameLength = ((2 + Attribute->NameLength) * sizeof( WCHAR ))
+                                 + AttributeCodeString.Length;
+
+                    ThisLength = FIELD_OFFSET( FILE_STREAM_INFORMATION, StreamName[0] ) + NameLength;
+
+                    //
+                    //  If the entry doesn't fit, we return buffer overflow.
+                    //
+                    //  ****    This doesn't seem like a good scheme.  Maybe we should
+                    //          let the user know how much buffer was needed.
+                    //
+
+                    if (ThisLength + LastQuadAlign > *Length) {
+
+                        DebugTrace( 0, Dbg, ("Next entry won't fit in the buffer \n") );
+
+                        try_return( Status = STATUS_BUFFER_OVERFLOW );
+                    }
+
+                    //
+                    //  Now store the stream information into the user's buffer.
+                    //  The name starts with a colon, following by the attribute name
+                    //  and another colon, followed by the attribute code name.
+                    //
+
+                    if (NtfsIsAttributeResident( Attribute )) {
+
+                        Buffer->StreamSize.QuadPart =
+                            Attribute->Form.Resident.ValueLength;
+                        Buffer->StreamAllocationSize.QuadPart =
+                            QuadAlign( Attribute->Form.Resident.ValueLength );
+
+                    } else {
+
+                        Buffer->StreamSize.QuadPart = Attribute->Form.Nonresident.FileSize;
+                        Buffer->StreamAllocationSize.QuadPart = Attribute->Form.Nonresident.AllocatedLength;
+                    }
+
+                    Buffer->StreamNameLength = NameLength;
+
+                    StreamName = (PWCHAR) Buffer->StreamName;
+
+                    *StreamName = L':';
+                    StreamName += 1;
+
+                    RtlCopyMemory( StreamName,
+                                   Add2Ptr( Attribute, Attribute->NameOffset ),
+                                   Attribute->NameLength * sizeof( WCHAR ));
+
+                    StreamName += Attribute->NameLength;
+
+                    *StreamName = L':';
+                    StreamName += 1;
+
+                    RtlCopyMemory( StreamName,
+                                   AttributeCodeString.Buffer,
+                                   AttributeCodeString.Length );
+
+                    //
+                    //  Set up the previous next entry offset to point to this entry.
+                    //
+
+                    *((PULONG)(&UserBuffer[LastEntry])) = NextEntry - LastEntry;
+
+                    //
+                    //  Subtract the number of bytes used from the number of bytes
+                    //  available in the buffer.
+                    //
+
+                    *Length -= (ThisLength + LastQuadAlign);
+
+                    //
+                    //  Compute the number of bytes needed to quad-align this entry
+                    //  and the offset of the next entry.
+                    //
+
+                    LastQuadAlign = QuadAlign( ThisLength ) - ThisLength;
+
+                    LastEntry = NextEntry;
+                    NextEntry += (ThisLength + LastQuadAlign);
+
+                    //
+                    //  Generate a pointer at the next entry offset.
+                    //
+
+                    Buffer = (PFILE_STREAM_INFORMATION) Add2Ptr( UserBuffer, NextEntry );
                 }
 
                 //
-                //  Now store the stream information into the user's buffer.
-                //  The name starts with a colon, following by the attribute name
-                //  and another colon, followed by the attribute code name.
+                //  Look for the next attribute in the file.
                 //
 
-                if (NtfsIsAttributeResident( Attribute )) {
+                MoreToGo = NtfsLookupNextAttribute( IrpContext,
+                                                    Fcb,
+                                                    &AttrContext );
 
-                    Buffer->StreamSize.QuadPart =
-                        Attribute->Form.Resident.ValueLength;
-                    Buffer->StreamAllocationSize.QuadPart =
-                        QuadAlign( Attribute->Form.Resident.ValueLength );
-
-                } else {
-
-                    Buffer->StreamSize.QuadPart = Attribute->Form.Nonresident.FileSize;
-                    Buffer->StreamAllocationSize.QuadPart = Attribute->Form.Nonresident.AllocatedLength;
-                }
-
-                Buffer->StreamNameLength = NameLength;
-
-                StreamName = (PWCHAR) Buffer->StreamName;
-
-                *StreamName = L':';
-                StreamName += 1;
-
-                RtlCopyMemory( StreamName,
-                               Add2Ptr( Attribute, Attribute->NameOffset ),
-                               Attribute->NameLength * sizeof( WCHAR ));
-
-                StreamName += Attribute->NameLength;
-
-                *StreamName = L':';
-                StreamName += 1;
-
-                RtlCopyMemory( StreamName,
-                               AttributeCodeString.Buffer,
-                               AttributeCodeString.Length );
-
-                //
-                //  Set up the previous next entry offset to point to this entry.
-                //
-
-                *((PULONG)(&UserBuffer[LastEntry])) = NextEntry - LastEntry;
-
-                //
-                //  Subtract the number of bytes used from the number of bytes
-                //  available in the buffer.
-                //
-
-                *Length -= (ThisLength + LastQuadAlign);
-
-                //
-                //  Compute the number of bytes needed to quad-align this entry
-                //  and the offset of the next entry.
-                //
-
-                LastQuadAlign = QuadAlign( ThisLength ) - ThisLength;
-
-                LastEntry = NextEntry;
-                NextEntry += (ThisLength + LastQuadAlign);
-
-                //
-                //  Generate a pointer at the next entry offset.
-                //
-
-                Buffer = (PFILE_STREAM_INFORMATION) Add2Ptr( UserBuffer, NextEntry );
+                Attribute = NtfsFoundAttribute( &AttrContext );
             }
 
             //
-            //  Look for the next attribute in the file.
+            //  We've finished enumerating an attribute type code.  Check
+            //  to see if we should advance to the next enumeration type.
             //
 
-            MoreToGo = NtfsLookupNextAttribute( IrpContext,
-                                                Fcb,
-                                                &AttrContext );
+#ifndef _CAIRO
+            break;
+#else   //  _CAIRO_
+            if (TypeCode == $PROPERTY_SET) {
+                break;
+            } else {
 
-            Attribute = NtfsFoundAttribute( &AttrContext );
+                NtfsCleanupAttributeContext( &AttrContext );
+                TypeCode = $PROPERTY_SET;
+            }
+#endif  //  _CAIRO_
         }
 
     try_exit:  NOTHING;
@@ -2363,14 +2465,14 @@ Return Value:
 
         DebugUnwind( NtfsQueryStreamsInfo );
 
-        NtfsCleanupAttributeContext( IrpContext, &AttrContext );
+        NtfsCleanupAttributeContext( &AttrContext );
 
         //
         //  And return to our caller
         //
 
-        DebugTrace( 0, Dbg, "*Length = %08lx\n", *Length);
-        DebugTrace(-1, Dbg, "NtfsQueryStreamInfo -> 0x%8lx\n", Status);
+        DebugTrace( 0, Dbg, ("*Length = %08lx\n", *Length) );
+        DebugTrace( -1, Dbg, ("NtfsQueryStreamInfo -> 0x%8lx\n", Status) );
     }
 
     return Status;
@@ -2400,12 +2502,6 @@ Return Value:
 --*/
 
 {
-    ULONG Index;
-    VCN Vcn;
-    LCN Lcn;
-    LONGLONG ClusterCount;
-    PVCB Vcb = Scb->Vcb;
-
     //
     //  Lookup the attribute and pin it so that we can modify it.
     //
@@ -2425,34 +2521,9 @@ Return Value:
 
         Buffer->CompressedFileSize = Li0;
 
-    } else if (FlagOn(Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT)) {
-
-        Buffer->CompressedFileSize = Scb->Header.AllocationSize;
-
     } else {
 
-        Buffer->CompressedFileSize = Li0;
-
-        NtfsLookupAllocation( IrpContext, Scb, MAXLONGLONG, &Lcn, &ClusterCount, &Index );
-
-
-        //
-        //  Loop to calculate compressed size.
-        //
-
-        Index = 0;
-        while (FsRtlGetNextLargeMcbEntry( &Scb->Mcb,
-                                          Index++,
-                                          &Vcn,
-                                          &Lcn,
-                                          &ClusterCount )) {
-
-            if (Lcn != UNUSED_LCN) {
-
-                Buffer->CompressedFileSize.QuadPart = Buffer->CompressedFileSize.QuadPart +
-                                                        LlBytesFromClusters(Vcb, ClusterCount);
-            }
-        }
+        Buffer->CompressedFileSize.QuadPart = Scb->TotalAllocated;
     }
 
     //
@@ -2460,12 +2531,231 @@ Return Value:
     //
 
     if (Buffer->CompressedFileSize.QuadPart > Scb->Header.FileSize.QuadPart) {
+
         Buffer->CompressedFileSize = Scb->Header.FileSize;
+    }
+
+    //
+    //  Start off saying that the file/directory isn't comressed
+    //
+
+    Buffer->CompressionFormat = 0;
+
+    //
+    //  If this is the index allocation Scb and it has not been initialized then
+    //  lookup the index root and perform the initialization.
+    //
+
+    if ((Scb->AttributeTypeCode == $INDEX_ALLOCATION) &&
+        (Scb->ScbType.Index.BytesPerIndexBuffer == 0)) {
+
+        ATTRIBUTE_ENUMERATION_CONTEXT Context;
+
+        NtfsInitializeAttributeContext( &Context );
+
+        //
+        //  Use a try-finally to perform cleanup.
+        //
+
+        try {
+
+            if (!NtfsLookupAttributeByName( IrpContext,
+                                            Scb->Fcb,
+                                            &Scb->Fcb->FileReference,
+                                            $INDEX_ROOT,
+                                            &Scb->AttributeName,
+                                            NULL,
+                                            FALSE,
+                                            &Context )) {
+
+                NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, Scb->Fcb );
+            }
+
+            NtfsUpdateIndexScbFromAttribute( Scb,
+                                             NtfsFoundAttribute( &Context ));
+
+        } finally {
+
+            NtfsCleanupAttributeContext( &Context );
+        }
+    }
+
+    //
+    //  Return the compression state and the size of the returned data.
+    //
+
+    Buffer->CompressionFormat = (USHORT)(Scb->AttributeFlags & ATTRIBUTE_FLAG_COMPRESSION_MASK);
+
+    if (Buffer->CompressionFormat != 0) {
+        Buffer->CompressionFormat += 1;
+        Buffer->ClusterShift = (UCHAR)Scb->Vcb->ClusterShift;
+        Buffer->CompressionUnitShift = (UCHAR)(Scb->CompressionUnitShift + Buffer->ClusterShift);
+        Buffer->ChunkShift = NTFS_CHUNK_SHIFT;
     }
 
     *Length -= sizeof(FILE_COMPRESSION_INFORMATION);
 
     return  STATUS_SUCCESS;
+}
+
+
+//
+//  Internal Support Routine
+//
+
+VOID
+NtfsQueryNetworkOpenInfo (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFILE_OBJECT FileObject,
+    IN PSCB Scb,
+    IN PCCB Ccb,
+    IN OUT PFILE_NETWORK_OPEN_INFORMATION Buffer,
+    IN OUT PULONG Length
+    )
+
+/*++
+
+Routine Description:
+
+    This routine performs the query network open information function.
+
+Arguments:
+
+    FileObject - Supplies the file object being processed
+
+    Scb - Supplies the Scb being queried
+
+    Ccb - Supplies the Ccb for this handle
+
+    Buffer - Supplies a pointer to the buffer where the information is to
+        be returned
+
+    Length - Supplies the length of the buffer in bytes, and receives the
+        remaining bytes free in the buffer upon return.
+
+Return Value:
+
+    None
+
+--*/
+
+{
+    PFCB Fcb;
+
+    ASSERT_IRP_CONTEXT( IrpContext );
+    ASSERT_FILE_OBJECT( FileObject );
+    ASSERT_SCB( Scb );
+
+    PAGED_CODE();
+
+    DebugTrace( +1, Dbg, ("NtfsQueryNetworkOpenInfo...\n") );
+
+    Fcb = Scb->Fcb;
+
+    //
+    //  If the Scb is uninitialized, we initialize it now.
+    //
+
+    if (!FlagOn( Scb->ScbState, SCB_STATE_HEADER_INITIALIZED ) &&
+        (Scb->AttributeTypeCode != $INDEX_ALLOCATION)) {
+
+        DebugTrace( 0, Dbg, ("Initializing Scb -> %08lx\n", Scb) );
+        NtfsUpdateScbFromAttribute( IrpContext, Scb, NULL );
+    }
+
+    //
+    //  Zero the output buffer and update the length.
+    //
+
+    RtlZeroMemory( Buffer, sizeof(FILE_NETWORK_OPEN_INFORMATION) );
+
+    *Length -= sizeof( FILE_NETWORK_OPEN_INFORMATION );
+
+    //
+    //  Copy over the time information
+    //
+
+    Buffer->CreationTime.QuadPart   = Fcb->Info.CreationTime;
+    Buffer->LastWriteTime.QuadPart  = Fcb->Info.LastModificationTime;
+    Buffer->ChangeTime.QuadPart     = Fcb->Info.LastChangeTime;
+
+    Buffer->LastAccessTime.QuadPart = Fcb->CurrentLastAccess;
+
+    //
+    //  Both the allocation and file size are in the scb header
+    //
+
+    Buffer->AllocationSize.QuadPart = Scb->TotalAllocated;
+    Buffer->EndOfFile.QuadPart = Scb->Header.FileSize.QuadPart;
+
+    //
+    //  For the file attribute information if the flags in the attribute are zero then we
+    //  return the file normal attribute otherwise we return the mask of the set attribute
+    //  bits.  Note that only the valid attribute bits are returned to the user.
+    //
+
+    Buffer->FileAttributes = Fcb->Info.FileAttributes;
+
+    ClearFlag( Buffer->FileAttributes,
+               ~FILE_ATTRIBUTE_VALID_FLAGS | FILE_ATTRIBUTE_TEMPORARY );
+
+    if (FlagOn( Ccb->Flags, CCB_FLAG_OPEN_AS_FILE )) {
+
+        if (IsDirectory( &Fcb->Info )) {
+
+            SetFlag( Buffer->FileAttributes, FILE_ATTRIBUTE_DIRECTORY );
+
+            //
+            //  Set the sizes back to zero for a directory.
+            //
+
+            Buffer->AllocationSize.QuadPart =
+            Buffer->EndOfFile.QuadPart = 0;
+        }
+
+    //
+    //  If this is not the main stream on the file then use the stream based
+    //  compressed bit.
+    //
+
+    } else {
+
+        if (FlagOn( Scb->AttributeFlags, ATTRIBUTE_FLAG_COMPRESSION_MASK )) {
+
+            SetFlag( Buffer->FileAttributes, FILE_ATTRIBUTE_COMPRESSED );
+
+        } else {
+
+            ClearFlag( Buffer->FileAttributes, FILE_ATTRIBUTE_COMPRESSED );
+        }
+    }
+
+    //
+    //  If the temporary flag is set, then return it to the caller.
+    //
+
+    if (FlagOn( Scb->ScbState, SCB_STATE_TEMPORARY )) {
+
+        SetFlag( Buffer->FileAttributes, FILE_ATTRIBUTE_TEMPORARY );
+    }
+
+    //
+    //  If there are no flags set then explicitly set the NORMAL flag.
+    //
+
+    if (Buffer->FileAttributes == 0) {
+
+        Buffer->FileAttributes = FILE_ATTRIBUTE_NORMAL;
+    }
+
+    //
+    //  And return to our caller
+    //
+
+    DebugTrace( 0, Dbg, ("*Length = %08lx\n", *Length) );
+    DebugTrace( -1, Dbg, ("NtfsQueryNetworkOpenInfo -> VOID\n") );
+
+    return;
 }
 
 
@@ -2510,8 +2800,6 @@ Return Value:
 
     PFILE_BASIC_INFORMATION Buffer;
 
-    BOOLEAN PerformUpdate = FALSE;
-    BOOLEAN UserSetTime = FALSE;
     BOOLEAN LeaveChangeTime = BooleanFlagOn( Ccb->Flags, CCB_FLAG_USER_SET_LAST_CHANGE_TIME );
 
     LONGLONG CurrentTime;
@@ -2523,7 +2811,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsSetBasicInfo...\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsSetBasicInfo...\n") );
 
     Fcb = Scb->Fcb;
 
@@ -2534,7 +2822,122 @@ Return Value:
 
     Buffer = Irp->AssociatedIrp.SystemBuffer;
 
-    KeQuerySystemTime( (PLARGE_INTEGER)&CurrentTime );
+    //
+    //  Do a quick check to see there are any illegal time stamps being set.
+    //  Ntfs supports all values of Nt time as long as the uppermost bit
+    //  isn't set.
+    //
+
+    if (FlagOn( Buffer->ChangeTime.HighPart, 0x80000000 ) ||
+        FlagOn( Buffer->CreationTime.HighPart, 0x80000000 ) ||
+        FlagOn( Buffer->LastAccessTime.HighPart, 0x80000000 ) ||
+        FlagOn( Buffer->LastWriteTime.HighPart, 0x80000000 )) {
+
+        DebugTrace( -1, Dbg, ("NtfsSetBasicInfo -> %08lx\n", STATUS_INVALID_PARAMETER) );
+
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    NtfsGetCurrentTime( IrpContext, CurrentTime );
+
+    //
+    //  Pick up any changes from the fast Io path now while we have the
+    //  file exclusive.
+    //
+
+    NtfsUpdateScbFromFileObject( IrpContext, FileObject, Scb, TRUE );
+
+    //
+    //  If the user specified a non-zero file attributes field then
+    //  we need to change the file attributes.  This code uses the
+    //  I/O supplied system buffer to modify the file attributes field
+    //  before changing its value on the disk.
+    //
+
+    if (Buffer->FileAttributes != 0) {
+
+        //
+        //  Check for valid flags being passed in.  We fail if this is
+        //  a directory and the TEMPORARY bit is used.  Also fail if this
+        //  is a file and the DIRECTORY bit is used.
+        //
+
+        if (Scb->AttributeTypeCode == $DATA) {
+
+            if (FlagOn( Buffer->FileAttributes, FILE_ATTRIBUTE_DIRECTORY )) {
+
+                DebugTrace( -1, Dbg, ("NtfsSetBasicInfo -> %08lx\n", STATUS_INVALID_PARAMETER) );
+
+                return STATUS_INVALID_PARAMETER;
+            }
+
+        } else if (IsDirectory( &Fcb->Info )) {
+
+            if (FlagOn( Buffer->FileAttributes, FILE_ATTRIBUTE_TEMPORARY )) {
+
+                DebugTrace( -1, Dbg, ("NtfsSetBasicInfo -> %08lx\n", STATUS_INVALID_PARAMETER) );
+
+                return STATUS_INVALID_PARAMETER;
+            }
+        }
+
+        //
+        //  Clear out the normal bit and the directory bit as well as any unsupported
+        //  bits.
+        //
+
+        ClearFlag( Buffer->FileAttributes,
+                   (~FILE_ATTRIBUTE_VALID_SET_FLAGS |
+                    FILE_ATTRIBUTE_NORMAL |
+                    FILE_ATTRIBUTE_DIRECTORY |
+                    FILE_ATTRIBUTE_RESERVED0 |
+                    FILE_ATTRIBUTE_RESERVED1 |
+                    FILE_ATTRIBUTE_COMPRESSED) );
+
+        //
+        //  Update the attributes in the Fcb if this is a change to the file.
+        //
+
+        Fcb->Info.FileAttributes = (Fcb->Info.FileAttributes &
+                                    (FILE_ATTRIBUTE_COMPRESSED |
+                                     FILE_ATTRIBUTE_DIRECTORY |
+                                     DUP_FILE_NAME_INDEX_PRESENT)) |
+                                   Buffer->FileAttributes;
+
+        SetFlag( Fcb->FcbState, FCB_STATE_UPDATE_STD_INFO );
+        SetFlag( Fcb->InfoFlags, FCB_INFO_CHANGED_FILE_ATTR );
+
+        //
+        //  If this is the root directory then keep the hidden and system flags.
+        //
+
+        if (Fcb == Fcb->Vcb->RootIndexScb->Fcb) {
+
+            SetFlag( Fcb->Info.FileAttributes, FILE_ATTRIBUTE_SYSTEM | FILE_ATTRIBUTE_HIDDEN );
+
+        //
+        //  Mark the file object temporary flag correctly.
+        //
+
+        } else if (FlagOn(Buffer->FileAttributes, FILE_ATTRIBUTE_TEMPORARY)) {
+
+            SetFlag( Scb->ScbState, SCB_STATE_TEMPORARY );
+            SetFlag( FileObject->Flags, FO_TEMPORARY_FILE );
+
+        } else {
+
+            ClearFlag( Scb->ScbState, SCB_STATE_TEMPORARY );
+            ClearFlag( FileObject->Flags, FO_TEMPORARY_FILE );
+        }
+
+        if (!LeaveChangeTime) {
+
+            Fcb->Info.LastChangeTime = CurrentTime;
+
+            SetFlag( Fcb->InfoFlags, FCB_INFO_CHANGED_LAST_CHANGE );
+            LeaveChangeTime = TRUE;
+        }
+    }
 
     //
     //  If the user specified a non-zero change time then change
@@ -2546,21 +2949,19 @@ Return Value:
 
         Fcb->Info.LastChangeTime = Buffer->ChangeTime.QuadPart;
 
+        SetFlag( Fcb->FcbState, FCB_STATE_UPDATE_STD_INFO );
         SetFlag( Fcb->InfoFlags, FCB_INFO_CHANGED_LAST_CHANGE );
-
         SetFlag( Ccb->Flags, CCB_FLAG_USER_SET_LAST_CHANGE_TIME );
 
         LeaveChangeTime = TRUE;
-        UserSetTime = TRUE;
     }
 
     if (Buffer->CreationTime.QuadPart != 0) {
 
         Fcb->Info.CreationTime = Buffer->CreationTime.QuadPart;
 
+        SetFlag( Fcb->FcbState, FCB_STATE_UPDATE_STD_INFO );
         SetFlag( Fcb->InfoFlags, FCB_INFO_CHANGED_CREATE );
-
-        UserSetTime = TRUE;
 
         if (!LeaveChangeTime) {
 
@@ -2575,11 +2976,9 @@ Return Value:
 
         Fcb->CurrentLastAccess = Fcb->Info.LastAccessTime = Buffer->LastAccessTime.QuadPart;
 
+        SetFlag( Fcb->FcbState, FCB_STATE_UPDATE_STD_INFO );
         SetFlag( Fcb->InfoFlags, FCB_INFO_CHANGED_LAST_ACCESS );
-
         SetFlag( Ccb->Flags, CCB_FLAG_USER_SET_LAST_ACCESS_TIME );
-
-        UserSetTime = TRUE;
 
         if (!LeaveChangeTime) {
 
@@ -2594,73 +2993,9 @@ Return Value:
 
         Fcb->Info.LastModificationTime = Buffer->LastWriteTime.QuadPart;
 
+        SetFlag( Fcb->FcbState, FCB_STATE_UPDATE_STD_INFO );
         SetFlag( Fcb->InfoFlags, FCB_INFO_CHANGED_LAST_MOD );
-
         SetFlag( Ccb->Flags, CCB_FLAG_USER_SET_LAST_MOD_TIME );
-
-        UserSetTime = TRUE;
-
-        if (!LeaveChangeTime) {
-
-            Fcb->Info.LastChangeTime = CurrentTime;
-
-            SetFlag( Fcb->InfoFlags, FCB_INFO_CHANGED_LAST_CHANGE );
-            LeaveChangeTime = TRUE;
-        }
-    }
-
-    //
-    //  If the user specified a non-zero file attributes field then
-    //  we need to change the file attributes.  This code uses the
-    //  I/O supplied system buffer to modify the file attributes field
-    //  before changing its value on the disk.
-    //
-
-    if (Buffer->FileAttributes != 0) {
-
-        //
-        //  Clear out the normal bit and the directory bit as well as any unsupported
-        //  bits.
-        //
-
-        ClearFlag( Buffer->FileAttributes,
-                   ~FILE_ATTRIBUTE_VALID_SET_FLAGS
-                   | FILE_ATTRIBUTE_NORMAL
-                   | FILE_ATTRIBUTE_DIRECTORY
-                   | FILE_ATTRIBUTE_ATOMIC_WRITE
-                   | FILE_ATTRIBUTE_XACTION_WRITE
-                   | FILE_ATTRIBUTE_COMPRESSED );
-
-        //
-        //  Update the attributes in the Fcb.
-        //
-
-        Fcb->Info.FileAttributes = (Fcb->Info.FileAttributes & (FILE_ATTRIBUTE_COMPRESSED |
-                                                                FILE_ATTRIBUTE_DIRECTORY |
-                                                                DUP_FILE_NAME_INDEX_PRESENT)) |
-                                   Buffer->FileAttributes;
-
-        if (!FlagOn(Fcb->Info.FileAttributes, FILE_ATTRIBUTE_DIRECTORY)) {
-
-            //
-            //  Mark the file object temporary flag correctly.
-            //
-
-            if (FlagOn(Buffer->FileAttributes, FILE_ATTRIBUTE_TEMPORARY)) {
-
-                SetFlag( Scb->ScbState, SCB_STATE_TEMPORARY );
-                SetFlag( FileObject->Flags, FO_TEMPORARY_FILE );
-
-            } else {
-
-                ClearFlag( Scb->ScbState, SCB_STATE_TEMPORARY );
-                ClearFlag( FileObject->Flags, FO_TEMPORARY_FILE );
-            }
-        }
-
-        SetFlag( Fcb->InfoFlags, FCB_INFO_CHANGED_FILE_ATTR );
-
-        PerformUpdate = TRUE;
 
         if (!LeaveChangeTime) {
 
@@ -2676,17 +3011,29 @@ Return Value:
     //  on cleanup.
     //
 
-    if (PerformUpdate || UserSetTime) {
+    if (FlagOn( Fcb->FcbState, FCB_STATE_UPDATE_STD_INFO )) {
 
         NtfsUpdateStandardInformation( IrpContext, Fcb  );
 
-        if (FlagOn( Ccb->Flags, CCB_FLAG_OPEN_AS_FILE )) {
+        if (FlagOn( Scb->ScbState, SCB_STATE_CHECK_ATTRIBUTE_SIZE )) {
+
+            NtfsWriteFileSizes( IrpContext,
+                                Scb,
+                                &Scb->Header.ValidDataLength.QuadPart,
+                                FALSE,
+                                TRUE
+                                );
+
+            ClearFlag( Scb->ScbState, SCB_STATE_CHECK_ATTRIBUTE_SIZE );
+        }
+
+        ClearFlag( Fcb->FcbState, FCB_STATE_UPDATE_STD_INFO );
+
+        if (!FlagOn( Ccb->Flags, CCB_FLAG_OPEN_BY_FILE_ID )) {
 
             NtfsCheckpointCurrentTransaction( IrpContext );
             NtfsUpdateFileDupInfo( IrpContext, Fcb, Ccb );
         }
-
-        ClearFlag( Fcb->FcbState, FCB_STATE_UPDATE_STD_INFO );
     }
 
     Status = STATUS_SUCCESS;
@@ -2695,7 +3042,7 @@ Return Value:
     //  And return to our caller
     //
 
-    DebugTrace(-1, Dbg, "NtfsSetBasicInfo -> %08lx\n", Status);
+    DebugTrace( -1, Dbg, ("NtfsSetBasicInfo -> %08lx\n", Status) );
 
     return Status;
 }
@@ -2739,6 +3086,9 @@ Return Value:
 {
     NTSTATUS Status;
     PLCB Lcb;
+    BOOLEAN GenerateOnClose;
+    PIO_STACK_LOCATION IrpSp;
+    HANDLE FileHandle = NULL;
 
     PFILE_DISPOSITION_INFORMATION Buffer;
 
@@ -2749,7 +3099,14 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsSetDispositionInfo...\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsSetDispositionInfo...\n") );
+
+    //
+    // First pull the file handle out of the irp
+    //
+
+    IrpSp = IoGetCurrentIrpStackLocation( Irp );
+    FileHandle = IrpSp->Parameters.SetFile.DeleteHandle;
 
     //
     //  We get the Lcb for this open.  If there is no link then we can't
@@ -2760,7 +3117,7 @@ Return Value:
 
     if (Lcb == NULL) {
 
-        DebugTrace(-1, Dbg, "NtfsSetDispositionInfo:  Exit -> %08lx\n", STATUS_INVALID_PARAMETER);
+        DebugTrace( -1, Dbg, ("NtfsSetDispositionInfo:  Exit -> %08lx\n", STATUS_INVALID_PARAMETER) );
         return STATUS_INVALID_PARAMETER;
     }
 
@@ -2781,7 +3138,7 @@ Return Value:
 
             if (IsReadOnly( &Scb->Fcb->Info )) {
 
-                DebugTrace(0, Dbg, "File fat flags indicates read only\n", 0);
+                DebugTrace( 0, Dbg, ("File fat flags indicates read only\n") );
 
                 try_return( Status = STATUS_CANNOT_DELETE );
             }
@@ -2793,7 +3150,7 @@ Return Value:
             if (!MmFlushImageSection( &Scb->NonpagedScb->SegmentObject,
                                       MmFlushForDelete )) {
 
-                DebugTrace(0, Dbg, "Failed to flush image section\n", 0);
+                DebugTrace( 0, Dbg, ("Failed to flush image section\n") );
 
                 try_return( Status = STATUS_CANNOT_DELETE );
             }
@@ -2811,12 +3168,11 @@ Return Value:
                 (Scb == Scb->Vcb->UpcaseTableScb) ||
                 (Scb == Scb->Vcb->RootIndexScb) ||
                 (Scb == Scb->Vcb->BitmapScb) ||
-                (Scb == Scb->Vcb->BootFileScb) ||
                 (Scb == Scb->Vcb->BadClusterFileScb) ||
                 (Scb == Scb->Vcb->QuotaTableScb) ||
                 (Scb == Scb->Vcb->MftBitmapScb)) {
 
-                DebugTrace(0, Dbg, "Scb is one of the special system files\n", 0);
+                DebugTrace( 0, Dbg, ("Scb is one of the special system files\n") );
 
                 try_return( Status = STATUS_CANNOT_DELETE );
             }
@@ -2849,24 +3205,39 @@ Return Value:
                     ASSERTMSG( "Link count should not be 0\n", Scb->Fcb->LinkCount != 0 );
                     Scb->Fcb->LinkCount -= 1;
 
-#ifndef NTFS_TEST_LINKS
-                    ASSERT( Scb->Fcb->LinkCount == 0 && Scb->Fcb->TotalLinks == 1 );
-#endif
-
-                    if (FlagOn( Lcb->FileNameFlags, FILE_NAME_DOS | FILE_NAME_NTFS )) {
+                    if (FlagOn( Lcb->FileNameAttr->Flags, FILE_NAME_DOS | FILE_NAME_NTFS )) {
 
                         SetFlag( Scb->Fcb->FcbState, FCB_STATE_PRIMARY_LINK_DELETED );
                     }
 
+                    //
+                    //  Call into the notify package to close any handles on
+                    //  a directory being deleted.
+                    //
+
+                    if (IsDirectory( &Scb->Fcb->Info )) {
+
+                        FsRtlNotifyFullChangeDirectory( Scb->Vcb->NotifySync,
+                                                        &Scb->Vcb->DirNotifyList,
+                                                        FileObject->FsContext,
+                                                        NULL,
+                                                        FALSE,
+                                                        FALSE,
+                                                        0,
+                                                        NULL,
+                                                        NULL,
+                                                        NULL );
+                    }
+
                 } else if (NonEmptyIndex) {
 
-                    DebugTrace(0, Dbg, "Index attribute has entries\n", 0);
+                    DebugTrace( 0, Dbg, ("Index attribute has entries\n") );
 
                     try_return( Status = STATUS_DIRECTORY_NOT_EMPTY );
 
                 } else {
 
-                    DebugTrace(0, Dbg, "File is not deleteable\n", 0);
+                    DebugTrace( 0, Dbg, ("File is not deleteable\n") );
 
                     try_return( Status = STATUS_CANNOT_DELETE );
                 }
@@ -2886,6 +3257,25 @@ Return Value:
 
             FileObject->DeletePending = TRUE;
 
+            //
+            //  Only do the auditing if we have a user handle.
+            //
+
+            if (FileHandle != NULL) {
+
+                Status = ObQueryObjectAuditingByHandle( FileHandle,
+                                                        &GenerateOnClose );
+
+                //
+                //  If we have a valid handle, perform the audit.
+                //
+
+                if (NT_SUCCESS( Status ) && GenerateOnClose) {
+
+                    SeDeleteObjectAuditAlarm( FileObject, FileHandle );
+                }
+            }
+
         } else {
 
             if (FlagOn( Ccb->Flags, CCB_FLAG_OPEN_AS_FILE )) {
@@ -2897,18 +3287,14 @@ Return Value:
                     //  we have laying around
                     //
 
-                    DebugTrace(0, Dbg, "File is being marked as do not delete on close\n", 0);
+                    DebugTrace( 0, Dbg, ("File is being marked as do not delete on close\n") );
 
                     ClearFlag( Lcb->LcbState, LCB_STATE_DELETE_ON_CLOSE );
 
                     Scb->Fcb->LinkCount += 1;
                     ASSERTMSG( "Link count should not be 0\n", Scb->Fcb->LinkCount != 0 );
 
-#ifndef NTFS_TEST_LINKS
-                    ASSERT( Scb->Fcb->LinkCount == 1 && Scb->Fcb->TotalLinks == 1 );
-#endif
-
-                    if (FlagOn( Lcb->FileNameFlags, FILE_NAME_DOS | FILE_NAME_NTFS )) {
+                    if (FlagOn( Lcb->FileNameAttr->Flags, FILE_NAME_DOS | FILE_NAME_NTFS )) {
 
                         ClearFlag( Scb->Fcb->FcbState, FCB_STATE_PRIMARY_LINK_DELETED );
                     }
@@ -2940,7 +3326,7 @@ Return Value:
     //  And return to our caller
     //
 
-    DebugTrace(-1, Dbg, "NtfsSetDispositionInfo -> %08lx\n", Status);
+    DebugTrace( -1, Dbg, ("NtfsSetDispositionInfo -> %08lx\n", Status) );
 
     return Status;
 }
@@ -2985,131 +3371,79 @@ Return Value:
 --*/
 
 {
-    NTSTATUS Status;
-    PIO_STACK_LOCATION IrpSp;
+    NTSTATUS Status = STATUS_SUCCESS;
+    PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation( Irp );
 
-    PLCB Lcb;
-    PFCB Fcb;
+    PLCB Lcb = Ccb->Lcb;
+    PFCB Fcb = Scb->Fcb;
     PSCB ParentScb;
-    PFCB ParentFcb;
+    USHORT FcbLinkCountAdj = 0;
 
-    UNICODE_STRING SourceFileName;
+    PFCB TargetLinkFcb = NULL;
+    BOOLEAN ExistingTargetLinkFcb;
+    BOOLEAN AcquiredTargetLinkFcb = FALSE;
+    USHORT TargetLinkFcbCountAdj = 0;
 
-    PFCB TargetParentFcb;
-    PSCB TargetParentScb;
-    UNICODE_STRING TargetFileName;
-    PFILE_NAME TargetFileNameAttr;
+    BOOLEAN AcquiredFcbTable = FALSE;
+    PERESOURCE ResourceToRelease = NULL;
+
     PFILE_OBJECT TargetFileObject;
-    UCHAR TargetFileNameFlags;
+    PSCB TargetParentScb;
 
-    UCHAR FileNameFlags;
+    UNICODE_STRING NewLinkName;
+    UNICODE_STRING NewFullLinkName;
+    PWCHAR NewFullLinkNameBuffer = NULL;
+    UCHAR NewLinkNameFlags;
 
-    PFCB PreviousFcb;
+    PFILE_NAME FileNameAttr = NULL;
+    USHORT FileNameAttrLength = 0;
 
-    USHORT FileNameAttrLength;
+    UNICODE_STRING PrevLinkName;
+    UNICODE_STRING PrevFullLinkName;
+    UCHAR PrevLinkNameFlags;
 
-    BOOLEAN MovedToNewDir;
-    BOOLEAN FoundEntry;
-    BOOLEAN AcquiredTargetScb;
-    BOOLEAN AcquiredParentScb;
-    BOOLEAN AcquiredFcbTable;
-    BOOLEAN AddPrimaryLink;
-    BOOLEAN TraverseMatch;
-    BOOLEAN RemoveTargetLink;
-    BOOLEAN ExactCaseMatch;
-    BOOLEAN ReplaceIfExists;
-    BOOLEAN ExistingPrevFcb;
-    BOOLEAN PreviousFcbAcquired = FALSE;
-    BOOLEAN RemoveSourceLink;
-    BOOLEAN AddTargetLink;
-    BOOLEAN OverwriteSourceLink;
+    UNICODE_STRING SourceFullLinkName;
+    USHORT SourceLinkLastNameOffset;
 
-    UNICODE_STRING OriginalName;
-    ULONG OriginalLastNameOffset;
-    ULONG OriginalFilterMatch;
-    ULONG OriginalAction;
-
-    UNICODE_STRING TargetChange;
-    ULONG TargetChangeFilterMatch;
-
-    USHORT LinkCountAdj;
-    SHORT TotalLinkCountAdj;
-    USHORT PrevFcbLinkCountAdj;
-
+    BOOLEAN FoundLink;
     PINDEX_ENTRY IndexEntry;
-    PBCB IndexEntryBcb;
+    PBCB IndexEntryBcb = NULL;
+    PWCHAR NextChar;
+
+    BOOLEAN ReportDirNotify = FALSE;
+
+    ULONG RenameFlags = ACTIVELY_REMOVE_SOURCE_LINK | REMOVE_SOURCE_LINK | ADD_TARGET_LINK;
+
+    PLIST_ENTRY Links;
+    PSCB ThisScb;
+
+    NAME_PAIR NamePair;
+    LONGLONG TunneledCreationTime;
+    ULONG TunneledDataSize;
+    BOOLEAN HaveTunneledInformation = FALSE;
 
     ASSERT_IRP_CONTEXT( IrpContext );
     ASSERT_FILE_OBJECT( FileObject );
     ASSERT_IRP( Irp );
     ASSERT_SCB( Scb );
 
-    PAGED_CODE();
+    PAGED_CODE ();
 
-    DebugTrace(+1, Dbg, "NtfsSetRenameInfo...\n", 0);
-
-    //
-    //  Initialize the string structures.
-    //
-
-    OriginalName.Buffer = NULL;
-    TargetChange.Buffer = NULL;
+    DebugTrace( +1, Dbg, ("NtfsSetRenameInfo...\n") );
 
     //
-    //  If we are not opening the entire file, we can't set rename info.
+    //  Do a quick check that the caller is allowed to do the rename.
+    //  The opener must have opened the main data stream by name and this can't be
+    //  a system file.
     //
 
-    if (!FlagOn( Ccb->Flags, CCB_FLAG_OPEN_AS_FILE )) {
+    if (!FlagOn( Ccb->Flags, CCB_FLAG_OPEN_AS_FILE ) ||
+        (Lcb == NULL) ||
+        (NtfsSegmentNumber( &Fcb->FileReference ) < FIRST_USER_FILE_NUMBER)) {
 
-        DebugTrace(-1, Dbg, "NtfsSetRenameInfo:  Exit -> %08lx\n", STATUS_INVALID_PARAMETER);
+        DebugTrace( -1, Dbg, ("NtfsSetRenameInfo:  Exit -> %08lx\n", STATUS_INVALID_PARAMETER) );
         return STATUS_INVALID_PARAMETER;
     }
-
-    //
-    //  Get the values from our Irp stack location.
-    //
-
-    IrpSp = IoGetCurrentIrpStackLocation( Irp );
-
-    TargetFileObject = IrpSp->Parameters.SetFile.FileObject;
-    ReplaceIfExists = IrpSp->Parameters.SetFile.ReplaceIfExists;
-
-    //
-    //  Initialize the local variables.  If there is no link, we can't perform the
-    //  rename.
-    //
-
-    Lcb = Ccb->Lcb;
-
-    if (Lcb == NULL) {
-
-        DebugTrace(-1, Dbg, "NtfsSetRename:  Exit -> %08lx\n", STATUS_INVALID_PARAMETER);
-        return STATUS_INVALID_PARAMETER;
-    }
-
-    Fcb = Scb->Fcb;
-    ParentScb = Lcb->Scb;
-
-    FileNameAttrLength = 0;
-    TargetFileNameAttr = NULL;
-
-    AcquiredTargetScb = FALSE;
-    AcquiredParentScb = FALSE;
-    AcquiredFcbTable = FALSE;
-
-    TraverseMatch = FALSE;
-    ExactCaseMatch = FALSE;
-    RemoveSourceLink = TRUE;
-    RemoveTargetLink = FALSE;
-    AddTargetLink = TRUE;
-    OverwriteSourceLink = FALSE;
-
-    IndexEntryBcb = NULL;
-    PreviousFcb = NULL;
-
-    LinkCountAdj = 0;
-    TotalLinkCountAdj = 0;
-    PrevFcbLinkCountAdj = 0;
 
     //
     //  If this link has been deleted, then we don't allow this operation.
@@ -3117,21 +3451,19 @@ Return Value:
 
     if (LcbLinkIsDeleted( Lcb )) {
 
-        Status = STATUS_ACCESS_DENIED;
-
-        DebugTrace( -1, Dbg, "NtfsSetRenameInfo:  Exit  ->  %08lx\n", Status );
-        return Status;
+        DebugTrace( -1, Dbg, ("NtfsSetRenameInfo:  Exit -> %08lx\n", STATUS_ACCESS_DENIED) );
+        return STATUS_ACCESS_DENIED;
     }
 
     //
     //  Verify that we can wait.
     //
 
-    if (!FlagOn(IrpContext->Flags, IRP_CONTEXT_FLAG_WAIT)) {
+    if (!FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_WAIT )) {
 
         Status = NtfsPostRequest( IrpContext, Irp );
 
-        DebugTrace( -1, Dbg, "NtfsSetRenameInfo:  Can't wait\n", 0 );
+        DebugTrace( -1, Dbg, ("NtfsSetRenameInfo:  Can't wait\n") );
         return Status;
     }
 
@@ -3142,19 +3474,22 @@ Return Value:
     try {
 
         //
-        //  Check if we are allowed to perform this rename operation.  We can't if this
-        //  is a system file or the user hasn't opened the entire file.  We
-        //  don't need to check for the root explicitly since it is one of
-        //  the system files.
+        //  Initialize the local variables.
         //
 
-        if ( Fcb->FileReference.LowPart < FIRST_USER_FILE_NUMBER
-             && Fcb->FileReference.HighPart != 0 ) {
+        ParentScb = Lcb->Scb;
+        TargetFileObject = IrpSp->Parameters.SetFile.FileObject;
 
-            DebugTrace( 0, Dbg, "Can't rename this file\n", 0 );
+        NtfsInitializeNamePair( &NamePair );
 
-            try_return( Status = STATUS_INVALID_PARAMETER );
+        if (!FlagOn( Ccb->Flags, CCB_FLAG_OPEN_BY_FILE_ID ) &&
+            (Vcb->NotifyCount != 0)) {
+
+            ReportDirNotify = TRUE;
         }
+
+        PrevFullLinkName.Buffer = NULL;
+        SourceFullLinkName.Buffer = NULL;
 
         //
         //  If this is a directory file, we need to examine its descendents.
@@ -3164,15 +3499,63 @@ Return Value:
 
         if (IsDirectory( &Fcb->Info )) {
 
-            Status = NtfsCheckScbForLinkRemoval( IrpContext, Scb );
+            PSCB BatchOplockScb;
+            ULONG BatchOplockCount;
 
-            if (!NT_SUCCESS( Status )) {
+            Status = NtfsCheckScbForLinkRemoval( Scb, &BatchOplockScb, &BatchOplockCount );
 
-                try_return( Status );
+            //
+            //  If STATUS_PENDING is returned then we need to check whether
+            //  to break a batch oplock.
+            //
+
+            if (Status == STATUS_PENDING) {
+
+                //
+                //  If the number of batch oplocks has grown then fail the request.
+                //
+
+                if ((Irp->IoStatus.Information != 0) &&
+                    (BatchOplockCount >= Irp->IoStatus.Information)) {
+
+                    Status = STATUS_ACCESS_DENIED;
+                    leave;
+                }
+
+                //
+                //  Remember the count of batch oplocks in the Irp and
+                //  then call the oplock package.
+                //
+
+                Irp->IoStatus.Information = BatchOplockCount;
+
+                Status = FsRtlCheckOplock( &BatchOplockScb->ScbType.Data.Oplock,
+                                           Irp,
+                                           IrpContext,
+                                           NtfsOplockComplete,
+                                           NtfsPrePostIrp );
+
+                //
+                //  If we got back success then raise CANT_WAIT to retry otherwise
+                //  clean up.
+                //
+
+                if (Status == STATUS_SUCCESS) {
+
+                    NtfsRaiseStatus( IrpContext, STATUS_CANT_WAIT, NULL, NULL );
+
+                } else if (Status == STATUS_PENDING) {
+
+                    NtfsReleaseVcb( IrpContext, Vcb );
+                }
+
+                leave;
+
+            } else if (!NT_SUCCESS( Status )) {
+
+                leave;
             }
         }
-
-        ParentFcb = ParentScb->Fcb;
 
         //
         //  We now assemble the names and in memory-structures for both the
@@ -3183,38 +3566,65 @@ Return Value:
         NtfsFindTargetElements( IrpContext,
                                 TargetFileObject,
                                 ParentScb,
-                                &TargetParentFcb,
                                 &TargetParentScb,
-                                &TargetFileName );
+                                &NewFullLinkName,
+                                &NewLinkName );
 
         //
         //  Check that the new name is not invalid.
         //
 
-        if (TargetFileName.Length > (NTFS_MAX_FILE_NAME_LENGTH * sizeof( WCHAR ))
-            || !NtfsIsFileNameValid( IrpContext, &TargetFileName, FALSE )) {
+        if ((NewLinkName.Length > (NTFS_MAX_FILE_NAME_LENGTH * sizeof( WCHAR ))) ||
+            !NtfsIsFileNameValid( &NewLinkName, FALSE )) {
 
-            try_return( Status = STATUS_OBJECT_NAME_INVALID );
+            Status = STATUS_OBJECT_NAME_INVALID;
+            leave;
+        }
+
+        //
+        //  Acquire the current parent in order to synchronize removing the current name.
+        //
+
+        NtfsAcquireExclusiveScb( IrpContext, ParentScb );
+
+        //
+        //  If this Scb does not have a normalized name then provide it with one now.
+        //
+
+        if ((ParentScb->ScbType.Index.NormalizedName.Buffer == NULL) ||
+            (ParentScb->ScbType.Index.NormalizedName.Length == 0)) {
+
+            NtfsBuildNormalizedName( IrpContext,
+                                     ParentScb,
+                                     &ParentScb->ScbType.Index.NormalizedName );
+        }
+
+        //
+        //  If this is a directory then make sure it has a normalized name.
+        //
+
+        if (IsDirectory( &Fcb->Info ) &&
+            ((Scb->ScbType.Index.NormalizedName.Buffer == NULL) ||
+             (Scb->ScbType.Index.NormalizedName.Length == 0))) {
+
+            NtfsUpdateNormalizedName( IrpContext,
+                                      ParentScb,
+                                      Scb,
+                                      NULL,
+                                      FALSE );
         }
 
         //
         //  Check if we are renaming to the same directory with the exact same name.
         //
 
-        SourceFileName = Lcb->ExactCaseLink.LinkName;
+        if (TargetParentScb == ParentScb) {
 
-        if (TargetParentFcb == ParentFcb) {
+            if (NtfsAreNamesEqual( Vcb->UpcaseTable, &NewLinkName, &Lcb->ExactCaseLink.LinkName, FALSE )) {
 
-            if (NtfsAreNamesEqual( IrpContext,
-                                   &TargetFileName,
-                                   &SourceFileName,
-                                   FALSE )) {
-
-                DebugTrace( 0, Dbg, "Renaming to same name and directory\n", 0 );
-                try_return( Status = STATUS_SUCCESS );
+                DebugTrace( 0, Dbg, ("Renaming to same name and directory\n") );
+                leave;
             }
-
-            MovedToNewDir = FALSE;
 
         //
         //  Otherwise we want to acquire the target directory.
@@ -3222,35 +3632,38 @@ Return Value:
 
         } else {
 
-            NtfsAcquireExclusiveScb( IrpContext, TargetParentScb );
-            AcquiredTargetScb = TRUE;
+            //
+            //  We need to do the acquisition carefully since we may only have the Vcb shared.
+            //
 
-            MovedToNewDir = TRUE;
+            if (!FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_ACQUIRE_VCB_EX )) {
+
+                if (!NtfsAcquireExclusiveFcb( IrpContext,
+                                              TargetParentScb->Fcb,
+                                              TargetParentScb,
+                                              FALSE,
+                                              TRUE )) {
+
+                    SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_ACQUIRE_VCB_EX );
+                    NtfsRaiseStatus( IrpContext, STATUS_CANT_WAIT, NULL, NULL );
+                }
+
+                //
+                //  Now snapshot the Scb.
+                //
+
+                if (FlagOn( TargetParentScb->ScbState, SCB_STATE_FILE_SIZE_LOADED )) {
+
+                    NtfsSnapshotScb( IrpContext, TargetParentScb );
+                }
+
+            } else {
+
+                NtfsAcquireExclusiveScb( IrpContext, TargetParentScb );
+            }
+
+            SetFlag( RenameFlags, MOVE_TO_NEW_DIR );
         }
-
-        //
-        //  In either case we do need to acquire our parent directory
-        //  to synchronize removing the current name.
-        //
-
-        NtfsAcquireExclusiveScb( IrpContext, ParentScb );
-        AcquiredParentScb = TRUE;
-
-        //
-        //  Lookup the entry for this filename in the target directory.
-        //  We look in the Ccb for the type of case match for the target
-        //  name.
-        //
-
-        FoundEntry = NtfsLookupEntry( IrpContext,
-                                      TargetParentScb,
-                                      BooleanFlagOn( Ccb->Flags, CCB_FLAG_IGNORE_CASE ),
-                                      &TargetFileName,
-                                      &TargetFileNameAttr,
-                                      &FileNameAttrLength,
-                                      NULL,
-                                      &IndexEntry,
-                                      &IndexEntryBcb );
 
         //
         //  We also determine which type of link to
@@ -3258,10 +3671,28 @@ Return Value:
         //  a primary link and the user is an IgnoreCase guy.
         //
 
-        AddPrimaryLink = (BOOLEAN) (FlagOn( Lcb->FileNameFlags, FILE_NAME_DOS | FILE_NAME_NTFS )
-                                    && FlagOn( Ccb->Flags, CCB_FLAG_IGNORE_CASE ));
+        if (FlagOn( Lcb->FileNameAttr->Flags, FILE_NAME_DOS | FILE_NAME_NTFS ) &&
+            FlagOn( Ccb->Flags, CCB_FLAG_IGNORE_CASE )) {
+
+            SetFlag( RenameFlags, ADD_PRIMARY_LINK );
+        }
 
         //
+        //  Lookup the entry for this filename in the target directory.
+        //  We look in the Ccb for the type of case match for the target
+        //  name.
+        //
+
+        FoundLink = NtfsLookupEntry( IrpContext,
+                                     TargetParentScb,
+                                     BooleanFlagOn( Ccb->Flags, CCB_FLAG_IGNORE_CASE ),
+                                     &NewLinkName,
+                                     &FileNameAttr,
+                                     &FileNameAttrLength,
+                                     NULL,
+                                     &IndexEntry,
+                                     &IndexEntryBcb );
+
         //
         //  If we found a matching link, we need to check how we want to operate
         //  on the source link and the target link.  This means whether we
@@ -3269,7 +3700,7 @@ Return Value:
         //  and whether we need to remove the source link.
         //
 
-        if (FoundEntry) {
+        if (FoundLink) {
 
             PFILE_NAME IndexFileName;
 
@@ -3277,89 +3708,122 @@ Return Value:
             //  Assume we will remove this link.
             //
 
-            RemoveTargetLink = TRUE;
+            SetFlag( RenameFlags, REMOVE_TARGET_LINK );
 
-            IndexFileName = (PFILE_NAME) NtfsFoundIndexEntry( IrpContext,
-                                                              IndexEntry );
+            IndexFileName = (PFILE_NAME) NtfsFoundIndexEntry( IndexEntry );
 
-            NtfsCheckLinkForRename( IrpContext,
-                                    Fcb,
+            NtfsCheckLinkForRename( Fcb,
                                     Lcb,
                                     IndexFileName,
                                     IndexEntry->FileReference,
-                                    TargetFileName,
+                                    &NewLinkName,
                                     BooleanFlagOn( Ccb->Flags, CCB_FLAG_IGNORE_CASE ),
-                                    MovedToNewDir,
-                                    &TraverseMatch,
-                                    &ExactCaseMatch,
-                                    &RemoveTargetLink,
-                                    &RemoveSourceLink,
-                                    &AddTargetLink,
-                                    &OverwriteSourceLink );
+                                    &RenameFlags );
 
             //
-            //  We want to preserve the case and the flags of the matching
-            //  target link.  We also want to preserve the case of the
-            //  name being created.  The following variables currently contain
-            //  the exact case for the target to remove and the new name to
-            //  apply.
-            //
-            //      Target to remove - In 'IndexEntry'.
-            //          The links flags are also in 'IndexEntry'.  We copy
-            //          these flags to 'TargetFileNameFlags'
-            //
-            //      New Name - Exact case is stored in 'TargetFileName'
-            //               - It is also in 'TargetFileNameAttr
-            //
-            //  We modify this so that we can use the FileName attribute
-            //  structure to create the new link.  We copy the linkname being
-            //  removed into 'TargetFileName'.   The following is the
-            //  state after the switch.
-            //
-            //      'TargetFileNameAttr' - contains the name for the link being
-            //          created.
-            //
-            //      'TargetFileName' - Contains the link name for the link being
-            //          removed.
-            //
-            //      'TargetFileNameFlags' - Contains the name flags for the link
-            //          being removed.
+            //  Assume we will use the existing name flags on the link found.  This
+            //  will be the case where the file was opened with the 8.3 name and
+            //  the new name is exactly the long name for the same file.
             //
 
-            //
-            //  Remember the file name flags for the match being made.
-            //
-
-            TargetFileNameFlags = IndexFileName->Flags;
-
-            //
-            //  Copy the name found in the Index Entry to 'TargetFileName'
-            //
-
-            RtlCopyMemory( TargetFileName.Buffer,
-                           IndexFileName->FileName,
-                           TargetFileName.Length );
+            PrevLinkNameFlags =
+            NewLinkNameFlags = IndexFileName->Flags;
 
             //
             //  If we didn't have an exact match, then we need to check if we
             //  can remove the found link and then remove it from the disk.
             //
 
-            if (RemoveTargetLink) {
+            if (FlagOn( RenameFlags, REMOVE_TARGET_LINK )) {
 
+                //
                 //  We need to check that the user wanted to remove that link.
                 //
 
-                if (!ReplaceIfExists) {
+                if (!FlagOn( RenameFlags, TRAVERSE_MATCH ) &&
+                    !IrpSp->Parameters.SetFile.ReplaceIfExists) {
 
-                    try_return( Status = STATUS_OBJECT_NAME_COLLISION );
+                    Status = STATUS_OBJECT_NAME_COLLISION;
+                    leave;
                 }
+
+                //
+                //  We want to preserve the case and the flags of the matching
+                //  link found.  We also want to preserve the case of the
+                //  name being created.  The following variables currently contain
+                //  the exact case for the target to remove and the new name to
+                //  apply.
+                //
+                //      Link to remove - In 'IndexEntry'.
+                //          The link's flags are also in 'IndexEntry'.  We copy
+                //          these flags to 'PrevLinkNameFlags'
+                //
+                //      New Name - Exact case is stored in 'NewLinkName'
+                //               - It is also in 'FileNameAttr
+                //
+                //  We modify this so that we can use the FileName attribute
+                //  structure to create the new link.  We copy the linkname being
+                //  removed into 'PrevLinkName'.   The following is the
+                //  state after the switch.
+                //
+                //      'FileNameAttr' - contains the name for the link being
+                //          created.
+                //
+                //      'PrevLinkFileName' - Contains the link name for the link being
+                //          removed.
+                //
+                //      'PrevLinkFileNameFlags' - Contains the name flags for the link
+                //          being removed.
+                //
+
+                //
+                //  Allocate a buffer for the name being removed.  It should be
+                //  large enough for the entire directory name.
+                //
+
+                PrevFullLinkName.MaximumLength = TargetParentScb->ScbType.Index.NormalizedName.Length +
+                                                 sizeof( WCHAR ) +
+                                                 (IndexFileName->FileNameLength * sizeof( WCHAR ));
+
+                PrevFullLinkName.Buffer = NtfsAllocatePool( PagedPool,
+                                                            PrevFullLinkName.MaximumLength );
+
+                RtlCopyMemory( PrevFullLinkName.Buffer,
+                               TargetParentScb->ScbType.Index.NormalizedName.Buffer,
+                               TargetParentScb->ScbType.Index.NormalizedName.Length );
+
+                NextChar = Add2Ptr( PrevFullLinkName.Buffer,
+                                    TargetParentScb->ScbType.Index.NormalizedName.Length );
+
+                if (TargetParentScb != Vcb->RootIndexScb) {
+
+                    *NextChar = L'\\';
+                    NextChar += 1;
+                }
+
+                RtlCopyMemory( NextChar,
+                               IndexFileName->FileName,
+                               IndexFileName->FileNameLength * sizeof( WCHAR ));
+
+                //
+                //  Copy the name found in the Index Entry to 'PrevLinkName'
+                //
+
+                PrevLinkName.Buffer = NextChar;
+                PrevLinkName.MaximumLength =
+                PrevLinkName.Length = IndexFileName->FileNameLength * sizeof( WCHAR );
+
+                //
+                //  Update the full name length with the final component.
+                //
+
+                PrevFullLinkName.Length = (USHORT) PtrOffset( PrevFullLinkName.Buffer, NextChar ) + PrevLinkName.Length;
 
                 //
                 //  We only need this check if the link is for a different file.
                 //
 
-                if (!TraverseMatch) {
+                if (!FlagOn( RenameFlags, TRAVERSE_MATCH )) {
 
                     //
                     //  We check if there is an existing Fcb for the target link.
@@ -3369,17 +3833,59 @@ Return Value:
                     NtfsAcquireFcbTable( IrpContext, Vcb );
                     AcquiredFcbTable = TRUE;
 
-                    PreviousFcb = NtfsCreateFcb( IrpContext,
-                                                 Vcb,
-                                                 IndexEntry->FileReference,
-                                                 FALSE,
-                                                 &ExistingPrevFcb );
+                    TargetLinkFcb = NtfsCreateFcb( IrpContext,
+                                                   Vcb,
+                                                   IndexEntry->FileReference,
+                                                   FALSE,
+                                                   BooleanFlagOn( Fcb->FcbState, FCB_STATE_COMPOUND_INDEX ),
+                                                   &ExistingTargetLinkFcb );
 
-                    NtfsReleaseFcbTable( IrpContext, Vcb );
-                    AcquiredFcbTable = FALSE;
+                    //
+                    //  We need to acquire this file carefully in the event that we don't hold
+                    //  the Vcb exclusively.
+                    //
 
-                    NtfsAcquireExclusiveFcb( IrpContext, PreviousFcb, NULL, FALSE, FALSE );
-                    PreviousFcbAcquired = TRUE;
+                    if (!FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_ACQUIRE_VCB_EX )) {
+
+                        if (TargetLinkFcb->PagingIoResource != NULL) {
+
+                            if (!ExAcquireResourceExclusive( TargetLinkFcb->PagingIoResource, FALSE )) {
+
+                                SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_ACQUIRE_VCB_EX );
+                                NtfsRaiseStatus( IrpContext, STATUS_CANT_WAIT, NULL, NULL );
+                            }
+
+                            ResourceToRelease = TargetLinkFcb->PagingIoResource;
+                        }
+
+                        if (!NtfsAcquireExclusiveFcb( IrpContext, TargetLinkFcb, NULL, FALSE, TRUE )) {
+
+                            SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_ACQUIRE_VCB_EX );
+                            NtfsRaiseStatus( IrpContext, STATUS_CANT_WAIT, NULL, NULL );
+                        }
+
+                        NtfsReleaseFcbTable( IrpContext, Vcb );
+                        AcquiredFcbTable = FALSE;
+
+                    } else {
+
+                        NtfsReleaseFcbTable( IrpContext, Vcb );
+                        AcquiredFcbTable = FALSE;
+
+                        //
+                        //  Acquire the paging Io resource for this file before the main
+                        //  resource in case we need to delete.
+                        //
+
+                        if (TargetLinkFcb->PagingIoResource != NULL) {
+                            ResourceToRelease = TargetLinkFcb->PagingIoResource;
+                            ExAcquireResourceExclusive( ResourceToRelease, TRUE );
+                        }
+
+                        NtfsAcquireExclusiveFcb( IrpContext, TargetLinkFcb, NULL, FALSE, FALSE );
+                    }
+
+                    AcquiredTargetLinkFcb = TRUE;
 
                     //
                     //  If the Fcb Info field needs to be initialized, we do so now.
@@ -3387,264 +3893,207 @@ Return Value:
                     //  in the index entry is not guaranteed to be correct.
                     //
 
-                    if (!FlagOn( PreviousFcb->FcbState, FCB_STATE_DUP_INITIALIZED )) {
+                    if (!FlagOn( TargetLinkFcb->FcbState, FCB_STATE_DUP_INITIALIZED )) {
 
                         NtfsUpdateFcbInfoFromDisk( IrpContext,
                                                    TRUE,
-                                                   PreviousFcb,
+                                                   TargetLinkFcb,
                                                    TargetParentScb->Fcb,
                                                    NULL );
+
+                        NtfsConditionallyFixupQuota( IrpContext, TargetLinkFcb );
+
                     }
 
                     //
                     //  We are adding a link to the source file which already
                     //  exists as a link to a different file in the target directory.
                     //
+                    //  We need to check whether we permitted to delete this
+                    //  link.  If not then it is possible that the problem is
+                    //  an existing batch oplock on the file.  In that case
+                    //  we want to delete the batch oplock and try this again.
+                    //
 
-                    Status = NtfsCheckLinkForRemoval( IrpContext,
-                                                      Vcb,
-                                                      TargetParentScb,
-                                                      IndexEntry,
-                                                      PreviousFcb,
-                                                      ExistingPrevFcb );
+                    Status = NtfsCheckFileForDelete( IrpContext,
+                                                     TargetParentScb,
+                                                     TargetLinkFcb,
+                                                     ExistingTargetLinkFcb,
+                                                     IndexEntry );
 
                     if (!NT_SUCCESS( Status )) {
 
-                        try_return( Status );
-                    }
-
-                    if (PreviousFcb->LinkCount == 1) {
-
-                        PLIST_ENTRY Links;
-                        PSCB ThisScb;
+                        PSCB NextScb = NULL;
 
                         //
-                        //  Serialize the DeleteFile with PagingIo to the file.
+                        //  We are going to either fail this request or pass
+                        //  this on to the oplock package.  Test if there is
+                        //  a batch oplock on any streams on this file.
                         //
 
-                        if (PreviousFcb->PagingIoResource != NULL) {
+                        while ((NextScb = NtfsGetNextChildScb( TargetLinkFcb,
+                                                               NextScb )) != NULL) {
 
-                            NtfsAcquireExclusivePagingIo( IrpContext, PreviousFcb );
-                        }
+                            if ((NextScb->AttributeTypeCode == $DATA) &&
+                                (NextScb->Header.NodeTypeCode == NTFS_NTC_SCB_DATA) &&
+                                FsRtlCurrentBatchOplock( &NextScb->ScbType.Data.Oplock )) {
 
-                        NtfsDeleteFile( IrpContext,
-                                        PreviousFcb,
-                                        TargetParentScb );
+                                NtfsReleaseVcb( IrpContext, Vcb );
 
-                        PrevFcbLinkCountAdj += 1;
+                                Status = FsRtlCheckOplock( &NextScb->ScbType.Data.Oplock,
+                                                           Irp,
+                                                           IrpContext,
+                                                           NtfsOplockComplete,
+                                                           NtfsPrePostIrp );
 
-                        SetFlag( PreviousFcb->FcbState, FCB_STATE_FILE_DELETED );
-
-                        //
-                        //  We need to mark all of the Scbs as gone.
-                        //
-
-                        for (Links = PreviousFcb->ScbQueue.Flink;
-                             Links != &PreviousFcb->ScbQueue;
-                             Links = Links->Flink) {
-
-                            ThisScb = CONTAINING_RECORD( Links, SCB, FcbLinks );
-
-                            if (!FlagOn( ThisScb->ScbState, SCB_STATE_ATTRIBUTE_DELETED )) {
-
-                                NtfsSnapshotScb( IrpContext, ThisScb );
-
-                                ThisScb->HighestVcnToDisk =
-                                ThisScb->Header.AllocationSize.QuadPart =
-                                ThisScb->Header.FileSize.QuadPart =
-                                ThisScb->Header.ValidDataLength.QuadPart = 0;
-
-                                SetFlag( ThisScb->ScbState, SCB_STATE_ATTRIBUTE_DELETED );
+                                break;
                             }
                         }
+
+                        leave;
+                    }
+
+                    NtfsCleanupLinkForRemoval( TargetLinkFcb, ExistingTargetLinkFcb );
+
+                    if (TargetLinkFcb->LinkCount == 1) {
+
+                        NtfsDeleteFile( IrpContext,
+                                        TargetLinkFcb,
+                                        TargetParentScb,
+                                        NULL );
+
+                        TargetLinkFcbCountAdj += 1;
 
                     } else {
 
                         NtfsRemoveLink( IrpContext,
-                                        PreviousFcb,
+                                        TargetLinkFcb,
                                         TargetParentScb,
-                                        TargetFileName );
+                                        PrevLinkName,
+                                        NULL );
 
-                        PrevFcbLinkCountAdj += 1;
-                        NtfsUpdateFcb( IrpContext, PreviousFcb, TRUE );
+                        TargetLinkFcbCountAdj += 1;
+                        NtfsUpdateFcb( TargetLinkFcb );
                     }
+
+                //
+                //  The target link is for the same file as the source link.  No security
+                //  checks need to be done.  Go ahead and remove it.
+                //
 
                 } else {
 
+                    TargetLinkFcb = Fcb;
                     NtfsRemoveLink( IrpContext,
                                     Fcb,
                                     TargetParentScb,
-                                    TargetFileName );
+                                    PrevLinkName,
+                                    NULL );
 
-                    LinkCountAdj += 1;
-                    TotalLinkCountAdj -= 1;
-                }
-
-                //
-                //  If we removed a link from the disk and it wasn't an exact
-                //  case match of the target name, then we will want to
-                //  report this to the dir notify package.  We will save the
-                //  name into an allocated buffer at this time.
-                //
-
-                if (!ExactCaseMatch
-                    && !FlagOn( Ccb->Flags, CCB_FLAG_OPEN_BY_FILE_ID )) {
-
-                    //
-                    //  If we have a target file object, the entire name is
-                    //  already stored in it.  Otherwise we will construct
-                    //  the name from the source name and target component.
-                    //
-
-                    if (TargetFileObject != NULL) {
-
-                        TargetChange.Length = TargetFileObject->FileName.MaximumLength;
-                        TargetChange.Buffer = NtfsAllocatePagedPool( TargetChange.Length );
-
-                        RtlCopyMemory( TargetChange.Buffer,
-                                       TargetFileObject->FileName.Buffer,
-                                       TargetChange.Length );
-
-                        TargetChange.MaximumLength = TargetChange.Length;
-
-                    //
-                    //  Build the name in pieces.
-                    //
-
-                    } else {
-
-                        //
-                        //  The length is the length of the parent of the current
-                        //  name plus the length of the new name.
-                        //
-
-                        TargetChange.Length = Ccb->LastFileNameOffset + TargetFileName.Length;
-
-                        TargetChange.Buffer = NtfsAllocatePagedPool( TargetChange.Length );
-
-                        RtlCopyMemory( TargetChange.Buffer,
-                                       Ccb->FullFileName.Buffer,
-                                       Ccb->LastFileNameOffset );
-
-                        RtlCopyMemory( Add2Ptr( TargetChange.Buffer,
-                                                Ccb->LastFileNameOffset ),
-                                        TargetFileName.Buffer,
-                                        TargetFileName.Length );
-
-                        TargetChange.MaximumLength = TargetChange.Length;
-                    }
-
-                    //
-                    //  Remember if this is a directory or a file.
-                    //
-
-                    if (IsDirectory( &PreviousFcb->Info )) {
-
-                        TargetChangeFilterMatch = FILE_NOTIFY_CHANGE_DIR_NAME;
-
-                    } else {
-
-                        TargetChangeFilterMatch = FILE_NOTIFY_CHANGE_FILE_NAME;
-                    }
+                    FcbLinkCountAdj += 1;
                 }
             }
         }
 
-        NtfsUnpinBcb( IrpContext, &IndexEntryBcb );
+        NtfsUnpinBcb( &IndexEntryBcb );
 
         //
-        //  We always set the last change time on the file we renamed unless
-        //  the caller explicitly set this.
+        //  See if we need to remove the current link.
         //
 
-        if (!FlagOn( Ccb->Flags, CCB_FLAG_USER_SET_LAST_CHANGE_TIME )) {
-
-            KeQuerySystemTime( (PLARGE_INTEGER)&Fcb->Info.LastChangeTime );
-            SetFlag( Fcb->InfoFlags, FCB_INFO_CHANGED_LAST_CHANGE );
-            SetFlag( Fcb->FcbState, FCB_STATE_UPDATE_STD_INFO );
-
-            NtfsUpdateStandardInformation( IrpContext, Fcb );
-        }
-
-        if (RemoveSourceLink) {
+        if (FlagOn( RenameFlags, REMOVE_SOURCE_LINK )) {
 
             //
             //  Now we want to remove the source link from the file.  We need to
             //  remember if we deleted a two part primary link.
             //
 
-            NtfsRemoveLink( IrpContext,
-                            Fcb,
-                            ParentScb,
-                            SourceFileName );
+            if (FlagOn( RenameFlags, ACTIVELY_REMOVE_SOURCE_LINK )) {
 
-            NtfsUpdateFcb( IrpContext, ParentFcb, TRUE );
+                NtfsRemoveLink( IrpContext,
+                                Fcb,
+                                ParentScb,
+                                Lcb->ExactCaseLink.LinkName,
+                                &NamePair );
 
-            //
-            //  Remember the full name for the original filename and some
-            //  other information to pass to the dirnotify package.
-            //
+                //
+                //  Remember the full name for the original filename and some
+                //  other information to pass to the dirnotify package.
+                //
 
-            if (!FlagOn( Ccb->Flags, CCB_FLAG_OPEN_BY_FILE_ID )) {
+                if (!FlagOn( Ccb->Flags, CCB_FLAG_OPEN_BY_FILE_ID )) {
 
-                OriginalName.Buffer = NtfsAllocatePagedPool( Ccb->FullFileName.Length );
+                    if (!IsDirectory( &Fcb->Info ) &&
+                        !FlagOn( FileObject->Flags, FO_OPENED_CASE_SENSITIVE )) {
 
-                RtlCopyMemory( OriginalName.Buffer,
+                        //
+                        //  Tunnel property information for file links
+                        //
+
+                        FsRtlAddToTunnelCache(  &Vcb->Tunnel,
+                                                *(PULONGLONG)&ParentScb->Fcb->FileReference,
+                                                &NamePair.Short,
+                                                &NamePair.Long,
+                                                BooleanFlagOn( Lcb->FileNameAttr->Flags, FILE_NAME_DOS ),
+                                                sizeof( LONGLONG ),
+                                                &Fcb->Info.CreationTime );
+                    }
+                }
+
+                FcbLinkCountAdj += 1;
+            }
+
+            if (ReportDirNotify) {
+
+                SourceFullLinkName.Buffer = NtfsAllocatePool( PagedPool, Ccb->FullFileName.Length );
+
+                RtlCopyMemory( SourceFullLinkName.Buffer,
                                Ccb->FullFileName.Buffer,
                                Ccb->FullFileName.Length );
 
-                OriginalName.MaximumLength = OriginalName.Length = Ccb->FullFileName.Length;
-
-                OriginalLastNameOffset = Ccb->LastFileNameOffset;
-
-                if (IsDirectory( &Fcb->Info )) {
-
-                    OriginalFilterMatch = FILE_NOTIFY_CHANGE_DIR_NAME;
-
-                } else {
-
-                    OriginalFilterMatch = FILE_NOTIFY_CHANGE_FILE_NAME;
-                }
-
-                //
-                //  If we moved to a new directory then we simply removed this name.
-                //  If we didn't find a matching entry or found an entry with an
-                //  exact case match then it will appear as though this file
-                //  was removed.
-                //
-
-                if (MovedToNewDir
-                    || !AddTargetLink
-                    || (RemoveTargetLink && ExactCaseMatch)) {
-
-                    OriginalAction = FILE_ACTION_REMOVED;
-
-                //
-                //  Otherwise we report this as the first part of the rename change.
-                //
-
-                } else {
-
-                    OriginalAction = FILE_ACTION_RENAMED_OLD_NAME;
-                }
+                SourceFullLinkName.MaximumLength = SourceFullLinkName.Length = Ccb->FullFileName.Length;
+                SourceLinkLastNameOffset = Ccb->LastFileNameOffset;
             }
-
-            LinkCountAdj += 1;
-            TotalLinkCountAdj -= 1;
         }
 
-        if (AddTargetLink) {
+        //
+        //  See if we need to add the target link.
+        //
+
+        if (FlagOn( RenameFlags, ADD_TARGET_LINK )) {
 
             //
             //  Check that we have permission to add a file to this directory.
             //
 
             NtfsCheckIndexForAddOrDelete( IrpContext,
-                                          Vcb,
-                                          TargetParentFcb,
-                                          (IsDirectory( &Fcb->Info )
-                                           ? FILE_ADD_SUBDIRECTORY
-                                           : FILE_ADD_FILE ));
+                                          TargetParentScb->Fcb,
+                                          (IsDirectory( &Fcb->Info ) ?
+                                           FILE_ADD_SUBDIRECTORY :
+                                           FILE_ADD_FILE) );
+
+            //
+            //  Grunge the tunnel cache for property restoration
+            //
+
+            if (!IsDirectory( &Fcb->Info ) &&
+                !FlagOn( FileObject->Flags, FO_OPENED_CASE_SENSITIVE )) {
+
+                NtfsResetNamePair( &NamePair );
+                TunneledDataSize = sizeof( LONGLONG );
+
+                if (FsRtlFindInTunnelCache( &Vcb->Tunnel,
+                                            *(PULONGLONG)&TargetParentScb->Fcb->FileReference,
+                                            &NewLinkName,
+                                            &NamePair.Short,
+                                            &NamePair.Long,
+                                            &TunneledDataSize,
+                                            &TunneledCreationTime)) {
+
+                    ASSERT( TunneledDataSize == sizeof( LONGLONG ));
+                    HaveTunneledInformation = TRUE;
+                }
+            }
 
             //
             //  We now want to add the new link into the target directory.
@@ -3654,28 +4103,111 @@ Return Value:
             //
 
             NtfsAddLink( IrpContext,
-                         AddPrimaryLink,
+                         BooleanFlagOn( RenameFlags, ADD_PRIMARY_LINK ),
                          TargetParentScb,
                          Fcb,
-                         TargetFileNameAttr,
-                         TRUE,
-                         &FileNameFlags,
-                         NULL );
+                         FileNameAttr,
+                         NULL,
+                         &NewLinkNameFlags,
+                         NULL,
+                         HaveTunneledInformation ? &NamePair : NULL );
+
+            //
+            //  Restore timestamps on tunneled files
+            //
+
+            if (HaveTunneledInformation) {
+
+                Fcb->Info.CreationTime = TunneledCreationTime;
+                SetFlag( Fcb->InfoFlags, FCB_INFO_CHANGED_CREATE );
+                SetFlag( Fcb->FcbState, FCB_STATE_UPDATE_STD_INFO );
+
+                //
+                //  If we have tunneled information then copy the correct case of the
+                //  name into the new link pointer.
+                //
+
+                if (NewLinkNameFlags == FILE_NAME_DOS) {
+
+                    RtlCopyMemory( NewLinkName.Buffer,
+                                   NamePair.Short.Buffer,
+                                   NewLinkName.Length );
+                }
+
+            }
 
             //
             //  Update the flags field in the target file name.  We will use this
             //  below if we are updating the normalized name.
             //
 
-            TargetFileNameAttr->Flags = FileNameFlags;
+            FileNameAttr->Flags = NewLinkNameFlags;
 
-            if (ParentFcb != TargetParentFcb) {
+            if (ParentScb != TargetParentScb) {
 
-                NtfsUpdateFcb( IrpContext, TargetParentFcb, TRUE );
+                NtfsUpdateFcb( TargetParentScb->Fcb );
             }
 
-            LinkCountAdj -= 1;
-            TotalLinkCountAdj += 1;
+            //
+            //  If we need a full buffer for the new name for notify and don't already
+            //  have one then construct the full name now.  This will only happen if
+            //  we are renaming within the same directory.
+            //
+
+            if (ReportDirNotify &&
+                (NewFullLinkName.Buffer == NULL)) {
+
+                NewFullLinkName.MaximumLength = Ccb->LastFileNameOffset + NewLinkName.Length;
+
+                NewFullLinkNameBuffer = NtfsAllocatePool( PagedPool,
+                                                          NewFullLinkName.MaximumLength );
+
+                RtlCopyMemory( NewFullLinkNameBuffer,
+                               Ccb->FullFileName.Buffer,
+                               Ccb->LastFileNameOffset );
+
+                RtlCopyMemory( Add2Ptr( NewFullLinkNameBuffer, Ccb->LastFileNameOffset ),
+                               NewLinkName.Buffer,
+                               NewLinkName.Length );
+
+                NewFullLinkName.Buffer = NewFullLinkNameBuffer;
+                NewFullLinkName.Length = NewFullLinkName.MaximumLength;
+            }
+
+            FcbLinkCountAdj -= 1;
+        }
+
+        //
+        //  We need to update the names in the Lcb for this file as well as any subdirectories
+        //  or files.  We will do this in two passes.  The first pass is just to reserve enough
+        //  space in all of the file objects and Lcb's.  We update the names in the second pass.
+        //
+
+        if (FlagOn( RenameFlags, TRAVERSE_MATCH )) {
+
+            if (FlagOn( RenameFlags, REMOVE_TARGET_LINK )) {
+
+                SetFlag( RenameFlags, REMOVE_TRAVERSE_LINK );
+
+            } else {
+
+                SetFlag( RenameFlags, REUSE_TRAVERSE_LINK );
+            }
+        }
+
+        //
+        //  If this is a directory and we added a target link it means that the
+        //  normalized name has changed.  Make sure the buffer in the Scb will hold
+        //  the larger name.
+        //
+
+        if (IsDirectory( &Fcb->Info ) && FlagOn( RenameFlags, ADD_TARGET_LINK )) {
+
+            NtfsUpdateNormalizedName( IrpContext,
+                                      TargetParentScb,
+                                      Scb,
+                                      FileNameAttr,
+                                      TRUE );
         }
 
         //
@@ -3683,67 +4215,103 @@ Return Value:
         //  modify the in-memory structures.  This includes the Fcb and Lcb's
         //  for any links we superseded, and the source Fcb and it's Lcb's.
         //
-        //  We start by looking at the link we superseded.  We know the
-        //  the target directory, link name and flags, and the file the
-        //  link was connected to.
+        //  We will do this in two passes.  The first pass will guarantee that all of the
+        //  name buffers will be large enough for the names.  The second pass will store the
+        //  names into the buffers.
         //
 
-        if (RemoveTargetLink && !TraverseMatch) {
+        if (FlagOn( RenameFlags, MOVE_TO_NEW_DIR )) {
+
+            NtfsMoveLinkToNewDir( IrpContext,
+                                  &NewFullLinkName,
+                                  &NewLinkName,
+                                  NewLinkNameFlags,
+                                  TargetParentScb,
+                                  Fcb,
+                                  Lcb,
+                                  RenameFlags,
+                                  &PrevLinkName,
+                                  PrevLinkNameFlags );
+
+        //
+        //  Otherwise we will rename in the current directory.  We need to remember
+        //  if we have merged with an existing link on this file.
+        //
+
+        } else {
+
+            NtfsRenameLinkInDir( IrpContext,
+                                 ParentScb,
+                                 Fcb,
+                                 Lcb,
+                                 &NewLinkName,
+                                 NewLinkNameFlags,
+                                 RenameFlags,
+                                 &PrevLinkName,
+                                 PrevLinkNameFlags );
+        }
+
+        //
+        //  Nothing should fail from this point forward.
+        //
+        //  Now make the change to the normalized name.  The buffer should be
+        //  large enough.
+        //
+
+        if (IsDirectory( &Fcb->Info ) && FlagOn( RenameFlags, ADD_TARGET_LINK )) {
+
+            NtfsUpdateNormalizedName( IrpContext,
+                                      TargetParentScb,
+                                      Scb,
+                                      FileNameAttr,
+                                      FALSE );
+        }
+
+        //
+        //  Now look at the link we superseded.  If we deleted the file then go through and
+        //  mark everything as deleted.
+        //
+
+        if (FlagOn( RenameFlags, REMOVE_TARGET_LINK | TRAVERSE_MATCH ) == REMOVE_TARGET_LINK) {
 
             NtfsUpdateFcbFromLinkRemoval( IrpContext,
                                           TargetParentScb,
-                                          PreviousFcb,
-                                          TargetFileName,
-                                          TargetFileNameFlags );
+                                          TargetLinkFcb,
+                                          PrevLinkName,
+                                          PrevLinkNameFlags );
 
             //
-            //  This Fcb has lost a link.
-            //
-
-            ASSERTMSG( "Link count should not be 0\n", PreviousFcb->LinkCount != 0 );
-            PreviousFcb->LinkCount -= 1;
-
-#ifndef NTFS_TEST_LINKS
-            ASSERT( PreviousFcb->LinkCount == 0 );
-#endif
-
-            //
-            //  If the link count is now 0, we need to perform the work of
+            //  If the link count is going to 0, we need to perform the work of
             //  removing the file.
             //
 
-            if (PreviousFcb->LinkCount == 0) {
+            if (TargetLinkFcb->LinkCount == 1) {
 
-                PLIST_ENTRY Links;
-                PSCB ThisScb;
-
-                SetFlag( PreviousFcb->FcbState, FCB_STATE_FILE_DELETED );
+                SetFlag( TargetLinkFcb->FcbState, FCB_STATE_FILE_DELETED );
 
                 //
                 //  Remove this from the Fcb table if in it.
                 //
 
-                if (FlagOn( PreviousFcb->FcbState, FCB_STATE_IN_FCB_TABLE )) {
+                if (FlagOn( TargetLinkFcb->FcbState, FCB_STATE_IN_FCB_TABLE )) {
 
                     NtfsAcquireFcbTable( IrpContext, Vcb );
                     AcquiredFcbTable = TRUE;
 
-                    NtfsDeleteFcbTableEntry( IrpContext,
-                                             Vcb,
-                                             PreviousFcb->FileReference );
+                    NtfsDeleteFcbTableEntry( Vcb, TargetLinkFcb->FileReference );
 
                     NtfsReleaseFcbTable( IrpContext, Vcb );
                     AcquiredFcbTable = FALSE;
 
-                    ClearFlag( PreviousFcb->FcbState, FCB_STATE_IN_FCB_TABLE );
+                    ClearFlag( TargetLinkFcb->FcbState, FCB_STATE_IN_FCB_TABLE );
                 }
 
                 //
                 //  We need to mark all of the Scbs as gone.
                 //
 
-                for (Links = PreviousFcb->ScbQueue.Flink;
-                     Links != &PreviousFcb->ScbQueue;
+                for (Links = TargetLinkFcb->ScbQueue.Flink;
+                     Links != &TargetLinkFcb->ScbQueue;
                      Links = Links->Flink) {
 
                     ThisScb = CONTAINING_RECORD( Links,
@@ -3756,84 +4324,20 @@ Return Value:
         }
 
         //
-        //  Now we want to update the Fcb for the link we renamed.  If we moved it
-        //  to a new directory we need to move all the Lcb's associated with
-        //  the previous link.
+        //  Change the time stamps in the parent if we modified the links in this directory.
         //
 
-        {
-            BOOLEAN RemoveTraverseLink;
-            BOOLEAN ReuseTraverseLink;
+        if (FlagOn( RenameFlags, REMOVE_SOURCE_LINK )) {
 
-            RemoveTraverseLink = (BOOLEAN)(RemoveTargetLink && TraverseMatch);
-            ReuseTraverseLink = (BOOLEAN)(!RemoveTargetLink && TraverseMatch);
-
-            if (MovedToNewDir) {
-
-                NtfsMoveLinkToNewDir( IrpContext,
-                                      TargetFileObject,
-                                      TargetParentScb,
-                                      Fcb,
-                                      Lcb,
-                                      FileNameFlags,
-                                      RemoveTraverseLink,
-                                      ReuseTraverseLink,
-                                      TargetFileName,
-                                      TargetFileNameFlags );
-
-            //
-            //  Otherwise we will rename in the current directory.  We need to remember
-            //  if we have merged with an existing link on this file.
-            //
-
-            } else {
-
-                UNICODE_STRING NewLinkName;
-
-                NewLinkName.Buffer = (PWCHAR) TargetFileNameAttr->FileName;
-                NewLinkName.Length = TargetFileNameAttr->FileNameLength * sizeof( WCHAR );
-
-                NtfsRenameLinkInDir( IrpContext,
-                                     ParentScb,
-                                     Fcb,
-                                     Lcb,
-                                     NewLinkName,
-                                     FileNameFlags,
-                                     RemoveTraverseLink,
-                                     ReuseTraverseLink,
-                                     OverwriteSourceLink,
-                                     TargetFileName,
-                                     TargetFileNameFlags );
-            }
-
-            //
-            //  Make the link count adjustment.  We can only reduce the number
-            //  of links.
-            //
-
-            ASSERTMSG( "Link count should not be 0\n", Fcb->LinkCount != 0 );
-            Fcb->LinkCount -= LinkCountAdj;
+            NtfsUpdateFcb( ParentScb->Fcb );
         }
 
         //
-        //  If this is a directory and we added a target link it means that the
-        //  normalized name has changed.  Update the Scb with the new name.
+        //  We always set the last change time on the file we renamed unless
+        //  the caller explicitly set this.
         //
 
-        if (IsDirectory( &Fcb->Info ) &&
-            AddTargetLink) {
-
-            if (Scb->ScbType.Index.NormalizedName.Buffer != NULL) {
-
-                NtfsFreePagedPool( Scb->ScbType.Index.NormalizedName.Buffer );
-                Scb->ScbType.Index.NormalizedName.Buffer = NULL;
-            }
-
-            NtfsUpdateNormalizedName( IrpContext,
-                                      TargetParentScb,
-                                      Scb,
-                                      TargetFileNameAttr );
-        }
+        SetFlag( Ccb->Flags, CCB_FLAG_UPDATE_LAST_CHANGE );
 
         //
         //  Report the changes to the affected directories.  We defer reporting
@@ -3849,57 +4353,68 @@ Return Value:
         //  this as a change in the file or adding a file to a new directory.
         //
 
-        if (!FlagOn( Ccb->Flags, CCB_FLAG_OPEN_BY_FILE_ID )) {
+        if (ReportDirNotify) {
 
             ULONG FilterMatch = 0;
             ULONG Action;
+
+            //
+            //  If we are deleting a target link in order to make a case change then
+            //  report that.
+            //
+
+            if ((PrevFullLinkName.Buffer != NULL) &&
+                FlagOn( RenameFlags,
+                        OVERWRITE_SOURCE_LINK | REMOVE_TARGET_LINK | EXACT_CASE_MATCH ) == REMOVE_TARGET_LINK) {
+
+                NtfsReportDirNotify( IrpContext,
+                                     Vcb,
+                                     &PrevFullLinkName,
+                                     PrevFullLinkName.Length - PrevLinkName.Length,
+                                     NULL,
+                                     (TargetParentScb->ScbType.Index.NormalizedName.Buffer != NULL ?
+                                      &TargetParentScb->ScbType.Index.NormalizedName :
+                                      NULL),
+                                     (IsDirectory( &TargetLinkFcb->Info ) ?
+                                      FILE_NOTIFY_CHANGE_DIR_NAME :
+                                      FILE_NOTIFY_CHANGE_FILE_NAME),
+                                     FILE_ACTION_REMOVED,
+                                     TargetParentScb->Fcb );
+            }
 
             //
             //  If we stored the original name then we report the changes
             //  associated with it.
             //
 
-            if (OriginalName.Buffer != NULL) {
+            if (FlagOn( RenameFlags, REMOVE_SOURCE_LINK )) {
 
                 NtfsReportDirNotify( IrpContext,
                                      Vcb,
-                                     &OriginalName,
-                                     OriginalLastNameOffset,
+                                     &SourceFullLinkName,
+                                     SourceLinkLastNameOffset,
                                      NULL,
                                      (ParentScb->ScbType.Index.NormalizedName.Buffer != NULL ?
                                       &ParentScb->ScbType.Index.NormalizedName :
                                       NULL),
-                                     OriginalFilterMatch,
-                                     OriginalAction,
-                                     ParentFcb );
-            }
-
-            //
-            //  If we are deleting a target with a case change then report
-            //  that.
-            //
-
-            if (TargetChange.Buffer != NULL) {
-
-                NtfsReportDirNotify( IrpContext,
-                                     Vcb,
-                                     &TargetChange,
-                                     Ccb->LastFileNameOffset,
-                                     NULL,
-                                     (TargetParentScb->ScbType.Index.NormalizedName.Buffer != NULL ?
-                                      &TargetParentScb->ScbType.Index.NormalizedName :
-                                      NULL),
-                                     TargetChangeFilterMatch,
-                                     FILE_ACTION_REMOVED,
-                                     TargetParentFcb );
+                                     (IsDirectory( &Fcb->Info ) ?
+                                      FILE_NOTIFY_CHANGE_DIR_NAME :
+                                      FILE_NOTIFY_CHANGE_FILE_NAME),
+                                      ((FlagOn( RenameFlags, MOVE_TO_NEW_DIR ) ||
+                                        !FlagOn( RenameFlags, ADD_TARGET_LINK ) ||
+                                        (FlagOn( RenameFlags, REMOVE_TARGET_LINK | EXACT_CASE_MATCH ) == (REMOVE_TARGET_LINK | EXACT_CASE_MATCH))) ?
+                                       FILE_ACTION_REMOVED :
+                                       FILE_ACTION_RENAMED_OLD_NAME),
+                                     ParentScb->Fcb );
             }
 
             //
             //  Check if a new name will appear in the directory.
             //
 
-            if (!FoundEntry
-                || (RemoveTargetLink && !ExactCaseMatch)) {
+            if (!FoundLink ||
+                (FlagOn( RenameFlags, OVERWRITE_SOURCE_LINK | EXACT_CASE_MATCH) == OVERWRITE_SOURCE_LINK) ||
+                (FlagOn( RenameFlags, REMOVE_TARGET_LINK | EXACT_CASE_MATCH ) == REMOVE_TARGET_LINK)) {
 
                 FilterMatch = IsDirectory( &Fcb->Info)
                               ? FILE_NOTIFY_CHANGE_DIR_NAME
@@ -3910,7 +4425,7 @@ Return Value:
                 //  action was a create operation.
                 //
 
-                if (MovedToNewDir) {
+                if (FlagOn( RenameFlags, MOVE_TO_NEW_DIR )) {
 
                     Action = FILE_ACTION_ADDED;
 
@@ -3924,15 +4439,15 @@ Return Value:
             //  same file then we report a change to all the file attributes.
             //
 
-            } else if (RemoveTargetLink && !TraverseMatch ) {
+            } else if (FlagOn( RenameFlags, REMOVE_TARGET_LINK | TRAVERSE_MATCH ) == REMOVE_TARGET_LINK) {
 
-                FilterMatch = (FILE_NOTIFY_CHANGE_ATTRIBUTES
-                               | FILE_NOTIFY_CHANGE_SIZE
-                               | FILE_NOTIFY_CHANGE_LAST_WRITE
-                               | FILE_NOTIFY_CHANGE_LAST_ACCESS
-                               | FILE_NOTIFY_CHANGE_CREATION
-                               | FILE_NOTIFY_CHANGE_SECURITY
-                               | FILE_NOTIFY_CHANGE_EA);
+                FilterMatch = (FILE_NOTIFY_CHANGE_ATTRIBUTES |
+                               FILE_NOTIFY_CHANGE_SIZE |
+                               FILE_NOTIFY_CHANGE_LAST_WRITE |
+                               FILE_NOTIFY_CHANGE_LAST_ACCESS |
+                               FILE_NOTIFY_CHANGE_CREATION |
+                               FILE_NOTIFY_CHANGE_SECURITY |
+                               FILE_NOTIFY_CHANGE_EA);
 
                 //
                 //  The file name isn't changing, only the properties of the
@@ -3946,124 +4461,115 @@ Return Value:
 
                 NtfsReportDirNotify( IrpContext,
                                      Vcb,
-                                     &Ccb->FullFileName,
-                                     Ccb->LastFileNameOffset,
+                                     &NewFullLinkName,
+                                     NewFullLinkName.Length - NewLinkName.Length,
                                      NULL,
                                      (TargetParentScb->ScbType.Index.NormalizedName.Buffer != NULL ?
                                       &TargetParentScb->ScbType.Index.NormalizedName :
                                       NULL),
                                      FilterMatch,
                                      Action,
-                                     TargetParentFcb );
+                                     TargetParentScb->Fcb );
             }
         }
 
         //
-        //  We don't clear the Fcb->Info flags because we may still have
-        //  to update duplicate information for this file.
+        //  Now adjust the link counts on the different files.
         //
 
-        Status = STATUS_SUCCESS;
+        if (TargetLinkFcb != NULL) {
 
-    try_exit:  NOTHING;
+            TargetLinkFcb->LinkCount -= TargetLinkFcbCountAdj;
+            TargetLinkFcb->TotalLinks -= TargetLinkFcbCountAdj;
 
-        //
-        //  Check if we need to undo any action.
-        //
+            //
+            //  Now go through and mark everything as deleted.
+            //
 
-        NtfsCleanupTransaction( IrpContext, Status );
+            if (TargetLinkFcb->LinkCount == 0) {
 
-        //
-        //  We can now adjust the total link count on the previous Fcb.
-        //
+                SetFlag( TargetLinkFcb->FcbState, FCB_STATE_FILE_DELETED );
 
-        if (PreviousFcb != NULL) {
+                //
+                //  We need to mark all of the Scbs as gone.
+                //
 
-            PreviousFcb->TotalLinks -= PrevFcbLinkCountAdj;
-#ifndef NTFS_TEST_LINKS
-            ASSERT( PreviousFcb->TotalLinks == 0 );
-            ASSERT( PreviousFcb->LinkCount == 0 );
-#endif
+                for (Links = TargetLinkFcb->ScbQueue.Flink;
+                     Links != &TargetLinkFcb->ScbQueue;
+                     Links = Links->Flink) {
+
+                    ThisScb = CONTAINING_RECORD( Links, SCB, FcbLinks );
+
+                    if (!FlagOn( ThisScb->ScbState, SCB_STATE_ATTRIBUTE_DELETED )) {
+
+                        NtfsSnapshotScb( IrpContext, ThisScb );
+
+                        ThisScb->ValidDataToDisk =
+                        ThisScb->Header.AllocationSize.QuadPart =
+                        ThisScb->Header.FileSize.QuadPart =
+                        ThisScb->Header.ValidDataLength.QuadPart = 0;
+
+                        SetFlag( ThisScb->ScbState, SCB_STATE_ATTRIBUTE_DELETED );
+                    }
+                }
+            }
         }
 
-        Fcb->TotalLinks = (SHORT) Fcb->TotalLinks + TotalLinkCountAdj;
-#ifndef NTFS_TEST_LINKS
-        ASSERT( Fcb->TotalLinks == 1 );
-#endif
+        Fcb->TotalLinks -= FcbLinkCountAdj;
+        Fcb->LinkCount -= FcbLinkCountAdj;
 
     } finally {
 
         DebugUnwind( NtfsSetRenameInfo );
 
-        if (AcquiredFcbTable) {
+        if (AcquiredFcbTable) { NtfsReleaseFcbTable( IrpContext, Vcb ); }
+        if (ResourceToRelease != NULL) { ExReleaseResource( ResourceToRelease ); }
+        NtfsUnpinBcb( &IndexEntryBcb );
 
-            NtfsReleaseFcbTable( IrpContext, Vcb );
+        //
+        //  If we allocated any buffers for the notify operations deallocate them now.
+        //
+
+        if (NewFullLinkNameBuffer != NULL) { NtfsFreePool( NewFullLinkNameBuffer ); }
+        if (PrevFullLinkName.Buffer != NULL) { NtfsFreePool( PrevFullLinkName.Buffer ); }
+        if (SourceFullLinkName.Buffer != NULL) {
+
+            NtfsFreePool( SourceFullLinkName.Buffer );
+        }
+
+        //
+        //  If we allocated a buffer for the tunneled names, deallocate them now.
+        //
+
+        if (NamePair.Long.Buffer != NamePair.LongBuffer) {
+
+            NtfsFreePool( NamePair.Long.Buffer );
         }
 
         //
         //  If we allocated a file name attribute, we deallocate it now.
         //
 
-        if (TargetFileNameAttr != NULL) {
+        if (FileNameAttr != NULL) { NtfsFreePool( FileNameAttr ); }
 
-            NtfsFreePagedPool( TargetFileNameAttr );
+        //
+        //  Some cleanup only occurs if this request has not been posted to the oplock package.
+        //
+
+        if (Status != STATUS_PENDING) {
+
+            if (AcquiredTargetLinkFcb) {
+
+                NtfsTeardownStructures( IrpContext,
+                                        TargetLinkFcb,
+                                        NULL,
+                                        FALSE,
+                                        FALSE,
+                                        NULL );
+            }
         }
 
-        //
-        //  If we allocated a buffer for the original name, deallocate it now.
-        //
-
-        if (OriginalName.Buffer != NULL) {
-
-            NtfsFreePagedPool( OriginalName.Buffer );
-        }
-
-        //
-        //  If we allocated a buffer for a target case change, deallocate it now.
-        //
-
-        if (TargetChange.Buffer != NULL) {
-
-            NtfsFreePagedPool( TargetChange.Buffer );
-        }
-
-        //
-        //  If we acquired a parent Scb, release it now.
-        //
-
-        if (AcquiredTargetScb) {
-
-            NtfsReleaseScb( IrpContext, TargetParentScb );
-        }
-
-        if (AcquiredParentScb) {
-
-            NtfsReleaseScb( IrpContext, ParentScb );
-        }
-
-        if (PreviousFcbAcquired) {
-            NtfsReleaseFcb( IrpContext, PreviousFcb );
-        }
-
-        //
-        //  If we have the Fcb for a removed link and it didn't previously
-        //  exist, call our teardown routine.
-        //
-
-        if ((PreviousFcb != NULL) && !ExistingPrevFcb) {
-
-            BOOLEAN RemovedFcb;
-            NtfsTeardownStructures( IrpContext,
-                                    PreviousFcb,
-                                    NULL,
-                                    TRUE,
-                                    &RemovedFcb,
-                                    FALSE );
-        }
-
-        NtfsUnpinBcb( IrpContext, &IndexEntryBcb );
-
-        DebugTrace( -1, Dbg, "NtfsSetRenameInfo:  Exit  ->  %08lx\n", Status );
+        DebugTrace( -1, Dbg, ("NtfsSetRenameInfo:  Exit  ->  %08lx\n", Status) );
     }
 
     return Status;
@@ -4077,7 +4583,6 @@ Return Value:
 NTSTATUS
 NtfsSetLinkInfo (
     IN PIRP_CONTEXT IrpContext,
-    IN PFILE_OBJECT FileObject,
     IN PIRP Irp,
     IN PVCB Vcb,
     IN PSCB Scb,
@@ -4092,8 +4597,6 @@ Routine Description:
     file.
 
 Arguments:
-
-    FileObject - Supplies the file object being processed
 
     Irp - Supplies the Irp being processed
 
@@ -4110,58 +4613,51 @@ Return Value:
 --*/
 
 {
-    NTSTATUS Status;
-    PIO_STACK_LOCATION IrpSp;
+    NTSTATUS Status = STATUS_SUCCESS;
+    PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation( Irp );
 
-    PLCB Lcb;
-    PFCB Fcb;
-    PSCB ParentScb;
-    PFCB ParentFcb;
+    PLCB Lcb = Ccb->Lcb;
+    PFCB Fcb = Scb->Fcb;
+    PSCB ParentScb = NULL;
+    SHORT LinkCountAdj = 0;
 
-    UNICODE_STRING SourceFileName;
+    UNICODE_STRING NewLinkName;
+    UNICODE_STRING NewFullLinkName;
+    PWCHAR NewFullLinkNameBuffer = NULL;
+    PFILE_NAME NewLinkNameAttr = NULL;
+    USHORT NewLinkNameAttrLength = 0;
+    UCHAR NewLinkNameFlags;
 
-    PFCB TargetParentFcb;
     PSCB TargetParentScb;
-    UNICODE_STRING TargetFileName;
-    PFILE_NAME TargetFileNameAttr;
-    PFILE_OBJECT TargetFileObject;
-    UCHAR TargetFileNameFlags;
+    PFILE_OBJECT TargetFileObject = IrpSp->Parameters.SetFile.FileObject;
 
-    UCHAR FileNameFlags;
-
-    PFCB PreviousFcb = NULL;
+    BOOLEAN FoundPrevLink;
+    UNICODE_STRING PrevLinkName;
+    UNICODE_STRING PrevFullLinkName;
+    UCHAR PrevLinkNameFlags;
     USHORT PrevFcbLinkCountAdj = 0;
-    USHORT TotalLinkCountAdj = 0;
+    BOOLEAN ExistingPrevFcb = FALSE;
+    PFCB PreviousFcb = NULL;
 
-    USHORT FileNameAttrLength;
-
-    BOOLEAN CreateInNewDir;
-    BOOLEAN FoundEntry;
-    BOOLEAN AcquiredTargetScb;
-    BOOLEAN TraverseMatch;
-    BOOLEAN ReplaceIfExists;
-    BOOLEAN ExistingPrevFcb;
-    BOOLEAN PreviousFcbAcquired = FALSE;
+    ULONG RenameFlags = 0;
 
     BOOLEAN AcquiredFcbTable = FALSE;
+    PERESOURCE ResourceToRelease = NULL;
 
-    PWCHAR TargetBuffer = NULL;
+    BOOLEAN ReportDirNotify = FALSE;
+    PWCHAR NextChar;
 
     PINDEX_ENTRY IndexEntry;
-    PBCB IndexEntryBcb;
+    PBCB IndexEntryBcb = NULL;
+
+    PLIST_ENTRY Links;
+    PSCB ThisScb;
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsSetLinkInfo...\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsSetLinkInfo...\n") );
 
-    //
-    //  Get the values from our Irp stack location.
-    //
-
-    IrpSp = IoGetCurrentIrpStackLocation( Irp );
-
-    TargetFileObject = IrpSp->Parameters.SetFile.FileObject;
-    ReplaceIfExists = IrpSp->Parameters.SetFile.ReplaceIfExists;
+    PrevFullLinkName.Buffer = NULL;
 
     //
     //  If we are not opening the entire file, we can't set link info.
@@ -4169,18 +4665,9 @@ Return Value:
 
     if (!FlagOn( Ccb->Flags, CCB_FLAG_OPEN_AS_FILE )) {
 
-        DebugTrace(-1, Dbg, "NtfsSetLinkInfo:  Exit -> %08lx\n", STATUS_INVALID_PARAMETER);
+        DebugTrace( -1, Dbg, ("NtfsSetLinkInfo:  Exit -> %08lx\n", STATUS_INVALID_PARAMETER) );
         return STATUS_INVALID_PARAMETER;
     }
-
-    //
-    //  Initialize the local variables
-    //
-
-    Lcb = Ccb->Lcb;
-    Fcb = Scb->Fcb;
-
-    TargetBuffer = NULL;
 
     //
     //  We also fail this if we are attempting to create a link on a directory.
@@ -4189,9 +4676,14 @@ Return Value:
 
     if (FlagOn( Fcb->Info.FileAttributes, DUP_FILE_NAME_INDEX_PRESENT)) {
 
-        DebugTrace(-1, Dbg, "NtfsSetLinkInfo:  Exit -> %08lx\n", STATUS_FILE_IS_A_DIRECTORY);
+        DebugTrace( -1, Dbg, ("NtfsSetLinkInfo:  Exit -> %08lx\n", STATUS_FILE_IS_A_DIRECTORY) );
         return STATUS_FILE_IS_A_DIRECTORY;
     }
+
+    //
+    //  We can't add a link without having a parent directory.  Either we want to use the same
+    //  parent or our caller supplied a parent.
+    //
 
     if (Lcb == NULL) {
 
@@ -4201,39 +4693,38 @@ Return Value:
 
         if (TargetFileObject == NULL) {
 
-            DebugTrace( -1, Dbg, "NtfsSetLinkInfo:  No target file object -> %08lx\n", STATUS_INVALID_PARAMETER );
+            DebugTrace( -1, Dbg, ("NtfsSetLinkInfo:  No target file object -> %08lx\n", STATUS_INVALID_PARAMETER) );
             return STATUS_INVALID_PARAMETER;
         }
-
-        ParentScb = NULL;
-        ParentFcb = NULL;
 
     } else {
 
         ParentScb = Lcb->Scb;
-        ParentFcb = ParentScb->Fcb;
     }
-
-    FileNameAttrLength = 0;
-    TargetFileNameAttr = NULL;
-
-    AcquiredTargetScb = FALSE;
-
-    TraverseMatch = FALSE;
-
-    IndexEntryBcb = NULL;
-    PreviousFcb = NULL;
 
     //
     //  If this link has been deleted, then we don't allow this operation.
     //
 
-    if (Lcb != NULL &&
-        LcbLinkIsDeleted( Lcb )) {
+    if ((Lcb != NULL) && LcbLinkIsDeleted( Lcb )) {
 
         Status = STATUS_ACCESS_DENIED;
 
-        DebugTrace( -1, Dbg, "NtfsSetLinkInfo:  Exit  ->  %08lx\n", Status );
+        DebugTrace( -1, Dbg, ("NtfsSetLinkInfo:  Exit  ->  %08lx\n", Status) );
+        return Status;
+    }
+
+    //
+    //  Check if we are allowed to perform this link operation.  We can't if this
+    //  is a system file or the user hasn't opened the entire file.  We
+    //  don't need to check for the root explicitly since it is one of
+    //  the system files.
+    //
+
+    if (NtfsSegmentNumber( &Fcb->FileReference ) < FIRST_USER_FILE_NUMBER) {
+
+        Status = STATUS_INVALID_PARAMETER;
+        DebugTrace( -1, Dbg, ("NtfsSetLinkInfo:  Exit  ->  %08lx\n", Status) );
         return Status;
     }
 
@@ -4241,12 +4732,28 @@ Return Value:
     //  Verify that we can wait.
     //
 
-    if (!FlagOn(IrpContext->Flags, IRP_CONTEXT_FLAG_WAIT)) {
+    if (!FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_WAIT )) {
 
         Status = NtfsPostRequest( IrpContext, Irp );
 
-        DebugTrace( -1, Dbg, "NtfsSetLinkInfo:  Can't wait\n", 0 );
+        if (Status == STATUS_PENDING) {
+
+            NtfsReleaseVcb( IrpContext, Vcb );
+        }
+
+        DebugTrace( -1, Dbg, ("NtfsSetLinkInfo:  Can't wait\n") );
         return Status;
+    }
+
+    //
+    //  Check if we will want to report this via the dir notify package.
+    //
+
+    if (!FlagOn( Ccb->Flags, CCB_FLAG_OPEN_BY_FILE_ID ) &&
+        (Ccb->FullFileName.Buffer[0] == L'\\') &&
+        (Vcb->NotifyCount != 0)) {
+
+        ReportDirNotify = TRUE;
     }
 
     //
@@ -4254,42 +4761,6 @@ Return Value:
     //
 
     try {
-
-        //
-        //  Check if we are allowed to perform this link operation.  We can't if this
-        //  is a system file or the user hasn't opened the entire file.  We
-        //  don't need to check for the root explicitly since it is one of
-        //  the system files.
-        //
-
-        if (Fcb->FileReference.LowPart < FIRST_USER_FILE_NUMBER
-            && Fcb->FileReference.HighPart != 0 ) {
-
-            DebugTrace( 0, Dbg, "Can't ad link to this file\n", 0 );
-
-            try_return( Status = STATUS_INVALID_PARAMETER );
-        }
-
-        if (Lcb == NULL) {
-
-            //
-            //  If there is no target file object, then we can't add a link.
-            //
-
-            if (TargetFileObject == NULL) {
-
-                DebugTrace( -1, Dbg, "NtfsSetLinkInfo:  No target file object -> %08lx\n", STATUS_INVALID_PARAMETER );
-                return STATUS_INVALID_PARAMETER;
-            }
-
-            ParentScb = NULL;
-            ParentFcb = NULL;
-
-        } else {
-
-            ParentScb = Lcb->Scb;
-            ParentFcb = ParentScb->Fcb;
-        }
 
         //
         //  We now assemble the names and in memory-structures for both the
@@ -4300,39 +4771,55 @@ Return Value:
         NtfsFindTargetElements( IrpContext,
                                 TargetFileObject,
                                 ParentScb,
-                                &TargetParentFcb,
                                 &TargetParentScb,
-                                &TargetFileName );
+                                &NewFullLinkName,
+                                &NewLinkName );
 
         //
         //  Check that the new name is not invalid.
         //
 
-        if (TargetFileName.Length > (NTFS_MAX_FILE_NAME_LENGTH * sizeof( WCHAR ))
-            || !NtfsIsFileNameValid( IrpContext, &TargetFileName, FALSE )) {
+        if ((NewLinkName.Length > (NTFS_MAX_FILE_NAME_LENGTH * sizeof( WCHAR ))) ||
+            !NtfsIsFileNameValid( &NewLinkName, FALSE )) {
 
-            try_return( Status = STATUS_OBJECT_NAME_INVALID );
+            Status = STATUS_OBJECT_NAME_INVALID;
+            leave;
         }
 
-        if (TargetParentFcb == ParentFcb) {
+        if (TargetParentScb == ParentScb) {
+
+            //
+            //  Acquire the target parent in order to synchronize adding a link.
+            //
+
+            NtfsAcquireExclusiveScb( IrpContext, ParentScb );
 
             //
             //  Check if we are creating a link to the same directory with the
             //  exact same name.
             //
 
-            SourceFileName = Lcb->ExactCaseLink.LinkName;
-
-            if (NtfsAreNamesEqual( IrpContext,
-                                   &TargetFileName,
-                                   &SourceFileName,
+            if (NtfsAreNamesEqual( Vcb->UpcaseTable,
+                                   &NewLinkName,
+                                   &Lcb->ExactCaseLink.LinkName,
                                    FALSE )) {
 
-                DebugTrace( 0, Dbg, "Creating link to same name and directory\n", 0 );
-                try_return( Status = STATUS_SUCCESS );
+                DebugTrace( 0, Dbg, ("Creating link to same name and directory\n") );
+                Status = STATUS_SUCCESS;
+                leave;
             }
 
-            CreateInNewDir = FALSE;
+            //
+            //  Make sure the normalized name is in this Scb.
+            //
+
+            if ((ParentScb->ScbType.Index.NormalizedName.Buffer == NULL) ||
+                (ParentScb->ScbType.Index.NormalizedName.Length == 0)) {
+
+                NtfsBuildNormalizedName( IrpContext,
+                                         ParentScb,
+                                         &ParentScb->ScbType.Index.NormalizedName );
+            }
 
         //
         //  Otherwise we remember that we are creating this link in a new directory.
@@ -4340,16 +4827,40 @@ Return Value:
 
         } else {
 
-            CreateInNewDir = TRUE;
+            SetFlag( RenameFlags, CREATE_IN_NEW_DIR );
+
+            //
+            //  We know that we need to acquire the target directory so we can
+            //  add and remove links.  We want to carefully acquire the Scb in the
+            //  event we only have the Vcb shared.
+            //
+
+            if (!FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_ACQUIRE_VCB_EX )) {
+
+                if (!NtfsAcquireExclusiveFcb( IrpContext,
+                                              TargetParentScb->Fcb,
+                                              TargetParentScb,
+                                              FALSE,
+                                              TRUE )) {
+
+                    SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_ACQUIRE_VCB_EX );
+                    NtfsRaiseStatus( IrpContext, STATUS_CANT_WAIT, NULL, NULL );
+                }
+
+                //
+                //  Now snapshot the Scb.
+                //
+
+                if (FlagOn( TargetParentScb->ScbState, SCB_STATE_FILE_SIZE_LOADED )) {
+
+                    NtfsSnapshotScb( IrpContext, TargetParentScb );
+                }
+
+            } else {
+
+                NtfsAcquireExclusiveScb( IrpContext, TargetParentScb );
+            }
         }
-
-        //
-        //  We know that we need to acquire the target directory so we can
-        //  add and remove links.
-        //
-
-        NtfsAcquireExclusiveScb( IrpContext, TargetParentScb );
-        AcquiredTargetScb = TRUE;
 
         //
         //  If we are exceeding the maximum link count on this file then return
@@ -4358,7 +4869,8 @@ Return Value:
 
         if (Fcb->TotalLinks >= NTFS_MAX_LINK_COUNT) {
 
-            try_return( Status = STATUS_DISK_FULL );
+            Status = STATUS_TOO_MANY_LINKS;
+            leave;
         }
 
         //
@@ -4367,15 +4879,15 @@ Return Value:
         //  name.
         //
 
-        FoundEntry = NtfsLookupEntry( IrpContext,
-                                      TargetParentScb,
-                                      BooleanFlagOn( Ccb->Flags, CCB_FLAG_IGNORE_CASE ),
-                                      &TargetFileName,
-                                      &TargetFileNameAttr,
-                                      &FileNameAttrLength,
-                                      NULL,
-                                      &IndexEntry,
-                                      &IndexEntryBcb );
+        FoundPrevLink = NtfsLookupEntry( IrpContext,
+                                         TargetParentScb,
+                                         BooleanFlagOn( Ccb->Flags, CCB_FLAG_IGNORE_CASE ),
+                                         &NewLinkName,
+                                         &NewLinkNameAttr,
+                                         &NewLinkNameAttrLength,
+                                         NULL,
+                                         &IndexEntry,
+                                         &IndexEntryBcb );
 
         //
         //  If we found a matching link, we need to check how we want to operate
@@ -4384,31 +4896,39 @@ Return Value:
         //  and whether we need to remove the source link.
         //
 
-        if (FoundEntry) {
+        if (FoundPrevLink) {
 
             PFILE_NAME IndexFileName;
 
-            IndexFileName = (PFILE_NAME) NtfsFoundIndexEntry( IrpContext,
-                                                              IndexEntry );
+            IndexFileName = (PFILE_NAME) NtfsFoundIndexEntry( IndexEntry );
 
             //
             //  If the file references match, we are trying to create a
             //  link where one already exists.
             //
 
-            if (NtfsCheckLinkForNewLink( IrpContext,
-                                         Fcb,
+            if (NtfsCheckLinkForNewLink( Fcb,
                                          IndexFileName,
                                          IndexEntry->FileReference,
-                                         TargetFileName,
-                                         &TraverseMatch )) {
+                                         &NewLinkName,
+                                         &RenameFlags )) {
 
                 //
                 //  There is no work to do.
                 //
 
                 Status = STATUS_SUCCESS;
-                try_return( Status );
+                leave;
+            }
+
+            //
+            //  We need to check that the user wanted to remove that link.
+            //
+
+            if (!IrpSp->Parameters.SetFile.ReplaceIfExists) {
+
+                Status = STATUS_OBJECT_NAME_COLLISION;
+                leave;
             }
 
             //
@@ -4418,28 +4938,25 @@ Return Value:
             //  the exact case for the target to remove and the new name to
             //  apply.
             //
-            //      Target to remove - In 'IndexEntry'.
+            //      Link to remove - In 'IndexEntry'.
             //          The links flags are also in 'IndexEntry'.  We copy
-            //          these flags to 'TargetFileNameFlags'
+            //          these flags to 'PrevLinkNameFlags'
             //
-            //      New Name - Exact case is stored in 'TargetFileName'
-            //               - Exact case is also stored in 'TargetFileNameAttr'
-            //
-            //      ****  Post Sdk, we need to be sure LookupEntry doesn't
-            //            munge the input file name.
+            //      New Name - Exact case is stored in 'NewLinkName'
+            //               - Exact case is also stored in 'NewLinkNameAttr'
             //
             //  We modify this so that we can use the FileName attribute
             //  structure to create the new link.  We copy the linkname being
-            //  removed into 'TargetFileName'.   The following is the
+            //  removed into 'PrevLinkName'.   The following is the
             //  state after the switch.
             //
-            //      'TargetFileNameAttr' - contains the name for the link being
+            //      'NewLinkNameAttr' - contains the name for the link being
             //          created.
             //
-            //      'TargetFileName' - Contains the link name for the link being
+            //      'PrevLinkName' - Contains the link name for the link being
             //          removed.
             //
-            //      'TargetFileNameFlags' - Contains the name flags for the link
+            //      'PrevLinkNameFlags' - Contains the name flags for the link
             //          being removed.
             //
 
@@ -4447,39 +4964,64 @@ Return Value:
             //  Remember the file name flags for the match being made.
             //
 
-            TargetFileNameFlags = IndexFileName->Flags;
+            PrevLinkNameFlags = IndexFileName->Flags;
 
             //
-            //  Copy the name found in the Index Entry to 'TargetFileName'
+            //  If we are report this via dir notify then build the full name.
+            //  Otherwise just remember the last name.
             //
 
-            RtlCopyMemory( TargetFileName.Buffer,
-                           IndexFileName->FileName,
-                           TargetFileName.Length );
+            if (ReportDirNotify) {
 
-            //
-            //  If we didn't have an exact match, then we need to check if we
-            //  can remove the found link and then remove it from the disk.
-            //
+                PrevFullLinkName.MaximumLength =
+                PrevFullLinkName.Length = (ParentScb->ScbType.Index.NormalizedName.Length +
+                                           sizeof( WCHAR ) +
+                                           NewLinkName.Length);
 
-            //  We need to check that the user wanted to remove that link.
-            //
+                PrevFullLinkName.Buffer = NtfsAllocatePool( PagedPool,
+                                                            PrevFullLinkName.MaximumLength );
 
-            if (!ReplaceIfExists) {
+                RtlCopyMemory( PrevFullLinkName.Buffer,
+                               ParentScb->ScbType.Index.NormalizedName.Buffer,
+                               ParentScb->ScbType.Index.NormalizedName.Length );
 
-                try_return( Status = STATUS_OBJECT_NAME_COLLISION );
+                NextChar = Add2Ptr( PrevFullLinkName.Buffer,
+                                    ParentScb->ScbType.Index.NormalizedName.Length );
+
+                if (ParentScb->ScbType.Index.NormalizedName.Length != sizeof( WCHAR )) {
+
+
+                    *NextChar = L'\\';
+                    NextChar += 1;
+
+                } else {
+
+                    PrevFullLinkName.Length -= sizeof( WCHAR );
+                }
+
+                PrevLinkName.Buffer = NextChar;
+
+            } else {
+
+                PrevLinkName.Buffer = NtfsAllocatePool( PagedPool, NewLinkName.Length );
             }
 
             //
-            //  We are adding a link to the source file which already
-            //  exists as a link to a different file in the target directory.
+            //  Copy the name found in the Index Entry to 'PrevLinkName'
             //
 
+            PrevLinkName.Length =
+            PrevLinkName.MaximumLength = NewLinkName.Length;
+
+            RtlCopyMemory( PrevLinkName.Buffer,
+                           IndexFileName->FileName,
+                           NewLinkName.Length );
+
             //
-            //  We only need this check if the link is for a different file.
+            //  We only need this check if the existing link is for a different file.
             //
 
-            if (!TraverseMatch) {
+            if (!FlagOn( RenameFlags, TRAVERSE_MATCH )) {
 
                 //
                 //  We check if there is an existing Fcb for the target link.
@@ -4493,13 +5035,53 @@ Return Value:
                                              Vcb,
                                              IndexEntry->FileReference,
                                              FALSE,
+                                             BooleanFlagOn( Fcb->FcbState, FCB_STATE_COMPOUND_INDEX ),
                                              &ExistingPrevFcb );
 
-                NtfsReleaseFcbTable( IrpContext, Vcb );
-                AcquiredFcbTable = FALSE;
+                //
+                //  We need to acquire this file carefully in the event that we don't hold
+                //  the Vcb exclusively.
+                //
 
-                NtfsAcquireExclusiveFcb( IrpContext, PreviousFcb, NULL, FALSE, FALSE );
-                PreviousFcbAcquired = TRUE;
+                if (!FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_ACQUIRE_VCB_EX )) {
+
+                    if (PreviousFcb->PagingIoResource != NULL) {
+
+                        if (!ExAcquireResourceExclusive( PreviousFcb->PagingIoResource, FALSE )) {
+
+                            SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_ACQUIRE_VCB_EX );
+                            NtfsRaiseStatus( IrpContext, STATUS_CANT_WAIT, NULL, NULL );
+                        }
+
+                        ResourceToRelease = PreviousFcb->PagingIoResource;
+                    }
+
+                    if (!NtfsAcquireExclusiveFcb( IrpContext, PreviousFcb, NULL, FALSE, TRUE )) {
+
+                        SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_ACQUIRE_VCB_EX );
+                        NtfsRaiseStatus( IrpContext, STATUS_CANT_WAIT, NULL, NULL );
+                    }
+
+                    NtfsReleaseFcbTable( IrpContext, Vcb );
+                    AcquiredFcbTable = FALSE;
+
+                } else {
+
+                    NtfsReleaseFcbTable( IrpContext, Vcb );
+                    AcquiredFcbTable = FALSE;
+
+                    //
+                    //  Acquire the paging Io resource for this file before the main
+                    //  resource in case we need to delete.
+                    //
+
+                    if (PreviousFcb->PagingIoResource != NULL) {
+                        ResourceToRelease = PreviousFcb->PagingIoResource;
+                        ExAcquireResourceExclusive( ResourceToRelease, TRUE );
+                    }
+
+                    NtfsAcquireExclusiveFcb( IrpContext, PreviousFcb, NULL, FALSE, FALSE );
+                }
 
                 //
                 //  If the Fcb Info field needs to be initialized, we do so now.
@@ -4514,6 +5096,62 @@ Return Value:
                                                PreviousFcb,
                                                TargetParentScb->Fcb,
                                                NULL );
+
+                    NtfsConditionallyFixupQuota( IrpContext, PreviousFcb );
+                }
+
+                //
+                //  We are adding a link to the source file which already
+                //  exists as a link to a different file in the target directory.
+                //
+                //  We need to check whether we permitted to delete this
+                //  link.  If not then it is possible that the problem is
+                //  an existing batch oplock on the file.  In that case
+                //  we want to delete the batch oplock and try this again.
+                //
+
+                Status = NtfsCheckFileForDelete( IrpContext,
+                                                 TargetParentScb,
+                                                 PreviousFcb,
+                                                 ExistingPrevFcb,
+                                                 IndexEntry );
+
+                if (!NT_SUCCESS( Status )) {
+
+                    PSCB NextScb = NULL;
+
+                    //
+                    //  We are going to either fail this request or pass
+                    //  this on to the oplock package.  Test if there is
+                    //  a batch oplock on any streams on this file.
+                    //
+
+                    while ((NextScb = NtfsGetNextChildScb( PreviousFcb,
+                                                           NextScb )) != NULL) {
+
+                        if ((NextScb->AttributeTypeCode == $DATA) &&
+                            (NextScb->Header.NodeTypeCode == NTFS_NTC_SCB_DATA) &&
+                            FsRtlCurrentBatchOplock( &NextScb->ScbType.Data.Oplock )) {
+
+                            //
+                            //  Go ahead and perform any necessary cleanup now.
+                            //  Once we call the oplock package below we lose
+                            //  control of the IrpContext.
+                            //
+
+                            NtfsReleaseVcb( IrpContext, Vcb );
+
+                            Status = FsRtlCheckOplock( &NextScb->ScbType.Data.Oplock,
+                                                       Irp,
+                                                       IrpContext,
+                                                       NtfsOplockComplete,
+                                                       NtfsPrePostIrp );
+
+                            break;
+                        }
+                    }
+
+                    leave;
                 }
 
                 //
@@ -4521,42 +5159,99 @@ Return Value:
                 //  exists as a link to a different file in the target directory.
                 //
 
-                Status = NtfsCheckLinkForRemoval( IrpContext,
-                                                  Vcb,
-                                                  TargetParentScb,
-                                                  IndexEntry,
-                                                  PreviousFcb,
-                                                  ExistingPrevFcb );
+                NtfsCleanupLinkForRemoval( PreviousFcb,
+                                           ExistingPrevFcb );
 
-                if (!NT_SUCCESS( Status )) {
+                //
+                //  If the link count on this file is 1, then delete the file.  Otherwise just
+                //  delete the link.
+                //
 
-                    try_return( Status );
+                if (PreviousFcb->LinkCount == 1) {
+
+                    NtfsDeleteFile( IrpContext,
+                                    PreviousFcb,
+                                    TargetParentScb,
+                                    NULL );
+
+                    PrevFcbLinkCountAdj += 1;
+
+                } else {
+
+                    NtfsRemoveLink( IrpContext,
+                                    PreviousFcb,
+                                    TargetParentScb,
+                                    PrevLinkName,
+                                    NULL );
+
+                    PrevFcbLinkCountAdj += 1;
+                    NtfsUpdateFcb( PreviousFcb );
                 }
 
-                //
-                //  Now remove the existing link from the on-disk structures.
-                //
+            //
+            //  Otherwise we need to remove this link as our caller wants to replace it
+            //  with a different case.
+            //
+
+            } else {
 
                 NtfsRemoveLink( IrpContext,
-                                PreviousFcb,
+                                Fcb,
                                 TargetParentScb,
-                                TargetFileName );
+                                PrevLinkName,
+                                NULL );
 
-                PrevFcbLinkCountAdj += 1;
-
-                NtfsUpdateFcb( IrpContext, PreviousFcb, FALSE );
+                PreviousFcb = Fcb;
+                LinkCountAdj += 1;
             }
         }
 
-        NtfsUnpinBcb( IrpContext, &IndexEntryBcb );
+        //
+        //  Make sure we have the full name of the target if we will be reporting
+        //  this.
+        //
+
+        if (ReportDirNotify && (NewFullLinkName.Buffer == NULL)) {
+
+            NewFullLinkName.MaximumLength =
+            NewFullLinkName.Length = (ParentScb->ScbType.Index.NormalizedName.Length +
+                                      sizeof( WCHAR ) +
+                                      NewLinkName.Length);
+
+            NewFullLinkNameBuffer =
+            NewFullLinkName.Buffer = NtfsAllocatePool( PagedPool,
+                                                       NewFullLinkName.MaximumLength );
+
+            RtlCopyMemory( NewFullLinkName.Buffer,
+                           ParentScb->ScbType.Index.NormalizedName.Buffer,
+                           ParentScb->ScbType.Index.NormalizedName.Length );
+
+            NextChar = Add2Ptr( NewFullLinkName.Buffer,
+                                ParentScb->ScbType.Index.NormalizedName.Length );
+
+            if (ParentScb->ScbType.Index.NormalizedName.Length != sizeof( WCHAR )) {
+
+                *NextChar = L'\\';
+                NextChar += 1;
+
+            } else {
+
+                NewFullLinkName.Length -= sizeof( WCHAR );
+            }
+
+            RtlCopyMemory( NextChar,
+                           NewLinkName.Buffer,
+                           NewLinkName.Length );
+        }
+
+        NtfsUnpinBcb( &IndexEntryBcb );
 
         //
         //  Check that we have permission to add a file to this directory.
         //
 
         NtfsCheckIndexForAddOrDelete( IrpContext,
-                                      Vcb,
-                                      TargetParentFcb,
+                                      TargetParentScb->Fcb,
                                       FILE_ADD_FILE );
 
         //
@@ -4564,14 +5259,7 @@ Return Value:
         //  the caller explicitly set this.
         //
 
-        if (!FlagOn( Ccb->Flags, CCB_FLAG_USER_SET_LAST_CHANGE_TIME )) {
-
-            KeQuerySystemTime( (PLARGE_INTEGER)&Fcb->Info.LastChangeTime );
-            SetFlag( Fcb->InfoFlags, FCB_INFO_CHANGED_LAST_CHANGE );
-            SetFlag( Fcb->FcbState, FCB_STATE_UPDATE_STD_INFO );
-
-            NtfsUpdateStandardInformation( IrpContext, Fcb );
-        }
+        SetFlag( Ccb->Flags, CCB_FLAG_UPDATE_LAST_CHANGE );
 
         //
         //  We now want to add the new link into the target directory.
@@ -4583,13 +5271,31 @@ Return Value:
                      FALSE,
                      TargetParentScb,
                      Fcb,
-                     TargetFileNameAttr,
-                     TRUE,
-                     &FileNameFlags,
+                     NewLinkNameAttr,
+                     NULL,
+                     &NewLinkNameFlags,
+                     NULL,
                      NULL );
 
-        TotalLinkCountAdj += 1;
-        NtfsUpdateFcb( IrpContext, TargetParentFcb, TRUE );
+        LinkCountAdj -= 1;
+        NtfsUpdateFcb( TargetParentScb->Fcb );
+
+        //
+        //  Now we want to update the Fcb for the link we renamed.  If we moved it
+        //  to a new directory we need to move all the Lcb's associated with
+        //  the previous link.
+        //
+
+        if (FlagOn( RenameFlags, TRAVERSE_MATCH )) {
+
+            NtfsReplaceLinkInDir( IrpContext,
+                                  TargetParentScb,
+                                  Fcb,
+                                  &NewLinkName,
+                                  NewLinkNameFlags,
+                                  &PrevLinkName,
+                                  PrevLinkNameFlags );
+        }
 
         //
         //  We have now modified the on-disk structures.  We now need to
@@ -4601,70 +5307,13 @@ Return Value:
         //  link was connected to.
         //
 
-        if (FoundEntry && !TraverseMatch) {
+        if (FoundPrevLink && !FlagOn( RenameFlags, TRAVERSE_MATCH )) {
 
             NtfsUpdateFcbFromLinkRemoval( IrpContext,
                                           TargetParentScb,
                                           PreviousFcb,
-                                          TargetFileName,
-                                          TargetFileNameFlags );
-
-            //
-            //  This Fcb has lost a link.
-            //
-
-            ASSERTMSG( "Link count should not be 0\n", PreviousFcb->LinkCount != 0 );
-            PreviousFcb->LinkCount -= 1;
-        }
-
-        //
-        //  Now we want to update the Fcb for the link we renamed.  If we moved it
-        //  to a new directory we need to move all the Lcb's associated with
-        //  the previous link.
-        //
-
-        if (CreateInNewDir) {
-
-            if (TraverseMatch) {
-
-                NtfsCreateLinkInNewDir( IrpContext,
-                                        TargetFileObject,
-                                        TargetParentScb,
-                                        Fcb,
-                                        FileNameFlags,
-                                        TargetFileName,
-                                        TargetFileNameFlags );
-            }
-        //
-        //  Otherwise we will rename in the current directory.  We need to remember
-        //  if we have merged with an existing link on this file.
-        //
-
-        } else if (TraverseMatch) {
-
-            UNICODE_STRING NewLinkName;
-
-            NewLinkName.Buffer = (PWCHAR) TargetFileNameAttr->FileName;
-            NewLinkName.Length = TargetFileNameAttr->FileNameLength * sizeof( WCHAR );
-
-            NtfsCreateLinkInSameDir( IrpContext,
-                                     ParentScb,
-                                     Fcb,
-                                     NewLinkName,
-                                     FileNameFlags,
-                                     TargetFileName,
-                                     TargetFileNameFlags );
-        }
-
-        //
-        //  As long as we didn't match an existing link, we gained a link for
-        //  this file.
-        //
-
-        if (!TraverseMatch) {
-
-            Fcb->LinkCount += 1;
-            ASSERTMSG( "Link count should not be 0\n", Fcb->LinkCount != 0 );
+                                          PrevLinkName,
+                                          PrevLinkNameFlags );
         }
 
         //
@@ -4681,112 +5330,78 @@ Return Value:
         //  We currently combine cases 2 and 3.
         //
 
-        if (!FlagOn( Ccb->Flags, CCB_FLAG_OPEN_BY_FILE_ID )) {
+        if (ReportDirNotify) {
 
             ULONG FilterMatch = 0;
             ULONG FileAction;
 
             //
-            //  Check if a new name will appear in the directory.
+            //  If we removed an entry and it wasn't an exact case match, then
+            //  report the entry which was removed.
             //
 
-            if (!FoundEntry) {
+            if (!FlagOn( RenameFlags, EXACT_CASE_MATCH )) {
 
-                FilterMatch = IsDirectory( &Fcb->Info)
-                              ? FILE_NOTIFY_CHANGE_DIR_NAME
-                              : FILE_NOTIFY_CHANGE_FILE_NAME;
+                if (FoundPrevLink) {
 
+                    NtfsReportDirNotify( IrpContext,
+                                         Vcb,
+                                         &PrevFullLinkName,
+                                         PrevFullLinkName.Length - PrevLinkName.Length,
+                                         NULL,
+                                         &TargetParentScb->ScbType.Index.NormalizedName,
+                                         (IsDirectory( &PreviousFcb->Info ) ?
+                                          FILE_NOTIFY_CHANGE_DIR_NAME :
+                                          FILE_NOTIFY_CHANGE_FILE_NAME),
+                                         FILE_ACTION_REMOVED,
+                                         TargetParentScb->Fcb );
+                }
+
+                //
+                //  We will be adding an entry.
+                //
+
+                FilterMatch = FILE_NOTIFY_CHANGE_FILE_NAME;
                 FileAction = FILE_ACTION_ADDED;
 
-            } else if (!TraverseMatch) {
+            //
+            //  If this was not a traverse match then report that all the file
+            //  properties changed.
+            //
 
-                FilterMatch |= (FILE_NOTIFY_CHANGE_ATTRIBUTES
-                                | FILE_NOTIFY_CHANGE_SIZE
-                                | FILE_NOTIFY_CHANGE_LAST_WRITE
-                                | FILE_NOTIFY_CHANGE_LAST_ACCESS
-                                | FILE_NOTIFY_CHANGE_CREATION
-                                | FILE_NOTIFY_CHANGE_SECURITY
-                                | FILE_NOTIFY_CHANGE_EA);
+            } else if (!FlagOn( RenameFlags, TRAVERSE_MATCH )) {
+
+                FilterMatch |= (FILE_NOTIFY_CHANGE_ATTRIBUTES |
+                                FILE_NOTIFY_CHANGE_SIZE |
+                                FILE_NOTIFY_CHANGE_LAST_WRITE |
+                                FILE_NOTIFY_CHANGE_LAST_ACCESS |
+                                FILE_NOTIFY_CHANGE_CREATION |
+                                FILE_NOTIFY_CHANGE_SECURITY |
+                                FILE_NOTIFY_CHANGE_EA);
 
                 FileAction = FILE_ACTION_MODIFIED;
             }
 
             if (FilterMatch != 0) {
 
-                UNICODE_STRING TargetChange;
-                ULONG LastNameOffset;
-
-                //
-                //  Build up the name for the new file.  If we have
-                //  a target file object we can use that directly.
-                //
-
-                if (TargetFileObject != NULL) {
-
-                    TargetChange = TargetFileObject->FileName;
-                    TargetChange.Length = TargetChange.MaximumLength;
-
-                    LastNameOffset = TargetFileObject->FileName.Length;
-
-                } else {
-
-                    TargetChange.Length = Ccb->LastFileNameOffset + TargetFileName.Length;
-
-                    TargetBuffer = NtfsAllocatePagedPool( TargetChange.Length );
-
-                    TargetChange.Buffer = TargetBuffer;
-                    TargetChange.MaximumLength = TargetChange.Length;
-
-                    //
-                    //  Now copy the pieces into the buffer.
-                    //
-
-                    RtlCopyMemory( TargetChange.Buffer,
-                                   Ccb->FullFileName.Buffer,
-                                   Ccb->LastFileNameOffset );
-
-                    RtlCopyMemory( Add2Ptr( TargetChange.Buffer,
-                                            Ccb->LastFileNameOffset ),
-                                   TargetFileName.Buffer,
-                                   TargetFileName.Length );
-
-                    LastNameOffset = Ccb->LastFileNameOffset;
-                }
-
                 NtfsReportDirNotify( IrpContext,
                                      Vcb,
-                                     &TargetChange,
-                                     LastNameOffset,
+                                     &NewFullLinkName,
+                                     NewFullLinkName.Length - NewLinkName.Length,
                                      NULL,
-                                     (TargetParentScb->ScbType.Index.NormalizedName.Buffer != NULL ?
-                                      &TargetParentScb->ScbType.Index.NormalizedName :
-                                      NULL),
+                                     &TargetParentScb->ScbType.Index.NormalizedName,
                                      FilterMatch,
                                      FileAction,
-                                     TargetParentFcb );
+                                     TargetParentScb->Fcb );
             }
         }
 
         //
-        //  We don't clear the Fcb->Info flags because we may still have
-        //  to update duplicate information for this file.
+        //  Adjust the link counts on the files.
         //
 
-        Status = STATUS_SUCCESS;
-
-    try_exit:  NOTHING;
-
-        //
-        //  Check if we need to undo any action.
-        //
-
-        NtfsCleanupTransaction( IrpContext, Status );
-
-        Fcb->TotalLinks += TotalLinkCountAdj;
-
-#ifndef NTFS_TEST_LINKS
-        ASSERT( Fcb->TotalLinks == 1 );
-#endif
+        Fcb->TotalLinks = (SHORT) Fcb->TotalLinks - LinkCountAdj;
+        Fcb->LinkCount = (SHORT) Fcb->LinkCount - LinkCountAdj;
 
         //
         //  We can now adjust the total link count on the previous Fcb.
@@ -4795,67 +5410,105 @@ Return Value:
         if (PreviousFcb != NULL) {
 
             PreviousFcb->TotalLinks -= PrevFcbLinkCountAdj;
+            PreviousFcb->LinkCount -= PrevFcbLinkCountAdj;
+
+            //
+            //  Now go through and mark everything as deleted.
+            //
+
+            if (PreviousFcb->LinkCount == 0) {
+
+                SetFlag( PreviousFcb->FcbState, FCB_STATE_FILE_DELETED );
+
+#ifdef _CAIRO_
+
+                //
+                //  Release the quota control block.  This does not have to be done
+                //  here however, it allows us to free up the quota control block
+                //  before the fcb is removed from the table.  This keeps the assert
+                //  about quota table empty from triggering in
+                //  NtfsClearAndVerifyQuotaIndex.
+                //
+
+                if (NtfsPerformQuotaOperation(PreviousFcb)) {
+                    NtfsDereferenceQuotaControlBlock( Vcb,
+                                                      &PreviousFcb->QuotaControl );
+                }
+
+#endif // _CAIRO_
+
+                //
+                //  We need to mark all of the Scbs as gone.
+                //
+
+                for (Links = PreviousFcb->ScbQueue.Flink;
+                     Links != &PreviousFcb->ScbQueue;
+                     Links = Links->Flink) {
+
+                    ThisScb = CONTAINING_RECORD( Links, SCB, FcbLinks );
+
+                    if (!FlagOn( ThisScb->ScbState, SCB_STATE_ATTRIBUTE_DELETED )) {
+
+                        NtfsSnapshotScb( IrpContext, ThisScb );
+
+                        ThisScb->ValidDataToDisk =
+                        ThisScb->Header.AllocationSize.QuadPart =
+                        ThisScb->Header.FileSize.QuadPart =
+                        ThisScb->Header.ValidDataLength.QuadPart = 0;
+
+                        SetFlag( ThisScb->ScbState, SCB_STATE_ATTRIBUTE_DELETED );
+                    }
+                }
+            }
         }
 
     } finally {
 
         DebugUnwind( NtfsSetLinkInfo );
 
-        if (AcquiredFcbTable) {
-
-            NtfsReleaseFcbTable( IrpContext, Vcb );
-        }
+        if (AcquiredFcbTable) { NtfsReleaseFcbTable( IrpContext, Vcb ); }
 
         //
-        //  If we allocated a buffer for the dir notify name, deallocate it now.
+        //  If we allocated any buffers for name storage then deallocate them now.
         //
 
-        if (TargetBuffer != NULL) {
+        if (PrevFullLinkName.Buffer != NULL) { NtfsFreePool( PrevFullLinkName.Buffer ); }
+        if (NewFullLinkNameBuffer != NULL) { NtfsFreePool( NewFullLinkNameBuffer ); }
 
-            NtfsFreePagedPool( TargetBuffer );
-        }
+        //
+        //  Release any paging io resource acquired.
+        //
+
+        if (ResourceToRelease != NULL) { ExReleaseResource( ResourceToRelease ); }
 
         //
         //  If we allocated a file name attribute, we deallocate it now.
         //
 
-        if (TargetFileNameAttr != NULL) {
-
-            NtfsFreePagedPool( TargetFileNameAttr );
-        }
-
-        //
-        //  If we acquired a parent Scb, release it now.
-        //
-
-        if (AcquiredTargetScb) {
-
-            NtfsReleaseScb( IrpContext, TargetParentScb );
-        }
-
-        if (PreviousFcbAcquired) {
-            NtfsReleaseFcb( IrpContext, PreviousFcb );
-        }
+        if (NewLinkNameAttr != NULL) { NtfsFreePool( NewLinkNameAttr ); }
 
         //
         //  If we have the Fcb for a removed link and it didn't previously
         //  exist, call our teardown routine.
         //
 
-        if ((PreviousFcb != NULL) && !ExistingPrevFcb) {
+        if (Status != STATUS_PENDING) {
 
-            BOOLEAN RemovedFcb;
-            NtfsTeardownStructures( IrpContext,
-                                    PreviousFcb,
-                                    NULL,
-                                    TRUE,
-                                    &RemovedFcb,
-                                    FALSE );
+            if ((PreviousFcb != NULL) &&
+                (PreviousFcb->CleanupCount == 0)) {
+
+                NtfsTeardownStructures( IrpContext,
+                                        PreviousFcb,
+                                        NULL,
+                                        FALSE,
+                                        FALSE,
+                                        NULL );
+            }
         }
 
-        NtfsUnpinBcb( IrpContext, &IndexEntryBcb );
+        NtfsUnpinBcb( &IndexEntryBcb );
 
-        DebugTrace( -1, Dbg, "NtfsSetLinkInfo:  Exit  ->  %08lx\n", Status );
+        DebugTrace( -1, Dbg, ("NtfsSetLinkInfo:  Exit  ->  %08lx\n", Status) );
     }
 
     return Status;
@@ -4906,7 +5559,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsSetPositionInfo...\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsSetPositionInfo...\n") );
 
     //
     //  Reference the system buffer containing the user specified position
@@ -4931,7 +5584,7 @@ Return Value:
 
             if ((Buffer->CurrentByteOffset.LowPart & DeviceObject->AlignmentRequirement) != 0) {
 
-                DebugTrace2( 0, Dbg, "Offset missaligned %08lx %08lx\n", Buffer->CurrentByteOffset.LowPart, Buffer->CurrentByteOffset.HighPart );
+                DebugTrace( 0, Dbg, ("Offset missaligned %08lx %08lx\n", Buffer->CurrentByteOffset.LowPart, Buffer->CurrentByteOffset.HighPart) );
 
                 try_return( Status = STATUS_INVALID_PARAMETER );
             }
@@ -4957,7 +5610,7 @@ Return Value:
     //  And return to our caller
     //
 
-    DebugTrace(-1, Dbg, "NtfsSetPositionInfo -> %08lx\n", Status);
+    DebugTrace( -1, Dbg, ("NtfsSetPositionInfo -> %08lx\n", Status) );
 
     return Status;
 }
@@ -5001,21 +5654,18 @@ Return Value:
 
 {
     NTSTATUS Status;
-    PFCB Fcb;
-    BOOLEAN NonResidentPath;
+    PFCB Fcb = Scb->Fcb;
+    BOOLEAN NonResidentPath = FALSE;
     BOOLEAN UpdateCacheManager = FALSE;
+    BOOLEAN ClearCheckSizeFlag = FALSE;
 
     LONGLONG NewAllocationSize;
+    LONGLONG PrevAllocationSize;
 
     LONGLONG CurrentTime;
 
     ATTRIBUTE_ENUMERATION_CONTEXT AttrContext;
     BOOLEAN CleanupAttrContext = FALSE;
-
-    ULONG ResidentAllocation;
-    LONGLONG QuadAlignResAlloc;
-    ULONG MinQuadAlignBytes;
-    ULONG AttributeOffset;
 
     ASSERT_IRP_CONTEXT( IrpContext );
     ASSERT_FILE_OBJECT( FileObject );
@@ -5024,9 +5674,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsSetAllocationInfo...\n", 0);
-
-    Fcb = Scb->Fcb;
+    DebugTrace( +1, Dbg, ("NtfsSetAllocationInfo...\n") );
 
     //
     //  If this attribute has been 'deleted' then we we can return immediately
@@ -5036,7 +5684,7 @@ Return Value:
 
         Status = STATUS_SUCCESS;
 
-        DebugTrace( -1, Dbg, "NtfsSetAllocationInfo:  Attribute is already deleted\n", 0);
+        DebugTrace( -1, Dbg, ("NtfsSetAllocationInfo:  Attribute is already deleted\n") );
 
         return Status;
     }
@@ -5057,6 +5705,7 @@ Return Value:
     //
 
     NewAllocationSize = ((PFILE_ALLOCATION_INFORMATION)Irp->AssociatedIrp.SystemBuffer)->AllocationSize.QuadPart;
+    PrevAllocationSize = Scb->Header.AllocationSize.QuadPart;
 
     //
     //  If we will be decreasing file size, grab the paging io resource
@@ -5073,14 +5722,9 @@ Return Value:
                                    (PLARGE_INTEGER)&NewAllocationSize )) {
 
             Status = STATUS_USER_MAPPED_FILE;
-            DebugTrace(-1, Dbg, "NtfsSetAllocationInfo -> %08lx\n", Status);
+            DebugTrace( -1, Dbg, ("NtfsSetAllocationInfo -> %08lx\n", Status) );
 
             return Status;
-        }
-
-        if (Scb->Fcb->PagingIoResource != NULL) {
-
-            NtfsAcquireExclusivePagingIo( IrpContext, Scb->Fcb );
         }
     }
 
@@ -5091,136 +5735,82 @@ Return Value:
     try {
 
         //
-        //  If this is a resident attribute we will try to keep it resident.
+        //  If the caller is extending the allocation of resident attribute then
+        //  we will force it to become non-resident.  This solves the problem of
+        //  trying to keep the allocation and file sizes in sync with only one
+        //  number to use in the attribute header.
         //
 
         if (FlagOn( Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT )) {
-
-            QuadAlignResAlloc = QuadAlign( (ULONG)NewAllocationSize );
-
-            //
-            //  If the allocation size can't be described in 32 bits, we
-            //  will go non-resident in two steps.  First we we change the
-            //  attribute value by enough to go non-resident.  Then we will
-            //  fall through to the non-resident case below.
-            //
-
-            if (NewAllocationSize > LargeAllocation) {
-
-                ResidentAllocation = Scb->Vcb->BytesPerFileRecordSegment;
-
-                NonResidentPath = TRUE;
-
-            } else {
-
-                //
-                //  If the allocation size doesn't change, we are done.
-                //
-
-                if ((ULONG)QuadAlignResAlloc == Scb->Header.AllocationSize.LowPart) {
-
-                    try_return( NOTHING );
-                }
-
-                //
-                //  If we are increasing the allocation beyond the current file size
-                //  then we use the larger of the current file size and the quad
-                //  aligned allocation size - 7.  This is so we use the smallest
-                //  possible value needed to acquire the resident space we need.
-                //
-
-                NonResidentPath = FALSE;
-
-                MinQuadAlignBytes = ((ULONG)QuadAlignResAlloc) - 7;
-
-                if (QuadAlignResAlloc < Scb->Header.FileSize.QuadPart) {
-
-                    ResidentAllocation = (ULONG)QuadAlignResAlloc;
-
-                } else {
-
-                    if (Scb->Header.FileSize.LowPart > MinQuadAlignBytes) {
-
-                        ResidentAllocation = Scb->Header.FileSize.LowPart;
-
-                    } else {
-
-                        ResidentAllocation = MinQuadAlignBytes;
-                    }
-                }
-            }
-
-            //
-            //  We need to determine how much of the current attribute to
-            //  save.  We compare the valid data length with the allocation
-            //  size and save the smaller of them.
-            //
-
-            if (ResidentAllocation > Scb->Header.ValidDataLength.LowPart) {
-
-                AttributeOffset = Scb->Header.ValidDataLength.LowPart;
-
-            } else {
-
-                AttributeOffset = ResidentAllocation;
-            }
-
-            //
-            //  Now call the attribute routine to change the value, remembering
-            //  the old value.
-            //
 
             NtfsInitializeAttributeContext( &AttrContext );
             CleanupAttrContext = TRUE;
 
             NtfsLookupAttributeForScb( IrpContext,
                                        Scb,
+                                       NULL,
                                        &AttrContext );
 
             //
-            //  We are sometimes called by MM during a create section, so
-            //  for right now the best way we have of detecting a create
-            //  section is whether or not the requestor mode is kernel.
+            //  Convert if extending.
             //
 
-            NtfsChangeAttributeValue( IrpContext,
-                                      Fcb,
-                                      AttributeOffset,
-                                      NULL,
-                                      ResidentAllocation - AttributeOffset,
-                                      TRUE,
-                                      FALSE,
-                                      (BOOLEAN)(Irp->RequestorMode == KernelMode),
-                                      FALSE,
-                                      &AttrContext );
+            if (NewAllocationSize > Scb->Header.AllocationSize.QuadPart) {
 
-            NtfsCleanupAttributeContext( IrpContext, &AttrContext );
-            CleanupAttrContext = FALSE;
+                NtfsConvertToNonresident( IrpContext,
+                                          Fcb,
+                                          NtfsFoundAttribute( &AttrContext ),
+                                          BooleanFlagOn(Irp->Flags, IRP_PAGING_IO),
+                                          &AttrContext );
+
+                NonResidentPath = TRUE;
 
             //
-            //  We have to look at correcting the Scb for the case where
-            //  we don't know if the file went non-resident.
-            //
-            //  If we are still resident, we need to update the Scb sizes.
-            //  If we went non-resident, then the new size is already in
-            //  the Scb.
-            //
-            //  If the file went non-resident then our Scb snapshot package will
-            //  take care of the cache.
+            //  Otherwise the allocation is shrinking or staying the same.
             //
 
-            if (FlagOn( Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT )) {
+            } else {
 
-                Scb->Header.AllocationSize.LowPart = (ULONG)QuadAlignResAlloc;
+                NewAllocationSize = QuadAlign( (ULONG) NewAllocationSize );
 
                 //
-                //  If we shrank the file update the file size and valid data length.
+                //  If the allocation size doesn't change, we are done.
                 //
 
-                if (Scb->Header.AllocationSize.LowPart < ((ULONG)Scb->ScbSnapshot->FileSize)) {
+                if ((ULONG) NewAllocationSize == Scb->Header.AllocationSize.LowPart) {
 
-                    Scb->Header.FileSize.LowPart = Scb->Header.ValidDataLength.LowPart = ResidentAllocation;
+                    try_return( NOTHING );
                 }
+
+                //
+                //  We are sometimes called by MM during a create section, so
+                //  for right now the best way we have of detecting a create
+                //  section is IRP_PAGING_IO being set, as in FsRtlSetFileSizes.
+                //
+
+                NtfsChangeAttributeValue( IrpContext,
+                                          Fcb,
+                                          (ULONG) NewAllocationSize,
+                                          NULL,
+                                          0,
+                                          TRUE,
+                                          FALSE,
+                                          BooleanFlagOn(Irp->Flags, IRP_PAGING_IO),
+                                          FALSE,
+                                          &AttrContext );
+
+                NtfsCleanupAttributeContext( &AttrContext );
+                CleanupAttrContext = FALSE;
+
+                //
+                //  Now update the sizes in the Scb.
+                //
+
+                Scb->Header.AllocationSize.LowPart =
+                Scb->Header.FileSize.LowPart =
+                Scb->Header.ValidDataLength.LowPart = (ULONG) NewAllocationSize;
+
+                Scb->TotalAllocated = NewAllocationSize;
 
                 //
                 //  Remember to update the cache manager.
@@ -5245,96 +5835,91 @@ Return Value:
             NewAllocationSize = LlClustersFromBytes( Scb->Vcb, NewAllocationSize );
             NewAllocationSize = LlBytesFromClusters( Scb->Vcb, NewAllocationSize );
 
-            DebugTrace2( 0, Dbg, "NewAllocationSize -> %08lx %08lx\n", NewAllocationSize.LowPart, NewAllocationSize.HighPart);
+
+            DebugTrace( 0, Dbg, ("NewAllocationSize -> %016I64x\n", NewAllocationSize) );
 
             //
-            //  There may be no work to do if the allocation size isn't changing.
+            //  Now if the file allocation is being increased then we need to only add allocation
+            //  to the attribute
             //
 
-            if (NewAllocationSize != Scb->Header.AllocationSize.QuadPart) {
+            if (Scb->Header.AllocationSize.QuadPart < NewAllocationSize) {
+
+                NtfsAddAllocation( IrpContext,
+                                   FileObject,
+                                   Scb,
+                                   LlClustersFromBytes( Scb->Vcb, Scb->Header.AllocationSize.QuadPart ),
+                                   LlClustersFromBytes( Scb->Vcb, NewAllocationSize - Scb->Header.AllocationSize.QuadPart ),
+                                   FALSE );
 
                 //
-                //  Now if the file allocation is being increased then we need to only add allocation
-                //  to the attribute
+                //  Set the truncate on close flag.
                 //
 
-                if (Scb->Header.AllocationSize.QuadPart < NewAllocationSize) {
+                SetFlag( Scb->ScbState, SCB_STATE_TRUNCATE_ON_CLOSE );
 
-                    NtfsAddAllocation( IrpContext,
-                                       FileObject,
+            //
+            //  Otherwise delete the allocation as requested.
+            //
+
+            } else if (Scb->Header.AllocationSize.QuadPart > NewAllocationSize) {
+
+                NtfsDeleteAllocation( IrpContext,
+                                      FileObject,
+                                      Scb,
+                                      LlClustersFromBytes( Scb->Vcb, NewAllocationSize ),
+                                      MAXLONGLONG,
+                                      TRUE,
+                                      TRUE );
+            }
+
+            //
+            //  If this is the paging file then guarantee that the Mcb is fully loaded.
+            //
+
+            if (FlagOn( Fcb->FcbState, FCB_STATE_PAGING_FILE )) {
+
+                NtfsPreloadAllocation( IrpContext,
                                        Scb,
-                                       LlClustersFromBytes( Scb->Vcb, Scb->Header.AllocationSize.QuadPart ),
-                                       LlClustersFromBytes(Scb->Vcb, (NewAllocationSize - Scb->Header.AllocationSize.QuadPart)),
-                                       FALSE );
-
-                } else {
-
-                    //
-                    //  Otherwise the allocation is being decreased so we need to delete some allocation
-                    //
-
-                    NtfsDeleteAllocation( IrpContext,
-                                          FileObject,
-                                          Scb,
-                                          LlClustersFromBytes( Scb->Vcb, NewAllocationSize ),
-                                          MAXLONGLONG,
-                                          TRUE,
-                                          TRUE );
-                }
+                                       0,
+                                       LlClustersFromBytes( Scb->Vcb, Scb->Header.AllocationSize.QuadPart ));
             }
         }
 
     try_exit:
 
-        //
-        //  If we modified the allocation, we need to update the Fcb.
-        //
-
-        KeQuerySystemTime( (PLARGE_INTEGER)&CurrentTime );
-
-        //
-        //  We need to test if we have to update the time stamps.  We only do
-        //  this for a user request or if this is the paging file.
-        //
-
-        if ((FlagOn( Fcb->FcbState, FCB_STATE_PAGING_FILE ))
-            || (Ccb != NULL
-                && !FlagOn( Ccb->Flags, CCB_FLAG_USER_SET_LAST_CHANGE_TIME ))) {
-
-            Fcb->Info.LastChangeTime = CurrentTime;
-            SetFlag( Fcb->InfoFlags, FCB_INFO_CHANGED_LAST_CHANGE );
-            SetFlag( Fcb->FcbState, FCB_STATE_UPDATE_STD_INFO );
-        }
-
-        if (FlagOn( Scb->ScbState, SCB_STATE_UNNAMED_DATA )) {
-
-            if ((FlagOn( Fcb->FcbState, FCB_STATE_PAGING_FILE ))
-                || (Ccb != NULL
-                    && !FlagOn( Ccb->Flags, CCB_FLAG_USER_SET_LAST_MOD_TIME ))) {
-
-                Fcb->Info.LastModificationTime = CurrentTime;
-                SetFlag( Fcb->InfoFlags, FCB_INFO_CHANGED_LAST_MOD );
-                SetFlag( Fcb->FcbState, FCB_STATE_UPDATE_STD_INFO );
-            }
-
-            Fcb->Info.AllocatedLength = Scb->Header.AllocationSize.QuadPart;
-            SetFlag( Fcb->InfoFlags, FCB_INFO_CHANGED_ALLOC_SIZE );
+        if (PrevAllocationSize != Scb->Header.AllocationSize.QuadPart) {
 
             //
-            //  If we changed the filesize, remember that too.
+            //  Mark this file object as modified and with a size change in order to capture
+            //  all of the changes to the Fcb.
             //
 
-            if (Scb->ScbSnapshot->FileSize != Scb->Header.FileSize.QuadPart) {
-
-                Fcb->Info.FileSize = Scb->Header.FileSize.QuadPart;
-                SetFlag( Fcb->InfoFlags, FCB_INFO_CHANGED_FILE_SIZE );
-            }
-
-        } else if (Scb->AttributeName.Length != 0
-                   && Scb->AttributeTypeCode == $DATA) {
-
-            SetFlag( Scb->ScbState, SCB_STATE_NOTIFY_RESIZE_STREAM );
+            SetFlag( FileObject->Flags, FO_FILE_SIZE_CHANGED );
+            ClearCheckSizeFlag = TRUE;
         }
+
+        //
+        //  Always set the file as modified to force a time stamp change.
+        //
+
+        if (ARGUMENT_PRESENT( Ccb )) {
+
+            SetFlag( Ccb->Flags,
+                     (CCB_FLAG_UPDATE_LAST_MODIFY |
+                      CCB_FLAG_UPDATE_LAST_CHANGE |
+                      CCB_FLAG_SET_ARCHIVE) );
+
+        } else {
+
+            SetFlag( FileObject->Flags, FO_FILE_MODIFIED );
+        }
+
+        //
+        //  Now capture any file size changes in this file object back to the Fcb.
+        //
+
+        NtfsUpdateScbFromFileObject( IrpContext, FileObject, Scb, TRUE );
 
         //
         //  Update the standard information if required.
@@ -5345,23 +5930,26 @@ Return Value:
             NtfsUpdateStandardInformation( IrpContext, Fcb );
         }
 
+        ClearFlag( Fcb->FcbState, FCB_STATE_UPDATE_STD_INFO );
+
+        //
+        //  We know we wrote out any changes to the file size above so clear the
+        //  flag in the Scb to check the attribute size.  This will save us from doing
+        //  this unnecessarily at cleanup.
+        //
+
+        if (ClearCheckSizeFlag) {
+
+            ClearFlag( Scb->ScbState, SCB_STATE_CHECK_ATTRIBUTE_SIZE );
+        }
+
         NtfsCheckpointCurrentTransaction( IrpContext );
 
         //
-        //  Update duplicated information for any unnamed data stream.
+        //  Update duplicated information.
         //
 
-        if (FlagOn( Scb->ScbState, SCB_STATE_UNNAMED_DATA ) &&
-            Fcb->InfoFlags != 0) {
-
-            NtfsUpdateFileDupInfo( IrpContext, Fcb, Ccb );
-        }
-
-        //
-        //  Set the truncate on close flag.
-        //
-
-        SetFlag( Scb->ScbState, SCB_STATE_TRUNCATE_ON_CLOSE );
+        NtfsUpdateFileDupInfo( IrpContext, Fcb, Ccb );
 
         //
         //  Update the cache manager if needed.
@@ -5373,7 +5961,7 @@ Return Value:
             //  We want to checkpoint the transaction if there is one active.
             //
 
-            if (IrpContext->TopLevelIrpContext->TransactionId != 0) {
+            if (IrpContext->TransactionId != 0) {
 
                 NtfsCheckpointCurrentTransaction( IrpContext );
             }
@@ -5388,20 +5976,38 @@ Return Value:
             //  mm is in the process of creating a section.
             //
 
-            if (!CcIsFileCached(FileObject)
-                && !FlagOn(Fcb->FcbState, FCB_STATE_PAGING_FILE)
-                && Irp->RequestorMode != KernelMode) {
+            if (!CcIsFileCached(FileObject) &&
+                !FlagOn(Fcb->FcbState, FCB_STATE_PAGING_FILE) &&
+                !FlagOn(Irp->Flags, IRP_PAGING_IO)) {
                 NtfsCreateInternalAttributeStream( IrpContext, Scb, FALSE );
             }
 
-            CcSetFileSizes( FileObject, (PCC_FILE_SIZES)&Scb->Header.AllocationSize );
+            //
+            //  Only call if the file is cached now, because the other case
+            //  may cause recursion in write!
+
+            if (CcIsFileCached(FileObject)) {
+                CcSetFileSizes( FileObject, (PCC_FILE_SIZES)&Scb->Header.AllocationSize );
+            }
+
+            //
+            //  Clear out the write mask on truncates to zero.
+            //
+
+#ifdef SYSCACHE
+            if ((Scb->Header.FileSize.QuadPart == 0) && FlagOn(Scb->ScbState, SCB_STATE_SYSCACHE_FILE) &&
+                (Scb->ScbType.Data.WriteMask != NULL)) {
+                RtlZeroMemory(Scb->ScbType.Data.WriteMask, (((0x2000000) / PAGE_SIZE) / 8));
+            }
+#endif
+
             //
             //  Now cleanup the stream we created if there are no more user
             //  handles.
             //
 
             if ((Scb->CleanupCount == 0) && (Scb->FileObject != NULL)) {
-                NtfsDeleteInternalAttributeStream( IrpContext, Scb, FALSE );
+                NtfsDeleteInternalAttributeStream( Scb, FALSE );
             }
         }
 
@@ -5413,14 +6019,14 @@ Return Value:
 
         if (CleanupAttrContext) {
 
-            NtfsCleanupAttributeContext( IrpContext, &AttrContext );
+            NtfsCleanupAttributeContext( &AttrContext );
         }
 
         //
         //  And return to our caller
         //
 
-        DebugTrace(-1, Dbg, "NtfsSetAllocationInfo -> %08lx\n", Status);
+        DebugTrace( -1, Dbg, ("NtfsSetAllocationInfo -> %08lx\n", Status) );
     }
 
     return Status;
@@ -5437,7 +6043,7 @@ NtfsSetEndOfFileInfo (
     IN PFILE_OBJECT FileObject,
     IN PIRP Irp,
     IN PSCB Scb,
-    IN PCCB Ccb,
+    IN PCCB Ccb OPTIONAL,
     IN BOOLEAN VcbAcquired
     )
 
@@ -5455,10 +6061,11 @@ Arguments:
 
     Scb - Supplies the Scb for the file/directory being modified
 
-    Ccb - Supplies the Ccb for this operation
+    Ccb - Supplies the Ccb for this operation.  Will always be present if the
+        Vcb is acquired.  Otherwise we must test for it.
 
     AcquiredVcb - Indicates if this request has acquired the Vcb, meaning
-        do we attempt to update the duplicate information.
+        do we have duplicate information to update.
 
 Return Value:
 
@@ -5468,15 +6075,12 @@ Return Value:
 
 {
     NTSTATUS Status;
-    PFCB Fcb;
-    BOOLEAN NonResidentPath;
-    BOOLEAN AdvanceOnly;
-    BOOLEAN RealAdvanceOnly;
+    PFCB Fcb = Scb->Fcb;
+    BOOLEAN NonResidentPath = TRUE;
+    BOOLEAN FileSizeChanged = FALSE;
 
     LONGLONG NewFileSize;
     LONGLONG NewValidDataLength;
-
-    LONGLONG CurrentTime;
 
     ASSERT_IRP_CONTEXT( IrpContext );
     ASSERT_FILE_OBJECT( FileObject );
@@ -5485,24 +6089,28 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsSetEndOfFileInfo...\n", 0);
-
-    Fcb = Scb->Fcb;
-
-    //
-    //  If this attribute has been 'deleted' then we we can return immediately
-    //
-
-    if (FlagOn( Scb->ScbState, SCB_STATE_ATTRIBUTE_DELETED )) {
-
-        DebugTrace( -1, Dbg, "NtfsEndOfFileInfo:  Attribute is already deleted\n", 0);
-
-        return STATUS_SUCCESS;
-    }
+    DebugTrace( +1, Dbg, ("NtfsSetEndOfFileInfo...\n") );
 
     if (!FlagOn( Scb->ScbState, SCB_STATE_HEADER_INITIALIZED )) {
 
         NtfsUpdateScbFromAttribute( IrpContext, Scb, NULL );
+    }
+
+    //
+    //  Get the new file size and whether this is coming from the lazy writer.
+    //
+
+    NewFileSize = ((PFILE_END_OF_FILE_INFORMATION)Irp->AssociatedIrp.SystemBuffer)->EndOfFile.QuadPart;
+
+    //
+    //  If this attribute has been 'deleted' then return immediately.
+    //
+
+    if (FlagOn( Scb->ScbState, SCB_STATE_ATTRIBUTE_DELETED )) {
+
+        DebugTrace( -1, Dbg, ("NtfsEndOfFileInfo:  No work to do\n") );
+
+        return STATUS_SUCCESS;
     }
 
     //
@@ -5512,222 +6120,18 @@ Return Value:
     NtfsSnapshotScb( IrpContext, Scb );
 
     //
-    //  Get the new file size and whether this is coming from the lazy writer.
+    //  If we are called from the cache manager then we want to update the valid data
+    //  length if necessary and also perform an update duplicate call if the Vcb
+    //  is held.
     //
 
-    NewFileSize = ((PFILE_END_OF_FILE_INFORMATION)Irp->AssociatedIrp.SystemBuffer)->EndOfFile.QuadPart;
-
-    RealAdvanceOnly =
-    AdvanceOnly = IoGetCurrentIrpStackLocation(Irp)->Parameters.SetFile.AdvanceOnly;
-
-    //
-    //  If we are decreasing file size, or causing a wrap, grab the paging io
-    //  resource exclusive, if there is one.  The LazyWriter (AdvanceOnly), is
-    //  only dangerous when he tries to wrap the ValidDataLength
-    //
-
-    if (RealAdvanceOnly) {
-
-         if ( (((PLARGE_INTEGER)&NewFileSize)->HighPart != Scb->Header.ValidDataLength.HighPart) &&
-              (Scb->Header.PagingIoResource != NULL) ) {
-
-            NtfsAcquireExclusivePagingIo( IrpContext, Scb->Fcb );
-         }
-
-    } else {
+    if (IoGetCurrentIrpStackLocation(Irp)->Parameters.SetFile.AdvanceOnly) {
 
         //
-        //  If we are shrinking the file then we will check if there is
-        //  a mapped view before proceeding.
+        //  We only have work to do if the file is nonresident.
         //
 
-        if (NewFileSize < Scb->Header.FileSize.QuadPart) {
-
-            if (!MmCanFileBeTruncated( FileObject->SectionObjectPointer,
-                                       (PLARGE_INTEGER)&NewFileSize )) {
-
-                Status = STATUS_USER_MAPPED_FILE;
-                DebugTrace(-1, Dbg, "NtfsSetEndOfFileInfo -> %08lx\n", Status);
-
-                return Status;
-            }
-
-            if (Scb->Fcb->PagingIoResource != NULL) {
-
-                NtfsAcquireExclusivePagingIo( IrpContext, Scb->Fcb );
-            }
-
-        } else if (((PLARGE_INTEGER)&NewFileSize)->HighPart != Scb->Header.FileSize.HighPart
-                   && Scb->Fcb->PagingIoResource != NULL) {
-
-            NtfsAcquireExclusivePagingIo( IrpContext, Scb->Fcb );
-        }
-    }
-
-    //
-    //  If this is a resident attribute we will try to keep it resident.
-    //
-
-    if (FlagOn( Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT )) {
-
-        ATTRIBUTE_ENUMERATION_CONTEXT AttrContext;
-        ULONG ResidentSize;
-        ULONG AttributeOffset;
-
-        //
-        //  If this is just the Lazy Writer callback, just ignore it.
-        //
-
-        if (RealAdvanceOnly) {
-
-            DebugTrace( 0, Dbg, "NtfsSetEndOfFileInfo: Lazy Writer call for resident attribute\n", 0);
-
-            return STATUS_SUCCESS;
-        }
-
-        //
-        //  If the size isn't changing, then return immediately.
-        //
-
-        if (Scb->Header.FileSize.QuadPart == NewFileSize) {
-
-            DebugTrace( 0, Dbg, "NtfsSetEndOfFileInfo: Eof isn't changing\n", 0 );
-            return STATUS_SUCCESS;
-        }
-
-        //
-        //  If the file size can't be described in 32 bits, we
-        //  will go non-resident in two steps.  First we we change the
-        //  attribute value by enough to go non-resident.  Then we will
-        //  fall through to the non-resident case below.
-        //
-
-        if (((PLARGE_INTEGER)&NewFileSize)->HighPart != 0) {
-
-            ResidentSize = Scb->Vcb->BytesPerFileRecordSegment;
-
-            NonResidentPath = TRUE;
-
-        } else {
-
-            ResidentSize = (ULONG)NewFileSize;
-            NonResidentPath = FALSE;
-        }
-
-        //
-        //  We need to determine how much of the current attribute to
-        //  save.  We compare the valid data length with the end of file
-        //  size and save the smaller of them.
-        //
-
-        if (ResidentSize > Scb->Header.ValidDataLength.LowPart) {
-
-            AttributeOffset = Scb->Header.ValidDataLength.LowPart;
-
-        } else {
-
-            AttributeOffset = ResidentSize;
-        }
-
-        //
-        //  Now call the attribute routine to change the value, remembering
-        //  the old value.
-        //
-
-        NtfsInitializeAttributeContext( &AttrContext );
-
-        try {
-
-            NtfsLookupAttributeForScb( IrpContext,
-                                       Scb,
-                                       &AttrContext );
-
-            //
-            //  We are sometimes called by MM during a create section, so
-            //  for right now the best way we have of detecting a create
-            //  section is whether or not the requestor mode is kernel.
-            //
-
-            NtfsChangeAttributeValue( IrpContext,
-                                      Fcb,
-                                      AttributeOffset,
-                                      NULL,
-                                      ResidentSize - AttributeOffset,
-                                      TRUE,
-                                      FALSE,
-                                      (BOOLEAN)(Irp->RequestorMode == KernelMode),
-                                      FALSE,
-                                      &AttrContext );
-
-        } finally {
-
-            NtfsCleanupAttributeContext( IrpContext, &AttrContext );
-        }
-
-        //
-        //  If the attribute is still resident, we need to compute the
-        //  new allocation size and filesizes.  If the file is non-resident
-        //  then the allocation size is correct but we need to set the file
-        //  size.
-        //
-
-        if (!NonResidentPath) {
-
-            Scb->Header.FileSize.QuadPart = NewFileSize;
-
-            //
-            //  If the file went non-resident, then the allocation size in
-            //  the Scb is correct.  Otherwise we quad-align the new file size.
-            //
-
-            if (FlagOn( Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT )) {
-
-                Scb->Header.AllocationSize.LowPart = QuadAlign( Scb->Header.FileSize.LowPart );
-                Scb->Header.ValidDataLength.QuadPart = NewFileSize;
-
-            } else {
-
-                SetFlag( Scb->ScbState, SCB_STATE_CHECK_ATTRIBUTE_SIZE );
-            }
-        }
-
-    } else {
-
-        NonResidentPath = TRUE;
-    }
-
-    //
-    //  It is extremely expensive to make this call on a file that is not
-    //  cached, and Ntfs has suffered stack overflows in addition to massive
-    //  time and disk I/O expense (CcZero data on user mapped files!).  Therefore,
-    //  if no one has the file cached, we cache it here to make this call cheaper.
-    //
-    //  Don't create the stream file if called from kernel mode in case
-    //  mm is in the process of creating a section.
-    //
-
-    if (!RealAdvanceOnly
-        && !CcIsFileCached(FileObject)
-        && !FlagOn(Fcb->FcbState, FCB_STATE_PAGING_FILE)
-        && Irp->RequestorMode != KernelMode) {
-
-        NtfsCreateInternalAttributeStream( IrpContext, Scb, FALSE );
-    }
-
-    //
-    //  We now test if we need to modify the non-resident Eof.  We will
-    //  do this in two cases.  Either we're converting from resident in
-    //  two steps or the attribute was initially non-resident.
-    //
-
-    if (NonResidentPath) {
-
-        //
-        //  If AdvanceOnly is TRUE, this is a lazy writer call to extend the
-        //  valid data.
-        //
-
-        if (RealAdvanceOnly) {
+        if (!FlagOn( Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT )) {
 
             //
             //  Assume this is the lazy writer and set NewValidDataLength to
@@ -5739,17 +6143,274 @@ Return Value:
 
             NewFileSize = Scb->Header.FileSize.QuadPart;
 
+            //
+            //  We can always move the valid data length in the Scb up to valid data
+            //  on disk for this call back.  Otherwise we may lose data in a mapped
+            //  file if a user does a cached write to the middle of a page.
+            //  For the typical case, Scb valid data length and file size are
+            //  equal so no adjustment is necessary.
+            //
+
+            if ((Scb->Header.ValidDataLength.QuadPart < NewFileSize) &&
+                (NewValidDataLength > Scb->Header.ValidDataLength.QuadPart) &&
+                (Scb->Header.ValidDataLength.QuadPart < Scb->ValidDataToDisk)) {
+
+                //
+                //  Set the valid data length to the smaller of ValidDataToDisk
+                //  or file size.
+                //
+
+                if (Scb->ValidDataToDisk < NewFileSize) {
+
+                    NewValidDataLength = Scb->ValidDataToDisk;
+
+                } else {
+
+                    NewValidDataLength = NewFileSize;
+                }
+
+                ExAcquireFastMutex( Scb->Header.FastMutex );
+
+                Scb->Header.ValidDataLength.QuadPart = NewValidDataLength;
+                ExReleaseFastMutex( Scb->Header.FastMutex );
+            }
+
+            NtfsWriteFileSizes( IrpContext,
+                                Scb,
+                                &NewValidDataLength,
+                                TRUE,
+                                TRUE );
+        }
+
         //
-        //  Otherwise this is a normal use request.  ValidDataLength
-        //  is only allowed to be reduced, and if a larger FileSize is specified, we
-        //  must add allocation.
+        //  If we acquired the Vcb then do the update duplicate if necessary.
         //
 
-        } else {
+        if (VcbAcquired) {
+
+            //
+            //  Now capture any file size changes in this file object back to the Fcb.
+            //
+
+            NtfsUpdateScbFromFileObject( IrpContext, FileObject, Scb, TRUE );
+
+            //
+            //  Update the standard information if required.
+            //
+
+            if (FlagOn( Fcb->FcbState, FCB_STATE_UPDATE_STD_INFO )) {
+
+                NtfsUpdateStandardInformation( IrpContext, Fcb );
+                ClearFlag( Fcb->FcbState, FCB_STATE_UPDATE_STD_INFO );
+            }
+
+            NtfsCheckpointCurrentTransaction( IrpContext );
+
+            //
+            //  Update duplicated information.
+            //
+
+            NtfsUpdateFileDupInfo( IrpContext, Fcb, Ccb );
+        }
+
+        //
+        //  We know the file size for this Scb is now correct on disk.
+        //
+
+        NtfsAcquireFsrtlHeader( Scb );
+        ClearFlag( Scb->ScbState, SCB_STATE_CHECK_ATTRIBUTE_SIZE );
+        NtfsReleaseFsrtlHeader( Scb );
+
+    } else {
+
+        //
+        //  Check if we really are changing the file size.
+        //
+
+        if (Scb->Header.FileSize.QuadPart != NewFileSize) {
+
+            FileSizeChanged = TRUE;
+
+        }
+
+        //
+        //  Check if we are shrinking a mapped file in the non-lazywriter case.  MM
+        //  will tell us if someone currently has the file mapped.
+        //
+
+        if ((NewFileSize < Scb->Header.FileSize.QuadPart) &&
+            !MmCanFileBeTruncated( FileObject->SectionObjectPointer,
+                                   (PLARGE_INTEGER)&NewFileSize )) {
+
+            Status = STATUS_USER_MAPPED_FILE;
+            DebugTrace( -1, Dbg, ("NtfsSetEndOfFileInfo -> %08lx\n", Status) );
+
+            return Status;
+        }
+
+#ifdef _CAIRO_
+
+        //
+        //  If this is a change file size call after the stream has been cleaned
+        //  up the fix the quota now.
+        //
+
+        if (FileSizeChanged &&
+            Scb->CleanupCount == 0 &&
+            NtfsPerformQuotaOperation( Scb->Fcb)) {
+
+            LONGLONG Delta = NewFileSize - Scb->Header.FileSize.QuadPart;
+
+            ASSERT(!FlagOn( Scb->ScbState, SCB_STATE_QUOTA_ENLARGED ));
+            ASSERT(!FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_QUOTA_DISABLE ));
+            ASSERT( FALSE );
+            NtfsUpdateFileQuota( IrpContext,
+                                 Scb->Fcb,
+                                 &Delta,
+                                 TRUE,
+                                 FALSE );
+
+            SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_QUOTA_DISABLE );
+        }
+
+#endif // _CAIRO_
+
+        //
+        //  If this is a resident attribute we will try to keep it resident.
+        //
+
+        if (FlagOn( Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT )) {
+
+            ATTRIBUTE_ENUMERATION_CONTEXT AttrContext;
+
+            if (FileSizeChanged) {
+
+                //
+                //  If the new file size is larger than a file record then convert
+                //  to non-resident and use the non-resident code below.  Otherwise
+                //  call ChangeAttributeValue which may also convert to nonresident.
+                //
+
+                NtfsInitializeAttributeContext( &AttrContext );
+
+                try {
+
+                    NtfsLookupAttributeForScb( IrpContext,
+                                               Scb,
+                                               NULL,
+                                               &AttrContext );
+
+                    //
+                    //  Either convert or change the attribute value.
+                    //
+
+                    if (NewFileSize >= Scb->Vcb->BytesPerFileRecordSegment) {
+
+                        NtfsConvertToNonresident( IrpContext,
+                                                  Fcb,
+                                                  NtfsFoundAttribute( &AttrContext ),
+                                                  BooleanFlagOn(Irp->Flags, IRP_PAGING_IO),
+                                                  &AttrContext );
+
+                    } else {
+
+                        ULONG AttributeOffset;
+
+                        //
+                        //  We are sometimes called by MM during a create section, so
+                        //  for right now the best way we have of detecting a create
+                        //  section is IRP_PAGING_IO being set, as in FsRtlSetFileSizes.
+                        //
+
+                        if ((ULONG) NewFileSize > Scb->Header.FileSize.LowPart) {
+
+                            AttributeOffset = Scb->Header.ValidDataLength.LowPart;
+
+                        } else {
+
+                            AttributeOffset = (ULONG) NewFileSize;
+                        }
+
+                        NtfsChangeAttributeValue( IrpContext,
+                                                  Fcb,
+                                                  AttributeOffset,
+                                                  NULL,
+                                                  (ULONG) NewFileSize - AttributeOffset,
+                                                  TRUE,
+                                                  FALSE,
+                                                  BooleanFlagOn(Irp->Flags, IRP_PAGING_IO),
+                                                  FALSE,
+                                                  &AttrContext );
+
+                        Scb->Header.FileSize.QuadPart = NewFileSize;
+
+                        //
+                        //  If the file went non-resident, then the allocation size in
+                        //  the Scb is correct.  Otherwise we quad-align the new file size.
+                        //
+
+                        if (FlagOn( Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT )) {
+
+                            Scb->Header.AllocationSize.LowPart = QuadAlign( Scb->Header.FileSize.LowPart );
+                            Scb->Header.ValidDataLength.QuadPart = NewFileSize;
+
+                            Scb->TotalAllocated = Scb->Header.AllocationSize.QuadPart;
+                        }
+
+                        NonResidentPath = FALSE;
+                    }
+
+                } finally {
+
+                    NtfsCleanupAttributeContext( &AttrContext );
+                }
+
+            } else {
+
+                NonResidentPath = FALSE;
+            }
+        }
+
+        //
+        //  It is extremely expensive to make this call on a file that is not
+        //  cached, and Ntfs has suffered stack overflows in addition to massive
+        //  time and disk I/O expense (CcZero data on user mapped files!).  Therefore,
+        //  if no one has the file cached, we cache it here to make this call cheaper.
+        //
+        //  Don't create the stream file if called from FsRtlSetFileSize (which sets
+        //  IRP_PAGING_IO) because mm is in the process of creating a section.
+        //
+
+        if (FileSizeChanged &&
+            !CcIsFileCached(FileObject) &&
+            !FlagOn(Fcb->FcbState, FCB_STATE_PAGING_FILE) &&
+            !FlagOn(Irp->Flags, IRP_PAGING_IO)) {
+
+            NtfsCreateInternalAttributeStream( IrpContext, Scb, FALSE );
+        }
+
+        //
+        //  We now test if we need to modify the non-resident Eof.  We will
+        //  do this in two cases.  Either we're converting from resident in
+        //  two steps or the attribute was initially non-resident.  We can ignore
+        //  this step if not changing the file size.
+        //
+
+        if (NonResidentPath) {
+
+            //
+            //  Now determine where the new file size lines up with the
+            //  current file layout.  The two cases we need to consider are
+            //  where the new file size is less than the current file size and
+            //  valid data length, in which case we need to shrink them.
+            //  Or we new file size is greater than the current allocation,
+            //  in which case we need to extend the allocation to match the
+            //  new file size.
+            //
 
             if (NewFileSize > Scb->Header.AllocationSize.QuadPart) {
 
-                DebugTrace( 0, Dbg, "Adding allocation to file\n", 0 );
+                DebugTrace( 0, Dbg, ("Adding allocation to file\n") );
 
                 //
                 //  Add the allocation.
@@ -5763,29 +6424,7 @@ Return Value:
                                    FALSE );
             }
 
-            //
-            //  Now determine where the new file size lines up with the
-            //  current file layout.  The two cases we need to consider are
-            //  where the new file size is less than the current file size and
-            //  valid data length, in which case we need to shrink them.
-            //  Or we new file size is greater than the current allocation,
-            //  in which case we need to extend the allocation to match the
-            //  new file size.
-            //
-
             NewValidDataLength = Scb->Header.ValidDataLength.QuadPart;
-
-            if (NewFileSize < NewValidDataLength) {
-
-                NewValidDataLength = NewFileSize;
-            }
-        }
-
-        //
-        //  Update the Scb sizes if this is not a cache manager call..
-        //
-
-        if (!RealAdvanceOnly) {
 
             //
             //  If this is a paging file, let the whole thing be valid
@@ -5793,116 +6432,147 @@ Return Value:
             //  we really write this into the file.
             //
 
-            if (FlagOn(Fcb->FcbState, FCB_STATE_PAGING_FILE)) {
+            if (FlagOn( Fcb->FcbState, FCB_STATE_PAGING_FILE )) {
 
+                VCN AllocatedVcns;
+
+                AllocatedVcns = Int64ShraMod32(Scb->Header.AllocationSize.QuadPart, Scb->Vcb->ClusterShift);
+
+                Scb->ValidDataToDisk =
+                Scb->Header.ValidDataLength.QuadPart =
                 NewValidDataLength = NewFileSize;
-                AdvanceOnly = TRUE;
+
+                //
+                //  If this is the paging file then guarantee that the Mcb is fully loaded.
+                //
+
+                NtfsPreloadAllocation( IrpContext, Scb, 0, AllocatedVcns );
             }
 
-            Scb->Header.ValidDataLength.QuadPart = NewValidDataLength;
+            if (NewFileSize < NewValidDataLength) {
+
+                Scb->Header.ValidDataLength.QuadPart =
+                NewValidDataLength = NewFileSize;
+            }
+
+            if (NewFileSize < Scb->ValidDataToDisk) {
+
+                Scb->ValidDataToDisk = NewFileSize;
+            }
+
             Scb->Header.FileSize.QuadPart = NewFileSize;
+
+            //
+            //  Call our common routine to modify the file sizes.  We are now
+            //  done with NewFileSize and NewValidDataLength, and we have
+            //  PagingIo + main exclusive (so no one can be working on this Scb).
+            //  NtfsWriteFileSizes uses the sizes in the Scb, and this is the
+            //  one place where in Ntfs where we wish to use a different value
+            //  for ValidDataLength.  Therefore, we save the current ValidData
+            //  and plug it with our desired value and restore on return.
+            //
+
+            ASSERT( NewFileSize == Scb->Header.FileSize.QuadPart );
+            ASSERT( NewValidDataLength == Scb->Header.ValidDataLength.QuadPart );
+
+            NtfsWriteFileSizes( IrpContext,
+                                Scb,
+                                &Scb->Header.ValidDataLength.QuadPart,
+                                BooleanFlagOn( Fcb->FcbState, FCB_STATE_PAGING_FILE ),
+                                TRUE );
         }
 
         //
-        //  Call our common routine to modify the file sizes.
+        //  If the file size changed then mark this file object as having changed the size.
         //
 
-        NtfsWriteFileSizes( IrpContext,
-                            Scb,
-                            NewFileSize,
-                            NewValidDataLength,
-                            AdvanceOnly,
-                            TRUE );
-    }
+        if (FileSizeChanged) {
 
-    if (!RealAdvanceOnly) {
-
-        //
-        //  Now update the duplicate information if this is not a cache manager call.
-        //
-
-        KeQuerySystemTime( (PLARGE_INTEGER)&CurrentTime );
-
-        //
-        //  We need to update the time stamps if the user hasn't
-        //  done so himself.  There may not be a Ccb if this call
-        //  is from MM.  If this is the paging file itself, we do perform the
-        //  update.
-        //
-
-        if ((FlagOn( Fcb->FcbState, FCB_STATE_PAGING_FILE ))
-            || (Ccb != NULL
-                && !FlagOn( Ccb->Flags, CCB_FLAG_USER_SET_LAST_CHANGE_TIME ))) {
-
-            Fcb->Info.LastChangeTime = CurrentTime;
-            SetFlag( Fcb->InfoFlags, FCB_INFO_CHANGED_LAST_CHANGE );
-            SetFlag( Fcb->FcbState, FCB_STATE_UPDATE_STD_INFO );
+            SetFlag( FileObject->Flags, FO_FILE_SIZE_CHANGED );
         }
 
-        if (FlagOn( Scb->ScbState, SCB_STATE_UNNAMED_DATA )) {
+        //
+        //  Always mark the data stream as modified.
+        //
 
-            if ((FlagOn( Fcb->FcbState, FCB_STATE_PAGING_FILE ))
-                || (Ccb != NULL
-                    && !FlagOn( Ccb->Flags, CCB_FLAG_USER_SET_LAST_MOD_TIME ))) {
+        if (ARGUMENT_PRESENT( Ccb )) {
 
-                Fcb->Info.LastModificationTime = CurrentTime;
-                SetFlag( Fcb->InfoFlags, FCB_INFO_CHANGED_LAST_MOD );
-                SetFlag( Fcb->FcbState, FCB_STATE_UPDATE_STD_INFO );
-            }
+            SetFlag( Ccb->Flags,
+                     (CCB_FLAG_UPDATE_LAST_MODIFY |
+                      CCB_FLAG_UPDATE_LAST_CHANGE |
+                      CCB_FLAG_SET_ARCHIVE) );
 
-            Fcb->Info.FileSize = Scb->Header.FileSize.QuadPart;
-            SetFlag( Fcb->InfoFlags, FCB_INFO_CHANGED_FILE_SIZE );
+        } else {
 
-            if (Scb->Header.AllocationSize.QuadPart != Scb->ScbSnapshot->AllocationSize) {
-
-                Fcb->Info.AllocatedLength = Scb->Header.AllocationSize.QuadPart;
-                SetFlag( Fcb->InfoFlags, FCB_INFO_CHANGED_ALLOC_SIZE );
-            }
-
-        } else if (Scb->AttributeName.Length != 0
-                   && Scb->AttributeTypeCode == $DATA) {
-
-            SetFlag( Scb->ScbState, SCB_STATE_NOTIFY_RESIZE_STREAM );
+            SetFlag( FileObject->Flags, FO_FILE_MODIFIED );
         }
+
+        //
+        //  Now capture any file size changes in this file object back to the Fcb.
+        //
+
+        NtfsUpdateScbFromFileObject( IrpContext, FileObject, Scb, VcbAcquired );
+
+        //
+        //  Update the standard information if required.
+        //
 
         if (FlagOn( Fcb->FcbState, FCB_STATE_UPDATE_STD_INFO )) {
 
             NtfsUpdateStandardInformation( IrpContext, Fcb );
+            ClearFlag( Fcb->FcbState, FCB_STATE_UPDATE_STD_INFO );
         }
 
         //
-        //  Checkpoint the current transaction so we don't have the case
-        //  where the CC call recurses into NtfsWrite which then begins
-        //  a nested transaction by updating the valid data length.
+        //  We know we wrote out any changes to the file size above so clear the
+        //  flag in the Scb to check the attribute size.  This will save us from doing
+        //  this unnecessarily at cleanup.
         //
+
+        if (FileSizeChanged) {
+
+            ClearFlag( Scb->ScbState, SCB_STATE_CHECK_ATTRIBUTE_SIZE );
+        }
 
         NtfsCheckpointCurrentTransaction( IrpContext );
 
         //
-        //  Update duplicated information for any unnamed data stream.
-        //  Don't do it for the valid data callback from the lazy writer.
+        //  Update duplicated information.
         //
 
-        if (VcbAcquired &&
-            Fcb->InfoFlags != 0) {
+        if (VcbAcquired) {
 
             NtfsUpdateFileDupInfo( IrpContext, Fcb, Ccb );
+        }
+
+        //
+        //  Only call if the file is cached now, because the other case
+        //  may cause recursion in write!
+
+        if (CcIsFileCached(FileObject)) {
 
             //
             //  We want to checkpoint the transaction if there is one active.
             //
 
-            if (IrpContext->TopLevelIrpContext->TransactionId != 0) {
+            if (IrpContext->TransactionId != 0) {
 
                 NtfsCheckpointCurrentTransaction( IrpContext );
             }
+
+            CcSetFileSizes( FileObject, (PCC_FILE_SIZES)&Scb->Header.AllocationSize );
         }
 
         //
-        //  Update the cache manager.
+        //  Clear out the write mask on truncates to zero.
         //
 
-        CcSetFileSizes( FileObject, (PCC_FILE_SIZES)&Scb->Header.AllocationSize );
+#ifdef SYSCACHE
+        if ((Scb->Header.FileSize.QuadPart == 0) && FlagOn(Scb->ScbState, SCB_STATE_SYSCACHE_FILE) &&
+            (Scb->ScbType.Data.WriteMask != NULL)) {
+            RtlZeroMemory(Scb->ScbType.Data.WriteMask, (((0x2000000) / PAGE_SIZE) / 8));
+        }
+#endif
 
         //
         //  Now cleanup the stream we created if there are no more user
@@ -5910,13 +6580,13 @@ Return Value:
         //
 
         if ((Scb->CleanupCount == 0) && (Scb->FileObject != NULL)) {
-            NtfsDeleteInternalAttributeStream( IrpContext, Scb, FALSE );
+            NtfsDeleteInternalAttributeStream( Scb, FALSE );
         }
     }
 
     Status = STATUS_SUCCESS;
 
-    DebugTrace(-1, Dbg, "NtfsSetEndOfFileInfo -> %08lx\n", Status);
+    DebugTrace( -1, Dbg, ("NtfsSetEndOfFileInfo -> %08lx\n", Status) );
 
     return Status;
 }
@@ -5928,8 +6598,9 @@ Return Value:
 
 NTSTATUS
 NtfsCheckScbForLinkRemoval (
-    IN PIRP_CONTEXT IrpContext,
-    IN PSCB Scb
+    IN PSCB Scb,
+    OUT PSCB *BatchOplockScb,
+    OUT PULONG BatchOplockCount
     )
 
 /*++
@@ -5944,6 +6615,11 @@ Arguments:
 
     Scb - Scb whose children are to be examined.
 
+    BatchOplockScb - Address to store Scb which may have a batch oplock.
+
+    BatchOplockCount - Number of files which have batch oplocks on this
+        pass through the directory tree.
+
 Return Value:
 
     NTSTATUS - STATUS_SUCCESS if the link can be removed,
@@ -5954,10 +6630,16 @@ Return Value:
 {
     NTSTATUS Status = STATUS_SUCCESS;
     PSCB NextScb;
-
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsCheckScbForLinkRemoval:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsCheckScbForLinkRemoval:  Entered\n") );
+
+    //
+    //  Initialize the batch oplock state.
+    //
+
+    *BatchOplockCount = 0;
+    *BatchOplockScb = NULL;
 
     //
     //  If this is a directory file and we are removing a link,
@@ -5971,27 +6653,46 @@ Return Value:
 
     NextScb = Scb;
 
-    while ((NextScb = NtfsGetNextScb( IrpContext, NextScb, Scb )) != NULL) {
+    while ((NextScb = NtfsGetNextScb( NextScb, Scb )) != NULL) {
 
         //
-        //  Stop if there are open handles.
+        //  Stop if there are open handles.  If there is a batch oplock on
+        //  this file then we will try to break the batch oplock.  In this
+        //  pass we will just count the number of files with batch oplocks
+        //  and remember the first one we encounter.
         //
 
         if (NextScb->Fcb->CleanupCount != 0) {
 
-            Status = STATUS_ACCESS_DENIED;
-            DebugTrace( 0, Dbg, "NtfsCheckScbForLinkRemoval:  Directory to rename has open children\n", 0 );
+            if ((NextScb->AttributeTypeCode == $DATA) &&
+                (NextScb->Header.NodeTypeCode == NTFS_NTC_SCB_DATA) &&
+                FsRtlCurrentBatchOplock( &NextScb->ScbType.Data.Oplock )) {
 
-            break;
+                *BatchOplockCount += 1;
+
+                if (*BatchOplockScb == NULL) {
+
+                    *BatchOplockScb = NextScb;
+                    Status = STATUS_PENDING;
+                }
+
+            } else {
+
+                Status = STATUS_ACCESS_DENIED;
+                DebugTrace( 0, Dbg, ("NtfsCheckScbForLinkRemoval:  Directory to rename has open children\n") );
+
+                break;
+            }
         }
     }
 
+    //
     //
     //  We know there are no opens below this point.  We will remove any prefix
     //  entries later.
     //
 
-    DebugTrace( -1, Dbg, "NtfsCheckScbForLinkRemoval:  Exit -> %08lx\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsCheckScbForLinkRemoval:  Exit -> %08lx\n") );
 
     return Status;
 }
@@ -6006,8 +6707,8 @@ NtfsFindTargetElements (
     IN PIRP_CONTEXT IrpContext,
     IN PFILE_OBJECT TargetFileObject,
     IN PSCB ParentScb,
-    OUT PFCB *TargetParentFcb,
     OUT PSCB *TargetParentScb,
+    OUT PUNICODE_STRING FullTargetFileName,
     OUT PUNICODE_STRING TargetFileName
     )
 
@@ -6027,26 +6728,14 @@ Arguments:
 
     ParentScb - This is current directory for the link.
 
-    Fcb - This is the Fcb for the link which is being renamed.
+    TargetParentScb - This is the location to store the parent of the target.
 
-    Lcb - This is the link being renamed.
+    FullTargetFileName - This is a pointer to a unicode string which will point
+        to the name from the root.  We clear this if there is no full name
+        available.
 
-    FileNameAttr - This is the file name attribute for the matching link
-        on the disk.
-
-    FileReference - This is the file reference for the matching link found.
-
-    TargetFileName - This is the name to use for the rename.
-
-    IgnoreCase - Indicates if the search was case sensistive or insensitive.
-
-    TraverseMatch - Address to store whether the source link and target
-        link traverse the same directory and file.
-
-    ExactCaseMatch - Indicate if the source and target link names are an
-        exact case match.
-
-    RemoveTargetLink - Indicates if we need to remove the target link.
+    TargetFileName - This is a pointer to a unicode string which will point to
+        the target name on exit.
 
 Return Value:
 
@@ -6057,7 +6746,7 @@ Return Value:
 {
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsFindTargetElements:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsFindTargetElements:  Entered\n") );
 
     //
     //  We need to find the target parent directory, target file and target
@@ -6070,6 +6759,7 @@ Return Value:
     if (TargetFileObject != NULL) {
 
         PVCB TargetVcb;
+        PFCB TargetFcb;
         PCCB TargetCcb;
 
         USHORT PreviousLength;
@@ -6086,14 +6776,15 @@ Return Value:
         if ((NtfsDecodeFileObject( IrpContext,
                                    TargetFileObject,
                                    &TargetVcb,
-                                   TargetParentFcb,
+                                   &TargetFcb,
                                    TargetParentScb,
                                    &TargetCcb,
-                                   TRUE ) != UserDirectoryOpen)
-            || (ParentScb != NULL &&
-                TargetVcb != ParentScb->Vcb)) {
+                                   TRUE ) != UserDirectoryOpen) ||
 
-            DebugTrace( -1, Dbg, "NtfsFindTargetElements:  Target file object is invalid\n", 0 );
+            ((ParentScb != NULL) &&
+             (TargetVcb != ParentScb->Vcb))) {
+
+            DebugTrace( -1, Dbg, ("NtfsFindTargetElements:  Target file object is invalid\n") );
 
             NtfsRaiseStatus( IrpContext, STATUS_INVALID_PARAMETER, NULL, NULL );
         }
@@ -6105,6 +6796,8 @@ Return Value:
         LastFileNameOffset = PreviousLength = TargetFileObject->FileName.Length;
 
         TargetFileObject->FileName.Length = TargetFileObject->FileName.MaximumLength;
+
+        *FullTargetFileName = TargetFileObject->FileName;
 
         //
         //  If the first character at the final component is a backslash, move the
@@ -6139,13 +6832,17 @@ Return Value:
         Buffer = IrpContext->OriginatingIrp->AssociatedIrp.SystemBuffer;
 
         *TargetParentScb = ParentScb;
-        *TargetParentFcb = ParentScb->Fcb;
 
+        TargetFileName->MaximumLength =
         TargetFileName->Length = (USHORT)Buffer->FileNameLength;
         TargetFileName->Buffer = (PWSTR) &Buffer->FileName;
+
+        FullTargetFileName->Length =
+        FullTargetFileName->MaximumLength = 0;
+        FullTargetFileName->Buffer = NULL;
     }
 
-    DebugTrace( -1, Dbg, "NtfsFindTargetElements:  Exit\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsFindTargetElements:  Exit\n") );
 
     return;
 }
@@ -6153,12 +6850,11 @@ Return Value:
 
 BOOLEAN
 NtfsCheckLinkForNewLink (
-    IN PIRP_CONTEXT IrpContext,
     IN PFCB Fcb,
     IN PFILE_NAME FileNameAttr,
     IN FILE_REFERENCE FileReference,
-    IN UNICODE_STRING TargetFileName,
-    OUT PBOOLEAN TraverseMatch
+    IN PUNICODE_STRING NewLinkName,
+    OUT PULONG LinkFlags
     )
 
 /*++
@@ -6181,9 +6877,9 @@ Arguments:
 
     FileReference - This is the file reference for the matching link found.
 
-    TargetFileName - This is the name to use for the rename.
+    NewLinkName - This is the name to use for the rename.
 
-    TraverseMatch - Address to store whether the source link and target
+    LinkFlags - Address of flags field to store whether the source link and target
         link traverse the same directory and file.
 
 Return Value:
@@ -6193,31 +6889,31 @@ Return Value:
 --*/
 
 {
-    BOOLEAN NoWorkToDo;
-    BOOLEAN ExactCaseMatch;
-
-    UNREFERENCED_PARAMETER(IrpContext);
+    BOOLEAN NoWorkToDo = FALSE;
 
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsCheckLinkForNewLink:  Entered\n", 0 );
-
-    NoWorkToDo = FALSE;
+    DebugTrace( +1, Dbg, ("NtfsCheckLinkForNewLink:  Entered\n") );
 
     //
     //  Check if the file references match.
     //
 
-    *TraverseMatch = NtfsEqualMftRef( &FileReference,
-                                      &Fcb->FileReference );
+    if (NtfsEqualMftRef( &FileReference, &Fcb->FileReference )) {
+
+        SetFlag( *LinkFlags, TRAVERSE_MATCH );
+    }
 
     //
     //  We need to determine if we have an exact match for the link names.
     //
 
-    ExactCaseMatch = (BOOLEAN) (RtlCompareMemory( FileNameAttr->FileName,
-                                                  TargetFileName.Buffer,
-                                                  TargetFileName.Length ) == (ULONG)TargetFileName.Length );
+    if (RtlEqualMemory( FileNameAttr->FileName,
+                        NewLinkName->Buffer,
+                        NewLinkName->Length )) {
+
+        SetFlag( *LinkFlags, EXACT_CASE_MATCH );
+    }
 
     //
     //  We now have to decide whether we will be removing the target link.
@@ -6228,12 +6924,12 @@ Return Value:
     //      2 - The names are an exact case match.
     //
 
-    if (*TraverseMatch && ExactCaseMatch) {
+    if (FlagOn( *LinkFlags, TRAVERSE_MATCH | EXACT_CASE_MATCH ) == (TRAVERSE_MATCH | EXACT_CASE_MATCH)) {
 
         NoWorkToDo = TRUE;
     }
 
-    DebugTrace( -1, Dbg, "NtfsCheckLinkForNewLink:  Exit\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsCheckLinkForNewLink:  Exit\n") );
 
     return NoWorkToDo;
 }
@@ -6245,20 +6941,13 @@ Return Value:
 
 VOID
 NtfsCheckLinkForRename (
-    IN PIRP_CONTEXT IrpContext,
     IN PFCB Fcb,
     IN PLCB Lcb,
     IN PFILE_NAME FileNameAttr,
     IN FILE_REFERENCE FileReference,
-    IN UNICODE_STRING TargetFileName,
+    IN PUNICODE_STRING TargetFileName,
     IN BOOLEAN IgnoreCase,
-    IN BOOLEAN MoveToNewDir,
-    OUT PBOOLEAN TraverseMatch,
-    OUT PBOOLEAN ExactCaseMatch,
-    OUT PBOOLEAN RemoveTargetLink,
-    OUT PBOOLEAN RemoveSourceLink,
-    OUT PBOOLEAN AddTargetLink,
-    OUT PBOOLEAN OverwriteSourceLink
+    IN OUT PULONG RenameFlags
     )
 
 /*++
@@ -6287,21 +6976,7 @@ Arguments:
 
     IgnoreCase - Indicates if the user is case sensitive.
 
-    MovedToNewDir - Indicates if we are moving the link to a different directory.
-
-    TraverseMatch - Address to store whether the new link and target
-        link traverse the same directory and file.
-
-    ExactCaseMatch - Indicate if the source and target link names are an
-        exact case match.
-
-    RemoveTargetLink - Indicates if we need to remove the target link.
-
-    RemoveSourceLink - Indicates if we need to remove the source link.
-
-    AddTargetLink - Indicates if we need to add a target link.
-
-    OverwriteSourceLink - Indicates if we are changing case of the link we opened.
+    RenameFlags - Flag field which indicates which updates to perform.
 
 Return Value:
 
@@ -6310,27 +6985,30 @@ Return Value:
 --*/
 
 {
-    UNREFERENCED_PARAMETER(IrpContext);
-
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsCheckLinkForRename:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsCheckLinkForRename:  Entered\n") );
 
     //
     //  Check if the file references match.
     //
 
-    *TraverseMatch = NtfsEqualMftRef( &FileReference,
-                                      &Fcb->FileReference );
+    if (NtfsEqualMftRef( &FileReference, &Fcb->FileReference )) {
+
+        SetFlag( *RenameFlags, TRAVERSE_MATCH );
+    }
 
     //
     //  We need to determine if we have an exact match between the desired name
     //  and the current name for the link.  We already know the length are the same.
     //
 
-    *ExactCaseMatch = (BOOLEAN) (RtlCompareMemory( FileNameAttr->FileName,
-                                                   TargetFileName.Buffer,
-                                                   TargetFileName.Length ) == (ULONG)TargetFileName.Length );
+    if (RtlEqualMemory( FileNameAttr->FileName,
+                        TargetFileName->Buffer,
+                        TargetFileName->Length )) {
+
+        SetFlag( *RenameFlags, EXACT_CASE_MATCH );
+    }
 
     //
     //  If this is a traverse match (meaning the desired link and the link
@@ -6341,72 +7019,62 @@ Return Value:
     //  which matches the target name exactly.
     //
 
-    if (*TraverseMatch) {
+    if (FlagOn( *RenameFlags, TRAVERSE_MATCH )) {
 
-        if (MoveToNewDir) {
+        //
+        //  If we are in the same directory and are renaming between Ntfs and Dos
+        //  links then don't remove the link twice.
+        //
+
+        if (!FlagOn( *RenameFlags, MOVE_TO_NEW_DIR )) {
 
             //
-            //  If the names match exactly we can reuse the links if we don't have a
-            //  conflict with the name flags.
+            //  If We are renaming from between primary links then don't remove the
+            //  source.  It is removed with the target.
             //
 
-            if (*ExactCaseMatch
-                && !(IgnoreCase
-                     && FlagOn( Lcb->FileNameFlags, FILE_NAME_DOS | FILE_NAME_NTFS ))) {
+            if ((Lcb->FileNameAttr->Flags != 0) && (FileNameAttr->Flags != 0)) {
+
+                ClearFlag( *RenameFlags, ACTIVELY_REMOVE_SOURCE_LINK );
+                SetFlag( *RenameFlags, OVERWRITE_SOURCE_LINK );
 
                 //
-                //  Otherwise we are renaming hard links or this is a Posix opener.
+                //  If this is an exact case match then don't remove the source at all.
                 //
 
-                *RemoveTargetLink = FALSE;
-                *AddTargetLink = FALSE;
+                if (FlagOn( *RenameFlags, EXACT_CASE_MATCH )) {
+
+                    ClearFlag( *RenameFlags, REMOVE_SOURCE_LINK );
+                }
+
+            //
+            //  If we are changing the case of a link only, then don't remove the link twice.
+            //
+
+            } else if (RtlEqualMemory( Lcb->ExactCaseLink.LinkName.Buffer,
+                                       FileNameAttr->FileName,
+                                       Lcb->ExactCaseLink.LinkName.Length )) {
+
+                SetFlag( *RenameFlags, OVERWRITE_SOURCE_LINK );
+                ClearFlag( *RenameFlags, ACTIVELY_REMOVE_SOURCE_LINK );
             }
+        }
 
-        } else {
+        //
+        //  If the names match exactly we can reuse the links if we don't have a
+        //  conflict with the name flags.
+        //
 
-            //
-            //  We are overwriting the source link if the name in the FileNameAttr
-            //  matches that in the Lcb exactly.
-            //
-
-            *OverwriteSourceLink = (BOOLEAN) (TargetFileName.Length == Lcb->ExactCaseLink.LinkName.Length
-                                              && (RtlCompareMemory( FileNameAttr->FileName,
-                                                                    Lcb->ExactCaseLink.LinkName.Buffer,
-                                                                    TargetFileName.Length ) == (ULONG)TargetFileName.Length ));
-
-            //
-            //  If we have an exact case match and we are renaming from the
-            //  8.3 name to the Ntfs name, there are no links to remove.
-            //
-
-            if (*ExactCaseMatch
-                && Lcb->FileNameFlags == FILE_NAME_DOS
-                && FileNameAttr->Flags == FILE_NAME_NTFS) {
-
-                *RemoveTargetLink = FALSE;
-                *RemoveSourceLink = FALSE;
-                *AddTargetLink = FALSE;
+        if (FlagOn( *RenameFlags, EXACT_CASE_MATCH ) &&
+            (FlagOn( *RenameFlags, OVERWRITE_SOURCE_LINK ) ||
+             !IgnoreCase ||
+             !FlagOn( Lcb->FileNameAttr->Flags, FILE_NAME_DOS | FILE_NAME_NTFS ))) {
 
             //
-            //  If we have an exact case match and the source is a hard link
-            //  then we don't have to remove the target.
+            //  Otherwise we are renaming hard links or this is a Posix opener.
             //
 
-            } else if (*ExactCaseMatch
-                       && Lcb->FileNameFlags == 0) {
-
-                *RemoveTargetLink = FALSE;
-                *AddTargetLink = FALSE;
-
-            //
-            //  If we are replacing the source link, then we remove the source
-            //  link and add a target link.
-            //
-
-            } else if (*OverwriteSourceLink) {
-
-                *RemoveTargetLink = FALSE;
-            }
+            ClearFlag( *RenameFlags, REMOVE_TARGET_LINK | ADD_TARGET_LINK );
         }
     }
 
@@ -6414,7 +7082,7 @@ Return Value:
     //  The non-traverse case is already initialized.
     //
 
-    DebugTrace( -1, Dbg, "NtfsCheckLinkForRename:  Exit\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsCheckLinkForRename:  Exit\n") );
 
     return;
 }
@@ -6424,12 +7092,8 @@ Return Value:
 //  Local support routine
 //
 
-NTSTATUS
-NtfsCheckLinkForRemoval (
-    IN PIRP_CONTEXT IrpContext,
-    IN PVCB Vcb,
-    IN PSCB ParentScb,
-    IN PINDEX_ENTRY IndexEntry,
+VOID
+NtfsCleanupLinkForRemoval (
     IN PFCB PreviousFcb,
     IN BOOLEAN ExistingFcb
     )
@@ -6438,17 +7102,10 @@ NtfsCheckLinkForRemoval (
 
 Routine Description:
 
-    This routine will check that a link may be removed from an existing
-    file during a link supersede.  The target link may not have any
-    open handles and may not refer to a read-only file or a directory.
+    This routine does the all cleanup on a file/link which is the target
+    of either a rename or set link operation.
 
 Arguments:
-
-    Vcb - Vcb for the volume.
-
-    ParentScb - This is the Scb for the parent of this link.
-
-    IndexEntry - This is the index entry for the link to remove.
 
     PreviousFcb - Address to store the Fcb for the file whose link is
         being removed.
@@ -6457,34 +7114,14 @@ Arguments:
 
 Return Value:
 
-    NTSTATUS - Indicates whether we can remove this link or a status code
-        indicating why we can't.
+    None
 
 --*/
 
 {
-    NTSTATUS Status;
-
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsCheckLinkForRemoval:  Entered\n", 0 );
-
-    //
-    //  Call our routine to check if the file can be removed.
-    //
-
-    Status = NtfsCheckFileForDelete( IrpContext,
-                                     Vcb,
-                                     ParentScb,
-                                     PreviousFcb,
-                                     ExistingFcb,
-                                     IndexEntry );
-
-    if (!NT_SUCCESS( Status )) {
-
-        DebugTrace( -1, Dbg, "NtfsCheckLinkForRemoval:  No delete access\n", 0 );
-        return Status;
-    }
+    DebugTrace( +1, Dbg, ("NtfsCleanupLinkForRemoval:  Entered\n") );
 
     //
     //  If the Fcb existed, we remove all of the prefix entries for it.
@@ -6503,15 +7140,14 @@ Return Value:
                                          LCB,
                                          FcbLinks );
 
-            NtfsRemovePrefix( IrpContext,
-                              ThisLcb );
+            NtfsRemovePrefix( ThisLcb );
 
         } // End for each Lcb of Fcb
     }
 
-    DebugTrace( -1, Dbg, "NtfsCheckLinkForRemoval:  Exit\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsCleanupLinkForRemoval:  Exit\n") );
 
-    return Status;
+    return;
 }
 
 
@@ -6560,7 +7196,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsUpdateFcbFromLinkRemoval:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsUpdateFcbFromLinkRemoval:  Entered\n") );
 
     SplitPrimaryLcb = NULL;
 
@@ -6582,8 +7218,7 @@ Return Value:
 
     if (LcbSplitPrimaryLink( Lcb )) {
 
-        SplitPrimaryLcb = NtfsLookupLcbByFlags( IrpContext,
-                                                Fcb,
+        SplitPrimaryLcb = NtfsLookupLcbByFlags( Fcb,
                                                 (UCHAR) LcbSplitPrimaryComplement( Lcb ));
     }
 
@@ -6599,7 +7234,7 @@ Return Value:
                  (LCB_STATE_DELETE_ON_CLOSE | LCB_STATE_LINK_IS_GONE) );
     }
 
-    DebugTrace( -1, Dbg, "NtfsUpdateFcbFromLinkRemoval:  Exit\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsUpdateFcbFromLinkRemoval:  Exit\n") );
 
     return;
 }
@@ -6610,13 +7245,13 @@ Return Value:
 //
 
 VOID
-NtfsCreateLinkInNewDir (
+NtfsReplaceLinkInDir (
     IN PIRP_CONTEXT IrpContext,
-    IN PFILE_OBJECT TargetFileObject,
     IN PSCB ParentScb,
     IN PFCB Fcb,
+    IN PUNICODE_STRING NewLinkName,
     IN UCHAR FileNameFlags,
-    IN UNICODE_STRING PrevLinkName,
+    IN PUNICODE_STRING PrevLinkName,
     IN UCHAR PrevLinkNameFlags
     )
 
@@ -6631,11 +7266,9 @@ Arguments:
 
     ParentScb - Scb for the directory the link is being created in.
 
-    TargetFileObject - Contains the full path name of the new link.
-
-    ParentScb - This is the Scb for the new directory.
-
     Fcb - The Fcb for the file whose link is being created.
+
+    NewLinkName - Name for the new component.
 
     FileNameFlags - These are the flags to use for the new link.
 
@@ -6651,15 +7284,11 @@ Return Value:
 
 {
     PLCB TraverseLcb;
-    PLCB SplitPrimaryLcb;
-    UNICODE_STRING NewLinkName;
-
-    USHORT PreviousLength;
-    USHORT LastFileNameOffset;
+    PLCB SplitPrimaryLcb = NULL;
 
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsCreateLinkInNewDir:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsCreateLinkInNewDir:  Entered\n") );
 
     SplitPrimaryLcb = NULL;
 
@@ -6671,7 +7300,7 @@ Return Value:
     TraverseLcb = NtfsCreateLcb( IrpContext,
                                  ParentScb,
                                  Fcb,
-                                 PrevLinkName,
+                                 *PrevLinkName,
                                  PrevLinkNameFlags,
                                  NULL );
 
@@ -6682,39 +7311,9 @@ Return Value:
 
     if (LcbSplitPrimaryLink( TraverseLcb )) {
 
-        SplitPrimaryLcb = NtfsLookupLcbByFlags( IrpContext,
-                                                Fcb,
+        SplitPrimaryLcb = NtfsLookupLcbByFlags( Fcb,
                                                 (UCHAR) LcbSplitPrimaryComplement( TraverseLcb ));
     }
-
-    //
-    //  Temporarily set the file name to point to the full buffer.
-    //
-
-    LastFileNameOffset = PreviousLength = TargetFileObject->FileName.Length;
-
-    TargetFileObject->FileName.Length = TargetFileObject->FileName.MaximumLength;
-
-    //
-    //  If the first character at the final component is a backslash, move the
-    //  offset ahead by 2.
-    //
-
-    if (TargetFileObject->FileName.Buffer[LastFileNameOffset / 2] == L'\\') {
-
-        LastFileNameOffset += sizeof( WCHAR );
-    }
-
-    NtfsBuildLastFileName( IrpContext,
-                           TargetFileObject,
-                           LastFileNameOffset,
-                           &NewLinkName );
-
-    //
-    //  Restore the file object length.
-    //
-
-    TargetFileObject->FileName.Length = PreviousLength;
 
     //
     //  We now need only to rename and combine any existing Lcb's.
@@ -6723,14 +7322,16 @@ Return Value:
     NtfsRenameLcb( IrpContext,
                    TraverseLcb,
                    NewLinkName,
-                   FileNameFlags );
+                   FileNameFlags,
+                   FALSE );
 
     if (SplitPrimaryLcb != NULL) {
 
         NtfsRenameLcb( IrpContext,
                        SplitPrimaryLcb,
                        NewLinkName,
-                       FileNameFlags );
+                       FileNameFlags,
+                       FALSE );
 
         NtfsCombineLcbs( IrpContext,
                          TraverseLcb,
@@ -6739,27 +7340,27 @@ Return Value:
         NtfsDeleteLcb( IrpContext, &SplitPrimaryLcb );
     }
 
-    DebugTrace( -1, Dbg, "NtfsCreateLinkInNewDir:  Exit\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsCreateLinkInNewDir:  Exit\n") );
 
     return;
 }
 
 
 //
-//  Local support routine
+//  Local support routine.
 //
 
 VOID
 NtfsMoveLinkToNewDir (
     IN PIRP_CONTEXT IrpContext,
-    IN PFILE_OBJECT TargetFileObject,
+    IN PUNICODE_STRING NewFullLinkName,
+    IN PUNICODE_STRING NewLinkName,
+    IN UCHAR NewLinkNameFlags,
     IN PSCB ParentScb,
     IN PFCB Fcb,
     IN OUT PLCB Lcb,
-    IN UCHAR FileNameFlags,
-    IN BOOLEAN RemovedTraverseLink,
-    IN BOOLEAN ReusedTraverseLink,
-    IN UNICODE_STRING PrevLinkName,
+    IN ULONG RenameFlags,
+    IN PUNICODE_STRING PrevLinkName,
     IN UCHAR PrevLinkNameFlags
     )
 
@@ -6773,9 +7374,11 @@ Routine Description:
 
 Arguments:
 
-    ParentScb - Scb for the directory the link is moving too.
+    NewFullLinkName - This is the full name for the new link from the root.
 
-    TargetFileObject - Contains the full path name of the new link.
+    NewLinkName - This is the last component name only.
+
+    NewLinkNameFlags - These are the flags to use for the new link.
 
     ParentScb - This is the Scb for the new directory.
 
@@ -6783,15 +7386,12 @@ Arguments:
 
     Lcb - This is the Lcb which is the base of the rename.
 
-    FileNameFlags - These are the flags to use for the new link.
+    RenameFlags - Flag field indicating the type of operations to perform
+        on file name links.
 
-    RemovedTraverseLink - This indicates if a link which traverses the same
-        parent and file was removed.
-
-    ReusedTraverseLink - This indicates that we will use the existing traverse
-        link.
-
-    PrevLinkName - File name for link being removed.
+    PrevLinkName - File name for link being removed.  Only meaningful here
+        if this is a traverse match and there are remaining Lcbs for the
+        previous link.
 
     PrevLinkNameFlags - File name flags for link being removed.
 
@@ -6802,118 +7402,274 @@ Return Value:
 --*/
 
 {
-    PLCB TraverseLcb;
-    PLCB SplitPrimaryLcb;
+    PLCB TraverseLcb = NULL;
+    PLCB SplitPrimaryLcb = NULL;
     BOOLEAN SplitSourceLcb = FALSE;
+
+    UNICODE_STRING TargetDirectoryName;
+    UNICODE_STRING SplitLinkName;
+
+    UCHAR SplitLinkNameFlags = NewLinkNameFlags;
+    BOOLEAN Found;
+
+    PFILE_NAME FileName;
+    ATTRIBUTE_ENUMERATION_CONTEXT AttrContext;
+    BOOLEAN CleanupAttrContext = FALSE;
+
+    ULONG Pass;
+    BOOLEAN CheckBufferOnly;
 
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsMoveLinkToNewDir:  Entered\n", 0 );
-
-    TraverseLcb = NULL;
-    SplitPrimaryLcb = NULL;
+    DebugTrace( +1, Dbg, ("NtfsMoveLinkToNewDir:  Entered\n") );
 
     //
-    //  If the link being moved is a split primary link, we need to find
-    //  its other half.
+    //  Use a try-finally to perform cleanup.
     //
 
-    if (LcbSplitPrimaryLink( Lcb )) {
-
-        SplitPrimaryLcb = NtfsLookupLcbByFlags( IrpContext,
-                                                Fcb,
-                                                (UCHAR) LcbSplitPrimaryComplement( Lcb ));
-
-        SplitSourceLcb = TRUE;
-
-    //
-    //  If we removed or reused a traverse link, we need to check if there is
-    //  an Lcb for it.
-    //
-
-    } else if (RemovedTraverseLink || ReusedTraverseLink) {
+    try {
 
         //
-        //  Build the name for the traverse link and call strucsup to
-        //  give us an Lcb.
+        //  Construct the unicode string for the parent directory.
         //
 
-        TraverseLcb = NtfsCreateLcb( IrpContext,
-                                     ParentScb,
-                                     Fcb,
-                                     PrevLinkName,
-                                     PrevLinkNameFlags,
-                                     NULL );
+        TargetDirectoryName = *NewFullLinkName;
+        TargetDirectoryName.Length -= NewLinkName->Length;
 
-        if (RemovedTraverseLink) {
+        if (TargetDirectoryName.Length > sizeof( WCHAR )) {
+
+            TargetDirectoryName.Length -= sizeof( WCHAR );
+        }
+
+        //  If the link being moved is a split primary link, we need to find
+        //  its other half.
+        //
+
+        if (LcbSplitPrimaryLink( Lcb )) {
+
+            SplitPrimaryLcb = NtfsLookupLcbByFlags( Fcb,
+                                                    (UCHAR) LcbSplitPrimaryComplement( Lcb ));
+            SplitSourceLcb = TRUE;
 
             //
-            //  If this is a split primary, we need to find the name flags for
-            //  the Lcb.
+            //  If we found an existing Lcb we have to update its name as well.  We may be
+            //  able to use the new name used for the Lcb passed in.  However we must check
+            //  that we don't overwrite a DOS name with an NTFS only name.
             //
 
-            if (LcbSplitPrimaryLink( TraverseLcb )) {
+            if (SplitPrimaryLcb &&
+                (SplitPrimaryLcb->FileNameAttr->Flags == FILE_NAME_DOS) &&
+                (NewLinkNameFlags == FILE_NAME_NTFS)) {
 
-                SplitPrimaryLcb = NtfsLookupLcbByFlags( IrpContext,
-                                                        Fcb,
-                                                        (UCHAR) LcbSplitPrimaryComplement( TraverseLcb ));
+                //
+                //  Lookup the dos only name on disk.
+                //
+
+                NtfsInitializeAttributeContext( &AttrContext );
+                CleanupAttrContext = TRUE;
+
+                //
+                //  Walk through the names for this entry.  There better
+                //  be one which is not a DOS-only name.
+                //
+
+                Found = NtfsLookupAttributeByCode( IrpContext,
+                                                   Fcb,
+                                                   &Fcb->FileReference,
+                                                   $FILE_NAME,
+                                                   &AttrContext );
+
+                while (Found) {
+
+                    FileName = (PFILE_NAME) NtfsAttributeValue( NtfsFoundAttribute( &AttrContext ));
+
+                    if (FileName->Flags == FILE_NAME_DOS) { break; }
+
+                    Found = NtfsLookupNextAttributeByCode( IrpContext,
+                                                           Fcb,
+                                                           $FILE_NAME,
+                                                           &AttrContext );
+                }
+
+                //
+                //  We should have found the entry.
+                //
+
+                if (!Found) {
+
+                    NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, Fcb );
+                }
+
+                //
+                //  Now build the component name.
+                //
+
+                SplitLinkName.Buffer = FileName->FileName;
+                SplitLinkName.MaximumLength =
+                SplitLinkName.Length = FileName->FileNameLength * sizeof( WCHAR );
+                SplitLinkNameFlags = FILE_NAME_DOS;
+
+            } else {
+
+                SplitLinkName = *NewLinkName;
             }
         }
-    }
 
-    //
-    //  We now move the primary Lcb.
-    //
+        //
+        //  If we removed or reused a traverse link, we need to check if there is
+        //  an Lcb for it.
+        //
 
-    NtfsMoveLcb( IrpContext,
-                 Lcb,
-                 ParentScb,
-                 Fcb,
-                 &TargetFileObject->FileName,
-                 FileNameFlags );
+        if (FlagOn( RenameFlags, REMOVE_TRAVERSE_LINK | REUSE_TRAVERSE_LINK )) {
 
-    //
-    //  If there is a second split primary we move it as well.  Then we
-    //  combine it with the primary and delete the empty Lcb.
-    //
+            //
+            //  Build the name for the traverse link and call strucsup to
+            //  give us an Lcb.
+            //
 
-    if (SplitPrimaryLcb != NULL) {
+            if (FlagOn( RenameFlags, EXACT_CASE_MATCH )) {
 
-        if (SplitSourceLcb) {
+                TraverseLcb = NtfsCreateLcb( IrpContext,
+                                             ParentScb,
+                                             Fcb,
+                                             *NewLinkName,
+                                             PrevLinkNameFlags,
+                                             NULL );
+
+            } else {
+
+                TraverseLcb = NtfsCreateLcb( IrpContext,
+                                             ParentScb,
+                                             Fcb,
+                                             *PrevLinkName,
+                                             PrevLinkNameFlags,
+                                             NULL );
+            }
+
+            if (FlagOn( RenameFlags, REMOVE_TRAVERSE_LINK )) {
+
+                //
+                //  If this is a split primary, we need to find the name flags for
+                //  the Lcb.
+                //
+
+                if (LcbSplitPrimaryLink( TraverseLcb )) {
+
+                    SplitPrimaryLcb = NtfsLookupLcbByFlags( Fcb,
+                                                            (UCHAR) LcbSplitPrimaryComplement( TraverseLcb ));
+                }
+            }
+        }
+
+        //
+        //  Now move and combine the Lcbs.  We will do this in two passes.  One will allocate buffers
+        //  of sufficient size.  The other will store the names in.
+        //
+
+        Pass = 0;
+        CheckBufferOnly = TRUE;
+        do {
+
+            //
+            //  Start with the Lcb used for the rename.
+            //
 
             NtfsMoveLcb( IrpContext,
-                         SplitPrimaryLcb,
+                         Lcb,
                          ParentScb,
                          Fcb,
-                         &TargetFileObject->FileName,
-                         FileNameFlags );
+                         &TargetDirectoryName,
+                         NewLinkName,
+                         NewLinkNameFlags,
+                         CheckBufferOnly );
+
+            //
+            //  Next do the split primary if from the source file or the target.
+            //
+
+            if (SplitPrimaryLcb && SplitSourceLcb) {
+
+                NtfsMoveLcb( IrpContext,
+                             SplitPrimaryLcb,
+                             ParentScb,
+                             Fcb,
+                             &TargetDirectoryName,
+                             &SplitLinkName,
+                             SplitLinkNameFlags,
+                             CheckBufferOnly );
+
+                //
+                //  If we are in the second pass then optionally combine these
+                //  Lcb's and delete the split.
+                //
+
+                if ((SplitLinkNameFlags == NewLinkNameFlags) && !CheckBufferOnly) {
+
+                    NtfsCombineLcbs( IrpContext, Lcb, SplitPrimaryLcb );
+                    NtfsDeleteLcb( IrpContext, &SplitPrimaryLcb );
+                }
+            }
+
+            //
+            //  If we have a traverse link and are in the second pass then combine
+            //  with the primary Lcb.
+            //
+
+            if (!CheckBufferOnly) {
+
+                if (TraverseLcb != NULL) {
+
+                    if (!FlagOn( RenameFlags, REUSE_TRAVERSE_LINK )) {
+
+                        NtfsRenameLcb( IrpContext,
+                                       TraverseLcb,
+                                       NewLinkName,
+                                       NewLinkNameFlags,
+                                       CheckBufferOnly );
+
+                        if (SplitPrimaryLcb && !SplitSourceLcb) {
+
+                            NtfsRenameLcb( IrpContext,
+                                           SplitPrimaryLcb,
+                                           NewLinkName,
+                                           NewLinkNameFlags,
+                                           CheckBufferOnly );
+
+                            //
+                            //  If we are in the second pass then optionally combine these
+                            //  Lcb's and delete the split.
+                            //
+
+                            if (!CheckBufferOnly) {
+
+                                NtfsCombineLcbs( IrpContext, Lcb, SplitPrimaryLcb );
+                                NtfsDeleteLcb( IrpContext, &SplitPrimaryLcb );
+                            }
+                        }
+                    }
+
+                    NtfsCombineLcbs( IrpContext,
+                                     Lcb,
+                                     TraverseLcb );
+
+                    NtfsDeleteLcb( IrpContext, &TraverseLcb );
+                }
+            }
+
+            Pass += 1;
+            CheckBufferOnly = FALSE;
+
+        } while (Pass < 2);
+
+    } finally {
+
+        if (CleanupAttrContext) {
+
+            NtfsCleanupAttributeContext( &AttrContext );
         }
-
-        NtfsCombineLcbs( IrpContext,
-                         Lcb,
-                         SplitPrimaryLcb );
-
-        NtfsDeleteLcb( IrpContext, &SplitPrimaryLcb );
     }
 
-    if (TraverseLcb != NULL) {
-
-        if (!ReusedTraverseLink) {
-
-            NtfsRenameLcb( IrpContext,
-                           TraverseLcb,
-                           Lcb->ExactCaseLink.LinkName,
-                           FileNameFlags );
-        }
-
-        NtfsCombineLcbs( IrpContext,
-                         Lcb,
-                         TraverseLcb );
-
-        NtfsDeleteLcb( IrpContext, &TraverseLcb );
-    }
-
-    DebugTrace( -1, Dbg, "NtfsMoveLinkToNewDir:  Exit\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsMoveLinkToNewDir:  Exit\n") );
 
     return;
 }
@@ -6968,7 +7724,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsCreateLinkInSameDir:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsCreateLinkInSameDir:  Entered\n") );
 
     //
     //  Initialize our local variables.
@@ -6990,8 +7746,7 @@ Return Value:
 
     if (LcbSplitPrimaryLink( TraverseLcb )) {
 
-        SplitPrimaryLcb = NtfsLookupLcbByFlags( IrpContext,
-                                                Fcb,
+        SplitPrimaryLcb = NtfsLookupLcbByFlags( Fcb,
                                                 (UCHAR) LcbSplitPrimaryComplement( TraverseLcb ));
     }
 
@@ -7001,15 +7756,17 @@ Return Value:
 
     NtfsRenameLcb( IrpContext,
                    TraverseLcb,
-                   NewLinkName,
-                   NewFileNameFlags );
+                   &NewLinkName,
+                   NewFileNameFlags,
+                   FALSE );
 
     if (SplitPrimaryLcb != NULL) {
 
         NtfsRenameLcb( IrpContext,
                        SplitPrimaryLcb,
-                       NewLinkName,
-                       NewFileNameFlags );
+                       &NewLinkName,
+                       NewFileNameFlags,
+                       FALSE );
 
         NtfsCombineLcbs( IrpContext,
                          TraverseLcb,
@@ -7018,7 +7775,7 @@ Return Value:
         NtfsDeleteLcb( IrpContext, &SplitPrimaryLcb );
     }
 
-    DebugTrace( -1, Dbg, "NtfsCreateLinkInSameDir:  Exit\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsCreateLinkInSameDir:  Exit\n") );
 
     return;
 }
@@ -7034,12 +7791,10 @@ NtfsRenameLinkInDir (
     IN PSCB ParentScb,
     IN PFCB Fcb,
     IN OUT PLCB Lcb,
-    IN UNICODE_STRING NewLinkName,
-    IN UCHAR NewFileNameFlags,
-    IN BOOLEAN RemovedTraverseLink,
-    IN BOOLEAN ReusedTraverseLink,
-    IN BOOLEAN OverwriteSourceLink,
-    IN UNICODE_STRING PrevLinkName,
+    IN PUNICODE_STRING NewLinkName,
+    IN UCHAR NewLinkNameFlags,
+    IN ULONG RenameFlags,
+    IN PUNICODE_STRING PrevLinkName,
     IN UCHAR PrevLinkNameFlags
     )
 
@@ -7048,7 +7803,7 @@ NtfsRenameLinkInDir (
 Routine Description:
 
     This routine performs the in-memory work of moving renaming a link within
-    the same directory.  It will create a rename an existing link to the
+    the same directory.  It will rename an existing link to the
     new name.  It also merges whatever other links need to be joined with
     this link.  This includes the complement of a primary link pair or
     an existing hard link which may be overwritten.  Merging the existing
@@ -7065,18 +7820,12 @@ Arguments:
 
     NewLinkName - This is the name to use for the new link.
 
-    NewFileNameFlags - These are the flags to use for the new link.
+    NewLinkNameFlags - These are the flags to use for the new link.
 
-    RemovedTraverseLink - This indicates if a link which traverses the same
-        parent and file was removed.
+    RenameFlags - Flag field indicating the type of operations to perform
+        on the file name links.
 
-    ReusedTraverseLink - This indicates that we will use the existing traverse
-        link.
-
-    OverwriteSourceLink - This indicates if we are changing the case of the
-        link opened by this user.
-
-    PrevLinkName - File name for link being removed.
+    PrevLinkName - File name for link being removed.  Only meaningful for a traverse link.
 
     PrevLinkNameFlags - File name flags for link being removed.
 
@@ -7087,105 +7836,234 @@ Return Value:
 --*/
 
 {
-    PLCB TraverseLcb;
-    PLCB SplitPrimaryLcb;
+    UNICODE_STRING SplitLinkName;
+    UCHAR SplitLinkNameFlags = NewLinkNameFlags;
+
+    PLCB TraverseLcb = NULL;
+    PLCB SplitPrimaryLcb = NULL;
+
+    PFILE_NAME FileName;
+    ATTRIBUTE_ENUMERATION_CONTEXT AttrContext;
+    BOOLEAN CleanupAttrContext = FALSE;
+    BOOLEAN Found;
+
+    ULONG Pass;
+    BOOLEAN CheckBufferOnly;
 
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsRenameLinkInDir:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsRenameLinkInDir:  Entered\n") );
 
     //
-    //  Initialize our local variables.
+    //  Use a try-finally to facilitate cleanup.
     //
 
-    TraverseLcb = NULL;
-    SplitPrimaryLcb = NULL;
+    try {
 
-    //
-    //  We have the Lcb which will be our primary Lcb and the name we need
-    //  to perform the rename.  If the current Lcb is a split primary link
-    //  or we removed a split primary link, then we need to find any
-    //  the other split link.
-    //
+        //
+        //  We have the Lcb which will be our primary Lcb and the name we need
+        //  to perform the rename.  If the current Lcb is a split primary link
+        //  or we removed a split primary link, then we need to find any
+        //  the other split link.
+        //
 
-    if (LcbSplitPrimaryLink( Lcb )) {
+        if (LcbSplitPrimaryLink( Lcb )) {
 
-        SplitPrimaryLcb = NtfsLookupLcbByFlags( IrpContext,
-                                                Fcb,
-                                                (UCHAR) LcbSplitPrimaryComplement( Lcb ));
-
-    //
-    //  If we used a traverse link, we need to check if there is
-    //  an Lcb for it.
-    //
-
-    } else if (!OverwriteSourceLink && (RemovedTraverseLink || ReusedTraverseLink)) {
-
-        TraverseLcb = NtfsCreateLcb( IrpContext,
-                                     ParentScb,
-                                     Fcb,
-                                     PrevLinkName,
-                                     PrevLinkNameFlags,
-                                     NULL );
-
-        if (RemovedTraverseLink) {
+            SplitPrimaryLcb = NtfsLookupLcbByFlags( Fcb,
+                                                    (UCHAR) LcbSplitPrimaryComplement( Lcb ));
 
             //
-            //  If this is a split primary, we need to find the name flags for
-            //  the Lcb.
+            //  If we found an existing Lcb we have to update its name as well.  We may be
+            //  able to use the new name used for the Lcb passed in.  However we must check
+            //  that we don't overwrite a DOS name with an NTFS only name.
             //
 
-            if (LcbSplitPrimaryLink( TraverseLcb )) {
+            if (SplitPrimaryLcb &&
+                (SplitPrimaryLcb->FileNameAttr->Flags == FILE_NAME_DOS) &&
+                (NewLinkNameFlags == FILE_NAME_NTFS)) {
 
-                SplitPrimaryLcb = NtfsLookupLcbByFlags( IrpContext,
-                                                        Fcb,
-                                                        (UCHAR) LcbSplitPrimaryComplement( TraverseLcb ));
+                //
+                //  Lookup the dos only name on disk.
+                //
+
+                NtfsInitializeAttributeContext( &AttrContext );
+                CleanupAttrContext = TRUE;
+
+                //
+                //  Walk through the names for this entry.  There better
+                //  be one which is not a DOS-only name.
+                //
+
+                Found = NtfsLookupAttributeByCode( IrpContext,
+                                                   Fcb,
+                                                   &Fcb->FileReference,
+                                                   $FILE_NAME,
+                                                   &AttrContext );
+
+                while (Found) {
+
+                    FileName = (PFILE_NAME) NtfsAttributeValue( NtfsFoundAttribute( &AttrContext ));
+
+                    if (FileName->Flags == FILE_NAME_DOS) { break; }
+
+                    Found = NtfsLookupNextAttributeByCode( IrpContext,
+                                                           Fcb,
+                                                           $FILE_NAME,
+                                                           &AttrContext );
+                }
+
+                //
+                //  We should have found the entry.
+                //
+
+                if (!Found) {
+
+                    NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, Fcb );
+                }
+
+                //
+                //  Now build the component name.
+                //
+
+                SplitLinkName.Buffer = FileName->FileName;
+                SplitLinkName.MaximumLength =
+                SplitLinkName.Length = FileName->FileNameLength * sizeof( WCHAR );
+                SplitLinkNameFlags = FILE_NAME_DOS;
+
+            } else {
+
+                SplitLinkName = *NewLinkName;
             }
         }
-    }
 
-    //
-    //  Now rename all of the Lcb's we have except for the traverse link if
-    //  we are reusing it.
-    //
+        //
+        //  If we used a traverse link, we need to check if there is
+        //  an Lcb for it.  Ignore this for the case where we traversed to
+        //  the other half of a primary link.
+        //
 
-    NtfsRenameLcb( IrpContext,
-                   Lcb,
-                   NewLinkName,
-                   NewFileNameFlags );
+        if (!FlagOn( RenameFlags, OVERWRITE_SOURCE_LINK ) &&
+            FlagOn( RenameFlags, REMOVE_TRAVERSE_LINK | REUSE_TRAVERSE_LINK )) {
 
-    if (TraverseLcb != NULL) {
+            if (FlagOn( RenameFlags, EXACT_CASE_MATCH )) {
 
-        if (!ReusedTraverseLink) {
+                TraverseLcb = NtfsCreateLcb( IrpContext,
+                                             ParentScb,
+                                             Fcb,
+                                             *NewLinkName,
+                                             PrevLinkNameFlags,
+                                             NULL );
 
-            NtfsRenameLcb( IrpContext,
-                           TraverseLcb,
-                           NewLinkName,
-                           NewFileNameFlags );
+            } else {
+
+                TraverseLcb = NtfsCreateLcb( IrpContext,
+                                             ParentScb,
+                                             Fcb,
+                                             *PrevLinkName,
+                                             PrevLinkNameFlags,
+                                             NULL );
+            }
+
+            if (FlagOn( RenameFlags, REMOVE_TRAVERSE_LINK )) {
+
+                //
+                //  If this is a split primary, we need to find the name flags for
+                //  the Lcb.
+                //
+
+                if (LcbSplitPrimaryLink( TraverseLcb )) {
+
+                    SplitPrimaryLcb = NtfsLookupLcbByFlags( Fcb,
+                                                            (UCHAR) LcbSplitPrimaryComplement( TraverseLcb ));
+
+                    SplitLinkName = *NewLinkName;
+                }
+            }
         }
 
-        NtfsCombineLcbs( IrpContext,
-                         Lcb,
-                         TraverseLcb );
+        //
+        //  Now move and combine the Lcbs.  We will do this in two passes.  One will allocate buffers
+        //  of sufficient size.  The other will store the names in.
+        //
 
-        NtfsDeleteLcb( IrpContext, &TraverseLcb );
+        Pass = 0;
+        CheckBufferOnly = TRUE;
+        do {
+
+            //
+            //  Start with the Lcb used for the rename.
+            //
+
+            NtfsRenameLcb( IrpContext,
+                           Lcb,
+                           NewLinkName,
+                           NewLinkNameFlags,
+                           CheckBufferOnly );
+
+            //
+            //  Next do the split primary if from the source file or the target.
+            //
+
+            if (SplitPrimaryLcb) {
+
+                NtfsRenameLcb( IrpContext,
+                               SplitPrimaryLcb,
+                               &SplitLinkName,
+                               SplitLinkNameFlags,
+                               CheckBufferOnly );
+
+                //
+                //  If we are in the second pass then optionally combine these
+                //  Lcb's and delete the split.
+                //
+
+                if (!CheckBufferOnly && (SplitLinkNameFlags == NewLinkNameFlags)) {
+
+                    NtfsCombineLcbs( IrpContext, Lcb, SplitPrimaryLcb );
+                    NtfsDeleteLcb( IrpContext, &SplitPrimaryLcb );
+                }
+            }
+
+            //
+            //  If we have a traverse link and are in the second pass then combine
+            //  with the primary Lcb.
+            //
+
+            if (!CheckBufferOnly) {
+
+                if (TraverseLcb != NULL) {
+
+                    if (!FlagOn( RenameFlags, REUSE_TRAVERSE_LINK )) {
+
+                        NtfsRenameLcb( IrpContext,
+                                       TraverseLcb,
+                                       NewLinkName,
+                                       NewLinkNameFlags,
+                                       CheckBufferOnly );
+                    }
+
+                    NtfsCombineLcbs( IrpContext,
+                                     Lcb,
+                                     TraverseLcb );
+
+                    NtfsDeleteLcb( IrpContext, &TraverseLcb );
+                }
+            }
+
+            Pass += 1;
+            CheckBufferOnly = FALSE;
+
+        } while (Pass < 2);
+
+    } finally {
+
+        if (CleanupAttrContext) {
+
+            NtfsCleanupAttributeContext( &AttrContext );
+        }
+
+        DebugTrace( -1, Dbg, ("NtfsRenameLinkInDir:  Exit\n") );
     }
-
-    if (SplitPrimaryLcb != NULL) {
-
-        NtfsRenameLcb( IrpContext,
-                       SplitPrimaryLcb,
-                       NewLinkName,
-                       NewFileNameFlags );
-
-        NtfsCombineLcbs( IrpContext,
-                         Lcb,
-                         SplitPrimaryLcb );
-
-        NtfsDeleteLcb( IrpContext, &SplitPrimaryLcb );
-    }
-
-    DebugTrace( -1, Dbg, "NtfsRenameLinkInDir:  Exit\n", 0 );
 
     return;
 }
@@ -7233,7 +8111,6 @@ Return Value:
 {
     PLCB Lcb = NULL;
     PSCB ParentScb = NULL;
-    BOOLEAN AcquiredParentScb = FALSE;
     ULONG FilterMatch;
 
     PLIST_ENTRY Links;
@@ -7241,7 +8118,7 @@ Return Value:
 
     PAGED_CODE();
 
-    ASSERT( IrpContext->TopLevelIrpContext->TransactionId == 0 );
+    ASSERT( IrpContext->TransactionId == 0 );
 
     //
     //  Check if there is an Lcb in the Ccb.
@@ -7262,56 +8139,141 @@ Return Value:
         //  Check that we don't own the Mft Scb.
         //
 
-        for (Links = IrpContext->ExclusiveFcbList.Flink;
-             Links != &IrpContext->ExclusiveFcbList;
-             Links = Links->Flink) {
+        if (Fcb->Vcb->MftScb != NULL) {
 
-            ULONG Count;
+            for (Links = IrpContext->ExclusiveFcbList.Flink;
+                 Links != &IrpContext->ExclusiveFcbList;
+                 Links = Links->Flink) {
 
-            NextFcb = (PFCB) CONTAINING_RECORD( Links,
-                                                FCB,
-                                                ExclusiveFcbLinks );
+                ULONG Count;
 
-            //
-            //  If this is the Fcb for the Mft then remove it from the list.
-            //
-
-            if (NextFcb == Fcb->Vcb->MftScb->Fcb) {
+                NextFcb = (PFCB) CONTAINING_RECORD( Links,
+                                                    FCB,
+                                                    ExclusiveFcbLinks );
 
                 //
-                //  Free the snapshots for the Fcb and release the Fcb enough times
-                //  to remove it from the list.
+                //  If this is the Fcb for the Mft then remove it from the list.
                 //
 
-                NtfsFreeSnapshotsForFcb( IrpContext, NextFcb );
+                if (NextFcb == Fcb->Vcb->MftScb->Fcb) {
 
-                Count = NextFcb->BaseExclusiveCount;
+                    //
+                    //  Free the snapshots for the Fcb and release the Fcb enough times
+                    //  to remove it from the list.
+                    //
 
-                while (Count--) {
+                    NtfsFreeSnapshotsForFcb( IrpContext, NextFcb );
 
-                    NtfsReleaseFcb( IrpContext, NextFcb );
+                    Count = NextFcb->BaseExclusiveCount;
+
+                    while (Count--) {
+
+                        NtfsReleaseFcb( IrpContext, NextFcb );
+                    }
+
+                    break;
                 }
-
-                break;
             }
         }
 
-        NtfsPrepareForUpdateDuplicate( IrpContext, Fcb, &Lcb, &ParentScb, &AcquiredParentScb );
-        NtfsUpdateDuplicateInfo( IrpContext, Fcb, Lcb, ParentScb );
-        NtfsUpdateLcbDuplicateInfo( IrpContext, Fcb, Lcb );
+#ifdef _CAIRO_
 
-        NtfsReleaseScb( IrpContext, ParentScb );
-        AcquiredParentScb = FALSE;
+        //
+        //  Check that we don't own the quota table Scb.
+        //  CAIROBUG: Combine these two loops when cairo ifdefs removed.
+        //
+
+        if (Fcb->Vcb->QuotaTableScb != NULL) {
+
+            for (Links = IrpContext->ExclusiveFcbList.Flink;
+                 Links != &IrpContext->ExclusiveFcbList;
+                 Links = Links->Flink) {
+
+                ULONG Count;
+
+                NextFcb = (PFCB) CONTAINING_RECORD( Links,
+                                                    FCB,
+                                                    ExclusiveFcbLinks );
+
+                //
+                //  If this is the Fcb for the Mft then remove it from the list.
+                //
+
+                if (NextFcb == Fcb->Vcb->QuotaTableScb->Fcb) {
+
+                    //
+                    //  Free the snapshots for the Fcb and release the Fcb enough times
+                    //  to remove it from the list.
+                    //
+
+                    NtfsFreeSnapshotsForFcb( IrpContext, NextFcb );
+
+                    Count = NextFcb->BaseExclusiveCount;
+
+                    while (Count--) {
+
+                        NtfsReleaseFcb( IrpContext, NextFcb );
+                    }
+
+                    break;
+                }
+            }
+        }
+
+        //
+        //  Go through and free any Scb's in the queue of shared Scb's
+        //  for transactions.
+        //
+
+        if (IrpContext->SharedScb != NULL) {
+
+            NtfsReleaseSharedResources( IrpContext );
+        }
+
+#endif // _CAIRO_
+
+
+        NtfsPrepareForUpdateDuplicate( IrpContext, Fcb, &Lcb, &ParentScb, TRUE );
+        NtfsUpdateDuplicateInfo( IrpContext, Fcb, Lcb, ParentScb );
+
+        //
+        //  If there is no Ccb then look for one in the Lcb we just got.
+        //
+
+        if (!ARGUMENT_PRESENT( Ccb ) &&
+            ARGUMENT_PRESENT( Lcb )) {
+
+            PLIST_ENTRY Links;
+            PCCB NextCcb;
+
+            Links = Lcb->CcbQueue.Flink;
+
+            while (Links != &Lcb->CcbQueue) {
+
+                NextCcb = CONTAINING_RECORD( Links, CCB, LcbLinks );
+                if (!FlagOn( NextCcb->Flags,
+                             CCB_FLAG_CLOSE | CCB_FLAG_OPEN_BY_FILE_ID )) {
+
+                    Ccb = NextCcb;
+                    break;
+                }
+
+                Links = Links->Flink;
+            }
+        }
 
         //
         //  Now perform the dir notify call if there is a Ccb and this is not an
         //  open by FileId.
         //
 
-        if (ARGUMENT_PRESENT( Ccb )
-            && !FlagOn( Ccb->Flags, CCB_FLAG_OPEN_BY_FILE_ID )) {
+        if (ARGUMENT_PRESENT( Ccb ) &&
+            (Fcb->Vcb->NotifyCount != 0) &&
+            (ParentScb != NULL) &&
+            !FlagOn( Ccb->Flags, CCB_FLAG_OPEN_BY_FILE_ID )) {
 
-            FilterMatch = NtfsBuildDirNotifyFilter( IrpContext, Fcb, Fcb->InfoFlags );
+            FilterMatch = NtfsBuildDirNotifyFilter( IrpContext,
+                                                    Fcb->InfoFlags | Lcb->InfoFlags );
 
             if (FilterMatch != 0) {
 
@@ -7321,31 +8283,24 @@ Return Value:
                                      Ccb->LastFileNameOffset,
                                      NULL,
                                      ((FlagOn( Ccb->Flags, CCB_FLAG_PARENT_HAS_DOS_COMPONENT ) &&
+                                       Ccb->Lcb != NULL &&
                                        Ccb->Lcb->Scb->ScbType.Index.NormalizedName.Buffer != NULL) ?
                                       &Ccb->Lcb->Scb->ScbType.Index.NormalizedName :
                                       NULL),
                                      FilterMatch,
                                      FILE_ACTION_MODIFIED,
                                      ParentScb->Fcb );
-
-                ClearFlag( Fcb->FcbState, FCB_STATE_MODIFIED_SECURITY );
             }
         }
 
+        NtfsUpdateLcbDuplicateInfo( Fcb, Lcb );
         Fcb->InfoFlags = 0;
-
 
     } except(FsRtlIsNtstatusExpected(GetExceptionCode()) ?
                         EXCEPTION_EXECUTE_HANDLER :
                         EXCEPTION_CONTINUE_SEARCH) {
 
         NOTHING;
-    }
-
-    if (AcquiredParentScb) {
-
-        NtfsReleaseScb( IrpContext, ParentScb );
-        AcquiredParentScb = FALSE;
     }
 
     return;

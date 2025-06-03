@@ -44,7 +44,10 @@ BOOLEAN
 Ee16CardAt(
     IN INTERFACE_TYPE InterfaceType,
     IN ULONG BusNumber,
-    IN ULONG IoBaseAddress
+    IN ULONG IoBaseAddress,
+	OUT PUCHAR	Interrupt,
+	OUT PULONG	Transceiver,
+	OUT PULONG	IoChannelReady
     );
 
 ULONG
@@ -152,12 +155,27 @@ static ADAPTER_INFO Adapters[] = {
     {
         1000,
         L"EE16",
-        L"IRQ\0000\000100\000IRQTYPE\0002\000100\0IOADDR\0000\000100\000IOADDRLENGTH\0002\000100\000IOCHANNELREADY\0000\000100\000TRANSCEIVER\0000\000100\0",
+        L"IRQ\0"
+        L"0\0"
+        L"100\0"
+        L"IRQTYPE\0"
+        L"2\0"
+        L"100\0"
+        L"IOADDR\0"
+        L"0\0"
+        L"100\0"
+        L"IOADDRLENGTH\0"
+        L"2\0"
+        L"100\0"
+        L"IOCHANNELREADY\0"
+        L"0\0"
+        L"100\0"
+        L"TRANSCEIVER\0"
+        L"0\0"
+        L"100\0",
         NULL,
         600
-
     }
-
 };
 
 #endif
@@ -165,12 +183,15 @@ static ADAPTER_INFO Adapters[] = {
 //
 // Structure for holding state of a search
 //
-
-typedef struct _SEARCH_STATE {
-
-    ULONG IoBaseAddress;
-
-} SEARCH_STATE, *PSEARCH_STATE;
+typedef struct _SEARCH_STATE
+{
+    ULONG	IoBaseAddress;
+	UCHAR	Interrupt;
+	ULONG	Transceiver;
+	ULONG	IoChannelReady;
+}
+	SEARCH_STATE,
+	*PSEARCH_STATE;
 
 //
 // This is an array of search states.  We need one state for each type
@@ -183,19 +204,18 @@ static SEARCH_STATE SearchStates[sizeof(Adapters) / sizeof(ADAPTER_INFO)] = {0};
 //
 // Structure for holding a particular adapter's complete information
 //
-typedef struct _EE16_ADAPTER {
-
-    LONG CardType;
-    INTERFACE_TYPE InterfaceType;
-    ULONG BusNumber;
-    ULONG IoBaseAddress;
-
-} EE16_ADAPTER, *PEE16_ADAPTER;
-
-
-
-
-
+typedef struct _EE16_ADAPTER
+{
+    LONG 			CardType;
+    INTERFACE_TYPE 	InterfaceType;
+    ULONG 			BusNumber;
+    ULONG 			IoBaseAddress;
+	UCHAR			Interrupt;
+	ULONG			Transceiver;
+	ULONG			IoChannelReady;
+}
+	EE16_ADAPTER,
+	*PEE16_ADAPTER;
 
 extern
 LONG
@@ -375,57 +395,57 @@ Return Value:
 --*/
 
 {
-    if ((InterfaceType != Isa) &&
-        (InterfaceType != Eisa)) {
+	NETDTECT_RESOURCE	Resource;
 
+    if ((InterfaceType != Isa) && (InterfaceType != Eisa))
+	{
         *lConfidence = 0;
         return(0);
-
     }
 
-    if (lNetcardId != 1000) {
-
+    if (lNetcardId != 1000)
+	{
         *lConfidence = 0;
         return(ERROR_INVALID_PARAMETER);
-
     }
 
     //
     // If fFirst, reset search state
     //
-
-    if (fFirst) {
-
+    if (fFirst)
+	{
         SearchStates[0].IoBaseAddress = 0x200;
-
-    } else {
-
+    }
+	else
+	{
         SearchStates[0].IoBaseAddress = Ee16NextIoBaseAddress(
-                                            SearchStates[0].IoBaseAddress
-                                            );
+                                            SearchStates[0].IoBaseAddress);
     }
 
     //
     // Find an adapter
     //
-
-    while (SearchStates[0].IoBaseAddress != 0x400) {
-
-        if (Ee16CardAt(InterfaceType, BusNumber, SearchStates[0].IoBaseAddress)) {
+    while (SearchStates[0].IoBaseAddress != 0x400)
+	{
+        if (Ee16CardAt(
+				InterfaceType,
+				BusNumber,
+				SearchStates[0].IoBaseAddress,
+				&SearchStates[0].Interrupt,
+				&SearchStates[0].Transceiver,
+				&SearchStates[0].IoChannelReady))
+		{
             break;
         }
 
         SearchStates[0].IoBaseAddress = Ee16NextIoBaseAddress(
-                                            SearchStates[0].IoBaseAddress
-                                            );
-
+                                            SearchStates[0].IoBaseAddress);
     }
 
-    if (SearchStates[0].IoBaseAddress == 0x400) {
-
+    if (SearchStates[0].IoBaseAddress == 0x400)
+	{
         *lConfidence = 0;
         return(0);
-
     }
 
     //
@@ -440,13 +460,12 @@ Return Value:
     // NOTE: This presumes that there are < 129 buses in the
     // system. Is this reasonable?
     //
-
-    if (InterfaceType == Isa) {
-
+    if (InterfaceType == Isa)
+	{
         *ppvToken = (PVOID)0x8000;
-
-    } else {
-
+    }
+	else
+	{
         *ppvToken = (PVOID)0x0;
     }
 
@@ -494,15 +513,13 @@ Return Value:
     //
     // Get info from the token
     //
-
-    if (((ULONG)pvToken) & 0x8000) {
-
+    if (((ULONG)pvToken) & 0x8000)
+	{
         InterfaceType = Isa;
-
-    } else {
-
+    }
+	else
+	{
         InterfaceType = Eisa;
-
     }
 
     BusNumber = (ULONG)(((ULONG)pvToken >> 8) & 0x7F);
@@ -512,22 +529,19 @@ Return Value:
     //
     // Store information
     //
-
-    Handle = (PEE16_ADAPTER)DetectAllocateHeap(
-                                 sizeof(EE16_ADAPTER)
-                                 );
-
-    if (Handle == NULL) {
-
+    Handle = (PEE16_ADAPTER)DetectAllocateHeap(sizeof(EE16_ADAPTER));
+    if (Handle == NULL)
+	{
         return(ERROR_NOT_ENOUGH_MEMORY);
-
     }
 
     //
     // Copy across address
     //
-
     Handle->IoBaseAddress = SearchStates[(ULONG)AdapterNumber].IoBaseAddress;
+    Handle->Interrupt = SearchStates[(ULONG)AdapterNumber].Interrupt;
+    Handle->Transceiver = SearchStates[(ULONG)AdapterNumber].Transceiver;
+    Handle->IoChannelReady = SearchStates[(ULONG)AdapterNumber].IoChannelReady;
     Handle->CardType = Adapters[AdapterNumber].Index;
     Handle->InterfaceType = InterfaceType;
     Handle->BusNumber = BusNumber;
@@ -574,49 +588,61 @@ Return Value:
     PEE16_ADAPTER Handle;
     LONG NumberOfAdapters;
     LONG i;
+	NETDTECT_RESOURCE	Resource;
 
-    if ((InterfaceType != Isa) &&
-        (InterfaceType != Eisa)) {
-
+    if ((InterfaceType != Isa) && (InterfaceType != Eisa))
+	{
         return(ERROR_INVALID_PARAMETER);
-
     }
 
     NumberOfAdapters = sizeof(Adapters) / sizeof(ADAPTER_INFO);
 
-    for (i=0; i < NumberOfAdapters; i++) {
-
-        if (Adapters[i].Index == lNetcardId) {
-
+    for (i = 0; i < NumberOfAdapters; i++)
+	{
+        if (Adapters[i].Index == lNetcardId)
+		{
             //
             // Store information
             //
-
-            Handle = (PEE16_ADAPTER)DetectAllocateHeap(
-                                         sizeof(EE16_ADAPTER)
-                                         );
-
-            if (Handle == NULL) {
-
+            Handle = (PEE16_ADAPTER)DetectAllocateHeap(sizeof(EE16_ADAPTER));
+            if (Handle == NULL)
+			{
                 return(ERROR_NOT_ENOUGH_MEMORY);
-
             }
 
             //
             // Copy across memory address
             //
-
-            Handle->IoBaseAddress = 0x200;
+            Handle->IoBaseAddress = 0x300;
+			Handle->Interrupt = 5;
+			Handle->Transceiver = 1;
+			Handle->IoChannelReady = 2;
             Handle->CardType = lNetcardId;
             Handle->InterfaceType = InterfaceType;
             Handle->BusNumber = BusNumber;
 
+			//
+			//	We need to claim this port so no one else uses it....
+			//
+			Resource.InterfaceType = InterfaceType;
+			Resource.BusNumber = BusNumber;
+			Resource.Type = NETDTECT_PORT_RESOURCE;
+			Resource.Value = 0x300;
+			Resource.Length = 0x10;
+
+			DetectTemporaryClaimResource(&Resource);
+
+			Resource.Type = NETDTECT_IRQ_RESOURCE;
+			Resource.Value = 5;
+			Resource.Length = 0;
+
+			DetectTemporaryClaimResource(&Resource);
+
+
             *ppvHandle = (PVOID)Handle;
 
             return(0);
-
         }
-
     }
 
     return(ERROR_INVALID_PARAMETER);
@@ -681,269 +707,28 @@ Return Value:
 {
     PEE16_ADAPTER Adapter = (PEE16_ADAPTER)(pvHandle);
     NTSTATUS NtStatus;
-    UCHAR InterruptNumber;
-    HANDLE TrapHandle;
-    UCHAR InterruptList[6];
-    UCHAR ResultList[6] = {0};
-    UCHAR i;
     LONG OutputLengthLeft = cwchBuffSize;
     LONG CopyLength;
-    ULONG TransceiverType;
-    ULONG IoChannelReadyType;
-    ULONG Ee16InterruptCode = 0;
-    USHORT eepromVal;
-
     ULONG StartPointer = (ULONG)pwchBuffer;
+	NETDTECT_RESOURCE	Resource;
 
-
-    if ((Adapter->InterfaceType != Isa) &&
-        (Adapter->InterfaceType != Eisa)) {
-
+    if ((Adapter->InterfaceType != Isa) && (Adapter->InterfaceType != Eisa))
+	{
         return(ERROR_INVALID_PARAMETER);
-
     }
-
-    //
-    // Verify the IoBaseAddress
-    //
-
-    while (Adapter->IoBaseAddress != 0x400) {
-
-        if (Ee16CardAt(Adapter->InterfaceType,
-                       Adapter->BusNumber,
-                       Adapter->IoBaseAddress)) {
-
-            break;
-        }
-
-        Adapter->IoBaseAddress = Ee16NextIoBaseAddress(Adapter->IoBaseAddress);
-
-    }
-
-    if (Adapter->IoBaseAddress == 0x400) {
-
-        if (cwchBuffSize < 2) {
-
-            return(ERROR_INSUFFICIENT_BUFFER);
-
-        }
-
-        wsprintf(pwchBuffer, L"\0");
-
-        return(FALSE);
-
-    }
-
-    //
-    // Now find the IRQ setting on the card and verify that it is available.  If
-    // it is not available, then we suggest a new IRQ.
-    //
-
-    //
-    // Get IRQ from EEPROM
-    //
-    eepromVal = read_eeprom(Adapter->InterfaceType,
-                            Adapter->BusNumber,
-                            Adapter->IoBaseAddress,
-                            0
-                           );
-
-    eepromVal &= 0xE000;
-
-    eepromVal >>= 13;
-
-
-    //
-    // Translate Interrupt number from EtherExpress Encode IRQ.
-    //
-    switch ((USHORT) eepromVal) {
-      case 1:
-          InterruptNumber = 2;
-          break;
-      case 2:
-          InterruptNumber = 3;
-          break;
-      case 3:
-          InterruptNumber = 4;
-          break;
-      case 4:
-          InterruptNumber = 5;
-          break;
-      case 5:
-          InterruptNumber = 10;
-          break;
-      case 6:
-          InterruptNumber = 11;
-          break;
-      default:
-          InterruptNumber = 3;
-          break;
-    }
-
-    //
-    // Get an open interrupt
-    //
-
-    InterruptList[0] = 3;
-    InterruptList[1] = 2;
-    InterruptList[2] = 4;
-    InterruptList[3] = 5;
-    InterruptList[4] = 10;
-    InterruptList[5] = 11;
-
-    //
-    // Set the interrupt trap -- we are checking the interrupt number now
-    //
-
-    NtStatus = DetectSetInterruptTrap(
-                       Adapter->InterfaceType,
-                       Adapter->BusNumber,
-                       &TrapHandle,
-                       InterruptList,
-                       6
-                       );
-
-    if (NtStatus == STATUS_SUCCESS) {
-
-        //
-        // Check for free ones
-        //
-
-        DetectQueryInterruptTrap(
-                           TrapHandle,
-                           ResultList,
-                           6
-                           );
-
-        //
-        // Remove interrupt trap
-        //
-
-        DetectRemoveInterruptTrap(
-                           TrapHandle
-                           );
-
-        for (i=0; i < 6; i++) {
-
-            if (InterruptList[i] == InterruptNumber) {
-
-                if (ResultList[i] != 3) {
-
-                    //
-                    // The IRQ currently set on the card is free -- use that.
-                    //
-
-                    break;
-
-                }
-
-                //
-                // The IRQ is not free -- suggest a new one
-                //
-
-                for (i=0; i < 6; i++) {
-
-                    if (ResultList[i] != 3) {
-
-                        InterruptNumber = InterruptList[i];
-
-                        break;
-
-                    }
-
-                }
-
-                break;
-
-            }
-
-        }
-
-    }
-
-    //
-    // Now get the Transceiver type
-    //
-
-    TransceiverType = 1;
-
-    eepromVal = read_eeprom(Adapter->InterfaceType,
-                            Adapter->BusNumber,
-                            Adapter->IoBaseAddress,
-                            0
-                           );
-
-    if ((eepromVal & 0x1000) != 0) {
-
-        //
-        // Guess again
-        //
-
-        TransceiverType = 2;
-        eepromVal = read_eeprom(Adapter->InterfaceType,
-                                Adapter->BusNumber,
-                                Adapter->IoBaseAddress,
-                                5
-                               );
-
-        if ((eepromVal & 0x1) == 1)  {
-            TransceiverType = 3;
-        }
-    }
-
-    //
-    // Now get the IoChannelReady type
-    //
-
-    //
-    // Read old IoChannelReady value
-    //
-    eepromVal = read_eeprom(Adapter->InterfaceType,
-                            Adapter->BusNumber,
-                            Adapter->IoBaseAddress,
-                            0
-                           );
-
-    eepromVal &= 0x0C00;
-
-    if (eepromVal == 0x0400) { // Early
-
-        IoChannelReadyType = 1;
-
-    } else if (eepromVal == 0x0C00) { // Late
-
-        IoChannelReadyType = 2;
-
-    } else {
-
-        IoChannelReadyType = 3;
-
-    }
-
-    //
-    // Build resulting buffer
-    //
-
-    //
-    // Now the IoBaseAddress
-    //
-
     //
     // Copy in the title string
     //
-
     CopyLength = UnicodeStrLen(IoAddrString) + 1;
 
-    if (OutputLengthLeft < CopyLength) {
-
+    if (OutputLengthLeft < CopyLength)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     RtlMoveMemory((PVOID)pwchBuffer,
                   (PVOID)IoAddrString,
-                  (CopyLength * sizeof(WCHAR))
-                 );
+                  (CopyLength * sizeof(WCHAR)));
 
     pwchBuffer = &(pwchBuffer[CopyLength]);
     OutputLengthLeft -= CopyLength;
@@ -951,19 +736,16 @@ Return Value:
     //
     // Copy in the value
     //
-
-    if (OutputLengthLeft < 6) {
-
+    if (OutputLengthLeft < 6)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength = wsprintf(pwchBuffer,L"0x%x",Adapter->IoBaseAddress);
 
-    if (CopyLength < 0) {
-
+    if (CopyLength < 0)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength++;  // Add in the \0
@@ -978,19 +760,16 @@ Return Value:
     //
     // Copy in the title string
     //
-
     CopyLength = UnicodeStrLen(IoLengthString) + 1;
 
-    if (OutputLengthLeft < CopyLength) {
-
+    if (OutputLengthLeft < CopyLength)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     RtlMoveMemory((PVOID)pwchBuffer,
                   (PVOID)IoLengthString,
-                  (CopyLength * sizeof(WCHAR))
-                 );
+                  (CopyLength * sizeof(WCHAR)));
 
     pwchBuffer = &(pwchBuffer[CopyLength]);
     OutputLengthLeft -= CopyLength;
@@ -998,19 +777,16 @@ Return Value:
     //
     // Copy in the value
     //
-
-    if (OutputLengthLeft < 5) {
-
+    if (OutputLengthLeft < 5)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength = wsprintf(pwchBuffer,L"0x10");
 
-    if (CopyLength < 0) {
-
+    if (CopyLength < 0)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength++;  // Add in the \0
@@ -1025,19 +801,16 @@ Return Value:
     //
     // Copy in the title string
     //
-
     CopyLength = UnicodeStrLen(IrqString) + 1;
 
-    if (OutputLengthLeft < CopyLength) {
-
+    if (OutputLengthLeft < CopyLength)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     RtlMoveMemory((PVOID)pwchBuffer,
                   (PVOID)IrqString,
-                  (CopyLength * sizeof(WCHAR))
-                 );
+                  (CopyLength * sizeof(WCHAR)));
 
     pwchBuffer = &(pwchBuffer[CopyLength]);
     OutputLengthLeft -= CopyLength;
@@ -1045,19 +818,16 @@ Return Value:
     //
     // Copy in the value
     //
-
-    if (OutputLengthLeft < 3) {
-
+    if (OutputLengthLeft < 3)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
-    CopyLength = wsprintf(pwchBuffer,L"%d",InterruptNumber);
+    CopyLength = wsprintf(pwchBuffer,L"%d", Adapter->Interrupt);
 
-    if (CopyLength < 0) {
-
+    if (CopyLength < 0)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength++;  // Add in the \0
@@ -1065,23 +835,19 @@ Return Value:
     pwchBuffer = &(pwchBuffer[CopyLength]);
     OutputLengthLeft -= CopyLength;
 
-
     //
     // Copy in the title string (IRQTYPE)
     //
-
     CopyLength = UnicodeStrLen(IrqTypeString) + 1;
 
-    if (OutputLengthLeft < CopyLength) {
-
+    if (OutputLengthLeft < CopyLength)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     RtlMoveMemory((PVOID)pwchBuffer,
                   (PVOID)IrqTypeString,
-                  (CopyLength * sizeof(WCHAR))
-                 );
+                  (CopyLength * sizeof(WCHAR)));
 
     pwchBuffer = &(pwchBuffer[CopyLength]);
     OutputLengthLeft -= CopyLength;
@@ -1089,19 +855,16 @@ Return Value:
     //
     // Copy in the value
     //
-
-    if (OutputLengthLeft < 2) {
-
+    if (OutputLengthLeft < 2)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength = wsprintf(pwchBuffer,L"0");
 
-    if (CopyLength < 0) {
-
+    if (CopyLength < 0)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength++;  // Add in the \0
@@ -1119,16 +882,14 @@ Return Value:
 
     CopyLength = UnicodeStrLen(TransceiverString) + 1;
 
-    if (OutputLengthLeft < CopyLength) {
-
+    if (OutputLengthLeft < CopyLength)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     RtlMoveMemory((PVOID)pwchBuffer,
                   (PVOID)TransceiverString,
-                  (CopyLength * sizeof(WCHAR))
-                 );
+                  (CopyLength * sizeof(WCHAR)));
 
     pwchBuffer = &(pwchBuffer[CopyLength]);
     OutputLengthLeft -= CopyLength;
@@ -1136,19 +897,16 @@ Return Value:
     //
     // Copy in the value
     //
-
-    if (OutputLengthLeft < 3) {
-
+    if (OutputLengthLeft < 3)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
-    CopyLength = wsprintf(pwchBuffer,L"%d",TransceiverType);
+    CopyLength = wsprintf(pwchBuffer,L"%d", Adapter->Transceiver);
 
-    if (CopyLength < 0) {
-
+    if (CopyLength < 0)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength++;  // Add in the \0
@@ -1163,19 +921,16 @@ Return Value:
     //
     // Copy in the title string
     //
-
     CopyLength = UnicodeStrLen(IoChannelReadyString) + 1;
 
-    if (OutputLengthLeft < CopyLength) {
-
+    if (OutputLengthLeft < CopyLength)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     RtlMoveMemory((PVOID)pwchBuffer,
                   (PVOID)IoChannelReadyString,
-                  (CopyLength * sizeof(WCHAR))
-                 );
+                  (CopyLength * sizeof(WCHAR)));
 
     pwchBuffer = &(pwchBuffer[CopyLength]);
     OutputLengthLeft -= CopyLength;
@@ -1183,19 +938,16 @@ Return Value:
     //
     // Copy in the value
     //
-
-    if (OutputLengthLeft < 3) {
-
+    if (OutputLengthLeft < 3)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
-    CopyLength = wsprintf(pwchBuffer,L"%d",IoChannelReadyType);
+    CopyLength = wsprintf(pwchBuffer,L"%d", Adapter->IoChannelReady);
 
-    if (CopyLength < 0) {
-
+    if (CopyLength < 0)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength++;  // Add in the \0
@@ -1206,11 +958,9 @@ Return Value:
     //
     // Copy in final \0
     //
-
-    if (OutputLengthLeft < 1) {
-
+    if (OutputLengthLeft < 1)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength = (ULONG)pwchBuffer - StartPointer;
@@ -1250,23 +1000,19 @@ Return Value:
     NTSTATUS NtStatus;
     ULONG IoBaseAddress;
     ULONG Interrupt;
-    UCHAR Result;
-    UCHAR InterruptTrapValue;
-    HANDLE TrapHandle;
     WCHAR *Place;
     BOOLEAN Found;
     ULONG TransceiverType;
     ULONG IoChannelReadyType;
+	NETDTECT_RESOURCE	Resource;
 
-    if ((Adapter->InterfaceType != Isa) &&
-        (Adapter->InterfaceType != Eisa)) {
-
+    if ((Adapter->InterfaceType != Isa) && (Adapter->InterfaceType != Eisa))
+	{
         return(ERROR_INVALID_DATA);
-
     }
 
-    if (Adapter->CardType == 1000) {
-
+    if (Adapter->CardType == 1000)
+	{
         //
         // Parse out the parameter.
         //
@@ -1274,13 +1020,11 @@ Return Value:
         //
         // Get the IoBaseAddress
         //
-
         Place = FindParameterString(pwchBuffer, IoAddrString);
 
-        if (Place == NULL) {
-
+        if (Place == NULL)
+		{
             return(ERROR_INVALID_DATA);
-
         }
 
         Place += UnicodeStrLen(IoAddrString) + 1;
@@ -1288,25 +1032,21 @@ Return Value:
         //
         // Now parse the thing.
         //
-
         ScanForNumber(Place, &IoBaseAddress, &Found);
 
-        if (Found == FALSE) {
-
+        if (Found == FALSE)
+		{
             return(ERROR_INVALID_DATA);
-
         }
 
         //
         // Get the Interrupt
         //
-
         Place = FindParameterString(pwchBuffer, IrqString);
 
-        if (Place == NULL) {
-
+        if (Place == NULL)
+		{
             return(ERROR_INVALID_DATA);
-
         }
 
         Place += UnicodeStrLen(IrqString) + 1;
@@ -1314,25 +1054,21 @@ Return Value:
         //
         // Now parse the thing.
         //
-
         ScanForNumber(Place, &Interrupt, &Found);
 
-        if (Found == FALSE) {
-
+        if (Found == FALSE)
+		{
             return(ERROR_INVALID_DATA);
-
         }
 
         //
         // Get the TransceiverType
         //
-
         Place = FindParameterString(pwchBuffer, TransceiverString);
 
-        if (Place == NULL) {
-
+        if (Place == NULL)
+		{
             return(ERROR_INVALID_DATA);
-
         }
 
         Place += UnicodeStrLen(TransceiverString) + 1;
@@ -1340,25 +1076,21 @@ Return Value:
         //
         // Now parse the thing.
         //
-
         ScanForNumber(Place, &TransceiverType, &Found);
 
-        if (Found == FALSE) {
-
+        if (Found == FALSE)
+		{
             return(ERROR_INVALID_DATA);
-
         }
 
         //
         // Get the IoChannelReadyType
         //
-
         Place = FindParameterString(pwchBuffer, IoChannelReadyString);
 
-        if (Place == NULL) {
-
+        if (Place == NULL)
+		{
             return(ERROR_INVALID_DATA);
-
         }
 
         Place += UnicodeStrLen(IoChannelReadyString) + 1;
@@ -1366,91 +1098,103 @@ Return Value:
         //
         // Now parse the thing.
         //
-
         ScanForNumber(Place, &IoChannelReadyType, &Found);
 
-        if (Found == FALSE) {
-
+        if (Found == FALSE)
+		{
             return(ERROR_INVALID_DATA);
-
         }
-
-    } else {
-
+    }
+	else
+	{
         //
         // Error!
         //
-
         return(ERROR_INVALID_DATA);
-
     }
 
-    //
-    // Verify IoAddress
-    //
+	if ((IoBaseAddress != Adapter->IoBaseAddress) ||
+		(Interrupt != Adapter->Interrupt) ||
+		(TransceiverType != Adapter->Transceiver) ||
+		(IoChannelReadyType != Adapter->IoChannelReady))
+	{
+		UCHAR	TempInterrupt = 0;
+		ULONG	TempTransceiver;
+		ULONG	TempIoChannelReady;
 
-    if (!Ee16CardAt(Adapter->InterfaceType,
-                    Adapter->BusNumber,
-                    IoBaseAddress
-                   )) {
+		//
+		//	See if we can find a nic at their resources...
+		//
+		if (!Ee16CardAt(Adapter->InterfaceType,
+						Adapter->BusNumber,
+						IoBaseAddress,
+						&TempInterrupt,
+						&TempTransceiver,
+						&TempIoChannelReady))
+		{
+			return(ERROR_INVALID_DATA);
+		}
 
-        return(ERROR_INVALID_DATA);
+		//
+		//	Did we find their interrupt?
+		//
+		if ((Interrupt != TempInterrupt) ||
+			(TransceiverType != TempTransceiver) ||
+			(IoChannelReadyType != TempIoChannelReady))
+		{
+			return(ERROR_INVALID_DATA);
+		}
 
-    }
+		//
+		//	Looks like there is a nic their. Free up the
+		//	resources that we acquired and acquire the new ones.
+		//
+		Resource.InterfaceType = Adapter->InterfaceType;
+		Resource.BusNumber = Adapter->BusNumber;
 
-    //
-    // Now check that the IRQ is free
-    //
+		//
+		//	Free up the detected port.
+		//
+		Resource.Type = NETDTECT_PORT_RESOURCE;
+		Resource.Value = Adapter->IoBaseAddress;
+		Resource.Length = 0x20;
+		Resource.Flags = 0;
+		DetectFreeSpecificTemporaryResource(&Resource);
 
-    //
-    // Set the interrupt trap -- we are checking the interrupt number now
-    //
+		//
+		//	Acquire the new port.
+		//
+		Resource.Value = IoBaseAddress;
+		DetectTemporaryClaimResource(&Resource);
 
-    InterruptTrapValue = (UCHAR)Interrupt;
+		//
+		//	Free up the detected interrupt.
+		//
+		Resource.Type = NETDTECT_IRQ_RESOURCE;
+		Resource.Value = Adapter->Interrupt;
+		Resource.Length = 0;
+		DetectFreeSpecificTemporaryResource(&Resource);
 
-    NtStatus = DetectSetInterruptTrap(
-                       Adapter->InterfaceType,
-                       Adapter->BusNumber,
-                       &TrapHandle,
-                       &InterruptTrapValue,
-                       1
-                       );
+		//
+		//	Acquire the new interrupt.
+		//	
+		Resource.Value = Interrupt;
+		DetectTemporaryClaimResource(&Resource);
 
-    if (NtStatus == STATUS_SUCCESS) {
-
-        //
-        // Check for conflict
-        //
-
-        DetectQueryInterruptTrap(
-                           TrapHandle,
-                           &Result,
-                           1
-                           );
-
-        //
-        // Remove interrupt trap
-        //
-
-        DetectRemoveInterruptTrap(
-                           TrapHandle
-                           );
-
-        if (Result == 3) {
-
-            return(ERROR_INVALID_DATA);
-
-        }
-
-    }
+		//
+		//	Save the new resources.
+		//
+		Adapter->IoBaseAddress = IoBaseAddress;
+		Adapter->Interrupt = (UCHAR)Interrupt;
+		Adapter->Transceiver = TransceiverType;
+		Adapter->IoChannelReady = IoChannelReadyType;
+	}
 
     //
     // Do not verify the other parameters since they are set by the
     // driver.
     //
-
     return(0);
-
 }
 
 extern
@@ -1593,7 +1337,7 @@ Return Value:
 
         }
 
-        plValues[0]  = 0x300;
+        plValues[0]  = 0x200;
         plValues[1]  = 0x210;
         plValues[2]  = 0x220;
         plValues[3]  = 0x230;
@@ -1609,7 +1353,7 @@ Return Value:
         plValues[13] = 0x2D0;
         plValues[14] = 0x2E0;
         plValues[15] = 0x2F0;
-        plValues[16] = 0x200;
+        plValues[16] = 0x300;
         plValues[17] = 0x310;
         plValues[18] = 0x320;
         plValues[19] = 0x330;
@@ -1734,7 +1478,10 @@ BOOLEAN
 Ee16CardAt(
     IN INTERFACE_TYPE InterfaceType,
     IN ULONG BusNumber,
-    IN ULONG IoBaseAddress
+    IN ULONG IoBaseAddress,
+	OUT PUCHAR Interrupt,
+	OUT PULONG Transceiver,
+	OUT PULONG IoChannelReady
     )
 
 /*++
@@ -1760,22 +1507,28 @@ Return Value:
 --*/
 
 {
-    NTSTATUS NtStatus;
-    UCHAR SavedValue;
+    NTSTATUS			NtStatus;
+    UCHAR 				SavedValue;
+	NETDTECT_RESOURCE	Resource;
+    UCHAR 				InterruptNumber = 0;
+    USHORT				eepromVal;
+    UCHAR 				i;
+    ULONG				TransceiverType;
+    ULONG				IoChannelReadyType;
+    ULONG				Ee16InterruptCode = 0;
 
     //
     // Check for resource conflict
     //
-    NtStatus = DetectCheckPortUsage(InterfaceType,
-                                    BusNumber,
-                                    IoBaseAddress,
-                                    0x10
-                                   );
+    NtStatus = DetectCheckPortUsage(
+					InterfaceType,
+					BusNumber,
+					IoBaseAddress,
+					0x10);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         return(FALSE);
-
     }
 
     //
@@ -1786,69 +1539,57 @@ Return Value:
     //
     // RESET_586       0x80
     // GA_RESET        0x40
-
     NtStatus = DetectReadPortUchar(
-                               InterfaceType,
-                               BusNumber,
-                               IoBaseAddress + 0xE,
-                               &SavedValue
-                               );
+					InterfaceType,
+					BusNumber,
+					IoBaseAddress + 0xE,
+					&SavedValue);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         return(FALSE);
-
     }
 
-
-
     NtStatus = DetectWritePortUchar(
-                               InterfaceType,
-                               BusNumber,
-                               IoBaseAddress + 0xE,
-                               0x80
-                               );
+					InterfaceType,
+					BusNumber,
+					IoBaseAddress + 0xE,
+					0x80);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         goto Fail;
-
     }
 
     Sleep(1);
 
     NtStatus = DetectWritePortUchar(
-                               InterfaceType,
-                               BusNumber,
-                               IoBaseAddress + 0xE,
-                               0xC0
-                               );
+					InterfaceType,
+					BusNumber,
+					IoBaseAddress + 0xE,
+					0xC0);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         goto Fail;
-
     }
 
     Sleep(1);
 
     NtStatus = DetectWritePortUchar(
-                               InterfaceType,
-                               BusNumber,
-                               IoBaseAddress + 0xE,
-                               0x80
-                               );
+					InterfaceType,
+					BusNumber,
+					IoBaseAddress + 0xE,
+					0x80);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         goto Fail;
-
     }
 
     //
     //  Check if card is present
     //
-
     {
         UCHAR i,j;
 
@@ -1856,95 +1597,194 @@ Return Value:
         // get the card into a known state: lower nibble = 0
         // In the worst case this should happen in 15 attempts
         //
-
-        for (i=0; i<20; i++) {
-
+        for (i = 0; i < 20; i++)
+		{
             NtStatus = DetectReadPortUchar(
-                                       InterfaceType,
-                                       BusNumber,
-                                       IoBaseAddress + 0xF,
-                                       &j
-                                       );
+							InterfaceType,
+							BusNumber,
+							IoBaseAddress + 0xF,
+							&j);
 
-            if (NtStatus != STATUS_SUCCESS) {
-
+            if (NtStatus != STATUS_SUCCESS)
+			{
                 goto Fail;
-
             }
 
-            if (!(j & 0x0f)) break;
-
+            if (!(j & 0x0f))
+				break;
         }
 
-        if (i == 20) {
-
+        if (i == 20)
+		{
             goto Fail;
-
         }
 
         NtStatus = DetectReadPortUchar(
-                                   InterfaceType,
-                                   BusNumber,
-                                   IoBaseAddress + 0xF,
-                                   &j
-                                   );
+						InterfaceType,
+						BusNumber,
+						IoBaseAddress + 0xF,
+						&j);
 
-        if (NtStatus != STATUS_SUCCESS) {
-
+        if (NtStatus != STATUS_SUCCESS)
+		{
             goto Fail;
-
         }
 
-        if (j != 0xb1) return FALSE;
+        if (j != 0xb1)
+			return FALSE;
 
         NtStatus = DetectReadPortUchar(
-                                   InterfaceType,
-                                   BusNumber,
-                                   IoBaseAddress + 0xF,
-                                   &j
-                                   );
+						InterfaceType,
+						BusNumber,
+						IoBaseAddress + 0xF,
+						&j);
 
-        if (NtStatus != STATUS_SUCCESS) {
-
+        if (NtStatus != STATUS_SUCCESS)
+		{
             goto Fail;
-
         }
 
-        if (j != 0xa2) return FALSE;
+        if (j != 0xa2)
+			return FALSE;
 
         NtStatus = DetectReadPortUchar(
-                                   InterfaceType,
-                                   BusNumber,
-                                   IoBaseAddress + 0xF,
-                                   &j
-                                   );
+						InterfaceType,
+						BusNumber,
+						IoBaseAddress + 0xF,
+						&j);
 
-        if (NtStatus != STATUS_SUCCESS) {
-
+        if (NtStatus != STATUS_SUCCESS)
+		{
             goto Fail;
-
         }
 
-        if (j != 0xb3) {
-
+        if (j != 0xb3)
+		{
             goto Fail;
         }
     }
 
+	//
+	//	Acquire the resource
+	//
+	Resource.InterfaceType = InterfaceType;
+	Resource.BusNumber = BusNumber;
+	Resource.Type = NETDTECT_PORT_RESOURCE;
+	Resource.Value = SearchStates[0].IoBaseAddress;
+	Resource.Length = 0x10;
 
-    return(TRUE);
+	DetectTemporaryClaimResource(&Resource);
+
+    //
+    // Now find the IRQ setting on the card and verify that it is available.  If
+    // it is not available, then we suggest a new IRQ.
+    //
+
+    //
+    // Get IRQ from EEPROM
+    //
+    eepromVal = read_eeprom(InterfaceType, BusNumber, IoBaseAddress, 0);
+
+    eepromVal &= 0xE000;
+
+    eepromVal >>= 13;
+
+    //
+    // Translate Interrupt number from EtherExpress Encode IRQ.
+    //
+    switch ((USHORT) eepromVal)
+	{
+		case 1:
+			InterruptNumber = 2;
+			break;
+		case 2:
+			InterruptNumber = 3;
+			break;
+		case 3:
+			InterruptNumber = 4;
+			break;
+		case 4:
+			InterruptNumber = 5;
+			break;
+		case 5:
+			InterruptNumber = 10;
+			break;
+		case 6:
+			InterruptNumber = 11;
+			break;
+		default:
+			InterruptNumber = 5;
+			break;
+    }
+
+	Resource.InterfaceType = InterfaceType;
+	Resource.BusNumber = BusNumber;
+	Resource.Type = NETDTECT_IRQ_RESOURCE;
+	Resource.Value = InterruptNumber;
+	Resource.Length = 0;
+	Resource.Flags = 0;
+
+	DetectTemporaryClaimResource(&Resource);
+
+	*Interrupt = InterruptNumber;
+
+    //
+    // Now get the Transceiver type
+    //
+    TransceiverType = 1;
+
+    eepromVal = read_eeprom(InterfaceType, BusNumber, IoBaseAddress, 0);
+    if ((eepromVal & 0x1000) != 0)
+	{
+        //
+        // Guess again
+        //
+        TransceiverType = 2;
+        eepromVal = read_eeprom(InterfaceType, BusNumber, IoBaseAddress, 5);
+
+        if ((eepromVal & 0x1) == 1)
+		{
+            TransceiverType = 3;
+        }
+    }
+
+	*Transceiver = TransceiverType;
+
+    //
+    // Now get the IoChannelReady type
+    //
+    eepromVal = read_eeprom(InterfaceType, BusNumber, IoBaseAddress, 0);
+
+    eepromVal &= 0x0C00;
+
+    if (eepromVal == 0x0400)
+	{
+		// Early
+        IoChannelReadyType = 1;
+    }
+	else if (eepromVal == 0x0C00)
+	{
+		// Late
+        IoChannelReadyType = 2;
+    }
+	else
+	{
+        IoChannelReadyType = 3;
+    }
+
+	*IoChannelReady = IoChannelReadyType;
+
+	return(TRUE);
 
 Fail:
 
     NtStatus = DetectWritePortUchar(
-                               InterfaceType,
-                               BusNumber,
-                               IoBaseAddress + 0xE,
-                               SavedValue
-                               );
+					InterfaceType,
+					BusNumber,
+					IoBaseAddress + 0xE,
+					SavedValue);
 
     return(FALSE);
-
 }
 
 

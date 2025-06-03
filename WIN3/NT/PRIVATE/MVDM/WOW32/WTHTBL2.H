@@ -11,6 +11,6 @@
  *
 --*/
 
-    {W32FUN(WK32UNIMPLEMENTEDAPI,           "DUMMYENTRY",           MOD_TOOLHELP,     0)},
-    {W32FUN(WK32UNIMPLEMENTEDAPI,           "CLASSFIRST",           MOD_TOOLHELP,      sizeof (CLASSFIRST16))},
-    {W32FUN(WK32UNIMPLEMENTEDAPI,           "CLASSNEXT",            MOD_TOOLHELP,      sizeof (CLASSNEXT16))},
+    {W32FUN(UNIMPLEMENTEDAPI,               "DUMMYENTRY",           MOD_TOOLHELP,     0)},
+    {W32FUN(UNIMPLEMENTEDAPI,               "CLASSFIRST",           MOD_TOOLHELP,     sizeof (CLASSFIRST16))},
+    {W32FUN(UNIMPLEMENTEDAPI,               "CLASSNEXT",            MOD_TOOLHELP,     sizeof (CLASSNEXT16))},

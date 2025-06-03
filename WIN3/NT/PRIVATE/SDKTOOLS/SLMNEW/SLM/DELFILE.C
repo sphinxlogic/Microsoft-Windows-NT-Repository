@@ -1,15 +1,7 @@
 /* delfile - deletes the given files from the project */
 
-#include "slm.h"
-#include "sys.h"
-#include "util.h"
-#include "stfile.h"
-#include "ad.h"
-#include "log.h"
-#include "dir.h"
-#include "slmproto.h"
-#include "proto.h"
-
+#include "precomp.h"
+#pragma hdrstop
 EnableAssert
 
 private F FDirsEmpty(P1(AD *pad));

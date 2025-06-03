@@ -20,8 +20,7 @@ Revision History:
 --*/
 
 #include <ntrtlp.h>
-#include <windef.h>
-#include <winbase.h>
+#include "winerror.h"
 #include "error.h"
 
 #if defined(ALLOC_PRAGMA) && defined(NTOS_KERNEL_RUNTIME)
@@ -99,6 +98,39 @@ Return Value:
     ULONG Index;
 
     //
+    // Convert any HRESULTs to their original form of a NTSTATUS or a
+    // WIN32 error
+    //
+
+
+    if (Status & 0x20000000) {
+
+        //
+        // The customer bit is set so lets just pass the
+        // error code on thru
+        //
+
+        return Status;
+
+    }
+    else if ((Status & 0xffff0000) == 0x80070000) {
+
+        //
+        // The status code  was a win32 error already.
+        //
+
+        return(Status & 0x0000ffff);
+    }
+    else if ((Status & 0xf0000000) == 0xd0000000) {
+
+        //
+        // The status code is a HRESULT from NTSTATUS
+        //
+
+        Status &= 0xcfffffff;
+    }
+
+    //
     // Scan the run length table and compute the entry in the translation
     // table that maps the specified status code to a DOS error code.
     //
@@ -140,20 +172,18 @@ Return Value:
         return ((ULONG)Status & 0xFFFF);
     }
 
-#if defined(DEVL) && !defined(NTOS_KERNEL_RUNTIME)
-
+#ifndef NTOS_KERNEL_RUNTIME
     DbgPrint("RTL: RtlNtStatusToDosError(0x%lx): No Valid Win32 Error Mapping\n",Status);
-    DbgPrint("RTL: Edit ntos\\rtl\\error.c to correct the problem\n");
+    DbgPrint("RTL: Edit ntos\\rtl\\generr.c to correct the problem\n");
     DbgPrint("RTL: ERROR_MR_MID_NOT_FOUND is being returned\n");
 
 #if DBG
-
-    if (NtGlobalFlag & FLG_STOP_ON_HEAP_ERRORS) {
+    if (NtCurrentPeb()->BeingDebugged) {
         DbgBreakPoint();
-    }
+        }
 
 #endif // DBG
-#endif // DEVL
+#endif // NTOS_KERNEL_RUNTIME
 
     return ERROR_MR_MID_NOT_FOUND;
 }

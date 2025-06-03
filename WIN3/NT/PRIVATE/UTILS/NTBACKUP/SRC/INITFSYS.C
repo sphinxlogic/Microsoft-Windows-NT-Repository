@@ -275,6 +275,10 @@ UINT32     file_sys_mask )                  /* I - bit_mask to specify file syst
      func_tab[ MSNET ] = MSNetFuncTab ;
 #endif
 
+#if defined( FS_EMS )
+     func_tab[ FS_EMS_DRV ] = EMSFuncTab ;
+#endif
+
 /*
           initialize the queue header
 */
@@ -449,4 +453,4 @@ GENERIC_DLE_PTR new_dle )       /* I - dle to insert into queue */
 
      return ;
 }
-
+

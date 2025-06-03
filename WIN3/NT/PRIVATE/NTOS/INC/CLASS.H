@@ -28,6 +28,8 @@ Revision History:
 #include "ntddscsi.h"
 #include <stdio.h>
 
+// begin_ntminitape
+
 #if DBG
 
 #define DebugPrint(x) ScsiDebugPrint x
@@ -38,11 +40,13 @@ Revision History:
 
 #endif // DBG
 
+// end_ntminitape
+
 #ifdef POOL_TAGGING
 #undef ExAllocatePool
 #undef ExAllocatePoolWithQuota
-#define ExAllocatePool(a,b) ExAllocatePoolWithTag(a,b,'scsC')
-#define ExAllocatePoolWithQuota(a,b) ExAllocatePoolWithQuotaTag(a,b,'scsC')
+#define ExAllocatePool(a,b) ExAllocatePoolWithTag(a,b,'HscS')
+#define ExAllocatePoolWithQuota(a,b) ExAllocatePoolWithQuotaTag(a,b,'HscS')
 #endif
 
 #define MAXIMUM_RETRIES 4
@@ -81,6 +85,24 @@ typedef struct _DEVICE_EXTENSION {
     //
 
     LARGE_INTEGER StartingOffset;
+
+    //
+    // Bytes to skew all requests, since DM Driver has been placed on an IDE drive.
+    //
+
+    ULONG DMByteSkew;
+
+    //
+    // Sectors to skew all requests.
+    //
+
+    ULONG DMSkew;
+
+    //
+    // Flag to indicate whether DM driver has been located on an IDE drive.
+    //
+
+    BOOLEAN DMActive;
 
     //
     // Pointer to the specific class error routine.

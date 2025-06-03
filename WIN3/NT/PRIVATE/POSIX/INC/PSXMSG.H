@@ -106,9 +106,9 @@ typedef struct _PSX_API_CONNECTINFO {
 //
 
 typedef struct _CLIENT_OPEN_FILE {
-	BOOLEAN Open;
-	BOOLEAN FdIsConsole;
-	ULONG Flags;			// descriptor flags
+        BOOLEAN Open;
+        BOOLEAN FdIsConsole;
+        ULONG Flags;                    // descriptor flags
 } CLIENT_OPEN_FILE, *PCLIENT_OPEN_FILE;
 
 //
@@ -179,6 +179,7 @@ typedef enum _PSXAPINUMBER {
     PsxGetGrNamApi,
     PsxUnlinkApi,
     PsxReadDirApi,
+    PsxFtruncateApi,
     PsxNullApi,
 
 #ifdef PSX_SOCKET
@@ -216,6 +217,7 @@ typedef enum _PSXAPINUMBER {
 typedef struct _PSX_FORK_MSG {
     IN PVOID StackBase;
     IN PVOID StackLimit;
+    IN PVOID StackAllocationBase;
 } PSX_FORK_MSG, *PPSX_FORK_MSG;
 
 //
@@ -223,7 +225,7 @@ typedef struct _PSX_FORK_MSG {
 //
 typedef struct _PSX_EXEC_MSG {
     IN UNICODE_STRING Path;
-    IN PCHAR Args;			// args + environ, in view mem
+    IN PCHAR Args;                      // args + environ, in view mem
 } PSX_EXEC_MSG, *PPSX_EXEC_MSG;
 
 //
@@ -592,8 +594,8 @@ typedef struct _PSX_WRITE_MSG {
 // Values for READ_MSG.Command and WRITE_MSG.Command
 //
 
-#define IO_COMMAND_DONE		0
-#define IO_COMMAND_DO_CONSIO	1
+#define IO_COMMAND_DONE         0
+#define IO_COMMAND_DO_CONSIO    1
 
 //
 // PsxFcntlApi
@@ -602,8 +604,8 @@ typedef struct _PSX_FCNTL_MSG {
     IN LONG FileDes;
     IN int Command;
     IN union {
-	struct flock *pf;
-	int i;
+        struct flock *pf;
+        int i;
     } u;
 } PSX_FCNTL_MSG, *PPSX_FCNTL_MSG;
 
@@ -730,6 +732,14 @@ typedef struct _PSX_UNLINK_MSG {
     IN UNICODE_STRING Path_U;
 } PSX_UNLINK_MSG, *PPSX_UNLINK_MSG;
 
+//
+// PsxFtruncate
+//
+typedef struct _PSX_FTRUNCATE_MSG {
+    IN LONG FileDes;
+    IN off_t Length;
+} PSX_FTRUNCATE_MSG, *PPSX_FTRUNCATE_MSG;
+
 #ifdef PSX_SOCKET
 //
 // -------- Messages for sockets.
@@ -740,9 +750,9 @@ typedef struct _PSX_UNLINK_MSG {
 //
 
 typedef struct _PSX_SOCKET_MSG {
-	IN INT AddressFamily;
-	IN INT Type;
-	IN INT Protocol;
+        IN INT AddressFamily;
+        IN INT Type;
+        IN INT Protocol;
 } PSX_SOCKET_MSG, *PPSX_SOCKET_MSG;
 
 //
@@ -750,91 +760,91 @@ typedef struct _PSX_SOCKET_MSG {
 //
 
 typedef struct _PSX_ACCEPT_MSG {
-	IN INT Socket;
-	IN struct sockaddr *Address;
-	IN OUT INT AddressLength;
+        IN INT Socket;
+        IN struct sockaddr *Address;
+        IN OUT INT AddressLength;
 } PSX_ACCEPT_MSG, *PPSX_ACCEPT_MSG;
 
 typedef struct _PSX_BIND_MSG {
-	IN INT Socket;
-	IN struct sockaddr *Name;
-	IN INT NameLength;
+        IN INT Socket;
+        IN struct sockaddr *Name;
+        IN INT NameLength;
 } PSX_BIND_MSG, *PPSX_BIND_MSG;
 
 typedef struct _PSX_CONNECT_MSG {
-	IN INT Socket;
-	IN struct sockaddr *Name;
-	IN INT NameLength;
+        IN INT Socket;
+        IN struct sockaddr *Name;
+        IN INT NameLength;
 } PSX_CONNECT_MSG, *PPSX_CONNECT_MSG;
 
 typedef struct _PSX_GETPEERNAME_MSG {
-	IN INT Socket;
-	IN struct sockaddr *Name;
-	IN OUT INT NameLength;
+        IN INT Socket;
+        IN struct sockaddr *Name;
+        IN OUT INT NameLength;
 } PSX_GETPEERNAME_MSG, *PPSX_GETPEERNAME_MSG;
 
 typedef struct _PSX_GETSOCKNAME_MSG {
-	IN INT Socket;
-	IN struct sockaddr *Name;
-	IN OUT INT NameLength;
+        IN INT Socket;
+        IN struct sockaddr *Name;
+        IN OUT INT NameLength;
 } PSX_GETSOCKNAME_MSG, *PPSX_GETSOCKNAME_MSG;
 
 typedef struct _PSX_GETSOCKOPT_MSG {
-	IN INT Socket;
-	IN INT Level;
-	IN INT OptName;
-	IN PCHAR OptVal;
-	IN OUT INT OptVal;
+        IN INT Socket;
+        IN INT Level;
+        IN INT OptName;
+        IN PCHAR OptVal;
+        IN OUT INT OptVal;
 } PSX_GETSOCKOPT_MSG, *PPSX_GETSOCKOPT_MSG;
 
 typedef struct _PSX_LISTEN_MSG {
-	IN INT Socket;
-	IN INT BackLog;
+        IN INT Socket;
+        IN INT BackLog;
 } PSX_LISTEN_MSG, *PPSX_LISTEN_MSG;
 
 typedef struct _PSX_RECV_MSG {
-	IN INT Socket;
-	IN PCHAR Buffer;
-	IN INT Length;
-	IN INT Flags;
+        IN INT Socket;
+        IN PCHAR Buffer;
+        IN INT Length;
+        IN INT Flags;
 } PSX_RECV_MSG, *PPSX_RECV_MSG;
 
 typedef struct _PSX_RECVFROM_MSG {
-	IN INT Socket;
-	IN PCHAR Buffer;
-	IN INT Length;
-	IN INT Flags;
-	IN struct sockaddr *From;
-	IN INT FromLength;
+        IN INT Socket;
+        IN PCHAR Buffer;
+        IN INT Length;
+        IN INT Flags;
+        IN struct sockaddr *From;
+        IN INT FromLength;
 } PSX_RECVFROM_MSG, *PPSX_RECVFROM_MSG;
 
 typdef struct _PSX_SEND_MSG {
-	IN INT Socket;
-	IN PCHAR Buffer;
-	IN INT Length;
-	IN INT Flags;
+        IN INT Socket;
+        IN PCHAR Buffer;
+        IN INT Length;
+        IN INT Flags;
 } PSX_SEND_MSG, *PPSX_SEND_MSG;
 
 typedef struct _PSX_SENDTO_MSG {
-	IN INT Socket;
-	IN PCHAR Buffer;
-	IN INT Length;
-	IN INT Flags;
-	IN struct sockaddr *To;
-	IN INT ToLength;
+        IN INT Socket;
+        IN PCHAR Buffer;
+        IN INT Length;
+        IN INT Flags;
+        IN struct sockaddr *To;
+        IN INT ToLength;
 } PSX_SENDTO_MSG, *PPSX_SENDTO_MSG;
 
 typdef struct _PSX_SETSOCKOPT_MSG {
-	IN INT Socket;
-	IN INT Level;
-	IN INT OptName;
-	IN PCHAR OptVal;
-	IN INT OptLen;
+        IN INT Socket;
+        IN INT Level;
+        IN INT OptName;
+        IN PCHAR OptVal;
+        IN INT OptLen;
 } PSX_SETSOCKOPT_MSG, *PPSX_SETSOCKOPT_MSG;
 
 typdef struct _PSX_SHUTDOWN_MSG {
-	IN INT Socket;
-	IN INT How;
+        IN INT Socket;
+        IN INT How;
 } PSX_SHUTDOWN_MSG, *PPSX_SHUTDOWN_MSG;
 
 #endif // SOCKET
@@ -860,7 +870,7 @@ typdef struct _PSX_SHUTDOWN_MSG {
 //          Error
 //          ReturnValue
 //          DataBlock
-//	    Signal
+//          Signal
 //      Union Data - Per API Structure
 //
 //
@@ -943,6 +953,7 @@ typedef struct _PSX_API_MSG {
                 PSX_GETGRGID_MSG GetGrGid;
                 PSX_GETGRNAM_MSG GetGrNam;
                 PSX_UNLINK_MSG Unlink;
+                PSX_FTRUNCATE_MSG Ftruncate;
 
 #ifdef PSX_SOCKET
 
@@ -982,7 +993,7 @@ typedef PSX_API_MSG *PPSX_API_MSG;
 // to both the client and server processes.
 //
 
-#define PSX_CLIENT_PORT_MEMORY_SIZE 0x4000
+#define PSX_CLIENT_PORT_MEMORY_SIZE 0x8000
 
 #define PSX_SS_API_PORT_NAME L"\\PSXSS\\ApiPort"
 

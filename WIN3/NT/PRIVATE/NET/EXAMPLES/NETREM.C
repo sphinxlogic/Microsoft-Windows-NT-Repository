@@ -14,8 +14,8 @@
 
    usage:
 
-    netrem [-cs copy source] [-cd copy dest] [-cf copy flag] [-co copy open]
-           [-ms move source] [-md move dest] [-mf move flag] [-mo move open]
+    netrem [-cs copy source] [-cd copy dest] [-cf copy flag] [-co copy _open]
+           [-ms move source] [-md move dest] [-mf move flag] [-mo move _open]
            [-ep executable] [-ea arguments]
            [-ts \\server]
 
@@ -24,13 +24,13 @@
           copy dest      = Complete path of the destination file or
                            directory for NetRemoteCopy.
           copy flag      = Copy flag for NetRemoteCopy.
-          copy open flag = Open flag for NetRemoteCopy.
+          copy _open flag = Open flag for NetRemoteCopy.
           move source    = Complete path of the source file or directory
                            for NetRemoteMove.
           move dest      = Complete path of the destination file or
                            directory for NetRemoteMove.
           move flag      = Move flag for NetRemoteMove.
-          move open flag = Open flag for NetRemoteMove.
+          move _open flag = Open flag for NetRemoteMove.
           executable     = Name of the program for NetRemoteExec.
           arguments      = Argument string for NetRemoteExec.
           \\server       = Name of the server for NetRemoteTOD. A

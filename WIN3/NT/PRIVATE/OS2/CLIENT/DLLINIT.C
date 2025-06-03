@@ -812,7 +812,7 @@ Od2FixupEnvironmentFromSM( VOID )
         while (c = *src) {
             if (!InKeyword) {
                 if (c == '\\') {
-                    if (!strnicmp( src, "\\BootDevice", 11 )) {
+                    if (!_strnicmp( src, "\\BootDevice", 11 )) {
                         *dst++ = (CHAR) ('A' + Od2BootDrive);
                         *dst++ = ':';
                         src += 11;
@@ -822,7 +822,7 @@ Od2FixupEnvironmentFromSM( VOID )
                         continue;
                         }
                     else
-                    if (!strnicmp( src, "\\SystemDisk", 11 )) {
+                    if (!_strnicmp( src, "\\SystemDisk", 11 )) {
                         *dst++ = (CHAR) ('A' + Od2SystemDrive);
                         *dst++ = ':';
                         src += 11;
@@ -869,7 +869,7 @@ Od2FixupEnvironmentFromSM( VOID )
 
     while (c = *src) {
         if (c == '\\') {
-            if (!strnicmp( src, "\\BootDevice", 11 )) {
+            if (!_strnicmp( src, "\\BootDevice", 11 )) {
                 *dst++ = (CHAR) ('A' + Od2BootDrive);
                 *dst++ = ':';
                 src += 11;
@@ -878,7 +878,7 @@ Od2FixupEnvironmentFromSM( VOID )
                     }
                 }
             else
-            if (!strnicmp( src, "\\SystemDisk", 11 )) {
+            if (!_strnicmp( src, "\\SystemDisk", 11 )) {
                 *dst++ = (CHAR) ('A' + Od2SystemDrive);
                 *dst++ = ':';
                 src += 11;
@@ -934,7 +934,7 @@ Od2FixupEnvironmentFromSM( VOID )
     while (*src) {
         while (c = *src) {
             if (c == '\\') {
-                if (!strnicmp( src, "\\BootDevice", 11 )) {
+                if (!_strnicmp( src, "\\BootDevice", 11 )) {
                     *dst++ = (CHAR) ('A' + Od2BootDrive);
                     *dst++ = ':';
                     src += 11;
@@ -943,7 +943,7 @@ Od2FixupEnvironmentFromSM( VOID )
                         }
                     }
                 else
-                if (!strnicmp( src, "\\SystemDisk", 11 )) {
+                if (!_strnicmp( src, "\\SystemDisk", 11 )) {
                     *dst++ = (CHAR) ('A' + Od2SystemDrive);
                     *dst++ = ':';
                     src += 11;
@@ -1154,4 +1154,3 @@ Od2ProcessStartup(
 //    }
 }
 
-

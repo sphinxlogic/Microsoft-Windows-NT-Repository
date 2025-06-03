@@ -24,3 +24,8 @@ NTSTATUS
 VdmQueryDirectoryFile(
     PVDMQUERYDIRINFO VdmQueryDir
     );
+
+NTSTATUS
+VdmIsLegalFatName(
+    POEM_STRING pOemFileNameString
+    );

@@ -72,7 +72,7 @@ Return Value:
                     FORMAT_MESSAGE_FROM_HMODULE,
                     NULL,
                     FormatId,
-                    LOWORD(GetThreadLocale()),
+                    0,
                     Buffer,
                     sizeof( Buffer ),
                     &Args
@@ -98,7 +98,7 @@ Return Value:
                     FORMAT_MESSAGE_FROM_HMODULE,
                     NULL,
                     FormatId,
-                    0x409,
+                    0,
                     Buffer,
                     sizeof( Buffer ),
                     &Args

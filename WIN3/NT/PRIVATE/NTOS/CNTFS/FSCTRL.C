@@ -21,11 +21,23 @@ Revision History:
 
 #include "NtfsProc.h"
 
+#ifdef NTFS_CHECK_BITMAP
+BOOLEAN NtfsCopyBitmap = TRUE;
+#endif
+
+#ifdef _CAIRO_
+VOID
+NtOfsIndexTest (
+    PIRP_CONTEXT IrpContext,
+    PFCB TestFcb
+    );
+#endif _CAIRO_
+
 //
 //  Temporarily reference our local attribute definitions
 //
 
-extern ATTRIBUTE_DEFINITION_COLUMNS NtfsAttributeDefinitions[$EA + 1];
+extern ATTRIBUTE_DEFINITION_COLUMNS NtfsAttributeDefinitions[];
 
 //
 //**** The following variable is only temporary and is used to disable NTFS
@@ -34,6 +46,15 @@ extern ATTRIBUTE_DEFINITION_COLUMNS NtfsAttributeDefinitions[$EA + 1];
 
 BOOLEAN NtfsDisable = FALSE;
 
+#ifdef _CAIRO_
+//
+//  ***** The following is used to determine whether to update to version 2.0.
+//  ***** We don't want to do this until chkdsk will check the volume.
+//
+
+BOOLEAN NtfsUpdateTo20 = FALSE;
+#endif
+
 //
 //  The following is used to determine when to move to compressed files.
 //
@@ -41,10 +62,23 @@ BOOLEAN NtfsDisable = FALSE;
 BOOLEAN NtfsDefragMftEnabled = FALSE;
 
 //
+//  The Bug check file id for this module
+//
+
+#define BugCheckFileId                   (NTFS_BUG_CHECK_FSCTRL)
+
+//
 //  The local debug trace level
 //
 
 #define Dbg                              (DEBUG_TRACE_FSCTRL)
+
+//
+//  Define a tag for general pool allocations from this module
+//
+
+#undef MODULE_POOL_TAG
+#define MODULE_POOL_TAG                  ('fFtN')
 
 //
 //  Local procedure prototypes
@@ -98,7 +132,7 @@ NtfsDirtyVolume (
     IN PIRP Irp
     );
 
-VOID
+BOOLEAN
 NtfsGetDiskGeometry (
     IN PIRP_CONTEXT IrpContext,
     IN PDEVICE_OBJECT DeviceObjectWeTalkTo,
@@ -117,7 +151,6 @@ NtfsReadBootSector (
 
 BOOLEAN
 NtfsIsBootSectorNtfs (
-    IN PIRP_CONTEXT IrpContext,
     IN PPACKED_BOOT_SECTOR BootSector,
     IN PVCB Vcb
     );
@@ -142,7 +175,7 @@ NtfsOpenSystemFile (
     IN OUT PSCB *Scb,
     IN PVCB Vcb,
     IN ULONG FileNumber,
-    IN LONGLONG SizeInClusters,
+    IN LONGLONG Size,
     IN ATTRIBUTE_TYPE_CODE AttributeTypeCode,
     IN BOOLEAN ModifiedNoWrite
     );
@@ -198,6 +231,79 @@ NtfsMarkAsSystemHive (
     IN PIRP Irp
     );
 
+NTSTATUS
+NtfsGetStatistics (
+    IN PIRP_CONTEXT IrpContext,
+    IN PIRP Irp
+    );
+
+#define NtfsMapPageInBitmap(A,B,C,D,E,F) NtfsMapOrPinPageInBitmap(A,B,C,D,E,F,FALSE)
+
+#define NtfsPinPageInBitmap(A,B,C,D,E,F) NtfsMapOrPinPageInBitmap(A,B,C,D,E,F,TRUE)
+
+VOID
+NtfsMapOrPinPageInBitmap (
+    IN PIRP_CONTEXT IrpContext,
+    IN PVCB Vcb,
+    IN LCN Lcn,
+    OUT PLCN StartingLcn,
+    IN OUT PRTL_BITMAP Bitmap,
+    OUT PBCB *BitmapBcb,
+    IN BOOLEAN AlsoPinData
+    );
+
+BOOLEAN
+NtfsAddRecentlyDeallocated (
+    IN PVCB Vcb,
+    IN LCN Lcn,
+    IN OUT PRTL_BITMAP Bitmap
+    );
+
+#define BYTES_PER_PAGE (PAGE_SIZE)
+#define BITS_PER_PAGE (BYTES_PER_PAGE * 8)
+
+NTSTATUS
+NtfsGetVolumeData (
+    IN PIRP_CONTEXT IrpContext,
+    IN PIRP Irp
+    );
+
+NTSTATUS
+NtfsGetVolumeBitmap (
+    IN PIRP_CONTEXT IrpContext,
+    IN PIRP Irp
+    );
+
+NTSTATUS
+NtfsGetRetrievalPointers (
+    IN PIRP_CONTEXT IrpContext,
+    IN PIRP Irp
+    );
+
+NTSTATUS
+NtfsGetMftRecord (
+    IN PIRP_CONTEXT IrpContext,
+    IN PIRP Irp
+    );
+
+NTSTATUS
+NtfsMoveFile (
+    IN PIRP_CONTEXT IrpContext,
+    IN PIRP Irp
+    );
+
+NTSTATUS
+NtfsIsVolumeDirty (
+    IN PIRP_CONTEXT IrpContext,
+    IN PIRP Irp
+    );
+
+NTSTATUS
+NtfsSetExtendedDasdIo (
+    IN PIRP_CONTEXT IrpContext,
+    IN PIRP Irp
+    );
+
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE, NtfsCommonFileSystemControl)
 #pragma alloc_text(PAGE, NtfsDirtyVolume)
@@ -206,6 +312,7 @@ NtfsMarkAsSystemHive (
 #pragma alloc_text(PAGE, NtfsGetDiskGeometry)
 #pragma alloc_text(PAGE, NtfsGetVolumeLabel)
 #pragma alloc_text(PAGE, NtfsIsBootSectorNtfs)
+#pragma alloc_text(PAGE, NtfsIsVolumeDirty)
 #pragma alloc_text(PAGE, NtfsLockVolume)
 #pragma alloc_text(PAGE, NtfsMarkAsSystemHive)
 #pragma alloc_text(PAGE, NtfsMountVolume)
@@ -214,6 +321,7 @@ NtfsMarkAsSystemHive (
 #pragma alloc_text(PAGE, NtfsOplockRequest)
 #pragma alloc_text(PAGE, NtfsReadBootSector)
 #pragma alloc_text(PAGE, NtfsSetAndGetVolumeTimes)
+#pragma alloc_text(PAGE, NtfsSetTotalAllocatedField)
 #pragma alloc_text(PAGE, NtfsUnlockVolume)
 #pragma alloc_text(PAGE, NtfsUserFsRequest)
 #pragma alloc_text(PAGE, NtfsVerifyVolume)
@@ -222,6 +330,13 @@ NtfsMarkAsSystemHive (
 #pragma alloc_text(PAGE, NtfsSetCompression)
 #pragma alloc_text(PAGE, NtfsReadCompression)
 #pragma alloc_text(PAGE, NtfsWriteCompression)
+#pragma alloc_text(PAGE, NtfsGetStatistics)
+#pragma alloc_text(PAGE, NtfsGetVolumeData)
+#pragma alloc_text(PAGE, NtfsGetVolumeBitmap)
+#pragma alloc_text(PAGE, NtfsGetRetrievalPointers)
+#pragma alloc_text(PAGE, NtfsGetMftRecord)
+#pragma alloc_text(PAGE, NtfsMoveFile)
+#pragma alloc_text(PAGE, NtfsSetExtendedDasdIo)
 #endif
 
 
@@ -262,12 +377,13 @@ Return Value:
 
     PIO_STACK_LOCATION IrpSp;
 
-    UNREFERENCED_PARAMETER( VolumeDeviceObject );
     ASSERT_IRP( Irp );
+
+    UNREFERENCED_PARAMETER( VolumeDeviceObject );
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsFsdFileSystemControl\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsFsdFileSystemControl\n") );
 
     //
     //  Call the common File System Control routine, with blocking allowed if
@@ -321,17 +437,25 @@ Return Value:
                 //  The SetCompression control is a long-winded function that has
                 //  to rewrite the entire stream, and has to tolerate log file full
                 //  conditions.  If this is the first pass through we initialize some
-                //  fields in the IrpSp to allow us to resume the set compression
+                //  fields in the NextIrpSp to allow us to resume the set compression
                 //  operation.
+                //
+                //  David Goebel 1/3/96: Changed to next stack location so that we
+                //  don't wipe out buffer length values.  These Irps are never
+                //  dispatched, so the next stack location will not be disturbed.
                 //
 
                 if ((IrpSp->MinorFunction == IRP_MN_USER_FS_REQUEST) &&
-                    (IrpSp->Parameters.FileSystemControl.FsControlCode == FSCTL_SET_COMPRESSION)) {
+                    ((IrpSp->Parameters.FileSystemControl.FsControlCode == FSCTL_SET_COMPRESSION) ||
+                     (IrpSp->Parameters.FileSystemControl.FsControlCode == FSCTL_MOVE_FILE))) {
 
                     if (!Retry) {
 
-                        IrpSp->Parameters.FileSystemControl.OutputBufferLength = MAXULONG;
-                        IrpSp->Parameters.FileSystemControl.InputBufferLength = MAXULONG;
+                        PIO_STACK_LOCATION NextIrpSp;
+                        NextIrpSp = IoGetNextIrpStackLocation( Irp );
+
+                        NextIrpSp->Parameters.FileSystemControl.OutputBufferLength = MAXULONG;
+                        NextIrpSp->Parameters.FileSystemControl.InputBufferLength = MAXULONG;
                     }
                 }
 
@@ -365,7 +489,7 @@ Return Value:
     //  And return to our caller
     //
 
-    DebugTrace(-1, Dbg, "NtfsFsdFileSystemControl -> %08lx\n", Status);
+    DebugTrace( -1, Dbg, ("NtfsFsdFileSystemControl -> %08lx\n", Status) );
 
     return Status;
 }
@@ -409,9 +533,9 @@ Return Value:
 
     IrpSp = IoGetCurrentIrpStackLocation( Irp );
 
-    DebugTrace(+1, Dbg, "NtfsCommonFileSystemControl\n", 0);
-    DebugTrace( 0, Dbg, "IrpContext = %08lx\n", IrpContext);
-    DebugTrace( 0, Dbg, "Irp        = %08lx\n", Irp);
+    DebugTrace( +1, Dbg, ("NtfsCommonFileSystemControl\n") );
+    DebugTrace( 0, Dbg, ("IrpContext = %08lx\n", IrpContext) );
+    DebugTrace( 0, Dbg, ("Irp        = %08lx\n", Irp) );
 
     //
     //  We know this is a file system control so we'll case on the
@@ -433,7 +557,7 @@ Return Value:
 
     default:
 
-        DebugTrace(0, Dbg, "Invalid Minor Function %08lx\n", IrpSp->MinorFunction);
+        DebugTrace( 0, Dbg, ("Invalid Minor Function %08lx\n", IrpSp->MinorFunction) );
         NtfsCompleteRequest( &IrpContext, &Irp, Status = STATUS_INVALID_DEVICE_REQUEST );
         break;
     }
@@ -442,7 +566,7 @@ Return Value:
     //  And return to our caller
     //
 
-    DebugTrace(-1, Dbg, "NtfsCommonFileSystemControl -> %08lx\n", Status);
+    DebugTrace( -1, Dbg, ("NtfsCommonFileSystemControl -> %08lx\n", Status) );
 
     return Status;
 }
@@ -504,11 +628,14 @@ Return Value:
     PVPB Vpb;
 
     PVOLUME_DEVICE_OBJECT VolDo;
-    PVCB Vcb = NULL;
+    PVCB Vcb;
 
     PBCB BootBcb = NULL;
     PPACKED_BOOT_SECTOR BootSector;
     PSCB BootScb = NULL;
+#ifdef _CAIRO_
+    PSCB QuotaDataScb = NULL;
+#endif  //  _CAIRO_
 
     POBJECT_NAME_INFORMATION DeviceObjectName = NULL;
     ULONG DeviceObjectNameLength;
@@ -516,11 +643,10 @@ Return Value:
     PBCB Bcbs[8] = {NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL};
 
     ULONG FirstNonMirroredCluster;
+    ULONG MirroredMftRange;
 
     ULONG i;
 
-    LCN DontCareLcn;
-    LONGLONG DontCareCount;
     IO_STATUS_BLOCK IoStatus;
 
     BOOLEAN UpdatesApplied;
@@ -528,6 +654,7 @@ Return Value:
     BOOLEAN MountFailed = TRUE;
     BOOLEAN CloseAttributes = FALSE;
     BOOLEAN UpdateVersion = FALSE;
+    BOOLEAN WriteProtected;
 
     LONGLONG LlTemp1;
 
@@ -567,7 +694,7 @@ Return Value:
 
     IrpSp = IoGetCurrentIrpStackLocation( Irp );
 
-    DebugTrace(+1, Dbg, "NtfsMountVolume\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsMountVolume\n") );
 
     //
     //  Save some references to make our life a little easier
@@ -583,6 +710,72 @@ Return Value:
     //
 
     NtfsAcquireExclusiveGlobal( IrpContext );
+
+    //
+    //  Now is a convenient time to look through the queue of Vcb's to see if there
+    //  are any which can be deleted.
+    //
+
+    try {
+
+        PLIST_ENTRY Links;
+
+        for (Links = NtfsData.VcbQueue.Flink;
+             Links != &NtfsData.VcbQueue;
+             Links = Links->Flink) {
+
+            Vcb = CONTAINING_RECORD( Links, VCB, VcbLinks );
+
+            if (!FlagOn( Vcb->VcbState, VCB_STATE_VOLUME_MOUNTED ) &&
+                (Vcb->CloseCount == 0) &&
+                FlagOn( Vcb->VcbState, VCB_STATE_PERFORMED_DISMOUNT ) &&
+                (Vcb->LogFileObject != NULL)) {
+
+                //
+                //  Now we can check to see if we should perform the teardown
+                //  on this Vcb.  The release Vcb routine below can do all of
+                //  the checks correctly.  Make this appear to from a close
+                //  call since there is no special biasing for this case.
+                //
+
+                IrpContext->Vcb = Vcb;
+                NtfsAcquireExclusiveVcb( IrpContext, Vcb, TRUE );
+
+                if (!FlagOn( Vcb->VcbState, VCB_STATE_DELETE_UNDERWAY )) {
+
+                    NtfsReleaseGlobal( IrpContext );
+
+                    NtfsReleaseVcbCheckDelete( IrpContext,
+                                               Vcb,
+                                               IRP_MJ_CLOSE,
+                                               NULL );
+
+                    //
+                    //  Only do one since we have lost our place in the Vcb list.
+                    //
+
+                    NtfsAcquireExclusiveGlobal( IrpContext );
+
+                    break;
+
+                } else {
+
+                    NtfsReleaseVcb( IrpContext, Vcb );
+                }
+            }
+        }
+
+    } except(NtfsExceptionFilter( IrpContext, GetExceptionInformation() )) {
+
+        //
+        //  Make sure we own the global resource for mount.  We can only raise above
+        //  in the DeleteVcb path when we don't hold the resource.
+        //
+
+        NtfsAcquireExclusiveGlobal( IrpContext );
+    }
+
+    Vcb = NULL;
 
     try {
 
@@ -665,10 +858,10 @@ Return Value:
             DISK_GEOMETRY DiskGeometry;
             PARTITION_INFORMATION PartitionInfo;
 
-            NtfsGetDiskGeometry( IrpContext,
-                                 DeviceObjectWeTalkTo,
-                                 &DiskGeometry,
-                                 &PartitionInfo );
+            WriteProtected = NtfsGetDiskGeometry( IrpContext,
+                                                  DeviceObjectWeTalkTo,
+                                                  &DiskGeometry,
+                                                  &PartitionInfo );
 
             //
             //  If the sector size is greater than the page size, it is probably
@@ -682,6 +875,16 @@ Return Value:
             Vcb->BytesPerSector = DiskGeometry.BytesPerSector;
             Vcb->BytesPerCluster = Vcb->BytesPerSector;
             Vcb->NumberSectors = PartitionInfo.PartitionLength.QuadPart / DiskGeometry.BytesPerSector;
+
+            //
+            //  Fail the mount if the number of sectors is less than 16.  Otherwise our mount logic
+            //  won't work.
+            //
+
+            if (Vcb->NumberSectors <= 0x10) {
+
+                try_return( Status = STATUS_UNRECOGNIZED_VOLUME );
+            }
 
             Vcb->ClusterMask = Vcb->BytesPerCluster - 1;
             Vcb->InverseClusterMask = ~Vcb->ClusterMask;
@@ -708,11 +911,20 @@ Return Value:
         //  Check if this is an NTFS volume
         //
 
-        if (!NtfsIsBootSectorNtfs( IrpContext, BootSector, Vcb )) {
+        if (!NtfsIsBootSectorNtfs( BootSector, Vcb )) {
 
-            DebugTrace(0, Dbg, "Not an NTFS volume\n", 0);
-
+            DebugTrace( 0, Dbg, ("Not an NTFS volume\n") );
             try_return( Status = STATUS_UNRECOGNIZED_VOLUME );
+        }
+
+        //
+        //  Not return write protected if the drive is really Ntfs.
+        //
+
+        if (WriteProtected) {
+
+            DebugTrace( 0, Dbg, ("Write protected volume\n") );
+            try_return( Status = STATUS_MEDIA_WRITE_PROTECTED );
         }
 
         //
@@ -730,22 +942,102 @@ Return Value:
             Vcb->NumberSectors = BootSector->NumberSectors;
             Vcb->MftStartLcn = BootSector->MftStartLcn;
             Vcb->Mft2StartLcn = BootSector->Mft2StartLcn;
-            Vcb->ClustersPerFileRecordSegment = BootSector->ClustersPerFileRecordSegment;
-            Vcb->DefaultClustersPerIndexAllocationBuffer = BootSector->DefaultClustersPerIndexAllocationBuffer;
 
             Vcb->ClusterMask = Vcb->BytesPerCluster - 1;
             Vcb->InverseClusterMask = ~Vcb->ClusterMask;
             for (Vcb->ClusterShift = 0, i = Vcb->BytesPerCluster; i > 1; i = i / 2) {
                 Vcb->ClusterShift += 1;
             }
+
+            //
+            //  If the cluster size is greater than the page size then set this value to 1.
+            //
+
             Vcb->ClustersPerPage = PAGE_SIZE >> Vcb->ClusterShift;
-            Vcb->BytesPerFileRecordSegment =
-              BootSector->ClustersPerFileRecordSegment << Vcb->ClusterShift;
+
+            if (Vcb->ClustersPerPage == 0) {
+
+                Vcb->ClustersPerPage = 1;
+            }
+
+            //
+            //  File records can be smaller, equal or larger than the cluster size.  Initialize
+            //  both ClustersPerFileRecordSegment and FileRecordsPerCluster.
+            //
+            //  If the value in the boot sector is positive then it signifies the
+            //  clusters/structure.  If negative then it signifies the shift value
+            //  to obtain the structure size.
+            //
+
+            if (BootSector->ClustersPerFileRecordSegment < 0) {
+
+                Vcb->BytesPerFileRecordSegment = 1 << (-1 * BootSector->ClustersPerFileRecordSegment);
+
+                //
+                //  Initialize the other Mft/Cluster relationship numbers in the Vcb
+                //  based on whether the clusters are larger or smaller than file
+                //  records.
+                //
+
+                if (Vcb->BytesPerFileRecordSegment < Vcb->BytesPerCluster) {
+
+                    Vcb->FileRecordsPerCluster = Vcb->BytesPerCluster / Vcb->BytesPerFileRecordSegment;
+
+                } else {
+
+                    Vcb->ClustersPerFileRecordSegment = Vcb->BytesPerFileRecordSegment / Vcb->BytesPerCluster;
+                }
+
+            } else {
+
+                Vcb->BytesPerFileRecordSegment = BytesFromClusters( Vcb, BootSector->ClustersPerFileRecordSegment );
+                Vcb->ClustersPerFileRecordSegment = BootSector->ClustersPerFileRecordSegment;
+            }
+
             for (Vcb->MftShift = 0, i = Vcb->BytesPerFileRecordSegment; i > 1; i = i / 2) {
                 Vcb->MftShift += 1;
             }
 
+            //
+            //  We want to shift between file records and clusters regardless of which is larger.
+            //  Compute the shift value here.  Anyone using this value will have to know which
+            //  way to shift.
+            //
+
             Vcb->MftToClusterShift = Vcb->MftShift - Vcb->ClusterShift;
+
+            if (Vcb->ClustersPerFileRecordSegment == 0) {
+
+                Vcb->MftToClusterShift = Vcb->ClusterShift - Vcb->MftShift;
+            }
+
+            //
+            //  Compute the default index allocation buffer size.
+            //
+
+            if (BootSector->DefaultClustersPerIndexAllocationBuffer < 0) {
+
+                Vcb->DefaultBytesPerIndexAllocationBuffer = 1 << (-1 * BootSector->DefaultClustersPerIndexAllocationBuffer);
+
+                //
+                //  Determine whether the index allocation buffer is larger/smaller
+                //  than the cluster size to determine the block size.
+                //
+
+                if (Vcb->DefaultBytesPerIndexAllocationBuffer < Vcb->BytesPerCluster) {
+
+                    Vcb->DefaultBlocksPerIndexAllocationBuffer = Vcb->DefaultBytesPerIndexAllocationBuffer / DEFAULT_INDEX_BLOCK_SIZE;
+
+                } else {
+
+                    Vcb->DefaultBlocksPerIndexAllocationBuffer = Vcb->DefaultBytesPerIndexAllocationBuffer / Vcb->BytesPerCluster;
+                }
+
+            } else {
+
+                Vcb->DefaultBlocksPerIndexAllocationBuffer = BootSector->DefaultClustersPerIndexAllocationBuffer;
+                Vcb->DefaultBytesPerIndexAllocationBuffer = BytesFromClusters( Vcb, Vcb->DefaultBlocksPerIndexAllocationBuffer );
+            }
 
             //
             //  Now compute our volume specific constants that are stored in
@@ -754,8 +1046,19 @@ Return Value:
             //      (NumberSectors * BytesPerSector) / BytesPerCluster
             //
 
-            Vcb->TotalClusters =
-                (Vcb->NumberSectors * Vcb->BytesPerSector) >> Vcb->ClusterShift;
+            Vcb->TotalClusters = LlClustersFromBytesTruncate( Vcb,
+                                                              Vcb->NumberSectors * Vcb->BytesPerSector );
+
+            //
+            //  Compute the attribute flags mask for this volume for this volume.
+            //
+
+            Vcb->AttributeFlagsMask = 0xffff;
+
+            if (Vcb->BytesPerCluster > 0x1000) {
+
+                ClearFlag( Vcb->AttributeFlagsMask, ATTRIBUTE_FLAG_COMPRESSION_MASK );
+            }
 
             //
             //  For now, an attribute is considered "moveable" if it is at
@@ -779,13 +1082,11 @@ Return Value:
         //  Initialize recovery state.
         //
 
-        NtfsInitializeRestartTable( IrpContext,
-                                    sizeof(OPEN_ATTRIBUTE_ENTRY),
+        NtfsInitializeRestartTable( sizeof(OPEN_ATTRIBUTE_ENTRY),
                                     INITIAL_NUMBER_ATTRIBUTES,
                                     &Vcb->OpenAttributeTable );
 
-        NtfsInitializeRestartTable( IrpContext,
-                                    sizeof(TRANSACTION_ENTRY),
+        NtfsInitializeRestartTable( sizeof(TRANSACTION_ENTRY),
                                     INITIAL_NUMBER_TRANSACTIONS,
                                     &Vcb->TransactionTable );
 
@@ -795,19 +1096,23 @@ Return Value:
 
         //
         //  Create the Mft and Log File Scbs and prepare to read them.
+        //  The Mft and mirror length will be the first 4 file records or
+        //  the first cluster.
         //
 
-        //
-        //  Create the Mft Scb and describe it up to the log file.
-        //
+        FirstNonMirroredCluster = ClustersFromBytes( Vcb, 4 * Vcb->BytesPerFileRecordSegment );
+        MirroredMftRange = 4 * Vcb->BytesPerFileRecordSegment;
 
-        FirstNonMirroredCluster = 4 * Vcb->ClustersPerFileRecordSegment;
+        if (MirroredMftRange < Vcb->BytesPerCluster) {
+
+            MirroredMftRange = Vcb->BytesPerCluster;
+        }
 
         NtfsOpenSystemFile( IrpContext,
                             &Vcb->MftScb,
                             Vcb,
                             MASTER_FILE_TABLE_NUMBER,
-                            FirstNonMirroredCluster,
+                            MirroredMftRange,
                             $DATA,
                             TRUE );
 
@@ -815,10 +1120,11 @@ Return Value:
 
         LlTemp1 = FirstNonMirroredCluster;
 
-        (VOID)FsRtlAddLargeMcbEntry( &Vcb->MftScb->Mcb,
-                                     (LONGLONG)0,
-                                     Vcb->MftStartLcn,
-                                     (LONGLONG)FirstNonMirroredCluster );
+        (VOID)NtfsAddNtfsMcbEntry( &Vcb->MftScb->Mcb,
+                                   (LONGLONG)0,
+                                   Vcb->MftStartLcn,
+                                   (LONGLONG)FirstNonMirroredCluster,
+                                   FALSE );
 
         //
         //  Now the same for Mft2
@@ -828,17 +1134,18 @@ Return Value:
                             &Vcb->Mft2Scb,
                             Vcb,
                             MASTER_FILE_TABLE2_NUMBER,
-                            FirstNonMirroredCluster,
+                            MirroredMftRange,
                             $DATA,
                             TRUE );
 
         CcSetAdditionalCacheAttributes( Vcb->Mft2Scb->FileObject, TRUE, TRUE );
 
 
-        (VOID)FsRtlAddLargeMcbEntry( &Vcb->Mft2Scb->Mcb,
-                                     (LONGLONG)0,
-                                     Vcb->Mft2StartLcn,
-                                     (LONGLONG)FirstNonMirroredCluster );
+        (VOID)NtfsAddNtfsMcbEntry( &Vcb->Mft2Scb->Mcb,
+                                   (LONGLONG)0,
+                                   Vcb->Mft2StartLcn,
+                                   (LONGLONG)FirstNonMirroredCluster,
+                                   FALSE );
 
         //
         //  Create the dasd system file, we do it here because we need to dummy
@@ -856,16 +1163,20 @@ Return Value:
                             &Vcb->VolumeDasdScb,
                             Vcb,
                             VOLUME_DASD_NUMBER,
-                            *(PLONGLONG)&Vcb->TotalClusters,
+                            LlBytesFromClusters( Vcb, Vcb->TotalClusters ),
                             $DATA,
                             FALSE );
 
-        (VOID)FsRtlAddLargeMcbEntry( &Vcb->VolumeDasdScb->Mcb,
-                                     (LONGLONG)0,
-                                     (LONGLONG)0,
-                                     Vcb->TotalClusters );
+        (VOID)NtfsAddNtfsMcbEntry( &Vcb->VolumeDasdScb->Mcb,
+                                   (LONGLONG)0,
+                                   (LONGLONG)0,
+                                   Vcb->TotalClusters,
+                                   FALSE );
 
         SetFlag( Vcb->VolumeDasdScb->Fcb->FcbState, FCB_STATE_DUP_INITIALIZED );
+
+        Vcb->VolumeDasdScb->Fcb->LinkCount =
+        Vcb->VolumeDasdScb->Fcb->TotalLinks = 1;
 
         //
         //  We want to read the first four record segments of each of these
@@ -878,8 +1189,7 @@ Return Value:
             FILE_REFERENCE FileReference;
             PATTRIBUTE_RECORD_HEADER FirstAttribute;
 
-            FileReference.LowPart = i;
-            FileReference.HighPart = 0;
+            NtfsSetSegmentNumber( &FileReference, 0, i );
             FileReference.SequenceNumber = (USHORT)i;
 
             NtfsReadFileRecord( IrpContext,
@@ -890,8 +1200,15 @@ Return Value:
                                 &FirstAttribute,
                                 NULL );
 
-            NtfsCheckFileRecord( IrpContext, Vcb, MftBuffer );
+            //
+            //  If any of these file records are bad then
+            //  fail the mount.
+            //
 
+            if (!NtfsCheckFileRecord( IrpContext, Vcb, MftBuffer )) {
+
+                try_return( Status = STATUS_DISK_CORRUPT_ERROR );
+            }
 
             NtfsMapStream( IrpContext,
                            Vcb->Mft2Scb,
@@ -917,14 +1234,29 @@ Return Value:
 
                 VolumeInformation = (PVOLUME_INFORMATION)NtfsAttributeValue(Attribute);
 
-                if (VolumeInformation->MajorVersion != 1) {
+                if (VolumeInformation->MajorVersion != 2) {
 
-                    NtfsRaiseStatus( IrpContext, STATUS_WRONG_VOLUME, NULL, NULL );
-                }
+                    if (VolumeInformation->MajorVersion != 1) {
 
-                if (VolumeInformation->MinorVersion <= 1) {
+                        NtfsRaiseStatus( IrpContext, STATUS_WRONG_VOLUME, NULL, NULL );
+                    }
 
-                    UpdateVersion = TRUE;
+#ifdef _CAIRO_
+                    if (NtfsUpdateTo20) {
+
+                        UpdateVersion = TRUE;
+                    }
+#else
+                    if (VolumeInformation->MinorVersion <= 1) {
+
+                        UpdateVersion = TRUE;
+
+                    } else if (NtfsDefragMftEnabled) {
+
+                        SetFlag( Vcb->MftDefragState, VCB_MFT_DEFRAG_PERMITTED );
+                    }
+
+#endif
 
                 } else if (NtfsDefragMftEnabled) {
 
@@ -951,6 +1283,8 @@ Return Value:
                             $DATA,
                             TRUE );
 
+        Vcb->LogFileObject = Vcb->LogFileScb->FileObject;
+
         CcSetAdditionalCacheAttributes( Vcb->LogFileScb->FileObject, TRUE, TRUE );
 
         //
@@ -959,22 +1293,17 @@ Return Value:
         //  in progress.
         //
 
-        (VOID)NtfsLookupAllocation( IrpContext,
-                                    Vcb->LogFileScb,
-                                    MAXLONGLONG,
-                                    &DontCareLcn,
-                                    &DontCareCount,
-                                    NULL );
+        (VOID)NtfsPreloadAllocation( IrpContext, Vcb->LogFileScb, 0, MAXLONGLONG );
 
         //
         //  Now we have to unpin everything before restart, because it generally
         //  has to uninitialize everything.
         //
 
-        NtfsUnpinBcb( IrpContext, &BootBcb );
+        NtfsUnpinBcb( &BootBcb );
 
         for (i = 0; i < 8; i++) {
-            NtfsUnpinBcb( IrpContext, &Bcbs[i] );
+            NtfsUnpinBcb( &Bcbs[i] );
         }
 
         //
@@ -1004,8 +1333,7 @@ Return Value:
 
             Status = STATUS_SUCCESS;
 
-            NtfsStartLogFile( IrpContext,
-                              Vcb->LogFileScb,
+            NtfsStartLogFile( Vcb->LogFileScb,
                               Vcb );
 
             //
@@ -1034,6 +1362,18 @@ Return Value:
         } except(NtfsExceptionFilter( IrpContext, GetExceptionInformation() )) {
 
             Status = GetExceptionCode();
+
+            //
+            //  If the error is STATUS_LOG_FILE_FULL then it means that
+            //  we couldn't complete the restart.  Mark the volume dirty in
+            //  this case.  Don't return this error code.
+            //
+
+            if (Status == STATUS_LOG_FILE_FULL) {
+
+                Status = STATUS_DISK_CORRUPT_ERROR;
+                IrpContext->ExceptionStatus = STATUS_DISK_CORRUPT_ERROR;
+            }
         }
 
         if (!NT_SUCCESS(Status)) {
@@ -1044,7 +1384,12 @@ Return Value:
 
             //
             //  Now flush it out, so chkdsk can see it with Dasd.
+            //  Clear the error in the IrpContext so that this
+            //  flush will succeed.  Otherwise CommonWrite will
+            //  return FILE_LOCK_CONFLICT.
             //
+
+            IrpContext->ExceptionStatus = STATUS_SUCCESS;
 
             VolumeDasdOffset = VOLUME_DASD_NUMBER << Vcb->MftShift;
 
@@ -1112,7 +1457,7 @@ Return Value:
 
                 if (MftBuffer->SequenceNumber != 1) {
 
-                    NtfsPostVcbIsCorrupt( IrpContext, (PVOID)Vcb, 0, NULL, NULL );
+                    NtfsPostVcbIsCorrupt( (PVOID)Vcb, 0, NULL, NULL );
                 }
             }
 
@@ -1135,8 +1480,8 @@ Return Value:
         //  it from the File Record.
         //
 
-        FsRtlTruncateLargeMcb( &Vcb->MftScb->Mcb, (LONGLONG) 0 );
-        FsRtlTruncateLargeMcb( &Vcb->Mft2Scb->Mcb, (LONGLONG) 0 );
+        NtfsUnloadNtfsMcbRange( &Vcb->MftScb->Mcb, (LONGLONG) 0, MAXLONGLONG, TRUE, FALSE );
+        NtfsUnloadNtfsMcbRange( &Vcb->Mft2Scb->Mcb, (LONGLONG) 0, MAXLONGLONG, TRUE, FALSE );
 
         //
         //  Mark both of them as uninitialized.
@@ -1151,19 +1496,22 @@ Return Value:
         //  Now load up the real allocation from just the first file record.
         //
 
-        NtfsLookupAllocation( IrpContext,
-                              Vcb->MftScb,
-                              (FIRST_USER_FILE_NUMBER - 1) << (Vcb->MftShift - Vcb->ClusterShift),
-                              &DontCareLcn,
-                              &DontCareCount,
-                              NULL );
+        if (Vcb->FileRecordsPerCluster == 0) {
 
-        NtfsLookupAllocation( IrpContext,
-                              Vcb->Mft2Scb,
-                              MAXLONGLONG,
-                              &DontCareLcn,
-                              &DontCareCount,
-                              NULL );
+            NtfsPreloadAllocation( IrpContext,
+                                   Vcb->MftScb,
+                                   0,
+                                   (FIRST_USER_FILE_NUMBER - 1) << Vcb->MftToClusterShift );
+
+        } else {
+
+            NtfsPreloadAllocation( IrpContext,
+                                   Vcb->MftScb,
+                                   0,
+                                   (FIRST_USER_FILE_NUMBER - 1) >> Vcb->MftToClusterShift );
+        }
+
+        NtfsPreloadAllocation( IrpContext, Vcb->Mft2Scb, 0, MAXLONGLONG );
 
         //
         //  We update the Mft and the Mft mirror before we delete the current
@@ -1180,7 +1528,7 @@ Return Value:
         //
 
         for (i = 0; i < 8; i++) {
-            NtfsUnpinBcb( IrpContext, &Bcbs[i] );
+            NtfsUnpinBcb( &Bcbs[i] );
         }
 
         //
@@ -1193,8 +1541,18 @@ Return Value:
         {
             Vcb->MftScb->CloseCount += 1;
 
-            NtfsDeleteInternalAttributeStream( IrpContext, Vcb->MftScb, TRUE );
+            NtfsDeleteInternalAttributeStream( Vcb->MftScb, TRUE );
             NtfsCreateInternalAttributeStream( IrpContext, Vcb->MftScb, FALSE );
+
+            //
+            //  Tell the cache manager the file sizes for the MFT.  It is possible
+            //  that the shared cache map did not go away on the DeleteInternalAttributeStream
+            //  call above.  In that case the Cache Manager has the file sizes from
+            //  restart.
+            //
+
+            CcSetFileSizes( Vcb->MftScb->FileObject,
+                            (PCC_FILE_SIZES) &Vcb->MftScb->Header.AllocationSize );
 
             CcSetAdditionalCacheAttributes( Vcb->MftScb->FileObject, TRUE, FALSE );
 
@@ -1206,25 +1564,14 @@ Return Value:
         //  its complete mapping into the Mcb.
         //
 
-        {
-            LONGLONG BeyondLastCluster;
-
-            BeyondLastCluster = LlClustersFromBytes( Vcb, Vcb->MftScb->Header.FileSize.QuadPart );
-
-            NtfsLookupAllocation( IrpContext,
-                                  Vcb->MftScb,
-                                  BeyondLastCluster,
-                                  &DontCareLcn,
-                                  &DontCareCount,
-                                  NULL );
-        }
+        NtfsPreloadAllocation( IrpContext, Vcb->MftScb, 0, MAXLONGLONG );
 
         //
         //  Close the boot file (get rid of it because we do not know its proper
         //  size, and the Scb may be inconsistent).
         //
 
-        NtfsDeleteInternalAttributeStream( IrpContext, BootScb, TRUE );
+        NtfsDeleteInternalAttributeStream( BootScb, TRUE );
         BootScb = NULL;
 
         //
@@ -1233,8 +1580,13 @@ Return Value:
         //  file size updates to occur, etc.
         //
 
-        NtfsCloseAttributesFromRestart( IrpContext, Vcb );
+        Status = NtfsCloseAttributesFromRestart( IrpContext, Vcb );
         CloseAttributes = FALSE;
+
+        if (!NT_SUCCESS( Status )) {
+
+            NtfsRaiseStatus( IrpContext, Status, NULL, NULL );
+        }
 
         NtfsAcquireCheckpoint( IrpContext, Vcb );
 
@@ -1307,7 +1659,7 @@ Return Value:
                 NtfsRaiseStatus( IrpContext, STATUS_DISK_CORRUPT_ERROR, NULL, NULL );
             }
 
-            Vcb->AttributeDefinitions = NtfsAllocatePagedPool( Scb->Header.FileSize.LowPart );
+            Vcb->AttributeDefinitions = NtfsAllocatePool(PagedPool, Scb->Header.FileSize.LowPart );
 
             CcCopyRead( Scb->FileObject,
                         &Li0,
@@ -1354,7 +1706,7 @@ Return Value:
                 NtfsRaiseStatus( IrpContext, STATUS_DISK_CORRUPT_ERROR, NULL, NULL );
             }
 
-            Vcb->UpcaseTable = NtfsAllocatePagedPool( Scb->Header.FileSize.LowPart );
+            Vcb->UpcaseTable = NtfsAllocatePool(PagedPool, Scb->Header.FileSize.LowPart );
             Vcb->UpcaseTableSize = Scb->Header.FileSize.LowPart / 2;
 
             CcCopyRead( Scb->FileObject,
@@ -1367,6 +1719,32 @@ Return Value:
             if (!NT_SUCCESS(IoStatus.Status)) {
 
                 NtfsRaiseStatus( IrpContext, STATUS_DISK_CORRUPT_ERROR, NULL, NULL );
+            }
+
+            //
+            //  If we do not have a global upcase table yet then make this one the global one
+            //
+
+            if (NtfsData.UpcaseTable == NULL) {
+
+                NtfsData.UpcaseTable = Vcb->UpcaseTable;
+                NtfsData.UpcaseTableSize = Vcb->UpcaseTableSize;
+
+            //
+            //  Otherwise if this one perfectly matches the global upcase table then throw
+            //  this one back and use the global one
+            //
+
+            } else if ((NtfsData.UpcaseTableSize == Vcb->UpcaseTableSize)
+
+                            &&
+
+                       (RtlCompareMemory( NtfsData.UpcaseTable,
+                                          Vcb->UpcaseTable,
+                                          Vcb->UpcaseTableSize) == Vcb->UpcaseTableSize)) {
+
+                ExFreePool( Vcb->UpcaseTable );
+                Vcb->UpcaseTable = NtfsData.UpcaseTable;
             }
         }
 
@@ -1385,14 +1763,6 @@ Return Value:
                             0,
                             $DATA,
                             TRUE );
-
-        //  NtfsOpenSystemFile( IrpContext,
-        //                      &Vcb->QuotaTableScb,
-        //                      Vcb,
-        //                      QUOTA_TABLE_NUMBER,
-        //                      0,
-        //                      $DATA,
-        //                      TRUE );
 
         NtfsOpenSystemFile( IrpContext,
                             &Vcb->MftBitmapScb,
@@ -1418,6 +1788,7 @@ Return Value:
         {
             ATTRIBUTE_ENUMERATION_CONTEXT AttrContext;
             BOOLEAN FoundAttribute;
+            ULONG ExtendGranularity;
 
             //
             //  Lookup the bitmap allocation for the Mft file.
@@ -1446,7 +1817,7 @@ Return Value:
 
                 if (!FoundAttribute) {
 
-                    DebugTrace( 0, 0, "Couldn't find bitmap attribute for Mft\n", 0 );
+                    DebugTrace( 0, 0, ("Couldn't find bitmap attribute for Mft\n") );
 
                     NtfsRaiseStatus( IrpContext, STATUS_DISK_CORRUPT_ERROR, NULL, NULL );
                 }
@@ -1465,17 +1836,24 @@ Return Value:
                 //              truncate and extend granularity.
                 //
 
+                ExtendGranularity = MFT_EXTEND_GRANULARITY;
+
+                if ((ExtendGranularity * Vcb->BytesPerFileRecordSegment) < Vcb->BytesPerCluster) {
+
+                    ExtendGranularity = Vcb->FileRecordsPerCluster;
+                }
+
                 NtfsInitializeRecordAllocation( IrpContext,
                                                 Vcb->MftScb,
                                                 &AttrContext,
                                                 Vcb->BytesPerFileRecordSegment,
-                                                MFT_EXTEND_GRANULARITY,
-                                                MFT_EXTEND_GRANULARITY,
+                                                ExtendGranularity,
+                                                ExtendGranularity,
                                                 &Vcb->MftBitmapAllocationContext );
 
             } finally {
 
-                NtfsCleanupAttributeContext( IrpContext, &AttrContext );
+                NtfsCleanupAttributeContext( &AttrContext );
             }
         }
 
@@ -1506,7 +1884,7 @@ Return Value:
 
         if (Status == STATUS_INFO_LENGTH_MISMATCH) {
 
-            DeviceObjectName = FsRtlAllocatePool( PagedPool, DeviceObjectNameLength );
+            DeviceObjectName = NtfsAllocatePool( PagedPool, DeviceObjectNameLength );
 
             Status = ObQueryNameString( Vpb->RealDevice,
                                         DeviceObjectName,
@@ -1534,7 +1912,7 @@ Return Value:
         Vcb->DeviceName.MaximumLength =
         Vcb->DeviceName.Length = DeviceObjectName->Name.Length;
 
-        Vcb->DeviceName.Buffer = FsRtlAllocatePool( PagedPool, DeviceObjectName->Name.Length );
+        Vcb->DeviceName.Buffer = NtfsAllocatePool( PagedPool, DeviceObjectName->Name.Length );
 
         RtlCopyMemory( Vcb->DeviceName.Buffer,
                        DeviceObjectName->Name.Buffer,
@@ -1547,6 +1925,28 @@ Return Value:
 
         if (UpdateVersion) {
 
+#ifdef _CAIRO_
+
+            if ((Vpb->VolumeLabelLength == 18) &&
+                (RtlEqualMemory(Vpb->VolumeLabel, L"$DeadMeat", 18))) {
+
+                NtfsUpdateVersionNumber( IrpContext,
+                                         Vcb,
+                                         2,
+                                         0 );
+
+                //
+                //  Now enable defragging.
+                //
+
+                if (NtfsDefragMftEnabled) {
+
+                    NtfsAcquireCheckpoint( IrpContext, Vcb );
+                    SetFlag( Vcb->MftDefragState, VCB_MFT_DEFRAG_PERMITTED );
+                    NtfsReleaseCheckpoint( IrpContext, Vcb );
+                }
+            }
+#else
             NtfsUpdateVersionNumber( IrpContext,
                                      Vcb,
                                      1,
@@ -1562,6 +1962,7 @@ Return Value:
                 SetFlag( Vcb->MftDefragState, VCB_MFT_DEFRAG_PERMITTED );
                 NtfsReleaseCheckpoint( IrpContext, Vcb );
             }
+#endif
         }
 
         //
@@ -1570,10 +1971,18 @@ Return Value:
 
         Vcb->MftHoleGranularity = MFT_HOLE_GRANULARITY;
         Vcb->MftClustersPerHole = Vcb->MftHoleGranularity << Vcb->MftToClusterShift;
+
+        if (MFT_HOLE_GRANULARITY < Vcb->FileRecordsPerCluster) {
+
+            Vcb->MftHoleGranularity = Vcb->FileRecordsPerCluster;
+            Vcb->MftClustersPerHole = 1;
+        }
+
         Vcb->MftHoleMask = Vcb->MftHoleGranularity - 1;
-        Vcb->MftHoleInverseMask = ~(Vcb->MftHoleGranularity - 1);
-        Vcb->MftDefragUpperThreshold = MFT_DEFRAG_UPPER_THRESHOLD;
-        Vcb->MftDefragLowerThreshold = MFT_DEFRAG_LOWER_THRESHOLD;
+        Vcb->MftHoleInverseMask = ~(Vcb->MftHoleMask);
+
+        Vcb->MftHoleClusterMask = Vcb->MftClustersPerHole - 1;
+        Vcb->MftHoleClusterInverseMask = ~(Vcb->MftHoleClusterMask);
 
         //
         //  Our maximum reserved Mft space is 0x140, we will try to
@@ -1591,7 +2000,120 @@ Return Value:
 
         NtfsScanMftBitmap( IrpContext, Vcb );
 
-        NtfsCleanupTransaction( IrpContext, STATUS_SUCCESS );
+#ifdef NTFS_CHECK_BITMAP
+        {
+            ULONG BitmapSize;
+            ULONG Count;
+
+            BitmapSize = Vcb->BitmapScb->Header.FileSize.LowPart;
+
+            //
+            //  Allocate a buffer for the bitmap copy and each individual bitmap.
+            //
+
+            Vcb->BitmapPages = (BitmapSize + PAGE_SIZE - 1) / PAGE_SIZE;
+
+            Vcb->BitmapCopy = NtfsAllocatePool(PagedPool, Vcb->BitmapPages * sizeof( RTL_BITMAP ));
+            RtlZeroMemory( Vcb->BitmapCopy, Vcb->BitmapPages * sizeof( RTL_BITMAP ));
+
+            //
+            //  Now get a buffer for each page.
+            //
+
+            for (Count = 0; Count < Vcb->BitmapPages; Count += 1) {
+
+                (Vcb->BitmapCopy + Count)->Buffer = NtfsAllocatePool(PagedPool, PAGE_SIZE );
+                RtlInitializeBitMap( Vcb->BitmapCopy + Count, (Vcb->BitmapCopy + Count)->Buffer, PAGE_SIZE * 8 );
+            }
+
+            if (NtfsCopyBitmap) {
+
+                PUCHAR NextPage;
+                PBCB BitmapBcb = NULL;
+                ULONG BytesToCopy;
+                LONGLONG FileOffset = 0;
+
+                Count = 0;
+
+                while (BitmapSize) {
+
+                    BytesToCopy = PAGE_SIZE;
+
+                    if (BytesToCopy > BitmapSize) {
+
+                        BytesToCopy = BitmapSize;
+                    }
+
+                    NtfsUnpinBcb( &BitmapBcb );
+
+                    NtfsMapStream( IrpContext, Vcb->BitmapScb, FileOffset, BytesToCopy, &BitmapBcb, &NextPage );
+
+                    RtlCopyMemory( (Vcb->BitmapCopy + Count)->Buffer,
+                                   NextPage,
+                                   BytesToCopy );
+
+                    BitmapSize -= BytesToCopy;
+                    FileOffset += BytesToCopy;
+                    Count += 1;
+                }
+
+                NtfsUnpinBcb( &BitmapBcb );
+
+            //
+            //  Otherwise we will want to scan the entire Mft and compare the mapping pairs
+            //  with the current volume bitmap.
+            //
+
+            }
+        }
+#endif
+
+#ifdef _CAIRO_
+
+        if ((Vpb->VolumeLabelLength == 18) &&
+            (RtlCompareMemory(Vpb->VolumeLabel, L"$DeadMeat", 18) == 18)) {
+
+            //
+            //  Open the Quota object.  At present, the quota object contains:
+            //
+            //  1.  Security info
+            //  2.  Quota info
+            //
+            //  BUGBUG:  This is the default data stream on the quota table. This
+            //  should be changed when we get NtOfsCreateAttribute becomes
+            //  available.
+            //
+
+            NtfsOpenSystemFile( IrpContext,
+                                &QuotaDataScb,
+                                Vcb,
+                                QUOTA_TABLE_NUMBER,
+                                0,
+                                $DATA,
+                                TRUE );
+
+            //
+            //  Enable quota tracking.
+            //
+
+            NtfsInitializeQuotaIndex( IrpContext,
+                                      QuotaDataScb->Fcb,
+                                      Vcb );
+
+            //
+            //  Enable security index
+            //
+
+            NtfsInitializeSecurity( IrpContext, Vcb, QuotaDataScb->Fcb );
+
+#ifdef TOMM
+            //  NtOfsIndexTest( IrpContext, Vcb->SecurityDescriptorStream->Fcb );
+#endif TOMM
+        }
+
+#endif _CAIRO_
+
+        NtfsCleanupTransaction( IrpContext, STATUS_SUCCESS, FALSE );
 
         //
         //
@@ -1606,18 +2128,18 @@ Return Value:
 
         DebugUnwind( NtfsMountVolume );
 
-        NtfsUnpinBcb( IrpContext, &BootBcb );
+        NtfsUnpinBcb( &BootBcb );
 
         if (DeviceObjectName != NULL) {
 
-            ExFreePool( DeviceObjectName );
+            NtfsFreePool( DeviceObjectName );
         }
 
         if (CloseAttributes) { NtfsCloseAttributesFromRestart( IrpContext, Vcb ); }
 
-        for (i = 0; i < 8; i++) { NtfsUnpinBcb( IrpContext, &Bcbs[i] ); }
+        for (i = 0; i < 8; i++) { NtfsUnpinBcb( &Bcbs[i] ); }
 
-        if (BootScb != NULL) {  NtfsDeleteInternalAttributeStream( IrpContext, BootScb, TRUE ); }
+        if (BootScb != NULL) {  NtfsDeleteInternalAttributeStream( BootScb, TRUE ); }
 
         if (Vcb != NULL) {
 
@@ -1626,16 +2148,29 @@ Return Value:
             if (Vcb->LogFileScb != NULL)           { NtfsReleaseScb( IrpContext, Vcb->LogFileScb ); }
             if (Vcb->VolumeDasdScb != NULL)        { NtfsReleaseScb( IrpContext, Vcb->VolumeDasdScb ); }
             if (Vcb->AttributeDefTableScb != NULL) { NtfsReleaseScb( IrpContext, Vcb->AttributeDefTableScb );
-                                                     NtfsDeleteInternalAttributeStream( IrpContext, Vcb->AttributeDefTableScb, TRUE );
+                                                     NtfsDeleteInternalAttributeStream( Vcb->AttributeDefTableScb, TRUE );
                                                      Vcb->AttributeDefTableScb = NULL;}
             if (Vcb->UpcaseTableScb != NULL)       { NtfsReleaseScb( IrpContext, Vcb->UpcaseTableScb );
-                                                     NtfsDeleteInternalAttributeStream( IrpContext, Vcb->UpcaseTableScb, TRUE );
+                                                     NtfsDeleteInternalAttributeStream( Vcb->UpcaseTableScb, TRUE );
                                                      Vcb->UpcaseTableScb = NULL;}
             if (Vcb->RootIndexScb != NULL)         { NtfsReleaseScb( IrpContext, Vcb->RootIndexScb ); }
             if (Vcb->BitmapScb != NULL)            { NtfsReleaseScb( IrpContext, Vcb->BitmapScb ); }
             if (Vcb->BadClusterFileScb != NULL)    { NtfsReleaseScb( IrpContext, Vcb->BadClusterFileScb ); }
-            if (Vcb->QuotaTableScb != NULL)        { NtfsReleaseScb( IrpContext, Vcb->QuotaTableScb ); }
             if (Vcb->MftBitmapScb != NULL)         { NtfsReleaseScb( IrpContext, Vcb->MftBitmapScb ); }
+
+#ifdef _CAIRO_
+
+            //
+            //  Drop the security  data
+            //
+
+            if (Vcb->SecurityDescriptorStream != NULL) { NtfsReleaseScb( IrpContext, Vcb->SecurityDescriptorStream ); }
+            if (QuotaDataScb != NULL) {
+                NtfsReleaseScb( IrpContext, QuotaDataScb );
+                NtfsDeleteInternalAttributeStream( QuotaDataScb, TRUE );
+            }
+
+#endif _CAIRO_
 
             if (MountFailed) {
 
@@ -1651,7 +2186,10 @@ Return Value:
             }
         }
 
-        if (VcbAcquired) { NtfsReleaseVcb( IrpContext, Vcb, NULL ); }
+        if (VcbAcquired) {
+
+            NtfsReleaseVcbCheckDelete( IrpContext, Vcb, IRP_MJ_FILE_SYSTEM_CONTROL, NULL );
+        }
 
         NtfsReleaseGlobal( IrpContext );
 
@@ -1661,7 +2199,7 @@ Return Value:
         }
     }
 
-    DebugTrace(-1, Dbg, "NtfsMountVolume -> %08lx\n", Status);
+    DebugTrace( -1, Dbg, ("NtfsMountVolume -> %08lx\n", Status) );
 
     return Status;
 }
@@ -1709,7 +2247,7 @@ Return Value:
 
     IrpSp = IoGetCurrentIrpStackLocation( Irp );
 
-    DebugTrace(+1, Dbg, "NtfsVerifyVolume\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsVerifyVolume\n") );
 
     //
     //  Do nothing for now
@@ -1723,7 +2261,7 @@ Return Value:
     //  And return to our caller
     //
 
-    DebugTrace(-1, Dbg, "NtfsVerifyVolume -> %08lx\n", Status);
+    DebugTrace( -1, Dbg, ("NtfsVerifyVolume -> %08lx\n", Status) );
 
     return Status;
 }
@@ -1777,7 +2315,7 @@ Return Value:
 
     FsControlCode = IrpSp->Parameters.FileSystemControl.FsControlCode;
 
-    DebugTrace(+1, Dbg, "NtfsUserFsCtrl, FsControlCode = %08lx\n", FsControlCode);
+    DebugTrace( +1, Dbg, ("NtfsUserFsCtrl, FsControlCode = %08lx\n", FsControlCode) );
 
     //
     //  Case on the control code.
@@ -1788,6 +2326,7 @@ Return Value:
     case FSCTL_REQUEST_OPLOCK_LEVEL_1:
     case FSCTL_REQUEST_OPLOCK_LEVEL_2:
     case FSCTL_REQUEST_BATCH_OPLOCK:
+    case FSCTL_REQUEST_FILTER_OPLOCK:
     case FSCTL_OPLOCK_BREAK_ACKNOWLEDGE:
     case FSCTL_OPLOCK_BREAK_NOTIFY:
     case FSCTL_OPBATCH_ACK_CLOSE_PENDING :
@@ -1834,7 +2373,20 @@ Return Value:
         break;
 
     case FSCTL_SET_COMPRESSION:
-        Status = NtfsSetCompression( IrpContext, Irp );
+
+        //
+        //  Post this request if we can't wait.
+        //
+
+        if (!FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_WAIT )) {
+
+            Status = NtfsPostRequest( IrpContext, Irp );
+
+        } else {
+
+            Status = NtfsSetCompression( IrpContext, Irp );
+        }
+
         break;
 
     case FSCTL_READ_COMPRESSION:
@@ -1849,9 +2401,98 @@ Return Value:
         Status = NtfsMarkAsSystemHive( IrpContext, Irp );
         break;
 
+    case FSCTL_FILESYSTEM_GET_STATISTICS:
+        Status = NtfsGetStatistics( IrpContext, Irp );
+        break;
+
+    case FSCTL_GET_NTFS_VOLUME_DATA:
+        Status = NtfsGetVolumeData( IrpContext, Irp );
+        break;
+
+    case FSCTL_GET_VOLUME_BITMAP:
+        Status = NtfsGetVolumeBitmap( IrpContext, Irp );
+        break;
+
+    case FSCTL_GET_RETRIEVAL_POINTERS:
+        Status = NtfsGetRetrievalPointers( IrpContext, Irp );
+        break;
+
+    case FSCTL_GET_NTFS_FILE_RECORD:
+        Status = NtfsGetMftRecord( IrpContext, Irp );
+        break;
+
+    case FSCTL_MOVE_FILE:
+
+        //
+        //  Always make this synchronous for MoveFile
+        //
+
+        SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_WAIT );
+        Status = NtfsMoveFile( IrpContext, Irp );
+
+        break;
+
+    case FSCTL_IS_VOLUME_DIRTY:
+        Status = NtfsIsVolumeDirty( IrpContext, Irp );
+        break;
+
+    case FSCTL_ALLOW_EXTENDED_DASD_IO :
+        Status = NtfsSetExtendedDasdIo( IrpContext, Irp );
+        break;
+
     default :
 
-        DebugTrace(0, Dbg, "Invalid control code -> %08lx\n", FsControlCode );
+        //
+        //  Core Ntfs does not understand this FsCtl.  We poll the loadable
+        //  portions to see if they can process it.
+        //
+
+#ifdef _CAIRO_
+        if (NtfsData.ViewCallBackTable != NULL) {
+            PVCB Vcb;
+            PFCB Fcb;
+            PSCB Scb;
+            PCCB Ccb;
+            ULONG OutputBufferLength;
+
+            NtfsDecodeFileObject( IrpContext,
+                                  IrpSp->FileObject,
+                                  &Vcb,
+                                  &Fcb,
+                                  &Scb,
+                                  &Ccb,
+                                  TRUE );
+
+            OutputBufferLength = IrpSp->Parameters.FileSystemControl.OutputBufferLength;
+
+            Status = NtfsData.ViewCallBackTable->ViewFileSystemControl(
+                                            IrpContext,
+                                            Fcb,
+                                            Scb,
+                                            FsControlCode,
+                                            IrpSp->Parameters.FileSystemControl.InputBufferLength,
+                                            IrpSp->Parameters.FileSystemControl.Type3InputBuffer,
+                                            &OutputBufferLength,
+                                            Irp->UserBuffer );
+
+            //
+            //  If the request succeeded or was recognized in some way by Views
+            //  then complete the request and return the buffer length
+            //
+
+            if (NT_SUCCESS( Status )) {
+                Irp->IoStatus.Information = OutputBufferLength;
+                NtfsCompleteRequest( &IrpContext, &Irp, Status);
+                break;
+            } else if (Status != STATUS_INVALID_DEVICE_REQUEST) {
+                NtfsCompleteRequest( &IrpContext, &Irp, Status);
+                break;
+            }
+        }
+
+#endif  //  _CAIRO_
+
+        DebugTrace( 0, Dbg, ("Invalid control code -> %08lx\n", FsControlCode) );
 
         NtfsCompleteRequest( &IrpContext, &Irp, Status = STATUS_INVALID_PARAMETER );
         break;
@@ -1861,7 +2502,7 @@ Return Value:
     //  And return to our caller
     //
 
-    DebugTrace(-1, Dbg, "NtfsUserFsRequest -> %08lx\n", Status );
+    DebugTrace( -1, Dbg, ("NtfsUserFsRequest -> %08lx\n", Status) );
 
     return Status;
 }
@@ -1920,7 +2561,7 @@ Return Value:
     IrpSp = IoGetCurrentIrpStackLocation( Irp );
     FsControlCode = IrpSp->Parameters.FileSystemControl.FsControlCode;
 
-    DebugTrace(+1, Dbg, "NtfsOplockRequest, FsControlCode = %08lx\n", FsControlCode);
+    DebugTrace( +1, Dbg, ("NtfsOplockRequest, FsControlCode = %08lx\n", FsControlCode) );
 
     //
     //  Extract and decode the file object
@@ -1933,12 +2574,11 @@ Return Value:
     //  We only permit oplock requests on files.
     //
 
-    if ((TypeOfOpen != UserFileOpen)
-        && (TypeOfOpen != UserOpenFileById)) {
+    if (TypeOfOpen != UserFileOpen) {
 
         NtfsCompleteRequest( &IrpContext, &Irp, STATUS_INVALID_PARAMETER );
 
-        DebugTrace(-1, Dbg, "NtfsOplockRequest -> STATUS_INVALID_PARAMETER\n", 0);
+        DebugTrace( -1, Dbg, ("NtfsOplockRequest -> STATUS_INVALID_PARAMETER\n") );
         return STATUS_INVALID_PARAMETER;
     }
 
@@ -1959,6 +2599,7 @@ Return Value:
 
     case FSCTL_REQUEST_OPLOCK_LEVEL_1:
     case FSCTL_REQUEST_BATCH_OPLOCK:
+    case FSCTL_REQUEST_FILTER_OPLOCK:
     case FSCTL_REQUEST_OPLOCK_LEVEL_2:
 
         NtfsAcquireExclusiveFcb( IrpContext, Fcb, Scb, FALSE, FALSE );
@@ -1989,7 +2630,7 @@ Return Value:
 
         NtfsCompleteRequest( &IrpContext, &Irp, STATUS_INVALID_PARAMETER );
 
-        DebugTrace(-1, Dbg, "NtfsOplockRequest -> STATUS_INVALID_PARAMETER\n", 0);
+        DebugTrace( -1, Dbg, ("NtfsOplockRequest -> STATUS_INVALID_PARAMETER\n") );
         return STATUS_INVALID_PARAMETER;
     }
 
@@ -2011,7 +2652,9 @@ Return Value:
         //  Set the flag indicating if Fast I/O is possible
         //
 
+        NtfsAcquireFsrtlHeader( Scb );
         Scb->Header.IsFastIoPossible = NtfsIsFastIoPossible( Scb );
+        NtfsReleaseFsrtlHeader( Scb );
 
     } finally {
 
@@ -2032,7 +2675,7 @@ Return Value:
             NtfsCompleteRequest( &IrpContext, NULL, 0 );
         }
 
-        DebugTrace(-1, Dbg, "NtfsOplockRequest -> %08lx\n", Status );
+        DebugTrace( -1, Dbg, ("NtfsOplockRequest -> %08lx\n", Status) );
     }
 
     return Status;
@@ -2089,7 +2732,7 @@ Return Value:
 
     IrpSp = IoGetCurrentIrpStackLocation( Irp );
 
-    DebugTrace(+1, Dbg, "NtfsLockVolume...\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsLockVolume...\n") );
 
     //
     //  Extract and decode the file object, and only permit user volume opens
@@ -2102,7 +2745,7 @@ Return Value:
 
         NtfsCompleteRequest( &IrpContext, &Irp, STATUS_INVALID_PARAMETER );
 
-        DebugTrace(-1, Dbg, "NtfsLockVolume -> %08lx\n", STATUS_INVALID_PARAMETER);
+        DebugTrace( -1, Dbg, ("NtfsLockVolume -> %08lx\n", STATUS_INVALID_PARAMETER) );
         return STATUS_INVALID_PARAMETER;
     }
 
@@ -2125,13 +2768,31 @@ Return Value:
         //  vcb process.
         //
 
-        if ((FlagOn( Vcb->VcbState, VCB_STATE_LOCKED ))
-            || (!FlagOn( Vcb->VcbState, VCB_STATE_VOLUME_MOUNTED ))
-            || (Vcb->CleanupCount > 1)) {
+        if (!FlagOn( Vcb->VcbState, VCB_STATE_VOLUME_MOUNTED ) ||
+            (Vcb->CleanupCount > 1)) {
 
-            DebugTrace(0, Dbg, "Volume already locked or currently in use\n", 0);
+            DebugTrace( 0, Dbg, ("Volume is currently in use\n") );
 
             Status = STATUS_ACCESS_DENIED;
+
+        //
+        //  If the volume is already locked then it might have been the result of an
+        //  exclusive DASD open.  Allow that user to explictly lock the volume.
+        //
+
+        } else if (FlagOn( Vcb->VcbState, VCB_STATE_LOCKED )) {
+
+            if (FlagOn( Vcb->VcbState, VCB_STATE_EXPLICIT_LOCK )) {
+
+                DebugTrace( 0, Dbg, ("User has already locked volume\n") );
+
+                Status = STATUS_ACCESS_DENIED;
+
+            } else {
+
+                SetFlag( Vcb->VcbState, VCB_STATE_EXPLICIT_LOCK );
+                Status = STATUS_SUCCESS;
+            }
 
         //
         //  We can take this path if the volume has already been locked via
@@ -2142,23 +2803,13 @@ Return Value:
         } else {
 
             //
-            //  Blow away our delayed close file object.
-            //
-
-            if (!IsListEmpty( &NtfsData.AsyncCloseList ) ||
-                !IsListEmpty( &NtfsData.DelayedCloseList )) {
-
-                NtfsFspClose( Vcb );
-            }
-
-            //
             //  There better be system files objects only at this point.
             //
 
-            if (!NT_SUCCESS( NtfsFlushVolume( IrpContext, Vcb, TRUE, TRUE ))
+            if (!NT_SUCCESS( NtfsFlushVolume( IrpContext, Vcb, TRUE, TRUE, TRUE, FALSE ))
                 || Vcb->CloseCount - Vcb->SystemFileCloseCount > 1) {
 
-                DebugTrace(0, Dbg, "Volume has user file objects\n", 0);
+                DebugTrace( 0, Dbg, ("Volume has user file objects\n") );
 
                 Status = STATUS_ACCESS_DENIED;
 
@@ -2174,7 +2825,7 @@ Return Value:
 
                 NtfsPerformDismountOnVcb( IrpContext, Vcb, FALSE );
 
-                SetFlag( Vcb->VcbState, VCB_STATE_LOCKED );
+                SetFlag( Vcb->VcbState, VCB_STATE_LOCKED | VCB_STATE_EXPLICIT_LOCK );
                 Vcb->FileObjectWithVcbLocked = (PFILE_OBJECT)(((ULONG)IrpSp->FileObject) + 1);
 
                 Status = STATUS_SUCCESS;
@@ -2187,7 +2838,7 @@ Return Value:
 
         if (VcbAcquired) {
 
-            NtfsReleaseVcb( IrpContext, Vcb, NULL );
+            NtfsReleaseVcb( IrpContext, Vcb );
         }
 
         //
@@ -2206,7 +2857,7 @@ Return Value:
             NtfsCompleteRequest( &IrpContext, &Irp, Status );
         }
 
-        DebugTrace(-1, Dbg, "NtfsLockVolume -> %08lx\n", Status);
+        DebugTrace( -1, Dbg, ("NtfsLockVolume -> %08lx\n", Status) );
     }
 
     return Status;
@@ -2262,7 +2913,7 @@ Return Value:
 
     IrpSp = IoGetCurrentIrpStackLocation( Irp );
 
-    DebugTrace(+1, Dbg, "NtfsUnlockVolume...\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsUnlockVolume...\n") );
 
     //
     //  Extract and decode the file object, and only permit user volume opens
@@ -2275,7 +2926,7 @@ Return Value:
 
         NtfsCompleteRequest( &IrpContext, &Irp, STATUS_INVALID_PARAMETER );
 
-        DebugTrace(-1, Dbg, "NtfsLockVolume -> %08lx\n", STATUS_INVALID_PARAMETER);
+        DebugTrace( -1, Dbg, ("NtfsLockVolume -> %08lx\n", STATUS_INVALID_PARAMETER) );
         return STATUS_INVALID_PARAMETER;
     }
 
@@ -2287,7 +2938,7 @@ Return Value:
 
     try {
 
-        if (FlagOn( Vcb->VcbState, VCB_STATE_LOCKED )) {
+        if (FlagOn( Vcb->VcbState, VCB_STATE_EXPLICIT_LOCK )) {
 
             NtfsPerformDismountOnVcb( IrpContext, Vcb, TRUE );
 
@@ -2295,10 +2946,26 @@ Return Value:
             //  Unlock the volume and complete the Irp
             //
 
-            ClearFlag( Vcb->VcbState, VCB_STATE_LOCKED );
+            ClearFlag( Vcb->VcbState, VCB_STATE_LOCKED | VCB_STATE_EXPLICIT_LOCK );
             Vcb->FileObjectWithVcbLocked = NULL;
 
             Status = STATUS_SUCCESS;
+
+#ifdef _CAIRO_
+
+            //
+            //  If the quota tracking has been requested and the quotas need to be
+            //  repaired then try to repair them now.
+            //
+
+            if (FlagOn( Vcb->QuotaFlags, QUOTA_FLAG_TRACKING_REQUESTED ) &&
+                FlagOn( Vcb->QuotaFlags, QUOTA_FLAG_OUT_OF_DATE |
+                                         QUOTA_FLAG_CORRUPT |
+                                         QUOTA_FLAG_PENDING_DELETES )) {
+                NtfsPostRepairQuotaIndex( IrpContext, Vcb );
+            }
+
+#endif // _CAIRO_
 
         } else {
 
@@ -2314,7 +2981,7 @@ Return Value:
         //  Release all of our resources
         //
 
-        NtfsReleaseVcb( IrpContext, Vcb, NULL );
+        NtfsReleaseVcb( IrpContext, Vcb );
 
         //
         //  If this is an abnormal termination then undo our work, otherwise
@@ -2326,7 +2993,7 @@ Return Value:
             NtfsCompleteRequest( &IrpContext, &Irp, Status );
         }
 
-        DebugTrace(-1, Dbg, "NtfsUnlockVolume -> %08lx\n", Status);
+        DebugTrace( -1, Dbg, ("NtfsUnlockVolume -> %08lx\n", Status) );
     }
 
     return Status;
@@ -2364,6 +3031,8 @@ Return Value:
     NTSTATUS Status;
     PIO_STACK_LOCATION IrpSp;
 
+    BOOLEAN VcbAcquired = FALSE;
+
     PFILE_OBJECT FileObject;
     TYPE_OF_OPEN TypeOfOpen;
     PVCB Vcb;
@@ -2382,7 +3051,7 @@ Return Value:
 
     IrpSp = IoGetCurrentIrpStackLocation( Irp );
 
-    DebugTrace(+1, Dbg, "NtfsDismountVolume...\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsDismountVolume...\n") );
 
     //
     //  Extract and decode the file object, and only permit user volume opens
@@ -2395,7 +3064,7 @@ Return Value:
 
         NtfsCompleteRequest( &IrpContext, &Irp, STATUS_INVALID_PARAMETER );
 
-        DebugTrace(-1, Dbg, "NtfsLockVolume -> %08lx\n", STATUS_INVALID_PARAMETER);
+        DebugTrace( -1, Dbg, ("NtfsLockVolume -> %08lx\n", STATUS_INVALID_PARAMETER) );
         return STATUS_INVALID_PARAMETER;
     }
 
@@ -2409,15 +3078,22 @@ Return Value:
     try {
 
         //
-        //  Mark the volume as needs to be verified, but only do it if
-        //  the vcb is locked.
+        //  Acquire the Vcb exclusively.
         //
 
-        if (!FlagOn(Vcb->VcbState, VCB_STATE_LOCKED)) {
+        NtfsAcquireExclusiveVcb( IrpContext, Vcb, TRUE );
+        VcbAcquired = TRUE;
 
-            KdPrint(("NtfsDismountVolume is not yet implemented for general use\n")); //**** DbgBreakPoint();
+        //
+        //  If there's a pagefile on this volume, or if this is the
+        //  system volume, don't do the dismount.
+        //
 
-            Status = STATUS_NOT_IMPLEMENTED;
+        if (FlagOn(Vcb->VcbState, VCB_STATE_DISALLOW_DISMOUNT) &&
+            !FlagOn(Vcb->VcbState, VCB_STATE_LOCKED)) {
+
+             try_return( Status = STATUS_ACCESS_DENIED );
+        }
 
         //
         //  We will ignore this request if this is a dismount with only readonly files
@@ -2426,14 +3102,26 @@ Return Value:
         //  for the handle with the volume locked
         //
 
-        } else if (Vcb->ReadOnlyCloseCount == ((Vcb->CloseCount - Vcb->SystemFileCloseCount) - 1)) {
+        if (FlagOn(Vcb->VcbState, VCB_STATE_LOCKED) && 
+            (Vcb->ReadOnlyCloseCount == ((Vcb->CloseCount - Vcb->SystemFileCloseCount) - 1))) {
 
-            DebugTrace(0, Dbg, "Volume has readonly files opened\n", 0);
+            DebugTrace( 0, Dbg, ("Volume has readonly files opened\n") );
 
             Status = STATUS_SUCCESS;
 
         } else {
 
+            //
+            //  Get as many cached writes out to disk as we can and mark
+            //  all the streams for dismount.
+            //
+
+            NtfsFlushVolume( IrpContext, Vcb, TRUE, TRUE, TRUE, TRUE );
+
+            //
+            //  Actually do the dismount.
+            //
+            
             NtfsPerformDismountOnVcb( IrpContext, Vcb, TRUE );
 
             //
@@ -2449,11 +3137,12 @@ Return Value:
 
             Status = STATUS_SUCCESS;
 
-            NtfsCleanupTransaction( IrpContext, Status );
+            NtfsCleanupTransaction( IrpContext, Status, FALSE );
 
             SetFlag( Vcb->Vpb->RealDevice->Flags, DO_VERIFY_VOLUME );
         }
 
+    try_exit: NOTHING;
     } finally {
 
         DebugUnwind( NtfsDismountVolume );
@@ -2461,6 +3150,11 @@ Return Value:
         //
         //  Release all of our resources
         //
+
+        if (VcbAcquired) {
+
+            NtfsReleaseVcb( IrpContext, Vcb );
+        }
 
         NtfsReleaseGlobal( IrpContext );
 
@@ -2474,7 +3168,7 @@ Return Value:
             NtfsCompleteRequest( &IrpContext, &Irp, Status );
         }
 
-        DebugTrace(-1, Dbg, "NtfsDismountVolume -> %08lx\n", Status);
+        DebugTrace( -1, Dbg, ("NtfsDismountVolume -> %08lx\n", Status) );
     }
 
     return Status;
@@ -2509,6 +3203,7 @@ Return Value:
 
 {
     PIO_STACK_LOCATION IrpSp;
+    NTSTATUS Status = STATUS_SUCCESS;
 
     PFILE_OBJECT FileObject;
     TYPE_OF_OPEN TypeOfOpen;
@@ -2528,7 +3223,7 @@ Return Value:
 
     IrpSp = IoGetCurrentIrpStackLocation( Irp );
 
-    DebugTrace(+1, Dbg, "NtfsDirtyVolume...\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsDirtyVolume...\n") );
 
     //
     //  Extract and decode the file object, and only permit user volume opens
@@ -2541,17 +3236,28 @@ Return Value:
 
         NtfsCompleteRequest( &IrpContext, &Irp, STATUS_INVALID_PARAMETER );
 
-        DebugTrace(-1, Dbg, "NtfsDirtyVolume -> %08lx\n", STATUS_INVALID_PARAMETER);
+        DebugTrace( -1, Dbg, ("NtfsDirtyVolume -> %08lx\n", STATUS_INVALID_PARAMETER) );
         return STATUS_INVALID_PARAMETER;
     }
 
-    NtfsPostVcbIsCorrupt( IrpContext, Vcb, 0, NULL, NULL );
+    //
+    //  Fail this request if the volume is not mounted.
+    //
 
-    NtfsCompleteRequest( &IrpContext, &Irp, STATUS_SUCCESS );
+    if (!FlagOn( Vcb->VcbState, VCB_STATE_VOLUME_MOUNTED )) {
 
-    DebugTrace(-1, Dbg, "NtfsDirtyVolume -> STATUS_SUCCESS\n", 0);
+        Status = STATUS_VOLUME_DISMOUNTED;
 
-    return STATUS_SUCCESS;
+    } else {
+
+        NtfsPostVcbIsCorrupt( IrpContext, 0, NULL, NULL );
+    }
+
+    NtfsCompleteRequest( &IrpContext, &Irp, Status );
+
+    DebugTrace( -1, Dbg, ("NtfsDirtyVolume -> STATUS_SUCCESS\n") );
+
+    return Status;
 }
 
 
@@ -2559,7 +3265,7 @@ Return Value:
 //  Local support routine
 //
 
-VOID
+BOOLEAN
 NtfsGetDiskGeometry (
     IN PIRP_CONTEXT IrpContext,
     IN PDEVICE_OBJECT RealDevice,
@@ -2583,7 +3289,7 @@ Arguments:
 
 Return Value:
 
-    None.
+    BOOLEAN - TRUE if the media is write protected, FALSE otherwise
 
 --*/
 
@@ -2591,14 +3297,13 @@ Return Value:
     NTSTATUS Status;
     ULONG i;
     PREVENT_MEDIA_REMOVAL Prevent;
-
-    UNREFERENCED_PARAMETER(IrpContext);
+    BOOLEAN WriteProtected = FALSE;
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsGetDiskGeometry:\n", 0);
-    DebugTrace( 0, Dbg, "RealDevice = %08lx\n", RealDevice );
-    DebugTrace( 0, Dbg, "DiskGeometry = %08lx\n", DiskGeometry );
+    DebugTrace( +1, Dbg, ("NtfsGetDiskGeometry:\n") );
+    DebugTrace( 0, Dbg, ("RealDevice = %08lx\n", RealDevice) );
+    DebugTrace( 0, Dbg, ("DiskGeometry = %08lx\n", DiskGeometry) );
 
     //
     //  Attempt to lock any removable media, ignoring status.
@@ -2627,8 +3332,14 @@ Return Value:
                                   NULL,
                                   0 );
 
+    //
+    //  Remember if the media is write protected but don't raise the error now.
+    //  If the volume is not Ntfs then let another filesystem try.
+    //
     if (Status == STATUS_MEDIA_WRITE_PROTECTED) {
-        NtfsRaiseStatus( IrpContext, Status, NULL, NULL );
+
+        WriteProtected = TRUE;
+        Status = STATUS_SUCCESS;
     }
 
     for (i = 0; i < 2; i++) {
@@ -2660,9 +3371,9 @@ Return Value:
         }
     }
 
-    DebugTrace(-1, Dbg, "NtfsGetDiskGeometry->VOID\n", 0);
+    DebugTrace( -1, Dbg, ("NtfsGetDiskGeometry->VOID\n") );
 
-    return;
+    return WriteProtected;
 }
 
 
@@ -2757,7 +3468,14 @@ NtfsReadBootSector (
 
 Routine Description:
 
-    This routine reads and returns a pointer to the boot sector for the volume
+    This routine reads and returns a pointer to the boot sector for the volume.
+
+    Volumes formatted under 3.51 and earlier will have a boot sector at sector
+    0 and another halfway through the disk.  Volumes formatted with NT 4.0
+    will have a boot sector at the end of the disk, in the sector beyond the
+    stated size of the volume in the boot sector.  When this call is made the
+    Vcb has the sector count from the device driver so we subtract one to find
+    the last sector.
 
 Arguments:
 
@@ -2777,13 +3495,14 @@ Return Value:
 
 {
     PSCB Scb = NULL;
+    BOOLEAN Error = FALSE;
 
     FILE_REFERENCE FileReference = { BOOT_FILE_NUMBER, 0, BOOT_FILE_NUMBER };
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsReadBootSector:\n", 0);
-    DebugTrace( 0, Dbg, "Vcb = %08lx\n", Vcb );
+    DebugTrace( +1, Dbg, ("NtfsReadBootSector:\n") );
+    DebugTrace( 0, Dbg, ("Vcb = %08lx\n", Vcb) );
 
     //
     //  Create a temporary scb for reading in the boot sector and initialize the
@@ -2801,7 +3520,7 @@ Return Value:
 
     Scb->Header.AllocationSize.QuadPart =
     Scb->Header.FileSize.QuadPart =
-    Scb->Header.ValidDataLength.QuadPart = PAGE_SIZE * 2;
+    Scb->Header.ValidDataLength.QuadPart = (PAGE_SIZE * 2) + Vcb->BytesPerSector;
 
     //
     //  We don't want to look up the size for this Scb.
@@ -2811,16 +3530,24 @@ Return Value:
 
     SetFlag( Scb->ScbState, SCB_STATE_HEADER_INITIALIZED );
 
-    (VOID)FsRtlAddLargeMcbEntry( &Scb->Mcb,
-                                 (LONGLONG)0,
-                                 (LONGLONG)0,
-                                 (LONGLONG)Vcb->ClustersPerPage );
+    (VOID)NtfsAddNtfsMcbEntry( &Scb->Mcb,
+                               (LONGLONG)0,
+                               (LONGLONG)0,
+                               (LONGLONG)Vcb->ClustersPerPage,
+                               FALSE );
 
 
-    (VOID)FsRtlAddLargeMcbEntry( &Scb->Mcb,
-                                 (LONGLONG)Vcb->ClustersPerPage,
-                                 Vcb->NumberSectors >> 1,
-                                 (LONGLONG)Vcb->ClustersPerPage );
+    (VOID)NtfsAddNtfsMcbEntry( &Scb->Mcb,
+                               (LONGLONG)Vcb->ClustersPerPage,
+                               Vcb->NumberSectors >> 1,
+                               (LONGLONG)Vcb->ClustersPerPage,
+                               FALSE );
+
+    (VOID)NtfsAddNtfsMcbEntry( &Scb->Mcb,
+                               Int64ShllMod32( (LONGLONG) Vcb->ClustersPerPage, 1 ),
+                               Vcb->NumberSectors - 1,
+                               1,
+                               FALSE );
 
     //
     //  Try reading in the first boot sector
@@ -2831,7 +3558,7 @@ Return Value:
         NtfsMapStream( IrpContext,
                        Scb,
                        (LONGLONG)0,
-                       sizeof(PACKED_BOOT_SECTOR),
+                       Vcb->BytesPerSector,
                        BootBcb,
                        BootSector );
 
@@ -2846,14 +3573,67 @@ Return Value:
               EXCEPTION_EXECUTE_HANDLER :
               EXCEPTION_CONTINUE_SEARCH) {
 
+        Error = TRUE;
+    }
+
+    //
+    //  Get out if we didn't get an error.  Otherwise try the middle sector.
+    //  We want to read this next because we know that 4.0 format will clear
+    //  this before writing the last sector.  Otherwise we could see a
+    //  stale boot sector in the last sector even though a 3.51 format was
+    //  the last to run.
+    //
+
+    if (!Error) { return; }
+
+    Error = FALSE;
+
+    try {
 
         NtfsMapStream( IrpContext,
                        Scb,
                        (LONGLONG)PAGE_SIZE,
-                       sizeof(PACKED_BOOT_SECTOR),
+                       Vcb->BytesPerSector,
                        BootBcb,
                        BootSector );
+
+        //
+        //  Ignore this sector if not Ntfs.  This could be the case for
+        //  a bad sector 0 on a FAT volume.
+        //
+
+        if (!NtfsIsBootSectorNtfs( *BootSector, Vcb )) {
+
+            NtfsUnpinBcb( BootBcb );
+            Error = TRUE;
+        }
+
+    //
+    //  If we got an exception trying to read the first boot sector,
+    //  then handle the exception by trying to read the second boot
+    //  sector.  If that faults too, then we just allow ourselves to
+    //  unwind and return the error.
+    //
+
+    } except (FsRtlIsNtstatusExpected(GetExceptionCode()) ?
+              EXCEPTION_EXECUTE_HANDLER :
+              EXCEPTION_CONTINUE_SEARCH) {
+
+        Error = TRUE;
     }
+
+    //
+    //  Get out if we didn't get an error.  Otherwise try the middle sector.
+    //
+
+    if (!Error) { return; }
+
+    NtfsMapStream( IrpContext,
+                   Scb,
+                   (LONGLONG) (PAGE_SIZE * 2),
+                   Vcb->BytesPerSector,
+                   BootBcb,
+                   BootSector );
 
     //
     //  Clear the header flag in the Scb.
@@ -2865,10 +3645,10 @@ Return Value:
     //  And return to our caller
     //
 
-    DebugTrace( 0, Dbg, "BootScb > %08lx\n", *BootScb );
-    DebugTrace( 0, Dbg, "BootBcb > %08lx\n", *BootBcb );
-    DebugTrace( 0, Dbg, "BootSector > %08lx\n", *BootSector );
-    DebugTrace(-1, Dbg, "NtfsReadBootSector->VOID\n", 0);
+    DebugTrace( 0, Dbg, ("BootScb > %08lx\n", *BootScb) );
+    DebugTrace( 0, Dbg, ("BootBcb > %08lx\n", *BootBcb) );
+    DebugTrace( 0, Dbg, ("BootSector > %08lx\n", *BootSector) );
+    DebugTrace( -1, Dbg, ("NtfsReadBootSector->VOID\n") );
     return;
 }
 
@@ -2889,7 +3669,6 @@ Return Value:
 
 BOOLEAN
 NtfsIsBootSectorNtfs (
-    IN PIRP_CONTEXT IrpContext,
     IN PPACKED_BOOT_SECTOR BootSector,
     IN PVCB Vcb
     )
@@ -2928,8 +3707,8 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsIsBootSectorNtfs\n", 0);
-    DebugTrace( 0, Dbg, "BootSector = %08lx\n", BootSector );
+    DebugTrace( +1, Dbg, ("NtfsIsBootSectorNtfs\n") );
+    DebugTrace( 0, Dbg, ("BootSector = %08lx\n", BootSector) );
 
     //
     //  First calculate the boot sector checksum
@@ -3055,32 +3834,35 @@ Return Value:
 
         //
         //  Clusters per file record segment and default clusters for Index
-        //  Allocation Buffers must be a power of 2.
+        //  Allocation Buffers must be a power of 2.  A zero indicates that the
+        //  size of these structures is the default size.
         //
 
         NextTest
-        ((BootSector->ClustersPerFileRecordSegment == 0x1) ||
+        (((BootSector->ClustersPerFileRecordSegment >= -31) &&
+          (BootSector->ClustersPerFileRecordSegment <= -9)) ||
+         (BootSector->ClustersPerFileRecordSegment == 0x1) ||
          (BootSector->ClustersPerFileRecordSegment == 0x2) ||
          (BootSector->ClustersPerFileRecordSegment == 0x4) ||
          (BootSector->ClustersPerFileRecordSegment == 0x8) ||
          (BootSector->ClustersPerFileRecordSegment == 0x10) ||
          (BootSector->ClustersPerFileRecordSegment == 0x20) ||
-         (BootSector->ClustersPerFileRecordSegment == 0x40) ||
-         (BootSector->ClustersPerFileRecordSegment == 0x80))
+         (BootSector->ClustersPerFileRecordSegment == 0x40))
 
             &&
 
         NextTest
-        ((BootSector->DefaultClustersPerIndexAllocationBuffer == 0x1) ||
+        (((BootSector->DefaultClustersPerIndexAllocationBuffer >= -31) &&
+          (BootSector->DefaultClustersPerIndexAllocationBuffer <= -9)) ||
+         (BootSector->DefaultClustersPerIndexAllocationBuffer == 0x1) ||
          (BootSector->DefaultClustersPerIndexAllocationBuffer == 0x2) ||
          (BootSector->DefaultClustersPerIndexAllocationBuffer == 0x4) ||
          (BootSector->DefaultClustersPerIndexAllocationBuffer == 0x8) ||
          (BootSector->DefaultClustersPerIndexAllocationBuffer == 0x10) ||
          (BootSector->DefaultClustersPerIndexAllocationBuffer == 0x20) ||
-         (BootSector->DefaultClustersPerIndexAllocationBuffer == 0x40) ||
-         (BootSector->DefaultClustersPerIndexAllocationBuffer == 0x80))) {
+         (BootSector->DefaultClustersPerIndexAllocationBuffer == 0x40))) {
 
-        DebugTrace(-1, Dbg, "NtfsIsBootSectorNtfs->TRUE\n", 0);
+        DebugTrace( -1, Dbg, ("NtfsIsBootSectorNtfs->TRUE\n") );
 
         return TRUE;
 
@@ -3090,8 +3872,8 @@ Return Value:
         //  If a check failed, print its check number with Debug Trace.
         //
 
-        DebugTrace( 0, Dbg, "Boot Sector failed test number %08lx\n", CheckNumber );
-        DebugTrace(-1, Dbg, "NtfsIsBootSectorNtfs->FALSE\n", 0);
+        DebugTrace( 0, Dbg, ("Boot Sector failed test number %08lx\n", CheckNumber) );
+        DebugTrace( -1, Dbg, ("NtfsIsBootSectorNtfs->FALSE\n") );
 
         return FALSE;
     }
@@ -3134,7 +3916,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(0, Dbg, "NtfsGetVolumeLabel...\n", 0);
+    DebugTrace( 0, Dbg, ("NtfsGetVolumeLabel...\n") );
 
     //
     //  We read in the volume label attribute to get the volume label.
@@ -3169,7 +3951,7 @@ Return Value:
                 Vpb->VolumeLabelLength = 0;
             }
 
-            NtfsCleanupAttributeContext( IrpContext, &AttributeContext );
+            NtfsCleanupAttributeContext( &AttributeContext );
         }
 
         NtfsInitializeAttributeContext( &AttributeContext );
@@ -3198,7 +3980,7 @@ Return Value:
 
         DebugUnwind( NtfsGetVolumeLabel );
 
-        NtfsCleanupAttributeContext( IrpContext, &AttributeContext );
+        NtfsCleanupAttributeContext( &AttributeContext );
     }
 
     //
@@ -3248,7 +4030,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(0, Dbg, "NtfsSetAndGetVolumeTimes...\n", 0);
+    DebugTrace( 0, Dbg, ("NtfsSetAndGetVolumeTimes...\n") );
 
     try {
 
@@ -3302,7 +4084,7 @@ Return Value:
         Vcb->VolumeLastChangeTime       = StandardInformation->LastChangeTime;
         Vcb->VolumeLastAccessTime       = StandardInformation->LastAccessTime; //****Also hold back = MountTime;
 
-        NtfsCleanupAttributeContext( IrpContext, &AttributeContext );
+        NtfsCleanupAttributeContext( &AttributeContext );
 
         //
         //  If the volume was mounted dirty, then set the dirty bit here.
@@ -3315,7 +4097,7 @@ Return Value:
 
     } finally {
 
-        NtfsCleanupAttributeContext( IrpContext, &AttributeContext );
+        NtfsCleanupAttributeContext( &AttributeContext );
     }
 
     //
@@ -3336,7 +4118,7 @@ NtfsOpenSystemFile (
     IN OUT PSCB *Scb,
     IN PVCB Vcb,
     IN ULONG FileNumber,
-    IN LONGLONG SizeInClusters,
+    IN LONGLONG Size,
     IN ATTRIBUTE_TYPE_CODE AttributeTypeCode,
     IN BOOLEAN ModifiedNoWrite
     )
@@ -3358,8 +4140,8 @@ Parameters:
 
     FileNumber - Number of the system file to open.
 
-    SizeInClusters - If nonzero, this size is used as the initial size, rather
-                     than consulting the file record in the Mft.
+    Size - If nonzero, this size is used as the initial size, rather
+           than consulting the file record in the Mft.
 
     AttributeTypeCode - Supplies the attribute to open, e.g., $DATA or $BITMAP
 
@@ -3380,10 +4162,10 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsOpenSystemFile:\n", 0 );
-    DebugTrace( 0, Dbg, "*Scb = %08lx\n", *Scb );
-    DebugTrace( 0, Dbg, "FileNumber = %08lx\n", FileNumber );
-    DebugTrace( 0, Dbg, "ModifiedNoWrite = %04x\n", ModifiedNoWrite );
+    DebugTrace( +1, Dbg, ("NtfsOpenSystemFile:\n") );
+    DebugTrace( 0, Dbg, ("*Scb = %08lx\n", *Scb) );
+    DebugTrace( 0, Dbg, ("FileNumber = %08lx\n", FileNumber) );
+    DebugTrace( 0, Dbg, ("ModifiedNoWrite = %04x\n", ModifiedNoWrite) );
 
     //
     //  The Bad Cluster data attribute has a name.
@@ -3401,8 +4183,7 @@ Return Value:
 
     if (*Scb == NULL) {
 
-        FileReference.HighPart = 0;
-        FileReference.LowPart = FileNumber;
+        NtfsSetSegmentNumber( &FileReference, 0, FileNumber );
         FileReference.SequenceNumber = (FileNumber == 0 ? 1 : (USHORT)FileNumber);
 
         //
@@ -3432,7 +4213,7 @@ Return Value:
     //  Lookup the file sizes.
     //
 
-    if (SizeInClusters == 0) {
+    if (Size == 0) {
 
         NtfsUpdateScbFromAttribute( IrpContext, *Scb, NULL );
 
@@ -3442,9 +4223,12 @@ Return Value:
 
     } else {
 
-        (*Scb)->Header.AllocationSize.QuadPart =
         (*Scb)->Header.FileSize.QuadPart =
-        (*Scb)->Header.ValidDataLength.QuadPart = SizeInClusters << Vcb->ClusterShift;
+        (*Scb)->Header.ValidDataLength.QuadPart = Size;
+
+        (*Scb)->Header.AllocationSize.QuadPart = LlClustersFromBytes( Vcb, Size );
+        (*Scb)->Header.AllocationSize.QuadPart = LlBytesFromClusters( Vcb,
+                                                                      (*Scb)->Header.AllocationSize.QuadPart );
 
         SetFlag( (*Scb)->ScbState, SCB_STATE_HEADER_INITIALIZED );
     }
@@ -3452,30 +4236,26 @@ Return Value:
     //
     //  Finally, create the stream, if not already there.
     //  And check if we should increment the counters
-    //  If this is the volume file, we only increment the counts.
+    //  If this is the volume file or the bad cluster file, we only increment the counts.
     //
 
-    if (FileNumber == VOLUME_DASD_NUMBER) {
+    if ((FileNumber == VOLUME_DASD_NUMBER) ||
+        (FileNumber == BAD_CLUSTER_FILE_NUMBER)) {
 
         if ((*Scb)->FileObject == 0) {
 
-            NtfsIncrementCloseCounts( IrpContext, *Scb, 1, TRUE, FALSE );
+            NtfsIncrementCloseCounts( *Scb, TRUE, FALSE );
 
             (*Scb)->FileObject = (PFILE_OBJECT) 1;
         }
 
-    //
-    //  Just update the attribute for the bad cluster file, do not
-    //  create a stream.
-    //
-
-    } else if (FileNumber != BAD_CLUSTER_FILE_NUMBER) {
+    } else {
 
         NtfsCreateInternalAttributeStream( IrpContext, *Scb, TRUE );
     }
 
-    DebugTrace( 0, Dbg, "*Scb > %08lx\n", *Scb );
-    DebugTrace(-1, Dbg, "NtfsOpenSystemFile -> VOID\n", 0 );
+    DebugTrace( 0, Dbg, ("*Scb > %08lx\n", *Scb) );
+    DebugTrace( -1, Dbg, ("NtfsOpenSystemFile -> VOID\n") );
 
     return;
 }
@@ -3522,8 +4302,30 @@ Return Value:
 
     RootFcb = NtfsCreateRootFcb( IrpContext, Vcb );
 
-    FileReference.HighPart = 0;
-    FileReference.LowPart = FileReference.SequenceNumber = ROOT_FILE_NAME_INDEX_NUMBER;
+    NtfsSetSegmentNumber( &FileReference, 0, ROOT_FILE_NAME_INDEX_NUMBER );
+    FileReference.SequenceNumber = ROOT_FILE_NAME_INDEX_NUMBER;
+
+    //
+    //  Now create its Scb and acquire it exclusive.
+    //
+
+    Vcb->RootIndexScb = NtfsCreateScb( IrpContext,
+                                       RootFcb,
+                                       $INDEX_ALLOCATION,
+                                       &NtfsFileNameIndex,
+                                       FALSE,
+                                       &MustBeFalse );
+
+    //
+    //  Now allocate a buffer to hold the normalized name for the root.
+    //
+
+    Vcb->RootIndexScb->ScbType.Index.NormalizedName.Buffer = NtfsAllocatePool(PagedPool, 2 );
+    Vcb->RootIndexScb->ScbType.Index.NormalizedName.MaximumLength =
+    Vcb->RootIndexScb->ScbType.Index.NormalizedName.Length = 2;
+    Vcb->RootIndexScb->ScbType.Index.NormalizedName.Buffer[0] = '\\';
+
+    NtfsAcquireExclusiveScb( IrpContext, Vcb->RootIndexScb );
 
     //
     //  Lookup the attribute and it better be there
@@ -3537,11 +4339,11 @@ Return Value:
 
     try {
 
-        if (!NtfsLookupAttributeByCode ( IrpContext,
-                                         RootFcb,
-                                         &FileReference,
-                                         $INDEX_ROOT,
-                                         &Context )) {
+        if (!NtfsLookupAttributeByCode( IrpContext,
+                                        RootFcb,
+                                        &FileReference,
+                                        $INDEX_ROOT,
+                                        &Context ) ) {
 
             NtfsRaiseStatus( IrpContext, STATUS_DISK_CORRUPT_ERROR, NULL, NULL );
         }
@@ -3554,30 +4356,8 @@ Return Value:
 
     } finally {
 
-        NtfsCleanupAttributeContext( IrpContext, &Context );
+        NtfsCleanupAttributeContext( &Context );
     }
-
-    //
-    //  Now create its Scb and acquire it exclusive.
-    //
-
-    Vcb->RootIndexScb = NtfsCreateScb( IrpContext,
-                                       Vcb,
-                                       RootFcb,
-                                       $INDEX_ALLOCATION,
-                                       NtfsFileNameIndex,
-                                       &MustBeFalse );
-
-    //
-    //  Now allocate a buffer to hold the normalized name for the root.
-    //
-
-    Vcb->RootIndexScb->ScbType.Index.NormalizedName.Buffer = NtfsAllocatePagedPool( 2 );
-    Vcb->RootIndexScb->ScbType.Index.NormalizedName.MaximumLength =
-    Vcb->RootIndexScb->ScbType.Index.NormalizedName.Length = 2;
-    Vcb->RootIndexScb->ScbType.Index.NormalizedName.Buffer[0] = '\\';
-
-    NtfsAcquireExclusiveScb( IrpContext, Vcb->RootIndexScb );
 
     return;
 }
@@ -3625,6 +4405,7 @@ Return Value:
     PLONGLONG RequestedMapSize;
     PLONGLONG *MappingPairs;
 
+    PVOID RangePtr;
     ULONG Index;
     ULONG i;
     LONGLONG SectorCount;
@@ -3632,6 +4413,17 @@ Return Value:
     LONGLONG Vbo;
     LONGLONG Vcn;
     LONGLONG MapSize;
+
+    //
+    //  Only Kernel mode clients may query retrieval pointer information about
+    //  a file, and then only the paging file.  Ensure that this is the case
+    //  for this caller.
+    //
+
+    if (Irp->RequestorMode != KernelMode) {
+
+        return STATUS_INVALID_PARAMETER;
+    }
 
     //
     //  Get the current stack location and extract the input and output
@@ -3655,7 +4447,10 @@ Return Value:
 
     (VOID)NtfsDecodeFileObject( IrpContext, IrpSp->FileObject, &Vcb, &Fcb, &Scb, &Ccb, TRUE );
 
-    ASSERT(FlagOn(Fcb->FcbState, FCB_STATE_PAGING_FILE));
+    if (!FlagOn(Fcb->FcbState, FCB_STATE_PAGING_FILE)) {
+
+        return STATUS_INVALID_PARAMETER;
+    }
 
     //
     //  Acquire exclusive access to the Scb
@@ -3677,14 +4472,27 @@ Return Value:
         //
         //  Now get the index for the mcb entry that will contain the
         //  callers request and allocate enough pool to hold the
-        //  output mapping pairs
+        //  output mapping pairs.
         //
 
-        Vcn = *RequestedMapSize >> Vcb->ClusterShift;
+        //
+        //  Compute the Vcn which contains the byte just before the offset size
+        //  passed in.
+        //
 
-        (VOID)FsRtlLookupLargeMcbEntry( &Scb->Mcb, Vcn, NULL, NULL, NULL, NULL, &Index );
+        MapSize = *RequestedMapSize - 1;
 
-        *MappingPairs = ExAllocatePool( NonPagedPool, (Index + 2) * (2 * sizeof(LARGE_INTEGER)) );
+        if (*RequestedMapSize == 0) {
+
+            Index = 0;
+
+        } else {
+
+            Vcn = Int64ShraMod32( MapSize, Vcb->ClusterShift );
+            (VOID)NtfsLookupNtfsMcbEntry( &Scb->Mcb, Vcn, NULL, NULL, NULL, NULL, &RangePtr, &Index );
+        }
+
+        *MappingPairs = NtfsAllocatePool( NonPagedPool, (Index + 2) * (2 * sizeof(LARGE_INTEGER)) );
 
         //
         //  Now copy over the mapping pairs from the mcb
@@ -3694,20 +4502,25 @@ Return Value:
 
         MapSize = *RequestedMapSize;
 
-        for (i = 0; i <= Index; i += 1) {
+        i = 0;
 
-            (VOID)FsRtlGetNextLargeMcbEntry( &Scb->Mcb, i, &Vbo, &Lbo, &SectorCount );
+        if (MapSize != 0) {
 
-            SectorCount = SectorCount << Vcb->ClusterShift;
+            for (; i <= Index; i += 1) {
 
-            if (SectorCount > MapSize) {
-                SectorCount = MapSize;
+                (VOID)NtfsGetNextNtfsMcbEntry( &Scb->Mcb, &RangePtr, i, &Vbo, &Lbo, &SectorCount );
+
+                SectorCount = LlBytesFromClusters( Vcb, SectorCount );
+
+                if (SectorCount > MapSize) {
+                    SectorCount = MapSize;
+                }
+
+                (*MappingPairs)[ i*2 + 0 ] = SectorCount;
+                (*MappingPairs)[ i*2 + 1 ] = LlBytesFromClusters( Vcb, Lbo );
+
+                MapSize = MapSize - SectorCount;
             }
-
-            (*MappingPairs)[ i*2 + 0 ] = SectorCount;
-            (*MappingPairs)[ i*2 + 1 ] = Lbo << Vcb->ClusterShift;
-
-            MapSize = MapSize - SectorCount;
         }
 
         (*MappingPairs)[ i*2 + 0 ] = 0;
@@ -3784,7 +4597,25 @@ Return Value:
     //
 
     IrpSp = IoGetCurrentIrpStackLocation( Irp );
-    CompressionState = Irp->UserBuffer;
+
+    //
+    //  Get a pointer to the output buffer.  Look at the system buffer field in th
+    //  irp first.  Then the Irp Mdl.
+    //
+
+    if (Irp->AssociatedIrp.SystemBuffer != NULL) {
+
+        CompressionState = Irp->AssociatedIrp.SystemBuffer;
+
+    } else if (Irp->MdlAddress != NULL) {
+
+        CompressionState = MmGetSystemAddressForMdl( Irp->MdlAddress );
+
+    } else {
+
+        NtfsCompleteRequest( &IrpContext, &Irp, STATUS_INVALID_USER_BUFFER );
+        return STATUS_INVALID_USER_BUFFER;
+    }
 
     //
     //  Make sure the output buffer is large enough and then initialize
@@ -3806,8 +4637,11 @@ Return Value:
 
     TypeOfOpen = NtfsDecodeFileObject( IrpContext, IrpSp->FileObject, &Vcb, &Fcb, &Scb, &Ccb, TRUE );
 
-    if ((TypeOfOpen !=     UserFileOpen) && (TypeOfOpen !=     UserDirectoryOpen) &&
-        (TypeOfOpen != UserOpenFileById) && (TypeOfOpen != UserOpenDirectoryById)) {
+    if ((TypeOfOpen != UserFileOpen) &&
+#ifdef _CAIRO_
+        (TypeOfOpen != UserPropertySetOpen) &&
+#endif  //  _CAIRO_
+        (TypeOfOpen != UserDirectoryOpen)) {
 
         NtfsCompleteRequest( &IrpContext, &Irp, STATUS_INVALID_PARAMETER );
 
@@ -3821,7 +4655,48 @@ Return Value:
     NtfsAcquireSharedScb( IrpContext, Scb );
 
     //
-    //  Return the compression state.
+    //  If this is the index allocation Scb and it has not been initialized then
+    //  lookup the index root and perform the initialization.
+    //
+
+    if ((Scb->AttributeTypeCode == $INDEX_ALLOCATION) &&
+        (Scb->ScbType.Index.BytesPerIndexBuffer == 0)) {
+
+        ATTRIBUTE_ENUMERATION_CONTEXT Context;
+
+        NtfsInitializeAttributeContext( &Context );
+
+        //
+        //  Use a try-finally to perform cleanup.
+        //
+
+        try {
+
+            if (!NtfsLookupAttributeByName( IrpContext,
+                                            Scb->Fcb,
+                                            &Scb->Fcb->FileReference,
+                                            $INDEX_ROOT,
+                                            &Scb->AttributeName,
+                                            NULL,
+                                            FALSE,
+                                            &Context )) {
+
+                NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, Scb->Fcb );
+            }
+
+            NtfsUpdateIndexScbFromAttribute( Scb,
+                                             NtfsFoundAttribute( &Context ));
+
+        } finally {
+
+            NtfsCleanupAttributeContext( &Context );
+
+            if (AbnormalTermination()) { NtfsReleaseScb( IrpContext, Scb ); }
+        }
+    }
+
+    //
+    //  Return the compression state and the size of the returned data.
     //
 
     *CompressionState = (USHORT)(Scb->AttributeFlags & ATTRIBUTE_FLAG_COMPRESSION_MASK);
@@ -3829,7 +4704,7 @@ Return Value:
         *CompressionState += 1;
     }
 
-    DebugUnwind( NtfsGetCompression );
+    Irp->IoStatus.Information = sizeof( USHORT );
 
     //
     //  Release all of our resources
@@ -3851,7 +4726,6 @@ Return Value:
 //
 //  Local Support Routine
 //
-
 
 VOID
 NtfsChangeAttributeCompression (
@@ -3894,10 +4768,15 @@ Return Value:
     PATTRIBUTE_RECORD_HEADER Attribute;
     ULONG AttributeSizeChange;
     ULONG OriginalFileAttributes;
+    UCHAR OriginalHeaderFlags;
+    UCHAR OriginalCompressionUnitShift;
+    ULONG OriginalCompressionUnit;
+
     PFCB Fcb = Scb->Fcb;
-    BOOLEAN PagingIoAcquired = FALSE;
+    LONGLONG ByteCount;
 
     ULONG NewCompressionUnit;
+    UCHAR NewCompressionUnitShift;
 
     //
     //  Prepare to lookup and change attribute.
@@ -3905,17 +4784,18 @@ Return Value:
 
     NtfsInitializeAttributeContext( &AttrContext );
 
+    ASSERT( (Scb->Header.PagingIoResource == NULL) ||
+            (IrpContext->FcbWithPagingExclusive == Fcb) ||
+            (IrpContext->FcbWithPagingExclusive == (PFCB) Scb) );
+
     NtfsAcquireExclusiveScb( IrpContext, Scb );
 
     OriginalFileAttributes = Fcb->Info.FileAttributes;
+    OriginalHeaderFlags = Scb->Header.Flags;
+    OriginalCompressionUnitShift = Scb->CompressionUnitShift;
+    OriginalCompressionUnit = Scb->CompressionUnit;
 
     try {
-
-        if (Fcb->PagingIoResource != NULL) {
-
-            NtfsAcquireExclusivePagingIo( IrpContext, Fcb );
-            PagingIoAcquired = TRUE;
-        }
 
         //
         //  Lookup the attribute and pin it so that we can modify it.
@@ -3933,6 +4813,7 @@ Return Value:
                                             &Fcb->FileReference,
                                             $INDEX_ROOT,
                                             &Scb->AttributeName,
+                                            NULL,
                                             FALSE,
                                             &AttrContext )) {
 
@@ -3941,7 +4822,7 @@ Return Value:
 
         } else {
 
-            NtfsLookupAttributeForScb( IrpContext, Scb, &AttrContext );
+            NtfsLookupAttributeForScb( IrpContext, Scb, NULL, &AttrContext );
         }
 
         NtfsPinMappedAttribute( IrpContext, Vcb, &AttrContext );
@@ -3964,7 +4845,7 @@ Return Value:
             CompressionUnitInClusters =
               ClustersFromBytes( Vcb, Vcb->BytesPerCluster << NTFS_CLUSTERS_PER_COMPRESSION );
 
-            Temp = LlClustersFromBytes(Vcb, Scb->Header.FileSize.QuadPart);
+            Temp = LlClustersFromBytes(Vcb, Scb->Header.AllocationSize.QuadPart);
 
             //
             //  If FileSize is not already at a cluster boundary, then add
@@ -3980,12 +4861,29 @@ Return Value:
                                    CompressionUnitInClusters - ((ULONG)Temp & (CompressionUnitInClusters - 1)),
                                    FALSE );
 
+                if (FlagOn( Scb->ScbState, SCB_STATE_UNNAMED_DATA )) {
+
+                    Scb->Fcb->Info.AllocatedLength = Scb->TotalAllocated;
+                    SetFlag( Scb->Fcb->InfoFlags, FCB_INFO_CHANGED_ALLOC_SIZE );
+                }
+
                 NtfsWriteFileSizes( IrpContext,
                                     Scb,
-                                    Scb->Header.FileSize.QuadPart,
-                                    Scb->Header.ValidDataLength.QuadPart,
+                                    &Scb->Header.ValidDataLength.QuadPart,
                                     FALSE,
                                     TRUE );
+
+                //
+                //  The attribute may have moved.  We will cleanup the attribute
+                //  context and look it up again.
+                //
+
+                NtfsCleanupAttributeContext( &AttrContext );
+                NtfsInitializeAttributeContext( &AttrContext );
+
+                NtfsLookupAttributeForScb( IrpContext, Scb, NULL, &AttrContext );
+                NtfsPinMappedAttribute( IrpContext, Vcb, &AttrContext );
+                Attribute = NtfsFoundAttribute( &AttrContext );
             }
         }
 
@@ -4005,20 +4903,23 @@ Return Value:
             //  don't want to change this value for the Index Root.
             //
 
-            if (Attribute->TypeCode == $DATA) {
+            if (NtfsIsTypeCodeCompressible( Attribute->TypeCode )) {
 
                 if (CompressionState != 0) {
 
                     NewCompressionUnit = BytesFromClusters( Scb->Vcb, 1 << NTFS_CLUSTERS_PER_COMPRESSION );
+                    NewCompressionUnitShift = NTFS_CLUSTERS_PER_COMPRESSION;
 
                 } else {
 
                     NewCompressionUnit = 0;
+                    NewCompressionUnitShift = 0;
                 }
 
             } else {
 
                 NewCompressionUnit = Scb->CompressionUnit;
+                NewCompressionUnitShift = Scb->CompressionUnitShift;
             }
 
         //
@@ -4028,38 +4929,30 @@ Return Value:
 
         } else {
 
-            RtlCopyMemory( &NewAttribute, Attribute, SIZEOF_NONRESIDENT_ATTRIBUTE_HEADER );
+            AttributeSizeChange = Attribute->Form.Nonresident.MappingPairsOffset;
+
+            if (Attribute->NameOffset != 0) {
+
+                AttributeSizeChange = Attribute->NameOffset;
+            }
+
+            RtlCopyMemory( &NewAttribute, Attribute, AttributeSizeChange );
 
             if (CompressionState != 0) {
 
                 NewAttribute.Form.Nonresident.CompressionUnit = NTFS_CLUSTERS_PER_COMPRESSION;
                 NewCompressionUnit = Vcb->BytesPerCluster << NTFS_CLUSTERS_PER_COMPRESSION;
+                NewCompressionUnitShift = NTFS_CLUSTERS_PER_COMPRESSION;
             } else {
 
                 NewAttribute.Form.Nonresident.CompressionUnit = 0;
                 NewCompressionUnit = 0;
+                NewCompressionUnitShift = 0;
             }
 
             ASSERT(NewCompressionUnit == 0
                    || Scb->AttributeTypeCode == $INDEX_ROOT
-                   || Scb->AttributeTypeCode == $DATA );
-
-            //
-            //  If the compression unit is non-zero or this is a resident file
-            //  then set the flag in the common header for the Modified page writer.
-            //
-
-            if (NewCompressionUnit != 0
-                || FlagOn( Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT )) {
-
-                SetFlag( Scb->Header.Flags, FSRTL_FLAG_ACQUIRE_MAIN_RSRC_EX );
-
-            } else {
-
-                ClearFlag( Scb->Header.Flags, FSRTL_FLAG_ACQUIRE_MAIN_RSRC_EX );
-            }
-
-            AttributeSizeChange = SIZEOF_NONRESIDENT_ATTRIBUTE_HEADER;
+                   || NtfsIsTypeCodeCompressible( Scb->AttributeTypeCode ));
         }
 
         //
@@ -4081,10 +4974,10 @@ Return Value:
                             UpdateResidentValue,
                             Attribute,
                             AttributeSizeChange,
-                            NtfsMftVcn(&AttrContext, Vcb),
+                            NtfsMftOffset( &AttrContext ),
                             PtrOffset(NtfsContainingFileRecord(&AttrContext), Attribute),
                             0,
-                            Vcb->ClustersPerFileRecordSegment );
+                            Vcb->BytesPerFileRecordSegment );
 
         //
         //  Change the attribute by calling the same routine called at restart.
@@ -4116,9 +5009,46 @@ Return Value:
             }
 
             SetFlag( Fcb->InfoFlags, FCB_INFO_CHANGED_FILE_ATTR );
+            SetFlag( Fcb->FcbState, FCB_STATE_UPDATE_STD_INFO );
+        }
+
+        //
+        //  Now lets add or remove the total allocated field in the attribute
+        //  header.
+        //
+
+        NtfsSetTotalAllocatedField( IrpContext, Scb, CompressionState );
+
+        //
+        //  At this point we will change the compression unit in the Scb.
+        //
+
+        Scb->CompressionUnit = NewCompressionUnit;
+        Scb->CompressionUnitShift = NewCompressionUnitShift;
+
+        //
+        //  Make sure we can reserve enough clusters to start the compress
+        //  operation.
+        //
+
+        if ((CompressionState != 0) && !NtfsIsAttributeResident(Attribute)) {
+
+            ByteCount = Scb->Header.FileSize.QuadPart;
+
+            if (ByteCount > 0x40000) {
+
+                ByteCount = 0x40000;
+            }
+
+            if (!NtfsReserveClusters( IrpContext, Scb, 0, (ULONG) ByteCount )) {
+
+                NtfsRaiseStatus( IrpContext, STATUS_DISK_FULL, NULL, NULL );
+            }
+        }
+
+        if (FlagOn( Fcb->FcbState, FCB_STATE_UPDATE_STD_INFO )) {
 
             NtfsUpdateStandardInformation( IrpContext, Fcb );
-
             ClearFlag( Fcb->FcbState, FCB_STATE_UPDATE_STD_INFO );
         }
 
@@ -4129,10 +5059,12 @@ Return Value:
         NtfsCheckpointCurrentTransaction( IrpContext );
 
         //
-        //  At this point we will change the compression unit in the Scb.
+        //  Update the FastIoField.
         //
 
-        Scb->CompressionUnit = NewCompressionUnit;
+        NtfsAcquireFsrtlHeader( Scb );
+        Scb->Header.IsFastIoPossible = NtfsIsFastIoPossible( Scb );
+        NtfsReleaseFsrtlHeader( Scb );
 
     //
     //  Cleanup on the way out.
@@ -4140,7 +5072,7 @@ Return Value:
 
     } finally {
 
-        NtfsCleanupAttributeContext( IrpContext, &AttrContext );
+        NtfsCleanupAttributeContext( &AttrContext );
 
         //
         //  If this requests aborts then we want to back out any changes to the
@@ -4151,16 +5083,17 @@ Return Value:
 
             Fcb->Info.FileAttributes = OriginalFileAttributes;
             SetFlag( Fcb->FcbState, FCB_STATE_UPDATE_STD_INFO );
-        }
 
-        if (PagingIoAcquired) {
-            NtfsReleasePagingIo( IrpContext, Fcb );
+            Scb->Header.Flags = OriginalHeaderFlags;
+            Scb->CompressionUnitShift = OriginalCompressionUnitShift;
+            Scb->CompressionUnit = OriginalCompressionUnit;
         }
 
         NtfsReleaseScb( IrpContext, Scb );
     }
 }
 
+
 //
 //  Local Support Routine
 //
@@ -4192,9 +5125,8 @@ Return Value:
 --*/
 
 {
-    NTSTATUS Status;
-
     PIO_STACK_LOCATION IrpSp;
+    PIO_STACK_LOCATION NextIrpSp;
 
     TYPE_OF_OPEN TypeOfOpen;
     PVCB Vcb;
@@ -4207,20 +5139,17 @@ Return Value:
     PFILE_OBJECT FileObject;
     LONGLONG FileOffset;
     LONGLONG ByteCount;
-    PBCB Bcb;
     PVOID Buffer;
+    BOOLEAN UserMappedFile;
+    PBCB Bcb = NULL;
     USHORT CompressionState = 0;
     PMDL Mdl = NULL;
     BOOLEAN ScbAcquired = FALSE;
     BOOLEAN PagingIoAcquired = FALSE;
+    BOOLEAN LockedPages = FALSE;
+    BOOLEAN FsRtlHeaderLocked = FALSE;
 
-#ifndef NTFS_ALLOW_COMPRESSED
-    {
-        NtfsCompleteRequest( &IrpContext, &Irp, STATUS_NOT_IMPLEMENTED );
-
-        return STATUS_NOT_IMPLEMENTED;
-    }
-#endif
+    NTSTATUS Status = STATUS_UNSUCCESSFUL;
 
     //
     //  Get the current stack location and extract the output
@@ -4229,19 +5158,20 @@ Return Value:
     //
 
     IrpSp = IoGetCurrentIrpStackLocation( Irp );
+    NextIrpSp = IoGetNextIrpStackLocation( Irp );
+
     FileObject = IrpSp->FileObject;
     CompressionStatePtr = Irp->AssociatedIrp.SystemBuffer;
 
     //
-    //  See if we are compressing, and translate the default case.
+    //  Make sure the input buffer is big enough
     //
 
-    if (*CompressionStatePtr != 0) {
-        if (*CompressionStatePtr == COMPRESSION_FORMAT_DEFAULT) {
-            CompressionState = COMPRESSION_FORMAT_LZNT1 - 1;
-        } else {
-            CompressionState -= *CompressionStatePtr - 1;
-        }
+    if (IrpSp->Parameters.FileSystemControl.InputBufferLength < sizeof(USHORT)) {
+
+        NtfsCompleteRequest( &IrpContext, &Irp, STATUS_INVALID_PARAMETER );
+
+        return STATUS_INVALID_PARAMETER;
     }
 
     //
@@ -4250,8 +5180,41 @@ Return Value:
 
     TypeOfOpen = NtfsDecodeFileObject( IrpContext, FileObject, &Vcb, &Fcb, &Scb, &Ccb, TRUE );
 
-    if ((TypeOfOpen !=     UserFileOpen) && (TypeOfOpen !=     UserDirectoryOpen) &&
-        (TypeOfOpen != UserOpenFileById) && (TypeOfOpen != UserOpenDirectoryById)) {
+    //
+    //  See if we are compressing, and only accept the default case or
+    //  lznt1.
+    //
+
+    if (*CompressionStatePtr != 0) {
+
+        if ((*CompressionStatePtr == COMPRESSION_FORMAT_DEFAULT) ||
+            (*CompressionStatePtr == COMPRESSION_FORMAT_LZNT1)) {
+
+            CompressionState = COMPRESSION_FORMAT_LZNT1 - 1;
+
+            //
+            //  Check that we can compress on this volume.
+            //
+
+            if (!FlagOn( Vcb->AttributeFlagsMask, ATTRIBUTE_FLAG_COMPRESSION_MASK )) {
+
+                NtfsCompleteRequest( &IrpContext, &Irp, STATUS_INVALID_DEVICE_REQUEST );
+                return STATUS_INVALID_DEVICE_REQUEST;
+            }
+
+        } else {
+
+            NtfsCompleteRequest( &IrpContext, &Irp, STATUS_INVALID_PARAMETER );
+            return STATUS_INVALID_PARAMETER;
+        }
+    }
+
+    if (((TypeOfOpen != UserFileOpen) &&
+#ifdef _CAIRO_
+         (TypeOfOpen != UserPropertySetOpen) &&
+#endif  //  _CAIRO_
+         (TypeOfOpen != UserDirectoryOpen)) ||
+        FlagOn(Fcb->FcbState, FCB_STATE_PAGING_FILE)) {
 
         NtfsCompleteRequest( &IrpContext, &Irp, STATUS_INVALID_PARAMETER );
 
@@ -4264,13 +5227,18 @@ Return Value:
         //  We now want to acquire the Scb to check if we can continue.
         //
 
+        if (Scb->Header.PagingIoResource != NULL) {
+
+            NtfsAcquireExclusivePagingIo( IrpContext, Fcb );
+            PagingIoAcquired = TRUE;
+        }
+
         NtfsAcquireExclusiveScb( IrpContext, Scb );
         ScbAcquired = TRUE;
 
-        if (Scb->Header.PagingIoResource != NULL) {
+        if (FlagOn( Scb->ScbState, SCB_STATE_VOLUME_DISMOUNTED )) {
 
-            ExAcquireResourceExclusive( Scb->Header.PagingIoResource, TRUE );
-            PagingIoAcquired = TRUE;
+            NtfsRaiseStatus( IrpContext, STATUS_VOLUME_DISMOUNTED, NULL, NULL );
         }
 
         //
@@ -4297,6 +5265,48 @@ Return Value:
             try_return(Status = STATUS_SUCCESS);
         }
 
+        if (!FlagOn( Scb->ScbState, SCB_STATE_HEADER_INITIALIZED )) {
+
+            NtfsUpdateScbFromAttribute( IrpContext, Scb, NULL );
+        }
+
+        //
+        //  Set the WRITE_ACCESS_SEEN flag so that we will enforce the
+        //  reservation strategy.
+        //
+
+        if (!FlagOn( Scb->ScbState, SCB_STATE_WRITE_ACCESS_SEEN )) {
+
+            LONGLONG ClusterCount;
+
+            NtfsAcquireReservedClusters( Vcb );
+
+            //
+            //  Does this Scb have reserved space that causes us to exceed the free
+            //  space on the volume?
+            //
+
+            ClusterCount = LlClustersFromBytesTruncate( Vcb, Scb->ScbType.Data.TotalReserved );
+
+            if ((Scb->ScbType.Data.TotalReserved != 0) &&
+                ((ClusterCount + Vcb->TotalReserved) > Vcb->FreeClusters)) {
+
+                NtfsReleaseReservedClusters( Vcb );
+
+                try_return( Status = STATUS_DISK_FULL );
+            }
+
+            //
+            //  Otherwise tally in the reserved space now for this Scb, and
+            //  remember that we have seen write access.
+            //
+
+            Vcb->TotalReserved += ClusterCount;
+            SetFlag( Scb->ScbState, SCB_STATE_WRITE_ACCESS_SEEN );
+
+            NtfsReleaseReservedClusters( Vcb );
+        }
+
         //
         //  If this is the first pass through SetCompression we need to set this
         //  request up as the top-level change compression operation.  This means
@@ -4304,7 +5314,7 @@ Return Value:
         //  and putting the SCB_STATE_COMPRESSED flag in the correct state.
         //
 
-        if (IrpSp->Parameters.FileSystemControl.OutputBufferLength == MAXULONG) {
+        if (NextIrpSp->Parameters.FileSystemControl.OutputBufferLength == MAXULONG) {
 
             //
             //  If the REALLOCATE_ON_WRITE flag is set it means that someone is
@@ -4353,8 +5363,19 @@ Return Value:
             //
 
             SetFlag( Scb->ScbState, SCB_STATE_REALLOCATE_ON_WRITE );
-            IrpSp->Parameters.FileSystemControl.OutputBufferLength = 0;
-            IrpSp->Parameters.FileSystemControl.InputBufferLength = 0;
+            NextIrpSp->Parameters.FileSystemControl.OutputBufferLength = 0;
+            NextIrpSp->Parameters.FileSystemControl.InputBufferLength = 0;
+
+        //
+        //  If we are turning off compression and the file is uncompressed then
+        //  we can just get out.  Even if we raised while decompressing.  If
+        //  the state is now uncompressed then we have committed the change.
+        //
+
+        } else if ((CompressionState == 0) &&
+                   ((Scb->AttributeFlags & ATTRIBUTE_FLAG_COMPRESSION_MASK) == 0)) {
+
+            try_return( Status = STATUS_SUCCESS );
         }
 
         //
@@ -4364,8 +5385,8 @@ Return Value:
         //  off.
         //
 
-        ((PLARGE_INTEGER)&FileOffset)->LowPart = IrpSp->Parameters.FileSystemControl.OutputBufferLength;
-        ((PLARGE_INTEGER)&FileOffset)->HighPart = IrpSp->Parameters.FileSystemControl.InputBufferLength;
+        ((PLARGE_INTEGER)&FileOffset)->LowPart = NextIrpSp->Parameters.FileSystemControl.OutputBufferLength;
+        ((PLARGE_INTEGER)&FileOffset)->HighPart = NextIrpSp->Parameters.FileSystemControl.InputBufferLength;
 
         //
         //  If the stream is resident there is no need rewrite any of the data.
@@ -4373,14 +5394,34 @@ Return Value:
 
         if (!FlagOn( Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT )) {
 
-            NtfsReleaseScb( IrpContext, Scb );
+            //
+            //  Release all of the files held by this Irp Context.  The Mft
+            //  may have been grabbed to make space for the TotalAllocated field.
+            //
+
+            while (!IsListEmpty( &IrpContext->ExclusiveFcbList )) {
+
+                NtfsReleaseFcb( IrpContext,
+                                (PFCB)CONTAINING_RECORD( IrpContext->ExclusiveFcbList.Flink,
+                                                         FCB,
+                                                         ExclusiveFcbLinks ));
+            }
+
+            //
+            //  Go through and free any Scb's in the queue of shared Scb's
+            //  for transactions.
+            //
+
+            if (IrpContext->SharedScb != NULL) {
+
+                NtfsReleaseSharedResources( IrpContext );
+            }
+
             ScbAcquired = FALSE;
 
-            if (PagingIoAcquired) {
-
-                ExReleaseResource( Scb->Header.PagingIoResource );
-                PagingIoAcquired = FALSE;
-            }
+            ASSERT(IrpContext->TransactionId == 0);
+            NtfsReleasePagingIo( IrpContext, Fcb );
+            PagingIoAcquired = FALSE;
 
             while (TRUE) {
 
@@ -4391,11 +5432,27 @@ Return Value:
                 CcCanIWrite( FileObject, 0x40000, TRUE, FALSE );
 
                 //
-                //  Acquire the Scb for the next rewrite.
+                //  Lock the FsRtl header so we can freeze FileSize.
+                //  Acquire paging io exclusive if uncompressing so
+                //  we can guarantee that all of the pages get written
+                //  before we mark the file as uncompressed.  Otherwise a
+                //  a competing LazyWrite in a range may block after
+                //  going through Mm and Mm will report to this routine
+                //  that the flush has occurred.
                 //
 
-                NtfsAcquireExclusiveScb( IrpContext, Scb );
-                ScbAcquired = TRUE;
+                if (CompressionState == 0) {
+
+                    ExAcquireResourceExclusive( Scb->Header.PagingIoResource, TRUE );
+
+                } else {
+
+                    ExAcquireResourceShared( Scb->Header.PagingIoResource, TRUE );
+                }
+
+                FsRtlLockFsRtlHeader( &Scb->Header );
+                IrpContext->FcbWithPagingExclusive = (PFCB) Scb;
+                FsRtlHeaderLocked = TRUE;
 
                 //
                 //  Jump out right here if the attribute is resident.
@@ -4413,29 +5470,56 @@ Return Value:
 
                 //
                 //  This is how we exit, seeing that we have finally rewritten
-                //  everything.  We also exit if FileOffset ever hits a non-40000
-                //  aligned boundary, because that means we ran into FileSize on
-                //  our last pass through the loop, and if someone else extended
-                //  the file, the extension will also be correctly compressed or
-                //  decompressed since we leave SCB_STATE_REALLOCATE_ON_WRITE_SET.
+                //  everything.  It is possible that the file was truncated
+                //  between passes through this loop so we test for 0 bytes or
+                //  a negative value.
                 //
                 //  Note that we exit with the Scb still acquired,
                 //  so that we can reliably turn compression off.
                 //
 
-                if ((ByteCount <= 0) || (((ULONG)FileOffset & 0x3FFFF) != 0)) {
+                if (ByteCount <= 0) {
 
                     break;
                 }
 
                 //
                 //  If there is more than our max, then reduce the byte count for this
-                //  pass to our maximum.
+                //  pass to our maximum. We must also align the file offset to a 0x40000
+                //  byte boundary.
                 //
 
-                if (ByteCount > 0x40000) {
+                if (((ULONG)FileOffset & 0x3ffff) + ByteCount > 0x40000) {
 
-                    ByteCount = 0x40000;
+                    ByteCount = 0x40000 - ((ULONG)FileOffset & 0x3ffff);
+                }
+
+                //
+                //  Make sure there are enough available clusters in the range
+                //  we want to rewrite.
+                //
+
+                if (!NtfsReserveClusters( IrpContext, Scb, FileOffset, (ULONG) ByteCount )) {
+
+                    //
+                    //  If this transaction has already deallocated clusters
+                    //  then raise log file full to allow those to become
+                    //  available.
+                    //
+
+                    if (IrpContext->DeallocatedClusters != 0) {
+
+                        NtfsRaiseStatus( IrpContext, STATUS_LOG_FILE_FULL, NULL, NULL );
+
+                    //
+                    //  Otherwise there is insufficient space to guarantee
+                    //  we can perform the compression operation.
+                    //
+
+                    } else {
+
+                        NtfsRaiseStatus( IrpContext, STATUS_DISK_FULL, NULL, NULL );
+                    }
                 }
 
                 //
@@ -4448,7 +5532,7 @@ Return Value:
                 }
 
                 //
-                //  Pin the next range of the file, and make the pages dirty.
+                //  Map the next range of the file, and make the pages dirty.
                 //
 
                 CcMapData( Scb->FileObject, (PLARGE_INTEGER)&FileOffset, (ULONG)ByteCount, TRUE, &Bcb, &Buffer );
@@ -4460,9 +5544,9 @@ Return Value:
                 Mdl = IoAllocateMdl( Buffer, (ULONG)ByteCount, FALSE, FALSE, NULL );
 
                 if (Mdl == NULL) {
-                    DebugTrace( 0, 0, "Failed to allocate Mdl\n", 0 );
+                    DebugTrace( 0, 0, ("Failed to allocate Mdl\n") );
 
-                    ExRaiseStatus( STATUS_INSUFFICIENT_RESOURCES );
+                    NtfsRaiseStatus( IrpContext, STATUS_INSUFFICIENT_RESOURCES, NULL, NULL );
                 }
 
                 //
@@ -4472,39 +5556,131 @@ Return Value:
                 //
 
                 MmProbeAndLockPages( Mdl, KernelMode, IoReadAccess );
+                LockedPages = TRUE;
+
+#ifdef SYSCACHE
 
                 //
-                //  Now flush dirty bits through from Pte to Pfn so that we
-                //  can flush the pages back.
+                //  Clear write mask before the flush
+                //
+
+                {
+                    PULONG WriteMask;
+                    ULONG Len;
+                    ULONG Off = (ULONG)FileOffset;
+
+                    WriteMask = Scb->ScbType.Data.WriteMask;
+                    if (WriteMask == NULL) {
+                        WriteMask = NtfsAllocatePool( NonPagedPool, (((0x2000000) / PAGE_SIZE) / 8) );
+                        Scb->ScbType.Data.WriteMask = WriteMask;
+                        RtlZeroMemory(WriteMask, (((0x2000000) / PAGE_SIZE) / 8));
+                    }
+
+                    if (Off < 0x2000000) {
+                        Len = (ULONG)ByteCount;
+                        if ((Off + Len) > 0x2000000) {
+                            Len = 0x2000000 - Off;
+                        }
+                        while (Len != 0) {
+                            WriteMask[(Off / PAGE_SIZE)/32] &= ~(1 << ((Off / PAGE_SIZE) % 32));
+
+                            Off += PAGE_SIZE;
+                            if (Len <= PAGE_SIZE) {
+                                break;
+                            }
+                            Len -= PAGE_SIZE;
+                        }
+                    }
+#endif
+
+                //
+                //  Mark the address range modified so that the flush will
+                //  flush.
                 //
 
                 MmSetAddressRangeModified( Buffer, (ULONG)ByteCount );
 
+                UserMappedFile = FALSE;
+
+                ExAcquireFastMutex( Scb->Header.FastMutex );
+                if (FlagOn( Scb->Header.Flags, FSRTL_FLAG_USER_MAPPED_FILE )) {
+
+                    UserMappedFile = TRUE;
+                }
+
                 //
-                //  Update Highest Vcn to Disk, because we don't do it
-                //  in the noncompressed path.  This number is only for
-                //  an optimization, and can corrupt user data if it gets
-                //  too low.  ValidDataLength in the Scb gives us a worse
-                //  case estimate.
+                //  Tell Cc there is a user-mapped file so he will really flush.
                 //
 
-                Scb->HighestVcnToDisk =
-                    LlClustersFromBytes( Vcb, Scb->Header.ValidDataLength.QuadPart ) - 1;
+                SetFlag( Scb->Header.Flags, FSRTL_FLAG_USER_MAPPED_FILE );
+                ExReleaseFastMutex( Scb->Header.FastMutex );
 
                 //
                 //  Now flush these pages.
                 //
 
-                CcFlushCache( &Scb->NonpagedScb->SegmentObject,
-                              (PLARGE_INTEGER)&FileOffset,
-                              (ULONG)ByteCount,
-                              &Irp->IoStatus );
+                Irp->IoStatus.Status = NtfsFlushUserStream( IrpContext,
+                                                            Scb,
+                                                            &FileOffset,
+                                                            (ULONG)ByteCount );
+
+                //
+                //  Restore the FsRtl flag if there is no user mapped file.
+                //  This is correctly synchronized, since we have the file
+                //  exclusive, and Mm always has to query the file size before
+                //  creating a user-mapped section and calling Cc to set
+                //  the FsRtl flag.
+                //
+
+                if (!UserMappedFile) {
+                    ExAcquireFastMutex( Scb->Header.FastMutex );
+                    ClearFlag( Scb->Header.Flags, FSRTL_FLAG_USER_MAPPED_FILE );
+                    ExReleaseFastMutex( Scb->Header.FastMutex );
+                }
+
+                //
+                //  On error get out.
+                //
+
+                NtfsNormalizeAndCleanupTransaction( IrpContext,
+                                                    &Irp->IoStatus.Status,
+                                                    TRUE,
+                                                    STATUS_UNEXPECTED_IO_ERROR );
+
+#ifdef SYSCACHE
+
+                //
+                //  Verify writes occurred after the flush
+                //
+
+                    Off = (ULONG)FileOffset;
+
+                    WriteMask = Scb->ScbType.Data.WriteMask;
+
+                    if (Off < 0x2000000) {
+                        Len = (ULONG)ByteCount;
+                        if ((Off + Len) > 0x2000000) {
+                            Len = 0x2000000 - Off;
+                        }
+                        while (Len != 0) {
+                            ASSERT(WriteMask[(Off / PAGE_SIZE)/32] & (1 << ((Off / PAGE_SIZE) % 32)));
+
+                            Off += PAGE_SIZE;
+                            if (Len <= PAGE_SIZE) {
+                                break;
+                            }
+                            Len -= PAGE_SIZE;
+                        }
+                    }
+                }
+#endif
 
                 //
                 //  Now we can get rid of this Mdl.
                 //
 
                 MmUnlockPages( Mdl );
+                LockedPages = FALSE;
                 IoFreeMdl( Mdl );
                 Mdl = NULL;
 
@@ -4514,41 +5690,39 @@ Return Value:
                 //
 
                 CcUnpinData( Bcb );
+                Bcb = NULL;
 
                 //
-                //  Since the lower level write may create a transaction we need to
-                //  commit the transaction and release all of the resources we
-                //  may have acquired.  Don't forget to check for the error case
-                //  before be commit.
+                //  Release any remaing reserved clusters in this range.
                 //
 
-                NtfsCleanupTransaction( IrpContext, STATUS_SUCCESS );
-
-                NtfsCheckpointCurrentTransaction( IrpContext );
-
-                while (!IsListEmpty(&IrpContext->ExclusiveFcbList)) {
-
-                    NtfsReleaseFcb( IrpContext,
-                                    (PFCB)CONTAINING_RECORD(IrpContext->ExclusiveFcbList.Flink,
-                                                            FCB,
-                                                            ExclusiveFcbLinks ));
-                }
-
-                while (!IsListEmpty(&IrpContext->ExclusivePagingIoList)) {
-
-                    NtfsReleasePagingIo( IrpContext,
-                                         (PFCB)CONTAINING_RECORD(IrpContext->ExclusivePagingIoList.Flink,
-                                                                 FCB,
-                                                                 ExclusivePagingIoLinks ));
-                }
-
-                ScbAcquired = FALSE;
+                NtfsFreeReservedClusters( Scb, FileOffset, (ULONG) ByteCount );
 
                 //
                 //  Advance the FileOffset.
                 //
 
                 FileOffset += ByteCount;
+
+                //
+                //  If we hit the end of the file then exit while holding the
+                //  resource so we can turn compression off.
+                //
+
+                if (FileOffset == Scb->Header.FileSize.QuadPart) {
+
+                    break;
+                }
+
+                //
+                //  Unlock the header an let anyone else access the file before
+                //  looping back.
+                //
+
+                FsRtlUnlockFsRtlHeader( &Scb->Header );
+                ExReleaseResource( Scb->Header.PagingIoResource );
+                IrpContext->FcbWithPagingExclusive = NULL;
+                FsRtlHeaderLocked = FALSE;
             }
         }
 
@@ -4563,43 +5737,148 @@ Return Value:
             VCN EndingCluster;
 
             //
-            //  See if we need to truncate the file.  Note someone can go
-            //  through cleanup and not truncate because of our caller's
-            //  handle.  If there are any holes, that can cause trouble
-            //  on extending writes of a decompressed file.
+            //  The paging Io resource may already be acquired.
             //
 
-            StartingCluster = LlClustersFromBytes( Vcb, Scb->Header.FileSize.QuadPart );
-            EndingCluster = LlClustersFromBytes( Vcb, Scb->Header.AllocationSize.QuadPart );
-
-            //
-            //  If there are clusters to delete, we do so now.
-            //
-
-            if (EndingCluster != StartingCluster) {
-
-                NtfsDeleteAllocation( IrpContext,
-                                      Scb->FileObject,
-                                      Scb,
-                                      StartingCluster,
-                                      MAXLONGLONG,
-                                      TRUE,
-                                      TRUE );
+            if (!PagingIoAcquired && !FsRtlHeaderLocked) {
+                if (Scb->Header.PagingIoResource != NULL) {
+                    NtfsAcquireExclusivePagingIo( IrpContext, Fcb );
+                    PagingIoAcquired = TRUE;
+                }
             }
 
-            //
-            //  Change the allocation size in the Fcb if this
-            //  is the unnamed data attribute.
-            //
-
-            if (FlagOn( Scb->ScbState, SCB_STATE_UNNAMED_DATA )) {
-
-                Fcb->Info.AllocatedLength = Scb->Header.AllocationSize.QuadPart;
-                SetFlag( Fcb->InfoFlags, FCB_INFO_CHANGED_ALLOC_SIZE );
+            if (!ScbAcquired) {
+                NtfsAcquireExclusiveScb( IrpContext, Scb );
+                ScbAcquired = TRUE;
             }
 
             NtfsChangeAttributeCompression( IrpContext, Scb, Vcb, Ccb, 0 );
             Scb->AttributeFlags &= (USHORT)~ATTRIBUTE_FLAG_COMPRESSION_MASK;
+
+            //
+            //  If we are decompressing then make sure to release any holes at the end of
+            //  the allocation.
+            //
+
+            if (!FlagOn( Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT )) {
+
+                //
+                //  Truncate any extra allocation beyond file size.
+                //
+
+                StartingCluster = LlClustersFromBytes( Vcb, Scb->Header.FileSize.QuadPart );
+                EndingCluster = Int64ShraMod32(Scb->Header.AllocationSize.QuadPart, Vcb->ClusterShift);
+
+                if (StartingCluster < EndingCluster) {
+
+#ifdef _CAIRO_
+                    if (NtfsPerformQuotaOperation( Fcb ) &&
+                        !FlagOn( Scb->ScbState, SCB_STATE_QUOTA_ENLARGED)) {
+
+                        //
+                        //  This can occur if the file handle gets closed
+                        //  while the file is being decompressed.
+                        //
+
+                        ASSERT( Scb->CleanupCount == 0 );
+                        SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_QUOTA_DISABLE )
+                    }
+#endif // _CAIRO_
+
+                    NtfsDeleteAllocation( IrpContext,
+                                          IoGetCurrentIrpStackLocation( IrpContext->OriginatingIrp )->FileObject,
+                                          Scb,
+                                          StartingCluster,
+                                          MAXLONGLONG,
+                                          TRUE,
+                                          TRUE );
+
+                    //
+                    //  If this is the unnamed data stream then we need to update
+                    //  the total allocated size.
+                    //
+
+                    if (FlagOn( Scb->ScbState, SCB_STATE_UNNAMED_DATA )) {
+
+                        Scb->Fcb->Info.AllocatedLength = Scb->TotalAllocated;
+                        SetFlag( Scb->Fcb->InfoFlags, FCB_INFO_CHANGED_ALLOC_SIZE );
+                    }
+                }
+
+                //
+                //  We don't want to leave any reserved clusters if we went
+                //  to uncompressed.
+                //
+
+                if (Scb->ScbType.Data.ReservedBitMap != NULL) {
+
+                    NtfsFreePool( Scb->ScbType.Data.ReservedBitMap );
+                    Scb->ScbType.Data.ReservedBitMap = NULL;
+                }
+
+                NtfsFreeFinalReservedClusters( Vcb,
+                                               LlClustersFromBytesTruncate( Vcb, Scb->ScbType.Data.TotalReserved ));
+
+                Scb->ScbType.Data.TotalReserved = 0;
+
+                //
+                //  Make sure there are no holes in the Mcb.
+                //
+
+#ifdef SYSCACHE
+                {
+                    LCN NextLcn;
+                    LONGLONG ClusterCount;
+                    PVOID RangePtr;
+                    ULONG Index;
+
+                    VCN LastStart = 0;
+                    LONGLONG LastCount = 0;
+
+                    //
+                    //  There better not be any holes in the Mcb at this point.
+                    //
+
+                    RangePtr = (PVOID) 1;
+                    Index = 0;
+
+                    while (NtfsGetSequentialMcbEntry( &Scb->Mcb,
+                                                      &RangePtr,
+                                                      Index,
+                                                      &StartingCluster,
+                                                      &NextLcn,
+                                                      &ClusterCount )) {
+
+                        LastStart = StartingCluster;
+                        LastCount = ClusterCount;
+
+                        Index += 1;
+                        ASSERT( NextLcn != UNUSED_LCN );
+                    }
+
+                    NextLcn = LlBytesFromClusters( Vcb, LastStart + LastCount );
+
+                    ASSERT( NextLcn == Scb->Header.AllocationSize.QuadPart );
+                }
+#endif
+            }
+
+            //
+            //  Now clear the REALLOCATE_ON_WRITE flag while holding both resources.
+            //
+
+            ClearFlag( Scb->ScbState, SCB_STATE_REALLOCATE_ON_WRITE );
+        }
+
+        //
+        //  Unlock the header if we locked it.
+        //
+
+        if (FsRtlHeaderLocked) {
+            FsRtlUnlockFsRtlHeader( &Scb->Header );
+            ExReleaseResource( Scb->Header.PagingIoResource );
+            IrpContext->FcbWithPagingExclusive = NULL;
+            FsRtlHeaderLocked = FALSE;
         }
 
         Status = STATUS_SUCCESS;
@@ -4610,7 +5889,7 @@ Return Value:
         //  Now clear the reallocate flag in the Scb if we set it.
         //
 
-        if (IrpSp->Parameters.FileSystemControl.OutputBufferLength != MAXULONG) {
+        if (NextIrpSp->Parameters.FileSystemControl.OutputBufferLength != MAXULONG) {
 
             ClearFlag( Scb->ScbState, SCB_STATE_REALLOCATE_ON_WRITE );
         }
@@ -4624,9 +5903,17 @@ Return Value:
         //
 
         if (Mdl != NULL) {
-            MmUnlockPages( Mdl );
+            if (LockedPages) {
+                MmUnlockPages( Mdl );
+            }
             IoFreeMdl( Mdl );
         }
+
+        if (Bcb != NULL) {
+            CcUnpinData( Bcb );
+        }
+
+        ClearFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_QUOTA_DISABLE )
 
         //
         //  If this is an abnormal termination then undo our work, otherwise
@@ -4638,11 +5925,6 @@ Return Value:
             if (ScbAcquired) {
 
                 NtfsReleaseScb( IrpContext, Scb );
-            }
-
-            if (PagingIoAcquired) {
-
-                ExReleaseResource( Scb->Header.PagingIoResource );
             }
 
             NtfsCompleteRequest( &IrpContext, &Irp, Status );
@@ -4661,7 +5943,7 @@ Return Value:
             //  checkpoint or we are done.
             //
 
-            if (IrpSp->Parameters.FileSystemControl.OutputBufferLength != MAXULONG) {
+            if (NextIrpSp->Parameters.FileSystemControl.OutputBufferLength != MAXULONG) {
 
                 //
                 //  If we are continuing the operation, save the current file offset.
@@ -4670,8 +5952,8 @@ Return Value:
                 if (IrpContext->ExceptionStatus == STATUS_LOG_FILE_FULL ||
                     IrpContext->ExceptionStatus == STATUS_CANT_WAIT) {
 
-                    IrpSp->Parameters.FileSystemControl.OutputBufferLength = (ULONG)FileOffset;
-                    IrpSp->Parameters.FileSystemControl.InputBufferLength = ((PLARGE_INTEGER)&FileOffset)->HighPart;
+                    NextIrpSp->Parameters.FileSystemControl.OutputBufferLength = (ULONG)FileOffset;
+                    NextIrpSp->Parameters.FileSystemControl.InputBufferLength = ((PLARGE_INTEGER)&FileOffset)->HighPart;
 
                 //
                 //  Otherwise clear the REALLOCATE_ON_WRITE flag and set the
@@ -4690,11 +5972,14 @@ Return Value:
                 NtfsReleaseScb( IrpContext, Scb );
             }
 
-            if (PagingIoAcquired) {
+            //
+            //  We may have one or the other of these conditions to clean up.
+            //
+
+            if (FsRtlHeaderLocked) {
 
                 ExReleaseResource( Scb->Header.PagingIoResource );
             }
-
         }
     }
 
@@ -4811,7 +6096,7 @@ Return Value:
 
         NtfsCompleteRequest( &IrpContext, &Irp, STATUS_INVALID_PARAMETER );
 
-        DebugTrace(-1, Dbg, "NtfsOplockRequest -> STATUS_INVALID_PARAMETER\n", 0);
+        DebugTrace( -1, Dbg, ("NtfsOplockRequest -> STATUS_INVALID_PARAMETER\n") );
         return STATUS_INVALID_PARAMETER;
     }
 
@@ -4831,3 +6116,2251 @@ Return Value:
 
     return STATUS_SUCCESS;
 }
+
+
+//
+//  Local Support Routine
+//
+
+NTSTATUS
+NtfsGetStatistics (
+    IN PIRP_CONTEXT IrpContext,
+    IN PIRP Irp
+    )
+
+/*++
+
+Routine Description:
+
+    This routine returns the filesystem performance counters for the
+    volume referred to.
+
+Arguments:
+
+    Irp - Supplies the Irp being processed.
+
+Return Value:
+
+    NTSTATUS - The return status for the operation
+
+--*/
+
+{
+    PIO_STACK_LOCATION IrpSp;
+
+    TYPE_OF_OPEN TypeOfOpen;
+    PVCB Vcb;
+    PFCB Fcb;
+    PSCB Scb;
+    PCCB Ccb;
+
+    PFILESYSTEM_STATISTICS Stats;
+    ULONG StatsSize;
+
+    PAGED_CODE();
+
+    //
+    //  Get the current stack location and extract the output
+    //  buffer information.  The output parameter will receive
+    //  the performance counters.
+    //
+
+    IrpSp = IoGetCurrentIrpStackLocation( Irp );
+
+    //
+    //  Get a pointer to the output buffer.  Look at the system buffer field
+    //  in the irp first.  Then the Irp Mdl.
+    //
+
+    if (Irp->AssociatedIrp.SystemBuffer != NULL) {
+
+        Stats = Irp->AssociatedIrp.SystemBuffer;
+
+    } else if (Irp->MdlAddress != NULL) {
+
+        Stats = MmGetSystemAddressForMdl( Irp->MdlAddress );
+
+    } else {
+
+        NtfsCompleteRequest( &IrpContext, &Irp, STATUS_INVALID_USER_BUFFER );
+        return STATUS_INVALID_USER_BUFFER;
+    }
+
+    //
+    //  Make sure the output buffer is large enough.
+    //
+
+    StatsSize = sizeof(FILESYSTEM_STATISTICS) * **((PCHAR *)&KeNumberProcessors);
+
+    if (IrpSp->Parameters.FileSystemControl.OutputBufferLength < StatsSize) {
+
+        NtfsCompleteRequest( &IrpContext, &Irp, STATUS_BUFFER_TOO_SMALL );
+
+        return STATUS_BUFFER_TOO_SMALL;
+    }
+
+    //
+    //  Decode the file object
+    //
+
+    TypeOfOpen = NtfsDecodeFileObject( IrpContext, IrpSp->FileObject, &Vcb,
+                                       &Fcb, &Scb, &Ccb, TRUE );
+
+    RtlCopyMemory( Stats, Vcb->Statistics, StatsSize );
+
+    Irp->IoStatus.Information = StatsSize;
+
+    NtfsCompleteRequest( &IrpContext, &Irp, STATUS_SUCCESS );
+
+    return STATUS_SUCCESS;
+}
+
+
+//
+//  Local Support Routine
+//
+
+NTSTATUS
+NtfsGetVolumeData (
+    IN PIRP_CONTEXT IrpContext,
+    IN PIRP Irp
+    )
+
+/*++
+
+Routine Description:
+
+    Returns a filled in VOLUME_DATA structure in the user output buffer.
+
+Arguments:
+
+    Irp - Supplies the Irp being processed.
+
+Return Value:
+
+    NTSTATUS - The return status for the operation.
+
+--*/
+{
+    PIO_STACK_LOCATION IrpSp;
+    ULONG FsControlCode;
+
+    PFILE_OBJECT FileObject;
+    TYPE_OF_OPEN TypeOfOpen;
+    PVCB Vcb;
+    PFCB Fcb;
+    PSCB Scb;
+    PCCB Ccb;
+
+    PNTFS_VOLUME_DATA_BUFFER VolumeData;
+    ULONG VolumeDataLength;
+
+    //
+    // Get the current Irp stack location and save some references.
+    //
+
+    IrpSp = IoGetCurrentIrpStackLocation( Irp );
+    FsControlCode = IrpSp->Parameters.FileSystemControl.FsControlCode;
+
+    DebugTrace( +1, Dbg, ("NtfsGetVolumeData, FsControlCode = %08lx\n", FsControlCode) );
+
+    //
+    // Extract and decode the file object and check for type of open.
+    //
+
+    FileObject = IrpSp->FileObject;
+    TypeOfOpen = NtfsDecodeFileObject( IrpContext, FileObject, &Vcb, &Fcb, &Scb, &Ccb, TRUE );
+
+    if (TypeOfOpen != UserVolumeOpen) {
+
+        NtfsCompleteRequest( &IrpContext, &Irp, STATUS_INVALID_PARAMETER );
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    //
+    //  Make sure the volume is still mounted.
+    //
+
+    if (!FlagOn( Vcb->VcbState, VCB_STATE_VOLUME_MOUNTED )) {
+
+        NtfsCompleteRequest( &IrpContext, &Irp, STATUS_VOLUME_DISMOUNTED );
+        return STATUS_VOLUME_DISMOUNTED;
+    }
+
+    //
+    // Get the output buffer length and pointer.
+    //
+
+    VolumeDataLength = IrpSp->Parameters.FileSystemControl.OutputBufferLength;
+    VolumeData = (PNTFS_VOLUME_DATA_BUFFER)Irp->AssociatedIrp.SystemBuffer;
+
+    //
+    //  Check for a minimum length on the ouput buffer.
+    //
+
+    if (VolumeDataLength < sizeof(NTFS_VOLUME_DATA_BUFFER)) {
+
+        NtfsCompleteRequest( &IrpContext, &Irp, STATUS_BUFFER_TOO_SMALL );
+        return STATUS_BUFFER_TOO_SMALL;
+    }
+
+    try {
+
+        //
+        //  Acquire the volume bitmap and fill in the volume data structure.
+        //
+
+        NtfsAcquireExclusiveScb( IrpContext, Vcb->BitmapScb );
+
+        VolumeData->VolumeSerialNumber.QuadPart = Vcb->VolumeSerialNumber;
+        VolumeData->NumberSectors.QuadPart = Vcb->NumberSectors;
+        VolumeData->TotalClusters.QuadPart = Vcb->TotalClusters;
+        VolumeData->FreeClusters.QuadPart = Vcb->FreeClusters;
+        VolumeData->TotalReserved.QuadPart = Vcb->TotalReserved;
+        VolumeData->BytesPerSector = Vcb->BytesPerSector;
+        VolumeData->BytesPerCluster = Vcb->BytesPerCluster;
+        VolumeData->BytesPerFileRecordSegment = Vcb->BytesPerFileRecordSegment;
+        VolumeData->ClustersPerFileRecordSegment = Vcb->ClustersPerFileRecordSegment;
+        VolumeData->MftValidDataLength = Vcb->MftScb->Header.ValidDataLength;
+        VolumeData->MftStartLcn.QuadPart = Vcb->MftStartLcn;
+        VolumeData->Mft2StartLcn.QuadPart = Vcb->Mft2StartLcn;
+        VolumeData->MftZoneStart.QuadPart = Vcb->MftZoneStart;
+        VolumeData->MftZoneEnd.QuadPart = Vcb->MftZoneEnd;
+
+    } finally {
+
+        NtfsReleaseScb( IrpContext, Vcb->BitmapScb );
+    }
+
+    //
+    //  If nothing raised then complete the irp.
+    //
+
+    Irp->IoStatus.Information = sizeof(NTFS_VOLUME_DATA_BUFFER);
+
+    NtfsCompleteRequest( &IrpContext, &Irp, STATUS_SUCCESS );
+
+    DebugTrace( -1, Dbg, ("NtfsGetVolumeData -> VOID\n") );
+
+    return STATUS_SUCCESS;
+}
+
+
+//
+//  Local Support Routine
+//
+
+NTSTATUS
+NtfsGetVolumeBitmap(
+    IN PIRP_CONTEXT IrpContext,
+    IN PIRP Irp
+    )
+
+/*++
+
+Routine Description:
+
+    This routine scans volume bitmap and returns the requested range.
+
+        Input = the GET_BITMAP data structure is passed in through the input buffer.
+        Output = the VOLUME_BITMAP data structure is returned through the output buffer.
+
+Arguments:
+
+    Irp - Supplies the Irp being processed.
+
+Return Value:
+
+    NTSTATUS - The return status for the operation.
+
+--*/
+{
+    NTSTATUS Status = STATUS_SUCCESS;
+    PIO_STACK_LOCATION IrpSp;
+    ULONG FsControlCode;
+
+    PFILE_OBJECT FileObject;
+    TYPE_OF_OPEN TypeOfOpen;
+    PVCB Vcb;
+    PFCB Fcb;
+    PSCB Scb;
+    PCCB Ccb;
+
+    PSTARTING_LCN_INPUT_BUFFER GetBitmap;
+    ULONG GetBitmapLength;
+
+    PVOLUME_BITMAP_BUFFER VolumeBitmap;
+    ULONG VolumeBitmapLength;
+
+    ULONG BitsWritten;
+
+    LCN Lcn;
+    LCN StartingLcn;
+
+    RTL_BITMAP Bitmap;
+    PBCB BitmapBcb = NULL;
+
+    BOOLEAN StuffAdded = FALSE;
+
+    //
+    //  Get the current Irp stack location and save some references.
+    //
+
+    IrpSp = IoGetCurrentIrpStackLocation( Irp );
+    FsControlCode = IrpSp->Parameters.FileSystemControl.FsControlCode;
+
+    DebugTrace( +1, Dbg, ("NtfsGetVolumeBitmap, FsControlCode = %08lx\n", FsControlCode) );
+
+    //
+    //  Extract and decode the file object and check for type of open.
+    //
+
+    FileObject = IrpSp->FileObject;
+    TypeOfOpen = NtfsDecodeFileObject( IrpContext, FileObject, &Vcb, &Fcb, &Scb, &Ccb, TRUE );
+
+    if (TypeOfOpen != UserVolumeOpen) {
+
+        NtfsCompleteRequest( &IrpContext, &Irp, STATUS_INVALID_PARAMETER );
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    //
+    //  Make sure the volume is still mounted.
+    //
+
+    if (!FlagOn( Vcb->VcbState, VCB_STATE_VOLUME_MOUNTED )) {
+
+        NtfsCompleteRequest( &IrpContext, &Irp, STATUS_VOLUME_DISMOUNTED );
+        return STATUS_VOLUME_DISMOUNTED;
+    }
+
+    //
+    //  Get the input & output buffer lengths and pointers.
+    //
+
+    GetBitmapLength = IrpSp->Parameters.FileSystemControl.InputBufferLength;
+    GetBitmap = (PSTARTING_LCN_INPUT_BUFFER)IrpSp->Parameters.FileSystemControl.Type3InputBuffer;
+
+    VolumeBitmapLength = IrpSp->Parameters.FileSystemControl.OutputBufferLength;
+    VolumeBitmap = (PVOLUME_BITMAP_BUFFER)NtfsMapUserBuffer( Irp );
+
+    //
+    //  Check for a minimum length on the input and ouput buffers.
+    //
+
+    if ((GetBitmapLength < sizeof(STARTING_LCN_INPUT_BUFFER)) ||
+        (VolumeBitmapLength < sizeof(VOLUME_BITMAP_BUFFER))) {
+
+        NtfsCompleteRequest( &IrpContext, &Irp, STATUS_BUFFER_TOO_SMALL );
+        return STATUS_BUFFER_TOO_SMALL;
+    }
+
+    //
+    //  Probe the user's buffers.
+    //
+
+    try {
+
+        ProbeForRead( GetBitmap, GetBitmapLength, sizeof(UCHAR) );
+        ProbeForWrite( VolumeBitmap, VolumeBitmapLength, sizeof(UCHAR) );
+
+        StartingLcn = GetBitmap->StartingLcn.QuadPart;
+
+    } except(EXCEPTION_EXECUTE_HANDLER) {
+
+        Status = GetExceptionCode();
+
+        NtfsRaiseStatus( IrpContext,
+                         FsRtlIsNtstatusExpected(Status) ?
+                         Status : STATUS_INVALID_USER_BUFFER,
+                         NULL, NULL);
+    }
+
+    try {
+
+        //
+        //  Acquire the volume bitmap and check for a valid requested Lcn.
+        //
+
+        NtfsAcquireSharedScb( IrpContext, Vcb->BitmapScb );
+
+        if (StartingLcn >= Vcb->TotalClusters) {
+
+            NtfsRaiseStatus( IrpContext, STATUS_INVALID_PARAMETER, NULL, NULL );
+        }
+
+        //
+        //  Read in the volume bitmap page by page and copy it into the UserBuffer.
+        //
+
+        VolumeBitmapLength -= FIELD_OFFSET(VOLUME_BITMAP_BUFFER, Buffer);
+
+        for (Lcn = StartingLcn, BitsWritten = 0;
+             Lcn < Vcb->TotalClusters;
+             Lcn = Lcn + Bitmap.SizeOfBitMap) {
+
+            ULONG BytesToCopy;
+
+            //
+            //  Read in the bitmap page and make sure that we haven't messed up the math.
+            //
+
+            if (StuffAdded) { NtfsFreePool( Bitmap.Buffer ); StuffAdded = FALSE; }
+
+            NtfsUnpinBcb( &BitmapBcb );
+            NtfsMapPageInBitmap( IrpContext, Vcb, Lcn, &Lcn, &Bitmap, &BitmapBcb );
+
+            //
+            //  If this is first itteration, update StartingLcn with actual
+            //  starting cluster returned.
+            //
+
+            if (BitsWritten == 0) {
+                StartingLcn = Lcn;
+            }
+
+            //
+            //  Check to see if we have enough user buffer.  If have some but
+            //  not enough, copy what we can and return STATUS_BUFFER_OVERFLOW.
+            //  If we are down to 0 (i.e. previous itteration used all the
+            //  buffer), break right now.
+            //
+
+            BytesToCopy = (Bitmap.SizeOfBitMap + 7) / 8;
+
+            if (BytesToCopy > VolumeBitmapLength) {
+
+                BytesToCopy = VolumeBitmapLength;
+                Status = STATUS_BUFFER_OVERFLOW;
+
+                if (BytesToCopy == 0) {
+                    break;
+                }
+            }
+
+            //
+            //  Now bias the bitmap with the RecentlyDeallocatedMcb and copy it into the UserBuffer.
+            //
+
+            StuffAdded = NtfsAddRecentlyDeallocated( Vcb, Lcn, &Bitmap );
+
+            try {
+
+                RtlCopyMemory(&VolumeBitmap->Buffer[BitsWritten / 8], Bitmap.Buffer, BytesToCopy);
+
+            } except(EXCEPTION_EXECUTE_HANDLER) {
+
+                Status = GetExceptionCode();
+
+                NtfsRaiseStatus( IrpContext,
+                                 FsRtlIsNtstatusExpected(Status) ?
+                                 Status : STATUS_INVALID_USER_BUFFER,
+                                 NULL, NULL );
+            }
+
+            //
+            //  If this was an overflow, bump up bits written and continue
+            //
+
+            if (Status != STATUS_BUFFER_OVERFLOW) {
+
+                BitsWritten += Bitmap.SizeOfBitMap;
+                VolumeBitmapLength -= BytesToCopy;
+
+            } else {
+
+                BitsWritten += BytesToCopy * 8;
+                break;
+            }
+        }
+
+        try {
+
+            VolumeBitmap->StartingLcn.QuadPart = StartingLcn;
+            VolumeBitmap->BitmapSize.QuadPart = Vcb->TotalClusters - StartingLcn;
+
+        } except(EXCEPTION_EXECUTE_HANDLER) {
+
+            Status = GetExceptionCode();
+
+            NtfsRaiseStatus( IrpContext,
+                             FsRtlIsNtstatusExpected(Status) ?
+                             Status : STATUS_INVALID_USER_BUFFER,
+                             NULL, NULL );
+        }
+
+        Irp->IoStatus.Information =
+            FIELD_OFFSET(VOLUME_BITMAP_BUFFER, Buffer) + (BitsWritten + 7) / 8;
+
+    } finally {
+
+        DebugUnwind( NtfsGetVolumeBitmap );
+
+        if (StuffAdded) { NtfsFreePool( Bitmap.Buffer ); }
+
+        NtfsUnpinBcb( &BitmapBcb );
+        NtfsReleaseScb( IrpContext, Vcb->BitmapScb );
+    }
+
+    //
+    //  If nothing raised then complete the irp.
+    //
+
+    NtfsCompleteRequest( &IrpContext, &Irp, Status );
+
+    DebugTrace( -1, Dbg, ("NtfsGetVolumeBitmap -> VOID\n") );
+
+    return Status;
+}
+
+
+//
+//  Local Support Routine
+//
+
+NTSTATUS
+NtfsGetRetrievalPointers (
+    IN PIRP_CONTEXT IrpContext,
+    IN PIRP Irp
+    )
+
+/*++
+
+Routine Description:
+
+    This routine scans the array of MCBs for the given SCB and builds an extent
+    list.  The first run in the output extent list will start at the begining
+    of the contiguous run specified by the input parameter.
+
+        Input = STARTING_VCN_INPUT_BUFFER;
+        Output = RETRIEVAL_POINTERS_BUFFER.
+
+Arguments:
+
+    Irp - Supplies the Irp being processed.
+
+Return Value:
+
+    NTSTATUS - The return status for the operation.
+
+--*/
+{
+    NTSTATUS Status;
+    PIO_STACK_LOCATION IrpSp;
+
+    TYPE_OF_OPEN TypeOfOpen;
+    PVCB Vcb;
+    PFCB Fcb;
+    PSCB Scb;
+    PCCB Ccb;
+    VCN Vcn;
+    VCN LastVcnInFile;
+    LCN Lcn;
+    LONGLONG ClusterCount;
+    LONGLONG CountFromStartingVcn;
+    LONGLONG StartingVcn;
+
+    ULONG FileRunIndex;
+    ULONG RangeRunIndex;
+
+    ULONG InputBufferLength;
+    ULONG OutputBufferLength;
+
+    PVOID RangePtr;
+
+    PRETRIEVAL_POINTERS_BUFFER OutputBuffer;
+    BOOLEAN AccessingUserBuffer;
+
+    //
+    //  Get the current Irp stack location and save some references.
+    //
+
+    IrpSp = IoGetCurrentIrpStackLocation( Irp );
+
+    DebugTrace( +1, Dbg, ("NtfsGetRetrievalPointers\n") );
+
+    //
+    //  Extract and decode the file object and check for type of open.
+    //  If we ever decide to support UserDirectoryOpen also, make sure
+    //  to check for Scb->AttributeTypeCode != $INDEX_ALLOCATION when
+    //  checking whether the Scb header is initialized.  Otherwise we'll
+    //  have trouble with phantom Scbs created for small directories.
+    //
+
+    TypeOfOpen = NtfsDecodeFileObject( IrpContext, IrpSp->FileObject, &Vcb, &Fcb, &Scb, &Ccb, TRUE );
+
+    if (TypeOfOpen != UserFileOpen) {
+
+        NtfsCompleteRequest( &IrpContext, &Irp, STATUS_INVALID_PARAMETER );
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    //
+    //  Get the input and output buffer lengths and pointers.
+    //  Initialize some variables.
+    //
+
+    InputBufferLength = IrpSp->Parameters.FileSystemControl.InputBufferLength;
+    OutputBufferLength = IrpSp->Parameters.FileSystemControl.OutputBufferLength;
+
+    OutputBuffer = (PRETRIEVAL_POINTERS_BUFFER)NtfsMapUserBuffer( Irp );
+
+    //
+    //  Check for a minimum length on the input and ouput buffers.
+    //
+
+    if ((InputBufferLength < sizeof(STARTING_VCN_INPUT_BUFFER)) ||
+        (OutputBufferLength < sizeof(RETRIEVAL_POINTERS_BUFFER))) {
+
+        NtfsCompleteRequest( &IrpContext, &Irp, STATUS_BUFFER_TOO_SMALL );
+        return STATUS_BUFFER_TOO_SMALL;
+    }
+
+    //
+    //  Acquire shared access to the Scb.  We don't want other threads
+    //  to extend or move the file while we're trying to return the
+    //  retrieval pointers for it.
+    //
+
+    NtfsAcquireSharedScb( IrpContext, Scb );
+
+    try {
+
+        //
+        //  Check if a starting cluster was specified.
+        //
+
+        LastVcnInFile = LlClustersFromBytesTruncate( Vcb, Scb->Header.AllocationSize.QuadPart ) - 1;
+
+        //
+        //  There are three separate places inside this try/except where we
+        //  access the user-supplied buffer.  We want to handle exceptions
+        //  differently if they happen while we are trying to access the user
+        //  buffer than if they happen elsewhere in the try/except.  We set
+        //  this boolean immediately before touching the user buffer, and
+        //  clear it immediately after.
+        //
+
+        AccessingUserBuffer = FALSE;
+        try {
+
+            AccessingUserBuffer = TRUE;
+            ProbeForRead( IrpSp->Parameters.FileSystemControl.Type3InputBuffer,
+                          InputBufferLength,
+                          sizeof(UCHAR) );
+
+            ProbeForWrite( OutputBuffer, OutputBufferLength, sizeof(UCHAR) );
+
+            StartingVcn = ((PSTARTING_VCN_INPUT_BUFFER)IrpSp->Parameters.FileSystemControl.Type3InputBuffer)->StartingVcn.QuadPart;
+
+            //
+            //  While we have AccessingUserBuffer set to TRUE, let's initialize the
+            //  extentcount.  We increment this for each run in the mcb, so we need
+            //  to initialize it outside the main do while loop.
+            //
+
+            OutputBuffer->ExtentCount = 0;
+            AccessingUserBuffer = FALSE;
+
+            //
+            //  If the Scb is uninitialized, we initialize it now.
+            //
+
+            if (!FlagOn( Scb->ScbState, SCB_STATE_HEADER_INITIALIZED )) {
+
+                NtfsUpdateScbFromAttribute( IrpContext, Scb, NULL );
+            }
+
+            //
+            //  If the data attribute is resident (typically for a small file),
+            //  it is not safe to call NtfsPreloadAllocation.  There won't be
+            //  any runs, and we've already set ExtentCount to 0.  The best
+            //  thing to do now is leave before somebody gets hurt.
+            //
+
+            if (FlagOn(Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT)) {
+
+                try_return( Status = STATUS_SUCCESS );
+            }
+
+            if (StartingVcn > LastVcnInFile) {
+
+                //
+                //  It's possible that the Vcn we were given is past the end of the file.
+                //
+
+                try_return( Status = STATUS_END_OF_FILE );
+
+            } else {
+
+                //
+                //  We need to call NtfsPreloadAllocation to make sure all the
+                //  ranges in this NtfsMcb are loaded.
+                //
+
+                NtfsPreloadAllocation( IrpContext,
+                                       Scb,
+                                       StartingVcn,
+                                       LastVcnInFile );
+
+                //
+                //  Decide which Mcb contains the starting Vcn.
+                //
+
+                (VOID)NtfsLookupNtfsMcbEntry( &Scb->Mcb,
+                                              StartingVcn,
+                                              NULL,
+                                              &CountFromStartingVcn,
+                                              &Lcn,
+                                              &ClusterCount,
+                                              &RangePtr,
+                                              &RangeRunIndex );
+            }
+
+            //
+            //  Fill in the Vcn where the run containing StartingVcn truly starts.
+            //
+
+            OutputBuffer->StartingVcn.QuadPart = Vcn = StartingVcn - (ClusterCount - CountFromStartingVcn);
+
+            //
+            //  FileRunIndex is the index of a given run within an entire
+            //  file, as opposed to RangeRunIndex which is the index of a
+            //  given run within its range.  RangeRunIndex is reset to 0 for
+            //  each range, where FileRunIndex is set to 0 once out here.
+            //
+
+            FileRunIndex = 0;
+
+            do {
+
+                //
+                //  Now copy over the mapping pairs from the mcb
+                //  to the output buffer.  We store in [sector count, lbo]
+                //  mapping pairs and end with a zero sector count.
+                //
+
+                //
+                //  Check for an exhausted output buffer.
+                //
+
+                if ((ULONG)FIELD_OFFSET(RETRIEVAL_POINTERS_BUFFER, Extents[FileRunIndex+1]) > OutputBufferLength) {
+
+                    //
+                    //  We know that we're out of room in the output buffer, so we won't be looking up
+                    //  any more runs.  ExtentCount currently reflects how many runs we stored in the
+                    //  user buffer, so we can safely quit.  There are indeed ExtentCount extents stored
+                    //  in the array, and returning STATUS_BUFFER_OVERFLOW informs our caller that we
+                    //  didn't have enough room to return all the runs.
+                    //
+
+                    Irp->IoStatus.Information = FIELD_OFFSET(RETRIEVAL_POINTERS_BUFFER, Extents[FileRunIndex]);
+                    try_return( Status = STATUS_BUFFER_OVERFLOW );
+                }
+
+                //
+                //  Here's the interesting part -- we fill in the next array element in the ouput buffer
+                //  with the current run's information.
+                //
+
+                AccessingUserBuffer = TRUE;
+                OutputBuffer->Extents[FileRunIndex].NextVcn.QuadPart = Vcn + ClusterCount;
+                OutputBuffer->Extents[FileRunIndex].Lcn.QuadPart = Lcn;
+
+                OutputBuffer->ExtentCount += 1;
+                AccessingUserBuffer = FALSE;
+
+                FileRunIndex += 1;
+
+                RangeRunIndex += 1;
+
+            } while (NtfsGetSequentialMcbEntry( &Scb->Mcb, &RangePtr, RangeRunIndex, &Vcn, &Lcn, &ClusterCount));
+
+        } except(EXCEPTION_EXECUTE_HANDLER) {
+
+            Status = GetExceptionCode();
+
+            NtfsRaiseStatus( IrpContext,
+                             ((FsRtlIsNtstatusExpected(Status) || !AccessingUserBuffer) ? Status : STATUS_INVALID_USER_BUFFER),
+                             NULL,
+                             NULL );
+        }
+
+
+        //
+        //  We successfully retrieved extent info to the end of the allocation.
+        //
+
+        Irp->IoStatus.Information = FIELD_OFFSET(RETRIEVAL_POINTERS_BUFFER, Extents[FileRunIndex]);
+        Status = STATUS_SUCCESS;
+
+    try_exit: NOTHING;
+    } finally {
+
+        DebugUnwind( NtfsGetRetrievalPointers );
+
+        //
+        //  Release resources.
+        //
+
+        NtfsReleaseScb( IrpContext, Scb );
+
+        //
+        //  If nothing raised then complete the irp.
+        //
+
+        if (!AbnormalTermination()) {
+
+            NtfsCompleteRequest( &IrpContext, &Irp, Status );
+        }
+
+        DebugTrace( -1, Dbg, ("NtfsGetRetrievalPointers -> VOID\n") );
+    }
+
+    return Status;
+}
+
+
+//
+//  Local Support Routine
+//
+
+NTSTATUS
+NtfsGetMftRecord (
+    IN PIRP_CONTEXT IrpContext,
+    IN PIRP Irp
+    )
+
+/*++
+
+Routine Description:
+
+    This routine returns a copy of the requested File Record Segment. A
+    hint File Reference Number is passed in. If the hint File Record
+    Segment is "not in use" then the MFT bitmap is scanned backwards
+    from the hint until an "in use" File Record Segment is found. This
+    File Record Segment is then returned along with the identifying File Reference Number.
+
+        Input = the LONGLONG File Reference Number is passed in through the input buffer.
+        Output = the FILE_RECORD data structure is returned through the output buffer.
+
+Arguments:
+
+    Irp - Supplies the Irp being processed.
+
+Return Value:
+
+    NTSTATUS - The return status for the operation.
+
+--*/
+
+{
+    NTSTATUS Status = STATUS_UNSUCCESSFUL;
+    PIO_STACK_LOCATION IrpSp;
+    ULONG FsControlCode;
+
+    PFILE_OBJECT FileObject;
+    TYPE_OF_OPEN TypeOfOpen;
+    PVCB Vcb;
+    PFCB Fcb;
+    PSCB Scb;
+    PCCB Ccb;
+
+    PNTFS_FILE_RECORD_INPUT_BUFFER GetFileRecord;
+    ULONG GetFileRecordLength;
+
+    PNTFS_FILE_RECORD_OUTPUT_BUFFER FileRecord;
+    ULONG FileRecordLength;
+
+    ULONG FileReferenceNumber;
+
+    PFILE_RECORD_SEGMENT_HEADER MftBuffer;
+
+    PBCB Bcb = NULL;
+    PBCB BitmapBcb = NULL;
+
+    BOOLEAN AcquiredMft = FALSE;
+    RTL_BITMAP Bitmap;
+    LONG BaseIndex;
+    LONG Index;
+    ULONG BitmapSize;
+    VCN Vcn = 0;
+    LONGLONG StartingByte;
+    PUCHAR BitmapBuffer;
+    ULONG SizeToMap;
+    ULONG BytesToCopy;
+
+    extern
+    LONG
+    NtfsReadMftExceptionFilter (
+        IN PIRP_CONTEXT IrpContext OPTIONAL,
+        IN PEXCEPTION_POINTERS ExceptionPointer,
+        IN NTSTATUS Status
+        );
+
+    //
+    //  Get the current Irp stack location and save some references.
+    //
+
+    IrpSp = IoGetCurrentIrpStackLocation( Irp );
+    FsControlCode = IrpSp->Parameters.FileSystemControl.FsControlCode;
+
+    DebugTrace( +1, Dbg, ("NtfsGetMftRecord, FsControlCode = %08lx\n", FsControlCode) );
+
+    //
+    //  Extract and decode the file object and check for type of open.
+    //
+
+    FileObject = IrpSp->FileObject;
+    TypeOfOpen = NtfsDecodeFileObject( IrpContext, FileObject, &Vcb, &Fcb, &Scb, &Ccb, TRUE );
+
+    if (TypeOfOpen != UserVolumeOpen) {
+
+        NtfsCompleteRequest( &IrpContext, &Irp, STATUS_INVALID_PARAMETER );
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    //
+    //  Make sure the volume is still mounted.
+    //
+
+    if (!FlagOn( Vcb->VcbState, VCB_STATE_VOLUME_MOUNTED )) {
+
+        NtfsCompleteRequest( &IrpContext, &Irp, STATUS_VOLUME_DISMOUNTED );
+        return STATUS_VOLUME_DISMOUNTED;
+    }
+
+    //
+    //  Get the input & output buffer lengths and pointers.
+    //
+
+    GetFileRecordLength = IrpSp->Parameters.FileSystemControl.InputBufferLength;
+    GetFileRecord = (PNTFS_FILE_RECORD_INPUT_BUFFER)Irp->AssociatedIrp.SystemBuffer;
+
+    FileRecordLength = IrpSp->Parameters.FileSystemControl.OutputBufferLength;
+    FileRecord = (PNTFS_FILE_RECORD_OUTPUT_BUFFER)Irp->AssociatedIrp.SystemBuffer;;
+
+    //
+    //  Check for a minimum length on the input and ouput buffers.
+    //
+
+    if ((GetFileRecordLength < sizeof(NTFS_FILE_RECORD_INPUT_BUFFER)) ||
+        (FileRecordLength < sizeof(NTFS_FILE_RECORD_OUTPUT_BUFFER))) {
+
+        NtfsCompleteRequest( &IrpContext, &Irp, STATUS_BUFFER_TOO_SMALL );
+        return STATUS_BUFFER_TOO_SMALL;
+    }
+
+    FileRecordLength -= FIELD_OFFSET(NTFS_FILE_RECORD_OUTPUT_BUFFER, FileRecordBuffer);
+    FileReferenceNumber = GetFileRecord->FileReferenceNumber.LowPart;
+
+    try {
+
+        LONGLONG ValidDataLength;
+
+        //
+        //  Synchronize the lookup by acquiring the Mft.
+        //
+
+        NtfsAcquireSharedScb( IrpContext, Vcb->MftScb );
+        AcquiredMft = TRUE;
+
+        //
+        //  Raise if the File Reference Number is not within the MFT valid data length.
+        //
+
+        ValidDataLength = Vcb->MftScb->Header.ValidDataLength.QuadPart;
+
+        if (FileReferenceNumber > (ValidDataLength / Vcb->BytesPerFileRecordSegment)) {
+
+            NtfsRaiseStatus( IrpContext, STATUS_INVALID_PARAMETER, NULL, NULL );
+        }
+
+        //
+        //  Fill in the record size and determine how much of it we can copy.
+        //
+
+        FileRecord->FileRecordLength = Vcb->BytesPerFileRecordSegment;
+
+        if (FileRecordLength >= Vcb->BytesPerFileRecordSegment) {
+
+            BytesToCopy = Vcb->BytesPerFileRecordSegment;
+            Status = STATUS_SUCCESS;
+
+        } else {
+
+            BytesToCopy = FileRecordLength;
+            Status = STATUS_BUFFER_OVERFLOW;
+        }
+
+        //
+        //  If it is the MFT file record then just get it and we are done.
+        //
+
+        if (FileReferenceNumber == 0) {
+
+            try {
+                NtfsMapStream( IrpContext,
+                               Vcb->MftScb,
+                               0,
+                               Vcb->BytesPerFileRecordSegment,
+                               &Bcb,
+                               (PVOID *)&MftBuffer );
+
+            } except (NtfsReadMftExceptionFilter( IrpContext,
+                                                  GetExceptionInformation(),
+                                                  GetExceptionCode() ))  {
+                NtfsMapStream( IrpContext,
+                               Vcb->Mft2Scb,
+                               0,
+                               Vcb->BytesPerFileRecordSegment,
+                               &Bcb,
+                               (PVOID *)&MftBuffer );
+            }
+
+
+
+            //
+            //  Return the File Reference Number and the File Record.
+            //
+
+            RtlCopyMemory(FileRecord->FileRecordBuffer, MftBuffer, BytesToCopy);
+            FileRecord->FileReferenceNumber.QuadPart = 0;
+
+            try_return(Status);
+        }
+
+        //
+        //  Scan through the MFT Bitmap to find an "in use" file.
+        //
+
+        while (FileReferenceNumber > 0) {
+
+            //
+            //  Compute some values for the bitmap, convert the index to the offset of
+            //  this page and get the base index for the File Reference number.
+            //
+
+            Index = FileReferenceNumber;
+            BitmapSize = (Index + 7) / 8;
+            Index = Index & (BITS_PER_PAGE - 1);
+            BaseIndex = FileReferenceNumber - Index;
+
+            //
+            //  Set the Vcn count to the full size of the bitmap and move to the beginning
+            //  of this page.
+            //
+
+            ((ULONG)Vcn) = ClustersFromBytes(Vcb, ROUND_TO_PAGES(BitmapSize));
+
+            ((ULONG)Vcn) = (ULONG)Vcn - Vcb->ClustersPerPage;
+
+            //
+            //  Calculate the number of bytes to map in the current page.
+            //
+
+            SizeToMap = BitmapSize - BytesFromClusters(Vcb, ((ULONG)Vcn));
+
+            if(SizeToMap > BYTES_PER_PAGE) {
+
+                SizeToMap = BYTES_PER_PAGE;
+            }
+
+            //
+            //  Initialize the bitmap for this page.
+            //
+
+            StartingByte = LlBytesFromClusters(Vcb, Vcn);
+
+            NtfsMapStream( IrpContext,
+                           Vcb->MftBitmapScb,
+                           StartingByte,
+                           SizeToMap,
+                           &BitmapBcb,
+                           &BitmapBuffer );
+
+            RtlInitializeBitMap(&Bitmap, (PULONG)BitmapBuffer, SizeToMap * 8);
+
+            //
+            //  Scan thru this page for an "in use" File Record.
+            //
+
+            for (; Index >= 0; Index --) {
+
+                if (RtlCheckBit(&Bitmap, Index)) {
+
+                    //
+                    //  Found one "in use" on this page so get it and we are done.
+                    //
+
+                    try {
+                        NtfsMapStream( IrpContext,
+                                       Vcb->MftScb,
+                                       Int64ShllMod32(BaseIndex + Index, Vcb->MftShift),
+                                       Vcb->BytesPerFileRecordSegment,
+                                       &Bcb,
+                                       (PVOID *)&MftBuffer );
+
+                    } except (NtfsReadMftExceptionFilter( IrpContext,
+                                                          GetExceptionInformation(),
+                                                          GetExceptionCode() ))  {
+                        NtfsMapStream( IrpContext,
+                                       Vcb->Mft2Scb,
+                                       Int64ShllMod32(BaseIndex + Index, Vcb->MftShift),
+                                       Vcb->BytesPerFileRecordSegment,
+                                       &Bcb,
+                                       (PVOID *)&MftBuffer );
+                    }
+
+                    //
+                    //  Return the File Reference Number and the File Record.
+                    //
+
+                    RtlCopyMemory(FileRecord->FileRecordBuffer, MftBuffer, BytesToCopy);
+                    FileRecord->FileReferenceNumber.QuadPart = BaseIndex + Index;
+
+                    try_return(Status);
+                }
+            }
+
+            //
+            //  Cleanup for next time through and decrement the File Reference Number.
+            //
+
+            NtfsUnpinBcb(&BitmapBcb);
+            FileReferenceNumber = BaseIndex - 1;
+        }
+
+    try_exit:  NOTHING;
+
+    Irp->IoStatus.Information =
+        FIELD_OFFSET(NTFS_FILE_RECORD_OUTPUT_BUFFER, FileRecordBuffer) +
+        BytesToCopy;
+
+    } finally {
+
+        //
+        //  Release resources and exit.
+        //
+
+        NtfsUnpinBcb(&BitmapBcb);
+        NtfsUnpinBcb(&Bcb);
+
+        if (AcquiredMft) {
+
+            NtfsReleaseScb( IrpContext, Vcb->MftScb );
+        }
+
+        DebugTrace( -1, Dbg, ("NtfsGetMftRecord:  Exit\n") );
+    }
+
+    //
+    //  If nothing raised then complete the Irp.
+    //
+
+    NtfsCompleteRequest( &IrpContext, &Irp, Status );
+
+    DebugTrace( -1, Dbg, ("NtfsGetMftRecord -> VOID\n") );
+
+    return Status;
+}
+
+
+//
+//  Local Support Routine
+//
+
+NTSTATUS
+NtfsMoveFile (
+    IN PIRP_CONTEXT IrpContext,
+    IN PIRP Irp
+    )
+
+/*++
+
+Routine Description:
+
+    The major parts of the following routine were extracted from NtfsSetCompression. This
+    routine moves a file to the requested Starting Lcn from Starting Vcn for the length
+    of cluster count. These values are passed in through the the input buffer as a MOVE_DATA
+    structure. Note that the Vcn and cluster count must be a factor of 16 the compression
+    chunk.
+
+Arguments:
+
+    Irp - Supplies the Irp being processed.
+
+Return Value:
+
+    NTSTATUS - The return status for the operation.
+
+--*/
+
+{
+    NTSTATUS Status = STATUS_UNSUCCESSFUL;
+    PIO_STACK_LOCATION IrpSp;
+    PIO_STACK_LOCATION NextIrpSp;
+    ULONG FsControlCode;
+
+    PFILE_OBJECT FileObject;
+    TYPE_OF_OPEN TypeOfOpen;
+    PVCB Vcb;
+    PFCB Fcb;
+    PSCB Scb;
+    PCCB Ccb;
+
+    MOVE_FILE_DATA StackMoveData;
+    PMOVE_FILE_DATA MoveData;
+
+    LONGLONG FileOffset;
+    LONGLONG ByteCount;
+    PVOID Buffer;
+    BOOLEAN UserMappedFile;
+    PBCB Bcb = NULL;
+    USHORT CompressionState = 0;
+    PMDL Mdl = NULL;
+    BOOLEAN ScbAcquired = FALSE;
+    BOOLEAN PagingIoAcquired = FALSE;
+    BOOLEAN LockedPages = FALSE;
+    BOOLEAN FsRtlHeaderLocked = FALSE;
+
+    ULONG ScbCompressionUnitSave;
+    USHORT ScbAttributeFlagsSave;
+    UCHAR ScbCompressionUnitShiftSave;
+
+    ULONG CompressionUnitSize;
+
+    extern POBJECT_TYPE *IoFileObjectType;
+
+    //
+    //  We should never be in the FSP for this.  Otherwise the user handle
+    //  is invalid.
+    //
+
+    ASSERT( !FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_IN_FSP ));
+
+    //
+    //  Get the current Irp stack location and save some references.
+    //
+
+    IrpSp = IoGetCurrentIrpStackLocation( Irp );
+    NextIrpSp = IoGetNextIrpStackLocation( Irp );
+    FsControlCode = IrpSp->Parameters.FileSystemControl.FsControlCode;
+
+    DebugTrace( +1, Dbg, ("NtfsMoveFile, FsControlCode = %08lx\n", FsControlCode) );
+
+    //
+    //  Extract and decode the file object and check for type of open.
+    //
+
+    FileObject = IrpSp->FileObject;
+    TypeOfOpen = NtfsDecodeFileObject( IrpContext, FileObject, &Vcb, &Fcb, &Scb, &Ccb, TRUE );
+
+    if (TypeOfOpen != UserVolumeOpen) {
+
+        NtfsCompleteRequest( &IrpContext, &Irp, STATUS_INVALID_PARAMETER );
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    //
+    //  Can't defrag on clusters larger than 4K.
+    //
+
+    if (Vcb->BytesPerCluster > 0x1000) {
+
+        NtfsCompleteRequest( &IrpContext, &Irp, STATUS_INVALID_DEVICE_REQUEST );
+        return STATUS_INVALID_DEVICE_REQUEST;
+    }
+
+    //
+    //  Get the input buffer pointer and check its length.
+    //
+
+    if (IrpSp->Parameters.FileSystemControl.InputBufferLength <
+        sizeof(MOVE_FILE_DATA)) {
+
+        NtfsCompleteRequest( &IrpContext, &Irp, STATUS_BUFFER_TOO_SMALL );
+        return STATUS_BUFFER_TOO_SMALL;
+    }
+
+    //
+    //  This routine modifies the input buffer, so just to be a good
+    //  safe citizen, copy it to our stack.
+    //
+
+    RtlCopyMemory( &StackMoveData,
+                   Irp->AssociatedIrp.SystemBuffer,
+                   sizeof( MOVE_FILE_DATA ));
+
+    MoveData = &StackMoveData;
+
+    //
+    //  Try to get a pointer to the file object from the handle passed in.
+    //
+
+    Status = ObReferenceObjectByHandle( MoveData->FileHandle,
+                                        0,
+                                        *IoFileObjectType,
+                                        Irp->RequestorMode,
+                                        &FileObject,
+                                        NULL );
+
+    if (!NT_SUCCESS(Status)) {
+
+        NtfsCompleteRequest( &IrpContext, &Irp, Status );
+        return Status;
+    }
+
+    //
+    //  We only needed the pointer, not a reference.
+    //
+
+    ObDereferenceObject( FileObject );
+
+    //
+    //  Check that this file object is opened on the same volume as the
+    //  DASD handle used to call this routine.
+    //
+
+    if (FileObject->Vpb != Vcb->Vpb) {
+
+        NtfsCompleteRequest( &IrpContext, &Irp, STATUS_INVALID_PARAMETER );
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    //
+    //  Now decode this FileObject.
+    //
+
+    TypeOfOpen = NtfsDecodeFileObject( IrpContext, FileObject, &Vcb, &Fcb, &Scb, &Ccb, TRUE );
+
+    if ((TypeOfOpen != UserFileOpen) ||
+        FlagOn(Fcb->FcbState, FCB_STATE_PAGING_FILE)) {
+
+        NtfsCompleteRequest( &IrpContext, &Irp, STATUS_INVALID_PARAMETER );
+
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    try {
+
+        //
+        //  We now want to acquire the Scb to check if we can continue.
+        //
+
+        if (Scb->Header.PagingIoResource != NULL) {
+
+            NtfsAcquireExclusivePagingIo( IrpContext, Fcb );
+            PagingIoAcquired = TRUE;
+        }
+
+        NtfsAcquireExclusiveScb( IrpContext, Scb );
+        ScbAcquired = TRUE;
+
+        if (FlagOn( Scb->ScbState, SCB_STATE_VOLUME_DISMOUNTED )) {
+
+            try_return( Status = STATUS_VOLUME_DISMOUNTED );
+        }
+
+        if (!FlagOn( Scb->ScbState, SCB_STATE_HEADER_INITIALIZED )) {
+
+            NtfsUpdateScbFromAttribute( IrpContext, Scb, NULL );
+        }
+
+        //
+        //  Set the WRITE_ACCESS_SEEN flag so that we will enforce the
+        //  reservation strategy.
+        //
+
+        if (!FlagOn( Scb->ScbState, SCB_STATE_WRITE_ACCESS_SEEN )) {
+
+            LONGLONG ClusterCount;
+
+            NtfsAcquireReservedClusters( Vcb );
+
+            //
+            //  Does this Scb have reserved space that causes us to exceed the free
+            //  space on the volume?
+            //
+
+            ClusterCount = LlClustersFromBytesTruncate( Vcb, Scb->ScbType.Data.TotalReserved );
+
+            if ((Scb->ScbType.Data.TotalReserved != 0) &&
+                ((ClusterCount + Vcb->TotalReserved) > Vcb->FreeClusters)) {
+
+                NtfsReleaseReservedClusters( Vcb );
+
+                try_return( Status = STATUS_DISK_FULL );
+            }
+
+            //
+            //  Otherwise tally in the reserved space now for this Scb, and
+            //  remember that we have seen write access.
+            //
+
+            Vcb->TotalReserved += ClusterCount;
+            SetFlag( Scb->ScbState, SCB_STATE_WRITE_ACCESS_SEEN );
+
+            NtfsReleaseReservedClusters( Vcb );
+        }
+
+        //
+        //  Save some parameters from the Scb, we need to restore these later.
+        //
+
+        ScbCompressionUnitShiftSave = Scb->CompressionUnitShift;
+        ScbCompressionUnitSave = Scb->CompressionUnit;
+        ScbAttributeFlagsSave = Scb->AttributeFlags;
+        CompressionState = COMPRESSION_FORMAT_LZNT1 - 1;
+
+        //
+        //  If this is the first pass through NtfsMoveFile we need to set this
+        //  request up as the top-level operation.  This means
+        //  setting the REALLOCATE_ON_WRITE flag, changing the attribute state
+        //  and putting the SCB_STATE_COMPRESSED flag in the correct state.
+        //
+
+        if (NextIrpSp->Parameters.FileSystemControl.OutputBufferLength == MAXULONG) {
+
+            //
+            //  If the REALLOCATE_ON_WRITE flag is set it means that someone is
+            //  already changing the compression state, so get out now.
+            //
+
+            if (FlagOn( Scb->ScbState, SCB_STATE_REALLOCATE_ON_WRITE )) {
+
+                try_return( Status = STATUS_UNSUCCESSFUL );
+            }
+
+            //
+            //  Set ourselves up as the top level request and get the requested file
+            //  offset from MoveData.
+            //
+
+            SetFlag( Scb->ScbState, SCB_STATE_REALLOCATE_ON_WRITE );
+
+            FileOffset = LlBytesFromClusters( Vcb, MoveData->StartingVcn.QuadPart );
+            NextIrpSp->Parameters.FileSystemControl.OutputBufferLength = (ULONG)FileOffset;
+            NextIrpSp->Parameters.FileSystemControl.InputBufferLength = ((PLARGE_INTEGER)&FileOffset)->HighPart;
+        }
+
+        //
+        //  In the Fsd entry we clear the following two parameter fields in the Irp,
+        //  and then we update them to our current position on all abnormal terminations.
+        //  That way if we get a log file full, we only have to resume where we left
+        //  off.  We do pad the defrag range to compression unit boundaries since that
+        //  is the granularity we do our defragging.
+        //
+
+        CompressionUnitSize = Vcb->BytesPerCluster << NTFS_CLUSTERS_PER_COMPRESSION;
+        ((PLARGE_INTEGER)&FileOffset)->LowPart = NextIrpSp->Parameters.FileSystemControl.OutputBufferLength;
+        ((PLARGE_INTEGER)&FileOffset)->HighPart = NextIrpSp->Parameters.FileSystemControl.InputBufferLength;
+
+        MoveData->ClusterCount += ClustersFromBytes( Vcb, ((ULONG) FileOffset & (CompressionUnitSize - 1)));
+        MoveData->ClusterCount += ((1 << NTFS_CLUSTERS_PER_COMPRESSION) - 1);
+        MoveData->ClusterCount &= ~((1 << NTFS_CLUSTERS_PER_COMPRESSION) - 1);
+
+        ((PLARGE_INTEGER) &FileOffset)->LowPart &= ~(CompressionUnitSize - 1);
+
+        //
+        //  If the stream is resident there is no need rewrite any of the data.
+        //
+
+        if (!FlagOn( Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT )) {
+
+
+#ifdef _CAIRO_
+
+            //
+            //  Expand quota to the expected state.
+            //
+
+            NtfsExpandQuotaToAllocationSize( IrpContext, Scb );
+
+            NtfsReleaseScb( IrpContext, Scb );
+            ScbAcquired = FALSE;
+
+            NtfsReleasePagingIo( IrpContext, Fcb );
+            PagingIoAcquired = FALSE;
+
+            if (IrpContext->TransactionId != 0) {
+
+                //
+                //  Complete the request which commits the pending
+                //  transaction if there is one and releases of the
+                //  acquired resources.  The IrpContext will not
+                //  be deleted because the no delete flag is set.
+                //
+
+                SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_DONT_DELETE );
+                NtfsCompleteRequest( &IrpContext, NULL, STATUS_SUCCESS );
+
+            }
+
+#else
+            NtfsReleaseScb( IrpContext, Scb );
+            ScbAcquired = FALSE;
+
+            ASSERT(IrpContext->TransactionId == 0);
+            NtfsReleasePagingIo( IrpContext, Fcb );
+            PagingIoAcquired = FALSE;
+
+#endif // _CAIRO_
+
+            while (TRUE) {
+
+                //
+                //  We must throttle our writes.
+                //
+
+                CcCanIWrite( FileObject, 0x40000, TRUE, FALSE );
+
+                //
+                //  Lock the FsRtl header so we can freeze FileSize.
+                //
+
+                ExAcquireResourceExclusive( Scb->Header.PagingIoResource, TRUE );
+
+                FsRtlLockFsRtlHeader( &Scb->Header );
+                IrpContext->FcbWithPagingExclusive = (PFCB) Scb;
+                FsRtlHeaderLocked = TRUE;
+
+                //
+                //  Jump out right here if the attribute is resident or we
+                //  are beyond the end of the file.
+                //
+
+                if (FlagOn(Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT) ||
+                    (FileOffset >= Scb->Header.FileSize.QuadPart)) {
+
+                    break;
+                }
+
+                //
+                //  Get the number of bytes left to write.
+                //
+
+                ByteCount = LlBytesFromClusters( Vcb, MoveData->ClusterCount );
+
+                //
+                //  Make sure we don't go past the end of the file.
+                //
+
+                if (ByteCount + FileOffset > Scb->Header.FileSize.QuadPart) {
+
+                    ByteCount = Scb->Header.FileSize.QuadPart - FileOffset;
+                }
+
+                //
+                //  This is how we exit, seeing that we have finally rewritten
+                //  everything.  It is possible that the file was truncated
+                //  between passes through this loop so we test for 0 bytes or
+                //  a negative value.
+                //
+                //  Note that we exit with the Scb still acquired,
+                //  so that we can reliably turn compression off.
+                //
+
+                if (ByteCount <= 0) {
+
+                    break;
+                }
+
+                //
+                //  If there is more than our max, then reduce the byte count for this
+                //  pass to our maximum. We must also align the file offset to a 0x40000
+                //  byte boundary.
+                //
+
+                if (((ULONG)FileOffset & 0x3ffff) + ByteCount > 0x40000) {
+
+                    ByteCount = 0x40000 - ((ULONG)FileOffset & 0x3ffff);
+                }
+
+                //
+                //  Also remember if we need to add allocation to round the allocation
+                //  size to a compression unit.  We need to do this now so that the
+                //  Scb and on-disk allocation sizes will stay in sync.  This should
+                //  already be true for compressed files.
+                //
+
+                if ((ScbCompressionUnitSave == 0) &&
+                    ((FileOffset + ByteCount + CompressionUnitSize - 1) > Scb->Header.AllocationSize.QuadPart)) {
+
+                    LONGLONG NewAllocationSize;
+
+                    NewAllocationSize = FileOffset + ByteCount + CompressionUnitSize - 1;
+                    ((PLARGE_INTEGER) &NewAllocationSize)->LowPart &= ~(CompressionUnitSize - 1);
+
+                    //
+                    //  Check again now that we have the exact needed value for allocation
+                    //  size.
+                    //
+
+                    if (NewAllocationSize > Scb->Header.AllocationSize.QuadPart) {
+
+                        NtfsAcquireExclusiveScb( IrpContext, Scb );
+                        ScbAcquired = TRUE;
+
+                        NtfsAddAllocation( IrpContext,
+                                           NULL,
+                                           Scb,
+                                           LlClustersFromBytes( Vcb,
+                                                                Scb->Header.AllocationSize.QuadPart ),
+                                           LlClustersFromBytes( Vcb,
+                                                                NewAllocationSize -
+                                                                    Scb->Header.AllocationSize.QuadPart ),
+                                           FALSE );
+
+                        if (FlagOn( Scb->ScbState, SCB_STATE_UNNAMED_DATA )) {
+
+                            Scb->Fcb->Info.AllocatedLength = Scb->TotalAllocated;
+                            SetFlag( Scb->Fcb->InfoFlags, FCB_INFO_CHANGED_ALLOC_SIZE );
+                        }
+
+                        SetFlag( Scb->ScbState, SCB_STATE_TRUNCATE_ON_CLOSE );
+
+                        NtfsCheckpointCurrentTransaction( IrpContext );
+
+                        //
+                        //  Release everything at this point.
+                        //
+
+                        if (IrpContext->SharedScb != NULL) {
+                            NtfsReleaseSharedResources( IrpContext );
+                        }
+
+                        while (!IsListEmpty( &IrpContext->ExclusiveFcbList )) {
+
+                            NtfsReleaseFcb( IrpContext,
+                                            (PFCB)CONTAINING_RECORD( IrpContext->ExclusiveFcbList.Flink,
+                                                                     FCB,
+                                                                     ExclusiveFcbLinks ));
+                        }
+                        ScbAcquired = FALSE;
+                    }
+                }
+
+                //
+                //  Get the pointer to the MOVE_DATA structure in the SCB and set some flags in the Scb.
+                //  These are required in order to ensure a proper path for moving the file
+                //  even though we are not compressing or decompressing.
+                //
+                //  Acquire and drop the file resource in order to make this change.  Otherwise
+                //  a user paging read which acquires the main resource could see an
+                //  inconsistent picture of this data.
+                //
+
+                ExAcquireResourceExclusive( Scb->Header.Resource, TRUE );
+                Scb->Union.MoveData = MoveData;
+                Scb->CompressionUnitShift = NTFS_CLUSTERS_PER_COMPRESSION;
+                Scb->CompressionUnit = CompressionUnitSize;
+                Scb->AttributeFlags = (USHORT)((Scb->AttributeFlags & ~ATTRIBUTE_FLAG_COMPRESSION_MASK) | CompressionState);
+                ExReleaseResource( Scb->Header.Resource );
+
+                //
+                //  Make sure there are enough available clusters in the range
+                //  we want to rewrite.
+                //
+
+                if (!NtfsReserveClusters( IrpContext, Scb, FileOffset, (ULONG) ByteCount )) {
+
+                    //
+                    //  If this transaction has already deallocated clusters
+                    //  then raise log file full to allow those to become
+                    //  available.
+                    //
+
+                    if (IrpContext->DeallocatedClusters != 0) {
+
+                        NtfsRaiseStatus( IrpContext, STATUS_LOG_FILE_FULL, NULL, NULL );
+
+                    //
+                    //  Otherwise there is insufficient space to guarantee
+                    //  we can perform the compression operation.
+                    //
+
+                    } else {
+
+                        NtfsRaiseStatus( IrpContext, STATUS_DISK_FULL, NULL, NULL );
+                    }
+                }
+
+                //
+                //  See if we have to create an internal attribute stream.  We do
+                //  it in the loop, because the Scb must be acquired.
+                //
+
+                if (Scb->FileObject == NULL) {
+                    NtfsCreateInternalAttributeStream( IrpContext, Scb, FALSE );
+                }
+
+                //
+                //  Map the next range of the file, and make the pages dirty.
+                //
+
+                CcMapData( Scb->FileObject, (PLARGE_INTEGER)&FileOffset, (ULONG)ByteCount, TRUE, &Bcb, &Buffer );
+
+                //
+                //  Now attempt to allocate an Mdl to describe the mapped data.
+                //
+
+                Mdl = IoAllocateMdl( Buffer, (ULONG)ByteCount, FALSE, FALSE, NULL );
+
+                if (Mdl == NULL) {
+                    DebugTrace( 0, 0, ("Failed to allocate Mdl\n") );
+
+                    NtfsRaiseStatus( IrpContext, STATUS_INSUFFICIENT_RESOURCES, NULL, NULL );
+                }
+
+                //
+                //  Lock the data into memory so that we can safely reallocate the
+                //  space.  Don't tell Mm here that we plan to write it, as he sets
+                //  dirty now and at the unlock below if we do.
+                //
+
+                MmProbeAndLockPages( Mdl, KernelMode, IoReadAccess );
+                LockedPages = TRUE;
+
+                //
+                //  Mark the address range modified so that the flush will
+                //  flush.
+                //
+
+                MmSetAddressRangeModified( Buffer, (ULONG)ByteCount );
+
+                UserMappedFile = FALSE;
+
+                ExAcquireFastMutex( Scb->Header.FastMutex );
+                if (FlagOn( Scb->Header.Flags, FSRTL_FLAG_USER_MAPPED_FILE )) {
+
+                    UserMappedFile = TRUE;
+                }
+
+                //
+                //  Tell Cc there is a user-mapped file so he will really flush.
+                //
+
+                SetFlag( Scb->Header.Flags, FSRTL_FLAG_USER_MAPPED_FILE );
+                ExReleaseFastMutex( Scb->Header.FastMutex );
+
+                //
+                //  Now flush these pages.
+                //
+
+                Irp->IoStatus.Status = NtfsFlushUserStream( IrpContext,
+                                                            Scb,
+                                                            &FileOffset,
+                                                            (ULONG)ByteCount );
+
+                //
+                //  Restore the FsRtl flag if there is no user mapped file.
+                //  This is correctly synchronized, since we have the file
+                //  exclusive, and Mm always has to query the file size before
+                //  creating a user-mapped section and calling Cc to set
+                //  the FsRtl flag.
+                //
+
+                if (!UserMappedFile) {
+                    ExAcquireFastMutex( Scb->Header.FastMutex );
+                    ClearFlag( Scb->Header.Flags, FSRTL_FLAG_USER_MAPPED_FILE );
+                    ExReleaseFastMutex( Scb->Header.FastMutex );
+                }
+
+                //
+                //  On error get out.
+                //
+
+                NtfsNormalizeAndCleanupTransaction( IrpContext,
+                                                    &Irp->IoStatus.Status,
+                                                    TRUE,
+                                                    STATUS_UNEXPECTED_IO_ERROR );
+
+                //
+                //  Now we can get rid of this Mdl.
+                //
+
+                MmUnlockPages( Mdl );
+                LockedPages = FALSE;
+                IoFreeMdl( Mdl );
+                Mdl = NULL;
+
+                //
+                //  Now we can safely unpin and release the Scb for a while.
+                //  (Got to let those checkpoints through!)
+                //
+
+                CcUnpinData( Bcb );
+                Bcb = NULL;
+
+                //
+                //  Release any remaing reserved clusters in this range.
+                //
+
+                NtfsFreeReservedClusters( Scb, FileOffset, (ULONG) ByteCount );
+
+                //
+                //  Save the ClusterCount in the Scb
+                //
+
+                MoveData->ClusterCount -= ClustersFromBytes( Vcb, (ULONG) ByteCount );
+
+                //
+                //  Zero the pointer to the MOVE_DATA structure in the SCB and restore
+                //  the flags in the Scb.  If the file is uncompressed then make
+                //  sure to release any remaining reserved clusters.
+                //
+
+                ExAcquireResourceExclusive( Scb->Header.Resource, TRUE );
+                if (ScbCompressionUnitSave == 0) {
+
+                    if (Scb->ScbType.Data.ReservedBitMap != NULL) {
+
+                        NtfsFreePool( Scb->ScbType.Data.ReservedBitMap );
+                        Scb->ScbType.Data.ReservedBitMap = NULL;
+                    }
+
+                    NtfsFreeFinalReservedClusters( Vcb,
+                                                   LlClustersFromBytesTruncate( Vcb, Scb->ScbType.Data.TotalReserved ));
+
+                    Scb->ScbType.Data.TotalReserved = 0;
+                }
+
+                Scb->Union.MoveData = NULL;
+                Scb->CompressionUnit = ScbCompressionUnitSave;
+                Scb->CompressionUnitShift = ScbCompressionUnitShiftSave;
+                Scb->AttributeFlags = ScbAttributeFlagsSave;
+                ExReleaseResource( Scb->Header.Resource );
+
+                //
+                //  Unlock the header and let anyone else access the file before
+                //  looping back.
+                //
+
+                FsRtlUnlockFsRtlHeader( &Scb->Header );
+                ExReleaseResource( Scb->Header.PagingIoResource );
+                IrpContext->FcbWithPagingExclusive = NULL;
+                FsRtlHeaderLocked = FALSE;
+
+                //
+                //  If we hit the end of the file then exit while holding the
+                //  resource so we can turn compression off.
+                //
+
+                if (((ULONG) ByteCount & 0x3ffff) != 0) {
+
+                    break;
+                }
+
+                //
+                //  Advance the FileOffset.
+                //
+
+                FileOffset += ByteCount;
+
+                //
+                //  Update the user's MoveData structure for the next pass in
+                //  case we get a log file full.
+                //
+
+                RtlCopyMemory( Irp->AssociatedIrp.SystemBuffer,
+                               &StackMoveData,
+                               sizeof( MOVE_FILE_DATA ));
+            }
+
+            //
+            //  See if we broke out of the loop with the header locked.
+            //
+
+            if (FsRtlHeaderLocked) {
+
+                //
+                //  Zero the pointer to the MOVE_DATA structure in the SCB and restore
+                //  the flags in the Scb.  If the file is uncompressed then make
+                //  sure to release any remaining reserved clusters.
+                //
+
+                ExAcquireResourceExclusive( Scb->Header.Resource, TRUE );
+                if (ScbCompressionUnitSave == 0) {
+
+                    if (Scb->ScbType.Data.ReservedBitMap != NULL) {
+
+                        NtfsFreePool( Scb->ScbType.Data.ReservedBitMap );
+                        Scb->ScbType.Data.ReservedBitMap = NULL;
+                    }
+
+                    NtfsFreeFinalReservedClusters( Vcb,
+                                                   LlClustersFromBytesTruncate( Vcb, Scb->ScbType.Data.TotalReserved ));
+
+                    Scb->ScbType.Data.TotalReserved = 0;
+                }
+
+                Scb->Union.MoveData = NULL;
+                Scb->CompressionUnit = ScbCompressionUnitSave;
+                Scb->CompressionUnitShift = ScbCompressionUnitShiftSave;
+                Scb->AttributeFlags = ScbAttributeFlagsSave;
+                ExReleaseResource( Scb->Header.Resource );
+
+                FsRtlUnlockFsRtlHeader( &Scb->Header );
+                ExReleaseResource( Scb->Header.PagingIoResource );
+                IrpContext->FcbWithPagingExclusive = NULL;
+                FsRtlHeaderLocked = FALSE;
+            }
+        }
+
+        Status = STATUS_SUCCESS;
+
+    try_exit: NOTHING;
+
+        //
+        //  Now clear the reallocate flag in the Scb if we set it.
+        //
+
+        if (NextIrpSp->Parameters.FileSystemControl.OutputBufferLength != MAXULONG) {
+
+            ExAcquireResourceExclusive( Scb->Header.Resource, TRUE );
+            ClearFlag( Scb->ScbState, SCB_STATE_REALLOCATE_ON_WRITE );
+            ExReleaseResource( Scb->Header.Resource );
+       }
+
+    } finally {
+
+
+        DebugUnwind( NtfsMovesFile );
+
+        //
+        //  Cleanup the Mdl if we died with one.
+        //
+
+        if (Mdl != NULL) {
+            if (LockedPages) { MmUnlockPages( Mdl ); }
+            IoFreeMdl( Mdl );
+        }
+
+        if (Bcb != NULL) {
+            CcUnpinData( Bcb );
+        }
+
+        //
+        //  Restore the Scb flags if we haven't already done so.
+        //
+
+        if (FsRtlHeaderLocked) {
+
+            ExAcquireResourceExclusive( Scb->Header.Resource, TRUE );
+            if (ScbCompressionUnitSave == 0) {
+
+                if (Scb->ScbType.Data.ReservedBitMap != NULL) {
+
+                    NtfsFreePool( Scb->ScbType.Data.ReservedBitMap );
+                    Scb->ScbType.Data.ReservedBitMap = NULL;
+                }
+
+                NtfsFreeFinalReservedClusters( Vcb,
+                                               LlClustersFromBytesTruncate( Vcb, Scb->ScbType.Data.TotalReserved ));
+
+                Scb->ScbType.Data.TotalReserved = 0;
+            }
+
+            Scb->Union.MoveData = NULL;
+            Scb->CompressionUnit = ScbCompressionUnitSave;
+            Scb->CompressionUnitShift = ScbCompressionUnitShiftSave;
+            Scb->AttributeFlags = ScbAttributeFlagsSave;
+            ExReleaseResource( Scb->Header.Resource );
+            FsRtlUnlockFsRtlHeader( &Scb->Header );
+        }
+
+        //
+        //  If this is an abnormal termination then undo our work, otherwise
+        //  complete the irp
+        //
+
+        if (!AbnormalTermination()) {
+
+            if (ScbAcquired) {
+
+                NtfsReleaseScb( IrpContext, Scb );
+            }
+
+            NtfsCompleteRequest( &IrpContext, &Irp, Status );
+
+        //
+        //  Otherwise, set to restart from the current file position, assuming
+        //  this may be a log file full.
+        //
+
+        } else {
+
+            //
+            //  If we have started the transformation and are in the exception path
+            //  we are either going to continue the operation after a clean
+            //  checkpoint or we are done.
+            //
+
+            if (NextIrpSp->Parameters.FileSystemControl.OutputBufferLength != MAXULONG) {
+
+                //
+                //  If we are continuing the operation, save the current file offset.
+                //
+
+                if (IrpContext->ExceptionStatus == STATUS_LOG_FILE_FULL ||
+                    IrpContext->ExceptionStatus == STATUS_CANT_WAIT) {
+
+                    NextIrpSp->Parameters.FileSystemControl.OutputBufferLength = (ULONG)FileOffset;
+                    NextIrpSp->Parameters.FileSystemControl.InputBufferLength = ((PLARGE_INTEGER)&FileOffset)->HighPart;
+
+                //
+                //  Otherwise clear the REALLOCATE_ON_WRITE flag.
+                //
+
+                } else {
+
+                    ClearFlag( Scb->ScbState, SCB_STATE_REALLOCATE_ON_WRITE );
+                }
+            }
+
+            if (ScbAcquired) {
+
+                NtfsReleaseScb( IrpContext, Scb );
+            }
+
+            //
+            //  We may have one or the other of these conditions to clean up.
+            //
+
+            if (FsRtlHeaderLocked) {
+
+                ExReleaseResource( Scb->Header.PagingIoResource );
+            }
+        }
+    }
+
+    return Status;
+}
+
+
+//
+//  Local support routine
+//
+
+NTSTATUS
+NtfsIsVolumeDirty (
+    IN PIRP_CONTEXT IrpContext,
+    IN PIRP Irp
+    )
+
+/*++
+
+Routine Description:
+
+    This routine returns the dirty state of the volume.
+
+Arguments:
+
+    Irp - Supplies the Irp to process
+
+Return Value:
+
+    NTSTATUS - The return status for the operation
+
+--*/
+
+{
+    PIO_STACK_LOCATION IrpSp;
+
+    TYPE_OF_OPEN TypeOfOpen;
+    PVCB Vcb;
+    PFCB Fcb;
+    PSCB Scb;
+    PCCB Ccb;
+
+    PULONG VolumeState;
+    PVOLUME_INFORMATION VolumeInfo;
+
+    ATTRIBUTE_ENUMERATION_CONTEXT Context;
+
+    //
+    //  Get the current stack location and extract the output
+    //  buffer information.  The output parameter will receive
+    //  the compressed state of the file/directory.
+    //
+
+    IrpSp = IoGetCurrentIrpStackLocation( Irp );
+
+    //
+    //  Get a pointer to the output buffer.  Look at the system buffer field in th
+    //  irp first.  Then the Irp Mdl.
+    //
+
+    if (Irp->AssociatedIrp.SystemBuffer != NULL) {
+
+        VolumeState = Irp->AssociatedIrp.SystemBuffer;
+
+    } else if (Irp->MdlAddress != NULL) {
+
+        VolumeState = MmGetSystemAddressForMdl( Irp->MdlAddress );
+
+    } else {
+
+        NtfsCompleteRequest( &IrpContext, &Irp, STATUS_INVALID_USER_BUFFER );
+        return STATUS_INVALID_USER_BUFFER;
+    }
+
+    //
+    //  Make sure the output buffer is large enough and then initialize
+    //  the answer to be that the volume isn't corrupt.
+    //
+
+    if (IrpSp->Parameters.FileSystemControl.OutputBufferLength < sizeof(ULONG)) {
+
+        NtfsCompleteRequest( &IrpContext, &Irp, STATUS_INVALID_PARAMETER );
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    *VolumeState = 0;
+
+    //
+    //  Decode the file object
+    //
+
+    TypeOfOpen = NtfsDecodeFileObject( IrpContext, IrpSp->FileObject, &Vcb, &Fcb, &Scb, &Ccb, TRUE );
+
+    if (TypeOfOpen != UserVolumeOpen) {
+
+        NtfsCompleteRequest( &IrpContext, &Irp, STATUS_INVALID_PARAMETER );
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    //
+    //  Acquire the Scb shared.
+    //
+
+    NtfsAcquireSharedScb( IrpContext, Scb );
+
+    //
+    //  Make sure the volume is still mounted.
+    //
+
+    if (!FlagOn( Vcb->VcbState, VCB_STATE_VOLUME_MOUNTED )) {
+
+        NtfsReleaseScb( IrpContext, Scb );
+        NtfsCompleteRequest( &IrpContext, &Irp, STATUS_VOLUME_DISMOUNTED );
+        return STATUS_VOLUME_DISMOUNTED;
+    }
+
+    //
+    //  Look up the VOLUME_INFORMATION attribute.
+    //
+
+    NtfsInitializeAttributeContext( &Context );
+
+    //
+    //  Use a try-finally to perform cleanup.
+    //
+
+    try {
+
+        if (!NtfsLookupAttributeByCode( IrpContext,
+                                        Fcb,
+                                        &Fcb->FileReference,
+                                        $VOLUME_INFORMATION,
+                                        &Context )) {
+
+            NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, Fcb );
+        }
+
+        //
+        //  Return the volume state and the size of the returned data.
+        //
+
+        VolumeInfo = (PVOLUME_INFORMATION) NtfsAttributeValue( NtfsFoundAttribute( &Context ));
+
+        *VolumeState = VolumeInfo->VolumeFlags & VOLUME_DIRTY;
+
+        Irp->IoStatus.Information = sizeof( ULONG );
+
+    } finally {
+
+        NtfsReleaseScb( IrpContext, Scb );
+        NtfsCleanupAttributeContext( &Context );
+        DebugUnwind( NtfsIsVolumeDirty );
+    }
+
+    //
+    //  If this is an abnormal termination then undo our work, otherwise
+    //  complete the irp
+    //
+
+    NtfsCompleteRequest( &IrpContext, &Irp, STATUS_SUCCESS );
+
+    return STATUS_SUCCESS;
+}
+
+
+//
+//  Local support routine
+//
+
+NTSTATUS
+NtfsSetExtendedDasdIo (
+    IN PIRP_CONTEXT IrpContext,
+    IN PIRP Irp
+    )
+
+/*++
+
+Routine Description:
+
+    This routine will mark a Dasd handle to perform IO outside the logical bounds of
+    the partition.  Any subsequent IO will be passed to the driver which can either
+    complete it or return an error.
+
+Arguments:
+
+    Irp - Supplies the Irp to process
+
+Return Value:
+
+    NTSTATUS - The return status for the operation
+
+--*/
+
+{
+    PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation( Irp );
+
+    TYPE_OF_OPEN TypeOfOpen;
+    PVCB Vcb;
+    PFCB Fcb;
+    PSCB Scb;
+    PCCB Ccb;
+
+    PAGED_CODE();
+
+    //
+    //  Decode the file object
+    //
+
+    TypeOfOpen = NtfsDecodeFileObject( IrpContext, IrpSp->FileObject, &Vcb, &Fcb, &Scb, &Ccb, TRUE );
+
+    //
+    //  Make sure this is a volume open.
+    //
+
+    if (TypeOfOpen != UserVolumeOpen) {
+
+        NtfsCompleteRequest( &IrpContext, &Irp, STATUS_INVALID_PARAMETER );
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    //
+    //  Mark the Ccb for extended Io and return.
+    //
+
+    SetFlag( Ccb->Flags, CCB_FLAG_ALLOW_XTENDED_DASD_IO );
+
+    NtfsCompleteRequest( &IrpContext, &Irp, STATUS_SUCCESS );
+    return STATUS_SUCCESS;
+}
+
+
+

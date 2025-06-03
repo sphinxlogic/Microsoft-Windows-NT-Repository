@@ -23,15 +23,26 @@ Author:
 #include <string.h>
 #include <stdio.h>
 
-#ifndef NTENV
+#ifndef WIN32
 
-extern "C" {
-
+extern "C"
+{
 int atoi(char *);
 
 void far pascal OutputDebugString(void far *);
 
+
+void __RPC_FAR * __RPC_API
+MIDL_user_allocate(
+    size_t cb
+    );
+
+void __RPC_API
+MIDL_user_free(
+    void __RPC_FAR * p
+    );
 }
+
 #else
 #include <stdlib.h>
 
@@ -195,10 +206,10 @@ Returns:
 #endif
 
 
-void *  
-#if defined(NTENV)
+void *
+#if defined(WIN32)
 _CRTAPI1
-#endif 
+#endif
 operator new(
         size_t size
         )
@@ -207,8 +218,8 @@ operator new(
     return(I_RpcAllocate(size));
 }
 
-void  
-#if defined(NTENV)
+void
+#if defined(WIN32)
 _CRTAPI1
 #endif
 operator delete(
@@ -222,78 +233,6 @@ operator delete(
 extern "C" {
 
 
-#if defined(DOS) && !defined(WIN)
-
-typedef void __RPC_FAR * (__RPC_FAR * __RPC_API MIDL_USER_ALLOCATE)(size_t);
-typedef void (__RPC_FAR * __RPC_API MIDL_USER_FREE)(void __RPC_FAR *);
-
-extern __RPC_API __loadds
-I_NsGetMemoryAllocator(void __RPC_FAR *, void __RPC_FAR *);
-
-static MIDL_USER_ALLOCATE pMidlUserAlloc;
-static MIDL_USER_FREE pMidlUserFree;
-
-int _NsAllocatorInitialized = 0;
-
-void __RPC_API
-NsAllocatorSetup()
-/*++
-
-Routine Description:
-
-    BUGBUG    
-
---*/
-{
-    I_NsGetMemoryAllocator((void __RPC_FAR *)&pMidlUserAlloc,
-                           (void __RPC_FAR *)&pMidlUserFree);
-
-    _NsAllocatorInitialized = 1;
-
-    return;
-}
-#endif
-
-
-void __RPC_FAR * __RPC_API
-MIDL_user_allocate(
-    size_t cb
-    )
-/*++
-
-Routine Description:
-
-    Call the C memory allocation for MIDL.
-
---*/
-{
-    void *p;
-
-#if defined(DOS) && !defined(WIN)
-    ASSERT(_NsAllocatorInitialized);
-
-    p = (*pMidlUserAlloc)(cb);
-#else
-    p = I_RpcAllocate(cb);
-#endif
-
-    return(p);
-}
-
-void __RPC_API
-MIDL_user_free(
-    void __RPC_FAR * p
-    )
-{
-#if defined(DOS) && !defined(WIN)
-    ASSERT(_NsAllocatorInitialized);
-
-    (*pMidlUserFree)(p);
-#else
-    I_RpcFree(p);
-#endif
-}
-
 void CallExportInit() {}
 
 

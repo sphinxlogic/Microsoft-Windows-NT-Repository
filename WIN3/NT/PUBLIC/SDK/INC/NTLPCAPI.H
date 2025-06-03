@@ -31,6 +31,8 @@ Revision History:
 #define PORT_ALL_ACCESS (STANDARD_RIGHTS_REQUIRED | 0x1)
 
 
+// begin_ntsrv
+
 typedef struct _PORT_MESSAGE {
     union {
         struct {
@@ -51,9 +53,14 @@ typedef struct _PORT_MESSAGE {
         double DoNotUseThisField;       // Force quadword alignment
     };
     ULONG MessageId;
-    ULONG ClientViewSize;               // Only valid on LPC_CONNECTION_REQUEST message
+    union {
+        ULONG ClientViewSize;               // Only valid on LPC_CONNECTION_REQUEST message
+        ULONG CallbackId;                   // Only valid on LPC_REQUEST message
+    };
 //  UCHAR Data[];
 } PORT_MESSAGE, *PPORT_MESSAGE;
+
+// end_ntsrv
 
 typedef struct _PORT_DATA_ENTRY {
     PVOID Base;
@@ -92,6 +99,8 @@ typedef struct _LPC_CLIENT_DIED_MSG {
     LARGE_INTEGER CreateTime;
 } LPC_CLIENT_DIED_MSG, *PLPC_CLIENT_DIED_MSG;
 
+// begin_ntsrv
+
 typedef struct _PORT_VIEW {
     ULONG Length;
     HANDLE SectionHandle;
@@ -107,6 +116,8 @@ typedef struct _REMOTE_PORT_VIEW {
     PVOID ViewBase;
 } REMOTE_PORT_VIEW, *PREMOTE_PORT_VIEW;
 
+// end_ntsrv
+
 NTSYSAPI
 NTSTATUS
 NTAPI
@@ -117,6 +128,8 @@ NtCreatePort(
     IN ULONG MaxMessageLength,
     IN ULONG MaxPoolUsage
     );
+
+// begin_ntsrv
 
 NTSYSAPI
 NTSTATUS
@@ -131,6 +144,8 @@ NtConnectPort(
     IN OUT PVOID ConnectionInformation OPTIONAL,
     IN OUT PULONG ConnectionInformationLength OPTIONAL
     );
+
+// end_ntsrv
 
 NTSYSAPI
 NTSTATUS
@@ -167,6 +182,8 @@ NtRequestPort(
     IN PPORT_MESSAGE RequestMessage
     );
 
+// begin_ntsrv
+
 NTSYSAPI
 NTSTATUS
 NTAPI
@@ -175,6 +192,8 @@ NtRequestWaitReplyPort(
     IN PPORT_MESSAGE RequestMessage,
     OUT PPORT_MESSAGE ReplyMessage
     );
+
+// end_ntsrv
 
 NTSYSAPI
 NTSTATUS

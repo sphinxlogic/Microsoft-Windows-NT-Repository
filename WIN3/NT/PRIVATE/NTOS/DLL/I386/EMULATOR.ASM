@@ -56,6 +56,7 @@ ifdef NT386
         include  ks386.inc
         include  nt386npx.inc
         include  callconv.inc
+        include ..\..\vdm\i386\vdmtb.inc
 endif                           ; NT386
 
 ;*******************************************************************************
@@ -68,6 +69,7 @@ ifdef  NT386
         EXTRNP   _NtRaiseException,3
         EXTRNP   _RtlRaiseStatus,1
         EXTRNP   _ZwRaiseException,3
+        EXTRNP   _NpxNpSkipInstruction,1
 endif           ; NT386
 
 ifdef _DOS32EXT

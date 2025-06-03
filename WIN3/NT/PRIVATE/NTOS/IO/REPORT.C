@@ -25,9 +25,6 @@ Revision History:
 --*/
 
 #include "iop.h"
-#include "ntiologc.h"
-#include "stdio.h"
-#include "zwapi.h"
 
 extern WCHAR IopWstrRaw[];
 extern WCHAR IopWstrTranslated[];
@@ -413,7 +410,7 @@ Return Value:
     ULONG TranslatedStrLen;
     ULONG BusTranslatedStrLen;
 
-    LiTemps;
+//  LiTemps;
 
     PAGED_CODE();
 
@@ -970,18 +967,16 @@ for (a1 = 0; (a1 < resourceListA->Count) && !*ConflictDetected; a1++) {
                     // share flags.
                     //
 
-                    if (LiGtrT_( LiAdd(prdA->u.Memory.Start,
-                                       LiFromUlong(prdA->u.Memory.Length-1)),
-                                 prdB->u.Memory.Start) &&
-                        LiGtrT_( LiAdd(prdB->u.Memory.Start,
-                                       LiFromUlong(prdB->u.Memory.Length-1)),
-                                 prdA->u.Memory.Start)) {
+                    if (prdA->u.Memory.Start.QuadPart +
+                            prdA->u.Memory.Length >
+                            prdB->u.Memory.Start.QuadPart &&
+                        prdB->u.Memory.Start.QuadPart +
+                            prdB->u.Memory.Length >
+                            prdA->u.Memory.Start.QuadPart) {
 
                         *ConflictDetected = TRUE;
 
                     }
-
-
                     break;
 
                 case CmResourceTypeInterrupt:
@@ -1590,7 +1585,8 @@ Return Value:
     PCM_FULL_RESOURCE_DESCRIPTOR fullDescriptor;
     PCM_PARTIAL_RESOURCE_DESCRIPTOR partialDescriptor;
     PHYSICAL_ADDRESS endAddress;
-    ULONG addressSpace, tempAddressSpace;
+    ULONG addressSpace, tempAddressSpace1, tempAddressSpace2;
+    BOOLEAN flag1, flag2;
 
     PAGED_CODE();
 
@@ -1653,35 +1649,42 @@ Return Value:
                 // the results.
                 //
 
-                endAddress = LiAdd( partialDescriptor->u.Memory.Start,
-                                    LiFromUlong( partialDescriptor->u.Memory.Length - 1 ));
+              //endAddress = LiAdd( partialDescriptor->u.Memory.Start,
+              //                    LiFromUlong( partialDescriptor->u.Memory.Length - 1 ));
+                endAddress.QuadPart = partialDescriptor->u.Memory.Start.QuadPart +
+                                    (partialDescriptor->u.Memory.Length - 1 );
 
                 //
                 // Translate the base address and store it back.
                 //
 
-                tempAddressSpace = addressSpace;
+                tempAddressSpace1 = addressSpace;
 
-                HalTranslateBusAddress( interfaceType,
-                                        busNumber,
-                                        partialDescriptor->u.Memory.Start,
-                                        &tempAddressSpace,
-                                        &partialDescriptor->u.Memory.Start );
+                flag1 = HalTranslateBusAddress(
+                            interfaceType,
+                            busNumber,
+                            partialDescriptor->u.Memory.Start,
+                            &tempAddressSpace1,
+                            &partialDescriptor->u.Memory.Start
+                            );
 
                 //
                 // Translate the end address, and calculate the length of the
                 // translated address.
                 //
 
-                tempAddressSpace = addressSpace;
+                tempAddressSpace2 = addressSpace;
 
-                HalTranslateBusAddress( interfaceType,
-                                        busNumber,
-                                        endAddress,
-                                        &tempAddressSpace,
-                                        &endAddress );
+                flag2 = HalTranslateBusAddress(
+                            interfaceType,
+                            busNumber,
+                            endAddress,
+                            &tempAddressSpace2,
+                            &endAddress
+                            );
 
-                endAddress = LiSub( endAddress, partialDescriptor->u.Memory.Start );
+              //endAddress = LiSub( endAddress, partialDescriptor->u.Memory.Start );
+                endAddress.QuadPart = endAddress.QuadPart - partialDescriptor->u.Memory.Start.QuadPart;
 
                 partialDescriptor->u.Memory.Length = endAddress.LowPart + 1;
 
@@ -1690,18 +1693,20 @@ Return Value:
                 // happened durring translation. Return an error.
                 //
 
-                if (endAddress.HighPart) {
+                if (flag1 == FALSE  ||  flag2 == FALSE  ||
+                    tempAddressSpace1 != tempAddressSpace2 ||
+                    endAddress.HighPart != 0 ){
 #if DBG
-                    DbgPrint("IoTranslateResourceList: Translated address length greater then 32 bits");
+                    DbgPrint("IoTranslateResourceList: address could not be translated\n");
 #endif
-                    return IO_ERR_CONFIGURATION_ERROR;
+                    return STATUS_INVALID_PARAMETER;
                 }
 
                 //
                 // Store the translated address type back into the new structure.
                 //
 
-                if (tempAddressSpace) {
+                if (tempAddressSpace1) {
                     partialDescriptor->Type = CmResourceTypePort;
                 } else {
                     partialDescriptor->Type = CmResourceTypeMemory;
@@ -1733,9 +1738,15 @@ Return Value:
                         partialDescriptor->u.Interrupt.Level,
                         partialDescriptor->u.Interrupt.Vector,
                         (PKIRQL) &partialDescriptor->u.Interrupt.Level,
-                        (PKAFFINITY) &partialDescriptor->u.Interrupt.Affinity );
+                        (PKAFFINITY) &partialDescriptor->u.Interrupt.Affinity
+                        );
 
-
+                if (partialDescriptor->u.Interrupt.Affinity == 0) {
+#if DBG
+                    DbgPrint("IoTranslateResourceList: Interrupt vector could not be translated\n");
+#endif
+                    return STATUS_INVALID_PARAMETER;
+                }
                 break;
 
             //

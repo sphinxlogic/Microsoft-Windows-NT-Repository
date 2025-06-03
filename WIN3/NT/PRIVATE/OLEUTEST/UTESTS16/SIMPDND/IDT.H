@@ -36,7 +36,7 @@ interface CDropTarget : public IDropTarget
 	DWORD m_dwNextScrollTime;       // time for next scroll
 
 	CDropTarget(CSimpleDoc FAR * pDoc) {
-		OutputDebugString("In IDT's constructor\r\n");
+		TestDebugOut("In IDT's constructor\r\n");
 		m_pDoc = pDoc;
 		m_nCount = 0;
 		m_fCanDropCopy = FALSE;
@@ -48,7 +48,7 @@ interface CDropTarget : public IDropTarget
 		};
 
 	~CDropTarget() {
-		OutputDebugString("In IDT's destructor\r\n");
+		TestDebugOut("In IDT's destructor\r\n");
 		assert(m_nCount == 0);
 		} ;
 

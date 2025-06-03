@@ -77,56 +77,18 @@ extern  int     fControlC;
 PUCHAR  UserRegs[10] = {0};
 
 
-ULONG   GetRegValue(ULONG);
-ULONG   GetRegFlagValue(ULONG);
-BOOLEAN UserRegTest(ULONG);
-BOOLEAN NeedUpper(ULONG, PCONTEXT);
+BOOL UserRegTest(ULONG);
+BOOL NeedUpper(ULONGLONG);
 
-PCONTEXT GetRegContext(void);
-void    QuadElementToInt(ULONG, PCONTEXT, PCONTEXT);
-void    SetRegValue(ULONG, ULONG);
-void    SetRegFlagValue(ULONG, ULONG);
-ULONG   GetRegName(void);
-ULONG   GetRegString(PUCHAR);
-void    GetRegPCValue(PADDR);
-PADDR   GetRegFPValue(void);
-void    SetRegPCValue(PADDR);
-void    OutputAllRegs(void);
-void    OutputOneReg(ULONG);
 void    OutputHelp(void);
 #ifdef  KERNEL
-void    ChangeKdRegContext(PVOID);
+void    ChangeKdRegContext(PVOID, PVOID);
 void    UpdateFirCache(PADDR);
 void    InitFirCache(ULONG, PUCHAR);
-ULONG   ReadCachedMemory(PADDR, PUCHAR, ULONG);
-void    WriteCachedMemory(PADDR, PUCHAR, ULONG);
-#else
-BOOL    AlphaSetThreadContext(HANDLE, PCONTEXT);
-BOOL    AlphaGetThreadContext(HANDLE, PCONTEXT);
 #endif
-void    MoveIntContextToQuad(PCONTEXT);
-void    MoveQuadContextToInt(PCONTEXT);
 void    ClearTraceFlag(void);
 void    SetTraceFlag(void);
 PUCHAR RegNameFromIndex(ULONG);
-
-//
-// This file is only accessed for alpha debugging.
-// Use Rtl routine if running from MIPS or 386
-// otherwise, quad/long conversion is automatic.
-//
-
-#ifdef _M_MRX000
-#define Convert(li, ul) li = RtlConvertLongToLargeInteger((LONG)(ul))
-
-#else
-#ifdef _M_IX86
-#define Convert(li, ul) li = RtlConvertLongToLargeInteger((LONG)(ul))
-
-#else   // ALPHA-hosted
-#define Convert(li, ul) li = (LONG)ul
-#endif
-#endif
 
 //
 // This is the length of an instruction, and the instruction
@@ -237,9 +199,12 @@ struct SubReg subregname[] = {
 *
 *************************************************************************/
 
-BOOLEAN UserRegTest (ULONG index)
+BOOL
+UserRegTest (
+    ULONG index
+    )
 {
-    return (BOOLEAN)(index >= PREGU0 && index <= PREGU12);
+    return (index >= PREGU0 && index <= PREGU12);
 }
 
 /*** GetRegContext - return register context pointer
@@ -247,9 +212,6 @@ BOOLEAN UserRegTest (ULONG index)
 *   Purpose:
 *       Return the pointer to the current register context.
 *       For kernel debugging, ensure the context is read.
-*
-*       The CONTEXT we get from the kernel is QUAD-based;
-*       we convert to _PORTABLE_32BIT_CONTEXT
 *
 *   Input:
 *       None.
@@ -265,17 +227,13 @@ PCONTEXT GetRegContext (void)
     NTSTATUS NtStatus;
 
     if (contextState == CONTEXTFIR) {
-        NtStatus = DbgKdGetContext(NtsdCurrentProcessor, &RegisterContext);
-        if (!NT_SUCCESS(NtStatus)) {
+        if (!DbgGetThreadContext(NtsdCurrentProcessor, &RegisterContext)) {
             dprintf("DbgKdGetContext failed\n");
             exit(1);
-            }
+        }
         contextState = CONTEXTVALID;
 
-
-        MoveQuadContextToInt(&RegisterContext);
-
-      }
+  }
 
 #if 0
     if (fVerboseOutput) {
@@ -289,77 +247,6 @@ PCONTEXT GetRegContext (void)
 
     return &RegisterContext;
 }
-
-/*** QuadElementToInt - move values from QuadContext to RegisterContext
-*
-*       Purpose:
-*               To move values from the quad context Structure to the
-*               long context structure
-*               If the top 32 bits are not just a sign extension,
-*               you can tell by looking at HighFieldName.
-*
-*       Input:
-*               index - into the sundry context structures
-*               lc    - ptr to the 32BIT context structure
-*               qc    - ptr to the QUAD/LARGE_INTEGER context structure
-*
-*       Output:
-*               none
-*
-***************************************************************/
-
-void
-QuadElementToInt(
-    ULONG index,
-    PCONTEXT qc,
-    PCONTEXT lc)
-{
-    PULONG PLc, PHc;       // Item in Register and HighPart Contexts
-    PLARGE_INTEGER PQc;    // Item in Quad Context
-
-    PLc = &lc->FltF0 + index;
-    PHc = &lc->HighFltF0 + index;
-
-    PQc = ((PLARGE_INTEGER)(&qc->FltF0 + (2*index)));
-
-    *PLc = PQc->LowPart;
-    *PHc = PQc->HighPart;
-}
-
-/*** IntElementToQuad - move values from a long to quad context
-*
-*       Purpose:
-*               To move values from the int context Structure to the
-*               quad context structure
-*
-*       Input:
-*               index - into the sundry context structures
-*               lc    - ptr to the ULONG context structure
-*               qc    - ptr to the QUAD/LARGE_INTEGER context structure
-*
-*       Output:
-*               none
-*
-***************************************************************/
-
-void
-IntElementToQuad(
-         ULONG index,
-         PCONTEXT lc,
-         PCONTEXT qc)
-{
-        PULONG PLc, PHc;       // Item in Register and HighPart Contexts
-        PLARGE_INTEGER PQc;    // Item in Quad Context
-
-        PLc = &lc->FltF0 + index;
-        PHc = &lc->HighFltF0 + index;
-        PQc = ((PLARGE_INTEGER)(&qc->FltF0 + (2*index)));
-
-        PQc->LowPart = *PLc;
-        PQc->HighPart = *PHc;
-}
-
-
 
 /*** GetRegFlagValue - get register or flag value
 *
@@ -377,43 +264,35 @@ IntElementToQuad(
 
 *************************************************************************/
 
-ULONG GetRegFlagValue (ULONG regnum)
+ULONGLONG
+GetRegFlagValue (
+    ULONG regnum
+    )
 {
-    ULONG value;
+    ULONGLONG value;
 
-    if (regnum < FLAGBASE || regnum >= PREGBASE)
+    if (regnum < FLAGBASE || regnum >= PREGBASE) {
         value = GetRegValue(regnum);
-    else {
+    } else {
         regnum -= FLAGBASE;
         value = GetRegValue(subregname[regnum].regindex);
         value = (value >> subregname[regnum].shift) & subregname[regnum].mask;
-        }
+    }
     return value;
 }
 
-BOOLEAN NeedUpper(ULONG index, PCONTEXT context)
+BOOL
+NeedUpper(
+    ULONGLONG value
+    )
 {
-    ULONG LowPart, HighPart;
-    LowPart = *(&context->FltF0 + index);
-    HighPart = *(&context->HighFltF0 + index);
-
     //
     // if the high bit of the low part is set, then the
     // high part must be all ones, else it must be zero.
     //
-    if (LowPart & (1<<31) ) {
 
-        if (HighPart != 0xffffffff)
-            return TRUE;
-        else
-            return FALSE;
-    } else {
-
-        if (HighPart != 0)
-            return TRUE;
-        else
-            return FALSE;
-    }
+    return ( ((value & 0xffffffff80000000L) != 0xffffffff80000000L) &&
+         (((value & 0x80000000L) != 0) || ((value & 0xffffffff00000000L) != 0)) );
 }
 
 /*** GetRegValue - get register value
@@ -430,7 +309,10 @@ BOOLEAN NeedUpper(ULONG index, PCONTEXT context)
 *
 *************************************************************************/
 
-ULONG GetRegValue (ULONG regnum)
+ULONGLONG
+GetRegValue (
+    ULONG regnum
+    )
 {
 
     if (regnum >= PREGBASE) {
@@ -458,7 +340,7 @@ ULONG GetRegValue (ULONG regnum)
             case PREGU10:
             case PREGU11:
             case PREGU12:
-                return (ULONG)UserRegs[regnum - PREGU0];
+                return (LONG)UserRegs[regnum - PREGU0];
             }
         }
 
@@ -471,17 +353,6 @@ ULONG GetRegValue (ULONG regnum)
     return *(&RegisterContext.FltF0 + regnum);
 }
 
-void GetQuadRegValue(ULONG regnum, PLARGE_INTEGER pli)
-{
-#ifdef  KERNEL
-    if (regnum != REGFIR && contextState == CONTEXTFIR) {
-        (VOID) GetRegContext();
-    }
-#endif
-    pli->LowPart  = *((PULONG)&RegisterContext.FltF0     + regnum);
-    pli->HighPart = *((PULONG)&RegisterContext.HighFltF0 + regnum);
-}
-
 void
 GetFloatingPointRegValue(ULONG regnum, PCONVERTED_DOUBLE dv)
 {
@@ -490,8 +361,8 @@ GetFloatingPointRegValue(ULONG regnum, PCONVERTED_DOUBLE dv)
         (VOID) GetRegContext();
     }
 #endif
-    dv->li.LowPart  = *((PULONG)&RegisterContext.FltF0     + regnum);
-    dv->li.HighPart = *((PULONG)&RegisterContext.HighFltF0 + regnum);
+    dv->li.LowPart  = (ULONG)(*((PULONGLONG)&RegisterContext.FltF0 + regnum) & 0xffffffff);
+    dv->li.HighPart = (ULONG)(*((PULONGLONG)&RegisterContext.FltF0 + regnum) >> 32);
 
 }
 
@@ -518,7 +389,10 @@ GetFloatingPointRegValue(ULONG regnum, PCONVERTED_DOUBLE dv)
 *
 ******************************************************************/
 
-ULONG GetIntRegNumber (ULONG index)
+ULONG
+GetIntRegNumber (
+    ULONG index
+    )
 {
 /*
         if (index == 26) {
@@ -557,10 +431,14 @@ ULONG GetIntRegNumber (ULONG index)
 *
 *************************************************************************/
 
-void SetRegFlagValue (ULONG regnum, ULONG regvalue)
+VOID
+SetRegFlagValue (
+    ULONG regnum,
+    LONGLONG regvalue
+    )
 {
     ULONG   regindex;
-    ULONG   newvalue;
+    ULONGLONG   newvalue;
     PUCHAR  szValue;
     ULONG   index;
 
@@ -573,15 +451,18 @@ void SetRegFlagValue (ULONG regnum, ULONG regvalue)
         szValue = (PUCHAR)regvalue;
         index = 0L;
 
-        while (szValue[index] >= ' ')
+        while (szValue[index] >= ' ') {
             index++;
+            }
         szValue[index] = 0;
-        if (szValue = UserRegs[regnum - PREGU0])
+        if (szValue = UserRegs[regnum - PREGU0]) {
             free(szValue);
+            }
         szValue = UserRegs[regnum - PREGU0] =
                                 malloc(strlen((PUCHAR)regvalue) + 1);
-        if (szValue)
+        if (szValue) {
             strcpy(szValue, (PUCHAR)regvalue);
+            }
         }
 
     else if (regnum < FLAGBASE) {
@@ -589,11 +470,12 @@ void SetRegFlagValue (ULONG regnum, ULONG regvalue)
         }
     else if (regnum < PREGBASE) {
         regnum -= FLAGBASE;
-        if (regvalue > subregname[regnum].mask)
+        if (regvalue > subregname[regnum].mask) {
             error(OVERFLOW);
+            }
         regindex = subregname[regnum].regindex;
         newvalue = GetRegValue(regindex) &              // old value
-             (~(subregname[regnum].mask << subregname[regnum].shift)) |
+             (~((LONGLONG)subregname[regnum].mask << subregname[regnum].shift)) |
              (regvalue << subregname[regnum].shift);    // or in the new
         SetRegValue(regindex, newvalue);
         }
@@ -614,15 +496,20 @@ void SetRegFlagValue (ULONG regnum, ULONG regvalue)
 *
 *************************************************************************/
 
-void SetRegValue (ULONG regnum, ULONG regvalue)
+VOID
+SetRegValue (
+    ULONG regnum,
+    LONGLONG regvalue
+    )
 {
 
 #ifdef  KERNEL
     UCHAR   fUpdateCache = FALSE;
 
-    if (regnum != REGFIR || regvalue != RegisterContext.Fir) {
-        if (regnum == REGFIR)
+    if (regnum != REGFIR || (ULONGLONG)regvalue != RegisterContext.Fir) {
+        if (regnum == REGFIR) {
             fUpdateCache = TRUE;
+        }
         if (contextState == CONTEXTFIR) {
             (VOID) GetRegContext();
         }
@@ -630,14 +517,6 @@ void SetRegValue (ULONG regnum, ULONG regvalue)
     }
 #endif
     *(&RegisterContext.FltF0 + regnum) = regvalue;
-
-    //
-    // Sign extend the new value in the _PORTABLE_32BIT
-    // context structure
-    //
-
-    *(&RegisterContext.HighFltF0 + regnum) =
-         (regvalue & (1 << 31)) ?  0xffffffff : 0;
 
 #ifdef  KERNEL
     if (fUpdateCache) {
@@ -685,7 +564,10 @@ ULONG GetRegName (void)
     return GetRegString(szregname);
 }
 
-ULONG GetRegString (PUCHAR pszString)
+ULONG
+GetRegString (
+    PUCHAR pszString
+    )
 {
     ULONG   count;
 
@@ -695,24 +577,34 @@ ULONG GetRegString (PUCHAR pszString)
     return 0xffffffff;
 }
 
-void GetRegPCValue (PADDR Address)
+VOID
+GetRegPCValue (
+    PADDR Address
+    )
 {
 
-    ADDR32(Address, GetRegValue(REGFIR));
+    ADDR32(Address, (ULONG)GetRegValue(REGFIR));
     return;
 }
 
-PADDR GetRegFPValue (void)
+PADDR
+GetRegFPValue (
+    VOID
+    )
 {
     static ADDR addrFP;
 
-    ADDR32(&addrFP, GetRegValue(FP_REG));
+    ADDR32(&addrFP, (ULONG)GetRegValue(FP_REG));
     return &addrFP;
 }
 
-void SetRegPCValue (PADDR paddr)
+VOID
+SetRegPCValue (
+    PADDR paddr
+    )
 {
-    SetRegValue(REGFIR, Flat(*paddr));
+    // sign extend the address!
+    SetRegValue(REGFIR, (LONG)Flat(*paddr));
 }
 
 /*** OutputAllRegs - output all registers and present instruction
@@ -733,55 +625,66 @@ void SetRegPCValue (PADDR paddr)
 *
 *************************************************************************/
 
-void OutputAllRegs(void)
+VOID
+OutputAllRegs(
+    BOOL Show64
+    )
 {
     int     regindex;
     int     regnumber;
-    LARGE_INTEGER qv;
+    ULONGLONG regvalue;
 
-
-    for (regindex = 0; regindex < 32; regindex++) {
+    for (regindex = 0; regindex < 34; regindex++) {
 
         regnumber = GetIntRegNumber(regindex);
-        dprintf("%4s=%08lx", pszReg[regnumber],
-                         GetRegValue(regnumber));
+        regvalue = GetRegValue(regnumber);
 
-        if (NeedUpper(regnumber, &RegisterContext))
-                dprintf("*");
-        else    dprintf(" ");
+        if ( Show64 || regindex == 32 || regindex == 33) {
 
-        if (regindex % 4 == 3)
+            dprintf("%4s=%08lx %08lx",
+                    pszReg[regnumber],
+                    (ULONG)(regvalue >> 32),
+                    (ULONG)(regvalue & 0xffffffff));
+            if (regindex % 3 == 2) {
                 dprintf("\n");
-        else    dprintf("  ");
+            } else {
+                dprintf(" ");
+            }
+
+        } else {
+
+            dprintf("%4s=%08lx%c",
+                    pszReg[regnumber],
+                    (ULONG)(regvalue & 0xffffffff),
+                    NeedUpper(regvalue) ? '*' : ' ' );
+            if (regindex % 5 == 4) {
+                dprintf("\n");
+            } else {
+                dprintf(" ");
+            }
+
+        }
     }
+
+
     //
     // print out the fpcr as 64 bits regardless,
     // and the FIR and Fpcr's - assuming we know they follow
     // the floating and integer registers.
     //
 
-    regnumber = GetIntRegNumber(32);    // Fpcr
-    GetQuadRegValue(regnumber, &qv);
-    dprintf("%4s=%08lx%08lx\t", pszReg[regnumber],
-                                   qv.HighPart, qv.LowPart);
-
-    regnumber = GetIntRegNumber(33);    // Soft Fpcr
-    GetQuadRegValue(regnumber, &qv);
-    dprintf("%4s=%08lx%08lx\t", pszReg[regnumber],
-                                   qv.HighPart, qv.LowPart);
-
     regnumber = GetIntRegNumber(34);    // Fir
     dprintf("%4s=%08lx\n", pszReg[regnumber],
-                           GetRegValue(regnumber));
+                           (ULONG)GetRegValue(regnumber));
 
     regnumber = GetIntRegNumber(35);    // Psr
     dprintf("%4s=%08lx\n", pszReg[regnumber],
-                           GetRegValue(regnumber));
+                           (ULONG)GetRegValue(regnumber));
 
     dprintf("mode=%1lx ie=%1lx irql=%1lx \n",
-                GetRegFlagValue(FLAGMODE),
-                GetRegFlagValue(FLAGIE),
-                GetRegFlagValue(FLAGIRQL));
+                (ULONG)GetRegFlagValue(FLAGMODE),
+                (ULONG)GetRegFlagValue(FLAGIE),
+                (ULONG)GetRegFlagValue(FLAGIRQL));
 }
 
 /*** OutputOneReg - output one register value
@@ -799,25 +702,22 @@ void OutputAllRegs(void)
 *
 *************************************************************************/
 
-void OutputOneReg (ULONG regnum)
+VOID
+OutputOneReg (
+    ULONG regnum,
+    BOOL Show64
+    )
 {
-    ULONG value;
+    ULONGLONG value;
 
     value = GetRegFlagValue(regnum);
-    if (regnum < FLAGBASE) {
-        dprintf("%08lx\n", value);
-        if (NeedUpper(regnum, &RegisterContext))
-                dprintf("*");
-        }
-    else
-        dprintf("%lx\n", value);
-}
-
-void pause (void)
-{
-    UCHAR kdata[16];
-
-    NtsdPrompt("Press <enter> to continue.", kdata, 4);
+    if (regnum >= FLAGBASE) {
+        dprintf("%lx\n", (ULONG)value);
+    } else if (Show64) {
+        dprintf("%08lx %08lx\n", (ULONG)(value >> 32), (ULONG)(value & 0xffffffff));
+    } else {
+        dprintf("%08lx%s\n", (ULONG)value, NeedUpper(value)?"*":"");
+    }
 }
 
 /*** OutputHelp - output help text
@@ -833,7 +733,10 @@ void pause (void)
 *
 *************************************************************************/
 
-void OutputHelp (void)
+VOID
+OutputHelp (
+    VOID
+    )
 {
 #ifndef KERNEL
     dprintf("A [<address>] - assemble              P[R] [=<addr>] [<value>] - program step\n");
@@ -859,7 +762,6 @@ void OutputHelp (void)
     dprintf("|#<command> - default process override\n");
     dprintf("? <expr> - display expression\n");
     dprintf("#<string> [address] - search for a string in the dissasembly\n");
-    pause();
     dprintf("$< <filename> - take input from a command file\n");
     dprintf("\n");
     dprintf("<expr> ops: + - * / not by wo dw poi mod(%%) and(&) xor(^) or(|) hi low\n");
@@ -897,7 +799,6 @@ void OutputHelp (void)
     dprintf("\n");
     dprintf("<expr> ops: + - * / not by wo dw poi mod(%%) and(&) xor(^) or(|) hi low\n");
     dprintf("       operands: number in current radix, public symbol, <reg>\n");
-    pause();
     dprintf("<type> : B (byte), W (word), D (doubleword), A (ascii), T (translation buffer)\n");
     dprintf("         Q (quadword), U (unicode), L (list), O (object)\n");
     dprintf("<pattern> : [(nt | <dll-name>)!]<var-name> (<var-name> can include ? and *)\n");
@@ -919,14 +820,18 @@ void SetTraceFlag (void)
 }
 
 #ifdef  KERNEL
-void ChangeKdRegContext(PVOID firAddr)
+VOID
+ChangeKdRegContext(
+    PVOID firAddr,
+    PVOID unused
+    )
 {
     NTSTATUS NtStatus;
 
     if (firAddr) {                      //  initial context
         contextState = CONTEXTFIR;
         RegisterContext.Fir = (ULONG)firAddr;
-        }
+    }
     else if (contextState == CONTEXTDIRTY) {     //  write final context
 
 #if 0
@@ -935,13 +840,12 @@ void ChangeKdRegContext(PVOID firAddr)
         }
 #endif
 
-        MoveIntContextToQuad(&RegisterContext);
         NtStatus = DbgKdSetContext(NtsdCurrentProcessor, &RegisterContext);
         if (!NT_SUCCESS(NtStatus)) {
             dprintf("DbgKdSetContext failed\n");
             exit(1);
-            }
         }
+    }
 }
 #endif
 
@@ -952,8 +856,9 @@ void InitFirCache (ULONG count, PUCHAR pstream)
 
     pFirCache =  bCacheValid;
     cbCacheValid = count;
-    while (count--)
+    while (count--) {
         *pFirCache++ = *pstream++;
+    }
 }
 #endif
 
@@ -966,7 +871,12 @@ void UpdateFirCache(PADDR pcvalue)
 #endif
 
 #ifdef  KERNEL
-ULONG ReadCachedMemory (PADDR paddr, PUCHAR pvalue, ULONG length)
+ULONG
+ReadCachedMemory (
+    PADDR paddr,
+    PUCHAR pvalue,
+    ULONG length
+    )
 {
     ULONG   cBytesRead = 0;
     PUCHAR  pFirCache;
@@ -974,24 +884,31 @@ ULONG ReadCachedMemory (PADDR paddr, PUCHAR pvalue, ULONG length)
     if (Flat(*paddr) == RegisterContext.Fir && length <= 16) {
         cBytesRead = min(length, cbCacheValid);
         pFirCache =  bCacheValid;
-        while (length--)
+        while (length--) {
             *pvalue++ = *pFirCache++;
         }
+    }
     return cBytesRead;
 }
 #endif
 
 #ifdef  KERNEL
-void WriteCachedMemory (PADDR paddr, PUCHAR pvalue, ULONG length)
+VOID
+WriteCachedMemory (
+    PADDR paddr,
+    PUCHAR pvalue,
+    ULONG length
+    )
 {
     ULONG   index;
 
-    for (index = 0; index < cbCacheValid; index++)
+    for (index = 0; index < cbCacheValid; index++) {
         if (RegisterContext.Fir + index >= Off(*paddr) &&
                         RegisterContext.Fir + index < Off(*paddr) + length) {
             bCacheValid[index] =
                             *(pvalue + RegisterContext.Fir - Off(*paddr) + index);
-            }
+        }
+    }
 }
 #endif
 
@@ -1020,105 +937,6 @@ RestoreProcessorState(
 
 #define LOCAL_GET_REG(r) (*(&ContextRecord->FltF0 + r))
 
-PIMAGE_FUNCTION_ENTRY
-LookupFunctionEntry (
-    IN ULONG ControlPc
-    )
-
-/*++
-
-Routine Description:
-
-    This function searches the currently active function tables for an entry
-    that corresponds to the specified PC value.
-
-Arguments:
-
-    ControlPc - Supplies the address of an instruction within the specified
-        function.
-
-Return Value:
-
-    If there is no entry in the function table for the specified PC, then
-    NULL is returned. Otherwise, the address of the function table entry
-    that corresponds to the specified PC is returned.
-
---*/
-
-{
-
-    PIMAGE_FUNCTION_ENTRY  FunctionEntry;
-    PIMAGE_FUNCTION_ENTRY  FunctionTable;
-    LONG                   High;
-    LONG                   Low;
-    LONG                   Middle;
-    PIMAGE_INFO            pImage;
-
-
-
-    //
-    // locate the image in the image table
-    //
-    pImage = GetImageInfoFromOffset( ControlPc );
-    if (!pImage) {
-        return NULL;
-    }
-
-    //
-    // if symbols have not been loaded then do so
-    //
-    if (!pImage->fSymbolsLoaded) {
-        if (EnsureOffsetSymbolsLoaded( ControlPc )) {
-            return NULL;
-        }
-    }
-
-    if (!pImage->FunctionTable) {
-        return NULL;
-    }
-
-    //
-    // Initialize search indicies.
-    //
-
-    FunctionTable = pImage->FunctionTable;
-    Low = 0;
-    High = pImage->NumberOfFunctions - 1;
-
-    //
-    // Perform binary search on the function table for a function table
-    // entry that subsumes the specified PC.
-    //
-
-    while (High >= Low) {
-
-        //
-        // Compute next probe index and test entry. If the specified PC
-        // is greater than of equal to the beginning address and less
-        // than the ending address of the function table entry, then
-        // return the address of the function table entry. Otherwise,
-        // continue the search.
-        //
-
-        Middle = (Low + High) >> 1;
-        FunctionEntry = &FunctionTable[Middle];
-        if (ControlPc < FunctionEntry->StartingAddress) {
-            High = Middle - 1;
-
-        } else if (ControlPc >= FunctionEntry->EndingAddress) {
-            Low = Middle + 1;
-
-        } else {
-            return FunctionEntry;
-        }
-    }
-
-    //
-    // A function table entry for the specified PC was not found.
-    //
-    return NULL;
-}
-
 #define _RtlpDebugDisassemble(ControlPc, ContextRecord)
 #define _RtlpFoundTrapFrame(NextPc)
 
@@ -1139,7 +957,10 @@ Arguments:
 --*/
 
 BOOLEAN
-LocalDoMemoryRead(LONG address, PULONG pvalue)
+LocalDoMemoryRead(
+    LONG address,
+    PULONG pvalue
+    )
 {
     ADDR addrStruct;
 
@@ -1160,8 +981,9 @@ PUCHAR RegNameFromIndex (ULONG index)
 void
 dumpQuadContext(PCONTEXT qc)
 {
-    if(fVerboseOutput == 0)
+    if(fVerboseOutput == 0) {
         return;
+    }
     dprintf("QuadContext at %08x\n", qc);
     dprintf("fir %08Lx\n", qc->Fir);
     dprintf("ra %08Lx v0 %08Lx sp %08Lx fp %08Lx\n",
@@ -1173,248 +995,15 @@ dumpQuadContext(PCONTEXT qc)
 void
 dumpIntContext(PCONTEXT lc)
 {
-    if(fVerboseOutput == 0)
+    if(fVerboseOutput == 0) {
         return;
+    }
     dprintf("LongContext at %08x\n", lc);
     dprintf("fir %08x\n", lc->Fir);
     dprintf("ra %08x v0 %08x sp %08x fp %08x\n",
         lc->IntRa, lc->IntV0, lc->IntSp, lc->IntFp);
     dprintf("a0 %08x a1 %08x a2 %08x a3 %08x\n",
         lc->IntA0, lc->IntA1, lc->IntA2, lc->IntA3);
-}
-
-#ifndef KERNEL
-/*** AlphaGetThreadContext - reads in Register Context from RTL
-*
-*   Purpose:
-*       Get the register context from the RTL, and then
-*       convert to _PORTABLE_32BIT_CONTEXT format
-*
-*   Input:
-*       hThread - thread handle
-*       PRegContext - pointer to a register context
-*
-*   Returns:
-*       Pointer to the context.
-*
-*************************************************************************/
-
-BOOL
-AlphaGetThreadContext(
-    HANDLE      hThread,
-    PCONTEXT    PRegContext
-    )
-{
-    BOOL Result;
-
-    //
-    // The flags are currently positioned for a PORTABLE_32BIT
-    // structure - copy to where the kernel expects them
-    //
-
-    PRegContext->_QUAD_FLAGS_OFFSET = PRegContext->ContextFlags;
-    Result = GetThreadContext(hThread, PRegContext);
-    if (!Result) {
-        dprintf("NTSD: GetThreadContext failed\n");
-    } else {
-        MoveQuadContextToInt(PRegContext);
-    }
-    return Result;
-}
-
-/*** AlphaSetThreadContext - sets the register context for a thread
-*
-*   Purpose:
-*       Get the register context from the RTL, and then
-*       convert to 32 bit values.
-*
-*   Input:
-*       hThread - thread handle
-*       PRegContext - pointer to a register context
-*
-*   Returns:
-*       Pointer to the context.
-*
-*************************************************************************/
-
-AlphaSetThreadContext(
-    HANDLE      hThread,
-    PCONTEXT    PRegContext
-    )
-{
-    //
-    // Convert _PORTABLE_32BIT_CONTEXT to regular
-    //
-
-#if 0
-    if (fVerboseOutput) {
-        dprintf("AlphaSetThreadContext\n");
-    }
-#endif
-
-    MoveIntContextToQuad(PRegContext);
-
-    return(SetThreadContext(hThread, &RegisterContext));
-}
-
-#endif
-/*** MoveQuadContextToInt
-*
-*   Purpose:
-*       Transforms the contents of a context structure containing
-*       QUAD (on ALPHA) or LARGE_INTEGER (elsewhere) values to
-*       one containing two sets of 4-byte values.
-*
-*   Input:
-*       qc      - pointer to the quad context
-*
-*   Output:
-*       qc      - transformed into a _PORTABLE_32BIT_CONTEXT
-*
-*   Returns:
-*       none
-*
-*************************************************************************/
-void
-MoveQuadContextToInt(PCONTEXT qc)       // UQUAD context
-{
-    CONTEXT localcontext;
-    PCONTEXT lc = &localcontext;
-    ULONG index;
-
-    //
-    // we need to check the context flags, but they aren't
-    // in the "ContextFlags" location yet:
-    //
-    assert(!(qc->_QUAD_FLAGS_OFFSET & CONTEXT_PORTABLE_32BIT));
-    //
-    // copy the quad elements to the two halfs of the ULONG context
-    // This routine assumes that the first 67 elements of the
-    // context structure are quads, and the ordering of the struct.
-    //
-
-    for (index = 0; index < 67; index++)  {
-//
-// MBH - this should be done in-line; a good compiler would,
-// but I could also just put it here.
-//
-         QuadElementToInt(index, qc, lc);
-    }
-
-    //
-    // The psr and context flags are 32-bit values in both
-    // forms of the context structure, so transfer here.
-    //
-
-    lc->Psr = qc->_QUAD_PSR_OFFSET;
-    lc->ContextFlags = qc->_QUAD_FLAGS_OFFSET;
-
-    lc->ContextFlags |= CONTEXT_PORTABLE_32BIT;
-
-    //
-    // The ULONG context is *lc; copy it back to the quad
-    //
-
-    *qc = *lc;
-    return;
-}
-
-/*** MoveIntContextToQuad -
-*
-*   Purpose:
-*       Transforms the contents of a context structure containing
-*       ULONG values to one containing 8-byte values.  These
-*       will be QUADs on ALPHA, LARGE_INTEGERS elsewhere.
-*
-*   Input:
-*       qc - pointer to the _PORTABLE_32BIT_CONTEXT
-*
-*   Returns:
-*       none
-*
-*   Note that Convert is defined as () for ALPHA, and as
-*       RtlConvertLongToLargeInteger otherwise
-*
-*************************************************************************/
-void
-MoveIntContextToQuad(PCONTEXT lc)
-{
-    CONTEXT localcontext;
-    PCONTEXT qc = &localcontext;
-    ULONG index;
-
-    assert(lc->ContextFlags & CONTEXT_PORTABLE_32BIT);
-//    if (fVerboseOutput) {
-//       dprintf("MoveIntContextToQuad\n");
-//    }
-
-    //
-    // copy the int elements from the two halfs of the ULONG context
-    // This routine assumes that the first 67 elements of the
-    // context structure are quads, and the ordering of the struct.
-    //
-
-    for (index = 0; index < 67; index++)  {
-         IntElementToQuad(index, lc, qc);
-    }
-
-    //
-    // The psr and context flags are 32-bit values in both
-    // forms of the context structure, so transfer here.
-    //
-
-    qc->_QUAD_PSR_OFFSET = lc->Psr;
-    qc->_QUAD_FLAGS_OFFSET = lc->ContextFlags;
-
-    qc->_QUAD_FLAGS_OFFSET ^= CONTEXT_PORTABLE_32BIT;
-
-    //
-    // The quad context is *qc; copy it back to lc for returning
-    //
-
-    *lc = *qc;
-    return;
-}
-
-void
-printQuadReg()
-{
-    LARGE_INTEGER qv;   // quad value
-    ULONG i;
-
-    //
-    // Get past L, onto register name
-    //
-    pchCommand++;
-    (void)PeekChar();
-
-    if (*pchCommand == ';' || *pchCommand == '\0') {
-        //
-        // Print them all out
-        //
-        ULONG i;
-        for (i = 32 ; i < 48; i ++) {
-
-            GetQuadRegValue(i, &qv);
-            dprintf("%4s = %08lx %08lx\t",
-                     RegNameFromIndex(i),
-                     qv.HighPart, qv.LowPart);
-
-            GetQuadRegValue(i+16, &qv);
-            dprintf("%4s = %08lx %08lx\n",
-                     RegNameFromIndex(i+16),
-                     qv.HighPart, qv.LowPart);
-        }
-        return;
-    }
-
-    if ((i = GetRegName()) == -1)
-        error(SYNTAX);
-    GetQuadRegValue(i, &qv);
-    dprintf("%4s = %08lx %08lx\n", RegNameFromIndex(i),
-        qv.HighPart, qv.LowPart);
-    return;
-
 }
 
 void
@@ -1458,4 +1047,31 @@ printFloatReg()
     dprintf("%s = %26.18e      %08lx %08lx\n",
            RegNameFromIndex(i), dv.d, dv.li.HighPart, dv.li.LowPart);
     return;
+}
+
+BOOL
+DbgGetThreadContext(
+    THREADORPROCESSOR TorP,
+    PCONTEXT Context
+    )
+{
+#ifdef KERNEL
+    return NT_SUCCESS(DbgKdGetContext(TorP, Context));
+#else  // KERNEL
+    return GetThreadContext(TorP, Context);
+#endif // KERNEL
+}
+
+
+BOOL
+DbgSetThreadContext(
+    THREADORPROCESSOR TorP,
+    PCONTEXT Context
+    )
+{
+#ifdef KERNEL
+    return NT_SUCCESS(DbgKdSetContext(TorP, Context));
+#else  // KERNEL
+    return SetThreadContext(TorP, Context);
+#endif // KERNEL
 }

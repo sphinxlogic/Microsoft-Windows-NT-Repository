@@ -73,9 +73,9 @@ int cBanOut;            /* number to output; will be > 0 */
     szUsrShort[cchUsrShort] = '\0' ;
     strncpy(szUsrShort, szUsr, cchUsrShort);
 
-    getcwd(szPath, sizeof(szPath));
-    strupr(szPath);
-    strupr(szFNShort);
+    _getcwd(szPath, sizeof(szPath));
+    _strupr(szPath);
+    _strupr(szFNShort);
 
     SzDateSzTime(szDate, szTime);
 
@@ -642,15 +642,15 @@ char *szGiven;
         }
     else if ((pfile = fopen(szGiven, szROBin)) != NULL)
         {
-        struct stat st;
+        struct _stat st;
 
         /* The file has been opened, now lets construct a string that
          * tells us exactly what we opened...
          */
         rootpath (szGiven, szFFile);
-        strupr(szFFile);
+        _strupr(szFFile);
         FilenamX(szGiven, szFBase);
-        if (stat(szGiven, &st) == -1)
+        if (_stat(szGiven, &st) == -1)
                 Fatal("file status not obtainable : [%s]", szGiven, NULL);
         strcpy(szFTime, ctime(&st.st_mtime));
         *(szFTime + strlen(szFTime) - 1) = '\0';
@@ -784,11 +784,11 @@ char *szGiven;
     if (fDelete && szGiven)
         {
         if (fSilent)
-            unlink(szGiven);
+            _unlink(szGiven);
         else
             {
             fprintf(stderr, "DELETING %s...", szGiven);
-            if (!unlink(szGiven))
+            if (!_unlink(szGiven))
                 fprintf(stderr, "OK\n");
             else
                 fprintf(stderr, "FAILED: file not deleted\n");

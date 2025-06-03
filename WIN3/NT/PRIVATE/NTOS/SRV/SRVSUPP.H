@@ -35,6 +35,7 @@ Revision History:
 
 #define DIRECTORY_SEPARATOR_CHAR ((UCHAR)(OBJ_NAME_PATH_SEPARATOR))
 #define UNICODE_DIR_SEPARATOR_CHAR ((WCHAR)(OBJ_NAME_PATH_SEPARATOR))
+#define RELATIVE_STREAM_INITIAL_CHAR ((UCHAR)':')
 
 #define IS_ANSI_PATH_SEPARATOR(character) \
             ( character == DIRECTORY_SEPARATOR_CHAR || character == '\0' )
@@ -60,18 +61,34 @@ Revision History:
                                FILE_WRITE_EA
 
 //
+// This type is used to determine the size of the largest directory query
+// information structure.
+//
+
+typedef union _SRV_QUERY_DIRECTORY_INFORMATION {
+    FILE_DIRECTORY_INFORMATION Directory;
+    FILE_FULL_DIR_INFORMATION FullDir;
+    FILE_BOTH_DIR_INFORMATION BothDir;
+    FILE_NAMES_INFORMATION Names;
+    FILE_OLE_DIR_INFORMATION OleDir;
+} SRV_QUERY_DIRECTORY_INFORMATION, *PSRV_QUERY_DIRECTORY_INFORMATION;
+
+//
 // Type definition for the structure used by SrvQueryDirectoryFile
 // to do its work.  Calling routines must set up a buffer in nonpaged
-// pool with enough room for this structure + sizeof(FILE_DIRECTORY_INFORMATION)
-// + 256.
+// pool with enough room for this structure plus other things.  (See
+// MIN_SEARCH_BUFFER_SIZE.)
 //
 
 typedef struct _SRV_DIRECTORY_INFORMATION {
     HANDLE DirectoryHandle;
     PFILE_DIRECTORY_INFORMATION CurrentEntry;
     ULONG BufferLength;
-    BOOLEAN Wildcards;
-    BOOLEAN ErrorOnFileOpen;
+    struct {
+        BOOLEAN Wildcards : 1;
+        BOOLEAN ErrorOnFileOpen : 1;
+        BOOLEAN OnlySingleEntries : 1;
+    };
     LONG Buffer[1];
 } SRV_DIRECTORY_INFORMATION, *PSRV_DIRECTORY_INFORMATION;
 
@@ -103,7 +120,8 @@ typedef struct _SRV_EA_INFORMATION {
 
 typedef struct _DIRECTORY_CACHE {
     ULONG FileIndex;
-    CHAR FileName[11];
+    WCHAR UnicodeResumeName[ 12 ];
+    USHORT UnicodeResumeNameLength;
 } DIRECTORY_CACHE, *PDIRECTORY_CACHE;
 
 //
@@ -120,7 +138,7 @@ typedef struct _DIRECTORY_CACHE {
 //
 // An approximate formula for determining the size of the search buffer is:
 //
-// (maxCount+2) * (sizeof(FILE_DIRECTORY_INFORMATION)+13) +
+// (maxCount+2) * (sizeof(SRV_QUERY_DIRECTORY_INFORMATION)+13) +
 // sizeof(SRV_DIRECTORY_INFORMATION)
 //
 // where maxCount is the maximum number of files to return.  The +2 is
@@ -128,10 +146,25 @@ typedef struct _DIRECTORY_CACHE {
 // match the search attributes, and the +13 accounts for the size of
 // FAT filenames.
 //
+// Note that the minimum buffer size must include the following factors in
+// order to avoid the possibility of not even being able to hold one entry
+// with the longest legal filename:
+//
+//    sizeof(SRV_DIRECTORY_INFORMATION)
+//    sizeof(SRV_QUERY_DIRECTORY_INFORMATION) + (MAXIMUM_FILENAME_LENGTH * sizeof(WCHAR))
+//    sizeof(UNICODE_STRING) + (MAXIMUM_FILENAME_LENGTH * sizeof(WCHAR)) + 3
+//
+// The last factor is needed because SrvIssueQueryDirectoryRequest puts
+// the search filename at the end of the buffer.  (The +3 is necessary to
+// allow for aligning the UNICODE_STRING on a ULONG boundary.)
+//
 
 #define MAX_SEARCH_BUFFER_SIZE 4096
 #define MED_SEARCH_BUFFER_SIZE 2048
-#define MIN_SEARCH_BUFFER_SIZE 1024
+#define MIN_SEARCH_BUFFER_SIZE                                                                  \
+        (sizeof(SRV_DIRECTORY_INFORMATION) +                                                    \
+        (sizeof(SRV_QUERY_DIRECTORY_INFORMATION) + (MAXIMUM_FILENAME_LENGTH * sizeof(WCHAR))) + \
+        (sizeof(UNICODE_STRING) + (MAXIMUM_FILENAME_LENGTH * sizeof(WCHAR)) + 3))
 
 #define MAX_FILES_FOR_MED_SEARCH 20
 #define MAX_FILES_FOR_MIN_SEARCH 10
@@ -143,6 +176,13 @@ typedef struct _DIRECTORY_CACHE {
 
 #define MAX_FILES_FOR_MED_FIND2 16
 #define MAX_FILES_FOR_MIN_FIND2 8
+
+//
+// Macros to check context handles for equality and for NULLness
+//
+
+#define CONTEXT_EQUAL(x,y)  (((x).dwLower == (y).dwLower) && ((x).dwUpper == (y).dwUpper))
+#define CONTEXT_NULL(x)     (((x).dwLower == 0) && ((x).dwUpper == 0))
 
 
 //
@@ -157,9 +197,11 @@ SrvAllocateAndBuildPathName(
     OUT PUNICODE_STRING BuiltPath
     );
 
-BOOLEAN
+NTSTATUS
 SrvCanonicalizePathName(
     IN PWORK_CONTEXT WorkContext,
+    IN PSHARE Share OPTIONAL,
+    IN PUNICODE_STRING RelatedPath OPTIONAL,
     IN OUT PVOID Name,
     IN PCHAR LastValidLocation,
     IN BOOLEAN RemoveTrailingDots,
@@ -173,8 +215,14 @@ SrvCloseQueryDirectory(
     );
 
 NTSTATUS
-SrvCheckSearchAttributes(
+SrvCheckSearchAttributesForHandle(
     IN HANDLE FileHandle,
+    IN USHORT SmbSearchAttributes
+    );
+
+NTSTATUS SRVFASTCALL
+SrvCheckSearchAttributes(
+    IN USHORT FileAttributes,
     IN USHORT SmbSearchAttributes
     );
 
@@ -284,7 +332,8 @@ SrvMoveFile(
     IN PUSHORT SmbFlags,
     IN USHORT SmbSearchAttributes,
     IN BOOLEAN FailIfTargetIsDirectory,
-    IN BOOLEAN RenameOperation,
+    IN USHORT InformationLevel,
+    IN ULONG ClusterCount,
     IN PUNICODE_STRING Source,
     IN OUT PUNICODE_STRING Target
     );
@@ -303,6 +352,7 @@ SrvQueryDirectoryFile (
     IN BOOLEAN FilterLongNames,
     IN BOOLEAN FindWithBackupIntent,
     IN FILE_INFORMATION_CLASS FileInformationClass,
+    IN ULONG SearchStorageType,
     IN PUNICODE_STRING FilePathName,
     IN PULONG ResumeFileIndex OPTIONAL,
     IN USHORT SmbSearchAttributes,
@@ -331,6 +381,14 @@ SrvQueryInformationFile (
     );
 
 NTSTATUS
+SrvQueryInformationFileAbbreviated (
+    IN HANDLE FileHandle,
+    PFILE_OBJECT FileObject,
+    OUT PSRV_FILE_INFORMATION_ABBREVIATED SrvFileInformation,
+    IN SHARE_TYPE ShareType
+    );
+
+NTSTATUS
 SrvQueryNtInformationFile (
     IN HANDLE FileHandle,
     PFILE_OBJECT FileObject,
@@ -344,6 +402,14 @@ SrvQueryBasicAndStandardInformation(
     PFILE_OBJECT FileObject,
     PFILE_BASIC_INFORMATION FileBasicInfo,
     PFILE_STANDARD_INFORMATION FileStandardInfo OPTIONAL
+    );
+
+NTSTATUS
+SrvQueryNetworkOpenInformation(
+    IN HANDLE FileHandle,
+    IN PFILE_OBJECT FileObject OPTIONAL,
+    IN OUT PSRV_NETWORK_OPEN_INFORMATION SrvNetworkOpenInformation,
+    IN BOOLEAN QueryEaSize
     );
 
 VOID
@@ -419,7 +485,7 @@ SrvVerifyFidForRawWrite (
 PSEARCH
 SrvVerifySid (
     IN PWORK_CONTEXT WorkContext,
-    IN CSHORT Index,
+    IN USHORT Index,
     IN USHORT Sequence,
     IN PSRV_DIRECTORY_INFORMATION DirectoryInformation,
     IN CLONG BufferSize
@@ -441,7 +507,8 @@ NTSTATUS
 SrvVerifyUidAndTid (
     IN PWORK_CONTEXT WorkContext,
     OUT PSESSION *Session,
-    OUT PTREE_CONNECT *TreeConnect
+    OUT PTREE_CONNECT *TreeConnect,
+    IN SHARE_TYPE ShareType
     );
 
 NTSTATUS
@@ -458,11 +525,7 @@ SrvWildcardRename(
 
 NTSTATUS
 SrvValidateUser (
-#ifdef _CAIRO_
     OUT CtxtHandle *Token,
-#else // _CAIRO_
-    OUT PHANDLE Token,
-#endif // _CAIRO_
     IN PSESSION Session OPTIONAL,
     IN PCONNECTION Connection OPTIONAL,
     IN PUNICODE_STRING UserName OPTIONAL,
@@ -473,7 +536,6 @@ SrvValidateUser (
     OUT PUSHORT Action OPTIONAL
     );
 
-#ifdef _CAIRO_
 NTSTATUS
 SrvValidateBlob (
     IN PSESSION Session,
@@ -492,7 +554,28 @@ NTSTATUS
 AcquireLMCredentials (
     VOID
     );
-#endif // _CAIRO_
+
+BOOLEAN
+SrvIsAdmin(
+    CtxtHandle  Handle
+    );
+
+NTSTATUS
+SrvIsAllowedOnAdminShare(
+    IN PWORK_CONTEXT WorkContext,
+    IN PSHARE Share
+    );
+
+BOOLEAN
+SrvIsKerberosAvailable(
+    VOID
+    );
+
+NTSTATUS
+SrvCheckShareFileAccess(
+    IN PWORK_CONTEXT WorkContext,
+    IN ACCESS_MASK FileDesiredAccess
+    );
 
 //
 // Share handling routines.
@@ -508,6 +591,26 @@ SrvVerifyShare (
     OUT PNTSTATUS Status
     );
 
+VOID
+SrvRemoveShare(
+    PSHARE Share
+);
+
+VOID
+SrvAddShare(
+    PSHARE Share
+);
+
+NTSTATUS
+SrvShareEnumApiHandler (
+    IN PSERVER_REQUEST_PACKET Srp,
+    IN PVOID OutputBuffer,
+    IN ULONG BufferLength,
+    IN PENUM_FILTER_ROUTINE FilterRoutine,
+    IN PENUM_SIZE_ROUTINE SizeRoutine,
+    IN PENUM_FILL_ROUTINE FillRoutine
+    );
+
 //
 // Fat name routines.
 //
@@ -518,7 +621,7 @@ Srv8dot3ToUnicodeString (
     OUT PUNICODE_STRING OutputString
     );
 
-BOOLEAN
+BOOLEAN SRVFASTCALL
 SrvIsLegalFatName (
     IN PWSTR InputName,
     IN CLONG InputNameLength
@@ -711,7 +814,7 @@ SrvCompleteExecuteTransaction (
     IN SMB_TRANS_STATUS ResultStatus
     );
 
-VOID
+VOID SRVFASTCALL
 SrvRestartExecuteTransaction (
     IN OUT PWORK_CONTEXT WorkContext
     );
@@ -742,18 +845,34 @@ SrvXsRequest (
     );
 
 VOID
-SrvXsDisconnect(
-    ULONG NumberOfMessages
+SrvXsInformThreadDeath (
+    VOID
     );
 
+NTSTATUS
+SrvXsLSOperation (
+    IN PSESSION Session,
+    IN ULONG Type
+    );
+
+#ifdef  SRV_PNP_POWER
+VOID
+SrvXsPnpOperation(
+    IN BOOLEAN Bind,
+    IN ULONG   TransportIndex
+    );
+#endif
+
+VOID
+SrvXsDisconnect();
 
 //
 // Oplock support routines.
 //
 
-VOID
+VOID SRVFASTCALL
 SrvOplockBreakNotification (
-    IN PRFCB Rfcb
+    IN PWORK_CONTEXT WorkContext            // actually, a PRFCB
     );
 
 VOID
@@ -762,7 +881,7 @@ SrvFillOplockBreakRequest (
     IN PRFCB Rfcb
     );
 
-VOID
+VOID SRVFASTCALL
 SrvRestartOplockBreakSend(
     IN PWORK_CONTEXT WorkContext
     );
@@ -792,7 +911,7 @@ SrvSendOplockRequest(
     IN KIRQL OldIrql
     );
 
-VOID
+VOID SRVFASTCALL
 SrvCheckDeferredOpenOplockBreak(
     IN PWORK_CONTEXT WorkContext
     );
@@ -950,7 +1069,7 @@ SrvReleaseShareRootHandle(
 // SMB validation routine.
 //
 
-BOOLEAN
+BOOLEAN SRVFASTCALL
 SrvValidateSmb (
     IN PWORK_CONTEXT WorkContext
     );
@@ -972,6 +1091,7 @@ SrvCheckForSavedError(
 VOID
 SrvGetMultiSZList(
     PWSTR **ListPointer,
+    PWSTR BaseKeyName,
     PWSTR ParameterKeyName,
     PWSTR *DefaultPointerValue
     );

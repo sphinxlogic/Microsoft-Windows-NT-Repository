@@ -167,7 +167,7 @@ CDataXferObj::CDataXferObj (void)
 // Function Calls:
 //      Function                                Location
 //
-//      OutputDebugString                       Windows API
+//      TestDebugOut                       Windows API
 //      IOleObject::Release                     Object
 //      IStorage::Release                       OLE API
 //
@@ -177,7 +177,7 @@ CDataXferObj::CDataXferObj (void)
 
 CDataXferObj::~CDataXferObj ()
 {
-        OutputDebugString ("In CDataXferObj's Destructor \r\n");
+        TestDebugOut ("In CDataXferObj's Destructor \r\n");
 
         if (m_lpOleObject)
            {
@@ -216,7 +216,7 @@ CDataXferObj::~CDataXferObj ()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      IsEqualIID                  OLE API
 //      ResultFromScode             OLE API
 //      CDataXferObj::AddRef        DXFEROBJ.CPP
@@ -228,7 +228,7 @@ CDataXferObj::~CDataXferObj ()
 
 STDMETHODIMP CDataXferObj::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 {
-        OutputDebugString("In CDataXferObj::QueryInterface\r\n");
+        TestDebugOut("In CDataXferObj::QueryInterface\r\n");
 
         if ( riid == IID_IUnknown || riid == IID_IDataObject)
                 {
@@ -261,7 +261,7 @@ STDMETHODIMP CDataXferObj::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -269,7 +269,7 @@ STDMETHODIMP CDataXferObj::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 
 STDMETHODIMP_(ULONG) CDataXferObj::AddRef()
 {
-        OutputDebugString("In CDataXferObj::AddRef\r\n");
+        TestDebugOut("In CDataXferObj::AddRef\r\n");
 
         return ++m_nCount;
 }
@@ -293,7 +293,7 @@ STDMETHODIMP_(ULONG) CDataXferObj::AddRef()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -301,7 +301,7 @@ STDMETHODIMP_(ULONG) CDataXferObj::AddRef()
 
 STDMETHODIMP_(ULONG) CDataXferObj::Release()
 {
-        OutputDebugString("In CDataXferObj::Release\r\n");
+        TestDebugOut("In CDataXferObj::Release\r\n");
 
         if (--m_nCount == 0) {
                 delete this;
@@ -346,7 +346,7 @@ STDMETHODIMP_(ULONG) CDataXferObj::Release()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      ResultFromScode             OLE API
 //
 // Comments:
@@ -360,7 +360,7 @@ STDMETHODIMP CDataXferObj::QueryGetData (LPFORMATETC pformatetc)
 {
         SCODE sc = DV_E_FORMATETC;
 
-        OutputDebugString("In CDataXferObj::QueryGetData\r\n");
+        TestDebugOut("In CDataXferObj::QueryGetData\r\n");
 
         // check the validity of the formatetc.
 
@@ -390,7 +390,7 @@ STDMETHODIMP CDataXferObj::EnumFormatEtc(
 {
         SCODE sc = E_NOTIMPL;
 
-        OutputDebugString("In CDataXferObj::EnumFormatEtc\r\n");
+        TestDebugOut("In CDataXferObj::EnumFormatEtc\r\n");
         *ppenumFormatEtc = NULL;
 
         if (dwDirection == DATADIR_GET) {
@@ -428,7 +428,7 @@ STDMETHODIMP CDataXferObj::EnumFormatEtc(
 // Function Calls:
 //      Function                        Location
 //
-//      OutputDebugString               Windows API
+//      TestDebugOut               Windows API
 //      OleStdGetOleObjectData          OLE2UI API
 //      OleStdGetMetafilePictFromOleObject OLE2UI API
 //      ResultFromScode                 OLE API
@@ -448,7 +448,7 @@ STDMETHODIMP CDataXferObj::GetData (
 {
         SCODE sc = DV_E_FORMATETC;
 
-        OutputDebugString("In CDataXferObj::GetData\r\n");
+        TestDebugOut("In CDataXferObj::GetData\r\n");
 
         // we must set all out pointer parameters to NULL. */
         pmedium->tymed = TYMED_NULL;
@@ -534,7 +534,7 @@ STDMETHODIMP CDataXferObj::GetData (
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      OleStdGetOleObjectData      OLE2UI API
 //
 // Comments:
@@ -548,7 +548,7 @@ STDMETHODIMP CDataXferObj::GetDataHere (
 {
         SCODE sc = DV_E_FORMATETC;
 
-        OutputDebugString("In CDataXferObj::GetDataHere\r\n");
+        TestDebugOut("In CDataXferObj::GetDataHere\r\n");
 
         // NOTE: pmedium is an IN parameter. we should NOT set
         //           pmedium->pUnkForRelease to NULL

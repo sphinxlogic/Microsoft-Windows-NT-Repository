@@ -463,21 +463,38 @@ ScsiPortExecute(
 
 #endif
 #define ExFreePool(Size)
+#ifdef IoCallDriver
+#undef IoCallDriver
+#endif
 #define IoCallDriver(DeviceObject, Irp) (       \
     DeviceObject->CurrentIrp = Irp,             \
     Irp->Tail.Overlay.CurrentStackLocation--,   \
     ScsiPortExecute(DeviceObject, Irp),         \
     Irp->Tail.Overlay.CurrentStackLocation++ )
+#ifdef IoCompleteRequest
+#undef IoCompleteRequest
+#endif
 #define IoCompleteRequest(Irp, Boost) Irp->PendingReturned = FALSE
 #define IoAllocateErrorLogEntry(DeviceObject, Length) NULL
 #define IoWriteErrorLogEntry(Entry)
+#ifdef KeAcquireSpinLock
+#undef KeAcquireSpinLock
+#endif
 #define KeAcquireSpinLock(Lock, Irql)
+#ifdef KeReleaseSpinLock
+#undef KeReleaseSpinLock
+#endif
 #define KeReleaseSpinLock(Lock, Irql)
 #define KiAcquireSpinLock(Lock)
 #define KiReleaseSpinLock(Lock)
 #define KeSynchronizeExecution(InterruptObject, ExecutionRoutine, Context) \
     (ExecutionRoutine)(Context)
 
+#ifdef KeRaiseIrql
+#undef KeRaiseIrql
+#endif
 #define KeRaiseIrql(NewLevel, OldLevel)
+#ifdef KeLowerIrql
+#undef KeLowerIrql
+#endif
 #define KeLowerIrql(Level)
-

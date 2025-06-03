@@ -24,7 +24,7 @@ PRIVATE INT gcItemsSave;
 
 PRIVATE BOOL SelectWindowCommand(HWND hwnd, INT nCmd, INT nNotifyCode);
 PRIVATE VOID FillListBox(HWND hDlg, HWND hwndList, HWND hwnd);
-BOOL CALLBACK AddOneWindow(HWND hwnd, HWND hwndList);
+BOOL CALLBACK AddOneWindow(HWND hwnd, LPARAM hwndListLP);
 PRIVATE VOID MakeWindowName(HWND hwnd, LPSTR lpString, INT nStringLen);
 PRIVATE INT FindHwndInListBox(HWND hwndList, HWND hSpyWnd);
 PRIVATE VOID HighlightWindow(HWND hwnd, BOOL fDraw);
@@ -365,7 +365,8 @@ FillListBox(
     // the others start with a handle number of some sort.
     //
 
-    nIndex = SendMessage(hwndList, LB_ADDSTRING, 0, (LPARAM)" [ parent... ]");
+    nIndex = SendMessage(hwndList, LB_ADDSTRING, 0,
+                        (LPARAM)(LPCTSTR)LoadResourceString(IDS_PARENT));
     SendMessage(hwndList, LB_SETITEMDATA, nIndex, (LONG)hwnd);
 
     //
@@ -395,12 +396,13 @@ FillListBox(
 BOOL CALLBACK
 AddOneWindow(
     HWND hwnd,
-    HWND hwndList
+    LPARAM hwndListLP
     )
 {
     CHAR rgBuf[CCH_RGBUF];
     INT nIndex;
     HWND htemp;
+    HWND hwndList = (HWND)hwndListLP;
 
     //
     // Make sure we don't add any window that has anything to do with
@@ -411,7 +413,7 @@ AddOneWindow(
 
 
     // Don't put console windows in the list since they can not be hooked
-    if (GetClassName(hwnd, &rgBuf, CCH_RGBUF) != 0 &&
+    if (GetClassName(hwnd, rgBuf, CCH_RGBUF) != 0 &&
         strcmp(rgBuf, szConsoleWindowClass) == 0 )
     {
         return 1;
@@ -605,7 +607,8 @@ SelectWindowUpdateInfo(
         }
         else
         {
-            SetDlgItemText(hDlg, DID_SELWINPARENT, "<No Parent>");
+            SetDlgItemText(hDlg, DID_SELWINPARENT,
+                           LoadResourceString(IDS_NOPARENT));
         }
 
         GetWindowRect(hwnd, &rc);
@@ -627,11 +630,13 @@ SelectWindowUpdateInfo(
     }
     else
     {
-        SetDlgItemText(hDlg, DID_SELWINWINDOW, "<Undefined>");
-        SetDlgItemText(hDlg, DID_SELWINCLASS,  "<Undefined>");
-        SetDlgItemText(hDlg, DID_SELWINPARENT, "<Undefined>");
-        SetDlgItemText(hDlg, DID_SELWINRECT, "<Undefined>");
-        SetDlgItemText(hDlg, DID_SELWINSTYLE, "<Undefined>");
+        TCHAR lpBuf[256];
+        LoadString(GetModuleHandle(NULL), IDS_UNDEFINED, lpBuf, sizeof(lpBuf));
+        SetDlgItemText(hDlg, DID_SELWINWINDOW, lpBuf);
+        SetDlgItemText(hDlg, DID_SELWINCLASS,  lpBuf);
+        SetDlgItemText(hDlg, DID_SELWINPARENT, lpBuf);
+        SetDlgItemText(hDlg, DID_SELWINRECT,   lpBuf);
+        SetDlgItemText(hDlg, DID_SELWINSTYLE,  lpBuf);
     }
 }
 
@@ -743,7 +748,7 @@ OutputCommand(
                 else
                 {
                     Message(MB_OK | MB_ICONEXCLAMATION,
-                        "Window lines should be between 1-%d", LINES_MAX);
+                        LoadResourceString(IDS_ERROR_WND_LINE), LINES_MAX);
                     SetFocus(GetDlgItem(hwnd, DID_OUTPUTLINES));
                     break;
                 }
@@ -766,7 +771,7 @@ OutputCommand(
                     if (fh == (HFILE)(-1))
                     {
                         if (Message(MB_OKCANCEL | MB_ICONEXCLAMATION,
-                            "Cannot open %s", szTemp) == IDCANCEL)
+                            LoadResourceString(IDS_ERROR_CANT_OPEN_FILE), szTemp) == IDCANCEL)
                         {
                             EndDialog(hwnd, FALSE);
                         }
@@ -789,7 +794,41 @@ OutputCommand(
                 }
             }
 
+#ifdef JAPAN    // DBCS_FIX
+            if (gfOutputCom1)
+            {
+                if (gfhCom1 != INVALID_HANDLE_VALUE)
+                    CloseHandle(gfhCom1);
+
+                gfhCom1 = CreateFile(
+                        "com1",
+                        GENERIC_WRITE,
+                        0,                    // exclusive access
+                        NULL,                 // no security attrs
+                        OPEN_EXISTING,
+                        FILE_ATTRIBUTE_NORMAL,
+                        NULL);
+                if (gfhCom1 == INVALID_HANDLE_VALUE)
+                {
+                    if (Message(MB_OKCANCEL | MB_ICONEXCLAMATION,
+                        LoadResourceString(IDS_ERROR_CANT_OPEN_COM1)) == IDCANCEL)
+                    {
+                        EndDialog(hwnd, FALSE);
+                    }
+
+                    return TRUE;
+                }
+            }
+            else
+            {
+                if (gfhCom1 != INVALID_HANDLE_VALUE)
+                {
+                    CloseHandle(gfhCom1);
+                }
+            }
+#endif  // JAPAN --- DBCS_FIX
             EndDialog(hwnd, TRUE);
+
             return TRUE;
 
         case IDCANCEL:
@@ -1116,6 +1155,9 @@ MessagesCommand(
         case DID_MSGSMOUSE:
         case DID_MSGSNC:
         case DID_MSGSKEYBD:
+#ifdef FE_IME
+        case DID_MSGSIME:
+#endif
         case DID_MSGSBM:
         case DID_MSGSCB:
         case DID_MSGSEM:

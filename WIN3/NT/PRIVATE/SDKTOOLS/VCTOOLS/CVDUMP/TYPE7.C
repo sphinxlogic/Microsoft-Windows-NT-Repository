@@ -1,25 +1,19 @@
-//types.c
-//
-//      int display_types (p, len)
-//      unsigned char *p;
-//      int len;
-//
-//      Takes a buffer filled with type definition records
-// pointed to by p of length len and displays the contents
-// in human readable form. For P3, used solely for debugging
-// purposes. Returns number of type definition records
-// decoded.
+/***********************************************************************
+* Microsoft (R) Debugging Information Dumper
+*
+* Copyright (C) Microsoft Corp 1987-1995. All rights reserved.
+*
+* File: type7.c
+*
+* File Comments:
+*
+***********************************************************************/
 
-
-#include <stdio.h>
 #include <io.h>
-#include <malloc.h>
 #include <stddef.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <windows.h>
-
-#include "port1632.h"
 
 #include "cvdef.h"
 #include "cvinfo.h"
@@ -50,7 +44,7 @@ typedef struct texttab {
 
 LOCAL ushort DumpTypRecC7 (ushort, ushort, uchar *);
 void assert (char *, int);
-LOCAL uchar *C7CallTyp (ushort);
+LOCAL const char *SzNameC7CallType (ushort);
 LOCAL void PrintBAttr (CV_fldattr_t);
 LOCAL void PrintMAttr (CV_fldattr_t);
 LOCAL void PrintFAttr (CV_fldattr_t);
@@ -64,12 +58,12 @@ LOCAL uchar *DumpCobOccurs (ushort *, uchar *);
 LOCAL uchar *DumpVCount (ushort *, uchar *);
 LOCAL uchar *DumpCobItem (ushort *, uchar *);
 
-extern int              iModToList; // The module number to list
-extern char            fRaw;
+extern int iModToList;                 // The module number to list
+extern char fRaw;
 
-uchar far RecBuf[MAXTYPE];
+uchar RecBuf[MAXTYPE];
 
-static char * const XlateC7PtrMode[] = {
+static const char * const XlateC7PtrMode[] = {
         "Pointer",
         "Reference",
         "Pointer to member",
@@ -79,7 +73,7 @@ static char * const XlateC7PtrMode[] = {
         "???",
         "???"
 };
-static char * const XlateC7PtrType[ ] = {
+static const char * const XlateC7PtrType[ ] = {
         "Near",
         "Far",
         "Huge",
@@ -98,7 +92,7 @@ static char * const XlateC7PtrType[ ] = {
         "???"
 };
 
-char * const C7MPropStrings[] = {
+const char * const C7MPropStrings[] = {
         "VANILLA",
         "VIRTUAL",
         "STATIC",
@@ -108,15 +102,15 @@ char * const C7MPropStrings[] = {
         "PURE INTRO",
 };
 
-char * const C7AccessStrings[] = {
+const char * const C7AccessStrings[] = {
         "NONE", "PRIVATE", "PROTECT", "PUBLIC"
 };
 
-char * const C7ModifierStrings[] = {
+const char * const C7ModifierStrings[] = {
         "NO ATTRIBUTE", "CONST", "VOLATILE", "CONST VOLATILE"
 };
 
-char * const C7VtsStrings[] = {
+const char * const C7VtsStrings[] = {
         "NEAR",
         "FAR",
         "THIN",
@@ -149,7 +143,7 @@ DumpCom (
     void)
 {
     long            cnt;
-    long far *      pTypeTbl;       // Array of offsets int types section
+    long *      pTypeTbl;       // Array of offsets int types section
     ushort          usIndex = CV_FIRST_NONPRIM;
     ushort          cbEntry;        // Size of the type - length field
     ushort          base = 0;
@@ -163,16 +157,16 @@ DumpCom (
 
     // Read compacted types table (array of offsets from Compacted.lfo)
 
-    lseek (exefile, lfoBase + GlobalTypes.lfo, SEEK_SET);
+    _lseek(exefile, lfoBase + GlobalTypes.lfo, SEEK_SET);
     if (Sig != SIG07) {
         // the file was not packed by QCWIN 1.0 so the flag word is present
 
         seekcount = sizeof (OMFTypeFlags);
-        readfar (exefile, (char far *)&flags, sizeof (OMFTypeFlags));
+        readfar(exefile, (char *)&flags, sizeof (OMFTypeFlags));
     }
-    readfar (exefile, (char far *)&cnt, sizeof (long));
+    readfar(exefile, (char *)&cnt, sizeof (long));
 
-    if ((pTypeTbl = (long far *)_fmalloc (INDEX_PER_READ * sizeof (ulong))) == NULL) {
+    if ((pTypeTbl = (long *) malloc (INDEX_PER_READ * sizeof (ulong))) == NULL) {
         Fatal("Out of memory");
     }
 
@@ -186,23 +180,23 @@ DumpCom (
 
     for (index = 0; index < (ushort)cnt; index++) {
         if (index >= maxindex) {
-            lseek (exefile, lfoBase + GlobalTypes.lfo +
+            _lseek(exefile, lfoBase + GlobalTypes.lfo +
               (long)(maxindex + 1) * sizeof (ulong) + seekcount, SEEK_SET);
             i = min (INDEX_PER_READ, cnt - maxindex);
-            readfar (exefile, (char far *)pTypeTbl, (ushort)(i * sizeof (long)));
+            readfar(exefile, (char *)pTypeTbl, (ushort)(i * sizeof (long)));
             base = maxindex;
             maxindex += i;
         }
-        lseek (exefile, lfoBase + lfoTypeBase + pTypeTbl[index - base], SEEK_SET);
-        if (readfar (exefile, (char far *)&RecBuf, LNGTHSZ) != LNGTHSZ) {
-            Fatal ("Types subsection wrong length");
+        _lseek(exefile, lfoBase + lfoTypeBase + pTypeTbl[index - base], SEEK_SET);
+        if (readfar (exefile, (char *)&RecBuf, LNGTHSZ) != LNGTHSZ) {
+            Fatal("Types subsection wrong length");
         }
         cbEntry = *((ushort *)(RecBuf));
         if (cbEntry >= MAXTYPE - LNGTHSZ) {
-            Fatal ("Type string too long");
+            Fatal("Type string too long");
         }
-        if (readfar (exefile, (char far *)RecBuf + LNGTHSZ, cbEntry) != cbEntry) {
-            Fatal ("Types subsection wrong length");
+        if (readfar(exefile, (char *)RecBuf + LNGTHSZ, cbEntry) != cbEntry) {
+            Fatal("Types subsection wrong length");
         }
 
         if (fRaw) {
@@ -221,25 +215,21 @@ DumpCom (
 
     printf ( "Max Type Size = %d", cbMaxType );
 
-    _ffree (pTypeTbl);
+    free (pTypeTbl);
 }
 
 
-#if 0
 //  Dump an NB10 exe's types - read em from the target pdb as
 //  indicated in the header
 
-void
-DumpPDBTypes (
-    char *pPDBFile
-    )
+void DumpPDBTypes(char *pPDBFile)
 {
     PDB* ppdb;
     TPI* ptpi;
     EC ec;
 
     if (!PDBOpen(pPDBFile, pdbRead  pdbGetRecordsOnly, 0, &ec, NULL, &ppdb)) {
-        printf ("Couldn't open %s\n", pPDBFile);
+        printf("Couldn't open %s\n", pPDBFile);
         return;
     }
 
@@ -249,12 +239,15 @@ DumpPDBTypes (
         TI tiMac = TypesQueryTiMac(ptpi);
 
         for (ti = tiMin; ti < tiMac; ti++) {
-            PB pb;
-            BOOL bool;
-            bool = TypesQueryPbCVRecordForTi(ptpi, ti, &pb);
-            ASSERT(bool);
+            BYTE *pb;
+            BOOL fT;
+
+            fT = TypesQueryPbCVRecordForTi(ptpi, ti, &pb);
+            ASSERT(fT);
+
             DumpTypRecC7(ti, *(unsigned short *)pb, pb + sizeof(unsigned short));
         }
+
         TypesClose(ptpi);
     } else {
         printf("Could not open typeserver\n");
@@ -263,7 +256,6 @@ DumpPDBTypes (
     PDBClose(ppdb);
 }
 
-#endif
 
 //  Dumps the C7 type information from a single module
 //  cbType == size of all type information for the module
@@ -277,14 +269,14 @@ DumpModTypC7 (
 
     while (cbTyp > 0) {
       //  printf ("0x%lx\n", len - cbTyp);
-        if (readfar (exefile, (char far *)&RecBuf, LNGTHSZ) != LNGTHSZ) {
+        if (readfar (exefile, (char *)&RecBuf, LNGTHSZ) != LNGTHSZ) {
             Fatal ("Types subsection wrong length");
         }
         cbEntry = *((ushort *)(RecBuf));
         if (cbEntry >= MAXTYPE - LNGTHSZ) {
             Fatal ("Type string too long");
         }
-        if (readfar (exefile, (char far *)RecBuf + LNGTHSZ, cbEntry) != cbEntry) {
+        if (readfar (exefile, (char *)RecBuf + LNGTHSZ, cbEntry) != cbEntry) {
             Fatal ("Types subsection wrong length");
         }
 
@@ -318,11 +310,11 @@ DumpTyp(
                 fNeedsTitle = FALSE;
                 printf ("\n\n*** TYPES section\n");
             }
-            lseek (exefile, lfoBase + pMod->TypesAddr, SEEK_SET);
-            _fstrcpy (name, pMod->ModName);
+            _lseek(exefile, lfoBase + pMod->TypesAddr, SEEK_SET);
+            strcpy (name, pMod->ModName);
             printf ("%s\n", name);
             cbRec = 4;
-            if (readfar (exefile, (char far *)&ulSignature, sizeof(ulong)) != sizeof(ulong)) {
+            if (readfar (exefile, (char *)&ulSignature, sizeof(ulong)) != sizeof(ulong)) {
                 Fatal ("Can't Read Types subsection");
             }
             switch (ulSignature ) {
@@ -334,7 +326,7 @@ DumpTyp(
                 default:
                     // Types are in C6 format
                     // Re-seek because first four bytes are not signature
-                    lseek (exefile, lfoBase + pMod->TypesAddr, SEEK_SET);
+                    _lseek(exefile, lfoBase + pMod->TypesAddr, SEEK_SET);
                     DumpModTypC6 (pMod->TypeSize);
                     break;
 
@@ -404,7 +396,7 @@ DumpTypRecC7 (
             if (plf->attr.isflat32) {
                 printf (" 16:32");
             }
-            printf ("\n\tElement type: %s", C7TypName (plf->utype));
+            printf ("\n\tElement type: %s", SzNameC7Type(plf->utype));
             switch (plf->attr.ptrmode) {
                 case CV_PTR_MODE_PTR:
                     switch (plf->attr.ptrtype) {
@@ -414,7 +406,7 @@ DumpTypRecC7 (
 
                         case CV_PTR_BASE_TYPE:
                             printf (", base symbol type = %s",
-                                    C7TypName ( plf->pbase.btype.index ));
+                                    SzNameC7Type( plf->pbase.btype.index ));
                             ShowStr (", name = '", plf->pbase.btype.name);
                             printf ("'");
 
@@ -446,8 +438,8 @@ DumpTypRecC7 (
 
                 case CV_PTR_MODE_PMFUNC:
                 case CV_PTR_MODE_PMEM:
-                    printf (", Containing class = %s,\n", C7TypName ( plf->pbase.pm.pmclass ));
-                    printf ("\tType of pointer to member = %s", C7TypName ( plf->pbase.pm.pmenum));
+                    printf (", Containing class = %s,\n", SzNameC7Type( plf->pbase.pm.pmclass ));
+                    printf ("\tType of pointer to member = %s", SzNameC7Type( plf->pbase.pm.pmenum));
                     break;
 
             }
@@ -473,7 +465,7 @@ DumpTypRecC7 (
             else {
                 printf ("\tNONE, ");
             }
-            printf ("\tmodifies type %s\n", C7TypName (plf->type));
+            printf ("\tmodifies type %s\n", SzNameC7Type(plf->type));
             break;
         }
 
@@ -528,7 +520,7 @@ DumpTypRecC7 (
 
             PrintType ("LF_ENUM");
             printf ("\t# members = %d, ", plf->count);
-            printf (" type = %s", C7TypName (plf->utype));
+            printf (" type = %s", SzNameC7Type(plf->utype));
             printf (" field list type 0x%04x\n", plf->field);
             PrintProp (plf->property);
             ShowStr ("\tenum name = ", plf->Name);
@@ -566,7 +558,7 @@ DumpTypRecC7 (
             plfBArray               plf = (plfBArray)pRec;
 
             PrintType ("LF_BARRAY");
-            printf ("    Element type %s\n", C7TypName (plf->utype));
+            printf ("    Element type %s\n", SzNameC7Type(plf->utype));
             break;
         }
 
@@ -575,8 +567,8 @@ DumpTypRecC7 (
             plfProc         plf = (plfProc)pRec;
 
             PrintType ("LF_PROCEDURE");
-            printf ("\tReturn type = %s, ", C7TypName (plf->rvtype));
-            printf ("Call type = %s\n", C7CallTyp (plf->calltype));
+            printf ("\tReturn type = %s, ", SzNameC7Type(plf->rvtype));
+            printf ("Call type = %s\n", SzNameC7CallType (plf->calltype));
             printf ("\t# Parms = %d, ", plf->parmcount );
             printf ("Arg list type = 0x%04x\n", plf->arglist);
             break;
@@ -587,10 +579,10 @@ DumpTypRecC7 (
             plfMFunc                plf = (plfMFunc)pRec;
 
             PrintType ("LF_MFUNCTION");
-            printf ("\tReturn type = %s, ", C7TypName (plf->rvtype));
-            printf ("Class type = %s, ", C7TypName (plf->classtype));
-            printf ("This type = %s, \n", C7TypName (plf->thistype));
-            printf ("\tCall type = %s, ", C7CallTyp (plf->calltype));
+            printf ("\tReturn type = %s, ", SzNameC7Type(plf->rvtype));
+            printf ("Class type = %s, ", SzNameC7Type(plf->classtype));
+            printf ("This type = %s, \n", SzNameC7Type(plf->thistype));
+            printf ("\tCall type = %s, ", SzNameC7CallType (plf->calltype));
             printf ("Parms = %d, ", plf->parmcount );
             printf ("Arg list type = 0x%04x, ", plf->arglist);
             printf ("This adjust = %lx\n", plf->thisadjust );
@@ -602,8 +594,8 @@ DumpTypRecC7 (
             plfArray                plf = (plfArray)pRec;
 
             PrintType ("LF_ARRAY");
-            printf ("\tElement type = %s\n", C7TypName (plf->elemtype));
-            printf ("\tIndex type = %s\n", C7TypName (plf->idxtype));
+            printf ("\tElement type = %s\n", SzNameC7Type(plf->elemtype));
+            printf ("\tIndex type = %s\n", SzNameC7Type(plf->idxtype));
             printf ("\tlength = " );
             usOff = offsetof (lfArray, data);
             usOff += PrintNumeric (plf->data);
@@ -619,7 +611,7 @@ DumpTypRecC7 (
             PrintType ("LF_BITFIELD");
             printf ("\tbits = %d, ", plf->length);
             printf ("starting position = %d", plf->position);
-            printf (", Type = %s\n", C7TypName (plf->type));
+            printf (", Type = %s\n", SzNameC7Type(plf->type));
             break;
         }
 
@@ -650,7 +642,7 @@ DumpTypRecC7 (
             PrintType ("LF_DERIVED");
             //M00 - Could do a check that count is correct compared to length
             for (i = 0; i < plf->count; i++) {
-                printf("\tderived[%d] = %s\n", i, C7TypName (plf->drvdcls[i]));
+                printf("\tderived[%d] = %s\n", i, SzNameC7Type(plf->drvdcls[i]));
             }
             break;
         }
@@ -665,7 +657,7 @@ DumpTypRecC7 (
                 // Verify that data isn't past end of record
 
                 ASSERT ((ushort)((uchar *)(&(plf->arg[i])) - (uchar *)pRec) < cbLen);
-                printf("\tlist[%d] = %s\n", i, C7TypName (plf->arg[i]));
+                printf("\tlist[%d] = %s\n", i, SzNameC7Type(plf->arg[i]));
             }
             break;
         }
@@ -691,7 +683,7 @@ DumpTypRecC7 (
             for (i = 0; cbLeaf < cbLen; i++) {
                 printf ("\tlist[%d] = ", i);
                 PrintFAttr (pml->attr);
-                printf ("%s, ", C7TypName (pml->index));
+                printf ("%s, ", SzNameC7Type(pml->index));
                 if (pml->attr.mprop == CV_MTintro) {
                     printf (" vfptr offset = %ld", *((long *)((uchar *)pml + sizeof(*pml))));
                     cb = sizeof (*pml) + sizeof (long);
@@ -711,7 +703,7 @@ DumpTypRecC7 (
             plfDefArg               plf = (plfDefArg)pRec;
 
             PrintType ("LF_DEFARG");
-            printf ("type = %s, ", C7TypName (plf->type));
+            printf ("type = %s, ", SzNameC7Type(plf->type));
             PrintStr (plf->expr);
             printf ("\n");
             break;
@@ -775,11 +767,11 @@ DumpTypRecC7 (
 
         case LF_DIMARRAY : /* added 7/15/92 JK */
         {
-            lfDimArray near *plf = (lfDimArray near *)pRec;
+            lfDimArray *plf = (lfDimArray *)pRec;
 
             PrintType ("LF_DIMARRAY");
-            printf ("\tElement type = %s\n", C7TypName(plf->utype));
-            printf ("\tDimension info = %s\n", C7TypName(plf->diminfo));
+            printf ("\tElement type = %s\n", SzNameC7Type(plf->utype));
+            printf ("\tDimension info = %s\n", SzNameC7Type(plf->diminfo));
             ShowStr ("\tName = ", plf->name);
             printf ("\n");
             break;
@@ -787,14 +779,14 @@ DumpTypRecC7 (
 
         case LF_DIMCONU : /* added 7/15/92 JK */
         {
-            lfDimCon near   *plf = (lfDimCon near *)pRec;
+            lfDimCon *plf = (lfDimCon *)pRec;
             int skip, rank = plf->rank;
             long bound;
             char *data;
 
             PrintType ("LF_DIMCONU");
             printf ("\tRank = %d\n", plf->rank);
-            printf ("\tIndex type = %s\n", C7TypName (plf->typ));
+            printf ("\tIndex type = %s\n", SzNameC7Type(plf->typ));
             printf ("\tBounds = (");
             /* assume index type is 1,2, or 4 (or 8) bytes integer */
             skip = 1 << CV_SUBT(plf->typ);
@@ -813,14 +805,14 @@ DumpTypRecC7 (
 
         case LF_DIMCONLU : /* added 7/15/92 JK */
         {
-            lfDimCon near   *plf = (lfDimCon near *)pRec;
+            lfDimCon *plf = (lfDimCon *)pRec;
             int skip, rank = plf->rank;
             long bound;
             char *data;
 
             PrintType ("LF_DIMCONLU");
             printf ("\tRank = %d\n", plf->rank);
-            printf ("\tIndex type = %s\n", C7TypName (plf->typ));
+            printf ("\tIndex type = %s\n", SzNameC7Type(plf->typ));
             printf ("\tBounds = (");
             /* assume index type is 1,2, or 4 (or 8) bytes integer */
             skip = 1 << CV_SUBT(plf->typ);
@@ -844,17 +836,17 @@ DumpTypRecC7 (
 
         case LF_DIMVARU : /* added 7/22/92 JK */
         {
-            lfDimVar near *plf = (lfDimVar near *)pRec;
+            lfDimVar *plf = (lfDimVar *)pRec;
             int rank = plf->rank;
             short *data;
 
             PrintType ("LF_DIMVARU");
             printf ("\tRank = %d\n", plf->rank);
-            printf ("\tIndex type = %s\n", C7TypName (plf->typ));
+            printf ("\tIndex type = %s\n", SzNameC7Type(plf->typ));
             printf ("\tBounds = (");
             data = (short *)(plf->dim);
             while(rank--) {
-                printf("@%s",C7TypName(*data++));
+                printf("@%s",SzNameC7Type(*data++));
                 if(rank)
                     printf(", ");
             }
@@ -864,19 +856,19 @@ DumpTypRecC7 (
 
         case LF_DIMVARLU : /* added 7/22/92 JK */
         {
-            lfDimCon near *plf = (lfDimCon near *)pRec;
+            lfDimCon *plf = (lfDimCon *)pRec;
             int rank = plf->rank;
             short *data;
 
             PrintType ("LF_DIMVARLU");
             printf ("\tRank = %d\n", plf->rank);
-            printf ("\tIndex type = %s\n", C7TypName (plf->typ));
+            printf ("\tIndex type = %s\n", SzNameC7Type(plf->typ));
             printf ("\tBounds = (");
             data = (short *)(plf->dim);
             while(rank--) {
-                printf("@%s",C7TypName(*data++));
+                printf("@%s",SzNameC7Type(*data++));
                 printf(":");
-                printf("@%s",C7TypName(*data++));
+                printf("@%s",SzNameC7Type(*data++));
                 if(rank)
                     printf(", ");
             }
@@ -886,7 +878,7 @@ DumpTypRecC7 (
 
         case LF_REFSYM : /* added 7/22/92 JK */
         {
-            lfRefSym near *plf = (lfRefSym near *)pRec;
+            lfRefSym *plf = (lfRefSym *)pRec;
 
             PrintType ("LF_REFSYM");
             DumpOneSymC7(plf->Sym);
@@ -956,14 +948,14 @@ DumpTypRecC7 (
                 unsigned short count = plf->count;
                 printf("\n\tTypes (count = 0x%04x):\n", plf->count);
                 for (i = 0; count > 4; i += 4, count -=4) {
-                    printf("\t\t%s\t%s\t%s\t%s\n", C7TypName (plf->index[i]), C7TypName (plf->index[i+1]),
-                        C7TypName (plf->index[i+2]), C7TypName (plf->index[i+3]));
+                    printf("\t\t%s\t%s\t%s\t%s\n", SzNameC7Type(plf->index[i]), SzNameC7Type(plf->index[i+1]),
+                        SzNameC7Type(plf->index[i+2]), SzNameC7Type(plf->index[i+3]));
                 }
 
                 if (count) {
                     printf("\t\t");
                     for (; count; count--, i++)
-                        printf("%s\t", C7TypName(plf->index[i]));
+                        printf("%s\t", SzNameC7Type(plf->index[i]));
                 }
             }
 
@@ -1312,7 +1304,7 @@ FieldList (
         printf ("\tlist[%d] = ", i++);
         switch (*((ushort UNALIGNED *)pLeaf)) {
             case LF_INDEX:
-                printf ("Type Index = %s\n", C7TypName (((plfIndex)pLeaf)->index));
+                printf ("Type Index = %s\n", SzNameC7Type(((plfIndex)pLeaf)->index));
                 cb = sizeof( lfIndex );
                 break;
 
@@ -1322,7 +1314,7 @@ FieldList (
 
                 printf ("LF_BCLASS, ");
                 PrintBAttr (plf->attr);
-                printf ("type = %s", C7TypName (plf->index));
+                printf ("type = %s", SzNameC7Type(plf->index));
                 printf (", offset = ");
                 cb = sizeof (*plf) + PrintNumeric( plf->offset);
                 printf ("\n");
@@ -1335,8 +1327,8 @@ FieldList (
 
                 printf ("LF_VBCLASS, ");
                 PrintVBAttr (plf->attr);
-                printf ("direct base type = %s\n", C7TypName (plf->index));
-                printf ("\t\tvirtual base ptr = %s, vbpoff = ", C7TypName (plf->vbptr));
+                printf ("direct base type = %s\n", SzNameC7Type(plf->index));
+                printf ("\t\tvirtual base ptr = %s, vbpoff = ", SzNameC7Type(plf->vbptr));
                 cb = sizeof (*plf) + PrintNumeric (plf->vbpoff);
                 printf (", vbind = ");
                 cb += PrintNumeric ((uchar *)plf + cb);
@@ -1350,8 +1342,8 @@ FieldList (
 
                 printf ("LF_IVBCLASS, ");
                 PrintVBAttr (plf->attr);
-                printf ("indirect base type = %s\n", C7TypName (plf->index));
-                printf ("\t\tvirtual base ptr = %s, vbpoff = ", C7TypName (plf->vbptr));
+                printf ("indirect base type = %s\n", SzNameC7Type(plf->index));
+                printf ("\t\tvirtual base ptr = %s, vbpoff = ", SzNameC7Type(plf->vbptr));
                 cb = sizeof (*plf) + PrintNumeric (plf->vbpoff);
                 printf (", vbind = ");
                 cb += PrintNumeric ((uchar *)plf + cb);
@@ -1364,7 +1356,7 @@ FieldList (
                 plfFriendCls    plf = (plfFriendCls)pLeaf;
 
                 printf ("LF_FRIENDCLS, ");
-                printf ("type = %s\n", C7TypName (plf->index));
+                printf ("type = %s\n", SzNameC7Type(plf->index));
                 cb = sizeof (*plf);
                 break;
             }
@@ -1374,7 +1366,7 @@ FieldList (
                 plfFriendFcn     plf = (plfFriendFcn)pLeaf;
 
                 printf ("LF_FRIENDFCN, ");
-                printf ("type = %s", C7TypName (plf->index));
+                printf ("type = %s", SzNameC7Type(plf->index));
                 ShowStr( "\tfunction name = ", plf->Name );
                 printf ("\n");
                 cb = sizeof (*plf) + plf->Name[0];
@@ -1387,7 +1379,7 @@ FieldList (
 
                 printf ("LF_MEMBER, ");
                 PrintMAttr( plf->attr );
-                printf ("type = %s, offset = ", C7TypName (plf->index));
+                printf ("type = %s, offset = ", SzNameC7Type(plf->index));
                 cb = sizeof (*plf) + PrintNumeric(plf->offset);
                 ShowStr ("\n\t\tmember name = '", (uchar *)plf + cb);
                 printf ("'\n");
@@ -1401,7 +1393,7 @@ FieldList (
 
                 printf("LF_STATICMEMBER, ");
                 PrintMAttr( plf->attr );
-                printf("type = %s", C7TypName (plf->index));
+                printf("type = %s", SzNameC7Type(plf->index));
                 ShowStr( "\t\tmember name = ", plf->Name );
                 printf("\n");
                 cb = sizeof (*plf) + plf->Name[0];
@@ -1414,7 +1406,7 @@ FieldList (
                 plfVFuncTab plf = (plfVFuncTab)pLeaf;
 
                 printf ("LF_VFUNCTAB, ");
-                printf ("type = %s\n", C7TypName (plf->type));
+                printf ("type = %s\n", SzNameC7Type(plf->type));
                 cb = sizeof (*plf);
                 break;
             }
@@ -1425,10 +1417,28 @@ FieldList (
 
                 printf ("LF_METHOD, ");
                 printf ("count = %d, ", plf->count);
-                printf ("list = %s, ", C7TypName (plf->mList));
+                printf ("list = %s, ", SzNameC7Type(plf->mList));
                 ShowStr ("name = '", plf->Name );
                 printf ("'\n");
                 cb = sizeof (*plf) + plf->Name[0];
+                break;
+            }
+
+             case LF_ONEMETHOD:
+            {
+                plfOneMethod               plf = (plfOneMethod)pLeaf;
+
+				printf ("LF_ONEMETHOD, ");
+                PrintFAttr (plf->attr);
+                printf ("index = %s, ", SzNameC7Type(plf->index));
+				cb = 0;
+                if (plf->attr.mprop == CV_MTintro) {
+                    printf ("\n\t\tvfptr offset = %ld, ", *plf->vbaseoff);
+                    cb = sizeof (long);
+                }
+				ShowStr ("name = '", (char *)(plf->vbaseoff) + cb );
+                printf ("'\n");
+                cb = sizeof(*plf) + 1 + cb + ((char *)(plf->vbaseoff))[cb];
                 break;
             }
 
@@ -1451,7 +1461,7 @@ FieldList (
                 plfNestType plf = (plfNestType)pLeaf;
 
                 printf ("LF_NESTTYPE, ");
-                printf ("type = %s, ", C7TypName (plf->index));
+                printf ("type = %s, ", SzNameC7Type(plf->index));
                 PrintStr (plf->Name);
                 printf ("\n");
                 cb = sizeof (*plf) + plf->Name[0];
@@ -1506,8 +1516,8 @@ const uchar * const C7CallTyps[] = {
         "PPC Call",     //  CV_CALL_PPCCALL
 };
 
-LOCAL uchar *
-C7CallTyp (
+LOCAL const char *
+SzNameC7CallType (
     ushort calltype)
 {
     if (calltype < (sizeof(C7CallTyps)/sizeof(C7CallTyps[0]))) {
@@ -1618,5 +1628,8 @@ PrintFAttr (
     printf("%s, ", C7MPropStrings[attr.mprop]);
     if (attr.pseudo) {
         printf("(psuedo), ");
+    }
+	if (attr.compgenx) {
+		printf("(compgenx), ");
     }
 }

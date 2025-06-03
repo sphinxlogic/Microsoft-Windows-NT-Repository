@@ -12,7 +12,7 @@ Abstract:
 
 Author:
 
-    Brian Andrew    [BrianAn]   02-Jan-1991
+    Brian Andrew    [BrianAn]   01-July-1995
 
 Revision History:
 
@@ -27,22 +27,24 @@ Revision History:
 #define BugCheckFileId                   (CDFS_BUG_CHECK_FILOBSUP)
 
 //
-//  The debug trace level
+//  Local constants.
 //
 
-#define Dbg                             (DEBUG_TRACE_FILOBSUP)
+#define TYPE_OF_OPEN_MASK               (0x00000007)
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE, CdDecodeFileObject)
+#pragma alloc_text(PAGE, CdFastDecodeFileObject)
 #pragma alloc_text(PAGE, CdSetFileObject)
 #endif
 
 
 VOID
 CdSetFileObject (
-    IN PFILE_OBJECT FileObject OPTIONAL,
+    IN PIRP_CONTEXT IrpContext,
+    IN PFILE_OBJECT FileObject,
     IN TYPE_OF_OPEN TypeOfOpen,
-    IN PVOID MvcbOrVcbOrFcbOrDcb,
+    IN PFCB Fcb OPTIONAL,
     IN PCCB Ccb OPTIONAL
     )
 
@@ -50,20 +52,19 @@ CdSetFileObject (
 
 Routine Description:
 
-    This routine sets the file system pointers within the file object
+    This routine will initialize the FileObject context fields based on the
+    input type and data structures.
 
 Arguments:
 
-    FileObject - Supplies a pointer to the file object being modified, and
-        can optionally be null.
+    FileObject - Supplies the file object pointer being initialized.
 
-    TypeOfOpen - Supplies the type of open denoted by the file object.
-        This is only used by this procedure for sanity checking.
+    TypeOfOpen - Sets the type of open.
 
-    MvcbOrVcbOrFcbOrDcb - Supplies a pointer to either a mvcb, vcb, fcb, or
-        dcb
+    Fcb - Fcb for this file object.  Ignored for UnopenedFileObject.
 
-    Ccb - Optionally supplies a pointer to a ccb
+    Ccb - Ccb for the handle corresponding to this file object.  Will not
+        be present for stream file objects.
 
 Return Value:
 
@@ -74,122 +75,59 @@ Return Value:
 {
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "CdSetFileObject, FileObject = %08lx\n", FileObject);
-
-    ASSERT( TypeOfOpen == UserFileOpen
-            && NodeType( MvcbOrVcbOrFcbOrDcb ) == CDFS_NTC_FCB
-            && Ccb != NULL
-
-                ||
-
-            TypeOfOpen == UserDirectoryOpen
-            && ( NodeType( MvcbOrVcbOrFcbOrDcb ) == CDFS_NTC_DCB
-                 || NodeType( MvcbOrVcbOrFcbOrDcb ) == CDFS_NTC_ROOT_DCB )
-            && Ccb != NULL
-
-                ||
-
-            (TypeOfOpen == UserVolumeOpen)
-            && NodeType( MvcbOrVcbOrFcbOrDcb ) == CDFS_NTC_MVCB
-            && Ccb != NULL
-
-                ||
-
-            TypeOfOpen == PathTableFile
-            && NodeType( MvcbOrVcbOrFcbOrDcb ) == CDFS_NTC_VCB
-            && Ccb == NULL
-
-                ||
-
-            TypeOfOpen == StreamFile
-            && ( NodeType( MvcbOrVcbOrFcbOrDcb ) == CDFS_NTC_DCB
-                 || NodeType( MvcbOrVcbOrFcbOrDcb ) == CDFS_NTC_ROOT_DCB
-                 || NodeType( MvcbOrVcbOrFcbOrDcb ) == CDFS_NTC_FCB )
-            && Ccb == NULL
-
-                ||
-
-            TypeOfOpen == RawDiskOpen
-            && NodeType( MvcbOrVcbOrFcbOrDcb ) == CDFS_NTC_MVCB
-            && Ccb != NULL
-
-                ||
-
-            TypeOfOpen == UnopenedFileObject );
-
     //
-    //  Find the Vpb, and stuff it into the file object
+    //  We only have values 0 to 7 available so make sure we didn't
+    //  inadvertantly add a new type.
     //
 
-    if ( ARGUMENT_PRESENT( MvcbOrVcbOrFcbOrDcb ) &&
-         ARGUMENT_PRESENT( FileObject ) ) {
+    ASSERTMSG( "FileObject types exceed available bits\n", BeyondValidType <= 8 );
 
-        switch( NodeType(MvcbOrVcbOrFcbOrDcb) ) {
+    //
+    //  Setting a file object to type UnopenedFileObject means just
+    //  clearing all of the context fields.  All the other input
+    //
 
-        case CDFS_NTC_MVCB:
+    if (TypeOfOpen == UnopenedFileObject) {
 
-            FileObject->Vpb = ((PMVCB)MvcbOrVcbOrFcbOrDcb)->Vpb;
-            break;
+        FileObject->FsContext =
+        FileObject->FsContext2 = NULL;
 
-        case CDFS_NTC_VCB:
-
-            FileObject->Vpb = ((PVCB)MvcbOrVcbOrFcbOrDcb)->Mvcb->Vpb;
-            break;
-
-        case CDFS_NTC_FCB:
-        case CDFS_NTC_DCB:
-        case CDFS_NTC_ROOT_DCB:
-
-            FileObject->Vpb = ((PFCB)MvcbOrVcbOrFcbOrDcb)->Vcb->Mvcb->Vpb;
-            break;
-
-        default:
-
-            CdBugCheck( NodeType(MvcbOrVcbOrFcbOrDcb), 0, 0 );
-        }
+        return;
     }
 
     //
-    //  Move the field over the fcb or dcb to point to the nonpaged fcb/dcb
-    //  An unopened file object has no context values.
+    //  Check that the 3 low-order bits of the Ccb are clear.
     //
 
-    if (ARGUMENT_PRESENT( MvcbOrVcbOrFcbOrDcb )
-        && (NodeType( MvcbOrVcbOrFcbOrDcb ) == CDFS_NTC_FCB
-            || NodeType( MvcbOrVcbOrFcbOrDcb ) == CDFS_NTC_ROOT_DCB
-            || NodeType( MvcbOrVcbOrFcbOrDcb ) == CDFS_NTC_DCB)) {
-
-        MvcbOrVcbOrFcbOrDcb = ((PFCB)MvcbOrVcbOrFcbOrDcb)->NonPagedFcb;
-
-        ASSERT(NodeType(MvcbOrVcbOrFcbOrDcb) == CDFS_NTC_NONPAGED_SECT_OBJ);
-    }
+    ASSERTMSG( "Ccb is not quad-aligned\n", !FlagOn( ((ULONG) Ccb), TYPE_OF_OPEN_MASK ));
 
     //
-    //  Now set the fscontext fields of the file object
+    //  We will or the type of open into the low order bits of FsContext2
+    //  along with the Ccb value.
+    //  The Fcb is stored into the FsContext field.
     //
 
-    if ( ARGUMENT_PRESENT( FileObject )) {
+    FileObject->FsContext = Fcb;
+    FileObject->FsContext2 = Ccb;
 
-        FileObject->FsContext  = MvcbOrVcbOrFcbOrDcb;
-        FileObject->FsContext2 = Ccb;
-    }
+    SetFlag( ((ULONG) FileObject->FsContext2), TypeOfOpen );
 
     //
-    //  And return to our caller
+    //  Set the Vpb field in the file object.
     //
 
-    DebugTrace(-1, Dbg, "CdSetFileObject -> VOID\n", 0);
+    FileObject->Vpb = Fcb->Vcb->Vpb;
 
     return;
 }
 
+
 
 TYPE_OF_OPEN
 CdDecodeFileObject (
+    IN PIRP_CONTEXT IrpContext,
     IN PFILE_OBJECT FileObject,
-    OUT PMVCB *Mvcb,
-    OUT PVCB *Vcb,
-    OUT PFCB *FcbOrDcb,
+    OUT PFCB *Fcb,
     OUT PCCB *Ccb
     )
 
@@ -197,159 +135,105 @@ CdDecodeFileObject (
 
 Routine Description:
 
-    This procedure takes a pointer to a file object, that has already been
-    opened by the Cdfs file system and figures out what really is opened.
+    This routine takes a file object and extracts the Fcb and Ccb (possibly NULL)
+    and returns the type of open.
 
 Arguments:
 
-    FileObject - Supplies the file object pointer being interrogated
+    FileObject - Supplies the file object pointer being initialized.
 
-    Mvcb - Receives a pointer to the Mvcb for the file object.
+    Fcb - Address to store the Fcb contained in the file object.
 
-    Vcb - Receives a pointer to the Vcb for the file object.
-
-    FcbOrDcb - Receives a pointer to the Fcb/Dcb for the file object, if
-        one exists.
-
-    Ccb - Receives a pointer to the Ccb for the file object, if one exists.
+    Ccb - Address to store the Ccb contained in the file object.
 
 Return Value:
 
-    TYPE_OF_OPEN - returns the type of file denoted by the input file object.
-
-        UserFileOpen - The FO represents a user's opened data file.
-            Ccb, FcbOrDcb, Vcb and Mvcb are set.  FcbOrDcb points to an Fcb.
-
-        UserDirectoryOpen - The FO represents a user's opened directory.
-            Ccb, FcbOrDcb, Vcb and Mvcb are set.  FcbOrDcb points to a Dcb/RootDcb
-
-        UserVolumeOpen - The FO represents a user's opened volume.
-            Ccb, Vcb and Mvcb are set. FcbOrDcb is null.
-
-        PathTableFile - The FO represents the special path table file.
-            Mvcb and Vcb are set, and Ccb, FcbOrDcb are null.
-
-        StreamFile - The FO represents a special stream file.
-            Mvcb, Vcb and FcbOrDcb are set. Ccb is null.  FcbOrDcb points to a
-            Dcb/RootDcb or Fcb.
-
-        RawDiskOpen - The FO represents a opened music or otherwise
-            unrecognized disk.  Ccb and Mvcb are set.
+    TYPE_OF_OPEN - Indicates the type of file object.
 
 --*/
 
 {
     TYPE_OF_OPEN TypeOfOpen;
-    PVOID FsContext;
-    PVOID FsContext2;
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "CdDecodeFileObject, FileObject = %08lx\n", FileObject);
-
     //
-    //  Reference the fs context fields of the file object, and zero out
-    //  the out pointer parameters.
+    //  If this is an unopened file object then return NULL for the
+    //  Fcb/Ccb.  Don't trust any other values in the file object.
     //
 
-    FsContext = FileObject->FsContext;
-    FsContext2 = FileObject->FsContext2;
+    TypeOfOpen = FlagOn( (ULONG) FileObject->FsContext2,
+                         TYPE_OF_OPEN_MASK );
 
-    //
-    //  Special case the situation where FsContext is null
-    //
+    if (TypeOfOpen == UnopenedFileObject) {
 
-    if ( FsContext == NULL ) {
-
+        *Fcb = NULL;
         *Ccb = NULL;
-        *FcbOrDcb = NULL;
-        *Vcb = NULL;
-        *Mvcb = NULL;
-
-        TypeOfOpen = UnopenedFileObject;
 
     } else {
 
         //
-        //  If FsContext points to a nonpaged fcb then update the field to
-        //  point to the paged fcb part
+        //  The Fcb is pointed to by the FsContext field.  The Ccb is in
+        //  FsContext2 (after clearing the low three bits).  The low three
+        //  bits are the file object type.
         //
 
-        if (NodeType(FsContext) == CDFS_NTC_NONPAGED_SECT_OBJ) {
+        *Fcb = FileObject->FsContext;
+        *Ccb = FileObject->FsContext2;
 
-            FsContext = ((PNONPAGED_SECT_OBJ) FsContext)->Fcb;
-
-            ASSERT((NodeType(FsContext) == CDFS_NTC_ROOT_DCB) ||
-                   (NodeType(FsContext) == CDFS_NTC_DCB) ||
-                   (NodeType(FsContext) == CDFS_NTC_FCB));
-        }
-
-        //
-        //  Now we can case on the node type code of the fscontext pointer
-        //  and set the appropriate out pointers
-        //
-
-        switch ( NodeType( FsContext )) {
-
-        case CDFS_NTC_MVCB:
-
-            *Ccb = FsContext2;
-            *Mvcb = FsContext;
-
-            if (FlagOn( (*Mvcb)->MvcbState, MVCB_STATE_FLAG_RAW_DISK )) {
-
-                TypeOfOpen = RawDiskOpen;
-
-            } else {
-
-                TypeOfOpen = UserVolumeOpen;
-            }
-
-            break;
-
-        case CDFS_NTC_VCB:
-
-            *Vcb = FsContext;
-            *Mvcb = (*Vcb)->Mvcb;
-
-            TypeOfOpen = PathTableFile;
-
-            break;
-
-        case CDFS_NTC_ROOT_DCB:
-        case CDFS_NTC_DCB:
-
-            *Ccb = FsContext2;
-            *FcbOrDcb = FsContext;
-            *Vcb = (*FcbOrDcb)->Vcb;
-            *Mvcb = (*Vcb)->Mvcb;
-
-            TypeOfOpen = ( *Ccb == NULL ? StreamFile : UserDirectoryOpen );
-
-            break;
-
-        case CDFS_NTC_FCB:
-
-            *Ccb = FsContext2;
-            *FcbOrDcb = FsContext;
-            *Vcb = (*FcbOrDcb)->Vcb;
-            *Mvcb = (*Vcb)->Mvcb;
-
-            TypeOfOpen = UserFileOpen;
-
-            break;
-
-        default:
-
-            CdBugCheck( NodeType(FsContext), 0, 0 );
-        }
+        ClearFlag( (ULONG) *Ccb, TYPE_OF_OPEN_MASK );
     }
 
     //
-    //  and return to our caller
+    //  Now return the type of open.
     //
-
-    DebugTrace(-1, Dbg, "CdDecodeFileObject -> %08lx\n", TypeOfOpen);
 
     return TypeOfOpen;
 }
+
+
+TYPE_OF_OPEN
+CdFastDecodeFileObject (
+    IN PFILE_OBJECT FileObject,
+    OUT PFCB *Fcb
+    )
+
+/*++
+
+Routine Description:
+
+    This procedure takes a pointer to a file object, that has already been
+    opened by Cdfs and does a quick decode operation.  It will only return
+    a non null value if the file object is a user file open
+
+Arguments:
+
+    FileObject - Supplies the file object pointer being interrogated
+
+    Fcb - Address to store Fcb if this is a user file object.  NULL
+        otherwise.
+
+Return Value:
+
+    TYPE_OF_OPEN - type of open of this file object.
+
+--*/
+
+{
+    TYPE_OF_OPEN TypeOfOpen;
+
+    PAGED_CODE();
+
+    ASSERT_FILE_OBJECT( FileObject );
+
+    //
+    //  The Fcb is in the FsContext field.  The type of open is in the low
+    //  bits of the Ccb.
+    //
+
+    *Fcb = FileObject->FsContext;
+
+    return FlagOn( (ULONG) FileObject->FsContext2, TYPE_OF_OPEN_MASK );
+}
+
+

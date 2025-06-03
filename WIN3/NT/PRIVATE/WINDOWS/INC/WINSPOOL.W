@@ -1,6 +1,6 @@
 /*++                                                            ;both
                                                                 ;both
-Copyright (c) 1990-1993  Microsoft Corporation                  ;both
+Copyright (c) 1990-1996  Microsoft Corporation                  ;both
                                                                 ;both
 Module Name:                                                    ;both
                                                                 ;both
@@ -20,15 +20,16 @@ Revision History:                                               ;both
 #ifndef _WINSPOLP_      ;internal_NT
 #define _WINSPOLP_      ;internal_NT
 
+
 ;begin_both
 #ifdef __cplusplus
 extern "C" {
 #endif
 ;end_both
 
-;begin_winver_400
+#ifdef _WINUSER_
 #include <prsht.h>
-;end_winver_400
+#endif
 
 typedef struct _PRINTER_INFO_1% {
     DWORD   Flags;
@@ -71,14 +72,24 @@ typedef struct _PRINTER_INFO_4% {
     DWORD   Attributes;
 } PRINTER_INFO_4%, *PPRINTER_INFO_4%, *LPPRINTER_INFO_4%;
 
+typedef struct _PRINTER_INFO_5% {
+    LPTSTR% pPrinterName;
+    LPTSTR% pPortName;
+    DWORD   Attributes;
+    DWORD   DeviceNotSelectedTimeout;
+    DWORD   TransmissionRetryTimeout;
+} PRINTER_INFO_5%, *PPRINTER_INFO_5%, *LPPRINTER_INFO_5%;
+
+typedef struct _PRINTER_INFO_6 {
+    DWORD   dwStatus;
+} PRINTER_INFO_6, *PPRINTER_INFO_6, *LPPRINTER_INFO_6;
+
+
+
 #define PRINTER_CONTROL_PAUSE            1
 #define PRINTER_CONTROL_RESUME           2
 #define PRINTER_CONTROL_PURGE            3
-;begin_winver_400
-#define PRINTER_CONTROL_AVAILABLE        4
-#define PRINTER_CONTROL_UNAVAILABLE      5
-#define PRINTER_CONTROL_SET_STATUS       6
-;end_winver_400
+#define PRINTER_CONTROL_SET_STATUS       4
 
 #define PRINTER_STATUS_PAUSED            0x00000001
 #define PRINTER_STATUS_ERROR             0x00000002
@@ -103,10 +114,8 @@ typedef struct _PRINTER_INFO_4% {
 #define PRINTER_STATUS_USER_INTERVENTION 0x00100000
 #define PRINTER_STATUS_OUT_OF_MEMORY     0x00200000
 #define PRINTER_STATUS_DOOR_OPEN         0x00400000
-;begin_winver_400
-#define PRINTER_STATUS_UNAVAILABLE       0x00800000
+#define PRINTER_STATUS_SERVER_UNKNOWN    0x00800000
 #define PRINTER_STATUS_POWER_SAVE        0x01000000
-;end_winver_400
 
 
 #define PRINTER_ATTRIBUTE_QUEUED         0x00000001
@@ -121,10 +130,9 @@ typedef struct _PRINTER_INFO_4% {
 #define PRINTER_ATTRIBUTE_KEEPPRINTEDJOBS   0x00000100
 #define PRINTER_ATTRIBUTE_DO_COMPLETE_FIRST 0x00000200
 
-;begin_winver_400
 #define PRINTER_ATTRIBUTE_WORK_OFFLINE   0x00000400
-;end_winver_400
-
+#define PRINTER_ATTRIBUTE_ENABLE_BIDI    0x00000800
+#define PRINTER_ATTRIBUTE_RAW_ONLY       0x00001000
 
 #define PRINTER_ATTRIBUTE_UPDATEWININI      0x80000000  ;internal
 
@@ -175,25 +183,32 @@ typedef struct _JOB_INFO_2% {
    DWORD    PagesPrinted;
 } JOB_INFO_2%, *PJOB_INFO_2%, *LPJOB_INFO_2%;
 
+typedef struct _JOB_INFO_3 {
+    DWORD   JobId;
+    DWORD   NextJobId;
+    DWORD   Reserved;
+} JOB_INFO_3, *PJOB_INFO_3, *LPJOB_INFO_3;
+
 #define JOB_CONTROL_PAUSE              1
 #define JOB_CONTROL_RESUME             2
 #define JOB_CONTROL_CANCEL             3
 #define JOB_CONTROL_RESTART            4
-;begin_winver_400
 #define JOB_CONTROL_DELETE             5
-;end_winver_400
+#define JOB_CONTROL_SENT_TO_PRINTER    6
+#define JOB_CONTROL_LAST_PAGE_EJECTED  7
 
-#define JOB_STATUS_PAUSED     0x00000001
-#define JOB_STATUS_ERROR      0x00000002
-#define JOB_STATUS_DELETING   0x00000004
-#define JOB_STATUS_SPOOLING   0x00000008
-#define JOB_STATUS_PRINTING   0x00000010
-#define JOB_STATUS_OFFLINE    0x00000020
-#define JOB_STATUS_PAPEROUT   0x00000040
-#define JOB_STATUS_PRINTED    0x00000080
-;begin_winver_400
-#define JOB_STATUS_USER_INTERVENTION PRINTER_STATUS_USER_INTERVENTION   // 0x00010000
-;end_winver_400
+#define JOB_STATUS_PAUSED               0x00000001
+#define JOB_STATUS_ERROR                0x00000002
+#define JOB_STATUS_DELETING             0x00000004
+#define JOB_STATUS_SPOOLING             0x00000008
+#define JOB_STATUS_PRINTING             0x00000010
+#define JOB_STATUS_OFFLINE              0x00000020
+#define JOB_STATUS_PAPEROUT             0x00000040
+#define JOB_STATUS_PRINTED              0x00000080
+#define JOB_STATUS_DELETED              0x00000100
+#define JOB_STATUS_BLOCKED_DEVQ         0x00000200
+#define JOB_STATUS_USER_INTERVENTION    0x00000400
+#define JOB_STATUS_RESTART              0x00000800
 
 #define JOB_POSITION_UNSPECIFIED       0
 
@@ -215,7 +230,6 @@ typedef struct _DRIVER_INFO_2% {
     LPTSTR%   pConfigFile;        // c:\drivers\PSCRPTUI.DLL
 } DRIVER_INFO_2%, *PDRIVER_INFO_2%, *LPDRIVER_INFO_2%;
 
-;begin_winver_400
 typedef struct _DRIVER_INFO_3% {
     DWORD   cVersion;
     LPTSTR%   pName;                    // QMS 810
@@ -228,7 +242,6 @@ typedef struct _DRIVER_INFO_3% {
     LPTSTR%   pMonitorName;             // "PJL monitor"
     LPTSTR%   pDefaultDataType;         // "EMF"
 } DRIVER_INFO_3%, *PDRIVER_INFO_3%, *LPDRIVER_INFO_3%;
-;end_winver_400
 
 typedef struct _DOC_INFO_1% {
     LPTSTR%   pDocName;
@@ -243,7 +256,6 @@ typedef struct _FORM_INFO_1% {
     RECTL   ImageableArea;
 } FORM_INFO_1%, *PFORM_INFO_1%, *LPFORM_INFO_1%;
 
-;begin_winver_400
 typedef struct _DOC_INFO_2% {
     LPTSTR%   pDocName;
     LPTSTR%   pOutputFile;
@@ -259,10 +271,10 @@ typedef struct _DOC_INFO_2% {
 
 #define DI_READ_SPOOL_JOB       3
 
-;end_winver_400
 
+#define FORM_USER       0x00000000
 #define FORM_BUILTIN    0x00000001
-
+#define FORM_PRINTER    0x00000002
 
 typedef struct _PRINTPROCESSOR_INFO_1% {
     LPTSTR%   pName;
@@ -272,13 +284,44 @@ typedef struct _PORT_INFO_1% {
     LPTSTR%   pName;
 } PORT_INFO_1%, *PPORT_INFO_1%, *LPPORT_INFO_1%;
 
-;begin_winver_400
 typedef struct _PORT_INFO_2% {
     LPTSTR%   pPortName;
     LPTSTR%   pMonitorName;
     LPTSTR%   pDescription;
+    DWORD     fPortType;
+    DWORD     Reserved;
 } PORT_INFO_2%, *PPORT_INFO_2%, *LPPORT_INFO_2%;
-;end_winver_400
+
+#define PORT_TYPE_WRITE         0x0001
+#define PORT_TYPE_READ          0x0002
+#define PORT_TYPE_REDIRECTED    0x0004
+#define PORT_TYPE_NET_ATTACHED  0x0008
+
+typedef struct _PORT_INFO_3% {
+    DWORD   dwStatus;
+    LPTSTR% pszStatus;
+    DWORD   dwSeverity;
+} PORT_INFO_3%, *PPORT_INFO_3%, *LPPORT_INFO_3%;
+
+#define PORT_STATUS_TYPE_ERROR      1
+#define PORT_STATUS_TYPE_WARNING    2
+#define PORT_STATUS_TYPE_INFO       3
+
+#define     PORT_STATUS_OFFLINE                 1
+#define     PORT_STATUS_PAPER_JAM               2
+#define     PORT_STATUS_PAPER_OUT               3
+#define     PORT_STATUS_OUTPUT_BIN_FULL         4
+#define     PORT_STATUS_PAPER_PROBLEM           5
+#define     PORT_STATUS_NO_TONER                6
+#define     PORT_STATUS_DOOR_OPEN               7
+#define     PORT_STATUS_USER_INTERVENTION       8
+#define     PORT_STATUS_OUT_OF_MEMORY           9
+
+#define     PORT_STATUS_TONER_LOW              10
+
+#define     PORT_STATUS_WARMING_UP             11
+#define     PORT_STATUS_POWER_SAVE             12
+
 
 typedef struct _MONITOR_INFO_1%{
     LPTSTR%   pName;
@@ -615,28 +658,41 @@ AdvancedDocumentProperties%(
     PDEVMODE% pDevModeInput
 );
 
-;begin_winver_400
-BOOL
-WINAPI
-EnumPrinterPropertySheets(
-    HANDLE  hPrinter,
-    HWND    hWnd,
-    LPFNADDPROPSHEETPAGE    lpfnAdd,
-    LPARAM  lParam
-);
-;end_winver_400
+BOOL                                            ;internal
+WINAPI                                          ;internal
+EnumPrinterPropertySheets(                      ;internal
+    HANDLE  hPrinter,                           ;internal
+    HWND    hWnd,                               ;internal
+    LPFNADDPROPSHEETPAGE    lpfnAdd,            ;internal
+    LPARAM  lParam                              ;internal
+);                                              ;internal
+
+#define ENUMPRINTERPROPERTYSHEETS_ORD     100   ;internal
 
 DWORD
 WINAPI
 GetPrinterData%(
     HANDLE   hPrinter,
-    LPTSTR%    pValueName,
+    LPTSTR%  pValueName,
     LPDWORD  pType,
     LPBYTE   pData,
     DWORD    nSize,
     LPDWORD  pcbNeeded
 );
 
+DWORD
+WINAPI
+EnumPrinterData%(
+    HANDLE   hPrinter,
+    DWORD    dwIndex,
+    LPTSTR%  pValueName,
+    DWORD    cbValueName,
+    LPDWORD  pcbValueName,
+    LPDWORD  pType,
+    LPBYTE   pData,
+    DWORD    cbData,
+    LPDWORD  pcbData
+);
 
 
 DWORD
@@ -650,6 +706,112 @@ SetPrinterData%(
 );
 
 
+DWORD
+WINAPI
+DeletePrinterData%(
+    HANDLE  hPrinter,
+    LPTSTR% pValueName
+);
+
+#define PRINTER_NOTIFY_TYPE 0x00
+#define JOB_NOTIFY_TYPE     0x01
+
+#define PRINTER_NOTIFY_FIELD_SERVER_NAME             0x00
+#define PRINTER_NOTIFY_FIELD_PRINTER_NAME            0x01
+#define PRINTER_NOTIFY_FIELD_SHARE_NAME              0x02
+#define PRINTER_NOTIFY_FIELD_PORT_NAME               0x03
+#define PRINTER_NOTIFY_FIELD_DRIVER_NAME             0x04
+#define PRINTER_NOTIFY_FIELD_COMMENT                 0x05
+#define PRINTER_NOTIFY_FIELD_LOCATION                0x06
+#define PRINTER_NOTIFY_FIELD_DEVMODE                 0x07
+#define PRINTER_NOTIFY_FIELD_SEPFILE                 0x08
+#define PRINTER_NOTIFY_FIELD_PRINT_PROCESSOR         0x09
+#define PRINTER_NOTIFY_FIELD_PARAMETERS              0x0A
+#define PRINTER_NOTIFY_FIELD_DATATYPE                0x0B
+#define PRINTER_NOTIFY_FIELD_SECURITY_DESCRIPTOR     0x0C
+#define PRINTER_NOTIFY_FIELD_ATTRIBUTES              0x0D
+#define PRINTER_NOTIFY_FIELD_PRIORITY                0x0E
+#define PRINTER_NOTIFY_FIELD_DEFAULT_PRIORITY        0x0F
+#define PRINTER_NOTIFY_FIELD_START_TIME              0x10
+#define PRINTER_NOTIFY_FIELD_UNTIL_TIME              0x11
+#define PRINTER_NOTIFY_FIELD_STATUS                  0x12
+#define PRINTER_NOTIFY_FIELD_STATUS_STRING           0x13
+#define PRINTER_NOTIFY_FIELD_CJOBS                   0x14
+#define PRINTER_NOTIFY_FIELD_AVERAGE_PPM             0x15
+#define PRINTER_NOTIFY_FIELD_TOTAL_PAGES             0x16
+#define PRINTER_NOTIFY_FIELD_PAGES_PRINTED           0x17
+#define PRINTER_NOTIFY_FIELD_TOTAL_BYTES             0x18
+#define PRINTER_NOTIFY_FIELD_BYTES_PRINTED           0x19
+
+#define JOB_NOTIFY_FIELD_PRINTER_NAME                0x00
+#define JOB_NOTIFY_FIELD_MACHINE_NAME                0x01
+#define JOB_NOTIFY_FIELD_PORT_NAME                   0x02
+#define JOB_NOTIFY_FIELD_USER_NAME                   0x03
+#define JOB_NOTIFY_FIELD_NOTIFY_NAME                 0x04
+#define JOB_NOTIFY_FIELD_DATATYPE                    0x05
+#define JOB_NOTIFY_FIELD_PRINT_PROCESSOR             0x06
+#define JOB_NOTIFY_FIELD_PARAMETERS                  0x07
+#define JOB_NOTIFY_FIELD_DRIVER_NAME                 0x08
+#define JOB_NOTIFY_FIELD_DEVMODE                     0x09
+#define JOB_NOTIFY_FIELD_STATUS                      0x0A
+#define JOB_NOTIFY_FIELD_STATUS_STRING               0x0B
+#define JOB_NOTIFY_FIELD_SECURITY_DESCRIPTOR         0x0C
+#define JOB_NOTIFY_FIELD_DOCUMENT                    0x0D
+#define JOB_NOTIFY_FIELD_PRIORITY                    0x0E
+#define JOB_NOTIFY_FIELD_POSITION                    0x0F
+#define JOB_NOTIFY_FIELD_SUBMITTED                   0x10
+#define JOB_NOTIFY_FIELD_START_TIME                  0x11
+#define JOB_NOTIFY_FIELD_UNTIL_TIME                  0x12
+#define JOB_NOTIFY_FIELD_TIME                        0x13
+#define JOB_NOTIFY_FIELD_TOTAL_PAGES                 0x14
+#define JOB_NOTIFY_FIELD_PAGES_PRINTED               0x15
+#define JOB_NOTIFY_FIELD_TOTAL_BYTES                 0x16
+#define JOB_NOTIFY_FIELD_BYTES_PRINTED               0x17
+
+
+typedef struct _PRINTER_NOTIFY_OPTIONS_TYPE {
+    WORD Type;
+    WORD Reserved0;
+    DWORD Reserved1;
+    DWORD Reserved2;
+    DWORD Count;
+    PWORD pFields;
+} PRINTER_NOTIFY_OPTIONS_TYPE, *PPRINTER_NOTIFY_OPTIONS_TYPE, *LPPRINTER_NOTIFY_OPTIONS_TYPE;
+
+
+#define PRINTER_NOTIFY_OPTIONS_REFRESH  0x01
+
+typedef struct _PRINTER_NOTIFY_OPTIONS {
+    DWORD Version;
+    DWORD Flags;
+    DWORD Count;
+    PPRINTER_NOTIFY_OPTIONS_TYPE pTypes;
+} PRINTER_NOTIFY_OPTIONS, *PPRINTER_NOTIFY_OPTIONS, *LPPRINTER_NOTIFY_OPTIONS;
+
+
+
+#define PRINTER_NOTIFY_INFO_DISCARDED       0x01
+
+typedef struct _PRINTER_NOTIFY_INFO_DATA {
+    WORD Type;
+    WORD Field;
+    DWORD Reserved;
+    DWORD Id;
+    union {
+        DWORD adwData[2];
+        struct {
+            DWORD  cbBuf;
+            LPVOID pBuf;
+        } Data;
+    } NotifyData;
+} PRINTER_NOTIFY_INFO_DATA, *PPRINTER_NOTIFY_INFO_DATA, *LPPRINTER_NOTIFY_INFO_DATA;
+
+typedef struct _PRINTER_NOTIFY_INFO {
+    DWORD Version;
+    DWORD Flags;
+    DWORD Count;
+    PRINTER_NOTIFY_INFO_DATA aData[1];
+} PRINTER_NOTIFY_INFO, *PPRINTER_NOTIFY_INFO, *LPPRINTER_NOTIFY_INFO;
 
 DWORD
 WINAPI
@@ -664,18 +826,24 @@ FindFirstPrinterChangeNotification(
     HANDLE  hPrinter,
     DWORD   fdwFlags,
     DWORD   fdwOptions,
-    LPVOID  pvReserved
+    LPVOID  pPrinterNotifyOptions
 );
+
 
 BOOL
 WINAPI
 FindNextPrinterChangeNotification(
     HANDLE hChange,
     PDWORD pdwChange,
-    DWORD  dwReserved,
-    LPVOID pvReserved
+    LPVOID pvReserved,
+    LPVOID *ppPrinterNotifyInfo
 );
 
+BOOL
+WINAPI
+FreePrinterNotifyInfo(
+    PPRINTER_NOTIFY_INFO pPrinterNotifyInfo
+);
 
 BOOL
 WINAPI
@@ -872,6 +1040,17 @@ DeletePort%(
 
 BOOL
 WINAPI
+SetPort%(
+    LPTSTR%     pName,
+    LPTSTR%     pPortName,
+    DWORD       dwLevel,
+    LPBYTE      pPortInfo
+);
+
+
+
+BOOL
+WINAPI
 AddPrinterConnection%(
     LPTSTR%   pName
 );
@@ -917,6 +1096,24 @@ DeletePrintProvidor%(
     LPTSTR%   pPrintProvidorName
 );
 
+
+
+/*
+ * SetPrinterData and GetPrinterData Server Handle Key values
+ */
+
+#define    SPLREG_DEFAULT_SPOOL_DIRECTORY             TEXT("DefaultSpoolDirectory")
+#define    SPLREG_PORT_THREAD_PRIORITY_DEFAULT        TEXT("PortThreadPriorityDefault")
+#define    SPLREG_PORT_THREAD_PRIORITY                TEXT("PortThreadPriority")
+#define    SPLREG_SCHEDULER_THREAD_PRIORITY_DEFAULT   TEXT("SchedulerThreadPriorityDefault")
+#define    SPLREG_SCHEDULER_THREAD_PRIORITY           TEXT("SchedulerThreadPriority")
+#define    SPLREG_BEEP_ENABLED                        TEXT("BeepEnabled")
+#define    SPLREG_NET_POPUP                           TEXT("NetPopup")
+#define    SPLREG_EVENT_LOG                           TEXT("EventLog")
+#define    SPLREG_MAJOR_VERSION                       TEXT("MajorVersion")
+#define    SPLREG_MINOR_VERSION                       TEXT("MinorVersion")
+#define    SPLREG_ARCHITECTURE                        TEXT("Architecture")
+#define    SPLREG_NO_REMOTE_PRINTER_DRIVERS           TEXT("NoRemotePrinterDrivers")              ;internal
 
 
 #define SERVER_ACCESS_ADMINISTER    0x00000001
@@ -988,5 +1185,3 @@ DeletePrintProvidor%(
 
 #endif // _WINSPOOL_
 #endif // _WINSPOLP_    ;internal_NT
-
-

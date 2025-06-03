@@ -323,4 +323,3 @@ LRESULT FAR PASCAL EXPORT HatchWndProc(HWND hWnd, UINT Message, WPARAM wParam, L
 
     return 0L;
 }
-

@@ -124,7 +124,12 @@ DoFlockStuff(
         Fd->SystemOpenFileDesc->NtIoHandle, &IoStat,
         &FileStandardInfo, sizeof(FileStandardInfo),
         FileStandardInformation);
-    ASSERT(NT_SUCCESS(Status));
+
+    if (!NT_SUCCESS(Status)) {
+        *error = ENOMEM;
+        return TRUE;
+    }
+
     ASSERT(0 == FileStandardInfo.EndOfFile.HighPart);
 
     FileLength = FileStandardInfo.EndOfFile.LowPart;
@@ -231,10 +236,11 @@ DoFlockStuff(
         if (OVERLAP(new, p)) {
             if ((F_SETLK == command || F_SETLKW == command) &&
                 F_UNLCK == new->l_type) {
-                    //
-                    // The process is only allowed to unlock locks
-                    // that he owns.
-                    //
+
+                //
+                // The process is only allowed to unlock locks
+                // that he owns.
+                //
 
                 if (p->Pid != Proc->Pid) {
                     continue;
@@ -285,8 +291,8 @@ DoFlockStuff(
         // should work.
         // 
         
-            if (!did_find_overlap) {
-                *error = EINVAL;
+        if (!did_find_overlap) {
+            *error = EINVAL;
             return TRUE;
         }
 
@@ -364,7 +370,7 @@ found_region(
         return DONE;
     }
 
-    if (F_SETLK != command || F_SETLKW != command) {
+    if (F_SETLK != command && F_SETLKW != command) {
         KdPrint(("PSXSS: found_region: command %d\n", command));
     }
     ASSERT(F_SETLK == command || F_SETLKW == command);
@@ -488,13 +494,6 @@ found_region(
 
             RemoveEntryList(&list->Links);
             RtlFreeHeap(PsxHeap, 0, list);
-
-#if 0
-            new->l_start += LEN_B(list);
-            *new_off = new->l_start;
-            new->l_len = LEN_A(new);
-            new->l_len -= LEN_B(list);
-#endif
 
             return CONTINUE;
         }
@@ -622,19 +621,20 @@ found_region(
         *new_off + LEN_A(new) > list->Start + LEN_B(list)) {
         PSYSFLOCK l;
 
-            //
-            // The new region starts in the found region and extends
-            // beyond it.
-            //
+        //
+        // The new region starts in the found region and extends
+        // beyond it.
+        //
 
-            if (F_UNLCK == new->l_type) {
-                new->l_start = list->Start + LEN_B(list) + 1;
-                list->Len = *new_off - list->Start;
-                new->l_whence = SEEK_SET;
-                new->l_len = LEN_A(new) - (new->l_start - *new_off);
+        if (F_UNLCK == new->l_type) {
+
+            new->l_start = list->Start + LEN_B(list) + 1;
+            list->Len = *new_off - list->Start;
+            new->l_whence = SEEK_SET;
+            new->l_len = LEN_A(new) - (new->l_start - *new_off);
             *new_off = new->l_start;
 
-                return CONTINUE;
+            return CONTINUE;
         }
 
         //
@@ -675,7 +675,8 @@ found_region(
         // in the midst of it.
         //
 
-            if (F_UNLCK == new->l_type) {
+        if (F_UNLCK == new->l_type) {
+
             list->Len = (list->Start + LEN_B(list) - 1) - new_end;
             list->Start = new_end + 1;
 
@@ -705,16 +706,16 @@ found_region(
     if (*new_off < list->Start &&
         *new_off + LEN_A(new) == list->Start + LEN_B(list)) {
 
-            //
-            // The new region starts before the list region and
-            // ends at the same place.
-            //
+        //
+        // The new region starts before the list region and
+        // ends at the same place.
+        //
 
-            if (F_UNLCK == new->l_type) {
+        if (F_UNLCK == new->l_type) {
             RemoveEntryList(&list->Links);
             RtlFreeHeap(PsxHeap, 0, list);
             return DONE;
-            }
+        }
 
         list->Start = *new_off;
         list->Type = new->l_type;
@@ -856,13 +857,22 @@ WakeAllFlockers(
 {
     PINTCB IntCb;
     PPSX_PROCESS Waiter;
-    PVOID p;
+    PVOID p, prev;
 
     RtlEnterCriticalSection(&BlockLock);
 
-    for (p = (PVOID)IoNode->Waiters.Flink;
+    //
+    // We go through the list of blocked processes and wake them
+    // all up.  Each calls the FlockHandler routine below.  This is
+    // a terrible kludge:  we go through the list from end to beginning
+    // because if any of the processed we've waked are added to the
+    // list, they get added at the end (BlockProcess() calls Insert-
+    // TailList()).
+    //
+
+    for (p = (PVOID)IoNode->Waiters.Blink;
         p != (PVOID)&IoNode->Waiters;
-        p = (PVOID)IoNode->Waiters.Flink) {
+        p = prev) {
 
         ASSERT(NULL != p);
 
@@ -871,7 +881,9 @@ WakeAllFlockers(
 
         Waiter = (PPSX_PROCESS)IntCb->IntContext;
         ASSERT(NULL != Waiter);
-        
+
+        prev = IntCb->Links.Blink;
+
         UnblockProcess(Waiter, WaitSatisfyInterrupt,
             TRUE, 0);
         

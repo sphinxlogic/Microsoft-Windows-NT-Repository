@@ -34,7 +34,6 @@
 #include        <lmaccess.h>
 #include        <lmerr.h>
 #include <ntsam.h>
-#include        <wcstr.h>
 
 #include        "uastest.h"
 #include "accessp.h"

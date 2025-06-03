@@ -37,6 +37,7 @@ EpResolveEndpoint (
     IN RPC_CHAR PAPI * RpcProtocolSequence,
     IN RPC_CHAR PAPI * NetworkAddress,
     IN OUT void PAPI * PAPI * EpLookupHandle,
+    IN unsigned Timeout,
     OUT RPC_CHAR * PAPI * Endpoint
     );
 
@@ -56,7 +57,8 @@ RPC_STATUS RPC_ENTRY
 BindToEpMapper(
     OUT RPC_BINDING_HANDLE PAPI * MapperHandle,
     IN unsigned char PAPI * NWAddress OPTIONAL,
-    IN unsigned char PAPI * Protseq OPTIONAL
+    IN unsigned char PAPI * Protseq OPTIONAL,
+    IN unsigned Timeout
     );
 
 END_C_EXTERN

@@ -23,13 +23,9 @@ Revision History:
 #define Dbg                              (DEBUG_TRACE_NAMESUP)
 
 #ifdef ALLOC_PRAGMA
-#pragma alloc_text(PAGE, NtfsAreNamesEqual)
 #pragma alloc_text(PAGE, NtfsCollateNames)
-#pragma alloc_text(PAGE, NtfsDissectName)
-#pragma alloc_text(PAGE, NtfsDoesNameContainWildCards)
 #pragma alloc_text(PAGE, NtfsIsFatNameValid)
 #pragma alloc_text(PAGE, NtfsIsFileNameValid)
-#pragma alloc_text(PAGE, NtfsIsNameInExpression)
 #pragma alloc_text(PAGE, NtfsParseName)
 #pragma alloc_text(PAGE, NtfsParsePath)
 #pragma alloc_text(PAGE, NtfsUpcaseName)
@@ -38,84 +34,8 @@ Revision History:
 #define MAX_CHARS_IN_8_DOT_3    (12)
 
 
-VOID
-NtfsDissectName (
-    IN PIRP_CONTEXT IrpContext,
-    IN UNICODE_STRING Path,
-    OUT PUNICODE_STRING FirstName,
-    OUT PUNICODE_STRING RemainingName
-    )
-
-/*++
-
-Routine Description:
-
-    This routine cracks a path.  It picks off the first element in the
-    given path name and provides both it and the remaining part.  A path
-    is a set of file names separated by backslashes.  If a name begins
-    with a backslash, the FirstName is the string immediately following
-    the backslash.  Here are some examples:
-
-        Path           FirstName    RemainingName
-        ----           ---------    -------------
-        empty          empty        empty
-
-        \              empty        empty
-
-        A              A            empty
-
-        \A             A            empty
-
-        A\B\C\D\E      A            B\C\D\E
-
-        *A?            *A?          empty
-
-
-    Note that both output strings use the same string buffer memory of the
-    input string, and are not necessarily null terminated.
-
-    Also, this routine makes no judgement as to the legality of each
-    file name componant.  This must be done separatly when each file name
-    is extracted.
-
-Arguments:
-
-    Path - The full path name to crack.
-
-    FirstName - The first name in the path.  Don't allocate a buffer for
-        this string.
-
-    RemainingName - The rest of the path.  Don't allocate a buffer for this
-        string.
-
-Return Value:
-
-    None.
-
---*/
-
-{
-    ASSERT_IRP_CONTEXT( IrpContext );
-
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "NtfsDissectName\n", 0);
-    DebugTrace( 0, Dbg, "IrpContext  = %08lx\n", IrpContext);
-    DebugTrace( 0, Dbg, "Path        = %Z\n", &Path);
-
-    FsRtlDissectName( Path, FirstName, RemainingName );
-
-    DebugTrace( 0, Dbg, "FirstName     = %Z\n", FirstName);
-    DebugTrace( 0, Dbg, "RemainingName = %Z\n", RemainingName);
-    DebugTrace(-1, Dbg, "NtfsDissectName -> (VOID)\n", 0);
-
-    return;
-}
-
-
 PARSE_TERMINATION_REASON
 NtfsParsePath (
-    IN PIRP_CONTEXT IrpContext,
     IN UNICODE_STRING Path,
     IN BOOLEAN WildCardsPermissible,
     OUT PUNICODE_STRING FirstPart,
@@ -224,7 +144,7 @@ ReturnValue:
 
     BOOLEAN WellFormed;
     BOOLEAN MoreNamesInPath;
-    BOOLEAN FirstItteration;
+    BOOLEAN FirstIteration;
     BOOLEAN FoundIllegalCharacter;
 
     PARSE_TERMINATION_REASON TerminationReason;
@@ -235,7 +155,7 @@ ReturnValue:
     //  Initialize some loacal variables and OUT parameters.
     //
 
-    FirstItteration = TRUE;
+    FirstIteration = TRUE;
     MoreNamesInPath = TRUE;
 
     //
@@ -291,8 +211,7 @@ ReturnValue:
         //  name then propagate the callers arguments.
         //
 
-        WellFormed = NtfsParseName( IrpContext,
-                                    FirstName,
+        WellFormed = NtfsParseName( FirstName,
                                     WildCardsPermissible,
                                     &FoundIllegalCharacter,
                                     Name );
@@ -322,10 +241,10 @@ ReturnValue:
         //  the Name->FieldsPresent variable.
         //
 
-        if ( FirstItteration ) {
+        if ( FirstIteration ) {
 
             FirstPart->Length += FirstName.Length;
-            FirstItteration = FALSE;
+            FirstIteration = FALSE;
 
         } else {
 
@@ -391,7 +310,6 @@ ReturnValue:
 
 BOOLEAN
 NtfsParseName (
-    IN PIRP_CONTEXT IrpContext,
     IN UNICODE_STRING Name,
     IN BOOLEAN WildCardsPermissible,
     OUT PBOOLEAN FoundIllegalCharacter,
@@ -462,6 +380,7 @@ ReturnValue:
     ULONG NameLength;
     ULONG FieldCount;
     ULONG FieldIndexes[5];
+    UCHAR ValidCharFlags = FSRTL_NTFS_LEGAL;
 
     PULONG Fields;
 
@@ -526,6 +445,8 @@ ReturnValue:
 
             FieldCount += 1;
 
+            ValidCharFlags |= FSRTL_OLE_LEGAL;
+
             continue;
         }
 
@@ -535,7 +456,7 @@ ReturnValue:
         //
 
         if ( (Char <= 0xff) &&
-             !FsRtlIsAnsiCharacterLegalNtfs(Char, WildCardsPermissible) ) {
+             !FsRtlTestAnsiCharacter( Char, TRUE, WildCardsPermissible, ValidCharFlags )) {
 
             IsNameValid = FALSE;
             *FoundIllegalCharacter = TRUE;
@@ -697,7 +618,8 @@ ReturnValue:
 
 VOID
 NtfsUpcaseName (
-    IN PIRP_CONTEXT IrpContext,
+    IN PWCH UpcaseTable,
+    IN ULONG UpcaseTableSize,
     IN OUT PUNICODE_STRING Name
     )
 
@@ -708,6 +630,11 @@ Routine Description:
     This routine upcases a string.
 
 Arguments:
+
+    UpcaseTable - Pointer to an array of Unicode upcased characters indexed by
+                  the Unicode character to be upcased.
+
+    UpcaseTableSize - Size of the Upcase table in unicode characters
 
     Name - Supplies the string to upcase
 
@@ -720,20 +647,13 @@ Return Value:
 {
     ULONG i;
     ULONG Length;
-    PWCH UpcaseTable;
-    ULONG UpcaseTableSize;
-
-    ASSERT_IRP_CONTEXT( IrpContext );
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsUpcaseName\n", 0);
-    DebugTrace( 0, Dbg, "Name = %Z\n", Name);
+    DebugTrace( +1, Dbg, ("NtfsUpcaseName\n") );
+    DebugTrace( 0, Dbg, ("Name = %Z\n", Name) );
 
     Length = Name->Length / sizeof(WCHAR);
-
-    UpcaseTable = IrpContext->Vcb->UpcaseTable;
-    UpcaseTableSize = IrpContext->Vcb->UpcaseTableSize;
 
     for (i=0; i < Length; i += 1) {
 
@@ -742,57 +662,17 @@ Return Value:
         }
     }
 
-    DebugTrace( 0, Dbg, "Upcased Name = %Z\n", Name);
-    DebugTrace(-1, Dbg, "NtfsUpcaseName -> VOID\n", 0);
+    DebugTrace( 0, Dbg, ("Upcased Name = %Z\n", Name) );
+    DebugTrace( -1, Dbg, ("NtfsUpcaseName -> VOID\n") );
 
     return;
 }
 
 
-BOOLEAN
-NtfsDoesNameContainWildCards (
-    IN PIRP_CONTEXT IrpContext,
-    IN PUNICODE_STRING Name
-    )
-
-/*++
-
-Routine Description:
-
-    This routine checks if the input name contains any wild card characters.
-
-Arguments:
-
-    Name - Supplies the name to examine
-
-Return Value:
-
-    BOOLEAN - TRUE if the input name contains any wildcard characters and
-        FALSE otherwise.
-
---*/
-
-{
-    BOOLEAN Result;
-
-    ASSERT_IRP_CONTEXT( IrpContext );
-
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "NtfsDoesNameContainWildCards\n", 0);
-    DebugTrace( 0, Dbg, "IrpContext = %08lx\n", IrpContext);
-    DebugTrace( 0, Dbg, "Name       = %Z\n", Name);
-
-    Result = FsRtlDoesNameContainWildCards( Name );
-
-    DebugTrace(-1, Dbg, "NtfsDoesNameContainWildCards -> %08lx\n", Result);
-
-    return Result;
-}
-
 FSRTL_COMPARISON_RESULT
 NtfsCollateNames (
-    IN PIRP_CONTEXT IrpContext,
+    IN PWCH UpcaseTable,
+    IN ULONG UpcaseTableSize,
     IN PUNICODE_STRING Expression,
     IN PUNICODE_STRING Name,
     IN FSRTL_COMPARISON_RESULT WildIs,
@@ -812,6 +692,11 @@ Routine Description:
     the wildcard name "*.*" will always compare less than all all strings.
 
 Arguments:
+
+    UpcaseTable - Pointer to an array of Unicode upcased characters indexed by
+                  the Unicode character to be upcased.
+
+    UpcaseTableSize - Size of the Upcase table in unicode characters
 
     Expression - Supplies the first name expression to compare, optionally with
                  wild cards.  Note that caller must have already upcased
@@ -843,22 +728,13 @@ Return Value:
     ULONG i;
     ULONG Length;
 
-    PWCH UpcaseTable;
-    ULONG UpcaseTableSize;
-
-    ASSERT_IRP_CONTEXT( IrpContext );
-
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsCollateNames\n", 0);
-    DebugTrace( 0, Dbg, "IrpContext = %08lx\n", IrpContext);
-    DebugTrace( 0, Dbg, "Expression = %Z\n", Expression);
-    DebugTrace( 0, Dbg, "Name       = %Z\n", Name);
-    DebugTrace( 0, Dbg, "WildIs     = %08lx\n", WildIs);
-    DebugTrace( 0, Dbg, "IgnoreCase = %02lx\n", IgnoreCase);
-
-    UpcaseTable = IrpContext->Vcb->UpcaseTable;
-    UpcaseTableSize = IrpContext->Vcb->UpcaseTableSize;
+    DebugTrace( +1, Dbg, ("NtfsCollateNames\n") );
+    DebugTrace( 0, Dbg, ("Expression = %Z\n", Expression) );
+    DebugTrace( 0, Dbg, ("Name       = %Z\n", Name) );
+    DebugTrace( 0, Dbg, ("WildIs     = %08lx\n", WildIs) );
+    DebugTrace( 0, Dbg, ("IgnoreCase = %02lx\n", IgnoreCase) );
 
     //
     //  Calculate the length in wchars that we need to compare.  This will
@@ -899,19 +775,19 @@ Return Value:
 
         if ( FsRtlIsUnicodeCharacterWild(ExpressionChar) ) {
 
-            DebugTrace(-1, Dbg, "NtfsCollateNames -> %08lx (Wild)\n", WildIs);
+            DebugTrace( -1, Dbg, ("NtfsCollateNames -> %08lx (Wild)\n", WildIs) );
             return WildIs;
         }
 
         if ( ExpressionChar < ConstantChar ) {
 
-            DebugTrace(-1, Dbg, "NtfsCollateNames -> LessThan\n", 0);
+            DebugTrace( -1, Dbg, ("NtfsCollateNames -> LessThan\n") );
             return LessThan;
         }
 
         if ( ExpressionChar > ConstantChar ) {
 
-            DebugTrace(-1, Dbg, "NtfsCollateNames -> GreaterThan\n", 0);
+            DebugTrace( -1, Dbg, ("NtfsCollateNames -> GreaterThan\n") );
             return GreaterThan;
         }
     }
@@ -926,7 +802,7 @@ Return Value:
 
     if (Expression->Length < Name->Length) {
 
-        DebugTrace(-1, Dbg, "NtfsCollateNames -> LessThan (length)\n", 0);
+        DebugTrace( -1, Dbg, ("NtfsCollateNames -> LessThan (length)\n") );
         return LessThan;
     }
 
@@ -934,129 +810,20 @@ Return Value:
 
         if (FsRtlIsUnicodeCharacterWild(Expression->Buffer[i])) {
 
-            DebugTrace(-1, Dbg, "NtfsCollateNames -> %08lx (trailing wild)\n", WildIs);
+            DebugTrace( -1, Dbg, ("NtfsCollateNames -> %08lx (trailing wild)\n", WildIs) );
             return WildIs;
         }
 
-        DebugTrace(-1, Dbg, "NtfsCollateNames -> GreaterThan (length)\n", 0);
+        DebugTrace( -1, Dbg, ("NtfsCollateNames -> GreaterThan (length)\n") );
         return GreaterThan;
     }
 
-    DebugTrace(-1, Dbg, "NtfsCollateNames -> EqualTo\n", 0);
+    DebugTrace( -1, Dbg, ("NtfsCollateNames -> EqualTo\n") );
     return EqualTo;
 }
 
 BOOLEAN
-NtfsIsNameInExpression (
-    IN PIRP_CONTEXT IrpContext,
-    IN PUNICODE_STRING Expression,
-    IN PUNICODE_STRING Name,
-    IN BOOLEAN IgnoreCase
-    )
-
-/*++
-
-Routine Description:
-
-    This routine compare a name and an expression and tells the caller if
-    the name is equal to or not equal to the expression.  The input name
-    cannot contain wildcards, while the expression may contain wildcards.
-
-    Case is not ignored in this test.
-
-Arguments:
-
-    Expression - Supplies the input expression to check against.
-
-    Name - Supplies the input name to check for.
-
-    IgnoreCase - TRUE if case should be ignored for the comparison
-
-Return Value:
-
-    BOOLEAN - TRUE if Name is an element in the set of strings denoted
-        by the input Expression and FALSE otherwise.
-
---*/
-
-{
-    BOOLEAN  Result;
-
-    ASSERT_IRP_CONTEXT( IrpContext );
-
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "NtfsIsNameInExpression\n", 0);
-    DebugTrace( 0, Dbg, "IrpContext = %08lx\n", IrpContext);
-    DebugTrace( 0, Dbg, "Expression = %Z\n", Expression);
-    DebugTrace( 0, Dbg, "Name       = %Z\n", Name);
-    DebugTrace( 0, Dbg, "IgnoreCase = %02lx\n", IgnoreCase);
-
-    Result = FsRtlIsNameInExpression( Expression,
-                                      Name,
-                                      IgnoreCase,
-                                      IrpContext->Vcb->UpcaseTable );
-
-    DebugTrace(-1, Dbg, "NtfsIsNameInExpression -> %08lx\n", Result);
-
-    return Result;
-}
-
-
-BOOLEAN
-NtfsAreNamesEqual (
-    IN PIRP_CONTEXT IrpContext,
-    IN PUNICODE_STRING Name1,
-    IN PUNICODE_STRING Name2,
-    IN BOOLEAN IgnoreCase
-    )
-
-/*++
-
-Routine Description:
-
-    This routine compares the two inputs string for name equality.  The
-    test can be done with or without case sensitivity checking.
-
-Arguments:
-
-    Name1 - Supplies the first name to check.
-
-    Name2 - Supplies the second name to check.
-
-    IgnoreCase - Indicates if the comparisons should be done by ignoring
-        case or not.  A value of TRUE means that upper and lower case
-        characters will match, FALSE means they won't
-
-Return Value:
-
-    BOOLEAN - Returns TRUE if the two names are equal and FALSE otherwise.
-
---*/
-
-{
-    BOOLEAN  Result;
-
-    ASSERT_IRP_CONTEXT( IrpContext );
-
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "NtfsAreNamesEqual\n", 0);
-    DebugTrace( 0, Dbg, "IrpContext = %08lx\n", IrpContext);
-    DebugTrace( 0, Dbg, "Name1      = %Z\n", Name1);
-    DebugTrace( 0, Dbg, "Name2      = %Z\n", Name2);
-    DebugTrace( 0, Dbg, "IgnoreCase = %08lx\n", IgnoreCase);
-
-    Result = FsRtlAreNamesEqual( Name1, Name2, IgnoreCase, IrpContext->Vcb->UpcaseTable );
-
-    DebugTrace(-1, Dbg, "NtfsAreNamesEqual -> %08lx\n", Result);
-
-    return Result;
-}
-
-BOOLEAN
 NtfsIsFileNameValid (
-    IN PIRP_CONTEXT IrpContext,
     IN PUNICODE_STRING FileName,
     IN BOOLEAN WildCardsPermissible
     )
@@ -1089,11 +856,10 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsIsFileNameValid\n", 0);
-    DebugTrace( 0, Dbg, "IrpContext           = %08lx\n", IrpContext);
-    DebugTrace( 0, Dbg, "FileName             = %Z\n", FileName);
-    DebugTrace( 0, Dbg, "WildCardsPermissible = %s\n",
-                         WildCardsPermissible ? "TRUE" : "FALSE");
+    DebugTrace( +1, Dbg, ("NtfsIsFileNameValid\n") );
+    DebugTrace( 0, Dbg, ("FileName             = %Z\n", FileName) );
+    DebugTrace( 0, Dbg, ("WildCardsPermissible = %s\n",
+                         WildCardsPermissible ? "TRUE" : "FALSE") );
 
     //
     //  Check if corresponds to a legal single Ntfs Name.
@@ -1143,7 +909,7 @@ Return Value:
         IsNameValid = FALSE;
     }
 
-    DebugTrace(-1, Dbg, "NtfsIsFileNameValid -> %s\n", IsNameValid ? "TRUE" : "FALSE");
+    DebugTrace( -1, Dbg, ("NtfsIsFileNameValid -> %s\n", IsNameValid ? "TRUE" : "FALSE") );
 
     return IsNameValid;
 }
@@ -1151,7 +917,6 @@ Return Value:
 
 BOOLEAN
 NtfsIsFatNameValid (
-    IN PIRP_CONTEXT IrpContext,
     IN PUNICODE_STRING FileName,
     IN BOOLEAN WildCardsPermissible
     )
@@ -1179,8 +944,19 @@ Return Value:
     BOOLEAN Results;
     STRING DbcsName;
     USHORT i;
+    CHAR Buffer[24];
+    WCHAR wc;
 
     PAGED_CODE();
+
+    //
+    //  If the name is more than 24 bytes then it can't be a valid Fat name.
+    //
+
+    if (FileName->Length > 24) {
+
+        return FALSE;
+    }
 
     //
     //  We will do some extra checking ourselves because we really want to be
@@ -1191,13 +967,23 @@ Return Value:
     //  character and those beyond lowercase z.
     //
 
-    for (i = 0; i < FileName->Length / 2; i += 1) {
+    if (FlagOn(NtfsData.Flags,NTFS_FLAGS_ALLOW_EXTENDED_CHAR)) {
 
-        WCHAR wc;
+        for (i = 0; i < FileName->Length / 2; i += 1) {
 
-        wc = FileName->Buffer[i];
+            wc = FileName->Buffer[i];
 
-        if ((wc <= 0x0020) || (wc >= 0x007f) || (wc == 0x007c)) { return FALSE; }
+            if ((wc <= 0x0020) || (wc == 0x007c)) { return FALSE; }
+        }
+
+    } else {
+
+        for (i = 0; i < FileName->Length / 2; i += 1) {
+
+            wc = FileName->Buffer[i];
+
+            if ((wc <= 0x0020) || (wc >= 0x007f) || (wc == 0x007c)) { return FALSE; }
+        }
     }
 
     //
@@ -1207,15 +993,15 @@ Return Value:
 
     Results = FALSE;
 
-    if (NT_SUCCESS(RtlUnicodeStringToCountedOemString( &DbcsName, FileName, TRUE))) {
+    DbcsName.MaximumLength = 24;
+    DbcsName.Buffer = Buffer;
+
+    if (NT_SUCCESS(RtlUnicodeStringToCountedOemString( &DbcsName, FileName, FALSE))) {
 
         if (FsRtlIsFatDbcsLegal( DbcsName, WildCardsPermissible, FALSE, FALSE )) {
 
             Results = TRUE;
-
         }
-
-        RtlFreeOemString( &DbcsName );
     }
 
     //

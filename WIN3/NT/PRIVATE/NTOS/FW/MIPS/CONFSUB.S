@@ -49,4 +49,3 @@ Return Value:
         nop
         .end  CtReadProcessorId
 
-

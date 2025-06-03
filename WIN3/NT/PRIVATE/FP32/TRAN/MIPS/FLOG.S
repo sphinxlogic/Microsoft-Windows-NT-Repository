@@ -25,8 +25,7 @@
 #define  two    2.0
 #define  loge   0.43429448190325182765
 
-.text
-
+.text .text$flog
 .globl flog
 .globl logf
 .ent flog
@@ -34,7 +33,7 @@
 flog:
 logf:
 	.frame	sp, 0, ra
-    .prologue 0
+	.prologue 0
 	mfc1	t0, $f12
 	srl	t1, t0, 23
 	ble	t0, 0, flogerr
@@ -87,6 +86,7 @@ flognan:
 	j	ra
 .end flog
 
+.text .text$flog
 .globl flog10
 .globl log10f
 .ent flog10
@@ -94,7 +94,7 @@ flognan:
 flog10:
 log10f:
 	.frame	sp, 0, t3
-    .prologue 0
+	.prologue 0
 	move	t3, ra
 	bal	logf
 	li.d	$f6, loge

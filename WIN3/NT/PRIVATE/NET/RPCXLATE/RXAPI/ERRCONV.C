@@ -39,7 +39,7 @@ Revision History:
     17-Aug-1992 JohnRo
         RAID 2920: Support UTC timezone in net code.
     10-Sep-1992 JohnRo
-        RAID 5174: event viewer access violates after NetErrorRead.
+        RAID 5174: event viewer _access violates after NetErrorRead.
     23-Sep-1992 JohnRo
         Handle many more varieties of error log corruption.
     01-Oct-1992 JohnRo
@@ -58,7 +58,7 @@ Revision History:
 #include <align.h>      // ALIGN_ and related equates.
 #include <lmapibuf.h>   // NetApiBufferAllocate(), NetApiBufferFree().
 #include <lmerr.h>      // NERR_, ERROR_, and NO_ERROR equates.
-#include <netdebug.h>   // NetpDbgPrint(), FORMAT_ equates.
+#include <netdebug.h>   // NetpKdPrint(()), FORMAT_ equates.
 #include <prefix.h>     // PREFIX_ equates.
 #include <rxerrlog.h>   // My prototype.
 #include <rxp.h>        // RxpEstimateLogSize().
@@ -163,10 +163,10 @@ RxpConvertErrorLogArray(
         NetpAssert( POINTER_IS_ALIGNED(OutputFixedPtr, ALIGN_WORST) );
 
         IF_DEBUG(ERRLOG) {
-            NetpDbgPrint( PREFIX_NETAPI
+            NetpKdPrint(( PREFIX_NETAPI
                     "RxpConvertErrorLogArray: doing input entry at "
                     FORMAT_LPVOID ", out entry at " FORMAT_LPVOID ".\n",
-                    (LPVOID) InputFixedPtr, (LPVOID) OutputFixedPtr );
+                    (LPVOID) InputFixedPtr, (LPVOID) OutputFixedPtr ));
         }
 
         //
@@ -372,8 +372,8 @@ RxpConvertErrorLogArray(
 
 FileCorrupt:
 
-    NetpDbgPrint( PREFIX_NETAPI
-            "RxpConvertErrorLogArray: corrupt error log!\n" );
+    NetpKdPrint(( PREFIX_NETAPI
+            "RxpConvertErrorLogArray: corrupt error log!\n" ));
 
     if (OutputArray != NULL) {
         (VOID) NetApiBufferFree( OutputArray );

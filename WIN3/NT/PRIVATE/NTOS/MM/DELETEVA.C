@@ -30,7 +30,7 @@ VOID
 MiDeleteVirtualAddresses (
     IN PUCHAR StartingAddress,
     IN PUCHAR EndingAddress,
-    IN BOOLEAN AddressSpaceDeletion,
+    IN ULONG AddressSpaceDeletion,
     IN PMMVAD Vad
     )
 
@@ -79,7 +79,7 @@ Environment:
     PMMPTE ProtoPte;
     PMMPTE LastProtoPte;
     PEPROCESS CurrentProcess;
-    BOOLEAN FlushTb = FALSE;
+    ULONG FlushTb = FALSE;
     PSUBSECTION Subsection;
     PUSHORT UsedPageTableCount;
     KIRQL OldIrql = APC_LEVEL;
@@ -310,7 +310,7 @@ VOID
 MiDeletePte (
     IN PMMPTE PointerPte,
     IN PVOID VirtualAddress,
-    IN BOOLEAN AddressSpaceDeletion,
+    IN ULONG AddressSpaceDeletion,
     IN PEPROCESS CurrentProcess,
     IN PMMPTE PrototypePte,
     IN PMMPTE_FLUSH_LIST PteFlushList OPTIONAL
@@ -364,8 +364,8 @@ Environment:
     PMMPFN Pfn1;
     PMMPFN Pfn2;
     MMPTE PteContents;
-    USHORT WorkingSetIndex;
-    USHORT Entry;
+    ULONG WorkingSetIndex;
+    ULONG Entry;
     PVOID SwapVa;
     MMWSLENTRY Locked;
     ULONG WsPfnIndex;
@@ -375,7 +375,7 @@ Environment:
     MM_PFN_LOCK_ASSERT();
 
 #if DBG
-    if (MmDebug & 2) {
+    if (MmDebug & MM_DBG_PTE_UPDATE) {
         DbgPrint("deleting PTE\n");
         MiFormatPte(PointerPte);
     }
@@ -388,6 +388,17 @@ Environment:
 #ifdef R4000
         ASSERT (PteContents.u.Hard.Global == 0);
 #endif
+#ifdef _X86_
+#if DBG
+#if !defined(NT_UP)
+
+        if (PteContents.u.Hard.Writable == 1) {
+            ASSERT (PteContents.u.Hard.Dirty == 1);
+        }
+        ASSERT (PteContents.u.Hard.Accessed == 1);
+#endif //NTUP
+#endif //DBG
+#endif //X86
 
         //
         // Pte is valid.  Check PFN database to see if this is a prototype PTE.
@@ -397,7 +408,7 @@ Environment:
         WsPfnIndex = Pfn1->u1.WsIndex;
 
 #if DBG
-        if (MmDebug & 2) {
+        if (MmDebug & MM_DBG_PTE_UPDATE) {
             MiFormatPfn(Pfn1);
         }
 #endif //DBG
@@ -466,9 +477,7 @@ Environment:
             // page which maps this PTE.
             //
 
-            MiDecrementShareAndValidCount (Pfn1->u3.e1.PteFrame);
-
-            ASSERT (Pfn1->ValidPteCount == 0);
+            MiDecrementShareAndValidCount (Pfn1->PteFrame);
 
             MI_SET_PFN_DELETED (Pfn1);
 
@@ -525,11 +534,14 @@ Environment:
                 // This entry is locked.
                 //
 
+                ASSERT (WorkingSetIndex < MmWorkingSetList->FirstDynamic);
                 MmWorkingSetList->FirstDynamic -= 1;
 
-                if (WorkingSetIndex != (USHORT)MmWorkingSetList->FirstDynamic) {
+                if (WorkingSetIndex != MmWorkingSetList->FirstDynamic) {
 
-                    SwapVa = MmWsle[MmWorkingSetList->FirstDynamic].u1.VirtualAddress;
+                    Entry = MmWorkingSetList->FirstDynamic;
+                    ASSERT (MmWsle[Entry].u1.e1.Valid);
+                    SwapVa = MmWsle[Entry].u1.VirtualAddress;
                     SwapVa = PAGE_ALIGN (SwapVa);
                     Pfn2 = MI_PFN_ELEMENT (
                               MiGetPteAddress (SwapVa)->u.Hard.PageFrameNumber);
@@ -549,14 +561,13 @@ Environment:
                                       WorkingSetIndex,
                                       MmWorkingSetList);
 #endif //0
-                    Entry = MiLocateWsle (SwapVa,
-                                          MmWorkingSetList,
-                                          Pfn2->u1.WsIndex);
 
                     MiSwapWslEntries (Entry,
                                       WorkingSetIndex,
                                       &CurrentProcess->Vm);
                 }
+            } else {
+                ASSERT (WorkingSetIndex >= MmWorkingSetList->FirstDynamic);
             }
 
             //
@@ -568,7 +579,7 @@ Environment:
                                  TRUE,
                                  FALSE,
                                  (PHARDWARE_PTE)PointerPte,
-                                 ZeroPte.u.Hard);
+                                 ZeroPte.u.Flush);
             } else {
                 if (PteFlushList->Count != MM_MAXIMUM_FLUSH_COUNT) {
                     PteFlushList->FlushPte[PteFlushList->Count] = PointerPte;
@@ -674,11 +685,9 @@ Environment:
 
         Pfn1 = MI_PFN_ELEMENT (PteContents.u.Trans.PageFrameNumber);
 
-        ASSERT (Pfn1->ValidPteCount == 0);
-
         MI_SET_PFN_DELETED (Pfn1);
 
-        MiDecrementShareCount (Pfn1->u3.e1.PteFrame);
+        MiDecrementShareCount (Pfn1->PteFrame);
 
         //
         // Check the reference count for the page, if the reference
@@ -687,7 +696,7 @@ Environment:
         // goes to zero, it will be placed on the free list.
         //
 
-        if (Pfn1->ReferenceCount == 0) {
+        if (Pfn1->u3.e2.ReferenceCount == 0) {
             MiUnlinkPageFromList (Pfn1);
             MiReleasePageFileSpace (Pfn1->OriginalPte);
             MiInsertPageInList (MmPageLocationList[FreePageList],
@@ -729,7 +738,7 @@ Environment:
 }
 
 
-BOOLEAN
+ULONG
 FASTCALL
 MiReleasePageFileSpace (
     IN MMPTE PteContents
@@ -903,7 +912,7 @@ Environment:
 VOID
 MiFlushPteList (
     IN PMMPTE_FLUSH_LIST PteFlushList,
-    IN BOOLEAN AllProcessors,
+    IN ULONG AllProcessors,
     IN MMPTE FillPte
     )
 
@@ -947,26 +956,30 @@ Environment:
                 KeFlushMultipleTb (count,
                                    &PteFlushList->FlushVa[0],
                                    TRUE,
-                                   AllProcessors,
+                                   (BOOLEAN)AllProcessors,
                                    &((PHARDWARE_PTE)PteFlushList->FlushPte[0]),
-                                   FillPte.u.Hard);
+                                   FillPte.u.Flush);
             } else {
 
                 //
                 // Array has overflowed, flush the entire TB.
                 //
 
-                KeFlushEntireTb (TRUE, AllProcessors);
+                ExAcquireSpinLockAtDpcLevel ( &MmSystemSpaceLock );
+                KeFlushEntireTb (TRUE, (BOOLEAN)AllProcessors);
+                if (AllProcessors == TRUE) {
+                    MmFlushCounter.u.List.NextEntry += 1;
+                }
+                ExReleaseSpinLockFromDpcLevel ( &MmSystemSpaceLock );
             }
         } else {
             KeFlushSingleTb (PteFlushList->FlushVa[0],
                              TRUE,
-                             AllProcessors,
+                             (BOOLEAN)AllProcessors,
                              (PHARDWARE_PTE)PteFlushList->FlushPte[0],
-                             FillPte.u.Hard);
+                             FillPte.u.Flush);
         }
         PteFlushList->Count = 0;
     }
     return;
 }
-

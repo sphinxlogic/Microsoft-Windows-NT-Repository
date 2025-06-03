@@ -454,7 +454,7 @@ Return Value:
         return SP_RETURN_ERROR;
     }
 
-    //
+	//
     // Determine DMA channel.
     //
 
@@ -463,12 +463,14 @@ Return Value:
         return SP_RETURN_ERROR;
     }
 
+#if 0		// Commented out because EISA should not do this: 4/18/94
     WHICH_BIT(dmaChannel,bit);
 
     ConfigInfo->DmaChannel = bit;
 
     DebugPrint((2,"D329XFindAdapter: DMA channel is %x\n",
         ConfigInfo->DmaChannel));
+#endif
 
     //
     // Determine hardware interrupt vector.
@@ -1205,7 +1207,8 @@ Return Value:
             DebugPrint((1, "D329XStartIo: Abort request received\n"));
 
             //
-            // BUGBUG: Race condition (what if CCB to be aborted
+            // NOTE: Race condition if aborts occur
+            //     (what if CCB to be aborted
             //      completes after setting new SrbAddress?)
             //
 
@@ -2583,4 +2586,3 @@ Return Value:
     return TRUE;
 
 } // end WriteCommandRegister()
-

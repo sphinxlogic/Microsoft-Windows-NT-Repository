@@ -1,12 +1,18 @@
 #include "cmd.h"
-#include "cmdproto.h"
 
+extern int CurBat ;
 extern UINT CurrentCP;
 extern unsigned DosErr;
 extern TCHAR CurDrvDir[] ;
 extern TCHAR SwitChar, PathChar;
 extern TCHAR ComExt[], ComSpecStr[];
 extern struct envdata * penvOrig;
+extern int   LastRetCode;
+
+WORD
+GetProcessSubsystemType(
+    HANDLE hProcess
+    );
 
 /*
 
@@ -14,53 +20,153 @@ extern struct envdata * penvOrig;
 
 */
 
+
+
+static int mystr_back (TCHAR const *str, int pos, TCHAR c)
+{
+
+    int i;
+
+    // BUGBUG.  Not really a bug, since we insist that UNICODE be defined,
+    // but this is not DBCS safe if not UNICODE.
+    for (i=pos; i>=0; i--)  {
+        if ( str[i] == c )
+            return (i);
+    }
+
+    return (-1);
+}
+
+
+static int mystr_forth (TCHAR const *str, int pos, TCHAR c)
+{
+
+    int i;
+    int len = mystrlen (&str[pos]);
+
+
+    for (i=pos; i<=(pos+len); i++)  {
+        if ( str[i] == c )
+            return (i);
+    }
+
+
+    return (-1);
+
+}
+
+
+
+static int insert_quotes (TCHAR *src, TCHAR *dst)
+{
+    int         init_pos = 0;
+    int         len = mystrlen (src);
+    int         off_sp,
+                off_f_bs,
+                off_b_bs,
+                up_lim,
+                ii;
+
+
+
+    mystrcpy (dst, src);
+
+
+
+    while ( 1 == 1 )  {
+
+        off_sp = mystr_forth ( dst, init_pos, TEXT(' ') );
+        if ( off_sp == -1 )
+            break;
+
+        off_b_bs = mystr_back (dst, off_sp, TEXT('\\') );
+        if ( off_b_bs == -1 )
+            return (FAILURE);
+
+        off_f_bs = mystr_forth ( dst, off_sp, TEXT('\\') );
+
+        len = mystrlen (dst);
+
+        if ( off_f_bs != -1 )  {      // Shift dst +2 chars starting @ off_f_bs
+            for (ii=len; ii >= off_f_bs; ii--)
+                dst[ii+2] = dst[ii];
+
+            dst[len+2] = NULLC;
+        }
+
+        if (off_f_bs != -1)
+            up_lim = off_f_bs;
+        else
+            up_lim = len;
+
+        for (ii=up_lim; ii>=off_b_bs+1; ii--)   // Shift dst +1 char in between BSLASHs
+            dst[ii+1] = dst[ii];
+
+        dst[off_b_bs+1] = TEXT ('"');
+
+        if (off_f_bs != -1)
+            dst[off_f_bs+1] = TEXT ('"');
+        else  {
+            dst[len+1] = TEXT ('"');
+            dst[len+2] = NULLC;
+            break;
+        }
+
+        init_pos = off_f_bs+2;
+
+    }
+
+    return(SUCCESS);
+
+}
+
+
+
+
 int
-getparam( TCHAR **chptr, TCHAR *param, int maxlen )
+getparam( BOOL LeadingSwitChar, TCHAR **chptr, TCHAR *param, int maxlen )
 
 {
 
-    TCHAR *ch2;
+    TCHAR *ch2, prevCh;
     int count = 0;
 
     BOOL QuoteFound = FALSE;
 
     ch2 = param;
+    prevCh = NULLC;
 
     //
     // get characters until a space, tab, slash, or end of line
     //
 
     while ((**chptr != NULLC) &&
-           ( QuoteFound || (!_istspace(**chptr)) && (**chptr != (TCHAR)SwitChar))) {
+           ( QuoteFound ||
+             !_istspace(**chptr) &&
+             (!LeadingSwitChar || **chptr != (TCHAR)SwitChar)
+           )
+          ) {
 
         if (count < maxlen) {
-
-	    if ( maxlen != MAXPARAMLENGTH ) {
-		    *ch2++ = (**chptr);
-		    if ( **chptr == QUOTE ) {
-			    QuoteFound = !QuoteFound;
-		    }
-	    } else {
-		    *ch2++ = _totlower(**chptr);
-	    }
-
-	    count++;
-	    (*chptr)++;
-        } else {                                // just advance to end of parameter
-
-            (*chptr)++;
-            count++;
+            *ch2++ = (**chptr);
+            if ( **chptr == QUOTE ) {
+                    QuoteFound = !QuoteFound;
+            }
         }
+        prevCh = **chptr;
+        (*chptr)++;
+        count++;
+
     } // while
 
     if (count > maxlen) {
-		**chptr = NULLC;
-		*chptr = *chptr - count -1;
-		PutStdErr(MSG_START_INVALID_PARAMETER,1,*chptr);
-		return(FAILURE);
+                **chptr = NULLC;
+                *chptr = *chptr - count -1;
+                PutStdErr(MSG_START_INVALID_PARAMETER,1,*chptr);
+                return(FAILURE);
    } else {
-		*ch2 = NULLC;
-		return(SUCCESS);
+                *ch2 = NULLC;
+                return(SUCCESS);
    }
 }
 
@@ -85,28 +191,40 @@ Start(
     TCHAR   szParam[MAXTOKLEN];
     TCHAR   szPgm[MAXTOKLEN];
     TCHAR   szDirCur[MAX_PATH];
+    TCHAR   szTemp[MAXTOKLEN];
+    TCHAR   save_Pgm[MAXTOKLEN];
+
+    HDESK   hdesk;
+    HWINSTA hwinsta;
+    LPTSTR  p;
+    LPTSTR  lpDesktop;
+    DWORD   cbDesktop = 0;
+    DWORD   cbWinsta = 0;
 
     TCHAR   flags;
     BOOLEAN fNeedCmd;
+    BOOLEAN fNeedExpl;
     BOOLEAN fKSwitch = FALSE;
     BOOLEAN fCSwitch = FALSE;
 
     PTCHAR  pszCmdCur   = NULL;
     PTCHAR  pszDirCur   = NULL;
     PTCHAR  pszPgmArgs  = NULL;
-    PWCHAR  pszEnv      = NULL;
-    PTCHAR  pszFakePgm  = TEXT("cmd.exe");
+    PTCHAR  pszEnv      = NULL;
+    TCHAR   pszFakePgm[]  = TEXT("cmd.exe");
     ULONG   status;
     struct  cmdnode cmdnd;
     DWORD CreationFlags;
     BOOL SafeFromControlC = FALSE;
     BOOL WaitForProcess = FALSE;
+    BOOL b;
     DWORD uPgmLength;
+    int      retc;
 
     szPgm[0] = NULLC;
     szPgmArgs[0] = NULLC;
 
-    pszDirCur = CurDrvDir;
+    pszDirCur = NULL;
     CreationFlags = CREATE_NEW_CONSOLE;
 
 
@@ -122,7 +240,9 @@ Start(
     StartupInfo.wShowWindow = SW_SHOWNORMAL;
     StartupInfo.cbReserved2 = 0;
     StartupInfo.lpReserved2 = NULL;
-
+    StartupInfo.hStdInput   = GetStdHandle( STD_INPUT_HANDLE );
+    StartupInfo.hStdOutput  = GetStdHandle( STD_OUTPUT_HANDLE );
+    StartupInfo.hStdError   = GetStdHandle( STD_ERROR_HANDLE );
 
     pszCmdCur = pszCmdLine;
 
@@ -158,8 +278,8 @@ Start(
 
             pszCmdCur++;
 
-            if ((status = getparam(&pszCmdCur,szParam,MAXTOKLEN))  == FAILURE) {
-               return(FAILURE);
+            if ((status = getparam(TRUE,&pszCmdCur,szParam,MAXTOKLEN))  == FAILURE) {
+                return(FAILURE);
             }
 
             switch (_totupper(szParam[0])) {
@@ -199,6 +319,9 @@ Start(
             case QMARK:
 
                 PutStdOut(MSG_HELP_START, NOARGS);
+                if (fEnableExtensions)
+                    PutStdOut(MSG_HELP_START_X, NOARGS);
+
                 return( FAILURE );
 
                 break;
@@ -221,7 +344,11 @@ Start(
 
                     } else {
 
+#ifdef KKBUGFIX // JAPAN // Start()
+                        mystrcpy(szT, TEXT("/"));
+#else
                         mystrcpy(szT, TEXT("\\"));
+#endif // KKBUGFIX
                         mystrcat(szT, szParam );
                         PutStdErr(MSG_INVALID_SWITCH, ONEARG,(ULONG)(szT) );
                         return( FAILURE );
@@ -236,7 +363,11 @@ Start(
                     CreationFlags |= IDLE_PRIORITY_CLASS;
                     }
                 else {
+#ifdef KKBUGFIX // JAPAN // Start()
+                    mystrcpy(szT, TEXT("/"));
+#else
                     mystrcpy(szT, TEXT("\\"));
+#endif // KKBUGFIX
                     mystrcat(szT, szParam );
                     PutStdErr(MSG_INVALID_SWITCH, ONEARG,(ULONG)(szT) );
                     return( FAILURE );
@@ -245,7 +376,7 @@ Start(
 
             case TEXT('B'):
 
-                WaitForProcess = TRUE;
+                WaitForProcess = FALSE;
                 SafeFromControlC = TRUE;
                 CreationFlags &= ~CREATE_NEW_CONSOLE;
                 CreationFlags |= CREATE_NEW_PROCESS_GROUP;
@@ -257,7 +388,11 @@ Start(
                     CreationFlags |= NORMAL_PRIORITY_CLASS;
                     }
                 else {
+#ifdef KKBUGFIX // JAPAN // Start()
+                    mystrcpy(szT, TEXT("/"));
+#else
                     mystrcpy(szT, TEXT("\\"));
+#endif // KKBUGFIX
                     mystrcat(szT, szParam );
                     PutStdErr(MSG_INVALID_SWITCH, ONEARG,(ULONG)(szT) );
                     return( FAILURE );
@@ -270,7 +405,11 @@ Start(
                     CreationFlags |= HIGH_PRIORITY_CLASS;
                     }
                 else {
+#ifdef KKBUGFIX // JAPAN // Start()
+                    mystrcpy(szT, TEXT("/"));
+#else
                     mystrcpy(szT, TEXT("\\"));
+#endif // KKBUGFIX
                     mystrcat(szT, szParam );
                     PutStdErr(MSG_INVALID_SWITCH, ONEARG,(ULONG)(szT) );
                     return( FAILURE );
@@ -283,7 +422,11 @@ Start(
                     CreationFlags |= REALTIME_PRIORITY_CLASS;
                     }
                 else {
+#ifdef KKBUGFIX // JAPAN // Start()
+                    mystrcpy(szT, TEXT("/"));
+#else
                     mystrcpy(szT, TEXT("\\"));
+#endif // KKBUGFIX
                     mystrcat(szT, szParam );
                     PutStdErr(MSG_INVALID_SWITCH, ONEARG,(ULONG)(szT) );
                     return( FAILURE );
@@ -293,10 +436,22 @@ Start(
             case TEXT('S'):
 
                 if (_tcsicmp(szParam, TEXT("SEPARATE")) == 0) {
+#ifndef WIN95_CMD
                     CreationFlags |= CREATE_SEPARATE_WOW_VDM;
+#endif // WIN95_CMD
+                    }
+                else
+                if (_tcsicmp(szParam, TEXT("SHARED")) == 0) {
+#ifndef WIN95_CMD
+                    CreationFlags |= CREATE_SHARED_WOW_VDM;
+#endif // WIN95_CMD
                     }
                 else {
+#ifdef KKBUGFIX // JAPAN // Start()
+                    mystrcpy(szT, TEXT("/"));
+#else
                     mystrcpy(szT, TEXT("\\"));
+#endif // KKBUGFIX
                     mystrcat(szT, szParam );
                     PutStdErr(MSG_INVALID_SWITCH, ONEARG,(ULONG)(szT) );
                     return( FAILURE );
@@ -305,12 +460,17 @@ Start(
 
             case TEXT('W'):
 
-                if (_tcsicmp(szParam, TEXT("WAIT")) == 0) {
+                if ( _tcsicmp(szParam, TEXT("WAIT")) == 0  ||
+                     _tcsicmp(szParam, TEXT("W"))    == 0 ) {
 
                     WaitForProcess = TRUE;
 
                 } else {
+#ifdef KKBUGFIX // JAPAN // Start()
+                        mystrcpy(szT, TEXT("/"));
+#else
                         mystrcpy(szT, TEXT("\\"));
+#endif // KKBUGFIX
                         mystrcat(szT, szParam );
                         PutStdErr(MSG_INVALID_SWITCH, ONEARG,(ULONG)(szT) );
                         return( FAILURE );
@@ -323,7 +483,11 @@ Start(
                 //
                 // BUGBUG dup from above restructure
                 //
+#ifdef KKBUGFIX // JAPAN // Start()
+                mystrcpy(szT, TEXT("/"));
+#else
                 mystrcpy(szT, TEXT("\\"));
+#endif // KKBUGFIX
                 mystrcat(szT, szParam );
                 PutStdErr(MSG_INVALID_SWITCH, ONEARG,(ULONG)(szT) );
                 return( FAILURE );
@@ -337,11 +501,12 @@ Start(
             // BUGBUG currently i am not handling either quote in name or
             //        quoted arguments
             //
-            if ((getparam(&pszCmdCur,szPgm,MAXTOKLEN))  == FAILURE) {
+            if ((getparam(FALSE,&pszCmdCur,szPgm,MAXTOKLEN))  == FAILURE) {
 
                 return( FAILURE );
 
             }
+            mystrcpy(szPgm, stripit(szPgm));
 
             //
             // if there are argument get them.
@@ -362,6 +527,7 @@ Start(
 
     } // while
 
+
     //
     // If a program was not picked up do so now.
     //
@@ -369,7 +535,10 @@ Start(
         mystrcpy(szPgm, pszFakePgm);
     }
 
+    mystrcpy(save_Pgm, szPgm);
+
 #ifndef UNICODE
+#ifndef WIN95_CMD
     // convert the title from OEM to ANSI
 
     if (StartupInfo.lpTitle) {
@@ -390,13 +559,15 @@ Start(
                             NULL);
         StartupInfo.lpTitle = TitleA;
     }
-#endif
+#endif // WIN95_CMD
+#endif // UNICODE
 
     //
     // see of a cmd.exe is needed to run a batch or internal command
     //
 
     fNeedCmd = FALSE;
+    fNeedExpl = FALSE;
 
     //
     // is it an internal command?
@@ -406,156 +577,201 @@ Start(
         fNeedCmd = TRUE;
 
     } else {
-
         //
         // Try to find it as a batch or exe file
         //
         cmdnd.cmdline = szPgm;
-        //
-        // BUGBUG check that this is ok. I have cmdnd pointing
-        // at szPgm when I start and am also coping the fully
-        // qualified name into szPgm
-        //
         status = SearchForExecutable(&cmdnd, szPgm);
         if ( (status == SFE_NOTFND) || ( status == SFE_FAIL ) ) {
+            //
+            // If we can find it, let Explorer have a shot.
+            //
+            fNeedExpl = TRUE;
 
-            PutStdErr( status == SFE_FAIL ? ERROR_NOT_ENOUGH_MEMORY : DosErr, 0);
-            return(FAILURE);
+        } else if (status == SFE_ISBAT || status == SFE_ISDIR) {
 
-        } else if (status == SFE_ISBAT) {
+            if (status == SFE_ISBAT) {
+                fNeedCmd = TRUE;
+                // insert quotes into batch filename, so cmd.exe won't complain.
 
-            fNeedCmd = TRUE;
+                retc = insert_quotes (szPgm, save_Pgm);
+
+                if (retc == FAILURE)
+                    return (FAILURE);
+            }
+            else
+                fNeedExpl = TRUE;
 
         }
     }
 
-    if (fNeedCmd) {
 
-        //
-        // if a cmd.exe is need then szPgm need to be inserted before
-        // the start of szPgms along with a /K parameter.
-        // szPgm has to recieve the full path name of cmd.exe from
-        // the compsec environment variable.
-        //
-        //
-        // save this as a temp. szParam has already been used.
-        //
-        // BUGBUG for now always assume this is what is wanted.
-        // may change this later if I have complaints.
-        //
+    if (fNeedExpl) {
+        mystrcpy(szPgm, save_Pgm);
+    } else {
+        if (fNeedCmd) {
+            //
+            // if a cmd.exe is need then szPgm need to be inserted before
+            // the start of szPgms along with a /K parameter.
+            // szPgm has to recieve the full path name of cmd.exe from
+            // the compsec environment variable.
+            //
 
-        mystrcpy(szT, TEXT(" /K "));
-        mystrcat(szT, szPgm);
-
-        //
-        // Get the location of the cmd processor from the environment
-        //
-        mystrcpy(szPgm,GetEnvVar(ComSpecStr));
-
-        //
-        // is there a command parameter at all
-        //
-
-        if (_tcsicmp(szT, TEXT(" /K ")) != 0) {
+            mystrcpy(szT, TEXT(" /K "));
+            mystrcat(szT, save_Pgm);
 
             //
-            // If we have any arguments to add do so
+            // Get the location of the cmd processor from the environment
             //
-            if (*szPgmArgs) {
+            mystrcpy(szPgm,GetEnvVar(ComSpecStr));
 
-                if ((mystrlen(szPgmArgs) + mystrlen(szT)) < MAXTOKLEN) {
+            mystrcpy(save_Pgm, szPgm);
 
-                    mystrcat(szT, TEXT(" "));
-                    mystrcat(szT, szPgmArgs);
+            //
+            // is there a command parameter at all
+            //
 
-                } else {
+            if (_tcsicmp(szT, TEXT(" /K ")) != 0) {
 
-                    PutStdErr( MSG_CMD_FILE_NOT_FOUND, (ULONG)szPgmArgs);
+                //
+                // If we have any arguments to add do so
+                //
+                if (*szPgmArgs) {
+
+                    if ((mystrlen(szPgmArgs) + mystrlen(szT)) < MAXTOKLEN) {
+
+                        mystrcat(szT, TEXT(" "));
+                        mystrcat(szT, szPgmArgs);
+
+                    } else {
+
+                        PutStdErr( MSG_CMD_FILE_NOT_FOUND, (ULONG)szPgmArgs);
+                    }
                 }
             }
-
             pszPgmArgs = szT;
-
         }
 
+        // Prepare for CreateProcess :
+        //         ImageName = <full path and command name ONLY>
+        //         CmdLine   = <command name with NO FULL PATH> + <args as entered>
 
-    }
-
-    //
-    // What we have so far is the program name in szPgm, and
-    // arguments, if any, in pszPgmArgs. So szPgm can be passed in
-    // directly as the lpszImageName parameter to CreateProcess.
-    //
-    // Now we want to form the lpszCommandLine parameter for CreateProcess.
-    // We'll do this in pszPgmArgs, which takes a little juggling to get
-    // right without requiring an extra buffer.
-    //
-
-    if (pszPgmArgs) {
-
-        uPgmLength = _tcslen(szPgm);
-        if ((uPgmLength + _tcslen(pszPgmArgs)) < MAXTOKLEN) {
-
-            mystrcat(szPgm, pszPgmArgs);
-
-            //
-            // szPgm now contains the full command line.
-            // Move it into pszPgmArgs.  Then truncate
-            // szPgm so it contains only arg 0
-            // (ie, the program name).
-            //
-            mystrcpy(pszPgmArgs, szPgm);
-            szPgm[uPgmLength] = 0;
-
-        } else {
-
-            PutStdErr( ERROR_NOT_ENOUGH_MEMORY , 0);
-            return(FAILURE);
-        }
-    } else {
-        // make sure there's a 0th argument.
-        pszPgmArgs = szPgm;
+        mystrcpy(szTemp, save_Pgm);
+        mystrcat(szTemp, TEXT(" "));
+        mystrcat(szTemp, pszPgmArgs);
+        pszPgmArgs = szTemp;
     }
 
     if (SafeFromControlC) {
         SetConsoleCtrlHandler(NULL,TRUE);
         }
 
-    if (!CreateProcess( NULL,
-                        pszPgmArgs,
-                        NULL,
-                        (LPSECURITY_ATTRIBUTES) NULL,
-                        TRUE,                   // bInherit
-                        CreationFlags|CREATE_UNICODE_ENVIRONMENT,
-						// CreationFlags
-                        pszEnv,                 // Environment
-                        pszDirCur,              // Current directory
-                        &StartupInfo,           // Startup Info Struct
-                        &ChildProcessInfo       // ProcessInfo Struct
-                        )) {
-            if (SafeFromControlC) {
-                SetConsoleCtrlHandler(NULL,FALSE);
-                }
+    // Pass current Desktop to a new process.
 
+    hwinsta = GetProcessWindowStation();
+    GetUserObjectInformation( hwinsta, UOI_NAME, NULL, 0, &cbWinsta );
+
+    hdesk = GetThreadDesktop ( GetCurrentThreadId() );
+    GetUserObjectInformation (hdesk, UOI_NAME, NULL, 0, &cbDesktop);
+
+    if ((lpDesktop = HeapAlloc (GetProcessHeap(), HEAP_ZERO_MEMORY, cbDesktop + cbWinsta + 32) ) != NULL ) {
+        p = lpDesktop;
+        if ( GetUserObjectInformation (hwinsta, UOI_NAME, p, cbWinsta, &cbWinsta) ) {
+            if (cbWinsta > 0) {
+                p += ((cbWinsta/sizeof(TCHAR))-1);
+                *p++ = L'\\';
+            }
+            if ( GetUserObjectInformation (hdesk, UOI_NAME, p, cbDesktop, &cbDesktop) ) {
+                StartupInfo.lpDesktop = lpDesktop;
+            }
+        }
+    }
+
+    if (fNeedExpl) {
+        b = FALSE;
+    } else {
+        b = CreateProcess( szPgm,                  // was NULL, wrong.
+                           pszPgmArgs,
+                           NULL,
+                           (LPSECURITY_ATTRIBUTES) NULL,
+                           TRUE,                   // bInherit
+#ifdef UNICODE
+                           CREATE_UNICODE_ENVIRONMENT |
+#endif // UNICODE
+                           CreationFlags,
+                                                   // CreationFlags
+                           pszEnv,                 // Environment
+                           pszDirCur,              // Current directory
+                           &StartupInfo,           // Startup Info Struct
+                           &ChildProcessInfo       // ProcessInfo Struct
+                           );
+    }
+
+    if (SafeFromControlC) {
+        SetConsoleCtrlHandler(NULL,FALSE);
+    }
+    HeapFree (GetProcessHeap(), 0, lpDesktop);
+
+    if (!b) {
             DosErr = GetLastError();
-            // onb[ 0 ] = '\0';
+            if ( fNeedExpl ||
+                 (fEnableExtensions && DosErr == ERROR_BAD_EXE_FORMAT)) {
+                SHELLEXECUTEINFO sei;
+
+                memset(&sei, 0, sizeof(sei));
+                //
+                // Use the DDEWAIT flag so apps can finish their DDE conversation
+                // before ShellExecuteEx returns.  Otherwise, apps like Word will
+                // complain when they try to exit, confusing the user.
+                //
+                sei.cbSize = sizeof(sei);
+                sei.fMask = SEE_MASK_HASTITLE |
+                            SEE_MASK_NO_CONSOLE |
+                            SEE_MASK_FLAG_DDEWAIT |
+                            SEE_MASK_NOCLOSEPROCESS;
+                if (CreationFlags & CREATE_NEW_CONSOLE) {
+                    sei.fMask &= ~SEE_MASK_NO_CONSOLE;
+                }
+                sei.lpFile = szPgm;
+                sei.lpClass = StartupInfo.lpTitle;
+                sei.lpParameters = szPgmArgs;
+                sei.lpDirectory = pszDirCur;
+                sei.nShow = StartupInfo.wShowWindow;
+                if (!ShellExecuteEx(&sei)) {
+                    if ((DWORD)sei.hInstApp == 0) {
+                        DosErr = ERROR_NOT_ENOUGH_MEMORY;
+                    } else if ((DWORD)sei.hInstApp == HINSTANCE_ERROR) {
+                        DosErr = ERROR_FILE_NOT_FOUND;
+                    } else {
+                        DosErr = (unsigned)sei.hInstApp;
+                    }
+                } else {
+                    //
+                    // Successfully invoked correct application via
+                    // file association.  Code below will check to see
+                    // if application is a GUI app and if so turn it into
+                    // an ASYNC exec.
+
+                    ChildProcessInfo.hProcess = sei.hProcess;
+                    goto shellexecsuccess;
+                }
+            }
+
             ExecError( szPgm ) ;
             return(FAILURE) ;
     }
-    if (WaitForProcess) {
-        if (SafeFromControlC) {
-            SetConsoleCtrlHandler(NULL,FALSE);
-        }
 
+    CloseHandle(ChildProcessInfo.hThread);
+shellexecsuccess:
+    if (WaitForProcess) {
         //
         //  Wait for process to terminate, otherwise things become very
         //  messy and confusing to the user (with 2 processes sharing
         //  the console).
         //
-        WaitForSingleObject( ChildProcessInfo.hProcess, INFINITE );
-    }
+        LastRetCode = WaitProc( (unsigned int)(ChildProcessInfo.hProcess) );
+    } else
+        CloseHandle( ChildProcessInfo.hProcess );
 
-   CloseHandle(ChildProcessInfo.hThread);
-   CloseHandle(ChildProcessInfo.hProcess);
-   return(SUCCESS);
+    return(SUCCESS);
 }

@@ -2,5 +2,9 @@
  * the messages.
  */
 
+#include "precomp.h"
+#pragma hdrstop
+EnableAssert
+
 #define DEFINE_MSG
 #include "messages.h"

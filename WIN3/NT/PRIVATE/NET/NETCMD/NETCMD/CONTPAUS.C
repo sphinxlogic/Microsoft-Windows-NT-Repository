@@ -295,7 +295,7 @@ VOID NEAR cont_service(TCHAR * service, TCHAR arg)
     int 		    i = 0;
     struct service_info_2 FAR * service_entry;
 #ifdef OS2
-    USHORT2ULONG    read;
+    USHORT2ULONG    _read;
 
     if( !stricmpf(service, txt_SERVICE_FILE_SRV) )
     {
@@ -306,7 +306,7 @@ VOID NEAR cont_service(TCHAR * service, TCHAR arg)
 	if( (err = MNetSessionEnum( NULL,
 				    1,
 				    (LPBYTE*) & service_entry,
-				    &read)) == ERROR_ACCESS_DENIED )
+				    &_read)) == ERROR_ACCESS_DENIED )
 	    ErrorExit(err);
 	if (err == NERR_Success)
 	    NetApiBufferFree((TCHAR FAR *) service_entry);
@@ -386,7 +386,7 @@ VOID NEAR paus_service(TCHAR * service, TCHAR arg)
     int 		    i = 0;
     struct service_info_2 FAR * service_entry;
 #ifdef OS2
-    USHORT2ULONG    read;
+    USHORT2ULONG    _read;
 
     if( !stricmpf(service, txt_SERVICE_FILE_SRV) )
     {
@@ -397,7 +397,7 @@ VOID NEAR paus_service(TCHAR * service, TCHAR arg)
 	if( (err = MNetSessionEnum(NULL,
 				    1,
 				    (LPBYTE*) & service_entry,
-				    &read)) == ERROR_ACCESS_DENIED )
+				    &_read)) == ERROR_ACCESS_DENIED )
 	    ErrorExit(err);
 	if (err == NERR_Success)
 	    NetApiBufferFree((TCHAR FAR *) service_entry);

@@ -2066,8 +2066,8 @@ Return Value:
 
                 NewPattern = ~(StatusReg << 4);
 
-                VideoPortWritePortUshort((PUSHORT) HwDeviceExtension->IOAddress +
-                                             GRAPH_ADDRESS_PORT,
+                VideoPortWritePortUshort((PUSHORT) (HwDeviceExtension->IOAddress +
+                                             GRAPH_ADDRESS_PORT),
                                          (USHORT)((((USHORT)NewPattern) << 8) + GC_SR));
 
                 VideoPortWritePortUchar(HwDeviceExtension->IOAddress + GRAPH_ADDRESS_PORT,
@@ -2099,8 +2099,8 @@ Return Value:
             // Determine if brot Primary or alternate
             //
 
-            VideoPortWritePortUshort((PUSHORT)HwDeviceExtension->IOAddress +
-                                         GRAPH_ADDRESS_PORT,
+            VideoPortWritePortUshort((PUSHORT)(HwDeviceExtension->IOAddress +
+                                         GRAPH_ADDRESS_PORT),
                                      (USHORT)((((USHORT)(BLTConf | 0x08)) << 8) + GC_BLTCONF));
 
             if (BLTConf & 0x04) {
@@ -2135,8 +2135,8 @@ Return Value:
 
                 } else {
 
-                    VideoPortWritePortUshort((PUSHORT)HwDeviceExtension->IOAddress +
-                                                GRAPH_ADDRESS_PORT,
+                    VideoPortWritePortUshort((PUSHORT)(HwDeviceExtension->IOAddress +
+                                                GRAPH_ADDRESS_PORT),
                                              (USHORT) ((((USHORT)((~VGCRotate) & 0x07)) << 8) & GC_ROT));
 
                     if (VideoPortReadPortUchar(brot) != VGCRotate) {
@@ -2229,16 +2229,16 @@ AVGA_PRESENT_FAIL:
             VideoDebugPrint((0, "AVGAISPresent - Restoring registers to clean up....\n"));
                 
 
-            VideoPortWritePortUshort((PUSHORT) HwDeviceExtension->IOAddress + GRAPH_ADDRESS_PORT,
+            VideoPortWritePortUshort((PUSHORT) (HwDeviceExtension->IOAddress + GRAPH_ADDRESS_PORT),
                                      (USHORT)((VGCRotate <<8) & GC_ROT));
 
-            VideoPortWritePortUshort((PUSHORT) HwDeviceExtension->IOAddress + GRAPH_ADDRESS_PORT,
+            VideoPortWritePortUshort((PUSHORT) (HwDeviceExtension->IOAddress + GRAPH_ADDRESS_PORT),
                                      (USHORT)((StatusReg <<8) & GC_SR));
                         
-            VideoPortWritePortUshort((PUSHORT) HwDeviceExtension->IOAddress + GRAPH_ADDRESS_PORT,
+            VideoPortWritePortUshort((PUSHORT) (HwDeviceExtension->IOAddress + GRAPH_ADDRESS_PORT),
                                      (USHORT)((BLTConf <<8) & GC_BLTCONF));
 
-            VideoPortWritePortUshort((PUSHORT) HwDeviceExtension->IOAddress + GRAPH_ADDRESS_PORT,
+            VideoPortWritePortUshort((PUSHORT) (HwDeviceExtension->IOAddress + GRAPH_ADDRESS_PORT),
                                      (USHORT)((ESRReg <<8) & GC_ESR));
 
         }

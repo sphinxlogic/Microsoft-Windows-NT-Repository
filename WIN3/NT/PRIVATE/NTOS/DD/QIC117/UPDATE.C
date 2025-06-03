@@ -257,35 +257,166 @@ Return Value:
     PSEGMENT_BUFFER bufferInfo;
     PVOID scrbuf;
     PIO_REQUEST ioreq;
+    ULONG buf_size;       // size in bytes of the buffer where mark array will go
+    ULONG mark_size;      // size in bytes of the mark list (with overhead)
 
 
     scrbuf = q117GetFreeBuffer(&bufferInfo,Context);
 
+    mark_size = (Context->MarkArray.TotalMarks+1)*sizeof(struct _MARKLIST);
+    buf_size = q117GoodDataBytes(
+            (SEGMENT)Context->ActiveVolume.DirectorySize, Context );
     //
     // Fill in the mark list
     //
-    RtlZeroMemory(scrbuf,
-        q117GoodDataBytes(
-            (SEGMENT)Context->ActiveVolume.DirectorySize, Context )
-        );
+    RtlZeroMemory(scrbuf, buf_size);
 
-    RtlMoveMemory(scrbuf, &Context->MarkArray, sizeof(Context->MarkArray));
 
-    ret=q117IssIOReq(scrbuf,CMD_WRITE,
-        Context->ActiveVolume.DirectorySize * BLOCKS_PER_SEGMENT,bufferInfo,Context);
+    //
+    // Put in the mark count
+    //
+    *(ULONG *)scrbuf = Context->MarkArray.TotalMarks;
 
-    if (!ret) {
+
+    //
+    // Check to see if there is enough room for the whole mark table
+    //
+    if ( buf_size < mark_size + sizeof(ULONG) ) {
+
+        ret = ERROR_ENCODE(ERR_WRITE_FAILURE, FCT_ID, 2);
+
+    } else {
+
         //
-        // Wait for data to be written
+        // Now write all active entries (includes the terminator) after the mark
+        // count
         //
-        ioreq=q117Dequeue(WaitForItem,Context);
+        RtlMoveMemory((UBYTE *)scrbuf+sizeof(ULONG), Context->MarkArray.MarkEntry,
+            mark_size);
 
-        ret = ioreq->x.adi_hdr.status;
+        //
+        // Now, write out the map list
+        //
+        ret=q117IssIOReq(scrbuf,CMD_WRITE,
+            Context->ActiveVolume.DirectorySize * BLOCKS_PER_SEGMENT,bufferInfo,Context);
 
+        if (!ret) {
+            //
+            // Wait for data to be written
+            //
+            ioreq=q117Dequeue(WaitForItem,Context);
+
+            ret = ioreq->x.adi_hdr.status;
+
+        }
     }
 
     return(ret);
 }
+
+dBoolean
+q117ValidMarkArray(
+    IN OUT PQ117_CONTEXT Context,
+    IN void *buffer
+    )
+
+/*++
+
+Routine Description:
+
+    Validates that the mark array is OK.  The mark array should only
+    have correct mark types,  and assending byte offsets on even 512
+    byte boundaries
+
+Arguments:
+
+    Context -
+
+Return Value:
+
+
+
+--*/
+{
+    dStatus ret;
+    ULONG total;
+    struct _MARKLIST *array;
+    dBoolean valid = TRUE;
+    dBoolean firsttime = TRUE;
+    ULONG last;
+
+    total = *(ULONG *)buffer;
+    array = (void *)((ULONG *)buffer+1);
+
+
+    //
+    // Calculate the maximum number of marks (based on (the number of
+    // actual bytes in the segment - count dword) / size of a mark entry)
+    //
+    Context->MarkArray.MaxMarks = (q117GoodDataBytes(
+            (SEGMENT)Context->ActiveVolume.DirectorySize, Context ) - sizeof(ULONG))
+            / sizeof(struct _MARKLIST);
+
+
+    //
+    // Make sure the count is smaller than the buffer
+    //
+    if (total <= (ULONG)Context->MarkArray.MaxMarks) {
+
+        while (total-- && valid) {
+            //
+            // Make sure the list is ascending (except for first entry)
+            //
+            if (firsttime) {
+                firsttime = FALSE;
+            } else {
+                if (last > array->Offset)
+                    valid = FALSE;
+            }
+
+            last = array->Offset;
+
+            //
+            // Make sure the Offset is an even block offset
+            //
+            //if (last % BLOCK_SIZE)
+            //    valid = FALSE;
+
+            //
+            // Make sure the type is correct
+            //
+            if (array->Type != TAPE_SETMARKS &&
+                array->Type != TAPE_FILEMARKS)
+                valid = FALSE;
+
+            ++array;
+        }
+
+        //
+        // Make sure the terminator is present
+        //
+        if (array->Offset != 0xffffffff)
+            valid = FALSE;
+
+    } else
+        valid = FALSE;
+
+    if (!valid) {
+        CheckedDump(QIC117INFO,( "QIC117: Invalid mark array.  Ignoring\n"));
+
+        //
+        // If the mark array is invalid,  make a null mark array
+        // and let the tape be corrupt
+        //
+        *(ULONG *)buffer = 0;
+        array = (void *)((ULONG *)buffer+1);
+        array->Offset = 0xffffffff;
+    }
+
+
+    return valid;
+}
+
 
 dStatus
 q117GetMarks(
@@ -312,6 +443,7 @@ Return Value:
     PSEGMENT_BUFFER bufferInfo;
     PVOID scrbuf;
     PIO_REQUEST ioreq;
+    NTSTATUS ntStatus;
 
 
     scrbuf = q117GetFreeBuffer(&bufferInfo,Context);
@@ -337,7 +469,40 @@ Return Value:
         }
 
         if (!ret) {
-            RtlMoveMemory(&Context->MarkArray, scrbuf, sizeof(Context->MarkArray));
+
+            //
+            // Get the mark count
+            //
+            Context->MarkArray.TotalMarks = *(ULONG *)scrbuf;
+            if (!q117ValidMarkArray(Context, scrbuf)) {
+                // ret = ERROR_ENCODE(ERR_INVALID_VOLUME, FCT_ID, 1);
+                //
+                // Just ignore the mark array.  The backup software should
+                // see a bogus tape and error out on it's own.
+                //
+                Context->MarkArray.TotalMarks = 0;
+            }
+
+
+            // if there is not enough room to add the mark,  make the array bigger
+            if (Context->MarkArray.TotalMarks+1 > Context->MarkArray.MarksAllocated) {
+
+                // Allocate room for the extra
+                ntStatus = q117MakeMarkArrayBigger(Context, (Context->MarkArray.TotalMarks+1)-Context->MarkArray.MarksAllocated);
+
+                // Must have run out of memory,  so abort
+                if (!NT_SUCCESS( ntStatus))
+                    ret = ERROR_ENCODE(ERR_NO_MEMORY, FCT_ID, 1);
+
+            }
+
+            if (!ret) {
+                //
+                // Now read all active entries (includes the terminator)
+                //
+                RtlMoveMemory(Context->MarkArray.MarkEntry,(UBYTE *)scrbuf+sizeof(ULONG),
+                    (Context->MarkArray.TotalMarks+1)*sizeof(struct _MARKLIST));
+            }
         }
 
     }
@@ -392,10 +557,7 @@ Return Value:
     DRIVER_COMMAND iocmd;
     PIO_REQUEST ioreq;
     ULONG cur_seg = 0;     // The current segment being processed
-    BAD_LIST badList[BLOCKS_PER_SEGMENT];
-    ULONG listEntry;
     ULONG allbits;
-    USHORT listIndex;
 
     //
     // set queue into single buffer mode
@@ -449,41 +611,13 @@ Return Value:
 
             allbits = ioreq->x.ioDeviceIO.bsm|ioreq->x.ioDeviceIO.retrys|ioreq->x.ioDeviceIO.crc;
 
-            if (Context->CurrentTape.TapeFormatCode == QIC_FORMAT) {
-
-                //
-                // Map out all of it
-                //
-                Context->CurrentTape.BadMapPtr->BadSectors
-                    [(ioreq->x.ioDeviceIO.starting_sector)/BLOCKS_PER_SEGMENT]
-                    = allbits;
-
-            } else {
-
-                if (allbits != 0l) {
-
-                    q117BadMapToBadList(
-                        (SEGMENT)((ioreq->x.ioDeviceIO.starting_sector)/BLOCKS_PER_SEGMENT),
-                        allbits,
-                        badList);
-
-                    listIndex = 0;
-
-                    do {
-
-                        RtlMoveMemory(
-                            Context->CurrentTape.BadMapPtr->BadList[Context->CurrentTape.CurBadListIndex++].ListEntry,
-                            badList[listIndex++].ListEntry,
-                            (ULONG)LIST_ENTRY_SIZE);
-
-                        listEntry = q117BadListEntryToSector(badList[listIndex].ListEntry);
-
-                    } while (listEntry &&
-                            (listIndex < BLOCKS_PER_SEGMENT));
-
-                }
-
-            }
+            //
+            // Add bits to the bad sector list
+            //
+            ret = q117UpdateBadMap(
+                        Context,
+                        (USHORT)(ioreq->x.ioDeviceIO.starting_sector/BLOCKS_PER_SEGMENT),
+                        allbits);
 
         }
 

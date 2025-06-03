@@ -17,6 +17,7 @@ Revision History:
 --*/
 
 #include <stdio.h>
+
 #define IN
 #define OUT
 #define INOUT
@@ -30,7 +31,8 @@ Revision History:
 
 /*  Global externs */
 
-extern PUCHAR szInFile;
+extern char *szInFile;
+extern char *szOutFile;
 extern BOOL fDebug;
 extern BOOL fVerbose;
 extern USHORT targetMachine;
@@ -57,7 +59,8 @@ CvtRes(
     IN FILE *fhIn,
     IN FILE *fhOut,
     IN ULONG cbInFile,
-    IN BOOL fWritable
+    IN BOOL fWritable,
+    IN ULONG timeDate
     );
 
 /* functions in xform.c */
@@ -175,4 +178,3 @@ ErrorPrint(
     USHORT errnum,
     ...
     );
-

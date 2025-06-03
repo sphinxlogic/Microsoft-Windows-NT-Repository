@@ -80,6 +80,7 @@ LOCAL   bool_t  NEAR    PASCAL      PushUserValue (peval_t, pargd_t, SHREG FAR *
 LOCAL   bool_t  NEAR    PASCAL      StoreC (peval_t);
 LOCAL   bool_t  NEAR    PASCAL      StoreP (void);
 LOCAL   bool_t  NEAR    PASCAL      StoreF (void);
+LOCAL   bool_t  NEAR    PASCAL      StorePPC (peval_t);
 LOCAL   bool_t  NEAR    PASCAL      StoreMips (peval_t);
 LOCAL   bool_t  NEAR    PASCAL      StoreAlpha (peval_t);
 LOCAL   bool_t  NEAR    PASCAL      VFuncAddress (peval_t, ulong);
@@ -923,7 +924,7 @@ LOCAL bool_t NEAR FASTCALL CalcThisExpr (CV_typ_t vbptr, OFFSET vbpoff,
     if (PushStack (pvThis) == TRUE) {
         EVAL_PTR (ST) = EVAL_SYM (ST);
         EVAL_STATE (ST) = EV_rvalue;
-        if ((SetNodeType (ST, T_PFCHAR) == TRUE) &&
+        if ((SetNodeType (ST, (CV_typ_t)(ADDR_IS_OFF32(*SHpADDRFrompCXT(pCxt)) ? T_32PFCHAR : T_PFCHAR)) == TRUE) &&
           (InitConst (vbpoff) == TRUE) &&
           (PlusMinus (OP_plus) == TRUE) &&
           (PushStack (ST) == TRUE) &&
@@ -1336,27 +1337,20 @@ LOCAL bool_t NEAR FASTCALL SBitField ()
                mask_q.HighPart = ((1L << (cBits-32))-1);
             }
 
-            RtlLargeIntegerAnd( EVAL_QUAD(STP),
-                                EVAL_QUAD(STP),
-                                mask_q);
+            (EVAL_QUAD(STP)).QuadPart &= mask_q.QuadPart;
 
             //
             // now clear out the bit field in the ST
             //
-            mask_q = RtlLargeIntegerShiftLeft(mask_q, (CCHAR)pos);
-
-            RtlLargeIntegerBitwiseNot(mask_q);
-            RtlLargeIntegerAnd( EVAL_QUAD(ST),
-                                EVAL_QUAD(ST),
-                                mask_q);
+            mask_q.QuadPart = mask_q.QuadPart << pos;
+            mask_q.QuadPart = ~mask_q.QuadPart;
+            (EVAL_QUAD(STP)).QuadPart &= mask_q.QuadPart;
 
             //
             // finally, put the new bit value in
             //
-            mask_q = RtlLargeIntegerShiftLeft(EVAL_QUAD(STP), (CCHAR)pos);
-            RtlLargeIntegerOr( EVAL_QUAD(ST),
-                               EVAL_QUAD(ST),
-                               mask_q);
+            mask_q.QuadPart = (EVAL_QUAD(STP)).QuadPart << pos;
+            (EVAL_QUAD(STP)).QuadPart |= mask_q.QuadPart;
 
             break;
 
@@ -2396,8 +2390,8 @@ LOCAL bool_t NEAR FASTCALL Unary (op_t op)
     int               iRes;
     LARGE_INTEGER     liRes, liL;
     ULARGE_INTEGER    uliRes, uliL;
-    REAL10            ldRes;
-    REAL10            ldL;
+    FLOAT10            ldRes;
+    FLOAT10            ldL;
     double            dRes, dL;
     float             fRes, fL;
     CV_typ_t          typRes;
@@ -2475,10 +2469,10 @@ LOCAL bool_t NEAR FASTCALL Unary (op_t op)
                 iRes = R10Not(ldL);
             }
             else if (fIsSigned) {
-                iRes = (int) RtlLargeIntegerEqualToZero(liL);
+                iRes = liL.QuadPart == 0;
             }
             else {
-                iRes = (int) RtlULargeIntegerEqualToZero(uliL);
+                iRes = uliL.QuadPart == 0;
             }
             break;
 
@@ -2508,10 +2502,10 @@ LOCAL bool_t NEAR FASTCALL Unary (op_t op)
                 R10Uminus(&ldRes, ldL);
             }
             else if (fIsSigned) {
-                liRes = RtlLargeIntegerNegate(liL);
+                liRes.QuadPart = liL.QuadPart * -1;
             }
             else {
-                uliRes = RtlULargeIntegerNegate(uliL);
+                uliRes.QuadPart = uliL.QuadPart * -1;
             }
             break;
 
@@ -2619,9 +2613,9 @@ LOCAL bool_t NEAR FASTCALL Arith (op_t op)
     ulong       ulRes, ulL, ulR;
     float       fRes, fL, fR;
     double      dRes, dL, dR;
-    REAL10      ldRes;
-    REAL10      ldL;
-    REAL10      ldR;
+    FLOAT10      ldRes;
+    FLOAT10      ldL;
+    FLOAT10      ldR;
     CV_typ_t    typRes;
 
     if (EVAL_IS_REF (STP)) {
@@ -3174,7 +3168,7 @@ Return Value:
             EVAL_SYM (pvF) = EVAL_PTR (pvRet);
             reg.hReg = CV_REG_CS;
             GetReg (&reg, pCxt);
-            EVAL_SYM_SEG (pvF) = reg.u.a.Byte2;
+            EVAL_SYM_SEG (pvF) = reg.Byte2;
         }
     }
 
@@ -3220,6 +3214,13 @@ LOCAL bool_t NEAR FASTCALL EvalFunction (bnode_t bn)
     ADDR        fcnAddr;
     HDEP        hFunc;
 
+#ifdef TARGET_PPC
+    /* We need this for some PPC cases to do an extra
+     * level of dereferencing.
+     */
+    int ppc_extra_deref=FALSE;
+#endif
+
     /*
      * the left child must resolve to a function address and BP must not
      * be zero and the overlay containing the function must be loaded
@@ -3242,6 +3243,11 @@ LOCAL bool_t NEAR FASTCALL EvalFunction (bnode_t bn)
 
 #ifdef TARGET_MIPS
     spReg.hReg = CV_M4_IntSP;
+#endif
+
+
+#ifdef TARGET_PPC
+    spReg.hReg = CV_PPC_GPR1;
 #endif
 
 #ifdef TARGET_i386
@@ -3340,7 +3346,7 @@ LOCAL bool_t NEAR FASTCALL EvalFunction (bnode_t bn)
                  */
 
                 else if (EVAL_IS_CLASS (ST)) {
-                    SetNodeType (ST, T_FCVPTR);
+                    SetNodeType (ST, T_32FCVPTR);
                     if (!CastNode (ST, pa->type, pa->type)) {
                         goto fcnerror;
                     }
@@ -3364,7 +3370,7 @@ LOCAL bool_t NEAR FASTCALL EvalFunction (bnode_t bn)
                             DASSERT(FALSE);
                             return (FALSE);
                         }
-                        EVAL_SYM_OFF (ST) += reg.u.b.Byte4;
+                        EVAL_SYM_OFF (ST) += reg.Byte4;
                         EVAL_SYM_SEG (ST) = pExState->frame.SS;
                         ADDR_IS_LI (EVAL_SYM (ST)) = FALSE;
                         SHUnFixupAddr (&EVAL_SYM (ST));
@@ -3487,12 +3493,37 @@ LOCAL bool_t NEAR FASTCALL EvalFunction (bnode_t bn)
                 return (FALSE);
             }
 
+#ifdef TARGET_PPC
+            // On the PPC make sure to deref the function-descriptor
+            // (we are left pointing to the FD instead of the actual
+            //  function entry point).
+
+            ppc_extra_deref = TRUE;
+#endif
             EVAL_SYM (pvF) = EVAL_PTR (pvRet);
             reg.hReg = CV_REG_CS;
             GetReg (&reg, pCxt);
-            EVAL_SYM_SEG (pvF) = reg.u.a.Byte2;
+            EVAL_SYM_SEG (pvF) = reg.Byte2;
         }
     }
+
+#ifdef  TARGET_PPC
+    /* If what we have in our hands is a function descriptor, we
+     * must set up the right address to get the entry point.
+     */
+    if (ppc_extra_deref) {
+      eval_t teval = *pvF;
+
+       EVAL_SYM_SEG (&teval) = EVAL_PTR_SEG (&teval);
+       EVAL_STATE (&teval) = EV_lvalue;
+
+      SetNodeType(&teval, T_32PUCHAR);
+      if (!EvalUtil (OP_fetch, &teval, NULL, EU_LOAD)) {
+          return (FALSE);
+      }
+      EVAL_SYM (pvF) = EVAL_PTR (&teval);
+    }
+#endif  /* TARGET_PPC */
 
     if (pExState->style == EEBPADDRESS) {
         *ST = *pvF;
@@ -3534,9 +3565,9 @@ LOCAL bool_t NEAR FASTCALL EvalFunction (bnode_t bn)
 
                 ADDR_IS_LI (EVAL_SYM (pvRet)) = FALSE;
                 EVAL_STATE (pvRet) = EV_lvalue;
-                spReg.u.b.Byte4 -= (EVAL_VALLEN (pvRet) + 3) & ~3;
-                EVAL_ULONG (pvRet) = spReg.u.b.Byte4;
-                EVAL_SYM_OFF (pvRet) = spReg.u.b.Byte4;
+                spReg.Byte4 -= (EVAL_VALLEN (pvRet) + 3) & ~3;
+                EVAL_ULONG (pvRet) = spReg.Byte4;
+                EVAL_SYM_OFF (pvRet) = spReg.Byte4;
                 EVAL_SYM_SEG (pvRet) = pExState->frame.SS;
             }
         }
@@ -3554,15 +3585,15 @@ LOCAL bool_t NEAR FASTCALL EvalFunction (bnode_t bn)
             ADDR_IS_LI (EVAL_SYM (pvRet)) = FALSE;
             EVAL_STATE (pvRet) = EV_lvalue;
             if (!ADDR_IS_FLAT (EVAL_SYM (pvRet))) {
-                spReg.u.a.Byte2 -= (ushort) ((EVAL_VALLEN (pvRet) + 1) & ~1);
-                EVAL_SYM_OFF (pvRet) = spReg.u.a.Byte2;
-                EVAL_USHORT (pvRet) = spReg.u.a.Byte2;
+                spReg.Byte2 -= (ushort) ((EVAL_VALLEN (pvRet) + 1) & ~1);
+                EVAL_SYM_OFF (pvRet) = spReg.Byte2;
+                EVAL_USHORT (pvRet) = spReg.Byte2;
                 EVAL_SYM_SEG (pvRet) = pExState->frame.SS;
             }
             else {
-                spReg.u.b.Byte4 -= (EVAL_VALLEN (pvRet) + 1) & ~1;
-                EVAL_SYM_OFF (pvRet) = spReg.u.b.Byte4;
-                EVAL_ULONG (pvRet) = spReg.u.b.Byte4;
+                spReg.Byte4 -= (EVAL_VALLEN (pvRet) + 1) & ~1;
+                EVAL_SYM_OFF (pvRet) = spReg.Byte4;
+                EVAL_ULONG (pvRet) = spReg.Byte4;
                 EVAL_SYM_SEG (pvRet) = pExState->frame.SS;
             }
         }
@@ -3582,20 +3613,31 @@ LOCAL bool_t NEAR FASTCALL EvalFunction (bnode_t bn)
             ADDR_IS_LI (EVAL_SYM (pvRet)) = FALSE;
             EVAL_STATE (pvRet) = EV_lvalue;
             if (!ADDR_IS_FLAT (EVAL_SYM (pvRet))) {
-                spReg.u.a.Byte2 -= (ushort) ((EVAL_VALLEN (pvRet) + 1) & ~1);
-                EVAL_SYM_OFF (pvRet) = spReg.u.a.Byte2;
-                EVAL_USHORT (pvRet) = spReg.u.a.Byte2;
+                spReg.Byte2 -= (ushort) ((EVAL_VALLEN (pvRet) + 1) & ~1);
+                EVAL_SYM_OFF (pvRet) = spReg.Byte2;
+                EVAL_USHORT (pvRet) = spReg.Byte2;
                 EVAL_SYM_SEG (pvRet) = pExState->frame.SS;
             }
             else {
-                spReg.u.b.Byte4 -= (EVAL_VALLEN (pvRet) + 1) & ~1;
-                EVAL_SYM_OFF (pvRet) = spReg.u.b.Byte4;
-                EVAL_ULONG (pvRet) = spReg.u.b.Byte4;
+                spReg.Byte4 -= (EVAL_VALLEN (pvRet) + 1) & ~1;
+                EVAL_SYM_OFF (pvRet) = spReg.Byte4;
+                EVAL_ULONG (pvRet) = spReg.Byte4;
                 EVAL_SYM_SEG (pvRet) = pExState->frame.SS;
             }
         }
         break;
 #endif  // TARGET_i386
+
+
+#ifdef TARGET_PPC
+    case FCN_PPC:
+        /*
+         *  This was already taken care of in the bind phase
+         */
+
+        break;
+#endif  // TARGET_PPC
+
 
 #ifdef TARGET_MIPS
     case FCN_MIPS:
@@ -3658,7 +3700,7 @@ LOCAL bool_t NEAR FASTCALL EvalFunction (bnode_t bn)
             case FCN_THIS:
 #ifdef TARGET_i386
                 argReg.hReg = CV_REG_ECX;
-                argReg.u.b.Byte4 = EVAL_SYM_OFF( pvThis );
+                argReg.Byte4 = EVAL_SYM_OFF( pvThis );
                 SetReg(&argReg, pCxt);
 #else
                 DASSERT(FCN_CALL(pvThis) == FCN_THIS);
@@ -3666,10 +3708,24 @@ LOCAL bool_t NEAR FASTCALL EvalFunction (bnode_t bn)
 #endif
                 break;
 
+            case FCN_PPC:
+#ifdef TARGET_PPC
+                argReg.hReg = CV_PPC_GPR3;
+                argReg.Byte4 = EVAL_SYM_OFF( pvThis );
+                argReg.Byte4High = 0;
+                SetReg(&argReg, pCxt);
+#else
+                if (!PushOffset (EVAL_SYM_OFF (pvThis), &spReg, &maxSP,
+                                 sizeof (CV_uoff32_t))) {
+                    return (FALSE);
+                }
+#endif
+                break;
+
             case FCN_MIPS:
 #ifdef TARGET_MIPS
                 argReg.hReg = CV_M4_IntA0;
-                argReg.u.b.Byte4 = EVAL_SYM_OFF( pvThis );
+                argReg.Byte4 = EVAL_SYM_OFF( pvThis );
                 SetReg(&argReg, pCxt);
 #else
                 if (!PushOffset (EVAL_SYM_OFF (pvThis), &spReg, &maxSP,
@@ -3682,8 +3738,8 @@ LOCAL bool_t NEAR FASTCALL EvalFunction (bnode_t bn)
             case FCN_ALPHA:
 #ifdef TARGET_ALPHA
                 argReg.hReg = CV_ALPHA_IntA0;
-                argReg.u.b.Byte4 = EVAL_SYM_OFF( pvThis );
-                argReg.u.b.Byte4High = 0;
+                argReg.Byte4 = EVAL_SYM_OFF( pvThis );
+                argReg.Byte4High = 0;
                 SetReg(&argReg, pCxt);
 #else
                 if (!PushOffset (EVAL_SYM_OFF (pvThis), &spReg, &maxSP,
@@ -3699,19 +3755,23 @@ LOCAL bool_t NEAR FASTCALL EvalFunction (bnode_t bn)
     // Call the user's procedure
 
 #ifdef TARGET_MIPS
-    spReg.u.b.Byte4 -= (UOFFSET) maxSP;
+    spReg.Byte4 -= (UOFFSET) maxSP;
+#endif
+
+#ifdef TARGET_PPC
+    spReg.Byte4 -= (UOFFSET) maxSP;
 #endif
 
 #ifdef TARGET_i386
     if (ADDR_IS_OFF32(*SHpADDRFrompCXT(pCxt))) {
-        spReg.u.b.Byte4 -= (UOFFSET) maxSP;
+        spReg.Byte4 -= (UOFFSET) maxSP;
     } else {
-        spReg.u.a.Byte2 -= (ushort) maxSP;
+        spReg.Byte2 -= (ushort) maxSP;
     }
 #endif
 
 #ifdef TARGET_ALPHA
-    spReg.u.b.Byte4 -= (UOFFSET) maxSP;
+    spReg.Byte4 -= (UOFFSET) maxSP;
 #endif
 
     SetReg (&spReg, pCxt);
@@ -3760,6 +3820,10 @@ LOCAL bool_t NEAR FASTCALL EvalFunction (bnode_t bn)
 
             case FCN_PASCAL:
                 retval = StoreP ();
+                break;
+
+            case FCN_PPC:
+                retval = StorePPC(pvF);
                 break;
 
             case FCN_MIPS:
@@ -3814,6 +3878,10 @@ LOCAL bool_t NEAR PASCAL PushArgs (pnode_t pnArg, SHREG FAR *pspReg, UOFFSET FAR
 {
     SHREG       argReg;
 
+#ifdef TARGET_PPC
+    SHREG       tmpReg;
+#endif
+
     // The arguments have been evaluated left to right which means that the
     // rightmost argument is at ST.  We need to recurse down the right side
     // of the argument tree to find the OP_arg node that corresponds to the
@@ -3838,7 +3906,7 @@ LOCAL bool_t NEAR PASCAL PushArgs (pnode_t pnArg, SHREG FAR *pspReg, UOFFSET FAR
             case CV_REG_AH:
             case CV_REG_CH:
             case CV_REG_DH:
-                argReg.u.Byte1 = EVAL_UCHAR (ST);
+                argReg.Byte1 = EVAL_UCHAR (ST);
                 break;
 
             case CV_REG_ST0:
@@ -3849,11 +3917,11 @@ LOCAL bool_t NEAR PASCAL PushArgs (pnode_t pnArg, SHREG FAR *pspReg, UOFFSET FAR
             case CV_REG_ST5:
             case CV_REG_ST6:
             case CV_REG_ST7:
-                memcpy(&argReg.u.Byte10, &EVAL_DOUBLE(ST), sizeof(REAL10));
+                memcpy(&argReg.Byte10, &EVAL_DOUBLE(ST), sizeof(FLOAT10));
                 break;
 
             default:
-                argReg.u.a.Byte2 = EVAL_USHORT (ST);
+                argReg.Byte2 = EVAL_USHORT (ST);
                 break;
 
             case CV_REG_EAX:
@@ -3881,20 +3949,104 @@ LOCAL bool_t NEAR PASCAL PushArgs (pnode_t pnArg, SHREG FAR *pspReg, UOFFSET FAR
             case CV_REG_PSEUDO7:
             case CV_REG_PSEUDO8:
             case CV_REG_PSEUDO9:
-                argReg.u.b.Byte4 = EVAL_ULONG( ST );
+                argReg.Byte4 = EVAL_ULONG( ST );
                 break;
             }
             if ((argReg.hReg >> 8) != CV_REG_NONE) {
                 switch (argReg.hReg >> 8) {
                 case CV_REG_DX:
                 case CV_REG_ES:
-                    argReg.u.a.Byte2High = *(((ushort FAR *)&(EVAL_ULONG (ST))) + 1);
+                    argReg.Byte2High = *(((ushort FAR *)&(EVAL_ULONG (ST))) + 1);
                     break;
                 }
             }
             SetReg (&argReg, pCxt);
         }
 #endif
+
+
+#ifdef TARGET_PPC
+        if (((pargd_t)&(pnArg->v[0]))->flags.isreg == TRUE) {
+            ushort reg = ((pargd_t)&(pnArg->v[0]))->reg;
+
+            argReg.hReg = (reg & 0xff);
+
+            switch (argReg.hReg) {
+                case CV_PPC_GPR3:
+                case CV_PPC_GPR4:
+                case CV_PPC_GPR5:
+                case CV_PPC_GPR6:
+                case CV_PPC_GPR7:
+                case CV_PPC_GPR8:
+                case CV_PPC_GPR9:
+                case CV_PPC_GPR10:
+                    argReg.Byte4 = EVAL_ULONG(ST);
+                    *pmaxSP = max( *pmaxSP, ((pargd_t)&pnArg->v[0])->SPoff );
+                    break;
+
+                case CV_PPC_FPR1:
+                case CV_PPC_FPR2:
+                case CV_PPC_FPR3:
+                case CV_PPC_FPR4:
+                case CV_PPC_FPR5:
+                case CV_PPC_FPR6:
+                case CV_PPC_FPR7:
+                case CV_PPC_FPR8:
+                case CV_PPC_FPR9:
+                case CV_PPC_FPR10:
+                case CV_PPC_FPR11:
+                case CV_PPC_FPR12:
+                case CV_PPC_FPR13:
+
+                    if (EVAL_TYP(ST) == T_REAL32) {
+                        argReg.Byte8 = (double) (EVAL_FLOAT(ST));
+                    } else {
+                        argReg.Byte8 = EVAL_DOUBLE(ST);
+                    }
+                    *pmaxSP = max( *pmaxSP, ((pargd_t)&pnArg->v[0])->SPoff );
+
+                    /*
+                     * Floating point values are passed in FPRs as well as GPRs.
+                     */
+                    switch (reg >>= 8) {
+                        case CV_PPC_GPR3:
+                        case CV_PPC_GPR4:
+                        case CV_PPC_GPR5:
+                        case CV_PPC_GPR6:
+                        case CV_PPC_GPR7:
+                        case CV_PPC_GPR8:
+                        case CV_PPC_GPR9:
+                        case CV_PPC_GPR10:
+                            SetReg (&argReg, pCxt);
+                            argReg.hReg = reg;
+                            memcpy(&argReg.Byte4, &EVAL_FLOAT(ST), sizeof(float));
+                            break;
+
+                        case (CV_PPC_GPR3<<4)|CV_PPC_GPR4 :
+                        case (CV_PPC_GPR5<<4)|CV_PPC_GPR6 :
+                        case (CV_PPC_GPR7<<4)|CV_PPC_GPR8 :
+                        case (CV_PPC_GPR9<<4)|CV_PPC_GPR10:
+                            SetReg (&argReg, pCxt);
+                            tmpReg.hReg = (reg & 0xf);
+                            tmpReg.Byte4 = argReg.Byte4High;
+                            SetReg (&tmpReg, pCxt);
+                            argReg.hReg = ((reg >> 4) & 0xf);
+                            break;
+                    }
+                    break;
+
+                default:
+                    DASSERT(FALSE);
+                    break;
+            }
+
+        SetReg (&argReg, pCxt);
+    }
+#endif
+
+
+
+
 
 #ifdef TARGET_MIPS
         if (((pargd_t)&(pnArg->v[0]))->flags.isreg == TRUE) {
@@ -3905,20 +4057,20 @@ LOCAL bool_t NEAR PASCAL PushArgs (pnode_t pnArg, SHREG FAR *pspReg, UOFFSET FAR
             case CV_M4_IntA1:
             case CV_M4_IntA2:
             case CV_M4_IntA3:
-                argReg.u.b.Byte4 = EVAL_ULONG( ST );
+                argReg.Byte4 = EVAL_ULONG( ST );
                 *pmaxSP = max( *pmaxSP, ((pargd_t)&pnArg->v[0])->SPoff );
                 break;
 
             case CV_M4_FltF12:
             case CV_M4_FltF14:
-                memcpy(&argReg.u.b.Byte4, &EVAL_FLOAT( ST ), sizeof(float));
+                memcpy(&argReg.Byte4, &EVAL_FLOAT( ST ), sizeof(float));
                 *pmaxSP = max( *pmaxSP, ((pargd_t)&pnArg->v[0])->SPoff );
                 break;
 
             case (CV_M4_IntA3<<8)|CV_M4_IntA2:
             case (CV_M4_FltF13<<8)|CV_M4_FltF12:
             case (CV_M4_FltF15<<8)|CV_M4_FltF14:
-                memcpy(&argReg.u.Byte1, &EVAL_DOUBLE( ST ), sizeof(double));
+                memcpy(&argReg.Byte1, &EVAL_DOUBLE( ST ), sizeof(double));
                 *pmaxSP = max( *pmaxSP, ((pargd_t)&pnArg->v[0])->SPoff );
                 break;
 
@@ -3943,7 +4095,7 @@ LOCAL bool_t NEAR PASCAL PushArgs (pnode_t pnArg, SHREG FAR *pspReg, UOFFSET FAR
             case CV_ALPHA_IntA3:
             case CV_ALPHA_IntA4:
             case CV_ALPHA_IntA5:
-                *((PLARGE_INTEGER) & argReg.u.b.Byte4) = EVAL_QUAD( ST );
+                *((PLARGE_INTEGER) & argReg.Byte4) = EVAL_QUAD( ST );
                 *pmaxSP = max( *pmaxSP, ((pargd_t)&pnArg->v[0])->SPoff );
                 break;
 
@@ -3953,7 +4105,7 @@ LOCAL bool_t NEAR PASCAL PushArgs (pnode_t pnArg, SHREG FAR *pspReg, UOFFSET FAR
             case CV_ALPHA_FltF19:
             case CV_ALPHA_FltF20:
             case CV_ALPHA_FltF21:
-                memcpy(&argReg.u.Byte1, &EVAL_DOUBLE( ST ), sizeof(double));
+                memcpy(&argReg.Byte1, &EVAL_DOUBLE( ST ), sizeof(double));
                 *pmaxSP = max( *pmaxSP, ((pargd_t)&pnArg->v[0])->SPoff );
                 break;
 
@@ -4016,12 +4168,12 @@ LOCAL bool_t NEAR PASCAL PushRef (peval_t pv, SHREG FAR *spReg, CV_typ_t reftype
 
             // decrement stack pointer to allocate room for string
 
-            spReg->u.b.Byte4 -= cbVal;
+            spReg->Byte4 -= cbVal;
 
             // get current SS value and set symbol address to SS:SP
 
             EVAL_SYM_SEG (pv) = pExState->frame.SS;
-            EVAL_SYM_OFF (pv) = spReg->u.b.Byte4;
+            EVAL_SYM_OFF (pv) = spReg->Byte4;
             ADDR_IS_FLAT(EVAL_SYM(pv)) = TRUE;
             EVAL_STATE (pv) = EV_lvalue;
             ADDR_IS_LI (EVAL_SYM (pv)) = FALSE;
@@ -4102,17 +4254,17 @@ LOCAL bool_t NEAR PASCAL PushString (peval_t pv, SHREG FAR *spReg, CV_typ_t typA
     // It can be shorter because of escaped characters such as \n and \001
 
     if (!ADDR_IS_OFF32(*SHpADDRFrompCXT(pCxt))) {
-        spReg->u.b.Byte4 &= 0xffff;
+        spReg->Byte4 &= 0xffff;
     }
-    spReg->u.b.Byte4 -=  (cbVal + FillCnt);
-    spReg->u.b.Byte4 &= ~3;    // round down to correct stack size
-    spSave = spReg->u.b.Byte4;
+    spReg->Byte4 -=  (cbVal + FillCnt);
+    spReg->Byte4 &= ~3;    // round down to correct stack size
+    spSave = spReg->Byte4;
     SetNodeType (pv, typArg);
 
     // get current SS value and set symbol address to SS:SP
 
     EVAL_SYM_SEG (pv) = pExState->frame.SS;
-    EVAL_SYM_OFF (pv) = spReg->u.b.Byte4;
+    EVAL_SYM_OFF (pv) = spReg->Byte4;
     ADDR_IS_FLAT(EVAL_SYM(pv)) = ADDR_IS_FLAT(*SHpADDRFrompCXT(pCxt));
     ADDR_IS_OFF32(EVAL_SYM(pv)) = ADDR_IS_OFF32(*SHpADDRFrompCXT(pCxt));
     ADDR_IS_REAL(EVAL_SYM(pv)) = ADDR_IS_REAL(*SHpADDRFrompCXT(pCxt));
@@ -4200,9 +4352,9 @@ LOCAL bool_t NEAR PASCAL StoreC (peval_t pvF)
             }
 
             GetReg (&argReg, pCxt);
-            EVAL_PTR_OFF (ST) = argReg.u.a.Byte2;
-            EVAL_USHORT (ST) = argReg.u.a.Byte2;
-            EVAL_PTR_SEG (ST) = argReg.u.a.Byte2High;
+            EVAL_PTR_OFF (ST) = argReg.Byte2;
+            EVAL_USHORT (ST) = argReg.Byte2;
+            EVAL_PTR_SEG (ST) = argReg.Byte2High;
 
         } else {
             DASSERT( EVAL_IS_NPTR32(ST) || EVAL_IS_FPTR32(ST) );
@@ -4210,8 +4362,8 @@ LOCAL bool_t NEAR PASCAL StoreC (peval_t pvF)
             argReg.hReg = CV_REG_EAX;
 
             GetReg( &argReg, pCxt );
-            EVAL_PTR_OFF (ST) = argReg.u.b.Byte4;
-            EVAL_ULONG (ST) = argReg.u.b.Byte4;
+            EVAL_PTR_OFF (ST) = argReg.Byte4;
+            EVAL_ULONG (ST) = argReg.Byte4;
 
             if ( EVAL_IS_NPTR32( ST )) {
                 EVAL_PTR_SEG (ST) = pExState->frame.DS;
@@ -4219,7 +4371,7 @@ LOCAL bool_t NEAR PASCAL StoreC (peval_t pvF)
                 argReg.hReg = CV_REG_DX;
 
                 GetReg( &argReg, pCxt );
-                EVAL_PTR_SEG (ST) = argReg.u.a.Byte2;
+                EVAL_PTR_SEG (ST) = argReg.Byte2;
             }
             ADDR_IS_OFF32(EVAL_PTR(ST)) = TRUE;
             ADDR_IS_FLAT(EVAL_PTR (ST)) = TRUE;
@@ -4240,7 +4392,7 @@ LOCAL bool_t NEAR PASCAL StoreC (peval_t pvF)
 
             argReg.hReg = CV_REG_ST0;
             GetReg(&argReg, pCxt);
-            memcpy(&EVAL_LDOUBLE(ST), &argReg.u.Byte10, sizeof(REAL10));
+            memcpy(&EVAL_LDOUBLE(ST), &argReg.Byte10, sizeof(FLOAT10));
 
             switch( EVAL_TYP ( ST )) {
             case T_REAL32:
@@ -4270,7 +4422,7 @@ LOCAL bool_t NEAR PASCAL StoreC (peval_t pvF)
             argReg.hReg = ((CV_REG_DS << 8) | CV_REG_AX);
             GetReg(&argReg, pCxt);
 
-            AddrInit(&addr, 0, argReg.u.a.Byte2High, argReg.u.a.Byte2,
+            AddrInit(&addr, 0, argReg.Byte2High, argReg.Byte2,
                      FALSE, FALSE, FALSE,
                      ADDR_IS_REAL(*SHpADDRFrompCXT(pCxt)));
             if (GetDebuggeeBytes(addr, EVAL_VALLEN(ST),
@@ -4282,12 +4434,12 @@ LOCAL bool_t NEAR PASCAL StoreC (peval_t pvF)
     else if ((EVAL_TYP (ST) == T_CHAR) || (EVAL_TYP (ST) == T_RCHAR)) {
         argReg.hReg = CV_REG_AL;
         GetReg (&argReg, pCxt);
-        EVAL_SHORT (ST) = argReg.u.Byte1;
+        EVAL_SHORT (ST) = argReg.Byte1;
     }
     else if (EVAL_TYP (ST) == T_UCHAR) {
         argReg.hReg = CV_REG_AL;
         GetReg (&argReg, pCxt);
-        EVAL_USHORT (ST) = argReg.u.Byte1;
+        EVAL_USHORT (ST) = argReg.Byte1;
     }
     else {
         if (ADDR_IS_OFF32(*SHpADDRFrompCXT(pCxt))) {
@@ -4304,10 +4456,10 @@ LOCAL bool_t NEAR PASCAL StoreC (peval_t pvF)
                 (EVAL_IS_CLASS (ST) && (len < 4) && (len != 3))) {
 
                 if (len <= 2) {
-                    EVAL_USHORT(ST) = argReg.u.a.Byte2;
+                    EVAL_USHORT(ST) = argReg.Byte2;
                 } else {
                     DASSERT( len == 4 );
-                    EVAL_ULONG (ST) = argReg.u.b.Byte4;
+                    EVAL_ULONG (ST) = argReg.Byte4;
                 }
 
             } else {
@@ -4315,10 +4467,10 @@ LOCAL bool_t NEAR PASCAL StoreC (peval_t pvF)
                 **  DS:EAX points to the return value
                 */
 
-                EVAL_SYM_OFF (ST) = argReg.u.b.Byte4;
+                EVAL_SYM_OFF (ST) = argReg.Byte4;
                 argReg.hReg = CV_REG_DS;
                 GetReg(&argReg, pCxt);
-                EVAL_SYM_SEG (ST) = argReg.u.a.Byte2;
+                EVAL_SYM_SEG (ST) = argReg.Byte2;
                 ADDR_IS_LI ( EVAL_SYM (ST)) = FALSE;
 
                 if (GetDebuggeeBytes(EVAL_SYM(ST), EVAL_VALLEN(ST),
@@ -4334,17 +4486,17 @@ LOCAL bool_t NEAR PASCAL StoreC (peval_t pvF)
             GetReg (&argReg, pCxt);
             if (CV_IS_PRIMITIVE (EVAL_TYP (ST)) ||
                   (EVAL_IS_CLASS (ST) && (len < 4) && (len != 3))) {
-                  EVAL_USHORT (ST) = argReg.u.a.Byte2;
+                  EVAL_USHORT (ST) = argReg.Byte2;
                   if (len > 2) {
-                      *(((ushort FAR *)&(EVAL_ULONG (ST))) + 1) = argReg.u.a.Byte2High;
+                      *(((ushort FAR *)&(EVAL_ULONG (ST))) + 1) = argReg.Byte2High;
                   }
             }
             else {
                 // treat (DS)DX:AX as the pointer to the return value
-                EVAL_SYM_OFF (ST) = argReg.u.a.Byte2;
+                EVAL_SYM_OFF (ST) = argReg.Byte2;
                 argReg.hReg = CV_REG_DS;
                 GetReg (&argReg, pCxt);
-                EVAL_SYM_SEG (ST) = argReg.u.a.Byte2;
+                EVAL_SYM_SEG (ST) = argReg.Byte2;
                 ADDR_IS_LI (EVAL_SYM (ST)) = FALSE;
                 if (GetDebuggeeBytes (EVAL_SYM (ST), EVAL_VALLEN (ST),
                       (char FAR *)&EVAL_VAL (ST), EVAL_TYP(ST)) != (UINT)EVAL_VALLEN (ST)) {
@@ -4392,8 +4544,8 @@ LOCAL bool_t NEAR PASCAL StoreF (void)
             }
 
             GetReg( &argReg, pCxt );
-            EVAL_PTR_OFF( ST ) = EVAL_USHORT( ST ) = argReg.u.a.Byte2;
-            EVAL_PTR_SEG( ST ) = argReg.u.a.Byte2High;
+            EVAL_PTR_OFF( ST ) = EVAL_USHORT( ST ) = argReg.Byte2;
+            EVAL_PTR_SEG( ST ) = argReg.Byte2High;
         } else {
             /*
              *  assume no 32-bit far pointers
@@ -4403,7 +4555,7 @@ LOCAL bool_t NEAR PASCAL StoreF (void)
 
             argReg.hReg = CV_REG_EAX;
             GetReg( &argReg, pCxt );
-            EVAL_PTR_OFF( ST ) = EVAL_ULONG( ST ) = argReg.u.b.Byte4;
+            EVAL_PTR_OFF( ST ) = EVAL_ULONG( ST ) = argReg.Byte4;
             EVAL_PTR_SEG( ST ) = pExState->frame.DS;
 
             /*
@@ -4422,7 +4574,7 @@ LOCAL bool_t NEAR PASCAL StoreF (void)
 
         argReg.hReg = CV_REG_ST0;
         GetReg (&argReg, pCxt);
-        memcpy(&EVAL_DOUBLE(ST), &argReg.u.Byte10, sizeof(REAL10));
+        memcpy(&EVAL_DOUBLE(ST), &argReg.Byte10, sizeof(FLOAT10));
 
         switch( EVAL_TYP ( ST )) {
         case T_REAL32:
@@ -4440,12 +4592,12 @@ LOCAL bool_t NEAR PASCAL StoreF (void)
     else if ((EVAL_TYP (ST) == T_CHAR) || (EVAL_TYP (ST) == T_RCHAR)) {
         argReg.hReg = CV_REG_AL;
         GetReg (&argReg, pCxt);
-        EVAL_SHORT (ST) = argReg.u.Byte1;
+        EVAL_SHORT (ST) = argReg.Byte1;
     }
     else if (EVAL_TYP (ST) == T_UCHAR) {
         argReg.hReg = CV_REG_AL;
         GetReg (&argReg, pCxt);
-        EVAL_USHORT (ST) = argReg.u.Byte1;
+        EVAL_USHORT (ST) = argReg.Byte1;
     }
     else {
         if (ADDR_IS_OFF32(*SHpADDRFrompCXT(pCxt))) {
@@ -4462,10 +4614,10 @@ LOCAL bool_t NEAR PASCAL StoreF (void)
                 (EVAL_IS_CLASS (ST) && (len < 4) && (len != 3))) {
 
                 if (len <= 2) {
-                    EVAL_USHORT(ST) = argReg.u.a.Byte2;
+                    EVAL_USHORT(ST) = argReg.Byte2;
                 } else {
                     DASSERT( len == 4 );
-                    EVAL_ULONG (ST) = argReg.u.b.Byte4;
+                    EVAL_ULONG (ST) = argReg.Byte4;
                 }
 
             } else {
@@ -4473,10 +4625,10 @@ LOCAL bool_t NEAR PASCAL StoreF (void)
                 **  DS:EAX points to the return value
                 */
 
-                EVAL_SYM_OFF (ST) = argReg.u.b.Byte4;
+                EVAL_SYM_OFF (ST) = argReg.Byte4;
                 argReg.hReg = CV_REG_DS;
                 GetReg(&argReg, pCxt);
-                EVAL_SYM_SEG (ST) = argReg.u.a.Byte2;
+                EVAL_SYM_SEG (ST) = argReg.Byte2;
                 ADDR_IS_LI ( EVAL_SYM (ST)) = FALSE;
 
                 if (GetDebuggeeBytes(EVAL_SYM(ST), EVAL_VALLEN(ST),
@@ -4492,17 +4644,17 @@ LOCAL bool_t NEAR PASCAL StoreF (void)
             GetReg (&argReg, pCxt);
             if (CV_IS_PRIMITIVE (EVAL_TYP (ST)) ||
                   (EVAL_IS_CLASS (ST) && (len < 4) && (len != 3))) {
-                  EVAL_USHORT (ST) = argReg.u.a.Byte2;
+                  EVAL_USHORT (ST) = argReg.Byte2;
                   if (len > 2) {
-                      *(((ushort FAR *)&(EVAL_ULONG (ST))) + 1) = argReg.u.a.Byte2High;
+                      *(((ushort FAR *)&(EVAL_ULONG (ST))) + 1) = argReg.Byte2High;
                   }
             }
             else {
                 // treat (DS)DX:AX as the pointer to the return value
-                EVAL_SYM_OFF (ST) = argReg.u.a.Byte2;
+                EVAL_SYM_OFF (ST) = argReg.Byte2;
                 argReg.hReg = CV_REG_DS;
                 GetReg (&argReg, pCxt);
-                EVAL_SYM_SEG (ST) = argReg.u.a.Byte2;
+                EVAL_SYM_SEG (ST) = argReg.Byte2;
                 ADDR_IS_LI (EVAL_SYM (ST)) = FALSE;
                 if (GetDebuggeeBytes (EVAL_SYM (ST), EVAL_VALLEN (ST),
                       (char FAR *)&EVAL_VAL (ST), EVAL_TYP(ST)) != (UINT)EVAL_VALLEN (ST)) {
@@ -4551,20 +4703,20 @@ LOCAL bool_t NEAR PASCAL StoreMips (peval_t pvF)
         GetReg ( &argReg, pCxt );
 
         if (EVAL_TYP (ST) == T_REAL32) {
-            EVAL_FLOAT(ST) = *((float *) &argReg.u.b.Byte4);
+            EVAL_FLOAT(ST) = *((float *) &argReg.Byte4);
         } else {
-            EVAL_DOUBLE(ST) = *((double *) &argReg.u.b.Byte4);
+            EVAL_DOUBLE(ST) = *((double *) &argReg.Byte4);
         }
     }
     else if ((EVAL_TYP (ST) == T_CHAR) || (EVAL_TYP (ST) == T_RCHAR)) {
         argReg.hReg = CV_M4_IntV0;
         GetReg( &argReg, pCxt );
-        EVAL_SHORT( ST ) = argReg.u.Byte1;
+        EVAL_SHORT( ST ) = argReg.Byte1;
     }
     else if (EVAL_TYP (ST) == T_UCHAR) {
         argReg.hReg = CV_M4_IntV0;
         GetReg( &argReg, pCxt );
-        EVAL_USHORT( ST ) = argReg.u.Byte1;
+        EVAL_USHORT( ST ) = argReg.Byte1;
     }
 
     else if (EVAL_IS_PTR (ST)) {
@@ -4572,8 +4724,8 @@ LOCAL bool_t NEAR PASCAL StoreMips (peval_t pvF)
         argReg.hReg = CV_M4_IntV0;
         GetReg( &argReg, pCxt );
 
-        EVAL_PTR_OFF (ST) = argReg.u.b.Byte4;
-        EVAL_ULONG (ST) = argReg.u.b.Byte4;
+        EVAL_PTR_OFF (ST) = argReg.Byte4;
+        EVAL_ULONG (ST) = argReg.Byte4;
 
         EVAL_PTR_SEG (ST) = 0;
         ADDR_IS_FLAT( EVAL_PTR (ST)) = TRUE;
@@ -4596,12 +4748,12 @@ LOCAL bool_t NEAR PASCAL StoreMips (peval_t pvF)
             (EVAL_IS_CLASS (ST) && (len < 4) && (len != 3))) {
 
             if (len <= 2) {
-                EVAL_USHORT(ST) = argReg.u.a.Byte2;
+                EVAL_USHORT(ST) = argReg.Byte2;
             } else {
-                EVAL_ULONG (ST) = argReg.u.b.Byte4;
+                EVAL_ULONG (ST) = argReg.Byte4;
             }
         } else {
-            EVAL_SYM_OFF (ST) = argReg.u.b.Byte4;
+            EVAL_SYM_OFF (ST) = argReg.Byte4;
             EVAL_SYM_SEG (ST) = 0;
             ADDR_IS_FLAT( EVAL_SYM (ST)) = TRUE;
             ADDR_IS_OFF32( EVAL_SYM (ST)) = TRUE;
@@ -4617,6 +4769,106 @@ LOCAL bool_t NEAR PASCAL StoreMips (peval_t pvF)
     }
     return (TRUE);
 }                               /* StoreMips() */
+
+
+/**     StorePPC - store return value for PPC call
+ *
+ *      fSuccess = StorePPC (pvF);
+ *
+ *      Entry   pvF = pointer to function descriptor
+ *
+ *      Exit    return value stored in ST
+ *
+ *      Returns TRUE if return value stored without error
+ *              FALSE if error during store
+ */
+
+
+LOCAL bool_t NEAR PASCAL StorePPC (peval_t pvF)
+{
+  SHREG   argReg;
+  ushort  len;
+
+  Unreferenced( pvF );
+
+  DASSERT( EVAL_TYP(ST) != T_REAL80 );
+
+  /*
+   *  Floating point values are returned in FPR1
+   */
+
+  if ((EVAL_TYP (ST) == T_REAL32) ||
+      (EVAL_TYP (ST) == T_REAL64) ) {
+    argReg.hReg = (CV_PPC_FPR1);
+    GetReg ( &argReg, pCxt );
+
+    if (EVAL_TYP (ST) == T_REAL32) {
+      EVAL_FLOAT(ST) = (float) argReg.Byte8;
+    } else {
+      EVAL_DOUBLE(ST) = *((double *) &argReg.Byte4);
+    }
+  }
+  else if ((EVAL_TYP (ST) == T_CHAR) || (EVAL_TYP (ST) == T_RCHAR)) {
+    argReg.hReg = CV_PPC_GPR3;
+    GetReg( &argReg, pCxt );
+    EVAL_SHORT( ST ) = argReg.Byte1;
+  }
+  else if (EVAL_TYP (ST) == T_UCHAR) {
+    argReg.hReg = CV_PPC_GPR3;
+    GetReg( &argReg, pCxt );
+    EVAL_USHORT( ST ) = argReg.Byte1;
+  }
+  else if (EVAL_IS_PTR (ST)) {
+    DASSERT( EVAL_IS_NPTR32(ST) );
+    argReg.hReg = CV_PPC_GPR3;
+    GetReg( &argReg, pCxt );
+
+    EVAL_PTR_OFF (ST) = argReg.Byte4;
+    EVAL_ULONG (ST) = argReg.Byte4;
+
+    EVAL_PTR_SEG (ST) = 0;
+    ADDR_IS_FLAT( EVAL_PTR (ST)) = TRUE;
+    ADDR_IS_OFF32( EVAL_PTR (ST)) = TRUE;
+    ADDR_IS_REAL( EVAL_PTR( ST)) = FALSE;
+    ADDR_IS_LI( EVAL_PTR (ST)) = FALSE;
+  }
+
+  else {
+
+    len = EVAL_VALLEN(ST);
+    argReg.hReg = CV_PPC_GPR3;
+    GetReg( &argReg, pCxt );
+
+    /*
+     *  Check for primitive lengths
+     */
+
+    if (CV_IS_PRIMITIVE (EVAL_TYP (ST)) ||
+           (EVAL_IS_CLASS (ST) && (len < 4) && (len != 3))) {
+
+      if (len <= 2) {
+  EVAL_USHORT(ST) = argReg.Byte2;
+      } else {
+  EVAL_ULONG (ST) = argReg.Byte4;
+      }
+    } else {
+      EVAL_SYM_OFF (ST) = argReg.Byte4;
+      EVAL_SYM_SEG (ST) = 0;
+      ADDR_IS_FLAT( EVAL_SYM (ST)) = TRUE;
+      ADDR_IS_OFF32( EVAL_SYM (ST)) = TRUE;
+      ADDR_IS_LI( EVAL_SYM (ST)) = FALSE;
+
+      if (GetDebuggeeBytes(EVAL_SYM(ST), EVAL_VALLEN(ST),
+                                 (char *)&EVAL_VAL(ST), EVAL_TYP(ST))
+               != (UINT)EVAL_VALLEN(ST)) {
+  pExState->err_num = ERR_PTRACE;
+  return FALSE;
+      }
+    }
+  }
+  return (TRUE);
+}                               /* StorePPC() */
+
 
 
 
@@ -4661,8 +4913,8 @@ LOCAL bool_t NEAR PASCAL StoreAlpha (peval_t pvF)
         // loads and stores of floating points.
         //
 
-        u.l[0] = argReg.u.b.Byte4;
-        u.l[1] = argReg.u.b.Byte4High;
+        u.l[0] = argReg.Byte4;
+        u.l[1] = argReg.Byte4High;
 
         if (EVAL_TYP (ST) == T_REAL64) {
 
@@ -4692,12 +4944,12 @@ LOCAL bool_t NEAR PASCAL StoreAlpha (peval_t pvF)
     switch( EVAL_TYP(ST) ) {
     case T_CHAR:
     case T_RCHAR:
-        EVAL_SHORT( ST ) = argReg.u.Byte1;
+        EVAL_SHORT( ST ) = argReg.Byte1;
         return (TRUE);
         break;
 
     case T_UCHAR:
-        EVAL_USHORT( ST ) = argReg.u.Byte1;
+        EVAL_USHORT( ST ) = argReg.Byte1;
         return (TRUE);
         break;
 
@@ -4706,8 +4958,8 @@ LOCAL bool_t NEAR PASCAL StoreAlpha (peval_t pvF)
     if (EVAL_IS_PTR (ST)) {
         DASSERT( EVAL_IS_NPTR32(ST) );
 
-        EVAL_PTR_OFF (ST) = argReg.u.b.Byte4;
-        EVAL_ULONG (ST) = argReg.u.b.Byte4;
+        EVAL_PTR_OFF (ST) = argReg.Byte4;
+        EVAL_ULONG (ST) = argReg.Byte4;
 
         EVAL_PTR_SEG (ST) = 0;
         ADDR_IS_OFF32 ( EVAL_PTR (ST)) = TRUE;
@@ -4727,12 +4979,12 @@ LOCAL bool_t NEAR PASCAL StoreAlpha (peval_t pvF)
             (EVAL_IS_CLASS (ST) && (len <= 4) && (len != 3))) {
 
             if (len <= 2) {
-                EVAL_USHORT(ST) = argReg.u.a.Byte2;
+                EVAL_USHORT(ST) = argReg.Byte2;
             } else {
-                EVAL_ULONG (ST) = argReg.u.b.Byte4;
+                EVAL_ULONG (ST) = argReg.Byte4;
             }
         } else {
-            EVAL_SYM_OFF (ST) = argReg.u.b.Byte4;
+            EVAL_SYM_OFF (ST) = argReg.Byte4;
             EVAL_SYM_SEG (ST) = 0;
             ADDR_IS_LI (EVAL_SYM (ST)) = FALSE;
 
@@ -4769,9 +5021,9 @@ LOCAL bool_t NEAR PASCAL StoreP ()
     if (EVAL_IS_PTR (ST)) {
         argReg.hReg = ((CV_REG_DX << 8) | CV_REG_AX);
         GetReg (&argReg, pCxt);
-        EVAL_PTR_OFF (ST) = argReg.u.a.Byte2;
+        EVAL_PTR_OFF (ST) = argReg.Byte2;
         if (EVAL_VALLEN (ST) > 2) {
-            EVAL_PTR_SEG (ST) = argReg.u.a.Byte2High;
+            EVAL_PTR_SEG (ST) = argReg.Byte2High;
         }
         if (EVAL_IS_NPTR  (ST) || EVAL_IS_NPTR32 (ST)) {
             // for near pointer, pointer DS:AX
@@ -4790,8 +5042,8 @@ LOCAL bool_t NEAR PASCAL StoreP ()
 //            argReg.hReg = ((CV_REG_DX << 8) | CV_REG_AX);
 //        }
         GetReg (&argReg, pCxt);  // M00FLAT32
-        EVAL_SYM_SEG (ST) = argReg.u.a.Byte2High;
-        EVAL_SYM_OFF (ST) = argReg.u.a.Byte2;
+        EVAL_SYM_SEG (ST) = argReg.Byte2High;
+        EVAL_SYM_OFF (ST) = argReg.Byte2;
         ADDR_IS_LI (EVAL_SYM (ST)) = FALSE;
         if (GetDebuggeeBytes (EVAL_SYM (ST), EVAL_VALLEN (ST),
           (char FAR *)&EVAL_DOUBLE (ST), EVAL_TYP(ST)) != (UINT)EVAL_VALLEN (ST)) {
@@ -4806,19 +5058,19 @@ LOCAL bool_t NEAR PASCAL StoreP ()
     else if ((EVAL_TYP (ST) == T_CHAR) || (EVAL_TYP (ST) == T_RCHAR)) {
         argReg.hReg = CV_REG_AL;
         GetReg (&argReg, pCxt);
-        EVAL_SHORT (ST) = argReg.u.Byte1;
+        EVAL_SHORT (ST) = argReg.Byte1;
     }
     else if (EVAL_TYP (ST) == T_UCHAR) {
         argReg.hReg = CV_REG_AL;
         GetReg (&argReg, pCxt);
-        EVAL_USHORT (ST) = argReg.u.Byte1;
+        EVAL_USHORT (ST) = argReg.Byte1;
     }
     else {
         argReg.hReg = ((CV_REG_DX << 8) | CV_REG_AX);
         GetReg (&argReg, pCxt);
-        EVAL_USHORT (ST) = argReg.u.a.Byte2;
+        EVAL_USHORT (ST) = argReg.Byte2;
         if (EVAL_VALLEN (ST) > 2) {
-            *(((ushort FAR *)&(EVAL_ULONG (ST))) + 1) = argReg.u.a.Byte2High;
+            *(((ushort FAR *)&(EVAL_ULONG (ST))) + 1) = argReg.Byte2High;
         }
         if (EVAL_IS_PTR (ST) && (EVAL_IS_NPTR  (ST) || EVAL_IS_NPTR32(ST))) {
             // for near pointer, pointer DS:AX
@@ -4857,10 +5109,10 @@ LOCAL bool_t NEAR PASCAL PushUserValue (peval_t pv, pargd_t pa, SHREG FAR *pspRe
     addrStk = EVAL_SYM (pv);
     addrStk.addr.seg = pExState->frame.SS; //M00FLAT32
     if (ADDR_IS_OFF32(*SHpADDRFrompCXT(pCxt))) {
-        addrStk.addr.off = pspReg->u.b.Byte4 - pa->SPoff;
+        addrStk.addr.off = pspReg->Byte4 - pa->SPoff;
         ADDR_IS_FLAT(addrStk) = TRUE;
     } else  {
-        addrStk.addr.off = pspReg->u.a.Byte2 - pa->SPoff;
+        addrStk.addr.off = pspReg->Byte2 - pa->SPoff;
         ADDR_IS_FLAT(addrStk) = FALSE;
     }
     ADDR_IS_LI (addrStk) = FALSE;
@@ -4924,9 +5176,9 @@ LOCAL bool_t NEAR PASCAL PushOffset (UOFFSET offset, SHREG FAR *pspReg,
     *pmaxSP += size;
     addrStk.addr.seg = pExState->frame.SS;
     if (size == 2) {
-        addrStk.addr.off = pspReg->u.a.Byte2 - *pmaxSP;
+        addrStk.addr.off = pspReg->Byte2 - *pmaxSP;
     } else {
-        addrStk.addr.off = pspReg->u.b.Byte4 - *pmaxSP;
+        addrStk.addr.off = pspReg->Byte4 - *pmaxSP;
     }
     if (PutDebuggeeBytes (addrStk, size, (char FAR *)&offset,
         T_USHORT) == size) {

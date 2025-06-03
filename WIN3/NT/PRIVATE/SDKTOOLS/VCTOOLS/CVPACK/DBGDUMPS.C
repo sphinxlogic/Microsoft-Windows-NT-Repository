@@ -1,6 +1,6 @@
 #include "compact.h"
 
-#ifdef DEBUGVER //{
+#if DBG //{
 
 char DbArray[50];
 
@@ -81,16 +81,16 @@ typedef struct texttab {
 
 
 
-void DumpType (CV_typ_t, TYPPTR);
-void PrintStr (uchar *);
+void DumpType(CV_typ_t, TYPPTR);
+void PrintStr(const uchar *);
 ushort PrintNumeric( void *);
-void ShowStr (uchar *, uchar *);
+void ShowStr(const char *, const uchar *);
 bool_t printflag = TRUE;
 
 
 
 
-LOCAL char *C7CallTyp (ushort);
+LOCAL const char *C7CallTyp (ushort);
 LOCAL void PrintBAttr (CV_fldattr_t);
 LOCAL void PrintMAttr (CV_fldattr_t);
 LOCAL void PrintFAttr (CV_fldattr_t);
@@ -350,10 +350,10 @@ void DumpPartialType (CV_typ_t usIndex, TYPPTR pType, bool_t fReplace)
 			plfModifier 	   plf = (plfModifier)(&pType->leaf);
 
 			printf ("LF_MODIFIER ");
-			if ((plf->attr.MOD_const == TRUE) && (plf->attr.MOD_volatile)) {
+			if (plf->attr.MOD_const && plf->attr.MOD_volatile) {
 				printf ("CONST VOLATILE ");
 			}
-			else if (plf->attr.MOD_const == TRUE) {
+			else if (plf->attr.MOD_const) {
 				printf ("CONST, ");
 			}
 			else if (plf->attr.MOD_volatile) {
@@ -377,7 +377,7 @@ void DumpPartialType (CV_typ_t usIndex, TYPPTR pType, bool_t fReplace)
 			cbNumeric = PrintNumeric (&plf->data);
 			pName = &plf->data[0] + cbNumeric;
 			PrintStr (pName);
-			if (fReplace == TRUE) {
+			if (fReplace) {
 				printf (" REPLACEMENT");
 			}
 			break;
@@ -394,7 +394,7 @@ void DumpPartialType (CV_typ_t usIndex, TYPPTR pType, bool_t fReplace)
 			cbNumeric = PrintNumeric (&plf->data);
 			pName = &plf->data[0] + cbNumeric;
 			PrintStr (pName);
-			if (fReplace == TRUE) {
+			if (fReplace) {
 				printf (" REPLACEMENT");
 			}
 			break;
@@ -408,7 +408,7 @@ void DumpPartialType (CV_typ_t usIndex, TYPPTR pType, bool_t fReplace)
 			printf ("%4d ", plf->count);
 			printf ("0x%04x ", plf->utype);
 			PrintStr (plf->Name);
-			if (fReplace == TRUE) {
+			if (fReplace) {
 				printf (" REPLACEMENT");
 			}
 			break;
@@ -690,10 +690,10 @@ void DumpFullType (ushort usIndex, TYPPTR pType, bool_t fPush)
 			plfModifier 	   plf = (plfModifier)(&pType->leaf);
 
 			PrintType ("LF_MODIFIER");
-			if ((plf->attr.MOD_const == TRUE) && (plf->attr.MOD_volatile)) {
+			if (plf->attr.MOD_const && plf->attr.MOD_volatile) {
 				printf ("\tCONST VOLATILE, ");
 			}
-			else if (plf->attr.MOD_const == TRUE) {
+			else if (plf->attr.MOD_const) {
 				printf ("\tCONST, ");
 			}
 			else if (plf->attr.MOD_volatile) {
@@ -1180,7 +1180,7 @@ LOCAL void FieldList (ushort cbLen, void *pRec, bool_t fPush)
 				if (fPush) {
 					PushType (plf->index);
 				}
-				ShowStr ("\tfunction name = ", plf->Name);
+				ShowStr ("\tfunction name = ", (uchar *) plf->Name);
 				printf ("\n");
 				cb = sizeof (*plf) + plf->Name[0];
 				break;
@@ -1213,7 +1213,7 @@ LOCAL void FieldList (ushort cbLen, void *pRec, bool_t fPush)
 				if (fPush) {
 					PushType (plf->index);
 				}
-				ShowStr( "\t\tmember name = ", plf->Name );
+				ShowStr( "\t\tmember name = ", (uchar *) plf->Name);
 				printf("\n");
 				cb = sizeof (*plf) + plf->Name[0];
 				break;
@@ -1243,9 +1243,26 @@ LOCAL void FieldList (ushort cbLen, void *pRec, bool_t fPush)
 				if (fPush) {
 					PushType (plf->mList);
 				}
-				ShowStr ("name = '", plf->Name );
+				ShowStr ("name = '", (uchar *) plf->Name);
 				printf ("'\n");
 				cb = sizeof (*plf) + plf->Name[0];
+				break;
+			}
+
+			case LF_ONEMETHOD:
+			{
+				plfOneMethod	   plf = (plfOneMethod)pLeaf;
+
+				printf ("LF_ONEMETHOD, ");
+				PrintFAttr (plf->attr);
+				printf ("index = 0x%04x, ", plf->index);
+				if (fPush) {
+					PushType (plf->index);
+				}
+				cb = (plf->attr.mprop == CV_MTintro) ? sizeof(long) : 0;
+				ShowStr ("name = '", (uchar *) plf->vbaseoff[cb]);
+				printf ("'\n");
+				cb = sizeof (*plf) + plf->vbaseoff[cb] + 1;
 				break;
 			}
 
@@ -1285,17 +1302,17 @@ LOCAL void FieldList (ushort cbLen, void *pRec, bool_t fPush)
 		}
 
 		cbCur += cb;
-		pLeaf = (uchar *)pLeaf + cb;
+		pLeaf = (uchar *) pLeaf + cb;
 
 		// Skip any pad bytes present
 		if ((cbCur < cbLen) && ((*((uchar *)pLeaf) & LF_PAD0) == LF_PAD0)) {
 			cb = *((uchar *)pLeaf) & 0xF;
-			(uchar *)pLeaf += cb;
+			pLeaf = (uchar *) pLeaf + cb;
 			cbCur += cb;
 		}
 
 		// Check data alignment
-		if ((cbCur < cbLen) && (((uchar *)pLeaf - (uchar *)pRec) & 0x3)) {
+		if ((cbCur < cbLen) && (((uchar *) pLeaf - (uchar *) pRec) & 0x3)) {
 			printf ("Error: Leaf is not aligned on a 4 byte boundery\n" );
 		}
 	}
@@ -1303,7 +1320,7 @@ LOCAL void FieldList (ushort cbLen, void *pRec, bool_t fPush)
 
 
 
-uchar *C7CallTyps[] = {
+const char * const C7CallTyps[] = {
 	"C short",
 	"C long",
 	"PLM long",
@@ -1315,7 +1332,7 @@ uchar *C7CallTyps[] = {
 	"FAR STDCALL"
 };
 
-LOCAL char *C7CallTyp (ushort calltype)
+LOCAL const char *C7CallTyp (ushort calltype)
 {
 	if (calltype < (sizeof(C7CallTyps)/sizeof(C7CallTyps[0]))) {
 		return (C7CallTyps[calltype]);
@@ -1417,14 +1434,14 @@ LOCAL void PrintFAttr (CV_fldattr_t attr)
 	}
 }
 
-void ShowStr (uchar *psz, uchar *pstr)
+void ShowStr(const char *psz, const uchar *pstr)
 {
-	printf ("%s", psz);
-	PrintStr ( pstr );
+	printf("%s", psz);
+	PrintStr(pstr);
 }
 
 // Input is a length prefixed string
-void PrintStr (uchar *pstr)
+void PrintStr (const uchar *pstr)
 {
 	int i;
 
@@ -1455,7 +1472,8 @@ ushort PrintNumeric( void *pNum )
 	long double ldblTmp;
 #endif
 
-	usIndex = *((ushort *)(pNum))++;
+	usIndex = *(ushort *) pNum;
+	pNum = (ushort *) pNum + 1;
 	if( usIndex < LF_NUMERIC ){
 		printf ("%4u ", usIndex);
 		return (2);

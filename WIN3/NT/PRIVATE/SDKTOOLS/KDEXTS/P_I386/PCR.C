@@ -93,18 +93,6 @@ DECLARE_API( pcr )
 
     GetKdContext( &pi );
 
-    if (pi.NumberProcessors > 1) {
-        dprintf("\n");
-        dprintf("\t        IpiCommands: %s%s%s%s\n",
-                pp->PrcbData.IpiCommand[0] ? "APC " : "",
-                pp->PrcbData.IpiCommand[1] ? "DPC " : "",
-                pp->PrcbData.IpiCommand[2] ? "Clock " : "",
-                pp->PrcbData.IpiCommand[3] ? "Freeze " : "");
-
-        dprintf("\t          IpiFrozen: %x\n", pp->PrcbData.IpiFrozen);
-        dprintf("\t      IpiLastPacket: %08lx\n", pp->PrcbData.IpiLastPacket);
-    }
-
     dprintf("\n");
 }
 

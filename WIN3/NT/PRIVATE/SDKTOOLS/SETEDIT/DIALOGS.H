@@ -13,4 +13,4 @@ BOOL FAR PASCAL AboutDlg(HWND hDlg, WORD msg, DWORD wParam, LONG lParam) ;
 
 BOOL DisplayAlertOptions (HWND hWndParent,
                           HWND hWndAlert) ;
-
+

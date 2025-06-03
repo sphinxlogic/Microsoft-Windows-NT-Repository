@@ -423,6 +423,10 @@ static INT      mwfAbortDisabledForEOM;
 static QTC_BUILD_PTR mw_qtc_ptr;
 static INT DidItOnce = 0;                             // chs:05-20-93
 
+#ifdef OEM_EMS
+extern INT32    RT_BSD_OsId ;
+#endif
+
 #ifdef OS_WIN32
 
    #define  VLM_RETRY_COUNTER                    10   // chs:04-29-93
@@ -1658,7 +1662,7 @@ UINT16         mode )
 
 #ifdef OS_WIN32
           if ( no_tape_retry <= mwTapeSettlingCount ) {
-               _sleep( 3000 ) ;
+               Sleep( 3000 ) ;
                response = UI_NEW_TAPE_INSERTED ;
                no_tape_retry ++ ;
                break ;
@@ -1879,6 +1883,7 @@ TPOS_PTR  tpos,
      time_t          t_time;
      CHAR            date_str[MAX_UI_DATE_SIZE];
      CHAR            time_str[MAX_UI_TIME_SIZE];
+     CHAR            backup_method[MAX_UI_RESOURCE_SIZE] ;
      DBLK_PTR        dblk_ptr;
      OBJECT_TYPE     object_type;
      UINT64          count;
@@ -1933,6 +1938,15 @@ TPOS_PTR  tpos,
           break;
 
 
+     case MSG_LOG_STREAM_NAME:
+
+          SetStatusBlock(IDSM_APPSTATUS, STAT_APP_OK);
+          buffer1 = va_arg( arg_ptr, CHAR_PTR );
+
+          lresprintf( LOGGING_FILE, LOG_STREAM, fsh, buffer1 );
+
+          break;
+
      case MSG_LOG_BLOCK:
 
           SetStatusBlock(IDSM_APPSTATUS, STAT_APP_OK);
@@ -1956,26 +1970,30 @@ TPOS_PTR  tpos,
                     strcpy( mwCurrentPath, buffer );
                     strcpy( mwCurrentFile, TEXT( "" ) );
 
-                    yprintf( TEXT("%s"), mwCurrentPath );
-                    JobStatusBackupRestore( JOB_STATUS_DIRECTORY_NAMES );
-                    SetStatusBlock(IDSM_OFFSETACTIVEDIR, (LONG)(LPSTR)mwCurrentPath);
+                    if ( DLE_GetDeviceType(BSD_GetDLE( bsd_ptr) ) == FS_EMS_DRV ) {
+                        
+                         yprintf( TEXT("%s"), mwCurrentPath+1 );
+                         JobStatusBackupRestore( JOB_STATUS_DIRECTORY_NAMES );
+                    } else {
+                         yprintf( TEXT("%s"), mwCurrentPath );
+                         JobStatusBackupRestore( JOB_STATUS_DIRECTORY_NAMES );
 
-                    yprintf( TEXT("%s"), mwCurrentFile );
-                    JobStatusBackupRestore( JOB_STATUS_FILE_NAMES );
+                         yprintf( TEXT("%s"), mwCurrentFile );
+                         JobStatusBackupRestore( JOB_STATUS_FILE_NAMES );
+                    }
+
+                    SetStatusBlock(IDSM_OFFSETACTIVEDIR, (LONG)(LPSTR)mwCurrentPath);
 
                     // build the full path with no "..." inserted
                     UI_BuildFullPathFromDDB2( &buffer, fsh, dblk_ptr, delimiter, FALSE );
 
-#ifndef UNICODE
                     yprintf( TEXT("%s"), buffer );
-#else
-                    yprintf( TEXT("%ws"), buffer );
-#endif
 
                     ST_EndBackupSet( &op_stats );
 
                     dle = BSD_GetDLE( bsd_ptr );                                                                                                           // chs:06-09-93
-                    if ( dle->device_name_leng ) {                                                                                                         // chs:06-09-93
+                    if ( (DLE_GetDeviceType(BSD_GetDLE( bsd_ptr) ) != FS_EMS_DRV ) &&
+                         ( dle->device_name_leng ) ) {
                         buffer1 = (CHAR_PTR)calloc( 1, ( strlen( buffer ) * sizeof( CHAR ) ) + ( ( dle->device_name_leng ) * sizeof( CHAR ) ) + sizeof( CHAR ) );    // chs:06-09-93
                         if ( buffer1 ) {                                                                                                                   // chs:06-09-93
                             strcpy( buffer1, dle->device_name );                                                                                           // chs:06-09-93
@@ -1987,7 +2005,7 @@ TPOS_PTR  tpos,
                                                                                                                                                            // chs:06-09-93
                             lresprintf( LOGGING_FILE, LOG_DIRECTORY, SES_ENG_MSG, RES_DIRECTORY, buffer );                                                 // chs:06-09-93
                         }                                                                                                                                  // chs:06-09-93
-                    } else {                                                                                                                               // chs:06-09-93
+                    } else if (DLE_GetDeviceType(BSD_GetDLE( bsd_ptr) ) != FS_EMS_DRV ) {
                         lresprintf( LOGGING_FILE, LOG_DIRECTORY, SES_ENG_MSG, RES_DIRECTORY, buffer );                                                     // chs:06-09-93
                     }                                                                                                                                      // chs:06-09-93
                }
@@ -2134,6 +2152,11 @@ TPOS_PTR  tpos,
           QTC_DoFullCataloging( mw_qtc_ptr, BSD_GetFullyCataloged( bsd_ptr ) );
           QTC_StartBackup( mw_qtc_ptr, dblk_ptr );
 
+#ifdef OEM_EMS
+          RT_BSD_OsId = DLE_GetOsId( dle );
+          JobStatusBackupRestore( (WORD) JOB_STATUS_FS_TYPE );
+#endif OEM_EMS
+
           BSD_SetOperStatus( bsd_ptr, SUCCESS );
 
           if ( DLE_HasFeatures( dle, DLE_FEAT_REMOTE_DRIVE ) ) {
@@ -2143,18 +2166,10 @@ TPOS_PTR  tpos,
               JobStatusBackupRestore( (WORD) JOB_STATUS_VOLUME_HARDDRIVE );
           }
 
-#ifndef UNICODE
           yprintf(TEXT("%s\r"), FS_ViewVolNameInVCB( dblk_ptr ) );
-#else
-          yprintf(TEXT("%ws\r"), FS_ViewVolNameInVCB( dblk_ptr ) );
-#endif
           JobStatusBackupRestore( (WORD) JOB_STATUS_SOURCE_NAME );
 
-#ifndef UNICODE
           yprintf(TEXT("%s\r"), BSD_GetTapeLabel( bsd_ptr) );
-#else
-          yprintf(TEXT("%ws\r"), BSD_GetTapeLabel( bsd_ptr) );
-#endif
           JobStatusBackupRestore( (WORD) JOB_STATUS_DEST_NAME );
 
           lresprintf( LOGGING_FILE, LOG_MSG, SES_ENG_MSG, RES_DISPLAY_TAPE,
@@ -2177,6 +2192,31 @@ TPOS_PTR  tpos,
                       FS_ViewBSNumInVCB( dblk_ptr ),
                       FS_ViewTSNumInVCB( dblk_ptr ),
                       FS_ViewSetNameInVCB( dblk_ptr ) );
+
+          res_id = 0 ;
+
+          switch (BSD_GetBackupType( bsd_ptr) ) {
+               case BSD_BACKUP_NORMAL:
+                    res_id = 0 ;
+                    break;
+               case BSD_BACKUP_COPY:
+                    res_id = 1 ;
+                    break;
+               case BSD_BACKUP_DIFFERENTIAL:
+                    res_id = 3 ;
+                    break;
+               case BSD_BACKUP_INCREMENTAL:
+                    res_id = 2 ;
+                    break;
+               case BSD_BACKUP_DAILY:
+                    res_id = 4 ;
+                    break;
+          }
+
+          RSM_StringCopy( IDS_METHOD_NORMAL + res_id,
+                          backup_method, 255 );
+
+          lresprintf( LOGGING_FILE, LOG_MSG, SES_ENG_MSG, IDS_BACKUP_TYPE, backup_method) ;
 
           SetStatusBlock( IDSM_TAPEFAMILY,    (DWORD)FS_ViewTapeIDInVCB( dblk_ptr ) );
           SetStatusBlock( IDSM_TAPESEQNUMBER, (DWORD)FS_ViewTSNumInVCB(  dblk_ptr ) );
@@ -2266,11 +2306,7 @@ TPOS_PTR  tpos,
 
           U64_Litoa( num_bytes, numeral, (UINT16)10, &stat ) ;
           UI_BuildNumeralWithCommas( numeral );
-#ifndef UNICODE
           yprintf(TEXT("%s\r"),numeral );
-#else
-          yprintf(TEXT("%ws\r"),numeral );
-#endif
           JobStatusBackupRestore( (WORD) JOB_STATUS_BYTES_PROCESSED );
 
           /* did the user abort or finish normal */
@@ -2301,31 +2337,34 @@ TPOS_PTR  tpos,
 
           /* produce stats for dirs & files */
           /* display number of files / number of dirs */
+          
+          dle = BSD_GetDLE( bsd_ptr );
+          if ( DLE_GetDeviceType( dle ) != FS_EMS_DRV ) {
+               if( ST_GetBSFilesProcessed( &op_stats ) == 1 &&
+                   ST_GetBSDirsProcessed( &op_stats ) == 1) {
+                    res_id = RES_BACKED_UP_DIR_FILE;
+               }
+               else if( ST_GetBSFilesProcessed( &op_stats ) == 1 &&
+                        ST_GetBSDirsProcessed( &op_stats ) > 1) {
+                    res_id = RES_BACKED_UP_DIRS_FILE;
+               }
+               else if( ST_GetBSDirsProcessed( &op_stats ) == 1 &&
+                        ST_GetBSFilesProcessed( &op_stats ) > 1) {
+                    res_id = RES_BACKED_UP_DIR_FILES;
+               }
+               else {
+                    res_id = RES_BACKED_UP_DIRS_FILES;
+               }
 
-          if( ST_GetBSFilesProcessed( &op_stats ) == 1 &&
-              ST_GetBSDirsProcessed( &op_stats ) == 1) {
-               res_id = RES_BACKED_UP_DIR_FILE;
-          }
-          else if( ST_GetBSFilesProcessed( &op_stats ) == 1 &&
-                   ST_GetBSDirsProcessed( &op_stats ) > 1) {
-               res_id = RES_BACKED_UP_DIRS_FILE;
-          }
-          else if( ST_GetBSDirsProcessed( &op_stats ) == 1 &&
-                   ST_GetBSFilesProcessed( &op_stats ) > 1) {
-               res_id = RES_BACKED_UP_DIR_FILES;
-          }
-          else {
-               res_id = RES_BACKED_UP_DIRS_FILES;
-          }
+               yresprintf( res_id,
+                           ST_GetBSFilesProcessed( &op_stats ),
+                           ST_GetBSDirsProcessed( &op_stats ) );
+               JobStatusBackupRestore( (WORD) JOB_STATUS_LISTBOX );
 
-          yresprintf( res_id,
-                      ST_GetBSFilesProcessed( &op_stats ),
-                      ST_GetBSDirsProcessed( &op_stats ) );
-          JobStatusBackupRestore( (WORD) JOB_STATUS_LISTBOX );
-
-          lresprintf( LOGGING_FILE, LOG_MSG, SES_ENG_MSG, res_id,
-                      ST_GetBSFilesProcessed( &op_stats ),
-                      ST_GetBSDirsProcessed( &op_stats ) );
+               lresprintf( LOGGING_FILE, LOG_MSG, SES_ENG_MSG, res_id,
+                           ST_GetBSFilesProcessed( &op_stats ),
+                           ST_GetBSDirsProcessed( &op_stats ) );
+          }
 
 #         if defined ( OS_WIN32 )      //special feature-EventLogging
           {
@@ -2432,6 +2471,21 @@ TPOS_PTR  tpos,
           dblk_ptr     = va_arg( arg_ptr, DBLK_PTR );
           ddb_dblk_ptr = va_arg( arg_ptr, DBLK_PTR );
 
+          if ( (msg == MSG_BLOCK_INUSE ) &&
+               ( DLE_GetDeviceType(BSD_GetDLE( bsd_ptr) ) == FS_EMS_DRV ) ) {
+
+               QTC_BlockBad( mw_qtc_ptr );
+               yresprintf( (INT16)IDS_XCHNG_BKUP_IN_PROG );
+               JobStatusBackupRestore( (WORD) JOB_STATUS_LISTBOX );
+
+               lprintf( LOGGING_FILE, gszTprintfBuffer );
+               lprintf( LOGGING_FILE, TEXT("\n") );
+
+               return(response);
+
+          }
+
+
           switch( FS_GetBlockType( dblk_ptr ) ) {
 
           case BT_DDB:
@@ -2513,11 +2567,7 @@ TPOS_PTR  tpos,
                               strcpy( szPlusPlus, TEXT("++") );
                          }
 
-#ifndef UNICODE
                          lprintf( SKIPPED_FILE, TEXT("%s%s%s\n"),
-#else //UNICODE
-                         lprintf( SKIPPED_FILE, TEXT("%ws%ws%ws\n"),
-#endif //UNICODE
                                   szPlusPlus,
                                   DLE_GetDeviceName( BSD_GetDLE( bsd_ptr ) ),
                                   buffer );
@@ -2539,11 +2589,6 @@ TPOS_PTR  tpos,
      case MSG_BLOCK_BAD:
 
           SetStatusBlock(IDSM_APPSTATUS, STAT_APP_OK);
-#         if defined ( OS_WIN32 )
-          {
-            mwErrorDuringBackupSet = TRUE;
-          }
-#         endif //defined ( OS_WIN32 )
 
           gb_error_during_operation = TRUE;
 
@@ -2552,80 +2597,76 @@ TPOS_PTR  tpos,
 
           QTC_BlockBad( mw_qtc_ptr );
 
-          switch( FS_GetBlockType( dblk_ptr ) ) {
+          dle = BSD_GetDLE( bsd_ptr ) ;
 
-          case BT_DDB:
+          if ( DLE_GetDeviceType(dle) == FS_EMS_DRV ) {
 
-               ST_AddBSDirsBad( &op_stats, 1 );
-               break;
+               if (!mwErrorDuringBackupSet ) {
+                    CHAR_PTR name;
 
-          case BT_FDB:
-
-               /* if this is the first entry for this backup set set up the file ... */
-               if( ST_GetBSFilesBad( &op_stats ) == 0 ) {
-//                    do not create corrupt.lst
-//                    lresprintf( CORRUPT_FILE, LOG_START, FALSE );
-                    size = DLE_SizeofVolName ( BSD_GetDLE( bsd_ptr ) );
-                    DLE_GetVolName( BSD_GetDLE( bsd_ptr ), volume );
-
-                    t_time       = ST_GetBSStartTime( &op_stats );
-                    UI_LongToDate( date_str, t_time );
-                    UI_LongToTime( time_str, t_time );
-
-//                    Do not create corrupt.lst
-//                    lresprintf( CORRUPT_FILE, LOG_MSG, SES_ENG_MSG,
-//                                RES_CORRUPT_HEADER,
-//                                volume,
-//                                DLE_GetDeviceName( BSD_GetDLE( bsd_ptr ) ),
-//                                date_str,
-//                                time_str );
-               }
-
-               ST_AddBSFilesBad( &op_stats, (UINT32) 1 );
-
-               UI_AllocPathBuffer( &file_buf, FS_SizeofFnameInFDB( fsh, dblk_ptr ) ) ;
-               UI_AllocPathBuffer( &buffer, (UINT16)(FS_SizeofFnameInFDB( fsh, dblk_ptr ) +
-                    FS_SizeofPathInDDB( fsh, ddb_dblk_ptr ) + 5 ) ) ;
-
-               if ( buffer && file_buf ) {
-                    CHAR szPlusPlus[3];
-
-                    FS_GetFnameFromFDB( fsh, dblk_ptr, file_buf );
-                    UI_BuildDelimitedPathFromDDB( &buffer, fsh, ddb_dblk_ptr, delimiter, FALSE );
-                    UI_AppendDelimiter( buffer, delimiter );
-                    strcat( buffer, file_buf );
-                    yresprintf( (INT16) RES_BACKED_UP_CORRUPT_WARNING, buffer );
-                    JobStatusBackupRestore( (WORD) JOB_STATUS_LISTBOX );
-
-                    lresprintf( LOGGING_FILE, LOG_WARNING, SES_ENG_MSG, RES_BACKED_UP_CORRUPT_WARNING, buffer );
-
-                    UI_BuildFullPathFromDDB( &buffer, fsh, ddb_dblk_ptr, delimiter, FALSE );
-                    UI_AppendDelimiter( buffer, delimiter );
-                    strcat( buffer, file_buf );
-
-                    szPlusPlus[0] = TEXT('\0');
-                    if ( ( ( DLE_GetDeviceType( BSD_GetDLE( bsd_ptr ) ) == NOVELL_DRV ) ||
-                              ( DLE_GetDeviceType( BSD_GetDLE( bsd_ptr ) ) == NOVELL_AFP_DRV ) ) &&
-                         ( DLE_GetParent( BSD_GetDLE( bsd_ptr ) ) != NULL ) ) {
-
-                         strcpy( szPlusPlus, TEXT("++") );
+                    name = mwCurrentDrive ;
+                    if ( DLE_GetParent( dle ) ) {
+                         name = DLE_GetDeviceName( DLE_GetParent(dle)) ;
                     }
+                    
+                    yresprintf( (INT16) RES_EMS_COMM_FAILURE, name );
 
-//                    Do not create corrupt file
-#ifndef UNICODE
-//                    lprintf( CORRUPT_FILE, TEXT("%s%s%s\n"),
-#else //UNICODE
-//                    lprintf( CORRUPT_FILE, TEXT("%ws%ws%ws\n"),
-#endif //UNICODE
-//                             szPlusPlus,
-//                             DLE_GetDeviceName( BSD_GetDLE( bsd_ptr ) ),
-//                             buffer );
+                    JobStatusBackupRestore( (WORD) JOB_STATUS_LISTBOX );
+                    lresprintf( LOGGING_FILE, LOG_WARNING, SES_ENG_MSG, RES_EMS_COMM_FAILURE, mwCurrentDrive );
 
-                    yprintf(TEXT("%ld\r"),ST_GetBSFilesBad( &op_stats ) );
-                    JobStatusBackupRestore( (WORD) JOB_STATUS_CORRUPT_FILES );
+               } 
 
+          } else {
+               switch( FS_GetBlockType( dblk_ptr ) ) {
+
+               case BT_DDB:
+
+                    ST_AddBSDirsBad( &op_stats, 1 );
+
+                    UI_AllocPathBuffer( &buffer, (UINT16)(FS_SizeofPathInDDB( fsh, dblk_ptr ) + 5 ) ) ;
+
+                    if ( buffer ) {
+                         UI_BuildDelimitedPathFromDDB( &buffer, fsh, dblk_ptr, delimiter, FALSE );
+                         yresprintf( (INT16) RES_BACKED_UP_CORRUPT_WARNING, buffer );
+                         JobStatusBackupRestore( (WORD) JOB_STATUS_LISTBOX );
+     
+                         lresprintf( LOGGING_FILE, LOG_WARNING, SES_ENG_MSG, RES_BACKED_UP_CORRUPT_WARNING, buffer );
+
+                         yprintf(TEXT("%ld\r"),ST_GetBSFilesBad( &op_stats ) );
+                         JobStatusBackupRestore( (WORD) JOB_STATUS_CORRUPT_FILES );
+                    }
+                    break;
+
+               case BT_FDB:
+
+                    ST_AddBSFilesBad( &op_stats, (UINT32) 1 );
+
+                    UI_AllocPathBuffer( &file_buf, FS_SizeofFnameInFDB( fsh, dblk_ptr ) ) ;
+                    UI_AllocPathBuffer( &buffer, (UINT16)(FS_SizeofFnameInFDB( fsh, dblk_ptr ) +
+                         FS_SizeofPathInDDB( fsh, ddb_dblk_ptr ) + 5 ) ) ;
+
+                    if ( buffer && file_buf ) {
+                         FS_GetFnameFromFDB( fsh, dblk_ptr, file_buf );
+                         UI_BuildDelimitedPathFromDDB( &buffer, fsh, ddb_dblk_ptr, delimiter, FALSE );
+                         UI_AppendDelimiter( buffer, delimiter );
+                         strcat( buffer, file_buf );
+                         yresprintf( (INT16) RES_BACKED_UP_CORRUPT_WARNING, buffer );
+                         JobStatusBackupRestore( (WORD) JOB_STATUS_LISTBOX );
+
+                         lresprintf( LOGGING_FILE, LOG_WARNING, SES_ENG_MSG, RES_BACKED_UP_CORRUPT_WARNING, buffer );
+
+                         yprintf(TEXT("%ld\r"),ST_GetBSFilesBad( &op_stats ) );
+                         JobStatusBackupRestore( (WORD) JOB_STATUS_CORRUPT_FILES );
+                    }
                }
           }
+
+#         if defined ( OS_WIN32 )
+          {
+            mwErrorDuringBackupSet = TRUE;
+          }
+#         endif //defined ( OS_WIN32 )
+
           break;
 
      case MSG_BYTES_BAD:
@@ -2669,6 +2710,12 @@ TPOS_PTR  tpos,
           dblk_ptr = va_arg( arg_ptr, DBLK_PTR );
           TryOpen  = va_arg( arg_ptr, CHK_OPEN );
           parm     = va_arg( arg_ptr, UINT32 );
+
+          if ( DLE_GetDeviceType(BSD_GetDLE( bsd_ptr) ) == FS_EMS_DRV ) {
+
+               return SKIP_OBJECT;
+
+          }
 
           /* stop the clock with a start idle */
           ST_StartBackupSetIdle( &op_stats );
@@ -2774,6 +2821,16 @@ TPOS_PTR  tpos,
           strm_id      = va_arg( arg_ptr, UINT32 ) ;
 
           dle = BSD_GetDLE( bsd_ptr ) ;
+          if (( error == FS_COMM_FAILURE) &&
+               (DLE_GetDeviceType( dle) ) == FS_EMS_DRV) {
+
+               yresprintf( (INT16) RES_EMS_COMM_FAILURE, DLE_GetDeviceName( dle ) );
+               JobStatusBackupRestore( JOB_STATUS_LISTBOX );
+               lresprintf( LOGGING_FILE, LOG_MSG, SES_ENG_MSG, RES_EMS_COMM_FAILURE, DLE_GetDeviceName( dle ) );
+               QTC_BlockBad( mw_qtc_ptr );
+               QTC_AbortBackup( mw_qtc_ptr );
+               break ;
+          }
 
           /* stop the clock with a start idle */
           ST_StartBackupSetIdle( &op_stats );
@@ -2784,7 +2841,7 @@ TPOS_PTR  tpos,
               QTC_AbortBackup( mw_qtc_ptr );
 
 #             if defined ( OS_WIN32 )
-              {
+              {          
                 mwErrorDuringBackupSet = TRUE;
               }
 #             endif //defined ( OS_WIN32 )
@@ -2794,7 +2851,22 @@ TPOS_PTR  tpos,
               eresprintf( RES_FATAL_TAPE_FMT_NO_APPEND, BE_GetCurrentDeviceName( tpos->channel ) );
 
           } else if ( strm_id == STRM_INVALID ) {
-              UI_ProcessErrorCode( error, &response, tpos->channel );
+
+#             if defined ( OS_WIN32 )
+              {          
+                mwErrorDuringBackupSet = TRUE;
+              }
+#             endif //defined ( OS_WIN32 )
+
+              if ( ( error == LP_DRIVE_ATTACH_ERROR ) &&
+                   ( DLE_GetDeviceType(dle) == FS_EMS_DRV ) ) {
+                    yresprintf( (INT16) RES_EMS_COMM_FAILURE, DLE_GetDeviceName( dle ) );
+                    JobStatusBackupRestore( (WORD) JOB_STATUS_LISTBOX );
+                    lresprintf( LOGGING_FILE, LOG_WARNING, SES_ENG_MSG, RES_COMM_FAILURE, mwCurrentDrive );
+                    
+              } else {
+                   UI_ProcessErrorCode( error, &response, tpos->channel );
+              } 
 
               if ( response == SKIP_OBJECT ) {
 
@@ -2836,7 +2908,8 @@ TPOS_PTR  tpos,
                          time_str );
 
              /* Write "script-like" selections to script file */
-             if ( ( SCR_ProcessBSD( output_dest[ SKIPPED_FILE ].fh, bsd_ptr ) ) != SUCCESS ) {
+             if ( output_dest[SKIPPED_FILE].fh &&
+                    ( SCR_ProcessBSD( output_dest[ SKIPPED_FILE ].fh, bsd_ptr )!= SUCCESS) ) {
 
                 if ( UI_AllocPathBuffer( &buffer, UI_MAX_FILENAME_LENGTH * sizeof(CHAR) ) ) {
                      strcpy( buffer, SKIPPED_LOG );
@@ -2923,6 +2996,7 @@ TPOS_PTR  tpos,
           break;
 
      case MSG_COMM_FAILURE:
+          dle = BSD_GetDLE( bsd_ptr );                                                                                                           // chs:06-09-93
 
 #         if defined ( OS_WIN32 )
           {
@@ -2931,7 +3005,11 @@ TPOS_PTR  tpos,
 #         endif //defined ( OS_WIN32 )
 
           gb_error_during_operation = TRUE;
-          yresprintf( (INT16) RES_COMM_FAILURE, mwCurrentDrive );
+          if ( DLE_GetDeviceType(dle) == FS_EMS_DRV ) {
+               yresprintf( (INT16) RES_EMS_COMM_FAILURE, mwCurrentDrive );
+          } else {
+               yresprintf( (INT16) RES_COMM_FAILURE, mwCurrentDrive );
+          }
           JobStatusBackupRestore( (WORD) JOB_STATUS_LISTBOX );
           lresprintf( LOGGING_FILE, LOG_WARNING, SES_ENG_MSG, RES_COMM_FAILURE, mwCurrentDrive );
           break;
@@ -3196,11 +3274,7 @@ static VOID clock_routine( VOID )
             U64_Litoa( num_bytes, numeral, (UINT16)10, &stat ) ;
             UI_BuildNumeralWithCommas( numeral );
 
-#ifndef UNICODE
             yprintf(TEXT("%s\r"),numeral );
-#else
-            yprintf(TEXT("%ws\r"),numeral );
-#endif
 
             JobStatusBackupRestore( (WORD) JOB_STATUS_BYTES_PROCESSED );
 
@@ -3238,23 +3312,14 @@ static VOID clock_routine( VOID )
 
             if ( num_hours ) {
 
-#ifndef UNICODE
                yprintf( TEXT("%d%c%2.2d%c%2.2d\r"), num_hours, UI_GetTimeSeparator(),
                              num_minutes, UI_GetTimeSeparator(), num_seconds );
 
-#else
-               yprintf( TEXT("%d%wc%2.2d%wc%2.2d\r"), num_hours, UI_GetTimeSeparator(),
-                        num_minutes, UI_GetTimeSeparator(), num_seconds );
-#endif
 
            }
            else {
 
-#ifndef UNICODE
               yprintf( TEXT("%2.2d%c%2.2d\r"), num_minutes, UI_GetTimeSeparator(), num_seconds );
-#else
-              yprintf( TEXT("%2.2d%wc%2.2d\r"), num_minutes, UI_GetTimeSeparator(), num_seconds );
-#endif
 
            }
 

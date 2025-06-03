@@ -46,7 +46,7 @@ DEFINE_GUID(GUID_SIMPLE, 0xBCF6D4A0, 0xBE8C, 0x1068, 0xB6, 0xD4, 0x00, 0xDD, 0x0
 
 STDMETHODIMP CPersistStorage::QueryInterface ( REFIID riid, LPVOID FAR* ppvObj)
 {
-    OutputDebugString(TEXT("In CPersistStorage::QueryInterface\r\n"));
+    TestDebugOut(TEXT("In CPersistStorage::QueryInterface\r\n"));
     // need to NULL the out parameter
     return m_lpObj->QueryInterface(riid, ppvObj);
 }
@@ -82,7 +82,7 @@ STDMETHODIMP CPersistStorage::QueryInterface ( REFIID riid, LPVOID FAR* ppvObj)
 
 STDMETHODIMP_(ULONG) CPersistStorage::AddRef ()
 {
-    OutputDebugString(TEXT("In CPersistStorage::AddRef\r\n"));
+    TestDebugOut(TEXT("In CPersistStorage::AddRef\r\n"));
     return m_lpObj->AddRef();
 }
 
@@ -108,7 +108,7 @@ STDMETHODIMP_(ULONG) CPersistStorage::AddRef ()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      CSimpSvrObj::Release        OBJ.CPP
 //
 //
@@ -116,7 +116,7 @@ STDMETHODIMP_(ULONG) CPersistStorage::AddRef ()
 
 STDMETHODIMP_(ULONG) CPersistStorage::Release ()
 {
-    OutputDebugString(TEXT("In CPersistStorage::Release\r\n"));
+    TestDebugOut(TEXT("In CPersistStorage::Release\r\n"));
     return m_lpObj->Release();
 }
 
@@ -138,7 +138,7 @@ STDMETHODIMP_(ULONG) CPersistStorage::Release ()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      IStorage::Release           OLE
 //      IStorage::AddRef            OLE
 //
@@ -147,7 +147,7 @@ STDMETHODIMP_(ULONG) CPersistStorage::Release ()
 
 STDMETHODIMP CPersistStorage::InitNew (LPSTORAGE pStg)
 {
-    OutputDebugString(TEXT("In CPersistStorage::InitNew\r\n"));
+    TestDebugOut(TEXT("In CPersistStorage::InitNew\r\n"));
 
     // release any streams and storages that may be open
     ReleaseStreamsAndStorage();
@@ -182,14 +182,14 @@ STDMETHODIMP CPersistStorage::InitNew (LPSTORAGE pStg)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 //
 //********************************************************************
 
 STDMETHODIMP CPersistStorage::GetClassID  ( LPCLSID lpClassID)
 {
-     OutputDebugString(TEXT("In CPersistStorage::GetClassID\r\n"));
+     TestDebugOut(TEXT("In CPersistStorage::GetClassID\r\n"));
 
     *lpClassID = GUID_SIMPLE;
 
@@ -218,7 +218,7 @@ STDMETHODIMP CPersistStorage::GetClassID  ( LPCLSID lpClassID)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      CPersistStorage::InitNew    IPS.CPP
 //      CSimpSvrObj::SaveToStorage  OBJ.CPP
 //
@@ -231,7 +231,7 @@ STDMETHODIMP CPersistStorage::GetClassID  ( LPCLSID lpClassID)
 
 STDMETHODIMP CPersistStorage::Save  ( LPSTORAGE pStgSave, BOOL fSameAsLoad)
 {
-    OutputDebugString(TEXT("In CPersistStorage::Save\r\n"));
+    TestDebugOut(TEXT("In CPersistStorage::Save\r\n"));
 
     // save the data
     m_lpObj->SaveToStorage (pStgSave, fSameAsLoad);
@@ -261,14 +261,14 @@ STDMETHODIMP CPersistStorage::Save  ( LPSTORAGE pStgSave, BOOL fSameAsLoad)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 //
 //********************************************************************
 
 STDMETHODIMP CPersistStorage::SaveCompleted  ( LPSTORAGE pStgNew)
 {
-    OutputDebugString(TEXT("In CPersistStorage::SaveCompleted\r\n"));
+    TestDebugOut(TEXT("In CPersistStorage::SaveCompleted\r\n"));
 
     if (pStgNew)
 	{
@@ -303,7 +303,7 @@ STDMETHODIMP CPersistStorage::SaveCompleted  ( LPSTORAGE pStgNew)
 					       // normally would clear a
 												  // dirty bit
 	       )
-	       OutputDebugString(TEXT("SendOnSave fails\n"));
+	       TestDebugOut(TEXT("SendOnSave fails\n"));
 		m_lpObj->m_fSaveWithSameAsLoad = FALSE;
 		}
 	
@@ -331,7 +331,7 @@ STDMETHODIMP CPersistStorage::SaveCompleted  ( LPSTORAGE pStgNew)
 // Function Calls:
 //      Function                        Location
 //
-//      OutputDebugString               Windows API
+//      TestDebugOut               Windows API
 //      CSimpSvrObj::LoadFromStorage    OBJ.CPP
 //
 //
@@ -343,7 +343,7 @@ STDMETHODIMP CPersistStorage::SaveCompleted  ( LPSTORAGE pStgNew)
 
 STDMETHODIMP CPersistStorage::Load  ( LPSTORAGE pStg)
 {
-    OutputDebugString(TEXT("In CPersistStorage::Load\r\n"));
+    TestDebugOut(TEXT("In CPersistStorage::Load\r\n"));
 
     // remember the storage
     if (m_lpObj->m_lpStorage)
@@ -384,7 +384,7 @@ STDMETHODIMP CPersistStorage::Load  ( LPSTORAGE pStg)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 //
 // Comments:
@@ -396,7 +396,7 @@ STDMETHODIMP CPersistStorage::Load  ( LPSTORAGE pStg)
 
 STDMETHODIMP CPersistStorage::IsDirty()
 {
-    OutputDebugString(TEXT("In CPersistStorage::IsDirty\r\n"));
+    TestDebugOut(TEXT("In CPersistStorage::IsDirty\r\n"));
     return ResultFromScode( S_OK );
 }
 
@@ -419,14 +419,14 @@ STDMETHODIMP CPersistStorage::IsDirty()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      IStorage::Release           OLE
 //
 //********************************************************************
 
 STDMETHODIMP CPersistStorage::HandsOffStorage  ()
 {
-    OutputDebugString(TEXT("In CPersistStorage::HandsOffStorage\r\n"));
+    TestDebugOut(TEXT("In CPersistStorage::HandsOffStorage\r\n"));
 
     ReleaseStreamsAndStorage();
 
@@ -452,7 +452,7 @@ STDMETHODIMP CPersistStorage::HandsOffStorage  ()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      IStorage::Release           OLE
 //      IStream::Release            OLE
 //      IStorage::CreateStream      OLE
@@ -477,7 +477,7 @@ void CPersistStorage::CreateStreams(LPSTORAGE lpStg)
 			   &m_lpObj->m_lpColorStm)
 	 !=S_OK
        )
-       OutputDebugString(TEXT("CreateStreams fails\n"));
+       TestDebugOut(TEXT("CreateStreams fails\n"));
 
     // create a stream to save the size
     if (
@@ -488,7 +488,7 @@ void CPersistStorage::CreateStreams(LPSTORAGE lpStg)
 			   &m_lpObj->m_lpSizeStm)
 	 !=S_OK
        )
-       OutputDebugString(TEXT("CreateStreams fails\n"));
+       TestDebugOut(TEXT("CreateStreams fails\n"));
 }
 
 //**********************************************************************
@@ -510,7 +510,7 @@ void CPersistStorage::CreateStreams(LPSTORAGE lpStg)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      IStream::Release            OLE
 //      IStorage::OpenStream        OLE
 //
@@ -534,7 +534,7 @@ void CPersistStorage::OpenStreams(LPSTORAGE lpStg)
 			   &m_lpObj->m_lpColorStm)
        !=S_OK
        )
-       OutputDebugString(TEXT("OpenStream fails\n"));
+       TestDebugOut(TEXT("OpenStream fails\n"));
 
 
     // open the color stream
@@ -546,7 +546,7 @@ void CPersistStorage::OpenStreams(LPSTORAGE lpStg)
 			   &m_lpObj->m_lpSizeStm)
        !=S_OK
        )
-       OutputDebugString(TEXT("OpenStream fails\n"));
+       TestDebugOut(TEXT("OpenStream fails\n"));
 
 }
 
@@ -568,7 +568,7 @@ void CPersistStorage::OpenStreams(LPSTORAGE lpStg)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      IStream::Release            OLE
 //      IStorage::Release           OLE
 //
@@ -618,7 +618,7 @@ void CPersistStorage::ReleaseStreamsAndStorage()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      IStorage::Release           OLE
 //
 //
@@ -638,7 +638,7 @@ void CPersistStorage::CreateStreams(LPSTORAGE lpStg,
 			   lplpTempColor)
 	 !=S_OK
        )
-       OutputDebugString(TEXT("CreateStreams fails\n"));
+       TestDebugOut(TEXT("CreateStreams fails\n"));
 
     // create a stream to save the size
     if (
@@ -650,5 +650,5 @@ void CPersistStorage::CreateStreams(LPSTORAGE lpStg,
 			   lplpTempSize)
 	 !=S_OK
        )
-       OutputDebugString(TEXT("CreateStreams fails\n"));
+       TestDebugOut(TEXT("CreateStreams fails\n"));
 }

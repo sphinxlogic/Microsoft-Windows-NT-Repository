@@ -142,11 +142,10 @@ VOID VLM_LookForCatalogFiles( )
    path = malloc( strsize( CDS_GetCatDataPath() ) + 256 );
 
    if ( path ) {
-
 #ifndef UNICODE
       sprintf( path, TEXT("%s????????.D??"), CDS_GetCatDataPath() );
 #else //UNICODE
-      sprintf( path, TEXT("%ws????????.U??"), CDS_GetCatDataPath() );
+      sprintf( path, TEXT("%s????????.U??"), CDS_GetCatDataPath() );
 #endif //UNICODE
 
       vlm_find = VLM_FindFirst( path, VLMFIND_NORMAL, file );

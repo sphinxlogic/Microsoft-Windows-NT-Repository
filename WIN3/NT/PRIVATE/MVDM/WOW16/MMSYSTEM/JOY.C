@@ -40,8 +40,7 @@ static void NEAR PASCAL joyGetCalibration(void);
 ** Thunking stuff
 ** -------------------------------------------------------------------------
 */
-typedef DWORD (FAR PASCAL *JOYMESSAGEPROC)( HDRVR, UINT, DWORD, DWORD );
-JOYMESSAGEPROC PASCAL joy32Message;
+extern JOYMESSAGEPROC PASCAL joy32Message;
 
 
 
@@ -56,7 +55,6 @@ extern char far szSystemIni[];
 extern char far szJoystick[];
 extern char far szJoystickDrv[];
 extern char far szDrivers[];
-extern char far szJoyMessage[];
 
 char szJoyKey[] = "JoyCal ";
 
@@ -75,7 +73,7 @@ typedef struct joycapture_tag {
 } JOYCAPTURE;
 
 #define iJoyMax 2
-
+#define JOY_UNINITIALIZED 0xFFFF
 
 // !!! Code assumes these constants equal 0 and 1
 
@@ -95,7 +93,7 @@ ERROR IN ASSUMMED CONSTANT
 
 static JOYCAPTURE  JoyCapture[iJoyMax];
 static HDRVR       hDrvJoy[iJoyMax];
-static UINT        wNumDevs;
+static UINT        wNumDevs = JOY_UNINITIALIZED;
 
 void CALLBACK joyPollCallback(HWND hWnd, UINT wMsg, UINT wIDEvent, DWORD dwTime);
 
@@ -157,23 +155,25 @@ static void NEAR PASCAL joyGetCalibration(void)
     @rdesc The return value is TRUE if the services are initialised, FALSE
 	   if an error occurs
 
-           The above comment is not correct.  This function must return TRUE
-           no matter what.  Otherwise the rest of mmsystem does not get
-           initialized correctly.
-
 ****************************************************************************/
 
-BOOL NEAR PASCAL JoyInit(void)
+BOOL FAR PASCAL JoyInit(void)
 {
-
-    joy32Message = (JOYMESSAGEPROC)GetProcAddress32W( mmwow32Lib,
-                                                      szJoyMessage );
-
-    if (joy32Message == NULL) {
-        return TRUE;;
+    // Only attempt initialization once.
+    if (wNumDevs != JOY_UNINITIALIZED) {
+        return FALSE;
+    }
+    else {
+        wNumDevs = 0;
     }
 
     wNumDevs = joyMessage( (HDRVR)1, JDD_GETNUMDEVS, 0L, 0L );
+
+    // Make sure driver was installed.
+    if (joy32Message == NULL) {
+        return FALSE;
+    }
+
     switch ( wNumDevs ) {
 
     case 2:
@@ -185,7 +185,7 @@ BOOL NEAR PASCAL JoyInit(void)
         break;
 
     default:
-        return TRUE;
+        return FALSE;
     }
 
     // Initialize joycapture...
@@ -252,11 +252,12 @@ BOOL NEAR PASCAL JoyInit(void)
 
 UINT WINAPI joyGetDevCaps(UINT wId, LPJOYCAPS lpCaps, UINT wSize)
 {
+    V_WPOINTER(lpCaps, wSize, MMSYSERR_INVALPARAM);
 
-    if (!hDrvJoy[0])
+    if ((!hDrvJoy[0] && !JoyInit()) || (wId >= iJoyMax))
         return MMSYSERR_NODRIVER;
 
-     if (wId >= wNumDevs)
+    if (wId >= wNumDevs)
         return JOYERR_PARMS;
 
     return joyMessage( hDrvJoy[wId], JDD_GETDEVCAPS,
@@ -286,7 +287,7 @@ UINT WINAPI joyGetNumDevs(void)
     // Return 0 on error (Can't return JOYERR_NODRIVER
     // since no way to distinguish error code from valid count.)
 
-    if (!hDrvJoy[0])
+    if (!hDrvJoy[0] && !JoyInit())
         return 0;
 
     return wNumDevs;
@@ -320,7 +321,9 @@ UINT WINAPI joyGetNumDevs(void)
 
 UINT WINAPI joyGetPos(UINT wId, LPJOYINFO lpInfo)
 {
-    if (!hDrvJoy[0])
+    V_WPOINTER(lpInfo, sizeof(JOYINFO), MMSYSERR_INVALPARAM);
+
+    if ((!hDrvJoy[0] && !JoyInit()) || (wId >= iJoyMax))
         return MMSYSERR_NODRIVER;
 
     if (wId >= wNumDevs)
@@ -359,9 +362,13 @@ UINT WINAPI joyGetPos(UINT wId, LPJOYINFO lpInfo)
 
 UINT WINAPI joyGetThreshold(UINT wId, UINT FAR* lpwThreshold)
 {
+    V_WPOINTER(lpwThreshold, sizeof(UINT), MMSYSERR_INVALPARAM);
 
-    if (!hDrvJoy[0])
+    if (!hDrvJoy[0] && !JoyInit())
         return MMSYSERR_NODRIVER;
+
+    if (wId >= iJoyMax)
+        return MMSYSERR_INVALPARAM;
 
     if (wId >= wNumDevs)
        return JOYERR_PARMS;
@@ -393,8 +400,11 @@ UINT WINAPI joyGetThreshold(UINT wId, UINT FAR* lpwThreshold)
 
 UINT WINAPI joyReleaseCapture(UINT wId)
 {
-    if (!hDrvJoy[0])
+    if (!hDrvJoy[0] && !JoyInit())
         return MMSYSERR_NODRIVER;
+
+    if (wId >= iJoyMax)
+        return MMSYSERR_INVALPARAM;
 
     if (wId >= wNumDevs)
        return JOYERR_PARMS;
@@ -461,8 +471,11 @@ UINT WINAPI joySetCapture(HWND hwnd, UINT wId, UINT wPeriod, BOOL bChanged )
     if (!hwnd || !IsWindow(hwnd))
         return JOYERR_PARMS;
 
-    if (!hDrvJoy[0])
+    if (!hDrvJoy[0] && !JoyInit())
         return MMSYSERR_NODRIVER;
+
+    if (wId >= iJoyMax)
+        return MMSYSERR_INVALPARAM;
 
     if (wId >= wNumDevs)
        return JOYERR_PARMS;
@@ -525,8 +538,11 @@ UINT WINAPI joySetCapture(HWND hwnd, UINT wId, UINT wPeriod, BOOL bChanged )
 
 UINT WINAPI joySetThreshold(UINT wId, UINT wThreshold)
 {
-    if (!hDrvJoy[0])
+    if (!hDrvJoy[0] && !JoyInit())
         return MMSYSERR_NODRIVER;
+
+    if (wId >= iJoyMax)
+        return MMSYSERR_INVALPARAM;
 
     if (wId >= wNumDevs)
        return JOYERR_PARMS;
@@ -589,7 +605,7 @@ UINT WINAPI joySetCalibration( UINT wId,
     JOYCALIBRATE    oldCal,newCal;
     UINT w;
 
-    if (!hDrvJoy[0])
+    if (!hDrvJoy[0] && !JoyInit())
         return MMSYSERR_NODRIVER;
 
     if (wId >= wNumDevs)

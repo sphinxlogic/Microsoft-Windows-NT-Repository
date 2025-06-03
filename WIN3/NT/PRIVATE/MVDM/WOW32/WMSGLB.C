@@ -108,10 +108,45 @@ BOOL FASTCALL ThunkLBMsg16(LPMSGPARAMEX lpmpex)
             break;
     
         case LB_DIR:
-        case LB_GETTEXT:
             GETPSZPTR(lpmpex->Parm16.WndProc.lParam, (LPSZ)lpmpex->lParam);
             break;
-    
+
+        case LB_GETTEXT:
+            if (NULL != (pww = lpmpex->pww)) {
+                register PTHUNKTEXTDWORD pthkdword = (PTHUNKTEXTDWORD)lpmpex->MsgBuffer;
+
+                // we set this as a flag to indicate that we retrieve a dword 
+                // instead of a string there. In case when hooks are installed
+                // this code prevents RISC platforms from malfunctioning in 
+                // kernel (they have code like this:
+                //   try {
+                //       <assign to original ptr here>
+                //   }
+                //   except(1) {
+                //       <put error message in debug>
+                //   }
+                // which causes this message not to return the proper value)
+                // See walias.h for definition of THUNKTEXTDWORD structure as 
+                // well as MSGPARAMEX structure
+                // this code is complemented in UnThunkLBMsg16
+                // 
+                // Application: PeachTree Accounting v3.5
+
+                pthkdword->fDWORD = (pww->dwStyle & (LBS_OWNERDRAWFIXED|LBS_OWNERDRAWVARIABLE)) &&
+                                    !(pww->dwStyle & (LBS_HASSTRINGS));
+
+                if (pthkdword->fDWORD) {
+                    lpmpex->lParam = (LPARAM)(LPVOID)&pthkdword->dwDataItem;
+                    break;
+                }
+            }
+            else {
+                register PTHUNKTEXTDWORD pthkdword = (PTHUNKTEXTDWORD)lpmpex->MsgBuffer;
+                pthkdword->fDWORD = FALSE;
+            }
+
+            GETPSZPTR(lpmpex->Parm16.WndProc.lParam, (LPSZ)lpmpex->lParam);
+            break;
     
         case LB_GETITEMRECT:
             lpmpex->lParam = (LONG)lpmpex->MsgBuffer;
@@ -159,11 +194,30 @@ VOID FASTCALL UnThunkLBMsg16(LPMSGPARAMEX lpmpex)
 {
     switch(lpmpex->uMsg) {
 
+    case LB_GETTEXT:
+        {
+           register PTHUNKTEXTDWORD pthkdword = (PTHUNKTEXTDWORD)lpmpex->MsgBuffer;
+
+           if (pthkdword->fDWORD) { 
+                // this is a dword, not a string
+                // assign the dword as unaligned
+                UNALIGNED DWORD *lpdwDataItem;
+
+                GETVDMPTR((lpmpex->Parm16.WndProc.lParam), sizeof(DWORD), lpdwDataItem);
+                *lpdwDataItem = pthkdword->dwDataItem;
+                FREEVDMPTR(lpdwDataItem);
+                break;
+           }
+ 
+        }
+
+        // fall through to the common code
+
+
     case LB_ADDSTRING:      // BUGBUG 3-Jul-1991 JeffPar: for owner-draw list boxes, this can just be a 32-bit number
     case LB_DIR:
     case LB_FINDSTRING:     // BUGBUG 3-Jul-1991 JeffPar: for owner-draw list boxes, this can just be a 32-bit number
     case LB_FINDSTRINGEXACT:
-    case LB_GETTEXT:
     case LB_INSERTSTRING:
     case LB_SELECTSTRING:
         FREEPSZPTR((LPSZ)lpmpex->lParam);

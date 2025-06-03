@@ -256,6 +256,7 @@ Return Value:
     NET_API_STATUS  naStatus = NERR_Success;
     DWORD   dwTotalEntries;
     DWORD   dwEntriesRead;
+    DWORD   dwEntriesProcessed;
     DWORD   dwResumeHandle;
     DWORD   dwIndex;
     DWORD   dwBufLen;
@@ -279,6 +280,9 @@ Return Value:
         return ERROR_OUTOFMEMORY;
     }
 
+    // disable windows error message popup
+    nErrorMode = SetErrorMode  (SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX);
+
     bFound = FALSE;
 
     if ((dwPhase & SEARCH_REGISTRY) == SEARCH_REGISTRY) {
@@ -286,9 +290,6 @@ Return Value:
 
         // if server/share found in registry, make into a UNC path
         //  and validate that it's really a client tree. return path if valid
-
-        // disable windows error message popup
-        nErrorMode = SetErrorMode  (SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX);
 
         lstrcpy (szLocalPath, GetLastPathFromRegistry(dwSearchType));
         if (szLocalPath[lstrlen(szLocalPath)] != cBackslash) lstrcat (szLocalPath, cszBackslash);
@@ -313,6 +314,7 @@ Return Value:
 
         // search all current shares on this system
 
+        dwEntriesProcessed = 0;
         dwEntriesRead = 0;
         dwTotalEntries = 0;
         dwResumeHandle = 0;
@@ -356,8 +358,11 @@ Return Value:
             }
             // free buffer created by Net API
             if (psi2Data != NULL) NetApiBufferFree (psi2Data);
-            // if done, then leave
-            if (bFound) break;
+            // update entry counters to know when to stop looping
+            dwEntriesProcessed += dwEntriesRead;
+            if ((dwEntriesProcessed >= dwTotalEntries) || bFound) {
+                break; // out of while loop
+            }
         }
         if (bFound) goto GDP_ExitPoint;
     }
@@ -768,4 +773,3 @@ Return Value:
 
 
 
-

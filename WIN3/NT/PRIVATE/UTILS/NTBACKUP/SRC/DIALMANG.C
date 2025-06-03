@@ -132,7 +132,6 @@ Initial revision.
 DIALOG_TABLE DialogCallBackTable[] =  {
 
         { (FARPROC)DM_Abort,             IDD_ABORT_BOX,            MODAL },        // chs:05-25-93
-
         { (FARPROC)DM_AboutWinter,       IDD_HELPABOUTWINTERPARK,  MODAL },
 
         { (FARPROC)DM_EraseTape,         IDD_OPERATIONSERASE,      MODAL },
@@ -218,6 +217,10 @@ DIALOG_TABLE DialogCallBackTable[] =  {
         { (FARPROC)DM_Runtime,           IDD_RUNTIME,              MODELESS },
         { (FARPROC)DM_Tension,           IDD_TENSION,              MODELESS },
         { (FARPROC)DM_PWDBPassword,      IDD_PWDB_PASSWORD,        MODAL },
+#ifdef OEM_EMS
+        { (FARPROC)DM_ExchgConnect,      IDD_CONNECT_XCHNG,        MODAL },
+        { (FARPROC)DM_ExchgRecover,      IDD_XCHG_RECOVER,         MODAL },
+#endif
         { (FARPROC)DM_Runtime,           IDD_CATALOG,              MODELESS }
 };
 
@@ -598,4 +601,4 @@ VOID DM_CenterDialog( HWND hDlg)
 
     return;
 }
-
+

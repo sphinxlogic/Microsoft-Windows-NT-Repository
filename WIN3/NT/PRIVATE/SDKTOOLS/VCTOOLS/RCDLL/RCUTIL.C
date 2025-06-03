@@ -7,8 +7,7 @@
 /*                                                                          */
 /****************************************************************************/
 
-#include "prerc.h"
-#pragma hdrstop
+#include "rc.h"
 
 
 /*---------------------------------------------------------------------------*/
@@ -17,12 +16,15 @@
 /*                                                                           */
 /*---------------------------------------------------------------------------*/
 
+//  HACK Alert.  Allocate an extra longlong and return past it (to allow for PREVCH()
+//  to store a byte before the allocation block and to maintain 8 byte alignment).
+
 VOID *MyAlloc(UINT nbytes)
 {
-    PCHAR s;
+    PVOID s;
 
-    if ((s = (PCHAR)calloc( 1, nbytes)) != 0) {
-        return(s);
+    if ((s = HeapAlloc(hHeap, HEAP_NO_SERIALIZE|HEAP_ZERO_MEMORY, nbytes+8)) != NULL) {
+        return(((PCHAR)s)+8);
     }
     else {
         SET_MSG(Msg_Text, sizeof(Msg_Text), GET_MSG(1120), nbytes);
@@ -40,7 +42,7 @@ VOID *MyAlloc(UINT nbytes)
 VOID *MyFree(VOID *p)
 {
     if (p) {
-        free(p);
+        HeapFree(hHeap, HEAP_NO_SERIALIZE, ((PCHAR)p)-8);
     }
 
     return(NULL);
@@ -151,7 +153,7 @@ LONG MySeek(FILE *fh, LONG pos, int cmd)
 /*                                                                           */
 /*---------------------------------------------------------------------------*/
 
-int  MyCopy(FILE *srcfh, FILE *dstfh, ULONG nbytes)
+int  MyCopy(FILE *srcfh, PFILE dstfh, ULONG nbytes)
 {
     PCHAR  buffer = MyAlloc(BUFSIZE);
 
@@ -180,7 +182,7 @@ int  MyCopy(FILE *srcfh, FILE *dstfh, ULONG nbytes)
 /*                                                                           */
 /*---------------------------------------------------------------------------*/
 
-int     MyCopyAll(FILE *srcfh, FILE *dstfh)
+int     MyCopyAll(FILE *srcfh, PFILE dstfh)
 {
     PCHAR  buffer = MyAlloc(BUFSIZE);
 
@@ -273,53 +275,50 @@ VOID searchenv(PCHAR szFile, PCHAR szVar, PCHAR szActual)
     PCHAR pchVar;
     PCHAR pch;
     int ich;
-    FILE * fhTemp;
-
+    PFILE fhTemp;
+	
     if (!strcmp(szVar, "INCLUDE"))
-        pchVar = rgchIncludes;
+        pchVar = pchInclude;
     else
         pchVar = getenv(szVar);
 
     /* we don't do absolute paths */
-    if (szFile[0] == '\\' || szFile[0] == '/' || szFile[1] == ':')
-    {
+    if (szFile[0] == '\\' || szFile[0] == '/' || szFile[1] == ':') {
         for (ich = 0; szActual[ich] = szFile[ich]; ich++)
             ;
         return;
     }
 
-    /* start search in current directory */
-    strcpy (szActual, ".\\");
-    /*szActual[0]=0;*/
-    /*getcwd(szActual,MAX_PATH);*/
-
-    while (szActual[0])
+    do
         {
+        /* copy the next environment string... */
+        for (ich = 0; (szActual[ich] = pchVar[ich]) != '\000'; ich++)
+            if (pchVar[ich] == ';')
+                break;
+        szActual[ich] = '\000';
+        pchVar += ich;
+        if (*pchVar)
+            pchVar++;
+
         /* HARD LOOP -- find end of path string */
-        for (pch = szActual; *pch; pch++);
+        for (pch = szActual; *pch; pch++)
+	    ;
 
         /* check first!  this is what _searchenv() messed up! */
         if (pch[-1] != '\\' && pch[-1] != '/')
             *pch++ = '\\';
 
         /* HARD LOOP -- we already know szFile does start with a drive or abs. dir */
-        for (ich = 0; pch[ich] = szFile[ich]; ich++);
+        for (ich = 0; pch[ich] = szFile[ich]; ich++)
+	    ;
 
         /* is the file here? szActual already contains name */
         if ((fhTemp = fopen(szActual, "rb")) != NULL) {
             fclose (fhTemp);
             return;
         }
-
-        /* if not, copy the next environment string... */
-        for (ich = 0; (szActual[ich] = pchVar[ich]) != 0; ich++)
-            if (pchVar[ich] == ';')
-                break;
-        szActual[ich] = 0;
-        pchVar += ich;
-        if (*pchVar)
-            pchVar++;
-    }
+		
+    } while (szActual[0] && *pchVar);
 
     /* if we reach here, we know szActual is empty */
     return;

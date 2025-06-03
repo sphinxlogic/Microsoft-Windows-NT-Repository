@@ -25,6 +25,9 @@ Revision History:
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text( PAGE, SrvVerifyShare )
 #pragma alloc_text( PAGE, SrvFindShare )
+#pragma alloc_text( PAGE, SrvRemoveShare )
+#pragma alloc_text( PAGE, SrvAddShare )
+#pragma alloc_text( PAGE, SrvShareEnumApiHandler )
 #endif
 
 
@@ -78,15 +81,15 @@ Return Value:
     // First ensure that the share type string is valid.
     //
 
-    if ( stricmp( StrShareTypeNames[ShareTypeDisk], ShareTypeString ) == 0 ) {
+    if ( _stricmp( StrShareTypeNames[ShareTypeDisk], ShareTypeString ) == 0 ) {
         shareType = ShareTypeDisk;
-    } else if ( stricmp( StrShareTypeNames[ShareTypePipe], ShareTypeString ) == 0 ) {
+    } else if ( _stricmp( StrShareTypeNames[ShareTypePipe], ShareTypeString ) == 0 ) {
         shareType = ShareTypePipe;
-    } else if ( stricmp( StrShareTypeNames[ShareTypePrint], ShareTypeString ) == 0 ) {
+    } else if ( _stricmp( StrShareTypeNames[ShareTypePrint], ShareTypeString ) == 0 ) {
         shareType = ShareTypePrint;
-    } else if ( stricmp( StrShareTypeNames[ShareTypeComm], ShareTypeString ) == 0 ) {
+    } else if ( _stricmp( StrShareTypeNames[ShareTypeComm], ShareTypeString ) == 0 ) {
         shareType = ShareTypeComm;
-    } else if ( stricmp( StrShareTypeNames[ShareTypeWild], ShareTypeString ) == 0 ) {
+    } else if ( _stricmp( StrShareTypeNames[ShareTypeWild], ShareTypeString ) == 0 ) {
         anyShareType = TRUE;
     } else {
         IF_DEBUG(ERRORS) {
@@ -183,9 +186,11 @@ Return Value:
         BOOLEAN matchFound = FALSE;
         ULONG i;
 
+        ACQUIRE_LOCK_SHARED( &SrvConfigurationLock );
+
         for ( i = 0; SrvNullSessionShares[i] != NULL ; i++ ) {
 
-            if ( wcsicmp(
+            if ( _wcsicmp(
                     SrvNullSessionShares[i],
                     nameOnlyString.Buffer
                     ) == 0 ) {
@@ -194,6 +199,8 @@ Return Value:
                 break;
             }
         }
+
+        RELEASE_LOCK( &SrvConfigurationLock );
 
         if ( !matchFound ) {
 
@@ -272,7 +279,8 @@ Return Value:
 
 {
     PSHARE share;
-    PLIST_ENTRY shareEntry;
+    PLIST_ENTRY listEntryRoot, listEntry;
+    ULONG hashValue;
 
     PAGED_CODE( );
 
@@ -280,14 +288,17 @@ Return Value:
     // Try to match share name against available share names.
     //
 
-    for ( shareEntry = SrvShareList.ListHead.Flink;
-          shareEntry != &SrvShareList.ListHead;
-          shareEntry = shareEntry->Flink ) {
+    COMPUTE_STRING_HASH( ShareName, &hashValue );
+    listEntryRoot = &SrvShareHashTable[ HASH_TO_SHARE_INDEX( hashValue ) ];
 
-        share = CONTAINING_RECORD( shareEntry, SHARE, GlobalShareListEntry );
+    for( listEntry = listEntryRoot->Flink;
+         listEntry != listEntryRoot;
+         listEntry = listEntry->Flink ) {
 
-        // !!! Is case insensitive correct?
-        if ( RtlCompareUnicodeString(
+        share = CONTAINING_RECORD( listEntry, SHARE, GlobalShareList );
+
+        if( share->ShareNameHashValue == hashValue &&
+            RtlCompareUnicodeString(
                 &share->ShareName,
                 ShareName,
                 TRUE
@@ -312,3 +323,221 @@ Return Value:
 
 } // SrvFindShare
 
+VOID
+SrvRemoveShare(
+    PSHARE Share
+)
+{
+    PAGED_CODE();
+
+    RemoveEntryList( &Share->GlobalShareList );
+}
+
+VOID
+SrvAddShare(
+    PSHARE Share
+)
+{
+    PLIST_ENTRY listEntryRoot, listEntry;
+    ULONG hashValue;
+
+    PAGED_CODE();
+
+    COMPUTE_STRING_HASH( &Share->ShareName, &hashValue );
+    Share->ShareNameHashValue = hashValue;
+    listEntryRoot = &SrvShareHashTable[ HASH_TO_SHARE_INDEX( hashValue ) ];
+
+    InsertTailList( listEntryRoot, &Share->GlobalShareList );
+}
+
+NTSTATUS
+SrvShareEnumApiHandler (
+    IN PSERVER_REQUEST_PACKET Srp,
+    IN PVOID OutputBuffer,
+    IN ULONG BufferLength,
+    IN PENUM_FILTER_ROUTINE FilterRoutine,
+    IN PENUM_SIZE_ROUTINE SizeRoutine,
+    IN PENUM_FILL_ROUTINE FillRoutine
+    )
+
+/*++
+
+Routine Description:
+
+    All share Enum and GetInfo APIs are handled by this routine in the server
+    FSD.  It takes the ResumeHandle in the SRP to find the first
+    appropriate share, then calls the passed-in filter routine to check
+    if the share should be filled in.  If it should, we call the filter
+    routine, then try to get another shar.  This continues until the
+    entire list has been walked.
+
+Arguments:
+
+    Srp - a pointer to the SRP for the operation.
+
+    OutputBuffer - the buffer in which to fill output information.
+
+    BufferLength - the length of the buffer.
+
+    FilterRoutine - a pointer to a function that will check a share entry
+        against information in the SRP to determine whether the
+        information in the share should be placed in the output
+        buffer.
+
+    SizeRoutine - a pointer to a function that will find the total size
+        a single share will take up in the output buffer.  This routine
+        is used to check whether we should bother to call the fill
+        routine.
+
+    FillRoutine - a pointer to a function that will fill in the output
+        buffer with information from a share.
+
+Return Value:
+
+    NTSTATUS - results of operation.
+
+--*/
+
+{
+    PSHARE share;
+    ULONG totalEntries;
+    ULONG entriesRead;
+    ULONG bytesRequired;
+
+    PCHAR fixedStructurePointer;
+    PCHAR variableData;
+    ULONG blockSize;
+
+    BOOLEAN bufferOverflow = FALSE;
+    BOOLEAN entryReturned = FALSE;
+
+    PLIST_ENTRY listEntryRoot, listEntry;
+    ULONG oldSkipCount;
+    ULONG newResumeKey;
+
+    PAGED_CODE( );
+
+    //
+    // Set up local variables.
+    //
+
+    fixedStructurePointer = OutputBuffer;
+    variableData = fixedStructurePointer + BufferLength;
+    variableData = (PCHAR)((ULONG)variableData & ~1);
+
+    entriesRead = 0;
+    totalEntries = 0;
+    bytesRequired = 0;
+
+    listEntryRoot = &SrvShareHashTable[ HASH_TO_SHARE_INDEX( Srp->Parameters.Get.ResumeHandle >> 16 ) ];
+    oldSkipCount = Srp->Parameters.Get.ResumeHandle & 0xff;
+
+    ACQUIRE_LOCK_SHARED( &SrvShareLock );
+
+    for( ;
+         listEntryRoot < &SrvShareHashTable[ NSHARE_HASH_TABLE ];
+         listEntryRoot++, newResumeKey = 0 ) {
+
+        newResumeKey = (listEntryRoot - SrvShareHashTable) << 16;
+
+        for( listEntry = listEntryRoot->Flink;
+             listEntry != listEntryRoot;
+             listEntry = listEntry->Flink, newResumeKey++ ) {
+
+            if( oldSkipCount ) {
+                --oldSkipCount;
+                ++newResumeKey;
+                continue;
+            }
+
+            share = CONTAINING_RECORD( listEntry, SHARE, GlobalShareList );
+
+            //
+            // Call the filter routine to determine whether we should
+            // return this share.
+            //
+
+            if ( FilterRoutine( Srp, share ) ) {
+
+                blockSize = SizeRoutine( Srp, share );
+
+                totalEntries++;
+                bytesRequired += blockSize;
+
+                //
+                // If all the information in the share will fit in the
+                // output buffer, write it.  Otherwise, indicate that there
+                // was an overflow.  As soon as an entry doesn't fit, stop
+                // putting them in the buffer.  This ensures that the resume
+                // mechanism will work--retuning partial entries would make
+                // it nearly impossible to use the resumability of the APIs,
+                // since the caller would have to resume from an imcomplete
+                // entry.
+                //
+
+                if ( (ULONG)fixedStructurePointer + blockSize <=
+                         (ULONG)variableData && !bufferOverflow ) {
+
+                    FillRoutine(
+                        Srp,
+                        share,
+                        (PVOID *)&fixedStructurePointer,
+                        (LPTSTR *)&variableData
+                        );
+
+                    entriesRead++;
+                    newResumeKey++;
+
+                } else {
+
+                    bufferOverflow = TRUE;
+                }
+            }
+        }
+    }
+
+    RELEASE_LOCK( &SrvShareLock );
+
+    //
+    // Set the information to pass back to the server service.
+    //
+
+    Srp->Parameters.Get.EntriesRead = entriesRead;
+    Srp->Parameters.Get.TotalEntries = totalEntries;
+    Srp->Parameters.Get.TotalBytesNeeded = bytesRequired;
+
+    //
+    // Return appropriate status.
+    //
+
+    if ( entriesRead == 0 && totalEntries > 0 ) {
+
+        //
+        // Not even a single entry fit.
+        //
+
+        Srp->ErrorCode = NERR_BufTooSmall;
+        return STATUS_SUCCESS;
+
+    } else if ( bufferOverflow ) {
+
+        //
+        // At least one entry fit, but not all of them.
+        //
+
+        Srp->ErrorCode = ERROR_MORE_DATA;
+        Srp->Parameters.Get.ResumeHandle = newResumeKey;
+        return STATUS_SUCCESS;
+
+    } else {
+
+        //
+        // All entries fit.
+        //
+
+        Srp->ErrorCode = NO_ERROR;
+        Srp->Parameters.Get.ResumeHandle = 0;
+        return STATUS_SUCCESS;
+    }
+
+} // SrvEnumApiHandler

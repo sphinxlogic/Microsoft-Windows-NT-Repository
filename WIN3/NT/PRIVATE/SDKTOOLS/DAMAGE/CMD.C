@@ -841,7 +841,7 @@ void change_item (USHORT item)
     if (tm.tm_year > 1900)
       tm.tm_year -= 1900;
     for (u=0; u<12; u++)
-      if (!stricmp (buf, months [u]))
+      if (!_stricmp (buf, months [u]))
 	break;
     if (u == 12) {
       printf ("Invalid date format, item not changed.\n");

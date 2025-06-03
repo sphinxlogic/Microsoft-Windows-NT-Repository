@@ -85,9 +85,11 @@ Arguments:
             '='      zero/skip word    ( void )
             ._.      zero/skip string  ( word )
             'p'      pstring           ( char* )
+            'P'      DBCS pstring      ( char* )
             'c'      cstring           ( char* )
             'C'      cstring followed skip word ( char*, word )
             'r'      raw bytes         ( byte*, word )
+            'R'      DBCS raw bytes    ( byte*, word )
             'u'      p unicode string  ( UNICODE_STRING * )
             'U'      p uppercase string( UNICODE_STRING * )
             'W'      word n followed by an array of word[n] ( word, word* )
@@ -216,10 +218,13 @@ Return Value:
             break;
         }
 
+        case 'P':
         case 'p':
         {
             char* c = va_arg ( Arguments, char* );
             BYTE  l = strlen( c );
+	        char* p;
+
             if (data_size + l > RequestBufferSize)
             {
                 KdPrint(("NWLIB: NwlibMakeNcp case 'p' request buffer too small\n"));
@@ -227,8 +232,16 @@ Return Value:
                 goto CleanExit;
             }
             RequestBuffer[data_size++] = l;
-            RtlCopyMemory( &RequestBuffer[data_size], c, l );
+            RtlCopyMemory( (p=(char*)&RequestBuffer[data_size]), c, l );
             data_size += l;
+
+	        //
+	        // Map Japanese special chars
+	        //
+	        if (*z == 'P') {
+		        MapSpecialJapaneseChars(p, (WORD)l);
+	        }
+
             break;
         }
 
@@ -276,7 +289,12 @@ Return Value:
             OEM_STRING OemString;
             ULONG Length;
 
-            RtlUpcaseUnicodeString( &UUppercaseString, pUString, TRUE );
+            status = RtlUpcaseUnicodeString(&UUppercaseString, pUString, TRUE);
+            if ( status )
+            {
+                goto CleanExit;
+            }
+
             pUString = &UUppercaseString;
 
             //
@@ -309,18 +327,30 @@ Return Value:
             break;
         }
 
+        case 'R':
         case 'r':
         {
             BYTE* b = va_arg ( Arguments, BYTE* );
             WORD  l = va_arg ( Arguments, WORD );
+	        char* c;
+
             if ( data_size + l > RequestBufferSize )
             {
                 KdPrint(("NWLIB: NwlibMakeNcp case 'r' request buffer too small\n"));
                 status = STATUS_BUFFER_TOO_SMALL;
                 goto CleanExit;
             }
-            RtlCopyMemory( &RequestBuffer[data_size], b, l );
+
+            RtlCopyMemory( (c=(char*)&RequestBuffer[data_size]), b, l );
             data_size += l;
+
+	        //
+	        // Map Japanese special chars
+	        //
+	        if (*z == 'R') {
+		        MapSpecialJapaneseChars(c, (WORD)l);
+	        }
+
             break;
         }
 
@@ -457,6 +487,7 @@ Return Value:
 
         }
 
+        case 'P':
         case 'p':
         {
             char* c = va_arg ( Arguments, char* );
@@ -466,15 +497,31 @@ Return Value:
                 c[l] = 0;
             }
             data_size += l;
+
+	        //
+	        // Unmap Japanese special chars
+	        //
+	        if (*z == 'P') {
+		        UnmapSpecialJapaneseChars(c, l);
+	        }
+
             break;
         }
 
+        case 'R':
         case 'r':
         {
             BYTE* b = va_arg ( Arguments, BYTE* );
             WORD  l = va_arg ( Arguments, WORD );
             RtlCopyMemory( b, &ResponseBuffer[data_size], l );
             data_size += l;
+
+	        //
+	        // Unmap Japanese special chars
+	        //
+	        if (*z == 'R') {
+		        UnmapSpecialJapaneseChars(b, l);
+	        }
             break;
         }
 

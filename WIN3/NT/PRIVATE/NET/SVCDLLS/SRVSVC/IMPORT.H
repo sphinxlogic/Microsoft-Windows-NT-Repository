@@ -27,7 +27,14 @@ Revision History:
 
 --*/
 
+//#include <windef.h>
+#include <nt.h>
+#include <ntrtl.h>
+
+// #include <rpc.h>
 #include <windef.h>
+#include <winerror.h>
+
 #include <lmcons.h>
 
 #ifdef MIDL_PASS
@@ -45,3 +52,4 @@ Revision History:
 #include <lmserver.h>
 #include <lmshare.h>
 #include <lmstats.h>
+#include <dfspriv.h>

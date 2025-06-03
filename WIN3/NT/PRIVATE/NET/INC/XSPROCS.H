@@ -891,6 +891,15 @@ XsAltSrvMessageFileSend (
     API_HANDLER_PARAMETERS
     );
 
+NTSTATUS
+XsSamOEMChangePasswordUser2_P (
+    API_HANDLER_PARAMETERS
+    );
+
+NTSTATUS
+XsNetServerEnum3 (
+    API_HANDLER_PARAMETERS
+    );
+
 #endif // ndef _XSPROCS_
 
-

@@ -41,5 +41,6 @@ Return Value:
 
 --*/
 {
-    (*Print)("There are currently no extensions implemented for PPC.\n");
+    // currently no processor specific extensions
+    // add help here as they become available
 }

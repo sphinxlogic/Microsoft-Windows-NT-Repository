@@ -28,7 +28,7 @@ Revision History:
 PCSR_API_ROUTINE CsrServerApiDispatchTable[ CsrpMaxApiNumber ] = {
     (PCSR_API_ROUTINE)CsrSrvNullApiCall,
     (PCSR_API_ROUTINE)CsrSrvClientConnect,
-    (PCSR_API_ROUTINE)CsrSrvThreadConnect,
+    (PCSR_API_ROUTINE)NULL,
     (PCSR_API_ROUTINE)CsrSrvProfileControl,
     (PCSR_API_ROUTINE)CsrSrvIdentifyAlertableThread,
     (PCSR_API_ROUTINE)CsrSrvSetPriorityClass
@@ -37,7 +37,7 @@ PCSR_API_ROUTINE CsrServerApiDispatchTable[ CsrpMaxApiNumber ] = {
 BOOLEAN CsrServerApiServerValidTable[ CsrpMaxApiNumber ] = {
     TRUE,  // CsrSrvNullApiCall,
     TRUE,  // CsrSrvClientConnect,
-    TRUE,  // CsrSrvThreadConnect,
+    FALSE, // CsrSrvThreadConnect,
     TRUE,  // CsrSrvProfileControl,
     TRUE,  // CsrSrvIdentifyAlertableThread
     TRUE   // CsrSrvSetPriorityClass
@@ -102,7 +102,16 @@ CsrServerInitialization(
     //
 
     CsrHeap = RtlProcessHeap();
-    
+    CsrBaseTag = RtlCreateTagHeap( CsrHeap,
+                                   0,
+                                   L"CSRSS!",
+                                   L"TMP\0"
+                                   L"INIT\0"
+                                   L"CAPTURE\0"
+                                   L"PROCESS\0"
+                                 );
+
+
     //
     // Set up CSRSS process security
     //
@@ -137,7 +146,7 @@ CsrServerInitialization(
     //
 
     ProcessDataPtr = (PCSR_PROCESS)RtlAllocateHeap( CsrHeap,
-                                                    HEAP_ZERO_MEMORY,
+                                                    MAKE_TAG( PROCESS_TAG ) | HEAP_ZERO_MEMORY,
                                                     CsrTotalPerProcessDataLength
                                                   );
     for (i=0; i<CSR_MAX_SERVER_DLL; i++) {
@@ -166,6 +175,8 @@ CsrServerInitialization(
     // Initialize the Windows Server API Port, and one or more
     // request threads.
     //
+
+    CsrpServerDebugInitialize = FALSE;
 
     Status = CsrApiPortInitialize();
     ASSERT( NT_SUCCESS( Status ) );
@@ -234,9 +245,7 @@ CsrParseServerCommandLine(
     CsrObjectDirectory = NULL;
     CsrMaxApiRequestThreads = CSR_MAX_THREADS;
 
-    Status = CsrLoadServerDll( "CSRSS", NULL, CSRSRV_SERVERDLL_INDEX );
-
-    for (i=1; i<argc && NT_SUCCESS( Status ); i++) {
+    for (i=1; i<argc ; i++) {
         KeyName = argv[ i ];
         KeyValue = NULL;
         while (*KeyName) {
@@ -250,7 +259,7 @@ CsrParseServerCommandLine(
             }
         KeyName = argv[ i ];
 
-        if (!stricmp( KeyName, "ObjectDirectory" )) {
+        if (!_stricmp( KeyName, "ObjectDirectory" )) {
             ANSI_STRING AnsiString;
 
             //
@@ -278,17 +287,17 @@ CsrParseServerCommandLine(
                 }
             }
         else
-        if (!stricmp( KeyName, "SubSystemType" )) {
+        if (!_stricmp( KeyName, "SubSystemType" )) {
             }
         else
-        if (!stricmp( KeyName, "MaxRequestThreads" )) {
+        if (!_stricmp( KeyName, "MaxRequestThreads" )) {
             Status = RtlCharToInteger( KeyValue,
                                        (ULONG)NULL,
                                        &CsrMaxApiRequestThreads
                                      );
             }
         else
-        if (!stricmp( KeyName, "RequestThreads" )) {
+        if (!_stricmp( KeyName, "RequestThreads" )) {
 #if 0
             Status = RtlCharToInteger( KeyValue,
                                        (ULONG)NULL,
@@ -304,8 +313,8 @@ CsrParseServerCommandLine(
 #endif
             }
         else
-        if (!stricmp( KeyName, "ProfileControl" )) {
-            if(!stricmp( KeyValue, "On" )) {
+        if (!_stricmp( KeyName, "ProfileControl" )) {
+            if(!_stricmp( KeyValue, "On" )) {
                 CsrProfileControl = TRUE;
                 }
             else {
@@ -313,7 +322,7 @@ CsrParseServerCommandLine(
                 }
             }
         else
-        if (!stricmp( KeyName, "SharedSection" )) {
+        if (!_stricmp( KeyName, "SharedSection" )) {
             Status = CsrSrvCreateSharedSection( KeyValue );
             if (!NT_SUCCESS( Status )) {
                 IF_DEBUG {
@@ -324,9 +333,10 @@ CsrParseServerCommandLine(
                             );
                     }
                 }
+            Status = CsrLoadServerDll( "CSRSS", NULL, CSRSRV_SERVERDLL_INDEX );
             }
         else
-        if (!stricmp( KeyName, "ServerDLL" )) {
+        if (!_stricmp( KeyName, "ServerDLL" )) {
             s = KeyValue;
             InitRoutine = NULL;
 
@@ -376,7 +386,7 @@ CsrParseServerCommandLine(
         //
         // This is a temporary hack until Windows & Console are friends.
         //
-        if (!stricmp( KeyName, "Windows" )) {
+        if (!_stricmp( KeyName, "Windows" )) {
             }
         else {
             Status = STATUS_INVALID_PARAMETER;
@@ -392,6 +402,11 @@ CsrServerDllInitialization(
     IN PCSR_SERVER_DLL LoadedServerDll
     )
 {
+    PVOID SharedHeap;
+    PCSR_FAST_ANSI_OEM_TABLES XlateTables;
+    PVOID p;
+    NTSTATUS Status;
+
     LoadedServerDll->ApiNumberBase = CSRSRV_FIRST_API_NUMBER;
     LoadedServerDll->MaxApiNumber = CsrpMaxApiNumber;
     LoadedServerDll->ApiDispatchTable = CsrServerApiDispatchTable;
@@ -405,6 +420,17 @@ CsrServerDllInitialization(
     LoadedServerDll->PerThreadDataLength = 0;
     LoadedServerDll->ConnectRoutine = NULL;
     LoadedServerDll->DisconnectRoutine = NULL;
+
+
+    SharedHeap = LoadedServerDll->SharedStaticServerData;
+
+    XlateTables = RtlAllocateHeap(SharedHeap, MAKE_SHARED_TAG( SHR_INIT_TAG ), sizeof(CSR_FAST_ANSI_OEM_TABLES));
+    if ( !XlateTables ) {
+        return STATUS_NO_MEMORY;
+        }
+
+    LoadedServerDll->SharedStaticServerData = (PVOID)XlateTables;
+
     return( STATUS_SUCCESS );
 }
 
@@ -451,7 +477,7 @@ CsrSetProcessSecurity(
                              &Length
                            );
     User = (PTOKEN_USER)RtlAllocateHeap( CsrHeap,
-                                         HEAP_ZERO_MEMORY,
+                                         MAKE_TAG( PROCESS_TAG ) | HEAP_ZERO_MEMORY,
                                          Length
                                        );
     ASSERT( User != NULL );
@@ -474,7 +500,7 @@ CsrSetProcessSecurity(
     //
 
     SecurityDescriptor = RtlAllocateHeap( CsrHeap,
-                                          HEAP_ZERO_MEMORY,
+                                          MAKE_TAG( PROCESS_TAG ) | HEAP_ZERO_MEMORY,
                                           SECURITY_DESCRIPTOR_MIN_LENGTH +
                                           sizeof(ACL) + LengthSid +
                                           sizeof(ACCESS_ALLOWED_ACE)
@@ -490,7 +516,9 @@ CsrSetProcessSecurity(
     Status = RtlCreateSecurityDescriptor(SecurityDescriptor,
                                          SECURITY_DESCRIPTOR_REVISION);
     if (!NT_SUCCESS(Status)) {
-        DbgPrint("CSRSS: SD creation failed - status = %lx\n", Status);
+        IF_DEBUG {
+            DbgPrint("CSRSS: SD creation failed - status = %lx\n", Status);
+            }
         goto error_cleanup;
     }
     RtlCreateAcl( Dacl,
@@ -505,7 +533,9 @@ CsrSetProcessSecurity(
                 User->User.Sid
                 );
     if (!NT_SUCCESS(Status)) {
-        DbgPrint("CSRSS: ACE creation failed - status = %lx\n", Status);
+        IF_DEBUG {
+            DbgPrint("CSRSS: ACE creation failed - status = %lx\n", Status);
+            }
         goto error_cleanup;
     }
 
@@ -519,7 +549,9 @@ CsrSetProcessSecurity(
                                           Dacl,
                                           FALSE);
     if (!NT_SUCCESS(Status)) {
-        DbgPrint("CSRSS: set DACL failed - status = %lx\n", Status);
+        IF_DEBUG {
+            DbgPrint("CSRSS: set DACL failed - status = %lx\n", Status);
+            }
         goto error_cleanup;
     }
 
@@ -531,9 +563,11 @@ CsrSetProcessSecurity(
                                  DACL_SECURITY_INFORMATION,
                                  SecurityDescriptor);
     if (!NT_SUCCESS(Status)) {
-        DbgPrint("CSRSS: set process DACL failed - status = %lx\n", Status);
+        IF_DEBUG {
+            DbgPrint("CSRSS: set process DACL failed - status = %lx\n", Status);
+            }
     }
-    
+
     //
     // Cleanup
     //

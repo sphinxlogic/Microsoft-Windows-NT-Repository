@@ -43,10 +43,14 @@
 class CG_NDR;
 class CG_HANDLE;
 class RESOURCE;
-class _expr_node;
+class expr_node;
 class CG_INTERFACE;
+class CG_FILE;
 class CG_ENCODE_PROC;
 class CG_QUALIFIED_POINTER;
+class CG_IUNKNOWN_OBJECT_INTERFACE;
+class CG_OBJECT_INTERFACE;
+class CG_PARAM;
 
 //
 // some typedefs for entities used within the code gen controller block.
@@ -67,11 +71,11 @@ typedef unsigned long	RPC_FLAGS;
 // For some reason I couldn't get it work in cgcommon.hxx (rkk)
 /////////////////////////////////////////////////////////////////////////////
 
-typedef struct _EXPR_EVAL_CONTEXT
+typedef struct expr_EVAL_CONTEXT
 {
     CG_NDR *        pContainer;
-    _expr_node *    pMinExpr;
-    _expr_node *    pSizeExpr;
+    expr_node *    pMinExpr;
+    expr_node *    pSizeExpr;
     char *          pRoutineName;
 	char *			pPrintPrefix;
     unsigned long   Displacement;
@@ -147,12 +151,12 @@ public:
 //
 /////////////////////////////////////////////////////////////////////////////
 
-class CCB_EXPRINFO
+class CCBexprINFO
 	{
 private:
 
-	_expr_node			*	pSrcExpr;
-	_expr_node			*	pDestExpr;
+	expr_node			*	pSrcExpr;
+	expr_node			*	pDestExpr;
 
 public:
 
@@ -161,7 +165,7 @@ public:
 	// The constructor.
 	//
 
-							CCB_EXPRINFO()
+							CCBexprINFO()
 								{
 								SetSrcExpression( 0 );
 								SetDestExpression( 0 );
@@ -170,27 +174,34 @@ public:
 	// Get and set methods.
 	//
 	
-	_expr_node			*	SetSrcExpression( _expr_node * pSrc )
+	expr_node			*	SetSrcExpression( expr_node * pSrc )
 								{
 								return (pSrcExpr = pSrc);
 								}
 
-	_expr_node			*	GetSrcExpression()
+	expr_node			*	GetSrcExpression()
 								{
 								return pSrcExpr;
 								}
 
-	_expr_node			*	SetDestExpression( _expr_node * pDest )
+	expr_node			*	SetDestExpression( expr_node * pDest )
 								{
 								return (pDestExpr = pDest);
 								}
 
-	_expr_node			*	GetDestExpression()
+	expr_node			*	GetDestExpression()
 								{
 								return pDestExpr;
 								}
 	};
-	
+
+struct ICreateTypeInfo;
+struct ICreateTypeLib;
+struct tagVARDESC;
+typedef tagVARDESC VARDESC;
+struct tagTYPEDESC;
+typedef tagTYPEDESC TYPEDESC;
+
 /////////////////////////////////////////////////////////////////////////////
 //
 // This class defines the code generation control block.
@@ -258,11 +269,16 @@ private:
 
     unsigned long       fExprEvalExternEmitted : 1;
     unsigned long       fQuintupleExternEmitted : 1;
+    unsigned long       fQuadrupleExternEmitted : 1;
     unsigned long       fRundownExternEmitted : 1;
     unsigned long       fGenericHExternEmitted : 1;
+    unsigned long       fMallocAndFreeStructExternEmitted : 1;
 
     unsigned long       fSkipFormatStreamGeneration : 1;
 
+	// set if the current output file is having changes preserved
+	unsigned long		fReparsingCurrentFile : 1;
+	
 	//
 	// stream to write the generated code into.
 	//
@@ -280,6 +296,24 @@ private:
 	//
 
 	CG_INTERFACE *		pInterfaceCG;
+
+	//
+	// Store the current CG_FILE node
+	//
+
+	CG_FILE *		    pFileCG;
+
+	//
+	// Store the IUnknown's CG_OBJECT_INTERFACE node
+	//
+
+	CG_IUNKNOWN_OBJECT_INTERFACE *		pIUnknownCG;
+
+	//
+	// Store the IClassFactory's CG_OBJECT_INTERFACE node
+	//
+
+	CG_OBJECT_INTERFACE *		pIClassfCG;
 
 	//
 	// Store the interface name.
@@ -300,7 +334,8 @@ private:
 	//
 
 	PROCNUM				CurrentProcNum;
-
+    PROCNUM             CurrentVarNum;
+    
 
 	//
 	// Store rpc flags. As of now, this field assumes a value only when
@@ -363,7 +398,7 @@ private:
 	// generation pass.
 	//
 
-	CCB_EXPRINFO		ExprInfo;
+	CCBexprINFO		ExprInfo;
 
 
 	//
@@ -388,9 +423,11 @@ private:
 	TREGISTRY       *   pTypeAlignSizeRegistry;
 	TREGISTRY       *   pTypeEncodeRegistry;
 	TREGISTRY       *   pTypeDecodeRegistry;
+	TREGISTRY       *   pTypeFreeRegistry;
 	TREGISTRY       *   pProcEncodeDecodeRegistry;
 	TREGISTRY		*	pCallAsRoutineRegistry;
 	TREGISTRY       *   pNotifyRoutineRegistry;
+	TREGISTRY       *   pNotifyFlagRoutineRegistry;
 
 	// This stores the interface wide implicit handle ID Node.
 
@@ -440,6 +477,8 @@ private:
 	//
 	CG_NDR *				pPlaceholderClass;
 
+    CG_PARAM *              pCurrentParam;
+
 	// The stub descriptor structure.
 
 	SDESCMGR				SSDescMgr;
@@ -476,6 +515,7 @@ private:
 	CCB_RTN_INDEX_MGR *		pRepAsIndexMgr;          // prototypes
 
     QuintupleDict *         pQuintupleDictionary;    // routines
+    QuadrupleDict *         pQuadrupleDictionary;    // routines
 
     //
     // Dictionary kept for unknown represent as types to do padding
@@ -500,6 +540,15 @@ private:
 
     CG_QUALIFIED_POINTER *  pCurrentSizePointer;
 
+    long                    InterpreterOutSize;
+
+    // members used for TypeInfo generation 
+    ICreateTypeLib * pCreateTypeLib;
+    ICreateTypeInfo * pCreateTypeInfo;
+    char * szDllName;
+    BOOL fInDispinterface;
+    unsigned long lcid;
+
 public:
 
 	//
@@ -521,6 +570,16 @@ public:
 							 BOOL           fMustCheckBoundValues,
 							 BOOL           fCheckStubData
 							 );
+
+    unsigned long          SetLcid(unsigned long l)
+                                {
+                                return (lcid = l);
+                                }
+
+    unsigned long          GetLcid(void)
+                                {
+                                return lcid;
+                                }
 
 	void                    SetInterpretedRoutinesUseGenHandle()
 	                            {
@@ -552,6 +611,16 @@ public:
 	                            fQuintupleExternEmitted = 1;
 	                            }
 
+	BOOL                    GetQuadrupleExternEmitted()
+	                            {
+	                            return (BOOL)(fQuadrupleExternEmitted == 1);
+	                            }
+
+	void                    SetQuadrupleExternEmitted()
+	                            {
+	                            fQuadrupleExternEmitted = 1;
+	                            }
+
 	BOOL                    GetRundownExternEmitted()
 	                            {
 	                            return (BOOL)(fRundownExternEmitted == 1);
@@ -572,12 +641,25 @@ public:
 	                            fGenericHExternEmitted = 1;
 	                            }
 
+	BOOL                    GetMallocAndFreeStructExternEmitted()
+	                            {
+	                            return (BOOL)
+                                    (fMallocAndFreeStructExternEmitted == 1);
+	                            }
+
+	void                    SetMallocAndFreeStructExternEmitted()
+	                            {
+	                            fMallocAndFreeStructExternEmitted = 1;
+	                            }
+
 	void                    ClearOptionalExternFlags()
 	                            {
 	                            fExprEvalExternEmitted = 0;
 	                            fQuintupleExternEmitted = 0;
+	                            fQuadrupleExternEmitted = 0;
 	                            fRundownExternEmitted = 0;
 	                            fGenericHExternEmitted = 0;
+	                            fMallocAndFreeStructExternEmitted = 0;
 	                            }
 
 	BOOL                    GetSkipFormatStreamGeneration()
@@ -628,6 +710,17 @@ public:
 	BOOL					MustCheckBounds()
 								{
 								return (BOOL)(fMustCheckBounds == 1);
+								}
+
+
+	void					SetReparsingCurrentFile( BOOL f )
+								{
+								fReparsingCurrentFile = f;
+								}
+
+	BOOL					IsReparsingCurrentFile()
+								{
+								return (BOOL)(fReparsingCurrentFile == 1);
 								}
 
 
@@ -974,6 +1067,36 @@ public:
 							return pInterfaceCG;
 							}
 
+    CG_FILE *           SetFileCG( CG_FILE *pCG )
+                            {
+                            return (pFileCG = pCG);
+                            }
+
+    CG_FILE *           GetFileCG()
+                            {
+                            return pFileCG;
+                            }
+
+    CG_IUNKNOWN_OBJECT_INTERFACE *      SetIUnknownCG( CG_IUNKNOWN_OBJECT_INTERFACE *pCG )
+                            {
+                            return (pIUnknownCG = pCG);
+                            }
+
+    CG_IUNKNOWN_OBJECT_INTERFACE *      GetIUnknownCG()
+                            {
+                            return pIUnknownCG;
+                            }
+
+	CG_OBJECT_INTERFACE *	SetIClassfCG( CG_OBJECT_INTERFACE *pCG )
+							{
+							return (pIClassfCG = pCG);
+							}
+
+	CG_OBJECT_INTERFACE *	GetIClassfCG()
+							{
+							return pIClassfCG;
+							}
+
 	PNAME				SetInterfaceName( PNAME pIN )
 							{
 							return (pInterfaceName = pIN);
@@ -1002,6 +1125,16 @@ public:
 	PROCNUM				GetProcNum()
 							{
 							return CurrentProcNum;
+							}
+
+	PROCNUM				SetVarNum( unsigned short n )
+							{
+							return (CurrentVarNum = n);
+							}
+
+	PROCNUM				GetVarNum()
+							{
+							return CurrentVarNum;
 							}
 
 	RPC_FLAGS			SetRpcFlags( RPC_FLAGS F )
@@ -1059,6 +1192,11 @@ public:
                         	return GetQuintupleDictionary()->GetCount() != 0;
                             }
 
+    BOOL                HasQuadrupleRoutines()
+                            {
+                        	return GetQuadrupleDictionary()->GetCount() != 0;
+                            }
+
 	void				OutputRundownRoutineTable();
 
     void                OutputExprEvalRoutineTable();
@@ -1069,12 +1207,16 @@ public:
     void                OutputRepAsQuintuple( void * pQContext );
     void                OutputQuintupleRoutines();
 
+    void                OutputQuadrupleTable();
+
 	void				OutputSimpleRoutineTable( CCB_RTN_INDEX_MGR * pIndexMgr,
                                                   char * TypeName,
                                                   char * VarName );
 
     void                OutputExternsToMultipleInterfaceTables();
-    void                OutputMultipleInterfaceTables();
+    void                OutputMultipleInterfaceTables(
+                            FORMAT_STRING * pLocalFormatString, 
+                            FORMAT_STRING * pLocalProcFormatString);
 
     CCB_RTN_INDEX_MGR * GetExprEvalIndexMgr()
                             {
@@ -1096,6 +1238,8 @@ public:
 							}
 
 	void				OutputBindingRoutines();
+
+	void				OutputMallocAndFreeStruct();
 
 	BOOL				HasBindingRoutines( CG_HANDLE * pImplicitHandle );
 
@@ -1225,22 +1369,22 @@ public:
 							return pFreeBufferRtnName;
 							}
 
-	_expr_node		*	SetSourceExpression( _expr_node * pSrcExpr )
+	expr_node		*	SetSourceExpression( expr_node * pSrcExpr )
 							{
 							return (ExprInfo.SetSrcExpression( pSrcExpr ) );
 							}
 
-	_expr_node		*	GetSourceExpression()
+	expr_node		*	GetSourceExpression()
 							{
 							return ExprInfo.GetSrcExpression();
 							}
 
-	_expr_node		*	SetDestExpression( _expr_node * pDestExpr )
+	expr_node		*	SetDestExpression( expr_node * pDestExpr )
 							{
 							return (ExprInfo.SetDestExpression( pDestExpr ) );
 							}
 
-	_expr_node		*	GetDestExpression()
+	expr_node		*	GetDestExpression()
 							{
 							return ExprInfo.GetDestExpression();
 							}
@@ -1278,6 +1422,11 @@ public:
     QuintupleDict *     GetQuintupleDictionary()
                             {
                             return pQuintupleDictionary;
+                            }
+
+    QuadrupleDict *     GetQuadrupleDictionary()
+                            {
+                            return pQuadrupleDictionary;
                             }
 
     RepAsPadExprDict *  GetRepAsPadExprDict()
@@ -1335,6 +1484,12 @@ public:
                                                 (node_skl *) pTEInfo );
                             }
 
+    node_skl    *       RegisterTypeFree( TYPE_ENCODE_INFO * pTEInfo )
+                            {
+                            return pTypeFreeRegistry->Register(
+                                                (node_skl *) pTEInfo );
+                            }
+
 	node_skl    *       RegisterEncodeDecodeProc( CG_ENCODE_PROC * pProc )
 	                        {
 	                        return pProcEncodeDecodeRegistry->Register( 
@@ -1346,9 +1501,13 @@ public:
                             return pCallAsRoutineRegistry->Register( pProc );
                             }
 
-    node_skl    *       RegisterNotifyRoutine( node_proc * pProc )
+    node_skl    *       RegisterNotifyRoutine( node_proc * pProc,
+                                               BOOL fHasFlag )
                             {
-                            return pNotifyRoutineRegistry->Register( pProc );
+                            if ( fHasFlag )
+                                return pNotifyFlagRoutineRegistry->Register( pProc );
+                            else
+                                return pNotifyRoutineRegistry->Register( pProc );
                             }
 
 	short				GetListOfGenHdlTypes( ITERATOR& I )
@@ -1420,6 +1579,12 @@ public:
                             {
 							return pTypeDecodeRegistry->GetListOfTypes( I );
                             }
+
+    short               GetListOfTypeFreeTypes( ITERATOR&  I )
+                            {
+							return pTypeFreeRegistry->GetListOfTypes( I );
+                            }
+
     short               GetListOfEncodeDecodeProcs( ITERATOR& I )
                             {
 							return pProcEncodeDecodeRegistry->GetListOfTypes(I);
@@ -1432,7 +1597,12 @@ public:
 
     short               GetListOfNotifyRoutines( ITERATOR&  I )
                             {
-							return pNotifyRoutineRegistry->GetListOfTypes( I );
+                            return pNotifyRoutineRegistry->GetListOfTypes( I );
+                            }
+
+    short               GetListOfNotifyFlagRoutines( ITERATOR&  I )
+                            {
+                            return pNotifyFlagRoutineRegistry->GetListOfTypes( I );
                             }
 
 
@@ -1611,6 +1781,18 @@ public:
 							return pPlaceholderClass;
 							}
 
+
+	void                SetCurrentParam( CG_PARAM * pCurrent )
+							{
+                            pCurrentParam = pCurrent;
+							}
+
+	CG_PARAM *			GetCurrentParam()
+							{
+							return pCurrentParam;
+							}
+
+
 	RESOURCE		*	SetPtrToPtrInBuffer( RESOURCE * p)
 							{
 							return (PtrToPtrInBuffer = p);
@@ -1639,7 +1821,62 @@ public:
 							{
 							return ImbedingBufSize;
 							}
+
+    void                SetInterpreterOutSize( long Size )
+                            {
+                            InterpreterOutSize = Size;
+                            }
+
+    long                GetInterpreterOutSize()
+                            {
+                            return InterpreterOutSize;
+                            }
+
 	PNAME				GenTRNameOffLastParam( char * Prefix );
-	};
+
+// methods for generating typeinfo
+  
+    void                SetCreateTypeLib(ICreateTypeLib * p)
+                            {
+                            pCreateTypeLib = p;
+                            }
+
+    void                SetCreateTypeInfo(ICreateTypeInfo * p)
+                            {
+                            pCreateTypeInfo = p;
+                            }
+
+    ICreateTypeLib *    GetCreateTypeLib()
+                            {
+                            return pCreateTypeLib;
+                            }
+
+    ICreateTypeInfo *   GetCreateTypeInfo()
+                            {
+                            return pCreateTypeInfo;
+                            }
+
+    void                SetDllName(char * sz)
+                            {
+                            szDllName = sz;    
+                            }    
+
+    char *              GetDllName()
+                            {
+                            return szDllName;
+                            }
+
+    void                SetInDispinterface(BOOL f)
+                            {
+                            fInDispinterface = f;
+                            }
+
+    BOOL                IsInDispinterface()
+                            {
+                            return fInDispinterface;
+                            }
+    };
 
 #endif // __CCB_HXX__
+
+

@@ -37,7 +37,7 @@ Revision History:
 
 VOID
 KeInitializeDpc (
-    IN PKDPC Dpc,
+    IN PRKDPC Dpc,
     IN PKDEFERRED_ROUTINE DeferredRoutine,
     IN PVOID DeferredContext
     )
@@ -72,7 +72,8 @@ Return Value:
     //
 
     Dpc->Type = DpcObject;
-    Dpc->Size = sizeof(KDPC);
+    Dpc->Number = 0;
+    Dpc->Importance = MediumImportance;
 
     //
     // Initialize deferred routine address and deferred context parameter.
@@ -86,7 +87,7 @@ Return Value:
 
 BOOLEAN
 KeInsertQueueDpc (
-    IN PKDPC Dpc,
+    IN PRKDPC Dpc,
     IN PVOID SystemArgument1,
     IN PVOID SystemArgument2
     )
@@ -120,11 +121,12 @@ Return Value:
     PKSPIN_LOCK Lock;
     KIRQL OldIrql;
     PKPRCB Prcb;
+    ULONG Processor;
 
     ASSERT_DPC(Dpc);
 
     //
-    // Disable interrupts and acquire the DPC lock of the current processor.
+    // Disable interrupts.
     //
 
 #if defined(_MIPS_)
@@ -137,31 +139,127 @@ Return Value:
 
 #endif
 
-    Prcb = KeGetCurrentPrcb();
+    //
+    // Acquire the DPC queue lock for the specified target processor.
+    //
 
 #if !defined(NT_UP)
 
+    if (Dpc->Number >= MAXIMUM_PROCESSORS) {
+        Processor = Dpc->Number - MAXIMUM_PROCESSORS;
+        Prcb = KiProcessorBlock[Processor];
+
+    } else {
+        Prcb = KeGetCurrentPrcb();
+    }
+
     KiAcquireSpinLock(&Prcb->DpcLock);
+
+#else
+
+    Prcb = KeGetCurrentPrcb();
 
 #endif
 
     //
     // If the DPC object is not in a DPC queue, then store the system
     // arguments, insert the DPC object in the DPC queue, increment the
-    // number of DPCs queued to the target processor, set the address
-    // of the DPC target DPC spinlock, and request an interrupt on the
-    // target processor if its DPC queue was previously empty.
+    // number of DPCs queued to the target processor, increment the DPC
+    // queue depth, set the address of the DPC target DPC spinlock, and
+    // request a dispatch interrupt if appropriate.
+    //
+    // N.B. The following test will be changed to a compare and swap
+    //      when 386 suppport is dropped from the system.
     //
 
     Lock = Dpc->Lock;
     if (Lock == NULL) {
+        Prcb->DpcCount += 1;
+        Prcb->DpcQueueDepth += 1;
+        Dpc->Lock = &Prcb->DpcLock;
         Dpc->SystemArgument1 = SystemArgument1;
         Dpc->SystemArgument2 = SystemArgument2;
-        InsertTailList(&Prcb->DpcListHead, &Dpc->DpcListEntry);
-        Prcb->DpcCount += 1;
-        Dpc->Lock = &Prcb->DpcLock;
-        if (Prcb->DpcListHead.Flink == &Dpc->DpcListEntry) {
-            KiRequestSoftwareInterrupt(DISPATCH_LEVEL);
+
+        //
+        // If the DPC is of high importance, then insert the DPC at the
+        // head of the DPC queue. Otherwise, insert the DPC at the end
+        // of the DPC queue.
+        //
+
+        if (Dpc->Importance == HighImportance) {
+            InsertHeadList(&Prcb->DpcListHead, &Dpc->DpcListEntry);
+
+        } else {
+            InsertTailList(&Prcb->DpcListHead, &Dpc->DpcListEntry);
+        }
+#if defined(_ALPHA_) && !defined(NT_UP)
+        //
+        // A memory barrier is required here to synchronize with
+        // KiRetireDpcList, which clears DpcRoutineActive and
+        // DpcInterruptRequested without the dispatcher lock.
+        //
+        __MB();
+#endif
+
+        //
+        // If a DPC routine is not active on the target processor, then
+        // request a dispatch interrupt if appropriate.
+        //
+
+        if ((Prcb->DpcRoutineActive == FALSE) &&
+            (Prcb->DpcInterruptRequested == FALSE)) {
+
+#if defined(NT_UP)
+
+            //
+            // Request a dispatch interrupt on the current processor if
+            // the DPC is not of low importance, the length of the DPC
+            // queue has exceeded the maximum threshold, or if the DPC
+            // request rate is below the minimum threshold.
+            //
+
+            if ((Dpc->Importance != LowImportance) ||
+                (Prcb->DpcQueueDepth >= Prcb->MaximumDpcQueueDepth) ||
+                (Prcb->DpcRequestRate < Prcb->MinimumDpcRate)) {
+                Prcb->DpcInterruptRequested = TRUE;
+                KiRequestSoftwareInterrupt(DISPATCH_LEVEL);
+            }
+
+#else
+
+            //
+            // If the DPC is being queued to another processor and the
+            // DPC is of high importance, or the length of the other
+            // processor's DPC queue has exceeded the maximum threshold,
+            // then request a dispatch interrupt.
+            //
+
+            if (Prcb != KeGetCurrentPrcb()) {
+                if (((Dpc->Importance == HighImportance) ||
+                     (Prcb->DpcQueueDepth >= Prcb->MaximumDpcQueueDepth))) {
+                    Prcb->DpcInterruptRequested = TRUE;
+                    KiIpiSend((KAFFINITY)(1 << Processor), IPI_DPC);
+                }
+
+            } else {
+
+                //
+                // Request a dispatch interrupt on the current processor if
+                // the DPC is not of low importance, the length of the DPC
+                // queue has exceeded the maximum threshold, or if the DPC
+                // request rate is below the minimum threshold.
+                //
+
+                if ((Dpc->Importance != LowImportance) ||
+                    (Prcb->DpcQueueDepth >= Prcb->MaximumDpcQueueDepth) ||
+                    (Prcb->DpcRequestRate < Prcb->MinimumDpcRate)) {
+                    Prcb->DpcInterruptRequested = TRUE;
+                    KiRequestSoftwareInterrupt(DISPATCH_LEVEL);
+                }
+            }
+
+#endif
+
         }
      }
 
@@ -191,7 +289,7 @@ Return Value:
 
 BOOLEAN
 KeRemoveQueueDpc (
-    IN PKDPC Dpc
+    IN PRKDPC Dpc
     )
 
 /*++
@@ -217,6 +315,7 @@ Return Value:
 {
 
     PKSPIN_LOCK Lock;
+    PKPRCB Prcb;
 
     ASSERT_DPC(Dpc);
 
@@ -239,6 +338,8 @@ Return Value:
 
 #endif
 
+        Prcb = CONTAINING_RECORD(Lock, KPRCB, DpcLock);
+        Prcb->DpcQueueDepth -= 1;
         Dpc->Lock = NULL;
         RemoveEntryList(&Dpc->DpcListEntry);
 
@@ -261,4 +362,75 @@ Return Value:
 
     _enable();
     return (Lock != NULL);
+}
+
+VOID
+KeSetImportanceDpc (
+    IN PRKDPC Dpc,
+    IN KDPC_IMPORTANCE Importance
+    )
+
+/*++
+
+Routine Description:
+
+    This function sets the importance of a DPC.
+
+Arguments:
+
+    Dpc - Supplies a pointer to a control object of type DPC.
+
+    Number - Supplies the importance of the DPC.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+
+    //
+    // Set the importance of the DPC.
+    //
+
+    Dpc->Importance = (UCHAR)Importance;
+    return;
+}
+
+VOID
+KeSetTargetProcessorDpc (
+    IN PRKDPC Dpc,
+    IN CCHAR Number
+    )
+
+/*++
+
+Routine Description:
+
+    This function sets the processor number to which the DPC is targeted.
+
+Arguments:
+
+    Dpc - Supplies a pointer to a control object of type DPC.
+
+    Number - Supplies the target processor number.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+
+    //
+    // Set target processor number.
+    //
+    // The target processor number if biased by the maximum number of
+    // processors that are supported.
+    //
+
+    Dpc->Number = MAXIMUM_PROCESSORS + Number;
+    return;
 }

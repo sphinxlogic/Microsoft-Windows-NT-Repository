@@ -214,6 +214,7 @@ int KernelError(int errCode, LPSTR lpmsg1, LPSTR lpmsg2) {
 	return FatalExitC(errCode);
 }
 
+
 static char far *GetModName(char far *exeName) {
 	int delim, dot, len, i;
 	delim = 0;
@@ -231,6 +232,7 @@ static char far *GetModName(char far *exeName) {
 	exeName[len] = 0;
 	return exeName+len;
 } /* GetModName */
+
 
 /*--------------------------------------------------------------------------*/
 /*									    */
@@ -412,6 +414,7 @@ void API GetProcName(FARPROC lpfn, LPSTR lpch, int cch)
     }
 }
 
+
 /*--------------------------------------------------------------------------*/
 /*									    */
 /*  NextFrame() -							    */
@@ -512,6 +515,9 @@ void StackWalk(WORD arg) {
 	if (RipInfo.symFH != -1)
 		_lclose(RipInfo.symFH);
 }
+
+// #ifndef WOW // can't pass -DWOW without blowing out command-line-length limit
+#if 0          // can't pass -DWOW without blowing out command-line-length limit
 
 /*--------------------------------------------------------------------------*/
 /*									    */
@@ -624,7 +630,9 @@ ReRip:
 
 }
 
-#endif
+#endif // ifndef WOW
+
+#endif // if KDEBUG
 
 /*--------------------------------------------------------------------------*/
 /*									    */
@@ -660,11 +668,7 @@ WORD  w;
 }
 
 /* skip leading 0's */
-LPSTR htoa0(s, w)
-
-LPSTR s;
-WORD  w;
-
+LPSTR htoa0(LPSTR s, WORD w)
 {
 	int  i;
 	char c;
@@ -686,4 +690,9 @@ WORD  w;
 	}
 
 	return s;
+}
+
+LPSTR FAR far_htoa0( LPSTR s, WORD w)
+{
+    return htoa0( s, w);
 }

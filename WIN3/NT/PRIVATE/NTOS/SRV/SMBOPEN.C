@@ -41,7 +41,7 @@ Revision History:
 // in smbtrans.c
 //
 
-SMB_STATUS
+SMB_STATUS SRVFASTCALL
 ExecuteTransaction (
     IN OUT PWORK_CONTEXT WorkContext
     );
@@ -56,7 +56,7 @@ SetEofToMatchAllocation (
     IN ULONG AllocationSize
     );
 
-VOID
+VOID SRVFASTCALL
 RestartOpen (
     PWORK_CONTEXT WorkContext
     );
@@ -67,7 +67,7 @@ GenerateOpenResponse (
     NTSTATUS OpenStatus
     );
 
-VOID
+VOID SRVFASTCALL
 RestartOpenAndX (
     PWORK_CONTEXT WorkContext
     );
@@ -78,7 +78,7 @@ GenerateOpenAndXResponse (
     NTSTATUS OpenStatus
     );
 
-VOID
+VOID SRVFASTCALL
 RestartOpen2 (
     PWORK_CONTEXT WorkContext
     );
@@ -89,7 +89,7 @@ GenerateOpen2Response (
     NTSTATUS OpenStatus
     );
 
-VOID
+VOID SRVFASTCALL
 RestartNtCreateAndX (
     PWORK_CONTEXT WorkContext
     );
@@ -100,7 +100,7 @@ GenerateNtCreateAndXResponse (
     NTSTATUS OpenStatus
     );
 
-VOID
+VOID SRVFASTCALL
 RestartCreateWithSdOrEa (
     PWORK_CONTEXT WorkContext
     );
@@ -230,7 +230,7 @@ Return Value:
 } // SrvSmbOpen
 
 
-VOID
+VOID SRVFASTCALL
 RestartOpen (
     IN PWORK_CONTEXT WorkContext
     )
@@ -252,7 +252,7 @@ Return Value:
 --*/
 
 {
-    SMB_PROCESSOR_RETURN_TYPE smbStatus;
+    SMB_PROCESSOR_RETURN_LOCAL smbStatus;
     NTSTATUS openStatus;
 
     PAGED_CODE( );
@@ -273,6 +273,8 @@ Return Value:
         SrvCloseRfcb( WorkContext->Parameters2.Open.Rfcb );
 
     }
+
+    WorkContext->Irp->IoStatus.Information = WorkContext->Parameters2.Open.IosbInformation;
 
     smbStatus = GenerateOpenResponse(
                     WorkContext,
@@ -313,7 +315,7 @@ Return Value:
     PREQ_OPEN request;
     NTSTATUS status;
 
-    SRV_FILE_INFORMATION srvFileInformation;
+    SRV_FILE_INFORMATION_ABBREVIATED srvFileInformation;
     PRFCB rfcb;
     USHORT access;
 
@@ -340,12 +342,11 @@ Return Value:
     // access check is required.
     //
 
-    status = SrvQueryInformationFile(
+    status = SrvQueryInformationFileAbbreviated(
                  rfcb->Lfcb->FileHandle,
                  rfcb->Lfcb->FileObject,
                  &srvFileInformation,
-                 WorkContext->TreeConnect->Share->ShareType,
-                 FALSE
+                 WorkContext->TreeConnect->Share->ShareType
                  );
 
     if ( !NT_SUCCESS(status) ) {
@@ -359,6 +360,35 @@ Return Value:
 
         SrvSetSmbError( WorkContext, status );
         return SmbStatusSendResponse;
+    }
+
+    //
+    // Give the smart card a chance to get into the act
+    //
+    if( WorkContext->Endpoint->IsConnectionless && SrvIpxSmartCard.Open != NULL ) {
+
+        PVOID handle;
+
+        IF_DEBUG( SIPX ) {
+            KdPrint(( "Trying the smart card for %wZ\n", &rfcb->Mfcb->FileName ));
+        }
+
+        if( SrvIpxSmartCard.Open(
+            WorkContext->RequestBuffer->Buffer,
+            rfcb->Lfcb->FileObject,
+            &rfcb->Mfcb->FileName,
+            &(WorkContext->ClientAddress->IpxAddress.Address[0].Address[0]),
+            rfcb->Lfcb->FileObject->Flags & FO_CACHE_SUPPORTED,
+            &handle
+            ) == TRUE ) {
+
+            IF_DEBUG( SIPX ) {
+                KdPrint(( "%wZ handled by Smart Card.  Handle %X\n",
+                           &rfcb->Mfcb->FileName, handle ));
+            }
+
+            rfcb->PagedRfcb->IpxSmartCardContext = handle;
+        }
     }
 
     //
@@ -376,7 +406,7 @@ Return Value:
         &response->LastWriteTimeInSeconds,
         srvFileInformation.LastWriteTimeInSeconds
         );
-    SmbPutUlong( &response->DataSize, srvFileInformation.DataSize );
+    SmbPutUlong( &response->DataSize, srvFileInformation.DataSize.LowPart );
     SmbPutUshort(
         &response->GrantedAccess,
         access );
@@ -429,6 +459,45 @@ Return Value:
                     "response parameters at 0x%lx\n",
                     WorkContext->RequestParameters,
                     WorkContext->ResponseParameters ));
+    }
+
+    //
+    // If we are not on a blocking thread and we don't have a license
+    //  from the license server, shift the request over to the blocking work
+    //  queue since acquiring a license is an expensive operation and we don't
+    //  want to congest our nonblocking worker threads
+    // 
+    if( WorkContext->UsingBlockingThread == 0 ) {
+
+        PSESSION session;
+        PTREE_CONNECT treeConnect;
+
+        status = SrvVerifyUidAndTid(
+                    WorkContext,
+                    &session,
+                    &treeConnect,
+                    ShareTypeWild
+                    );
+
+        if ( !NT_SUCCESS(status) ) {
+            IF_DEBUG(SMB_ERRORS) {
+                KdPrint(( "SrvSmbOpenAndX: Invalid UID or TID\n" ));
+            }
+            return GenerateOpenAndXResponse( WorkContext, status );
+        }
+
+        if( session->IsLSNotified == FALSE ) {
+
+            //
+            // Insert the work item at the tail of the blocking work queue.
+            //
+            SrvInsertWorkQueueTail(
+                &SrvBlockingWorkQueue,
+                (PQUEUEABLE_BLOCK_HEADER)WorkContext
+            );
+
+            return SmbStatusInProgress;
+        }
     }
 
     request = (PREQ_OPEN_ANDX)WorkContext->RequestParameters;
@@ -487,7 +556,7 @@ Return Value:
 } // SrvSmbOpenAndX
 
 
-VOID
+VOID SRVFASTCALL
 RestartOpenAndX (
     PWORK_CONTEXT WorkContext
     )
@@ -509,7 +578,7 @@ Return Value:
 --*/
 
 {
-    SMB_PROCESSOR_RETURN_TYPE smbStatus;
+    SMB_PROCESSOR_RETURN_LOCAL smbStatus;
     NTSTATUS openStatus;
 
     PAGED_CODE( );
@@ -519,6 +588,15 @@ Return Value:
     if ( NT_SUCCESS( openStatus ) ) {
 
         openStatus = WorkContext->Irp->IoStatus.Status;
+
+        if( NT_SUCCESS( openStatus ) ) {
+            //
+            // It's obvious that the file already existed, because we've
+            //  been working on an oplock break.  So set the
+            //  IoStatus.Information field correctly.
+            //
+            WorkContext->Irp->IoStatus.Information = FILE_OPENED;
+        }
 
     } else {
 
@@ -530,6 +608,8 @@ Return Value:
         SrvCloseRfcb( WorkContext->Parameters2.Open.Rfcb );
 
     }
+
+    WorkContext->Irp->IoStatus.Information = WorkContext->Parameters2.Open.IosbInformation;
 
     smbStatus = GenerateOpenAndXResponse(
                     WorkContext,
@@ -580,7 +660,7 @@ Return Value:
     PREQ_OPEN_ANDX request;
     PRESP_OPEN_ANDX response;
 
-    SRV_FILE_INFORMATION srvFileInformation;
+    SRV_FILE_INFORMATION_ABBREVIATED srvFileInformation;
     BOOLEAN reqAdditionalInformation;
     PRFCB rfcb;
     PLFCB lfcb;
@@ -659,7 +739,6 @@ Return Value:
             INCREMENT_DEBUG_STAT( SrvDbgStatistics.TotalOplocksDenied );
 
         }
-
     }
 
     //
@@ -667,7 +746,6 @@ Return Value:
     // the size of the file.  This is necessary for compatibility with
     // OS/2, which only has EOF, not a separate allocation size.
     //
-
     ioStatusBlock = &WorkContext->Irp->IoStatus;
 
     if ( (ioStatusBlock->Information == FILE_CREATED) ||
@@ -704,12 +782,11 @@ Return Value:
         // access check is needed.
         //
 
-        status = SrvQueryInformationFile(
+        status = SrvQueryInformationFileAbbreviated(
                      lfcb->FileHandle,
                      lfcb->FileObject,
                      &srvFileInformation,
-                     WorkContext->TreeConnect->Share->ShareType,
-                     FALSE
+                     WorkContext->TreeConnect->Share->ShareType
                      );
 
         if ( !NT_SUCCESS(status) ) {
@@ -725,6 +802,35 @@ Return Value:
             return SmbStatusSendResponse;
         }
 
+    }
+
+    //
+    // Give the smart card a chance to get into the act
+    //
+    if( WorkContext->Endpoint->IsConnectionless && SrvIpxSmartCard.Open != NULL ) {
+
+        PVOID handle;
+
+        IF_DEBUG( SIPX ) {
+            KdPrint(( "Trying the smart card for %wZ\n", &rfcb->Mfcb->FileName ));
+        }
+
+        if( SrvIpxSmartCard.Open(
+            WorkContext->RequestBuffer->Buffer,
+            rfcb->Lfcb->FileObject,
+            &rfcb->Mfcb->FileName,
+            &(WorkContext->ClientAddress->IpxAddress.Address[0].Address[0]),
+            rfcb->Lfcb->FileObject->Flags & FO_CACHE_SUPPORTED,
+            &handle
+            ) == TRUE ) {
+
+            IF_DEBUG( SIPX ) {
+                KdPrint(( "%wZ handled by Smart Card.  Handle %X\n",
+                           &rfcb->Mfcb->FileName, handle ));
+            }
+
+            rfcb->PagedRfcb->IpxSmartCardContext = handle;
+        }
     }
 
     //
@@ -765,7 +871,18 @@ Return Value:
             &response->LastWriteTimeInSeconds,
             srvFileInformation.LastWriteTimeInSeconds
             );
-        SmbPutUlong( &response->DataSize, srvFileInformation.DataSize );
+        SmbPutUlong( &response->DataSize, srvFileInformation.DataSize.LowPart );
+
+        access &= SMB_DA_SHARE_MASK;
+
+        if( rfcb->ReadAccessGranted && rfcb->WriteAccessGranted ) {
+            access |= SMB_DA_ACCESS_READ_WRITE;
+        } else if( rfcb->ReadAccessGranted ) {
+            access |= SMB_DA_ACCESS_READ;
+        } else if( rfcb->WriteAccessGranted ) {
+            access |= SMB_DA_ACCESS_WRITE;
+        }
+
         SmbPutUshort( &response->GrantedAccess, access );
         SmbPutUshort( &response->FileType, srvFileInformation.Type );
         SmbPutUshort( &response->DeviceState, srvFileInformation.HandleState );
@@ -1031,7 +1148,7 @@ Return Value:
         // thread.
         //
 
-        WorkContext->FspRestartRoutine = ExecuteTransaction;
+        WorkContext->FspRestartRoutine = (PRESTART_ROUTINE)ExecuteTransaction;
         SrvQueueWorkToBlockingThread( WorkContext );
         return SmbStatusInProgress;
 
@@ -1068,7 +1185,7 @@ err_exit:
 } // SrvSmbOpen2
 
 
-VOID
+VOID SRVFASTCALL
 RestartOpen2 (
     PWORK_CONTEXT WorkContext
     )
@@ -1101,6 +1218,15 @@ Return Value:
 
         openStatus = WorkContext->Irp->IoStatus.Status;
 
+        if( NT_SUCCESS( openStatus ) ) {
+            //
+            // It's obvious that the file already existed, because we've
+            //  been working on an oplock break.  So set the
+            //  IoStatus.Information field correctly.
+            //
+            WorkContext->Irp->IoStatus.Information = FILE_OPENED;
+        }
+
     } else {
 
         //
@@ -1111,6 +1237,8 @@ Return Value:
         SrvCloseRfcb( WorkContext->Parameters2.Open.Rfcb );
 
     }
+
+    WorkContext->Irp->IoStatus.Information = WorkContext->Parameters2.Open.IosbInformation;
 
     smbStatus = GenerateOpen2Response(
                     WorkContext,
@@ -1158,7 +1286,7 @@ Return Value:
     PLFCB lfcb;
     NTSTATUS status;
     BOOLEAN reqAdditionalInformation;
-    SRV_FILE_INFORMATION srvFileInformation;
+    SRV_FILE_INFORMATION_ABBREVIATED srvFileInformation;
     BOOLEAN reqEaLength;
     FILE_EA_INFORMATION fileEaInformation;
     USHORT access;
@@ -1181,8 +1309,6 @@ Return Value:
     feaList = (PFEALIST)transaction->InData;
     ntFullEa = WorkContext->Parameters2.Open.NtFullEa;
     eaErrorOffset = WorkContext->Parameters2.Open.EaErrorOffset;
-    rfcb = WorkContext->Rfcb;
-    lfcb = rfcb->Lfcb;
 
     access = SmbGetUshort( &request->DesiredAccess );   // save for later use
 
@@ -1233,6 +1359,9 @@ Return Value:
     // OS/2, which only has EOF, not a separate allocation size.
     //
 
+    rfcb = WorkContext->Rfcb;
+    lfcb = rfcb->Lfcb;
+
     if ( (WorkContext->Irp->IoStatus.Information == FILE_CREATED) ||
          (WorkContext->Irp->IoStatus.Information == FILE_OVERWRITTEN) ) {
 
@@ -1272,12 +1401,11 @@ Return Value:
         // access check is needed.
         //
 
-        status = SrvQueryInformationFile(
+        status = SrvQueryInformationFileAbbreviated(
                      lfcb->FileHandle,
                      lfcb->FileObject,
                      &srvFileInformation,
-                     WorkContext->TreeConnect->Share->ShareType,
-                     FALSE
+                     WorkContext->TreeConnect->Share->ShareType
                      );
 
         if ( !NT_SUCCESS(status) ) {
@@ -1380,7 +1508,7 @@ Return Value:
             &response->FileAttributes,
             srvFileInformation.Attributes
             );
-        SmbPutUlong( &response->DataSize, srvFileInformation.DataSize );
+        SmbPutUlong( &response->DataSize, srvFileInformation.DataSize.LowPart );
         SmbPutUshort( &response->GrantedAccess, access );
         SmbPutUshort( &response->FileType, srvFileInformation.Type );
         SmbPutUshort( &response->DeviceState, srvFileInformation.HandleState );
@@ -1435,7 +1563,7 @@ Return Value:
             NULL
             );
 
-        SrvLogServiceFailure( SRV_SVC_IO_CREATE_FILE, status );
+        SrvLogServiceFailure( SRV_SVC_IO_CREATE_FILE, WorkContext->Irp->IoStatus.Information );
 
     }
 
@@ -1638,7 +1766,7 @@ Return Value:
 } // SrvSmbNtCreateAndX
 
 
-VOID
+VOID SRVFASTCALL
 RestartNtCreateAndX (
     PWORK_CONTEXT WorkContext
     )
@@ -1660,7 +1788,7 @@ Return Value:
 --*/
 
 {
-    SMB_PROCESSOR_RETURN_TYPE smbStatus;
+    SMB_PROCESSOR_RETURN_LOCAL smbStatus;
     NTSTATUS openStatus;
 
     PAGED_CODE( );
@@ -1681,6 +1809,8 @@ Return Value:
         SrvCloseRfcb( WorkContext->Parameters2.Open.Rfcb );
 
     }
+
+    WorkContext->Irp->IoStatus.Information = WorkContext->Parameters2.Open.IosbInformation;
 
     smbStatus = GenerateNtCreateAndXResponse(
                     WorkContext,
@@ -1740,6 +1870,8 @@ Return Value:
     UCHAR oplockLevel;
     BOOLEAN allowLevelII;
 
+    ULONG desiredAccess;
+
     NTSTATUS status;
 
     PAGED_CODE( );
@@ -1769,6 +1901,7 @@ Return Value:
 
     request = (PREQ_NT_CREATE_ANDX)WorkContext->RequestParameters;
     response = (PRESP_NT_CREATE_ANDX)WorkContext->ResponseParameters;
+    desiredAccess = SmbGetUlong( &request->DesiredAccess );
 
     rfcb = WorkContext->Rfcb;
 
@@ -1776,7 +1909,8 @@ Return Value:
     // Attempt to acquire the oplock.
     //
 
-    if ( !(request->CreateOptions & FILE_DIRECTORY_FILE) ) {
+    if ( desiredAccess != DELETE &&
+        !(request->CreateOptions & FILE_DIRECTORY_FILE) ) {
 
         if ( request->Flags & NT_CREATE_REQUEST_OPLOCK ) {
             allowLevelII = CLIENT_CAPABLE_OF( LEVEL_II_OPLOCKS, WorkContext->Connection );
@@ -1793,7 +1927,7 @@ Return Value:
             oplockLevel = SMB_OPLOCK_LEVEL_NONE;
         }
 
-        if ( SrvRequestOplock( WorkContext, &oplockType, allowLevelII ) ) {
+        if( SrvRequestOplock( WorkContext, &oplockType, allowLevelII ) ) {
 
             //
             // The oplock was granted.  Check to see if it was a level 2.
@@ -1812,7 +1946,6 @@ Return Value:
             //
 
             oplockLevel = SMB_OPLOCK_LEVEL_NONE;
-
             INCREMENT_DEBUG_STAT( SrvDbgStatistics.TotalOplocksDenied );
 
         }
@@ -1857,6 +1990,16 @@ Return Value:
     }
 
     //
+    // Save parts of the file info in the MFCB for fast tests on Compressed
+    // operations.
+    //
+
+    rfcb->Mfcb->NonpagedMfcb->OpenFileSize.QuadPart =
+                            srvNtFileInformation.NwOpenInfo.EndOfFile.QuadPart;
+    rfcb->Mfcb->NonpagedMfcb->OpenFileAttributes =
+                            srvNtFileInformation.NwOpenInfo.FileAttributes;
+
+    //
     // Set up response SMB.
     //
 
@@ -1886,59 +2029,59 @@ Return Value:
         );
     SmbPutUlong(
         &response->CreationTime.HighPart,
-        srvNtFileInformation.CreationTime.HighPart
+        srvNtFileInformation.NwOpenInfo.CreationTime.HighPart
         );
     SmbPutUlong(
         &response->CreationTime.LowPart,
-        srvNtFileInformation.CreationTime.LowPart
+        srvNtFileInformation.NwOpenInfo.CreationTime.LowPart
         );
     SmbPutUlong(
         &response->LastAccessTime.HighPart,
-        srvNtFileInformation.LastAccessTime.HighPart
+        srvNtFileInformation.NwOpenInfo.LastAccessTime.HighPart
         );
     SmbPutUlong(
         &response->LastAccessTime.LowPart,
-        srvNtFileInformation.LastAccessTime.LowPart
+        srvNtFileInformation.NwOpenInfo.LastAccessTime.LowPart
         );
     SmbPutUlong(
         &response->LastWriteTime.HighPart,
-        srvNtFileInformation.LastWriteTime.HighPart
+        srvNtFileInformation.NwOpenInfo.LastWriteTime.HighPart
         );
     SmbPutUlong(
         &response->LastWriteTime.LowPart,
-        srvNtFileInformation.LastWriteTime.LowPart
+        srvNtFileInformation.NwOpenInfo.LastWriteTime.LowPart
         );
     SmbPutUlong(
         &response->ChangeTime.HighPart,
-        srvNtFileInformation.ChangeTime.HighPart
+        srvNtFileInformation.NwOpenInfo.ChangeTime.HighPart
         );
     SmbPutUlong(
         &response->ChangeTime.LowPart,
-        srvNtFileInformation.ChangeTime.LowPart
+        srvNtFileInformation.NwOpenInfo.ChangeTime.LowPart
         );
 
-    SmbPutUlong( &response->FileAttributes, srvNtFileInformation.Attributes );
+    SmbPutUlong( &response->FileAttributes, srvNtFileInformation.NwOpenInfo.FileAttributes );
     SmbPutUlong(
         &response->AllocationSize.HighPart,
-        srvNtFileInformation.AllocationSize.HighPart
+        srvNtFileInformation.NwOpenInfo.AllocationSize.HighPart
         );
     SmbPutUlong(
         &response->AllocationSize.LowPart,
-        srvNtFileInformation.AllocationSize.LowPart
+        srvNtFileInformation.NwOpenInfo.AllocationSize.LowPart
         );
     SmbPutUlong(
         &response->EndOfFile.HighPart,
-        srvNtFileInformation.EndOfFile.HighPart
+        srvNtFileInformation.NwOpenInfo.EndOfFile.HighPart
         );
     SmbPutUlong(
         &response->EndOfFile.LowPart,
-        srvNtFileInformation.EndOfFile.LowPart
+        srvNtFileInformation.NwOpenInfo.EndOfFile.LowPart
         );
 
     SmbPutUshort( &response->FileType, srvNtFileInformation.Type );
     SmbPutUshort( &response->DeviceState, srvNtFileInformation.HandleState );
 
-    response->Directory = srvNtFileInformation.IsDirectory;
+    response->Directory = (srvNtFileInformation.NwOpenInfo.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) ? TRUE : FALSE;
 
     SmbPutUshort( &response->ByteCount, 0 );
 
@@ -2198,7 +2341,7 @@ Return Value:
         // thread.
         //
 
-        WorkContext->FspRestartRoutine = ExecuteTransaction;
+        WorkContext->FspRestartRoutine = (PRESTART_ROUTINE)ExecuteTransaction;
         SrvQueueWorkToBlockingThread( WorkContext );
         return SmbStatusInProgress;
 
@@ -2222,7 +2365,7 @@ Return Value:
 } // SrvSmbCreateWithSdOrEa
 
 
-VOID
+VOID SRVFASTCALL
 RestartCreateWithSdOrEa (
     PWORK_CONTEXT WorkContext
     )
@@ -2255,6 +2398,15 @@ Return Value:
 
         openStatus = WorkContext->Irp->IoStatus.Status;
 
+        if( NT_SUCCESS( openStatus ) ) {
+            //
+            // It's obvious that the file already existed, because we've
+            //  been working on an oplock break.  So set the
+            //  IoStatus.Information field correctly.
+            //
+            WorkContext->Irp->IoStatus.Information = FILE_OPENED;
+        }
+
     } else {
 
         //
@@ -2266,6 +2418,7 @@ Return Value:
 
     }
 
+    WorkContext->Irp->IoStatus.Information = WorkContext->Parameters2.Open.IosbInformation;
     smbStatus = GenerateCreateWithSdOrEaResponse( WorkContext, openStatus );
 
     SrvCompleteExecuteTransaction( WorkContext, smbStatus );
@@ -2415,7 +2568,6 @@ Return Value:
             //
 
             oplockLevel = SMB_OPLOCK_LEVEL_NONE;
-
             INCREMENT_DEBUG_STAT( SrvDbgStatistics.TotalOplocksDenied );
 
         }
@@ -2442,56 +2594,56 @@ Return Value:
     SmbPutUshort( &response->DeviceState, srvNtFileInformation.HandleState );
     SmbPutUlong(
         &response->CreationTime.HighPart,
-        srvNtFileInformation.CreationTime.HighPart
+        srvNtFileInformation.NwOpenInfo.CreationTime.HighPart
         );
     SmbPutUlong(
         &response->CreationTime.LowPart,
-        srvNtFileInformation.CreationTime.LowPart
+        srvNtFileInformation.NwOpenInfo.CreationTime.LowPart
         );
     SmbPutUlong(
         &response->LastAccessTime.HighPart,
-        srvNtFileInformation.LastAccessTime.HighPart
+        srvNtFileInformation.NwOpenInfo.LastAccessTime.HighPart
         );
     SmbPutUlong(
         &response->LastAccessTime.LowPart,
-        srvNtFileInformation.LastAccessTime.LowPart
+        srvNtFileInformation.NwOpenInfo.LastAccessTime.LowPart
         );
     SmbPutUlong(
         &response->LastWriteTime.HighPart,
-        srvNtFileInformation.LastWriteTime.HighPart
+        srvNtFileInformation.NwOpenInfo.LastWriteTime.HighPart
         );
     SmbPutUlong(
         &response->LastWriteTime.LowPart,
-        srvNtFileInformation.LastWriteTime.LowPart
+        srvNtFileInformation.NwOpenInfo.LastWriteTime.LowPart
         );
     SmbPutUlong(
         &response->ChangeTime.HighPart,
-        srvNtFileInformation.ChangeTime.HighPart
+        srvNtFileInformation.NwOpenInfo.ChangeTime.HighPart
         );
     SmbPutUlong(
         &response->ChangeTime.LowPart,
-        srvNtFileInformation.ChangeTime.LowPart
+        srvNtFileInformation.NwOpenInfo.ChangeTime.LowPart
         );
 
-    SmbPutUlong( &response->FileAttributes, srvNtFileInformation.Attributes );
+    SmbPutUlong( &response->FileAttributes, srvNtFileInformation.NwOpenInfo.FileAttributes );
     SmbPutUlong(
         &response->AllocationSize.HighPart,
-        srvNtFileInformation.AllocationSize.HighPart
+        srvNtFileInformation.NwOpenInfo.AllocationSize.HighPart
         );
     SmbPutUlong(
         &response->AllocationSize.LowPart,
-        srvNtFileInformation.AllocationSize.LowPart
+        srvNtFileInformation.NwOpenInfo.AllocationSize.LowPart
         );
     SmbPutUlong(
         &response->EndOfFile.HighPart,
-        srvNtFileInformation.EndOfFile.HighPart
+        srvNtFileInformation.NwOpenInfo.EndOfFile.HighPart
         );
     SmbPutUlong(
         &response->EndOfFile.LowPart,
-        srvNtFileInformation.EndOfFile.LowPart
+        srvNtFileInformation.NwOpenInfo.EndOfFile.LowPart
         );
 
-    response->Directory = srvNtFileInformation.IsDirectory;
+    response->Directory = (srvNtFileInformation.NwOpenInfo.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) ? TRUE : FALSE;
 
     transaction->SetupCount = 0;
     transaction->ParameterCount = sizeof(RESP_CREATE_WITH_SD_OR_EA);
@@ -2627,6 +2779,35 @@ Return Value:
               SmbGetUlong( &request->CreationTimeInSeconds ),
               rfcb->Lfcb->GrantedAccess
               );
+
+    //
+    // Give the smart card a chance to get into the act
+    //
+    if( WorkContext->Endpoint->IsConnectionless && SrvIpxSmartCard.Open != NULL ) {
+
+        PVOID handle;
+
+        IF_DEBUG( SIPX ) {
+            KdPrint(( "Trying the smart card for %wZ\n", &rfcb->Mfcb->FileName ));
+        }
+
+        if( SrvIpxSmartCard.Open(
+            WorkContext->RequestBuffer->Buffer,
+            rfcb->Lfcb->FileObject,
+            &rfcb->Mfcb->FileName,
+            &(WorkContext->ClientAddress->IpxAddress.Address[0].Address[0]),
+            rfcb->Lfcb->FileObject->Flags & FO_CACHE_SUPPORTED,
+            &handle
+            ) == TRUE ) {
+
+            IF_DEBUG( SIPX ) {
+                KdPrint(( "%wZ handled by Smart Card.  Handle %X\n",
+                           &rfcb->Mfcb->FileName, handle ));
+            }
+
+            rfcb->PagedRfcb->IpxSmartCardContext = handle;
+        }
+    }
 
     //
     // Set up response SMB.

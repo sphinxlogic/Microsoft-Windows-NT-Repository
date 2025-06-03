@@ -47,7 +47,7 @@ CsrApiPortInitialize( VOID )
     Length = CsrDirectoryName.Length +
              sizeof( CSR_API_PORT_NAME ) +
              sizeof( OBJ_NAME_PATH_SEPARATOR );
-    CsrApiPortName.Buffer = RtlAllocateHeap( CsrHeap, 0, Length );
+    CsrApiPortName.Buffer = RtlAllocateHeap( CsrHeap, MAKE_TAG( INIT_TAG ), Length );
     if (CsrApiPortName.Buffer == NULL) {
         return( STATUS_NO_MEMORY );
         }
@@ -70,7 +70,7 @@ CsrApiPortInitialize( VOID )
     // create a security descriptor that allows all access
     //
 
-    SeWorldSid = RtlAllocateHeap( CsrHeap, 0, RtlLengthRequiredSid( 1 ) );
+    SeWorldSid = RtlAllocateHeap( CsrHeap, MAKE_TAG( TMP_TAG ), RtlLengthRequiredSid( 1 ) );
     RtlInitializeSid( SeWorldSid, &WorldSidAuthority, 1 );
     *(RtlSubAuthoritySid( SeWorldSid, 0 )) = SECURITY_WORLD_RID;
 
@@ -79,7 +79,7 @@ CsrApiPortInitialize( VOID )
              (ULONG)sizeof(ACCESS_ALLOWED_ACE) +
              RtlLengthSid( SeWorldSid ) +
              8; // The 8 is just for good measure
-    SecurityDescriptor = RtlAllocateHeap( CsrHeap, 0, Length);
+    SecurityDescriptor = RtlAllocateHeap( CsrHeap, MAKE_TAG( TMP_TAG ), Length);
     ASSERT( SecurityDescriptor != NULL );
 
     Dacl = (PACL)((PCHAR)SecurityDescriptor + SECURITY_DESCRIPTOR_MIN_LENGTH);
@@ -165,3 +165,10 @@ CsrApiPortInitialize( VOID )
 
     return( Status );
 }
+
+HANDLE
+CsrQueryApiPort(VOID)
+{
+    return CsrApiPort;
+}
+

@@ -24,6 +24,8 @@
 extern   TCHAR          DefaultLangId[] ;
 extern   TCHAR          EnglishLangId[] ;
 
+static  LPSTR           lpszCommandLine;
+
 //==========================================================================//
 //                                  Constants                               //
 //==========================================================================//
@@ -37,6 +39,54 @@ HHOOK   lpMsgFilterProc ;
 //==========================================================================//
 //                              Local Functions                             //
 //==========================================================================//
+static
+LONG
+EnablePrivilege (
+	IN	LPTSTR	szPrivName
+)
+{
+    LUID SePrivNameValue;
+    TOKEN_PRIVILEGES tkp;
+
+    HANDLE hToken = NULL;
+
+    /* Retrieve a handle of the access token. */
+
+    if (!OpenProcessToken(GetCurrentProcess(),
+            TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY,
+            &hToken)) {
+		goto Exit_Point;
+    }
+
+    /*
+     * Enable the privilege by name and get the ID
+     */
+
+    if (!LookupPrivilegeValue((LPTSTR) NULL,
+            szPrivName,
+            &SePrivNameValue)) {
+		goto Exit_Point;
+    }
+
+    tkp.PrivilegeCount = 1;
+    tkp.Privileges[0].Luid = SePrivNameValue;
+    tkp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+
+    AdjustTokenPrivileges(hToken,
+        FALSE,
+        &tkp,
+        sizeof(TOKEN_PRIVILEGES),
+        (PTOKEN_PRIVILEGES) NULL,
+        (PDWORD) NULL);
+
+    /* The return value of AdjustTokenPrivileges be texted. */
+
+Exit_Point:
+
+	if (hToken != NULL) CloseHandle (hToken);
+    return GetLastError();
+
+}
 
 
 void GetScalesFonts (void)
@@ -172,6 +222,11 @@ BOOL InitializeInstance (int nCmdShow, LPCSTR lpszCmdLine)
    DWORD          ComputerNameLength;
    TCHAR          szApplication [WindowCaptionLen] ;
 
+   // enable privileges needed to profile system 
+   // if this fails, that's ok for now.
+   
+   EnablePrivilege (SE_SYSTEM_PROFILE_NAME);    // to access perfdata
+   EnablePrivilege (SE_INC_BASE_PRIORITY_NAME); // to raise priority
 
    //=============================//
    // Set Priority high           //
@@ -368,5 +423,5 @@ void PerfmonClose (HWND hWndMain)
    DestroyWindow (hWndMain) ;
    }  // PerfmonClose
 
-
-
+
+

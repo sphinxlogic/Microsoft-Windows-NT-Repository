@@ -16,16 +16,6 @@ Author:
 
 Notes:
 
-    We just need to get the winspool printer name associated with a given
-    queue name.   The SHARE_INFO_2 structure has a shi2_path field that would
-    be nice to use, but NetShareGetInfo level 2 is privileged.  So, by
-    DaveSn's arm twisting and agreement with windows/spooler/localspl/net.c,
-    we're going to use the shi1_remark field for this.  This allows us to
-    do NetShareGetInfo level 1, which is not privileged.
-
-    BUGBUG: After NT beta, find a better way to do this!  Perhaps a new info
-    level?
-
 Revision History:
 
     02-Oct-1992 JohnRo
@@ -41,6 +31,8 @@ Revision History:
     17-May-1993 JohnRo
         FindLocalJob() should use INVALID_HANDLE_VALUE for consistentcy.
         Use NetpKdPrint() where possible.
+    29-Mar-1995 AlbertT
+        Support for pause/resume/purge printer queue added.
 
 --*/
 
@@ -81,13 +73,101 @@ Revision History:
 #include "myspool.h"
 
 NET_API_STATUS
-CommandALocalJob(
-    IN DWORD   JobId,
-    IN DWORD   Command     //  JOB_CONTROL_PAUSE, etc.
+CommandALocalPrinterW(
+    IN LPWSTR PrinterName,
+    IN DWORD  Command     //  PRINTER_CONTROL_PAUSE, etc.
     )
 {
+    NET_API_STATUS    ApiStatus;
+    HANDLE            PrinterHandle = INVALID_HANDLE_VALUE;
+    PRINTER_DEFAULTSW pd = { NULL, NULL, PRINTER_ACCESS_ADMINISTER };
+
+    IF_DEBUG( DOSPRTP ) {
+        NetpKdPrint(( PREFIX_DOSPRINT
+                "CommandALocalPrinterW: issuing command " FORMAT_DWORD
+                " for printer " FORMAT_LPWSTR ".\n", Command, PrinterName ));
+    }
+
+    if ( !MyOpenPrinterW(PrinterName, &PrinterHandle, &pd)) {
+        ApiStatus = GetLastError();
+        goto Cleanup;
+    }
+
+    if ( !MySetPrinterW(
+            PrinterHandle,
+            0,              // info level
+            NULL,           // no job structure
+            Command) ) {
+
+        ApiStatus = GetLastError();
+
+        NetpKdPrint(( PREFIX_DOSPRINT
+                "CommandALocalPrinterW: FAILED COMMAND " FORMAT_DWORD
+                " for printer " FORMAT_LPWSTR ", api status " FORMAT_API_STATUS
+                ".\n", Command, PrinterName, ApiStatus ));
+
+        goto Cleanup;
+
+    } else {
+        ApiStatus = NO_ERROR;
+    }
+
+
+Cleanup:
+    if (PrinterHandle != INVALID_HANDLE_VALUE) {
+        (VOID) MyClosePrinter(PrinterHandle);
+    }
+
+    IF_DEBUG( DOSPRTP ) {
+        NetpKdPrint(( PREFIX_DOSPRINT
+                "CommandALocalPrinterW: returning api status "
+                FORMAT_API_STATUS ".\n", ApiStatus ));
+    }
+    return (ApiStatus);
+
+} // CommandALocalPrinterW
+
+
+NET_API_STATUS
+CommandALocalJob(
+    IN HANDLE  PrinterHandle, OPTIONAL
+    IN DWORD   JobId,
+    IN DWORD   Level,
+    IN LPBYTE  pJob,
+    IN DWORD   Command     //  JOB_CONTROL_PAUSE, etc.
+    )
+
+/*++
+
+Routine Description:
+
+    Sends a command to a Job based on a JobId.  If a PrintHandle
+    is passed in, it is used; otherwise a temporary one is opened
+    and used instead.
+
+    This is the Ansi version.
+
+Arguments:
+
+    PrinterHandle - Print handle to use, may be NULL
+
+    JobId - Job that should be modified
+
+    Level - Specifies pJob info level
+
+    pJob - Information to set about job, level specified by Level
+
+    Command - Command to execute on job
+
+Return Value:
+
+    Return code, may be a win32 error code (!?)
+
+--*/
+
+{
     NET_API_STATUS ApiStatus;
-    HANDLE         PrinterHandle = INVALID_HANDLE_VALUE;
+    HANDLE         PrinterHandleClose = INVALID_HANDLE_VALUE;
 
     IF_DEBUG( DOSPRTP ) {
         NetpKdPrint(( PREFIX_DOSPRINT
@@ -95,17 +175,24 @@ CommandALocalJob(
                 FORMAT_DWORD ".\n", Command, JobId ));
     }
 
-    PrinterHandle = FindLocalJob(JobId);
-    if (PrinterHandle == INVALID_HANDLE_VALUE) {
-        ApiStatus = GetLastError();
-        goto Cleanup;
+    //
+    // If a print handle wasn't passed in, open one ourselves.
+    // We store it in PrinterHandleClose so that we can close it later.
+    //
+    if ( PrinterHandle == NULL ) {
+        if ( !MyOpenPrinter( NULL, &PrinterHandle, NULL )) {
+
+            ApiStatus = GetLastError();
+            goto Cleanup;
+        }
+        PrinterHandleClose = PrinterHandle;
     }
 
-    if ( !MySetJob(
+    if ( !MySetJobA(
             PrinterHandle,
             JobId,
-            0,          // info level
-            NULL,       // no job structure
+            Level,
+            pJob,
             Command) ) {
 
         ApiStatus = GetLastError();
@@ -123,7 +210,7 @@ CommandALocalJob(
 
 
 Cleanup:
-    if (PrinterHandle != INVALID_HANDLE_VALUE) {
+    if (PrinterHandleClose != INVALID_HANDLE_VALUE) {
         (VOID) MyClosePrinter(PrinterHandle);
     }
 
@@ -350,63 +437,4 @@ PrqStatusFromPrinterStatus(
 } // PrqStatusFromPrinterStatus
 
 
-NET_API_STATUS
-QueueNameToPrinterNameW(
-    IN LPCWSTR QueueNameW,
-    OUT LPWSTR * PrinterNameW   // Must free with NetApiBufferFree().
-    )
-{
-    NET_API_STATUS ApiStatus;
-    LPSHARE_INFO_1 ShareInfo = NULL;
 
-    NetpAssert( QueueNameW != NULL );
-    NetpAssert( PrinterNameW != NULL );
-
-    *PrinterNameW = NULL;  // in case an error occurs.
-
-    ApiStatus = NetShareGetInfo(
-            NULL,
-            (LPWSTR) QueueNameW,
-            1,                  // info level (must be unprivileged)
-            (LPBYTE *) (LPVOID) &ShareInfo);
-
-    if (ApiStatus != NO_ERROR) {
-        NetpKdPrint(( PREFIX_DOSPRINT
-                "QueueNameToPrinterNameW: NetShareGetInfo("
-                FORMAT_LPWSTR ") returned " FORMAT_API_STATUS "\n",
-                QueueNameW, ApiStatus ));
-        if (ApiStatus == NERR_NetNameNotFound) {
-            ApiStatus = NERR_QNotFound;
-        }
-        goto Cleanup;
-    }
-
-    //
-    // Use the "remark" field to get path name.  (See "Notes:" above for
-    // an explanation of why we do it this way.)
-    //
-    *PrinterNameW = NetpAllocWStrFromWStr( ShareInfo->shi1_remark );
-
-    if ( (*PrinterNameW) == NULL ) {
-        ApiStatus = ERROR_NOT_ENOUGH_MEMORY;
-        goto Cleanup;
-
-    }
-
-
-    ApiStatus = NO_ERROR;
-
-Cleanup:
-
-    if (ShareInfo != NULL) {
-        (VOID) NetApiBufferFree( ShareInfo );
-    }
-
-    IF_DEBUG( DOSPRTP ) {
-        NetpKdPrint(( PREFIX_DOSPRINT
-                "QueueNameToPrinterNameW: returning status " FORMAT_API_STATUS
-                ".\n", ApiStatus ));
-    }
-
-    return (ApiStatus);
-}

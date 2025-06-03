@@ -38,7 +38,7 @@ Revision History:
 //
 #include <configp.h>            // TEMP_ERROR_KEY_NOT_FOUND.
 #include <lmerr.h>              // NERR_ stuff, most ERROR_, NO_ERROR.
-#include <netdebug.h>           // NetpDbgPrint(), etc.
+#include <netdebug.h>           // NetpKdPrint(()), etc.
 
 
 NET_API_STATUS
@@ -83,8 +83,8 @@ NetpWinRegStatusToApiStatus (
     default :
         // BUGBUG: Log an event here too.
 
-        NetpDbgPrint( "NetpWinRegStatusToApiStatus: unexpected value "
-                FORMAT_DWORD ".\n", Error );
+        NetpKdPrint(( "NetpWinRegStatusToApiStatus: unexpected value "
+                FORMAT_DWORD ".\n", Error ));
         return (NERR_InternalError);
     }
     /*NOTREACHED*/

@@ -123,11 +123,7 @@ if( p )
 
 #define	ROUNDING	(4-1)
 
-#ifdef DOS_OS2_BUILD
-#define BUFSIZE (16360 & ~ROUNDING)
-#else
 #define BUFSIZE (32748 & ~ROUNDING)
-#endif
 
 void * 
 AllocateOnceNew(
@@ -163,8 +159,10 @@ AllocateOnceNew(
 	_last_allocation = Skl_bufstart ;
 	Skl_bufstart  += (size + ROUNDING) & ~ROUNDING;
 
+#ifndef NDEBUG
 	Skl_Allocations ++;
 	Skl_Bytes += size;
+#endif
 
 	return _last_allocation;
 
@@ -175,8 +173,9 @@ void
 AllocateOnceDelete(
 	void * ptr )
 	{
+#ifndef NDEBUG
 	Skl_Deletions ++;
+#endif
 	};
 
 
-

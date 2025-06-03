@@ -15,6 +15,9 @@
 *
 * HISTORY:
 *		$Log:   J:\se.vcs\driver\q117cd\src\0x1103c.c  $
+*	
+*	   Rev 1.2   24 Aug 1994 13:00:08   BOBLEHMA
+*	Do a ResetFDC of we receive a command overrun error.
 *
 *	   Rev 1.1   08 Nov 1993 14:05:38   KEVINKES
 *	Removed all bit-field structures, removed all enumerated types, changed

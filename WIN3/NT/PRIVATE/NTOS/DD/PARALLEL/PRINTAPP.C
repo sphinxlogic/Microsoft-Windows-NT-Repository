@@ -242,7 +242,7 @@ void main(unsigned argc, char **argv)
   if    (dwBytesRead)
     printf("\nRead bombed, or write croaked?\n");
   else
-    printf("\nHot damn, it woiked!\n");
+    printf("\nGreat, it woiked!\n");
   CloseHandle(hfIn);
   CloseHandle(hfOut);
 }

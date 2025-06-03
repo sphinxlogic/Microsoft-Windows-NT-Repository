@@ -59,7 +59,7 @@ Return Value:
         case  8:    Shift = 3;  break;
         case  2:    Shift = 1;  break;
 
-        case  0:
+        case  0:    Base = 10;
         case 10:    Shift = 0;  break;
         default:    return( STATUS_INVALID_PARAMETER );
         }
@@ -224,7 +224,7 @@ RtlUnicodeStringToInteger (
     )
 {
     PCWSTR s;
-    CHAR c, Sign;
+    WCHAR c, Sign;
     ULONG nChars, Result, Digit, Shift;
 
     s = String->Buffer;

@@ -28,7 +28,8 @@ Revision History:
 
 extern KSPIN_LOCK CcMasterSpinLock;
 LIST_ENTRY CcCleanSharedCacheMapList;
-LIST_ENTRY CcDirtySharedCacheMapList;
+SHARED_CACHE_MAP_LIST_CURSOR CcDirtySharedCacheMapList;
+SHARED_CACHE_MAP_LIST_CURSOR CcLazyWriterCursor;
 
 //
 //  Worker thread structures:
@@ -87,10 +88,24 @@ ULONG CcAvailablePagesThreshold = 100;
 ULONG CcTotalDirtyPages = 0;
 
 //
+//  Captured system size
+//
+
+MM_SYSTEMSIZE CcCapturedSystemSize;
+
+//
+//  Tuning options du Jour
+//
+
+ULONG CcTune = 0;
+
+//
 //  Global structure controlling lazy writer algorithms
 //
 
 LAZY_WRITER LazyWriter;
+
+NPAGED_LOOKASIDE_LIST CcTwilightLookasideList;
 
 #ifdef CCDBG
 
@@ -159,6 +174,7 @@ ULONG CcMdlReadWaitMiss;
 
 ULONG CcReadAheadIos;
 
+ULONG CcLazyWriteHotSpots;
 ULONG CcLazyWriteIos;
 ULONG CcLazyWritePages;
 ULONG CcDataFlushes;

@@ -82,17 +82,16 @@
 
         subq    sp, t12, t8             // compute requested new stack address
         mov     v0, t10                 // save v0 since the PALcode uses it
-        bgt     sp, 10f                 // if sp>0, then running on user stack
+#if defined(NTOS_KERNEL_RUNTIME)
 
 //
-// Running on kernel stack - compute stack limit from initial kernel stack.
+// Running on kernel stack - get stack limit from thread object
 //
 
-        GET_INITIAL_KERNEL_STACK        // (PALcode) result in v0
+        GET_CURRENT_THREAD              // current thread in v0
+        ldl     t9, ThStackLimit(v0)
 
-        lda     t9, -KERNEL_STACK_SIZE(v0) // compute low limit of kernel stack
-        br      zero, 20f               // finish in common code
-
+#else
 //
 // Running on user stack - get stack limit from thread environment block.
 //
@@ -100,6 +99,7 @@
 10:     GET_THREAD_ENVIRONMENT_BLOCK    // (PALcode) put TEB address in v0
 
         ldl     t9, TeStackLimit(v0)    // get low limit of user stack address
+#endif
 
 //
 // The requested bottom of the stack is in t8.
@@ -109,7 +109,7 @@
 // pages have already been allocated, and nothing further needs to be done.
 //
 
-20:     mov     t10, v0                 // restore v0, no further PAL calls
+        mov     t10, v0                 // restore v0, no further PAL calls
         cmpult  t8, t9, t10             // t8<t9? new stack base within limit?
         beq     t10, 40f                // if eq [false], then t8>=t9, so yes
 

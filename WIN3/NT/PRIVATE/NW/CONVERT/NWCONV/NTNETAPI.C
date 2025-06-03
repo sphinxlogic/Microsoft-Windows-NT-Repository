@@ -1,29 +1,27 @@
-/*
-  +-------------------------------------------------------------------------+
-  |                    NT Specific Network Routines                         |
-  +-------------------------------------------------------------------------+
-  |                     (c) Copyright 1993-1994                             |
-  |                          Microsoft Corp.                                |
-  |                        All rights reserved                              |
-  |                                                                         |
-  | Program               : [NTNetAPI.c]                                    |
-  | Programmer            : Arthur Hanson                                   |
-  | Original Program Date : [Dec 01, 1993                                   |
-  | Last Update           : [Jun 16, 1994]                                  |
-  |                                                                         |
-  | Version:  1.00                                                          |
-  |                                                                         |
-  | Description:                                                            |
-  |                                                                         |
-  | History:                                                                |
-  |   arth  Jun 16, 1994    1.00    Original Version.                       |
-  |                                                                         |
-  +-------------------------------------------------------------------------+
-*/
+/*++
+
+Copyright (c) 1993-1995  Microsoft Corporation
+
+Module Name:
+
+   NTNetaAPI.c
+
+Abstract:
+
+
+Author:
+
+    Arthur Hanson (arth) 16-Jun-1994
+
+Revision History:
+
+--*/
+
 
 #include "globals.h"
 
 #include <ntlsa.h>
+#include <ntsam.h>
 #include <ntddnwfs.h>
 #include <align.h>
 
@@ -32,6 +30,11 @@
 #include "ntnetapi.h"
 #include "nwnetapi.h"
 #include "loghours.h"
+#include "usrprop.h"
+#include "crypt.h"
+// #include <nwstruct.h>
+#include <nwconv.h>
+#include "fpnwapi.h"
 
 #ifdef DEBUG
 int ErrorBoxRetry(LPTSTR szFormat, ...);
@@ -41,7 +44,9 @@ void ErrorIt(LPTSTR szFormat, ...);
 NTSTATUS ACEAdd( PSECURITY_DESCRIPTOR pSD, PSID pSid, ACCESS_MASK AccessMask, ULONG AceFlags, PSECURITY_DESCRIPTOR *ppNewSD );
 
 static LPTSTR LocalName = NULL;
-static TCHAR CachedServer[CNLEN+3]; // +3 for leading slashes and ending NULL
+
+// +3 for leading slashes and ending NULL
+static TCHAR CachedServer[MAX_SERVER_NAME_LEN+3];
 static BOOL LocalMachine = FALSE;
 
 // keep this around so we don't have to keep re-do query
@@ -49,33 +54,797 @@ static LPSERVER_INFO_101 ServInfo = NULL;
 // #define TYPE_DOMAIN SV_TYPE_DOMAIN_CTRL | SV_TYPE_DOMAIN_BAKCTRL | SV_TYPE_DOMAIN_MEMBER
 #define TYPE_DOMAIN SV_TYPE_DOMAIN_CTRL | SV_TYPE_DOMAIN_BAKCTRL
 
-/*+-------------------------------------------------------------------------+
-  | NTServerSet()                                                           |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-DWORD NTServerSet(LPTSTR FileServer) {
+static SAM_HANDLE SAMHandle = (SAM_HANDLE) 0;
+static SAM_HANDLE DomainHandle = (SAM_HANDLE) 0;
+static PSID DomainID;
+static WCHAR UserParms[1024];
+
+#define NCP_LSA_SECRET_KEY     L"G$MNSEncryptionKey"
+#define NCP_LSA_SECRET_LENGTH  USER_SESSION_KEY_LENGTH
+
+static char Secret[USER_SESSION_KEY_LENGTH];
+static HANDLE FPNWLib = NULL;
+static DWORD (FAR * NWVolumeAdd) (LPWSTR, DWORD, PNWVOLUMEINFO) = NULL;
+
+//
+//  This bit is set when the server is running on a NTAS machine or
+//  the object is from a trusted domain.  NWConv is always on NTAS
+//
+
+#define BINDLIB_REMOTE_DOMAIN_BIAS              0x10000000
+
+//
+// misc macros that are useful
+//
+#define SWAPWORD(w)         ((WORD)((w & 0xFF) << 8)|(WORD)(w >> 8))
+#define SWAPLONG(l)         MAKELONG(SWAPWORD(HIWORD(l)),SWAPWORD(LOWORD(l)))
+
+
+typedef struct _NT_CONN_BUFFER {
+   struct _NT_CONN_BUFFER *next;
+   struct _NT_CONN_BUFFER *prev;
+
+   LPTSTR Name;
+} NT_CONN_BUFFER;
+
+static NT_CONN_BUFFER *NTConnListStart = NULL;
+static NT_CONN_BUFFER *NTConnListEnd = NULL;
+
+HANDLE FpnwHandle = NULL;
+static FARPROC pFpnwVolumeEnum = NULL;
+static FARPROC pFpnwApiBufferFree = NULL;
+
+
+/////////////////////////////////////////////////////////////////////////
+LPSTR 
+FPNWSecretGet(
+   LPTSTR ServerName
+   )
+
+/*++
+
+Routine Description:
+
+   Checks the given machine for the FPNW secret.
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
+    SECURITY_QUALITY_OF_SERVICE QualityOfService;
+    OBJECT_ATTRIBUTES           ObjectAttributes;
+    LSA_HANDLE                  PolicyHandle;
+    LSA_HANDLE                  SecretHandle;
+    NTSTATUS                    Status;
+    UNICODE_STRING              UnicodeSecretName;
+    PUNICODE_STRING             punicodeCurrentValue;
+    PUSER_INFO_2                pUserInfo = NULL;
+
+    static TCHAR LocServer[MAX_SERVER_NAME_LEN+3];
+    UNICODE_STRING UnicodeServerName;
+    BOOL ret = TRUE;
+
+    memset(Secret, 0, USER_SESSION_KEY_LENGTH);
+    wsprintf(LocServer, TEXT("\\\\%s"), ServerName);
+
+    //  Verify & init secret name.
+    RtlInitUnicodeString( &UnicodeSecretName, NCP_LSA_SECRET_KEY );
+    RtlInitUnicodeString( &UnicodeServerName, LocServer);
+
+    //  Prepare to open the policy object.
+    QualityOfService.Length              = sizeof(SECURITY_QUALITY_OF_SERVICE);
+    QualityOfService.ImpersonationLevel  = SecurityImpersonation;
+    QualityOfService.ContextTrackingMode = SECURITY_DYNAMIC_TRACKING;
+    QualityOfService.EffectiveOnly       = FALSE;
+
+    InitializeObjectAttributes( &ObjectAttributes, NULL, 0L, NULL, NULL );
+    ObjectAttributes.SecurityQualityOfService = &QualityOfService;
+
+    //  Open a handle to the target machine's LSA policy.
+    Status = LsaOpenPolicy( &UnicodeServerName, &ObjectAttributes, 0, &PolicyHandle );
+
+    if( !NT_SUCCESS( Status ) ) {
+        ret = FALSE;
+        goto FatalExit0;
+    }
+
+    //  Open the secret object.
+    Status = LsaOpenSecret( PolicyHandle, &UnicodeSecretName, SECRET_QUERY_VALUE, &SecretHandle );
+
+    if( !NT_SUCCESS( Status ) ) {
+        ret = FALSE;
+        goto FatalExit1;
+    }
+
+    //  Query the secret.
+    Status = LsaQuerySecret( SecretHandle, &punicodeCurrentValue, NULL, NULL, NULL );
+
+    if( !NT_SUCCESS( Status ) ) {
+        ret = FALSE;
+        goto FatalExit2;
+    }
+
+    if (punicodeCurrentValue != NULL) {
+       memcpy(Secret, punicodeCurrentValue->Buffer, USER_SESSION_KEY_LENGTH);
+       LsaFreeMemory( (PVOID)punicodeCurrentValue );
+    }
+
+FatalExit2:
+    LsaClose( SecretHandle );
+
+FatalExit1:
+    LsaClose( PolicyHandle );
+
+FatalExit0:
+
+    if (ret)
+      return Secret;
+    else
+      return NULL;
+
+} // FPNWSecretGet
+
+
+/////////////////////////////////////////////////////////////////////////
+NTSTATUS 
+SetGraceLoginAllowed(
+   USHORT ushGraceLoginAllowed
+   )
+
+/*++
+
+Routine Description:
+
+    Store Grace Login Allowed in UserParms.
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
+    NTSTATUS err = NERR_Success;
+    USHORT ushTemp = ushGraceLoginAllowed;
+    UNICODE_STRING uniGraceLoginAllowed;
+    LPWSTR  lpNewUserParms = NULL;
+    BOOL fUpdate;
+
+    uniGraceLoginAllowed.Buffer = &ushTemp;
+    uniGraceLoginAllowed.Length = 2;
+    uniGraceLoginAllowed.MaximumLength = 2;
+
+    err = SetUserProperty (UserParms, GRACELOGINALLOWED, uniGraceLoginAllowed, USER_PROPERTY_TYPE_ITEM, &lpNewUserParms, &fUpdate);
+    if ((err == NERR_Success) && (lpNewUserParms != NULL)) {
+       if (fUpdate)
+          lstrcpyW(UserParms, lpNewUserParms);
+
+       LocalFree(lpNewUserParms);
+    }
+
+    return err;
+} // SetGraceLoginAllowed
+
+
+/////////////////////////////////////////////////////////////////////////
+NTSTATUS 
+SetGraceLoginRemainingTimes(
+   USHORT ushGraceLoginRemainingTimes
+   )
+
+/*++
+
+Routine Description:
+
+    Store Grace Login Remaining Times in UserParms. if ushGraceLogin is 0, 
+    "GraceLogin" field will be deleted from UserParms.
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
+    NTSTATUS err = NERR_Success;
+    USHORT ushTemp = ushGraceLoginRemainingTimes;
+    UNICODE_STRING uniGraceLoginRemainingTimes;
+    LPWSTR  lpNewUserParms = NULL;
+    BOOL fUpdate;
+
+    uniGraceLoginRemainingTimes.Buffer = &ushTemp;
+    uniGraceLoginRemainingTimes.Length = 2;
+    uniGraceLoginRemainingTimes.MaximumLength = 2;
+
+    err = SetUserProperty (UserParms, GRACELOGINREMAINING, uniGraceLoginRemainingTimes, USER_PROPERTY_TYPE_ITEM, &lpNewUserParms, &fUpdate);
+    if ((err == NERR_Success) && (lpNewUserParms != NULL)) {
+       if (fUpdate)
+          lstrcpyW(UserParms, lpNewUserParms);
+
+       LocalFree(lpNewUserParms);
+    }
+
+    return err;
+} // SetGraceLoginRemainingTimes
+
+
+/////////////////////////////////////////////////////////////////////////
+NTSTATUS 
+SetMaxConnections(
+   USHORT ushMaxConnections
+   )
+
+/*++
+
+Routine Description:
+
+    Store Maximum Concurret Connections in UserParms.  If ushMaxConnections
+    is 0xffff or 0, "MaxConnections" field will be deleted from UserParms, 
+    otherwise the value is stored.
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
+    NTSTATUS err = NERR_Success;
+    USHORT ushTemp = ushMaxConnections;
+    UNICODE_STRING uniMaxConnections;
+    LPWSTR  lpNewUserParms = NULL;
+    BOOL fUpdate;
+
+    uniMaxConnections.Buffer = &ushMaxConnections;
+    uniMaxConnections.Length = 2;
+    uniMaxConnections.MaximumLength = 2;
+
+    err = SetUserProperty (UserParms, MAXCONNECTIONS, uniMaxConnections, USER_PROPERTY_TYPE_ITEM, &lpNewUserParms, &fUpdate);
+    if ((err == NERR_Success) && (lpNewUserParms != NULL)) {
+       if (fUpdate)
+          lstrcpyW(UserParms, lpNewUserParms);
+
+       LocalFree(lpNewUserParms);
+    }
+
+    return err;
+} // SetMaxConnections
+
+
+/////////////////////////////////////////////////////////////////////////
+NTSTATUS 
+SetNWPasswordAge(
+   BOOL fExpired
+   )
+
+/*++
+
+Routine Description:
+
+    If fExpired is TRUE, set the NWPasswordSet field to be all fs. 
+    otherwise set it to be the current time.
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
+    NTSTATUS err = NERR_Success;
+    LARGE_INTEGER currentTime;
+    LPWSTR  lpNewUserParms = NULL;
+    UNICODE_STRING uniPasswordAge;
+    BOOL fUpdate;
+
+    if (fExpired) {
+        currentTime.HighPart = 0xffffffff;
+        currentTime.LowPart = 0xffffffff;
+    } else
+        NtQuerySystemTime (&currentTime);
+
+    uniPasswordAge.Buffer = (PWCHAR) &currentTime;
+    uniPasswordAge.Length = sizeof (LARGE_INTEGER);
+    uniPasswordAge.MaximumLength = sizeof (LARGE_INTEGER);
+
+    err = SetUserProperty (UserParms, NWTIMEPASSWORDSET, uniPasswordAge, USER_PROPERTY_TYPE_ITEM, &lpNewUserParms, &fUpdate);
+    if ((err == NERR_Success) &&(lpNewUserParms != NULL)) {
+       if (fUpdate)
+          lstrcpyW(UserParms, lpNewUserParms);
+
+       LocalFree(lpNewUserParms);
+    }
+
+    return err;
+} // SetNWPasswordAge
+
+
+/////////////////////////////////////////////////////////////////////////
+NTSTATUS 
+SetNWPassword(
+   DWORD dwUserId, 
+   const TCHAR *pchNWPassword,
+   BOOL ForcePasswordChange
+   )
+
+/*++
+
+Routine Description:
+
+    Set "NWPassword" field is fIsNetWareUser is TRUE, Otherwise, delete 
+    the field from UserParms.
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
+    NTSTATUS err;
+    TCHAR pchEncryptedNWPassword[NWENCRYPTEDPASSWORDLENGTH + 1];
+    LPWSTR  lpNewUserParms = NULL;
+    BOOL fUpdate;
+    UNICODE_STRING uniPassword;
+
+#ifdef DEBUG
+   dprintf(TEXT("Set NetWare password: [%s]\r\n"), pchNWPassword);
+#endif
+
+    do {
+        // Now munge the UserID to the format required by ReturnNetwareForm...
+        dwUserId |= BINDLIB_REMOTE_DOMAIN_BIAS;
+        err = ReturnNetwareForm( Secret, dwUserId, pchNWPassword, (UCHAR *) pchEncryptedNWPassword );
+
+        if ( err != NERR_Success )
+            break;
+
+        uniPassword.Buffer = pchEncryptedNWPassword;
+        uniPassword.Length = NWENCRYPTEDPASSWORDLENGTH * sizeof (WCHAR);
+        uniPassword.MaximumLength = NWENCRYPTEDPASSWORDLENGTH * sizeof (WCHAR);
+
+        err = SetUserProperty (UserParms, NWPASSWORD, uniPassword, USER_PROPERTY_TYPE_ITEM, &lpNewUserParms, &fUpdate);
+        if ((err == NERR_Success) && (lpNewUserParms != NULL)) {
+           if (fUpdate)
+              lstrcpyW(UserParms, lpNewUserParms);
+
+           LocalFree(lpNewUserParms);
+
+           if ((err = SetNWPasswordAge (ForcePasswordChange)) != NERR_Success )
+              break;
+        }
+    } while (FALSE);
+
+    return err;
+} // SetNWPassword
+
+
+/////////////////////////////////////////////////////////////////////////
+NTSTATUS 
+SetNWWorkstations(
+   const TCHAR * pchNWWorkstations
+   )
+
+/*++
+
+Routine Description:
+
+    Store NetWare allowed workstation addresses to UserParms.  If 
+    pchNWWorkstations is NULL, this function will delete "NWLgonFrom" 
+    field from UserParms.
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
+    NTSTATUS err = NERR_Success;
+    UNICODE_STRING uniNWWorkstations;
+    CHAR * pchTemp = NULL;
+    LPWSTR  lpNewUserParms = NULL;
+    BOOL fUpdate;
+
+    if (pchNWWorkstations == NULL) {
+        uniNWWorkstations.Buffer = NULL;
+        uniNWWorkstations.Length =  0;
+        uniNWWorkstations.MaximumLength = 0;
+    } else {
+        BOOL fDummy;
+        INT nStringLength = lstrlen(pchNWWorkstations) + 1;
+        pchTemp = (CHAR *) LocalAlloc (LPTR, nStringLength);
+
+        if ( pchTemp == NULL )
+            err = ERROR_NOT_ENOUGH_MEMORY;
+
+        if ( err == NERR_Success && !WideCharToMultiByte (CP_ACP, 0, pchNWWorkstations, nStringLength, pchTemp, nStringLength, NULL, &fDummy))
+            err = GetLastError();
+
+        if ( err == NERR_Success ) {
+            uniNWWorkstations.Buffer = (WCHAR *) pchTemp;
+            uniNWWorkstations.Length =  nStringLength;
+            uniNWWorkstations.MaximumLength = nStringLength;
+        }
+    }
+
+    err = err? err: SetUserProperty (UserParms, NWLOGONFROM, uniNWWorkstations, USER_PROPERTY_TYPE_ITEM, &lpNewUserParms, &fUpdate);
+
+    if ((err == NERR_Success) && (lpNewUserParms != NULL)) {
+       if (fUpdate)
+          lstrcpyW(UserParms, lpNewUserParms);
+
+       LocalFree(lpNewUserParms);
+    }
+
+    if (pchTemp != NULL)
+        LocalFree (pchTemp);
+
+    return err;
+} // SetNWWorkstations
+
+
+/////////////////////////////////////////////////////////////////////////
+NTSTATUS SetNWHomeDir(
+   const TCHAR * pchNWHomeDir
+   )
+
+/*++
+
+Routine Description:
+
+   Store NetWare Home Directory to UserParms If pchNWWorkstations is NULL, 
+   this function will delete "NWLgonFrom" field from UserParms.
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
+    NTSTATUS err = NERR_Success;
+    UNICODE_STRING uniNWHomeDir;
+    CHAR * pchTemp = NULL;
+    LPWSTR  lpNewUserParms = NULL;
+    BOOL fUpdate;
+
+    if (pchNWHomeDir == NULL) {
+        uniNWHomeDir.Buffer = NULL;
+        uniNWHomeDir.Length =  0;
+        uniNWHomeDir.MaximumLength = 0;
+    } else {
+        BOOL fDummy;
+        INT  nStringLength = lstrlen(pchNWHomeDir) + 1;
+        pchTemp = (CHAR *) LocalAlloc (LPTR, nStringLength);
+
+        if ( pchTemp == NULL )
+            err = ERROR_NOT_ENOUGH_MEMORY;
+
+        if ( err == NERR_Success && !WideCharToMultiByte (CP_ACP, 0, pchNWHomeDir, nStringLength, pchTemp, nStringLength, NULL, &fDummy))
+            err = GetLastError();
+
+        if ( err == NERR_Success ) {
+            uniNWHomeDir.Buffer = (WCHAR *) pchTemp;
+            uniNWHomeDir.Length =  nStringLength;
+            uniNWHomeDir.MaximumLength = nStringLength;
+        }
+    }
+
+    err = err? err : SetUserProperty (UserParms, NWHOMEDIR, uniNWHomeDir, USER_PROPERTY_TYPE_ITEM, &lpNewUserParms, &fUpdate);
+
+    if ((err == NERR_Success) && (lpNewUserParms != NULL)) {
+       if (fUpdate)
+          lstrcpyW(UserParms, lpNewUserParms);
+
+       LocalFree(lpNewUserParms);
+    }
+
+    if (pchTemp != NULL)
+        LocalFree (pchTemp);
+
+    return err;
+} // SetNWHomeDir
+
+
+/////////////////////////////////////////////////////////////////////////
+DWORD 
+NTObjectIDGet(
+   LPTSTR ObjectName 
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
+   NTSTATUS       status;
+   UNICODE_STRING UniNewObjectName;
+   PULONG         pRids = NULL;
+   PSID_NAME_USE  pSidNameUse = NULL;
+   ULONG          ObjectID = 0;
+
+   RtlInitUnicodeString(&UniNewObjectName, ObjectName);
+
+   status = SamLookupNamesInDomain(DomainHandle,
+                1,
+                &UniNewObjectName,
+                &pRids,
+                &pSidNameUse);
+
+   if ((status == STATUS_SUCCESS) && (pRids != NULL) && (pSidNameUse != NULL)) {
+      // Found the stupid name - so copy and free SAM garbage
+      ObjectID = pRids[0];
+      ObjectID |= BINDLIB_REMOTE_DOMAIN_BIAS;
+
+      SamFreeMemory(pRids);
+      SamFreeMemory(pSidNameUse);
+   }
+
+   return ObjectID;
+} // NTObjectIDGet
+
+
+/////////////////////////////////////////////////////////////////////////
+DWORD 
+NTSAMParmsSet(
+   LPTSTR ObjectName, 
+   FPNW_INFO fpnw, 
+   LPTSTR Password,
+   BOOL ForcePasswordChange
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
+   NTSTATUS       status;
+   UNICODE_STRING UniNewObjectName;
+   PULONG         pRids = NULL;
+   PSID_NAME_USE  pSidNameUse = NULL;
+   ULONG          ObjectID;
+   SID_NAME_USE   SidNameUse;
+   SAM_HANDLE     Handle = (SAM_HANDLE) 0;
+   PUSER_PARAMETERS_INFORMATION UserParmInfo = NULL;
+   USER_PARAMETERS_INFORMATION NewUserParmInfo;
+   LPWSTR         lpNewUserParms = NULL;
+
+   RtlInitUnicodeString(&UniNewObjectName, ObjectName);
+
+   status = SamLookupNamesInDomain(DomainHandle,
+                1,
+                &UniNewObjectName,
+                &pRids,
+                &pSidNameUse);
+
+   if ((status == STATUS_SUCCESS) && (pRids != NULL) && (pSidNameUse != NULL)) {
+      // Found the stupid name - so copy and free SAM garbage
+      ObjectID = pRids[0];
+      SidNameUse = pSidNameUse[0];
+
+      SamFreeMemory(pRids);
+      SamFreeMemory(pSidNameUse);
+
+      status = SamOpenUser(DomainHandle,
+                STANDARD_RIGHTS_READ        |
+                STANDARD_RIGHTS_WRITE       |
+                USER_ALL_ACCESS,
+                ObjectID,
+                &Handle);
+
+
+      // Now get the user parms
+      if (status == STATUS_SUCCESS)
+         status = SamQueryInformationUser(Handle, UserParametersInformation, (PVOID *) &UserParmInfo);
+
+      memset(UserParms, 0, sizeof(UserParms));
+      if ((status == STATUS_SUCCESS) && (UserParmInfo != NULL)) {
+         memcpy(UserParms, UserParmInfo->Parameters.Buffer, UserParmInfo->Parameters.Length * sizeof(WCHAR));
+         SamFreeMemory(UserParmInfo);
+
+          if ( 
+               ((status = SetNWPassword (ObjectID, Password, ForcePasswordChange)) == NERR_Success) &&
+               ((status = SetMaxConnections (fpnw.MaxConnections)) == NERR_Success) &&
+               ((status = SetGraceLoginAllowed (fpnw.GraceLoginAllowed)) == NERR_Success) &&
+               ((status = SetGraceLoginRemainingTimes (fpnw.GraceLoginRemaining)) == NERR_Success) &&
+               ((status = SetNWWorkstations (fpnw.LoginFrom)) == NERR_Success) &&
+               ((status = SetNWHomeDir (fpnw.HomeDir)) == NERR_Success) )
+          {
+             RtlInitUnicodeString(&NewUserParmInfo.Parameters, UserParms);
+             status = SamSetInformationUser(Handle, UserParametersInformation, (PVOID) &NewUserParmInfo);
+          }
+
+      }
+   }
+
+   if (Handle != (SAM_HANDLE) 0)
+      SamCloseHandle(Handle);
+
+   return 0;
+} // NTSAMParmsSet
+
+
+/////////////////////////////////////////////////////////////////////////
+DWORD 
+NTSAMConnect(
+   LPTSTR ServerName, 
+   LPTSTR DomainName
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
+   NTSTATUS status;
+   OBJECT_ATTRIBUTES object_attrib;
+   UNICODE_STRING UniDomainName;
+   UNICODE_STRING UniServerName;
+
+   // 
+   // Do all the garbage for connecting to SAM
+   //
+   RtlInitUnicodeString(&UniServerName, ServerName);
+   RtlInitUnicodeString(&UniDomainName, DomainName);
+   InitializeObjectAttributes(&object_attrib, NULL, 0, NULL, NULL);
+   status = SamConnect(&UniServerName, &SAMHandle, SAM_SERVER_ALL_ACCESS, &object_attrib);
+
+   if (status == STATUS_SUCCESS)
+      status = SamLookupDomainInSamServer(SAMHandle, &UniDomainName, &DomainID);
+
+   if (status == STATUS_SUCCESS)
+      status = SamOpenDomain(SAMHandle, DOMAIN_ALL_ACCESS, DomainID, &DomainHandle);
+
+   FPNWSecretGet(ServerName);
+   return (DWORD) status;
+} // NTSAMConnect
+
+
+/////////////////////////////////////////////////////////////////////////
+VOID 
+NTSAMClose()
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
+   if (DomainHandle != (SAM_HANDLE) 0)
+      SamCloseHandle(DomainHandle);
+
+   if (DomainID != (PSID) 0)
+      SamFreeMemory(DomainID);
+
+   if (SAMHandle != (SAM_HANDLE) 0)
+      SamCloseHandle(SAMHandle);
+
+   SAMHandle = (SAM_HANDLE) 0;
+   DomainHandle = (SAM_HANDLE) 0;
+   DomainID = (PSID) 0;
+
+} // NTSAMClose
+
+
+/////////////////////////////////////////////////////////////////////////
+DWORD 
+NTServerSet(
+   LPTSTR ServerName
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
+
    // Fixup the destination server name
    lstrcpy(CachedServer, TEXT("\\\\"));
-   lstrcat(CachedServer, FileServer);
+   lstrcat(CachedServer, ServerName);
 
    if (!LocalName)
       GetLocalName(&LocalName);
 
-   if (lstrcmpi(CachedServer, LocalName) == 0)
+   if (lstrcmpi(ServerName, LocalName) == 0)
       LocalMachine = TRUE;
    else
       LocalMachine = FALSE;
+
+   if (FpnwHandle == NULL)
+      FpnwHandle = LoadLibrary(TEXT("FPNWCLNT.DLL"));
+
+   if ((FpnwHandle != NULL) && (pFpnwVolumeEnum == NULL)) {
+      pFpnwVolumeEnum = GetProcAddress(FpnwHandle, ("FpnwVolumeEnum"));
+      pFpnwApiBufferFree = GetProcAddress(FpnwHandle, ("FpnwApiBufferFree"));
+   }
 
    return (0);
 
 } // NTServerSet
 
 
-/*+-------------------------------------------------------------------------+
-  | NTServerFree()                                                          |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-DWORD NTServerFree() {
+/////////////////////////////////////////////////////////////////////////
+DWORD 
+NTServerFree()
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    LocalMachine = FALSE;
    lstrcpy(CachedServer, TEXT(""));
    return (0);
@@ -83,11 +852,81 @@ DWORD NTServerFree() {
 } // NTServerFree
 
 
-/*+-------------------------------------------------------------------------+
-  | NTShareAdd()                                                            |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-DWORD NTShareAdd(LPTSTR ShareName, LPTSTR Path) {
+/////////////////////////////////////////////////////////////////////////
+DWORD 
+FPNWShareAdd(
+   LPTSTR ShareName, 
+   LPTSTR Path
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
+   NET_API_STATUS Status = 0;
+   NWVOLUMEINFO NWVol;
+
+   if (FPNWLib == NULL)
+      FPNWLib = LoadLibrary(TEXT("FPNWCLNT.DLL"));
+
+   if (FPNWLib == NULL)
+      return 1;
+
+   if (NWVolumeAdd == NULL)
+      NWVolumeAdd = (DWORD (FAR * ) (LPWSTR, DWORD, PNWVOLUMEINFO)) GetProcAddress(FPNWLib, "NwVolumeAdd");
+
+   NWVol.lpVolumeName = AllocMemory((lstrlen(ShareName) + 1) * sizeof(TCHAR));
+   NWVol.lpPath = AllocMemory((lstrlen(Path) + 1) * sizeof(TCHAR));
+   if ((NWVol.lpVolumeName == NULL) || (NWVol.lpPath == NULL))
+      return 1;
+
+   lstrcpy(NWVol.lpVolumeName, ShareName);
+   NWVol.dwType = NWVOL_TYPE_DISKTREE;
+   NWVol.dwMaxUses = NWVOL_MAX_USES_UNLIMITED;
+   NWVol.dwCurrentUses = 0;
+   lstrcpy(NWVol.lpPath, Path);
+
+   if (LocalMachine)
+      Status = NWVolumeAdd(NULL, 1, &NWVol);
+   else
+      Status = NWVolumeAdd(CachedServer, 1, &NWVol);
+
+   return Status;
+
+} // FPNWShareAdd
+
+
+/////////////////////////////////////////////////////////////////////////
+DWORD 
+NTShareAdd(
+   LPTSTR ShareName, 
+   LPTSTR Path
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    NET_API_STATUS Status = 0;
    SHARE_INFO_2 shi2;
    DWORD parmerr;
@@ -99,9 +938,6 @@ DWORD NTShareAdd(LPTSTR ShareName, LPTSTR Path) {
    shi2.shi2_max_uses = (DWORD) 0xffffffff;
    shi2.shi2_path = Path;
 
-   if (!LocalName)
-      GetLocalName(&LocalName);
-
    if (LocalMachine)
       Status = NetShareAdd(NULL, 2, (LPBYTE) &shi2, &parmerr);
    else
@@ -112,11 +948,26 @@ DWORD NTShareAdd(LPTSTR ShareName, LPTSTR Path) {
 } // NTShareAdd
 
 
-/*+-------------------------------------------------------------------------+
-  | NTUsersEnum()                                                           |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-DWORD NTUsersEnum(USER_LIST **lpUserList, DWORD *UserCount) {
+/////////////////////////////////////////////////////////////////////////
+DWORD 
+NTUsersEnum(
+   USER_LIST **lpUserList
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    LPUSER_INFO_0 buffer = NULL;
    NET_API_STATUS Status = 0;
    DWORD prefmaxlength = 0xffffffff;
@@ -125,9 +976,7 @@ DWORD NTUsersEnum(USER_LIST **lpUserList, DWORD *UserCount) {
    DWORD resumehandle = 0;
    DWORD i;
    USER_LIST *UserList = NULL;
-
-   if (!LocalName)
-      GetLocalName(&LocalName);
+   USER_BUFFER *UserBuffer = NULL;
 
    if (LocalMachine)
       Status = NetUserEnum(NULL, 0, 0, (LPBYTE *) &buffer, prefmaxlength, &entriesread, &totalentries, &resumehandle);
@@ -136,36 +985,54 @@ DWORD NTUsersEnum(USER_LIST **lpUserList, DWORD *UserCount) {
 
    if (Status == NO_ERROR) {
 
-      UserList = AllocMemory(sizeof(USER_LIST) * entriesread);
+      UserList = AllocMemory(sizeof(USER_LIST) + (sizeof(USER_BUFFER) * entriesread));
 
       if (!UserList) {
          Status = ERROR_NOT_ENOUGH_MEMORY;
       } else {
+         UserBuffer = UserList->UserBuffer;
 
          for (i = 0; i < entriesread; i++) {
-            lstrcpy(UserList[i].Name, buffer[i].usri0_name);
-            lstrcpy(UserList[i].NewName, buffer[i].usri0_name);
+            lstrcpy(UserBuffer[i].Name, buffer[i].usri0_name);
+            lstrcpy(UserBuffer[i].NewName, buffer[i].usri0_name);
          }
 
-         qsort((void *) UserList, (size_t) entriesread, sizeof(USER_LIST), UserListCompare);
+         qsort((void *) UserBuffer, (size_t) entriesread, sizeof(USER_BUFFER), UserListCompare);
       }
    }
 
-   if (buffer)
+   if (buffer != NULL)
       NetApiBufferFree((LPVOID) buffer);
 
+   if (UserList != NULL)
+      UserList->Count = entriesread;
+
    *lpUserList = UserList;
-   *UserCount = entriesread;
    return Status;
 
 } // NTUsersEnum
 
 
-/*+-------------------------------------------------------------------------+
-  | NTGroupsEnum()                                                          |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-DWORD NTGroupsEnum(GROUP_LIST **lpGroupList, DWORD *GroupCount) {
+/////////////////////////////////////////////////////////////////////////
+DWORD 
+NTGroupsEnum(
+   GROUP_LIST **lpGroupList
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    LPGROUP_INFO_0 buffer = NULL;
    NET_API_STATUS Status = 0;
    DWORD prefmaxlength = 0xffffffff;
@@ -174,9 +1041,7 @@ DWORD NTGroupsEnum(GROUP_LIST **lpGroupList, DWORD *GroupCount) {
    DWORD resumehandle = 0;
    DWORD i;
    GROUP_LIST *GroupList = NULL;
-
-   if (!LocalName)
-      GetLocalName(&LocalName);
+   GROUP_BUFFER *GroupBuffer = NULL;
 
    if (LocalMachine)
       Status = NetGroupEnum(NULL, 0, (LPBYTE *) &buffer, prefmaxlength, &entriesread, &totalentries, &resumehandle);
@@ -185,36 +1050,53 @@ DWORD NTGroupsEnum(GROUP_LIST **lpGroupList, DWORD *GroupCount) {
 
    if (Status == NO_ERROR) {
 
-      GroupList = AllocMemory(sizeof(GROUP_LIST) * entriesread);
+      GroupList = AllocMemory(sizeof(GROUP_LIST) + (sizeof(GROUP_BUFFER) * entriesread));
 
       if (!GroupList) {
          Status = ERROR_NOT_ENOUGH_MEMORY;
       } else {
+         GroupBuffer = GroupList->GroupBuffer;
 
          for (i = 0; i < entriesread; i++) {
-            lstrcpy(GroupList[i].Name, buffer[i].grpi0_name);
-            lstrcpy(GroupList[i].NewName, buffer[i].grpi0_name);
+            lstrcpy(GroupBuffer[i].Name, buffer[i].grpi0_name);
+            lstrcpy(GroupBuffer[i].NewName, buffer[i].grpi0_name);
          }
       }
    }
 
-   if (buffer)
+   if (buffer != NULL)
       NetApiBufferFree((LPVOID) buffer);
 
+   if (GroupList != NULL)
+      GroupList->Count = entriesread;
+
    *lpGroupList = GroupList;
-   *GroupCount = entriesread;
    return Status;
 
 } // NTGroupsEnum
 
 
-/*+-------------------------------------------------------------------------+
-  | NTDomainEnum()                                                          |
-  |                                                                         |
-  |    Enumerates all NT servers in a given domain.                         |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-DWORD NTDomainEnum(SERVER_BROWSE_LIST **lpServList) {
+/////////////////////////////////////////////////////////////////////////
+DWORD 
+NTDomainEnum(
+   SERVER_BROWSE_LIST **lpServList
+   )
+
+/*++
+
+Routine Description:
+
+    Enumerates all NT servers in a given domain.
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    LPSERVER_INFO_101 buffer = NULL;
    NET_API_STATUS Status = 0;
    DWORD prefmaxlength = 0xffffffff;
@@ -247,7 +1129,7 @@ DWORD NTDomainEnum(SERVER_BROWSE_LIST **lpServList) {
       }
    }
 
-   if (buffer)
+   if (buffer != NULL)
       NetApiBufferFree((LPVOID) buffer);
 
    *lpServList = ServList;
@@ -256,13 +1138,28 @@ DWORD NTDomainEnum(SERVER_BROWSE_LIST **lpServList) {
 } // NTDomainEnum
 
 
-/*+-------------------------------------------------------------------------+
-  | NTServerEnum()                                                          |
-  |                                                                         |
-  |    Enumerates all NT servers in a given domain.                         |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-DWORD NTServerEnum(LPTSTR szContainer, SERVER_BROWSE_LIST **lpServList) {
+/////////////////////////////////////////////////////////////////////////
+DWORD 
+NTServerEnum(
+   LPTSTR szContainer, 
+   SERVER_BROWSE_LIST **lpServList
+   )
+
+/*++
+
+Routine Description:
+
+    Enumerates all NT servers in a given domain.
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    LPSERVER_INFO_101 buffer = NULL;
    NET_API_STATUS Status = 0;
    DWORD prefmaxlength = 0xffffffff;
@@ -301,7 +1198,7 @@ DWORD NTServerEnum(LPTSTR szContainer, SERVER_BROWSE_LIST **lpServList) {
       }
    }
 
-   if (buffer)
+   if (buffer != NULL)
       NetApiBufferFree((LPVOID) buffer);
 
    *lpServList = ServList;
@@ -310,11 +1207,26 @@ DWORD NTServerEnum(LPTSTR szContainer, SERVER_BROWSE_LIST **lpServList) {
 } // NTServerEnum
 
 
-/*+-------------------------------------------------------------------------+
-  | NTShareNameValidate()                                                   |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-BOOL NTShareNameValidate(LPTSTR szShareName) {
+/////////////////////////////////////////////////////////////////////////
+BOOL 
+NTShareNameValidate(
+   LPTSTR szShareName
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    TCHAR *ptr = szShareName;
    BOOL ret;
 
@@ -339,11 +1251,27 @@ BOOL NTShareNameValidate(LPTSTR szShareName) {
 } // NTShareNameValidate
 
 
-/*+-------------------------------------------------------------------------+
-  | NTSharesEnum()                                                          |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-DWORD NTSharesEnum(SHARE_LIST **lpShares, DRIVE_LIST *Drives) {
+/////////////////////////////////////////////////////////////////////////
+DWORD 
+NTSharesEnum(
+   SHARE_LIST **lpShares, 
+   DRIVE_LIST *Drives
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    LPSHARE_INFO_2 buffer = NULL;
    NET_API_STATUS Status = 0;
    DWORD prefmaxlength = 0xffffffff;
@@ -357,9 +1285,8 @@ DWORD NTSharesEnum(SHARE_LIST **lpShares, DRIVE_LIST *Drives) {
    DRIVE_BUFFER *DList;
    ULONG TotalDrives;
    TCHAR Drive[2];
-
-   if (!LocalName)
-      GetLocalName(&LocalName);
+   PFPNWVOLUMEINFO VolumeInfo, VolumeEntry;
+   BOOL Found;
 
    if (LocalMachine)
       Status = NetShareEnum(NULL, 2, (LPBYTE *) &buffer, prefmaxlength, &entriesread, &totalentries, &resumehandle);
@@ -411,7 +1338,70 @@ DWORD NTSharesEnum(SHARE_LIST **lpShares, DRIVE_LIST *Drives) {
       }
    }
 
-   if (buffer)
+   //
+   // Now loop through any FPNW shares and tack those on as well
+   //
+   VolumeInfo = NULL;
+   resumehandle = entriesread = 0;
+
+   if (pFpnwVolumeEnum != NULL)
+      if (LocalMachine)
+         Status = (*pFpnwVolumeEnum) ( NULL, 1, (LPBYTE *)&VolumeInfo, &entriesread, &resumehandle );
+      else
+         Status = (*pFpnwVolumeEnum) ( CachedServer, 1, (LPBYTE *)&VolumeInfo, &entriesread, &resumehandle );
+
+#if DBG
+dprintf(TEXT("Status: 0x%lX Entries: %lu\n"), Status, entriesread);
+#endif
+   if ( !Status && entriesread ) {
+
+      if (ShareList)
+         ShareList = ReallocMemory(ShareList, sizeof(SHARE_LIST) + (sizeof(SHARE_BUFFER) * (ActualEntries + entriesread)));
+      else
+         ShareList = AllocMemory(sizeof(SHARE_LIST) + (sizeof(SHARE_BUFFER) * entriesread));
+
+      if (!ShareList) {
+         Status = ERROR_NOT_ENOUGH_MEMORY;
+      } else {
+         SList = (SHARE_BUFFER *) &ShareList->SList; // reset pointer...    
+
+         // loop through copying the data
+         for (i = 0; i < entriesread; i++) {
+            //
+            // Make sure not in NT Share list already
+            //
+            Found = FALSE;
+
+            for (di = 0; di < ShareList->Count; di++)
+                if (!lstrcmpi(SList[di].Name, VolumeInfo[i].lpVolumeName))
+                    Found = TRUE;
+
+            if ((!Found) && (VolumeInfo[i].dwType == FPNWVOL_TYPE_DISKTREE) ) {
+               lstrcpy(SList[ActualEntries].Name, VolumeInfo[i].lpVolumeName);
+               lstrcpy(SList[ActualEntries].Path, VolumeInfo[i].lpPath);
+               SList[ActualEntries].Index = (USHORT) ActualEntries;
+
+               // Scan drive list looking for match to share path
+               for (di = 0; di < TotalDrives; di++) {
+                  // Get first char from path - should be drive letter
+                  Drive[0] = *VolumeInfo[i].lpPath;
+                  if (!lstrcmpi(Drive, DList[di].Drive))
+                     SList[ActualEntries].Drive = &DList[di];
+               }
+
+               ActualEntries++;
+            }
+         }
+      }
+   }
+
+   if (ShareList)
+      ShareList->Count = ActualEntries;
+
+   if (VolumeInfo && (pFpnwApiBufferFree != NULL))
+      (*pFpnwApiBufferFree) ( VolumeInfo );
+
+   if (buffer != NULL)
       NetApiBufferFree((LPVOID) buffer);
 
    *lpShares = ShareList;
@@ -419,19 +1409,31 @@ DWORD NTSharesEnum(SHARE_LIST **lpShares, DRIVE_LIST *Drives) {
 } // NTSharesEnum
 
 
-/*+-------------------------------------------------------------------------+
-  | NTGroupSave()                                                           |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-DWORD NTGroupSave(LPTSTR Name) {
+/////////////////////////////////////////////////////////////////////////
+DWORD 
+NTGroupSave(
+   LPTSTR Name
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    static NET_API_STATUS Status = 0;
    GROUP_INFO_0 grpi0;
    DWORD err;
 
    grpi0.grpi0_name = Name;
-
-   if (!LocalName)
-      GetLocalName(&LocalName);
 
    if (LocalMachine)
       Status = NetGroupAdd(NULL, 0, (LPBYTE) &grpi0, &err);
@@ -443,16 +1445,30 @@ DWORD NTGroupSave(LPTSTR Name) {
 } // NTGroupSave
 
 
-/*+-------------------------------------------------------------------------+
-  | NTGroupUserAdd()                                                        |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-DWORD NTGroupUserAdd(LPTSTR GroupName, LPTSTR UserName, BOOL Local) {
+/////////////////////////////////////////////////////////////////////////
+DWORD 
+NTGroupUserAdd(
+   LPTSTR GroupName, 
+   LPTSTR UserName, 
+   BOOL Local
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    NET_API_STATUS Status = 0;
    SID *pUserSID = NULL;
-
-   if (!LocalName)
-      GetLocalName(&LocalName);
 
    if (LocalMachine)
       if (Local) {
@@ -482,11 +1498,27 @@ DWORD NTGroupUserAdd(LPTSTR GroupName, LPTSTR UserName, BOOL Local) {
 } // NTGroupUserAdd
 
 
-/*+-------------------------------------------------------------------------+
-  | NTUserInfoSave()                                                        |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-DWORD NTUserInfoSave(NT_USER_INFO *NT_UInfo) {
+/////////////////////////////////////////////////////////////////////////
+DWORD 
+NTUserInfoSave(
+   NT_USER_INFO *NT_UInfo, 
+   PFPNW_INFO fpnw
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    static NET_API_STATUS Status = 0;
    struct _USER_INFO_3 *usri3;
    DWORD err;
@@ -496,13 +1528,14 @@ DWORD NTUserInfoSave(NT_USER_INFO *NT_UInfo) {
    // Map logon hours to GMT time - as NetAPI re-fixes it
    NetpRotateLogonHours(NT_UInfo->logon_hours, UNITS_PER_WEEK, TRUE);
 
-   if (!LocalName)
-      GetLocalName(&LocalName);
-
    if (LocalMachine)
       Status = NetUserAdd(NULL, 3, (LPBYTE)  usri3, &err);
    else
       Status = NetUserAdd(CachedServer, 3, (LPBYTE)  usri3, &err);
+
+   if ((!Status) && (fpnw != NULL)) {
+      // Need to get user info via LSA call before calling setuserparms
+   }
 
    return Status;
 
@@ -510,11 +1543,27 @@ DWORD NTUserInfoSave(NT_USER_INFO *NT_UInfo) {
 
 
 #define NEW_NULL_PASSWD TEXT("               ")
-/*+-------------------------------------------------------------------------+
-  | NTUserInfoSet()                                                         |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-DWORD NTUserInfoSet(NT_USER_INFO *NT_UInfo) {
+/////////////////////////////////////////////////////////////////////////
+DWORD 
+NTUserInfoSet(
+   NT_USER_INFO *NT_UInfo, 
+   PFPNW_INFO fpnw
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    LPWSTR Password;
    LPWSTR Name;
    static NET_API_STATUS Status = 0;
@@ -531,13 +1580,13 @@ DWORD NTUserInfoSet(NT_USER_INFO *NT_UInfo) {
    // Map logon hours to GMT time - as NetAPI re-fixes it
    NetpRotateLogonHours(NT_UInfo->logon_hours, UNITS_PER_WEEK, TRUE);
 
-   if (!LocalName)
-      GetLocalName(&LocalName);
-
    if (LocalMachine)
       Status = NetUserSetInfo(NULL,  Name, 3, (LPBYTE) usri3, &err);
    else
       Status = NetUserSetInfo(CachedServer, Name, 3, (LPBYTE) usri3, &err);
+
+   if ((!Status) && (fpnw != NULL)) {
+   }
 
    // Reset the password in our data structure.
    NT_UInfo->password = Password;
@@ -546,23 +1595,38 @@ DWORD NTUserInfoSet(NT_USER_INFO *NT_UInfo) {
 } // NTUserInfoSet
 
 
-/*+-------------------------------------------------------------------------+
-  | NTUserRecInit()                                                         |
-  |                                                                         |
-  |    Initializes a user record, uses static variables for string holders  |
-  |    so is not re-entrant, and will overwrite previous records data if    |
-  |    called again.                                                        |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void NTUserRecInit(LPTSTR UserName, NT_USER_INFO *NT_UInfo) {
-   static TCHAR uname[UNLEN+1];
+/////////////////////////////////////////////////////////////////////////
+VOID 
+NTUserRecInit(
+   LPTSTR UserName, 
+   NT_USER_INFO *NT_UInfo
+   )
+
+/*++
+
+Routine Description:
+
+    Initializes a user record, uses static variables for string holders
+    so is not re-entrant, and will overwrite previous records data if
+    called again.
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
+   static TCHAR uname[UNLEN + 1];
    static TCHAR upassword[ENCRYPTED_PWLEN];
-   static TCHAR uhomedir[PATHLEN+1];
-   static TCHAR ucomment[MAXCOMMENTSZ+1];
-   static TCHAR uscriptpath[PATHLEN+1];
-   static TCHAR ufullname[MAXCOMMENTSZ+1];
-   static TCHAR uucomment[MAXCOMMENTSZ+1];
-   static TCHAR uparms[MAXCOMMENTSZ+1];
+   static TCHAR uhomedir[PATHLEN + 1];
+   static TCHAR ucomment[MAXCOMMENTSZ + 1];
+   static TCHAR uscriptpath[PATHLEN + 1];
+   static TCHAR ufullname[MAXCOMMENTSZ + 1];
+   static TCHAR uucomment[MAXCOMMENTSZ + 1];
+   static TCHAR uparms[MAXCOMMENTSZ + 1];
    static TCHAR uworkstations[1];
    static BYTE ulogonhours[21];
    static TCHAR ulogonserver[1];
@@ -614,15 +1678,27 @@ void NTUserRecInit(LPTSTR UserName, NT_USER_INFO *NT_UInfo) {
 }  // NTUserRecInit
 
 
-/*+-------------------------------------------------------------------------+
-  | NTDriveShare()                                                          |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-LPTSTR NTDriveShare(LPTSTR DriveLetter) {
-   static TCHAR RootPath[CNLEN+3];
+/////////////////////////////////////////////////////////////////////////
+LPTSTR 
+NTDriveShare(
+   LPTSTR DriveLetter
+   )
 
-   if (!LocalName)
-      GetLocalName(&LocalName);
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
+   static TCHAR RootPath[MAX_SERVER_NAME_LEN + 3];
 
    if (LocalMachine)
       wsprintf(RootPath, TEXT("%s:\\"), DriveLetter);
@@ -634,43 +1710,104 @@ LPTSTR NTDriveShare(LPTSTR DriveLetter) {
 } // NTDriveShare
 
 
-/*+-------------------------------------------------------------------------+
-  | NTDriveInfoSet()                                                        |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void NTDriveInfoSet(DRIVE_BUFFER *DBuff) {
+/////////////////////////////////////////////////////////////////////////
+VOID 
+NTDriveInfoGet(
+   DRIVE_BUFFER *DBuff
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    DWORD volMaxCompLength, volFileSystemFlags;
    DWORD sectorsPC, bytesPS, FreeClusters, Clusters;
    TCHAR NameBuffer[20];
    TCHAR volName[20];
    LPTSTR RootPath;
+   UINT  previousErrorMode;
+
+   //
+   // Disable DriveAccess Error, because no media is inserted onto specified drive.
+   //
+   previousErrorMode = SetErrorMode(SEM_FAILCRITICALERRORS|
+                                    SEM_NOOPENFILEERRORBOX);
 
    volMaxCompLength = volFileSystemFlags = 0;
-   sectorsPC = bytesPS = FreeClusters = Clusters;
+   sectorsPC = bytesPS = FreeClusters = Clusters = 0;
 
    // First get file system type
    RootPath = NTDriveShare(DBuff->Drive);
    if (GetVolumeInformation(RootPath, volName, sizeof(volName), NULL, &volMaxCompLength, &volFileSystemFlags, NameBuffer, sizeof(NameBuffer))) {
-      lstrcpyn(DBuff->DriveType, NameBuffer, sizeof(DBuff->DriveType)-1);
+      if (GetDriveType(RootPath) == DRIVE_CDROM)
+         lstrcpy(DBuff->DriveType, Lids(IDS_S_49));
+      else
+         lstrcpyn(DBuff->DriveType, NameBuffer, sizeof(DBuff->DriveType)-1);
+
       lstrcpyn(DBuff->Name, volName, sizeof(DBuff->Name)-1);
 
       if (!lstrcmpi(NameBuffer, Lids(IDS_S_9)))
          DBuff->Type = DRIVE_TYPE_NTFS;
+   }
+   else {
+       if (GetDriveType(RootPath) == DRIVE_CDROM)
+          lstrcpy(DBuff->DriveType, Lids(IDS_S_49));
+       else
+          lstrcpy(DBuff->DriveType, TEXT("\0"));
+  
+       lstrcpy(DBuff->Name, TEXT("\0"));
+
+       if (!lstrcmpi(NameBuffer, Lids(IDS_S_9)))
+          DBuff->Type = DRIVE_TYPE_NTFS;
    }
 
    if (GetDiskFreeSpace(RootPath, &sectorsPC, &bytesPS, &FreeClusters, &Clusters)) {
       DBuff->TotalSpace = Clusters * sectorsPC * bytesPS;
       DBuff->FreeSpace = FreeClusters * sectorsPC * bytesPS;
    }
+   else {
+      DBuff->TotalSpace = 0;
+      DBuff->FreeSpace = 0;
+   }
 
-} // NTDriveInfoSet
+   //
+   // Back to original error mode.
+   //
+   SetErrorMode(previousErrorMode);
+
+} // NTDriveInfoGet
 
 
-/*+-------------------------------------------------------------------------+
-  | NTDriveValidate()                                                       |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-BOOL NTDriveValidate(TCHAR DriveLetter) {
+/////////////////////////////////////////////////////////////////////////
+BOOL 
+NTDriveValidate(
+   TCHAR DriveLetter
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    BOOL ret = FALSE;
 
    // Just make sure it isn't one of the two floppys
@@ -682,11 +1819,26 @@ BOOL NTDriveValidate(TCHAR DriveLetter) {
 } // NTDriveValidate
 
 
-/*+-------------------------------------------------------------------------+
-  | NTDrivesEnum()                                                          |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void NTDrivesEnum(DRIVE_LIST **lpDrives) {
+/////////////////////////////////////////////////////////////////////////
+VOID 
+NTDrivesEnum(
+   DRIVE_LIST **lpDrives
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    TCHAR *buffer = NULL;
    NET_API_STATUS Status = 0;
    DWORD entriesread, totalentries, resumehandle, actualentries, i;
@@ -694,9 +1846,6 @@ void NTDrivesEnum(DRIVE_LIST **lpDrives) {
    DRIVE_BUFFER *DList;
 
    entriesread = totalentries = resumehandle = actualentries = 0;
-
-   if (!LocalName)
-      GetLocalName(&LocalName);
 
    if (LocalMachine)
       Status = NetServerDiskEnum(NULL, 0, (LPBYTE *) &buffer, 0xFFFFFFFF, &entriesread, &totalentries, &resumehandle);
@@ -725,13 +1874,13 @@ void NTDrivesEnum(DRIVE_LIST **lpDrives) {
          for (i = 0; i < entriesread; i++)
             if (NTDriveValidate(buffer[i * 3])) {
                DList[actualentries].Drive[0] = buffer[i * 3];
-               NTDriveInfoSet(&DList[actualentries]);
+               NTDriveInfoGet(&DList[actualentries]);
                actualentries++;
             }
       }
    }
 
-   if (buffer)
+   if (buffer != NULL)
       NetApiBufferFree((LPVOID) buffer);
 
    *lpDrives = DriveList;
@@ -740,15 +1889,30 @@ void NTDrivesEnum(DRIVE_LIST **lpDrives) {
 } // NTDrivesEnum
 
 
-/*+-------------------------------------------------------------------------+
-  | NTServerGetInfo()                                                       |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void NTServerGetInfo(LPTSTR ServerName) {
-   TCHAR LocServer[CNLEN+3];
+/////////////////////////////////////////////////////////////////////////
+VOID 
+NTServerGetInfo(
+   LPTSTR ServerName
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
+   TCHAR LocServer[MAX_SERVER_NAME_LEN + 3];
    NET_API_STATUS Status = 0;
 
-   if (ServInfo)
+   if (ServInfo != NULL)
       NetApiBufferFree((LPVOID) ServInfo);
 
    ServInfo = NULL;
@@ -758,7 +1922,7 @@ void NTServerGetInfo(LPTSTR ServerName) {
    if (!LocalName)
       GetLocalName(&LocalName);
 
-   if (lstrcmpi(LocServer, LocalName) == 0)
+   if (lstrcmpi(ServerName, LocalName) == 0)
       Status = NetServerGetInfo(NULL, 101, (LPBYTE *) &ServInfo);
    else
       Status = NetServerGetInfo(LocServer, 101, (LPBYTE *) &ServInfo);
@@ -771,21 +1935,26 @@ void NTServerGetInfo(LPTSTR ServerName) {
 } // NTServerGetInfo
 
 
-typedef struct _NT_CONN_BUFFER {
-   struct _NT_CONN_BUFFER *next;
-   struct _NT_CONN_BUFFER *prev;
+/////////////////////////////////////////////////////////////////////////
+NT_CONN_BUFFER *
+NTConnListFind(
+   LPTSTR ServerName
+   )
 
-   LPTSTR Name;
-} NT_CONN_BUFFER;
+/*++
 
-static NT_CONN_BUFFER *NTConnListStart = NULL;
-static NT_CONN_BUFFER *NTConnListEnd = NULL;
+Routine Description:
 
-/*+-------------------------------------------------------------------------+
-  | NTConnListFind()                                                        |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-NT_CONN_BUFFER *NTConnListFind(LPTSTR ServerName) {
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    BOOL Found = FALSE;
    static NT_CONN_BUFFER *ServList;
 
@@ -806,11 +1975,26 @@ NT_CONN_BUFFER *NTConnListFind(LPTSTR ServerName) {
 } // NTConnListFind
 
 
-/*+-------------------------------------------------------------------------+
-  | NTConnListAdd()                                                         |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-NT_CONN_BUFFER *NTConnListAdd(LPTSTR ServerName) {
+/////////////////////////////////////////////////////////////////////////
+NT_CONN_BUFFER *
+NTConnListAdd(
+   LPTSTR ServerName
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    static NT_CONN_BUFFER *tmpPtr;
    ULONG Size, strlen1;
 
@@ -840,11 +2024,26 @@ NT_CONN_BUFFER *NTConnListAdd(LPTSTR ServerName) {
 } // NTConnListAdd
 
 
-/*+-------------------------------------------------------------------------+
-  | NTConnListDelete()                                                      |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void NTConnListDelete(NT_CONN_BUFFER *tmpPtr) {
+/////////////////////////////////////////////////////////////////////////
+VOID 
+NTConnListDelete(
+   NT_CONN_BUFFER *tmpPtr
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    NT_CONN_BUFFER *PrevPtr;
    NT_CONN_BUFFER *NextPtr;
 
@@ -874,12 +2073,25 @@ void NTConnListDelete(NT_CONN_BUFFER *tmpPtr) {
 }  // NTConnListDelete
 
 
-/*+-------------------------------------------------------------------------+
-  | NTConnListDeleteAll()                                                   |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void NTConnListDeleteAll() {
-   static TCHAR LocServer[CNLEN+3];
+/////////////////////////////////////////////////////////////////////////
+VOID 
+NTConnListDeleteAll()
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
+   static TCHAR LocServer[MAX_SERVER_NAME_LEN + 3];
    NT_CONN_BUFFER *ServList;
    NT_CONN_BUFFER *ServListNext;
 
@@ -899,12 +2111,27 @@ void NTConnListDeleteAll() {
 } // NTConnListDeleteAll
 
 
-/*+-------------------------------------------------------------------------+
-  | NTUseDel()                                                              |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void NTUseDel(LPTSTR ServerName) {
-   static TCHAR LocServer[CNLEN+3];
+/////////////////////////////////////////////////////////////////////////
+VOID 
+NTUseDel(
+   LPTSTR ServerName
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
+   static TCHAR LocServer[MAX_SERVER_NAME_LEN + 3];
    NT_CONN_BUFFER *NTConn;
 
    // Find it in our connection list - if it exists get rid of it.
@@ -919,117 +2146,203 @@ void NTUseDel(LPTSTR ServerName) {
 } // NTUseDel
 
 
-/*+-------------------------------------------------------------------------+
-  | NTServerValidate()                                                      |
-  |                                                                         |
-  |    Validates a given server - makes sure it can be connected to and     |
-  |    that the user has admin privs on it.                                 |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-BOOL NTServerValidate(HWND hWnd, LPTSTR ServerName) {
+/////////////////////////////////////////////////////////////////////////
+BOOL 
+NTServerValidate(
+   HWND hWnd, 
+   LPTSTR ServerName
+   )
+
+/*++
+
+Routine Description:
+
+    Validates a given server - makes sure it can be connected to and
+    that the user has admin privs on it.
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    BOOL ret = FALSE;
-   NT_CONN_BUFFER *NTConn = NULL;
-   LPUSER_INFO_1 buffer = NULL;
+   DWORD idsErr = 0;
+   DWORD lastErr = 0;
    DWORD Size;
    NET_API_STATUS Status;
+   LPUSER_INFO_1 UserInfo1 = NULL;
    TCHAR UserName[MAX_NT_USER_NAME_LEN + 1];
-   TCHAR ServName[CNLEN+3];   // +3 for leading slashes and ending NULL
-   LPVOID lpMessageBuffer;
+   TCHAR ServName[MAX_SERVER_NAME_LEN + 3];   // +3 for leading slashes and ending NULL
+   LPVOID lpMessageBuffer = NULL;
 
-   CursorHourGlass();
    NTServerSet(ServerName);
 
-   // find it in our connection list - if it;s there then just return success
-   NTConn = NTConnListFind(ServerName);
+   // server already connected then return success
+   if (NTConnListFind(ServerName)) {
+      return TRUE;
+   }
 
-   if (NTConn == NULL) {
-      // Get Current Logged On User
-      lstrcpy(UserName, TEXT(""));
-      Size = sizeof(UserName);
-      WNetGetUser(NULL, UserName, &Size);
+   CursorHourGlass();
 
-      // Fixup the destination server name
-      lstrcpy(ServName, TEXT( "\\\\" ));
-      lstrcat(ServName, ServerName);
+   // Get Current Logged On User
+   lstrcpy(UserName, TEXT(""));
+   Size = sizeof(UserName);
+   WNetGetUser(NULL, UserName, &Size);
 
-      // Make an ADMIN$ connection to the server
-      if (UseAddPswd(hWnd, UserName, ServName, Lids(IDS_S_11))) {
+   // Fixup the destination server name
+   lstrcpy(ServName, TEXT( "\\\\" ));
+   lstrcat(ServName, ServerName);
 
-         // Double check we have admin privs
-         // Get connection to the system and check for admin privs...
-         Status = NetUserGetInfo(ServName, UserName, 1, (LPBYTE *) &buffer);
+   // Make an ADMIN$ connection to the server
+   if (UseAddPswd(hWnd, UserName, ServName, Lids(IDS_S_11), NT_PROVIDER)) {
 
-         if (Status) {
-            if (Status != ERROR_ACCESS_DENIED)
-               if (GetLastError() != 0)
-                  WarningError(Lids(IDS_E_5), ServerName);
-            else
-               if (GetLastError() != 0)
-                  WarningError(Lids(IDS_E_6), ServerName);
-         } else {
-            // Got User info, now make sure admin flag is set
-            if (!(buffer->usri1_priv & USER_PRIV_ADMIN)) {
-               WarningError(Lids(IDS_E_6), ServerName);
-               goto NTServerValidateRet;
-            }
+      // Double check we have admin privs
+      // Get connection to the system and check for admin privs...
+      Status = NetUserGetInfo(ServName, UserName, 1, (LPBYTE *) &UserInfo1);
 
-            // Now get server info and make certain this is an NT server
-            // instead of an LM type server.  Note:  Info from the call is
-            // cached and used later, so don't remove it!!
-            NTServerGetInfo(ServerName);
+      if (Status == ERROR_SUCCESS) {
 
-            if (ServInfo == NULL) {
-               WarningError(Lids(IDS_E_7), ServerName);
-               goto NTServerValidateRet;
-            }
-
-            if (ServInfo->sv101_platform_id != SV_PLATFORM_ID_NT) {
-               WarningError(Lids(IDS_E_8), ServerName);
-               goto NTServerValidateRet;
-            }
-
-            if (!(ServInfo->sv101_type & (TYPE_DOMAIN))) {
-               WarningError(Lids(IDS_E_8), ServerName);
-               goto NTServerValidateRet;
-            }
-
-            // If NTAS and have admin privs then we are set - add it to our
-            // connection list then return.
-            NTConnListAdd(ServerName);
-            ret = TRUE;
+         // Got User info, now make sure admin flag is set
+         if (!(UserInfo1->usri1_priv & USER_PRIV_ADMIN)) {
+            idsErr = IDS_E_6;
+            goto cleanup;
          }
 
-         if (buffer)
-            NetApiBufferFree((LPVOID) buffer);
+         // We may have a connection to admin$ and we may have proven
+         // that the user we made the connection with really is an admin
+         // but sitting at the local machine we still may have a problem
+         // acquiring all of the administrative information necessary to
+         // accomplish a successful conversion. each and every one of the
+         // functions that make network calls should return errors and if
+         // that were the case then the errors would propagate up and we
+         // could deal with the access denial reasonably.  unfortunately,
+         // alot of assumptions are made after the success of this call
+         // so we must perform yet another test here...
+         if (LocalMachine) {
+
+            DWORD EntriesRead = 0;
+            DWORD TotalEntries = 0;
+            LPSHARE_INFO_2 ShareInfo2 = NULL;
+
+            Status = NetShareEnum(
+                        ServName,
+                        2,
+                        (LPBYTE *) &ShareInfo2,
+                        MAX_PREFERRED_LENGTH,
+                        &EntriesRead,
+                        &TotalEntries,
+                        NULL
+                        );
+
+            if (ShareInfo2 != NULL)
+               NetApiBufferFree((LPVOID) ShareInfo2); // discarded...
+
+            if (Status != ERROR_SUCCESS) {
+               idsErr = (Status == ERROR_ACCESS_DENIED) ? IDS_E_6 : IDS_E_5;
+               goto cleanup;
+            }
+         }
+
+         // Now get server info and make certain this is an NT server
+         // instead of an LM type server.  Note:  Info from the call is
+         // cached and used later, so don't remove it!!
+         NTServerGetInfo(ServerName);
+
+         if (ServInfo) {
+
+            if (ServInfo->sv101_platform_id == SV_PLATFORM_ID_NT) {
+
+               if (ServInfo->sv101_type & (TYPE_DOMAIN)) {
+
+                  // If NTAS and have admin privs then we are set
+                  // then add it to our connection list...
+                  NTConnListAdd(ServerName);
+                  ret = TRUE;
+
+               } else {
+                  idsErr = IDS_E_8;
+               }
+
+            } else {
+               idsErr = IDS_E_8;
+            }
+
+         } else {
+            idsErr = IDS_E_7;
+         }
 
       } else {
-         FormatMessage( FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM,
-                        NULL, GetLastError(), MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US),
-                        (LPTSTR) &lpMessageBuffer, 0, NULL );
 
-         if (GetLastError() != 0)
-            WarningError(Lids(IDS_E_9), ServerName, lpMessageBuffer);
-
-         LocalFree(lpMessageBuffer);
+         // determine error string id and bail out...
+         idsErr = (Status == ERROR_ACCESS_DENIED) ? IDS_E_6 : IDS_E_5;
       }
-   } else
-      ret = TRUE;
 
-NTServerValidateRet:
+   } else if (lastErr = GetLastError()) {
+
+      // error string id
+      idsErr = IDS_E_9;
+
+      // use system default language resource
+      FormatMessage(
+         FORMAT_MESSAGE_ALLOCATE_BUFFER |
+         FORMAT_MESSAGE_FROM_SYSTEM,
+         NULL,
+         lastErr,
+         0,
+         (LPTSTR)&lpMessageBuffer,
+         0,
+         NULL
+         );
+
+   }
+
+cleanup:
+
+   if (lpMessageBuffer) {
+      WarningError(Lids((WORD)(DWORD)idsErr), ServerName, lpMessageBuffer);
+      LocalFree(lpMessageBuffer);
+   } else if (idsErr) {
+      WarningError(Lids((WORD)(DWORD)idsErr), ServerName);
+   }
+
+   if (UserInfo1 != NULL)
+      NetApiBufferFree((LPVOID) UserInfo1);
+
    CursorNormal();
    return ret;
 
 } // NTServerValidate
 
 
-/*+-------------------------------------------------------------------------+
-  | NTServerInfoReset()                                                       |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void NTServerInfoReset(HWND hWnd, DEST_SERVER_BUFFER *DServ, BOOL ResetDomain) {
+/////////////////////////////////////////////////////////////////////////
+VOID 
+NTServerInfoReset(
+   HWND hWnd, 
+   DEST_SERVER_BUFFER *DServ, 
+   BOOL ResetDomain
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    LPTSTR apiPDCName = NULL;
-   TCHAR PDCName[CNLEN];
-   TCHAR LocServer[CNLEN+3];
+   TCHAR PDCName[MAX_SERVER_NAME_LEN + 1];
+   TCHAR LocServer[MAX_SERVER_NAME_LEN + 3];
    DOMAIN_BUFFER *DBuff;
    TCHAR Domain[DNLEN + 1];
    NET_API_STATUS Status = 0;
@@ -1041,6 +2354,7 @@ void NTServerInfoReset(HWND hWnd, DEST_SERVER_BUFFER *DServ, BOOL ResetDomain) {
       DServ->VerMaj = ServInfo->sv101_version_major;
       DServ->VerMin = ServInfo->sv101_version_minor;
       DServ->IsNTAS = IsNTAS(DServ->Name);
+      DServ->IsFPNW = IsFPNW(DServ->Name);
 
       // If there was no old domain, don't worry about reseting it
       if (ResetDomain && (DServ->Domain == NULL))
@@ -1057,6 +2371,7 @@ void NTServerInfoReset(HWND hWnd, DEST_SERVER_BUFFER *DServ, BOOL ResetDomain) {
                lstrcpy(PDCName, &apiPDCName[2]);
 
             if (NTServerValidate(hWnd, PDCName)) {
+               DServ->IsFPNW = IsFPNW(PDCName);
                DServ->InDomain = TRUE;
 
                // Get Domain
@@ -1082,7 +2397,7 @@ void NTServerInfoReset(HWND hWnd, DEST_SERVER_BUFFER *DServ, BOOL ResetDomain) {
                DServ->Domain = DBuff;
             } // if Domain valid
 
-            if (apiPDCName)
+            if (apiPDCName != NULL)
                NetApiBufferFree((LPVOID) apiPDCName);
          }
 
@@ -1099,11 +2414,28 @@ void NTServerInfoReset(HWND hWnd, DEST_SERVER_BUFFER *DServ, BOOL ResetDomain) {
 } // NTServerInfoReset
 
 
-/*+-------------------------------------------------------------------------+
-  | NTServerInfoSet()                                                       |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void NTServerInfoSet(HWND hWnd, LPTSTR ServerName, DEST_SERVER_BUFFER *DServ) {
+/////////////////////////////////////////////////////////////////////////
+VOID 
+NTServerInfoSet(
+   HWND hWnd, 
+   LPTSTR ServerName, 
+   DEST_SERVER_BUFFER *DServ
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    LPTSTR apiPDCName = NULL;
    NET_API_STATUS Status = 0;
 
@@ -1147,11 +2479,26 @@ void NTServerInfoSet(HWND hWnd, LPTSTR ServerName, DEST_SERVER_BUFFER *DServ) {
 } // NTServerInfoSet
 
 
-/*+-------------------------------------------------------------------------+
-  | NTLoginTimesLog()                                                       |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void NTLoginTimesLog(BYTE *Times) {
+/////////////////////////////////////////////////////////////////////////
+VOID 
+NTLoginTimesLog(
+   BYTE *Times
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    TCHAR *szDays[7];
    DWORD Day;
    DWORD Hours;
@@ -1198,11 +2545,26 @@ void NTLoginTimesLog(BYTE *Times) {
 } // NTLoginTimesLog
 
 
-/*+-------------------------------------------------------------------------+
-  | NTUserRecLog()                                                          |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void NTUserRecLog(NT_USER_INFO NT_UInfo) {
+/////////////////////////////////////////////////////////////////////////
+VOID 
+NTUserRecLog(
+   NT_USER_INFO NT_UInfo
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    LPTSTR tmpStr;
 
    LogWriteLog(1, Lids(IDS_L_57));
@@ -1275,15 +2637,30 @@ void NTUserRecLog(NT_USER_INFO NT_UInfo) {
 } // NTUserRecLog
 
 
-/*+-------------------------------------------------------------------------+
-  | NTDomainSynch()                                                         |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void NTDomainSynch(DEST_SERVER_BUFFER *DServ) {
+/////////////////////////////////////////////////////////////////////////
+VOID 
+NTDomainSynch(
+   DEST_SERVER_BUFFER *DServ
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    LPBYTE buffer = NULL;
    BOOL UsePDC = FALSE;
    NET_API_STATUS Status;
-   TCHAR LocServer[CNLEN+3];
+   TCHAR LocServer[MAX_SERVER_NAME_LEN + 3];
 
    wsprintf(LocServer, TEXT("\\\\%s"), DServ->Name);
 
@@ -1303,11 +2680,26 @@ void NTDomainSynch(DEST_SERVER_BUFFER *DServ) {
 } // NTDomainSynch
 
 
-/*+-------------------------------------------------------------------------+
-  | NTDomainInSynch()                                                       |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-BOOL NTDomainInSynch(LPTSTR Server) {
+/////////////////////////////////////////////////////////////////////////
+BOOL 
+NTDomainInSynch(
+   LPTSTR Server
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    PNETLOGON_INFO_1 buffer = NULL;
    NET_API_STATUS Status;
 
@@ -1328,13 +2720,28 @@ BOOL NTDomainInSynch(LPTSTR Server) {
 } // NTDomainInSynch
 
 
-/*+-------------------------------------------------------------------------+
-  | NTDomainGet()                                                           |
-  |                                                                         |
-  |    Gee - what a simple way to get the domain a server is part of!       |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-BOOL NTDomainGet(LPTSTR ServerName, LPTSTR Domain) {
+/////////////////////////////////////////////////////////////////////////
+BOOL 
+NTDomainGet(
+   LPTSTR ServerName, 
+   LPTSTR Domain
+   )
+
+/*++
+
+Routine Description:
+
+    Gee - what a simple way to get the domain a server is part of!
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    static TCHAR Serv[MAX_SERVER_NAME_LEN + 3];
    UNICODE_STRING us;
    NTSTATUS ret;
@@ -1372,7 +2779,7 @@ BOOL NTDomainGet(LPTSTR ServerName, LPTSTR Domain) {
    if (!ret) {
       ret = LsaQueryInformationPolicy(hLSA, PolicyPrimaryDomainInformation, (PVOID *) &pvBuffer);
       LsaClose(hLSA);
-      if (!ret) {
+      if ((!ret) && (pvBuffer != NULL)) {
          lstrcpy(Domain, pvBuffer->Name.Buffer);
          LsaFreeMemory((PVOID) pvBuffer);
       }
@@ -1386,19 +2793,59 @@ BOOL NTDomainGet(LPTSTR ServerName, LPTSTR Domain) {
 } // NTDomainGet
 
 
-/*+-------------------------------------------------------------------------+
-  | IsNTAS()                                                                |
-  |                                                                         |
-  |   Checks the given machines registry to determine if it is an NTAS      |
-  |   system.  The new 'Server' type is also counted as NTAS as all we      |
-  |   use this for is to determine if local or global groups should be      |
-  |   used.                                                                 |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-BOOL IsNTAS(LPTSTR ServerName) {
+/////////////////////////////////////////////////////////////////////////
+BOOL 
+IsFPNW(
+   LPTSTR ServerName
+   )
+
+/*++
+
+Routine Description:
+
+   Checks the given machine for the FPNW secret.
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
+   return (FPNWSecretGet(ServerName) != NULL);
+
+} // IsFPNW
+
+
+/////////////////////////////////////////////////////////////////////////
+BOOL 
+IsNTAS(
+   LPTSTR ServerName
+   )
+
+/*++
+
+Routine Description:
+
+   Checks the given machines registry to determine if it is an NTAS
+   system.  The new 'Server' type is also counted as NTAS as all we
+   use this for is to determine if local or global groups should be
+   used.
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    HKEY hKey, hKey2;
    DWORD dwType, dwSize;
-   static TCHAR LocServer[MAX_SERVER_NAME_LEN+3];
+   static TCHAR LocServer[MAX_SERVER_NAME_LEN + 3];
    static TCHAR Type[50];
    LONG Status;
    BOOL ret = FALSE;
@@ -1418,11 +2865,27 @@ BOOL IsNTAS(LPTSTR ServerName) {
 } // IsNTAS
 
 
-/*+-------------------------------------------------------------------------+
-  | NTTrustedDomainsEnum()                                                  |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void NTTrustedDomainsEnum(LPTSTR ServerName, TRUSTED_DOMAIN_LIST **pTList) {
+/////////////////////////////////////////////////////////////////////////
+VOID 
+NTTrustedDomainsEnum(
+   LPTSTR ServerName, 
+   TRUSTED_DOMAIN_LIST **pTList
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    static TCHAR Serv[MAX_SERVER_NAME_LEN + 3];
    TRUSTED_DOMAIN_LIST *TList = NULL;
    UNICODE_STRING us;
@@ -1431,7 +2894,7 @@ void NTTrustedDomainsEnum(LPTSTR ServerName, TRUSTED_DOMAIN_LIST **pTList) {
    ACCESS_MASK am;
    SECURITY_QUALITY_OF_SERVICE qos;
    LSA_HANDLE hLSA;
-   PPOLICY_PRIMARY_DOMAIN_INFO pvBuffer;
+   PPOLICY_PRIMARY_DOMAIN_INFO pvBuffer = NULL;
    LSA_ENUMERATION_HANDLE lsaenumh = 0;
    LSA_TRUST_INFORMATION *lsat;
    ULONG maxrequested = 0xffff;
@@ -1466,7 +2929,7 @@ void NTTrustedDomainsEnum(LPTSTR ServerName, TRUSTED_DOMAIN_LIST **pTList) {
    if (!ret) {
       ret = LsaEnumerateTrustedDomains(hLSA, &lsaenumh, (PVOID *) &pvBuffer, maxrequested, &cItems);
       LsaClose(hLSA);
-      if (!ret) {
+      if ((!ret) && (pvBuffer != NULL)) {
          lsat = (LSA_TRUST_INFORMATION *) pvBuffer;
          TList = (TRUSTED_DOMAIN_LIST *) AllocMemory(sizeof(TRUSTED_DOMAIN_LIST) + (cItems * ((MAX_DOMAIN_NAME_LEN + 1) * sizeof(TCHAR))));
          memset(TList, 0, sizeof(TRUSTED_DOMAIN_LIST) + (cItems * ((MAX_DOMAIN_NAME_LEN + 1) * sizeof(TCHAR))));
@@ -1486,14 +2949,31 @@ void NTTrustedDomainsEnum(LPTSTR ServerName, TRUSTED_DOMAIN_LIST **pTList) {
 } // NTTrustedDomainsEnum
 
 
-/*+-------------------------------------------------------------------------+
-  | NTTrustedDomainSet()                                                    |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-DOMAIN_BUFFER *NTTrustedDomainSet(HWND hWnd, LPTSTR Server, LPTSTR TrustedDomain) {
+/////////////////////////////////////////////////////////////////////////
+DOMAIN_BUFFER *
+NTTrustedDomainSet(
+   HWND hWnd, 
+   LPTSTR Server, 
+   LPTSTR TrustedDomain
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    LPTSTR apiPDCName = NULL;
-   TCHAR PDCName[CNLEN];
-   TCHAR LocServer[CNLEN+3];
+   TCHAR PDCName[MAX_SERVER_NAME_LEN];
+   TCHAR LocServer[MAX_SERVER_NAME_LEN + 3];
    static DOMAIN_BUFFER *DBuff;
    NET_API_STATUS Status = 0;
 
@@ -1522,8 +3002,8 @@ DOMAIN_BUFFER *NTTrustedDomainSet(HWND hWnd, LPTSTR Server, LPTSTR TrustedDomain
          DBuff->UseCount++;
       } // if Domain valid
 
-      if (apiPDCName)
-         NetApiBufferFree((LPVOID) PDCName);
+      if (apiPDCName != NULL)
+         NetApiBufferFree((LPVOID) apiPDCName);
    }
 
    // make sure we are pointing to the right one
@@ -1533,11 +3013,27 @@ DOMAIN_BUFFER *NTTrustedDomainSet(HWND hWnd, LPTSTR Server, LPTSTR TrustedDomain
 } // NTTrustedDomainSet
 
 
-/*+-------------------------------------------------------------------------+
-  | NTSIDGet()                                                              |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-SID *NTSIDGet(LPTSTR ServerName, LPTSTR pUserName) {
+/////////////////////////////////////////////////////////////////////////
+SID *
+NTSIDGet(
+   LPTSTR ServerName, 
+   LPTSTR pUserName
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    static TCHAR lpszDomain[80];
    DWORD dwDomainLength = 80;
 
@@ -1570,11 +3066,30 @@ SID *NTSIDGet(LPTSTR ServerName, LPTSTR pUserName) {
 
 #define SD_SIZE (65536 + SECURITY_DESCRIPTOR_MIN_LENGTH)
 
-/*+-------------------------------------------------------------------------+
-  | NTFile_AccessRightsAdd()                                                |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-BOOL NTFile_AccessRightsAdd(LPTSTR ServerName, LPTSTR pUserName, LPTSTR pFileName, ACCESS_MASK AccessMask, BOOL Dir) {
+/////////////////////////////////////////////////////////////////////////
+BOOL 
+NTFile_AccessRightsAdd(
+   LPTSTR ServerName, 
+   LPTSTR pUserName, 
+   LPTSTR pFileName, 
+   ACCESS_MASK AccessMask, 
+   BOOL Dir
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    NTSTATUS ret;
    SID *pUserSID;
 
@@ -1631,42 +3146,60 @@ BOOL NTFile_AccessRightsAdd(LPTSTR ServerName, LPTSTR pUserName, LPTSTR pFileNam
       LogWriteLog(5, Lids(IDS_L_76), GetLastError());
       ErrorIt(Lids(IDS_L_77), GetLastError(), pUserName);
 
-      NW_FREE(psdNewSD);
+      if (psdNewSD != pFileSD)
+          NW_FREE(psdNewSD);
       return FALSE;
    }
 
-   // Free the memory allocated for the new ACL
-   NW_FREE(psdNewSD);
+   // Free the memory allocated for the new ACL, but only if
+   // it was allocated.
+   if (psdNewSD != pFileSD)
+       NW_FREE(psdNewSD);
    return TRUE;
 
 } // NTFile_AccessRightsAdd
 
 
-/*+-------------------------------------------------------------------------+
-  | ACEAdd() - Taken from ChuckC's NWRights.C                               |
-  |                                                                         |
-  | Arguments:                                                              |
-  |                                                                         |
-  |     psd - The security desciptor to modify. This must be a valid        |
-  |           security descriptor.                                          |
-  |                                                                         |
-  |     psid - The SID of the user/group for which we are adding this right.|
-  |                                                                         |
-  |     AccessMask - The access mask that we wish to add.                   |
-  |                                                                         |
-  |     ppNewSD - used to return the new Security descriptor.               |
-  |                                                                         |
-  | Return value:                                                           |
-  |                                                                         |
-  |     NTSTATUS code                                                       |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-NTSTATUS ACEAdd( PSECURITY_DESCRIPTOR pSD, PSID pSid, ACCESS_MASK AccessMask, ULONG AceFlags, PSECURITY_DESCRIPTOR *ppNewSD ) {
+/////////////////////////////////////////////////////////////////////////
+NTSTATUS 
+ACEAdd( 
+   PSECURITY_DESCRIPTOR pSD, 
+   PSID pSid, 
+   ACCESS_MASK AccessMask, 
+   ULONG AceFlags, 
+   PSECURITY_DESCRIPTOR *ppNewSD 
+   )
+
+/*++
+
+Routine Description:
+
+   ACEAdd() - Taken from ChuckC's NWRights.C
+
+Arguments:
+
+     psd - The security desciptor to modify. This must be a valid
+           security descriptor.
+
+     psid - The SID of the user/group for which we are adding this right.
+
+     AccessMask - The access mask that we wish to add.
+
+     ppNewSD - used to return the new Security descriptor.
+
+Return Value:
+
+     NTSTATUS code
+
+--*/
+
+{
     ACL  Acl ;
     PACL pAcl, pNewAcl = NULL ;
     PACCESS_ALLOWED_ACE pAccessAce, pNewAce = NULL ;
     NTSTATUS ntstatus ;
     BOOLEAN fDaclPresent, fDaclDefaulted;
+    BOOLEAN Found = FALSE;
     LONG i ;
 
     // validate and initialize 
@@ -1675,6 +3208,14 @@ NTSTATUS ACEAdd( PSECURITY_DESCRIPTOR pSD, PSID pSid, ACCESS_MASK AccessMask, UL
         dprintf(TEXT("ACEAdd: got invalid parm\n"));
 #endif
         return (STATUS_INVALID_PARAMETER) ;
+    }
+
+    // if AccessMask == 0, no need to add the ACE
+
+    if( !AccessMask ) {
+
+	    *ppNewSD = pSD;
+	    return( STATUS_SUCCESS );
     }
 
     *ppNewSD = NULL ;
@@ -1689,7 +3230,7 @@ NTSTATUS ACEAdd( PSECURITY_DESCRIPTOR pSD, PSID pSid, ACCESS_MASK AccessMask, UL
     }
 
     // if no DACL present, we create one
-    if (!fDaclPresent) {
+    if ((!fDaclPresent) || (pAcl == NULL)) {
         // create Dacl
         ntstatus = RtlCreateAcl(&Acl, sizeof(Acl), ACL_REVISION) ; 
 
@@ -1724,83 +3265,85 @@ NTSTATUS ACEAdd( PSECURITY_DESCRIPTOR pSD, PSID pSid, ACCESS_MASK AccessMask, UL
             pAccessAce = (ACCESS_ALLOWED_ACE *) pAce ;
             pAceSid = (PSID) &pAccessAce->SidStart ;
 
-            // is this the same SID? and same type of ACE?
-            // if yes, break out
+            //
+            // is this the same SID?
+            // if yes, modify access mask and carry on.
+            //
             if (RtlEqualSid(pAceSid, pSid)) {
-                break ; 
+
+                ACCESS_MASK access_mask ;
+
+                ASSERT(pAccessAce != NULL) ;
+
+                access_mask = pAccessAce->Mask ;
+
+                if ( (access_mask & AccessMask) == access_mask ) {
+         	        ntstatus = STATUS_MEMBER_IN_GROUP ;
+	                goto CleanupAndExit ;
+                }
+
+                pAccessAce->Mask = AccessMask ;
+                Found = TRUE ;
             }
         } else {
             // ignore it. we only deal with granting aces.
         }
     }
 
-    // now set the DACL to have the desired rights
-    if (i == pAcl->AceCount) {
-        // reached end of ACE list without finding match. so we need to
-        // create a new ACE.
-        USHORT NewAclSize, NewAceSize ;
+    if ( !Found ) {         // now set the DACL to have the desired rights
+            // reached end of ACE list without finding match. so we need to
+            // create a new ACE.
+            USHORT NewAclSize, NewAceSize ;
       
-        // calculate the sizes
-        NewAceSize = (USHORT)(sizeof(ACE_HEADER) +
-                          sizeof(ACCESS_MASK) +
-                          RtlLengthSid(pSid));
+            // calculate the sizes
+            NewAceSize = (USHORT)(sizeof(ACE_HEADER) +
+                              sizeof(ACCESS_MASK) +
+                              RtlLengthSid(pSid));
 
-        NewAclSize = pAcl->AclSize + NewAceSize ;
+            NewAclSize = pAcl->AclSize + NewAceSize ;
 
-        // allocate new ACE and new ACL (since we are growing it)
-        pNewAce = (PACCESS_ALLOWED_ACE) NW_ALLOC(NewAceSize) ;
-        if (!pNewAce) {
-#ifdef DEBUG
-            dprintf(TEXT("ACEAdd: memory allocation failed for new ACE\n"));
-#endif
-            ntstatus = STATUS_INSUFFICIENT_RESOURCES ;
-            goto CleanupAndExit ;
-        }
+            // allocate new ACE and new ACL (since we are growing it)
+            pNewAce = (PACCESS_ALLOWED_ACE) NW_ALLOC(NewAceSize) ;
+            if (!pNewAce) {
+    #ifdef DEBUG
+                dprintf(TEXT("ACEAdd: memory allocation failed for new ACE\n"));
+    #endif
+                ntstatus = STATUS_INSUFFICIENT_RESOURCES ;
+                goto CleanupAndExit ;
+            }
 
-        pNewAce->Header.AceFlags = (UCHAR)AceFlags;
-        pNewAce->Header.AceType = ACCESS_ALLOWED_ACE_TYPE;
-        pNewAce->Header.AceSize = NewAceSize;
-        pNewAce->Mask = AccessMask;  
-        RtlCopySid( RtlLengthSid(pSid), (PSID)(&pNewAce->SidStart), pSid );
+            pNewAce->Header.AceFlags = (UCHAR)AceFlags;
+            pNewAce->Header.AceType = ACCESS_ALLOWED_ACE_TYPE;
+            pNewAce->Header.AceSize = NewAceSize;
+            pNewAce->Mask = AccessMask;  
+            RtlCopySid( RtlLengthSid(pSid), (PSID)(&pNewAce->SidStart), pSid );
 
-        pNewAcl = (PACL) NW_ALLOC(NewAclSize) ;
-        if (!pNewAcl) {
-#ifdef DEBUG
-            dprintf(TEXT("ACEAdd: memory allocation failed for new ACL\n"));
-#endif
-            ntstatus = STATUS_INSUFFICIENT_RESOURCES ;
-            goto CleanupAndExit ;
-        }
+            pNewAcl = (PACL) NW_ALLOC(NewAclSize) ;
+            if (!pNewAcl) {
+    #ifdef DEBUG
+                dprintf(TEXT("ACEAdd: memory allocation failed for new ACL\n"));
+    #endif
+                ntstatus = STATUS_INSUFFICIENT_RESOURCES ;
+                goto CleanupAndExit ;
+            }
        
-        RtlCopyMemory(pNewAcl, pAcl, pAcl->AclSize) ;
-        pNewAcl->AclSize = NewAclSize ;
+            RtlCopyMemory(pNewAcl, pAcl, pAcl->AclSize) ;
+            pNewAcl->AclSize = NewAclSize ;
 
-        // Add the ACE to the end of the ACL
-        ntstatus = RtlAddAce(pNewAcl, ACL_REVISION, pNewAcl->AceCount, pNewAce, NewAceSize) ;
+            // Add the ACE to the end of the ACL
+            ntstatus = RtlAddAce(pNewAcl, ACL_REVISION, pNewAcl->AceCount, pNewAce, NewAceSize) ;
 
-        if (!NT_SUCCESS(ntstatus)) {
-#ifdef DEBUG
-            dprintf(TEXT("ACEAdd: RtlAddAce failed\n"));
-#endif
-            goto CleanupAndExit ;
-        }
+            if (!NT_SUCCESS(ntstatus)) {
+    #ifdef DEBUG
+                dprintf(TEXT("ACEAdd: RtlAddAce failed\n"));
+    #endif
+                goto CleanupAndExit ;
+            }
 
-        pAcl = pNewAcl ;
-    } else {
-        // modify existing ACE
-        ACCESS_MASK access_mask ;
-
-        ASSERT(pAccessAce != NULL) ;
-
-        access_mask = pAccessAce->Mask ;
-
-        if ( (access_mask & AccessMask) == access_mask ) {
-            ntstatus = STATUS_MEMBER_IN_GROUP ;
-            goto CleanupAndExit ;
-        }
-
-        pAccessAce->Mask = AccessMask ;
+            pAcl = pNewAcl ;
     }
+
+ 
 
     // set the dacl back into the security descriptor. we need create
     // a new security descriptor, since the old one may not have space
@@ -1825,27 +3368,37 @@ CleanupAndExit:
 } // ACEAdd
 
 
-/*+-------------------------------------------------------------------------+
-  | CreateNewSecurityDescriptor() - Taken from Chuckc's NWRights.C          |
-  |                                                                         |
-  |   From a SD and a Dacl, create a new SD. The new SD will be fully self  |
-  |   contained (it is self relative) and does not have pointers to other   |
-  |   structures.                                                           |
-  |                                                                         |
-  | Arguments:                                                              |
-  |                                                                         |
-  |     ppNewSD - used to return the new SD. Caller should free with NW_FREE|
-  |                                                                         |
-  |     pSD     - the self relative SD we use to build the new SD           |
-  |                                                                         |
-  |     pAcl    - the new DACL that will be used for the new SD             |
-  |                                                                         |
-  | Return value:                                                           |
-  |                                                                         |
-  |     NTSTATUS code                                                       |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-NTSTATUS CreateNewSecurityDescriptor( PSECURITY_DESCRIPTOR *ppNewSD, PSECURITY_DESCRIPTOR pSD, PACL pAcl) {
+/////////////////////////////////////////////////////////////////////////
+NTSTATUS 
+CreateNewSecurityDescriptor( 
+   PSECURITY_DESCRIPTOR *ppNewSD, 
+   PSECURITY_DESCRIPTOR pSD, 
+   PACL pAcl
+   )
+
+/*++
+
+Routine Description:
+
+   From a SD and a Dacl, create a new SD. The new SD will be fully self
+   contained (it is self relative) and does not have pointers to other
+   structures.
+
+Arguments:
+
+     ppNewSD - used to return the new SD. Caller should free with NW_FREE
+
+     pSD     - the self relative SD we use to build the new SD
+
+     pAcl    - the new DACL that will be used for the new SD
+
+Return Value:
+
+     NTSTATUS code
+
+--*/
+
+{
     PACL pSacl ;
     PSID psidGroup, psidOwner ;
     BOOLEAN fSaclPresent ;
@@ -1912,11 +3465,26 @@ NTSTATUS CreateNewSecurityDescriptor( PSECURITY_DESCRIPTOR *ppNewSD, PSECURITY_D
 } // CreateNewSecurityDescriptor
 
 
-/*+-------------------------------------------------------------------------+
-  | NTAccessLog()                                                           |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-LPTSTR NTAccessLog(ACCESS_MASK AccessMask) {
+/////////////////////////////////////////////////////////////////////////
+LPTSTR 
+NTAccessLog(
+   ACCESS_MASK AccessMask
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    static TCHAR AccessDesc[80];
    TCHAR AccessStr[80];
 
@@ -1977,16 +3545,28 @@ LPTSTR NTAccessLog(ACCESS_MASK AccessMask) {
 } // NTAccessLog
 
 
-/*+-------------------------------------------------------------------------+
-  | NTUserDefaultsGet()                                                     |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void NTUserDefaultsGet(NT_DEFAULTS **UDefaults) {
+/////////////////////////////////////////////////////////////////////////
+VOID 
+NTUserDefaultsGet(
+   NT_DEFAULTS **UDefaults
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    USER_MODALS_INFO_0 *NTDefaults = NULL;
    NET_API_STATUS Status = 0;
-
-   if (!LocalName)
-      GetLocalName(&LocalName);
 
    if (LocalMachine)
       Status = NetUserModalsGet(NULL,  0, (LPBYTE *) &NTDefaults);
@@ -2002,16 +3582,28 @@ void NTUserDefaultsGet(NT_DEFAULTS **UDefaults) {
 } // NTUserDefaultsGet
 
 
-/*+-------------------------------------------------------------------------+
-  | NTUserDefaultsSet()                                                     |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-DWORD NTUserDefaultsSet(NT_DEFAULTS NTDefaults) {
+/////////////////////////////////////////////////////////////////////////
+DWORD 
+NTUserDefaultsSet(
+   NT_DEFAULTS NTDefaults
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    NET_API_STATUS Status = 0;
    DWORD err;
-
-   if (!LocalName)
-      GetLocalName(&LocalName);
 
    if (LocalMachine)
       Status = NetUserModalsSet(NULL,  0, (LPBYTE) &NTDefaults, &err);
@@ -2023,11 +3615,26 @@ DWORD NTUserDefaultsSet(NT_DEFAULTS NTDefaults) {
 } // NTUserDefaultsSet
 
 
-/*+-------------------------------------------------------------------------+
-  | NTUserDefaultsLog()                                                     |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void NTUserDefaultsLog(NT_DEFAULTS UDefaults) {
+/////////////////////////////////////////////////////////////////////////
+VOID 
+NTUserDefaultsLog(
+   NT_DEFAULTS UDefaults
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    LogWriteLog(1, Lids(IDS_L_94), UDefaults.min_passwd_len);
 
    // Age is in seconds, convert to days
@@ -2035,6 +3642,3 @@ void NTUserDefaultsLog(NT_DEFAULTS UDefaults) {
    LogWriteLog(1, Lids(IDS_L_96), UDefaults.force_logoff);
    LogWriteLog(0, Lids(IDS_CRLF));
 } // NTUserDefaultsLog
-
-
-

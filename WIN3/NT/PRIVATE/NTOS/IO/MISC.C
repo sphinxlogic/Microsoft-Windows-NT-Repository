@@ -28,8 +28,11 @@ Revision History:
 #include "iop.h"
 
 #ifdef ALLOC_PRAGMA
-#pragma alloc_text(PAGE, NtFlushBuffersFile)
 #pragma alloc_text(PAGE, NtCancelIoFile)
+#pragma alloc_text(PAGE, NtDeleteFile)
+#pragma alloc_text(PAGE, NtFlushBuffersFile)
+#pragma alloc_text(PAGE, NtQueryAttributesFile)
+#pragma alloc_text(PAGE, NtQueryFullAttributesFile)
 #endif
 
 NTSTATUS
@@ -43,7 +46,7 @@ NtCancelIoFile(
 Routine Description:
 
     This service causes all pending I/O operations for the specified file to be
-    marked as canceled.  Most types of operations can be canceled immeidately,
+    marked as canceled.  Most types of operations can be canceled immediately,
     while others may continue toward completion before they are actually
     canceled and the caller is notified.
 
@@ -68,14 +71,12 @@ Return Value:
     PIRP irp;
     NTSTATUS status;
     PFILE_OBJECT fileObject;
-    PDEVICE_OBJECT deviceObject;
     KPROCESSOR_MODE requestorMode;
     PETHREAD thread;
     BOOLEAN found = FALSE;
     PLIST_ENTRY header;
     PLIST_ENTRY entry;
     KIRQL irql;
-    ULONG i = 0L;
 
     PAGED_CODE();
 
@@ -133,38 +134,19 @@ Return Value:
     }
 
     //
-    // Make a special check here to determine whether this is a synchronous
-    // I/O operation.  If it is, then wait here until the file is owned by
-    // the current thread.
+    // Note that here the I/O system would normally make a check to determine
+    // whether or not the file was opened for synchronous I/O.  If it was, then
+    // it would attempt to exclusively acquire the file object lock.  However,
+    // since this service is attempting to cancel all of the I/O for the file,
+    // it does not make much sense to wait until it has all completed before
+    // attempting to cancel it.
     //
-
-    if (fileObject->Flags & FO_SYNCHRONOUS_IO) {
-
-        BOOLEAN interrupted;
-
-        if (!IopAcquireFastLock( fileObject )) {
-            status = IopAcquireFileObjectLock( fileObject,
-                                               requestorMode,
-                                               (BOOLEAN) ((fileObject->Flags & FO_ALERTABLE_IO) != 0),
-                                               &interrupted );
-            if (interrupted) {
-                ObDereferenceObject( fileObject );
-                return status;
-            }
-        }
-    }
 
     //
     // Set the file object to the Not-Signaled state.
     //
 
     KeClearEvent( &fileObject->Event );
-
-    //
-    // Get the address of the target device object.
-    //
-
-    deviceObject = IoGetRelatedDeviceObject( fileObject );
 
     //
     // Get the address of the current thread.  The thread contains a list of
@@ -206,9 +188,8 @@ Return Value:
 
         irp = CONTAINING_RECORD( entry, IRP, ThreadListEntry );
         if (irp->Tail.Overlay.OriginalFileObject == fileObject) {
-            i++;
             found = TRUE;
-            IoCancelIrp(irp);
+            IoCancelIrp( irp );
         }
 
         entry = entry->Flink;
@@ -229,8 +210,7 @@ Return Value:
         // finish.  The delay time is 10ms.
         //
 
-        interval.LowPart = (ULONG) (-10 * 1000 * 10);
-        interval.HighPart = -1;
+        interval.QuadPart = -10 * 1000 * 10;
 
         //
         // Wait for a while so the canceled requests can complete.
@@ -254,7 +234,6 @@ Return Value:
             // file object.
             //
 
-            header = &thread->IrpList;
             entry = thread->IrpList.Flink;
 
             while (header != entry) {
@@ -268,6 +247,7 @@ Return Value:
                 irp = CONTAINING_RECORD( entry, IRP, ThreadListEntry );
                 if (irp->Tail.Overlay.OriginalFileObject == fileObject) {
                     found = TRUE;
+                    break;
                 }
 
                 entry = entry->Flink;
@@ -294,29 +274,18 @@ Return Value:
     } except(EXCEPTION_EXECUTE_HANDLER) {
 
         //
-        // An exception was incurred attempting to write the caller'
-        // I/O status block; however, the command completed sucessfully so
+        // An exception was incurred attempting to write the caller's
+        // I/O status block; however, the service completed sucessfully so
         // just return sucess.
         //
 
     }
-
 
     //
     // Set the file object event to the Signaled state.
     //
 
     (VOID) KeSetEvent( &fileObject->Event, 0, FALSE );
-
-    //
-    // If this operation was a synchronous I/O operation, release the semaphore
-    // now.  This will need to be fixed later when the code to actually rundown
-    // the packets is complete.
-    //
-
-    if (fileObject->Flags & FO_SYNCHRONOUS_IO) {
-        IopReleaseFileObjectLock( fileObject );
-    }
 
     //
     // Dereference the file object.
@@ -353,7 +322,10 @@ Return Value:
     KPROCESSOR_MODE requestorMode;
     NTSTATUS status;
     OPEN_PACKET openPacket;
+    DUMMY_FILE_OBJECT localFileObject;
     HANDLE handle;
+
+    PAGED_CODE();
 
     //
     // Get the previous mode;  i.e., the mode of the caller.
@@ -370,9 +342,11 @@ Return Value:
 
     openPacket.Type = IO_TYPE_OPEN_PACKET;
     openPacket.Size = sizeof( OPEN_PACKET );
-    openPacket.CreateOptions = (((UCHAR) FILE_OPEN) << 24) | FILE_DELETE_ON_CLOSE;
+    openPacket.CreateOptions = FILE_DELETE_ON_CLOSE;
     openPacket.ShareAccess = (USHORT) FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
+    openPacket.Disposition = FILE_OPEN;
     openPacket.DeleteOnly = TRUE;
+    openPacket.LocalFileObject = &localFileObject;
 
     //
     // Update the open count for this process.
@@ -683,7 +657,11 @@ Return Value:
     KPROCESSOR_MODE requestorMode;
     NTSTATUS status;
     OPEN_PACKET openPacket;
+    DUMMY_FILE_OBJECT localFileObject;
+    FILE_NETWORK_OPEN_INFORMATION networkInformation;
     HANDLE handle;
+
+    PAGED_CODE();
 
     //
     // Get the previous mode;  i.e., the mode of the caller.
@@ -715,18 +693,20 @@ Return Value:
     }
 
     //
-    // Build a parse open packet that tells the parse method to open the file
-    // for open for delete access w/the delete bit set, and then close it.
+    // Build a parse open packet that tells the parse method to open the file,
+    // query the file's basic attributes, and close the file.
     //
 
     RtlZeroMemory( &openPacket, sizeof( OPEN_PACKET ) );
 
     openPacket.Type = IO_TYPE_OPEN_PACKET;
     openPacket.Size = sizeof( OPEN_PACKET );
-    openPacket.CreateOptions = (((UCHAR) FILE_OPEN) << 24);
     openPacket.ShareAccess = (USHORT) FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
+    openPacket.Disposition = FILE_OPEN;
     openPacket.BasicInformation = FileInformation;
+    openPacket.NetworkInformation = &networkInformation;
     openPacket.QueryOnly = TRUE;
+    openPacket.LocalFileObject = &localFileObject;
 
     //
     // Update the open count for this process.
@@ -760,4 +740,149 @@ Return Value:
     } else {
         return openPacket.FinalStatus;
     }
+}
+
+NTSTATUS
+NtQueryFullAttributesFile(
+    IN POBJECT_ATTRIBUTES ObjectAttributes,
+    OUT PFILE_NETWORK_OPEN_INFORMATION FileInformation
+    )
+
+/*++
+
+Routine Description:
+
+    This service queries the network attributes information for a specified
+    file.
+
+Arguments:
+
+    ObjectAttributes - Supplies the attributes to be used for file object (name,
+        SECURITY_DESCRIPTOR, etc.)
+
+    FileInformation - Supplies an output buffer to receive the returned file
+        attributes information.
+
+Return Value:
+
+    The status returned is the final completion status of the operation.
+
+--*/
+
+{
+    KPROCESSOR_MODE requestorMode;
+    NTSTATUS status;
+    OPEN_PACKET openPacket;
+    DUMMY_FILE_OBJECT localFileObject;
+    FILE_NETWORK_OPEN_INFORMATION networkInformation;
+    HANDLE handle;
+
+    PAGED_CODE();
+
+    //
+    // Get the previous mode;  i.e., the mode of the caller.
+    //
+
+    requestorMode = KeGetPreviousMode();
+
+    if (requestorMode != KernelMode) {
+
+        try {
+
+            //
+            // The caller's mode is not kernel, so probe the output buffer.
+            //
+
+            ProbeForWrite( FileInformation,
+                           sizeof( FILE_NETWORK_OPEN_INFORMATION ),
+#if defined(_X86_)
+                           sizeof( LONG ));
+#else
+                           sizeof( LONGLONG ));
+#endif // defined(_X86_)
+
+        } except(EXCEPTION_EXECUTE_HANDLER) {
+
+            //
+            // An exception was incurred while probing the caller's parameters.
+            // Simply return an appropriate error status code.
+            //
+
+            return GetExceptionCode();
+        }
+    }
+
+    //
+    // Build a parse open packet that tells the parse method to open the file,
+    // query the file's full attributes, and close the file.
+    //
+
+    RtlZeroMemory( &openPacket, sizeof( OPEN_PACKET ) );
+
+    openPacket.Type = IO_TYPE_OPEN_PACKET;
+    openPacket.Size = sizeof( OPEN_PACKET );
+    openPacket.ShareAccess = (USHORT) FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
+    openPacket.Disposition = FILE_OPEN;
+    openPacket.QueryOnly = TRUE;
+    openPacket.FullAttributes = TRUE;
+    openPacket.LocalFileObject = &localFileObject;
+    if (requestorMode != KernelMode) {
+        openPacket.NetworkInformation = &networkInformation;
+    } else {
+        openPacket.NetworkInformation = FileInformation;
+    }
+
+    //
+    // Update the open count for this process.
+    //
+
+    IopUpdateOtherOperationCount();
+
+    //
+    // Open the object by its name.  Because of the special QueryOnly flag set
+    // in the open packet, the parse routine will open the file, and then
+    // realize that it is only performing a query.  It will therefore perform
+    // the query, and immediately close the file.
+    //
+
+    status = ObOpenObjectByName( ObjectAttributes,
+                                 (POBJECT_TYPE) NULL,
+                                 requestorMode,
+                                 NULL,
+                                 FILE_READ_ATTRIBUTES,
+                                 &openPacket,
+                                 &handle );
+
+    //
+    // The operation is successful if the parse check field of the open packet
+    // indicates that the parse routine was actually invoked, and the final
+    // status field of the packet is set to success.
+    //
+
+    if (openPacket.ParseCheck != OPEN_PACKET_PATTERN) {
+        return status;
+    } else {
+        status = openPacket.FinalStatus;
+    }
+
+    if (NT_SUCCESS( status )) {
+        if (requestorMode != KernelMode) {
+            try {
+
+                //
+                // The query worked, so copy the returned information to the
+                // caller's output buffer.
+                //
+
+                RtlMoveMemory( FileInformation,
+                               &networkInformation,
+                               sizeof( FILE_NETWORK_OPEN_INFORMATION ) );
+
+            } except(EXCEPTION_EXECUTE_HANDLER) {
+                status = GetExceptionCode();
+            }
+        }
+    }
+
+    return status;
 }

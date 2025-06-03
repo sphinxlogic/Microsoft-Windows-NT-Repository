@@ -31,7 +31,7 @@ extern ULONG PptDebugLevel;
 #define ParDump(LEVEL,STRING) \
         do { \
             ULONG _level = (LEVEL); \
-            if (PptDebugLevel & _level) { \
+            if ((_level == 0)||(PptDebugLevel & _level)) { \
                 DbgPrint STRING; \
             } \
         } while (0)
@@ -98,16 +98,12 @@ typedef struct _CONFIG_DATA {
 } CONFIG_DATA, *PCONFIG_DATA;
 
 typedef struct _ISR_LIST_ENTRY {
-    LIST_ENTRY          ListEntry;
-    PKSERVICE_ROUTINE   ServiceRoutine;
-    PVOID               Context;
-} ISR_LIST_ENTRY, *PISR_LIST_ENTRY;
-
-typedef struct _DEFERRED_PORT_CHECK_LIST_ENTRY {
     LIST_ENTRY                  ListEntry;
+    PKSERVICE_ROUTINE           ServiceRoutine;
+    PVOID                       ServiceContext;
     PPARALLEL_DEFERRED_ROUTINE  DeferredPortCheckRoutine;
-    PVOID                       Context;
-} DEFERRED_PORT_CHECK_LIST_ENTRY, *PDEFERRED_PORT_CHECK_LIST_ENTRY;
+    PVOID                       CheckContext;
+} ISR_LIST_ENTRY, *PISR_LIST_ENTRY;
 
 typedef struct _DEVICE_EXTENSION {
 
@@ -159,16 +155,12 @@ typedef struct _DEVICE_EXTENSION {
     // routines registered by class drivers.  All access
     // to this list should be done at interrupt level.
     //
-    LIST_ENTRY IsrList;
-
-    //
-    // This list contains all of the deferred port check
+    // This list also contains all of the deferred port check
     // routines.  These routines are called whenever
     // the port is freed if there are no IRPs queued for
-    // the port.
+    // the port.  Access this list only at interrupt level.
     //
-    LIST_ENTRY DeferredPortCheckList;
-    KSPIN_LOCK DeferredPortCheckListSpinLock;
+    LIST_ENTRY IsrList;
 
     //
     // The parallel port interrupt object.
@@ -196,6 +188,8 @@ typedef struct _DEVICE_EXTENSION {
 
 } DEVICE_EXTENSION, *PDEVICE_EXTENSION;
 
+BOOLEAN
+PptIsNecR98Machine(void);
 
 NTSTATUS
 PptDispatchCreateClose(

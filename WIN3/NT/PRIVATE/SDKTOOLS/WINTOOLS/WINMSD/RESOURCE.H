@@ -27,6 +27,8 @@ Environment:
 #include <nt.h>
 #include <ntrtl.h>
 #include <nturtl.h>
+#include <ntioapi.h>
+
 #include "wintools.h"
 #include "registry.h"
 
@@ -40,6 +42,8 @@ _RESOURCE_DESCRIPTOR {
     DECLARE_SIGNATURE
 
     CM_PARTIAL_RESOURCE_DESCRIPTOR  CmResourceDescriptor;
+    INTERFACE_TYPE                  InterfaceType;
+    ULONG                           BusNumber;
     LPRESOURCE_DESCRIPTOR           NextSame;
     LPRESOURCE_DESCRIPTOR           NextDiff;
     LPDEVICE                        Owner;
@@ -54,6 +58,7 @@ _DEVICE {
     DECLARE_SIGNATURE
 
     LPTSTR                          Name;
+    BOOL                            fIsHAL;
     LPRESOURCE_DESCRIPTOR           ResourceDescriptorHead;
     LPRESOURCE_DESCRIPTOR           ResourceDescriptorTail;
     LPDEVICE                        Next;
@@ -80,9 +85,11 @@ _SYSTEM_RESOURCES {
 
 }   SYSTEM_RESOURCES, *LPSYSTEM_RESOURCES;
 
-LPSYSTEM_RESOURCES
+BOOL
 CreateSystemResourceLists(
+    IN LPSYSTEM_RESOURCES SystemResourceLists
     );
+
 
 BOOL
 DeviceListDlgProc(
@@ -101,7 +108,7 @@ DeviceResourceDlgProc(
     );
 
 BOOL
-IrqAndPortResourceDlgProc(
+ResourcePropertiesProc(
     IN HWND hWnd,
     IN UINT message,
     IN WPARAM wParam,
@@ -109,12 +116,36 @@ IrqAndPortResourceDlgProc(
     );
 
 BOOL
-DmaAndMemoryResourceDlgProc(
+DevicePropertiesProc(
     IN HWND hWnd,
     IN UINT message,
     IN WPARAM wParam,
     IN LPARAM lParam
     );
+
+BOOL
+DeviceDlgProc(
+    IN HWND hWnd,
+    IN UINT message,
+    IN WPARAM wParam,
+    IN LPARAM lParam
+    );
+
+LRESULT
+CALLBACK
+MyListViewProc(
+    IN HWND hWnd,
+    IN UINT message,
+    IN WPARAM wParam,
+    IN LPARAM lParam
+    );
+
+
+LRESULT
+DeviceNotifyHandler( HWND hWnd,
+                     UINT uMsg,
+                     WPARAM wParam,
+                     LPARAM lParam);
 
 BOOL
 DestroySystemResourceLists(
@@ -123,14 +154,10 @@ DestroySystemResourceLists(
 
 BOOL
 InitializeSystemResourceLists(
-    IN LPKEY hRegKey
+    IN LPKEY hRegKey,
+    IN LPSYSTEM_RESOURCES SystemResourceLists
     );
 
-BOOL
-InitializeResourceDlgProc(
-    IN HWND hWnd,
-    IN UINT ListId,
-    IN LPDWORD Widths
-    );
 
 #endif // _RESOURCE_
+

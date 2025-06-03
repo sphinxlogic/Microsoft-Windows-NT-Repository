@@ -429,7 +429,8 @@ NTAPI
 NtCreateTimer (
     OUT PHANDLE TimerHandle,
     IN ACCESS_MASK DesiredAccess,
-    IN POBJECT_ATTRIBUTES ObjectAttributes OPTIONAL
+    IN POBJECT_ATTRIBUTES ObjectAttributes OPTIONAL,
+    IN TIMER_TYPE TimerType
     );
 
 NTSYSAPI
@@ -468,9 +469,10 @@ NtSetTimer (
     IN PLARGE_INTEGER DueTime,
     IN PTIMER_APC_ROUTINE TimerApcRoutine OPTIONAL,
     IN PVOID TimerContext OPTIONAL,
+    IN BOOLEAN ResumeTimer,
+    IN LONG Period OPTIONAL,
     OUT PBOOLEAN PreviousState OPTIONAL
     );
-
 
 //
 // System Time and Timer function definitions
@@ -520,6 +522,19 @@ NtAllocateLocallyUniqueId(
     OUT PLUID Luid
     );
 
+
+//
+//  Universally Unique Identifier (UUID) time allocation
+//
+
+NTSYSAPI
+NTSTATUS
+NTAPI
+NtAllocateUuids(
+    OUT PULARGE_INTEGER Time,
+    OUT PULONG Range,
+    OUT PULONG Sequence
+    );
 
 
 //
@@ -539,7 +554,9 @@ NtCreateProfile (
     IN ULONG ProfileSize,
     IN ULONG BucketSize,
     IN PULONG Buffer,
-    IN ULONG BufferSize
+    IN ULONG BufferSize,
+    IN KPROFILE_SOURCE ProfileSource,
+    IN KAFFINITY Affinity
     );
 
 NTSYSAPI
@@ -560,13 +577,15 @@ NTSYSAPI
 NTSTATUS
 NTAPI
 NtSetIntervalProfile (
-    IN ULONG Interval
+    IN ULONG Interval,
+    IN KPROFILE_SOURCE Source
     );
 
 NTSYSAPI
 NTSTATUS
 NTAPI
 NtQueryIntervalProfile (
+    IN KPROFILE_SOURCE ProfileSource,
     OUT PULONG Interval
     );
 
@@ -636,7 +655,7 @@ NapResume (
 
 typedef enum _SYSTEM_INFORMATION_CLASS {
     SystemBasicInformation,
-    SystemProcessorInformation,
+    SystemProcessorInformation,             // obsolete...delete
     SystemPerformanceInformation,
     SystemTimeOfDayInformation,
     SystemPathInformation,
@@ -658,21 +677,29 @@ typedef enum _SYSTEM_INFORMATION_CLASS {
     SystemVdmBopInformation,
     SystemFileCacheInformation,
     SystemPoolTagInformation,
-    SystemSpare1Information,
-    SystemSpare2Information,
-    SystemSpare3Information,
-    SystemSpare4Information,
-    SystemSpare5Information,
+    SystemInterruptInformation,
+    SystemDpcBehaviorInformation,
+    SystemFullMemoryInformation,
+    SystemLoadGdiDriverInformation,
+    SystemUnloadGdiDriverInformation,
     SystemTimeAdjustmentInformation,
-    SystemSpare6Information,
+    SystemSummaryMemoryInformation,
     SystemNextEventIdInformation,
     SystemEventIdsInformation,
     SystemCrashDumpInformation,
     SystemExceptionInformation,
     SystemCrashDumpStateInformation,
     SystemKernelDebuggerInformation,
-    SystemContextSwitchInformation
-
+    SystemContextSwitchInformation,
+    SystemRegistryQuotaInformation,
+    SystemExtendServiceTableInformation,
+    SystemPrioritySeperation,
+    SystemPlugPlayBusInformation,
+    SystemDockInformation,
+    SystemPowerInformation,
+    SystemProcessorSpeedInformation,
+    SystemCurrentTimeZoneInformation,
+    SystemLookasideInformation
 } SYSTEM_INFORMATION_CLASS;
 
 //
@@ -731,7 +758,7 @@ typedef struct _SYSTEM_TIMEOFDAY_INFORMATION {
 } SYSTEM_TIMEOFDAY_INFORMATION, *PSYSTEM_TIMEOFDAY_INFORMATION;
 
 typedef struct _SYSTEM_BASIC_INFORMATION {
-    ULONG OemMachineId;
+    ULONG Reserved;
     ULONG TimerResolution;
     ULONG PageSize;
     ULONG NumberOfPhysicalPages;
@@ -745,14 +772,12 @@ typedef struct _SYSTEM_BASIC_INFORMATION {
 } SYSTEM_BASIC_INFORMATION, *PSYSTEM_BASIC_INFORMATION;
 
 typedef struct _SYSTEM_PROCESSOR_INFORMATION {
-    ULONG ProcessorType;
-    ULONG Reserved1;
-    ULONG Reserved2;
+    USHORT ProcessorArchitecture;
+    USHORT ProcessorLevel;
+    USHORT ProcessorRevision;
+    USHORT Reserved;
+    ULONG ProcessorFeatureBits;
 } SYSTEM_PROCESSOR_INFORMATION, *PSYSTEM_PROCESSOR_INFORMATION;
-
-typedef struct _SYSTEM_PATH_INFORMATION {
-    STRING Path;
-} SYSTEM_PATH_INFORMATION, *PSYSTEM_PATH_INFORMATION;
 
 typedef struct _SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION {
     LARGE_INTEGER IdleTime;
@@ -809,9 +834,9 @@ typedef struct _SYSTEM_PERFORMANCE_INFORMATION {
     ULONG ResidentSystemCodePage;
     ULONG TotalSystemDriverPages;
     ULONG TotalSystemCodePages;
-    ULONG LpcThreadsWaitingInReceive;
-    ULONG LpcThreadsWaitingForReply;
-    ULONG EvPrWaitingLow;
+    ULONG NonPagedPoolLookasideHits;
+    ULONG PagedPoolLookasideHits;
+    ULONG Spare3Count;
     ULONG ResidentSystemCachePage;
     ULONG ResidentPagedPoolPage;
     ULONG ResidentSystemDriverPage;
@@ -854,9 +879,9 @@ typedef struct _SYSTEM_PERFORMANCE_INFORMATION {
 typedef struct _SYSTEM_PROCESS_INFORMATION {
     ULONG NextEntryOffset;
     ULONG NumberOfThreads;
-    LARGE_INTEGER ReadTransferCount;
-    LARGE_INTEGER WriteTransferCount;
-    LARGE_INTEGER OtherTransferCount;
+    LARGE_INTEGER SpareLi1;
+    LARGE_INTEGER SpareLi2;
+    LARGE_INTEGER SpareLi3;
     LARGE_INTEGER CreateTime;
     LARGE_INTEGER UserTime;
     LARGE_INTEGER KernelTime;
@@ -864,9 +889,9 @@ typedef struct _SYSTEM_PROCESS_INFORMATION {
     KPRIORITY BasePriority;
     HANDLE UniqueProcessId;
     HANDLE InheritedFromUniqueProcessId;
-    ULONG ReadOperationCount;
-    ULONG WriteOperationCount;
-    ULONG OtherOperationCount;
+    ULONG HandleCount;
+    ULONG SpareUl2;
+    ULONG SpareUl3;
     ULONG PeakVirtualSize;
     ULONG VirtualSize;
     ULONG PageFaultCount;
@@ -895,10 +920,25 @@ typedef struct _SYSTEM_THREAD_INFORMATION {
     ULONG WaitReason;
 } SYSTEM_THREAD_INFORMATION, *PSYSTEM_THREAD_INFORMATION;
 
+typedef struct _SYSTEM_MEMORY_INFO {
+    PUCHAR StringOffset;
+    USHORT ValidCount;
+    USHORT TransitionCount;
+    USHORT ModifiedCount;
+    USHORT PageTableCount;
+} SYSTEM_MEMORY_INFO, *PSYSTEM_MEMORY_INFO;
+
+typedef struct _SYSTEM_MEMORY_INFORMATION {
+    ULONG InfoSize;
+    ULONG StringStart;
+    SYSTEM_MEMORY_INFO Memory[1];
+} SYSTEM_MEMORY_INFORMATION, *PSYSTEM_MEMORY_INFORMATION;
+
 typedef struct _SYSTEM_CALL_COUNT_INFORMATION {
     ULONG Length;
-    ULONG TotalCalls;
-    ULONG NumberOfCalls[1];
+    ULONG NumberOfTables;
+    //ULONG NumberOfEntries[NumberOfTables];
+    //ULONG CallCounts[NumberOfTables][NumberOfEntries];
 } SYSTEM_CALL_COUNT_INFORMATION, *PSYSTEM_CALL_COUNT_INFORMATION;
 
 typedef struct _SYSTEM_DEVICE_INFORMATION {
@@ -918,6 +958,7 @@ typedef struct _SYSTEM_EXCEPTION_INFORMATION {
     ULONG AlignmentFixupCount;
     ULONG ExceptionDispatchCount;
     ULONG FloatingEmulationCount;
+    ULONG ByteWordEmulationCount;
 } SYSTEM_EXCEPTION_INFORMATION, *PSYSTEM_EXCEPTION_INFORMATION;
 
 typedef struct _SYSTEM_CRASH_STATE_INFORMATION {
@@ -928,6 +969,69 @@ typedef struct _SYSTEM_KERNEL_DEBUGGER_INFORMATION {
     BOOLEAN KernelDebuggerEnabled;
     BOOLEAN KernelDebuggerNotPresent;
 } SYSTEM_KERNEL_DEBUGGER_INFORMATION, *PSYSTEM_KERNEL_DEBUGGER_INFORMATION;
+
+typedef struct _SYSTEM_REGISTRY_QUOTA_INFORMATION {
+    ULONG RegistryQuotaAllowed;
+    ULONG RegistryQuotaUsed;
+    ULONG PagedPoolSize;
+} SYSTEM_REGISTRY_QUOTA_INFORMATION, *PSYSTEM_REGISTRY_QUOTA_INFORMATION;
+
+typedef struct _SYSTEM_GDI_DRIVER_INFORMATION {
+    UNICODE_STRING DriverName;
+    PVOID ImageAddress;
+    PVOID SectionPointer;
+    PVOID EntryPoint;
+    PIMAGE_EXPORT_DIRECTORY ExportSectionPointer;
+} SYSTEM_GDI_DRIVER_INFORMATION, *PSYSTEM_GDI_DRIVER_INFORMATION;
+
+// begin_ntddk begin_ntifs begin_nthal
+
+typedef enum _SYSTEM_DOCK_STATE {
+    SystemDockStateUnknown,
+    SystemUndocked,
+    SystemDocked
+} SYSTEM_DOCK_STATE, *PSYSTEM_DOCK_STATE;
+
+// end_ntddk end_ntifs end_nthal
+
+#define MAX_BUS_NAME 24
+
+typedef enum _PLUGPLAY_BUS_CLASS {
+    SystemBus,
+    PlugPlayVirtualBus,
+    MaxPlugPlayBusClass
+} PLUGPLAY_BUS_CLASS, *PPLUGPLAY_BUS_CLASS;
+
+typedef enum _PLUGPLAY_VIRTUAL_BUS_TYPE {
+    Root,
+    MaxPlugPlayVirtualBusType
+} PLUGPLAY_VIRTUAL_BUS_TYPE, *PPLUGPLAY_VIRTUAL_BUS_TYPE;
+
+typedef struct _PLUGPLAY_BUS_TYPE{
+    PLUGPLAY_BUS_CLASS BusClass;
+    union {
+        INTERFACE_TYPE SystemBusType;
+        PLUGPLAY_VIRTUAL_BUS_TYPE PlugPlayVirtualBusType;
+    };
+} PLUGPLAY_BUS_TYPE, *PPLUGPLAY_BUS_TYPE;
+
+typedef struct _PLUGPLAY_BUS_INSTANCE {
+    PLUGPLAY_BUS_TYPE BusType;
+    ULONG BusNumber;
+    WCHAR BusName[MAX_BUS_NAME];
+} PLUGPLAY_BUS_INSTANCE, *PPLUGPLAY_BUS_INSTANCE;
+
+typedef struct _SYSTEM_PLUGPLAY_BUS_INFORMATION {
+    ULONG BusCount;
+    PLUGPLAY_BUS_INSTANCE BusInstance[1];
+} SYSTEM_PLUGPLAY_BUS_INFORMATION, *PSYSTEM_PLUGPLAY_BUS_INFORMATION;
+
+typedef struct _SYSTEM_DOCK_INFORMATION {
+    SYSTEM_DOCK_STATE DockState;
+    INTERFACE_TYPE DeviceBusType;
+    ULONG DeviceBusNumber;
+    ULONG SlotNumber;
+} SYSTEM_DOCK_INFORMATION, *PSYSTEM_DOCK_INFORMATION;
 
 #if DEVL
 
@@ -942,7 +1046,8 @@ typedef struct _SYSTEM_CALL_TIME_INFORMATION {
 } SYSTEM_CALL_TIME_INFORMATION, *PSYSTEM_CALL_TIME_INFORMATION;
 
 typedef struct _SYSTEM_HANDLE_TABLE_ENTRY_INFO {
-    HANDLE UniqueProcessId;
+    USHORT UniqueProcessId;
+    USHORT CreatorBackTraceIndex;
     UCHAR ObjectTypeIndex;
     UCHAR HandleAttributes;
     USHORT HandleValue;
@@ -996,10 +1101,38 @@ typedef struct _SYSTEM_FILECACHE_INFORMATION {
     ULONG CurrentSize;
     ULONG PeakSize;
     ULONG PageFaultCount;
+    ULONG MinimumWorkingSet;
+    ULONG MaximumWorkingSet;
+    ULONG spare[4];
 } SYSTEM_FILECACHE_INFORMATION, *PSYSTEM_FILECACHE_INFORMATION;
 
+typedef struct _SYSTEM_POOL_ENTRY {
+    BOOLEAN Allocated;
+    BOOLEAN Spare0;
+    USHORT AllocatorBackTraceIndex;
+    ULONG Size;
+    union {
+        UCHAR Tag[4];
+        ULONG TagUlong;
+        PVOID ProcessChargedQuota;
+    };
+} SYSTEM_POOL_ENTRY, *PSYSTEM_POOL_ENTRY;
+
+typedef struct _SYSTEM_POOL_INFORMATION {
+    ULONG TotalSize;
+    PVOID FirstEntry;
+    USHORT EntryOverhead;
+    BOOLEAN PoolTagPresent;
+    BOOLEAN Spare0;
+    ULONG NumberOfEntries;
+    SYSTEM_POOL_ENTRY Entries[1];
+} SYSTEM_POOL_INFORMATION, *PSYSTEM_POOL_INFORMATION;
+
 typedef struct _SYSTEM_POOLTAG {
-    ULONG Tag;
+    union {
+        UCHAR Tag[4];
+        ULONG TagUlong;
+    };
     ULONG PagedAllocs;
     ULONG PagedFrees;
     ULONG PagedUsed;
@@ -1017,33 +1150,86 @@ typedef struct _SYSTEM_CONTEXT_SWITCH_INFORMATION {
     ULONG ContextSwitches;
     ULONG FindAny;
     ULONG FindLast;
+    ULONG FindIdeal;
     ULONG IdleAny;
     ULONG IdleCurrent;
     ULONG IdleLast;
+    ULONG IdleIdeal;
     ULONG PreemptAny;
     ULONG PreemptCurrent;
     ULONG PreemptLast;
     ULONG SwitchToIdle;
 } SYSTEM_CONTEXT_SWITCH_INFORMATION, *PSYSTEM_CONTEXT_SWITCH_INFORMATION;
 
+typedef struct _SYSTEM_INTERRUPT_INFORMATION {
+    ULONG ContextSwitches;
+    ULONG DpcCount;
+    ULONG DpcRate;
+    ULONG TimeIncrement;
+    ULONG DpcBypassCount;
+    ULONG ApcBypassCount;
+} SYSTEM_INTERRUPT_INFORMATION, *PSYSTEM_INTERRUPT_INFORMATION;
+
+typedef struct _SYSTEM_DPC_BEHAVIOR_INFORMATION {
+    ULONG Spare;
+    ULONG DpcQueueDepth;
+    ULONG MinimumDpcRate;
+    ULONG AdjustDpcThreshold;
+    ULONG IdealDpcRate;
+} SYSTEM_DPC_BEHAVIOR_INFORMATION, *PSYSTEM_DPC_BEHAVIOR_INFORMATION;
+
 #endif // DEVL
+
+typedef struct _SYSTEM_POWER_INFORMATION {
+    BOOLEAN SystemSuspendSupported;
+    BOOLEAN SystemHibernateSupported;
+    BOOLEAN ResumeTimerSupportsSuspend;
+    BOOLEAN ResumeTimerSupportsHibernate;
+    BOOLEAN LidSupported;
+    BOOLEAN TurboSettingSupported;
+    BOOLEAN TurboMode;
+    BOOLEAN SystemAcOrDc;
+    BOOLEAN PowerDownDisabled;
+    LARGE_INTEGER SpindownDrives;
+} SYSTEM_POWER_INFORMATION, *PSYSTEM_POWER_INFORMATION;
+
+typedef struct _SYSTEM_PROCESSOR_SPEED_INFORMATION {
+    ULONG MaximumProcessorSpeed;
+    ULONG CurrentAvailableSpeed;
+    ULONG ConfiguredSpeedLimit;
+    BOOLEAN PowerLimit;
+    BOOLEAN ThermalLimit;
+    BOOLEAN TurboLimit;
+} SYSTEM_PROCESSOR_SPEED_INFORMATION, *PSYSTEM_PROCESSOR_SPEED_INFORMATION;
+
+typedef struct _SYSTEM_LOOKASIDE_INFORMATION {
+    USHORT CurrentDepth;
+    USHORT MaximumDepth;
+    ULONG TotalAllocates;
+    ULONG AllocateMisses;
+    ULONG TotalFrees;
+    ULONG FreeMisses;
+    ULONG Type;
+    ULONG Tag;
+    ULONG Size;
+} SYSTEM_LOOKASIDE_INFORMATION, *PSYSTEM_LOOKASIDE_INFORMATION;
 
 // begin_winnt
 
 #define PROCESSOR_INTEL_386     386
 #define PROCESSOR_INTEL_486     486
 #define PROCESSOR_INTEL_PENTIUM 586
-#define PROCESSOR_INTEL_860     860
-#define PROCESSOR_MIPS_R2000    2000
-#define PROCESSOR_MIPS_R3000    3000
 #define PROCESSOR_MIPS_R4000    4000
 #define PROCESSOR_ALPHA_21064   21064
-#define PROCESSOR_PPC_601       601
-#define PROCESSOR_PPC_603       603
-#define PROCESSOR_PPC_604       604
-#define PROCESSOR_PPC_620       620
+
+#define PROCESSOR_ARCHITECTURE_INTEL 0
+#define PROCESSOR_ARCHITECTURE_MIPS  1
+#define PROCESSOR_ARCHITECTURE_ALPHA 2
+#define PROCESSOR_ARCHITECTURE_PPC   3
+#define PROCESSOR_ARCHITECTURE_UNKNOWN 0xFFFF
 
 // end_winnt
+
 
 NTSYSAPI
 NTSTATUS
@@ -1063,6 +1249,21 @@ NtSetSystemInformation (
     IN PVOID SystemInformation,
     IN ULONG SystemInformationLength
     );
+
+// begin_ntddk begin_nthal
+
+//
+//
+// Define system event type codes.
+//
+
+typedef enum {
+    SystemEventVirtualKey,
+    SystemEventLidState,
+    SystemEventTimeChanged
+} SYSTEM_EVENT_ID, *PSYSTEM_EVENT_ID;
+
+// end_ntddk end_nthal
 
 //
 // SysDbg APIs are available to user-mode processes via
@@ -1137,6 +1338,21 @@ NtRaiseHardError(
     OUT PULONG Response
     );
 
+// begin_ntddk begin_nthal begin_ntifs
+
+//
+// Defined processor features
+//
+
+#define PF_FLOATING_POINT_PRECISION_ERRATA  0   // winnt
+#define PF_FLOATING_POINT_EMULATED          1   // winnt
+#define PF_COMPARE_EXCHANGE_DOUBLE          2   // winnt
+#define PF_MMX_INSTRUCTIONS_AVAILABLE       3   // winnt
+
+// end_ntddk end_nthal end_ntifs
+
+#define PROCESSOR_FEATURE_MAX 64
+
 //
 // Define data shared between kernel and user mode.
 //
@@ -1171,11 +1387,84 @@ typedef struct _KUSER_SHARED_DATA {
     //
 
     volatile KSYSTEM_TIME TimeZoneBias;
+
+    //
+    // Support image magic number range for the host system.
+    //
+    // N.B. This is an inclusive range.
+    //
+
+    USHORT ImageNumberLow;
+    USHORT ImageNumberHigh;
+
+    //
+    // Copy of system root in Unicode
+    //
+
+    WCHAR NtSystemRoot[ 260 ];
+
+    //
+    // Bitmap of defined DOS device driver letters.
+    //
+
+    ULONG DosDeviceMap;
+
+    //
+    // Crypto Exponent
+    //
+
+    ULONG CryptoExponent;
+
+    //
+    // TimeZoneId
+    //
+
+    ULONG TimeZoneId;
+
+    //
+    // Dos Drive Letter type array (valid if corresponding bit set
+    // in DosDeviceMap above).  Index by drive number (0 = A:, etc)
+    //
+
+    UCHAR DosDeviceDriveType[ 32 ];
+
+    //
+    // product type
+    //
+
+    NT_PRODUCT_TYPE    NtProductType;
+    BOOLEAN ProductTypeIsValid;
+
+    //
+    // NT Version. Note that each process sees a version from it's PEB, but
+    // if the process is running with an altered view of the system version,
+    // the following two fields are used to correctly identify the version
+    //
+
+    ULONG NtMajorVersion;
+    ULONG NtMinorVersion;
+
+
+    //
+    // Processor Feature Bits
+    //
+
+    BOOLEAN ProcessorFeatures[PROCESSOR_FEATURE_MAX];
+
+
 } KUSER_SHARED_DATA, *PKUSER_SHARED_DATA;
+
+#define DOSDEVICE_DRIVE_UNKNOWN     0
+#define DOSDEVICE_DRIVE_CALCULATE   1
+#define DOSDEVICE_DRIVE_REMOVABLE   2
+#define DOSDEVICE_DRIVE_FIXED       3
+#define DOSDEVICE_DRIVE_REMOTE      4
+#define DOSDEVICE_DRIVE_CDROM       5
+#define DOSDEVICE_DRIVE_RAMDISK     6
 
 #if defined(USER_SHARED_DATA)
 
-#if defined(_M_IX86) && !defined(_CROSS_PLATFORM_) && !defined(__cplusplus) && !defined(MIDL_PASS)
+#if defined(_M_IX86) && !defined(_CROSS_PLATFORM_) && !defined(MIDL_PASS)
 
 #pragma warning(disable:4035)
 __inline ULONG
@@ -1184,7 +1473,7 @@ NtGetTickCount (
     VOID
     )
 {
-    _asm {
+    __asm {
         mov     edx, MM_SHARED_USER_DATA_VA
         mov     eax, [edx] KUSER_SHARED_DATA.TickCountLow
         mul     dword ptr [edx] KUSER_SHARED_DATA.TickCountMultiplier
@@ -1260,37 +1549,132 @@ NtDisplayString(
 // Flag word is 32 bits.
 //
 
-#define FLG_STOP_ON_EXCEPTION           0x00000001
-#define FLG_OB_DELETE_MESSAGE           0x00000002
-#define FLG_STATS_ON_PROCESS_EXIT       0x00000004
-#define FLG_SHOW_EXCEPTIONS             0x00000008
-#define FLG_SHOW_LDR_SNAPS              0x00000010
-#define FLG_USER_DEBUGGER               0x00000020
-#define FLG_DISABLE_PAGING_EXECUTIVE    0x00000040
-#define FLG_SHOW_THREAD_DELETES         0x00000080
-#define FLG_ECHO_POOL_CALLS             0x00000100
-#define FLG_IGNORE_DEBUG_PRIV           0x00000200
-#define FLG_DISPLAY_ON_SCREEN           0x00000400
-#define FLG_DISPLAY_LOAD_TIME           0x00000800
-#define FLG_DEBUG_INITIAL_COMMAND       0x00001000
-#define FLG_TRACE_PAGING_INFO           0x00002000
-#define FLG_TRACE_PAGEFAULT             0x00004000
-#define FLG_STOP_ON_HUNG_GUI            0x00008000
-#define FLG_RAW_PROFILE                 0x00010000
-#define FLG_DISPLAY_MEMORY_CONFIG       0x00020000
-#define FLG_DISABLE_PAGE_KERNEL_STACKS  0x00040000
-#define FLG_DISABLE_CSRDEBUG            0x00080000
-#define FLG_HEAP_DISABLE_TAIL_CHECK     0x00100000
-#define FLG_HEAP_TRACE_ALLOCS           0x00200000
-#define FLG_LPC_TRACE_MESSAGES          0x00400000
-#define FLG_STOP_ON_HEAP_ERRORS         0x00800000
-#define FLG_ENABLE_POOL_TAGGING         0x01000000
-#define FLG_SHOW_OB_ALLOC_AND_FREE      0x02000000
-#define FLG_SHOW_LDR_PROCESS_STARTS     0x04000000
-#define FLG_ENABLE_KDEBUG_SYMBOL_LOAD   0x08000000
-#define FLG_ENABLE_DISK_CRASH_DUMPS     0x10000000
-#define FLG_HEAP_DISABLE_FREE_CHECK     0x20000000
-#define FLG_POOL_DISABLE_FREE_CHECK     0x40000000
-#define FLG_BREAK_DELAY                 0x80000000
+#define FLG_STOP_ON_EXCEPTION           0x00000001      // user and kernel mode
+#define FLG_SHOW_LDR_SNAPS              0x00000002      // user and kernel mode
+#define FLG_DEBUG_INITIAL_COMMAND       0x00000004      // kernel mode only up until WINLOGON started
+#define FLG_STOP_ON_HUNG_GUI            0x00000008      // kernel mode only while running
+
+#define FLG_HEAP_ENABLE_TAIL_CHECK      0x00000010      // user mode only
+#define FLG_HEAP_ENABLE_FREE_CHECK      0x00000020      // user mode only
+#define FLG_HEAP_VALIDATE_PARAMETERS    0x00000040      // user mode only
+#define FLG_HEAP_VALIDATE_ALL           0x00000080      // user mode only
+
+#define FLG_POOL_ENABLE_TAIL_CHECK      0x00000100      // kernel mode only
+#define FLG_POOL_ENABLE_FREE_CHECK      0x00000200      // kernel mode only
+#define FLG_POOL_ENABLE_TAGGING         0x00000400      // kernel mode only
+#define FLG_HEAP_ENABLE_TAGGING         0x00000800      // user mode only
+
+#define FLG_USER_STACK_TRACE_DB         0x00001000      // x86 user mode only
+#define FLG_KERNEL_STACK_TRACE_DB       0x00002000      // x86 kernel mode only at boot time
+#define FLG_MAINTAIN_OBJECT_TYPELIST    0x00004000      // kernel mode only at boot time
+#define FLG_HEAP_ENABLE_TAG_BY_DLL      0x00008000      // user mode only
+
+#define FLG_IGNORE_DEBUG_PRIV           0x00010000      // kernel mode only
+#define FLG_ENABLE_CSRDEBUG             0x00020000      // kernel mode only at boot time
+#define FLG_ENABLE_KDEBUG_SYMBOL_LOAD   0x00040000      // kernel mode only
+#define FLG_DISABLE_PAGE_KERNEL_STACKS  0x00080000      // kernel mode only at boot time
+
+#define FLG_HEAP_ENABLE_CALL_TRACING    0x00100000      // user mode only
+#define FLG_HEAP_DISABLE_COALESCING     0x00200000      // user mode only
+
+#define FLG_ENABLE_CLOSE_EXCEPTIONS     0x00400000      // kernel mode only
+#define FLG_ENABLE_EXCEPTION_LOGGING    0x00800000      // kernel mode only
+
+#define FLG_ENABLE_HANDLE_TYPE_TAGGING  0x01000000      // kernel mode only
+
+#define FLG_HEAP_PAGE_ALLOCS            0x02000000      // user mode only
+#define FLG_DEBUG_INITIAL_COMMAND_EX    0x04000000      // kernel mode only up until WINLOGON started
+
+#define FLG_VALID_BITS                  0x07FFFFFF
+
+#define FLG_USERMODE_VALID_BITS        (FLG_STOP_ON_EXCEPTION           | \
+                                        FLG_SHOW_LDR_SNAPS              | \
+                                        FLG_HEAP_ENABLE_TAIL_CHECK      | \
+                                        FLG_HEAP_ENABLE_FREE_CHECK      | \
+                                        FLG_HEAP_VALIDATE_PARAMETERS    | \
+                                        FLG_HEAP_VALIDATE_ALL           | \
+                                        FLG_HEAP_ENABLE_TAGGING         | \
+                                        FLG_USER_STACK_TRACE_DB         | \
+                                        FLG_HEAP_ENABLE_TAG_BY_DLL      | \
+                                        FLG_HEAP_ENABLE_CALL_TRACING    | \
+                                        FLG_HEAP_DISABLE_COALESCING     | \
+                                        FLG_HEAP_PAGE_ALLOCS)
+
+#define FLG_BOOTONLY_VALID_BITS        (FLG_KERNEL_STACK_TRACE_DB       | \
+                                        FLG_MAINTAIN_OBJECT_TYPELIST    | \
+                                        FLG_ENABLE_CSRDEBUG             | \
+                                        FLG_DISABLE_PAGE_KERNEL_STACKS)
+
+#define FLG_KERNELMODE_VALID_BITS      (FLG_STOP_ON_EXCEPTION           | \
+                                        FLG_SHOW_LDR_SNAPS              | \
+                                        FLG_DEBUG_INITIAL_COMMAND       | \
+                                        FLG_DEBUG_INITIAL_COMMAND_EX    | \
+                                        FLG_STOP_ON_HUNG_GUI            | \
+                                        FLG_POOL_ENABLE_TAIL_CHECK      | \
+                                        FLG_POOL_ENABLE_FREE_CHECK      | \
+                                        FLG_POOL_ENABLE_TAGGING         | \
+                                        FLG_IGNORE_DEBUG_PRIV           | \
+                                        FLG_ENABLE_KDEBUG_SYMBOL_LOAD   | \
+                                        FLG_ENABLE_CLOSE_EXCEPTIONS     | \
+                                        FLG_ENABLE_EXCEPTION_LOGGING    | \
+                                        FLG_ENABLE_HANDLE_TYPE_TAGGING)
+
+
+//
+// Routines for manipulating global atoms stored in kernel space
+//
+
+typedef USHORT RTL_ATOM, *PRTL_ATOM;
+
+NTSYSAPI
+NTSTATUS
+NTAPI
+NtAddAtom(
+    IN PWSTR AtomName OPTIONAL,
+    IN OUT PRTL_ATOM Atom OPTIONAL
+    );
+
+NTSYSAPI
+NTSTATUS
+NTAPI
+NtFindAtom(
+    IN PWSTR AtomName,
+    OUT PRTL_ATOM Atom OPTIONAL
+    );
+
+NTSYSAPI
+NTSTATUS
+NTAPI
+NtDeleteAtom(
+    IN RTL_ATOM Atom
+    );
+
+typedef enum _ATOM_INFORMATION_CLASS {
+    AtomBasicInformation,
+    AtomTableInformation
+} ATOM_INFORMATION_CLASS;
+
+typedef struct _ATOM_BASIC_INFORMATION {
+    USHORT UsageCount;
+    USHORT Flags;
+    USHORT NameLength;
+    WCHAR Name[ 1 ];
+} ATOM_BASIC_INFORMATION, *PATOM_BASIC_INFORMATION;
+
+typedef struct _ATOM_TABLE_INFORMATION {
+    ULONG NumberOfAtoms;
+    RTL_ATOM Atoms[ 1 ];
+} ATOM_TABLE_INFORMATION, *PATOM_TABLE_INFORMATION;
+
+NTSYSAPI
+NTSTATUS
+NTAPI
+NtQueryInformationAtom(
+    IN RTL_ATOM Atom,
+    IN ATOM_INFORMATION_CLASS AtomInformationClass,
+    OUT PVOID AtomInformation,
+    IN ULONG AtomInformationLength,
+    OUT PULONG ReturnLength OPTIONAL
+    );
 
 #endif // _NTEXAPI_

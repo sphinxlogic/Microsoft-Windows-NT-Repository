@@ -1086,16 +1086,12 @@ Return Value:
         //
 
         EnterCriticalSection( &WorkQueue->CriticalSection );
-        try {
-            WorkQueue->Terminating = TRUE;
-            ReleaseSemaphore( WorkQueue->Semaphore,
-                              WorkQueue->NumberOfWorkerThreads,
-                              NULL
-                            );
-            }
-        finally {
-            LeaveCriticalSection( &WorkQueue->CriticalSection );
-            }
+        WorkQueue->Terminating = TRUE;
+        ReleaseSemaphore( WorkQueue->Semaphore,
+                          WorkQueue->NumberOfWorkerThreads,
+                          NULL
+                        );
+        LeaveCriticalSection( &WorkQueue->CriticalSection );
 
         //
         // Wait for all worker threads to wake up and see the
@@ -2071,4 +2067,4 @@ ProcessCommandLineArguments(
             }
         }
 }
-
+

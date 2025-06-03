@@ -572,7 +572,21 @@ BOOL WM_CreateObjects ( VOID )
      CHAR    szFontFace[MAX_FONTFACENAME_LEN + 1];
      HDC     hDC;
      INT     nFontHeight;
+     DWORD   csfont ;
 
+     if (IS_JAPAN() ) {
+          CHARSETINFO csi;
+          DWORD dw = GetACP();
+
+          if (!TranslateCharsetInfo((DWORD*)dw, &csi, TCI_SRCCODEPAGE)){
+               csfont = csi.ciCharset = ANSI_CHARSET;
+          }
+          csfont = csi.ciCharset ;
+     
+     } else {
+
+          csfont = ANSI_CHARSET ;
+     }
 
      // Determine the font height.
 
@@ -606,11 +620,11 @@ BOOL WM_CreateObjects ( VOID )
 
      ghBrushHighLight = CreateSolidBrush ( gColorHighLight );
 
-#ifdef JAPAN
-     RSM_StringCopy ( IDS_FONTSYSTEM, szFontFace, MAX_FONTFACENAME_LEN );
-#else
-     RSM_StringCopy ( IDS_FONTHELV, szFontFace, MAX_FONTFACENAME_LEN );
-#endif
+     if ( IS_JAPAN() ) {
+          RSM_StringCopy ( IDS_FONTSYSTEM, szFontFace, MAX_FONTFACENAME_LEN );
+     } else {
+          RSM_StringCopy ( IDS_FONTHELV, szFontFace, MAX_FONTFACENAME_LEN );
+     }
 
      ghFontStatus = CreateFont( 16,                  // Height
                                 7,                   // Width
@@ -620,11 +634,7 @@ BOOL WM_CreateObjects ( VOID )
                                 0,                   // Italics?
                                 0,                   // Underline?
                                 0,                   // Strike out?
-#ifdef JAPAN
-                                SHIFTJIS_CHARSET,        // Character set
-#else
-                                ANSI_CHARSET,        // Character set
-#endif
+                                (IS_JAPAN()?csfont:ANSI_CHARSET ),
                                 OUT_DEFAULT_PRECIS,
                                 CLIP_DEFAULT_PRECIS,
                                 DEFAULT_QUALITY,
@@ -636,19 +646,11 @@ BOOL WM_CreateObjects ( VOID )
                                  5,                   // Width
                                  0,                   // Escapement
                                  0,                   // Orientation
-#ifdef JAPAN
-                                 400,             // Weight
-#else
-                                 FW_BOLD,             // Weight
-#endif
+                                 (IS_JAPAN()?400:FW_BOLD),  //Weight
                                  0,                   // Italics?
                                  0,                   // Underline?
                                  0,                   // Strike out?
-#ifdef JAPAN
-                                 SHIFTJIS_CHARSET,        // Character set
-#else
-                                 ANSI_CHARSET,        // Character set
-#endif
+                                 (IS_JAPAN()?csfont:ANSI_CHARSET ),
                                  OUT_STRING_PRECIS,   //
                                  CLIP_STROKE_PRECIS,
                                  DEFAULT_QUALITY,
@@ -664,11 +666,7 @@ BOOL WM_CreateObjects ( VOID )
                                 (BYTE)CDS_GetFontItalics ( pCDS ),
                                 0,                   // Underline?
                                 0,                   // Strike out?
-#ifdef JAPAN
-                                SHIFTJIS_CHARSET,        // Character set
-#else
-                                ANSI_CHARSET,        // Character set
-#endif
+                                (IS_JAPAN()?csfont:ANSI_CHARSET ),
                                 OUT_STRING_PRECIS,   //
                                 CLIP_STROKE_PRECIS,
                                 DEFAULT_QUALITY,
@@ -682,19 +680,11 @@ BOOL WM_CreateObjects ( VOID )
                                  5,                   // Width
                                  0,                   // Escapement
                                  0,                   // Orientation
-#ifdef JAPAN
-                                 400,             // Weight
-#else
-                                 FW_BOLD,             // Weight
-#endif
+                                 (IS_JAPAN()?400:FW_BOLD),
                                  0,                   // Italics?
                                  0,                   // Underline?
                                  0,                   // Strike out?
-#ifdef JAPAN
-                                 SHIFTJIS_CHARSET,        // Character set
-#else
-                                 ANSI_CHARSET,        // Character set
-#endif
+                                 (IS_JAPAN()?csfont:ANSI_CHARSET ),
                                  OUT_STRING_PRECIS,   //
                                  CLIP_STROKE_PRECIS,
                                  DEFAULT_QUALITY,
@@ -702,11 +692,11 @@ BOOL WM_CreateObjects ( VOID )
                                  szFontFace
                                 );
 
-#ifdef JAPAN
-     RSM_StringCopy ( IDS_FONTSYSTEM, szFontFace, MAX_FONTFACENAME_LEN );
-#else
-     RSM_StringCopy ( IDS_FONTCOURIER, szFontFace, MAX_FONTFACENAME_LEN );
-#endif
+     if ( IS_JAPAN() ) {
+          RSM_StringCopy ( IDS_FONTSYSTEM, szFontFace, MAX_FONTFACENAME_LEN );
+     } else {
+          RSM_StringCopy ( IDS_FONTCOURIER, szFontFace, MAX_FONTFACENAME_LEN );
+     }
 
      ghFontLog     = CreateFont( 13,                  // Height
                                  8,                   // Width
@@ -716,11 +706,7 @@ BOOL WM_CreateObjects ( VOID )
                                  0,                   // Italics?
                                  0,                   // Underline?
                                  0,                   // Strike out?
-#ifdef JAPAN
-                                 SHIFTJIS_CHARSET,        // Character set
-#else
-                                 ANSI_CHARSET,        // Character set
-#endif
+                                 (IS_JAPAN()?csfont:ANSI_CHARSET ),
                                  OUT_STRING_PRECIS,   //
                                  CLIP_STROKE_PRECIS,
                                  DEFAULT_QUALITY,
@@ -1035,6 +1021,8 @@ INT   nCmdShow )         // I - show parm from windows for describing how
           strcat ( szTitle, TEXT(" - ") );
           strcat ( szTitle, szTemp );
      }
+
+//     strcat( szTitle, TEXT("-build 327.4") ) ;
 
      // Create the frame.
 
@@ -1854,6 +1842,9 @@ VOID WM_MinimizeDocs ( VOID )
 
                switch ( WMDS_GetWinType ( pdsWinInfo ) ) {
 
+#ifdef OEM_EMS
+               case WMTYPE_EXCHANGE:
+#endif //OEM_EMS
                case WMTYPE_DISKS:
                case WMTYPE_TAPES:
                case WMTYPE_SERVERS:
@@ -2067,4 +2058,4 @@ VOID WM_MakeAppActive( VOID )
      }
 
 } /* end WM_MakeAppActive() */
-
+

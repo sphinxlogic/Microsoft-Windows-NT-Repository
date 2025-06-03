@@ -156,12 +156,7 @@ FILE * _CRTAPI1 _fsopenW (
 *******************************************************************************/
 
 #ifdef _INC_STDIO
-
-FILE * _CRTAPI1 fopenW (
-  const wchar_t *file,
-  const wchar_t *mode
-  );
-
+FILE * UNI_fopen( wchar_t *fname, unsigned long flags ) ;
 #endif // _INC_STDIO
 
 /***
@@ -735,6 +730,23 @@ wchar_t * _CRTAPI1 _ultoaW (
 #define     _itoa       _itoaW
 #define     _ltoa       _ltoaW
 #define     _ultoa      _ultoaW
+
+#define     openfile   _openfileW
+#define     open       _openW
+#define     sopen      _sopenW
+#define     tempnam    _tempnamW
+#define     chdir      _chdirW
+#define     access     _accessW
+#define     remove      removeW
+#define     unlink     _unlinkW
+#define     getcwd     _getcwdW
+#define     getdcwd    _getdcwdW
+#define     getdcwd_lk _getdcwdW_lk
+#define     chmod      _chmodW
+#define     mkdir      _mkdirW
+#define     itoa       _itoaW
+#define     ltoa       _ltoaW
+#define     ultoa      _ultoaW
 
 #endif // UNICODE
 

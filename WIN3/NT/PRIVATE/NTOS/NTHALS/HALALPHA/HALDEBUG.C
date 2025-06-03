@@ -10,7 +10,7 @@ Module Name:
 
 Abstract:
 
-    This module contains debugging code for the HAL. 
+    This module contains debugging code for the HAL.
 
 Author:
 
@@ -30,6 +30,7 @@ Revision History:
 
 
 #include <stdarg.h>
+#include <stdio.h>
 
 ULONG HalDebugMask = 0;
 UCHAR HalDebugBuffer[512];

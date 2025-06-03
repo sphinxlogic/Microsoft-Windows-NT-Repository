@@ -39,7 +39,7 @@ DetermineFileType (
 
 Routine Description:
 
-    This function is used to determine what type of file is being read. 
+    This function is used to determine what type of file is being read.
 	Note that it assumes that the first few bytes of the given file contain
 	mostly ascii characters.  This routine was originally intended for use
 	on .rc files and include files.
@@ -51,7 +51,7 @@ Arguments:
 						  open with read permissions.
 
 Return Value:
-  
+
 	DFT_FILE_IS_UNKNOWN     - It was impossible to determine what type of file
 							  we were checking.  This usually happens when EOF
 							  is unexpectedly reached.
@@ -82,7 +82,7 @@ Return Value:
 	//
 	lStartFilePos = ftell (fpInputFile);
 
-	// 
+	//
 	// Make sure we start on an even byte to simplify routines.
 	//
 	if (lStartFilePos % 2) {
@@ -187,11 +187,11 @@ DetermineSysEndianType (
 Routine Description:
 
     This function is used to determine how the current system stores its
-	integers in memory.  
+	integers in memory.
 
     For those of us who are confused by little endian and big endian formats,
 	here is a breif recap.
-    
+
     Little Endian:  (This is used on Intel 80x86 chips.  The MIPS RS4000 chip
 		 is switchable, but will run in little endian format for NT.)
        This is where the high order bytes of a short or long are stored higher
@@ -202,7 +202,7 @@ Routine Description:
              02            40
              03            80
        This looks backwards when memory is dumped in order: 10 20 40 80
-    
+
     Big Endian:  (This is not currently used on any NT systems but hey, this
          is supposed to be portable!!)
        This is where the high order bytes of a short or long are stored lower
@@ -219,7 +219,7 @@ Arguments:
 	None.
 
 Return Value:
-  
+
 	DSE_SYS_LITTLE_ENDIAN   - The system stores integers in little endian
 							  format.  (this is 80x86 default).
 	DSE_SYS_BIG_ENDIAN  	- The system stores integers in big endian format.
@@ -240,7 +240,7 @@ Return Value:
 	// Set first to some value.
 	//
 
-	rgchTestBytes [0] = 0xFF;
+	rgchTestBytes [0] = (UCHAR)0xFF;
 
 	//
 	// Map it to an integer.
@@ -249,7 +249,7 @@ Return Value:
 	nCheckInteger = *((INT *)rgchTestBytes);
 
 	//
-	// See if value was stored in low order of integer. 
+	// See if value was stored in low order of integer.
 	// If so then system is little endian.
 	//
 

@@ -7,10 +7,20 @@
 
 /**********************       PolyTron RCS Utilities
    
-    $Revision:   1.0  $
-    $Date:   31 Jan 1994 11:08:14  $
-    $Author:   RWOLFF  $
-    $Log:   S:/source/wnt/ms11/miniport/vcs/eeprom.c  $
+    $Revision:   1.3  $
+    $Date:   23 Jan 1996 11:45:50  $
+    $Author:   RWolff  $
+    $Log:   S:/source/wnt/ms11/miniport/archive/eeprom.c_v  $
+ * 
+ *    Rev 1.3   23 Jan 1996 11:45:50   RWolff
+ * Eliminated level 3 warnings.
+ * 
+ *    Rev 1.2   23 Dec 1994 10:47:34   ASHANMUG
+ * ALPHA/Chrontel-DAC
+ * 
+ *    Rev 1.1   07 Feb 1994 14:07:06   RWOLFF
+ * Added alloc_text() pragmas to allow miniport to be swapped out when
+ * not needed.
  * 
  *    Rev 1.0   31 Jan 1994 11:08:14   RWOLFF
  * Initial revision.
@@ -75,15 +85,9 @@ End of PolyTron RCS section                             *****************/
 
 #include <conio.h>
 
-/*
- * Different include files are needed for the Windows NT device driver
- * and the VIDEO.EXE test program.
- */
-#ifndef MSDOS
 #include "miniport.h"
 #include "video.h"
 #include "ntddvdeo.h"
-#endif
 
 #include "stdtyp.h"
 
@@ -326,8 +330,7 @@ struct st_eeprom_data *ee = phwDeviceExtension->ee;
 
 WORD    ee_read (short index)
 {
-int     jj, kk;
-WORD    save_misc, indata=0;
+WORD    indata=0;
 
     if (INPW(CONFIG_STATUS_1) & 1)		//is 8514 or VGA eeprom
         {                               // VGA disabled, use 8514 method
@@ -351,7 +354,7 @@ WORD    ee_read_8514 (short index)
 {
 struct st_eeprom_data *ee = phwDeviceExtension->ee;
 
-int     jj, kk;
+int     jj;
 WORD    save_misc, indata=0;
 
     save_misc = INPW (R_MISC_CNTL); 	// Read only location
@@ -388,7 +391,7 @@ void    ee_write (short index, WORD eedata)
 {
 struct st_eeprom_data *ee = phwDeviceExtension->ee;
 
-int     jj, kk;
+int     jj;
 WORD    save_misc, indata=0;
 
     if (INPW(CONFIG_STATUS_1) & 1)		//is 8514 or VGA eeprom

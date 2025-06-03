@@ -4,16 +4,16 @@ Copyright (c) 1992  Microsoft Corporation
 
 Module Name:
 
-    deteisa.c
+	deteisa.c
 
 Abstract:
 
-    This is the main file for the autodetection DLL for all the EISA adapters
-    which MS is shipping with Windows NT.
+	This is the main file for the autodetection DLL for all the EISA adapters
+	which MS is shipping with Windows NT.
 
 Author:
 
-    Sean Selitrennikoff (SeanSe) October 1992.
+	Sean Selitrennikoff (SeanSe) October 1992.
 
 Environment:
 
@@ -36,13 +36,29 @@ Revision History:
 #include "detect.h"
 
 
-#define     ELNK3_EISA_ID           0x90506d50
+typedef struct _EISA_ADAPTER_INFO
+{
+	LONG					Index;
+	PWCHAR					InfId;
+	ULONG					EisaId;
+	ULONG					EisaMask;
+	PWCHAR					Parameters;
+	NC_DETECT_FIRST_NEXT	FirstNext;
 
+	ULONG					BusNumber;
+	ULONG					SlotNumber;
+}
+	EISA_ADAPTER_INFO,
+	*PEISA_ADAPTER_INFO;
 
-//
-// Individual card detection routines
-//
+UINT				gLoadEisaAdapterInfo = 0;
+ULONG				gNumberOfEisaAdapters = 0;
+PEISA_ADAPTER_INFO	gEisaAdapterList = NULL;
+PWCHAR				gEisaParameters = L"SLOTNUMBER\0"
+									  L"1\0"
+									  L"100\0";
 
+#define EISA_SEARCH_ORDER	999
 
 //
 // Helper functions
@@ -50,1470 +66,891 @@ Revision History:
 
 ULONG
 FindEisaCard(
-    IN  ULONG AdapterNumber,
-    IN  ULONG BusNumber,
-    IN  BOOLEAN First,
-    IN  ULONG CompressedId,
-    IN  ULONG Mask,
-    OUT PULONG Confidence
-    );
+	IN	ULONG AdapterNumber,
+	IN	ULONG BusNumber,
+	IN	BOOLEAN First,
+	IN	ULONG CompressedId,
+	IN	ULONG Mask,
+	OUT	PULONG Confidence
+	);
 
-#ifdef WORKAROUND
+VOID
+FreeEisaAdapterInfo(
+	VOID
+	)
+/*++
 
-UCHAR EisaFirstTime = 1;
+Routine Description:
 
-//
-// List of all the adapters supported in this file, this cannot be > 256
-// because of the way tokens are generated.
-//
-//
-// NOTE : If you change the index of an adapter, be sure the change it in
-// EisaQueryCfgHandler(), EisaFirstNextHandler() and EisaVerifyCfgHandler() as
-// well!
-//
+Arguments:
 
-static ADAPTER_INFO Adapters[] = {
+Return Value:
 
-    {
-        1000,
-        L"NE3200",
-        L"SLOTNUMBER 1 100 ",
-        NULL,
-        999
+--*/
+{
+	if (--gLoadEisaAdapterInfo == 0)
+	{
+		FreeAdapterInformation(gEisaAdapterList, gNumberOfEisaAdapters);
+		gEisaAdapterList = NULL;
+		gNumberOfEisaAdapters = 0;
+	}
+}
 
-    },
+BOOLEAN
+LoadEisaAdapterInfo(
+	VOID
+	)
+/*++
 
-    {
-        1100,
-        L"DEC422",
-        L"SLOTNUMBER 1 100 ",
-        NULL,
-        999
+Routine Description:
 
-    },
+Arguments:
 
-    {
-        1200,
-        L"P1990",
-        L"SLOTNUMBER 1 100 ",
-        NULL,
-        999
+Return Value:
 
-    },
+--*/
+{
+	PEISA_ADAPTER_INFO	AdapterList;
+	UINT				NumberOfAdapters;
+	BOOLEAN				f;
+	UINT				c;
 
-    {
-        1300,
-        L"NETFLX",
-        L"SLOTNUMBER 1 100 ",
-        NULL,
-        999
+	//
+	//	Have we already loaded the adapter information?
+	//
+	if (gLoadEisaAdapterInfo > 0)
+	{
+		gLoadEisaAdapterInfo++;
+		return(TRUE);
+	}
 
-    },
-
-    {
-        1400,
-        L"CPQTOK",
-        L"SLOTNUMBER 1 100 ",
-        NULL,
-        999
-
-    },
-
-    {
-        1500,
-        L"ELNK3EISA",
-        L"SLOTNUMBER 1 100 ",
-        NULL,
-        999
-
-    },
-
-    {
-        1600,
-        L"IBMTOK2E",
-        L"SLOTNUMBER\0001\000100\0",
-        NULL,
-        999
-
-    }
-
-};
-
-#else
-
-//
-// List of all the adapters supported in this file, this cannot be > 256
-// because of the way tokens are generated.
-//
-//
-// NOTE : If you change the index of an adapter, be sure the change it in
-// EisaQueryCfgHandler(), EisaFirstNextHandler() and EisaVerifyCfgHandler() as
-// well!
-//
-
-static ADAPTER_INFO Adapters[] = {
-
-    {
-        1000,
-        L"NE3200",
-        L"SLOTNUMBER\0001\000100\0",
-        NULL,
-        999
-
-    },
-
-    {
-        1100,
-        L"DEC422",
-        L"SLOTNUMBER\0001\000100\0",
-        NULL,
-        999
-
-    },
-
-    {
-        1200,
-        L"P1990",
-        L"SLOTNUMBER\0001\000100\0",
-        NULL,
-        999
-
-    },
-
-    {
-        1300,
-        L"NETFLEX",
-        L"SLOTNUMBER\0001\000100\0",
-        NULL,
-        999
-
-    },
-
-    {
-        1400,
-        L"CPQTOK",
-        L"SLOTNUMBER\0001\000100\0",
-        NULL,
-        999
-
-    },
-
-    {
-        1500,
-        L"ELNK3EISA",
-        L"SLOTNUMBER\0001\000100\0",
-        NULL,
-        999
-
-    },
-
-    {
-        1600,
-        L"IBMTOK2E",
-        L"SLOTNUMBER\0001\000100\0",
-        NULL,
-        999
-
-    }
-
-};
-
+	//
+	//	Load the registry specific information.
+	//
+	f = LoadAdapterInformation(
+			L"EISA",
+			sizeof(EISA_ADAPTER_INFO),
+			&AdapterList,
+			&NumberOfAdapters);
+	if (!f)
+	{
+#if _DBG
+		DbgPrint("LoadAdapterInformation failed!\n");
 #endif
+		return(FALSE);
+	}
 
-//
-// Structure for holding state of a search
-//
-
-typedef struct _SEARCH_STATE {
-
-    ULONG SlotNumber;
-
-} SEARCH_STATE, *PSEARCH_STATE;
-
-
-//
-// This is an array of search states.  We need one state for each type
-// of adapter supported.
-//
-
-static SEARCH_STATE SearchStates[sizeof(Adapters) / sizeof(ADAPTER_INFO)] = {0};
+	//
+	//	Fill in the rest of the info.
+	//
+	for (c = 0; c < NumberOfAdapters; c++)
+	{
+		AdapterList[c].Parameters = gEisaParameters;
+	}
 
 
-//
-// Structure for holding a particular adapter's complete information
-//
-typedef struct _EISA_ADAPTER {
+	gNumberOfEisaAdapters = NumberOfAdapters;
+	gEisaAdapterList = AdapterList;
+	gLoadEisaAdapterInfo = 1;
 
-    LONG CardType;
-    INTERFACE_TYPE InterfaceType;
-    ULONG BusNumber;
-    ULONG SlotNumber;
-
-} EISA_ADAPTER, *PEISA_ADAPTER;
-
+	return(TRUE);
+}
 
 extern
 LONG
 EisaIdentifyHandler(
-    IN LONG Index,
-    IN WCHAR * Buffer,
-    IN LONG BuffSize
-    )
+	IN LONG Index,
+	IN WCHAR * Buffer,
+	IN LONG BuffSize
+	)
 
 /*++
 
 Routine Description:
 
-    This routine returns information about the netcards supported by
-    this file.
+	This routine returns information about the netcards supported by
+	this file.
 
 Arguments:
 
-    Index -  The index of the netcard being address.  The first
-    cards information is at index 1000, the second at 1100, etc.
+	Index -  The index of the netcard being address.  The first
+	cards information is at index 1000, the second at 1100, etc.
 
-    Buffer - Buffer to store the result into.
+	Buffer - Buffer to store the result into.
 
-    BuffSize - Number of bytes in Buffer
+	BuffSize - Number of bytes in Buffer
 
 Return Value:
 
-    0 if nothing went wrong, else the appropriate WINERROR.H value.
+	0 if nothing went wrong, else the appropriate WINERROR.H value.
 
 --*/
 
 
 {
-    LONG NumberOfAdapters;
-    LONG Code = Index % 100;
-    LONG Length;
-    LONG i;
+	ULONG 			Code = Index % 100;
+	LONG 			Length;
+	ULONG 			i;
 
-    NumberOfAdapters = sizeof(Adapters) / sizeof(ADAPTER_INFO);
+	Index = Index - Code;
 
-#ifdef WORKAROUND
+	if ((ULONG)((Index / 100) - 10) < gNumberOfEisaAdapters)
+	{
+		//
+		// Find the correct adapter ID
+		//
+		for (i = 0; i < gNumberOfEisaAdapters; i++)
+		{
+			if (gEisaAdapterList[i].Index == Index)
+			{
+				switch (Code)
+				{
+					case 0:
 
-    //
-    // We need to convert unicode spaces into unicode NULLs.
-    //
+						//
+						// Find the string length
+						//
+						Length = UnicodeStrLen(gEisaAdapterList[i].InfId);
 
-    if (EisaFirstTime) {
+						Length ++;
 
-        EisaFirstTime = 0;
+						if (BuffSize < Length)
+						{
+							return(ERROR_INSUFFICIENT_BUFFER);
+						}
 
-        for (i = 0; i < NumberOfAdapters; i++) {
+						memcpy((PVOID)Buffer,
+								gEisaAdapterList[i].InfId,
+								Length * sizeof(WCHAR));
+						break;
 
-            Length = UnicodeStrLen(Adapters[i].Parameters);
+					case 3:
 
-            for (; Length > 0; Length--) {
+						//
+						// Maximum value is 1000
+						//
+						if (BuffSize < 5)
+						{
+							return(ERROR_INSUFFICIENT_BUFFER);
+						}
 
-                if (Adapters[i].Parameters[Length] == L' ') {
+						wsprintf((PVOID)Buffer, L"%d", EISA_SEARCH_ORDER);
 
-                    Adapters[i].Parameters[Length] = UNICODE_NULL;
+						break;
 
-                }
+					default:
 
-            }
+						return(ERROR_INVALID_PARAMETER);
+				}
 
-        }
+				return(0);
+			}
+		}
 
-    }
+		return(ERROR_INVALID_PARAMETER);
+	}
 
-#endif
-
-    Index = Index - Code;
-
-    if (((Index / 100) - 10) < NumberOfAdapters) {
-
-        //
-        // Find the correct adapter ID
-        //
-
-        for (i=0; i < NumberOfAdapters; i++) {
-
-            if (Adapters[i].Index == Index) {
-
-                switch (Code) {
-
-                    case 0:
-
-                        //
-                        // Find the string length
-                        //
-
-                        Length = UnicodeStrLen(Adapters[i].InfId);
-
-                        Length ++;
-
-                        if (BuffSize < Length) {
-
-                            return(ERROR_INSUFFICIENT_BUFFER);
-
-                        }
-
-                        memcpy((PVOID)Buffer, Adapters[i].InfId, Length * sizeof(WCHAR));
-                        break;
-
-                    case 3:
-
-                        //
-                        // Maximum value is 1000
-                        //
-
-                        if (BuffSize < 5) {
-
-                            return(ERROR_INSUFFICIENT_BUFFER);
-
-                        }
-
-                        wsprintf((PVOID)Buffer, L"%d", Adapters[i].SearchOrder);
-
-                        break;
-
-                    default:
-
-                        return(ERROR_INVALID_PARAMETER);
-
-                }
-
-                return(0);
-
-            }
-
-        }
-
-        return(ERROR_INVALID_PARAMETER);
-
-    }
-
-    return(ERROR_NO_MORE_ITEMS);
-
+	return(ERROR_NO_MORE_ITEMS);
 }
 
 
 extern
 LONG
 EisaFirstNextHandler(
-    IN  LONG NetcardId,
-    IN  INTERFACE_TYPE InterfaceType,
-    IN  ULONG BusNumber,
-    IN  BOOL First,
-    OUT PVOID *Token,
-    OUT LONG *Confidence
-    )
+	IN	LONG NetcardId,
+	IN	INTERFACE_TYPE InterfaceType,
+	IN	ULONG BusNumber,
+	IN	BOOL First,
+	OUT	PVOID *Token,
+	OUT	LONG *Confidence
+	)
 
 /*++
 
 Routine Description:
 
-    This routine finds the instances of a physical adapter identified
-    by the NetcardId.
+	This routine finds the instances of a physical adapter identified
+	by the NetcardId.
 
 Arguments:
 
-    NetcardId -  The index of the netcard being address.  The first
-    cards information is id 1000, the second id 1100, etc.
+	NetcardId -  The index of the netcard being address.  The first
+	cards information is id 1000, the second id 1100, etc.
 
-    InterfaceType - Microchannel
+	InterfaceType - Eisa
 
-    BusNumber - The bus number of the bus to search.
+	BusNumber - The bus number of the bus to search.
 
-    First - TRUE is we are to search for the first instance of an
-    adapter, FALSE if we are to continue search from a previous stopping
-    point.
+	First - TRUE is we are to search for the first instance of an
+	adapter, FALSE if we are to continue search from a previous stopping
+	point.
 
-    Token - A pointer to a handle to return to identify the found
-    instance
+	Token - A pointer to a handle to return to identify the found
+	instance
 
-    Confidence - A pointer to a long for storing the confidence factor
-    that the card exists.
+	Confidence - A pointer to a long for storing the confidence factor
+	that the card exists.
 
 Return Value:
 
-    0 if nothing went wrong, else the appropriate WINERROR.H value.
+	0 if nothing went wrong, else the appropriate WINERROR.H value.
 
 --*/
 
 {
-    ULONG CompressedId;
-    ULONG Mask = 0x00FFFFFF;
-    ULONG ReturnValue;
+	ULONG	ReturnValue;
+	ULONG	NetCardIndex;
 
-    if (InterfaceType != Eisa) {
+	if (InterfaceType != Eisa)
+	{
+		*Confidence = 0;
+		return(0);
+	}
 
-        *Confidence = 0;
-        return(0);
+	//
+	//	Get the index into the array for the netcard.
+	//
+	NetCardIndex = (NetcardId / 100) - 10;
 
-    }
+	//
+	// Call FindFirst Routine
+	//
+	ReturnValue = FindEisaCard(
+					NetCardIndex,
+					BusNumber,
+					(BOOLEAN)First,
+					gEisaAdapterList[NetCardIndex].EisaId,
+					gEisaAdapterList[NetCardIndex].EisaMask,
+					Confidence);
+	if (ReturnValue == 0)
+	{
+		//
+		// In this module I use the token as follows: Remember that
+		// the token can only be 2 bytes long (the low 2) because of
+		// the interface to the upper part of this DLL.
+		//
+		//  The rest of the high byte is the the bus number.
+		//  The low byte is the driver index number into Adapters.
+		//
+		// NOTE: This presumes that there are < 129 buses in the
+		// system. Is this reasonable?
+		//
+		*Token = (PVOID)NetCardIndex;
+	}
 
-    //
-    // Get CompressedId
-    //
-
-    switch (NetcardId) {
-
-        //
-        // NE3200
-        //
-
-        case 1000:
-
-            CompressedId = 0x07CC3A;
-            break;
-
-        //
-        // DEC422
-        //
-
-        case 1100:
-
-            CompressedId = 0x42A310;
-            break;
-
-        //
-        // PROTEON 1990
-        //
-
-        case 1200:
-
-            CompressedId = 0x604F42;
-            break;
-
-        //
-        // NET FLEX
-        //
-
-        case 1300:
-
-            CompressedId = 0x61110E;
-            break;
-
-        //
-        // COMPAQ Jupiter board
-        //
-
-        case 1400:
-
-            CompressedId = 0x60110E;
-            break;
-
-        //
-        // Elnk3  eisa
-        //
-
-        case 1500:
-
-            CompressedId = ELNK3_EISA_ID;
-            Mask = 0xF0FFFFFF;
-            break;
-
-
-        //
-        // IBMTOK2E eisa
-        //
-        case 1600:
-
-            CompressedId = 1068324;
-            break;
-
-        default:
-
-            return(ERROR_INVALID_PARAMETER);
-
-    }
-
-    //
-    // Call FindFirst Routine
-    //
-
-    ReturnValue = FindEisaCard(
-                        (ULONG)((NetcardId - 1000) / 100),
-                        BusNumber,
-                        (BOOLEAN)First,
-                        CompressedId,
-                        Mask,
-                        Confidence
-                        );
-
-    if (ReturnValue == 0) {
-
-        //
-        // In this module I use the token as follows: Remember that
-        // the token can only be 2 bytes long (the low 2) because of
-        // the interface to the upper part of this DLL.
-        //
-        //  The rest of the high byte is the the bus number.
-        //  The low byte is the driver index number into Adapters.
-        //
-        // NOTE: This presumes that there are < 129 buses in the
-        // system. Is this reasonable?
-        //
-
-        *Token = (PVOID)((BusNumber & 0x7F) << 8);
-
-        *Token = (PVOID)(((ULONG)*Token) | ((NetcardId - 1000) / 100));
-
-    }
-
-    return(ReturnValue);
-
+	return(ReturnValue);
 }
 
 extern
 LONG
 EisaOpenHandleHandler(
-    IN  PVOID Token,
-    OUT PVOID *Handle
-    )
+	IN	PVOID Token,
+	OUT	PVOID *Handle
+	)
 
 /*++
 
 Routine Description:
 
-    This routine takes a token returned by FirstNext and converts it
-    into a permanent handle.
+	This routine takes a token returned by FirstNext and converts it
+	into a permanent handle.
 
 Arguments:
 
-    Token - The token.
+	Token - The token.
 
-    Handle - A pointer to the handle, so we can store the resulting
-    handle.
+	Handle - A pointer to the handle, so we can store the resulting
+	handle.
 
 Return Value:
 
-    0 if nothing went wrong, else the appropriate WINERROR.H value.
+	0 if nothing went wrong, else the appropriate WINERROR.H value.
 
 --*/
 
 {
-    PEISA_ADAPTER Adapter;
-    LONG AdapterNumber;
-    ULONG BusNumber;
-    INTERFACE_TYPE InterfaceType;
+	//
+	//	The token is the index into the adapter list.
+	//
+	*Handle = (PVOID)&gEisaAdapterList[(ULONG)Token];
 
-    //
-    // Get info from the token
-    //
-
-    InterfaceType = Eisa;
-
-    BusNumber = (ULONG)(((ULONG)Token >> 8) & 0x7F);
-
-    AdapterNumber = ((ULONG)Token) & 0xFF;
-
-    //
-    // Store information
-    //
-
-    Adapter = (PEISA_ADAPTER)DetectAllocateHeap(
-                                 sizeof(EISA_ADAPTER)
-                                 );
-
-    if (Adapter == NULL) {
-
-        return(ERROR_NOT_ENOUGH_MEMORY);
-
-    }
-
-    //
-    // Copy across address
-    //
-
-    Adapter->SlotNumber = SearchStates[(ULONG)AdapterNumber].SlotNumber;
-    Adapter->CardType = Adapters[AdapterNumber].Index;
-    Adapter->InterfaceType = InterfaceType;
-    Adapter->BusNumber = BusNumber;
-
-    *Handle = (PVOID)Adapter;
-
-    return(0);
+	return(0);
 }
 
 LONG
 EisaCreateHandleHandler(
-    IN  LONG NetcardId,
-    IN  INTERFACE_TYPE InterfaceType,
-    IN  ULONG BusNumber,
-    OUT PVOID *Handle
-    )
+	IN	LONG NetcardId,
+	IN	INTERFACE_TYPE InterfaceType,
+	IN	ULONG BusNumber,
+	OUT	PVOID *Handle
+	)
 
 /*++
 
 Routine Description:
 
-    This routine is used to force the creation of a handle for cases
-    where a card is not found via FirstNext, but the user says it does
-    exist.
+	This routine is used to force the creation of a handle for cases
+	where a card is not found via FirstNext, but the user says it does
+	exist.
 
 Arguments:
 
-    NetcardId - The id of the card to create the handle for.
+	NetcardId - The id of the card to create the handle for.
 
-    InterfaceType - Microchannel
+	InterfaceType - Eisa
 
-    BusNumber - The bus number of the bus in the system.
+	BusNumber - The bus number of the bus in the system.
 
-    Handle - A pointer to the handle, for storing the resulting handle.
+	Handle - A pointer to the handle, for storing the resulting handle.
 
 Return Value:
 
-    0 if nothing went wrong, else the appropriate WINERROR.H value.
+	0 if nothing went wrong, else the appropriate WINERROR.H value.
 
 --*/
 
 {
-    PEISA_ADAPTER Adapter;
-    LONG NumberOfAdapters;
-    LONG i;
+	ULONG i;
 
-    if (InterfaceType != Eisa) {
+	//
+	//	If this is not an eisa adapter then bail now!
+	//
+	if (InterfaceType != Eisa)
+	{
+		return(ERROR_INVALID_PARAMETER);
+	}
 
-        return(ERROR_INVALID_PARAMETER);
+	for (i = 0; i < gNumberOfEisaAdapters; i++)
+	{
+		if (gEisaAdapterList[i].Index == NetcardId)
+		{
+			//
+			// Copy across memory address
+			//
+			gEisaAdapterList[i].SlotNumber = 1;
+			gEisaAdapterList[i].BusNumber = BusNumber;
 
-    }
+			*Handle = (PVOID)&gEisaAdapterList[NetcardId];
 
-    NumberOfAdapters = sizeof(Adapters) / sizeof(ADAPTER_INFO);
+			return(0);
+		}
+	}
 
-    for (i=0; i < NumberOfAdapters; i++) {
-
-        if (Adapters[i].Index == NetcardId) {
-
-            //
-            // Store information
-            //
-
-            Adapter = (PEISA_ADAPTER)DetectAllocateHeap(
-                                         sizeof(EISA_ADAPTER)
-                                         );
-
-            if (Adapter == NULL) {
-
-                return(ERROR_NOT_ENOUGH_MEMORY);
-
-            }
-
-            //
-            // Copy across memory address
-            //
-
-            Adapter->SlotNumber = 1;
-            Adapter->CardType = NetcardId;
-            Adapter->InterfaceType = InterfaceType;
-            Adapter->BusNumber = BusNumber;
-
-            *Handle = (PVOID)Adapter;
-
-            return(0);
-
-        }
-
-    }
-
-    return(ERROR_INVALID_PARAMETER);
+	return(ERROR_INVALID_PARAMETER);
 }
 
 extern
 LONG
 EisaCloseHandleHandler(
-    IN PVOID Handle
-    )
+	IN PVOID Handle
+	)
 
 /*++
 
 Routine Description:
 
-    This frees any resources associated with a handle.
+	This frees any resources associated with a handle.
 
 Arguments:
 
-   Handle - The handle.
+	Handle - The handle.
 
 Return Value:
 
-    0 if nothing went wrong, else the appropriate WINERROR.H value.
+	0 if nothing went wrong, else the appropriate WINERROR.H value.
 
 --*/
 
 {
-    DetectFreeHeap(Handle);
-
-    return(0);
+	return(0);
 }
+
 
 LONG
 EisaQueryCfgHandler(
-    IN  PVOID Handle,
-    OUT WCHAR *Buffer,
-    IN  LONG BuffSize
-    )
+	IN	PVOID Handle,
+	OUT	WCHAR *Buffer,
+	IN	LONG BuffSize
+	)
 
 /*++
 
 Routine Description:
 
-    This routine calls the appropriate driver's query config handler to
-    get the parameters for the adapter associated with the handle.
+	This routine calls the appropriate driver's query config handler to
+	get the parameters for the adapter associated with the handle.
 
 Arguments:
 
-    Handle - The handle.
+	Handle - The handle.
 
-    Buffer - The resulting parameter list.
+	Buffer - The resulting parameter list.
 
-    BuffSize - Length of the given buffer in WCHARs.
+	BuffSize - Length of the given buffer in WCHARs.
 
 Return Value:
 
-    0 if nothing went wrong, else the appropriate WINERROR.H value.
+	0 if nothing went wrong, else the appropriate WINERROR.H value.
 
 --*/
 
 {
-    PEISA_ADAPTER Adapter = (PEISA_ADAPTER)(Handle);
-    LONG OutputLengthLeft = BuffSize;
-    LONG CopyLength;
-    ULONG CompressedId;
-    PVOID BusHandle;
-    ULONG ReturnValue;
-    ULONG Confidence;
-    ULONG Mask = 0x00FFFFFF;
+	PEISA_ADAPTER_INFO	pAdapter = (PEISA_ADAPTER_INFO)Handle;
+	LONG OutputLengthLeft = BuffSize;
+	LONG CopyLength;
+	ULONG CompressedId, Id;
+	PVOID BusHandle;
+	ULONG ReturnValue;
+	ULONG Confidence;
+	ULONG Mask = 0x00FFFFFF;
+
+	ULONG StartPointer = (ULONG)Buffer;
+
+	//
+	// Verify the SlotNumber
+	//
+	if (!GetEisaKey(pAdapter->BusNumber, &BusHandle))
+	{
+		return(ERROR_INVALID_PARAMETER);
+	}
+
+	if (!GetEisaCompressedId(
+				 BusHandle,
+				 pAdapter->SlotNumber,
+				 &CompressedId,
+				 pAdapter->EisaMask))
+	{
+		//
+		// Fail
+		//
+		return(ERROR_INVALID_PARAMETER);
+	}
+
+	//
+	// Verify ID
+	//
+	ReturnValue = ERROR_INVALID_PARAMETER;
+
+	if ((CompressedId & pAdapter->EisaMask) == pAdapter->EisaId)
+	{
+		ReturnValue = 0;
+	}
+
+	if (ReturnValue != 0)
+	{
+		//
+		// Try to find it in another slot
+		//
+		ReturnValue = FindEisaCard(
+						(pAdapter->Index - 1000) / 100,
+						pAdapter->BusNumber,
+						TRUE,
+						pAdapter->EisaId,
+						pAdapter->EisaMask,
+						&Confidence);
+
+		if (Confidence != 100)
+		{
+			//
+			// Confidence is not absolute -- we are out of here.
+			//
+			return(ERROR_INVALID_PARAMETER);
+		}
+	}
+
+	//
+	// Build resulting buffer
+	//
+
+	//
+	// Put in SlotNumber
+	//
+
+	//
+	// Copy in the title string
+	//
+	CopyLength = UnicodeStrLen(SlotNumberString) + 1;
+
+	if (OutputLengthLeft < CopyLength)
+	{
+		return(ERROR_INSUFFICIENT_BUFFER);
+	}
+
+	RtlMoveMemory((PVOID)Buffer,
+				  (PVOID)SlotNumberString,
+				  (CopyLength * sizeof(WCHAR)));
+
+	Buffer = &(Buffer[CopyLength]);
+	OutputLengthLeft -= CopyLength;
+
+	//
+	// Copy in the value
+	//
+
+	if (OutputLengthLeft < 8)
+	{
+		return(ERROR_INSUFFICIENT_BUFFER);
+	}
+
+	CopyLength = wsprintf(Buffer,L"0x%x",(ULONG)(pAdapter->SlotNumber));
+
+	if (CopyLength < 0)
+	{
+		return(ERROR_INSUFFICIENT_BUFFER);
+	}
 
-    ULONG StartPointer = (ULONG)Buffer;
+	CopyLength++;  // Add in the \0
 
-    if (Adapter->InterfaceType != Eisa) {
+	Buffer = &(Buffer[CopyLength]);
+	OutputLengthLeft -= CopyLength;
 
-        return(ERROR_INVALID_PARAMETER);
+	//
+	// Copy in final \0
+	//
 
-    }
+	if (OutputLengthLeft < 1)
+	{
+		return(ERROR_INSUFFICIENT_BUFFER);
+	}
 
-    //
-    // Verify the SlotNumber
-    //
+	CopyLength = (ULONG)Buffer - StartPointer;
+	((PUCHAR)StartPointer)[CopyLength] = L'\0';
 
-    if (!GetEisaKey(Adapter->BusNumber, &BusHandle)) {
-
-        return(ERROR_INVALID_PARAMETER);
-
-    }
-
-    if (Adapter->CardType == 1500) {
-
-        //
-        // Elnk3
-        //
-        Mask = 0xF0FFFFFF;
-    }
-
-    if (!GetEisaCompressedId(
-                 BusHandle,
-                 Adapter->SlotNumber,
-                 &CompressedId,
-                 Mask
-                 )) {
-
-        //
-        // Fail
-        //
-
-        return(ERROR_INVALID_PARAMETER);
-
-    }
-
-    //
-    // Verify ID
-    //
-
-    ReturnValue = ERROR_INVALID_PARAMETER;
-
-    switch (Adapter->CardType) {
-
-        //
-        // NE3200
-        //
-
-        case 1000:
-
-            if (CompressedId == 0x07CC3A) {
-
-                ReturnValue = 0;
-
-            } else {
-
-                CompressedId = 0x07CC3A;
-
-            }
-            break;
-
-        //
-        // DEC422
-        //
-
-        case 1100:
-
-            if (CompressedId == 0x42A310) {
-
-                ReturnValue = 0;
-
-            } else {
-
-                CompressedId = 0x42A310;
-
-            }
-            break;
-
-        //
-        // PROTEON 1990
-        //
-
-        case 1200:
-
-            if (CompressedId == 0x604F42) {
-
-                ReturnValue = 0;
-
-            } else {
-
-                CompressedId = 0x604F42;
-
-            }
-            break;
-
-        //
-        // NET FLEX
-        //
-
-        case 1300:
-
-            if (CompressedId == 0x61110E) {
-
-                ReturnValue = 0;
-
-            } else {
-
-                CompressedId = 0x61110E;
-
-            }
-            break;
-
-        //
-        // COMPAQ Jupiter board
-        //
-
-        case 1400:
-
-            if (CompressedId == 0x60110E) {
-
-                ReturnValue = 0;
-
-            } else {
-
-                CompressedId = 0x60110E;
-
-            }
-            break;
-
-        //
-        // Elnk3  eisa
-        //
-
-        case 1500:
-
-            if (CompressedId == ELNK3_EISA_ID) {
-
-                ReturnValue = 0;
-
-            } else {
-
-                CompressedId = ELNK3_EISA_ID;
-
-            }
-            break;
-
-        //
-        // IBMTOK2E eisa
-        //
-
-        case 1600:
-
-            if (CompressedId == 1068324) {
-
-                ReturnValue = 0;
-
-            } else {
-
-                CompressedId = 1068324;
-
-            }
-            break;
-
-
-
-        default:
-
-            return(ERROR_INVALID_PARAMETER);
-
-    }
-
-
-    if (ReturnValue != 0) {
-
-        //
-        // Try to find it in another slot
-        //
-
-        ReturnValue = FindEisaCard(
-                        Adapter->CardType,
-                        Adapter->BusNumber,
-                        TRUE,
-                        CompressedId,
-                        Mask,
-                        &Confidence
-                        );
-
-        if (Confidence != 100) {
-
-            //
-            // Confidence is not absolute -- we are out of here.
-            //
-
-            return(ERROR_INVALID_PARAMETER);
-
-        }
-
-        Adapter->SlotNumber = SearchStates[(ULONG)Adapter->CardType].SlotNumber;
-
-    }
-
-    //
-    // Build resulting buffer
-    //
-
-    //
-    // Put in SlotNumber
-    //
-
-    //
-    // Copy in the title string
-    //
-
-    CopyLength = UnicodeStrLen(SlotNumberString) + 1;
-
-    if (OutputLengthLeft < CopyLength) {
-
-        return(ERROR_INSUFFICIENT_BUFFER);
-
-    }
-
-    RtlMoveMemory((PVOID)Buffer,
-                  (PVOID)SlotNumberString,
-                  (CopyLength * sizeof(WCHAR))
-                 );
-
-    Buffer = &(Buffer[CopyLength]);
-    OutputLengthLeft -= CopyLength;
-
-    //
-    // Copy in the value
-    //
-
-    if (OutputLengthLeft < 8) {
-
-        return(ERROR_INSUFFICIENT_BUFFER);
-
-    }
-
-    CopyLength = wsprintf(Buffer,L"0x%x",(ULONG)(Adapter->SlotNumber));
-
-    if (CopyLength < 0) {
-
-        return(ERROR_INSUFFICIENT_BUFFER);
-
-    }
-
-    CopyLength++;  // Add in the \0
-
-    Buffer = &(Buffer[CopyLength]);
-    OutputLengthLeft -= CopyLength;
-
-    //
-    // Copy in final \0
-    //
-
-    if (OutputLengthLeft < 1) {
-
-        return(ERROR_INSUFFICIENT_BUFFER);
-
-    }
-
-    CopyLength = (ULONG)Buffer - StartPointer;
-    ((PUCHAR)StartPointer)[CopyLength] = L'\0';
-
-    return(0);
+	return(0);
 }
 
 extern
 LONG
 EisaVerifyCfgHandler(
-    IN PVOID Handle,
-    IN WCHAR *Buffer
-    )
+	IN PVOID Handle,
+	IN WCHAR *Buffer
+	)
 
 /*++
 
 Routine Description:
 
-    This routine verifys that a given parameter list is complete and
-    correct for the adapter associated with the handle.
+	This routine verifys that a given parameter list is complete and
+	correct for the adapter associated with the handle.
 
 Arguments:
 
-    Handle - The handle.
+	Handle - The handle.
 
-    Buffer - The parameter list.
+	Buffer - The parameter list.
 
 Return Value:
 
-    0 if nothing went wrong, else the appropriate WINERROR.H value.
+	0 if nothing went wrong, else the appropriate WINERROR.H value.
 
 --*/
 
 {
-    PEISA_ADAPTER Adapter = (PEISA_ADAPTER)(Handle);
-    WCHAR *Place;
-    ULONG CompressedId;
-    ULONG SlotNumber;
-    PVOID BusHandle;
-    BOOLEAN Found;
-    ULONG Mask = 0x00FFFFFF;
-
-    if (Adapter->InterfaceType != Eisa) {
-
-        return(ERROR_INVALID_DATA);
-
-    }
-
-    //
-    // Parse out the parameter.
-    //
-
-    //
-    // Get the SlotNumber
-    //
-
-    Place = FindParameterString(Buffer, SlotNumberString);
-
-    if (Place == NULL) {
-
-        return(ERROR_INVALID_DATA);
-
-    }
-
-    Place += UnicodeStrLen(SlotNumberString) + 1;
-
-    //
-    // Now parse the thing.
-    //
-
-    ScanForNumber(Place, &SlotNumber, &Found);
-
-    if (Found == FALSE) {
-
-        return(ERROR_INVALID_DATA);
-
-    }
-
-    if (Adapter->CardType == 1500) {
-
-        //
-        // Elnk3
-        //
-
-        Mask = 0xF0FFFFFF;
-
-    }
-
-    //
-    // Verify the SlotNumber
-    //
-
-    if (!GetEisaKey(Adapter->BusNumber, &BusHandle)) {
-
-        return(ERROR_INVALID_DATA);
-
-    }
-
-    if (!GetEisaCompressedId(
-                 BusHandle,
-                 SlotNumber,
-                 &CompressedId,
-                 Mask
-                 )) {
-
-        //
-        // Fail
-        //
-
-        return(ERROR_INVALID_DATA);
-
-    }
-
-    //
-    // Verify ID
-    //
-
-    switch (Adapter->CardType) {
-
-        //
-        // NE3200
-        //
-
-        case 1000:
-
-            if (CompressedId != 0x07CC3A) {
-
-                return(ERROR_INVALID_DATA);
-
-            }
-            break;
-
-        //
-        // DEC422
-        //
-
-        case 1100:
-
-            if (CompressedId != 0x42A310) {
-
-                return(ERROR_INVALID_DATA);
-
-            }
-            break;
-
-        //
-        // PROTEON 1990
-        //
-
-        case 1200:
-
-            if (CompressedId != 0x604F42) {
-
-                return(ERROR_INVALID_DATA);
-
-            }
-            break;
-
-        //
-        // NET FLEX
-        //
-
-        case 1300:
-
-            if (CompressedId != 0x61110E) {
-
-                return(ERROR_INVALID_DATA);
-
-            }
-            break;
-
-        //
-        // COMPAQ Jupiter Board
-        //
-
-        case 1400:
-
-            if (CompressedId != 0x60110E) {
-
-                return(ERROR_INVALID_DATA);
-
-            }
-            break;
-
-        //
-        //  Elnk3 Eisa
-        //
-
-
-        case 1500:
-
-            if (CompressedId != ELNK3_EISA_ID) {
-
-                return(ERROR_INVALID_DATA);
-
-            }
-            break;
-
-        //
-        //  IBMTOK2E Eisa
-        //
-
-
-        case 1600:
-
-            if (CompressedId != 1068324) {
-
-                return(ERROR_INVALID_DATA);
-
-            }
-            break;
-
-
-        default:
-
-            return(ERROR_INVALID_DATA);
-
-    }
-
-    return(0);
-
+	PEISA_ADAPTER_INFO	pAdapter = (PEISA_ADAPTER_INFO)(Handle);
+	WCHAR *Place;
+	ULONG CompressedId;
+	ULONG SlotNumber;
+	PVOID BusHandle;
+	BOOLEAN Found;
+
+	//
+	// Parse out the parameter.
+	//
+
+	//
+	// Get the SlotNumber
+	//
+	Place = FindParameterString(Buffer, SlotNumberString);
+	if (Place == NULL)
+	{
+		return(ERROR_INVALID_DATA);
+	}
+
+	Place += UnicodeStrLen(SlotNumberString) + 1;
+
+	//
+	// Now parse the thing.
+	//
+
+	ScanForNumber(Place, &SlotNumber, &Found);
+
+	if (Found == FALSE)
+	{
+		return(ERROR_INVALID_DATA);
+	}
+
+	//
+	//	Get a handle to the bus number the adapter resides on.
+	//
+	if (!GetEisaKey(pAdapter->BusNumber, &BusHandle))
+	{
+		return(ERROR_INVALID_DATA);
+	}
+
+	//
+	//	Get the eisa compressed id for the adapter that is currently in
+	//	 the slot.
+	//
+	if (!GetEisaCompressedId(
+			BusHandle,
+			SlotNumber,
+			&CompressedId,
+			pAdapter->EisaMask))
+	{
+		//
+		// Fail
+		//
+		return(ERROR_INVALID_DATA);
+	}
+
+	//
+	//	Does the Eisa id match with what we read earlier?
+	//	
+	if (CompressedId != pAdapter->EisaId)
+	{
+		return(ERROR_INVALID_DATA);
+	}
+
+	return(0);
 }
 
 extern
 LONG
 EisaQueryMaskHandler(
-    IN  LONG NetcardId,
-    OUT WCHAR *Buffer,
-    IN  LONG BuffSize
-    )
+	IN	LONG NetcardId,
+	OUT	WCHAR *Buffer,
+	IN	LONG BuffSize
+	)
 
 /*++
 
 Routine Description:
 
-    This routine returns the parameter list information for a specific
-    network card.
+	This routine returns the parameter list information for a specific
+	network card.
 
 Arguments:
 
-    NetcardId - The id of the desired netcard.
+	NetcardId - The id of the desired netcard.
 
-    Buffer - The buffer for storing the parameter information.
+	Buffer - The buffer for storing the parameter information.
 
-    BuffSize - Length of Buffer in WCHARs.
+	BuffSize - Length of Buffer in WCHARs.
 
 Return Value:
 
-    0 if nothing went wrong, else the appropriate WINERROR.H value.
+	0 if nothing went wrong, else the appropriate WINERROR.H value.
 
 --*/
 
 {
-    WCHAR *Result;
-    LONG Length;
-    LONG NumberOfAdapters;
-    LONG i;
+	WCHAR *Result;
+	LONG Length;
+	ULONG i;
 
-    //
-    // Find the adapter
-    //
+	//
+	// Find the adapter
+	//
 
-    NumberOfAdapters = sizeof(Adapters) / sizeof(ADAPTER_INFO);
+	for (i = 0; i < gNumberOfEisaAdapters; i++)
+	{
+		if (gEisaAdapterList[i].Index == NetcardId)
+		{
+			Result = gEisaAdapterList[i].Parameters;
 
-    for (i=0; i < NumberOfAdapters; i++) {
+			//
+			// Find the string length (Ends with 2 NULLs)
+			//
+			for (Length = 0; ; Length++)
+			{
+				if (Result[Length] == L'\0')
+				{
+					++Length;
 
-        if (Adapters[i].Index == NetcardId) {
+					if (Result[Length] == L'\0')
+					{
+						break;
+					}
+				}
+			}
 
-            Result = Adapters[i].Parameters;
+			Length++;
 
-            //
-            // Find the string length (Ends with 2 NULLs)
-            //
+			if (BuffSize < Length)
+			{
+				return(ERROR_NOT_ENOUGH_MEMORY);
+			}
 
-            for (Length=0; ; Length++) {
+			memcpy((PVOID)Buffer, Result, Length * sizeof(WCHAR));
 
-                if (Result[Length] == L'\0') {
+			return(0);
+		}
+	}
 
-                    ++Length;
-
-                    if (Result[Length] == L'\0') {
-
-                        break;
-
-                    }
-
-                }
-
-            }
-
-            Length++;
-
-            if (BuffSize < Length) {
-
-                return(ERROR_NOT_ENOUGH_MEMORY);
-
-            }
-
-            memcpy((PVOID)Buffer, Result, Length * sizeof(WCHAR));
-
-            return(0);
-
-        }
-
-    }
-
-    return(ERROR_INVALID_PARAMETER);
+	return(ERROR_INVALID_PARAMETER);
 
 }
 
 extern
 LONG
 EisaParamRangeHandler(
-    IN  LONG NetcardId,
-    IN  WCHAR *Param,
-    OUT LONG *Values,
-    OUT LONG *BuffSize
-    )
+	IN	LONG NetcardId,
+	IN	WCHAR *Param,
+	OUT	LONG *Values,
+	OUT	LONG *BuffSize
+	)
 
 /*++
 
 Routine Description:
 
-    This routine returns a list of valid values for a given parameter name
-    for a given card.
+	This routine returns a list of valid values for a given parameter name
+	for a given card.
 
 Arguments:
 
-    NetcardId - The Id of the card desired.
+	NetcardId - The Id of the card desired.
 
-    Param - A WCHAR string of the parameter name to query the values of.
+	Param - A WCHAR string of the parameter name to query the values of.
 
-    Values - A pointer to a list of LONGs into which we store valid values
-    for the parameter.
+	Values - A pointer to a list of LONGs into which we store valid values
+	for the parameter.
 
-    BuffSize - At entry, the length of Values in LONGs.  At exit, the
-    number of LONGs stored in Values.
+	BuffSize - At entry, the length of Values in LONGs.  At exit, the
+	number of LONGs stored in Values.
 
 Return Value:
 
-    0 if nothing went wrong, else the appropriate WINERROR.H value.
+	0 if nothing went wrong, else the appropriate WINERROR.H value.
 
 --*/
 
 {
 
-    *BuffSize = 0;
-    return(0);
-
+	*BuffSize = 0;
+	return(0);
 }
 
 extern
 LONG
 EisaQueryParameterNameHandler(
-    IN  WCHAR *Param,
-    OUT WCHAR *Buffer,
-    IN  LONG BufferSize
-    )
+	IN	WCHAR *Param,
+	OUT	WCHAR *Buffer,
+	IN	LONG BufferSize
+	)
 
 /*++
 
 Routine Description:
 
-    Returns a localized, displayable name for a specific parameter.  All the
-    parameters that this file uses are define by MS, so no strings are
-    needed here.
+	Returns a localized, displayable name for a specific parameter.  All the
+	parameters that this file uses are define by MS, so no strings are
+	needed here.
 
 Arguments:
 
-    Param - The parameter to be queried.
+	Param - The parameter to be queried.
 
-    Buffer - The buffer to store the result into.
+	Buffer - The buffer to store the result into.
 
-    BufferSize - The length of Buffer in WCHARs.
+	BufferSize - The length of Buffer in WCHARs.
 
 Return Value:
 
-    ERROR_INVALID_PARAMETER -- To indicate that the MS supplied strings
-    should be used.
+	ERROR_INVALID_PARAMETER -- To indicate that the MS supplied strings
+	should be used.
 
 --*/
 
 {
-    return(ERROR_INVALID_PARAMETER);
+	return(ERROR_INVALID_PARAMETER);
 }
 
 ULONG
 FindEisaCard(
-    IN  ULONG AdapterNumber,
-    IN  ULONG BusNumber,
-    IN  BOOLEAN First,
-    IN  ULONG CompressedId,
-    IN  ULONG Mask,
-    OUT PULONG Confidence
-    )
+	IN	ULONG 	AdapterNumber,
+	IN	ULONG 	BusNumber,
+	IN	BOOLEAN	First,
+	IN	ULONG	CompressedId,
+	IN	ULONG	Mask,
+	OUT	PULONG	Confidence
+	)
 
 /*++
 
 Routine Description:
 
-    This routine finds the instances of a physical adapter identified
-    by the CompressedId.
+	This routine finds the instances of a physical adapter identified
+	by the CompressedId.
 
 Arguments:
 
-    AdapterNumber - The index into the global array of adapters for the card.
+	AdapterNumber - The index into the global array of adapters for the card.
 
-    BusNumber - The bus number of the bus to search.
+	BusNumber - The bus number of the bus to search.
 
-    First - TRUE is we are to search for the first instance of an
-    adapter, FALSE if we are to continue search from a previous stopping
-    point.
+	First - TRUE is we are to search for the first instance of an
+	adapter, FALSE if we are to continue search from a previous stopping
+	point.
 
-    CompressedId - The EISA Compressed Id of the card.
+	CompressedId - The EISA Compressed Id of the card.
 
-    Mask - The mask to apply to the 4 byte ID before comparing.
+	Mask - The mask to apply to the 4 byte ID before comparing.
 
-    Confidence - A pointer to a long for storing the confidence factor
-    that the card exists.
+	Confidence - A pointer to a long for storing the confidence factor
+	that the card exists.
 
 Return Value:
 
-    0 if nothing went wrong, else the appropriate WINERROR.H value.
+	0 if nothing went wrong, else the appropriate WINERROR.H value.
 
 --*/
 
 {
-    PVOID BusHandle;
-    ULONG TmpCompressedId;
+	PVOID BusHandle;
+	ULONG TmpCompressedId;
 
-    if (First) {
+	if (First)
+	{
+		gEisaAdapterList[AdapterNumber].SlotNumber = 1;
+	}
+	else
+	{
+		gEisaAdapterList[AdapterNumber].SlotNumber++;
+	}
 
-        SearchStates[AdapterNumber].SlotNumber = 1;
+	if (!GetEisaKey(BusNumber, &BusHandle))
+	{
+		return(ERROR_INVALID_PARAMETER);
+	}
 
-    } else {
+	while (TRUE)
+	{
+		if (!GetEisaCompressedId(BusHandle,
+								  gEisaAdapterList[AdapterNumber].SlotNumber,
+								  &TmpCompressedId,
+								  Mask))
+		{
 
-        SearchStates[AdapterNumber].SlotNumber++;
+			DeleteEisaKey(BusHandle);
+			*Confidence = 0;
+			return(0);
+		}
 
-    }
+		//
+		//	Do the compressed ID's match?
+		//
+		if (CompressedId == TmpCompressedId)
+		{
+			DeleteEisaKey(BusHandle);
 
-    if (!GetEisaKey(BusNumber, &BusHandle)) {
+			gEisaAdapterList[AdapterNumber].BusNumber = BusNumber;
+			*Confidence = 100;
 
-        return(ERROR_INVALID_PARAMETER);
+			return(0);
+		}
 
-    }
-
-    while (TRUE) {
-
-        if (!GetEisaCompressedId(BusHandle,
-                         SearchStates[AdapterNumber].SlotNumber,
-                         &TmpCompressedId,
-                         Mask)) {
-
-            *Confidence = 0;
-            return(0);
-
-        }
-
-        if (CompressedId == TmpCompressedId) {
-
-            *Confidence = 100;
-            return(0);
-
-        }
-
-        SearchStates[AdapterNumber].SlotNumber++;
-
-    }
-
-    DeleteEisaKey(BusHandle);
-
+		gEisaAdapterList[AdapterNumber].SlotNumber++;
+	}
 }
+

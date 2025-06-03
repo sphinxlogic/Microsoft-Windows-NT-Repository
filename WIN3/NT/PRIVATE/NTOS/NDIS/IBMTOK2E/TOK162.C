@@ -275,6 +275,16 @@ Return Value:
         );
 
     //
+    // Register our shutdown handler.
+    //
+
+    NdisMRegisterAdapterShutdownHandler(
+        Adapter->MiniportAdapterHandle,     // miniport handle.
+        Adapter,                            // shutdown context.
+        TOK162Shutdown                      // shutdown handler.
+        );
+
+    //
     // Get the system configuration byte.
     //
     Status = NdisMRegisterIoPortRange(
@@ -1679,6 +1689,47 @@ Return Value:
     // Finally, free the allocated memory for the adapter structure itself
     //
     TOK162_FREE_PHYS(Adapter);
+
+}
+
+
+extern
+VOID
+TOK162Shutdown(
+    IN NDIS_HANDLE MiniportAdapterContext
+    )
+
+/*++
+
+Routine Description:
+
+    TOK162Shutdown--  removes an adapter previously initialized.
+
+Arguments:
+
+    MiniportAdapterContext - The context value that the Miniport returned
+                             from Tok162Initialize; actually is pointer to
+                             a TOK162_ADAPTER.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    //
+    // Pointer to an adapter structure. Makes Context (passed in value)
+    // a structure we can deal with.
+    //
+
+    PTOK162_ADAPTER Adapter =
+        PTOK162_ADAPTER_FROM_CONTEXT_HANDLE(MiniportAdapterContext);
+
+    //
+    // Reset the chip to get us off the ring.
+    //
+    TOK162ResetAdapter(Adapter);
 
 }
 

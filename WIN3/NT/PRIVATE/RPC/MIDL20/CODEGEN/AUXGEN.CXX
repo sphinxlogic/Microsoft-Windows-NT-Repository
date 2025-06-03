@@ -172,7 +172,7 @@ CG_FIELD::GenSizing(
 	{
 	if( (GetRpcBufSizeProperty() & BSIZE_UNKNOWN) == BSIZE_UNKNOWN )
 		{
-		_expr_node * pExpr;
+		expr_node * pExpr;
 
 		pCCB->ResetIndirectionLevel();
 		pCCB->ResetRefAllocDone();
@@ -180,7 +180,7 @@ CG_FIELD::GenSizing(
 		pCCB->ResetReturnContext();
 		pCCB->SetDeferPointee();
 
-		pExpr = new _expr_op_binary( OP_POINTSTO,
+		pExpr = new expr_op_binary( OP_POINTSTO,
 									 pCCB->GetSourceExpression(),
 								     GetResource()
 								   );

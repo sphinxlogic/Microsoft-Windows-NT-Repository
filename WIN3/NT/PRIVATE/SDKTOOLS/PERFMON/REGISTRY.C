@@ -19,6 +19,8 @@
 static TCHAR PerfmonNamesKey[] = TEXT("SOFTWARE\\Microsoft\\PerfMon") ;
 static TCHAR WindowKeyName[] = TEXT("WindowPos") ;
 static TCHAR TimeOutKeyName[] = TEXT("DataTimeOut") ;
+static TCHAR DupInstanceKeyName[] = TEXT("MonitorDuplicateInstances") ;
+static TCHAR ReportEventsToEventLog[] = TEXT("ReportEventsToEventLog");
 
 VOID LoadLineGraphSettings(PGRAPHSTRUCT lgraph)
 {
@@ -46,6 +48,7 @@ BOOL LoadMainWindowPlacement (HWND hWnd)
    DWORD             Type;
    DWORD             Status;
    DWORD             localDataTimeOut;
+   DWORD             localFlag;
    STARTUPINFO       StartupInfo ;
 
 
@@ -54,7 +57,7 @@ BOOL LoadMainWindowPlacement (HWND hWnd)
    DataTimeOut = DEFAULT_DATA_TIMEOUT ;
 
    Status = RegOpenKeyEx(HKEY_CURRENT_USER, PerfmonNamesKey,
-      0L, KEY_READ, &hKeyNames) ;
+      0L, KEY_READ | KEY_WRITE, &hKeyNames) ;
 
    if (Status == ERROR_SUCCESS)
       {
@@ -68,6 +71,39 @@ BOOL LoadMainWindowPlacement (HWND hWnd)
          DataTimeOut = localDataTimeOut ;
          }
 
+      // check the duplicate entry value
+      Size = sizeof (localFlag);
+      Status = RegQueryValueEx (hKeyNames, DupInstanceKeyName, NULL,
+        &Type, (LPBYTE)&localFlag, &Size);
+      if ((Status == ERROR_SUCCESS) && (Type == REG_DWORD)) {
+        bMonitorDuplicateInstances = (BOOL)(localFlag == 1);
+      } else {
+        // value not found or not correct so set to default value
+        bMonitorDuplicateInstances = TRUE;
+         // and try to save it back in the registry
+         localFlag = 1;
+         Status = RegSetValueEx(hKeyNames, DupInstanceKeyName, 0,
+            REG_DWORD, (LPBYTE)&localFlag, sizeof(localFlag));
+      }
+
+     
+      // check the Report To Event Log entry value
+      Size = sizeof (localFlag);
+      Status = RegQueryValueEx (hKeyNames, ReportEventsToEventLog, NULL,
+        &Type, (LPBYTE)&localFlag, &Size);
+      if ((Status == ERROR_SUCCESS) && (Type == REG_DWORD)) {
+        bReportEvents = (BOOL)(localFlag == 1);
+      } else {
+        // value not found or not correct so set to default value
+        // which is disabled.
+        bReportEvents = FALSE;
+         // and try to save it back in the registry
+         localFlag = 0;
+         Status = RegSetValueEx(hKeyNames, ReportEventsToEventLog, 0,
+            REG_DWORD, (LPBYTE)&localFlag, sizeof(localFlag));
+      }
+
+     
       // get the window placement data
       Size = sizeof(szWindowPlacement) ;
 
@@ -96,7 +132,11 @@ BOOL LoadMainWindowPlacement (HWND hWnd)
             {
             WindowPlacement.showCmd = StartupInfo.wShowWindow ;
             }
-         SetWindowPlacement (hWnd, &WindowPlacement) ;
+         WindowPlacement.length = sizeof(WINDOWPLACEMENT);
+         WindowPlacement.flags = WPF_SETMINPOSITION;
+         if (!SetWindowPlacement (hWnd, &WindowPlacement)) {
+            return (FALSE);
+         }
          bPerfmonIconic = IsIconic(hWnd) ;
          return (TRUE) ;
          }
@@ -116,6 +156,8 @@ BOOL LoadMainWindowPlacement (HWND hWnd)
          }
       return (FALSE) ;
       }
+   else
+      return TRUE;
    }
 
 
@@ -133,7 +175,10 @@ BOOL SaveMainWindowPlacement (HWND hWnd)
    ObjectType [0] = TEXT(' ') ;
    ObjectType [1] = TEXT('\0') ;
 
-   GetWindowPlacement (hWnd, &WindowPlacement) ;
+   WindowPlacement.length = sizeof(WINDOWPLACEMENT);
+   if (!GetWindowPlacement (hWnd, &WindowPlacement)) {
+      return FALSE;
+   }
    TSPRINTF (szWindowPlacement, TEXT("%d %d %d %d %d %d %d %d %d"),
             WindowPlacement.showCmd, 
             WindowPlacement.ptMinPosition.x,
@@ -170,6 +215,7 @@ BOOL SaveMainWindowPlacement (HWND hWnd)
          // now add the DataTimeOut key for the first time
          Status = RegSetValueEx(hKeyNames, TimeOutKeyName, 0,
             REG_DWORD, (LPBYTE)&DataTimeOut, sizeof(DataTimeOut)) ;
+
          }
 
       RegCloseKey (hKeyNames) ;
@@ -180,4 +226,5 @@ BOOL SaveMainWindowPlacement (HWND hWnd)
    }
 
 
-
+
+

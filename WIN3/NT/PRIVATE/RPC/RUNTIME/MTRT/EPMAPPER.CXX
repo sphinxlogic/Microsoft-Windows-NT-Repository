@@ -19,32 +19,11 @@ Revision History:
 
 --*/
 
-#include <string.h>
-
-
-#ifdef WIN32RPC
-extern "C" {
-#include <sysinc.h>
-#include <rpc.h>
-}
-#else
-#include <sysinc.h>
-#include <rpc.h>
-#endif
-
-#include <rpcdcep.h>
-#include <rpcdce.h>
+#include <precomp.hxx>
 #include <rpctran.h>
-#include <rpcndr.h>
-#include <util.hxx>
-#include <rpcuuid.hxx>
 #include <rpcobj.hxx>
-#include <binding.hxx>
-#include <handle.hxx>
-START_C_EXTERN
-#include <epmp.h>
-END_C_EXTERN
 #include <epmap.h>
+#include <epmp.h>
 #include <twrproto.h>
 #include <startsvc.h>
 
@@ -110,7 +89,7 @@ Return Value:
       err = I_RpcBindingInqDynamicEndpoint(BindingHandle, &String);
     }
 
-  if (err) 
+  if (err)
      {
        return (err);
      }
@@ -123,21 +102,21 @@ Return Value:
 
   if (!err)
      {
-   
+
        if (String != 0)
           {
             //It is a dynamic endpoint
             Endpoint = UnicodeToAnsiString(String, &err);
             if (!err)
                {
-                err = RpcStringBindingParse(Binding, NULL, 
+                err = RpcStringBindingParse(Binding, NULL,
                                             &Protseq, &NWAddress,
                                             NULL, NULL);
                 }
           }
        else
           {
-             err = RpcStringBindingParse(Binding, NULL, 
+             err = RpcStringBindingParse(Binding, NULL,
                                          &Protseq, &NWAddress,
                                          &Endpoint,NULL);
           }
@@ -218,18 +197,11 @@ Return Value:
    unsigned long ArgC = 0;
    char *ArgV[1] = { NULL };
 
-   /*
-      BUGBUG - till service/reg stuff gets settled
-   if (err = StartServiceIfNecessary())
-      {
-        return(EP_S_CANT_CREATE);
-      }
+#ifdef DOSWIN32RPC
+   StartServiceIfNecessary(); // expensive on NT, not on WIN95
+#endif
 
-   */
-
-   err = StartServiceIfNecessary();
-
-   if (err = BindToEpMapper(&EpMapperHandle,NULL,NULL))
+   if (err = BindToEpMapper(&EpMapperHandle,NULL,NULL, RPC_C_BINDING_DEFAULT_TIMEOUT))
       {
         return err;
       }
@@ -253,17 +225,18 @@ Return Value:
 
        if (err = BindingAndIfToTower(IfSpec, BindingVector->BindingH[i], &Twr))
           {
-            break;
+            err = 0;
+            continue;
           }
 
        if (Twr == NULL)
          {
            continue;
          }
-      
+
        Entries ++;
        p->tower = Twr;
-       strcpy((char PAPI *)p->annotation, (char PAPI *)Annotation);
+       lstrcpy((char PAPI *)p->annotation, (char PAPI *)Annotation);
        p++;
      }
 
@@ -272,22 +245,47 @@ Return Value:
 
          for (k = 0, p = EpEntries; k < Entries; k++, p++)
             {
-            memcpy((char PAPI *)&p->object,
+            RpcpMemoryCopy((char PAPI *)&p->object,
                    (char PAPI *)ObjUuidVector->Uuid[j],
                    sizeof(UUID));
             }
 
         RpcTryExcept
           {
-           ept_insert(EpMapperHandle, Entries,
-                      EpEntries, ReplaceNoReplace,(error_status PAPI *)&err);
+          ept_insert(EpMapperHandle, Entries,
+                     EpEntries, ReplaceNoReplace,(error_status PAPI *)&err);
           }
         RpcExcept(1)
           {
-           err = EPT_S_CANT_CREATE;
+          err = RpcExceptionCode();
           }
         RpcEndExcept
 
+        if (err == RPC_S_SERVER_UNAVAILABLE)
+            {
+            //
+            //Try to start the epmapper and retry
+            //
+
+            err = StartServiceIfNecessary();
+
+            RpcTryExcept
+               {
+               ept_insert(EpMapperHandle, Entries,
+                      EpEntries, ReplaceNoReplace,(error_status PAPI *)&err);
+               }
+            RpcExcept(1)
+               {
+               err = EPT_S_CANT_CREATE;
+               }
+            RpcEndExcept
+            }
+
+        if (err != RPC_S_OK)
+            {
+            err = EPT_S_CANT_CREATE;
+            break;
+            }
 
          //Subsequent Inserts should be (ALWAYS) NOREPLACE
          //ReplaceNoReplace = REGISTER_NOREPLACE;
@@ -353,7 +351,7 @@ Return Value:
     else
       {
           UuidVectorNull.Count = 1;
-          memset((char PAPI *)&NilUuid, 0, sizeof(UUID));
+          RpcpMemorySet(&NilUuid, 0, sizeof(UUID));
           UuidVectorNull.Uuid[0] = &NilUuid;
       }
 
@@ -472,7 +470,7 @@ Return Value:
     else
       {
           UuidVectorNull.Count = 1;
-          memset((char PAPI *)&NilUuid, 0, sizeof(UUID));
+          RpcpMemorySet(&NilUuid, 0, sizeof(UUID));
           UuidVectorNull.Uuid[0] = &NilUuid;
       }
 
@@ -588,11 +586,11 @@ Return Value:
    else
       {
           UuidVectorNull.Count = 1;
-          memset((char PAPI *)&NilUuid, 0, sizeof(UUID));
+          RpcpMemorySet(&NilUuid, 0, sizeof(UUID));
           UuidVectorNull.Uuid[0] = &NilUuid;
       }
 
-    if (err = BindToEpMapper(&EpMapperHandle,NULL,NULL))
+    if (err = BindToEpMapper(&EpMapperHandle,NULL,NULL, RPC_C_BINDING_DEFAULT_TIMEOUT))
        {
          return(err);
        }
@@ -601,6 +599,7 @@ Return Value:
     if ((EpEntries = (ept_entry_t *)
                        I_RpcAllocate(sizeof(ept_entry_t)*CountObj)) == NULL)
        {
+          RpcBindingFree(&EpMapperHandle);
           return(RPC_S_OUT_OF_MEMORY);
        }
 
@@ -624,7 +623,7 @@ Return Value:
 
         for (p=EpEntries,j = 0; j < CountObj; j++,p++)
           {
-            memcpy((char PAPI *)&p->object,
+            RpcpMemoryCopy((char PAPI *)&p->object,
                    (char PAPI *)PObjUuidVector->Uuid[j],
                    sizeof(UUID));
              p->tower = Twr;
@@ -650,5 +649,6 @@ Return Value:
 
      I_RpcFree(EpEntries);
 
+     RpcBindingFree(&EpMapperHandle);
    return(err);
 }

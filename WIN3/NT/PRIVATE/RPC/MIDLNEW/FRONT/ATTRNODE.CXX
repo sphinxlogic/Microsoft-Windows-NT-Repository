@@ -1634,4 +1634,3 @@ node_maybe::SCheck()
 	return NODE_STATE_OK;
 	}
 
-

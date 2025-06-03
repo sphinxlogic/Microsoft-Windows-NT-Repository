@@ -96,7 +96,21 @@ static ADAPTER_INFO Adapters[] = {
     {
         1000,
         L"UBPC",
-        L"IRQ\0000\0000\0IOADDR\0001\0000\0IOADDRLENGTH\0002\000100\0MEMADDR\0000\0000\000MEMADDRLENGTH\0002\000100\000",
+        L"IRQ\0"
+        L"0\0"
+        L"0\0"
+        L"IOADDR\0"
+        L"1\0"
+        L"0\0"
+        L"IOADDRLENGTH\0"
+        L"2\0"
+        L"100\0"
+        L"MEMADDR\0"
+        L"0\0"
+        L"0\0"
+        L"MEMADDRLENGTH\0"
+        L"2\0"
+        L"100\0",
         NULL,
         1
 
@@ -105,7 +119,21 @@ static ADAPTER_INFO Adapters[] = {
     {
         1100,
         L"UBPCEOTP",
-        L"IRQ\0000\0000\0IOADDR\0001\0000\0IOADDRLENGTH\0002\000100\0MEMADDR\0000\0000\000MEMADDRLENGTH\0002\000100\000",
+        L"IRQ\0"
+        L"0\0"
+        L"0\0"
+        L"IOADDR\0"
+        L"1\0"
+        L"0\0"
+        L"IOADDRLENGTH\0"
+        L"2\0"
+        L"100\0"
+        L"MEMADDR\0"
+        L"0\0"
+        L"0\0"
+        L"MEMADDRLENGTH\0"
+        L"2\0"
+        L"100\0",
         NULL,
         1
 
@@ -301,22 +329,19 @@ Return Value:
 --*/
 
 {
-
-    if ((InterfaceType != Isa) &&
-        (InterfaceType != Eisa)) {
-
+    if ((InterfaceType != Isa) && (InterfaceType != Eisa))
+	{
         *lConfidence = 0;
 
         return(0);
-
     }
 
-    if (InterfaceType == Isa) {
-
+    if (InterfaceType == Isa)
+	{
         *ppvToken = (PVOID)0x8000;
-
-    } else {
-
+    }
+	else
+	{
         *ppvToken = (PVOID)0x0;
     }
 
@@ -365,15 +390,13 @@ Return Value:
     //
     // Get info from the token
     //
-
-    if (((ULONG)pvToken) & 0x8000) {
-
+    if (((ULONG)pvToken) & 0x8000)
+	{
         InterfaceType = Isa;
-
-    } else {
-
+    }
+	else
+	{
         InterfaceType = Eisa;
-
     }
 
     BusNumber = (ULONG)(((ULONG)pvToken >> 8) & 0x7F);
@@ -383,21 +406,15 @@ Return Value:
     //
     // Store information
     //
-
-    Handle = (PUB_ADAPTER)DetectAllocateHeap(
-                                 sizeof(UB_ADAPTER)
-                                 );
-
-    if (Handle == NULL) {
-
+    Handle = (PUB_ADAPTER)DetectAllocateHeap(sizeof(UB_ADAPTER));
+    if (Handle == NULL)
+	{
         return(ERROR_NOT_ENOUGH_MEMORY);
-
     }
 
     //
     // Copy across address
     //
-
     Handle->CardType = Adapters[AdapterNumber].Index;
     Handle->InterfaceType = InterfaceType;
     Handle->BusNumber = BusNumber;
@@ -444,37 +461,29 @@ Return Value:
     LONG NumberOfAdapters;
     LONG i;
 
-    if ((InterfaceType != Isa) &&
-        (InterfaceType != Eisa)) {
-
+    if ((InterfaceType != Isa) && (InterfaceType != Eisa))
+	{
         return(ERROR_INVALID_PARAMETER);
-
     }
 
     NumberOfAdapters = sizeof(Adapters) / sizeof(ADAPTER_INFO);
 
-    for (i=0; i < NumberOfAdapters; i++) {
-
-        if (Adapters[i].Index == lNetcardId) {
-
+    for (i = 0; i < NumberOfAdapters; i++)
+	{
+        if (Adapters[i].Index == lNetcardId)
+		{
             //
             // Store information
             //
-
-            Handle = (PUB_ADAPTER)DetectAllocateHeap(
-                                         sizeof(UB_ADAPTER)
-                                         );
-
-            if (Handle == NULL) {
-
+            Handle = (PUB_ADAPTER)DetectAllocateHeap(sizeof(UB_ADAPTER));
+            if (Handle == NULL)
+			{
                 return(ERROR_NOT_ENOUGH_MEMORY);
-
             }
 
             //
             // Copy across memory address
             //
-
             Handle->CardType = lNetcardId;
             Handle->InterfaceType = InterfaceType;
             Handle->BusNumber = BusNumber;
@@ -482,9 +491,7 @@ Return Value:
             *ppvHandle = (PVOID)Handle;
 
             return(0);
-
         }
-
     }
 
     return(ERROR_INVALID_PARAMETER);
@@ -549,11 +556,9 @@ Return Value:
 {
     PUB_ADAPTER Adapter = (PUB_ADAPTER)(pvHandle);
 
-    if ((Adapter->InterfaceType != Isa) &&
-        (Adapter->InterfaceType != Eisa)) {
-
+    if ((Adapter->InterfaceType != Isa) && (Adapter->InterfaceType != Eisa))
+	{
         return(ERROR_INVALID_PARAMETER);
-
     }
 
     //
@@ -563,11 +568,9 @@ Return Value:
     //
     // Copy in final \0
     //
-
-    if (cwchBuffSize < 2) {
-
+    if (cwchBuffSize < 2)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     pwchBuffer[0] = L'\0';
@@ -728,22 +731,18 @@ Return Value:
 --*/
 
 {
-
     //
     // Do we want the IoBaseAddress
     //
-
-    if (memcmp(pwchParam, IoAddrString, (UnicodeStrLen(IoAddrString) + 1) * sizeof(WCHAR)) == 0) {
-
+    if (memcmp(pwchParam, IoAddrString, (UnicodeStrLen(IoAddrString) + 1) * sizeof(WCHAR)) == 0)
+	{
         //
         // Is there enough space
         //
-
-        if (*plBuffSize < 4) {
-
+        if (*plBuffSize < 4)
+		{
             *plBuffSize = 0;
             return(ERROR_INSUFFICIENT_BUFFER);
-
         }
 
         plValues[0] = 0x368;
@@ -751,19 +750,18 @@ Return Value:
         plValues[2] = 0x360;
         plValues[3] = 0x350;
         *plBuffSize = 4;
+
         return(0);
-
-    } else if (memcmp(pwchParam, IrqString, (UnicodeStrLen(IrqString) + 1) * sizeof(WCHAR)) == 0) {
-
+    }
+	else if (memcmp(pwchParam, IrqString, (UnicodeStrLen(IrqString) + 1) * sizeof(WCHAR)) == 0)
+	{
         //
         // Is there enough space
         //
-
-        if (*plBuffSize < 7) {
-
+        if (*plBuffSize < 7)
+		{
             *plBuffSize = 0;
             return(ERROR_INSUFFICIENT_BUFFER);
-
         }
 
         plValues[0] = 3;
@@ -774,12 +772,13 @@ Return Value:
         plValues[5] = 9;
         plValues[6] = 12;
         *plBuffSize = 7;
+
         return(0);
-
-    } else if (memcmp(pwchParam, MemAddrString, (UnicodeStrLen(MemAddrString) + 1) * sizeof(WCHAR)) == 0) {
-
-        switch (lNetcardId) {
-
+    }
+	else if (memcmp(pwchParam, MemAddrString, (UnicodeStrLen(MemAddrString) + 1) * sizeof(WCHAR)) == 0)
+	{
+        switch (lNetcardId)
+		{
             //
             // PC
             //
@@ -788,12 +787,10 @@ Return Value:
                 //
                 // Is there enough space
                 //
-
-                if (*plBuffSize < 7) {
-
+                if (*plBuffSize < 7)
+				{
                     *plBuffSize = 0;
                     return(ERROR_INSUFFICIENT_BUFFER);
-
                 }
 
                 plValues[0] = 0xD8000;
@@ -814,12 +811,10 @@ Return Value:
                 //
                 // Is there enough space
                 //
-
-                if (*plBuffSize < 13) {
-
+                if (*plBuffSize < 13)
+				{
                     *plBuffSize = 0;
                     return(ERROR_INSUFFICIENT_BUFFER);
-
                 }
 
                 plValues[0] = 0xD8000;
@@ -841,14 +836,10 @@ Return Value:
             default:
 
                 return(ERROR_INVALID_PARAMETER);
-
         }
-
-
     }
 
     return(ERROR_INVALID_PARAMETER);
-
 }
 
 extern

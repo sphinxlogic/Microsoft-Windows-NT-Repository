@@ -21,14 +21,14 @@
 
 WOW16   =..\..\..\mvdm\wow16
 
-!ifdef INCLUDE
+! ifdef INCLUDE
 WBIN    =
 INCS    =
-!else
-WBIN    = $(WOW16)\bin\\
+! else
+WBIN    = $(WOW16)\bin^\
 CINCS   = -I. -I$(WOW16)\inc
-ASMINCS = $(CINCS) -I..\inc -I$(WOW16)\..\vdd\h
-!endif
+ASMINCS = $(CINCS) -I..\inc -I\nt\public\sdk\inc
+! endif
 
 # DEFINES = -DWOW -DDEBUG $(MVDMFLAGS)
 DEFINES = -DWOW $(MVDMFLAGS) -DBUILDDLL
@@ -39,20 +39,20 @@ CW16    = -AS -G2sw -Os -W3 -Zp $(DEFINES) $(CINCS)
 CW16B   = $(CW16) -B1 c1l.exe -B2 c2l.exe -B3 c3l.exe
 
 LPATH   = ..\..\tools.os2
-LINK    = /map
+LINKFLAG= /map
 
-!ifdef LIB
+! ifdef LIB
 W16LIBS = sdllcew
-!else
+! else
 W16LIBS = $(WOW16)\lib\sdllcew.lib
-!endif
+! endif
 
 
-!IF "$(QFE_BUILD)" != "1"
+! IF "$(QFE_BUILD)" != "1"
 CL16=cl16
-!ELSE
+! ELSE
 CL16=cl
-!ENDIF
+! ENDIF
 
 PATH=..\..\..\mvdm\tools16;$(PATH)
 
@@ -94,24 +94,34 @@ clean:
 nwinit.obj: nwinit.c .\netware.h .\nwerror.h
     $(CL16) -c -nologo $(CW16) $*.c
 
-netware.lrf: makefile
-    echo nwinit.obj+ >netware.lrf
-    echo dllentry.obj+ >>netware.lrf
-    echo nwasmutl.obj+ >>netware.lrf
-    echo ints.obj >>netware.lrf
-    echo netware.drv>>netware.lrf
-    echo netware $(LINK)>>netware.lrf
-    echo $(WOW16)\lib\libw.lib $(WOW16)\lib\sdllcew.lib /nod>>netware.lrf
-    echo netware;>>netware.lrf
+! ifdef NTVDM_BASED_BUILD
+LINK16 = link16
+RC16 = rc16
+! else
+LINK16 = $(LPATH)\link
+RC16 = $(LPATH)\rc
+! endif
 
+! if exist ($(WOW16)\lib\libw.lib) && exist ($(WOW16)\lib\sdllcew.lib)
 
-netware.drv: nwinit.obj dllentry.obj nwasmutl.obj netware.lrf netware.def ints.obj
-!IFDEF NTVDM_BASED_BUILD
-    link16 @netware.lrf;
-    rc16 netware.drv
-!ELSE
-    $(LPATH)\link @netware.lrf;
-    $(LPATH)\rc netware.drv
-!ENDIF
+netware.drv: nwinit.obj dllentry.obj nwasmutl.obj netware.def ints.obj
+    $(LINK16) @<<netware.lrf
+nwinit.obj+
+dllentry.obj+
+nwasmutl.obj+
+ints.obj
+netware.drv
+netware $(LINKFLAG)
+$(WOW16)\lib\libw.lib+
+$(WOW16)\lib\sdllcew.lib /nod
+netware;
+<<KEEP
+    $(RC16) netware.drv
 
-!ENDIF
+! else
+
+netware.drv: nwinit.obj dllentry.obj nwasmutl.obj netware.def ints.obj
+    @echo Nothing to build yet... No libraries
+! endif
+
+!endif

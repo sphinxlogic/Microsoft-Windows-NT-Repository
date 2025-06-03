@@ -63,6 +63,7 @@ DWORD VwDebugLevel = IPXDBG_MIN_LEVEL;
 DWORD VwDebugDump = 0;
 BOOL VwDebugInitialized = FALSE;
 FILE* hVwDebugLog = NULL;
+DWORD DebugFlagsEx = 0 ;
 
 //
 // functions
@@ -695,6 +696,130 @@ VOID CheckInterrupts(LPSTR name) {
                         ));
         }
     }
+}
+
+extern LPCONNECTION_INFO ConnectionList ;
+extern LPSOCKET_INFO SocketList ;
+
+VOID VwDumpAll(VOID)
+{
+    char buf[512];
+    LPCONNECTION_INFO pConnectionInfo;
+    LPSOCKET_INFO pSocketInfo;
+
+    if (DebugFlagsEx == 0)
+        return ;
+
+    DebugFlagsEx = 0 ;
+
+    RequestMutex();
+
+
+    pSocketInfo = SocketList;
+    while (pSocketInfo) {
+
+        LPXECB pXecb ;
+
+        if (!(pSocketInfo->SpxSocket)) {
+            pSocketInfo = pSocketInfo->Next;
+            continue ;
+        }
+
+        sprintf(buf,
+            "%sSOCKET_INFO @ %08x:\n"
+            "    SocketNumber   %04x\n"
+            "    Owner          %04x\n"
+            "    TaskId         %08x\n"
+            "    Socket         %08x\n"
+            "    Flags          %08x\n"
+            "    LongLived      %d\n"
+            "    PendingSends   %08x\n"
+            "    PendingListens %08x\n"
+            "    ListenQueue    %08x, %08x\n"
+            "    SendQueue      %08x, %08x\n"
+            "    HeaderQueue    %08x, %08x\n"
+            "    Connections    %08x\n\n",
+            (pSocketInfo->SpxSocket)?"SPX ":"",
+            pSocketInfo,
+            B2LW(pSocketInfo->SocketNumber),
+            pSocketInfo->Owner,
+            pSocketInfo->TaskId,
+            pSocketInfo->Socket,
+            pSocketInfo->Flags,
+            pSocketInfo->LongLived,
+            pSocketInfo->PendingSends,
+            pSocketInfo->PendingListens,
+            pSocketInfo->ListenQueue.Head,
+            pSocketInfo->ListenQueue.Tail,
+            pSocketInfo->SendQueue.Head,
+            pSocketInfo->SendQueue.Tail,
+            pSocketInfo->HeaderQueue.Head,
+            pSocketInfo->HeaderQueue.Tail,
+            pSocketInfo->Connections
+            );
+        OutputDebugString(buf);
+
+        pConnectionInfo = pSocketInfo->Connections ;
+
+        while(pConnectionInfo) {
+            sprintf(buf,
+                "CONNECTION_INFO @ %08x:\n"
+                "    List           %08x\n"
+                "    OwningSocket   %08x\n"
+                "    Socket         %08x\n"
+                "    TaskId         %08x\n"
+                "    ConnectionId   %04x\n"
+                "    Flags          %02x\n"
+                "    State          %02x\n"
+                "    ConnectQueue   %08x, %08x\n"
+                "    AcceptQueue    %08x, %08x\n"
+                "    SendQueue      %08x, %08x\n"
+                "    ListenQueue    %08x, %08x\n\n",
+                pConnectionInfo,
+                pConnectionInfo->List,
+                pConnectionInfo->OwningSocket,
+                pConnectionInfo->Socket,
+                pConnectionInfo->TaskId,
+                pConnectionInfo->ConnectionId,
+                pConnectionInfo->Flags,
+                pConnectionInfo->State,
+                pConnectionInfo->ConnectQueue.Head,
+                pConnectionInfo->ConnectQueue.Tail,
+                pConnectionInfo->AcceptQueue.Head,
+                pConnectionInfo->AcceptQueue.Tail,
+                pConnectionInfo->SendQueue.Head,
+                pConnectionInfo->SendQueue.Tail,
+                pConnectionInfo->ListenQueue.Head,
+                pConnectionInfo->ListenQueue.Tail
+                );
+            OutputDebugString(buf);
+            pConnectionInfo = pConnectionInfo->Next ;
+        }
+
+        pXecb = pSocketInfo->ListenQueue.Head ;
+        while(pXecb) {
+            sprintf(buf,
+                    "    XECB @ %08x: (Ecb %08x)\n"
+                    "        EcbAddress/EsrAddress  %08x  %08x\n"
+                    "        Flags/RefCount         %08x  %08x\n"
+                    "        Buffer/QueueId         %08x  %08x\n"
+                    "        OwningObject           %08x\n",
+                    pXecb,
+                    pXecb->Ecb,
+                    pXecb->EcbAddress,
+                    pXecb->EsrAddress,
+                    pXecb->Flags,
+                    pXecb->RefCount,
+                    pXecb->Buffer,
+                    pXecb->QueueId,
+                    pXecb->OwningObject
+                    );
+            OutputDebugString(buf);
+            pXecb =  pXecb->Next ;
+        }
+        pSocketInfo = pSocketInfo->Next;
+    }
+    ReleaseMutex();
 }
 
 #endif  // DBG

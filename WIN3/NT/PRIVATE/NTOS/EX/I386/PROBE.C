@@ -93,31 +93,19 @@ Return Value:
                 (EndAddress < MM_USER_PROBE_ADDRESS)) {
 
                 //
-                // If the host processor is not a 486 or better, then
-                // use memory management for the probe. Otherwise, probe
-                // the buffer.
+                // N.B. Only the contents of the buffer may be probed.
+                //      Therefore the starting byte is probed for the
+                //       first page, and then the first byte in the page
+                //      for each succeeding page.
                 //
 
-                if (MmCheckPteOnProbe == 0) {
+                EndAddress = (EndAddress & ~(PAGE_SIZE - 1)) + PAGE_SIZE;
+                do {
+                    *(volatile CHAR *)StartAddress = *(volatile CHAR *)StartAddress;
+                    StartAddress = (StartAddress & ~(PAGE_SIZE - 1)) + PAGE_SIZE;
+                } while (StartAddress != EndAddress);
 
-                    //
-                    // N.B. Only the contents of the buffer may be probed.
-                    //      Therefore the starting byte is probed for the
-                    //       first page, and then the first byte in the page
-                    //      for each succeeding page.
-                    //
-
-                    EndAddress = (EndAddress & ~(PAGE_SIZE - 1)) + PAGE_SIZE;
-                    do {
-                        *(volatile CHAR *)StartAddress = *(volatile CHAR *)StartAddress;
-                        StartAddress = (StartAddress & ~(PAGE_SIZE - 1)) + PAGE_SIZE;
-                    } while (StartAddress != EndAddress);
-
-                    return;
-
-                } else {
-                    MmProbeForWrite(Address, Length);
-                }
+                return;
 
             } else {
                 ExRaiseStatus(STATUS_ACCESS_VIOLATION);

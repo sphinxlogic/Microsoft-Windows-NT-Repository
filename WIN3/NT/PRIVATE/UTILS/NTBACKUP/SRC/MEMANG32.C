@@ -407,13 +407,8 @@ static VOID MEM_ConsistencyCheck( VOID )
                break;
           }
 
-#ifdef UNICODE
-          zprintf( 0, TEXT("on memory allocated in %ws at line %d.\n"),
-                   memErrList[count].allocFile, memErrList[count].allocLine );
-#else
           zprintf( 0, "on memory allocated in %s at line %d.\n",
                    memErrList[count].allocFile, memErrList[count].allocLine );
-#endif
 
           if ( memErrList[count].bad == MEMERR_BAD_SIZE ) {
                zprintf( 0, TEXT("Expected size = %lu, Local size = %lu, GetLastError returned: %08lX.\n"),

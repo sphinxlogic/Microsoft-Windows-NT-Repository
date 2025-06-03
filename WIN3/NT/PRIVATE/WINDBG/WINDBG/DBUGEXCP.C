@@ -66,6 +66,20 @@ static int      DbgExcpt__defButtonID;
 static WNDPROC  DbgExcpt__origWindowProcADD;
 static HWND     DbgExcpt__currDlg;
 
+struct {
+    LPSTR str;
+    DWORD val;
+} ExceptAbbrs[] = {
+    "av", (DWORD) EXCEPTION_ACCESS_VIOLATION,
+    "3c", (DWORD) 0xc0000037,   //STATUS_PORT_DISCONNECTED
+    "ip", (DWORD) EXCEPTION_IN_PAGE_ERROR,
+    "cc", (DWORD) DBG_CONTROL_C,
+    "ce", (DWORD) CONTROL_C_EXIT,
+    "dz", (DWORD) EXCEPTION_INT_DIVIDE_BY_ZERO
+};
+
+#define EXCEPTION_ABBR_COUNT (sizeof(ExceptAbbrs)/sizeof(ExceptAbbrs[0]))
+
 
 
 //
@@ -290,7 +304,7 @@ DlgDbugexcept(
                 if (*ppstr) {
                     free(*ppstr);
                 }
-                *ppstr = strdup(szText);
+                *ppstr = _strdup(szText);
                 UpdateExcptInListbox(hDlg, eItem);
             }
             break;
@@ -348,7 +362,7 @@ DlgDbugexcept(
                 DAssert(*szStr);
 
                 for ( i = 0; i < NUMEFD; i++ ) {
-                    if ( !strcmpi( EfdMap[i].lpName, szStr ) ) {
+                    if ( !_strcmpi( EfdMap[i].lpName, szStr ) ) {
                         break;
                     }
                 }
@@ -404,13 +418,13 @@ DlgDbugexcept(
                                                          (LPSTR)szError, &err);
             DAssert(ExcptIndex(pDisplayedList, dwExceptionCode) == -1);
 
-            dwExceptionCode &= 0xEFFFFFFF; // ?????????????????
+            //dwExceptionCode &= 0xEFFFFFFF; // ?????????????????
 
             GetDlgItemText(hDlg,ID_DBUGEXC_ACTION,(LPSTR) szStr, sizeof(szStr));
             DAssert(*szStr);
 
             for ( i = 0; i < NUMEFD; i++ ) {
-                if ( !strcmpi( EfdMap[i].lpName, szStr ) ) {
+                if ( !_strcmpi( EfdMap[i].lpName, szStr ) ) {
                     break;
                 }
             }
@@ -429,13 +443,13 @@ DlgDbugexcept(
             eItem->dwExceptionCode = dwExceptionCode;
             eItem->efd = EfdMap[i].efd;
             if (*szText) {
-                eItem->lpName = strdup(szText);
+                eItem->lpName = _strdup(szText);
             }
             if (*szCmd) {
-                eItem->lpCmd = strdup(szCmd);
+                eItem->lpCmd = _strdup(szCmd);
             }
             if (*szCmd2) {
-                eItem->lpCmd2 = strdup(szCmd2);
+                eItem->lpCmd2 = _strdup(szCmd2);
             }
 
             pDisplayedList = InsertException(pDisplayedList, eItem);
@@ -545,7 +559,7 @@ DlgDbugexcept(
             break;
 
 
-          case IDHELP:
+          case IDWINDBGHELP:
             Dbg(WinHelp(hDlg, szHelpFileName, (DWORD) HELP_CONTEXT,
                                                       (DWORD)ID_DBUGEXC_HELP));
             break;
@@ -643,7 +657,7 @@ GetDefaultExceptionList (
         eList->next            = NULL;
         eList->dwExceptionCode = exd.dwExceptionCode;
         eList->efd             = exd.efd;
-        eList->lpName          = strdup(exd.rgchDescription);
+        eList->lpName          = _strdup(exd.rgchDescription);
         eList->lpCmd           = NULL;
         eList->lpCmd2          = NULL;
 
@@ -751,15 +765,25 @@ Return Value:
             goto done;
         }
 
-        *pException = CPGetNbr(szStr, Radix, TRUE, &CxfIp, (LPSTR)error, &err);
+        err = 1;
+        for (n = 0; n < EXCEPTION_ABBR_COUNT; n++) {
+            if (_strcmpi(szStr, ExceptAbbrs[n].str) == 0) {
+                *pException = ExceptAbbrs[n].val;
+                err = 0;
+                break;
+            }
+        }
 
-        if ( err ) {
+        if (err) {
+            *pException = CPGetNbr(szStr, Radix, TRUE, &CxfIp, (LPSTR)error, &err);
+        }
+
+        if ( !err ) {
+            *fException = TRUE;
+        } else {
             rVal      = LOGERROR_QUIET;
             *fInvalid = TRUE;
             goto done;
-        } else {
-            *fException = TRUE;
-            *pException &= 0xEFFFFFFF;
         }
 
         lpsz = CPSkipWhitespace( lpsz );
@@ -779,15 +803,15 @@ Return Value:
             goto done;
         }
 
-        if ( !strcmpi( szStr, "Deleted" ) ) {
+        if ( !_strcmpi( szStr, "Deleted" ) ) {
             *pEfd = (EXCEPTION_FILTER_DEFAULT)-1;
             *fEfd = TRUE;
-        } else if ( !strcmpi( szStr, "Disabled" ) ) {
+        } else if ( !_strcmpi( szStr, "Disabled" ) ) {
             *pEfd = efdIgnore;
             *fEfd = TRUE;
         } else {
             for ( n = 0; n < NUMEFD; n++ ) {
-                if ( !strcmpi( EfdMap[n].lpName, szStr ) ) {
+                if ( !_strcmpi( EfdMap[n].lpName, szStr ) ) {
                     *pEfd = EfdMap[n].efd;
                     *fEfd = TRUE;
                     break;
@@ -873,12 +897,12 @@ Return Value:
                         if ( fSecond ) {
                             *fCmd2 = TRUE;
                             if ( *szCmd ) {
-                                *lpCmd2 = strdup(szCmd);
+                                *lpCmd2 = _strdup(szCmd);
                             }
                         } else {
                             *fCmd = TRUE;
                             if ( *szCmd ) {
-                                *lpCmd = strdup(szCmd);
+                                *lpCmd = _strdup(szCmd);
                             }
                         }
 
@@ -938,7 +962,7 @@ Return Value:
         }
 
         if ( *szStr ) {
-            *lpName = strdup( szStr );
+            *lpName = _strdup( szStr );
             *fName  = TRUE;
         }
     }
@@ -1194,13 +1218,13 @@ DupExcpt(
         memcpy(e, eList, sizeof(*e));
     }
     if (e->lpName) {
-        e->lpName = strdup(e->lpName);
+        e->lpName = _strdup(e->lpName);
     }
     if (e->lpCmd) {
-        e->lpCmd = strdup(e->lpCmd);
+        e->lpCmd = _strdup(e->lpCmd);
     }
     if (e->lpCmd2) {
-        e->lpCmd2 = strdup(e->lpCmd2);
+        e->lpCmd2 = _strdup(e->lpCmd2);
     }
     return e;
 }
@@ -1458,4 +1482,3 @@ DbgExcpt__EndDialog (HWND hDlg, int result)
 
    return (EndDialog (hDlg, result));
 }
-

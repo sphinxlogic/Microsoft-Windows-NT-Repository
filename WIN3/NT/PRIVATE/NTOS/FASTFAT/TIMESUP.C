@@ -30,8 +30,10 @@ Revision History:
 BOOLEAN
 FatNtTimeToFatTime (
     IN PIRP_CONTEXT IrpContext,
-    IN LARGE_INTEGER NtTime,
-    OUT PFAT_TIME_STAMP FatTime
+    IN PLARGE_INTEGER NtTime,
+    IN BOOLEAN Rounding,
+    OUT PFAT_TIME_STAMP FatTime,
+    OUT OPTIONAL PCHAR TenMsecs
     )
 
 /*++
@@ -44,7 +46,16 @@ Arguments:
 
     NtTime - Supplies the Nt GMT Time value to convert from
 
+    Rounding - Indicates whether the NT time should be rounded up to a FAT boundary.
+        This should only be done *once* in the lifetime of a timestamp (important
+        for tunneling, which will cause a timestamp to pass through at least twice).
+        If true, rounded up. If false, rounded down to 10ms boundary. This obeys
+        the rules for non-creation time and creation times (respectively).
+
     FatTime - Receives the equivalent Fat time value
+
+    TenMsecs - Optionally receive the number of tens of milliseconds the NtTime, after
+        any rounding, is greater than the FatTime
 
 Return Value:
 
@@ -57,21 +68,29 @@ Return Value:
     TIME_FIELDS TimeFields;
 
     //
-    //  Convert the input to the a time field record.  Always add
-    //  almost two seconds to round up to the nearest double second.
+    //  Convert the input to the a time field record.
     //
 
-    NtTime.QuadPart = NtTime.QuadPart + (LONGLONG)AlmostTwoSeconds;
+    if (Rounding) {
 
-    ExSystemTimeToLocalTime( &NtTime, &NtTime );
+        //
+        //   Add almost two seconds to round up to the nearest double second.
+        //
+    
+        NtTime->QuadPart = NtTime->QuadPart + AlmostTwoSeconds;
+    }
 
-    RtlTimeToTimeFields( &NtTime, &TimeFields );
+    ExSystemTimeToLocalTime( NtTime, NtTime );
+
+    RtlTimeToTimeFields( NtTime, &TimeFields );
 
     //
     //  Check the range of the date found in the time field record
     //
 
     if ((TimeFields.Year < 1980) || (TimeFields.Year > (1980 + 127))) {
+
+        ExLocalTimeToSystemTime( NtTime, NtTime );
 
         return FALSE;
     }
@@ -87,6 +106,56 @@ Return Value:
     FatTime->Date.Year          = (USHORT)(TimeFields.Year - 1980);
     FatTime->Date.Month         = (USHORT)(TimeFields.Month);
     FatTime->Date.Day           = (USHORT)(TimeFields.Day);
+
+    if (TenMsecs) {
+
+        if (!Rounding) {
+
+            //
+            //  If the number of seconds was not divisible by two, then there
+            //  is another second of time (1 sec, 3 sec, etc.) Note we round down
+            //  the number of milleconds onto tens of milleseconds boundaries.
+            //
+
+            *TenMsecs = (TimeFields.Milliseconds / 10) +
+                ((TimeFields.Second % 2) * 100);
+
+        } else {
+
+            //
+            //  If we rounded up, we have in effect changed the NT time. Therefore,
+            //  it does not differ from the FAT time.
+            //
+
+            *TenMsecs = 0;
+        }
+    }
+
+    if (Rounding) {
+
+        //
+        //  Slice off non-FAT boundary time and convert back to 64bit form
+        //
+
+        TimeFields.Milliseconds = 0;
+        TimeFields.Second -= TimeFields.Second % 2;
+
+    } else {
+
+        //
+        //  Round down to 10ms boundary
+        //
+
+        TimeFields.Milliseconds -= TimeFields.Milliseconds % 10;
+    }
+
+    //
+    //  Convert back to NT time
+    //
+
+    (VOID) RtlTimeFieldsToTime(&TimeFields, NtTime);
+
+    ExLocalTimeToSystemTime( NtTime, NtTime );
 
     UNREFERENCED_PARAMETER( IrpContext );
 
@@ -198,7 +267,7 @@ Return Value:
     if (TenMilliSeconds != 0) {
 
         TimeFields.Second      += (USHORT)(TenMilliSeconds / 100);
-        TimeFields.Milliseconds = (USHORT)(TenMilliSeconds % 100);
+        TimeFields.Milliseconds = (USHORT)((TenMilliSeconds % 100) * 10);
 
     } else {
 
@@ -207,6 +276,7 @@ Return Value:
 
     //
     //  If the second value is greater than 59 then we truncate it to 0.
+    //  Note that this can't happen with a proper FAT timestamp.
     //
 
     if (TimeFields.Second > 59) {
@@ -271,7 +341,7 @@ Return Value:
     //  Always add almost two seconds to round up to the nearest double second.
     //
 
-    Time.QuadPart = Time.QuadPart + (LONGLONG)AlmostTwoSeconds;
+    Time.QuadPart = Time.QuadPart + AlmostTwoSeconds;
 
     (VOID)RtlTimeToTimeFields( &Time, &TimeFields );
 

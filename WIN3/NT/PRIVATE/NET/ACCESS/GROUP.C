@@ -53,10 +53,9 @@ Revision History:
 #include <netlibnt.h>
 #include <rpcutil.h>
 #include <rxgroup.h>
-#include <secobj.h>
 #include <stddef.h>
 #include <uasp.h>
-#include <wcstr.h>
+#include <stdlib.h>
 
 /*lint -e614 */  /* Auto aggregate initializers need not be constant */
 
@@ -69,7 +68,7 @@ Revision History:
 
 NET_API_STATUS NET_API_FUNCTION
 NetGroupAdd(
-    IN LPWSTR ServerName OPTIONAL,
+    IN LPCWSTR ServerName OPTIONAL,
     IN DWORD Level,
     IN LPBYTE Buffer,
     OUT LPDWORD ParmError OPTIONAL // Name required by NetpSetParmError
@@ -109,7 +108,8 @@ Return Value:
     DWORD GroupAttributes;
     NET_API_STATUS NetStatus;
     NTSTATUS Status;
-    SAM_HANDLE DomainHandle, GroupHandle;
+    SAM_HANDLE DomainHandle = NULL;
+    SAM_HANDLE GroupHandle;
     ULONG RelativeId;
 
 
@@ -169,7 +169,7 @@ Return Value:
 
     if ( NetStatus != NERR_Success ) {
         IF_DEBUG( UAS_DEBUG_GROUP ) {
-            NetpDbgPrint( "NetGroupAdd: Cannot UaspOpenDomain %ld\n", NetStatus );
+            NetpKdPrint(( "NetGroupAdd: Cannot UaspOpenDomain %ld\n", NetStatus ));
         }
         goto Cleanup;
     }
@@ -259,7 +259,9 @@ Return Value:
     //
 
 Cleanup:
-    UaspCloseDomain( DomainHandle );
+    if ( DomainHandle != NULL ) {
+        UaspCloseDomain( DomainHandle );
+    }
 
     //
     // Handle downlevel.
@@ -267,13 +269,13 @@ Cleanup:
 
     UASP_DOWNLEVEL_BEGIN( ServerName, NetStatus )
 
-        NetStatus = RxNetGroupAdd( ServerName, Level, Buffer, ParmError );
+        NetStatus = RxNetGroupAdd( (LPWSTR) ServerName, Level, Buffer, ParmError );
 
     UASP_DOWNLEVEL_END;
 
 
     IF_DEBUG( UAS_DEBUG_GROUP ) {
-        NetpDbgPrint( "NetGroupAdd: returns %ld\n", NetStatus );
+        NetpKdPrint(( "NetGroupAdd: returns %ld\n", NetStatus ));
     }
     return NetStatus;
 
@@ -282,9 +284,9 @@ Cleanup:
 
 NET_API_STATUS NET_API_FUNCTION
 NetGroupAddUser(
-    IN LPWSTR ServerName OPTIONAL,
-    IN LPWSTR GroupName,
-    IN LPWSTR UserName
+    IN LPCWSTR ServerName OPTIONAL,
+    IN LPCWSTR GroupName,
+    IN LPCWSTR UserName
     )
 
 /*++
@@ -324,13 +326,13 @@ Return Value:
 
     UASP_DOWNLEVEL_BEGIN( ServerName, NetStatus )
 
-        NetStatus = RxNetGroupAddUser( ServerName, GroupName, UserName );
+        NetStatus = RxNetGroupAddUser( (LPWSTR) ServerName, (LPWSTR) GroupName, (LPWSTR) UserName );
 
     UASP_DOWNLEVEL_END( NetStatus );
 
 
     IF_DEBUG( UAS_DEBUG_GROUP ) {
-        NetpDbgPrint( "NetGroupAddUser: returns %ld\n", NetStatus );
+        NetpKdPrint(( "NetGroupAddUser: returns %ld\n", NetStatus ));
     }
     return NetStatus;
 
@@ -339,8 +341,8 @@ Return Value:
 
 NET_API_STATUS NET_API_FUNCTION
 NetGroupDel(
-    IN LPWSTR ServerName OPTIONAL,
-    IN LPWSTR GroupName
+    IN LPCWSTR ServerName OPTIONAL,
+    IN LPCWSTR GroupName
     )
 
 /*++
@@ -384,12 +386,12 @@ Return Value:
 
     UASP_DOWNLEVEL_BEGIN( ServerName, NetStatus )
 
-        NetStatus = RxNetGroupDel( ServerName, GroupName );
+        NetStatus = RxNetGroupDel( (LPWSTR) ServerName, (LPWSTR) GroupName );
 
     UASP_DOWNLEVEL_END;
 
     IF_DEBUG( UAS_DEBUG_GROUP ) {
-        NetpDbgPrint( "NetGroupDel: returns %ld\n", NetStatus );
+        NetpKdPrint(( "NetGroupDel: returns %ld\n", NetStatus ));
     }
     return NetStatus;
 
@@ -398,9 +400,9 @@ Return Value:
 
 NET_API_STATUS NET_API_FUNCTION
 NetGroupDelUser(
-    IN LPWSTR ServerName OPTIONAL,
-    IN LPWSTR GroupName,
-    IN LPWSTR UserName
+    IN LPCWSTR ServerName OPTIONAL,
+    IN LPCWSTR GroupName,
+    IN LPCWSTR UserName
     )
 
 /*++
@@ -441,7 +443,7 @@ Return Value:
 
     UASP_DOWNLEVEL_BEGIN( ServerName, NetStatus )
 
-        NetStatus = RxNetGroupDelUser( ServerName, GroupName, UserName );
+        NetStatus = RxNetGroupDelUser( (LPWSTR) ServerName, (LPWSTR) GroupName, (LPWSTR) UserName );
 
     UASP_DOWNLEVEL_END;
 
@@ -452,7 +454,7 @@ Return Value:
 
 NET_API_STATUS NET_API_FUNCTION
 NetGroupEnum(
-    IN LPWSTR ServerName OPTIONAL,
+    IN LPCWSTR ServerName OPTIONAL,
     IN DWORD Level,
     OUT LPBYTE *Buffer,
     IN DWORD PrefMaxLen,
@@ -783,8 +785,8 @@ Return Value:
                             1) * sizeof(WCHAR);
 
             }
-                   
-                   
+
+
             break;
 
         case 2:
@@ -1017,7 +1019,7 @@ Cleanup:
 
     UASP_DOWNLEVEL_BEGIN( ServerName, NetStatus )
 
-        NetStatus = RxNetGroupEnum( ServerName,
+        NetStatus = RxNetGroupEnum( (LPWSTR) ServerName,
                                     Level,
                                     Buffer,
                                     PrefMaxLen,
@@ -1029,7 +1031,7 @@ Cleanup:
 
 
     IF_DEBUG( UAS_DEBUG_GROUP ) {
-        NetpDbgPrint( "NetGroupEnum: returns %ld\n", NetStatus );
+        NetpKdPrint(( "NetGroupEnum: returns %ld\n", NetStatus ));
     }
 
     return NetStatus;
@@ -1039,8 +1041,8 @@ Cleanup:
 
 NET_API_STATUS NET_API_FUNCTION
 NetGroupGetInfo(
-    IN LPWSTR ServerName OPTIONAL,
-    IN LPWSTR GroupName,
+    IN LPCWSTR ServerName OPTIONAL,
+    IN LPCWSTR GroupName,
     IN DWORD Level,
     OUT LPBYTE *Buffer
     )
@@ -1126,12 +1128,12 @@ Cleanup:
 
     UASP_DOWNLEVEL_BEGIN( ServerName, NetStatus )
 
-        NetStatus = RxNetGroupGetInfo( ServerName, GroupName, Level, Buffer );
+        NetStatus = RxNetGroupGetInfo( (LPWSTR)ServerName, (LPWSTR)GroupName, Level, Buffer );
 
     UASP_DOWNLEVEL_END;
 
     IF_DEBUG( UAS_DEBUG_GROUP ) {
-        NetpDbgPrint( "NetGroupGetInfo: returns %ld\n", NetStatus );
+        NetpKdPrint(( "NetGroupGetInfo: returns %ld\n", NetStatus ));
     }
 
     return NetStatus;
@@ -1141,8 +1143,8 @@ Cleanup:
 
 NET_API_STATUS NET_API_FUNCTION
 NetGroupGetUsers(
-    IN LPWSTR ServerName OPTIONAL,
-    IN LPWSTR GroupName,
+    IN LPCWSTR ServerName OPTIONAL,
+    IN LPCWSTR GroupName,
     IN DWORD Level,
     OUT LPBYTE *Buffer,
     IN DWORD PrefMaxLen,
@@ -1288,9 +1290,9 @@ Return Value:
 
         if ( NetStatus != NERR_Success ) {
             IF_DEBUG( UAS_DEBUG_GROUP ) {
-                NetpDbgPrint(
+                NetpKdPrint((
                     "NetGroupGetUsers: UaspOpenDomain returns %ld\n",
-                    NetStatus );
+                    NetStatus ));
             }
             goto Cleanup;
         }
@@ -1307,9 +1309,9 @@ Return Value:
 
         if ( NetStatus != NERR_Success ) {
             IF_DEBUG( UAS_DEBUG_GROUP ) {
-                NetpDbgPrint(
+                NetpKdPrint((
                     "NetGroupGetUsers: GrouppOpenGroup returns %ld\n",
-                    NetStatus );
+                    NetStatus ));
             }
             goto Cleanup;
         }
@@ -1326,9 +1328,9 @@ Return Value:
 
         if ( !NT_SUCCESS( Status ) ) {
             IF_DEBUG( UAS_DEBUG_GROUP ) {
-                NetpDbgPrint(
+                NetpKdPrint((
                     "NetGroupGetUsers: SamGetMembersInGroup returned %lX\n",
-                    Status );
+                    Status ));
             }
             NetStatus = NetpNtStatusToApiStatus( Status );
             goto Cleanup;
@@ -1358,9 +1360,9 @@ Return Value:
         if ( !NT_SUCCESS( Status ) ) {
 
                 IF_DEBUG( UAS_DEBUG_GROUP ) {
-                    NetpDbgPrint(
+                    NetpKdPrint((
                         "NetGroupGetUsers: SamLookupIdsInDomain returned %lX\n",
-                        Status );
+                        Status ));
                 }
 
                 if ( Status == STATUS_NONE_MAPPED ) {
@@ -1391,6 +1393,7 @@ Return Value:
         //
 
         if ( UasEnumHandle->NameUse[UasEnumHandle->Index] != SidTypeUser ) {
+            UasEnumHandle->Index ++;
             continue;
         }
 
@@ -1418,9 +1421,9 @@ Return Value:
 
         if (NetStatus != NERR_Success) {
             IF_DEBUG( UAS_DEBUG_GROUP ) {
-                NetpDbgPrint(
+                NetpKdPrint((
                     "NetGroupGetUsers: NetpAllocateEnumBuffer returns %ld\n",
-                    NetStatus );
+                    NetStatus ));
             }
             goto Cleanup;
         }
@@ -1571,8 +1574,8 @@ Cleanup:
 
     UASP_DOWNLEVEL_BEGIN( ServerName, NetStatus )
 
-        NetStatus = RxNetGroupGetUsers( ServerName,
-                                        GroupName,
+        NetStatus = RxNetGroupGetUsers( (LPWSTR) ServerName,
+                                        (LPWSTR) GroupName,
                                         Level,
                                         Buffer,
                                         PrefMaxLen,
@@ -1583,7 +1586,7 @@ Cleanup:
     UASP_DOWNLEVEL_END;
 
     IF_DEBUG( UAS_DEBUG_GROUP ) {
-        NetpDbgPrint( "NetGroupGetUsers: returns %ld\n", NetStatus );
+        NetpKdPrint(( "NetGroupGetUsers: returns %ld\n", NetStatus ));
     }
 
 
@@ -1594,8 +1597,8 @@ Cleanup:
 
 NET_API_STATUS NET_API_FUNCTION
 NetGroupSetInfo(
-    IN LPWSTR ServerName OPTIONAL,
-    IN LPWSTR GroupName,
+    IN LPCWSTR ServerName OPTIONAL,
+    IN LPCWSTR GroupName,
     IN DWORD Level,
     IN LPBYTE Buffer,
     OUT LPDWORD ParmError OPTIONAL // Name required by NetpSetParmError
@@ -1654,8 +1657,8 @@ Return Value:
 
     if ( NetStatus != NERR_Success ) {
         IF_DEBUG( UAS_DEBUG_GROUP ) {
-            NetpDbgPrint( "NetGroupSetInfo: UaspOpenDomain returns %ld\n",
-                      NetStatus );
+            NetpKdPrint(( "NetGroupSetInfo: UaspOpenDomain returns %ld\n",
+                      NetStatus ));
         }
         goto Cleanup;
     }
@@ -1672,8 +1675,8 @@ Return Value:
 
     if ( NetStatus != NERR_Success ) {
         IF_DEBUG( UAS_DEBUG_GROUP ) {
-            NetpDbgPrint( "NetGroupSetInfo: GrouppOpenGroup returns %ld\n",
-                      NetStatus );
+            NetpKdPrint(( "NetGroupSetInfo: GrouppOpenGroup returns %ld\n",
+                      NetStatus ));
         }
         goto Cleanup;
     }
@@ -1698,7 +1701,7 @@ Return Value:
         if (NewGroupName == NULL) {
 
             IF_DEBUG( UAS_DEBUG_GROUP ) {
-                NetpDbgPrint( "NetGroupSetInfo: Group Name is NULL\n" );
+                NetpKdPrint(( "NetGroupSetInfo: Group Name is NULL\n" ));
             }
             NetStatus = NERR_Success;
             goto Cleanup;
@@ -1712,8 +1715,8 @@ Return Value:
         RtlInitUnicodeString( &NewSamGroupName.Name, NewGroupName );
 
         IF_DEBUG( UAS_DEBUG_GROUP ) {
-            NetpDbgPrint( "NetGroupSetInfo: Renaming Group Account to %wZ\n",
-                            &NewSamGroupName.Name);
+            NetpKdPrint(( "NetGroupSetInfo: Renaming Group Account to %wZ\n",
+                            &NewSamGroupName.Name));
         }
 
         Status = SamSetInformationGroup( GroupHandle,
@@ -1722,8 +1725,8 @@ Return Value:
 
         if ( !NT_SUCCESS(Status) ) {
             IF_DEBUG( UAS_DEBUG_GROUP ) {
-                NetpDbgPrint( "NetGroupSetInfo: SamSetInformationGroup %lX\n",
-                          Status );
+                NetpKdPrint(( "NetGroupSetInfo: SamSetInformationGroup %lX\n",
+                          Status ));
             }
             NetStatus = NetpNtStatusToApiStatus( Status );
             goto Cleanup;
@@ -1767,9 +1770,9 @@ Return Value:
 
         if ( !NT_SUCCESS(Status) ) {
             IF_DEBUG( UAS_DEBUG_GROUP ) {
-                NetpDbgPrint(
+                NetpKdPrint((
                     "NetGroupSetInfo: SamQueryInformationGroup %lX\n",
-                    Status );
+                    Status ));
             }
             NetStatus = NetpNtStatusToApiStatus( Status );
             goto Cleanup;
@@ -1786,9 +1789,9 @@ Return Value:
 
         if ( !NT_SUCCESS(Status) ) {
             IF_DEBUG( UAS_DEBUG_GROUP ) {
-                NetpDbgPrint(
+                NetpKdPrint((
                     "NetGroupSetInfo: SamSetInformationGroup Attribute %lX\n",
-                    Status );
+                    Status ));
             }
             NetpSetParmError( GROUP_ATTRIBUTES_PARMNUM );
             NetStatus = NetpNtStatusToApiStatus( Status );
@@ -1836,7 +1839,7 @@ Return Value:
 
         if (GroupComment == NULL) {
             IF_DEBUG( UAS_DEBUG_GROUP ) {
-                NetpDbgPrint( "NetGroupSetInfo: Group comment is NULL\n" );
+                NetpKdPrint(( "NetGroupSetInfo: Group comment is NULL\n" ));
             }
             NetStatus = NERR_Success;
             goto Cleanup;
@@ -1848,8 +1851,8 @@ Return Value:
 
         RtlInitUnicodeString( &AdminComment.AdminComment, GroupComment );
         IF_DEBUG( UAS_DEBUG_GROUP ) {
-            NetpDbgPrint( "NetGroupSetInfo: Setting AdminComment to %wZ\n",
-                      &AdminComment.AdminComment );
+            NetpKdPrint(( "NetGroupSetInfo: Setting AdminComment to %wZ\n",
+                      &AdminComment.AdminComment ));
         }
 
         Status = SamSetInformationGroup( GroupHandle,
@@ -1858,8 +1861,8 @@ Return Value:
 
         if ( !NT_SUCCESS(Status) ) {
             IF_DEBUG( UAS_DEBUG_GROUP ) {
-                NetpDbgPrint( "NetGroupSetInfo: SamSetInformationGroup %lX\n",
-                          Status );
+                NetpKdPrint(( "NetGroupSetInfo: SamSetInformationGroup %lX\n",
+                          Status ));
             }
             NetStatus = NetpNtStatusToApiStatus( Status );
             goto Cleanup;
@@ -1870,7 +1873,7 @@ Return Value:
     default:
         NetStatus = ERROR_INVALID_LEVEL;
         IF_DEBUG( UAS_DEBUG_GROUP ) {
-            NetpDbgPrint( "NetGroupSetInfo: Invalid Level %ld\n", Level );
+            NetpKdPrint(( "NetGroupSetInfo: Invalid Level %ld\n", Level ));
         }
         goto Cleanup;
 
@@ -1895,8 +1898,8 @@ Cleanup:
 
     UASP_DOWNLEVEL_BEGIN( ServerName, NetStatus )
 
-        NetStatus = RxNetGroupSetInfo( ServerName,
-                                       GroupName,
+        NetStatus = RxNetGroupSetInfo( (LPWSTR) ServerName,
+                                       (LPWSTR) GroupName,
                                        Level,
                                        Buffer,
                                        ParmError );
@@ -1904,7 +1907,7 @@ Cleanup:
     UASP_DOWNLEVEL_END;
 
     IF_DEBUG( UAS_DEBUG_GROUP ) {
-        NetpDbgPrint( "NetGroupSetInfo: returns %ld\n", NetStatus );
+        NetpKdPrint(( "NetGroupSetInfo: returns %ld\n", NetStatus ));
     }
 
     return NetStatus;
@@ -1914,8 +1917,8 @@ Cleanup:
 
 NET_API_STATUS NET_API_FUNCTION
 NetGroupSetUsers (
-    IN LPWSTR ServerName OPTIONAL,
-    IN LPWSTR GroupName,
+    IN LPCWSTR ServerName OPTIONAL,
+    IN LPCWSTR GroupName,
     IN DWORD Level,
     IN LPBYTE Buffer,
     IN DWORD NewMemberCount
@@ -1980,8 +1983,8 @@ Return Value:
 
     UASP_DOWNLEVEL_BEGIN( ServerName, NetStatus )
 
-        NetStatus = RxNetGroupSetUsers( ServerName,
-                                        GroupName,
+        NetStatus = RxNetGroupSetUsers( (LPWSTR) ServerName,
+                                        (LPWSTR) GroupName,
                                         Level,
                                         Buffer,
                                         NewMemberCount );
@@ -1989,7 +1992,7 @@ Return Value:
     UASP_DOWNLEVEL_END;
 
     IF_DEBUG( UAS_DEBUG_GROUP ) {
-        NetpDbgPrint( "NetGroupSetUsers: returns %ld\n", NetStatus );
+        NetpKdPrint(( "NetGroupSetUsers: returns %ld\n", NetStatus ));
     }
 
     return NetStatus;

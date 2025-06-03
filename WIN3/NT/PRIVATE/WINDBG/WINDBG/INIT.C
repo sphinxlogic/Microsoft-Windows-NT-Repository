@@ -496,6 +496,7 @@ InitCrashDump(
                 break;
 
             case IMAGE_FILE_MACHINE_R4000:
+            case IMAGE_FILE_MACHINE_R10000:
                 runDebugParams.KdParams.dwPlatform = 1;
                 SetDllKey( DLL_EXEC_MODEL, "emmip" );
                 SetDllKey( DLL_EXPR_EVAL,  "mips c++" );
@@ -506,11 +507,26 @@ InitCrashDump(
                 SetDllKey( DLL_EXEC_MODEL, "emalpha" );
                 SetDllKey( DLL_EXPR_EVAL,  "alpha c++" );
                 break;
+
+            case IMAGE_FILE_MACHINE_POWERPC:
+                runDebugParams.KdParams.dwPlatform = 3;
+                SetDllKey( DLL_EXEC_MODEL, "emppc" );
+                SetDllKey( DLL_EXPR_EVAL,  "ppc c++" );
+                break;
         }
 
         rval = TRUE;
     }
 
+    if ((DumpHeader->Signature == 'RESU') &&
+        (DumpHeader->ValidDump == 'PMUD')) {
+        //
+        // usermode crash dump
+        //
+        runDebugParams.fUserCrashDump = TRUE;
+        strcpy( runDebugParams.szUserCrashDump, CrashDump );
+        rval = TRUE;
+    }
 
 exit:
     if (DmpDumpBase) {
@@ -554,11 +570,11 @@ Return Value:
 --*/
 {
     extern BOOL AutoTest;
-    char    ProgramName[ MAX_PATH ];
-    char    rgch[ MAX_PATH ];
-    char    wTitle[ MAX_MSG_TXT ];
-    char    wClass[ MAX_MSG_TXT ];
-    char    WorkSpace[ MAX_PATH ];
+    char    ProgramName[ MAX_PATH ] = "";
+    char    rgch[ MAX_PATH ] = "";
+    char    wTitle[ MAX_MSG_TXT ] = "";
+    char    wClass[ MAX_MSG_TXT ] = "";
+    char    WorkSpace[ MAX_PATH ] = "";
     BOOLEAN WorkSpaceSpecified      = FALSE;
     BOOLEAN toRestore               = FALSE;
     BOOLEAN workSpaceLoaded         = FALSE;
@@ -578,15 +594,17 @@ Return Value:
     RUNDEBUGPARAMS rd;
     BOOL    fRemoteServer = FALSE;
     BOOL    fMinimize = FALSE;
-    CHAR    PipeName[MAX_PATH+1];
+    CHAR    PipeName[MAX_PATH+1] = "";
     BOOL    fSymPath = FALSE;
     BOOL    fCrashDump = FALSE;
     BOOL    fIgnoreAll = FALSE;
-    CHAR    SymPath[MAX_PATH*2];
-    CHAR    CrashDump[MAX_PATH*2];
+    CHAR    SymPath[MAX_PATH*2] = "";
+    CHAR    CrashDump[MAX_PATH*2] = "";
     LPSTR   lpWindowTitle;
     BOOL    fSetTitle = FALSE;
     BOOL    fVerbose = FALSE;
+    HDESK   hDesk;
+
 
     //
     //  First argument is debugger name
@@ -600,6 +618,8 @@ Return Value:
     //
     hInst  = hInstance;
     winVer = GetVersion();
+    OsVersionInfo.dwOSVersionInfoSize = sizeof(OsVersionInfo);
+    GetVersionEx( &OsVersionInfo );
 
     InitFileExtensions();
     InitializeDocument();
@@ -644,8 +664,6 @@ Return Value:
     Dbg(LoadString( hInst, SYS_Help_FileExt, szTmp, _MAX_EXT) );
     MakePathNameFromProg( (LPSTR)szTmp, szHelpFileName );
 
-    hPal = (HPALETTE)NULL;
-
     //
     //  Init Items Colors ,Environment and RunDebug params to their default
     //  values 'They will later be overrided by the values in .INI file
@@ -673,7 +691,11 @@ Return Value:
 
     // eat the command:
     while (*lp1 && *lp1 != ' ' && *lp1 != '\t') {
+#ifdef DBCS
+        lp1 = CharNext(lp1);
+#else
         lp1++;
+#endif
     }
 
 
@@ -724,6 +746,7 @@ Return Value:
                     case 'h':
                         SwitchH = TRUE;
                         rd.fInheritHandles = TRUE;
+                        WorkspaceOverride |= WSO_INHERITHANDLES;
                         break;
 
                     case 'i':
@@ -738,15 +761,17 @@ Return Value:
                         strcpy(ProgramName,"ntoskrnl.exe");
                         rd.fKernelDebugger = TRUE;
                         lp2 = GetArg(&lp1);
-                        if (stricmp(lp2,"i386")==0) {
+                        if (_stricmp(lp2,"i386")==0) {
                             rd.KdParams.dwPlatform = 0;
-                        } else if (stricmp(lp2,"mips")==0) {
+                        } else if (_stricmp(lp2,"mips")==0) {
                             rd.KdParams.dwPlatform = 1;
-                        } else if (stricmp(lp2,"alpha")==0) {
+                        } else if (_stricmp(lp2,"alpha")==0) {
                             rd.KdParams.dwPlatform = 2;
+                        } else if (_stricmp(lp2,"ppc")==0) {
+                            rd.KdParams.dwPlatform = 3;
                         }
                         lp2 = GetArg(&lp1);
-                        if (strlen(lp2) > 3 && strnicmp(lp2,"com",3)==0) {
+                        if (strlen(lp2) > 3 && _strnicmp(lp2,"com",3)==0) {
                             lp2 += 3;
                             rd.KdParams.dwPort = strtoul(lp2, NULL, 0);
                         }
@@ -757,20 +782,24 @@ Return Value:
                     case 'l':
                         fSetTitle = TRUE;
                         lp2 = GetArg(&lp1);
-                        lpWindowTitle = strdup( lp2 );
+                        lpWindowTitle = _strdup( lp2 );
                         break;
 
                     case 'm':
                         fMinimize = TRUE;
+                        nCmdShow = SW_MINIMIZE;
+                        WorkspaceOverride |= WSO_WINDOW;
                         break;
 
                     case 'p':
                         // attach to an active process
                         lAttachProcess = strtoul(GetArg(&lp1), NULL, 0);
-                        if (lAttachProcess < -1) {
-                            ErrorBox2(hwndFrame, MB_TASKMODAL,
-                                      ERR_Invalid_Process_Id,
-                                      lAttachProcess);
+                        if (OsVersionInfo.dwPlatformId == VER_PLATFORM_WIN32_NT) {
+                           if (lAttachProcess < -1) {
+                               ErrorBox2(hwndFrame, MB_TASKMODAL,
+                                         ERR_Invalid_Process_Id,
+                                         lAttachProcess);
+                           }
                         }
                         fSwitch = FALSE;
                         break;
@@ -778,7 +807,7 @@ Return Value:
                     case 'r':
                         AutoRun = arCmdline;
                         NoPopups = TRUE;
-                        PszAutoRun = strdup( GetArg(&lp1) );
+                        PszAutoRun = _strdup( GetArg(&lp1) );
                         ShowWindow(hwndFrame, nCmdShow);
                         OpenDebugWindow( COMMAND_WIN, NULL, -1 );
                         fSwitch = FALSE;
@@ -796,7 +825,11 @@ Return Value:
                             lp2 = pch;
                             while (*pch != 0) {
                                 if (*pch == '_') *pch = ' ';
+#ifdef DBCS
+                                pch = CharNext(pch);
+#else
                                 pch++;
+#endif
                             }
                         }
                         CmdExecuteLine( lp2 );
@@ -827,7 +860,7 @@ Return Value:
                         // Load this transport as the default.  For testing.
                         // Must be preceded by -i switch.
                         if (IgnoreDefault) {
-                            LpszCommandLineTransportDll = strdup( GetArg(&lp1) );
+                            LpszCommandLineTransportDll = _strdup( GetArg(&lp1) );
                         } else {
                             --lp1;
                             ErrorBox2(hwndFrame, MB_TASKMODAL,
@@ -870,19 +903,13 @@ Return Value:
 
                 continue;
 
-            } else if ( !ValidFilename( lp2, FALSE ) ) {
-
-                ErrorBox2( hwndFrame, MB_TASKMODAL,
-                           ERR_Invalid_Command_Line_File,
-                           GetArg(&lpSave));
-
             } else {
 
                 _fullpath(rgch, lp2, sizeof(rgch));
                 _splitpath(rgch, szDrive, szDir, szFName, szExt);
 
-                if ( !stricmp( szExt, szStarDotExe+1 ) ||
-                     !stricmp( szExt, szStarDotCom+1 ) ||
+                if ( !_stricmp( szExt, szStarDotExe+1 ) ||
+                     !_stricmp( szExt, szStarDotCom+1 ) ||
                       ( *szExt == '\0' )  )
                 {
                     //
@@ -894,7 +921,7 @@ Return Value:
                         // if it is a tab, we are wrong...
                         ++lp1;
                     }
-                    LpszCommandLine = strdup(lp1);
+                    LpszCommandLine = _strdup(lp1);
                     break;
 
                 } else {
@@ -933,10 +960,7 @@ Return Value:
                    (LPSTR)"" );
     }
 
-    if (fMinimize) {
-        ShowWindow(hwndFrame, SW_MINIMIZE );
-        UpdateWindow(hwndFrame);
-    } else if ( IgnoreDefault || !WorkSpaceExists(NULL, NULL)) {
+    if ( fMinimize || IgnoreDefault || !WorkSpaceExists(NULL, NULL)) {
         ShowWindow(hwndFrame, nCmdShow);
         UpdateWindow(hwndFrame);
     }
@@ -1012,6 +1036,8 @@ Return Value:
         }
     }
 
+    WorkspaceOverride = 0;
+
     if (IgnoreDefault || WorkSpaceMissed) {
         // force cmdwin
         CmdInsertInit();
@@ -1038,6 +1064,12 @@ Return Value:
                 SetDllKey( DLL_EXEC_MODEL, "emalpha" );
                 SetDllKey( DLL_EXPR_EVAL,  "alpha c++" );
                 break;
+
+            case 3:
+                runDebugParams.KdParams.dwPlatform = 3;
+                SetDllKey( DLL_EXEC_MODEL, "emppc" );
+                SetDllKey( DLL_EXPR_EVAL,  "ppc c++" );
+                break;
         }
     }
 
@@ -1061,11 +1093,16 @@ Return Value:
         if (InitCrashDump( CrashDump, SymPath )) {
             ModListSetSearchPath( SymPath );
             fGoNow = TRUE;
+            if (runDebugParams.fUserCrashDump) {
+                strcpy( ProgramName, CrashDump );
+            }
         }
     }
 
     if (runDebugParams.fKernelDebugger) {
-        runDebugParams.fCommandRepeat = TRUE;
+        if (fRemoteServer) {
+            runDebugParams.fCommandRepeat = TRUE;
+        }
         runDebugParams.fMasmEval = TRUE;
     }
 
@@ -1115,6 +1152,13 @@ Return Value:
                 Go();
             } else if (!DoStopEvent(NULL)) {
                 CmdLogVar(DBG_Attach_Stopped);
+            }
+
+            if (hEventGo) {
+                hDesk = GetThreadDesktop(GetCurrentThreadId());
+                if (hDesk) {
+                    SwitchDesktop(hDesk);
+                }
             }
         }
     }
@@ -1183,6 +1227,13 @@ Return Value:
     PAINTSTRUCT ps;
     HFONT       oldFont;
     int         height ;
+#ifdef DBCS
+    CHARSETINFO csi;
+    DWORD dw = GetACP();
+
+    if (!TranslateCharsetInfo((DWORD*)dw, &csi, TCI_SRCCODEPAGE))
+	csi.ciCharset = ANSI_CHARSET;
+#endif /* DBCS */
 
     //Initialize status bar information
     memset(st, 0, sizeof(STATUS));  // Set all to 0 and FALSE
@@ -1205,24 +1256,42 @@ Return Value:
 
     //VGA mode
 
+#if defined(DBCS)
+    height = 14 ;
+
+    if ( IsCGAmode ) height = 8 ;
+    else if ( IsEGAmode ) height = 10 ;
+#else
     height = 16 ;
 
     if ( IsCGAmode ) height = 8 ;
     else if ( IsEGAmode ) height = 12 ;
+#endif
 
     //Try to use the ANSI variable system font if we cannot use our Own
 
+#if defined(DBCS)
+    st->font = CreateFont(height, 0, 0, 0, FW_NORMAL, FALSE, FALSE,
+      FALSE, csi.ciCharset, OUT_DEFAULT_PRECIS,
+      CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
+      FIXED_PITCH | FF_SWISS, "MS Shell Dlg") ;
+#else   // !DBCS
     st->font = CreateFont(height, 0, 0, 0, FW_NORMAL, FALSE, FALSE,
       FALSE, ANSI_CHARSET, OUT_DEFAULT_PRECIS,
       CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
       FIXED_PITCH | FF_SWISS, "Helv") ;
+#endif
 
     if ( !st->font ) {
+#if defined(DBCS)
+        Dbg(st->font = GetStockObject(SYSTEM_FONT)) ;
+#else
         st->font = GetStockObject(ANSI_VAR_FONT) ;
         if ( !st->font ) {
             //No avaible fonts, Use the system Font
             Dbg(st->font = GetStockObject(SYSTEM_FONT)) ;
         }
+#endif
     }
 
     //Calculate Height of font
@@ -1375,6 +1444,7 @@ Return Value:
     pParams->fNotifyThreadTerm    = TRUE;
     pParams->fNotifyThreadCreate  = TRUE;
     pParams->fCommandRepeat       = FALSE;
+    pParams->fNoVersion           = FALSE;
     pParams->fInheritHandles      = FALSE;
     pParams->fKernelDebugger      = FALSE;
     pParams->fEPIsFirstStep       = FALSE;
@@ -1385,7 +1455,7 @@ Return Value:
     pParams->fVerbose             = TRUE;
     pParams->fShortContext        = TRUE;
     pParams->fMasmEval            = FALSE;
-    pParams->fShBackground        = TRUE;
+    pParams->fShBackground        = FALSE;
 
     //
     // setup the default kernel debugger options
@@ -1402,6 +1472,8 @@ Return Value:
     pParams->KdParams.dwPlatform  = 0;
 #elif defined(HOST_ALPHA)
     pParams->KdParams.dwPlatform  = 2;
+#elif defined(HOST_PPC)
+    pParams->KdParams.dwPlatform  = 3;
 #endif
     pParams->KdParams.szCrashDump[0] = 0;
 
@@ -1420,6 +1492,13 @@ InitDefaultFont(
 {
     //Set a default font
 
+#ifdef DBCS
+    CHARSETINFO csi;
+    DWORD dw = GetACP();
+
+    if (!TranslateCharsetInfo((DWORD*)dw, &csi, TCI_SRCCODEPAGE))
+	csi.ciCharset = ANSI_CHARSET;
+#endif
     defaultFont.lfHeight = 10;
     defaultFont.lfWidth = 0;
     defaultFont.lfEscapement = 0;
@@ -1428,12 +1507,39 @@ InitDefaultFont(
     defaultFont.lfItalic = 0;
     defaultFont.lfUnderline = 0;
     defaultFont.lfStrikeOut = 0;
+#ifdef DBCS
+    /* use appropriate Character set font as default */
+    defaultFont.lfCharSet = csi.ciCharset;
+
+    /* Set device independent font size */
+    {
+        HDC	    hDC;
+        int	    nLogPixY;
+        int	    nHeight;
+        int     nPoints = 100;  //Point size * 10
+
+        hDC = CreateDC(TEXT("DISPLAY"), NULL, NULL, NULL);
+        nLogPixY = GetDeviceCaps(hDC, LOGPIXELSY);
+        nHeight = (nPoints / 10) * nLogPixY;
+        if(nPoints % 10){
+            nHeight += MulDiv(nPoints % 10, nLogPixY, 10);
+        }
+        defaultFont.lfHeight = MulDiv(nHeight, -1, 72);
+        DeleteDC(hDC);
+    }
+#else   // !DBCS
     defaultFont.lfCharSet = ANSI_CHARSET;
+#endif  // !DBCS end
     defaultFont.lfOutPrecision = OUT_DEFAULT_PRECIS;
     defaultFont.lfClipPrecision = CLIP_DEFAULT_PRECIS;
     defaultFont.lfQuality = DEFAULT_QUALITY;
+#ifdef DBCS // font facename is hardcoded...
+    defaultFont.lfPitchAndFamily = FIXED_PITCH;
+    lstrcpy((LPSTR) defaultFont.lfFaceName, (LPSTR)"Terminal");
+#else
     defaultFont.lfPitchAndFamily = FIXED_PITCH | FF_MODERN;
     lstrcpy((LPSTR) defaultFont.lfFaceName, (LPSTR)"Courier");
+#endif
 
     return;
 }                   /* InitDefaultFont() */

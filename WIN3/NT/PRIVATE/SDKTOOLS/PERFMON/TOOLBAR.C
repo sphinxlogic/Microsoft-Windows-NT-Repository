@@ -48,14 +48,14 @@ TBBUTTON tbButtons[] = {
 BOOL CreateToolbarWnd (HWND hWnd)
 {
 
-   hWndToolbar = CreateToolbar (hWnd,
-      WS_CHILD | WS_BORDER | WS_VISIBLE,
+   hWndToolbar = CreateToolbarEx (hWnd,
+      WS_CHILD | WS_BORDER | WS_VISIBLE | TBSTYLE_TOOLTIPS,
       IDM_TOOLBARID,
       10,                  // number of tools inside the bitmap
       hInstance,
       idBitmapToolbar,     // bitmap resource ID (can't use MAKEINTRESOURCE)
       tbButtons,
-      TB_ENTRIES) ;
+      TB_ENTRIES,0,0,0,0,sizeof(TBBUTTON)) ;
 
    return (hWndToolbar ? TRUE : FALSE) ;
 
@@ -174,4 +174,5 @@ void OnToolbarHit (WPARAM wParam, LPARAM lParam)
 }  // OnToolBarHit
 
 
-
+
+

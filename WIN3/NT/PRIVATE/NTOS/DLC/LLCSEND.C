@@ -359,7 +359,8 @@ Return Value:
 
                 ACQUIRE_SPIN_LOCK(&pAdapterContext->SendSpinLock);
 
-                DeallocatePacket(pAdapterContext->hPacketPool, pEvent);
+                DEALLOCATE_PACKET_LLC_PKT(pAdapterContext->hPacketPool, pEvent);
+
             }
             pAdapterContext->BackgroundProcessRequests -= InitialRequestCount;
 
@@ -905,7 +906,8 @@ Return Value:
 
     ASSUME_IRQL(DISPATCH_LEVEL);
 
-    pPacket = AllocatePacket(pAdapterContext->hPacketPool);
+    pPacket = ALLOCATE_PACKET_LLC_PKT(pAdapterContext->hPacketPool);
+
     if (pPacket == NULL) {
 
         //
@@ -959,7 +961,9 @@ Return Value:
 
             if ((LlcCommandId & (UCHAR)LLC_I_S_POLL_FINAL)) {
                 if (pLink->Flags & DLC_FINAL_RESPONSE_PENDING_IN_NDIS) {
-                    DeallocatePacket(pAdapterContext->hPacketPool, pPacket);
+
+                    DEALLOCATE_PACKET_LLC_PKT(pAdapterContext->hPacketPool, pPacket);
+
                     return STATUS_SUCCESS;
                 }
                 pLink->Flags |= DLC_FINAL_RESPONSE_PENDING_IN_NDIS;
@@ -1032,10 +1036,13 @@ Return Value:
             pPacket->Data.XmitU.TranslationType = (UCHAR)pLink->FramingType;
         }
         pPacket->CompletionType = LLC_U_COMMAND_RESPONSE;
-        pPacket->Data.XmitU.pLanHeader = (PUCHAR)AllocatePacket(pAdapterContext->hPacketPool);
+
+        pPacket->Data.XmitU.pLanHeader = (PUCHAR)ALLOCATE_PACKET_LLC_PKT(pAdapterContext->hPacketPool);
 
         if (pPacket->Data.XmitU.pLanHeader == NULL) {
-            DeallocatePacket(pAdapterContext->hPacketPool, pPacket);
+
+            DEALLOCATE_PACKET_LLC_PKT(pAdapterContext->hPacketPool, pPacket);
+
             return DLC_STATUS_NO_MEMORY;
         }
 
@@ -1060,7 +1067,11 @@ Return Value:
         if (((pPacket->Data.XmitU.Command & ~LLC_U_POLL_FINAL) == LLC_SABME)
 //        || ((pPacket->Data.XmitU.Command & ~LLC_U_POLL_FINAL) == LLC_DISC)
         ) {
-            CheckAndDuplicatePacket(pLink->Gen.pLlcBinding,
+            CheckAndDuplicatePacket(
+#if DBG
+                                    pAdapterContext,
+#endif
+                                    pLink->Gen.pLlcBinding,
                                     pPacket,
                                     &pAdapterContext->QueueExpidited
                                     );
@@ -1466,7 +1477,8 @@ Return Value:
 
 #endif
 
-            DeallocatePacket(pAdapterContext->hPacketPool, pPacket->Data.Response.pLanHeader);
+            DEALLOCATE_PACKET_LLC_PKT(pAdapterContext->hPacketPool, pPacket->Data.Response.pLanHeader);
+
             break;
 
         case LLC_U_COMMAND_RESPONSE:
@@ -1484,7 +1496,8 @@ Return Value:
 
 #endif
 
-            DeallocatePacket(pAdapterContext->hPacketPool, pPacket->Data.Response.pLanHeader);
+            DEALLOCATE_PACKET_LLC_PKT(pAdapterContext->hPacketPool, pPacket->Data.Response.pLanHeader);
+
             break;
 
         case LLC_TEST_RESPONSE:
@@ -1515,7 +1528,9 @@ Return Value:
 #endif
 
         }
-        DeallocatePacket(pAdapterContext->hPacketPool, pPacket);
+
+        DEALLOCATE_PACKET_LLC_PKT(pAdapterContext->hPacketPool, pPacket);
+
     } else {
 
         //
@@ -1554,7 +1569,9 @@ Return Value:
                 && (pPacket->Data.Xmit.LlcHeader.S.Ssap & LLC_SSAP_RESPONSE)) {
                     pLlcObject->Link.Flags &= ~DLC_FINAL_RESPONSE_PENDING_IN_NDIS;
                 }
-                DeallocatePacket(pAdapterContext->hPacketPool, pPacket);
+
+                DEALLOCATE_PACKET_LLC_PKT(pAdapterContext->hPacketPool, pPacket);
+
             } else {
                 pPacket->CompletionType &= ~LLC_I_PACKET_PENDING_NDIS;
 
@@ -1765,12 +1782,16 @@ Return Value:
     ACQUIRE_SPIN_LOCK(&pAdapterContext->SendSpinLock);
 
     if ((pAdapterContext->XidTestResponses < MAX_XID_TEST_RESPONSES)
-    && ((pPacket = (PLLC_PACKET)AllocatePacket(pAdapterContext->hPacketPool)) != NULL)) {
+    && ((pPacket = (PLLC_PACKET)ALLOCATE_PACKET_LLC_PKT(pAdapterContext->hPacketPool)) != NULL)) {
 
         if ((LlcHeader.U.Command & ~LLC_U_POLL_FINAL) == LLC_XID) {
-            pPacket->Data.Xmit.pLanHeader = (PUCHAR)AllocatePacket(pAdapterContext->hPacketPool);
+
+            pPacket->Data.Xmit.pLanHeader = (PUCHAR)ALLOCATE_PACKET_LLC_PKT(pAdapterContext->hPacketPool);
+
             if (pPacket->Data.Xmit.pLanHeader == NULL) {
-                DeallocatePacket(pAdapterContext->hPacketPool, pPacket);
+
+                DEALLOCATE_PACKET_LLC_PKT(pAdapterContext->hPacketPool, pPacket);
+
                 pPacket = NULL;
                 goto LockedErrorExit;
             } else {
@@ -1834,7 +1855,9 @@ LockedErrorExit:
 ProcedureErrorExit:
 
     if (pPacket == NULL) {
-        FREE_MEMORY_ADAPTER(pBuffer);
+        if (pBuffer) {
+            FREE_MEMORY_ADAPTER(pBuffer);
+        }
         if (pTestMdl != NULL) {
             IoFreeMdl(pTestMdl);
         }
@@ -1950,7 +1973,11 @@ Return Value:
             // used in more than one place
             //
 
-            Status = CheckAndDuplicatePacket(pStation->Gen.pLlcBinding,
+            Status = CheckAndDuplicatePacket(
+#if DBG
+                                             pAdapterContext,
+#endif
+                                             pStation->Gen.pLlcBinding,
                                              pPacket,
                                              &pAdapterContext->QueueDirAndU
                                              );
@@ -2179,6 +2206,9 @@ Return Value:
 
 DLC_STATUS
 CheckAndDuplicatePacket(
+#if DBG
+    IN PADAPTER_CONTEXT pAdapterContext,
+#endif
     IN PBINDING_CONTEXT pBinding,
     IN PLLC_PACKET pPacket,
     IN PLLC_QUEUE pQueue
@@ -2211,7 +2241,9 @@ Return Value:
     ASSUME_IRQL(DISPATCH_LEVEL);
 
     if (pBinding->EthernetType == LLC_ETHERNET_TYPE_AUTO) {
-        pNewPacket = AllocatePacket(pBinding->pAdapterContext->hPacketPool);
+
+        pNewPacket = ALLOCATE_PACKET_LLC_PKT(pBinding->pAdapterContext->hPacketPool);
+
         if (pNewPacket == NULL) {
             return DLC_STATUS_NO_MEMORY;
         } else {

@@ -18,13 +18,13 @@ interface CAdviseSink : public IAdviseSink
 	CSimpleSite FAR * m_pSite;
 
 	CAdviseSink(CSimpleSite FAR * pSite) {
-		OutputDebugString("In IAS's constructor\r\n");
+		TestDebugOut("In IAS's constructor\r\n");
 		m_pSite = pSite;
 		m_nCount = 0;
 		};
 
 	~CAdviseSink() {
-		OutputDebugString("In IAS's destructor\r\n");
+		TestDebugOut("In IAS's destructor\r\n");
 		assert(m_nCount == 0);
 		} ;
 

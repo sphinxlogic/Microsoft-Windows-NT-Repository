@@ -79,7 +79,7 @@ Return Value:
     // Set up the query table:
     //
     OutputString.Length = 0;
-    OutputString.MaximumLength = BufferSize;
+    OutputString.MaximumLength = (USHORT)BufferSize;
     OutputString.Buffer = (PWSTR)Buffer;
 
     QueryTable[0].QueryRoutine = NULL;

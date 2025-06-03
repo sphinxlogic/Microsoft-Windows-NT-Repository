@@ -31,7 +31,7 @@ Revision History:
 
 #include <rpcerr.h>            // Error codes to map to
 #include <debuglib.h>          // IF_DEBUG().
-#include <netdebug.h>          // FORMAT_NTSTATUS, NetpDbgPrint().
+#include <netdebug.h>          // FORMAT_NTSTATUS, NetpKdPrint(()).
 
 
 #if 0
@@ -108,5 +108,3 @@ Return Value:
 } // NetpRpcStatusToApiStatus
 
 #endif // 0
-
-

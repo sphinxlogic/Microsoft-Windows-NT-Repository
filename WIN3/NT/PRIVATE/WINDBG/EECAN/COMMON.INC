@@ -44,7 +44,7 @@ WRAPPEDCOBJECTS = obj\*\debapi.obj     \
                   obj\*\r10math.obj
 
 
-$(WRAPPEDCOBJECTS:*=i386): $(SRCDIR)\$$(@B).c
-$(WRAPPEDCOBJECTS:*=mips): $(SRCDIR)\$$(@B).c
+$(WRAPPEDCOBJECTS:*=i386):  $(SRCDIR)\$$(@B).c
+$(WRAPPEDCOBJECTS:*=mips):  $(SRCDIR)\$$(@B).c
 $(WRAPPEDCOBJECTS:*=alpha): $(SRCDIR)\$$(@B).c
-
+$(WRAPPEDCOBJECTS:*=ppc):   $(SRCDIR)\$$(@B).c

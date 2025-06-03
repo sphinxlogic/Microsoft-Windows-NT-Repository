@@ -34,32 +34,22 @@ AOBJ    = -Ml -t $(DEFINES) $(INCS)
 CW16    = -AS -G2sw -Os -W3 -Zp $(DEFINES) $(INCS)
 CW16B   = $(CW16) -B1 c1l.exe -B2 c2l.exe -B3 c3l.exe
 
-LPATH   = ..\..\tools.os2
 LINK    = /map /align:16
 
-# work around stupid bug in RC 3.1 that doesn't allow rcpp.err to be
+########## Path definition so we find 16 bit tools ##########
+# Also works around stupid bug in RC 3.1 that doesn't allow rcpp.err to be
 # in a directory that is greater than 128 chars down the path, even if
 # rc 3.1 is running as an OS/2 app.
 
-PATH    = ..\..\tools16;$(PATH)
+PATH    = $(_NTBINDIR)\private\mvdm\tools16;$(PATH)
 
-!if "$(NTDEBUG)"!="" && "$(NTDEBUG)"!="retail"
-!if "$(NTDEBUGTYPE)"=="windbg"
-AOBJ    = $(AOBJ) -Zi
-CW16    = $(CW16) /Od /Oi /Zi
-LINK    = $(LINK) /CO
-!else
+!if "$(NTDEBUG)"!="" && "$(NTDEBUG)"!="retail" && "$(NTDEBUG)" != "ntsdnodbg"
 AOBJ    = $(AOBJ) -Zd
 CW16    = $(CW16) /Od /Oi /Zd
 LINK    = $(LINK) /LI
 !endif
-!endif
 
-!ifdef LIB
-W16LIBS = sdllcew
-!else
 W16LIBS = ..\lib\sdllcew.lib
-!endif
 
 
 .asm.obj:
@@ -70,10 +60,10 @@ W16LIBS = ..\lib\sdllcew.lib
 
 
 .c.obj:
-    cl -c -nologo $(CW16) $*.c
+    cl16 -c -nologo $(CW16) $*.c
 
 .c.lst:
-    cl -c -nologo $(CW16) -Fonul -Fc$*.lst $*.c
+    cl16 -c -nologo $(CW16) -Fonul -Fc$*.lst $*.c
 
 
 .def.lib:
@@ -83,18 +73,15 @@ W16LIBS = ..\lib\sdllcew.lib
     mapsym $*
 
 .rc.res:
-!IFDEF NTVDM_BASED_BUILD
     rc16 $(INCS) -r $*.rc
-!ELSE
-    $(LPATH)\rc $(INCS) -r $*.rc
-!ENDIF
 
 
 all: winspool.exe winspool.sym
-    -binplace winspool.exe
-    -binplace winspool.sym
+    -binplace winspool.exe winspool.map winspool.sym
 
-clean:
+clean: cleanup all
+
+cleanup:
     if exist *.lrf del *.lrf
     if exist *.obj del *.obj
     if exist *.exe del *.exe
@@ -113,13 +100,8 @@ winspool.lrf: makefile
     echo winspool;>>winspool.lrf
 
 winspool.exe winspool.map: winspool.obj winspool.lrf winspool.def winspool.res
-!IFDEF NTVDM_BASED_BUILD
     link16 @winspool.lrf;
     rc16 -t winspool.res winspool.exe
-!ELSE
-    $(LPATH)\link @winspool.lrf;
-    $(LPATH)\rc -t winspool.res winspool.exe
-!ENDIF
 
 winspool.res: $*.rc $*.rcv ..\inc\common.ver
 

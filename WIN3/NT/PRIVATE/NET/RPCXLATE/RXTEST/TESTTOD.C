@@ -81,12 +81,12 @@ TestTod(
     //
     CrtTime = time( NULL );
     IF_DEBUG( REMUTL ) {
-        NetpDbgPrint( "\nTestTod: got " FORMAT_LONG " from time().\n",
-                CrtTime );
+        NetpKdPrint(( "\nTestTod: got " FORMAT_LONG " from time().\n",
+                CrtTime ));
         TestAssert( sizeof(time_t) == sizeof(DWORD) );
         NetpDbgDisplayTimestamp( "w/ netlib", (DWORD) CrtTime );
-        NetpDbgPrint("  w/ ctime(): " FORMAT_LPSTR ".\n",
-                (LPSTR) ctime( &CrtTime ) );
+        NetpKdPrint(("  w/ ctime(): " FORMAT_LPSTR ".\n",
+                (LPSTR) ctime( &CrtTime ) ));
     }
 
     //
@@ -94,20 +94,20 @@ TestTod(
     //
 
     IF_DEBUG(REMUTL) {
-        NetpDbgPrint( "\nTestTod: trying valid call to NetRemoteTOD...\n" );
+        NetpKdPrint(( "\nTestTod: trying valid call to NetRemoteTOD...\n" ));
     }
     Status = NetRemoteTOD(
             UncServerName,
             (LPBYTE *) (LPVOID) & TimePtr );
     IF_DEBUG(REMUTL) {
-        NetpDbgPrint( "TestTod: back from NetRemoteTOD, stat="
-                FORMAT_API_STATUS "\n", Status );
+        NetpKdPrint(( "TestTod: back from NetRemoteTOD, stat="
+                FORMAT_API_STATUS "\n", Status ));
     }
     if (Status == ERROR_NOT_SUPPORTED) {
         return;   // WFW does not implement this API.
     } else if (Status != NERR_Success ) {
-        NetpDbgPrint( "TestTod: unexpected return code " FORMAT_API_STATUS
-                " from NetRemoteTod.\n", Status );
+        NetpKdPrint(( "TestTod: unexpected return code " FORMAT_API_STATUS
+                " from NetRemoteTod.\n", Status ));
         FailGotWrongStatus(
                 "NetRemoteTOD",  // debug msg header
                 NO_ERROR,  // expected status
@@ -115,7 +115,7 @@ TestTod(
         return;
     }
     if (TimePtr == NULL) {
-        NetpDbgPrint( "TestTod: status 0 but null ptr from NetRemoteTod\n" );
+        NetpKdPrint(( "TestTod: status 0 but null ptr from NetRemoteTod\n" ));
         Fail( NERR_InternalError );
         return;
     }
@@ -125,12 +125,12 @@ TestTod(
     }
 
     IF_DEBUG(REMUTL) {
-        NetpDbgPrint( "TestTod: Freeing buffer...\n" );
+        NetpKdPrint(( "TestTod: Freeing buffer...\n" ));
     }
     Status = NetApiBufferFree( TimePtr );
     if (Status != NERR_Success ) {
-        NetpDbgPrint( "TestTod: unexpected return code " FORMAT_API_STATUS
-                " from NetApiBufferFree.\n", Status );
+        NetpKdPrint(( "TestTod: unexpected return code " FORMAT_API_STATUS
+                " from NetApiBufferFree.\n", Status ));
         Fail( Status );
     }
 

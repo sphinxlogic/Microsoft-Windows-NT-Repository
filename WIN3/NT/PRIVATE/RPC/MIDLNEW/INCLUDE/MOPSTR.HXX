@@ -165,4 +165,3 @@ public:
 
 #endif  __MOPSTR_HXX__
 
-

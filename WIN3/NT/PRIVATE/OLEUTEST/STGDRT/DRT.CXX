@@ -84,6 +84,7 @@ static struct
 DWORD dwTransacted = 0;
 DWORD dwRootDenyWrite = STGM_SHARE_DENY_WRITE;
 BOOL fVerbose = FALSE;
+BOOL fOfs = FALSE;
 OLECHAR atcDrtDocfile[_MAX_PATH];
 
 static BOOL fRun[NTESTS];
@@ -158,6 +159,9 @@ static void Usage(void)
     printf("  -w        - Suppress independent tests\n");
     printf("  -i        - Enable illegitimate tests\n");
     printf("  -v        - Display test output\n");
+#if WIN32 == 300
+    printf("  -o        - Enable tests to run on OFS\n");
+#endif
     printf("  -y<kind>  - Control debug output (a, d, m, i, M, L)\n");
     printf("  -#[+|-]<number>   - Turn test <number> on (+) or off (-)\n");
     printf("                      No number means all\n");
@@ -239,6 +243,11 @@ int _CRTAPI1 main(int argc, char **argv)
                     break;
                 }
                 break;
+#if WIN32 == 300
+            case 'o':
+                fOfs = TRUE;
+                break;
+#endif
             case 'h':
             default:
                 Usage();
@@ -260,7 +269,11 @@ int _CRTAPI1 main(int argc, char **argv)
         flTests &= ~TFE_DIRECT;
     }
 
+#if WIN32 == 300
+    if (fTrans && !fOfs)  // turn off transacted tests for OFS
+#else
     if (fTrans)
+#endif
     {
         out("\n---------- Transacted ----------\n");
         dwTransacted = STGM_TRANSACTED;
@@ -270,7 +283,11 @@ int _CRTAPI1 main(int argc, char **argv)
         flTests &= ~TFE_TRANSACTED;
     }
 
+#if WIN32 == 300
+    if (fIndep && !fOfs)  // turn off transacted tests for OFS
+#else
     if (fIndep)
+#endif
     {
         out("\n---------- Independent ----------\n");
         dwTransacted = STGM_TRANSACTED;

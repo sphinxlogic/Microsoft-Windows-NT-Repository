@@ -209,10 +209,17 @@ LIS_PTR lis_ptr )             /* I - Loop Interface structure */
 
           BEC_UseConfig( cfg ) ;
           if ( !BSD_CompatibleBackup( bsd_ptr) ) {
+          
                if ( BSD_SetArchiveBackup( bsd_ptr ) ) {
                     BEC_SetSetArchiveFlag( cfg, (BOOLEAN)TRUE ) ;
                } else {
                     BEC_SetSetArchiveFlag( cfg, (BOOLEAN)FALSE ) ;
+               }
+               
+               if ( BSD_ModFilesOnly( bsd_ptr ) ) {
+                    BEC_SetModifiedOnlyFlag( cfg, (BOOLEAN)TRUE ) ;
+               } else {
+                    BEC_SetModifiedOnlyFlag( cfg, (BOOLEAN)FALSE ) ;
                }
           }
 

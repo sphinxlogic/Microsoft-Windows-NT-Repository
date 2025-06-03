@@ -161,7 +161,7 @@ put (
                     MepFClose (fh);
                 }
                 if (fTmp) {
-                    unlink (filebuf);
+                    _unlink (filebuf);
                 }
                 kindpick = LINEARG;
             } else {

@@ -143,6 +143,7 @@ externW MOD_KERNEL
 externW ModCount
 externFP WOWGetTableOffsets
 externFP WOWDosWowInit
+externFP GetShortPathName
 endif
 
 if KDEBUG
@@ -175,7 +176,9 @@ externB fChkSum
 externB fCheckFree
 externB WOAName
 externB grab_name
+ifndef WOW
 externB szUserPro
+endif
 externB szBootLoad
 externB szCRLF
 externB fPadCode
@@ -192,8 +195,10 @@ externB fastFP
 externW topPDB
 externW headTDB
 externW winVer
+ifndef WOW
 externB WinIniInfo
 externB PrivateProInfo
+endif
 externW gmove_stack
 externW prev_gmove_SS
 externW BaseDsc
@@ -252,13 +257,25 @@ externW cBytesSys16Dir
 externD lpSystem16Dir
 externB Sys16Suffix
 externW cBytesSys16Suffix
+externW cBytesSysWx86Dir
+externD lpSystemWx86Dir
+externB SysWx86Suffix
+externW cBytesSysWx86Suffix
 externD pPMDosCURDRV
 externD pPMDosCDSCNT
 externD pPMDosPDB
 externD pDosWowData
 
-;BUGBUG davehart  See "BUGBUG davehart" below where this is used.
-achSystem16Dir DB 100 DUP(?)
+globalW cbRealWindowsDir,0
+
+WINDIR_BUFSIZE equ 121
+
+achWindowsDir     DB WINDIR_BUFSIZE DUP(?)
+achRealWindowsDir DB WINDIR_BUFSIZE DUP(?)
+achSystem16Dir    DB 128 DUP(?)
+achSystemWx86Dir  DB 128 DUP(?)
+
+public cbRealWindowsDir, achRealWindowsDir, achWindowsDir, achSystem16Dir
 
 endif
 
@@ -399,7 +416,9 @@ endif
 externNP TextMode
 externNP InitDosVarP
 externNP GrowSFTToMax
+ifndef WOW
 externNP SetUserPro
+endif
 externNP MyLock
 externNP Shrink
 externNP DebugDebug
@@ -902,6 +921,9 @@ envloop1:
     jnz envloop1
     lodsw               ; ignore argc, DS:SI -> kernel path
 
+ifdef WOW
+    smov    es, ds          ; now ES:SI -> kernel path
+else
     call    get_windir      ; on return, DS:DI -> windir= value
 
     smov    es,ds
@@ -915,6 +937,7 @@ envloop1:
     mov lpWindowsDir.sel,es
     mov lpWindowsDir.off,di
     mov cBytesWinDir,cx
+
                     ; Now set pointer to WIN.INI to be
                     ; in the Windows directory
     push    si
@@ -937,6 +960,7 @@ envloop1:
     mov byte ptr es:[di], '\'
     pop es
     pop si
+endif
     SetKernelDS
     BootTrace   'r'
 no_win_dir_yet:
@@ -992,6 +1016,7 @@ endif ;ROM  ---------------------------------------------------------
     mov hExeHead,ax
     mov es,ax
 
+ifndef WOW
 ; Record where to find the 'system' directory.
 
 if ROM  ;----------------------------------------------------------------
@@ -1024,6 +1049,8 @@ else ;ROM   ---------------------------------------------------------
 
 endif ;ROM  ---------------------------------------------------------
     BootTrace   'u'
+endif
+   ; ndef WOW
 
 
 ; Make room at end of kernel data segment for stack--NOTE:  DGROUP is
@@ -1775,7 +1802,9 @@ ife ROM ;--------------------------------
 
 endif   ;ROM    -------------------------
 
+ifndef WOW
     cCall   SetUserPro      ; Get WIN.INI filename from environment
+endif
 
     CheckKernelDS
 
@@ -1795,6 +1824,7 @@ if PMODE32
         .286p
 endif
 
+ifndef WOW
     cmp lpWindowsDir.sel,ax
     jnz got_win_dir
     mov si,dataOffset szUserPro
@@ -1809,8 +1839,52 @@ endif
     dec di
     mov cBytesWinDir,di
 got_win_dir:
+endif
 
 ifdef WOW
+; Regular Windows kernel sets up the Windows directory very early in
+; boot, before WOW kernel loads WOW32.DLL.
+;
+; It turns out we can delay setting up the 16-bit copy of the
+; windows directory (referred by lpWindowsDir) until here, where
+; we're in protected mode and about to set up the system directories
+; as well.  This allows us to call a GetShortPathName thunk in
+; WOW32.
+;
+
+    mov ds,topPDB
+    UnSetKernelDS
+    mov ds,ds:[PDB_environ]
+
+    call    get_windir      ; on return, DS:DI -> windows dir
+
+    smov    es,ds
+    SetKernelDS
+
+; Record where to find the 'windows' directory.
+    BootTrace   'q'
+
+    mov lpWindowsDir.sel,es
+    mov lpWindowsDir.off,di
+    mov cBytesWinDir,cx
+
+; Record where to find the 'system32' directory.
+
+    mov ax,hExeHead
+    mov es,ax
+    mov di,es:[ne_pfileinfo]
+    lea di,es:[di].opFile
+    mov lpSystemDir.sel,es
+    mov lpSystemDir.off,di
+    mov dx,di
+    call    GetPureName
+    sub di,dx
+    dec di
+    mov cBytesSysDir,di
+
+    BootTrace   'u'
+
+;
 ; Under WOW there are two system directories: \nt\system and \nt\system32.
 ; lpSystemDir points to \nt\system32, while lpSystem16Dir points to
 ; \nt\system.  We return the latter from GetSystemDirectory, since we want
@@ -1819,43 +1893,48 @@ ifdef WOW
 ; Set up lpSystem16Dir using the Windows dir + \system.
 ; Note that the string pointed to by lpSystem16Dir is not null terminated!
 
-;BUGBUG davehart
-;Cool!  Calling IGlobalAlloc doesn't work here.  So cheat for now with
-; a static 100 byte buffer in Kernel's DS.
-
-    ;int 3
-    ;mov ax,GA_FIXED                ; flags for GlobalAlloc
-    ;mov bx,cBytesWinDir            ; size for LocalAlloc
-    ;add bx,cBytesSys16Suffix       ; make room for appending "\SYSTEM"
-    ;xor cx,cx                      ; upper word of size
-    ;cCall IGlobalAlloc,<ax,cx,bx>
-    ;jcxz @F                        ; GlobalAlloc failure
-
-    ;mov lpSystem16Dir.sel,ax       ; Assume GlobalLock is a nop.
-    ;mov lpSystem16Dir.off,0
-
     mov lpSystem16Dir.sel,ds
-    mov lpSystem16Dir.off,OFFSET achSystem16Dir
+    mov lpSystem16Dir.off,dataoffset achSystem16Dir
 
     cld
-    mov si,lpWindowsDir.off
+    mov si,dataoffset achRealWindowsDir
     mov es,lpSystem16Dir.sel
     mov di,lpSystem16Dir.off
-    mov cx,cBytesWinDir
-    push ds
-    mov ds,lpWindowsDir.sel
-    UnSetKernelDS
+    mov cx,cbRealWindowsDir
     rep movsb                      ; copy Windows dir
-    pop ds
-    ReSetKernelDS
 
     mov si,dataoffset Sys16Suffix
     mov cx,cBytesSys16Suffix
-    rep movsb                      ; tack on "\SYSTEM"
+    rep movsb                      ; tack on "\system"
 
-    mov cx,cBytesWinDir
+    mov cx,cbRealWindowsDir
     add cx,cBytesSys16Suffix
     mov cBytesSys16Dir,cx
+
+
+;
+; build the Wx86 system directory "Windir\System32\Wx86"
+;
+    mov lpSystemWx86Dir.sel,ds
+    mov lpSystemWx86Dir.off,dataoffset achSystemWx86Dir
+
+    mov es,lpSystemWx86Dir.sel
+    mov di,lpSystemWx86Dir.off
+    mov cx,cBytesSysDir
+    mov si,lpSystemDir.off
+    push ds
+    mov ds,lpSystemDir.sel
+    rep movsb                      ; copy System dir (Windows\System32)
+    pop ds
+
+    mov si,dataoffset SysWx86Suffix
+    mov cx,cBytesSysWx86Suffix
+    rep movsb                      ; tack on "\Wx86"
+
+    mov cx,cBytesSysDir
+    add cx,cBytesSysWx86Suffix
+    mov cBytesSysWx86Dir,cx
+
 
 @@:
 ;   WOW DPMI Supports wants to call GlobalDosAlloc and GlobalDosFree so that
@@ -2981,20 +3060,96 @@ ifdef WOW
 ; uppercase). Hence the code is different.
 ;
 ;                                             - nanduri
+;
+; There are some customers that used the undocumented trick on win31
+; of moving windir to some network location by putting win.com there.
+; The result would be that the "Windows Directory" would point
+; to the network location, and the system directory would be local.
+; Currently, the way WINDIR is supported involves hacks in a couple
+; of different places. What would be best is if you could do a
+; "set windir=xxxx" in your autoexec.nt and we would look for windir
+; here and we would code it to emulate win31 behavior. However, that's
+; broken right now, and windir is only regenerated after krnlx86.exe
+; has finished booting. So the approach taken here is to look for
+; a new environment variable called win16dir, and if it exists, make
+; the windows directory point to it. Systemroot is still used to 
+; generate the system directory.
+;
+; We want to allow NT to be installed into a directory with a long
+; name, so we use GetShortPathName on the directory we get from
+; either SystemRoot or Win16Dir variables.
+; -- DaveHart 9-Feb-96
 ;-----------------------------------------------------------------------;
 
 szSystemRoot  DB  'SYSTEMROOT=',0
+szWin16Dir    DB  'WIN16DIR=',0
 
 cProc   get_windir,<PUBLIC,NEAR>
 cBegin nogen
+
+    push  es
+    mov   ax, cs        ; the string is in 'cs', see above
+    mov   es, ax
+    mov   di, codeoffset szSystemRoot
+    call  get_env_var_ptr
+
+    push  dx
+    mov   dx, ds
+    mov   es, dx
+    SetKernelDS
+    mov   si, dataoffset achRealWindowsDir
+    regptr esdi,es,di
+    regptr dssi,ds,si
+    mov   cx, WINDIR_BUFSIZE
+    push  dx
+    cCall GetShortPathName, <esdi, dssi, cx>
+    pop   dx
+    mov   cbRealWindowsDir,ax
+    mov   ds, dx                         ;restore ds
+    pop   dx
+    assumes ds,nothing
+
+    push  cx
+    push  di
+
+    mov   ax, cs        ; the string is in 'cs', see above
+    mov   es, ax
+    mov   di, codeoffset szWin16Dir
+    call  get_env_var_ptr
+    or    di, di                         ;does win16dir exist?
+    jz    gw_not
+    add   sp, 4                          ;throw away systemroot
+    jmp   short gw_cont
+
+gw_not:
+    pop   di
+    pop   cx
+
+gw_cont:
+    ; Now ds:di points to the Windows directory string in
+    ; the environment block.  It may be a long pathname,
+    ; so fix it up.
+    smov  es, ds
+    SetKernelDS
+    mov   si, dataoffset achWindowsDir
+    regptr esdi,es,di
+    regptr dssi,ds,si
+    mov   cx, WINDIR_BUFSIZE
+    cCall GetShortPathName, <esdi, dssi, cx>
+    mov   cx, ax
+    smov  ds, es
+    assumes ds,nothing
+
+    pop es
+    ret
+
+cEnd nogen
+
+cProc   get_env_var_ptr,<PUBLIC,NEAR>
+cBegin nogen
     cld
-    push es
     push si
     xor si,si
-
-    mov  ax, cs        ; the string is in 'cs', see above
-    mov  es, ax
-    mov  di, codeoffset szSystemRoot
 
     push di
     mov  cx,-1
@@ -3034,7 +3189,6 @@ gw_next:
 gw_exit:
     mov di,ax
     pop si
-    pop es
     ret
 cEnd nogen
 
@@ -3157,4 +3311,3 @@ stacktop    equ this word
 sEnd    STACK
 
 end BootStrap
-

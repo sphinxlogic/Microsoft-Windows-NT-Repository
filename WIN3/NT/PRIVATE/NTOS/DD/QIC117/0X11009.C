@@ -13,7 +13,16 @@
 *
 * HISTORY:
 *		$Log:   J:\se.vcs\driver\q117cd\src\0x11009.c  $
-*	
+*
+*	   Rev 1.10   15 May 1995 10:46:00   GaryKiwi
+*	Phoenix merge from CBW95s
+*
+*	   Rev 1.9.1.0   11 Apr 1995 18:02:46   garykiwi
+*	PHOENIX pass #1
+*
+*	   Rev 1.10   30 Jan 1995 14:23:54   BOBLEHMA
+*	Added #include "vendor.h"
+*
 *	   Rev 1.9   10 May 1994 11:43:20   KEVINKES
 *	Removed the eject_pending flag.
 *
@@ -50,6 +59,7 @@
 #define FCT_ID 0x11009
 #include "include\public\adi_api.h"
 #include "include\public\frb_api.h"
+#include "include\public\vendor.h"
 #include "include\private\kdi_pub.h"
 #include "include\private\cqd_pub.h"
 #include "q117cd\include\cqd_defs.h"
@@ -102,7 +112,7 @@ dVoid cqd_InitializeContext
 	((CqdContextPtr)cqd_context)->xfer_rate.fdc = FDC_500Kbps;
 	((CqdContextPtr)cqd_context)->xfer_rate.srt = SRT_500Kbps;
 
-#if DBG_ARRAY
+#if DBG
    ((CqdContextPtr)cqd_context)->dbg_head = ((CqdContextPtr)cqd_context)->dbg_tail = 0;
 #endif
 

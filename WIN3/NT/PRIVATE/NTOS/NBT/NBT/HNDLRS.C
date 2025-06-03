@@ -64,9 +64,11 @@ CompleteSessionSetup (
 NTSTATUS
 MakeRemoteAddressStructure(
     IN  PCHAR           pHalfAsciiName,
+    IN  PVOID           pSourceAddr,
     IN  ULONG           lMaxNameSize,
     OUT PVOID           *ppRemoteAddress,
-    OUT PULONG          pRemoteAddressLength
+    OUT PULONG          pRemoteAddressLength,
+    IN  ULONG           NumAddr
     );
 
 VOID
@@ -85,6 +87,28 @@ AddToRemoteHashTbl (
 VOID
 DoNothingComplete (
     IN PVOID        pContext
+    );
+
+VOID
+AllocLowerConn(
+    IN  tDEVICECONTEXT *pDeviceContext,
+    IN  BOOLEAN         fSpecial
+    );
+
+VOID
+DelayedAllocLowerConn(
+    IN  PVOID       pContext
+    );
+
+VOID
+DelayedAllocLowerConnSpecial(
+    IN  PVOID       pContext
+    );
+
+VOID
+GetIrpIfNotCancelled2(
+    IN  tCONNECTELE     *pConnEle,
+    OUT PIRP            *ppIrp
     );
 
 #ifdef VXD
@@ -553,7 +577,6 @@ Return Value:
     tLOWERCONNECTION         *pLowerConn;
     tCONNECTELE              *pConnectEle;
     CTELockHandle            OldIrq;
-    CTELockHandle            OldIrq1;
     PIRP                     pIrp;
     PLIST_ENTRY              pEntry;
     CONNECTION_CONTEXT       ConnectId;
@@ -626,7 +649,6 @@ Return Value:
     else
     {
         CTESpinFreeAtDpc(pLowerConn);
-        CTESpinFree(&NbtConfig.JointLock,OldIrq);
     }
 
     status = FindSessionEndPoint(pTsdu,
@@ -644,6 +666,7 @@ Return Value:
         // response pdu and then disconnect
         //
 
+        CTESpinFree(&NbtConfig.JointLock,OldIrq);
         RejectSession(pLowerConn,
                       NBT_NEGATIVE_SESSION_RESPONSE,
                       status,
@@ -655,7 +678,7 @@ Return Value:
     //
     // we must first check for a valid LISTEN....
     //
-    CTESpinLock(pClientEle,OldIrq);
+    CTESpinLockAtDpc(pClientEle);
     if (!IsListEmpty(&pClientEle->ListenHead))
     {
         tLISTENREQUESTS     *pListen;
@@ -678,11 +701,11 @@ Return Value:
             if ( pListen->pConnInfo && pListen->pConnInfo->RemoteAddress)
             {
 
-                if ( CTEMemCmp(
+                if ( CTEMemEqu(
                      ((PTA_NETBIOS_ADDRESS)pListen->pConnInfo->RemoteAddress)->
                           Address[0].Address[0].NetbiosName,
                      pRemoteAddress->Address[0].Address[0].NetbiosName,
-                     NETBIOS_NAME_SIZE ) == NETBIOS_NAME_SIZE )
+                     NETBIOS_NAME_SIZE ) )
                 {
                     pListenTarget = pListen ;
                     break ;
@@ -707,7 +730,7 @@ Return Value:
             PTA_NETBIOS_ADDRESS      pRemoteAddr;
 
             RemoveEntryList( &pListenTarget->Linkage );
-            CTESpinFree(pClientEle,OldIrq);
+            CTESpinFreeAtDpc(pClientEle);
 
             //
             // Fill in the remote machines name to return to the client
@@ -724,8 +747,8 @@ Return Value:
             //
             pConnectEle = (tCONNECTELE *)pListenTarget->pConnectEle;
 
-            CTESpinLock(pConnectEle,OldIrq);
-            CTESpinLock(pClientEle,OldIrq1);
+            CTESpinLockAtDpc(pConnectEle);
+            CTESpinLockAtDpc(pClientEle);
 
             pConnectEle->pLowerConnId = (PVOID)pLowerConn;
             pConnectEle->state = NBT_SESSION_WAITACCEPT;
@@ -752,7 +775,7 @@ Return Value:
                         pRemoteAddress->Address[0].Address[0].NetbiosName,
                         NETBIOS_NAME_SIZE ) ;
 
-            CTESpinFree(pClientEle,OldIrq1);
+            CTESpinFreeAtDpc(pClientEle);
 
             if (!(pListenTarget->Flags & TDI_QUERY_ACCEPT))
             {
@@ -781,7 +804,8 @@ Return Value:
 
                 ClearConnStructures(pLowerConn,pConnectEle);
 
-                CTESpinFree(pConnectEle,OldIrq);
+                CTESpinFreeAtDpc(pConnectEle);
+                CTESpinFree(&NbtConfig.JointLock,OldIrq);
 #ifndef VXD
                 // the irp can't get cancelled because the cancel listen routine
                 // also grabs the Client spin lock and removes the listen from the
@@ -809,15 +833,16 @@ Return Value:
             goto ExitCode;
         }
         else
-            CTESpinFree(pClientEle,OldIrq);
+            CTESpinFreeAtDpc(pClientEle);
 
     }
     else
-        CTESpinFree(pClientEle,OldIrq);
+        CTESpinFreeAtDpc(pClientEle);
 
     //
     // No LISTEN, so check for an Event handler
     //
+    CTESpinFree(&NbtConfig.JointLock,OldIrq);
     if (!pClientEle->ConEvContext)
     {
 
@@ -880,10 +905,12 @@ Return Value:
 
         // be sure the connection is in the correct state
         //
-        CTESpinLock(pConnectEle,OldIrq);
+        CTESpinLock(&NbtConfig.JointLock,OldIrq);
+        CTESpinLockAtDpc(pConnectEle);
         if (pConnectEle->state != NBT_ASSOCIATED)
         {
-            CTESpinFree(pConnectEle,OldIrq);
+            CTESpinFreeAtDpc(pConnectEle);
+            CTESpinFree(&NbtConfig.JointLock,OldIrq);
             goto RejectIt;
         }
         else
@@ -963,6 +990,7 @@ Return Value:
     pConnectEle->DiscFlag = 0;
     pConnectEle->JunkMsgFlag = FALSE;
     pConnectEle->pLowerConnId = (PVOID)pLowerConn;
+    InitializeListHead(&pConnectEle->RcvHead);
 
     pLowerConn->pUpperConnection = pConnectEle;
     pLowerConn->StateRcv = NORMAL;
@@ -1002,13 +1030,12 @@ Return Value:
 {
 
     NTSTATUS        status;
-    CTELockHandle   OldIrq1;
 
     //
     // hook the upper and lower connections together to
     // complete the address list.
     //
-    CTESpinLock(pClientEle,OldIrq1);
+    CTESpinLockAtDpc(pClientEle);
 
     RemoveEntryList(&pConnectEle->Linkage);
 
@@ -1030,12 +1057,13 @@ Return Value:
     // the lower conn no longer points to it.
     //
     pConnectEle->RefCount++;
-    CTESpinFree(pClientEle,OldIrq1);
+    CTESpinFreeAtDpc(pClientEle);
     //
     // the pConnecteEle
     if (OldIrq)
     {
-        CTESpinFree(pConnectEle,OldIrq);
+        CTESpinFreeAtDpc(pConnectEle);
+        CTESpinFree(&NbtConfig.JointLock,OldIrq);
     }
 
     status = TcpSendSessionResponse(pLowerConn,
@@ -1129,11 +1157,14 @@ Return Value:
     tTIMERQENTRY             *pTimerEntry;
     tCONNECTELE              *pConnEle;
     tDGRAM_SEND_TRACKING     *pTracker;
+    tDEVICECONTEXT           *pDeviceContext;
+    NTSTATUS                 status;
 
     // get the ptr to the lower connection
     //
     pLowerConn = (tLOWERCONNECTION *)ConnectionContext;
     pSessionHdr = (tSESSIONHDR UNALIGNED *)pTsdu;
+    pDeviceContext = pLowerConn->pDeviceContext;
 
     //
     // fake out the transport so it frees its receive buffer (i.e. we
@@ -1151,7 +1182,6 @@ Return Value:
     }
 
     pConnEle = pLowerConn->pUpperConnection;
-
 
     // the LowerConn Lock is held prior to calling this routine, so free it
     // here since we need to get the joint lock first
@@ -1215,6 +1245,9 @@ Return Value:
         SetStateProc( pLowerConn, Normal ) ;
 
         CTESpinFreeAtDpc(pLowerConn);
+
+        GetIrpIfNotCancelled2(pConnEle,&pIrp);
+
         //
         // if SessionSetupContinue has run, it has set the refcount to zero
         //
@@ -1231,8 +1264,6 @@ Return Value:
 
         CHECK_PTR(pLowerConn->pUpperConnection);
         pLowerConn->pUpperConnection->pIrpRcv = NULL;
-
-        GetIrpIfNotCancelled(pConnEle,&pIrp);
 
         // the assumption is that if the connect irp was cancelled then the
         // client should be doing a disconnect or close shortly thereafter, so
@@ -1257,23 +1288,11 @@ Return Value:
 
         state = pConnEle->state;
 
-        // if the return code is no resource or NotListening then
-        // retry the session setup after 250 milliseconds. If the error code
-        // is Name not present, then redo the name query operation to
-        // see if it is just bad cache data.  If the response is Retarget
-        // then setup another session to the new Ip address and port number.
+        // If the response is Retarget then setup another session
+        // to the new Ip address and port number.
         //
         ErrorCode = (ULONG)((tSESSIONERROR *)pSessionHdr)->ErrorCode;
-        if (
-#if 0
-    // Only Allow Retarget to to through here.  For the other cases simply
-    // remove the name from the name table and let the user retry the
-    // session setup
-    //
-        (ErrorCode == SESSION_NOT_LISTENING_ON_CALLED_NAME) ||
-             (ErrorCode == SESSION_CALLED_NAME_NOT_PRESENT)  ||
-#endif
-            (pSessionHdr->Type == NBT_RETARGET_SESSION_RESPONSE))
+        if (pSessionHdr->Type == NBT_RETARGET_SESSION_RESPONSE)
         {
             //
             // retry the session setup if we haven't already exceeded the
@@ -1364,7 +1383,8 @@ Return Value:
                     CTEQueueForNonDispProcessing(pTracker,
                                                  Context,
                                                  NULL,
-                                                 ReConnect);
+                                                 ReConnect,
+                                                 pDeviceContext);
                 }
                 // ...else The irp was already returned, since NtCancelSession
                 // Must have already run, so just return
@@ -1407,6 +1427,7 @@ Return Value:
         KdPrint(("Nbt:Disconnecting... Failed connection Setup %X Lowercon %X\n",
             pConnEle,pLowerConn));
 
+        GetIrpIfNotCancelled2(pConnEle,&pIrp);
 
         //
         // if SessionSetupContinue has run, it has set the refcount to zero
@@ -1422,23 +1443,26 @@ Return Value:
             CTESpinFree(&NbtConfig.JointLock,OldIrq);
         }
 
-        //
-        // tell the client that the session setup failed and disconnect
-        // the connection
-        //
-        GetIrpIfNotCancelled(pConnEle,&pIrp);
-
-
-        if (pIrp)
-        {
-            CTEIoComplete(pIrp, STATUS_REMOTE_NOT_LISTENING, 0 ) ;
-        }
-
         // this should cause a disconnect indication to come from the
         // transport which will close the connection to the transport
         //
         RejectSession(pLowerConn,0,0,FALSE);
 
+        //
+        // tell the client that the session setup failed and disconnect
+        // the connection
+        //
+
+        if (pIrp)
+        {
+            status = STATUS_REMOTE_NOT_LISTENING;
+            if (ErrorCode == SESSION_CALLED_NAME_NOT_PRESENT)
+            {
+                status = STATUS_BAD_NETWORK_PATH;
+            }
+
+            CTEIoComplete(pIrp, status, 0 ) ;
+        }
     }
 
 ExitCode:
@@ -1448,6 +1472,44 @@ ExitCode:
 
     return(STATUS_SUCCESS);
 }
+//----------------------------------------------------------------------------
+VOID
+GetIrpIfNotCancelled2(
+    IN  tCONNECTELE     *pConnEle,
+    OUT PIRP            *ppIrp
+    )
+/*++
+
+Routine Description:
+
+    This routine coordinates access to the Irp by getting the spin lock on
+    the client, getting the Irp and clearing the irp in the structure.  The
+    Irp cancel routines also check the pConnEle->pIrp and if null they do not
+    find the irp, then they return without completing the irp.
+
+    This version of the routine is called with NbtConfig.JointLock held.
+
+Arguments:
+
+
+Return Value:
+
+    NTSTATUS - Status of receive operation
+
+--*/
+
+{
+    CTELockHandle   OldIrq;
+
+    CTESpinLock(pConnEle,OldIrq);
+
+    *ppIrp = pConnEle->pIrp;
+    CHECK_PTR(pConnEle);
+    pConnEle->pIrp = NULL;
+
+    CTESpinFree(pConnEle,OldIrq);
+}
+
 //----------------------------------------------------------------------------
 VOID
 GetIrpIfNotCancelled(
@@ -1463,6 +1525,7 @@ Routine Description:
     Irp cancel routines also check the pConnEle->pIrp and if null they do not
     find the irp, then they return without completing the irp.
 
+    This version of the routine is called with NbtConfig.JointLock free.
 
 Arguments:
 
@@ -1475,19 +1538,13 @@ Return Value:
 
 {
     CTELockHandle   OldIrq;
-    CTELockHandle   OldIrq1;
 
-    CTESpinLock(&NbtConfig.JointLock,OldIrq1);
-    CTESpinLock(pConnEle,OldIrq);
+    CTESpinLock(&NbtConfig.JointLock,OldIrq);
 
-    *ppIrp = pConnEle->pIrp;
-    CHECK_PTR(pConnEle);
-    pConnEle->pIrp = NULL;
+    GetIrpIfNotCancelled2(pConnEle,ppIrp);
 
-    CTESpinFree(pConnEle,OldIrq);
-    CTESpinFree(&NbtConfig.JointLock,OldIrq1);
+    CTESpinFree(&NbtConfig.JointLock,OldIrq);
 }
-
 //----------------------------------------------------------------------------
 NTSTATUS
 RejectAnyData(
@@ -1659,7 +1716,6 @@ Return Value:
     ULONG                   lNameSize;
     tSESSIONREQ UNALIGNED   *pSessionReq = (tSESSIONREQ UNALIGNED *)pTsdu;
     USHORT                  sType;
-    CTELockHandle           OldIrq;
     CTELockHandle           OldIrq2;
     PUCHAR                  pSrcName;
     BOOLEAN                 Found;
@@ -1689,14 +1745,12 @@ Return Value:
 
     // now try to find the called name in this node's Local table
     //
-    CTESpinLock(&NbtConfig.JointLock,OldIrq);
 
     //
     // in case a disconnect came in while the spin lock was released
     //
     if (pLowerConn->State != NBT_SESSION_INBOUND)
     {
-        CTESpinFree(&NbtConfig.JointLock,OldIrq);
         return(STATUS_UNSUCCESSFUL);
     }
 
@@ -1704,7 +1758,6 @@ Return Value:
 
     if (!pNameAddr)
     {
-        CTESpinFree(&NbtConfig.JointLock,OldIrq);
         return(SESSION_CALLED_NAME_NOT_PRESENT);
     }
 
@@ -1720,7 +1773,6 @@ Return Value:
     if (IsListEmpty(&pAddressEle->ClientHead))
     {
         CTESpinFree(pAddressEle,OldIrq2);
-        CTESpinFree(&NbtConfig.JointLock,OldIrq);
         return(SESSION_NOT_LISTENING_ON_CALLED_NAME);
     }
 
@@ -1758,46 +1810,41 @@ Return Value:
     if (!Found)
     {
         CTESpinFree(pAddressEle,OldIrq2);
-        CTESpinFree(&NbtConfig.JointLock,OldIrq);
         return(SESSION_NOT_LISTENING_ON_CALLED_NAME);
     }
 
     // prevent the client from disappearing before we can indicate to him
     //
-    CTEInterlockedIncrementLong(&pClientEle->RefCount,
-                                &pClientEle->SpinLock);
+    CTEInterlockedIncrementLong(&pClientEle->RefCount);
 
     pSrcName = (PUCHAR)((PUCHAR)&pSessionReq->CalledName.NameLength + lNameSize + 1);
 
     status = MakeRemoteAddressStructure(
                         pSrcName,
+                        0,
                         BytesIndicated-lNameSize,
                         ppRemoteAddress,
-                        pRemoteAddressLength);
+                        pRemoteAddressLength,
+                        1);
 
     if (!NT_SUCCESS(status))
     {
         CTESpinFree(pAddressEle,OldIrq2);
-        CTESpinFree(&NbtConfig.JointLock,OldIrq);
+        CTESpinFreeAtDpc(&NbtConfig.JointLock);
 
         NbtDereferenceClient(pClientEle);
+        CTESpinLockAtDpc(&NbtConfig.JointLock);
+
         if (status == STATUS_INSUFFICIENT_RESOURCES)
         {
             return(SESSION_CALLED_NAME_PRESENT_NO_RESRC);
         }
         else
             return(SESSION_UNSPECIFIED_ERROR);
+
     }
 
     CTESpinFree(pAddressEle,OldIrq2);
-    CTESpinFree(&NbtConfig.JointLock,OldIrq);
-
-    if (!NT_SUCCESS(status))
-    {
-        CTEMemFree(*ppRemoteAddress);
-        NbtDereferenceClient(pClientEle);
-        return(SESSION_UNSPECIFIED_ERROR);
-    }
 
     *ppClientEle = pClientEle;
     return(STATUS_SUCCESS);
@@ -1807,9 +1854,11 @@ Return Value:
 NTSTATUS
 MakeRemoteAddressStructure(
     IN  PCHAR           pHalfAsciiName,
+    IN  PVOID           pSourceAddr,
     IN  ULONG           lMaxNameSize,
     OUT PVOID           *ppRemoteAddress,
-    OUT PULONG          pRemoteAddressLength
+    OUT PULONG          pRemoteAddressLength,
+    IN  ULONG           NumAddr
     )
 /*++
 
@@ -1848,24 +1897,43 @@ Return Value:
         return(status);
     }
 
-    pRemoteAddress = (PTA_NETBIOS_ADDRESS)CTEAllocMem(
-                                        sizeof(TA_NETBIOS_ADDRESS));
+    pRemoteAddress = (PTA_NETBIOS_ADDRESS)NbtAllocMem(
+                                        NumAddr * sizeof(TA_NETBIOS_ADDRESS),NBT_TAG('2'));
     if (!pRemoteAddress)
     {
         return(STATUS_INSUFFICIENT_RESOURCES);
     }
 
-    pRemoteAddress->TAAddressCount = 1;
+    pRemoteAddress->TAAddressCount = NumAddr;
     pRemoteAddress->Address[0].AddressLength = sizeof(TDI_ADDRESS_NETBIOS);
     pRemoteAddress->Address[0].AddressType = TDI_ADDRESS_TYPE_NETBIOS;
     pRemoteAddress->Address[0].Address[0].NetbiosNameType = TDI_ADDRESS_NETBIOS_TYPE_UNIQUE;
     CTEMemCopy(pRemoteAddress->Address[0].Address[0].NetbiosName,
                 pName,NETBIOS_NAME_SIZE);
 
+    *pRemoteAddressLength = FIELD_OFFSET(TA_NETBIOS_ADDRESS, Address[0].Address[0].NetbiosName[NETBIOS_NAME_SIZE]);
+
+    //
+    // Copy over the IP address also.
+    //
+    if (NumAddr == 2) {
+        TA_ADDRESS  UNALIGNED   *pTAAddr;
+        PTRANSPORT_ADDRESS  pSourceAddress;
+        ULONG               SubnetMask;
+
+        pSourceAddress = (PTRANSPORT_ADDRESS)pSourceAddr;
+
+        pTAAddr = (TA_ADDRESS UNALIGNED *) (((PUCHAR)pRemoteAddress) + pRemoteAddress->Address[0].AddressLength + FIELD_OFFSET(TA_NETBIOS_ADDRESS, Address[0].Address));
+
+        pTAAddr->AddressLength = sizeof(TDI_ADDRESS_IP);
+        pTAAddr->AddressType = TDI_ADDRESS_TYPE_IP;
+        ((TDI_ADDRESS_IP UNALIGNED *)&pTAAddr->Address[0])->in_addr = ((PTDI_ADDRESS_IP)&pSourceAddress->Address[0].Address[0])->in_addr;
+        *pRemoteAddressLength += (FIELD_OFFSET(TA_ADDRESS, Address) + pTAAddr->AddressLength);
+    }
+
     *ppRemoteAddress = (PVOID)pRemoteAddress;
 //    *pRemoteAddressLength = sizeof(TA_NETBIOS_ADDRESS);
 //    *pRemoteAddressLength = FIELD_OFFSET(TA_NETBIOS_ADDRESS, Address[0].Address[0]);
-    *pRemoteAddressLength = FIELD_OFFSET(TA_NETBIOS_ADDRESS, Address[0].Address[0].NetbiosName[NETBIOS_NAME_SIZE]);
 
     return(STATUS_SUCCESS);
 }
@@ -1909,7 +1977,8 @@ Return Value:
 
     pDeviceContext = (tDEVICECONTEXT *)pConnectionContext;
 
-    CTESpinLock(pDeviceContext,OldIrq);
+    CTESpinLock(&NbtConfig.JointLock,OldIrq);
+    CTESpinLockAtDpc(pDeviceContext);
 
     pSrcAddress = pRemoteAddress;
 
@@ -1918,7 +1987,8 @@ Return Value:
     //
     if (IsListEmpty(&pDeviceContext->LowerConnFreeHead))
     {
-        CTESpinFree(pDeviceContext,OldIrq);
+        CTESpinFreeAtDpc(pDeviceContext);
+        CTESpinFree(&NbtConfig.JointLock,OldIrq);
         return(STATUS_DATA_NOT_ACCEPTED);
     }
 
@@ -1926,14 +1996,46 @@ Return Value:
     //
     if (pSrcAddress->Address[0].AddressType != TDI_ADDRESS_TYPE_IP)
     {
-        CTESpinFree(pDeviceContext,OldIrq);
+        CTESpinFreeAtDpc(pDeviceContext);
+        CTESpinFree(&NbtConfig.JointLock,OldIrq);
         return(STATUS_DATA_NOT_ACCEPTED);
     }
 
     // take an idle connection and move it to the active connection list
     //
     pList = RemoveHeadList(&pDeviceContext->LowerConnFreeHead);
+
+    //
+    // If there are less than 2 connections remaining, we allocate another one. The check
+    // below is for 0 or 1 connections.
+    // In order to protect ourselves from SYN ATTACKS, allocate NbtConfig.SpecialConnIncrement more now until
+    // a certain (registry config) value is exhausted (NOTE this number is global and not
+    // per device).
+    //
+    if ((pDeviceContext->LowerConnFreeHead.Flink->Flink == &pDeviceContext->LowerConnFreeHead) &&
+        ((ULONG)InterlockedExchangeAdd(&NbtConfig.NumSpecialLowerConn, 0) <= NbtConfig.MaxBackLog)) {
+
+        if ((ULONG)InterlockedExchangeAdd(&NbtConfig.NumQueuedForAlloc, 0) == 0) {
+#ifndef VXD
+            KdPrint(("Queueing - SpecialLowerConn: %d, Actual: %d, NumQueuedForAlloc : %d\n",
+                        NbtConfig.NumSpecialLowerConn,
+                        NbtConfig.ActualNumSpecialLowerConn,
+                        NbtConfig.NumQueuedForAlloc));
+#endif
+            CTEQueueForNonDispProcessing(
+                                       NULL,
+                                       pDeviceContext,
+                                       NULL,
+                                       DelayedAllocLowerConnSpecial,
+                                       pDeviceContext);
+
+            InterlockedExchangeAdd(&NbtConfig.NumSpecialLowerConn, NbtConfig.SpecialConnIncrement);
+            InterlockedIncrement(&NbtConfig.NumQueuedForAlloc);
+        }
+    }
+
     InsertTailList(&pDeviceContext->LowerConnection,pList);
+
     pLowerConn = CONTAINING_RECORD(pList,tLOWERCONNECTION,Linkage);
 
     pLowerConn->State = NBT_SESSION_INBOUND;
@@ -1948,15 +2050,15 @@ Return Value:
     // it when we disconnect.
     //
     ASSERT(pLowerConn->RefCount == 1);
-    CTEInterlockedIncrementLong(&pLowerConn->RefCount,
-                               &pLowerConn->SpinLock);
+    CTEInterlockedIncrementLong(&pLowerConn->RefCount);
     // save the source clients IP address into the connection Structure
     // *TODO check if we need to do this or not
     //
     pLowerConn->SrcIpAddr =
                ((PTDI_ADDRESS_IP)&pSrcAddress->Address[0].Address[0])->in_addr;
 
-    CTESpinFree(pDeviceContext,OldIrq);
+    CTESpinFreeAtDpc(pDeviceContext);
+    CTESpinFree(&NbtConfig.JointLock,OldIrq);
 
     *ppConnectionId = (PVOID)pLowerConn;
 
@@ -2059,6 +2161,13 @@ Return Value:
         //
         CTESpinLock(&NbtConfig.JointLock,OldIrq4);
         CTESpinLock(pConnectEle,OldIrq2);
+
+        //
+        // We got a case where the ClientEle ptr was null. This shd not happen since the
+        // connection shd be associated at this time.
+        // Assert for that case to track this better.
+        //
+        ASSERT(pConnectEle->pClientEle);
         CTESpinLock(pConnectEle->pClientEle,OldIrq3);
         CTESpinLock(pLowerConn,OldIrq);
         state = pConnectEle->state;
@@ -2231,9 +2340,11 @@ Return Value:
         CTESpinFree(pConnectEle,OldIrq2);
         CTESpinFree(&NbtConfig.JointLock,OldIrq4);
 
+
     }
     else
     {
+        CTESpinLock(&NbtConfig.JointLock,OldIrq2);
         CTESpinLock(pLowerConn,OldIrq);
         stateLower = pLowerConn->State;
         state = NBT_IDLE;
@@ -2282,6 +2393,7 @@ Return Value:
             pLowerConn->RefCount++;
         }
         CTESpinFree(pLowerConn,OldIrq);
+        CTESpinFree(&NbtConfig.JointLock,OldIrq2);
 
     }
 
@@ -2396,8 +2508,23 @@ Return Value:
                     StopTimer(pTimerEntry,&pCompletion,NULL);
                 }
 
-                CTESpinFree(&NbtConfig.JointLock,OldIrq);
-                FreeTracker(pTracker,FREE_HDR | RELINK_TRACKER);
+                //
+                // Check if the SessionStartupCompletion has run; if so, RefConn will be 0.
+                // Else, decrement so that the tracker goes away when the session send completes.
+                //
+                // [BUGBUGWISHLIST]: Do we need the Jointlock to protect this? use InterlockedIncrement
+                // instead....
+                //
+                if (pTracker->RefConn == 0)
+                {
+                    CTESpinFree(&NbtConfig.JointLock,OldIrq);
+                    FreeTracker(pTracker,FREE_HDR | RELINK_TRACKER);
+                }
+                else
+                {
+                    pTracker->RefConn--;
+                    CTESpinFree(&NbtConfig.JointLock,OldIrq);
+                }
             }
             else
             {
@@ -2457,7 +2584,7 @@ Return Value:
             // from the client will not hurt though.
             //
             PUSH_LOCATION(0x64);
-            if ((pClientEle->evDisconnect ) &&
+            if ((pClientEle && pClientEle->evDisconnect ) &&
                 (!pIrpClose))
 
             {
@@ -2486,6 +2613,16 @@ Return Value:
                 CTEIoComplete(pIrpClose,status,0);
 
             }
+
+            //
+            // return any rcv buffers that have been posted
+            //
+            CTESpinLock(pConnectEle,OldIrq);
+
+            FreeRcvBuffers(pConnectEle,&OldIrq);
+
+            CTESpinFree(pConnectEle,OldIrq);
+
             break;
 
         case NBT_DISCONNECTING:
@@ -2552,7 +2689,7 @@ Return Value:
         else
             CTESpinFree(pLowerConn,OldIrq);
 
-#ifndef VXD
+#if !defined(VXD) && DBG
     if ((pLowerConn->Verify != NBT_VERIFY_LOWERCONN )  ||
        (pLowerConn->RefCount == 1))
     {
@@ -2564,7 +2701,8 @@ Return Value:
                                        NULL,
                                        pLowerConn,
                                        NULL,
-                                       CleanupAfterDisconnect);
+                                       CleanupAfterDisconnect,
+                                       pLowerConn->pDeviceContext);
     }
 
     return(STATUS_SUCCESS);
@@ -2609,7 +2747,7 @@ Return Value:
     //
     // DEBUG to catch upper connections being put on lower conn QUEUE
     //
-#ifndef VXD
+#if !defined(VXD) && DBG
     if ((pLowerConn->Verify != NBT_VERIFY_LOWERCONN )  ||
        (pLowerConn->RefCount == 1))
     {
@@ -2622,7 +2760,9 @@ Return Value:
     // Inbound lower connections just get put back on the queue, whereas
     // outbound connections get closed.
     //
-    if (!pLowerConn->bOriginator)
+    // Connections allocated due to SynAttack backlog measures are not re-allocated
+    //
+    if (!(pLowerConn->bOriginator || pLowerConn->SpecialAlloc))
     {
         // ********  INCOMING  *************
         pDeviceContext = pLowerConn->pDeviceContext;
@@ -2646,8 +2786,8 @@ Return Value:
 
             PUSH_LOCATION(0x68);
             IF_DBG(NBT_DEBUG_DISCONNECT)
-            KdPrint(("Nbt:CleanupDisconnect Lower Conn STILL in Disconnecting State %X\n",
-                    pLowerConn));
+            KdPrint(("Nbt:CleanupDisconnect Lower Conn State = %X %X\n",
+                    pLowerConn->State,pLowerConn));
 
             ASSERT(pLowerConn->RefCount >= 2);
             NbtDereferenceLowerConnection(pLowerConn);
@@ -2655,19 +2795,7 @@ Return Value:
             status = NbtDeleteLowerConn(pLowerConn);
             CHECK_PTR(pLowerConn);
 
-            //
-            // allocate memory for the lower connection block.
-            //
-            pLowerConn = (tLOWERCONNECTION *)CTEAllocMem(sizeof(tLOWERCONNECTION));
-
-            if (pLowerConn)
-            {
-                status = NbtOpenAndAssocConnection(pLowerConn,pDeviceContext);
-                if (!NT_SUCCESS(status))
-                {
-                    CTEMemFree(pLowerConn);
-                }
-            }
+            AllocLowerConn(pDeviceContext, FALSE);
 
         }
     }
@@ -2688,15 +2816,158 @@ Return Value:
         // will not complete the close until is completes the disconnect.
         //
         status = NbtDeleteLowerConn(pLowerConn);
-    }
-#if 0
-    // this is the irp to complete when the disconnect completes - essentially
-    // the irp requesting the disconnect.
-    if (pIrp)
-    {
-        CTEIoComplete( pIrp, STATUS_SUCCESS, 0 ) ;
-    }
+
+        //
+        // If this was a special connection block, decrement the count of such connections
+        //
+        if (pLowerConn->SpecialAlloc) {
+            InterlockedDecrement(&NbtConfig.NumSpecialLowerConn);
+#if DBG
+            InterlockedDecrement(&NbtConfig.ActualNumSpecialLowerConn);
 #endif
+#ifndef VXD
+            KdPrint(("Nbt:CleanupDisconnect Special Lower Conn;NumSpecialLowerConn= %d, Actual: %d\n",
+                NbtConfig.NumSpecialLowerConn, NbtConfig.ActualNumSpecialLowerConn));
+#endif
+        }
+    }
+    CTEMemFree(pContext);
+}
+
+//----------------------------------------------------------------------------
+VOID
+AllocLowerConn(
+    IN  tDEVICECONTEXT *pDeviceContext,
+    IN  BOOLEAN         fSpecial
+    )
+/*++
+
+Routine Description:
+
+    Allocate a lowerconn block that will go on the lowerconnfreehead.
+
+Arguments:
+
+    pDeviceContext - the device context
+
+Return Value:
+
+
+--*/
+{
+    NTSTATUS             status;
+    tLOWERCONNECTION    *pLowerConn;
+
+
+    pLowerConn = (tLOWERCONNECTION *)NbtAllocMem(sizeof(tLOWERCONNECTION),NBT_TAG('3'));
+
+    if (pLowerConn)
+    {
+        status = NbtOpenAndAssocConnection(pLowerConn,pDeviceContext);
+        if (!NT_SUCCESS(status))
+        {
+            CTEMemFree(pLowerConn);
+            pLowerConn = NULL;
+        } else if (fSpecial) {
+            //
+            // Special lowerconn for Syn attacks
+            //
+            pLowerConn->SpecialAlloc = TRUE;
+        }
+    }
+
+    //
+    // if malloc failed or if NbtOpenAndAsso... failed, schedule an event
+    //
+    if (!pLowerConn)
+    {
+        CTEQueueForNonDispProcessing(
+                                   NULL,
+                                   pDeviceContext,
+                                   NULL,
+                                   DelayedAllocLowerConn,
+                                   pDeviceContext);
+    }
+
+}
+//----------------------------------------------------------------------------
+VOID
+DelayedAllocLowerConn(
+    IN  PVOID       pContext
+    )
+/*++
+
+Routine Description:
+
+    If lowerconn couldn't be alloced in AllocLowerConn, an event is scheduled
+    so that we can retry later.  Well, this is "later"!
+
+Arguments:
+
+
+
+Return Value:
+
+
+--*/
+{
+    tDEVICECONTEXT      *pDeviceContext;
+
+
+    pDeviceContext = (tDEVICECONTEXT *)((NBT_WORK_ITEM_CONTEXT *)pContext)->pClientContext;
+
+    ASSERT( pDeviceContext->Verify == NBT_VERIFY_DEVCONTEXT );
+
+    AllocLowerConn(pDeviceContext, FALSE);
+
+    CTEMemFree(pContext);
+}
+
+//----------------------------------------------------------------------------
+VOID
+DelayedAllocLowerConnSpecial(
+    IN  PVOID       pContext
+    )
+/*++
+
+Routine Description:
+
+    If lowerconn couldn't be alloced in AllocLowerConn, an event is scheduled
+    so that we can retry later.  Well, this is "later"!
+
+    This is for SYN-ATTACK, so we shd create more than one to beat the incoming
+    requests. Create three at a time - this shd be controllable thru' registry.
+
+Arguments:
+
+
+
+Return Value:
+
+
+--*/
+{
+    tDEVICECONTEXT      *pDeviceContext;
+    ULONG               i;
+
+    KdPrint(("Allocing spl. %d lowerconn...\n", NbtConfig.SpecialConnIncrement));
+
+    pDeviceContext = (tDEVICECONTEXT *)((NBT_WORK_ITEM_CONTEXT *)pContext)->pClientContext;
+
+    ASSERT( pDeviceContext->Verify == NBT_VERIFY_DEVCONTEXT );
+
+    //
+    // Alloc SpecialConnIncrement number of more connections.
+    //
+    for (i=0; i<NbtConfig.SpecialConnIncrement; i++) {
+#if DBG
+        InterlockedIncrement(&NbtConfig.ActualNumSpecialLowerConn);
+#endif
+        AllocLowerConn(pDeviceContext, TRUE);
+    }
+
+    InterlockedDecrement(&NbtConfig.NumQueuedForAlloc);
+
     CTEMemFree(pContext);
 }
 
@@ -2751,6 +3022,15 @@ Return Value:
     }
 
     SrcIpAddr = ntohl(pDgram->SrcIpAddr);
+    //
+    // source ip addr should never be 0.  This is a workaround for UB's NBDD
+    // which forwards the datagram, but client puts 0 in SourceIpAddr field
+    // of the datagram, we cache 0 and then end up doing a broadcast when we
+    // really meant to do a directed datagram to the sender.
+    //
+    if (!SrcIpAddr)
+        return;
+
     // always a unique address since you can't send from a group name
     //
     AddrType = NBT_UNIQUE;
@@ -2784,7 +3064,8 @@ Return Value:
             // ip address with the incoming one.  But if it is resolving,
             // then just let it continue resolving.
             //
-            if ((pNameAddr->NameTypeState & STATE_RESOLVED))
+            if ( (pNameAddr->NameTypeState & STATE_RESOLVED) &&
+                 !(pNameAddr->NameTypeState & NAMETYPE_INET_GROUP))
             {
                 pNameAddr->IpAddress = SrcIpAddr;
                 pNameAddr->TimeOutCount = 1;
@@ -2940,18 +3221,34 @@ Return Value:
         CTESpinLock(&NbtConfig.JointLock,OldIrq);
 
         //
-        // be sure the broadcast name has 15 zeroes after it
+        // Check for the full name first instead of considering any name with a '*' as
+        // the first char as a broadcast name (e.g. *SMBSERVER and *SMBDATAGRAM are not
+        // b'cast names).
         //
-        if (pName[0] == '*')
-        {
-            CTEZeroMemory(&pName[1],NETBIOS_NAME_SIZE-1);
-        }
-
         pNameAddr = (tNAMEADDR *)FindName(
                                     NBT_LOCAL,
                                     pName,
                                     pScope,
                                     &RetNameType);
+
+        //
+        // If we failed above, it might be because the name could start with '*' and is a
+        // bcast name.
+        //
+        if (!pNameAddr) {
+            //
+            // be sure the broadcast name has 15 zeroes after it
+            //
+            if (pName[0] == '*')
+            {
+                CTEZeroMemory(&pName[1],NETBIOS_NAME_SIZE-1);
+                pNameAddr = (tNAMEADDR *)FindName(
+                                            NBT_LOCAL,
+                                            pName,
+                                            pScope,
+                                            &RetNameType);
+            }
+        }
 
         // Change the pTsdu ptr to pt to the users data
         // -2 to account for the tNETBIOSNAME and +3 to add the length
@@ -2976,10 +3273,6 @@ Return Value:
         {
             pAddress = pNameAddr->pAddressEle;
 
-#if 0
-            pDeviceContext->DgramBytesRcvd = RtlLargeIntegerAdd(pDeviceContext->DgramBytesRcvd,
-                    RtlConvertUlongToLargeInteger(BytesAvailable));
-#endif
             //
             // Increment the reference count to prevent the
             // pAddress from disappearing in the window between freeing
@@ -2988,12 +3281,7 @@ Return Value:
             // Clientlist access pAddressEle when distributing the rcv'd dgram
             // in CompletionRcvDgram.
             //
-            CTEInterlockedIncrementLong(&pAddress->RefCount,
-                                          &pAddress->SpinLock);
-            CTESpinFree(&NbtConfig.JointLock,OldIrq);
-
-            // find a datagram recv buffer or a datagram rcv handler
-            CTESpinLock(pAddress,OldIrq);
+            CTEInterlockedIncrementLong(&pAddress->RefCount);
 
             if (!IsListEmpty(&pAddress->ClientHead))
             {
@@ -3190,16 +3478,13 @@ Return Value:
 
                         }
 
-                        CTESpinFree(pAddress,OldIrq);
+                        CTESpinFree(&NbtConfig.JointLock,OldIrq);
 
 
                         NbtDereferenceAddress(pAddress);
-                        CTESpinLock(pAddress,OldIrq);
+                        CTESpinLock(&NbtConfig.JointLock,OldIrq);
 
                         status = STATUS_SUCCESS;
-#if 0
-                        return (STATUS_SUCCESS);
-#endif
 
                         //
                         // jump to end of while to check if we need to buffer
@@ -3208,6 +3493,15 @@ Return Value:
                         //
                         break;
                     }
+#ifdef VXD
+                    else
+                    {
+                        CTESpinFree(&NbtConfig.JointLock,OldIrq);
+                        NbtDereferenceAddress(pAddress);
+                        CTESpinLock(&NbtConfig.JointLock,OldIrq);
+                        break;
+                    }
+#endif
 
 
 #ifndef VXD
@@ -3241,15 +3535,25 @@ Return Value:
                         // number of bytes skipped from the total length so
                         // convert to Ascii can not bug chk on bogus names.
                         //
+                        {
+                            ULONG   NumAddrs;
+
+                        if (pClientEle->ExtendedAddress) {
+                            NumAddrs = 2;
+                        } else {
+                            NumAddrs = 1;
+                        }
+
                         LocStatus = MakeRemoteAddressStructure(
                                          (PCHAR)&pDgram->SrcName.NameLength,
+                                         pSourceAddr,
                                          BytesIndicatedOrig - FIELD_OFFSET(tDGRAMHDR,SrcName.NameLength),
                                          &pRemoteAddress,                      // the end of the pdu.
-                                         &RemoteAddressLength);
-
-                        CTEInterlockedIncrementLong(&pClientEle->RefCount,&pClientEle->SpinLock);
-
-                        CTESpinFree(pAddress,OldIrq);
+                                         &RemoteAddressLength,
+                                         NumAddrs);
+                        }
+                        pClientEle->RefCount++;
+                        CTESpinFree(&NbtConfig.JointLock,OldIrq);
 
                         if (!NT_SUCCESS(LocStatus))
                         {
@@ -3277,7 +3581,7 @@ Return Value:
 
                         NbtDereferenceAddress(pAddress);
 
-                        CTESpinLock(pAddress,OldIrq);
+                        CTESpinLock(&NbtConfig.JointLock,OldIrq);
 
                         if (!pIrp)
                         {
@@ -3305,7 +3609,7 @@ Return Value:
 
                 }// of While
 
-                CTESpinFree(pAddress,OldIrq);
+                CTESpinFree(&NbtConfig.JointLock,OldIrq);
 
                 //
                 // Cache the source address in the remote hash table so that
@@ -3350,7 +3654,7 @@ Return Value:
                 {
                     tCLIENTLIST     *pClientList;
 
-                    pClientList = (tCLIENTLIST *)CTEAllocMem(sizeof(tCLIENTLIST));
+                    pClientList = (tCLIENTLIST *)NbtAllocMem(sizeof(tCLIENTLIST),NBT_TAG('4'));
                     if (pClientList)
                     {
                         //
@@ -3372,14 +3676,16 @@ Return Value:
                         // make up an address datastructure
                         LocStatus = MakeRemoteAddressStructure(
                                        (PCHAR)&pDgram->SrcName.NameLength,
+                                       0,
                                        BytesIndicatedOrig -FIELD_OFFSET(tDGRAMHDR,SrcName.NameLength),// set a max number of bytes so we don't go beyond
                                        &pRemoteAddress,                      // the end of the pdu.
-                                       &RemoteAddressLength);
+                                       &RemoteAddressLength,
+                                       1);
                         if (NT_SUCCESS(LocStatus))
                         {
                             pClientList->pRemoteAddress = pRemoteAddress;
                             pClientList->RemoteAddressLength = RemoteAddressLength;
-                            status = STATUS_SUCCESS;
+                            return(STATUS_SUCCESS);
                         }
                         else
                         {
@@ -3396,10 +3702,12 @@ Return Value:
             }
             else
             {
-                 CTESpinFree(pAddress,OldIrq);
+                pAddress->RefCount--;
+                CTESpinFree(&NbtConfig.JointLock,OldIrq);
+                status = STATUS_DATA_NOT_ACCEPTED;
 
-                 IF_DBG(NBT_DEBUG_NAMESRV)
-                 KdPrint(("Nbt:No client attached to the Address %16.16s<%X>\n",
+                IF_DBG(NBT_DEBUG_NAMESRV)
+                KdPrint(("Nbt:No client attached to the Address %16.16s<%X>\n",
                             pAddress->pNameAddr->Name,pAddress->pNameAddr->Name[15]));
             }
 
@@ -3420,6 +3728,7 @@ Return Value:
 
             pSourceAddress = (PTRANSPORT_ADDRESS)pSourceAddr;
             SrcAddress     = ntohl(((PTDI_ADDRESS_IP)&pSourceAddress->Address[0].Address[0])->in_addr);
+
             //
             // check name in the remote name table.  If it is there, it is
             // an internet group and is in the resolved state, send the
@@ -3459,8 +3768,12 @@ Return Value:
                     //
                     // If the name is an internet group, do datagram distribution
                     // function
+                    // Make sure we don't distribute a datagram that has been
+                    // sent to us by another proxy.  In other words, distribute
+                    // the datagram only if we got it first-hand from original node
                     //
-                    if (pNameAddr->NameTypeState & NAMETYPE_INET_GROUP)
+                    if ( (pNameAddr->NameTypeState & NAMETYPE_INET_GROUP) &&
+                         ((((PTDI_ADDRESS_IP)&pSourceAddress->Address[0].Address[0])->in_addr) == pDgram->SrcIpAddr) )
                     {
                         //
                         // If BytesAvailable != BYtesIndicated, it means that
@@ -3479,7 +3792,7 @@ Return Value:
                             // ProxyDoDgramDist to do the datagram distribution
                             //
                             pClientList =
-                               (tCLIENTLIST *)CTEAllocMem(sizeof(tCLIENTLIST));
+                               (tCLIENTLIST *)NbtAllocMem(sizeof(tCLIENTLIST),NBT_TAG('5'));
 
                             if (pClientList)
                             {
@@ -3557,7 +3870,7 @@ Return Value:
                     // the name is not in the cache, so try to get it from
                     // WINS
                     //
-                    status = FindOnPendingList(pName,NULL,TRUE,&pResp);
+                    status = FindOnPendingList(pName,NULL,TRUE,NETBIOS_NAME_SIZE,&pResp);
                     if (!NT_SUCCESS(status))
                     {
                         //
@@ -3662,7 +3975,7 @@ Called By:
     // into it.  We do this because SndDgram may not have finished by the
     // time we return.
     //
-    pMyBuff = (tDGRAMHDR *)CTEAllocMem(DgramLen);
+    pMyBuff = (tDGRAMHDR *)NbtAllocMem(DgramLen,NBT_TAG('6'));
     if ( !pMyBuff )
     {
         CTESpinLock(&NbtConfig.JointLock,OldIrq);
@@ -3716,7 +4029,8 @@ NameSrvHndlrNotOs (
     IN tDEVICECONTEXT           *pDeviceContext,
     IN PVOID                    pSrcAddress,
     IN tNAMEHDR UNALIGNED       *pNameSrv,
-    IN ULONG                    uNumBytes
+    IN ULONG                    uNumBytes,
+    IN BOOLEAN                  fBroadcast
     )
 /*++
 
@@ -3754,7 +4068,7 @@ Return Value:
 
     //Pnodes always ignore Broadcasts since they only talk to the NBNS unless
     // this node is also a proxy
-    IF_PNODE_AND_NOT_PROXY(NodeType)
+	if ( ( ((NodeType) & PNODE)) && !((NodeType) & PROXY) )
     {
         if (OpCodeFlags & FL_BROADCAST)
         {
@@ -3773,7 +4087,8 @@ Return Value:
                             pSrcAddress,
                             pNameSrv,
                             uNumBytes,
-                            OpCodeFlags);
+                            OpCodeFlags,
+                            fBroadcast);
             break;
 
         case OP_REGISTRATION:
@@ -3869,6 +4184,3 @@ Routine Description:
 {
     return ;
 }
-
-
-

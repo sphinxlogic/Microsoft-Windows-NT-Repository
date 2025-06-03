@@ -63,7 +63,7 @@ Return Value:
     status = RpcpBindRpc (
                 ServerName,   
                 SERVICE_EVENTLOG,
-                L"Security=Impersonation Static True",
+                NULL,
                 &bindingHandle);
 
     // DbgPrint("EVENTLOG_bind: handle=%d\n",bindingHandle);
@@ -203,4 +203,3 @@ Return Value:
 
     return;
 }
-

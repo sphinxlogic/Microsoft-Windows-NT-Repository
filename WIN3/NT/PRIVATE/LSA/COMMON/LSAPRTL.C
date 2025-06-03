@@ -525,7 +525,7 @@ Return Value:
 
     return;
 }
- 
+
 
 VOID
 LsapRtlQuerySecurityAccessMask(
@@ -964,7 +964,7 @@ Return Value:
 
     Privilege.PrivilegeCount = 1;
     Privilege.Control = PRIVILEGE_SET_ALL_NECESSARY;
-    Privilege.Privilege[0].Luid = RtlConvertLongToLargeInteger(PrivilegeId);
+    Privilege.Privilege[0].Luid = RtlConvertLongToLuid(PrivilegeId);
     Privilege.Privilege[0].Attributes = 0;
 
     Status = NtPrivilegeCheck(

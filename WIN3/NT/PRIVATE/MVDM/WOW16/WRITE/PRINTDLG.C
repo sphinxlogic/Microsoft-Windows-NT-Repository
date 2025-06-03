@@ -586,4 +586,3 @@ BOOL fnPrGetDevmode(void)
     return bRetval;
 }
 
-

@@ -143,10 +143,10 @@ Return Value:
     //
 
     Address = (ULONG)&(((PKPROCESSOR_STATE)0)->SpecialRegisters.Gdtr.Base);
-    ReadControlSpace((USHORT)Processor, (PVOID)Address,
+    ReadControlSpace((USHORT)Processor, Address,
                      &TableBase, sizeof(TableBase));
     Address = (ULONG)&(((PKPROCESSOR_STATE)0)->SpecialRegisters.Gdtr.Limit);
-    ReadControlSpace((USHORT)Processor, (PVOID)Address,
+    ReadControlSpace((USHORT)Processor, Address,
                      &TableLimit, sizeof(TableLimit));
 
     //

@@ -26,7 +26,7 @@
 *
 * HISTORY:
 *		$Log:   J:\se.vcs\driver\q117cd\src\0x1103b.c  $
-*	
+*
 *	   Rev 1.6   27 Jan 1994 15:47:50   KEVINKES
 *	Modified debug code.
 *
@@ -99,6 +99,9 @@ dStatus cqd_ReceiveByte
 
    if ((status = cqd_WaitActive(cqd_context)) != DONT_PANIC) {
 
+#if DBG
+   cqd_context->dbg_lockout = save;
+#endif
       return status;
 
    }
@@ -107,6 +110,9 @@ dStatus cqd_ReceiveByte
 
       if((status = cqd_SendByte(cqd_context, FW_CMD_RPT_NEXT_BIT)) != DONT_PANIC) {
 
+#if DBG
+   cqd_context->dbg_lockout = save;
+#endif
             return status;
 
       }
@@ -119,6 +125,9 @@ dStatus cqd_ReceiveByte
 
       if ((status = cqd_GetStatus(cqd_context, &stat3)) != DONT_PANIC) {
 
+#if DBG
+   cqd_context->dbg_lockout = save;
+#endif
             return status;
 
       }
@@ -159,6 +168,9 @@ dStatus cqd_ReceiveByte
 
    if ((status = cqd_SendByte(cqd_context, FW_CMD_RPT_NEXT_BIT)) != DONT_PANIC) {
 
+#if DBG
+   cqd_context->dbg_lockout = save;
+#endif
       return status;
 
    }
@@ -167,12 +179,18 @@ dStatus cqd_ReceiveByte
 
    if((status = cqd_GetStatus(cqd_context, &stat3)) != DONT_PANIC) {
 
+#if DBG
+   cqd_context->dbg_lockout = save;
+#endif
       return status;
 
    }
 
    if (!(stat3 & (dUByte)ST3_T0)) {
 
+#if DBG
+   cqd_context->dbg_lockout = save;
+#endif
 	 	return kdi_Error(ERR_CMD_OVERRUN, FCT_ID, ERR_SEQ_1);
 
    }

@@ -152,7 +152,7 @@ typedef struct _OS2_SES_GROUP_PARMS
     ULONG       LanguageID;             //                  message file LanguageID
     UCHAR       KeyboardLayout[2];      //                  Keyboard Layout
 #if PMNT
-    UCHAR       KeyboardName[5];        //                  Keyboard Name
+    UCHAR       KeyboardName[4];        //                  Keyboard Name
 #endif // PMNT
     OD2_DBCS_VECTOR_ENTRY   PriDBCSVec;
     OD2_DBCS_VECTOR_ENTRY   SecDBCSVec;

@@ -256,7 +256,7 @@ main(
     // Wait for user reponse before continuing.
     //
     printf("continue?....\n");
-    response = getch();
+    response = _getch();
     if ((response == 'n') || (response == 'N')) {
         return;
     }

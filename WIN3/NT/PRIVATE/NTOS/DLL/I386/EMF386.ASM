@@ -92,105 +92,77 @@ ifdef NT386
 
 _DATA   SEGMENT  DWORD USE32 PUBLIC 'DATA'
 
-SaveSs  dd      ?
-SaveEsp dd      ?
-SaveDs  dd      ?
-SaveEax dd      ?
-SaveEbx dd      ?
+    align 4
 
-EmerStk dd      1024 dup (?)
+EmerStk         db      1024 dup (?)                    ; *** SaveContext is assumed to be
+SaveContext     db  size ContextFrameLength  dup (?)    ; *** at the top of the EmerStk by
+SaveException   db  size ExceptionRecordLength dup (?)  ; *** the function @ 13f:0
 
 _DATA   ENDS
 
 Around:
-
 ;
 ;   Trap occured in 16bit code, get to flat environment and raise exception
 ;
 
-        push    eax                      ; on old stack
-        push    ebx
+        push    eax                             ; save EAX on old stack
+        mov     ax, ds
+        push    eax                             ; Save DS on old stack
 
-        mov     ax,ss
-        mov     bx,(KGDT_R3_DATA OR RPL_MASK)
-        mov     ss,bx
+        mov     ax,(KGDT_R3_DATA OR RPL_MASK)
+        mov     ds,ax
+    ASSUME  DS:FLAT
 
-        mov     ebx,esp
-        mov     esp,OFFSET FLAT:EmerStk
-        add     esp,4096
+        pop     dword ptr [SaveContext.CsSegDs] ; remove ds  from old stack
+        pop     dword ptr [SaveContext.CsEax]   ; remove eax from old stack
+        pop     dword ptr [SaveContext.CsEip]   ; copy eip   from old stack
+        pop     dword ptr [SaveContext.CsSegCs] ; copy cs    from old stack
+        pop     dword ptr [SaveContext.CsEflags] ; copy eflag from old stack
+
+        push    dword ptr [SaveContext.CsEFlags] ; restore eflag to old stack
+        push    dword ptr [SaveContext.CsSegCs] ; restore cs    to old stack
+        push    dword ptr [SaveContext.CsEip]   ; restore eip   to old stack
+        mov     dword ptr [SaveContext.CsEsp], esp
 
 ;
-;   Old stack has eax, ebx
-;   ax = old ss, ebx = old esp
+; Build rest of context frame
+;
+
+        mov     dword ptr [SaveContext.CsContextFlags],CONTEXT_CONTROL OR CONTEXT_SEGMENTS OR CONTEXT_INTEGER
+        mov     dword ptr [SaveContext.CsEbx], ebx
+        mov     dword ptr [SaveContext.CsEcx], ecx
+        mov     dword ptr [SaveContext.CsEdx], edx
+        mov     dword ptr [SaveContext.CsEsi], esi
+        mov     dword ptr [SaveContext.CsEdi], edi
+        mov     dword ptr [SaveContext.CsEbp], ebp
+        mov     dword ptr [SaveContext.CsSegEs], es
+        mov     dword ptr [SaveContext.CsSegFs], fs
+        mov     dword ptr [SaveContext.CsSegGs], gs
+        mov     dword ptr [SaveContext.CsSegSs], ss
+
+        mov     ss,ax                   ; Switch to new stack
+        mov     esp,(OFFSET FLAT:EmerStk) + 1024
+    ASSUME  SS:FLAT
+
+;
 ;   ss: flat, esp -> EmerStk
 ;
 
-        ASSUME  SS:FLAT
-
-        mov     word ptr ss:[SaveSs],ax
-        mov     ss:[SaveEsp],ebx
-        add     ss:[SaveEsp],8          ; "clean off" Save stack
-        mov     ss:[SaveDs],ds
-
-        mov     ds,ax                   ; (ds:ebx) -> old stack
-        mov     eax,ds:[bx]             ; (eax) = old ebx
-        mov     ss:[SaveEbx],eax
-
-        mov     eax,ds:[bx+4]
-        mov     ss:[SaveEax],eax
-
-        sub     esp,ExceptionRecordLength+ContextFrameLength
-
-        mov     dword ptr [esp]+CsContextFlags,CONTEXT_CONTROL OR CONTEXT_SEGMENTS OR CONTEXT_INTEGER
-
-        mov     [esp]+CsSegGs,gs
-        mov     [esp]+CsSegFs,fs
-        mov     [esp]+CsSegEs,es
-
-        mov     ax,word ptr ss:[SaveDs]
-        mov     [esp]+CsSegDs,ax
-
-        mov     [esp]+CsEdi,edi
-        mov     [esp]+CsEsi,esi
-        mov     [esp]+CsEbp,ebp
-
-        mov     eax,ss:[SaveEbx]
-        mov     [esp]+CsEbx,eax
-        mov     [esp]+CsEdx,edx
-        mov     [esp]+CsEcx,ecx
-
-        mov     eax,ss:[SaveEax]
-        mov     [esp]+CsEax,eax
-
-        mov     ebx,ss:[SaveEsp]         ; (ds:ebx) -> cleaned old stack
-        mov     eax,ds:[bx]
-        mov     [esp]+CsEip,eax
-
-        mov     eax,ds:[bx]+4
-        mov     [esp]+CsSegCs,eax
-
-        mov     eax,ds:[bx]+8
-        mov     [esp]+CsEflags,eax
-
-        mov     [esp]+CsEsp,ebx
-
-        mov     ebx,ss:[SaveSs]
-        mov     [esp]+CsSegSs,ebx
-
         mov     ax,KGDT_R3_TEB OR RPL_MASK
-        mov     fs,ax
-        cmp     dword ptr fs:[TbVdm],0
-        jne     DoVdmFault
+        mov     fs, ax
+        mov     ecx, fs:[TbVdm]
+        or      ecx, ecx
+        jne     short DoVdmFault
 
-        mov     ecx,esp                         ; (ecx) -> context record
-        lea     edx,[esp]+ContextFrameLength    ; (edx) -> exception record
+        mov     ecx, offset SaveContext         ; (ecx) -> context record
+        mov     edx, offset SaveException       ; (edx) -> exception record
 
-        mov     dword ptr ss:[edx]+ErExceptionCode,STATUS_ILLEGAL_FLOAT_CONTEXT
-        mov     dword ptr ss:[edx]+ErExceptionFlags,0
-        mov     dword ptr ss:[edx]+ErExceptionRecord,0
-        mov     ebx,ss:[ecx]+CsEip
-        mov     ss:[edx]+ErExceptionAddress,ebx
-        mov     dword ptr ss:[edx]+ErNumberParameters,0
+        mov     dword ptr [edx.ErExceptionCode],STATUS_ILLEGAL_FLOAT_CONTEXT
+        mov     dword ptr [edx.ErExceptionFlags],0
+        mov     dword ptr [edx.ErExceptionRecord],0
+        mov     ebx, [ecx.CsEip]
+        mov     [edx.ErExceptionAddress],ebx
+        mov     [edx.ErNumberParameters],0
 
 ;
 ;   ZwRaiseException(edx=ExceptionRecord, ecx=ContextRecord, TRUE=FirstChance)
@@ -207,14 +179,50 @@ Forever:
         int     3
         jmp     short Forever
 
-
 DoVdmFault:
+;
+; Does the VDM want the fault, or should the instruction be skipped
+;
+        test    ds:[ecx].VtVdmContext.CsFloatSave.FpCr0NpxState, CR0_EM
+        jz      short SkipNpxInstruction
+
+        add     dword ptr [SaveContext.CsEsp], 12   ; remove from old stack
+
 ; jump to the dos extender NPX exception handler
 
 ;       jmp     far ptr 013fh:0
         db      0eah
         dd      0
         dw      013fh
+
+SkipNpxInstruction:
+        mov     ax,(KGDT_R3_DATA OR RPL_MASK)
+        mov     es,ax
+
+        stdCall _NpxNpSkipInstruction, <offset SaveContext>
+
+        mov     ebx, dword ptr [SaveContext.CsEbx]
+        mov     ecx, dword ptr [SaveContext.CsEcx]
+        mov     edx, dword ptr [SaveContext.CsEdx]
+        mov     edi, dword ptr [SaveContext.CsEdi]
+        mov     esi, dword ptr [SaveContext.CsEsi]
+        mov     ebp, dword ptr [SaveContext.CsEbp]
+        mov     gs,  dword ptr [SaveContext.CsSegGs]
+        mov     fs,  dword ptr [SaveContext.CsSegFs]
+        mov     es,  dword ptr [SaveContext.CsSegEs]
+
+        mov     eax, dword ptr [SaveContext.CsEsp]
+        mov     ss,  dword ptr [SaveContext.CsSegSs]  ; switch to original stack
+        mov     esp, eax
+
+        add     esp, 12                     ; remove eflag, cs, eip
+        push    dword ptr [SaveContext.CsEflags]
+        push    dword ptr [SaveContext.CsSegCs]
+        push    dword ptr [SaveContext.CsEip]
+        mov     eax, dword ptr [SaveContext.CsEax]
+        mov     ds,  dword ptr [SaveContext.CsSegDs]
+
+        iretd                               ; restore eflag, cs, eip
 
 OK_Segment:
 endif
@@ -239,13 +247,21 @@ endif
 
         cmp     EMSEG:[Einstall], 0     ; Make sure emulator is initialized.
         je      InstalEm
+
 EmInstalled:
-        mov     edi,[esp].regEIP        ;edi = 387 instruction address
-        mov     dx,cseg:[edi]           ;dx = esc and opcode
-;UNDONE: rip test for FWAIT in final version
+        mov     edi,[esp].regEIP            ;edi = 387 instruction address
+        movzx   edx, word ptr cseg:[edi]    ;dx = esc and opcode
+
+; Check for unmasked errors
+        mov     al, EMSEG:[CURerr]      ; fetch errors
+        and     al, EMSEG:[ErrMask]
+        jnz     short PossibleException
+
+; UNDONE: rip test for FWAIT in final version
         cmp     dl, 9bh                 ;FWAIT?
         je      sawFWAIT
 
+NoException:
 Execute387inst:
 ;Enter here if look-ahead found another 387 instruction
         mov     EMSEG:[PrevCodeOff],edi
@@ -262,9 +278,51 @@ Execute387inst:
 MemModeDispatch:                        ;Label for debugging
         jmp     EA386Tab[4*ebx]
 
+
 InstalEm:
         call    EmulatorInit
+        mov     edi,DefaultControlWord  ; Default mode to start in
+        mov     eax, edi
+        call    SetControlWord          ; Set it
+        mov     EMSEG:[LongControlWord], edi    ; reset reserved bits
         jmp     EmInstalled
+
+; ************************
+
+;
+; We are about to execute a new FP instruction and there is an
+; unmasked expcetion.  Check to see if the new FP instruction is
+; a "no wait" instruction.   If so, let it proceede; otherwise, raise
+; the exception.
+;
+
+PossibleException:
+        cmp     edx, 0E3DBh             ; if fninit, no exception
+        je      short NoException
+
+        cmp     edx, 0E2DBh             ; if fnclex, no exception
+        je      short NoException
+
+        cmp     edx, 0E0DFh             ; if "fnstsw ax", no exception
+        je      short NoException
+
+        cmp     dl, 0D9h                ; possible encoding for fnstenv or fnstcw?
+        je      short pe20              ; yes, check mod r/m
+        cmp     dl, 0DDh                ; possible encoding for fnsave or fnstsw?
+        jne     short pe30
+
+pe20:   mov     bl, dh                  ; bl = op2
+        shr     bl, 3
+        and     bl, 7                   ; bl = mod r/m
+        cmp     bl, 6                   ; is it a 6 or 7?
+        jnc     short NoException       ; yes, no exception
+
+pe30:
+        jmp     CommonExceptions        ; unmasked exception is pending, raise it
+
+; ************************
+
+
 
 ;       386 address modes
 
@@ -428,21 +486,10 @@ RegOpDispWrap:                          ;Debugging label
         jmp     tOpRegDisp[edx]
 
 
-
-;We want EmlFinish to be DWord aligned.  We need to figure out where to
-;start the Fwait code that falls into it.
-
-	align	4
-	org	$+3			;Avoid padding before EMLFINISH
-
-FwaitCode       macro
+SawFwait:
         inc     edi                     ; bump past FWAIT
         mov     [esp].regEIP,edi        ; final return offset
         mov     EMSEG:[CURErr],0        ; clear current error and cond. codes
-        endm
-
-SawFwait:
-        FwaitCode
 
 ; return from routine;  restore registers and return
 
@@ -450,23 +497,31 @@ SawFwait:
 EMLFINISH:
 ; check for errors
         mov     al, EMSEG:[CURerr]      ; fetch errors
-        or      al,EMSEG:[SWerr]
+        or      al, EMSEG:[SWerr]
         mov     EMSEG:[SWerr],al        ; set errors in sticky error flag
         and     al,EMSEG:[ErrMask]
         jnz     CommonExceptions
 
-;Look ahead to next instruction
+ifdef TRACENPX
+        jmp     CommonExceptions
+endif
+
+if DBG eq 0
+
+;
+; On a free build, look ahead to next instruction
+;
+
 ;09BH is FWAIT - just skip it
 ;0D8H - 0DFH is 387 instruction, emulate it
         mov     edi,[esp].regEIP        ;edi = 387 instruction address
         mov     dx,cseg:[edi]
         cmp     dl,09BH                 ;FWAIT?
-        jz      SawFwait
+        jz      short SawFwait
         sub     dl,0D8H
         cmp     dl,8
         jb      ReExecute
-;not 387 instruction, let's go home
-
+endif
         mov     ebx,[esp].[OldLongStatus]
         and		ebx,LongSavedFlags		;preserve condition codes, error flags
         or		EMSEG:[LongStatusWord],ebx	;merge saved status word, condition codes
@@ -482,7 +537,6 @@ EMLFINISH:
         add     esp,8                   ;toss old PrevCodeOff and StatusWord
         mov     EMSEG:[CURerr],Summary  ;Indicate we are not busy
         pop     ds
-ProgReturn:                             ;debugging label
         error_return                    ; common exit sequence
 
 ReExecute:

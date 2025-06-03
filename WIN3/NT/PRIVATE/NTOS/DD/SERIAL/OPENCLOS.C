@@ -212,7 +212,7 @@ Return Value:
     // driver.
     //
 
-    extension->LockPtr = MmLockPagableImageSection(SerialCreateOpen);
+    extension->LockPtr = MmLockPagableCodeSection(SerialCreateOpen);
 
     //
     // On a new open we "flush" the read queue by initializing the
@@ -247,25 +247,53 @@ Return Value:
     extension->SendXoffChar = FALSE;
 
     //
+    // Clear out the statistics.
+    //
+
+    KeSynchronizeExecution(
+        extension->Interrupt,
+        SerialClearStats,
+        extension
+        );
+
+
+    //
     // The escape char replacement must be reset upon every open.
     //
 
     extension->EscapeChar = 0;
 
-#if !defined(SERIAL_CRAZY_INTERRUPTS)
+    if (!extension->PermitShare) {
 
-    if (!extension->InterruptShareable) {
+        if (!extension->InterruptShareable) {
 
-        checkOpen.Extension = extension;
-        checkOpen.StatusOfOpen = &Irp->IoStatus.Status;
+            checkOpen.Extension = extension;
+            checkOpen.StatusOfOpen = &Irp->IoStatus.Status;
 
-        KeSynchronizeExecution(
-            extension->Interrupt,
-            SerialCheckOpen,
-            &checkOpen
-            );
+            KeSynchronizeExecution(
+                extension->Interrupt,
+                SerialCheckOpen,
+                &checkOpen
+                );
+
+        } else {
+
+            KeSynchronizeExecution(
+                extension->Interrupt,
+                SerialMarkOpen,
+                extension
+                );
+
+            Irp->IoStatus.Status = STATUS_SUCCESS;
+
+        }
 
     } else {
+
+        //
+        // Synchronize with the ISR and let it know that the device
+        // has been successfully opened.
+        //
 
         KeSynchronizeExecution(
             extension->Interrupt,
@@ -276,21 +304,6 @@ Return Value:
         Irp->IoStatus.Status = STATUS_SUCCESS;
 
     }
-#else
-
-    //
-    // Synchronize with the ISR and let it know that the device
-    // has been successfully opened.
-    //
-
-    KeSynchronizeExecution(
-        extension->Interrupt,
-        SerialMarkOpen,
-        extension
-        );
-
-    Irp->IoStatus.Status = STATUS_SUCCESS;
-#endif
 
     localStatus = Irp->IoStatus.Status;
     Irp->IoStatus.Information=0L;
@@ -361,7 +374,7 @@ Return Value:
         ("SERIAL: In SerialClose\n")
         );
 
-    charTime = RtlLargeIntegerNegate(SerialGetCharTime(extension));
+    charTime.QuadPart = -SerialGetCharTime(extension).QuadPart;
 
     //
     // Do this now so that if the isr gets called it won't do anything
@@ -461,10 +474,7 @@ Return Value:
     // shut down all the flow control.
     //
 
-    tenCharDelay = RtlExtendedIntegerMultiply(
-                       charTime,
-                       10
-                       );
+    tenCharDelay.QuadPart = charTime.QuadPart * 10;
 
     KeDelayExecutionThread(
         KernelMode,
@@ -927,6 +937,7 @@ Return Value:
     ULONG stopSize;
     ULONG charTime;
     ULONG bitTime;
+    LARGE_INTEGER tmp;
 
 
     if ((Extension->LineControl & SERIAL_DATA_MASK) == SERIAL_5_DATA) {
@@ -973,6 +984,7 @@ Return Value:
     bitTime = (10000000+(Extension->CurrentBaud-1))/Extension->CurrentBaud;
     charTime = bitTime + ((dataSize+paritySize+stopSize)*bitTime);
 
-    return RtlConvertUlongToLargeInteger(charTime);
+    tmp.QuadPart = charTime;
+    return tmp;
 
 }

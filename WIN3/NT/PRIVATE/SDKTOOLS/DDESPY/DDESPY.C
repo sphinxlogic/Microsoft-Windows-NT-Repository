@@ -131,7 +131,8 @@ BOOL InitApplication(HINSTANCE hInstance)
     wc.cbClsExtra = 0;                  /* No per-class extra data.           */
     wc.cbWndExtra = 0;                  /* No per-window extra data.          */
     wc.hInstance = hInstance;           /* Application that owns the class.   */
-    hIcon = wc.hIcon = LoadIcon(hInstance, RefString(IDS_TITLE));
+					/* faster, also can localize "DDESpy" */
+    hIcon = wc.hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_DDESPY));
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
     wc.hbrBackground = GetStockObject(WHITE_BRUSH);
     wc.lpszMenuName =  MAKEINTRESOURCE(IDR_MENU);   /* Name of menu resource in .RC file. */
@@ -473,6 +474,7 @@ HDDEDATA CALLBACK DdeCallback(
             }
 
             if (!pro.fFilter[IF_HSZ]) {
+                DdeUnaccessData(hData);
                 return(0);
             }
 
@@ -506,7 +508,8 @@ HDDEDATA CALLBACK DdeCallback(
                         (LPTSTR)((MONHSZSTRUCT FAR *)pData)->str);
             } else {
                 wsprintf(TBuf,
-			TEXT("Task:0x%x, Time:%ld, String Handle %s: %lx(%s)"),
+			/* so we can localize message */
+			RefString(IDS_FMT_SH_MSG1),
                         ((MONHSZSTRUCT FAR *)pData)->hTask,
                         ((MONHSZSTRUCT FAR *)pData)->dwTime,
                         (LPTSTR)szAction,
@@ -519,6 +522,7 @@ HDDEDATA CALLBACK DdeCallback(
         case MF_SENDMSGS:
         case MF_POSTMSGS:
             if (fBlockMsg[((MONMSGSTRUCT FAR *)pData)->wMsg - WM_DDE_FIRST]) {
+                DdeUnaccessData(hData);
                 return(0);
             }
             if (pro.fTerse) {
@@ -548,6 +552,7 @@ HDDEDATA CALLBACK DdeCallback(
 
         case MF_CALLBACKS:
             if (fBlockCb[(((MONCBSTRUCT FAR *)pData)->wType & XTYP_MASK) >> XTYP_SHIFT]) {
+                DdeUnaccessData(hData);
                 return(0);
             }
             wsprintf(TBuf,
@@ -595,7 +600,7 @@ HDDEDATA CALLBACK DdeCallback(
                 OutputString(TBuf);
                 if (cb > MAX_DISPDATA)
                     OutputString(RefString(IDS_TABDDD));
-                DdeUnaccessData(((MONCBSTRUCT FAR *)pData)->hData);
+                // DdeUnaccessData(((MONCBSTRUCT FAR *)pData)->hData);
             }
             if ((((MONCBSTRUCT FAR *)pData)->wType & XCLASS_DATA) &&
                  ((MONCBSTRUCT FAR *)pData)->dwRet &&
@@ -609,7 +614,7 @@ HDDEDATA CALLBACK DdeCallback(
                 OutputString(TBuf);
                 if (cb > MAX_DISPDATA)
                     OutputString(RefString(IDS_TABDDD));
-                DdeUnaccessData(((MONCBSTRUCT FAR *)pData)->dwRet);
+                // DdeUnaccessData(((MONCBSTRUCT FAR *)pData)->dwRet);
             }
             DdeUnaccessData(hData);
             return(0);
@@ -804,7 +809,8 @@ LPTSTR pstr)
         } else if (type & T_OR) {
             type &= ~T_OR;   // not an atom, must be somthin else.
         } else {
-            wsprintf(pstr, TEXT("Bad Atom (0x%x)"), data);
+	    /* so we can localize message */
+            wsprintf(pstr, RefString(IDS_BADATOM), data);
             pstr += lstrlen(pstr);
         }
     }
@@ -1133,6 +1139,7 @@ BOOL CALLBACK FilterDlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPara
                 CheckDlgButton(hDlg, i, !fBlockCb[i - IDRB_XTYP_ERROR]);
             }
             CheckDlgButton(hDlg, IDRB_TERSE, pro.fTerse);
+            return TRUE;
             break;
 
         case WM_COMMAND:
@@ -1286,3 +1293,20 @@ BOOL CALLBACK MarkDlgProc(
 }
 
 
+#ifdef DBCS
+/****************************************************************************
+    My_mbschr:  strchr() DBCS version
+****************************************************************************/
+LPTSTR _CRTAPI1 My_mbschr(
+   LPTSTR psz, TCHAR uiSep)
+{
+    while (*psz != '\0' && *psz != uiSep) {
+        psz = CharNext(psz);
+    }
+    if (*psz == '\0' && uiSep != '\0') {
+        return NULL;
+    } else {
+        return psz;
+    }
+}
+#endif

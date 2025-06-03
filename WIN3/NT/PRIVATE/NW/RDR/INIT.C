@@ -21,6 +21,18 @@ Revision History:
 #include "Procs.h"
 #define Dbg                              (DEBUG_TRACE_LOAD)
 
+//
+// Private declaration because ZwQueryDefaultLocale isn't in any header.
+//
+
+NTSYSAPI
+NTSTATUS
+NTAPI
+ZwQueryDefaultLocale(
+    IN BOOLEAN UserProfile,
+    OUT PLCID DefaultLocaleId
+    );
+
 NTSTATUS
 DriverEntry(
     IN PDRIVER_OBJECT DriverObject,
@@ -37,16 +49,24 @@ GetConfigurationInformation(
     PUNICODE_STRING RegistryPath
     );
 
+VOID
+ReadValue(
+    HANDLE  ParametersHandle,
+    PLONG   pVar,
+    PWCHAR  Name
+    );
+
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text( PAGE, DriverEntry )
 #pragma alloc_text( PAGE, GetConfigurationInformation )
+#pragma alloc_text( PAGE, ReadValue )
 #endif
 
 #if 0  // Not pageable
 UnloadDriver
 #endif
 
-static CCHAR IrpStackSize;
+static ULONG IrpStackSize;
 
 
 NTSTATUS
@@ -118,7 +138,7 @@ Return Value:
     //  Set the stack size.
     //
 
-    FileSystemDeviceObject->StackSize = IrpStackSize;
+    FileSystemDeviceObject->StackSize = (CCHAR)IrpStackSize;
 
     //
     // Initialize the driver object with this driver's entry points.
@@ -278,19 +298,15 @@ Return Value:
 
 --*/
 {
-    WCHAR Storage[256];
     UNICODE_STRING UnicodeString;
     HANDLE ConfigHandle;
     HANDLE ParametersHandle;
     NTSTATUS Status;
-    ULONG BytesRead;
-    PCHAR DataPtr;
     OBJECT_ATTRIBUTES ObjectAttributes;
-    PKEY_VALUE_FULL_INFORMATION Value = (PKEY_VALUE_FULL_INFORMATION)Storage;
+    ULONG TimeOutEventinMins = 0L;
+    LCID lcid;
 
     PAGED_CODE();
-
-    UnicodeString.Buffer = Storage;
 
     InitializeObjectAttributes(
         &ObjectAttributes,
@@ -323,7 +339,107 @@ Return Value:
         return;
     }
 
-    RtlInitUnicodeString(&UnicodeString, L"IrpStackSize" );
+    ReadValue( ParametersHandle, &IrpStackSize, L"IrpStackSize" );
+
+    ReadValue( ParametersHandle, &MaxSendDelay, L"MaxSendDelay" );
+    ReadValue( ParametersHandle, &MaxReceiveDelay, L"MaxReceiveDelay" );
+
+    ReadValue( ParametersHandle, &MinSendDelay, L"MinSendDelay" );
+    ReadValue( ParametersHandle, &MinReceiveDelay, L"MinReceiveDelay" );
+
+    ReadValue( ParametersHandle, &BurstSuccessCount, L"BurstSuccessCount" );
+    ReadValue( ParametersHandle, &BurstSuccessCount2, L"BurstSuccessCount2" );
+    ReadValue( ParametersHandle, &MaxReadTimeout, L"MaxReadTimeout" );
+    ReadValue( ParametersHandle, &MaxWriteTimeout, L"MaxWriteTimeout" );
+    ReadValue( ParametersHandle, &ReadTimeoutMultiplier, L"ReadTimeoutMultiplier" );
+    ReadValue( ParametersHandle, &WriteTimeoutMultiplier, L"WriteTimeoutMultiplier" );
+    ReadValue( ParametersHandle, &AllowGrowth, L"AllowGrowth" );
+    ReadValue( ParametersHandle, &DontShrink, L"DontShrink" );
+    ReadValue( ParametersHandle, &SendExtraNcp, L"SendExtraNcp" );
+    ReadValue( ParametersHandle, &DefaultMaxPacketSize, L"DefaultMaxPacketSize" );
+    ReadValue( ParametersHandle, &PacketThreshold, L"PacketThreshold" );
+    ReadValue( ParametersHandle, &LargePacketAdjustment, L"LargePacketAdjustment" );
+    ReadValue( ParametersHandle, &LipPacketAdjustment, L"LipPacketAdjustment" );
+    ReadValue( ParametersHandle, &LipAccuracy, L"LipAccuracy" );
+
+    ReadValue( ParametersHandle, &DisableReadCache, L"DisableReadCache" );
+    ReadValue( ParametersHandle, &DisableWriteCache, L"DisableWriteCache" );
+    ReadValue( ParametersHandle, &FavourLongNames, L"FavourLongNames" );
+
+    ReadValue( ParametersHandle, &LockTimeoutThreshold, L"LockTimeout" );
+
+    ReadValue( ParametersHandle, &TimeOutEventinMins, L"TimeOutEventinMins");
+
+    ReadValue( ParametersHandle, &EnableMultipleConnects, L"EnableMultipleConnects");
+
+    ReadValue( ParametersHandle, &ReadExecOnlyFiles, L"ReadExecOnlyFiles");
+
+    if (!TimeOutEventinMins) {
+        //
+        //  If for some reason, the registry has set the TimeOutEventInterval
+        //  to zero, reset to the default value to avoid divide-by-zero
+        //
+
+        TimeOutEventinMins =  DEFAULT_TIMEOUT_EVENT_INTERVAL;
+    }
+
+    TimeOutEventInterval.QuadPart = TimeOutEventinMins * 60 * SECONDS;
+
+    ZwClose( ParametersHandle );
+    ZwClose( ConfigHandle );
+
+    Japan = FALSE;
+
+
+    ZwQueryDefaultLocale( TRUE, &lcid );
+
+    if (PRIMARYLANGID(lcid) == LANG_JAPANESE ||
+        PRIMARYLANGID(lcid) == LANG_KOREAN ||
+        PRIMARYLANGID(lcid) == LANG_CHINESE) {
+
+            Japan = TRUE;
+    }
+
+}
+
+
+VOID
+ReadValue(
+    HANDLE  ParametersHandle,
+    PLONG   pVar,
+    PWCHAR  Name
+    )
+/*++
+
+Routine Description:
+
+    This routine reads a single redirector configuration value from the registry.
+
+Arguments:
+
+    Parameters  -   Supplies where to look for values.
+
+    pVar        -   Address of the variable to receive the new value if the name exists.
+
+    Name        -   Name whose value is to be loaded.
+
+Return Value:
+
+    None
+
+--*/
+{
+    WCHAR Storage[256];
+    UNICODE_STRING UnicodeString;
+    NTSTATUS Status;
+    ULONG BytesRead;
+    PKEY_VALUE_FULL_INFORMATION Value = (PKEY_VALUE_FULL_INFORMATION)Storage;
+
+    PAGED_CODE();
+
+    UnicodeString.Buffer = Storage;
+
+    RtlInitUnicodeString(&UnicodeString, Name );
 
     Status = ZwQueryValueKey(
                  ParametersHandle,
@@ -334,13 +450,11 @@ Return Value:
                  &BytesRead );
 
     if ( NT_SUCCESS( Status ) ) {
+
         if ( Value->DataLength >= sizeof(ULONG) ) {
-            DataPtr = (PCHAR)( (PCHAR)Value + Value->DataOffset );
-            IrpStackSize = *DataPtr;
+
+            *pVar = *(LONG UNALIGNED *)( (PCHAR)Value + Value->DataOffset );
+
         }
     }
-
-    ZwClose( ParametersHandle );
-    ZwClose( ConfigHandle );
 }
-

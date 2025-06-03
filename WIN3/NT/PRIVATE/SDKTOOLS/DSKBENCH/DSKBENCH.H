@@ -1,5 +1,3 @@
-#include <windows.h>
-
 #define BENCH_DLG                   104
 #define TIMER_ID                    105
 #define TIMER_ID2                   106
@@ -57,4 +55,3 @@ BenchDlgProc(
 
 
 VOID        DrawMeterBar( HWND, DWORD, DWORD, DWORD, BOOL);
-

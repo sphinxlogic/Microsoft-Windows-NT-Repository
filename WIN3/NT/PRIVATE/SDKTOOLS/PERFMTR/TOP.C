@@ -351,28 +351,28 @@ waitkey:
 
                     if (MatchedProcess == NULL) {
                         TopCpu[num].TotalTime = Ktime;
-                        TopCpu[num].TotalTime = RtlLargeIntegerAdd (
-                                                    TopCpu[num].TotalTime,
-                                                    Utime);
-                        TotalTime = RtlLargeIntegerAdd (TotalTime,
-                                                        TopCpu[num].TotalTime);
+                        TopCpu[num].TotalTime.QuadPart =
+                                            TopCpu[num].TotalTime.QuadPart +
+                                                    Utime.QuadPart;
+                        TotalTime.QuadPart = TotalTime.QuadPart +
+                                                 TopCpu[num].TotalTime.QuadPart;
                         TopCpu[num].ProcessInfo = CurProcessInfo;
                         TopCpu[num].MatchedProcess = NULL;
                         num += 1;
                     } else {
-                        Ktime = RtlLargeIntegerSubtract (CurProcessInfo->KernelTime,
-                                                          MatchedProcess->KernelTime);
-                        Utime = RtlLargeIntegerSubtract (CurProcessInfo->UserTime,
-                                                          MatchedProcess->UserTime);
+                        Ktime.QuadPart = CurProcessInfo->KernelTime.QuadPart -
+                                              MatchedProcess->KernelTime.QuadPart;
+                        Utime.QuadPart = CurProcessInfo->UserTime.QuadPart -
+                                                          MatchedProcess->UserTime.QuadPart;
 
-                        if ((!(RtlLargeIntegerEqualToZero (Ktime))) ||
-                            (!(RtlLargeIntegerEqualToZero (Utime)))) {
+                        if ((Ktime.QuadPart != 0) ||
+                            (Utime.QuadPart != 0)) {
                             TopCpu[num].TotalTime = Ktime;
-                            TopCpu[num].TotalTime = RtlLargeIntegerAdd (
-                                                        TopCpu[num].TotalTime,
-                                                        Utime);
-                            TotalTime = RtlLargeIntegerAdd (TotalTime,
-                                                            TopCpu[num].TotalTime);
+                            TopCpu[num].TotalTime.QuadPart =
+                                                        TopCpu[num].TotalTime.QuadPart +
+                                                        Utime.QuadPart;
+                            TotalTime.QuadPart = TotalTime.QuadPart +
+                                                            TopCpu[num].TotalTime.QuadPart;
                             TopCpu[num].ProcessInfo = CurProcessInfo;
                             TopCpu[num].MatchedProcess = MatchedProcess;
                             num += 1;
@@ -382,9 +382,9 @@ waitkey:
 
                         for (i=0;i<num;i++) {
                             PTopCpu = &TopCpu[i];
-                            Ktime = RtlLargeIntegerAdd (
-                                        PTopCpu->ProcessInfo->KernelTime,
-                                        PTopCpu->ProcessInfo->UserTime);
+                            Ktime.QuadPart =
+                                        PTopCpu->ProcessInfo->KernelTime.QuadPart +
+                                        PTopCpu->ProcessInfo->UserTime.QuadPart;
                             RtlTimeToTimeFields ( &Ktime, &TimeOut);
                             printf( "%4ld%% %7ld %7ld %7ld %7ld %3ld:%02ld:%02ld.%03ld %ws\n",
                                 (PTopCpu->TotalTime.LowPart*100)/TotalTime.LowPart,
@@ -416,19 +416,19 @@ waitkey:
                                                             );
                                     }
                                     if (MatchedThread == NULL) {
-                                        Ktime = RtlLargeIntegerAdd (
-                                                    Thread->KernelTime,
-                                                    Thread->UserTime);
+                                        Ktime.QuadPart =
+                                                    Thread->KernelTime.QuadPart +
+                                                    Thread->UserTime.QuadPart;
                                     } else {
-                                        Ktime = RtlLargeIntegerSubtract (
-                                                    Thread->KernelTime,
-                                                    MatchedThread->KernelTime);
-                                        Utime = RtlLargeIntegerSubtract (
-                                                    Thread->UserTime,
-                                                    MatchedThread->UserTime);
-                                        Ktime = RtlLargeIntegerAdd (
-                                                    Ktime,
-                                                    Utime);
+                                        Ktime.QuadPart =
+                                                    Thread->KernelTime.QuadPart -
+                                                    MatchedThread->KernelTime.QuadPart;
+                                        Utime.QuadPart =
+                                                    Thread->UserTime.QuadPart -
+                                                    MatchedThread->UserTime.QuadPart;
+                                        Ktime.QuadPart =
+                                                    Ktime.QuadPart +
+                                                    Utime.QuadPart;
                                     }
                                     if (Ktime.LowPart != 0) {
                                         printf("  %4ld%% TID%5ld Cs %5ld\n",
@@ -460,9 +460,9 @@ waitkey:
                     if (CurProcessInfo->NextEntryOffset == 0) {
                         for (i=0;i<num;i++) {
                             PTopCpu = &TopCpu[i];
-                            Ktime = RtlLargeIntegerAdd (
-                                        PTopCpu->ProcessInfo->KernelTime,
-                                        PTopCpu->ProcessInfo->UserTime);
+                            Ktime.QuadPart =
+                                        PTopCpu->ProcessInfo->KernelTime.QuadPart +
+                                        PTopCpu->ProcessInfo->UserTime.QuadPart;
                             RtlTimeToTimeFields ( &Ktime, &TimeOut);
                             printf( "Pf: %4ld %7ld %7ld %7ld %7ld %3ld:%02ld:%02ld.%03ld %ws\n",
                                 PTopCpu->Value,
@@ -499,9 +499,9 @@ waitkey:
                     if (CurProcessInfo->NextEntryOffset == 0) {
                         for (i=0;i<num;i++) {
                             PTopCpu = &TopCpu[i];
-                            Ktime = RtlLargeIntegerAdd (
-                                        PTopCpu->ProcessInfo->KernelTime,
-                                        PTopCpu->ProcessInfo->UserTime);
+                            Ktime.QuadPart =
+                                        PTopCpu->ProcessInfo->KernelTime.QuadPart +
+                                        PTopCpu->ProcessInfo->UserTime.QuadPart;
                             RtlTimeToTimeFields ( &Ktime, &TimeOut);
                             printf( "Ws: %4ld %7ld %7ld %7ld %7ld %3ld:%02ld:%02ld.%03ld %ws\n",
                                 PTopCpu->Value,
@@ -567,9 +567,9 @@ waitkey:
                         for (i=0;i<num;i++) {
 
                             PTopCpu = &TopCpu[i];
-                            Ktime = RtlLargeIntegerAdd (
-                                        PTopCpu->ProcessInfo->KernelTime,
-                                        PTopCpu->ProcessInfo->UserTime);
+                            Ktime.QuadPart =
+                                        PTopCpu->ProcessInfo->KernelTime.QuadPart +
+                                        PTopCpu->ProcessInfo->UserTime.QuadPart;
                             RtlTimeToTimeFields ( &Ktime, &TimeOut);
                             printf( "Cs: %4ld %7ld %7ld %7ld %7ld %3ld:%02ld:%02ld.%03ld %ws\n",
                                 PTopCpu->Value,
@@ -702,8 +702,8 @@ Return Value:
         Process = (PSYSTEM_PROCESS_INFORMATION)&SystemInfoBuffer[Offset2];
         if ((Process->UniqueProcessId ==
                 ProcessToMatch->UniqueProcessId) &&
-            (RtlLargeIntegerEqualTo (Process->CreateTime,
-                                  ProcessToMatch->CreateTime))) {
+            ((Process->CreateTime.QuadPart ==
+                                  ProcessToMatch->CreateTime.QuadPart))) {
             *Hint = Offset2 + Process->NextEntryOffset;
             return(Process);
         }
@@ -759,8 +759,8 @@ Return Value:
     for (i = 0; i < MatchedProcess->NumberOfThreads; i++) {
         if ((Thread->ClientId.UniqueThread ==
                 ThreadToMatch->ClientId.UniqueThread) &&
-            (RtlLargeIntegerEqualTo (Thread->CreateTime,
-                                  ThreadToMatch->CreateTime))) {
+            ((Thread->CreateTime.QuadPart ==
+                                  ThreadToMatch->CreateTime.QuadPart))) {
 
             return(Thread);
         }
@@ -768,4 +768,3 @@ Return Value:
     }
     return(NULL);
 }
-

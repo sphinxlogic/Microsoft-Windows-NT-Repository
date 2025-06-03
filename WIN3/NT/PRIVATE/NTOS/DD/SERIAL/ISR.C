@@ -486,6 +486,7 @@ Return Value:
 
                         ReceivedChar =
                             READ_RECEIVE_BUFFER(Extension->Controller);
+                        Extension->PerfStats.ReceivedCount++;
 
                         ReceivedChar &= Extension->ValidDataMask;
 
@@ -719,6 +720,7 @@ doTrasmitStuff:;
 
                                 SerialSetRTS(Extension);
 
+                                Extension->PerfStats.TransmittedCount++;
                                 WRITE_TRANSMIT_HOLDING(
                                     Extension->Controller,
                                     Extension->SpecialChars.XonChar
@@ -732,6 +734,7 @@ doTrasmitStuff:;
 
                             } else {
 
+                                Extension->PerfStats.TransmittedCount++;
                                 WRITE_TRANSMIT_HOLDING(
                                     Extension->Controller,
                                     Extension->SpecialChars.XonChar
@@ -772,6 +775,7 @@ doTrasmitStuff:;
 
                                 SerialSetRTS(Extension);
 
+                                Extension->PerfStats.TransmittedCount++;
                                 WRITE_TRANSMIT_HOLDING(
                                     Extension->Controller,
                                     Extension->SpecialChars.XoffChar
@@ -785,6 +789,7 @@ doTrasmitStuff:;
 
                             } else {
 
+                                Extension->PerfStats.TransmittedCount++;
                                 WRITE_TRANSMIT_HOLDING(
                                     Extension->Controller,
                                     Extension->SpecialChars.XoffChar
@@ -853,6 +858,7 @@ doTrasmitStuff:;
 
                                 SerialSetRTS(Extension);
 
+                                Extension->PerfStats.TransmittedCount++;
                                 WRITE_TRANSMIT_HOLDING(
                                     Extension->Controller,
                                     Extension->ImmediateChar
@@ -866,6 +872,7 @@ doTrasmitStuff:;
 
                             } else {
 
+                                Extension->PerfStats.TransmittedCount++;
                                 WRITE_TRANSMIT_HOLDING(
                                     Extension->Controller,
                                     Extension->ImmediateChar
@@ -910,6 +917,7 @@ doTrasmitStuff:;
 
                                 if (amountToWrite == 1) {
 
+                                    Extension->PerfStats.TransmittedCount++;
                                     WRITE_TRANSMIT_HOLDING(
                                         Extension->Controller,
                                         *(Extension->WriteCurrentChar)
@@ -917,6 +925,8 @@ doTrasmitStuff:;
 
                                 } else {
 
+                                    Extension->PerfStats.TransmittedCount +=
+                                        amountToWrite;
                                     WRITE_TRANSMIT_FIFO_HOLDING(
                                         Extension->Controller,
                                         Extension->WriteCurrentChar,
@@ -935,6 +945,7 @@ doTrasmitStuff:;
 
                                 if (amountToWrite == 1) {
 
+                                    Extension->PerfStats.TransmittedCount++;
                                     WRITE_TRANSMIT_HOLDING(
                                         Extension->Controller,
                                         *(Extension->WriteCurrentChar)
@@ -942,6 +953,8 @@ doTrasmitStuff:;
 
                                 } else {
 
+                                    Extension->PerfStats.TransmittedCount +=
+                                        amountToWrite;
                                     WRITE_TRANSMIT_FIFO_HOLDING(
                                         Extension->Controller,
                                         Extension->WriteCurrentChar,
@@ -1360,6 +1373,7 @@ Return Value:
             // We have a new character but no room for it.
             //
 
+            Extension->PerfStats.BufferOverrunErrorCount++;
             Extension->ErrorWord |= SERIAL_ERROR_QUEUEOVERRUN;
 
             if (Extension->HandFlow.FlowReplace &
@@ -1479,6 +1493,7 @@ Return Value:
 
             if (LineStatus & SERIAL_LSR_DR) {
 
+                Extension->PerfStats.ReceivedCount++;
                 SerialPutChar(
                     Extension,
                     READ_RECEIVE_BUFFER(Extension->Controller)
@@ -1490,6 +1505,7 @@ Return Value:
 
         if (LineStatus & SERIAL_LSR_OE) {
 
+            Extension->PerfStats.SerialOverrunErrorCount++;
             Extension->ErrorWord |= SERIAL_ERROR_OVERRUN;
 
             if (Extension->HandFlow.FlowReplace &
@@ -1500,16 +1516,26 @@ Return Value:
                     Extension->SpecialChars.ErrorChar
                     );
 
-            }
+                if (LineStatus & SERIAL_LSR_DR) {
 
-            if (LineStatus & SERIAL_LSR_DR) {
+                    Extension->PerfStats.ReceivedCount++;
+                    READ_RECEIVE_BUFFER(Extension->Controller);
 
-                SerialPutChar(
-                    Extension,
-                    READ_RECEIVE_BUFFER(
-                        Extension->Controller
-                        )
-                    );
+                }
+
+            } else {
+
+                if (LineStatus & SERIAL_LSR_DR) {
+
+                    Extension->PerfStats.ReceivedCount++;
+                    SerialPutChar(
+                        Extension,
+                        READ_RECEIVE_BUFFER(
+                            Extension->Controller
+                            )
+                        );
+
+                }
 
             }
 
@@ -1539,6 +1565,7 @@ Return Value:
 
             if (LineStatus & SERIAL_LSR_PE) {
 
+                Extension->PerfStats.ParityErrorCount++;
                 Extension->ErrorWord |= SERIAL_ERROR_PARITY;
 
                 if (Extension->HandFlow.FlowReplace &
@@ -1549,14 +1576,21 @@ Return Value:
                         Extension->SpecialChars.ErrorChar
                         );
 
+                    if (LineStatus & SERIAL_LSR_DR) {
+
+                        Extension->PerfStats.ReceivedCount++;
+                        READ_RECEIVE_BUFFER(Extension->Controller);
+
+                    }
+
                 }
 
             }
 
             if (LineStatus & SERIAL_LSR_FE) {
 
+                Extension->PerfStats.FrameErrorCount++;
                 Extension->ErrorWord |= SERIAL_ERROR_FRAMING;
-
 
                 if (Extension->HandFlow.FlowReplace &
                     SERIAL_ERROR_CHAR) {
@@ -1565,6 +1599,12 @@ Return Value:
                         Extension,
                         Extension->SpecialChars.ErrorChar
                         );
+                    if (LineStatus & SERIAL_LSR_DR) {
+
+                        Extension->PerfStats.ReceivedCount++;
+                        READ_RECEIVE_BUFFER(Extension->Controller);
+
+                    }
 
                 }
 

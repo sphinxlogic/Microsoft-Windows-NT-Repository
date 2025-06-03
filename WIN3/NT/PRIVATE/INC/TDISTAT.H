@@ -45,6 +45,7 @@
 #define TDI_BUFFER_TOO_SMALL    33          // Buffer was too small.
 #define TDI_CANCELLED           34          // The request was cancelled.
 #define	TDI_BUFFER_TOO_BIG		35			// Send buffer was too big.
+#define TDI_ITEM_NOT_FOUND      36          // Item not found.
 #define TDI_INVALID_REQUEST     0xfe        // Invalid request.
 #define TDI_PENDING             0xff        // Pending
 
@@ -88,6 +89,7 @@
 #define	TDI_BUFFER_TOO_BIG		STATUS_INVALID_BUFFER_SIZE
 #define TDI_INVALID_REQUEST     STATUS_INVALID_DEVICE_REQUEST
 #define TDI_PENDING             STATUS_PENDING
+#define TDI_ITEM_NOT_FOUND      STATUS_OBJECT_NAME_NOT_FOUND
 
 
 #endif  // NT
@@ -97,4 +99,3 @@
 #define	TDI_ADDRESS_OPTION_REUSE	1
 #define	TDI_ADDRESS_OPTION_DHCP		2
 
-

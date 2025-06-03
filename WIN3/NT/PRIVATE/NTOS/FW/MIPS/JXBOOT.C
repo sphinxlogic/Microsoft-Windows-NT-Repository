@@ -85,7 +85,6 @@ PCHAR PathNameKeyboard = "multi()Key()keyboard()console()";
 
 CCHAR KeNumberProcessors;
 ULONG KeNumberTbEntries;
-USHORT KeProcessorType;
 PKPRCB KiProcessorBlock[MAXIMUM_PROCESSORS];
 KPRCB Prcb;
 KPROCESS Process;
@@ -609,7 +608,7 @@ Return Value:
 
             //
             // While variables still exist, find the end of each and set
-            // the next envp value to point there. BUGBUG This will break
+            // the next envp value to point there. NOTE this will break
             // if the last variable has only one null after it.
             //
 

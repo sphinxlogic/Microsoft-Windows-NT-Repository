@@ -174,4 +174,3 @@ public:
 	};
 
 #endif //  __TYPEDEF_HXX__
-

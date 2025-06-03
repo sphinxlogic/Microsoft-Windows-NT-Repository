@@ -121,7 +121,7 @@ DBERR IDL_SyntaxErrorDB[ IDL_MAX_DB_ENTRIES ] = {
 	,{ 2, 316, "a string literal"}
 	,{ 2, 317, "a string literal"}
 	,{ 1, 318, ")"}
-	,{ 2, 322, "a struct/union/enum tag"}
+	,{ 2, 322, "an identifier"}
 	,{ 1, 325, "-"}
 	,{ 1, 326, ")"}
 	,{ 1, 327, ";"}

@@ -251,7 +251,7 @@ Return Value:
                     //
                     // call winhelp
                     //
-                    WinHelp( hDlg, szHelpFileName, HELP_CONTEXT, IDH_ASSERT );
+                    WinHelp( hDlg, szHelpFileName, HELP_FINDER, IDH_ASSERT );
                     break;
             }
             break;
@@ -367,4 +367,3 @@ Return Value:
             break;
     }
 }
-

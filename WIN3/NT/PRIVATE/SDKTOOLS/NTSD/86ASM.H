@@ -20,7 +20,7 @@
 #define BOOLEAN unsigned long
 
 #define ARRAYSIZE	20
-#define STRLISTSIZE	32
+#define STRLISTSIZE     128
 #define SYMBOLSIZE      256
 
 //  error codes

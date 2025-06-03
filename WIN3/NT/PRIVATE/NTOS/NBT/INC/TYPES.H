@@ -44,6 +44,27 @@ Revision History:
 #define TDI_RECEIVE_REINDICATE  0x00000200  // remaining TSDU should cause another indication to the client
 
 //
+// In debug builds, write flink and blink with invalid pointer values so that
+// if an entry is removed twice from a list, we bugcheck right there, instead
+// of being faced with a corrupted list some years later!
+//
+#if DBG
+#undef RemoveEntryList
+#define RemoveEntryList(Entry) {\
+    PLIST_ENTRY _EX_Blink;\
+    PLIST_ENTRY _EX_Flink;\
+    PLIST_ENTRY _EX_OrgEntry;\
+    _EX_OrgEntry = (Entry);\
+    _EX_Flink = (Entry)->Flink;\
+    _EX_Blink = (Entry)->Blink;\
+    _EX_Blink->Flink = _EX_Flink;\
+    _EX_Flink->Blink = _EX_Blink;\
+    _EX_OrgEntry->Flink = (LIST_ENTRY *)__LINE__;\
+    _EX_OrgEntry->Blink = (LIST_ENTRY *)__LINE__;\
+    }
+#endif
+
+//
 // Netbios name size restrictions
 //
 #define NETBIOS_NAME_SIZE       16
@@ -227,7 +248,9 @@ typedef struct _tNAMEADDR
         tIPLIST              *pIpList;   // list of ip addresses for internet group names
     };
 
-    union _TRACKER       *pTracker;  // contains tracker ptr during name resol. phase
+    PULONG                   pIpAddrsList;  // list of ipaddrs (internet grp names,multihomed dns hosts etc.)
+
+    struct _TRACKER       *pTracker;  // contains tracker ptr during name resol. phase
 
     // if the name is a scope name, it does not have timers started against
     // it, so we can use the same memory to store the length of the scope name
@@ -312,13 +335,6 @@ extern USHORT   NodeType;   // defined in Name.c
 #define PROXY       0x0010
 #define DEFAULT_NODE_TYPE 0x1000
 
-#define IF_PNODE(Node)    if ((Node) & PNODE)
-#define IF_MNODE(Node)    if ((Node) & MNODE)
-#define IF_MSNODE(Node)   if ((Node) & MSNODE)
-#define IF_BNODE(Node)    if ((Node) & BNODE)
-#define IF_PNODE_AND_NOT_PROXY(Node)    if ( ( ((Node) & PNODE)) && !((Node) & PROXY) )
-#define END_IF
-
 //
 //  NT wants Unicode, Vxd wants ANSI
 //
@@ -350,11 +366,14 @@ extern USHORT   NodeType;   // defined in Name.c
 #define WS_SINGLE_RESPONSE  ANSI_IF_VXD("SingleResponse")
 #define WS_INITIAL_REFRESH  ANSI_IF_VXD("InitialRefreshT.O.")
 #define WS_ENABLE_DNS       ANSI_IF_VXD("EnableDns")
+#define WS_TRY_ALL_ADDRS    ANSI_IF_VXD("TryAllIpAddrs")
 #define WS_ENABLE_LMHOSTS   ANSI_IF_VXD("EnableLmhosts")
 #define WS_LMHOSTS_TIMEOUT  ANSI_IF_VXD("LmhostsTimeout")
 #define WS_MAX_DGRAM_BUFFER ANSI_IF_VXD("MaxDgramBuffering")
 #define WS_ENABLE_PROXY_REG_CHECK  ANSI_IF_VXD("EnableProxyRegCheck")
 #define WS_WINS_DOWN_TIMEOUT ANSI_IF_VXD("WinsDownTimeout")
+#define WS_MAX_CONNECTION_BACKLOG ANSI_IF_VXD("MaxConnBacklog")
+#define WS_CONNECTION_BACKLOG_INCREMENT ANSI_IF_VXD("BacklogIncrement")
 #define WS_REFRESH_OPCODE ANSI_IF_VXD("RefreshOpCode")
 
 #ifdef VXD
@@ -408,7 +427,7 @@ extern USHORT   NodeType;   // defined in Name.c
 // are sent.(effectively 4 are sent).
 //
 #define DEFAULT_NUMBER_RETRIES      3
-#define DEFAULT_RETRY_TIMEOUT       750
+#define DEFAULT_RETRY_TIMEOUT       1500
 #define MIN_RETRY_TIMEOUT           100
 
 //#define MIN_RETRY_TIMEOUT           100
@@ -439,6 +458,11 @@ extern USHORT   NodeType;   // defined in Name.c
 #define DEFAULT_TTL                         5*60*1000
 
 //
+// Default TTL used for checking whether we need to switch back to the primary. currently 1 hour.
+//
+#define DEFAULT_SWITCH_TTL              1*60*60*1000 // millisecs.
+
+//
 // we refresh every 16 minutes / 8 - so no more than once every two
 // minutes until we reach WINS and get a new value
 //
@@ -455,6 +479,20 @@ extern USHORT   NodeType;   // defined in Name.c
 //
 #define DEFAULT_WINS_DOWN_TIMEOUT   15000 // 15 seconds
 #define MIN_WINS_DOWN_TIMEOUT       1000  // 1 second
+
+//
+// Default max connections that can be in backlog
+//
+#define DEFAULT_CONN_BACKLOG   1000
+#define MIN_CONN_BACKLOG   2
+#define MAX_CONNECTION_BACKLOG  40000   // we allow only upto 40000 outstanding connections (~4MB)
+
+//
+// Default max lower connection increment
+//
+#define DEFAULT_CONN_BACKLOG_INCREMENT   3
+#define MIN_CONN_BACKLOG_INCREMENT   3
+#define MAX_CONNECTION_BACKLOG_INCREMENT  20   // we allow only upto 20 new ones at a time
 
 // the minimum time to wait for a session setup pdu to complete - used to
 // start a timer in name.c
@@ -524,11 +562,6 @@ typedef struct {
 #define NBT_PARAMETERS          L"\\Parameters"
 #endif
 
-//
-// these types define the values stored in the FsContext2 variable in the
-// FileObject so that NBT can tell what type of object is being released
-// when one is released - basically case on FsContext2
-//
 #define NBT_ADDRESS_TYPE        01
 #define NBT_CONNECTION_TYPE     02
 #define NBT_CONTROL_TYPE        03
@@ -569,6 +602,7 @@ enum eNSTYPE
 {
     eNAME_QUERY,
     eDNS_NAME_QUERY,
+    eDIRECT_DNS_NAME_QUERY,
     eNAME_QUERY_RESPONSE,
     eNAME_REGISTRATION,
     eNAME_REGISTRATION_OVERWRITE,
@@ -576,6 +610,9 @@ enum eNSTYPE
     eNAME_RELEASE,
     eNAME_REFRESH
 };
+
+
+#define DIRECT_DNS_NAME_QUERY_BASE 0x8000
 
 //
 // Defines for the Verify elements of the handles passed to clients so that
@@ -590,6 +627,8 @@ enum eNSTYPE
 #define NBT_VERIFY_CLIENT_DOWN       0x18273640
 #define NBT_VERIFY_DEVCONTEXT        0x54637281
 #define NBT_VERIFY_CONTROL           0x56789123
+#define NBT_VERIFY_TRACKER           0x10231966
+#define NBT_VERIFY_BLOCKING_NCB      0x08121994
 //
 // Session Header types from the RFC's
 //
@@ -838,12 +877,16 @@ typedef struct
 // DNS servers return only 4 bytes of data (ipaddress): no flags.
 typedef struct
 {
-    ULONG           RrTypeClass;
+    USHORT          RrType;
+    USHORT          RrClass;
     ULONG           Ttl;
     USHORT          Length;
     ULONG           IpAddress;
 
 }   tDNS_QUERYRESP;
+
+#define  DNS_CNAME   5
+
 //
 // the format of the tail of the node status response message
 //
@@ -1058,111 +1101,128 @@ typedef struct
 // Active Datagram Send List - a set of linked blocks that represent transactions
 // passed to the Transport TDI for execution... these blocks could be waiting
 // for name resolution or for the send to complete
-typedef union _TRACKER
+
+typedef struct _TRACKER
 {
-    // This datastructure tracks datagram sends.
-    struct
-    {
-        LIST_ENTRY            Linkage;
-        LIST_ENTRY            TrackerList;
-        PCTE_IRP              pClientIrp;    // client's IRP
-        union
-        {
-            struct _Client    *pClientEle;   // client element block
-            struct _Connect   *pConnEle;   // connection element block
-            tNAMEADDR         *p1CNameAddr; // DomainNames 1C pNameAddr - used sending datagrams
-        };
+    // The type of address dictates the course of action, e.g., TDI_ADDRESS_NETBIOS_EX
+    // address avoids NETBIOS name registration. This encodes the desired address type
+    // associated with the connection or specified for the connection.
 
-        tBUFFER               SendBuffer;   // send buffer and header to send
+    ULONG   AddressType;
 
-        PTDI_CONNECTION_INFORMATION pSendInfo;
-        struct _DeviceContext *pDeviceContext;
-        union
-        {
-            ULONG UNALIGNED   *pHdrIpAddress; // address of ip address in pDgramHdr
-            tTIMERQENTRY      *pTimer;
-            PVOID             pNodeStatus;  // node status response buffer
-        };
+    union {
+       // This datastructure tracks datagram sends.
+       struct
+       {
+           LIST_ENTRY            Linkage;
+           LIST_ENTRY            TrackerList;
+           ULONG                 Verify;
+           PCTE_IRP              pClientIrp;    // client's IRP
+           union
+           {
+               struct _Client    *pClientEle;   // client element block
+               struct _Connect   *pConnEle;   // connection element block
+               tNAMEADDR         *p1CNameAddr; // DomainNames 1C pNameAddr - used sending datagrams
+           };
 
-        union
-        {
-            ULONG             RefCount;
-            USHORT            IpListIndex; // index into IpList for Group sends
-            USHORT            SavedListIndex; //last index sent when timer was started
-            ULONG             DestPort;    // used by ReTarget to specify the dest port
-        };
+           tBUFFER               SendBuffer;   // send buffer and header to send
 
-        union
-        {
-            PCHAR             pDestName;    // ptr to destination ASCII name
-            tNAMEADDR         *pNameAddr;   // ptr to name addres rec in hash tbl
-        };
+           PTDI_CONNECTION_INFORMATION pSendInfo;
+           struct _DeviceContext *pDeviceContext;
+           union
+           {
+               ULONG UNALIGNED   *pHdrIpAddress; // address of ip address in pDgramHdr
+               tTIMERQENTRY      *pTimer;
+               PVOID             pNodeStatus;  // node status response buffer
+           };
 
-        union
-        {
-            PVOID             pTimeout;      // used for the TCP connect timeout -from union below
-            ULONG             NodeStatusLen;// pNodeStatus buffer length
+           union
+           {
+               ULONG             RefCount;
+               USHORT            IpListIndex; // index into IpList for Group sends
+               USHORT            SavedListIndex; //last index sent when timer was started
+               ULONG             DestPort;    // used by ReTarget to specify the dest port
+           };
 
-            // used for name queries and registrations to check if response has
-            // same transactionid
-            USHORT            TransactionId;
-            ULONG             RCount;       // refcount used for datagram dist.
-        };
+           union
+           {
+               PCHAR             pDestName;    // ptr to destination ASCII name
+               tNAMEADDR         *pNameAddr;   // ptr to name addres rec in hash tbl
+           };
 
-        union
-        {
-            ULONG             AllocatedLength; // used in Sending Dgrams to count mem allocated
-            ULONG             RefConn;         // used for NbtConnect
-            ULONG             SrcIpAddress;// used for node status
-        };
+   #ifdef VXD
+           PUCHAR                pchDomainName;
+   #endif
+           union
+           {
+               PVOID             pTimeout;      // used for the TCP connect timeout -from union below
+               ULONG             NodeStatusLen;// pNodeStatus buffer length
 
-        //
-        // when two name queries go to the same name, this is the
-        // completion routine to call for this tracker queued to the first
-        // tracker.
-        //
-        COMPLETIONCLIENT      CompletionRoutine;
-        USHORT                Flags;
-//#if DBG
-        LIST_ENTRY            DebugLinkage; // to keep track of used trackers
-//#endif
+               // used for name queries and registrations to check if response has
+               // same transactionid
+               USHORT            TransactionId;
+               ULONG             RCount;       // refcount used for datagram dist.
+           };
+
+           union
+           {
+               ULONG             AllocatedLength; // used in Sending Dgrams to count mem allocated
+               ULONG             RefConn;         // used for NbtConnect
+               ULONG             SrcIpAddress;// used for node status
+           };
+
+           //
+           // when two name queries go to the same name, this is the
+           // completion routine to call for this tracker queued to the first
+           // tracker.
+           //
+           COMPLETIONCLIENT      CompletionRoutine;
+           USHORT                Flags;
+   //#if DBG
+           LIST_ENTRY            DebugLinkage; // to keep track of used trackers
+   //#endif
+
+       };
+       // this next version of the structure is used to track Session Sends as
+       // opposed to Datagram sends
+       struct
+       {
+           LIST_ENTRY            Linkage;
+           LIST_ENTRY            TrackerList;
+           ULONG                 Verify;
+           PCTE_IRP              pClientIrp;
+           struct _Connect       *pConnEle;   // connection element block
+
+           tBUFFER               SendBuffer;   // send buffer and header to send
+
+           PTDI_CONNECTION_INFORMATION pSendInfo;
+           struct _DeviceContext *pDeviceContext;
+           tTIMERQENTRY          *pTimer;     // timer q entry
+
+           ULONG                 RefCount;
+
+           union
+           {
+               PCHAR             pDestName;    // ptr to destination ASCII name
+               tNAMEADDR         *pNameAddr;   // ptr to name addres rec in hash tbl
+           };
+
+           PVOID                 pTimeout;      // used for the TCP connect timeout
+
+           ULONG                 RefConn;
+           //
+           // when two name queries go to the same name, this is the
+           // completion routine to call for this tracker queued to the first
+           // tracker.
+           //
+           COMPLETIONCLIENT      CompletionRoutine;
+           USHORT                Flags;
+
+       }Connect;
     };
-    // this next version of the structure is used to track Session Sends as
-    // opposed to Datagram sends
-    struct
-    {
-        LIST_ENTRY            Linkage;
-        LIST_ENTRY            TrackerList;
-        PCTE_IRP              pClientIrp;
-        struct _Connect       *pConnEle;   // connection element block
 
-        tBUFFER               SendBuffer;   // send buffer and header to send
-
-        PTDI_CONNECTION_INFORMATION pSendInfo;
-        struct _DeviceContext *pDeviceContext;
-        tTIMERQENTRY          *pTimer;     // timer q entry
-
-        ULONG                 RefCount;
-
-        union
-        {
-            PCHAR             pDestName;    // ptr to destination ASCII name
-            tNAMEADDR         *pNameAddr;   // ptr to name addres rec in hash tbl
-        };
-
-        PVOID                 pTimeout;      // used for the TCP connect timeout
-
-        ULONG                 RefConn;
-        //
-        // when two name queries go to the same name, this is the
-        // completion routine to call for this tracker queued to the first
-        // tracker.
-        //
-        COMPLETIONCLIENT      CompletionRoutine;
-        USHORT                Flags;
-    }Connect;
-
-
+    ULONG   NumAddrs;
+    PULONG   IpList;
 } tDGRAM_SEND_TRACKING;
 
 // this is the type of the procedure to call in the session receive handler
@@ -1209,6 +1269,33 @@ typedef struct
 
 } NBT_WORK_ITEM_CONTEXT;
 
+
+#ifdef VXD
+
+typedef void (*DCCallback)( PVOID pContext ) ;
+
+typedef struct
+{
+    NBT_WORK_ITEM_CONTEXT  dc_WIC ;         // Must be first item in structure
+    CTEEvent               dc_event ;
+    DCCallback             dc_Callback ;
+    struct _DeviceContext *pDeviceContext;
+    LIST_ENTRY             Linkage;
+} DELAYED_CALL_CONTEXT, *PDELAYED_CALL_CONTEXT ;
+
+typedef struct
+{
+    LIST_ENTRY       Linkage;
+    ULONG            Verify;
+    NCB             *pNCB;
+    CTEBlockStruc   *pWaitNCBBlock;
+    BOOL             fNCBCompleted;
+    BOOL             fBlocked;
+} BLOCKING_NCB_CONTEXT, *PBLOCKING_NCB_CONTEXT;
+
+#endif
+
+
 // A Listen is attached to a client element attached address element when a
 // client does a listen
 typedef VOID    (*tRequestComplete)
@@ -1250,7 +1337,13 @@ typedef struct
 #define NBT_NAME_SERVICE            0x0010 // two flags used by Tdiout to send dgrams
 #define NBT_DATAGRAM_SERVICE        0x0020
 #define TRACKER_CANCELLED           0x0040
-#define WINS_NEG_RESPONSE           0x0200
+#define WINS_NEG_RESPONSE       0x0200
+#define REMOTE_ADAPTER_STAT_FLAG    0x1000
+#define SESSION_SETUP_FLAG          0x2000
+#define DGRAM_SEND_FLAG             0x4000
+#define FIND_NAME_FLAG              0x8000
+
+
 //
 // this flag indicates that a datagram send is still outstanding in the
 // transport - it is set in the tracker flags field.
@@ -1344,6 +1437,17 @@ enum eSTATE
 #define NBT_DOWN    0
 
 // this structure is used by the parse.c to hold on to an Irp from the
+// lmhsvc.dll that is used for checking IP addr reachability.
+//
+typedef struct
+{
+    PCTE_IRP    QueryIrp;           // irp passed down from lmhsvc.dll
+    LIST_ENTRY  ToResolve;          // linked list of names Q'd to resolve
+    PVOID       Context;            // currently resolving name context block
+    BOOLEAN     ResolvingNow;       // irp is in user mode doing a resolve
+} tCHECK_ADDR;
+
+// this structure is used by the parse.c to hold on to an Irp from the
 // lmhsvc.dll that is used for DNS name queries
 //
 typedef struct
@@ -1352,9 +1456,6 @@ typedef struct
     LIST_ENTRY  ToResolve;          // linked list of names Q'd to resolve
     PVOID       Context;            // currently resolving name context block
     BOOLEAN     ResolvingNow;       // irp is in user mode doing a resolve
-#ifndef VXD
-    ERESOURCE   Resource;           // to coordinate access to the List
-#endif
 } tDNS_QUERIES;
 
 //
@@ -1371,7 +1472,7 @@ typedef struct
 
 } tLMHOST_QUERIES;
 
-#define DEFAULT_LMHOST_TIMEOUT      10000   // 10-20 to wait for lmhost or DNS query
+#define DEFAULT_LMHOST_TIMEOUT      6000   // 6-12 to wait for lmhost or DNS query
 #define MIN_LMHOST_TIMEOUT          1000    // 1  seconds min
 
 //
@@ -1430,6 +1531,10 @@ typedef struct _Connect
     DEFINE_LOCK_STRUCTURE( SpinLock )        //4 to lock access on an MP machine
     struct _LowerConnection   *pLowerConnId; //5 connection ID to transport
     struct _Client            *pClientEle;   //6 ptr to client record
+
+#ifndef _IO_DELETE_DEVICE_SUPPORTED
+    struct _DeviceContext *pDeviceContext;
+#endif
 
     LIST_ENTRY                Active;        //7-8 list of Active sends
     LIST_ENTRY                RcvHead;       //9-10 List of Rcv Buffers
@@ -1496,6 +1601,36 @@ typedef struct _Connect
     // the client does a disconnect wait.
     UCHAR                     DiscFlag;          //29
     BOOLEAN                   JunkMsgFlag;
+
+#ifdef RASAUTODIAL
+    // this field is TRUE if an automatic connection is in progress
+    // for this connection.  we use this to prevent an infinite
+    // number of automatic connection attempts to the same address.
+    BOOLEAN                   fAutoConnecting;
+
+    // this field is TRUE if this connection has already been
+    // autoconnected.
+    BOOLEAN                   fAutoConnected;
+#endif
+
+    // The NetBt Connection logic manages a pool of lower connection blocks. These
+    // entries are replenished with every associate call made from the client.
+    // The entries are removed with a fresh invocation to NbtConnectCommon.
+    // Since it is conceivable that multiple invocations to NbtConnectCommon can be
+    // made this state needs to be recorded in the connect element.
+    BOOLEAN LowerConnBlockRemoved;
+
+    // The DNS status of the remote name is recorded in this field. It is set to
+    // FALSE on creation of a tCONNECTELE instance and changed to TRUE if the
+    // DNS resolution for the Remote Name fails. This is used to throttle back
+    // subsequent requests for the same DNS name.
+    BOOLEAN RemoteNameDoesNotExistInDNS;
+
+    // The type of address over which the connection was established. This
+    // field is used to store the type of address that was used to establish the
+    // connection. The valid address types are the TDI_ADDRESS_TYPE_* constants
+    // defined in tdi.h
+    ULONG                     AddressType;
 
 } tCONNECTELE;
 
@@ -1610,6 +1745,17 @@ typedef struct _LowerConnection
     //
     BOOLEAN                 DestroyConnection;  //24
 
+    //
+    // Set when this connection is queued onto the OutOfRsrc list in NbtConfig to
+    // indicate to DeleteLowerConn not to try and remove this from any list.
+    //
+    BOOLEAN                 OutOfRsrcFlag;
+
+    //
+    // Was this allocated to tackle the TCP/IP SynAttack problem?
+    //
+    BOOLEAN                 SpecialAlloc;
+
 #ifdef VXD
     BOOLEAN                 fOnPartialRcvList;
 #endif
@@ -1666,6 +1812,11 @@ typedef struct _Client
     // flag is set.  It is reset in RegisterCompletion.
     BOOLEAN            WaitingForRegistration;
 
+    // The address type of the associated AddressEle structure. This is
+    // a stashed value of the original value stored in the address element.
+    ULONG                     AddressType;
+    UCHAR                     EndpointName[NETBIOS_NAME_SIZE];
+    BOOLEAN                   ExtendedAddress;
 } tCLIENTELE;
 
 // The Address List is a set of blocks that contain the netbios names active
@@ -1702,6 +1853,10 @@ typedef struct _Address
     // when names are added in NbtOpenAddress
     BOOLEAN            MultiClients;
 
+    // The type of address specified in opening the connection object. The values
+    // are the same as the TDI_ADDRESS_TYPE_ constants. Currently the only valid
+    // values are TDI_ADDRESS_TYPE_NETBIOS and TDI_ADDRESS_TYPE_NETBIOS_EX.
+    ULONG              AddressType;
 } tADDRESSELE;
 
 
@@ -1724,6 +1879,24 @@ typedef struct
 // this type is the device context which includes NBT specific data
 // that is initialized when "DriverEntry" is called.
 //
+
+//
+// The transport type is used to distinguish the additional transport types
+// that can be supported, NETBT framing without NETBIOS name resolution/registration
+// and NETBIOS over TCP. The transport type is stored as part of all the upper
+// level data structures. This enables us to reuse NETBT code and expose multiple
+// device objects at the top level. Currently these are not exposed. In preparation
+// for exporting multiple transport device objects the DeviceContext has been
+// reorganized.
+// The elements that would be common to all the device objects have been gathered
+// together in tCOMMONDEVICECONTEXT. This will include an enumerated type to
+// distinguish between the various device objects in the future. Currently there is only
+// one device context and the fields that belong to it are listed ...
+//
+// RegistrationHandle -- PNP power,
+// enumerated type distinguishing the types.
+//
+
 typedef struct _DeviceContext
 {
 #ifndef VXD
@@ -1734,12 +1907,23 @@ typedef struct _DeviceContext
     // a linkage to store these in a linked list in the tNBTCONFIG structure
     LIST_ENTRY      Linkage;
 
+#ifndef _IO_DELETE_DEVICE_SUPPORTED
+    // a linkage to store free, re-usable contexts in a linked list in the tNBTCONFIG structure
+    LIST_ENTRY      FreeLinkage;
+#endif
+
     // to lock access to this structure on an MP machine
     DEFINE_LOCK_STRUCTURE( SpinLock )
 
     // a value to verify that this is a device context record
     ULONG           Verify;
 
+    // ulong since we use interlocked ops to manipulate it.
+    ULONG           IsDestroyed;
+
+#if DBG
+    BOOLEAN         IsDynamic;
+#endif
     // connections that the clients have created
     LIST_ENTRY    UpConnectionInUse;
 
@@ -1769,6 +1953,11 @@ typedef struct _DeviceContext
     //
     LIST_ENTRY    RcvDGAnyFromAnyHead ;
 
+    //
+    // all events that are scheduled for later on this device context
+    //
+    LIST_ENTRY    DelayedEvents;
+
     tCLIENTELE  * * pNameTable ;       // Name table for this adapter
     tCONNECTELE * * pSessionTable ;    // Session table
     UCHAR           iNcbNum ;          // Next available NCB Num in table
@@ -1778,7 +1967,8 @@ typedef struct _DeviceContext
 
     UCHAR           IPIndex ;          // Index of IP address in IP driver
     UCHAR           iLana;             // Lana index
-    UCHAR           Pad1[2] ;
+    BOOLEAN         fDeviceUp;         // to avoid ncb's coming when not ready
+    UCHAR           Pad1[1] ;
 
     HANDLE          hBroadcastAddress ;// Handle openned with NbtOpenAddress on '*'
 #else
@@ -1850,8 +2040,65 @@ typedef struct _DeviceContext
     BOOLEAN        RefreshToBackup; // flag to say switch to backup nameserver
     BOOLEAN        PointToPoint;    // set if the transport is RAS device
     BOOLEAN        WinsIsDown;      // per Devcontext flag to tell us not to contact WINS for 15 sec.
-
+#ifdef _PNP_POWER
+    HANDLE         RegistrationHandle;  // Handle returned from TdiRegisterDeviceObject.
+#endif // _PNP_POWER
+    ULONG           InstanceNumber;
 } tDEVICECONTEXT;
+
+
+#ifdef VXD
+
+typedef struct
+{
+    //
+    // Book keeping.
+    //
+    LIST_ENTRY      Linkage;
+    tTIMERQENTRY    *pTimer;    // ptr to active timer entry
+    tDEVICECONTEXT  *pDeviceContext;
+    //
+    // Domain name for next query.
+    //
+    PUCHAR          pchDomainName;
+    //
+    // Flags to track progress.
+    //
+    USHORT          Flags;
+    //
+    // Transaction ID used in name query.
+    //
+    USHORT          TransactId;
+    //
+    // Client fields follow.
+    //
+    NCB             *pNCB;
+    PUCHAR          pzDnsName;
+    PULONG          pIpAddress;
+
+} DNS_DIRECT_WORK_ITEM_CONTEXT, *PDNS_DIRECT_WORK_ITEM_CONTEXT;
+
+typedef struct
+{
+    tDEVICECONTEXT  *pDeviceContext;
+    TDI_CONNECTION_INFORMATION
+                    SendInfo;
+    TA_IP_ADDRESS   NameServerAddress;
+    tBUFFER         SendBuffer;   // send buffer and header to send
+    tNAMEHDR        NameHdr;
+} DNS_DIRECT_SEND_CONTEXT, *PDNS_DIRECT_SEND_CONTEXT;
+
+//
+// Flag bits useful for DNS direct name queries.
+//
+#define DNS_DIRECT_CANCELLED        0x0001      // request cancelled
+#define DNS_DIRECT_DNS_SERVER       0x0002      // going to main DNS
+#define DNS_DIRECT_DNS_BACKUP       0x0004      // going to main DNS
+#define DNS_DIRECT_TIMED_OUT        0x0008      // request timed out
+#define DNS_DIRECT_NAME_HAS_DOTS    0x0010      // name has dots in it, could be fully formed
+                                                // DNS specifier
+#define DNS_DIRECT_ANSWERED         0x0020      // This query has been answered
+#endif // VXD
 
 #ifndef VXD
 // configuration information is passed between the registry reading
@@ -1906,13 +2153,20 @@ typedef struct
 
 // Keep an Irp around for the out of resource case, so that we can still
 // disconnection a connection with the transport
+// Also, keep a KDPC handy so if we can use it in case lot of connections
+// are to be killed in succession
 //
 typedef struct
 {
     PIRP        pIrp;
     LIST_ENTRY  ConnectionHead;
+#ifndef VXD
+    PKDPC       pDpc;
+#endif
 
 } tOUTOF_RSRC;
+
+#define MAXIMUM_PROCESSORS  32
 
 // this type holds NBT configuration information... is globally available
 // within NBT using NbtConfig.
@@ -1924,6 +2178,9 @@ typedef struct
 
     // linked list of device contexts, one per network adapter (tDEVICECONTEXT)
     LIST_ENTRY  DeviceContexts;
+
+    // linked list of device contexts, one per network adapter (tDEVICECONTEXT)
+    LIST_ENTRY  FreeDevCtx;
 
     // counts to track how many buffer have been allocated so far
     USHORT    iCurrentNumBuff[eNBT_NUMBER_BUFFER_TYPES];
@@ -1942,6 +2199,10 @@ typedef struct
     LIST_ENTRY    AddressHead;
 
     LIST_ENTRY    PendingNameQueries;
+
+#ifdef VXD
+    LIST_ENTRY  DNSDirectNameQueries;
+#endif // VXD
 
 #ifndef VXD
     // a ptr to keep track of the memory allocated to the control object
@@ -1979,6 +2240,11 @@ typedef struct
     LIST_ENTRY           SessionBufferFreeList ;
     LIST_ENTRY           SendContextFreeList ; // TDI_SEND_CONTEXT (not SEND_CONTEXT!)
     LIST_ENTRY           RcvContextFreeList ;
+    //
+    // all events that are scheduled for later (that apply to all device contexts)
+    //
+    LIST_ENTRY    DelayedEvents;
+    LIST_ENTRY    BlockingNcbs;
 #endif //VXD
 
     // hash table to keep track of local and remote names
@@ -2003,6 +2269,11 @@ typedef struct
     USHORT      uNumBucketsRemote;
     USHORT      uNumBucketsLocal;
     USHORT      TimerQSize;             // the number of timer Q blocks
+
+#ifdef _PNP_POWER
+    USHORT      uDevicesStarted;        // bindings/devices/local IP addresses in use
+    USHORT      Pad2;
+#endif // _PNP_POWER
 
     LONG        uBcastTimeout;          // timeout between Broadcasts
     LONG        uRetryTimeout;          // timeout between retries
@@ -2054,6 +2325,8 @@ typedef struct
 #endif
     USHORT      sTimeoutCount;   // current time segment we are on for refresh
 
+    USHORT      LastSwitchTimeoutCount;  // Count to know when we last switched to primary
+
     // this spin lock is used to coordinate access to the timer Q and the
     // hash tables when either a timer is expiring or a name service PDU
     // has come in from the wire.  This lock must be acquired first, and
@@ -2077,8 +2350,24 @@ typedef struct
     ULONG       PathLength;  // the length of the directory portion of pLmHosts
 #ifdef VXD
     PUCHAR      pHosts;      // path to the hosts file
-    PUCHAR      pDomainName; // used during DNS resolution
+    PUCHAR      pDomainName; // primary domain: used during DNS resolution
+    PUCHAR      pDNSDomains; // "other domains"
+
+    // chicago needs this!
+    // to avoid having to read parms at CreateDevice time, we read some parms from
+    // registry at init time and store them here (ndis may not honour our request to
+    // read registry at arbitrary times e.g. dhcp renew occurs).
+    //
+    ULONG       lRegistryNameServerAddress;
+    ULONG       lRegistryBackupServer;
+
+    ULONG       lRegistryDnsServerAddress;
+    ULONG       lRegistryDnsBackupServer;
+
+    USHORT      lRegistryMaxNames;
+    USHORT      lRegistryMaxSessions;
 #endif
+
     UCHAR       AdapterCount;// number of network adapters.
     BOOLEAN     MultiHomed;  // True if NBT is bound to more than one adapter
     BOOLEAN     SingleResponse; // if TRUE it means do NOT send all ip addresses on a name query request
@@ -2089,6 +2378,8 @@ typedef struct
 
     // This boolean tells Nbt to attempt name resolutions with DNS
     BOOLEAN     ResolveWithDns;
+    // Nbt tries all addresses of a multi-homed machine if this is TRUE (by default its TRUE).
+    BOOLEAN     TryAllAddr;
     // This boolean tells Nbt to attempt name resolutions with LMhosts
     BOOLEAN     EnableLmHosts;
     // This allows a proxy to do name queries to WINS to check Bnode name
@@ -2116,12 +2407,22 @@ typedef struct
     DEFINE_LOCK_STRUCTURE(DbgSpinLock)
 #endif
 
+    ULONG   InterfaceIndex;
+
+#if DBG
+    ULONG   ActualNumSpecialLowerConn;
+#endif
+    ULONG   NumQueuedForAlloc;
+    ULONG   NumSpecialLowerConn;
+    ULONG   MaxBackLog;
+    ULONG   SpecialConnIncrement;
 
 } tNBTCONFIG;
 
 extern tNBTCONFIG           *pNbtGlobConfig;
 extern tNBTCONFIG           NbtConfig;
 extern tNAMESTATS_INFO      NameStatsInfo;
+extern tCHECK_ADDR          CheckAddr;
 extern tDNS_QUERIES         DnsQueries;            // defined in parse.c
 extern tDOMAIN_LIST         DomainNames;
 #ifndef VXD
@@ -2144,5 +2445,5 @@ extern LIST_ENTRY           UsedTrackers;
 extern LIST_ENTRY           UsedIrps;
 //#endif
 #endif
-
-
+
+

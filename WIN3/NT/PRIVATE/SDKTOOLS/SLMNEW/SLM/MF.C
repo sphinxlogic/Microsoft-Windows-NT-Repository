@@ -1,29 +1,20 @@
-#include <io.h>
-#include <fcntl.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <string.h>
-#include <stdlib.h>
-
-#include "slm.h"
-#include "sys.h"
-#include "util.h"
-#include "stfile.h"
-#include "ad.h"
-#include "script.h"
-#include "proto.h"
-
+#include "precomp.h"
+#pragma hdrstop
 EnableAssert
 
 char rgchIn[]  = "(stdin)";
 char rgchOut[] = "(stdout)";
 char rgchErr[] = "(stderr)";
 char rgchLog[] = "(log)";
+char rgchLocal1[] = "(local1)";
+char rgchLocal2[] = "(local2)";
 MF mfStdin  = { (PTH *)rgchIn,  "", 0, fdNil, fxNil, fFalse, mmNil ,0L };
 MF mfStdout = { (PTH *)rgchOut, "", fdNil, 1, fxNil, fFalse, mmNil ,0L };
 MF mfStderr = { (PTH *)rgchErr, "", fdNil, 2, fxNil, fFalse, mmNil ,0L };
 MF mfStdlog = { (PTH *)rgchLog, "", fdNil, fdNil, fxNil, fFalse, mmNil ,0L };
-static AD *padLog;
+
+MF mfLocal1 = { (PTH *)rgchLocal1,  "", fdNil, fdNil, fxNil, fFalse, mmNil ,0L };
+MF mfLocal2 = { (PTH *)rgchLocal2,  "", fdNil, fdNil, fxNil, fFalse, mmNil ,0L };
 
 /* four mf to allocate; pthReal==0 indicates availability; other fields
    always valid (i.e. so FreeMf and CloseMf do nothing).
@@ -39,22 +30,20 @@ InitLogHandle(
     AD *pad,
     char *pszLogName)
 {
-    if (!stricmp(pszLogName, "nul"))
+    if (!_stricmp(pszLogName, "nul"))
         return;
 
     mfStdlog.pthReal = malloc(strlen(pszLogName) + 1);
     if (mfStdlog.pthReal)
     {
         strcpy(mfStdlog.pthReal, pszLogName);
-        mfStdlog.fdWrite = open(mfStdlog.pthReal, O_APPEND|O_WRONLY|O_CREAT,
+        mfStdlog.fdWrite = _open(mfStdlog.pthReal, O_APPEND|O_WRONLY|O_CREAT,
                                 S_IREAD|S_IWRITE);
     }
 
     if (mfStdlog.fdWrite == fdNil)
         FatalError("Unable to open log file (%s) for write access\n",
                    pszLogName );
-
-    padLog = pad;
 }
 
 
@@ -64,19 +53,75 @@ CloseLogHandle(
 {
     if (mfStdlog.fdWrite != fdNil)
     {
-        if (mfStdlog.pos != 0L)
-        {
-            if (padLog->flags & flagStScript)
-                Warn("Backup script written to %s\n", mfStdlog.pthReal);
-            else
-                Warn("SSync log written to %s\n", mfStdlog.pthReal);
-        }
-
-        close(mfStdlog.fdWrite);
+        _close(mfStdlog.fdWrite);
         mfStdlog.fdWrite = fdNil;
     }
 }
 
+
+/* Open one of the two static MF structures dedicated for local files.
+*/
+MF *
+OpenLocalMf(
+    char *pszLocalFileName)
+{
+    register MF *pmf;
+    int wRetErr;
+
+    if (mfLocal1.fdWrite == fdNil)
+        pmf = &mfLocal1;
+    else
+    if (mfLocal2.fdWrite == fdNil)
+        pmf = &mfLocal2;
+    else
+    {
+        AssertF(fFalse);
+        return NULL;
+    }
+    pmf->pthReal = malloc(strlen(pszLocalFileName) + 1);
+    if (pmf->pthReal)
+    {
+        strcpy(pmf->pthReal, pszLocalFileName);
+        pmf->fdWrite = _open(pmf->pthReal, O_APPEND|O_WRONLY|O_CREAT,
+                            S_IREAD|S_IWRITE);
+    }
+
+    if (pmf->fdWrite == fdNil)
+        FatalError("Unable to open file (%s) for write access\n",
+                   pszLocalFileName);
+    else {
+        pmf->pos = SeekMf(pmf, (POS)0, 2);
+        pmf->fWritten = fFalse;
+    }
+
+    return pmf;
+}
+
+void
+CloseLocalMf(AD *pad)
+{
+    if (mfLocal1.fdWrite != fdNil && mfLocal1.fWritten)
+    {
+        if (!_stricmp( pad->pecmd->szCmd, "status" ))
+            Warn("Backup script written to %s\n", mfLocal1.pthReal);
+        else
+            Warn("SSync log written to %s\n", mfLocal1.pthReal);
+
+        _close( mfLocal1.fdWrite );
+        mfLocal1.fdWrite = fdNil;
+        mfLocal1.fWritten = fFalse;
+    }
+
+    if (mfLocal2.fdWrite != fdNil && mfLocal2.fWritten)
+    {
+        Warn("Backup script for local files written to %s\n", mfLocal2.pthReal);
+        _close( mfLocal2.fdWrite );
+        mfLocal2.fdWrite = fdNil;
+        mfLocal2.fWritten = fFalse;
+    }
+
+    return;
+}
 
 void
 AssertNoMf(
@@ -118,6 +163,8 @@ FIsValidMf(
         pmf != &mfStdout &&
         pmf != &mfStderr &&
         pmf != &mfStdlog &&
+        pmf != &mfLocal1 &&
+        pmf != &mfLocal2 &&
         pmf != &mf1 &&
         pmf != &mf2 &&
         pmf != &mf3 &&
@@ -223,6 +270,8 @@ PmfAlloc(
     /* initialize contents which are not already initialized */
     pmf->fx = fx;
     pmf->pthReal = pthReal;
+    pmf->fNoBuffering = fFalse;
+    pmf->fWritten = fFalse;
     if (szTemp != 0)
         NmCopySz(pmf->nmTemp, szTemp, cchFileMax);
 
@@ -272,4 +321,6 @@ FreeMf(
     pmf->fdRead     = fdNil;
     pmf->fdWrite    = fdNil;
     pmf->fFileLock  = fFalse;
+    pmf->fNoBuffering = fFalse;
+    pmf->fWritten   = fFalse;
 }

@@ -209,7 +209,7 @@ void SRDaemon (int c, char *v[])
         if (c == 1) {
 	    if (database != NULL)
 		free (database);
-            database = strdup (*v);
+            database = _strdup (*v);
             }
         else {
             Usage ();
@@ -328,7 +328,7 @@ void NewDatabase (HANDLE h, PSZ apsz[])
         exit (1);
         }
     free (database);
-    database = strdup (apsz[0]);
+    database = _strdup (apsz[0]);
     fDirty = FALSE;
     printf ("New database is %s\n", database);
 }
@@ -354,7 +354,7 @@ void Shutdown (HANDLE h, PSZ  apsz[])
  */
 void Locate (HANDLE h, PSZ  apsz[])
 {
-    strlwr (apsz[0]);
+    _strlwr (apsz[0]);
     SRSymLocate (fnSend, h, apsz);
 }
 
@@ -477,7 +477,7 @@ BOOL fIndexable (PSZ pszName)
     //
 
     extention (pszName, szExt);
-    strlwr (szExt);
+    _strlwr (szExt);
     return pextFind (szExt, NULL, FALSE) == NULL;
 }
 
@@ -517,7 +517,7 @@ void WalkEnum (char *szFile, FIND *pfbuf, void *pData)
 
     if (!strcmp (pfbuf->fbuf.cFileName, ".") ||
 	!strcmp (pfbuf->fbuf.cFileName, "..") ||
-	!strcmpi (pfbuf->fbuf.cFileName, "deleted"))
+	!_strcmpi (pfbuf->fbuf.cFileName, "deleted"))
 	;
 
     //
@@ -1100,7 +1100,7 @@ int main (int c, char *v[])
 {
     PSZ  psz;
 
-    database = strdup ("database");
+    database = _strdup ("database");
 
     SHIFT (c, v);
 
@@ -1112,7 +1112,7 @@ int main (int c, char *v[])
         else {
             if (c == 2) {
                 free (database);
-                database = strdup (v[1]);
+                database = _strdup (v[1]);
                 c--;
                 }
             if (c == 1)

@@ -241,6 +241,8 @@ gtab_paintcell(HWND hwnd, HDC hdc, lpTable ptab, int line, int cell)
 	TEXTMETRIC tm;
 	HBRUSH hbr;
 
+        fcol = 0; bkcol = 0; /* eliminate spurious diagnostic, generate worse code */
+        hfont = 0;           /* eliminate spurious diagnostic, generate worse code */
 	/* init pointers to cell text and properties */
 	pline = &ptab->pdata[line];
 	cd = &pline->pdata[cell];
@@ -262,9 +264,9 @@ gtab_paintcell(HWND hwnd, HDC hdc, lpTable ptab, int line, int cell)
 	if (cd->props.valid & P_FONT) {
 		hfont = SelectObject(hdc, cd->props.hFont);
 		GetTextMetrics(hdc, &tm);
-		tabwidth = tm.tmAveCharWidth * 8;
+		tabwidth = tm.tmAveCharWidth * ptab->tabchars;
 	} else {
-		tabwidth = ptab->avewidth * 8;
+		tabwidth = ptab->avewidth * ptab->tabchars;
 	}
 
 	/* set colours if not default */
@@ -544,3 +546,4 @@ gtab_invertsel(HWND hwnd, lpTable ptab, HDC hdc_in)
 		ReleaseDC(hwnd, hdc);
 	}
 }
+

@@ -213,7 +213,7 @@ INT TableOffsetFromName(PSZ szTab)
     PTABLEOFFSETS pto = &tableoffsets;
 
     for (i = 0; i < NUMEL(apszModNames); i++) {
-        if (!lstrcmp(szTab, apszModNames[i]))
+        if (!strcmp(szTab, apszModNames[i]))
             break;
     }
 

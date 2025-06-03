@@ -20,7 +20,7 @@
 #pragma     hdrstop
 #include    <crpc.hxx>	  //	class definition
 
-
+IUnknown *gpPunk = NULL;
 
 //+-------------------------------------------------------------------------
 //
@@ -283,18 +283,34 @@ STDMETHODIMP CRpcTest::IUnknownIn(IUnknown *punkIn)
 
 STDMETHODIMP CRpcTest::IUnknownOut(IUnknown **ppunk)
 {
-    *ppunk = (IUnknown *)this;
-    AddRef();
+    gpPunk->AddRef();
+    *ppunk = gpPunk;
     return S_OK;
 }
 
 STDMETHODIMP CRpcTest::IUnknownInKeep(IUnknown *punkIn)
 {
-    if (punkIn && !_punkIn)
+    if (punkIn)
     {
-	_punkIn = punkIn;
-	_punkIn->AddRef();
+	punkIn->AddRef();
+
+	if (punkIn != _punkIn)
+	{
+	    _punkIn->Release();
+	    _punkIn = punkIn;
+	}
     }
+
+    return S_OK;
+}
+
+STDMETHODIMP CRpcTest::IUnknownInRelease()
+{
+    if (_punkIn)
+    {
+	_punkIn->Release();
+    }
+
     return S_OK;
 }
 

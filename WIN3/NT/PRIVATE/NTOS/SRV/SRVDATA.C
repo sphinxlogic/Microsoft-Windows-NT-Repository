@@ -38,11 +38,12 @@ Revision History:
 #pragma alloc_text( PAGE, SrvTerminateData )
 #endif
 
+
 
 #if SRVDBG
 
-ULONG SrvDebug = DEBUG_STOP_ON_ERRORS;
-ULONG SmbDebug = 0;
+ULARGE_INTEGER SrvDebug = {DEBUG_STOP_ON_ERRORS};
+ULARGE_INTEGER SmbDebug = {0};
 
 CLONG SrvDumpMaximumRecursion = 0;
 
@@ -81,6 +82,13 @@ BOOLEAN SrvFspTransitioning = FALSE;      // Indicates that the server is
 BOOLEAN RegisteredForShutdown = FALSE;    // Indicates whether the server has
                                           // registered for shutdown notification.
 
+BOOLEAN SrvMultiProcessorDriver = FALSE;  // Is this a multiprocessor driver?
+
+#ifdef  SRV_PNP_POWER
+BOOLEAN SrvCompletedPNPRegistration = FALSE;    // Indicates whether the FSP has completed
+                                                //  registering for PNP notifications
+#endif
+
 #if 0
 // PsInitialSystemProcess is not properly exported by the kernel (missing
 // CONSTANT in ntoskrnl.src), so we can't use it.
@@ -91,11 +99,11 @@ PEPROCESS SrvServerProcess = NULL;        // Pointer to the initial system proce
 CLONG SrvEndpointCount = 0;               // Number of transport endpoints
 KEVENT SrvEndpointEvent = {0};            // Signaled when no active endpoints
 
-PHANDLE SrvThreadHandles = NULL;          // Array of worker thread handles
-CLONG SrvThreadCount = 0;                 // Total number of active threads.
+//
+// DMA alignment size
+//
 
-PETHREAD SrvIrpThread = NULL;             // A pointer to the first worker
-                                          // thread's TCB.
+ULONG SrvCacheLineSize = 0;
 
 //
 // Global spin locks.
@@ -103,7 +111,7 @@ PETHREAD SrvIrpThread = NULL;             // A pointer to the first worker
 
 SRV_GLOBAL_SPIN_LOCKS SrvGlobalSpinLocks = {0};
 
-#if SRVDBG || SRVDBG_HEAP || SRVDBG_HANDLES
+#if SRVDBG || SRVDBG_HANDLES
 //
 // Lock used to protect debugging structures.
 //
@@ -118,11 +126,10 @@ SRV_LOCK SrvDebugLock = {0};
 SRV_LOCK SrvConfigurationLock = {0};
 
 //
-// SrvMfcbListLock is used to serialize file opens and closes, including
-// access to the master file table.
+// SrvStartupShutdownLock is used to synchronize server startup and shutdown
 //
 
-SRV_LOCK SrvMfcbListLock = {0};
+SRV_LOCK SrvStartupShutdownLock = {0};
 
 #if SRV_COMM_DEVICES
 //
@@ -147,12 +154,36 @@ SRV_LOCK SrvEndpointLock = {0};
 SRV_LOCK SrvShareLock = {0};
 
 //
-// Work queues -- nonblocking, blocking and critical.
+// The number of processors in the system
 //
+ULONG SrvNumberOfProcessors = {0};
 
-WORK_QUEUE SrvWorkQueue = {0};
+//
+// A vector of nonblocking work queues, one for each processor
+//
+#if MULTIPROCESSOR
+
+PBYTE SrvWorkQueuesBase = 0;      // base of allocated memory for the queues
+PWORK_QUEUE SrvWorkQueues = 0;    // first queue in the allocated memory
+
+#else
+
+WORK_QUEUE SrvWorkQueues[1];
+
+#endif
+
+PWORK_QUEUE eSrvWorkQueues = 0;   // used for terminating 'for' loops
+
+//
+// Blocking Work Queue
+//
 WORK_QUEUE SrvBlockingWorkQueue = {0};
-WORK_QUEUE SrvCriticalWorkQueue = {0};
+ULONG SrvReBalanced = 0;
+ULONG SrvNextBalanceProcessor = 0;
+
+CLONG SrvBlockingOpsInProgress = 0; // Number of blocking ops currently
+                                    //   being processed
+
 
 //
 // The queue of connections that need an SMB buffer to process a pending
@@ -172,7 +203,7 @@ LIST_ENTRY SrvDisconnectQueue = {0};    // The queue
 // Queue of connections that needs to be dereferenced.
 //
 
-SINGLE_LIST_ENTRY SrvBlockOrphanage = {0};    // The queue
+SLIST_HEADER SrvBlockOrphanage = {0};    // The queue
 
 //
 // FSP configuration queue.  The FSD puts configuration request IRPs
@@ -183,22 +214,16 @@ SINGLE_LIST_ENTRY SrvBlockOrphanage = {0};    // The queue
 LIST_ENTRY SrvConfigurationWorkQueue = {0};     // The queue itself
 
 //
+// This is the number of configuration IRPs which have been queued but not
+//  yet completed.
+//
+ULONG SrvConfigurationIrpsInProgress = 0;
+
+//
 // Work item for running the configuration thread in the context of an
 // EX worker thread.
 
-WORK_QUEUE_ITEM SrvConfigurationThreadWorkItem = {0};
-BOOLEAN SrvConfigurationThreadRunning = FALSE;
-
-//
-// List of preformatted work items for the FSD transport receive event
-// handler.  The FSP attempts to keep this list from emptying.  Each
-// work item is a work context block that contains a pointer to an IRP,
-// an MDL describing a receive buffer, and a pointer to a TdiReceive
-// request structure.
-//
-
-SINGLE_LIST_ENTRY SrvNormalReceiveWorkItemList = {0};
-SINGLE_LIST_ENTRY SrvInitialReceiveWorkItemList = {0};
+WORK_QUEUE_ITEM SrvConfigurationThreadWorkItem[ MAX_CONFIG_WORK_ITEMS ] = {0};
 
 //
 // Base address of the large block allocated to hold initial normal
@@ -206,26 +231,6 @@ SINGLE_LIST_ENTRY SrvInitialReceiveWorkItemList = {0};
 //
 
 PVOID SrvInitialWorkItemBlock = NULL;
-
-//
-// Counts of receive work items available, and minimum thresholds.
-//
-
-CLONG SrvTotalWorkItems = 0;    // The total number of allocated work items
-CLONG SrvFreeWorkItems = 0;     // Number of work items on the free queue
-CLONG SrvReceiveWorkItems = 0;  // Number of receive work items
-CLONG SrvBlockingOpsInProgress = 0;  // Number of blocking operations
-                                     // currently being processed.
-
-
-//
-// List of work items available for raw mode request processing.  These
-// work items do not have statically allocated buffers.
-//
-
-SINGLE_LIST_ENTRY SrvRawModeWorkItemList = {0};
-CLONG SrvRawModeWorkItems = 0;
-CLONG SrvFreeRawModeWorkItems = 0;
 
 //
 // Work item used to run the resource thread.  Notification event used
@@ -236,25 +241,39 @@ WORK_QUEUE_ITEM SrvResourceThreadWorkItem = {0};
 BOOLEAN SrvResourceThreadRunning = FALSE;
 BOOLEAN SrvResourceDisconnectPending = FALSE;
 BOOLEAN SrvResourceFreeConnection = FALSE;
-BOOLEAN SrvResourceWorkItem = FALSE;
-BOOLEAN SrvResourceNeedResourceQueue = FALSE;
-BOOLEAN SrvResourceOrphanedBlocks = FALSE;
+LONG SrvResourceOrphanedBlocks = 0;
+
+//
+// Generic security mapping for connecting to shares
+//
+GENERIC_MAPPING SrvShareConnectMapping = GENERIC_SHARE_CONNECT_MAPPING;
+
+//
+// What's the minumum # of free work items each processor should have?
+//
+ULONG SrvMinPerProcessorFreeWorkItems = 0;
+
+//
+// The server has callouts to enable a smart card to accelerate its direct
+//  host IPX performance.  This is the vector of entry points.
+//
+SRV_IPX_SMART_CARD SrvIpxSmartCard = {0};
 
 //
 // The master file table contains one entry for each named file that has
-// at least one open instance.  The list is kept in a prefix table.
+// at least one open instance.
 //
-
-UNICODE_PREFIX_TABLE SrvMasterFileTable = {0};
+MFCBHASH SrvMfcbHashTable[ NMFCB_HASH_TABLE ] = {0};
 
 //
-// System time, as maintained by the server.  This is the low part of
-// the system tick count.  The server samples it periodically, so the
-// time is not exactly accurate.  It is monotontically increasing,
-// except that it wraps every 74 days or so.
+// This is the list of resources which protect the SrvMfcbHashTable buckets
 //
+SRV_LOCK SrvMfcbHashTableLocks[ NMFCB_HASH_TABLE_LOCKS ];
 
-ULONG SrvSystemTime = 0;
+//
+// The share table contains one entry for each share the server is supporting
+//
+LIST_ENTRY SrvShareHashTable[ NSHARE_HASH_TABLE ] = {0};
 
 //
 // Array of the hex digits for use by the dump routines and
@@ -325,7 +344,9 @@ typedef enum _SRV_SMB_INDEX {
     ISrvSmbWriteRaw,
     ISrvSmbReadMpx,
     ISrvSmbWriteMpx,
-    ISrvSmbWriteMpxSecondary
+    ISrvSmbWriteMpxSecondary,
+    ISrvSmbReadBulk,
+    ISrvSmbWriteBulk
 } SRV_SMB_INDEX;
 
 //
@@ -370,7 +391,7 @@ UCHAR SrvSmbIndexTable[] = {
     ISrvSmbIllegalCommand,          // SMB_COM_QUERY_INFORMATION_SRV
     ISrvSmbSetInformation2,         // SMB_COM_SET_INFORMATION2
     ISrvSmbQueryInformation2,       // SMB_COM_QUERY_INFORMATION2
-    ISrvSmbLockingAndX,             // SMB_COM_LOCKING_AND_X
+    ISrvSmbLockingAndX,             // SMB_COM_LOCKING_ANDX
     ISrvSmbTransaction,             // SMB_COM_TRANSACTION
     ISrvSmbTransactionSecondary,    // SMB_COM_TRANSACTION_SECONDARY
     ISrvSmbIoctl,                   // SMB_COM_IOCTL
@@ -379,9 +400,9 @@ UCHAR SrvSmbIndexTable[] = {
     ISrvSmbMove,                    // SMB_COM_MOVE
     ISrvSmbEcho,                    // SMB_COM_ECHO
     ISrvSmbWrite,                   // SMB_COM_WRITE_AND_CLOSE
-    ISrvSmbOpenAndX,                // SMB_COM_OPEN_AND_X
-    ISrvSmbReadAndX,                // SMB_COM_READ_AND_X
-    ISrvSmbWriteAndX,               // SMB_COM_WRITE_AND_X
+    ISrvSmbOpenAndX,                // SMB_COM_OPEN_ANDX
+    ISrvSmbReadAndX,                // SMB_COM_READ_ANDX
+    ISrvSmbWriteAndX,               // SMB_COM_WRITE_ANDX
     ISrvSmbIllegalCommand,          // SMB_COM_SET_NEW_SIZE
     ISrvSmbClose,                   // SMB_COM_CLOSE_AND_TREE_DISC
     ISrvSmbTransaction,             // SMB_COM_TRANSACTION2
@@ -449,9 +470,9 @@ UCHAR SrvSmbIndexTable[] = {
     ISrvSmbTreeConnect,             // SMB_COM_TREE_CONNECT
     ISrvSmbTreeDisconnect,          // SMB_COM_TREE_DISCONNECT
     ISrvSmbNegotiate,               // SMB_COM_NEGOTIATE
-    ISrvSmbSessionSetupAndX,        // SMB_COM_SESSION_SETUP_AND_X
-    ISrvSmbLogoffAndX,              // SMB_COM_LOGOFF_AND_X
-    ISrvSmbTreeConnectAndX,         // SMB_COM_TREE_CONNECT_AND_X
+    ISrvSmbSessionSetupAndX,        // SMB_COM_SESSION_SETUP_ANDX
+    ISrvSmbLogoffAndX,              // SMB_COM_LOGOFF_ANDX
+    ISrvSmbTreeConnectAndX,         // SMB_COM_TREE_CONNECT_ANDX
     ISrvSmbIllegalCommand,          // SMB_COM_ILLEGAL_COMMAND
     ISrvSmbIllegalCommand,          // SMB_COM_ILLEGAL_COMMAND
     ISrvSmbIllegalCommand,          // SMB_COM_ILLEGAL_COMMAND
@@ -499,7 +520,7 @@ UCHAR SrvSmbIndexTable[] = {
     ISrvSmbNtCreateAndX,            // SMB_COM_NT_CREATE_ANDX
     ISrvSmbIllegalCommand,          // SMB_COM_ILLEGAL_COMMAND
     ISrvSmbNtCancel,                // SMB_COM_NT_CANCEL
-    ISrvSmbIllegalCommand,          // SMB_COM_ILLEGAL_COMMAND
+    ISrvSmbRename,                  // SMB_COM_NT_RENAME
     ISrvSmbIllegalCommand,          // SMB_COM_ILLEGAL_COMMAND
     ISrvSmbIllegalCommand,          // SMB_COM_ILLEGAL_COMMAND
     ISrvSmbIllegalCommand,          // SMB_COM_ILLEGAL_COMMAND
@@ -550,9 +571,9 @@ UCHAR SrvSmbIndexTable[] = {
     ISrvSmbIllegalCommand,          // SMB_COM_SEND_START_MB_MESSAGE
     ISrvSmbIllegalCommand,          // SMB_COM_SEND_END_MB_MESSAGE
     ISrvSmbIllegalCommand,          // SMB_COM_SEND_TEXT_MB_MESSAGE
-    ISrvSmbIllegalCommand,          // SMB_COM_ILLEGAL_COMMAND
-    ISrvSmbIllegalCommand,          // SMB_COM_ILLEGAL_COMMAND
-    ISrvSmbIllegalCommand,          // SMB_COM_ILLEGAL_COMMAND
+    ISrvSmbReadBulk,                // SMB_COM_READ_BULK
+    ISrvSmbWriteBulk,               // SMB_COM_WRITE_BULK
+    ISrvSmbIllegalCommand,          // SMB_COM_WRITE_BULK_DATA
     ISrvSmbIllegalCommand,          // SMB_COM_ILLEGAL_COMMAND
     ISrvSmbIllegalCommand,          // SMB_COM_ILLEGAL_COMMAND
     ISrvSmbIllegalCommand,          // SMB_COM_ILLEGAL_COMMAND
@@ -596,61 +617,70 @@ UCHAR SrvSmbIndexTable[] = {
 // SrvSmbDispatchTable is the jump table for processing SMBs.
 //
 
-PSMB_PROCESSOR SrvSmbDispatchTable[] = {
-    SrvSmbIllegalCommand,
-    SrvSmbCreateDirectory,
-    SrvSmbDeleteDirectory,
-    SrvSmbOpen,
-    SrvSmbCreate,
-    SrvSmbClose,
-    SrvSmbFlush,
-    SrvSmbDelete,
-    SrvSmbRename,
-    SrvSmbQueryInformation,
-    SrvSmbSetInformation,
-    SrvSmbRead,
-    SrvSmbWrite,
-    SrvSmbLockByteRange,
-    SrvSmbUnlockByteRange,
-    SrvSmbCreateTemporary,
-    SrvSmbCheckDirectory,
-    SrvSmbProcessExit,
-    SrvSmbSeek,
-    SrvSmbLockAndRead,
-    SrvSmbSetInformation2,
-    SrvSmbQueryInformation2,
-    SrvSmbLockingAndX,
-    SrvSmbTransaction,
-    SrvSmbTransactionSecondary,
-    SrvSmbIoctl,
-    SrvSmbIoctlSecondary,
-    SrvSmbMove,
-    SrvSmbEcho,
-    SrvSmbOpenAndX,
-    SrvSmbReadAndX,
-    SrvSmbWriteAndX,
-    SrvSmbFindClose2,
-    SrvSmbFindNotifyClose,
-    SrvSmbTreeConnect,
-    SrvSmbTreeDisconnect,
-    SrvSmbNegotiate,
-    SrvSmbSessionSetupAndX,
-    SrvSmbLogoffAndX,
-    SrvSmbTreeConnectAndX,
-    SrvSmbQueryInformationDisk,
-    SrvSmbSearch,
-    SrvSmbNtTransaction,
-    SrvSmbNtTransactionSecondary,
-    SrvSmbNtCreateAndX,
-    SrvSmbNtCancel,
-    SrvSmbOpenPrintFile,
-    SrvSmbClosePrintFile,
-    SrvSmbGetPrintQueue,
-    SrvSmbReadRaw,
-    SrvSmbWriteRaw,
-    SrvSmbReadMpx,
-    SrvSmbWriteMpx,
-    SrvSmbWriteMpxSecondary
+#if DBG
+#define SMB_DISPATCH_ENTRY( x )  { x, #x }
+#else
+#define SMB_DISPATCH_ENTRY( x ) { x }
+#endif
+
+SRV_SMB_DISPATCH_TABLE SrvSmbDispatchTable[] = {
+
+    SMB_DISPATCH_ENTRY( SrvSmbIllegalCommand ),
+    SMB_DISPATCH_ENTRY( SrvSmbCreateDirectory ),
+    SMB_DISPATCH_ENTRY( SrvSmbDeleteDirectory ),
+    SMB_DISPATCH_ENTRY( SrvSmbOpen ),
+    SMB_DISPATCH_ENTRY( SrvSmbCreate ),
+    SMB_DISPATCH_ENTRY( SrvSmbClose ),
+    SMB_DISPATCH_ENTRY( SrvSmbFlush ),
+    SMB_DISPATCH_ENTRY( SrvSmbDelete ),
+    SMB_DISPATCH_ENTRY( SrvSmbRename ),
+    SMB_DISPATCH_ENTRY( SrvSmbQueryInformation ),
+    SMB_DISPATCH_ENTRY( SrvSmbSetInformation ),
+    SMB_DISPATCH_ENTRY( SrvSmbRead ),
+    SMB_DISPATCH_ENTRY( SrvSmbWrite ),
+    SMB_DISPATCH_ENTRY( SrvSmbLockByteRange ),
+    SMB_DISPATCH_ENTRY( SrvSmbUnlockByteRange ),
+    SMB_DISPATCH_ENTRY( SrvSmbCreateTemporary ),
+    SMB_DISPATCH_ENTRY( SrvSmbCheckDirectory ),
+    SMB_DISPATCH_ENTRY( SrvSmbProcessExit ),
+    SMB_DISPATCH_ENTRY( SrvSmbSeek ),
+    SMB_DISPATCH_ENTRY( SrvSmbLockAndRead ),
+    SMB_DISPATCH_ENTRY( SrvSmbSetInformation2 ),
+    SMB_DISPATCH_ENTRY( SrvSmbQueryInformation2 ),
+    SMB_DISPATCH_ENTRY( SrvSmbLockingAndX ),
+    SMB_DISPATCH_ENTRY( SrvSmbTransaction ),
+    SMB_DISPATCH_ENTRY( SrvSmbTransactionSecondary ),
+    SMB_DISPATCH_ENTRY( SrvSmbIoctl ),
+    SMB_DISPATCH_ENTRY( SrvSmbIoctlSecondary ),
+    SMB_DISPATCH_ENTRY( SrvSmbMove ),
+    SMB_DISPATCH_ENTRY( SrvSmbEcho ),
+    SMB_DISPATCH_ENTRY( SrvSmbOpenAndX ),
+    SMB_DISPATCH_ENTRY( SrvSmbReadAndX ),
+    SMB_DISPATCH_ENTRY( SrvSmbWriteAndX ),
+    SMB_DISPATCH_ENTRY( SrvSmbFindClose2 ),
+    SMB_DISPATCH_ENTRY( SrvSmbFindNotifyClose ),
+    SMB_DISPATCH_ENTRY( SrvSmbTreeConnect ),
+    SMB_DISPATCH_ENTRY( SrvSmbTreeDisconnect ),
+    SMB_DISPATCH_ENTRY( SrvSmbNegotiate ),
+    SMB_DISPATCH_ENTRY( SrvSmbSessionSetupAndX ),
+    SMB_DISPATCH_ENTRY( SrvSmbLogoffAndX ),
+    SMB_DISPATCH_ENTRY( SrvSmbTreeConnectAndX ),
+    SMB_DISPATCH_ENTRY( SrvSmbQueryInformationDisk ),
+    SMB_DISPATCH_ENTRY( SrvSmbSearch ),
+    SMB_DISPATCH_ENTRY( SrvSmbNtTransaction ),
+    SMB_DISPATCH_ENTRY( SrvSmbNtTransactionSecondary ),
+    SMB_DISPATCH_ENTRY( SrvSmbNtCreateAndX ),
+    SMB_DISPATCH_ENTRY( SrvSmbNtCancel ),
+    SMB_DISPATCH_ENTRY( SrvSmbOpenPrintFile ),
+    SMB_DISPATCH_ENTRY( SrvSmbClosePrintFile ),
+    SMB_DISPATCH_ENTRY( SrvSmbGetPrintQueue ),
+    SMB_DISPATCH_ENTRY( SrvSmbReadRaw ),
+    SMB_DISPATCH_ENTRY( SrvSmbWriteRaw ),
+    SMB_DISPATCH_ENTRY( SrvSmbReadMpx ),
+    SMB_DISPATCH_ENTRY( SrvSmbWriteMpx ),
+    SMB_DISPATCH_ENTRY( SrvSmbWriteMpxSecondary ),
+    SMB_DISPATCH_ENTRY( SrvSmbReadBulk ),
+    SMB_DISPATCH_ENTRY( SrvSmbWriteBulk )
 };
 
 //
@@ -694,7 +724,7 @@ SCHAR SrvSmbWordCount[] = {
     1,            // SMB_COM_QUERY_INFORMATION_SRV
     7,            // SMB_COM_SET_INFORMATION2
     1,            // SMB_COM_QUERY_INFORMATION2
-    8,            // SMB_COM_LOCKING_AND_X
+    8,            // SMB_COM_LOCKING_ANDX
     -1,           // SMB_COM_TRANSACTION
     8,            // SMB_COM_TRANSACTION_SECONDARY
     14,           // SMB_COM_IOCTL
@@ -703,9 +733,9 @@ SCHAR SrvSmbWordCount[] = {
     3,            // SMB_COM_MOVE
     1,            // SMB_COM_ECHO
     -1,           // SMB_COM_WRITE_AND_CLOSE
-    15,           // SMB_COM_OPEN_AND_X
-    -1,           // SMB_COM_READ_AND_X
-    -1,           // SMB_COM_WRITE_AND_X
+    15,           // SMB_COM_OPEN_ANDX
+    -1,           // SMB_COM_READ_ANDX
+    -1,           // SMB_COM_WRITE_ANDX
     3,            // SMB_COM_SET_NEW_SIZE
     3,            // SMB_COM_CLOSE_AND_TREE_DISC
     -1,           // SMB_COM_TRANSACTION2
@@ -773,9 +803,9 @@ SCHAR SrvSmbWordCount[] = {
     0,            // SMB_COM_TREE_CONNECT
     0,            // SMB_COM_TREE_DISCONNECT
     0,            // SMB_COM_NEGOTIATE
-    -1,           // SMB_COM_SESSION_SETUP_AND_X
-    2,            // SMB_COM_LOGOFF_AND_X
-    4,            // SMB_COM_TREE_CONNECT_AND_X
+    -1,           // SMB_COM_SESSION_SETUP_ANDX
+    2,            // SMB_COM_LOGOFF_ANDX
+    4,            // SMB_COM_TREE_CONNECT_ANDX
     -2,           // SMB_COM_ILLEGAL_COMMAND
     -2,           // SMB_COM_ILLEGAL_COMMAND
     -2,           // SMB_COM_ILLEGAL_COMMAND
@@ -823,7 +853,7 @@ SCHAR SrvSmbWordCount[] = {
     24,           // SMB_COM_NT_CREATE_ANDX
     -2,           // SMB_COM_ILLEGAL_COMMAND
     0,            // SMB_COM_NT_CANCEL
-    -2,           // SMB_COM_ILLEGAL_COMMAND
+    4,            // SMB_COM_NT_RENAME
     -2,           // SMB_COM_ILLEGAL_COMMAND
     -2,           // SMB_COM_ILLEGAL_COMMAND
     -2,           // SMB_COM_ILLEGAL_COMMAND
@@ -874,9 +904,9 @@ SCHAR SrvSmbWordCount[] = {
     -2,           // SMB_COM_SEND_START_MB_MESSAGE
     -2,           // SMB_COM_SEND_END_MB_MESSAGE
     -2,           // SMB_COM_SEND_TEXT_MB_MESSAGE
-    -2,           // SMB_COM_ILLEGAL_COMMAND
-    -2,           // SMB_COM_ILLEGAL_COMMAND
-    -2,           // SMB_COM_ILLEGAL_COMMAND
+    12,           // SMB_COM_READ_BULK
+    12,           // SMB_COM_WRITE_BULK
+    -2,           // SMB_COM_WRITE_BULK_DATA
     -2,           // SMB_COM_ILLEGAL_COMMAND
     -2,           // SMB_COM_ILLEGAL_COMMAND
     -2,           // SMB_COM_ILLEGAL_COMMAND
@@ -953,17 +983,16 @@ PSMB_TRANSACTION_PROCESSOR SrvTransaction2DispatchTable[] = {
     SrvSmbIoctl2,
     SrvSmbFindNotify,
     SrvSmbFindNotify,
-    SrvSmbCreateDirectory2
-#ifdef _CAIRO_
-    ,
+    SrvSmbCreateDirectory2,
     SrvSmbSessionSetup,
-    SrvSmbQueryFsInformation
-#endif // _CAIRO_
+    SrvTransactionNotImplemented,
+    SrvSmbGetDfsReferral,
+    SrvSmbReportDfsInconsistency
 };
 
 //
-// SrvTransaction2DispatchTable is the jump table for processing
-// Transaction2 SMBs.
+// SrvNtTransactionDispatchTable is the jump table for processing
+// NtTransaction SMBs.
 //
 
 PSMB_TRANSACTION_PROCESSOR SrvNtTransactionDispatchTable[] = {
@@ -981,23 +1010,15 @@ PSMB_TRANSACTION_PROCESSOR SrvNtTransactionDispatchTable[] = {
 //
 
 SRV_STATISTICS SrvStatistics = {0};
-SRV_STATISTICS_SHADOW SrvStatisticsShadow = {0};
-#if SRVDBG_HEAP
-SRV_STATISTICS_INTERNAL SrvInternalStatistics = {0};
-#endif
+
 #if SRVDBG_STATS || SRVDBG_STATS2
 SRV_STATISTICS_DEBUG SrvDbgStatistics = {0};
 #endif
-
-ULONG SrvStatisticsUpdateSmbCount = 0;
 
 //
 // Server environment information strings.
 //
 
-UNICODE_STRING SrvPrimaryDomain = {0};
-OEM_STRING SrvOemPrimaryDomain = {0};
-OEM_STRING SrvOemServerName = {0};
 UNICODE_STRING SrvNativeOS = {0};
 OEM_STRING SrvOemNativeOS = {0};
 UNICODE_STRING SrvNativeLanMan = {0};
@@ -1011,6 +1032,13 @@ OEM_STRING SrvOemNativeLanMan = {0};
 HANDLE SrvNamedPipeHandle = NULL;
 PDEVICE_OBJECT SrvNamedPipeDeviceObject = NULL;
 PFILE_OBJECT SrvNamedPipeFileObject = NULL;
+
+//
+// The following are used to converse with the Dfs driver
+//
+PFAST_IO_DEVICE_CONTROL SrvDfsFastIoDeviceControl = NULL;
+PDEVICE_OBJECT SrvDfsDeviceObject = NULL;
+PFILE_OBJECT SrvDfsFileObject = NULL;
 
 //
 // The following will be a permanent handle and device object pointer
@@ -1105,7 +1133,6 @@ ORDERED_LIST_HEAD SrvCommDeviceList = {0};
 ORDERED_LIST_HEAD SrvEndpointList = {0};
 ORDERED_LIST_HEAD SrvRfcbList = {0};
 ORDERED_LIST_HEAD SrvSessionList = {0};
-ORDERED_LIST_HEAD SrvShareList = {0};
 ORDERED_LIST_HEAD SrvTreeConnectList = {0};
 
 //
@@ -1131,16 +1158,15 @@ KEVENT SrvApiCompletionEvent = {0};
 // token handle representing the null session.
 //
 
-#ifdef _CAIRO_
 CtxtHandle SrvNullSessionToken = {0, 0};
-CtxtHandle SrvKerberosLsaHandle = {0, 0};
 CtxtHandle SrvLmLsaHandle = {0, 0};
-#else // _CAIRO_
-HANDLE SrvLsaHandle = NULL;
-LSA_OPERATIONAL_MODE SrvSystemSecurityMode = 0;
-ULONG SrvAuthenticationPackage = 0;
-HANDLE SrvNullSessionToken = NULL;
-#endif
+CtxtHandle SrvKerberosLsaHandle = {0, 0};
+BOOLEAN SrvHaveKerberos = FALSE;
+//
+// Security descriptor granting Administrator READ access.
+//  Used to see if a client has administrative privileges
+//
+SECURITY_DESCRIPTOR SrvAdminSecurityDescriptor;
 
 //
 // A list of SMBs waiting for an oplock break to occur, before they can
@@ -1225,11 +1251,10 @@ SECTION_DESCRIPTOR SrvSectionInfo[SRV_CODE_SECTION_MAX] = {
 
 //
 // SrvTimerList is a pool of timer/DPC structures available for use by
-// code that needs to start a timer.  The pool is protected by
-// SrvGlobalSpinLocks.Timer.
+// code that needs to start a timer.
 //
 
-SINGLE_LIST_ENTRY SrvTimerList = {0};
+SLIST_HEADER SrvTimerList = {0};
 
 //
 // Name that should be displayed when doing a server alert.
@@ -1242,6 +1267,20 @@ PWSTR SrvAlertServiceName = NULL;
 //
 
 ULONG SrvFiveSecondTickCount = 0;
+
+//
+// Flag indicating whether or not we need to filter extended characters
+//  out of 8.3 names ourselves.
+//
+BOOLEAN SrvFilterExtendedCharsInPath = FALSE;
+
+#ifdef  SRV_PNP_POWER
+//
+// Holds the notification handle which TDI gives us from TdiRegisterNotificationHandler()
+//
+HANDLE SrvTdiNotificationHandle = 0;
+
+#endif
 
 
 VOID
@@ -1266,34 +1305,34 @@ Return Value:
 --*/
 
 {
-    ULONG i;
+    ULONG i,j;
     ANSI_STRING string;
 
     PAGED_CODE( );
+
+#if MULTIPROCESSOR
+    SrvMultiProcessorDriver = TRUE;
+#endif
 
     //
     // Initialize the statistics database.
     //
 
     RtlZeroMemory( &SrvStatistics, sizeof(SrvStatistics) );
-    RtlZeroMemory( &SrvStatisticsShadow, sizeof(SrvStatisticsShadow) );
-#if SRVDBG_HEAP
-    RtlZeroMemory( &SrvInternalStatistics, sizeof(SrvInternalStatistics) );
-#endif
 #if SRVDBG_STATS || SRVDBG_STATS2
     RtlZeroMemory( &SrvDbgStatistics, sizeof(SrvDbgStatistics) );
 #endif
 
-#if 0
-// PsInitialSystemProcess is not properly exported by the kernel (missing
-// CONSTANT in ntoskrnl.src), so we can't use it.
-#else
     //
     // Store the address of the initial system process for later use.
     //
 
-    SERVER_PROCESS = SRV_CURRENT_PROCESS;
-#endif
+    SrvServerProcess = IoGetCurrentProcess();
+
+    //
+    // Store the number of processors
+    //
+    SrvNumberOfProcessors = ((ULONG)(** (PCCHAR *)&KeNumberProcessors));
 
     //
     // Initialize the event used to determine when all endpoints have
@@ -1312,21 +1351,13 @@ Return Value:
     SeEnableAccessToExports();
 
     //
-    // Initialize the SmbTrace related events.
-    //
-
-    SmbTraceInitialize( SMBTRACE_SERVER );
-
-    //
     // Allocate the spin lock used to synchronize between the FSD and
     // the FSP.
     //
 
     INITIALIZE_GLOBAL_SPIN_LOCK( Fsd );
-    //KeSetSpecialSpinLock( &GLOBAL_SPIN_LOCK(Fsd), "SrvFsdSpinLock" );
-    //KeSetSpecialSpinLock( &GLOBAL_SPIN_LOCK(WorkItem), "WorkItem Lock" );
 
-#if SRVDBG || SRVDBG_HEAP || SRVDBG_HANDLES
+#if SRVDBG || SRVDBG_HANDLES
     INITIALIZE_GLOBAL_SPIN_LOCK( Debug );
 #endif
 
@@ -1342,15 +1373,24 @@ Return Value:
         "SrvConfigurationLock"
         );
     INITIALIZE_LOCK(
+        &SrvStartupShutdownLock,
+        STARTUPSHUTDOWN_LOCK_LEVEL,
+        "SrvStartupShutdownLock"
+        );
+    INITIALIZE_LOCK(
         &SrvEndpointLock,
         ENDPOINT_LOCK_LEVEL,
         "SrvEndpointLock"
         );
-    INITIALIZE_LOCK(
-        &SrvMfcbListLock,
-        MFCB_LIST_LOCK_LEVEL,
-        "SrvMfcbListLock"
-        );
+
+    for( i=0; i < NMFCB_HASH_TABLE_LOCKS; i++ ) {
+        INITIALIZE_LOCK(
+            &SrvMfcbHashTableLocks[i],
+            MFCB_LIST_LOCK_LEVEL,
+            "SrvMfcbListLock"
+            );
+    }
+
 #if SRV_COMM_DEVICES
     INITIALIZE_LOCK(
         &SrvCommDeviceLock,
@@ -1370,7 +1410,7 @@ Return Value:
         "SrvOplockBreakListLock"
         );
 
-#if SRVDBG || SRVDBG_HEAP || SRVDBG_HANDLES
+#if SRVDBG || SRVDBG_HANDLES
     INITIALIZE_LOCK(
         &SrvDebugLock,
         DEBUG_LOCK_LEVEL,
@@ -1404,26 +1444,19 @@ Return Value:
 
     InitializeListHead( &SrvConfigurationWorkQueue );
 
-    ExInitializeWorkItem(
-        &SrvConfigurationThreadWorkItem,
-        SrvConfigurationThread,
-        NULL
-        );
-
-    //
-    // Initialize the preformatted receive work item and raw mode work
-    // item lists.
-    //
-
-    SrvNormalReceiveWorkItemList.Next = NULL;
-    SrvInitialReceiveWorkItemList.Next = NULL;
-    SrvRawModeWorkItemList.Next = NULL;
+    for( i=0; i < MAX_CONFIG_WORK_ITEMS; i++ ) {
+        ExInitializeWorkItem(
+            &SrvConfigurationThreadWorkItem[i],
+            SrvConfigurationThread,
+            NULL
+         );
+    }
 
     //
     // Initialize the orphan queue
     //
 
-    SrvBlockOrphanage.Next = NULL;
+    ExInitializeSListHead( &SrvBlockOrphanage );
 
     //
     // Initialize the resource thread work item and continuation event.
@@ -1439,8 +1472,17 @@ Return Value:
     //
     // Initialize global lists.
     //
+    for( i=j=0; i < NMFCB_HASH_TABLE; i++ ) {
+        InitializeListHead( &SrvMfcbHashTable[i].List );
+        SrvMfcbHashTable[i].Lock = &SrvMfcbHashTableLocks[ j ];
+        if( ++j == NMFCB_HASH_TABLE_LOCKS ) {
+            j = 0;
+        }
+    }
 
-    RtlInitializeUnicodePrefix( &SrvMasterFileTable );
+    for( i=0; i < NSHARE_HASH_TABLE; i++ ) {
+        InitializeListHead( &SrvShareHashTable[i] );
+    }
 
     //
     // Initialize the ordered list lock.  Indicate that the ordered
@@ -1460,7 +1502,6 @@ Return Value:
     SrvEndpointList.Initialized = FALSE;
     SrvRfcbList.Initialized = FALSE;
     SrvSessionList.Initialized = FALSE;
-    SrvShareList.Initialized = FALSE;
     SrvTreeConnectList.Initialized = FALSE;
 
     //
@@ -1504,17 +1545,8 @@ Return Value:
     RtlInitUnicodeString( &SrvMailslotRootDirectory, StrMailslotDevice );
 
     //
-    // The server's primary domain.
-    //
-
-    RtlInitUnicodeString( &SrvPrimaryDomain, NULL );
-    RtlInitAnsiString( (PANSI_STRING)&SrvOemPrimaryDomain, NULL );
-
-    //
     // The server's name
     //
-
-    RtlInitAnsiString( (PANSI_STRING)&SrvOemServerName, NULL );
 
     RtlInitUnicodeString( &SrvNativeLanMan, StrNativeLanman );
     RtlInitAnsiString( (PANSI_STRING)&SrvOemNativeLanMan, StrNativeLanmanOem );
@@ -1606,16 +1638,32 @@ Return Value:
     //KeSetSpecialSpinLock( &ENDPOINT_SPIN_LOCK(3), "endpoint 3    " );
 
     //
+    // Initialize the DMA alignment size
+    //
+
+    SrvCacheLineSize = HalGetDmaAlignmentRequirement( );
+
+#if SRVDBG
+    {
+        ULONG cls = SrvCacheLineSize;
+        while ( cls > 2 ) {
+            ASSERTMSG(
+                "SRV: cache line size not a power of two",
+                (cls & 1) == 0 );
+            cls = cls >> 1;
+        }
+    }
+#endif
+
+    if ( SrvCacheLineSize < 8 ) SrvCacheLineSize = 8;
+
+    SrvCacheLineSize--;
+
+    //
     // Compute the number of tick counts for 5 seconds
     //
 
     SrvFiveSecondTickCount = 5*10*1000*1000 / KeQueryTimeIncrement();
-
-    //
-    // Query the system time.
-    //
-
-    SET_SERVER_TIME( );
 
     return;
 
@@ -1645,6 +1693,8 @@ Return Value:
 --*/
 
 {
+    ULONG i;
+
     PAGED_CODE( );
 
     //
@@ -1658,8 +1708,13 @@ Return Value:
     //
 
     DELETE_LOCK( &SrvConfigurationLock );
+    DELETE_LOCK( &SrvStartupShutdownLock );
     DELETE_LOCK( &SrvEndpointLock );
-    DELETE_LOCK( &SrvMfcbListLock );
+
+    for( i=0; i < NMFCB_HASH_TABLE_LOCKS; i++ ) {
+        DELETE_LOCK( &SrvMfcbHashTableLocks[i] );
+    }
+
 #if SRV_COMM_DEVICES
     DELETE_LOCK( &SrvCommDeviceLock );
 #endif
@@ -1667,7 +1722,7 @@ Return Value:
     DELETE_LOCK( &SrvShareLock );
     DELETE_LOCK( &SrvOplockBreakListLock );
 
-#if SRVDBG || SRVDBG_HEAP || SRVDBG_HANDLES
+#if SRVDBG || SRVDBG_HANDLES
     DELETE_LOCK( &SrvDebugLock );
 #endif
 

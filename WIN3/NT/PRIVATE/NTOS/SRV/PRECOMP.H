@@ -1,3 +1,5 @@
+#if defined(SRVKD)
+
 #include <ntos.h>
 
 #include <ntlsa.h>
@@ -11,10 +13,17 @@
 
 #include <zwapi.h>
 
+#include <fsrtl.h>
+
+#else
+
+#include <ntsrv.h>
+#include <ntddser.h>
+
+#endif
+
 #include <windef.h>
 #include <winerror.h>
-
-#include <fsrtl.h>
 
 #include <netevent.h>
 
@@ -25,10 +34,9 @@
 #include <msgtext.h>
 
 #include <tstr.h>
-#include <wcstr.h>
+#include <stdlib.h>
 
 #include <string.h>
-#include <wcstr.h>
 
 #include <wsnwlink.h>
 #include <tdi.h>
@@ -37,13 +45,7 @@
 
 #include <protocol.h>
 
-#ifdef _CAIRO_
-
 #include <lmcons.h>
-
-#ifndef SECURITY_WIN32
-#define SECURITY_WIN32
-#endif  // SECURITY_WIN32
 
 #ifndef SECURITY_KERNEL
 #define SECURITY_KERNEL
@@ -53,12 +55,20 @@
 #define SECURITY_NTLM
 #endif // SECURITY_NTLM
 
+#ifndef SECURITY_KERBEROS
+#define SECURITY_KERBEROS
+#endif // SECURITY_KERBEROS
 #include <security.h>
 
+//
+// If we are building for PNP notifications, turn on the
+//  server define
+//
+#if _PNP_POWER
+#define SRV_PNP_POWER   1
+#endif
+
 #define INCLUDE_SMB_CAIRO
-
-#endif // _CAIRO_
-
 #define INCLUDE_SMB_ALL
 
 #include <smbtypes.h>
@@ -73,11 +83,21 @@
 //
 
 #include <status.h>
+#define INCLUDE_SRV_IPX_SMART_CARD_INTERFACE 1
 #include <srvfsctl.h>
 
 //
 // Local, independent include files
 //
+
+//
+// Determine if we are building for a multiprocessor target
+//
+#if !defined( NT_UP ) || NT_UP == 0
+#define MULTIPROCESSOR 1
+#else
+#define MULTIPROCESSOR 0
+#endif
 
 #include "srvdebug.h"
 

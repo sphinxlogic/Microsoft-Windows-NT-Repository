@@ -638,10 +638,18 @@ INT mapAnsiToUnic( ACHAR_PTR src, WCHAR_PTR dst, INT *dstStrSize )
 
 INT mapUnicToAnsi( WCHAR_PTR src, ACHAR_PTR dst, const ACHAR rplCh, INT *dstStrSize )
 {
+     WCHAR UNALIGNED *ua_src = (WCHAR UNALIGNED *)src ;
      INT       result    = SUCCESS ;
      INT       indx ;
      ACHAR_PTR pDst      = dst ;
-     INT       unicSize  = wcslen( src ) + sizeof( WCHAR ) ;
+     INT       unicSize  = sizeof( WCHAR ) ;
+
+     while( *ua_src ) {
+          unicSize += sizeof(WCHAR) ;
+          ua_src++ ;
+     }
+
+     ua_src = (WCHAR UNALIGNED *)src ;
 
      if ( (unicSize / 2) > *dstStrSize ) {
           msassert( (unicSize / 2) <= *dstStrSize ) ;
@@ -650,33 +658,33 @@ INT mapUnicToAnsi( WCHAR_PTR src, ACHAR_PTR dst, const ACHAR rplCh, INT *dstStrS
      }
      else {
           /* source string is a NULL terminated string */
-          for ( ; *src != (WCHAR)'\0'; src++ ) {
+          for ( ; *ua_src != (WCHAR)'\0'; ua_src++ ) {
                /* assign UNICODE character to destination */
-               if ( *src < MAP_BASE_CH ) {
+               if ( *ua_src < MAP_BASE_CH ) {
                     /* direct mapping from UNICODE to ANSI */
-                    *pDst = (ACHAR) *src ;
+                    *pDst = (ACHAR) *ua_src ;
                }
                else {
                     /* is char a mappable ANSI extended char */
-                    if ( bSrchUnicChTbl( *src, unicExtChTbl, MAP_EXTCH_TBL_SIZ, &indx ) ) {
+                    if ( bSrchUnicChTbl( *ua_src, unicExtChTbl, MAP_EXTCH_TBL_SIZ, &indx ) ) {
                          indx = _getAnsiExtCh( indx ) ;
                     }
                     /* okay, it wasn't.  How about a mappable ANSI control char */
-                    else if ( bSrchUnicChTbl( *src, unicCtrlChTbl, MAP_CTRLCH_TBL_SIZ, &indx ) ) {
+                    else if ( bSrchUnicChTbl( *ua_src, unicCtrlChTbl, MAP_CTRLCH_TBL_SIZ, &indx ) ) {
                          indx = _getAnsiCtrlCh( indx ) ;
                     }
                     else {
                          indx = 0 ;     /* default to not found */
 
                          /* okay, it wasn't.  How about a mappable ANSI char from the compatablity zone */
-                         if ( ( *src >= MAP_BEGIN_CMPTZONE ) && ( *src <= MAP_END_CMPTZONE ) ) {
+                         if ( ( *ua_src >= MAP_BEGIN_CMPTZONE ) && ( *ua_src <= MAP_END_CMPTZONE ) ) {
 
                               /* ANSI Latin1 mappable chars using offset */
-                              if ( ( *src >= 0xFF01 ) && ( *src <= 0xFF5E ) ) {
-                                   indx = (ACHAR) (( *src && 0x00FF ) + 0x0020 ) ;
+                              if ( ( *ua_src >= 0xFF01 ) && ( *ua_src <= 0xFF5E ) ) {
+                                   indx = (ACHAR) (( *ua_src & 0x00FF ) + 0x0020 ) ;
                               }
                               /* search compatability zone table for char */
-                              else if ( bSrchUnicChTbl( *src, unicCmptZoneChTbl, MAP_COMPATCH_TBL_SIZ, &indx )  ) {
+                              else if ( bSrchUnicChTbl( *ua_src, unicCmptZoneChTbl, MAP_COMPATCH_TBL_SIZ, &indx )  ) {
                                    indx = _getAnsiCmptZoneCh( indx ) ;
                               }
                          }
@@ -718,6 +726,7 @@ INT mapAnsiToUnicNoNull( ACHAR_PTR src, WCHAR_PTR dst, INT srcStrSize, INT *dstS
 {
      INT  result;
      INT  asciiSize = srcStrSize;
+     WCHAR UNALIGNED *ua_dst = (WCHAR UNALIGNED *)dst ;
 
      if ( (asciiSize * 2) > *dstStrSize )
      {
@@ -728,16 +737,16 @@ INT mapAnsiToUnicNoNull( ACHAR_PTR src, WCHAR_PTR dst, INT srcStrSize, INT *dstS
      {
           result = SUCCESS;
 
-          dst += asciiSize - 1;
+          ua_dst += asciiSize - 1;
           src += asciiSize - 1;
 
           while ( asciiSize-- > 0 )
           {
-               *dst = ((unsigned char)*src < MAP_BASE_CH) ?
+               *ua_dst = ((unsigned char)*src < MAP_BASE_CH) ?
                       (WCHAR)*src :
                       ansiToUnicExtChTbl[ _cvtExtChToTblIndx( *src ) ];
 
-               dst--, src--;
+               ua_dst--, src--;
           }
      }
      return result;
@@ -754,6 +763,7 @@ INT mapUnicToAnsiNoNull(
      INT       result    = SUCCESS ;
      INT       indx ;
      ACHAR_PTR pDst      = dst ;
+     WCHAR UNALIGNED *ua_src = (WCHAR UNALIGNED *)src ;
 
      if ( (srcStrSize / 2) > *dstStrSize ) {
           msassert( (srcStrSize / 2) <= *dstStrSize ) ;
@@ -761,33 +771,33 @@ INT mapUnicToAnsiNoNull(
           *dstStrSize = (srcStrSize / 2) - *dstStrSize ;
      }
      else {
-          for ( ; srcStrSize > 0; srcStrSize -= sizeof(WCHAR), src++ ) {
+          for ( ; srcStrSize > 0; srcStrSize -= sizeof(WCHAR), ua_src++ ) {
                /* assign UNICODE character to destination */
-               if ( *src < MAP_BASE_CH ) {
+               if ( *ua_src < MAP_BASE_CH ) {
                     /* direct mapping from UNICODE to ANSI */
-                    *pDst = (ACHAR) *src ;
+                    *pDst = (ACHAR) *ua_src ;
                }
                else {
                     /* is char a mappable ANSI extended char */
-                    if ( bSrchUnicChTbl( *src, unicExtChTbl, MAP_EXTCH_TBL_SIZ, &indx ) ) {
+                    if ( bSrchUnicChTbl( *ua_src, unicExtChTbl, MAP_EXTCH_TBL_SIZ, &indx ) ) {
                          indx = _getAnsiExtCh( indx ) ;
                     }
                     /* okay, it wasn't.  How about a mappable ANSI control char */
-                    else if ( bSrchUnicChTbl( *src, unicCtrlChTbl, MAP_CTRLCH_TBL_SIZ, &indx ) ) {
+                    else if ( bSrchUnicChTbl( *ua_src, unicCtrlChTbl, MAP_CTRLCH_TBL_SIZ, &indx ) ) {
                          indx = _getAnsiCtrlCh( indx ) ;
                     }
                     else {
                          indx = 0 ;     /* default to not found */
 
                          /* okay, it wasn't.  How about a mappable ANSI char from the compatablity zone */
-                         if ( ( *src >= MAP_BEGIN_CMPTZONE ) && ( *src <= MAP_END_CMPTZONE ) ) {
+                         if ( ( *ua_src >= MAP_BEGIN_CMPTZONE ) && ( *ua_src <= MAP_END_CMPTZONE ) ) {
 
                               /* ANSI Latin1 mappable chars using offset */
-                              if ( ( *src >= 0xFF01 ) && ( *src <= 0xFF5E ) ) {
-                                   indx = (ACHAR) (( *src && 0x00FF ) + 0x0020 ) ;
+                              if ( ( *ua_src >= 0xFF01 ) && ( *ua_src <= 0xFF5E ) ) {
+                                   indx = (ACHAR) (( *ua_src & 0x00FF ) + 0x0020 ) ;
                               }
                               /* search compatability zone table for char */
-                              else if ( bSrchUnicChTbl( *src, unicCmptZoneChTbl, MAP_COMPATCH_TBL_SIZ, &indx )  ) {
+                              else if ( bSrchUnicChTbl( *ua_src, unicCmptZoneChTbl, MAP_COMPATCH_TBL_SIZ, &indx )  ) {
                                    indx = _getAnsiCmptZoneCh( indx ) ;
                               }
                          }

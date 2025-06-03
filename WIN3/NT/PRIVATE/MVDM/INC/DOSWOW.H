@@ -51,8 +51,11 @@ typedef struct _DOSSF {             // DOS header for SFT chain
     ULONG  SFLink;                  // Link to next SF
     USHORT SFCount;                 // number of entries
     USHORT SFTable;                 // beginning of array of the SFTs
-} DOSSF, UNALIGNED *PDOSSF;
+} DOSSF;
+typedef DOSSF UNALIGNED *PDOSSF;
 
+
+#define SFT_NAMED_PIPE 0x2000       // named pipe flag
 
 typedef struct _DOSSFT {            // DOS SFT
     USHORT  SFT_Ref_Count;          // Howmany tasks using it
@@ -68,7 +71,8 @@ typedef struct _DOSSFT {            // DOS SFT
     ULONG   SFT_Chain;
     USHORT  SFT_PID;
     ULONG   SFT_NTHandle;           // NT File Handle
-} DOSSFT, UNALIGNED *PDOSSFT;
+} DOSSFT;
+typedef DOSSFT UNALIGNED *PDOSSFT;
 
 #define SF_NT_SEEK 0x0200
 

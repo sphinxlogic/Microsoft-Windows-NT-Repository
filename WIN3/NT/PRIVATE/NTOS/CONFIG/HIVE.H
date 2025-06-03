@@ -164,7 +164,7 @@ typedef HCELL_INDEX *PHCELL_INDEX;
 // Any given item of user data must fit within a single HCELL.
 // HCELLs cannot span Bins.
 //
-#define HCELL_PAD(Hive)         ((Hive->Version==2) ? 8 : 16)
+#define HCELL_PAD(Hive)         ((Hive->Version>=2) ? 8 : 16)
                                 // All cells must be at least this large,
                                 // All allocations on this boundary
 
@@ -347,7 +347,7 @@ typedef struct  _HBIN {
 #define HBASE_BLOCK_SIGNATURE   0x66676572  // "regf"
 
 #define HSYS_MAJOR          1               // Must match to read at all
-#define HSYS_MINOR          2               // Must be <= to write, always
+#define HSYS_MINOR          3               // Must be <= to write, always
                                             // set up to writer's version.
 
 #define HBASE_FORMAT_MEMORY 1               // Direct memory load case

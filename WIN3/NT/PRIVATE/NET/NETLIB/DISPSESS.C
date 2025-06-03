@@ -82,8 +82,8 @@ NetpDbgDisplaySession(
     IN LPVOID Info
     )
 {
-    NetpDbgPrint("Session info (level " FORMAT_DWORD ") at "
-                FORMAT_LPVOID ":\n", Level, (LPVOID) Info);
+    NetpKdPrint(("Session info (level " FORMAT_DWORD ") at "
+                FORMAT_LPVOID ":\n", Level, (LPVOID) Info));
     NetpAssert(Info != NULL);
 
     switch (Level) {
@@ -163,8 +163,8 @@ NetpDbgDisplaySessionArray(
         );
 
     if (Status != NERR_Success) {
-        NetpDbgPrint( "NetpDbgDisplaySessionArray: "
-                "**INVALID INFO LEVEL**\n" );
+        NetpKdPrint(( "NetpDbgDisplaySessionArray: "
+                "**INVALID INFO LEVEL**\n" ));
         NetpAssert( FALSE );
     }
 

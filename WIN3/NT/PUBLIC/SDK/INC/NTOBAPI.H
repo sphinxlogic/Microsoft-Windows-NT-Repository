@@ -160,9 +160,11 @@ NtDuplicateObject(
     IN ULONG Options
     );
 
+// begin_ntddk
 #define DUPLICATE_CLOSE_SOURCE      0x00000001  // winnt
 #define DUPLICATE_SAME_ACCESS       0x00000002  // winnt
 #define DUPLICATE_SAME_ATTRIBUTES   0x00000004
+// end_ntddk
 
 
 NTSYSAPI
@@ -170,6 +172,17 @@ NTSTATUS
 NTAPI
 NtMakeTemporaryObject(
     IN HANDLE Handle
+    );
+
+
+NTSYSAPI
+NTSTATUS
+NTAPI
+NtSignalAndWaitForSingleObject(
+    IN HANDLE SignalHandle,
+    IN HANDLE WaitHandle,
+    IN BOOLEAN Alertable,
+    IN PLARGE_INTEGER Timeout OPTIONAL
     );
 
 
@@ -194,6 +207,7 @@ NtWaitForMultipleObjects(
     IN PLARGE_INTEGER Timeout OPTIONAL
     );
 
+// begin_ntsrv
 
 NTSYSAPI
 NTSTATUS
@@ -222,6 +236,8 @@ NTAPI
 NtClose(
     IN HANDLE Handle
     );
+
+// end_ntsrv
 
 
 NTSYSAPI

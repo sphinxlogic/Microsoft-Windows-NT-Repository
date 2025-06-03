@@ -43,15 +43,46 @@ extern WCHAR wszPid[10];
     }
 
 
+extern const char *szOleBindError;
+extern char wszErrBuf[];
 
+// Failure return macro to be used when you are not interested in an
+// HRESULT.
 #define TEST_FAILED(x, y) \
     if (x) \
     { \
-	printf("%s:%d %s\n", __FILE__, __LINE__, y); \
+	wsprintfA(&wszErrBuf[0], "%s:%d %s", __FILE__, __LINE__, y); \
+        MessageBoxA(NULL, &wszErrBuf[0], szOleBindError, MB_OK); \
+	return TRUE; \
+    }
+
+// Failure return macro to be used when you have an interesting HRESULT
+// to return.
+#define TEST_FAILED_HR(x, y) \
+    if (x) \
+    { \
+	wsprintfA(&wszErrBuf[0], "%s:%d %s HRESULT = %lx", __FILE__, __LINE__, y, hr); \
+        MessageBoxA(NULL, &wszErrBuf[0], szOleBindError, MB_OK); \
 	return TRUE; \
     }
 
 
+// Failure return macro to be used when you have an interesting HRESULT
+// to return.
+#define TEST_FAILED_LAST_ERROR(x, y) \
+    if (x) \
+    { \
+	wsprintfA(&wszErrBuf[0], "%s:%d %s Error = %lx",\
+            __FILE__, __LINE__, y, GetLastError()); \
+        MessageBoxA(NULL, &wszErrBuf[0], szOleBindError, MB_OK); \
+	return TRUE; \
+    }
+
+
+extern WCHAR LongDir[MAX_PATH];
+extern WCHAR LongDirShort[MAX_PATH];
+extern WCHAR LongDirLong[MAX_PATH];
+extern WCHAR LongDirLongSe[MAX_PATH];
 
 // Test standard IMalloc interface
 BOOL TestStdMalloc(void);

@@ -23,16 +23,18 @@ Revision History:
 
 --*/
 
-#if DBG
-
 #include "mi.h"
+
+#if DBG
 
 BOOLEAN
 MiFlushUnusedSectionInternal (
     IN PCONTROL_AREA ControlArea
     );
 
+#endif //DBG
 
+#if DBG
 VOID
 MiDumpValidAddresses (
     )
@@ -69,6 +71,10 @@ MiDumpValidAddresses (
     return;
 
 }
+
+#endif //DBG
+
+#if DBG
 VOID
 MiFormatPte (
     IN PMMPTE PointerPte
@@ -123,6 +129,9 @@ MiFormatPte (
 //
 
 }
+#endif //DBG
+
+#if DBG
 
 VOID
 MiDumpWsl ( )
@@ -146,14 +155,16 @@ MiDumpWsl ( )
     wsle = MmWsle;
 
     for (i = 0; i < MmWorkingSetList->LastEntry; i++) {
-        DbgPrint(" index %lx  %lx  %lx %lx\n",i,wsle->u1.Long, wsle->u2.s.LeftChild,
-                wsle->u2.s.RightChild);
+        DbgPrint(" index %lx  %lx\n",i,wsle->u1.Long);
         wsle++;
     }
     return;
 
 }
+
+#endif //DBG
 
+#if 0 //COMMENTED OUT!!!
 VOID
 MiFlushUnusedSections (
     VOID
@@ -262,20 +273,40 @@ MiFlushUnusedSectionInternal (
     LOCK_PFN (OldIrql);
     return TRUE;
 }
-
-typedef struct _PFN_INFO {
-    ULONG Master;
-    ULONG ValidCount;
-    ULONG TransitionCount;
-    ULONG LockedCount;
-    } PFN_INFO, *PPFN_INFO;
+#endif //0
 
 
+#if DBG
+
 #define ALLOC_SIZE ((ULONG)8*1024)
+#define MM_SAVED_CONTROL 64
+#define MM_KERN_MAP_SIZE 64
 
-VOID
-MiMemoryUsage (
-    VOID
+#define MM_NONPAGED_POOL_MARK ((PUCHAR)0xfffff123)
+#define MM_PAGED_POOL_MARK    ((PUCHAR)0xfffff124)
+#define MM_KERNEL_STACK_MARK  ((PUCHAR)0xfffff125)
+
+extern ULONG MmSystemPtesStart[MaximumPtePoolTypes];
+extern ULONG MmSystemPtesEnd[MaximumPtePoolTypes];
+
+typedef struct _KERN_MAP {
+    ULONG StartVa;
+    ULONG EndVa;
+    PLDR_DATA_TABLE_ENTRY Entry;
+} KERN_MAP, *PKERN_MAP;
+
+ULONG
+MiBuildKernelMap (
+    IN ULONG NumberOfElements,
+    IN OUT PKERN_MAP KernelMap
+    );
+
+NTSTATUS
+MmMemoryUsage (
+    IN PVOID Buffer,
+    IN ULONG Size,
+    IN ULONG Type,
+    OUT PULONG OutLength
     )
 
 /*++
@@ -287,7 +318,14 @@ Routine Description:
 
 Arguments:
 
-    None.
+    Buffer - Supplies a buffer in which to copy the data.
+
+    Size - Supplies the size of the buffer.
+
+    Type - Supplies a value of 0 to dump everything,
+           a value of 1 to dump only valid pages.
+
+    OutLength - Returns how much data was written into the buffer.
 
 Return Value:
 
@@ -301,74 +339,147 @@ Return Value:
     PMMPFN Pfn2;
     PSUBSECTION Subsection;
     KIRQL OldIrql;
-    PPFN_INFO Info;
-    PPFN_INFO InfoStart;
-    PPFN_INFO InfoEnd;
-    ULONG Master;
+    PSYSTEM_MEMORY_INFORMATION MemInfo;
+    PSYSTEM_MEMORY_INFO Info;
+    PSYSTEM_MEMORY_INFO InfoStart;
+    PSYSTEM_MEMORY_INFO InfoEnd;
+    PUCHAR String;
+    PUCHAR Master;
     PCONTROL_AREA ControlArea;
     BOOLEAN Found;
-//    ULONG Length;
+    BOOLEAN FoundMap;
+    PMDL Mdl;
+    NTSTATUS status = STATUS_SUCCESS;
+    ULONG Length;
+    PEPROCESS Process;
+    PUCHAR End;
+    PCONTROL_AREA SavedControl[MM_SAVED_CONTROL];
+    PSYSTEM_MEMORY_INFO  SavedInfo[MM_SAVED_CONTROL];
+    ULONG j;
+    ULONG ControlCount = 0;
+    PUCHAR PagedSection = NULL;
+    ULONG Failed;
+    UCHAR PageFileMapped[] = "PageFile Mapped";
+    UCHAR MetaFile[] =       "Fs Meta File";
+    UCHAR NoName[] =         "No File Name";
+    UCHAR NonPagedPool[] =   "NonPagedPool";
+    UCHAR PagedPool[] =      "PagedPool";
+    UCHAR KernelStack[] =    "Kernel Stack";
+    PUCHAR NameString;
+    KERN_MAP KernMap[MM_KERN_MAP_SIZE];
+    ULONG KernSize;
+    ULONG VirtualAddress;
+    PLDR_DATA_TABLE_ENTRY DataTableEntry;
 
-    InfoStart = ExAllocatePool (NonPagedPool, ALLOC_SIZE);
-    if (InfoStart == NULL) {
-        DbgPrint ("pool allocation failed\n");
-        return;
+    Mdl = MmCreateMdl (NULL, Buffer, Size);
+    try {
+
+        MmProbeAndLockPages (Mdl, KeGetPreviousMode(), IoWriteAccess);
+
+    } except (EXCEPTION_EXECUTE_HANDLER) {
+
+        ExFreePool (Mdl);
+        return GetExceptionCode();
     }
+
+    MemInfo = MmGetSystemAddressForMdl (Mdl);
+    InfoStart = &MemInfo->Memory[0];
     InfoEnd = InfoStart;
+    End = (PUCHAR)MemInfo + Size;
 
     Pfn1 = MI_PFN_ELEMENT (MmLowestPhysicalPage + 1);
     LastPfn = MI_PFN_ELEMENT(MmHighestPhysicalPage);
+
+    KernSize = MiBuildKernelMap (MM_KERN_MAP_SIZE, &KernMap[0]);
 
     LOCK_PFN (OldIrql);
 
     while (Pfn1 < LastPfn) {
 
+        Info = InfoStart;
+        FoundMap = FALSE;
+
         if ((Pfn1->u3.e1.PageLocation != FreePageList) &&
             (Pfn1->u3.e1.PageLocation != ZeroedPageList) &&
             (Pfn1->u3.e1.PageLocation != BadPageList)) {
 
+            if (Type == 1) {
+                if (Pfn1->u3.e1.PageLocation != ActiveAndValid) {
+                    Pfn1++;
+                    continue;
+                }
+            }
             if (Pfn1->OriginalPte.u.Soft.Prototype == 1) {
                 Subsection = MiGetSubsectionAddress (&Pfn1->OriginalPte);
-                Master = (ULONG)Subsection->ControlArea;
+                Master = (PUCHAR)Subsection->ControlArea;
                 ControlArea = Subsection->ControlArea;
                 if (!MmIsAddressValid(ControlArea)) {
-                    DbgPrint("Bad control area - subsection %lx CA %lx\n",
-                        Subsection, ControlArea);
-                    MiFormatPfn (Pfn1);
-                    ASSERT (FALSE);
+                    DbgPrint ("Pfnp %lx not found %lx\n",Pfn1 - MmPfnDatabase,
+                                                    (ULONG)Pfn1->PteAddress);
                     Pfn1++;
                     continue;
                 }
                 if (ControlArea->FilePointer != NULL)  {
                     if (!MmIsAddressValid(ControlArea->FilePointer)) {
-                        DbgPrint("Bad file pointer ControlArea %lx\n",
-                                ControlArea);
-                        MiFormatPfn(Pfn1);
-                        ASSERT (FALSE);
-                        Pfn1++;
-                        continue;
-                    }
-
-                    if (ControlArea->FilePointer->Type != 5) {
-                        DbgPrint("Bad file type - ControlArea %lx\n",
-                                ControlArea);
-                        MiFormatPfn(Pfn1);
-                        ASSERT (FALSE);
                         Pfn1++;
                         continue;
                     }
                 }
 
             } else {
-                Pfn2 = MI_PFN_ELEMENT (Pfn1->u3.e1.PteFrame);
-                Master = Pfn2->u3.e1.PteFrame;
-                if ((Master == 0) || (Master > MmHighestPhysicalPage)) {
-                    DbgPrint("Invalid PTE frame\n");
-                    MiFormatPfn(Pfn1);
-                    MiFormatPfn(Pfn2);
-                    ASSERT (FALSE);
-                    Pfn1++;
-                    continue;
+
+                FoundMap = TRUE;
+                VirtualAddress = (ULONG)MiGetVirtualAddressMappedByPte (Pfn1->PteAddress);
+
+                if ((VirtualAddress >= (ULONG)MmPagedPoolStart) &&
+                    (VirtualAddress <= (ULONG)MmPagedPoolEnd)) {
+
+                    //
+                    // This is paged pool, put it in the paged pool cell.
+                    //
+
+                    Master = MM_PAGED_POOL_MARK;
+
+                } else if ((VirtualAddress >= (ULONG)MmNonPagedPoolStart) &&
+                    (VirtualAddress <= (ULONG)MmNonPagedPoolEnd)) {
+
+                    //
+                    // This is nonpaged pool, put it in the nonpaged pool cell.
+                    //
+
+                    Master = MM_NONPAGED_POOL_MARK;
+
+                } else {
+                    FoundMap = FALSE;
+                    for (j=0; j < KernSize; j++) {
+                        if ((VirtualAddress >= KernMap[j].StartVa) &&
+                            (VirtualAddress < KernMap[j].EndVa)) {
+                            Master = (PUCHAR)&KernMap[j];
+                            FoundMap = TRUE;
+                            break;
+                        }
+                    }
+                }
+
+                if (!FoundMap) {
+                    if (((ULONG)Pfn1->PteAddress >= MmSystemPtesStart[SystemPteSpace]) &&
+                           ((ULONG)Pfn1->PteAddress <= MmSystemPtesEnd[SystemPteSpace])) {
+
+                        //
+                        // This is kernel stack.
+                        //
+
+                        Master = MM_KERNEL_STACK_MARK;
+                    } else {
+                        Pfn2 = MI_PFN_ELEMENT (Pfn1->PteFrame);
+                        Master = (PUCHAR)Pfn2->PteFrame;
+                        if (((ULONG)Master == 0) || ((ULONG)Master > MmHighestPhysicalPage)) {
+                            DbgPrint ("Pfn %lx not found %lx\n",Pfn1 - MmPfnDatabase,
+                                                    (ULONG)Pfn1->PteAddress);
+                            Pfn1++;
+                            continue;
+                        }
+                    }
                 }
             }
 
@@ -376,10 +487,9 @@ Return Value:
             // See if there is already a master info block.
             //
 
-            Info = InfoStart;
             Found = FALSE;
             while (Info < InfoEnd) {
-                if (Info->Master == Master) {
+                if (Info->StringOffset == Master) {
                     Found = TRUE;
                     break;
                 }
@@ -390,112 +500,281 @@ Return Value:
 
                 Info = InfoEnd;
                 InfoEnd += 1;
-                if ((PUCHAR)Info >= ((PUCHAR)InfoStart + ALLOC_SIZE) - sizeof(PFN_INFO)) {
-                    DbgPrint("out of space\n");
-                    UNLOCK_PFN (OldIrql);
-                    ExFreePool (InfoStart);
-                    return;
+                if ((PUCHAR)Info >= ((PUCHAR)InfoStart + Size) - sizeof(SYSTEM_MEMORY_INFO)) {
+                    status = STATUS_DATA_OVERRUN;
+                    goto Done;
                 }
-                RtlZeroMemory (Info, sizeof (PFN_INFO));
 
-                Info->Master = Master;
-//                  if (Pfn1->OriginalPte.u.Soft.Prototype == 1) {
-
-                    //
-                    // Get the file name.
-                    //
-
-//                      Length = ControlArea->FilePointer->FileName.Length;
-//                      if (Length > 31) {
-//                          Length = 31;
-//                      }
-//                      RtlMoveMemory (&Info->Name[0],
-//                                  ControlArea->FilePointer->FileName.Buffer,
-//                                  Length );
-//                  }
+                RtlZeroMemory (Info, sizeof(*Info));
+                Info->StringOffset = Master;
             }
 
-            if ((Pfn1->u3.e1.PageLocation == ModifiedPageList) ||
-                (Pfn1->u3.e1.PageLocation == StandbyPageList) ||
-                (Pfn1->u3.e1.PageLocation == TransitionPage) ||
-                (Pfn1->u3.e1.PageLocation == ModifiedNoWritePageList)) {
+            if ((Pfn1->u3.e1.PageLocation == StandbyPageList) ||
+                (Pfn1->u3.e1.PageLocation == TransitionPage)) {
 
                 Info->TransitionCount += 1;
 
-                if (Pfn1->ReferenceCount != 0) {
-                    Info->LockedCount += 1;
-                }
+            } else if ((Pfn1->u3.e1.PageLocation == ModifiedPageList) ||
+                (Pfn1->u3.e1.PageLocation == ModifiedNoWritePageList)) {
+                Info->ModifiedCount += 1;
+
             } else {
-
                 Info->ValidCount += 1;
-
-                if (Pfn1->ReferenceCount != 1) {
-                    Info->LockedCount += 1;
+                if (Type == 1) {
+                    if ((Pfn1->PteAddress >= MiGetPdeAddress (0x0)) &&
+                        (Pfn1->PteAddress <= MiGetPdeAddress (0xFFFFFFFF))) {
+                        Info->PageTableCount += 1;
+                    }
+                }
+            }
+            if (Type != 1) {
+                if ((Pfn1->PteAddress >= MiGetPdeAddress (0x0)) &&
+                    (Pfn1->PteAddress <= MiGetPdeAddress (0xFFFFFFFF))) {
+                    Info->PageTableCount += 1;
                 }
             }
         }
         Pfn1++;
     }
 
-    //
-    // dump the results.
-    //
+    MemInfo->StringStart = (ULONG)Buffer + (PUCHAR)InfoEnd - (PUCHAR)MemInfo;
+    String = (PUCHAR)InfoEnd;
 
-    DbgPrint("Physical Page Summary:\n");
-    DbgPrint("         - number of physical pages: %ld\n",
-                MmNumberOfPhysicalPages);
-    DbgPrint("         - Zeroed Pages %ld\n", MmZeroedPageListHead.Total);
-    DbgPrint("         - Free Pages %ld\n", MmFreePageListHead.Total);
-    DbgPrint("         - Standby Pages %ld\n", MmStandbyPageListHead.Total);
-    DbgPrint("         - Modfified Pages %ld\n", MmModifiedPageListHead.Total);
-    DbgPrint("         - Modfified NoWrite Pages %ld\n", MmModifiedNoWritePageListHead.Total);
-    DbgPrint("         - Bad Pages %ld\n", MmBadPageListHead.Total);
-    DbgPrint(" Usage Summary:\n");
+    //
+    // Process strings...
+    //
 
     Info = InfoStart;
     while (Info < InfoEnd) {
+        if (Info->StringOffset > (PUCHAR)0x80000000) {
 
-        if (Info->Master > 0x200000) {
-            if (((PCONTROL_AREA)Info->Master)->FilePointer == NULL)  {
+            //
+            // Make sure this is not stacks or other areas.
+            //
 
-                DbgPrint("Owner: %8lx %5ld Valid %5ld Trans %5ld Lock    Mapping Paging File\n",
-                            Info->Master,
-                            Info->ValidCount,
-                            Info->TransitionCount,
-                            Info->LockedCount);
+            Length = 0;
+            ControlArea = NULL;
 
+            if (Info->StringOffset == MM_NONPAGED_POOL_MARK) {
+                Length = 14;
+                NameString = NonPagedPool;
+            } else if (Info->StringOffset == MM_PAGED_POOL_MARK) {
+                Length = 14;
+                NameString = PagedPool;
+            } else if (Info->StringOffset == MM_KERNEL_STACK_MARK) {
+                Length = 14;
+                NameString = KernelStack;
+            } else if (((PUCHAR)Info->StringOffset >= (PUCHAR)&KernMap[0]) &&
+                       ((PUCHAR)Info->StringOffset <= (PUCHAR)&KernMap[MM_KERN_MAP_SIZE])) {
+
+                DataTableEntry = ((PKERN_MAP)Info->StringOffset)->Entry;
+                NameString = (PUCHAR)DataTableEntry->BaseDllName.Buffer;
+                Length = DataTableEntry->BaseDllName.Length;
             } else {
-                if (((PCONTROL_AREA)Info->Master)->FilePointer->FileName.Length != 0)  {
-                    DbgPrint("Owner: %8lx %5ld Valid %5ld Trans %5ld Lock %Z\n",
-                            Info->Master,
-                            Info->ValidCount,
-                            Info->TransitionCount,
-                            Info->LockedCount,
-                            &((PCONTROL_AREA)Info->Master)->FilePointer->FileName);
-                } else {
-                    DbgPrint("Owner: %8lx %5ld Valid %5ld Trans %5ld Lock    Name Not Available\n",
-                                Info->Master,
-                                Info->ValidCount,
-                                Info->TransitionCount,
-                                Info->LockedCount);
-                }
-           }
-        } else {
-            DbgPrint("Owner: %8lx %5ld Valid %5ld Trans %5ld Lock    Process PDE\n",
-                        Info->Master,
-                        Info->ValidCount,
-                        Info->TransitionCount,
-                        Info->LockedCount);
+                //
+                // This points to a control area.
+                // Get the file name.
+                //
 
+                ControlArea = (PCONTROL_AREA)(Info->StringOffset);
+                NameString = (PUCHAR)&ControlArea->FilePointer->FileName.Buffer[0];
+            }
+
+            Info->StringOffset = NULL;
+            Failed = TRUE;
+            if (Length == 0) {
+                if (MmIsAddressValid (&ControlArea->FilePointer->FileName.Length)) {
+                    Length = ControlArea->FilePointer->FileName.Length;
+                    if (Length == 0) {
+                        if (ControlArea->u.Flags.NoModifiedWriting) {
+                            Length = 14;
+                            NameString = MetaFile;
+                        } else if (ControlArea->u.Flags.File == 0) {
+                            NameString = PageFileMapped;
+                            Length = 16;
+
+                        } else {
+                            NameString = NoName;
+                            Length = 14;
+                        }
+                    }
+                }
+            }
+
+            if ((String+Length+2) >= End) {
+                status = STATUS_DATA_OVERRUN;
+                goto Done;
+            }
+            if (MmIsAddressValid (&NameString[0]) &&
+                MmIsAddressValid (&NameString[Length - 1])) {
+                RtlMoveMemory (String,
+                               NameString,
+                               Length );
+                Info->StringOffset = (PUCHAR)Buffer + ((PUCHAR)String - (PUCHAR)MemInfo);
+                String[Length] = 0;
+                String[Length + 1] = 0;
+                String += Length + 2;
+                Failed = FALSE;
+            }
+            if (Failed && ControlArea) {
+                if (!(ControlArea->u.Flags.BeingCreated ||
+                      ControlArea->u.Flags.BeingDeleted) &&
+                      (ControlCount < MM_SAVED_CONTROL)) {
+                    SavedControl[ControlCount] = ControlArea;
+                    SavedInfo[ControlCount] = Info;
+                    ControlArea->NumberOfSectionReferences += 1;
+                    ControlCount += 1;
+                }
+            }
+
+        } else {
+
+            //
+            // Process...
+            //
+
+            Pfn1 = MI_PFN_ELEMENT (Info->StringOffset);
+            Info->StringOffset = NULL;
+            if ((String+16) >= End) {
+                status = STATUS_DATA_OVERRUN;
+                goto Done;
+            }
+
+            Process = (PEPROCESS)Pfn1->u1.Event;
+            if (Pfn1->PteAddress == MiGetPteAddress (PDE_BASE)) {
+                Info->StringOffset = (PUCHAR)Buffer + ((PUCHAR)String - (PUCHAR)MemInfo);
+                RtlMoveMemory (String,
+                               &Process->ImageFileName[0],
+                               16);
+                String += 16;
+            } else {
+
+                Info->StringOffset = PagedSection;
+                if (PagedSection == NULL) {
+                    Info->StringOffset = (PUCHAR)Buffer + ((PUCHAR)String - (PUCHAR)MemInfo);
+                    RtlMoveMemory (String,
+                                   &PageFileMapped,
+                                   16);
+                    PagedSection = Info->StringOffset;
+                    String += 16;
+                }
+            }
         }
+
         Info += 1;
     }
 
+Done:
     UNLOCK_PFN (OldIrql);
-    ExFreePool (InfoStart);
-    return;
+    while (ControlCount != 0) {
+
+        //
+        // Process all the pagable name strings.
+        //
+
+        ControlCount -= 1;
+        ControlArea = SavedControl[ControlCount];
+        Info = SavedInfo[ControlCount];
+        NameString = (PUCHAR)&ControlArea->FilePointer->FileName.Buffer[0];
+        Length = ControlArea->FilePointer->FileName.Length;
+        if (Length == 0) {
+            if (ControlArea->u.Flags.NoModifiedWriting) {
+                Length = 12;
+                NameString = MetaFile;
+            } else if (ControlArea->u.Flags.File == 0) {
+                NameString = PageFileMapped;
+                Length = 16;
+
+            } else {
+                NameString = NoName;
+                Length = 12;
+            }
+        }
+        if ((String+Length+2) >= End) {
+            status = STATUS_DATA_OVERRUN;
+        }
+        if (status != STATUS_DATA_OVERRUN) {
+            RtlMoveMemory (String,
+                           NameString,
+                           Length );
+            Info->StringOffset = (PUCHAR)Buffer + ((PUCHAR)String - (PUCHAR)MemInfo);
+            String[Length] = 0;
+            String[Length + 1] = 0;
+            String += Length + 2;
+        }
+
+        LOCK_PFN (OldIrql);
+        ControlArea->NumberOfSectionReferences -= 1;
+        MiCheckForControlAreaDeletion (ControlArea);
+        UNLOCK_PFN (OldIrql);
+    }
+    *OutLength = ((PUCHAR)String - (PUCHAR)MemInfo);
+    MmUnlockPages (Mdl);
+    ExFreePool (Mdl);;
+    return status;
 }
+#else //DBG
+
+NTSTATUS
+MmMemoryUsage (
+    IN PVOID Buffer,
+    IN ULONG Size,
+    IN ULONG Type,
+    OUT PULONG OutLength
+    )
+{
+    return STATUS_NOT_IMPLEMENTED;
+}
+
+#endif //DBG
+
 
+#if DBG
+ULONG
+MiBuildKernelMap (
+    IN ULONG NumberOfElements,
+    IN OUT PKERN_MAP KernelMap
+    )
+
+{
+    PLIST_ENTRY Next;
+    PLIST_ENTRY NextEntry;
+    PLDR_DATA_TABLE_ENTRY DataTableEntry;
+    ULONG i = 0;
+
+    KeEnterCriticalRegion();
+    ExAcquireResourceShared (&PsLoadedModuleResource, TRUE);
+
+    NextEntry = PsLoadedModuleList.Flink;
+    do {
+
+        DataTableEntry = CONTAINING_RECORD(NextEntry,
+                                           LDR_DATA_TABLE_ENTRY,
+                                           InLoadOrderLinks);
+
+        KernelMap[i].Entry = DataTableEntry;
+        KernelMap[i].StartVa = (ULONG)DataTableEntry->DllBase;
+        KernelMap[i].EndVa = KernelMap[i].StartVa +
+                                         (ULONG)DataTableEntry->SizeOfImage;
+        i += 1;
+        if (i == NumberOfElements) {
+            break;
+        }
+        Next = DataTableEntry->InLoadOrderLinks.Flink;
+
+        NextEntry = NextEntry->Flink;
+    } while (NextEntry != &PsLoadedModuleList);
+
+    ExReleaseResource (&PsLoadedModuleResource);
+    KeLeaveCriticalRegion();
+
+    return i;
+}
+#endif //DBG
+
+
+
+#if DBG
 VOID
 MiFlushCache (
     VOID
@@ -582,11 +861,11 @@ Return Value:
 
     while (Pfn1 <= PfnLast) {
 
-        if ((Pfn1->u2.ShareCount == 0) && (Pfn1->ReferenceCount != 0)) {
+        if ((Pfn1->u2.ShareCount == 0) && (Pfn1->u3.e2.ReferenceCount != 0)) {
             MiFormatPfn (Pfn1);
         }
 
-        if (Pfn1->ReferenceCount > 1) {
+        if (Pfn1->u3.e2.ReferenceCount > 1) {
             MiFormatPfn (Pfn1);
         }
 

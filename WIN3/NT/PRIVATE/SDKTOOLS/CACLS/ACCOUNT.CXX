@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------
 //
-// Copyright (C) 1993, Microsoft Corporation.
+// Copyright (C) 1995, Microsoft Corporation.
 //
 // File:        account.cxx
 //
@@ -85,7 +85,7 @@ CAccount::~CAccount()
 ULONG CAccount::GetAccountName(WCHAR **name)
 {
 
-    ULONG ret = STATUS_SUCCESS;
+    ULONG ret = ERROR_SUCCESS;
 
     if (_name == NULL)
     {
@@ -102,7 +102,7 @@ ULONG CAccount::GetAccountName(WCHAR **name)
         {
             if (ERROR_INSUFFICIENT_BUFFER == (ret = GetLastError()))
             {
-                ret = STATUS_SUCCESS;
+                ret = ERROR_SUCCESS;
                 if (NULL == (_name = (WCHAR *)LocalAlloc(LMEM_FIXED, can * sizeof(WCHAR))))
                 {
                     return(ERROR_NOT_ENOUGH_MEMORY);
@@ -140,7 +140,7 @@ ULONG CAccount::GetAccountName(WCHAR **name)
 ULONG CAccount::GetAccountSid(SID **psid)
 {
 
-    ULONG ret = STATUS_SUCCESS;
+    ULONG ret = ERROR_SUCCESS;
 
     if (_psid == NULL && _name != NULL)
     {
@@ -158,7 +158,7 @@ ULONG CAccount::GetAccountSid(SID **psid)
             if (ERROR_INSUFFICIENT_BUFFER == (ret = GetLastError()))
             {
 
-                ret = STATUS_SUCCESS;
+                ret = ERROR_SUCCESS;
                 if (NULL == (_psid = (SID *)LocalAlloc(LMEM_FIXED, cusid)))
                 {
                     return(ERROR_NOT_ENOUGH_MEMORY);
@@ -197,7 +197,7 @@ ULONG CAccount::GetAccountSid(SID **psid)
 //----------------------------------------------------------------------------
 ULONG CAccount::GetAccountDomain(WCHAR **domain)
 {
-    ULONG ret = STATUS_SUCCESS;
+    ULONG ret = ERROR_SUCCESS;
 
     if (_domain == NULL)
     {

@@ -83,6 +83,7 @@ Revision History:
 #include <lmaccess.h>   // USER_PASSWORD_PARMNUM
 #include <crypt.h>      // Needed by NetUserPasswordSet
 
+#include "os2crt.h"
 
 #define DWORD  unsigned long
 #define APIRET DWORD
@@ -1828,4 +1829,3 @@ Return Value:
     }
 }
 
-

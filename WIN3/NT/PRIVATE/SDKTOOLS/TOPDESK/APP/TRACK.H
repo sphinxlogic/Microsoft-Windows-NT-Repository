@@ -32,4 +32,4 @@ typedef struct _TRACKINFO {
 } TRACKINFO, *PTRACKINFO, FAR *LPTRACKINFO;
 
 BOOL TrackRect(HANDLE hInst, HWND hwnd, LPTRACKINFO lpti);
-
+

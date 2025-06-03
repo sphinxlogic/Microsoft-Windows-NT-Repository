@@ -37,10 +37,6 @@ Revision History:
 static CHAR    DisplayBuffer[DISPLAYBUFFER_SIZE];
 
 
-
-
-
-
 //  **********************************************************************
 
 void
@@ -165,7 +161,21 @@ Return Value:
     while (TRUE) {
 
         if ( IsConsole ) {
-            Orgc = (CHAR)getch();
+
+            Orgc = (CHAR)_getch();
+
+            //
+            //  Some keypresses can result in the generation of two keycodes,
+            //  eg the arrow keys.  The getch() function stores the second
+            //  keycode in the ungetch buffer.  We want to discard that second
+            //  keycode so it won't hose us the next time we want input from the
+            //  user, but we don't want to call getch() if it might block for
+            //  input.  Thus this hack, which clears the ungetch buffer.
+            //
+
+            _ungetch(1);
+            _getch();
+
         } else {
             Orgc = (CHAR)getchar();
         }

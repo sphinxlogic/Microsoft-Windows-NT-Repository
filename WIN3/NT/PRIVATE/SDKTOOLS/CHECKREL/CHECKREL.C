@@ -159,6 +159,9 @@ LPSTR pszDefaultDir =
     "*.dll\n"
     "*.exe\n"
 #endif
+#if defined(PPC)
+    "*.exe\n"
+#endif
     "?\\*.*\n"
     "?\\dump\\ optional\n"
     "?\\dump\\*.* optional\n"
@@ -166,13 +169,34 @@ LPSTR pszDefaultDir =
     "?\\idw\\*.* optional\n"
     "?\\idw\\setup\\ optional\n"
     "?\\idw\\setup\\*.* optional\n"
-    "?\\idw\\triboot\\ optional\n"
-    "?\\idw\\triboot\\*.* optional\n"
+    "?\\km\\ optional\n"
+    "?\\km\\*.* optional\n"
+    "?\\km\\symbols\\ optional\n"
+    "?\\km\\symbols\\dll\\ optional\n"
+    "?\\km\\symbols\\dll\\*.* optional\n"
+    "?\\km\\symbols\\sys\\ optional\n"
+    "?\\km\\symbols\\sys\\*.* optional\n"
+    "?\\km\\system32\\ optional\n"
+    "?\\km\\system32\\*.* optional\n"
+    "?\\km\\system32\\drivers\\ optional\n"
+    "?\\km\\system32\\drivers\\*.* optional\n"
     "?\\mstools\\ optional\n"
     "?\\mstools\\*.* optional\n"
+    "?\\nws\\ optional\n"
+    "?\\nws\\*.* optional\n"
+    "?\\symbols\\*.* optional\n"
+    "?\\symbols\\acm\\*.* optional\n"
+    "?\\symbols\\com\\*.* optional\n"
+    "?\\symbols\\cpl\\*.* optional\n"
+    "?\\symbols\\dll\\*.* optional\n"
+    "?\\symbols\\drv\\*.* optional\n"
+    "?\\symbols\\exe\\*.* optional\n"
+    "?\\symbols\\scr\\*.* optional\n"
+    "?\\symbols\\sys\\*.* optional\n"
     "?\\system\\*.*\n"
     "?\\system32\\*.*\n"
     "?\\system32\\config\\*.*\n"
+    "?\\system32\\dhcp\\*.* optional\n"
     "?\\system32\\drivers\\*.*\n"
     "?\\system32\\drivers\\etc\\*.*\n"
 #ifdef i386
@@ -180,11 +204,9 @@ LPSTR pszDefaultDir =
     "?\\system32\\os2\\dll\\ optional\n"
     "?\\system32\\os2\\dll\\*.* optional\n"
 #endif
+    "?\\system32\\ras\\*.* optional\n"
     "?\\system32\\spool\\ optional\n"
     "?\\system32\\spool\\drivers\\ optional\n"
-    "?\\system32\\spool\\printers\\ optional\n"
-    "?\\system32\\spool\\printers\\0\\ optional\n"
-    "?\\system32\\spool\\printers\\0\\*.* optional\n"
     "?\\system32\\spool\\prtprocs\\ optional\n"
 #ifdef MIPS
     "?\\system32\\spool\\prtprocs\\w32mips\\ optional\n"
@@ -197,6 +219,30 @@ LPSTR pszDefaultDir =
 #ifdef i386
     "?\\system32\\spool\\prtprocs\\w32x86\\ optional\n"
     "?\\system32\\spool\\prtprocs\\w32x86\\*.dll optional\n"
+#endif
+#ifdef PPC
+    "?\\system32\\spool\\prtprocs\\w32ppc\\ optional\n"
+    "?\\system32\\spool\\prtprocs\\w32ppc\\*.dll optional\n"
+#endif
+    "?\\system32\\wins\\*.* optional\n"
+    "?\\ui\\ optional\n"
+    "?\\ui\\*.* optional\n"
+    "?\\ui\\dump\\ optional\n"
+    "?\\ui\\dump\\*.* optional\n"
+    "?\\ui\\symbols\\ optional\n"
+    "?\\ui\\symbols\\cpl\\ optional\n"
+    "?\\ui\\symbols\\cpl\\*.* optional\n"
+    "?\\ui\\symbols\\dll\\ optional\n"
+    "?\\ui\\symbols\\dll\\*.* optional\n"
+    "?\\ui\\symbols\\exe\\ optional\n"
+    "?\\ui\\symbols\\exe\\*.* optional\n"
+    "?\\ui\\system32\\ optional\n"
+    "?\\ui\\system32\\*.* optional\n"
+#ifdef i386
+    "?\\wdl\\ optional\n"
+    "?\\wdl\\video\\ optional\n"
+    "?\\wdl\\video\\avga\\ optional\n"
+    "?\\wdl\\video\\avga\\*.* optional\n"
 #endif
     "#directory end\n"
     "";
@@ -275,7 +321,7 @@ CdCheck()
                 goto nextone;
                 }
             }
-        ActualSize = filelength(fileno(pf));
+        ActualSize = _filelength(_fileno(pf));
         if (ActualSize == 0xffffffff) {
             crerror("Cannot determine size of file: %s %d", FilePart, errno);
             fclose(pf);
@@ -324,7 +370,7 @@ main(
         while (argc > 1) {
             argc--;
             argv++;
-            strlwr(*argv);
+            _strlwr(*argv);
             if (!ProcessEntry(*argv, *argv)) {
                 rc++;
             }
@@ -453,7 +499,7 @@ ProcessParameters(INT *pargc, LPSTR argv[])
                 case 'r':
                     if (p[1] == '\0' && --(*pargc)) {
                         ++argv;
-                        RootOfTree = strdup(*argv);
+                        RootOfTree = _strdup(*argv);
                         if (RootOfTree == NULL) {
                             crerror("Out of memory for tree root");
                             exit(2);
@@ -641,7 +687,7 @@ ProcessCheckFile(
 
                     // append file name to FindPattern: "c:\nt\driver\foo.sys"
 
-                    strlwr(FindName);
+                    _strlwr(FindName);
                     strcpy(pszFile, FindName);
                     CHECKSTRLEN(FindPattern, cbFindPattern);
                     if (fAll && strcmp(FindPattern, pszCheckFileName) == 0) {
@@ -684,7 +730,7 @@ ProcessCheckFile(
                     strcmp(FindName, "..") == 0) {
                     continue;
                 }
-                strlwr(FindName);
+                _strlwr(FindName);
                 for (pcm = pcp->pcmPat; pcm != NULL; pcm = pcm->pcmNext) {
                     if (pcm->fDir && strcmp(FindName, pcm->achPat) == 0) {
                         pcm->fFound = TRUE;
@@ -784,7 +830,7 @@ ReadCheckHeader(
         pszCheck = pszDefaultDir;
 
     } else {
-        cbCheck = filelength(fileno(pfCheck)) + 1;
+        cbCheck = _filelength(_fileno(pfCheck)) + 1;
         if ((DWORD) (size_t) cbCheck != cbCheck) {
             crerror("Open: check file too large (%ld bytes)", cbCheck);
             exit(2);
@@ -1474,7 +1520,7 @@ RecursiveCheckHeader()
                     strcmp(FindName, "..") == 0) {
                     continue;
                 }
-                strlwr(FindName);
+                _strlwr(FindName);
                 for (pcm = pcp->pcmPat; pcm != NULL; pcm = pcm->pcmNext) {
                     if (pcm->fDir && strcmp(FindName, pcm->achPat) == 0) {
                         pcm->fFound = TRUE;

@@ -38,4 +38,3 @@ BOOL FAR PASCAL EXPORT About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPar
 */
 #define SZCLASSICONBOX "simpcntrIBClass"
 #define SZCLASSRESULTIMAGE "simpcntrRIClass"
-

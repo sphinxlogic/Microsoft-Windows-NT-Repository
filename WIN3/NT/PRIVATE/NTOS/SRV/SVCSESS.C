@@ -336,7 +336,7 @@ Return Value:
     ULONG lastUseTimeInSecondsSince1980;
     ULONG secondsIdle;
 
-    PAGED_CODE( );
+    PAGED_CODE();
 
     //
     // Get the current time and use this to determine how long the
@@ -418,7 +418,9 @@ Return Value:
         //
 
         SrvCopyUnicodeStringToBuffer(
-            &SrvClientTypes[session->Connection->SmbDialect],
+            session->Connection->ClientOSType.Buffer != NULL ?
+                &session->Connection->ClientOSType :
+                &SrvClientTypes[session->Connection->SmbDialect],
             *FixedStructure,
             EndOfVariableData,
             &sesi2->sesi2_cltype_name
@@ -443,7 +445,25 @@ Return Value:
         // Set up other fields.
         //
 
+        //
+        // Return the number of files open over this session, taking care
+        //  not to count those in the RFCB cache (since the RFCB cache should
+        //  be transparent to users and administrators.
+        //
+
         sesi2->sesi2_num_opens = session->CurrentFileOpenCount;
+
+        if( sesi2->sesi2_num_opens > 0 ) {
+
+            ULONG count = SrvCountCachedRfcbsForUid( session->Connection, session->Uid );
+
+            if( sesi2->sesi2_num_opens > count ) {
+                sesi2->sesi2_num_opens -= count;
+            } else {
+                sesi2->sesi2_num_opens = 0;
+            }
+        }
+
         sesi2->sesi2_time = secondsAlive;
         sesi2->sesi2_idle_time = secondsIdle;
 
@@ -655,10 +675,14 @@ Return Value:
         break;
 
     case 2:
-        size += sizeof(SESSION_INFO_2) +
-                SrvLengthOfStringInApiBuffer(
-                    &SrvClientTypes[connection->SmbDialect]
-                    );
+        size += sizeof( SESSION_INFO_2 );
+
+        if( connection->ClientOSType.Buffer != NULL ) {
+            size += SrvLengthOfStringInApiBuffer( &connection->ClientOSType );
+        } else {
+            size += SrvLengthOfStringInApiBuffer( &SrvClientTypes[ connection->SmbDialect ] );
+        }
+
         break;
 
     case 10:
@@ -668,11 +692,15 @@ Return Value:
     case 502:
         size += sizeof(SESSION_INFO_502) +
                 SrvLengthOfStringInApiBuffer(
-                    &SrvClientTypes[connection->SmbDialect]
-                    ) +
-                SrvLengthOfStringInApiBuffer(
                     &connection->Endpoint->TransportName
                     );
+
+        if( connection->ClientOSType.Buffer != NULL ) {
+            size += SrvLengthOfStringInApiBuffer( &connection->ClientOSType );
+        } else {
+            size += SrvLengthOfStringInApiBuffer( &SrvClientTypes[ connection->SmbDialect ] );
+        }
+
         break;
 
     }

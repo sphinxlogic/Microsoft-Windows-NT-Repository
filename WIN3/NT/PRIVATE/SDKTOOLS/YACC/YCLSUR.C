@@ -57,7 +57,7 @@ void closure(int i)
          /* compute the lookahead */
          aryfil( clset.lset, tbitset, 0 );
 
-         /* find items involving c */
+         /* find items involving c */
          WSLOOP(u,v)
 
             {

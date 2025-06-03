@@ -2,7 +2,7 @@
  *
  *      VfW.H - Video for windows include file for WIN32
  *
- *      Copyright (c) 1991-1994, Microsoft Corp.  All rights reserved.
+ *      Copyright (c) 1991-1995, Microsoft Corp.  All rights reserved.
  *
  *      This include files defines interfaces to the following
  *      video components
@@ -164,6 +164,10 @@ DECLARE_HANDLE(HIC);     /* Handle to a Installable Compressor */
 #define ICMODE_FASTCOMPRESS     5
 #define ICMODE_DRAW             8
 #endif
+#ifndef _WIN32					// ;Internal
+#define ICMODE_INTERNALF_FUNCTION32	0x8000	// ;Internal
+#define ICMODE_INTERNALF_MASK		0x8000	// ;Internal
+#endif						// ;Internal
 
 /* Flags for AVI file index */
 #define AVIIF_LIST	0x00000001L
@@ -197,10 +201,9 @@ DECLARE_HANDLE(HIC);     /* Handle to a Installable Compressor */
 #define ICM_CONFIGURE               (ICM_RESERVED+10)   // show the configure dialog
 #define ICM_ABOUT                   (ICM_RESERVED+11)   // show the about box
 
-#define ICM_GETERRORTEXT            (ICM_RESERVED+12)   // get error text TBD
-
-#define ICM_GETFORMATNAME	    (ICM_RESERVED+20)	// get a name for a format
-#define ICM_ENUMFORMATS		    (ICM_RESERVED+21)	// cycle through formats
+#define ICM_GETERRORTEXT            (ICM_RESERVED+12)   // get error text TBD ;Internal
+#define ICM_GETFORMATNAME	    (ICM_RESERVED+20)	// get a name for a format ;Internal
+#define ICM_ENUMFORMATS		    (ICM_RESERVED+21)	// cycle through formats ;Internal
 
 #define ICM_GETDEFAULTQUALITY       (ICM_RESERVED+30)   // get the default value for quality
 #define ICM_GETQUALITY              (ICM_RESERVED+31)   // get the current value for quality
@@ -237,10 +240,10 @@ DECLARE_HANDLE(HIC);     /* Handle to a Installable Compressor */
 #define ICM_DRAW_QUERY              (ICM_USER+31)   // query support for dempress
 #define ICM_DRAW_BEGIN              (ICM_USER+15)   // start a series of draw calls
 #define ICM_DRAW_GET_PALETTE        (ICM_USER+16)   // get the palette needed for drawing
-#define ICM_DRAW_UPDATE             (ICM_USER+17)   // update screen with current frame
+#define ICM_DRAW_UPDATE             (ICM_USER+17)   // update screen with current frame ;Internal
 #define ICM_DRAW_START              (ICM_USER+18)   // start decompress clock
 #define ICM_DRAW_STOP               (ICM_USER+19)   // stop decompress clock
-#define ICM_DRAW_BITS/* not used */ (ICM_USER+20)   // decompress a frame to screen
+#define ICM_DRAW_BITS               (ICM_USER+20)   // decompress a frame to screen ;Internal
 #define ICM_DRAW_END                (ICM_USER+21)   // end a series of draw calls
 #define ICM_DRAW_GETTIME            (ICM_USER+32)   // get value of decompress clock
 #define ICM_DRAW                    (ICM_USER+33)   // generalized "render" message
@@ -256,7 +259,7 @@ DECLARE_HANDLE(HIC);     /* Handle to a Installable Compressor */
 #define ICM_DRAW_SUGGESTFORMAT      (ICM_USER+50)   // Like ICGetDisplayFormat
 #define ICM_DRAW_CHANGEPALETTE      (ICM_USER+51)   // for animating palette
 
-#define ICM_DRAW_IDLE               (ICM_USER+52)   // send each frame time
+#define ICM_DRAW_IDLE               (ICM_USER+52)   // send each frame time ;Internal
 
 #define ICM_GETBUFFERSWANTED        (ICM_USER+41)   // ask about prebuffering
 
@@ -269,11 +272,8 @@ DECLARE_HANDLE(HIC);     /* Handle to a Installable Compressor */
 #define ICM_DECOMPRESSEX_END        (ICM_USER+63)   // end a series of decompress calls
 
 #define ICM_COMPRESS_FRAMES_INFO    (ICM_USER+70)   // tell about compress to come
-#define ICM_COMPRESS_FRAMES         (ICM_USER+71)   // compress a bunch of frames
+#define ICM_COMPRESS_FRAMES         (ICM_USER+71)   // compress a bunch of frames ;Internal
 #define ICM_SET_STATUS_PROC	        (ICM_USER+72)   // set status callback
-
-#define ICM_ENUM_FORMATS            (ICM_USER+80)   // enum all formats
-#define ICM_GET_FORMAT_NAME         (ICM_USER+81)   // compress a bunch of frames
 
 /************************************************************************
 ************************************************************************/
@@ -285,6 +285,9 @@ typedef struct {
     DWORD               dwVersion;      // version of compman opening you
     DWORD               dwFlags;        // LOWORD is type specific
     LRESULT             dwError;        // error return.
+    LPVOID              pV1Reserved;    // Reserved
+    LPVOID              pV2Reserved;    // Reserved
+    DWORD               dnDevNode;      // Devnode for PnP devices
 } ICOPEN;
 
 /************************************************************************
@@ -529,16 +532,20 @@ HIC     VFWAPI ICOpenFunction(DWORD fccType, DWORD fccHandler, UINT wMode, FARPR
 LRESULT VFWAPI ICClose(HIC hic);
 
 LRESULT VFWAPI  ICSendMessage(HIC hic, UINT msg, DWORD dw1, DWORD dw2);
-#ifndef WIN32
+#ifndef _WIN32
 //this function is unsupported on Win32 as it is non-portable.
 LRESULT VFWAPIV ICMessage(HIC hic, UINT msg, UINT cb, ...);
 #endif
 
 
 /* Values for wFlags of ICInstall() */
+#define ICINSTALL_UNICODE       0x8000
+
 #define ICINSTALL_FUNCTION      0x0001  // lParam is a DriverProc (function ptr)
 #define ICINSTALL_DRIVER        0x0002  // lParam is a driver name (string)
 #define ICINSTALL_HDRV          0x0004  // lParam is a HDRVR (driver handle)
+
+#define ICINSTALL_DRIVERW       0x8002  // lParam is a unicode driver name
 
 /************************************************************************
 
@@ -1187,12 +1194,12 @@ typedef HANDLE HDRAWDIB; /* hdd */
     DrawDib functions
 	
 *********************************************************************/
-/*
-**  DrawDibInit()
-**
-*/
-extern BOOL VFWAPI DrawDibInit(void);
-
+/*							// ;Internal
+**  DrawDibInit()					// ;Internal
+**							// ;Internal
+*/							// ;Internal
+extern BOOL VFWAPI DrawDibInit(void);			// ;Internal
+							// ;Internal
 /*
 **  DrawDibOpen()
 **
@@ -1211,11 +1218,11 @@ extern BOOL VFWAPI DrawDibClose(HDRAWDIB hdd);
 */
 extern LPVOID VFWAPI DrawDibGetBuffer(HDRAWDIB hdd, LPBITMAPINFOHEADER lpbi, DWORD dwSize, DWORD dwFlags);
 
-/*
-**  DrawDibError()
-*/
-extern UINT VFWAPI DrawDibError(HDRAWDIB hdd);
-
+/*							// ;Internal
+**  DrawDibError()					// ;Internal
+*/							// ;Internal
+extern UINT VFWAPI DrawDibError(HDRAWDIB hdd);		// ;Internal
+							// ;Internal
 /*
 **  DrawDibGetPalette()
 **
@@ -1635,6 +1642,9 @@ typedef struct
 #define AVIIF_KEYFRAME      0x00000010L // this frame is a key frame.
 #endif
 
+// For GetFrame::SetFormat - use the best format for the display
+#define AVIGETFRAMEF_BESTDISPLAYFMT	1
+
 //
 // Structures used by AVIStreamInfo & AVIFileInfo.
 //
@@ -1859,7 +1869,7 @@ DECLARE_INTERFACE_(IAVIStream, IUnknown)
     STDMETHOD(Delete)      (THIS_ LONG lStart, LONG lSamples) PURE;
     STDMETHOD(ReadData)    (THIS_ DWORD fcc, LPVOID lp, LONG FAR *lpcb) PURE ;
     STDMETHOD(WriteData)   (THIS_ DWORD fcc, LPVOID lp, LONG cb) PURE ;
-#ifdef WIN32
+#ifdef _WIN32
     STDMETHOD(SetInfo) (THIS_ AVISTREAMINFOW FAR * lpInfo,
 			    LONG cbInfo) PURE;
 #else
@@ -2013,6 +2023,8 @@ DEFINE_AVIGUID(IID_IAVIEditStream,      0x00020024, 0, 0);
 DEFINE_AVIGUID(CLSID_AVISimpleUnMarshal,        0x00020009, 0, 0);
 #endif
 
+DEFINE_AVIGUID(CLSID_AVIFile,           0x00020000, 0, 0);
+
 #define	AVIFILEHANDLER_CANREAD		0x0001
 #define	AVIFILEHANDLER_CANWRITE		0x0002
 #define	AVIFILEHANDLER_CANACCEPTNONRGB	0x0004
@@ -2027,7 +2039,7 @@ STDAPI_(void) AVIFileExit(void);
 STDAPI_(ULONG) AVIFileAddRef       (PAVIFILE pfile);
 STDAPI_(ULONG) AVIFileRelease      (PAVIFILE pfile);
 
-#ifdef WIN32
+#ifdef _WIN32
 STDAPI AVIFileOpenA       (PAVIFILE FAR * ppfile, LPCSTR szFile,
 			  UINT uMode, LPCLSID lpHandler);
 STDAPI AVIFileOpenW       (PAVIFILE FAR * ppfile, LPCWSTR szFile,
@@ -2043,7 +2055,7 @@ STDAPI AVIFileOpen       (PAVIFILE FAR * ppfile, LPCSTR szFile,
 #define AVIFileOpenW	AVIFileOpen	    /* ;Internal */
 #endif
 
-#ifdef WIN32
+#ifdef _WIN32
 STDAPI AVIFileInfoW (PAVIFILE pfile, LPAVIFILEINFOW pfi, LONG lSize);
 STDAPI AVIFileInfoA (PAVIFILE pfile, LPAVIFILEINFOA pfi, LONG lSize);
 #ifdef UNICODE
@@ -2060,9 +2072,18 @@ STDAPI AVIFileInfo (PAVIFILE pfile, LPAVIFILEINFO pfi, LONG lSize);
 STDAPI AVIFileGetStream     (PAVIFILE pfile, PAVISTREAM FAR * ppavi, DWORD fccType, LONG lParam);
 
 
-STDAPI AVIFileCreateStream  (PAVIFILE pfile,
-					 PAVISTREAM FAR *ppavi,
-					 AVISTREAMINFOW FAR *psi);
+#ifdef _WIN32
+STDAPI AVIFileCreateStreamW (PAVIFILE pfile, PAVISTREAM FAR *ppavi, AVISTREAMINFOW FAR * psi);
+STDAPI AVIFileCreateStreamA (PAVIFILE pfile, PAVISTREAM FAR *ppavi, AVISTREAMINFOA FAR * psi);
+#ifdef UNICODE
+#define AVIFileCreateStream	AVIFileCreateStreamW
+#else
+#define AVIFileCreateStream	AVIFileCreateStreamA
+#endif
+#else //win16 version
+STDAPI AVIFileCreateStream(PAVIFILE pfile, PAVISTREAM FAR *ppavi, AVISTREAMINFO FAR * psi);
+#define AVIFileCreateStreamW AVIFileCreateStream	    /* ;Internal */
+#endif
 
 STDAPI AVIFileWriteData	(PAVIFILE pfile,
 					 DWORD ckid,
@@ -2159,6 +2180,7 @@ STDAPI AVIStreamCreate(PAVISTREAM FAR *ppavi, LONG lParam1, LONG lParam2,
 #define FIND_DIR        0x0000000FL     // direction
 #define FIND_NEXT       0x00000001L     // go forward
 #define FIND_PREV       0x00000004L     // go backward
+#define FIND_FROM_START 0x00000008L     // start at the logical beginning
 
 #define FIND_TYPE       0x000000F0L     // type mask
 #define FIND_KEY        0x00000010L     // find key frame.
@@ -2453,7 +2475,7 @@ STDAPI EditStreamSetInfoA(PAVISTREAM pavi, LPAVISTREAMINFOA lpInfo, LONG cbInfo)
  *
  *          MCIWndSendString(hwnd, "setaudio stream to 2");
  *
- *    (C) Copyright Microsoft Corp. 1991-1994.  All rights reserved.
+ *    (C) Copyright Microsoft Corp. 1991-1995.  All rights reserved.
  *
  *    You have a royalty-free right to use, modify, reproduce and
  *    distribute the Sample Files (and/or any modified version) in
@@ -2501,7 +2523,6 @@ STDAPI EditStreamSetInfoA(PAVISTREAM pavi, LPAVISTREAMINFOA lpInfo, LONG cbInfo)
 #define MCIWndSM SendMessage    /* SendMessage in C */
 #endif  /* __cplusplus */
 #define MCIWND_WINDOW_CLASS TEXT("MCIWndClass")
-
 HWND VFWAPIV MCIWndCreateA(HWND hwndParent, HINSTANCE hInstance,
 		      DWORD dwStyle,LPCSTR szFile);
 HWND VFWAPIV MCIWndCreateW(HWND hwndParent, HINSTANCE hInstance,
@@ -2511,7 +2532,7 @@ HWND VFWAPIV MCIWndCreateW(HWND hwndParent, HINSTANCE hInstance,
 #else
 #define MCIWndCreate    MCIWndCreateA
 #endif
-BOOL VFWAPIV MCIWndRegisterClass();
+BOOL VFWAPIV MCIWndRegisterClass(void);
 
 // Flags for the MCIWndOpen command
 #define MCIWNDOPENF_NEW	            0x0001  // open a new file
@@ -2526,42 +2547,27 @@ BOOL VFWAPIV MCIWndRegisterClass();
 #define MCIWNDF_SHOWMODE            0x0040  // show mode in caption
 #define MCIWNDF_SHOWALL             0x0070  // show all
 
+#define MCIWNDF_NOTIFYMODE         0x0100  // tell parent of mode change
+#define MCIWNDF_NOTIFYPOS          0x0200  // tell parent of pos change
+#define MCIWNDF_NOTIFYSIZE         0x0400  // tell parent of size change
+#define MCIWNDF_NOTIFYERROR        0x1000  // tell parent of an error
+#define MCIWNDF_NOTIFYALL          0x1F00  // tell all
 
-// some notifications include text strings.
-// to receive notifications in ANSI instead of unicode set the
-// MCIWNDF_NOTIFYANSI style bit. The macros below include this bit
+#define MCIWNDF_NOTIFYANSI	   0x0080
+
+
+// The MEDIA notification includes a text string.
+// To receive notifications in ANSI instead of unicode set the
+// MCIWNDF_NOTIFYANSI style bit. The macro below includes this bit
 // by default unless you define UNICODE in your application.
 
-#define MCIWNDF_NOTIFYANSI	    0x0080
-
-#define MCIWNDF_NOTIFYMODEW         0x0100  // tell parent of mode change
-#define MCIWNDF_NOTIFYPOSW          0x0200  // tell parent of pos change
-#define MCIWNDF_NOTIFYSIZEW         0x0400  // tell parent of size change
-#define MCIWNDF_NOTIFYMEDIAW        0x0800  // tell parent of media change
-#define MCIWNDF_NOTIFYERRORW        0x1000  // tell parent of an error
-#define MCIWNDF_NOTIFYALLW          0x1F00  // tell all
-
-#define MCIWNDF_NOTIFYMODEA         0x0180  // tell parent of mode change
-#define MCIWNDF_NOTIFYPOSA          0x0280  // tell parent of pos change
-#define MCIWNDF_NOTIFYSIZEA         0x0480  // tell parent of size change
-#define MCIWNDF_NOTIFYMEDIAA        0x0880  // tell parent of media change
-#define MCIWNDF_NOTIFYERRORA        0x1080  // tell parent of an error
-#define MCIWNDF_NOTIFYALLA          0x1F80  // tell all
+#define MCIWNDF_NOTIFYMEDIAA       0x0880  // tell parent of media change
+#define MCIWNDF_NOTIFYMEDIAW       0x0800  // tell parent of media change
 
 #ifdef UNICODE
-#define MCIWNDF_NOTIFYMODE	    MCIWNDF_NOTIFYMODEW
-#define MCIWNDF_NOTIFYPOS           MCIWNDF_NOTIFYPOSW
-#define MCIWNDF_NOTIFYSIZE          MCIWNDF_NOTIFYSIZEW
 #define MCIWNDF_NOTIFYMEDIA         MCIWNDF_NOTIFYMEDIAW
-#define MCIWNDF_NOTIFYERROR         MCIWNDF_NOTIFYERRORW
-#define MCIWNDF_NOTIFYALL           MCIWNDF_NOTIFYALLW
 #else
-#define MCIWNDF_NOTIFYMODE          MCIWNDF_NOTIFYMODEA
-#define MCIWNDF_NOTIFYPOS           MCIWNDF_NOTIFYPOSA
-#define MCIWNDF_NOTIFYSIZE          MCIWNDF_NOTIFYSIZEA
 #define MCIWNDF_NOTIFYMEDIA         MCIWNDF_NOTIFYMEDIAA
-#define MCIWNDF_NOTIFYERROR         MCIWNDF_NOTIFYERRORA
-#define MCIWNDF_NOTIFYALL           MCIWNDF_NOTIFYALLA
 #endif
 
 
@@ -2804,7 +2810,7 @@ BOOL VFWAPIV MCIWndRegisterClass();
 
 #ifndef MCI_PLAY
     /* MCI command message identifiers */
-#ifndef WIN32
+#ifndef _WIN32
     // win32 apps send MCIWNDM_OPEN
     #define MCI_OPEN                        0x0803
 #endif
@@ -3032,9 +3038,11 @@ typedef struct channel_caps_tag {
 
 #ifndef NOAVICAP
 #ifdef __cplusplus
-#define AVICapSM ::SendMessage  /* SendMessage in C++*/
+/* SendMessage in C++*/
+#define AVICapSM(hwnd,m,w,l) ( (IsWindow(hwnd)) ? ::SendMessage(hwnd,m,w,l) : 0)
 #else
-#define AVICapSM SendMessage    /* SendMessage in C */
+/* SendMessage in C */
+#define AVICapSM(hwnd,m,w,l) ( (IsWindow(hwnd)) ?   SendMessage(hwnd,m,w,l) : 0)
 #endif  /* __cplusplus */
 
 #ifndef RC_INVOKED
@@ -3047,14 +3055,15 @@ typedef struct channel_caps_tag {
 
 // UNICODE
 //
-// The Win32 version of AVICAP supports UNICODE applications:
+// The Win32 version of AVICAP on NT supports UNICODE applications:
 // for each API or message that takes a char or string parameter, there are
 // two versions, ApiNameA and ApiNameW. The default name ApiName is #defined
 // to one or other depending on whether UNICODE is defined. Apps can call
 // the A and W apis directly, and mix them.
 //
-// The 32-bit AVICAP uses unicode exclusively internally. ApiNameA() will be
-// implemented as a call to ApiNameW() together with translation of strings.
+// The 32-bit AVICAP on NT uses unicode exclusively internally.
+// ApiNameA() will be implemented as a call to ApiNameW() together with
+// translation of strings.
 
 
 
@@ -3344,7 +3353,22 @@ typedef struct tagCaptureParms {
     UINT        wStepCaptureAverageFrames;  // Temporal average n Frames
     DWORD       dwAudioBufferSize;          // Size of audio bufs (0 = default)
     BOOL        fDisableWriteCache;         // Attempt to disable write cache
+    UINT        AVStreamMaster;             // Which stream controls length?
 } CAPTUREPARMS, *PCAPTUREPARMS, FAR *LPCAPTUREPARMS;
+
+// ------------------------------------------------------------------
+//  AVStreamMaster
+//  Since Audio and Video streams generally use non-synchronized capture
+//  clocks, this flag determines whether the audio stream is to be considered
+//  the master or controlling clock when writing the AVI file:
+//
+//  AVSTREAMMASTER_AUDIO  - Audio is master, video frame duration is forced
+//                          to match audio duration (VFW 1.0, 1.1 default)
+//  AVSTREAMMASTER_NONE   - No master, audio and video streams may be of
+//                          different lengths
+// ------------------------------------------------------------------
+#define AVSTREAMMASTER_AUDIO            0 /* Audio master (VFW 1.0, 1.1) */
+#define AVSTREAMMASTER_NONE             1 /* No master */
 
 typedef struct tagCapInfoChunk {
     FOURCC      fccInfoID;                  // Chunk ID, "ICOP" for copyright
@@ -3471,6 +3495,7 @@ BOOL VFWAPI capGetDriverDescriptionW (UINT wDriverIndex,
 #define IDS_CAP_AVI_DRAWDIB_ERROR   439  /* "Error: Unable to draw this data format." */
 #define IDS_CAP_COMPRESSOR_ERROR    440  /* "Error: Unable to initialize compressor." */
 #define IDS_CAP_AUDIO_DROP_ERROR    441  /* "Error: Audio data was lost during capture, reduce capture rate." */
+#define IDS_CAP_AUDIO_DROP_COMPERROR 442  /* "Error: Audio data was lost during capture.  Try capturing without compressing." */
 
 /* status string IDs */
 #define IDS_CAP_STAT_LIVE_MODE      500  /* "Live window" */

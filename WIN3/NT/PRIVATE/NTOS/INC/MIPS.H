@@ -21,12 +21,16 @@ Revision History:
 #ifndef _MIPSH_
 #define _MIPSH_
 
-// begin_ntddk begin_nthal begin_ntndis begin_updriver
+// begin_ntddk begin_nthal begin_ntndis
 
 #if defined(_MIPS_)
 
-// end_ntddk end_nthal end_ntndis end_updriver (This is so the string "updriver" doesn't appear in nthal/ntddk/ntifs.)
-// begin_ntddk begin_nthal begin_ntndis
+//
+// Define maximum size of flush multple TB request.
+//
+
+#define FLUSH_MULTIPLE_MAXIMUM 16
+
 //
 // Indicate that the MIPS compiler supports the pragma textout construct.
 //
@@ -38,7 +42,7 @@ Revision History:
 // or a kernel component is being built.
 //
 
-#if defined(_NTDDK_) || defined(_NTIFS_) || defined(_NTHAL_)
+#if (defined(_NTDRIVER_) || defined(_NTDDK_) || defined(_NTIFS_) || defined(_NTHAL_)) && !defined (_BLDR_)
 
 #define NTKERNELAPI DECLSPEC_IMPORT
 
@@ -53,7 +57,7 @@ Revision History:
 // component is being build.
 //
 
-#if !defined(_NTHAL_)
+#if !defined(_NTHAL_) && !defined(_BLDR_)
 
 #define NTHALAPI DECLSPEC_IMPORT
 
@@ -70,14 +74,6 @@ Revision History:
 
 #define IMPORT_NAME(name) __imp_##name
 
-// begin_ntndis
-//
-// Define function decoration for FASTCALL calling convention
-//
-
-#define FASTCALL
-
-// end_ntndis
 //
 // MIPS specific interlocked operation result values.
 //
@@ -107,6 +103,9 @@ typedef enum _INTERLOCKED_RESULT {
 #define ExInterlockedDecrementLong(Addend, Lock) \
     ExMipsInterlockedDecrementLong(Addend)
 
+#define ExInterlockedExchangeAddLargeInteger(Target, Value, Lock) \
+    ExpInterlockedExchangeAddLargeInteger(Target, Value)
+
 #define ExInterlockedExchangeUlong(Target, Value, Lock) \
     ExMipsInterlockedExchangeUlong(Target, Value)
 
@@ -123,11 +122,69 @@ ExMipsInterlockedDecrementLong (
     );
 
 NTKERNELAPI
+LARGE_INTEGER
+ExpInterlockedExchangeAddLargeInteger (
+    IN PLARGE_INTEGER Addend,
+    IN LARGE_INTEGER Increment
+    );
+
+NTKERNELAPI
 ULONG
 ExMipsInterlockedExchangeUlong (
     IN PULONG Target,
     IN ULONG Value
     );
+
+//
+// Intrinsic interlocked functions.
+//
+
+#if defined(_M_MRX000) && !defined(RC_INVOKED)
+
+#define InterlockedIncrement _InterlockedIncrement
+#define InterlockedDecrement _InterlockedDecrement
+#define InterlockedExchange _InterlockedExchange
+#define InterlockedExchangeAdd _InterlockedExchangeAdd
+#define InterlockedCompareExchange _InterlockedCompareExchange
+
+LONG
+InterlockedIncrement(
+    IN OUT PLONG Addend
+    );
+
+LONG
+InterlockedDecrement(
+    IN OUT PLONG Addend
+    );
+
+LONG
+InterlockedExchange(
+    IN OUT PLONG Target,
+    IN LONG Increment
+    );
+
+NTKERNELAPI
+LONG
+InterlockedExchangeAdd(
+    IN OUT PLONG Addend,
+    IN LONG Value
+    );
+
+NTKERNELAPI
+PVOID
+InterlockedCompareExchange (
+    IN OUT PVOID *Destination,
+    IN PVOID Exchange,
+    IN PVOID Comperand
+    );
+
+#pragma intrinsic(_InterlockedIncrement)
+#pragma intrinsic(_InterlockedDecrement)
+#pragma intrinsic(_InterlockedExchange)
+#pragma intrinsic(_InterlockedExchangeAdd)
+#pragma intrinsic(_InterlockedCompareExchange)
+
+#endif
 
 //
 // MIPS Interrupt Definitions.
@@ -147,88 +204,22 @@ ExMipsInterlockedExchangeUlong (
 #define DISPATCH_LEVEL 2                // Dispatcher level
 #define IPI_LEVEL 7                     // Interprocessor interrupt level
 #define POWER_LEVEL 7                   // Power failure level
-#define FLOAT_LEVEL 8                   // Floating interrupt level
-#define HIGH_LEVEL 8                    // Highest interrupt level
-
-#if defined(R3000)
-
-#define PROFILE_LEVEL 7                 // Profiling level
-
-#endif
-
-#if defined(R4000)
-
 #define PROFILE_LEVEL 8                 // Profiling level
-
-#endif
+#define HIGH_LEVEL 8                    // Highest interrupt level
+#define SYNCH_LEVEL (IPI_LEVEL - 1)     // synchronization level
 
 //
 // Define profile intervals.
 //
-
-#if defined(R3000)
-
-#define DEFAULT_PROFILE_INTERVAL (10 * 1000)  // 1 millisecond
-#define MAXIMUM_PROFILE_INTERVAL (10 * 1000 * 1000) // 1 second
-#define MINIMUM_PROFILE_INTERVAL (10 * 1000) // 1 millisecond
-
-#endif
-
-#if defined(R4000)
 
 #define DEFAULT_PROFILE_COUNT 0x40000000 // ~= 20 seconds @50mhz
 #define DEFAULT_PROFILE_INTERVAL (10 * 500) // 500 microseconds
 #define MAXIMUM_PROFILE_INTERVAL (10 * 1000 * 1000) // 1 second
 #define MINIMUM_PROFILE_INTERVAL (10 * 40) // 40 microseconds
 
-#endif
-
 // end_ntddk end_nthal
-//
-// Intrinsic interlocked functions.
-//
 
-#if defined(_M_MRX000) && !defined(RC_INVOKED)
-
-#define InterlockedIncrement _InterlockedIncrement
-#define InterlockedDecrement _InterlockedDecrement
-#define InterlockedExchange _InterlockedExchange
-
-LONG
-InterlockedIncrement(
-    PLONG Addend
-    );
-
-LONG
-InterlockedDecrement(
-    PLONG Addend
-    );
-
-LONG
-InterlockedExchange(
-    PLONG Target,
-    LONG Value
-    );
-
-#pragma intrinsic(_InterlockedIncrement)
-#pragma intrinsic(_InterlockedDecrement)
-#pragma intrinsic(_InterlockedExchange)
-
-#endif
-
-//
-// Define default thread and process quantum values.
-//
-
-#define PROCESS_QUANTUM 2           // Process quantum in thread quantums
-#define THREAD_QUANTUM 2            // Thread quantum in ticks
-
-//
-// Define the default quantum decrement values.
-//
-
-#define CLOCK_QUANTUM_DECREMENT 1   // Decrement value at clock interrupt
-#define WAIT_QUANTUM_DECREMENT 1    // Decrement value at wait operation
+#define KiProfileIrql PROFILE_LEVEL     // enable portable code
 
 //
 // Define machine specific external references.
@@ -252,50 +243,23 @@ extern ULONG KiInterruptTemplate[];
         ((0x00000000L) | ((fsr) & 0xfffc0fff))))
 
 //
-// Define SANITIZE_PSR for R3000
-//
-// If kernel mode, then
-//      force the clearing of all diagnostic bits,
-//      force the setting of CU1 and
-//      let caller specify CU3 CU2 CU0 INTMASK KUO IEO KUP IEP KUC IEC
-//
-// If user mode, then
-//      force the clearing of all diagnostic bits,
-//      force the setting of CU1 INTMASK KUO IEO KUP IEP and
-//      let caller specify no bits.
-//
-
-#if defined(R3000)
-
-#define SANITIZE_PSR(psr, mode) ( \
-    ((mode) == KernelMode ? \
-        ((0x20000000L) | ((psr) & 0xd000ffff)) : \
-        ((0x200000fcL) | (PCR->IrqlTable[PASSIVE_LEVEL] << 8) | ((psr) & 0x00000000))))
-
-#endif
-
-//
 // Define SANITIZE_PSR for R4000
 //
 // If kernel mode, then
-//      force clearing of ERL, UX, SX, KX, RP, FR, RE, and all diagnostic bits,
-//      force the setting of CU1 and EXL
-//      let caller specify CU3 CU2 CU0 INTMASK KSU IE
+//      force clearing of ERL, SX, RP, FR, RE, and all diagnostic bits,
+//      force the setting of CU3, CU1, KX, and EXL
+//      let caller specify CU2, CU0, INTMASK, UX, KSU, and EXL
 //
 // If user mode, then
-//      force clearing of ERL, UX, SX, KX, RP, FR, RE, and all diagnostic bits,
-//      force the setting of CU1 INTMASK KSU EXL IE and
+//      force clearing of ERL, SX, RP, FR, RE, and all diagnostic bits,
+//      force the setting of CU3, CU1, INTMASK, KX, UX, KSU, EXL, IE, and
 //      let caller specify no bits.
 //
 
-#if defined(R4000)
-
 #define SANITIZE_PSR(psr, mode) ( \
     ((mode) == KernelMode ? \
-        ((0x20000002L) | ((psr) & 0xd000ff13)) : \
-        ((0x20000013L) | (PCR->IrqlTable[PASSIVE_LEVEL] << 8) | ((psr) & 0x00000000))))
-
-#endif
+        ((0xa0000082L) | ((psr) & 0xd000ff33)) : \
+        ((0xa00000b3L) | (PCR->IrqlTable[PASSIVE_LEVEL] << 8))))
 
 // begin_nthal
 //
@@ -362,7 +326,14 @@ extern ULONG KiInterruptTemplate[];
 // Test if executing a DPC.
 //
 
-#define KeIsExecutingDpc() (PCR->DpcRoutineActive != FALSE)
+#define KeIsExecutingDpc() (PCR->DpcRoutineActive != 0)
+
+//
+// Save & Restore floating point state
+//
+
+#define KeSaveFloatingPointState(a)         STATUS_SUCCESS
+#define KeRestoreFloatingPointState(a)      STATUS_SUCCESS
 
 // begin_nthal
 //
@@ -473,6 +444,13 @@ KeProfileInterrupt (
 
 NTKERNELAPI
 VOID
+KeProfileInterruptWithSource (
+    IN struct _KTRAP_FRAME *TrapFrame,
+    IN KPROFILE_SOURCE ProfileSource
+    );
+
+NTKERNELAPI
+VOID
 KeUpdateRuntime (
     IN struct _KTRAP_FRAME *TrapFrame
     );
@@ -544,21 +522,27 @@ KeSetCacheErrorRoutine (
 // KeRaiseIrql is one instruction shorter than KeAcquireSpinLock on MIPS UP.
 // KeLowerIrql and KeReleaseSpinLock are the same.
 //
-// begin_updriver
 
-#if defined(NT_UP)
-#define ExAcquireSpinLock(Lock, OldIrql) KeRaiseIrql(DISPATCH_LEVEL, (OldIrql))
+// begin_ntddk begin_ntifs
+
+#if defined(NT_UP) && !defined(_NTDDK_) && !defined(_NTIFS_)
+#define ExAcquireSpinLock(Lock, OldIrql) \
+    *(OldIrql) = KeRaiseIrqlToDpcLevel()
+
 #define ExReleaseSpinLock(Lock, OldIrql) KeLowerIrql((OldIrql))
 #define ExAcquireSpinLockAtDpcLevel(Lock)
 #define ExReleaseSpinLockFromDpcLevel(Lock)
 #else
-#define ExAcquireSpinLock(Lock, OldIrql) KeAcquireSpinLock((Lock), (OldIrql))
+#define ExAcquireSpinLock(Lock, OldIrql) \
+    *(OldIrql) = KeAcquireSpinLockRaiseToDpc((Lock))
+
 #define ExReleaseSpinLock(Lock, OldIrql) KeReleaseSpinLock((Lock), (OldIrql))
 #define ExAcquireSpinLockAtDpcLevel(Lock) KeAcquireSpinLockAtDpcLevel(Lock)
 #define ExReleaseSpinLockFromDpcLevel(Lock) KeReleaseSpinLockFromDpcLevel(Lock)
 #endif
 
-// end_updriver
+// end_ntddk end_ntifs
+
 //
 // The acquire and release fast lock macros disable and enable interrupts
 // on UP nondebug systems. On MP or debug systems, the spinlock routines
@@ -566,6 +550,7 @@ KeSetCacheErrorRoutine (
 //
 // N.B. Extreme caution should be observed when using these routines.
 //
+// begin_nthal
 
 #if defined(_M_MRX000)
 
@@ -583,6 +568,8 @@ _enable (
 #pragma intrinsic(_enable)
 
 #endif
+
+// end_nthal
 
 #if defined(NT_UP) && !DBG
 #define ExAcquireFastLock(Lock, OldIrql) _disable()
@@ -628,35 +615,29 @@ KiInstructionBusError (
 //
 // Define query system time macro.
 //
+// N.B. This macro can be changed when the compiler generates real double
+//      integer instructions.
+//
 
-#define KiQuerySystemTime(CurrentTime)                                  \
-    do {                                                                \
-        (CurrentTime)->HighPart = SharedUserData->SystemTime.High1Time; \
-        (CurrentTime)->LowPart = SharedUserData->SystemTime.LowPart;    \
-    } while ((CurrentTime)->HighPart != SharedUserData->SystemTime.High2Time)
+#define KiQuerySystemTime(CurrentTime) \
+    (CurrentTime)->QuadPart = SharedUserData->SystemTime.Alignment
 
 //
 // Define query tick count macro.
 //
 // begin_ntddk begin_nthal
 
-#if defined(_NTDDK_) || defined(_NTIFS_)
+#if defined(_NTDRIVER_) || defined(_NTDDK_) || defined(_NTIFS_)
 
-#define KeQueryTickCount(CurrentCount ) { \
+#define KeQueryTickCount(CurrentCount) {                           \
     PKSYSTEM_TIME _TickCount = *((PKSYSTEM_TIME *)(&KeTickCount)); \
-    do {                                                          \
-        (CurrentCount)->HighPart = _TickCount->High1Time;          \
-        (CurrentCount)->LowPart = _TickCount->LowPart;             \
-    } while ((CurrentCount)->HighPart != _TickCount->High2Time);   \
+    (CurrentCount)->QuadPart = _TickCount->Alignment;              \
 }
 
 #else
 
-#define KiQueryTickCount(CurrentCount) \
-    do {                                                        \
-        (CurrentCount)->HighPart = KeTickCount.High1Time;       \
-        (CurrentCount)->LowPart = KeTickCount.LowPart;          \
-    } while ((CurrentCount)->HighPart != KeTickCount.High2Time)
+#define KiQueryTickCount(CurrentCount)                             \
+    (CurrentCount)->QuadPart = KeTickCount.Alignment
 
 NTKERNELAPI
 VOID
@@ -674,11 +655,8 @@ KeQueryTickCount (
 // Define query interrupt time macro.
 //
 
-#define KiQueryInterruptTime(CurrentTime)                                   \
-    do {                                                                    \
-        (CurrentTime)->HighPart = SharedUserData->InterruptTime.High1Time;  \
-        (CurrentTime)->LowPart = SharedUserData->InterruptTime.LowPart;     \
-    } while ((CurrentTime)->HighPart != SharedUserData->InterruptTime.High2Time)
+#define KiQueryInterruptTime(CurrentTime) \
+    (CurrentTime)->QuadPart = SharedUserData->InterruptTime.Alignment
 
 //
 // The following function prototypes must be in the module since they are
@@ -720,9 +698,24 @@ KiSetRegisterValue (
     OUT struct _KTRAP_FRAME *TrapFrame
     );
 
+ULONGLONG
+KiGetRegisterValue64 (
+    IN ULONG Register,
+    IN struct _KEXCEPTION_FRAME *ExceptionFrame,
+    IN struct _KTRAP_FRAME *TrapFrame
+    );
+
+VOID
+KiSetRegisterValue64 (
+    IN ULONG Register,
+    IN ULONGLONG Value,
+    OUT struct _KEXCEPTION_FRAME *ExceptionFrame,
+    OUT struct _KTRAP_FRAME *TrapFrame
+    );
+
 VOID
 KiRequestSoftwareInterrupt (
-    KIRQL RequestIrql
+    ULONG RequestIrql
     );
 
 // begin_ntddk begin_nthal begin_ntndis
@@ -892,23 +885,58 @@ KiRequestSoftwareInterrupt (
 //
 // Exception frame
 //
-//  N.B. This frame must be EXACTLY a multiple of 16 bytes in length.
+//  N.B. This frame must be an exact multiple of 8 bytes in length.
 //
 
 typedef struct _KEXCEPTION_FRAME {
-    ULONG Argument[8];
-    ULONG FltF20;
-    ULONG FltF21;
-    ULONG FltF22;
-    ULONG FltF23;
-    ULONG FltF24;
-    ULONG FltF25;
-    ULONG FltF26;
-    ULONG FltF27;
-    ULONG FltF28;
-    ULONG FltF29;
-    ULONG FltF30;
-    ULONG FltF31;
+    union {
+        ULONG Argument[8];
+        DOUBLE Alignment;
+    };
+
+    //
+    // Floating nonvolatile context.
+    //
+
+    union {
+
+        //
+        // 16 double floating register nonvolatile context.
+        //
+
+        struct {
+            ULONG FltF20;
+            ULONG FltF21;
+            ULONG FltF22;
+            ULONG FltF23;
+            ULONG FltF24;
+            ULONG FltF25;
+            ULONG FltF26;
+            ULONG FltF27;
+            ULONG FltF28;
+            ULONG FltF29;
+            ULONG FltF30;
+            ULONG FltF31;
+        };
+
+        //
+        // 32 double floating register nonvolatile context.
+        //
+
+        struct {
+            ULONGLONG XFltF20;
+            ULONGLONG XFltF22;
+            ULONGLONG XFltF24;
+            ULONGLONG XFltF26;
+            ULONGLONG XFltF28;
+            ULONGLONG XFltF30;
+        };
+    };
+
+    //
+    // Integer nonvolatile context.
+    //
+
     ULONG IntS0;
     ULONG IntS1;
     ULONG IntS2;
@@ -918,7 +946,6 @@ typedef struct _KEXCEPTION_FRAME {
     ULONG IntS6;
     ULONG IntS7;
     ULONG IntS8;
-    ULONG Psr;
     ULONG SwapReturn;
     ULONG IntRa;
 } KEXCEPTION_FRAME, *PKEXCEPTION_FRAME;
@@ -930,64 +957,193 @@ typedef struct _KEXCEPTION_FRAME {
 //
 
 typedef struct _KTRAP_FRAME {
-    ULONG Argument[4];
-    ULONG FltF0;
-    ULONG FltF1;
-    ULONG FltF2;
-    ULONG FltF3;
-    ULONG FltF4;
-    ULONG FltF5;
-    ULONG FltF6;
-    ULONG FltF7;
-    ULONG FltF8;
-    ULONG FltF9;
-    ULONG FltF10;
-    ULONG FltF11;
-    ULONG FltF12;
-    ULONG FltF13;
-    ULONG FltF14;
-    ULONG FltF15;
-    ULONG FltF16;
-    ULONG FltF17;
-    ULONG FltF18;
-    ULONG FltF19;
-    ULONG IntAt;
-    ULONG IntV0;
-    ULONG IntV1;
-    ULONG IntA0;
-    ULONG IntA1;
-    ULONG IntA2;
-    ULONG IntA3;
-    ULONG IntT0;
-    ULONG IntT1;
-    ULONG IntT2;
-    ULONG IntT3;
-    ULONG IntT4;
-    ULONG IntT5;
-    ULONG IntT6;
-    ULONG IntT7;
-    ULONG IntT8;
-    ULONG IntT9;
-    ULONG IntGp;
-    ULONG IntSp;
-    ULONG IntS8;
-    ULONG IntLo;
-    ULONG IntHi;
+    union {
+        ULONG Argument[4];
+        ULONGLONG Alignment;
+    };
+
+    //
+    // Volatile floating state.
+    //
+
+    union {
+
+        //
+        // 32-bit floating state.
+        //
+
+        struct {
+            ULONG FltF0;
+            ULONG FltF1;
+            ULONG FltF2;
+            ULONG FltF3;
+            ULONG FltF4;
+            ULONG FltF5;
+            ULONG FltF6;
+            ULONG FltF7;
+            ULONG FltF8;
+            ULONG FltF9;
+            ULONG FltF10;
+            ULONG FltF11;
+            ULONG FltF12;
+            ULONG FltF13;
+            ULONG FltF14;
+            ULONG FltF15;
+            ULONG FltF16;
+            ULONG FltF17;
+            ULONG FltF18;
+            ULONG FltF19;
+        };
+
+        //
+        // 64-bit floating state.
+        //
+
+        struct {
+            ULONGLONG XFltF0;
+            ULONGLONG XFltF1;
+            ULONGLONG XFltF2;
+            ULONGLONG XFltF3;
+            ULONGLONG XFltF4;
+            ULONGLONG XFltF5;
+            ULONGLONG XFltF6;
+            ULONGLONG XFltF7;
+            ULONGLONG XFltF8;
+            ULONGLONG XFltF9;
+            ULONGLONG XFltF10;
+            ULONGLONG XFltF11;
+            ULONGLONG XFltF12;
+            ULONGLONG XFltF13;
+            ULONGLONG XFltF14;
+            ULONGLONG XFltF15;
+            ULONGLONG XFltF16;
+            ULONGLONG XFltF17;
+            ULONGLONG XFltF18;
+            ULONGLONG XFltF19;
+            ULONGLONG XFltF21;
+            ULONGLONG XFltF23;
+            ULONGLONG XFltF25;
+            ULONGLONG XFltF27;
+            ULONGLONG XFltF29;
+            ULONGLONG XFltF31;
+        };
+    };
+
+    //
+    // Volatile 64-bit integer state.
+    //
+    //
+
+    struct {
+        ULONGLONG XIntZero;
+        ULONGLONG XIntAt;
+        ULONGLONG XIntV0;
+        ULONGLONG XIntV1;
+        ULONGLONG XIntA0;
+        ULONGLONG XIntA1;
+        ULONGLONG XIntA2;
+        ULONGLONG XIntA3;
+        ULONGLONG XIntT0;
+        ULONGLONG XIntT1;
+        ULONGLONG XIntT2;
+        ULONGLONG XIntT3;
+        ULONGLONG XIntT4;
+        ULONGLONG XIntT5;
+        ULONGLONG XIntT6;
+        ULONGLONG XIntT7;
+        ULONGLONG XIntS0;
+        ULONGLONG XIntS1;
+        ULONGLONG XIntS2;
+        ULONGLONG XIntS3;
+        ULONGLONG XIntS4;
+        ULONGLONG XIntS5;
+        ULONGLONG XIntS6;
+        ULONGLONG XIntS7;
+        ULONGLONG XIntT8;
+        ULONGLONG XIntT9;
+        ULONGLONG XIntK0;
+        ULONGLONG XIntK1;
+        ULONGLONG XIntGp;
+        ULONGLONG XIntSp;
+        ULONGLONG XIntS8;
+        ULONGLONG XIntRa;
+        ULONGLONG XIntLo;
+        ULONGLONG XIntHi;
+    };
+
     ULONG Fsr;
     ULONG Fir;
     ULONG Psr;
-    UCHAR ExceptionRecord[(sizeof(EXCEPTION_RECORD) + 15) & (~15)];
+    UCHAR ExceptionRecord[(sizeof(EXCEPTION_RECORD) + 7) & (~7)];
     UCHAR OldIrql;
     UCHAR PreviousMode;
-    USHORT Fill1;
-    ULONG OnInterruptStack;
-    ULONG IntRa;
+    UCHAR SavedFlag;
+    union {
+        ULONG OnInterruptStack;
+        ULONG TrapFrame;
+    } u;
+
 } KTRAP_FRAME, *PKTRAP_FRAME;
 
 #define KTRAP_FRAME_ARGUMENTS (4 * 16)
-#define KTRAP_FRAME_LENGTH ((sizeof(KTRAP_FRAME) + 15) & (~15))
+#define KTRAP_FRAME_LENGTH (sizeof(KTRAP_FRAME))
 #define KTRAP_FRAME_ALIGN (sizeof(DOUBLE))
 #define KTRAP_FRAME_ROUND (KTRAP_FRAME_ALIGN - 1)
+
+//
+// Define the kernel mode and user mode callback frame structures.
+//
+
+typedef struct _KCALLOUT_FRAME {
+    ULONG   SaveArgs[4];            // argument register save area
+    ULONG   F20;                    // saved floating registers f20 - f31
+    ULONG   F21;                    //
+    ULONG   F22;                    //
+    ULONG   F23;                    //
+    ULONG   F24;                    //
+    ULONG   F25;                    //
+    ULONG   F26;                    //
+    ULONG   F27;                    //
+    ULONG   F28;                    //
+    ULONG   F29;                    //
+    ULONG   F30;                    //
+    ULONG   F31;                    //
+    ULONG   S0;                     // saved integer registers s0 - s8
+    ULONG   S1;                     //
+    ULONG   S2;                     //
+    ULONG   S3;                     //
+    ULONG   S4;                     //
+    ULONG   S5;                     //
+    ULONG   S6;                     //
+    ULONG   S7;                     //
+    ULONG   S8;                     //
+    ULONG   CbStk;                  // saved callback stack address
+    ULONG   TrFr;                   // saved callback trap frame address
+    ULONG   Fsr;                    // saved floating status
+    ULONG   InStk;                  // save initial stack address
+    ULONG   Ra;                     // saved return address
+    ULONG   A0;                     // saved argument registers a0-a1
+    ULONG   A1;                     //
+} KCALLOUT_FRAME, *PKCALLOUT_FRAME;
+
+typedef struct _UCALLOUT_FRAME {
+    ULONG SaveArgs[4];
+    PVOID Buffer;
+    ULONG Length;
+    ULONG ApiNumber;
+    ULONG Pad;
+    LONGLONG Sp;
+    LONGLONG Ra;
+} UCALLOUT_FRAME, *PUCALLOUT_FRAME;
+
+//
+// Non-volatile floating point state
+//
+
+typedef struct _KFLOATING_SAVE {
+    ULONG   Reserved;
+} KFLOATING_SAVE, *PKFLOATING_SAVE;
+
 
 //
 // Processor State structure.
@@ -1002,7 +1158,7 @@ typedef struct _TB_ENTRY {
 
 typedef struct _KPROCESSOR_STATE {
     struct _CONTEXT ContextFrame;
-    TB_ENTRY TbEntry[48];
+    TB_ENTRY TbEntry[64];
 } KPROCESSOR_STATE, *PKPROCESSOR_STATE;
 
 //
@@ -1033,7 +1189,7 @@ typedef struct _KPRCB {
 //
 
     struct _KTHREAD *CurrentThread;
-    struct _KTHREAD *NextThread;
+    struct _KTHREAD *RESTRICTED_POINTER NextThread;
     struct _KTHREAD *IdleThread;
     CCHAR Number;
     CCHAR Reserved;
@@ -1041,13 +1197,12 @@ typedef struct _KPRCB {
     KAFFINITY SetMember;
     struct _RESTART_BLOCK *RestartBlock;
     ULONG PcrPage;
-    ULONG QuantumEnd;
 
 //
 // Space reserved for the system.
 //
 
-    ULONG SystemReserved[15];
+    ULONG SystemReserved[16];
 
 //
 // Space reserved for the HAL.
@@ -1063,8 +1218,11 @@ typedef struct _KPRCB {
     ULONG InterruptTime;
     ULONG KernelTime;
     ULONG UserTime;
+    ULONG AdjustDpcThreshold;
     ULONG InterruptCount;
-    KDPC QuantumEndDpc;
+    ULONG ApcBypassCount;
+    ULONG DpcBypassCount;
+    ULONG Spare6[5];
 
 //
 // MP information.
@@ -1072,9 +1230,9 @@ typedef struct _KPRCB {
 
     PVOID Spare1;
     PVOID Spare2;
-    PVOID Spare3;
     volatile ULONG IpiFrozen;
     struct _KPROCESSOR_STATE ProcessorState;
+    PVOID Spare3;
 
 //
 //  Per-processor data for various hot code which resides in the
@@ -1087,8 +1245,8 @@ typedef struct _KPRCB {
 //  File system runtime variables.
 //
 
-    SINGLE_LIST_ENTRY FsRtlFreeLockList;
-    SINGLE_LIST_ENTRY FsRtlFreeWaitingLockList;
+    SINGLE_LIST_ENTRY   FsRtlFreeSharedLockList;
+    SINGLE_LIST_ENTRY   FsRtlFreeExclusiveLockList;
 
 //
 //  Cache manager performance counters.
@@ -1116,20 +1274,23 @@ typedef struct _KPRCB {
     ULONG KeSystemCalls;
 
 //
+//  More filesystem runtime
+//
+
+    SINGLE_LIST_ENTRY   FsRtlFreeWaitingLockList;
+    SINGLE_LIST_ENTRY   FsRtlFreeLockTreeNodeList;
+
+//
 //  Reserved for future counters.
 //
 
-    ULONG ReservedCounter[18];
+    ULONG ReservedCounter[6];
 
 //
-// This array holds the address of a packet sent by this processor to a
-// target processor. It is used to synchronize when the target processor
-// has actually finished processing a packet.
-//
-// N.B. This is carefully aligned to be on a cache line boundary.
+// Reserved pad.
 //
 
-    volatile PVOID RequestPacket[MAXIMUM_PROCESSORS];
+    ULONG ReservedPad[16 * 8];
 
 //
 // MP interprocessor request packet and summary.
@@ -1138,8 +1299,9 @@ typedef struct _KPRCB {
 //
 
     volatile PVOID CurrentPacket[3];
+    volatile KAFFINITY TargetSet;
     volatile PKIPI_WORKER WorkerRoutine;
-    ULONG CachePad1[4];
+    ULONG CachePad1[3];
 
 //
 // N.B. These two longwords must be on a quadword boundary and adjacent.
@@ -1147,7 +1309,54 @@ typedef struct _KPRCB {
 
     volatile ULONG RequestSummary;
     volatile struct _KPRCB *SignalDone;
-    ULONG CachePad2[5];
+    ULONG CachePad2[6];
+
+//
+// DPC interrupt requested.
+//
+
+    ULONG DpcInterruptRequested;
+    ULONG CachePad3[7];
+
+//
+// DPC batching parameters.
+//
+
+    ULONG MaximumDpcQueueDepth;
+    ULONG MinimumDpcRate;
+
+//
+// Spare counters.
+//
+
+    ULONG Spare4[2];
+
+//
+// I/O system per processor single entry lookaside lists.
+//
+
+    PVOID SmallIrpFreeEntry;
+    PVOID LargeIrpFreeEntry;
+    PVOID MdlFreeEntry;
+
+//
+// Object manager per processor single entry lookaside lists.
+//
+
+    PVOID CreateInfoFreeEntry;
+    PVOID NameBufferFreeEntry;
+
+//
+// Cache manager per processor single entry lookaside lists.
+//
+
+    PVOID SharedCacheMapEntry;
+
+//
+// Spares.
+//
+
+    ULONG Spare5[2];
 
 //
 // Address of MP interprocessor operation counters.
@@ -1160,17 +1369,22 @@ typedef struct _KPRCB {
 // DPC list head, spinlock, and count.
 //
 
-    LIST_ENTRY DpcListHead;
     KSPIN_LOCK DpcLock;
+    LIST_ENTRY DpcListHead;
+    ULONG DpcQueueDepth;
     ULONG DpcCount;
-    ULONG DpcVictim;
+    ULONG DpcLastCount;
+    ULONG DpcRequestRate;
+    ULONG DpcRoutineActive;
     BOOLEAN SkipTick;
+    ULONG CachePad4[5];
 
-} KPRCB, *PKPRCB;                               // nthal
+} KPRCB, *PKPRCB, *RESTRICTED_POINTER PRKPRCB;  // nthal
+
 
 // begin_ntddk begin_nthal begin_ntndis
 //
-// Define the page size for the MIPS r3000 and r4000 as 4096 (0x1000).
+// Define the page size for the MIPS R4000 as 4096 (0x1000).
 //
 
 #define PAGE_SIZE (ULONG)0x1000
@@ -1214,6 +1428,9 @@ typedef struct _KPRCB {
 
 #define MM_LOWEST_USER_ADDRESS  (PVOID)0x00010000
 
+#define MmGetProcedureAddress(Address) (Address)
+#define MmLockPagableCodeSection(Address) MmLockPagableDataSection(Address)
+
 // end_ntddk
 //
 // Define the page table base and the page directory base for
@@ -1231,10 +1448,9 @@ typedef struct _KPRCB {
 #define MM_LOWEST_SYSTEM_ADDRESS (PVOID)0xC0800000
 #define SYSTEM_BASE 0xc0800000          // start of system space (no typecast)
 
-// end_nthal end_ntddk (This is so the string "updriver" doesn't appear in nthal/ntddk/ntifs.)
-// begin_nthal begin_ntddk begin_ntndis begin_updriver
+// begin_ntndis
 #endif // defined(_MIPS_)
-// end_nthal end_ntddk end_ntndis end_updriver
+// end_nthal end_ntddk end_ntndis
 // begin_nthal
 //
 // Define uncached policy for the r4000.
@@ -1260,7 +1476,8 @@ typedef struct _KPRCB {
 //  numeric state is always saved.
 //
 //--
-#define KiIsThreadNumericStateSaved(a)      TRUE
+
+#define KiIsThreadNumericStateSaved(a) TRUE
 
 //++
 //
@@ -1270,380 +1487,15 @@ typedef struct _KPRCB {
 //     )
 //
 //--
+
 #define KiRundownThread(a)
-
-// MIPS specific probe function definitions.
-//
-// Probe for write functions definitions.
-//
-//++
-//
-// VOID
-// ProbeForWriteBoolean(
-//     IN PBOOLEAN Address
-//     )
-//
-//--
-
-#define ProbeForWriteBoolean(Address) {                                      \
-    if ((Address) >= (BOOLEAN * const)MM_USER_PROBE_ADDRESS) {               \
-        *(volatile BOOLEAN * const)MM_USER_PROBE_ADDRESS = 0;                \
-    }                                                                        \
-                                                                             \
-    *(volatile BOOLEAN *)(Address) = *(volatile BOOLEAN *)(Address);         \
-}
-
-//++
-//
-// VOID
-// ProbeForWriteChar(
-//     IN PCHAR Address
-//     )
-//
-//--
-
-#define ProbeForWriteChar(Address) {                                         \
-    if ((Address) >= (CHAR * const)MM_USER_PROBE_ADDRESS) {                  \
-        *(volatile CHAR * const)MM_USER_PROBE_ADDRESS = 0;                   \
-    }                                                                        \
-                                                                             \
-    *(volatile CHAR *)(Address) = *(volatile CHAR *)(Address);               \
-}
-
-//++
-//
-// VOID
-// ProbeForWriteUchar(
-//     IN PUCHAR Address
-//     )
-//
-//--
-
-#define ProbeForWriteUchar(Address) {                                        \
-    if ((Address) >= (UCHAR * const)MM_USER_PROBE_ADDRESS) {                 \
-        *(volatile UCHAR * const)MM_USER_PROBE_ADDRESS = 0;                  \
-    }                                                                        \
-                                                                             \
-    *(volatile UCHAR *)(Address) = *(volatile UCHAR *)(Address);             \
-}
-
-//++
-//
-// VOID
-// ProbeForWriteIoStatus(
-//     IN PIO_STATUS_BLOCK Address
-//     )
-//
-//--
-
-#define ProbeForWriteIoStatus(Address) {                                     \
-    if ((Address) >= (IO_STATUS_BLOCK * const)MM_USER_PROBE_ADDRESS) {       \
-        *(volatile ULONG * const)MM_USER_PROBE_ADDRESS = 0;                  \
-    }                                                                        \
-                                                                             \
-    *(volatile IO_STATUS_BLOCK *)(Address) = *(volatile IO_STATUS_BLOCK *)(Address); \
-}
-
-//++
-//
-// VOID
-// ProbeForWriteShort(
-//     IN PSHORT Address
-//     )
-//
-//--
-
-#define ProbeForWriteShort(Address) {                                        \
-    if ((Address) >= (SHORT * const)MM_USER_PROBE_ADDRESS) {                 \
-        *(volatile SHORT * const)MM_USER_PROBE_ADDRESS = 0;                  \
-    }                                                                        \
-                                                                             \
-    *(volatile SHORT *)(Address) = *(volatile SHORT *)(Address);             \
-}
-
-//++
-//
-// VOID
-// ProbeForWriteUshort(
-//     IN PUSHORT Address
-//     )
-//
-//--
-
-#define ProbeForWriteUshort(Address) {                                       \
-    if ((Address) >= (USHORT * const)MM_USER_PROBE_ADDRESS) {                \
-        *(volatile USHORT * const)MM_USER_PROBE_ADDRESS = 0;                 \
-    }                                                                        \
-                                                                             \
-    *(volatile USHORT *)(Address) = *(volatile USHORT *)(Address);           \
-}
-
-//++
-//
-// VOID
-// ProbeForWriteHandle(
-//     IN PHANDLE Address
-//     )
-//
-//--
-
-#define ProbeForWriteHandle(Address) {                                       \
-    if ((Address) >= (HANDLE * const)MM_USER_PROBE_ADDRESS) {                \
-        *(volatile HANDLE * const)MM_USER_PROBE_ADDRESS = 0;                 \
-    }                                                                        \
-                                                                             \
-    *(volatile HANDLE *)(Address) = *(volatile HANDLE *)(Address);           \
-}
-
-//++
-//
-// VOID
-// ProbeForWriteLong(
-//     IN PLONG Address
-//     )
-//
-//--
-
-#define ProbeForWriteLong(Address) {                                        \
-    if ((Address) >= (LONG * const)MM_USER_PROBE_ADDRESS) {                 \
-        *(volatile LONG * const)MM_USER_PROBE_ADDRESS = 0;                  \
-    }                                                                       \
-                                                                            \
-    *(volatile LONG *)(Address) = *(volatile LONG *)(Address);              \
-}
-
-//++
-//
-// VOID
-// ProbeForWriteUlong(
-//     IN PULONG Address
-//     )
-//
-//--
-
-#define ProbeForWriteUlong(Address) {                                        \
-    if ((Address) >= (ULONG * const)MM_USER_PROBE_ADDRESS) {                 \
-        *(volatile ULONG * const)MM_USER_PROBE_ADDRESS = 0;                  \
-    }                                                                        \
-                                                                             \
-    *(volatile ULONG *)(Address) = *(volatile ULONG *)(Address);             \
-}
-
-//++
-//
-// VOID
-// ProbeForWriteQuad(
-//     IN PQUAD Address
-//     )
-//
-//--
-
-#define ProbeForWriteQuad(Address) {                                         \
-    if ((Address) >= (QUAD * const)MM_USER_PROBE_ADDRESS) {                  \
-        *(volatile LONG * const)MM_USER_PROBE_ADDRESS = 0;                   \
-    }                                                                        \
-                                                                             \
-    *(volatile QUAD *)(Address) = *(volatile QUAD *)(Address);               \
-}
-
-//++
-//
-// VOID
-// ProbeForWriteUquad(
-//     IN PUQUAD Address
-//     )
-//
-//--
-
-#define ProbeForWriteUquad(Address) {                                        \
-    if ((Address) >= (QUAD * const)MM_USER_PROBE_ADDRESS) {                  \
-        *(volatile ULONG * const)MM_USER_PROBE_ADDRESS = 0;                  \
-    }                                                                        \
-                                                                             \
-    *(volatile UQUAD *)(Address) = *(volatile UQUAD *)(Address);             \
-}
 
 //
-// Probe and write functions definitions.
+// Define macro to test if x86 feature is present.
 //
-//++
+// N.B. All x86 features test TRUE on MIPS systems.
 //
-// VOID
-// ProbeAndWriteBoolean(
-//     IN PBOOLEAN Address,
-//     IN BOOLEAN Value
-//     )
-//
-//--
 
-#define ProbeAndWriteBoolean(Address, Value) {                               \
-    if ((Address) >= (BOOLEAN * const)MM_USER_PROBE_ADDRESS) {               \
-        *(volatile BOOLEAN * const)MM_USER_PROBE_ADDRESS = 0;                \
-    }                                                                        \
-                                                                             \
-    *(Address) = (Value);                                                    \
-}
-
-//++
-//
-// VOID
-// ProbeAndWriteChar(
-//     IN PCHAR Address,
-//     IN CHAR Value
-//     )
-//
-//--
-
-#define ProbeAndWriteChar(Address, Value) {                                  \
-    if ((Address) >= (CHAR * const)MM_USER_PROBE_ADDRESS) {                  \
-        *(volatile CHAR * const)MM_USER_PROBE_ADDRESS = 0;                   \
-    }                                                                        \
-                                                                             \
-    *(Address) = (Value);                                                    \
-}
-
-//++
-//
-// VOID
-// ProbeAndWriteUchar(
-//     IN PUCHAR Address,
-//     IN UCHAR Value
-//     )
-//
-//--
-
-#define ProbeAndWriteUchar(Address, Value) {                                 \
-    if ((Address) >= (UCHAR * const)MM_USER_PROBE_ADDRESS) {                 \
-        *(volatile UCHAR * const)MM_USER_PROBE_ADDRESS = 0;                  \
-    }                                                                        \
-                                                                             \
-    *(Address) = (Value);                                                    \
-}
-
-//++
-//
-// VOID
-// ProbeAndWriteShort(
-//     IN PSHORT Address,
-//     IN SHORT Value
-//     )
-//
-//--
-
-#define ProbeAndWriteShort(Address, Value) {                                 \
-    if ((Address) >= (SHORT * const)MM_USER_PROBE_ADDRESS) {                 \
-        *(volatile SHORT * const)MM_USER_PROBE_ADDRESS = 0;                  \
-    }                                                                        \
-                                                                             \
-    *(Address) = (Value);                                                    \
-}
-
-//++
-//
-// VOID
-// ProbeAndWriteUshort(
-//     IN PUSHORT Address,
-//     IN USHORT Value
-//     )
-//
-//--
-
-#define ProbeAndWriteUshort(Address, Value) {                                \
-    if ((Address) >= (USHORT * const)MM_USER_PROBE_ADDRESS) {                \
-        *(volatile USHORT * const)MM_USER_PROBE_ADDRESS = 0;                 \
-    }                                                                        \
-                                                                             \
-    *(Address) = (Value);                                                    \
-}
-
-//++
-//
-// VOID
-// ProbeAndWriteHandle(
-//     IN PHANDLE Address,
-//     IN HANDLE Value
-//     )
-//
-//--
-
-#define ProbeAndWriteHandle(Address, Value) {                                \
-    if ((Address) >= (HANDLE * const)MM_USER_PROBE_ADDRESS) {                \
-        *(volatile HANDLE * const)MM_USER_PROBE_ADDRESS = 0;                 \
-    }                                                                        \
-                                                                             \
-    *(Address) = (Value);                                                    \
-}
-
-//++
-//
-// VOID
-// ProbeAndWriteLong(
-//     IN PLONG Address,
-//     IN LONG Value
-//     )
-//
-//--
-
-#define ProbeAndWriteLong(Address, Value) {                                  \
-    if ((Address) >= (LONG * const)MM_USER_PROBE_ADDRESS) {                  \
-        *(volatile LONG * const)MM_USER_PROBE_ADDRESS = 0;                   \
-    }                                                                        \
-                                                                             \
-    *(Address) = (Value);                                                    \
-}
-
-//++
-//
-// VOID
-// ProbeAndWriteUlong(
-//     IN PULONG Address,
-//     IN ULONG Value
-//     )
-//
-//--
-
-#define ProbeAndWriteUlong(Address, Value) {                                 \
-    if ((Address) >= (ULONG * const)MM_USER_PROBE_ADDRESS) {                 \
-        *(volatile ULONG * const)MM_USER_PROBE_ADDRESS = 0;                  \
-    }                                                                        \
-                                                                             \
-    *(Address) = (Value);                                                    \
-}
-
-//++
-//
-// VOID
-// ProbeAndWriteQuad(
-//     IN PQUAD Address,
-//     IN QUAD Value
-//     )
-//
-//--
-
-#define ProbeAndWriteQuad(Address, Value) {                                  \
-    if ((Address) >= (QUAD * const)MM_USER_PROBE_ADDRESS) {                  \
-        *(volatile LONG * const)MM_USER_PROBE_ADDRESS = 0;                   \
-    }                                                                        \
-                                                                             \
-    *(Address) = (Value);                                                    \
-}
-
-//++
-//
-// VOID
-// ProbeAndWriteUquad(
-//     IN PUQUAD Address,
-//     IN UQUAD Value
-//     )
-//
-//--
-
-#define ProbeAndWriteUquad(Address, Value) {                                 \
-    if ((Address) >= (UQUAD * const)MM_USER_PROBE_ADDRESS) {                 \
-        *(volatile ULONG * const)MM_USER_PROBE_ADDRESS = 0;                  \
-    }                                                                        \
-                                                                             \
-    *(Address) = (Value);                                                    \
-}
+#define Isx86FeaturePresent(_f_) TRUE
 
 #endif // _MIPSH_

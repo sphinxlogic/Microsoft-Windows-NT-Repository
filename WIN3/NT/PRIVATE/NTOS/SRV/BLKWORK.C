@@ -37,6 +37,11 @@ Revision History:
 // Local functions.
 //
 
+#if BACK_FILL
+#define TransportHeaderSize 64 // IPX_HEADER_SIZE+MAC_HEADER_SIZE
+#endif
+
+
 PWORK_CONTEXT
 InitializeWorkItem (
     IN PVOID WorkItem,
@@ -49,11 +54,6 @@ InitializeWorkItem (
     IN PVOID Buffer
     );
 
-VOID
-SrvRestartDereferenceWorkItem (
-    IN OUT PWORK_CONTEXT WorkContext
-    );
-
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text( PAGE, SrvAllocateInitialWorkItems )
 #pragma alloc_text( PAGE, SrvAllocateNormalWorkItem )
@@ -64,12 +64,11 @@ SrvRestartDereferenceWorkItem (
 //#pragma alloc_text( PAGE, SrvDereferenceWorkItem )
 #pragma alloc_text( PAGE, InitializeWorkItem )
 #pragma alloc_text( PAGE, SrvAllocateExtraSmbBuffer )
+#pragma alloc_text( PAGE, SrvGetRawModeWorkItem )
+#pragma alloc_text( PAGE, SrvRequeueRawModeWorkItem )
 #endif
 #if 0
-NOT PAGEABLE -- SrvGetRawModeWorkItem
-NOT PAGEABLE -- SrvRequeueRawModeWorkItem
 NOT PAGEABLE -- SrvFsdDereferenceWorkItem
-NOT PAGEABLE -- SrvRestartDereferenceWorkItem
 #endif
 
 
@@ -114,16 +113,16 @@ Return Value:
 {
     CLONG totalSize;
     CLONG workItemSize;
-    CLONG irpSize;
-    CLONG mdlSize;
-    CLONG totalMdlSize;
-    CLONG bufferSize;
-    ULONG cacheLineSize;
+    CLONG irpSize = SrvReceiveIrpSize;
+    CLONG mdlSize = SrvMaxMdlSize;
+    CLONG bufferSize = SrvReceiveBufferSize;
+    ULONG cacheLineSize = SrvCacheLineSize;
 
     PVOID workItem;
     PVOID buffer;
     PWORK_CONTEXT workContext;
     CLONG i;
+    PWORK_QUEUE queue;
 
     PAGED_CODE( );
 
@@ -152,30 +151,6 @@ Return Value:
     //     that the cache line size is a power of two.)
     //
 
-    irpSize = IoSizeOfIrp( SrvReceiveIrpStackSize );
-    irpSize = (irpSize + 7) & ~7;
-
-    cacheLineSize = HalGetDmaAlignmentRequirement( );
-#if SRVDBG
-    {
-        ULONG cls = cacheLineSize;
-        while ( cls > 2 ) {
-            ASSERTMSG(
-                "SRV: cache line size not a power of two",
-                (cls & 1) == 0 );
-            cls = cls >> 1;
-        }
-    }
-#endif
-    if ( cacheLineSize < 8 ) cacheLineSize = 8;
-
-    bufferSize = (SrvReceiveBufferLength + cacheLineSize - 1) &
-                                                    ~(cacheLineSize - 1);
-
-    mdlSize = MmSizeOfMdl( (PVOID)(PAGE_SIZE-1), bufferSize );
-    mdlSize = (mdlSize + 7) & ~7;
-    totalMdlSize = mdlSize * 2;
-
     //
     // Determine how large a buffer is needed for a single work item,
     // not including the SMB buffer.  Round this number to a quadword
@@ -183,7 +158,7 @@ Return Value:
     //
 
     workItemSize = sizeof(WORK_CONTEXT) + irpSize + sizeof(BUFFER) +
-                    totalMdlSize;
+                    (mdlSize * 2);
     workItemSize = (workItemSize + 7) & ~7;
 
     //
@@ -192,13 +167,25 @@ Return Value:
     // on cache line boundaries.
     //
 
+
+#if BACK_FILL
+    totalSize = (bufferSize + TransportHeaderSize + workItemSize) * SrvInitialReceiveWorkItemCount +
+                cacheLineSize;
+#else
     totalSize = (bufferSize + workItemSize) * SrvInitialReceiveWorkItemCount +
-                cacheLineSize - 1;
+                cacheLineSize;
+
+#endif
+
 
     IF_DEBUG(HEAP) {
         SrvPrint0( "SrvAllocateInitialWorkItems:\n" );
         SrvPrint1( "  work item size = 0x%lx bytes\n", workItemSize );
         SrvPrint1( "  buffer size = 0x%lx bytes\n", bufferSize );
+#if BACK_FILL
+        SrvPrint1( "  Backfill size = 0x%lx bytes\n", TransportHeaderSize );
+
+#endif
         SrvPrint1( "  number of work items = %ld\n",
                     SrvInitialReceiveWorkItemCount );
         SrvPrint1( "  total allocation = 0x%lx bytes\n", totalSize );
@@ -238,9 +225,15 @@ Return Value:
     // space for SMB buffers and control structures.
     //
 
-    buffer = (PVOID)(((ULONG)SrvInitialWorkItemBlock + cacheLineSize - 1) &
-                                                    ~(cacheLineSize - 1));
-    workItem = (PCHAR)buffer + (bufferSize * SrvInitialReceiveWorkItemCount);
+    buffer = (PVOID)(((ULONG)SrvInitialWorkItemBlock + cacheLineSize) &
+                                                    ~(cacheLineSize));
+
+#if BACK_FILL
+   workItem = (PCHAR)buffer + ((bufferSize + TransportHeaderSize) * SrvInitialReceiveWorkItemCount);
+#else
+   workItem = (PCHAR)buffer + (bufferSize * SrvInitialReceiveWorkItemCount);
+#endif
+
 
     //
     // Initialize the work items and update the count of work items in
@@ -250,7 +243,19 @@ Return Value:
     //     necessary at this stage of server initialization.
     //
 
+    queue = SrvWorkQueues;
     for ( i = 0; i < SrvInitialReceiveWorkItemCount; i++ ) {
+
+#if BACK_FILL
+        if (((PAGE_SIZE - 1) - BYTE_OFFSET(buffer)) < (TransportHeaderSize + sizeof(SMB_HEADER))) {
+
+           buffer = (PCHAR)buffer + PAGE_SIZE - BYTE_OFFSET(buffer);
+           i++;
+           IF_DEBUG(HEAP) {
+              SrvPrint2("buffer adjusted!! %x offset %x \n",buffer,BYTE_OFFSET(buffer));
+           }
+        }
+#endif
 
         workContext = InitializeWorkItem(
                             workItem,
@@ -264,6 +269,11 @@ Return Value:
                             );
 
         workContext->PartOfInitialAllocation = TRUE;
+        workContext->FreeList = &queue->InitialWorkItemList;
+        workContext->CurrentWorkQueue = queue;
+
+        if( ++queue == eSrvWorkQueues )
+            queue = SrvWorkQueues;
 
         //
         // Setup the work item and queue it to the free list
@@ -271,15 +281,17 @@ Return Value:
 
         SrvPrepareReceiveWorkItem( workContext, TRUE );
 
-        buffer = (PCHAR)buffer + bufferSize;
+#if BACK_FILL
+       buffer = (PCHAR)buffer + TransportHeaderSize + bufferSize;
+#else
+       buffer = (PCHAR)buffer + bufferSize;
+#endif
+
         workItem = (PCHAR)workItem + workItemSize;
 
         INCREMENT_DEBUG_STAT2( SrvDbgStatistics.WorkContextInfo.Allocations );
 
     }
-
-    SrvTotalWorkItems += SrvInitialReceiveWorkItemCount;
-    SrvReceiveWorkItems += SrvInitialReceiveWorkItemCount;
 
     return STATUS_SUCCESS;
 
@@ -288,7 +300,8 @@ Return Value:
 
 VOID
 SrvAllocateNormalWorkItem (
-    OUT PWORK_CONTEXT *WorkContext
+    OUT PWORK_CONTEXT *WorkContext,
+    PWORK_QUEUE queue
     )
 
 /*++
@@ -324,11 +337,10 @@ Return Value:
 {
     CLONG totalSize;
     CLONG workItemSize;
-    CLONG irpSize;
-    CLONG mdlSize;
-    CLONG totalMdlSize;
-    CLONG bufferSize;
-    CLONG cacheLineSize;
+    CLONG irpSize = SrvReceiveIrpSize;
+    CLONG mdlSize = SrvMaxMdlSize;
+    CLONG bufferSize = SrvReceiveBufferSize;
+    CLONG cacheLineSize = SrvCacheLineSize;
 
     PVOID workItem;
     PVOID buffer;
@@ -347,18 +359,10 @@ Return Value:
     //     thread tests to see whether it can create a new work item.
     //     Both testing threads will refuse to create a new work item,
     //     even though the final number of work items is one less than
-    //     the maximum.  Closing this window would require using a real
-    //     spin lock to guard SrvReceiveWorkItems, rather than an
-    //     interlock.
+    //     the maximum.
     //
 
-    oldWorkItemCount = (CLONG)ExInterlockedAddUlong(
-                                (PULONG)&SrvReceiveWorkItems,
-                                1,
-                                &GLOBAL_SPIN_LOCK(WorkItem)
-                                );
-
-    if ( oldWorkItemCount >= SrvMaxReceiveWorkItemCount ) {
+    if ( queue->AllocatedWorkItems >= queue->MaximumWorkItems ) {
 
         //
         // Can't create any more work items just now.
@@ -371,16 +375,12 @@ Return Value:
             SrvPrint0( "SrvAllocateNormalWorkItem: Work item limit reached\n" );
         }
 
-        ExInterlockedAddUlong(
-            (PULONG)&SrvReceiveWorkItems,
-            (ULONG)-1,
-            &GLOBAL_SPIN_LOCK(WorkItem)
-            );
-
         *WorkContext = NULL;
         return;
 
     }
+
+    InterlockedIncrement( &queue->AllocatedWorkItems );
 
     //
     // Find out the sizes of the IRP, the SMB buffer, and the MDLs.  The
@@ -395,19 +395,6 @@ Return Value:
     //     that the cache line size is a power of two.)
     //
 
-    irpSize = IoSizeOfIrp( SrvReceiveIrpStackSize );
-    irpSize = (irpSize + 7) & ~7;
-
-    cacheLineSize = HalGetDmaAlignmentRequirement( );
-    if ( cacheLineSize < 8 ) cacheLineSize = 8;
-
-    bufferSize = (SrvReceiveBufferLength + cacheLineSize - 1) &
-                                                    ~(cacheLineSize - 1);
-
-    mdlSize = MmSizeOfMdl( (PVOID)(PAGE_SIZE-1), bufferSize );
-    mdlSize = (mdlSize + 7) & ~7;
-    totalMdlSize = mdlSize * 2;
-
     //
     // Determine how large a buffer is needed for the SMB buffer and
     // control structures.  The allocation must be padded in order to
@@ -415,8 +402,13 @@ Return Value:
     //
 
     workItemSize = sizeof(WORK_CONTEXT) + irpSize + sizeof(BUFFER) +
-                    totalMdlSize;
-    totalSize = workItemSize + bufferSize + cacheLineSize - 1;
+                    (mdlSize * 2);
+#if BACK_FILL
+    totalSize = workItemSize + bufferSize + TransportHeaderSize+ cacheLineSize;
+#else
+    totalSize = workItemSize + bufferSize + cacheLineSize;
+#endif
+
 
     //
     // Attempt to allocate from nonpaged pool.
@@ -434,11 +426,7 @@ Return Value:
             NULL
             );
 
-        ExInterlockedAddUlong(
-            (PULONG)&SrvReceiveWorkItems,
-            (ULONG)-1,
-            &GLOBAL_SPIN_LOCK(WorkItem)
-            );
+        InterlockedDecrement( &queue->AllocatedWorkItems );
 
         *WorkContext = NULL;
         return;
@@ -449,8 +437,32 @@ Return Value:
     // Reserve space for the SMB buffer on a cache line boundary.
     //
 
-    buffer = (PVOID)(((ULONG)workItem + workItemSize + cacheLineSize - 1) &
-                                                ~(cacheLineSize - 1));
+
+#if BACK_FILL
+    buffer = (PVOID)(((ULONG)workItem + workItemSize + cacheLineSize) &
+                                                ~(cacheLineSize));
+
+        if (((PAGE_SIZE - 1) - BYTE_OFFSET(buffer)) < (TransportHeaderSize + sizeof(SMB_HEADER))) {
+
+        INTERNAL_ERROR(
+            ERROR_LEVEL_EXPECTED,
+            "SrvAllocateNormalWorkItem: Unable to allocate header with in a page ",
+            totalSize,
+            NULL
+            );
+
+        InterlockedDecrement( &queue->AllocatedWorkItems );
+        DEALLOCATE_NONPAGED_POOL( workItem );
+        *WorkContext = NULL;
+        return;
+
+        }
+
+#else
+    buffer = (PVOID)(((ULONG)workItem + workItemSize + cacheLineSize) &
+                                                ~(cacheLineSize));
+#endif
+
 
     //
     // Initialize the work item and increment the count of work items in
@@ -472,15 +484,8 @@ Return Value:
 
     INCREMENT_DEBUG_STAT2( SrvDbgStatistics.WorkContextInfo.Allocations );
 
-    //
-    // Update the count of work items.
-    //
-
-    ExInterlockedAddUlong(
-        &SrvTotalWorkItems,
-        1,
-        &GLOBAL_SPIN_LOCK(WorkItem)
-        );
+    (*WorkContext)->FreeList = &queue->NormalWorkItemList;
+    (*WorkContext)->CurrentWorkQueue = queue;
 
     return;
 
@@ -489,7 +494,8 @@ Return Value:
 
 VOID
 SrvAllocateRawModeWorkItem (
-    OUT PWORK_CONTEXT *WorkContext
+    OUT PWORK_CONTEXT *WorkContext,
+    IN PWORK_QUEUE queue
     )
 
 /*++
@@ -522,10 +528,9 @@ Return Value:
 --*/
 
 {
-    CLONG totalSize;
     CLONG workItemSize;
-    CLONG irpSize;
-    CLONG mdlSize;
+    CLONG irpSize = SrvReceiveIrpSize;
+    CLONG mdlSize = SrvMaxMdlSize;
 
     PVOID workItem;
     CLONG oldWorkItemCount;
@@ -543,18 +548,11 @@ Return Value:
     //     thread tests to see whether it can create a new work item.
     //     Both testing threads will refuse to create a new work item,
     //     even though the final number of work items is one less than
-    //     the maximum.  Closing this window would require using a real
-    //     spin lock to guard SrvRawModeWorkItems, rather than an
-    //     interlock.
+    //     the maximum.
     //
 
-    oldWorkItemCount = (CLONG)ExInterlockedAddUlong(
-                                (PULONG)&SrvRawModeWorkItems,
-                                1,
-                                &GLOBAL_SPIN_LOCK(WorkItem)
-                                );
-
-    if ( oldWorkItemCount >= SrvMaxRawModeWorkItemCount ) {
+    if ( (ULONG)queue->AllocatedRawModeWorkItems >=
+                 SrvMaxRawModeWorkItemCount / SrvNumberOfProcessors ) {
 
         //
         // Can't create any more work items just now.
@@ -567,16 +565,12 @@ Return Value:
             SrvPrint0( "SrvAllocateRawModeWorkItem: Work item limit reached\n" );
         }
 
-        ExInterlockedAddUlong(
-            (PULONG)&SrvRawModeWorkItems,
-            (ULONG)-1,
-            &GLOBAL_SPIN_LOCK(WorkItem)
-            );
-
         *WorkContext = NULL;
         return;
 
     }
+
+    InterlockedIncrement( &queue->AllocatedRawModeWorkItems );
 
     //
     // Find out the sizes of the IRP and the MDL.  The MDL size is
@@ -584,20 +578,13 @@ Return Value:
     // calculation ensures that the MDL will be large enough.
     //
 
-    irpSize = IoSizeOfIrp( SrvReceiveIrpStackSize );
-    irpSize = (irpSize + 7) & ~7;
-
-    mdlSize = MmSizeOfMdl( (PVOID)(PAGE_SIZE-1), 65535 );
-    mdlSize = (mdlSize + 7) & ~7;
-
     workItemSize = sizeof(WORK_CONTEXT) + sizeof(BUFFER) + irpSize + mdlSize;
-    totalSize = workItemSize;
 
     //
     // Attempt to allocate from nonpaged pool.
     //
 
-    workItem = ALLOCATE_NONPAGED_POOL( totalSize, BlockTypeWorkContextRaw );
+    workItem = ALLOCATE_NONPAGED_POOL( workItemSize, BlockTypeWorkContextRaw );
 
     if ( workItem == NULL ) {
 
@@ -605,15 +592,11 @@ Return Value:
             ERROR_LEVEL_EXPECTED,
             "SrvAllocateRawModeWorkItem: Unable to allocate %d bytes "
                 "from nonpaged pool.",
-            totalSize,
+            workItemSize,
             NULL
             );
 
-        ExInterlockedAddUlong(
-            (PULONG)&SrvRawModeWorkItems,
-            (ULONG)-1,
-            &GLOBAL_SPIN_LOCK(WorkItem)
-            );
+        InterlockedDecrement( &queue->AllocatedRawModeWorkItems );
 
         *WorkContext = NULL;
         return;
@@ -637,40 +620,71 @@ Return Value:
 
     INCREMENT_DEBUG_STAT2( SrvDbgStatistics.WorkContextInfo.Allocations );
 
-    ExInterlockedAddUlong(
-        (PULONG)&SrvTotalWorkItems,
-        1,
-        &GLOBAL_SPIN_LOCK(WorkItem)
-        );
-
-    return;
+    (*WorkContext)->FreeList = &queue->RawModeWorkItemList;
+    (*WorkContext)->CurrentWorkQueue = queue;
 
 } // SrvAllocateRawModeWorkItem
 
 
 PWORK_CONTEXT
-SrvGetRawModeWorkItem (
-    VOID
-    )
+SrvGetRawModeWorkItem ()
 {
-    KIRQL oldIrql;
     PSINGLE_LIST_ENTRY listEntry;
     PWORK_CONTEXT workContext;
+    PWORK_QUEUE queue = PROCESSOR_TO_QUEUE();
 
-    ACQUIRE_GLOBAL_SPIN_LOCK( WorkItem, &oldIrql );
+    PAGED_CODE();
 
-    if ( SrvRawModeWorkItemList.Next != NULL ) {
+    //
+    // Attempt to allocate a raw mode work item off the current processor's queue
+    //
 
-        listEntry = PopEntryList( &SrvRawModeWorkItemList );
+    listEntry = ExInterlockedPopEntrySList( &queue->RawModeWorkItemList, &queue->SpinLock );
+    if( listEntry != NULL ) {
+
         workContext = CONTAINING_RECORD( listEntry, WORK_CONTEXT, SingleListEntry );
-        SrvFreeRawModeWorkItems--;
-        RELEASE_GLOBAL_SPIN_LOCK( WorkItem, oldIrql );
+        InterlockedDecrement( &queue->FreeRawModeWorkItems );
+        ASSERT( queue->FreeRawModeWorkItems >= 0 );
 
     } else {
 
-        RELEASE_GLOBAL_SPIN_LOCK( WorkItem, oldIrql );
+        SrvAllocateRawModeWorkItem( &workContext, queue );
+    }
 
-        SrvAllocateRawModeWorkItem( &workContext );
+    if( workContext != NULL || SrvNumberOfProcessors == 1 ) {
+        return workContext;
+    }
+
+    //
+    // We were unable to get or allocate a raw mode workitem off the current
+    // work queue.  We're a multiprocessor system, so look around for one off
+    // of a different work queue.
+    //
+    for( queue = SrvWorkQueues; queue < eSrvWorkQueues; queue++ ) {
+
+        listEntry = ExInterlockedPopEntrySList( &queue->RawModeWorkItemList, &queue->SpinLock );
+
+        if ( listEntry != NULL ) {
+
+                InterlockedDecrement( &queue->FreeRawModeWorkItems );
+                ASSERT( queue->FreeRawModeWorkItems >= 0 );
+                workContext = CONTAINING_RECORD( listEntry, WORK_CONTEXT, SingleListEntry );
+
+                return workContext;
+        }
+    }
+
+    //
+    // We were unable to get a free raw mode workitem off a different processor's
+    //  raw work item queue.  See if any of the queues allow allocation of a new one.
+    //
+    for( queue = SrvWorkQueues; queue < eSrvWorkQueues; queue++ ) {
+
+        SrvAllocateRawModeWorkItem( &workContext, queue );
+
+        if( workContext != NULL ) {
+            break;
+        }
 
     }
 
@@ -684,15 +698,18 @@ SrvRequeueRawModeWorkItem (
     PWORK_CONTEXT WorkContext
     )
 {
-    KIRQL oldIrql;
+    PWORK_QUEUE queue = CONTAINING_RECORD( WorkContext->FreeList,
+                                         WORK_QUEUE, RawModeWorkItemList );
 
-    //GET_SERVER_TIME( &WorkContext->Timestamp );
+    PAGED_CODE();
 
-    ACQUIRE_GLOBAL_SPIN_LOCK( WorkItem, &oldIrql );
-    SrvFreeRawModeWorkItems++;
-    PushEntryList( &SrvRawModeWorkItemList, &WorkContext->SingleListEntry );
-    RELEASE_GLOBAL_SPIN_LOCK( WorkItem, oldIrql );
+    ExInterlockedPushEntrySList( &queue->RawModeWorkItemList,
+                                 &WorkContext->SingleListEntry,
+                                 &queue->SpinLock
+                               );
 
+    InterlockedIncrement( &queue->FreeRawModeWorkItems );
+                            
     return;
 
 } // SrvRequeueRawModeWorkItem
@@ -730,15 +747,6 @@ Return Value:
                         SrvInitialWorkItemBlock );
         }
 
-        //
-        // Free the block and update the count of work items in the
-        // server.
-        //
-        // *** Note that the update is not synchronized -- that
-        //     shouldn't be necessary at this stage of server
-        //     termination.
-        //
-
         DEALLOCATE_NONPAGED_POOL( SrvInitialWorkItemBlock );
         IF_DEBUG(HEAP) {
             SrvPrint1( "SrvFreeInitialWorkItems: Freed initial work item "
@@ -747,12 +755,7 @@ Return Value:
 
         SrvInitialWorkItemBlock = NULL;
 
-        SrvTotalWorkItems -= SrvInitialReceiveWorkItemCount;
-        SrvReceiveWorkItems -= SrvInitialReceiveWorkItemCount;
-
     }
-
-    SrvInitialReceiveWorkItemList.Next = NULL;
 
     return;
 
@@ -782,6 +785,8 @@ Return Value:
 --*/
 
 {
+    PWORK_QUEUE queue = WorkContext->CurrentWorkQueue;
+
     PAGED_CODE( );
 
     IF_DEBUG(BLOCK1) {
@@ -795,9 +800,7 @@ Return Value:
     // Free the work item block itself.
     //
 
-    DEBUG SET_BLOCK_TYPE( WorkContext, BlockTypeGarbage );
-    DEBUG SET_BLOCK_STATE( WorkContext, BlockStateDead );
-    DEBUG SET_BLOCK_SIZE( WorkContext, -1 );
+    DEBUG SET_BLOCK_TYPE_STATE_SIZE( WorkContext, BlockTypeGarbage, BlockStateDead, -1 );
     DEBUG WorkContext->BlockHeader.ReferenceCount = (ULONG)-1;
 
     DEALLOCATE_NONPAGED_POOL( WorkContext );
@@ -810,18 +813,7 @@ Return Value:
     // Update the count of work items in the server.
     //
 
-    ExInterlockedAddUlong(
-        (PULONG)&SrvTotalWorkItems,
-        (ULONG)-1,
-        &GLOBAL_SPIN_LOCK(WorkItem)
-        );
-
-    ExInterlockedAddUlong(
-        &SrvReceiveWorkItems,
-        (ULONG)-1,
-        &GLOBAL_SPIN_LOCK(WorkItem)
-        );
-
+    InterlockedDecrement( &queue->AllocatedWorkItems );
     INCREMENT_DEBUG_STAT2( SrvDbgStatistics.WorkContextInfo.Frees );
 
     return;
@@ -852,10 +844,12 @@ Return Value:
 --*/
 
 {
+    PWORK_QUEUE queue = CONTAINING_RECORD( WorkContext->FreeList,
+                                         WORK_QUEUE, RawModeWorkItemList );
     PAGED_CODE( );
 
     IF_DEBUG(BLOCK1) {
-        SrvPrint1( "Closing work item at 0x%lx\n", WorkContext );
+        SrvPrint1( "Closing workitem at 0x%lx\n", WorkContext );
     }
 
     ASSERT( GET_BLOCK_STATE( WorkContext ) == BlockStateActive );
@@ -865,9 +859,7 @@ Return Value:
     // Free the work item block itself.
     //
 
-    DEBUG SET_BLOCK_TYPE( WorkContext, BlockTypeGarbage );
-    DEBUG SET_BLOCK_STATE( WorkContext, BlockStateDead );
-    DEBUG SET_BLOCK_SIZE( WorkContext, -1 );
+    DEBUG SET_BLOCK_TYPE_STATE_SIZE( WorkContext, BlockTypeGarbage, BlockStateDead, -1 );
     DEBUG WorkContext->BlockHeader.ReferenceCount = (ULONG)-1;
 
     DEALLOCATE_NONPAGED_POOL( WorkContext );
@@ -879,18 +871,8 @@ Return Value:
     //
     // Update the count of work items in the server.
     //
-
-    ExInterlockedAddUlong(
-        (PULONG)&SrvTotalWorkItems,
-        (ULONG)-1,
-        &GLOBAL_SPIN_LOCK(WorkItem)
-        );
-
-    ExInterlockedAddUlong(
-        &SrvRawModeWorkItems,
-        (ULONG)-1,
-        &GLOBAL_SPIN_LOCK(WorkItem)
-        );
+    InterlockedDecrement( &queue->AllocatedRawModeWorkItems );
+    ASSERT( queue->AllocatedRawModeWorkItems >= 0 );
 
     INCREMENT_DEBUG_STAT2( SrvDbgStatistics.WorkContextInfo.Frees );
 
@@ -918,6 +900,7 @@ Routine Description:
     This routine initializes the following components of a work item:
         - a work context block,
         - an IRP,
+        - the CurrentWorkQueue
         - optionally, a buffer descriptor,
         - one or two MDLs, and
         - optionally, a buffer for sends and receives
@@ -985,9 +968,7 @@ Return Value:
     nextAddress = workContext + 1;
     ASSERT( ((ULONG)nextAddress & 7) == 0 );
 
-    SET_BLOCK_TYPE( workContext, BlockType );
-    SET_BLOCK_STATE( workContext, BlockStateActive );
-    SET_BLOCK_SIZE( workContext, sizeof(WORK_CONTEXT) );
+    SET_BLOCK_TYPE_STATE_SIZE( workContext, BlockType, BlockStateActive, sizeof(WORK_CONTEXT) );
     workContext->BlockHeader.ReferenceCount = 0;
 
     INITIALIZE_REFERENCE_HISTORY( workContext );
@@ -1039,14 +1020,25 @@ Return Value:
 
         partialMdl = nextAddress;
 
+#if BACK_FILL
+
+        bufferDescriptor->Buffer = TransportHeaderSize + (PCHAR)Buffer;
+        MmInitializeMdl( fullMdl, TransportHeaderSize + (PCHAR)Buffer, BufferSize );
+        memset(Buffer,'N', TransportHeaderSize);
+#else
         MmInitializeMdl( fullMdl, Buffer, BufferSize );
+        bufferDescriptor->Buffer = Buffer;
+
+#endif
 
         bufferDescriptor->PartialMdl = partialMdl;
-        MmInitializeMdl( partialMdl, (PVOID)(PAGE_SIZE-1), BufferSize );
+        MmInitializeMdl( partialMdl, (PVOID)(PAGE_SIZE-1), MAX_PARTIAL_BUFFER_SIZE );
 
-        bufferDescriptor->Buffer = Buffer;
         bufferDescriptor->BufferLength = BufferSize;
         MmBuildMdlForNonPagedPool( fullMdl );
+#if BACK_FILL
+        fullMdl->MdlFlags|=MDL_NETWORK_HEADER;
+#endif
 
     }
 
@@ -1055,6 +1047,11 @@ Return Value:
     //
 
     workContext->ClientAddress = &workContext->ClientAddressData;
+
+    //
+    // Initialize the processor
+    //
+    workContext->CurrentWorkQueue = PROCESSOR_TO_QUEUE();
 
     //
     // Print debugging information.
@@ -1095,7 +1092,7 @@ Return Value:
 } // InitializeWorkItem
 
 
-VOID
+VOID SRVFASTCALL
 SrvDereferenceWorkItem (
     IN PWORK_CONTEXT WorkContext
     )
@@ -1210,15 +1207,11 @@ Return Value:
     // Decrement the WCB's reference count.
     //
 
-#if defined(UP_DRIVER)
-    oldCount = WorkContext->BlockHeader.ReferenceCount--;
-#else
     oldCount = ExInterlockedAddUlong(
                 (PULONG)&WorkContext->BlockHeader.ReferenceCount,
                 (ULONG)-1,
                 &WorkContext->SpinLock
                 );
-#endif
 
     IF_DEBUG(REFCNT) {
         SrvPrint2( "Dereferencing WorkContext 0x%lx; new refcnt 0x%lx\n",
@@ -1252,16 +1245,13 @@ Return Value:
 
             UPDATE_REFERENCE_HISTORY( WorkContext, FALSE );
 
-#if defined(UP_DRIVER)
-            WorkContext->BlockHeader.ReferenceCount++;
-#else
             ExInterlockedAddUlong(
                 (PULONG)&WorkContext->BlockHeader.ReferenceCount,
                 1,
                 &WorkContext->SpinLock
                 );
-#endif
 
+            WorkContext->QueueToHead = TRUE;
             WorkContext->FspRestartRoutine = SrvDereferenceWorkItem;
             QUEUE_WORK_TO_FSP( WorkContext );
 
@@ -1285,66 +1275,14 @@ Return Value:
 
 } // SrvFsdDereferenceWorkItem
 
-VOID
-SrvRestartDereferenceWorkItem (
-    IN PWORK_CONTEXT WorkContext
-    )
-
-/*++
-
-Routine Description:
-
-    This function finishes the work started by SrvFsdDereferenceWorkItem.
-    It is called as an FSP restart routine when the connection reference
-    count drops to 0 during SrvFsdDereferenceWorkItem's call to
-    SrvFsdRequeueReceiveWorkItem.
-
-Arguments:
-
-    WorkContext - Pointer to the work context block to reference.
-
-Return Value:
-
-    None.
-
---*/
-
-{
-    ASSERT( (LONG)WorkContext->BlockHeader.ReferenceCount == 0 );
-
-    //
-    // Dereference the connection.
-    //
-
-    SrvDereferenceConnection( WorkContext->Connection );
-    WorkContext->Connection = NULL;
-
-    //
-    // Reset the FSP restart routine address.
-    //
-
-    ASSERT( WorkContext->FsdRestartRoutine == SrvQueueWorkToFspAtDpcLevel );
-    WorkContext->FspRestartRoutine = SrvRestartReceive;
-
-    //
-    // Put the work item back on the free list.
-    //
-
-    RETURN_FREE_WORKITEM( WorkContext );
-
-    return;
-
-} // SrvRestartDereferenceWorkItem
-
-
 NTSTATUS
 SrvAllocateExtraSmbBuffer (
     IN OUT PWORK_CONTEXT WorkContext
     )
 {
-    ULONG cacheLineSize;
-    ULONG bufferSize;
-    ULONG mdlSize;
+    ULONG cacheLineSize = SrvCacheLineSize;
+    ULONG bufferSize = SrvReceiveBufferSize;
+    ULONG mdlSize = SrvMaxMdlSize;
     PBUFFER bufferDescriptor;
     PMDL fullMdl;
     PMDL partialMdl;
@@ -1359,17 +1297,11 @@ SrvAllocateExtraSmbBuffer (
     // request and response buffer.
     //
 
-    cacheLineSize = HalGetDmaAlignmentRequirement( );
-    if ( cacheLineSize < 8 ) cacheLineSize = 8;
-    bufferSize = (SrvReceiveBufferLength + cacheLineSize - 1) & ~(cacheLineSize - 1);
-
-    mdlSize = MmSizeOfMdl( (PVOID)(PAGE_SIZE-1), bufferSize );
-    mdlSize = (mdlSize + 7) & ~7;
     bufferDescriptor = ALLOCATE_NONPAGED_POOL(
                             sizeof(BUFFER) +
                                 mdlSize * 2 +
                                 bufferSize +
-                                cacheLineSize - 1,
+                                cacheLineSize,
                             BlockTypeDataBuffer
                             );
 
@@ -1384,7 +1316,7 @@ SrvAllocateExtraSmbBuffer (
 
     fullMdl = (PMDL)(bufferDescriptor + 1);
     partialMdl = (PMDL)( (PCHAR)fullMdl + mdlSize );
-    data = (PVOID)( ((ULONG)partialMdl + mdlSize + cacheLineSize - 1) & ~(cacheLineSize - 1) );
+    data = (PVOID)( ((ULONG)partialMdl + mdlSize + cacheLineSize) & ~(cacheLineSize) );
 
     bufferDescriptor->Mdl = fullMdl;
     MmInitializeMdl( fullMdl, data, bufferSize );
@@ -1394,7 +1326,7 @@ SrvAllocateExtraSmbBuffer (
     //
 
     bufferDescriptor->PartialMdl = partialMdl;
-    MmInitializeMdl( partialMdl, (PVOID)(PAGE_SIZE-1), bufferSize );
+    MmInitializeMdl( partialMdl, (PVOID)(PAGE_SIZE-1), MAX_PARTIAL_BUFFER_SIZE );
 
     MmBuildMdlForNonPagedPool( fullMdl );
 

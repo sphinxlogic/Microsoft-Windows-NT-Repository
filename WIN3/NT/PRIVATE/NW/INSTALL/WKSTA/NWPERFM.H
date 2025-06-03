@@ -22,4 +22,3 @@
 #define CONNECT_2X_ID              12
 #define CONNECT_3X_ID              14
 #define CONNECT_4X_ID              16
-

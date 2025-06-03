@@ -13,12 +13,7 @@ mikemon    10-30-90    Fixed the dictionary size.
 
 -------------------------------------------------------------------- */
 
-#include <sysinc.h>
-#include <rpc.h>
-#include <util.hxx>
-#include <sdict.hxx>
-#include <memory.h>
-
+#include <precomp.hxx>
 
 SIMPLE_DICT::SIMPLE_DICT()
 {

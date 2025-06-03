@@ -34,8 +34,9 @@
  *               #if (WINVER > 0x400)
  *               foo%(void);
  *               #endif
+ *   11-Nov-1994 RaymondC propagate ;internal-ness to trailers
  */
-char *Version = "WCSHDR v1.19 1994-02-24:";
+char *Version = "WCSHDR v1.20 1994-11-11:";
 
 #include <stdio.h>
 #include <ctype.h>
@@ -75,11 +76,13 @@ typedef struct {
     char   *pLastParen; // Pointer to last '(' or '{' in current block.
     char  *pSymNam;     // copy of function name, null-terminated
     int    cbSymNam;    // bytes available for fn name
+    char  *pszInternal; // "" if external or "\t// ;internal" if internal
 } BLOCKSTORE, *PBLOCKSTORE;
 
 void ArgProcess(int argc, PSZ argv[]);
 void Usage(void);
 void InitBS(PBLOCKSTORE);
+void SetInternalnessBS(PBLOCKSTORE);
 BOOL ReadLineBS(PBLOCKSTORE);
 void WriteBS(PBLOCKSTORE);
 void WriteAllTypesBS(PBLOCKSTORE, int);
@@ -164,22 +167,25 @@ WriteAllTypesBS(PBLOCKSTORE pbs, int BlockType)
 
     case CONV_DEFINE:
     case CONV_FN_PROTO:
+        SetInternalnessBS(pbs);
         GetSymNameBS(pbs, BlockType);
 
         WriteConvertBS(pbs, ANSI, TRUE);
         WriteConvertBS(pbs, UNIC, TRUE);
+
+        ASSERT(pbs, pbs->pszInternal);
         /*
          * UNICODE defn.
          */
-        fprintf(stdout, "#ifdef UNICODE\n#define %s  %sW\n",
-                pbs->pSymNam, pbs->pSymNam);
+        fprintf(stdout, "#ifdef UNICODE%s\n#define %s  %sW%s\n",
+                pbs->pszInternal, pbs->pSymNam, pbs->pSymNam, pbs->pszInternal);
 
         /*
          * ANSI defn.
          */
-        fprintf(stdout, "#else\n#define %s  %sA\n",
-                pbs->pSymNam, pbs->pSymNam);
-        fputs("#endif // !UNICODE\n", stdout);
+        fprintf(stdout, "#else%s\n#define %s  %sA%s\n",
+                pbs->pszInternal, pbs->pSymNam, pbs->pSymNam, pbs->pszInternal);
+        fprintf(stdout, "#endif // !UNICODE%s\n", pbs->pszInternal);
 
         /*
          * Neutral defn.
@@ -187,6 +193,7 @@ WriteAllTypesBS(PBLOCKSTORE pbs, int BlockType)
         break;
 
     case CONV_TYPEDEF:
+        SetInternalnessBS(pbs);
         WriteConvertBS(pbs, ANSI, FALSE);
         WriteConvertBS(pbs, UNIC, FALSE);
         WriteRedefinedTypeNamesBS(pbs);
@@ -498,6 +505,8 @@ WriteRedefinedTypeNamesBS(PBLOCKSTORE pbs)
         fprintf(stderr, "WriteRedefinedTypeNamesBS(%lx)\n", pbs);
     }
 
+    ASSERT(pbs, pbs->pszInternal);
+
     if (pbs->p1stParen && (*(pbs->p1stParen) == '{')) {
         /*
          * Scan backwards for the closing brace
@@ -528,7 +537,7 @@ WriteRedefinedTypeNamesBS(PBLOCKSTORE pbs)
     /*
      * UNICODE pass
      */
-    fprintf(stdout, "#ifdef UNICODE\n");
+    fprintf(stdout, "#ifdef UNICODE%s\n", pbs->pszInternal);
     while (pToken = strtok(pToken, ",; \t*\n\r")) {
         if (fDebug) {
             fprintf(stderr, "token: \"%s\"\n", pToken);
@@ -536,8 +545,8 @@ WriteRedefinedTypeNamesBS(PBLOCKSTORE pbs)
         /*
          * Write out the #define for UNICODE, excluding "NEAR" & "FAR"
          */
-        if (   (stricmp(pToken, "NEAR") == 0)
-            || (stricmp(pToken, "FAR")  == 0)) {
+        if (   (_stricmp(pToken, "NEAR") == 0)
+            || (_stricmp(pToken, "FAR")  == 0)) {
             goto NextUnicodeToken;
         }
 
@@ -554,7 +563,7 @@ WriteRedefinedTypeNamesBS(PBLOCKSTORE pbs)
             PrintSubstitute(pbs, pToken, pPercent, UNIC, FALSE);
             fputs(" ", stdout);
             PrintSubstitute(pbs, pToken, pPercent, NEUT, FALSE);
-            fputs(";\n", stdout);
+            fprintf(stdout, ";%s\n", pbs->pszInternal);
         }
 
 NextUnicodeToken:
@@ -566,7 +575,7 @@ NextUnicodeToken:
         error_exit(pbs, 2);
     }
 
-    fprintf(stdout, "#else\n");
+    fprintf(stdout, "#else%s\n", pbs->pszInternal);
     if (fDebug) {
         fprintf(stderr, "FirstName = %s\n", pFirstName);
     }
@@ -579,8 +588,8 @@ NextUnicodeToken:
         /*
          * Write out the #define for ANSI, excluding "NEAR" and "FAR"
          */
-        if (   (stricmp(pToken, "NEAR") == 0)
-            || (stricmp(pToken, "FAR")  == 0)) {
+        if (   (_stricmp(pToken, "NEAR") == 0)
+            || (_stricmp(pToken, "FAR")  == 0)) {
             goto NextAnsiToken;
         }
 
@@ -590,7 +599,7 @@ NextUnicodeToken:
             PrintSubstitute(pbs, pToken, pPercent, ANSI, FALSE);
             fputs(" ", stdout);
             PrintSubstitute(pbs, pToken, pPercent, NEUT, FALSE);
-            fputs(";\n", stdout);
+            fprintf(stdout, ";%s\n", pbs->pszInternal);
         }
 
 NextAnsiToken:
@@ -599,7 +608,7 @@ NextAnsiToken:
         }
     }
 
-    fprintf(stdout, "#endif // UNICODE\n");
+    fprintf(stdout, "#endif // UNICODE%s\n", pbs->pszInternal);
 
     return TRUE;
 }
@@ -672,6 +681,7 @@ InitBS(PBLOCKSTORE pbs) {
     pbs->p1stParen = NULL;
     pbs->pLastParen = NULL;
     pbs->nParen = 0;
+    pbs->pszInternal = 0;
 
     pbs->cbSize = INITIAL_STORE_SIZE;
     pbs->cbFree = INITIAL_STORE_SIZE;
@@ -680,6 +690,15 @@ InitBS(PBLOCKSTORE pbs) {
     ASSERT(pbs, pbs->pSymNam != NULL);
     pbs->cbSymNam = FN_NAME_SIZE;
     *(pbs->pSymNam) = '\0';
+}
+
+void
+SetInternalnessBS(PBLOCKSTORE pbs) {
+    if (strstr(pbs->pStart, ";internal")) {
+        pbs->pszInternal = "\t// ;internal";
+    } else {
+        pbs->pszInternal = "";
+    }
 }
 
 void

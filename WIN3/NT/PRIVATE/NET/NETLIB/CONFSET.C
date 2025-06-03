@@ -30,7 +30,7 @@ Revision History:
     12-Mar-1992 JohnRo
         Changed to only store UNICODE strings in registry.
     31-Mar-1992 JohnRo
-        Flush the registry after each create/write.
+        Flush the registry after each create/_write.
     06-May-1992 JohnRo
         REG_SZ now implies a UNICODE string, so we can't use REG_USZ anymore.
 
@@ -49,7 +49,7 @@ Revision History:
 #include <lmapibuf.h>           // NetApiBufferFree().
 #include <netlib.h>             // NetpMemoryAllocate(), etc.
 #include <tstring.h>            // STRSIZE(), TCHAR_EOS, WCSSIZE(), etc.
-#include <wcstr.h>              // wcslen().
+#include <stdlib.h>              // wcslen().
 #include <winerror.h>           // ERROR_NOT_SUPPORTED, NO_ERROR, etc.
 
 #if defined(USE_WIN32_CONFIG)
@@ -90,9 +90,9 @@ NetpSetConfigValue(
                 (LPVOID) Value,           // data
                 STRSIZE(Value) );         // byte count for data (null char too)
         IF_DEBUG(CONFIG) {
-            NetpDbgPrint( "NetpSetConfigValue: RegSetValueEx(" FORMAT_LPTSTR
+            NetpKdPrint(( "NetpSetConfigValue: RegSetValueEx(" FORMAT_LPTSTR
                     ") to TCHAR '" FORMAT_LPTSTR "' returned " FORMAT_LONG
-                    ".\n", KeyWanted, Value, Error );
+                    ".\n", KeyWanted, Value, Error ));
         }
         NetpAssert( Error == ERROR_SUCCESS );  // BUGBUG
 
@@ -155,7 +155,7 @@ NetpSetConfigValue(
         }
 
         IF_DEBUG(CONFIG) {
-            NetpDbgPrint( "NetpSetConfigValue: after setting item:\n" );
+            NetpKdPrint(( "NetpSetConfigValue: after setting item:\n" ));
             NetpDbgDisplayConfigSection( lpnetHandle );
         }
 

@@ -13,10 +13,11 @@
 *
 *              1) Drive Type/Model
 *              2) Firmware Revision
-*              3) OEM Field Flag
-*              4) OEM Field
-*              5) Serial Number
-*              6) Date of manufacture
+*              3) Serial Number
+*              4) Date of manufacture
+*              5) OEM Field Flag
+*              6) OEM Field
+*              7) Country Code
 *
 *          The OEM, Serial Number and the Date of manufacture are
 *          miscellaneous drive train information that is embedded
@@ -29,6 +30,23 @@
 *
 * HISTORY:
 *		$Log:   J:\se.vcs\driver\q117cd\src\0x11023.c  $
+*	
+*	   Rev 1.8   15 May 1995 10:47:08   GaryKiwi
+*	Phoenix merge from CBW95s
+*	
+*	   Rev 1.7.1.0   11 Apr 1995 18:03:44   garykiwi
+*	PHOENIX pass #1
+*	
+*	   Rev 1.9   30 Jan 1995 14:24:20   BOBLEHMA
+*	Changed the function name to cqd_CmdReportDeviceInfo.  Changed code to
+*	use the new device_info data type.  Changed all references to the
+*	device_descriptor.version to cqd_context->firmware_version.
+*	
+*	   Rev 1.8   13 Jan 1995 16:28:22   BOBLEHMA
+*	Added oem strings for CMS, Conner and Iomega drives.  CMS is done only if the
+*	firmware does not contain a string.  Note that this is a temporary fix for
+*	CBW 2.5.  Later versions will have the string handling in the user manager
+*	based on the vendor code sent from the driver.
 *	
 *	   Rev 1.7   28 Mar 1994 08:01:36   CHETDOUG
 *	Clear out serial number, manufacturing date, and oem string 
@@ -63,6 +81,7 @@
 #define FCT_ID 0x11023
 #include "include\public\adi_api.h"
 #include "include\public\frb_api.h"
+#include "include\public\vendor.h"
 #include "include\private\kdi_pub.h"
 #include "include\private\cqd_pub.h"
 #include "q117cd\include\cqd_defs.h"
@@ -70,11 +89,12 @@
 #include "q117cd\include\cqd_hdr.h"
 /*endinclude*/
 
-dStatus cqd_GetDeviceDescriptorInfo
+dStatus cqd_CmdReportDeviceInfo
 (
 /* INPUT PARAMETERS:  */
 
-   CqdContextPtr cqd_context
+   CqdContextPtr cqd_context,
+	DeviceInfoPtr device_info
 
 /* UPDATE PARAMETERS: */
 
@@ -99,11 +119,23 @@ dStatus cqd_GetDeviceDescriptorInfo
 
 /* CODE: ********************************************************************/
 
-   /* Initialize the Drive Train Miscellaneous Information value to NULL */
 
-   if ((cqd_context->device_descriptor.serial_number == 0l) &&
-		(cqd_context->device_descriptor.vendor == VENDOR_CMS) &&
-		(cqd_context->device_descriptor.version >= FIRM_VERSION_80)) {
+   /*
+    * Set the device info fields take we know about and initialize 
+    * the others to null before attempting to read the data from
+    * the drive.
+    */
+   device_info->drive_class      = cqd_context->device_descriptor.drive_class;
+   device_info->vendor           = cqd_context->device_descriptor.vendor;
+   device_info->model            = cqd_context->device_descriptor.model;
+   device_info->version          = cqd_context->firmware_version;
+   device_info->serial_number    = 0l;
+   device_info->manufacture_date = 0;
+   device_info->oem_string[0]    = '\0';
+   device_info->country_code[0]  = '\0';
+
+   if (cqd_context->device_descriptor.vendor == VENDOR_CMS  &&
+       cqd_context->firmware_version >= FIRM_VERSION_80) {
 
       status = cqd_SetDeviceMode(cqd_context, DIAGNOSTIC_1_MODE);
 
@@ -141,12 +173,12 @@ dStatus cqd_GetDeviceDescriptorInfo
 
 		}
 
-	   if (cqd_context->device_descriptor.version >= FIRM_VERSION_110) {
+	   if (cqd_context->firmware_version >= FIRM_VERSION_110) {
 
       	/*
-      	* Get the Drive Class and throw it in the bit_bucket --
-      	* just to keep the data in sync.
-      	*/
+      	 * Get the Drive Class and throw it in the bit_bucket --
+      	 * just to keep the data in sync.
+      	 */
 
 			if (status == DONT_PANIC) {
 
@@ -159,10 +191,10 @@ dStatus cqd_GetDeviceDescriptorInfo
 
 			}
 
-		/*
-         * Get the Head Type and throw it in the bit_bucket --
-         * just to keep the data in sync.
-		*/
+			/*
+          * Get the Head Type and throw it in the bit_bucket --
+          * just to keep the data in sync.
+			 */
 
 			if (status == DONT_PANIC) {
 
@@ -178,7 +210,7 @@ dStatus cqd_GetDeviceDescriptorInfo
 		}
 
       /* Get the Serial Number from the drive and store it in */
-      /* cqd_context->misc_drive_info.SerialNumber[] */
+      /* device_info->serial_number */
 
       for (i=SERIAL_NUM_LENGTH; (i > 0) && (status == DONT_PANIC); --i) {
 
@@ -190,10 +222,10 @@ dStatus cqd_GetDeviceDescriptorInfo
                      dNULL_PTR);
       }
 
-   	cqd_context->device_descriptor.serial_number = u_serial.serial_number;
+   	device_info->serial_number = u_serial.serial_number;
 
       /* Get the Manufacturing date from the drive and store it in */
-      /* cqd_context->misc_drive_info.ManDate[] */
+      /* device_info->manufacture_date */
 
       for (i=0; (i < MAN_DATE_LENGTH) && (status == DONT_PANIC); ++i) {
 
@@ -206,33 +238,26 @@ dStatus cqd_GetDeviceDescriptorInfo
 
       }
 
-		cqd_context->device_descriptor.manufacture_date = (dUByte)man_date[0];
-		cqd_context->device_descriptor.manufacture_date <<= 8;
-		cqd_context->device_descriptor.manufacture_date |= (dUByte)man_date[1];
+		device_info->manufacture_date = (dUByte)man_date[0];
+		device_info->manufacture_date <<= 8;
+		device_info->manufacture_date |= (dUByte)man_date[1];
 
       /* Get the OEM field from the drive and store it in */
-      /* cqd_context->misc_drive_info.Oem[] */
+      /* device_info->oem_string[] */
 
       for (i=0; (i < OEM_LENGTH) && (status == DONT_PANIC); ++i) {
 
          status = cqd_Report(
                      cqd_context,
                      FW_CMD_READ_RAM,
-                     (dUWord *)&cqd_context->device_descriptor.oem_string[i],
+                     (dUWord *)&device_info->oem_string[i],
                      READ_BYTE,
                      dNULL_PTR);
 
-			/* if we need to get the place of origin we cannot
-			* break out of this loop early */
-			if (cqd_context->device_descriptor.oem_string[i] == '\0') {
-
-            break;
-
-         }
-
       }
+		device_info->oem_string[OEM_LENGTH-1] = '\0';  /* force a string termination */
 
-		if (cqd_context->device_descriptor.version >= FIRM_VERSION_110) {
+		if (cqd_context->firmware_version >= FIRM_VERSION_110) {
 
 			/*
 			* Get the Place of Origin Code and throw it in the bit_bucket --
@@ -244,7 +269,7 @@ dStatus cqd_GetDeviceDescriptorInfo
          	status = cqd_Report(
                      	cqd_context,
                      	FW_CMD_READ_RAM,
-                     	(dUWord *)&bit_bucket,
+                     	(dUWord *)&device_info->country_code[i],
                      	READ_BYTE,
                      	dNULL_PTR);
 
@@ -259,15 +284,18 @@ dStatus cqd_GetDeviceDescriptorInfo
 
 	   }
 
-   } else {
-      if (cqd_context->device_descriptor.vendor != VENDOR_CMS) {
-			/*  this is not a CMS drive, clear out these fields since
-			 * they are unknown */
-			cqd_context->device_descriptor.serial_number = 0l;
-			cqd_context->device_descriptor.manufacture_date = 0;
-			cqd_context->device_descriptor.oem_string[0] = '\0';
-		}
 	}
+
+   if  (status != DONT_PANIC  &&  kdi_GetErrorType( status ) != ERR_NO_TAPE)  {
+      /*
+       * An error other than No Tape is being returned.  Zero out any
+       * fields that may have been filled in.
+       */
+      device_info->serial_number    = 0l;
+      device_info->manufacture_date = 0;
+      device_info->oem_string[0]    = '\0';
+      device_info->country_code[0]  = '\0';
+   }
 
    return status;
 }

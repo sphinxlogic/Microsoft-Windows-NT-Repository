@@ -34,26 +34,21 @@ Revision History:
 #include "precomp.h"
 #pragma hdrstop
 
+VOID SRVFASTCALL
+SrvFspRestartLargeReadAndXComplete(
+    IN OUT PWORK_CONTEXT WorkContext
+    );
+
 #ifdef ALLOC_PRAGMA
 //#pragma alloc_text( PAGE8FIL, SrvFsdRestartRead )
 #pragma alloc_text( PAGE8FIL, SrvFsdRestartReadAndX )
 #pragma alloc_text( PAGE8FIL, SrvFsdRestartWrite )
 #pragma alloc_text( PAGE8FIL, SrvFsdRestartWriteAndX )
+#pragma alloc_text( PAGE, SrvFspRestartLargeReadAndXComplete ) 
 #endif
 
-//
-// Functions imported from smbrdwrt.c
-//
-
-STATIC
-VOID
-RestartChainedClose (
-    IN OUT PWORK_CONTEXT WorkContext
-    );
-
 
-#if !defined(SRV_ASM) || !defined(i386)
-VOID
+VOID SRVFASTCALL
 SrvFsdRestartRead (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -173,13 +168,7 @@ Return Value:
 
     if (shareType == ShareTypeDisk) {
 
-        LARGE_INTEGER position;
-
-        position.QuadPart = SmbGetUlong( &request->Offset ) + readLength;
-
-        ACQUIRE_SPIN_LOCK( &rfcb->SpinLock, &oldIrql );
-        rfcb->CurrentPosition = position;
-        RELEASE_SPIN_LOCK( &rfcb->SpinLock, oldIrql );
+        rfcb->CurrentPosition = SmbGetUlong( &request->Offset ) + readLength;
 
     }
 
@@ -188,7 +177,7 @@ Return Value:
     // statistics database.
     //
 
-    UPDATE_READ_STATS( readLength );
+    UPDATE_READ_STATS( WorkContext, readLength );
 
     //
     // Build the response message.
@@ -221,10 +210,9 @@ Return Value:
     return;
 
 } // SrvFsdRestartRead
-#endif // !defined(SRV_ASM) || !defined(i386)
 
 
-VOID
+VOID SRVFASTCALL
 SrvFsdRestartReadAndX (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -341,7 +329,7 @@ Return Value:
         // statistics database.
         //
 
-        UPDATE_READ_STATS( readLength );
+        UPDATE_READ_STATS( WorkContext, readLength );
 
     } else {
 
@@ -398,15 +386,9 @@ Return Value:
             // If this is a disk file, then update the file position.
             //
 
-            LARGE_INTEGER position;
-
-            position.QuadPart =
-                WorkContext->Parameters.ReadAndX.ReadOffset.QuadPart +
+            rfcb->CurrentPosition = 
+                WorkContext->Parameters.ReadAndX.ReadOffset.LowPart +
                 readLength;
-
-            ACQUIRE_SPIN_LOCK( &rfcb->SpinLock, &oldIrql );
-            rfcb->CurrentPosition = position;
-            RELEASE_SPIN_LOCK( &rfcb->SpinLock, oldIrql );
         }
 
         SmbPutUshort( &response->Remaining, (USHORT)-1 );
@@ -479,11 +461,11 @@ Return Value:
                 WorkContext->Parameters.ReadAndX.LastWriteTimeInSeconds;
 
         //
-        // This is a ReadAndX and Close.  Call RestartChainedClose to
+        // This is a ReadAndX and Close.  Call SrvRestartChainedClose to
         // do the close and send the response.
         //
 
-        RestartChainedClose( WorkContext );
+        SrvRestartChainedClose( WorkContext );
 
     }
 
@@ -492,8 +474,277 @@ Return Value:
 
 } // SrvFsdRestartReadAndX
 
+/*
+ * This routine is called at final send completion
+ */
+VOID SRVFASTCALL
+SrvFspRestartLargeReadAndXComplete(
+    IN OUT PWORK_CONTEXT WorkContext
+    )
+{   
+    NTSTATUS status;
+
+    PAGED_CODE();
+
+    if( WorkContext->Parameters.ReadAndX.SavedMdl != NULL ) {
+
+        WorkContext->ResponseBuffer->Mdl = WorkContext->Parameters.ReadAndX.SavedMdl;
+
+        MmPrepareMdlForReuse( WorkContext->ResponseBuffer->PartialMdl );
+        WorkContext->ResponseBuffer->PartialMdl->Next = NULL;
+
+    }
+
+    if ( WorkContext->Parameters.ReadAndX.MdlRead == TRUE ) {
+
+        //
+        // Call the Cache Manager to release the MDL chain.
+        //
+        if( WorkContext->Parameters.ReadAndX.CacheMdl ) {
+            //
+            // Try the fast path first..
+            //
+            if( WorkContext->Rfcb->Lfcb->MdlReadComplete == NULL ||
+
+                WorkContext->Rfcb->Lfcb->MdlReadComplete(
+                    WorkContext->Rfcb->Lfcb->FileObject,
+                    WorkContext->Parameters.ReadAndX.CacheMdl,
+                    WorkContext->Rfcb->Lfcb->DeviceObject ) == FALSE ) {
+
+                //
+                // Fast path didn't work, try an IRP...
+                //
+                status = SrvIssueMdlCompleteRequest( WorkContext, NULL,
+                                            WorkContext->Parameters.ReadAndX.CacheMdl,
+                                            IRP_MJ_READ,
+                                            &WorkContext->Parameters.ReadAndX.ReadOffset,
+                                            WorkContext->Parameters.ReadAndX.ReadLength
+                        );
+
+                if( !NT_SUCCESS( status ) ) {
+                    //
+                    // At this point, all we can do is complain!
+                    //
+                    SrvLogServiceFailure( SRV_SVC_MDL_COMPLETE, status );
+                }
+            }
+        }
+
+    } else {
+
+        PMDL mdl = (PMDL)(WorkContext->Parameters.ReadAndX.ReadAddress);
+
+        //
+        // We shortened the byte count if the read returned less data than we asked for
+        //
+        mdl->ByteCount = WorkContext->Parameters.ReadAndX.ReadLength;
+
+        MmUnlockPages( mdl );
+        MmPrepareMdlForReuse( mdl );
+
+        FREE_HEAP( WorkContext->Parameters.ReadAndX.Buffer );
+    }
+
+    SrvDereferenceWorkItem( WorkContext );
+    return;
+}
+
+/*
+ * This routine is called when the read completes
+ */
+VOID SRVFASTCALL
+SrvFsdRestartLargeReadAndX (
+    IN OUT PWORK_CONTEXT WorkContext
+    )
+
+/*++
+
+Routine Description:
+
+    Processes file read completion for a ReadAndX SMB which
+     is larger than the negotiated buffer size, and is from
+     a disk file.
+
+    There is no follow on command.
+
+Arguments:
+
+    WorkContext - Supplies a pointer to the work context block
+        describing server-specific context for the request.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    PRESP_READ_ANDX response = (PRESP_READ_ANDX)WorkContext->ResponseParameters;
+
+    USHORT readLength;
+    NTSTATUS status = WorkContext->Irp->IoStatus.Status;
+    PRFCB rfcb = WorkContext->Rfcb;
+    PIRP irp = WorkContext->Irp;
+    BOOLEAN mdlRead = WorkContext->Parameters.ReadAndX.MdlRead;
+
+    UNLOCKABLE_CODE( 8FIL );
+
+    if ( !NT_SUCCESS(status) ) {
+
+        if( status != STATUS_END_OF_FILE ) {
+            IF_DEBUG(ERRORS) SrvPrint1( "Read failed: %X\n", status );
+            //
+            // We cannot call SrvSetSmbError() at elevated IRQL.
+            //
+            if( KeGetCurrentIrql() != 0 ) {
+                //
+                // Requeue this routine to come back around at passive level.
+                //   (inefficient, but should be very rare)
+                //
+                WorkContext->FspRestartRoutine = SrvFsdRestartLargeReadAndX;
+                SrvQueueWorkToFspAtDpcLevel( WorkContext );
+                return;
+            }
+            SrvSetSmbError( WorkContext, status );
+        }
+
+        readLength = 0;
+
+    } else if( mdlRead ) {
+        //
+        // For an MDL read, we have to walk the MDL chain in order to
+        // determine how much data was read.  This is because the
+        // operation may have happened in multiple steps, with the MDLs
+        // being chained together.  For example, part of the read may
+        // have been satisfied by the fast path, while the rest was satisfied
+        // using an IRP
+        //
+
+        PMDL mdl = WorkContext->Irp->MdlAddress;
+        readLength = 0;
+
+        while( mdl != NULL ) {
+            readLength += (USHORT)MmGetMdlByteCount( mdl );
+            mdl = mdl->Next;
+        }
+    } else {
+        //
+        // This was a copy read.  The I/O status block has the length.
+        //
+        readLength = (USHORT)WorkContext->Irp->IoStatus.Information;
+    }
+
+    //
+    // Build the response message.  (Note that if no data was read, we
+    // return a byte count of 0 -- we don't add padding.)
+    //
+    SmbPutUshort( &response->Remaining, (USHORT)-1 );
+    response->WordCount = 12;
+    response->AndXCommand = SMB_COM_NO_ANDX_COMMAND;
+    response->AndXReserved = 0;
+    SmbPutUshort( &response->AndXOffset, 0 );
+    SmbPutUshort( &response->DataCompactionMode, 0 );
+    SmbPutUshort( &response->Reserved, 0 );
+    SmbPutUshort( &response->Reserved2, 0 );
+    RtlZeroMemory( (PVOID)&response->Reserved3[0], sizeof(response->Reserved3) );
+    SmbPutUshort( &response->DataLength, readLength );
+
+
+    if( readLength == 0 ) {
+
+        SmbPutUshort( &response->DataOffset, 0 );
+        SmbPutUshort( &response->ByteCount, 0 );
+        WorkContext->Parameters.ReadAndX.PadCount = 0;
+
+    } else {
+        //
+        // Update the file position.
+        //
+        rfcb->CurrentPosition = 
+                WorkContext->Parameters.ReadAndX.ReadOffset.LowPart +
+                readLength;
+
+        //
+        // Update statistics
+        //
+        UPDATE_READ_STATS( WorkContext, readLength );
+
+        SmbPutUshort( &response->DataOffset,
+                      (USHORT)(READX_BUFFER_OFFSET + WorkContext->Parameters.ReadAndX.PadCount) );
+
+        SmbPutUshort( &response->ByteCount,
+                      (USHORT)( readLength + WorkContext->Parameters.ReadAndX.PadCount ) );
+
+    }
+
+    //
+    // We will use two MDLs to describe the packet we're sending -- one
+    // for the header and parameters, the other for the data.
+    //
+    // Handling of the second MDL varies depending on whether we did a copy
+    // read or an MDL read.
+    //
+
+    //
+    // Set the first MDL for just the header + pad
+    //
+    IoBuildPartialMdl(
+        WorkContext->ResponseBuffer->Mdl,
+        WorkContext->ResponseBuffer->PartialMdl,
+        WorkContext->ResponseBuffer->Buffer,
+        READX_BUFFER_OFFSET + WorkContext->Parameters.ReadAndX.PadCount
+        );
+
+    //
+    // Set the overall data length to the header + pad + data
+    //
+    WorkContext->ResponseBuffer->DataLength = READX_BUFFER_OFFSET +
+                                              WorkContext->Parameters.ReadAndX.PadCount +
+                                              readLength;
+
+    irp->Cancel = FALSE;
+
+    //
+    // The second MDL depends on the kind of read which we did
+    //
+    if( readLength != 0 ) {
+
+        if( mdlRead ) {
+
+            WorkContext->ResponseBuffer->PartialMdl->Next =
+                    WorkContext->Irp->MdlAddress;
+
+        } else {
+
+            //
+            // This was a copy read.  The MDL describing the data buffer is in the SMB buffer
+            //
+
+            PMDL mdl = (PMDL)(WorkContext->Parameters.ReadAndX.ReadAddress);
+
+            WorkContext->ResponseBuffer->PartialMdl->Next = mdl;
+            mdl->ByteCount = readLength;
+        }
+    }
+
+    //
+    // SrvStartSend2 wants to use WorkContext->ResponseBuffer->Mdl, but
+    //  we want it to use WorkContext->ResponseBuffer->PartialMdl.  So switch
+    //  it!
+    //
+    WorkContext->Parameters.ReadAndX.SavedMdl = WorkContext->ResponseBuffer->Mdl;
+    WorkContext->ResponseBuffer->Mdl = WorkContext->ResponseBuffer->PartialMdl;
+
+    //
+    // Send the response!
+    //
+    WorkContext->ResponseHeader->Flags |= SMB_FLAGS_SERVER_TO_REDIR;
+    WorkContext->FspRestartRoutine = SrvFspRestartLargeReadAndXComplete;
+    SrvStartSend2( WorkContext, SrvQueueWorkToFspAtSendCompletion );
+}
+
 
-VOID
+VOID SRVFASTCALL
 SrvFsdRestartWrite (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -579,21 +830,15 @@ Return Value:
         // server statistics database.
         //
 
-        UPDATE_WRITE_STATS( writeLength );
+        UPDATE_WRITE_STATS( WorkContext, writeLength );
 
         if ( rfcb->ShareType == ShareTypeDisk ) {
-
-            LARGE_INTEGER position;
 
             //
             // Update the file position.
             //
 
-            position.QuadPart = SmbGetUlong( &request->Offset ) + writeLength;
-
-            ACQUIRE_SPIN_LOCK( &rfcb->SpinLock, &oldIrql );
-            rfcb->CurrentPosition = position;
-            RELEASE_SPIN_LOCK( &rfcb->SpinLock, oldIrql );
+            rfcb->CurrentPosition = SmbGetUlong( &request->Offset ) + writeLength;
 
             if ( WorkContext->NextCommand == SMB_COM_WRITE ) {
                 response->WordCount = 1;
@@ -615,20 +860,16 @@ Return Value:
 
         } else if ( rfcb->ShareType == ShareTypePrint ) {
 
-            LARGE_INTEGER position;
-
             //
             // Update the file position.
             //
 
-            ACQUIRE_SPIN_LOCK( &rfcb->SpinLock, &oldIrql );
             if ( WorkContext->NextCommand == SMB_COM_WRITE_PRINT_FILE ) {
-                position.QuadPart = rfcb->CurrentPosition.QuadPart + writeLength;
+                rfcb->CurrentPosition += writeLength;
             } else {
-                position.QuadPart = SmbGetUlong( &request->Offset ) + writeLength;
+                rfcb->CurrentPosition =
+                            SmbGetUlong( &request->Offset ) + writeLength;
             }
-            rfcb->CurrentPosition = position;
-            RELEASE_SPIN_LOCK( &rfcb->SpinLock, oldIrql );
         }
 
         //
@@ -695,7 +936,7 @@ Return Value:
 
         ASSERT( KeGetCurrentIrql() < DISPATCH_LEVEL );
 
-        RestartChainedClose( WorkContext );
+        SrvRestartChainedClose( WorkContext );
 
         return;
 
@@ -713,7 +954,7 @@ Return Value:
 } // SrvFsdRestartWrite
 
 
-VOID
+VOID SRVFASTCALL
 SrvFsdRestartWriteAndX (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -821,32 +1062,36 @@ Return Value:
 
     if ( rfcb->ShareType != ShareTypePipe ) {
 
+        //
+        // We will ignore the distinction between clients that supply 32-bit
+        // and 64-bit file offsets. The reason for doing this is because
+        // the only clients that will use CurrentPosition is a 32-bit file
+        // offset client. Therefore, the upper 32-bits will never be used
+        // anyway.  In addition, the RFCB is per client, so there is no
+        // possibility of clients mixing 32-bit and 64-bit file offsets.
+        // Therefore, for the 64-bit client, we will only read 32-bits of file
+        // offset.
+        //
+
         if ( request->ByteCount == 12 ) {
 
             //
             // The client supplied a 32-bit file offset.
             //
 
-            position.QuadPart = SmbGetUlong( &request->Offset ) + writeLength;
+            rfcb->CurrentPosition = SmbGetUlong( &request->Offset ) + writeLength;
 
         } else {
 
             //
-            // The client supplied a 64-bit file offset.
+            // The client supplied a 64-bit file offset. Only use 32-bits of
+            // file offset.
             //
 
-            LARGE_INTEGER liOffset;
-
-            liOffset.HighPart = SmbGetUlong( &ntRequest->Offset );
-            liOffset.LowPart = SmbGetUlong( &ntRequest->OffsetHigh );
-
-            position.QuadPart = liOffset.QuadPart + writeLength;
+            rfcb->CurrentPosition = SmbGetUlong( &ntRequest->Offset ) + writeLength;
 
         }
 
-        ACQUIRE_SPIN_LOCK( &rfcb->SpinLock, &oldIrql );
-        rfcb->CurrentPosition = position;
-        RELEASE_SPIN_LOCK( &rfcb->SpinLock, oldIrql );
     }
 
     //
@@ -854,7 +1099,7 @@ Return Value:
     // statistics database.
     //
 
-    UPDATE_WRITE_STATS( writeLength );
+    UPDATE_WRITE_STATS( WorkContext, writeLength );
 
     IF_SMB_DEBUG(READ_WRITE1) {
         SrvPrint2( "SrvFsdRestartWriteAndX:  Fid 0x%lx, wrote %ld bytes\n",
@@ -941,7 +1186,7 @@ Return Value:
 
         //
         // Save the last write time, to correctly set it.  Call
-        // RestartChainedClose to close the file and send the response.
+        // SrvRestartChainedClose to close the file and send the response.
         //
 
         closeRequest = (PREQ_CLOSE)
@@ -949,7 +1194,7 @@ Return Value:
         WorkContext->Parameters.LastWriteTime =
             closeRequest->LastWriteTimeInSeconds;
 
-        RestartChainedClose( WorkContext );
+        SrvRestartChainedClose( WorkContext );
 
         break;
 

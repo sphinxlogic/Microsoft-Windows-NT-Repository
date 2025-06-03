@@ -1849,4 +1849,3 @@ BOOL ObjMakeObjectReady(OBJPICINFO *pPicInfo, int doc, typeCP cpParaStart)
 
     return FALSE;
 }
-

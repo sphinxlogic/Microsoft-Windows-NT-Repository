@@ -37,6 +37,7 @@ Revision History:
 #pragma alloc_text(PAGE, FatFastIoCheckIfPossible)
 #pragma alloc_text(PAGE, FatFastQueryBasicInfo)
 #pragma alloc_text(PAGE, FatFastQueryStdInfo)
+#pragma alloc_text(PAGE, FatFastQueryNetworkOpenInfo)
 #pragma alloc_text(PAGE, FatPopUpFileCorrupt)
 #pragma alloc_text(PAGE, FatCompleteRequest_Real)
 #pragma alloc_text(PAGE, FatIsIrpTopLevel)
@@ -48,6 +49,8 @@ Revision History:
 
 FAT_DATA FatData;
 
+NPAGED_LOOKASIDE_LIST FatIrpContextLookasideList;
+
 PDEVICE_OBJECT FatFileSystemDeviceObject;
 
 LARGE_INTEGER FatLargeZero = {0,0};
@@ -58,6 +61,11 @@ LARGE_INTEGER FatOneSecond = {10000000,0};
 LARGE_INTEGER FatOneDay = {0x2a69c000, 0xc9};
 LARGE_INTEGER FatJanOne1980 = {0xe1d58000,0x01a8e79f};
 LARGE_INTEGER FatDecThirtyOne1979 = {0xb76bc000,0x01a8e6d6};
+
+FAT_TIME_STAMP FatTimeJanOne1980 = {{0,0,0},{1,1,0}};
+
+LARGE_INTEGER FatMagic10000    = {0xe219652c, 0xd1b71758};
+LARGE_INTEGER FatMagic86400000 = {0xfa67b90e, 0xc6d750eb};
 
 FAST_IO_DISPATCH FatFastIoDispatch;
 
@@ -316,7 +324,7 @@ Return Value:
 
         //
         //  Check for the various error conditions that can be caused by,
-        //  and possibly resolvued my the user.
+        //  and possibly resolved by the user.
         //
 
         if (ExceptionCode == STATUS_VERIFY_REQUIRED) {
@@ -675,7 +683,7 @@ Return Value:
         return FALSE;
     }
 
-    LargeLength = LiFromUlong( Length );
+    LargeLength.QuadPart = Length;
 
     //
     //  Based on whether this is a read or write operation we call
@@ -816,12 +824,7 @@ Return Value:
             try_return( Results );
         }
 
-        //
-        //  Set it to indicate that the query is a normal file.
-        //  Later we might overwrite the attribute.
-        //
-
-        Buffer->FileAttributes = FILE_ATTRIBUTE_NORMAL;
+        Buffer->FileAttributes = 0;
 
         //
         //  If the fcb is not the root dcb then we will fill in the
@@ -843,19 +846,15 @@ Return Value:
             //  Zero out the field we don't support.
             //
 
-            Buffer->ChangeTime = FatLargeZero;
-
-            if (Fcb->DirentFatFlags != 0) {
-
-                Buffer->FileAttributes = Fcb->DirentFatFlags;
-
-            } else {
-
-                Buffer->FileAttributes = FILE_ATTRIBUTE_NORMAL;
-
-            }
+            Buffer->ChangeTime.QuadPart = 0;
+            Buffer->FileAttributes = Fcb->DirentFatFlags;
 
         } else {
+
+            Buffer->LastWriteTime.QuadPart = 0;
+            Buffer->CreationTime.QuadPart = 0;
+            Buffer->LastAccessTime.QuadPart = 0;
+            Buffer->ChangeTime.QuadPart = 0;
 
             Buffer->FileAttributes = FILE_ATTRIBUTE_DIRECTORY;
         }
@@ -867,6 +866,15 @@ Return Value:
         if (FlagOn( Fcb->FcbState, FCB_STATE_TEMPORARY )) {
 
             SetFlag( Buffer->FileAttributes, FILE_ATTRIBUTE_TEMPORARY );
+        }
+
+        //
+        //  If no attributes were set, set the normal bit.
+        //
+
+        if (Buffer->FileAttributes == 0) {
+
+            Buffer->FileAttributes = FILE_ATTRIBUTE_NORMAL;
         }
 
         IoStatus->Status = STATUS_SUCCESS;
@@ -1044,6 +1052,204 @@ Return Value:
     return Results;
 }
 
+BOOLEAN
+FatFastQueryNetworkOpenInfo (
+    IN PFILE_OBJECT FileObject,
+    IN BOOLEAN Wait,
+    IN OUT PFILE_NETWORK_OPEN_INFORMATION Buffer,
+    OUT PIO_STATUS_BLOCK IoStatus,
+    IN PDEVICE_OBJECT DeviceObject
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is for the fast query call for network open information.
+
+Arguments:
+
+    FileObject - Supplies the file object used in this operation
+
+    Wait - Indicates if we are allowed to wait for the information
+
+    Buffer - Supplies the output buffer to receive the information
+
+    IoStatus - Receives the final status of the operation
+
+Return Value:
+
+    BOOLEAN - TRUE if the operation succeeded and FALSE if the caller
+        needs to take the long route.
+
+--*/
+
+{
+    BOOLEAN Results = FALSE;
+    IRP_CONTEXT IrpContext;
+
+    TYPE_OF_OPEN TypeOfOpen;
+    PVCB Vcb;
+    PFCB Fcb;
+    PCCB Ccb;
+
+    BOOLEAN FcbAcquired = FALSE;
+
+    //
+    //  Prepare the dummy irp context
+    //
+
+    RtlZeroMemory( &IrpContext, sizeof(IRP_CONTEXT) );
+    IrpContext.NodeTypeCode = FAT_NTC_IRP_CONTEXT;
+    IrpContext.NodeByteSize = sizeof(IRP_CONTEXT);
+
+    if (Wait) {
+
+        SetFlag(IrpContext.Flags, IRP_CONTEXT_FLAG_WAIT);
+
+    } else {
+
+        ClearFlag(IrpContext.Flags, IRP_CONTEXT_FLAG_WAIT);
+    }
+
+    //
+    //  Determine the type of open for the input file object and only accept
+    //  the user file or directory open
+    //
+
+    TypeOfOpen = FatDecodeFileObject( FileObject, &Vcb, &Fcb, &Ccb );
+
+    if ((TypeOfOpen != UserFileOpen) && (TypeOfOpen != UserDirectoryOpen)) {
+
+        return Results;
+    }
+
+    FsRtlEnterFileSystem();
+
+    //
+    //  Get access to the Fcb but only if it is not the paging file
+    //
+
+    if (!FlagOn( Fcb->FcbState, FCB_STATE_PAGING_FILE )) {
+
+        if (!ExAcquireResourceShared( Fcb->Header.Resource, Wait )) {
+
+            FsRtlExitFileSystem();
+            return Results;
+        }
+
+        FcbAcquired = TRUE;
+    }
+
+    try {
+
+        //
+        //  If the Fcb is not in a good state, return FALSE.
+        //
+
+        if (Fcb->FcbCondition != FcbGood) {
+
+            try_return( Results );
+        }
+
+        Buffer->FileAttributes = 0;
+
+        //
+        //  If the fcb is not the root dcb then we will fill in the
+        //  buffer otherwise it is all setup for us.
+        //
+
+        if (NodeType(Fcb) == FAT_NTC_ROOT_DCB) {
+
+            Buffer->LastWriteTime.QuadPart = 0;
+            Buffer->CreationTime.QuadPart = 0;
+            Buffer->LastAccessTime.QuadPart = 0;
+            Buffer->ChangeTime.QuadPart = 0;
+
+            Buffer->FileAttributes = FILE_ATTRIBUTE_DIRECTORY;
+
+        } else {
+
+            PDIRENT Dirent;
+            PBCB Bcb;
+
+            //
+            //  Extract the data and fill in the non zero fields of the output
+            //  buffer
+            //
+
+            Buffer->LastWriteTime = Fcb->LastWriteTime;
+            Buffer->CreationTime = Fcb->CreationTime;
+            Buffer->LastAccessTime = Fcb->LastAccessTime;
+
+            //
+            //  Zero out the field we don't support.
+            //
+
+            Buffer->ChangeTime.QuadPart = 0;
+            Buffer->FileAttributes = Fcb->DirentFatFlags;
+
+        }
+
+        //
+        //  If the temporary flag is set, then set it in the buffer.
+        //
+
+        if (FlagOn( Fcb->FcbState, FCB_STATE_TEMPORARY )) {
+
+            SetFlag( Buffer->FileAttributes, FILE_ATTRIBUTE_TEMPORARY );
+        }
+
+        //
+        //  If no attributes were set, set the normal bit.
+        //
+
+        if (Buffer->FileAttributes == 0) {
+
+            Buffer->FileAttributes = FILE_ATTRIBUTE_NORMAL;
+        }
+
+        if (NodeType(Fcb) == FAT_NTC_FCB) {
+
+            //
+            //  If we don't already know the allocation size, we cannot
+            //  lock it up in the fast path.
+            //
+
+            if (Fcb->Header.AllocationSize.LowPart == 0xffffffff) {
+
+                try_return( Results );
+            }
+
+            Buffer->AllocationSize = Fcb->Header.AllocationSize;
+            Buffer->EndOfFile = Fcb->Header.FileSize;
+
+        } else {
+
+            Buffer->AllocationSize = FatLargeZero;
+            Buffer->EndOfFile = FatLargeZero;
+        }
+
+        IoStatus->Status = STATUS_SUCCESS;
+        IoStatus->Information = sizeof(FILE_NETWORK_OPEN_INFORMATION);
+
+        Results = TRUE;
+
+    try_exit: NOTHING;
+    } finally {
+
+        if (FcbAcquired) { ExReleaseResource( Fcb->Header.Resource ); }
+
+        FsRtlExitFileSystem();
+    }
+
+    //
+    //  And return to our caller
+    //
+
+    return Results;
+}
+
 VOID
 FatPopUpFileCorrupt (
     IN PIRP_CONTEXT IrpContext,
@@ -1093,4 +1299,3 @@ Return Value:
                                    &Fcb->FullFileName,
                                    Thread);
 }
-

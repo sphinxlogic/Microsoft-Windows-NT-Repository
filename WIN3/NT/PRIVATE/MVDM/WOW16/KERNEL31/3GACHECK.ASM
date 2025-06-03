@@ -8,7 +8,6 @@ include	protect.inc
 
 DataBegin
 
-externB  fDibInProgress
 externB  fBooting
 externW	 pGlobalHeap
 
@@ -148,9 +147,7 @@ forward_size_mismatch:
 	cmp	ds:[esi].pga_owner, GA_NOT_THERE
 	je	short size_and_next_match
 	cmp	cx,1
-        jz      short size_and_next_match
-        cmp     fDibInProgress,0
-        jz     short forward_links_invalid
+	jnz	short forward_links_invalid
 size_and_next_match:
 	loop	xxxx
 	cmp	ebx,[di].phi_last

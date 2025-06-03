@@ -42,6 +42,7 @@ Revision History:
 #define 	CODE_LINES_6	'2'
 #define 	CODE_LINES_8	'0'
 
+#undef      LAST_COM
 #define     LAST_COM        4
 
 
@@ -228,8 +229,8 @@ Notes:
 	BOOLEAN         Served = TRUE;	//	TRUE if request served OK.
     REDIR_STATUS    Status;
 
-	DbgPtrAssert( Request );
-	DbgAssert( Request->DeviceType == DEVICE_TYPE_LPT );
+	DebugPtrAssert( Request );
+	DebugAssert( Request->DeviceType == DEVICE_TYPE_LPT );
 
 	//
 	//	Make sure that the device exists, and at the same time get its
@@ -246,7 +247,7 @@ Notes:
                 Request->DeviceNumber > LAST_LPT ) {
         DisplayMessageAndExit( MODE_ERROR_INVALID_DEVICE_NAME,
                                DevicePath->GetPathString(),
-                               EXIT_ERROR );
+                               (ULONG)EXIT_ERROR );
     }
 
 	//
@@ -302,7 +303,7 @@ Notes:
 
         DisplayMessageAndExit( MODE_ERROR_INVALID_PARAMETER,
 							   NULL,
-							   EXIT_ERROR );
+							   (ULONG)EXIT_ERROR );
 
 	}
 
@@ -458,21 +459,21 @@ Notes:
 		//
 		//	Invalid number of lines or columns
 		//
-		DisplayMessageAndExit( MODE_ERROR_LPT_CANNOT_SET, NULL, EXIT_ERROR );
+		DisplayMessageAndExit( MODE_ERROR_LPT_CANNOT_SET, NULL, (ULONG)EXIT_ERROR );
 
 	}
 
 
 	Lpt = SYSTEM::QueryFile( DevicePath );
-	DbgPtrAssert( Lpt );
+	DebugPtrAssert( Lpt );
 
 	if ( Lpt ) {
 		LptStream = Lpt->QueryStream( WRITE_ACCESS );
-		DbgPtrAssert( LptStream );
+		DebugPtrAssert( LptStream );
 	}
 
 	if ( !Lpt || !LptStream ) {
-		DisplayMessageAndExit( MODE_ERROR_NO_MEMORY, NULL, EXIT_ERROR );
+		DisplayMessageAndExit( MODE_ERROR_NO_MEMORY, NULL, (ULONG)EXIT_ERROR );
 	}
 
 	if ( Data->SetCol ) {
@@ -540,13 +541,13 @@ Notes:
 
 		DisplayMessageAndExit( MODE_ERROR_INVALID_DEVICE_NAME,
 							   RedirPath->GetPathString(),
-							   EXIT_ERROR );
+							   (ULONG)EXIT_ERROR );
 
 	}
 
 	if ( !REDIR::Redirect( DevicePath, RedirPath ) ) {
 
-		DisplayMessageAndExit( MODE_ERROR_LPT_CANNOT_REROUTE, RedirPath->GetPathString(), EXIT_ERROR );
+		DisplayMessageAndExit( MODE_ERROR_LPT_CANNOT_REROUTE, RedirPath->GetPathString(), (ULONG)EXIT_ERROR );
 
 	}
 
@@ -597,7 +598,7 @@ Notes:
 
 		if ( !REDIR::EndRedirection( DevicePath )) {
 
-			DisplayMessageAndExit( MODE_ERROR_LPT_CANNOT_ENDREROUTE, NULL, EXIT_ERROR );
+			DisplayMessageAndExit( MODE_ERROR_LPT_CANNOT_ENDREROUTE, NULL, (ULONG)EXIT_ERROR );
 		}
 	}
 

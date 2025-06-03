@@ -155,7 +155,9 @@ Return Value:
 --*/
 
 {
+#ifdef NWDBG
     int i;
+#endif
 
     PAGED_CODE();
 
@@ -211,6 +213,8 @@ Return Value:
 
     ExAcquireResourceExclusive( &PidResource, TRUE );
 
+    // DebugTrace(0, Dbg, "NwMapPid for %08lx\n", Pid32);
+
     for (i=0; i < (PidTable)->ValidEntries ; i++ ) {
 
         if ((PidTable)->PidTable[i].Pid32 == Pid32) {
@@ -222,6 +226,8 @@ Return Value:
 
             (PidTable)->PidTable[i].ReferenceCount++;
             *Pid8 = i;
+
+            // DebugTrace(0, Dbg, "NwMapPid found %08lx\n", (DWORD)i);
 
             ExReleaseResource( &PidResource );
             ASSERT( *Pid8 != 0 );
@@ -253,6 +259,8 @@ Return Value:
         (PidTable)->PidTable[FirstFree].Pid32 = Pid32;
         *Pid8 = FirstFree;
 
+        DebugTrace(0, DEBUG_TRACE_ICBS, "NwMapPid maps %08lx\n", (DWORD)FirstFree);
+
         ExReleaseResource( &PidResource );
         ASSERT( *Pid8 != 0 );
         return( STATUS_SUCCESS );
@@ -265,6 +273,15 @@ Return Value:
         //
 
         ExReleaseResource( &PidResource );
+
+#ifdef NWDBG
+        //
+        // temporary code to find the PID leak. BUGBUG
+        //
+        DumpIcbs() ;
+        ASSERT(FALSE) ;
+#endif
+
         return(STATUS_TOO_MANY_OPENED_FILES);
     }
 
@@ -317,6 +334,8 @@ Return Value:
     (PidTable)->PidTable[i].Pid32 = Pid32;
     *Pid8 = i;
 
+    DebugTrace(0, DEBUG_TRACE_ICBS, "NwMapPid grows & maps %08lx\n", (DWORD)i);
+
     ExReleaseResource( &PidResource );
     return( STATUS_SUCCESS );
 }
@@ -346,6 +365,7 @@ Return Value:
 
     ASSERT( Pid8 != 0 );
 
+    // DebugTrace(0, Dbg, "NwSetEndofJob for %08lx\n", (DWORD)Pid8);
     SetFlag( PidTable->PidTable[Pid8].Flags, PID_FLAG_EOJ_REQUIRED );
     return;
 }
@@ -382,6 +402,7 @@ Return Value:
 
     ASSERT( Pid8 != 0 );
 
+    // DebugTrace(0, Dbg, "NwUnmapPid %08lx\n", (DWORD)Pid8);
     if ( BooleanFlagOn( PidTable->PidTable[Pid8].Flags, PID_FLAG_EOJ_REQUIRED ) &&
          IrpContext != NULL ) {
 
@@ -409,6 +430,7 @@ Return Value:
         //  Done with this PID, send an EOJ if necessary.
         //
 
+        // DebugTrace(0, Dbg, "NwUnmapPid (ref=0) %08lx\n", (DWORD)Pid8);
         (PidTable)->PidTable[Pid8].Flags = 0;
         (PidTable)->PidTable[Pid8].Pid32 = 0;
 

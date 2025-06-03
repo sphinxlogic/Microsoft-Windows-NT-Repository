@@ -18,9 +18,9 @@ Revision History:
 
 --*/
 
-#if DBG
-
 #include "mi.h"
+
+#if DBG
 
 VOID
 CheckValidPte (
@@ -147,12 +147,6 @@ endloop:
                         i,ValidCount, TransitionCount);
                     MiFormatPfn(Pfn1);
                 }
-                if (Pfn1->ValidPteCount != (USHORT)ValidCount) {
-                    DbgPrint("valid pte count for page table page bad - %lx %lx\n",
-                        i, ValidCount);
-                    MiFormatPfn(Pfn1);
-                    DbgBreakPoint();
-                }
             }
         }
         PointerPde++;
@@ -161,11 +155,6 @@ endloop:
 
     PointerPde = (PMMPTE)0xc0300c00;
     Pfn1 = MI_PFN_ELEMENT(PointerPde->u.Hard.PageFrameNumber);
-    if (Pfn1->ValidPteCount != (USHORT)PdeValidCount) {
-        DbgPrint("$$ check pte valid count not write for Pd %lx %lx\n",
-            Pfn1->ValidPteCount,PdeValidCount);
-    }
-
     UNLOCK_PFN (OldIrql);
     UNLOCK_WS (TargetProcess);
     KeLowerIrql (PreviousIrql);
@@ -221,7 +210,7 @@ CheckValidPte (
     PointerPde = MiGetPteAddress (Pfn1->PteAddress);
     if (PointerPde->u.Hard.Valid == 1) {
 
-        if (PointerPde->u.Hard.PageFrameNumber != Pfn1->u3.e1.PteFrame) {
+        if (PointerPde->u.Hard.PageFrameNumber != Pfn1->PteFrame) {
                 DbgPrint("checkpte - pteframe not right\n");
                 MiFormatPfn(Pfn1);
                 MiFormatPte(PointerPte);

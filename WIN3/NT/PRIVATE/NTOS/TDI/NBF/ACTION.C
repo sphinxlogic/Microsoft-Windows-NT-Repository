@@ -123,7 +123,7 @@ Return Value:
         // These two requests are sent by RAS to "MABF"
         //
 
-        if (RtlCompareMemory ((PVOID)(&ActionHeader->TransportId), "MABF", 4) != 4) {
+        if (!RtlEqualMemory ((PVOID)(&ActionHeader->TransportId), "MABF", 4)) {
             return STATUS_NOT_SUPPORTED;
         }
 
@@ -199,7 +199,7 @@ Return Value:
                     return STATUS_PENDING;
                 }
 
-                Irp->CancelRoutine = NbfCancelAction;
+                IoSetCancelRoutine(Irp, NbfCancelAction);
 
                 RELEASE_SPIN_LOCK (&DeviceContext->SpinLock,oldirql);
                 IoReleaseCancelSpinLock(cancelirql);
@@ -431,7 +431,7 @@ Return Value:
                     // Found it, remove it from the list here.
                     //
 
-                    Request->IoRequestPacket->CancelRoutine = (PDRIVER_CANCEL)NULL;
+                    IoSetCancelRoutine(Request->IoRequestPacket, NULL);
                     RemoveEntryList (p);
 
                     FoundRequest = TRUE;
@@ -511,7 +511,7 @@ Return Value:
         RELEASE_SPIN_LOCK (&DeviceContext->SpinLock, oldirql);
 
         Request = CONTAINING_RECORD (p, TP_REQUEST, Linkage);
-        Request->IoRequestPacket->CancelRoutine = (PDRIVER_CANCEL)NULL;
+        IoSetCancelRoutine(Request->IoRequestPacket,NULL);
         IoReleaseCancelSpinLock(cancelirql);
 
         Mdl = Request->Buffer2;
@@ -592,7 +592,7 @@ Return Value:
         RELEASE_SPIN_LOCK (&DeviceContext->SpinLock, oldirql);
 
         Request = CONTAINING_RECORD (p, TP_REQUEST, Linkage);
-        Request->IoRequestPacket->CancelRoutine = (PDRIVER_CANCEL)NULL;
+        IoSetCancelRoutine(Request->IoRequestPacket, NULL);
         IoReleaseCancelSpinLock(cancelirql);
 
         Mdl = Request->Buffer2;

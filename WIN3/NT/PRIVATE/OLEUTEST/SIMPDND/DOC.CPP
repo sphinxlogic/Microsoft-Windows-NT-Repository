@@ -64,7 +64,7 @@ CSimpleDoc FAR * CSimpleDoc::Create(CSimpleApp FAR *lpApp, LPRECT lpRect,
 
     if (!lpTemp)
     {
-        OutputDebugString("Memory allocation error\n");
+        TestDebugOut("Memory allocation error\n");
         return NULL;
     }
 
@@ -139,7 +139,7 @@ CSimpleDoc FAR * CSimpleDoc::Create(CSimpleApp FAR *lpApp, LPRECT lpRect,
     return (lpTemp);
 
 error:
-    OutputDebugString("Fail in CSimpleDoc::Create\n");
+    TestDebugOut("Fail in CSimpleDoc::Create\n");
     delete (lpTemp);
     return NULL;
 
@@ -177,7 +177,7 @@ error:
 
 void CSimpleDoc::Close(void)
 {
-    OutputDebugString("In CSimpleDoc::Close\r\n");
+    TestDebugOut("In CSimpleDoc::Close\r\n");
 
     HRESULT hRes;
 
@@ -189,7 +189,7 @@ void CSimpleDoc::Close(void)
 
     if (OleFlushClipboard() != ResultFromScode(S_OK))
     {
-       OutputDebugString("Fail in OleFlushClipBoard\n");
+       TestDebugOut("Fail in OleFlushClipBoard\n");
     }
 
     // Revoke our window as a DropTarget
@@ -201,7 +201,7 @@ void CSimpleDoc::Close(void)
            /* if we fail in revoking the drag-drop, we will probably be
             * having memory leakage.
             */
-           OutputDebugString("Fail in RevokeDragDrop\n");
+           TestDebugOut("Fail in RevokeDragDrop\n");
         }
         else
         {
@@ -222,7 +222,7 @@ void CSimpleDoc::Close(void)
          * the reference count to our destinated object. This will cause
          * memory leakage.
          */
-        OutputDebugString("Fail in CoLockObjectExternal\n");
+        TestDebugOut("Fail in CoLockObjectExternal\n");
     }
 }
 
@@ -247,7 +247,7 @@ void CSimpleDoc::Close(void)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      GetMenu                     Windows API
 //      GetSubMenu                  Windows API
 //
@@ -264,7 +264,7 @@ CSimpleDoc::CSimpleDoc(CSimpleApp FAR * lpApp,HWND hWnd)
         : m_DropTarget(this), m_DropSource(this)
 #pragma warning (default : 4355)  // Turn the warning back on
 {
-    OutputDebugString("In CSimpleDoc's Constructor\r\n");
+    TestDebugOut("In CSimpleDoc's Constructor\r\n");
     m_lpApp = lpApp;
     m_lpSite = NULL;
     m_nCount = 0;
@@ -307,7 +307,7 @@ CSimpleDoc::CSimpleDoc(CSimpleApp FAR * lpApp,HWND hWnd)
 // Function Calls:
 //      Function                     Location
 //
-//      OutputDebugString            Windows API
+//      TestDebugOut            Windows API
 //      GetMenuItemCount             Windows API
 //      RemoveMenu                   Windows API
 //      DestroyMenu                  Windows API
@@ -321,7 +321,7 @@ CSimpleDoc::CSimpleDoc(CSimpleApp FAR * lpApp,HWND hWnd)
 
 CSimpleDoc::~CSimpleDoc()
 {
-    OutputDebugString("In CSimpleDoc's Destructor\r\n");
+    TestDebugOut("In CSimpleDoc's Destructor\r\n");
 
     // Release all pointers we hold to the OLE object, also release
     // the ref count added in CSimpleSite::Create. this will make
@@ -375,7 +375,7 @@ CSimpleDoc::~CSimpleDoc()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      ResultFromScode             OLE API
 //
 //
@@ -383,7 +383,7 @@ CSimpleDoc::~CSimpleDoc()
 
 STDMETHODIMP CSimpleDoc::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 {
-    OutputDebugString("In CSimpleDoc::QueryInterface\r\n");
+    TestDebugOut("In CSimpleDoc::QueryInterface\r\n");
 
     *ppvObj = NULL;     // must set out pointer parameters to NULL
 
@@ -434,7 +434,7 @@ STDMETHODIMP CSimpleDoc::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      CSimpleApp::AddRef          APP.CPP
 //
 //
@@ -442,7 +442,7 @@ STDMETHODIMP CSimpleDoc::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 
 STDMETHODIMP_(ULONG) CSimpleDoc::AddRef()
 {
-    OutputDebugString("In CSimpleDoc::AddRef\r\n");
+    TestDebugOut("In CSimpleDoc::AddRef\r\n");
     return ++m_nCount;
 }
 
@@ -465,14 +465,14 @@ STDMETHODIMP_(ULONG) CSimpleDoc::AddRef()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 //
 //********************************************************************
 
 STDMETHODIMP_(ULONG) CSimpleDoc::Release()
 {
-    OutputDebugString("In CSimpleDoc::Release\r\n");
+    TestDebugOut("In CSimpleDoc::Release\r\n");
 
     if (--m_nCount == 0)
     {
@@ -532,7 +532,7 @@ void CSimpleDoc::InsertObject()
     {
        /* memory allocation problem. cannot continue.
         */
-       OutputDebugString("Memory allocation error\n");
+       TestDebugOut("Memory allocation error\n");
        return;
     }
 
@@ -572,7 +572,7 @@ void CSimpleDoc::InsertObject()
         if (((hRes=m_lpStorage->Revert()) != ResultFromScode(S_OK)) &&
              (hRes!=ResultFromScode(STG_E_REVERTED)))
         {
-           OutputDebugString("Fail in IStorage::Revert\n");
+           TestDebugOut("Fail in IStorage::Revert\n");
         }
     }
 }
@@ -657,7 +657,7 @@ long CSimpleDoc::lAddVerbs(void)
                            1,
                            &m_lpApp->m_hCascadeMenu) )
         {
-            OutputDebugString("Fail in OleUIAddVerbMenu\n");
+            TestDebugOut("Fail in OleUIAddVerbMenu\n");
         }
 
         m_fModifiedMenu = TRUE;
@@ -755,7 +755,7 @@ void CSimpleDoc::DisableInsertObject(void)
            /* if we fail in revoking the drag-drop, we will probably be
             * having memory leakage.
             */
-           OutputDebugString("Fail in RevokeDragDrop\n");
+           TestDebugOut("Fail in RevokeDragDrop\n");
         }
         else
         {
@@ -816,11 +816,10 @@ void CSimpleDoc::CopyObjectToClip(void)
     // put out data transfer object on the clipboard. this API will AddRef.
     if (OleSetClipboard(lpDataObj) != ResultFromScode(S_OK))
     {
-       OutputDebugString("Fail in OleSetClipboard\n");
+       TestDebugOut("Fail in OleSetClipboard\n");
        lpDataObj->Release();
     }
 
     // Give ownership of data transfer object to clipboard
     pDataXferObj->Release();
 }
-

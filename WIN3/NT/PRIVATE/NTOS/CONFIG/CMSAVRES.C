@@ -144,6 +144,7 @@ Return Value:
     ULONG       NumberLeaves;
     PHCELL_INDEX LeafArray;
     PCM_KEY_INDEX Leaf;
+    PCM_KEY_FAST_INDEX FastLeaf;
 
     PAGED_CODE();
     CMLOG(CML_MAJOR, CMS_SAVRES) {
@@ -370,11 +371,21 @@ Return Value:
         //
         for (i = 0; i < NumberLeaves; i++) {
             Leaf = (PCM_KEY_INDEX)HvGetCell(Hive, LeafArray[i]);
-            for (j=0; j < Leaf->Count; j++) {
-                if (Leaf->List[j] == Cell) {
+            if (Leaf->Signature == CM_KEY_FAST_LEAF) {
+                FastLeaf = (PCM_KEY_FAST_INDEX)Leaf;
+                for (j=0; j < FastLeaf->Count; j++) {
+                    if (FastLeaf->List[j].Cell == Cell) {
+                        FastLeaf->List[j].Cell = newroot;
+                        goto FoundCell;
+                    }
+                }
+            } else {
+                for (j=0; j < Leaf->Count; j++) {
+                    if (Leaf->List[j] == Cell) {
 
-                    Leaf->List[j] = newroot;
-                    goto FoundCell;
+                        Leaf->List[j] = newroot;
+                        goto FoundCell;
+                    }
                 }
             }
         }
@@ -389,6 +400,9 @@ FoundCell:
     // Fix up the key control block to point to the new root
     //
     KeyControlBlock->KeyCell = newroot;
+    KeyControlBlock->KeyNode = (PCM_KEY_NODE)HvGetCell(Hive, newroot);
+    CmpReinsertKeyControlBlock(KeyControlBlock);
+
 
     //
     // Delete the old subtree and it's root cell
@@ -570,7 +584,8 @@ Return Value:
     //
     RootData = HvGetCell(&NewHive->Hive,Root);
     NewNameLength = KeyControlBlock->FullName.Length +
-                    RootData->u.KeyNode.NameLength + sizeof(WCHAR);
+                    CmpHKeyNameLen(&RootData->u.KeyNode) +
+                    sizeof(WCHAR);
     NewName.Buffer = ExAllocatePool(PagedPool, NewNameLength);
     if (NewName.Buffer == NULL) {
         CmpDestroyTemporaryHive(TempHive);
@@ -582,10 +597,18 @@ Return Value:
     RtlCopyUnicodeString(&NewName, &KeyControlBlock->FullName);
     RtlAppendUnicodeToString(&NewName, L"\\");
 
-    RootName.Buffer = RootData->u.KeyNode.Name;
-    RootName.Length = RootName.MaximumLength = RootData->u.KeyNode.NameLength;
+    if (RootData->u.KeyNode.Flags & KEY_COMP_NAME) {
+        CmpCopyCompressedName(NewName.Buffer + (NewName.Length / sizeof(WCHAR)),
+                              NewName.MaximumLength - NewName.Length,
+                              RootData->u.KeyNode.Name,
+                              CmpHKeyNameLen(&RootData->u.KeyNode));
+        NewName.Length += CmpHKeyNameLen(&RootData->u.KeyNode);
+    } else {
+        RootName.Buffer = RootData->u.KeyNode.Name;
+        RootName.Length = RootName.MaximumLength = RootData->u.KeyNode.NameLength;
 
-    RtlAppendUnicodeStringToString(&NewName,&RootName);
+        RtlAppendUnicodeStringToString(&NewName,&RootName);
+    }
 
     Status = CmpLinkHiveToMaster(&NewName,
                                  NULL,
@@ -1230,4 +1253,3 @@ Return Value:
 
     return;
 }
-

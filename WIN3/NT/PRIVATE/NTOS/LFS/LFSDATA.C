@@ -80,6 +80,11 @@ Return Value:
 {
     NTSTATUS ExceptionCode = ExceptionPointer->ExceptionRecord->ExceptionCode;
 
+#ifdef NTFS_RESTART
+    ASSERT( (ExceptionCode != STATUS_DISK_CORRUPT_ERROR) &&
+            (ExceptionCode != STATUS_FILE_CORRUPT_ERROR) );
+#endif
+
     //if (ExceptionCode != STATUS_LOG_FILE_FULL) {
     //
     //    DbgPrint("Status not LOGFILE FULL, ExceptionPointers = %08lx\n", ExceptionPointer);

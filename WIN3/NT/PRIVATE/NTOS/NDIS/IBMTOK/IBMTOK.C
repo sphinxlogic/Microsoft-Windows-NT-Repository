@@ -34,8 +34,13 @@ Revision History:
       Changed for compilation under DOS as well as NT
     Sean Selitrennikoff -- 1/8/92:
       Added error logging
+    Brian E. Moore -- 8/8/95
+      Added AutoRingSpeed Support for the PCMCIA token-ring III card.
 
+    Sanjay Deshpande -- 11/22/95
+      PCMCIA MMIO and RAM is read from registry always .... no default values
 --*/
+
 
 #include <ndis.h>
 
@@ -134,11 +139,13 @@ static const UINT IbmtokProtocolSupportedOids[] = {
 // so we can set breakpoints on them.
 //
 
+
 #if DEVL
 #define STATIC
 #else
 #define STATIC static
 #endif
+
 
 #if DBG
 INT IbmtokDbg = 0;
@@ -922,6 +929,8 @@ Return Value:
     UINT Time = 50; // Number of 100 milliseconds to delay while waiting
                     // for the card to initialize.
 
+
+
     IbmtokSetupRegistersAndInit(Adapter);
 
     //
@@ -1011,6 +1020,20 @@ Return Value:
         }
 
         NdisReadRegisterUchar(&(BringUpSrb->InitStatus), &RegValue);
+
+// The following routine assumes that the AutoRingSpeed keyword is set in
+// the registry. If the adapter doesn't support RingSpeedListen, turn off flag.
+
+
+        if (!(RegValue & RINGSPEEDLISTEN)) {
+
+            Adapter->RingSpeedListen = FALSE;
+
+#if DBG
+            if (IbmtokDbg) DbgPrint("IBMTOK: Adapter doesn't support Ring Speed Listen.\n");
+#endif
+
+        }
 
         if (RegValue & 0x01) {
 
@@ -1615,12 +1638,14 @@ Return Value:
                     NdisWriteRegisterUchar(
                                 (PUCHAR)&OpenSrb->Command,
                                 SRB_CMD_OPEN_ADAPTER);
+
                     NdisWriteRegisterUshort(
                                 (PUSHORT)&OpenSrb->OpenOptions,
                                 (USHORT)(OPEN_CONTENDER |
-                                         (Adapter->EarlyTokenRelease ?
-                                            0 :
-                                            OPEN_MODIFIED_TOKEN_RELEASE)));
+                                (Adapter->RingSpeedListen ?
+				   OPEN_REMOTE_PROGRAM_LOAD :
+                                   0))
+                                   );
 
                     for (i=0; i < TR_LENGTH_OF_ADDRESS; i++) {
                         NdisWriteRegisterUchar((PCHAR)&OpenSrb->NodeAddress[i],
@@ -1798,8 +1823,8 @@ Return Value:
         //
 
 
-        if (StatusToReturn == NDIS_STATUS_SUCCESS) {
-
+        if (StatusToReturn == NDIS_STATUS_SUCCESS)
+        {
             //
             // Check whether the reference count is two.  If
             // it is then we can get rid of the memory for
@@ -1857,15 +1882,58 @@ Return Value:
 
             }
 
-        } else if (StatusToReturn == NDIS_STATUS_PENDING) {
-
-
+        }
+        else if (StatusToReturn == NDIS_STATUS_PENDING)
+        {
             //
             // If it pended, there may be
             // operations queued.
             //
+            if (Adapter->CardType == IBM_TOKEN_RING_PCMCIA)
+            {
+                //
+                // Check if the card is still in the machine
+                //
+                ULONG AdapterId;
+                ULONG PcIoBusId = 0x5049434f;
+                UINT j;
+                UCHAR TmpUchar;
 
-            IbmtokProcessSrbRequests(Adapter);
+                AdapterId = 0;
+
+                for (j = 0; j < 16; j += 2)
+                {
+                    READ_ADAPTER_REGISTER(
+                        Adapter,
+                        CHANNEL_IDENTIFIER + (16 + j),
+                        &TmpUchar
+                    );
+
+                    AdapterId = (AdapterId << 4) + (TmpUchar & 0x0f);
+                }
+
+                if (AdapterId != PcIoBusId)
+                {
+                    Adapter->InvalidValue = TRUE;
+#if DBG
+                    if (IbmtokDbg)
+                        DbgPrint("IBMTOK: Card was removed or undocked\n");
+#endif
+                }
+                else
+                {
+                    Adapter->InvalidValue = FALSE;
+                }
+            }
+
+            if (Adapter->InvalidValue)
+            {
+                IbmtokAbortPending (Adapter, STATUS_SUCCESS);
+            }
+            else
+            {
+                IbmtokProcessSrbRequests(Adapter);
+            }
 
             //
             // Now start closing down this open.
@@ -3889,23 +3957,145 @@ Return Value:
     }
 
 
+    if (Adapter->CardType == IBM_TOKEN_RING_PCMCIA)
+    {
+        UINT    Nibble0;
+        UINT    Nibble1;
+        UINT    Nibble2;
+        UINT    Nibble3;
+        ULONG   MmioAddress;
 
-    //
-    // If this is a PC I/O Bus....
-    // Set up the shared RAM to be right after the MMIO.
-    //
+        //
+        // Configure the card to match registry
+        // Use the Default MMIO value here (this never changes from system to system)
+        //
+        MmioAddress = Adapter->MmioAddress;
 
-    if (Adapter->UsingPcIoBus){
+        //
+        // Nibble 0 - ROM address
+        //
+        Nibble0 = NIBBLE_0 | ((UINT)(MmioAddress >> 16 ) & 0x0F);
+
+        //
+        // Nibble 1 - ROM address, INT 0
+        //
+        Nibble1 = NIBBLE_1 | ((UINT)(MmioAddress >> 12) & 0x0F);
+
+        //
+        // Nibble 2 - INT1, F ROS, SRAM, S RST
+        //
+        Nibble2 = NIBBLE_2 | DEFAULT_NIBBLE_2;
+
+        //
+        // Nibble 3 - Ring Speed, RAM size, Prim/Alt
+        //
+        Nibble3 = NIBBLE_3;
+
+        if (Adapter->RingSpeed == 16)
+        {
+            Nibble3 |= RING_SPEED_16_MPS;
+        }
+        else
+        {
+            Nibble3 |= RING_SPEED_4_MPS;
+        }
+
+        switch (Adapter->RamSize)
+        {
+            case 0x10000:
+                Nibble3 |= SHARED_RAM_64K;
+                break;
+
+            case 0x8000:
+                Nibble3 |= SHARED_RAM_32K;
+                break;
+
+            case 0x4000:
+                Nibble3 |= SHARED_RAM_16K;
+                break;
+
+            case 0x2000:
+                Nibble3 |= SHARED_RAM_8K;
+                break;
+        }
+
+   //   if ( Adapter->IbmtokPortAddress == PRIMARY_ADAPTER_OFFSET)
+   //   {
+   //       Nibble3 |= PRIMARY;
+   //   }
+   //   else
+   //   {
+   //       Nibble3 |= ALTERNATE;
+   //   }
+
+        //
+        // Write everything to the Token-Ring Controller Configuration Register
+        //
+        WRITE_ADAPTER_PORT(Adapter, SWITCH_READ_2, Nibble0);
+        WRITE_ADAPTER_PORT(Adapter, SWITCH_READ_1, Nibble0);
+
+        WRITE_ADAPTER_PORT(Adapter, SWITCH_READ_2, Nibble1);
+        WRITE_ADAPTER_PORT(Adapter, SWITCH_READ_1, Nibble1);
+
+        WRITE_ADAPTER_PORT(Adapter, SWITCH_READ_2, Nibble2);
+        WRITE_ADAPTER_PORT(Adapter, SWITCH_READ_1, Nibble2);
+
+        WRITE_ADAPTER_PORT(Adapter, SWITCH_READ_2, Nibble3);
+        WRITE_ADAPTER_PORT(Adapter, SWITCH_READ_1, Nibble3);
+
+        WRITE_ADAPTER_PORT(Adapter, SWITCH_READ_2, RELEASE_TR_CONTROLLER);
+        WRITE_ADAPTER_PORT(Adapter, SWITCH_READ_1, RELEASE_TR_CONTROLLER);
+
         WRITE_ADAPTER_REGISTER(Adapter, RRR_LOW, Adapter->RrrLowValue);
     }
-
+    else if (Adapter->UsingPcIoBus)
+    {
+        //
+        // If this is a PC I/O Bus....
+        // Set up the shared RAM to be right after the MMIO.
+        //
+        WRITE_ADAPTER_REGISTER(Adapter, RRR_LOW, Adapter->RrrLowValue);
+    }
 
 
     //
     // Allow the reset complete interrupt to be
     // serviced correctly.
     //
-    SET_INTERRUPT_RESET_FLAG(Adapter);
+    if (Adapter->CardType != IBM_TOKEN_RING_PCMCIA)
+    {
+        SET_INTERRUPT_RESET_FLAG(Adapter);
+    }
+    else
+    {
+        UCHAR Temp;
+
+        //
+        //  disable interrupts on the card,
+        //  since we don't trust ndissyncint to work
+        //
+        READ_ADAPTER_REGISTER(Adapter, ISRP_LOW, &Temp);
+
+        WRITE_ADAPTER_REGISTER(
+            Adapter,
+            ISRP_LOW,
+            (UCHAR)(Temp & (~(ISRP_LOW_NO_CHANNEL_CHECK | ISRP_LOW_INTERRUPT_ENABLE)))
+        );
+
+        //
+        //  Set the reset flag
+        //
+        Adapter->ResetInterruptAllowed = TRUE;
+
+        //
+        //  reenable interrupts on the card
+        //
+        WRITE_ADAPTER_REGISTER(
+            Adapter,
+            ISRP_LOW,
+            ISRP_LOW_NO_CHANNEL_CHECK | ISRP_LOW_INTERRUPT_ENABLE
+        );
+    }
 
     //
     // Enable card interrupts to get the reset interrupt.
@@ -4106,8 +4296,13 @@ Return Value:
     // Set up the shared RAM to be right after the MMIO.
     //
 
-    if (Adapter->UsingPcIoBus) {
+    if (Adapter->UsingPcIoBus)
+    {
         WRITE_ADAPTER_REGISTER(Adapter, RRR_LOW, Adapter->RrrLowValue);
+    }
+    else if (Adapter->CardType == IBM_TOKEN_RING_PCMCIA)
+    {
+        WRITE_ADAPTER_REGISTER(Adapter, RRR_LOW, (UCHAR)(Adapter->Ram >> 12));
     }
 
 
@@ -4242,6 +4437,7 @@ Return Value:
 
     NDIS_HANDLE ConfigHandle;
     PNDIS_CONFIGURATION_PARAMETER ReturnedValue;
+    NDIS_STRING CardTypeStr = NDIS_STRING_CONST("CardType");
     NDIS_STRING BusTypeStr = NDIS_STRING_CONST("BusType");
     NDIS_STRING IOAddressStr = IOADDRESS;
     NDIS_STRING NetworkAddressStr = NETWORK_ADDRESS;
@@ -4265,89 +4461,90 @@ Return Value:
     //
 
     if (IBMTOK_ALLOC_PHYS(&Adapter, sizeof(IBMTOK_ADAPTER)) !=
-        NDIS_STATUS_SUCCESS) {
-
+        NDIS_STATUS_SUCCESS
+    )
+    {
         return(NDIS_STATUS_RESOURCES);
-
     }
 
-
-    IBMTOK_ZERO_MEMORY(
-            Adapter,
-            sizeof(IBMTOK_ADAPTER)
-            );
+    IBMTOK_ZERO_MEMORY(Adapter, sizeof(IBMTOK_ADAPTER));
 
     Adapter->MaxTransmittablePacket = 17960;
     Adapter->CurrentRingState = NdisRingStateClosed;
 
     Adapter->NdisMacHandle = ((PIBMTOK_MAC)MacMacContext)->NdisMacHandle;
 
-
     NdisOpenConfiguration(
-                    &Status,
-                    &ConfigHandle,
-                    ConfigurationHandle
-                    );
-
-    if (Status != NDIS_STATUS_SUCCESS) {
-
+        &Status,
+        &ConfigHandle,
+        ConfigurationHandle
+    );
+    if (Status != NDIS_STATUS_SUCCESS)
+    {
         IBMTOK_FREE_PHYS(Adapter, sizeof(IBMTOK_ADAPTER));
 
-        return NDIS_STATUS_FAILURE;
-
+        return(NDIS_STATUS_FAILURE);
     }
+
+    //
+    //  Determine the type of the card;
+    //      IBM_TOKEN_RING_ISA, IBM_TOKEN_RING_PCMCIA.
+    //
+    NdisReadConfiguration(
+        &Status,
+        &ReturnedValue,
+        ConfigHandle,
+        &CardTypeStr,
+        NdisParameterInteger
+    );
+    if (NDIS_STATUS_SUCCESS == Status)
+        Adapter->CardType = (UINT)ReturnedValue->ParameterData.IntegerData;
 
     //
     // Read Bus Type
     //
-
     NdisReadConfiguration(
-                    &Status,
-                    &ReturnedValue,
-                    ConfigHandle,
-                    &BusTypeStr,
-                    NdisParameterHexInteger
-                    );
-
-    if (Status == NDIS_STATUS_SUCCESS) {
-
-        if (ReturnedValue->ParameterData.IntegerData == (ULONG)NdisInterfaceMca) {
-
-            McaCard = TRUE;
-
-        }
-
+            &Status,
+            &ReturnedValue,
+            ConfigHandle,
+            &BusTypeStr,
+            NdisParameterHexInteger
+    );
+    if (NDIS_STATUS_SUCCESS == Status)
+    {
+       if (ReturnedValue->ParameterData.IntegerData ==
+           (ULONG)NdisInterfaceMca)
+       {
+                McaCard = TRUE;
+       }
     }
 
     //
     // Get I/O Address
     //
 
-    if (McaCard) {
-
+    if (McaCard)
+    {
         //
         // Get I/O Address from Mca Pos info.
         //
-
         NdisReadMcaPosInformation(
-                    &Status,
-                    ConfigurationHandle,
-                    &SlotNumber,
-                    &McaData
-                    );
-
-        if (Status != NDIS_STATUS_SUCCESS) {
-
+            &Status,
+            ConfigurationHandle,
+            &SlotNumber,
+            &McaData
+        );
+        if (Status != NDIS_STATUS_SUCCESS)
+        {
             ConfigError = TRUE;
             goto RegisterAdapter;
-
         }
 
         //
         // Now interperet the data
         //
-
-        switch (McaData.PosData2 & 0x1) {
+        switch (McaData.PosData2 & 0x1)
+        {
             case 0x00:
                 Adapter->IbmtokPortAddress = PRIMARY_ADAPTER_OFFSET;
                 break;
@@ -4357,109 +4554,328 @@ Return Value:
                 break;
 
         }
-
-    } else {
-
+    }
+    else if (IBM_TOKEN_RING_PCMCIA == Adapter->CardType)
+    {
+        //
+        //  Read I/O Address.
+        //
+        NdisReadConfiguration(
+            &Status,
+            &ReturnedValue,
+            ConfigHandle,
+            &IOAddressStr,
+            NdisParameterHexInteger
+        );
+        if (NDIS_STATUS_SUCCESS == Status)
+        {
+            Adapter->IbmtokPortAddress =
+                            (ULONG)ReturnedValue->ParameterData.IntegerData;
+        }
+    }
+    else
+    {
         //
         // Read I/O Address
         //
+        NdisReadConfiguration(
+            &Status,
+            &ReturnedValue,
+            ConfigHandle,
+            &IOAddressStr,
+            NdisParameterInteger
+        );
+        if (NDIS_STATUS_SUCCESS == Status)
+        {
+            PrimaryAdapter =
+                (ReturnedValue->ParameterData.IntegerData == 1) ? TRUE : FALSE;
+        }
+
+        if (PrimaryAdapter)
+        {
+            Adapter->IbmtokPortAddress = PRIMARY_ADAPTER_OFFSET;
+        }
+        else
+        {
+            Adapter->IbmtokPortAddress = ALTERNATE_ADAPTER_OFFSET;
+        }
+    }
+
+    // if IBM_TOKEN_RING_16_4_CREDIT_CARD_ADAPTER, read in bunch of stuff
+    // like mmio, ringspeed, interrupt, ramsize, so we can set the card to match
+    //
+    if (IBM_TOKEN_RING_PCMCIA == Adapter->CardType)
+    {
+     // The following strings were changed to match the correct Registry entries
+
+     // NDIS_STRING AttributeAddressStr1 = NDIS_STRING_CONST("PCCARDAttributeMemoryAddress");
+     // NDIS_STRING AttributeAddressStr2 = NDIS_STRING_CONST("PCCARDAttributeMemoryAddress_1");
+     // NDIS_STRING AttributeSizeStr1 = NDIS_STRING_CONST("PCCARDAttributeMemorySize");
+     // NDIS_STRING AttributeSizeStr2 = NDIS_STRING_CONST("PCCARDAttributeMemorySize_1");
+
+        NDIS_STRING AttributeAddressStr1 = NDIS_STRING_CONST("MemoryMappedBaseAddress");
+        NDIS_STRING AttributeAddressStr2 = NDIS_STRING_CONST("MemoryMappedBaseAddress_1");
+        NDIS_STRING AttributeSizeStr1 = NDIS_STRING_CONST("MemoryMappedSize");
+        NDIS_STRING AttributeSizeStr2 = NDIS_STRING_CONST("MemoryMappedSize_1");
+        NDIS_STRING RingSpeedStr = NDIS_STRING_CONST("RingSpeed");
+        NDIS_STRING InterruptNumberStr = NDIS_STRING_CONST("InterruptNumber");
+        NDIS_STRING AutoRingSpeedStr = NDIS_STRING_CONST("AutoRingSpeed");
+        ULONG       BaseAddress;
+        ULONG       Size;
+
+        //
+        //  Get the memory mapped I/O attribute window.
+        //
+        NdisReadConfiguration(
+            &Status,
+            &ReturnedValue,
+            ConfigHandle,
+            &AttributeAddressStr1,
+            NdisParameterInteger
+        );
+        if (NDIS_STATUS_SUCCESS == Status)
+        {
+            //
+            //  Save the memory mapped io base address.
+            //
+            BaseAddress = (ULONG)ReturnedValue->ParameterData.IntegerData;
+        }
+        else
+        {
+            //
+            //  BAD BAD BAD
+            //
+            NdisWriteErrorLogEntry(
+                Adapter->NdisAdapterHandle,
+                NDIS_ERROR_CODE_UNSUPPORTED_CONFIGURATION,
+                1,
+                0x11111111
+            );
+
+            ConfigError = TRUE;
+            goto RegisterAdapter;
+        }
+
+        //
+        //  Get the size of the memory mapped I/O attribute window.
+        //
+        NdisReadConfiguration(
+            &Status,
+            &ReturnedValue,
+            ConfigHandle,
+            &AttributeSizeStr1,
+            NdisParameterInteger
+        );
+
+        //
+        //  Save the size of the memory mapped io space.
+        //
+        Size = (ULONG)ReturnedValue->ParameterData.IntegerData;
+
+        if ((Status != NDIS_STATUS_SUCCESS) || (Size != 0x2000))
+        {
+            //
+            //  BAD BAD BAD
+            //
+            NdisWriteErrorLogEntry(
+                Adapter->NdisAdapterHandle,
+                NDIS_ERROR_CODE_UNSUPPORTED_CONFIGURATION,
+                1,
+                0x22222222
+            );
+
+            ConfigError = TRUE;
+            goto RegisterAdapter;
+        }
+
+        //
+        //  Save the memory mapped address in the adapter block.
+        //
+        Adapter->MmioAddress = BaseAddress;
+
+        //
+        //  Get the shared ram attribute window.
+        //
+        NdisReadConfiguration(
+            &Status,
+            &ReturnedValue,
+            ConfigHandle,
+            &AttributeAddressStr2,
+            NdisParameterInteger
+        );
+        if (NDIS_STATUS_SUCCESS == Status)
+        {
+            BaseAddress = (ULONG)ReturnedValue->ParameterData.IntegerData;
+        }
+        else
+        {
+            //
+            //  BAD BAD BAD
+            //
+            NdisWriteErrorLogEntry(
+                Adapter->NdisAdapterHandle,
+                NDIS_ERROR_CODE_UNSUPPORTED_CONFIGURATION,
+                1,
+                0x33333333
+            );
+
+            ConfigError = TRUE;
+            goto RegisterAdapter;
+        }
+
+        //
+        //  Get the size of the shared ram attribute window.
+        //
+        NdisReadConfiguration(
+            &Status,
+            &ReturnedValue,
+            ConfigHandle,
+            &AttributeSizeStr2,
+            NdisParameterInteger
+        );
+
+        Size = (ULONG)ReturnedValue->ParameterData.IntegerData;
+
+        if ((Status != NDIS_STATUS_SUCCESS) ||
+            ((Size != 0x2000) && (Size != 0x4000) &&
+             (Size != 0x8000) && (Size != 0x10000))
+        )
+        {
+            //
+            //  BAD BAD BAD
+            //
+            NdisWriteErrorLogEntry(
+                Adapter->NdisAdapterHandle,
+                NDIS_ERROR_CODE_UNSUPPORTED_CONFIGURATION,
+                1,
+                0x44444444
+            );
+
+            ConfigError = TRUE;
+            goto RegisterAdapter;
+        }
+
+        Adapter->RamSize = Size;
+        Adapter->Ram = BaseAddress;
+
+        //
+        // Find out ring speed
+        //
+        NdisReadConfiguration(
+            &Status,
+            &ReturnedValue,
+            ConfigHandle,
+            &RingSpeedStr,
+            NdisParameterInteger
+        );
+        if (NDIS_STATUS_SUCCESS == Status)
+            Adapter->RingSpeed = ReturnedValue->ParameterData.IntegerData;
+
+    //
+    // Determine if Ring Speed Listen is desired    BEM PCMCIA card
+    //
+
 
         NdisReadConfiguration(
-                        &Status,
-                        &ReturnedValue,
-                        ConfigHandle,
-                        &IOAddressStr,
-                        NdisParameterInteger
-                        );
+                   &Status,
+                   &ReturnedValue,
+                   ConfigHandle,
+                   &AutoRingSpeedStr,
+                   NdisParameterInteger
+                   );
 
         if (Status == NDIS_STATUS_SUCCESS) {
 
-            PrimaryAdapter = (ReturnedValue->ParameterData.IntegerData == 1)?TRUE:FALSE;
+            Adapter->RingSpeedListen = (BOOLEAN) ReturnedValue->ParameterData.IntegerData;
 
         }
 
-        if (PrimaryAdapter) {
+        //
+        //  Get the interrupt level.
+        //
+        NdisReadConfiguration(
+            &Status,
+            &ReturnedValue,
+            ConfigHandle,
+            &InterruptNumberStr,
+            NdisParameterInteger
+        );
+        if (NDIS_STATUS_SUCCESS == Status)
+            Adapter->InterruptLevel = ReturnedValue->ParameterData.IntegerData;
 
-            Adapter->IbmtokPortAddress = PRIMARY_ADAPTER_OFFSET;
-
-        } else {
-
-            Adapter->IbmtokPortAddress = ALTERNATE_ADAPTER_OFFSET;
-
-        }
-
+#if DBG
+        if (IbmtokDbg)
+        {
+            DbgPrint("MMIO = %x\n", Adapter->MmioAddress);
+    	    DbgPrint("RAM = %x\n",Adapter->Ram);
+        	DbgPrint("RAMSIZE = %x\n", Adapter->RamSize);
+	        DbgPrint("RINGSPEED = %d\n", Adapter->RingSpeed);
+	        DbgPrint("IO Base = %x\n", Adapter->IbmtokPortAddress);
+	        DbgPrint("INT = %x\n", Adapter->InterruptLevel);
+	    }
+#endif
     }
 
     //
     // Read PacketSize
     //
-
     NdisReadConfiguration(
-                    &Status,
-                    &ReturnedValue,
-                    ConfigHandle,
-                    &PacketSizeStr,
-                    NdisParameterInteger
-                    );
-
-    if (Status == NDIS_STATUS_SUCCESS) {
-
-        Adapter->MaxTransmittablePacket = ReturnedValue->ParameterData.IntegerData;
-
+        &Status,
+        &ReturnedValue,
+        ConfigHandle,
+        &PacketSizeStr,
+        NdisParameterInteger
+    );
+    if (Status == NDIS_STATUS_SUCCESS)
+    {
+        Adapter->MaxTransmittablePacket =
+                        ReturnedValue->ParameterData.IntegerData;
     }
-
 
     //
     // Read net address
     //
-
     NdisReadNetworkAddress(
-                    &Status,
-                    &NetAddress,
-                    &Length,
-                    ConfigHandle
-                    );
-
-    if (Status == NDIS_STATUS_SUCCESS) {
-
-        if (Length == TR_LENGTH_OF_ADDRESS) {
-
+        &Status,
+        &NetAddress,
+        &Length,
+        ConfigHandle
+    );
+    if (Status == NDIS_STATUS_SUCCESS)
+    {
+        if (Length == TR_LENGTH_OF_ADDRESS)
+        {
             TR_COPY_NETWORK_ADDRESS(
                 Adapter->NetworkAddress,
                 NetAddress
-                );
-
-        } else if (Length != 0) {
-
+            );
+        }
+        else if (Length != 0)
+        {
             ConfigError = TRUE;
             goto RegisterAdapter;
-
-
         }
-
     }
 
     //
     // Read token release
     //
     NdisReadConfiguration(
-                        &Status,
-                        &ReturnedValue,
-                        ConfigHandle,
-                        &TokenReleaseStr,
-                        NdisParameterInteger
-                        );
+        &Status,
+        &ReturnedValue,
+        ConfigHandle,
+        &TokenReleaseStr,
+        NdisParameterInteger
+    );
 
     Adapter->EarlyTokenRelease = TRUE;
 
-    if (Status == NDIS_STATUS_SUCCESS) {
-
-        if (ReturnedValue->ParameterData.IntegerData == 0) {
-
+    if (Status == NDIS_STATUS_SUCCESS)
+    {
+        if (ReturnedValue->ParameterData.IntegerData == 0)
+        {
             Adapter->EarlyTokenRelease = FALSE;
-
         }
-
     }
 
 RegisterAdapter:
@@ -4467,21 +4883,18 @@ RegisterAdapter:
     NdisCloseConfiguration(ConfigHandle);
 
     Status = IbmtokRegisterAdapter(
-                     Adapter,
-                     ConfigurationHandle,
-                     AdapterName,
-                     McaCard,
-                     ConfigError
-                     );
-
-    if (Status != NDIS_STATUS_SUCCESS) {
-
+                 Adapter,
+                 ConfigurationHandle,
+                 AdapterName,
+                 McaCard,
+                 ConfigError
+             );
+    if (Status != NDIS_STATUS_SUCCESS)
+    {
         IBMTOK_FREE_PHYS(Adapter, sizeof(IBMTOK_ADAPTER));
-
     }
 
-    return Status;
-
+    return(Status);
 }
 
 
@@ -4573,8 +4986,6 @@ Return Value:
 {
     PIBMTOK_ADAPTER Adapter = (PIBMTOK_ADAPTER)(ShutdownContext);
 
-    NdisAcquireSpinLock(&Adapter->Lock);
-
     //
     // Set the flag
     //
@@ -4615,10 +5026,8 @@ Return Value:
         WRITE_ADAPTER_PORT(Adapter, RESET_LATCH, 0);
 
     }
-
-    NdisReleaseSpinLock(&Adapter->Lock);
-
 }
+
 
 VOID
 IbmtokUnload(
@@ -4747,444 +5156,685 @@ Return Value:
 
     UCHAR RegValue;
 
-    //
-    // SwitchRead1 contains the interrupt code in the low 2 bits,
-    // and bits 18 through 13 of the MMIO address in the high
-    // 6 bits.
-    //
+    if (IBM_TOKEN_RING_PCMCIA == Adapter->CardType)
+    {
+        UINT Nibble0;
+        UINT Nibble1;
+        UINT Nibble2;
+        UINT Nibble3;
 
-    READ_ADAPTER_PORT(Adapter, SWITCH_READ_1, &SwitchRead1);
+        //
+        //  Configure the card to match registry
+        //  Use the Default MMIO value here
+        //  (this never changes from system to system)
+        //
+        MmioAddress = Adapter->MmioAddress;
 
-    //
-    // SwitchRead2 contains Bit 19 of the MMIO address in the
-    // low bit.  It is always 1 for PC I/O Bus and possibly 0
-    // for the Microchannel bus
-    //
+        //
+        //  Nibble 0 - ROM address
+        //
+        Nibble0 = NIBBLE_0 | ( ( UINT )( MmioAddress >> 16 ) & 0x0F );
 
-    READ_ADAPTER_PORT(Adapter, SWITCH_READ_2, &SwitchRead2);
+        //
+        //  Nibble 1 - ROM address, INT 0
+        //
+        Nibble1 = NIBBLE_1 | ( ( UINT )( MmioAddress >> 12) & 0x0F );
 
-    //
-    // To compute MmioAddress, we mask off the low 2 bits of
-    // SwitchRead1, shift it out by 11 (so that the high 6 bits
-    // are moved to the right place), and add in the 19th bit value.
-    //
+        //
+        //  Nibble 2 - INT1, F ROS, SRAM, S RST
+        //
+        Nibble2 = NIBBLE_2 | DEFAULT_NIBBLE_2;
 
-    MmioAddress = ((SwitchRead1 & 0xfc) << 11) | ((SwitchRead2 & 1) << 19);
+        //
+        //  Nibble 3 - Ring Speed, RAM size, Prim/Alt
+        //
+        Nibble3 = NIBBLE_3;
 
-    NdisSetPhysicalAddressHigh(PhysicalAddress, 0);
-    NdisSetPhysicalAddressLow(PhysicalAddress, MmioAddress);
+        if (Adapter->RingSpeed == 16)
+        {
+            Nibble3 |= RING_SPEED_16_MPS;
+        }
+        else
+        {
+            Nibble3 |= RING_SPEED_4_MPS;
+        }
 
-    NdisMapIoSpace(
-                   &Status,
-                   (PVOID *)&(Adapter->MmioRegion),
-                   Adapter->NdisAdapterHandle,
-                   PhysicalAddress,
-                   0x2000);
+        switch (Adapter->RamSize)
+        {
+            case 0x10000:
+                Nibble3 |= SHARED_RAM_64K;
+                break;
 
-    if (Status != NDIS_STATUS_SUCCESS) {
+            case 0x8000:
+                Nibble3 |= SHARED_RAM_32K;
+                break;
 
-        NdisWriteErrorLogEntry(
-           Adapter->NdisAdapterHandle,
-           NDIS_ERROR_CODE_RESOURCE_CONFLICT,
-           0
-           );
+            case 0x4000:
+                Nibble3 |= SHARED_RAM_16K;
+                break;
 
-        return(FALSE);
+            case 0x2000:
+                Nibble3 |= SHARED_RAM_8K;
+                break;
+        }
 
+        if ( Adapter->IbmtokPortAddress == PRIMARY_ADAPTER_OFFSET)
+        {
+            Nibble3 |= PRIMARY;
+        }
+        else
+        {
+            Nibble3 |= ALTERNATE;
+        }
+
+#if DBG
+        if (IbmtokDbg)
+        {
+            DbgPrint("Nibble0 = %x\n",Nibble0);
+            DbgPrint("Nibble1 = %x\n",Nibble1);
+            DbgPrint("Nibble2 = %x\n",Nibble2);
+            DbgPrint("Nibble3 = %x\n",Nibble3);
+        }
+#endif
+        //
+        //  Write everything to the Token-Ring
+        //  Controller Configuration Register
+        //
+        WRITE_ADAPTER_PORT(Adapter, SWITCH_READ_1, Nibble0);
+        WRITE_ADAPTER_PORT(Adapter, SWITCH_READ_1, Nibble1);
+        WRITE_ADAPTER_PORT(Adapter, SWITCH_READ_1, Nibble2);
+        WRITE_ADAPTER_PORT(Adapter, SWITCH_READ_1, Nibble3);
+        WRITE_ADAPTER_PORT(Adapter, SWITCH_READ_1, RELEASE_TR_CONTROLLER);
+
+        //
+        //  Use the MMIO provided by ConfigMgr here
+        //
+        MmioAddress = Adapter->MmioAddress;
+
+        NdisSetPhysicalAddressHigh(PhysicalAddress, 0);
+        NdisSetPhysicalAddressLow(PhysicalAddress, MmioAddress);
+
+        NdisMapIoSpace(
+            &Status,
+            (PVOID *)&(Adapter->MmioRegion),
+            Adapter->NdisAdapterHandle,
+            PhysicalAddress,
+            0x2000
+        );
+
+        if (Status != NDIS_STATUS_SUCCESS)
+        {
+            NdisWriteErrorLogEntry(
+                Adapter->NdisAdapterHandle,
+                NDIS_ERROR_CODE_RESOURCE_CONFLICT,
+                0
+            );
+
+            return(FALSE);
+        }
+
+        {
+            //
+            // Will hold the Adapter ID as read from the card.
+            //
+            ULONG AdapterId[3];
+
+            //
+            // What AdapterId should contain for a PC I/O bus card.
+            //
+            static ULONG PcIoBusId[3] = { 0x5049434f, 0x36313130, 0x39393020 };
+
+            //
+            // What AdapterId should contain for a Micro Channel card.
+            //
+            static ULONG MicroChannelId[3] = { 0x4d415253, 0x36335834, 0x35313820 };
+
+            //
+            // Loop counters.
+            //
+            UINT i, j;
+
+            UCHAR TmpUchar;
+
+            for (i = 0; i < 3; i++)
+            {
+                AdapterId[i] = 0;
+
+                for (j = 0; j < 16; j += 2)
+                {
+                    ULONG   Port;
+
+                    Port = CHANNEL_IDENTIFIER + (i * 16) + j;
+                    READ_ADAPTER_REGISTER(
+                        Adapter,
+                        Port,
+                        &TmpUchar
+                    );
+
+                    AdapterId[i] = (AdapterId[i] << 4) + (TmpUchar & 0x0f);
+                }
+            }
+
+            if ((AdapterId[0] == PcIoBusId[0]) &&
+                (AdapterId[1] == PcIoBusId[1]) &&
+                (AdapterId[2] == PcIoBusId[2])
+            )
+            {
+                Adapter->UsingPcIoBus = TRUE;
+            }
+            else
+            {
+                //
+                // Unknown channel type.
+                //
+                NdisUnmapIoSpace(
+                    Adapter->NdisAdapterHandle,
+                    Adapter->MmioRegion,
+                    0x2000
+                );
+
+                NdisWriteErrorLogEntry(
+                    Adapter->NdisAdapterHandle,
+                    NDIS_ERROR_CODE_BAD_IO_BASE_ADDRESS,
+                    0
+                );
+
+                return(FALSE);
+            }
+        }
+
+        NdisSetPhysicalAddressHigh(PhysicalAddress, 0);
+        NdisSetPhysicalAddressLow(PhysicalAddress, Adapter->Ram);
+
+        NdisMapIoSpace(
+            &Status,
+            (PVOID *)&(Adapter->SharedRam),
+            Adapter->NdisAdapterHandle,
+            PhysicalAddress,
+            Adapter->RamSize
+        );
+
+        if (Status != NDIS_STATUS_SUCCESS)
+        {
+            NdisUnmapIoSpace(
+                Adapter->NdisAdapterHandle,
+                Adapter->MmioRegion,
+                0x2000
+            );
+
+            NdisWriteErrorLogEntry(
+                Adapter->NdisAdapterHandle,
+                NDIS_ERROR_CODE_RESOURCE_CONFLICT,
+                0
+            );
+
+            return(FALSE);
+        }
+
+        Adapter->SharedRamPaging = FALSE;
+        Adapter->MappedSharedRam = Adapter->RamSize;
+	Adapter->RrrLowValue = (UCHAR)(Adapter->Ram >> 12);
+        WRITE_ADAPTER_REGISTER(Adapter, RRR_LOW, Adapter->RrrLowValue);
+
+
+#if DBG
+        if (IbmtokDbg)
+        {
+            DbgPrint ("mmio in hw = %x\n",Adapter->MmioAddress);
+            DbgPrint ("mmio in adapter = %x\n",Adapter->MmioRegion);
+            DbgPrint ("Adapter->SharedRam = %x\n",Adapter->SharedRam);
+            DbgPrint ("Adapter->Ram = %x\n",Adapter->Ram);
+            DbgPrint ("DEFAULT_RAM = %x\n",DEFAULT_RAM);
+            {
+                UCHAR Fred;
+                READ_ADAPTER_REGISTER(Adapter, RRR_LOW, &Fred);
+                DbgPrint("RRR_LOW = %x\n",Fred);
+                READ_ADAPTER_REGISTER(Adapter, RRR_HIGH, &Fred);
+                DbgPrint("RRR_HIGH = %x\n",Fred);
+            }
+        }
+#endif
     }
-
-
-    //
-    // Now we have mapped the MMIO, look at the AIP. First
-    // determine the channel identifier.
-    //
-
+    else
     {
         //
-        // Will hold the Adapter ID as read from the card.
-        //
-        ULONG AdapterId[3];
-
-        //
-        // What AdapterId should contain for a PC I/O bus card.
-        //
-        static ULONG PcIoBusId[3] = { 0x5049434f, 0x36313130, 0x39393020 };
-
-        //
-        // What AdapterId should contain for a Micro Channel card.
-        //
-        static ULONG MicroChannelId[3] = { 0x4d415253, 0x36335834, 0x35313820 };
-
-        //
-        // Loop counters.
-        //
-        UINT i, j;
-
-        UCHAR TmpUchar;
-
-        //
-        // Read in AdapterId.
-        //
-        // Turns out that the bytes which identify the card are stored
-        // in a very odd manner.  There are 48 bytes on the card.  The
-        // even numbered bytes contain 4 bits of the card signature.
+        // SwitchRead1 contains the interrupt code in the low 2 bits,
+        // and bits 18 through 13 of the MMIO address in the high
+        // 6 bits.
         //
 
-        for (i=0; i<3; i++) {
+        READ_ADAPTER_PORT(Adapter, SWITCH_READ_1, &SwitchRead1);
 
-            AdapterId[i] = 0;
+        //
+        // SwitchRead2 contains Bit 19 of the MMIO address in the
+        // low bit.  It is always 1 for PC I/O Bus and possibly 0
+        // for the Microchannel bus
+        //
 
-            for (j=0; j<16; j+=2) {
+        READ_ADAPTER_PORT(Adapter, SWITCH_READ_2, &SwitchRead2);
 
-                READ_ADAPTER_REGISTER(Adapter,
-                                      CHANNEL_IDENTIFIER + (i*16 + j),
-                                      &TmpUchar
-                                     );
+        //
+        // To compute MmioAddress, we mask off the low 2 bits of
+        // SwitchRead1, shift it out by 11 (so that the high 6 bits
+        // are moved to the right place), and add in the 19th bit value.
+        //
 
-                AdapterId[i] = (AdapterId[i] << 4) + (TmpUchar & 0x0F);
+        MmioAddress = ((SwitchRead1 & 0xfc) << 11) | ((SwitchRead2 & 1) << 19);
 
+        NdisSetPhysicalAddressHigh(PhysicalAddress, 0);
+        NdisSetPhysicalAddressLow(PhysicalAddress, MmioAddress);
+
+        NdisMapIoSpace(
+                       &Status,
+                       (PVOID *)&(Adapter->MmioRegion),
+                       Adapter->NdisAdapterHandle,
+                       PhysicalAddress,
+                       0x2000);
+
+        if (Status != NDIS_STATUS_SUCCESS) {
+
+            NdisWriteErrorLogEntry(
+               Adapter->NdisAdapterHandle,
+               NDIS_ERROR_CODE_RESOURCE_CONFLICT,
+               0
+               );
+
+            return(FALSE);
+
+        }
+
+
+        //
+        // Now we have mapped the MMIO, look at the AIP. First
+        // determine the channel identifier.
+        //
+
+        {
+            //
+            // Will hold the Adapter ID as read from the card.
+            //
+            ULONG AdapterId[3];
+
+            //
+            // What AdapterId should contain for a PC I/O bus card.
+            //
+            static ULONG PcIoBusId[3] = { 0x5049434f, 0x36313130, 0x39393020 };
+
+            //
+            // What AdapterId should contain for a Micro Channel card.
+            //
+            static ULONG MicroChannelId[3] = { 0x4d415253, 0x36335834, 0x35313820 };
+
+            //
+            // Loop counters.
+            //
+            UINT i, j;
+
+            UCHAR TmpUchar;
+
+            //
+            // Read in AdapterId.
+            //
+            // Turns out that the bytes which identify the card are stored
+            // in a very odd manner.  There are 48 bytes on the card.  The
+            // even numbered bytes contain 4 bits of the card signature.
+            //
+
+            for (i=0; i<3; i++) {
+
+                AdapterId[i] = 0;
+
+                for (j=0; j<16; j+=2) {
+
+                    READ_ADAPTER_REGISTER(Adapter,
+                                          CHANNEL_IDENTIFIER + (i*16 + j),
+                                          &TmpUchar
+                                         );
+
+                    AdapterId[i] = (AdapterId[i] << 4) + (TmpUchar & 0x0F);
+
+
+                }
+
+            }
+
+            if ((AdapterId[0] == PcIoBusId[0]) &&
+                (AdapterId[1] == PcIoBusId[1]) &&
+                (AdapterId[2] == PcIoBusId[2])) {
+
+                Adapter->UsingPcIoBus = TRUE;
+
+            } else if ((AdapterId[0] == MicroChannelId[0]) &&
+                       (AdapterId[1] == MicroChannelId[1]) &&
+                       (AdapterId[2] == MicroChannelId[2])) {
+
+                Adapter->UsingPcIoBus = FALSE;
+
+            } else {
+
+                //
+                // Unknown channel type.
+                //
+
+
+                NdisUnmapIoSpace(Adapter->NdisAdapterHandle,
+                                 Adapter->MmioRegion,
+                                 0x2000);
+
+                NdisWriteErrorLogEntry(
+                    Adapter->NdisAdapterHandle,
+                    NDIS_ERROR_CODE_BAD_IO_BASE_ADDRESS,
+                    0
+                    );
+
+                return FALSE;
 
             }
 
         }
 
-        if ((AdapterId[0] == PcIoBusId[0]) &&
-            (AdapterId[1] == PcIoBusId[1]) &&
-            (AdapterId[2] == PcIoBusId[2])) {
+        //
+        // We can read the network address from the AIP but we won't,
+        // we read it from the bring-up SRB instead.
+        //
 
-            Adapter->UsingPcIoBus = TRUE;
+        //
+        // Read the RRR High to get the Shared RAM size (we are
+        // only interested in bits 2 and 3).
+        //
 
-        } else if ((AdapterId[0] == MicroChannelId[0]) &&
-                   (AdapterId[1] == MicroChannelId[1]) &&
-                   (AdapterId[2] == MicroChannelId[2])) {
+        READ_ADAPTER_REGISTER(Adapter, RRR_HIGH, &SharedRamBits);
 
-            Adapter->UsingPcIoBus = FALSE;
+        SharedRamBits = ((SharedRamBits & 0x0c) >> 2);
+
+        if (Adapter->UsingPcIoBus) {
+
+            //
+            // Here we have to tell the Adapter where Shared RAM is
+            // going to be.  To do this we first find the lowest
+            // address it could be at, and then advance the address
+            // such that it falls on a correct page boudary.
+            //
+
+
+            //
+            // To get value to put in RRR Low, which indicates where
+            // the Shared RAM is mapped, we first compute the lowest
+            // possible value, which is right after the MMIO region.
+            // We take the high six bits of SwitchRead and shift
+            // them right one (so bits 18-13 of the address are in
+            // bits 6-1), then we turn on bit 7 to indicate that bit
+            // 19 of the address is on, and leave bit 0 zero since
+            // it must be.
+            //
+
+            Adapter->RrrLowValue = (UCHAR)
+                                  ((((SwitchRead1 & 0xfc) >> 1) | 0x80) + 0x02);
+
+            //
+            // We now have to move up to a memory boundary
+            // based on the value of SharedRamBits; 0 (8K) = 16K boundary,
+            // 1 (16K) = 16K boundary, 2 (32K) = 32K boundary, and
+            // 3 (64K) = 64K Boundary. Remember that the way the
+            // address bits are shifted over in RrrLowValue, bit 1
+            // is really bit 13 of the final address (turning it on
+            // adds 8K), bit 2 if bit 14, etc. We compute Boundary
+            // Needed in this frame of reference.
+            //
+
+            switch (SharedRamBits) {
+
+                case 0:
+                case 1:
+
+                    //
+                    // 8K or 16K needs a 16K boundary.
+                    //
+
+                    RrrSharedRamSize = (SharedRamBits == 0) ? 0x2000 : 0x4000;
+                    BoundaryNeeded = 0x04;
+                    break;
+
+                case 2:
+
+                    //
+                    // 32K needs a 32K boundary.
+                    //
+
+                    RrrSharedRamSize = 0x8000;
+                    BoundaryNeeded = 0x08;
+                    break;
+
+                case 3:
+
+                    //
+                    // 64K needs a 64K boundary.
+                    //
+
+                    RrrSharedRamSize = 0x10000;
+                    BoundaryNeeded = 0x10;
+                    break;
+
+            }
+
+
+            //
+            // If RrrLowValue is not on the proper boundary, move it
+            // forward until it is.
+            //
+
+            if (Adapter->RrrLowValue & (BoundaryNeeded-1)) {
+
+                Adapter->RrrLowValue = (UCHAR)
+                  ((Adapter->RrrLowValue & ~(BoundaryNeeded-1)) + BoundaryNeeded);
+
+            }
+
+            Adapter->MappedSharedRam = SharedRamSize = RrrSharedRamSize;
+
+            NdisSetPhysicalAddressHigh(PhysicalAddress, 0);
+            NdisSetPhysicalAddressLow(PhysicalAddress, Adapter->RrrLowValue << 12);
+
+            NdisMapIoSpace(&Status,
+                           (PVOID *)&(Adapter->SharedRam),
+                           Adapter->NdisAdapterHandle,
+                           PhysicalAddress,
+                           RrrSharedRamSize
+                          );
+
+            if (Status != NDIS_STATUS_SUCCESS) {
+
+                NdisUnmapIoSpace(Adapter->NdisAdapterHandle,
+                                 Adapter->MmioRegion,
+                                 0x2000);
+
+                NdisWriteErrorLogEntry(
+                    Adapter->NdisAdapterHandle,
+                    NDIS_ERROR_CODE_RESOURCE_CONFLICT,
+                    0
+                    );
+
+                return(FALSE);
+
+            }
 
         } else {
 
             //
-            // Unknown channel type.
+            // Using Microchannel
+            //
+            // No need to set Adapter->RrrLowValue since it is not
+            // used in the Microchannel adapter.
             //
 
-
-            NdisUnmapIoSpace(Adapter->NdisAdapterHandle,
-                             Adapter->MmioRegion,
-                             0x2000);
-
-            NdisWriteErrorLogEntry(
-                Adapter->NdisAdapterHandle,
-                NDIS_ERROR_CODE_BAD_IO_BASE_ADDRESS,
-                0
-                );
-
-            return FALSE;
-
-        }
-
-    }
-
-    //
-    // We can read the network address from the AIP but we won't,
-    // we read it from the bring-up SRB instead.
-    //
-
-    //
-    // Read the RRR High to get the Shared RAM size (we are
-    // only interested in bits 2 and 3).
-    //
-
-    READ_ADAPTER_REGISTER(Adapter, RRR_HIGH, &SharedRamBits);
-
-    SharedRamBits = ((SharedRamBits & 0x0c) >> 2);
-
-    if (Adapter->UsingPcIoBus) {
-
-        //
-        // Here we have to tell the Adapter where Shared RAM is
-        // going to be.  To do this we first find the lowest
-        // address it could be at, and then advance the address
-        // such that it falls on a correct page boudary.
-        //
-
-
-        //
-        // To get value to put in RRR Low, which indicates where
-        // the Shared RAM is mapped, we first compute the lowest
-        // possible value, which is right after the MMIO region.
-        // We take the high six bits of SwitchRead and shift
-        // them right one (so bits 18-13 of the address are in
-        // bits 6-1), then we turn on bit 7 to indicate that bit
-        // 19 of the address is on, and leave bit 0 zero since
-        // it must be.
-        //
-
-        Adapter->RrrLowValue = (UCHAR)
-                              ((((SwitchRead1 & 0xfc) >> 1) | 0x80) + 0x02);
-
-        //
-        // We now have to move up to a memory boundary
-        // based on the value of SharedRamBits; 0 (8K) = 16K boundary,
-        // 1 (16K) = 16K boundary, 2 (32K) = 32K boundary, and
-        // 3 (64K) = 64K Boundary. Remember that the way the
-        // address bits are shifted over in RrrLowValue, bit 1
-        // is really bit 13 of the final address (turning it on
-        // adds 8K), bit 2 if bit 14, etc. We compute Boundary
-        // Needed in this frame of reference.
-        //
-
-        switch (SharedRamBits) {
-
-            case 0:
-            case 1:
-
-                //
-                // 8K or 16K needs a 16K boundary.
-                //
-
-                RrrSharedRamSize = (SharedRamBits == 0) ? 0x2000 : 0x4000;
-                BoundaryNeeded = 0x04;
-                break;
-
-            case 2:
-
-                //
-                // 32K needs a 32K boundary.
-                //
-
-                RrrSharedRamSize = 0x8000;
-                BoundaryNeeded = 0x08;
-                break;
-
-            case 3:
-
-                //
-                // 64K needs a 64K boundary.
-                //
-
-                RrrSharedRamSize = 0x10000;
-                BoundaryNeeded = 0x10;
-                break;
-
-        }
-
-
-        //
-        // If RrrLowValue is not on the proper boundary, move it
-        // forward until it is.
-        //
-
-        if (Adapter->RrrLowValue & (BoundaryNeeded-1)) {
-
-            Adapter->RrrLowValue = (UCHAR)
-              ((Adapter->RrrLowValue & ~(BoundaryNeeded-1)) + BoundaryNeeded);
-
-        }
-
-        Adapter->MappedSharedRam = SharedRamSize = RrrSharedRamSize;
-
-        NdisSetPhysicalAddressHigh(PhysicalAddress, 0);
-        NdisSetPhysicalAddressLow(PhysicalAddress, Adapter->RrrLowValue << 12);
-
-        NdisMapIoSpace(&Status,
-                       (PVOID *)&(Adapter->SharedRam),
-                       Adapter->NdisAdapterHandle,
-                       PhysicalAddress,
-                       RrrSharedRamSize
-                      );
-
-        if (Status != NDIS_STATUS_SUCCESS) {
-
-            NdisUnmapIoSpace(Adapter->NdisAdapterHandle,
-                             Adapter->MmioRegion,
-                             0x2000);
-
-            NdisWriteErrorLogEntry(
-                Adapter->NdisAdapterHandle,
-                NDIS_ERROR_CODE_RESOURCE_CONFLICT,
-                0
-                );
-
-            return(FALSE);
-
-        }
-
-    } else {
-
-        //
-        // Using Microchannel
-        //
-        // No need to set Adapter->RrrLowValue since it is not
-        // used in the Microchannel adapter.
-        //
-
-        switch (SharedRamBits){
-            case 0:
-                SharedRamSize = 0x2000;
-                break;
-            case 1:
-                SharedRamSize = 0x4000;
-                break;
-            case 2:
-                SharedRamSize = 0x8000;
-                break;
-            case 3:
-                SharedRamSize = 0x10000;
-                break;
-        }
-
-        McaSharedRam = ((SwitchRead2 & 0xfe) << 12);
-
-        NdisSetPhysicalAddressHigh(PhysicalAddress, 0);
-        NdisSetPhysicalAddressLow(PhysicalAddress, McaSharedRam);
-
-        NdisMapIoSpace(&Status,
-                       (PVOID *)&(Adapter->SharedRam),
-                       Adapter->NdisAdapterHandle,
-                       PhysicalAddress,
-                       SharedRamSize);
-
-        if (Status != NDIS_STATUS_SUCCESS) {
-
-            NdisUnmapIoSpace(Adapter->NdisAdapterHandle,
-                             Adapter->MmioRegion,
-                             0x2000);
-
-            NdisWriteErrorLogEntry(
-                Adapter->NdisAdapterHandle,
-                NDIS_ERROR_CODE_RESOURCE_CONFLICT,
-                0
-                );
-
-            return(FALSE);
-
-        }
-
-        Adapter->MappedSharedRam = SharedRamSize;
-
-    }
-
-
-
-    //
-    // Get the interrupt level...note that a switch being
-    // "off" shows up as a 1, "on" is 0.
-    //
-
-    switch (SwitchRead1 & 0x03) {
-
-        case 0: InterruptLevel = 2; break;
-        case 1: InterruptLevel = 3; break;
-        case 2: InterruptLevel = (Adapter->UsingPcIoBus)?6:10; break;
-        case 3: InterruptLevel = (Adapter->UsingPcIoBus)?7:11; break;
-
-    }
-
-    Adapter->InterruptLevel = InterruptLevel;
-
-    //
-    // Now determine how much memory the adapter has, and
-    // whether to use Shared RAM paging.
-    //
-
-    Adapter->UpperSharedRamZero = FALSE;
-
-    READ_ADAPTER_REGISTER(Adapter, TOTAL_ADAPTER_RAM, &RegValue);
-
-    RegValue &= 0x0F;
-
-    switch (RegValue) {
-
-        //
-        // These values are described on page 7-26 of the
-        // Technical Reference.
-        //
-
-        case 0xf:
-
-            Adapter->TotalSharedRam = SharedRamSize;
-            break;
-
-        case 0xe:
-
-            Adapter->TotalSharedRam = 0x2000;
-            break;
-
-        case 0xd:
-
-            Adapter->TotalSharedRam = 0x4000;
-            break;
-
-        case 0xc:
-
-            Adapter->TotalSharedRam = 0x8000;
-            break;
-
-        case 0xb:
-
-            Adapter->TotalSharedRam = 0x10000;
-
-            Adapter->UpperSharedRamZero = TRUE;
-            break;
-
-        case 0xa:
-
-            Adapter->TotalSharedRam = 0x10000;
-            break;
-
-        default:
-
-            NdisWriteErrorLogEntry(
-                Adapter->NdisAdapterHandle,
-                NDIS_ERROR_CODE_UNSUPPORTED_CONFIGURATION,
-                3,
-                hardwareDetails,
-                IBMTOK_ERRMSG_UNSUPPORTED_RAM,
-                (ULONG)RegValue
-                );
-
-            NdisUnmapIoSpace(Adapter->NdisAdapterHandle,
-                             Adapter->MmioRegion,
-                             0x2000);
-
-            if (Adapter->UsingPcIoBus) {
-                NdisUnmapIoSpace(
-                    Adapter->NdisAdapterHandle,
-                    Adapter->SharedRam,
-                    SharedRamSize);
-            } else {
-                NdisUnmapIoSpace(
-                    Adapter->NdisAdapterHandle,
-                    Adapter->SharedRam,
-                    SharedRamSize);
+            switch (SharedRamBits){
+                case 0:
+                    SharedRamSize = 0x2000;
+                    break;
+                case 1:
+                    SharedRamSize = 0x4000;
+                    break;
+                case 2:
+                    SharedRamSize = 0x8000;
+                    break;
+                case 3:
+                    SharedRamSize = 0x10000;
+                    break;
             }
 
-            return FALSE;
+            McaSharedRam = ((SwitchRead2 & 0xfe) << 12);
 
-    }
+            NdisSetPhysicalAddressHigh(PhysicalAddress, 0);
+            NdisSetPhysicalAddressLow(PhysicalAddress, McaSharedRam);
 
-    //
-    // Only allow Shared RAM paging if we have 16K selected
-    // on SharedRamSize, 64K of total adapter memory, and it is allowed
-    // as specified on p. 7-26 of the Technical Reference.
-    //
+            NdisMapIoSpace(&Status,
+                           (PVOID *)&(Adapter->SharedRam),
+                           Adapter->NdisAdapterHandle,
+                           PhysicalAddress,
+                           SharedRamSize);
 
-    READ_ADAPTER_REGISTER(Adapter, SHARED_RAM_PAGING, &AipSharedRamPaging);
+            if (Status != NDIS_STATUS_SUCCESS) {
 
+                NdisUnmapIoSpace(Adapter->NdisAdapterHandle,
+                                 Adapter->MmioRegion,
+                                 0x2000);
+
+                NdisWriteErrorLogEntry(
+                    Adapter->NdisAdapterHandle,
+                    NDIS_ERROR_CODE_RESOURCE_CONFLICT,
+                    0
+                    );
+
+                return(FALSE);
+
+            }
+
+            Adapter->MappedSharedRam = SharedRamSize;
+
+        }
+
+
+
+        //
+        // Get the interrupt level...note that a switch being
+        // "off" shows up as a 1, "on" is 0.
+        //
+
+        switch (SwitchRead1 & 0x03) {
+
+            case 0: InterruptLevel = 2; break;
+            case 1: InterruptLevel = 3; break;
+            case 2: InterruptLevel = (Adapter->UsingPcIoBus)?6:10; break;
+            case 3: InterruptLevel = (Adapter->UsingPcIoBus)?7:11; break;
+
+        }
+
+        Adapter->InterruptLevel = InterruptLevel;
+
+        //
+        // Now determine how much memory the adapter has, and
+        // whether to use Shared RAM paging.
+        //
+
+        Adapter->UpperSharedRamZero = FALSE;
+
+        READ_ADAPTER_REGISTER(Adapter, TOTAL_ADAPTER_RAM, &RegValue);
+
+        RegValue &= 0x0F;
+
+        switch (RegValue) {
+
+            //
+            // These values are described on page 7-26 of the
+            // Technical Reference.
+            //
+
+            case 0xf:
+
+                Adapter->TotalSharedRam = SharedRamSize;
+                break;
+
+            case 0xe:
+
+                Adapter->TotalSharedRam = 0x2000;
+                break;
+
+            case 0xd:
+
+                Adapter->TotalSharedRam = 0x4000;
+                break;
+
+            case 0xc:
+
+                Adapter->TotalSharedRam = 0x8000;
+                break;
+
+            case 0xb:
+
+                Adapter->TotalSharedRam = 0x10000;
+
+                Adapter->UpperSharedRamZero = TRUE;
+                break;
+
+            case 0xa:
+
+                Adapter->TotalSharedRam = 0x10000;
+                break;
+
+            default:
+
+                NdisWriteErrorLogEntry(
+                    Adapter->NdisAdapterHandle,
+                    NDIS_ERROR_CODE_UNSUPPORTED_CONFIGURATION,
+                    3,
+                    hardwareDetails,
+                    IBMTOK_ERRMSG_UNSUPPORTED_RAM,
+                    (ULONG)RegValue
+                    );
+
+                NdisUnmapIoSpace(Adapter->NdisAdapterHandle,
+                                 Adapter->MmioRegion,
+                                 0x2000);
+
+                if (Adapter->UsingPcIoBus) {
+                    NdisUnmapIoSpace(
+                        Adapter->NdisAdapterHandle,
+                        Adapter->SharedRam,
+                        SharedRamSize);
+                } else {
+                    NdisUnmapIoSpace(
+                        Adapter->NdisAdapterHandle,
+                        Adapter->SharedRam,
+                        SharedRamSize);
+                }
+
+                return FALSE;
+
+        }
+
+        //
+        // Only allow Shared RAM paging if we have 16K selected
+        // on SharedRamSize, 64K of total adapter memory, and it is allowed
+        // as specified on p. 7-26 of the Technical Reference.
+        //
+
+        READ_ADAPTER_REGISTER(Adapter, SHARED_RAM_PAGING, &AipSharedRamPaging);
 #if 0
-    if (SharedRamSize == 0x4000 &&
-        Adapter->TotalSharedRam == 0x10000 &&
-        (AipSharedRamPaging == 0xe || AipSharedRamPaging == 0xc)) {
+        if (SharedRamSize == 0x4000 &&
+            Adapter->TotalSharedRam == 0x10000 &&
+            (AipSharedRamPaging == 0xe || AipSharedRamPaging == 0xc)) {
 
-        Adapter->SharedRamPaging = TRUE;
+            Adapter->SharedRamPaging = TRUE;
 
-    } else {
+        } else {
 
-        Adapter->SharedRamPaging = FALSE;
+            Adapter->SharedRamPaging = FALSE;
 
-    }
+        }
 #else
-    Adapter->SharedRamPaging = FALSE;
+        Adapter->SharedRamPaging = FALSE;
 #endif
+    }
 
 
     //
@@ -5254,5 +5904,3 @@ Return Value:
     return TRUE;
 
 }
-
-

@@ -7,4 +7,3 @@ typedef struct {
 		int *fNew; 
 		int bpc, cwFrame;
 } ENV;
-

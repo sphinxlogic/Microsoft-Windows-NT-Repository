@@ -127,7 +127,7 @@ Return Value:
     AlLmsvcsGlobalData = LmsvcsGlobalData;
 
     IF_DEBUG(MAIN) {
-        NetpDbgPrint("In the alerter service!!\n");
+        NetpKdPrint(("In the alerter service!!\n"));
     }
 
     AlDone = FALSE;
@@ -266,8 +266,8 @@ Return Value:
     }
     else {
         IF_DEBUG(MAIN) {
-            NetpDbgPrint("Mailslot %ws created, handle=x%08lx\n",
-                         ALERTER_MAILSLOT, AlGlobalData.MailslotHandle);
+            NetpKdPrint(("Mailslot %ws created, handle=x%08lx\n",
+                         ALERTER_MAILSLOT, AlGlobalData.MailslotHandle));
         }
     }
 
@@ -286,7 +286,7 @@ Return Value:
     }
 
     IF_DEBUG(MAIN) {
-        NetpDbgPrint("[Alerter] Successful Initialization\n");
+        NetpKdPrint(("[Alerter] Successful Initialization\n"));
     }
 
     return NERR_Success;
@@ -354,7 +354,7 @@ Return Value:
                 return;
             }
 
-            NetpDbgPrint("[Alerter] Error reading from mailslot %lu\n", status);
+            NetpKdPrint(("[Alerter] Error reading from mailslot %lu\n", status));
         }
         else {
 
@@ -363,8 +363,8 @@ Return Value:
             //
 
             IF_DEBUG(MAIN) {
-                NetpDbgPrint("[Alerter] Successfully read %lu bytes from mailslot\n",
-                             NumberOfBytesRead);
+                NetpKdPrint(("[Alerter] Successfully read %lu bytes from mailslot\n",
+                             NumberOfBytesRead));
             }
 
             try {
@@ -407,7 +407,7 @@ Return Value:
 
             }
             except (EXCEPTION_EXECUTE_HANDLER) {
-                NetpDbgPrint("[Alerter] Exception occurred processing alerts\n");
+                NetpKdPrint(("[Alerter] Exception occurred processing alerts\n"));
             }
         }
 
@@ -467,8 +467,8 @@ Return Value:
     if (AlGlobalData.MailslotHandle != (HANDLE) MAXULONG) {
 
         if (! CloseHandle(AlGlobalData.MailslotHandle)) {
-            NetpDbgPrint("[Alerter]] Could not remove mailslot %lu\n",
-                         GetLastError());
+            NetpKdPrint(("[Alerter]] Could not remove mailslot %lu\n",
+                         GetLastError()));
         }
 
         AlGlobalData.MailslotHandle = (HANDLE) MAXULONG;
@@ -530,8 +530,8 @@ Return Value:
 
         case AlErrorRegisterControlHandler:
 
-            NetpDbgPrint("[Alerter] Cannot register control handler "
-                        FORMAT_API_STATUS "\n", Status);
+            NetpKdPrint(("[Alerter] Cannot register control handler "
+                        FORMAT_API_STATUS "\n", Status));
 
             SubString[0] = ultow(Status, StatusString, 10);
             AlLogEvent(
@@ -545,8 +545,8 @@ Return Value:
 
         case AlErrorCreateMailslot:
 
-            NetpDbgPrint("[Alerter] Cannot create mailslot " FORMAT_API_STATUS "\n",
-                         Status);
+            NetpKdPrint(("[Alerter] Cannot create mailslot " FORMAT_API_STATUS "\n",
+                         Status));
             SubString[0] = ultow(Status, StatusString, 10);
             AlLogEvent(
                 NELOG_Mail_Slt_Err,
@@ -559,7 +559,7 @@ Return Value:
 
         case AlErrorNotifyServiceController:
 
-            NetpDbgPrint("[Alerter] SetServiceStatus error %lu\n", Status);
+            NetpKdPrint(("[Alerter] SetServiceStatus error %lu\n", Status));
 
             SubString[0] = ultow(Status, StatusString, 10);
             AlLogEvent(
@@ -573,7 +573,7 @@ Return Value:
 
         case AlErrorGetComputerName:
 
-            NetpDbgPrint("[Alerter] Error in getting computer name %lu.\n", Status);
+            NetpKdPrint(("[Alerter] Error in getting computer name %lu.\n", Status));
 
             SubString[0] = ultow(Status, StatusString, 10);
             AlLogEvent(
@@ -607,8 +607,8 @@ Return Value:
             break;
 
         default:
-            NetpDbgPrint("[Alerter] AlHandleError: unknown error condition %lu\n",
-                         FailingCondition);
+            NetpKdPrint(("[Alerter] AlHandleError: unknown error condition %lu\n",
+                         FailingCondition));
 
             NetpAssert(FALSE);
     }
@@ -642,9 +642,9 @@ Return Value:
 
 
     if (AlGlobalData.StatusHandle == (SERVICE_STATUS_HANDLE) NULL) {
-        NetpDbgPrint(
+        NetpKdPrint((
             "[Alerter] Cannot call SetServiceStatus, no status handle.\n"
-            );
+            ));
 
         return ERROR_INVALID_HANDLE;
     }
@@ -654,7 +654,7 @@ Return Value:
         status = GetLastError();
 
         IF_DEBUG(MAIN) {
-            NetpDbgPrint("[Alerter] SetServiceStatus error %lu\n", status);
+            NetpKdPrint(("[Alerter] SetServiceStatus error %lu\n", status));
         }
     }
 
@@ -685,7 +685,7 @@ Return Value:
 --*/
 {
     IF_DEBUG(MAIN) {
-        NetpDbgPrint("[Alerter] In Control Handler\n");
+        NetpKdPrint(("[Alerter] In Control Handler\n"));
     }
 
     switch (Opcode) {
@@ -695,7 +695,7 @@ Return Value:
             if (AlGlobalData.Status.dwCurrentState != SERVICE_STOP_PENDING) {
 
                 IF_DEBUG(MAIN) {
-                    NetpDbgPrint("[Alerter] Stopping alerter...\n");
+                    NetpKdPrint(("[Alerter] Stopping alerter...\n"));
                 }
 
                 AlShutdownAlerter(NERR_Success);
@@ -709,8 +709,8 @@ Return Value:
 
         default:
             IF_DEBUG(MAIN) {
-                NetpDbgPrint("Unknown alerter opcode " FORMAT_HEX_DWORD
-                             "\n", Opcode);
+                NetpKdPrint(("Unknown alerter opcode " FORMAT_HEX_DWORD
+                             "\n", Opcode));
             }
     }
 

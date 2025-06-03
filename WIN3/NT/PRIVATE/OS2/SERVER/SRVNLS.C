@@ -30,6 +30,11 @@ Revision History:
 #include <stdio.h>
 #include <string.h>
 
+#include "os2crt.h"
+
+// Flag to let OS2SRV know whether or not to ignore LOGOFF (when started as a service)
+extern BOOLEAN fService;
+
 //
 // Counted String
 //
@@ -103,7 +108,7 @@ extern ULONG    Os2ssCountryCode;
 extern ULONG    Os2ssCodePage[2];
 extern UCHAR    Os2ssKeyboardLayout[2];
 #if PMNT
-extern UCHAR    Os2ssKeyboardName[5];
+extern UCHAR    Os2ssKeyboardName[4];
 #endif
 extern ULONG    Os2ssKeysOnFlag;
 extern ULONG    Os2SrvExitNow;
@@ -472,6 +477,14 @@ Os2SrvEventHandlerRoutine(
         KdPrint(("OS2SRV(EventHandlerRoutine):  Ctr-Type %u\n", CtrlType));
     }
 #endif
+
+    if ((CtrlType == CTRL_LOGOFF_EVENT) && fService)
+    {
+#if DBG
+        DbgPrint("OS2SRV: running as a service - ignoring CTRL_LOGOFF_EVENT !\n");
+#endif //DBG
+        return FALSE;
+    }
 
     if ((CtrlType == CTRL_CLOSE_EVENT) ||
         (CtrlType == CTRL_LOGOFF_EVENT) ||
@@ -949,16 +962,129 @@ Return Value:
     ServerSesGrp.KeyboardCountry = CTRY_UNITED_STATES;
 
 #if PMNT
-    if (Os2ssKeyboardName[0] && Os2ssKeyboardName[1] && Os2ssKeyboardName[2])
+    // Keyboard sub-code must be 3 digits or 4 (Swiss-german 150G + 150F only)
+    // Check that we have at least 3 valid digits.
+    // Note that the string is padded with blanks (not null-terminated)
+    if (isdigit(Os2ssKeyboardName[0])
+        && isdigit(Os2ssKeyboardName[1])
+        && isdigit(Os2ssKeyboardName[2]))
     {
             memcpy(&ServerSesGrp.KeyboardName[0],
                    &Os2ssKeyboardName[0],
-                   5);
+                   4);
     }
     else
     {
-        // Use US default keyboard
-        strcpy(&ServerSesGrp.KeyboardName[0], "103 ");
+        // Keyboard layout not specified or in incorrect format. Pick default
+        // layout according to specified keyboard layout. See OS/2
+        // documentation (user's guide)
+        if (!strnicmp(&Os2ssKeyboardLayout[0], "BE", 2)) // Belgium
+        {
+            memcpy(&ServerSesGrp.KeyboardName[0],
+                   "120 ",
+                   4);
+        }
+        else if (!strnicmp(&Os2ssKeyboardLayout[0], "CF", 2)) // Canada (French)
+        {
+            memcpy(&ServerSesGrp.KeyboardName[0],
+                   "058 ",
+                   4);
+        }
+        else if (!strnicmp(&Os2ssKeyboardLayout[0], "DK", 2)) // Denmark
+        {
+            memcpy(&ServerSesGrp.KeyboardName[0],
+                   "159 ",
+                   4);
+        }
+        else if (!strnicmp(&Os2ssKeyboardLayout[0], "FR", 2)) // France
+        {
+            memcpy(&ServerSesGrp.KeyboardName[0],
+                   "189 ", // Other possible choice is 120
+                   4);
+        }
+        else if (!strnicmp(&Os2ssKeyboardLayout[0], "GR", 2)) // Germany
+        {
+            memcpy(&ServerSesGrp.KeyboardName[0],
+                   "129 ",
+                   4);
+        }
+        else if (!strnicmp(&Os2ssKeyboardLayout[0], "IT", 2)) // Italy
+        {
+            memcpy(&ServerSesGrp.KeyboardName[0],
+                   "141 ",  // Other possible choice is 142
+                   4);
+        }
+        else if (!strnicmp(&Os2ssKeyboardLayout[0], "LA", 2)) // Latin America
+        {
+            memcpy(&ServerSesGrp.KeyboardName[0],
+                   "171 ",
+                   4);
+        }
+        else if (!strnicmp(&Os2ssKeyboardLayout[0], "NL", 2)) // Netherlands
+        {
+            memcpy(&ServerSesGrp.KeyboardName[0],
+                   "143 ",
+                   4);
+        }
+        else if (!strnicmp(&Os2ssKeyboardLayout[0], "NO", 2)) // Norway
+        {
+            memcpy(&ServerSesGrp.KeyboardName[0],
+                   "155 ",
+                   4);
+        }
+        else if (!strnicmp(&Os2ssKeyboardLayout[0], "PO", 2)) // Poland
+        {
+            memcpy(&ServerSesGrp.KeyboardName[0],
+                   "163 ",
+                   4);
+        }
+        else if (!strnicmp(&Os2ssKeyboardLayout[0], "SF", 2)) // Switerland (FR)
+        {
+            memcpy(&ServerSesGrp.KeyboardName[0],
+                   "150F",
+                   4);
+        }
+        else if (!strnicmp(&Os2ssKeyboardLayout[0], "SG", 2)) // Switzerland (GR)
+        {
+            memcpy(&ServerSesGrp.KeyboardName[0],
+                   "150G",
+                   4);
+        }
+        else if (!strnicmp(&Os2ssKeyboardLayout[0], "SP", 2)) // Spain
+        {
+            memcpy(&ServerSesGrp.KeyboardName[0],
+                   "172 ",
+                   4);
+        }
+        else if (!strnicmp(&Os2ssKeyboardLayout[0], "SU", 2)) // Finland
+        {
+            memcpy(&ServerSesGrp.KeyboardName[0],
+                   "153 ",
+                   4);
+        }
+        else if (!strnicmp(&Os2ssKeyboardLayout[0], "SV", 2)) // Sweden
+        {
+            memcpy(&ServerSesGrp.KeyboardName[0],
+                   "153 ",
+                   4);
+        }
+        else if (!strnicmp(&Os2ssKeyboardLayout[0], "UK", 2)) // UK
+        {
+            memcpy(&ServerSesGrp.KeyboardName[0],
+                   "166 ", // Other possible choice is 168
+                   4);
+        }
+        else if (!strnicmp(&Os2ssKeyboardLayout[0], "US", 2)) // US
+        {
+            memcpy(&ServerSesGrp.KeyboardName[0],
+                   "103 ",
+                   4);
+        }
+        else
+        {
+            // Use US default keyboard
+            strcpy(&ServerSesGrp.KeyboardName[0], "103 ");
+        }
     }
 #endif
 
@@ -1059,7 +1185,7 @@ ReadKeyboardLayoutFromRegistry(
 {
     LONG        Rc;
     DWORD       ValueType;
-    DWORD	DataSize = 40;
+    DWORD       DataSize = 40;
     WCHAR       DataBuffer[40];
 #ifdef JAPAN
 // MSKK Jul.29.1993 V-AkihiS
@@ -1078,6 +1204,37 @@ ReadKeyboardLayoutFromRegistry(
                 (LPBYTE)&DataBuffer[0],
                 &DataSize
                );
+
+    if ((Rc == ERROR_FILE_NOT_FOUND) || (Rc == ERROR_KEY_DELETED))
+    {
+        if (KeyboardLayoutKeyHandle)
+        {
+            RegCloseKey(KeyboardLayoutKeyHandle);
+            KeyboardLayoutKeyHandle = NULL;
+        }
+
+        //
+        // In NT4 the key was changed - try it.
+        //
+        Rc = RegOpenKeyExW(
+                    HKEY_CURRENT_USER,
+                    L"Keyboard Layout\\Preload",
+                    0,
+                    KEY_READ,
+                    &KeyboardLayoutKeyHandle
+                   );
+        if (Rc == ERROR_SUCCESS)
+        {
+            Rc = RegQueryValueExW(
+                        KeyboardLayoutKeyHandle,
+                        L"1",
+                        NULL,
+                        &ValueType,
+                        (LPBYTE)&DataBuffer[0],
+                        &DataSize
+                       );
+        }
+    }
 
     if (Rc != ERROR_SUCCESS)
     {
@@ -1187,8 +1344,8 @@ Return Value:
     {
         Rc = RegNotifyChangeKeyValue(
                     KeyboardLayoutKeyHandle,
-                    FALSE,                          // no subkeys
-                    REG_NOTIFY_CHANGE_LAST_SET,
+                    TRUE,
+                    REG_NOTIFY_CHANGE_LAST_SET | REG_NOTIFY_CHANGE_NAME,
                     hKeyEvent,                      // hEvent (async)
                     TRUE                            // aSync
                    );
@@ -1202,7 +1359,7 @@ Return Value:
                           Rc));
             }
 #endif
-            continue;
+            return(0);
         }
 
         WaitForSingleObject( hKeyEvent, INFINITE );
@@ -1214,8 +1371,32 @@ Return Value:
         {
             break;
         }
+
+        while ((Rc == ERROR_FILE_NOT_FOUND) || (Rc == ERROR_KEY_DELETED))
+        {
+            //
+            // In NT4 the when the key is being updated, it's actually
+            // being deleted and recreated. We may have to wait for its
+            // recreaction.
+            //
+#if DBG
+            IF_OS2_DEBUG2( KBD, NLS )
+            {
+                KdPrint(("GetKeyboardRegistryChange: Waiting for registry key to be created.\n"));
+            }
+#endif // DBG
+            Sleep(200L);    // 0.2 sec
+            Rc = ReadKeyboardLayoutFromRegistry(&KeyBoardCountry);
+
+            if ((Rc == 0) && KeyBoardCountry &&
+                (KeyBoardCountry != ServerSesGrp.KeyboardCountry))
+            {
+                goto Change;
+            }
+        }
     }
 
+Change:
 #if DBG
     IF_OS2_DEBUG2( KBD, NLS )
     {

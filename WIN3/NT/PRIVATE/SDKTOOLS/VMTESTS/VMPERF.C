@@ -647,9 +647,8 @@ FinishBenchMark(
 
     NtQuerySystemTime( (PLARGE_INTEGER)&PerfInfo->StopTime );
 
-    Delta = RtlLargeIntegerSubtract( PerfInfo->StopTime,
-                                     PerfInfo->StartTime
-                                   );
+    Delta.QuadPart = PerfInfo->StopTime.QuadPart -
+                                     PerfInfo->StartTime.QuadPart;
 
     TotalMilliSeconds = Delta.LowPart / 10000;
 

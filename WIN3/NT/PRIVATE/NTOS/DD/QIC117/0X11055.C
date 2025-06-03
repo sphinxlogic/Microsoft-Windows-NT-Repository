@@ -14,10 +14,24 @@
 * HISTORY:
 *		$Log:   J:\se.vcs\driver\q117cd\src\0x11055.c  $
 *	
+*	   Rev 1.4   15 May 1995 10:48:18   GaryKiwi
+*	Phoenix merge from CBW95s
+*	
+*	   Rev 1.3.1.0   11 Apr 1995 18:04:50   garykiwi
+*	PHOENIX pass #1
+*	
+*	   Rev 1.4   26 Jan 1995 14:59:44   BOBLEHMA
+*	Added support for the Phoenix drive QIC_80W.
+*	
+*	   Rev 1.3   15 Dec 1994 09:03:16   MARKMILL
+*	Added a case to the main switch statement for a QIC-3020 tape in a QIC-3010
+*	drive.  In this case, we want to allow format operations, but an error
+*	needs to be returned to indicate that an incompatible format was encountered.
+*
 *	   Rev 1.2   03 Jun 1994 15:30:20   BOBLEHMA
 *	Changed to use the drive type defines from the frb_api.h header.
 *	Defines from cqd_defs.h contain different values and can't be interchanged.
-*	
+*
 *	   Rev 1.1   17 Feb 1994 15:39:42   KEVINKES
 *	Fixed a semicolon idiocy.
 *
@@ -99,6 +113,29 @@ dStatus cqd_CheckMediaCompatibility
 
 		break;
 
+	case QIC80W_DRIVE:
+
+		switch (cqd_context->tape_cfg.tape_class) {
+
+		case QIC40_FMT:
+
+			cqd_context->tape_cfg.formattable_media = dTRUE;
+			cqd_context->tape_cfg.read_only_media = dTRUE;
+			break;
+
+		case QIC80_FMT:
+
+			cqd_context->tape_cfg.formattable_media = dTRUE;
+			cqd_context->tape_cfg.read_only_media = dFALSE;
+			break;
+
+		default:
+
+   	   status =  kdi_Error(ERR_UNSUPPORTED_FORMAT, FCT_ID, ERR_SEQ_2);
+		}
+
+		break;
+
 	case QIC3010_DRIVE:
 
 		switch (cqd_context->tape_cfg.tape_class) {
@@ -114,6 +151,13 @@ dStatus cqd_CheckMediaCompatibility
 
 			cqd_context->tape_cfg.formattable_media = dTRUE;
 			cqd_context->tape_cfg.read_only_media = dFALSE;
+			break;
+
+		case QIC3020_FMT:
+			cqd_context->tape_cfg.formattable_media = dTRUE;
+			cqd_context->tape_cfg.read_only_media = dFALSE;
+
+   	   status =  kdi_Error(ERR_UNSUPPORTED_FORMAT, FCT_ID, ERR_SEQ_3);
 			break;
 
 		default:

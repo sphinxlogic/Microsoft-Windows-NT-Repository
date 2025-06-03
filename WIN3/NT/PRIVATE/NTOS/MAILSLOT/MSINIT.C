@@ -75,6 +75,11 @@ Return Value:
     MsInitializeData();
 
     //
+    // Set driver to be completely paged out.
+    //
+    MmPageEntireDriver(DriverEntry);
+
+    //
     // Create the MSFS device object.
     //
 
@@ -136,6 +141,17 @@ Return Value:
     DriverObject->MajorFunction[IRP_MJ_SET_SECURITY] =
         (PDRIVER_DISPATCH)MsFsdSetSecurityInfo;
 
+#ifdef _PNP_POWER_
+    //
+    // Mailslots should probably have a SetPower handler to ensure
+    // that the driver is not powered down while a guarateed
+    // mailslot delivery is in progress.   For now, we'll just
+    // ignore this and let the machine set power.
+    //
+
+    deviceObject->DeviceObjectExtension->PowerControlNeeded = FALSE;
+#endif
+
     vcbInitialized = FALSE;
 
     try {
@@ -175,4 +191,3 @@ Return Value:
 
     return( status );
 }
-

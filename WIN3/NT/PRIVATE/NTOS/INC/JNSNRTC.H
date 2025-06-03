@@ -166,4 +166,3 @@ typedef struct _RTC_RAM_NT_FLAGS_0 {
 #define MAXIMUM_RATE_SELECT RTC_RATE_SELECT4
 
 #endif // _JNSNRTC_
-

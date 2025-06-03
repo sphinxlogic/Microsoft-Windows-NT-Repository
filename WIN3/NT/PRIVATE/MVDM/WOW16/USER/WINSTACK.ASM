@@ -24,7 +24,9 @@
 ifdef WOW
 NOEXTERNS equ 1
 endif
+.xlist
 include user.inc
+.list
 
 ;
 ; Short jump macro

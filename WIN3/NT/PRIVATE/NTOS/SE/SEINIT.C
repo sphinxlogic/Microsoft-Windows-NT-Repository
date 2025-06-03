@@ -59,7 +59,7 @@ Return Value:
 --*/
 
 {
-    PAGED_CODE(); 
+    PAGED_CODE();
 
     switch ( InitializationPhase ) {
 
@@ -172,7 +172,8 @@ Return Value:
     //
 
     PsGetCurrentProcess()->Token = SeMakeSystemToken();
-    PsGetCurrentThread()->Client = NULL;
+    PsGetCurrentThread()->ImpersonationInfo = NULL;
+    PsGetCurrentThread()->ActiveImpersonationInfo = FALSE;
 
     return TRUE;
 }
@@ -261,7 +262,7 @@ Return Value:
         &UnicodeName,
         (OBJ_PERMANENT | OBJ_CASE_INSENSITIVE),
         SecurityRoot,
-        NULL
+        SePublicDefaultSd
         );
 
     Status = NtCreateEvent(

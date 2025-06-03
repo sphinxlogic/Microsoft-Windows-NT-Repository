@@ -41,23 +41,23 @@ Revision History:
 
 #define REPLICATION_ENABLED
 
-typedef NTSTATUS                                        \
-            (*PI_NETNOTIFYDELTA) (                      \
-                IN SECURITY_DB_TYPE DbType,             \
-                IN LARGE_INTEGER ModificationCount,     \
-                IN SECURITY_DB_DELTA_TYPE DeltaType,    \
-                IN SECURITY_DB_OBJECT_TYPE ObjectType,  \
-                IN ULONG ObjectRid,                     \
-                IN PSID ObjectSid,                      \
-                IN PUNICODE_STRING ObjectName,          \
-                IN DWORD ReplicationImmediately,        \
-                IN PSAM_DELTA_DATA MemberId             \
+typedef NTSTATUS
+            (*PI_NETNOTIFYDELTA) (
+                IN SECURITY_DB_TYPE DbType,
+                IN LARGE_INTEGER ModificationCount,
+                IN SECURITY_DB_DELTA_TYPE DeltaType,
+                IN SECURITY_DB_OBJECT_TYPE ObjectType,
+                IN ULONG ObjectRid,
+                IN PSID ObjectSid,
+                IN PUNICODE_STRING ObjectName,
+                IN DWORD ReplicationImmediately,
+                IN PSAM_DELTA_DATA MemberId
             );
 
 
-typedef NTSTATUS                                        \
-            (*PI_NETNOTIFYROLE) (                       \
-                IN POLICY_LSA_SERVER_ROLE Role          \
+typedef NTSTATUS
+            (*PI_NETNOTIFYROLE) (
+                IN POLICY_LSA_SERVER_ROLE Role
             );
 
 typedef NTSTATUS
@@ -74,6 +74,11 @@ typedef NTSTATUS
                 IN  PUNICODE_STRING DomainName,
                 OUT PUNICODE_STRING Buffer
         );
+
+typedef NTSTATUS
+            (*PI_NETNOTIFYNETLOGONDLLHANDLE) (
+                IN PHANDLE Role
+            );
 
 //
 // Global status
@@ -111,6 +116,7 @@ Return Value:
 --*/
 {
     static NTSTATUS DllLoadStatus = STATUS_SUCCESS;
+    PI_NETNOTIFYNETLOGONDLLHANDLE pI_NetNotifyNetlogonDllHandle = NULL;
     HANDLE DllHandle = NULL;
 
 
@@ -237,12 +243,30 @@ Return Value:
     }
 
 
+    //
+    // Find the address of the I_NetNotifyNetlogonDllHandle procedure.
+    //  This is an optional procedure so don't complain if it isn't there.
+    //
+
+    pI_NetNotifyNetlogonDllHandle = (PI_NETNOTIFYNETLOGONDLLHANDLE)
+        GetProcAddress( DllHandle, "I_NetNotifyNetlogonDllHandle" );
+
+
 
     DllLoadStatus = STATUS_SUCCESS;
 
 Cleanup:
     if (DllLoadStatus == STATUS_SUCCESS) {
         NetlogonDllHandle = DllHandle;
+
+        //
+        // Notify Netlogon that we've loaded it.
+        //
+
+        if( pI_NetNotifyNetlogonDllHandle != NULL ) {
+            (VOID) (*pI_NetNotifyNetlogonDllHandle)( &NetlogonDllHandle );
+        }
+
     } else {
         if ( DllHandle != NULL ) {
             FreeLibrary( DllHandle );

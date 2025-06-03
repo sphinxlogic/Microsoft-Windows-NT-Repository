@@ -360,13 +360,11 @@ Initial revision.
 #define   MIN_FONT_CASE                 0
 #define   MAX_FONT_CASE                 0x0008
 
-#ifdef JAPAN
-#define   FONT_NAME                     TEXT("System")
-#define   FONT_SIZE                     10
-#else
-#define   FONT_NAME                     TEXT("MS Sans Serif")
-#define   FONT_SIZE                     8
-#endif
+BOOLEAN IS_JAPAN( void ) ;
+                                        
+#define   FONT_NAME                     (IS_JAPAN()?TEXT("SYSTEM"):TEXT("MS Sans Serif"))
+#define   FONT_SIZE                     (IS_JAPAN()?10:8)
+
 #define   FONT_WEIGHT                   400
 #define   FONT_LOWERCASE                0x0001
 #define   FONT_ITALICS                  0x0005
@@ -490,6 +488,11 @@ typedef struct CDS {
      WINSIZE   debug_info ;                  // debug window size and position
      WINSIZE   runtime_info ;                // debug window size and position
 
+#ifdef OEM_EMS
+     WINSIZE   exchange_info ;               // exchange window size and position
+     INT16     show_exchange  ;              // flag for showing exchange window.
+#endif
+
      UINT16    launcher_flag ;               // launcher settings flag
      BOOL      include_subdirs_flag ;        // include subdirs in selections
      UINT16    backup_type ;                 // default backup type - incremental, etc...
@@ -590,6 +593,7 @@ VOID       CDS_SaveDlgWinSize ( LPSTR, HWND );
 VOID       CDS_SaveMDIWinSize ( LPSTR, HWND );
 
 VOID       CDS_CheckForBadPaths ( VOID );
+VOID       CDS_SaveDisplayConfig ( VOID );
 
 // FUNCTION MACROS
 
@@ -754,6 +758,16 @@ VOID       CDS_CheckForBadPaths ( VOID );
 #define CDS_GetServerSize( x )               ( (x)->server_info.nSize )
 #define CDS_SetServerSize( x, v )            ( (x)->server_info.nSize = ( v ) )
 
+#ifdef OEM_EMS
+#define CDS_GetDisplayExchange( x )          ( (x)->show_exchange )
+#define CDS_SetDisplayExchange( x, v )       ( (x)->show_exchange = CDS_MAX( CDS_MIN( (v), CDS_ENABLE ), CDS_DISABLE ) )
+
+#define CDS_GetExchangeInfo( x )              ( (x)->exchange_info )
+#define CDS_SetExchangeInfo( x, v )           ( (x)->exchange_info = ( v ) )
+#define CDS_GetExchangeSize( x )              ( (x)->exchange_info.nSize )
+#define CDS_SetExchangeSize( x, v )           ( (x)->exchange_info.nSize = ( v ) )
+#endif
+
 #define CDS_GetLogInfo( x )                  ( (x)->log_info )
 #define CDS_SetLogInfo( x, v )               ( (x)->log_info = ( v ) )
 #define CDS_GetLogSize( x )                  ( (x)->log_info.nSize )
@@ -789,6 +803,11 @@ VOID       CDS_CheckForBadPaths ( VOID );
 
 #define CDS_GetEnableStatsFlag( x )          ( (x)->enable_stats_flag )
 #define CDS_SetEnableStatsFlag( x, v )       ( (x)->enable_stats_flag = CDS_MAX( CDS_MIN( (v), CDS_ENABLE ), CDS_DISABLE ) )
+
+#ifdef OEM_EMS
+#define CDS_GetUsrShareFlag( x )             ( (x)->usr_share_flag )
+#define CDS_GetSysShareFlag( x )             ( (x)->sys_share_flag )
+#endif
 
 #define CDS_GetSearchLimit( x )              ( (x)->search_limit )
 #define CDS_SetSearchLimit( x, v )           ( (x)->search_limit = CDS_MAX( CDS_MIN( (v), SEARCH_MAX ), SEARCH_MIN ) )

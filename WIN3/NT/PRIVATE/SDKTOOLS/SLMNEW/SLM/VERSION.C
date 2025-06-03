@@ -1,13 +1,7 @@
 /* version.h */
 
-#include "slm.h"
-#include "sys.h"
-#include "util.h"
-#include "stfile.h"
-#include "ad.h"
-
-#include "proto.h"
-
+#include "precomp.h"
+#pragma hdrstop
 EnableAssert
 
 private void ClearLocalVersion(P1(AD *pad));
@@ -79,7 +73,8 @@ UpdateVersion(
 
             /* Update users to copy-in state. */
             for (ied = 0; ied < pad->psh->iedMac; ied++)
-                CopyInVer(pad, ied, pfi);
+                if (!FIsFreeEdValid(pad->psh) || !pad->rged[ied].fFreeEd)
+                    CopyInVer(pad, ied, pfi);
         }
     }
 }

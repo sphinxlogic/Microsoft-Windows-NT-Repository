@@ -17,6 +17,10 @@
 #include "simpcntr.h"
 #include "resource.h"
 
+extern "C" void TestDebugOut(LPSTR psz);
+
+
+
 #ifndef WIN32
 /* Since OLE is part of the operating system in Win32, we don't need to
  * check the version number in Win32.
@@ -26,4 +30,3 @@
 
 
 #endif
-

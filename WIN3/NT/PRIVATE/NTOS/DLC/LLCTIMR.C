@@ -196,13 +196,11 @@ Return Value:
                 // when we are processing it.
                 //
 
-                for (pTimer = pTick->pFront->pNext;
+                for (pTimer = pTick->pFront;
                      pTimer && pTimer->ExpirationTime <= AbsoluteTime;
                      pTimer = pNextTimer) {
 
-                    if (pTimer != pTick->pFront) {
-                        pNextTimer = pTimer->pNext;
-                    } else {
+                    if ( (pNextTimer = pTimer->pNext) == pTick->pFront) {
                         pNextTimer = NULL;
                     }
 

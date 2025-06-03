@@ -164,4 +164,3 @@ extern UINT       cfFileName;
 #define ID_NULL                         98
 
 #endif //_COMMON_H_
-

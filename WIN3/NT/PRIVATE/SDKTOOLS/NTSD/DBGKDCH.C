@@ -21,8 +21,9 @@ Revision History:
 
 --*/
 
-#include "dbgpnt.h"
+#define _NTSYSTEM_
 #include "ntsdp.h"
+#include "dbgpnt.h"
 #include <xxsetjmp.h>
 
 
@@ -37,8 +38,8 @@ ULONG KdMaxCacheSize = 100*1024;
 ULONG KdCacheMisses;
 ULONG KdCacheSize;
 ULONG KdNodeCount;
-BOOLEAN KdPurgeOverride   = FALSE;
-BOOLEAN KdCacheDecodePTEs = FALSE;
+BOOLEAN KdPurgeOverride;
+BOOLEAN KdCacheDecodePTEs = TRUE;
 
 typedef struct {
     RTL_SPLAY_LINKS     SplayLinks;
@@ -119,7 +120,7 @@ Return Value:
         pchCommand++;
     }
 
-    strlwr (pchCommand);
+    _strlwr (pchCommand);
 
     if (strcmp (pchCommand, "hold") == 0) {
         KdPurgeOverride = TRUE;

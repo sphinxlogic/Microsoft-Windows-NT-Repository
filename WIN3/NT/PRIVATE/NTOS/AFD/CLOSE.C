@@ -54,19 +54,21 @@ Return Value:
     NTSTATUS status;
     PAFD_ENDPOINT endpoint;
     PAFD_CONNECTION connection;
-    KIRQL oldIrql;
+    KIRQL oldIrql1, oldIrql2;
+    KIRQL cancelIrql;
     PLIST_ENTRY listEntry;
     LARGE_INTEGER processExitTime;
 
     endpoint = IrpSp->FileObject->FsContext;
     ASSERT( IS_AFD_ENDPOINT_TYPE( endpoint ) );
 
-    connection = AFD_CONNECTION_FROM_ENDPOINT( endpoint );
-    ASSERT( connection == NULL || connection->Type == AfdBlockTypeConnection );
-
     IF_DEBUG(OPEN_CLOSE) {
-        KdPrint(( "AfdCleanup: cleanup on file object %lx, endpoint %lx, "
-                  "connection %lx\n", IrpSp->FileObject, endpoint, connection ));
+        KdPrint((
+            "AfdCleanup: cleanup on file object %lx, endpoint %lx, connection %lx\n",
+            IrpSp->FileObject,
+            endpoint,
+            AFD_CONNECTION_FROM_ENDPOINT( endpoint )
+            ));
     }
 
     //
@@ -80,14 +82,30 @@ Return Value:
     // are any outstanding polls on this endpoint, they will be
     // completed now.
     //
+    AfdIndicatePollEvent(
+        endpoint,
+        AFD_POLL_LOCAL_CLOSE_BIT,
+        STATUS_SUCCESS
+        );
 
-    AfdIndicatePollEvent( endpoint, AFD_POLL_LOCAL_CLOSE, STATUS_SUCCESS );
+    //
+    // Remember that the endpoint has been cleaned up.  This is important
+    // because it allows AfdRestartAccept to know that the endpoint has
+    // been cleaned up and that it should toss the connection.
+    //
+
+    AfdAcquireSpinLock( &AfdSpinLock, &oldIrql1 );
+    AfdAcquireSpinLock( &endpoint->SpinLock, &oldIrql2 );
+
+    ASSERT( endpoint->EndpointCleanedUp == FALSE );
+    endpoint->EndpointCleanedUp = TRUE;
+
+    connection = AFD_CONNECTION_FROM_ENDPOINT( endpoint );
+    ASSERT( connection == NULL || connection->Type == AfdBlockTypeConnection );
 
     //
     // Complete any outstanding wait for listen IRPs on the endpoint.
     //
-
-    KeAcquireSpinLock( &AfdSpinLock, &oldIrql );
 
     if ( endpoint->Type == AfdBlockTypeVcListening ) {
 
@@ -107,7 +125,8 @@ Return Value:
             // wait for listen IRP.
             //
 
-            KeReleaseSpinLock( &AfdSpinLock, oldIrql );
+            AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql2 );
+            AfdReleaseSpinLock( &AfdSpinLock, oldIrql1 );
 
             //
             // Cancel the IRP.
@@ -120,9 +139,9 @@ Return Value:
             // Reset the cancel routine in the IRP.
             //
 
-            IoAcquireCancelSpinLock( &oldIrql );
+            IoAcquireCancelSpinLock( &cancelIrql );
             IoSetCancelRoutine( waitForListenIrp, NULL );
-            IoReleaseCancelSpinLock( oldIrql );
+            IoReleaseCancelSpinLock( cancelIrql );
 
             IoCompleteRequest( waitForListenIrp, AfdPriorityBoost );
 
@@ -131,9 +150,24 @@ Return Value:
             // loop.
             //
 
-            KeAcquireSpinLock( &AfdSpinLock, &oldIrql );
+            AfdAcquireSpinLock( &AfdSpinLock, &oldIrql1 );
+            AfdAcquireSpinLock( &endpoint->SpinLock, &oldIrql2 );
         }
+
+        //
+        // Free all queued (free, unaccepted, and returned) connections
+        // on the endpoint.
+        //
+
+        AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql2 );
+        AfdReleaseSpinLock( &AfdSpinLock, oldIrql1 );
+        AfdFreeQueuedConnections( endpoint );
+        AfdAcquireSpinLock( &AfdSpinLock, &oldIrql1 );
+        AfdAcquireSpinLock( &endpoint->SpinLock, &oldIrql2 );
+        endpoint->Common.VcListening.FailedConnectionAdds = 0;
     }
+
+    UPDATE_CONN( connection, 0 );
 
     //
     // If this is a connected non-datagram socket and the send side has
@@ -142,16 +176,21 @@ Return Value:
     // is unreceived data out outstanding IO, abort the connection.
     //
 
-    if ( endpoint->State == AfdEndpointStateConnected
+    if ( endpoint->State == AfdEndpointStateConnected && connection != NULL
 
             &&
 
-        endpoint->EndpointType != AfdEndpointTypeDatagram
+        !IS_DGRAM_ENDPOINT(endpoint)
 
             &&
 
-        ( (endpoint->DisconnectMode &
-                (AFD_PARTIAL_DISCONNECT_SEND | AFD_ABORTIVE_DISCONNECT)) == 0)
+        ( (endpoint->DisconnectMode & AFD_ABORTIVE_DISCONNECT) == 0)
+
+            &&
+
+        ( (endpoint->DisconnectMode & AFD_PARTIAL_DISCONNECT_SEND) == 0 ||
+          ( !endpoint->TdiBufferring &&
+            connection->Common.NonBufferring.ReceiveBytesInTransport > 0 ) )
 
             &&
 
@@ -167,7 +206,7 @@ Return Value:
 
              ||
 
-             !RtlLargeIntegerEqualToZero( processExitTime )
+             processExitTime.QuadPart != 0
 
              ||
 
@@ -200,7 +239,7 @@ Return Value:
                               connection->Common.Bufferring.ReceiveExpeditedBytesOutstanding ));
             }
 
-            if ( !RtlLargeIntegerEqualToZero( processExitTime ) ) {
+            if ( processExitTime.QuadPart != 0 ) {
                 KdPrint(( "AfdCleanup: process exiting w/o closesocket, "
                           "aborting endp %lx\n", endpoint ));
             }
@@ -211,21 +250,24 @@ Return Value:
             }
 #endif
 
-            KeReleaseSpinLock( &AfdSpinLock, oldIrql );
+            AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql2 );
+            AfdReleaseSpinLock( &AfdSpinLock, oldIrql1 );
 
             (VOID)AfdBeginAbort( connection );
 
         } else {
 
             endpoint->DisconnectMode |= AFD_PARTIAL_DISCONNECT_RECEIVE;
-            KeReleaseSpinLock( &AfdSpinLock, oldIrql );
+            AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql2 );
+            AfdReleaseSpinLock( &AfdSpinLock, oldIrql1 );
 
-            (VOID)AfdBeginDisconnect( endpoint, NULL );
+            (VOID)AfdBeginDisconnect( endpoint, NULL, NULL );
         }
 
     } else {
 
-        KeReleaseSpinLock( &AfdSpinLock, oldIrql );
+        AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql2 );
+        AfdReleaseSpinLock( &AfdSpinLock, oldIrql1 );
     }
 
     //
@@ -256,13 +298,15 @@ Return Value:
         AfdCompleteIrpList(
             &endpoint->ReceiveDatagramIrpListHead,
             &endpoint->SpinLock,
-            STATUS_CANCELLED
+            STATUS_CANCELLED,
+            AfdCleanupReceiveDatagramIrp
             );
 
         AfdCompleteIrpList(
             &endpoint->PeekDatagramIrpListHead,
             &endpoint->SpinLock,
-            STATUS_CANCELLED
+            STATUS_CANCELLED,
+            AfdCleanupReceiveDatagramIrp
             );
     }
 
@@ -286,6 +330,10 @@ Return Value:
             "Cleanup dgrm",
             endpoint
             );
+        AfdRecordPoolQuotaReturned(
+            endpoint->Common.Datagram.MaxBufferredSendBytes +
+                endpoint->Common.Datagram.MaxBufferredReceiveBytes
+            );
     }
 
     //
@@ -293,37 +341,24 @@ Return Value:
     // cancel all outstanding send and receive IRPs.
     //
 
-    if ( endpoint->Type == AfdBlockTypeVcConnecting ) {
+    if ( connection != NULL ) {
 
         if ( !endpoint->TdiBufferring ) {
 
             AfdCompleteIrpList(
                 &connection->VcReceiveIrpListHead,
                 &endpoint->SpinLock,
-                STATUS_CANCELLED
+                STATUS_CANCELLED,
+                NULL
                 );
 
             AfdCompleteIrpList(
                 &connection->VcSendIrpListHead,
                 &endpoint->SpinLock,
-                STATUS_CANCELLED
+                STATUS_CANCELLED,
+                NULL
                 );
         }
-
-        //
-        // !!! chuckl 6/6/1994
-        //
-        // The following code isn't as clean as it could be.  I am just doing
-        // enough to make it work for the beta.  We use two different fields
-        // to synchronize between this routine and AfdRestartConnect to ensure
-        // that only one of the two routines returns the pool quota for the
-        // connection.  If endpoint->Type is still AfdBlockTypeVcConnecting,
-        // we know that AfdRestartConnect hasn't run (for a failed connect) yet,
-        // so we can return the pool quota.  We set connection->CleanupBegun
-        // to indicate that we have returned the pool quota.
-        //
-
-        KeAcquireSpinLock( &endpoint->SpinLock, &oldIrql );
 
         //
         // Remember that we have started cleanup on this connection.
@@ -331,43 +366,31 @@ Return Value:
         // after we start cleanup on the connection.
         //
 
+        AfdAcquireSpinLock( &endpoint->SpinLock, &oldIrql2 );
         connection->CleanupBegun = TRUE;
-
-        if ( endpoint->Type == AfdBlockTypeVcConnecting ) {
-
-            KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
-
-            //
-            // Return the quota we've charged to the process.
-            //
-
-            ASSERT( endpoint->OwningProcess == IoGetCurrentProcess( ) );
-
-            PsReturnPoolQuota(
-                endpoint->OwningProcess,
-                NonPagedPool,
-                connection->MaxBufferredReceiveBytes + connection->MaxBufferredSendBytes
-                );
-            AfdRecordQuotaHistory(
-                endpoint->OwningProcess,
-                -(LONG)(connection->MaxBufferredReceiveBytes + connection->MaxBufferredSendBytes),
-                "Cleanup vcnb",
-                connection
-                );
-
-        } else {
-            KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
-        }
-
-        //
-        // !!! chuckl 6/6/1994 [end]
-        //
+        AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql2 );
 
         //
         // Attempt to remove the connected reference.
         //
 
-        AfdDeleteConnectedReference( connection );
+        AfdDeleteConnectedReference( connection, FALSE );
+    }
+
+    //
+    // If there is a transmit IRP on the endpoint, cancel it.
+    //
+
+    IoAcquireCancelSpinLock( &cancelIrql );
+    AfdAcquireSpinLock( &endpoint->SpinLock, &oldIrql2 );
+
+    if ( endpoint->TransmitIrp != NULL ) {
+        endpoint->TransmitIrp->CancelIrql = cancelIrql;
+        AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql2 );
+        AfdCancelTransmit( NULL, endpoint->TransmitIrp );
+    } else {
+        AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql2 );
+        IoReleaseCancelSpinLock( cancelIrql );
     }
 
     //
@@ -388,11 +411,9 @@ Return Value:
 
     if ( endpoint->AddressHandle != NULL ) {
 
-        KeAttachProcess( AfdSystemProcess );
-
         if ( endpoint->State == AfdEndpointStateListening ) {
             status = AfdSetEventHandler(
-                         endpoint->AddressHandle,
+                         endpoint->AddressFileObject,
                          TDI_EVENT_CONNECT,
                          NULL,
                          NULL
@@ -400,9 +421,9 @@ Return Value:
             //ASSERT( NT_SUCCESS(status) );
         }
 
-        if ( endpoint->EndpointType == AfdEndpointTypeDatagram ) {
+        if ( IS_DGRAM_ENDPOINT(endpoint) ) {
             status = AfdSetEventHandler(
-                         endpoint->AddressHandle,
+                         endpoint->AddressFileObject,
                          TDI_EVENT_RECEIVE_DATAGRAM,
                          NULL,
                          NULL
@@ -410,12 +431,10 @@ Return Value:
             //ASSERT( NT_SUCCESS(status) );
         }
 
-        KeDetachProcess( );
     }
 
-    ExInterlockedIncrementLong(
-        &AfdEndpointsCleanedUp,
-        &AfdInterlock
+    InterlockedIncrement(
+        &AfdEndpointsCleanedUp
         );
 
     return STATUS_SUCCESS;

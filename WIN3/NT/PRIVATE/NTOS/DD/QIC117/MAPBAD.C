@@ -99,16 +99,16 @@ Return Value:
     //
     queueItemsUsed = 0;
     ioArray[queueItemsUsed++] = *IoRequest;
-    CheckedDump(QIC117SHOWTD,("Re-mapping: %x ", ioArray[0].x.ioDeviceIO.starting_sector));
+    CheckedDump(QIC117SHOWBSM,("Re-mapping: %x ", ioArray[0].x.ioDeviceIO.starting_sector));
 
     while (!q117QueueEmpty(Context)) {
 
         ioArray[queueItemsUsed++] = *q117Dequeue(FlushItem, Context);
-        CheckedDump(QIC117SHOWTD,("%x " ,
+        CheckedDump(QIC117SHOWBSM,("%x " ,
             ioArray[queueItemsUsed-1].x.ioDeviceIO.starting_sector));
 
     }
-    CheckedDump(QIC117SHOWTD,("\n"));
+    CheckedDump(QIC117SHOWBSM,("\n"));
 
     q117ClearQueue(Context);
 
@@ -123,7 +123,7 @@ Return Value:
     while (newBadSectors = q117CountBits(NULL, 0, ioArray[0].x.ioDeviceIO.crc)) {
 
 
-        CheckedDump(QIC117SHOWTD | QIC117SHOWBAD,("Current: %x New: %x\n" ,
+        CheckedDump(QIC117SHOWBSM,("Current: %x New: %x\n" ,
             ioArray[0].x.ioDeviceIO.bsm,
             ioArray[0].x.ioDeviceIO.crc
             ));
@@ -157,7 +157,7 @@ Return Value:
             //
             // move extra data out of the way of correction sectors
             //
-            CheckedDump(QIC117SHOWTD,("moving %x to %x (%x bytes)\n" ,
+            CheckedDump(QIC117SHOWBSM,("moving %x to %x (%x bytes)\n" ,
                 DATA_BLOCKS_PER_SEGMENT-cur_bad,
                 BLOCKS_PER_SEGMENT-overflowSectors,
                 bytesBad));
@@ -193,7 +193,7 @@ Return Value:
             //
             // move data back to contiguous form
             //
-            CheckedDump(QIC117SHOWTD,("moving %x to %x (%x bytes)\n" ,
+            CheckedDump(QIC117SHOWBSM,("moving %x to %x (%x bytes)\n" ,
                 BLOCKS_PER_SEGMENT-overflowSectors,
                 DATA_BLOCKS_PER_SEGMENT-cur_bad,
                 bytesBad));
@@ -211,7 +211,7 @@ Return Value:
     //
     if (cur_bad+ECC_BLOCKS_PER_SEGMENT < BLOCKS_PER_SEGMENT) {
 
-        CheckedDump(QIC117SHOWTD,("moving %x to %x (%x bytes)\n" ,
+        CheckedDump(QIC117SHOWBSM,("moving %x to %x (%x bytes)\n" ,
             DATA_BLOCKS_PER_SEGMENT-cur_bad,
             0,
             bytesBad));
@@ -258,7 +258,7 @@ Return Value:
         if (ret = q117DoUpdateBad(Context))
             return ret;
         else
-            return ERROR_ENCODE(ERR_WRITE_FAILURE, FCT_ID, 1);
+            return ERROR_ENCODE(ERR_WRITE_FAILURE, FCT_ID, 2);
     }
 
     //
@@ -350,200 +350,194 @@ Return Value:
 --*/
 
 {
-    BAD_LIST badList[BLOCKS_PER_SEGMENT];
-    ULONG  curSector;
-    ULONG  newSector;
+    BAD_LIST newBadSectors[BLOCKS_PER_SEGMENT];
+    BAD_LIST *badSectorList;
+    ULONG  curSector,startSector,endSector;
     USHORT insertionPoint = 0;
     USHORT listEnd = 0;
     USHORT currentSectorIndex = 0;
     UCHAR newCount;
+    ULONG currentBadMap,newBadMapEntries;
+    BOOLEAN newhiBitSet;
+    BOOLEAN hiBitSet;
+    USHORT BadMapEnd;
+    int list_size;
 
 #if DBG
 
-    USHORT i,j;
+    USHORT i;
     ULONG  tmpSector;
 
 #endif
 
-    if (Context->CurrentTape.TapeFormatCode == QIC_FORMAT) {
+    if (Context->CurrentTape.BadSectorMapFormat == BadMap4ByteArray) {
 
         Context->CurrentTape.BadMapPtr->BadSectors[Segment] |=
             BadSectors;
 
     } else {
 
-        newCount = q117CountBits(NULL, 0,
-                        (~(q117ReadBadSectorList(Context, Segment))) &
-                        BadSectors);
+        // Calculate the end index for the bad sector map (for boundry
+        // checking)
+        BadMapEnd = (USHORT)(Context->CurrentTape.BadSectorMapSize / LIST_ENTRY_SIZE);
 
-                CheckedDump(QIC117SHOWBAD,( "UpdateBadMap newCount = %d\n", newCount));
+        // Get current bad sector map pointer (used below frequently)
+        badSectorList = &Context->CurrentTape.BadMapPtr->BadList[0];
 
-        // Convert bad sector map (bit field) into a list of sectors
-        // that need to be inserted into the list
-        q117BadMapToBadList(Segment,
-                                  ((~(q117ReadBadSectorList(Context, Segment))) &
-                        BadSectors), badList);
+        // Get current bad sector bit field
+        currentBadMap = q117ReadBadSectorList(Context, Segment);
 
-        // Get first entry to add
-        newSector = q117BadListEntryToSector(badList[currentSectorIndex].ListEntry);
+        // Mask off any existing bad sectors
+        newBadMapEntries = (~currentBadMap) & BadSectors;
 
-        // Get first entry in table
-        curSector = q117BadListEntryToSector(Context->CurrentTape.BadMapPtr->BadList[listEnd++].ListEntry);
+        // If there are any new bits
+        if (newBadMapEntries) {
 
-        // While entry in table valid,   and not at end of the list
-        while (curSector && (listEnd < MAX_BAD_LIST) ) {
+            // get all of the bits to set
+            newBadMapEntries = currentBadMap | BadSectors;
 
-            // If entry less than new item,  then increment insertionPoint
-            if (newSector > curSector) {
+            // Get the number of new sectors and
+            // Convert bad sector map (bit field) into a list of sectors
+            // that need to be inserted into the list
+            newCount = q117BadMapToBadList(Segment, newBadMapEntries, newBadSectors);
 
-                insertionPoint++;
+            CheckedDump(QIC117SHOWBSM,( "UpdateBadMap newCount = 0x%x\n", newCount));
+
+            // get the segments to remove
+            startSector = (ULONG)((Segment * BLOCKS_PER_SEGMENT) + 1);
+            endSector = startSector+BLOCKS_PER_SEGMENT-1;
+
+            list_size = 0;
+            while (curSector = q117BadListEntryToSector(badSectorList[list_size].ListEntry,&hiBitSet)) {
+                ++list_size;
+            }
+
+            ASSERT(list_size < BadMapEnd);
+            //
+            //  Now,  delete all current entries
+            //
+
+            do {
+
+                curSector = q117BadListEntryToSector(badSectorList[listEnd].ListEntry,&hiBitSet);
+
+                if (curSector) {
+
+                    //
+                    // if we are before the starting sector,  then
+                    // the insertion point is just after this entry
+                    //
+                    if (curSector < startSector)
+                        insertionPoint = listEnd+1;
+
+                    // If entry is part of this segment,  remove it
+                    if (curSector >= startSector && curSector <= endSector) {
+                        //
+                        // Remove the entry
+                        //
+                        RtlMoveMemory(
+                            badSectorList[listEnd].ListEntry,
+                            badSectorList[listEnd+1].ListEntry,
+                            LIST_ENTRY_SIZE*(list_size-listEnd)
+                            );
+
+                        --list_size;
+
+                        CheckedDump(QIC117SHOWBSM,( "Removed %x: lstsize: %x offset %x size %x\n", curSector, list_size, listEnd*LIST_ENTRY_SIZE ,LIST_ENTRY_SIZE*(list_size-listEnd) ));
+
+                        //
+                        // Make sure we are not off the list now that
+                        // we removed an entry
+                        //
+                        Context->CurrentTape.CurBadListIndex = 0;
+
+                    } else {
+
+                        // go to the next entry
+                        ++listEnd;
+
+                    }
+
+                }
+
+
+
+                // While we have not hit the end of the list and there are
+                // sectors in the range
+            } while (curSector);
+
+            // make sure there is enough room for the new items
+            listEnd += newCount;
+            if (listEnd >= BadMapEnd) {
+
+                return ERROR_ENCODE(ERR_UNUSABLE_TAPE, FCT_ID, 1);
 
             }
 
-            // Get next sector
-            curSector = q117BadListEntryToSector(Context->CurrentTape.BadMapPtr->BadList[listEnd++].ListEntry);
-        }
+            //
+            // Now,  we will be pointing just where we need to to add these
+            // bad sectors.
+            //
+            RtlMoveMemory(
+                badSectorList[insertionPoint+newCount].ListEntry,
+                badSectorList[insertionPoint].ListEntry,
+                LIST_ENTRY_SIZE*(list_size-insertionPoint)
+                );
 
-        //
-        // Now,  list end will be the real end of list
-        // and insertionPoint will be the point at which the first
-        // sector int the new sector list needs to be added.
-        //
-        listEnd--;
+            RtlMoveMemory(
+                badSectorList[insertionPoint].ListEntry,
+                newBadSectors,
+                newCount*LIST_ENTRY_SIZE);
+
+
+
 
 #if DBG
 
-    CheckedDump(QIC117SHOWBAD,( "\n\nQ117 BSL: BSL to add ---\n"));
-         for (i=0; i < newCount; i++) {
-        tmpSector = q117BadListEntryToSector(badList[i].ListEntry);
-             CheckedDump(QIC117SHOWBAD,( "  %08lx",tmpSector));
-                  if (!((i+1) % 5)) {
-                        CheckedDump(QIC117SHOWBAD,( "\n"));
-                  }
-         }
-    CheckedDump(QIC117SHOWBAD,( "\n"));
+            CheckedDump(QIC117SHOWBSM,( "\n\nQ117 BSL: BSL to add ---\n"));
+            for (i=0; i < newCount; i++) {
+                tmpSector = q117BadListEntryToSector(newBadSectors[i].ListEntry,&hiBitSet);
 
-#endif
-
-        // make sure there is enough room for the new items
-        if ((listEnd + newCount) >= MAX_BAD_LIST) {
-
-            return ERROR_ENCODE(ERR_UNUSABLE_TAPE, FCT_ID, 1);
-
-        }
-
-        //
-        // While more sectors to merge
-        //
-        while (currentSectorIndex < newCount) {
-
-            newSector = q117BadListEntryToSector(
-                            badList[currentSectorIndex].ListEntry
-                            );
-
-            //
-            // get new insertion point (skip any lessor sectors).  First
-            // time through,  this will already be done.
-            //
-
-            while (insertionPoint <= listEnd) {
-
-                //
-                // Get sector at insertionPoint
-                //
-                curSector = q117BadListEntryToSector(
-                            Context->CurrentTape.BadMapPtr->
-                            BadList[insertionPoint].ListEntry
-                            );
-
-                //
-                // if new sector is bigger than the current sector
-                // get the next one
-                //
-                if (newSector > curSector) {
-
-                    ++insertionPoint;
-
+                if (hiBitSet) {
+                    CheckedDump(QIC117SHOWBSM,( " *%06lx",tmpSector));
                 } else {
-
-                    // We found our next insertion point
-                    break;
-
+                    CheckedDump(QIC117SHOWBSM,( "  %06lx",tmpSector));
                 }
 
-            }
-
-            //
-            // If the sector we need to add is not the same as the current
-            // sector at the insertionPoint or we are past the end of the
-            // current list,  then we need to add the sector
-            // to the list.
-            // NOTE:  curSector will not be valid at end of list,  but
-            // we don't care.
-            //
-
-            if (curSector != newSector || insertionPoint > listEnd) {
-
-                //
-                // make space for the new entry (if inserting)
-                //
-                if (listEnd >= insertionPoint) {
-                    RtlMoveMemory(
-                        Context->CurrentTape.BadMapPtr->
-                            BadList[insertionPoint+1].ListEntry,
-                        Context->CurrentTape.BadMapPtr->
-                            BadList[insertionPoint].ListEntry,
-                        ((ULONG)(listEnd - insertionPoint + 1)
-                            * LIST_ENTRY_SIZE)
-                        );
-
+                if (!((i+1) % 20)) {
+                    CheckedDump(QIC117SHOWBSM,( "\n"));
                 }
-
-                //
-                // add the new entry
-                //
-                RtlMoveMemory(
-                    Context->CurrentTape.BadMapPtr->
-                        BadList[insertionPoint].ListEntry,
-                    badList[currentSectorIndex].ListEntry,
-                    LIST_ENTRY_SIZE);
-
-                ++insertionPoint;
-
-                //
-                // we just made our list bigger
-                //
-                ++listEnd;
-
             }
+            CheckedDump(QIC117SHOWBSM,( "\n"));
 
-            //
-            // Now get next sector to add
-            //
-            ++currentSectorIndex;
-
-        }
+#endif
 
 #if DBG
 
-    CheckedDump(QIC117SHOWBAD,( "\n\nQ117 BSL: New BSL ------\n"));
-         for (i=0; i < listEnd; i++) {
-        tmpSector = q117BadListEntryToSector(Context->CurrentTape.BadMapPtr->BadList[i].ListEntry);
-             CheckedDump(QIC117SHOWBAD,( "  %08lx",tmpSector));
-                  if (!((i+1) % 5)) {
-                        CheckedDump(QIC117SHOWBAD,( "\n"));
-                  }
-         }
-        CheckedDump(QIC117SHOWBAD,( "\n"));
+            CheckedDump(QIC117SHOWBSM,( "\n\nQ117 BSL: New BSL (0x%x emtries)------\n",listEnd));
+            for (i=0; i <= listEnd; i++) {
+                tmpSector = q117BadListEntryToSector(badSectorList[i].ListEntry,&hiBitSet);
+                if (hiBitSet) {
+                    CheckedDump(QIC117SHOWBSM,( " *%06lx",tmpSector));
+                } else {
+                    CheckedDump(QIC117SHOWBSM,( "  %06lx",tmpSector));
+                }
+                if (!((i+1) % 20)) {
+                    CheckedDump(QIC117SHOWBSM,( "\n"));
+                }
+            }
+            CheckedDump(QIC117SHOWBSM,( "\n"));
 
 #endif
+
+        }
 
     }
 
     return(ERR_NO_ERR);
 }
 
-VOID
+int
 q117BadMapToBadList(
     IN SEGMENT Segment,
     IN ULONG BadSectors,
@@ -577,41 +571,52 @@ Return Value:
 {
     USHORT listIndex = 0;
     ULONG sector;
+    int count = 0;
 
-    CheckedDump(QIC117SHOWBAD,( "BadMapToList Segment -> %08lx\n",Segment));
+    CheckedDump(QIC117SHOWBSM,( "BadMapToList Segment -> %08lx\n",Segment));
     sector = (ULONG)((Segment * BLOCKS_PER_SEGMENT) + 1);
 
-    while (BadSectors &&
-            (listIndex < BLOCKS_PER_SEGMENT)) {
+    //
+    // If all of the sectors are bad,  then create an entry with the MSB set
+    //
+    if (BadSectors == 0xffffffff) {
 
-        if (BadSectors & 1l) {
+        BadListPtr[listIndex].ListEntry[0] = (UBYTE)(sector & 0xff);
+        BadListPtr[listIndex].ListEntry[1] = (UBYTE)((sector >> 8) & 0xff);
+        BadListPtr[listIndex].ListEntry[2] = (UBYTE)((sector >> 16) & 0xff)|0x80;
+        ++count;
 
-            BadListPtr[listIndex].ListEntry[0] = (UBYTE)(sector & 0xff);
-            BadListPtr[listIndex].ListEntry[1] = (UBYTE)((sector >> 8) & 0xff);
-            BadListPtr[listIndex].ListEntry[2] = (UBYTE)((sector >> 16) & 0xff);
-                        CheckedDump(QIC117SHOWBAD,( "BadMapToList -> %08lx\n",sector));
-            listIndex++;
+    } else {
 
+        while (BadSectors &&
+                (listIndex < BLOCKS_PER_SEGMENT)) {
+
+            if (BadSectors & 1l) {
+
+                BadListPtr[listIndex].ListEntry[0] = (UBYTE)(sector & 0xff);
+                BadListPtr[listIndex].ListEntry[1] = (UBYTE)((sector >> 8) & 0xff);
+                BadListPtr[listIndex].ListEntry[2] = (UBYTE)((sector >> 16) & 0xff);
+                ++count;
+
+                CheckedDump(QIC117SHOWBSM,( "BadMapToList -> %08lx\n",sector));
+
+                listIndex++;
+
+            }
+
+            sector++;
+            BadSectors >>= 1;
         }
 
-        sector++;
-        BadSectors >>= 1;
     }
 
-    if (listIndex < BLOCKS_PER_SEGMENT) {
-
-        BadListPtr[listIndex].ListEntry[0] = (UBYTE)0;
-        BadListPtr[listIndex].ListEntry[1] = (UBYTE)0;
-        BadListPtr[listIndex].ListEntry[2] = (UBYTE)0;
-
-    }
-
-    return;
+    return count;
 }
 
 ULONG
 q117BadListEntryToSector(
-    IN UCHAR *ListEntry
+    IN UCHAR *ListEntry,
+    OUT BOOLEAN *hiBitSet
     )
 
 /*++
@@ -649,13 +654,16 @@ Return Value:
     sector <<= 8;
     sector |= (UBYTE)ListEntry[0];
 
-    return(sector);
-
 #else
 
-    return((0x00FFFFFF & *(ULONG *)ListEntry));
+    sector = (*(UWORD *)ListEntry)+((*(ListEntry+2)) << 16);
 
 #endif
+
+    *hiBitSet = (sector >= 0x800000);
+    sector &= ~0x800000;
+
+    return(sector);
 
 }
 
@@ -775,7 +783,7 @@ Return Value:
     // Shift over by one (possibly into ECC area to allow for a non
     // destructive rotate.  This will be shifted back after operation
     //
-    CheckedDump(QIC117SHOWTD,("preshifting %x sectors from 0 to 1\n", ShiftAmount));
+    CheckedDump(QIC117SHOWBSM,("preshifting %x sectors from 0 to 1\n", ShiftAmount));
 
     RtlMoveMemory((UCHAR *)IoArray[0].x.adi_hdr.cmd_buffer_ptr + BYTES_PER_SECTOR, IoArray[0].x.adi_hdr.cmd_buffer_ptr,
         ShiftAmount * BYTES_PER_SECTOR);
@@ -809,7 +817,7 @@ Return Value:
             //
             // shift the data
             //
-            CheckedDump(QIC117SHOWTD,("shifting %x-%x[%x]{%x:%x} to %x-%x[%x]\n" ,
+            CheckedDump(QIC117SHOWBSM,("shifting %x-%x[%x]{%x:%x} to %x-%x[%x]\n" ,
                 sourceIndex, IoArray[sourceIndex].x.ioDeviceIO.starting_sector,
                 sourceSize - BYTES_PER_SECTOR,
                 (ULONG *)source,*(ULONG *)source,
@@ -900,7 +908,7 @@ Return Value:
     //
     // move the data back to the start of the buffer
     //
-    CheckedDump(QIC117SHOWTD,("postshifting %x sectors from 1 to 0\n", ShiftAmount));
+    CheckedDump(QIC117SHOWBSM,("postshifting %x sectors from 1 to 0\n", ShiftAmount));
     RtlMoveMemory(
         (UCHAR *)IoArray[0].x.adi_hdr.cmd_buffer_ptr,
         (UCHAR *)IoArray[0].x.adi_hdr.cmd_buffer_ptr + BYTES_PER_SECTOR,

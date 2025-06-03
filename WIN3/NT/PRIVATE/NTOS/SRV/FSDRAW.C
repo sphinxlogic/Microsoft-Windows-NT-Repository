@@ -41,13 +41,7 @@ Revision History:
 //
 
 STATIC
-VOID
-RestartMdlReadRawResponse (
-    IN OUT PWORK_CONTEXT WorkContext
-    );
-
-STATIC
-VOID
+VOID SRVFASTCALL
 RestartWriteCompleteResponse (
     IN OUT PWORK_CONTEXT WorkContext
     );
@@ -266,7 +260,7 @@ Return Value:
 } // RestartCopyReadRawResponse
 
 
-VOID
+VOID SRVFASTCALL
 SrvFsdRestartPrepareRawMdlWrite(
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -481,7 +475,7 @@ Return Value:
         PTDI_REQUEST_KERNEL_RECEIVE parameters;
 
         irp->Tail.Overlay.OriginalFileObject = NULL;
-        irp->Tail.Overlay.Thread = SrvIrpThread;
+        irp->Tail.Overlay.Thread = WorkContext->CurrentWorkQueue->IrpThread;
         DEBUG irp->RequestorMode = KernelMode;
 
         //
@@ -576,7 +570,7 @@ Return Value:
 } // SrvFsdRestartPrepareRawMdlWrite
 
 
-VOID
+VOID SRVFASTCALL
 SrvFsdRestartReadRaw (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -722,15 +716,9 @@ Return Value:
 
     if ( rfcb->ShareType == ShareTypeDisk ) {
 
-        LARGE_INTEGER position;
-
-        position.QuadPart =
-            WorkContext->Parameters.ReadRaw.ReadRawOtherInfo.Offset.QuadPart +
+        rfcb->CurrentPosition = 
+            WorkContext->Parameters.ReadRaw.ReadRawOtherInfo.Offset.LowPart +
             readLength;
-
-        ACQUIRE_SPIN_LOCK( &rfcb->SpinLock, &oldIrql );
-        rfcb->CurrentPosition = position;
-        RELEASE_SPIN_LOCK( &rfcb->SpinLock, oldIrql );
 
     }
 
@@ -739,7 +727,7 @@ Return Value:
     // statistics database.
     //
 
-    UPDATE_READ_STATS( readLength );
+    UPDATE_READ_STATS( WorkContext, readLength );
 
     //
     // Send the raw read data as the response.
@@ -812,7 +800,7 @@ Return Value:
 } // SrvFsdRestartReadRaw
 
 
-VOID
+VOID SRVFASTCALL
 RestartWriteCompleteResponse (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -845,12 +833,14 @@ Return Value:
     PCONNECTION connection;
     KIRQL oldIrql;
     PRFCB rfcb;
+    PWORK_QUEUE queue;
 
     UNLOCKABLE_CODE( 8FIL );
 
     IF_DEBUG(FSD1) SrvPrint0( " - RestartWriteCompleteResponse\n" );
 
     connection = WorkContext->Connection;
+    queue = connection->CurrentWorkQueue;
 
     //
     // If a final response was sent, check the status and deallocate the
@@ -966,12 +956,10 @@ Return Value:
     // Put the work item back on the raw mode work item list.
     //
 
-    ACQUIRE_GLOBAL_SPIN_LOCK( WorkItem, &oldIrql );
-    //GET_SERVER_TIME( &WorkContext->Timestamp );
-    PushEntryList( &SrvRawModeWorkItemList, &WorkContext->SingleListEntry );
-    SrvFreeRawModeWorkItems++;
-
-    RELEASE_GLOBAL_SPIN_LOCK( WorkItem, oldIrql );
+    ExInterlockedPushEntrySList( &queue->RawModeWorkItemList,
+                                 &WorkContext->SingleListEntry,
+                                 &queue->SpinLock );
+    InterlockedIncrement( &queue->FreeRawModeWorkItems );
 
     IF_DEBUG(FSD2) SrvPrint0( "RestartWriteCompleteResponse complete\n" );
     return;
@@ -993,7 +981,7 @@ queueToFsp:
 } // RestartWriteCompleteResponse
 
 
-VOID
+VOID SRVFASTCALL
 SrvFsdRestartWriteRaw (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -1090,14 +1078,8 @@ Return Value:
 
     if ( shareType == ShareTypeDisk || shareType == ShareTypePrint ) {
 
-        LARGE_INTEGER position;
-
-        position.QuadPart =
-                WorkContext->Parameters.WriteRaw.Offset.QuadPart + writeLength;
-
-        ACQUIRE_SPIN_LOCK( &rfcb->SpinLock, &oldIrql );
-        rfcb->CurrentPosition = position;
-        RELEASE_SPIN_LOCK( &rfcb->SpinLock, oldIrql );
+        rfcb->CurrentPosition = 
+                WorkContext->Parameters.WriteRaw.Offset.LowPart + writeLength;
 
     }
 
@@ -1110,7 +1092,7 @@ Return Value:
         writeLength += immediateLength;
     }
 
-    UPDATE_WRITE_STATS( writeLength );
+    UPDATE_WRITE_STATS( WorkContext, writeLength );
 
     finalResponseBuffer = WorkContext->Parameters.WriteRaw.FinalResponseBuffer;
     status = WorkContext->Irp->IoStatus.Status;

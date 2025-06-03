@@ -94,7 +94,7 @@ typedef struct _DBGKD_CONTROL_SET {
 // end_windbgkd
 
 
-// begin_ntddk begin_nthal begin_winnt begin_ntminiport
+// begin_ntddk begin_nthal begin_winnt begin_ntminiport begin_wx86
 
 #ifdef _X86_
 
@@ -118,7 +118,7 @@ typedef struct _DBGKD_CONTROL_SET {
 #endif
 #endif
 
-// end_ntddk end_nthal end_winnt end_ntminiport
+// end_ntddk end_nthal end_winnt end_ntminiport end_wx86
 
 //
 //  Values put in ExceptionRecord.ExceptionInformation[0]
@@ -141,15 +141,15 @@ typedef struct _DBGKD_CONTROL_SET {
 
 #define USER_SHARED_DATA ((KUSER_SHARED_DATA * const)MM_SHARED_USER_DATA_VA)
 
-#if defined(MIDL_PASS) || defined(__cplusplus) || !defined(_M_IX86)
+#if defined(MIDL_PASS) || !defined(_M_IX86)
 struct _TEB *
 NTAPI
 NtCurrentTeb( void );
 #else
-#pragma warning (4:4035)        // lower to -W4
+#pragma warning (disable:4035)        // disable 4035 (function must return something)
 #define PcTeb 0x18
-_inline struct _TEB * NtCurrentTeb( void ) { _asm mov eax, fs:[PcTeb] }
-#pragma warning (3:4035)        // raise back to -W3
+_inline struct _TEB * NtCurrentTeb( void ) { __asm mov eax, fs:[PcTeb] }
+#pragma warning (default:4035)        // reenable it
 #endif // defined(MIDL_PASS) || defined(__cplusplus) || !defined(_M_IX86)
 
 // begin_ntddk begin_nthal
@@ -157,7 +157,19 @@ _inline struct _TEB * NtCurrentTeb( void ) { _asm mov eax, fs:[PcTeb] }
 // Size of kernel mode stack.
 //
 
-#define KERNEL_STACK_SIZE 8192
+#define KERNEL_STACK_SIZE 12288
+
+//
+// Define size of large kernel mode stack for callbacks.
+//
+
+#define KERNEL_LARGE_STACK_SIZE 61440
+
+//
+// Define number of pages to initialize in a large kernel stack.
+//
+
+#define KERNEL_LARGE_STACK_COMMIT 12288
 
 // end_ntddk end_nthal
 
@@ -196,6 +208,20 @@ typedef EXCEPTION_REGISTRATION_RECORD *PEXCEPTION_REGISTRATION_RECORD;
 
 // begin_winnt
 
+#if !defined(MIDL_PASS) && defined(_M_IX86)
+#pragma warning (disable:4035)        // disable 4035 (function must return something)
+_inline PVOID GetFiberData( void ) { __asm {
+                                        mov eax, fs:[0x10]
+                                        mov eax,[eax]
+                                        }
+                                     }
+_inline PVOID GetCurrentFiber( void ) { __asm mov eax, fs:[0x10] }
+
+#pragma warning (default:4035)        // Reenable it
+#endif
+
+// begin_wx86
+
 //
 //  Define the size of the 80387 save area, which is in the context frame.
 //
@@ -206,8 +232,12 @@ typedef EXCEPTION_REGISTRATION_RECORD *PEXCEPTION_REGISTRATION_RECORD;
 // The following flags control the contents of the CONTEXT structure.
 //
 
+#if !defined(RC_INVOKED)
+
 #define CONTEXT_i386    0x00010000    // this assumes that i386 and
 #define CONTEXT_i486    0x00010000    // i486 have identical context records
+
+// end_wx86
 
 #define CONTEXT_CONTROL         (CONTEXT_i386 | 0x00000001L) // SS:SP, CS:IP, FLAGS, BP
 #define CONTEXT_INTEGER         (CONTEXT_i386 | 0x00000002L) // AX, BX, CX, DX, SI, DI
@@ -217,6 +247,10 @@ typedef EXCEPTION_REGISTRATION_RECORD *PEXCEPTION_REGISTRATION_RECORD;
 
 #define CONTEXT_FULL (CONTEXT_CONTROL | CONTEXT_INTEGER |\
                       CONTEXT_SEGMENTS)
+
+// begin_wx86
+
+#endif
 
 typedef struct _FLOATING_SAVE_AREA {
     ULONG   ControlWord;
@@ -328,7 +362,7 @@ typedef CONTEXT *PCONTEXT;
 
 #endif //_X86_
 
-// end_ntddk end_nthal end_winnt end_ntminiport
+// end_ntddk end_nthal end_winnt end_ntminiport end_wx86
 
 #define CONTEXT_TO_PROGRAM_COUNTER(Context) (PVOID)((Context)->Eip)
 
@@ -337,6 +371,7 @@ typedef CONTEXT *PCONTEXT;
 #define CONTEXT_ROUND   (CONTEXT_ALIGN - 1)
 
 
+// begin_wx86
 //
 //  GDT selectors - These defines are R0 selector numbers, which means
 //                  they happen to match the byte offset relative to
@@ -356,6 +391,8 @@ typedef CONTEXT *PCONTEXT;
 #define KGDT_DF_TSS     80
 #define KGDT_NMI_TSS    88
 
+// end_wx86
+
 #ifdef ABIOS
 
 //
@@ -373,7 +410,7 @@ typedef CONTEXT *PCONTEXT;
 //  LDT descriptor entry
 //
 
-// begin_winnt
+// begin_winnt begin_wx86
 
 typedef struct _LDT_ENTRY {
     USHORT  LimitLow;
@@ -400,7 +437,7 @@ typedef struct _LDT_ENTRY {
     } HighWord;
 } LDT_ENTRY, *PLDT_ENTRY;
 
-// end_winnt
+// end_winnt end_wx86
 
 //
 // Process Ldt Information

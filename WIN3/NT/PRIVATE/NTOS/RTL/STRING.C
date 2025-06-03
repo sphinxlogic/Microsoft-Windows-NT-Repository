@@ -34,6 +34,10 @@ Revision History:
 #include "ntrtlp.h"
 
 
+#if defined(ALLOC_PRAGMA) && defined(NTOS_KERNEL_RUNTIME)
+#pragma alloc_text(PAGE,RtlUpperChar)
+#pragma alloc_text(PAGE,RtlUpperString)
+#endif
 
 //
 // Global data used for translations.
@@ -45,63 +49,9 @@ extern PUSHORT  NlsUnicodeToMbAnsiData;  // Unicode to Multibyte Ansi CP transla
 extern BOOLEAN  NlsMbCodePageTag;        // TRUE -> Multibyte ACP, FALSE -> Singlebyte ACP
 
 
-//
-// Define macro to convert a character to upper case.
-//
-// NOTE:  This assumes an ANSI string and it does NOT upper case
-//        DOUBLE BYTE characters properly.
-//
-#define TO_UPPER(Ch)                                                      \
-{                                                                         \
-    /*                                                                    \
-     *  Handle a - z separately.                                          \
-     */                                                                   \
-    if (Ch <= 'z')                                                        \
-    {                                                                     \
-        if (Ch >= 'a')                                                    \
-        {                                                                 \
-            Ch ^= 0x20;                                                   \
-        }                                                                 \
-    }                                                                     \
-    else                                                                  \
-    {                                                                     \
-        USHORT wCh;                                                       \
-                                                                          \
-        /*                                                                \
-         *  Handle extended characters.                                   \
-         */                                                               \
-        if (!NlsMbCodePageTag)                                            \
-        {                                                                 \
-            /*                                                            \
-             *  Single byte code page.                                    \
-             */                                                           \
-            wCh = NlsAnsiToUnicodeData[(UCHAR)Ch];                        \
-            wCh = NLS_UPCASE(wCh);                                        \
-            Ch = NlsUnicodeToAnsiData[(USHORT)wCh];                       \
-        }                                                                 \
-        else                                                              \
-        {                                                                 \
-            /*                                                            \
-             *  Multi byte code page.  Do nothing to the character        \
-             *  if it's a lead byte or if the translation of the          \
-             *  upper case Unicode character is a DBCS character.         \
-             */                                                           \
-            if (!NlsLeadByteInfo[Ch])                                     \
-            {                                                             \
-                wCh = NlsAnsiToUnicodeData[(UCHAR)Ch];                    \
-                wCh = NLS_UPCASE(wCh);                                    \
-                wCh = NlsUnicodeToMbAnsiData[(USHORT)wCh];                \
-                if (!HIBYTE(wCh))                                         \
-                {                                                         \
-                    Ch = LOBYTE(wCh);                                     \
-                }                                                         \
-            }                                                             \
-        }                                                                 \
-    }                                                                     \
-}
-
-
 
+#if !defined(_M_IX86)
+
 VOID
 RtlInitString(
     OUT PSTRING DestinationString,
@@ -133,16 +83,16 @@ Return Value:
 --*/
 
 {
-    DestinationString->Length = 0;
+    ULONG Length;
+
     DestinationString->Buffer = (PCHAR)SourceString;
     if (ARGUMENT_PRESENT( SourceString )) {
-        while (*SourceString++) {
-            DestinationString->Length++;
-            }
-
-        DestinationString->MaximumLength = (SHORT)(DestinationString->Length+1);
+        Length = strlen(SourceString);
+        DestinationString->Length = (USHORT)Length;
+        DestinationString->MaximumLength = (USHORT)(Length+1);
         }
     else {
+        DestinationString->Length = 0;
         DestinationString->MaximumLength = 0;
         }
 }
@@ -179,19 +129,16 @@ Return Value:
 --*/
 
 {
-    USHORT Length = 0;
-    DestinationString->Length = 0;
+    ULONG Length;
+
     DestinationString->Buffer = (PCHAR)SourceString;
     if (ARGUMENT_PRESENT( SourceString )) {
-        while (*SourceString++) {
-            Length++;
-            }
-
-        DestinationString->Length = Length;
-
-        DestinationString->MaximumLength = (SHORT)(Length+1);
+        Length = strlen(SourceString);
+        DestinationString->Length = (USHORT)Length;
+        DestinationString->MaximumLength = (USHORT)(Length+1);
         }
     else {
+        DestinationString->Length = 0;
         DestinationString->MaximumLength = 0;
         }
 }
@@ -228,22 +175,21 @@ Return Value:
 --*/
 
 {
-    USHORT Length = 0;
-    DestinationString->Length = 0;
+    ULONG Length;
+
     DestinationString->Buffer = (PWSTR)SourceString;
     if (ARGUMENT_PRESENT( SourceString )) {
-        while (*SourceString++) {
-            Length += sizeof(*SourceString);
-            }
-
-        DestinationString->Length = Length;
-
-        DestinationString->MaximumLength = Length+(USHORT)sizeof(UNICODE_NULL);
+        Length = wcslen( SourceString ) * sizeof( WCHAR );
+        DestinationString->Length = (USHORT)Length;
+        DestinationString->MaximumLength = (USHORT)(Length + sizeof(UNICODE_NULL));
         }
     else {
         DestinationString->MaximumLength = 0;
+        DestinationString->Length = 0;
         }
 }
+
+#endif // !defined(_M_IX86)
 
 
 VOID
@@ -322,7 +268,53 @@ ter
 --*/
 
 {
-    TO_UPPER((UCHAR)Character);
+    //
+    // NOTE:  This assumes an ANSI string and it does NOT upper case
+    //        DOUBLE BYTE characters properly.
+    //
+
+    //
+    //  Handle a - z separately.
+    //
+    if (Character <= 'z') {
+        if (Character >= 'a') {
+            return Character ^ 0x20;
+            }
+        else {
+            return Character;
+            }
+        }
+    else {
+        WCHAR wCh;
+
+        /*
+         *  Handle extended characters.
+         */
+        if (!NlsMbCodePageTag) {
+            //
+            //  Single byte code page.
+            //
+            wCh = NlsAnsiToUnicodeData[(UCHAR)Character];
+            wCh = NLS_UPCASE(wCh);
+            return NlsUnicodeToAnsiData[(USHORT)wCh];
+            }
+        else {
+            //
+            //  Multi byte code page.  Do nothing to the character
+            //  if it's a lead byte or if the translation of the
+            //  upper case Unicode character is a DBCS character.
+            //
+            if (!NlsLeadByteInfo[Character]) {
+                wCh = NlsAnsiToUnicodeData[(UCHAR)Character];
+                wCh = NLS_UPCASE(wCh);
+                wCh = NlsUnicodeToMbAnsiData[(USHORT)wCh];
+                if (!HIBYTE(wCh)) {
+                    return LOBYTE(wCh);
+                    }
+                }
+            }
+        }
+
     return Character;
 }
 
@@ -368,33 +360,39 @@ Return Value:
 
 {
 
-    PSZ s1, s2;
-    USHORT n1, n2;
-    CHAR c1, c2;
-    LONG cDiff;
+    PUCHAR s1, s2, Limit;
+    LONG n1, n2;
+    UCHAR c1, c2;
 
     s1 = String1->Buffer;
     s2 = String2->Buffer;
     n1 = String1->Length;
     n2 = String2->Length;
-    while (n1 && n2) {
-        c1 = *s1++;
-        c2 = *s2++;
-
-        if (CaseInSensitive) {
-            TO_UPPER((UCHAR)c1);
-            TO_UPPER((UCHAR)c2);
-        }
-
-        if ((cDiff = ((LONG)c1 - (LONG)c2)) != 0) {
-            return( cDiff );
+    Limit = s1 + (n1 <= n2 ? n1 : n2);
+    if (CaseInSensitive) {
+        while (s1 < Limit) {
+            c1 = *s1++;
+            c2 = *s2++;
+            if (c1 !=c2) {
+                c1 = RtlUpperChar(c1);
+                c2 = RtlUpperChar(c2);
+                if (c1 != c2) {
+                    return (LONG)c1 - (LONG)c2;
+                }
             }
-
-        n1--;
-        n2--;
         }
 
-    return( n1 - n2 );
+    } else {
+        while (s1 < Limit) {
+            c1 = *s1++;
+            c2 = *s2++;
+            if (c1 != c2) {
+                return (LONG)c1 - (LONG)c2;
+            }
+        }
+    }
+
+    return n1 - n2;
 }
 
 BOOLEAN
@@ -429,31 +427,47 @@ Return Value:
 --*/
 
 {
-    PSZ s1, s2;
-    USHORT n1, n2;
-    CHAR c1, c2;
 
-    s1 = String1->Buffer;
-    s2 = String2->Buffer;
+    PUCHAR s1, s2, Limit;
+    LONG n1, n2;
+    UCHAR c1, c2;
+
     n1 = String1->Length;
     n2 = String2->Length;
-    while (n1 && (n1 == n2)) {
-        c1 = *s1++;
-        c2 = *s2++;
-
+    if (n1 == n2) {
+        s1 = String1->Buffer;
+        s2 = String2->Buffer;
+        Limit = s1 + n1;
         if (CaseInSensitive) {
-            c1 = RtlUpperChar(c1);
-            c2 = RtlUpperChar(c2);
-        }
-        if (c1 != c2) {
-            return( FALSE );
+            while (s1 < Limit) {
+                c1 = *s1++;
+                c2 = *s2++;
+                if (c1 != c2) {
+                    c1 = RtlUpperChar(c1);
+                    c2 = RtlUpperChar(c2);
+                    if (c1 != c2) {
+                        return FALSE;
+                    }
+                }
             }
 
-        n1--;
-        n2--;
+            return TRUE;
+
+        } else {
+            while (s1 < Limit) {
+                c1 = *s1++;
+                c2 = *s2++;
+                if (c1 != c2) {
+                    return FALSE;
+                }
+            }
+
+            return TRUE;
         }
 
-    return( (BOOLEAN)(n1 == n2) );
+    } else {
+        return FALSE;
+    }
 }
 
 BOOLEAN
@@ -496,27 +510,34 @@ Return Value:
 
     s1 = String1->Buffer;
     s2 = String2->Buffer;
-    if (String2->Length < String1->Length) {
+    n = String1->Length;
+    if (String2->Length < n) {
         return( FALSE );
         }
 
-    n = String1->Length;
-    while (n) {
-        c1 = *s1++;
-        c2 = *s2++;
+    if (CaseInSensitive) {
+        while (n) {
+            c1 = *s1++;
+            c2 = *s2++;
 
-        if (CaseInSensitive) {
-            c1 = RtlUpperChar(c1);
-            c2 = RtlUpperChar(c2);
-        }
-        if (c1 != c2) {
-            return( FALSE );
+            if (c1 != c2 && RtlUpperChar(c1) != RtlUpperChar(c2)) {
+                return( FALSE );
+                }
+
+            n--;
             }
+        }
+    else {
+        while (n) {
+            if (*s1++ != *s2++) {
+                return( FALSE );
+                }
 
-        n--;
+            n--;
+            }
         }
 
-    return( (BOOLEAN)(n == 0) );
+    return TRUE;
 }
 
 BOOLEAN
@@ -536,70 +557,6 @@ RtlCreateUnicodeStringFromAsciiz(
     else {
         return( FALSE );
         }
-}
-
-BOOLEAN
-RtlPrefixUnicodeString(
-    IN PUNICODE_STRING String1,
-    IN PUNICODE_STRING String2,
-    IN BOOLEAN CaseInSensitive
-    )
-
-/*++
-
-Routine Description:
-
-    The RtlPrefixUnicodeString function determines if the String1
-    counted string parameter is a prefix of the String2 counted string
-    parameter.
-
-    The CaseInSensitive parameter specifies if case is to be ignored when
-    doing the comparison.
-
-Arguments:
-
-    String1 - Pointer to the first unicode string.
-
-    String2 - Pointer to the second unicode string.
-
-    CaseInsensitive - TRUE if case should be ignored when doing the
-        comparison.
-
-Return Value:
-
-    Boolean value that is TRUE if String1 equals a prefix of String2 and
-    FALSE otherwise.
-
---*/
-
-{
-    PWSTR s1, s2;
-    ULONG n;
-    WCHAR c1, c2;
-
-    s1 = String1->Buffer;
-    s2 = String2->Buffer;
-    if (String2->Length < String1->Length) {
-        return( FALSE );
-        }
-
-    n = String1->Length / sizeof( c1 );
-    while (n) {
-        c1 = *s1++;
-        c2 = *s2++;
-
-        if (CaseInSensitive) {
-            c1 = RtlUpcaseUnicodeChar(c1);
-            c2 = RtlUpcaseUnicodeChar(c2);
-        }
-        if (c1 != c2) {
-            return( FALSE );
-            }
-
-        n--;
-        }
-
-    return( TRUE );
 }
 
 

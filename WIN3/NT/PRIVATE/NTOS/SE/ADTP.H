@@ -109,7 +109,7 @@ SepAdtMarshallAuditRecord(
 
 
 BOOLEAN
-SepAdtPrivilegeObjectAuditAlarm (                                              
+SepAdtPrivilegeObjectAuditAlarm (
     IN PUNICODE_STRING CapturedSubsystemName OPTIONAL,
     IN PVOID HandleId,
     IN PTOKEN ClientToken OPTIONAL,
@@ -188,8 +188,37 @@ SepAdtCloseObjectAuditAlarm(
     IN LUID AuthenticationId
     );
 
+VOID
+SepAdtDeleteObjectAuditAlarm(
+    IN PUNICODE_STRING CapturedSubsystemName,
+    IN PVOID HandleId,
+    IN PVOID Object,
+    IN PSID UserSid,
+    IN LUID AuthenticationId
+    );
+
 BOOLEAN
 SepAdtOpenObjectAuditAlarm(
+    IN PUNICODE_STRING CapturedSubsystemName,
+    IN PVOID *HandleId,
+    IN PUNICODE_STRING CapturedObjectTypeName,
+    IN PVOID Object,
+    IN PUNICODE_STRING CapturedObjectName,
+    IN PTOKEN ClientToken OPTIONAL,
+    IN PTOKEN PrimaryToken,
+    IN ACCESS_MASK DesiredAccess,
+    IN ACCESS_MASK GrantedAccess,
+    IN PLUID OperationId,
+    IN PPRIVILEGE_SET CapturedPrivileges OPTIONAL,
+    IN BOOLEAN ObjectCreated,
+    IN BOOLEAN AccessGranted,
+    IN BOOLEAN GenerateAudit,
+    IN BOOLEAN GenerateAlarm,
+    IN HANDLE ProcessID
+    );
+
+BOOLEAN
+SepAdtOpenObjectForDeleteAuditAlarm(
     IN PUNICODE_STRING CapturedSubsystemName,
     IN PVOID *HandleId,
     IN PUNICODE_STRING CapturedObjectTypeName,
@@ -220,11 +249,18 @@ SepAdtObjectReferenceAuditAlarm(
     IN BOOLEAN GenerateAlarm
     );
 
-BOOLEAN
-SepAdtAuditThisEvent(
-    IN POLICY_AUDIT_EVENT_TYPE AuditType,
-    IN PBOOLEAN AccessGranted OPTIONAL
-    );
+//
+// BOOLEAN
+// SepAdtAuditThisEvent(
+//    IN POLICY_AUDIT_EVENT_TYPE AuditType,
+//    IN PBOOLEAN AccessGranted
+// );
+//
+
+#define SepAdtAuditThisEvent(AuditType, AccessGranted)                  \
+    (SepAdtAuditingEnabled &&                                           \
+    ((SeAuditingState[AuditType].AuditOnSuccess && *AccessGranted) ||   \
+    (SeAuditingState[AuditType].AuditOnFailure && !(*AccessGranted))))
 
 VOID
 SepAdtInitializeBounds(

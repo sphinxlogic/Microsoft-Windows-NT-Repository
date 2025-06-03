@@ -206,7 +206,7 @@ BOOL DDEIsTargetMSDraw(HAND16 To_hwnd)
         if (cchModuleName = GetModuleFileName16( LOWORD(hInst), vp, cchModuleName )) {
             GETMISCPTR(vp, lpszModuleName16);
             fStatus = (cchModuleName >= cchMsDraw)
-                      && !lstrcmpi( lpszModuleName16 + (cchModuleName - cchMsDraw), lpszMsDraw )
+                      && !_stricmp( lpszModuleName16 + (cchModuleName - cchMsDraw), lpszMsDraw )
                       && (Status = RegOpenKeyEx( HKEY_CLASSES_ROOT, lpszNewMsDrawKey, 0, KEY_READ, &hKey)) != ERROR_SUCCESS;
 
             if (hKey) {
@@ -229,6 +229,8 @@ BOOL DDEIsTargetMSDraw(HAND16 To_hwnd)
 // This routine converts a 32 bit DDE memory object into a 16 bit DDE
 // memory object. It also, does the data conversion from 32 bit to 16 bit
 // for the type of data.
+//
+// WARNING: The Copyh32Toh16() calls may cause 16-bit memory movement
 //
 
 HAND16 DDECopyhData16(HAND16 To_hwnd, HAND16 From_hwnd, HANDLE h32, PDDEINFO pDdeInfo)
@@ -843,13 +845,11 @@ BOOL W32DDEFreeGlobalMem32 (HANDLE h32)
     PHDDE pDdeNode;
     BOOL fOkToFree = TRUE;
 
-    LOGDEBUG (12, ("WOW::W32DDEFreeGlobalMem32 : Entering... h32 -> %08x\n", h32));
-
     if (h32) {
         if (pDdeNode = DDEFindNode32(h32)) {
 
             if (pDdeNode->DdeFlags & DDE_METAFILE) {
-                LOGDEBUG (12, ("WOW::W32DDEFreeGlobalMem32 : Freeing MetaFile hMF32\n", h32));
+                LOGDEBUG (12, ("WOW32: W32DDEFreeGlobalMem32: Freeing MetaFile hMF32 %x\n", h32));
                 DeleteMetaFile (h32);
                 fOkToFree = FALSE;
             }
@@ -863,12 +863,11 @@ BOOL W32DDEFreeGlobalMem32 (HANDLE h32)
         }
         else {
 
-            LOGDEBUG (2, ("WOW::W32DDEFreeGlobalMem32 : Can't find a 16-32 memory pair\n"));
+            LOGDEBUG (2, ("WOW32: W32DDEFreeGlobalMem32: Can't find a 16-32 memory pair\n"));
         }
     }
     else {
-        LOGDEBUG (2, ("WOW::W32DDEFreeGlobalMem32 : h32 is NULL \n"));
-        WOW32ASSERT (FALSE);
+        WOW32ASSERTMSG(FALSE, "WOW32: W32DDEFreeGlobalMem32: h32 is NULL to Win32 GlobalFree\n");
         /*
          * since in this case the Failure and Success return values from
          * GlobalFree are NULL, just return false so things are faster
@@ -877,7 +876,6 @@ BOOL W32DDEFreeGlobalMem32 (HANDLE h32)
         fOkToFree = FALSE;
     }
 
-    LOGDEBUG (12, ("WOW::W32DDEFreeGlobalMem32 : Leaving ...\n"));
     return(fOkToFree);
 }
 
@@ -1061,6 +1059,8 @@ BOOL CopyDataDeleteNode (HWND16 To_hwnd, HWND16 From_hwnd, DWORD Mem)
 // While allocating GMEM_DDESHARE memory object should we have GMEM_MOVEABLE
 // flag or not ???????????????????
 // ChandanC Sept 23rd 1993.
+//
+// WARNING: This function may cause 16-bit memory movement.
 //
 
 HAND16  Copyh32Toh16 (int cb, LPBYTE lpMem32)

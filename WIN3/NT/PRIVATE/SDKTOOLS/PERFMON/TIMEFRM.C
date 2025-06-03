@@ -174,7 +174,7 @@ void static OnOK (HDLG hDlg)
    HWND           hWndTLine = DialogControl (hDlg, IDD_TIMEFRAMETIMELINE) ;
 
    iIndex = TLineStart (hWndTLine) ;
-   if (LogPositionN (iIndex, &lp)) ;
+   if (LogPositionN (iIndex, &lp)) 
       PlaybackLog.StartIndexPos = lp ;
 
    iIndex = TLineStop (hWndTLine) ;
@@ -329,4 +329,4 @@ BOOL SetTimeframe (HWND hWndParent)
    return (FALSE) ;
    }
 
-
+

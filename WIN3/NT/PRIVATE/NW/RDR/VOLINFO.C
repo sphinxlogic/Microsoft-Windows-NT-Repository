@@ -23,7 +23,7 @@ Revision History:
 
 #include "procs.h"
 
-#define NW_FS_NAME  L"NetWare"
+#define NW_FS_NAME  L"NWCompat"
 
 //
 //  The debug trace level
@@ -53,31 +53,8 @@ NwQueryVolumeInfo (
     IN PIRP_CONTEXT pIrpContext,
     IN PVCB Vcb,
     IN PFILE_FS_VOLUME_INFORMATION Buffer,
-    IN ULONG Length
-    );
-
-NTSTATUS
-QueryLabelInfoCallback(
-    IN PIRP_CONTEXT pIrpContext,
-    IN ULONG BytesAvailable,
-    IN PUCHAR Response
-    );
-
-NTSTATUS
-FspQueryLabelInfo(
-    IN PIRP_CONTEXT pIrpContext
-    );
-
-NTSTATUS
-QueryVolumeInfoCallback(
-    IN PIRP_CONTEXT IrpContext,
-    IN ULONG BytesAvailable,
-    IN PUCHAR Response
-    );
-
-NTSTATUS
-FspQueryVolumeInfo(
-    IN PIRP_CONTEXT pIrpContext
+    IN ULONG Length,
+    OUT PULONG BytesWritten
     );
 
 NTSTATUS
@@ -85,7 +62,8 @@ NwQueryLabelInfo (
     IN PIRP_CONTEXT pIrpContext,
     IN PVCB Vcb,
     IN PFILE_FS_LABEL_INFORMATION Buffer,
-    IN ULONG Length
+    IN ULONG Length,
+    OUT PULONG BytesWritten
     );
 
 NTSTATUS
@@ -98,6 +76,13 @@ NwQuerySizeInfo (
 
 NTSTATUS
 QueryFsSizeInfoCallback(
+    IN PIRP_CONTEXT pIrpContext,
+    IN ULONG BytesAvailable,
+    IN PUCHAR Response
+    );
+
+NTSTATUS
+QueryFsSizeInfoCallback2(
     IN PIRP_CONTEXT pIrpContext,
     IN ULONG BytesAvailable,
     IN PUCHAR Response
@@ -121,17 +106,22 @@ NwCommonSetVolumeInformation (
 #pragma alloc_text( PAGE, NwCommonQueryVolumeInformation )
 #pragma alloc_text( PAGE, NwQueryAttributeInfo )
 #pragma alloc_text( PAGE, NwQueryVolumeInfo )
-#pragma alloc_text( PAGE, FspQueryVolumeInfo )
 #pragma alloc_text( PAGE, NwQueryLabelInfo )
-#pragma alloc_text( PAGE, FspQueryLabelInfo )
 #pragma alloc_text( PAGE, NwQuerySizeInfo )
 #pragma alloc_text( PAGE, NwQueryDeviceInfo )
 #pragma alloc_text( PAGE, NwFsdSetVolumeInformation )
 #pragma alloc_text( PAGE, NwCommonSetVolumeInformation )
 
-#pragma alloc_text( PAGE1, QueryVolumeInfoCallback )
-#pragma alloc_text( PAGE1, QueryLabelInfoCallback )
+#ifndef QFE_BUILD
 #pragma alloc_text( PAGE1, QueryFsSizeInfoCallback )
+#pragma alloc_text( PAGE1, QueryFsSizeInfoCallback2 )
+#endif
+
+#endif
+
+#if 0  // Not pageable
+
+// see ifndef QFE_BUILD above
 
 #endif
 
@@ -163,7 +153,7 @@ Return Value:
 
 {
     NTSTATUS status;
-    PIRP_CONTEXT pIrpContext;
+    PIRP_CONTEXT pIrpContext = NULL;
     BOOLEAN TopLevel;
 
     PAGED_CODE();
@@ -184,21 +174,40 @@ Return Value:
 
     } except(NwExceptionFilter( Irp, GetExceptionInformation() )) {
 
-        //
-        // We had some trouble trying to perform the requested
-        // operation, so we'll abort the I/O request with
-        // the error status that we get back from the
-        // execption code.
-        //
+        if ( pIrpContext == NULL ) {
 
-        status = NwProcessException( pIrpContext, GetExceptionCode() );
+            //
+            //  If we couldn't allocate an irp context, just complete
+            //  irp without any fanfare.
+            //
+
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            Irp->IoStatus.Status = status;
+            Irp->IoStatus.Information = 0;
+            IoCompleteRequest ( Irp, IO_NETWORK_INCREMENT );
+
+        } else {
+
+            //
+            //  We had some trouble trying to perform the requested
+            //  operation, so we'll abort the I/O request with
+            //  the error Status that we get back from the
+            //  execption code
+            //
+
+            status = NwProcessException( pIrpContext, GetExceptionCode() );
+        }
+
     }
 
-    if ( status != STATUS_PENDING ) {
-        NwDequeueIrpContext( pIrpContext, FALSE );
-    }
+    if ( pIrpContext ) {
 
-    NwCompleteRequest( pIrpContext, status );
+        if ( status != STATUS_PENDING ) {
+            NwDequeueIrpContext( pIrpContext, FALSE );
+        }
+
+        NwCompleteRequest( pIrpContext, status );
+    }
 
     if ( TopLevel ) {
         NwSetTopLevelIrp( NULL );
@@ -342,11 +351,11 @@ Return Value:
 
         case FileFsVolumeInformation:
 
-            status = NwQueryVolumeInfo( pIrpContext, vcb, buffer, length );
+            status = NwQueryVolumeInfo( pIrpContext, vcb, buffer, length, &bytesWritten );
             break;
 
         case FileFsLabelInformation:
-            status = NwQueryLabelInfo( pIrpContext, vcb, buffer, length );
+            status = NwQueryLabelInfo( pIrpContext, vcb, buffer, length, &bytesWritten );
             break;
 
         case FileFsSizeInformation:
@@ -492,7 +501,8 @@ NwQueryVolumeInfo (
     IN PIRP_CONTEXT pIrpContext,
     IN PVCB Vcb,
     IN PFILE_FS_VOLUME_INFORMATION Buffer,
-    IN ULONG Length
+    IN ULONG Length,
+    OUT PULONG BytesWritten
     )
 
 /*++
@@ -518,136 +528,37 @@ Return Value:
 
 {
     NTSTATUS status;
+    UNICODE_STRING VolumeName;
 
     PAGED_CODE();
 
     DebugTrace(0, Dbg, "QueryVolumeInfo...\n", 0);
 
     //
-    // Remember where the response goes.
+    // Do the volume request synchronously.
     //
 
-    pIrpContext->Specific.QueryVolumeInformation.Buffer = Buffer;
-    pIrpContext->Specific.QueryVolumeInformation.Length = Length;
-
-    //
-    // Start a Get file size NCP
-    //
-
-    status = Exchange(
+    status = ExchangeWithWait(
                  pIrpContext,
-                 QueryVolumeInfoCallback,
+                 SynchronousResponseCallback,
                  "Sb",
                  NCP_DIR_FUNCTION, NCP_GET_VOLUME_STATS,
                  Vcb->Specific.Disk.Handle );
 
-    return( status );
-}
-
-NTSTATUS
-QueryVolumeInfoCallback(
-    IN PIRP_CONTEXT pIrpContext,
-    IN ULONG BytesAvailable,
-    IN PUCHAR Response
-    )
-/*++
-
-Routine Description:
-
-    This routine receives the query file size response and generates
-    a Query Standard Information response.
-
-Arguments:
-
-
-Return Value:
-
-    VOID
-
---*/
-{
-    NTSTATUS Status;
-
-    DebugTrace(0, Dbg, "QueryVolumeInfoCallback\n", 0);
-
-    if ( BytesAvailable == 0) {
-
-        //
-        //  We're done with this request.  Dequeue the IRP context from
-        //  SCB and complete the request.
-        //
-
-        NwDequeueIrpContext( pIrpContext, FALSE );
-        NwCompleteRequest( pIrpContext, STATUS_REMOTE_NOT_LISTENING );
-
-        //
-        //  No response from server. Status is in pIrpContext->
-        //  ResponseParameters.Error
-        //
-
-        DebugTrace( 0, Dbg, "Timeout\n", 0);
-        return STATUS_REMOTE_NOT_LISTENING;
+    if ( !NT_SUCCESS( status ) ) {
+        return status;
     }
-
-    //
-    //  We can't process the response at indication time, since we must
-    //  do a UNICODE to OEM conversion.  Copy the indicated data to the
-    //  response buffer, and queue this IrpContext to our FSP.
-    //
-
-    pIrpContext->ResponseLength = MIN(BytesAvailable, MAX_DATA);
-    RtlCopyMemory( pIrpContext->rsp, Response, pIrpContext->ResponseLength );
-
-    pIrpContext->PostProcessRoutine = FspQueryVolumeInfo;
-    Status = NwPostToFsp( pIrpContext, TRUE );
-
-    return( Status );
-}
-
-NTSTATUS
-FspQueryVolumeInfo(
-    IN PIRP_CONTEXT pIrpContext
-    )
-/*++
-
-Routine Description:
-
-    This routine completes processing of the QueryVolumeInfo response.
-    It must run in the redirector FSP.
-
-Arguments:
-
-    pIrpContext -  A pointer to the IRP context information for the
-        request in progress.
-
-Return Value:
-
-    The status of the operation.
-
---*/
-{
-    PFILE_FS_VOLUME_INFORMATION Buffer;
-    NTSTATUS Status;
-    UNICODE_STRING VolumeName;
-    ULONG Length;
-
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "FspQueryVolumeInfo...\n", 0);
 
     //
     // Get the data from the response.
     //
 
-    Buffer = pIrpContext->Specific.QueryVolumeInformation.Buffer;
-    Length = pIrpContext->Specific.QueryVolumeInformation.Length;
-
     VolumeName.MaximumLength =
         MIN( MAX_VOLUME_NAME_LENGTH * sizeof( WCHAR ),
              Length - FIELD_OFFSET( FILE_FS_VOLUME_INFORMATION, VolumeLabel ) );
-
     VolumeName.Buffer = Buffer->VolumeLabel;
-    Status = ParseResponse(
+
+    status = ParseResponse(
                  pIrpContext,
                  pIrpContext->rsp,
                  pIrpContext->ResponseLength,
@@ -668,11 +579,20 @@ Return Value:
     pIrpContext->pOriginalIrp->IoStatus.Information =
         FIELD_OFFSET( FILE_FS_VOLUME_INFORMATION, VolumeLabel[0] ) +
         VolumeName.Length;
+    *BytesWritten = pIrpContext->pOriginalIrp->IoStatus.Information;
 
-    pIrpContext->pOriginalIrp->IoStatus.Status = Status;
+    pIrpContext->pOriginalIrp->IoStatus.Status = status;
 
-    DebugTrace(-1, Dbg, "FspQueryVolumeInfo\n", 0);
-    return Status;
+    //
+    //  If the volume has been unmounted and remounted then we will
+    //  fail this dir but the next one will be fine.
+    //
+
+    if (status == STATUS_UNSUCCESSFUL) {
+        NwReopenVcbHandle( pIrpContext, Vcb);
+    }
+
+    return status;
 }
 
 
@@ -681,7 +601,8 @@ NwQueryLabelInfo (
     IN PIRP_CONTEXT pIrpContext,
     IN PVCB Vcb,
     IN PFILE_FS_LABEL_INFORMATION Buffer,
-    IN ULONG Length
+    IN ULONG Length,
+    OUT PULONG BytesWritten
     )
 
 /*++
@@ -707,140 +628,38 @@ Return Value:
 
 {
     NTSTATUS status;
+    UNICODE_STRING VolumeName;
 
     PAGED_CODE();
 
     DebugTrace(0, Dbg, "QueryLabelInfo...\n", 0);
 
     //
-    // Remember where the response goes.
+    // Do the volume query synchronously.
     //
 
-    pIrpContext->Specific.QueryVolumeInformation.Buffer = Buffer;
-    pIrpContext->Specific.QueryVolumeInformation.Length = Length;
-
-    //
-    // Start a Get volume stats NCP
-    //
-
-    status = Exchange(
+    status = ExchangeWithWait(
                  pIrpContext,
-                 QueryLabelInfoCallback,
+                 SynchronousResponseCallback,
                  "Sb",
                  NCP_DIR_FUNCTION, NCP_GET_VOLUME_STATS,
                  Vcb->Specific.Disk.Handle );
 
-    return( status );
-}
-
-NTSTATUS
-QueryLabelInfoCallback(
-    IN PIRP_CONTEXT pIrpContext,
-    IN ULONG BytesAvailable,
-    IN PUCHAR Response
-    )
-/*++
-
-Routine Description:
-
-    This routine receives the query file size response and generates
-    a Query Standard Information response.
-
-Arguments:
-
-
-Return Value:
-
-    VOID
-
---*/
-{
-    NTSTATUS Status;
-
-    DebugTrace(0, Dbg, "QueryLabelInfoCallback...\n", 0);
-
-    if ( BytesAvailable == 0) {
-
-        //
-        //  We're done with this request.  Dequeue the IRP context from
-        //  SCB and complete the request.
-        //
-
-        NwDequeueIrpContext( pIrpContext, FALSE );
-        NwCompleteRequest( pIrpContext, STATUS_REMOTE_NOT_LISTENING );
-
-        //
-        //  No response from server. Status is in pIrpContext->
-        //  ResponseParameters.Error
-        //
-
-        DebugTrace( 0, Dbg, "Timeout\n", 0);
-        return STATUS_REMOTE_NOT_LISTENING;
+    if ( !NT_SUCCESS( status ) ) {
+        return status;
     }
 
-    //
-    //  We can't process the response at indication time, since we must
-    //  do a UNICODE to OEM conversion.  Copy the indicated data to the
-    //  response buffer, and queue this IrpContext to our FSP.
-    //
-
-    pIrpContext->ResponseLength =  MIN(BytesAvailable, MAX_DATA);
-    RtlCopyMemory( pIrpContext->rsp, Response, pIrpContext->ResponseLength );
-
-    pIrpContext->PostProcessRoutine = FspQueryLabelInfo;
-    Status = NwPostToFsp( pIrpContext, TRUE );
-    return( Status );
-}
-
-NTSTATUS
-FspQueryLabelInfo(
-    IN PIRP_CONTEXT pIrpContext
-    )
-/*++
-
-Routine Description:
-
-    This routine completes processing of the QueryLabelInfo response.
-    It must run in the redirector FSP.
-
-Arguments:
-
-    pIrpContext -  A pointer to the IRP context information for the
-        request in progress.
-
-Return Value:
-
-    The status of the operation.
-
---*/
-{
-    PFILE_FS_LABEL_INFORMATION Buffer;
-    NTSTATUS Status;
-    UNICODE_STRING VolumeName;
-    ULONG Length;
-
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "FspQueryLabelInfo...\n", 0);
-
-    //
-    // Get the data from the response.
-    //
-
-    Buffer = pIrpContext->Specific.QueryVolumeInformation.Buffer;
-    Length = pIrpContext->Specific.QueryVolumeInformation.Length;
-
     VolumeName.MaximumLength =
-        MIN( MAX_VOLUME_NAME_LENGTH * sizeof( WCHAR ),
-             Length - FIELD_OFFSET(FILE_FS_LABEL_INFORMATION,  VolumeLabel ) );
-
+    MIN( MAX_VOLUME_NAME_LENGTH * sizeof( WCHAR ),
+         Length - FIELD_OFFSET(FILE_FS_LABEL_INFORMATION,  VolumeLabel ) );
     VolumeName.Buffer = Buffer->VolumeLabel;
-    Status = ParseResponse(
-                 pIrpContext,
-                 pIrpContext->rsp,
-                 pIrpContext->ResponseLength,
-                 "N=====R",
-                 &VolumeName, 12 );
+
+    status = ParseResponse(
+             pIrpContext,
+             pIrpContext->rsp,
+             pIrpContext->ResponseLength,
+             "N=====R",
+             &VolumeName, 12 );
 
     //
     // Fill in the label information.
@@ -851,11 +670,12 @@ Return Value:
     pIrpContext->pOriginalIrp->IoStatus.Information =
         FIELD_OFFSET( FILE_FS_LABEL_INFORMATION, VolumeLabel[0] ) +
         VolumeName.Length;
+    *BytesWritten = pIrpContext->pOriginalIrp->IoStatus.Information;
 
-    pIrpContext->pOriginalIrp->IoStatus.Status = Status;
+    pIrpContext->pOriginalIrp->IoStatus.Status = status;
 
-    DebugTrace(-1, Dbg, "FspQueryLabelInfo\n", 0);
-    return Status;
+    return status;
+
 }
 
 
@@ -901,6 +721,7 @@ Return Value:
 
     pIrpContext->Specific.QueryVolumeInformation.Buffer = Buffer;
     pIrpContext->Specific.QueryVolumeInformation.Length = Length;
+    pIrpContext->Specific.QueryVolumeInformation.VolumeNumber = Vcb->Specific.Disk.VolumeNumber;
 
     //
     // Start a Get Size Information NCP
@@ -926,7 +747,7 @@ QueryFsSizeInfoCallback(
 
 Routine Description:
 
-    This routine receives the query file size response and generates
+    This routine receives the query volume size response and generates
     a Query Standard Information response.
 
 Arguments:
@@ -980,15 +801,182 @@ Return Value:
 
     if ( NT_SUCCESS( Status ) ) {
 
-        //
-        // Fill in the remaining size information.
-        //
+        if (Buffer->TotalAllocationUnits.LowPart == 0xffff) {
 
-        Buffer->BytesPerSector = 512;
+            //
+            // The next callback will fill in all the appropriate size info.
+            //
 
-        pIrpContext->pOriginalIrp->IoStatus.Information =
-            sizeof( FILE_FS_SIZE_INFORMATION );
+            Status = Exchange(
+                         pIrpContext,
+                         QueryFsSizeInfoCallback2,
+                         "Sb",
+                         NCP_DIR_FUNCTION, NCP_GET_VOLUME_INFO,
+                         pIrpContext->Specific.QueryVolumeInformation.VolumeNumber );
+
+            if (Status == STATUS_PENDING) {
+                return( STATUS_SUCCESS );
+            }
+
+        } else {
+
+            //
+            // Fill in the remaining size information.
+            //
+
+            Buffer->BytesPerSector = 512;
+
+            pIrpContext->pOriginalIrp->IoStatus.Information =
+                sizeof( FILE_FS_SIZE_INFORMATION );
+        }
     }
+
+    //
+    //  We're done with this request.  Dequeue the IRP context from
+    //  SCB and complete the request.
+    //
+
+    NwDequeueIrpContext( pIrpContext, FALSE );
+    NwCompleteRequest( pIrpContext, Status );
+
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS
+QueryFsSizeInfoCallback2(
+    IN PIRP_CONTEXT pIrpContext,
+    IN ULONG BytesAvailable,
+    IN PUCHAR Response
+    )
+/*++
+
+Routine Description:
+
+    This routine receives the query volume size response and generates
+    a Query Standard Information response.
+
+Arguments:
+
+
+Return Value:
+
+    VOID
+
+--*/
+{
+    PFILE_FS_SIZE_INFORMATION Buffer;
+    NTSTATUS Status;
+    ULONG PurgeableAllocationUnits;
+    ULONG OriginalFreeSpace, OriginalSectorsPerAllocUnit, OriginalTotalSpace;
+    ULONG ScaleSectorsPerUnit;
+
+    DebugTrace(0, Dbg, "QueryFsSizeInfoCallback2...\n", 0);
+
+    if ( BytesAvailable == 0) {
+
+        //
+        //  We're done with this request.  Dequeue the IRP context from
+        //  SCB and complete the request.
+        //
+
+        NwDequeueIrpContext( pIrpContext, FALSE );
+        NwCompleteRequest( pIrpContext, STATUS_REMOTE_NOT_LISTENING );
+
+        //
+        //  No response from server. Status is in pIrpContext->
+        //  ResponseParameters.Error
+        //
+
+        DebugTrace( 0, Dbg, "Timeout\n", 0);
+        return STATUS_REMOTE_NOT_LISTENING;
+    }
+
+    //
+    // Get the data from the response.  Save off the data from
+    // the GET_VOLUME_STATS call to compute the correct sizes.
+    //
+
+    Buffer = pIrpContext->Specific.QueryVolumeInformation.Buffer;
+
+    OriginalTotalSpace = Buffer->TotalAllocationUnits.LowPart;
+    OriginalFreeSpace = Buffer->AvailableAllocationUnits.LowPart;
+    OriginalSectorsPerAllocUnit = Buffer->SectorsPerAllocationUnit;
+
+    RtlZeroMemory( Buffer, sizeof( FILE_FS_SIZE_INFORMATION ) );
+
+    Status = ParseResponse(
+                 pIrpContext,
+                 Response,
+                 BytesAvailable,
+                 "Neee_b",
+                 &Buffer->TotalAllocationUnits.LowPart,
+                 &Buffer->AvailableAllocationUnits.LowPart,
+                 &PurgeableAllocationUnits,
+                 16,
+                 &Buffer->SectorsPerAllocationUnit);
+
+    if ( NT_SUCCESS( Status ) ) {
+
+        //
+        // If the original free space was maxed out, just add the
+        // additionally indicated units.  Otherwise, return the
+        // original free space (which is the correct limit) and
+        // adjust the sectors per allocation units if necessary.
+        //
+
+        if ( OriginalFreeSpace != 0xffff ) {
+
+            Buffer->AvailableAllocationUnits.LowPart = OriginalFreeSpace;
+
+            if ( ( Buffer->SectorsPerAllocationUnit != 0 ) &&
+                 ( OriginalSectorsPerAllocUnit != 0 ) ) {
+
+                //
+                // ScaleSectorsPerUnit should always be a whole number.
+                // There's no floating point here!!
+                //
+
+                if ( (ULONG) Buffer->SectorsPerAllocationUnit <= OriginalSectorsPerAllocUnit ) {
+
+                    ScaleSectorsPerUnit =
+                        OriginalSectorsPerAllocUnit / Buffer->SectorsPerAllocationUnit;
+                    Buffer->TotalAllocationUnits.LowPart /= ScaleSectorsPerUnit;
+
+                } else {
+
+                    ScaleSectorsPerUnit =
+                        Buffer->SectorsPerAllocationUnit / OriginalSectorsPerAllocUnit;
+                    Buffer->TotalAllocationUnits.LowPart *= ScaleSectorsPerUnit;
+                }
+
+                Buffer->SectorsPerAllocationUnit = OriginalSectorsPerAllocUnit;
+           }
+
+        } else {
+
+            Buffer->AvailableAllocationUnits.QuadPart += PurgeableAllocationUnits;
+        }
+
+    } else {
+
+        //
+        // If we didn't succeed the second packet, restore the original values.
+        //
+
+        Buffer->TotalAllocationUnits.LowPart = OriginalTotalSpace;
+        Buffer->AvailableAllocationUnits.LowPart = OriginalFreeSpace;
+        Buffer->SectorsPerAllocationUnit = OriginalSectorsPerAllocUnit;
+
+    }
+
+    //
+    // Fill in the remaining size information.
+    //
+
+    Buffer->BytesPerSector = 512;
+
+    pIrpContext->pOriginalIrp->IoStatus.Information =
+        sizeof( FILE_FS_SIZE_INFORMATION );
 
     //
     //  We're done with this request.  Dequeue the IRP context from
@@ -1074,7 +1062,7 @@ Return Value:
 
 {
     NTSTATUS status;
-    PIRP_CONTEXT pIrpContext;
+    PIRP_CONTEXT pIrpContext = NULL;
     BOOLEAN TopLevel;
 
     PAGED_CODE();
@@ -1095,21 +1083,39 @@ Return Value:
 
     } except(NwExceptionFilter( Irp, GetExceptionInformation() )) {
 
-        //
-        // We had some trouble trying to perform the requested
-        // operation, so we'll abort the I/O request with
-        // the error status that we get back from the
-        // execption code.
-        //
+        if ( pIrpContext == NULL ) {
 
-        status = NwProcessException( pIrpContext, GetExceptionCode() );
+            //
+            //  If we couldn't allocate an irp context, just complete
+            //  irp without any fanfare.
+            //
+
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            Irp->IoStatus.Status = status;
+            Irp->IoStatus.Information = 0;
+            IoCompleteRequest ( Irp, IO_NETWORK_INCREMENT );
+
+        } else {
+
+            //
+            //  We had some trouble trying to perform the requested
+            //  operation, so we'll abort the I/O request with
+            //  the error Status that we get back from the
+            //  execption code
+            //
+
+            status = NwProcessException( pIrpContext, GetExceptionCode() );
+        }
     }
 
-    if ( status != STATUS_PENDING ) {
-        NwDequeueIrpContext( pIrpContext, FALSE );
-    }
+    if ( pIrpContext ) {
 
-    NwCompleteRequest( pIrpContext, status );
+        if ( status != STATUS_PENDING ) {
+            NwDequeueIrpContext( pIrpContext, FALSE );
+        }
+
+        NwCompleteRequest( pIrpContext, status );
+    }
 
     if ( TopLevel ) {
         NwSetTopLevelIrp( NULL );

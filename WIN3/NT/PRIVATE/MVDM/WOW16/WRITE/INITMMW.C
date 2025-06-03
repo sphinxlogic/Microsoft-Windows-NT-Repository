@@ -190,7 +190,7 @@ int i;
         vhReservedSpace = LocalAlloc(LPTR, cbReserve);
 
         CreateHeapI(); /* create heap first */
-        if (!FCreateRgbp());  /* rgbp are expandable */
+        if (!FCreateRgbp())  /* rgbp are expandable */
             return FALSE;
 
 /* now free the reserved space after our memory is set up. */
@@ -965,4 +965,4 @@ unsigned cb;
     return TRUE;
 }
 #endif
-
+

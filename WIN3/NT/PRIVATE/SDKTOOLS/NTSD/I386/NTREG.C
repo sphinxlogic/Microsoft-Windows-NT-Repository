@@ -26,17 +26,6 @@ PUCHAR  UserRegs[10] = {0};
 
 BOOLEAN UserRegTest(ULONG);
 
-ULONG   GetRegValue(ULONG);
-ULONG   GetRegFlagValue(ULONG);
-void    SetRegValue(ULONG, ULONG);
-void    SetRegFlagValue(ULONG, ULONG);
-ULONG   GetRegName(void);
-ULONG   GetRegString(PUCHAR);
-void    GetRegPCValue(PADDR);
-PADDR   GetRegFPValue(void);
-void    SetRegPCValue(PADDR);
-void    OutputAllRegs(void);
-void    OutputOneReg(ULONG);
 BOOLEAN fDelayInstruction(void);
 void    OutputHelp(void);
 
@@ -84,7 +73,10 @@ char    szU9Preg[]   = "$u9";
 *
 *************************************************************************/
 
-BOOLEAN UserRegTest (ULONG index)
+BOOLEAN
+UserRegTest (
+    ULONG index
+    )
 {
     return (BOOLEAN)(index >= PREGU0 && index <= PREGU9);
 }
@@ -105,7 +97,10 @@ BOOLEAN UserRegTest (ULONG index)
 *
 *************************************************************************/
 
-ULONG GetRegFlagValue (ULONG regnum)
+ULONGLONG
+GetRegFlagValue (
+    ULONG regnum
+    )
 {
     return( X86GetRegFlagValue(regnum) );
 }
@@ -124,7 +119,10 @@ ULONG GetRegFlagValue (ULONG regnum)
 *
 *************************************************************************/
 
-ULONG GetRegValue (ULONG regnum)
+ULONGLONG
+GetRegValue (
+    ULONG regnum
+    )
 {
     return( X86GetRegValue(regnum) );
 }
@@ -151,9 +149,13 @@ ULONG GetRegValue (ULONG regnum)
 *
 *************************************************************************/
 
-void SetRegFlagValue (ULONG regnum, ULONG regvalue)
+VOID
+SetRegFlagValue (
+    ULONG regnum,
+    LONGLONG regvalue
+    )
 {
-    X86SetRegFlagValue( regnum, regvalue );
+    X86SetRegFlagValue( regnum, (ULONG)regvalue );
 }
 
 /*** SetRegValue - set register value
@@ -171,9 +173,13 @@ void SetRegFlagValue (ULONG regnum, ULONG regvalue)
 *
 *************************************************************************/
 
-void SetRegValue (ULONG regnum, ULONG regvalue)
+VOID
+SetRegValue (
+    ULONG regnum,
+    LONGLONG regvalue
+    )
 {
-    X86SetRegValue( regnum, regvalue );
+    X86SetRegValue( regnum, (ULONG)regvalue );
 }
 
 /*** GetRegName - get register name
@@ -190,28 +196,43 @@ void SetRegValue (ULONG regnum, ULONG regvalue)
 *
 *************************************************************************/
 
-ULONG GetRegName (void)
+ULONG
+GetRegName (
+    VOID
+    )
 {
     return( X86GetRegName() );
 }
 
 
-ULONG GetRegString (PUCHAR pszString)
+ULONG
+GetRegString (
+    PUCHAR pszString
+    )
 {
     return( X86GetRegString(pszString) );
 }
 
-void GetRegPCValue (PADDR Address)
+VOID
+GetRegPCValue (
+    PADDR Address
+    )
 {
     X86GetRegPCValue( Address );
 }
 
-PADDR GetRegFPValue (void)
+PADDR
+GetRegFPValue (
+    VOID
+    )
 {
     return( X86GetRegFPValue() );
 }
 
-void SetRegPCValue (PADDR paddr)
+VOID
+SetRegPCValue (
+    PADDR paddr
+    )
 {
     X86SetRegPCValue( paddr );
 }
@@ -232,7 +253,10 @@ void SetRegPCValue (PADDR paddr)
 *
 *************************************************************************/
 
-void OutputAllRegs(void)
+VOID
+OutputAllRegs(
+    BOOL Show64
+    )
 {
     X86OutputAllRegs();
 }
@@ -252,21 +276,21 @@ void OutputAllRegs(void)
 *
 *************************************************************************/
 
-void OutputOneReg (ULONG regnum)
+VOID
+OutputOneReg (
+    ULONG regnum,
+    BOOL Show64
+    )
 {
     X86OutputOneReg(regnum);
 }
 
-BOOLEAN fDelayInstruction (void)
+BOOLEAN
+fDelayInstruction (
+    VOID
+    )
 {
     return( X86fDelayInstruction() );
-}
-
-void pause (void)
-{
-    UCHAR kdata[16];
-
-    NtsdPrompt("Press <enter> to continue.", kdata, 4);
 }
 
 /*** OutputHelp - output help text
@@ -282,29 +306,44 @@ void pause (void)
 *
 *************************************************************************/
 
-void OutputHelp (void)
+VOID
+OutputHelp (
+    VOID
+    )
 {
     X86OutputHelp();
 }
 
 #ifdef  KERNEL
-BOOLEAN GetTraceFlag (void)
+BOOLEAN
+GetTraceFlag (
+    VOID
+    )
 {
     return( X86GetTraceFlag() );
 }
 #endif
 
-void ClearTraceFlag (void)
+VOID
+ClearTraceFlag (
+    VOID
+    )
 {
     X86ClearTraceFlag();
 }
 
-void SetTraceFlag (void)
+VOID
+SetTraceFlag (
+    VOID
+    )
 {
     X86SetTraceFlag();
 }
 
-PUCHAR RegNameFromIndex (ULONG index)
+PUCHAR
+RegNameFromIndex (
+    ULONG index
+    )
 {
     return( X86RegNameFromIndex(index) );
 }

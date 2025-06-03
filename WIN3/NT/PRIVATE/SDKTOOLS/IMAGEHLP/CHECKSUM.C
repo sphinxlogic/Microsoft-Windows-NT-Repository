@@ -18,14 +18,9 @@ Author:
 Revision History:
 
 --*/
-#define _NTSYSTEM_
-#define _IMAGEHLP_SOURCE_
 
-#include <nt.h>
-#include <ntrtl.h>
-#include <nturtl.h>
-#include <windows.h>
-#include <imagehlp.h>
+#include <private.h>
+
 
 //
 // Define checksum routine prototype.
@@ -91,10 +86,10 @@ Return Value:
     // the file length, and set the value of the header checksum.
     //
 
-    try {
-        NtHeaders = RtlImageNtHeader(BaseAddress);
+    __try {
+        NtHeaders = ImageNtHeader(BaseAddress);
 
-    } except(EXCEPTION_EXECUTE_HANDLER) {
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
         NtHeaders = NULL;
     }
 

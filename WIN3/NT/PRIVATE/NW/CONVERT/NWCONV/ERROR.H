@@ -5,7 +5,15 @@
 #ifndef _HERROR_
 #define _HERROR_
 
+#ifdef __cplusplus
+extern "C"{
+#endif
+
 void CriticalErrorExit(LPTSTR ErrorString);
 void WarningError(LPTSTR ErrorString, ...);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

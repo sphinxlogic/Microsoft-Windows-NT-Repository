@@ -59,7 +59,7 @@ Revision History:
     23-Feb-1993 JohnRo
         Added support for continuing on error.
     15-Apr-1993 JohnRo
-        RAID 6167: avoid access violation or assert with WFW print server.
+        RAID 6167: avoid _access violation or assert with WFW print server.
         Also, WFW doesn't support some APIs.
     14-May-1993 JohnRo
         RAID 9961: DosPrintDestEnum returns NO_ERROR to downlevel but
@@ -255,11 +255,11 @@ FindOneOfMyJobs(
 
     UserName = wkui0->wkui0_username;
     IF_DEBUG( PRINTJOB ) {
-        NetpDbgPrint( "FindOneOfMyJobs: looking for job "
-                "with user name " FORMAT_LPTSTR ".\n", UserName );
-        NetpDbgPrint( "FindOneOfMyJobs: trying DosPrintJobEnum("
+        NetpKdPrint(( "FindOneOfMyJobs: looking for job "
+                "with user name " FORMAT_LPTSTR ".\n", UserName ));
+        NetpKdPrint(( "FindOneOfMyJobs: trying DosPrintJobEnum("
                 FORMAT_DWORD ")\n",
-                PrintJobInfoLevel );
+                PrintJobInfoLevel ));
     }
 
     Status = DosPrintJobEnum(
@@ -271,8 +271,8 @@ FindOneOfMyJobs(
             & EntriesRead,
             & TotalAvail );
     IF_DEBUG( PRINTJOB ) {
-        NetpDbgPrint( "FindOneOfMyJobs: back from DosPrintJobEnum, stat="
-                FORMAT_API_STATUS "\n", Status );
+        NetpKdPrint(( "FindOneOfMyJobs: back from DosPrintJobEnum, stat="
+                FORMAT_API_STATUS "\n", Status ));
     }
     if (Status == ERROR_MORE_DATA) {
         goto Cleanup;  // Oh well...
@@ -289,7 +289,7 @@ FindOneOfMyJobs(
     for (JobsLeft = EntriesRead; JobsLeft>0; --JobsLeft) {
         if (STRICMP( ThisJob->szUserName, UserName ) == 0) {
             IF_DEBUG( PRINTJOB ) {
-                NetpDbgPrint( "FindOneOfMyJobs: Found job:\n" );
+                NetpKdPrint(( "FindOneOfMyJobs: Found job:\n" ));
                 NetpDbgDisplayPrintJob(
                         PrintJobInfoLevel, ThisJob, HAS_UNICODE );
             }
@@ -301,9 +301,9 @@ FindOneOfMyJobs(
 
     if (JobId == JOB_ID_NOT_FOUND) {
         IF_DEBUG( PRINTJOB ) {
-            NetpDbgPrint( "FindOneOfMyJobs: no match on user "
+            NetpKdPrint(( "FindOneOfMyJobs: no match on user "
                     FORMAT_LPTSTR ".\n",
-                    UserName );
+                    UserName ));
         }
     }
 
@@ -337,10 +337,10 @@ TestPrint(
     NET_API_STATUS ApiStatus;
 
     IF_DEBUG( PRINTJOB ) {
-        NetpDbgPrint( "\nTestPrint: first test beginning...\n"
+        NetpKdPrint(( "\nTestPrint: first test beginning...\n"
                 INDENT "buffer size=" FORMAT_DWORD "\n"
                 INDENT "queue=" FORMAT_LPTSTR "\n",
-                BufferSize, QueueName );
+                BufferSize, QueueName ));
     }
 
     DefaultPrintBufferSize = BufferSize;
@@ -393,8 +393,8 @@ TestPrintDestEnum(
     WORD TotalAvail;
 
     IF_DEBUG(PRINTDEST) {
-        NetpDbgPrint( "\nTestPrintDestEnum: trying DosPrintDestEnum("
-                FORMAT_DWORD ")...\n", Level );
+        NetpKdPrint(( "\nTestPrintDestEnum: trying DosPrintDestEnum("
+                FORMAT_DWORD ")...\n", Level ));
     }
     Status = DosPrintDestEnum(
             UncServerName,
@@ -404,14 +404,14 @@ TestPrintDestEnum(
             & EntriesRead,
             & TotalAvail );
     IF_DEBUG(PRINTDEST) {
-        NetpDbgPrint( "TestPrintDestEnum: back from DosPrintDestEnum, stat="
-                FORMAT_API_STATUS "\n", Status );
-        NetpDbgPrint( INDENT "entries read=" FORMAT_WORD_ONLY "\n", EntriesRead );
-        NetpDbgPrint( INDENT "total avail=" FORMAT_WORD_ONLY "\n", TotalAvail );
+        NetpKdPrint(( "TestPrintDestEnum: back from DosPrintDestEnum, stat="
+                FORMAT_API_STATUS "\n", Status ));
+        NetpKdPrint(( INDENT "entries read=" FORMAT_WORD_ONLY "\n", EntriesRead ));
+        NetpKdPrint(( INDENT "total avail=" FORMAT_WORD_ONLY "\n", TotalAvail ));
     }
     if (! RxpFatalErrorCode( Status )) {
         IF_DEBUG(PRINTDEST) {
-            NetpDbgPrint( "TestPrintDestEnum: returned buffer (partial):\n" );
+            NetpKdPrint(( "TestPrintDestEnum: returned buffer (partial):\n" ));
             NetpDbgHexDump( DefaultPrintBuffer,
                     NetpDbgReasonable( DefaultPrintBufferSize ) );
             NetpDbgDisplayPrintDestArray(
@@ -487,20 +487,20 @@ TestPrintJobDel(
     JobId = FindOneOfMyJobs( UncServerName, QueueName );
     if (JobId == JOB_ID_NOT_FOUND) {
         IF_DEBUG( PRINTJOB ) {
-            NetpDbgPrint(
-                    "TestPrintJobDel: skipping test (unable to find job)\n" );
+            NetpKdPrint((
+                    "TestPrintJobDel: skipping test (unable to find job)\n" ));
         }
         // Let's not treat this as a failure.
         return;
     }
 
     IF_DEBUG(PRINTJOB) {
-        NetpDbgPrint( "TestPrintJobDel: deleting...\n" );
+        NetpKdPrint(( "TestPrintJobDel: deleting...\n" ));
     }
     Status = DosPrintJobDel( UncServerName, (WORD) JobId );
     IF_DEBUG(PRINTJOB) {
-        NetpDbgPrint( "TestPrintJobDel: back from DosPrintJobDel, stat="
-                FORMAT_API_STATUS "\n", Status );
+        NetpKdPrint(( "TestPrintJobDel: back from DosPrintJobDel, stat="
+                FORMAT_API_STATUS "\n", Status ));
     }
     if ( MultipleCopy && (Status==NERR_JobNotFound) ) {
         // Probably just competition between us and another run of this same
@@ -525,8 +525,8 @@ TestPrintJobEnum(
     WORD TotalAvail;
 
     IF_DEBUG(PRINTJOB) {
-        NetpDbgPrint( "\nTestPrintJobEnum: trying DosPrintJobEnum("
-                FORMAT_DWORD ")...\n", Level );
+        NetpKdPrint(( "\nTestPrintJobEnum: trying DosPrintJobEnum("
+                FORMAT_DWORD ")...\n", Level ));
     }
     Status = DosPrintJobEnum(
             UncServerName,
@@ -537,14 +537,14 @@ TestPrintJobEnum(
             & EntriesRead,
             & TotalAvail );
     IF_DEBUG(PRINTJOB) {
-        NetpDbgPrint( "TestPrintJobEnum: back from DosPrintJobEnum, stat="
-                FORMAT_API_STATUS "\n", Status );
-        NetpDbgPrint( INDENT "entries read=" FORMAT_WORD_ONLY "\n", EntriesRead );
-        NetpDbgPrint( INDENT "total avail=" FORMAT_WORD_ONLY "\n", TotalAvail );
+        NetpKdPrint(( "TestPrintJobEnum: back from DosPrintJobEnum, stat="
+                FORMAT_API_STATUS "\n", Status ));
+        NetpKdPrint(( INDENT "entries read=" FORMAT_WORD_ONLY "\n", EntriesRead ));
+        NetpKdPrint(( INDENT "total avail=" FORMAT_WORD_ONLY "\n", TotalAvail ));
     }
     if (! RxpFatalErrorCode( Status )) {
         IF_DEBUG(PRINTJOB) {
-            NetpDbgPrint( "TestPrintJobEnum: returned buffer (partial):\n" );
+            NetpKdPrint(( "TestPrintJobEnum: returned buffer (partial):\n" ));
             NetpDbgHexDump(
                     DefaultPrintBuffer,
                     NetpDbgReasonable( DefaultPrintBufferSize ) );
@@ -580,7 +580,7 @@ TestPrintJobGetInfo(
     WORD TotalAvail;
 
     IF_DEBUG(PRINTJOB) {
-        NetpDbgPrint( "\nTestPrintJobGetInfo: trying DosPrintJobEnum(0)...\n" );
+        NetpKdPrint(( "\nTestPrintJobGetInfo: trying DosPrintJobEnum(0)...\n" ));
     }
     Status = DosPrintJobEnum(
             UncServerName,
@@ -591,8 +591,8 @@ TestPrintJobGetInfo(
             & EntriesRead,
             & TotalAvail );
     IF_DEBUG(PRINTJOB) {
-        NetpDbgPrint( "TestPrintJobGetInfo: back from DosPrintJobEnum, stat="
-                FORMAT_API_STATUS "\n", Status );
+        NetpKdPrint(( "TestPrintJobGetInfo: back from DosPrintJobEnum, stat="
+                FORMAT_API_STATUS "\n", Status ));
     }
     if (Status == ERROR_MORE_DATA) {
         return;
@@ -607,7 +607,7 @@ TestPrintJobGetInfo(
 
     if (EntriesRead == 0) {
         IF_DEBUG( PRINTJOB ) {
-            NetpDbgPrint( "TestPrintJobGetInfo: no jobs found.\n" );
+            NetpKdPrint(( "TestPrintJobGetInfo: no jobs found.\n" ));
         }
         return;  // Continue with next test.
     }
@@ -615,12 +615,12 @@ TestPrintJobGetInfo(
     JobId = * (LPWORD) (LPVOID) DefaultPrintBuffer;
     // JobId = (WORD) DefaultPrintBuffer;
     IF_DEBUG(PRINTJOB) {
-        NetpDbgPrint( INDENT "job ID (first) is " FORMAT_DWORD ".\n", JobId );
+        NetpKdPrint(( INDENT "job ID (first) is " FORMAT_DWORD ".\n", JobId ));
     }
 
     IF_DEBUG(PRINTJOB) {
-        NetpDbgPrint( "\nTestPrintJobGetInfo: trying DosPrintJobGetInfo("
-                FORMAT_DWORD ")...\n", Level );
+        NetpKdPrint(( "\nTestPrintJobGetInfo: trying DosPrintJobGetInfo("
+                FORMAT_DWORD ")...\n", Level ));
     }
     Status = DosPrintJobGetInfo(
             UncServerName,
@@ -630,11 +630,11 @@ TestPrintJobGetInfo(
             (WORD) DefaultPrintBufferSize,
             & Needed );
     IF_DEBUG(PRINTJOB) {
-        NetpDbgPrint( "TestPrintJobGetInfo: back from DosPrintJobGetInfo, stat="
-                FORMAT_API_STATUS "\n", Status );
-        NetpDbgPrint( INDENT "needed=" FORMAT_DWORD "\n", (DWORD) Needed );
+        NetpKdPrint(( "TestPrintJobGetInfo: back from DosPrintJobGetInfo, stat="
+                FORMAT_API_STATUS "\n", Status ));
+        NetpKdPrint(( INDENT "needed=" FORMAT_DWORD "\n", (DWORD) Needed ));
         if (! RxpFatalErrorCode( Status )) {
-            NetpDbgPrint( "TestPrintJobGetInfo: returned buffer (partial):\n" );
+            NetpKdPrint(( "TestPrintJobGetInfo: returned buffer (partial):\n" ));
             NetpDbgHexDump( DefaultPrintBuffer,
                     NetpDbgReasonable( DefaultPrintBufferSize ) );
             NetpDbgDisplayPrintJob( Level, DefaultPrintBuffer, HAS_UNICODE );
@@ -684,8 +684,8 @@ TestPrintJobSetInfo(
     JobId = FindOneOfMyJobs( UncServerName, QueueName );
     if (JobId == JOB_ID_NOT_FOUND) {
         IF_DEBUG( PRINTJOB ) {
-            NetpDbgPrint( "TestPrintJobSetInfo: skipping test"
-                    " (unable to find job)\n" );
+            NetpKdPrint(( "TestPrintJobSetInfo: skipping test"
+                    " (unable to find job)\n" ));
         }
         // Let's not treat this as a failure.
         return;
@@ -777,10 +777,10 @@ TestPrintQEnum(
     NET_API_STATUS Status;
 
     IF_DEBUG( PRINTQ ) {
-        NetpDbgPrint( "\nTestPrintQEnum: trying DosPrintQEnum("
+        NetpKdPrint(( "\nTestPrintQEnum: trying DosPrintQEnum("
                 FORMAT_LPTSTR ", " FORMAT_DWORD ")...\n",
                 (UncServerName!=NULL) ? UncServerName : (LPVOID) TEXT("(local)"),
-                Level );
+                Level ));
     }
     Status = DosPrintQEnum(
             UncServerName,
@@ -790,10 +790,10 @@ TestPrintQEnum(
             & EntriesRead,
             & TotalEntries );
     IF_DEBUG( PRINTQ ) {
-        NetpDbgPrint( "TestPrintQEnum: back from DosPrintQEnum, stat="
-                FORMAT_API_STATUS "\n", Status );
-        NetpDbgPrint( INDENT "entries read=" FORMAT_WORD_ONLY "\n", EntriesRead );
-        NetpDbgPrint( INDENT "total entries=" FORMAT_WORD_ONLY "\n", TotalEntries );
+        NetpKdPrint(( "TestPrintQEnum: back from DosPrintQEnum, stat="
+                FORMAT_API_STATUS "\n", Status ));
+        NetpKdPrint(( INDENT "entries read=" FORMAT_WORD_ONLY "\n", EntriesRead ));
+        NetpKdPrint(( INDENT "total entries=" FORMAT_WORD_ONLY "\n", TotalEntries ));
     }
     if (AllowInvalidLevel && (IS_FAILED_LEVEL_STATUS(Status)) ) {
         return;
@@ -801,7 +801,7 @@ TestPrintQEnum(
     if (! RxpFatalErrorCode( Status )) {
         if (EntriesRead > 0) {
             IF_DEBUG( PRINTQ ) {
-                NetpDbgPrint( "TestPrintQEnum: returned buffer (partial):\n" );
+                NetpKdPrint(( "TestPrintQEnum: returned buffer (partial):\n" ));
                 NetpDbgHexDump( DefaultPrintBuffer,
                         NetpDbgReasonable( DefaultPrintBufferSize ) );
                 NetpDbgDisplayPrintQArray(
@@ -844,11 +844,11 @@ TestPrintQGetInfo(
     LPSTR          UncServerNameA = NULL;
 
     IF_DEBUG( PRINTQ ) {
-        NetpDbgPrint( "\nTestPrintQGetInfo: trying DosPrintQGetInfo%c("
+        NetpKdPrint(( "\nTestPrintQGetInfo: trying DosPrintQGetInfo%c("
                 FORMAT_LPTSTR ", " FORMAT_DWORD ")...\n",
                 (HasUnicode) ? 'W' : 'A',
                 UncServerName ? UncServerName : (LPVOID) TEXT("(local)"),
-                Level );
+                Level ));
     }
     if (HasUnicode) {
         Status = DosPrintQGetInfoW(
@@ -875,18 +875,18 @@ TestPrintQGetInfo(
     }
 
     IF_DEBUG( PRINTQ ) {
-        NetpDbgPrint( "TestPrintQGetInfo: back from DosPrintQGetInfo%c, stat="
+        NetpKdPrint(( "TestPrintQGetInfo: back from DosPrintQGetInfo%c, stat="
                 FORMAT_API_STATUS "\n",
                 (HasUnicode) ? 'W' : 'A',
-                Status );
-        NetpDbgPrint( INDENT "needed=" FORMAT_WORD_ONLY "\n", Needed );
+                Status ));
+        NetpKdPrint(( INDENT "needed=" FORMAT_WORD_ONLY "\n", Needed ));
     }
     if (AllowInvalidLevel && (IS_FAILED_LEVEL_STATUS(Status)) ) {
         goto Cleanup;
     }
     if ( !RxpFatalErrorCode( Status )) {
         IF_DEBUG( PRINTQ ) {
-            NetpDbgPrint( "TestPrintQGetInfo: returned buffer (partial):\n" );
+            NetpKdPrint(( "TestPrintQGetInfo: returned buffer (partial):\n" ));
             NetpDbgHexDump( DefaultPrintBuffer,
                     NetpDbgReasonable( DefaultPrintBufferSize ) );
             if (Status == NO_ERROR) {
@@ -931,19 +931,19 @@ TestPrintQPause(
     NET_API_STATUS Status;
 
     IF_DEBUG( PRINTQ ) {
-        NetpDbgPrint(
+        NetpKdPrint((
                 "\nTestPrintQPause: trying DosPrintQPause("
                 FORMAT_LPTSTR ", " FORMAT_LPTSTR")...\n",
                 UncServerName ? UncServerName : (LPVOID) TEXT("(local)"),
                 QueueName     ? QueueName     : (LPVOID) TEXT("(null)")
-                );
+                ));
     }
     Status = DosPrintQPause(
             UncServerName,
             QueueName );
     IF_DEBUG( PRINTQ ) {
-        NetpDbgPrint( "TestPrintQPause: back from DosPrintQPause, stat="
-                FORMAT_API_STATUS "\n", Status );
+        NetpKdPrint(( "TestPrintQPause: back from DosPrintQPause, stat="
+                FORMAT_API_STATUS "\n", Status ));
     }
     if (OrdinaryUserOnly && RxTestIsAccessDenied( Status ) ) {
         return;

@@ -24,11 +24,21 @@
 #define ASSEMBLE r->left = t->right;	 l->right = t->left; \
 		 t->left = Dummy->right; t->right = Dummy->left
 
-static TreeNode Dumbo(Nil);
+       TreeNode Dumbo(Nil);
 static TreeNode *Dummy = &Dumbo;	// a global dummy node
 
+TreeNode *
+GetGlobalTreeNode()
+{
+    return( &Dumbo );
+}
 
 
+// initialize the memory allocator for TreeNode
+
+FreeListMgr
+TreeNode::MyFreeList( sizeof ( TreeNode ) );
+
 //*************************************************************************
 //***** 	     Core functions (internal)			      *****
 //*************************************************************************
@@ -380,7 +390,86 @@ Dictionary::Dict_Delete(	// delete the given item from the tree
     return (SUCCESS);
 }
 
+
+pUserType		
+Dictionary::Dict_Delete_One()
+{
+	TreeNode 	*	pCurrent	= root;
+	TreeNode	*	pPrev		= NULL;		// NULL indicates prev is root
+	pUserType		pResult;
+	BOOL			fLeft;
 
+	while ( pCurrent )
+		{
+		if ( pCurrent->left )
+			{
+			pPrev		= pCurrent;
+			pCurrent	= pCurrent->left;
+			fLeft 		= TRUE;
+			continue;
+			}
+
+		if ( pCurrent->right )
+			{
+			pPrev		= pCurrent;
+			pCurrent	= pCurrent->right;
+			fLeft		= FALSE;
+			continue;
+			}
+
+		// found a leaf
+		break;
+		}
+
+	// we are now at a leaf (or tree empty)
+	if ( !pCurrent )
+		return NULL;
+
+	// unhook from parent
+	if ( pPrev )
+		{
+		if ( fLeft )
+			pPrev->left		= NULL;
+		else
+			pPrev->right	= NULL;
+		}
+	else
+		root	= NULL;
+
+	// return the item, and delete the treenode
+	pResult	= pCurrent->item;
+	delete pCurrent;
+	size--;
+	return pResult;
+}
+
+short
+Dictionary::Dict_GetList( 
+	gplistmgr & ListIter )
+{
+	pUserType		pN;
+	Dict_Status		Status;
+	short			Count = 0;
+
+	// Get to the top of the dictionary.
+
+	Status	= Dict_Next( (pUserType)0 );
+
+	// make sure we start with a clean iterator
+	ITERATOR_DISCARD( ListIter );
+
+	// Iterate till the entire dictionary is looked at.
+
+	while( SUCCESS == Status )
+		{
+		pN	= Dict_Curr_Item();
+		ListIter.Insert( pN );
+		Count++;
+		Status = Dict_Next( pN );
+		}
+
+	return Count;
+}
 
 // Utility functions to print of a tree
 

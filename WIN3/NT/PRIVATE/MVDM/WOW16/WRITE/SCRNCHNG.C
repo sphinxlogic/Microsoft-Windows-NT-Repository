@@ -849,6 +849,5 @@ SetPageSize()
         InvalidateCaches(doc);
         }
     }
-
-
-
+
+

@@ -28,378 +28,6 @@ class node_interface;
 class node_source;
 
 
-class CG_FILE	: public CG_AUX
-	{
-private:
-	PFILENAME					pFileName;
-	node_file			*		pNode;
-
-public:
-
-	//
-	// constructor.
-	//
-								CG_FILE(
-									node_file	*	pN,
-									PFILENAME	pFName
-								    )
-									{
-									SetFileName( pFName );
-									SetFileNode( pN );
-									}
-
-	//
-	// get and set methods.
-	//
-
-
-	PFILENAME					SetFileName( PFILENAME p )
-									{
-									return (pFileName = p);
-									}
-
-	PFILENAME					GetFileName()
-									{
-									return pFileName;
-									}
-
-	node_file			*		SetFileNode( node_file * pN )
-									{
-									return (pNode = pN);
-									}
-
-	node_file			*		GetFileNode()
-									{
-									return pNode;
-									}
-	//
-	// code generation methods.
-	//
-
-	virtual
-	ID_CG						GetCGID()
-									{
-									return ID_CG_FILE;
-									}
-
-	virtual
-	CG_STATUS					GenCode( CCB * pCCB )
-									{
-									UNUSED( pCCB );
-									return CG_OK;
-									}
-
-	};
-
-class CG_CSTUB_FILE	: public CG_FILE
-	{
-private:
-
-	//
-	// The header file name could be different from the default name
-	// based off the stub name. The ilxlat will supply this info.
-	//
-
-	char					*	pHeaderFileName;
-
-public:
-
-	//
-	// The constructor.
-	//
-
-								CG_CSTUB_FILE(
-										 node_file * pN,
-										 PFILENAME pFName,
-										 PFILENAME pHdrName
-										 );
-
-	//
-	// Get And set methods.
-	//
-
-	PFILENAME					GetHeaderFileName()
-									{
-									return pHeaderFileName;
-									}
-
-
-	//
-	// Code generation methods.
-	//
-
-	virtual
-	CG_STATUS					GenCode( CCB * pCCB );
-
-	};
-
-class CG_SSTUB_FILE	: public CG_FILE
-	{
-private:
-
-	//
-	// The header file name could be different from the default name
-	// based off the stub name. The ilxlat will supply this info.
-	//
-
-	char					*	pHeaderFileName;
-
-public:
-
-	//
-	// The constructor.
-	//
-
-								CG_SSTUB_FILE(
-										 node_file * pN,
-										 PFILENAME pFName,
-										 PFILENAME pHdrName
-										 );
-
-	//
-	// Get And set methods.
-	//
-
-	PFILENAME					GetHeaderFileName()
-									{
-									return pHeaderFileName;
-									}
-
-	//
-	// Code generation methods.
-	//
-
-	virtual
-	CG_STATUS					GenCode( CCB * pCCB );
-
-	};
-
-
-//
-// Header file generation class
-//
-// This includes a pointer to an iterator over the import level 1 
-// node_file nodes
-//
-
-class CG_HDR_FILE	: public CG_FILE
-	{
-private:
-
-	ITERATOR	*		pImportList;	// ptr to list of level 1 imports
-
-
-public:
-
-	//
-	// The constructor.
-	//
-								CG_HDR_FILE(
-										 node_file * pN,
-										 PFILENAME pFName,
-										 ITERATOR * pIList
-										 ) : CG_FILE(pN, pFName)
-									{
-									pImportList = pIList;
-									}
-
-
-	ITERATOR	*		GetImportList()
-							{
-							return pImportList;
-							}
-
-	//
-	// Code generation methods.
-	//
-
-	virtual
-	CG_STATUS					GenCode( CCB * pCCB );
-
-
-	void						OutputMultipleInterfacePrototypes( CCB * pCCB );
-
-	};
-
-//
-// Aux file generation classes
-//
-// This includes a pointer to an iterator over the CG structs/unions for it 
-//
-
-class CG_CAUX_FILE	: public CG_FILE
-	{
-private:
-
-	ITERATOR	*		pOfflineList;	// ptr to list of offlined things
-
-	char		*		pHdrFileName;	// name of header file
-
-public:
-
-	//
-	// The constructor.
-	//
-								CG_CAUX_FILE(
-										 node_file * pN,
-										 ITERATOR * pIList,
-										 char * pHdrName,
-										 char * pName ):
-											CG_FILE(pN, pName)
-									{
-									pOfflineList = pIList;
-									pHdrFileName = pHdrName;
-									}
-
-
-	ITERATOR	*		GetOfflineList()
-							{
-							return pOfflineList;
-							}
-
-	char		*		GetHeaderFileName()
-							{
-							return pHdrFileName;
-							}
-
-	//
-	// Code generation methods.
-	//
-
-	virtual
-	CG_STATUS					GenCode( CCB * pCCB );
-
-
-	};
-
-class CG_SAUX_FILE	: public CG_CAUX_FILE
-	{
-public:
-	//
-	// The constructor.
-	//
-								CG_SAUX_FILE(
-										 node_file * pN,
-										 ITERATOR * pIList,
-										 char * pHdrName,
-										 char * pName ):
-											CG_CAUX_FILE(pN, pIList, pHdrName, pName)
-									{
-									}
-
-
-	};
-
-
-class CG_IID_FILE	: public CG_FILE
-	{
-private:
-
-public:
-
-	//
-	// The constructor.
-	//
-
-								CG_IID_FILE(
-										 node_file * pN,
-										 PFILENAME pFName
-										 );
-
-	//
-	// Code generation methods.
-	//
-
-	virtual
-	CG_STATUS					GenCode( CCB * pCCB );
-
-	};
-class CG_PROXY_FILE	: public CG_FILE
-	{
-private:
-
-	//
-	// The header file name could be different from the default name
-	// based off the stub name. The ilxlat will supply this info.
-	//
-
-	char					*	pHeaderFileName;
-
-public:
-
-	//
-	// The constructor.
-	//
-
-								CG_PROXY_FILE(
-										 node_file * pN,
-										 PFILENAME pFName,
-										 PFILENAME pHdrName
-										 );
-
-	//
-	// Get And set methods.
-	//
-
-	PFILENAME					GetHeaderFileName()
-									{
-									return pHeaderFileName;
-									}
-
-
-	//
-	// Code generation methods.
-	//
-
-	virtual
-	CG_STATUS					GenCode( CCB * pCCB );
-
-	//
-	// Output methods
-	//
-
-	void                		Out_ProxyBuffer( CCB *pCCB );
-
-	void                		Out_StubBuffer( CCB *pCCB );
-
-	void                		Out_ProxyFileInfo( CCB *pCCB );
-
-	void						Out_InterfaceNamesList( CCB *pCCB );
-
-	void						UpdateDLLDataFile( CCB * pCCB );
-
-	};
-
-//
-// the root of the IL translation tree
-//
-
-
-class CG_SOURCE	: public CG_AUX
-	{
-private:
-	node_source			*		pSourceNode;
-public:
-								CG_SOURCE( node_source *p )
-									{
-									pSourceNode = p;
-									}
-
-	//
-	// code generation methods.
-	//
-
-	virtual
-	ID_CG						GetCGID()
-									{
-									return ID_CG_SOURCE;
-									}
-
-	virtual
-	CG_STATUS					GenCode( CCB * pCCB );
-	};
-
-
 class CG_INTERFACE	: public CG_NDR
 	{
 private:
@@ -424,7 +52,10 @@ private:
 	BOOL				fMopsPresent		: 1;
 	BOOL				fCallbacksPresent	: 1;
 	BOOL				fAllRpcSS			: 1;
+	BOOL				fUsesRpcSS			: 1;
+    BOOL                fHasPipes           : 1;
 
+    NdrVersionControl   VersionControl;      // compiler evaluation
 	//
 	// This set of fields gathers info about dispatch tables. There is a
 	// normal dispatch table and a callback dispatch table. We keep separate
@@ -439,6 +70,8 @@ private:
 
 	DISPATCH_TABLE	**	ppDispatchTableSaved;
 
+    void * _pCTI;
+
 protected:
     //
     // Interface's stub descriptor name.
@@ -450,11 +83,14 @@ protected:
 	// Store the 5 are components of the guid.
 	//
 
-	char					*	pGStr1;
-	char					*	pGStr2;
-	char					*	pGStr3;
-	char					*	pGStr4;
-	char					*	pGStr5;
+	GUID_STRS					GuidStrs;
+
+	// handy place to cache the interface name
+	char					*	pIntfName;
+
+	// used when enumerating all base classes
+	BOOL					fVisited;
+
 
 public:
 
@@ -464,11 +100,7 @@ public:
 
 								CG_INTERFACE(
 										 node_interface * pI,
-										 char		*	GuidStr1,
-										 char		*	GuidStr2,
-										 char		*	GuidStr3,
-										 char		*	GuidStr4,
-										 char		*	GuidStr5,
+										 GUID_STRS		GStrs,
 										 BOOL			CallbacksYes,
 										 BOOL			fMopsYes,
 										 CG_HANDLE *	pIH
@@ -491,6 +123,43 @@ public:
 									}
 
 	virtual
+	BOOL						IsIUnknown()
+									{
+									return FALSE;
+									}
+
+    BOOL                        IsDispatchable(BOOL fInTypeLib)
+                                    {
+                                    CG_CLASS *  pCG;
+                                    named_node * pBaseIntf;
+
+                                    if (0 == _stricmp("IDispatch", pIntfName ) )
+                                        {
+                                        return TRUE;
+                                        }
+                                    else
+                                    if (pBaseIntf = ((node_interface *)(GetType()))->GetMyBaseInterfaceReference())
+                                        {
+                                        node_interface_reference * pRef = (node_interface_reference *)pBaseIntf;
+                                        // skip forward reference if necessary
+                                        if (pRef->NodeKind() == NODE_FORWARD)
+                                            {
+                                            pRef = (node_interface_reference *)pRef->GetChild();
+                                            }
+                                        pCG = ((node_interface *)(pRef->GetChild()))->GetCG( fInTypeLib );
+
+                                        return ((CG_INTERFACE *)pCG)->IsDispatchable(fInTypeLib);
+                                        }
+                                    else
+                                        return FALSE;
+                                    }
+
+	char				*		GetInterfaceName()
+									{
+									return pIntfName;
+									}
+
+	virtual
 	CG_STATUS					GenClientStub( CCB * pCCB );
 
 	virtual
@@ -498,6 +167,12 @@ public:
 
 	virtual
 	CG_STATUS					GenHeader( CCB * pCCB );
+
+    //
+    // Generate typeinfo
+    //
+    virtual
+    CG_STATUS               GenTypeInfo( CCB * pCCB);
 
 	//
 	// Get And set methods.
@@ -522,6 +197,48 @@ public:
                                     {
                                     return fAllRpcSS;
                                     }
+
+    void                      	SetUsesRpcSS( BOOL f )
+                                    {
+                                    fUsesRpcSS = f;
+                                    }
+
+    BOOL                      	GetUsesRpcSS()
+                                    {
+                                    return fUsesRpcSS;
+                                    }
+
+    BOOL                        SetHasPipes( BOOL f )
+                                    {
+                                    return (fHasPipes = f);
+                                    }
+
+    BOOL                        HasPipes()
+                                    {
+                                    return fHasPipes;
+                                    }
+
+    NdrVersionControl &         GetNdrVersionControl()
+                                    {
+                                    return( VersionControl );
+                                    }
+    virtual
+    void                        EvaluateVersionControl();
+
+    virtual
+    BOOL                        HasStublessProxies()
+                                    {
+                                    return FALSE;
+                                    }
+
+    BOOL                        HasItsOwnOi2();
+
+    virtual
+    BOOL                        HasOi2()
+                                    {
+                                    return VersionControl.HasOi2();
+                                    }
+
 
 	//
 	// Dispatch table management functions.
@@ -557,7 +274,7 @@ public:
 	
 	unsigned short		GetNormalProcedureList(
 										 ITERATOR&				NormalProcList,
-										 DISPATCH_TABLE_FLAGS	Flags 
+										 DISPATCH_TABLE_FLAGS	Flags
 										 )
 							{
 							return pNormalDispatchTable->GetProcList(
@@ -596,6 +313,8 @@ public:
     BOOL                        HasInterpretedProc();
     BOOL                        HasOnlyInterpretedProcs();
     BOOL                        HasInterpretedCallbackProc();
+    BOOL                        HasClientInterpretedCommOrFaultProc(
+                                    CCB * pCCB );
 
 	BOOL						IsLastInterface()
 									{
@@ -604,7 +323,7 @@ public:
 
 	CG_STATUS					InitializeCCB( CCB * pCCB );
 
-    void                        OutputProcOffsets( CCB * pCCB, BOOL fLast );
+    void                        OutputProcOffsets( CCB * pCCB, BOOL fLast, BOOL fLocal );
 
     void                        OutputThunkTableEntries( CCB * pCCB, BOOL fLast );
 
@@ -619,6 +338,11 @@ public:
 									GetMembers( I );
 									}
 
+	void						GetMyMemberFunctions( CG_ITERATOR & I )
+									{
+									GetMembers( I );
+									}
+
 	virtual
 	void						GetAllMemberFunctions( ITERATOR & I )
 									{
@@ -627,7 +351,7 @@ public:
 
     BOOL                        HasPicklingStuff()
                                     {
-                                    ITERATOR	I;
+                                    CG_ITERATOR	I;
                                     CG_NDR *	pCG;
 
                                     if( GetMembers( I ) )
@@ -645,7 +369,7 @@ public:
 
     BOOL                        HasPicklingStuffOnly()
                                     {
-                                    ITERATOR	I;
+                                    CG_ITERATOR	I;
                                     CG_NDR *	pCG;
 
                                     if( GetMembers( I ) )
@@ -662,7 +386,39 @@ public:
                                     return FALSE;
                                     }
 
-	};
+	virtual
+	void						GetListOfUniqueBaseInterfaces( ITERATOR & )
+									{
+									}
+
+	void						MarkVisited( BOOL fMark )
+									{
+									fVisited = fMark;
+									}
+
+
+	BOOL						IsVisited()
+									{
+									return fVisited;
+									}
+
+	void						GetGuidStrs( char * &p1,
+											 char * &p2,
+											 char * &p3,
+											 char * &p4,
+											 char * &p5 )
+									{
+									GuidStrs.GetStrs( p1, p2, p3, p4, p5 );
+									}
+
+	GUID_STRS			&		GetGuidStrs()
+									{
+									return GuidStrs;
+									}
+
+    void                        OutputInterfaceIdComment( CCB * pCCB );
+
+    };
 
 
 class CG_OBJECT_INTERFACE	: public CG_INTERFACE
@@ -675,22 +431,18 @@ class CG_OBJECT_INTERFACE	: public CG_INTERFACE
 	// a node_id declaration for the this pointer for this interface
 	node_skl			*	pThisDeclarator;
 
-	// indicate whether this is an all-local interface
-	BOOL					fLocal;
+    BOOL                    fLocal;             // whether intf is local 
+    BOOL                    fForcedDelegation;  // some weird cases
 
 public:
 
-	//
-	// The constructor.
+    //
+    // The constructor.
 	//
 
 								CG_OBJECT_INTERFACE(
 										 node_interface * pI,
-										 char	   * GuidStr1,
-										 char		* GuidStr2,
-										 char	   * GuidStr3,
-										 char	   * GuidStr4,
-										 char		* GuidStr5,
+										 GUID_STRS  GStrs,
 										 BOOL		fCallbacksYes,
 										 BOOL		fMopsYes,
 										 CG_OBJECT_INTERFACE *	pBCG
@@ -711,7 +463,36 @@ public:
 									return TRUE;
 									}
 
-	
+    
+	// interfaces in the current file that are [local] are delegated
+	virtual
+	BOOL						IsDelegated()
+									{
+									return fLocal;
+									}
+
+    BOOL                        HasForcedDelegation()
+                                    {
+                                    return fForcedDelegation;
+                                    }
+
+    void                        SetHasForcedDelegation()
+                                    {
+                                    fForcedDelegation = 1;
+                                    }
+
+	CG_OBJECT_INTERFACE	*		GetDelegatedInterface()
+									{
+									CG_OBJECT_INTERFACE		*	pBaseCG = this;
+
+									while ( pBaseCG = pBaseCG->GetBaseInterfaceCG() )
+										{
+										if ( pBaseCG->IsDelegated() )
+											return pBaseCG;
+										}
+									return NULL;
+									}
+
 	CG_OBJECT_INTERFACE	*		SetBaseInterfaceCG( CG_OBJECT_INTERFACE * pCG )
 									{
 									return ( pBaseCG = pCG );
@@ -730,11 +511,29 @@ public:
 									return fLocal;
 									}
 
+    BOOL                        HasItsOwnStublessProxies();
+
+    virtual
+    void                        EvaluateVersionControl();
+
+    virtual
+    BOOL                        HasStublessProxies()
+                                    {
+                                    return  GetNdrVersionControl()
+                                                .HasStublessProxies();
+                                    }
+
 	virtual
 	CG_STATUS					GenCode( CCB * pCCB );
 
 	virtual
 	CG_STATUS					GenHeader( CCB * pCCB );
+
+	virtual
+	CG_STATUS					GenComClassServerMembers( CCB * pCCB );
+
+	virtual
+	CG_STATUS					ReGenComClassServerMembers( CCB * pCCB );
 
 	//
 	// miscellaneous methods.
@@ -752,13 +551,15 @@ public:
 
 	unsigned long				CountMemberFunctions();
 
-	unsigned long				PrintProxyMemberFunctions( ISTREAM * pStream ); 
+	unsigned long				PrintProxyMemberFunctions( ISTREAM * pStream,
+                                                           BOOL      fForcesDelegation );
 
-	unsigned long				PrintStubMemberFunctions( ISTREAM * pStream);
-	 
+	unsigned long				PrintStubMemberFunctions( ISTREAM * pStream );
+	
 	STATUS_T					PrintVtableEntries( CCB * pCCB  );
 
-	STATUS_T					PrintMemberFunctions( ISTREAM * pStream);
+	STATUS_T					PrintMemberFunctions( ISTREAM * pStream,
+													  BOOL fAbstract = TRUE );
 
 	virtual
 	node_skl	*				GetThisDeclarator()
@@ -779,6 +580,10 @@ public:
 
 	CG_STATUS					PrintCMacros(CCB *pCCB);
 
+	virtual
+	void						GetListOfUniqueBaseInterfaces( ITERATOR & );
+
+
 	};
 
 class CG_INHERITED_OBJECT_INTERFACE	: public CG_OBJECT_INTERFACE
@@ -791,21 +596,13 @@ public:
 
 								CG_INHERITED_OBJECT_INTERFACE(
 										 node_interface * pI,
-										 char	   * GuidStr1,
-										 char		* GuidStr2,
-										 char	   * GuidStr3,
-										 char	   * GuidStr4,
-										 char		* GuidStr5,
+										 GUID_STRS	GStrs,
 										 BOOL		fCallbacksYes,
 										 BOOL		fMopsYes,
 										 CG_OBJECT_INTERFACE * pBCG
 										 ) : CG_OBJECT_INTERFACE(
 										 		pI,
-										 		GuidStr1,
-										 		GuidStr2,
-										 		GuidStr3,
-										 		GuidStr4,
-										 		GuidStr5,
+										 		GStrs,
 										 		fCallbacksYes,
 										 		fMopsYes,
 										 		pBCG )
@@ -821,7 +618,7 @@ public:
 									return ID_CG_INHERITED_OBJECT_INTERFACE;
 									}
 
-	virtual
+    virtual
 	CG_STATUS					GenCode( CCB * pCCB );
 
 	virtual
@@ -830,13 +627,13 @@ public:
                                     return CG_OK;
                                     }
 
-	CG_STATUS					GenInterfaceProxy( CCB *pCCB, 
+	CG_STATUS					GenInterfaceProxy( CCB *pCCB,
                                                    unsigned long index)
                                     {
                                     return CG_OK;
                                     }
 
-	CG_STATUS					GenInterfaceStub( CCB *pCCB, 
+	CG_STATUS					GenInterfaceStub( CCB *pCCB,
                                                   unsigned long index)
                                     {
                                     return CG_OK;
@@ -846,14 +643,519 @@ public:
 	// miscellaneous methods.
 	//
 
-/***** Do we need these?
-	CG_STATUS					CPlusPlusLanguageBinding(CCB *pCCB);
+	// interfaces inherited from another file are delegated
+	virtual
+	BOOL						IsDelegated()
+									{
+									return TRUE;
+									}
 
-	CG_STATUS					CLanguageBinding(CCB *pCCB);
 
-	CG_STATUS					ProxyPrototypes(CCB *pCCB);
- *****/
 	};
 
+class CG_IUNKNOWN_OBJECT_INTERFACE	: public CG_INHERITED_OBJECT_INTERFACE
+	{
+
+BOOL							fInherited;
+
+public:
+
+	//
+	// The constructor.
+	//
+
+								CG_IUNKNOWN_OBJECT_INTERFACE(
+										 node_interface * pI,
+										 GUID_STRS	GStrs,
+										 BOOL		fCallbacksYes,
+										 BOOL		fMopsYes,
+										 CG_OBJECT_INTERFACE * pBCG,
+										 BOOL		fInh
+										 ) : CG_INHERITED_OBJECT_INTERFACE(
+										 		pI,
+										 		GStrs,
+										 		fCallbacksYes,
+										 		fMopsYes,
+										 		pBCG )
+										{
+										fInherited = fInh;
+										};
+
+	//
+	// code generation methods.
+	//
+	virtual
+	ID_CG						GetCGID()
+									{
+									if ( fInherited )
+										return CG_INHERITED_OBJECT_INTERFACE::GetCGID();
+									else
+										return CG_OBJECT_INTERFACE::GetCGID();
+									}
+
+	virtual
+	CG_STATUS					GenCode( CCB * pCCB )
+									{
+ 									if ( fInherited )
+										return CG_INHERITED_OBJECT_INTERFACE::GenCode( pCCB );
+									else
+										return CG_OBJECT_INTERFACE::GenCode( pCCB );
+									}
+
+	virtual
+	CG_STATUS					GenHeader( CCB * pCCB )
+									{
+ 									if ( fInherited )
+										return CG_INHERITED_OBJECT_INTERFACE::GenHeader( pCCB );
+									else
+										return CG_OBJECT_INTERFACE::GenHeader( pCCB );
+									}
+
+	CG_STATUS					GenInterfaceProxy( CCB *pCCB,
+                                                   unsigned long index)
+									{
+ 									if ( fInherited )
+										return CG_INHERITED_OBJECT_INTERFACE::GenInterfaceProxy( pCCB, index );
+									else
+										return CG_OBJECT_INTERFACE::GenInterfaceProxy( pCCB, index );
+									}
+
+	CG_STATUS					GenInterfaceStub( CCB *pCCB,
+                                                  unsigned long index)
+									{
+ 									if ( fInherited )
+										return CG_INHERITED_OBJECT_INTERFACE::GenInterfaceStub( pCCB, index );
+									else
+										return CG_OBJECT_INTERFACE::GenInterfaceStub( pCCB, index );
+									}
+
+	//
+	// miscellaneous methods.
+	//
+
+	// IUnknown is never delegated
+	virtual
+	BOOL						IsDelegated()
+									{
+									return FALSE;
+									}
+
+	virtual
+	BOOL						IsIUnknown()
+									{
+									return TRUE;
+									}
+
+
+	};
+
+class CG_COM_CLASS	: public CG_OBJECT_INTERFACE
+	{
+	
+	// the CG nodes for the base interfaces;  They may be normal object interfaces
+	// or inherited object interfaces
+	ITERATOR	*		pBaseCGList;
+	
+	// a node_id declaration for the this pointer for this interface
+	node_skl			*	pThisDeclarator;
+
+	// indicate whether this is an all-local interface
+	BOOL					fLocal;
+
+public:
+
+	//
+	// The constructor.
+	//
+
+								CG_COM_CLASS(
+										 node_interface * pI,
+										 GUID_STRS  GStrs,
+										 BOOL		fCallbacksYes,
+										 BOOL		fMopsYes,
+										 ITERATOR	*	pBCG
+										 );
+
+	//
+	// code generation methods.
+	//
+	virtual
+	ID_CG						GetCGID()
+									{
+									return ID_CG_COM_CLASS;
+									}
+	
+	ITERATOR			*		SetBaseInterfaceCGList( ITERATOR * pList )
+									{
+									return ( pBaseCGList = pList );
+									}
+
+	ITERATOR			*		GetBaseInterfaceCGList()
+									{
+									return pBaseCGList;
+									}
+
+	virtual
+	CG_STATUS					GenCode( CCB * pCCB );
+
+	virtual
+	CG_STATUS					GenHeader( CCB * pCCB );
+
+	virtual
+	CG_STATUS					GenComClassServer( CCB * pCCB );
+
+	virtual
+	CG_STATUS					ReGenComClassServer( CCB * pCCB );
+
+	virtual
+	CG_STATUS					GenComClassFactory( CCB * pCCB );
+
+	virtual
+	CG_STATUS					GenComClassIUnknown( CCB * pCCB );
+
+	virtual
+	CG_STATUS					GenComClassConstructor( CCB * pCCB,
+														char * pDesignatedClassName );
+
+	CG_STATUS					DumpAllMethodsToHeader(CCB *pCCB);
+
+	CG_STATUS					GenAllocatorHeader(CCB *pCCB);
+
+	CG_STATUS					GenEmbeddedIUnknownHeader(CCB *pCCB);
+
+	CG_STATUS					GenComClassFactoryHeader(CCB *pCCB);
+
+	virtual
+	void						GetListOfUniqueBaseInterfaces( ITERATOR & );
+
+	CG_STATUS					GenComOuterUnknown( CCB * pCCB,
+													char *  pDesignatedClassName );
+
+	CG_STATUS					GenComInnerUnknown( CCB * pCCB,
+													char *  pDesignatedClassName );
+
+	CG_STATUS					GenComClassFactoryCreateInstance( CCB * pCCB );
+
+	CG_STATUS					GenComClassFactoryTables( CCB * pCCB );
+
+	};
+
+class CG_COM_SERVER	: public CG_NDR
+	{
+	
+	// the CG nodes for the COM classes
+	ITERATOR	*			pBaseCGList;
+	
+public:
+
+	//
+	// The constructor.
+	//
+
+								CG_COM_SERVER(
+										 node_com_server * pI,
+										 ITERATOR	*	pBCG
+										 );
+
+	//
+	// code generation methods.
+	//
+	virtual
+	ID_CG						GetCGID()
+									{
+									return ID_CG_COM_CLASS;
+									}
+
+	ITERATOR				*	GetClassList()
+									{
+									return pBaseCGList;
+									}
+
+	virtual
+	BOOL						IsObject()
+									{
+									return TRUE;
+									}
+
+	virtual
+	CG_STATUS					GenHeader( CCB * pCCB );
+
+	virtual
+	CG_STATUS					GenDataStructures( CCB * pCCB )
+									{
+									return CG_OK;
+									}
+
+	virtual
+	CG_STATUS					GenClassFactoryArray( CCB * pCCB );
+
+
+	};
+
+class CG_COM_SERVER_DLL	: public CG_COM_SERVER
+	{
+	
+public:
+
+	//
+	// The constructor.
+	//
+
+								CG_COM_SERVER_DLL(
+										 node_com_server * pI,
+										 ITERATOR	*	pBCG
+										 )
+									: CG_COM_SERVER( pI, pBCG )
+										{
+										}
+
+	//
+	// code generation methods.
+	//
+	virtual
+	ID_CG						GetCGID()
+									{
+									return ID_CG_COM_SERVER_DLL;
+									}
+
+
+	virtual
+	CG_STATUS					GenDataStructures( CCB * pCCB );
+
+	virtual
+	CG_STATUS					GenEntryPts( CCB * pCCB );
+
+	virtual
+	CG_STATUS					GenRegistryEntryPts( CCB * pCCB );
+
+  	virtual
+	CG_STATUS					GenCode( CCB * pCCB );
+
+  	virtual
+	CG_STATUS					GenDllDefFile( CCB * pCCB );
+
+	};
+
+class CG_COM_SERVER_EXE	: public CG_COM_SERVER
+	{
+	
+public:
+
+	//
+	// The constructor.
+	//
+
+								CG_COM_SERVER_EXE(
+										 node_com_server * pI,
+										 ITERATOR	*	pBCG
+										 )
+									: CG_COM_SERVER( pI, pBCG )
+										{
+										}
+
+	//
+	// code generation methods.
+	//
+	virtual
+	ID_CG						GetCGID()
+									{
+									return ID_CG_COM_SERVER_EXE;
+									}
+
+  	virtual
+	CG_STATUS					GenCode( CCB * pCCB );
+
+  	virtual
+	CG_STATUS					GenMain( CCB * pCCB );
+
+	virtual
+	CG_STATUS					GenDataStructures( CCB * pCCB );
+
+	virtual
+	CG_STATUS					GenCleanupRoutines( CCB * pCCB );
+
+	virtual
+	CG_STATUS					GenIteratorClass( CCB * pCCB );
+
+	virtual
+	CG_STATUS					GenClassRegisterRevoke( CCB * pCCB );
+
+	virtual
+	CG_STATUS					GenRegistryCode( CCB * pCCB );
+
+	};
+
+class CG_LIBRARY : public CG_NDR
+{
+public:
+    CG_LIBRARY ( node_library * pLib, XLAT_SIZE_INFO & szInfo )
+        : CG_NDR ( pLib, szInfo )
+    {
+    }
+
+    CG_STATUS GenTypeInfo(CCB * pCCB);
+
+    virtual
+    CG_STATUS GenHeader(CCB *pCCB);
+
+    CG_STATUS GenCode(CCB * pCCB)
+    {
+        UNUSED(pCCB);
+        return CG_OK;
+    }
+
+    ID_CG GetCGID()
+    {
+        return ID_CG_LIBRARY;
+    }
+};
+
+class CG_INTERFACE_REFERENCE : public CG_NDR
+{
+private:
+public:
+    CG_INTERFACE_REFERENCE ( node_interface_reference * pRef, XLAT_SIZE_INFO & szInfo )
+        : CG_NDR ( pRef, szInfo )
+    {
+    }
+
+    CG_STATUS GenTypeInfo(CCB * pCCB);
+
+    virtual
+    CG_STATUS GenHeader(CCB *pCCB);
+
+    CG_STATUS GenCode(CCB * pCCB)
+    {
+        UNUSED(pCCB);
+        return CG_OK;
+    }
+
+    ID_CG GetCGID()
+    {
+        return ID_CG_INTERFACE_REFERENCE;
+    }
+};
+
+class CG_DISPINTERFACE : public CG_OBJECT_INTERFACE
+{
+private:
+    GUID_STRS GuidStrs;
+    void * _pCTI;
+    CG_CLASS * _pcgDispatch;
+public:
+    CG_DISPINTERFACE (
+	    node_dispinterface * pI,
+	    GUID_STRS		GStrs,
+        CG_OBJECT_INTERFACE * pBCG
+	    ) : CG_OBJECT_INTERFACE(pI, GStrs, FALSE, FALSE, pBCG)
+    {
+	    GuidStrs			= GStrs;
+	    GuidStrs.SetValue();
+        _pCTI = NULL;
+        _pcgDispatch = pBCG;
+    }
+
+    CG_STATUS GenTypeInfo(CCB * pCCB);
+
+    virtual
+    CG_STATUS GenHeader(CCB *pCCB);
+
+    CG_STATUS GenCode(CCB * pCCB)
+    {
+        UNUSED(pCCB);
+        return CG_OK;
+    }
+
+    ID_CG GetCGID()
+    {
+        return ID_CG_DISPINTERFACE;
+    }
+
+    CG_CLASS * GetCGDispatch(void)
+    {
+        return _pcgDispatch;
+    }
+};
+
+class CG_MODULE : public CG_NDR
+{
+private:
+    void * _pCTI;
+public:
+    CG_MODULE ( node_module * pMod, XLAT_SIZE_INFO & szInfo )
+        : CG_NDR ( pMod, szInfo )
+    {
+        _pCTI = NULL;
+    }
+
+    CG_STATUS GenTypeInfo(CCB * pCCB);
+
+    virtual
+    CG_STATUS GenHeader(CCB *pCCB);
+
+    CG_STATUS GenCode(CCB * pCCB)
+    {
+        UNUSED(pCCB);
+        return CG_OK;
+    }
+
+    ID_CG GetCGID()
+    {
+        return ID_CG_MODULE;
+    }
+};
+
+class CG_COCLASS : public CG_NDR
+{
+private:
+    void * _pCTI;
+public:
+    CG_COCLASS ( node_coclass * pCoclass, XLAT_SIZE_INFO & szInfo )
+        : CG_NDR ( pCoclass, szInfo )
+    {
+        _pCTI = NULL;
+    }
+
+    virtual
+    CG_STATUS GenTypeInfo(CCB * pCCB);
+
+    virtual
+    CG_STATUS GenHeader(CCB *pCCB);
+
+    CG_STATUS GenCode(CCB * pCCB)
+    {
+        UNUSED(pCCB);
+        return CG_OK;
+    }
+
+    ID_CG GetCGID()
+    {
+        return ID_CG_COCLASS;
+    }
+};
+
+class CG_SAFEARRAY : public CG_NDR
+{
+private:
+public:
+    CG_SAFEARRAY ( node_safearray * pSA, XLAT_SIZE_INFO & szInfo )
+        : CG_NDR ( pSA, szInfo )
+    {
+    }
+
+    //
+    // TYPEDESC generation routine
+    //
+    virtual
+    CG_STATUS GetTypeDesc(TYPEDESC * &ptd, CCB * pCCB);
+
+    ID_CG GetCGID()
+    {
+        return ID_CG_SAFEARRAY;
+    }
+};
+
 #endif // __MISCCLS_HXX__
+
+
 

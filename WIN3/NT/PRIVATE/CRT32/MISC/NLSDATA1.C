@@ -26,7 +26,7 @@ unsigned short __mb_cur_max = 1;
 /*
  *  Localized decimal point string.
  */
-char *_decimal_point = ".";
+char _decimal_point[] = ".";
 
 #ifdef _INTL
 

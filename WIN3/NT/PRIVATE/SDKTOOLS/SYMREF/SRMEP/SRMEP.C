@@ -15,7 +15,7 @@
 
 #include "symmsg.h"
 
-#define strpre(s1,s2)	(strnicmp ((s1), (s2), strlen (s1)) == 0)
+#define strpre(s1,s2)	(_strnicmp ((s1), (s2), strlen (s1)) == 0)
 
 void fnErr (PSZ psz, int erc);
 flagType fnFileSave (EVTargs far *pevt);
@@ -181,7 +181,7 @@ void GetGlobalName (IN PSZ pszLocal, OUT PSZ pszGlobal)
     //	if the wksta is not the same as server
     //
 
-    if (strcmpi (szWksta, szServer) &&
+    if (_strcmpi (szWksta, szServer) &&
 
 	//
 	//  if local server is started

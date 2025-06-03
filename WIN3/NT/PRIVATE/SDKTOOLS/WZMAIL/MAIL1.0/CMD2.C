@@ -280,7 +280,7 @@ VOID PASCAL INTERNAL DoPrint ( HW hWnd, PSTR p, INT operation )
                 SendMessage ( hWnd, DISPLAY, "No '%s' in the print env. var." );
             }
 
-        unlink ( pTmpFN );
+        _unlink ( pTmpFN );
         ZMfree ( pTmpFN );
         ZMfree ( pPrintCmd );
         }
@@ -432,7 +432,7 @@ VOID PASCAL INTERNAL DoReply ( HW hWnd, PSTR p, INT operation )
                 }
             }
         if ( pRplyFN ) {
-            unlink ( pRplyFN );
+            _unlink ( pRplyFN );
             ZMfree ( pRplyFN );
             }
         }
@@ -1107,7 +1107,7 @@ VOID PASCAL INTERNAL DoWrite ( HW hWnd, PSTR p, INT operation )
        }
         if ( pVec != PARSEERROR )
             ZMfree ( pVec );
-            unlink ( pTmpFN );
+            _unlink ( pTmpFN );
             ZMfree ( pTmpFN );
     }   /* end of binary write */
     ZMfree ( pDestFN );

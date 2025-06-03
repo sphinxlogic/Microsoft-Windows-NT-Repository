@@ -117,4 +117,3 @@ _CRTAPI1 main(
 
     printf("rtsymlnk: successful\n");
 }
-

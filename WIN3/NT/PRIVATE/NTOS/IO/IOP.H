@@ -25,6 +25,21 @@ Revision History:
 #define _IOP_
 
 #include "ntos.h"
+#include "ntdddisk.h"
+#include "ntddscsi.h"
+#include "ntiodump.h"
+#include "ntiolog.h"
+#include "ntiologc.h"
+#include "ntseapi.h"
+#include "zwapi.h"
+#include "stdio.h"
+#include "stdlib.h"
+#include "string.h"
+#include "fsrtl.h"
+
+//#if defined(_PNP_POWER_)
+#include "pnpiop.h"
+//#endif
 
 #ifdef POOL_TAGGING
 #define ExAllocatePool(a,b) ExAllocatePoolWithTag(a,b,'  oI')
@@ -34,7 +49,6 @@ Revision History:
 
 extern ULONG BreakDiskByteOffset;
 extern ULONG BreakPfn;
-
 
 //
 // Define Information fields values for the return value from popups when a
@@ -101,6 +115,7 @@ typedef struct _IOP_APC_HARD_ERROR_PACKET {
 } IOP_APC_HARD_ERROR_PACKET, *PIOP_APC_HARD_ERROR_PACKET;
 
 extern IOP_HARD_ERROR_QUEUE IopHardError;
+extern PIOP_HARD_ERROR_PACKET IopCurrentHardError;
 
 #define IOP_MAXIMUM_OUTSTANDING_HARD_ERRORS 25
 
@@ -119,6 +134,15 @@ extern KSPIN_LOCK IopVpbSpinLock;
 extern GENERIC_MAPPING IopFileMapping;
 extern GENERIC_MAPPING IopCompletionMapping;
 
+//
+// Define a dummy file object for use on stack for fast open operations.
+//
+
+typedef struct _DUMMY_FILE_OBJECT {
+    OBJECT_HEADER ObjectHeader;
+    CHAR FileObjectBody[ sizeof( FILE_OBJECT ) ];
+} DUMMY_FILE_OBJECT, *PDUMMY_FILE_OBJECT;
+
 //
 // Define the structures private to the I/O system.
 //
@@ -155,6 +179,7 @@ typedef struct _OPEN_PACKET {
     PVOID EaBuffer;
     ULONG EaLength;
     ULONG Options;
+    ULONG Disposition;
 
     //
     // The following is used when performing a fast query during open to get
@@ -162,6 +187,13 @@ typedef struct _OPEN_PACKET {
     //
 
     PFILE_BASIC_INFORMATION BasicInformation;
+
+    //
+    // The following is used when performing a fast network query during open
+    // to get back the network file attributes for a file.
+    //
+
+    PFILE_NETWORK_OPEN_INFORMATION NetworkInformation;
 
     //
     // The type of file to create.
@@ -204,6 +236,22 @@ typedef struct _OPEN_PACKET {
 
     BOOLEAN DeleteOnly;
 
+    //
+    // The following is used to indicate that a file being opened for a query
+    // only is being opened to query its network attributes rather than just
+    // its FAT file attributes.
+    //
+
+    BOOLEAN FullAttributes;
+
+    //
+    // The following pointer is used when a fast open operation for a fast
+    // delete or fast query attributes call is being made rather than a
+    // general file open.  The dummy file object is actually stored on the
+    // the caller's stack rather than allocated pool to speed things up.
+    //
+
+    PDUMMY_FILE_OBJECT LocalFileObject;
 
 } OPEN_PACKET, *POPEN_PACKET;
 
@@ -251,6 +299,33 @@ typedef struct _SHUTDOWN_PACKET {
 } SHUTDOWN_PACKET, *PSHUTDOWN_PACKET;
 
 //
+// Define the type for entries placed on the file system registration change
+// notification queue.
+//
+
+typedef struct _NOTIFICATION_PACKET {
+    LIST_ENTRY ListEntry;
+    PDRIVER_OBJECT DriverObject;
+    PDRIVER_FS_NOTIFICATION NotificationRoutine;
+} NOTIFICATION_PACKET, *PNOTIFICATION_PACKET;
+
+//
+// Define the type for completion packets inserted onto completion ports when
+// there is no full I/O request packet that was used to perform the I/O
+// operation.  This occurs when the fast I/O path is used, and when the user
+// directly inserts a completion message.
+//
+
+typedef struct _IOP_MINI_COMPLETION_PACKET {
+    LIST_ENTRY ListEntry;
+    ULONG TypeFlag;
+    ULONG KeyContext;
+    PVOID ApcContext;
+    NTSTATUS IoStatus;
+    ULONG IoStatusInformation;
+} IOP_MINI_COMPLETION_PACKET, *PIOP_MINI_COMPLETION_PACKET;
+
+//
 // Define the type for a dump control block.  This structure is used to describe
 // all of the data, drivers, and memory necessary to dump all of physical memory
 // to the disk after a bugcheck.
@@ -274,7 +349,7 @@ typedef struct _DUMP_CONTROL_BLOCK {
     USHORT Size;
     CCHAR NumberProcessors;
     CHAR Reserved;
-    USHORT ProcessorType;
+    USHORT ProcessorArchitecture;
     PLDR_DATA_TABLE_ENTRY DiskDumpDriver;
     ULONG DiskDumpChecksum;
     LIST_ENTRY MiniportQueue;
@@ -301,13 +376,16 @@ typedef struct _DUMP_CONTROL_BLOCK {
     ULONG MajorVersion;
     ULONG MinorVersion;
     CHAR VersionUser[32];
+    ANSI_STRING PssInitMsg;
+    ANSI_STRING PssProgressMsg;
+    ANSI_STRING PssDoneMsg;
 } DUMP_CONTROL_BLOCK, *PDUMP_CONTROL_BLOCK;
 
 //
 // Define the global data for the I/O system.
 //
 
-#define IOP_FIXED_SIZE_MDL_PFNS        0x10
+#define IOP_FIXED_SIZE_MDL_PFNS        0x17
 
 extern KSPIN_LOCK IopDatabaseLock;
 extern ERESOURCE IopDatabaseResource;
@@ -317,9 +395,8 @@ extern LIST_ENTRY IopNetworkFileSystemQueueHead;
 extern LIST_ENTRY IopTapeFileSystemQueueHead;
 extern LIST_ENTRY IopDriverReinitializeQueueHead;
 extern LIST_ENTRY IopNotifyShutdownQueueHead;
+extern LIST_ENTRY IopFsNotifyChangeQueueHead;
 extern KSPIN_LOCK IoStatisticsLock;
-extern KSPIN_LOCK IopFastLockSpinLock;
-extern KEVENT IopFastLockEvent;
 extern KSEMAPHORE IopRegistrySemaphore;
 extern KSPIN_LOCK IopTimerLock;
 extern LIST_ENTRY IopTimerQueueHead;
@@ -327,7 +404,6 @@ extern KDPC IopTimerDpc;
 extern KTIMER IopTimer;
 extern ULONG IopTimerCount;
 extern ULONG IopLargeIrpStackLocations;
-extern ULONG IopKeepNonZonedIrps;
 extern KSPIN_LOCK IopCompletionLock;
 
 extern POBJECT_TYPE IoAdapterObjectType;
@@ -335,24 +411,24 @@ extern POBJECT_TYPE IoCompletionObjectType;
 extern POBJECT_TYPE IoControllerObjectType;
 extern POBJECT_TYPE IoDeviceObjectType;
 extern POBJECT_TYPE IoDriverObjectType;
+extern POBJECT_TYPE IoDeviceHandlerObjectType;
 extern POBJECT_TYPE IoFileObjectType;
+extern ULONG        IoDeviceHandlerObjectSize;
 
-extern KSPIN_LOCK IopLargeIrpLock;
-extern ZONE_HEADER IopLargeIrpList;
-
-extern KSPIN_LOCK IopSmallIrpLock;
-extern ZONE_HEADER IopSmallIrpList;
-
-extern KSPIN_LOCK IopMdlLock;
-extern ZONE_HEADER IopMdlList;
+extern NPAGED_LOOKASIDE_LIST IopLargeIrpLookasideList;
+extern NPAGED_LOOKASIDE_LIST IopSmallIrpLookasideList;
+extern NPAGED_LOOKASIDE_LIST IopMdlLookasideList;
 
 extern UCHAR IopQueryOperationLength[];
 extern UCHAR IopSetOperationLength[];
 extern ULONG IopQueryOperationAccess[];
 extern ULONG IopSetOperationAccess[];
-extern UCHAR IopQueryDirOperationLength[];
-extern UCHAR IopQuerySetFsOperationLength[];
-extern ULONG IopQuerySetFsOperationAccess[];
+extern UCHAR IopQuerySetAlignmentRequirement[];
+extern UCHAR IopQueryFsOperationLength[];
+extern UCHAR IopSetFsOperationLength[];
+extern ULONG IopQueryFsOperationAccess[];
+extern ULONG IopSetFsOperationAccess[];
+extern UCHAR IopQuerySetFsAlignmentRequirement[];
 
 extern PDUMP_CONTROL_BLOCK IopDumpControlBlock;
 extern ULONG IopDumpControlBlockChecksum;
@@ -398,8 +474,13 @@ IopAbortRequest(
 //-
 
 #define IopAcquireFastLock( FileObject )    \
-    ( ExInterlockedExchangeUlong( &FileObject->Busy, (ULONG) TRUE, &IopFastLockSpinLock ) == FALSE )
+    ( InterlockedExchange( &FileObject->Busy, (ULONG) TRUE ) == FALSE )
 
+#define IopAcquireCancelSpinLockAtDpcLevel()    \
+    ExAcquireSpinLockAtDpcLevel (&IopCancelSpinLock)
+
+#define IopReleaseCancelSpinLockFromDpcLevel()  \
+    ExReleaseSpinLockFromDpcLevel (&IopCancelSpinLock)
 
 NTSTATUS
 IopAcquireFileObjectLock(
@@ -407,6 +488,12 @@ IopAcquireFileObjectLock(
     IN KPROCESSOR_MODE RequestorMode,
     IN BOOLEAN Alertable,
     OUT PBOOLEAN Interrupted
+    );
+
+PIRP
+IopAllocateIrp(
+    IN CCHAR StackSize,
+    IN BOOLEAN ChargeQuota
     );
 
 VOID
@@ -435,7 +522,8 @@ VOID
 IopCheckBackupRestorePrivilege(
     IN PACCESS_STATE AccessState,
     IN OUT PULONG CreateOptions,
-    IN KPROCESSOR_MODE PreviousMode
+    IN KPROCESSOR_MODE PreviousMode,
+    IN ULONG Disposition
     );
 
 ULONG
@@ -454,7 +542,7 @@ IopCloseFile(
     );
 
 VOID
-IopCompleteDriverUnload(
+IopCompleteUnloadOrDelete(
     IN PDEVICE_OBJECT DeviceObject,
     IN KIRQL Irql
     );
@@ -487,7 +575,18 @@ IopDeallocateApc(
     );
 
 VOID
+IopDecrementDeviceObjectRef(
+    IN PDEVICE_OBJECT DeviceObject,
+    IN BOOLEAN AlwaysUnload
+    );
+
+VOID
 IopDeleteDriver(
+    IN PVOID Object
+    );
+
+VOID
+IopDeleteDevice(
     IN PVOID Object
     );
 
@@ -565,42 +664,6 @@ VOID
 IopFreeIrpAndMdls(
     IN PIRP Irp
     );
-
-//++
-//
-// VOID
-// IopFreeMdl(
-//     IN PMDL Mdl
-//     )
-//
-// Routine Description:
-//
-//     This routine frees a Memory Descriptor List (MDL).  It only frees the
-//     specified MDL; any chained MDLs must be freed explicitly through another
-//     call to this routine.
-//
-// Arguments:
-//
-//     Mdl - Pointer to the Memory Descriptor List to be freed.
-//
-// Return Value:
-//
-//     None.
-//
-//--
-
-#define IopFreeMdl( Mdl ) {                                         \
-    if ((Mdl->MdlFlags & MDL_PARTIAL_HAS_BEEN_MAPPED) != 0) {       \
-        ASSERT((Mdl->MdlFlags & MDL_PARTIAL) != 0);                 \
-        MmUnmapLockedPages( Mdl->MappedSystemVa, Mdl );             \
-    } else if ((Mdl->MdlFlags & MDL_PARTIAL) == 0) {                \
-        ASSERT((Mdl->MdlFlags & MDL_MAPPED_TO_SYSTEM_VA) == 0);     \
-    }                                                               \
-    if (Mdl->MdlFlags & MDL_ALLOCATED_FROM_ZONE) {                  \
-        ExInterlockedFreeToZone( &IopMdlList, Mdl, &IopMdlLock );   \
-    } else {                                                        \
-        ExFreePool( Mdl );                                          \
-    } }
 
 NTSTATUS
 IopGetDriverNameFromKeyNode(
@@ -707,6 +770,13 @@ IopInitializeResourceMap (
     PLOADER_PARAMETER_BLOCK LoaderBlock
     );
 
+VOID
+IopInsertRemoveDevice(
+    IN PDRIVER_OBJECT DriverObject,
+    IN PDEVICE_OBJECT DeviceObject,
+    IN BOOLEAN Insert
+    );
+
 NTSTATUS
 IopInvalidDeviceRequest(
     IN PDEVICE_OBJECT DeviceObject,
@@ -750,6 +820,15 @@ IopOpenRegistryKey(
     IN PUNICODE_STRING KeyName,
     IN ACCESS_MASK DesiredAccess,
     IN BOOLEAN Create
+    );
+
+NTSTATUS
+IopLookupBusStringFromID (
+    IN  HANDLE KeyHandle,
+    IN  INTERFACE_TYPE InterfaceType,
+    OUT PWCHAR Buffer,
+    IN  ULONG Length,
+    OUT PULONG BusFlags OPTIONAL
     );
 
 NTSTATUS
@@ -1118,4 +1197,3 @@ PRTL_EVENT_ID_INFO IopCloseFileEventId;
 #endif // DBG
 
 #endif // _IOP_
-

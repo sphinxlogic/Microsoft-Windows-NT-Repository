@@ -69,6 +69,7 @@ Return Value:
     ULONG Count;
     PIMAGE_FILE_HEADER FileHeader;
     PIMAGE_OPTIONAL_HEADER OptionalHeader;
+    PIMAGE_DATA_DIRECTORY ResourceDirectory;
     PIMAGE_SECTION_HEADER SectionHeader;
     ULONG NumberOfSections;
 
@@ -125,6 +126,31 @@ Return Value:
 
     FileHeader = (PIMAGE_FILE_HEADER)LocalPointer;
     OptionalHeader = (PIMAGE_OPTIONAL_HEADER)(LocalPointer + sizeof(IMAGE_FILE_HEADER));
+
+#if defined(_PPC_)
+
+    //
+    // The PPC ROM format uses an NT optional header, so the data directory
+    // can be used to locate the resource section (if any).  The base
+    // address of the resource directory is adjusted by the image base.  We
+    // also need to adjust virtual addresses in the resource directory by
+    // this amount which is used as (BlpResourceDirectory -
+    // BlpResourceFileOffset).
+    //
+    ResourceDirectory = (OptionalHeader->DataDirectory +
+                                                 IMAGE_DIRECTORY_ENTRY_RESOURCE);
+
+    if ((FileHeader->Machine == IMAGE_FILE_MACHINE_POWERPC) &&
+        ResourceDirectory->VirtualAddress && ResourceDirectory->Size) {
+        BlpResourceDirectory = OptionalHeader->ImageBase +
+                                              ResourceDirectory->VirtualAddress;
+
+        BlpResourceFileOffset = ResourceDirectory->VirtualAddress;
+        return(ESUCCESS);
+    }
+
+#else
+
     NumberOfSections = FileHeader->NumberOfSections;
     SectionHeader = (PIMAGE_SECTION_HEADER)((PUCHAR)OptionalHeader +
                                             FileHeader->SizeOfOptionalHeader);
@@ -133,14 +159,21 @@ Return Value:
     // Find .rsrc section
     //
     while (NumberOfSections) {
-        if (stricmp(SectionHeader->Name, ".rsrc")==0) {
+        if (_stricmp(SectionHeader->Name, ".rsrc")==0) {
             BlpResourceDirectory = (PUCHAR)SectionHeader->VirtualAddress;
             BlpResourceFileOffset = (PUCHAR)SectionHeader->PointerToRawData;
+            if (FileHeader->Machine == IMAGE_FILE_MACHINE_POWERPC) {
+                BlpResourceDirectory += OptionalHeader->ImageBase;
+            }
+
             return(ESUCCESS);
         }
+
         ++SectionHeader;
         --NumberOfSections;
     }
+
+#endif //
 
     return(EBADF);
 }
@@ -207,14 +240,29 @@ Return Value:
         return(NULL);
     }
 
+    // Find the message table.
+    // If a dbcs locale is active, then we look for the appropriate
+    // message table first. Otherwise we just look for the first message table.
     //
-    // Find the language.  We always assume there is only one language messagetable,
-    // so just return the first one.
-    //
-    DataEntry = (PIMAGE_RESOURCE_DATA_ENTRY)BlpFindDirectoryEntry(NextDirectory,
-                                                                  (ULONG)-1,
-                                                                  (PUCHAR)ResourceDirectory);
-    if (DataEntry==NULL) {
+    if(DbcsLangId) {
+        DataEntry = (PIMAGE_RESOURCE_DATA_ENTRY)BlpFindDirectoryEntry(
+                                                    NextDirectory,
+                                                    DbcsLangId,
+                                                    (PUCHAR)ResourceDirectory
+                                                    );
+    } else {
+        DataEntry = NULL;
+    }
+
+    if(!DataEntry) {
+        DataEntry = (PIMAGE_RESOURCE_DATA_ENTRY)BlpFindDirectoryEntry(
+                                                    NextDirectory,
+                                                    (ULONG)(-1),
+                                                    (PUCHAR)ResourceDirectory
+                                                    );
+    }
+
+    if(!DataEntry) {
         return(NULL);
     }
 
@@ -313,4 +361,3 @@ Return Value:
 
     return(NULL);
 }
-

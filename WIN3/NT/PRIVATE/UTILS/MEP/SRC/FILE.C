@@ -13,47 +13,47 @@
 *
 *    WinList (set of windows on the screen) 0 ... cWin-1
 *   +---------------+---------------+---------------+---------------+
-*   |	Window 1    |	Window 2    |	Window 3    |	Window 4    |
-*   |		    |		    |		    |		    |
-*   |windowType     |		    |		    |		    |
-*   |		    |		    |		    |		    |
+*   |   Window 1    |   Window 2    |   Window 3    |   Window 4    |
+*   |               |               |               |               |
+*   |windowType     |               |               |               |
+*   |               |               |               |               |
 *   |pInstance-+    |pInstance-+    |pInstance-+    |pInstance-+    |
 *   +----------|----+----------|----+----------|----+----------|----+
-*	       |	       v	       v	       |
-*	       v	      ...	      ...	       v
-*     +-------------+	       pFileHead	      +-------------+
-*     |instanceType |		   |		      |instanceType |
-*     | 	    |	+----------+-----------+      | 	    |
-*   +--pNext	    |	|	   v	       |    +--pNext	    |
-*   | |pFile------------+   +-------------+    |    | |pFile	    |
-*   | +-------------+	    |fileType	  |    |    | +-------------+
-*   |			    |		  |    |    |
-*   +------+		  +--pFileNext	  |    |    +------+
-*	   |	       +-----pName	  |    |	   |
-*	   v	       |  | +-------------+    |	   v
-*     +-------------+  |  |		       |      +-------------+
-*     |instanceType |  |  |		       |      |instanceType |
-*     | 	    |  |  |		       |      | 	    |
-*   +--pNext	    |  |  +--------+	       |    +--pNext	    |
-*   | |pFile----+   |  |	   |	       +-------pFile	    |
-*   | +---------|---+  |	   v		    | +-------------+
-*   |		|      |    +-------------+	    |
-*   +------+	v      |    |fileType	  |	    +------+
-*	   |   ...     |    |		  |		   |
-*	   v	       |  +--pFileNext	  |		   v
-*	  ...	       |  | |pName	  |		  ...
-*	   +-----------+  | +-------------+
-*	   |		  |
-*	   v		  |
-*	+--------+	  |
-*	|filename|	  +--------+
-*	+--------+		   |
-*				   v
-*				  ...
+*              |               v               v               |
+*              v              ...             ...              v
+*     +-------------+          pFileHead              +-------------+
+*     |instanceType |              |                  |instanceType |
+*     |             |   +----------+-----------+      |             |
+*   +--pNext        |   |          v           |    +--pNext        |
+*   | |pFile------------+   +-------------+    |    | |pFile        |
+*   | +-------------+       |fileType     |    |    | +-------------+
+*   |                       |             |    |    |
+*   +------+              +--pFileNext    |    |    +------+
+*          |           +-----pName        |    |           |
+*          v           |  | +-------------+    |           v
+*     +-------------+  |  |                    |      +-------------+
+*     |instanceType |  |  |                    |      |instanceType |
+*     |             |  |  |                    |      |             |
+*   +--pNext        |  |  +--------+           |    +--pNext        |
+*   | |pFile----+   |  |           |           +-------pFile        |
+*   | +---------|---+  |           v                | +-------------+
+*   |           |      |    +-------------+         |
+*   +------+    v      |    |fileType     |         +------+
+*          |   ...     |    |             |                |
+*          v           |  +--pFileNext    |                v
+*         ...          |  | |pName        |               ...
+*          +-----------+  | +-------------+
+*          |              |
+*          v              |
+*       +--------+        |
+*       |filename|        +--------+
+*       +--------+                 |
+*                                  v
+*                                 ...
 *
 *   Modifications:
 *
-*	26-Nov-1991 mz	Strip off near/far
+*       26-Nov-1991 mz  Strip off near/far
 *
 *************************************************************************/
 #define INCL_DOSFILEMGR
@@ -101,7 +101,7 @@ AutoSave (
 * dirty.
 *
 * Input:
-*  pFile	= File to be autosaved
+*  pFile        = File to be autosaved
 *
 * Output:
 *  Returns nothing
@@ -124,7 +124,7 @@ AutoSaveFile (
  *  GetFileTypeName takes the file type as set in the file structure of the
  *  current file and returns the textual string corresponding to that type.
  *
- *  returns	    character pointer to the type-specific text
+ *  returns         character pointer to the type-specific text
  */
 char *
 GetFileTypeName (
@@ -140,7 +140,7 @@ GetFileTypeName (
 
 /*  SetFileType - set the file type of a file based upon its extension
  *
- *  pFile	    pointer to file whose type will be determined
+ *  pFile           pointer to file whose type will be determined
  */
 void
 SetFileType (
@@ -152,7 +152,7 @@ SetFileType (
     extention (pFile->pName, fext);
 
     for (i = 0; ftypetbl[i].ext; i++) {
-	if (!strcmp (ftypetbl[i].ext, (char *)&fext[1])) {
+        if (!strcmp (ftypetbl[i].ext, (char *)&fext[1])) {
             break;
         }
     }
@@ -170,27 +170,27 @@ SetFileType (
  *
  *  The actual algorithm is much simpler:
  *
- *	If file not in file list then
- *	    create new entry in file list
- *	Find file in file list
- *	If file not in window instance list then
- *	    add file to top of window instance list
- *	while files in window instance list do
- *	    select top file
- *	    if file is in memory then
- *		change succeeded
- *	    else
- *	    if read in succeeds then
- *		change succeeded
- *	    pop off top file
- *	change failed
+ *      If file not in file list then
+ *          create new entry in file list
+ *      Find file in file list
+ *      If file not in window instance list then
+ *          add file to top of window instance list
+ *      while files in window instance list do
+ *          select top file
+ *          if file is in memory then
+ *              change succeeded
+ *          else
+ *          if read in succeeds then
+ *              change succeeded
+ *          pop off top file
+ *      change failed
  *
  *
- *  fShort	TRUE => allow searching for short names
- *  name	name of file.
+ *  fShort      TRUE => allow searching for short names
+ *  name        name of file.
  *
- *  Returns:	TRUE if change succeeded
- *		FALSE otherwise
+ *  Returns:    TRUE if change succeeded
+ *              FALSE otherwise
  */
 flagType
 fChangeFile (
@@ -203,7 +203,7 @@ fChangeFile (
     flagType fRead;
 
     //
-    //	Turn file name into canonical form
+    //  Turn file name into canonical form
     //
 
     if (!CanonFilename (name, bufCanon)) {
@@ -225,10 +225,10 @@ fChangeFile (
     }
 
     //
-    //	name	 has the input name
-    //	bufCanon has the full "real" name
+    //  name     has the input name
+    //  bufCanon has the full "real" name
     //
-    //	Check to see if the file is in the current file set
+    //  Check to see if the file is in the current file set
     //
 
     pFileTmp = FileNameToHandle (bufCanon, (fShort && fShortNames) ? name : NULL);
@@ -243,7 +243,7 @@ fChangeFile (
             bufCanon[2] = '\\';
         }
 
-        if (chdir (bufCanon) != -1) {
+        if (_chdir (bufCanon) != -1) {
             domessage ("Changed directory to %s", bufCanon);
             return TRUE;
         }
@@ -255,7 +255,7 @@ fChangeFile (
     }
 
     //
-    //	Bring the found file to the top of the MRU list
+    //  Bring the found file to the top of the MRU list
     //
 
     pFileToTop (pFileTmp);
@@ -282,7 +282,7 @@ fChangeFile (
         //
         //  Set the window's title
         //
-	//char	   *p;
+        //char     *p;
         //p = pFileHead->pName + strlen(pFileHead->pName);
         //
         //while ( p > pFileHead->pName && *p != '\\' ) {
@@ -313,7 +313,7 @@ fChangeFile (
 *  specific section from tools.ini.
 *
 * Input:
-*  pFileNew	= File to set information for
+*  pFileNew     = File to set information for
 *
 * Output:
 *  Returns TRUE if TOOLS.INI section found, else FALSE
@@ -349,9 +349,9 @@ fInitFileMac (
  *  Create and initialize a named buffer.  The contents are initially
  *  empty.
  *
- *  p		character pointer to name
+ *  p           character pointer to name
  *
- *  returns	file handle to internal file structure
+ *  returns     file handle to internal file structure
  */
 PFILE
 AddFile (
@@ -366,10 +366,10 @@ AddFile (
      * assert we're not attempting to add a duplicate entry
      */
     for (pFileTmp = pFileHead;
-	 pFileTmp != NULL;
+         pFileTmp != NULL;
          pFileTmp = pFileTmp->pFileNext) {
 
-	assert (stricmp ((char *)(pFileTmp->pName), p));
+        assert (_stricmp ((char *)(pFileTmp->pName), p));
     }
 #endif
 
@@ -393,7 +393,7 @@ AddFile (
     pFileTmp->pbFile   = NULL;
     pFileTmp->vaColor  = (PVOID)(-1L);
     pFileTmp->vaHiLite = (PVOID)(-1L);
-	pFileTmp->vaMarks  = NULL;
+        pFileTmp->vaMarks  = NULL;
     pFileTmp->vaUndoCur = pFileTmp->vaUndoHead = pFileTmp->vaUndoTail = (PVOID)(-1L);
 
     CreateUndoList (pFileTmp);
@@ -401,14 +401,14 @@ AddFile (
      * Place the file at the end of the pFile list
      */
     if (pFileHead == NULL) {
-	pFileHead = pFileTmp;
+        pFileHead = pFileTmp;
     } else {
-	for (pFileSrch = pFileHead;
-	     pFileSrch->pFileNext;
+        for (pFileSrch = pFileHead;
+             pFileSrch->pFileNext;
              pFileSrch = pFileSrch->pFileNext) {
             ;
         }
-	pFileSrch->pFileNext = pFileTmp;
+        pFileSrch->pFileNext = pFileTmp;
     }
 
     SetFileType (pFileTmp);
@@ -454,10 +454,10 @@ DecFileRef (
  *  a specified file.  Short names are allowed.  If the input name is 0-length
  *  we return the current file.
  *
- *  pName	character pointer to name being located.  Case is significant.
- *  pShortName	short name of file.  This may be NULL
+ *  pName       character pointer to name being located.  Case is significant.
+ *  pShortName  short name of file.  This may be NULL
  *
- *  Returns	handle to specified file (if found) or NULL.
+ *  Returns     handle to specified file (if found) or NULL.
  */
 PFILE
 FileNameToHandle (
@@ -472,7 +472,7 @@ FileNameToHandle (
     }
 
     for (pFileTmp = pFileHead; pFileTmp != NULL; pFileTmp = pFileTmp->pFileNext)
-	if (!stricmp (pName, pFileTmp->pName))
+        if (!_stricmp (pName, pFileTmp->pName))
             return pFileTmp;
 
     if ( pShortName != NULL ) {
@@ -481,7 +481,7 @@ FileNameToHandle (
             pathbuf nbuf;
 
             if (filename (pFileName, nbuf) &&
-                !stricmp (nbuf, pShortName)) {
+                !_stricmp (nbuf, pShortName)) {
                 return pFileTmp;
             }
         }
@@ -511,7 +511,7 @@ FileNameToHandle (
 * with.
 *
 * Input:
-*  pFileTmp	= file to bring to top
+*  pFileTmp     = file to bring to top
 *
 * OutPut:
 *  Returns FALSE if the pFile is invalid or NULL
@@ -535,7 +535,7 @@ pFileToTop (
      */
     if (pFileTmp != pFileHead) {
         e.pfile = pFileHead;
-	DeclareEvent (EVT_LOSEFOCUS,(EVTargs *)&e);
+        DeclareEvent (EVT_LOSEFOCUS,(EVTargs *)&e);
     }
 
     /*
@@ -544,7 +544,7 @@ pFileToTop (
      */
     if (pFileTmp != pFileHead) {
         for (pFilePrev = pFileHead;
-			 pFilePrev && (pFilePrev->pFileNext != pFileTmp);
+                         pFilePrev && (pFilePrev->pFileNext != pFileTmp);
              pFilePrev = pFilePrev->pFileNext ) {
             ;
 
@@ -559,7 +559,7 @@ pFileToTop (
         pFileHead = pFileTmp;
 
         e.pfile = pFileHead;
-	DeclareEvent (EVT_GETFOCUS,(EVTargs *)&e);
+        DeclareEvent (EVT_GETFOCUS,(EVTargs *)&e);
     }
 
     /*
@@ -602,7 +602,7 @@ pFileToTop (
 
 
 /*  RemoveTop - removes the top file in the current instance list
- *		If there is no next file, leave
+ *              If there is no next file, leave
  */
 void
 RemoveTop (
@@ -654,8 +654,8 @@ RemoveFile (
     }
 
     while (pFileTmp != pFileRem) {
-	pFilePrev = pFileTmp;
-	pFileTmp = pFileTmp->pFileNext;
+        pFilePrev = pFileTmp;
+        pFileTmp = pFileTmp->pFileNext;
         if (pFileTmp == NULL) {
             IntError ("RemoveFile can't find file");
         }
@@ -681,7 +681,7 @@ RemoveFile (
     FREE ((char *) pFileTmp);
 
     if (pFileTmp == pFileIni) {
-	pFileIni = NULL;
+        pFileIni = NULL;
     }
 }
 
@@ -695,7 +695,7 @@ RemoveFile (
 *  referring to a given file
 *
 * Input:
-*  pFile	= File in question
+*  pFile        = File in question
 *
 * Output:
 *  Returns nothing
@@ -715,9 +715,8 @@ RemoveInstances (
          pWndCur++) {
 
         pInsPrev = NULL;
-        for (pIns = WININST (pWndCur);
-             pIns;
-             pIns = pIns->pNext) {
+        pIns = WININST(pWndCur);
+        while (pIns) {
 
             /*
              * assert not an infinite loop
@@ -730,9 +729,14 @@ RemoveInstances (
                 } else {
                     pInsPrev->pNext = pIns->pNext;
                 }
-                FREE (pIns);
+                {
+                    PINS pInsTmp = pIns;
+                    pIns = pIns->pNext;
+                    FREE(pInsTmp);
+                }
             } else {
                 pInsPrev = pIns;
+                pIns = pIns->pNext;
             }
         }
         assert (_pinschk (WININST (pWndCur)));
@@ -757,11 +761,11 @@ RemoveInstances (
  *  comparing it with the version on disk.  When a mismatch is found, we
  *  prompt the user and give him the opportunity to reread the file
  *
- *  pFileLoc	file structure of interest
- *  fPrompt	TRUE => prompt user for permission to refresh, else just
- *		refresh.
+ *  pFileLoc    file structure of interest
+ *  fPrompt     TRUE => prompt user for permission to refresh, else just
+ *              refresh.
  *
- *  returns	TRUE iff the logical file and the physical file are the same.
+ *  returns     TRUE iff the logical file and the physical file are the same.
  */
 flagType
 fSyncFile (
@@ -775,20 +779,20 @@ fSyncFile (
     switch (FileStatus (pFileLoc, NULL)) {
 
     case FILECHANGED:
-	if (fPrompt) {
-	    if (!confirm ("%s has been changed.  Refresh? ", pFileLoc->pName)) {
-		/* No, validate this edit session */
-		SetModTime (pFileLoc);
-		return FALSE;
+        if (fPrompt) {
+            if (!confirm ("%s has been changed.  Refresh? ", pFileLoc->pName)) {
+                /* No, validate this edit session */
+                SetModTime (pFileLoc);
+                return FALSE;
             }
         }
-	FileRead (strcpy( buf, pFileLoc->pName ), pFileLoc, TRUE);
-	RSETFLAG (FLAGS (pFileLoc), DIRTY);
+        FileRead (strcpy( buf, pFileLoc->pName ), pFileLoc, TRUE);
+        RSETFLAG (FLAGS (pFileLoc), DIRTY);
         SETFLAG (fDisplay, RSTATUS);
-	return TRUE;
+        return TRUE;
 
     case FILEDELETED:
-	domessage ("File has been deleted");
+        domessage ("File has been deleted");
         break;
 
     default:
@@ -807,12 +811,12 @@ fSyncFile (
  *  contains metachars, the file is not believed to have changed.  Further, if
  *  the file is a pseudo file, it cannot have changed.
  *
- *  pFile	file of interest (contains mod time)
- *  pName	name of file to examine (when writing to diff. name)
+ *  pFile       file of interest (contains mod time)
+ *  pName       name of file to examine (when writing to diff. name)
  *
- *  returns	FILECHANGED if timestamps differ
- *		FILEDELETED if file on disk does not exist
- *		FILESAME    if timestamps are the same
+ *  returns     FILECHANGED if timestamps differ
+ *              FILEDELETED if file on disk does not exist
+ *              FILESAME    if timestamps are the same
  */
 int
 FileStatus (
@@ -850,7 +854,7 @@ FileStatus (
 
 /*  SetModTime - Snapshot a file's last-modification time
  *
- *  pFile	file of interest
+ *  pFile       file of interest
  */
 void
 SetModTime (
@@ -866,9 +870,9 @@ SetModTime (
  *  If the file does not exist or contains meta chars, return 0 as the time-
  *  stamp.
  *
- *  pName	character pointer to file name
+ *  pName       character pointer to file name
  *
- *  Returns	last modification time of file.
+ *  Returns     last modification time of file.
  */
 
 time_t
@@ -876,13 +880,13 @@ ModTime (
     char *pName
     ) {
 
-    struct stat statbuf;
+    struct _stat statbuf;
 
     if (*strbscan (pName, "?*")) {
         return 0L;
     }
 
-    if (stat (pName, &statbuf) == -1) {
+    if (_stat (pName, &statbuf) == -1) {
         return 0L;
     }
 

@@ -118,7 +118,7 @@ Return Value:
     if( !OpenProcessToken( GetCurrentProcess(),
                            TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY,
                            &TokenHandle ) ) {
-        DbgPrint( "OpenProcessToken failed" );
+        DebugPrint( "OpenProcessToken failed" );
         return( FALSE );
     }
 
@@ -126,7 +126,7 @@ Return Value:
     if( !LookupPrivilegeValue( NULL,
                                Privilege,
                                &( LuidAndAttributes.Luid ) ) ) {
-        DbgPrintf( "LookupPrivilegeValue failed, Error = %#d \n", GetLastError() );
+        DebugPrintf( "LookupPrivilegeValue failed, Error = %#d \n", GetLastError() );
         return( FALSE );
     }
 
@@ -140,7 +140,7 @@ Return Value:
                                 0,
                                 NULL,
                                 NULL ) ) {
-        DbgPrintf( "AdjustTokenPrivileges failed, Error = %#x \n", GetLastError() );
+        DebugPrintf( "AdjustTokenPrivileges failed, Error = %#x \n", GetLastError() );
         return( FALSE );
     }
 
@@ -233,6 +233,9 @@ Return Value:
     _LogFile = NULL;
     _LogFileStream = NULL;
 
+    _AclWorkFile = NULL;
+    _AclWorkStream = NULL;
+
     _NewDrive = NULL;
 
     _RootNode = NULL;
@@ -269,6 +272,9 @@ Return Value:
     DELETE( _DataFileStream );
     DELETE( _LogFile );
     DELETE( _LogFileStream );
+
+    DELETE( _AclWorkFile );
+    DELETE( _AclWorkStream );
     DELETE( _NewDrive );
     DELETE( _RootNode );
     DELETE( _DriveName );
@@ -741,6 +747,41 @@ Return Value:
 
     INT ExitCode = 0;
 
+    DSTRING AclWorkString;
+
+    // Open aclwork.dat and read the contents into a special
+    // sid cache.
+
+    if (!AclWorkString.Initialize(L"aclwork.dat")) {
+        return 1;
+    }
+    if (!_AclWorkPath.Initialize(&AclWorkString)) {
+        return 1;
+    }
+    
+    if (NULL == (_AclWorkFile = SYSTEM::QueryFile(&_AclWorkPath))) {
+
+        // try to open aclwork.dat in the same directory as the
+        // data file.
+
+        if (!_AclWorkPath.Initialize(&_DataFilePath)) {
+            return 1;
+        }
+        if (!_AclWorkPath.SetName(&AclWorkString)) {
+            return 1;
+        }
+
+        _AclWorkFile = SYSTEM::QueryFile(&_AclWorkPath);
+    }
+    if (NULL != _AclWorkFile &&
+        NULL != (_AclWorkStream = _AclWorkFile->QueryStream(READ_ACCESS))) {
+
+        // DisplayMessage( MSG_ACLCONV_USING_ACLWORK, NORMAL_MESSAGE );
+
+        if (!ReadAclWorkSids()) {
+            return 1;
+        }
+    }
 
     // Open the data file and determine its format (ie. what
     // revision of BackAcc produced it).
@@ -1017,8 +1058,8 @@ Return Value:
 
     ULONG NameLength, BytesWritten;
 
-    DbgPtrAssert( Resource );
-    DbgPtrAssert( _LogFileStream );
+    DebugPtrAssert( Resource );
+    DebugPtrAssert( _LogFileStream );
 
     if( (PathString = Resource->GetPathString()) == NULL ||
         (NameLength = PathString->QueryChCount()) > MAX_RESOURCE_NAME_LENGTH ||
@@ -1032,8 +1073,8 @@ Return Value:
 
     Header.ResourceNameLength = NameLength + 1;
     Header.ConversionResult = ConversionCode;
-    Header.LmAuditMask = LmAuditInfo;
-    Header.AccessEntryCount = AccessEntryCount;
+    Header.LmAuditMask = (USHORT)LmAuditInfo;
+    Header.AccessEntryCount = (USHORT)AccessEntryCount;
 
     if(!_LogFileStream->Write( (PBYTE)&Header,
                                sizeof( ACLCONV_LOG_RECORD_HEADER ),
@@ -1112,7 +1153,7 @@ Return Value:
     UINT                DriveType;
 
 
-    DbgPtrAssert( ExitCode );
+    DebugPtrAssert( ExitCode );
 
         //
         //      Initialize all the argument parsing machinery.
@@ -1332,6 +1373,11 @@ Return Value:
         return FALSE;
     }
 
+    if (!_AclWorkSids.Initialize(1)) {
+
+        return FALSE;
+    }
+
     return TRUE;
 }
 
@@ -1468,7 +1514,7 @@ Return Value:
     //
     if( DirectoryLevel != CurrentLevel + 1 ) {
 
-        DbgPrint( "ACLCONV: skipped a level in name tree.\n" );
+        DebugPrint( "ACLCONV: skipped a level in name tree.\n" );
         return FALSE;
     }
 
@@ -1568,7 +1614,7 @@ Return Value:
 
     if( _DataFileStream == NULL ) {
 
-        DbgAbort( "Data stream not set up.\n" );
+        DebugAbort( "Data stream not set up.\n" );
         return FALSE;
     }
 
@@ -1577,7 +1623,7 @@ Return Value:
 
     case DataFileRevisionUnknown :
 
-        DbgAbort( "Trying to read from unknown data file revision.\n" );
+        DebugAbort( "Trying to read from unknown data file revision.\n" );
         *ExitCode = 1;
         return FALSE;
 
@@ -1643,12 +1689,12 @@ Return Value:
 
         // Read the access entries
 
-        if( ResourceInfo.acc1_count > MaxEntries ||
+        if( (ULONG)ResourceInfo.acc1_count > MaxEntries ||
             !_DataFileStream->Read( (PBYTE)AccessEntries,
                                     ResourceInfo.acc1_count *
                                         LM_ACCESS_LIST_SIZE,
                                     &BytesRead ) ||
-            BytesRead != ResourceInfo.acc1_count * LM_ACCESS_LIST_SIZE ) {
+            BytesRead != (ULONG)( ResourceInfo.acc1_count * LM_ACCESS_LIST_SIZE ) ) {
 
             *ExitCode = 1;
             return FALSE;
@@ -1697,9 +1743,8 @@ Return Value:
 
             _NextReadOffset += LM21_ACLHDR_SIZE;
             _BytesRemainingInCurrentGroup = Lm21Header.NxtHdr -
-                                            LM21_ACLHDR_SIZE;
+                                            _NextReadOffset;
         }
-
 
         // Read the ACL Record
 
@@ -1720,7 +1765,7 @@ Return Value:
             !_DataFileStream->Read( (PBYTE)ResourceName,
                                     Lm21AclRec.NameBytes,
                                     &BytesRead ) ||
-            BytesRead != Lm21AclRec.NameBytes ) {
+            BytesRead != (ULONG)Lm21AclRec.NameBytes ) {
 
             *ExitCode = 1;
             return FALSE;
@@ -1746,12 +1791,12 @@ Return Value:
 
         } else {
 
-            if( Lm21AclRec.AclCnt > MaxEntries ||
+            if( (ULONG)Lm21AclRec.AclCnt > MaxEntries ||
                 !_DataFileStream->Read( (PBYTE)AccessEntries,
                                          Lm21AclRec.AclCnt *
                                             LM_ACCESS_LIST_SIZE,
                                         &BytesRead ) ||
-                BytesRead != Lm21AclRec.AclCnt * LM_ACCESS_LIST_SIZE ) {
+                BytesRead != (ULONG)( Lm21AclRec.AclCnt * LM_ACCESS_LIST_SIZE ) ) {
 
                 *ExitCode = 1;
                 return FALSE;
@@ -1785,4 +1830,109 @@ Return Value:
         return FALSE;
 
     }
+}
+
+BOOLEAN
+ACLCONV::ReadAclWorkSids(
+    )
+{
+    WORD n_entries;
+    ULONG n_read;
+    ULONG i;
+    USHORT name_len;
+    WCHAR name[64];
+    DSTRING Name;
+    PSID pSid;
+    ULONG sid_len;
+
+    DSTRING Domain;
+
+    if (!Domain.Initialize("UserConv")) {
+        DisplayMessage(MSG_CONV_NO_MEMORY, ERROR_MESSAGE);
+        return FALSE;
+    }
+
+    if (!_AclWorkStream->Read((PUCHAR)&n_entries, sizeof(WORD), &n_read) ||
+        n_read != sizeof(WORD)) {
+        DisplayMessage(MSG_ACLCONV_DATAFILE_BAD_FORMAT, ERROR_MESSAGE,
+            "%W", _AclWorkPath.GetPathString());
+        return FALSE;
+    }
+
+    if (!_AclWorkSids.Initialize(n_entries)) {
+        DisplayMessage(MSG_CONV_NO_MEMORY, ERROR_MESSAGE);
+        return FALSE;
+    }
+
+    //
+    // Read each entry from the aclwork.dat file and add it to this
+    // sid cache.
+    //
+
+    for (i = 0; i < n_entries; ++i) {
+
+        // read the length of the name
+
+        if (!_AclWorkStream->Read((PUCHAR)&name_len, sizeof(name_len),
+            &n_read) || n_read != sizeof(name_len)) {
+
+            DisplayMessage(MSG_ACLCONV_DATAFILE_BAD_FORMAT, ERROR_MESSAGE,
+                "%W", _AclWorkPath.GetPathString());
+
+            return FALSE;
+        }
+
+        // read the name
+
+        if (!_AclWorkStream->Read((PUCHAR)name, name_len, &n_read) ||
+            n_read != name_len) {
+
+            DisplayMessage(MSG_ACLCONV_DATAFILE_BAD_FORMAT, ERROR_MESSAGE,
+                "%W", _AclWorkPath.GetPathString());
+
+            return FALSE;
+        }
+        name[name_len / sizeof(WCHAR)] = UNICODE_NULL;
+
+        if (!Name.Initialize(name)) {
+            DisplayMessage(MSG_CONV_NO_MEMORY, ERROR_MESSAGE);
+            return FALSE;
+        }
+
+        if (!_AclWorkStream->Read((PUCHAR)&sid_len, sizeof(sid_len), &n_read) ||
+            n_read != sizeof(sid_len)) {
+
+            DisplayMessage(MSG_ACLCONV_DATAFILE_BAD_FORMAT, ERROR_MESSAGE,
+                "%W", _AclWorkPath.GetPathString());
+
+            return FALSE;
+        }
+
+        pSid = (PSID)MALLOC(sid_len);
+        if (NULL == pSid) {
+            DisplayMessage(MSG_CONV_NO_MEMORY, ERROR_MESSAGE);
+
+            return FALSE;
+        }
+
+        if (!_AclWorkStream->Read((PUCHAR)pSid, sid_len, &n_read) ||
+            n_read != sid_len) {
+
+            DisplayMessage(MSG_ACLCONV_DATAFILE_BAD_FORMAT, ERROR_MESSAGE,
+                "%W", _AclWorkPath.GetPathString());
+
+            return FALSE;
+        }
+
+        DebugAssert(RtlValidSid(pSid));
+
+        if (!_AclWorkSids.CacheSid( &Domain, &Name, pSid, sid_len)) {
+            DisplayMessage(MSG_CONV_NO_MEMORY, ERROR_MESSAGE);
+            return FALSE;
+        }
+
+        FREE(pSid);
+    }
+
+    return TRUE;
 }

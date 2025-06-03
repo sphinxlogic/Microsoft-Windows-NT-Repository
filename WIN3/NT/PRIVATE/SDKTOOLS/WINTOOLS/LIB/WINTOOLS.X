@@ -28,6 +28,10 @@ Environment:
 
 #include <windows.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 //
 //*** Global types.
 //
@@ -379,5 +383,9 @@ WFormatMessage%(
     IN UINT FormatId,
     IN ...
     );
+
+#ifdef __cplusplus
+}       // extern C
+#endif
 
 #endif // _WINTOOLS_

@@ -577,4 +577,3 @@ TestGenerateMessage()
     return TRUE;
 }
 
-

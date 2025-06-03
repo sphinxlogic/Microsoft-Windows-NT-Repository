@@ -64,8 +64,7 @@ Routine Description:
         occurs while reading the specified context frame, then no kernel
         data structures will have been modified. It is the responsibility
         of the caller to handle the exception and provide necessary clean
-        up. The executive initializes the entire KTHREAD to 0. Initializing
-        individual fields to 0 or FALSE is not necessary.
+        up.
 
     N.B. It is assumed that the thread object is zeroed.
 
@@ -109,6 +108,7 @@ Return Value:
 
 {
 
+    ULONG Index;
     KIRQL OldIrql;
     PKTIMER Timer;
     PKWAIT_BLOCK WaitBlock;
@@ -119,7 +119,7 @@ Return Value:
     //
 
     Thread->Header.Type = ThreadObject;
-    Thread->Header.Size = sizeof(KTHREAD);
+    Thread->Header.Size = sizeof(KTHREAD) / sizeof(LONG);
     InitializeListHead(&Thread->Header.WaitListHead);
 
     //
@@ -129,23 +129,33 @@ Return Value:
     InitializeListHead(&Thread->MutantListHead);
 
     //
-    // Initialize the builtin wait block that is dedicated for use with
-    // event pair and semaphore waits.
+    // Initialize the thread field of all builtin wait blocks.
     //
 
-    WaitBlock = &Thread->WaitBlock[EVENT_WAIT_BLOCK];
-    WaitBlock->WaitKey = (CSHORT)(STATUS_SUCCESS);
-    WaitBlock->WaitType = WaitAny;
-    WaitBlock->Thread = Thread;
-    WaitBlock->NextWaitBlock = WaitBlock;
+    for (Index = 0; Index < (THREAD_WAIT_OBJECTS + 1); Index += 1) {
+        Thread->WaitBlock[Index].Thread = Thread;
+    }
 
     //
     // Initialize the alerted, preempted, debugactive, autoalignment,
-    // kernel stack resident, and process ready queue boolean values.
+    // kernel stack resident, enable kernel stack swap, and process
+    // ready queue boolean values.
+    //
+    // N.B. Only nonzero values are initialized.
     //
 
     Thread->AutoAlignment = Process->AutoAlignment;
+    Thread->EnableStackSwap = TRUE;
     Thread->KernelStackResident = TRUE;
+
+    //
+    // Set the system service table pointer to the address of the static
+    // system service descriptor table. If the thread is later converted
+    // to a Win32 thread this pointer will be change to a pointer to the
+    // shadow system service descriptor table.
+    //
+
+    Thread->ServiceTable = (PVOID)&KeServiceDescriptorTable[0];
 
     //
     // Initialize the APC state pointers, the current APC state, the saved
@@ -160,12 +170,8 @@ Return Value:
     Thread->ApcQueueable = TRUE;
 
     //
-    // Initialize the kernel mode suspend APC, the suspend semaphore object,
+    // Initialize the kernel mode suspend APC and the suspend semaphore object.
     // and the builtin wait timeout timer object.
-    //
-    // N.B. The normal context field of the suspend APC is used to hold a
-    //      pointer to a queue object. It is never used by suspend. The
-    //      below initialization sets this field to NULL.
     //
 
     KeInitializeApc(&Thread->SuspendApc,
@@ -178,8 +184,28 @@ Return Value:
                     NULL);
 
     KeInitializeSemaphore(&Thread->SuspendSemaphore, 0L, 2L);
+
+    //
+    // Initialize the builtin timer trimer wait wait block.
+    //
+    // N.B. This is the only time the wait block is initialized sincs this
+    //      information is constant.
+    //
+
     Timer = &Thread->Timer;
     KeInitializeTimer(Timer);
+    WaitBlock = &Thread->WaitBlock[TIMER_WAIT_BLOCK];
+    WaitBlock->Object = Timer;
+    WaitBlock->WaitKey = (CSHORT)STATUS_TIMEOUT;
+    WaitBlock->WaitType = WaitAny;
+    WaitBlock->WaitListEntry.Flink = &Timer->Header.WaitListHead;
+    WaitBlock->WaitListEntry.Blink = &Timer->Header.WaitListHead;
+
+    //
+    // Initialize the APC queue spinlock.
+    //
+
+    KeInitializeSpinLock(&Thread->ApcQueueLock);
 
     //
     // Initialize the Thread Environment Block (TEB) pointer (can be NULL).
@@ -188,11 +214,12 @@ Return Value:
     Thread->Teb = Teb;
 
     //
-    // Compute the address of the initial kernel stack and set the initial
-    // thread context.
+    // Set the initial kernel stack and the initial thread context.
     //
 
     Thread->InitialStack = KernelStack;
+    Thread->StackBase = KernelStack;
+    Thread->StackLimit = (PVOID)((ULONG)KernelStack - KERNEL_STACK_SIZE);
     KiInitializeContextThread(Thread,
                               SystemRoutine,
                               StartRoutine,
@@ -207,8 +234,11 @@ Return Value:
     Thread->BasePriority = Process->BasePriority;
     Thread->Priority = Thread->BasePriority;
     Thread->Affinity = Process->Affinity;
+    Thread->UserAffinity = Process->Affinity;
+    Thread->SystemAffinityActive = FALSE;
     Thread->Quantum = Process->ThreadQuantum;
     Thread->State = Initialized;
+    Thread->DisableBoost = Process->DisableBoost;
 
 #ifdef i386
 
@@ -234,6 +264,15 @@ Return Value:
         Process->StackCount += 1;
     }
 
+    //
+    // Initialize the ideal processor number for the thread.
+    //
+    //  N.B. This must be done under the dispatcher lock to prevent byte
+    //      granularity problems on Alpha.
+    //
+
+    Process->ThreadSeed += 1;
+    Thread->IdealProcessor = (UCHAR)(Process->ThreadSeed % KeNumberProcessors);
     KiUnlockDispatcherDatabase(OldIrql);
     return;
 }
@@ -272,6 +311,7 @@ Return Value:
     KIRQL OldIrql;
 
     ASSERT_THREAD(Thread);
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
 
     //
     // Raise IRQL to dispatcher level, lock dispatcher database, and lock
@@ -279,7 +319,7 @@ Return Value:
     //
 
     KiLockDispatcherDatabase(&OldIrql);
-    KiLockApcQueueAtDpcLevel();
+    KiAcquireSpinLock(&Thread->ApcQueueLock);
 
     //
     // Capture the current state of the alerted variable for the specified
@@ -311,17 +351,13 @@ Return Value:
     }
 
     //
-    // Unlock APC queue, unlock dispatcher database, and lower IRQL to its
-    // previous value.
+    // Unlock APC queue, unlock dispatcher database, lower IRQL to its
+    // previous value, and return the previous alerted state for the
+    // specified mode.
     //
 
-    KiUnlockApcQueueFromDpcLevel();
+    KiReleaseSpinLock(&Thread->ApcQueueLock);
     KiUnlockDispatcherDatabase(OldIrql);
-
-    //
-    // Return the previous alerted state for the specified mode.
-    //
-
     return Alerted;
 }
 
@@ -354,6 +390,7 @@ Return Value:
     KIRQL OldIrql;
 
     ASSERT_THREAD(Thread);
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
 
     //
     // Raise IRQL to dispatcher level, lock dispatcher database, and lock
@@ -361,7 +398,7 @@ Return Value:
     //
 
     KiLockDispatcherDatabase(&OldIrql);
-    KiLockApcQueueAtDpcLevel();
+    KiAcquireSpinLock(&Thread->ApcQueueLock);
 
     //
     // If the kernel mode alerted state is FALSE, then attempt to alert
@@ -409,17 +446,12 @@ Return Value:
     }
 
     //
-    // Unlock APC queue, unlock dispatcher database, and lower IRQL to its
-    // previous value.
+    // Unlock APC queue, unlock dispatcher database, lower IRQL to its
+    // previous value, and return the previous suspend count.
     //
 
-    KiUnlockApcQueueFromDpcLevel();
+    KiReleaseSpinLock(&Thread->ApcQueueLock);
     KiUnlockDispatcherDatabase(OldIrql);
-
-    //
-    // Return the previous suspend count.
-    //
-
     return OldCount;
 }
 
@@ -453,6 +485,8 @@ Return Value:
 
     KIRQL OldIrql;
 
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
+
     //
     // Raise IRQL to dispatcher level and lock dispatcher database.
     //
@@ -479,6 +513,7 @@ Return Value:
 
 KAFFINITY
 KeConfineThread (
+    VOID
     )
 
 /*++
@@ -503,6 +538,8 @@ Return Value:
     KAFFINITY Affinity;
     KIRQL OldIrql;
     PKTHREAD Thread;
+
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
 
     //
     // Raise IRQL to dispatcher level and lock dispatcher database.
@@ -560,6 +597,7 @@ Return Value:
     KIRQL OldIrql;
 
     ASSERT_THREAD(Thread);
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
 
     //
     // Raise IRQL to dispatcher level and lock dispatcher database.
@@ -616,6 +654,7 @@ Return Value:
     KIRQL OldIrql;
 
     ASSERT_THREAD(Thread);
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
 
     //
     // Raise IRQL to dispatcher level and lock dispatcher database.
@@ -674,6 +713,7 @@ Return Value:
     KIRQL OldIrql;
 
     ASSERT_THREAD(Thread);
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
 
     //
     // Raise IRQL to dispatcher level and lock dispatcher database.
@@ -746,6 +786,8 @@ Return Value:
     ULONG OldCount;
     KIRQL OldIrql;
 
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
+
     //
     // Get the address of the current thread object, the current process
     // object, raise IRQL to dispatch level, lock dispatcher database,
@@ -769,6 +811,7 @@ Return Value:
         KiUnlockDispatcherDatabase(OldIrql);
         KiLockDispatcherDatabase(&OldIrql);
     }
+
     KeEnterCriticalRegion();
 
     //
@@ -813,70 +856,6 @@ Return Value:
     //
 
     KiUnlockDispatcherDatabase(OldIrql);
-    return;
-}
-
-VOID
-KeLeaveCriticalRegion (
-    VOID
-    )
-
-/*++
-
-Routine Description:
-
-    This function enables kernel APC's and requests an APC interrupt if
-    appropriate.
-
-Arguments:
-
-    None.
-
-Return Value:
-
-    None.
-
---*/
-
-{
-
-    KIRQL OldIrql;
-    PKTHREAD Thread;
-
-    //
-    // Increment the kernel APC disable count. If the resultant count is
-    // zero and the thread's kernel APC List is not empty, then request an
-    // APC interrupt.
-    //
-    // For multiprocessor performance, the following code utilizes the fact
-    // that queuing an APC is done by first queuing the APC, then checking
-    // the AST disable count. The following code increments the disable
-    // count first, checks to determine if it is zero, and then checks the
-    // kernel AST queue.
-    //
-    // See also KiInsertQueueApc().
-    //
-
-    Thread = KeGetCurrentThread();
-    Thread->KernelApcDisable += 1;
-
-    //
-    // Before acquiring the dispatcher lock, check to determine if the AST
-    // disable count is zero AND the kernel AST queue is not empy before
-    // acquiring the dispatcher database lock.
-    //
-
-    if (Thread->KernelApcDisable == 0  &&
-        (IsListEmpty(&Thread->ApcState.ApcListHead[KernelMode]) == FALSE)) {
-        KiLockDispatcherDatabase(&OldIrql);
-        if (IsListEmpty(&Thread->ApcState.ApcListHead[KernelMode]) == FALSE) {
-            Thread->ApcState.KernelApcPending = TRUE;
-            KiRequestSoftwareInterrupt(APC_LEVEL);
-        }
-
-        KiUnlockDispatcherDatabase(OldIrql);
-    }
-
     return;
 }
 
@@ -944,6 +923,7 @@ Return Value:
     PKPROCESS Process;
 
     ASSERT_THREAD(Thread);
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
 
     //
     // Raise IRQL to dispatcher level and lock dispatcher database.
@@ -952,11 +932,22 @@ Return Value:
     KiLockDispatcherDatabase(&OldIrql);
 
     //
-    // Compute the base priority increment of the specified thread.
+    // If priority saturation occured the last time the thread base priority
+    // was set, then return the saturation increment value. Ohterwise, compute
+    // the increment value as the difference between the thread base priority
+    // and the process base priority.
     //
 
     Process = Thread->ApcStatePointer[0]->Process;
     Increment = Thread->BasePriority - Process->BasePriority;
+    if (Thread->Saturation != FALSE) {
+        if (Increment > 0) {
+            Increment = ((HIGH_PRIORITY + 1) / 2);
+
+        } else {
+            Increment = -((HIGH_PRIORITY + 1) / 2);
+        }
+    }
 
     //
     // Unlock dispatcher database and lower IRQL to its previous
@@ -1035,6 +1026,7 @@ Return Value:
     KIRQL OldIrql;
 
     ASSERT_THREAD(Thread);
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
 
     //
     // Raise IRQL to dispatcher level and lock dispatcher database.
@@ -1085,6 +1077,7 @@ Return Value:
     KIRQL OldIrql;
 
     ASSERT_THREAD(Thread);
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
 
     //
     // Raise IRQL to dispatcher level and lock dispatcher database.
@@ -1131,6 +1124,71 @@ Return Value:
 }
 
 VOID
+KeRevertToUserAffinityThread (
+    VOID
+    )
+
+/*++
+
+Routine Description:
+
+    This function setss the affinity of the current thread to its user
+    affinity.
+
+Arguments:
+
+    None.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+
+    PRKTHREAD CurrentThread;
+    PRKTHREAD NextThread;
+    KIRQL OldIrql;
+    PKPRCB Prcb;
+
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
+    ASSERT(KeGetCurrentThread()->SystemAffinityActive != FALSE);
+
+    //
+    // Raise IRQL to dispatcher level and lock dispatcher database.
+    //
+
+    CurrentThread = KeGetCurrentThread();
+    KiLockDispatcherDatabase(&OldIrql);
+
+    //
+    // Set the current affinity to the user affinity.
+    //
+    // If the current processor is not in the new affinity set and another
+    // thread has not already been selected for execution on the current
+    // processor, then select a new thread for the current processor.
+    //
+
+    CurrentThread->Affinity = CurrentThread->UserAffinity;
+    CurrentThread->SystemAffinityActive = FALSE;
+    Prcb = KeGetCurrentPrcb();
+    if (((Prcb->SetMember & CurrentThread->Affinity) == 0) &&
+        (Prcb->NextThread == NULL)) {
+        NextThread = KiSelectNextThread(CurrentThread);
+        NextThread->State = Standby;
+        Prcb->NextThread = NextThread;
+    }
+
+    //
+    // Unlock dispatcher database and lower IRQL to its previous value.
+    //
+
+    KiUnlockDispatcherDatabase(OldIrql);
+    return;
+}
+
+VOID
 KeRundownThread (
     )
 
@@ -1160,6 +1218,18 @@ Return Value:
     PLIST_ENTRY NextEntry;
     KIRQL OldIrql;
     PKTHREAD Thread;
+
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
+
+    //
+    // Rundown possible associated channel object or receive buffer.
+    //
+
+#if 0
+
+    KiRundownChannel();
+
+#endif
 
     //
     // Raise IRQL to dispatcher level and lock dispatcher database.
@@ -1246,11 +1316,12 @@ Return Value:
     KIRQL OldIrql;
     PKPRCB Prcb;
     PKPROCESS Process;
-    CHAR Processor;
+    ULONG Processor;
     KPRIORITY ThreadPriority;
-    PKTHREAD Thread1;
+    PRKTHREAD Thread1;
 
     ASSERT_THREAD(Thread);
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
 
     //
     // Raise IRQL to dispatcher level and lock dispatcher database.
@@ -1263,113 +1334,178 @@ Return Value:
     // of parent process object;
     //
 
-    OldAffinity = Thread->Affinity;
+    OldAffinity = Thread->UserAffinity;
     Process = Thread->ApcState.Process;
 
     //
     // If new affinity is not a proper subset of the parent process affinity,
-    // or the new affinity is null, then unlock dispatcher database, lower IRQL
-    // to its previous value, and raise an error condition.
+    // or the new affinity is null, then bugcheck.
     //
 
     if (((Affinity & Process->Affinity) != (Affinity)) || (!Affinity)) {
-
-        //
-        // Eventually raise an error condition. For now just unlock dispatcher
-        // database, lower IRQL to its previous value, and call bug check.
-        //
-
-        KiUnlockDispatcherDatabase(OldIrql);
         KeBugCheck(INVALID_AFFINITY_SET);
     }
 
     //
-    // Set the new thread affinity and case on the thread state.
+    // Set the thread user affinity to the specified value.
+    //
+    // If the thread is not current executing with system affinity active,
+    // then set the thread current affinity and switch on the thread state.
     //
 
-    Thread->Affinity = Affinity;
-    switch (Thread->State) {
+    Thread->UserAffinity = Affinity;
+    if (Thread->SystemAffinityActive == FALSE) {
+        Thread->Affinity = Affinity;
+        switch (Thread->State) {
 
-        //
-        // Ready State - If the thread is not in the process ready queue,
-        // then remove it from its current dispatcher ready queue and
-        // reready it for execution to reevaluate any additional processors.
-        //
+            //
+            // Ready State.
+            //
+            // If the thread is not in the process ready queue, then remove
+            // it from its current dispatcher ready queue and reready it for
+            // execution.
+            //
 
-    case Ready:
-        if (Thread->ProcessReadyQueue == FALSE) {
-            RemoveEntryList(&Thread->WaitListEntry);
-            ThreadPriority = Thread->Priority;
-            if (IsListEmpty(&KiDispatcherReadyListHead[ThreadPriority]) != FALSE) {
-                ClearMember(ThreadPriority, KiReadySummary);
+        case Ready:
+            if (Thread->ProcessReadyQueue == FALSE) {
+                RemoveEntryList(&Thread->WaitListEntry);
+                ThreadPriority = Thread->Priority;
+                if (IsListEmpty(&KiDispatcherReadyListHead[ThreadPriority]) != FALSE) {
+                    ClearMember(ThreadPriority, KiReadySummary);
+                }
+
+                KiReadyThread(Thread);
             }
 
-            KiReadyThread(Thread);
-        }
+            break;
 
-        break;
+            //
+            // Standby State.
+            //
+            // If the target processor is not in the new affinity set, then
+            // set the next thread to null for the target processor, select
+            // a new thread to run on the target processor, and reready the
+            // thread for execution.
+            //
 
-        //
-        // Standby State - If the target processor is not in the new affinity
-        // set, then set the next thread to null for the target processor,
-        // select a new thread to run on the target processor, and reready
-        // the thread for execution.
-        //
-
-    case Standby:
-        Processor = Thread->NextProcessor;
-        if (((1 << Processor) & Affinity) == 0) {
+        case Standby:
+            Processor = Thread->NextProcessor;
             Prcb = KiProcessorBlock[Processor];
-            Prcb->NextThread = (PKTHREAD)NULL;
-            Thread1 = KiSelectNextThread(Thread);
-            Thread1->State = Standby;
-            Prcb->NextThread = Thread1;
-            KiReadyThread(Thread);
+            if ((Prcb->SetMember & Affinity) == 0) {
+                Prcb->NextThread = NULL;
+                Thread1 = KiSelectNextThread(Thread);
+                Thread1->State = Standby;
+                Prcb->NextThread = Thread1;
+                KiReadyThread(Thread);
+            }
+
+            break;
+
+            //
+            // Running State.
+            //
+            // If the target processor is not in the new affinity set and
+            // another thread has not already been selected for execution
+            // on the target processor, then select a new thread for the
+            // target processor, and cause the target processor to be
+            // redispatched.
+            //
+
+        case Running:
+            Processor = Thread->NextProcessor;
+            Prcb = KiProcessorBlock[Processor];
+            if (((Prcb->SetMember & Affinity) == 0) &&
+                (Prcb->NextThread == NULL)) {
+                Thread1 = KiSelectNextThread(Thread);
+                Thread1->State = Standby;
+                Prcb->NextThread = Thread1;
+                KiRequestDispatchInterrupt(Processor);
+            }
+
+            break;
+
+            //
+            // Initialized, Terminated, Waiting, Transition case - For these
+            // states it is sufficient to just set the new thread affinity.
+            //
+
+        default:
+            break;
         }
-
-        break;
-
-        //
-        // Running State - If the target processor is not in the new affinity
-        // set and another thread has not already been selected for execution
-        // on the target processor, then select a new thread for the target
-        // processor, and cause the target processor to be redispatched.
-        //
-
-    case Running:
-        Processor = Thread->NextProcessor;
-        Prcb = KiProcessorBlock[Processor];
-        if ((((1 << Processor) & Affinity) == 0) &&
-            (Prcb->NextThread == (PKTHREAD)NULL)) {
-            Thread1 = KiSelectNextThread(Thread);
-            Thread1->State = Standby;
-            Prcb->NextThread = Thread1;
-            KiRequestDispatchInterrupt(Processor);
-        }
-
-        break;
-
-        //
-        // Initialized, Terminated, Waiting, Transition case - For these
-        // states it is sufficient to just set the new thread affinity.
-        //
-
-    default:
-        break;
     }
 
     //
-    // Unlock dispatcher database and lower IRQL to its previous
-    // value.
+    // Unlock dispatcher database, lower IRQL to its previous value, and
+    // return the previous user affinity.
     //
 
     KiUnlockDispatcherDatabase(OldIrql);
-
-    //
-    // Return the previous thread affinity.
-    //
-
     return OldAffinity;
+}
+
+VOID
+KeSetSystemAffinityThread (
+    IN KAFFINITY Affinity
+    )
+
+/*++
+
+Routine Description:
+
+    This function set the system affinity of the current thread.
+
+Arguments:
+
+    Affinity - Supplies the new of set of processors on which the thread
+        can run.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+
+    PRKTHREAD CurrentThread;
+    PRKTHREAD NextThread;
+    KIRQL OldIrql;
+    PKPRCB Prcb;
+
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
+    ASSERT((Affinity & KeActiveProcessors) != 0);
+
+    //
+    // Raise IRQL to dispatcher level and lock dispatcher database.
+    //
+
+    CurrentThread = KeGetCurrentThread();
+    KiLockDispatcherDatabase(&OldIrql);
+
+    //
+    // Set the current affinity to the specified affinity.
+    //
+    // If the current processor is not in the new affinity set and another
+    // thread has not already been selected for execution on the current
+    // processor, then select a new thread for the current processor.
+    //
+
+    CurrentThread->Affinity = Affinity;
+    CurrentThread->SystemAffinityActive = TRUE;
+    Prcb = KeGetCurrentPrcb();
+    if (((Prcb->SetMember & CurrentThread->Affinity) == 0) &&
+        (Prcb->NextThread == NULL)) {
+        NextThread = KiSelectNextThread(CurrentThread);
+        NextThread->State = Standby;
+        Prcb->NextThread = NextThread;
+    }
+
+    //
+    // Unlock dispatcher database and lower IRQL to its previous value.
+    //
+
+    KiUnlockDispatcherDatabase(OldIrql);
+    return;
 }
 
 LONG
@@ -1392,6 +1528,11 @@ Arguments:
 
     Increment - Supplies the base priority increment of the subject thread.
 
+        N.B. If the absolute value of the increment is such that saturation
+             of the base priority is forced, then subsequent changes to the
+             parent process base priority will not change the base priority
+             of the thread.
+
 Return Value:
 
     The previous base priority increment of the specified thread.
@@ -1408,6 +1549,7 @@ Return Value:
     PKPROCESS Process;
 
     ASSERT_THREAD(Thread);
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
 
     //
     // Raise IRQL to dispatcher level and lock dispatcher database.
@@ -1416,12 +1558,17 @@ Return Value:
     KiLockDispatcherDatabase(&OldIrql);
 
     //
-    // Capture the base priority of the specified thread.
+    // Capture the base priority of the specified thread and determine
+    // whether saturation if being forced.
     //
 
     Process = Thread->ApcStatePointer[0]->Process;
     OldBase = Thread->BasePriority;
     OldIncrement = OldBase - Process->BasePriority;
+    Thread->Saturation = FALSE;
+    if (abs(Increment) >= (HIGH_PRIORITY + 1) / 2) {
+        Thread->Saturation = TRUE;
+    }
 
     //
     // Set the base priority of the specified thread. If the thread's process
@@ -1486,6 +1633,170 @@ Return Value:
     return OldIncrement;
 }
 
+LOGICAL
+KeSetDisableBoostThread (
+    IN PKTHREAD Thread,
+    IN LOGICAL Disable
+    )
+
+/*++
+
+Routine Description:
+
+    This function disables priority boosts for the specified thread.
+
+Arguments:
+
+    Thread  - Supplies a pointer to a dispatcher object of type thread.
+
+    Disable - Supplies a logical value that determines whether priority
+        boosts for the thread are disabled or enabled.
+
+Return Value:
+
+    The previous value of the disable boost state variable.
+
+--*/
+
+{
+
+    LOGICAL DisableBoost;
+    KIRQL OldIrql;
+
+    ASSERT_THREAD(Thread);
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
+
+    //
+    // Raise IRQL to dispatcher level and lock dispatcher database.
+    //
+
+    KiLockDispatcherDatabase(&OldIrql);
+
+    //
+    // Capture the current state of the disable boost variable and set its
+    // state to TRUE.
+    //
+
+    DisableBoost = Thread->DisableBoost;
+    Thread->DisableBoost = (BOOLEAN)Disable;
+
+    //
+    // Unlock dispatcher database and lower IRQL to its previous
+    // value.
+    //
+
+    KiUnlockDispatcherDatabase(OldIrql);
+
+    //
+    // Return the previous disable boost state.
+    //
+
+    return DisableBoost;
+}
+
+CCHAR
+KeSetIdealProcessorThread (
+    IN PKTHREAD Thread,
+    IN CCHAR Processor
+    )
+
+/*++
+
+Routine Description:
+
+    This function sets the ideal processor for the specified thread execution.
+
+Arguments:
+
+    Thread - Supplies a pointer to the thread whose ideal processor number is
+        set to the specfied value.
+
+    Processor - Supplies the number of the ideal processor (the distinguished
+        value MAXIMUM_PROCESSORS indicates that there is no ideal processor).
+
+Return Value:
+
+    The previous ideal processor number.
+
+--*/
+
+{
+
+    CCHAR OldProcessor;
+    KIRQL OldIrql;
+    PKPROCESS Process;
+
+    //
+    // Capture the previous ideal processor value, set the new ideal
+    // processor value, and return the old ideal processor value for the
+    // current thread;
+    //
+    // Note that this is done under the dispatcher lock in order to
+    // synchronize the updates with the other fields that share the
+    // same DWORD. Otherwise there is a granularity problem on Alpha.
+    //
+
+    ASSERT(Processor <= MAXIMUM_PROCESSORS);
+
+    KiLockDispatcherDatabase(&OldIrql);
+    OldProcessor = Thread->IdealProcessor;
+    if (Processor < MAXIMUM_PROCESSORS) {
+        Thread->IdealProcessor = Processor;
+
+    } else {
+        Process = Thread->ApcState.Process;
+        Process->ThreadSeed += 1;
+        Thread->IdealProcessor = (UCHAR)(Process->ThreadSeed % KeNumberProcessors);
+    }
+
+    //
+    // Unlock dispatcher database and lower IRQL to its previous
+    // value.
+    //
+
+    KiUnlockDispatcherDatabase(OldIrql);
+    return OldProcessor;
+}
+
+BOOLEAN
+KeSetKernelStackSwapEnable (
+    IN BOOLEAN Enable
+    )
+
+/*++
+
+Routine Description:
+
+    This function sets the kernel stack swap enable value for the current
+    thread and returns the old swap enable value.
+
+Arguments:
+
+    Enable - Supplies the new kernel stack swap enable value.
+
+Return Value:
+
+    The previous kernel stack swap enable value.
+
+--*/
+
+{
+
+    BOOLEAN OldState;
+    PKTHREAD Thread;
+
+    //
+    // Capture the previous kernel stack swap enable value, set the new
+    // swap enable value, and return the old swap enable value for the
+    // current thread;
+    //
+
+    Thread = KeGetCurrentThread();
+    OldState = Thread->EnableStackSwap;
+    Thread->EnableStackSwap = Enable;
+    return OldState;
+}
+
 KPRIORITY
 KeSetPriorityThread (
     IN PKTHREAD Thread,
@@ -1520,15 +1831,11 @@ Return Value:
     PKPROCESS Process;
 
     ASSERT_THREAD(Thread);
-
-    //
-    // assert that the priority is within limits.
-    //
-
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
     ASSERT(((Priority != 0) || (Thread->BasePriority == 0)) &&
            (Priority <= HIGH_PRIORITY));
 
-    ASSERT(!KeIsExecutingDpc());
+    ASSERT(KeIsExecutingDpc() == FALSE);
 
     //
     // Raise IRQL to dispatcher level and lock dispatcher database.
@@ -1592,6 +1899,7 @@ Return Value:
     KIRQL OldIrql;
 
     ASSERT_THREAD(Thread);
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
 
     //
     // Raise IRQL to dispatcher level and lock dispatcher database.
@@ -1674,10 +1982,13 @@ Return Value:
 
 {
 
+    PRKTHREAD NextThread;
     KIRQL OldIrql;
     PKPROCESS Process;
-    PKQUEUE Queue;
-    PKTHREAD Thread;
+    PRKQUEUE Queue;
+    PRKTHREAD Thread;
+
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
 
     //
     // Raise IRQL to dispatcher level and lock dispatcher database.
@@ -1703,7 +2014,8 @@ Return Value:
     if (PsReaperActive == FALSE) {
         PsReaperActive = TRUE;
         KiInsertQueue(&ExWorkerQueue[HyperCriticalWorkQueue],
-                      &PsReaperWorkItem.List);
+                      &PsReaperWorkItem.List,
+                      FALSE);
     }
 
     //
@@ -1711,13 +2023,10 @@ Return Value:
     // the thrread from the queue object thread list and attempt to
     // activate another thread that is blocked on the queue object.
     //
-    // N.B. The normal context field of the thread suspend APC object
-    //      is used to hold the address of the queue object.
-    //
 
-    Queue = (PKQUEUE)Thread->SuspendApc.NormalContext;
+    Queue = Thread->Queue;
     if (Queue != NULL) {
-        RemoveEntryList((PLIST_ENTRY)(&Thread->SuspendApc.SystemArgument1));
+        RemoveEntryList(&Thread->QueueListEntry);
         KiActivateWaiterQueue(Queue);
     }
 
@@ -1728,7 +2037,7 @@ Return Value:
 
     Thread->Header.SignalState = TRUE;
     if (IsListEmpty(&Thread->Header.WaitListHead) != TRUE) {
-        KiWaitTest(Thread, Increment);
+        KiWaitTest((PVOID)Thread, Increment);
     }
 
     //
@@ -1757,7 +2066,8 @@ Return Value:
         }
     }
 
-    KiSwapContext(KiSelectNextThread(Thread), FALSE);
+    KiSwapThread();
+
     return;
 }
 
@@ -1792,12 +2102,14 @@ Return Value:
     KIRQL OldIrql;
     PKTHREAD Thread;
 
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
+
     //
     // Raise IRQL to dispatcher level and lock APC queue.
     //
 
     Thread = KeGetCurrentThread();
-    KiLockApcQueue(&OldIrql);
+    KiLockApcQueue(Thread, &OldIrql);
 
     //
     // If the current thread is alerted for the specified processor mode,
@@ -1816,15 +2128,11 @@ Return Value:
     }
 
     //
-    // Unlock APC queue and lower IRQL to its previous value.
+    // Unlock APC queue, lower IRQL to its previous value, and return the
+    // previous alerted state for the specified mode.
     //
 
-    KiUnlockApcQueue(OldIrql);
-
-    //
-    // Return the previous alerted state for the specified mode.
-    //
-
+    KiUnlockApcQueue(Thread, OldIrql);
     return Alerted;
 }
 
@@ -1858,6 +2166,8 @@ Return Value:
     PKTHREAD Thread;
     ULONG OldCount;
     KIRQL OldIrql;
+
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
 
     //
     // Get the address of the current current process object, raise IRQL

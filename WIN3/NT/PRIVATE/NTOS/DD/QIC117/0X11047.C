@@ -15,9 +15,26 @@
 *
 * HISTORY:
 *		$Log:   J:\se.vcs\driver\q117cd\src\0x11047.c  $
-*	
+*
+*	   Rev 1.25   15 May 1995 10:48:10   GaryKiwi
+*	Phoenix merge from CBW95s
+*
+*	   Rev 1.24.1.0   11 Apr 1995 18:04:44   garykiwi
+*	PHOENIX pass #1
+*
+*	   Rev 1.25   30 Jan 1995 14:23:42   BOBLEHMA
+*	Changed the interface for the CMD_REPORT_DEVICE_INFO command.  Made a new
+*	function cqd_CmdReportDeviceInfo and removed code to clear out device_info
+*	fields on an error condition.
+*
+*	   Rev 1.24   29 Aug 1994 12:06:42   BOBLEHMA
+*	Changed interface to cqd_SetTapeParms and cqd_Retension.
+*
+*	   Rev 1.23   13 Jul 1994 07:30:06   CRAIGOGA
+*	Added processing for CMD_LOCATE_DEVICE.
+*
 *	   Rev 1.22   22 Mar 1994 15:31:52   CHETDOUG
-*	If FW error 1E shows up during the select then 
+*	If FW error 1E shows up during the select then
 *	issue another Get DeviecError to clear the FW error
 *	If this is successful set the select flag to true.
 *
@@ -145,6 +162,17 @@ dStatus cqd_DispatchFRB
 
 	switch (frb->driver_cmd) {
 
+      case CMD_LOCATE_DEVICE:
+
+			kdi_CheckedDump(QIC117INFO, "CMD_LOCATE_DEVICE\n", 0l);
+			cqd_ResetFDC(cqd_context);
+			(dVoid)cqd_GetFDCType(cqd_context);
+			status = cqd_LocateDevice(cqd_context);
+	  		kdi_ReleaseFloppyController(cqd_context->kdi_context);
+			((DriveCfgDataPtr)frb)->operation_status = cqd_context->operation_status;
+
+         break;
+
       case CMD_REPORT_DEVICE_CFG:
 
 			kdi_CheckedDump(QIC117INFO, "CMD_REPORT_DEVICE_CFG\n", 0l);
@@ -166,7 +194,7 @@ dStatus cqd_DispatchFRB
 
       case CMD_SELECT_DEVICE:
 
-			kdi_CheckedDump(QIC117INFO, "CMD_SELECT_DEVICE\n", 0l);
+            kdi_CheckedDump(QIC117INFO, "CMD_SELECT_DEVICE\n", 0l);
 			cqd_ResetFDC(cqd_context);
 
 			if ((status = cqd_CmdSelectDevice(cqd_context)) == DONT_PANIC) {
@@ -262,23 +290,12 @@ dStatus cqd_DispatchFRB
       case CMD_REPORT_DEVICE_INFO:
 
 			kdi_CheckedDump(QIC117INFO, "CMD_REPORT_DEVICE_INFO\n", 0l);
-   		if (((status = cqd_GetDeviceDescriptorInfo(cqd_context)) != DONT_PANIC) &&
-				 (kdi_GetErrorType(status) != ERR_NO_TAPE)) {
-				/*  An error other than No Tape is being returned.  Zero out any
-				 * fields that GetDeviceDescriptorInfo would fill in. */
-				cqd_context->device_descriptor.serial_number = 0l;
-				cqd_context->device_descriptor.manufacture_date = 0;
-				cqd_context->device_descriptor.oem_string[0] = '\0';
-				}
-
-			((DriveCfgDataPtr)frb)->device_descriptor = cqd_context->device_descriptor;
-			((DriveCfgDataPtr)frb)->operation_status = cqd_context->operation_status;
-
+   		status = cqd_CmdReportDeviceInfo( cqd_context, &((ReportDeviceInfoPtr)frb)->device_info );
          break;
 
       case CMD_REPORT_STATUS:
 
-			kdi_CheckedDump(QIC117INFO, "CMD_REPORT_STATUS\n", 0l);
+            kdi_CheckedDump(QIC117SHOWPOLL, "CMD_REPORT_STATUS\n", 0l);
          status = cqd_CmdReportStatus(cqd_context, (DeviceOpPtr)frb);
    		cqd_context->no_pause = dTRUE;
 
@@ -287,8 +304,9 @@ dStatus cqd_DispatchFRB
       case CMD_SET_TAPE_PARMS:
 
 			kdi_CheckedDump(QIC117INFO, "CMD_SET_TAPE_PARMS\n", 0l);
-         status = cqd_CmdSetTapeParms(cqd_context,
-							((TapeLengthPtr)frb)->segments_per_track);
+         status = cqd_CmdSetTapeParms( cqd_context,
+                                       ((TapeLengthPtr)frb)->segments_per_track,
+                                       (TapeLengthPtr)frb );
 
          break;
 
@@ -323,7 +341,7 @@ dStatus cqd_DispatchFRB
 
 			kdi_CheckedDump(QIC117INFO, "CMD_RETENSION\n", 0l);
 
-         status = cqd_CmdRetension(cqd_context);
+         status = cqd_CmdRetension(cqd_context, dNULL_PTR);
 			((DeviceOpPtr)frb)->operation_status = cqd_context->operation_status;
 
          break;

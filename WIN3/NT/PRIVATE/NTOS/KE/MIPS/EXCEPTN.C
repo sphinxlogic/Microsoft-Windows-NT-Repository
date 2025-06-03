@@ -24,7 +24,9 @@ Revision History:
 --*/
 
 #include "ki.h"
-#include "zwapi.h"
+#pragma hdrstop
+#define HEADER_FILE
+#include "kxmips.h"
 
 //
 // Define multiply overflow and divide by zero breakpoint instruction values.
@@ -75,62 +77,79 @@ Return Value:
 
 {
 
+    ULONG ContextFlags;
+
     //
     // Set control information if specified.
     //
 
-    if ((ContextFrame->ContextFlags & CONTEXT_CONTROL) == CONTEXT_CONTROL) {
+    ContextFlags = ContextFrame->ContextFlags;
+    if ((ContextFlags & CONTEXT_CONTROL) == CONTEXT_CONTROL) {
 
         //
         // Set integer register gp, ra, sp, FIR, and PSR.
         //
 
-        ContextFrame->IntGp = TrapFrame->IntGp;
-        ContextFrame->IntSp = TrapFrame->IntSp;
-        ContextFrame->IntRa = TrapFrame->IntRa;
+        ContextFrame->XIntGp = TrapFrame->XIntGp;
+        ContextFrame->XIntSp = TrapFrame->XIntSp;
         ContextFrame->Fir = TrapFrame->Fir;
         ContextFrame->Psr = TrapFrame->Psr;
+        ContextFrame->XIntRa = TrapFrame->XIntRa;
     }
 
     //
     // Set integer register contents if specified.
     //
 
-    if ((ContextFrame->ContextFlags & CONTEXT_INTEGER) == CONTEXT_INTEGER) {
+    if ((ContextFlags & CONTEXT_INTEGER) == CONTEXT_INTEGER) {
 
         //
-        // Set integer registers zero, and, at - t7.
+        // Set integer registers zero, and, at - t9, k0, k1, lo, and hi.
         //
 
-        ContextFrame->IntZero = 0;
-        RtlMoveMemory(&ContextFrame->IntAt, &TrapFrame->IntAt,
-                     sizeof(ULONG) * (15));
+        ContextFrame->XIntZero = 0;
+        ContextFrame->XIntAt = TrapFrame->XIntAt;
+        ContextFrame->XIntV0 = TrapFrame->XIntV0;
+        ContextFrame->XIntV1 = TrapFrame->XIntV1;
+        ContextFrame->XIntA0 = TrapFrame->XIntA0;
+        ContextFrame->XIntA1 = TrapFrame->XIntA1;
+        ContextFrame->XIntA2 = TrapFrame->XIntA2;
+        ContextFrame->XIntA3 = TrapFrame->XIntA3;
+        ContextFrame->XIntT0 = TrapFrame->XIntT0;
+        ContextFrame->XIntT1 = TrapFrame->XIntT1;
+        ContextFrame->XIntT2 = TrapFrame->XIntT2;
+        ContextFrame->XIntT3 = TrapFrame->XIntT3;
+        ContextFrame->XIntT4 = TrapFrame->XIntT4;
+        ContextFrame->XIntT5 = TrapFrame->XIntT5;
+        ContextFrame->XIntT6 = TrapFrame->XIntT6;
+        ContextFrame->XIntT7 = TrapFrame->XIntT7;
+        ContextFrame->XIntT8 = TrapFrame->XIntT8;
+        ContextFrame->XIntT9 = TrapFrame->XIntT9;
+        ContextFrame->XIntK0 = 0;
+        ContextFrame->XIntK1 = 0;
+        ContextFrame->XIntLo = TrapFrame->XIntLo;
+        ContextFrame->XIntHi = TrapFrame->XIntHi;
 
         //
         // Set integer registers s0 - s7, and s8.
         //
 
-        RtlMoveMemory(&ContextFrame->IntS0, &ExceptionFrame->IntS0,
-                     sizeof(ULONG) * (8));
-        ContextFrame->IntS8 = TrapFrame->IntS8;
-
-        //
-        // Set integer registers t8, t9, k0, k1, lo, and hi.
-        //
-
-        ContextFrame->IntT8 = TrapFrame->IntT8;
-        ContextFrame->IntT9 = TrapFrame->IntT9;
-        ContextFrame->IntK0 = 0;
-        ContextFrame->IntK1 = 0;
-        ContextFrame->IntLo = TrapFrame->IntLo;
-        ContextFrame->IntHi = TrapFrame->IntHi;
+        ContextFrame->XIntS0 = TrapFrame->XIntS0;
+        ContextFrame->XIntS1 = TrapFrame->XIntS1;
+        ContextFrame->XIntS2 = TrapFrame->XIntS2;
+        ContextFrame->XIntS3 = TrapFrame->XIntS3;
+        ContextFrame->XIntS4 = TrapFrame->XIntS4;
+        ContextFrame->XIntS5 = TrapFrame->XIntS5;
+        ContextFrame->XIntS6 = TrapFrame->XIntS6;
+        ContextFrame->XIntS7 = TrapFrame->XIntS7;
+        ContextFrame->XIntS8 = TrapFrame->XIntS8;
     }
 
     //
     // Set floating register contents if specified.
     //
 
-    if ((ContextFrame->ContextFlags & CONTEXT_FLOATING_POINT) == CONTEXT_FLOATING_POINT) {
+    if ((ContextFlags & CONTEXT_FLOATING_POINT) == CONTEXT_FLOATING_POINT) {
 
         //
         // Set floating registers f0 - f19.
@@ -208,11 +227,11 @@ Return Value:
         // Set integer register gp, sp, ra, FIR, and PSR.
         //
 
-        TrapFrame->IntGp = ContextFrame->IntGp;
-        TrapFrame->IntSp = ContextFrame->IntSp;
-        TrapFrame->IntRa = ContextFrame->IntRa;
+        TrapFrame->XIntGp = ContextFrame->XIntGp;
+        TrapFrame->XIntSp = ContextFrame->XIntSp;
         TrapFrame->Fir = ContextFrame->Fir;
         TrapFrame->Psr = SANITIZE_PSR(ContextFrame->Psr, PreviousMode);
+        TrapFrame->XIntRa = ContextFrame->XIntRa;
     }
 
     //
@@ -222,28 +241,42 @@ Return Value:
     if ((ContextFlags & CONTEXT_INTEGER) == CONTEXT_INTEGER) {
 
         //
-        // Set integer registers at - t7.
+        // Set integer registers at - t9, lo, and hi.
         //
 
-        RtlMoveMemory(&TrapFrame->IntAt, &ContextFrame->IntAt,
-                     sizeof(ULONG) * (15));
+        TrapFrame->XIntAt = ContextFrame->XIntAt;
+        TrapFrame->XIntV0 = ContextFrame->XIntV0;
+        TrapFrame->XIntV1 = ContextFrame->XIntV1;
+        TrapFrame->XIntA0 = ContextFrame->XIntA0;
+        TrapFrame->XIntA1 = ContextFrame->XIntA1;
+        TrapFrame->XIntA2 = ContextFrame->XIntA2;
+        TrapFrame->XIntA3 = ContextFrame->XIntA3;
+        TrapFrame->XIntT0 = ContextFrame->XIntT0;
+        TrapFrame->XIntT1 = ContextFrame->XIntT1;
+        TrapFrame->XIntT2 = ContextFrame->XIntT2;
+        TrapFrame->XIntT3 = ContextFrame->XIntT3;
+        TrapFrame->XIntT4 = ContextFrame->XIntT4;
+        TrapFrame->XIntT5 = ContextFrame->XIntT5;
+        TrapFrame->XIntT6 = ContextFrame->XIntT6;
+        TrapFrame->XIntT7 = ContextFrame->XIntT7;
+        TrapFrame->XIntT8 = ContextFrame->XIntT8;
+        TrapFrame->XIntT9 = ContextFrame->XIntT9;
+        TrapFrame->XIntLo = ContextFrame->XIntLo;
+        TrapFrame->XIntHi = ContextFrame->XIntHi;
 
         //
         // Set integer registers s0 - s7, and s8.
         //
 
-        RtlMoveMemory(&ExceptionFrame->IntS0, &ContextFrame->IntS0,
-                     sizeof(ULONG) * (8));
-        TrapFrame->IntS8 = ContextFrame->IntS8;
-
-        //
-        // Set integer registers t8, t9, lo, and hi.
-        //
-
-        TrapFrame->IntT8 = ContextFrame->IntT8;
-        TrapFrame->IntT9 = ContextFrame->IntT9;
-        TrapFrame->IntLo = ContextFrame->IntLo;
-        TrapFrame->IntHi = ContextFrame->IntHi;
+        TrapFrame->XIntS0 = ContextFrame->XIntS0;
+        TrapFrame->XIntS1 = ContextFrame->XIntS1;
+        TrapFrame->XIntS2 = ContextFrame->XIntS2;
+        TrapFrame->XIntS3 = ContextFrame->XIntS3;
+        TrapFrame->XIntS4 = ContextFrame->XIntS4;
+        TrapFrame->XIntS5 = ContextFrame->XIntS5;
+        TrapFrame->XIntS6 = ContextFrame->XIntS6;
+        TrapFrame->XIntS7 = ContextFrame->XIntS7;
+        TrapFrame->XIntS8 = ContextFrame->XIntS8;
     }
 
     //
@@ -335,11 +368,33 @@ Return Value:
 {
 
     CONTEXT ContextFrame;
+    PULONG Destination;
     EXCEPTION_RECORD ExceptionRecord1;
+    ULONG Index;
     LONG Length;
+    PULONGLONG Source;
     BOOLEAN UserApcPending;
     ULONG UserStack1;
     ULONG UserStack2;
+
+    //
+    // If the exception is an access violation, and the previous mode is
+    // user mode, then attempt to emulate a load or store operation if
+    // the exception address is at the end of a page.
+    //
+    // N.B. The following is a workaround for a r4000 chip bug where an
+    //      address privilege violation is reported as a access violation
+    //      on a load or store instruction that is the last instruction
+    //      in a page.
+    //
+
+    if ((ExceptionRecord->ExceptionCode == STATUS_ACCESS_VIOLATION) &&
+        (((ULONG)ExceptionRecord->ExceptionAddress & 0xffc) == 0xffc) &&
+        (PreviousMode != KernelMode) &&
+        (KiEmulateReference(ExceptionRecord, ExceptionFrame, TrapFrame) != FALSE)) {
+        KeGetCurrentPrcb()->KeAlignmentFixupCount += 1;
+        goto Handled2;
+    }
 
     //
     // If the exception is a data bus error, then process the error.
@@ -353,6 +408,23 @@ Return Value:
     //
 
     if (ExceptionRecord->ExceptionCode == (DATA_BUS_ERROR | 0xdfff0000)) {
+
+        //
+        // N.B. The following is a workaround for a r4000 chip bug where an
+        //      address privilege violation is reported as a data bus error
+        //      on a load or store instruction that is the last instruction
+        //      in a page.
+        //
+
+        if ((ExceptionRecord->ExceptionInformation[1] < 0x80000000) &&
+            (((ULONG)ExceptionRecord->ExceptionAddress & 0xffc) == 0xffc) &&
+            (PreviousMode != KernelMode)) {
+            if (KiEmulateReference(ExceptionRecord, ExceptionFrame, TrapFrame) != FALSE) {
+                KeGetCurrentPrcb()->KeAlignmentFixupCount += 1;
+                goto Handled2;
+            }
+        }
+
         KiDataBusError(ExceptionRecord, ExceptionFrame, TrapFrame);
         goto Handled2;
     }
@@ -374,17 +446,17 @@ Return Value:
     }
 
     //
-    // If the exception is a data misalignment, the previous mode was user,
-    // this is the first change for handling the exception, and the current
-    // thread has enabled automatic alignment fixup, then attempt to emulate
-    // the unaligned reference.
+    // If the exception is a data misalignment, this is the first change for
+    // handling the exception, and the current thread has enabled automatic
+    // alignment fixup, then attempt to emulate the unaligned reference.
     //
 
     if ((ExceptionRecord->ExceptionCode == STATUS_DATATYPE_MISALIGNMENT) &&
-        (PreviousMode != KernelMode) &&
         (FirstChance != FALSE) &&
         ((KeGetCurrentThread()->AutoAlignment != FALSE) ||
-         (KeGetCurrentThread()->ApcState.Process->AutoAlignment != FALSE)) &&
+         (KeGetCurrentThread()->ApcState.Process->AutoAlignment != FALSE) ||
+         (((ExceptionRecord->ExceptionInformation[1] & 0x7fff0000) == 0x7fff0000) &&
+         (PreviousMode != KernelMode))) &&
         (KiEmulateReference(ExceptionRecord, ExceptionFrame, TrapFrame) != FALSE)) {
         KeGetCurrentPrcb()->KeAlignmentFixupCount += 1;
         goto Handled2;
@@ -591,12 +663,28 @@ Return Value:
             try {
 
                 //
+                // Coerce the 64-bit integer register context to 32-bits
+                // and store in the 32-bit context area of the context
+                // record.
+                //
+                // N.B. This only works becasue the 32- and 64-bit integer
+                //      register context does not overlap in the context
+                //      record.
+                //
+
+                Destination = &ContextFrame.IntZero;
+                Source = &ContextFrame.XIntZero;
+                for (Index = 0; Index < 32; Index += 1) {
+                    *Destination++ = (ULONG)*Source++;
+                }
+
+                //
                 // Compute length of exception record and new aligned stack
                 // address.
                 //
 
-                Length = (sizeof(EXCEPTION_RECORD) + 15) & (~15);
-                UserStack1 = (ContextFrame.IntSp & (~15)) - Length;
+                Length = (sizeof(EXCEPTION_RECORD) + 7) & (~7);
+                UserStack1 = (ULONG)(ContextFrame.XIntSp & (~7)) - Length;
 
                 //
                 // Probe user stack area for writeability and then transfer the
@@ -611,7 +699,7 @@ Return Value:
                 // pointer.
                 //
 
-                Length = (sizeof(CONTEXT) + 15) & (~15);
+                Length = sizeof(CONTEXT);
                 UserStack2 = UserStack1 - Length;
 
                 //
@@ -627,10 +715,10 @@ Return Value:
                 // and the new stack pointer in the current trap frame.
                 //
 
-                TrapFrame->IntSp = UserStack2;
-                TrapFrame->IntS8 = UserStack2;
-                ExceptionFrame->IntS0 = UserStack1;
-                ExceptionFrame->IntS1 = UserStack2;
+                TrapFrame->XIntSp = (LONG)UserStack2;
+                TrapFrame->XIntS8 = (LONG)UserStack2;
+                TrapFrame->XIntS0 = (LONG)UserStack1;
+                TrapFrame->XIntS1 = (LONG)UserStack2;
 
                 //
                 // Sanitize the floating status register so a recursive
@@ -768,4 +856,41 @@ Return Value:
                   sizeof(EXCEPTION_RECORD));
 
     return EXCEPTION_EXECUTE_HANDLER;
+}
+
+
+NTSTATUS
+KeRaiseUserException(
+    IN NTSTATUS ExceptionCode
+    )
+
+/*++
+
+Routine Description:
+
+    This function causes an exception to be raised in the calling thread's
+    usermode context. This is accomplished by editing the trap frame the
+    kernel was entered with to point to trampoline code that raises the
+    requested exception.
+
+Arguments:
+
+    ExceptionCode - Supplies the status value to be used as the exception
+        code for the exception that is to be raised.
+
+Return Value:
+
+    The status value that should be returned by the caller.
+
+--*/
+
+{
+
+    PKTRAP_FRAME TrapFrame;
+
+    ASSERT(KeGetPreviousMode() == UserMode);
+
+    TrapFrame = KeGetCurrentThread()->TrapFrame;
+    TrapFrame->Fir = KeRaiseUserExceptionDispatcher;
+    return ExceptionCode;
 }

@@ -15,7 +15,7 @@
 
     .286p
 
-;    .xlist
+    .xlist
     include wow.inc
     include wowusr.inc
     include cmacros.inc
@@ -117,7 +117,7 @@ cEnd <nogen>
     DUserThunk  GETMESSAGE2
     DUserThunk  GETMESSAGEPOS,0
     DUserThunk  GETMESSAGETIME,0
-    DUserThunk  GETMOUSEEVENTPROC
+;;;    DUserThunk  GETMOUSEEVENTPROC   ; local api in winmisc2.asm
     UserThunk   GETNEXTDLGGROUPITEM
     UserThunk   GETNEXTDLGTABITEM
     UserThunk   GETNEXTQUEUEWINDOW

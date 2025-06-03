@@ -4,7 +4,7 @@
 * Private header for DDE manager DLL.
 *
 * Created:      12/16/88    by Sanford Staab
-* Modified for Win 3.0:		  5/31/90	 by Rich Gartland, Aldus
+* Modified for Win 3.0:       5/31/90    by Rich Gartland, Aldus
 * Cleaned up:   11/14/90    Sanford Staab
 *
 * Copyright (c) 1988, 1989  Microsoft Corporation
@@ -14,35 +14,33 @@
 #define  NOVIRTUALKEYCODES
 #define  NOSYSMETRICS
 #define  NOKEYSTATES
-#define  NOSHOWWINDOW
 #define  OEMRESOURCE
-#define  NOCOLOR	
-// #define  NOCTLMGR	
-#define  NODRAWTEXT	
-#define	 NOLSTRING
-// #define  NOMETAFILE	
-#define  NOMINMAX	
-#define  NOSCROLL	
-#define  NOSOUND	
-#define  NOTEXTMETRIC
-#define  NOCOMM	
-#define  NOKANJI	
+#define  NOCOLOR
+// #define  NOCTLMGR
+#define  NODRAWTEXT
+// #define  NOMETAFILE
+#define  NOMINMAX
+#define  NOSCROLL
+#define  NOSOUND
+#define  NOCOMM
+#define  NOKANJI
 #define  NOHELP
-#define  NOPROFILER	
-#define  NODEFERWINDOWPOS
+#define  NOPROFILER
 
-#include <windows.h>		
+
+#include <windows.h>
 #include <dde.h>
 
 #define DDEMLDB
 #include <ddeml.h>
 
 #ifdef DEBUG
-extern BYTE bDbgFlags;
+extern int  bDbgFlags;
 #define DBF_STOPONTRACE 0x01
 #define DBF_TRACETERM   0x02
 #define DBF_LOGALLOCS   0x04
 #define DBF_TRACEATOMS  0x08
+#define DBF_TRACEAPI    0x10
 
 #define TRACETERM(x) if (bDbgFlags & DBF_TRACETERM) { \
     char szT[100];                              \
@@ -58,9 +56,25 @@ extern BYTE bDbgFlags;
     OutputDebugString(szT);                     \
     DebugBreak();                               \
 }
+
+VOID TraceApiIn(LPSTR psz);
+#define TRACEAPIIN(x) if (bDbgFlags & DBF_TRACEAPI) { \
+    char szT[100];                              \
+    wsprintf##x;                                \
+    TraceApiIn(szT);                            \
+}
+
+VOID TraceApiOut(LPSTR psz);
+#define TRACEAPIOUT(x) if (bDbgFlags & DBF_TRACEAPI) { \
+    char szT[100];                              \
+    wsprintf##x;                                \
+    TraceApiOut(szT);                           \
+}
 #else
 #define TRACETERM(x)
 #define TRACETERMBREAK(x)
+#define TRACEAPIIN(x)
+#define TRACEAPIOUT(x)
 #endif
 
 // PRIVATE CONSTANTS
@@ -73,6 +87,7 @@ extern BYTE bDbgFlags;
 #define     ST_PERM2DIE         0x2000
 #define     ST_IM_DEAD          0x1000
 #define     ST_DISC_ATTEMPTED   0x0800
+#define     ST_CHECKPARTNER     0x0400
 
 #define     DDEFMT_TEXT         CF_TEXT
 
@@ -107,13 +122,14 @@ extern BYTE bDbgFlags;
 #define min(a,b)    (((a) < (b)) ? (a) : (b))
 #define PHMEM(hData) ((LPBYTE)&((LPWORD)&(hData))[1])
 #define MONHSZ(a, fsAction, hTask) if (cMonitor) MonHsz(a, fsAction, hTask)
-#define MONERROR(pai, e) MonError(pai, e);
-#define MONLINK(pai, fEst, fNoData, hszSvc, hszTopic, hszItem, wFmt, fServer, \
-    hConvS, hConvC) \
-        if (cMonitor) MonLink(pai, fEst, fNoData, hszSvc, hszTopic, \
-    hszItem, wFmt, fServer, hConvS, hConvC)
-#define MONCONN(pai, hszSvcInst, hszTopic, hwndC, hwndS, fConnect) if (cMonitor) \
-        MonConn(pai, hszSvcInst, hszTopic, hwndC, hwndS, fConnect)
+#define MONERROR(pai, e) MonError(pai, e)
+#define MONLINK(pai, fEst, fNoData, hszSvc, hszTopic, hszItem, wFmt, fServer, hConvS, hConvC) \
+        if (cMonitor) \
+            MonLink(pai, fEst, fNoData, hszSvc, hszTopic, \
+                    hszItem, wFmt, fServer, hConvS, hConvC)
+#define MONCONN(pai, hszSvcInst, hszTopic, hwndC, hwndS, fConnect) \
+        if (cMonitor) \
+            MonConn(pai, hszSvcInst, hszTopic, hwndC, hwndS, fConnect)
 
 #define SETLASTERROR(pai, e)  MonError(pai, e)
 #define SEMCHECKIN()
@@ -124,9 +140,11 @@ extern BYTE bDbgFlags;
 
 #ifdef DEBUG
 
-VOID _loadds fAssert(BOOL f, LPSTR psz, WORD line, LPSTR szFile);
-#define AssertF(f, psz)	fAssert(f, psz, __LINE__, __FILE__);
+VOID _loadds fAssert(BOOL f, LPSTR psz, WORD line, LPSTR szFile, BOOL fWarning);
+#define AssertF(f, psz)  fAssert(f, psz, __LINE__, __FILE__, FALSE);
+#define AssertFW(f, psz) fAssert(f, psz, __LINE__, __FILE__, TRUE);
 #define DEBUGBREAK() DebugBreak()
+#define GLOBALREALLOC   LogGlobalReAlloc
 #define GLOBALALLOC     LogGlobalAlloc
 #define GLOBALFREE      LogGlobalFree
 #define GLOBALLOCK      LogGlobalLock
@@ -136,13 +154,16 @@ VOID _loadds fAssert(BOOL f, LPSTR psz, WORD line, LPSTR szFile);
 #else
 
 #define AssertF(f, psz)
+#define AssertFW(f, psz)
 #define DEBUGBREAK()
+#define GLOBALREALLOC   GlobalReAlloc
 #define GLOBALALLOC     GlobalAlloc
 #define GLOBALFREE      GlobalFree
 #define GLOBALLOCK      GlobalLock
 #define GLOBALUNLOCK    GlobalUnlock
 
 #endif /* DEBUG */
+#define GLOBALPTR(h)    (LPVOID)MAKELONG(0,h)
 
 
 typedef ATOM GATOM;
@@ -235,16 +256,16 @@ typedef BOOL (*NPFNCMP)(LPBYTE, LPBYTE);    // item comparison function pointer
 #define API_ERROR  0
 
 typedef struct _DIP {   /* Data handle tracking pile */
-	HANDLE  hData;	    /* the handle to the data */
-	HANDLE  hTask;	    /* task owning the data */
-	WORD	cCount;	    /* use count = # datapiles using the handle */
-	WORD	fFlags;     /* readonly, etc. */
+    HANDLE  hData;      /* the handle to the data */
+    HANDLE  hTask;      /* task owning the data */
+    WORD    cCount;     /* use count = # datapiles using the handle */
+    WORD    fFlags;     /* readonly, etc. */
 } DIP;
 
 
-typedef struct _LAP {	/* Lost Ack Pile item */
-	WORD object;	    /* either a handle or an atom */
-	WORD type;		    /* transaction type the ack was meant for */
+typedef struct _LAP {   /* Lost Ack Pile item */
+    WORD object;        /* either a handle or an atom */
+    WORD type;          /* transaction type the ack was meant for */
 } LAP;
 
 
@@ -361,6 +382,9 @@ typedef struct _APPINFO {               // App wide information
 } APPINFO;
 typedef APPINFO *PAPPINFO;              // local heap object
 typedef APPINFO FAR *LPAPPINFO;
+typedef PAPPINFO FAR *LPPAPPINFO;
+
+#define LPCREATESTRUCT_GETPAI(lpcs) (*((LPPAPPINFO)(((LPCREATESTRUCT)lpcs)->lpCreateParams)))
 
 // defines for wFlags field
 
@@ -438,11 +462,11 @@ typedef struct _DDE_DATA {
 /******** structure for hook functions *******/
 
 typedef struct _HMSTRUCT {
-	WORD	hlParam;
-	WORD	llParam;
-	WORD	wParam;
-	WORD	wMsg;
-	WORD	hWnd;
+    WORD    hlParam;
+    WORD    llParam;
+    WORD    wParam;
+    WORD    wMsg;
+    WORD    hWnd;
 } HMSTRUCT, FAR *LPHMSTRUCT;
 
 
@@ -456,7 +480,7 @@ typedef struct _IE {   // InitEnum structure used to pass data to the fun.
 
 #define     HDATA_READONLY          0x8000
 #define     HDATA_NOAPPFREE         0x4000   // set on loaned handles (callback)
-#define     HDATA_EXEC		        0x0100   // this data was from execute
+#define     HDATA_EXEC              0x0100   // this data was from execute
 
 #define     UMSR_POSTADVISE         (WM_USER + 104)
 #define     UMSR_CHGPARTNER         (WM_USER + 107)
@@ -516,11 +540,11 @@ extern ATOM aProgmanHack;
 
 /* from dmgutil.asm */
 
-LPBYTE HugeOffset(LPBYTE pSrc, DWORD cb);
+LPBYTE NEAR HugeOffset(LPBYTE pSrc, DWORD cb);
 #ifdef DEBUG
 VOID StkTrace(WORD cFrames, LPVOID lpBuf);
 #endif
-extern WORD SwitchDS(WORD newDS);
+extern WORD NEAR SwitchDS(WORD newDS);
 
 /* dmg.c entrypoints are exported by ddeml.h */
 
@@ -652,6 +676,7 @@ VOID FarFreeMem(LPVOID lpMem);
 VOID RegisterClasses(VOID);
 // VOID UnregisterClasses(VOID);
 #ifdef DEBUG
+HGLOBAL LogGlobalReAlloc(HGLOBAL h, DWORD cb, UINT flags);
 HGLOBAL LogGlobalAlloc(UINT flags, DWORD cb);
 void FAR * LogGlobalLock(HGLOBAL h);
 BOOL LogGlobalUnlock(HGLOBAL h);

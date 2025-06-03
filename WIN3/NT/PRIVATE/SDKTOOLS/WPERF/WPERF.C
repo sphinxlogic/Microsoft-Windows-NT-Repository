@@ -85,6 +85,7 @@ PUCHAR PerfNames[] = {
     "ALIGN FIXUP",
     "EXCEPT DSPTCH",
     "FLOAT EMULAT",
+    "INSTR EMULAT",
     "CPU"
 };
 
@@ -143,7 +144,6 @@ Revision History:
     //
 
     if (!InitInstance(hInstance, nCmdShow)){
-        //DbgPrint("Init Instance fails fucking windows\n");
         return (FALSE);
     }
 

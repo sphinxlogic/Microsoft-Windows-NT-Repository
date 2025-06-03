@@ -132,7 +132,7 @@ Note:
         // service - so se can play with the state of the service between
         // bindings.
         //
-        if (wcsicmp(GlobalServerName, L"ONE_API") ==0) {
+        if (_wcsicmp(GlobalServerName, L"ONE_API") ==0) {
             SingleServiceTest();
             return;
         }
@@ -811,7 +811,7 @@ Return Value:
         }
         printf("  -  (Repeat by pressing a key)");
 
-        dump = getch();
+        dump = _getch();
         printf("\r                                      \n");
     }
 }

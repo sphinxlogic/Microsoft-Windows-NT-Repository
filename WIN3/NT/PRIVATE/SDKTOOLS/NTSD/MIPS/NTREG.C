@@ -33,57 +33,19 @@ extern  int     fControlC;
 
 PUCHAR  UserRegs[10] = {0};
 
-ULONG   GetRegValue(ULONG);
 BOOLEAN UserRegTest(ULONG);
 
-PCONTEXT GetRegContext(void);
-ULONG   GetRegFlagValue(ULONG);
-void    SetRegValue(ULONG, ULONG);
-void    SetRegFlagValue(ULONG, ULONG);
-ULONG   GetRegName(void);
-ULONG   GetRegString(PUCHAR);
-void    GetRegPCValue(PADDR);
-PADDR   GetRegFPValue(void);
-void    SetRegPCValue(PADDR);
-void    OutputAllRegs(void);
-void    OutputOneReg(ULONG);
-void    OutputHelp(void);
 #ifdef  KERNEL
-void    ChangeKdRegContext(PVOID);
+void    ChangeKdRegContext(PVOID, PVOID);
 void    UpdateFirCache(PADDR);
 void    InitFirCache(ULONG, PUCHAR);
-ULONG   ReadCachedMemory(PADDR, PUCHAR, ULONG);
-void    WriteCachedMemory(PADDR, PUCHAR, ULONG);
 #endif
-void    ClearTraceFlag(void);
-void    SetTraceFlag(void);
-PUCHAR RegNameFromIndex(ULONG);
 
 ULONG   cbBrkptLength = 4;
 ULONG   trapInstr = 0x0016000dL;  //  break 0x16 for brkpts
-ULONG   ContextType = CONTEXT_CONTROL | CONTEXT_INTEGER;
+ULONG   ContextType = CONTEXT_CONTROL | CONTEXT_INTEGER | CONTEXT_EXTENDED_INTEGER | CONTEXT_FLOATING_POINT;
 
-//
-// Define MIPS nonvolatile register test macros.
-//
-
-#define IS_FLOATING_SAVED(Register) ((SAVED_FLOATING_MASK >> Register) & 1L)
-#define IS_INTEGER_SAVED(Register) ((SAVED_INTEGER_MASK >> Register) & 1L)
-
-//
-// Define MIPS instruction opcode values.
-//
-
-#define ADDIU_OP 0x9                    // add immediate unsigned integer register
-#define ADDU_OP 0x21                    // add unsigned integer register
-#define JUMP_RA 0x3e00008               // jump indirect return address register
-#define LUI_OP 0xf                      // load upper immediate integer register
-#define SD_OP 0x2f                      // store double integer register
-#define SW_OP 0x2b                      // store word integer register
-#define SDC1_OP 0x3d                    // store double floating register
-#define SWC1_OP 0x39                    // store word floating register
-#define SPEC_OP 0x0                     // special opcode - use function field
-#define SUBU_OP 0x23                    // subtract unsigned integer register
+MIPSCONTEXTSIZE MipsContextSize;
 
 //
 // Define stack register and zero register numbers.
@@ -92,13 +54,6 @@ ULONG   ContextType = CONTEXT_CONTROL | CONTEXT_INTEGER;
 #define RA 0x1f                         // integer register 31
 #define SP 0x1d                         // integer register 29
 #define ZERO 0x0                        // integer register 0
-
-//
-// Define saved register masks.
-//
-
-#define SAVED_FLOATING_MASK 0xfff00000  // saved floating registers
-#define SAVED_INTEGER_MASK 0xf3ffff02   // saved integer registers
 
 #ifdef  KERNEL
 ULONG   cbCacheValid;
@@ -289,6 +244,21 @@ struct SubReg subregname[] = {
     };
 
 
+BOOL
+NeedUpper(
+    ULONGLONG value
+    )
+{
+    //
+    // if the high bit of the low part is set, then the
+    // high part must be all ones, else it must be zero.
+    //
+
+    return ( ((value & 0xffffffff80000000L) != 0xffffffff80000000L) &&
+         (((value & 0x80000000L) != 0) || ((value & 0xffffffff00000000L) != 0)) );
+}
+
+
 /*** UserRegTest - test if index is a user-defined register
 *
 *   Purpose:
@@ -321,20 +291,31 @@ BOOLEAN UserRegTest (ULONG index)
 *
 *************************************************************************/
 
-PCONTEXT GetRegContext (void)
+PCONTEXT
+GetRegContext (
+    void
+    )
+
 {
+
 #ifdef  KERNEL
+
+    PULONG Dst;
+    ULONG Index;
     NTSTATUS NtStatus;
+    PULONGLONG Src;
 
     if (contextState == CONTEXTFIR) {
-        NtStatus = DbgKdGetContext(NtsdCurrentProcessor, &RegisterContext);
-        if (!NT_SUCCESS(NtStatus)) {
+        if (!DbgGetThreadContext(NtsdCurrentProcessor, &RegisterContext)) {
             dprintf("DbgKdGetContext failed\n");
             exit(1);
-            }
-        contextState = CONTEXTVALID;
         }
+
+        contextState = CONTEXTVALID;
+    }
+
 #endif
+
     return &RegisterContext;
 }
 
@@ -354,17 +335,20 @@ PCONTEXT GetRegContext (void)
 
 *************************************************************************/
 
-ULONG GetRegFlagValue (ULONG regnum)
+ULONGLONG
+GetRegFlagValue (
+    ULONG regnum
+    )
 {
-    ULONG value;
+    ULONGLONG value;
 
-    if (regnum < FLAGBASE || regnum >= PREGBASE)
+    if (regnum < FLAGBASE || regnum >= PREGBASE) {
         value = GetRegValue(regnum);
-    else {
+    } else {
         regnum -= FLAGBASE;
         value = GetRegValue(subregname[regnum].regindex);
         value = (value >> subregname[regnum].shift) & subregname[regnum].mask;
-        }
+    }
     return value;
 }
 
@@ -382,10 +366,16 @@ ULONG GetRegFlagValue (ULONG regnum)
 *
 *************************************************************************/
 
-ULONG GetRegValue (ULONG regnum)
+ULONGLONG
+GetRegValue (
+    ULONG regnum
+    )
 {
+
 #ifdef  KERNEL
+
     NTSTATUS NtStatus;
+
 #endif
 
     if (regnum >= PREGBASE) {
@@ -410,22 +400,49 @@ ULONG GetRegValue (ULONG regnum)
             case PREGU7:
             case PREGU8:
             case PREGU9:
-                return (ULONG)UserRegs[regnum - PREGU0];
+                return (LONG)UserRegs[regnum - PREGU0];
             }
         }
 
 #ifdef  KERNEL
+
     if (regnum != REGFIR && contextState == CONTEXTFIR) {
-        NtStatus = DbgKdGetContext(NtsdCurrentProcessor, &RegisterContext);
-        if (!NT_SUCCESS(NtStatus)) {
-            dprintf("DbgKdGetContext failed\n");
-            exit(1);
-            }
-        contextState = CONTEXTVALID;
-        }
+        GetRegContext();
+    }
+
 #endif
-    return *(&RegisterContext.FltF0 + regnum);
+
+    if (regnum == REGFSR) {
+        return RegisterContext.XFsr;
+
+    } else if (regnum == REGFIR) {
+        return RegisterContext.XFir;
+
+    } else if (regnum == REGPSR) {
+        return RegisterContext.XPsr;
+
+    } else if (regnum >= 32) {
+        return *(&RegisterContext.XIntZero + (regnum - 32));
+
+    } else {
+        return *(&RegisterContext.XFltF0 + regnum);
+    }
 }
+
+
+ULONG
+GetFloatingPointRegValue(
+    ULONG regnum
+    )
+{
+#ifdef  KERNEL
+    if (regnum != REGFIR && contextState == CONTEXTFIR) {
+        GetRegContext();
+    }
+#endif
+    return (ULONG)*((PULONG)&RegisterContext.FltF0 + regnum);
+}
+
 
 /*** SetRegFlagValue - set register or flag value
 *
@@ -449,10 +466,13 @@ ULONG GetRegValue (ULONG regnum)
 *
 *************************************************************************/
 
-void SetRegFlagValue (ULONG regnum, ULONG regvalue)
+void
+SetRegFlagValue (
+    ULONG regnum,
+    LONGLONG regvalue)
 {
     ULONG   regindex;
-    ULONG   newvalue;
+    ULONGLONG   newvalue;
     PUCHAR  szValue;
     ULONG   index;
 
@@ -460,29 +480,34 @@ void SetRegFlagValue (ULONG regnum, ULONG regvalue)
         szValue = (PUCHAR)regvalue;
         index = 0L;
 
-        while (szValue[index] >= ' ')
+        while (szValue[index] >= ' ') {
             index++;
+        }
         szValue[index] = 0;
-        if (szValue = UserRegs[regnum - PREGU0])
+        if (szValue = UserRegs[regnum - PREGU0]) {
             free(szValue);
+        }
         szValue = UserRegs[regnum - PREGU0] =
                                 malloc(strlen((PUCHAR)regvalue) + 1);
-        if (szValue)
+        if (szValue) {
             strcpy(szValue, (PUCHAR)regvalue);
         }
+    }
 
-    else if (regnum < FLAGBASE)
+    else if (regnum < FLAGBASE) {
         SetRegValue(regnum, regvalue);
+    }
     else if (regnum < PREGBASE) {
         regnum -= FLAGBASE;
-        if (regvalue > subregname[regnum].mask)
+        if (regvalue > subregname[regnum].mask) {
             error(OVERFLOW);
+        }
         regindex = subregname[regnum].regindex;
         newvalue = GetRegValue(regindex) &
               (~(subregname[regnum].mask << subregname[regnum].shift)) |
               (regvalue << subregname[regnum].shift);
         SetRegValue(regindex, newvalue);
-        }
+    }
 }
 
 /*** SetRegValue - set register value
@@ -500,26 +525,53 @@ void SetRegFlagValue (ULONG regnum, ULONG regvalue)
 *
 *************************************************************************/
 
-void SetRegValue (ULONG regnum, ULONG regvalue)
+VOID
+SetRegValue (
+    ULONG regnum,
+    LONGLONG regvalue
+    )
 {
-#ifdef  KERNEL
-    UCHAR   fUpdateCache = FALSE;
-    NTSTATUS NtStatus;
 
-    if (regnum != REGFIR || regvalue != RegisterContext.Fir) {
-        if (regnum == REGFIR)
+#ifdef  KERNEL
+
+    PULONGLONG Dst;
+    UCHAR  fUpdateCache = FALSE;
+    ULONG Index;
+    NTSTATUS NtStatus;
+    PULONG Src;
+
+    if (regnum != REGFIR || regvalue != RegisterContext.XFir) {
+        if (regnum == REGFIR) {
             fUpdateCache = TRUE;
+        }
         if (contextState == CONTEXTFIR) {
-            NtStatus = DbgKdGetContext(NtsdCurrentProcessor, &RegisterContext);
-            if (!NT_SUCCESS(NtStatus)) {
+            if (!DbgGetThreadContext(NtsdCurrentProcessor, &RegisterContext)) {
                 dprintf("DbgKdGetContext failed\n");
                 exit(1);
-                }
             }
-        contextState = CONTEXTDIRTY;
         }
+
+        contextState = CONTEXTDIRTY;
+    }
+
 #endif
-    *(&RegisterContext.FltF0 + regnum) = regvalue;
+
+    if (regnum == REGFSR) {
+        RegisterContext.XFsr = (ULONG)regvalue;
+
+    } else if (regnum == REGFIR) {
+        RegisterContext.XFir = (ULONG)regvalue;
+
+    } else if (regnum == REGPSR) {
+        RegisterContext.XPsr = (ULONG)regvalue;
+
+    } else if (regnum >= 32) {
+        *(&RegisterContext.XIntZero + (regnum - 32)) = regvalue;
+
+    } else {
+        *(&RegisterContext.FltF0 + regnum) = (ULONG)regvalue;
+    }
+
 #ifdef  KERNEL
     if (fUpdateCache) {
         ADDR TempAddr;
@@ -544,52 +596,72 @@ void SetRegValue (ULONG regnum, ULONG regvalue)
 *
 *************************************************************************/
 
-ULONG GetRegName (void)
+ULONG
+GetRegName (
+    void
+    )
 {
     UCHAR   szregname[9];
     UCHAR   ch;
     ULONG   count = 0;
 
-    ch = (UCHAR)tolower(*pchCommand); pchCommand++;
+    ch = (UCHAR)tolower(*pchCommand);
+    pchCommand++;
     while (ch == '$' || ch >= 'a' && ch <= 'z'
                      || ch >= '0' && ch <= '9' || ch == '.') {
-        if (count == 8)
+        if (count == 8) {
             return (ULONG)-1;
+        }
         szregname[count++] = ch;
         ch = (UCHAR)tolower(*pchCommand); pchCommand++;
-        }
+    }
     szregname[count] = '\0';
     pchCommand--;
     return GetRegString(szregname);
 }
 
-ULONG GetRegString (PUCHAR pszString)
+ULONG
+GetRegString (
+    PUCHAR pszString
+    )
 {
     ULONG   count;
 
-    for (count = 0; count < REGNAMESIZE; count++)
-        if (!strcmp(pszString, pszReg[count]))
+    for (count = 0; count < REGNAMESIZE; count++) {
+        if (!strcmp(pszString, pszReg[count])) {
             return count;
+        }
+    }
     return (ULONG)-1;
 }
 
-void GetRegPCValue (PADDR Address)
+VOID
+GetRegPCValue (
+    PADDR Address
+    )
 {
-    ADDR32(Address, GetRegValue(REGFIR) );
+    ADDR32(Address, (ULONG)GetRegValue(REGFIR) );
     return;
 }
 
-PADDR GetRegFPValue (void)
+PADDR
+GetRegFPValue (
+    VOID
+    )
 {
 static ADDR addrFP;
 
-    ADDR32(&addrFP, GetRegValue(REGGP) );
+    ADDR32(&addrFP, (ULONG)GetRegValue(REGGP) );
     return &addrFP;
 }
 
-void SetRegPCValue (PADDR paddr)
+VOID
+SetRegPCValue (
+    PADDR paddr
+    )
 {
-    SetRegValue(REGFIR, Flat(*paddr));
+    // sign extend the address:
+    SetRegValue(REGFIR, (LONG)Flat(*paddr));
 }
 
 /*** OutputAllRegs - output all registers and present instruction
@@ -610,51 +682,73 @@ void SetRegPCValue (PADDR paddr)
 *
 *************************************************************************/
 
-void OutputAllRegs(void)
+VOID
+OutputAllRegs(
+    BOOL Show64
+    )
 {
     int     regindex;
+    ULONGLONG regvalue;
 
-    for (regindex = 1; regindex < 37; regindex++) {
-        if (regindex == 34)
-            dprintf("          ");
-        else {
-            dprintf("%s=%08lx", pszReg[regindex + REGBASE],
-                               GetRegValue(regindex + REGBASE));
-            if (regindex % 6 == 0)
+    regindex = 1;
+    if (Show64) {
+        for (; regindex < 34; regindex++) {
+            regvalue = GetRegValue(regindex + REGBASE);
+            dprintf("%s=%08lx %08lx", pszReg[regindex + REGBASE],
+                                      (ULONG)(regvalue >> 32),
+                                      (ULONG)(regvalue & 0xffffffff));
+            if (regindex % 3 == 0) {
                 dprintf("\n");
-            else
+            } else {
                 dprintf(" ");
             }
         }
+    }
+
+    for (; regindex < 35; regindex++) {
+        if (regindex == 34) {
+            if (!Show64) {
+                dprintf("          ");
+             }
+        } else {
+            regvalue = GetRegValue(regindex + REGBASE);
+            dprintf("%s=%08lx%c", pszReg[regindex + REGBASE],
+                               (ULONG)regvalue,
+                               NeedUpper(regvalue) ? '*' : ' '
+                               );
+            if (regindex % 6 == 0) {
+                dprintf("\n");
+            } else {
+                dprintf(" ");
+            }
+        }
+    }
+
+    //
+    // we do not expose the high bits of FIR and PSR
+    //
+    dprintf("%s=%08lx  ", pszReg[REGFIR], (ULONG)GetRegValue(REGFIR));  // 35
+    dprintf("%s=%08lx\n", pszReg[REGPSR], (ULONG)GetRegValue(REGPSR));  // 36
+
     dprintf("cu=%1lx%1lx%1lx%1lx intr(5:0)=%1lx%1lx%1lx%1lx%1lx%1lx ",
-                GetRegFlagValue(FLAGCU3),
-                GetRegFlagValue(FLAGCU2),
-                GetRegFlagValue(FLAGCU1),
-                GetRegFlagValue(FLAGCU0),
-                GetRegFlagValue(FLAGINT5),
-                GetRegFlagValue(FLAGINT4),
-                GetRegFlagValue(FLAGINT3),
-                GetRegFlagValue(FLAGINT2),
-                GetRegFlagValue(FLAGINT1),
-                GetRegFlagValue(FLAGINT0));
+                (ULONG)GetRegFlagValue(FLAGCU3),
+                (ULONG)GetRegFlagValue(FLAGCU2),
+                (ULONG)GetRegFlagValue(FLAGCU1),
+                (ULONG)GetRegFlagValue(FLAGCU0),
+                (ULONG)GetRegFlagValue(FLAGINT5),
+                (ULONG)GetRegFlagValue(FLAGINT4),
+                (ULONG)GetRegFlagValue(FLAGINT3),
+                (ULONG)GetRegFlagValue(FLAGINT2),
+                (ULONG)GetRegFlagValue(FLAGINT1),
+                (ULONG)GetRegFlagValue(FLAGINT0));
     dprintf("sw(1:0)=%1lx%1lx ",
-                GetRegFlagValue(FLAGSW1),
-                GetRegFlagValue(FLAGSW0));
-    if (ProcessorType == 0)
-        dprintf("kuo=%01lx ieo=%01lx kup=%01lx "
-                "iep=%01lx kuc=%01lx iec=%01lx\n",
-                GetRegFlagValue(FLAGKUO),
-                GetRegFlagValue(FLAGIEO),
-                GetRegFlagValue(FLAGKUP),
-                GetRegFlagValue(FLAGIEP),
-                GetRegFlagValue(FLAGKUC),
-                GetRegFlagValue(FLAGIEC));
-    else
-        dprintf("ksu=%01lx erl=%01lx exl=%01lx ie=%01lx\n",
-                GetRegFlagValue(FLAGKSU),
-                GetRegFlagValue(FLAGERL),
-                GetRegFlagValue(FLAGEXL),
-                GetRegFlagValue(FLAGIE));
+                (ULONG)GetRegFlagValue(FLAGSW1),
+                (ULONG)GetRegFlagValue(FLAGSW0));
+    dprintf("ksu=%01lx erl=%01lx exl=%01lx ie=%01lx\n",
+                (ULONG)GetRegFlagValue(FLAGKSU),
+                (ULONG)GetRegFlagValue(FLAGERL),
+                (ULONG)GetRegFlagValue(FLAGEXL),
+                (ULONG)GetRegFlagValue(FLAGIE));
 }
 
 /*** OutputOneReg - output one register value
@@ -672,22 +766,24 @@ void OutputAllRegs(void)
 *
 *************************************************************************/
 
-void OutputOneReg (ULONG regnum)
+void
+OutputOneReg (
+    ULONG regnum,
+    BOOL Show64
+    )
 {
-    ULONG value;
+    ULONGLONG value;
 
     value = GetRegFlagValue(regnum);
-    if (regnum < FLAGBASE)
-        dprintf("%08lx\n", value);
-    else
-        dprintf("%lx\n", value);
-}
-
-void pause (void)
-{
-    UCHAR kdata[16];
-
-    NtsdPrompt("Press <enter> to continue.", kdata, 4);
+    if (regnum >= FLAGBASE) {
+        dprintf("%lx\n", (ULONG)value);
+    } else if (Show64) {
+        dprintf("%08lx %08lx\n", (ULONG)(value >> 32), (ULONG)(value & 0xffffffff));
+    } else if (regnum != REGFIR && regnum != REGPSR) {
+        dprintf("%08lx%s\n", (ULONG)value, NeedUpper(value)?"*":"");
+    } else {
+        dprintf("%08lx\n", (ULONG)value);
+    }
 }
 
 /*** OutputHelp - output help text
@@ -708,9 +804,9 @@ void OutputHelp (void)
 #ifndef KERNEL
 dprintf("A [<address>] - assemble              P[R] [=<addr>] [<value>] - program step\n");
 dprintf("BC[<bp>] - clear breakpoint(s)        Q - quit\n");
-dprintf("BD[<bp>] - disable breakpoint(s)      R [[<reg> [= <value>]]] - reg/flag\n");
+dprintf("BD[<bp>] - disable breakpoint(s)      R[L] [[<reg> [= <value>]]] - reg/flag\n");
 dprintf("BE[<bp>] - enable breakpoint(s)       S <range> <list> - search\n");
-dprintf("BL[<bp>] - list breakpoint(s)         S+/S&/S- - set source/mixed/assembly\n");
+dprintf("BL[<bp>] - list breakpoint(s)\n");
 dprintf("BP[#] <address> - set breakpoint      SS <n | a | w> - set symbol suffix\n");
 dprintf("C <range> <address> - compare         SX [e|d [<event>|*|<expr>]] - exception\n");
 dprintf("D[type][<range>] - dump memory        T[R] [=<address>] [<value>] - trace\n");
@@ -728,7 +824,6 @@ dprintf("| - list processes status             |#s - set default process\n");
 dprintf("|#<command> - default process override\n");
 dprintf("? <expr> - display expression\n");
 dprintf("#<string> [address] - search for a string in the dissasembly\n");
-pause();
 dprintf("$< <filename> - take input from a command file\n");
 dprintf("\n");
 dprintf("<expr> ops: + - * / not by wo dw poi mod(%%) and(&) xor(^) or(|) hi low\n");
@@ -745,10 +840,10 @@ dprintf("        kup, iep, kuc, iec, fpc, f0-f31, $u0-$u9, $ea, $exp, $ra, $p\n"
 dprintf("A [<address>] - assemble              O<type> <port> <value> - write I/O port\n");
 dprintf("BC[<bp>] - clear breakpoint(s)        P [=<addr>] [<value>] - program step\n");
 dprintf("BD[<bp>] - disable breakpoint(s)      Q - quit\n");
-dprintf("BE[<bp>] - enable breakpoint(s)       R [[<reg> [= <value>]]] - reg/flag\n");
+dprintf("BE[<bp>] - enable breakpoint(s)       R[L] [[<reg> [= <value>]]] - reg/flag\n");
 dprintf("BL[<bp>] - list breakpoint(s)         #R - multiprocessor register dump\n");
 dprintf("BP[#] <address> - set breakpoint      S <range> <list> - search\n");
-dprintf("C <range> <address> - compare         S+/S&/S- - set source/mixed/assembly\n");
+dprintf("C <range> <address> - compare\n");
 dprintf("D[type][<range>] - dump memory        SS <n | a | w> - set symbol suffix\n");
 dprintf("E[type] <address> [<list>] - enter    T [=<address>] [<value>] - trace\n");
 dprintf("F <range> <list> - fill               U [<range>] - unassemble\n");
@@ -764,7 +859,6 @@ dprintf("$< <filename> - take input from a command file\n");
 dprintf("\n");
 dprintf("<expr> ops: + - * / not by wo dw poi mod(%%) and(&) xor(^) or(|) hi low\n");
 dprintf("       operands: number in current radix, public symbol, <reg>\n");
-pause();
 dprintf("<type> : B (byte), W (word), D (doubleword), A (ascii), T (translation buffer)\n");
 dprintf("         C <dwordandChar>, U (unicode), L (list)\n");
 dprintf("<pattern> : [(nt | <dll-name>)!]<var-name> (<var-name> can include ? and *)\n");
@@ -785,79 +879,94 @@ void SetTraceFlag (void)
     ;
 }
 
-#ifdef  KERNEL
-void ChangeKdRegContext(PVOID firAddr)
-{
-    NTSTATUS NtStatus;
 
+#ifdef  KERNEL
+VOID
+ChangeKdRegContext(
+    PVOID firAddr,
+    PVOID unused
+    )
+
+{
     if (firAddr) {                      //  initial context
         contextState = CONTEXTFIR;
-        RegisterContext.Fir = (ULONG)firAddr;
-        }
-    else if (contextState == CONTEXTDIRTY) {     //  write final context
-        NtStatus = DbgKdSetContext(NtsdCurrentProcessor, &RegisterContext);
-        if (!NT_SUCCESS(NtStatus)) {
+        RegisterContext.XFir = (ULONG)firAddr;
+
+    } else if (contextState == CONTEXTDIRTY) {     //  write final context
+
+        if (!DbgSetThreadContext(NtsdCurrentProcessor, &RegisterContext)) {
             dprintf("DbgKdSetContext failed\n");
             exit(1);
-            }
         }
+    }
 }
-#endif
 
-#ifdef  KERNEL
-void InitFirCache (ULONG count, PUCHAR pstream)
+
+VOID
+InitFirCache (
+    ULONG count,
+    PUCHAR pstream
+    )
 {
     PUCHAR  pFirCache;
 
     pFirCache =  bCacheValid;
     cbCacheValid = count;
-    while (count--)
+    while (count--) {
         *pFirCache++ = *pstream++;
+    }
 }
-#endif
 
-#ifdef  KERNEL
-void UpdateFirCache(PADDR pcvalue)
+VOID
+UpdateFirCache(
+    PADDR pcvalue
+    )
 {
     cbCacheValid = 0;
     cbCacheValid = GetMemString(pcvalue, bCacheValid, 16);
 }
-#endif
 
-#ifdef  KERNEL
-ULONG ReadCachedMemory (PADDR paddr, PUCHAR pvalue, ULONG length)
+ULONG
+ReadCachedMemory (
+    PADDR paddr,
+    PUCHAR pvalue,
+    ULONG length
+    )
 {
     ULONG   cBytesRead = 0;
     PUCHAR  pFirCache;
 
-    if (Flat(*paddr) == RegisterContext.Fir && length <= 16) {
+    if (Flat(*paddr) == RegisterContext.XFir && length <= 16) {
         cBytesRead = min(length, cbCacheValid);
         pFirCache =  bCacheValid;
-        while (length--)
+        while (length--) {
             *pvalue++ = *pFirCache++;
         }
+    }
     return cBytesRead;
 }
-#endif
 
-#ifdef  KERNEL
-void WriteCachedMemory (PADDR paddr, PUCHAR pvalue, ULONG length)
+VOID
+WriteCachedMemory (
+    PADDR paddr,
+    PUCHAR pvalue,
+    ULONG length
+    )
 {
     ULONG   index;
 
-    for (index = 0; index < cbCacheValid; index++)
-        if (RegisterContext.Fir + index >= Off(*paddr) &&
-                        RegisterContext.Fir + index < Off(*paddr) + length) {
+    for (index = 0; index < cbCacheValid; index++) {
+        if (RegisterContext.XFir + index >= Off(*paddr) &&
+                        RegisterContext.XFir + index < Off(*paddr) + length) {
             bCacheValid[index] =
-                            *(pvalue + RegisterContext.Fir - Off(*paddr) + index);
-            }
+                            *(pvalue + RegisterContext.XFir - Off(*paddr) + index);
+        }
+    }
 }
-#endif
 
-#ifdef  KERNEL
-void
+VOID
 SaveProcessorState(
-    void
+    VOID
     )
 {
     PreviousProcessor = NtsdCurrentProcessor;
@@ -866,117 +975,203 @@ SaveProcessorState(
     contextState = CONTEXTFIR;
 }
 
-void
+VOID
 RestoreProcessorState(
-    void
+    VOID
     )
 {
     NtsdCurrentProcessor = PreviousProcessor;
     RegisterContext = SavedRegisterContext;
     contextState = SavedContextState;
 }
-#endif
+#endif // KERNEL
 
-PIMAGE_FUNCTION_ENTRY
-LookupFunctionEntry (
-    IN ULONG ControlPc
+PUCHAR RegNameFromIndex (ULONG index)
+{
+    return pszReg[index];
+}
+
+VOID
+CoerceContext64To32(
+    IN OUT PCONTEXT Context
     )
 
 /*++
 
 Routine Description:
 
-    This function searches the currently active function tables for an entry
-    that corresponds to the specified PC value.
+    This function converts the integer parts of a 64-bit context to
+    32 bits.  It only performs the conversion if the CONTEXT_EXTENDED_INTEGER
+    bit is set.  The bit will be cleared in the result.
 
 Arguments:
 
-    ControlPc - Supplies the address of an instruction within the specified
-        function.
+    Context - Supplies
 
 Return Value:
 
-    If there is no entry in the function table for the specified PC, then
-    NULL is returned. Otherwise, the address of the function table entry
-    that corresponds to the specified PC is returned.
+    None
 
 --*/
 
 {
+    PULONG Dst;
+    PULONGLONG Src;
+    ULONG Index;
 
-    PIMAGE_FUNCTION_ENTRY  FunctionEntry;
-    PIMAGE_FUNCTION_ENTRY  FunctionTable;
-    LONG                   High;
-    LONG                   Low;
-    LONG                   Middle;
-    PIMAGE_INFO            pImage;
-
-
-
-    //
-    // locate the image in the image table
-    //
-    pImage = GetImageInfoFromOffset( ControlPc );
-    if (!pImage) {
-        return NULL;
-    }
-
-    //
-    // if symbols have not been loaded then do so
-    //
-    if (!pImage->fSymbolsLoaded) {
-        if (EnsureOffsetSymbolsLoaded( ControlPc )) {
-            return NULL;
+    if ((Context->ContextFlags & CONTEXT_EXTENDED_INTEGER) == CONTEXT_EXTENDED_INTEGER) {
+        Src = &Context->XIntZero;
+        Dst = &Context->IntZero;
+        for (Index = 0; Index < 32; Index += 1) {
+            *Dst++ = (ULONG)*Src++;
         }
+        Context->ContextFlags =
+             (Context->ContextFlags & ~CONTEXT_EXTENDED_INTEGER) | CONTEXT_INTEGER;
     }
-
-    if (!pImage->FunctionTable) {
-        return NULL;
-    }
-
-    //
-    // Initialize search indicies.
-    //
-
-    FunctionTable = pImage->FunctionTable;
-    Low = 0;
-    High = pImage->NumberOfFunctions - 1;
-
-    //
-    // Perform binary search on the function table for a function table
-    // entry that subsumes the specified PC.
-    //
-
-    while (High >= Low) {
-
-        //
-        // Compute next probe index and test entry. If the specified PC
-        // is greater than of equal to the beginning address and less
-        // than the ending address of the function table entry, then
-        // return the address of the function table entry. Otherwise,
-        // continue the search.
-        //
-
-        Middle = (Low + High) >> 1;
-        FunctionEntry = &FunctionTable[Middle];
-        if (ControlPc < FunctionEntry->StartingAddress) {
-            High = Middle - 1;
-
-        } else if (ControlPc >= FunctionEntry->EndingAddress) {
-            Low = Middle + 1;
-
-        } else {
-            return FunctionEntry;
-        }
-    }
-
-    //
-    // A function table entry for the specified PC was not found.
-    //
-    return NULL;
 }
 
-PUCHAR RegNameFromIndex (ULONG index)
+
+VOID
+CoerceContext32To64(
+    PCONTEXT Context
+    )
+
+/*++
+
+Routine Description:
+
+    This function converts the integer parts of a 32-bit context to
+    64 bits.  It only performs the conversion if the CONTEXT_EXTENDED_INTEGER
+    bit is clear.  The bit will be set in the result.
+
+Arguments:
+
+    Context - Supplies
+
+Return Value:
+
+    None
+
+--*/
+
 {
-    return pszReg[index];
+    PULONGLONG Dst;
+    PULONG Src;
+    ULONG Index;
+
+    if ((Context->ContextFlags & CONTEXT_EXTENDED_INTEGER) != CONTEXT_EXTENDED_INTEGER) {
+        Src = &Context->IntZero;
+        Dst = &Context->XIntZero;
+        for (Index = 0; Index < 32; Index += 1) {
+            *Dst++ = (ULONGLONG)(LONG)*Src++;
+        }
+        Context->ContextFlags =
+                (Context->ContextFlags & ~CONTEXT_INTEGER) | CONTEXT_EXTENDED_INTEGER;
+    }
 }
+
+
+void
+printFloatReg()
+{
+    ULONG fv;
+    ULONG i;
+
+
+    if (*pchCommand == ';' || *pchCommand == '\0') {
+
+        //
+        // Print them all out
+        //
+        for (i = 0 ; i < 31; i+=2) {
+
+            fv = GetFloatingPointRegValue(i);
+            dprintf("%4s = %08x\t", RegNameFromIndex(i), fv);
+            fv = GetFloatingPointRegValue(i+1);
+            dprintf("%4s = %08x\n", RegNameFromIndex(i+1), fv);
+        }
+        return;
+    }
+
+    //
+    // skip white space
+    //
+    while (*pchCommand && *pchCommand == ' ') pchCommand++;
+
+    //
+    // GetRegName works for both floats and otherwise
+    // as does NameFromIndex
+    //
+
+    if ((i = GetRegName()) == -1) {
+        error(SYNTAX);
+    }
+    fv = GetFloatingPointRegValue(i);
+    dprintf("%4s = %08x\n", RegNameFromIndex(i), fv);
+    return;
+}
+
+
+BOOL
+DbgGetThreadContext(
+    THREADORPROCESSOR TorP,
+    PCONTEXT Context
+    )
+{
+    CONTEXT ctx;
+    ULONG Flags = Context->ContextFlags;
+    BOOL r;
+
+#ifdef KERNEL
+
+    r = NT_SUCCESS(DbgKdGetContext(TorP, Context));
+    if (r) {
+        if ((Context->ContextFlags & CONTEXT_EXTENDED_INTEGER) == CONTEXT_EXTENDED_INTEGER) {
+            MipsContextSize = Ctx64Bit;
+        } else {
+            MipsContextSize = Ctx32Bit;
+        }
+    }
+
+#else  // KERNEL
+
+    if (MipsContextSize == Ctx32Bit) {
+        Context->ContextFlags = ((Context->ContextFlags & ~CONTEXT_EXTENDED_INTEGER) | CONTEXT_INTEGER);
+    }
+    r = GetThreadContext(TorP, Context);
+
+#endif // KERNEL
+
+    if (r) {
+        if ((Flags & CONTEXT_EXTENDED_INTEGER) == CONTEXT_EXTENDED_INTEGER) {
+            CoerceContext32To64(Context);
+        } else if ((Flags & CONTEXT_INTEGER) == CONTEXT_INTEGER) {
+            CoerceContext64To32(Context);
+        }
+    }
+
+    return r;
+}
+
+BOOL
+DbgSetThreadContext(
+    THREADORPROCESSOR TorP,
+    PCONTEXT Context
+    )
+{
+    CONTEXT ctx;
+
+    ctx = *Context;
+    if (MipsContextSize == Ctx32Bit) {
+        CoerceContext64To32(&ctx);
+    } else {
+        CoerceContext32To64(&ctx);
+    }
+
+#ifdef KERNEL
+    return NT_SUCCESS(DbgKdSetContext(TorP, &ctx));
+#else  // KERNEL
+    return SetThreadContext(TorP, &ctx);
+#endif // KERNEL
+}
+

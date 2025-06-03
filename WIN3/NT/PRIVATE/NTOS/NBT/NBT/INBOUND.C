@@ -33,12 +33,20 @@ DecodeNodeStatusResponse(
     );
 
 NTSTATUS
+ExtractServerName(
+    IN  tNODESTATUS UNALIGNED   *pNodeStatus,
+    IN  PVOID                    pClientContext,
+    IN  ULONG                    IpAddress
+    );
+
+NTSTATUS
 SendNodeStatusResponse(
     IN  tNAMEHDR UNALIGNED  *pInNameHdr,
     IN  ULONG               Length,
     IN  PUCHAR              pName,
     IN  ULONG               lNameSize,
     IN  ULONG               SrcIpAddress,
+    IN  USHORT              SrcPort,
     IN  tDEVICECONTEXT      *pDeviceContext
     );
 
@@ -48,7 +56,9 @@ UpdateNameState(
     IN  tNAMEADDR               *pNameAddr,
     IN  ULONG                   Length,
     IN  tDEVICECONTEXT          *pDeviceContext,
-    IN  BOOLEAN                 SrcIsNameServer
+    IN  BOOLEAN                 SrcIsNameServer,
+    IN  tDGRAM_SEND_TRACKING    *Context,
+    IN  CTELockHandle           OldIrq1
     );
 NTSTATUS
 ChkIfValidRsp(
@@ -67,7 +77,9 @@ ChooseBestIpAddress(
     IN  tADDSTRUCT UNALIGNED    *pAddrStruct,
     IN  ULONG                   Len,
     IN  tDEVICECONTEXT          *pDeviceContext,
-    OUT PULONG                  pIpAddress
+    OUT tDGRAM_SEND_TRACKING    *pTracker,
+    OUT PULONG                  pIpAddress,
+    IN  BOOLEAN                 fTryAllAddr
     );
 
 USHORT
@@ -84,6 +96,7 @@ PrintHexString(
 
 ULONG
 MakeList(
+    IN  tDEVICECONTEXT            *pDeviceContext,
     IN  ULONG                     CountAddrs,
     IN  tADDSTRUCT UNALIGNED      *pAddrStruct,
     IN  PULONG                    AddrArray,
@@ -112,7 +125,8 @@ QueryFromNet(
     IN  PVOID               pSrcAddress,
     IN  tNAMEHDR UNALIGNED  *pNameHdr,
     IN  LONG                lNumBytes,
-    IN  USHORT              OpCodeFlags
+    IN  USHORT              OpCodeFlags,
+    IN  BOOLEAN             fBroadcast
     )
 /*++
 
@@ -145,6 +159,7 @@ Return Value:
     CTELockHandle           OldIrq1;
     tQUERYRESP  UNALIGNED   *pQuery;
     USHORT                  SrcPort;
+    ULONG                   IpAddr;
 
 
     pSourceAddress = (PTRANSPORT_ADDRESS)pSrcAddress;
@@ -155,15 +170,30 @@ Return Value:
 
 
 #ifdef VXD
-       // is this a response from a DNS server?  if yes then handle it
-       // separately
+	//
+    // is this a response from a DNS server?  if yes then handle it
+    // appropriately
+	//
     if (SrcPort == NBT_DNSSERVER_UDP_PORT)
     {
-       ProcessDnsResponse( pDeviceContext,
-                           pSrcAddress,
-                           pNameHdr,
-                           lNumBytes,
-                           OpCodeFlags );
+        USHORT  TransactionId;
+        TransactionId = ntohs(pNameHdr->TransactId);
+		if ( TransactionId >= DIRECT_DNS_NAME_QUERY_BASE )
+		{
+			ProcessDnsResponseDirect( pDeviceContext,
+            	                	  pSrcAddress,
+                	            	  pNameHdr,
+                    	        	  lNumBytes,
+                        	    	  OpCodeFlags );
+		}
+		else
+		{
+			ProcessDnsResponse( pDeviceContext,
+            	                pSrcAddress,
+                	            pNameHdr,
+                    	        lNumBytes,
+                        	    OpCodeFlags );
+		}
 
        return(STATUS_DATA_NOT_ACCEPTED);
     }
@@ -246,7 +276,7 @@ Return Value:
         //
         CTESpinLock(&NbtConfig.JointLock,OldIrq1);
 
-        status = FindOnPendingList(pName,pNameHdr,FALSE,&pResp);
+        status = FindOnPendingList(pName,pNameHdr,FALSE,NETBIOS_NAME_SIZE,&pResp);
 
         if (NT_SUCCESS(status))
         {
@@ -362,17 +392,20 @@ Return Value:
 
                             pResp->AdapterMask |= pDevContext->AdapterNumber;
 
+                            IpAddr = ((tADDSTRUCT *)&pQuery->Flags)->IpAddr;
                             status = UpdateNameState((tADDSTRUCT *)&pQuery->Flags,
                                                      pResp,
                                                      lNumBytes -((ULONG)&pQuery->Flags - (ULONG)pNameHdr),
                                                      pDeviceContext,
-                                                     SrcIsNameServer(SrcAddress,SrcPort) );
+                                                     SrcIsNameServer(SrcAddress,SrcPort),
+                                                     (tDGRAM_SEND_TRACKING *)Context,
+                                                     OldIrq1);
                             //
                             // since pResp can be freed in UpdateNameState do not
                             // access it here
                             //
                             pResp = NULL;
-                            status = STATUS_SUCCESS;
+                            // status = STATUS_SUCCESS;
                         }
                         else   // negative query response received
                         {
@@ -430,11 +463,30 @@ Return Value:
 
                         CTESpinFree(&NbtConfig.JointLock,OldIrq1);
 
+//
+// chicago only has 4k of stack (yes, it's the operating system of 1995)
+// schedule an event to make this tcp connection later to reduce stack usage
+//
+#ifdef VXD
+                        (void) CTEQueueForNonDispProcessing(
+                                        (tDGRAM_SEND_TRACKING *)Context,
+                                        (PVOID)status,
+                                        pClientCompletion,
+                                        DelayedSessEstablish,
+                                        pDeviceContext);
+#else
                         // the completion routine has not run yet, so run it
                         //
-                        CompleteClientReq(pClientCompletion,
-                                          (tDGRAM_SEND_TRACKING *)Context,
-                                          status);
+
+                        //
+                        // If pending is returned, we have submitted the check-for-addr request to lmhsvc.
+                        //
+                        if (status != STATUS_PENDING) {
+                            CompleteClientReq(pClientCompletion,
+                                              (tDGRAM_SEND_TRACKING *)Context,
+                                              status);
+                        }
+#endif
 
                         return(STATUS_DATA_NOT_ACCEPTED);
                     }
@@ -485,8 +537,13 @@ Return Value:
             // Since a bcast query of a group name will generally result in
             // multiple responses, each with a different address, ignore
             // this case.
+            // Also, ignore if the name is a preloaded lmhosts entry (though
+            // can't think of an obvious case where we would receive a response
+            // when a name is preloaded!)
             //
             if (NT_SUCCESS(status) &&
+		!(pResp->NameTypeState & PRELOADED)
+                             &&
                 (SrcAddress != pResp->IpAddress)
                              &&
                 (pResp->NameTypeState & NAMETYPE_UNIQUE)
@@ -571,13 +628,22 @@ Return Value:
             if ( ((PUCHAR)pQuery)[1] == QUEST_STATUS )
             {
                 CTESpinFree(&NbtConfig.JointLock,OldIrq1);
-                Locstatus = SendNodeStatusResponse(pNameHdr,
-                                                lNumBytes,
-                                                pName,
-                                                lNameSize,
-                                                SrcAddress,
-                                                pDeviceContext);
 
+                //
+                // Reply only if this was not broadcast to us.
+                //
+                if (!fBroadcast) {
+                    Locstatus = SendNodeStatusResponse(pNameHdr,
+                                                    lNumBytes,
+                                                    pName,
+                                                    lNameSize,
+                                                    SrcAddress,
+                                                    SrcPort,
+                                                    pDeviceContext);
+                } else {
+                    IF_DBG(NBT_DEBUG_NAMESRV)
+                        KdPrint(("NBT: Bcast nodestatus req.- dropped\n"));
+                }
             }
             else
             {
@@ -684,7 +750,7 @@ Return Value:
 
                 if (!NT_SUCCESS(status))
                 {
-                    status = FindOnPendingList(pName,pNameHdr,TRUE,&pResp);
+                    status = FindOnPendingList(pName,pNameHdr,TRUE,NETBIOS_NAME_SIZE,&pResp);
                     if (!NT_SUCCESS(status))
                     {
                         //
@@ -969,8 +1035,8 @@ Return Value:
                 {
                     pResp->NameTypeState &= ~NAME_STATE_MASK;
                     pResp->NameTypeState |= STATE_CONFLICT;
+                    NbtLogEvent(EVENT_NBT_DUPLICATE_NAME,SrcAddress);
                 }
-                NbtLogEvent(EVENT_NBT_DUPLICATE_NAME,SrcAddress);
 
             }
             else
@@ -1005,6 +1071,7 @@ Return Value:
                 {
                     LOCATION(0x42);
                     CTESpinFree(&NbtConfig.JointLock,OldIrq1);
+
                     return(STATUS_DATA_NOT_ACCEPTED);
                 }
                 LOCATION(0x43);
@@ -1351,7 +1418,6 @@ Return Value:
             // If the name is in the RESOLVED state, we need to determine
             // whether we should respond or not.  For a name that is not
             // the RESOLVED state, the decision is simple. We don't respond
-            //
             if (pResp->NameTypeState & STATE_RESOLVED)
             {
 
@@ -1734,7 +1800,6 @@ Return Value:
             //
             if (pResp->NameTypeState & NAMETYPE_UNIQUE)
             {
-                NbtLogEvent(EVENT_NBT_NAME_RELEASE,SrcAddress);
                 switch (pResp->NameTypeState & NAME_STATE_MASK)
                 {
 
@@ -1768,7 +1833,7 @@ Return Value:
                                 if (pClientCompletion)
                                 {
                                     CTESpinFree(&NbtConfig.JointLock,OldIrq1);
-                                    (*pClientCompletion)(Context,STATUS_SUCCESS);
+                                    (*pClientCompletion)(Context,STATUS_DUPLICATE_NAME);
                                     CTESpinLock(&NbtConfig.JointLock,OldIrq1);
                                 }
                             }
@@ -1787,30 +1852,37 @@ Return Value:
                         //
                         if (!bLocalTable)
                         {
-                            //
-                            // if someone is still using the name, do not
-                            // dereference it, since that would leave the
-                            // ref count at 1, and allow RemoteHashTimeout
-                            // code to remove it before the client using
-                            // the name is done with it. Once the client is
-                            // done with it (i.e. a connect request), they
-                            // will deref it , setting the ref count to 1 and
-                            // it will be suitable for reuse.
-                            //
-                            if (pResp->RefCount > 1)
-                            {
-                                pResp->NameTypeState &= ~NAME_STATE_MASK;
-                                pResp->NameTypeState |= STATE_CONFLICT;
-                            }
-                            else
-                            {
-                                NbtDereferenceName(pResp);
+			    //
+			    // if this is a pre-loaded name, just leave it alone
+			    //
+			    if (!(pResp->NameTypeState & PRELOADED))
+			    {
+                                //
+                                // if someone is still using the name, do not
+                                // dereference it, since that would leave the
+                                // ref count at 1, and allow RemoteHashTimeout
+                                // code to remove it before the client using
+                                // the name is done with it. Once the client is
+                                // done with it (i.e. a connect request), they
+                                // will deref it , setting the ref count to 1 and
+                                // it will be suitable for reuse.
+                                //
+                                if (pResp->RefCount > 1)
+                                {
+                                    pResp->NameTypeState &= ~NAME_STATE_MASK;
+                                    pResp->NameTypeState |= STATE_CONFLICT;
+                                }
+                                else
+                                {
+                                    NbtDereferenceName(pResp);
+                                }
                             }
                         }
                         else
                         {
                             pResp->NameTypeState &= ~NAME_STATE_MASK;
                             pResp->NameTypeState |= STATE_CONFLICT;
+                            NbtLogEvent(EVENT_NBT_NAME_RELEASE,SrcAddress);
 
                         }
                         break;
@@ -1912,10 +1984,22 @@ Return Value:
     }
 
     CTESpinLock(&NbtConfig.JointLock,OldIrq1);
-    status = FindInHashTable(NbtConfig.pLocalHashTbl,
-                                pName,
-                                pScope,
-                                &pNameAddr);
+
+#ifdef VXD
+	if ( FindContextDirect(	pNameHdr->TransactId ) != NULL )
+	{
+		status = STATUS_SUCCESS;
+	}
+	else
+	{
+#endif // VXD
+	    status = FindInHashTable(NbtConfig.pLocalHashTbl,
+	                                pName,
+	                                pScope,
+	                                &pNameAddr);
+#ifdef VXD
+	}
+#endif // VXD
 
     if (NT_SUCCESS(status))
     {
@@ -1978,7 +2062,6 @@ Routine Description:
 
 Arguments:
 
-
 Return Value:
 
     NTSTATUS - success or not - failure means no response to net
@@ -2030,7 +2113,6 @@ Return Value:
     //
     pNameAddr->Ttl = Ttl;
 
-
     //
     // decide what to do about the existing timer....
     // If the new timeout is shorter, then cancel the
@@ -2049,8 +2131,11 @@ Return Value:
         // for the timer.
         //
         CHECK_PTR(pTimerQEntry);
-        pTimerQEntry->CompletionRoutine = NULL;
-        status = StopTimer(pTimerQEntry,NULL,NULL);
+        if (pTimerQEntry)
+        {
+            pTimerQEntry->CompletionRoutine = NULL;
+            status = StopTimer(pTimerQEntry,NULL,NULL);
+        }
 
         // keep the timeout for checking refreshes to about 10 minutes
         // max. (MAX_REFRESH_CHECK_INTERVAL).  If the refresh interval
@@ -2090,14 +2175,7 @@ Return Value:
         tHASHTABLE  *pHashTable;
         LONG        i;
         PLIST_ENTRY pHead,pEntry;
-#if 0
-    // REMOVE THIS CODE - ASSUME THAT WHEN WINS LENGTHENS A REFRESH TTL FOR
-    // ONE NAME IT APPLIES TO ALL NAMES, SO NO NEED TO SCAN THE TABLE FOR
-    // ANOTHER SHORTER TTL.  IN THE MULTIHOMED CASE THIS IMPLIES THAT THE
-    // REFRESH TTL FOR NAMES SHOULD BE THE SAME FOR ALL WINS.  The main
-    // reason for removing this code is performance at boot up time when
-    // each name whose ttl was increased would cause a scan of all names.
-#endif
+
     // PUT this code back in again, since it is possible that the name
     // server could miss registering a name due to being busy and if we
     // lengthen the timeout here then that name will not get into wins for
@@ -2195,7 +2273,9 @@ Return Value:
     tDGRAM_SEND_TRACKING    *pTracker;
     tTIMERQENTRY            *pTimer;
     COMPLETIONCLIENT        pClientCompletion;
-    PVOID                   pContext;
+    PVOID                   pClientContext;
+    BOOL                    MatchFound=FALSE;
+    ULONG                   IpAddress;
 
 
     // first find the originating request in the NodeStatus list
@@ -2208,12 +2288,59 @@ Return Value:
     {
         pTracker = CONTAINING_RECORD(pEntry,tDGRAM_SEND_TRACKING,Linkage);
 
-        if (NETBIOS_NAME_SIZE == CTEMemCmp(pName,pTracker->pNameAddr->Name,NETBIOS_NAME_SIZE))
+        //
+        // find who sent the request originally
+        //
+        MatchFound = FALSE;
+	if (pTracker->Flags & REMOTE_ADAPTER_STAT_FLAG)
         {
-            pNext = pEntry->Flink;
+            IpAddress = Nbt_inet_addr(pTracker->pNameAddr->Name);
+        }
+        else
+        {
+            IpAddress = 0;
+        }
+        if (
+            (CTEMemEqu(pName,pTracker->pNameAddr->Name,NETBIOS_NAME_SIZE))
+            || ((IpAddress==SrcIpAddress)&&(IpAddress!=0))
+            )
+        {
+            //
+            // if we directed node status request to an ipaddr without knowing
+            // its netbios name, then name is stored as "*      ".
+            //
+            if ( (pName[0] == '*') && ( IpAddress == 0 ) )
+            {
+                int  i=0;
 
+                //
+                // SrcIpAddress may not match the ipaddr to which we sent if
+                // remote host is multihomed: so search whole list of all
+                // ipaddrs for that host
+                //
+                ASSERT(pTracker->pNameAddr->pIpAddrsList);
+                while(pTracker->pNameAddr->pIpAddrsList[i])
+                {
+                    if (pTracker->pNameAddr->pIpAddrsList[i++] == SrcIpAddress)
+                    {
+                        MatchFound = TRUE;
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                MatchFound = TRUE;
+            }
+        }
+        else
+        {
+            MatchFound = FALSE;
+        }
+
+        if (MatchFound)
+        {
             RemoveEntryList(pEntry);
-            pEntry = pNext;
 
             pNodeStatus = (tNODESTATUS *)&pNameHdr->NameRR.NetBiosName[lNameSize];
 
@@ -2227,31 +2354,68 @@ Return Value:
             {
                 CTESpinFree(&NbtConfig,OldIrq);
 
-                status = StopTimer(pTimer,&pClientCompletion,&pContext);
+                status = StopTimer(pTimer,&pClientCompletion,&pClientContext);
+
+                CTESpinFree(&NbtConfig.JointLock,OldIrq2);
 
                 if (pClientCompletion)
                 {
-                    PVOID   pBuffer;
-
-                    // bump this up to non dispatch level processing
-                    pBuffer = CTEAllocMem(Length);
-                    if (pBuffer)
+                    //
+                    // if there is a ClientContext then this node status qry was
+                    // started because of a session setup attempt: extract the
+                    // server name out of the node status response and continue
+                    // with the session setup phase
+                    //
+                    if (pClientContext)
                     {
-                        CTEMemCopy(pBuffer,(PVOID)pNodeStatus,Length);
-                        pTracker->SrcIpAddress = SrcIpAddress;
-                        pTracker->pNodeStatus = pBuffer;
-                        pTracker->NodeStatusLen = Length;
+                        status = ExtractServerName(pNodeStatus,
+                                                   pClientContext,
+                                                   SrcIpAddress);
 
-                        CTEQueueForNonDispProcessing(pTracker,
-                                                     pContext,
-                                                     pClientCompletion,
-                                                     CopyNodeStatusResponse);
+                        DereferenceTracker(pTracker);
+
+                        CompleteClientReq(pClientCompletion,
+                                          pClientContext,
+                                          status);
+                        // (*pClientCompletion)(pClientContext,status);
+                    }
+                    //
+                    // there is no ClientContext which means this node status query
+                    // was started because of a remote adapter status request
+                    // (e.g. nbtstat -a): extract all names out of the node status
+                    // response and complete the remote adapter status irp
+                    //
+                    else
+                    {
+                        PVOID   pBuffer;
+
+                        // bump this up to non dispatch level processing
+                        pBuffer = NbtAllocMem(Length,NBT_TAG('7'));
+                        if (pBuffer)
+                        {
+                            CTEMemCopy(pBuffer,(PVOID)pNodeStatus,Length);
+                            pTracker->SrcIpAddress = SrcIpAddress;
+                            pTracker->pNodeStatus = pBuffer;
+                            pTracker->NodeStatusLen = Length;
+
+                            CTEQueueForNonDispProcessing(pTracker,
+                                                         pTracker,
+                                                         pClientCompletion,
+                                                         CopyNodeStatusResponse,
+                                                         NULL);
+                        }
                     }
                 }
 
-                CTESpinLock(&NbtConfig,OldIrq);
-            }
+                break;
+            } else {
+                //
+                // Free the lock nonetheless.
+                //
+                CTESpinFree(&NbtConfig.JointLock,OldIrq2);
 
+                ASSERTMSG("Nbt:found node status element, but Timer is NULL!\n",0);
+            }
         }
         else
         {
@@ -2260,10 +2424,292 @@ Return Value:
 
     }
 
-    CTESpinFree(&NbtConfig,OldIrq);
-    CTESpinFree(&NbtConfig.JointLock,OldIrq2);
+    if (!MatchFound)
+    {
+        CTESpinFree(&NbtConfig,OldIrq);
+        CTESpinFree(&NbtConfig.JointLock,OldIrq2);
+    }
 
     return(STATUS_UNSUCCESSFUL);
+}
+
+typedef enum    _dest_type {
+    IP_ADDR,
+    DNS,
+    NETBIOS
+} DEST_TYPE;
+
+//----------------------------------------------------------------------------
+DEST_TYPE
+GetDestType(
+    IN  PUCHAR  pName
+    )
+
+/*++
+Routine Description:
+
+    Classifies name passed in as an IP addr/Netbios name/Dns name
+
+Arguments:
+
+Return Value:
+    DEST_TYPE
+
+--*/
+{
+    IF_DBG(NBT_DEBUG_NETBIOS_EX)
+        KdPrint(("GetDestType: input: %s\n", pName));
+
+    if (Nbt_inet_addr(pName)) {
+        return  IP_ADDR;
+    } else {
+        if ((pName[NETBIOS_NAME_SIZE-1] <= 0x20 ) ||
+            (pName[NETBIOS_NAME_SIZE-1] >= 0x7f )) {
+            return NETBIOS;
+        } else {
+            //
+            // else 16 byte DNS name
+            //
+            return DNS;
+        }
+
+    }
+}
+
+//----------------------------------------------------------------------------
+NTSTATUS
+ExtractServerName(
+    IN  tNODESTATUS UNALIGNED   *pNodeStatus,
+    IN  PVOID                    pClientContext,
+    IN  ULONG                    IpAddress
+    )
+
+/*++
+Routine Description:
+
+    This Routine searches for the server name (name ending with 0x20) from the
+    list of names returned by node status response, and adds that name to the
+    remote hash table.
+
+Arguments:
+
+    pNodeStatus      Node status response from the remote host
+    pClientContext   Tracker for the seutp phase
+    IpAddress        Ip address of the node that just responded
+
+Return Value:
+
+    NTSTATUS - status of the request
+               Success, if we find the server name
+               Bad_Network_Path if we couldn't find the server name
+
+--*/
+
+{
+
+    NTSTATUS                   status;
+    NTSTATUS                   Locstatus;
+    ULONG                      i;
+    UCHAR                      Flags;
+    PCHAR                      pName;
+    tNAMEADDR                 *pNameAddr;
+    tDGRAM_SEND_TRACKING      *pClientTracker;
+    tSESSIONREQ               *pSessionReq;
+    PUCHAR                     pCopyTo;
+    CTELockHandle              OldIrq;
+    DEST_TYPE                  DestType;
+
+
+
+    status = STATUS_BAD_NETWORK_PATH;
+
+    pClientTracker = (tDGRAM_SEND_TRACKING *)pClientContext;
+
+    if (pClientTracker->SendBuffer.Length > NETBIOS_NAME_SIZE) {
+        DestType = DNS;
+    } else {
+        DestType = GetDestType(pClientTracker->pDestName);
+    }
+
+    IF_DBG(NBT_DEBUG_NETBIOS_EX)
+        KdPrint(("ExtractSrvName: DestType: %d\n", DestType));
+
+    for(i =0; i<pNodeStatus->NumNames; i++)
+    {
+        pName = &pNodeStatus->NodeName[i].Name[0];
+
+        //
+        // For IP addresses and DNS names, we map the 0x20 name to the corresp 0x0 name
+        // for datagram sends.
+        //
+        if ((DestType == IP_ADDR) || (DestType == DNS)) {
+            if (pName[NETBIOS_NAME_SIZE-1] != 0x20)
+                continue;
+
+            // else
+            if (pClientTracker->Flags & DGRAM_SEND_FLAG) {
+                pName[NETBIOS_NAME_SIZE-1] = 0x0;
+
+                IF_DBG(NBT_DEBUG_NETBIOS_EX)
+                    KdPrint(("ExtractServerName: Mapping 0x20 name to 0x0\n"));
+            }
+
+        } else {
+            //
+            // For Netbios names (resolved via DNS), we match the 16th byte exactly
+            //
+            if (pName[NETBIOS_NAME_SIZE-1] != pClientTracker->pDestName[NETBIOS_NAME_SIZE-1])
+                continue;
+        }
+
+        Flags = pNodeStatus->NodeName[i].Flags;
+
+        //
+        // make sure it's a unique name (for connects only, for dgram sends, group names are fine)
+        // and is not in conflict or released
+        //
+        if ( (((pClientTracker->Flags & SESSION_SETUP_FLAG) && !(Flags & GROUP_STATUS)) ||
+                (pClientTracker->Flags & DGRAM_SEND_FLAG))  &&
+             !(Flags & NODE_NAME_CONFLICT) &&
+             !(Flags & NODE_NAME_RELEASED) )
+        {
+
+            //
+            // fix up the connection tracker to point to the right name, now
+            // that we know the server name to connect to
+            //
+
+            //
+            // The FIND_NAME_FLAG was set to indicate that this is not a session setup attempt so
+            // we can avoid the call to ConvertToHalfAscii.
+            //
+            if (!(pClientTracker->Flags & FIND_NAME_FLAG)) {
+
+    			if ( pClientTracker->Flags & SESSION_SETUP_FLAG )
+    			{
+                	CTEMemCopy(pClientTracker->SendBuffer.pBuffer,pName,NETBIOS_NAME_SIZE);
+                	CTEMemCopy(pClientTracker->Connect.pConnEle->RemoteName,
+                    	       pName,
+                        	   NETBIOS_NAME_SIZE);
+    #ifdef VXD
+                	CTEMemCopy(&pClientTracker->pClientIrp->ncb_callname[0],pName,NETBIOS_NAME_SIZE);
+    #endif // VXD
+                    pSessionReq = pClientTracker->SendBuffer.pDgramHdr;
+
+                    //
+                    // overwrite the Dest HalfAscii name in the Session Pdu with the correct name
+                    //
+                    pCopyTo = ConvertToHalfAscii( (PCHAR)&pSessionReq->CalledName.NameLength,
+                                        pName,
+                                        NbtConfig.pScope,
+                                        NbtConfig.ScopeLength);
+
+    			} else if (pClientTracker->Flags & DGRAM_SEND_FLAG) {
+                    PCHAR   pCopyTo;
+                    tDGRAMHDR   *pDgramHdr;
+
+                    //
+                    // Overwrite the dest name, so SendDgramContinue can find the name
+                    // in the caches.
+                    //
+                	CTEMemCopy(pClientTracker->pDestName,pName,NETBIOS_NAME_SIZE);
+
+                    //
+                    // Copy over the actual dest name in half-ascii
+                    // This is immediately after the SourceName; so offset the
+                    // dest by the length of the src name.
+                    //
+                    pDgramHdr = pClientTracker->SendBuffer.pDgramHdr;
+
+                    pCopyTo = (PVOID)&pDgramHdr->SrcName.NameLength;
+
+                    IF_DBG(NBT_DEBUG_NETBIOS_EX)
+                        KdPrint(("pCopyTo:%lx\n", pCopyTo));
+
+                    pCopyTo += 1 +                          // Length field
+                               2 * NETBIOS_NAME_SIZE +     // actual name in half-ascii
+                               NbtConfig.ScopeLength;     // length of scope
+
+                    IF_DBG(NBT_DEBUG_NETBIOS_EX)
+                        KdPrint(("pCopyTo:%lx\n", pCopyTo));
+
+                    ConvertToHalfAscii( pCopyTo,
+                                        pName,
+                                        NbtConfig.pScope,
+                                        NbtConfig.ScopeLength);
+
+                    IF_DBG(NBT_DEBUG_NETBIOS_EX)
+                        KdPrint(("Copied the remote name for dgram sends\n"));
+                }
+
+            } else {
+                KdPrint(("ExtractServerName: Find name going on\n"));
+            }
+
+            //
+            // add this server name to the remote hashtable
+            //
+            pNameAddr = NbtAllocMem(sizeof(tNAMEADDR),NBT_TAG('8'));
+            if (!pNameAddr)
+            {
+                return(STATUS_INSUFFICIENT_RESOURCES);
+            }
+
+            CTEZeroMemory(pNameAddr,sizeof(tNAMEADDR));
+            InitializeListHead(&pNameAddr->Linkage);
+            CTEMemCopy(pNameAddr->Name,pName,NETBIOS_NAME_SIZE);
+            pNameAddr->Verify = REMOTE_NAME;
+            pNameAddr->RefCount = 1;
+            pNameAddr->NameTypeState = STATE_RESOLVED | NAMETYPE_UNIQUE;
+            pNameAddr->AdapterMask = (CTEULONGLONG)-1;
+            pNameAddr->TimeOutCount  = NbtConfig.RemoteTimeoutCount;
+            pNameAddr->IpAddress = IpAddress;
+
+            Locstatus = AddRecordToHashTable(pNameAddr,NbtConfig.pScope);
+
+            status = STATUS_SUCCESS;
+
+            //KdPrint(("Nbt NodeStat: Found SrvName.  IpAddr = %x, Name = %16.16s<%X>\n",IpAddress,pName,pName[15]));
+
+            //
+            // if Nameaddr couldn't be added, it means an entry already exists
+            // Get that entry and update its ipaddr.
+            //
+            if (!NT_SUCCESS(Locstatus))
+            {
+                //KdPrint(("Nbt ExtractSrv: couldn't add nameaddr for %16.16s<%X>\n",pName,pName[15]));
+                NbtDereferenceName(pNameAddr);
+                Locstatus = FindInHashTable( NbtConfig.pRemoteHashTbl,
+                                             pName,
+                                             NbtConfig.pScope,
+                                             &pNameAddr);
+                if (!NT_SUCCESS(Locstatus))
+                {
+                    Locstatus = FindInHashTable( NbtConfig.pLocalHashTbl,
+                                                 pName,
+                                                 NbtConfig.pScope,
+                                                 &pNameAddr);
+                }
+
+                if (NT_SUCCESS(Locstatus))
+                {
+                    pNameAddr->TimeOutCount  = NbtConfig.RemoteTimeoutCount;
+                    pNameAddr->IpAddress = IpAddress;
+                }
+                else
+                {
+                    ASSERTMSG("Nbt ExtractSrv: couldn't find name in remote or loc table!\n",0);
+                    status = STATUS_BAD_NETWORK_PATH;
+                }
+
+            }
+
+            break;     // found the name: done with the for loop
+        }
+    }
+
+    return( status );
+
 }
 
 //----------------------------------------------------------------------------
@@ -2338,7 +2784,7 @@ Return Value:
         goto ExitRoutine;
     }
 
-    pAdapterStatus = CTEAllocMem((USHORT)BuffSize);
+    pAdapterStatus = NbtAllocMem((USHORT)BuffSize,NBT_TAG('9'));
     if (!pAdapterStatus)
     {
         status = STATUS_INSUFFICIENT_RESOURCES;
@@ -2527,6 +2973,7 @@ SendNodeStatusResponse(
     IN  PUCHAR              pName,
     IN  ULONG               lNameSize,
     IN  ULONG               SrcIpAddress,
+    IN  USHORT              SrcPort,
     IN  tDEVICECONTEXT      *pDeviceContext
     )
 /*++
@@ -2615,7 +3062,7 @@ Return Value:
     // this is only a byte field, so only allow up to 255 names.
     if (CountNames > 255)
     {
-        CountNames == 255;
+        CountNames = 255;
     }
 
 
@@ -2627,7 +3074,7 @@ Return Value:
     BuffSize = Length + sizeof(tNODESTATUS) - sizeof(ULONG) + (CountNames-1)*sizeof(tNODENAME)
                     +  sizeof(tSTATISTICS);
 
-    pNameHdr = (tNAMEHDR *)CTEAllocMem((USHORT)BuffSize);
+    pNameHdr = (tNAMEHDR *)NbtAllocMem((USHORT)BuffSize,NBT_TAG('A'));
     if (!pNameHdr)
     {
         CTESpinFree(&NbtConfig.JointLock,OldIrq2);
@@ -2786,7 +3233,7 @@ Return Value:
                         pDeviceContext->pNameServerFileObject,
                         QueryRespDone, // this routine frees memory and puts the tracker back
                         pTracker,
-                        NBT_NAMESERVICE_UDP_PORT,
+                        SrcPort, // NBT_NAMESERVICE_UDP_PORT 31343 - reply to port request came on....
                         NBT_NAME_SERVICE);
     }
 
@@ -2807,7 +3254,9 @@ UpdateNameState(
     IN  tNAMEADDR               *pNameAddr,
     IN  ULONG                   Len,
     IN  tDEVICECONTEXT          *pDeviceContext,
-    IN  BOOLEAN                 NameServerIsSrc
+    IN  BOOLEAN                 NameServerIsSrc,
+    IN  tDGRAM_SEND_TRACKING    *pTracker,
+    IN  CTELockHandle           OldIrq1
     )
 /*++
 
@@ -2831,6 +3280,7 @@ Return Value:
     tIPLIST     *pIpList;
     ULONG       ExtraNames;
     NTSTATUS    status;
+    CTELockHandle           OldIrq;
 
     // a pos. response to a previous query, so change the state in the
     // hash table to RESOLVED
@@ -2860,7 +3310,23 @@ Return Value:
                 // send to the subnet broadcast address when talking to
                 // that address.
                 CHECK_PTR(pNameAddr);
-                pNameAddr->IpAddress = 0;
+                //
+                // For Bnodes store the Address of the node that responded
+                // to the group name query, since we do allow sessions to
+                // group names for BNODES since they can resolve the name to
+                // and IP address, whereas other nodes cannot.
+                //
+// store the ipaddr regardless of nodetype.  We don't know if this info will be
+// used to setup a session or send a datagram.  We do check NameTypeState
+// while setting up session, so no need to filter out NodeType info here.
+
+                //
+                // WINS puts -1 to say it's a groupname
+                //
+                if ( pAddrStruct->IpAddr == (ULONG)-1 )
+                    pNameAddr->IpAddress = 0;
+                else
+                    pNameAddr->IpAddress = ntohl(pAddrStruct->IpAddr);
 
                 pNameAddr->NameTypeState |= NAMETYPE_GROUP;
             }
@@ -2885,7 +3351,7 @@ Return Value:
                 // there is a null ptr on the end of the list, +1 more for the
                 // broadcast address, and maybe +1 more for the local node)
                 //
-                pIpList = CTEAllocMem((USHORT)((CountAddrs+ExtraNames)*sizeof(tIPLIST)));
+                pIpList = NbtAllocMem((USHORT)((CountAddrs+ExtraNames)*sizeof(tIPLIST)),NBT_TAG('B'));
                 if ( !pIpList )
                     return STATUS_INSUFFICIENT_RESOURCES ;
 
@@ -2913,16 +3379,58 @@ Return Value:
         }
         else
         {
-            if ((Len > sizeof(tADDSTRUCT)) && NameServerIsSrc)
+            if (Len > sizeof(tADDSTRUCT))
             {
                 ULONG   IpAddress;
+                NBT_WORK_ITEM_CONTEXT   *pContext;
 
                 // the name query response contains several ip addresses for
                 // a multihomed host, so pick an address that matches one of
                 // our subnet masks
                 //
-                ChooseBestIpAddress(pAddrStruct,Len,pDeviceContext,&IpAddress);
-                pNameAddr->IpAddress = IpAddress;
+                // Do the old thing for datagram sends/name queries.
+                //
+                if ((NbtConfig.TryAllAddr) &&
+                    (pTracker->Flags & SESSION_SETUP_FLAG)) {
+
+                    // IF_DBG(NBT_DEBUG_NAMESRV)
+                        KdPrint(("Nbt:Kicking off CheckAddr : %lx\n", pAddrStruct));
+
+                    ChooseBestIpAddress(pAddrStruct,Len,pDeviceContext, pTracker, &IpAddress, TRUE);
+
+                    //
+                    // At this point, pTracker->IPList contains the sorted list of destination
+                    // IP addresses. Submit this list to the lmhsvc service to ping each and
+                    // return whic is reachable.
+                    //
+                    pContext = (NBT_WORK_ITEM_CONTEXT *)NbtAllocMem(sizeof(NBT_WORK_ITEM_CONTEXT),NBT_TAG('H'));
+                    if (!pContext)
+                    {
+                       KdPrint(("Nbt: NbtConnect: couldn't alloc mem for pContext\n"));
+                       return(STATUS_SUCCESS);
+                    }
+
+                    pContext->pTracker = NULL;              // no query tracker
+                    pContext->pClientContext = pTracker;    // the client tracker
+                    pContext->ClientCompletion = SessionSetupContinue;
+
+                    CTESpinFree(&NbtConfig.JointLock,OldIrq1);
+                    status = DoCheckAddr(pContext);
+                    CTESpinLock(&NbtConfig.JointLock,OldIrq1);
+
+                    if (!NT_SUCCESS(status)) {
+                       KdPrint(("Nbt: DoCheckAddr returned %lx\n", status));
+                    }
+
+                    return (status);    // shd be STATUS_PENDING
+                } else {
+
+                    // IF_DBG(NBT_DEBUG_NAMESRV)
+                        KdPrint(("Nbt:Choosing best IP addr...\n"));
+
+                    ChooseBestIpAddress(pAddrStruct,Len,pDeviceContext, pTracker, &IpAddress, FALSE);
+                    pNameAddr->IpAddress = IpAddress;
+                }
             }
             else
             {
@@ -2950,6 +3458,7 @@ Return Value:
 //----------------------------------------------------------------------------
 ULONG
 MakeList(
+    IN  tDEVICECONTEXT            *pDeviceContext,
     IN  ULONG                     CountAddrs,
     IN  tADDSTRUCT UNALIGNED      *pAddrStruct,
     IN  PULONG                    AddrArray,
@@ -2975,12 +3484,14 @@ Return Value:
 {
     PLIST_ENTRY            pHead;
     PLIST_ENTRY            pEntry;
-    tDEVICECONTEXT         *pDevContext;
+    tDEVICECONTEXT         *pTmpDevContext;
     ULONG                  MatchAddrs = 0;
     tADDSTRUCT UNALIGNED   *pAddrs;
     ULONG                  i;
     ULONG                  IpAddr;
     ULONG                  NetworkNumber;
+    ULONG		   NetworkNumberInIpAddr;
+    UCHAR		   IpAddrByte;
 
     pHead = &NbtConfig.DeviceContexts;
     pEntry = pHead;
@@ -2988,34 +3499,75 @@ Return Value:
     {
         pAddrs = pAddrStruct;
 
-        pDevContext = CONTAINING_RECORD(pEntry,tDEVICECONTEXT,Linkage);
+        pTmpDevContext = CONTAINING_RECORD(pEntry,tDEVICECONTEXT,Linkage);
+        //
+        // DeviceContext is non-null, if a check has to be made on a specific
+        // DeviceContext.  Otherwise it's null (i.e. check all DeviceContexts)
+        //
+        if (pDeviceContext)
+        {
+            if (pTmpDevContext != pDeviceContext)
+                continue;
+        }
+        if (IsSubnetMatch)
+        {
+            NetworkNumber = pTmpDevContext->SubnetMask & pTmpDevContext->IpAddress;
+        }
+        else
+        {
+            NetworkNumber = pTmpDevContext->NetMask;
+        }
 
         // extract the ipaddress from each address structure
         for ( i = 0 ; i < CountAddrs; i++ )
         {
 
-            IpAddr = ntohl(pAddrs->IpAddr);
+            NetworkNumberInIpAddr = IpAddr = ntohl(pAddrs->IpAddr);
 
-            if (IsSubnetMatch)
-            {
-                NetworkNumber = pDevContext->SubnetMask & pDevContext->IpAddress;
-            }
-            else
-            {
-                NetworkNumber = pDevContext->NetMask;
-            }
+	    if (IsSubnetMatch)
+		{
+	            if (((pTmpDevContext->SubnetMask & IpAddr) == NetworkNumber) &&
+        	        (MatchAddrs < SizeOfAddrArray/sizeof(ULONG)))
+	            {
+        	        // put the ipaddress into a list incase multiple match
+                	// and we want to select one randomly
+	                //
+        	        AddrArray[MatchAddrs++] = IpAddr;
 
-            if (((NetworkNumber & IpAddr) == NetworkNumber) &&
-                (MatchAddrs < SizeOfAddrArray/sizeof(ULONG)))
-            {
-                // put the ipaddress into a list incase multiple match
-                // and we want to select one randomly
-                //
-                AddrArray[MatchAddrs++] = IpAddr;
+	            }
+        	    pAddrs++;
+		}
+	    else
+		{
+		    IpAddrByte = ((PUCHAR)&IpAddr)[3];
+		    if ((IpAddrByte & 0x80) == 0)
+		    {
+    			// class A address - one byte netid
+  		        NetworkNumberInIpAddr &= 0xFF000000;
+		    }
+		    else
+		    if ((IpAddrByte & 0xC0) ==0x80)
+		    {
+		        // class B address - two byte netid
+		        NetworkNumberInIpAddr &= 0xFFFF0000;
+		    }
+		    else
+		    if ((IpAddrByte & 0xE0) ==0xC0)
+		    {
+		        // class C address - three byte netid
+		        NetworkNumberInIpAddr &= 0xFFFFFF00;
+		    }
+	            if ((NetworkNumberInIpAddr == NetworkNumber) &&
+        	        (MatchAddrs < SizeOfAddrArray/sizeof(ULONG)))
+	            {
+        	        // put the ipaddress into a list incase multiple match
+                	// and we want to select one randomly
+	                //
+        	        AddrArray[MatchAddrs++] = IpAddr;
 
-            }
-            pAddrs++;
-
+	            }
+        	    pAddrs++;
+		}
         }
     }
 
@@ -3024,10 +3576,12 @@ Return Value:
 //----------------------------------------------------------------------------
 NTSTATUS
 ChooseBestIpAddress(
-    IN  tADDSTRUCT UNALIGNED      *pAddrStruct,
-    IN  ULONG                     Len,
-    IN  tDEVICECONTEXT            *pDeviceContext,
-    OUT PULONG                    pIpAddress
+    IN  tADDSTRUCT UNALIGNED    *pAddrStruct,
+    IN  ULONG                   Len,
+    IN  tDEVICECONTEXT          *pDeviceContext,
+    OUT tDGRAM_SEND_TRACKING    *pTracker,
+    OUT PULONG                  pIpAddress,
+    IN  BOOLEAN                 fTryAllAddr
     )
 /*++
 
@@ -3065,9 +3619,10 @@ Return Value:
 
         //
         // First check if any addresses are on the same subnet as this
-        // node.
+        // devicecontext.
         //
         MatchAddrs = MakeList(
+                              pDeviceContext,
                               CountAddrs,
                               pAddrStruct,
                               AddrArray,
@@ -3075,13 +3630,29 @@ Return Value:
                               TRUE);
 
         //
-        // if none of the addresses match the subnet address of this node then
-        // go through the same check looking for matches that have the same
-        // network number.
+        // if none of the ipaddrs is on the same subnet as this DeviceContext,
+        // try other DeviceContexts
         //
         if (!MatchAddrs)
         {
             MatchAddrs = MakeList(
+                                  NULL,
+                                  CountAddrs,
+                                  pAddrStruct,
+                                  AddrArray,
+                                  sizeof(AddrArray),
+                                  TRUE);
+        }
+
+        //
+        // if none of the addresses match the subnet address of any of the
+        // DeviceContexts, then go through the same check looking for matches
+        // that have the same network number.
+        //
+        if (!MatchAddrs)
+        {
+            MatchAddrs = MakeList(
+                                  NULL,
                                   CountAddrs,
                                   pAddrStruct,
                                   AddrArray,
@@ -3103,20 +3674,84 @@ Return Value:
 
     if (MatchAddrs)
     {
-        Random = RandomizeFromTime( TimeValue, MatchAddrs ) ;
-        *pIpAddress = AddrArray[Random];
+        if (!fTryAllAddr) {
+
+            Random = RandomizeFromTime( TimeValue, MatchAddrs ) ;
+            *pIpAddress = AddrArray[Random];
+        } else {
+            ULONG   i,j;
+            tADDSTRUCT  temp;
+
+            //
+            // Sort the IP addr list on basis of best IP addr. in AddrArray
+            //
+            // NOTE: this is not a strictly sorted list (the actual sort might be too expensive),
+            // instead we take all the addresses that match the subnet mask (say) and
+            // clump the remaining ones in the same group. This way we ensure that whatever
+            // we chose as the best address is still given preference as compared to the
+            // other addresses.
+            //
+            for (i=0; i<MatchAddrs; i++ ) {
+
+                //
+                // SWAP(pAddrStruct[i], pAddrStruct[Index(AddrArray[i])]);
+                //
+
+                //
+                // Index(AddrArray[i]) is final j
+                //
+                for (j=0; j<CountAddrs; j++) {
+                    // IF_DBG(NBT_DEBUG_NAMESRV)
+                        KdPrint(("Nbt:pAddrStruct[%d] : %lx AddrArray[%d]: %lx\n", j, pAddrStruct[j].IpAddr, i, AddrArray[i]));
+                    if (pAddrStruct[j].IpAddr == (ULONG)ntohl(AddrArray[i])) {
+                        break;
+                    }
+                }
+
+                ASSERT(j < CountAddrs);
+
+                temp = pAddrStruct[i];
+                pAddrStruct[i] = pAddrStruct[j];
+                pAddrStruct[j] = temp;
+            }
+        }
     }
     else
     {
-        Random = RandomizeFromTime( TimeValue, CountAddrs ) ;
+        //
+        // Submit the list to lmhsvc as it is...
+        //
 
-        //
-        // if we get to here then the returned list of ip addresses does not
-        // match the network number of any of our adapters, so therefore just
-        // pick one randomly from the original list
-        //
-        *pIpAddress = htonl(pAddrStruct[Random].IpAddr);
+        if (!fTryAllAddr) {
+            Random = RandomizeFromTime( TimeValue, CountAddrs ) ;
+
+            //
+            // if we get to here then the returned list of ip addresses does not
+            // match the network number of any of our adapters, so therefore just
+            // pick one randomly from the original list
+            //
+            *pIpAddress = htonl(pAddrStruct[Random].IpAddr);
+        }
     }
+
+    if (fTryAllAddr) {
+        ULONG j;
+
+        pTracker->IpList = NbtAllocMem(sizeof(ULONG)*CountAddrs,NBT_TAG('8'));
+
+        if (pTracker->IpList) {
+            for (j=0; j<CountAddrs; j++) {
+                // IF_DBG(NBT_DEBUG_NAMESRV)
+                    KdPrint(("Nbt:pAddrStruct[%d]: %lx\n", j, pAddrStruct[j].IpAddr));
+                pTracker->IpList[j] = pAddrStruct[j].IpAddr;
+            }
+            pTracker->IpList[j] = 0;
+            pTracker->NumAddrs = CountAddrs;
+        } else {
+            return (STATUS_INSUFFICIENT_RESOURCES);
+        }
+    }
+
 }
 //----------------------------------------------------------------------------
 BOOLEAN
@@ -3180,271 +3815,6 @@ Return Value:
     return(FALSE);
 
 }
-
-
-#ifdef VXD
-
-//----------------------------------------------------------------------------
-VOID
-ProcessDnsResponse(
-    IN  tDEVICECONTEXT      *pDeviceContext,
-    IN  PVOID               pSrcAddress,
-    IN  tNAMEHDR UNALIGNED  *pNameHdr,
-    IN  LONG                lNumBytes,
-    IN  USHORT              OpCodeFlags
-    )
-/*++
-
-Routine Description:
-
-    This function sets the state of the name being resolved appropriately
-    depending on whether DNS sends a positive or a negative response to our
-    query; calls the client completion routine and stops any more DNS queries
-    from going.
-
-Arguments:
-
-
-Return Value:
-
-    NTSTATUS - STATUS_SUCCESS or STATUS_UNSUCCESSFUL
-
---*/
-{
-
-
-    NTSTATUS                status;
-    tDNS_QUERYRESP  UNALIGNED   *pQuery;
-    tNAMEADDR               *pResp;
-    tTIMERQENTRY            *pTimer;
-    COMPLETIONCLIENT        pClientCompletion;
-    PVOID                   Context;
-    PTRANSPORT_ADDRESS      pSourceAddress;
-    ULONG                   SrcAddress;
-    CTELockHandle           OldIrq1;
-    LONG                    lNameSize;
-    CHAR                    pName[NETBIOS_NAME_SIZE];
-    PUCHAR                  pScope;
-    PUCHAR                  pchQry;
-
-
-
-    KdPrint(("ProcessDnsResponse entered\r\n"));
-
-
-    // make sure this is a response
-
-    if ( !(OpCodeFlags & OP_RESPONSE) )
-    {
-        CDbgPrint(DBGFLAG_ERROR,("ProcessDnsResponse: Bad OpCodeFlags\r\n"));
-
-        return;
-    }
-
-    //
-    // check the pdu size for errors
-    //
-    if (lNumBytes < DNS_MINIMUM_QUERYRESPONSE)
-    {
-        CDbgPrint(DBGFLAG_ERROR,("ProcessDnsResponse: Bad lNumBytes\r\n"));
-
-        return;
-    }
-
-//
-// BUGBUG: should we require authoritative responses from DNS servers?
-//
-#if 0
-    if (!(OpCodeFlags & FL_AUTHORITY))
-    {
-        CDbgPrint(DBGFLAG_ERROR,("ProcessDnsResponse: FL_AUTHORITY not set!\r\n"));
-
-        return;
-    }
-#endif
-
-
-    pSourceAddress = (PTRANSPORT_ADDRESS)pSrcAddress;
-    SrcAddress     = ntohl(((PTDI_ADDRESS_IP)&pSourceAddress->Address[0].Address[0])->in_addr);
-
-    // get the name out of the network pdu and pass to routine to check
-    // local table
-    status = DnsExtractName( (PCHAR)&pNameHdr->NameRR.NameLength,
-                              lNumBytes,
-                              pName,
-                              &lNameSize);
-
-    if (!NT_SUCCESS(status))
-    {
-        CDbgPrint(DBGFLAG_ERROR,("ProcessDnsResponse: DnsExtractName failed\r\n"));
-
-        return;
-    }
-
-    //
-    // lNameSize is the length of the entire name, excluding the length byte
-    // for the first label (including length bytes of subsequent labels) and
-    // including the trailing 0 (tNAMEHDR struc takes care for 1st byte)
-    //
-    pchQry = (PUCHAR)&pNameHdr->NameRR.NetBiosName[lNameSize];
-
-    //
-    // if the Question section is returned with the response then we have
-    // a little more work to do!  In this case, pQuery is pointing at the
-    // beginning of the QTYPE field (end of the QNAME)
-    //
-    if ( pNameHdr->QdCount )
-    {
-       pchQry += sizeof(tQUESTIONMODS);
-
-       // most common case: 1st byte will be 0xC0, which means next byte points
-       // to the actual name.  We don't care about the name, so we skip over
-       // both the bytes
-       //
-       if ( (*pchQry) == PTR_TO_NAME )
-       {
-          pchQry += sizeof(tDNS_LABEL);
-       }
-
-       //
-       // if some implementation doesn't optimize and copies the whole name
-       // again, skip over the length of the name
-       //
-       else
-       {
-          pchQry += (lNameSize+1);   // +1 because of the 1st length byte!
-       }
-    }
-
-    pQuery = (tDNS_QUERYRESP *)pchQry;
-
-    //
-    // call this routine to find the name, since it does not interpret the
-    // state of the name as does FindName()
-    //
-    CTESpinLock(&NbtConfig.JointLock,OldIrq1);
-
-    status = FindOnPendingList(pName,pNameHdr,FALSE,&pResp);
-
-    if (!NT_SUCCESS(status))
-    {
-        //
-        //  The name is not there in the remote name table.  Nothing
-        //  more to do. Just return.
-        //
-        CTESpinFree(&NbtConfig.JointLock,OldIrq1);
-
-        CDbgPrint(DBGFLAG_ERROR,("ProcessDnsResponse: name not found\r\n"));
-
-        return;
-    }
-
-    // remove any timer block and call the completion routine
-    if ((pTimer = pResp->pTimer))
-    {
-        USHORT                  Flags;
-        tDGRAM_SEND_TRACKING    *pTracker;
-
-        //
-        // this routine puts the timer block back on the timer Q, and
-        // handles race conditions to cancel the timer when the timer
-        // is expiring.
-        status = StopTimer(pTimer,&pClientCompletion,&Context);
-
-        //
-        // Synchronize with DnsCompletion
-        //
-        if (pClientCompletion)
-        {
-            CHECK_PTR(pResp);
-            pResp->pTimer = NULL;
-
-            //
-            // Remove from the PendingNameQueries List
-            //
-            RemoveEntryList(&pResp->Linkage);
-            InitializeListHead(&pResp->Linkage);
-
-            // check the name query response ret code to see if the name
-            // query succeeded or not.
-            if (IS_POS_RESPONSE(OpCodeFlags))
-            {
-                KdPrint(("ProcessDnsResponse: positive DNS response received\r\n"));
-
-                if (pResp->NameTypeState & STATE_RESOLVING)
-                {
-                    pResp->NameTypeState &= ~NAME_STATE_MASK;
-                    pResp->NameTypeState |= STATE_RESOLVED;
-
-                    pResp->IpAddress = ntohl(pQuery->IpAddress);
-
-                    pResp->AdapterMask = (CTEULONGLONG)-1;
-                    status = AddRecordToHashTable(pResp,NbtConfig.pScope);
-
-                    if (!NT_SUCCESS(status))
-                    {
-                        //
-                        // the name must already be in the hash table,
-                        // so dereference it to remove it
-                        //
-                        NbtDereferenceName(pResp);
-                    }
-
-                    IncrementNameStats(NAME_QUERY_SUCCESS, TRUE);
-                }
-
-                status = STATUS_SUCCESS;
-            }
-            else   // negative query response received
-            {
-
-                KdPrint(("ProcessDnsResponse: negative DNS response received\r\n"));
-
-                //
-                // Release the name.  It will get dereferenced by the
-                // cache timeout function (RemoteHashTimeout).
-                //
-                pResp->NameTypeState &= ~NAME_STATE_MASK;
-                pResp->NameTypeState |= STATE_RELEASED;
-
-                NbtDereferenceName(pResp);
-
-                status = STATUS_BAD_NETWORK_PATH;
-            }
-
-            //
-            // Set the backup name server to be the main name server
-            // since we got a response from it.
-            //
-            if ( ((PTDI_ADDRESS_IP)&pSourceAddress->Address[0].Address[0])->in_addr
-                    == (ULONG)(htonl(pDeviceContext->lDnsBackupServer)))
-            {
-               pDeviceContext->lDnsBackupServer =
-                   pDeviceContext->lDnsServerAddress;
-
-               pDeviceContext->lDnsServerAddress =
-                  ((PTDI_ADDRESS_IP)&pSourceAddress->Address[0].Address[0])->in_addr;
-            }
-
-            CTESpinFree(&NbtConfig.JointLock,OldIrq1);
-
-            // the completion routine has not run yet, so run it
-            CompleteClientReq(pClientCompletion,
-                              (tDGRAM_SEND_TRACKING *)Context,
-                              status);
-        }
-
-        return;
-
-    }
-
-    KdPrint(("Leaving ProcessDnsResponse\r\n"));
-
-    return;
-
-}
-
-#endif //  #ifdef VXD
 
 
 //----------------------------------------------------------------------------
@@ -3514,12 +3884,23 @@ Return Value:
     ULONG   SaveAddr;
 
     SaveAddr = pDeviceContext->lNameServerAddress;
+
+    //
+    // Bug: 30511: Dont switch servers if no backup.
+    //
+    if (pDeviceContext->lBackupServer == LOOP_BACK) {
+        IF_DBG(NBT_DEBUG_REFRESH)
+        KdPrint(("Nbt:Will not Switch to backup name server: devctx: %X, refreshtobackup=%X\n",
+                pDeviceContext, pDeviceContext->RefreshToBackup));
+        return;
+    }
+
     pDeviceContext->lNameServerAddress = pDeviceContext->lBackupServer;
     pDeviceContext->lBackupServer = SaveAddr;
 
     IF_DBG(NBT_DEBUG_REFRESH)
-    KdPrint(("Nbt:Switching to backup name server: refreshtobackup=%X\n",
-            pDeviceContext->RefreshToBackup));
+    KdPrint(("Nbt:Switching to backup name server: devctx: %X, refreshtobackup=%X\n",
+            pDeviceContext, pDeviceContext->RefreshToBackup));
 
     // keep track if we are on the backup or not.
     pDeviceContext->RefreshToBackup = ~pDeviceContext->RefreshToBackup;
@@ -3582,6 +3963,7 @@ FindOnPendingList(
     IN  PUCHAR                  pName,
     IN  tNAMEHDR UNALIGNED      *pNameHdr,
     IN  BOOLEAN                 DontCheckTransactionId,
+    IN  ULONG                   BytesToCompare,
     OUT tNAMEADDR               **ppNameAddr
 
     )
@@ -3622,7 +4004,7 @@ Return Value:
             ((pTimer = pNameAddr->pTimer) &&
             (((tDGRAM_SEND_TRACKING *)pTimer->Context)->TransactionId == pNameHdr->TransactId))
                              &&
-            (NETBIOS_NAME_SIZE == CTEMemCmp(pNameAddr->Name,pName,NETBIOS_NAME_SIZE)))
+            (CTEMemEqu(pNameAddr->Name,pName,BytesToCompare)))
         {
             *ppNameAddr = pNameAddr;
             return(STATUS_SUCCESS);
@@ -3721,10 +4103,6 @@ Called By: RegResponseFromNet
         // in the packet (we want to just drop the packet)
         //
       if (
-#if 0
-            (IpAdd == 0)
-                ||
-#endif
              (IpAdd == pNameAddr->IpAddress)
          )
       {
@@ -3737,4 +4115,4 @@ Called By: RegResponseFromNet
 }
 #endif
 
-
+

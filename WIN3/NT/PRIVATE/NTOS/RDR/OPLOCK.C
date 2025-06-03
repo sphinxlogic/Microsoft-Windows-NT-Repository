@@ -28,6 +28,15 @@ Revision History:
 #include "precomp.h"
 #pragma hdrstop
 
+typedef struct _PACKED_LOCK_DESCRIPTOR {
+    PSMB_BUFFER SmbBuffer;
+    PLOCKING_ANDX_RANGE LockRange;
+    ULONG ByteCount;
+    ULONG NumLockRanges;
+    ULONG MaxNumLockRanges;
+    BOOLEAN UseLargeRanges;
+} PACKED_LOCK_DESCRIPTOR, *PPACKED_LOCK_DESCRIPTOR;
+
 
 //
 //      Forward declarations.
@@ -51,21 +60,14 @@ NTSTATUS
 PackFileLock (
     IN PFCB Fcb,
     IN PFILE_LOCK_INFO FileLock,
-    IN ULONG MaxNumLockRanges,
-    IN OUT PSMB_BUFFER *SmbBuffer,
-    IN OUT PLOCKING_ANDX_RANGE *LockRange,
-    IN OUT PULONG ByteCount,
-    IN OUT PULONG NumLockRanges
+    IN OUT PPACKED_LOCK_DESCRIPTOR PackedLocks
     );
 
 DBGSTATIC
 NTSTATUS
 FlushLockRequest (
-    IN OUT PSMB_BUFFER SmbBuffer,
     IN PFCB Fcb,
-    IN OUT PULONG ByteCount,
-    IN OUT PLOCKING_ANDX_RANGE *LockRange,
-    IN OUT PULONG NumLockRanges
+    IN OUT PPACKED_LOCK_DESCRIPTOR PackedLocks
     );
 
 
@@ -132,6 +134,12 @@ Return Value:
     PREQ_LOCKING_ANDX BreakOplockRequest = (PREQ_LOCKING_ANDX) (Smb+1);
 
     DISCARDABLE_CODE(RdrFileDiscardableSection);
+
+    UNREFERENCED_PARAMETER(MpxEntry);
+    UNREFERENCED_PARAMETER(Irp);
+    UNREFERENCED_PARAMETER(Server);
+    UNREFERENCED_PARAMETER(Ctx);
+    UNREFERENCED_PARAMETER(NetworkErrorCode);
 
 //    DbgBreakPoint();
 
@@ -202,12 +210,6 @@ Return Value:
     RdrQueueOplockBreak(FileId, Server, NewOplockLevel);
 
     return STATUS_SUCCESS;      // We're done, eat response and return
-
-    UNREFERENCED_PARAMETER(MpxEntry);
-    UNREFERENCED_PARAMETER(Irp);
-    UNREFERENCED_PARAMETER(Server);
-    UNREFERENCED_PARAMETER(Ctx);
-    UNREFERENCED_PARAMETER(NetworkErrorCode);
 
 }
 
@@ -438,9 +440,9 @@ Return Value:
 
         OldOplockLevel = OplockedFcb->NonPagedFcb->OplockLevel;
 
-//
-//        dprintf(DPRT_OPLOCK, ("Oplocked file %wZ found\n", &OplockedFcb->FileName));
-//
+
+        dprintf(DPRT_OPLOCK, ("Oplocked file %wZ found\n", &OplockedFcb->FileName));
+
         //
         //  We found a file that is oplocked.  Claim the FCB
         //  resource exclusively to allow us to break this puppy.
@@ -527,10 +529,12 @@ Return Value:
 
                 //
                 //  If there are any outstanding file locks on this file,
-                //  flush the locks to the server.
+                //  flush the locks to the server.  If the current oplock
+                //  level is 2, then we don't have any locks to flush.
                 //
 
-                if (FsRtlAreThereCurrentFileLocks(&OplockedFcb->FileLock)) {
+                if (FsRtlAreThereCurrentFileLocks(&OplockedFcb->FileLock) &&
+                    (OldOplockLevel != SMB_OPLOCK_LEVEL_II) ) {
                     Status = RdrFlushFileLocks(OplockedFcb);
 //                   ASSERT (NT_SUCCESS(Status));
                 }
@@ -540,7 +544,7 @@ Return Value:
                 //  and mark the file as being uncached.
                 //
 
-                RdrLog( "rdflushd", &OplockedFcb->FileName, 0, 0 );
+                //RdrLog(( "rdflushd", &OplockedFcb->FileName, 0 ));
                 Status = RdrFlushCacheFile(OplockedFcb);
 
 //               ASSERT (NT_SUCCESS(Status));
@@ -578,7 +582,7 @@ Return Value:
                     //  the oplock is closed in the interim.
                     //
 
-                    RdrLog( "rdpurgee", &OplockedFcb->FileName, 0, 0 );
+                    //RdrLog(( "rdpurgee", &OplockedFcb->FileName, 0 ));
                     Status = RdrPurgeCacheFile(OplockedFcb);
 
                     if (!(OplockedFcb->NonPagedFcb->Flags & FCB_HASOPLOCKHANDLE)) {
@@ -621,16 +625,6 @@ Return Value:
                     try_return(NOTHING);
 
                 }
-
-            } else {
-
-                //
-                //  We can only have one handle open to an exclusive file, so
-                //  make sure of that now.  We don't have to flush anything to
-                //  the server, we just have to acknowledge the oplock break.
-                //
-
-                ASSERT (OplockedFcb->NumberOfOpens == 1);
 
             }
 
@@ -719,7 +713,7 @@ Return Value:
     ASSERT (OplockedFcb->NonPagedFcb->Flags & FCB_HASOPLOCKHANDLE);
 
 
-//    dprintf(DPRT_OPLOCK, ("SendOplockBreakResponse for fcb %lx\n", OplockedFcb));
+    dprintf(DPRT_OPLOCK, ("SendOplockBreakResponse for fcb %lx\n", OplockedFcb));
 
     if ((SmbBuffer = RdrAllocateSMBBuffer())==NULL) {
         RdrInternalError(EVENT_RDR_OPLOCK_SMB);
@@ -785,7 +779,7 @@ Return Value:
             NULL,
             FALSE,
             FALSE,
-            FALSE,
+            0,
             FALSE,
             &Mte,
             Context.TransferSize);
@@ -813,9 +807,13 @@ Return Value:
         KeInitializeEvent(&Context.KernelEvent, NotificationEvent, TRUE);
 
 
-        Status = RdrSendSMB(NT_NORMAL, NULL, OplockedFcb->Connection,
-                                            OplockedFcb->NonPagedFcb->OplockedSecurityEntry->PagedSecurityEntry,
-                                            Mte, SmbBuffer->Mdl);
+        Status = RdrSendSMB(
+                    NT_NORMAL,
+                    OplockedFcb->Connection,
+                    OplockedFcb->NonPagedFcb->OplockedSecurityEntry->PagedSecurityEntry,
+                    Mte,
+                    SmbBuffer->Mdl
+                    );
 
         if (!NT_SUCCESS(Status)) {
             try_return(Status);
@@ -846,7 +844,7 @@ try_exit:NOTHING;
             RdrFreeSMBBuffer(SmbBuffer);
         }
 
-//        dprintf(DPRT_OPLOCK, ("SendOplockBreakResponse for fcb %lx done\n", OplockedFcb));
+        dprintf(DPRT_OPLOCK, ("SendOplockBreakResponse for fcb %lx done\n", OplockedFcb));
     }
     return Status;
 }
@@ -882,16 +880,10 @@ Return Value:
     NTSTATUS Status;
     PFILE_LOCK_INFO FileLock;
     ULONG MaxNumLockRanges;
+    BOOLEAN UseLargeRanges;
 
-    PSMB_BUFFER ExclusiveSmbBuffer = NULL;
-    PLOCKING_ANDX_RANGE ExclusiveLockRange = NULL;
-    ULONG ExclusiveByteCount = 0;
-    ULONG ExclusiveNumLockRanges = 0;
-
-    PSMB_BUFFER SharedSmbBuffer = NULL;
-    PLOCKING_ANDX_RANGE SharedLockRange = NULL;
-    ULONG SharedByteCount = 0;
-    ULONG SharedNumLockRanges = 0;
+    PACKED_LOCK_DESCRIPTOR ExclusiveLocks;
+    PACKED_LOCK_DESCRIPTOR SharedLocks;
 
     PAGED_CODE();
 
@@ -899,18 +891,39 @@ Return Value:
         return STATUS_VIRTUAL_CIRCUIT_CLOSED;
     }
 
-    MaxNumLockRanges =
-      ((MIN((ULONG)SMB_BUFFER_ALLOCATION, Fcb->Connection->Server->BufferSize) -
-          (sizeof(SMB_HEADER) + FIELD_OFFSET(REQ_LOCKING_ANDX, Buffer[0]))) /
-                      sizeof(LOCKING_ANDX_RANGE));
+    //
+    // Initialize the lock descriptors.
+    //
 
-//    dprintf(DPRT_OPLOCK, ("RdrFlushFileLocks, File:%wZ (%lx)\n", &Fcb->FileName, Fcb))
-//
-//    dprintf(DPRT_OPLOCK, ("NumLocksPerSmb: %lx. %lx bytes of data\n", MaxNumLockRanges,
-//                                ((MaxNumLockRanges*sizeof(LOCKING_ANDX_RANGE))+
-//                                 sizeof(SMB_HEADER)+
-//                                 FIELD_OFFSET(REQ_LOCKING_ANDX, Buffer[0]))));
-//
+    ExclusiveLocks.SmbBuffer = NULL;
+    SharedLocks.SmbBuffer = NULL;
+
+    //
+    // If the server is an NT server, we need to ship large lock range descriptors.
+    //
+
+    UseLargeRanges = BooleanFlagOn(Fcb->Connection->Server->Capabilities, DF_NT_SMBS);
+    ExclusiveLocks.UseLargeRanges = UseLargeRanges;
+    SharedLocks.UseLargeRanges = UseLargeRanges;
+
+    //
+    // Calculate the number of lock ranges that will fit in an SMB buffer.
+    //
+
+    MaxNumLockRanges =
+      (MIN((ULONG)SMB_BUFFER_SIZE, Fcb->Connection->Server->BufferSize) -
+          (sizeof(SMB_HEADER) + FIELD_OFFSET(REQ_LOCKING_ANDX, Buffer[0]))) /
+            (UseLargeRanges ? sizeof(NTLOCKING_ANDX_RANGE) : sizeof(LOCKING_ANDX_RANGE));
+    ExclusiveLocks.MaxNumLockRanges = MaxNumLockRanges;
+    SharedLocks.MaxNumLockRanges = MaxNumLockRanges;
+
+    dprintf(DPRT_OPLOCK, ("RdrFlushFileLocks, File:%wZ (%lx)\n", &Fcb->FileName, Fcb))
+
+    dprintf(DPRT_OPLOCK, ("NumLocksPerSmb: %lx. %lx bytes of data\n", MaxNumLockRanges,
+       ((MaxNumLockRanges*
+            (UseLargeRanges?sizeof(NTLOCKING_ANDX_RANGE):sizeof(LOCKING_ANDX_RANGE)))+
+       sizeof(SMB_HEADER)+FIELD_OFFSET(REQ_LOCKING_ANDX, Buffer[0]))));
+
     ASSERT (MaxNumLockRanges > 0);
 
     for (FileLock = FsRtlGetNextFileLock(&Fcb->FileLock, TRUE)
@@ -926,43 +939,29 @@ Return Value:
 
         if (FileLock->ExclusiveLock) {
 
-            Status = PackFileLock(Fcb, FileLock, MaxNumLockRanges,
-                                  &ExclusiveSmbBuffer,
-                                  &ExclusiveLockRange,
-                                  &ExclusiveByteCount,
-                                  &ExclusiveNumLockRanges);
+            Status = PackFileLock(Fcb, FileLock, &ExclusiveLocks);
         } else {
 
-            Status = PackFileLock(Fcb, FileLock, MaxNumLockRanges,
-                                  &SharedSmbBuffer,
-                                  &SharedLockRange,
-                                  &SharedByteCount,
-                                  &SharedNumLockRanges);
+            Status = PackFileLock(Fcb, FileLock, &SharedLocks);
         }
 
 //       ASSERT(NT_SUCCESS(Status));
     }
 
-    Status = FlushLockRequest(ExclusiveSmbBuffer,
-                         Fcb, &ExclusiveByteCount,
-                         &ExclusiveLockRange,
-                         &ExclusiveNumLockRanges);
+    Status = FlushLockRequest(Fcb, &ExclusiveLocks);
 
 //    ASSERT(NT_SUCCESS(Status));
 
-    Status = FlushLockRequest(SharedSmbBuffer,
-                         Fcb, &SharedByteCount,
-                         &SharedLockRange,
-                         &SharedNumLockRanges);
+    Status = FlushLockRequest(Fcb, &SharedLocks);
 
 //    ASSERT(NT_SUCCESS(Status));
 
-    if (ExclusiveSmbBuffer != NULL) {
-        RdrFreeSMBBuffer(ExclusiveSmbBuffer);
+    if (ExclusiveLocks.SmbBuffer != NULL) {
+        RdrFreeSMBBuffer(ExclusiveLocks.SmbBuffer);
     }
 
-    if (SharedSmbBuffer != NULL) {
-        RdrFreeSMBBuffer(SharedSmbBuffer);
+    if (SharedLocks.SmbBuffer != NULL) {
+        RdrFreeSMBBuffer(SharedLocks.SmbBuffer);
     }
 
     return Status;
@@ -974,11 +973,7 @@ NTSTATUS
 PackFileLock (
     IN PFCB Fcb,
     IN PFILE_LOCK_INFO FileLock,
-    IN ULONG MaxNumLockRanges,
-    IN OUT PSMB_BUFFER *SmbBuffer,
-    IN OUT PLOCKING_ANDX_RANGE *LockRange,
-    IN OUT PULONG ByteCount,
-    IN OUT PULONG NumLockRanges
+    IN OUT PPACKED_LOCK_DESCRIPTOR PackedLocks
     )
 
 /*++
@@ -992,12 +987,7 @@ Arguments:
 
     IN PFCB Fcb - Fcb to flush locks on.
     IN PFILE_LOCK FileLock -
-    IN OUT PSMB_BUFFER *SmbBuffer - Supplies/Returns an SMB buffer.
-    IN OUT PLOCKING_ANDX_RANGE *LockRange - Supplies/Returns the latest range
-    IN OUT PULONG ByteCount - Supplies the number of bytes put into the buffer
-    IN OUT PULONG NumLockRanges - Supplies the number of lock ranges in request
-    IN ULONG MaxNumLockRanges - Supplies the max number that can fit in a
-                                    request
+    IN OUT PPACKED_LOCK_DESCRIPTOR PackedLocks - Supplies/Returns a lock descriptor.
 
 
 Return Value:
@@ -1010,24 +1000,30 @@ Return Value:
 
 {
     NTSTATUS Status;
+    PSMB_BUFFER SmbBuffer;
     PSMB_HEADER Smb;
     PREQ_LOCKING_ANDX LockRequest;
+    PLOCKING_ANDX_RANGE LockRange;
+    PNTLOCKING_ANDX_RANGE NtLockRange;
+    UCHAR LockType;
 
     PAGED_CODE();
 
-    if (*SmbBuffer == NULL) {
+    SmbBuffer = PackedLocks->SmbBuffer;
 
-        *SmbBuffer = RdrAllocateSMBBuffer();
+    if (SmbBuffer == NULL) {
 
-//        dprintf(DPRT_OPLOCK, ("PackFileLock.  New lock buffer @ %lx\n", *SmbBuffer));
+        SmbBuffer = RdrAllocateSMBBuffer();
+        dprintf(DPRT_OPLOCK, ("PackFileLock.  New lock buffer @ %lx\n", SmbBuffer));
 
-        if (*SmbBuffer == NULL) {
+        if (SmbBuffer == NULL) {
             return STATUS_INSUFFICIENT_RESOURCES;
         }
 
-        Smb = (PSMB_HEADER )(*SmbBuffer)->Buffer;
+        PackedLocks->SmbBuffer = SmbBuffer;
 
-        LockRequest = (PREQ_LOCKING_ANDX )(Smb+1);
+        Smb = (PSMB_HEADER)SmbBuffer->Buffer;
+        LockRequest = (PREQ_LOCKING_ANDX)(Smb + 1);
 
         Smb->Command = SMB_COM_LOCKING_ANDX;
 
@@ -1045,44 +1041,59 @@ Return Value:
 
         SmbPutUshort(&LockRequest->Fid, Fcb->NonPagedFcb->OplockedFileId);
 
-        if (FileLock->ExclusiveLock) {
-            SmbPutUshort(&LockRequest->LockType, 0);
-        } else {
-            SmbPutUshort(&LockRequest->LockType, LOCKING_ANDX_SHARED_LOCK);
+        LockType = 0;
+        if ( !FileLock->ExclusiveLock ) {
+            LockType |= LOCKING_ANDX_SHARED_LOCK;
         }
+        if ( PackedLocks->UseLargeRanges ) {
+            LockType |= LOCKING_ANDX_LARGE_FILES;
+        }
+        SmbPutUshort(&LockRequest->LockType, LockType);
 
-        *ByteCount = sizeof(SMB_HEADER) +
-                                    FIELD_OFFSET(REQ_LOCKING_ANDX, Buffer[0]);
-
-        *LockRange = (PLOCKING_ANDX_RANGE )LockRequest->Buffer;
-
-        *NumLockRanges = 0;
+        PackedLocks->ByteCount = sizeof(SMB_HEADER) + FIELD_OFFSET(REQ_LOCKING_ANDX, Buffer[0]);
+        PackedLocks->LockRange = (PLOCKING_ANDX_RANGE)LockRequest->Buffer;
+        PackedLocks->NumLockRanges = 0;
 
     }
 
-//    dprintf(DPRT_OPLOCK, ("PackFileLock.  Pack range into @ %lx Off:%lx, Len:%lx\n", *SmbBuffer, FileLock->StartingByte.LowPart, FileLock->Length.LowPart));
+    dprintf(DPRT_OPLOCK, ("PackFileLock.  Pack range into @ %x Off:%x%08x, Len:%x%08x\n",
+        SmbBuffer, FileLock->StartingByte.HighPart,  FileLock->StartingByte.LowPart,
+        FileLock->Length.HighPart, FileLock->Length.LowPart));
 
-    ASSERT(FileLock->StartingByte.HighPart == 0);
+    if ( PackedLocks->UseLargeRanges ) {
 
-    SmbPutUshort(&(*LockRange)->Pid, RDR_PROCESS_ID);
+        NtLockRange = (PNTLOCKING_ANDX_RANGE)PackedLocks->LockRange;
+        SmbPutUshort(&NtLockRange->Pid, RDR_PROCESS_ID);
+        SmbPutUshort(&NtLockRange->Pad, 0);
+        SmbPutUlong(&NtLockRange->OffsetHigh, FileLock->StartingByte.HighPart);
+        SmbPutUlong(&NtLockRange->OffsetLow, FileLock->StartingByte.LowPart);
+        SmbPutUlong(&NtLockRange->LengthHigh, FileLock->Length.HighPart);
+        SmbPutUlong(&NtLockRange->LengthLow, FileLock->Length.LowPart);
 
-    SmbPutUlong(&(*LockRange)->Offset, FileLock->StartingByte.LowPart);
-
-    SmbPutUlong(&(*LockRange)->Length, FileLock->Length.LowPart);
-
-    (*NumLockRanges)++;
-
-    *ByteCount += sizeof(LOCKING_ANDX_RANGE);
-
-    *LockRange = *LockRange + 1;
-
-    if (*NumLockRanges == MaxNumLockRanges) {
-        Status = FlushLockRequest(*SmbBuffer, Fcb, ByteCount, LockRange, NumLockRanges);
+        PackedLocks->LockRange = (PLOCKING_ANDX_RANGE)(NtLockRange + 1);
+        PackedLocks->ByteCount += sizeof(NTLOCKING_ANDX_RANGE);
 
     } else {
 
-        Status = STATUS_SUCCESS;
+        ASSERT( FileLock->StartingByte.HighPart == 0 );
+        ASSERT( FileLock->Length.HighPart == 0 );
 
+        LockRange = PackedLocks->LockRange;
+        SmbPutUshort(&LockRange->Pid, RDR_PROCESS_ID);
+        SmbPutUlong(&LockRange->Offset, FileLock->StartingByte.LowPart);
+        SmbPutUlong(&LockRange->Length, FileLock->Length.LowPart);
+
+        PackedLocks->LockRange = LockRange + 1;
+        PackedLocks->ByteCount += sizeof(LOCKING_ANDX_RANGE);
+
+    }
+
+    PackedLocks->NumLockRanges++;
+
+    if ( PackedLocks->NumLockRanges == PackedLocks->MaxNumLockRanges ) {
+        Status = FlushLockRequest( Fcb, PackedLocks );
+    } else {
+        Status = STATUS_SUCCESS;
     }
 
     return Status;
@@ -1092,11 +1103,8 @@ Return Value:
 DBGSTATIC
 NTSTATUS
 FlushLockRequest (
-    IN PSMB_BUFFER SmbBuffer,
     IN PFCB Fcb,
-    IN OUT PULONG ByteCount,
-    IN OUT PLOCKING_ANDX_RANGE *LockRange,
-    IN OUT PULONG NumLockRanges
+    IN OUT PPACKED_LOCK_DESCRIPTOR PackedLocks
     )
 
 /*++
@@ -1108,11 +1116,8 @@ Routine Description:
 
 Arguments:
 
-    IN PSMB_BUFFER SmbBuffer - SMB buffer to flush.
     IN PFCB Fcb - Fcb for the file to flush.
-    IN OUT PULONG ByteCount - The number of bytes in the request to unlock
-    IN OUT PLOCKING_ANDX_RANGE *LockRange - Pointer to the last lock range
-    IN OUT PULONG NumLockRanges - Number of lock ranges in this request
+    IN OUT PPACKED_LOCK_DESCRIPTOR PackedLocks - Supplies/Returns a lock descriptor.
 
 
 Return Value:
@@ -1124,30 +1129,35 @@ Return Value:
 --*/
 {
     NTSTATUS Status = STATUS_SUCCESS;
+    PSMB_BUFFER SmbBuffer;
     PREQ_LOCKING_ANDX LockRequest;
 
     PAGED_CODE();
 
-    if (SmbBuffer != NULL && NumLockRanges != 0) {
+    SmbBuffer = PackedLocks->SmbBuffer;
 
-//        dprintf(DPRT_OPLOCK, ("FlushLockRequest.   Flush lock SMB %lx\n", SmbBuffer));
+    if ( (SmbBuffer != NULL) && (PackedLocks->NumLockRanges != 0) ) {
 
-        LockRequest = (PREQ_LOCKING_ANDX) (((PSMB_HEADER )SmbBuffer->Buffer)+1);
+        dprintf(DPRT_OPLOCK, ("FlushLockRequest.   Flush lock SMB %lx\n", SmbBuffer));
+
+        LockRequest = (PREQ_LOCKING_ANDX)((PSMB_HEADER)SmbBuffer->Buffer + 1);
 
         //
         //  We are going to transition lock types, so we have
         //  to flush this SMB to the server.
         //
 
-        ASSERT(*NumLockRanges > 0);
-
         ASSERT(SmbGetUshort(&LockRequest->Fid) == Fcb->NonPagedFcb->OplockedFileId);
 
-        SmbPutUshort(&LockRequest->NumberOfLocks, (USHORT )*NumLockRanges);
+        SmbPutUshort(&LockRequest->NumberOfLocks, (USHORT)PackedLocks->NumLockRanges);
 
-        SmbPutUshort(&LockRequest->ByteCount, (USHORT )(*ByteCount-(sizeof(SMB_HEADER)+FIELD_OFFSET(REQ_LOCKING_ANDX, Buffer[0]))));
+        SmbPutUshort(
+            &LockRequest->ByteCount,
+            (USHORT)(PackedLocks->ByteCount - (sizeof(SMB_HEADER) +
+                                        FIELD_OFFSET(REQ_LOCKING_ANDX, Buffer[0])))
+            );
 
-        SmbBuffer->Mdl->ByteCount = *ByteCount;
+        SmbBuffer->Mdl->ByteCount = PackedLocks->ByteCount;
 
         //
         //  Flush the oplock request.
@@ -1164,11 +1174,9 @@ Return Value:
             RdrInvalidateFileId(Fcb->NonPagedFcb, Fcb->NonPagedFcb->OplockedFileId);
         }
 
-        *ByteCount = sizeof(SMB_HEADER) + FIELD_OFFSET(REQ_LOCKING_ANDX, Buffer[0]);
-
-        *LockRange = (PLOCKING_ANDX_RANGE )LockRequest->Buffer;
-
-        *NumLockRanges = 0;
+        PackedLocks->ByteCount = sizeof(SMB_HEADER) + FIELD_OFFSET(REQ_LOCKING_ANDX, Buffer[0]);
+        PackedLocks->LockRange = (PLOCKING_ANDX_RANGE)LockRequest->Buffer;
+        PackedLocks->NumLockRanges = 0;
 
     }
 

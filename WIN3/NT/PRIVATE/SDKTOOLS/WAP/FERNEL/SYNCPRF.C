@@ -309,9 +309,8 @@ else {
     DumpSDataLinePrint ( hFile, L"Pulse               ", psData->Pulses.nTimeOfOps, psData->Pulses.nNumOfOps, FALSE, 0 );
 }
 
-liTotalWaitTime = RtlLargeIntegerAdd (
-		RtlLargeIntegerAdd (pWaitD->nTimeOfSingle, pWaitD->nTimeOfAll),
-			 				   pWaitD->nTimeOfAny );
+liTotalWaitTime.QuadPart = pWaitD->nTimeOfSingle.QuadPart + 
+      pWaitD->nTimeOfAll.QuadPart + pWaitD->nTimeOfAny.QuadPart ;
 ulTotalWaitOps = (pWaitD->nNumOfSingle)+(pWaitD->nNumOfAll)+ pWaitD->nNumOfAny;
 ulTotalWaitSuccess = (pWaitD->nNumOfSingleSuccessful) +
 		(pWaitD->nNumOfAllSuccessful) + (pWaitD->nNumOfAnySuccessful);
@@ -347,6 +346,7 @@ void DumpSDataLinePrint (HANDLE hFile, LPTSTR NameOfOp, LARGE_INTEGER TimeOfOps,
 
 	register DWORD cChar;
 	DWORD cWChar;
+   LARGE_INTEGER t ;
 
    if ( (NumOfOps == (ULONG) 0) || ((NumOfOps == (ULONG) 1) &&
 					     (TimeOfOps.LowPart == (ULONG) 0)))
@@ -365,9 +365,8 @@ void DumpSDataLinePrint (HANDLE hFile, LPTSTR NameOfOp, LARGE_INTEGER TimeOfOps,
    wsprintf ( OutBuf + 32, L"%10lu", NumOfOps );
    OutBuf[42] = TEXT('|');
 
-   wsprintf ( OutBuf + 43, L"%10lu",
-		(RtlExtendedLargeIntegerDivide (TimeOfOps, NumOfOps,
-						      (PULONG) NULL)).LowPart );
+   t.QuadPart = TimeOfOps.QuadPart / NumOfOps ;
+   wsprintf ( OutBuf + 43, L"%10lu", t.LowPart ) ;
    OutBuf[53] = TEXT('|');
 
    if ( PrintWaits )
@@ -403,21 +402,22 @@ void AccumulateAllSHandleData (PSP_Handle phHandle, UCHAR Type)
 	ulNumOfSHandles++;
 
    psAll->Overall.nNumOfOps += psHData->Overall.nNumOfOps;
-   psAll->Overall.nTimeOfOps = RtlLargeIntegerAdd ( psAll->Overall.nTimeOfOps, psHData->Overall.nTimeOfOps );
+   psAll->Overall.nTimeOfOps.QuadPart = psAll->Overall.nTimeOfOps.QuadPart +
+       psHData->Overall.nTimeOfOps.QuadPart ;
    if ( Type == 0 ) {
    	psAll->Resets.nNumOfOps += psHData->Resets.nNumOfOps;
-   	psAll->Resets.nTimeOfOps = RtlLargeIntegerAdd ( psAll->Resets.nTimeOfOps, psHData->Resets.nTimeOfOps );
+   	psAll->Resets.nTimeOfOps.QuadPart += psHData->Resets.nTimeOfOps.QuadPart ;
    	psAll->Pulses.nNumOfOps += psHData->Pulses.nNumOfOps;
-   	psAll->Pulses.nTimeOfOps = RtlLargeIntegerAdd ( psAll->Pulses.nTimeOfOps, psHData->Pulses.nTimeOfOps );
+   	psAll->Pulses.nTimeOfOps.QuadPart += psHData->Pulses.nTimeOfOps.QuadPart ;
    }
    psAll->Signals.nNumOfOps += psHData->Signals.nNumOfOps;
-   psAll->Signals.nTimeOfOps = RtlLargeIntegerAdd ( psAll->Signals.nTimeOfOps, psHData->Signals.nTimeOfOps );
+   psAll->Signals.nTimeOfOps.QuadPart += psHData->Signals.nTimeOfOps.QuadPart ;
    psAll->Waits.nNumOfSingle += psHData->Waits.nNumOfSingle;
    psAll->Waits.nNumOfAll += psHData->Waits.nNumOfAll;
    psAll->Waits.nNumOfAny += psHData->Waits.nNumOfAny;
-   psAll->Waits.nTimeOfSingle = RtlLargeIntegerAdd ( psAll->Waits.nTimeOfSingle, psHData->Waits.nTimeOfSingle );
-   psAll->Waits.nTimeOfAll = RtlLargeIntegerAdd ( psAll->Waits.nTimeOfAll, psHData->Waits.nTimeOfAll );
-   psAll->Waits.nTimeOfAny = RtlLargeIntegerAdd ( psAll->Waits.nTimeOfAny, psHData->Waits.nTimeOfAny );
+   psAll->Waits.nTimeOfSingle.QuadPart += psHData->Waits.nTimeOfSingle.QuadPart ;
+   psAll->Waits.nTimeOfAll.QuadPart += psHData->Waits.nTimeOfAll.QuadPart ;
+   psAll->Waits.nTimeOfAny.QuadPart += psHData->Waits.nTimeOfAny.QuadPart ;
    psAll->Waits.nNumOfSingleSuccessful += psHData->Waits.nNumOfSingleSuccessful;
    psAll->Waits.nNumOfAllSuccessful += psHData->Waits.nNumOfAllSuccessful;
    psAll->Waits.nNumOfAnySuccessful += psHData->Waits.nNumOfAnySuccessful;
@@ -425,20 +425,20 @@ void AccumulateAllSHandleData (PSP_Handle phHandle, UCHAR Type)
    if (phHandle != phSDuplicated[Type]) {
 	if ( (psHData->Opens.nTimeOfOp.LowPart) != (ULONG) 0 ) {
 	    ulNumOfAllSOpenOps++;
-	    psAll->Opens.nTimeOfOp = RtlLargeIntegerAdd ( psAll->Opens.nTimeOfOp, psHData->Opens.nTimeOfOp );
+	    psAll->Opens.nTimeOfOp.QuadPart += psHData->Opens.nTimeOfOp.QuadPart ;
 	}
 	if ( (psHData->Creates.nTimeOfOp.LowPart) != (ULONG) 0 ) {
 	    ulNumOfAllSCreateOps++;
-	    psAll->Creates.nTimeOfOp = RtlLargeIntegerAdd ( psAll->Creates.nTimeOfOp, psHData->Creates.nTimeOfOp );
+	    psAll->Creates.nTimeOfOp.QuadPart += psHData->Creates.nTimeOfOp.QuadPart ;
 	}
 	if ( (psHData->Closes.nTimeOfOp.LowPart) != (ULONG) 0 ) {
 	    ulNumOfAllSCloseOps++;
-	    psAll->Closes.nTimeOfOp = RtlLargeIntegerAdd ( psAll->Closes.nTimeOfOp, psHData->Closes.nTimeOfOp );
+	    psAll->Closes.nTimeOfOp.QuadPart += psHData->Closes.nTimeOfOp.QuadPart ;
 	}
    }
    else {
 	ulNumOfAllSCloseOps += psHData->Creates.nTimeOfOp.LowPart;
-	psAll->Closes.nTimeOfOp = RtlLargeIntegerAdd ( psAll->Closes.nTimeOfOp, psHData->Closes.nTimeOfOp );
+	psAll->Closes.nTimeOfOp.QuadPart += psHData->Closes.nTimeOfOp.QuadPart ;
    }
 }
 
@@ -562,10 +562,6 @@ void InitSyncProf (void)
 
   hBufferMutex = CreateMutex ( (LPSECURITY_ATTRIBUTES) NULL, FALSE,
 						    (LPTSTR)NAMEOFBUFFERMUTEX );
-
-  tiTypeInfo.TypeName.Length =
-  tiTypeInfo.TypeName.MaximumLength = sizeof(WCHAR) * BUFSIZE;
-  tiTypeInfo.TypeName.Buffer = (PWSTR)TypeInfoBuffer;
 
   hTypeMutex = CreateMutex ( (LPSECURITY_ATTRIBUTES) NULL, FALSE,
 						  (LPTSTR)NAMEOFTYPEINFOMUTEX );
@@ -887,10 +883,12 @@ void FreeMemoryOfSHandle (PSP_Handle phHandle)
 BOOL OpensAccounting (PSP_SyncH psHData, ULONG nTime)
 {
 
-	LARGE_INTEGER liTime = RtlConvertUlongToLargeInteger ( nTime );
+	LARGE_INTEGER liTime  ;
 	register SyncProfOverall  *pspoOverall;
 	register SyncProfOpen     *pspoOpen;
 
+   liTime.QuadPart = nTime ;
+   
     if ( psHData == (PSP_SyncH) NULL )
 	return FALSE;
 
@@ -898,7 +896,7 @@ BOOL OpensAccounting (PSP_SyncH psHData, ULONG nTime)
     pspoOpen = &(psHData->Opens);
 
     (pspoOverall->nNumOfOps)++;
-    pspoOverall->nTimeOfOps = RtlLargeIntegerAdd ( pspoOverall->nTimeOfOps, liTime );
+    pspoOverall->nTimeOfOps.QuadPart += liTime.QuadPart ;
 
     pspoOpen->nTimeOfOp.LowPart = liTime.LowPart;
     pspoOpen->nTimeOfOp.HighPart = liTime.HighPart;
@@ -917,10 +915,12 @@ BOOL OpensAccounting (PSP_SyncH psHData, ULONG nTime)
 BOOL CreatesAccounting (PSP_SyncH psHData, ULONG nTime)
 {
 
-	LARGE_INTEGER liTime = RtlConvertUlongToLargeInteger ( nTime );
+	LARGE_INTEGER liTime ;
 	register SyncProfOverall  *pspoOverall;
 	register SyncProfCreate   *pspcCreate;
 
+   liTime.QuadPart = nTime ;
+   
     if ( psHData == (PSP_SyncH) NULL )
 	return FALSE;
 
@@ -928,7 +928,7 @@ BOOL CreatesAccounting (PSP_SyncH psHData, ULONG nTime)
     pspcCreate = &(psHData->Creates);
 
     (pspoOverall->nNumOfOps)++;
-    pspoOverall->nTimeOfOps = RtlLargeIntegerAdd ( pspoOverall->nTimeOfOps, liTime );
+    pspoOverall->nTimeOfOps.QuadPart += liTime.QuadPart ;
 
     pspcCreate->nTimeOfOp.LowPart = liTime.LowPart;
     pspcCreate->nTimeOfOp.HighPart = liTime.HighPart;
@@ -948,10 +948,12 @@ BOOL CreatesAccounting (PSP_SyncH psHData, ULONG nTime)
 BOOL SignalsAccounting (PSP_SyncH psHData, ULONG nTime)
 {
 
-	LARGE_INTEGER liTime = RtlConvertUlongToLargeInteger ( nTime );
+	LARGE_INTEGER liTime ;
 	register SyncProfOverall  *pspoOverall;
 	register SyncProfSignal   *pspsSignal;
 
+   liTime.QuadPart = nTime ;
+   
     if ( psHData == (PSP_SyncH) NULL )
 	return FALSE;
 
@@ -959,10 +961,10 @@ BOOL SignalsAccounting (PSP_SyncH psHData, ULONG nTime)
     pspsSignal = &(psHData->Signals);
 
     (pspoOverall->nNumOfOps)++;
-    pspoOverall->nTimeOfOps = RtlLargeIntegerAdd ( pspoOverall->nTimeOfOps, liTime );
+    pspoOverall->nTimeOfOps.QuadPart += liTime.QuadPart ;
 
     (pspsSignal->nNumOfOps)++;
-    pspsSignal->nTimeOfOps = RtlLargeIntegerAdd ( pspsSignal->nTimeOfOps, liTime );
+    pspsSignal->nTimeOfOps.QuadPart += liTime.QuadPart ;
 
     return TRUE;
 
@@ -978,10 +980,12 @@ BOOL SignalsAccounting (PSP_SyncH psHData, ULONG nTime)
 BOOL ResetsAccounting (PSP_SyncH psHData, ULONG nTime)
 {
 
-	LARGE_INTEGER liTime = RtlConvertUlongToLargeInteger ( nTime );
+	LARGE_INTEGER liTime ;
 	register SyncProfOverall  *pspoOverall;
 	register SyncProfReset    *psprReset;
 
+   liTime.QuadPart = nTime ;
+   
     if ( psHData == (PSP_SyncH) NULL )
 	return FALSE;
 
@@ -989,10 +993,10 @@ BOOL ResetsAccounting (PSP_SyncH psHData, ULONG nTime)
     psprReset = &(psHData->Resets);
 
     (pspoOverall->nNumOfOps)++;
-    pspoOverall->nTimeOfOps = RtlLargeIntegerAdd ( pspoOverall->nTimeOfOps, liTime );
+    pspoOverall->nTimeOfOps.QuadPart += liTime.QuadPart ;
 
     (psprReset->nNumOfOps)++;
-    psprReset->nTimeOfOps = RtlLargeIntegerAdd ( psprReset->nTimeOfOps, liTime );
+    psprReset->nTimeOfOps.QuadPart += liTime.QuadPart ;
 
     return TRUE;
 
@@ -1008,10 +1012,12 @@ BOOL ResetsAccounting (PSP_SyncH psHData, ULONG nTime)
 BOOL PulsesAccounting (PSP_SyncH psHData, ULONG nTime)
 {
 
-	LARGE_INTEGER liTime = RtlConvertUlongToLargeInteger ( nTime );
+	LARGE_INTEGER liTime ;
 	register SyncProfOverall  *pspoOverall;
 	register SyncProfPulse    *psppPulse;
 
+   liTime.QuadPart = nTime ;
+   
     if ( psHData == (PSP_SyncH) NULL )
 	return FALSE;
 
@@ -1019,10 +1025,10 @@ BOOL PulsesAccounting (PSP_SyncH psHData, ULONG nTime)
     psppPulse = &(psHData->Pulses);
 
     (pspoOverall->nNumOfOps)++;
-    pspoOverall->nTimeOfOps = RtlLargeIntegerAdd ( pspoOverall->nTimeOfOps, liTime );
+    pspoOverall->nTimeOfOps.QuadPart += liTime.QuadPart ;
 
     (psppPulse->nNumOfOps)++;
-    psppPulse->nTimeOfOps = RtlLargeIntegerAdd ( psppPulse->nTimeOfOps, liTime );
+    psppPulse->nTimeOfOps.QuadPart += liTime.QuadPart ;
 
     return TRUE;
 
@@ -1042,10 +1048,12 @@ BOOL WaitsAccounting (PSP_SyncH psHData, ULONG nTime, BOOL bSuccess,
 							     BOOL bAnyMultiple)
 {
 
-	LARGE_INTEGER liTime = RtlConvertUlongToLargeInteger ( nTime );
+	LARGE_INTEGER liTime ;
 	register SyncProfOverall  *pspoOverall;
 	register SyncProfWait     *pspwWait;
 
+   liTime.QuadPart = nTime ;
+   
     if ( psHData == (PSP_SyncH) NULL )
 	return FALSE;
 
@@ -1053,25 +1061,25 @@ BOOL WaitsAccounting (PSP_SyncH psHData, ULONG nTime, BOOL bSuccess,
     pspwWait = &(psHData->Waits);
 
     (pspoOverall->nNumOfOps)++;
-    pspoOverall->nTimeOfOps = RtlLargeIntegerAdd ( pspoOverall->nTimeOfOps, liTime );
+    pspoOverall->nTimeOfOps.QuadPart =+ liTime.QuadPart ;
 
     if ( bMultiple ) {
 	if ( bAnyMultiple )  {
 	    (pspwWait->nNumOfAny)++;
-	    pspwWait->nTimeOfAny = RtlLargeIntegerAdd ( pspwWait->nTimeOfAny, liTime );
+	    pspwWait->nTimeOfAny.QuadPart += liTime.QuadPart ;
 	    if ( bSuccess )
 		(pspwWait->nNumOfAnySuccessful)++;
 	}
 	else {
 	    (pspwWait->nNumOfAll)++;
-	    pspwWait->nTimeOfAll = RtlLargeIntegerAdd ( pspwWait->nTimeOfAll, liTime );
+	    pspwWait->nTimeOfAll.QuadPart += liTime.QuadPart ;
 	    if ( bSuccess )
 		(pspwWait->nNumOfAllSuccessful)++;
 	}
     }
     else {
 	(pspwWait->nNumOfSingle)++;
-	pspwWait->nTimeOfSingle = RtlLargeIntegerAdd ( pspwWait->nTimeOfSingle, liTime );
+	pspwWait->nTimeOfSingle.QuadPart += liTime.QuadPart ;
 	if ( bSuccess )
 	    (pspwWait->nNumOfSingleSuccessful)++;
     }
@@ -1091,10 +1099,12 @@ BOOL WaitsAccounting (PSP_SyncH psHData, ULONG nTime, BOOL bSuccess,
 
 BOOL ClosesAccounting (PSP_SyncH psHData, ULONG nTime)
 {
-	LARGE_INTEGER liTime = RtlConvertUlongToLargeInteger ( nTime );
+	LARGE_INTEGER liTime ;
 	register SyncProfOverall *pspoOverall;
 	register SyncProfClose   *pspcClose;
 
+   liTime.QuadPart = nTime ;
+   
     if ( psHData == (PSP_SyncH) NULL )
 	return FALSE;
 
@@ -1102,12 +1112,12 @@ BOOL ClosesAccounting (PSP_SyncH psHData, ULONG nTime)
     pspcClose = &(psHData->Closes);
 
     (pspoOverall->nNumOfOps)++;
-    pspoOverall->nTimeOfOps = RtlLargeIntegerAdd ( pspoOverall->nTimeOfOps, liTime );
+    pspoOverall->nTimeOfOps.QuadPart += liTime.QuadPart ;
 
-    pspcClose->nTimeOfOp = RtlLargeIntegerAdd ( pspcClose->nTimeOfOp, liTime );
+    pspcClose->nTimeOfOp.QuadPart += liTime.QuadPart ;
 
     return TRUE;
 
 }
 
-
+

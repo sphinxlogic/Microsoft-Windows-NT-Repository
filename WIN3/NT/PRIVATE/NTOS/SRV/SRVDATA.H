@@ -77,19 +77,11 @@ extern BOOLEAN SrvFspTransitioning;      // Indicates that the server is in the
 extern BOOLEAN RegisteredForShutdown;    // Indicates whether the server has
                                          // registered for shutdown notification.
 
-#if 0
-// PsInitialSystemProcess is not properly exported by the kernel (missing
-// CONSTANT in ntoskrnl.src), so we can't use it.
-#define SERVER_PROCESS PsInitialSystemProcess
-#else
 extern PEPROCESS SrvServerProcess;       // Pointer to the initial system process
-#define SERVER_PROCESS SrvServerProcess
-#endif
 
-#ifndef BUILD_FOR_511
-#define SRV_CURRENT_PROCESS PsGetCurrentProcess()
-#else
-#define SRV_CURRENT_PROCESS IoGetCurrentProcess()
+#ifdef  SRV_PNP_POWER
+extern BOOLEAN SrvCompletedPNPRegistration; // Indicates whether the FSP has completed
+                                            //  registering for PNP notifications
 #endif
 
 //
@@ -103,21 +95,9 @@ extern CLONG SrvEndpointCount;          // Number of transport endpoints
 extern KEVENT SrvEndpointEvent;         // Signaled when no active endpoints
 
 //
-// Counts of the number of threads active in the server.
+// DMA alignment size
 //
-
-extern CLONG SrvThreadCount;            // Total number of active threads
-
-extern PHANDLE SrvThreadHandles;        // Array of worker thread handles
-
-//
-// A pointer to the server's first worker thread.  This value is used
-// when building I/O requests.
-//
-// *** Note that this means that the first worker thread can't be deleted!
-//
-
-extern PETHREAD SrvIrpThread;
+extern ULONG SrvCacheLineSize;
 
 //
 // Global spin locks.
@@ -125,7 +105,7 @@ extern PETHREAD SrvIrpThread;
 
 extern SRV_GLOBAL_SPIN_LOCKS SrvGlobalSpinLocks;
 
-#if SRVDBG || SRVDBG_HEAP || SRVDBG_HANDLES
+#if SRVDBG || SRVDBG_HANDLES
 //
 // Lock used to protect debugging structures.
 //
@@ -140,11 +120,10 @@ extern SRV_LOCK SrvDebugLock;
 extern SRV_LOCK SrvConfigurationLock;
 
 //
-// SrvMfcbListLock is used to serialize file opens and closes, including
-// access to the master file table.
+// SrvStartupShutdownLock is used to synchronize driver starting and stopping
 //
 
-extern SRV_LOCK SrvMfcbListLock;
+extern SRV_LOCK SrvStartupShutdownLock;
 
 #if SRV_COMM_DEVICES
 //
@@ -169,12 +148,27 @@ extern SRV_LOCK SrvEndpointLock;
 extern SRV_LOCK SrvShareLock;
 
 //
+// The number of processors in the system
+//
+extern ULONG SrvNumberOfProcessors;
+
+//
 // Work queues -- nonblocking, blocking, and critical.
 //
 
-extern WORK_QUEUE SrvWorkQueue;
+#if MULTIPROCESSOR
+extern PBYTE SrvWorkQueuesBase;
+extern PWORK_QUEUE SrvWorkQueues;
+#else
+extern WORK_QUEUE SrvWorkQueues[1];
+#endif
+
+extern PWORK_QUEUE eSrvWorkQueues;          // used to terminate 'for' loops
 extern WORK_QUEUE SrvBlockingWorkQueue;
-extern WORK_QUEUE SrvCriticalWorkQueue;
+extern ULONG SrvReBalanced;                 // how often we've picked another CPU
+extern ULONG SrvNextBalanceProcessor;       // Which processor we'll look for next
+
+extern CLONG SrvBlockingOpsInProgress;
 
 //
 // Various list heads.
@@ -187,7 +181,7 @@ extern LIST_ENTRY SrvDisconnectQueue;      // The disconnect queue
 // Queue of connections that needs to be dereferenced.
 //
 
-extern SINGLE_LIST_ENTRY SrvBlockOrphanage;
+extern SLIST_HEADER SrvBlockOrphanage;
 
 //
 // FSP configuration queue.  The FSD puts configuration request IRPs
@@ -198,21 +192,16 @@ extern SINGLE_LIST_ENTRY SrvBlockOrphanage;
 extern LIST_ENTRY SrvConfigurationWorkQueue;
 
 //
+// This is the number of configuration IRPs which have been queued but not
+//  yet completed.
+//
+extern ULONG SrvConfigurationIrpsInProgress;
+
+//
 // Work item for running the configuration thread in the context of an
 // EX worker thread.
 
-extern WORK_QUEUE_ITEM SrvConfigurationThreadWorkItem;
-extern BOOLEAN SrvConfigurationThreadRunning;
-
-//
-// List of preformatted work items for the FSD transport receive event
-// handler.  The FSP attempts to keep this list from emptying.
-// The first list is the free list of initial work items, the second one
-// contains work items allocated during normal operations.
-//
-
-extern SINGLE_LIST_ENTRY SrvNormalReceiveWorkItemList;
-extern SINGLE_LIST_ENTRY SrvInitialReceiveWorkItemList;
+extern WORK_QUEUE_ITEM SrvConfigurationThreadWorkItem[ MAX_CONFIG_WORK_ITEMS ];
 
 //
 // Base address of the large block allocated to hold initial normal
@@ -220,24 +209,6 @@ extern SINGLE_LIST_ENTRY SrvInitialReceiveWorkItemList;
 //
 
 extern PVOID SrvInitialWorkItemBlock;
-
-//
-// Counts of receive work items available, and minimum thresholds.
-//
-
-extern CLONG SrvTotalWorkItems;
-extern CLONG SrvFreeWorkItems;
-extern CLONG SrvReceiveWorkItems;
-extern CLONG SrvBlockingOpsInProgress;
-
-//
-// List of work items available for raw mode request processing.  These
-// work items do not have statically allocated buffers.
-//
-
-extern SINGLE_LIST_ENTRY SrvRawModeWorkItemList;
-extern CLONG SrvRawModeWorkItems;
-extern CLONG SrvFreeRawModeWorkItems;
 
 //
 // Work item used to run the resource thread.  Booleans used to inform
@@ -248,25 +219,34 @@ extern WORK_QUEUE_ITEM SrvResourceThreadWorkItem;
 extern BOOLEAN SrvResourceThreadRunning;
 extern BOOLEAN SrvResourceDisconnectPending;
 extern BOOLEAN SrvResourceFreeConnection;
-extern BOOLEAN SrvResourceWorkItem;
-extern BOOLEAN SrvResourceNeedResourceQueue;
-extern BOOLEAN SrvResourceOrphanedBlocks;
+extern LONG SrvResourceOrphanedBlocks;
+
+//
+// Generic security mapping for connecting to shares
+//
+extern GENERIC_MAPPING SrvShareConnectMapping;
+
+//
+// What's the minumum # of free work items each processor should have?
+//
+extern ULONG SrvMinPerProcessorFreeWorkItems;
+
+//
+// The server has callouts to enable a smart card to accelerate its direct
+//  host IPX performance.  This is the vector of entry points.
+//
+extern SRV_IPX_SMART_CARD SrvIpxSmartCard;
 
 //
 // The master file table contains one entry for each named file that has
-// at least one open instance.  The list is kept in a prefix table.
+// at least one open instance.
 //
-
-extern UNICODE_PREFIX_TABLE SrvMasterFileTable;
+extern MFCBHASH SrvMfcbHashTable[ NMFCB_HASH_TABLE ];
 
 //
-// System time, as maintained by the server.  This is the low part of
-// the system tick count.  The server samples it periodically, so the
-// time is not exactly accurate.  It is monotontically increasing,
-// except that it wraps every 74 days or so.
+// The share table contains one entry for each share
 //
-
-extern ULONG SrvSystemTime;
+extern LIST_ENTRY SrvShareHashTable[ NSHARE_HASH_TABLE ];
 
 //
 // Hex digits array used by the dump routines and SrvSmbCreateTemporary.
@@ -279,7 +259,15 @@ extern CHAR SrvHexChars[];
 //
 
 extern UCHAR SrvSmbIndexTable[];
-extern PSMB_PROCESSOR SrvSmbDispatchTable[];
+
+typedef struct {
+    PSMB_PROCESSOR  Func;
+#if DBG
+    LPSTR           Name;
+#endif
+} SRV_SMB_DISPATCH_TABLE;
+
+extern SRV_SMB_DISPATCH_TABLE SrvSmbDispatchTable[];
 
 //
 // SMB word count table.
@@ -302,38 +290,15 @@ extern UNICODE_STRING SrvMailslotRootDirectory;
 extern PSMB_TRANSACTION_PROCESSOR SrvTransaction2DispatchTable[];
 extern PSMB_TRANSACTION_PROCESSOR SrvNtTransactionDispatchTable[];
 
-//
-// Global variables for server statistics.
-//
-
-typedef struct _SRV_STATISTICS_SHADOW {
-    ULONG BytesReceived;
-    ULONG BytesSent;
-    ULONG ReadOperations;
-    ULONG BytesRead;
-    ULONG WriteOperations;
-    ULONG BytesWritten;
-    SRV_TIMED_COUNTER WorkItemsQueued;
-} SRV_STATISTICS_SHADOW, *PSRV_STATISTICS_SHADOW;
-
 extern SRV_STATISTICS SrvStatistics;
-extern SRV_STATISTICS_SHADOW SrvStatisticsShadow;
-#if SRVDBG_HEAP
-extern SRV_STATISTICS_INTERNAL SrvInternalStatistics;
-#endif
 #if SRVDBG_STATS || SRVDBG_STATS2
 extern SRV_STATISTICS_DEBUG SrvDbgStatistics;
 #endif
-
-extern ULONG SrvStatisticsUpdateSmbCount;
 
 //
 // Server environment information strings.
 //
 
-extern UNICODE_STRING SrvPrimaryDomain;
-extern OEM_STRING SrvOemPrimaryDomain;
-extern OEM_STRING SrvOemServerName;
 extern UNICODE_STRING SrvNativeOS;
 extern OEM_STRING SrvOemNativeOS;
 extern UNICODE_STRING SrvNativeLanMan;
@@ -347,6 +312,13 @@ extern OEM_STRING SrvOemNativeLanMan;
 extern HANDLE SrvNamedPipeHandle;
 extern PDEVICE_OBJECT SrvNamedPipeDeviceObject;
 extern PFILE_OBJECT SrvNamedPipeFileObject;
+
+//
+// The following are used to converse with the Dfs driver
+//
+extern PFAST_IO_DEVICE_CONTROL SrvDfsFastIoDeviceControl;
+extern PDEVICE_OBJECT SrvDfsDeviceObject;
+extern PFILE_OBJECT SrvDfsFileObject;
 
 //
 // The following will be a permanent handle and device object pointer
@@ -431,7 +403,6 @@ extern ORDERED_LIST_HEAD SrvTreeConnectList;
 extern ULONG SrvApiRequestCount;
 extern KEVENT SrvApiCompletionEvent;
 
-#ifdef _CAIRO_
 
 //
 // Security contexts required for mutual authentication.
@@ -439,29 +410,12 @@ extern KEVENT SrvApiCompletionEvent;
 // principal. They are used to validate incoming kerberos tickets.
 // SrvNullSessionToken is a cached token handle representing the null session.
 //
-
-extern CtxtHandle SrvKerberosLsaHandle;
 extern CtxtHandle SrvLmLsaHandle;
 extern CtxtHandle SrvNullSessionToken;
 
-#else
 
-//
-// Security data for logging on remote users.  SrvLsaHandle is the logon
-// process handle that we use in calls to LsaLogonUser.
-// SrvSystemSecurityMode contains the secutity mode the system is
-// running in.  SrvAuthenticationPackage is a token that describes the
-// authentication package being used.  SrvNullSessionToken is a cached
-// token handle representing the null session.
-//
-
-extern HANDLE SrvLsaHandle;
-extern LSA_OPERATIONAL_MODE SrvSystemSecurityMode;
-extern ULONG SrvAuthenticationPackage;
-
-extern HANDLE SrvNullSessionToken;
-
-#endif
+extern CtxtHandle SrvKerberosLsaHandle;
+extern BOOLEAN SrvHaveKerberos;
 
 //
 // Oplock break information.
@@ -530,11 +484,10 @@ extern ULONG SrvCoreSearchTimeout;
 
 //
 // SrvTimerList is a pool of timer/DPC structures available for use by
-// code that needs to start a timer.  The pool is protected by
-// SrvGlobalSpinLocks.Timer.
+// code that needs to start a timer.
 //
 
-extern SINGLE_LIST_ENTRY SrvTimerList;
+extern SLIST_HEADER SrvTimerList;
 
 //
 // Name that should be displayed when doing a server alert.
@@ -547,6 +500,26 @@ extern PWSTR SrvAlertServiceName;
 //
 
 extern ULONG SrvFiveSecondTickCount;
+
+#ifdef  SRV_PNP_POWER
+//
+// Holds the notification handle which TDI gives us from TdiRegisterNotificationHandler()
+//
+extern HANDLE SrvTdiNotificationHandle;
+
+#endif
+
+//
+// Security descriptor granting Administrator READ access.
+//  Used to see if a client has administrative privileges
+//
+extern SECURITY_DESCRIPTOR SrvAdminSecurityDescriptor;
+
+//
+// Flag indicating whether or not we need to filter extended characters
+//  out of 8.3 names ourselves.
+//
+extern BOOLEAN SrvFilterExtendedCharsInPath;
 
 #endif // ndef _SRVDATA_
 

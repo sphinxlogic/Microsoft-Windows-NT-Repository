@@ -49,18 +49,13 @@
         sw      s5,ExIntS5(sp)          //
         sw      s6,ExIntS6(sp)          //
         sw      s7,ExIntS7(sp)          //
-        swc1    f20,ExFltF20(sp)        // save floating registers f20 - f31
-        swc1    f21,ExFltF21(sp)        //
-        swc1    f22,ExFltF22(sp)        //
-        swc1    f23,ExFltF23(sp)        //
-        swc1    f24,ExFltF24(sp)        //
-        swc1    f25,ExFltF25(sp)        //
-        swc1    f26,ExFltF26(sp)        //
-        swc1    f27,ExFltF27(sp)        //
-        swc1    f28,ExFltF28(sp)        //
-        swc1    f29,ExFltF29(sp)        //
-        swc1    f30,ExFltF30(sp)        //
-        swc1    f31,ExFltF31(sp)        //
+        sw      s8,ExIntS8(sp)          //
+        sdc1    f20,ExFltF20(sp)        // save floating registers f20 - f30
+        sdc1    f22,ExFltF22(sp)        //
+        sdc1    f24,ExFltF24(sp)        //
+        sdc1    f26,ExFltF26(sp)        //
+        sdc1    f28,ExFltF28(sp)        //
+        sdc1    f30,ExFltF30(sp)        //
 
         PROLOGUE_END
 
@@ -77,13 +72,13 @@
 //
 // Arguments:
 //
-//    s0 - Supplies a boolean value that specified whether a user mode
-//       thread context was established when the thread was initialized.
+//    s0 (saved) - Supplies a boolean value that specified whether a user
+//       mode thread context was established when the thread was initialized.
 //
-//    s1 - Supplies the starting context parameter for the initial thread
-//       procedure.
+//    s1 (saved) - Supplies the starting context parameter for the initial
+//       thread procedure.
 //
-//    s2 - Supplies the starting address of the initial thread routine.
+//    s2 (saved) - Supplies the starting address of the initial thread routine.
 //
 //    s3 - Supplies the starting address of the initial system routine.
 //
@@ -95,14 +90,16 @@
 
         ALTERNATE_ENTRY(KiThreadStartup)
 
+        lw      s0,ExIntS0(sp)          // get user context flag
+        lw      s1,ExIntS1(sp)          // get context parameter value
+        lw      s2,ExIntS2(sp)          // get initial routine address
         addu    sp,sp,ExceptionFrameLength // deallocate context frame
         bne     zero,s0,10f             // if ne, user context specified
-        subu    sp,sp,TrapFrameArguments // allocate argument space on kernel stack
-10:                                     //
+        subu    sp,sp,TrapFrameArguments // allocate argument space
 
         .set    noreorder
         .set    noat
-        ctc1    zero,fsr                // clear floating status
+10:     ctc1    zero,fsr                // clear floating status
         .set    at
         .set    reorder
 

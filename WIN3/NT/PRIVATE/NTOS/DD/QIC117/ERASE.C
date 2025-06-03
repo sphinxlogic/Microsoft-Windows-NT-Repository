@@ -255,7 +255,8 @@ Return Value:
 --*/
 {
 #ifndef NO_MARKS
-    RtlZeroMemory(&Context->MarkArray,sizeof(Context->MarkArray));
+    // Clear the mark array
+    Context->MarkArray.TotalMarks = 0;
     Context->CurrentMark = Context->MarkArray.TotalMarks;
     Context->MarkArray.MarkEntry[Context->CurrentMark].Offset = 0xffffffff;
 #endif

@@ -36,6 +36,9 @@ Environment:
 #define szChooseComputerFunction    "I_SystemFocusDialog"
 #define szNetworkHelpFile           TEXT("network.hlp")
 #define HC_GENHELP_BROWSESERVERS    27001 // (HC_UI_GENHELP_BASE+1)
+#define SZ_COMPUTERNAMEKEY          TEXT("SYSTEM\\CurrentControlSet\\Control\\ComputerName\\ActiveComputerName")
+#define SZ_ALIASNAMEKEY             TEXT("SYSTEM\\CurrentControlSet\\Services\\LanManServer\\Parameters")
+
 
 BOOL
 SelectComputer(
@@ -49,4 +52,19 @@ ChooseComputer(
     IN LPTSTR lpszComputer
     );
 
+BOOL
+VerifyComputer(
+    IN LPTSTR _lpszSelectedComputer
+    );
+
+BOOL
+GetServerPrimaryName(
+    IN LPTSTR  lpszAliasName,
+    OUT LPTSTR lpszServerPrimaryName,
+    IN OUT UINT ccharPrimaryName  
+    );
+
+
+
 #endif // _COMPUTER_
+

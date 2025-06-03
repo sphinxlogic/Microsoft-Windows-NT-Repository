@@ -40,7 +40,8 @@ extern RTL_CRITICAL_SECTION WWS32CriticalSection;
 extern LIST_ENTRY WWS32AsyncContextBlockListHead;
 extern WORD WWS32AsyncTaskHandleCounter;
 extern LIST_ENTRY WWS32SocketHandleListHead;
-extern DWORD WWS32SocketHandleCounter;
+extern WORD WWS32SocketHandleCounter;
+extern BOOL WWS32SocketHandleCounterWrapped;
 extern DWORD WWS32ThreadSerialNumberCounter;
 
 #define WWS32IpAddress \
@@ -165,6 +166,11 @@ WWS32GetAsyncTaskHandle16 (
     VOID
     );
 
+VOID
+WWS32TaskCleanup(
+    VOID
+    );
+
 //
 // Message types used by WWS32DispatchPostMessage to dispatch a post
 // message call to the appropriate routine.
@@ -180,3 +186,10 @@ WWS32GetAsyncTaskHandle16 (
 //
 
 #define WWS32_DEFAULT_BLOCKING_HOOK 0xFFFFFFFF
+
+//
+// Determine if a pointer is DWORD aligned.
+//
+
+#define IS_DWORD_ALIGNED(p) (((DWORD)(p) & (sizeof(DWORD)-1)) == 0)
+

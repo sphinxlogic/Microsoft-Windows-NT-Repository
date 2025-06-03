@@ -11960,24 +11960,18 @@ UserTestSuite(
                                                USER_ALL_READ_PREFERENCES_MASK |
                                                USER_ALL_READ_ACCOUNT_MASK     |
                                                USER_ALL_READ_LOGON_MASK) ) ||
-                        ( !RtlLargeIntegerEqualTo(
-                            All->LastLogon,
-                            All2->LastLogon ) ) ||
-                        ( !RtlLargeIntegerEqualTo(
-                            All->LastLogoff,
-                            All2->LastLogoff ) ) ||
-                        ( !RtlLargeIntegerEqualTo(
-                            All->PasswordLastSet,
-                            All2->PasswordLastSet ) ) ||
-                        ( !RtlLargeIntegerEqualTo(
-                            All->AccountExpires,
-                            All2->AccountExpires ) ) ||
-                        ( !RtlLargeIntegerEqualTo(
-                            All->PasswordCanChange,
-                            All2->PasswordCanChange ) ) ||
-                        ( RtlLargeIntegerEqualTo(
-                            All->PasswordMustChange,
-                            All2->PasswordMustChange ) ) ||
+                        ( !(All->LastLogon.QuadPart ==
+                            All2->LastLogon.QuadPart ) ) ||
+                        ( !(All->LastLogoff.QuadPart ==
+                            All2->LastLogoff.QuadPart ) ) ||
+                        ( !(All->PasswordLastSet.QuadPart ==
+                            All2->PasswordLastSet.QuadPart ) ) ||
+                        ( !(All->AccountExpires.QuadPart ==
+                            All2->AccountExpires.QuadPart ) ) ||
+                        ( !(All->PasswordCanChange.QuadPart ==
+                            All2->PasswordCanChange.QuadPart ) ) ||
+                        (  (All->PasswordMustChange.QuadPart ==
+                            All2->PasswordMustChange.QuadPart ) ) ||
                         (RtlCompareUnicodeString(
                             &(All->UserName),
                             &(All2->UserName),

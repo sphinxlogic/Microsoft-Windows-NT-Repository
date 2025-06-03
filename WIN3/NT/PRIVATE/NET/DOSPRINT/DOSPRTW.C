@@ -61,6 +61,10 @@ Revision History:
         Added some assert checks...
     13-Jul-1993 JohnRo
         Intermittent empty print queue (was buggy after some MyEnumJobs calls).
+    29-Mar-1995 AlbertT
+        Support for pause/resume/purge printer queue added.
+        SetJobInfo 1 comment field (translated into document name) support
+        added so that chicago clients can set the doc name.
 
 --*/
 
@@ -118,6 +122,9 @@ Revision History:
 
 // BUGBUG: Come up with a better error code for this?
 #define MY_PROTOCOL_LIMIT_ERROR         ERROR_NOT_ENOUGH_MEMORY
+
+#define WIN95_ENVIRONMENT               "Windows 4.0"
+#define WIN95_DRIVER_SHARE              "\\print$\\WIN40\\0"
 
 
 
@@ -493,6 +500,51 @@ GetPrqInfoSizeW(
 }
 
 DBGSTATIC DWORD
+GetDrvInfoSizeW(
+    IN  DWORD               Level,
+    IN  LPDRIVER_INFO_3A    pDriverInfo3,
+    IN  LPCSTR              pUNCSharePath,
+    OUT LPDWORD             pdwDependentFileCount
+    )
+{
+    LPSTR   psz;
+    DWORD   dwSize;
+
+    switch (Level) {
+        case 52:
+            dwSize = sizeof(PRQINFO52W) +
+                     NULL_STR_CONV_SIZE(pDriverInfo3->pName) +
+                     NULL_STR_CONV_SIZE(GetFileNameA(pDriverInfo3->pDriverPath)) +
+                     NULL_STR_CONV_SIZE(GetFileNameA(pDriverInfo3->pDataFile)) +
+                     NULL_STR_CONV_SIZE(GetFileNameA(pDriverInfo3->pConfigFile)) +
+                     NULL_STR_CONV_SIZE(GetFileNameA(pDriverInfo3->pHelpFile)) +
+                     NULL_STR_CONV_SIZE(pDriverInfo3->pDefaultDataType) +
+                     NULL_STR_CONV_SIZE(pDriverInfo3->pMonitorName) +
+                     NULL_STR_CONV_SIZE(pUNCSharePath);
+
+            *pdwDependentFileCount = 0;
+            for ( psz = pDriverInfo3->pDependentFiles;
+                  *psz ; psz += strlen(psz) + 1 ) {
+
+                dwSize += NULL_STR_CONV_SIZE(GetFileNameA(psz));
+                (*pdwDependentFileCount)++;
+            }
+
+            //
+            // For the '\0's
+            //
+            dwSize += (MAX_DEPENDENT_FILES-*pdwDependentFileCount)*sizeof(WCHAR);
+            return dwSize;
+
+        default:
+            NetpKdPrint(( PREFIX_DOSPRINT "GetDrvInfoSizeW: invalid level!\n" ));
+
+    }
+    return 0;
+
+}
+
+DBGSTATIC DWORD
 PrqInfoFixedSizeW(
     IN DWORD Level  // assumed valid
     )
@@ -532,6 +584,38 @@ DBGSTATIC CONST DWORD PrqInfo3StringsW[]={
                         offsetof(PRQINFO3W, pszComment),
                         offsetof(PRQINFO3W, pszPrinters),
                         offsetof(PRQINFO3W, pszDriverName),
+                        (DWORD) -1};
+
+// Print driver info3 string table (for level 52)
+DBGSTATIC CONST DWORD PrqInfo52StringsW[]={
+                        offsetof(PRQINFO52W, pszModelName),
+                        offsetof(PRQINFO52W, pszDriverName),
+                        offsetof(PRQINFO52W, pszDataFileName),
+                        offsetof(PRQINFO52W, pszMonitorName),
+                        offsetof(PRQINFO52W, pszDriverPath),
+                        offsetof(PRQINFO52W, pszDefaultDataType),
+                        offsetof(PRQINFO52W, pszHelpFile),
+                        offsetof(PRQINFO52W, pszConfigFile),
+                        offsetof(PRQINFO52W, pszDependentNames[0]),
+                        offsetof(PRQINFO52W, pszDependentNames[1]),
+                        offsetof(PRQINFO52W, pszDependentNames[2]),
+                        offsetof(PRQINFO52W, pszDependentNames[3]),
+                        offsetof(PRQINFO52W, pszDependentNames[4]),
+                        offsetof(PRQINFO52W, pszDependentNames[5]),
+                        offsetof(PRQINFO52W, pszDependentNames[6]),
+                        offsetof(PRQINFO52W, pszDependentNames[7]),
+                        offsetof(PRQINFO52W, pszDependentNames[8]),
+                        offsetof(PRQINFO52W, pszDependentNames[9]),
+                        offsetof(PRQINFO52W, pszDependentNames[10]),
+                        offsetof(PRQINFO52W, pszDependentNames[11]),
+                        offsetof(PRQINFO52W, pszDependentNames[12]),
+                        offsetof(PRQINFO52W, pszDependentNames[13]),
+                        offsetof(PRQINFO52W, pszDependentNames[14]),
+                        offsetof(PRQINFO52W, pszDependentNames[15]),
+                        offsetof(PRQINFO52W, pszDependentNames[16]),
+                        offsetof(PRQINFO52W, pszDependentNames[17]),
+                        offsetof(PRQINFO52W, pszDependentNames[18]),
+                        offsetof(PRQINFO52W, pszDependentNames[19]),
                         (DWORD) -1};
 
 DBGSTATIC LPWSTR
@@ -687,6 +771,69 @@ CopyPrinterToPrqInfoW(
         }
     }
 #endif
+
+    return pEnd;
+}
+
+DBGSTATIC LPWSTR
+CopyDriverToPrqInfoW(
+    IN  LPDRIVER_INFO_3A    pDriver3,
+    IN  DWORD               dwDependentFileCount,
+    IN  LPSTR               pUNCSharePath,
+    IN  DWORD               Level,
+    OUT LPBYTE              pBuffer,
+    OUT LPWSTR              pEnd
+    )
+{
+    LPSTR   *pSourceStrings;
+    LPSTR   psz;
+
+    NetpAssert( pEnd != NULL );
+    NetpAssert(MAX_DEPENDENT_FILES == 20);
+
+    switch (Level) {
+
+    case 52:
+        {
+            PPRQINFO52W pPrqInfo = (LPVOID) pBuffer;
+            LPSTR SourceStrings[sizeof(PrqInfo52StringsW)/sizeof(DWORD)];
+
+            ZeroMemory((LPBYTE)SourceStrings, sizeof(SourceStrings));
+
+            pSourceStrings=SourceStrings;
+            *pSourceStrings++ = pDriver3->pName;
+            *pSourceStrings++ = GetFileNameA(pDriver3->pDriverPath);
+            *pSourceStrings++ = GetFileNameA(pDriver3->pDataFile);
+            *pSourceStrings++ = GetFileNameA(pDriver3->pMonitorName);
+            *pSourceStrings++ = pUNCSharePath;
+            *pSourceStrings++ = GetFileNameA(pDriver3->pDefaultDataType);
+            *pSourceStrings++ = GetFileNameA(pDriver3->pHelpFile);
+            *pSourceStrings++ = GetFileNameA(pDriver3->pConfigFile);
+
+            for ( psz = pDriver3->pDependentFiles ; *psz ;
+                   psz += strlen(psz) + 1 ) {
+
+                *pSourceStrings++ = GetFileNameA(psz);
+            }
+
+            pEnd = PackAnsiStringsToW(
+                    SourceStrings,
+                    (LPBYTE) (LPVOID)pPrqInfo,
+                    PrqInfo52StringsW,
+                    pEnd);
+
+            pPrqInfo->uVersion = (WORD)pDriver3->cVersion;
+            pPrqInfo->cDependentNames = (WORD)dwDependentFileCount;
+        }
+
+        break;
+
+
+    default:
+        NetpKdPrint(( PREFIX_DOSPRINT
+                "CopyPrinterToPrqInfoW: invalid level!\n" ));
+
+    }
 
     return pEnd;
 }
@@ -912,14 +1059,14 @@ SPLERR SPLENTRY DosPrintQGetInfoW(
     PUSHORT pcbNeeded
    )
 {
-    DWORD               cbPrinter;
     DWORD               cJobsReturned;
     LPWSTR              pEnd;
     DWORD               rc;
     HANDLE              hPrinter = INVALID_HANDLE_VALUE;
     LPPRINTER_INFO_2    pPrinter = NULL;
-    LPWSTR              PrinterNameW = NULL;
-    DWORD               cbNeeded;
+    LPDRIVER_INFO_3A    pDriver = NULL;
+    CHAR                szDriverDir[MAX_PATH];
+    DWORD               cbNeeded, dwDependentFileCount;
     DWORD               cbNeededForJobs;
 
     if (pszServer && *pszServer) {
@@ -954,13 +1101,7 @@ SPLERR SPLENTRY DosPrintQGetInfoW(
         goto Cleanup;
     }
 
-    rc = QueueNameToPrinterNameW( pszQueueName, & PrinterNameW );
-    if (rc != NO_ERROR) {
-        goto Cleanup;
-    }
-    NetpAssert( PrinterNameW != NULL );
-
-    if ( !MyOpenPrinterW( PrinterNameW, &hPrinter, NULL) ) {
+    if ( !MyOpenPrinterW( pszQueueName, &hPrinter, NULL) ) {
 
         rc = GetLastError();
         if ( rc == ERROR_INVALID_PRINTER_NAME )
@@ -969,31 +1110,87 @@ SPLERR SPLENTRY DosPrintQGetInfoW(
 
     }
 
-    if (!MyGetPrinter(hPrinter, 2, NULL, 0, &cbPrinter)) {
+    //
+    // Level 52 is meant for point and print from a Windows 95 clients
+    // can't use with other clients since no environment info is passed
+    //
+    if ( uLevel == 52 ) {
 
-        rc = GetLastError();
-        if (rc == ERROR_INSUFFICIENT_BUFFER) {
+        cbNeeded = sizeof(szDriverDir)-2;
+        szDriverDir[0] = szDriverDir[1] = '\\';
+        if ( !GetComputerNameA(szDriverDir+2, &cbNeeded) ) {
 
-            pPrinter = (LPVOID) GlobalAlloc(GMEM_FIXED, cbPrinter);
-            if (pPrinter == NULL) {
-
-                rc = ERROR_NOT_ENOUGH_MEMORY;
-                goto Cleanup;
-            }
-        } else {
+            rc = GetLastError();
             goto Cleanup;
         }
 
-    }
+        if ( strlen(szDriverDir) + strlen(WIN95_DRIVER_SHARE) + 1
+                                                    > sizeof(szDriverDir) ) {
 
-    if (!MyGetPrinter(hPrinter, 2, (LPBYTE)pPrinter, cbPrinter, &cbPrinter)) {
+            rc = ERROR_NOT_ENOUGH_MEMORY;
+            NetpAssert( rc != NO_ERROR ); // Always break
+            goto Cleanup;
+        }
 
+        strcat(szDriverDir, WIN95_DRIVER_SHARE);
+
+        (VOID)MyGetPrinterDriver(hPrinter, WIN95_ENVIRONMENT, 3,
+                                 NULL, 0, &cbNeeded);
         rc = GetLastError();
-        goto Cleanup;
+        if ( rc != ERROR_INSUFFICIENT_BUFFER )
+            goto Cleanup;
+
+        pDriver = (LPVOID) GlobalAlloc(GMEM_FIXED, cbNeeded);
+        if ( !pDriver ) {
+
+            rc = ERROR_NOT_ENOUGH_MEMORY;
+            goto Cleanup;
+        }
+
+        if ( !MyGetPrinterDriver(hPrinter, WIN95_ENVIRONMENT, 3,
+                                 (LPVOID)pDriver, cbNeeded, &cbNeeded) ) {
+
+            rc = GetLastError();
+            goto Cleanup;
+        }
+
+        cbNeeded=GetDrvInfoSizeW(uLevel, pDriver,
+                                 szDriverDir, &dwDependentFileCount);
+        if ( dwDependentFileCount > MAX_DEPENDENT_FILES ) {
+
+            rc = ERROR_NOT_ENOUGH_MEMORY;
+            goto Cleanup;
+        }
+    } else {
+
+        if (!MyGetPrinter(hPrinter, 2, NULL, 0, &cbNeeded)) {
+
+            rc = GetLastError();
+            if (rc == ERROR_INSUFFICIENT_BUFFER) {
+
+                pPrinter = (LPVOID) GlobalAlloc(GMEM_FIXED, cbNeeded);
+                if (pPrinter == NULL) {
+
+                    rc = ERROR_NOT_ENOUGH_MEMORY;
+                    goto Cleanup;
+                }
+            } else {
+                goto Cleanup;
+            }
+
+        }
+
+        if (!MyGetPrinter(hPrinter, 2, (LPBYTE)pPrinter, cbNeeded, &cbNeeded)) {
+
+            rc = GetLastError();
+            goto Cleanup;
+        }
+
+        // How much for just the queue structure and its strings?
+        cbNeeded=GetPrqInfoSizeW(uLevel, pszQueueName, pPrinter);
     }
 
-    // How much for just the queue structure and its strings?
-    cbNeeded=GetPrqInfoSizeW(uLevel, pszQueueName, pPrinter);
+
     IF_DEBUG( DOSPRTW ) {
         NetpKdPrint(( PREFIX_DOSPRINT
                 "DosPrintQGetInfoW: got " FORMAT_DWORD " for Q size.\n",
@@ -1010,8 +1207,17 @@ SPLERR SPLENTRY DosPrintQGetInfoW(
     //
     if (cbNeeded <= (DWORD) cbBuf) {
 
-        pEnd = CopyPrinterToPrqInfoW(pPrinter, uLevel, pbBuf,
-                pszQueueName, (LPWSTR) (pbBuf+cbBuf) );
+        if ( uLevel == 52 ) {
+
+            ZeroMemory(pbBuf, cbNeeded);
+            pEnd = CopyDriverToPrqInfoW(pDriver, dwDependentFileCount,
+                                        szDriverDir, uLevel, pbBuf,
+                                        (LPWSTR) (pbBuf+cbBuf) );
+        } else {
+
+            pEnd = CopyPrinterToPrqInfoW(pPrinter, uLevel, pbBuf, pszQueueName,
+                                         (LPWSTR) (pbBuf+cbBuf) );
+        }
 
     } else {
 
@@ -1082,11 +1288,14 @@ Cleanup:
     if (hPrinter != INVALID_HANDLE_VALUE) {
         (VOID) MyClosePrinter( hPrinter );
     }
+
     if (pPrinter) {
         (VOID) GlobalFree( pPrinter );
     }
-    if (PrinterNameW != NULL) {
-        (VOID) NetApiBufferFree( PrinterNameW );
+
+    if (pDriver) {
+
+        (VOID) GlobalFree( pDriver );
     }
 
     return rc;
@@ -1258,7 +1467,7 @@ SPLERR SPLENTRY DosPrintJobDelW(
                 "DosPrintJobDelW(NULL, " FORMAT_DWORD ")\n", uJobId ));
     }
 
-    return (CommandALocalJob( uJobId, JOB_CONTROL_CANCEL ) );
+    return (CommandALocalJob( NULL, uJobId, 0, NULL, JOB_CONTROL_CANCEL ) );
 }
 
 SPLERR SPLENTRY DosPrintJobContinueW(
@@ -1275,7 +1484,7 @@ SPLERR SPLENTRY DosPrintJobContinueW(
                 FORMAT_DWORD ")\n", uJobId));
     }
 
-    return (CommandALocalJob( uJobId, JOB_CONTROL_RESUME ) );
+    return (CommandALocalJob( NULL, uJobId, 0, NULL, JOB_CONTROL_RESUME ) );
 }
 
 SPLERR SPLENTRY DosPrintJobPauseW(
@@ -1293,7 +1502,7 @@ SPLERR SPLENTRY DosPrintJobPauseW(
                 uJobId));
     }
 
-    return (CommandALocalJob( uJobId, JOB_CONTROL_PAUSE ) );
+    return (CommandALocalJob( NULL, uJobId, 0, NULL, JOB_CONTROL_PAUSE ) );
 }
 
 SPLERR SPLENTRY DosPrintJobEnumW(
@@ -1313,7 +1522,6 @@ SPLERR SPLENTRY DosPrintJobEnumW(
     HANDLE              hPrinter = INVALID_HANDLE_VALUE;
     LPWSTR              pEnd;
     LPPRINTER_INFO_2    pPrinter = NULL;
-    LPWSTR              PrinterNameW = NULL;
     DWORD               rc;
     DWORD               cTotal;
 
@@ -1345,13 +1553,7 @@ SPLERR SPLENTRY DosPrintJobEnumW(
         goto Cleanup;
     }
 
-    rc = QueueNameToPrinterNameW( pszQueueName, & PrinterNameW );
-    if (rc != NO_ERROR) {
-        goto Cleanup;
-    }
-    NetpAssert( PrinterNameW != NULL );
-
-    if (!MyOpenPrinterW( PrinterNameW, &hPrinter, NULL)) {
+    if (!MyOpenPrinterW( pszQueueName, &hPrinter, NULL)) {
         rc = GetLastError();
         goto Cleanup;
     }
@@ -1474,9 +1676,6 @@ Cleanup:
     }
     if (pPrinter) {
         (VOID) GlobalFree( pPrinter );
-    }
-    if (PrinterNameW != NULL) {
-        (VOID) NetApiBufferFree( PrinterNameW );
     }
 
     return rc;
@@ -1646,7 +1845,6 @@ SPLERR SPLENTRY DosPrintQEnumW(
     LPVOID              OutputBufferStart = pbBuf;
 #endif
     LPVOID              pEnd;
-    LPWSTR              PrinterNameW = NULL;
     DWORD               SharesRead;
 
     if ( !NetpIsPrintQLevelValid( uLevel, FALSE ) ) {
@@ -1714,15 +1912,7 @@ SPLERR SPLENTRY DosPrintQEnumW(
             continue;
         }
 
-        rc = QueueNameToPrinterNameW(
-                pShareInfo[i].shi1_netname,
-                & PrinterNameW );
-        if (rc != NO_ERROR) {
-            goto Cleanup;
-        }
-        NetpAssert( PrinterNameW != NULL );
-
-        if ( !MyOpenPrinterW(PrinterNameW, &hPrinter, NULL)) {
+        if ( !MyOpenPrinterW(pShareInfo[i].shi1_netname, &hPrinter, NULL)) {
             rc = (NET_API_STATUS) GetLastError();
             NetpKdPrint(( PREFIX_DOSPRINT
                     "DosPrintQEnumW: MyOpenPrinter failed, status "
@@ -1842,10 +2032,6 @@ SPLERR SPLENTRY DosPrintQEnumW(
         (VOID) MyClosePrinter(hPrinter);
         hPrinter = INVALID_HANDLE_VALUE;
 
-        NetpAssert( PrinterNameW != NULL );
-        (VOID) NetApiBufferFree( PrinterNameW );
-        PrinterNameW = NULL;
-
     } // for each share
 
 Cleanup:
@@ -1870,10 +2056,6 @@ Cleanup:
     }
     if (pShareInfo != NULL) {
         (VOID) NetApiBufferFree(pShareInfo);
-    }
-
-    if (PrinterNameW != NULL) {
-        (VOID) NetApiBufferFree( PrinterNameW );
     }
 
     if (BufferTooSmall) {
@@ -1919,7 +2101,8 @@ SPLERR SPLENTRY DosPrintQPauseW(
                 FORMAT_LPWSTR ")\n",
                 pszQueueName));
     }
-    return ERROR_NOT_SUPPORTED;
+
+    return (CommandALocalPrinterW( pszQueueName, PRINTER_CONTROL_PAUSE ) );
 }
 
 SPLERR SPLENTRY DosPrintQContinueW(
@@ -1934,7 +2117,8 @@ SPLERR SPLENTRY DosPrintQContinueW(
         NetpKdPrint((PREFIX_DOSPRINT "DosPrintQContinueW(NULL, "
                 FORMAT_LPWSTR ")\n", pszQueueName));
     }
-    return ERROR_NOT_SUPPORTED;
+
+    return (CommandALocalPrinterW( pszQueueName, PRINTER_CONTROL_RESUME ) );
 }
 
 SPLERR SPLENTRY DosPrintQPurgeW(
@@ -1950,7 +2134,8 @@ SPLERR SPLENTRY DosPrintQPurgeW(
                 FORMAT_LPWSTR ")\n",
                 pszQueueName));
     }
-    return ERROR_NOT_SUPPORTED;
+
+    return (CommandALocalPrinterW( pszQueueName, PRINTER_CONTROL_PURGE ) );
 }
 
 SPLERR SPLENTRY DosPrintQAddW(
@@ -2006,6 +2191,92 @@ SPLERR SPLENTRY DosPrintJobSetInfoW(
                 ", " FORMAT_DWORD ", " FORMAT_LPVOID ", " FORMAT_DWORD
                 ", " FORMAT_DWORD ")\n",
                 uJobId, uLevel, pbBuf, cbBuf, uParmNum));
+    }
+
+    //
+    // Hack for Chicago: support Level 1, ParmNum 0xb so that jobs
+    // are set with the comment field.
+    //
+    if (uLevel == 1 && uParmNum == PRJ_COMMENT_PARMNUM) {
+
+        HANDLE hPrinter = INVALID_HANDLE_VALUE;
+        CHAR szDocument[MAX_PATH];
+        PJOB_INFO_1 pJob = NULL;
+        DWORD cbJob;
+        SPLERR rc;
+
+        //
+        // Allocate maximum size of JOB_INFO_1A.  Later, this
+        // should be moved into the spooler's header file.
+        //
+        cbJob = sizeof(JOB_INFO_1) + 6 * MAX_PATH;
+
+        pJob = (PJOB_INFO_1) GlobalAlloc(GMEM_FIXED, cbJob);
+
+        if (pJob == NULL) {
+            rc = GetLastError();
+            goto Cleanup;
+        }
+
+        //
+        // The 3.51 spooler has been changed to accept Get/SetJobs on the
+        // local server handle.  We will still do security checks against
+        // the Job's security descriptor.  This also avoids the costly
+        // FindLocalJob() call.
+        //
+        if (!MyOpenPrinter( NULL, &hPrinter, NULL)) {
+            rc = GetLastError();
+            NetpKdPrint((PREFIX_DOSPRINT "DosPrintJobSetInfoW: "
+                    "MyOpenPrinter( NULL, &hPrinter, NULL ) failed"
+                    FORMAT_API_STATUS "\n", rc ));
+
+            hPrinter = INVALID_HANDLE_VALUE;
+            goto Cleanup;
+        }
+        NetpAssert( hPrinter != INVALID_HANDLE_VALUE );
+
+        //
+        // We need to get a copy of the old job info.  Later, the
+        // spooler should be changed to allow "don't change" values.
+        //
+        if (!MyGetJob( hPrinter, uJobId, 1, (PBYTE)pJob, cbJob, &cbJob )) {
+            rc = GetLastError();
+            NetpKdPrint((PREFIX_DOSPRINT "DosPrintJobSetInfoW: "
+                    "MyGetJob failed" FORMAT_API_STATUS "\n", rc ));
+
+            goto Cleanup;
+        }
+
+        //
+        // Put in new document name.
+        //
+        NetpNCopyWStrToStr( szDocument,
+                            (LPWSTR)pbBuf,
+                            sizeof( szDocument ) / sizeof( szDocument[0] ));
+
+        pJob->pDocument = szDocument;
+
+        //
+        // Don't try and change the position, since this requires
+        // admin access (and isn't necessary).
+        //
+        pJob->Position = JOB_POSITION_UNSPECIFIED;
+
+        rc = CommandALocalJob( hPrinter, uJobId, 1, (PBYTE)pJob, 0 );
+
+        if (rc) {
+            NetpKdPrint((PREFIX_DOSPRINT "DosPrintJobSetInfoW: "
+                    "CommandALocalJob failed " FORMAT_API_STATUS "\n", rc ));
+        }
+
+Cleanup:
+        if (pJob) {
+            GlobalFree( pJob );
+        }
+        if (hPrinter != INVALID_HANDLE_VALUE) {
+            MyClosePrinter( hPrinter );
+        }
+        return rc;
     }
 
     return ERROR_NOT_SUPPORTED;

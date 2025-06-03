@@ -26,9 +26,9 @@ Revision History:
 #ifndef CPQSMNGR
 #define CPQSMNGR
 
-#define IDA_DRIVER_NAME     "Microsoft Windows NT DriveArray"
-#define IDA_MAJOR_VERSION   1
-#define IDA_MINOR_VERSION   10
+#define IDA_DRIVER_NAME     "Compaq Windows NT DriveArray"
+#define IDA_MAJOR_VERSION   2
+#define IDA_MINOR_VERSION   00
 
 //
 //  The following defines identify the appropriate IDA controller types.
@@ -41,6 +41,7 @@ Revision History:
 #define IDA_EISA_ID_CANCUN      0x0240110e  // 0x0e114002
 #define IDA_EISA_ID_STANZA      0x1040110e  // 0x0e114010
 #define IDA_EISA_ID_WARRIOR     0x2040110e  // 0x0e114020
+#define IDA_EISA_ID_DAZZLER     0x3040110e  // 0x0e114030
 
 //
 //  This macro checks the Irp for a device control function.
@@ -51,21 +52,21 @@ Revision History:
 //
 #define MAPISPASSTHROUGH( Irp )                             \
     ((IoGetCurrentIrpStackLocation(Irp)->MajorFunction  \
-                ==                                          \
-        IRP_MJ_DEVICE_CONTROL   ) &&			\
+		==                                          \
+	IRP_MJ_DEVICE_CONTROL   ) &&                    \
     (IoGetCurrentIrpStackLocation(Irp)->\
 		Parameters.DeviceIoControl.IoControlCode  \
-                ==                                          \
-        MAP_IOCTL_PASSTHROUGH   ))
+		==                                          \
+	MAP_IOCTL_PASSTHROUGH   ))
 #ifndef NSCSIPASS
 #define MAPISSCSIPASSTHROUGH( Irp )                             \
     ((IoGetCurrentIrpStackLocation(Irp)->MajorFunction  \
-                ==                                          \
-        IRP_MJ_DEVICE_CONTROL   ) &&			\
+		==                                          \
+	IRP_MJ_DEVICE_CONTROL   ) &&                    \
     (IoGetCurrentIrpStackLocation(Irp)->\
 		Parameters.DeviceIoControl.IoControlCode  \
-                ==                                          \
-        MAP_IOCTL_SCSIPASSTHROUGH   ))
+		==                                          \
+	MAP_IOCTL_SCSIPASSTHROUGH   ))
 #endif
 
 //
@@ -77,14 +78,14 @@ Revision History:
     PMAP_CONTROLLER_DEVICE tmpController;                                    \
     PMAP_DISK_DEVICE Disk;                                                   \
     PMAP_DISK_DEVICE tmpDisk;                                                \
-                                                                             \
+									     \
     for( Controller=ControllerDevice; Controller; Controller=tmpController ){\
-        for( Disk=Controller->DiskDeviceList; Disk; Disk=tmpDisk ){          \
-            tmpDisk = Disk->Next;                                            \
-            ExFreePool( Disk );                                              \
-        }                                                                    \
-        tmpController = Controller->Next;                                    \
-        ExFreePool( Controller );                                            \
+	for( Disk=Controller->DiskDeviceList; Disk; Disk=tmpDisk ){          \
+	    tmpDisk = Disk->Next;                                            \
+	    ExFreePool( Disk );                                              \
+	}                                                                    \
+	tmpController = Controller->Next;                                    \
+	ExFreePool( Controller );                                            \
     }                                                                        \
 }
 
@@ -95,12 +96,12 @@ Revision History:
 #define MAP_GET_LAST_CONTROLLER( cd ){                      \
     PMAP_CONTROLLER_DEVICE c;                               \
     if( FirstController ){                                  \
-        for( c = FirstController;                           \
-             c->Next;                                       \
-             c = c->Next );                                 \
-        *((PMAP_CONTROLLER_DEVICE*)(cd)) = c;               \
+	for( c = FirstController;                           \
+	     c->Next;                                       \
+	     c = c->Next );                                 \
+	*((PMAP_CONTROLLER_DEVICE*)(cd)) = c;               \
     }else{                                                  \
-        *((PMAP_CONTROLLER_DEVICE*)(cd)) = FirstController; \
+	*((PMAP_CONTROLLER_DEVICE*)(cd)) = FirstController; \
     }                                                       \
 }
 
@@ -113,12 +114,12 @@ Revision History:
     *((PMAP_DISK_DEVICE*)(dd)) = (PMAP_DISK_DEVICE)0;                       \
     MAP_GET_LAST_CONTROLLER( (cd) );                                        \
     if( *((PMAP_CONTROLLER_DEVICE*)(cd)) ){                                 \
-        if((*((PMAP_CONTROLLER_DEVICE*)(cd)))->DiskDeviceList){             \
-            for( d = (*((PMAP_CONTROLLER_DEVICE*)(cd)))->DiskDeviceList;    \
-                 d->Next;                                                   \
-                 d = d->Next );                                             \
-            *((PMAP_DISK_DEVICE*)(dd)) = d;                                 \
-        }                                                                   \
+	if((*((PMAP_CONTROLLER_DEVICE*)(cd)))->DiskDeviceList){             \
+	    for( d = (*((PMAP_CONTROLLER_DEVICE*)(cd)))->DiskDeviceList;    \
+		 d->Next;                                                   \
+		 d = d->Next );                                             \
+	    *((PMAP_DISK_DEVICE*)(dd)) = d;                                 \
+	}                                                                   \
     }                                                                       \
 }
 
@@ -146,7 +147,7 @@ Revision History:
 //
 //      DriverMinorVersion - The version number to the left hand side
 //          of the decimal point.
-//  
+//
 
 typedef struct _MAP_HEADER{
 
@@ -192,7 +193,7 @@ typedef struct _MAP_HEADER{
 //          The size of this data structure will be the largest size
 //          required to accomodate ALL flavors of Compaq supported IDA
 //          controllers.
-//  
+//
 
 typedef struct _MAP_CONTROLLER_DATA{
 
@@ -202,7 +203,7 @@ typedef struct _MAP_CONTROLLER_DATA{
     ULONG BmicIoAddress;
     UCHAR IrqLevel;
     IDENTIFY_CONTROLLER ControllerInfo; //"IdentifyController"
-    
+
 }MAP_CONTROLLER_DATA, *PMAP_CONTROLLER_DATA;
 
 //
@@ -227,7 +228,7 @@ typedef struct _MAP_CONTROLLER_DATA{
 //          drive by the IDA device driver.  It is the number that represents
 //          "\Device\HarddiskN" where "N" is the SystemDriveNumber.
 //
-//      DeviceLengthLo - The Low 32 bits of the IDA logical device's RAW 
+//      DeviceLengthLo - The Low 32 bits of the IDA logical device's RAW
 //          partition length.
 //
 //      DeviceLengthHi - The High 32 bits of the IDA logical drive's RAW
@@ -235,7 +236,7 @@ typedef struct _MAP_CONTROLLER_DATA{
 //
 //      SectorSize - The sector size in bytes for this IDA logical device.
 //
-//      Configuration - The logical drive's configuration information as 
+//      Configuration - The logical drive's configuration information as
 //          received by the "SenseConfiguration" IDA logical command.
 //          The size of this data structure will be the largest size
 //          required to accomodate ALL flavors of Compaq supported IDA
@@ -246,7 +247,7 @@ typedef struct _MAP_CONTROLLER_DATA{
 //          The size of this data structure will be the largest size
 //          required to accomodate ALL flavors of Compaq supported IDA
 //          controllers.
-//  
+//
 
 typedef struct _MAP_LOGICALDRIVE_DATA{
 
@@ -279,11 +280,11 @@ typedef struct _MAP_LOGICALDRIVE_DATA{
 //
 //      BlockCount - The number of blocks to transfer.  A block is equal
 //          to a sector worth of data.
-//  
+//
 
 typedef struct _MAP_PARAMETER_PACKET{
 
-    UCHAR Reserved;
+    UCHAR TargetId;
     IN UCHAR IdaLogicalCommand;
     IN ULONG BlockNumber;
     IN ULONG BlockSize;
@@ -335,7 +336,7 @@ typedef struct _MAP_CONTROLLER_DEVICE{
 
     //  Array controller configuration information data area.
     IDENTIFY_CONTROLLER ControllerInformation;
-    
+
 }MAP_CONTROLLER_DEVICE, *PMAP_CONTROLLER_DEVICE;
 
 
@@ -362,7 +363,7 @@ typedef struct _MAP_DISK_DEVICE{
     //  Pointer to the controller device data area for the controller this
     //  logical disk device resides on.
     PMAP_CONTROLLER_DEVICE ControllerDevice;
-    
+
 }MAP_DISK_DEVICE, *PMAP_DISK_DEVICE;
 #ifndef NSCSIPASS
 typedef struct {
@@ -383,7 +384,7 @@ typedef struct _SCSI_PASSTHRU_HEADER {
     UCHAR machine_error;
     UCHAR cdb_length;
     UCHAR reserved[16];
-    
+
 } SCSI_PASSTHRU_HEADER, *PSCSI_PASSTHRU_HEADER;
 
 #define MAX_CDB_LENGTH 24
@@ -415,14 +416,16 @@ typedef struct _SCSI_PASSTHRU {
 // Define header for I/O control SRB.
 //
 
+#ifdef NDAZ
 typedef struct _SRB_IO_CONTROL {
-        ULONG HeaderLength;
-        UCHAR Signature[8];
-        ULONG Timeout;
-        ULONG ControlCode;
-        ULONG ReturnCode;
-        ULONG Length;
+	ULONG HeaderLength;
+	UCHAR Signature[8];
+	ULONG Timeout;
+	ULONG ControlCode;
+	ULONG ReturnCode;
+	ULONG Length;
 } SRB_IO_CONTROL, *PSRB_IO_CONTROL;
+#endif
 
 
 typedef struct _IDA_ERROR_BITS {
@@ -457,10 +460,24 @@ typedef struct _CPQ_IDA_IDENTIFY {
 	UCHAR ReturnData[1];
 }CPQ_IDA_IDENTIFY, *PCPQ_IDA_IDENTIFY;
 
-#define CPQ_IOCTL_IDENTIFY_DRIVER   	1
-#define CPQ_IOCTL_IDENTIFY_CONTROLLERS  2
-#define CPQ_IOCTL_PASSTHROUGH   	3
-#define CPQ_IOCTL_SCSIPASSTHROUGH   	4
+typedef struct _IDA_CONFIGURATION {
+   ULONG       ulBaseIOAddress;
+   ULONG       ulBaseMemoryAddress;
+   ULONG       ulControllerID;
+   BYTE        bIoBusType;
+   IO_BUS_DATA IoBusData;
+} IDA_CONFIGURATION, *PIDA_CONFIGURATION;
+
+typedef struct _IDA_CONFIGURATION_BUFFER {
+   SRB_IO_CONTROL IoctlHeader;
+   IDA_CONFIGURATION IDAConfiguration;
+} IDA_CONFIGURATION_BUFFER, *PIDA_CONFIGURATION_BUFFER;
+
+#define CPQ_IOCTL_IDENTIFY_DRIVER       1
+#define CPQ_IOCTL_IDENTIFY_CONTROLLERS 2
+#define CPQ_IOCTL_PASSTHROUGH           3
+#define CPQ_IOCTL_SCSIPASSTHROUGH       4
+#define CPQ_IOCTL_CONFIGURATION_INFO    5
 
 #define IDA_SIGNATURE "IDAM&P"
 
@@ -484,4 +501,9 @@ typedef struct _CPQ_IDA_IDENTIFY {
 #define MAP_IOCTL_SCSIPASSTHROUGH   \
     CTL_CODE(FILE_DEVICE_DISK,2051,METHOD_OUT_DIRECT,FILE_ANY_ACCESS)
 
+#define MAP_IOCTL_CONFIGURATION_INFO   \
+    CTL_CODE(FILE_DEVICE_DISK,2052,METHOD_OUT_DIRECT,FILE_ANY_ACCESS)
+
 #endif  //CPQSMNGR
+
+

@@ -145,7 +145,7 @@ USHORT parse_days_times(TCHAR FAR *  psz, UCHAR FAR *  bmap)
     GetMessageList(7, LocalizedDaysAbbrev, &max_len);
 
 #if DBG
-    WriteToCon(TEXT("parse_days_times: parsing: %Fs\n"),(TCHAR FAR *) psz);
+    WriteToCon(TEXT("parse_days_times: parsing: %Fs\r\n"),(TCHAR FAR *) psz);
 #endif
 
     /* for each day-time section... */
@@ -170,7 +170,7 @@ USHORT parse_days_times(TCHAR FAR *  psz, UCHAR FAR *  bmap)
 	WriteToCon(TEXT("%-2.2s "),LocalizedDaysAbbrev[i].msg_text);
 	for (j = 2; j >= 0; --j)
 	    WriteToCon(TEXT("%hx "),(USHORT)*(weekptr++));
-	WriteToCon(TEXT("\n"));
+	WriteToCon(TEXT("\r\n"));
     }
 #endif
 
@@ -212,7 +212,7 @@ USHORT parse_days(TCHAR FAR * psz, WEEKLIST FAR days, TCHAR FAR ** timetok)
 	days[i] =  FALSE;
 
 #if DBG
-    WriteToCon(TEXT("parse_days: parsing: %Fs\n"),(TCHAR FAR *) psz);
+    WriteToCon(TEXT("parse_days: parsing: %Fs\r\n"),(TCHAR FAR *) psz);
 #endif
 
     if (might_be_time_token(psz))   /* want at last one day */
@@ -265,7 +265,7 @@ USHORT parse_days(TCHAR FAR * psz, WEEKLIST FAR days, TCHAR FAR ** timetok)
 
 BOOL might_be_time_token(TCHAR FAR * psz)
 {
-    return ( isdigit(*psz));
+    return ( _istdigit(*psz) );
 
 }
 
@@ -355,7 +355,7 @@ USHORT parse_day_range(TCHAR FAR * psz, USHORT FAR * first,
     USHORT	  result;
 
 #if DBG
-    WriteToCon(TEXT("parse_day_range: parsing: %Fs\n"),(TCHAR FAR *) psz);
+    WriteToCon(TEXT("parse_day_range: parsing: %Fs\r\n"),(TCHAR FAR *) psz);
 #endif
 
     tok = get_token(&psz, TEXT("-"));
@@ -386,7 +386,7 @@ USHORT parse_day_range(TCHAR FAR * psz, USHORT FAR * first,
 VOID set_day_range(USHORT first, USHORT last, WEEKLIST FAR week)
 {
 #if DBG
-    WriteToCon(TEXT("set_day_range: %u %u\n"),first, last);
+    WriteToCon(TEXT("set_day_range: %u %u\r\n"),first, last);
 #endif
 
     if (last < first) {
@@ -466,7 +466,7 @@ USHORT parse_times(TCHAR FAR *  psz, DAY FAR * times)
 
 
 #if DBG
-    WriteToCon(TEXT("parse_times: parsing: %Fs\n"),(TCHAR FAR *) psz);
+    WriteToCon(TEXT("parse_times: parsing: %Fs\r\n"),(TCHAR FAR *) psz);
 #endif
 
     *times = 0L;
@@ -508,7 +508,7 @@ USHORT parse_time_range(TCHAR FAR * psz, USHORT FAR * first,
     USHORT	 err;
 
 #if DBG
-    WriteToCon(TEXT("parse_time_range: parsing: %Fs\n"),(TCHAR FAR *) psz);
+    WriteToCon(TEXT("parse_time_range: parsing: %Fs\r\n"),(TCHAR FAR *) psz);
 #endif
 
     tok = get_token(&psz,TEXT("-"));
@@ -561,7 +561,7 @@ VOID set_time_range( USHORT first, USHORT last, DAY FAR * times)
     USHORT bits;
 
 #if DBG
-    WriteToCon(TEXT("set_time_range: %u %u\n"), first, last);
+    WriteToCon(TEXT("set_time_range: %u %u\r\n"), first, last);
 #endif
 
     /* count the number of consecutive bits we need */

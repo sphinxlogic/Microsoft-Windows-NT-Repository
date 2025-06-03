@@ -30,13 +30,13 @@ Environment:
  *      This is the constant 0 in the 80-bit format.
  */
 
-REAL10  Real10_Zero = {0, 0, 0, 0, 0, 0, 0, 0, 0, 4};
+FLOAT10  Real10_Zero = {0, 0, 0, 0, 0, 0, 0, 0, 0, 4};
 
 
 
 int
 R10Not(
-       REAL10      ld
+       FLOAT10      ld
        )
 
 /*++
@@ -65,8 +65,8 @@ Return Value:
 
 void
 R10Uminus(
-          REAL10 *      pldDest,
-          REAL10        ldLeft
+          FLOAT10 *      pldDest,
+          FLOAT10        ldLeft
           )
 
 /*++
@@ -77,7 +77,7 @@ Routine Description:
 
 Arguments:
 
-    pldDest     - Supplies a pointer to the destination REAL10 buffer
+    pldDest     - Supplies a pointer to the destination FLOAT10 buffer
     ldLeft      - Supplies the value to be negated.
 
 Return Value:
@@ -98,7 +98,7 @@ Return Value:
     }
 #else
 #endif
-    
+
     return;
 
 }                               /* R10Uminus() */
@@ -107,8 +107,8 @@ Return Value:
 
 bool_t
 R10Equal(
-         REAL10         ldLeft,
-         REAL10         ldRight
+         FLOAT10         ldLeft,
+         FLOAT10         ldRight
          )
 /*++
 
@@ -131,7 +131,7 @@ Return Value:
 {
 #ifdef i386
     short         sw;
-    
+
     _asm {
         lea     eax, ldLeft             ;
         fld     tbyte ptr [eax]         ;
@@ -147,7 +147,7 @@ Return Value:
         return TRUE;
     }
     return FALSE;
-#else    
+#else
     return FALSE;
 #endif
 }                               /* R10Equal() */
@@ -156,8 +156,8 @@ Return Value:
 
 bool_t
 R10Lt(
-      REAL10      ldLeft,
-      REAL10      ldRight
+      FLOAT10      ldLeft,
+      FLOAT10      ldRight
       )
 
 /*++
@@ -181,7 +181,7 @@ Return Value:
 {
 #ifdef i386
     short         sw;
-    
+
     _asm {
         lea     eax, ldLeft             ;
         fld     tbyte ptr [eax]         ;
@@ -197,7 +197,7 @@ Return Value:
         return TRUE;
     }
     return FALSE;
-#else    
+#else
     return FALSE;
 #endif
 }                               /* R10Lt() */
@@ -206,9 +206,9 @@ Return Value:
 
 void
 R10Plus(
-        REAL10 *        pldResult,
-        REAL10          ldLeft,
-        REAL10          ldRight
+        FLOAT10 *        pldResult,
+        FLOAT10          ldLeft,
+        FLOAT10          ldRight
         )
 
 /*++
@@ -244,9 +244,9 @@ Return Value:
         mov     eax, pldResult          ;
         fstp    tbyte ptr [eax]         ;
     }
-    
+
 #else
-    memcpy(pldResult, &ldLeft, sizeof(REAL10));
+    memcpy(pldResult, &ldLeft, sizeof(FLOAT10));
 #endif
     return;
 }                               /* R10Plus() */
@@ -255,9 +255,9 @@ Return Value:
 
 void
 R10Minus(
-         REAL10 *        pldResult,
-         REAL10          ldLeft,
-         REAL10          ldRight
+         FLOAT10 *        pldResult,
+         FLOAT10          ldLeft,
+         FLOAT10          ldRight
          )
 
 /*++
@@ -293,9 +293,9 @@ Return Value:
         mov     eax, pldResult          ;
         fstp    tbyte ptr [eax]         ;
     }
-    
+
 #else  // i386
-    memcpy(pldResult, &ldLeft, sizeof(REAL10));
+    memcpy(pldResult, &ldLeft, sizeof(FLOAT10));
 #endif // i386
     return;
 }                               /* R10Minus() */
@@ -304,9 +304,9 @@ Return Value:
 
 void
 R10Times(
-         REAL10 *        pldResult,
-         REAL10          ldLeft,
-         REAL10          ldRight
+         FLOAT10 *        pldResult,
+         FLOAT10          ldLeft,
+         FLOAT10          ldRight
          )
 
 /*++
@@ -333,7 +333,7 @@ Return Value:
     _asm {
         lea     eax, ldLeft             ;
         fld     tbyte ptr [eax]         ;
-        
+
         lea     eax, ldRight            ;
         fld     tbyte ptr [eax]         ;
 
@@ -343,7 +343,7 @@ Return Value:
         fstp    tbyte ptr [eax]         ;
     }
 #else  // i386
-    memcpy(pldResult, &ldLeft, sizeof(REAL10));
+    memcpy(pldResult, &ldLeft, sizeof(FLOAT10));
 #endif // i386
     return;
 }                               /* R10Times() */
@@ -351,9 +351,9 @@ Return Value:
 
 void
 R10Divide(
-          REAL10 *        pldResult,
-          REAL10          ldLeft,
-          REAL10          ldRight
+          FLOAT10 *        pldResult,
+          FLOAT10          ldLeft,
+          FLOAT10          ldRight
           )
 
 /*++
@@ -380,7 +380,7 @@ Return Value:
     _asm {
         lea     eax, ldLeft             ;
         fld     tbyte ptr [eax]         ;
-        
+
         lea     eax, ldRight            ;
         fld     tbyte ptr [eax]         ;
 
@@ -390,7 +390,7 @@ Return Value:
         fstp    tbyte ptr [eax]         ;
     }
 #else  // i386
-    memcpy(pldResult, &ldLeft, sizeof(REAL10));
+    memcpy(pldResult, &ldLeft, sizeof(FLOAT10));
 #endif // i386
     return;
 }                               /* R10Divide() */
@@ -398,7 +398,7 @@ Return Value:
 
 double
 R10CastToDouble(
-                  REAL10        ld
+                  FLOAT10        ld
                   )
 
 /*++
@@ -435,7 +435,7 @@ Return Value:
 
 float
 R10CastToFloat(
-               REAL10 ld
+               FLOAT10 ld
                )
 
 /*++
@@ -473,7 +473,7 @@ Return Value:
 
 long
 R10CastToLong(
-              REAL10    ld
+              FLOAT10    ld
               )
 
 /*++
@@ -511,7 +511,7 @@ Return Value:
 
 void
 R10AssignDouble(
-                REAL10 *        pld,
+                FLOAT10 *        pld,
                 double          d
                 )
 /*++
@@ -548,7 +548,7 @@ Return Value:
 
 void
 R10AssignFloat(
-                REAL10 *       pld,
+                FLOAT10 *       pld,
                 float          f
                 )
 /*++

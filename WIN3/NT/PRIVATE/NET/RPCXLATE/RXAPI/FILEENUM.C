@@ -37,7 +37,7 @@ Revision History:
 
 #include <apinums.h>            // API_ equates.
 #include <lmerr.h>              // ERROR_ and NERR_ equates.
-#include <netdebug.h>           // NetpAssert(), NetpDbgPrint().
+#include <netdebug.h>           // NetpAssert(), NetpKdPrint(()).
 #include <netlib.h>             // NetpMemoryAllocate(), NetpMemoryFree().
 #include <rap.h>                // LPDESC.
 #include <remdef.h>             // REM16_, REM32_, REMSmb_ equates.
@@ -52,11 +52,11 @@ Revision History:
 //
 // typedef struct res_file_enum_2 FRK;
 //
-// #define FRK_INIT( f )        \
-//         {                \
-//                 (f).res_pad = 0L;        \
-//                 (f).res_fs = 0;        \
-//                 (f).res_pro = 0;        \
+// #define FRK_INIT( f )
+//         {
+//                 (f).res_pad = 0L;
+//                 (f).res_fs = 0;
+//                 (f).res_pro = 0;
 //         }
 
 #define LM20_FRK_LEN                 8
@@ -101,8 +101,8 @@ Return Value:
 #define DumpResumeKey( label ) \
     { \
         IF_DEBUG(FILE) { \
-            NetpDbgPrint( "RxNetFileEnum: resume key " label \
-            " call to RxRemoteApi:\n" ); \
+            NetpKdPrint(( "RxNetFileEnum: resume key " label \
+            " call to RxRemoteApi:\n" )); \
         NetpDbgHexDump( DownLevelResumeKey, LM20_FRK_LEN ); \
         } \
     }
@@ -183,16 +183,16 @@ Return Value:
     NetpAssert( *DataDescSmb != '\0' );
 
     if (DataDesc16) {
-        NetpDbgPrint( "NetpFileStructureInfo: desc 16 is " FORMAT_LPDESC ".\n",
-                DataDesc16 );
+        NetpKdPrint(( "NetpFileStructureInfo: desc 16 is " FORMAT_LPDESC ".\n",
+                DataDesc16 ));
     }
     if (DataDesc32) {
-        NetpDbgPrint( "NetpFileStructureInfo: desc 32 is " FORMAT_LPDESC ".\n",
-                DataDesc32 );
+        NetpKdPrint(( "NetpFileStructureInfo: desc 32 is " FORMAT_LPDESC ".\n",
+                DataDesc32 ));
     }
     if (DataDescSmb) {
-        NetpDbgPrint( "NetpFileStructureInfo: desc Smb is " FORMAT_LPDESC ".\n",
-                DataDescSmb );
+        NetpKdPrint(( "NetpFileStructureInfo: desc Smb is " FORMAT_LPDESC ".\n",
+                DataDescSmb ));
     }
 
 

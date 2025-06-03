@@ -37,7 +37,6 @@ Return Value:
 --*/
 
 {
-
     NTSTATUS Status;
     OBJECT_ATTRIBUTES ObjectAttributes;
     UNICODE_STRING SectionName;
@@ -56,287 +55,302 @@ Return Value:
     PCM_ROM_BLOCK BiosBlock;
     ULONG LastMappedAddress;
     PVDM_PROCESS_OBJECTS pVdmObjects;
-    USHORT PagedQuotaCharged = 0;    
+    USHORT PagedQuotaCharged = 0;
     USHORT NonPagedQuotaCharged = 0;
 
     PAGED_CODE();
 
+    if ((KeI386MachineType & MACHINE_TYPE_PC_9800_COMPATIBLE) == 0) {
 
-    RtlInitUnicodeString(
-        &SectionName,
-        L"\\Device\\PhysicalMemory"
-        );
+        //
+        // This is PC/AT (and FMR in Japan) VDM.
+        //
 
-    InitializeObjectAttributes(
-        &ObjectAttributes,
-        &SectionName,
-        OBJ_CASE_INSENSITIVE,
-        (HANDLE) NULL,
-        (PSECURITY_DESCRIPTOR) NULL
-        );
-
-    Status = ZwOpenSection(
-        &SectionHandle,
-        SECTION_ALL_ACCESS,
-        &ObjectAttributes
-        );
-
-    if (!NT_SUCCESS(Status)) {
-
-        return Status;
-
-    }
-
-    //
-    // Copy the first page of memory into the VDM's address space
-    //
-
-    BaseAddress = 0;
-    destination = 0;
-    ViewSize = 0x1000;
-    ViewBase.LowPart = 0;
-    ViewBase.HighPart = 0;
-
-    Status = ZwMapViewOfSection(
-        SectionHandle,
-        NtCurrentProcess(),
-        &BaseAddress,
-        0,
-        ViewSize,
-        &ViewBase,
-        &ViewSize,
-        ViewUnmap,
-        0,
-        PAGE_READWRITE
-        );
-
-    if (!NT_SUCCESS(Status)) {
-
-        return Status;
-
-    }
-
-    RtlMoveMemory(
-        destination,
-        BaseAddress,
-        ViewSize
-        );
-
-    Status = ZwUnmapViewOfSection(
-        NtCurrentProcess(),
-        BaseAddress
-        );
-
-    if (!NT_SUCCESS(Status)) {
-
-        return Status;
-
-    }
-
-    //
-    // Map Rom into address space
-    //
-
-    BaseAddress = (PVOID) 0x000C0000;
-    ViewSize = 0x40000;
-    ViewBase.LowPart = 0x000C0000;
-    ViewBase.HighPart = 0;
-
-
-    //
-    // First unmap the reserved memory.  This must be done here to prevent
-    // the virtual memory in question from being consumed by some other
-    // alloc vm call.
-    //
-
-    Status = ZwFreeVirtualMemory(
-        NtCurrentProcess(),
-        &BaseAddress,
-        &ViewSize,
-        MEM_RELEASE
-        );
-
-    // N.B.  This should probably take into account the fact that there are
-    // a handfull of error conditions that are ok.  (such as no memory to
-    // release.)
-
-    if (!NT_SUCCESS(Status)) {
-
-        return Status;
-
-    }
-
-    //
-    // Set up and open KeyPath
-    //
-
-    InitializeObjectAttributes(
-        &ObjectAttributes,
-        &CmRegistryMachineHardwareDescriptionSystemName,
-        OBJ_CASE_INSENSITIVE,
-        (HANDLE)NULL,
-        NULL
-        );
-
-    Status = ZwOpenKey(
-        &RegistryHandle,
-        KEY_READ,
-        &ObjectAttributes
-        );
-
-    if (!NT_SUCCESS(Status)) {
-        return Status;
-    }
-
-    //
-    // Allocate space for the data
-    //
-
-    KeyValueBuffer = ExAllocatePool(PagedPool, KEY_VALUE_BUFFER_SIZE);
-    if (KeyValueBuffer == NULL) {
-        ZwClose(RegistryHandle);
-        return STATUS_NO_MEMORY;
-    }
-
-    //
-    // Get the data for the rom information
-    //
-
-    RtlInitUnicodeString(
-        &WorkString,
-        L"Configuration Data"
-        );
-
-    Status = ZwQueryValueKey(
-        RegistryHandle,
-        &WorkString,
-        KeyValueFullInformation,
-        KeyValueBuffer,
-        KEY_VALUE_BUFFER_SIZE,
-        &ResultLength
-        );
-
-    if (!NT_SUCCESS(Status)) {
-        ZwClose(RegistryHandle);
-        ExFreePool(KeyValueBuffer);
-        return Status;
-    }
-
-    ResourceDescriptor = (PCM_FULL_RESOURCE_DESCRIPTOR)
-        ((PUCHAR) KeyValueBuffer + KeyValueBuffer->DataOffset);
-
-    if ((KeyValueBuffer->DataLength < sizeof(CM_FULL_RESOURCE_DESCRIPTOR)) ||
-        (ResourceDescriptor->PartialResourceList.Count < 2)
-    ) {
-        ZwClose(RegistryHandle);
-        ExFreePool(KeyValueBuffer);
-        // No rom blocks.
-        return STATUS_SUCCESS;
-    }
-
-    PartialResourceDescriptor = (PCM_PARTIAL_RESOURCE_DESCRIPTOR)
-        ((PUCHAR)ResourceDescriptor +
-        sizeof(CM_FULL_RESOURCE_DESCRIPTOR) +
-        ResourceDescriptor->PartialResourceList.PartialDescriptors[0]
-            .u.DeviceSpecificData.DataSize);
-
-
-    if (KeyValueBuffer->DataLength < ((PUCHAR)PartialResourceDescriptor -
-        (PUCHAR)ResourceDescriptor + sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR)
-        + sizeof(CM_ROM_BLOCK))
-    ) {
-        ZwClose(RegistryHandle);
-        ExFreePool(KeyValueBuffer);
-        return STATUS_ILL_FORMED_SERVICE_ENTRY;
-    }
-
-
-    BiosBlock = (PCM_ROM_BLOCK)((PUCHAR)PartialResourceDescriptor +
-        sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR));
-
-    Index = PartialResourceDescriptor->u.DeviceSpecificData.DataSize /
-        sizeof(CM_ROM_BLOCK);
-
-    //
-    // N.B.  Rom blocks begin on 2K (not necessarily page) boundaries
-    //       They end on 512 byte boundaries.  This means that we have
-    //       to keep track of the last page mapped, and round the next
-    //       Rom block up to the next page boundary if necessary.
-    //
-
-    LastMappedAddress = 0xC0000;
-
-    while (Index) {
-#if 0
-        DbgPrint(
-            "Bios Block, PhysAddr = %lx, size = %lx\n",
-            BiosBlock->Address,
-            BiosBlock->Size
+        RtlInitUnicodeString(
+            &SectionName,
+            L"\\Device\\PhysicalMemory"
             );
-#endif
-        if ((Index > 1) &&
-            ((BiosBlock->Address + BiosBlock->Size) == BiosBlock[1].Address)
+
+        InitializeObjectAttributes(
+            &ObjectAttributes,
+            &SectionName,
+            OBJ_CASE_INSENSITIVE,
+            (HANDLE) NULL,
+            (PSECURITY_DESCRIPTOR) NULL
+            );
+
+        Status = ZwOpenSection(
+            &SectionHandle,
+            SECTION_ALL_ACCESS,
+            &ObjectAttributes
+            );
+
+        if (!NT_SUCCESS(Status)) {
+
+            return Status;
+
+        }
+
+        //
+        // Copy the first page of memory into the VDM's address space
+        //
+
+        BaseAddress = 0;
+        destination = 0;
+        ViewSize = 0x1000;
+        ViewBase.LowPart = 0;
+        ViewBase.HighPart = 0;
+
+        Status = ZwMapViewOfSection(
+            SectionHandle,
+            NtCurrentProcess(),
+            &BaseAddress,
+            0,
+            ViewSize,
+            &ViewBase,
+            &ViewSize,
+            ViewUnmap,
+            0,
+            PAGE_READWRITE
+            );
+
+        if (!NT_SUCCESS(Status)) {
+
+            return Status;
+
+        }
+
+        RtlMoveMemory(
+            destination,
+            BaseAddress,
+            ViewSize
+            );
+
+        Status = ZwUnmapViewOfSection(
+            NtCurrentProcess(),
+            BaseAddress
+            );
+
+        if (!NT_SUCCESS(Status)) {
+
+            return Status;
+
+        }
+
+        //
+        // Map Rom into address space
+        //
+
+        BaseAddress = (PVOID) 0x000C0000;
+        ViewSize = 0x40000;
+        ViewBase.LowPart = 0x000C0000;
+        ViewBase.HighPart = 0;
+
+
+        //
+        // First unmap the reserved memory.  This must be done here to prevent
+        // the virtual memory in question from being consumed by some other
+        // alloc vm call.
+        //
+
+        Status = ZwFreeVirtualMemory(
+            NtCurrentProcess(),
+            &BaseAddress,
+            &ViewSize,
+            MEM_RELEASE
+            );
+
+        // N.B.  This should probably take into account the fact that there are
+        // a handfull of error conditions that are ok.  (such as no memory to
+        // release.)
+
+        if (!NT_SUCCESS(Status)) {
+
+            return Status;
+
+        }
+
+        //
+        // Set up and open KeyPath
+        //
+
+        InitializeObjectAttributes(
+            &ObjectAttributes,
+            &CmRegistryMachineHardwareDescriptionSystemName,
+            OBJ_CASE_INSENSITIVE,
+            (HANDLE)NULL,
+            NULL
+            );
+
+        Status = ZwOpenKey(
+            &RegistryHandle,
+            KEY_READ,
+            &ObjectAttributes
+            );
+
+        if (!NT_SUCCESS(Status)) {
+            return Status;
+        }
+
+        //
+        // Allocate space for the data
+        //
+
+        KeyValueBuffer = ExAllocatePool(PagedPool, KEY_VALUE_BUFFER_SIZE);
+        if (KeyValueBuffer == NULL) {
+            ZwClose(RegistryHandle);
+            return STATUS_NO_MEMORY;
+        }
+
+        //
+        // Get the data for the rom information
+        //
+
+        RtlInitUnicodeString(
+            &WorkString,
+            L"Configuration Data"
+            );
+
+        Status = ZwQueryValueKey(
+            RegistryHandle,
+            &WorkString,
+            KeyValueFullInformation,
+            KeyValueBuffer,
+            KEY_VALUE_BUFFER_SIZE,
+            &ResultLength
+            );
+
+        if (!NT_SUCCESS(Status)) {
+            ZwClose(RegistryHandle);
+            ExFreePool(KeyValueBuffer);
+            return Status;
+        }
+
+        ResourceDescriptor = (PCM_FULL_RESOURCE_DESCRIPTOR)
+            ((PUCHAR) KeyValueBuffer + KeyValueBuffer->DataOffset);
+
+        if ((KeyValueBuffer->DataLength < sizeof(CM_FULL_RESOURCE_DESCRIPTOR)) ||
+            (ResourceDescriptor->PartialResourceList.Count < 2)
         ) {
-            //
-            // Coalesce adjacent blocks
-            //
-            BiosBlock[1].Address = BiosBlock[0].Address;
-            BiosBlock[1].Size += BiosBlock[0].Size;
+            ZwClose(RegistryHandle);
+            ExFreePool(KeyValueBuffer);
+            // No rom blocks.
+            return STATUS_SUCCESS;
+        }
+
+        PartialResourceDescriptor = (PCM_PARTIAL_RESOURCE_DESCRIPTOR)
+            ((PUCHAR)ResourceDescriptor +
+            sizeof(CM_FULL_RESOURCE_DESCRIPTOR) +
+            ResourceDescriptor->PartialResourceList.PartialDescriptors[0]
+                .u.DeviceSpecificData.DataSize);
+
+
+        if (KeyValueBuffer->DataLength < ((PUCHAR)PartialResourceDescriptor -
+            (PUCHAR)ResourceDescriptor + sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR)
+            + sizeof(CM_ROM_BLOCK))
+        ) {
+            ZwClose(RegistryHandle);
+            ExFreePool(KeyValueBuffer);
+            return STATUS_ILL_FORMED_SERVICE_ENTRY;
+        }
+
+
+        BiosBlock = (PCM_ROM_BLOCK)((PUCHAR)PartialResourceDescriptor +
+            sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR));
+
+        Index = PartialResourceDescriptor->u.DeviceSpecificData.DataSize /
+            sizeof(CM_ROM_BLOCK);
+
+        //
+        // N.B.  Rom blocks begin on 2K (not necessarily page) boundaries
+        //       They end on 512 byte boundaries.  This means that we have
+        //       to keep track of the last page mapped, and round the next
+        //       Rom block up to the next page boundary if necessary.
+        //
+
+        LastMappedAddress = 0xC0000;
+
+        while (Index) {
+    #if 0
+            DbgPrint(
+                "Bios Block, PhysAddr = %lx, size = %lx\n",
+                BiosBlock->Address,
+                BiosBlock->Size
+                );
+    #endif
+            if ((Index > 1) &&
+                ((BiosBlock->Address + BiosBlock->Size) == BiosBlock[1].Address)
+            ) {
+                //
+                // Coalesce adjacent blocks
+                //
+                BiosBlock[1].Address = BiosBlock[0].Address;
+                BiosBlock[1].Size += BiosBlock[0].Size;
+                Index--;
+                BiosBlock++;
+                continue;
+            }
+
+            BaseAddress = (PVOID)(BiosBlock->Address);
+            ViewSize = BiosBlock->Size;
+
+            if ((ULONG)BaseAddress < LastMappedAddress) {
+                if (ViewSize > (LastMappedAddress - (ULONG)BaseAddress)) {
+                    ViewSize = ViewSize - (LastMappedAddress - (ULONG)BaseAddress);
+                    BaseAddress = (PVOID)LastMappedAddress;
+                } else {
+                    ViewSize = 0;
+                }
+            }
+
+            ViewBase.LowPart = (ULONG)BaseAddress;
+
+            if (ViewSize > 0) {
+
+                Status = ZwMapViewOfSection(
+                    SectionHandle,
+                    NtCurrentProcess(),
+                    &BaseAddress,
+                    0,
+                    ViewSize,
+                    &ViewBase,
+                    &ViewSize,
+                    ViewUnmap,
+                    MEM_DOS_LIM,
+                    PAGE_READWRITE
+                    );
+
+                if (!NT_SUCCESS(Status)) {
+                    break;
+                }
+
+                LastMappedAddress = (ULONG)BaseAddress + ViewSize;
+            }
+
             Index--;
             BiosBlock++;
-            continue;
         }
 
-        BaseAddress = (PVOID)(BiosBlock->Address);
-        ViewSize = BiosBlock->Size;
-        ViewBase.LowPart = (ULONG)BaseAddress;
+        //
+        // Free up the handles
+        //
 
-        if ((ULONG)BaseAddress < LastMappedAddress) {
-            if (ViewSize > (LastMappedAddress - (ULONG)BaseAddress)) {
-                ViewSize = ViewSize - (LastMappedAddress - (ULONG)BaseAddress);
-                BaseAddress = (PVOID)LastMappedAddress;
-            } else {
-                ViewSize = 0;
-            }
-        }
+        ZwClose(SectionHandle);
+        ZwClose(RegistryHandle);
+        ExFreePool(KeyValueBuffer);
 
-        if (ViewSize > 0) {
+    } else {
 
-            Status = ZwMapViewOfSection(
-                SectionHandle,
-                NtCurrentProcess(),
-                &BaseAddress,
-                0,
-                ViewSize,
-                &ViewBase,
-                &ViewSize,
-                ViewUnmap,
-                MEM_DOS_LIM,
-                PAGE_READWRITE
-                );
+        //
+        // This is PC-9800 Series VDM.
+        //
 
-            if (!NT_SUCCESS(Status)) {
-                break;
-            }
-
-            LastMappedAddress = (ULONG)BaseAddress + ViewSize;
-        }
-
-        Index--;
-        BiosBlock++;
+        Status = STATUS_SUCCESS;
     }
-
-    //
-    // Free up the handles
-    //
-
-    ZwClose(SectionHandle);
-    ZwClose(RegistryHandle);
-    ExFreePool(KeyValueBuffer);
 
     //
     // Mark the process as a vdm
-    //(bugbug others using the flags?)
+    //
 
     Process = PsGetCurrentProcess();
     Process->Pcb.VdmFlag = TRUE;
@@ -347,10 +361,10 @@ Return Value:
     //
     // N.B.  We don't use ExAllocatePoolWithQuota because it
     //       takes a reference to the process (which ExFreePool
-    //       dereferences).  Since we expect to clean up on 
+    //       dereferences).  Since we expect to clean up on
     //       process deletion, we don't need or want the reference
     //       (which will prevent the process from being deleted)
-    // 
+    //
 
     try {
 
@@ -369,9 +383,10 @@ Return Value:
         //
         PsChargePoolQuota(Process, NonPagedPool, sizeof(VDM_PROCESS_OBJECTS));
         NonPagedQuotaCharged = sizeof(VDM_PROCESS_OBJECTS);
-        
+
         pVdmObjects = Process->VdmObjects;
         RtlZeroMemory( Process->VdmObjects, sizeof(VDM_PROCESS_OBJECTS));
+        ExInitializeFastMutex(&pVdmObjects->DelayIntFastMutex);
         KeInitializeSpinLock(&pVdmObjects->DelayIntSpinLock);
         InitializeListHead(&pVdmObjects->DelayIntListHead);
 
@@ -384,14 +399,14 @@ Return Value:
         if (pVdmObjects->pIcaUserData == NULL) {
             Status = STATUS_NO_MEMORY;
         } else {
-        
+
             //
             // We use NonPagedQuotaCharged to keep track of the quota to return
             // if this function fails
             //
             PsChargePoolQuota(
-                Process, 
-                PagedPool, 
+                Process,
+                PagedPool,
                 sizeof(VDMICAUSERDATA)
                 );
             PagedQuotaCharged = sizeof(VDMICAUSERDATA);
@@ -415,19 +430,19 @@ Return Value:
 
             ProbeForWrite(
                 pIcaUserData->pIcaLock,
-                sizeof(RTL_CRITICAL_SECTION), 
+                sizeof(RTL_CRITICAL_SECTION),
                 sizeof(UCHAR)
                 );
 
             ProbeForWrite(
                 pIcaUserData->pIcaMaster,
-                sizeof(VDMVIRTUALICA), 
+                sizeof(VDMVIRTUALICA),
                 sizeof(UCHAR)
                 );
 
             ProbeForWrite(
                 pIcaUserData->pIcaSlave,
-                sizeof(VDMVIRTUALICA), 
+                sizeof(VDMVIRTUALICA),
                 sizeof(UCHAR)
                 );
 
@@ -447,7 +462,7 @@ Return Value:
             ExFreePool(pVdmObjects->pIcaUserData);
         ExFreePool(pVdmObjects);
         Process->VdmObjects = NULL;
-        
+
         //
         // Return Quota charged
         //
@@ -455,16 +470,20 @@ Return Value:
         PsReturnPoolQuota(Process, PagedPool, PagedQuotaCharged);
         }
 
+    //
+    // following codepath only for PC/AT (and FMR in Japan) vdm
+    //
 
-
+    if (KeI386MachineType & MACHINE_TYPE_PC_9800_COMPATIBLE == 0) {
 
 #ifdef WHEN_IO_DISPATCHING_IMPROVED
-    // Sudeepb - Once we improve the IO dispatching we should use this
-    // routine. Currently we are dispatching the printer ports directly
-    // from emv86.asm and instemul.asm
+        // Sudeepb - Once we improve the IO dispatching we should use this
+        // routine. Currently we are dispatching the printer ports directly
+        // from emv86.asm and instemul.asm
 
-    VdmInitializePrinter ();
+        VdmInitializePrinter ();
 #endif
+    }
 
     return Status;
 

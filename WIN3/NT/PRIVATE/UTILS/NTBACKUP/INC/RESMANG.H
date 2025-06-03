@@ -85,6 +85,7 @@ Initial revision.
 #include "icons.h"
 #include "cursors.h"
 #include "bitmaps.h"
+#include "ctl3d.h"
 
 #if defined ( OEM_MSOFT ) // include product specific files      // chs: 02-24-93
 #  include "omstring.h"
@@ -98,6 +99,8 @@ Initial revision.
 // STRUCTURE DEFINITIONS
 
 // MACROS
+
+#define BTNFACE_BACKGND  ((WORD)200 )
 
 #define RSM_CursorSet( x )          SetCursor( x )
 #define RSM_IconDraw( w, x, y, z )  DrawIcon( z, x, y, w )
@@ -122,5 +125,6 @@ HICON   RSM_IconLoad ( LPSTR );
 INT     RSM_StringLoad ( VOID_PTR, LPSTR, INT );
 INT     RSM_Sprintf ( LPSTR, LPSTR, ... );
 
+
 #endif
-
+

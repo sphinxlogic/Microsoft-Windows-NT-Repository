@@ -1,5 +1,9 @@
 #include <pch.cxx>
 
+#define _UFAT_MEMBER_
+#include "ufat.hxx"
+
+
 #include "cmem.hxx"
 
 extern "C" {
@@ -9,7 +13,7 @@ extern "C" {
 #include "ntrtl.h"
 }
 
-DEFINE_CONSTRUCTOR( CLUSTER_CHAIN, OBJECT );
+DEFINE_EXPORTED_CONSTRUCTOR( CLUSTER_CHAIN, OBJECT, UFAT_EXPORT );
 
 VOID
 CLUSTER_CHAIN::Construct (
@@ -41,6 +45,7 @@ Return Value:
     _secrun = NULL;
 }
 
+UFAT_EXPORT
 CLUSTER_CHAIN::~CLUSTER_CHAIN(
     )
 /*++
@@ -63,6 +68,7 @@ Return Value:
 }
 
 
+UFAT_EXPORT
 BOOLEAN
 CLUSTER_CHAIN::Initialize(
     IN OUT  PMEM                Mem,
@@ -216,6 +222,7 @@ Return Value:
 }
 
 
+UFAT_EXPORT
 BOOLEAN
 CLUSTER_CHAIN::Read(
     )
@@ -255,12 +262,12 @@ Return Value:
         if (!_secruns) {
             return FALSE;
         }
-    
+
         for (i = 0; i < _num_secruns; i++) {
-    
+
             b = (BOOLEAN)(_secruns[i]->Read() && b);
         }
-    
+
         return b;
     }
 
@@ -295,7 +302,7 @@ Return Value:
                 _fat_sa->QuerySectorsRequiredForPlainData(clus) * sector_size,
                 (PUCHAR)_secrun->GetBuf(),
                 nsec * sector_size, &wkspc);
-    
+
             if (0 == u) {
                 // error: can't decompress data
                 return TRUE;
@@ -314,7 +321,7 @@ Return Value:
 
         clus = _fat->QueryEntry(clus);
         if (!_fat->IsInRange(clus)) {
-            return FALSE;    
+            return FALSE;
         }
     }
 
@@ -324,6 +331,7 @@ Return Value:
 }
 
 
+UFAT_EXPORT
 BOOLEAN
 CLUSTER_CHAIN::Write(
     )
@@ -363,12 +371,12 @@ Return Value:
         if (!_secruns) {
             return FALSE;
         }
-    
+
         for (i = 0; i < _num_secruns; i++) {
-    
+
             b = (BOOLEAN)(_secruns[i]->Write() && b);
         }
-    
+
         return b;
     }
 
@@ -429,7 +437,7 @@ Return Value:
                 _fat_sa->FreeClusterData(clus);
                 if (!_fat_sa->AllocateClusterData(clus, new_nsec, TRUE,
                      _fat_sa->QuerySectorsPerCluster())) {
-    
+
                     // error: not enough free space
                     return FALSE;
                 }
@@ -462,7 +470,7 @@ Return Value:
 
         clus = _fat->QueryEntry(clus);
         if (!_fat->IsInRange(clus)) {
-            return FALSE;    
+            return FALSE;
         }
     }
 

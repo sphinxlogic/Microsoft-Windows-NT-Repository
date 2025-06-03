@@ -20,6 +20,13 @@ History				:
 #include "idict.hxx"
 
 /****************************************************************************
+ ***		extern procs
+ ***************************************************************************/
+
+extern void			StripSlashes( char * );
+
+
+/****************************************************************************
  ****				class definitions for the import handler
  ****************************************************************************/
 
@@ -46,6 +53,9 @@ struct _fname_list
     } ;
 typedef struct _fname_list FNAME_LIST;
 
+// buffer size for open files
+#define MIDL_RD_BUFSIZE		16384
+
 /***
  *** nested file info stack implemented as a doubly linked list
  ***/
@@ -54,20 +64,28 @@ struct _in_stack_element
 	struct _in_stack_element *pNext;	// next stack element
 	struct _in_stack_element *pPrev;	// previous stack element
 	FILE *					 hFile;		// this files handle (valid if open)
+	char *					 pBuffer;	// buffer for file I/O
 	unsigned long			 ulPos;		// current position in the physical
-	unsigned short			 fOpen	:1;	// file open ?
-	unsigned short			 fShadow:1;	// current file being shadowed ?
-	unsigned short			 fNewLine:1;// new line was just seen
-	unsigned short			 fRedundantImport:1;
-	unsigned short			 UnUsed	:12;// as yet unused flags
+	unsigned char			 fOpen;		// file open ?
+	unsigned char			 fShadow;	// current file being shadowed ?
+	unsigned char			 fNewLine;// new line was just seen
+	unsigned char			 fRedundantImport;
 	char *					 pShadowName;// shadow file name
 	char *					 pMIFileName;// _i intermediate file
 	unsigned short			 uShadowLine;// shadow line number
-	unsigned short			 uShadowCol; // shadow file column number
 	char *					 pIFileName; // intermediate filename
 	char *					 pName;		// base file name including path
 	short					 uLine;		// current line in base file
-	short					 uCol;		// current col in base file
+    
+							_in_stack_element()
+								{
+								pBuffer = new char[MIDL_RD_BUFSIZE];
+								}
+
+							~_in_stack_element()
+								{
+								delete pBuffer;
+								}
     } ;
 typedef struct _in_stack_element IN_STACK_ELEMENT;
 /***
@@ -76,13 +94,12 @@ typedef struct _in_stack_element IN_STACK_ELEMENT;
 
  struct _nfa_flags
 	{
-	unsigned short		fFileSet	:1;		// file opened after push lex lvl ?
-	unsigned short		fPreProcess	:1;		// preprocessing on ?
-	unsigned short		fEOI		:1;		// end of file sensed ?
-	unsigned short		fRedundantImport:1;	// redundant import simulation
-	unsigned short		fBaseFileName:1;
-	unsigned short		fInInclude	: 1;
-	unsigned short		fUnused		:10;	// as yet unused flags
+	unsigned char		fFileSet;			// file opened after push lex lvl ?
+	unsigned char		fPreProcess;		// preprocessing on ?
+	unsigned char		fEOI;				// end of file sensed ?
+	unsigned char		fRedundantImport;	// redundant import simulation
+	unsigned char		fBaseFileName;
+	unsigned char		fInInclude;
     } ;
 typedef  struct _nfa_flags  NFA_FLAGS;
 /***
@@ -110,6 +127,7 @@ public:
 	short				PushLexLevel( void );
 	STATUS_T			PopLexLevel( void );
 	STATUS_T			SetNewInputFile( char *);
+	void				SetLineFilename( char *);
 	STATUS_T			SetPath( char *);
 	STATUS_T			SetPreProcessingOn( void );
 	STATUS_T			PreProcess(char*, char*, char*, char*, char*&);

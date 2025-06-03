@@ -52,3 +52,9 @@ typedef struct _STACK_TRACE_DATABASE {
     ULONG NumberOfBuckets;
     PRTL_STACK_TRACE_ENTRY Buckets[ 1 ];
 } STACK_TRACE_DATABASE, *PSTACK_TRACE_DATABASE;
+
+PSTACK_TRACE_DATABASE
+RtlpAcquireStackTraceDataBase( VOID );
+
+VOID
+RtlpReleaseStackTraceDataBase( VOID );

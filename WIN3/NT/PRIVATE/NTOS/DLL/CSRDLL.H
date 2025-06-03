@@ -114,20 +114,6 @@ BOOLEAN CsrServerProcess;
 NTSTATUS (*CsrServerApiRoutine)(PCSR_API_MSG,PCSR_API_MSG);
 
 //
-// This points to the server routine that dispatches QLPC APIs in the server
-// process context.
-//
-
-VOID (*CsrpProcessApiRequest)(PCSR_QLPC_API_MSG,PCSR_QLPC_STACK);
-
-//
-// This points to the server routine that initializes QLPC threads in
-// the server process context.
-//
-
-VOID (*CsrpInitializeDlls)(VOID);
-
-//
 // This points to the server routine that locates a CSR_THREAD structure
 // given a client id.
 //
@@ -180,6 +166,12 @@ HANDLE CsrPortHandle;
 
 PVOID CsrPortHeap;
 ULONG CsrPortMemoryRemoteDelta;
+
+ULONG CsrPortBaseTag;
+
+#define MAKE_CSRPORT_TAG( t ) (RTL_HEAP_MAKE_TAG( CsrPortBaseTag, t ))
+
+#define CAPTURE_TAG 0
 
 //
 // The CsrDllHandle global variable contains the DLL handle for the WINDLL

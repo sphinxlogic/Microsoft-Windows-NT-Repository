@@ -54,7 +54,7 @@ void static OnOK (HDLG hDlg)
 
 void OnComputerSelectionChanged (HWND hDlg)
    {
-   TCHAR localComputerName [MAX_COMPUTERNAME_LENGTH + 3] ;
+   TCHAR localComputerName [MAX_PATH + 3] ;
    int   SelectedIndex ;
    HWND  hWndLB = GetDlgItem (hDlg, IDD_CHOOSECOMPUTERLISTBOX) ;
 
@@ -144,4 +144,4 @@ BOOL GetLogFileComputer (HWND hWndParent, LPTSTR lpComputerName, DWORD BufferSiz
    return (bSuccess) ;
    }  // GetLogFileComputer
 
-
+

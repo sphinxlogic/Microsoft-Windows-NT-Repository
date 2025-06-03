@@ -1208,6 +1208,7 @@ Return Value:
 
                     if (CheckSocketState(sock, &readable, &writeable, &sockError)) {
                         if (!sockError) {
+
                             if (readable) {
                                 AsyncReadAction(pSocketInfo, 
                                                 pConnectionInfo,
@@ -1316,7 +1317,7 @@ Return Value:
     fd_set reads;
     fd_set writes;
     int n;
-    static struct timeval timeout = {0, ONE_TICK};
+    static struct timeval timeout = {0, 0};
 
     FD_ZERO(&errors);
     FD_ZERO(&reads);
@@ -1839,9 +1840,11 @@ Return Value:
         rc = recv(pConnectionInfo->Socket, pXecb->Data, pXecb->Length, 0);
 
         if (rc != SOCKET_ERROR) {
+
             len = rc;
             status = ECB_CC_SUCCESS;
             completeRequest = TRUE;
+            
         } else {
             rc = WSAGetLastError();
             if (rc == WSAEMSGSIZE) {
@@ -1872,7 +1875,50 @@ Return Value:
             DUMPXECB(pXecb);
 
         }
-        if (completeRequest) {
+
+        if( rc == WSAEDISCON ) {
+
+            //
+            // handle the disconnect case - we still need to complete the
+            // ECB.
+            //
+
+            LPSPX_PACKET pPacket = (LPSPX_PACKET)pXecb->Buffer;
+
+            status = ECB_CC_SUCCESS;
+
+
+            pPacket->DestinationConnectId = pConnectionInfo->ConnectionId;
+            pPacket->SourceConnectId = pConnectionInfo->RemoteConnectionId;
+            pPacket->DataStreamType = SPX_DS_TERMINATE ;
+            pPacket->Checksum = 0xffff;
+            pPacket->Length = L2BW(SPX_HEADER_LENGTH);
+            pPacket->TransportControl = 0;
+            pPacket->PacketType = 5;
+
+            pXecb->Length = SPX_HEADER_LENGTH ;
+            ScatterData(pXecb);
+
+            DequeueEcb(pXecb, pQueue);
+
+            //
+            // Put the remote node address in the ECB's immediate address
+            // field
+            //
+
+            CopyMemory(pXecb->Ecb->ImmediateAddress,
+                       pConnectionInfo->RemoteNode,
+                       sizeof(pXecb->Ecb->ImmediateAddress)
+                       );
+
+            CompleteOrQueueIo(pXecb, status);
+
+            DequeueConnection(pConnectionInfo->OwningSocket, pConnectionInfo);
+            AbortOrTerminateConnection(pConnectionInfo, ECB_CC_CONNECTION_ABORTED);
+            break ;
+
+        }
+        else if (completeRequest) {
 
 #if SPX_HACK
             if (pConnectionInfo->Flags & CF_1ST_RECEIVE) {
@@ -1933,11 +1979,14 @@ Return Value:
                     if (pXecb->Flags & XECB_FLAG_BUFFER_ALLOCATED) {
 
                         //
-                        // update the XECB.Length field to reflect the amount of data
-                        // received and copy it to the fragmented buffers in VDM
+                        // update the XECB.Length field to reflect the amount of
+                        // data received and copy it to the fragmented buffers 
+                        // in VDM. do not overflow buffer if FrameLength turns
+                        // out to be larger than we expect.
                         //
 
-                        pXecb->Length = pXecb->FrameLength;
+                        pXecb->Length = min(pXecb->FrameLength,
+                                            pXecb->ActualLength);
                         ScatterData(pXecb);
                     }
                     DequeueEcb(pXecb, pQueue);

@@ -23,159 +23,188 @@
 extern BOOL IsFirstCall;
 
 
+
 /*
  *  Internal globals, function prototypes
  */
+
+#define FINDFILE_DEVICE (HANDLE)0xffffffff
+
 typedef struct _PSP_FILEFINDLIST {
     LIST_ENTRY PspFFindEntry;      // Next psp
     LIST_ENTRY FFindHeadList;      // File Find list for this psp
     ULONG      usPsp;              // PSP id
 } PSP_FFINDLIST, *PPSP_FFINDLIST;
 
-typedef struct _FILEFINDLIST {
-    LIST_ENTRY     FFindEntry;
-    ULONG          FFindId;
-    ULONG          FileIndex;
-    ULONG          FileNameLength;
-    ULONG          FsAttributes;
-    USHORT         usSrchAttr;
-    BOOLEAN        QDResetNoSupport;
-    WCHAR          FileName[MAXIMUM_FILENAME_LENGTH + 1];
-    WCHAR          SearchName[1];
-}FFINDLIST, *PFFINDLIST;
-
-
-LIST_ENTRY PspFFindHeadList= {&PspFFindHeadList, &PspFFindHeadList};
-
-#define FFINDID_BASE 0xFFDD0000
-#define FFINDID_MAX  0xFFDD1000
-ULONG NextFFindId = FFINDID_BASE;
-ULONG FreeFFindId = FFINDID_MAX;
-
-#define NUMFFINDDD 32
-#define NUMFFINDDDBUFF 16
 typedef struct _FFINDDOSDATA {
+    ULONG    FileIndex;
+    ULONG    FileNameLength;
+    WCHAR    FileName[MAXIMUM_FILENAME_LENGTH + 1];
     FILETIME ftLastWriteTime;
     DWORD    dwFileSizeLow;
     UCHAR    uchFileAttributes;
     CHAR     cFileName[14];
 } FFINDDOSDATA, *PFFINDDOSDATA;
 
-typedef struct _FFINDDOSDATA_BUFFER {
+typedef struct _FILEFINDLIST {
+    LIST_ENTRY     FFindEntry;
     ULONG          FFindId;
-    USHORT         NextIndex;
-    USHORT         NumEntries;
-    FFINDDOSDATA   FFindDD[NUMFFINDDD];
-} FFINDDOSDATA_BUFFER, *PFFINDDOSDATA_BUFFER;
+    NTSTATUS       LastQueryStatus;
+    LARGE_INTEGER  FindFileTics;
+    HANDLE         DirectoryHandle;
+    PVOID          FindBufferBase;
+    PVOID          FindBufferNext;
+    ULONG          FindBufferLength;
+    FFINDDOSDATA   DosData;
+    USHORT         usSrchAttr;
+    BOOLEAN        SupportReset;
+    UNICODE_STRING PathName;
+    UNICODE_STRING FileName;
+}FFINDLIST, *PFFINDLIST;
+
+LIST_ENTRY PspFFindHeadList= {&PspFFindHeadList, &PspFFindHeadList};
 
 
-typedef struct _QUERYDIRINFO {
-    LARGE_INTEGER  LastWriteTime;
-    ULONG          FileSizeLow;
-    ULONG          FileAttributes;
-    ULONG          FileIndex;
-    ULONG          FileNameLength;
-    WCHAR          FileName[MAXIMUM_FILENAME_LENGTH + 1];
-    WCHAR          ShortName[14];
-} QUERYDIRINFO, *PQUERYDIRINFO;
+#define FFINDID_BASE 0x80000000
+ULONG NextFFindId = FFINDID_BASE;
+BOOLEAN FFindIdWrap = FALSE;
+#define MAX_DIRECTORYHANDLE 64
+#define MAX_FINDBUFFER 128
+ULONG NumDirectoryHandle = 0;
+ULONG NumFindBuffer=0;
+LARGE_INTEGER FindFileTics = {0,0};
+LARGE_INTEGER NextFindFileTics = {0,0};
+
+char szStartDotStar[]="????????.???";
 
 
-FFINDDOSDATA_BUFFER FFindDDBuff[NUMFFINDDDBUFF]={{0,0,0}};
-int LastDDBuffIndex = 0;
-
-PFFINDDOSDATA_BUFFER
+PFFINDLIST
 SearchFile(
-    PWCHAR pwcSearchName,
+    PWCHAR pwcFile,
     USHORT SearchAttr,
     PFFINDLIST pFFindEntry,
-    PFFINDDOSDATA pFFindDDOut);
+    PFFINDDOSDATA pFFindDDOut
+    );
+
 
 NTSTATUS
-NtvdmQueryDirectory(
-    HANDLE hFindFile,
-    PQUERYDIRINFO pQueryDirInfo,
-    BOOL    bReset,
-    ULONG   BufferSize,
-    PFFINDLIST pFFindEntry,
-    PFILE_BOTH_DIR_INFORMATION FindBufferBase);
+FileFindNext(
+    PFFINDDOSDATA pFFindDD,
+    PFFINDLIST pFFindEntry
+    );
 
+NTSTATUS
+FileFindLast(
+    PFFINDLIST pFFindEntry
+    );
 
-BOOL
-QueryDirReset(
-     PFINDFILE_HANDLE FindFileHandle,
-     PFFINDLIST pFFindEntry,
-     NTSTATUS  *pStatus);
-
-BOOL
-FileNameEquals(
-    PFINDFILE_HANDLE FindFileHandle,
+VOID
+FileFindClose(
     PFFINDLIST pFFindEntry
     );
 
 
+NTSTATUS
+FileFindOpen(
+    PWCHAR pwcFile,
+    PFFINDLIST pFFindEntry,
+    ULONG BufferSize
+    );
+
+NTSTATUS
+FileFindReset(
+   PFFINDLIST pFFindEntry
+   );
+
+
+HANDLE
+FileFindFirstDevice(
+    PWCHAR FileName,
+    PFILE_BOTH_DIR_INFORMATION DirectoryInfo
+    );
+
 void
-CopyQueryDirInfoToDosData(
-     PFFINDDOSDATA pFFindDD,
-     PQUERYDIRINFO pQueryDirInfo);
+CloseOldestFileFindBuffer(
+   void
+   );
+
 
 BOOL
-DosMatchAttributes(
-     PQUERYDIRINFO pQueryDirInfo,
-     USHORT SearchAttr);
+CopyDirInfoToDosData(
+    PFFINDDOSDATA pFFindDD,
+    PFILE_BOTH_DIR_INFORMATION DirectoryInfo,
+    USHORT SearchAttr
+    );
 
 BOOL
 DemOemToUni(
-     PUNICODE_STRING pUnicode,
-     LPSTR lpstr);
+    PUNICODE_STRING pUnicode,
+    LPSTR lpstr
+    );
 
 VOID
 FillFcbVolume(
-     PSRCHBUF pSrchBuf,
-     CHAR *   pFileName);
+    PSRCHBUF pSrchBuf,
+    CHAR *pFileName,
+    USHORT SearchAttr
+    );
 
-BOOL FillDtaVolume(
-     CHAR *pFileName,
-     PSRCHDTA  pDTA);
+BOOL
+FillDtaVolume(
+    CHAR *pFileName,
+    PSRCHDTA  pDta,
+    USHORT SearchAttr
+    );
 
-BOOL MatchVolLabel(
-     CHAR * pVolLabel,
-     CHAR * pBaseName);
+BOOL
+MatchVolLabel(
+    CHAR * pVolLabel,
+    CHAR * pBaseName
+    );
 
-VOID NtVolumeNameToDosVolumeName(
-     CHAR * pDosName,
-     CHAR * pNtName);
+VOID
+NtVolumeNameToDosVolumeName(
+    CHAR * pDosName,
+    CHAR * pNtName
+    );
 
 VOID
 FillFCBSrchBuf(
      PFFINDDOSDATA pFFindDD,
-     PSRCHBUF pSrchBuf);
+     PSRCHBUF pSrchBuf
+     );
 
 VOID
 FillSrchDta(
      PFFINDDOSDATA pFFindDD,
-     PSRCHDTA pDta);
+     PSRCHDTA pDta
+     );
 
 PFFINDLIST
 AddFFindEntry(
-     PUNICODE_STRING pFileUni,
-     USHORT SearchAttr,
-     PFFINDLIST pFFindEntrySrc);
+     PWCHAR     pwcFile,
+     PFFINDLIST pFFindEntrySrc
+     );
 
 PPSP_FFINDLIST
 GetPspFFindList(
-     USHORT CurrPsp);
+     USHORT CurrPsp
+     );
 
 PFFINDLIST
 GetFFindEntryByFindId(
-     ULONG NextFFindId);
+     ULONG NextFFindId
+     );
 
 VOID
 FreeFFindEntry(
-     PFFINDLIST pFFindEntry);
+     PFFINDLIST pFFindEntry
+     );
 
 VOID
 FreeFFindList(
-     PLIST_ENTRY pFFindHeadList);
+     PLIST_ENTRY pFFindHeadList
+     );
 
 
 /* demFindFirst - Path-Style Find First File
@@ -243,13 +272,12 @@ DWORD demFileFindFirst (
     LPSTR lpFile,
     USHORT SearchAttr)
 {
-    PSRCHDTA    pDta = (PSRCHDTA)pvDTA;
+    PSRCHDTA       pDta = (PSRCHDTA)pvDTA;
     PFFINDLIST     pFFindEntry;
     FFINDDOSDATA   FFindDD;
-    PFFINDDOSDATA_BUFFER pFFindDDBuff;
     UNICODE_STRING FileUni;
-    FFINDLIST      FFindEntry;
-    WCHAR          wcFile[MAX_PATH];
+    WCHAR          wcFile[MAX_PATH + sizeof(WCHAR)];
+
 
 #if DBG
     if (SIZEOF_DOSSRCHDTA != sizeof(SRCHDTA)) {
@@ -278,20 +306,15 @@ DWORD demFileFindFirst (
     //  Do volume label first.
     //
     if (SearchAttr & ATTR_VOLUME_ID) {
-        if (FillDtaVolume(lpFile, pDta)) {
+        if (FillDtaVolume(lpFile, pDta, SearchAttr)) {
 
             // got vol label match
             // do look ahead before returning
             if (SearchAttr != ATTR_VOLUME_ID) {
-                FFindEntry.FFindId = 0;
-                pFFindDDBuff = SearchFile(wcFile, SearchAttr, &FFindEntry, NULL);
-                if (pFFindDDBuff) {
-                    pFFindEntry = AddFFindEntry(&FileUni, SearchAttr, &FFindEntry);
-                    if (pFFindEntry) {
-                        pFFindDDBuff->FFindId = pFFindEntry->FFindId;
-                        STOREDWORD(pDta->pFFindEntry,pFFindEntry);
-                        STOREDWORD(pDta->FFindId,pFFindEntry->FFindId);
-                        }
+                pFFindEntry = SearchFile(wcFile, SearchAttr, NULL, NULL);
+                if (pFFindEntry) {
+                    STOREDWORD(pDta->pFFindEntry,pFFindEntry);
+                    STOREDWORD(pDta->FFindId,pFFindEntry->FFindId);
                     }
                 }
             return 0;
@@ -307,8 +330,7 @@ DWORD demFileFindFirst (
     //
     // Search the dir
     //
-    FFindEntry.FFindId = 0;
-    pFFindDDBuff = SearchFile(wcFile, SearchAttr, &FFindEntry, &FFindDD);
+    pFFindEntry = SearchFile(wcFile, SearchAttr, NULL, &FFindDD);
 
     if (!FFindDD.cFileName[0]) {
 
@@ -328,18 +350,9 @@ DWORD demFileFindFirst (
 
     FillSrchDta(&FFindDD, pDta);
 
-    if (pFFindDDBuff) {
-        pFFindEntry = AddFFindEntry(&FileUni, SearchAttr, &FFindEntry);
-        if (pFFindEntry) {
-            pFFindDDBuff->FFindId = pFFindEntry->FFindId;
-
-            wcscpy(pFFindEntry->FileName, FFindEntry.FileName);
-            pFFindEntry->FileIndex = FFindEntry.FileIndex;
-            pFFindEntry->FileNameLength = FFindEntry.FileNameLength;
-
-            STOREDWORD(pDta->pFFindEntry,pFFindEntry);
-            STOREDWORD(pDta->FFindId,pFFindEntry->FFindId);
-            }
+    if (pFFindEntry) {
+        STOREDWORD(pDta->pFFindEntry,pFFindEntry);
+        STOREDWORD(pDta->FFindId,pFFindEntry->FFindId);
         }
 
     return 0;
@@ -368,6 +381,8 @@ BOOL DemOemToUni(PUNICODE_STRING pUnicode, LPSTR lpstr)
             }
         return FALSE;
         }
+
+    pUnicode->Buffer[pUnicode->Length] = UNICODE_NULL;
 
     return TRUE;
 }
@@ -417,8 +432,6 @@ DWORD demFileFindNext (
     USHORT   SearchAttr;
     PFFINDLIST   pFFindEntry;
     FFINDDOSDATA FFindDD;
-    PFFINDDOSDATA_BUFFER pFFindDDBuff;
-
 
     pFFindEntry = GetFFindEntryByFindId(FETCHDWORD(pDta->FFindId));
     if (!pFFindEntry ||
@@ -433,7 +446,7 @@ DWORD demFileFindNext (
 
 #if DBG
     if (fShowSVCMsg & DEMFILIO) {
-        sprintf(demDebugBuffer, "demFileFindNext<%ws>\n", pFFindEntry->SearchName);
+        sprintf(demDebugBuffer, "demFileFindNext<%ws>\n", pFFindEntry->PathName.Buffer);
         OutputDebugStringOem(demDebugBuffer);
         }
 #endif
@@ -443,25 +456,23 @@ DWORD demFileFindNext (
     //
     // Search the dir
     //
-    pFFindDDBuff = SearchFile(pFFindEntry->SearchName,
-                              SearchAttr,
-                              pFFindEntry,
-                              &FFindDD
-                              );
+    pFFindEntry = SearchFile(NULL,
+                             SearchAttr,
+                             pFFindEntry,
+                             &FFindDD
+                             );
 
     if (!FFindDD.cFileName[0]) {
         STOREDWORD(pDta->FFindId,0);
         STOREDWORD(pDta->pFFindEntry,0);
-        FreeFFindEntry(pFFindEntry);
         return GetLastError();
         }
 
     FillSrchDta(&FFindDD, pDta);
 
-    if (!pFFindDDBuff) {
+    if (!pFFindEntry) {
         STOREDWORD(pDta->FFindId,0);
         STOREDWORD(pDta->pFFindEntry,0);
-        FreeFFindEntry(pFFindEntry);
         }
      return 0;
 }
@@ -499,9 +510,7 @@ VOID demFindFirstFCB (VOID)
     PSRCHBUF        pFCBSrchBuf;
     PDIRENT         pDirEnt;
     PFFINDLIST      pFFindEntry;
-    FFINDLIST       FFindEntry;
     FFINDDOSDATA    FFindDD;
-    PFFINDDOSDATA_BUFFER pFFindDDBuff;
     UNICODE_STRING  FileUni;
     WCHAR           wcFile[MAX_PATH];
 
@@ -523,7 +532,7 @@ VOID demFindFirstFCB (VOID)
 
 
     if (getDL() == ATTR_VOLUME_ID) {
-        FillFcbVolume(pFCBSrchBuf,lpFile);
+        FillFcbVolume(pFCBSrchBuf,lpFile, ATTR_VOLUME_ID);
         return;
         }
 
@@ -536,8 +545,7 @@ VOID demFindFirstFCB (VOID)
          }
 
     SearchAttr = getAL() ? getDL() : 0;
-    FFindEntry.FFindId = 0;
-    pFFindDDBuff = SearchFile(wcFile, SearchAttr, &FFindEntry, &FFindDD);
+    pFFindEntry = SearchFile(wcFile, SearchAttr, NULL, &FFindDD);
     if (!FFindDD.cFileName[0]){
         demClientError(INVALID_HANDLE_VALUE, *lpFile);
         return;
@@ -545,13 +553,9 @@ VOID demFindFirstFCB (VOID)
 
     FillFCBSrchBuf(&FFindDD, pFCBSrchBuf);
 
-    if (pFFindDDBuff) {
-        pFFindEntry = AddFFindEntry(&FileUni, SearchAttr, &FFindEntry);
-        if (pFFindEntry) {
-            pFFindDDBuff->FFindId = pFFindEntry->FFindId;
-            STOREDWORD(pDirEnt->pFFindEntry,pFFindEntry);
-            STOREDWORD(pDirEnt->FFindId,pFFindEntry->FFindId);
-            }
+    if (pFFindEntry) {
+        STOREDWORD(pDirEnt->pFFindEntry,pFFindEntry);
+        STOREDWORD(pDirEnt->FFindId,pFFindEntry->FFindId);
         }
 
     setCF(0);
@@ -589,7 +593,6 @@ VOID demFindNextFCB (VOID)
     PDIRENT         pDirEnt;
     PFFINDLIST      pFFindEntry;
     FFINDDOSDATA    FFindDD;
-    PFFINDDOSDATA_BUFFER pFFindDDBuff;
 
 
     pSrchBuf = (PSRCHBUF) GetVDMAddr (getDS(),getSI());
@@ -610,14 +613,14 @@ VOID demFindNextFCB (VOID)
         STOREDWORD(pDirEnt->FFindId,0);
 
         // DOS has only one error (no_more_files) for all causes.
-    setAX(ERROR_NO_MORE_FILES);
+        setAX(ERROR_NO_MORE_FILES);
         setCF(1);
         return;
         }
 
 #if DBG
     if (fShowSVCMsg & DEMFILIO) {
-        sprintf(demDebugBuffer, "demFindNextFCB<%ws>\n", pFFindEntry->SearchName);
+        sprintf(demDebugBuffer, "demFindNextFCB<%ws>\n", pFFindEntry->PathName.Buffer);
         OutputDebugStringOem(demDebugBuffer);
         }
 #endif
@@ -627,26 +630,24 @@ VOID demFindNextFCB (VOID)
     //
     // Search the dir
     //
-    pFFindDDBuff = SearchFile(pFFindEntry->SearchName,
-                              SearchAttr,
-                              pFFindEntry,
-                              &FFindDD
-                              );
+    pFFindEntry = SearchFile(NULL,
+                             SearchAttr,
+                             pFFindEntry,
+                             &FFindDD
+                             );
 
     if (!FFindDD.cFileName[0]) {
         STOREDWORD(pDirEnt->pFFindEntry,0);
         STOREDWORD(pDirEnt->FFindId,0);
-        FreeFFindEntry(pFFindEntry);
         setAX((USHORT) GetLastError());
         setCF(1);
         }
 
     FillFCBSrchBuf(&FFindDD, pSrchBuf);
 
-    if (!pFFindDDBuff) {
+    if (!pFFindEntry) {
         STOREDWORD(pDirEnt->FFindId,0);
         STOREDWORD(pDirEnt->pFFindEntry,0);
-        FreeFFindEntry(pFFindEntry);
         }
 
     setCF(0);
@@ -672,6 +673,9 @@ VOID demTerminatePDB (VOID)
 
     if(!IsFirstCall)
         VDDTerminateUserHook(PSP);
+    /* let host knows a process is terminating */
+
+    HostTerminatePDB(PSP);
 
     pPspFFindEntry = GetPspFFindList(PSP);
     if (!pPspFFindEntry)
@@ -679,568 +683,870 @@ VOID demTerminatePDB (VOID)
 
     if (!IsListEmpty(&pPspFFindEntry->FFindHeadList)) {
         FreeFFindList( &pPspFFindEntry->FFindHeadList);
-        RemoveEntryList(&pPspFFindEntry->PspFFindEntry);
-        free(pPspFFindEntry);
         }
+
+    RemoveEntryList(&pPspFFindEntry->PspFFindEntry);
+    free(pPspFFindEntry);
 
     return;
 }
-
-
-VOID demCloseAllPSPRecords (VOID)
-{
-   PLIST_ENTRY Next;
-   PPSP_FFINDLIST pPspFFindEntry;
-
-   Next = PspFFindHeadList.Flink;
-   while (Next != &PspFFindHeadList) {
-       pPspFFindEntry = CONTAINING_RECORD(Next,PSP_FFINDLIST,PspFFindEntry);
-       FreeFFindList( &pPspFFindEntry->FFindHeadList);
-       Next= Next->Flink;
-       RemoveEntryList(&pPspFFindEntry->PspFFindEntry);
-       free(pPspFFindEntry);
-       }
-}
-
 
 
 /* SearchFile - Common routine for FIND_FRST and FIND_NEXT
  *
  * Entry -
- * PCHAR  pwcSearchName file name to search for
- * USHORT SearchAttr  file attributes to match
- * PFFINDLIST pFFindEntry
+ * PCHAR  pwcFile              file name to search for
+ * USHORT SearchAttr           file attributes to match
+ * PFFINDLIST pFFindEntry,     current list entry
+ *                             if new search FFindId is expected to be zero
+ * PFFINDDOSDATA pFFindDDOut,  filled with the next file in search
  *
- * Exit - returns if  Zero buffer empty, filled pFFindDDOut if requested
- *                else     filled buffer, filled pFFindDDOut if requested
- *
- * if there are no more files pFFinDDOut will be filled with Zeros
- *
+ * Exit - if no more files pFFindDDOut is filled with zeros
+ *        returns PFFINDLIST if buffered entries exist, else NULL
  */
-PFFINDDOSDATA_BUFFER
+PFFINDLIST
 SearchFile(
-    PWCHAR pwcSearchName,
+    PWCHAR pwcFile,
     USHORT SearchAttr,
     PFFINDLIST pFFindEntry,
     PFFINDDOSDATA pFFindDDOut)
 {
     NTSTATUS Status;
-    HANDLE   hFind;
-    USHORT   CurrPos;
     ULONG    BufferSize;
-    PFFINDDOSDATA        pFFindDD;
-    PFFINDDOSDATA_BUFFER pFFindDDBuff;
-    PFFINDDOSDATA_BUFFER pFFindDDBuffRet;
-    QUERYDIRINFO         QueryDirInfo;
-    WIN32_FIND_DATAW W32FindDataW;
-    PCHAR    FindBufferBase[4096];
+    FFINDLIST  FFindEntry;
+    PFFINDLIST pFFEntry = NULL;
 
 
     SearchAttr &= ~(ATTR_READ_ONLY | ATTR_ARCHIVE | ATTR_DEVICE);
+    Status = STATUS_NO_MORE_FILES;
 
     if (pFFindDDOut) {
         memset(pFFindDDOut, 0, sizeof(FFINDDOSDATA));
         }
 
-        //
-        // Search for ffind look ahead buffer
-        //
-    if (pFFindEntry->FFindId) {
-        pFFindDDBuff =  FFindDDBuff;
+    try {
+       if (pFFindEntry) {
+           pFFEntry = pFFindEntry;
+           Status = pFFindEntry->LastQueryStatus;
 
-        do {
-           if (pFFindDDBuff->FFindId == pFFindEntry->FFindId) {
-               break;
+           if (pFFindDDOut) {
+               *pFFindDDOut = pFFEntry->DosData;
+               pFFEntry->DosData.cFileName[0] = '\0';
                }
-           pFFindDDBuff++;
+           else {
+               return pFFEntry;
+               }
 
-        } while (pFFindDDBuff <= &FFindDDBuff[NUMFFINDDDBUFF-1]);
+           if (pFFEntry->FindBufferNext || pFFEntry->DirectoryHandle) {
+               NTSTATUS st;
 
-        if (pFFindDDBuff > &FFindDDBuff[NUMFFINDDDBUFF-1]) {
-            pFFindDDBuff = NULL;
-            }
-        }
-    else {
-        pFFindDDBuff = NULL;
-        }
+               st = FileFindNext(&pFFEntry->DosData,
+                                 pFFEntry
+                                 );
 
+               if (NT_SUCCESS(st)) {
+                   return pFFEntry;
+                   }
 
-    if (pFFindDDBuff) {
-        //
-        // remove the next buffered entry if requested
-        //
-        if (pFFindDDOut &&
-            pFFindDDBuff->NextIndex  <  pFFindDDBuff->NumEntries)
-          {
-            *pFFindDDOut = pFFindDDBuff->FFindDD[pFFindDDBuff->NextIndex++];
-            }
+               if (pFFEntry->DirectoryHandle) {
+                   Status = st;
+                   }
+               }
 
-        //
-        // If there are more entries available return else look ahead
-        //
-        if (pFFindDDBuff->NextIndex <  pFFindDDBuff->NumEntries) {
-            return pFFindDDBuff;
-            }
-        }
-    else {
-        //
-        // Nothing available, search for a free buffer to use
-        //
-
-        // try scanning forwards for next free buffer
-        CurrPos = LastDDBuffIndex;
-        do {
-
-            if (!FFindDDBuff[CurrPos].FFindId ||
-                 FFindDDBuff[CurrPos].NextIndex == FFindDDBuff[CurrPos].NumEntries)
-               {
-                LastDDBuffIndex = CurrPos;
-                pFFindDDBuff = &FFindDDBuff[CurrPos];
-                break;
-                }
-
-            if (++CurrPos == NUMFFINDDDBUFF) {
-                CurrPos = 0;
-                }
-
-          } while (CurrPos != LastDDBuffIndex);
-
-        // if no buffers available, use next entry
-        if (!pFFindDDBuff) {
-            if (++LastDDBuffIndex == NUMFFINDDDBUFF)
-                LastDDBuffIndex = 0;
-            pFFindDDBuff = &FFindDDBuff[LastDDBuffIndex];
-            }
-        }
-
-    pFFindDDBuffRet = pFFindDDBuff;
-    pFFindDDBuff->FFindId    = 0;
-    pFFindDDBuff->NextIndex  = 0;
-    pFFindDDBuff->NumEntries = 0;
+              //
+              // Check Last Known Status before retrying
+              //
+           if (!NT_SUCCESS(Status)) {
+               return NULL;
+               }
 
 
-       //
-       // Prime the search using win32, this will get us a directory handle,
-       // do the magic on the search string for wild cards, and handle devices
-       //
-    hFind = FindFirstFileW( pwcSearchName, &W32FindDataW);
-    if (hFind  == INVALID_HANDLE_VALUE)
-        return NULL;
+              //
+              // Reopen the FileFind Handle with a large buffer size
+              //
+           Status = FileFindOpen(NULL,
+                                 pFFEntry,
+                                 4096
+                                 );
+           if (!NT_SUCCESS(Status)) {
+               return NULL;
+               }
 
-       //
-       // If Continuing a previous search, reset the search to
-       // the last known search pos
-       //
-    if (pFFindEntry->FFindId) {
+              //
+              // reset the search to the last known search pos
+              //
+           Status = FileFindReset(pFFEntry);
+           if (!NT_SUCCESS(Status)) {
+               return NULL;
+               }
+           }
+       else {
+           pFFEntry = &FFindEntry;
+           memset(pFFEntry, 0, sizeof(FFINDLIST));
+           pFFEntry->SupportReset = TRUE;
+           pFFEntry->usSrchAttr = SearchAttr;
 
-        if (pFFindEntry->FileNameLength) {
 
-            //
-            // Use a max buffer, since we only do a reset on findnext
-            //
-            BufferSize = sizeof(FindBufferBase);
+           Status = FileFindOpen(pwcFile,
+                                 pFFEntry,
+                                 1024
+                                 );
 
-            Status = NtvdmQueryDirectory(
-                               hFind,
-                               &QueryDirInfo,
-                               TRUE,              // reset
-                               BufferSize,
-                               pFFindEntry,
-                               (PFILE_BOTH_DIR_INFORMATION)FindBufferBase
-                               );
-            }
-        else {
-            Status = STATUS_NO_MORE_FILES;
-            }
-        }
+           if (!NT_SUCCESS(Status)) {
+               return NULL;
+               }
 
-       //
-       // new search so restart from the begining
-       //
-    else {
-        //
-        // Use a minimum buffer, to hold at least two entries since
-        // we do a restart on findfirst look ahead.
-        //
-        BufferSize = sizeof(FILE_BOTH_DIR_INFORMATION) + MAXIMUM_FILENAME_LENGTH*sizeof(WCHAR);
-        BufferSize <<= 1;
+           //
+           // Fill up pFFindDDOut
+           //
+           if (pFFindDDOut) {
+               Status = FileFindNext(pFFindDDOut, pFFEntry);
+               if (!NT_SUCCESS(Status)) {
+                   return NULL;
+                   }
+               }
+           }
 
         //
-        // Copy the info into the QueryDir struc
+        // Fill up pFFEntry->DosData
         //
-        QueryDirInfo.FileAttributes = W32FindDataW.dwFileAttributes;
-        *(LPFILETIME)&QueryDirInfo.LastWriteTime = W32FindDataW.ftLastWriteTime;
-        QueryDirInfo.FileSizeLow = W32FindDataW.nFileSizeLow;
-        QueryDirInfo.FileNameLength = wcslen(W32FindDataW.cFileName);
-        wcscpy(QueryDirInfo.FileName, W32FindDataW.cFileName);
-        wcscpy(QueryDirInfo.ShortName, W32FindDataW.cAlternateFileName);
-
-        pFFindEntry->QDResetNoSupport = FALSE;
-
-        Status = STATUS_SUCCESS;
-        }
-
-
-    //
-    // Search until we get one matching entry
-    //
-    pFFindDD = NULL;
-
-    while (NT_SUCCESS(Status)) {
-        if (DosMatchAttributes(&QueryDirInfo, SearchAttr)) {
-
-            if (pFFindDDOut && !pFFindDDOut->cFileName[0]) {
-                CopyQueryDirInfoToDosData(pFFindDDOut, &QueryDirInfo);
-                }
-            else {
-                pFFindDDBuff->FFindId = pFFindEntry->FFindId;
-                pFFindDDBuff->NumEntries++;
-                pFFindDD = pFFindDDBuff->FFindDD;
-                CopyQueryDirInfoToDosData(pFFindDD, &QueryDirInfo);
-                }
-
-            break;
-            }
-
-        // continue searching from curr pos
-        Status = NtvdmQueryDirectory(hFind,
-                                     &QueryDirInfo,
-                                     FALSE,
-                                     BufferSize,
-                                     pFFindEntry,
-                                     (PFILE_BOTH_DIR_INFORMATION)FindBufferBase
-                                     );
-        }
-
-    if (!NT_SUCCESS(Status)) {
-        SetLastError(RtlNtStatusToDosError(Status));
-        FindClose(hFind);
-        return NULL;
-        }
-
-
-    //
-    //  if got an entry, fill the rest of the look ahead buffer
-    //  for find first ops fill at least one entry
-    //  for find next ops fill most of the curr buffer.
-    //
-    //
-
-    do {
-        Status = NtvdmQueryDirectory(hFind,
-                                     &QueryDirInfo,
-                                     FALSE,
-                                     BufferSize,
-                                     pFFindEntry,
-                                     (PFILE_BOTH_DIR_INFORMATION)FindBufferBase
-                                     );
+        Status = FileFindNext(&pFFEntry->DosData, pFFEntry);
         if (!NT_SUCCESS(Status)) {
-            break;
+            return NULL;
             }
 
-        if (DosMatchAttributes(&QueryDirInfo, SearchAttr))  {
-            if (pFFindDD) {
-                pFFindDD++;
-                }
-            else  {
-                pFFindDDBuff->FFindId = pFFindEntry->FFindId;
-                pFFindDD = pFFindDDBuff->FFindDD;
-                }
-            pFFindDDBuff->NumEntries++;
-            CopyQueryDirInfoToDosData(pFFindDD, &QueryDirInfo);
 
-                //
-                // We have gotten at least one match
-                // If FindFirst we don't want anymore disk reads
-                //
-            if (!pFFindEntry->FFindId) {
-                BufferSize = 0;
-                }
+       //
+       // if findfirst, fill in the static entries, and add the find entry
+       //
+       if (!pFFindEntry) {
+           pFFEntry->FFindId = NextFFindId++;
+           if (NextFFindId == 0xffffffff) {
+               NextFFindId = FFINDID_BASE;
+               FFindIdWrap = TRUE;
+               }
 
-            }
+           if (FFindIdWrap) {
+               pFFindEntry = GetFFindEntryByFindId(NextFFindId);
+               if (pFFindEntry) {
+                   FreeFFindEntry(pFFindEntry);
+                   pFFindEntry = NULL;
+                   }
+               }
 
-       } while (pFFindDDBuff->NumEntries < NUMFFINDDD);
+           pFFEntry = AddFFindEntry(pwcFile, pFFEntry);
+           if (!pFFEntry) {
+               pFFEntry = &FFindEntry;
+               pFFEntry->DosData.cFileName[0] = '\0';
+               Status = STATUS_NO_MEMORY;
+               return NULL;
+               }
+           }
 
 
-    FindClose(hFind);
+       //
+       // Try to fill one more entry. If the NtQuery for this search
+       // is complete we can set the LastQueryStatus, and close dir handles.
+       //
+       Status = FileFindLast(pFFEntry);
 
-    if (pFFindDDBuffRet->NumEntries > pFFindDDBuffRet->NextIndex) {
+
+       }
+    finally {
+
+       if (pFFEntry) {
+
+           pFFEntry->LastQueryStatus = Status;
+
+               //
+               // if nothing is buffered, cleanup look aheads
+               //
+           if (!pFFEntry->DosData.cFileName[0] ||
+                pFFEntry->DirectoryHandle == FINDFILE_DEVICE)
+              {
+               if (pFFEntry == &FFindEntry) {
+                   FileFindClose(pFFEntry);
+                   RtlFreeUnicodeString(&pFFEntry->FileName);
+                   RtlFreeUnicodeString(&pFFEntry->PathName);
+                   }
+               else {
+                   FreeFFindEntry(pFFEntry);
+                   }
+               SetLastError(RtlNtStatusToDosError(Status));
+               pFFEntry = NULL;
+               }
+           }
+
+
+
+       if (pFFEntry) {
+
+           if (pFFEntry->DirectoryHandle) {
+               if (!pFFindEntry || !NT_SUCCESS(pFFEntry->LastQueryStatus)) {
+                   NumDirectoryHandle--;
+                   NtClose(pFFEntry->DirectoryHandle);
+                   pFFEntry->DirectoryHandle = 0;
+                   }
+               }
+
+           if (NumFindBuffer > MAX_FINDBUFFER ||
+               NumDirectoryHandle > MAX_DIRECTORYHANDLE)
+             {
+               CloseOldestFileFindBuffer();
+               }
 
            //
-           // save the FileIndex, and the file Name from the last
-           // findnext call for restarting searches.
+           // Set HeartBeat timer to close find buffers, directory handle
+           //   Tics  = 8(min) * 60(sec/min) * 18(tic/sec)
            //
-        if (NT_SUCCESS(Status) || Status == STATUS_BUFFER_OVERFLOW) {
-            pFFindEntry->FileIndex = QueryDirInfo.FileIndex;
-            pFFindEntry->FileNameLength = QueryDirInfo.FileNameLength;
-
-            if (QueryDirInfo.FileNameLength) {
-                RtlCopyMemory(pFFindEntry->FileName,
-                              QueryDirInfo.FileName,
-                              QueryDirInfo.FileNameLength + sizeof(WCHAR)
-                              );
+           pFFEntry->FindFileTics.QuadPart = 8640 + FindFileTics.QuadPart;
+           if (!FindFileTics.QuadPart) {
+                NextFindFileTics.QuadPart = pFFEntry->FindFileTics.QuadPart;
                 }
-            else {
-                *pFFindEntry->FileName = UNICODE_NULL;
-                }
+           }
 
-            }
-        else {
-            pFFindEntry->FileNameLength = 0;
-            }
 
-        return pFFindDDBuffRet;
-        }
+       }
 
-    return NULL;
+     return pFFEntry;
 }
 
 
-/*
- *  CopyQueryDirInfoToDosData
- *
- */
-void CopyQueryDirInfoToDosData(
-     PFFINDDOSDATA pFFindDD,
-     PQUERYDIRINFO pQueryDirInfo)
+
+NTSTATUS
+FileFindOpen(
+    PWCHAR pwcFile,
+    PFFINDLIST pFFindEntry,
+    ULONG BufferSize
+    )
 {
     NTSTATUS Status;
-    OEM_STRING OemString;
-    UNICODE_STRING UnicodeString;
+    BOOLEAN bStatus;
+    BOOLEAN bReturnSingleEntry;
+    PWCHAR  pwc;
+    OBJECT_ATTRIBUTES Obja;
+    PUNICODE_STRING FileName;
+    PUNICODE_STRING PathName;
+    IO_STATUS_BLOCK IoStatusBlock;
+    PFILE_BOTH_DIR_INFORMATION DirectoryInfo;
 
-    pFFindDD->ftLastWriteTime   = *(LPFILETIME)&pQueryDirInfo->LastWriteTime;
-    pFFindDD->dwFileSizeLow     = pQueryDirInfo->FileSizeLow;
-    pFFindDD->uchFileAttributes = (UCHAR)pQueryDirInfo->FileAttributes;
 
-    RtlInitUnicodeString(&UnicodeString,
-                         pQueryDirInfo->ShortName[0] == UNICODE_NULL
-                            ? pQueryDirInfo->FileName
-                            : pQueryDirInfo->ShortName
+    Status = STATUS_SUCCESS;
+    PathName = &pFFindEntry->PathName;
+    FileName = &pFFindEntry->FileName;
+
+    try {
+
+         if (pFFindEntry->DirectoryHandle == FINDFILE_DEVICE) {
+             Status = STATUS_NO_MORE_FILES;
+             goto FFOFinallyExit;
+             }
+
+
+         if (BufferSize <=  sizeof(FILE_BOTH_DIR_INFORMATION) +
+                            MAXIMUM_FILENAME_LENGTH*sizeof(WCHAR))
+           {
+             Status = STATUS_BUFFER_TOO_SMALL;
+             goto FFOFinallyExit;
+             }
+
+
+
+         if (pwcFile) {
+             bStatus = RtlDosPathNameToNtPathName_U(pwcFile,
+                                                    PathName,
+                                                    &pwc,
+                                                    NULL
+                                                    );
+
+             if (!bStatus ) {
+                 Status = STATUS_OBJECT_PATH_NOT_FOUND;
+                 goto FFOFinallyExit;
+                 }
+
+             //
+             // Copy out the PathName, FileName
+             //
+             if (pwc) {
+                 bStatus = RtlCreateUnicodeString(FileName,
+                                                  pwc
+                                                  );
+                 if (!bStatus) {
+                     Status = STATUS_NO_MEMORY;
+                     goto FFOFinallyExit;
+                     }
+
+                 PathName->Length = (USHORT)((ULONG)pwc - (ULONG)PathName->Buffer);
+                 if (PathName->Buffer[(PathName->Length>>1)-2] != (WCHAR)':' ) {
+                     PathName->Length -= sizeof(UNICODE_NULL);
+                     }
+                 }
+             else {
+                 FileName->Length = 0;
+                 FileName->MaximumLength = 0;
+                 }
+
+             bReturnSingleEntry = FALSE;
+             }
+         else {
+             bReturnSingleEntry = pFFindEntry->SupportReset;
+             }
+
+
+
+         //
+         // Prepare Find Buffer for NtQueryDirectory
+         //
+         if (BufferSize != pFFindEntry->FindBufferLength) {
+             if (pFFindEntry->FindBufferBase) {
+                 RtlFreeHeap(RtlProcessHeap(), 0, pFFindEntry->FindBufferBase);
+                 }
+             else {
+                 NumFindBuffer++;
+                 }
+
+             pFFindEntry->FindBufferBase = RtlAllocateHeap(RtlProcessHeap(),
+                                                           0,
+                                                           BufferSize
+                                                           );
+             if (!pFFindEntry->FindBufferBase) {
+                 Status = STATUS_NO_MEMORY;
+                 goto FFOFinallyExit;
+                 }
+             }
+
+         pFFindEntry->FindBufferNext = NULL;
+         pFFindEntry->FindBufferLength = BufferSize;
+         DirectoryInfo = pFFindEntry->FindBufferBase;
+
+         //
+         // Open the directory for list access
+         //
+         if (!pFFindEntry->DirectoryHandle) {
+
+             InitializeObjectAttributes(
+                 &Obja,
+                 PathName,
+                 OBJ_CASE_INSENSITIVE,
+                 NULL,
+                 NULL
+                 );
+
+             Status = NtOpenFile(
+                         &pFFindEntry->DirectoryHandle,
+                         FILE_LIST_DIRECTORY | SYNCHRONIZE,
+                         &Obja,
+                         &IoStatusBlock,
+                         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                         FILE_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT | FILE_OPEN_FOR_BACKUP_INTENT
                          );
 
-    OemString.Buffer        = pFFindDD->cFileName;
-    OemString.MaximumLength = 14;
-    Status = RtlUnicodeStringToOemString(&OemString, &UnicodeString, FALSE);
-    if (NT_SUCCESS(Status)) {
-        pFFindDD->cFileName[OemString.Length] = '\0';
-        }
-    else {
-        pFFindDD->cFileName[0] = '\0';
-        }
+             if (!NT_SUCCESS(Status)) {
 
-    return;
-}
+                 if (pwcFile) {
+                     pFFindEntry->DirectoryHandle = FileFindFirstDevice(pwcFile,
+                                                                        DirectoryInfo
+                                                                        );
+                     }
+                 else {
+                     pFFindEntry->DirectoryHandle = NULL;
+                     }
 
+                 if (pFFindEntry->DirectoryHandle) {
+                     Status = STATUS_SUCCESS;
+                     goto FFOFinallyExit;
+                     }
 
-/*  DosMatchAttributes
- *  The logic below is taken from DOS5.0 sources (file dir2.asm routine
- *  MatchAttributes).
- *
- */
-BOOL
-DosMatchAttributes(
-     PQUERYDIRINFO pQueryDirInfo,
-     USHORT SearchAttr)
-{
-    PWCHAR   pDot1,pDot2;
-    DWORD   dwAttr;
-    USHORT  FullLen, ExtLen;
+                 if (Status == STATUS_OBJECT_NAME_NOT_FOUND ||
+                     Status == STATUS_OBJECT_TYPE_MISMATCH )
+                    {
+                     Status = STATUS_OBJECT_PATH_NOT_FOUND;
+                     }
+                 goto FFOFinallyExit;
+                 }
 
-    // Check that in HPFS case we are not passing any long file names.
-    // Basically skip the long names.
-    if (pQueryDirInfo->ShortName[0] == UNICODE_NULL) {
-
-        // string should not be more tha 12 characters long
-        if ((FullLen=wcslen(pQueryDirInfo->FileName)) > 12)
-            return FALSE;
-
-        pDot1 = wcschr (pQueryDirInfo->FileName, (WCHAR)'.');
-        if (pDot1 &&
-            pDot1 != pQueryDirInfo->FileName)
-          {
-
-            // There should be only one dot
-            pDot2 = wcsrchr (pQueryDirInfo->FileName, (WCHAR)'.');
-            if (pDot2 != pDot1)
-                return FALSE;
-
-            // The extension part should'nt br more than 4 (including dot)
-            if ((ExtLen = wcslen (pDot1)) > 4)
-                return FALSE;
-
-            if ((FullLen - ExtLen) > 8)
-                return FALSE;
-            }
-        }
+             NumDirectoryHandle++;
+             }
 
 
-    //
-    // match the attributes
-    // DOS FIND_FIRST ignores READONLY and ARCHIVE bits
-    //
-    pQueryDirInfo->FileAttributes &= (ULONG)DOS_ATTR_MASK;
-    dwAttr = pQueryDirInfo->FileAttributes;
-    dwAttr &= ~(FILE_ATTRIBUTE_ARCHIVE | FILE_ATTRIBUTE_READONLY);
-    if (((~(ULONG)SearchAttr) & dwAttr) & ATTR_ALL)
-        return FALSE;
+         //
+         // Prepare the filename for NtQueryDirectory
+         //
 
-    return TRUE;
+         if (pwcFile) {
+             WCHAR wchCurr, wchPrev;
+
+             int Len = FileName->Length/sizeof(WCHAR);
+
+             //
+             // If there is no file part, but we are not looking at a device exit
+             //
+             if (!Len) {
+                 Status = STATUS_OBJECT_PATH_NOT_FOUND;
+                 goto FFOFinallyExit;
+                 }
+
+
+             //
+             //  ntio expects the following transmogrifications:
+             //
+             //  - Change all ? to DOS_QM
+             //  - Change all . followed by ? or * to DOS_DOT
+             //  - Change all * followed by a . into DOS_STAR
+             //
+             //  However, the doskrnl and wow32 have expanded '*'s to '?'s
+             //  so the * rules can be ignored.
+             //
+             pwc = FileName->Buffer;
+             wchPrev = 0;
+             while (Len--) {
+                wchCurr = *pwc;
+
+                if (wchCurr == L'?') {
+                    if (wchPrev == L'.') {
+                        *(pwc - 1) = DOS_DOT;
+                        }
+
+                    *pwc = DOS_QM;
+                    }
+
+                wchPrev = wchCurr;
+                pwc++;
+                }
+
+             }
+
+#if DBG
+         if (fShowSVCMsg & DEMFILIO) {
+             sprintf(demDebugBuffer,
+                     "FFOpen %x %ws (%ws)\n",
+                     pFFindEntry->DirectoryHandle,
+                     FileName->Buffer,
+                     pwcFile
+                     );
+             OutputDebugStringOem(demDebugBuffer);
+             }
+#endif
+
+
+         //
+         // Do an initial query to fill the buffers, and verify everything is ok
+         //
+
+         Status = NtQueryDirectoryFile(
+                         pFFindEntry->DirectoryHandle,
+                         NULL,
+                         NULL,
+                         NULL,
+                         &IoStatusBlock,
+                         DirectoryInfo,
+                         BufferSize,
+                         FileBothDirectoryInformation,
+                         bReturnSingleEntry,
+                         FileName,
+                         FALSE
+                         );
+
+FFOFinallyExit:;
+
+         }
+    finally {
+         if (!NT_SUCCESS(Status)) {
+#if DBG
+             if ((fShowSVCMsg & DEMFILIO) && !NT_SUCCESS(Status)) {
+                 sprintf(demDebugBuffer, "FFOpen Status %x\n", Status);
+                 OutputDebugStringOem(demDebugBuffer);
+                 }
+#endif
+
+             FileFindClose(pFFindEntry);
+             RtlFreeUnicodeString(PathName);
+             PathName->Buffer = NULL;
+             RtlFreeUnicodeString(FileName);
+             FileName->Buffer = NULL;
+             }
+          else {
+             pFFindEntry->FindBufferNext = pFFindEntry->FindBufferBase;
+             }
+         }
+
+    return Status;
 }
 
 
 
 /*
- * NtvdmQueryDirectory - Calls the NT file system to do directory searches,
- *                       as a substitute for FindNextFileW.
+ *  Closes a FileFindHandle
+ */
+VOID
+FileFindClose(
+    PFFINDLIST pFFindEntry
+    )
+{
+    NTSTATUS Status;
+    HANDLE DirectoryHandle;
+
+    DirectoryHandle = pFFindEntry->DirectoryHandle;
+    if (DirectoryHandle &&
+        DirectoryHandle != FINDFILE_DEVICE)
+      {
+        NtClose(DirectoryHandle);
+        --NumDirectoryHandle;
+        }
+
+    pFFindEntry->DirectoryHandle = 0;
+
+    if (pFFindEntry->FindBufferBase) {
+        RtlFreeHeap(RtlProcessHeap(), 0, pFFindEntry->FindBufferBase);
+        --NumFindBuffer;
+        }
+
+    pFFindEntry->FindBufferBase = NULL;
+    pFFindEntry->FindBufferNext = NULL;
+    pFFindEntry->FindBufferLength = 0;
+    pFFindEntry->FindFileTics.QuadPart = 0;
+
+    if (!NumDirectoryHandle && !NumFindBuffer) {
+        FindFileTics.QuadPart = 0;
+        NextFindFileTics.QuadPart = 0;
+        }
+}
+
+
+
+/*
+ *  FileFindReset
  *
- * HANDLE hFindFile -
- *    A Win32 compatible file handle, assumed to have been created by the
- *    win32 service FindFirstFileW.
+ *   Resets search pos according to FileName, FileIndex.
+ *   The FindBuffers will point to the next file in the search
+ *   order. Assumes that the remembered search pos, has not been
+ *   reached yet for the current search.
  *
- * PQUERYDIRINFO pQueryDirInfo
+ */
+NTSTATUS
+FileFindReset(
+   PFFINDLIST pFFindEntry
+   )
+{
+    NTSTATUS Status;
+    IO_STATUS_BLOCK IoStatusBlock;
+    PFILE_BOTH_DIR_INFORMATION DirectoryInfo;
+    UNICODE_STRING LastFileName;
+    UNICODE_STRING CurrFileName;
+    BOOLEAN bSlowReset;
+
+
+    if (pFFindEntry->DirectoryHandle == FINDFILE_DEVICE) {
+        return STATUS_NO_MORE_FILES;
+        }
+
+    Status = STATUS_UNSUCCESSFUL;
+
+    LastFileName.Length = (USHORT)pFFindEntry->DosData.FileNameLength;
+    LastFileName.MaximumLength = (USHORT)pFFindEntry->DosData.FileNameLength;
+    LastFileName.Buffer = pFFindEntry->DosData.FileName;
+
+    RtlInitUnicodeString(&CurrFileName, L".");
+    if (!RtlCompareUnicodeString(&LastFileName, &CurrFileName, TRUE)) {
+        bSlowReset = TRUE;
+        }
+    else {
+        RtlInitUnicodeString(&CurrFileName, L"..");
+        if (!RtlCompareUnicodeString(&LastFileName, &CurrFileName, TRUE)) {
+            bSlowReset = TRUE;
+            }
+        else {
+            bSlowReset = FALSE;
+            }
+        }
+
+    //
+    // if the last file name, wasn't Dots and the volume supports reset
+    // functionality call nt file sysetm to do the reset.
+    //
+    if (!bSlowReset && pFFindEntry->SupportReset) {
+        VDMQUERYDIRINFO VdmQueryDirInfo;
+        UNICODE_STRING  UnicodeString;
+
+        DirectoryInfo = (PFILE_BOTH_DIR_INFORMATION) pFFindEntry->FindBufferBase;
+
+        VdmQueryDirInfo.FileHandle = pFFindEntry->DirectoryHandle;
+        VdmQueryDirInfo.FileInformation = DirectoryInfo;
+        VdmQueryDirInfo.Length = pFFindEntry->FindBufferLength;
+        VdmQueryDirInfo.FileIndex = pFFindEntry->DosData.FileIndex;
+
+        UnicodeString.Length = (USHORT)pFFindEntry->DosData.FileNameLength;
+        UnicodeString.MaximumLength = UnicodeString.Length;
+        UnicodeString.Buffer = pFFindEntry->DosData.FileName;
+        VdmQueryDirInfo.FileName = &UnicodeString;
+
+        Status = NtVdmControl(VdmQueryDir, &VdmQueryDirInfo);
+        if (NT_SUCCESS(Status) ||
+            Status == STATUS_NO_MORE_FILES || Status == STATUS_NO_SUCH_FILE)
+           {
+            return Status;
+            }
+
+        pFFindEntry->SupportReset = TRUE;
+
+        }
+
+   //
+   // Reset the slow way by comparing FileName directly.
+   //
+   // WARNING: if the "remembered" File has been deleted we will
+   //          fail, is there something else we can do ?
+   //
+
+    Status = STATUS_NO_MORE_FILES;
+    while (TRUE) {
+
+       //
+       // If there is no data in the find file buffer, call NtQueryDir
+       //
+
+       DirectoryInfo = pFFindEntry->FindBufferNext;
+       if (!DirectoryInfo) {
+            DirectoryInfo = pFFindEntry->FindBufferBase;
+
+            Status = NtQueryDirectoryFile(
+                            pFFindEntry->DirectoryHandle,
+                            NULL,                          // no event
+                            NULL,                          // no apcRoutine
+                            NULL,                          // no apcContext
+                            &IoStatusBlock,
+                            DirectoryInfo,
+                            pFFindEntry->FindBufferLength,
+                            FileBothDirectoryInformation,
+                            FALSE,                         // single entry
+                            NULL,                          // no file name
+                            FALSE
+                            );
+
+           if (!NT_SUCCESS(Status)) {
+#if DBG
+               if (fShowSVCMsg & DEMFILIO) {
+                   sprintf(demDebugBuffer, "FFReset Status %x\n", Status);
+                   OutputDebugStringOem(demDebugBuffer);
+                   }
+#endif
+               return Status;
+               }
+           }
+
+       if ( DirectoryInfo->NextEntryOffset ) {
+           pFFindEntry->FindBufferNext = (PVOID)((ULONG)DirectoryInfo +
+                                                DirectoryInfo->NextEntryOffset);
+           }
+       else {
+           pFFindEntry->FindBufferNext = NULL;
+           }
+
+
+       if (DirectoryInfo->FileIndex == pFFindEntry->DosData.FileIndex) {
+           CurrFileName.Length = (USHORT)DirectoryInfo->FileNameLength;
+           CurrFileName.MaximumLength = (USHORT)DirectoryInfo->FileNameLength;
+           CurrFileName.Buffer = DirectoryInfo->FileName;
+
+	   if (!RtlCompareUnicodeString(&LastFileName, &CurrFileName, TRUE)) {
+	       return STATUS_SUCCESS;
+               }
+           }
+
+       }
+
+    return Status;
+
+}
+
+
+
+
+/*
+ * FileFindLast - Attempts to fill the FindFile buffer completely.
+ *
+ *
+ * PFFINDLIST pFFindEntry -
+ *
+ * Returns - Status of NtQueryDir operation if invoked, otherwise
+ *           STATUS_SUCCESS.
+ *
+ */
+NTSTATUS
+FileFindLast(
+    PFFINDLIST pFFindEntry
+    )
+{
+    NTSTATUS Status;
+    IO_STATUS_BLOCK IoStatusBlock;
+    PFILE_BOTH_DIR_INFORMATION DirInfo, LastDirInfo;
+    LONG BytesLeft;
+
+    if (pFFindEntry->DirectoryHandle == FINDFILE_DEVICE) {
+        return STATUS_NO_MORE_FILES;
+        }
+
+    if (pFFindEntry->FindBufferNext) {
+        ULONG BytesOffset;
+
+        BytesOffset = (ULONG)pFFindEntry->FindBufferNext -
+                      (ULONG)pFFindEntry->FindBufferBase;
+
+        if (BytesOffset) {
+            RtlMoveMemory(pFFindEntry->FindBufferBase,
+                          pFFindEntry->FindBufferNext,
+                          pFFindEntry->FindBufferLength - BytesOffset
+                          );
+            }
+
+        pFFindEntry->FindBufferNext = pFFindEntry->FindBufferBase;
+        DirInfo = pFFindEntry->FindBufferBase;
+
+        while (DirInfo->NextEntryOffset) {
+            DirInfo = (PVOID)((ULONG)DirInfo + DirInfo->NextEntryOffset);
+            }
+        LastDirInfo = DirInfo;
+
+        DirInfo = (PVOID)&DirInfo->FileName[DirInfo->FileNameLength>>1];
+
+        DirInfo = (PVOID) (((ULONG) DirInfo + sizeof(LONGLONG) - 1) &
+            ~(sizeof(LONGLONG) - 1));
+
+        BytesLeft = pFFindEntry->FindBufferLength -
+                     ((ULONG)DirInfo - (ULONG)pFFindEntry->FindBufferBase);
+        }
+    else {
+        DirInfo = pFFindEntry->FindBufferBase;
+        LastDirInfo = NULL;
+        BytesLeft = pFFindEntry->FindBufferLength;
+        }
+
+
+    // the size of the dirinfo structure including the name must be a longlong.
+    while (BytesLeft > sizeof(FILE_BOTH_DIR_INFORMATION) + sizeof(LONGLONG)) {
+
+       Status = NtQueryDirectoryFile(
+                       pFFindEntry->DirectoryHandle,
+                       NULL,                          // no event
+                       NULL,                          // no apcRoutine
+                       NULL,                          // no apcContext
+                       &IoStatusBlock,
+                       DirInfo,
+                       BytesLeft,
+                       FileBothDirectoryInformation,
+                       FALSE,                          // single entry ?
+                       NULL,                          // no file name
+                       FALSE
+                       );
+
+       if (Status == STATUS_NO_MORE_FILES || Status == STATUS_NO_SUCH_FILE) {
+#if DBG
+           if ((fShowSVCMsg & DEMFILIO)) {
+               sprintf(demDebugBuffer, "FFLast Status %x\n", Status);
+               OutputDebugStringOem(demDebugBuffer);
+               }
+#endif
+           return Status;
+           }
+
+
+       if (!NT_SUCCESS(Status)) {
+           break;
+           }
+
+       if (LastDirInfo) {
+           LastDirInfo->NextEntryOffset =(ULONG)DirInfo - (ULONG)LastDirInfo;
+           }
+       else {
+           pFFindEntry->FindBufferNext = pFFindEntry->FindBufferBase;
+           }
+
+       while (DirInfo->NextEntryOffset) {
+           DirInfo = (PVOID)((ULONG)DirInfo + DirInfo->NextEntryOffset);
+           }
+       LastDirInfo = DirInfo;
+       DirInfo = (PVOID)&DirInfo->FileName[DirInfo->FileNameLength>>1];
+
+        DirInfo = (PVOID) (((ULONG) DirInfo + sizeof(LONGLONG) - 1) &
+            ~(sizeof(LONGLONG) - 1));
+
+       BytesLeft = pFFindEntry->FindBufferLength -
+                    ((ULONG)DirInfo - (ULONG)pFFindEntry->FindBufferBase);
+       }
+
+   return STATUS_SUCCESS;
+}
+
+
+
+
+
+
+/*
+ * FileFindNext - retrieves the next file in the current search order,
+ *
+ * PFFINDDOSDATA pFFindDD
  *    Receives File info returned by the nt FileSystem
- *
- * BOOL    bReset
- *    TRUE             - reset search pos according to FileName, FileIndex.
- *                       Will return FileInfo for the file following specified
- *                       File, by the search order defined by the file system
- *                       type for the volume.
- *
- *    FALSE            - search from where last left off (continue).
- *
- * ULONG   BufferSize -
- *    Sizeof DirectoryInfo buffer to be allocated. The memory will be
- *    allocated on the first call to NtvdmQueryDirectory after a
- *    FindFirstFileW operation. The Buffer will be freed when the
- *    hFindHandle is closed by win32.
- *
- *    If the BufferSize is Zero, then no calls to the NT FileSystem will
- *    be made. This allows the caller to empty the buffered
- *    DirectoryInformation, without invoking additional kernel calls.
  *
  * PFFINDLIST pFFindEntry -
  *    Contains the DirectoryInfo (FileName,FileIndex) necessary to reset a
  *    search pos. For operations other than QDIR_RESET_SCAN, this is ignored.
  *
- * PFILE_BOTH_DIR_INFORMATION pFindBufferBase
- *    Pointer to DirectoryInfo Buffer to be used.
- *
  * Returns -
  *    If Got a DirectoryInformation Entry, STATUS_SUCCESS
- *    If BufferSize is Zero, and buffer was emptied STATUS_BUFFER_OVERFLOW
- *    otherwise NT status Error code
+ *    If no Open Directory handle and is unknown if there are more files
+ *    returns STATUS_IN`VALID_HANDLE
  *
  */
 NTSTATUS
-NtvdmQueryDirectory(
-    HANDLE hFindFile,
-    PQUERYDIRINFO pQueryDirInfo,
-    BOOL    bReset,
-    ULONG   BufferSize,
-    PFFINDLIST pFFindEntry,
-    PFILE_BOTH_DIR_INFORMATION pFindBufferBase
+FileFindNext(
+    PFFINDDOSDATA pFFindDD,
+    PFFINDLIST pFFindEntry
     )
 {
     NTSTATUS Status;
-    int      Reset;
     IO_STATUS_BLOCK IoStatusBlock;
-    PFINDFILE_HANDLE FindFileHandle;
+
     PFILE_BOTH_DIR_INFORMATION DirectoryInfo;
 
-
-    if (hFindFile == BASE_FIND_FIRST_DEVICE_HANDLE) {
+    if (pFFindEntry->DirectoryHandle == FINDFILE_DEVICE) {
         return STATUS_NO_MORE_FILES;
         }
 
-    FindFileHandle = (PFINDFILE_HANDLE)hFindFile;
-
-    //
-    // If we haven't been called yet, then initialize the buffer pointer
-    //
-    if (!FindFileHandle->FindBufferNext) {
-        FindFileHandle->FindBufferNext = pFindBufferBase;
-        FindFileHandle->FindBufferLength = BufferSize;
-        FindFileHandle->FindBufferValidLength = 0;
-        }
-
-
     Status = STATUS_UNSUCCESSFUL;
-
-    Reset = bReset ? 1 : 0; // Reset is an integer tristate boolean
 
     do {
 
        //
-       // Test to see if there is no data in the find file buffer
+       // If there is no data in the find file buffer, call NtQueryDir
        //
 
-       DirectoryInfo = (PFILE_BOTH_DIR_INFORMATION) FindFileHandle->FindBufferNext;
-       if (DirectoryInfo == pFindBufferBase) {
-
-           if (!BufferSize && !Reset) {
-               return STATUS_BUFFER_OVERFLOW;
+       DirectoryInfo = pFFindEntry->FindBufferNext;
+       if (!DirectoryInfo) {
+           if (!pFFindEntry->DirectoryHandle) {
+               return STATUS_INVALID_HANDLE;
                }
 
+           DirectoryInfo = pFFindEntry->FindBufferBase;
 
-               /*
-                *  If this is the first time through the loop and doing
-                *  QDIR_RESET_SCAN try it the fast way passing FileName and
-                *  FileIndex back to the fs. This method doesn't work on some
-                *  drives (remote servers that don't support reset) so it may
-                *  fail. If it fails, fallback to the slow way.
-                */
-           if (Status == STATUS_UNSUCCESSFUL &&
-               Reset > 0 &&
-               QueryDirReset(FindFileHandle, pFFindEntry, &Status) )
-             {
-               Reset = 0;
-               }
-           else {
+           Status = NtQueryDirectoryFile(
+                            pFFindEntry->DirectoryHandle,
+                            NULL,                          // no event
+                            NULL,                          // no apcRoutine
+                            NULL,                          // no apcContext
+                            &IoStatusBlock,
+                            DirectoryInfo,
+                            pFFindEntry->FindBufferLength,
+                            FileBothDirectoryInformation,
+                            FALSE,                         // single entry ?
+                            NULL,                          // no file name
+                            FALSE
+                            );
 
-               Status = NtQueryDirectoryFile(
-                               FindFileHandle->DirectoryHandle,
-                               NULL,                          // no event
-                               NULL,                          // no apcRoutine
-                               NULL,                          // no apcContext
-                               &IoStatusBlock,
-                               DirectoryInfo,
-                               FindFileHandle->FindBufferLength,
-                               FileBothDirectoryInformation,
-                               FALSE,                         // more 1 entry
-                               NULL,                          // no file name
-                               FALSE
-                               );
-               }
-
-
-           //
-           //  ***** Do a kludge hack fix for now *****
-           //
-           //  Forget about the last, partial, entry.
-           //
-
-           if ( Status == STATUS_BUFFER_OVERFLOW ) {
-
-               PULONG Ptr;
-               PULONG PriorPtr;
-
-               Ptr = (PULONG)DirectoryInfo;
-               PriorPtr = NULL;
-
-               while ( *Ptr != 0 ) {
-                   PriorPtr = Ptr;
-                   Ptr += (*Ptr / sizeof(ULONG));
-                   }
-
-               if (PriorPtr != NULL) {
-                   *PriorPtr = 0;
-                   }
-
-               }
-           else if (!NT_SUCCESS(Status)) {
+           if (!NT_SUCCESS(Status)) {
 #if DBG
                if (fShowSVCMsg & DEMFILIO) {
-                   sprintf(demDebugBuffer, "QDir Status %x\n", Status);
+                   sprintf(demDebugBuffer, "FFNext Status %x\n", Status);
                    OutputDebugStringOem(demDebugBuffer);
                    }
 #endif
@@ -1249,255 +1555,183 @@ NtvdmQueryDirectory(
            }
 
 
-           /*
-            * If we Are doing a scan reset the slow way, by enumerating
-            * all of the files until the remembered file info is found.
-            */
-       if (Reset > 0) {
-            if (DirectoryInfo->FileIndex == pFFindEntry->FileIndex &&
-                FileNameEquals(FindFileHandle, pFFindEntry) )
-              {
-                Reset = -1;
-                }
-            }
-       else if (Reset < 0) {
-            Reset = 0;
-            }
-
        if ( DirectoryInfo->NextEntryOffset ) {
-           FindFileHandle->FindBufferNext = (PVOID)(
-               (PUCHAR)DirectoryInfo + DirectoryInfo->NextEntryOffset);
+           pFFindEntry->FindBufferNext = (PVOID)((ULONG)DirectoryInfo +
+                                                DirectoryInfo->NextEntryOffset);
            }
        else {
-           FindFileHandle->FindBufferNext = pFindBufferBase;
+           pFFindEntry->FindBufferNext = NULL;
            }
 
-
-       } while (Reset);
-
-
-
-
-    //
-    // Copy the fields needed for demsrch
-    //
-    pQueryDirInfo->FileAttributes = DirectoryInfo->FileAttributes;
-    pQueryDirInfo->LastWriteTime = DirectoryInfo->LastWriteTime;
-    pQueryDirInfo->FileSizeLow = DirectoryInfo->EndOfFile.LowPart;
-    pQueryDirInfo->FileNameLength = DirectoryInfo->FileNameLength;
-    pQueryDirInfo->FileIndex = DirectoryInfo->FileIndex;
-
-    RtlCopyMemory(pQueryDirInfo->FileName,
-                  DirectoryInfo->FileName,
-                  DirectoryInfo->FileNameLength
-                  );
-
-    pQueryDirInfo->FileName[DirectoryInfo->FileNameLength >> 1] = UNICODE_NULL;
-
-    RtlCopyMemory(pQueryDirInfo->ShortName,
-                  DirectoryInfo->ShortName,
-                  DirectoryInfo->ShortNameLength
-                  );
-
-    pQueryDirInfo->ShortName[DirectoryInfo->ShortNameLength >> 1] = UNICODE_NULL;
-
+       } while (!CopyDirInfoToDosData(pFFindDD,
+                                      DirectoryInfo,
+                                      pFFindEntry->usSrchAttr
+                                      ));
 
     return STATUS_SUCCESS;
-
 }
 
 
 
-/*  QueryDirReset
+
+/*
+ *  CopyDirInfoToDosData
  *
- *  Invokes vdm kernel private entry to reset a search according to a
- *  new search position by passing the filename\fileindex returned from
- *  a previous call to to query a directory. Returns the file information
- *  for the next file in the search order so that the information returned
- *  is suitable to continue where the search last left off.
  */
 BOOL
-QueryDirReset(
-     PFINDFILE_HANDLE FindFileHandle,
-     PFFINDLIST pFFindEntry,
-     NTSTATUS  *pStatus
-     )
+CopyDirInfoToDosData(
+    PFFINDDOSDATA pFFindDD,
+    PFILE_BOTH_DIR_INFORMATION DirInfo,
+    USHORT SearchAttr
+    )
 {
     NTSTATUS Status;
-    VDMQUERYDIRINFO VdmQueryDirInfo;
-    UNICODE_STRING  UnicodeString;
-    PFILE_BOTH_DIR_INFORMATION DirectoryInfo;
+    OEM_STRING OemString;
+    UNICODE_STRING UnicodeString;
+    DWORD   dwAttr;
+    BOOLEAN SpacesInName = FALSE;
+    BOOLEAN NameValid8Dot3;
 
-    if (pFFindEntry->QDResetNoSupport) {
-        return FALSE;
-        }
-
-    DirectoryInfo = (PFILE_BOTH_DIR_INFORMATION) FindFileHandle->FindBufferNext;
-
-    VdmQueryDirInfo.FileHandle = FindFileHandle->DirectoryHandle;
-    VdmQueryDirInfo.FileInformation = DirectoryInfo;
-    VdmQueryDirInfo.Length = FindFileHandle->FindBufferLength;
-    VdmQueryDirInfo.FileIndex = pFFindEntry->FileIndex;
-
-    UnicodeString.Length = (USHORT)pFFindEntry->FileNameLength;
-    UnicodeString.MaximumLength = UnicodeString.Length;
-    UnicodeString.Buffer = pFFindEntry->FileName;
-    VdmQueryDirInfo.FileName = &UnicodeString;
-
-    Status = NtVdmControl(VdmQueryDir, &VdmQueryDirInfo);
-
-    *pStatus = Status;
-
-    if (NT_SUCCESS(Status) || Status == STATUS_BUFFER_OVERFLOW) {
-        return TRUE;
+    //
+    // match the attributes
+    // See DOS5.0 sources (dir2.asm, MatchAttributes)
+    // ignores READONLY and ARCHIVE bits
+    //
+    if (FILE_ATTRIBUTE_NORMAL == DirInfo->FileAttributes) {
+        DirInfo->FileAttributes = 0;
         }
     else {
-        if (Status != STATUS_NO_MORE_FILES) {
-            // remember that this drive failed Reset
-            pFFindEntry->QDResetNoSupport = TRUE;
-            }
+        DirInfo->FileAttributes &= DOS_ATTR_MASK;
+        }
 
+
+    dwAttr = DirInfo->FileAttributes;
+    dwAttr &= ~(FILE_ATTRIBUTE_ARCHIVE | FILE_ATTRIBUTE_READONLY);
+    if (((~(ULONG)SearchAttr) & dwAttr) & ATTR_ALL)
         return FALSE;
+
+
+    //
+    // set up the destination oem string buffer
+    //
+    OemString.Buffer        = pFFindDD->cFileName;
+    OemString.MaximumLength = 14;
+
+    //
+    // see if the name is legal fat
+    //
+
+    UnicodeString.Buffer = DirInfo->FileName;
+    UnicodeString.Length = (USHORT)DirInfo->FileNameLength;
+    UnicodeString.MaximumLength = (USHORT)DirInfo->FileNameLength;
+
+    NameValid8Dot3 = RtlIsNameLegalDOS8Dot3( &UnicodeString,
+                                             &OemString,
+                                             &SpacesInName );
+
+    //
+    // if failed (incompatible codepage or illegal FAT name),
+    //    use the short name
+    //
+    if (!NameValid8Dot3 ||
+        (SpacesInName && (DirInfo->ShortName[0] != UNICODE_NULL))) {
+
+        if (DirInfo->ShortName[0] == UNICODE_NULL) {
+            pFFindDD->cFileName[0] = '\0';
+            return FALSE;
+            }
+
+        UnicodeString.Buffer = DirInfo->ShortName;
+        UnicodeString.Length = (USHORT)DirInfo->ShortNameLength;
+        UnicodeString.MaximumLength = (USHORT)DirInfo->ShortNameLength;
+
+        if (!NT_SUCCESS(RtlUpcaseUnicodeStringToCountedOemString(&OemString, &UnicodeString, FALSE))) {
+            pFFindDD->cFileName[0] = '\0';
+            return FALSE;
+            }
         }
 
+    OemString.Buffer[OemString.Length] = '\0';
+
+    // fill in time, size and attributes
+    pFFindDD->ftLastWriteTime   = *(LPFILETIME)&DirInfo->LastWriteTime;
+    pFFindDD->dwFileSizeLow     = DirInfo->EndOfFile.LowPart;
+    pFFindDD->uchFileAttributes = (UCHAR)DirInfo->FileAttributes;
+
+    // Save File Name, Index for restarting searches
+    pFFindDD->FileIndex = DirInfo->FileIndex;
+    pFFindDD->FileNameLength = DirInfo->FileNameLength;
+
+    RtlCopyMemory(pFFindDD->FileName,
+                  DirInfo->FileName,
+                  DirInfo->FileNameLength
+                  );
+
+    pFFindDD->FileName[DirInfo->FileNameLength >> 1] = UNICODE_NULL;
+
+    return TRUE;
 }
 
 
 
 
-
-/*
- *  Checks if the remembered FileInfo is the same as the current
- *  FileInfo entry, based on filename
- *
- *  returns TRUE\FALSE
- */
-BOOL
-FileNameEquals(
-    PFINDFILE_HANDLE FindFileHandle,
-    PFFINDLIST pFFindEntry
+HANDLE
+FileFindFirstDevice(
+    PWCHAR FileName,
+    PFILE_BOTH_DIR_INFORMATION DirectoryInfo
     )
+
+/*++
+
+Routine Description:
+
+    Determines if the FileName is a device, and copies out the
+    device name found if it is.
+
+Arguments:
+
+    FileName - Supplies the device name of the file to find.
+
+    pQueryDirInfo - On a successful find, this parameter returns information
+                    about the located file.
+
+Return Value:
+
+
+--*/
+
 {
-    UNICODE_STRING UnicodeCurr;
-    UNICODE_STRING UnicodeLast;
-    PFILE_BOTH_DIR_INFORMATION DirectoryInfo;
+    ULONG DeviceNameData;
+    PWSTR DeviceName;
 
-    DirectoryInfo = (PFILE_BOTH_DIR_INFORMATION)FindFileHandle->FindBufferNext;
-    UnicodeCurr.Length = (USHORT)DirectoryInfo->FileNameLength;
-    UnicodeCurr.MaximumLength = UnicodeCurr.Length;
-    UnicodeCurr.Buffer = DirectoryInfo->FileName;
+    DeviceNameData = RtlIsDosDeviceName_U(FileName);
+    if (DeviceNameData) {
+        RtlZeroMemory(DirectoryInfo, sizeof(FILE_BOTH_DIR_INFORMATION));
 
-    UnicodeLast.Length = (USHORT)pFFindEntry->FileNameLength;
-    UnicodeLast.MaximumLength = UnicodeLast.Length;
-    UnicodeLast.Buffer = pFFindEntry->FileName;
+        DirectoryInfo->FileAttributes = FILE_ATTRIBUTE_ARCHIVE;
+        DeviceName = (PWSTR)((ULONG)FileName + (DeviceNameData >> 16));
 
-    if (!RtlCompareUnicodeString(&UnicodeCurr, &UnicodeLast, TRUE)) {
-        return TRUE;
+        DeviceNameData &= 0xffff;
+
+        DirectoryInfo->FileNameLength = DeviceNameData;
+        DirectoryInfo->ShortNameLength = (CCHAR)DeviceNameData;
+
+
+        RtlCopyMemory(DirectoryInfo->FileName,
+                      DeviceName,
+                      DeviceNameData
+                      );
+
+        RtlCopyMemory(DirectoryInfo->ShortName,
+                      DeviceName,
+                      DeviceNameData
+                      );
+
+        return FINDFILE_DEVICE;
         }
 
-    return FALSE;
+    return NULL;
 }
-
-
-#if 0
-/*
- *  Checks by FileName if a search has gone past the specified filename.
- *
- *  returns STATUS_SUCCESS       for search has gone past
- *          STATUS_UNSUCCESSFUL  for search has not gone past yet
- *          otherwise some other error
- *
- */
-NTSTATUS
-PastFileNameScanPosition(
-    PFINDFILE_HANDLE FindFileHandle,
-    PFFINDLIST pFFindEntry
-    )
-{
-    LONG      lCmp;
-    NTSTATUS  Status;
-    UNICODE_STRING UnicodeCurr;
-    UNICODE_STRING UnicodeLast;
-    IO_STATUS_BLOCK IoStatusBlock;
-    PFILE_BOTH_DIR_INFORMATION DirectoryInfo;
-
-    if (pFFindEntry->FsAttributes == 0xffffffff) {
-        FILE_FS_ATTRIBUTE_INFORMATION FsAttributeInfo;
-
-        Status = NtQueryVolumeInformationFile(
-                                 FindFileHandle->DirectoryHandle,
-                                 &IoStatusBlock,
-                                 &FsAttributeInfo,
-                                 sizeof(FILE_FS_ATTRIBUTE_INFORMATION),
-                                 FileFsAttributeInformation
-                                 );
-
-
-        if (Status == STATUS_BUFFER_OVERFLOW || NT_SUCCESS(Status)) {
-            pFFindEntry->FsAttributes = FsAttributeInfo.FileSystemAttributes;
-            }
-        else {
-            pFFindEntry->FsAttributes = 0xffffffff;
-            return Status;
-            }
-
-        }
-
-    DirectoryInfo = (PFILE_BOTH_DIR_INFORMATION)FindFileHandle->FindBufferNext;
-    UnicodeCurr.Length = (USHORT)DirectoryInfo->FileNameLength;
-    UnicodeCurr.MaximumLength = UnicodeCurr.Length;
-    UnicodeCurr.Buffer = DirectoryInfo->FileName;
-
-    UnicodeLast.Length = (USHORT)pFFindEntry->FileNameLength;
-    UnicodeLast.MaximumLength = UnicodeLast.Length;
-    UnicodeLast.Buffer = pFFindEntry->FileName;
-
-    /*
-     *  Differentiate between pinball and ntfs to find the current relative
-     *  search\scan position. pinball stores as oem on disk and is case
-     *  insensitive. ntfs stores as unicode on disk and is case sensitive.
-     */
-
-    if (pFFindEntry->FsAttributes & FILE_UNICODE_ON_DISK) {
-        lCmp = RtlCompareUnicodeString(&UnicodeCurr, &UnicodeLast, FALSE);
-        if (!lCmp && (pFFindEntry->FsAttributes & FILE_CASE_SENSITIVE_SEARCH)) {
-            lCmp = RtlCompareUnicodeString(&UnicodeCurr, &UnicodeLast, TRUE);
-            }
-        }
-    else {
-        OEM_STRING OemCurr;
-        OEM_STRING OemLast;
-        CHAR OemCurrBuff[MAX_PATH];
-        CHAR OemLastBuff[MAX_PATH];
-
-        OemCurr.Buffer = OemCurrBuff;
-        OemCurr.MaximumLength = MAX_PATH;
-        Status = RtlUnicodeStringToOemString(&OemCurr,&UnicodeCurr,FALSE);
-        if (!NT_SUCCESS(Status)) {
-            return Status;
-            }
-
-        OemLast.Buffer = OemLastBuff;
-        OemLast.MaximumLength = MAX_PATH;
-        Status = RtlUnicodeStringToOemString(&OemLast,&UnicodeLast,FALSE);
-        if (!NT_SUCCESS(Status)) {
-            return Status;
-            }
-
-        lCmp = RtlCompareString(&OemCurr, &OemLast, FALSE);
-        if (!lCmp && (pFFindEntry->FsAttributes & FILE_CASE_SENSITIVE_SEARCH)) {
-            lCmp = RtlCompareString(&OemCurr, &OemLast, TRUE);
-            }
-
-        }
-
-   return lCmp > 0 ? STATUS_SUCCESS : STATUS_UNSUCCESSFUL;
-}
-#endif
-
-
-
-
 
 
 
@@ -1518,34 +1752,52 @@ PastFileNameScanPosition(
 VOID
 FillFcbVolume(
      PSRCHBUF pSrchBuf,
-     CHAR *pFileName)
+     CHAR *pFileName,
+     USHORT SearchAttr
+     )
 {
-    CHAR    *lpLastComponent;
+    CHAR    *pch;
     PDIRENT pDirEnt = &pSrchBuf->DirEnt;
     CHAR    FullPathBuffer[MAX_PATH];
     CHAR    achBaseName[DOS_VOLUME_NAME_SIZE + 2];  // 11 chars, '.', and null
     CHAR    achVolumeName[NT_VOLUME_NAME_SIZE];
 
-    // make a copy of dos path name
-    strcpy(FullPathBuffer, pFileName);
-    // get the base name address
-    lpLastComponent = strrchr(FullPathBuffer, '\\');
+    //
+    // form a path without base name
+    // this makes sure only on root directory will get the
+    // volume label(the GetVolumeInformationOem will fail
+    // if the given path is not root directory)
+    //
 
-    if (lpLastComponent)  {
-        lpLastComponent++;
+    strcpy(FullPathBuffer, pFileName);
+    pch = strrchr(FullPathBuffer, '\\');
+    if (pch)  {
+        pch++;
         // truncate to dos file name length (including period)
-        lpLastComponent[DOS_VOLUME_NAME_SIZE + 1] = '\0';
-        strcpy(achBaseName, lpLastComponent);
-        strupr(achBaseName);
-        // form a path without base name
-        // this makes sure only on root directory will get the
-        // volume label(the GetVolumeInformationOem will fail
-        // if the given path is not root directory)
-        *lpLastComponent = '\0';
+        pch[DOS_VOLUME_NAME_SIZE + 1] = '\0';
+        strcpy(achBaseName, pch);
+        _strupr(achBaseName);
+        *pch = '\0';
         }
     else {
         achBaseName[0] = '\0';
         }
+
+
+    //
+    // if searching for volume only the DOS uses first 3 letters for
+    // root drive path ignoring the rest of the path
+    // as long as the full pathname is valid.
+    //
+    if (SearchAttr == ATTR_VOLUME_ID &&
+        (pch = strchr(FullPathBuffer, '\\')) &&
+        GetFileAttributes(FullPathBuffer) != 0xffffffff )
+      {
+        pch++;
+        *pch = '\0';
+        strcpy(achBaseName, szStartDotStar);
+        }
+
 
     if (GetVolumeInformationOem(FullPathBuffer,
                                 achVolumeName,
@@ -1556,6 +1808,7 @@ FillFcbVolume(
                                 NULL,
                                 0) == FALSE)
        {
+
         demClientError(INVALID_HANDLE_VALUE, *pFileName);
         return;
         }
@@ -1594,34 +1847,49 @@ FillFcbVolume(
  *      Returns Error Code
  */
 
-BOOL FillDtaVolume (
+BOOL FillDtaVolume(
      CHAR *pFileName,
-     PSRCHDTA  pDta)
+     PSRCHDTA  pDta,
+     USHORT SearchAttr
+     )
 {
-    CHAR    *lpLastComponent;
+    CHAR    *pch;
     CHAR    FullPathBuffer[MAX_PATH];
     CHAR    achBaseName[DOS_VOLUME_NAME_SIZE + 2];  // 11 chars, '.' and null
     CHAR    achVolumeName[NT_VOLUME_NAME_SIZE];
 
-    // make a copy of dos path name
+    //
+    // form a path without base name
+    // this makes sure only on root directory will get the
+    // volume label(the GetVolumeInformationOem will fail
+    // if the given path is not root directory)
+    //
     strcpy(FullPathBuffer, pFileName);
-    // get the base name address
-    lpLastComponent = strrchr(FullPathBuffer, '\\');
-
-    if (lpLastComponent)  {
-        lpLastComponent++;
-        // truncate to dos file name length (including period)
-        lpLastComponent[DOS_VOLUME_NAME_SIZE + 1] = '\0';
-        strcpy(achBaseName, lpLastComponent);
-        strupr(achBaseName);
-        // form a path without base name
-        // this makes sure only on root directory will get the
-        // volume label(the GetVolumeInformationOem will fail
-        // if the given path is not root directory)
-        *lpLastComponent = '\0';
+    pch = strrchr(FullPathBuffer, '\\');
+    if (pch)  {
+        pch++;
+        pch[DOS_VOLUME_NAME_SIZE + 1] = '\0'; // max len (including period)
+        strcpy(achBaseName, pch);
+        _strupr(achBaseName);
+        *pch = '\0';
         }
     else {
         achBaseName[0] = '\0';
+        }
+
+
+    //
+    // if searching for volume only the DOS uses first 3 letters for
+    // root drive path ignoring the rest of the path
+    // as long as the full path name is valid.
+    //
+    if (SearchAttr == ATTR_VOLUME_ID &&
+        (pch = strchr(FullPathBuffer, '\\')) &&
+        GetFileAttributes(FullPathBuffer) != 0xffffffff )
+      {
+        pch++;
+        *pch = '\0';
+        strcpy(achBaseName, szStartDotStar);
         }
 
     if (GetVolumeInformationOem(FullPathBuffer,
@@ -1802,17 +2070,14 @@ VOID FillFCBSrchBuf(
         }
 #endif
 
-
-    strupr(pFFindDD->cFileName);
-
     // Copy file name (Max Name = 8 and Max ext = 3)
     if ((pDot = strchr(pFFindDD->cFileName,'.')) == NULL) {
         strncpy(pSrchBuf->FileName,pFFindDD->cFileName,8);
-        strnset(pSrchBuf->FileExt,'\x020',3);
+        _strnset(pSrchBuf->FileExt,'\x020',3);
         }
     else if (pDot == pFFindDD->cFileName) {
         strncpy(pSrchBuf->FileName,pFFindDD->cFileName,8);
-        strnset(pSrchBuf->FileExt,'\x020',3);
+        _strnset(pSrchBuf->FileExt,'\x020',3);
         }
     else {
         *pDot = '\0';
@@ -1897,10 +2162,6 @@ FillSrchDta(
         }
 #endif
 
-
-
-
-    strupr(pFFindDD->cFileName);
     strncpy(pDta->achFileName,pFFindDD->cFileName, 13);
 
     return;
@@ -1910,104 +2171,114 @@ FillSrchDta(
 
 
 
-/* AddFindHandle - Adds a new File Find entry to the current
- *                    PSP's PspFileFindList
- *
- * Entry -
- *
- * Exit  -  PFFINDLIST  pFFindList;
- */
-PFFINDLIST
-AddFFindEntry(PUNICODE_STRING pFileUni,
-              USHORT SearchAttr,
-              PFFINDLIST pFFindEntrySrc)
-
+VOID demCloseAllPSPRecords (VOID)
 {
-    PPSP_FFINDLIST pPspFFindEntry;
-    PFFINDLIST     pFFindEntry;
+   PLIST_ENTRY Next;
+   PPSP_FFINDLIST pPspFFindEntry;
 
-    pPspFFindEntry = GetPspFFindList(FETCHWORD(pusCurrentPDB[0]));
-
-        //
-        // if a Psp entry doesn't exist
-        //    Allocate one, initialize it and insert it into the list
-        //
-    if (!pPspFFindEntry) {
-        pPspFFindEntry = (PPSP_FFINDLIST) malloc(sizeof(PSP_FFINDLIST));
-        if (!pPspFFindEntry)
-            return NULL;
-
-        pPspFFindEntry->usPsp = FETCHWORD(pusCurrentPDB[0]);
-        InitializeListHead(&pPspFFindEntry->FFindHeadList);
-        InsertHeadList(&PspFFindHeadList, &pPspFFindEntry->PspFFindEntry);
-        }
-
-
-    //
-    // If we have wrapped the findid, then reset the findid to the base
-    // value and flush the old entry if it still exists
-    //
-    if (NextFFindId == FreeFFindId) {
-        if (FreeFFindId == FFINDID_MAX) {
-            NextFFindId = FFINDID_BASE;
-            FreeFFindId = NextFFindId + 1;
-            }
-        else {
-            FreeFFindId++;
-            }
-
-        pFFindEntry = GetFFindEntryByFindId(NextFFindId);
-        if (pFFindEntry)
-            FreeFFindEntry(pFFindEntry);
-
-        }
-
-
-    //
-    // Create the FileFindEntry and add to the FileFind list
-    //
-    pFFindEntry = (PFFINDLIST) malloc(sizeof(FFINDLIST) + pFileUni->Length);
-    if (!pFFindEntry) {
-        return pFFindEntry;
-        }
-
-    //
-    // Fill in FFindList
-    //
-    pFFindEntry->FFindId = NextFFindId++;
-
-    if (pFileUni->Length) {
-        RtlCopyMemory(pFFindEntry->SearchName,
-                      pFileUni->Buffer,
-                      pFileUni->Length + sizeof(WCHAR));
-        }
-    else {
-        *pFFindEntry->SearchName = UNICODE_NULL;
-        }
-
-    pFFindEntry->FsAttributes = 0xffffffff;
-    pFFindEntry->usSrchAttr = SearchAttr;
-
-    pFFindEntry->FileIndex = pFFindEntrySrc->FileIndex;
-    pFFindEntry->FileNameLength = pFFindEntrySrc->FileNameLength;
-    pFFindEntry->QDResetNoSupport = pFFindEntrySrc->QDResetNoSupport;
-    if (pFFindEntrySrc->FileNameLength) {
-        RtlCopyMemory(pFFindEntry->FileName,
-                      pFFindEntrySrc->FileName,
-                      pFFindEntrySrc->FileNameLength + sizeof(WCHAR));
-        }
-    else {
-        *pFFindEntrySrc->FileName = UNICODE_NULL;
-        }
-
-
-    //
-    //  Insert at  the head of this psp list
-    //
-    InsertHeadList(&pPspFFindEntry->FFindHeadList, &pFFindEntry->FFindEntry);
-
-    return pFFindEntry;
+   Next = PspFFindHeadList.Flink;
+   while (Next != &PspFFindHeadList) {
+       pPspFFindEntry = CONTAINING_RECORD(Next,PSP_FFINDLIST,PspFFindEntry);
+       FreeFFindList( &pPspFFindEntry->FFindHeadList);
+       Next= Next->Flink;
+       RemoveEntryList(&pPspFFindEntry->PspFFindEntry);
+       free(pPspFFindEntry);
+       }
 }
+
+
+void
+DemHeartBeat(void)
+{
+
+   PLIST_ENTRY    Next;
+   PLIST_ENTRY    pFFindHeadList;
+   PPSP_FFINDLIST pPspFFindEntry;
+   PFFINDLIST  pFFindEntry;
+
+   if (!NumFindBuffer ||
+       NextFindFileTics.QuadPart > ++FindFileTics.QuadPart)
+     {
+       return;
+       }
+
+   pPspFFindEntry = GetPspFFindList(FETCHWORD(pusCurrentPDB[0]));
+   if (!pPspFFindEntry) {
+       return;
+       }
+   pFFindHeadList = &pPspFFindEntry->FFindHeadList;
+   Next = pFFindHeadList->Blink;
+   while (Next != pFFindHeadList) {
+        pFFindEntry = CONTAINING_RECORD(Next,FFINDLIST, FFindEntry);
+
+        if (pFFindEntry->FindFileTics.QuadPart) {
+            if (pFFindEntry->FindFileTics.QuadPart <= FindFileTics.QuadPart) {
+                FileFindClose(pFFindEntry);
+                }
+            else {
+                NextFindFileTics.QuadPart = pFFindEntry->FindFileTics.QuadPart;
+                return;
+                }
+            }
+
+        Next = Next->Blink;
+        }
+
+   NextFindFileTics.QuadPart = 0;
+   FindFileTics.QuadPart = 0;
+}
+
+
+
+
+
+//
+// CloseOldestFileFindBuffer
+// walks the psp file find list backwards to find the oldest
+// entry with FindBuffers, directory handles and closes it.
+//
+void
+CloseOldestFileFindBuffer(
+   void
+   )
+{
+   PLIST_ENTRY    Next, NextPsp;
+   PLIST_ENTRY    pFFindHeadList;
+   PPSP_FFINDLIST pPspFFindEntry;
+   PFFINDLIST     pFFEntry;
+
+   NextPsp = PspFFindHeadList.Blink;
+   while (NextPsp != &PspFFindHeadList) {
+       pPspFFindEntry = CONTAINING_RECORD(NextPsp,PSP_FFINDLIST,PspFFindEntry);
+
+       pFFindHeadList = &pPspFFindEntry->FFindHeadList;
+       Next = pFFindHeadList->Blink;
+       while (Next != pFFindHeadList) {
+            pFFEntry = CONTAINING_RECORD(Next,FFINDLIST, FFindEntry);
+            if (NumFindBuffer >= MAX_FINDBUFFER) {
+                FileFindClose(pFFEntry);
+                }
+            else if (pFFEntry->DirectoryHandle &&
+                     NumDirectoryHandle >= MAX_DIRECTORYHANDLE)
+               {
+                NumDirectoryHandle--;
+                NtClose(pFFEntry->DirectoryHandle);
+                pFFEntry->DirectoryHandle = 0;
+                }
+
+            if (NumFindBuffer < MAX_FINDBUFFER &&
+                NumDirectoryHandle < MAX_DIRECTORYHANDLE)
+               {
+                return;
+                }
+            Next = Next->Blink;
+            }
+
+       NextPsp= NextPsp->Blink;
+       }
+}
+
+
 
 
 
@@ -2025,6 +2296,7 @@ PFFINDLIST GetFFindEntryByFindId(ULONG NextFFindId)
    NextPsp = PspFFindHeadList.Flink;
    while (NextPsp != &PspFFindHeadList) {
        pPspFFindEntry = CONTAINING_RECORD(NextPsp,PSP_FFINDLIST,PspFFindEntry);
+
        pFFindHeadList = &pPspFFindEntry->FFindHeadList;
        Next = pFFindHeadList->Flink;
        while (Next != pFFindHeadList) {
@@ -2034,11 +2306,71 @@ PFFINDLIST GetFFindEntryByFindId(ULONG NextFFindId)
                 }
             Next= Next->Flink;
             }
+
        NextPsp= NextPsp->Flink;
        }
 
    return NULL;
 }
+
+
+
+/* AddFFindEntry - Adds a new File Find entry to the current
+ *                    PSP's PspFileFindList
+ *
+ * Entry -
+ *
+ * Exit  -  PFFINDLIST  pFFindList;
+ */
+PFFINDLIST
+AddFFindEntry(
+        PWCHAR pwcFile,
+        PFFINDLIST pFFindEntrySrc
+        )
+
+{
+    PPSP_FFINDLIST pPspFFindEntry;
+    PFFINDLIST     pFFindEntry;
+    ULONG          Len;
+
+    pPspFFindEntry = GetPspFFindList(FETCHWORD(pusCurrentPDB[0]));
+
+        //
+        // if a Psp entry doesn't exist
+        //    Allocate one, initialize it and insert it into the list
+        //
+    if (!pPspFFindEntry) {
+        pPspFFindEntry = (PPSP_FFINDLIST) malloc(sizeof(PSP_FFINDLIST));
+        if (!pPspFFindEntry)
+            return NULL;
+
+        pPspFFindEntry->usPsp = FETCHWORD(pusCurrentPDB[0]);
+        InitializeListHead(&pPspFFindEntry->FFindHeadList);
+        InsertHeadList(&PspFFindHeadList, &pPspFFindEntry->PspFFindEntry);
+        }
+
+    //
+    // Create the FileFindEntry and add to the FileFind list
+    //
+    pFFindEntry = (PFFINDLIST) malloc(sizeof(FFINDLIST));
+    if (!pFFindEntry) {
+        return pFFindEntry;
+        }
+
+    //
+    // Fill in FFindList
+    //
+    *pFFindEntry = *pFFindEntrySrc;
+
+    //
+    //  Insert at  the head of this psp list
+    //
+    InsertHeadList(&pPspFFindEntry->FFindHeadList, &pFFindEntry->FFindEntry);
+
+    return pFFindEntry;
+}
+
+
 
 
 
@@ -2052,6 +2384,9 @@ PFFINDLIST GetFFindEntryByFindId(ULONG NextFFindId)
 VOID FreeFFindEntry(PFFINDLIST pFFindEntry)
 {
     RemoveEntryList(&pFFindEntry->FFindEntry);
+    FileFindClose(pFFindEntry);
+    RtlFreeUnicodeString(&pFFindEntry->FileName);
+    RtlFreeUnicodeString(&pFFindEntry->PathName);
     free(pFFindEntry);
     return;
 }
@@ -2074,8 +2409,7 @@ VOID FreeFFindList(PLIST_ENTRY pFFindHeadList)
     while (Next != pFFindHeadList) {
          pFFindEntry = CONTAINING_RECORD(Next,FFINDLIST, FFindEntry);
          Next= Next->Flink;
-         RemoveEntryList(&pFFindEntry->FFindEntry);
-         free(pFFindEntry);
+         FreeFFindEntry(pFFindEntry);
          }
 
     return;

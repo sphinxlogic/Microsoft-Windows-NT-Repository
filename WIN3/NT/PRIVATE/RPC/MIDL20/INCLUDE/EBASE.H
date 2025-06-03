@@ -34,7 +34,7 @@ typedef struct _tokvsstatevector
 
 typedef struct _DBENTRY {
 	 short State;
-	 char * pTranslated;
+	 const char *  pTranslated;
 } _DBENTRY;
 
 #define DBENTRY const _DBENTRY

@@ -98,7 +98,7 @@ Revision History:
 #define DATA_RW_MISS_OFFSET                       DATA_RW_OFFSET + sizeof(LARGE_INTEGER)
 #define PCT_DATA_READ_MISS_OFFSET                 DATA_RW_MISS_OFFSET + sizeof(LARGE_INTEGER)
 #define PCT_DATA_READ_BASE_OFFSET                 PCT_DATA_READ_MISS_OFFSET + sizeof(DWORD)
-#define PCT_DATA_WRITE_MISS_OFFSET                PCT_DATA_READ_BASE_OFFSET + sizeof(LARGE_INTEGER)
+#define PCT_DATA_WRITE_MISS_OFFSET                PCT_DATA_READ_BASE_OFFSET + sizeof(DWORD)
 #define PCT_DATA_WRITE_BASE_OFFSET                PCT_DATA_WRITE_MISS_OFFSET + sizeof(DWORD)
 #define PCT_DATA_RW_MISS_OFFSET                   PCT_DATA_WRITE_BASE_OFFSET + sizeof(DWORD)
 #define PCT_DATA_RW_BASE_OFFSET                   PCT_DATA_RW_MISS_OFFSET + sizeof(DWORD)
@@ -204,3 +204,4 @@ typedef struct _P5_DATA_DEFINITION
 #pragma pack ()
 
 #endif //_P5DATA_H_
+

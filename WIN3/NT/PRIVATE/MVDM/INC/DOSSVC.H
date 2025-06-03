@@ -51,7 +51,11 @@ typedef struct _SYSDEV {
 
 typedef SYSDEV UNALIGNED *PSYSDEV;
 
+#ifndef _DEMINCLUDED_
+extern DECLSPEC_IMPORT PSYSDEV pDeviceChain;
+#else
 extern PSYSDEV pDeviceChain;
+#endif
 
 
 /* XLATON */
@@ -157,7 +161,9 @@ svc macro   func
 #define SVC_DEMSYSTEMSYMBOLOP   0x45
 #define SVC_DEMGETDPBLIST       0x46
 
-#define SVC_DEMLASTSVC		0x47
+#define SVC_DEMPIPEFILEDATAEOF	0x47
+#define SVC_DEMPIPEFILEEOF	0x48
+#define SVC_DEMLASTSVC		0x49
 
 
 /*

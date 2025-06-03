@@ -9,9 +9,9 @@ Module Name:
 Abstract:
 
     This module contains necessary routines for the Netbios
-    Windows Sockets Helper DLL.  This DLL provides the 
+    Windows Sockets Helper DLL.  This DLL provides the
     transport-specific support necessary for the Windows Sockets DLL to
-    access any Netbios transport.
+    _access any Netbios transport.
 
 Author:
 
@@ -31,19 +31,20 @@ Revision History:
 #include <winbase.h>
 #include <tdi.h>
 
-#include <winsock.h>
+#include <winsock2.h>
 #include <wsahelp.h>
 #include <wsnetbs.h>
 #include <nb30.h>
+#include <wchar.h>
 
 #include <basetyps.h>
 #include <nspapi.h>
 #include <nspapip.h>
 
 //
-// Structure and variables to define the triples supported by Netbios.  
-// The first entry of each array is considered the canonical triple for 
-// that socket type; the other entries are synonyms for the first.  
+// Structure and variables to define the triples supported by Netbios.
+// The first entry of each array is considered the canonical triple for
+// that socket type; the other entries are synonyms for the first.
 //
 
 typedef struct _MAPPING_TRIPLE {
@@ -80,9 +81,9 @@ typedef struct _LANA_MAP {
 PLANA_MAP LanaMap;
 
 //
-// The socket context structure for this DLL.  Each open Netbios socket will 
-// have one of these context structures, which is used to maintain 
-// information about the socket.  
+// The socket context structure for this DLL.  Each open Netbios socket will
+// have one of these context structures, which is used to maintain
+// information about the socket.
 //
 
 typedef struct _WSHNETBS_SOCKET_CONTEXT {
@@ -91,6 +92,18 @@ typedef struct _WSHNETBS_SOCKET_CONTEXT {
     INT Protocol;
     PWSHNETBS_PROVIDER_INFO Provider;
 } WSHNETBS_SOCKET_CONTEXT, *PWSHNETBS_SOCKET_CONTEXT;
+
+//
+// The GUID identifying this provider.
+//
+
+GUID NetBIOSProviderGuid = { /* 8d5f1830-c273-11cf-95c8-00805f48a192 */
+    0x8d5f1830,
+    0xc273,
+    0x11cf,
+    {0x95, 0xc8, 0x00, 0x80, 0x5f, 0x48, 0xa1, 0x92}
+    };
+
 
 
 BOOLEAN
@@ -113,11 +126,11 @@ DllInitialize (
     case DLL_PROCESS_ATTACH:
 
         //
-        // Read the registry for information on all Netbios providers, 
-        // including Lana numbers, protocol numbers, and provider device 
-        // names.  First, open the Netbios key in the registry.  
+        // Read the registry for information on all Netbios providers,
+        // including Lana numbers, protocol numbers, and provider device
+        // names.  First, open the Netbios key in the registry.
         //
-    
+
         error = RegOpenKeyExW(
                     HKEY_LOCAL_MACHINE,
                     L"SYSTEM\\CurrentControlSet\\Services\\Netbios\\Linkage",
@@ -128,14 +141,14 @@ DllInitialize (
         if ( error != NO_ERROR ) {
             goto error_exit;
         }
-    
+
         //
-        // Determine the size of the provider names.  We need this so 
-        // that we can allocate enough memory to hold it.  
+        // Determine the size of the provider names.  We need this so
+        // that we can allocate enough memory to hold it.
         //
-    
+
         providerListLength = 0;
-    
+
         error = RegQueryValueExW(
                     netbiosKey,
                     L"Bind",
@@ -147,20 +160,30 @@ DllInitialize (
         if ( error != ERROR_MORE_DATA && error != NO_ERROR ) {
             goto error_exit;
         }
-    
+
+        //
+        // If the list of providers is empty, then Netbios is installed
+        // but has no bindings.  Special-case a quit right here, since
+        // the LanaMap value in the registry may be non-empty.
+        //
+
+        if ( providerListLength <= sizeof(WCHAR) ) {
+            goto error_exit;
+        }
+
         //
         // Allocate enough memory to hold the mapping.
         //
-    
+
         ProviderNames = RtlAllocateHeap( RtlProcessHeap( ), 0, providerListLength );
         if ( ProviderNames == NULL ) {
             goto error_exit;
         }
-    
+
         //
         // Get the list of transports from the registry.
         //
-    
+
         error = RegQueryValueExW(
                     netbiosKey,
                     L"Bind",
@@ -174,12 +197,12 @@ DllInitialize (
         }
 
         //
-        // Determine the size of the Lana map.  We need this so that we 
-        // can allocate enough memory to hold it.  
+        // Determine the size of the Lana map.  We need this so that we
+        // can allocate enough memory to hold it.
         //
-    
+
         providerListLength = 0;
-    
+
         error = RegQueryValueExW(
                     netbiosKey,
                     L"LanaMap",
@@ -191,20 +214,20 @@ DllInitialize (
         if ( error != ERROR_MORE_DATA && error != NO_ERROR ) {
             goto error_exit;
         }
-    
+
         //
         // Allocate enough memory to hold the Lana map.
         //
-    
+
         LanaMap = RtlAllocateHeap( RtlProcessHeap( ), 0, lanaMapLength );
         if ( LanaMap == NULL ) {
             goto error_exit;
         }
-    
+
         //
         // Get the list of transports from the registry.
         //
-    
+
         error = RegQueryValueExW(
                     netbiosKey,
                     L"LanaMap",
@@ -239,18 +262,19 @@ DllInitialize (
         //
         // Fill in the array or provider information.
         //
-    
+
         for ( currentProviderName = ProviderNames, i = 0;
               *currentProviderName != UNICODE_NULL && i < ProviderCount;
               currentProviderName += wcslen( currentProviderName ) + 1, i++ ) {
 
             ProviderInfo[i].Enum = LanaMap[i].Enum;
             ProviderInfo[i].LanaNumber = LanaMap[i].Lana;
-            ProviderInfo[i].ProtocolNumber =
-                (AF_NETBIOS * 1000) + LanaMap[i].Lana;
+            ProviderInfo[i].ProtocolNumber = LanaMap[i].Lana;
             ProviderInfo[i].ProviderName = currentProviderName;
         }
-    
+
+        RegCloseKey( netbiosKey );
+
         return TRUE;
 
 error_exit:
@@ -284,8 +308,8 @@ error_exit:
     case DLL_PROCESS_DETACH:
 
         //
-        // If the process is terminating, do not bother to do any 
-        // resource deallocation as the system will do it automatically.  
+        // If the process is terminating, do not bother to do any
+        // resource deallocation as the system will do it automatically.
         //
 
         if ( Context != NULL ) {
@@ -348,13 +372,13 @@ Return Value:
 --*/
 
 {
-    UNALIGNED SOCKADDR_IN *sockaddr = (PSOCKADDR_IN)Sockaddr;
+    UNALIGNED SOCKADDR_NB *sockaddr = (PSOCKADDR_NB)Sockaddr;
 
     //
     // Make sure that the address family is correct.
     //
 
-    if ( sockaddr->sin_family != AF_NETBIOS ) {
+    if ( sockaddr->snb_family != AF_NETBIOS ) {
         return WSAEAFNOSUPPORT;
     }
 
@@ -446,17 +470,17 @@ Return Value:
     if ( Level == SOL_INTERNAL && OptionName == SO_CONTEXT ) {
 
         //
-        // The Windows Sockets DLL is requesting context information 
-        // from us.  If an output buffer was not supplied, the Windows 
-        // Sockets DLL is just requesting the size of our context 
-        // information.  
+        // The Windows Sockets DLL is requesting context information
+        // from us.  If an output buffer was not supplied, the Windows
+        // Sockets DLL is just requesting the size of our context
+        // information.
         //
 
         if ( OptionValue != NULL ) {
 
             //
-            // Make sure that the buffer is sufficient to hold all the 
-            // context information.  
+            // Make sure that the buffer is sufficient to hold all the
+            // context information.
             //
 
             if ( *OptionLength < sizeof(*context) ) {
@@ -527,14 +551,14 @@ Return Value:
     IO_STATUS_BLOCK ioStatusBlock;
 
     //
-    // We're going to return a Netbios sockaddr with a group name
+    // We're going to return a Netbios sockaddr with a unique name
     // which is the premanent name of the Lana.
     //
 
     sockaddr->snb_family = AF_NETBIOS;
-    sockaddr->snb_type = NETBIOS_GROUP_NAME;
+    sockaddr->snb_type = NETBIOS_UNIQUE_NAME;
 
-    sockaddr->snb_name[0] = '\0';
+    sockaddr->snb_name[0] = '1';
     sockaddr->snb_name[1] = '\0';
     sockaddr->snb_name[2] = '\0';
     sockaddr->snb_name[3] = '\0';
@@ -548,9 +572,9 @@ Return Value:
     *SockaddrLength = sizeof(SOCKADDR_NB);
 
     //
-    // We'll do a query directly to the TDI provider to get the 
-    // permanent address for this Lana.  First open a control channel to 
-    // the provider.  
+    // We'll do a query directly to the TDI provider to get the
+    // permanent address for this Lana.  First open a control channel to
+    // the provider.
     //
 
     RtlInitUnicodeString( &providerName, context->Provider->ProviderName );
@@ -757,14 +781,25 @@ Return Value:
 {
     PWSHNETBS_SOCKET_CONTEXT context;
     ULONG i;
+    BOOLEAN found = FALSE;
 
     //
-    // Only sockets of types SOCK_SEQPACKET and SOCK_DGRAM are supported 
-    // by Netbios providers.  
+    // Only sockets of types SOCK_SEQPACKET and SOCK_DGRAM are supported
+    // by Netbios providers.
     //
 
-    if ( *AddressFamily != SOCK_SEQPACKET && *AddressFamily == SOCK_DGRAM ) {
+    if ( *SocketType != SOCK_SEQPACKET && *SocketType != SOCK_DGRAM ) {
         return WSAESOCKTNOSUPPORT;
+    }
+
+    //
+    // Treat 0x80000000 just like 0--EnumProtocols() returns 0x80000000
+    // for lana 0 because GetAddressByName uses 0 as the protocol array
+    // terminator.
+    //
+
+    if ( *Protocol == 0x80000000 ) {
+        *Protocol = 0;
     }
 
     //
@@ -784,17 +819,27 @@ Return Value:
              (*Protocol == ProviderInfo[i].ProtocolNumber && *Protocol != 0) ) {
 
             //
-            // Indicate the name of the TDI device that will service this 
-            // socket.  
+            // Indicate the name of the TDI device that will service this
+            // socket.
             //
-    
+
             RtlInitUnicodeString(
                 TransportDeviceName,
                 ProviderInfo[i].ProviderName
                 );
 
+            found = TRUE;
+
             break;
         }
+    }
+
+    //
+    // If we didn't find a hit, fail.
+    //
+
+    if ( !found ) {
+        return WSAEPROTONOSUPPORT;
     }
 
     //
@@ -817,14 +862,14 @@ Return Value:
     context->Provider = &ProviderInfo[i];
 
     //
-    // Tell the Windows Sockets DLL which state transitions we're 
-    // interested in being notified of.  The only times we need to be 
-    // called is after a connect has completed so that we can turn on 
-    // the sending of keepalives if SO_KEEPALIVE was set before the 
-    // socket was connected, when the socket is closed so that we can 
-    // free context information, and when a connect fails so that we 
-    // can, if appropriate, dial in to the network that will support the 
-    // connect attempt.  
+    // Tell the Windows Sockets DLL which state transitions we're
+    // interested in being notified of.  The only times we need to be
+    // called is after a connect has completed so that we can turn on
+    // the sending of keepalives if SO_KEEPALIVE was set before the
+    // socket was connected, when the socket is closed so that we can
+    // free context information, and when a connect fails so that we
+    // can, if appropriate, dial in to the network that will support the
+    // connect attempt.
     //
 
     *NotificationEvents = WSH_NOTIFY_CLOSE;
@@ -978,16 +1023,16 @@ Return Value:
     if ( Level == SOL_INTERNAL && OptionName == SO_CONTEXT ) {
 
         //
-        // The Windows Sockets DLL is requesting that we set context 
-        // information for a new socket.  If the new socket was 
-        // accept()'ed, then we have already been notified of the socket 
-        // and HelperDllSocketContext will be valid.  If the new socket 
-        // was inherited or duped into this process, then this is our 
-        // first notification of the socket and HelperDllSocketContext 
-        // will be equal to NULL.  
+        // The Windows Sockets DLL is requesting that we set context
+        // information for a new socket.  If the new socket was
+        // accept()'ed, then we have already been notified of the socket
+        // and HelperDllSocketContext will be valid.  If the new socket
+        // was inherited or duped into this process, then this is our
+        // first notification of the socket and HelperDllSocketContext
+        // will be equal to NULL.
         //
-        // Insure that the context information being passed to us is 
-        // sufficiently large.  
+        // Insure that the context information being passed to us is
+        // sufficiently large.
         //
 
         if ( OptionLength < sizeof(*context) ) {
@@ -995,32 +1040,32 @@ Return Value:
         }
 
         if ( HelperDllSocketContext == NULL ) {
-            
+
             //
-            // This is our notification that a socket handle was 
-            // inherited or duped into this process.  Allocate a context 
-            // structure for the new socket.  
+            // This is our notification that a socket handle was
+            // inherited or duped into this process.  Allocate a context
+            // structure for the new socket.
             //
-    
+
             context = RtlAllocateHeap( RtlProcessHeap( ), 0, sizeof(*context) );
             if ( context == NULL ) {
                 return WSAENOBUFS;
             }
-    
+
             //
             // Copy over information into the context block.
             //
-    
+
             RtlCopyMemory( context, OptionValue, sizeof(*context) );
-    
+
             //
-            // Tell the Windows Sockets DLL where our context information is 
-            // stored so that it can return the context pointer in future 
-            // calls.  
+            // Tell the Windows Sockets DLL where our context information is
+            // stored so that it can return the context pointer in future
+            // calls.
             //
-    
+
             *(PWSHNETBS_SOCKET_CONTEXT *)OptionValue = context;
-    
+
             return NO_ERROR;
 
         } else {
@@ -1029,9 +1074,9 @@ Return Value:
             INT one = 1;
 
             //
-            // The socket was accept()'ed and it needs to have the same 
-            // properties as it'sw parent.  The OptionValue buffer 
-            // contains the context information of this socket's parent.  
+            // The socket was accept()'ed and it needs to have the same
+            // properties as it's parent.  The OptionValue buffer
+            // contains the context information of this socket's parent.
             //
 
             parentContext = (PWSHNETBS_SOCKET_CONTEXT)OptionValue;
@@ -1073,6 +1118,7 @@ WSHEnumProtocols (
     //
 
     if ( ARGUMENT_PRESENT( lpiProtocols ) ) {
+        *lpdwBufferLength = 0;
         return 0;
     }
 
@@ -1111,11 +1157,22 @@ WSHEnumProtocols (
         protocolInfo[i].iMaxSockAddr = sizeof(SOCKADDR_NB);
         protocolInfo[i].iMinSockAddr = sizeof(SOCKADDR_NB);
         protocolInfo[i].iSocketType = SOCK_SEQPACKET;
-        protocolInfo[i].iProtocol = ProviderInfo[i/2].ProtocolNumber;
+
+        //
+        // Return the lana number, but convert 0 to 0x80000000 so that
+        // we do not confuse GetAddressByName.  That API uses 0 as the
+        // protocol array terminator.
+        //
+
+        protocolInfo[i].iProtocol = -1*ProviderInfo[i/2].LanaNumber;
+        if ( protocolInfo[i].iProtocol == 0 ) {
+            protocolInfo[i].iProtocol = 0x80000000;
+        }
+
         protocolInfo[i].dwMessageSize = 64000;
 
 
-        namePointer = 
+        namePointer =
          ( namePointer -
              ( (wcslen( ProviderInfo[i/2].ProviderName ) + 1) * sizeof(WCHAR) ) );
         protocolInfo[i].lpProtocol = (LPWSTR)namePointer;
@@ -1130,10 +1187,15 @@ WSHEnumProtocols (
         protocolInfo[i].iMaxSockAddr = sizeof(SOCKADDR_NB);
         protocolInfo[i].iMinSockAddr = sizeof(SOCKADDR_NB);
         protocolInfo[i].iSocketType = SOCK_DGRAM;
-        protocolInfo[i].iProtocol = ProviderInfo[i/2].ProtocolNumber;
+
+        protocolInfo[i].iProtocol = -1*ProviderInfo[i/2].LanaNumber;
+        if ( protocolInfo[i].iProtocol == 0 ) {
+            protocolInfo[i].iProtocol = 0x80000000;
+        }
+
         protocolInfo[i].dwMessageSize = 64000;
 
-        namePointer = 
+        namePointer =
          ( namePointer -
              ( (wcslen( ProviderInfo[i/2].ProviderName ) + 1) * sizeof(WCHAR) ) );
         protocolInfo[i].lpProtocol = (LPWSTR)namePointer;
@@ -1145,4 +1207,55 @@ WSHEnumProtocols (
     return ProviderCount * 2;
 
 } // WSHEnumProtocols
+
+
+INT
+WINAPI
+WSHGetProviderGuid (
+    IN LPWSTR ProviderName,
+    OUT LPGUID ProviderGuid
+    )
+
+/*++
+
+Routine Description:
+
+    Returns the GUID identifying the protocols supported by this helper.
+
+Arguments:
+
+    ProviderName - Contains the name of the provider, such as "TcpIp".
+
+    ProviderGuid - Points to a buffer that receives the provider's GUID.
+
+Return Value:
+
+    INT - 0 if successful, WinSock error code if not.
+
+--*/
+
+{
+
+    if( ProviderName == NULL ||
+        ProviderGuid == NULL ) {
+
+        return WSAEFAULT;
+
+    }
+
+    if( _wcsicmp( ProviderName, L"NetBIOS" ) == 0 ) {
+
+        RtlCopyMemory(
+            ProviderGuid,
+            &NetBIOSProviderGuid,
+            sizeof(GUID)
+            );
+
+        return NO_ERROR;
+
+    }
+
+    return WSAEINVAL;
+
+} // WSHGetProviderGuid
 

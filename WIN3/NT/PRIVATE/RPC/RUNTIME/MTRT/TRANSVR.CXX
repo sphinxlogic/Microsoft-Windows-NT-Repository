@@ -26,24 +26,10 @@ Revision History:
 
 --*/
 
-#include <sysinc.h>
-#include <rpc.h>
-#include <rpcdcep.h>
-#include <rpcerrp.h>
-#include <rpcssp.h>
-#include <rpctran.h>
-#include <util.hxx>
-#include <rpcuuid.hxx>
-#include <mutex.hxx>
-#include <threads.hxx>
-#include <binding.hxx>
-#include <linklist.hxx>
-#include <handle.hxx>
-#include <sdict.hxx>
-#include <interlck.hxx>
-#include <secclnt.hxx>
-#include <hndlsvr.hxx>
+#include <precomp.hxx>
 #include <osfpcket.hxx>
+#include <rpctran.h>
+#include <hndlsvr.hxx>
 #include <secsvr.hxx>
 #include <osfsvr.hxx>
 #include <sdict2.hxx>
@@ -54,7 +40,11 @@ Revision History:
 TRANS_ADDRESS::TRANS_ADDRESS (
     IN RPC_SERVER_TRANSPORT_INFO PAPI * RpcServerInfo,
     IN OUT RPC_STATUS PAPI * RpcStatus
+#ifdef NTENV
     ) : OSF_ADDRESS(RpcStatus), ReceiveAnyMutex(RpcStatus, 0)
+#else
+    ) : OSF_ADDRESS(RpcStatus), ReceiveAnyMutex(RpcStatus)
+#endif
 /*++
 
 Routine Description:
@@ -74,10 +64,11 @@ Arguments:
     errptr = &err;
 
     ALLOCATE_THIS_PLUS(TRANS_ADDRESS, RpcServerInfo->SizeOfAddress,
-		       errptr, RPC_S_OUT_OF_MEMORY);
+           errptr, RPC_S_OUT_OF_MEMORY);
 
-    ServerInfo = RpcServerInfo;
+        ServerInfo = RpcServerInfo;
     SetupAddressOccurred = 0;
+    IsSlaveAddress = FALSE ;
 
 #ifdef NTENV
     ReceiveAnyMutex.Raise();
@@ -88,10 +79,13 @@ Arguments:
 RPC_STATUS
 TRANS_ADDRESS::SetupAddressWithEndpoint (
     IN RPC_CHAR PAPI * Endpoint,
-    OUT RPC_CHAR PAPI * PAPI * NetworkAddress,
+    OUT RPC_CHAR PAPI * PAPI * lNetworkAddress,
+    OUT unsigned int PAPI * NumNetworkAddress,
     IN void PAPI * SecurityDescriptor, OPTIONAL
     IN unsigned int PendingQueueSize,
-    IN RPC_CHAR PAPI * RpcProtocolSequence
+    IN RPC_CHAR PAPI * RpcProtocolSequence,
+    IN unsigned long EndpointFlags,
+    IN unsigned long NICFlags
     )
 /*++
 
@@ -145,37 +139,86 @@ Return Value:
 
 --*/
 {
+
     RPC_STATUS Status;
     unsigned int NetworkAddressLength;
+	
+    NetworkAddressLength = 20;
 
-    NetworkAddressLength = 16;
-
-    while (1)
+    while (1)	
         {
-        *NetworkAddress = new RPC_CHAR[NetworkAddressLength];
-        if (*NetworkAddress == 0)
+        *lNetworkAddress = new RPC_CHAR[NetworkAddressLength];
+
+        if (*lNetworkAddress == 0)
+            {
+            delete (*lNetworkAddress);
             return(RPC_S_OUT_OF_MEMORY);
+            }
 
-        Status = ServerInfo->SetupWithEndpoint(
-                InqRpcTransportAddress(), Endpoint,
-                *NetworkAddress, NetworkAddressLength, SecurityDescriptor,
-                PendingQueueSize, RpcProtocolSequence);
+        Status = ServerInfo->SetupWithEndpoint( InqRpcTransportAddress(),
+                                              Endpoint,
+                                              *lNetworkAddress,
+                                              NumNetworkAddress,
+                                              NetworkAddressLength,
+                                              SecurityDescriptor,
+                                              PendingQueueSize,
+                                              RpcProtocolSequence,
+                                              EndpointFlags,
+                                              NICFlags);
+
         if (Status != RPC_P_NETWORK_ADDRESS_TOO_SMALL)
+            {
             break;
-
-        delete *NetworkAddress;
+            }
+        delete(*lNetworkAddress);
         NetworkAddressLength *= 2;
         }
 
-    if ( Status == RPC_S_OK )
-        {
+#if defined(NTENV) || defined(WIN96)
+	  if ( Status == RPC_S_OK || Status == RPC_P_THREAD_LISTENING )
+          {
+          if (Status == RPC_P_THREAD_LISTENING)
+              {
+              IsSlaveAddress = TRUE;
+              while (GlobalRpcServer->CommonAddress == 0)
+                  {
+                  Sleep(100) ;
+                  }
+              }
+          else
+              {
+              if (RpcpStringCompare(RPC_CONST_STRING("ncacn_np"),
+                  RpcProtocolSequence) != 0)
+                  {
+                  ASSERT(GlobalRpcServer->CommonAddress == 0) ;
+  
+                  // this is the common address
+                  GlobalRpcServer->CommonAddress = this ;
+                  }
+              }
+  #else
+   if ( Status == RPC_S_OK )
+       {
+#endif
         SetupAddressOccurred = 1;
         }
     else
         {
-        delete *NetworkAddress;
+        delete (*lNetworkAddress);
         }
 
+#if defined(NTENV) || defined(WIN96)
+    ASSERT(   (Status == RPC_S_OK)
+           || (Status == RPC_S_INVALID_SECURITY_DESC)
+           || (Status == RPC_S_INVALID_ARG)
+           || (Status == RPC_S_CANT_CREATE_ENDPOINT)
+           || (Status == RPC_S_INVALID_ENDPOINT_FORMAT)
+           || (Status == RPC_S_OUT_OF_RESOURCES)
+           || ( Status == RPC_S_PROTSEQ_NOT_SUPPORTED )
+           || ( Status == RPC_S_DUPLICATE_ENDPOINT )
+           || (Status == RPC_S_OUT_OF_MEMORY)
+           || (Status == RPC_P_THREAD_LISTENING));
+#else
     ASSERT(   (Status == RPC_S_OK)
            || (Status == RPC_S_INVALID_SECURITY_DESC)
            || (Status == RPC_S_INVALID_ARG)
@@ -185,18 +228,42 @@ Return Value:
            || ( Status == RPC_S_PROTSEQ_NOT_SUPPORTED )
            || ( Status == RPC_S_DUPLICATE_ENDPOINT )
            || (Status == RPC_S_OUT_OF_MEMORY));
+#endif
 
     return(Status);
 }
+
+#if defined(NTENV) || defined(WIN96)
+
+RPC_STATUS
+TRANS_ADDRESS::StartListening (
+    )
+{
+    RPC_STATUS Status ;
+
+    if (ServerInfo->StartListening != 0)
+        {
+        Status = ServerInfo->StartListening(
+                        InqRpcTransportAddress());
+
+        return Status ;
+        }
+
+    return (RPC_S_OK) ;
+}
+#endif
 
 
 RPC_STATUS
 TRANS_ADDRESS::SetupAddressUnknownEndpoint (
     OUT RPC_CHAR PAPI * PAPI * Endpoint,
-    OUT RPC_CHAR PAPI * PAPI * NetworkAddress,
+    OUT RPC_CHAR PAPI * PAPI * lNetworkAddress,
+    OUT unsigned int PAPI * NumNetworkAddress,
     IN void PAPI * SecurityDescriptor, OPTIONAL
     IN unsigned int PendingQueueSize,
-    IN RPC_CHAR PAPI * RpcProtocolSequence
+    IN RPC_CHAR PAPI * RpcProtocolSequence,
+    IN unsigned long EndpointFlags,
+    IN unsigned long NICFlags
     )
 /*++
 
@@ -253,16 +320,20 @@ Return Value:
     unsigned int EndpointLength;
     unsigned int NetworkAddressLength;
 
-    NetworkAddressLength = 16;
+    NetworkAddressLength = 20;
     EndpointLength = 16;
-    *NetworkAddress = new RPC_CHAR[NetworkAddressLength];
-    if ( *NetworkAddress == 0 )
-        return(RPC_S_OUT_OF_MEMORY);
+
 
     *Endpoint = new RPC_CHAR[EndpointLength];
     if ( *Endpoint == 0 )
         {
-        delete *NetworkAddress;
+        return(RPC_S_OUT_OF_MEMORY);
+        }
+
+    *lNetworkAddress = new RPC_CHAR[NetworkAddressLength];
+    if ( *lNetworkAddress == 0 )
+        {
+        delete *Endpoint;
         return(RPC_S_OUT_OF_MEMORY);
         }
 
@@ -270,15 +341,16 @@ Return Value:
         {
         Status = ServerInfo->SetupUnknownEndpoint(
                 InqRpcTransportAddress(), *Endpoint, EndpointLength,
-                *NetworkAddress, NetworkAddressLength, SecurityDescriptor,
-                PendingQueueSize, RpcProtocolSequence);
+                *lNetworkAddress, NumNetworkAddress, NetworkAddressLength,
+                SecurityDescriptor, PendingQueueSize, RpcProtocolSequence,
+                EndpointFlags,NICFlags);
 
         if ( Status == RPC_P_NETWORK_ADDRESS_TOO_SMALL )
             {
-            delete *NetworkAddress;
+            delete( *lNetworkAddress);
             NetworkAddressLength *= 2;
-            *NetworkAddress = new RPC_CHAR[NetworkAddressLength];
-            if (*NetworkAddress == 0)
+            *lNetworkAddress = new RPC_CHAR[NetworkAddressLength];
+            if (*lNetworkAddress == 0)
                 {
                 delete *Endpoint;
                 return(RPC_S_OUT_OF_MEMORY);
@@ -291,12 +363,36 @@ Return Value:
             *Endpoint = new RPC_CHAR[EndpointLength];
             if (*Endpoint == 0)
                 {
-                delete *NetworkAddress;
+                delete(*lNetworkAddress);
                 return(RPC_S_OUT_OF_MEMORY);
                 }
             }
         else
             {
+#if defined(NTENV) || defined(WIN96)
+
+#ifdef DEBUGRPC
+            if (   (Status != RPC_S_OK)
+                && (Status != RPC_S_INVALID_SECURITY_DESC)
+                && (Status != RPC_S_PROTSEQ_NOT_SUPPORTED)
+                && (Status != RPC_S_OUT_OF_RESOURCES)
+                && (Status != RPC_S_CANT_CREATE_ENDPOINT)
+                && (Status != RPC_S_OUT_OF_MEMORY)
+                && (Status != RPC_P_THREAD_LISTENING))
+                {
+                PrintToDebugger("RPC: %lx\n", Status);
+                }
+#endif // DEBUGRPC
+
+            ASSERT(   (Status == RPC_S_OK)
+                   || (Status == RPC_S_INVALID_SECURITY_DESC)
+                   || (Status == RPC_S_PROTSEQ_NOT_SUPPORTED)
+                   || (Status == RPC_S_OUT_OF_RESOURCES)
+                   || (Status == RPC_S_OUT_OF_MEMORY)
+                   || (Status == RPC_S_CANT_CREATE_ENDPOINT)
+                   || (Status == RPC_P_THREAD_LISTENING) );
+#else
+
 #ifdef DEBUGRPC
             if (   (Status != RPC_S_OK)
                 && (Status != RPC_S_INVALID_SECURITY_DESC)
@@ -308,24 +404,50 @@ Return Value:
                 PrintToDebugger("RPC: %lx\n", Status);
                 }
 #endif // DEBUGRPC
+
             ASSERT(   (Status == RPC_S_OK)
                    || (Status == RPC_S_INVALID_SECURITY_DESC)
                    || (Status == RPC_S_PROTSEQ_NOT_SUPPORTED)
                    || (Status == RPC_S_OUT_OF_RESOURCES)
                    || (Status == RPC_S_OUT_OF_MEMORY)
                    || (Status == RPC_S_CANT_CREATE_ENDPOINT));
+#endif
             break;
             }
         }
 
+#if defined(NTENV) || defined(WIN96)
+    if ( Status == RPC_S_OK || Status == RPC_P_THREAD_LISTENING )
+        {
+        if (Status == RPC_P_THREAD_LISTENING)
+            {
+            IsSlaveAddress = TRUE;
+            while (GlobalRpcServer->CommonAddress == 0)
+                {
+                Sleep(100) ;
+                }
+            }
+        else
+            {
+            if (RpcpStringCompare(RPC_CONST_STRING("ncacn_np"),
+                RpcProtocolSequence) != 0)
+                {
+                ASSERT(GlobalRpcServer->CommonAddress == 0) ;
+
+                // this is the common address
+                GlobalRpcServer->CommonAddress = this ;
+                }
+            }
+#else
     if ( Status == RPC_S_OK )
         {
+#endif
         SetupAddressOccurred = 1;
         }
     else
         {
-        delete *NetworkAddress;
         delete *Endpoint;
+        delete(*lNetworkAddress);
         }
 
     return(Status);
@@ -449,7 +571,7 @@ Return Value:
                || (RpcStatus == RPC_S_OUT_OF_MEMORY)
                || (RpcStatus == RPC_S_OUT_OF_RESOURCES)
                || (RpcStatus == RPC_P_SERVER_TRANSPORT_ERROR)
-               || (RpcStatus == RPC_P_CONNECTION_CLOSED));
+               || (RpcStatus == RPC_P_CONNECTION_CLOSED)) ;
 
         // At this point, the ReceiveAny operation had better not return
         // RPC_P_TIMEOUT because we passed in negative one (-1) indicating
@@ -501,6 +623,7 @@ Return Value:
         ASSERT(*Buffer != 0);
 
         TransSConnection->MakeReceiveSpecific();
+
         ClearGlobalMutex();
         *SConnection = TransSConnection;
         ReceiveAnyMutex.Clear();
@@ -655,7 +778,7 @@ Arguments:
     errptr = &err;
 
     ALLOCATE_THIS_PLUS(TRANS_SCONNECTION, ServerInfo->SizeOfConnection,
-		       errptr, RPC_S_OUT_OF_MEMORY);
+           errptr, RPC_S_OUT_OF_MEMORY);
 
     this->ServerInfo = ServerInfo;
     this->ConnectionKey = ConnectionKey;
@@ -663,6 +786,8 @@ Arguments:
     Address = TheAddress;
     ReceiveAnyFlag = 1;
     DictKey = -1;
+    CanMigrateToReceiveAny = 0 ;
+
     if ( *RpcStatus == RPC_S_OK )
         {
         ConnectionEvent.Lower();
@@ -704,7 +829,8 @@ Routine Description:
 RPC_STATUS
 TRANS_SCONNECTION::TransReceive (
     OUT void * * Buffer,
-    OUT unsigned int * BufferLength
+    OUT unsigned int * BufferLength,
+    IN unsigned int CanMigrate
     )
 /*++
 
@@ -712,6 +838,7 @@ TRANS_SCONNECTION::TransReceive (
 {
     RPC_STATUS RpcStatus;
 
+    CanMigrateToReceiveAny = CanMigrate ;
     if ( ReceiveDirectFlag != 0 )
         {
         if ( ConnectionClosedFlag != 0 )
@@ -721,10 +848,19 @@ TRANS_SCONNECTION::TransReceive (
         *Buffer = 0;
         RpcStatus = ServerInfo->ReceiveDirect(InqRpcTransportConnection(),
                 Buffer, BufferLength);
+
+#if defined(NTENV) || defined(WIN96)
+        ASSERT(   ( RpcStatus == RPC_S_OK )
+               || ( RpcStatus == RPC_S_OUT_OF_MEMORY )
+               || ( RpcStatus == RPC_S_OUT_OF_RESOURCES )
+               || ( RpcStatus == RPC_P_CONNECTION_CLOSED )
+               || ( RpcStatus == RPC_P_TIMEOUT) );
+#else
         ASSERT(   ( RpcStatus == RPC_S_OK )
                || ( RpcStatus == RPC_S_OUT_OF_MEMORY )
                || ( RpcStatus == RPC_S_OUT_OF_RESOURCES )
                || ( RpcStatus == RPC_P_CONNECTION_CLOSED ) );
+#endif
         if ( RpcStatus == RPC_S_OK )
             {
             Address->Server->PacketReceived();
@@ -733,6 +869,7 @@ TRANS_SCONNECTION::TransReceive (
             {
             ConnectionClosedFlag = 1;
             }
+
         return(RpcStatus);
         }
 
@@ -1031,7 +1168,7 @@ TRANS_SCONNECTION::TransSendReceive (
         return(RpcStatus);
         }
 
-    return(TransReceive(ReceiveBuffer, ReceiveBufferLength));
+    return(TransReceive(ReceiveBuffer, ReceiveBufferLength, 0));
 }
 
 
@@ -1095,7 +1232,7 @@ TRANS_SCONNECTION::TransRevertToSelf (
         {
 #ifdef NTENV
         RpcStatus = ServerInfo->RevertToSelf(InqRpcTransportConnection(),
-                ThreadSelf()->ThreadHandle());
+                                    NtCurrentThread());
 #else // NTENV
         RpcStatus = ServerInfo->RevertToSelf(InqRpcTransportConnection(),0);
 #endif // NTENV
@@ -1228,8 +1365,6 @@ Routine Description:
         return;
         }
 
-    ASSERT( ReceiveAnyFlag == 0 );
-
     RequestGlobalMutex();
     if ( ConnectionClosedFlag == 0 )
         {
@@ -1245,10 +1380,20 @@ Routine Description:
 
     RemoveFromAssociation();
     RequestGlobalMutex();
-    Address->DeleteThisConnection(this);
+    if (Address->IsSlaveAddress)
+        {
+        ASSERT(GlobalRpcServer->CommonAddress) ;
+        ((TRANS_ADDRESS *) GlobalRpcServer->CommonAddress)->
+                    DeleteThisConnection(this) ;
+        }
+    else
+        {
+        Address->DeleteThisConnection(this);
+        }
     ClearGlobalMutex();
 }
 
+extern RPC_SERVER *GlobalRpcServer ;
 
 RPC_TRANSPORT_CONNECTION RPC_ENTRY
 I_RpcTransServerNewConnection (
@@ -1283,15 +1428,118 @@ Return Value:
 --*/
 {
     TRANS_SCONNECTION * SConnection;
+    TRANS_ADDRESS *Address ;
 
-    SConnection = InqTransAddress(TransAddress)->NewConnection(ConnectionKey,
-            ReceiveDirectFlag);
+    Address = InqTransAddress(TransAddress) ;
+
+    SConnection = Address->NewConnection(ConnectionKey, ReceiveDirectFlag);
     if ( SConnection == 0 )
         {
         return(0);
         }
+
     return(SConnection->InqRpcTransportConnection());
 }
+
+#if defined(NTENV) || defined(WIN96)
+
+int RPC_ENTRY
+I_RpcTransMaybeMakeReceiveDirect (
+    IN RPC_TRANSPORT_ADDRESS TransAddress,
+    IN RPC_TRANSPORT_CONNECTION ThisConnection
+    )
+/*++
+
+Routine Description:
+
+    This routine will be called by a loadable transport module to migrate
+    thread from receiveany to receivedirect
+
+Arguments:
+
+    TransAddress - Supplies the address which will own the connection.
+
+
+Return Value:
+    1 - if we were able to get a receive direct thread
+    0 - otherwise
+
+--*/
+{
+    unsigned int ReceiveDirectFlag = 0;
+    TRANS_SCONNECTION *SConnection ;
+
+    SConnection = InqTransSConnection(ThisConnection) ;
+
+    ASSERT(SConnection->InvalidHandle(SCONNECTION_TYPE) == 0)  ;
+
+    if (SConnection->InqReceiveDirectFlag()  == 0 &&
+        SConnection->InqReceiveAnyFlag() == 1)
+        {
+        SConnection->SetReceiveDirectFlag(1) ;
+        InqTransAddress(TransAddress)->MaybeMakeReceiveDirect(
+                                     SConnection, &ReceiveDirectFlag);
+
+        SConnection->SetReceiveDirectFlag(ReceiveDirectFlag);
+        }
+
+    return (ReceiveDirectFlag) ;
+}
+
+
+int RPC_ENTRY
+I_RpcTransMaybeMakeReceiveAny (
+    IN RPC_TRANSPORT_CONNECTION ThisConnection
+    )
+/*++
+
+Routine Description:
+
+    This routine will be called by a loadable transport module to migrate
+    thread from receivedirect  to receiveany
+
+Arguments:
+
+    TransAddress - Supplies the address which will own the connection.
+
+
+Return Value:
+    1 - if its ok to migrate to receive any
+    0 - otherwise
+
+--*/
+{
+    TRANS_SCONNECTION *SConnection ;
+
+    SConnection = InqTransSConnection(ThisConnection) ;
+
+    if (SConnection->InqMigratePossibleToReceiveAny())
+        {
+        SConnection->SetReceiveDirectFlag(0) ;
+        ASSERT(SConnection->TransGetReceiveAnyFlag() == 1) ;
+
+        SConnection->NotifyReceiveDirectCancelled() ;
+
+        return 1 ;
+        }
+
+    return (0) ;
+}
+
+
+void RPC_ENTRY
+I_RpcTransCancelMigration(
+    IN RPC_TRANSPORT_CONNECTION ThisConnection
+    )
+{
+    TRANS_SCONNECTION *SConnection ;
+
+    SConnection = InqTransSConnection(ThisConnection) ;
+
+    SConnection->SetReceiveDirectFlag(0) ;
+    ASSERT(SConnection->TransGetReceiveAnyFlag() == 1) ;
+}
+#endif
 
 
 RPC_TRANSPORT_CONNECTION RPC_ENTRY
@@ -1361,6 +1609,12 @@ Return Value:
 {
     void PAPI * NewBuffer;
     RPC_STATUS RpcStatus;
+
+    if(OldBufferLength > NewBufferLength)
+        {
+        ASSERT(!"Old buffer length > new buffer length");
+        return RPC_S_OUT_OF_MEMORY;
+        }
 
     RpcStatus = InqTransSConnection(ThisConnection)->TransGetBuffer(
             &NewBuffer, NewBufferLength);
@@ -1497,6 +1751,10 @@ Arguments:
     InqTransSConnection(ThisConnection)->NotifyReceiveDirectReady();
 }
 
+#if defined(NTENV) || defined(WIN96)
+#define MAX_PROTSEQ_LENGTH MAX_DLLNAME_LENGTH
+#endif
+
 
 class SERVER_LOADABLE_TRANSPORT
 /*++
@@ -1522,9 +1780,24 @@ private:
 
     RPC_SERVER_TRANSPORT_INFO PAPI * RpcServerInfo;
     RPC_CHAR DllName[MAX_DLLNAME_LENGTH + 1];
+#if defined(NTENV) || defined(WIN96)
+    RPC_CHAR RpcProtocolSequence[MAX_PROTSEQ_LENGTH + 1];
+#endif
 
 public:
 
+#if defined(NTENV) || defined(WIN96)
+    SERVER_LOADABLE_TRANSPORT (
+        IN RPC_SERVER_TRANSPORT_INFO PAPI * RpcServerInfo,
+        IN RPC_CHAR * DllName,
+        IN RPC_CHAR * ProtocolSequence
+        );
+    int
+    IsTransportInterfaceSupported (
+        IN RPC_CHAR * DllName,
+        IN RPC_CHAR * ProtocolSequence
+        );
+#else
     SERVER_LOADABLE_TRANSPORT (
         IN RPC_SERVER_TRANSPORT_INFO PAPI * RpcServerInfo,
         IN RPC_CHAR * DllName
@@ -1533,17 +1806,27 @@ public:
     IsTransportInterfaceSupported (
         IN RPC_CHAR * DllName
         );
+#endif
 
     RPC_SERVER_TRANSPORT_INFO PAPI *
     InqRpcServerInfo (
         );
 };
 
+#if defined(NTENV) || defined(WIN96)
+
+SERVER_LOADABLE_TRANSPORT::SERVER_LOADABLE_TRANSPORT (
+    IN RPC_SERVER_TRANSPORT_INFO PAPI * RpcServerInfo,
+    IN RPC_CHAR * DllName,
+    IN RPC_CHAR PAPI * ProtocolSequence
+    )
+#else
 
 SERVER_LOADABLE_TRANSPORT::SERVER_LOADABLE_TRANSPORT (
     IN RPC_SERVER_TRANSPORT_INFO PAPI * RpcServerInfo,
     IN RPC_CHAR * DllName
     )
+#endif
 /*++
 
 Routine Description:
@@ -1567,14 +1850,31 @@ Arguments:
     for (String = this->DllName; *DllName != 0; DllName++, String++)
         *String = *DllName;
     *String = 0;
+
+#if defined(NTENV) || defined(WIN96)
+    for (String = this->RpcProtocolSequence;
+       *ProtocolSequence != 0; ProtocolSequence++, String++)
+       *String = *ProtocolSequence;
+    *String = 0;
+#endif
+
     this->RpcServerInfo = RpcServerInfo;
 }
 
+#if defined(NTENV) || defined(WIN96)
+
+inline int
+SERVER_LOADABLE_TRANSPORT::IsTransportInterfaceSupported (
+    IN RPC_CHAR * DllName,
+    IN RPC_CHAR PAPI * ProtocolSequence
+    )
+#else
 
 inline int
 SERVER_LOADABLE_TRANSPORT::IsTransportInterfaceSupported (
     IN RPC_CHAR * DllName
     )
+#endif
 /*++
 
 Routine Description:
@@ -1596,7 +1896,13 @@ Return Value:
 
 --*/
 {
+#if defined(NTENV) || defined(WIN96)
+    return(((RpcpStringCompare(DllName, this->DllName) == 0) &&
+              (RpcpStringCompare(ProtocolSequence, this->RpcProtocolSequence) == 0)
+              ? 1 : 0));
+#else
     return((RpcpStringCompare(DllName, this->DllName) == 0 ? 1 : 0));
+#endif
 }
 
 inline RPC_SERVER_TRANSPORT_INFO PAPI *
@@ -1670,8 +1976,13 @@ Return Value:
     while ((ServerLoadableTransport = SLoadedLoadableTransports->Next())
             != 0)
         {
+#if defined(NTENV) || defined(WIN96)
+        if (ServerLoadableTransport->IsTransportInterfaceSupported(
+                DllName, RpcProtocolSequence))
+#else
         if (ServerLoadableTransport->IsTransportInterfaceSupported(
                 DllName))
+#endif
             {
             ClearGlobalMutex();
             return(ServerLoadableTransport->InqRpcServerInfo());
@@ -1682,7 +1993,8 @@ Return Value:
     // specified loadable transport DLL.
 
     LoadableTransportDll = new DLL(DllName, Status);
-    if ( LoadableTransportDll == 0 )
+    if (  ( LoadableTransportDll == 0 )
+        ||( *Status != RPC_S_OK ) )
         {
         ClearGlobalMutex();
         delete LoadableTransportDll;
@@ -1730,8 +2042,13 @@ Return Value:
     // the loadable transport DLL.  Now we need to create the server
     // loadable transport and stick it in the dictionary.
 
+#if defined(NTENV) || defined(WIN96)
+    ServerLoadableTransport = new SERVER_LOADABLE_TRANSPORT(
+            RpcServerInfo, DllName, RpcProtocolSequence);
+#else
     ServerLoadableTransport = new SERVER_LOADABLE_TRANSPORT(
             RpcServerInfo, DllName);
+#endif
     if ( ServerLoadableTransport == 0 )
         {
         ClearGlobalMutex();
@@ -1778,3 +2095,4 @@ Return Value:
         return(1);
     return(0);
 }
+

@@ -216,7 +216,7 @@ casefix:
 
     if( fbuf->dir_handle != (HANDLE)-1 ) {
     if (!IsMixedCaseSupported (file)) {
-        strlwr( fbuf->fbuf.cFileName );
+        _strlwr( fbuf->fbuf.cFileName );
     } else {
         SETFLAG( fbuf->type, FT_MIX );
         }
@@ -251,7 +251,7 @@ NPFIND fbuf;
     }
 
     if( erc == STATUS_OK && !TESTFLAG( fbuf->type, FT_MIX ) ) {
-    strlwr (fbuf->fbuf.cFileName);
+    _strlwr (fbuf->fbuf.cFileName);
     }
     return erc;
 }
@@ -353,7 +353,7 @@ USHORT usServFindNext (NPFIND fbuf)
 USHORT usServFindFirst (NPSZ npsz, USHORT attr, NPFIND fbuf)
 {
     PSB psb;
-    USHORT erc, read, total;
+    USHORT erc, _read, total;
     NPSZ npszServ = NULL;
 
     /*  If there is no meta matching, just see if server exists
@@ -373,7 +373,7 @@ USHORT usServFindFirst (NPSZ npsz, USHORT attr, NPFIND fbuf)
                  0,
                  NULL,
                  0,
-                 &read,
+                 &_read,
                  &total);
 
     if (erc != ERROR_MORE_DATA || total == 0)
@@ -402,10 +402,10 @@ USHORT usServFindFirst (NPSZ npsz, USHORT attr, NPFIND fbuf)
                  0,
                  (PBYTE) psb->asi,
                  0xFFFF - sizeof (SB),
-                 &read,
+                 &_read,
                  &total);
 
-    psb->csi = read;
+    psb->csi = _read;
     psb->isiLast = -1;
     psb->attr = attr;
     memset (psb->szPattern, 0, CCHPAT);
@@ -434,7 +434,7 @@ USHORT usSharFindFirst (NPSZ npsz, USHORT attr, NPFIND fbuf)
     NPSZ npsz1 = npszPat;
     BYTE c = *npszPat;
     PSHB pshb;
-    USHORT erc, read, total;
+    USHORT erc, _read, total;
 
     *npszPat++ = 0;
 
@@ -450,7 +450,7 @@ USHORT usSharFindFirst (NPSZ npsz, USHORT attr, NPFIND fbuf)
                 0,
                 NULL,
                 0,
-                &read,
+                &_read,
                 &total);
 
     if (erc != ERROR_MORE_DATA || total == 0) {
@@ -480,10 +480,10 @@ USHORT usSharFindFirst (NPSZ npsz, USHORT attr, NPFIND fbuf)
                 0,
                 (PBYTE) pshb->ashi,
                 0xFFFF - sizeof (SHB),
-                &read,
+                &_read,
                 &total);
 
-    pshb->cshi = read;
+    pshb->cshi = _read;
     pshb->ishiLast = -1;
     pshb->attr = attr;
     memset (pshb->szPattern, 0, CCHPAT);

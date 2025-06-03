@@ -368,13 +368,18 @@ SLM_GetVersion(SLMOBJECT pslm, LPSTR version, LPSTR tempfile)
  * Once we have seen a slm.ini, we log this in the profile and will permit
  * slm operations from then on. This function is called by the UI portions
  * of windiff: it returns TRUE if it is ok to offer SLM options.
+ * Return 0 - This user hasn't touched SLM,
+ *        1 - They have used SLM at some point (show basic SLM options)
+ *        2 - They're one of us, so tell them the truth
+ *        3 - (= 1 + 2).
  */
-BOOL
+int
 IsSLMOK(void)
 {
+    int Res = 0;;
     if(GetProfileInt(APPNAME, "SLMSeen", FALSE)) {
         // we've seen slm  - ok
-        return(TRUE);
+        ++Res;
     } else {
 
         // haven't seen SLM yet - is there a valid slm enlistment in curdir?
@@ -386,14 +391,18 @@ IsSLMOK(void)
             // yes - current dir is enlisted. log this in profile
             SLM_Free(hslm);
             WriteProfileString(APPNAME, "SLMSeen", "1");
-            return(TRUE);
+            ++Res;
         } else {
-            return(FALSE);
+            // aparently not a SLM user.
         }
     }
+
+    if(GetProfileInt(APPNAME, "SYSUK", FALSE)) {
+        Res+=2;
+    }
+    return Res;
 }
 
 
 
 
-

@@ -66,9 +66,14 @@ _TEXT   SEGMENT DWORD PUBLIC 'CODE'
 ;
 ;--
 
-cPublicProc _Ki386SetupAndExitToV86Code, 0
+cPublicProc _Ki386SetupAndExitToV86Code,1
 
+NewTEB                  equ     [ecx+32] ; location of the parameter based on
+                                         ; the ecx stack pointer.
 KsaeInitialStack        equ     [ecx]
+OriginalThTeb           equ     [ecx+4]
+OriginalPcTeb           equ     [ecx+8]
+
 ;
 ; Allocate TRAP FRAME at the bottom of the stack.
 ;
@@ -77,8 +82,9 @@ KsaeInitialStack        equ     [ecx]
         push    ebx
         push    esi
         push    edi
-        sub     esp, 4                  ; 4 bytes for local variable
+	sub	esp, 12 		; 12 bytes for local variable
         mov     ecx, esp                ; (ecx) = saved esp
+
         sub     esp, KTRAP_FRAME_LENGTH + NPX_FRAME_LENGTH
                                         ; (esp)-> new trap frame
         mov     eax, esp                ; (eax)->New base trap frame
@@ -102,6 +108,14 @@ KsaeInitialStack        equ     [ecx]
         mov     ebx, fs:PcSelfPcr       ; (ebx)->Pcr
         mov     edx, [ebx].PcInitialStack
         mov     KsaeInitialStack, edx  ; (edx)->Pcr InitialSack
+
+        mov     edi, [ebx]+PcPrcbData+PbCurrentThread ; (edi)->CurrentThread
+        mov     edx, [edi].ThTeb
+        mov     OriginalThTeb, edx
+
+        mov     edx, fs:[PcTeb]
+        mov     OriginalPcTeb, edx
+
         mov     edi, offset Ki386BiosCallReturnAddress
         mov     [eax].TsEsi, ecx       ; Saved esp
         mov     [eax].TsEip, edi       ; set up return address
@@ -158,14 +172,37 @@ endif
         mov     [esi]+TssEsp0,eax
         add     eax, NPX_FRAME_LENGTH + (TsV86Gs - TsHardwareSegSs)
         mov     [edi].ThInitialStack, eax
-        sti
 
 ;
+; Set up the pointers to the fake TEB so we can execute the int10
+; call
+;
+        mov     eax, NewTeb
+        mov     fs:[PcTeb], eax
+        mov     [edi].ThTeb, eax
+
+        mov     ebx, PCR[PcGdt]
+        mov     [ebx]+(KGDT_R3_TEB+KgdtBaseLow), ax
+        shr     eax, 16
+        mov     [ebx]+(KGDT_R3_TEB+KgdtBaseMid), al
+        mov     [ebx]+(KGDT_R3_TEB+KgdtBaseHi), ah
+
+        sti
+
 ; Now call VdmControl to save return 32bit frame and put vdm context
+; to new base trap frame
+
+        stdCall _NtVdmControl, <VdmStartExecution, 0>
+
+if 0
+;
+; Now call _VdmpStartExecution to save return 32bit frame and put vdm context
 ; to new base trap frame
 ;
 
-        stdCall _NtVdmControl, <VdmStartExecution, 0>
+        mov     eax, ExecAddr
+        stdCall _VdmpStartExecution, <eax>
+endif
 
 ;
 ; Call KiexceptionExit to 'exit' to v86 code.
@@ -205,6 +242,21 @@ Ki386BiosCallReturnAddress:
         mov     eax,[eax]+PcTss         ; (eax)->TSS
         sub     edx, (TsV86Gs - TsHardwareSegSs) + NPX_FRAME_LENGTH
         mov     [eax]+TssEsp0,edx
+
+;
+; restore pointers to the original TEB
+;
+        pop     edx                     ; (edx) = OriginalThTeb
+	mov	[ecx].ThTeb, edx
+        pop     edx                     ; (edx) = OriginalPcTeb
+        mov     fs:[PcTeb], edx
+
+        mov     ebx, PCR[PcGdt]
+        mov     [ebx]+(KGDT_R3_TEB+KgdtBaseLow), dx
+        shr     edx, 16
+        mov     [ebx]+(KGDT_R3_TEB+KgdtBaseMid), dl
+        mov     [ebx]+(KGDT_R3_TEB+KgdtBaseHi), dh
+
 
         sti
 

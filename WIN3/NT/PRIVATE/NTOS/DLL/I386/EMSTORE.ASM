@@ -29,7 +29,7 @@ eFSTP:
 ;	esi = pointer to st(i) from instruction field
 
 	cmp	EMSEG:[edi].bTag,bTAG_EMPTY
-	jz	StackError		;In emarith.asm
+        jz      short efstp_StackError
 ;UNDONE: temporary hack to preserve condition codes
         mov     ax,[esp+4].OldStatus
         mov     EMSEG:[StatusWord],ax
@@ -38,7 +38,7 @@ eFSTP:
 ;A common use of this instruction is FSTP st(0) just to pop the stack.
 ;We check for this case and optimize it.
         cmp     esi,edi
-        jz      JustPop
+        jz      short JustPop
 ;Copy the register
         mov     eax,EMSEG:[edi].ExpSgn
         mov     EMSEG:[esi].ExpSgn,eax
@@ -48,6 +48,10 @@ eFSTP:
         mov     EMSEG:[esi].lManLo,eax
 JustPop:
 	POPSTret	edi
+
+efstp_StackError:
+	mov	EMSEG:[CURerr],Invalid+StackFlag
+	ret
 
 
 ;******
@@ -137,32 +141,34 @@ eFST64:
 	cmp	cl,bTAG_ZERO
 .erre	bTAG_VALID lt bTAG_ZERO
 .erre	bTAG_SNGL lt bTAG_ZERO
-	jz	SignAndStore64		;Just set sign and exit
-	ja	StoreSpcl64
+        jz      short SignAndStore64    ;Just set sign and exit
+        ja      StoreSpcl64
 NormStore64:
 ;Note that we could have a denormal exception at this point.
 ;Thus any additional exceptions must OR into [CURerr], not MOV.
 	xor	cx,cx
 	add	ecx,(DexpBias-TexpBias) shl 16	;Correct bias
-	jle	Under64
-	cmp	ecx,DexpMax shl 16	;Exponent too big?
-	jge	Over64
+        jl      short Under64
+        cmp     ecx,DexpMax shl 16      ;Exponent too big?
+        jge     Over64
 	test	edi,(1 shl 11) - 1	;Any bits to round?
-	jz	StoreIEEE64
+        jz      short StoreIEEE64
+
 Round64:
 	or	EMSEG:[CURerr],Precision 	;Set flag on inexact result
 	test	EMSEG:[CWcntl],RoundControl	;Check rounding control bits
 .erre	RCnear eq 0
-	jnz	NotNearest64		;Not just round-to-nearest
+        jnz     NotNearest64            ;Not just round-to-nearest
 	test	edi,1 shl 10		;Check rounding bit
-	jz	StoreIEEE64		;If zero, don't round up
+        jz      short StoreIEEE64       ;If zero, don't round up
 	test	edi,(3 shl 10)-1	;Test LSB and sticky bits
-	jz	StoreIEEE64
-	mov	EMSEG:[SWcc],RoundUp
-	add	edi,1 shl 11		;Round up
-	adc	ebx,0
-	jc	AddOneExp64
+        jnz     RoundUp64b
+
 StoreIEEE64:
+        or      ecx, ecx                ;now that value is rounded,
+        je      short Under64           ;check exponent for underflow
+
+StoreIEEE64Continue:
 	and	ebx,not (1 shl 31)	;Clear MSB--it's implied in IEEE64
 	shrd	edi,ebx,11
 	shr	ebx,11			;Move mantissa down
@@ -184,6 +190,9 @@ DoNothing:
 	ret
 
 Under64:
+        dec     cl                      ; Is cx == 1?
+        jz      short StoreIEEE64Continue   ; Yes, we've alread been here
+
 	test	EMSEG:[CWmask],Underflow	;Is underflow masked?
 	jz	SetUnderflow		;No, do nothing more
 ;Produce masked underflow response
@@ -212,16 +221,13 @@ ShortDenorm:
 	sbb	edx,edx			;Zero if bits shifted off, else -1
 	inc	edx			;1 if bits shifted off, else zero
 	or	edi,edx			;Collapse sticky bits into edi
-	xor	ecx,ecx			;Biased exponent is zero
+
+        mov     ecx, 1                  ;Biased exponent is zero, put 1 into CL (noticed by Under64)
 	test	edi,(1 shl 11) - 1	;Any bits to round?
 	jz	StoreIEEE64		;If not, no exception
 	or	EMSEG:[CURerr],Underflow
 	jmp	Round64
 
-AddOneExp64:
-	add	ecx,1 shl 16		;Mantissa overflowed, bump exponent
-	cmp	ecx,DexpMax shl 16	;Exponent too big?
-	jl	StoreIEEE64
 Over64:
 	test	EMSEG:[CWmask],Overflow	;Is overflow masked?
 	jz	SetOverflow		;No, do nothing more
@@ -262,12 +268,18 @@ NotNearest64:
 	xor	ah,al			;Flip rounding bits if negative
 	and	ah,RoundControl
 	cmp	ah,RCup
-	jnz	StoreIEEE64		;No, chop it
-	mov	EMSEG:[SWcc],RoundUp
+        jnz     StoreIEEE64             ;No, chop it
+
+RoundUp64b:
+        mov     EMSEG:[SWcc],RoundUp
 	add	edi,1 shl 11		;Round up
 	adc	ebx,0
-	jnc	StoreIEEE64
-	jmp	AddOneExp64
+        jnc     StoreIEEE64
+
+	add	ecx,1 shl 16		;Mantissa overflowed, bump exponent
+        cmp     ecx,DexpMax shl 16      ;Exponent too big?
+        jge     Over64
+        jmp     StoreIEEE64
 
 ;*******************************************************************************
 

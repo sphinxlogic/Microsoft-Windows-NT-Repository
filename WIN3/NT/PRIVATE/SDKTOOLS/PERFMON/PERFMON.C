@@ -25,7 +25,8 @@
 #define DEFINE_GLOBALS
 
 #include "perfmon.h"
-
+#include <commctrl.h>   // for tool tip & tool bar definitions
+#include <stdio.h>      // just for now
 #include "command.h"
 
 #include "graph.h"
@@ -40,10 +41,6 @@
 #include "utils.h"
 
 #include "fileopen.h"   // for FileOpen
-#ifdef DEBUGDUMP
-#include "debug.h"
-#endif
-
 
 
 #define dwToolbarStyle     (WS_CHILD | WS_VISIBLE | TBS_NOCAPTION)
@@ -260,6 +257,20 @@ LRESULT APIENTRY MainWndProc (HWND hWnd,
          }
          break ;
 
+      case WM_NOTIFY:
+         {
+            LPTOOLTIPTEXT lpTTT = (LPTOOLTIPTEXT)lParam;
+
+            if (lpTTT->hdr.code == TTN_NEEDTEXT) {
+                LoadString (hInstance, lpTTT->hdr.idFrom, lpTTT->szText,
+                    sizeof(lpTTT->szText)/sizeof(TCHAR));
+                return TRUE;
+            } else {
+                bCallDefWinProc = FALSE ;
+                break;
+            }
+         }
+
       case WM_F1DOWN:
          if (dwCurrentDlgID)
             {
@@ -351,7 +362,7 @@ LRESULT APIENTRY MainWndProc (HWND hWnd,
 
       default:
          bCallDefWinProc = TRUE ;
-	      break;
+         break;
 
       }  // switch
 
@@ -495,5 +506,6 @@ void SizePerfmonComponents (void)
 
 
 
-
-
+
+
+

@@ -2,7 +2,7 @@
 
 obj\mips\j4reset.exe: obj\mips\j4reset.obj      \
                       mips\linkj4rs.rsp
-        link32 -out:obj\mips\j4reset.exe @mips\linkj4rs.rsp
+        link -out:obj\mips\j4reset.exe @mips\linkj4rs.rsp
 
 obj\mips\j4fw.exe: obj\mips\fwentry.obj         \
                    obj\mips\selftest.obj        \
@@ -75,7 +75,7 @@ obj\mips\j4fw.exe: obj\mips\fwentry.obj         \
                    obj\mips\eisausa.obj         \
                    obj\mips\debug.obj           \
                    mips\linkj4fw.rsp
-        link32 -out:obj\mips\j4fw.exe @mips\linkj4fw.rsp
+        link -out:obj\mips\j4fw.exe @mips\linkj4fw.rsp
 
 obj\mips\j4sy.exe: obj\mips\fwentry.obj         \
                    obj\mips\selftest.obj        \
@@ -147,7 +147,7 @@ obj\mips\j4sy.exe: obj\mips\fwentry.obj         \
                    obj\mips\jzusa.obj           \
                    obj\mips\eisausa.obj         \
                    mips\linkj4fw.rsp
-        link32 -out:obj\mips\j4sy.exe @mips\linkj4sy.rsp
+        link -out:obj\mips\j4sy.exe @mips\linkj4sy.rsp
 
 obj\mips\jzsetup.exe: obj\mips\jzsetup.obj      \
                       obj\mips\jzboot.obj       \
@@ -164,26 +164,26 @@ obj\mips\jzsetup.exe: obj\mips\jzsetup.obj      \
                       \nt\public\sdk\lib\mips\libcnt.lib        \
                       ..\rtl\obj\mips\rtl.lib   \
                       mips\linkset.rsp
-        link32 -out:obj\mips\jzsetup.exe @mips\linkset.rsp
+        link -out:obj\mips\jzsetup.exe @mips\linkset.rsp
 
 obj\mips\vxlrom.exe: obj\mips\jzvxl484.obj      \
                      obj\mips\memtest.obj       \
                      \nt\public\sdk\lib\mips\libcnt.lib \
                      mips\lkvxlrom.rsp
-        link32 -out:obj\mips\vxlrom.exe @mips\lkvxlrom.rsp
+        link -out:obj\mips\vxlrom.exe @mips\lkvxlrom.rsp
 
 obj\mips\vxlromh.exe: obj\mips\jzvxlh.obj      \
                       mips\lkvxlh.rsp
-        link32 -out:obj\mips\vxlromh.exe @mips\lkvxlh.rsp
+        link -out:obj\mips\vxlromh.exe @mips\lkvxlh.rsp
 
 obj\mips\g364rom.exe: obj\mips\jazzg364.obj    \
                      \nt\public\sdk\lib\mips\libcnt.lib \
                       mips\lk364rom.rsp
-        link32 -out:obj\mips\g364rom.exe @mips\lk364rom.rsp
+        link -out:obj\mips\g364rom.exe @mips\lk364rom.rsp
 
 obj\mips\g364romh.exe: obj\mips\mg364h.obj     \
                        mips\lk364h.rsp
-        link32 -out:obj\mips\g364romh.exe @mips\lk364h.rsp
+        link -out:obj\mips\g364romh.exe @mips\lk364h.rsp
 
 obj\mips\conftest.exe: obj\mips\conftest.obj       \
                        obj\mips\confsub.obj        \
@@ -192,9 +192,7 @@ obj\mips\conftest.exe: obj\mips\conftest.obj       \
                        ..\rtl\obj\mips\rtl.lib \
                        obj\mips\jzusa.obj          \
                        mips\linkconf.rsp
-        link32 -out:obj\mips\conftest.exe @mips\linkconf.rsp
-
-
+        link -out:obj\mips\conftest.exe @mips\linkconf.rsp
 !ENDIF
 
 

@@ -26,7 +26,6 @@ Environment:
 #include <stdio.h>
 #include <string.h>
 #include <stddef.h>
-#include <imagehlp.h>
 
 #include "drwatson.h"
 #include "cv.h"
@@ -41,41 +40,96 @@ typedef struct tagSYSINFO {
 } SYSINFO, *PSYSINFO;
 
 
-typedef struct tagTYPETREE {
-    struct tagTYPETREE     *next;
-    struct tagTYPETREE     *pstr;
-    LPSTR                  name;
-    BOOL                   isPointer;
-    BOOL                   isArray;
-    USHORT                 typind;
-} TYPETREE, *PTYPETREE;
-
-
 #define DBG_EXCEPTION_HANDLED           ((DWORD)0x00010001L)
 #define STATUS_POSSIBLE_DEADLOCK        ((DWORD)0xC0000194L)
-#define STATUS_SEGMENT_NOTIFICATION     ((DWORD)0x40000005L)
 #define STATUS_VDM_EVENT                STATUS_SEGMENT_NOTIFICATION
 
-PMODULEINFO AllocMi( PDEBUGPACKET dp );
-PTHREADCONTEXT AllocTctx( PDEBUGPACKET dp );
-void PostMortemDump( PDEBUGPACKET dp, LPEXCEPTION_DEBUG_INFO ed );
-void AttachToActiveProcess ( PDEBUGPACKET dp );
-void ProcessCreateProcess( PDEBUGPACKET dp, LPDEBUG_EVENT de );
-void ProcessCreateThread( PDEBUGPACKET dp, LPDEBUG_EVENT de );
-void ProcessLoadDll( PDEBUGPACKET dp, LPDEBUG_EVENT de );
-void LogSystemInformation( PDEBUGPACKET dp );
-DWORD SysInfoThread( PSYSINFO si );
-void LogDisassembly( PDEBUGPACKET dp, PCRASHES pCrash );
-void LogStackWalk( PDEBUGPACKET dp );
-void LogStackDump( PDEBUGPACKET dp );
-char * GetExceptionText( DWORD dwExceptionCode );
-PTYPETREE FormatData( HANDLE hProcess, CV_typ_t typind, LPVOID addr, OMFGlobalTypes *types );
-DWORD RNumLeaf( LPVOID pleaf, LPDWORD skip);
-LPSTR ExpandPath(LPSTR lpPath);
+PTHREADCONTEXT
+AllocTctx(
+    PDEBUGPACKET dp
+    );
 
+void
+PostMortemDump(
+    PDEBUGPACKET dp,
+    LPEXCEPTION_DEBUG_INFO ed
+    );
+
+void
+AttachToActiveProcess (
+    PDEBUGPACKET dp
+    );
+
+void
+ProcessCreateProcess(
+    PDEBUGPACKET dp,
+    LPDEBUG_EVENT de
+    );
+
+void
+ProcessCreateThread(
+    PDEBUGPACKET dp,
+    LPDEBUG_EVENT de
+    );
+
+void
+ProcessExitThread(
+    PDEBUGPACKET dp,
+    LPDEBUG_EVENT de
+    );
+
+void
+ProcessLoadDll(
+    PDEBUGPACKET dp,
+    LPDEBUG_EVENT de
+    );
+
+void
+LogSystemInformation(
+    PDEBUGPACKET dp
+    );
 
 DWORD
-DispatchDebugEventThread( PDEBUGPACKET dp )
+SysInfoThread(
+    PSYSINFO si
+    );
+
+void
+LogDisassembly(
+    PDEBUGPACKET dp,
+    PCRASHES pCrash
+    );
+
+void
+LogStackWalk(
+    PDEBUGPACKET dp
+    );
+
+void
+LogStackDump(
+    PDEBUGPACKET dp
+    );
+
+char *
+GetExceptionText(
+    DWORD dwExceptionCode
+    );
+
+LPSTR
+    ExpandPath(
+    LPSTR lpPath
+    );
+
+void
+SetFaultingContext(
+    PDEBUGPACKET dp,
+    LPDEBUG_EVENT de
+    );
+
+DWORD
+DispatchDebugEventThread(
+    PDEBUGPACKET dp
+    )
 
 /*++
 
@@ -99,6 +153,7 @@ Return Value:
     char          szLogFileName[1024];
     char          buf[1024];
     LPSTR         p;
+    DWORD         ContinueStatus;
 
 
     if (dp->dwPidToDebug == 0) {
@@ -130,16 +185,19 @@ Return Value:
             rc = GetLastError();
             goto exit;
         }
+        ContinueStatus = DBG_CONTINUE;
+
         switch (de.dwDebugEventCode) {
             case EXCEPTION_DEBUG_EVENT:
                 if (de.u.Exception.ExceptionRecord.ExceptionCode == STATUS_BREAKPOINT) {
                     if (de.u.Exception.dwFirstChance) {
-                        if ( dp->hEventToSignal ) {
-                            SetEvent(dp->hEventToSignal);
-                            dp->hEventToSignal = 0L;
-                        }
-                        ContinueDebugEvent( de.dwProcessId, de.dwThreadId, DBG_EXCEPTION_HANDLED );
-                        continue;
+                        ContinueStatus = DBG_EXCEPTION_HANDLED;
+                        //
+                        // The aedebug event will be signalled AFTER this
+                        // thread exits, so that it will disappear before
+                        // the dump snapshot is taken.
+                        //
+                        break;
                     }
                 }
                 if (dp->options.fVisual) {
@@ -157,9 +215,13 @@ Return Value:
                               de.u.Exception.ExceptionRecord.ExceptionAddress );
                     SendMessage( dp->hwnd, WM_EXCEPTIONINFO, 0, (LPARAM) buf );
                 }
+                SetFaultingContext(dp, &de);
                 PostMortemDump( dp, &de.u.Exception );
-                ContinueDebugEvent( de.dwProcessId, de.dwThreadId, DBG_EXCEPTION_NOT_HANDLED );
-                continue;
+                if (dp->options.fCrash) {
+                    CreateDumpFile( dp, &de.u.Exception );
+                }
+                ContinueStatus = DBG_EXCEPTION_NOT_HANDLED;
+                break;
 
             case CREATE_THREAD_DEBUG_EVENT:
                 ProcessCreateThread( dp, &de );
@@ -172,6 +234,11 @@ Return Value:
                 break;
 
             case EXIT_THREAD_DEBUG_EVENT:
+                ProcessExitThread( dp, &de );
+                if ( dp->hEventToSignal ) {
+                    SetEvent(dp->hEventToSignal);
+                    dp->hEventToSignal = 0L;
+                }
                 break;
 
             case EXIT_PROCESS_DEBUG_EVENT:
@@ -209,7 +276,9 @@ exit:
 }
 
 PTHREADCONTEXT
-AllocTctx( PDEBUGPACKET dp )
+AllocTctx(
+    PDEBUGPACKET dp
+    )
 {
     PTHREADCONTEXT ptctx;
 
@@ -224,44 +293,64 @@ AllocTctx( PDEBUGPACKET dp )
     }
     memset( ptctx, 0, sizeof(THREADCONTEXT) );
 
-    if (dp->tctxHead == NULL) {
-        dp->tctxHead = dp->tctxTail = ptctx;
-    }
-    else {
-        dp->tctxTail->next = ptctx;
-        dp->tctxTail = ptctx;
-    }
-
     return ptctx;
 }
 
 void
-ProcessCreateThread( PDEBUGPACKET dp, LPDEBUG_EVENT de )
+ProcessCreateThread(
+    PDEBUGPACKET dp,
+    LPDEBUG_EVENT de
+    )
 {
     dp->tctx              = AllocTctx( dp );
     dp->tctx->hThread     = de->u.CreateThread.hThread;
     dp->tctx->dwThreadId  = de->dwThreadId;
 
+    InsertTailList(&dp->ThreadList, &dp->tctx->ThreadList);
+
     return;
 }
 
 void
-PostMortemDump( PDEBUGPACKET dp, LPEXCEPTION_DEBUG_INFO ed )
+ProcessExitThread(
+    PDEBUGPACKET dp,
+    LPDEBUG_EVENT de
+    )
 {
-    PMODULEINFO       mi = dp->miHead;
-    PTHREADCONTEXT    ptctx;
+    PTHREADCONTEXT ptctx;
+    PLIST_ENTRY List = dp->ThreadList.Flink;
+
+    while (List != &dp->ThreadList) {
+        ptctx = CONTAINING_RECORD(List, THREADCONTEXT, ThreadList);
+        if (ptctx->dwThreadId == de->dwThreadId) {
+            RemoveEntryList(List);
+            free(ptctx);
+            break;
+        }
+        List = List->Flink;
+    }
+}
+
+void
+PostMortemDump(
+    PDEBUGPACKET dp,
+    LPEXCEPTION_DEBUG_INFO ed
+    )
+{
+    IMAGEHLP_MODULE   mi;
     char              dbuf[1024];
     char              szDate[20];
     char              szTime[20];
     CRASHES           crash;
     DWORD             dwThreadId;
     HANDLE            hThread;
+    PLIST_ENTRY        List;
 
 
     GetLocalTime( &crash.time );
     crash.dwExceptionCode = ed->ExceptionRecord.ExceptionCode;
     crash.dwAddress = (DWORD)ed->ExceptionRecord.ExceptionAddress;
-    strcpy( crash.szAppName, dp->miHead->szName );
+    strcpy( crash.szAppName, szApp );
 
     lprintf( MSG_APP_EXCEPTION );
     wsprintf( dbuf, "%d", dp->dwPidToDebug );
@@ -285,44 +374,32 @@ PostMortemDump( PDEBUGPACKET dp, LPEXCEPTION_DEBUG_INFO ed )
 
     LogTaskList();
 
-    mi = dp->miHead;
-    lprintf( MSG_MODULE_LIST );
-    while (mi) {
-        lprintfs( "(%08x - %08x) %s\r\n",
-                  (DWORD)mi->dwBaseOfImage,
-                  (DWORD)mi->dwBaseOfImage + mi->dwImageSize,
-                  mi->szName
-                );
-        mi = mi->next;
+    if (SymGetModuleInfo( dp->hProcess, 0, &mi )) {
+        do {
+            lprintfs( "(%08x - %08x) %s\r\n",
+                      (DWORD)mi.BaseOfImage,
+                      (DWORD)mi.BaseOfImage + mi.ImageSize,
+                      mi.LoadedImageName
+                    );
+        } while( SymGetModuleInfo( dp->hProcess, (DWORD)-1, &mi ));
+        lprintfs( "\r\n" );
     }
-    lprintfs( "\r\n" );
 
-    ptctx = dp->tctxHead;
-    while (ptctx) {
-        dp->tctx = ptctx;
+    List = dp->ThreadList.Flink;
+    while (List != &dp->ThreadList) {
+
+        dp->tctx = CONTAINING_RECORD(List, THREADCONTEXT, ThreadList);
+        List = List->Flink;
 
         GetContextForThread( dp );
 
-        if (ptctx->pc == (DWORD)ed->ExceptionRecord.ExceptionAddress) {
-            ptctx->fFaultingContext = TRUE;
-        }
-
-        if ((!ptctx->fFaultingContext && dp->options.fDumpAllThreads) || ptctx->fFaultingContext) {
+        if (dp->tctx->fFaultingContext || dp->options.fDumpAllThreads) {
             wsprintf( dbuf, "%x", dp->tctx->dwThreadId );
             lprintf( MSG_STATE_DUMP, dbuf );
-            OutputAllRegs( dp );
+            OutputAllRegs( dp, TRUE );
             LogDisassembly( dp, &crash );
             LogStackWalk( dp );
             LogStackDump( dp );
-        }
-
-        ptctx = ptctx->next;
-        if (ptctx->next == NULL) {
-            // this forces the loop to ignore the last thread
-            // we want to do this because the last thread is a
-            // remote thread created by kernel32.dll for the purpose
-            // of attaching the debugger to the faulting process
-            break;
         }
     }
 
@@ -336,17 +413,21 @@ PostMortemDump( PDEBUGPACKET dp, LPEXCEPTION_DEBUG_INFO ed )
                             16000,
                             (LPTHREAD_START_ROUTINE)TerminationThread,
                             dp,
-                            THREAD_SET_INFORMATION,
+                            0,
                             (LPDWORD)&dwThreadId
                           );
 
     WaitForSingleObject( hThread, 30000 );
 
+    CloseHandle( hThread );
+
     return;
 }
 
 void
-LogStackDump( PDEBUGPACKET dp )
+LogStackDump(
+    PDEBUGPACKET dp
+    )
 {
     DWORD   i;
     DWORD   j;
@@ -409,35 +490,24 @@ LogStackDump( PDEBUGPACKET dp )
 }
 
 void
-LogStackWalk( PDEBUGPACKET dp )
+LogStackWalk(
+    PDEBUGPACKET dp
+    )
 {
     #define SAVE_EBP(f)        f.Reserved[0]
     #define TRAP_TSS(f)        f.Reserved[1]
     #define TRAP_EDITED(f)     f.Reserved[1]
     #define SAVE_TRAP(f)       f.Reserved[2]
 
-    PSYMBOL           psym;
     DWORD             dwDisplacement = 0;
     DWORD             frames = 0;
     LPSTR             szSymName;
-    char              buf[256];
-    PMODULEINFO       mi;
+    IMAGEHLP_MODULE   mi;
     DWORD             i;
     DWORD             machType;
     CONTEXT           Context;
     STACKFRAME        stk;
-#ifdef DRWATSON_LOCALS
-    OMFGlobalTypes    *types;
-    OMFSignature      *omfSig;
-    OMFDirHeader      *omfDirHdr;
-    OMFDirEntry       *omfDirEntry;
-    PTYPETREE         ptt;
-    BPRELSYM32        *dsym32;
-    SYMTYPE           *symh;
-#endif
 
-
-    lprintf( MSG_STACKTRACE );
 
     Context = dp->tctx->context;
     ZeroMemory( &stk, sizeof(stk) );
@@ -455,6 +525,8 @@ LogStackWalk( PDEBUGPACKET dp )
     machType = IMAGE_FILE_MACHINE_R4000;
 #elif defined(_M_ALPHA)
     machType = IMAGE_FILE_MACHINE_ALPHA;
+#elif defined(_M_PPC)
+    machType = IMAGE_FILE_MACHINE_POWERPC;
 #else
 #error( "unknown target machine" );
 #endif
@@ -473,12 +545,8 @@ LogStackWalk( PDEBUGPACKET dp )
                         SwTranslateAddress )) {
             break;
         }
-        psym = GetSymFromAddrAllContexts( stk.AddrPC.Offset, &dwDisplacement, dp );
-        if (psym) {
-            szSymName = UnDName( psym );
-            if (!szSymName) {
-                szSymName = &psym->szName[1];
-            }
+        if (SymGetSymFromAddr( dp->hProcess, stk.AddrPC.Offset, &dwDisplacement, sym )) {
+            szSymName = sym->Name;
         }
         else {
             szSymName = "<nosymbols>";
@@ -492,15 +560,13 @@ LogStackWalk( PDEBUGPACKET dp )
                   stk.Params[3]
                 );
 
-        mi = GetModuleForPC( dp, stk.AddrPC.Offset );
-        if (mi) {
-            _splitpath( mi->szName, NULL, NULL, buf, NULL );
-            lprintfs( "%s!", buf );
+        if (SymGetModuleInfo( dp->hProcess, stk.AddrPC.Offset, &mi )) {
+            lprintfs( "%s!", mi.ModuleName );
         }
 
         lprintfs( "%s ", szSymName );
 
-        if (psym->flags & SYMF_OMAP_GENERATED || psym->flags & SYMF_OMAP_MODIFIED) {
+        if (sym && (sym->Flags & SYMF_OMAP_GENERATED || sym->Flags & SYMF_OMAP_MODIFIED)) {
             lprintfs( "[omap] " );
         }
 
@@ -520,46 +586,22 @@ LogStackWalk( PDEBUGPACKET dp )
                                                  pFpoData->cbRegs);
                     }
                     break;
+                case FRAME_NONFPO:
+                    lprintfs( "(FPO: Non-FPO [%d,%d,%d])",
+                                 pFpoData->cdwParams,
+                                 pFpoData->cdwLocals,
+                                 pFpoData->cbRegs);
+                    break;
+
+                case FRAME_TRAP:
+                case FRAME_TSS:
                 default:
-                    lprintfs( "(UKNOWN FPO TYPE)" );
+                    lprintfs( "(UNKNOWN FPO TYPE)" );
                     break;
             }
         }
 
         lprintfs( "\r\n" );
-
-#ifdef DRWATSON_LOCALS
-        if (psym && psym->locals) {
-
-            mi = GetModuleForPC( dp, stk.AddrPC.Offset );
-
-            omfSig = (OMFSignature*) mi->pCvData;
-            omfDirHdr = (OMFDirHeader*) ((DWORD)omfSig + (DWORD)omfSig->filepos);
-            omfDirEntry = (OMFDirEntry*) ((DWORD)omfDirHdr + sizeof(OMFDirHeader));
-            types = NULL;
-
-            for (i=0; i<omfDirHdr->cDir; i++,omfDirEntry++) {
-                if (omfDirEntry->SubSection == sstGlobalTypes) {
-                    types = (OMFGlobalTypes*)((DWORD)omfSig + omfDirEntry->lfo);
-                    break;
-                }
-            }
-
-            symh = (SYMTYPE*) psym->locals;
-
-            do {
-                if (symh->rectyp == S_BPREL32) {
-                    dsym32 = (BPRELSYM32*)symh;
-                    strncpy( buf, &dsym32->name[1], dsym32->name[0] );
-                    buf[dsym32->name[0]] = '\0';
-                    lprintfs( "\t\t%s ", buf );
-                    ptt = FormatData( dp->hProcess, dsym32->typind, (LPVOID)(stk.AddrFrame.Offset + dsym32->off), types );
-                    lprintfs( "\r\n" );
-                }
-                symh = (SYMTYPE*) ((LPBYTE)symh + symh->reclen + sizeof(symh->reclen));
-            } while( symh->rectyp != S_END );
-        }
-#endif
 
     }
 
@@ -568,146 +610,12 @@ LogStackWalk( PDEBUGPACKET dp )
 }
 
 
-#ifdef DRWATSON_LOCALS
-PTYPETREE
-FormatData( HANDLE hProcess, CV_typ_t typind, LPVOID addr, OMFGlobalTypes *types )
-{
-    lfPointer         *lfp;
-    lfStructure       *lfs;
-    lfMember          *lfm;
-//  lfFieldList       *lff;
-    PUSHORT           p;
-    DWORD             i;
-    DWORD             skip;
-    BYTE              pad;
-    PTYPETREE         ptt;
-    PTYPETREE         pttm;
-    PTYPETREE         pttn;
-
-
-    ptt = (PTYPETREE) malloc( sizeof(TYPETREE) );
-    ZeroMemory( (LPVOID)ptt, sizeof(TYPETREE) );
-
-    if (CV_IS_PRIMITIVE(typind)) {
-        ptt->typind = typind;
-        return ptt;
-    }
-
-    p = (PUSHORT) ((LPBYTE)types + types->typeOffset[typind-0x1000]);
-    p++;  // skip the length field
-    switch( *p ) {
-        case LF_POINTER:
-            lfp = (lfPointer*) p;
-            ptt->typind = lfp->u.utype;
-            ptt->isPointer = TRUE;
-            if (!CV_IS_PRIMITIVE(lfp->u.utype)) {
-                ptt->next = FormatData( hProcess, lfp->u.utype, addr, types );
-            }
-            break;
-
-        case LF_ARRAY:
-            p++;
-            ptt->typind = *p;
-            ptt->isArray = TRUE;
-            if (!CV_IS_PRIMITIVE(*p)) {
-                ptt->next = FormatData( hProcess, *p, addr, types );
-            }
-            p+=2;
-            break;
-
-        case LF_STRUCTURE:
-            lfs = (lfStructure*) p;
-            ptt->name = (char *)(&lfs->data[2]);
-
-            p = (PUSHORT) ((LPBYTE)types + types->typeOffset[lfs->field-0x1000]);
-            p++;  // skip the length field
-            p++;  // skip the leaf
-            pttn = NULL;
-            for (i=0; i<lfs->count; i++) {
-                pttm = (PTYPETREE) malloc( sizeof(TYPETREE) );
-                ZeroMemory( (LPVOID)pttm, sizeof(TYPETREE) );
-                pad = *((LPBYTE)p);
-                if (pad >= LF_PAD0) {
-                    skip = pad & 0x0f;
-                    p = (PUSHORT) ((LPBYTE)p + skip);
-                }
-                if (*p == LF_MEMBER) {
-                    lfm = (lfMember*) p;
-                    pttm->name = (char *)(&lfm->offset[2]);
-                    if (CV_IS_PRIMITIVE(lfm->index)) {
-                        pttm->typind = lfm->index;
-                    }
-                    else {
-                        pttm->pstr = FormatData( hProcess, lfm->index, addr, types );
-                    }
-                    skip = 0;
-                    RNumLeaf( (LPVOID)lfm->offset, &skip );
-                    skip += *((LPBYTE)lfm->offset + skip) + sizeof(char);
-                    skip += offsetof (lfMember, offset[0]);
-                    p = (PUSHORT) ((LPBYTE)p + skip);
-                }
-                else {
-                    pttm->name = "Unknown Data Type";
-                    break;
-                }
-                if (pttn) {
-                    pttn->next = pttm;
-                    pttn = pttm;
-                }
-                else {
-                    pttn = ptt->pstr = pttm;
-                }
-            }
-            break;
-
-        default:
-            ptt->name = "Unknown Data Type";
-            break;
-    }
-
-    return ptt;
-}
-
-DWORD
-RNumLeaf( LPVOID pleaf, LPDWORD skip)
-{
-    USHORT val;
-
-    if ((val = ((lfEasy*)pleaf)->leaf) < LF_NUMERIC) {
-        // No leaf can have an index less than LF_NUMERIC (0x8000) so word is value
-        *skip += 2;
-        return val;
-    }
-
-    switch (val) {
-        case LF_CHAR:
-            *skip += 3;
-            return (((lfChar*)pleaf)->val);
-
-        case LF_USHORT:
-            *skip += 4;
-            return (((lfUShort*)pleaf)->val);
-
-        case LF_SHORT:
-            *skip += 4;
-            return (((lfShort*)pleaf)->val);
-
-        case LF_LONG:
-        case LF_ULONG:
-            *skip += 6;
-            return (((lfULong*)pleaf)->val);
-
-        default:
-            return 0;
-    }
-}
-#endif
-
-
 void
-LogDisassembly( PDEBUGPACKET dp, PCRASHES pCrash )
+LogDisassembly(
+    PDEBUGPACKET dp,
+    PCRASHES pCrash
+    )
 {
-    PSYMBOL           psym;
     DWORD             dwFuncAddr;
     DWORD             dwFuncSize;
     DWORD             dwDisplacement = 0;
@@ -721,15 +629,10 @@ LogDisassembly( PDEBUGPACKET dp, PCRASHES pCrash )
     int               dwEndDis;
 
 
-    psym = GetSymFromAddr( dp->tctx->pc, &dwDisplacement, dp->tctx->mi );
-
-    if (psym) {
-        dwFuncAddr = psym->addr;
-        dwFuncSize = psym->size;
-        szSymName = UnDName( psym );
-        if (!szSymName) {
-            szSymName = &psym->szName[1];
-        }
+    if (SymGetSymFromAddr( dp->hProcess, dp->tctx->pc, &dwDisplacement, sym )) {
+        dwFuncAddr = sym->Address;
+        dwFuncSize = sym->Size;
+        szSymName = sym->Name;
     }
     else {
         dwFuncAddr = dp->tctx->pc - 50;
@@ -804,7 +707,9 @@ tryagain:
 }
 
 void
-AttachToActiveProcess ( PDEBUGPACKET dp )
+AttachToActiveProcess (
+    PDEBUGPACKET dp
+    )
 {
     HANDLE              Token;
     PTOKEN_PRIVILEGES   NewPrivileges;
@@ -908,7 +813,9 @@ AttachToActiveProcess ( PDEBUGPACKET dp )
 }
 
 void
-LogSystemInformation( PDEBUGPACKET dp )
+LogSystemInformation(
+    PDEBUGPACKET dp
+    )
 {
     char          buf[1024];
     SYSTEM_INFO   si;
@@ -922,48 +829,20 @@ LogSystemInformation( PDEBUGPACKET dp )
                             16000,
                             (LPTHREAD_START_ROUTINE)SysInfoThread,
                             &mySi,
-                            THREAD_SET_INFORMATION,
+                            0,
                             (LPDWORD)&dwThreadId
                           );
     Sleep( 0 );
     if (WaitForSingleObject( hThread, 30000 ) == WAIT_TIMEOUT) {
         Assert(TerminateThread( hThread, 0 ) == TRUE);
     }
+    CloseHandle( hThread );
     lprintf( MSG_SYSINFO_COMPUTER, mySi.szMachineName );
     lprintf( MSG_SYSINFO_USER, mySi.szUserName );
     GetSystemInfo( &si );
     wsprintf( buf, "%d", si.dwNumberOfProcessors );
     lprintf( MSG_SYSINFO_NUM_PROC, buf );
-    lprintf( MSG_SYSINFO_PROC_TYPE );
-    switch(si.dwProcessorType) {
-        case PROCESSOR_INTEL_386:
-            lprintf( MSG_SYSINFO_I386 );
-            break;
-
-        case PROCESSOR_INTEL_486:
-            lprintf( MSG_SYSINFO_I486 );
-            break;
-
-        case PROCESSOR_INTEL_PENTIUM:
-            lprintf( MSG_SYSINFO_PENTIUM );
-            break;
-
-        case PROCESSOR_MIPS_R3000:
-            lprintf( MSG_SYSINFO_R3000 );
-            break;
-
-        case PROCESSOR_MIPS_R4000:
-            lprintf( MSG_SYSINFO_R4000 );
-            break;
-
-        case PROCESSOR_ALPHA_21064:
-            lprintf( MSG_SYSINFO_A21064 );
-            break;
-
-        default:
-            lprintf( MSG_SYSINFO_UNKNOWN );
-            break;
-    }
+    RegLogProcessorType();
     ver = GetVersion();
     wsprintf( buf, "%d.%d", LOBYTE(LOWORD(ver)), HIBYTE(LOWORD(ver)) );
     lprintf( MSG_SYSINFO_WINVER, buf );
@@ -972,7 +851,9 @@ LogSystemInformation( PDEBUGPACKET dp )
 }
 
 DWORD
-SysInfoThread( PSYSINFO si )
+SysInfoThread(
+    PSYSINFO si
+    )
 {
     DWORD len;
 
@@ -987,7 +868,9 @@ SysInfoThread( PSYSINFO si )
 }
 
 DWORD
-TerminationThread( PDEBUGPACKET dp )
+TerminationThread(
+    PDEBUGPACKET dp
+    )
 {
     HANDLE hProcess;
 
@@ -1001,7 +884,9 @@ TerminationThread( PDEBUGPACKET dp )
 }
 
 char *
-GetExceptionText( DWORD dwExceptionCode )
+GetExceptionText(
+    DWORD dwExceptionCode
+    )
 {
     static char buf[80];
     DWORD dwFormatId = 0;
@@ -1095,39 +980,47 @@ ExpandPath(
     LPSTR lpPath
     )
 {
+    DWORD   len;
     LPSTR   p;
-    LPSTR   newpath;
-    LPSTR   p1;
-    LPSTR   p2;
-    CHAR    envvar[MAX_PATH];
-    CHAR    envstr[MAX_PATH];
-    ULONG   i;
 
-    i = strlen(lpPath) + MAX_PATH;
-    p2 = newpath = malloc( i );
-    ZeroMemory( newpath, i );
 
-    p = lpPath;
-
-    while( p && *p) {
-        if (*p == '%') {
-            i = 0;
-            p++;
-            while (p && *p && *p != '%') {
-                envvar[i++] = *p++;
-            }
-            p++;
-            envvar[i] = '\0';
-            p1 = envstr;
-            *p1 = 0;
-            GetEnvironmentVariable( envvar, p1, MAX_PATH );
-            while (p1 && *p1) {
-                *p2++ = *p1++;
-            }
-        }
-        *p2++ = *p++;
+    len = ExpandEnvironmentStrings( lpPath, NULL, 0 );
+    if (!len) {
+        return NULL;
     }
-    *p2 = '\0';
 
-    return newpath;
+    len += 1;
+    p = malloc( len );
+    if (!p) {
+        return NULL;
+    }
+
+    len = ExpandEnvironmentStrings( lpPath, p, len );
+    if (!len) {
+        free( p );
+        return NULL;
+    }
+
+    return p;
+}
+
+void
+SetFaultingContext(
+    PDEBUGPACKET dp,
+    LPDEBUG_EVENT de
+    )
+{
+    PTHREADCONTEXT ptctx;
+    PLIST_ENTRY List = dp->ThreadList.Flink;
+
+    dp->DebugEvent = *de;
+
+    while (List != &dp->ThreadList) {
+        ptctx = CONTAINING_RECORD(List, THREADCONTEXT, ThreadList);
+        List = List->Flink;
+        if (ptctx->dwThreadId == de->dwThreadId) {
+            ptctx->fFaultingContext = TRUE;
+            break;
+        }
+    }
 }

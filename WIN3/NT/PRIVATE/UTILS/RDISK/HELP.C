@@ -17,11 +17,8 @@ Environment:
 
 --*/
 
-#include "windows.h"
-#include "rdisk.h"
-#include "resource.h"
-#include "help.h"
-#include <string.h>
+#include "precomp.h"
+#pragma hdrstop
 
 
 //

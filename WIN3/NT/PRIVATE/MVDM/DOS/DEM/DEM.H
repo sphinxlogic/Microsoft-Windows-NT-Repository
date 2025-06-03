@@ -5,6 +5,9 @@
  * Sudeepb 31-Mar-1991 Created
  */
 
+#ifndef _DEMINCLUDED_
+#define _DEMINCLUDED_
+
 /*
 #define WIN
 #define FLAT_32
@@ -50,6 +53,7 @@
 #include <nt.h>
 #include <ntrtl.h>
 #include <nturtl.h>
+#include <ntdddisk.h>
 #else
 #define TRUE_IF_WIN32   0
 #endif
@@ -79,6 +83,8 @@
 #define SIGHIT(flChk)   ((iSigCheck++ & 0x7FF)?(flSignals & (flChk)):(kbhit(),(flSignals & (flChk))))
 
 #include <oemuni.h>
+
+
 
 
 /** Basic Typedefs of DEM **/
@@ -129,6 +135,8 @@ extern PDEMEXTERR pExtendedError;
 #if DEVL
 extern CHAR demDebugBuffer [];
 #endif
+
+
 
 
 /** DEM Macros **/
@@ -199,6 +207,7 @@ VOID demWOWFiles        (VOID);
 VOID demGetComputerName (VOID);
 VOID demCheckPath	(VOID);
 VOID demSystemSymbolOp  (VOID);
+VOID demCommit		(VOID);
 VOID demClientError         (HANDLE,CHAR);
 ULONG demClientErrorEx      (HANDLE,CHAR,BOOL);
 VOID demCreateCommon        (ULONG);
@@ -223,7 +232,8 @@ BOOL demGetDiskFreeSpace(BYTE Drive, WORD * BytesPerSector,
 BOOL IsCdRomFile            (PSTR pszPath);
 
 BOOL GetMediaId( CHAR DriveNum, PVOLINFO pVolInfo);
-
+VOID demPipeFileDataEOF     (VOID);
+VOID demPipeFileEOF	    (VOID);
 
 /** Debug Function Prototypes */
 
@@ -242,3 +252,9 @@ USHORT demDeleteLabel(BYTE Drive);
 USHORT demCreateLabel(BYTE Drive, LPSTR szName);
 #define DRIVEBYTE   0
 #define LABELOFF    3
+
+extern	BOOL cmdPipeFileDataEOF (HANDLE,BOOL *);
+extern	BOOL cmdPipeFileEOF(HANDLE);
+
+
+#endif /* _DEMINCLUDED_ */

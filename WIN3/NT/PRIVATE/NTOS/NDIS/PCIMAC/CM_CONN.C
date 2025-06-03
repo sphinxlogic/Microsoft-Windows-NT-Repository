@@ -3,7 +3,7 @@
  */
 
 #include	<ndis.h>
-#include    <ndismini.h>
+//#include    <ndismini.h>
 #include	<ndiswan.h>
 #include	<mytypes.h>
 #include	<mydefs.h>
@@ -30,6 +30,7 @@ cm_listen(VOID *cm_1)
     cm->dprof = cm->oprof;
     cm->state = CM_ST_LISTEN;
 	cm->StateChangeFlag = TRUE;
+    cm->PPPToDKF = 0;
     return(CM_E_SUCC);
 }
 
@@ -227,7 +228,6 @@ cm__activate_conn(CM *cm, ULONG CompressionFlag)
 
     /* get speed from mtl, tell mtl is connected now! */
     mtl_get_conn_speed(cm->mtl, &cm->speed);
-//    mtl_set_conn_state(cm->mtl, 1);
 
     return(CM_E_SUCC);
 }
@@ -247,7 +247,7 @@ cm__deactivate_conn(CM *cm, BOOL by_idle_timer)
     cm->rx_last_frame_time = cm->tx_last_frame_time = cm->timeout = ut_time_now();
 
     /* tell mtl not connected now */
-    mtl_set_conn_state(cm->mtl, 0);
+    mtl_set_conn_state(cm->mtl, cm->dprof.chan_num, 0);
 
     /* scan active channel, notify mtl, etc. */
     for ( n = 0 ; n < cm->dprof.chan_num ; n++)
@@ -304,17 +304,17 @@ cm__get_next_chan(CM_CHAN *chan)
 	/* step to next channel type */
 	switch ( chan->type )
 	{
-	case CM_CT_D64 :
-		chan->type = CM_CT_D56;
-		break;
+		case CM_CT_D64 :
+			chan->type = CM_CT_D56;
+			break;
 
-	case CM_CT_D56 :
-		chan->type = CM_CT_VOICE;
-		break;
+		case CM_CT_D56 :
+			chan->type = CM_CT_VOICE;
+			break;
 
-	case CM_CT_VOICE :
-	default:
-		return(CM_E_NOSUCH);
+		case CM_CT_VOICE :
+		default:
+			return(CM_E_NOSUCH);
 	}
 
    /* if here, succ */

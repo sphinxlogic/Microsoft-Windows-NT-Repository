@@ -89,6 +89,7 @@ HvRefreshHive(
 #pragma alloc_text(PAGE,HvMarkCellDirty)
 #pragma alloc_text(PAGE,HvIsBinDirty)
 #pragma alloc_text(PAGE,HvMarkDirty)
+#pragma alloc_text(PAGE,HvMarkClean)
 #pragma alloc_text(PAGE,HvpGrowLog1)
 #pragma alloc_text(PAGE,HvpGrowLog2)
 #pragma alloc_text(PAGE,HvSyncHive)
@@ -1240,7 +1241,7 @@ Return Value:
 
     if (Me->BinAddress & HMAP_DISCARDABLE) {
         FreeBin = (PFREE_HBIN)Me->BlockAddress;
-        StartBlock = (PUCHAR)((Me->BinAddress & HMAP_BASE) + FreeBin->FileOffset - FileBaseAddress);
+        StartBlock = (PUCHAR)((Me->BinAddress & HMAP_BASE) + FileBaseAddress - FreeBin->FileOffset );
     } else {
         StartBlock = (PUCHAR)Me->BlockAddress;
     }
@@ -1287,7 +1288,7 @@ Return Value:
 
         if (Me->BinAddress & HMAP_DISCARDABLE) {
             FreeBin = (PFREE_HBIN)Me->BlockAddress;
-            NextBlock = (PUCHAR)((Me->BinAddress & HMAP_BASE) + FreeBin->FileOffset - FileBaseAddress);
+            NextBlock = (PUCHAR)((Me->BinAddress & HMAP_BASE) + FileBaseAddress - FreeBin->FileOffset );
         } else {
             NextBlock = (PUCHAR)Me->BlockAddress;
         }
@@ -1384,6 +1385,7 @@ Return Value:
     ULONG           AltDirtyVectorSize;
     PHBASE_BLOCK    SaveBaseBlock;
     PHBASE_BLOCK    AltBaseBlock;
+    ULONG           Alignment;
 
     NTSTATUS        status;
 
@@ -1431,6 +1433,20 @@ Return Value:
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto Exit2;
     }
+    //
+    // Make sure the buffer we got back is cluster-aligned. If not, try
+    // harder to get an aligned buffer.
+    //
+    Alignment = Hive->Cluster * HSECTOR_SIZE - 1;
+    if (((ULONG)AltBaseBlock & Alignment) != 0) {
+        (Hive->Free)(AltBaseBlock, sizeof(HBASE_BLOCK));
+        AltBaseBlock = (PHBASE_BLOCK)((Hive->Allocate)(PAGE_SIZE, TRUE));
+        if (AltBaseBlock == NULL) {
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            goto Exit2;
+        }
+    }
+
     RtlMoveMemory(AltBaseBlock, SaveBaseBlock, HSECTOR_SIZE);
     Hive->BaseBlock = AltBaseBlock;
 
@@ -1621,12 +1637,19 @@ Return Value:
     while (p < Hive->Storage[Stable].Length) {
         t = HvpGetCellMap(Hive, p);
         ASSERT(t != NULL);
-        Bin = t->BinAddress & HMAP_BASE;
+        Bin = (PHBIN)(t->BlockAddress & HMAP_BASE);
 
         if ((t->BinAddress & HMAP_DISCARDABLE)==0) {
-            if (RtlCheckBit(&Hive->DirtyVector, p / HSECTOR_SIZE, 1)==1) {
+            if (RtlCheckBit(&Hive->DirtyVector, p / HSECTOR_SIZE)==1) {
                 //
                 // The first sector in the HBIN is dirty.
+                //
+                // Reset the BinAddress to the Block address to cover
+                // the case where a few smaller bins have been coalesced
+                // into a larger bin. We want the smaller bins back now.
+                //
+                t->BinAddress = (t->BinAddress & ~HMAP_BASE) | t->BlockAddress;
+
                 // Check the map to see if this is the start
                 // of a memory allocation or not.
                 //
@@ -1756,7 +1779,11 @@ Return Value:
 {
     PHBIN Bin;
     PHMAP_ENTRY Map;
+    PHMAP_ENTRY PreviousMap;
+    PHMAP_ENTRY NextMap;
     PFREE_HBIN FreeBin;
+    PFREE_HBIN PreviousFreeBin;
+    PFREE_HBIN NextFreeBin;
     PLIST_ENTRY List;
 
     List = Hive->Storage[Stable].FreeBins.Flink;
@@ -1769,7 +1796,14 @@ Return Value:
             Map = HvpGetCellMap(Hive, FreeBin->FileOffset);
             Bin = (PHBIN)(Map->BinAddress & HMAP_BASE);
             ASSERT(Map->BinAddress & HMAP_DISCARDABLE);
-            (Hive->Free)(Bin, Bin->Size);
+            //
+            // Note we use ExFreePool directly here to avoid
+            // giving back the quota for this bin. By charging
+            // registry quota for discarded bins, we prevent
+            // sparse hives from requiring more quota after
+            // a reboot than on a running system.
+            //
+            ExFreePool(Bin);
             FreeBin->Flags &= ~FREE_HBIN_DISCARDABLE;
         }
         List=List->Flink;

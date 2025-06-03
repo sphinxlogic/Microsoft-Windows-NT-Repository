@@ -82,4 +82,4 @@ typedef struct _INQUIRYDATA {
 
 #define DEVICE_CONNECTED 0x00
 
-
+

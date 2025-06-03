@@ -21,30 +21,8 @@ Revision History:
 --*/
 
 #include "dderror.h"
-
-#ifdef DEADMAN_KEY
-
-//
-// These includes are to support BryanWi Hack
-//
-
-#include "ntos.h"
-#include "stdarg.h"
-#include "stdio.h"
-
-ULONG
-DriverEntry(
-    PVOID Context1,
-    PVOID Context2
-    );
-
-
-#else
-
 #include "devioctl.h"
 #include "miniport.h"
-
-#endif
 
 #include "ntddvdeo.h"
 #include "video.h"
@@ -59,9 +37,8 @@ VgaForceVgaRegistryCallback(
     ULONG ValueLength
     );
 
-#ifdef MIPS
 VP_STATUS
-mipsGetDeviceDataCallback(
+GetDeviceDataCallback(
     PVOID HwDeviceExtension,
     PVOID Context,
     VIDEO_DEVICE_DATA_TYPE DeviceDataType,
@@ -72,19 +49,7 @@ mipsGetDeviceDataCallback(
     PVOID ComponentInformation,
     ULONG ComponentInformationLength
     );
-#endif
 
-#ifdef DEADMAN_KEY
-NTSTATUS
-vgaRegistryCallback(
-    IN PWSTR ValueName,
-    IN ULONG ValueType,
-    IN PVOID ValueData,
-    IN ULONG ValueLength,
-    IN PVOID Context,
-    IN PVOID EntryContext
-    );
-#endif
 
 #if defined(ALLOC_PRAGMA)
 #pragma alloc_text(PAGE,DriverEntry)
@@ -106,23 +71,16 @@ vgaRegistryCallback(
 #pragma alloc_text(PAGE,VgaValidatorUcharEntry)
 #pragma alloc_text(PAGE,VgaValidatorUshortEntry)
 #pragma alloc_text(PAGE,VgaValidatorUlongEntry)
-
-#ifdef MIPS
-#pragma alloc_text(PAGE,mipsGetDeviceDataCallback)
+#pragma alloc_text(PAGE,GetDeviceDataCallback)
 #endif
 
-#ifdef DEADMAN_KEY
-#pragma alloc_text(PAGE,vgaRegistryCallback)
-#endif
-
-#endif
+ULONG BaseVideo;
 
 //
 // Global to make sure driver is only loaded once.
 //
 
 ULONG VgaLoaded = 0;
-ULONG BaseVideo;
 
 #if DBG
 #define MAX_CONTROL_HISTORY 512
@@ -162,81 +120,9 @@ Return Value:
 {
 
     VIDEO_HW_INITIALIZATION_DATA hwInitData;
-    ULONG status;
     ULONG initializationStatus;
 
-    PAGED_CODE();
-
-
     BaseVideo = 0;
-
-#ifdef DEADMAN_KEY
-
-    {
-        //
-        // We are in the force driver.
-        // fall through if we must load it, oterwise return failiure
-        //
-
-        RTL_QUERY_REGISTRY_TABLE queryTable[2];
-
-        VideoDebugPrint((2, "DEADMAN: We are the deadman driver - check for start options key\n"));
-
-        queryTable[0].QueryRoutine = vgaRegistryCallback;
-        queryTable[0].Flags = RTL_QUERY_REGISTRY_REQUIRED;
-        queryTable[0].Name = L"SystemStartOptions";
-        queryTable[0].EntryContext = NULL;
-        queryTable[0].DefaultType = REG_NONE;
-        queryTable[0].DefaultData = 0;
-        queryTable[0].DefaultLength = 0;
-
-        queryTable[1].QueryRoutine = NULL;
-        queryTable[1].Flags = 0;
-        queryTable[1].Name = NULL;
-        queryTable[1].EntryContext = NULL;
-        queryTable[1].DefaultType = REG_NONE;
-        queryTable[1].DefaultData = 0;
-        queryTable[1].DefaultLength = 0;
-
-        RtlQueryRegistryValues(RTL_REGISTRY_ABSOLUTE,
-                               L"\\Registry\\Machine\\System\\CurrentControlSet\\Control",
-                               queryTable,
-                               NULL,
-                               NULL);
-
-        //
-        // Supoprt autodetection.
-        // We do this by making sure we boot in vga, but don't claim any resources
-        // so we can boot in vga mode properly.
-        //
-
-        VideoDebugPrint((2, "VGA: Are we autodetecting video drivers ?\n"));
-
-        queryTable[0].QueryRoutine = vgaRegistryCallback;
-        queryTable[0].Flags = RTL_QUERY_REGISTRY_REQUIRED | RTL_QUERY_REGISTRY_NOVALUE;
-        queryTable[0].Name = NULL;
-        queryTable[0].EntryContext = NULL;
-        queryTable[0].DefaultType = REG_NONE;
-        queryTable[0].DefaultData = 0;
-        queryTable[0].DefaultLength = 0;
-
-        queryTable[1].QueryRoutine = NULL;
-        queryTable[1].Flags = 0;
-        queryTable[1].Name = NULL;
-        queryTable[1].EntryContext = NULL;
-        queryTable[1].DefaultType = REG_NONE;
-        queryTable[1].DefaultData = 0;
-        queryTable[1].DefaultLength = 0;
-
-        RtlQueryRegistryValues(RTL_REGISTRY_ABSOLUTE,
-                               L"\\Registry\\Machine\\System\\CurrentControlSet\\Control\\GraphicsDrivers\\DetectDisplay",
-                               queryTable,
-                               NULL,
-                               NULL);
-    }
-
-#endif
-
 
     //
     // Zero out structure.
@@ -285,10 +171,19 @@ Return Value:
     //
     // Once all the relevant information has been stored, call the video
     // port driver to do the initialization.
-    // For this device we will repeat this call three times, for ISA, EISA
-    // and MCA.
-    // We will return the minimum of all return values.
     //
+
+    hwInitData.AdapterInterfaceType = PCIBus;
+
+    initializationStatus = VideoPortInitialize(Context1,
+                                               Context2,
+                                               &hwInitData,
+                                               NULL);
+
+    if (initializationStatus == NO_ERROR)
+    {
+        return initializationStatus;
+    }
 
     hwInitData.AdapterInterfaceType = Isa;
 
@@ -296,27 +191,33 @@ Return Value:
                                                Context2,
                                                &hwInitData,
                                                NULL);
+    if (initializationStatus == NO_ERROR)
+    {
+        return initializationStatus;
+    }
 
     hwInitData.AdapterInterfaceType = Eisa;
 
-    status = VideoPortInitialize(Context1,
-                                 Context2,
-                                 &hwInitData,
-                                 NULL);
+    initializationStatus = VideoPortInitialize(Context1,
+                                               Context2,
+                                               &hwInitData,
+                                               NULL);
 
-    if (initializationStatus > status) {
-        initializationStatus = status;
+    if (initializationStatus == NO_ERROR)
+    {
+        return initializationStatus;
     }
 
     hwInitData.AdapterInterfaceType = MicroChannel;
 
-    status = VideoPortInitialize(Context1,
-                                 Context2,
-                                 &hwInitData,
-                                 NULL);
+    initializationStatus = VideoPortInitialize(Context1,
+                                               Context2,
+                                               &hwInitData,
+                                               NULL);
 
-    if (initializationStatus > status) {
-        initializationStatus = status;
+    if (initializationStatus == NO_ERROR)
+    {
+        return initializationStatus;
     }
 
     //
@@ -328,116 +229,17 @@ Return Value:
 
     hwInitData.AdapterInterfaceType = Internal;
 
-    status = VideoPortInitialize(Context1,
-                                 Context2,
-                                 &hwInitData,
-                                 NULL);
-
-    if (initializationStatus > status) {
-        initializationStatus = status;
-    }
+    initializationStatus = VideoPortInitialize(Context1,
+                                               Context2,
+                                               &hwInitData,
+                                               NULL);
 
     return initializationStatus;
 
 } // end DriverEntry()
 
-#ifdef DEADMAN_KEY
-NTSTATUS
-vgaRegistryCallback(
-    IN PWSTR ValueName,
-    IN ULONG ValueType,
-    IN PVOID ValueData,
-    IN ULONG ValueLength,
-    IN PVOID Context,
-    IN PVOID EntryContext
-    )
-
-/*++
-
-Routine Description:
-
-    This routine determines if the BASEVIDEO options was specified.
-
-Arguments:
-
-Return Value:
-
-    return STATUS_SUCCESS if we are in DEADMAN_KEY state
-    return failiure otherwise.
-
-
---*/
-
-{
-    UNICODE_STRING u1, uu1;
-    NTSTATUS ntStatus = STATUS_UNSUCCESSFUL;
-
-    //
-    // In autodetect, we are just looking for the key so we will be called
-    // will a NULL data value.
-    //
-
-    if (ValueName == NULL) {
-
-        VideoDebugPrint((2, "VGA: we are in autodetect mode\n"));
-        BaseVideo = 1;
-        ntStatus = STATUS_SUCCESS;
-
-    } else {
-
-        VideoDebugPrint((2, "DEADMAN: base video detection callback\n"));
-
-        if (ValueLength && ValueData) {
-
-            u1.Buffer = ValueData;
-            u1.Length = (USHORT) ValueLength;
-            u1.MaximumLength = (USHORT) ValueLength;
-
-            // just allocate a large buffer
-
-            uu1.Length = 0;
-            uu1.MaximumLength = u1.Length + sizeof(UNICODE_NULL);
-
-            uu1.Buffer = ExAllocatePool(PagedPool, uu1.MaximumLength);
-
-            if (uu1.Buffer) {
-
-                // just to make sure we get a NULL somewhere at the end
-                // of the string.
-
-                RtlZeroMemory(uu1.Buffer, uu1.MaximumLength);
-
-                if (NT_SUCCESS(RtlUpcaseUnicodeString(&uu1, &u1, FALSE))) {
-
-                    //
-                    // Parse the string and search for "basevideo"
-                    //
-
-                    if (wcsstr(uu1.Buffer, L"BASEVIDEO")) {
-
-                        VideoDebugPrint((2, "DEADMAN: base video is set\n"));
-                        BaseVideo = 1;
-                        ntStatus = STATUS_SUCCESS;
-
-                    }
-
-                }
-
-                ExFreePool(uu1.Buffer);
-
-            }
-        }
-
-    }
-
-    return ntStatus;
-
-} // end vgaRegistryCallback()
-#endif
-
-#ifdef MIPS
 VP_STATUS
-mipsGetDeviceDataCallback(
+GetDeviceDataCallback(
     PVOID HwDeviceExtension,
     PVOID Context,
     VIDEO_DEVICE_DATA_TYPE DeviceDataType,
@@ -448,66 +250,64 @@ mipsGetDeviceDataCallback(
     PVOID ComponentInformation,
     ULONG ComponentInformationLength
     )
-
-/*++
-
-Routine Description:
-
-    Callback routine for the VideoPortGetDeviceData function.
-
-Arguments:
-
-    HwDeviceExtension - Pointer to the miniport drivers device extension.
-
-    Context - Context value passed to the VideoPortGetDeviceData function.
-
-    DeviceDataType - The type of data that was requested in
-        VideoPortGetDeviceData.
-
-    Identifier - Pointer to a string that contains the name of the device,
-        as setup by the ROM or ntdetect.
-
-    IdentifierLength - Length of the Identifier string.
-
-    ConfigurationData - Pointer to the configuration data for the device or
-        BUS.
-
-    ConfigurationDataLength - Length of the data in the configurationData
-        field.
-
-    ComponentInformation - Undefined.
-
-    ComponentInformationLength - Undefined.
-
-Return Value:
-
-    Returns NO_ERROR if the function completed properly.
-
---*/
-
 {
+    PVIDEO_ACCESS_RANGE accessRange = Context;
+    PVIDEO_HARDWARE_CONFIGURATION_DATA configData = ConfigurationData;
+    ULONG i;
+
     VideoDebugPrint((2, "VGA: controller information is present\n"));
 
     //
-    // The NEC DUO machine hangs if we try to detect a VGA chip on the internal
-    // bus.  Just fail if this is the case.
+    // We do not want to try to detect the vga if there isn't one present.
+    // (Kind of a paradox?)  The only MIPS box I am aware of which has
+    // an vga on the internal bus is the NeTPower NeTstation 100 and the Acer.
+    // It has an identifier of "ALI_S3".
     //
 
-    if (Identifier) {
+    if (!Identifier)
+    {
+        return ERROR_DEV_NOT_EXIST;
+    }
 
-        if (VideoPortCompareMemory(L"necvdfrb",
-                                   Identifier,
-                                   sizeof(L"necvdfrb")) == sizeof(L"necvdfrb")) {
+    if (VideoPortCompareMemory(L"ALI_S3",
+                               Identifier,
+                               sizeof(L"ALI_S3")) != sizeof(L"ALI_S3"))
+    {
+        return ERROR_DEV_NOT_EXIST;
+    }
 
-            return ERROR_DEV_NOT_EXIST;
 
+    //
+    // Now lets get the base for the IO ports and memory location out of the
+    // configuration information.
+    //
+
+    VideoDebugPrint((2, "VGA: Internal Bus, get new IO bases\n"));
+
+    //
+    // For MIPS machine with an Internal Bus, adjust the access ranges.
+    //
+
+    VideoDebugPrint((3, "VGA: FrameBase Offset = %08lx\n", configData->FrameBase));
+    VideoDebugPrint((3, "VGA: IoBase Offset = %08lx\n", configData->ControlBase));
+
+    for (i=0; i < NUM_VGA_ACCESS_RANGES; i++)
+    {
+        if (accessRange[i].RangeInIoSpace)
+        {
+            accessRange[i].RangeStart.LowPart += configData->ControlBase;
+            accessRange[i].RangeInIoSpace = 0;
+        }
+        else
+        {
+            accessRange[i].RangeStart.LowPart += configData->FrameBase;
         }
     }
 
     return NO_ERROR;
 
-} //end mipsGetDeviceDataCallback()
-#endif
+} //end GetDeviceDataCallback()
+
 
 VP_STATUS
 VgaForceVgaRegistryCallback(
@@ -517,22 +317,6 @@ VgaForceVgaRegistryCallback(
     PVOID ValueData,
     ULONG ValueLength
     )
-
-/*++
-
-Routine Description:
-
-    This routine determines if the driver is the ForceVga.
-
-Arguments:
-
-Return Value:
-
-    return STATUS_SUCCESS if we are in DEADMAN_KEY state
-    return failiure otherwise.
-
---*/
-
 {
     VideoDebugPrint((2, "DEADMAN: Force VGA callback\n"));
     return NO_ERROR;
@@ -612,19 +396,21 @@ Return Value:
     }
 
     //
+    // Make sure we only load one copy of the vga driver
+    //
+
+    if (VgaLoaded) {
+
+        return ERROR_DEV_NOT_EXIST;
+
+    }
+
+    //
+    //
     // No interrupt information is necessary.
     //
 
-#ifdef MIPS
-
-    //
-    // For MIPS machine with an Internal Bus, adjust the access ranges.
-    //
-
     if (ConfigInfo->AdapterInterfaceType == Internal) {
-
-        #define INTERNAL_BUS_VIDEO_MEMORY_BASE 0x40000000
-        #define INTERNAL_BUS_IO_PORT_BASE      0x60000000
 
         //
         // First check if there is a video adapter on the internal bus.
@@ -633,8 +419,8 @@ Return Value:
 
         if (NO_ERROR != VideoPortGetDeviceData(hwDeviceExtension,
                                                VpControllerData,
-                                               &mipsGetDeviceDataCallback,
-                                               NULL)) {
+                                               &GetDeviceDataCallback,
+                                               VgaAccessRange)) {
 
             VideoDebugPrint((2, "VGA: VideoPort get controller info failed\n"));
 
@@ -642,42 +428,7 @@ Return Value:
 
         }
 
-        VideoDebugPrint((1, "VGA: Internal Bus, get new IO bases\n"));
-
-        //
-        // Adjust memory location
-        //
-
-        VgaAccessRange[0].RangeStart.LowPart += INTERNAL_BUS_IO_PORT_BASE;
-        VgaAccessRange[0].RangeInIoSpace = FALSE;
-
-        VgaAccessRange[1].RangeStart.LowPart += INTERNAL_BUS_IO_PORT_BASE;
-        VgaAccessRange[1].RangeInIoSpace = FALSE;
-
-        VgaAccessRange[2].RangeStart.LowPart += INTERNAL_BUS_VIDEO_MEMORY_BASE;
-        VgaAccessRange[2].RangeInIoSpace = FALSE;
-
-        VgaAccessRange[3].RangeStart.LowPart += INTERNAL_BUS_IO_PORT_BASE;
-        VgaAccessRange[3].RangeInIoSpace = FALSE;
-
     }
-
-#endif
-
-
-
-    //
-    // HACK HACK BUGBUG !!! TEMP
-    //
-    // This is to support BryanWi changes to support the VGA DEADMAN key.
-    // We ahve to parse the boot Options paramters in
-    // \CurrentControlSet\Control SystemStartOptions
-    // and check for the basevideo keyword.
-    //
-    // This should be removed after 1.0A, when we select different control sets.
-    //
-
-    VideoDebugPrint((2, "DEADMAN: About to check for DEADMAN key\n"));
 
     //
     // First check if we are loading the forced VGA driver
@@ -689,30 +440,34 @@ Return Value:
                                             VgaForceVgaRegistryCallback,
                                             NULL);
 
-    if ( (status == NO_ERROR) &&
-         (!BaseVideo) ) {
 
-        VideoDebugPrint((2, "DEADMAN: Exiting, we are not forcing VGA\n"));
+    if (status == NO_ERROR) {
+
+        VideoDebugPrint((2, "ForceVga is no longer used.  Just fail.\n"));
 
         return ERROR_DEV_NOT_EXIST;
 
     } else {
 
         //
-        // Either ForceVga is not there (Normal operation) or ForceVga
-        // was there and BASEVIDEO is supported
+        // ForceVga is not there.  We are running vga or vgasave.
         //
 
         status = VideoPortVerifyAccessRanges(HwDeviceExtension,
-                                                 0,
-                                                 NULL);
+                                             NUM_VGA_ACCESS_RANGES,
+                                             VgaAccessRange);
 
         if (status != NO_ERROR) {
 
-            return status;
+            //
+            // If a conflict really occured, fail !
+            //
 
+            return status;
         }
     }
+
+
 
     //
     // Get logical IO port addresses.
@@ -788,20 +543,6 @@ Return Value:
     *Again = 0;
 
     //
-    // Make sure we only load one copy of the vga driver
-    //
-
-    if (VgaLoaded) {
-
-        return ERROR_DEV_NOT_EXIST;
-
-    } else {
-
-        VgaLoaded = 1;
-
-    }
-
-    //
     // If we are in BASEVIDEO mode, disable the 800x600 mode
     // since it doesnot work on AVGA, and causes problems when trying to save
     // it in the registry.
@@ -816,6 +557,15 @@ Return Value:
     }
 
 #endif
+
+    //
+    // Keep track of if we already got loaded, since we can be called back
+    // for a secondary bus (some machines have 2 PCI buses).
+    // If *we* acquired the resources, then we won't conflict with ourselves
+    // since we grabbed the resources as shared.
+    //
+
+    VgaLoaded = 1;
 
     //
     // Indicate a successful completion status.
@@ -1169,6 +919,62 @@ Return Value:
 
         break;
 
+    case IOCTL_VIDEO_QUERY_PUBLIC_ACCESS_RANGES:
+
+        VideoDebugPrint((2, "VgaStartIO - Query Public Address Ranges\n"));
+
+        if (RequestPacket->OutputBufferLength <
+            (RequestPacket->StatusBlock->Information =
+                                 sizeof(VIDEO_PUBLIC_ACCESS_RANGES)) )
+        {
+            status = ERROR_INSUFFICIENT_BUFFER;
+        }
+        else
+        {
+            PVIDEO_PUBLIC_ACCESS_RANGES publicAccessRanges;
+            PHYSICAL_ADDRESS PhysicalRegisterAddress;
+            ULONG RegisterLength;
+
+            publicAccessRanges = RequestPacket->OutputBuffer;
+
+            PhysicalRegisterAddress.LowPart = 0;
+            PhysicalRegisterAddress.HighPart = 0;
+            RegisterLength = 0x10000;
+            publicAccessRanges->InIoSpace = TRUE;
+            publicAccessRanges->VirtualAddress = NULL;
+
+            status = VideoPortMapMemory(
+                                HwDeviceExtension,
+                                PhysicalRegisterAddress,
+                                &RegisterLength,
+                                &(publicAccessRanges->InIoSpace),
+                                &(publicAccessRanges->VirtualAddress)
+                                );
+        }
+
+        break;
+
+    case IOCTL_VIDEO_FREE_PUBLIC_ACCESS_RANGES:
+
+        VideoDebugPrint((2, "VgaStartIO - Free Public Address Ranges\n"));
+
+        if (RequestPacket->InputBufferLength < sizeof(VIDEO_MEMORY))
+        {
+            status = ERROR_INSUFFICIENT_BUFFER;
+        }
+        else
+        {
+            PVIDEO_MEMORY mappedMemory;
+
+            mappedMemory = RequestPacket->InputBuffer;
+
+            status = VideoPortUnmapMemory(
+                                 HwDeviceExtension,
+                                 mappedMemory->RequestedVirtualAddress,
+                                 0);
+        }
+
+        break;
 
     //
     // if we get here, an invalid IoControlCode was specified.
@@ -3958,6 +3764,14 @@ Return Value:
 
         bufferPointer += VGA_PLANE_SIZE;
     }
+
+    //
+    // Reenable video output
+    //
+
+    VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
+            DAC_PIXEL_MASK_PORT, 0xff);
+
 
     return NO_ERROR;
 

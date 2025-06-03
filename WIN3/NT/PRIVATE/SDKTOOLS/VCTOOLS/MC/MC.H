@@ -36,6 +36,8 @@ Revision History:
 #include <sys\types.h>
 #include <sys\stat.h>
 #include <wchar.h>
+#include <assert.h>
+#include <locale.h>
 #include <windows.h>
 
 //
@@ -65,6 +67,7 @@ Revision History:
 #define MCTOK_SYMBOLNAME_KEYWORD      0x0018
 #define MCTOK_LANGUAGE_KEYWORD        0x0019
 #define MCTOK_OUTBASE_KEYWORD         0x001A
+#define MCTOK_MSGTYPEDEF_KEYWORD      0x001B
 
 
 //
@@ -117,9 +120,11 @@ typedef struct _NAME_INFO {
 int VerboseOutput;
 int WarnOs2Compatible;
 int InsertSymbolicName;
+int MaxMessageLength;
 int GenerateDecimalSevAndFacValues;
 int GenerateDecimalMessageValues;
 int ResultCode;
+ULONG InputErrorCount;
 int OleOutput;
 int UnicodeInput;
 int UnicodeOutput;
@@ -146,6 +151,7 @@ FILE *DebugFile;
 char DebugFileName[ MAX_PATH ];
 
 WCHAR *MessageIdTypeName;
+WCHAR *MessageIdTypeMacro;
 
 PNAME_INFO FacilityNames;
 PNAME_INFO CurrentFacilityName;
@@ -219,6 +225,8 @@ McWriteBinaryFilesA( void );
 BOOLEAN
 McWriteBinaryFilesW( void );
 
+VOID
+McClearArchiveBit( LPSTR Name );
 
 
 //
@@ -238,7 +246,7 @@ void
 McCloseInputFile( void );
 
 void
-McCloseOutputFiles( void );
+McCloseOutputFiles( BOOLEAN );
 
 void
 McInputErrorA(
@@ -326,5 +334,3 @@ fgetsW(
     long count,
     FILE * fp
     );
-
-

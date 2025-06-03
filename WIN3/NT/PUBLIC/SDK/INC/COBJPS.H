@@ -1,10 +1,10 @@
 /*****************************************************************************\
 *                                                                             *
-* cobjps.h -    Definitions for writing standard proxies and stubs			  *
+* cobjps.h -    Definitions for writing standard proxies and stubs            *
 *                                                                             *
 *               OLE Version 2.0                                               *
 *                                                                             *
-*               Copyright (c) 1992-1993, Microsoft Corp. All rights reserved. *
+*               Copyright (c) 1992-1995, Microsoft Corp. All rights reserved. *
 *                                                                             *
 \*****************************************************************************/
 
@@ -14,7 +14,7 @@
 
 /****** IRpcChannel Interface ***********************************************/
 
-interface IRpcChannel : IUnknown 
+interface IRpcChannel : IUnknown
 {
     STDMETHOD(GetStream)(REFIID iid, int iMethod, BOOL fSend,
                      BOOL fNoWait, DWORD size, IStream FAR* FAR* ppIStream) = 0;
@@ -30,7 +30,7 @@ interface IRpcChannel : IUnknown
 // exactly the same interfaces as the real object in addition to IRpcProxy.
 //
 
-interface IRpcProxy : IUnknown 
+interface IRpcProxy : IUnknown
 {
     STDMETHOD(Connect)(IRpcChannel FAR* pRpcChannel) = 0;
     STDMETHOD_(void, Disconnect)(void) = 0;
@@ -39,7 +39,7 @@ interface IRpcProxy : IUnknown
 
 /****** IRpcStub Interface **************************************************/
 
-// IRpcStub is an interface implemented by stub objects.  
+// IRpcStub is an interface implemented by stub objects.
 //
 
 interface IRpcStub : IUnknown
@@ -60,7 +60,7 @@ interface IRpcStub : IUnknown
 
 interface IPSFactory : IUnknown
 {
-    STDMETHOD(CreateProxy)(IUnknown FAR* pUnkOuter, REFIID riid, 
+    STDMETHOD(CreateProxy)(IUnknown FAR* pUnkOuter, REFIID riid,
         IRpcProxy FAR* FAR* ppProxy, void FAR* FAR* ppv) = 0;
     STDMETHOD(CreateStub)(REFIID riid, IUnknown FAR* pUnkServer,
         IRpcStub FAR* FAR* ppStub) = 0;

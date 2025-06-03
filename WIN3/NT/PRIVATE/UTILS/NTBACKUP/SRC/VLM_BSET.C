@@ -201,7 +201,7 @@ static VOID_PTR VLM_BsetGetPrevItem( BSET_OBJECT_PTR );
 static VOID_PTR VLM_BsetGetNextItem( BSET_OBJECT_PTR );
 static VOID_PTR VLM_BsetGetObjects( BSET_OBJECT_PTR );
 
-static BSET_OBJECT_PTR VLM_CreateBSET( INT, INT, INT, INT, INT, INT, INT, INT );
+static BSET_OBJECT_PTR VLM_CreateBSET( INT, INT, INT, INT, INT, INT, INT, INT, INT, INT );
 static VOID  VLM_SetBsetStringMaxValues( TAPE_OBJECT_PTR, BSET_OBJECT_PTR );
 static BOOLEAN VLM_SetBsetFlags( BSET_OBJECT_PTR, QTC_BSET_PTR, BOOLEAN, INT16 );
 
@@ -1176,7 +1176,9 @@ BOOLEAN UpdateScreen  )   // I
                                 (strlen( &buffer[40] ) + 1) * sizeof(CHAR),
                                 MAX_BSET_KBYTES_SIZE * sizeof(CHAR),
                                 (INT16)max( header->tape_password_size,
-                                            header->bset_password_size ) );
+                                            header->bset_password_size),
+                                header->OS_id,
+                                header->OS_ver);
 
          if ( bset == NULL ) {
             return;
@@ -1242,7 +1244,6 @@ BOOLEAN UpdateScreen  )   // I
             bset->status |= INFO_IMAGE;
          }
          if ( header->status & QTC_FUTURE_VER ) {
-            bset->status |= INFO_FUTURE_VER;
          }
          if ( header->status & QTC_COMPRESSED ) {
             bset->status |= INFO_COMPRESSED;
@@ -1277,6 +1278,10 @@ BOOLEAN UpdateScreen  )   // I
          BSET_SetBsetNumStr( bset, buffer );
 
          bset->backup_type = (UINT8)header->backup_type;
+          
+         bset->num_files = (UINT32)header->num_files ;
+         bset->num_dirs = (UINT32)header->num_dirs ;
+         bset->num_corrupt = (UINT32)header->num_corrupt_files ;
 
          // which password to use
 
@@ -1409,6 +1414,21 @@ BOOLEAN UpdateScreen  )   // I
          }
 
 
+         if ( bset->num_files != (INT32)header->num_files ) {
+              bset->num_files = (INT32)header->num_files ;
+              changed = TRUE ;
+         }
+
+         if ( bset->num_dirs != (INT32)header->num_dirs ) {
+              bset->num_dirs = (INT32)header->num_dirs ;
+              changed = TRUE ;
+         }
+
+         if ( bset->num_corrupt != (INT32)header->num_corrupt_files ) {
+              bset->num_corrupt = (INT32)header->num_corrupt_files ;
+              changed = TRUE ;
+         }
+
          if ( VLM_SetBsetFlags( bset, qtc, FALSE, (INT16)0 ) == TRUE ) {
             changed = TRUE;
          }
@@ -1460,7 +1480,6 @@ BOOLEAN UpdateScreen  )   // I
             bset->status |= INFO_IMAGE;
          }
          if ( header->status & QTC_FUTURE_VER ) {
-            bset->status |= INFO_FUTURE_VER;
          }
          if ( header->status & QTC_COMPRESSED ) {
             bset->status |= INFO_COMPRESSED;
@@ -1849,7 +1868,9 @@ INT tape_num_size,
 INT date_size,
 INT time_size,
 INT bytes_size,
-INT password_size )
+INT password_size,
+INT os_id,
+INT os_ver )
 {
    BSET_OBJECT_PTR bset;
 
@@ -1875,6 +1896,8 @@ INT password_size )
       bset->time_str = bset->date_str + date_size / sizeof(CHAR);
       bset->kbytes_str = bset->time_str + time_size / sizeof(CHAR);
       bset->password = bset->kbytes_str + bytes_size / sizeof(CHAR);
+      bset->os_id = (INT)((INT16)os_id) ;
+      bset->os_ver = os_ver ;
    }
 
    return( bset );
@@ -2004,12 +2027,13 @@ VOID_PTR VLM_BsetSetSelect( BSET_OBJECT_PTR bset, BYTE attr )
    QTC_BSET_PTR qtc_bset;
    QTC_HEADER_PTR header;
    INT16 tape_num;
+   CHAR_PTR server_name;
 
    gbCurrentOperation = OPERATION_CATALOG;        // chs:04-05-93
 
    // You can't select these bsets, no matter how hard you try.
 
-   if ( bset->status & (INFO_SMS|INFO_IMAGE|INFO_COMPRESSED|INFO_ENCRYPTED|INFO_FUTURE_VER ) ) {
+   if ( bset->status & (INFO_SMS|INFO_IMAGE|INFO_COMPRESSED|INFO_ENCRYPTED ) ) {
       return( NULL );
    }
 
@@ -2089,6 +2113,40 @@ VOID_PTR VLM_BsetSetSelect( BSET_OBJECT_PTR bset, BYTE attr )
       BSD_Add( tape_bsd_list, &bsd_ptr, bec_config, NULL,
                NULL, bset->tape_fid, bset->tape_num, bset->bset_num,
                NULL, &sort_date );
+               
+      if ( bsd_ptr ) {
+          BSD_SetOsId(bsd_ptr, bset->os_id) ;
+          BSD_SetOsVer(bsd_ptr, bset->os_ver) ;
+          
+          server_name = bset->volume_name;
+          while ( *server_name ) server_name++;
+          
+          while ( ( *server_name != TEXT( '\\' ) ) &&
+                  ( server_name != bset->volume_name ) )
+              server_name--;
+              
+          if ( server_name != bset->volume_name ) {
+          
+              *server_name = TEXT( '\0' );
+
+              while ( ( *server_name != TEXT( '\\' ) ) &&
+                    ( server_name != bset->volume_name ) )
+                  server_name--;
+              if ( server_name != bset->volume_name ) {
+                 
+                  server_name++;
+              }
+               
+              BSD_SetVolumeLabel( bsd_ptr, server_name, (UINT16)strsize( server_name ) ); 
+
+              while ( *server_name ) server_name++;
+              *server_name = TEXT( '\\' );
+               
+          } else {
+
+               BSD_SetVolumeLabel( bsd_ptr, server_name, (UINT16)strsize( server_name ) ); 
+          }
+     }
 
       VLM_FillInBSD( bsd_ptr );
    }
@@ -2321,14 +2379,39 @@ static VOID_PTR VLM_BsetGetObjects( BSET_OBJECT_PTR bset )
    item++;
    DLM_ItemcbNum( item ) = item_num++;
    DLM_ItembType( item ) = DLM_BITMAP;
-   DLM_ItemwId( item ) = IDRBM_BSET;
-   if ( ! bset->full ) {
-      DLM_ItemwId( item ) = IDRBM_BSETPART;
-   }
+
+     switch ( bset->os_id ) {
+
+     case FS_EMS_MDB_ID:
+          if  (bset->num_dirs == 0) {
+               DLM_ItemwId( item ) = IDRBM_EMS_MDBP;
+          } else if ( bset->num_corrupt == 0 ) {
+               DLM_ItemwId( item ) = IDRBM_EMS_MDB;
+          } else {
+               DLM_ItemwId( item ) = IDRBM_EMS_MDBX;
+          }
+          break;
+
+     case FS_EMS_DSA_ID:
+          if  (bset->num_dirs == 0) {
+               DLM_ItemwId( item ) = IDRBM_EMS_DSAP;
+          } else if ( bset->num_corrupt == 0 ) {
+               DLM_ItemwId( item ) = IDRBM_EMS_DSA;
+          } else {
+               DLM_ItemwId( item ) = IDRBM_EMS_DSAX;
+          }
+          break;
+
+     default:
+        DLM_ItemwId( item ) = IDRBM_BSET;
+        if ( ! bset->full ) {
+           DLM_ItemwId( item ) = IDRBM_BSETPART;
+        }
+     }
 
    // Don't display encrypted or compressed or newer version sets as full
 
-   if ( bset->status & (INFO_COMPRESSED | INFO_ENCRYPTED | INFO_FUTURE_VER ) ) {
+   if ( bset->status & (INFO_COMPRESSED | INFO_ENCRYPTED ) ) {
 
       DLM_ItemwId( item ) = IDRBM_BSETPART;
    }
@@ -2528,6 +2611,14 @@ WORD ObjectNum )
    if ( ( operation == WM_DLMDBCLK ) &&
         ( ObjectNum >= 2 ) ) {
 
+#ifdef OEM_EMS
+      if ( ( bset->os_id == FS_EMS_MDB_ID ) ||
+           ( bset->os_id == FS_EMS_DSA_ID ) ) {
+
+          return TRUE;
+      }
+#endif
+
       win = WM_GetNext( (HWND)NULL );
 
       while ( win != (HWND)NULL ) {
@@ -2555,18 +2646,6 @@ WORD ObjectNum )
 
             RSM_StringCopy( IDS_VLMCATWARNING, title, MAX_UI_RESOURCE_LEN );
             RSM_StringCopy( IDS_VLMSETIMAGE, text, MAX_UI_RESOURCE_LEN );
-
-            WM_MsgBox( title,
-                       text,
-                       WMMB_OK,
-                       WMMB_ICONEXCLAMATION );
-
-            return( FALSE );
-         }
-         if ( bset->status & INFO_FUTURE_VER ) {
-
-            RSM_StringCopy( IDS_VLMCATWARNING, title, MAX_UI_RESOURCE_LEN );
-            RSM_StringCopy( IDS_VLMSETFUTURE, text, MAX_UI_RESOURCE_LEN );
 
             WM_MsgBox( title,
                        text,

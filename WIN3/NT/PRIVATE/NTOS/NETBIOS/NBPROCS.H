@@ -190,7 +190,8 @@ CloseConnection(
 PPCB
 FindCb(
     IN PFCB pfcb,
-    IN PDNCB pdncb
+    IN PDNCB pdncb,
+    IN BOOLEAN IgnoreState
     );
 
 NTSTATUS

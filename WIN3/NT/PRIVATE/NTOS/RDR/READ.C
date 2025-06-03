@@ -31,6 +31,12 @@ Revision History:
 #include "precomp.h"
 #pragma hdrstop
 
+//
+// If the server supports large Read&X commands, this is the largest we'll
+//   actually ask for
+//
+#define LARGEST_READANDX (60*1024)
+
 typedef
 struct _READANDXCONTEXT {
     TRANCEIVE_HEADER Header;            // Common header structure
@@ -185,14 +191,14 @@ Return Value:
 
     FsRtlEnterFileSystem();
 
-#if RDRDBG_LOG
+#if 0 && RDRDBG_LOG
     {
-        //LARGE_INTEGER tick;
-        //KeQueryTickCount(&tick);
-        //RdrLog( "read", &Icb->Fcb->FileName, tick.LowPart, tick.HighPart );
-        RdrLog( "read", &Icb->Fcb->FileName,
-            IrpSp->Parameters.Read.ByteOffset.LowPart,
-            IrpSp->Parameters.Read.Length | (FlagOn(Irp->Flags,IRP_PAGING_IO) ? 0x80000000 : 0));
+        LARGE_INTEGER tick;
+        KeQueryTickCount(&tick);
+        //RdrLog(( "read", &Icb->Fcb->FileName, 2, tick.LowPart, tick.HighPart ));
+        //RdrLog(( "read", &Icb->Fcb->FileName, 4, IoGetRequestorProcess(Irp), IrpSp->FileObject,
+        //    IrpSp->Parameters.Read.ByteOffset.LowPart,
+        //    IrpSp->Parameters.Read.Length | (FlagOn(Irp->Flags,IRP_PAGING_IO) ? 0x80000000 : 0)));
     }
 #endif
 
@@ -371,6 +377,7 @@ Return Value:
             RdrWaitForAndXBehindOperation(&Icb->u.f.AndXBehind);
         }
 
+
 #ifdef  PAGING_OVER_THE_NET
         //
         //  If this I/O is to a paging file, then take our special paging read
@@ -406,28 +413,19 @@ Return Value:
 
         //
         //  If this is a noncached transfer and is not a paging I/O, and
-        //  the file has been opened cached, then we will do a flush here
+        //  the file has a data section, then we will do a flush here
         //  to avoid stale data problems.  Note that we must flush before
         //  acquiring the Fcb shared since the write may try to acquire
         //  it exclusive.
         //
-        //  We also flush page faults if not originating from the cache
-        //  manager to avoid stale data problems.
-        //  For example, if we are faulting in a page of an executable
-        //  that was just written, there are two seperate sections, so
-        //  we must flush the Data section so that we fault the correct
-        //  data into the Image section.
-        //
 
-        if (NonCachedIo && ( !PagingIo ||
-                             (!MmIsRecursiveIoFault() &&
-                              (FileObject->SectionObjectPointer->ImageSectionObject != NULL)) )
+        if (!PagingIo && NonCachedIo
 
                     &&
 
             FileObject->SectionObjectPointer->DataSectionObject) {
 
-            RdrLog( "ccflush4", &Icb->Fcb->FileName, ByteOffset.LowPart, Length );
+            //RdrLog(( "ccflush4", &Icb->Fcb->FileName, 2, ByteOffset.LowPart, Length ));
             CcFlushCache( FileObject->SectionObjectPointer,
                               &ByteOffset,
                               Length,
@@ -437,6 +435,14 @@ Return Value:
 
                 try_return( Status = Irp->IoStatus.Status );
             }
+
+            //
+            // Serialize behind paging I/O to ensure flush is done.
+            //
+
+            ExAcquireResourceExclusive(Icb->Fcb->Header.PagingIoResource, TRUE);
+            ExReleaseResource(Icb->Fcb->Header.PagingIoResource);
+
         }
 
 
@@ -514,8 +520,10 @@ Return Value:
             FcbLocked = TRUE;
         }
 
-        if (!NT_SUCCESS(Status = RdrIsOperationValid(Icb, IRP_MJ_READ, FileObject))) {
-            try_return(Status);
+        if ( !FlagOn(Irp->Flags, IRP_PAGING_IO) ) {
+            if (!NT_SUCCESS(Status = RdrIsOperationValid(Icb, IRP_MJ_READ, FileObject))) {
+                try_return(Status);
+            }
         }
 
         RdrQueryFileSizes(Icb->Fcb, &FileSize, &ValidDataLength, NULL);
@@ -548,6 +556,9 @@ Return Value:
 
             !(FsRtlCheckLockForReadAccess( &Icb->Fcb->FileLock, Irp))) {
 
+            //RdrLog(( "readCONF", &Icb->Fcb->FileName, 4, IoGetRequestorProcess(Irp), IrpSp->FileObject,
+            //    IrpSp->Parameters.Read.ByteOffset.LowPart,
+            //    IrpSp->Parameters.Read.Length | (FlagOn(Irp->Flags,IRP_PAGING_IO) ? 0x80000000 : 0)));
             try_return(Status = STATUS_FILE_LOCK_CONFLICT);
 
         }
@@ -557,8 +568,6 @@ Return Value:
                 &&
 
             RdrCanFileBeBuffered(Icb)) {
-
-            LiTemps;
 
             //
             //  If this file can be cached, limit the read amount to the
@@ -709,6 +718,21 @@ Return Value:
             }
         }
 
+        if( FileObject->PrivateCacheMap != NULL &&
+            Icb->Fcb->HaveSetCacheReadAhead == FALSE ) {
+
+            if( ByteOffset.QuadPart >= PAGE_SIZE ) {
+
+                //
+                // We haven't set readahead and we're on the second page:
+                // set the readahead right now.
+                //
+
+                CcSetAdditionalCacheAttributes( FileObject, FALSE, FALSE );
+                Icb->Fcb->HaveSetCacheReadAhead = TRUE;
+            }
+        }
+
         //
         //  If this request can be cached, the file object is not in write through
         //  mode, try to cache the read operation.
@@ -744,14 +768,6 @@ Return Value:
                 CC_FILE_SIZES FileSizes;
 
                 //
-                //  Cache a back pointer to the file object in the ICB so we
-                //  can flush the cache from the FCB in the case of an oplock
-                //  break request.
-                //
-
-                Icb->u.f.FileObject = FileObject;
-
-                //
                 //  The call to CcInitializeCacheMap may raise an exception.
                 //
 
@@ -765,14 +781,23 @@ Return Value:
                 FileSizes =
                     *((PCC_FILE_SIZES)&Icb->Fcb->Header.AllocationSize);
 
+                ASSERT( !FlagOn(FileObject->Flags, FO_CLEANUP_COMPLETE) );
+
                 CcInitializeCacheMap( FileObject,
                             &FileSizes,
                             FALSE,      // We're not going to pin this data.
                             &DeviceObject->CacheManagerCallbacks,
                             Icb->Fcb);
 
-                CcSetReadAheadGranularity( FileObject, 32*1024 );
+                //
+                // Start out with read ahead disabled
+                //
+                CcSetAdditionalCacheAttributes( FileObject, TRUE, FALSE );
 
+                //
+                // But go ahead and set the granularity
+                //
+                CcSetReadAheadGranularity( FileObject, 32 * 1024 );
             }
 
             try {
@@ -781,7 +806,7 @@ Return Value:
                 try_return(Status = GetExceptionCode());
             }
 
-            if (FileObject->PrivateCacheMap != NULL) {
+            if (FileObject->PrivateCacheMap != NULL ) {
 
                 LARGE_INTEGER BeyondLastByte;
 
@@ -877,11 +902,6 @@ Return Value:
         }
 
         IOOffset = IrpSp->Parameters.Read.ByteOffset ;
-
-        if ( FlagOn(FileObject->Flags, FO_SYNCHRONOUS_IO) &&
-             !PagingIo ) {
-            FileObject->CurrentByteOffset = IrpSp->Parameters.Read.ByteOffset;
-        }
 
         //
         //  If we cannot tie up the current thread, post the request to the
@@ -1009,18 +1029,8 @@ Return Value:
         //  If this request won't fit into a single request, break it up
         //  into some more reasonable amount.
         //
-        //  To do this, we figure out how many packets it will take, and then
-        //  divide the entire amount by that quantity.
-        //
-
         if (Length > 0xffff) {
-            ULONG NumberOfPackets;
-
-            NumberOfPackets = (Length + 0xfffe) / 0xffff;
-
-            RawReadLength = Length / NumberOfPackets;
-
-            ASSERT (RawReadLength <= 0xffff);
+            RawReadLength = 0xFFFF;
         }
 
         //
@@ -1072,6 +1082,12 @@ Return Value:
         if (!Icb->Fcb->Connection->Server->SupportsRawRead) {
             UseRawIo = FALSE;
             UseRawIoOnPipe = FALSE;
+        }
+
+        if( Icb->Type == DiskFile &&
+            (Icb->Fcb->Connection->Server->Capabilities & DF_LARGE_READX) ) {
+
+            UseRawIo = FALSE;
         }
 
         while (Length > 0) {
@@ -1404,7 +1420,7 @@ try_exit: {
             if ( FlagOn(FileObject->Flags, FO_SYNCHRONOUS_IO) &&
                  !PagingIo ) {
 
-                FileObject->CurrentByteOffset.QuadPart += TotalDataRead;
+                FileObject->CurrentByteOffset.QuadPart = ByteOffset.QuadPart + TotalDataRead;
             }
         }
     }
@@ -1889,17 +1905,42 @@ Return Value:
     PREQ_READ_ANDX Read;
     NTSTATUS Status;
     ULONG Flags = NT_NORMAL | NT_NORECONNECT | NT_DONTSCROUNGE;
-// BUGBUG: We actually might be able to read in one or two more bytes here.
-    ULONG SrvReadSize = Icb->Fcb->Connection->Server->BufferSize -
-                                (sizeof(SMB_HEADER)+sizeof(RESP_READ_ANDX)+3);
+    ULONG SrvReadSize;
+    USHORT SmallReadXSize;
 
     BOOLEAN ConnectionObjectReferenced = FALSE;
     READ_ANDX_CONTEXT Context;
-    USHORT AmountRequestedToRead = (USHORT )MIN(Length, SrvReadSize);
+    USHORT AmountRequestedToRead;
+    PSERVERLISTENTRY Server;
+    BOOLEAN DoingLargeReadX;
 
 #ifndef PAGING_OVER_THE_NET
     PAGED_CODE();
 #endif
+
+    Server = Icb->Fcb->Connection->Server;
+
+
+    //
+    // If the server supports large reads, and we are working with a disk file,
+    //  then use a larger read size;
+    //
+    SmallReadXSize = (USHORT)Server->BufferSize -
+                            (sizeof(SMB_HEADER)+sizeof(RESP_READ_ANDX)+3);
+
+    if ( (Icb->Type == DiskFile) &&
+         (Server->Capabilities & DF_LARGE_READX) &&
+         Server->BufferSize < LARGEST_READANDX ) {
+
+        SrvReadSize = LARGEST_READANDX;
+        DoingLargeReadX = TRUE;
+    } else {
+
+        SrvReadSize = SmallReadXSize;
+        DoingLargeReadX = FALSE;
+    }
+
+    AmountRequestedToRead = (USHORT)MIN( Length, SrvReadSize );
 
     //
     //  Fill in the context information to be passed to the indication
@@ -1940,7 +1981,7 @@ Return Value:
 
     Smb->Command = SMB_COM_READ_ANDX;
 
-    RdrSmbScrounge(Smb, Icb->Fcb->Connection->Server, FALSE, FALSE);
+    RdrSmbScrounge(Smb, Server, FALSE, FALSE, FALSE);
 
     //
     //  Flag that this I/O is paging I/O to allow the server to
@@ -1965,7 +2006,7 @@ Return Value:
     SmbPutUlong(&Read->Offset, ReadOffset.LowPart);
 
 //    if (ReadOffset.HighPart != 0) {
-    if (Icb->Fcb->Connection->Server->Capabilities & DF_NT_SMBS) {
+    if (Server->Capabilities & DF_NT_SMBS) {
         PREQ_NT_READ_ANDX NtRead = (PREQ_NT_READ_ANDX )Read;
 
         NtRead->WordCount = 12;
@@ -2050,7 +2091,7 @@ Return Value:
 
     KeInitializeEvent(&Context.ReceiveCompleteEvent, NotificationEvent, TRUE);
 
-    Status = RdrReferenceTransportConnection(Icb->Fcb->Connection->Server);
+    Status = RdrReferenceTransportConnection(Server);
 
     if (!NT_SUCCESS(Status)) {
         goto ReturnError;
@@ -2058,7 +2099,12 @@ Return Value:
 
     ConnectionObjectReferenced = TRUE;
 
-    Context.ReceiveIrp = RdrAllocateIrp(Icb->Fcb->Connection->Server->ConnectionContext->ConnectionObject, NULL);
+    Context.ReceiveIrp = ALLOCATE_IRP(
+                            Server->ConnectionContext->ConnectionObject,
+                            NULL,
+                            10,
+                            &Context
+                            );
 
     if (Context.ReceiveIrp == NULL) {
         Status = STATUS_INSUFFICIENT_RESOURCES;
@@ -2089,8 +2135,7 @@ Return Value:
                                 NULL);
     if ( NT_SUCCESS(Status) ) {
         if (Context.ReceivePosted) {
-            Status = RdrMapSmbError((PSMB_HEADER )Context.ReceiveSmbBuffer->Buffer,
-                    Icb->Fcb->Connection->Server);
+            Status = RdrMapSmbError((PSMB_HEADER )Context.ReceiveSmbBuffer->Buffer, Server);
         }
     } else {
         if (Status == STATUS_INVALID_HANDLE) {
@@ -2121,7 +2166,11 @@ Return Value:
 
         }
 
-        *AllDataRead = (BOOLEAN )(((USHORT)*AmountActuallyRead) == AmountRequestedToRead);
+        if( DoingLargeReadX ) {
+            *AllDataRead = (BOOLEAN )(((USHORT)*AmountActuallyRead) >= SmallReadXSize);
+        } else {
+            *AllDataRead = (BOOLEAN )(((USHORT)*AmountActuallyRead) == AmountRequestedToRead);
+        }
 
         if (ARGUMENT_PRESENT(BytesRemainingToBeRead)) {
             *BytesRemainingToBeRead = Context.BytesRemainingToBeRead;
@@ -2161,7 +2210,7 @@ ReturnError:
                                         FALSE,
                                         NULL);
 
-        IoFreeIrp(Context.ReceiveIrp);
+        FREE_IRP( Context.ReceiveIrp, 14, &Context );
 
     }
 
@@ -2175,7 +2224,7 @@ ReturnError:
     }
 
     if (ConnectionObjectReferenced) {
-        RdrDereferenceTransportConnection(Icb->Fcb->Connection->Server);
+        RdrDereferenceTransportConnection(Server);
     }
 
     return Status;
@@ -2569,6 +2618,7 @@ Return Value:
     PREQ_READ_RAW RawRead;
     PMDL ReceiveMdl = NULL;
     BOOLEAN ReceiveMdlLocked = FALSE;
+    LARGE_INTEGER startTime;
 
     PAGED_CODE();
 
@@ -2585,13 +2635,10 @@ Return Value:
         }
 
         //
-        //  If this I/O won't complete within 5 seconds, don't use raw I/O.
+        //  If this I/O will take too long, don't use raw
         //
-
-        if (Server->Throughput != 0) {
-            if (Length / Server->Throughput > RdrRawTimeLimit) {
-                try_return(Status);
-            }
+        if( Length > Server->RawReadMaximum ) {
+            try_return( Status );
         }
 
         //
@@ -2687,8 +2734,7 @@ Return Value:
 
         Smb->Command = SMB_COM_READ_RAW;
 
-        RdrSmbScrounge(Smb, Server, FALSE, FALSE);
-
+        RdrSmbScrounge(Smb, Server, FALSE, FALSE, FALSE);
         //
         //  Flag that this I/O is paging I/O to allow the server to
         //  function correctly when loading an executable over the net.
@@ -2702,7 +2748,6 @@ Return Value:
 
         SmbPutUlong(&RawRead->Offset, ReadOffset.LowPart);
 
-//        if (ReadOffset.HighPart != 0) {
         if (Icb->Fcb->Connection->Server->Capabilities & DF_NT_SMBS) {
             PREQ_NT_READ_RAW NtReadRaw = (PREQ_NT_READ_RAW )RawRead;
 
@@ -2730,11 +2775,12 @@ Return Value:
 
         SmbPutUshort(&RawRead->Reserved, 0);
 
-
         //
         //  Exchange this SMB with the server as a raw SMB.
         //
         RdrStatistics.ReadSmbs += 1;
+
+        KeQuerySystemTime( &startTime );
 
         Status = RdrRawTranceive(NT_NORMAL | NT_DONTSCROUNGE,
                                 Irp,
@@ -2745,6 +2791,28 @@ Return Value:
                                 AmountActuallyRead);
 
         *AllDataRead = (BOOLEAN )(*AmountActuallyRead == Length);
+
+        if( *AllDataRead ) {
+            LARGE_INTEGER transmissionTime, endTime;
+
+            KeQuerySystemTime( &endTime );
+
+            transmissionTime.QuadPart = endTime.QuadPart - startTime.QuadPart;
+            if( transmissionTime.LowPart > RdrRawTimeLimit * 10 * 1000 * 1000 ) {
+                ULONG newMaximum;
+
+                //
+                // This transmission took too long.  Trim back Server->RawReadMaximum
+                //
+                newMaximum = (Length * RdrRawTimeLimit * 10 * 1000 * 1000) /
+                             transmissionTime.LowPart;
+
+                if( newMaximum ) {
+                    Server->RawReadMaximum = newMaximum;
+                }
+            }
+        }
+
 
 try_exit:NOTHING;
     } finally {

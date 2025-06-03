@@ -16,4 +16,4 @@ STDAPI_(void) StopMonitor(void);
 #define MINBUFSIZE 32 /* Minimum buffer size passed to StartMonitor */
 
 #endif
-
+

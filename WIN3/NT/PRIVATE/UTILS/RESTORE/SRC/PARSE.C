@@ -621,7 +621,7 @@ Return Value:
     CHAR    DriveRoot[] = "?:\\";
 	CHAR	ThisDirectory[MAX_PATH];
 	LPSTR	Last;
-    struct stat StatBuffer;
+    struct _stat StatBuffer;
 
 
     //
@@ -707,11 +707,15 @@ Return Value:
     //
     //  D:\foo\bar.*     =>   "D:", "\foo\", "bar.*"
     //
-    if ( !stat( DestinationSpec, &StatBuffer ) ) {
+    if ( !_stat( DestinationSpec, &StatBuffer ) ) {
         if (StatBuffer.st_mode & S_IFDIR ) {
+#ifdef DBCS
+            (VOID)AppendBackSlashIfNeeded( DestinationSpec, strlen(DestinationSpec) );
+#else
             if (DestinationSpec[ strlen(DestinationSpec)-1] != '\\' ) {
                 strcat( DestinationSpec, "\\" );
             }
+#endif
             strcat( DestinationSpec, "*.*" );
         }
     }
@@ -721,10 +725,18 @@ Return Value:
     DestinationDrive[2] = '\0';
 
 	p = DestinationSpec + 2;
+#ifdef DBCS
+	q = DestinationSpec + strlen(DestinationSpec);
+        q = PrevChar( DestinationSpec, q );
+	while (p != q && *q != '\\') {
+		q = PrevChar( DestinationSpec, q );
+        }
+#else
 	q = DestinationSpec + strlen(DestinationSpec) - 1;
 	while (p != q && *q != '\\') {
 		q--;
-    }
+        }
+#endif
 
     if ( (p == q) && ( *(p+1) == '\0' ) ) {
 		strcpy( DestinationDir, p );

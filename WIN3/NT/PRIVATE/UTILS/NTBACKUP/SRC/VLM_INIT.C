@@ -102,6 +102,13 @@ BOOL VLM_Init( BOOL read_startup )
       }
    }
 
+#ifdef OEM_EMS // Initialize the exchange window queue and add any entries.
+
+   if ( VLM_ExchangeInit( ) != SUCCESS ) {
+      goto failure;
+   }
+#endif //OEM_EMS
+
    // Create the tapes window
 
    if ( VLM_TapesListCreate( ) != SUCCESS ) {

@@ -235,6 +235,11 @@ Initial revision.
 #endif
 #endif
 
+#ifdef OEM_EMS
+#include "ctl3d.h"
+BOOL mwf3dEnabled;
+#endif
+
 #define DDEMANG     "CBEMON.DLL"
 #define SZ_DDEMANG  "STAT_SetStatus"
 
@@ -318,6 +323,10 @@ INT   nCmdShow )
 
 
      // Initialize global variables.
+
+#ifdef OEM_EMS     
+     mwf3dEnabled = Ctl3dRegister ( ghInst );
+#endif OEM_EMS
 
      if ( GUI_InitGlobals () ) {
           return FAILURE;
@@ -462,7 +471,7 @@ INT   nCmdShow )
      GUI_GetCmdLineSwitches ( szMixedCmdLine, szUpperCmdLine );
 
 
-#    if !defined ( OEM_MSOFT )   //unsupported feature
+#    if !defined ( OEM_MSOFT )
      {
          gfServers    = CDS_GetDisplayNetwareServers ( pCDS );
      }
@@ -471,6 +480,12 @@ INT   nCmdShow )
          gfServers    = FALSE;
      }
 #    endif //!defined ( OEM_MSOFT )   //unsupported feature
+
+#    if defined ( OEM_EMS )
+     {
+         CDS_SetDisplayExchange( pCDS, gfExchange );
+     }
+#    endif
 
 #if defined( CAYMAN )
     gfServers = FALSE ;
@@ -1526,6 +1541,7 @@ static BOOL GUI_ValidateCmdLine( LPSTR CmdLine )
      LPSTR pszNext = NULL;  // Next command line item pointer
      LPSTR pszCmdLine;
      CHAR szBackup[ IDS_OEM_MAX_LEN ];
+     CHAR szEject[ IDS_OEM_MAX_LEN ];
      CHAR szTokens[ IDS_OEM_MAX_LEN ];
      OEMOPTS_PTR pOemOpts = NULL;
      BSD_PTR     bsd ;
@@ -1533,6 +1549,7 @@ static BOOL GUI_ValidateCmdLine( LPSTR CmdLine )
      BOOLEAN     QuoteState = FALSE;
      BOOL           cmd_line_error;
      BOOL           oem_batch_mode;
+     BOOL           oem_batch_eject_mode;
      BOOL           first_switch ;
      INT            opt_id ;
      BOOL           ret_val = SUCCESS;
@@ -1562,6 +1579,9 @@ static BOOL GUI_ValidateCmdLine( LPSTR CmdLine )
           RSM_StringCopy ( IDS_OEMBATCH_BACKUP,
                            szBackup, sizeof ( szBackup ) );
 
+          RSM_StringCopy ( IDS_OEMBATCH_EJECT,
+                           szEject, sizeof ( szEject ) );
+
           RSM_StringCopy ( IDS_OEMOPT_TOKENSEPS,
                            szTokens, sizeof ( szTokens ) );
 
@@ -1572,9 +1592,16 @@ static BOOL GUI_ValidateCmdLine( LPSTR CmdLine )
 
           if ( pszNext &&
                ( pOemOpts = OEM_DefaultBatchOptions () ) &&
-               ( strnicmp ( pszNext, szBackup, strlen( pszNext ) ) == 0 ) )
+               ( (strnicmp ( pszNext, szBackup, strlen( pszNext ) ) == 0 ) ||
+               ( strnicmp ( pszNext, szEject, strlen( pszNext ) ) == 0 ) ) )
           {
                oem_batch_mode = TRUE ;
+               oem_batch_eject_mode = FALSE ;
+
+               if ( strnicmp ( pszNext, szEject, strlen( pszNext ) ) == 0 ) {
+                    oem_batch_eject_mode = TRUE ;
+               }
+
           
                // Process the command line: all following items in the command
                // line must be one or more path specifiers with optional batch
@@ -1583,6 +1610,7 @@ static BOOL GUI_ValidateCmdLine( LPSTR CmdLine )
 
                if ( strlen( LOG_GetCurrentLogName( ) ) > 0 ) {                                      // chs:07-16-93
                     lresprintf( LOGGING_FILE, LOG_START, FALSE );                                   // chs:07-16-93
+                    lresprintf( LOGGING_FILE, LOG_END );                                   // chs:07-16-93
                }                                                                                    // chs:07-16-93
           }
 
@@ -1634,9 +1662,24 @@ static BOOL GUI_ValidateCmdLine( LPSTR CmdLine )
                          path_specified = TRUE ;
                          if ( switch_specified ||
                               ( (*(pszNext+1) != ':') && *pszNext != '\\' ) ) {
-                              ret_val = FAILURE ;
-                              cmd_line_error = TRUE ;
-                              break ;
+                              
+               			CHAR szDSA[ IDS_OEM_MAX_LEN ];
+               			CHAR szMonolithic[ IDS_OEM_MAX_LEN ];
+
+                              RSM_StringCopy ( IDS_OEMOPT_DSA, 
+                                        szDSA, sizeof ( szDSA ) );
+                                        
+                              RSM_StringCopy ( IDS_OEMOPT_MONOLITHIC,
+                                        szMonolithic, sizeof ( szMonolithic ) );
+
+                              if ( stricmp( szDSA, pszNext ) && stricmp(szMonolithic, pszNext) ) {
+     
+                                   ret_val = FAILURE ;
+                                   cmd_line_error = TRUE ;
+                                   break ;
+                              }
+
+                              strtok ( NULL, szTokens ) ;
                          }
                   }
 
@@ -1664,7 +1707,7 @@ static BOOL GUI_ValidateCmdLine( LPSTR CmdLine )
                }
           }
 
-          if ( cmd_line_error || ( !path_specified && oem_batch_mode) ) {
+          if ( cmd_line_error || ( !path_specified && oem_batch_mode && !oem_batch_eject_mode) ) {
                yresprintf( (INT16) RES_INVALID_PARAMETER, CmdLine );
 
                WM_MessageBox( ID( IDS_MSGTITLE_WARNING ),             // chs:04-29-93
@@ -1703,4 +1746,5 @@ VOID GUI_ProcessQuotedString ( LPSTR      OutPutString,
           strcat( OutPutString, InPutString );
      }
 }
+
 

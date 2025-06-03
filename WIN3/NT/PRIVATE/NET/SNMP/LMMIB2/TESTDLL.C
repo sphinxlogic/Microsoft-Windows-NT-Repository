@@ -1,51 +1,26 @@
-//-------------------------- MODULE DESCRIPTION ----------------------------
-//  
-//  testdll.c
-//  
-//  Copyright 1992 Technology Dynamics, Inc.
-//  
-//  All Rights Reserved!!!
-//  
-//	This source code is CONFIDENTIAL and PROPRIETARY to Technology 
-//	Dynamics. Unauthorized distribution, adaptation or use may be 
-//	subject to civil and criminal penalties.
-//
-//  All Rights Reserved!!!
-//
-//---------------------------------------------------------------------------
-//  
-//  LAN Manager MIB 2 Extension Agent DLL.
-//
-//  Project:  Implementation of an SNMP Agent for Microsoft's NT Kernel
-//
-//  $Revision:   1.2  $
-//  $Date:   15 Jul 1992 19:02:42  $
-//  $Author:   mlk  $
-//
-//  $Log:   N:/lmmib2/vcs/testdll.c_v  $
-//  
-//     Rev 1.2   15 Jul 1992 19:02:42   mlk
-//  Diagnostics
-//  
-//     Rev 1.1   08 Jun 1992 15:40:40   mlk
-//  Cleaned up standard Extentsion Agent queries.
-//  Altered to not support traps (they are in LAN Manager Alerts-2 MIB).
-//  
-//     Rev 1.0   20 May 1992 15:11:08   mlk
-//  Initial revision.
-//  
-//     Rev 1.1   25 Apr 1992 14:33:08   todd
-//  Changed MIB prefix from TCP to LM
-//  
-//     Rev 1.0   24 Apr 1992 18:21:14   todd
-//  Initial revision.
-//
-//---------------------------------------------------------------------------
+/*++
 
-//--------------------------- VERSION INFO ----------------------------------
+Copyright (c) 1992-1996  Microsoft Corporation
 
-static char *vcsid = "@(#) $Logfile:   N:/lmmib2/vcs/testdll.c_v  $ $Revision:   1.2  $";
+Module Name:
 
+    testdll.c
+
+Abstract:
+
+    LAN Manager MIB 2 Extension Agent DLL.
+
+Environment:
+
+    User Mode - Win32
+
+Revision History:
+
+    10-May-1996 DonRyan
+        Removed banner from Technology Dynamics, Inc.
+
+--*/
+ 
 //--------------------------- WINDOWS DEPENDENCIES --------------------------
 
 #include <windows.h>
@@ -59,7 +34,7 @@ static char *vcsid = "@(#) $Logfile:   N:/lmmib2/vcs/testdll.c_v  $ $Revision:  
 //--------------------------- MODULE DEPENDENCIES -- #include"xxxxx.h" ------
 
 #include <snmp.h>
-#include <util.h>
+#include <snmputil.h>
 
 #include "hash.h"
 #include "mib.h"
@@ -88,12 +63,6 @@ BOOL DllEntryPoint(
     DWORD  dwReason,
     LPVOID lpReserved)
     {
-    extern INT nLogLevel;
-    extern INT nLogType;
-
-    nLogLevel = 1;
-    nLogType  = DBGEVENTLOGBASEDLOG;
-
     switch(dwReason)
         {
         case DLL_PROCESS_ATTACH:
@@ -108,22 +77,6 @@ BOOL DllEntryPoint(
     return TRUE;
 
     } // end DllEntryPoint()
-
-
-// unpublished, for microsoft internal debugging purposes only
-// note:  this is unable to trace activity of DllEntryPoint
-
-void dbginit(
-    IN INT nReqLogLevel, // see ...\common\util.h
-    IN INT nReqLogType)  // see ...\common\util.h
-    {
-    extern INT nLogLevel;
-    extern INT nLogType;
-
-    nLogLevel = nReqLogLevel;
-    nLogType  = nReqLogType;
-
-    } // end dbginit()
 
 
 BOOL SnmpExtensionInit(

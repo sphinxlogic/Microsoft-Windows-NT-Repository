@@ -1,10 +1,10 @@
 /*
-	ole2dbg.h:	This header file contains the function declarations for the publicly
-	exported debugging interfaces.
+        ole2dbg.h:      This header file contains the function declarations for the publicly
+        exported debugging interfaces.
 
-	Include *after* standard OLE2 includes.
-	
-	Copyright (c) 1992-1993, Microsoft Corp. All rights reserved.
+        Include *after* standard OLE2 includes.
+
+        Copyright (c) 1992-1995, Microsoft Corp. All rights reserved.
 */
 
 #ifndef __OLE2DBG_H

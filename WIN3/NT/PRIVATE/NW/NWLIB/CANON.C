@@ -53,7 +53,7 @@ Return Value:
 
     NO_ERROR - LocalName is valid.
 
-    ERROR_INVALID_NAME - LocalName is invalid.
+    WN_BAD_NETNAME - LocalName is invalid.
 
 --*/
 {
@@ -64,23 +64,23 @@ Return Value:
     // Cannot be a NULL or empty string
     //
     if (LocalName == NULL || *LocalName == 0) {
-        return ERROR_INVALID_NAME;
+        return WN_BAD_NETNAME;
     }
 
     LocalNameLength = wcslen(LocalName);
 
     if (LocalNameLength == 1) {
-        return ERROR_INVALID_NAME;
+        return WN_BAD_NETNAME;
     }
 
     if (LocalName[LocalNameLength - 1] == L':') {
         if (! IS_VALID_TOKEN(LocalName, LocalNameLength - 1)) {
-            return ERROR_INVALID_NAME;
+            return WN_BAD_NETNAME;
         }
     }
     else {
         if (! IS_VALID_TOKEN(LocalName, LocalNameLength)) {
-            return ERROR_INVALID_NAME;
+            return WN_BAD_NETNAME;
         }
     }
 
@@ -89,25 +89,25 @@ Return Value:
         // Must be in the form of X:
         //
         if (! iswalpha(*LocalName)) {
-            return ERROR_INVALID_NAME;
+            return WN_BAD_NETNAME;
         }
 
         if (LocalName[1] != L':') {
-            return ERROR_INVALID_NAME;
+            return WN_BAD_NETNAME;
         }
 
         return NO_ERROR;
     }
 
     if (RtlIsDosDeviceName_U(LocalName) == 0) {
-        return ERROR_INVALID_NAME;
+        return WN_BAD_NETNAME;
     }
 
     //
     // Valid DOS device name but invalid redirection name
     //
-    if (wcsnicmp(LocalName, L"NUL", 3) == 0) {
-        return ERROR_INVALID_NAME;
+    if (_wcsnicmp(LocalName, L"NUL", 3) == 0) {
+        return WN_BAD_NETNAME;
 
     }
     return NO_ERROR;
@@ -146,7 +146,7 @@ Return Value:
 
     NO_ERROR - Successfully canonicalized the local name.
 
-    ERROR_INVALID_NAME - LocalName is invalid.
+    WN_BAD_NETNAME - LocalName is invalid.
 
     ERROR_NOT_ENOUGH_MEMORY - Could not allocate output buffer.
 
@@ -183,7 +183,7 @@ Return Value:
 
     if (LocalNameLength > 2) {
 
-        if (wcsnicmp(*OutputBuffer, L"PRN", 3) == 0) {
+        if (_wcsnicmp(*OutputBuffer, L"PRN", 3) == 0) {
 
             //
             // Convert PRN or PRN: to LPT1
@@ -192,7 +192,7 @@ Return Value:
             LocalNameLength = 4;
 
         }
-        else if (wcsnicmp(*OutputBuffer, L"AUX", 3) == 0) {
+        else if (_wcsnicmp(*OutputBuffer, L"AUX", 3) == 0) {
 
             //
             // Convert AUX or AUX: to COM1
@@ -213,7 +213,7 @@ Return Value:
     //
     // LocalName is always in uppercase.
     //
-    wcsupr(*OutputBuffer);
+    _wcsupr(*OutputBuffer);
 
     if (ARGUMENT_PRESENT(OutputBufferLength)) {
         *OutputBufferLength = LocalNameLength;
@@ -255,7 +255,7 @@ Return Value:
 
     NO_ERROR - RemoteName is valid.
 
-    ERROR_INVALID_NAME - RemoteName is invalid.
+    WN_BAD_NETNAME - RemoteName is invalid.
 
 --*/
 {
@@ -270,7 +270,7 @@ Return Value:
     // Cannot be a NULL or empty string
     //
     if (RemoteName == NULL || *RemoteName == 0) {
-        return ERROR_INVALID_NAME;
+        return WN_BAD_NETNAME;
     }
 
     RemoteNameLength = wcslen(RemoteName);
@@ -281,14 +281,14 @@ Return Value:
     //
     if ((RemoteNameLength < 5 && ARGUMENT_PRESENT(LocalName)) ||
         (RemoteNameLength < 3)) {
-        return ERROR_INVALID_NAME;
+        return WN_BAD_NETNAME;
     }
 
     //
     // First two characters must be "\\"
     //
     if (*RemoteName != L'\\' || RemoteName[1] != L'\\') {
-        return ERROR_INVALID_NAME;
+        return WN_BAD_NETNAME;
     }
 
     if (! ARGUMENT_PRESENT(LocalName) &&
@@ -318,14 +318,14 @@ Return Value:
     // Must have at least one more backslash after the third character
     //
     if (wcschr(&RemoteName[3], L'\\') == NULL) {
-        return ERROR_INVALID_NAME;
+        return WN_BAD_NETNAME;
     }
 
     //
     // Last character cannot a backward slash
     //
     if (RemoteName[RemoteNameLength - 1] == L'\\') {
-        return ERROR_INVALID_NAME;
+        return WN_BAD_NETNAME;
     }
 
     //
@@ -362,7 +362,7 @@ Return Value:
 
                 (void) LocalFree((HLOCAL) *OutputBuffer);
                 *OutputBuffer = NULL;
-                return ERROR_INVALID_NAME;
+                return WN_BAD_NETNAME;
             }
         }
     }
@@ -382,7 +382,7 @@ Return Value:
         {
             (void) LocalFree((HLOCAL) *OutputBuffer);
             *OutputBuffer = NULL;
-            return ERROR_INVALID_NAME;
+            return WN_BAD_NETNAME;
         }
 
         fFirstToken = FALSE;
@@ -433,7 +433,7 @@ Return Value:
 
     NO_ERROR - Successfully canonicalized the username.
 
-    ERROR_INVALID_NAME - UserName is invalid.
+    WN_BAD_NETNAME - UserName is invalid.
 
     ERROR_NOT_ENOUGH_MEMORY - Could not allocate output buffer.
 
@@ -446,13 +446,13 @@ Return Value:
     // Cannot be a NULL or empty string
     //
     if (UserName == NULL) {
-        return ERROR_INVALID_NAME;
+        return WN_BAD_NETNAME;
     }
 
     UserNameLength = wcslen(UserName);
 
     if (! IS_VALID_TOKEN(UserName, UserNameLength)) {
-        return ERROR_INVALID_NAME;
+        return WN_BAD_NETNAME;
     }
 
     //

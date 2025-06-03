@@ -24,7 +24,6 @@ Revision History:
     15-Jan-1992 larryo
 
 
-
 --*/
 
 #define INCLUDE_SMB_DIRECTORY
@@ -33,13 +32,15 @@ Revision History:
 #include "precomp.h"
 #pragma hdrstop
 
-
 #define MAX_NT_SMB_FILENAME                             \
     ( SMB_BUFFER_SIZE -                                 \
         (sizeof(SMB_HEADER) +                           \
          FIELD_OFFSET(REQ_NT_CREATE_ANDX, Buffer) +     \
          sizeof(WCHAR) * 2))
 
+
+#define MustBeDirectory(co) ((co) & FILE_DIRECTORY_FILE)
+#define MustBeFile(co)      ((co) & FILE_NON_DIRECTORY_FILE)
 
 //
 //      Local data structures.
@@ -95,6 +96,9 @@ DBGSTATIC
 NTSTATUS
 DetermineRelatedFileConnection (
     IN PFILE_OBJECT FileObject,
+#ifdef _CAIRO_  //  OFS STORAGE
+    IN ULONG OpenOptions,
+#endif
     OUT PUNICODE_STRING RelatedName,
     OUT PUNICODE_STRING RelatedDevice,
     OUT PCONNECTLISTENTRY *Connection,
@@ -334,6 +338,7 @@ to establish and validate the connection to the remote server.
     PCONNECTLISTENTRY Connection = NULL;
     PICB Icb = NULL;
     PFCB Fcb = NULL;
+    PNONPAGED_FCB NonPagedFcb;
     PSECURITY_ENTRY Se = NULL;
     ULONG Disposition, ConnectDisposition;
     PFILE_OBJECT FileObject = IrpSp->FileObject;
@@ -349,6 +354,9 @@ to establish and validate the connection to the remote server.
 //    BOOLEAN OpenServerRoot = FALSE;
     BOOLEAN OpenMailslotFile = FALSE;
     BOOLEAN UserCredentialsSpecified = FALSE;
+    BOOLEAN NoConnection = FALSE;
+    BOOLEAN DfsFile = FALSE;
+    BOOLEAN collapse = FALSE;
 
     ACCESS_MASK   DesiredAccess = IrpSp->Parameters.Create.SecurityContext->DesiredAccess;
     USHORT ShareAccess = IrpSp->Parameters.Create.ShareAccess;
@@ -376,7 +384,7 @@ to establish and validate the connection to the remote server.
 
     ConnectDisposition = Disposition = (IrpSp->Parameters.Create.Options) >>24;
 
-    RdrLog( "create", &FileObject->FileName, DesiredAccess, IrpSp->Parameters.Create.Options );
+    //RdrLog(( "create", &FileObject->FileName, 2, DesiredAccess, IrpSp->Parameters.Create.Options ));
 
     dprintf(DPRT_CREATE|DPRT_DISPATCH,("NtCreateFile \"%Z\"\n",&FileObject->FileName));
     dprintf(DPRT_CREATE,("DesiredAccess: %08lx Options: %08lx FileAttributes %08lx\n",
@@ -441,7 +449,7 @@ to establish and validate the connection to the remote server.
             Status = RdrAllocateNonConnectionFile(IrpSp, Disposition, Redirector);
 
             if (NT_SUCCESS(Status)) {
-                Disposition = FILE_OPENED;
+                Disposition = FILE_OPEN;
             }
             try_return(Status);
         }
@@ -465,6 +473,24 @@ to establish and validate the connection to the remote server.
         }
 
         //
+        //  See if the Security QOS is atleast impersonation level. If not,
+        //  we fail the request.
+        //
+
+        if (IrpSp->Parameters.Create.SecurityContext != NULL &&
+                IrpSp->Parameters.Create.SecurityContext->AccessState != NULL &&
+                    IrpSp->Parameters.Create.SecurityContext->AccessState->SubjectSecurityContext.ClientToken != NULL &&
+                        IrpSp->Parameters.Create.SecurityContext->AccessState->SubjectSecurityContext.ImpersonationLevel < SecurityImpersonation) {
+
+            dprintf(DPRT_CREATE, ("SecurityQos is less than SecurityImpersonation"));
+
+            Status = STATUS_BAD_IMPERSONATION_LEVEL;
+
+            try_return(Status);
+
+        }
+
+        //
         //
         //  If we are not creating a tree connection, we have to determine the
         //  connection to associate with the file.  If the  file object has
@@ -476,11 +502,15 @@ to establish and validate the connection to the remote server.
         if (ARGUMENT_PRESENT(FileObject->RelatedFileObject)) {
 
             Status = DetermineRelatedFileConnection(FileObject,
+#ifdef _CAIRO_  //  OFS STORAGE
+                                                    IrpSp->Parameters.Create.Options,
+#endif
                                                     &RelatedName,
                                                     &RelatedDevice,
                                                     &Connection,
                                                     &Se,
                                                     &ConnectionType);
+
             if (!NT_SUCCESS(Status)) {
                 try_return(Status);
             }
@@ -500,7 +530,8 @@ to establish and validate the connection to the remote server.
                                                 &OpenMailslotFile,
                                                 &ConnectDisposition,
                                                 &ConnectionType,
-                                                &UserCredentialsSpecified);
+                                                &UserCredentialsSpecified,
+                                                &NoConnection);
 
 
             if (!NT_SUCCESS(Status)) {
@@ -539,7 +570,7 @@ to establish and validate the connection to the remote server.
                     try_return(Status);
                 }
 
-                Disposition = FILE_OPENED;
+                Disposition = FILE_OPEN;
 
                 Status = RdrCreateSecurityEntry(NULL, NULL, NULL, NULL, &LogonId, &Se);
 
@@ -591,6 +622,58 @@ to establish and validate the connection to the remote server.
         ExAcquireResourceShared(&Connection->Server->CreationLock, TRUE);
 
         //
+        //  See if the open request is coming in via Dfs. If it is, make sure
+        //  the server is Dfs aware before sending it SMBs with SMB_FLAGS2_DFS
+        //  bit set.
+        //
+
+        if (FileObject->FsContext2 == (PVOID) DFS_OPEN_CONTEXT ||
+                FileObject->FsContext2 == (PVOID) DFS_DOWNLEVEL_OPEN_CONTEXT) {
+
+            if (Connection->Type == CONNECT_WILD) {
+
+                Status = RdrReconnectConnection(Irp, Connection, Se);
+
+                if (!NT_SUCCESS(Status)) {
+
+                    dprintf(DPRT_CREATE, ("Dfs Open: Reconnection failed %08lx\n", Status));
+                    try_return(Status);
+                }
+
+            }
+
+            if (FileObject->FsContext2 == (PVOID) DFS_OPEN_CONTEXT) {
+
+                //
+                // If trying to do Dfs access to a server that is not
+                // dfs-aware, fail the request right away.
+                //
+
+                if ((Connection->Server->Capabilities & DF_DFSAWARE) == 0) {
+                    Status = STATUS_DFS_UNAVAILABLE;
+                    try_return(Status);
+                } else {
+                    DfsFile = TRUE;
+                }
+
+            } else {
+
+                //
+                // If Dfs is trying to do downlevel access to a share that is
+                // in the Dfs, fail the request
+                //
+
+                if (Connection->Flags & CLE_IS_A_DFS_SHARE) {
+                    Status = STATUS_OBJECT_TYPE_MISMATCH;
+                    try_return(Status);
+                }
+
+            }
+
+        }
+
+
+        //
         //  Next create an ICB to hold the file we are creating.
         //
 
@@ -623,6 +706,7 @@ to establish and validate the connection to the remote server.
                                             ShareAccess,
                                             DesiredAccess,
                                             (BOOLEAN)((IrpSp->Flags & SL_OPEN_TARGET_DIRECTORY) != 0),
+                                            FALSE,
                                             Connection,
                                             &FcbCreated,
                                             NULL);
@@ -639,17 +723,20 @@ to establish and validate the connection to the remote server.
                 }
             }
 
-            Icb->NonPagedFcb = Fcb->NonPagedFcb;
+            NonPagedFcb = Fcb->NonPagedFcb;
+            Icb->NonPagedFcb = NonPagedFcb;
 
             //
             //  Note that we do not enforce share access on mailslots.
             //
+
 #if 0
+
             if (!FcbCreated) {
                 PSHARE_ACCESS IoShareAccess = &Icb->Fcb->ShareAccess;
 
-                if (Fcb->SharingCheckFcb != NULL) {
-                    IoShareAccess = &Fcb->SharingCheckFcb->ShareAccess;
+                if (NonPagedFcb->SharingCheckFcb != NULL) {
+                    IoShareAccess = &NonPagedFcb->SharingCheckFcb->ShareAccess;
                 }
                 //
                 //  Apply NT file sharing semantics to this connection.
@@ -677,9 +764,9 @@ to establish and validate the connection to the remote server.
 
             RtlUpcaseUnicodeString(&Fcb->FileName, &Fcb->FileName, FALSE);
 
-            Icb->Type = Fcb->NonPagedFcb->Type = Mailslot;
+            Icb->Type = NonPagedFcb->Type = Mailslot;
 
-            Fcb->NonPagedFcb->FileType = FileTypeIPC;
+            NonPagedFcb->FileType = FileTypeIPC;
 
             Icb->Flags |= ICB_DEFERREDOPEN;
 
@@ -714,11 +801,16 @@ to establish and validate the connection to the remote server.
 
         //
         //  If we are creating a tree connection and requesting an open of an
-        //  existing connection, then don't bother to reconnect.
+        //  existing connection or the caller has said it is OK to
+        //  create it disconnected, then don't bother to reconnect.
         //
 
         if (IrpSp->Parameters.Create.Options & FILE_CREATE_TREE_CONNECTION) {
-            if (Disposition != FILE_OPEN) {
+            if ((Disposition != FILE_OPEN)
+                         &&
+                !NoConnection
+               )
+               {
 
                 //
                 //  Connections are created in the disconnected state.
@@ -865,7 +957,7 @@ to establish and validate the connection to the remote server.
         //
 
         if ((FileName.Buffer[(FileName.Length/sizeof(WCHAR))-1] == L'\\') &&
-            (IrpSp->Parameters.Create.Options & FILE_NON_DIRECTORY_FILE)) {
+            MustBeFile (IrpSp->Parameters.Create.Options)) {
             try_return(Status = STATUS_OBJECT_NAME_INVALID);
         }
 
@@ -908,6 +1000,7 @@ to establish and validate the connection to the remote server.
                             ShareAccess,
                             DesiredAccess,
                             (BOOLEAN)((IrpSp->Flags & SL_OPEN_TARGET_DIRECTORY) != 0),
+                            DfsFile,
                             Connection,
                             &FcbCreated,
                             &BaseFcbCreated);
@@ -933,7 +1026,8 @@ to establish and validate the connection to the remote server.
             }
         }
 
-        Icb->NonPagedFcb = Fcb->NonPagedFcb;
+        NonPagedFcb = Fcb->NonPagedFcb;
+        Icb->NonPagedFcb = NonPagedFcb;
 
         dprintf(DPRT_CREATE, ("After FCB allocation, Status: %lx\n", Status));
 
@@ -947,7 +1041,7 @@ to establish and validate the connection to the remote server.
 
 #ifdef  PAGING_OVER_THE_NET
 
-BUGBUG: When paging over the net, the PAGED CLE and PAGED FCB and SECURITY ENTRY
+WARNING: When paging over the net, the PAGED CLE and PAGED FCB and SECURITY ENTRY
         Must be allocated from non-paged pool!!!!
         If this is re-enabled, this MUST be fixed.
 
@@ -1023,14 +1117,15 @@ BUGBUG: When paging over the net, the PAGED CLE and PAGED FCB and SECURITY ENTRY
             //  that it was initialized correctly on the first open.
             //
 
-            if ( (Fcb->NonPagedFcb->Type != PrinterFile) &&
-                 (Fcb->NonPagedFcb->Type != Com) &&
-                 (Fcb->NonPagedFcb->Type != NamedPipe) ) {
+            if ( (NonPagedFcb->Type != PrinterFile) &&
+                 (Fcb->Connection->Type != CONNECT_PRINT) &&
+                 (NonPagedFcb->Type != Com) &&
+                 (NonPagedFcb->Type != NamedPipe) ) {
 
                 PSHARE_ACCESS IoShareAccess;
 
-                if (Fcb->SharingCheckFcb != NULL) {
-                    IoShareAccess = &Fcb->SharingCheckFcb->ShareAccess;
+                if (NonPagedFcb->SharingCheckFcb != NULL) {
+                    IoShareAccess = &NonPagedFcb->SharingCheckFcb->ShareAccess;
                 } else {
                     IoShareAccess = &Fcb->ShareAccess;
                 }
@@ -1055,14 +1150,14 @@ BUGBUG: When paging over the net, the PAGED CLE and PAGED FCB and SECURITY ENTRY
                     //
 
                     if ((Fcb->NumberOfOpens == 0) &&
-                        (Fcb->NonPagedFcb->Type == DiskFile)) {
+                        (NonPagedFcb->Type == DiskFile)) {
 
                         //
                         //  Flush the contents of this file out of
                         //  the cache.
                         //
 
-                        RdrLog( "rdflush4", &Fcb->FileName, 0, 0 );
+                        //RdrLog(( "rdflush4", &Fcb->FileName, 0 ));
                         Status = RdrFlushCacheFile(Fcb);
 
                         if (!NT_SUCCESS(Status)) {
@@ -1077,7 +1172,7 @@ BUGBUG: When paging over the net, the PAGED CLE and PAGED FCB and SECURITY ENTRY
                         //  the FCB lock.
                         //
 
-                        RdrLog( "rdpurge4", &Fcb->FileName, 0, 0 );
+                        //RdrLog(( "rdpurge4", &Fcb->FileName, 0 ));
                         Status = RdrPurgeCacheFile(Fcb);
 
                         if (!NT_SUCCESS(Status)) {
@@ -1119,8 +1214,8 @@ BUGBUG: When paging over the net, the PAGED CLE and PAGED FCB and SECURITY ENTRY
                     //  on the server.
                     //
 
-                    if (Fcb->SharingCheckFcb != NULL) {
-                        PFCB SharingCheckFcb = Fcb->SharingCheckFcb;
+                    if (NonPagedFcb->SharingCheckFcb != NULL) {
+                        PFCB SharingCheckFcb = NonPagedFcb->SharingCheckFcb;
 
                         dprintf(DPRT_CREATE, ("Alternate data stream creation, need to check for base stream dormant files\n"));
 
@@ -1154,7 +1249,7 @@ BUGBUG: When paging over the net, the PAGED CLE and PAGED FCB and SECURITY ENTRY
 
                             ASSERT (NT_SUCCESS(Status));
 
-                            RdrLog( "rdflush5", &SharingCheckFcb->FileName, 0, 0 );
+                            //RdrLog(( "rdflush5", &SharingCheckFcb->FileName, 0 ));
                             Status = RdrFlushCacheFile(SharingCheckFcb);
 
                             if (NT_SUCCESS(Status)) {
@@ -1164,7 +1259,7 @@ BUGBUG: When paging over the net, the PAGED CLE and PAGED FCB and SECURITY ENTRY
                                 //  The flush succeeded, now purge the
                                 //  file from the cache.
                                 //
-                                RdrLog( "rdpurge5", &SharingCheckFcb->FileName, 0, 0 );
+                                //RdrLog(( "rdpurge5", &SharingCheckFcb->FileName, 0 ));
                                 Status = RdrPurgeCacheFile(SharingCheckFcb);
 
                             }
@@ -1206,16 +1301,16 @@ BUGBUG: When paging over the net, the PAGED CLE and PAGED FCB and SECURITY ENTRY
         }
 
 //
-// BUGBUG:  WHEN WE INTEGRATE WRITE-THROUGH OPENS WITH THE CACHE MANAGER,
-//          WE CAN REMOVE THIS CODE.
+// WARNING:  WHEN WE INTEGRATE WRITE-THROUGH OPENS WITH THE CACHE MANAGER,
+//           WE CAN REMOVE THIS CODE.
 //
 
-        if ( Fcb->NonPagedFcb->Type == DiskFile &&
+        if ( NonPagedFcb->Type == DiskFile &&
              FileObject->Flags & (FO_WRITE_THROUGH | FO_NO_INTERMEDIATE_BUFFERING) ) {
 
-            Fcb->NonPagedFcb->Flags |= FCB_WRITE_THROUGH;
+            NonPagedFcb->Flags |= FCB_WRITE_THROUGH;
 
-            RdrLog( "rdflush6", &Fcb->FileName, 0, 0 );
+            //RdrLog(( "rdflush6", &Fcb->FileName, 0 ));
             Status = RdrFlushCacheFile(Fcb);
 
             if (!NT_SUCCESS(Status)) {
@@ -1244,7 +1339,7 @@ BUGBUG: When paging over the net, the PAGED CLE and PAGED FCB and SECURITY ENTRY
             //  we cannot allow the file to remain in the cache.
             //
 
-            RdrLog( "rdpurge6", &Fcb->FileName, 0, 0 );
+            //RdrLog(( "rdpurge6", &Fcb->FileName, 0 ));
             Status = RdrPurgeCacheFile(Fcb);
 
             if (!NT_SUCCESS(Status)) {
@@ -1295,8 +1390,18 @@ BUGBUG: When paging over the net, the PAGED CLE and PAGED FCB and SECURITY ENTRY
             //  If there is no path to connect to, we're done, we know we are
             //  trying to connect to a tree connection.
             //
+            // [chuckl 11/20/95] We only do the OpenEmptyPath nonsense if we
+            // are creating a tree connection or if are not connecting to a
+            // disk share.  Short-circuiting the open if it's a disk share
+            // breaks Start-Run-\\server\share when the trailing \ is omitted.
+            // We then try to do Notify Directory Change on an uninitialized
+            // handle.
+            //
 
-            if (PathName.Length == 0) {
+            if ((PathName.Length == 0) &&
+                (((IrpSp->Parameters.Create.Options & FILE_CREATE_TREE_CONNECTION) != 0) ||
+                 (((IrpSp->Parameters.Create.Options & FILE_CREATE_TREE_CONNECTION) == 0) &&
+                  (Connection->Type != CONNECT_DISK)))) {
 
                 Status = OpenEmptyPath(Irp, IrpSp, Icb, Connection,
                                 Disposition, ConnectDisposition, FcbCreated);
@@ -1357,8 +1462,9 @@ BUGBUG: When paging over the net, the PAGED CLE and PAGED FCB and SECURITY ENTRY
             //  the open.
             //
 
-            if ((PathName.Length == sizeof(WCHAR)) &&
-                (PathName.Buffer[0]==OBJ_NAME_PATH_SEPARATOR)) {
+            if ((PathName.Length == 0) ||
+                ((PathName.Length == sizeof(WCHAR)) &&
+                 (PathName.Buffer[0]==OBJ_NAME_PATH_SEPARATOR))) {
                 ShortCircuitOpen = TRUE;
             }
 
@@ -1375,7 +1481,7 @@ BUGBUG: When paging over the net, the PAGED CLE and PAGED FCB and SECURITY ENTRY
                     //  for just SYNCHRONIZE access, we don't need to
                     //  send the open.
                     //
-                    //  BUGBUG:     We may miss a possibility of an audit event
+                    //  WARNING:    We may miss a possibility of an audit event
                     //              here if we short circuit the open request.
                     //              We may want to add a heuristic for this.
                     //
@@ -1398,7 +1504,7 @@ BUGBUG: When paging over the net, the PAGED CLE and PAGED FCB and SECURITY ENTRY
                 }
 
 
-                if (IrpSp->Parameters.Create.Options & FILE_NON_DIRECTORY_FILE) {
+                if (MustBeFile (IrpSp->Parameters.Create.Options)) {
 
                     //
                     //  If the guy didn't want to open a directory, tell him
@@ -1409,9 +1515,9 @@ BUGBUG: When paging over the net, the PAGED CLE and PAGED FCB and SECURITY ENTRY
                 }
 
                 Icb->Type = Directory;
-                Icb->Fcb->NonPagedFcb->Type = Directory;
-                Icb->Fcb->NonPagedFcb->FileType = FileTypeDisk;
-                Icb->Fcb->Attribute = FILE_ATTRIBUTE_NORMAL;
+                NonPagedFcb->Type = Directory;
+                NonPagedFcb->FileType = FileTypeDisk;
+                Icb->Fcb->Attribute = FILE_ATTRIBUTE_NORMAL | FILE_ATTRIBUTE_DIRECTORY;
 
                 Irp->IoStatus.Information = FILE_OPENED;
 
@@ -1427,7 +1533,8 @@ BUGBUG: When paging over the net, the PAGED CLE and PAGED FCB and SECURITY ENTRY
 
         if (!FcbCreated) {
 
-#if !defined(_CAIRO_)
+#ifndef COLLAPSE_DIRECTORY_OPENS_IGNORE_QUERY
+
             //
             //  If this is an NT server, and we are opening a directory, and
             //  the requested access is a strict subset of the desired access,
@@ -1440,12 +1547,12 @@ BUGBUG: When paging over the net, the PAGED CLE and PAGED FCB and SECURITY ENTRY
             //  and a short circuit would break any queries in progress
 
             if ((Connection->Server->Capabilities & DF_NT_SMBS) &&
-                (Fcb->NonPagedFcb->Type == Directory) &&
+                (NonPagedFcb->Type == Directory) &&
                 !FlagOn(IrpSp->Parameters.Create.Options, FILE_OPEN_FOR_BACKUP_INTENT) &&
                 (NT_SUCCESS(Fcb->OpenError))) {
                 PLIST_ENTRY IcbEntry;
 
-                if (IrpSp->Parameters.Create.Options & FILE_NON_DIRECTORY_FILE) {
+                if (MustBeFile (IrpSp->Parameters.Create.Options)) {
                     try_return(Status = STATUS_FILE_IS_A_DIRECTORY);
                 }
 
@@ -1493,7 +1600,7 @@ BUGBUG: When paging over the net, the PAGED CLE and PAGED FCB and SECURITY ENTRY
 
                             Icb->Type = IcbToCollapse->Type;
 
-                            ASSERT (IcbToCollapse->Type == Fcb->NonPagedFcb->Type);
+                            ASSERT (IcbToCollapse->Type == NonPagedFcb->Type);
 
                             Irp->IoStatus.Information = FILE_OPENED;
 
@@ -1502,11 +1609,11 @@ BUGBUG: When paging over the net, the PAGED CLE and PAGED FCB and SECURITY ENTRY
                 }
             } else
 
-#endif  // !defined( _CAIRO_ )
+#endif  // COLLAPSE_DIRECTORY_OPENS_IGNORE_QUERY
 
-                   if ((Fcb->NonPagedFcb->Flags & FCB_OPLOCKED) &&
-                       (Fcb->NonPagedFcb->Flags & FCB_HASOPLOCKHANDLE) &&
-                        Icb->NonPagedSe == Fcb->NonPagedFcb->OplockedSecurityEntry &&
+                   if ((NonPagedFcb->Flags & FCB_OPLOCKED) &&
+                       (NonPagedFcb->Flags & FCB_HASOPLOCKHANDLE) &&
+                        Icb->NonPagedSe == NonPagedFcb->OplockedSecurityEntry &&
                         NT_SUCCESS(Fcb->OpenError)) {
 
                 //
@@ -1529,7 +1636,6 @@ BUGBUG: When paging over the net, the PAGED CLE and PAGED FCB and SECURITY ENTRY
                 //  this file.
                 //
 
-                BOOLEAN collapse = FALSE;
 
                 if ( (DesiredAccess & ~SYNCHRONIZE) == FILE_READ_ATTRIBUTES ) {
 
@@ -1571,7 +1677,7 @@ BUGBUG: When paging over the net, the PAGED CLE and PAGED FCB and SECURITY ENTRY
                     //  opened write-through, we cannot collapse the open.
                     //
 
-                    if ( Fcb->NonPagedFcb->Flags & FCB_WRITE_THROUGH ) {
+                    if ( NonPagedFcb->Flags & FCB_WRITE_THROUGH ) {
 
                         collapse = FALSE;
                     }
@@ -1593,6 +1699,22 @@ BUGBUG: When paging over the net, the PAGED CLE and PAGED FCB and SECURITY ENTRY
                     }
 
                 }
+
+                if ( collapse ) {
+
+                    //
+                    //  If the disposition is FILE_CREATE, don't collapse
+                    //  the open.  This forces the file to be flushed from
+                    //  the cache, perhaps allowing the file to be deleted,
+                    //  before sending the open to the server.
+                    //
+
+                    if ( Disposition == FILE_CREATE ) {
+                        collapse = FALSE;
+                    }
+
+                }
+
                 if ( collapse ) {
 
                     //
@@ -1616,11 +1738,11 @@ BUGBUG: When paging over the net, the PAGED CLE and PAGED FCB and SECURITY ENTRY
                     }
                 }
 
-#if defined( _CAIRO_ )
-                if ( Fcb->NonPagedFcb->Type == Directory ) {
+#if (!defined(COLLAPSE_DIRECTORY_OPENS_IGNORE_QUERY))
 
-                    // BUGBUG:
-                    // Directory handle collapsing is temporarily disabled for
+                if ( NonPagedFcb->Type == Directory ) {
+
+                    // BUGBUG: Directory handle collapsing is temporarily disabled for
                     // Cairo because OFS queries are initiated by an FSCTL on
                     // the handle to the directory.  This changes internal
                     // per-handle state on the remote server, and a short
@@ -1628,7 +1750,8 @@ BUGBUG: When paging over the net, the PAGED CLE and PAGED FCB and SECURITY ENTRY
 
                     collapse = FALSE;
                 }
-#endif
+
+#endif // !COLLAPSE_DIRECTORY_OPENS_IGNORE_QUERY
 
                 if ( collapse ) {
 
@@ -1643,16 +1766,16 @@ BUGBUG: When paging over the net, the PAGED CLE and PAGED FCB and SECURITY ENTRY
                     //  We can't pick up oplocked files that aren't disk files.
                     //
 
-                    ASSERT(Fcb->NonPagedFcb->Type == DiskFile);
+                    ASSERT(NonPagedFcb->Type == DiskFile);
 
-                    ASSERT(Fcb->NonPagedFcb->FileType == FileTypeDisk);
+                    ASSERT(NonPagedFcb->FileType == FileTypeDisk);
 
                     //
                     //  If we are trying to open a directory, fail the
                     //  open request, this guy isn't a directory.
                     //
 
-                    if (IrpSp->Parameters.Create.Options & FILE_DIRECTORY_FILE) {
+                    if (MustBeDirectory(IrpSp->Parameters.Create.Options)) {
                         try_return(Status = STATUS_OBJECT_TYPE_MISMATCH);
                     }
 
@@ -1664,13 +1787,13 @@ BUGBUG: When paging over the net, the PAGED CLE and PAGED FCB and SECURITY ENTRY
 
                     dprintf(DPRT_CREATE, ("Collapsing open on file %lx.\n", Fcb));
 
-                    Icb->FileId = Fcb->NonPagedFcb->OplockedFileId;
+                    Icb->FileId = NonPagedFcb->OplockedFileId;
 
-                    Icb->Type = Fcb->NonPagedFcb->Type;
+                    Icb->Type = NonPagedFcb->Type;
 
                     Icb->u.f.Flags |= (ICBF_OPLOCKED | ICBF_OPENEDOPLOCKED);
 
-                    Icb->u.f.OplockLevel = Fcb->NonPagedFcb->OplockLevel;
+                    Icb->u.f.OplockLevel = NonPagedFcb->OplockLevel;
 
                     Icb->Flags |= ICB_HASHANDLE;
 
@@ -1696,7 +1819,7 @@ BUGBUG: When paging over the net, the PAGED CLE and PAGED FCB and SECURITY ENTRY
                             Fcb->Header.FileSize = RdrZero;
                             Fcb->Header.AllocationSize = RdrZero;
                             Fcb->Header.ValidDataLength = RdrZero;
-                            FileObject->SectionObjectPointer = &Fcb->NonPagedFcb->SectionObjectPointer;
+                            FileObject->SectionObjectPointer = &NonPagedFcb->SectionObjectPointer;
 
                             FileSizes = *((PCC_FILE_SIZES)&Icb->Fcb->Header.AllocationSize);
                             CcSetFileSizes(FileObject, &FileSizes);
@@ -1722,7 +1845,7 @@ BUGBUG: When paging over the net, the PAGED CLE and PAGED FCB and SECURITY ENTRY
                             Fcb->Header.FileSize = Irp->Overlay.AllocationSize;
                             Fcb->Header.AllocationSize = Irp->Overlay.AllocationSize;
                             Fcb->Header.ValidDataLength = RdrZero;
-                            FileObject->SectionObjectPointer = &Fcb->NonPagedFcb->SectionObjectPointer;
+                            FileObject->SectionObjectPointer = &NonPagedFcb->SectionObjectPointer;
                             FileSizes = *((PCC_FILE_SIZES)&Icb->Fcb->Header.AllocationSize);
                             CcSetFileSizes(FileObject, &FileSizes);
 
@@ -1744,7 +1867,6 @@ BUGBUG: When paging over the net, the PAGED CLE and PAGED FCB and SECURITY ENTRY
                 } else {
 
                     dprintf(DPRT_CREATE, ("Cannot collapse open on file %lx.\n", Fcb));
-
                     //
                     //  We can't collapse the open.  Flush any current
                     //  dirty data, including writebehind buffers.  Then,
@@ -1752,7 +1874,7 @@ BUGBUG: When paging over the net, the PAGED CLE and PAGED FCB and SECURITY ENTRY
                     //  the cache.
                     //
 
-                    RdrLog( "rdflush7", &Fcb->FileName, 0, 0 );
+                    //RdrLog(( "rdflush7", &Fcb->FileName, 0 ));
                     Status = RdrFlushCacheFile(Fcb);
 
                     if (!NT_SUCCESS(Status)) {
@@ -1786,7 +1908,7 @@ BUGBUG: When paging over the net, the PAGED CLE and PAGED FCB and SECURITY ENTRY
                         //  the FCB lock.
                         //
 
-                        RdrLog( "rdpurge7", &Fcb->FileName, 0, 0 );
+                        //RdrLog(( "rdpurge7", &Fcb->FileName, 0 ));
                         Status = RdrPurgeCacheFile(Fcb);
 
                         if (!NT_SUCCESS(Status)) {
@@ -1804,9 +1926,9 @@ BUGBUG: When paging over the net, the PAGED CLE and PAGED FCB and SECURITY ENTRY
                     }
                 }
             } else {
+
                 dprintf(DPRT_CREATE, ("Cannot collapse open on file %lx.\n", Fcb));
             }
-
         }
 
         dprintf(DPRT_CREATE, ("After short circuit, Status: %lx\n", Status));
@@ -1823,10 +1945,11 @@ BUGBUG: When paging over the net, the PAGED CLE and PAGED FCB and SECURITY ENTRY
                                         IrpSp->Parameters.Create.SecurityContext,
                                         FcbCreated);
 
+
 try_exit:NOTHING;
     } finally {
 
-        RdrLog( "creatCMP", &FileObject->FileName, Status, 0 );
+        //RdrLog(( "creatCMP", &FileObject->FileName, 1, Status ));
 
         if (!NT_SUCCESS(Status)) {
 
@@ -1894,7 +2017,7 @@ try_exit:NOTHING;
                 //  up waiting on the create to complete.
                 //
 
-                KeSetEvent(&Fcb->NonPagedFcb->CreateComplete, 0, FALSE);
+                KeSetEvent(&NonPagedFcb->CreateComplete, 0, FALSE);
 
             }
 
@@ -1922,7 +2045,7 @@ try_exit:NOTHING;
 
             if (Fcb != NULL) {
 
-                RdrDereferenceFcb(Irp, Fcb->NonPagedFcb, TRUE, 0, Se);
+                RdrDereferenceFcb(Irp, NonPagedFcb, TRUE, 0, Se);
             }
 
             if (Se != NULL) {
@@ -1993,7 +2116,7 @@ try_exit:NOTHING;
 
             if (Icb != NULL) {
 
-                ASSERT (Fcb->NonPagedFcb->FileType != FileTypeUnknown);
+                ASSERT (NonPagedFcb->FileType != FileTypeUnknown);
 
                 ASSERT ((Fcb->Attribute & ~FILE_ATTRIBUTE_VALID_FLAGS) == 0);
 
@@ -2019,7 +2142,7 @@ try_exit:NOTHING;
 
                 if (IrpSp->Parameters.Create.Options & FILE_DELETE_ON_CLOSE) {
                     Icb->Flags |= ICB_DELETEONCLOSE;
-                    Icb->NonPagedFcb->Flags |= FCB_DELETEONCLOSE;
+                    NonPagedFcb->Flags |= FCB_DELETEONCLOSE;
                 }
 
                 //
@@ -2098,8 +2221,6 @@ try_exit:NOTHING;
                     //  Remember the file object so we can reference it
                     //  on pipe timer flushes easily.
                     //
-                    //            BUGBUG: DarrylH may not like this!!!!
-                    //
 
                     Icb->u.p.FileObject = FileObject;
 
@@ -2111,13 +2232,11 @@ try_exit:NOTHING;
                     break;
 
                 case DiskFile:
-                    ASSERT(Fcb->NonPagedFcb->FileType == FileTypeDisk);
+                    ASSERT(NonPagedFcb->FileType == FileTypeDisk);
 
                     //
                     //  Remember the file object so we can reference it
                     //  on write behind operations.
-                    //
-                    //            BUGBUG: DarrylH may not like this!!!!
                     //
 
                     Icb->u.f.FileObject = FileObject;
@@ -2135,13 +2254,6 @@ try_exit:NOTHING;
                         RdrData.LockMaximum);
 
                     RdrInitializeAndXBehind(&Icb->u.f.AndXBehind);
-
-                    //
-                    //  Set file object back pointer to NULL to let us know
-                    //  when this file has been cached.
-                    //
-
-                    Icb->u.f.FileObject = NULL;
 
                     //
                     //  For Ea.c
@@ -2162,9 +2274,9 @@ try_exit:NOTHING;
                         NTSTATUS FlushStatus;
 
                         FileObject->Flags |= FO_WRITE_THROUGH;
-                        Fcb->NonPagedFcb->Flags |= FCB_WRITE_THROUGH;
+                        NonPagedFcb->Flags |= FCB_WRITE_THROUGH;
 
-                        RdrLog( "rdflush8", &Fcb->FileName, 0, 0 );
+                        //RdrLog(( "rdflush8", &Fcb->FileName, 0 ));
                         FlushStatus = RdrFlushCacheFile(Fcb);
 
                         if (!NT_SUCCESS(FlushStatus)) {
@@ -2191,7 +2303,7 @@ try_exit:NOTHING;
                         //  we cannot allow the file to remain in the cache.
                         //
 
-                        RdrLog( "rdpurge8", &Fcb->FileName, 0, 0 );
+                        //RdrLog(( "rdpurge8", &Fcb->FileName, 0 ));
                         FlushStatus = RdrPurgeCacheFile(Fcb);
 
                         if (!NT_SUCCESS(FlushStatus)) {
@@ -2213,6 +2325,17 @@ try_exit:NOTHING;
                     //  or overwritten.  The LastWriteTime is always set
                     //  correctly from CreateFile.
                     //
+                    //  N.B. There is a bug in pre-4.0 NT servers where the
+                    //       server returns FILE_SUPERSEDED (0) if the
+                    //       open SMB had to wait for an oplock break to
+                    //       complete.  To deal with this, we have to
+                    //       check for the case where we asked for FILE_OPEN
+                    //       and force the disposition to be FILE_OPENED;
+                    //
+
+                    if (Disposition == FILE_OPEN) {
+                        Irp->IoStatus.Information = FILE_OPENED;
+                    }
 
                     switch (Irp->IoStatus.Information) {
 
@@ -2284,7 +2407,7 @@ try_exit:NOTHING;
                 //  SectionObjectPointer field in the FCB.
                 //
 
-                FileObject->SectionObjectPointer = &Fcb->NonPagedFcb->SectionObjectPointer;
+                FileObject->SectionObjectPointer = &NonPagedFcb->SectionObjectPointer;
 
                 //
                 //  Now tell the cache manager to truncate the file, since
@@ -2302,9 +2425,9 @@ try_exit:NOTHING;
                 //  a new file added.
                 //
 
-                if ( (Disposition == FILE_CREATED) ||
-                     (Disposition == FILE_SUPERSEDED) ||
-                     (Disposition == FILE_OVERWRITTEN) ) {
+                if ( (Irp->IoStatus.Information == FILE_CREATED) ||
+                     (Irp->IoStatus.Information == FILE_SUPERSEDED) ||
+                     (Irp->IoStatus.Information == FILE_OVERWRITTEN) ) {
                     FsRtlNotifyReportChange( Connection->NotifySync,
                                              &Connection->DirNotifyList,
                                              (PANSI_STRING)&Fcb->FileName,
@@ -2327,7 +2450,7 @@ try_exit:NOTHING;
                 //  up waiting on the create to complete.
                 //
 
-                KeSetEvent(&Fcb->NonPagedFcb->CreateComplete, 0, FALSE);
+                KeSetEvent(&NonPagedFcb->CreateComplete, 0, FALSE);
 
                 //
                 //  Release the file creation lock, we are done with this
@@ -2337,7 +2460,6 @@ try_exit:NOTHING;
                 ExReleaseResource(&Connection->Server->CreationLock);
 
                 ExReleaseResource(&Connection->Server->RawResource);
-
             }
 
         }
@@ -2383,8 +2505,11 @@ Return Value:
 {
     NTSTATUS Status;
     PICB Icb = NULL;
+    PFCB Fcb;
+    PNONPAGED_FCB NonPagedFcb;
     BOOLEAN FcbCreated;
     BOOLEAN SharingSet = FALSE;
+    BOOLEAN DfsFile = FALSE;
     PFILE_OBJECT FileObject = IrpSp->FileObject;
     UNICODE_STRING FileName;
 
@@ -2408,6 +2533,10 @@ Return Value:
 
     try {
 
+        if (FileObject->FsContext2 == (PVOID) DFS_OPEN_CONTEXT) {
+            DfsFile = TRUE;
+        }
+
         Icb = RdrAllocateIcb(FileObject);
 
         if (Icb==NULL) {
@@ -2421,17 +2550,18 @@ Return Value:
             try_return(Status);
         }
 
-        Icb->Fcb = RdrAllocateFcb(Icb, FileObject,
+        Fcb = Icb->Fcb = RdrAllocateFcb(Icb, FileObject,
                             &FileName,
                             NULL,
                             IrpSp->Parameters.Create.ShareAccess,
                             IrpSp->Parameters.Create.SecurityContext->DesiredAccess,
                             (BOOLEAN)((IrpSp->Flags & SL_OPEN_TARGET_DIRECTORY) != 0),
+                            DfsFile,
                             NULL,
                             &FcbCreated,
                             NULL);
 
-        if (Icb->Fcb == NULL) {
+        if (Fcb == NULL) {
             if (FileName.Buffer != NULL) {
                 FREE_POOL(FileName.Buffer);
             }
@@ -2439,7 +2569,8 @@ Return Value:
             try_return(Status);
         }
 
-        Icb->NonPagedFcb = Icb->Fcb->NonPagedFcb;
+        NonPagedFcb = Fcb->NonPagedFcb;
+        Icb->NonPagedFcb = NonPagedFcb;
 
         //
         //  If this is a new FCB, set the sharing access field in the
@@ -2465,7 +2596,7 @@ Return Value:
                 Status = IoCheckShareAccess(IrpSp->Parameters.Create.SecurityContext->DesiredAccess,
                                             IrpSp->Parameters.Create.ShareAccess,
                                             FileObject,
-                                            &Icb->Fcb->ShareAccess,
+                                            &Fcb->ShareAccess,
                                             TRUE);
                 if (!NT_SUCCESS(Status)) {
                     try_return(Status);
@@ -2476,13 +2607,13 @@ Return Value:
         }
 
 
-        Icb->NonPagedFcb->Flags |= FCB_IMMUTABLE; // This is an unmodifyable file.
+        NonPagedFcb->Flags |= FCB_IMMUTABLE; // This is an unmodifyable file.
 
         Icb->FileId = REDIRECTOR_FID;
 
         Icb->Type = FileType;
 
-        Icb->NonPagedFcb->Type = FileType;
+        NonPagedFcb->Type = FileType;
 
         //
         //  If this is a mailslot open, mark it as a deferred open request
@@ -2506,7 +2637,7 @@ try_exit:NOTHING;
 
             if (SharingSet) {
 
-                IoRemoveShareAccess(FileObject, &Icb->Fcb->ShareAccess);
+                IoRemoveShareAccess(FileObject, &Fcb->ShareAccess);
 
             }
 
@@ -2515,12 +2646,11 @@ try_exit:NOTHING;
             //
 
             if (Icb != NULL) {
-                PFCB Fcb = Icb->Fcb;
 
                 RdrFreeIcb(Icb);
 
                 if (Fcb != NULL) {
-                    RdrDereferenceFcb(NULL, Fcb->NonPagedFcb, TRUE, 0, NULL);
+                    RdrDereferenceFcb(NULL, NonPagedFcb, TRUE, 0, NULL);
                 }
             }
 
@@ -2530,16 +2660,16 @@ try_exit:NOTHING;
             //  Complete the request and exit.
             //
 
-            Icb->Fcb->NumberOfOpens ++ ;
+            Fcb->NumberOfOpens ++ ;
 
-            RdrReleaseFcbLock(Icb->Fcb);
+            RdrReleaseFcbLock(Fcb);
 
             //
             //  Allow other threads to open this file if any are piled
             //  up waiting on the create to complete.
             //
 
-            KeSetEvent(&Icb->NonPagedFcb->CreateComplete, 0, FALSE);
+            KeSetEvent(&NonPagedFcb->CreateComplete, 0, FALSE);
         }
 
     }
@@ -2555,6 +2685,9 @@ ReturnStatus:
 NTSTATUS
 DetermineRelatedFileConnection (
     IN PFILE_OBJECT FileObject,
+#ifdef  _CAIRO_ //  OFS STORAGE
+    IN ULONG OpenOptions,
+#endif
     OUT PUNICODE_STRING RelatedName,
     OUT PUNICODE_STRING RelatedDevice,
     OUT PCONNECTLISTENTRY *Connection,
@@ -2604,6 +2737,9 @@ Return Value:
 
     if (RelatedFcb->NonPagedFcb->Type != TreeConnect &&
         RelatedFcb->NonPagedFcb->Type != Directory &&
+#ifdef _CAIRO_  //  OFS STORAGE
+        !IsStorageTypeSpecified (OpenOptions) &&
+#endif
         (FileObject->FileName.Length == 0 ||
          FileObject->FileName.Buffer[0] != L':')) {
 
@@ -2614,7 +2750,6 @@ Return Value:
         //  We can't use any other type of file as the root for an
         //  open
         //
-
 
         return STATUS_OBJECT_TYPE_MISMATCH;
     }
@@ -2686,7 +2821,8 @@ RdrDetermineFileConnection (
     OUT PBOOLEAN OpeningMailslotFile,
     IN OUT PULONG ConnectDisposition,
     OUT PULONG ConnectionType,
-    OUT PBOOLEAN UserCredentialsSpecified OPTIONAL
+    OUT PBOOLEAN UserCredentialsSpecified OPTIONAL,
+    OUT PBOOLEAN NoConnection
     )
 
 /*++
@@ -2748,25 +2884,31 @@ Return Value:
     Password.Buffer = NULL;
     UserName.Buffer = NULL;
     Domain.Buffer = NULL;
+
 #ifdef _CAIRO_
     PrincipalName.Buffer = NULL;
-#endif // _CAIRO_
+#endif _CAIRO_
+
     TransportName.Buffer = NULL;
 
     UserName.Length = 0;
     Password.Length = 0;
     Domain.Length = 0;
+
 #ifdef _CAIRO_
     PrincipalName.Length = 0;
 #endif // _CAIRO_
+
     TransportName.Length = 0;
 
     UserName.MaximumLength = 0;
     Password.MaximumLength = 0;
     Domain.MaximumLength = 0;
+
 #ifdef _CAIRO_
     PrincipalName.MaximumLength = 0;
 #endif // _CAIRO_
+
     TransportName.MaximumLength = 0;
 
     //
@@ -2789,7 +2931,10 @@ Return Value:
         while (TRUE) {
             ULONG EaNameLength = EaBuffer->EaNameLength;
 
-            if (strcmp(EaBuffer->EaName, EA_NAME_USERNAME) == 0) {
+            if (strcmp(EaBuffer->EaName, EA_NAME_CONNECT) == 0)
+            {
+                *NoConnection = TRUE;
+            } else if (strcmp(EaBuffer->EaName, EA_NAME_USERNAME) == 0) {
                 UserNameProvided = TRUE;
 
                 UserName.Length = EaBuffer->EaValueLength;
@@ -2832,7 +2977,7 @@ Return Value:
 
                        (EaBuffer->EaValueLength == sizeof(ULONG))) {
 
-                (*ConnectionType)  = *((PULONG)(EaBuffer->EaName+EaNameLength+1));
+                (*ConnectionType)  = *((ULONG UNALIGNED *)(EaBuffer->EaName+EaNameLength+1));
 
                 if ((*ConnectionType) != CONNECT_WILD) {
                     switch ((*ConnectionType)) {
@@ -2858,6 +3003,16 @@ Return Value:
                 EaBuffer = (PFILE_FULL_EA_INFORMATION) ((PCHAR) EaBuffer+EaBuffer->NextEntryOffset);
             }
         }
+    }
+
+    if(UserNameProvided
+             ||
+       PasswordProvided
+             ||
+       DomainProvided
+      )
+    {
+        *NoConnection = FALSE;
     }
 
 
@@ -2967,7 +3122,7 @@ Return Value:
             //
 
             if ((!CreateTreeConnection)
-#ifdef _CAIRO_
+#ifdef _CAIRo_
                 || PrincipalProvided
 #endif // _CAIRO_
                ) {
@@ -2992,7 +3147,7 @@ Return Value:
             if ((ShareName.Length == 0)
 #ifdef _CAIRO_
                 && (!PrincipalProvided)
-#endif // _CAIRO_
+#endif _CAIRO_
                ) {
                 try_return (Status = STATUS_OBJECT_NAME_NOT_FOUND);
             }
@@ -3036,6 +3191,7 @@ Return Value:
                 }
                 ExReleaseResource(&Server->SessionStateModifiedLock);
             }
+
 #endif // _CAIRO_
 
 //            if (ShareName.Length == 0) {
@@ -3070,7 +3226,7 @@ Return Value:
                 //  Find the security entry we conflicted with.
                 //
 
-                (*Se) = RdrFindSecurityEntry((*Connection)->Server, &LogonId, NULL);
+                (*Se) = RdrFindSecurityEntry((*Connection), NULL, &LogonId, NULL);
 
                 if (*Se == NULL) {
                     try_return(Status);
@@ -3322,7 +3478,7 @@ OpenEmptyPath(
         //
 
         if (Connection->Type == CONNECT_PRINT) {
-            if (IrpSp->Parameters.Create.Options & FILE_DIRECTORY_FILE) {
+            if (MustBeDirectory (IrpSp->Parameters.Create.Options)) {
                 return(Status = STATUS_NOT_A_DIRECTORY);
             }
             Icb->NonPagedFcb->FileType = FileTypePrinter;
@@ -3330,7 +3486,7 @@ OpenEmptyPath(
             Icb->NonPagedFcb->Type = PrinterFile;
             Icb->Fcb->Attribute = FILE_ATTRIBUTE_NORMAL;
         } else if (Connection->Type == CONNECT_COMM) {
-            if (IrpSp->Parameters.Create.Options & FILE_DIRECTORY_FILE) {
+            if (MustBeDirectory(IrpSp->Parameters.Create.Options)) {
                 return(Status = STATUS_NOT_A_DIRECTORY);
             }
             Icb->NonPagedFcb->FileType = FileTypeCommDevice;
@@ -3338,7 +3494,7 @@ OpenEmptyPath(
             Icb->NonPagedFcb->Type = Com;
             Icb->Fcb->Attribute = FILE_ATTRIBUTE_NORMAL;
         } else if (Connection->Type == CONNECT_IPC) {
-            if (IrpSp->Parameters.Create.Options & FILE_DIRECTORY_FILE) {
+            if (MustBeDirectory (IrpSp->Parameters.Create.Options)) {
                 return(Status = STATUS_NOT_A_DIRECTORY);
             }
             Icb->NonPagedFcb->FileType = FileTypeMessageModePipe;
@@ -3355,7 +3511,7 @@ OpenEmptyPath(
             //  we should deny the open.
             //
 
-            if (IrpSp->Parameters.Create.Options & FILE_NON_DIRECTORY_FILE &&
+            if (MustBeFile (IrpSp->Parameters.Create.Options) &&
                 ((IrpSp->Parameters.Create.SecurityContext->DesiredAccess & ~SYNCHRONIZE) != FILE_READ_ATTRIBUTES)) {
                 return(Status = STATUS_FILE_IS_A_DIRECTORY);
             }
@@ -3554,7 +3710,9 @@ Return Value:
     PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation(Irp);
     PFCB Fcb = Icb->Fcb;
     PCONNECTLISTENTRY Connection = Fcb->Connection;
+    ULONG EaLength;
     BOOLEAN UseNt = TRUE;
+    BOOLEAN DfsFile = FALSE;
 
     PAGED_CODE();
 
@@ -3569,10 +3727,6 @@ Return Value:
         OpenOptions |= FILE_WRITE_THROUGH;
         OpenOptions &= ~FILE_NO_INTERMEDIATE_BUFFERING;
     }
-
-    //
-    // BUGBUG: We might want to implement rename targets using an NT-NT specific protocol.
-    //
 
     //
     //  NT-NT packets are more complicated than core open SMBs. We will
@@ -3606,31 +3760,85 @@ Return Value:
     }
 
     //
-    //  If we are requesting a DeleteOnClose file, and also requesting only
-    //  delete access, then we can send a delete SMB for this request and
-    //  not bother even opening the file.
+    //  If we are opening a directory, lets defer the open until we really
+    //  need a handle
     //
 
-    if (OpenOptions & FILE_DELETE_ON_CLOSE &&
-
-        ((DesiredAccess & ~SYNCHRONIZE) == DELETE &&
-
-        Fcb->NumberOfOpens == 0)) {
-
-        UseNt = FALSE;
+    if (FlagOn(Icb->Flags, ICB_DEFERREDOPEN)) {
+        EaLength = 0;
+    } else {
+        EaLength = IrpSp->Parameters.Create.EaLength;
     }
 
-#ifdef _CAIRO_
     //
     // If we have DFS calls going through, then we want to use Nt SMBs
     //
 
     if ((Connection->Server->Capabilities & DF_NT_SMBS) &&
-        (OpenOptions & FILE_OPEN_BY_FILE_ID)) {
-        UseNt = TRUE;
+        (Icb->NonPagedFcb->Flags & FCB_DFSFILE)) {
+        DfsFile = TRUE;
     }
-#endif // _CAIRO_
 
+    //
+    // If it is not already deferred..
+    //
+    if( !FlagOn( Icb->Flags, ICB_DEFERREDOPEN ) &&
+
+      //
+      // And there is no Ea
+      //
+
+      EaLength == 0 &&
+
+      //
+      // And it is not being opened for BACKUP Intent
+      //
+
+      !FlagOn( OpenOptions, FILE_OPEN_FOR_BACKUP_INTENT ) &&
+
+      //
+      // And there is no security context
+      //
+
+      (SecurityContext == NULL ||
+        SecurityContext->AccessState == NULL ||
+            SecurityContext->AccessState->SecurityDescriptor == NULL) &&
+
+      //
+      // And the FileAttributes specified are normal...
+      //
+
+      ((FileAttributes & ~(FILE_ATTRIBUTE_NORMAL | FILE_ATTRIBUTE_DIRECTORY)) == 0) &&
+
+      //
+      // And the name will fit into an SMB..
+      //
+      Fcb->FileName.Length <= MAX_NT_SMB_FILENAME && (
+
+      //
+      // And we are opening a directory..
+      //
+      MustBeDirectory(OpenOptions) ||
+
+      //
+      // Or we are opening a file for DELETE permission (only)..
+      //
+      ( MustBeFile( OpenOptions ) &&
+        (DesiredAccess & ~SYNCHRONIZE) == DELETE &&
+        Fcb->NumberOfOpens == 0 ) ) ) {
+
+        //
+        // Then we defer the open
+        //
+        UseNt = FALSE;
+        Icb->Flags |= ICB_DEFERREDOPEN;
+        Icb->u.d.OpenOptions = OpenOptions;
+        Icb->u.d.ShareAccess = ShareAccess;
+        Icb->u.d.FileAttributes = FileAttributes;
+        Icb->u.d.DesiredAccess = DesiredAccess;
+        Icb->u.d.Disposition = Disposition;
+
+    }
 
     if ( UseNt == TRUE ) {
 
@@ -3639,7 +3847,7 @@ Return Value:
         //  filename short enough to fit in the SMB_BUFFER.
         //
 
-        if (IrpSp->Parameters.Create.EaLength == 0 &&
+        if (EaLength == 0 &&
 
             ((SecurityContext == NULL) ||
              (SecurityContext->AccessState == NULL) ||
@@ -3686,13 +3894,33 @@ Return Value:
             //
             //  We only request oplock/opbatch when opening non directories.
             //
-
-            if (!FlagOn(OpenOptions, FILE_DIRECTORY_FILE)) {
+            //  We also do not cache (and therefore don't request oplock) on
+            //  loopback connections.  This avoids a problem where the system
+            //  hits the dirty page threshold, but can't write dirty data
+            //  because this requires the server to dirty more pages.
+            //
+            //  We don't need an oplock if we can't read or write the file.
+            //
+            if (!MustBeDirectory (OpenOptions) &&
+                !Connection->Server->IsLoopback &&
+                (DesiredAccess & (FILE_READ_DATA | FILE_WRITE_DATA)) ) {
 
                 CreateFlags = NT_CREATE_REQUEST_OPLOCK | NT_CREATE_REQUEST_OPBATCH;
 
             } else {
                 CreateFlags = 0;
+            }
+
+            //
+            // If we are opening with DELETE_ON_CLOSE option, the option will
+            // be transmitted via the NT Create SMB. In order that we not
+            // try to delete the file after it closes, we clear the FCB and
+            // ICB flags indicating that we opened using DELETE_ON_CLOSE
+            //
+
+            if (FlagOn(OpenOptions,FILE_DELETE_ON_CLOSE)) {
+                Icb->Flags &= ~ICB_DELETEONCLOSE;
+                Fcb->NonPagedFcb->Flags &= ~FCB_DELETEONCLOSE;
             }
 
             SmbPutUlong(&Create->Flags, CreateFlags);
@@ -3732,7 +3960,8 @@ Return Value:
 
             Create->SecurityFlags = 0;
 
-            if (SecurityContext->SecurityQos != NULL) {
+            if (SecurityContext != NULL &&
+                    SecurityContext->SecurityQos != NULL) {
 
                 SmbPutUlong(&Create->ImpersonationLevel, SecurityContext->SecurityQos->ImpersonationLevel);
 
@@ -3758,8 +3987,8 @@ Return Value:
 
             if ((IrpSp->FileObject->RelatedFileObject == NULL) ||
                 !(((PICB)IrpSp->FileObject->RelatedFileObject->FsContext2)->Flags & ICB_HASHANDLE)) {
-                SmbPutUlong(&Create->RootDirectoryFid, 0);
 
+                SmbPutUlong(&Create->RootDirectoryFid, 0);
 
                 Status = RdrCopyNetworkPath(&Buffer,
                         &Fcb->FileName,
@@ -3855,7 +4084,7 @@ Return Value:
 
             RdrReleaseFcbLock(Fcb);
 
-            RdrSmbScrounge(Smb, Connection->Server, TRUE, TRUE);
+            RdrSmbScrounge(Smb, Connection->Server, DfsFile, TRUE, TRUE);
 
             Pid = (ULONG)IoGetRequestorProcess(Irp);
             SmbPutUshort(&Smb->Pid, (USHORT)(Pid & 0xFFFF));
@@ -3910,6 +4139,7 @@ Return Value:
             //
 
             Icb->Flags |= ICB_HASHANDLE;
+            Icb->Flags &= ~ICB_DEFERREDOPEN;
 
             return Status;
         } else {
@@ -4070,8 +4300,21 @@ Return Value:
     //
 
     if (OpenAndXResponse->Directory) {
-        Icb->Type = Directory;
-        NonPagedFcb->Type = Directory;
+
+        //
+        // If we're opening an alternate data stream, then even though
+        // the file attributes report this as a directory, it needs to
+        // be treated like a file.
+        //
+
+        if (NonPagedFcb->SharingCheckFcb == NULL) {
+            Icb->Type = Directory;
+            NonPagedFcb->Type = Directory;
+        } else {
+            Icb->Type = DiskFile;
+            NonPagedFcb->Type = DiskFile;
+        }
+
     } else if ((NonPagedFcb->FileType == FileTypeByteModePipe) ||
                (NonPagedFcb->FileType == FileTypeMessageModePipe)) {
         NonPagedFcb->Type = NamedPipe;
@@ -4211,6 +4454,7 @@ Return Value:
     USHORT NameLength;
 
     PFCB Fcb = Icb->Fcb;
+    PNONPAGED_FCB NonPagedFcb = Fcb->NonPagedFcb;
 
     PREQ_CREATE_WITH_SD_OR_EA Create = NULL;
     PRESP_CREATE_WITH_SD_OR_EA CreateResp = NULL;
@@ -4235,7 +4479,15 @@ Return Value:
     }
 
 
-    if (!FlagOn(OpenOptions, FILE_DIRECTORY_FILE)) {
+    //
+    //  We do not cache (and therefore don't request oplock) on
+    //  loopback connections.  This avoids a problem where the system
+    //  hits the dirty page threshold, but can't write dirty data
+    //  because this requires the server to dirty more pages.
+    //
+
+    if (!MustBeDirectory (OpenOptions) &&
+        !Fcb->Connection->Server->IsLoopback) {
 
         Create->Flags = NT_CREATE_REQUEST_OPLOCK | NT_CREATE_REQUEST_OPBATCH;
 
@@ -4445,7 +4697,7 @@ Return Value:
             &DataBufferLength,
             NULL,                   // Fid
             0,                      // Timeout
-            0,                      // Flags
+            (USHORT) (FlagOn(Icb->NonPagedFcb->Flags, FCB_DFSFILE) ? SMB_TRANSACTION_DFSFILE : 0),
             NT_TRANSACT_CREATE,     // NtTransact Create w/acl.
             NULL,
             NULL
@@ -4481,25 +4733,23 @@ Return Value:
     //  Assume that ValidDataLength is the length of the file.
     //
 
-//    BUGBUG: REMOVE THIS CODE!!!!!
-
     ASSERT (CreateResp->EndOfFile.HighPart == 0);
 
     Fcb->Header.ValidDataLength =
         Fcb->Header.FileSize = CreateResp->EndOfFile;
 
-    Fcb->NonPagedFcb->FileType = (FILE_TYPE )CreateResp->FileType;
+    NonPagedFcb->FileType = (FILE_TYPE )CreateResp->FileType;
 
-    if (((Fcb->NonPagedFcb->FileType < FileTypeDisk) ||
-         (Fcb->NonPagedFcb->FileType > FileTypeCommDevice)) &&
-        (Fcb->NonPagedFcb->FileType != FileTypeIPC )) {
+    if (((NonPagedFcb->FileType < FileTypeDisk) ||
+         (NonPagedFcb->FileType > FileTypeCommDevice)) &&
+        (NonPagedFcb->FileType != FileTypeIPC )) {
         //  Server supplied invalid FileType
 
         ASSERT( FALSE );
         if ( Fcb->Connection->Type == CONNECT_IPC ) {
-            Fcb->NonPagedFcb->FileType = FileTypeIPC;
+            NonPagedFcb->FileType = FileTypeIPC;
         } else {
-            Fcb->NonPagedFcb->FileType = FileTypeDisk;
+            NonPagedFcb->FileType = FileTypeDisk;
         }
     }
 
@@ -4512,27 +4762,40 @@ Return Value:
     //
 
     if (CreateResp->Directory) {
-        Fcb->NonPagedFcb->Type = Directory;
-        Icb->Type = Directory;
-    } else if (Fcb->NonPagedFcb->FileType == FileTypeByteModePipe || Fcb->NonPagedFcb->FileType == FileTypeMessageModePipe) {
-        Fcb->NonPagedFcb->Type = NamedPipe;
+
+        //
+        // If we're opening an alternate data stream, then even though
+        // the file attributes report this as a directory, it needs to
+        // be treated like a file.
+        //
+
+        if (NonPagedFcb->SharingCheckFcb == NULL) {
+            Icb->Type = Directory;
+            NonPagedFcb->Type = Directory;
+        } else {
+            Icb->Type = DiskFile;
+            NonPagedFcb->Type = DiskFile;
+        }
+
+    } else if (NonPagedFcb->FileType == FileTypeByteModePipe || NonPagedFcb->FileType == FileTypeMessageModePipe) {
+        NonPagedFcb->Type = NamedPipe;
         Icb->Type = NamedPipe;
     } else if (Fcb->Connection->Type == CONNECT_COMM) {
-        Fcb->NonPagedFcb->Type = Com;
+        NonPagedFcb->Type = Com;
         Icb->Type = Com;
     } else if (Fcb->Connection->Type == CONNECT_PRINT) {
-        Fcb->NonPagedFcb->Type = PrinterFile;
+        NonPagedFcb->Type = PrinterFile;
         Icb->Type = PrinterFile;
     } else {
-        Fcb->NonPagedFcb->Type = DiskFile;
+        NonPagedFcb->Type = DiskFile;
         Icb->Type = DiskFile;
     }
 
-    if ( Fcb->NonPagedFcb->FileType == FileTypeByteModePipe || Fcb->NonPagedFcb->FileType == FileTypeMessageModePipe ) {
+    if ( NonPagedFcb->FileType == FileTypeByteModePipe || NonPagedFcb->FileType == FileTypeMessageModePipe ) {
 
         Icb->u.p.PipeState = CreateResp->DeviceState;
 
-    } else if ((Fcb->NonPagedFcb->FileType == FileTypeDisk) &&
+    } else if ((NonPagedFcb->FileType == FileTypeDisk) &&
                (CreateResp->OplockLevel != SMB_OPLOCK_LEVEL_NONE)) {
 
         //
@@ -4545,13 +4808,13 @@ Return Value:
     }
 
     if (Fcb->Connection->Type == CONNECT_IPC) {
-        Fcb->NonPagedFcb->Type = NamedPipe;
+        NonPagedFcb->Type = NamedPipe;
         Icb->Type = NamedPipe;
     } else if (Fcb->Connection->Type == CONNECT_COMM) {
-        Fcb->NonPagedFcb->Type = Com;
+        NonPagedFcb->Type = Com;
         Icb->Type = Com;
     } else if (Fcb->Connection->Type == CONNECT_PRINT) {
-        Fcb->NonPagedFcb->Type = PrinterFile;
+        NonPagedFcb->Type = PrinterFile;
         Icb->Type = PrinterFile;
     }
 
@@ -4570,17 +4833,17 @@ Return Value:
 
     if (Icb->u.f.Flags & ICBF_OPLOCKED) {
 
-        Fcb->NonPagedFcb->OplockedFileId = Icb->FileId;
+        NonPagedFcb->OplockedFileId = Icb->FileId;
 
-        if (Fcb->NonPagedFcb->OplockedSecurityEntry == NULL) {
-            Fcb->NonPagedFcb->OplockedSecurityEntry = Icb->NonPagedSe;
+        if (NonPagedFcb->OplockedSecurityEntry == NULL) {
+            NonPagedFcb->OplockedSecurityEntry = Icb->NonPagedSe;
 
             RdrReferenceSecurityEntry(Icb->NonPagedSe);
         }
 
         if (Icb->u.f.Flags & ICBF_OPLOCKED) {
-            Fcb->NonPagedFcb->Flags |= FCB_OPLOCKED | FCB_HASOPLOCKHANDLE;
-            Fcb->NonPagedFcb->OplockLevel = Icb->u.f.OplockLevel;
+            NonPagedFcb->Flags |= FCB_OPLOCKED | FCB_HASOPLOCKHANDLE;
+            NonPagedFcb->OplockLevel = Icb->u.f.OplockLevel;
         }
 
         Fcb->GrantedAccess = DesiredAccess;
@@ -4641,6 +4904,21 @@ Return Value:
 
     PAGED_CODE();
 
+#ifdef _CAIRO_  //  OFS STORAGE
+    //
+    //  Lanman servers do not understand storage types beyond file and
+    //  directory. Make sure that the user is not specifying them
+    //
+
+    if (IsStorageTypeSpecified (OpenOptions) &&
+        (StorageType (OpenOptions) == FILE_STORAGE_TYPE_DEFAULT ||
+         StorageType (OpenOptions) == FILE_STORAGE_TYPE_FILE ||
+         StorageType (OpenOptions) == FILE_STORAGE_TYPE_DIRECTORY)) {
+
+        return (Status = STATUS_NOT_SUPPORTED);
+    }
+#endif
+
     //
     //  If we are being requested to open the target directory of this
     //  file, open the file.
@@ -4655,7 +4933,7 @@ Return Value:
             return (Status = OpenRenameTarget(Irp, IrpSp->FileObject, Icb, FcbCreated));
         }
 
-    } else if ((OpenOptions & FILE_DIRECTORY_FILE) &&
+    } else if (MustBeDirectory(OpenOptions) &&
                (Connection->Type == CONNECT_DISK)) {
 
         //
@@ -4663,7 +4941,7 @@ Return Value:
         //  network, see if the directory exists on the remote node.
         //
 
-        if (FcbCreated) {
+        if (FcbCreated || (Icb->Flags & ICB_DEFERREDOPEN) ) {
             if (!NT_SUCCESS(Status = CreateOrChDirectory(Icb, Irp, IrpSp))) {
                 return Status;
             }
@@ -4714,7 +4992,7 @@ Return Value:
             //  that this can't be a directory, so don't even bother trying
             //  to open this puppy as a non directory file.
             //
-            if (!(IrpSp->Parameters.Create.Options & FILE_NON_DIRECTORY_FILE) &&
+            if (!MustBeFile (IrpSp->Parameters.Create.Options) &&
                 (Connection->Type == CONNECT_DISK)) {
 
                 //
@@ -4882,6 +5160,10 @@ Return Value:
 
                 Smb->Command = SMB_COM_OPEN_ANDX;
 
+                if (FlagOn(Icb->NonPagedFcb->Flags, FCB_DFSFILE)) {
+                    SmbPutUshort(&Smb->Flags2, SMB_FLAGS2_DFS);
+                }
+
                 OpenX = (PREQ_OPEN_ANDX) (Smb+1);
 
                 OpenX->WordCount = 15;  // Set wordcount on Open&X request.
@@ -4893,10 +5175,15 @@ Return Value:
                 //
                 //  If oplock is allowed, request an oplock on this file.
                 //
+                //  We do not cache (and therefore don't request oplock) on
+                //  loopback connections.  This avoids a problem where the system
+                //  hits the dirty page threshold, but can't write dirty data
+                //  because this requires the server to dirty more pages.
+                //
 
                 if (Connection->Type == CONNECT_DISK) {
 
-                    if (RdrData.UseOpportunisticLocking) {
+                    if (RdrData.UseOpportunisticLocking && !Connection->Server->IsLoopback) {
 
                         OpenAndXFlags |= SMB_OPEN_OPLOCK;
 
@@ -5286,31 +5573,164 @@ Return Value:
 
     if ( !IrpSp->Parameters.Create.EaLength ) {
 
+        LARGE_INTEGER currentTime;
+        KeQuerySystemTime( &currentTime );
+
         //
         // Use simple core request when no ea's requested.
         //
 
-        if ( (IrpSp->Parameters.Create.Options & FILE_DIRECTORY_FILE) &&
+        if ( MustBeDirectory(IrpSp->Parameters.Create.Options) &&
              (IrpSp->Parameters.Create.Options >> 24 == FILE_CREATE) ) {
             if (!NT_SUCCESS( Status = RdrGenericPathSmb(
                                         Irp,
                                         SMB_COM_CREATE_DIRECTORY,
+                                        BooleanFlagOn(Icb->NonPagedFcb->Flags, FCB_DFSFILE),
                                         &Icb->Fcb->FileName,
                                         Connection,
                                         Se))) {
+                //
+                // NT 3.51 servers convert STATUS_OBJECT_NAME_COLLISION into
+                // STATUS_ACCESS_DENIED for this SMB. So, check to see what
+                // the server really meant.
+                //
+
+                if (Status == STATUS_ACCESS_DENIED &&
+                        !FlagOn(Connection->Server->Capabilities,DF_NT_40)) {
+
+                    NTSTATUS DirExistsStatus;
+
+                    DirExistsStatus = RdrGenericPathSmb(
+                                        Irp,
+                                        SMB_COM_CHECK_DIRECTORY,
+                                        BooleanFlagOn(Icb->NonPagedFcb->Flags, FCB_DFSFILE),
+                                        &Icb->Fcb->FileName,
+                                        Connection,
+                                        Se);
+
+                    if (DirExistsStatus == STATUS_SUCCESS) {
+
+                        Status = STATUS_OBJECT_NAME_COLLISION;
+
+                    }
+
+                }
                 return Status;
             }
             Icb->FileId = CREATE_DIRECTORY_FID;
             Irp->IoStatus.Information = FILE_CREATED;
         } else {
-            if (!NT_SUCCESS( Status = RdrGenericPathSmb(
+
+            UNICODE_STRING FileName;
+
+            FileName = Icb->Fcb->FileName;
+
+            if (FileName.Buffer[ FileName.Length/sizeof(WCHAR) - 1 ] == L'\\')
+                FileName.Length -= sizeof(WCHAR);
+
+            if( RdrNumberOfComponents( &FileName ) == 2 ) {
+                //
+                // We are checking to see if the root of the share exists.  It always does.
+                //
+                Status = STATUS_SUCCESS;
+
+            } else if( Connection->CachedValidCheckPathExpiration.QuadPart >= currentTime.QuadPart &&
+                RdrServerStateUpdated == Connection->CheckPathServerState &&
+
+                //
+                // The cached check path buffer hasn't expired, and we haven't done any
+                //  operations which would update the server state.
+                //
+                // If the cached name exactly matches the newly requested name, or if the
+                //   cached name is a child directory of the newly requested name, then
+                //   we can go ahead and declare SUCCESS
+                //
+
+                ( Icb->Fcb->FileName.Length == Connection->CachedValidCheckPath.Length ||
+                ( Icb->Fcb->FileName.Length < Connection->CachedValidCheckPath.Length &&
+                  Connection->CachedValidCheckPath.Buffer[ Icb->Fcb->FileName.Length / sizeof(WCHAR) ] == L'\\')) &&
+                  RtlEqualMemory( Icb->Fcb->FileName.Buffer,
+                                  Connection->CachedValidCheckPath.Buffer,
+                                  Icb->Fcb->FileName.Length )) {
+
+                //
+                // We have successfully done this CHECK DIRECTORY before, and the results are
+                // still valid.  Use the results instead of asking the server again
+                //
+                Status = STATUS_SUCCESS;
+
+            } else if( Connection->CachedInvalidPathExpiration.QuadPart >= currentTime.QuadPart &&
+                RdrStatistics.SmbsTransmitted.LowPart == Connection->CachedInvalidSmbCount &&
+                RtlEqualUnicodeString( &Icb->Fcb->FileName, &Connection->CachedInvalidPath, TRUE ) ) {
+
+                //
+                // This is a Path which we know doesn't exist
+                //
+                return STATUS_OBJECT_PATH_NOT_FOUND;
+
+            } else if (!NT_SUCCESS( Status = RdrGenericPathSmb(
                                         Irp,
                                         SMB_COM_CHECK_DIRECTORY,
+                                        BooleanFlagOn(Icb->NonPagedFcb->Flags, FCB_DFSFILE),
                                         &Icb->Fcb->FileName,
                                         Connection,
                                         Se))) {
+
+                //
+                // NT 3.51 servers convert STATUS_ACCESS_DENIED into
+                // STATUS_OBJECT_PATH_NOT_FOUND for this SMB. So, check to
+                // see what the server really meant.
+                //
+
+                if (Status == STATUS_OBJECT_PATH_NOT_FOUND &&
+                        !FlagOn(Connection->Server->Capabilities,DF_NT_40) &&
+                            FlagOn(Connection->Server->Capabilities,DF_NT_SMBS)) {
+
+                    LARGE_INTEGER lastWriteTime;
+                    ULONG attributes;
+                    BOOLEAN isDirectory;
+
+                    Status = RdrDoesFileExist(
+                                Irp,
+                                &Icb->Fcb->FileName,
+                                Connection,
+                                Se,
+                                BooleanFlagOn(Icb->NonPagedFcb->Flags, FCB_DFSFILE),
+                                &attributes,
+                                &isDirectory,
+                                &lastWriteTime);
+
+                    if (NT_SUCCESS(Status))
+                        Status = STATUS_ACCESS_DENIED;
+
+
+                }
+
                 return Status;
+
+            } else if( Icb->Fcb->FileName.Length <= Connection->CachedValidCheckPath.MaximumLength ) {
+                //
+                // We have gone to the server with a check path SMB.  Remember the results here.
+                //
+                RtlCopyMemory( Connection->CachedValidCheckPath.Buffer,
+                               Icb->Fcb->FileName.Buffer,
+                               Icb->Fcb->FileName.Length );
+
+                Connection->CachedValidCheckPath.Length = Icb->Fcb->FileName.Length;
+                KeQuerySystemTime( &currentTime );
+
+                //
+                // Remember the results for 5 seconds
+                //
+                Connection->CachedValidCheckPathExpiration.QuadPart = currentTime.QuadPart +
+                        5 * 10 * 1000 * 1000;
+
+                //
+                // Or until we change server state
+                //
+                Connection->CheckPathServerState = RdrServerStateUpdated;
             }
+
             Icb->FileId = OPEN_DIRECTORY_FID;
             Irp->IoStatus.Information = FILE_OPENED;
         }
@@ -5383,6 +5803,7 @@ Return Value:
 {
     BOOLEAN IsDirectory;
     BOOLEAN UnknownFileType = FALSE;
+    BOOLEAN DfsFile = BooleanFlagOn(Icb->NonPagedFcb->Flags, FCB_DFSFILE);
     LARGE_INTEGER WriteTime;
     NTSTATUS Status = STATUS_SUCCESS;
     PCONNECTLISTENTRY Connection = Icb->Fcb->Connection;
@@ -5398,9 +5819,9 @@ Return Value:
     //  close file, then simply send the delete SMB and see what happens.
     //
 
-    if (((DesiredAccess & ~SYNCHRONIZE) == DELETE) &&
+    if(((DesiredAccess & ~SYNCHRONIZE) == DELETE) &&
         OpenOptions & FILE_DELETE_ON_CLOSE &&
-        OpenOptions & (FILE_DIRECTORY_FILE | FILE_NON_DIRECTORY_FILE) &&
+        (MustBeFile (OpenOptions) || MustBeDirectory (OpenOptions)) &&
         (Icb->Fcb->NumberOfOpens == 0)) {
 
         //
@@ -5409,11 +5830,17 @@ Return Value:
         //  not release the FCB lock.
         //
 
-        if (OpenOptions & FILE_NON_DIRECTORY_FILE) {
-            Status = RdrDeleteFile(Irp, &Icb->Fcb->FileName, Connection, Icb->Se);
-        } else if (OpenOptions & FILE_DIRECTORY_FILE) {
+        if (MustBeFile (OpenOptions)) {
+            Status = RdrDeleteFile(
+                        Irp,
+                        &Icb->Fcb->FileName,
+                        DfsFile,
+                        Connection,
+                        Icb->Se);
+        } else if (MustBeDirectory (OpenOptions)) {
             Status = RdrGenericPathSmb(Irp,
                                         SMB_COM_DELETE_DIRECTORY,
+                                        BooleanFlagOn(Icb->NonPagedFcb->Flags, FCB_DFSFILE),
                                         &Icb->Fcb->FileName,
                                         Connection,
                                         Icb->Se);
@@ -5427,7 +5854,7 @@ Return Value:
 
             Icb->NonPagedFcb->Flags |= FCB_DOESNTEXIST;
 
-            if (OpenOptions & FILE_NON_DIRECTORY_FILE) {
+            if (MustBeFile (OpenOptions)) {
                 Icb->Fcb->NonPagedFcb->Type = Icb->Type = DiskFile;
             } else {
                 Icb->Fcb->NonPagedFcb->Type = Icb->Type = Directory;
@@ -5453,7 +5880,7 @@ Return Value:
         //
 
         if ((Icb->NonPagedFcb->Type == Directory) &&
-            (OpenOptions & FILE_NON_DIRECTORY_FILE)) {
+            MustBeFile (OpenOptions)) {
             Status = STATUS_FILE_IS_A_DIRECTORY;
             return Status;
         }
@@ -5475,14 +5902,13 @@ Return Value:
 
     }
 
+    //
+    // For Dfs, we do not want to do this optimization
+    //
+
     if ((FileDisposition == FILE_OPEN) &&
-#ifndef _CAIRO_
-        !FlagOn(OpenOptions,
-                FILE_DELETE_ON_CLOSE)) {
-#else
-        !FlagOn(OpenOptions,
-                (FILE_DELETE_ON_CLOSE | FILE_OPEN_BY_FILE_ID) )) {
-#endif
+            !DfsFile &&
+                !FlagOn(OpenOptions,FILE_DELETE_ON_CLOSE)) {
 
         //
         //  As a performance optimization, if the user opens the file for
@@ -5525,11 +5951,17 @@ Return Value:
 
         switch (FileDisposition) {
         case FILE_SUPERSEDE:
-            Status = RdrDoesFileExist(Irp, &Icb->Fcb->FileName, Connection, Se, &FileAttributes, &IsDirectory, &WriteTime);
+            Status = RdrDoesFileExist(
+                            Irp, &Icb->Fcb->FileName, Connection, Se,
+                            DfsFile,
+                            &FileAttributes, &IsDirectory, &WriteTime);
 
             if (NT_SUCCESS(Status)) {
 
-                Status = RdrDeleteFile(Irp, &Icb->Fcb->FileName, Connection, Se);
+                Status = RdrDeleteFile(
+                                Irp, &Icb->Fcb->FileName,
+                                DfsFile,
+                                Connection, Se);
 
                 if (NT_SUCCESS(Status)) {
 
@@ -5545,25 +5977,32 @@ Return Value:
             if (NT_SUCCESS(Status)) {
                 RdrCloseFile(Irp, Icb, IoGetCurrentIrpStackLocation(Irp)->FileObject, TRUE);
 
-                Status = RdrDoesFileExist(Irp, &Icb->Fcb->FileName, Connection, Se, &FileAttributes, &IsDirectory, &WriteTime);
+                Status = RdrDoesFileExist(
+                                Irp, &Icb->Fcb->FileName, Connection, Se,
+                                DfsFile,
+                                &FileAttributes, &IsDirectory, &WriteTime);
             }
 
             break;
 
         case FILE_OPEN:
-            ASSERT( FlagOn( OpenOptions, (FILE_DELETE_ON_CLOSE | FILE_OPEN_BY_FILE_ID) ) );
-
             //
             //  We've requested DELETE_ON_CLOSE or OPEN_BY_FILE_ID, so we need
             //  to make sure what the type of the file is when we open it.
             //
 
-            Status = RdrDoesFileExist(Irp, &Icb->Fcb->FileName, Connection, Se, &FileAttributes, &IsDirectory, &WriteTime);
+            Status = RdrDoesFileExist(
+                            Irp, &Icb->Fcb->FileName, Connection, Se,
+                            DfsFile,
+                            &FileAttributes, &IsDirectory, &WriteTime);
 
             break;
 
         case FILE_CREATE:
-            Status = RdrDoesFileExist(Irp, &Icb->Fcb->FileName, Connection, Se, &FileAttributes, &IsDirectory, &WriteTime);
+            Status = RdrDoesFileExist(
+                            Irp, &Icb->Fcb->FileName, Connection, Se,
+                            DfsFile,
+                            &FileAttributes, &IsDirectory, &WriteTime);
 
             if (NT_SUCCESS(Status)) {
                 Status = STATUS_OBJECT_NAME_COLLISION;
@@ -5574,12 +6013,18 @@ Return Value:
             if (NT_SUCCESS(Status)) {
                 RdrCloseFile(Irp, Icb, IoGetCurrentIrpStackLocation(Irp)->FileObject, TRUE);
 
-                Status = RdrDoesFileExist(Irp, &Icb->Fcb->FileName, Connection, Se, &FileAttributes, &IsDirectory, &WriteTime);
+                Status = RdrDoesFileExist(
+                                Irp, &Icb->Fcb->FileName, Connection, Se,
+                                DfsFile,
+                                &FileAttributes, &IsDirectory, &WriteTime);
             }
             break;
 
         case FILE_OPEN_IF:
-            Status = RdrDoesFileExist(Irp, &Icb->Fcb->FileName, Connection, Se, &FileAttributes, &IsDirectory, &WriteTime);
+            Status = RdrDoesFileExist(
+                        Irp, &Icb->Fcb->FileName, Connection, Se,
+                        DfsFile,
+                        &FileAttributes, &IsDirectory, &WriteTime);
 
             if (!NT_SUCCESS(Status)) {
 
@@ -5588,7 +6033,10 @@ Return Value:
                 if (NT_SUCCESS(Status)) {
                     RdrCloseFile(Irp, Icb, IoGetCurrentIrpStackLocation(Irp)->FileObject, TRUE);
 
-                    Status = RdrDoesFileExist(Irp, &Icb->Fcb->FileName, Connection, Se, &FileAttributes, &IsDirectory, &WriteTime);
+                    Status = RdrDoesFileExist(
+                                Irp, &Icb->Fcb->FileName, Connection, Se,
+                                DfsFile,
+                                &FileAttributes, &IsDirectory, &WriteTime);
                 }
             }
 
@@ -5603,12 +6051,18 @@ Return Value:
 
                 RdrCloseFile(Irp, Icb, IoGetCurrentIrpStackLocation(Irp)->FileObject, TRUE);
 
-                Status = RdrDoesFileExist(Irp, &Icb->Fcb->FileName, Connection, Se, &FileAttributes, &IsDirectory, &WriteTime);
+                Status = RdrDoesFileExist(
+                            Irp, &Icb->Fcb->FileName, Connection, Se,
+                            DfsFile,
+                            &FileAttributes, &IsDirectory, &WriteTime);
             }
 
             break;
         case FILE_OVERWRITE_IF:
-            Status = RdrDoesFileExist(Irp, &Icb->Fcb->FileName, Connection, Se, &FileAttributes, &IsDirectory, &WriteTime);
+            Status = RdrDoesFileExist(
+                            Irp, &Icb->Fcb->FileName, Connection, Se,
+                            DfsFile,
+                            &FileAttributes, &IsDirectory, &WriteTime);
 
             if (!NT_SUCCESS(Status)) {
                 Status = CreateNewCoreFile( Irp, Icb, SharingMode, Attributes, SMB_DA_ACCESS_WRITE, TRUE);
@@ -5617,7 +6071,10 @@ Return Value:
 
                     RdrCloseFile(Irp, Icb, IoGetCurrentIrpStackLocation(Irp)->FileObject, TRUE);
 
-                    Status = RdrDoesFileExist(Irp, &Icb->Fcb->FileName, Connection, Se, &FileAttributes, &IsDirectory, &WriteTime);
+                    Status = RdrDoesFileExist(
+                                Irp, &Icb->Fcb->FileName, Connection, Se,
+                                DfsFile,
+                                &FileAttributes, &IsDirectory, &WriteTime);
                 }
             }
             break;
@@ -5676,10 +6133,12 @@ Return Value:
 
     if (UnknownFileType) {
         Icb->Type = FileOrDirectory;
-        Icb->NonPagedFcb->Type = FileOrDirectory;
+        if (FcbCreated) {
+            Icb->NonPagedFcb->Type = FileOrDirectory;
+        }
     } else if (IsDirectory) {
 
-        if (OpenOptions & FILE_NON_DIRECTORY_FILE) {
+        if (MustBeFile (OpenOptions)) {
             Status = STATUS_FILE_IS_A_DIRECTORY;
             return Status;
         }
@@ -5687,7 +6146,6 @@ Return Value:
         Icb->Type = Directory;
         Icb->NonPagedFcb->Type = Directory;
     } else {
-//  BUGBUG: Should we check for named pipes on pseudo opened files?
         Icb->Type = DiskFile;
         Icb->NonPagedFcb->Type = DiskFile;
     }
@@ -5781,12 +6239,18 @@ Return Value:
     switch ( FileDisposition ) {
 
     case FILE_SUPERSEDE:
-        Status = RdrDoesFileExist(Irp, &Icb->Fcb->FileName, Icb->Fcb->Connection, Se, &FileAttributes, &IsDirectory, NULL);
+        Status = RdrDoesFileExist(
+                    Irp, &Icb->Fcb->FileName, Icb->Fcb->Connection, Se,
+                    FALSE,
+                    &FileAttributes, &IsDirectory, NULL);
 
         //  If the file does exist, delete it before creating the new one.
 
         if (NT_SUCCESS(Status)) {
-            Status = RdrDeleteFile ( Irp, &Icb->Fcb->FileName, Icb->Fcb->Connection, Se );
+            Status = RdrDeleteFile (
+                        Irp, &Icb->Fcb->FileName,
+                        FALSE,
+                        Icb->Fcb->Connection, Se );
             if (NT_SUCCESS(Status)) {
                 Status = CreateNewCoreFile( Irp, Icb, SharingMode, Attributes, DesiredAccess, TRUE);
             }
@@ -5817,7 +6281,10 @@ Return Value:
         break;
 
     case FILE_OVERWRITE:
-        Status = RdrDoesFileExist(Irp, &Icb->Fcb->FileName, Icb->Fcb->Connection, Se, &FileAttributes, &IsDirectory, NULL);
+        Status = RdrDoesFileExist(
+                    Irp, &Icb->Fcb->FileName, Icb->Fcb->Connection, Se,
+                    FALSE,
+                    &FileAttributes, &IsDirectory, NULL);
 
         //  If the file does exist, create it.
 
@@ -5931,9 +6398,14 @@ Return Value:
     //
     //  If oplock is allowed, request an oplock on this file.
     //
+    //  We do not cache (and therefore don't request oplock) on
+    //  loopback connections.  This avoids a problem where the system
+    //  hits the dirty page threshold, but can't write dirty data
+    //  because this requires the server to dirty more pages.
+    //
 
     if (Connection->Type == CONNECT_DISK) {
-        if (RdrData.UseOpportunisticLocking) {
+        if (RdrData.UseOpportunisticLocking && !Connection->Server->IsLoopback) {
             Flags |= (SMB_OPEN_OPLOCK | SMB_OPEN_OPBATCH);
         }
     }
@@ -6032,7 +6504,7 @@ Return Value:
         &OutDataCount,
         &Icb->FileId,           // Fid
         0,                      // Timeout
-        0,                      // Flags
+        (USHORT) (FlagOn(Icb->NonPagedFcb->Flags, FCB_DFSFILE) ? SMB_TRANSACTION_DFSFILE : 0),
         0,
         NULL,
         NULL
@@ -6253,7 +6725,7 @@ Return Value:
                 &OutDataCount,
                 &Icb->FileId,           // Fid
                 0,                      // Timeout
-                0,                      // Flags
+                (USHORT) (FlagOn(Icb->NonPagedFcb->Flags, FCB_DFSFILE) ? SMB_TRANSACTION_DFSFILE : 0),
                 0,
                 NULL,
                 NULL
@@ -6479,7 +6951,10 @@ Return Value:
                 Status = RdrSetFileAttributes(Irp, Icb, &BasicInfo);
             }
 
-            RdrDeleteFile ( Irp, &Icb->Fcb->FileName, Icb->Fcb->Connection, Se );
+            RdrDeleteFile (
+                Irp, &Icb->Fcb->FileName,
+                FALSE,
+                Icb->Fcb->Connection, Se );
 
             return STATUS_DISK_FULL;
 
@@ -6918,7 +7393,10 @@ Return Value:
 
         RdrReleaseFcbLock(Icb->Fcb);
 
-        Status = RdrDoesFileExist(Irp, &Icb->Fcb->FileName, Icb->Fcb->Connection, Icb->Se, &FileAttributes, &IsDirectory, NULL);
+        Status = RdrDoesFileExist(
+                    Irp, &Icb->Fcb->FileName, Icb->Fcb->Connection, Icb->Se,
+                    BooleanFlagOn(Icb->NonPagedFcb->Flags, FCB_DFSFILE),
+                    &FileAttributes, &IsDirectory, NULL);
 
         RdrAcquireFcbLock(Icb->Fcb, ExclusiveLock, TRUE);
 
@@ -6969,7 +7447,10 @@ Return Value:
 
         RdrReleaseFcbLock(Icb->Fcb);
 
-        Status = RdrDoesFileExist(Irp, &RenameDestination, Icb->Fcb->Connection, Icb->Se, &FileAttributes, &IsDirectory, NULL);
+        Status = RdrDoesFileExist(
+                    Irp, &RenameDestination, Icb->Fcb->Connection, Icb->Se,
+                    BooleanFlagOn(Icb->NonPagedFcb->Flags, FCB_DFSFILE),
+                    &FileAttributes, &IsDirectory, NULL);
 
         RdrAcquireFcbLock(Icb->Fcb, ExclusiveLock, TRUE);
 

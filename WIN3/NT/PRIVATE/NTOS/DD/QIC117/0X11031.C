@@ -15,7 +15,7 @@
 *
 * HISTORY:
 *		$Log:   J:\se.vcs\driver\q117cd\src\0x11031.c  $
-*	
+*
 *	   Rev 1.6   17 Feb 1994 11:37:48   KEVINKES
 *	Added an extra parameter to WaitCC.
 *
@@ -145,6 +145,9 @@ dVoid kdi_DumpDebug(
                break;
             case DBG_READ_FDC:
                kdi_CheckedDump(QIC117DBGARRAY, "\nReadFdc:", 0l);
+               break;
+            case DBG_FIFO_FDC:
+               kdi_CheckedDump(QIC117DBGARRAY, "\nIntFifo:", 0l);
                break;
             case DBG_PGM_DMA:
                kdi_CheckedDump(QIC117DBGARRAY, "\nPgmDMA:", 0l);

@@ -1,32 +1,37 @@
-CPP_CMD=cl
-
-!if $(386)
-CPP_CMD=cl386
-!endif
-
-!if $(ALPHA)
-CPP_CMD=$(ALPHA_CC)
-!endif
-
 itest.h: itest.idl
      midl itest.idl                \
           -Zp8                     \
-          -I$(INCLUDES)            \
-          -ms_ext		   \
-          -c_ext		   \
-          -out ..\proxy		   \
+          -I$(INCLUDES:;= -I)      \
+          -ms_ext                  \
+          -c_ext                   \
+          -Os                      \
+          -out ..\app              \
           -header ..\idl\itest.h   \
-          -iid ..\uuid\itest_i.c   \
+          -iid ..\app\itest_i.c    \
           $(C_DEFINES)             \
-	  -cpp_cmd $(CPP_CMD)	   \
-          -cpp_opt "-nologo -DMIDL_PASS $(C_DEFINES) -I$(INCLUDES) -E -Tc"
+          -DMIDL_PASS
+
+dog.h: dog.idl
+     midl dog.idl                  \
+          -Zp8                     \
+          -I$(INCLUDES:;= -I)      \
+          -ms_ext                  \
+          -c_ext                   \
+          -Os                      \
+          -out ..\app              \
+          -header ..\idl\dog.h     \
+          -iid ..\app\dog_i.c      \
+          -prefix server x         \
+          $(C_DEFINES)             \
+          -DMIDL_PASS
 
 #
 # This target compiles all .idl files into their corresponding _?.c?? and
 # .h components
 #
-allidl:   itest.h
+allidl:   itest.h dog.h
 
 clean:
           erase itest.h  >NUL 2>NUL
-
+          erase dog.h  >NUL 2>NUL
+

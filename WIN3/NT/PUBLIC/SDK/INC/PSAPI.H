@@ -1,6 +1,6 @@
 /*++ BUILD Version: 0001    // Increment this if a change has global effects
 
-Copyright (c) 1994  Microsoft Corporation
+Copyright (c) 1994-1996  Microsoft Corporation
 
 Module Name:
 
@@ -124,6 +124,25 @@ QueryWorkingSet(
     DWORD cb
     );
 
+BOOL
+WINAPI
+InitializeProcessForWsWatch(
+    HANDLE hProcess
+    );
+
+
+typedef struct _PSAPI_WS_WATCH_INFORMATION {
+    LPVOID FaultingPc;
+    LPVOID FaultingVa;
+} PSAPI_WS_WATCH_INFORMATION, *PPSAPI_WS_WATCH_INFORMATION;
+
+BOOL
+WINAPI
+GetWsChanges(
+    HANDLE hProcess,
+    PPSAPI_WS_WATCH_INFORMATION lpWatchInfo,
+    DWORD cb
+    );
 
 DWORD
 WINAPI

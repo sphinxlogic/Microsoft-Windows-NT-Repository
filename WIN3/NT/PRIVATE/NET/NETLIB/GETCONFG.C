@@ -149,8 +149,8 @@ Return Value:
     // All done.
     //
     IF_DEBUG( CONFIG ) {
-        NetpDbgPrint( PREFIX_NETLIB "NetpGetComputerName: name is "
-                FORMAT_LPTSTR ".\n", *ComputerNamePtr );
+        NetpKdPrint(( PREFIX_NETLIB "NetpGetComputerName: name is "
+                FORMAT_LPTSTR ".\n", *ComputerNamePtr ));
     }
 
     return (NO_ERROR);
@@ -276,4 +276,3 @@ Return Value:
     return NO_ERROR;
 
 } // TmppGetNextValueToken
-

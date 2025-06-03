@@ -43,7 +43,6 @@ Revision History:
 #include <debuglib.h>
 #include <lmaccess.h>
 #include <netdebug.h>
-#include <secobj.h>
 
 
 
@@ -91,9 +90,9 @@ Return Value:
 
     if ( ! NT_SUCCESS( Status ) ) {
         IF_DEBUG( ACCESSP ) {
-            NetpDbgPrint(
+            NetpKdPrint((
                 "NetpGetDacl: RtlQueryInformationAcl returns %lX\n",
-                Status );
+                Status ));
         }
         *Ace = NULL;
         return;
@@ -160,8 +159,17 @@ Return Value:
 
 --*/
 {
+    SID_IDENTIFIER_AUTHORITY WorldSidAuthority = SECURITY_WORLD_SID_AUTHORITY;
+    DWORD WorldSid[sizeof(SID)/sizeof(DWORD) + SID_MAX_SUB_AUTHORITIES ];
     PACCESS_ALLOWED_ACE Ace;
     DWORD Flags = UF_SCRIPT;
+
+    //
+    // Build a copy of the world SID for later comparison.
+    //
+
+    RtlInitializeSid( (PSID) WorldSid, &WorldSidAuthority, 1 );
+    *(RtlSubAuthoritySid( (PSID)WorldSid,  0 )) = SECURITY_WORLD_RID;
 
     //
     // Determine if the UF_PASSWD_CANT_CHANGE bit should be returned
@@ -180,7 +188,7 @@ Return Value:
         // Find the WORLD grant ACE
         //
 
-        NetpGetAllowedAce( UserDacl, WorldSid, (PVOID *)&Ace );
+        NetpGetAllowedAce( UserDacl, (PSID) WorldSid, (PVOID *)&Ace );
 
         if ( Ace == NULL ) {
             Flags |= UF_PASSWD_CANT_CHANGE;
@@ -210,6 +218,9 @@ Return Value:
     }
     if ( UserAccountControl & USER_ACCOUNT_AUTO_LOCKED ){
         Flags |= UF_LOCKOUT;
+    }
+    if ( UserAccountControl & USER_MNS_LOGON_ACCOUNT ){
+        Flags |= UF_MNS_LOGON_ACCOUNT;
     }
 
 
@@ -305,11 +316,11 @@ Return Value:
                         SHIFT10000000 );
 
 #ifdef notdef
-    NetpDbgPrint( "NetpDeltaTimeToSeconds: %lx %lx %lx %lx\n",
+    NetpKdPrint(( "NetpDeltaTimeToSeconds: %lx %lx %lx %lx\n",
                     DeltaTime.HighPart,
                     DeltaTime.LowPart,
                     LargeSeconds.HighPart,
-                    LargeSeconds.LowPart );
+                    LargeSeconds.LowPart ));
 #endif // notdef
 
     //
@@ -372,11 +383,11 @@ Return Value:
 
         Answer = RtlExtendedIntegerMultiply( LargeSeconds, 10000000 );
 
-        if ( RtlLargeIntegerLessThanZero( Answer ) ) {
+          if ( Answer.QuadPart < 0 ) {
             DeltaTime.LowPart = 0;
             DeltaTime.HighPart = (LONG) 0x80000000;
         } else {
-            DeltaTime = RtlLargeIntegerNegate( Answer );
+            DeltaTime.QuadPart = -Answer.QuadPart;
         }
 
     }

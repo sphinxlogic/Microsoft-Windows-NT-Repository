@@ -1,12 +1,43 @@
 /*
  * bitmap allocation routines.
- * 
+ *
  * utility routines to manage a bit-mapped free list, and find
  * free sections
  */
 
 #include "windows.h"
 #include "gutils.h"
+
+#ifdef REWRITE
+Timings on windiff indicated that not much time was spent here, so it wasn't
+worth the rewrite. BUT - could do much better.  To find the first bit in
+a dword mask it with FFFF0000 to see which half the bit is in and then
+go on by five binary chops.  (You need to wory about the byte sex and bit sex
+of the bitmap - and I haven't - but the code is something like
+bitnum = 0
+if (dw&0xffff0000) {bitnum +=16; dw >>=16}
+if (dw&0x0000ff00) {bitnum +=8;  dw >>=8}
+if (dw&0x000000f0) {bitnum +=4;  dw >>=4}
+if (dw&0x0000000c) {bitnum +=2;  dw >>=2}
+if (dw&0x00000002) {bitnum +=1;  dw >>=1}
+
+Forget the "find the biggest section" stuff - change the spec and just
+return(a place if we find enough it or fail.
+Special case to search more efficiently for sections of up to 32 bits.
+(For mamory heap usage this means that we will have one heap that handles
+requests from (say) 16 to 512 bytes (16 bytes per bit) and another heap
+for requests (say) 513 to 4096 bytes (128 bits per byte) and so on.
+
+In this case create a mask in a dword with the number of bits set that
+we are looking for (keep this we might need it again), shift it the
+number of bits to correspond to the start bit that we found (it's two
+dwords by now as it will likely shift across a dword boundary) and then
+just mask to see if all those bits are on i.e. if ((mask & dw)==mask)
+
+Later.  Maybe.
+Laurie
+
+#endif //REWRITE
 
 
 /* routines to manage bitmapped freelists. Each map is an array
@@ -126,7 +157,7 @@ loop:
 				break;
 			}
 		}
-		if (curblk >= mapblks) 
+		if (curblk >= mapblks)
 			break;
 		
 		/* find first 1 in this long */
@@ -138,7 +169,7 @@ loop:
 			if (map[curblk] & mask) {
 				break;
 			}
-		} 
+		}
 		if (curbit >= 32) {
 			/* abandon this word - start again with next word */
 			curblk++;

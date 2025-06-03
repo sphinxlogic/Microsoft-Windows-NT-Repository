@@ -124,8 +124,8 @@ Return Value:
     KPROCESSOR_MODE PreviousMode;
     NTSTATUS Status;
 
-    SECURITY_QUALITY_OF_SERVICE SecurityQos;
-    BOOLEAN ImpersonationLevelSpecified = FALSE;
+    SECURITY_ADVANCED_QUALITY_OF_SERVICE SecurityQos;
+    BOOLEAN SecurityQosPresent = FALSE;
     HANDLE LocalHandle;
 
     OBJECT_HANDLE_INFORMATION HandleInformation;
@@ -169,7 +169,7 @@ Return Value:
     Status = SeCaptureSecurityQos(
                  ObjectAttributes,
                  PreviousMode,
-                 &ImpersonationLevelSpecified,
+                 &SecurityQosPresent,
                  &SecurityQos
                  );
 
@@ -194,6 +194,10 @@ Return Value:
                  );
 
     if ( !NT_SUCCESS(Status) ) {
+
+        if (SecurityQosPresent) {
+            SeFreeCapturedSecurityQos( &SecurityQos );
+        }
         return Status;
     }
 
@@ -233,7 +237,7 @@ Return Value:
     //  the source token.
     //
 
-    if ( !ImpersonationLevelSpecified ) {
+    if ( !SecurityQosPresent ) {
 
         SecurityQos.ImpersonationLevel = Token->ImpersonationLevel;
 
@@ -258,6 +262,9 @@ Return Value:
         if ( (SecurityQos.ImpersonationLevel > Token->ImpersonationLevel) ) {
 
             ObDereferenceObject( (PVOID)Token );
+            if (SecurityQosPresent) {
+                SeFreeCapturedSecurityQos( &SecurityQos );
+            }
             return STATUS_BAD_IMPERSONATION_LEVEL;
         }
 
@@ -274,6 +281,9 @@ Return Value:
          (Token->ImpersonationLevel <  SecurityImpersonation)
        ) {
         ObDereferenceObject( (PVOID)Token );
+        if (SecurityQosPresent) {
+            SeFreeCapturedSecurityQos( &SecurityQos );
+        }
         return STATUS_BAD_IMPERSONATION_LEVEL;
     }
 
@@ -322,7 +332,11 @@ Return Value:
 
     ObDereferenceObject( (PVOID)Token );
 
-    // BUGBUG Probably need to audit here
+    if (SecurityQosPresent) {
+        SeFreeCapturedSecurityQos( &SecurityQos );
+    }
+
+    // BUGWARNING Probably need to audit here
 
     //
     //  Return the new handle
@@ -405,7 +419,7 @@ Return Value:
 
 --*/
 {
-   NTSTATUS Status;
+    NTSTATUS Status;
 
     PTOKEN NewToken;
     PULONG DynamicPart;
@@ -415,6 +429,10 @@ Return Value:
     ULONG FieldOffset;
 
     ULONG Index;
+
+    PSECURITY_TOKEN_PROXY_DATA NewProxyData;
+    PSECURITY_TOKEN_AUDIT_DATA NewAuditData;
+
 
     PAGED_CODE();
 
@@ -466,6 +484,47 @@ Return Value:
         return( STATUS_INSUFFICIENT_RESOURCES );
     }
 
+    if (ARGUMENT_PRESENT(ExistingToken->ProxyData)) {
+
+        Status = SepCopyProxyData(
+                    &NewProxyData,
+                    ExistingToken->ProxyData
+                    );
+
+        if (!NT_SUCCESS(Status)) {
+
+            SepDeReferenceLogonSession( &(ExistingToken->AuthenticationId) );
+            ExFreePool( DynamicPart );
+            return( Status );
+        }
+
+    } else {
+
+        NewProxyData = NULL;
+    }
+
+    if (ARGUMENT_PRESENT( ExistingToken->AuditData )) {
+
+        NewAuditData = ExAllocatePool( PagedPool, sizeof( SECURITY_TOKEN_AUDIT_DATA ));
+
+        if (NewAuditData == NULL) {
+
+            SepFreeProxyData( NewProxyData );
+            SepDeReferenceLogonSession( &(ExistingToken->AuthenticationId) );
+            ExFreePool( DynamicPart );
+
+            return( STATUS_INSUFFICIENT_RESOURCES );
+
+        } else {
+
+            *NewAuditData = *(ExistingToken->AuditData);
+        }
+
+    } else {
+
+        NewAuditData = NULL;
+
+    }
 
     //
     //  Create a new object
@@ -492,10 +551,14 @@ Return Value:
     if (!NT_SUCCESS(Status)) {
         SepDeReferenceLogonSession( &(ExistingToken->AuthenticationId) );
         ExFreePool( DynamicPart );
+        SepFreeProxyData( NewProxyData );
+
+        if (NewAuditData != NULL) {
+            ExFreePool( NewAuditData );
+        }
+
         return Status;
     }
-
-
 
 
     //
@@ -525,6 +588,9 @@ Return Value:
     NewToken->PrivilegeCount = ExistingToken->PrivilegeCount;
     NewToken->VariableLength = ExistingToken->VariableLength;
     NewToken->TokenFlags = ExistingToken->TokenFlags;
+    NewToken->ProxyData = NewProxyData;
+    NewToken->AuditData = NewAuditData;
+
 
     //
     // The following fields differ in the new token.

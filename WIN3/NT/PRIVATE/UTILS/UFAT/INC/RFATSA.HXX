@@ -24,6 +24,14 @@ Author:
 #include "fatsa.hxx"
 #include "bpb.hxx"
 
+#if defined ( _AUTOCHECK_ )
+#define UFAT_EXPORT
+#elif defined ( _UFAT_MEMBER_ )
+#define UFAT_EXPORT    __declspec(dllexport)
+#else
+#define UFAT_EXPORT    __declspec(dllimport)
+#endif
+
 //
 //    Forward references
 //
@@ -50,13 +58,16 @@ class REAL_FAT_SA : public FAT_SA {
 
     public:
 
+        UFAT_EXPORT
         DECLARE_CONSTRUCTOR(REAL_FAT_SA);
 
         VIRTUAL
+        UFAT_EXPORT
         ~REAL_FAT_SA(
             );
 
         NONVIRTUAL
+        UFAT_EXPORT
         BOOLEAN
         Initialize(
             IN OUT  PLOG_IO_DP_DRIVE    Drive,
@@ -82,6 +93,7 @@ class REAL_FAT_SA : public FAT_SA {
             );
 
         NONVIRTUAL
+        UFAT_EXPORT
         BOOLEAN
         Read(
             IN OUT  PMESSAGE    Message
@@ -143,6 +155,7 @@ class REAL_FAT_SA : public FAT_SA {
             ) CONST;
 
         NONVIRTUAL
+        UFAT_EXPORT
         SECTORCOUNT
         QueryFreeSectors(
             ) CONST;
@@ -220,6 +233,12 @@ class REAL_FAT_SA : public FAT_SA {
         NONVIRTUAL
         VOID
         Destroy(
+            );
+
+        NONVIRTUAL
+        BOOLEAN
+        SetBpb(
+            IN  ULONG   ClusterSize
             );
 
         NONVIRTUAL
@@ -311,18 +330,18 @@ class REAL_FAT_SA : public FAT_SA {
         ULONG
         SecPerBoot(
             );
-        
+
         NONVIRTUAL
         VOLID
         QueryVolId(
             ) CONST;
-        
+
         NONVIRTUAL
         VOLID
         SetVolId(
             IN VOLID VolId
             );
-        
+
         NONVIRTUAL
         UCHAR
         QueryMediaByte(
@@ -347,6 +366,7 @@ class REAL_FAT_SA : public FAT_SA {
         NONVIRTUAL
         BOOLEAN
         CreateBootSector(
+            IN  ULONG   ClusterSize
             );
 
         BOOLEAN
@@ -695,16 +715,13 @@ Return Value:
     BOOLEAN b;
     PEXTENDED_BIOS_PARAMETER_BLOCK Pbios;
 
-#if 0
     b = SECRUN::Read();
-#endif
     if (!b)
         return FALSE;
 
-#if 0
     Pbios = (PEXTENDED_BIOS_PARAMETER_BLOCK)SECRUN::GetBuf();
-#endif
     UnpackExtendedBios(&_sector_zero, Pbios);
+
     return TRUE;
 }
 
@@ -911,7 +928,7 @@ Routine Description:
     This routine returns the volume flags byte from the bpb.
 
 Arguments:
-    
+
     None.
 
 Return Value:
@@ -962,7 +979,7 @@ AllocateClusterData(
     UCHAR PlainSize
     )
 {
-    DbgAbort("Didn't expect REAL_FAT_SA::AllocateClusterData() to be called");
+    DebugAbort("Didn't expect REAL_FAT_SA::AllocateClusterData() to be called");
     return FALSE;
 }
 

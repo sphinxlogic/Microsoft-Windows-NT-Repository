@@ -256,7 +256,7 @@ char *p;
                  return SR_LETTER;
                  }
          else
-        /*  Crappy UNIX syntax
+        /*  UNIX syntax
          */
         switch (*p) {
         case '^':
@@ -506,7 +506,7 @@ PACT pAction;
 register char *p;
 {
          char c;
-#if defined(KANJI)
+#if defined(DBCS)
          char c2, c3, c4;
 #endif
          unsigned u;
@@ -530,13 +530,13 @@ register char *p;
                  }
         c = *p++;
 
-#if defined(KANJI)
-        if (REis_kanji((unsigned char)c))
-                 c2 = *p++;
+#if defined(DBCS)
+        if (IsDBCSLeadByte((BYTE)c))
+            c2 = *p++;
         else {
-                 c2 = c;
-                                c = 0;
-                 }
+            c2 = c;
+            c = 0;
+        }
 #endif
         if (*p == '-') {
                  p++;
@@ -546,20 +546,20 @@ register char *p;
                 DEBOUT (("REParseClass expecting more, ERROR\n"));
                 return NULL;
                 }
-#if defined(KANJI)
-                 c3 = *p;
-                 if (REis_kanji(*(unsigned char *)p))
-                c4 = *++p;
-                 else {
-                c4 = c3;
-                c3 = 0;
+#if defined(DBCS)
+                c3 = *p;
+                if (IsDBCSLeadByte(*(unsigned char *)p))
+                    c4 = *++p;
+                else {
+                    c4 = c3;
+                    c3 = 0;
                 }
-                 if ( (c == 0 && c3 == 0) || (c != 0 && c3 != 0) ) {
-                u = (*pAction) (RANGEJ1, 0, c, c2);
-                (*pAction) (RANGEJ2, u, c3, c4);
+                if ( (c == 0 && c3 == 0) || (c != 0 && c3 != 0) ) {
+                    u = (*pAction) (RANGEDBCS1, 0, c, c2);
+                    (*pAction) (RANGEDBCS2, u, c3, c4);
                 }
-                 else
-                return NULL;
+                else
+                    return NULL;
 #else
                  (*pAction) (RANGE, u, c, *p);
 #endif
@@ -575,10 +575,10 @@ register char *p;
                                 (*pAction) (RANGE, u, c, c);
 #endif
                   }
-#if defined(KANJI)
+#if defined(DBCS)
          c = 0;
-         u = (*pAction) (RANGEJ1, 0, c, c);
-         (*pAction) (RANGEJ2, u, c, c);
+         u = (*pAction) (RANGEDBCS1, 0, c, c);
+         (*pAction) (RANGEDBCS2, u, c, c);
 #endif
          return p + RECharLen (p);
 }
@@ -782,15 +782,15 @@ register char *p;
         DEBOUT (("REParseChar expected more, ERROR\n"));
         return NULL;
                   }
-#if defined(KANJI)
-         if ( REis_kanji ((unsigned char)*p) ) {
-        (*pAction) (LETTER, 0, *p, *(p+1));
-        return p+2;
+#if defined(DBCS)
+        if ( IsDBCSLeadByte ((BYTE)*p) ) {
+            (*pAction) (LETTER, 0, *p, *(p+1));
+            return p+2;
         }
-         else {
-        (*pAction) (LETTER, 0, *p, 0);
-        return p+1;
-         }
+        else {
+            (*pAction) (LETTER, 0, *p, 0);
+            return p+1;
+        }
 #else
          (*pAction) (LETTER, 0, *p, 0);
          return p+1;
@@ -944,7 +944,7 @@ char *p;
                  return CC_EMPTY;
                  }
          else
-        /*  Crappy UNIX syntax
+        /*  UNIX syntax
          */
         switch (*p) {
         case '+':
@@ -1166,6 +1166,13 @@ register char *dst;
                  src += 2;
                  }
         else
+#ifdef DBCS
+            if (IsDBCSLeadByte(*src) && *(src+1)) {
+                 *dst++ = *src++;
+                 *dst++ = *src++;
+            }
+            else
+#endif
                  *dst++ = *src++;
         }
          *dst = '\0';
@@ -1230,6 +1237,13 @@ register char *src;
                  src += 2;
                  length++;
                  }
+#ifdef DBCS
+        else
+          if (IsDBCSLeadByte(*src) && *(src+1)) {
+                 length += 2;
+                 src += 2;
+          }
+#endif
         else {
                  length++;
                  src++;
@@ -1348,4 +1362,3 @@ RE__ModuleInitialize (void)
 
    return;
 }
-

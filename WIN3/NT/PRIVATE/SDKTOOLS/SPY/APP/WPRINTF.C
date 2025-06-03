@@ -14,6 +14,12 @@
 
 #include "spy.h"
 
+#if 0
+#   pragma message( __FILE__"(18): warning !!!! : remove DPRINT code" )
+#   define DPRINT(p)   printf p
+#else
+#   define DPRINT  /* nothing */
+#endif
 
 
 /*----------------------------------------------------------------------------
@@ -37,8 +43,20 @@
 
 #define FTwixtI3(l,x,h) ((x)>=(l) && (x<=h))
 
-#define EnterCrit(p)    EnterCriticalSection(&p->csSync)
-#define LeaveCrit(p)    LeaveCriticalSection(&p->csSync)
+/*
+ * 16-Sep-1994 JonPa
+ *
+ * This critical section stuff was screwed up and caused deadlocks on
+ * Chicago, so I have removed it and replaced the functionallity with
+ * and interthread SendMessage call.  (See IWvwprintf() in wm.c
+ */
+#if 0
+#   define EnterCrit(p)    EnterCriticalSection(&p->csSync)
+#   define LeaveCrit(p)    LeaveCriticalSection(&p->csSync)
+#else
+#   define EnterCrit(p)
+#   define LeaveCrit(p)
+#endif
 
 /*----------------------------------------------------------------------------
 *|                                                                              |
@@ -90,6 +108,7 @@ PRIVATE INT  LinesInDebugWindow (HWND);
 PRIVATE INT  CharsInDebugWindow (HWND);
 PRIVATE VOID wprintfSetScrollRange (HWND, BOOL);
 PRIVATE VOID NewLine (PTXT pTxt);
+PRIVATE INT mwprintf( HWND hwnd, LPSTR format, ... );
 
 
 
@@ -304,7 +323,7 @@ INT    iMaxLines
 
     pTxt = *hTxt;
 
-    InitializeCriticalSection(&pTxt->csSync);
+    //InitializeCriticalSection(&pTxt->csSync);
 
     pTxt->iFirst            = 0;    /* Set the queue up to have 1 NULL line */
     pTxt->iCount            = 1;
@@ -519,7 +538,7 @@ LONG   lParam
                 }
 
             LeaveCrit(pTxt);
-            DeleteCriticalSection(&pTxt->csSync);
+            // DeleteCriticalSection(&pTxt->csSync);
 
             LocalFree((HANDLE)hTxt);
             break;
@@ -628,6 +647,9 @@ LONG   lParam
     case WM_KEYUP:
         break;
 
+    case WM_VWPRINTF:
+        return mwprintf( hwnd, (LPSTR)"%s", (LPSTR)wParam );
+
     default:
         return DefWindowProc(hwnd, uiMessage, wParam, lParam);
     }
@@ -648,16 +670,25 @@ INT  n
     RECT rect;
     INT  iMinPos, iMaxPos;
 
+    DPRINT((">>>>DVS: Req Scrl %d lines\n", n));
+
     GetScrollRange(hwnd, SB_VERT, (LPINT) &iMinPos, (LPINT) &iMaxPos);
     GetClientRect(hwnd, (LPRECT) &rect);
     rect.left += OFFSETX;
     rect.top  += OFFSETY;
 
+
     n = BOUND(pTxt->iTop + n, iMinPos, iMaxPos) - pTxt->iTop;
+
+    DPRINT((">>>>DVS: n:%d\tiTop:%d\tiMin:%d\tiMax:%d\n", n, pTxt->iTop, iMinPos, iMaxPos));
+
     if (n == 0)
         return;
 
     pTxt->iTop += n;
+
+    DPRINT((">>>>DVS: Scrolling %d lines (iTop=%d)\n", n, pTxt->iTop ));
+
     ScrollWindow(hwnd, 0, -n * pTxt->Tdy, (LPRECT) &rect, (LPRECT) &rect);
     SetScrollPos(hwnd, SB_VERT, pTxt->iTop, TRUE);
 }
@@ -731,6 +762,26 @@ HWND hwnd
 }
 
 
+PRIVATE INT
+mwprintf(
+    HWND hwnd,
+    LPSTR format,
+    ...
+    )
+{
+    va_list marker;
+    INT i;
+
+    va_start(marker, format);
+
+    i = vwprintf(hwnd, format, marker);
+
+    va_end(marker);
+
+    return i;
+}
+
+
 PUBLIC INT FAR cdecl
 vwprintf(
 HWND  hwnd,
@@ -740,13 +791,14 @@ va_list marker
 {
     static HWND hwndLast = NULL;
     static CHAR  pchBuf[MAXBUFLEN];
-    RECT  rect;
+    RECT  rect, rcClient;
     INT   iRet;
     INT   cLinesDisplayed;       // lines of output to show
     INT   cLinesFitInWindow;    // lines that can fit in the current window
     INT   cLinesNew;  // how much left to scroll
     PTXT  pTxt;
     HTXT  hTxt;
+    BOOL  fNoScrollB;
 
     if (hwnd == NULL)
         hwnd = hwndLast;
@@ -769,23 +821,37 @@ va_list marker
     // Number of lines that we can display stuff in
     //
     cLinesFitInWindow   = LinesInDebugWindow(hwnd);
-    if (cLinesFitInWindow > pTxt->iMaxLines)
+
+    DPRINT(("LnDW:%d\tMxL:%d\t", cLinesFitInWindow, pTxt->iMaxLines));
+
+    if (cLinesFitInWindow > pTxt->iMaxLines) {
+        fNoScrollB = TRUE;
         cLinesFitInWindow = pTxt->iMaxLines;
+    } else {
+        fNoScrollB = FALSE;
+    }
 
     //
     // Number of lines actually displayed in the current window
     //
     cLinesDisplayed   = min(pTxt->iCount, cLinesFitInWindow);
 
+    DPRINT(("cLFit:%d\tcLDsp:%d\t", cLinesFitInWindow, cLinesDisplayed));
+
+
     //
     // Return value is number of new lines to display
     //
     cLinesNew = InsertString(pTxt, pchBuf);
 
+    DPRINT(("cLNew:%d\n", cLinesNew));
+
     //
     // Now make sure the new text is painted only if visable
     //
     GetClientRect(hwnd, (LPRECT) & rect);
+    rcClient = rect;
+
 
     //
     // Calculate how much of the window to invalidate
@@ -800,8 +866,14 @@ va_list marker
     //
     if (cLinesDisplayed + cLinesNew > cLinesFitInWindow) {
         cLinesNew = cLinesDisplayed + cLinesNew - cLinesFitInWindow;
-        wprintfSetScrollRange(hwnd, FALSE);
-        DebugVScroll(hwnd, pTxt, cLinesNew);
+
+        if (fNoScrollB) {
+            rcClient.bottom = cLinesDisplayed * pTxt->Tdy;
+            ScrollWindow(hwnd, 0, -cLinesNew * pTxt->Tdy, (LPRECT) &rcClient, (LPRECT) &rcClient);
+        } else {
+            wprintfSetScrollRange(hwnd, FALSE);
+            DebugVScroll(hwnd, pTxt, cLinesNew);
+        }
         LeaveCrit(pTxt);
     } else {
         LeaveCrit(pTxt);
@@ -881,6 +953,7 @@ PTXT pTxt
         pTxt->arLines[pTxt->iFirst].hText = NULL;
         INC (pTxt, pTxt->iFirst);
 
+        //BUGBUG - should this be DEC(pTxt, pTxt->iTop)????
         if (pTxt->iTop > 0) {
             pTxt->iTop--;
         }
@@ -1054,5 +1127,3 @@ IsPrintfEmpty(
         (pTxt->iCount == 1 && pTxt->arLines[FIRST(pTxt)].hText == NULL))
         ? TRUE : FALSE;
 }
-
-

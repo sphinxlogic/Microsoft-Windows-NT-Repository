@@ -83,12 +83,11 @@ Revision History:
         .set volatile
 
         stl     a1, (t0)                // write the longword
-        ldl     zero, (t0)              // read the the longword, to force
+        ldl     t4, (t0)                // read the the longword, to force
                                         // consistency (EPIC chip bug).
-
+        mb                              // order the write
         .set novolatile
 
-        mb                              // order the write
         ret     zero, (ra)              // return
 
 2:                                      // flag bad QVAs

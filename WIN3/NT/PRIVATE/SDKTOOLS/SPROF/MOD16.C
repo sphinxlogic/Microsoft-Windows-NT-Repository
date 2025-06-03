@@ -865,8 +865,9 @@ Return Value:
             64 * 1024,                      // bugbug
             0,
             Segment->ProfileBuffer,
-            Segment->ProfileBufferSize
-            );
+            Segment->ProfileBufferSize,
+            ProfileTime,
+            (KAFFINITY)-1);
 
         if (!NT_SUCCESS(Status)) {
                 sprintf(

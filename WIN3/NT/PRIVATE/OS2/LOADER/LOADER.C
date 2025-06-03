@@ -20,6 +20,10 @@ extern  APIRET  PMNTMemMap(PSEL);
 extern  APIRET  PMNTIOMap(void);
 #endif
 
+#ifndef MAXPATHLEN
+#define MAXPATHLEN 260
+#endif
+
 ULONG GetTickCount(VOID);
 PVOID   LDRExecInfo;
 extern  ULONG   Od2Start16Stack;
@@ -40,6 +44,22 @@ extern  ULONG   Od2ExecPgmErrorTextLength;
 extern  ULONG   Od2EnvCommandOffset;
 extern  POD2_PROCESS Od2Process;
 
+
+#if PMNT
+// From winbase.h
+
+ULONG
+SetThreadAffinityMask(
+    HANDLE hThread,
+    DWORD dwThreadAffinityMask
+    );
+
+HANDLE
+GetCurrentThread(
+    VOID
+    );
+
+#endif // PMNT
 
 VOID
 Ow2BoundAppLoadPopup(
@@ -88,7 +108,11 @@ Loader_main()
     STRING      ProcessNameString;
     STRING      LibPathNameString;
     STRING      FailNameString;
-    CHAR        ExpandedLibPath[512];
+    // Remember that \OS2SS\DRIVES\ is added for each path element !
+    // Let's assume the smallest component is 5 chars long (like C:\X;)
+    // (although it could be less, like "." or "\")
+    // => we need to add 14 * (MAXPATHLEN/5) = MAXPATHLEN*3
+    CHAR        ExpandedLibPath[MAXPATHLEN*4];
     ULONG       NumOfInitRecords;
 
     DosGetThreadInfo(&ptib, &pib);
@@ -255,6 +279,28 @@ Loader_main()
 #endif
         }
     }   // PM apps (non-PMShell) handling
+
+    // Force all PM threads to run on processor#1. Otherwise, PM Desktop
+    // locks-up
+    if (ProcessIsPMProcess())
+    {
+        DWORD Ret;
+
+        Ret = SetThreadAffinityMask(
+            GetCurrentThread(),
+            0x1);
+#if DBG
+        if (Ret == 0)
+        {
+            DbgPrint("OS2: main() - failed to SetThreadAffinityMask\n");
+        }
+        else if (Ret != 1)
+        {
+            DbgPrint("OS2: Loader_main() - SetThreadAffinityMask returned %x (now set to 1)\n",
+                Ret);
+        }
+#endif // DBG
+    }
 #endif // PMNT
 
     NumOfInitRecords = a->NumOfInitRecords;
@@ -344,6 +390,60 @@ Loader_main()
     }
 #endif // PMNT
 
+	/*
+     * Setup Signal handling default values.
+     */
+    pSig = (POD2_SIG_HANDLER_REC) pSigHandlerRec;
+    address = FLATTOFARPTR((ULONG)(SELTOFLAT(LDRDoscallsSel)));
+    pSig->fholdenable = HLDSIG_ENABLE;
+    pSig->outstandingsig[0].sighandleraddr =
+    pSig->outstandingsig[1].sighandleraddr =
+    pSig->outstandingsig[2].sighandleraddr =
+    pSig->outstandingsig[3].sighandleraddr =
+    pSig->outstandingsig[4].sighandleraddr =
+    pSig->outstandingsig[5].sighandleraddr =
+    pSig->outstandingsig[6].sighandleraddr = 0;
+    pSig->doscallssel = address;
+    pSig->sighandler[SIG_BROKENPIPE - 1] = (ULONG)
+                (address | ThunkOffsetDosReturn);
+    pSig->action[SIG_BROKENPIPE - 1] = SIGA_IGNORE;
+
+    pSig->sighandler[SIG_CTRLBREAK - 1] = (ULONG)
+                (address | ThunkOffsetExitProcessStub);
+    pSig->action[SIG_CTRLBREAK - 1] = SIGA_ACCEPT;
+
+    pSig->sighandler[SIG_CTRLC - 1] = (ULONG)
+                (address | ThunkOffsetExitProcessStub);
+    pSig->action[SIG_CTRLC - 1] = SIGA_ACCEPT;
+
+    pSig->sighandler[SIG_KILLPROCESS - 1] = (ULONG)
+                (address | ThunkOffsetExitProcessStub);
+    pSig->action[SIG_KILLPROCESS - 1] = SIGA_ACCEPT;
+
+    pSig->sighandler[SIG_PFLG_A - 1] = (ULONG)
+                (address | ThunkOffsetDosReturn);
+    pSig->action[SIG_PFLG_A - 1] = SIGA_ACCEPT;
+
+    pSig->sighandler[SIG_PFLG_B - 1] = (ULONG)
+                (address | ThunkOffsetDosReturn);
+    pSig->action[SIG_PFLG_B - 1] = SIGA_ACCEPT;
+
+    pSig->sighandler[SIG_PFLG_C - 1] = (ULONG)
+                (address | ThunkOffsetDosReturn);
+    pSig->action[SIG_PFLG_C - 1] = SIGA_ACCEPT;
+
+    /*
+     * Setup Vector handling default values.
+     */
+    pVec = (POD2_VEC_HANDLER_REC) pVecHandlerRec;
+    pVec->doscallssel = address;
+    pVec->VecHandler[0] = (ULONG) (address | ThunkOffsetDosReturn);
+    pVec->VecHandler[1] = (ULONG) (address | ThunkOffsetDosReturn);
+    pVec->VecHandler[2] = (ULONG) (address | ThunkOffsetDosReturn);
+    pVec->VecHandler[3] = (ULONG) (address | ThunkOffsetDosReturn);
+    pVec->VecHandler[4] = (ULONG) (address | ThunkOffsetDosReturn);
+    pVec->VecHandler[5] = (ULONG) (address | ThunkOffsetDosReturn);
+
     //
     // Go over all DLLs init routines
     //
@@ -425,60 +525,6 @@ Loader_main()
         }
     }
 #endif // PMNT
-
-    /*
-     * Setup Signal handling default values.
-     */
-    pSig = (POD2_SIG_HANDLER_REC) pSigHandlerRec;
-    address = FLATTOFARPTR((ULONG)(SELTOFLAT(LDRDoscallsSel)));
-    pSig->fholdenable = HLDSIG_ENABLE;
-    pSig->outstandingsig[0].sighandleraddr =
-    pSig->outstandingsig[1].sighandleraddr =
-    pSig->outstandingsig[2].sighandleraddr =
-    pSig->outstandingsig[3].sighandleraddr =
-    pSig->outstandingsig[4].sighandleraddr =
-    pSig->outstandingsig[5].sighandleraddr =
-    pSig->outstandingsig[6].sighandleraddr = 0;
-    pSig->doscallssel = address;
-    pSig->sighandler[SIG_BROKENPIPE - 1] = (ULONG)
-                (address | ThunkOffsetDosReturn);
-    pSig->action[SIG_BROKENPIPE - 1] = SIGA_IGNORE;
-
-    pSig->sighandler[SIG_CTRLBREAK - 1] = (ULONG)
-                (address | ThunkOffsetExitProcessStub);
-    pSig->action[SIG_CTRLBREAK - 1] = SIGA_ACCEPT;
-
-    pSig->sighandler[SIG_CTRLC - 1] = (ULONG)
-                (address | ThunkOffsetExitProcessStub);
-    pSig->action[SIG_CTRLC - 1] = SIGA_ACCEPT;
-
-    pSig->sighandler[SIG_KILLPROCESS - 1] = (ULONG)
-                (address | ThunkOffsetExitProcessStub);
-    pSig->action[SIG_KILLPROCESS - 1] = SIGA_ACCEPT;
-
-    pSig->sighandler[SIG_PFLG_A - 1] = (ULONG)
-                (address | ThunkOffsetDosReturn);
-    pSig->action[SIG_PFLG_A - 1] = SIGA_ACCEPT;
-
-    pSig->sighandler[SIG_PFLG_B - 1] = (ULONG)
-                (address | ThunkOffsetDosReturn);
-    pSig->action[SIG_PFLG_B - 1] = SIGA_ACCEPT;
-
-    pSig->sighandler[SIG_PFLG_C - 1] = (ULONG)
-                (address | ThunkOffsetDosReturn);
-    pSig->action[SIG_PFLG_C - 1] = SIGA_ACCEPT;
-
-    /*
-     * Setup Vector handling default values.
-     */
-    pVec = (POD2_VEC_HANDLER_REC) pVecHandlerRec;
-    pVec->doscallssel = address;
-    pVec->VecHandler[0] = (ULONG) (address | ThunkOffsetDosReturn);
-    pVec->VecHandler[1] = (ULONG) (address | ThunkOffsetDosReturn);
-    pVec->VecHandler[2] = (ULONG) (address | ThunkOffsetDosReturn);
-    pVec->VecHandler[3] = (ULONG) (address | ThunkOffsetDosReturn);
-    pVec->VecHandler[4] = (ULONG) (address | ThunkOffsetDosReturn);
-    pVec->VecHandler[5] = (ULONG) (address | ThunkOffsetDosReturn);
 
     /*
      * Save starting stack address & DS for exit list processing

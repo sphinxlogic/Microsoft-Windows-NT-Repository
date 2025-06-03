@@ -35,6 +35,7 @@ extern "C"
 #define TYPE_ALIGN_SIZE_CODE 0
 #define TYPE_ENCODE_CODE     1
 #define TYPE_DECODE_CODE     2
+#define TYPE_FREE_CODE       3
 
 /****************************************************************************
  *	local data
@@ -53,7 +54,7 @@ extern    void                        GenStdMesPrototype( CCB *   pCCB,
 // The pickle code generation class.
 //
 
-class   CG_TYPE_ENCODE   : public CG_CLASS
+class   CG_TYPE_ENCODE   : public CG_TYPEDEF
     {
 private:
 
@@ -65,8 +66,6 @@ private:
 	//
 	// Keep a link to the actual specification of the type.
 	//
-
-	node_skl			*	pTypeNode;
 
     // Generate the sizing stub for the type.
 
@@ -80,11 +79,15 @@ private:
 
     CG_STATUS                   GenTypeDecode( CCB * pCCB );
 
+    // Generate the freeing stub for type.
+
+    CG_STATUS                   GenTypeFree( CCB * pCCB );
+
     // Miscellaneous.
 
     void                        AllocateEncodeResources( CCB * pCCB );
 
-    _expr_proc_call     *       CreateStdMesEngineProc( CCB * pCCB,
+    expr_proc_call     *       CreateStdMesEngineProc( CCB * pCCB,
                                                         int   Code );
 
 public:
@@ -93,8 +96,8 @@ public:
                                 CG_TYPE_ENCODE( node_skl * pT,
                                 				BOOL fE, 
                                 				BOOL fD)
+                                    :CG_TYPEDEF(pT, XLAT_SIZE_INFO())
                                     {
-                                    SetType( pT );
                                     fEncode             = fE;
                                     fDecode             = fD;
                                     pBindingResource    = 0;
@@ -143,14 +146,5 @@ public:
     virtual
     CG_STATUS                   GenTypeEncodingStub( CCB    *   pCCB );
 
-	node_skl			    *	GetType()
-								    {
-								    return pTypeNode;
-								    }
-
-	node_skl			    *	SetType( node_skl * pT )
-								    {
-								    return pTypeNode = pT;
-								    }
-
     };
+

@@ -41,6 +41,9 @@ unsigned long   MaxThreads;
 unsigned long   CurThreads;
 unsigned long   TestParam;
 unsigned long   RunNo;
+unsigned long   MaxTest;
+unsigned long   TestsSpecified;
+unsigned long   MultIter = 1;
 
 VOID  (* InitThreadForTest)(PTHREADDATA, unsigned char);
 unsigned long (* RunTestThread)(PTHREADDATA);
@@ -61,13 +64,15 @@ struct {
     unsigned long   (* TestFnc)(PTHREADDATA);
     unsigned long   Param;
 } TestTable[] = {
-/*
+  1, "Read Cell U",      UniqueValue,    R3ReadCell,      0,
+  0, "R/W  Cell U",      UniqueValue,    R3ReadWriteCell, 0,
+  0, "WriteCell U",      UniqueValue,    R3WriteCell,     0,
+
   1, "Interlock U",      UniqueValue,    R3Interlock,     0,
   0, "Interlock S",      CommonValue,    R3Interlock,     0,
   0, "CacheLine S",      DoNothing,      R3MemShare,      0,
   0, "M Comp 64K ",      DoNothing,      R3MemCompare,    0,
   0, "M Copy 64k ",      DoNothing,      R3MemCopy,       0,
-*/
 
   1, "SReads  64 ",      UniqueFile,     TestSeqReads,    64,
   0, "SReads 512 ",      UniqueFile,     TestSeqReads,    512,
@@ -77,21 +82,21 @@ struct {
   1, "SWrite 512 ",      UniqueFile,     TestSeqWrites,   512,
   0, "SWrite  4k ",      UniqueFile,     TestSeqWrites,   4096,
   0, "SWrite 32k ",      UniqueFile,     TestSeqWrites,   32768,
+
 /*
   0, "Tx I/Os    ",      CommonFile,     TxIOs,           0,
 
   1, "Processes  ",      DoNothing,      TxIOs,           0,
   0, "Threads    ",      DoNothing,      TxIOs,           0,
   0, "LPC        ",      DoNothing,      TxIOs,           0,
-
-  1, "mov&call   ",      DoNothing,      TestMovCall,     0,
-  0, "mov&call 2 ",      DoNothing,      TestMovCall2,    0,
-  0, "callind    ",      DoNothing,      TestCallInd,     0,
-  0, "callind  2 ",      DoNothing,      TestCallInd2,    0,
 */
 
   0,NULL,                NULL,           NULL,            0
 };
+
+#define F_SKIPLINE  0x01
+#define F_RUNIT     0x02
+
 
 void
 WorkerThread (
@@ -108,9 +113,19 @@ WorkerThread (
 
 #ifdef WIN32
     OurEvent = ThreadEvents[p->ThreadNumber];
+
+    //
+    // Are we testing a specific processor?
+    //
+
+    if (p->ThreadAffinity) {
+        SetThreadAffinityMask (GetCurrentThread (), p->ThreadAffinity);
+    }
+
 #else
     OurEvent = &ThreadEvents1[p->ThreadNumber];
 #endif
+
 
     LastInitialization = NULL;
     p->Buffer1 = malloc (32768 + 512);
@@ -192,6 +207,16 @@ WorkerThread (
 }
 
 
+VOID Usage()
+{
+    printf ("mptest [-a P1 P2 ... Pn | -p n] [-t T1 T2 ... Tn] [-m n]\n");
+    printf ("  -a = affinity Thread1 to P1, Thread2 to P2, etc..\n");
+    printf ("  -p = use 'n' threads with no affinity setting.  (default is 2)\n");
+    printf ("  -t = run test T1, T2, ...  (default is all tests)\n");
+    printf ("  -m = multiple test interactions by n  (must be whole number)\n");
+    exit (1);
+}
+
 VOID
 #ifdef WIN32
 _CRTAPI1
@@ -200,18 +225,92 @@ main(argc, argv)
 int argc;
 char **argv;
 {
-    ULONG   i, l;
+    ULONG   i, l, f, state;
+    PUCHAR  pt;
 
-    argc--;
+    printf ("\n");
+    for (MaxTest = 0; TestTable[MaxTest].Title; MaxTest++) ;
 
     MaxThreads = 2;
-    if (argc) {
-        MaxThreads = atoi(*++argv);
-        argc--;
+    state = 3;
+
+    while (--argc) {
+        argv++;
+        if (argv[0][0] == '?') {
+            Usage();
+        }
+
+        pt = *argv;
+        if (*pt == '-') {
+            state = 0;
+            if (pt[1] >= 'a') {
+                pt[1] -= ('a' - 'A');
+            }
+
+            switch (pt[1]) {
+                case 'A':
+                    MaxThreads = 0;
+                    state = 1;
+                    break;
+
+                case 'P':   state = 2;      break;
+                case 'T':   state = 3;      break;
+                case 'M':   state = 4;      break;
+
+                default:
+                    printf ("mptest: flag %c not understood\n", pt[1]);
+                    Usage();
+            }
+            pt += 2;
+        }
+
+        if (!*pt) {
+            continue;
+        }
+
+        l = atoi(pt);
+        switch (state) {
+            case 1:
+#ifdef WIN32
+                f = 1 << (l - 1);
+                if (!SetThreadAffinityMask (GetCurrentThread (), f)) {
+                    printf ("mptest: Invalid affinity value %d\n", l);
+                    exit (1);
+                }
+
+                ThreadData[MaxThreads].ThreadAffinity = l;
+                MaxThreads += 1;
+                printf ("Test thread %d runs only on processor %d\n", MaxThreads, l);
+#else
+                printf ("affinity setting not supported\n");
+#endif
+                break;
+
+            case 2:
+                MaxThreads = l;
+                break;
+
+            case 3:
+                if (l > MaxTest) {
+                    printf ("mptest: unkown test # %d\n", l);
+                } else {
+                    TestsSpecified = 1;
+                    TestTable[l].Flag |= F_RUNIT;
+                }
+                break;
+
+            case 4:
+                MultIter = l;
+                break;
+        }
     }
 
-    /* create event for thread to wait for */
+    if (MultIter != 1) {
+        printf ("Iterations multiplied by: %d\n", MultIter);
+    }
+
 #ifdef WIN32
+    /* create event for thread to wait for */
     BeginTest      = CreateEvent(NULL,TRUE,FALSE,NULL);
     InitializeTest = CreateEvent(NULL,TRUE,FALSE,NULL);
     TestComplete   = CreateEvent(NULL,TRUE,FALSE,NULL);
@@ -222,7 +321,7 @@ char **argv;
 #endif
 
     /* start each thread */
-    for(i=0; i<MaxThreads; i++) {
+    for(i=0; i < MaxThreads; i++) {
         ThreadData[i].ThreadNumber = i;
 #ifdef WIN32
         ThreadEvents[i] = CreateEvent(NULL,FALSE,FALSE,NULL);
@@ -237,23 +336,20 @@ char **argv;
 #endif
     }
 
-    if (argc == 0) {
-        for (i = 0; TRUE; i++) {
-            if (!TestTable[i].Title) {
-                break;
-            }
+    f = 0;
+    for (i = 0; TestTable[i].Title; i++) {
+        f |= TestTable[i].Flag;
 
-            if (TestTable[i].Flag & 1) {
-                printf ("\n");
-            }
+        if (TestsSpecified && !(TestTable[i].Flag & F_RUNIT)) {
+            continue;
+        }
 
-            RunTest (i);
+        if (f & F_SKIPLINE) {
+            f = 0;
+            printf ("\n");
         }
-    } else {
-        while (argc--) {
-            i = atoi (*++argv);
-            RunTest (i);
-        }
+
+        RunTest (i);
     }
 }
 
@@ -283,10 +379,11 @@ RunTest (ULONG  TestNo)
     for (CurThreads=1; CurThreads <= MaxThreads; CurThreads++) {
         RunNo++;
 #ifdef WIN32
-        ResetEvent(TestComplete);
 
         /* wait for all threads signal they are waiting */
         WaitForMultipleObjects(MaxThreads, ThreadEvents, TRUE, WAIT_FOREVER);
+
+        ResetEvent(TestComplete);
 
         SetEvent (InitializeTest);      /* let the threads initialize for test */
 
@@ -302,9 +399,9 @@ RunTest (ULONG  TestNo)
         WaitForMultipleObjects(CurThreads, ThreadEvents, TRUE, WAIT_FOREVER);
         ResetEvent(BeginTest);
 #else
-        DosResetEventSem(TestComplete, &ulPostCount);
-
         DosCreateMuxWaitSem(NULL, &MuxWait2, CurThreads, &ThreadEvents1[0], DCMW_WAIT_ALL);
+
+        DosResetEventSem(TestComplete, &ulPostCount);
 
         /* wait for all threads signal they are waiting */
         DosWaitMuxWaitSem(MuxWait1, SEM_INDEFINITE_WAIT, &ulUser);
@@ -427,7 +524,7 @@ VOID UniqueFile  (PTHREADDATA p, unsigned char f)
         sprintf (s, "Test%d.tmp", p->ThreadNumber);
 #ifdef WIN32
         h = OpenFile (s, &OpnInf, OF_CREATE | OF_READWRITE | OF_SHARE_DENY_NONE);
-        if (h == -1) {
+        if (h == (HANDLE) -1) {
             printf ("Create of %s failed\n", s);
             TestError = TRUE;
             return;
@@ -514,20 +611,20 @@ ULONG TestSeqReads (PTHREADDATA p)
 
     h = p->UniqueFile;
     flen = 128*1024 / TestParam;
-    iter = flen < 512 ? 500 : 100;
+    iter = (flen < 512 ? 500 : 100) * MultIter;
 
     for (i=0; i < iter; i++) {
 #ifdef WIN32
         status = SetFilePointer(h,0,0,FILE_BEGIN);
         if (status == -1) {
             printf("TestSeqReads: seek to 0 failed %d\n",GetLastError());
-            return -1;
+            return (ULONG) -1;
         }
         for (j=0; j < flen; j++) {
             status = ReadFile(h, p->Buffer1, TestParam, &ByteCount, NULL);
             if (!status) {
                 printf("TestSeqReads: ReadFile %d failed %d\n",TestParam,GetLastError());
-                return -1;
+                return (ULONG) -1;
             }
         }
 #else
@@ -540,7 +637,7 @@ ULONG TestSeqReads (PTHREADDATA p)
             rv = DosRead(h, p->Buffer1, TestParam, &ByteCount);
             if (rv) {
                 printf("TestSeqReads: ReadFile %d failed %d\n",TestParam,rv);
-                return -1;
+                return (ULONG) -1;
             }
         }
 #endif
@@ -564,27 +661,27 @@ ULONG TestSeqWrites (PTHREADDATA p)
 
     h = p->UniqueFile;
     flen = 128*1024 / TestParam;
-    iter = flen < 512 ? 256 : 50;
+    iter = (flen < 512 ? 500 : 100) * MultIter;
 
     for (i=0; i < iter; i++) {
 #ifdef WIN32
         status = SetFilePointer(h,0,0,FILE_BEGIN);
         if (status == -1) {
             printf("TestSeqWrites: seek to 0 failed %d\n",GetLastError());
-            return -1;
+            return (ULONG) -1;
         }
         for (j=0; j < flen; j++) {
             status = WriteFile(h, p->Buffer2, TestParam, &ByteCount, NULL);
             if (!status) {
                 printf("TestSeqWrites: WriteFile %d failed %d\n",TestParam,GetLastError());
-                return -1;
+                return (ULONG) -1;
             }
         }
 #else
         rv = DosSetFilePtr(h,0,0,&ulNew);
         if (rv) {
             printf("TestSeqWrites: seek to 0 failed %d\n",rv);
-            return -1;
+            return (ULONG) -1;
         }
 
         for (j=0; j < flen; j++) {
@@ -592,7 +689,7 @@ ULONG TestSeqWrites (PTHREADDATA p)
             rv = DosWrite(h, p->Buffer2, TestParam, &ByteCount);
             if (rv) {
                 printf("TestSeqWrites: WriteFile %d failed %d\n",TestParam,rv);
-                return -1;
+                return (ULONG) -1;
             }
         }
 #endif
@@ -601,20 +698,20 @@ ULONG TestSeqWrites (PTHREADDATA p)
         status = SetFilePointer(h,0,0,FILE_BEGIN);
         if (status == -1) {
             printf("TestSeqWrites: seek to 0 failed %d\n",GetLastError());
-            return -1;
+            return (ULONG) -1;
         }
         for (j=0; j < flen; j++) {
             status = WriteFile(h, p->Buffer1, TestParam, &ByteCount, NULL);
             if (!status) {
                 printf("TestSeqWrites: WriteFile %d failed %d\n",TestParam,GetLastError());
-                return -1;
+                return (ULONG) -1;
             }
         }
 #else
         rv = DosSetFilePtr(h,0,0,&ulNew);
         if (rv) {
             printf("TestSeqWrites: seek to 0 failed %d\n",rv);
-            return -1;
+            return (ULONG) -1;
         }
 
         for (j=0; j < flen; j++) {
@@ -622,7 +719,7 @@ ULONG TestSeqWrites (PTHREADDATA p)
             rv = DosWrite(h, p->Buffer1, TestParam, &ByteCount);
             if (rv) {
                 printf("TestSeqWrites: WriteFile %d failed %d\n",TestParam,rv);
-                return -1;
+                return (ULONG) -1;
             }
         }
 #endif
@@ -630,10 +727,3 @@ ULONG TestSeqWrites (PTHREADDATA p)
     }
     return 5000;
 }
-
-
-ULONG TxIOs       (PTHREADDATA p)
-{
-    return 0;
-}
-

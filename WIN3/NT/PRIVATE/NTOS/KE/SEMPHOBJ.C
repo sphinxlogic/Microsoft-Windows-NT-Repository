@@ -37,7 +37,7 @@ Revision History:
 
 VOID
 KeInitializeSemaphore (
-    IN PKSEMAPHORE Semaphore,
+    IN PRKSEMAPHORE Semaphore,
     IN LONG Count,
     IN LONG Limit
     )
@@ -74,7 +74,7 @@ Return Value:
     //
 
     Semaphore->Header.Type = SemaphoreObject;
-    Semaphore->Header.Size = sizeof(KSEMAPHORE);
+    Semaphore->Header.Size = sizeof(KSEMAPHORE) / sizeof(LONG);
     Semaphore->Header.SignalState = Count;
     InitializeListHead(&Semaphore->Header.WaitListHead);
     Semaphore->Limit = Limit;
@@ -83,7 +83,7 @@ Return Value:
 
 LONG
 KeReadStateSemaphore (
-    IN PKSEMAPHORE Semaphore
+    IN PRKSEMAPHORE Semaphore
     )
 
 /*++
@@ -105,10 +105,6 @@ Return Value:
 
 {
 
-    //
-    // Assert that we are being called with a semaphore and not something else
-    //
-
     ASSERT_SEMAPHORE( Semaphore );
 
     //
@@ -120,7 +116,7 @@ Return Value:
 
 LONG
 KeReleaseSemaphore (
-    IN PKSEMAPHORE Semaphore,
+    IN PRKSEMAPHORE Semaphore,
     IN KPRIORITY Increment,
     IN LONG Adjustment,
     IN BOOLEAN Wait
@@ -161,19 +157,15 @@ Return Value:
     LONG NewState;
     KIRQL OldIrql;
     LONG OldState;
-    PKTHREAD Thread;
-
-    //
-    // Assert that we are being called with a semaphore and not something else
-    //
+    PRKTHREAD Thread;
 
     ASSERT_SEMAPHORE( Semaphore );
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
 
     //
     // Raise IRQL to dispatcher level and lock dispatcher database.
     //
 
-    Thread = KeGetCurrentThread();
     KiLockDispatcherDatabase(&OldIrql);
 
     //
@@ -202,8 +194,7 @@ Return Value:
     //
 
     Semaphore->Header.SignalState = NewState;
-    Thread->WaitNext = Wait;
-    if ((OldState == 0) && (!IsListEmpty(&Semaphore->Header.WaitListHead))) {
+    if ((OldState == 0) && (IsListEmpty(&Semaphore->Header.WaitListHead) == FALSE)) {
         KiWaitTest(Semaphore, Increment);
     }
 
@@ -214,8 +205,11 @@ Return Value:
     // previous value.
     //
 
-    if (Wait) {
+    if (Wait != FALSE) {
+        Thread = KeGetCurrentThread();
+        Thread->WaitNext = Wait;
         Thread->WaitIrql = OldIrql;
+
     } else {
         KiUnlockDispatcherDatabase(OldIrql);
     }

@@ -137,4 +137,10 @@ Arguments:
     RpcpMemoryCopy(&(this->Uuid), &(FromUuid->Uuid), sizeof(UUID));
 }
 
+extern "C" void 
+ByteSwapUuid(
+    RPC_UUID PAPI *pRpcUuid
+    );
+
+
 #endif // __RPCUUID_HXX__

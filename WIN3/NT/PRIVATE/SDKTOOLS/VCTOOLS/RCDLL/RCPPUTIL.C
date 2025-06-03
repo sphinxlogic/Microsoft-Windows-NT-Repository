@@ -8,8 +8,7 @@
 /*                                                                      */
 /************************************************************************/
 
-#include "prerc.h"
-#pragma hdrstop
+#include "rc.h"
 
 extern void     error(int);
 extern CHAR     Msg_Text[];
@@ -20,7 +19,7 @@ extern PCHAR    Msg_Temp;
  ************************************************************************/
 WCHAR *pstrdup(WCHAR *s)
 {
-    return(wcscpy((WCHAR *)malloc((wcslen(s) + 1) * sizeof(WCHAR)), s));
+    return(wcscpy((WCHAR *)MyAlloc((wcslen(s) + 1) * sizeof(WCHAR)), s));
 }
 
 
@@ -33,14 +32,21 @@ WCHAR * pstrndup(WCHAR *s, int n)
     WCHAR       *r;
     WCHAR       *res;
 
-    r = res = malloc((n+1) * sizeof(WCHAR));
+    r = res = MyAlloc((n+1) * sizeof(WCHAR));
     if (res == NULL) {
         strcpy (Msg_Text, GET_MSG (1002));
         error(1002);
         return NULL;
     }
-    while(n--) {
-        *r++ = *s++;
+    try {
+        for (; n--; r++, s++) {
+            *r = *s;
+        }
+    } except(EXCEPTION_EXECUTE_HANDLER) {
+        n++;
+        while (n--) {
+            *r++ = L'\0';
+        }
     }
     *r = L'\0';
     return(res);

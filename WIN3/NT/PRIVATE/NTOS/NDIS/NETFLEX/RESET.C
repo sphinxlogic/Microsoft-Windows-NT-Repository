@@ -35,7 +35,6 @@
 #include "adapter.h"
 #include "protos.h"
 
-
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 //
 //  Routine Name:   NetFlexResetDispatch
@@ -129,7 +128,8 @@ NetFlexResetHandler(
     //
     NdisMCancelTimer(&acb->ResetTimer,&ReceiveResult);
 
-    do {
+    do
+	{
         DoneWReset = TRUE; // default to true...
 
         //
@@ -403,6 +403,7 @@ NetFlexDoResetIndications(
             }
         }
     }
+
     DebugPrint(1,("NF(%d): Reset Complete.\n",acb->anum));
 }
 
@@ -491,6 +492,11 @@ NetFlexCheckForHang(
         }
     }
 
+	if (acb->FullDuplexEnabled)
+	{
+		NdisAcquireSpinLock(&acb->XmitLock);
+	}
+
     //
     // See if there is any xmits which have not been processed
     //
@@ -501,10 +507,6 @@ NetFlexCheckForHang(
         if (xmitptr->XMIT_Timeout)
         {
 #if DBG
-
-#ifdef ODD_POINTER
-            DisplayXmitList(acb);
-#endif
             if (xmitptr->XMIT_CSTAT & XCSTAT_COMPLETE)
             {
                 DebugPrint(0,("NF(%d): CheckHang - Xmit Complete but Xmit Timed Out!\n",acb->anum));
@@ -514,16 +516,73 @@ NetFlexCheckForHang(
                 DebugPrint(0,("NF(%d): CheckHang - Xmit Timed Out!\n",acb->anum));
             }
 #endif
+
+			if (acb->FullDuplexEnabled)
+			{
+				NdisReleaseSpinLock(&acb->XmitLock);
+			}
+
             return TRUE;
         }
         xmitptr->XMIT_Timeout++;
     }
 
+	//
+	//	If we are in full-duplex mode then that is the extent of our
+	//	checking to see if we are hung.  If we are in half-duplex mode
+	//	then we might want to send a dummy packet to see if our receiver
+	//	is working correctly....
+	//
+	if (acb->FullDuplexEnabled)
+	{
+		NdisReleaseSpinLock(&acb->XmitLock);
+	}
+
+	//
+	//	Should we do extreme checking?
+	//
+	if (!acb->acb_parms->utd_extremecheckforhang)
+	{
+		return(FALSE);
+	}
+
+	//
+	//	Have we been getting interrupts?
+	//
+	if (acb->acb_int_count != 0)
+	{
+		//
+		//	We got some, initialize the counts.
+		//
+		acb->acb_int_count = 0;
+		acb->acb_int_timeout = 0;
+	}
+	else
+	{
+		//
+		//	Increment the timeout count.
+		//
+		acb->acb_int_timeout++;
+
+		//
+		//	We will do this 5 times before we reset.
+		//
+		if (5 == acb->acb_int_timeout)
+		{
+			//
+			//	Clear our counts and request a reset.
+			//
+			acb->acb_int_timeout = 0;
+			acb->acb_int_count = 0;
+
+			return(TRUE);
+		}
+	}
+
     //
     // Not certain we're hung yet...
     //
     return FALSE;
-
 }
 
 
@@ -566,7 +625,10 @@ NetFlexOpenAdapter(
     acb->acb_state = AS_OPENING;
     acb->acb_lastringstate = NdisRingStateOpening;
 
-    if (!macgbls.Initializing)
+    //
+    // Are we doing an open for reset or during initialization?
+    //
+    if (!acb->AdapterInitializing)
     {
         //
         // Get a free block.
@@ -623,6 +685,9 @@ NetFlexOpenAdapter(
     }
     else
     {
+        //
+        // Open for Initialization
+        //
         ULONG  Counter = 0;
         ULONG  CounterTimeOut = 2000; // 2 seconds in miliseconds
         USHORT sifint_reg;
@@ -718,19 +783,13 @@ NetFlexOpenAdapter(
             //
             acb->acb_rcv_whead = acb->acb_rcv_head;
 
-#ifdef ODD_POINTER
-            //
-            // Indicate that the transmiter is stalled.
-            //
-            acb->XmitStalled = TRUE;
-#else
             //
             // Now lets finish the open by sending a
             // transmit command to the adapter.
             //
 
             acb->acb_xmit_whead = acb->acb_xmit_wtail = acb->acb_xmit_head;
-#endif
+
             //
             // Verify that interrupts are enabled!
             //
@@ -846,7 +905,8 @@ NetFlexHalt(
     )
 {
     USHORT      actl_reg;
-    BOOLEAN     ReceiveResult;
+    BOOLEAN     ReceiveResult1;
+    BOOLEAN     ReceiveResult2;
 
     //
     // The adapter to halt
@@ -858,9 +918,16 @@ NetFlexHalt(
     //
     // Cancel all of our timers.
     //
+    NdisMCancelTimer(&acb->DpcTimer, &ReceiveResult1);
+    NdisMCancelTimer(&acb->ResetTimer, &ReceiveResult2);
 
-    NdisMCancelTimer(&acb->DpcTimer, &ReceiveResult);
-    NdisMCancelTimer(&acb->ResetTimer, &ReceiveResult);
+    //
+    //  Is one of the timer dpc's going to fire?
+    //
+    if (!ReceiveResult1 || !ReceiveResult2)
+    {
+        NdisStallExecution(500000);
+    }
 
     //
     // Send Close
@@ -883,8 +950,46 @@ NetFlexHalt(
     // Free adapter resources
     //
     NetFlexDeregisterAdapter(acb);
+}
+
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+//
+//  Routine Name:   NetFlexShutdown
+//
+//  Description:
+//      Removes an adapter previously initialized.
+//
+//  Input:
+//      MacAdapterContext - Actually as pointer to an PACB.
+//
+//  Output:
+//      None.
+//
+//  Called By:
+//      Miniport Wrapper.
+//
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+VOID
+NetFlexShutdown(
+    IN NDIS_HANDLE MiniportAdapterContext
+    )
+{
+    PACB        acb = (PACB) MiniportAdapterContext;
+    USHORT      actl_reg;
 
-    return;
+    //
+    // Send Close.
+    //
+
+    NetFlexCloseAdapter(acb);
+
+    //
+    // Stop Adapter
+    //
+
+    NdisRawReadPortUshort(  acb->SifActlPort, (PUSHORT) (&actl_reg));
+    actl_reg |= ACTL_ARESET;
+    NdisRawWritePortUshort( acb->SifActlPort, (USHORT) actl_reg);
 }
 
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -916,9 +1021,7 @@ NetFlexRemoveRequests(
     PNDIS_BUFFER curbuf;
     PMULTI_TABLE mt;
     PETH_OBJS ethobjs;
-#ifdef ODD_POINTER
     USHORT i;
-#endif
     PSCBREQ scbreq;
     PMACREQ macreq;
 
@@ -936,32 +1039,43 @@ NetFlexRemoveRequests(
             // We've used one of our adapter buffers, so put the adapter
             // buffer back on the free list.
             //
-            xmitptr->XMIT_OurBufferPtr->Next = acb->OurBuffersListHead;
-            acb->OurBuffersListHead = xmitptr->XMIT_OurBufferPtr;
+            if (xmitptr->XMIT_OurBufferPtr->BufferSize != acb->acb_smallbufsz) {
+                xmitptr->XMIT_OurBufferPtr->Next = acb->OurBuffersListHead;
+                acb->OurBuffersListHead = xmitptr->XMIT_OurBufferPtr;
+            }
+            else { // small buffer
+                xmitptr->XMIT_OurBufferPtr->Next = acb->SmallBuffersListHead;
+                acb->SmallBuffersListHead = xmitptr->XMIT_OurBufferPtr;
+            }
             xmitptr->XMIT_OurBufferPtr = NULL;
         }
         else
         {
-            // Any mappings?
-            //
-            curmap = xmitptr->XMIT_MapReg;
-            if (curmap > 0)
-            {
+            packet = xmitptr->XMIT_Packet;
+
+            if ( packet != NULL ) {
+
+                curmap = xmitptr->XMIT_MapReg;
+
                 // Complete mappings, but don't complete the sends...
                 //
 
-                packet = xmitptr->XMIT_Packet;
+                NdisQueryPacket(
+                            packet,
+                            NULL,
+                            NULL,
+                            (PNDIS_BUFFER *) &curbuf,
+                            NULL
+                            );
 
-                NdisQueryPacket( packet,
-                                 NULL,
-                                 NULL,
-                                 (PNDIS_BUFFER *)&curbuf,
-                                 NULL);
                 while (curbuf)
                 {
-                    NdisMCompleteBufferPhysicalMapping(acb->acb_handle,
-                                                      (PNDIS_BUFFER)curbuf,
-                                                      curmap);
+                    NdisMCompleteBufferPhysicalMapping(
+                                    acb->acb_handle,
+                                    (PNDIS_BUFFER) curbuf,
+                                    curmap
+                                    );
+
                     curmap++;
                     if (curmap == acb->acb_maxmaps)
                     {
@@ -973,13 +1087,8 @@ NetFlexRemoveRequests(
             }
         }
 
-#ifdef ODD_POINTER
         xmitptr->XMIT_CSTAT  = 0;
-#else
-        xmitptr->XMIT_CSTAT &= XCSTAT_FINT;
-#endif
-        xmitptr->XMIT_MapReg = 0;
-        xmitptr->XMIT_Packet = 0;
+        xmitptr->XMIT_Packet = NULL;
 
         //
         // If we've reached the active queue tail, we are done.
@@ -998,44 +1107,6 @@ NetFlexRemoveRequests(
     //
 
     rcvptr = acb->acb_rcv_head;
-#ifdef ODD_POINTER
-    i=0;
-    do
-    {
-        // Reset FInt Ratio
-        //
-        rcvptr->RCV_CSTAT = ((i++ % acb->RcvIntRatio) == 0) ? RCSTAT_GO_INT : RCSTAT_GO;
-
-        //
-        // Get next receive list, or fix the last and get out...
-        //
-        if (rcvptr->RCV_Next == acb->acb_rcv_head)
-        {
-            // Make last odd...
-            //
-            MAKE_ODD(rcvptr->RCV_FwdPtr);
-            //
-            // Set the tail pointer
-            //
-            acb->acb_rcv_tail = rcvptr;
-            //
-            // Get out
-            //
-            rcvptr = NULL;
-        }
-        else
-        {
-            // Update the forward pointers.
-            //
-            MAKE_EVEN(rcvptr->RCV_FwdPtr);
-            //
-            // Get Next
-            //
-            rcvptr = rcvptr->RCV_Next;
-        }
-    } while (rcvptr);
-
-#else
 
     do {
 
@@ -1045,34 +1116,26 @@ NetFlexRemoveRequests(
         rcvptr->RCV_CSTAT =
             ((rcvptr->RCV_Number % acb->RcvIntRatio) == 0) ? RCSTAT_GO_INT : RCSTAT_GO;
 
-        //rcvptr->RCV_CSTAT = RCSTAT_GO;
-
         //
         // Get next receive list
         //
         rcvptr = rcvptr->RCV_Next;
 
     } while (rcvptr != acb->acb_rcv_head);
-#endif
 
     //
-    // Clean Up Multicast Lists
+    //  Clean up multicast if ethernet.
     //
-    if (acb->acb_gen_objs.media_type_in_use == NdisMedium802_3 )
+    if (acb->acb_gen_objs.media_type_in_use == NdisMedium802_3)
     {
-        // Remove all of the enabled
-        //
-        ethobjs = (PETH_OBJS)(acb->acb_spec_objs);
+        ethobjs = (PETH_OBJS)acb->acb_spec_objs;
 
-        while (ethobjs->multi_enabled != NULL)
-        {
-            NetFlexDequeue_OnePtrQ_Head((PVOID *)(&(ethobjs->multi_enabled)),
-                                        (PVOID *) &mt);
+        NdisZeroMemory(
+            ethobjs->MulticastEntries,
+            ethobjs->MaxMulticast * NET_ADDR_SIZE
+        );
 
-            NetFlexEnqueue_OnePtrQ_Head((PVOID *)&(ethobjs->multi_free),
-                                        (PVOID) mt);
-        }
-
+        ethobjs->NumberOfEntries = 0;
     }
 
     //
@@ -1083,6 +1146,8 @@ NetFlexRemoveRequests(
         NetFlexDequeue_TwoPtrQ_Head((PVOID *)&acb->acb_scbreq_head,
                                     (PVOID *)&acb->acb_scbreq_tail,
                                     (PVOID *)&scbreq);
+
+        NdisZeroMemory(scbreq, sizeof(SCBREQ));
 
         NetFlexEnqueue_OnePtrQ_Head((PVOID *)&acb->acb_scbreq_free,(PVOID)scbreq);
 
@@ -1097,12 +1162,20 @@ NetFlexRemoveRequests(
                                     (PVOID *)&acb->acb_macreq_tail,
                                     (PVOID *)&macreq);
 
+        NdisZeroMemory(macreq, sizeof(MACREQ));
+
         NetFlexEnqueue_OnePtrQ_Head( (PVOID *)&acb->acb_macreq_free,
                                      (PVOID)macreq);
 
     }
 
+    //
+    // Clean Up some more State stuff...
+    //
     acb->RequestInProgress = FALSE;
+    acb->acb_scbclearout   = FALSE;
+    acb->acb_scbreq_next   = NULL;
+    acb->acb_gen_objs.cur_filter = 0;
 }
 
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -1530,21 +1603,27 @@ NetFlexDownload(
 //      NetFlexResetHandler, NetFlexBoardInitandReg
 //
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-NDIS_STATUS
+VOID
 NetFlexSetupNetType(
     PACB    acb
     )
 {
     USHORT      cfg_reg,  actl_reg;
     USHORT      cfg_reg2, tmp_reg;
+	UCHAR		cfg_regl, cfg_regh;
     NDIS_MEDIUM nettype;
-    USHORT      netspeed;
+    ULONG       netspeed;
     USHORT      board_id = acb->acb_boardid;
 
     //
     // Get the network type and speed the user set up in EISA config.
-    //
-    NdisRawReadPortUshort( acb->AdapterConfigPort, &cfg_reg);
+    // The port address for the cfg port is odd which will cause an
+	// alignment fault on RISC.
+	//
+    // NdisRawReadPortUshort(acb->AdapterConfigPort, &cfg_reg);
+    NdisRawReadPortUchar(acb->AdapterConfigPort, &cfg_regl);
+    NdisRawReadPortUchar(acb->AdapterConfigPort+1, &cfg_regh);
+	cfg_reg = (cfg_regh << 8) + cfg_regl;
 
     //
     // Read the actl register and turn off the reset bit.
@@ -1575,7 +1654,7 @@ NetFlexSetupNetType(
         //
         DebugPrint(1,("NF(%d): Setting up Jupiter\n",acb->anum));
 
-        if (macgbls.Initializing)
+        if (acb->AdapterInitializing)
         {
             nettype = NdisMedium802_5;
             if (cfg_reg & CFG_16MBS)
@@ -1656,7 +1735,7 @@ NetFlexSetupNetType(
     //
     // If this is during an initial initialization
     //
-    if (macgbls.Initializing)
+    if (acb->AdapterInitializing)
     {
         //
         // If this is a NETFLEX type board, make sure we got what
@@ -1708,7 +1787,7 @@ NetFlexSetupNetType(
     else
     {
         nettype  = acb->acb_gen_objs.media_type_in_use;
-        netspeed = (USHORT) acb->acb_gen_objs.link_speed;
+        netspeed = acb->acb_gen_objs.link_speed;
     }
 
     //
@@ -1766,12 +1845,6 @@ NetFlexSetupNetType(
             }
         }
     }
-
-    //
-    // The net type and speed are now set up.
-    //
-
-    return(NDIS_STATUS_SUCCESS);
 }
 
 
@@ -1848,3 +1921,4 @@ VOID NetFlexDeregisterAdapter(PACB acb)
         NetFlexFinishUnloading();
     }
 }
+

@@ -219,7 +219,6 @@ INT   CDS_GetToken ( WORD, LPSTR );
 VOID  CDS_CreateConfigFile ( VOID );
 VOID  CDS_SaveCDS ( VOID );
 VOID  CDS_SaveUIConfig ( VOID );
-VOID  CDS_SaveDisplayConfig ( VOID );
 VOID  CDS_SaveBEConfig ( VOID );
 
 #ifdef OS_WIN32
@@ -849,11 +848,7 @@ HWPARMS_PTR  pCallerHW )      // I - pointer to the callers HW Parms
 
      while ( ! fDone ) {
 
-#ifndef UNICODE
           sprintf ( szDriverConfig, TEXT("%s %s %d"), lpDriverName, CMS_CONTROLLER, nNumControllers );
-#else //UNICODE
-          sprintf ( szDriverConfig, TEXT("%ws %ws %d"), lpDriverName, CMS_CONTROLLER, nNumControllers );
-#endif //UNICODE
 
           wStatus = CDS_GetInt ( szDriverConfig, CMS_STATUS, 0xFFFF );
 
@@ -1213,23 +1208,11 @@ LPSTR       lpszCardName )    // I - string containing the card name
      CDS_SetActiveDriver ( pCDS, lpszDriver );
      CDS_SaveString ( CMS_HARDWARE, CMS_DRIVER, lpszDriver );
 
-#ifndef UNICODE
      sprintf ( szAppName, TEXT("%s %s %u"), lpszDriver, CMS_CONTROLLER, nController );
-#else //UNICODE
-     sprintf ( szAppName, TEXT("%ws %ws %u"), lpszDriver, CMS_CONTROLLER, nController );
-#endif //UNICODE
-#ifndef UNICODE
      sprintf ( szString, TEXT("%u (%s)"), pHW->wCardID, lpszCardName );
-#else //UNICODE
-     sprintf ( szString, TEXT("%u (%ws)"), pHW->wCardID, lpszCardName );
-#endif //UNICODE
      CDS_SaveString ( szAppName, CMS_CARDID, szString );
 
-#ifndef UNICODE
      sprintf ( szString, TEXT("%u (%s)"), 1, TEXT("status mark") );
-#else //UNICODE
-     sprintf ( szString, TEXT("%u (%ws)"), 1, TEXT("status mark") );
-#endif //UNICODE
      CDS_SaveString ( szAppName, CMS_STATUS, szString );
 
      CDS_SaveInt ( szAppName, CMS_DRIVES, pHW->wDrives );

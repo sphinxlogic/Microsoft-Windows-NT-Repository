@@ -46,8 +46,8 @@
 #define cchLineMax 256
 
 #  define PRINTER  "lpt1"
-#  define strnxcmp strnicmp
-#  define strcmpx  strcmpi
+#  define strnxcmp _strnicmp
+#  define strcmpx  _strcmpi
 #  define SILENT   " >NUL"
 #  define szROBin "rb"
 #  define szWOBin "wb"
@@ -248,4 +248,4 @@ void OutEncPS(char *, int);
 void OutCmpPS(char *,int );
 int CchNoTrail(char [],int);
 void OutRectangle(int, int, int, int);
-
+

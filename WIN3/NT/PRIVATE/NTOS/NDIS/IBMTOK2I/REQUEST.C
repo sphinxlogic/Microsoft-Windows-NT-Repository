@@ -136,8 +136,10 @@ Return Value:
         // Now call the filter package to set up the address if the
         // functional address has been set in the packet filter.
         //
-        if (Adapter->CurrentPacketFilter & NDIS_PACKET_TYPE_FUNCTIONAL) {
-
+        if (!(Adapter->CurrentPacketFilter & NDIS_PACKET_TYPE_ALL_FUNCTIONAL) &&
+            (Adapter->CurrentPacketFilter & NDIS_PACKET_TYPE_FUNCTIONAL)
+        )
+        {
             Status = TOK162ChangeAddress(
                          Adapter,
                          Adapter->FunctionalAddress,
@@ -254,9 +256,6 @@ Return Value:
 
         if (Adapter->CurrentPacketFilter != TempFilter) {
 
-            //
-            // We have a good packet filter, so save it.
-            //
             Adapter->CurrentPacketFilter = TempFilter;
 
             //
@@ -451,13 +450,14 @@ Return Value:
     PTOK162_ADAPTER Adapter =
         PTOK162_ADAPTER_FROM_CONTEXT_HANDLE(MiniportAdapterContext);
 
+	NDIS_STATUS	Status = NDIS_STATUS_PENDING;
+
     //
     // If we are in the middle of a reset, return this fact
     //
-    if (Adapter->ResetInProgress == TRUE) {
-
+    if (Adapter->ResetInProgress == TRUE)
+	{
         return(NDIS_STATUS_RESET_IN_PROGRESS);
-
     }
 
     //
@@ -474,34 +474,82 @@ Return Value:
     Adapter->InformationBufferLength = InformationBufferLength;
 
     //
-    // Get a command block
-    //
-    TOK162AcquireCommandBlock(Adapter,
-        &CommandBlock
-        );
-
-    //
-    // Notify that this is from a set
-    //
-    CommandBlock->Set = TRUE;
-
-    //
-    // Setup the common fields of the command block.
-    //
-    CommandBlock->NextCommand = NULL;
-    CommandBlock->Hardware.Status = 0;
-    CommandBlock->Hardware.NextPending = TOK162_NULL;
-
-    //
     // Figure out the specific command based on the OID
     //
-    switch(Oid) {
+    switch(Oid)
+	{
+		case OID_802_5_CURRENT_FUNCTIONAL:
+
+			if (InformationBufferLength != TR_LENGTH_OF_FUNCTIONAL)
+			{
+				//
+				// The data must be a multiple of the functional
+				// address size.
+				//
+				Status = NDIS_STATUS_INVALID_DATA;
+			}
+			else
+			{
+				//
+				// Save the address away
+				//
+				NdisMoveMemory(
+					InformationBuffer,
+					&Adapter->FunctionalAddress,
+					InformationBufferLength);
+	
+				Status = NDIS_STATUS_SUCCESS;
+			}
+
+			break;
+
+		case OID_802_5_CURRENT_GROUP:
+
+			if (InformationBufferLength != TR_LENGTH_OF_FUNCTIONAL)
+			{
+				//
+				// The data must be a multiple of the group
+				// address size.
+				//
+				Status = NDIS_STATUS_INVALID_DATA;
+			}
+			else
+			{
+				//
+				// Save the address away
+				//
+				NdisMoveMemory(
+					InformationBuffer,
+					&Adapter->GroupAddress,
+					InformationBufferLength);
+	
+				Status = NDIS_STATUS_SUCCESS;
+			}
+	
+			break;
 
         //
         // If the permanent address is requested, we need to read from
         // the adapter at the permanent address offset.
         //
         case OID_802_5_PERMANENT_ADDRESS:
+
+			//
+			// Get a command block
+			//
+			TOK162AcquireCommandBlock(Adapter, &CommandBlock);
+		
+			//
+			// Notify that this is from a set
+			//
+			CommandBlock->Set = TRUE;
+		
+			//
+			// Setup the common fields of the command block.
+			//
+			CommandBlock->NextCommand = NULL;
+			CommandBlock->Hardware.Status = 0;
+			CommandBlock->Hardware.NextPending = TOK162_NULL;
 
             //
             // Fill in the adapter buffer area with the information to
@@ -527,9 +575,24 @@ Return Value:
         // we will want to read the current addresses as the adapter has
         // them recorded.
         //
-        case OID_802_5_CURRENT_FUNCTIONAL:
-        case OID_802_5_CURRENT_GROUP:
         case OID_802_5_CURRENT_ADDRESS:
+
+			//
+			// Get a command block
+			//
+			TOK162AcquireCommandBlock(Adapter, &CommandBlock);
+		
+			//
+			// Notify that this is from a set
+			//
+			CommandBlock->Set = TRUE;
+		
+			//
+			// Setup the common fields of the command block.
+			//
+			CommandBlock->NextCommand = NULL;
+			CommandBlock->Hardware.Status = 0;
+			CommandBlock->Hardware.NextPending = TOK162_NULL;
 
             //
             // Set up the adapter buffer to get the current addresses.
@@ -555,6 +618,23 @@ Return Value:
         //
         default:
 
+			//
+			// Get a command block
+			//
+			TOK162AcquireCommandBlock(Adapter, &CommandBlock);
+
+			//
+			// Notify that this is from a set
+			//
+			CommandBlock->Set = TRUE;
+		
+			//
+			// Setup the common fields of the command block.
+			//
+			CommandBlock->NextCommand = NULL;
+			CommandBlock->Hardware.Status = 0;
+			CommandBlock->Hardware.NextPending = TOK162_NULL;
+
             //
             // Set the command block for a read error log command.
             //
@@ -566,23 +646,23 @@ Return Value:
             break;
     }
 
-    //
-    // Now that we're set up, let's do it!
-    //
-    Adapter->RequestInProgress = TRUE;
+	//
+	//	If we need to process the command block...
+	//
+	if (NDIS_STATUS_PENDING == Status)
+	{
+		//
+		// Now that we're set up, let's do it!
+		//
+		Adapter->RequestInProgress = TRUE;
+	
+		//
+		// Submit the command to the card
+		//
+		TOK162SubmitCommandBlock(Adapter, CommandBlock);
+	}
 
-    //
-    // Submit the command to the card
-    //
-    TOK162SubmitCommandBlock(Adapter,
-        CommandBlock
-        );
-
-    //
-    // Complete the request when the interrupt comes in.
-    //
-
-    return NDIS_STATUS_PENDING;
+    return(Status);
 }
 
 VOID
@@ -644,6 +724,8 @@ NDIS_OID TOK162GlobalSupportedOids[] = {
     OID_802_5_CURRENT_FUNCTIONAL,
     OID_802_5_CURRENT_GROUP,
     OID_802_5_LAST_OPEN_STATUS,
+    OID_802_5_CURRENT_RING_STATUS,
+    OID_802_5_CURRENT_RING_STATE,
     OID_802_5_LINE_ERRORS,
     OID_802_5_LOST_FRAMES,
     OID_802_5_BURST_ERRORS,
@@ -805,10 +887,14 @@ NDIS_OID TOK162GlobalSupportedOids[] = {
         //
         case OID_GEN_MAXIMUM_LOOKAHEAD:
         case OID_GEN_CURRENT_LOOKAHEAD:
-        case OID_GEN_MAXIMUM_FRAME_SIZE:
 
             GenericUlong = Adapter->ReceiveBufferSize - TOK162_HEADER_SIZE;
             break;
+
+		case OID_GEN_MAXIMUM_FRAME_SIZE:
+
+			GenericUlong = Adapter->ReceiveBufferSize - 14;
+			break;
 
         //
         // Total sizes are easier because we don't have to subtract out the
@@ -851,7 +937,7 @@ NDIS_OID TOK162GlobalSupportedOids[] = {
         //
         case OID_GEN_RECEIVE_BUFFER_SPACE:
 
-            GenericUlong = (ULONG) GenericUlong *
+            GenericUlong = (ULONG)Adapter->ReceiveBufferSize *
                                  RECEIVE_LIST_COUNT;
 
             break;
@@ -866,9 +952,10 @@ NDIS_OID TOK162GlobalSupportedOids[] = {
             //
             // Get the current network address.
             //
+            GenericUlong = 0;
             NdisMoveMemory(
                 (PVOID)&GenericUlong,
-                Adapter->NetworkAddress,
+                Adapter->CurrentAddress,
                 3
                 );
             GenericUlong &= 0xFFFFFF00;
@@ -1042,6 +1129,34 @@ NDIS_OID TOK162GlobalSupportedOids[] = {
                 break;
 
         //
+        //  Return the last ring status.
+        //
+        case OID_802_5_CURRENT_RING_STATUS:
+
+            GenericUlong = (ULONG)Adapter->LastNotifyStatus;
+
+            break;
+
+        //
+        //  Return the current ring state.
+        //
+        case OID_802_5_CURRENT_RING_STATE:
+
+            GenericUlong = (ULONG)Adapter->CurrentRingState;
+
+            break;
+
+        //
+        //  Last open error code.
+        //
+        case OID_802_5_LAST_OPEN_STATUS:
+
+            GenericUlong = (ULONG)(NDIS_STATUS_TOKEN_RING_OPEN_ERROR |
+                                   (NDIS_STATUS)Adapter->OpenErrorCode);
+
+            break;
+
+        //
         // Return the number of Lost Frames
         //
         case OID_802_5_LOST_FRAMES:
@@ -1142,7 +1257,7 @@ NDIS_OID TOK162GlobalSupportedOids[] = {
 
 NDIS_STATUS
 TOK162ChangeFuncGroup(
-    IN PTOK162_ADAPTER Adapter
+    IN PTOK162_ADAPTER  Adapter
 )
 /*++
 

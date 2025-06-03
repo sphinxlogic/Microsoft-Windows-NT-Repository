@@ -3,11 +3,7 @@
 #include <string.h>
 #include <memory.h>
 #include <windows.h>
-// #include <wincon.h>
 #include "list.h"
-
-
-
 
 /*** ReaderThread - Reads from the file
  *
@@ -20,7 +16,10 @@
  *
  *
  */
-DWORD ReaderThread (DWORD dwParameter)
+DWORD
+ReaderThread (
+    DWORD dwParameter
+    )
 {
     unsigned    rc, code, curPri;
     LPVOID lpParameter=(LPVOID)dwParameter;
@@ -34,10 +33,6 @@ DWORD ReaderThread (DWORD dwParameter)
          *
          */
         if (curPri != vReadPriBoost) {
-//
-// NT - jaimes - 01/30/91
-//
-//          DosSetPrty (2, 2, vReadPriBoost, 0);
             SetThreadPriority( GetCurrentThread(),
                                vReadPriBoost );
             curPri = vReadPriBoost;
@@ -63,10 +58,6 @@ DWORD ReaderThread (DWORD dwParameter)
                      *  at first; eventhough the display is really close
                      *  to the end of the buffer)
                      */
-//
-// NT - jaimes - 01/30/91
-//
-//                  DosSetPrty (2, 2, vReadPriNormal, 0);
                     SetThreadPriority( GetCurrentThread(),
                                        vReadPriNormal );
 
@@ -87,9 +78,6 @@ DWORD ReaderThread (DWORD dwParameter)
                 case F_END:
                     break;
                 case F_SYNC:
-//
-// NT - jaimes - 01/29/91
-//
                     DosSemSet     (vSemMoreData);
                     DosSemClear   (vSemSync);
                     DosSemRequest (vSemReader, WAITFOREVER);
@@ -127,10 +115,6 @@ DWORD ReaderThread (DWORD dwParameter)
 
             /* Normal priority (below display thread) for this  */
             if (curPri != vReadPriNormal) {
-//
-// NT - jaimes - 01/30/91
-//
-//              DosSetPrty (2, 2, vReadPriNormal, 0);
                 SetThreadPriority( GetCurrentThread(),
                                    vReadPriNormal );
                 curPri = vReadPriNormal;
@@ -150,10 +134,6 @@ DWORD ReaderThread (DWORD dwParameter)
 
 
             if (vFhandle != 0) {            /* Must have whole file read in */
-//
-// NT - jaimes - 01/30/91
-//
-//              DosClose (vFhandle);        /* Close the file, and set flag */
                 CloseHandle (vFhandle);     /* Close the file, and set flag */
                 vFhandle   = 0;
                 if (!(vStatCode & S_INSEARCH)) {
@@ -174,36 +154,22 @@ DWORD ReaderThread (DWORD dwParameter)
 /***
  *  WARNING:  Microsoft Confidential!!!
  */
-#ifdef SETTITLE
-extern FAR PASCAL DOSSMSETTITLE (char FAR *);
-#endif
 
-void PASCAL NewFile ()
+void
+NewFile ()
 {
     char        s [60];
     char        h, c;
-//       USHORT action, code;
-//       unsigned       rc, u;
     SYSTEMTIME SystemTime;
     FILETIME    LocalFileTime;
 
-//
-// NT - jaimes - 01/28/91
-//
-//    long FAR  *pLine;
-//       PAGE_DESCRIPTOR  pLine;
-          long FAR      *pLine;
-        HANDLE           TempHandle;
+    long      *pLine;
+    HANDLE           TempHandle;
 
-//    int         i;
     struct Block **pBlk, **pBlkCache;
 
 
     if (vFhandle)
-//
-// NT - jaimes - 01/30/91
-//
-//      DosClose (vFhandle);
         CloseHandle (vFhandle);
 
 
@@ -216,23 +182,8 @@ void PASCAL NewFile ()
     strcpy (s, "Listing ");
     strcpy (s+8, vpFname);
 
-#ifdef SETTITLE
-    DOSSMSETTITLE (s);
-#endif
-
-/*    rc = DosOpen (vpFlCur->fname, &vFhandle, &action, 0L, 0, 0x1, 0x20, 0L);*/
-
 /*  Design change per DougHo.. open files in read-only deny-none mode.*/
-//
-// NT - jaimes - 01/30/91
-//
-//    rc = DosOpen (vpFlCur->fname, &vFhandle, &action, 0L, 0, 0x1, 0x40, 0L);
-/*
-    vFhandle = OpenFile( vpFlCur->fname,
-                         GENERIC_READ,
-                         FALSE,
-                         FILE_SHARE_READ );
-*/
+
     vFhandle = CreateFile( vpFlCur->fname,
                            GENERIC_READ,
                            FILE_SHARE_READ|FILE_SHARE_WRITE,
@@ -241,71 +192,30 @@ void PASCAL NewFile ()
                            0,
                            NULL );
 
-//
-// NT - jaimes - 01/30/91
-// This is not needed. It will never be a handle to a pipe or device
-//
-//    if (!rc) {
-//      DosQHandType (vFhandle, &vFType, &code);
-//      rc = -(vFType & 0xf);
-//    }
-//
-//    if (rc) {
     if (vFhandle  == (HANDLE)(-1)) {
         if (vpFlCur->prev == NULL && vpFlCur->next == NULL) {
                                         /* Only one file specified?     */
-//
-// NT - jaimes - 01/30/91
-//
-//          printf ("Could not open file '%Fs': %s",
-//                       (CFP) vpFlCur->fname, GetErrorCode(rc));
             printf ("Could not open file '%Fs': %s",
                          (CFP) vpFlCur->fname, GetErrorCode( GetLastError() ));
 
-//
-// NT - jaimes - 01/30/91
-//
-//          DosExit (1, 0);
             CleanUp();
             ExitProcess(0);
         }
         vFhandle = 0;               /* Error. Set externals to "safe"   */
-//
-// NT - jaimes - 01/30/91
-//
-//      vFInfo.cbFile = -1L;     /* settings.  Flag error by setting */
         vFInfo.nFileSizeLow = (unsigned)-1L; /* settings.  Flag error by setting */
         vNLine     = 1;             /* file_size = -1                   */
         vLastLine  = NOLASTLINE;
-        vDirOffset = vTopLine = vLoffset = 0L;
+        vDirOffset = vTopLine  = 0L;
+        SetLoffset(0L);
 
-//
-// NT - jaimes - 01/28/91
-// replaced vprgLineTable and alloc_page
-//
-//      memset (vprgLineTable, 0, sizeof (long FAR *) * MAXTPAGE);
-//      vprgLineTable[0] = (LFP) alloc_page ();
-//      vprgLineTable[0][0] = 0L;       /* 1st line always starts @ 0   */
-//      memset (vprgLineTable, 0, sizeof (PAGE_DESCRIPTOR) * MAXTPAGE);
-//      alloc_page( &vprgLineTable[0] );
-//      (vprgLineTable[0].pulPointerToPage)[0] = 0L;    /* 1st line always starts @ 0   */
-
-        memset (vprgLineTable, 0, sizeof (long FAR *) * MAXTPAGE);
+        memset (vprgLineTable, 0, sizeof (long *) * MAXTPAGE);
         vprgLineTable[0] = (LFP) alloc_page ();
         vprgLineTable[0][0] = 0L;       /* 1st line always starts @ 0   */
 
-
-//      strncpy (vDate, GetErrorCode(rc), 20);
         strncpy (vDate, GetErrorCode( GetLastError() ), 20);
         vDate[20] = 0;
         return ;
     }
-
-//
-// NT - jaimes - 01/30/91
-//
-//    rc = DosQFileInfo (vFhandle, 1, (CFP) &vFInfo, sizeof vFInfo);
-//    ckerr (rc, "DosQFileInfo");
 
     TempHandle = FindFirstFile( vpFlCur->fname,
                                 &vFInfo );
@@ -314,30 +224,6 @@ void PASCAL NewFile ()
     if (!FindClose( TempHandle ))
         ckerr (GetLastError(), "FindCloseFile");
     }
-
-//
-// NT - jaimes - 01/30/91
-//
-//    h = (char)vFInfo.ftimeCreation.hours;
-//    if (h > 12)  {
-//      h -= 12;
-//      c = 'p';
-//    } else c = 'a';
-//    sprintf (vDate, "%c%c %c%c%c%c %2d/%02d/%02d  %2d:%02d%c",
-//        /* File is in memory               */
-//        /* Search is set for mult files    */
-//        vStatCode & S_MFILE      ? '*' : ' ',
-//        /* File is in memory               */
-//        vFType & 0x8000          ? 'N' : ' ',             /* Network  */
-//        vFInfo.attrFile & 0x01 ? 'R' : ' ',       /* Readonly */
-//        vFInfo.attrFile & 0x02 ? 'H' : ' ',       /* Hidden   */
-//        vFInfo.attrFile & 0x04 ? 'S' : ' ',       /* System   */
-//        vPhysFlag                ? 'v' : ' ',             /* Vio      */
-//        vFInfo.fdateLastWrite.month,
-//        vFInfo.fdateLastWrite.day,
-//        vFInfo.fdateLastWrite.year + 80,
-//        h, vFInfo.ftimeLastWrite.minutes, c);
-
 
     FileTimeToLocalFileTime( &(vFInfo.ftLastWriteTime), &LocalFileTime );
     FileTimeToSystemTime( &LocalFileTime, &SystemTime );
@@ -355,7 +241,6 @@ void PASCAL NewFile ()
           vFInfo.dwFileAttributes & FILE_ATTRIBUTE_NORMAL ? 'R' : ' ',      /* Readonly */
           vFInfo.dwFileAttributes & FILE_ATTRIBUTE_HIDDEN ? 'H' : ' ',      /* Hidden   */
           vFInfo.dwFileAttributes & FILE_ATTRIBUTE_SYSTEM ? 'S' : ' ',      /* System   */
-//        vPhysFlag                ? 'v' : ' ',             /* Vio      */
           ' ',      /* Vio      */
           SystemTime.wMonth,
           SystemTime.wDay,
@@ -373,15 +258,7 @@ void PASCAL NewFile ()
         vpFlCur->Loffset  = vpFlCur->SlimeTOF;
 
         FreePages  (vpFlCur);
-//
-// NT - jaimes - 01/27/91
-// memset was removed from lmisc.c
-// type of prgLineTable was changed, so its initialization needed to
-// be changed
-//
-//      memsetf (vpFlCur->prgLineTable, 0, sizeof (long FAR *) * MAXTPAGE);
-//      memset (vpFlCur->prgLineTable, 0, sizeof (PAGE_DESCRIPTOR) * MAXTPAGE);
-        memset (vpFlCur->prgLineTable, 0, sizeof (long FAR *) * MAXTPAGE);
+        memset (vpFlCur->prgLineTable, 0, sizeof (long *) * MAXTPAGE);
         vpFlCur->FileTime = vFInfo.ftLastWriteTime;
         pBlkCache = &vpBFree;   /* Move blks to free list, not cache list   */
     }
@@ -391,79 +268,24 @@ void PASCAL NewFile ()
      * Restore last known information
      */
     vTopLine    = vpFlCur->TopLine;
-    vLoffset    = vpFlCur->Loffset;
+    SetLoffset(vpFlCur->Loffset);
     vLastLine   = vpFlCur->LastLine;
     vNLine      = vpFlCur->NLine;
     vOffTop     = 0;
     if (vpFlCur->Wrap)
         vWrap   = vpFlCur->Wrap;
 
-//
-// NT - jaimes - 01/27/91
-// memcpyf was removed from lmisc.c
-// type  of prgLineTable was changed
-//
-//    memcpyf (vprgLineTable, vpFlCur->prgLineTable,
-//      sizeof (long FAR *) * MAXTPAGE);
+        memcpy (vprgLineTable, vpFlCur->prgLineTable, sizeof (long *) * MAXTPAGE);
 
-//       memcpy (vprgLineTable, vpFlCur->prgLineTable,
-//                sizeof (PAGE_DESCRIPTOR) * MAXTPAGE);
+        if (vLastLine == NOLASTLINE)  {
+            pLine = vprgLineTable [vNLine/PLINES] + vNLine % PLINES;
+        }
 
-          memcpy (vprgLineTable, vpFlCur->prgLineTable,
-        sizeof (long FAR *) * MAXTPAGE);
+        if (vprgLineTable[0] == NULL) {
+            vprgLineTable[0] = (LFP) alloc_page ();
+            vprgLineTable[0][0] = vpFlCur->SlimeTOF;
+        }
 
-//
-// NT - jaimes - 01/29/91
-// Note that SELECTOROF(pline) will be always the same, independently of
-// vNLine % PLINES
-//
-//    if (vLastLine == NOLASTLINE)  {
-//      pLine = vprgLineTable [vNLine/PLINES] + vNLine % PLINES;
-//      DosReallocSeg (0, SELECTOROF(pLine));
-//        }
-/*
-    if (vLastLine == NOLASTLINE)  {
-        pLine = vprgLineTable [vNLine/PLINES];
-        GlobalReAlloc( pLine.hPageHandle,
-                       0,
-                       0 );
-    }
-*/
-          if (vLastLine == NOLASTLINE)  {
-        pLine = vprgLineTable [vNLine/PLINES] + vNLine % PLINES;
-          }
-//
-// NT - jaimes - 01/27/91
-// type of vprgLineTable had to be changed
-// alloc_page had to be changed
-//
-//    if (vprgLineTable[0] == NULL) {
-//      vprgLineTable[0] = (LFP) alloc_page ();
-//      vprgLineTable[0][0] = vpFlCur->SlimeTOF;
-//    }
-/*
-    if (vprgLineTable[0].hPageHandle == NULL) {
-        alloc_page( &(vprgLineTable[0]) );
-*/
-
-          if (vprgLineTable[0] == NULL) {
-        vprgLineTable[0] = (LFP) alloc_page ();
-        vprgLineTable[0][0] = vpFlCur->SlimeTOF;
-         }
-
-
-
-// POTENTIAL BUG: I have to check if this is correct
-//      (vprgLineTable[0].pulPointerToPage)[0] = vpFlCur->SlimeTOF;
-
-//       }
-//
-// NT - jaimes - 01/27/91
-// type of vprgLineTable was changed
-//
-//  vDirOffset  = vprgLineTable[vTopLine/PLINES][vTopLine%PLINES];
-//
-//       vDirOffset     = (vprgLineTable[vTopLine/PLINES].pulPointerToPage)[vTopLine%PLINES];
         vDirOffset      = vprgLineTable[vTopLine/PLINES][vTopLine%PLINES];
         vDirOffset -= vDirOffset % ((long)BLOCKSIZE);
 
@@ -501,13 +323,12 @@ void PASCAL NewFile ()
  *  reading blocks.
  *
  */
-void PASCAL ReadDirect (offset)
-long offset;
+void
+ReadDirect (
+    long offset
+    )
 {
-
-
     DosSemRequest (vSemBrief, WAITFOREVER);
-
 
     if (vpHead) {
         vpTail->next = vpBCache;        /* move them into the cache */
@@ -522,14 +343,14 @@ long offset;
      *  Freeing is complete, now read in the first block.
      *  and process lines.
      */
-        ReadBlock (vpHead, offset);
+    ReadBlock (vpHead, offset);
 
-        //
-        // maybe it fixes the bug
-        //
-        vpBlockTop = vpHead;
+    //
+    // maybe it fixes the bug
+    //
+    vpBlockTop = vpHead;
 
-    if (vLoffset <= vpHead->offset)
+    if (GetLoffset() <= vpHead->offset)
         add_more_lines (vpHead, NULL);
 
      DosSemClear (vSemBrief);
@@ -538,10 +359,11 @@ long offset;
 
 
 
-/*** ReadNext - To read furture into file
+/*** ReadNext - To read further into file
  *
  */
-void PASCAL ReadNext ()
+void
+ReadNext ()
 {
     struct Block *pt;
     long   offset;
@@ -554,7 +376,6 @@ void PASCAL ReadNext ()
     }
     offset = vpTail->offset+BLOCKSIZE;
 
-
     /*
      *  Get a block
      */
@@ -562,6 +383,9 @@ void PASCAL ReadNext ()
         DosSemRequest (vSemBrief, WAITFOREVER);
         if (vpHead == vpCur) {
             DosSemClear (vSemBrief);
+            if ((GetLoffset() > vpTail->offset) && (GetLoffset() <= (vpTail->offset + BLOCKSIZE))) {
+                offset = GetLoffset();
+            }
             ReadDirect  (offset);
             return;
         }
@@ -579,7 +403,7 @@ void PASCAL ReadNext ()
      *  line info is processed
      */
     ReadBlock (pt, offset);
-    if (vLoffset <= pt->offset)
+    if (GetLoffset() <= pt->offset)
         add_more_lines (pt, vpTail);
 
     DosSemRequest (vSemBrief, WAITFOREVER);     /* Link in new  */
@@ -590,29 +414,19 @@ void PASCAL ReadNext ()
     DosSemClear (vSemMoreData);     /* Signal another BLK read  */
 }
 
-void PASCAL add_more_lines (struct Block *cur, struct Block *prev)
+void
+add_more_lines (
+    struct Block *cur,
+    struct Block *prev
+    )
 {
-    char FAR    *pData;
-//
-//  NT - jaimes - 01/28/91
-//  type of pLine was changed
-//
-//    long FAR  *pLine;
-//       PAGE_DESCRIPTOR        pLine;
-          long FAR      *pLine;
-        Uchar   LineLen;
+    char        *pData;
+    long        *pLine;
+    Uchar       LineLen;
     Uchar       c;
     unsigned    LineIndex;
     unsigned    DataIndex;
-//
-//  NT - jaimes - 01/28/91
-//
-//    LPSTR       lpstrPageAddress;   // Needed to determine the unused
-//                                    // memory to be feed
-    BOOL        fLastBlock;         // This flag is needed in order to
-                                    // the comparison of selectors
-                                  // SELECTOROF(pData) == SELECTOROF(cur->Data)
-
+    BOOL        fLastBlock;
 
     /*
      * BUGBUG: doesn't work w/ tabs... it should count the line len
@@ -622,12 +436,17 @@ void PASCAL add_more_lines (struct Block *cur, struct Block *prev)
     if (vLastLine != NOLASTLINE)
         return;
 
+    if (vNLine/PLINES >= MAXTPAGE) {
+        puts("Sorry, This file is too big for LIST to handle - MAXTPAGE limit exceeded\n");
+        CleanUp();
+        ExitProcess(0);
+    }
 
     /*
      *  Find starting data position
      */
-    if (vLoffset < cur->offset) {
-        DataIndex = (unsigned)(BLOCKSIZE - (vLoffset - prev->offset));
+    if (GetLoffset() < cur->offset) {
+        DataIndex = (unsigned)(BLOCKSIZE - (GetLoffset() - prev->offset));
         pData = prev->Data + BLOCKSIZE - DataIndex;
         fLastBlock = FALSE;
     } else {
@@ -639,16 +458,10 @@ void PASCAL add_more_lines (struct Block *cur, struct Block *prev)
     /*
      *  Get starting line length table position
      */
+
     LineIndex = (unsigned)(vNLine % PLINES);
-//
-//  NT - jaimes - 01/28/91
-//  Changes in pLine and vprgLineTable
-//
-//    pLine     = vprgLineTable [vNLine / PLINES] + LineIndex;
-//       pLine.hPageHandle = vprgLineTable[vNLine / PLINES].hPageHandle;
-//       pLine.pulPointerToPage = vprgLineTable[vNLine / PLINES].pulPointerToPage + LineIndex;
-          pLine = vprgLineTable [vNLine / PLINES] + LineIndex;
-        LineLen   = 0;
+    pLine = vprgLineTable [vNLine / PLINES] + LineIndex;
+    LineLen   = 0;
 
 
     /*
@@ -657,13 +470,6 @@ void PASCAL add_more_lines (struct Block *cur, struct Block *prev)
     for (; ;) {
         c = *(pData++);
         if (--DataIndex == 0) {
-//
-//  NT - jaimes - 01/28/91
-//
-//          if (SELECTOROF(pData) == SELECTOROF(cur->Data))
-//              break;                          /* Last block to scan?  */
-//          DataIndex = cur->size;              /* No, move onto next   */
-//          pData = cur->Data;                  /* Block of data        */
             if (fLastBlock)
                 break;                          /* Last block to scan?  */
             DataIndex = cur->size;              /* No, move onto next   */
@@ -679,47 +485,27 @@ void PASCAL add_more_lines (struct Block *cur, struct Block *prev)
              * it's length.
              */
             if ( (c == '\n'  &&  *pData == '\r')  ||
-                 (c == '\r'  &&  *pData == '\n')) {
-                    LineLen++;
-                    pData++;
-//
-//  NT - jaimes - 01/28/91
-//
-//                  if (--DataIndex == 0) {
-//                      if (SELECTOROF(pData) == SELECTOROF(cur->Data))
-//                          break;
-//                      DataIndex = cur->size;
-//                      pData = cur->Data;
-//                  }
-                    if (--DataIndex == 0) {
-                        if (fLastBlock)
-                            break;
-                        DataIndex = cur->size;
-                        pData = cur->Data;
-                        fLastBlock = TRUE;
-                    }
+                 (c == '\r'  &&  *pData == '\n'))
+            {
+                LineLen++;
+                pData++;
+                if (--DataIndex == 0) {
+                    if (fLastBlock)
+                        break;
+                    DataIndex = cur->size;
+                    pData = cur->Data;
+                    fLastBlock = TRUE;
+                }
             }
 
-//
-// NT - jaimes - 01/28/91
-// pLine was changed
-//          *(pLine++) = (vLoffset += LineLen);
-//              *(pLine.pulPointerToPage++) = (vLoffset += LineLen);
-                *(pLine++) = (vLoffset += LineLen);
-                LineLen = 0;
+            SetLoffset(GetLoffset() + LineLen);
+            *(pLine++) = GetLoffset();
+            LineLen = 0;
             vNLine++;
             if (++LineIndex >= PLINES) {        /* Overflowed table */
                 LineIndex = 0;
-//
-// NT - jaimes - 01/28/91
-//
-//              vprgLineTable[vNLine / PLINES] = pLine = (LFP) alloc_page();
-/*
-                alloc_page( &pLine );
-                vprgLineTable[vNLine / PLINES] = pLine;
-*/
                 vprgLineTable[vNLine / PLINES] = pLine = (LFP) alloc_page();
-                }
+            }
         }
     }
 
@@ -730,14 +516,9 @@ void PASCAL add_more_lines (struct Block *cur, struct Block *prev)
      */
     if (cur->flag & F_EOF) {
         if (LineLen) {
-//
-// NT - jaimes - 01/28/91
-// type of pLine was changed
-//
-//          *(pLine++) = (vLoffset += LineLen);
-//              *(pLine.pulPointerToPage++) = (vLoffset += LineLen);
-                *(pLine++) = (vLoffset += LineLen);
-                vNLine++;
+            SetLoffset(GetLoffset() + LineLen);
+            *(pLine++) = GetLoffset();
+            vNLine++;
             LineIndex++;
         }
 
@@ -745,35 +526,13 @@ void PASCAL add_more_lines (struct Block *cur, struct Block *prev)
         for (c=0; c<MAXLINES; c++) {
             if (++LineIndex >= PLINES) {
                 LineIndex = 0;
-//
-// NT -jaimes - 01/28/91
-// vprgLineTable and pLine were changed
-//
-//              vprgLineTable[vNLine / PLINES] = pLine = (LFP) alloc_page();
-/*
-                alloc_page( &pLine );
-                vprgLineTable[vNLine / PLINES] = pLine;
-*/
                 vprgLineTable[vNLine / PLINES] = pLine = (LFP) alloc_page();
                 }
-//              *(pLine.pulPointerToPage++) = vLoffset;
-                *(pLine++) = vLoffset;
+                *(pLine++) = GetLoffset();
         }
 
         /* Free the memory we don't need        */
-//
-// NT - jaimes - 01/28/91
-//
-//      DosReallocSeg (OFFSETOF(pLine), SELECTOROF(pLine));
-/*
-        lpstrPageAddress = GlobalLock( pLine.hPageHandle );
-        GlobalUnlock( pLine.hPageHandle );
-        GlobalReAlloc( pLine.hPageHandle,
-                       (DWORD)((ULONG) pLine.pulPointerToPage - (ULONG) lpstrPageAddress),
-                           0 );
-*/
     }
-
 }
 
 
@@ -781,7 +540,8 @@ void PASCAL add_more_lines (struct Block *cur, struct Block *prev)
 /*** ReadPrev - To read backwards into file
  *
  */
-void PASCAL ReadPrev ()
+void
+ReadPrev ()
 {
     struct Block *pt;
     long   offset;
@@ -828,14 +588,12 @@ void PASCAL ReadPrev ()
 /*** ReadBlock - Read in one block
  *
  */
-//
-// NT - jaimes - 01/28/91
-// Removed PASCAL
-//
-// void PASCAL ReadBlock (pt, offset)
-void PASCAL ReadBlock (struct Block *pt, long offset)
+void
+ReadBlock (
+    struct Block *pt,
+    long offset
+    )
 {
-//       unsigned rc;
     long     l;
     DWORD       dwSize;
 
@@ -853,32 +611,17 @@ void PASCAL ReadBlock (struct Block *pt, long offset)
     }
 
     if (offset != vCurOffset) {
-//
-// NT - jaimes - 01/30/91
-//
-//      rc = DosChgFilePtr (vFhandle, offset, 0, &l);
-//      ckerr (rc, "DosChgFilePtr");
         l = SetFilePointer( vFhandle, offset, NULL, FILE_BEGIN );
         if (l == -1) {
             ckerr (GetLastError(), "SetFilePointer");
         }
     }
-//
-// NT - jaimes - 01/30/91
-//
-//    rc = DosRead (vFhandle, pt->Data, BLOCKSIZE, &pt->size);
-//    ckerr (rc, "DosRead");
     if( !ReadFile (vFhandle, pt->Data, BLOCKSIZE, &dwSize, NULL) ) {
         ckerr ( GetLastError(), "ReadFile" );
     }
     pt->size = (USHORT) dwSize;
     if (pt->size != BLOCKSIZE) {
          pt->Data[pt->size++] = '\n';
-//
-// NT - jaimes - 01/28/91
-// replaced mesetf
-//
-//       memsetf (pt->Data + pt->size, 0, BLOCKSIZE-pt->size);
          memset (pt->Data + pt->size, 0, BLOCKSIZE-pt->size);
          pt->flag = F_EOF;
          vCurOffset += pt->size;
@@ -889,7 +632,8 @@ void PASCAL ReadBlock (struct Block *pt, long offset)
 }
 
 
-void PASCAL SyncReader ()
+void
+SyncReader ()
 {
     vReaderFlag = F_SYNC;
     DosSemClear   (vSemReader);
@@ -902,11 +646,14 @@ void PASCAL SyncReader ()
 // These functions are used for the call to HexEdit()
 //
 
-NTSTATUS fncRead (h, loc, data, len, ploc)
-HANDLE  h;
-DWORD   len, loc;
-char    *data;
-ULONG   *ploc;
+NTSTATUS
+fncRead (
+    HANDLE  h,
+    DWORD   loc,
+    char    *data,
+    DWORD   len,
+    ULONG   *ploc
+    )
 {
     DWORD   l, br;
 
@@ -921,11 +668,14 @@ ULONG   *ploc;
 }
 
 
-NTSTATUS fncWrite (h, loc, data, len, ploc)
-HANDLE  h;
-DWORD   len, loc;
-char    *data;
-ULONG   ploc;
+NTSTATUS
+fncWrite (
+    HANDLE  h,
+    DWORD   loc,
+    char    *data,
+    DWORD   len,
+    ULONG   ploc
+    )
 {
     DWORD    l, bw;
 
@@ -939,3 +689,14 @@ ULONG   ploc;
     return (bw != len ? ERROR_WRITE_FAULT : 0);
 }
 
+
+long CurrentLineOffset;
+
+long GetLoffset() {
+    return(CurrentLineOffset);
+}
+
+void SetLoffset(long l) {
+    CurrentLineOffset = l;
+    return;
+}

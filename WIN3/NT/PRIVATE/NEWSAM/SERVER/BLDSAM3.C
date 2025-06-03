@@ -1924,7 +1924,13 @@ Return Value:
 
     SUCCESS_ASSERT(Status, "  Failed to create server attributes\n");
 
-    ServerFixedAttributes->RevisionLevel = SAMP_REVISION;
+    //
+    // The server revision on the a new SAM database may not be the same
+    // as the revision on the rest of SAM.  This allows the server revision
+    // to indicate which bugs have been fixed in this SAM.
+    //
+
+    ServerFixedAttributes->RevisionLevel = SAMP_SERVER_REVISION;
 
     ServerVariableAttributeArray = (PSAMP_VARIABLE_LENGTH_ATTRIBUTE)
                                    ((PUCHAR)(ServerFixedAttributes) +
@@ -2565,14 +2571,15 @@ Return Value:
                 &Comment
                 ); ASSERT(NT_SUCCESS(Status));
 
-    AccountControl = USER_NORMAL_ACCOUNT | USER_DONT_EXPIRE_PASSWORD;
+    //
+    // Disable user account on all NT systems
+    //
+
+    AccountControl = USER_NORMAL_ACCOUNT |
+                     USER_DONT_EXPIRE_PASSWORD |
+                     USER_ACCOUNT_DISABLED;
 
     if (SampProductType == NtProductLanManNt) {
-        //
-        // Disable user account on LM NT systems
-        //
-
-        AccountControl |= USER_ACCOUNT_DISABLED;
 
         //
         // Guest group is in GUESTS global group for LmNT systems.
@@ -2734,10 +2741,10 @@ Return Value:
     DomainFixedAttributes->MinPasswordAge            = SampImmediatelyDeltaTime;
     DomainFixedAttributes->ForceLogoff               = SampNeverDeltaTime;
     DomainFixedAttributes->UasCompatibilityRequired  = TRUE;
-    DomainFixedAttributes->LockoutDuration.LowPart   = 0xCF1DCC00; // 30 minutes - low part 
+    DomainFixedAttributes->LockoutDuration.LowPart   = 0xCF1DCC00; // 30 minutes - low part
     DomainFixedAttributes->LockoutDuration.HighPart  = 0XFFFFFFFB; // 30 minutes - high part
-    DomainFixedAttributes->LockoutObservationWindow.LowPart  = 0xCF1DCC00; // 30 minutes - low part  
-    DomainFixedAttributes->LockoutObservationWindow.HighPart = 0XFFFFFFFB; // 30 minutes - high part 
+    DomainFixedAttributes->LockoutObservationWindow.LowPart  = 0xCF1DCC00; // 30 minutes - low part
+    DomainFixedAttributes->LockoutObservationWindow.HighPart = 0XFFFFFFFB; // 30 minutes - high part
     DomainFixedAttributes->LockoutThreshold          = 0;   // Disabled
     DomainFixedAttributes->ModifiedCountAtLastPromotion = ModifiedCount;
 
@@ -3150,7 +3157,7 @@ Return Value:
                                DomainAccount,
                                DOMAIN_GROUP_RID_USERS
                                );
-                    
+
                     if ( Sid1 == NULL ) {
                         SUCCESS_ASSERT( STATUS_INSUFFICIENT_RESOURCES, " Could not allocate Sid\n" );
                     }
@@ -3167,7 +3174,7 @@ Return Value:
                                DomainAccount,
                                DOMAIN_USER_RID_ADMIN
                                );
-                    
+
                     if ( Sid1 == NULL ) {
                         SUCCESS_ASSERT( STATUS_INSUFFICIENT_RESOURCES, " Could not allocate Sid\n" );
                     }
@@ -3490,7 +3497,7 @@ Return Value:
 --*/
 
 {
-    PSAMP_V1_FIXED_LENGTH_GROUP GroupFixedAttributes;
+    PSAMP_V1_0A_FIXED_LENGTH_GROUP GroupFixedAttributes;
     PSAMP_VARIABLE_LENGTH_ATTRIBUTE GroupVariableAttributeArray;
     PVOID GroupVariableData;
 
@@ -3614,7 +3621,7 @@ Return Value:
     // Set the group's fixed and variable attributes
     //
 
-    GroupAttributeLength = sizeof( SAMP_V1_FIXED_LENGTH_GROUP ) +
+    GroupAttributeLength = sizeof( SAMP_V1_0A_FIXED_LENGTH_GROUP ) +
                                 ( SAMP_GROUP_VARIABLE_ATTRIBUTES *
                                 sizeof( SAMP_VARIABLE_LENGTH_ATTRIBUTE ) ) +
                                 SampDwordAlignUlong(SampProtection[ProtectionIndex].Length)
@@ -3622,7 +3629,7 @@ Return Value:
                                 SampDwordAlignUlong(GroupCommentU.Length) +
                                 ( GroupCount * sizeof( ULONG ) );
 
-    GroupFixedAttributes = (PSAMP_V1_FIXED_LENGTH_GROUP)RtlAllocateHeap(
+    GroupFixedAttributes = (PSAMP_V1_0A_FIXED_LENGTH_GROUP)RtlAllocateHeap(
                                 RtlProcessHeap(), 0,
                                 GroupAttributeLength
                                 );
@@ -3636,11 +3643,13 @@ Return Value:
 
     GroupFixedAttributes->RelativeId   = Rid;
     GroupFixedAttributes->Attributes   = Attributes;
-    GroupFixedAttributes->AdminGroup   = Admin;
+    GroupFixedAttributes->AdminCount   = Admin ? 1 : 0;
+    GroupFixedAttributes->OperatorCount = 0;
+    GroupFixedAttributes->Revision     = SAMP_REVISION;
 
     GroupVariableAttributeArray = (PSAMP_VARIABLE_LENGTH_ATTRIBUTE)
                                    ((PUCHAR)(GroupFixedAttributes) +
-                                   sizeof( SAMP_V1_FIXED_LENGTH_GROUP ) );
+                                   sizeof( SAMP_V1_0A_FIXED_LENGTH_GROUP ) );
 
     GroupVariableAttributeArray->Offset = 0;
     GroupVariableAttributeArray->Length =
@@ -3796,6 +3805,7 @@ Return Value:
 
     WCHAR RidNameBuffer[9], GroupIndexNameBuffer[9];
     ULONG GroupCount, UserAttributeLength;
+    BOOLEAN DomainAdminMember = FALSE;
 
     UNICODE_STRING UserNameU, UserCommentU;
 
@@ -3868,7 +3878,7 @@ Return Value:
 
     if ( (UserRid != DOMAIN_USER_RID_GUEST) ||
          (SampProductType != NtProductLanManNt)      ) {
-    
+
         GroupMembership[GroupCount].RelativeId = DOMAIN_GROUP_RID_USERS;
         GroupMembership[GroupCount].Attributes = SE_GROUP_MANDATORY          |
                                                  SE_GROUP_ENABLED_BY_DEFAULT |
@@ -3878,7 +3888,7 @@ Return Value:
 
     if ( (UserRid == DOMAIN_USER_RID_GUEST) &&
          (SampProductType == NtProductLanManNt)      ) {
-    
+
         GroupMembership[GroupCount].RelativeId = DOMAIN_GROUP_RID_GUESTS;
         GroupMembership[GroupCount].Attributes = SE_GROUP_MANDATORY          |
                                                  SE_GROUP_ENABLED_BY_DEFAULT |
@@ -3895,6 +3905,7 @@ Return Value:
                                                  SE_GROUP_ENABLED_BY_DEFAULT |
                                                  SE_GROUP_ENABLED;
         GroupCount++;
+        DomainAdminMember = TRUE;
     }
 
     //
@@ -3918,10 +3929,23 @@ Return Value:
     UserFixedAttributes->CodePage            = 0;
     UserFixedAttributes->BadPasswordCount    = 0;
     UserFixedAttributes->LogonCount          = 0;
+    UserFixedAttributes->OperatorCount       = 0;
+    UserFixedAttributes->Unused1             = 0;
+    UserFixedAttributes->Unused2             = 0;
 
     if ( Admin ) {
 
-        UserFixedAttributes->AdminCount      = 1;
+        //
+        // If the user is an admin and a member of Domain Admins, set the count
+        // to two.
+        //
+
+        if ( DomainAdminMember ) {
+            UserFixedAttributes->AdminCount  = 2;
+        } else {
+            UserFixedAttributes->AdminCount  = 1;
+        }
+        
 
     } else {
 
@@ -3935,7 +3959,7 @@ Return Value:
     UserFixedAttributes->LastLogoff          = SampHasNeverTime;
     UserFixedAttributes->PasswordLastSet     = SampHasNeverTime;
     UserFixedAttributes->AccountExpires      = SampWillNeverTime;
-    UserFixedAttributes->LastBadPasswordTime = SampHasNeverTime;       
+    UserFixedAttributes->LastBadPasswordTime = SampHasNeverTime;
 
 
     UserAttributeLength =  SampDwordAlignUlong(UserNameU.Length) +

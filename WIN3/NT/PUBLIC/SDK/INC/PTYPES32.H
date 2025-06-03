@@ -59,4 +59,4 @@ typedef    MCATCHBUF    *LPMCATCHBUF   ;
 #define TF_FORCEDRIVE       (BYTE)0x80
 #define DLLMEM_MOVEABLE     0
 #define DLLMEM_ZEROINIT     GMEM_ZEROINIT
-
+

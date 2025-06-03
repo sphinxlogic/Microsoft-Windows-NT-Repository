@@ -1658,6 +1658,7 @@ cBegin nogen
 	push	es
 ifdef WOW
         push    ds
+        push    es
 
         SetKernelDS
 
@@ -1712,6 +1713,7 @@ ifdef WOW
         pop     si
         pop     di
 fdd_no_wdebug:
+        pop     es
         pop     ds
         UnSetKernelDS
 endif; WOW

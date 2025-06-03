@@ -41,7 +41,7 @@ LPSTR szName)
     pGroupPrev = NULL;
     pGroup = pGroups;
     while (pGroup) {
-        if (!stricmp(pGroup->pszName, szName)) {
+        if (!_stricmp(pGroup->pszName, szName)) {
             if (pGroupPrev == NULL) {
                 pGroups = pGroup->next;
             } else {
@@ -209,7 +209,7 @@ LPSTR szName)
 
     pGroup = pGroups;
     while (pGroup) {
-        if (!stricmp(szName, pGroup->pszName)) {
+        if (!_stricmp(szName, pGroup->pszName)) {
             return(pGroup);
         }
         pGroup = pGroup->next;
@@ -417,10 +417,9 @@ PTITLELIST FindPtl(LPSTR pszWindowName)
 
    ptl = pGroup->ptl;
    while (ptl != NULL) {
-       if (stricmp(ptl->pszTitle, pszWindowName) == 0) {
+       if (_stricmp(ptl->pszTitle, pszWindowName) == 0) {
            return(ptl);
        }
    return(NULL);
    }
 }
-

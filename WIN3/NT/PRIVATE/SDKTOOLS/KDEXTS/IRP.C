@@ -23,12 +23,41 @@ Revision History:
 --*/
 
 
+#include "precomp.h"
+#pragma hdrstop
+
+typedef struct _POOL_BLOCK_HEAD {
+    POOL_HEADER Header;
+    LIST_ENTRY List;
+} POOL_BLOCK_HEAD, *PPOOL_BLOCK_HEADER;
+
+typedef struct _POOL_HACKER {
+    POOL_HEADER Header;
+    ULONG Contents[8];
+} POOL_HACKER;
+
+#define TAG 0
+#define NONPAGED_ALLOC 1
+#define NONPAGED_FREE 2
+#define PAGED_ALLOC 3
+#define PAGED_FREE 4
+#define NONPAGED_USED 5
+#define PAGED_USED 6
 
 
 VOID
 DumpIrp(
-    PVOID IrpToDump
+    PVOID IrpToDump,
+    BOOLEAN FullOutput
     );
+
+BOOLEAN
+CheckSingleFilter (
+    PCHAR Tag,
+    PCHAR Filter
+    );
+
+#if 0
 
 VOID
 DumpIrpZone(
@@ -36,7 +65,13 @@ DumpIrpZone(
     IN BOOLEAN FullOutput
     );
 
+VOID
+DumpIrpRegion(
+    IN ULONG    Address,
+    IN BOOLEAN FullOutput
+    );
 
+#endif
 
 DECLARE_API( irp )
 
@@ -57,15 +92,19 @@ Return Value:
 --*/
 
 {
-    ULONG    irpToDump;
+    ULONG irpToDump;
+    char buf[128];
+
+    buf[0] = '\0';
 
     if (!*args) {
         irpToDump = EXPRLastDump;
     } else {
-        sscanf(args, "%lx", &irpToDump);
+        sscanf(args, "%lx %s", &irpToDump, buf);
     }
 
-    DumpIrp((PUCHAR)irpToDump);
+
+    DumpIrp((PUCHAR)irpToDump, (BOOLEAN) (buf[0] != '\0'));
 }
 
 
@@ -96,6 +135,11 @@ Return Value:
     ULONG   listAddress;
     BOOLEAN fullOutput = FALSE;
 
+    dprintf("irpzone is no longer supported.  Use irpfind to search "   \
+            "nonpaged pool for active Irps\n");
+
+#if 0
+
     if (args) {
         if (*args) {
             fullOutput = TRUE;
@@ -104,26 +148,31 @@ Return Value:
 
     listAddress = GetExpression( "IopSmallIrpList" );
     if ( listAddress ) {
-        dprintf("Small Irp list\n");
-        DumpIrpZone(listAddress, fullOutput);
+        dprintf("Small Irp region\n");
+        DumpIrpRegion(listAddress, fullOutput);
     } else {
         dprintf("Cannot find Small Irp list\n");
     }
+    dprintf("\n");
 
     listAddress = GetExpression( "IopLargeIrpList" );
     if ( listAddress ) {
-        dprintf("Large Irp list\n");
-        DumpIrpZone(listAddress, fullOutput);
+        dprintf("Large Irp region\n");
+        DumpIrpRegion(listAddress, fullOutput);
     } else {
         dprintf("Cannot find Large Irp list\n");
     }
+
+#endif
+
 }
 
 
 
 VOID
 DumpIrp(
-    PVOID IrpToDump
+    PVOID IrpToDump,
+    BOOLEAN FullOutput
     )
 
 /*++
@@ -165,8 +214,7 @@ Return Value:
         return;
     }
 
-    dprintf("Irp is from %s and active with %d stacks %d is current\n",
-            irp.Zoned ? "zone" : "pool",
+    dprintf("Irp is active with %d stacks %d is current\n",
             irp.StackCount,
             irp.CurrentLocation);
 
@@ -203,9 +251,41 @@ Return Value:
         dprintf("\n");
     }
 
+    if (FullOutput)
+    {
+        dprintf("Flags = %08lx\n", irp.Flags);
+        dprintf("ThreadListEntry.Flink = %08lx\n", irp.ThreadListEntry.Flink);
+        dprintf("ThreadListEntry.Blink = %08lx\n", irp.ThreadListEntry.Blink);
+        dprintf("IoStatus.Status = %08lx\n", irp.IoStatus.Status);
+        dprintf("IoStatus.Information = %08lx\n", irp.IoStatus.Information);
+        dprintf("RequestorMode = %08lx\n", irp.RequestorMode);
+        dprintf("Cancel = %02lx\n", irp.Cancel);
+        dprintf("CancelIrql = %lx\n", irp.CancelIrql);
+        dprintf("ApcEnvironment = %02lx\n", irp.ApcEnvironment);
+        dprintf("UserIosb = %08lx\n", irp.UserIosb);
+        dprintf("UserEvent = %08lx\n", irp.UserEvent);
+        dprintf("Overlay.AsynchronousParameters.UserApcRoutine = %08lx\n", irp.Overlay.AsynchronousParameters.UserApcRoutine);
+        dprintf("Overlay.AsynchronousParameters.UserApcContext = %08lx\n", irp.Overlay.AsynchronousParameters.UserApcContext);
+        dprintf(
+            "Overlay.AllocationSize = %08lx - %08lx\n",
+            irp.Overlay.AllocationSize.HighPart,
+            irp.Overlay.AllocationSize.LowPart);
+        dprintf("CancelRoutine = %08lx\n", irp.CancelRoutine);
+        dprintf("UserBuffer = %08lx\n", irp.UserBuffer);
+        dprintf("&Tail.Overlay.DeviceQueueEntry = %08lx\n", &irp.Tail.Overlay.DeviceQueueEntry);
+        dprintf("Tail.Overlay.Thread = %08lx\n", irp.Tail.Overlay.Thread);
+        dprintf("Tail.Overlay.AuxiliaryBuffer = %08lx\n", irp.Tail.Overlay.AuxiliaryBuffer);
+        dprintf("Tail.Overlay.ListEntry.Flink = %08lx\n", irp.Tail.Overlay.ListEntry.Flink);
+        dprintf("Tail.Overlay.ListEntry.Blink = %08lx\n", irp.Tail.Overlay.ListEntry.Blink);
+        dprintf("Tail.Overlay.CurrentStackLocation = %08lx\n", irp.Tail.Overlay.CurrentStackLocation);
+        dprintf("Tail.Overlay.OriginalFileObject = %08lx\n", irp.Tail.Overlay.OriginalFileObject);
+        dprintf("Tail.Apc = %08lx\n", irp.Tail.Apc);
+        dprintf("Tail.CompletionKey = %08lx\n", irp.Tail.CompletionKey);
+    }
+
     irpStackAddress = (ULONG)IrpToDump + sizeof(irp);
 
-    buffer = malloc(256);
+    buffer = LocalAlloc(LPTR, 256);
     if (buffer == NULL) {
         dprintf("Can't allocate 256 bytes\n");
         return;
@@ -261,11 +341,10 @@ Return Value:
     }
 
 exit:
-    free(buffer);
+    LocalFree(buffer);
 }
 
-
-
+#if 0
 
 VOID
 DumpIrpZone(
@@ -295,12 +374,15 @@ Return Value:
 --*/
 
 {
+
     PIRP        irp;
     ULONG       i;
     ULONG       offset;
     PVOID       zoneAddress;
     ULONG       irpAddress;
     ULONG       result;
+    ULONG       totalcount = 0;
+    ULONG       activecount = 0;
     ZONE_HEADER zoneHeader;
     PZONE_SEGMENT_HEADER irpZone;
     PIO_STACK_LOCATION   irpSp;
@@ -315,7 +397,7 @@ Return Value:
 
     zoneAddress = (PVOID)zoneHeader.SegmentList.Next;
 
-    irpZone = malloc(zoneHeader.TotalSegmentSize);
+    irpZone = LocalAlloc(LPTR, zoneHeader.TotalSegmentSize);
     if (irpZone == NULL) {
         dprintf("Could not allocate %d bytes for zone\n",
                 zoneHeader.TotalSegmentSize);
@@ -344,7 +426,7 @@ Return Value:
             dprintf("%08lx: Could not read zone for size %d\n",
                     zoneAddress,
                     zoneHeader.TotalSegmentSize);
-            free(irpZone);
+            LocalFree(irpZone);
             return;
         }
 
@@ -362,28 +444,403 @@ Return Value:
          i <= zoneHeader.TotalSegmentSize;
          i += zoneHeader.BlockSize, irpAddress += zoneHeader.BlockSize) {
 
-         if (irp->Type == IO_TYPE_IRP) {
-             if (FullOutput) {
-                 DumpIrp((PUCHAR)irpAddress);
-                 dprintf("\n");
-             } else {
-                 dprintf("%08lx Thread %08lx current stack belongs to ",
-                         irpAddress,
-                         irp->Tail.Overlay.Thread);
-                 irpSp = (PIO_STACK_LOCATION)
-                             (((PCH) irp + sizeof(IRP)) +
-                              ((irp->CurrentLocation - 1) * sizeof(IO_STACK_LOCATION)));
-                 DumpDevice(irpSp->DeviceObject, FALSE);
-                 dprintf("\n");
-             }
-         }
+        totalcount++;
+        if (irp->Type == IO_TYPE_IRP) {
+            activecount++;
+            if (FullOutput) {
+                DumpIrp((PUCHAR)irpAddress, FALSE);
+                dprintf("\n");
+            } else {
+                irpSp = (PIO_STACK_LOCATION)
+                            (((PCH) irp + sizeof(IRP)) +
+                             ((irp->CurrentLocation - 1) * sizeof(IO_STACK_LOCATION)));
+                dprintf("%08lx Thread %08lx ",
+                        irpAddress,
+                        irp->Tail.Overlay.Thread);
 
-         if (CheckControlC()) {
-             break;
-         }
+                if (irp->CurrentLocation > irp->StackCount) {
+                    dprintf("Irp is complete");
+                } else {
+                    dprintf("current stack belongs to ");
+                    DumpDevice(irpSp->DeviceObject, FALSE);
+                }
+                dprintf("\n");
+            }
+        }
 
-         irp = (PIRP)((PCH)irp + zoneHeader.BlockSize);
+        if (CheckControlC()) {
+            break;
+        }
+
+        irp = (PIRP)((PCH)irp + zoneHeader.BlockSize);
     }
 
-    free(irpZone);
+    LocalFree(irpZone);
+    if (totalcount != 0) {
+        dprintf("%lx active, %lx total\n", activecount, totalcount);
+    }
 }
+
+VOID
+DumpIrpRegion(
+    IN ULONG    Address,
+    IN BOOLEAN FullOutput
+    )
+
+/*++
+
+Routine Description:
+
+    Dumps an Irp region.  This routine is used by bandDumpIrpZone and does
+    not know which region is being dumped.  The information concerning the
+    Irp Zone comes from the region header supplied.  No checks are made to
+    insure that the region header is in fact a region header, that is up to
+    the caller.
+
+Arguments:
+
+    Address - the address for the region header.
+    FullOutput - If TRUE then call DumpIrp to print the Irp.
+
+Return Value:
+
+    None
+
+--*/
+
+{
+    PIRP        irp;
+    ULONG       i;
+    ULONG       offset;
+    PVOID       regionAddress;
+    ULONG       irpAddress;
+    ULONG       result;
+    ULONG       totalcount = 0;
+    ULONG       activecount = 0;
+    REGION_HEADER      regionHeader;
+    PIO_STACK_LOCATION irpSp;
+    PREGION_SEGMENT_HEADER irpRegion;
+
+    if ( !ReadMemory( (DWORD)Address,
+                      &regionHeader,
+                      sizeof(regionHeader),
+                      &result) ) {
+        dprintf("%08lx: Could not read Irp region\n", Address);
+        return;
+    }
+
+    regionAddress = (PVOID)regionHeader.FirstSegment;
+
+    irpRegion = LocalAlloc(LPTR, regionHeader.TotalSize);
+    if (irpRegion == NULL) {
+        dprintf("Could not allocate %d bytes for region\n",
+                regionHeader.TotalSize);
+        return;
+    }
+
+    //
+    // Do the zone read in small chunks so the rest of the debugger
+    // doesn't get upset.
+    //
+
+    offset = 0;
+
+    while (offset < regionHeader.TotalSize) {
+
+        i = regionHeader.TotalSize - offset;
+
+        if (i > 1024) {
+            i = 1024;
+        }
+
+        if ( !ReadMemory( (DWORD)((PCH)regionAddress + offset),
+                          (PVOID)((PCH)irpRegion + offset),
+                          i,
+                          &result) ) {
+            dprintf("%08lx: Could not read region for size %d\n",
+                    regionAddress,
+                    regionHeader.TotalSize);
+            LocalFree(irpRegion);
+            return;
+        }
+
+        if (CheckControlC()) {
+            break;
+        }
+
+        offset += i;
+    }
+
+    irp = (PIRP)((PCH)irpRegion + sizeof(REGION_SEGMENT_HEADER));
+    irpAddress = (ULONG)((PCH)regionAddress + sizeof(REGION_SEGMENT_HEADER));
+
+    for (i = sizeof(REGION_SEGMENT_HEADER);
+         i <= regionHeader.TotalSize;
+         i += regionHeader.BlockSize, irpAddress += regionHeader.BlockSize) {
+
+        totalcount++;
+        if (irp->Type == IO_TYPE_IRP) {
+            activecount++;
+            if (FullOutput) {
+                DumpIrp((PUCHAR)irpAddress, FALSE);
+                dprintf("\n");
+            } else {
+               irpSp = (PIO_STACK_LOCATION)
+                            (((PCH) irp + sizeof(IRP)) +
+                             ((irp->CurrentLocation - 1) * sizeof(IO_STACK_LOCATION)));
+               dprintf("%08lx Thread %08lx ",
+                       irpAddress,
+                       irp->Tail.Overlay.Thread);
+
+               if (irp->CurrentLocation > irp->StackCount) {
+                   dprintf("Irp is complete (CurrentLocation %d > StackCount %d)",
+                           irp->CurrentLocation,
+                           irp->StackCount);
+               } else {
+                   dprintf("current stack belongs to ");
+                   DumpDevice(irpSp->DeviceObject, FALSE);
+               }
+               dprintf("\n");
+            }
+        }
+
+        if (CheckControlC()) {
+            break;
+        }
+
+        irp = (PIRP)((PCH)irp + regionHeader.BlockSize);
+    }
+
+    LocalFree(irpRegion);
+    if (totalcount != 0) {
+        dprintf("%lx active, %lx total for region\n", activecount, totalcount);
+    }
+}
+
+#endif
+
+DECLARE_API(irpfind)
+
+/*++
+
+Routine Description:
+
+    finds Irps in non-paged pool
+
+Arguments:
+
+    args -
+
+Return Value:
+
+    None
+
+--*/
+
+#define IRPBUFSIZE  (sizeof(IRP) + (5 * sizeof(IO_STACK_LOCATION)))
+
+{
+    PPOOL_TRACKER_TABLE PoolTrackTable;
+    POOL_TRACKER_TABLE  Tags;
+    ULONG       result;
+    ULONG       PoolTag;
+    ULONG       Flags;
+    ULONG       Result;
+    PVOID       PoolPage;
+    PVOID       StartPage;
+    PUCHAR      Pool;
+    POOL_HACKER PoolBlock;
+    ULONG       Previous;
+    PCHAR       PoolStart;
+    PCHAR       PoolEnd;
+    ULONG       TagName;
+    CHAR        TagNameX[4] = {' ',' ',' ',' '};
+    PIO_STACK_LOCATION irpSp;
+    PIRP        Irp;
+    ULONG       irpAddress;
+    UCHAR       turn;        
+    UCHAR       turnTable[] = {'|', '/', '-', '\\'};
+    BOOLEAN     fullOutput = FALSE;
+    ULONG       activeCount = 0;
+
+    if (args) {
+        if (*args) {
+            fullOutput = TRUE;
+        }
+    }
+
+    Flags = 0;
+    TagName = ' prI';
+
+    Irp = malloc(IRPBUFSIZE);
+
+    if(Irp == NULL) {
+        dprintf("Unable to allocate irp sized buffer\n");
+        return;
+    } 
+
+    PoolStart = (PCHAR)GetUlongValue ("MmNonPagedPoolStart");
+    PoolEnd = (PCHAR) PoolStart + GetUlongValue ("MmMaximumNonPagedPoolInBytes");
+
+    dprintf("\nSearching %s pool (%lx : %lx) for Tag: %c%c%c%c\n\n",
+                                            (Flags == 0) ? "NonPaged" : "Paged",
+                                            PoolStart, PoolEnd,
+                                            TagName,
+                                            TagName >> 8,
+                                            TagName >> 16,
+                                            TagName >> 24);
+
+    PoolTrackTable = (PPOOL_TRACKER_TABLE)GetUlongValue ("PoolTrackTable");
+
+    PoolPage = (PVOID)PoolStart;
+
+    while (PoolPage < (PVOID)PoolEnd) {
+
+        Pool        = (PUCHAR)PAGE_ALIGN (PoolPage);
+        StartPage   = (PVOID)Pool;
+        Previous    = 0;
+
+        while ((PVOID)PAGE_ALIGN(Pool) == StartPage) {
+            if ( !ReadMemory( (DWORD)Pool,
+                              &PoolBlock,
+                              sizeof(POOL_HACKER),
+                              &Result) ) {
+                break;
+            }
+
+#ifdef SHOW_PROGRESS
+            dprintf("\b");
+#endif
+
+            if (((PoolBlock.Header.BlockSize << POOL_BLOCK_SHIFT) > POOL_PAGE_SIZE) || 
+                (PoolBlock.Header.BlockSize == 0) ||
+                (PoolBlock.Header.PreviousSize != Previous)) {
+                break;
+            }
+
+            PoolTag = PoolBlock.Header.PoolTag;
+            if ((PoolBlock.Header.PoolType & POOL_QUOTA_MASK) == 0) {
+                if (PoolBlock.Header.AllocatorBackTraceIndex != 0 &&
+                    PoolBlock.Header.AllocatorBackTraceIndex & POOL_BACKTRACEINDEX_PRESENT
+                   ) {
+
+                    if ( !ReadMemory( (DWORD)&PoolTrackTable[ PoolBlock.Header.PoolTagHash&~(PROTECTED_POOL >> 16) ],
+                                      &Tags,
+                                      sizeof(Tags),
+                                      &result) ) {
+                        PoolTag = 0;
+                    } else {
+                        PoolTag = Tags.Key;
+                    }
+
+                    if (PoolBlock.Header.PoolTagHash & (PROTECTED_POOL >> 16)) {
+                        PoolTag |= PROTECTED_POOL;
+                    }
+                }
+            }
+
+            if ((PoolBlock.Header.PoolType != 0) &&
+                (CheckSingleFilter ((PCHAR)&PoolTag, (PCHAR)&TagName))) {
+
+                irpAddress = (ULONG) Pool + (ULONG) sizeof(POOL_HEADER);
+
+                if(ReadMemory(irpAddress,
+                              Irp,
+                              sizeof(DWORD),
+                              &result)) {
+
+                    if(Irp->Type == IO_TYPE_IRP)    {
+
+                        activeCount++;
+
+                        if (fullOutput) {
+                            dprintf("%08lx: ", irpAddress);
+                            DumpIrp((PUCHAR)irpAddress, FALSE);
+                            dprintf("\n");
+                        } else {
+                            if(ReadMemory(irpAddress,
+                                          Irp,
+                                          PoolBlock.Header.BlockSize <<
+                                              POOL_BLOCK_SHIFT,
+                                          &result))  {
+
+                                irpSp = (PIO_STACK_LOCATION)                   
+                                            (((PCHAR) Irp + sizeof(IRP)) +
+                                            (Irp->CurrentLocation - 1) *
+                                            sizeof(IO_STACK_LOCATION));
+
+                                dprintf("%08lx Thread %08lx ", irpAddress,
+                                        Irp->Tail.Overlay.Thread);
+
+                                if(Irp->CurrentLocation > Irp->StackCount) {
+                                    dprintf("Irp is complete (CurrentLocation "
+                                            "%d > StackCount %d)",
+                                            Irp->CurrentLocation,
+                                            Irp->StackCount);
+                                } else {
+                                    dprintf("current stack belongs to ");
+                                    DumpDevice(irpSp->DeviceObject, FALSE);
+                                }
+                                dprintf("\n");
+                            }
+                        }
+                    } else {
+                        // dprintf("%08lx (size %04lx) uninitialized or overwritten IRP\n",
+                        //         irpAddress,
+                        //         PoolBlock.Header.BlockSize << POOL_BLOCK_SHIFT);
+                    }
+                } else {
+                    dprintf("Possible IRP @ %lx - unable to read addr\n", irpAddress );
+                }
+            } else {
+#ifdef SHOW_PROGRESS
+                dprintf("%c", turnTable[turn]);
+                turn = (turn + 1) % 4; 
+#endif
+            }
+
+            Previous = PoolBlock.Header.BlockSize;
+            Pool += (Previous << POOL_BLOCK_SHIFT);
+            if ( CheckControlC() ) {
+                dprintf("\n...terminating - searched pool to %lx\n",
+                        PoolPage);
+                dprintf("%d active irps\n", activeCount);
+                return;
+            }
+        }
+
+        PoolPage = (PVOID)((PCHAR)PoolPage + PAGE_SIZE);
+
+        if ( CheckControlC() ) {
+            dprintf("\n...terminating - searched pool to %lx\n",
+                    PoolPage);
+            dprintf("%d active irps\n", activeCount);
+            return;
+        }
+    }
+
+    dprintf("%d active irps\n", activeCount);
+    return;
+}
+
+#if 0
+BOOLEAN
+CheckSingleFilter (
+    PCHAR Tag,
+    PCHAR Filter
+    )
+{
+    ULONG i;
+    CHAR tc;
+    CHAR fc;
+
+    for ( i = 0; i < 4; i++ ) {
+        tc = *Tag++;
+        fc = *Filter++;
+        if ( fc == '*' ) return TRUE;
+        if ( fc == '?' ) continue;
+        if ( tc != fc ) return FALSE;
+    }
+    return TRUE;
+}
+#endif

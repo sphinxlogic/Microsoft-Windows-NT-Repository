@@ -47,7 +47,7 @@ extern BOOL CALLBACK About(HWND hDlg, UINT message, WPARAM wParam,
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      SetRectEmpty                Windows API
 //
 // Comments:
@@ -68,7 +68,7 @@ extern BOOL CALLBACK About(HWND hDlg, UINT message, WPARAM wParam,
 CSimpleApp::CSimpleApp() : m_OleInPlaceFrame(this)
 #pragma warning (default : 4355)  // Turn the warning back on
 {
-    OutputDebugString(TEXT("In CSimpleApp's Constructor \r\n"));
+    TestDebugOut(TEXT("In CSimpleApp's Constructor \r\n"));
 
     // Set Ref Count
     m_nCount = 0;
@@ -112,7 +112,7 @@ CSimpleApp::CSimpleApp() : m_OleInPlaceFrame(this)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      DeleteObject                Windows API
 //      OleUninitialize             OLE API
 //
@@ -121,7 +121,7 @@ CSimpleApp::CSimpleApp() : m_OleInPlaceFrame(this)
 
 CSimpleApp::~CSimpleApp()
 {
-    OutputDebugString(TEXT("In CSimpleApp's Destructor\r\n"));
+    TestDebugOut(TEXT("In CSimpleApp's Destructor\r\n"));
 
     if (m_hStdPal)
         DeleteObject(m_hStdPal);
@@ -185,7 +185,7 @@ void CSimpleApp::DestroyDocs()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      IsEqualIID                  OLE API
 //      ResultFromScode             OLE API
 //      COleInPlaceFrame::AddRef    IOIPF.CPP
@@ -205,7 +205,7 @@ void CSimpleApp::DestroyDocs()
 
 STDMETHODIMP CSimpleApp::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 {
-    OutputDebugString(TEXT("In CSimpleApp::QueryInterface\r\n"));
+    TestDebugOut(TEXT("In CSimpleApp::QueryInterface\r\n"));
 
     *ppvObj = NULL;     // must set out pointer parameters to NULL
 
@@ -264,7 +264,7 @@ STDMETHODIMP CSimpleApp::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -277,7 +277,7 @@ STDMETHODIMP CSimpleApp::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 
 STDMETHODIMP_(ULONG) CSimpleApp::AddRef()
 {
-    OutputDebugString(TEXT("In CSimpleApp::AddRef\r\n"));
+    TestDebugOut(TEXT("In CSimpleApp::AddRef\r\n"));
     return ++m_nCount;
 }
 
@@ -300,14 +300,14 @@ STDMETHODIMP_(ULONG) CSimpleApp::AddRef()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 //
 //********************************************************************
 
 STDMETHODIMP_(ULONG) CSimpleApp::Release()
 {
-    OutputDebugString(TEXT("In CSimpleApp::Release\r\n"));
+    TestDebugOut(TEXT("In CSimpleApp::Release\r\n"));
 
     if (--m_nCount == 0)
     {
@@ -352,7 +352,7 @@ BOOL CSimpleApp::fInitApplication(HANDLE hInstance)
         TEXT("SimpcntrAccel"))) == NULL)
     {
         // Load failed so abort
-        OutputDebugString(TEXT("ERROR: Accelerator Table Load FAILED\r\n"));
+        TestDebugOut(TEXT("ERROR: Accelerator Table Load FAILED\r\n"));
         return FALSE;
     }
 
@@ -448,7 +448,7 @@ BOOL CSimpleApp::fInitInstance (HANDLE hInstance, int nCmdShow)
     if (HIWORD(dwVer) != rmm || LOWORD(dwVer) < rup)
     {
 #ifdef _DEBUG
-      OutputDebugString(TEXT("WARNING:Incompatible OLE library version\r\n"));
+      TestDebugOut(TEXT("WARNING:Incompatible OLE library version\r\n"));
 #else
       return FALSE;
 #endif
@@ -462,8 +462,14 @@ BOOL CSimpleApp::fInitInstance (HANDLE hInstance, int nCmdShow)
     OleStdCreateDbAlloc(0, &lpMalloc);
 #endif
 
-    if (OleInitialize(lpMalloc) == NOERROR)
+    //  We try passing in our own allocator first - if that fails we
+    //  try without overriding the allocator.
+
+    if (SUCCEEDED(OleInitialize(lpMalloc)) ||
+        SUCCEEDED(OleInitialize(NULL)))
+    {
         m_fInitialized = TRUE;
+    }
 
 #if defined( _DEBUG )
     /* OLE2NOTE: release the special debug allocator so that only OLE is
@@ -1050,4 +1056,5 @@ LRESULT wSelectPalette(HWND hWnd, HPALETTE hPal, BOOL fBackground)
 
 	return (LRESULT)1;
 }
+
 

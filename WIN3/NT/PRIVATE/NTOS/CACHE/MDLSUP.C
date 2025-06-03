@@ -92,11 +92,16 @@ Raises:
     LARGE_INTEGER FOffset;
     PMDL Mdl;
     PMDL MdlTemp;
+    ULONG SavedState = 0;
     ULONG OriginalLength = Length;
     ULONG Information = 0;
-    ULONG PageCount = COMPUTE_PAGES_SPANNED(((PVOID)FileOffset->LowPart), Length);
     PVACB Vacb = NULL;
     ULONG SavedMissCounter = 0;
+
+    KIRQL OldIrql;
+    ULONG ActivePage;
+    ULONG PageIsDirty;
+    PVACB ActiveVacb = NULL;
 
     DebugTrace(+1, me, "CcMdlRead\n", 0 );
     DebugTrace( 0, me, "    FileObject = %08lx\n", FileObject );
@@ -110,6 +115,22 @@ Raises:
 
     SharedCacheMap = FileObject->SectionObjectPointer->SharedCacheMap;
     PrivateCacheMap = FileObject->PrivateCacheMap;
+
+    //
+    //  See if we have an active Vacb, that we need to free.
+    //
+
+    GetActiveVacb( SharedCacheMap, OldIrql, ActiveVacb, ActivePage, PageIsDirty );
+
+    //
+    //  If there is an end of a page to be zeroed, then free that page now,
+    //  so we don't send Greg the uninitialized data...
+    //
+
+    if ((ActiveVacb != NULL) || (SharedCacheMap->NeedToZero != NULL)) {
+
+        CcFreeActiveVacb( SharedCacheMap, ActiveVacb, ActivePage, PageIsDirty );
+    }
 
     //
     //  If read ahead is enabled, then do the read ahead here so it
@@ -127,7 +148,7 @@ Raises:
     //  Increment performance counters
     //
 
-    CcMdlReadWait += PageCount;
+    CcMdlReadWait += 1;
 
     //
     //  This is not an exact solution, but when IoPageRead gets a miss,
@@ -219,9 +240,10 @@ Raises:
 
             SavedMissCounter += CcMdlReadWaitMiss;
 
-            MmDisablePageFaultClustering();
+            MmDisablePageFaultClustering(&SavedState);
             MmProbeAndLockPages( Mdl, KernelMode, IoReadAccess );
-            MmEnablePageFaultClustering();
+            MmEnablePageFaultClustering(SavedState);
+            SavedState = 0;
 
             SavedMissCounter -= CcMdlReadWaitMiss;
 
@@ -272,7 +294,9 @@ Raises:
 
         if (AbnormalTermination()) {
 
-            MmEnablePageFaultClustering();
+            if (SavedState != 0) {
+                MmEnablePageFaultClustering(SavedState);
+            }
 
             //
             //  We may have failed to allocate an Mdl while still having
@@ -341,8 +365,38 @@ Raises:
 }
 
 
+//
+//  First we have the old routine which checks for an entry in the FastIo vector.
+//  This routine becomes obsolete for every component that compiles with the new
+//  definition of FsRtlMdlReadComplete in fsrtl.h.
+//
+
 VOID
 CcMdlReadComplete (
+    IN PFILE_OBJECT FileObject,
+    IN PMDL MdlChain
+    )
+
+{
+    PDEVICE_OBJECT DeviceObject;
+    PFAST_IO_DISPATCH FastIoDispatch;
+
+    DeviceObject = IoGetRelatedDeviceObject( FileObject );
+    FastIoDispatch = DeviceObject->DriverObject->FastIoDispatch;
+
+    if ((FastIoDispatch != NULL) &&
+        (FastIoDispatch->SizeOfFastIoDispatch > FIELD_OFFSET(FAST_IO_DISPATCH, MdlWriteComplete)) &&
+        (FastIoDispatch->MdlReadComplete != NULL)) {
+
+        FastIoDispatch->MdlReadComplete( FileObject, MdlChain, DeviceObject );
+
+    } else {
+        CcMdlReadComplete2( FileObject, MdlChain );
+    }
+}
+
+VOID
+CcMdlReadComplete2 (
     IN PFILE_OBJECT FileObject,
     IN PMDL MdlChain
     )
@@ -466,10 +520,11 @@ Return Value:
     PMDL Mdl;
     PMDL MdlTemp;
     LARGE_INTEGER Temp;
-    KIRQL OldIrql;
+    ULONG SavedState = 0;
     ULONG ZeroFlags = 0;
     ULONG Information = 0;
 
+    KIRQL OldIrql;
     ULONG ActivePage;
     ULONG PageIsDirty;
     PVACB ActiveVacb = NULL;
@@ -490,9 +545,7 @@ Return Value:
     //  See if we have an active Vacb, that we need to free.
     //
 
-    ExAcquireSpinLock( &CcMasterSpinLock, &OldIrql );
-    GetActiveVacb( SharedCacheMap, ActiveVacb, ActivePage, PageIsDirty );
-    ExReleaseSpinLock( &CcMasterSpinLock, OldIrql );
+    GetActiveVacb( SharedCacheMap, OldIrql, ActiveVacb, ActivePage, PageIsDirty );
 
     //
     //  If there is an end of a page to be zeroed, then free that page now,
@@ -616,9 +669,10 @@ Return Value:
             //  of this loop.
             //
 
-            MmDisablePageFaultClustering();
+            MmDisablePageFaultClustering(&SavedState);
             MmProbeAndLockPages( Mdl, KernelMode, IoWriteAccess );
-            MmEnablePageFaultClustering();
+            MmEnablePageFaultClustering(SavedState);
+            SavedState = 0;
 
             //
             //  Now that some data (maybe zeros) is locked in memory and
@@ -676,6 +730,10 @@ Return Value:
     finally {
 
         if (AbnormalTermination()) {
+
+            if (SavedState != 0) {
+                MmEnablePageFaultClustering(SavedState);
+            }
 
             if (Vacb != NULL) {
                 CcFreeVirtualAddress( Vacb );
@@ -743,8 +801,39 @@ Return Value:
 }
 
 
+//
+//  First we have the old routine which checks for an entry in the FastIo vector.
+//  This routine becomes obsolete for every component that compiles with the new
+//  definition of FsRtlMdlWriteComplete in fsrtl.h.
+//
+
 VOID
 CcMdlWriteComplete (
+    IN PFILE_OBJECT FileObject,
+    IN PLARGE_INTEGER FileOffset,
+    IN PMDL MdlChain
+    )
+
+{
+    PDEVICE_OBJECT DeviceObject;
+    PFAST_IO_DISPATCH FastIoDispatch;
+
+    DeviceObject = IoGetRelatedDeviceObject( FileObject );
+    FastIoDispatch = DeviceObject->DriverObject->FastIoDispatch;
+
+    if ((FastIoDispatch != NULL) &&
+        (FastIoDispatch->SizeOfFastIoDispatch > FIELD_OFFSET(FAST_IO_DISPATCH, MdlWriteComplete)) &&
+        (FastIoDispatch->MdlWriteComplete != NULL)) {
+
+        FastIoDispatch->MdlWriteComplete( FileObject, FileOffset, MdlChain, DeviceObject );
+
+    } else {
+        CcMdlWriteComplete2( FileObject, FileOffset, MdlChain );
+    }
+}
+
+VOID
+CcMdlWriteComplete2 (
     IN PFILE_OBJECT FileObject,
     IN PLARGE_INTEGER FileOffset,
     IN PMDL MdlChain
@@ -801,7 +890,7 @@ Return Value:
     //  Deallocate the Mdls
     //
 
-    FOffset = *FileOffset;
+    FOffset.QuadPart = *(LONGLONG UNALIGNED *)FileOffset;
     while (MdlChain != NULL) {
 
         MdlNext = MdlChain->Next;
@@ -822,10 +911,11 @@ Return Value:
 
         if (FlagOn(FileObject->Flags, FO_WRITE_THROUGH)) {
 
-            CcFlushCache ( FileObject->SectionObjectPointer,
-                           &FOffset,
-                           MdlChain->ByteCount,
-                           &IoStatus );
+            MmFlushSection ( FileObject->SectionObjectPointer,
+                             &FOffset,
+                             MdlChain->ByteCount,
+                             &IoStatus,
+                             TRUE );
 
             //
             //  If we got an I/O error, remember it.
@@ -867,15 +957,29 @@ Return Value:
     SharedCacheMap->OpenCount -= 1;
 
     if ((SharedCacheMap->OpenCount == 0) &&
-        !FlagOn(SharedCacheMap->Flags, WRITE_QUEUED | LAZY_DELETE) &&
+        !FlagOn(SharedCacheMap->Flags, WRITE_QUEUED) &&
         (SharedCacheMap->DirtyPages == 0)) {
 
-        CcDeleteSharedCacheMap( SharedCacheMap, OldIrql );
+        //
+        //  Move to the dirty list.
+        //
 
-    } else {
+        RemoveEntryList( &SharedCacheMap->SharedCacheMapLinks );
+        InsertTailList( &CcDirtySharedCacheMapList.SharedCacheMapLinks,
+                        &SharedCacheMap->SharedCacheMapLinks );
 
-        ExReleaseSpinLock( &CcMasterSpinLock, OldIrql );
+        //
+        //  Make sure the Lazy Writer will wake up, because we
+        //  want him to delete this SharedCacheMap.
+        //
+
+        LazyWriter.OtherWork = TRUE;
+        if (!LazyWriter.ScanActive) {
+            CcScheduleLazyWriteScan();
+        }
     }
+
+    ExReleaseSpinLock( &CcMasterSpinLock, OldIrql );
 
     //
     //  If we got an I/O error, raise it now.

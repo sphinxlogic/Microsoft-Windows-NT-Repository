@@ -132,7 +132,7 @@ int _CRTAPI1 _filwbuf (
 #endif /* _UNICODE */
 
 {
-#ifdef _NTSUBSET_
+#if defined _NTSUBSET_ && !defined _POSIX_
         return(_TEOF);
 #else
 	REG1 FILE *stream;

@@ -43,7 +43,7 @@ Copyright(c) Maynard Electronics, Inc. 1984-89
  * Changed file system specific Server/Volume macros into functions - dleget.c
  * 
  *    Rev 1.17   09 Dec 1992 11:40:48   DON
- * Changed function prototype to macro for DLE_SupportAccessDate
+ * Changed function prototype to macro for DLE_
  * 
  *    Rev 1.16   11 Nov 1992 22:09:44   GREGG
  * Unicodeized literals.
@@ -119,6 +119,7 @@ Copyright(c) Maynard Electronics, Inc. 1984-89
 /**
                Macros used to access the DLE
 **/
+
 #define DLE_DeviceDispName( dle, dev_name, size, disp_type ) \
         (msassert ( func_tab[ (dle)->type ].DevDispName != NULL),\
         (func_tab [(dle)->type].DevDispName( dle, dev_name, size, disp_type ) ) )
@@ -157,6 +158,10 @@ GENERIC_DLE_PTR DLE_GetDefaultDrive( DLE_HAND hand ) ;
 #define DLE_GetDefaultDrive( hand ) \
                      ((hand)->default_drv)
 #endif
+
+#define DLE_GetOsId( dle ) \
+          ((dle)->os_id)
+
 
 #define DLE_SetDefaultDrive( hand, dle ) \
                      ((hand)->default_drv = (dle))

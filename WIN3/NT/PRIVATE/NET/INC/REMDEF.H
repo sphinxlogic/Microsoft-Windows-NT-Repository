@@ -162,6 +162,7 @@ Revision History:
 #define REM32_file_info_2               "D"
 #define REM16_file_info_3               "DWWzz"
 #define REM32_file_info_3               "DDDzz"
+#define REM16_file_info_50              "QB16BBDZ??ZZZ"
 
 #define REM16_NetFileEnum_P             "zWrLeh"
 #define REM16_NetFileEnum2_P            "zzWrLehb8g8"
@@ -178,6 +179,7 @@ Revision History:
 #define REM32_server_info_2             "DzDDDzQQQDXQQQQQDDDQDzQQQQQQQQQQQQQQQQQQQQQQQ"
 #define REM16_server_info_3             "QB16BBDzJJJWWzWWWWWWWB21BzWWWWWWWWWWWWWWWWWWWWWWzDWz"
 #define REM32_server_info_3             "DzDDDzQQQDXQQQQQDDDQDzQQQQQQQQQQQQQQQQQQQQQQQQQQ"
+#define REM32_server_info_50            "QB16BBDzWWzzz"
 
 #define REM32_server_info_100           "Dz"
 #define REM32_server_info_101           "DzDDDz"
@@ -583,6 +585,9 @@ Revision History:
 #define REM32_printQ_5                  REM16_printQ_5
 // Can't do set info of level 5.
 
+#define REM16_printQ_52                 "WzzzzzzzzWzzzzzzzzzzzzzzzzzzzz"
+#define REM32_printQ_52                 REM16_printQ_52
+
 #define REM16_DosPrintQEnum_P           "WrLeh"
 #define REM16_DosPrintQGetInfo_P        "zWrLh"
 #define REM16_DosPrintQSetInfo_P        "zWsTP"
@@ -608,7 +613,7 @@ Revision History:
 #define PRJ_POSITION_LVL1_FIELDINDEX                 7
 #define PRJ_COMMENT_LVL1_FIELDINDEX                       12
 
-#define REM16_print_job_1_setinfo       "UUUB16B10zWUUUUU"
+#define REM16_print_job_1_setinfo       "UUUB16B10zWUUUUz"
 #define REM32_print_job_1_setinfo       REM32_print_job_1
 
 #define REM16_print_job_2               "WWzWWJDzz"
@@ -816,6 +821,12 @@ Revision History:
 #define REM16_NetAccountConfirmUpd_P    "b12g12D"
 #define REM16_update_info_0             "K"
 
+//
+// SamrOemChangePasswordUser2 api support
+//
+#define REM32_SamOEMChgPasswordUser2_P  "zsT"        // Parameters to the call
+#define REMSmb_SamOEMChgPasswordUser2   "B516B16"    // data that is passed
+
 //====================================================================
 //
 // SMB XACT message descriptors. These are the only descriptors that
@@ -911,6 +922,7 @@ Revision History:
 #define REMSmb_I_NetServerEnum_P         "WrLeh"
 #define REMSmb_NetServerEnum2_P          "WrLehDz"
 #define REMSmb_I_NetServerEnum2_P        "WrLehDz"
+#define REMSmb_NetServerEnum3_P          "WrLehDzz"
 #define REMSmb_NetServerGetInfo_P        "WrLh"
 #define REMSmb_NetServerSetInfo_P        "WsTP"
 #define REMSmb_NetServerDiskEnum_P       "WrLeh"
@@ -1227,4 +1239,5 @@ Revision History:
 #define REMSmb_NetAccountUpdate_P        "b12g12WWrLh"
 #define REMSmb_NetAccountConfirmUpd_P    "b12g12D"
 #define REMSmb_update_info_0             "K"
+
 #endif // ndef _REMDEF_

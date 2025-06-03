@@ -388,6 +388,11 @@ RdrDeleteConnection (
     IN ULONG Level
     );
 
+VOID
+RdrHandleLogonSessionTermination(
+    IN PLUID LogonId
+    );
+
 NTSTATUS
 RdrDisconnectConnection (
     IN PIRP Irp OPTIONAL,
@@ -412,6 +417,8 @@ RdrDereferenceServer (
     IN PSERVERLISTENTRY ServerList
     );
 
+VOID
+RdrScavengeServerEntries();
 
 NTSTATUS
 RdrForeachServer(
@@ -462,10 +469,10 @@ RdrpInitializeConnectPackage (
     VOID
     );
 
-VOID
-RdrpUninitializeConnectPackage(
-    VOID
-    );
+#define RdrpUninitializeConnectPackage( ) {     \
+    ASSERT( IsListEmpty(&RdrServerHead) );      \
+    ASSERT( IsListEmpty(&RdrConnectHead) );     \
+    }
 
 //
 //      In CREATE.C
@@ -499,22 +506,63 @@ RdrDetermineFileConnection (
     OUT PBOOLEAN OpeningMailslotFile,
     IN OUT PULONG ConnectDisposition,
     OUT PULONG ConnectionType,
-    OUT PBOOLEAN UserCredentialsSpecified OPTIONAL
+    OUT PBOOLEAN UserCredentialsSpecified OPTIONAL,
+    OUT PBOOLEAN NoConnectRequested
     );
 
 //
 //      In DIR.C
 //
 
-VOID
-RdrInitializeDir (
-    VOID
-    );
+//++
+//
+// VOID
+// RdrInitializeDir (
+//     VOID
+//     )
+//
+// Routine Description:
+//
+//     This routine initializes the redirector Directory Control structures.
+//
+// Arguments:
+//
+//     None.
+//
+// Return Value:
+//
+//     None.
+//
+//--
 
-VOID
-RdrpUninitializeDir (
-    VOID
-    );
+#define RdrInitializeDir( ) {                                               \
+    KeInitializeSpinLock(&DirectoryControlSpinLock);                        \
+    SEARCH_INVALIDATE_INTERVAL.QuadPart = Int32x32To64(5*60*1000, 10000);   \
+    }
+
+//++
+//
+// VOID
+// RdrpUninitializeDir (
+//     VOID
+//     )
+//
+// Routine Description:
+//
+//     This routine undoes the operations performed by RdrInitializeDir
+//
+// Arguments:
+//
+//     None.
+//
+// Return Value:
+//
+//     None.
+//
+//--
+//
+
+#define RdrpUninitializeDir( )
 
 NTSTATUS
 RdrFindClose (
@@ -551,16 +599,7 @@ RdrMapSmbError (
     IN PSERVERLISTENTRY Sle OPTIONAL
     );
 
-NTSTATUS
-RdrMapNetworkError (
-    IN NTSTATUS TransportError
-    );
-
-NTSTATUS
-RdrTdiErrorHandler (
-    IN PFILE_OBJECT TransportEndpoint,
-    IN NTSTATUS Status
-    );
+#define RdrMapNetworkError( _TransportError ) (_TransportError)
 
 //
 //
@@ -602,6 +641,7 @@ RdrAllocateFcb (
     IN USHORT ShareAccess,
     IN ACCESS_MASK DesiredAccess,
     IN BOOLEAN OpenTargetDirectory,
+    IN BOOLEAN DfsFile,
     IN PCONNECTLISTENTRY Connection,
     OUT PBOOLEAN FcbWasCreated,
     OUT PBOOLEAN BaseFcbWasCreated OPTIONAL
@@ -805,10 +845,12 @@ RdrInsertLock (
     IN PLCB Lcb
     );
 
-VOID
-RdrInitializeLockHead (
-    IN PLOCKHEAD LockHead
-    );
+#define RdrInitializeLockHead( _LockHead ) {                                \
+    dprintf(DPRT_FILELOCK, ("RdrInitializeLockHead %lx\n", (_LockHead)));   \
+    InitializeListHead(&(_LockHead)->LockList);                             \
+    (_LockHead)->Signature = STRUCTURE_SIGNATURE_LOCKHEAD;                  \
+    (_LockHead)->QuotaAvailable = RdrData.LockAndReadQuota;                 \
+    }
 
 VOID
 RdrUninitializeLockHead (
@@ -857,14 +899,10 @@ RdrInitializeAndXBehind(
     IN PAND_X_BEHIND AndXBehind
     );
 
-VOID
-RdrpInitializeLockHead (
-    VOID
-    );
-VOID
-RdrpUninitializeLockHead (
-    VOID
-    );
+#define RdrpInitializeLockHead( ) KeInitializeSpinLock(&RdrLockHeadSpinLock)
+
+#define RdrpUninitializeLockHead( )
+
 //
 //      In NETTRANS.C
 //
@@ -922,7 +960,7 @@ RdrStartTranceive (
     IN PSECURITY_ENTRY Se,
     IN BOOLEAN AllowReconnection,
     IN BOOLEAN Reconnecting,
-    IN BOOLEAN LongtermOperation,
+    IN ULONG LongtermOperation,
     IN BOOLEAN CannotBeCanceled,
     OUT PMPX_ENTRY *pMte,
     IN ULONG TransferSize
@@ -972,7 +1010,6 @@ RdrCallbackTranceive(
 NTSTATUS
 RdrSendSMB(
     IN ULONG Flags,
-    PIRP Irp OPTIONAL,
     PCONNECTLISTENTRY Connection,
     PSECURITY_ENTRY Se,
     PMPX_ENTRY MpxTable,
@@ -1063,10 +1100,7 @@ RdrpInitializeSmbExchange (
     VOID
     );
 
-NTSTATUS
-RdrpUninitializeSmbExchange (
-    VOID
-    );
+#define RdrpUninitializeSmbExchange( )
 
 VOID
 RdrPingLongtermOperations(
@@ -1078,20 +1112,23 @@ RdrMarkIrpAsNonCanceled(
     IN PIRP Irp
     );
 
+VOID
+RdrCheckForSessionOrShareDeletion(
+    NTSTATUS Status,
+    USHORT Uid,
+    BOOLEAN Reconnecting,
+    PCONNECTLISTENTRY Connection,
+    PTRANCEIVE_HEADER Header,
+    PIRP Irp OPTIONAL
+    );
 
 //
 //      In NPIPE.C
 //
 
-VOID
-RdrInitializeNp (
-    VOID
-    );
+#define RdrInitializeNp( )
 
-VOID
-RdrpUninitializeNp (
-    VOID
-    );
+#define RdrpUninitializeNp( )
 
 NTSTATUS
 RdrNpPeek (
@@ -1227,11 +1264,11 @@ RdrNpAcquireExclusive (
     IN PKSEMAPHORE SynchronizationEvent
     );
 
-DBGSTATIC
-VOID
-RdrNpRelease (
-    IN PKSEMAPHORE Semaphore
-    );
+#define RdrNpRelease( _Semaphore ) {                            \
+    dprintf(DPRT_NP, ("RdrNpRelease: %lx\n", (_Semaphore)));    \
+    KeReleaseSemaphore( (_Semaphore), 0, 1, FALSE );            \
+    }
+
 //
 //      In OPLOCK.C
 //
@@ -1358,10 +1395,8 @@ RdrTruncateWriteBufferForIcb(
     IN PICB Icb
     );
 
-NTSTATUS
-RdrWaitForWriteBehindOperation(
-    IN PICB Icb
-    );
+#define RdrWaitForWriteBehindOperation( _Icb )                              \
+    RdrWaitForAndXBehindOperation(&(_Icb)->u.f.WriteBufferHead.AndXBehind)
 
 //
 //      In READWRIT.C
@@ -1439,6 +1474,11 @@ RdrGetKerberosBlob(
     IN ULONG RemoteBlobLength,
     IN BOOLEAN Allocate
     );
+
+BOOL
+RdrCleanSecurityContexts(
+    IN PSECURITY_ENTRY Se
+    );
 #endif // _CAIRO_
 
 NTSTATUS
@@ -1462,6 +1502,7 @@ RdrIsSecurityEntryEqual(
 
 PSECURITY_ENTRY
 RdrFindSecurityEntry (
+    IN PCONNECTLISTENTRY Cle OPTIONAL,
     IN PSERVERLISTENTRY Server OPTIONAL,
     IN PLUID LogonId OPTIONAL,
     IN PUNICODE_STRING Password OPTIONAL
@@ -1523,6 +1564,12 @@ NTSTATUS
 RdrGetDomain (
     IN PLUID LogonId,
     OUT PUNICODE_STRING Domain
+    );
+
+VOID
+RdrGetUnicodeDomainName(
+    IN OUT PUNICODE_STRING String,
+    IN PSECURITY_ENTRY Se
     );
 
 NTSTATUS
@@ -1611,10 +1658,7 @@ RdrpUninitializeSecurity (
     VOID
     );
 
-VOID
-RdrUnloadSecurity(
-    VOID
-    );
+#define RdrUnloadSecurity( ) ASSERT (IsListEmpty(&RdrGlobalSecurityList))
 
 NTSTATUS
 RdrLogoffDefaultSecurityEntry(
@@ -1688,10 +1732,12 @@ RdrDereferenceTransportByName (
     IN PUNICODE_STRING TransportName
     );
 
-VOID
-RdrReferenceTransport(
-    IN PNONPAGED_TRANSPORT Transport
-    );
+#define RdrReferenceTransport( _Transport ) {                               \
+    InterlockedIncrement(&(_Transport)->ReferenceCount);                    \
+    dprintf(DPRT_TRANSPORT, ("Reference transport %lx (%wZ), now at %lx\n", \
+            (_Transport), &(_Transport)->PagedTransport->TransportName,     \
+            (_Transport)->ReferenceCount));                                 \
+    }
 
 NTSTATUS
 RdrDereferenceTransport (
@@ -1759,6 +1805,11 @@ RdrInitializeTransportConnection(
 //    IN PTRANSPORT_CONNECTION Connection
 //    );
 
+BOOLEAN
+RdrNoTransportBindings (
+    VOID
+    );
+
 NTSTATUS
 RdrTdiConnectToServer (
     IN PIRP Irp OPTIONAL,
@@ -1784,8 +1835,16 @@ RdrTdiDisconnect (
     );
 
 NTSTATUS
+RdrBuildNetbiosAddress (
+    OUT PTRANSPORT_ADDRESS TransportAddress,
+    IN ULONG TransportAddressLength,
+    IN PUNICODE_STRING Name
+    );
+
+NTSTATUS
 RdrBuildTransportAddress (
-    OUT PTA_NETBIOS_ADDRESS RemoteAddress,
+    OUT PTRANSPORT_ADDRESS TransportAddress,
+    IN ULONG TransportAddressLength,
     IN PUNICODE_STRING Name
     );
 
@@ -1803,6 +1862,13 @@ RdrQueryConnectionInformation(
     );
 
 NTSTATUS
+RdrQueryServerAddresses(
+    IN PSERVERLISTENTRY Server,
+    OUT PUNICODE_STRING NBName,
+    OUT PTDI_ADDRESS_IP IPAddress
+    );
+
+NTSTATUS
 RdrSendMagicBullet (
     IN PTRANSPORT Transport OPTIONAL
     );
@@ -1812,10 +1878,10 @@ RdrpInitializeTdi (
     VOID
     );
 
-VOID
-RdrpUninitializeTdi (
-    VOID
-    );
+#define RdrpUninitializeTdi( ) {                    \
+    ExDeleteResource( &RdrTransportResource );      \
+    ASSERT( IsListEmpty(&RdrTransportHead) );       \
+    }
 
 
 //
@@ -1961,6 +2027,7 @@ VOID
 RdrSmbScrounge (
     PSMB_HEADER Smb,
     PSERVERLISTENTRY Sle,
+    IN BOOLEAN DfsFile,
     IN BOOLEAN KnowsEas,
     IN BOOLEAN KnowsLongNames
     );
@@ -2051,4 +2118,40 @@ RdrFastQueryStdInfo (
     IN PDEVICE_OBJECT DeviceObject
     );
 
+NTSTATUS
+RdrQueryNtFileInformation(
+    IN PIRP Irp,
+    IN PICB Icb,
+    IN USHORT FileInformationClass,
+    IN OUT PVOID Buffer,
+    IN OUT PULONG BufferSize
+    );
+
+NTSTATUS
+RdrQueryNtPathInformation(
+    IN PIRP Irp,
+    IN PICB Icb,
+    IN USHORT FileInformationClass,
+    IN OUT PVOID Buffer,
+    IN OUT PULONG BufferSize
+    );
+
+ULONG
+RdrNumberOfComponents(
+    IN PUNICODE_STRING String
+    );
+
+#ifdef RDR_PNP_POWER
+
+NTSTATUS
+RdrRegisterForPnpNotifications(
+    );
+
+NTSTATUS
+RdrDeRegisterForPnpNotifications(
+    );
+
 #endif
+
+#endif
+

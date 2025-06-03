@@ -94,7 +94,7 @@ WinMain(
     // Strip off exe name to use as default dir to get files from.
     // Might be a:\, b:\ or \\srv\share\
     //
-    strlwr(SetupDir);
+    _strlwr(SetupDir);
     if (EndOfPath=strstr(SetupDir,"getmttf.exe")) {
         *EndOfPath=0;
     }
@@ -106,9 +106,13 @@ WinMain(
     //
     // if the processortype is 386, set idle percent to 386 limit.
     //
-    IdlePercentage=(sysinfo.dwProcessorType==386?
-                    DEFAULT_386_IDLE_LIMIT:DEFAULT_IDLE_LIMIT);
-
+    if (sysinfo.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_INTEL &&
+        sysinfo.wProcessorLevel < 4
+       ) {
+        IdlePercentage = DEFAULT_386_IDLE_LIMIT;
+    } else {
+        IdlePercentage = DEFAULT_IDLE_LIMIT;
+    }
     GetSystemDirectory(SysDir, MAX_DIR);
 
     //

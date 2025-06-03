@@ -1,22 +1,5 @@
-#if defined(OS2)
-#define INCL_DOSFILEMGR
-#include <os2.h>
-#endif
-
-#include "slm.h"
-#include "sys.h"
-#include "util.h"
-#include "stfile.h"
-#include "ad.h"
-#include "dir.h"
-#include "de.h"
-#include <ctype.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-
-#include "proto.h"
-#include "sadproto.h"
-
+#include "precomp.h"
+#pragma hdrstop
 EnableAssert
 
 private void TidyBase(P1(AD *));
@@ -32,6 +15,10 @@ AD *pad;
                 Error("-c should be specified with -a or -r\n");
                 return fFalse;
                 }
+
+        if (pad->flags&flagAll || pad->pecmd->gl&fglAll)
+            CreatePeekThread(pad);
+
         Unreferenced(pad);
         return fTrue;
         }
@@ -48,7 +35,9 @@ AD *pad;
 
         TidyBase(pad);
         TidyFi(pad);
-        SortEd(pad);
+        if (!FIsFreeEdValid(pad->psh)) {
+            SortEd(pad);
+        }
 
         if (pad->flags&flagTidyCheckEd)
                 CheckEd(pad);
@@ -332,7 +321,9 @@ private void LowerLpch(P2(char far *, int));
 F FLowerInit(pad)
 AD *pad;
         {
-        Unreferenced(pad);
+        if (pad->flags&flagAll || pad->pecmd->gl&fglAll)
+            CreatePeekThread(pad);
+
         return fTrue;
         }
 
@@ -353,11 +344,12 @@ AD *pad;
         for (ifi = 0, ifiMac = pad->psh->ifiMac; ifi < ifiMac; ifi++)
                 LowerLpch(pad->rgfi[ifi].nmFile, cchFileMax);
 
-        for (ied = 0, iedMac = pad->psh->iedMac; ied < iedMac; ied++)
-                {
+        for (ied = 0, iedMac = pad->psh->iedMac; ied < iedMac; ied++) {
+            if (!FIsFreeEdValid(pad->psh) || !pad->rged[ied].fFreeEd) {
                 LowerPth(pad->rged[ied].pthEd);
                 LowerLpch(pad->rged[ied].nmOwner, cchUserMax);
-                }
+            }
+        }
 
         /* Leave a log entry */
         OpenLog(pad, fTrue);

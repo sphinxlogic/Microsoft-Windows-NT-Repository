@@ -15,7 +15,9 @@
 
 #include <windows.h>
 #include <winuserp.h>
-void SwitchToThisWindow(HWND, BOOL);
+
+HWND
+GetWindowHandleOfConsole( void );
 
 HANDLE
 PassArgsAndEnvironmentToEditor(
@@ -24,6 +26,21 @@ PassArgsAndEnvironmentToEditor(
     char *envp[],
     HWND hwndSelf
     );
+
+void
+Usage( void )
+{
+    printf( "Usage: STARTPGM [-z] [-s] -j \"Title string\"\n" );
+    printf( "where: -j specifies the title string of the window to jump to\n" );
+    printf( "          The match done against the title is a case insensitive prefix match\n" );
+    printf( "       -s specifies the match can be anywhere in the title.\n" );
+    printf( "       -z specifies destination window is an editor and the remaining command line\n" );
+    printf( "          arguments and the current environment variable settings are passed to the editor via shared memory\n" );
+    exit( 1 );
+}
+
+
+
 
 int
 _CRTAPI1 main(
@@ -35,55 +52,78 @@ _CRTAPI1 main(
     BOOL JumpToEditor;
     BOOL WaitForEditor;
     BOOL VerboseOutput;
+    BOOL SubstringOkay;
     HANDLE EditorStopEvent;
     LPSTR TitleToJumpTo;
     int n;
     HWND hwnd, hwndSelf;
+    UINT ShowCmd;
+    WINDOWPLACEMENT WindowPlacement;
     wchar_t uszTitle[ 256 ];
-    char szTitle[ 256 ];
+    char *s, szTitle[ 256 ];
     int EditorArgc;
     char **EditorArgv;
 
+    JumpToEditor = FALSE;
     WaitForEditor = FALSE;
-    if (argc > 3 && !stricmp( argv[ 2 ], "-z" )) {
-        JumpToEditor = TRUE;
-        if (argv[2][1] == 'Z') {
-            WaitForEditor = TRUE;
+    VerboseOutput = FALSE;
+    SubstringOkay = FALSE;
+    TitleToJumpTo = NULL;
+    while (--argc) {
+        s = *++argv;
+        if (*s == '/' || *s == '-') {
+            while (*++s) {
+                switch( tolower( *s ) ) {
+                    case 'z':
+                        JumpToEditor = TRUE;
+                        if (*s == 'Z') {
+                            WaitForEditor = TRUE;
+                            }
+                        break;
+
+                    case 'v':
+                        VerboseOutput = TRUE;
+                        break;
+
+                    case 's':
+                        SubstringOkay = TRUE;
+                        break;
+
+                    case 'j':
+                        if (!--argc) {
+                            fprintf( stderr, "STARTPGM: Missing title string argument to -j switch\n" );
+                            Usage();
+                            }
+                        TitleToJumpTo = *++argv;
+                        _strupr( TitleToJumpTo );        // Case insensitive compares
+                        n = strlen( TitleToJumpTo );
+                        break;
+
+                    default:
+                        fprintf( stderr, "STARTPGM: Invalid switch - /%c\n", *s );
+                        Usage();
+                    }
+                }
             }
-
-        argv[ 2 ] = argv[ 3 ];
-        argc--;
-        EditorArgc = argc - 3;
-        EditorArgv = argv + 4;
-        }
-    else {
-        JumpToEditor = FALSE;
+        else {
+            break;
+            }
         }
 
-    if (argc > 3 && !stricmp( argv[ 2 ], "-v" )) {
-        VerboseOutput = TRUE;
-        argv[ 2 ] = argv[ 3 ];
-        argc--;
-        }
-    else {
-        VerboseOutput = FALSE;
+    if (TitleToJumpTo == NULL) {
+        fprintf( stderr, "STARTPGM: -j switch missing.\n" );
+        Usage();
         }
 
-    if (argc < 3 || stricmp( argv[ 1 ], "-j" )) {
-        printf( "Usage: STARTPGM -j [-z] [\"Title string\"]\n" );
-        exit( 1 );
+    if (JumpToEditor) {
+        EditorArgc = argc;
+        EditorArgv = argv;
         }
-    else {
-        TitleToJumpTo = argv[ 2 ];
-        n = strlen( TitleToJumpTo );
-        }
-
 
     /*
      * Search the window list for enabled top level windows.
      */
     hwnd = GetWindow( GetDesktopWindow(), GW_CHILD );
-    hwndSelf = NULL;
     while (hwnd) {
         /*
          * Only look at visible, non-owned, Top Level Windows.
@@ -99,17 +139,27 @@ _CRTAPI1 main(
                                    (LPWSTR)uszTitle,
                                    sizeof( szTitle )
                                  );
-            wcstombs(szTitle,uszTitle,sizeof(uszTitle));
+            wcstombs( szTitle, uszTitle, sizeof( uszTitle ) );
+            _strupr( szTitle );        // Case insensitive compares
 
-            if (VerboseOutput) {
-                printf( "Looking at window title: '%s'\n", szTitle );
-                }
+            if (strlen( szTitle )) {
+                if (VerboseOutput) {
+                    printf( "Looking at window title: '%s'\n", szTitle );
+                    }
 
-            if (!strnicmp( TitleToJumpTo, szTitle, n )) {
-                break;
-                }
-            if (hwndSelf == NULL) {
-                hwndSelf = hwnd;
+                if (SubstringOkay) {
+                    if (strstr( szTitle, "STARTPGM" )) {
+                        // Ignore window with ourselve running
+                        }
+                    else
+                    if (strstr( szTitle, TitleToJumpTo )) {
+                        break;
+                        }
+                    }
+                else
+                if (!_strnicmp( TitleToJumpTo, szTitle, n )) {
+                    break;
+                    }
                 }
             }
 
@@ -122,9 +172,16 @@ _CRTAPI1 main(
         }
     else
     if (IsWindow( hwnd )) {
-        HWND hwndFoo;
-
         if (JumpToEditor) {
+            hwndSelf = GetWindowHandleOfConsole();
+            if (VerboseOutput) {
+                printf( "Calling editor with: '" );
+                while (argc--) {
+                    printf( "%s%s", *argv++, !argc ? "" : " " );
+                    }
+                printf( "'\n" );
+                }
+
             EditorStopEvent = PassArgsAndEnvironmentToEditor( EditorArgc,
                                                               EditorArgv,
                                                               envp,
@@ -132,26 +189,19 @@ _CRTAPI1 main(
                                                             );
             }
 
-        //
-        // Temporary hack to make SetForegroundWindow work from a console
-        // window - create an invisible window, make it the foreground
-        // window and then make the window we want the foreground window.
-        // After that destroy the temporary window.
-        //
-
-        hwndFoo = CreateWindow( "button", "foo", 0, 0, 0, 0, 0,
-                                NULL, NULL, NULL, NULL
-                              );
-
-        SetForegroundWindow( hwndFoo );
-
         SetForegroundWindow( hwnd );
-        ShowWindow( hwnd, SW_RESTORE);
 
-        DestroyWindow( hwndFoo );
+        ShowCmd = SW_SHOW;
+        WindowPlacement.length = sizeof( WindowPlacement );
+        if (GetWindowPlacement( hwnd, &WindowPlacement )) {
+            if (WindowPlacement.showCmd == SW_SHOWMINIMIZED) {
+                ShowCmd = SW_RESTORE;
+                }
+            }
+        ShowWindow( hwnd, ShowCmd );
 
         if (WaitForEditor && EditorStopEvent != NULL) {
-            WaitForSingleObject( EditorStopEvent, -1 );
+            WaitForSingleObject( EditorStopEvent, (DWORD)-1 );
             CloseHandle( EditorStopEvent );
             }
         }
@@ -244,4 +294,39 @@ PassArgsAndEnvironmentToEditor(
     ResetEvent( EditorStopEvent );
     return EditorStopEvent;
 }
-
+
+
+HWND
+GetWindowHandleOfConsole( void )
+{
+    #define MY_BUFSIZE 1024                 // buffer size for console window titles
+    HWND hwndFound;                         // this is what we return to the caller
+    char pszNewWindowTitle[ MY_BUFSIZE ];   // contains fabricated WindowTitle
+    char pszOldWindowTitle[ MY_BUFSIZE ];   // contains original WindowTitle
+
+    // fetch current window title
+
+    GetConsoleTitle( pszOldWindowTitle, MY_BUFSIZE );
+
+    // format a "unique" NewWindowTitle
+
+    wsprintf( pszNewWindowTitle, "%d/%d", GetTickCount(), GetCurrentProcessId() );
+
+    // change current window title
+
+    SetConsoleTitle( pszNewWindowTitle );
+
+    // insure window title has been updated
+
+    Sleep(40);
+
+    // look for NewWindowTitle
+
+    hwndFound = FindWindow( NULL, pszNewWindowTitle );
+
+    // restore original window title
+
+    SetConsoleTitle( pszOldWindowTitle );
+
+    return( hwndFound );
+}

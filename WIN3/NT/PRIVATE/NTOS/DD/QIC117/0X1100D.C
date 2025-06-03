@@ -14,6 +14,21 @@
 * HISTORY:
 *		$Log:   J:\se.vcs\driver\q117cd\src\0x1100d.c  $
 *	
+*	   Rev 1.9   04 Oct 1995 10:58:22   boblehma
+*	IOMega 3010 bug fix code merge
+*	
+*	   Rev 1.10   27 Jun 1995 12:33:42   BOBLEHMA
+*	Removed call to vqd_PrepareIomega3010PhysRev.  Firmware bug is now fixed
+*	by called stop tape instead of pause tape in the cqd_ProcessFRB function.
+*	
+*	   Rev 1.9   30 Jan 1995 14:23:58   BOBLEHMA
+*	Changed device_descriptor.version to cqd_context->firmware_version.
+*	
+*	   Rev 1.8   27 Jan 1995 13:22:16   BOBLEHMA
+*	Added a call to cqd_PrepareIomega3010PhysRev before the call to
+*	the firmware function Physical reverse.  Note that this function
+*	is a NOP if the drive is not an Iomega 3010.
+*	
 *	   Rev 1.7   10 May 1994 11:39:34   KEVINKES
 *	Removed the eject_pending code.
 *
@@ -44,6 +59,7 @@
 #define FCT_ID 0x1100d
 #include "include\public\adi_api.h"
 #include "include\public\frb_api.h"
+#include "include\public\vendor.h"
 #include "include\private\kdi_pub.h"
 #include "include\private\cqd_pub.h"
 #include "q117cd\include\cqd_defs.h"
@@ -88,7 +104,7 @@ dStatus cqd_CmdUnloadTape
       /* Park the head if the tape is not referenced and the drive is Jumbo */
       /* A. (Do nothing if tape not referenced and the drive is Jumbo B). */
 
-      if (cqd_context->device_descriptor.version < FIRM_VERSION_60) {
+      if (cqd_context->firmware_version < FIRM_VERSION_60) {
 
             if ((status = cqd_SetDeviceMode(cqd_context, DIAGNOSTIC_1_MODE)) != DONT_PANIC) {
 
@@ -134,9 +150,9 @@ dStatus cqd_CmdUnloadTape
 
    }
 
-   if ((status = cqd_SendByte(cqd_context, FW_CMD_PHYSICAL_REV)) != DONT_PANIC) {
+ 	if ((status = cqd_SendByte(cqd_context, FW_CMD_PHYSICAL_REV)) != DONT_PANIC) {
 
-      return status;
+     	return status;
 
    }
 

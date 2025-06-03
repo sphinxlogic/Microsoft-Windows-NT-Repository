@@ -480,20 +480,17 @@ Return Value:
 
     }
 
-    for (;;) {
-
+    for (;;)
+    {
         if (!(IMask & (SCB_STATUS_FRAME_RECEIVED |
                        SCB_STATUS_CU_STOPPED |
                        SCB_STATUS_COMMAND_COMPLETE |
-                       SCB_STATUS_RU_STOPPED))) {
-
-            READ_ADAPTER_REGISTER(Adapter,
-                                  OFFSET_SCBSTAT,
-                                  &IMaskTemp
-                                 );
-
-            if ((IMaskTemp & RUS_READY) && Adapter->RuRestarted) {
-
+                       SCB_STATUS_RU_STOPPED))
+        )
+        {
+            READ_ADAPTER_REGISTER(Adapter, OFFSET_SCBSTAT, &IMaskTemp);
+            if ((IMaskTemp & RUS_READY) && Adapter->RuRestarted)
+            {
                 //
                 // We have completed restarting the RU
                 //
@@ -505,8 +502,8 @@ Return Value:
 
             IMaskTemp &= SCB_STATUS_INT_MASK;
 
-            if (IMaskTemp != 0) {
-
+            if (IMaskTemp != 0)
+            {
                 IF_LOG('X');
                 IF_LOG((UCHAR)(IMaskTemp >> 8));
 
@@ -515,38 +512,28 @@ Return Value:
                 //
                 // Ack interrupt
                 //
-
-                WRITE_ADAPTER_REGISTER(
-                            Adapter,
-                            OFFSET_SCBCMD,
-                            IMaskTemp
-                            );
+                WRITE_ADAPTER_REGISTER(Adapter, OFFSET_SCBCMD, IMaskTemp);
 
                 ELNK_CA;
 
                 IMask |= IMaskTemp;
-
             }
-
         }
 
         //
         // Get status for current command block
         //
 
-        if (Adapter->FirstPendingCommand != ELNK_EMPTY) {
-
+        if (Adapter->FirstPendingCommand != ELNK_EMPTY)
+        {
             CommandBlock = (PTRANSMIT_CB)
                     Adapter->TransmitInfo[Adapter->FirstPendingCommand].CommandBlock;
 
-            NdisReadRegisterUshort(
-                        &CommandBlock->Status,
-                        &CardStatus
-                        );
-        } else {
-
+            NdisReadRegisterUshort(&CommandBlock->Status, &CardStatus);
+        }
+        else
+        {
             CardStatus = CB_STATUS_FREE;
-
         }
 
         //
@@ -623,39 +610,35 @@ Return Value:
         // Process the command complete interrupts if there are any.
         //
 
-        do {
-
-            if (Adapter->FirstPendingCommand != ELNK_EMPTY) {
-
+        do
+        {
+            if (Adapter->FirstPendingCommand != ELNK_EMPTY)
+            {
                 CommandBlock = (PTRANSMIT_CB)
                         Adapter->TransmitInfo[Adapter->FirstPendingCommand].CommandBlock;
 
-                NdisReadRegisterUshort(
-                            &CommandBlock->Status,
-                            &CardStatus
-                            );
+                NdisReadRegisterUshort(&CommandBlock->Status, &CardStatus);
 
                 if (!(CardStatus & CB_STATUS_BUSY) &&
                      (CardStatus != CB_STATUS_FREE)
-                   )  {
-
+                )
+                {
+                    IMask &= ~(SCB_STATUS_COMMAND_COMPLETE | SCB_STATUS_CU_STOPPED);
                     ElnkProcessCommandInterrupts(Adapter);
-
-                } else {
-
+                }
+                else
+                {
                     IMask &= ~(SCB_STATUS_COMMAND_COMPLETE | SCB_STATUS_CU_STOPPED);
                     IF_LOG('y');
                     IF_LOG((UCHAR)Adapter->FirstPendingCommand);
                     break;
-
                 }
-
-            } else {
-
+            }
+            else
+            {
                 IMask &= ~(SCB_STATUS_COMMAND_COMPLETE | SCB_STATUS_CU_STOPPED);
                 IF_LOG('Y');
                 break;
-
             }
 
             //
@@ -1387,7 +1370,6 @@ Return Value:
             );
 
         return;
-
     }
 
     Adapter->SendInterrupt = TRUE;

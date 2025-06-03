@@ -1,4 +1,17 @@
 "/*\n\
+** FreeStack\n\
+**\tFrees per thread stack\n\
+*/\n\
+void FreeStack()\n\
+{\n\
+\tPAPIDATASTACK pAPIDataStack ;\n\
+\n\
+\tpAPIDataStack = (PAPIDATASTACK)TlsGetValue(dwTlsIndex);\n\
+\tif (pAPIDataStack != NULL)\n\
+\t\tLocalFree((HLOCAL) pAPIDataStack );\n\
+}\n\
+\n\
+/*\n\
 ** PushStack\n\
 **\tPush a value onto the stack\n\
 */\n\
@@ -42,4 +55,4 @@ DWORD GetStackDepth() {\n\
 \t  return pAPIDataStack->wTop ;\n\
 \telse\n\
 \t  return (DWORD)-1L ;\n\
-}"
+}\n"

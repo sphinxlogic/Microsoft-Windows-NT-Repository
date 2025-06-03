@@ -53,7 +53,7 @@ int tailmatch	(char *, char *);
  *
  ************************************************************************/
 
-int crack_cmd(struct cmdtab *tab, char *string, char *(*next)(void), int dup)
+int crack_cmd(struct cmdtab *tab, char *string, char *(*next)(void), int _dup)
 {
     register char	*format, *str;
     if (!string) {
@@ -70,9 +70,9 @@ int crack_cmd(struct cmdtab *tab, char *string, char *(*next)(void), int dup)
  	    /*  optional space between flag and parameter  */
 	    case '#':
 		if ( !*str ) {
-		    substr(tab, (*next)(), dup);
+		    substr(tab, (*next)(), _dup);
 		} else {
-		    substr(tab, str, dup);
+		    substr(tab, str, _dup);
 		}
 		return(tab->retval);
 		break;
@@ -80,7 +80,7 @@ int crack_cmd(struct cmdtab *tab, char *string, char *(*next)(void), int dup)
 	    /*  no space allowed between flag and parameter  */
 	    case '*':
 		if (*str && tailmatch(format, str))
-		    substr(tab, str, dup);
+		    substr(tab, str, _dup);
 		else
 		    goto notmatch;
 		return(tab->retval);
@@ -91,9 +91,9 @@ int crack_cmd(struct cmdtab *tab, char *string, char *(*next)(void), int dup)
 		if (*str) {			/*  str left, no good  */
 		    goto notmatch;
 		} else if (tab->type & TAKESARG) { /*  if it takes an arg  */
-		    substr(tab, (*next)(), dup);
+		    substr(tab, (*next)(), _dup);
 		} else {	/*  doesn't want an arg  */
-		    substr(tab, (char *)0, dup);
+		    substr(tab, (char *)0, _dup);
 		}
 		return(tab->retval);
 		break;
@@ -122,7 +122,7 @@ notmatch:
 /************************************************************************/
 /* set the appropriate flag(s).  called only when we know we have a match */
 /************************************************************************/
-void substr(struct cmdtab *tab, register char *str, int dup)
+void substr(struct cmdtab *tab, register char *str, int _dup)
 {
     register struct subtab *q;
     LIST * list;
@@ -140,7 +140,7 @@ void substr(struct cmdtab *tab, register char *str, int dup)
 	    /* before we print it out in the error message get rid of the
 	     * arg specifier (e.g. #) at the end of the format.
 	     */
-	    string = strdup(tab->format);
+	    string = _strdup(tab->format);
 	    string[strlen(string)-1] = '\0';
 	    Msg_Temp = GET_MSG(1046);
 	    SET_MSG (Msg_Text, Msg_Temp, string,*(char **)(tab->flag),str);
@@ -149,7 +149,7 @@ void substr(struct cmdtab *tab, register char *str, int dup)
 	}
 	/* fall through */
     case STRING:
-	*(char **)(tab->flag) = (dup ? strdup(str) : str);
+	*(char **)(tab->flag) = (_dup ? _strdup(str) : str);
 	return;
     case NUMBER:
 	*(int *)(tab->flag) = getnumber (str);
@@ -157,7 +157,7 @@ void substr(struct cmdtab *tab, register char *str, int dup)
     case PSHSTR:
 	list = (LIST * )(tab->flag);
 	if (list->li_top > 0)
-	    list->li_defns[--list->li_top] = (dup ? strdup(str) : str);
+	    list->li_defns[--list->li_top] = (_dup ? _strdup(str) : str);
 	else {
 	    Msg_Temp = GET_MSG(1047);
 	    SET_MSG (Msg_Text, Msg_Temp, tab->format, str);

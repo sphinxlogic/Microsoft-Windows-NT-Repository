@@ -60,11 +60,9 @@ char *argv[];
 
     RtlInitString(&PagingFileName, PagingFile);
 
-    MinPagingFileSize = RtlEnlargedIntegerMultiply(FileSizeInMegabytes,0x100000);
+    MinPagingFileSize.QuadPart = (ULONGLONG)FileSizeInMegabytes * (ULONGLONG)0x100000;
 
-    MaxPagingFileSize = RtlLargeIntegerAdd (MinPagingFileSize,
-                            RtlConvertUlongToLargeInteger (50*1024*1024));
-
+    MaxPagingFileSize.QuadPart = MinPagingFileSize.QuadPart + (ULONGLONG)(50*1024*1024);
 
     RtlAnsiStringToUnicodeString(&Unicode,(PANSI_STRING)&PagingFileName,TRUE);
 

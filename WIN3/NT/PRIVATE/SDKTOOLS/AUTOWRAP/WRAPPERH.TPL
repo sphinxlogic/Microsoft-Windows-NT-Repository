@@ -16,12 +16,19 @@
 **\n\
 **\n\
 */\n\
+\n\
+#if defined(ALPHA)\n\
+typedef LONGLONG RETVAL ;\n\
+#else\n\
+typedef ULONG RETVAL ;\n\
+#endif\n\
+\n\
 typedef struct _apicalldata\n\
 {\n\
-	 DWORD	dwID ;\n\
-    DWORD	dwCallLevel ;\n\
-    DWORD	dwUserData ;\n\
-    DWORD	dwRet ;\n\
+	 DWORD  dwID ;\n\
+    DWORD       dwCallLevel ;\n\
+    DWORD       dwUserData ;\n\
+    RETVAL      Ret ;\n\
     DWORD   dwReturnAddress ;\n\
     BYTE   *pArgStack ;\n\
 } APICALLDATA, *PAPICALLDATA ;\n\

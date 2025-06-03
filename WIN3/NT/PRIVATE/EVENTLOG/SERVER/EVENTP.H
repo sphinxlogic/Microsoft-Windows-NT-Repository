@@ -18,7 +18,9 @@ Revision History:
 
 --*/
 
+#ifndef _CAIRO_
 #define UNICODE             // This service uses unicode APIs
+#endif // _CAIRO_
 
 #include <nt.h>
 #include <ntrtl.h>
@@ -33,6 +35,10 @@ Revision History:
 #include <lmerr.h>
 #include <rpc.h>
 #include <svcs.h>     // SVCS_ENTRY_POINT, PSVCS_GLOBAL_DATA
+
+#ifdef _CAIRO_
+#include <wtypes.h>
+#endif // _CAIRO_
 
 #include <elf.h>
 

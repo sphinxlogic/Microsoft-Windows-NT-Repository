@@ -76,9 +76,193 @@ ULONG HalpProfileInterval = PROFILE_TIMER_1600NS_TICKS * PROFILE_INTERVALS_PER_1
 
 ULONG HalpNumberOfTicks = 1;
 
+//
+// Define the profile interrupt object.
+//
+
+PKINTERRUPT HalpProfileInterruptObject;
+
+//
+// Declare profile interrupt handler.
+//
+
+BOOLEAN
+HalpProfileInterrupt(
+    PKSERVICE_ROUTINE InterruptRoutine,
+    PVOID ServiceContext,
+    PKTRAP_FRAME TrapFrame
+    );
+
+//
+// Function prototypes.
+//
+
+BOOLEAN
+HalQueryProfileInterval(
+    IN KPROFILE_SOURCE Source
+    );
+
+NTSTATUS
+HalSetProfileSourceInterval(
+    IN KPROFILE_SOURCE ProfileSource,
+    IN OUT ULONG *Interval
+    );
+
+//
+// Function definitions.
+//
+
+
+NTSTATUS
+HalpProfileSourceInformation (
+    OUT PVOID   Buffer,
+    IN  ULONG   BufferLength,
+    OUT PULONG  ReturnedLength
+    )
+/*++
+
+Routine Description:
+
+    Returns the HAL_PROFILE_SOURCE_INFORMATION for this processor.
+
+Arguments:
+
+    Buffer - output buffer
+    BufferLength - length of buffer on input
+    ReturnedLength - The length of data returned
+
+Return Value:
+
+    STATUS_SUCCESS
+    STATUS_BUFFER_TOO_SMALL - The ReturnedLength contains the buffersize
+        currently needed.
+
+--*/
+{
+   PHAL_PROFILE_SOURCE_INFORMATION SourceInfo;
+   NTSTATUS Status;
+
+
+   if (BufferLength != sizeof(HAL_PROFILE_SOURCE_INFORMATION)) {
+       Status = STATUS_INFO_LENGTH_MISMATCH;
+       return Status;
+   }
+
+   SourceInfo = (PHAL_PROFILE_SOURCE_INFORMATION)Buffer;
+   SourceInfo->Supported = HalQueryProfileInterval(SourceInfo->Source);
+
+   if (SourceInfo->Supported) {
+       SourceInfo->Interval = HalpProfileInterval * HalpNumberOfTicks;
+   }
+
+   Status = STATUS_SUCCESS;
+   return Status;
+}
+
+
+NTSTATUS
+HalpProfileSourceInterval (
+    OUT PVOID   Buffer,
+    IN  ULONG   BufferLength
+    )
+/*++
+
+Routine Description:
+
+    Returns the HAL_PROFILE_SOURCE_INTERVAL for this processor.
+
+Arguments:
+
+    Buffer - output buffer
+    BufferLength - length of buffer on input
+
+Return Value:
+
+    STATUS_SUCCESS
+    STATUS_BUFFER_TOO_SMALL - The ReturnedLength contains the buffersize
+        currently needed.
+
+--*/
+{
+   PHAL_PROFILE_SOURCE_INTERVAL Interval;
+   NTSTATUS Status;
+
+
+   if (BufferLength != sizeof(HAL_PROFILE_SOURCE_INTERVAL)) {
+       Status = STATUS_INFO_LENGTH_MISMATCH;
+       return Status;
+   }
+
+   Interval = (PHAL_PROFILE_SOURCE_INTERVAL)Buffer;
+   Status = HalSetProfileSourceInterval(Interval->Source,
+                                        &Interval->Interval);
+   return Status;
+}
+
+
+VOID
+HalpInitializeProfiler(
+    VOID
+    )
+/*++
+
+Routine Description:
+
+    Initialize the profiler by setting initial values and connecting
+    the profile interrupt.
+
+Arguments:
+
+    InterfaceType - Supplies the interface type of the bus on which the
+                    profiler will be connected.
+
+    BusNumber - Supplies the number of the bus on which the profiler will
+                be connected.
+
+    BusInterruptLevel - Supplies the bus interrupt level to connect the
+                profile interrupt.
+
+Return Value:
+
+    None.
+
+--*/
+{
+    KAFFINITY Affinity;
+    KIRQL Irql;
+    ULONG Vector;
+
+    //
+    // Get the interrupt vector and synchronization Irql.
+    //
+
+    Vector = HalGetInterruptVector( Eisa,
+                                    0,
+                                    0,
+                                    0,
+                                    &Irql,
+                                    &Affinity );
+
+    IoConnectInterrupt( &HalpProfileInterruptObject,
+                        (PKSERVICE_ROUTINE)HalpProfileInterrupt,
+                        NULL,
+                        NULL,
+                        Vector,
+                        Irql,
+                        Irql,
+                        Latched,
+                        FALSE,
+                        Affinity,
+                        FALSE );
+
+    return;
+}
+
 
 BOOLEAN
 HalpProfileInterrupt(
+    PKSERVICE_ROUTINE InterruptRoutine,
+    PVOID ServiceContext,
     PKTRAP_FRAME TrapFrame
     )
 /*++
@@ -91,6 +275,10 @@ Routine Description:
     system profile time.
 
 Arguments:
+
+    InterruptRoutine - not used.
+
+    ServiceContext - not used.
 
     TrapFrame - Supplies a pointer to the trap frame for the profile interrupt.
 
@@ -105,7 +293,7 @@ Returned Value:
     // See if profiling is active
     //
 
-    if ( PCR->ProfileCount ) {
+    if ( HAL_PCR->ProfileCount ) {
 
         //
         // Check to see if the interval has expired
@@ -113,10 +301,10 @@ Returned Value:
         // and reset the count, else return.
 
 
-        if ( !(--PCR->ProfileCount) ) {
+        if ( !(--HAL_PCR->ProfileCount) ) {
 
             KeProfileInterrupt( TrapFrame );
-            PCR->ProfileCount = HalpNumberOfTicks;
+            HAL_PCR->ProfileCount = HalpNumberOfTicks;
 
         }
     }
@@ -124,6 +312,82 @@ Returned Value:
     return TRUE;
 
 }
+
+
+BOOLEAN
+HalQueryProfileInterval(
+    IN KPROFILE_SOURCE ProfileSource
+    )
+
+/*++
+
+Routine Description:
+
+    Given a profile source, returns whether or not that source is
+    supported.
+
+Arguments:
+
+    Source - Supplies the profile source
+
+Return Value:
+
+    TRUE - Profile source is supported
+
+    FALSE - Profile source is not supported
+
+--*/
+
+{
+  if (ProfileSource == ProfileTime)
+    return(TRUE);
+  else
+    return(FALSE);
+}
+
+
+NTSTATUS
+HalSetProfileSourceInterval(
+    IN KPROFILE_SOURCE ProfileSource,
+    IN OUT ULONG *Interval
+    )
+
+/*++
+
+Routine Description:
+
+    Sets the profile interval for a specified profile source
+
+Arguments:
+
+    ProfileSource - Supplies the profile source
+
+    Interval - Supplies the specified profile interval
+               Returns the actual profile interval
+
+Return Value:
+
+    NTSTATUS
+
+--*/
+
+{
+  if (ProfileSource != ProfileTime)
+    return(STATUS_NOT_IMPLEMENTED);
+
+  //
+  // Set the interval.
+  //
+
+  *Interval = HalSetProfileInterval(*Interval);
+
+  //
+  // We're done.
+  //
+
+  return(STATUS_SUCCESS);
+}
+
 
 ULONG
 HalSetProfileInterval (
@@ -159,7 +423,7 @@ Return Value:
 
 VOID
 HalStartProfileInterrupt (
-    ULONG Reserved
+    KPROFILE_SOURCE ProfileSource
     )
 
 /*++
@@ -183,6 +447,9 @@ Return Value:
 
 {
 
+    if (ProfileSource != ProfileTime)
+      return;
+
     //
     // Assume that we only need 1 clock tick before we collect data
     //
@@ -201,8 +468,7 @@ Return Value:
     // Set current profile count and interval.
     //
 
-    PCR->ProfileCount = HalpNumberOfTicks;
-    PCR->ProfileInterval = HalpProfileInterval;
+    HAL_PCR->ProfileCount = HalpNumberOfTicks;
 
     PIC_PROFILER_ON(HalpProfileInterval);
 
@@ -212,7 +478,7 @@ Return Value:
 
 VOID
 HalStopProfileInterrupt (
-    ULONG Reserved
+    KPROFILE_SOURCE ProfileSource
     )
 
 /*++
@@ -236,15 +502,16 @@ Return Value:
 
 {
 
+    if (ProfileSource != ProfileTime)
+      return;
+  
     //
     // Clear the current profile count and turn off the profiler timer.
     //
 
-    PCR->ProfileCount = 0;
+    HAL_PCR->ProfileCount = 0;
 
     PIC_PROFILER_OFF();
 
     return;
 }
-
-

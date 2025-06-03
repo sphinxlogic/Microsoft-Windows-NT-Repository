@@ -28,6 +28,8 @@ Revision History:
 #include <crypt.h>
 #include <lmcons.h>
 #include "changepw.h"
+#include <netlibnt.h>
+#include <smbgtpt.h>
 
 
 /////////////////////////////////////////////////////////////////////////////
@@ -100,7 +102,7 @@ Return Value:
     SAM_HANDLE                  UserHandle = NULL;
 
     //
-    // We're going to open the local account domain.  The name of this
+    // We're going to _open the local account domain.  The name of this
     // domain is "Account" on a WinNT machine, or the name of the
     // primary domain on a LanManNT machine.  Figure out the product
     // type, assuming WinNT if RtlGetNtProductType fails.
@@ -432,6 +434,72 @@ Cleanup:
     return RtlNtStatusToDosError(Status);
 }
 
+NTSTATUS
+XsSamOEMChangePasswordUser2_P (
+    API_HANDLER_PARAMETERS
+    )
+
+/*++
+
+Routine Description:
+
+    This routine handles a call to SamrOemChangePasswordUser2 coming in
+        from Win 95 clients
+
+Arguments:
+
+    API_HANDLER_PARAMETERS - information about the API call. See
+        XsTypes.h for details.
+
+Return Value:
+
+    NTSTATUS - STATUS_SUCCESS or reason for failure.
+
+--*/
+
+{
+    PXS_SAMOEMCHGPASSWORDUSER2_P  parameters = Parameters;
+    STRING                        UserName;
+    SAMPR_ENCRYPTED_USER_PASSWORD EncryptedUserPassword;
+    ENCRYPTED_LM_OWF_PASSWORD     EncryptedOwfPassword;
+    NTSTATUS                      ntstatus;
+
+    API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
+
+    if( SmbGetUshort( &parameters->BufLen ) !=
+        sizeof( EncryptedUserPassword) + sizeof( EncryptedOwfPassword ) ) {
+
+            Header->Status = ERROR_INVALID_PARAMETER;
+            return STATUS_SUCCESS;
+    }
+
+    RtlCopyMemory( &EncryptedUserPassword,
+                   parameters->Buffer,
+                   sizeof( EncryptedUserPassword ) );
+
+    RtlCopyMemory( &EncryptedOwfPassword,
+                   parameters->Buffer + sizeof( EncryptedUserPassword ),
+                   sizeof( EncryptedOwfPassword ) );
+
+    UserName.Buffer = parameters->UserName;
+    UserName.Length = strlen( UserName.Buffer );
+    UserName.MaximumLength = UserName.Length;
+
+    ntstatus = SamiOemChangePasswordUser2(
+            NULL,
+            &UserName,
+            &EncryptedUserPassword,
+            &EncryptedOwfPassword );
+
+    if( ntstatus == STATUS_NOT_SUPPORTED ) {
+        Header->Status = NERR_InvalidAPI;
+    } else {
+        Header->Status = (WORD)NetpNtStatusToApiStatus( ntstatus );
+    }
+
+    return STATUS_SUCCESS;
+
+} // XsSamOEMChangePasswordUser2_P
 
 
 /////////////////////////////////////////////////////////////////////////////

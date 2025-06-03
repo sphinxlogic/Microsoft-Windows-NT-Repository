@@ -138,7 +138,7 @@ int is_other_resource(TCHAR *  x)
 
 int IsNetname(TCHAR *  x)
 {
-    return (!I_MNetNameValidate(NULL, x, NAMETYPE_SHARE, LM2X_COMPATIBLE));
+    return (!I_MNetNameValidate(NULL, x, NAMETYPE_SHARE, 0));
 }
 
 
@@ -438,7 +438,7 @@ int IsMsgname(TCHAR * x)
 {
     if (!_tcscmp(x, TEXT("*")))
 	return 1;
-    return !(I_MNetNameValidate(NULL, x, NAMETYPE_MESSAGE, LM2X_COMPATIBLE));
+    return !(I_MNetNameValidate(NULL, x, NAMETYPE_COMPUTER, LM2X_COMPATIBLE));
 }
 
 int IsPassword(TCHAR * x)
@@ -452,7 +452,14 @@ int IsWildCard(TCHAR * x)
 {
     if (x == NULL)
         return 0 ;
-    return (!_tcscmp(x, TEXT("*"))) ;
+    return ( (!_tcscmp(x, TEXT("*"))) || (!_tcscmp(x, TEXT("?"))) ) ;
+}
+
+int IsQuestionMark(TCHAR * x)
+{
+    if (x == NULL)
+        return 0 ;
+    return (!_tcscmp(x, TEXT("?"))) ;
 }
 
 #ifdef OS2

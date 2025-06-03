@@ -91,7 +91,7 @@ class ATTRIB : public PROGRAM {
 		FLAG_ARGUMENT	_FlagRemoveArchiveAttribute;
 		FLAG_ARGUMENT	_FlagRecurseDirectories;
 		FLAG_ARGUMENT	_FlagDisplayHelp;
-		STRING_ARGUMENT	_FileNameArgument;
+		PATH_ARGUMENT	_FileNameArgument;
 
 		PFSN_DIRECTORY	_InitialDirectory;
 

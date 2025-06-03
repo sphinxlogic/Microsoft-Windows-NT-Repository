@@ -33,7 +33,9 @@
         .extern KeMaximumIncrement      4
         .extern KeTickCount             3 * 4
         .extern KeTimeAdjustment        4
-        .extern KiClockQuantumDecrement 4
+        .extern KiAdjustDpcThreshold    4
+        .extern KiIdealDpcRate          4
+        .extern KiMaximumDpcQueueDepth  4
         .extern KiProfileListHead       2 * 4
         .extern KiProfileLock           4
         .extern KiTickOffset            4
@@ -74,27 +76,18 @@
 //
 // Update the interrupt time.
 //
-// N.B. The interrupt time is updated in a very strict manner so that an
-// interlock does not have to be used in an MP system.
+
+        ld      t8,KiPcr2 + Pc2InterruptTime // get interrupt time
+        daddu   t8,t8,a1                // add time increment value
+        sd      t8,KiPcr2 + Pc2InterruptTime // store interrupt time
+
+//
+// Update tick offset and check for "system clock" tick.
 //
 
         lw      a2,KiTickOffset         // get tick offset value
-        lw      t8,KiPcr2 + Pc2InterruptTime + 0 // get low interrupt time
-        lw      t9,KiPcr2 + Pc2InterruptTime + 4 // get high interrupt time
-        addu    t8,t8,a1                // add time increment value
-        sltu    t0,t8,a1                // set carry out of low time
-        addu    t9,t9,t0                // increment high system time
-
-        .set    noreorder
-        .set    noat
-        sw      t9,KiPcr2 + Pc2InterruptTime + 8 // store high 2 system time
-        sw      t8,KiPcr2 + Pc2InterruptTime + 0 // store low system time
-        sw      t9,KiPcr2 + Pc2InterruptTime + 4 // store high 1 system time
-        .set    at
-        .set    reorder
-
         sub     a2,a2,a1                // subtract time increment
-        lw      v0,KeTickCount + 0      // get low tick count
+        ld      v0,KeTickCount          // get low and high 1 tick count
         la      t0,KiTimerTableListHead // get base address of timer table
         sw      a2,KiTickOffset         // store tick offset value
         bgtz    a2,10f                  // if gtz, tick not completed
@@ -103,43 +96,29 @@
 //
 // Update system time.
 //
-// N.B. The system time is updated in a very strict manner so that an
-// interlock does not have to be used in an MP system.
-//
 
         lw      t1,KeTimeAdjustment     // get time adjustment value
-        lw      t2,KiPcr2 + Pc2SystemTime + 0 // get low system time
-        lw      t3,KiPcr2 + Pc2SystemTime + 4 // get high system time
-        addu    t2,t2,t1                // add time increment value
-        sltu    t1,t2,t1                // set carry out of low time
-        addu    t3,t3,t1                // increment high system time
-
-        .set    noreorder
-        .set    noat
-        sw      t3,KiPcr2 + Pc2SystemTime + 8 // store high 2 system time
-        sw      t2,KiPcr2 + Pc2SystemTime + 0 // store low system time
-        sw      t3,KiPcr2 + Pc2SystemTime + 4 // store high 1 system time
-        .set    at
-        .set    reorder
+        ld      t2,KiPcr2 + Pc2SystemTime // get low and high 1 system time
+        daddu   t2,t2,t1                // add time increment value
+        sd      t2,KiPcr2 + Pc2SystemTime // store low nad high 1 system time
 
 //
 // Update the tick count.
 //
 // N.B. The tick count is updated in a very strict manner so that an
-// interlock does not have to be used in an MP system.
+//      interlock does not have to be used in an MP system. This is
+//      required for backward compatibility with old drivers and file
+//      systems.
 //
 
-        lw      t3,KeTickCount + 4      // get high tick count
-        addu    t2,v0,1                 // increment tick count
-        sltu    t1,t2,1                 // set carry out of low tick count
-        addu    t3,t3,t1                // add carry to high tick count
+        daddu   t2,v0,1                 // increment tick count
+        dsrl    t3,t2,32                // get high half of tick count
         sw      t2,KiPcr2 + Pc2TickCountLow(zero) // store low tick count
 
         .set    noreorder
         .set    noat
         sw      t3,KeTickCount + 8      // store high 2 tick count
-        sw      t2,KeTickCount + 0      // store low tick count
-        sw      t3,KeTickCount + 4      // store high 1 tick count
+        sd      t2,KeTickCount          // store low and high 1 tick count
         .set    at
         .set    reorder
 
@@ -167,11 +146,9 @@
 //      displacement calculation.
 //
 
-        lw      t5,TiDueTime + TmHighTime - TiTimerListEntry(t3) //
-        lw      t4,TiDueTime + TmLowTime - TiTimerListEntry(t3) //
-        bgtu    t5,t9,5f                // if gtu, timer has not expired
-        bgtu    t9,t5,20f               // if gtu, timer has expired
-        bleu    t4,t8,20f               // if leu, timer has expired
+        ld      t4,TiDueTime - TiTimerListEntry(t3) // get timer due time
+        sltu    t9,t8,t4                // check if timer is due
+        beq     zero,t9,20f             // if eq, timer has expired
 
 //
 // Check to determine if a timer has expired at the next hand value.
@@ -191,11 +168,9 @@
 //      displacement calculation.
 //
 
-        lw      t5,TiDueTime + TmHighTime - TiTimerListEntry(t3) //
-        lw      t4,TiDueTime + TmLowTime - TiTimerListEntry(t3) //
-        bgtu    t5,t9,40f               // if gtu, timer has not expired
-        bgtu    t9,t5,20f               // if gtu, timer has expired
-        bgtu    t4,t8,40f               // if gtu, timer has not expired
+        ld      t4,TiDueTime - TiTimerListEntry(t3) // get timer due time
+        sltu    t9,t8,t4                // check if timer is due
+        bne     zero,t9,40f             // if ne, timer has not expired
 
 //
 // Put timer expiration DPC in the system DPC list and initiate a dispatch
@@ -203,12 +178,12 @@
 //
 
 20:     la      t0,KiTimerExpireDpc     // get expiration DPC address
-        lw      v1,KiPcr + PcPrcb(zero) // get address of PRCB
+        lw      a1,KiPcr + PcPrcb(zero) // get address of PRCB
 
         DISABLE_INTERRUPTS(t2)          // disable interrupts
 
-        addu    t3,v1,PbDpcListHead     // compute DPC listhead address
-        addu    v1,v1,PbDpcLock         // compute DPC lock address
+        addu    t3,a1,PbDpcListHead     // compute DPC listhead address
+        addu    v1,a1,PbDpcLock         // compute DPC lock address
 
 #if !defined(NT_UP)
 
@@ -230,14 +205,15 @@
         sw      t0,LsFlink(t4)          // set next link in old last entry
         sw      t3,LsFlink(t0)          // set address of next entry
         sw      t4,LsBlink(t0)          // set address of previous entry
+        lw      t5,PbDpcQueueDepth(a1)  // increment DPC queue depth
+        addu    t5,t5,1                 //
+        sw      t5,PbDpcQueueDepth(a1)  //
 
         .set    noreorder
         .set    noat
         mfc0    t3,cause                // get exception cause register
-        nop                             // fill for R3000
         or      t3,t3,DISPATCH_INTERRUPT // merge dispatch interrut request
         mtc0    t3,cause                // set exception cause register
-        nop                             // 1 cycle hazzard
         .set    at
         .set    reorder
 
@@ -251,8 +227,9 @@
 
         ENABLE_INTERRUPTS(t2)           // enable interrupts
 
-40:     blez    a2,KeUpdateRunTime      // if lez, full tick
+40:     blez    a2,50f                  // if lez, full tick
         j       ra                      // return
+50:     j       KeUpdateRunTime
 
         .end    KeUpdateSystemTime
 
@@ -289,6 +266,7 @@
         lw      t2,ThApcState + AsProcess(t0) // get address of current process
         lw      t3,TrPsr(a0)            // get saved processor status
         lw      t5,KiPcr + PcPrcb(zero) // get current processor block address
+        lw      t7,PbDpcRoutineActive(t5) // get DPC active flag
         and     t4,t3,0x1 << PSR_PMODE  // isolate previous processor mode
         bne     zero,t4,30f             // if ne, previous mode was user
 
@@ -300,7 +278,6 @@
 //
 
         lbu     t6,TrOldIrql(a0)        // get previous IRQL
-        lw      t7,KiPcr + PcDpcRoutineActive(zero) // get DPC active flag
         subu    t6,t6,DISPATCH_LEVEL    // compare IRQL with DPC level
         bltz    t6,20f                  // if ltz, increment thread kernel time
         addu    t8,t5,PbInterruptTime   // compute interrupt time address
@@ -359,6 +336,75 @@
         sw      t6,0(t9)                // store processor time
 
 //
+// Update the DPC request rate which is computed as the average between
+// the previous rate and the current rate.
+//
+
+        lw      a0,PbDpcCount(t5)       // get current DPC count
+        lw      a1,PbDpcLastCount(t5)   // get last DPC count
+        lw      a2,PbDpcRequestRate(t5) // get last DPC request rate
+        lw      a3,PbDpcQueueDepth(t5)  // get current DPC queue depth
+        sw      a0,PbDpcLastCount(t5)   // set last DPC count
+        subu    a0,a0,a1                // compute count during interval
+        addu    a0,a0,a2                // compute sum of current and last
+        srl     a0,a0,1                 // average current and last
+        sw      a0,PbDpcRequestRate(t5) // set new DPC request rate
+
+//
+// If the current DPC queue depth is not zero, a DPC routine is not active,
+// and a DPC interrupt has not been requested, then request a dispatch
+// interrupt, decrement the maximum DPC queue depth, and reset the threshold
+// counter if appropriate.
+//
+
+        lw      v0,PbDpcInterruptRequested(t5) // get DPC interrupt requested
+        beq     zero,a3,60f             // if eq, DPC queue is empty
+        or      v0,v0,t7                // merge DPC interrupt requested and active
+        bne     zero,v0,60f             // if ne, DPC active or interrupt requested
+
+        DISABLE_INTERRUPTS(a1)          // disable interrupt
+
+        .set    noreorder
+        .set    noat
+        mfc0    a2,cause                // get exception cause register
+        lw      v0,PbMaximumDpcQueueDepth(t5) // get maximum queue depth
+        lw      v1,KiIdealDpcRate       // get ideal DPC rate
+        or      a2,a2,DISPATCH_INTERRUPT // merge dispatch interrut request
+        mtc0    a2,cause                // set exception cause register
+        .set    at
+        .set    reorder
+
+        ENABLE_INTERRUPTS(a1)           // enable interrupts
+
+        sltu    a0,a0,v1                // test if current rate less than ideal
+        lw      a1,KiAdjustDpcThreshold // reset initial threshold counter
+        sw      a1,PbAdjustDpcThreshold(t5) //
+        beq     zero,a0,KiDecrementQuantum // if eq, rate greater or equal ideal
+        subu    v0,v0,1                 // decrement maximum DPC queue depth
+        beq     zero,v0,KiDecrementQuantum // if eq, current value is one
+        sw      v0,PbMaximumDpcQueueDepth(t5) // set new maximum DPC queue depth
+        b       KiDecrementQuantum      //
+
+//
+// The DPC queue is empty or a DPC routine is active or a DPC interrupt
+// has been requested. Count down the adjustment threshold and if the
+// count reaches zero, then increment the maximum DPC queue depth, but
+// no above the initial value and reset the adjustment threshold value.
+//
+
+60:     lw      a0,PbAdjustDpcThreshold(t5) // get adjustment threshold counter
+        lw      a1,PbMaximumDpcQueueDepth(t5) // get current maximum queue depth
+        lw      a2,KiMaximumDpcQueueDepth // get initial maximum queue depth
+        subu    a0,a0,1                 // decrement adjustment threshold counter
+        sw      a0,PbAdjustDpcThreshold(t5) //
+        bne     zero,a0,KiDecrementQuantum // if ne, adjustment counter not zero
+        lw      a0,KiAdjustDpcThreshold //set new DPC threshold counter
+        sw      a0,PbAdjustDpcThreshold(t5) //
+        beq     a1,a2,KiDecrementQuantum // if eq, currently at maximum depth
+        addu    a1,a1,1                 // increment current maximum queue depth
+        sw      a1,PbMaximumDpcQueueDepth(t5) // set new maximum DPC queue depth
+
+//
 // Decrement current thread quantum and check to determine if a quantum end
 // has occurred.
 //
@@ -366,8 +412,7 @@
         ALTERNATE_ENTRY(KiDecrementQuantum)
 
         lb      t6,ThQuantum(t0)        // get current thread quantum
-        lb      t7,KiClockQuantumDecrement // get quantum decrement value
-        sub     t6,t6,t7                // decrement current quantum
+        sub     t6,t6,CLOCK_QUANTUM_DECREMENT // decrement current quantum
         sb      t6,ThQuantum(t0)        // store thread quantum
         bgtz    t6,60f                  // if gtz, quantum remaining
 
@@ -376,7 +421,9 @@
 // processor.
 //
 
-        sw      sp,PbQuantumEnd(t5)     // set quantum end indicator
+        lw      t1,PbIdleThread(t5)     // get address of idle
+        beq     t0,t1,60f               // if eq, idle thread
+        sw      sp,KiPcr + PcQuantumEnd(zero) // set quantum end indicator
 
         DISABLE_INTERRUPTS(t0)          // disable interrupts
 
@@ -394,9 +441,16 @@
 60:     j       ra                      // return
 
         .end    KeUpdateRunTime
+
 
         SBTTL("Process Profile Interrupt")
 //++
+//
+// VOID
+// KeProfileInterruptWithSource (
+//    IN PKTRAP_FRAME TrapFrame,
+//    IN KPROFILE_SOURCE ProfileSource
+//    )
 //
 // VOID
 // KeProfileInterrupt (
@@ -415,6 +469,10 @@
 //
 //    TrapFrame (a0) - Supplies a pointer to a trap frame.
 //
+//    ProfileSource (a1) - Supplies the source of the profile interrupt
+//              KeProfileInterrupt is an alternate entry for backwards
+//              compatibility that sets the source to zero (ProfileTime)
+//
 // Return Value:
 //
 //    None.
@@ -428,6 +486,10 @@ PfRa:   .space  4                       // return address
 ProfileFrameLength:                     // profile frame length
 
         NESTED_ENTRY(KeProfileInterrupt, ProfileFrameLength, zero)
+
+        move    a1, zero                // set profile source to ProfileTime
+
+        ALTERNATE_ENTRY(KeProfileInterruptWithSource)
 
         subu    sp,sp,ProfileFrameLength // allocate stack frame
         sw      ra,PfRa(sp)             // save return address
@@ -444,11 +506,11 @@ ProfileFrameLength:                     // profile frame length
 
 #endif
 
-        lw      a1,KiPcr + PcCurrentThread(zero) // get current thread address
-        lw      a1,ThApcState + AsProcess(a1) // get address of current process
-        addu    a1,a1,PrProfileListHead  // compute profile listhead address
+        lw      a2,KiPcr + PcCurrentThread(zero) // get current thread address
+        lw      a2,ThApcState + AsProcess(a2) // get address of current process
+        addu    a2,a2,PrProfileListHead  // compute profile listhead address
         jal     KiProcessProfileList     // process the process profile list
-        la      a1,KiProfileListHead     // get profile listhead address
+        la      a2,KiProfileListHead     // get profile listhead address
         jal     KiProcessProfileList     // process the system profile list
 
 #if !defined(NT_UP)
@@ -469,6 +531,7 @@ ProfileFrameLength:                     // profile frame length
 // VOID
 // KiProcessProfileList (
 //    IN PKTRAP_FRAME TrapFrame,
+//    IN KPROFILE_SOURCE Source,
 //    IN PLIST_ENTRY ListHead
 //    )
 //
@@ -480,7 +543,9 @@ ProfileFrameLength:                     // profile frame length
 //
 //    TrapFrame (a0) - Supplies a pointer to a trap frame.
 //
-//    ListHead (a1) - Supplies a pointer to a profile list.
+//    Source (a1) - Supplies profile source to match
+//
+//    ListHead (a2) - Supplies a pointer to a profile list.
 //
 // Return Value:
 //
@@ -490,32 +555,38 @@ ProfileFrameLength:                     // profile frame length
 
         LEAF_ENTRY(KiProcessProfileList)
 
-        lw      a2,LsFlink(a1)          // get address of next entry
+        lw      t8,LsFlink(a2)          // get address of next entry
         li      a3,0xfffffffc           // set bucket mask value
-        beq     a1,a2,30f               // if eq, end of list
+        beq     a2,t8,30f               // if eq, end of list
         lw      t0,TrFir(a0)            // get interrupt PC address
+        lw      t6,KiPcr + PcSetMember(zero) // get current processor member
 
 //
 // Scan profile list and increment profile buckets as appropriate.
 //
 
-10:     lw      t1,PfRangeBase - PfProfileListEntry(a2) // get base of range
-        lw      t2,PfRangeLimit - PfProfileListEntry(a2) // get limit of range
+10:     lw      t1,PfRangeBase - PfProfileListEntry(t8) // get base of range
+        lw      t2,PfRangeLimit - PfProfileListEntry(t8) // get limit of range
+        lhu     t3,PfSource - PfProfileListEntry(t8) // get source
+        lhu     t4,PfAffinity - PfProfileListEntry(t8) // get affinity
+        bne     t3,a1,20f               // if ne, source mismatch
         sltu    v0,t0,t1                // check against range base
         sltu    v1,t0,t2                // check against range limit
+        and     t5,t6,t4                // check against processor
         bne     zero,v0,20f             // if ne, less that range base
         beq     zero,v1,20f             // if eq, not less that range limit
+        beq     zero,t5,20f             // if eq, affinity mismatch
         subu    t1,t0,t1                // compute offset in range
-        lw      t2,PfBucketShift - PfProfileListEntry(a2) // get shift count
-        lw      v0,PfBuffer - PfProfileListEntry(a2) // get profile buffer address
+        lw      t2,PfBucketShift - PfProfileListEntry(t8) // get shift count
+        lw      v0,PfBuffer - PfProfileListEntry(t8) // get profile buffer address
         srl     v1,t1,t2                // compute bucket offset
         and     v1,v1,a3                // clear low order offset bits
         addu    v1,v1,v0                // compute bucket address
         lw      v0,0(v1)                // increment profile bucket
         addu    v0,v0,1                 //
         sw      v0,0(v1)                //
-20:     lw      a2,LsFlink(a2)          // get address of next entry
-        bne     a1,a2,10b               // if ne, more entries in profile list
+20:     lw      t8,LsFlink(t8)          // get address of next entry
+        bne     a2,t8,10b               // if ne, more entries in profile list
 30:     j       ra                      // return
 
         .end    KiProcessProfileList

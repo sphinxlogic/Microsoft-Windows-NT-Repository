@@ -48,9 +48,9 @@ NetpDbgDisplayLanManVersion(
     )
 {
     NetpDbgDisplayTag( "LanMan version" );
-    NetpDbgPrint(FORMAT_DWORD "." FORMAT_DWORD "\n",
+    NetpKdPrint((FORMAT_DWORD "." FORMAT_DWORD "\n",
             (DWORD) (MajorVersion & (MAJOR_VERSION_MASK)),
-            (DWORD) (MinorVersion) );
+            (DWORD) (MinorVersion) ));
 
 } // NetpDbgDisplayLanManVersion
 

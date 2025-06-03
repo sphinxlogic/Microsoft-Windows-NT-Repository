@@ -33,9 +33,16 @@ Revision History:
 
 #define Dbg                              (DEBUG_TRACE_CLEANUP)
 
+VOID
+NtfsContractQuotaToFileSize (
+    IN PIRP_CONTEXT IrpContext,
+    IN PSCB Scb
+    );
+
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE, NtfsCommonCleanup)
 #pragma alloc_text(PAGE, NtfsFsdCleanup)
+#pragma alloc_text(PAGE, NtfsContractQuotaToFileSize)
 #endif
 
 
@@ -70,6 +77,7 @@ Return Value:
 
     NTSTATUS Status = STATUS_SUCCESS;
     PIRP_CONTEXT IrpContext = NULL;
+    ULONG LogFileFullCount = 0;
 
     ASSERT_IRP( Irp );
 
@@ -90,7 +98,7 @@ Return Value:
         return STATUS_SUCCESS;
     }
 
-    DebugTrace(+1, Dbg, "NtfsFsdCleanup\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsFsdCleanup\n") );
 
     //
     //  Call the common Cleanup routine
@@ -121,6 +129,11 @@ Return Value:
             } else if (Status == STATUS_LOG_FILE_FULL) {
 
                 NtfsCheckpointForLogFileFull( IrpContext );
+
+                if (++LogFileFullCount >= 2) {
+
+                    SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_EXCESS_LOG_FULL );
+                }
             }
 
             Status = NtfsCommonCleanup( IrpContext, Irp );
@@ -151,7 +164,7 @@ Return Value:
     //  And return to our caller
     //
 
-    DebugTrace(-1, Dbg, "NtfsFsdCleanup -> %08lx\n", Status);
+    DebugTrace( -1, Dbg, ("NtfsFsdCleanup -> %08lx\n", Status) );
 
     return Status;
 }
@@ -198,23 +211,20 @@ Return Value:
 
     PLCB ThisLcb;
     PSCB ThisScb;
+    ATTRIBUTE_ENUMERATION_CONTEXT AttrContext;
 
     PLONGLONG TruncateSize = NULL;
     LONGLONG LocalTruncateSize;
 
+    BOOLEAN DeleteFile = FALSE;
+    BOOLEAN DeleteStream = FALSE;
+    BOOLEAN OpenById;
+    BOOLEAN RemoveLink;
+
     BOOLEAN AcquiredParentScb = FALSE;
     BOOLEAN AcquiredScb = FALSE;
-    BOOLEAN AcquiredPagingIo = FALSE;
 
-    ATTRIBUTE_ENUMERATION_CONTEXT AttrContext;
-
-    BOOLEAN OpenById;
-
-    BOOLEAN UpdateLastMod = FALSE;
-    BOOLEAN UpdateLastChange = FALSE;
-    BOOLEAN UpdateLastAccess = FALSE;
-
-    BOOLEAN RemoveLink;
+    BOOLEAN CleanupAttrContext = FALSE;
 
     BOOLEAN UpdateDuplicateInfo = FALSE;
     BOOLEAN AddToDelayQueue = TRUE;
@@ -222,10 +232,14 @@ Return Value:
     USHORT TotalLinkAdj = 0;
     PLIST_ENTRY Links;
 
+    NAME_PAIR NamePair;
+
     ASSERT_IRP_CONTEXT( IrpContext );
     ASSERT_IRP( Irp );
 
     PAGED_CODE();
+
+    NtfsInitializeNamePair(&NamePair);
 
     //
     //  Get the current Irp stack location
@@ -233,26 +247,26 @@ Return Value:
 
     IrpSp = IoGetCurrentIrpStackLocation( Irp );
 
-    DebugTrace(+1, Dbg, "NtfsCommonCleanup\n", 0);
-    DebugTrace( 0, Dbg, "IrpContext = %08lx\n", IrpContext);
-    DebugTrace( 0, Dbg, "Irp        = %08lx\n", Irp);
+    DebugTrace( +1, Dbg, ("NtfsCommonCleanup\n") );
+    DebugTrace( 0, Dbg, ("IrpContext = %08lx\n", IrpContext) );
+    DebugTrace( 0, Dbg, ("Irp        = %08lx\n", Irp) );
 
     //
     //  Extract and decode the file object
     //
 
     FileObject = IrpSp->FileObject;
+
     TypeOfOpen = NtfsDecodeFileObject( IrpContext, FileObject, &Vcb, &Fcb, &Scb, &Ccb, FALSE );
 
     Status = STATUS_SUCCESS;
 
     //
-    //  Special case the unopened file object.
+    //  Special case the unopened file object and stream files.
     //
 
-    if (TypeOfOpen == UnopenedFileObject) {
-
-        DebugTrace(0, Dbg, "Unopened File Object\n", 0);
+    if ((TypeOfOpen == UnopenedFileObject) ||
+        (TypeOfOpen == StreamFileOpen)) {
 
         //
         //  Just set the FO_CLEANUP_COMPLETE flag, and get outsky...
@@ -260,9 +274,20 @@ Return Value:
 
         SetFlag( FileObject->Flags, FO_CLEANUP_COMPLETE );
 
+        //
+        //  Theoretically we should never hit this case.  It means an app
+        //  tried to close a handle he didn't open (call NtClose with a handle
+        //  value that happens to be in the handle table).  It is safe to
+        //  simply return SUCCESS in this case.
+        //
+        //  Trigger an assert so we can find the bad app though.
+        //
+
+        ASSERT( TypeOfOpen != StreamFileOpen );
+
         NtfsCompleteRequest( &IrpContext, &Irp, Status );
 
-        DebugTrace(-1, Dbg, "NtfsCommonCleanup -> %08lx\n", Status);
+        DebugTrace( -1, Dbg, ("NtfsCommonCleanup -> %08lx\n", Status) );
 
         return Status;
     }
@@ -275,12 +300,10 @@ Return Value:
 
         Status = NtfsPostRequest( IrpContext, Irp );
 
-        DebugTrace(-1, Dbg, "NtfsCommonCleanup -> %08lx\n", Status);
+        DebugTrace( -1, Dbg, ("NtfsCommonCleanup -> %08lx\n", Status) );
 
         return Status;
     }
-
-    ASSERT( TypeOfOpen != StreamFileOpen );
 
     //
     //  Remember if this is an open by file Id open.
@@ -307,8 +330,6 @@ Return Value:
         NtfsAcquireSharedVcb( IrpContext, Vcb, TRUE );
     }
 
-    NtfsInitializeAttributeContext( &AttrContext );
-
     //
     //  Use a try-finally to facilitate cleanup.
     //
@@ -328,98 +349,159 @@ Return Value:
         }
 
         //
-        //  Let's acquire this Scb exclusively.
+        //  Acquire Paging I/O first, since we may be deleting or truncating.
+        //  Testing for the PagingIoResource is not really safe without
+        //  holding the main resource, so we correct for that below.
         //
 
-        NtfsAcquireExclusiveScb( IrpContext, Scb );
+        if (Fcb->PagingIoResource != NULL) {
 
-        AcquiredScb = TRUE;
+            NtfsAcquireExclusivePagingIo( IrpContext, Fcb );
+            NtfsAcquireExclusiveScb( IrpContext, Scb );
 
-#ifndef NTFS_TEST_LINKS
-        ASSERT( Fcb->TotalLinks == 1 );
+        } else {
 
-        ASSERT( Lcb == NULL ||
-                (LcbLinkIsDeleted( Lcb ) ? Fcb->LinkCount == 0 : Fcb->LinkCount == 1));
-#endif
+            NtfsAcquireExclusiveScb( IrpContext, Scb );
 
-        //
-        //  If we are going to try and delete something, anything, just
-        //  grab the PagingIo resource exclusive here and knock the file
-        //  size and valid data down to zero.  We do this before the snapshot
-        //  so that the sizes will be zero even if the operation fails.
-        //
-
-        if (((Scb->CleanupCount == 1) &&
-             (FlagOn( Scb->ScbState, SCB_STATE_DELETE_ON_CLOSE )))
-
-             ||
-
-            ((Fcb->CleanupCount == 1) &&
-             (Fcb->LinkCount == 0))) {
+            //
+            //  If we now do not see a paging I/O resource we are golden,
+            //  othewise we can absolutely release and acquire the resources
+            //  safely in the right order, since a resource in the Fcb is
+            //  not going to go away.
+            //
 
             if (Fcb->PagingIoResource != NULL) {
-
+                NtfsReleaseScb( IrpContext, Scb );
                 NtfsAcquireExclusivePagingIo( IrpContext, Fcb );
-                AcquiredPagingIo = TRUE;
-            }
-
-            //
-            //  If we're deleting the file, go through all of the Scb's.
-            //
-
-            if ((Fcb->CleanupCount == 1)
-                && (Fcb->LinkCount == 0)) {
-
-                for (Links = Fcb->ScbQueue.Flink;
-                     Links != &Fcb->ScbQueue;
-                     Links = Links->Flink) {
-
-                    ThisScb = CONTAINING_RECORD( Links, SCB, FcbLinks );
-
-                    //
-                    //  Flush all non-resident streams except $DATA and
-                    //  $INDEX_ALLOCATION.
-                    //
-
-                    if (ThisScb->AttributeTypeCode != $DATA
-                        && ThisScb->AttributeTypeCode != $INDEX_ALLOCATION
-                        && !FlagOn( ThisScb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT )) {
-
-                        CcFlushCache( &ThisScb->NonpagedScb->SegmentObject,
-                                      NULL,
-                                      0,
-                                      NULL );
-                    }
-
-                    //
-                    //  Set the Scb sizes to zero except for the attribute list.
-                    //
-
-                    if (ThisScb->AttributeTypeCode != $ATTRIBUTE_LIST) {
-
-                        ThisScb->Header.FileSize =
-                        ThisScb->Header.ValidDataLength = Li0;
-                    }
-                }
-
-            } else {
-
-                Scb->Header.FileSize =
-                Scb->Header.ValidDataLength = Li0;
-            }
-
-            if (AcquiredPagingIo) {
-
-                NtfsReleasePagingIo( IrpContext, Fcb );
-                AcquiredPagingIo = FALSE;
+                NtfsAcquireExclusiveScb( IrpContext, Scb );
             }
         }
 
+        AcquiredScb = TRUE;
+
         //
-        //  First set the FO_CLEANUP_COMPLETE flag.
+        //  Update the Lcb/Scb to reflect the case where this opener had
+        //  specified delete on close.
         //
 
-        SetFlag( FileObject->Flags, FO_CLEANUP_COMPLETE );
+        if (FlagOn( Ccb->Flags, CCB_FLAG_DELETE_ON_CLOSE )) {
+
+            if (FlagOn( Ccb->Flags, CCB_FLAG_OPEN_AS_FILE )) {
+
+                BOOLEAN LastLink;
+                BOOLEAN NonEmptyIndex;
+
+                //
+                //  It is ok to get rid of this guy.  All we need to do is
+                //  mark this Lcb for delete and decrement the link count
+                //  in the Fcb.  If this is a primary link, then we
+                //  indicate that the primary link has been deleted.
+                //
+
+                if (!LcbLinkIsDeleted( Lcb ) &&
+                    (!IsDirectory( &Fcb->Info ) ||
+                    NtfsIsLinkDeleteable( IrpContext, Fcb, &NonEmptyIndex, &LastLink))) {
+
+                    if (FlagOn( Lcb->FileNameAttr->Flags, FILE_NAME_DOS | FILE_NAME_NTFS )) {
+
+                        SetFlag( Fcb->FcbState, FCB_STATE_PRIMARY_LINK_DELETED );
+                    }
+
+                    Fcb->LinkCount -= 1;
+
+                    SetFlag( Lcb->LcbState, LCB_STATE_DELETE_ON_CLOSE );
+
+                    //
+                    //  Call into the notify package to close any handles on
+                    //  a directory being deleted.
+                    //
+
+                    if (IsDirectory( &Fcb->Info )) {
+
+                        FsRtlNotifyFullChangeDirectory( Vcb->NotifySync,
+                                                        &Vcb->DirNotifyList,
+                                                        FileObject->FsContext,
+                                                        NULL,
+                                                        FALSE,
+                                                        FALSE,
+                                                        0,
+                                                        NULL,
+                                                        NULL,
+                                                        NULL );
+                    }
+
+                }
+
+            //
+            //  Otherwise we are simply removing the attribute.
+            //
+
+            } else {
+
+                SetFlag( Scb->ScbState, SCB_STATE_DELETE_ON_CLOSE );
+            }
+
+            //
+            //  Clear the flag so we will ignore it in the log file full case.
+            //
+
+            ClearFlag( Ccb->Flags, CCB_FLAG_DELETE_ON_CLOSE );
+        }
+
+        //
+        //  If we are going to try and delete something, anything, knock the file
+        //  size and valid data down to zero.  Then update the snapshot
+        //  so that the sizes will be zero even if the operation fails.
+        //
+        //  If we're deleting the file, go through all of the Scb's.
+        //
+
+        if ((Fcb->CleanupCount == 1) &&
+            (Fcb->LinkCount == 0)) {
+
+            DeleteFile = TRUE;
+            NtfsFreeSnapshotsForFcb( IrpContext, Scb->Fcb );
+
+            for (Links = Fcb->ScbQueue.Flink;
+                 Links != &Fcb->ScbQueue;
+                 Links = Links->Flink) {
+
+                ThisScb = CONTAINING_RECORD( Links, SCB, FcbLinks );
+
+                //
+                //  Set the Scb sizes to zero except for the attribute list.
+                //
+
+                if (ThisScb->AttributeTypeCode != $ATTRIBUTE_LIST) {
+
+                    ThisScb->Header.FileSize =
+                    ThisScb->Header.ValidDataLength = Li0;
+                }
+
+                if (FlagOn( ThisScb->ScbState, SCB_STATE_FILE_SIZE_LOADED )) {
+
+                    NtfsSnapshotScb( IrpContext, ThisScb );
+                }
+            }
+
+        //
+        //  Otherwise we may only be deleting this stream.
+        //
+
+        } else if ((Scb->CleanupCount == 1) &&
+                   FlagOn( Scb->ScbState, SCB_STATE_DELETE_ON_CLOSE )) {
+
+            DeleteStream = TRUE;
+            Scb->Header.FileSize =
+            Scb->Header.ValidDataLength = Li0;
+
+            NtfsFreeSnapshotsForFcb( IrpContext, Scb->Fcb );
+
+            if (FlagOn( Scb->ScbState, SCB_STATE_FILE_SIZE_LOADED )) {
+
+                NtfsSnapshotScb( IrpContext, Scb );
+            }
+        }
 
         //
         //  Let's do a sanity check.
@@ -436,12 +518,14 @@ Return Value:
         //  holding onto pool while waiting for closes to come in.
         //
 
-        if (Fcb->CleanupCount == 1
-            && Fcb->SharedSecurity != NULL
-            && Fcb->CreateSecurityCount < FCB_CREATE_SECURITY_COUNT
-            && Fcb->SharedSecurity->SecurityDescriptorLength > FCB_LARGE_ACL_SIZE) {
+        if ((Fcb->CleanupCount == 1) &&
+            (Fcb->SharedSecurity != NULL) &&
+            (Fcb->CreateSecurityCount < FCB_CREATE_SECURITY_COUNT) &&
+            (GetSharedSecurityLength( Fcb->SharedSecurity ) > FCB_LARGE_ACL_SIZE)) {
 
-            NtfsDereferenceSharedSecurity( IrpContext, Fcb );
+            NtfsAcquireFcbSecurity( Fcb->Vcb );
+            NtfsDereferenceSharedSecurity( Fcb );
+            NtfsReleaseFcbSecurity( Fcb->Vcb );
         }
 
         //
@@ -452,16 +536,22 @@ Return Value:
 
         case UserVolumeOpen :
 
-            DebugTrace( 0, Dbg, "Cleanup on user volume\n", 0 );
+            DebugTrace( 0, Dbg, ("Cleanup on user volume\n") );
+
+            //
+            //  First set the FO_CLEANUP_COMPLETE flag.
+            //
+
+            SetFlag( FileObject->Flags, FO_CLEANUP_COMPLETE );
 
             //
             //  For a volume open, we check if this open locked the volume.
             //  All the other work is done in common code below.
             //
 
-            if (FlagOn( Vcb->VcbState, VCB_STATE_LOCKED )
-                && ((Vcb->FileObjectWithVcbLocked == FileObject) ||
-                    ((ULONG)Vcb->FileObjectWithVcbLocked == ((ULONG)FileObject)+1))) {
+            if (FlagOn( Vcb->VcbState, VCB_STATE_LOCKED ) &&
+                ((Vcb->FileObjectWithVcbLocked == FileObject) ||
+                 ((ULONG)Vcb->FileObjectWithVcbLocked == ((ULONG)FileObject)+1))) {
 
                 if ((ULONG)Vcb->FileObjectWithVcbLocked == ((ULONG)FileObject)+1) {
 
@@ -471,36 +561,72 @@ Return Value:
                 //  Purge the volume for the autocheck case.
                 //
 
-                } else if (FlagOn( Ccb->Flags, CCB_FLAG_MODIFIED_DASD_FILE )) {
+                } else if (FlagOn( FileObject->Flags, FO_FILE_MODIFIED )) {
 
-                    NtfsFlushVolume( IrpContext, Vcb, FALSE, TRUE );
+                    //
+                    //  Drop the Scb for the volume Dasd around this call.
+                    //
+
+                    NtfsReleaseScb( IrpContext, Scb );
+                    AcquiredScb = FALSE;
+
+                    NtfsFlushVolume( IrpContext, Vcb, FALSE, TRUE, TRUE, FALSE );
+
+                    NtfsAcquireExclusiveScb( IrpContext, Scb );
+                    AcquiredScb = TRUE;
 
                     //
                     //  If this is not the boot partition then dismount the Vcb.
                     //
 
-                    if (Vcb->CleanupCount == 1 &&
-                        (Vcb->CloseCount - Vcb->SystemFileCloseCount) == 1) {
+                    if ((Vcb->CleanupCount == 1) &&
+                        ((Vcb->CloseCount - Vcb->SystemFileCloseCount) == 1)) {
 
                         NtfsPerformDismountOnVcb( IrpContext, Vcb, TRUE );
                     }
                 }
 
-                ClearFlag(Vcb->VcbState, VCB_STATE_LOCKED);
+                ClearFlag( Vcb->VcbState, VCB_STATE_LOCKED | VCB_STATE_EXPLICIT_LOCK );
                 Vcb->FileObjectWithVcbLocked = NULL;
+
+#ifdef _CAIRO_
+
+                //
+                //  If the quota tracking has been requested and the quotas
+                //  need to be repaired then try to repair them now.
+                //
+
+                if (FlagOn( Vcb->QuotaFlags, QUOTA_FLAG_TRACKING_REQUESTED) &&
+                    FlagOn( Vcb->QuotaFlags, QUOTA_FLAG_OUT_OF_DATE |
+                                             QUOTA_FLAG_CORRUPT |
+                                             QUOTA_FLAG_PENDING_DELETES)) {
+
+                    NtfsPostRepairQuotaIndex( IrpContext, Vcb );
+                }
+
+#endif // _CAIRO_
+
             }
 
             break;
 
-        case UserOpenDirectoryById :
-
-            TypeOfOpen = UserDirectoryOpen;
-
         case UserDirectoryOpen :
 
-            DebugTrace( 0, Dbg, "Cleanup on user directory/file\n", 0 );
+            DebugTrace( 0, Dbg, ("Cleanup on user directory/file\n") );
 
             NtfsSnapshotScb( IrpContext, Scb );
+
+            //
+            //  Capture any changes to the time stamps for this file.
+            //
+
+            NtfsUpdateScbFromFileObject( IrpContext, FileObject, Scb, TRUE );
+
+            //
+            //  Now set the FO_CLEANUP_COMPLETE flag.
+            //
+
+            SetFlag( FileObject->Flags, FO_CLEANUP_COMPLETE );
 
             //
             //  To perform cleanup on a directory, we first complete any
@@ -514,7 +640,12 @@ Return Value:
             //  Complete any Notify Irps on this file handle.
             //
 
-            FsRtlNotifyCleanup( Vcb->NotifySync, &Vcb->DirNotifyList, Ccb );
+            if (FlagOn( Ccb->Flags, CCB_FLAG_DIR_NOTIFY )) {
+
+                FsRtlNotifyCleanup( Vcb->NotifySync, &Vcb->DirNotifyList, Ccb );
+                ClearFlag( Ccb->Flags, CCB_FLAG_DIR_NOTIFY );
+                InterlockedDecrement( &Vcb->NotifyCount );
+            }
 
             //
             //  When cleaning up a user directory, we always remove the
@@ -524,15 +655,12 @@ Return Value:
             //  remove it from it's parent index entry.
             //
 
-            if (FlagOn( Vcb->VcbState, VCB_STATE_VOLUME_MOUNTED )
-
-                        &&
-
+            if (FlagOn( Vcb->VcbState, VCB_STATE_VOLUME_MOUNTED ) &&
                 (NodeType( Scb ) == NTFS_NTC_SCB_INDEX)) {
 
-                if ((Fcb->CleanupCount == 1) && (Fcb->LinkCount == 0)) {
+                if (DeleteFile) {
 
-                    ASSERT( Lcb == NULL ||
+                    ASSERT( (Lcb == NULL) ||
                             (LcbLinkIsDeleted( Lcb ) && Lcb->CleanupCount == 1 ));
 
                     //
@@ -540,8 +668,7 @@ Return Value:
                     //  let's use it.
                     //
 
-                    if (Lcb == NULL &&
-                        !IsListEmpty( &Fcb->LcbQueue )) {
+                    if ((Lcb == NULL) && !IsListEmpty( &Fcb->LcbQueue )) {
 
                         Lcb = CONTAINING_RECORD( Fcb->LcbQueue.Flink,
                                                  LCB,
@@ -568,21 +695,44 @@ Return Value:
 
                     try {
 
-                        AddToDelayQueue = FALSE;
-                        NtfsDeleteFile( IrpContext, Fcb, ParentScb );
+                        NtfsDeleteFile( IrpContext, Fcb, ParentScb, NULL);
                         TotalLinkAdj += 1;
+
+                        //
+                        //  Remove all tunneling entries for this directory
+                        //
+
+                        FsRtlDeleteKeyFromTunnelCache(&Vcb->Tunnel, *(PULONGLONG)&Fcb->FileReference);
 
                         if (ParentFcb != NULL) {
 
-                            NtfsUpdateFcb( IrpContext, ParentFcb, TRUE );
+                            NtfsUpdateFcb( ParentFcb );
                         }
 
                     } except( (((Status = GetExceptionCode()) == STATUS_LOG_FILE_FULL) ||
+                               (Status == STATUS_CANT_WAIT) ||
                                !FsRtlIsNtstatusExpected( Status ))
                               ? EXCEPTION_CONTINUE_SEARCH
                               : EXCEPTION_EXECUTE_HANDLER ) {
 
                         NOTHING;
+                    }
+
+                    if (!OpenById && (Vcb->NotifyCount != 0)) {
+
+                        NtfsReportDirNotify( IrpContext,
+                                             Vcb,
+                                             &Ccb->FullFileName,
+                                             Ccb->LastFileNameOffset,
+                                             NULL,
+                                             ((FlagOn( Ccb->Flags, CCB_FLAG_PARENT_HAS_DOS_COMPONENT ) &&
+                                               Ccb->Lcb != NULL &&
+                                               Ccb->Lcb->Scb->ScbType.Index.NormalizedName.Buffer != NULL) ?
+                                              &Ccb->Lcb->Scb->ScbType.Index.NormalizedName :
+                                              NULL),
+                                             FILE_NOTIFY_CHANGE_DIR_NAME,
+                                             FILE_ACTION_REMOVED,
+                                             ParentFcb );
                     }
 
                     SetFlag( Fcb->FcbState, FCB_STATE_FILE_DELETED );
@@ -603,7 +753,7 @@ Return Value:
                         //  Remove all remaining prefixes on this link.
                         //
 
-                        NtfsRemovePrefix( IrpContext, ThisLcb );
+                        NtfsRemovePrefix( ThisLcb );
 
                         SetFlag( ThisLcb->LcbState, LCB_STATE_LINK_IS_GONE );
 
@@ -634,7 +784,7 @@ Return Value:
 
                             NtfsSnapshotScb( IrpContext, ThisScb );
 
-                            ThisScb->HighestVcnToDisk =
+                            ThisScb->ValidDataToDisk =
                             ThisScb->Header.AllocationSize.QuadPart =
                             ThisScb->Header.FileSize.QuadPart =
                             ThisScb->Header.ValidDataLength.QuadPart = 0;
@@ -643,37 +793,19 @@ Return Value:
                         }
                     }
 
-                    if (!OpenById) {
-
-                        NtfsReportDirNotify( IrpContext,
-                                             Vcb,
-                                             &Ccb->FullFileName,
-                                             Ccb->LastFileNameOffset,
-                                             NULL,
-                                             ((FlagOn( Ccb->Flags, CCB_FLAG_PARENT_HAS_DOS_COMPONENT ) &&
-                                               Ccb->Lcb->Scb->ScbType.Index.NormalizedName.Buffer != NULL) ?
-                                              &Ccb->Lcb->Scb->ScbType.Index.NormalizedName :
-                                              NULL),
-                                             FILE_NOTIFY_CHANGE_DIR_NAME,
-                                             FILE_ACTION_REMOVED,
-                                             ParentFcb );
-                    }
-
                     //
                     //  We certainly don't need to any on disk update for this
                     //  file now.
                     //
 
                     Fcb->InfoFlags = 0;
+                    ClearFlag( Fcb->FcbState, FCB_STATE_UPDATE_STD_INFO );
 
-                    ClearFlag( Fcb->FcbState, FCB_STATE_MODIFIED_SECURITY
-                                              | FCB_STATE_UPDATE_STD_INFO );
-
-                    ClearFlag( Ccb->Flags, CCB_FLAG_USER_SET_LAST_MOD_TIME
-                                           | CCB_FLAG_USER_SET_LAST_CHANGE_TIME
-                                           | CCB_FLAG_USER_SET_LAST_ACCESS_TIME );
-
-                    UpdateLastMod = UpdateLastChange = UpdateLastAccess = FALSE;
+                    ClearFlag( Ccb->Flags,
+                               CCB_FLAG_USER_SET_LAST_MOD_TIME |
+                               CCB_FLAG_USER_SET_LAST_CHANGE_TIME |
+                               CCB_FLAG_USER_SET_LAST_ACCESS_TIME );
+                    AddToDelayQueue = FALSE;
                 }
 
             } else {
@@ -693,10 +825,11 @@ Return Value:
             //  - We are not currently reducing the delayed close queue.
             //
 
+            NtfsAcquireFsrtlHeader( Scb );
             if (AddToDelayQueue &&
                 !FlagOn( Scb->ScbState, SCB_STATE_DELAY_CLOSE ) &&
-                NtfsData.DelayedCloseCount <= NtfsMaxDelayedCloseCount &&
-                Fcb->CloseCount == 1) {
+                (NtfsData.DelayedCloseCount <= NtfsMaxDelayedCloseCount) &&
+                (Fcb->CloseCount == 1)) {
 
                 SetFlag( Scb->ScbState, SCB_STATE_DELAY_CLOSE );
 
@@ -704,16 +837,16 @@ Return Value:
 
                 ClearFlag( Scb->ScbState, SCB_STATE_DELAY_CLOSE );
             }
+            NtfsReleaseFsrtlHeader( Scb );
 
             break;
 
-        case UserOpenFileById:
-
-            TypeOfOpen = UserFileOpen;
-
         case UserFileOpen :
+#ifdef _CAIRO_
+        case UserPropertySetOpen :
+#endif  //  _CAIRO_
 
-            DebugTrace( 0, Dbg, "Cleanup on user file\n", 0 );
+            DebugTrace( 0, Dbg, ("Cleanup on user file\n") );
 
             //
             //  If the Scb is uninitialized, we read it from the disk.
@@ -726,6 +859,7 @@ Return Value:
                     NtfsUpdateScbFromAttribute( IrpContext, Scb, NULL );
 
                 } except( (((Status = GetExceptionCode()) == STATUS_LOG_FILE_FULL) ||
+                           (Status == STATUS_CANT_WAIT) ||
                            !FsRtlIsNtstatusExpected( Status ))
                           ? EXCEPTION_CONTINUE_SEARCH
                           : EXCEPTION_EXECUTE_HANDLER ) {
@@ -761,7 +895,13 @@ Return Value:
                                            NULL );
             }
 
+            //
+            //  Update the FastIoField.
+            //
+
+            NtfsAcquireFsrtlHeader( Scb );
             Scb->Header.IsFastIoPossible = NtfsIsFastIoPossible( Scb );
+            NtfsReleaseFsrtlHeader( Scb );
 
             //
             //  If the Fcb is in valid shape, we check on the cases where we delete
@@ -769,6 +909,18 @@ Return Value:
             //
 
             if (FlagOn( Vcb->VcbState, VCB_STATE_VOLUME_MOUNTED )) {
+
+                //
+                //  Capture any changes to the time stamps for this file.
+                //
+
+                NtfsUpdateScbFromFileObject( IrpContext, FileObject, Scb, TRUE );
+
+                //
+                //  Now set the FO_CLEANUP_COMPLETE flag.
+                //
+
+                SetFlag( FileObject->Flags, FO_CLEANUP_COMPLETE );
 
                 //
                 //  We are checking here for special actions we take when
@@ -779,7 +931,7 @@ Return Value:
 
                 if ((Lcb == NULL) || (LcbLinkIsDeleted( Lcb ) && (Lcb->CleanupCount == 1))) {
 
-                    if ((Fcb->CleanupCount == 1) && (Fcb->LinkCount == 0)) {
+                    if (DeleteFile) {
 
                         //
                         //  If we don't have an Lcb and the Fcb has some entries then
@@ -825,20 +977,58 @@ Return Value:
                         try {
 
                             AddToDelayQueue = FALSE;
-                            NtfsDeleteFile( IrpContext, Fcb, ParentScb );
+                            NtfsDeleteFile( IrpContext, Fcb, ParentScb, &NamePair );
                             TotalLinkAdj += 1;
+
+                            //
+                            //  Stash property information in the tunnel if the object was
+                            //  opened by name, has a parent directory caller was treating it
+                            //  as a non-POSIX object and we had an good, active link
+                            //
+
+                            if (!OpenById &&
+                                ParentScb &&
+                                Ccb->Lcb &&
+                                !FlagOn(FileObject->Flags, FO_OPENED_CASE_SENSITIVE)) {
+
+                                FsRtlAddToTunnelCache(  &Vcb->Tunnel,
+                                                        *(PULONGLONG)&ParentScb->Fcb->FileReference,
+                                                        &NamePair.Short,
+                                                        &NamePair.Long,
+                                                        BooleanFlagOn(Ccb->Lcb->FileNameAttr->Flags, FILE_NAME_DOS),
+                                                        sizeof(LONGLONG),
+                                                        &Fcb->Info.CreationTime);
+                            }
 
                             if (ParentFcb != NULL) {
 
-                                NtfsUpdateFcb( IrpContext, ParentFcb, TRUE );
+                                NtfsUpdateFcb( ParentFcb );
                             }
 
                         } except( (((Status = GetExceptionCode()) == STATUS_LOG_FILE_FULL) ||
+                                   (Status == STATUS_CANT_WAIT) ||
                                    !FsRtlIsNtstatusExpected( Status ))
                                   ? EXCEPTION_CONTINUE_SEARCH
                                   : EXCEPTION_EXECUTE_HANDLER ) {
 
                             NOTHING;
+                        }
+
+                        if (!OpenById && (Vcb->NotifyCount != 0)) {
+
+                            NtfsReportDirNotify( IrpContext,
+                                                 Vcb,
+                                                 &Ccb->FullFileName,
+                                                 Ccb->LastFileNameOffset,
+                                                 NULL,
+                                                 ((FlagOn( Ccb->Flags, CCB_FLAG_PARENT_HAS_DOS_COMPONENT ) &&
+                                                   Ccb->Lcb != NULL &&
+                                                   Ccb->Lcb->Scb->ScbType.Index.NormalizedName.Buffer != NULL) ?
+                                                  &Ccb->Lcb->Scb->ScbType.Index.NormalizedName :
+                                                  NULL),
+                                                 FILE_NOTIFY_CHANGE_FILE_NAME,
+                                                 FILE_ACTION_REMOVED,
+                                                 ParentFcb );
                         }
 
                         SetFlag( Fcb->FcbState, FCB_STATE_FILE_DELETED );
@@ -859,8 +1049,7 @@ Return Value:
                                 //  Remove all remaining prefixes on this link.
                                 //
 
-                                NtfsRemovePrefix( IrpContext, ThisLcb );
-
+                                NtfsRemovePrefix( ThisLcb );
                                 SetFlag( ThisLcb->LcbState, LCB_STATE_LINK_IS_GONE );
 
                                 //
@@ -891,7 +1080,7 @@ Return Value:
 
                                 NtfsSnapshotScb( IrpContext, ThisScb );
 
-                                ThisScb->HighestVcnToDisk =
+                                ThisScb->ValidDataToDisk =
                                 ThisScb->Header.AllocationSize.QuadPart =
                                 ThisScb->Header.FileSize.QuadPart =
                                 ThisScb->Header.ValidDataLength.QuadPart = 0;
@@ -900,35 +1089,18 @@ Return Value:
                             }
                         }
 
-                        if (!OpenById) {
-
-                            NtfsReportDirNotify( IrpContext,
-                                                 Vcb,
-                                                 &Ccb->FullFileName,
-                                                 Ccb->LastFileNameOffset,
-                                                 NULL,
-                                                 ((FlagOn( Ccb->Flags, CCB_FLAG_PARENT_HAS_DOS_COMPONENT ) &&
-                                                   Ccb->Lcb->Scb->ScbType.Index.NormalizedName.Buffer != NULL) ?
-                                                  &Ccb->Lcb->Scb->ScbType.Index.NormalizedName :
-                                                  NULL),
-                                                 FILE_NOTIFY_CHANGE_FILE_NAME,
-                                                 FILE_ACTION_REMOVED,
-                                                 ParentFcb );
-                        }
-
                         //
                         //  We certainly don't need to any on disk update for this
                         //  file now.
                         //
 
                         Fcb->InfoFlags = 0;
-                        ClearFlag( Fcb->FcbState, FCB_STATE_MODIFIED_SECURITY
-                                                  | FCB_STATE_UPDATE_STD_INFO );
-                        ClearFlag( Ccb->Flags, CCB_FLAG_USER_SET_LAST_MOD_TIME
-                                               | CCB_FLAG_USER_SET_LAST_CHANGE_TIME
-                                               | CCB_FLAG_USER_SET_LAST_ACCESS_TIME );
+                        ClearFlag( Fcb->FcbState, FCB_STATE_UPDATE_STD_INFO );
 
-                        UpdateLastMod = UpdateLastChange = UpdateLastAccess = FALSE;
+                        ClearFlag( Ccb->Flags,
+                                   CCB_FLAG_USER_SET_LAST_MOD_TIME |
+                                   CCB_FLAG_USER_SET_LAST_CHANGE_TIME |
+                                   CCB_FLAG_USER_SET_LAST_ACCESS_TIME );
 
                         //
                         //  We will truncate the attribute to size 0.
@@ -947,13 +1119,8 @@ Return Value:
                         ThisLcb = NULL;
                         RemoveLink = TRUE;
 
-                        if (!FlagOn( Lcb->FileNameFlags, FILE_NAME_DOS | FILE_NAME_NTFS )
-
-                                    ||
-
-                            (Lcb->FileNameFlags == (FILE_NAME_NTFS | FILE_NAME_DOS))) {
-
-                        } else {
+                        if (FlagOn( Lcb->FileNameAttr->Flags, FILE_NAME_DOS | FILE_NAME_NTFS ) &&
+                            (Lcb->FileNameAttr->Flags != (FILE_NAME_NTFS | FILE_NAME_DOS))) {
 
                             //
                             //  Walk through all the links looking for a link
@@ -973,7 +1140,7 @@ Return Value:
                                 //  are no Ccb's left for this.
                                 //
 
-                                if (FlagOn( ThisLcb->FileNameFlags, FILE_NAME_DOS | FILE_NAME_NTFS )
+                                if (FlagOn( ThisLcb->FileNameAttr->Flags, FILE_NAME_DOS | FILE_NAME_NTFS )
 
                                             &&
 
@@ -1006,21 +1173,34 @@ Return Value:
 
                             try {
 
-#ifndef NTFS_TEST_LINKS
-                                ASSERT( FALSE );
-#endif
                                 AddToDelayQueue = FALSE;
                                 NtfsRemoveLink( IrpContext,
                                                 Fcb,
                                                 ParentScb,
-                                                Lcb->ExactCaseLink.LinkName );
+                                                Lcb->ExactCaseLink.LinkName,
+                                                &NamePair );
+
+                                //
+                                //  Stash property information in the tunnel if caller opened the
+                                //  object by name and was treating it as a non-POSIX object
+                                //
+
+                                if (!OpenById && !FlagOn(FileObject->Flags, FO_OPENED_CASE_SENSITIVE)) {
+
+                                    FsRtlAddToTunnelCache(  &Vcb->Tunnel,
+                                                            *(PULONGLONG)&ParentScb->Fcb->FileReference,
+                                                            &NamePair.Short,
+                                                            &NamePair.Long,
+                                                            BooleanFlagOn(Lcb->FileNameAttr->Flags, FILE_NAME_DOS),
+                                                            sizeof(LONGLONG),
+                                                            &Fcb->Info.CreationTime);
+                                }
 
                                 TotalLinkAdj += 1;
-                                NtfsUpdateFcb( IrpContext, ParentFcb, TRUE );
-
-                                UpdateLastChange = TRUE;
+                                NtfsUpdateFcb( ParentFcb );
 
                             } except( (((Status = GetExceptionCode()) == STATUS_LOG_FILE_FULL) ||
+                                       (Status == STATUS_CANT_WAIT) ||
                                        !FsRtlIsNtstatusExpected( Status ))
                                       ? EXCEPTION_CONTINUE_SEARCH
                                       : EXCEPTION_EXECUTE_HANDLER ) {
@@ -1028,11 +1208,28 @@ Return Value:
                                 NOTHING;
                             }
 
+                            if (!OpenById && (Vcb->NotifyCount != 0)) {
+
+                                NtfsReportDirNotify( IrpContext,
+                                                     Vcb,
+                                                     &Ccb->FullFileName,
+                                                     Ccb->LastFileNameOffset,
+                                                     NULL,
+                                                     ((FlagOn( Ccb->Flags, CCB_FLAG_PARENT_HAS_DOS_COMPONENT ) &&
+                                                       Ccb->Lcb != NULL &&
+                                                       Ccb->Lcb->Scb->ScbType.Index.NormalizedName.Buffer != NULL) ?
+                                                      &Ccb->Lcb->Scb->ScbType.Index.NormalizedName :
+                                                      NULL),
+                                                     FILE_NOTIFY_CHANGE_FILE_NAME,
+                                                     FILE_ACTION_REMOVED,
+                                                     ParentFcb );
+                            }
+
                             //
                             //  Remove all remaining prefixes on this link.
                             //
 
-                            NtfsRemovePrefix( IrpContext, Lcb );
+                            NtfsRemovePrefix( Lcb );
 
                             //
                             //  Mark the links as being removed.
@@ -1046,27 +1243,9 @@ Return Value:
                                 //  Remove all remaining prefixes on this link.
                                 //
 
-                                NtfsRemovePrefix( IrpContext, ThisLcb );
-
+                                NtfsRemovePrefix( ThisLcb );
                                 SetFlag( ThisLcb->LcbState, LCB_STATE_LINK_IS_GONE );
-
                                 ThisLcb->InfoFlags = 0;
-                            }
-
-                            if (!OpenById) {
-
-                                NtfsReportDirNotify( IrpContext,
-                                                     Vcb,
-                                                     &Ccb->FullFileName,
-                                                     Ccb->LastFileNameOffset,
-                                                     NULL,
-                                                     ((FlagOn( Ccb->Flags, CCB_FLAG_PARENT_HAS_DOS_COMPONENT ) &&
-                                                       Ccb->Lcb->Scb->ScbType.Index.NormalizedName.Buffer != NULL) ?
-                                                      &Ccb->Lcb->Scb->ScbType.Index.NormalizedName :
-                                                      NULL),
-                                                     FILE_NOTIFY_CHANGE_FILE_NAME,
-                                                     FILE_ACTION_REMOVED,
-                                                     ParentFcb );
                             }
 
                             //
@@ -1076,6 +1255,17 @@ Return Value:
 
                             Lcb->InfoFlags = 0;
                             LcbForUpdate = NULL;
+
+                            //
+                            //  Update the time stamps for removing the link.  Clear the
+                            //  FO_CLEANUP_COMPLETE flag around this call so the time
+                            //  stamp change is not nooped.
+                            //
+
+                            SetFlag( Ccb->Flags, CCB_FLAG_UPDATE_LAST_CHANGE );
+                            ClearFlag( FileObject->Flags, FO_CLEANUP_COMPLETE );
+                            NtfsUpdateScbFromFileObject( IrpContext, FileObject, Scb, TRUE );
+                            SetFlag( FileObject->Flags, FO_CLEANUP_COMPLETE );
                         }
                     }
                 }
@@ -1083,427 +1273,407 @@ Return Value:
                 //
                 //  If the file/attribute is not going away, we update the
                 //  attribute size now rather than waiting for the Lazy
-                //  Writer to catch up.
+                //  Writer to catch up.  If the cleanup count isn't 1 then
+                //  defer the following actions.
                 //
 
-                if (Fcb->LinkCount != 0) {
+                if ((Scb->CleanupCount == 1) && (Fcb->LinkCount != 0)) {
 
-                    if ((FlagOn( Scb->ScbState, SCB_STATE_CHECK_ATTRIBUTE_SIZE ) ||
-                         FlagOn( FileObject->Flags, FO_FILE_SIZE_CHANGED ))
+                    //
+                    //  We may also have to delete this attribute only.
+                    //
 
-                                &&
+                    if (DeleteStream) {
 
-                        !FlagOn( Scb->ScbState, SCB_STATE_DELETE_ON_CLOSE )) {
+                        ClearFlag( Scb->ScbState, SCB_STATE_DELETE_ON_CLOSE );
 
-                        ClearFlag( Scb->ScbState, SCB_STATE_CHECK_ATTRIBUTE_SIZE );
-
-                        //
-                        //  For the non-resident streams we will write the file
-                        //  size to disk.
-                        //
-
-
-                        if (!FlagOn( Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT )) {
+                        try {
 
                             //
-                            //  Setting AdvanceOnly to FALSE guarantees we will not
-                            //  incorrectly advance the valid data size.
+                            //  Delete the attribute only.
                             //
 
-                            try {
+                            if (CleanupAttrContext) {
 
-                                NtfsWriteFileSizes( IrpContext,
-                                                    Scb,
-                                                    Scb->Header.FileSize.QuadPart,
-                                                    Scb->Header.FileSize.QuadPart,
-                                                    FALSE,
-                                                    TRUE );
-
-                            } except( (((Status = GetExceptionCode()) == STATUS_LOG_FILE_FULL) ||
-                                        !FsRtlIsNtstatusExpected( Status ))
-                                       ? EXCEPTION_CONTINUE_SEARCH
-                                       : EXCEPTION_EXECUTE_HANDLER ) {
-
-                                SetFlag( Scb->ScbState, SCB_STATE_CHECK_ATTRIBUTE_SIZE );
+                                NtfsCleanupAttributeContext( &AttrContext );
                             }
 
+                            NtfsInitializeAttributeContext( &AttrContext );
+                            CleanupAttrContext = TRUE;
+
+                            NtfsLookupAttributeForScb( IrpContext, Scb, NULL, &AttrContext );
+
+                            do {
+
+                                NtfsDeleteAttributeRecord( IrpContext, Fcb, TRUE, FALSE, &AttrContext );
+
+                            } while (NtfsLookupNextAttributeForScb( IrpContext, Scb, &AttrContext ));
+
+                        } except( (((Status = GetExceptionCode()) == STATUS_LOG_FILE_FULL) ||
+                                   (Status == STATUS_CANT_WAIT) ||
+                                   !FsRtlIsNtstatusExpected( Status ))
+                                   ? EXCEPTION_CONTINUE_SEARCH
+                                   : EXCEPTION_EXECUTE_HANDLER ) {
+
+                            SetFlag( Scb->ScbState, SCB_STATE_DELETE_ON_CLOSE );
+                        }
+
+                        //
+                        //  Set the Scb flag to indicate that the attribute is
+                        //  gone.
+                        //
+
+                        Scb->ValidDataToDisk =
+                        Scb->Header.AllocationSize.QuadPart =
+                        Scb->Header.FileSize.QuadPart =
+                        Scb->Header.ValidDataLength.QuadPart = 0;
+
+                        SetFlag( Scb->ScbState, SCB_STATE_ATTRIBUTE_DELETED );
+
+                        SetFlag( Scb->ScbState, SCB_STATE_NOTIFY_REMOVE_STREAM );
+
+                        ClearFlag( Scb->ScbState,
+                                   SCB_STATE_NOTIFY_RESIZE_STREAM |
+                                   SCB_STATE_NOTIFY_MODIFY_STREAM |
+                                   SCB_STATE_NOTIFY_ADD_STREAM );
+
+                        //
+                        //  Update the time stamps for removing the link.  Clear the
+                        //  FO_CLEANUP_COMPLETE flag around this call so the time
+                        //  stamp change is not nooped.
+                        //
+
+                        SetFlag( Ccb->Flags,
+                                 CCB_FLAG_UPDATE_LAST_CHANGE | CCB_FLAG_SET_ARCHIVE );
+                        ClearFlag( FileObject->Flags, FO_CLEANUP_COMPLETE );
+                        NtfsUpdateScbFromFileObject( IrpContext, FileObject, Scb, TRUE );
+                        SetFlag( FileObject->Flags, FO_CLEANUP_COMPLETE );
+
+                        TruncateSize = (PLONGLONG)&Li0;
+
+                    //
+                    //  Check if we're to modify the allocation size or file size.
+                    //
+
+                    } else {
+
+                        if (FlagOn( Scb->ScbState, SCB_STATE_CHECK_ATTRIBUTE_SIZE )) {
+
                             //
-                            //  Check for changes to the unnamed data stream.
+                            //  Acquire the parent now so we enforce our locking
+                            //  rules that the Mft Scb must be acquired after
+                            //  the normal file resources.
                             //
 
-                            if (FlagOn( Scb->ScbState, SCB_STATE_UNNAMED_DATA )) {
+                            NtfsPrepareForUpdateDuplicate( IrpContext,
+                                                           Fcb,
+                                                           &LcbForUpdate,
+                                                           &ParentScb,
+                                                           TRUE );
 
-                                Fcb->Info.FileSize = Scb->Header.FileSize.QuadPart;
-                                SetFlag( Fcb->InfoFlags, FCB_INFO_CHANGED_FILE_SIZE );
+                            ClearFlag( Scb->ScbState, SCB_STATE_CHECK_ATTRIBUTE_SIZE );
 
                             //
-                            //  Remember any changes to an alternate stream.
+                            //  For the non-resident streams we will write the file
+                            //  size to disk.
+                            //
+
+
+                            if (!FlagOn( Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT )) {
+
+                                //
+                                //  Setting AdvanceOnly to FALSE guarantees we will not
+                                //  incorrectly advance the valid data size.
+                                //
+
+                                try {
+
+                                    NtfsWriteFileSizes( IrpContext,
+                                                        Scb,
+                                                        &Scb->Header.ValidDataLength.QuadPart,
+                                                        FALSE,
+                                                        TRUE );
+
+                                } except( (((Status = GetExceptionCode()) == STATUS_LOG_FILE_FULL) ||
+                                           (Status == STATUS_CANT_WAIT) ||
+                                           !FsRtlIsNtstatusExpected( Status ))
+                                           ? EXCEPTION_CONTINUE_SEARCH
+                                           : EXCEPTION_EXECUTE_HANDLER ) {
+
+                                    SetFlag( Scb->ScbState, SCB_STATE_CHECK_ATTRIBUTE_SIZE );
+                                }
+
+                            //
+                            //  For resident streams we will write the correct size to
+                            //  the resident attribute.
                             //
 
                             } else {
 
-                                SetFlag( Scb->ScbState, SCB_STATE_NOTIFY_RESIZE_STREAM );
-                            }
-
-                        //
-                        //  For resident streams we will write the correct size to
-                        //  the resident attribute.
-                        //
-
-                        } else {
-
-                            //
-                            //  We need to lookup the attribute and change
-                            //  the attribute value.  We can point to
-                            //  the attribute itself as the changing
-                            //  value.
-                            //
-
-                            NtfsCleanupAttributeContext( IrpContext, &AttrContext );
-
-                            NtfsInitializeAttributeContext( &AttrContext );
-
-                            try {
-
-                                NtfsLookupAttributeForScb( IrpContext, Scb, &AttrContext );
-
-                                NtfsChangeAttributeValue( IrpContext,
-                                                          Fcb,
-                                                          Scb->Header.FileSize.LowPart,
-                                                          NULL,
-                                                          0,
-                                                          TRUE,
-                                                          TRUE,
-                                                          FALSE,
-                                                          FALSE,
-                                                          &AttrContext );
-
-                            } except( (((Status = GetExceptionCode()) == STATUS_LOG_FILE_FULL) ||
-                                        !FsRtlIsNtstatusExpected( Status ))
-                                       ? EXCEPTION_CONTINUE_SEARCH
-                                       : EXCEPTION_EXECUTE_HANDLER ) {
-
-                                SetFlag( Scb->ScbState, SCB_STATE_CHECK_ATTRIBUTE_SIZE );
-                            }
-
-                            //
-                            //  Remember the different file size.
-                            //
-
-                            if (FlagOn( Scb->ScbState, SCB_STATE_UNNAMED_DATA )) {
-
-                                Fcb->Info.FileSize = Scb->Header.FileSize.QuadPart;
-                                SetFlag( Fcb->InfoFlags, FCB_INFO_CHANGED_FILE_SIZE );
-                            }
-
-                            //
-                            //  Verify the allocation size is now correct.
-                            //
-
-                            if (QuadAlign( Scb->Header.FileSize.LowPart )
-                                != Scb->Header.AllocationSize.LowPart) {
-
-                                Scb->Header.AllocationSize.LowPart = QuadAlign(Scb->Header.FileSize.LowPart);
-
                                 //
-                                //  Update the Fcb info if this is the unnamed
-                                //  data attribute.
+                                //  We need to lookup the attribute and change
+                                //  the attribute value.  We can point to
+                                //  the attribute itself as the changing
+                                //  value.
                                 //
 
-                                if (FlagOn( Scb->ScbState, SCB_STATE_UNNAMED_DATA )) {
+                                NtfsInitializeAttributeContext( &AttrContext );
+                                CleanupAttrContext = TRUE;
 
-                                    Fcb->Info.AllocatedLength = Scb->Header.AllocationSize.QuadPart;
-                                    SetFlag( Fcb->InfoFlags, FCB_INFO_CHANGED_ALLOC_SIZE );
-                                    UpdateLastMod = TRUE;
+                                try {
+
+                                    NtfsLookupAttributeForScb( IrpContext, Scb, NULL, &AttrContext );
+
+                                    NtfsChangeAttributeValue( IrpContext,
+                                                              Fcb,
+                                                              Scb->Header.FileSize.LowPart,
+                                                              NULL,
+                                                              0,
+                                                              TRUE,
+                                                              TRUE,
+                                                              FALSE,
+                                                              FALSE,
+                                                              &AttrContext );
+
+                                } except( (((Status = GetExceptionCode()) == STATUS_LOG_FILE_FULL) ||
+                                           (Status == STATUS_CANT_WAIT) ||
+                                           !FsRtlIsNtstatusExpected( Status ))
+                                           ? EXCEPTION_CONTINUE_SEARCH
+                                           : EXCEPTION_EXECUTE_HANDLER ) {
+
+                                    SetFlag( Scb->ScbState, SCB_STATE_CHECK_ATTRIBUTE_SIZE );
                                 }
 
-                                UpdateLastChange = TRUE;
-                            }
-                        }
-                    }
-
-                    //
-                    //  If the FastIo path modified the file, be sure to
-                    //  check for updating them below.
-                    //
-
-                    if (FlagOn( FileObject->Flags, FO_FILE_MODIFIED )) {
-
-                        //
-                        //  If the user didn't set the last change time then
-                        //  set the archive bit.
-                        //
-
-                        if (!FlagOn( Ccb->Flags, CCB_FLAG_USER_SET_LAST_CHANGE_TIME )) {
-
-                            Fcb->Info.FileAttributes |= FILE_ATTRIBUTE_ARCHIVE;
-                        }
-
-
-                        UpdateLastChange = TRUE;
-
-                        if (FlagOn( Scb->ScbState, SCB_STATE_UNNAMED_DATA )) {
-
-                            UpdateLastMod = UpdateLastAccess = TRUE;
-
-                        } else {
-
-                            SetFlag( Scb->ScbState, SCB_STATE_NOTIFY_MODIFY_STREAM );
-                        }
-                    }
-
-                    //
-                    //  If the fast io path read from the file and this is
-                    //  the unnamed data attribute for the file.  Then update
-                    //  the last access time.
-                    //
-
-                    if (FlagOn( Scb->ScbState, SCB_STATE_UNNAMED_DATA ) &&
-                        FlagOn( FileObject->Flags, FO_FILE_FAST_IO_READ )) {
-
-                        UpdateLastAccess = TRUE;
-                    }
-
-                    //
-                    //  If the unclean count isn't 1 in the Scb, there is nothing to do but
-                    //  uninitialize the cache map.
-                    //
-
-                    if (Scb->CleanupCount == 1) {
-
-                        //
-                        //  We may also have to delete this attribute only.
-                        //
-
-                        if (FlagOn( Scb->ScbState, SCB_STATE_DELETE_ON_CLOSE ))  {
-
-                            ClearFlag( Scb->ScbState, SCB_STATE_DELETE_ON_CLOSE );
-
-                            try {
-
                                 //
-                                //  Delete the attribute only.
-                                //  ****    Are these routines generic for resident
-                                //          and non-resident.
+                                //  Verify the allocation size is now correct.
                                 //
 
-                                NtfsLookupAttributeForScb( IrpContext, Scb, &AttrContext );
+                                if (QuadAlign( Scb->Header.FileSize.LowPart ) != Scb->Header.AllocationSize.LowPart) {
 
-                                do {
-
-                                    NtfsDeleteAttributeRecord( IrpContext, Fcb, TRUE, FALSE, &AttrContext );
-
-                                } while (NtfsLookupNextAttributeForScb( IrpContext, Scb, &AttrContext ));
-
-                            } except( (((Status = GetExceptionCode()) == STATUS_LOG_FILE_FULL) ||
-                                        !FsRtlIsNtstatusExpected( Status ))
-                                       ? EXCEPTION_CONTINUE_SEARCH
-                                       : EXCEPTION_EXECUTE_HANDLER ) {
-
-                                SetFlag( Scb->ScbState, SCB_STATE_DELETE_ON_CLOSE );
+                                    Scb->Header.AllocationSize.LowPart = QuadAlign(Scb->Header.FileSize.LowPart);
+                                }
                             }
 
                             //
-                            //  Set the Scb flag to indicate that the attribute is
-                            //  gone.
+                            //  Update the size change to the Fcb.
                             //
 
-                            Scb->HighestVcnToDisk =
-                            Scb->Header.AllocationSize.QuadPart =
-                            Scb->Header.FileSize.QuadPart =
-                            Scb->Header.ValidDataLength.QuadPart = 0;
+                            NtfsUpdateScbFromFileObject( IrpContext, FileObject, Scb, TRUE );
+                        }
 
-                            SetFlag( Scb->ScbState, SCB_STATE_ATTRIBUTE_DELETED );
+#ifdef _CAIRO_
+                        if (NtfsPerformQuotaOperation( Fcb )) {
 
-                            SetFlag( Scb->ScbState, SCB_STATE_NOTIFY_REMOVE_STREAM );
+                            if ( FlagOn( Scb->ScbState, SCB_STATE_QUOTA_ENLARGED )) {
 
-                            ClearFlag( Scb->ScbState,
-                                       SCB_STATE_NOTIFY_RESIZE_STREAM |
-                                       SCB_STATE_NOTIFY_MODIFY_STREAM |
-                                       SCB_STATE_NOTIFY_ADD_STREAM );
+                                ASSERT( NtfsIsTypeCodeSubjectToQuota( Scb->AttributeTypeCode ));
+
+                                ASSERT( FlagOn( Scb->ScbState, SCB_STATE_SUBJECT_TO_QUOTA ));
+
+                                //
+                                //  Acquire the parent now so we enforce our locking
+                                //  rules that the Mft Scb must be acquired after
+                                //  the normal file resources.
+                                //
+
+                                NtfsPrepareForUpdateDuplicate( IrpContext,
+                                                               Fcb,
+                                                               &LcbForUpdate,
+                                                               &ParentScb,
+                                                               TRUE );
+
+                                NtfsContractQuotaToFileSize( IrpContext, Scb );
+                            }
+
+                            SetFlag( IrpContext->Flags,
+                                     IRP_CONTEXT_FLAG_QUOTA_DISABLE );
+
+                        }
+#endif // _CAIRO_
+
+                        if (FlagOn( Scb->ScbState, SCB_STATE_TRUNCATE_ON_CLOSE )) {
 
                             //
-                            //  Modify the time stamps in the Fcb.
+                            //  Acquire the parent now so we enforce our locking
+                            //  rules that the Mft Scb must be acquired after
+                            //  the normal file resources.
+                            //
+                            NtfsPrepareForUpdateDuplicate( IrpContext,
+                                                           Fcb,
+                                                           &LcbForUpdate,
+                                                           &ParentScb,
+                                                           TRUE );
+
+                            ClearFlag( Scb->ScbState, SCB_STATE_TRUNCATE_ON_CLOSE );
+
+                            //
+                            //  We have two cases:
+                            //
+                            //      Resident:  We are looking for the case where the
+                            //          valid data length is less than the file size.
+                            //          In this case we shrink the attribute.
+                            //
+                            //      NonResident:  We are looking for unused clusters
+                            //          past the end of the file.
+                            //
+                            //  We skip the following if we had any previous errors.
                             //
 
-                            UpdateLastChange = TRUE;
-
-                            TruncateSize = (PLONGLONG)&Li0;
-
-                        //
-                        //  Check if we're to modify the allocation size.
-                        //
-
-                        } else {
-
-                            if (FlagOn( Scb->ScbState, SCB_STATE_TRUNCATE_ON_CLOSE )) {
-
-                                ClearFlag( Scb->ScbState, SCB_STATE_TRUNCATE_ON_CLOSE );
+                            if (!FlagOn( Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT )) {
 
                                 //
-                                //  We have two cases:
-                                //
-                                //      Resident:  We are looking for the case where the
-                                //          valid data length is less than the file size.
-                                //          In this case we shrink the attribute.
-                                //
-                                //      NonResident:  We are looking for unused clusters
-                                //          past the end of the file.
-                                //
-                                //  We skip the following if we had any previous errors.
+                                //  We don't need to truncate if the file size is 0.
                                 //
 
-                                if (!FlagOn( Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT )) {
+                                if (Scb->Header.AllocationSize.QuadPart != 0) {
+
+                                    VCN StartingCluster;
+                                    VCN EndingCluster;
 
                                     //
-                                    //  We don't need to truncate if the file size is 0.
+                                    //  ****    Do we need to give up the Vcb for this
+                                    //          call.
                                     //
 
-                                    if (Scb->Header.AllocationSize.QuadPart != 0) {
-
-                                        VCN StartingCluster;
-                                        VCN EndingCluster;
-
-                                        //
-                                        //  ****    Do we need to give up the Vcb for this
-                                        //          call.
-                                        //
-
-                                        StartingCluster = LlClustersFromBytes( Vcb, Scb->Header.FileSize.QuadPart );
-                                        EndingCluster = LlClustersFromBytes( Vcb, Scb->Header.AllocationSize.QuadPart );
-
-                                        //
-                                        //  If there are clusters to delete, we do so now.
-                                        //
-
-                                        if (EndingCluster != StartingCluster) {
-
-                                            try {
-
-                                                NtfsDeleteAllocation( IrpContext,
-                                                                      FileObject,
-                                                                      Scb,
-                                                                      StartingCluster,
-                                                                      MAXLONGLONG,
-                                                                      TRUE,
-                                                                      TRUE );
-
-                                            } except( (((Status = GetExceptionCode()) == STATUS_LOG_FILE_FULL) ||
-                                                        !FsRtlIsNtstatusExpected( Status ))
-                                                       ? EXCEPTION_CONTINUE_SEARCH
-                                                       : EXCEPTION_EXECUTE_HANDLER ) {
-
-                                                SetFlag( Scb->ScbState, SCB_STATE_TRUNCATE_ON_CLOSE );
-                                            }
-                                        }
-
-                                        //
-                                        //  Change the allocation size in the Fcb if this
-                                        //  is the unnamed data attribute.
-                                        //
-
-                                        if (FlagOn( Scb->ScbState, SCB_STATE_UNNAMED_DATA )) {
-
-                                            Fcb->Info.AllocatedLength = Scb->Header.AllocationSize.QuadPart;
-                                            SetFlag( Fcb->InfoFlags, FCB_INFO_CHANGED_ALLOC_SIZE );
-                                            UpdateLastMod = TRUE;
-                                        }
-
-                                        LocalTruncateSize = Scb->Header.FileSize.QuadPart;
-                                        TruncateSize = &LocalTruncateSize;
-                                        UpdateLastChange = TRUE;
-                                    }
-
-                                //
-                                //  This is the resident case.
-                                //
-
-                                } else {
+                                    StartingCluster = LlClustersFromBytes( Vcb, Scb->Header.FileSize.QuadPart );
+                                    EndingCluster = LlClustersFromBytes( Vcb, Scb->Header.AllocationSize.QuadPart );
 
                                     //
-                                    //  Check if the file size length is less than
-                                    //  the allocated size.
+                                    //  If there are clusters to delete, we do so now.
                                     //
 
-                                    if (QuadAlign( Scb->Header.FileSize.LowPart )
-                                        < Scb->Header.AllocationSize.LowPart) {
-
-                                        //
-                                        //  We need to lookup the attribute and change
-                                        //  the attribute value.  We can point to
-                                        //  the attribute itself as the changing
-                                        //  value.
-                                        //
-
-                                        NtfsCleanupAttributeContext( IrpContext, &AttrContext );
-
-                                        NtfsInitializeAttributeContext( &AttrContext );
+                                    if (EndingCluster != StartingCluster) {
 
                                         try {
-
-                                            NtfsLookupAttributeForScb( IrpContext, Scb, &AttrContext );
-
-                                            NtfsChangeAttributeValue( IrpContext,
-                                                                      Fcb,
-                                                                      Scb->Header.FileSize.LowPart,
-                                                                      NULL,
-                                                                      0,
-                                                                      TRUE,
-                                                                      TRUE,
-                                                                      FALSE,
-                                                                      FALSE,
-                                                                      &AttrContext );
+                                            NtfsDeleteAllocation( IrpContext,
+                                                                  FileObject,
+                                                                  Scb,
+                                                                  StartingCluster,
+                                                                  MAXLONGLONG,
+                                                                  TRUE,
+                                                                  TRUE );
 
                                         } except( (((Status = GetExceptionCode()) == STATUS_LOG_FILE_FULL) ||
-                                                    !FsRtlIsNtstatusExpected( Status ))
+                                                   (Status == STATUS_CANT_WAIT) ||
+                                                   !FsRtlIsNtstatusExpected( Status ))
                                                    ? EXCEPTION_CONTINUE_SEARCH
                                                    : EXCEPTION_EXECUTE_HANDLER ) {
 
                                             SetFlag( Scb->ScbState, SCB_STATE_TRUNCATE_ON_CLOSE );
                                         }
-
-                                        //
-                                        //  Remember the smaller allocation size
-                                        //
-
-                                        Scb->Header.AllocationSize.LowPart = QuadAlign(Scb->Header.FileSize.LowPart);
-
-                                        //
-                                        //  Update the Fcb info if this is the unnamed
-                                        //  data attribute.
-                                        //
-
-                                        if (FlagOn( Scb->ScbState, SCB_STATE_UNNAMED_DATA )) {
-
-                                            if (Fcb->Info.FileSize != Scb->Header.FileSize.QuadPart) {
-
-                                                Fcb->Info.FileSize = Scb->Header.FileSize.QuadPart;
-                                                SetFlag( Fcb->InfoFlags, FCB_INFO_CHANGED_FILE_SIZE );
-                                            }
-
-                                            Fcb->Info.AllocatedLength = Scb->Header.AllocationSize.QuadPart;
-                                            SetFlag( Fcb->InfoFlags, FCB_INFO_CHANGED_ALLOC_SIZE );
-                                            UpdateLastMod = TRUE;
-                                        }
-
-                                        UpdateLastChange = TRUE;
                                     }
+
+                                    LocalTruncateSize = Scb->Header.FileSize.QuadPart;
+                                    TruncateSize = &LocalTruncateSize;
+                                }
+
+                            //
+                            //  This is the resident case.
+                            //
+
+                            } else {
+
+                                //
+                                //  Check if the file size length is less than
+                                //  the allocated size.
+                                //
+
+                                if (QuadAlign( Scb->Header.FileSize.LowPart ) < Scb->Header.AllocationSize.LowPart) {
+
+                                    //
+                                    //  We need to lookup the attribute and change
+                                    //  the attribute value.  We can point to
+                                    //  the attribute itself as the changing
+                                    //  value.
+                                    //
+
+                                    if (CleanupAttrContext) {
+
+                                        NtfsCleanupAttributeContext( &AttrContext );
+                                    }
+
+                                    NtfsInitializeAttributeContext( &AttrContext );
+                                    CleanupAttrContext = TRUE;
+
+                                    try {
+
+                                        NtfsLookupAttributeForScb( IrpContext, Scb, NULL, &AttrContext );
+
+                                        NtfsChangeAttributeValue( IrpContext,
+                                                                  Fcb,
+                                                                  Scb->Header.FileSize.LowPart,
+                                                                  NULL,
+                                                                  0,
+                                                                  TRUE,
+                                                                  TRUE,
+                                                                  FALSE,
+                                                                  FALSE,
+                                                                  &AttrContext );
+
+                                    } except( (((Status = GetExceptionCode()) == STATUS_LOG_FILE_FULL) ||
+                                               (Status == STATUS_CANT_WAIT) ||
+                                               !FsRtlIsNtstatusExpected( Status ))
+                                               ? EXCEPTION_CONTINUE_SEARCH
+                                               : EXCEPTION_EXECUTE_HANDLER ) {
+
+                                        SetFlag( Scb->ScbState, SCB_STATE_TRUNCATE_ON_CLOSE );
+                                    }
+
+                                    //
+                                    //  Remember the smaller allocation size
+                                    //
+
+                                    Scb->Header.AllocationSize.LowPart = QuadAlign(Scb->Header.FileSize.LowPart);
+                                    Scb->TotalAllocated = Scb->Header.AllocationSize.QuadPart;
                                 }
                             }
 
-                            //
-                            //  With the file being closed we will now flush our allocation cache hints
-                            //
-
-                            if (FlagOn( Fcb->FcbState, FCB_STATE_UPDATE_STD_INFO )
-
-                                        ||
-
-                                FlagOn( FileObject->Flags, FO_FILE_MODIFIED )) {
-                                NtfsCleanupClusterAllocationHints( IrpContext, Vcb, &Scb->Mcb );
-                            }
+                            NtfsUpdateScbFromFileObject( IrpContext, FileObject, Scb, TRUE );
                         }
                     }
+                }
+
+                //
+                //  If this was the last cached open, and there are open
+                //  non-cached handles, attempt a flush and purge operation
+                //  to avoid cache coherency overhead from these non-cached
+                //  handles later.  We ignore any I/O errors from the flush
+                //  except for CANT_WAIT and LOG_FILE_FULL.
+                //
+
+                if (!FlagOn( FileObject->Flags, FO_NO_INTERMEDIATE_BUFFERING ) &&
+                    (Scb->NonCachedCleanupCount != 0) &&
+                    (Scb->CleanupCount == (Scb->NonCachedCleanupCount + 1)) &&
+                    (Scb->CompressionUnit == 0) &&
+                    (Scb->NonpagedScb->SegmentObject.DataSectionObject != NULL) &&
+                    (Scb->NonpagedScb->SegmentObject.ImageSectionObject == NULL) &&
+                    MmCanFileBeTruncated( &Scb->NonpagedScb->SegmentObject, NULL )) {
+
+                    //
+                    //  Flush and purge the stream.
+                    //
+
+                    NtfsFlushAndPurgeScb( IrpContext,
+                                          Scb,
+                                          NULL );
+
+                    //
+                    //  Ignore any errors in this path.
+                    //
+
+                    IrpContext->ExceptionStatus = STATUS_SUCCESS;
+                }
+
+                if (AddToDelayQueue &&
+                    !FlagOn( Scb->ScbState, SCB_STATE_DELAY_CLOSE ) &&
+                    NtfsData.DelayedCloseCount <= NtfsMaxDelayedCloseCount &&
+                    Fcb->CloseCount == 1) {
+
+                    SetFlag( Scb->ScbState, SCB_STATE_DELAY_CLOSE );
+
+                } else {
+
+                    ClearFlag( Scb->ScbState, SCB_STATE_DELAY_CLOSE );
                 }
 
             //
@@ -1512,20 +1682,13 @@ Return Value:
 
             } else {
 
+                //
+                //  Now set the FO_CLEANUP_COMPLETE flag.
+                //
+
+                SetFlag( FileObject->Flags, FO_CLEANUP_COMPLETE );
+
                 TruncateSize = (PLONGLONG)&Li0;
-                AddToDelayQueue = FALSE;
-            }
-
-            if (AddToDelayQueue &&
-                !FlagOn( Scb->ScbState, SCB_STATE_DELAY_CLOSE ) &&
-                NtfsData.DelayedCloseCount <= NtfsMaxDelayedCloseCount &&
-                Fcb->CloseCount == 1) {
-
-                SetFlag( Scb->ScbState, SCB_STATE_DELAY_CLOSE );
-
-            } else {
-
-                ClearFlag( Scb->ScbState, SCB_STATE_DELAY_CLOSE );
             }
 
             break;
@@ -1533,45 +1696,6 @@ Return Value:
         default :
 
             NtfsBugCheck( TypeOfOpen, 0, 0 );
-        }
-
-        //
-        //  Modify the time stamps if changes were made and the times were
-        //  not explicitly set by the user.
-        //
-
-        if (UpdateLastChange || UpdateLastMod || UpdateLastAccess) {
-
-            LONGLONG CurrentTime;
-
-            NtfsGetCurrentTime( IrpContext, CurrentTime );
-
-            if (UpdateLastChange
-                && !FlagOn( Ccb->Flags, CCB_FLAG_USER_SET_LAST_CHANGE_TIME )) {
-
-                Fcb->Info.LastChangeTime = CurrentTime;
-                SetFlag( Fcb->InfoFlags, FCB_INFO_CHANGED_LAST_CHANGE );
-
-                SetFlag( Fcb->FcbState, FCB_STATE_UPDATE_STD_INFO );
-            }
-
-            if (FlagOn( Scb->ScbState, SCB_STATE_UNNAMED_DATA )) {
-
-                if (UpdateLastAccess
-                    && !FlagOn( Ccb->Flags, CCB_FLAG_USER_SET_LAST_ACCESS_TIME )) {
-
-                    Fcb->CurrentLastAccess = CurrentTime;
-                }
-
-                if (UpdateLastMod
-                    && !FlagOn( Ccb->Flags, CCB_FLAG_USER_SET_LAST_MOD_TIME )) {
-
-                    Fcb->Info.LastModificationTime = CurrentTime;
-                    SetFlag( Fcb->InfoFlags, FCB_INFO_CHANGED_LAST_MOD );
-
-                    SetFlag( Fcb->FcbState, FCB_STATE_UPDATE_STD_INFO );
-                }
-            }
         }
 
         //
@@ -1596,9 +1720,12 @@ Return Value:
 
         //
         //  We check if we have to the standard information attribute.
+        //  We can only update attributes on mounted volumes.
         //
 
-        if (FlagOn( Fcb->FcbState, FCB_STATE_UPDATE_STD_INFO )) {
+        if (FlagOn( Fcb->FcbState, FCB_STATE_UPDATE_STD_INFO ) &&
+            (Status == STATUS_SUCCESS) &&
+            !FlagOn( Scb->ScbState, SCB_STATE_VOLUME_DISMOUNTED )) {
 
             ASSERT( !FlagOn( Fcb->FcbState, FCB_STATE_FILE_DELETED ));
             ASSERT( TypeOfOpen != UserVolumeOpen );
@@ -1608,6 +1735,7 @@ Return Value:
                 NtfsUpdateStandardInformation( IrpContext, Fcb );
 
             } except( (((Status = GetExceptionCode()) == STATUS_LOG_FILE_FULL) ||
+                       (Status == STATUS_CANT_WAIT) ||
                        !FsRtlIsNtstatusExpected( Status ))
                       ? EXCEPTION_CONTINUE_SEARCH
                       : EXCEPTION_EXECUTE_HANDLER ) {
@@ -1617,16 +1745,24 @@ Return Value:
         }
 
         //
-        //  Now update the duplicate information as well.
+        //  Now update the duplicate information as well for volumes that are still mounted.
         //
 
-        if (Fcb->InfoFlags != 0 ||
-            (LcbForUpdate != NULL &&
-             LcbForUpdate->InfoFlags != 0)) {
+        if (!FlagOn( Vcb->VcbState, VCB_STATE_VOLUME_MOUNTED )) {
+
+            //
+            //  We shouldn't try to write the duplicate info to a dismounted volume.
+            //
+
+            UpdateDuplicateInfo = FALSE;
+
+        } else if (FlagOn( Fcb->InfoFlags, FCB_INFO_DUPLICATE_FLAGS ) ||
+                   ((LcbForUpdate != NULL) &&
+                    FlagOn( LcbForUpdate->InfoFlags, FCB_INFO_DUPLICATE_FLAGS ))) {
 
             ASSERT( !FlagOn( Fcb->FcbState, FCB_STATE_FILE_DELETED ));
 
-            NtfsPrepareForUpdateDuplicate( IrpContext, Fcb, &LcbForUpdate, &ParentScb, &AcquiredParentScb );
+            NtfsPrepareForUpdateDuplicate( IrpContext, Fcb, &LcbForUpdate, &ParentScb, TRUE );
 
             //
             //  Now update the duplicate info.
@@ -1637,6 +1773,7 @@ Return Value:
                 NtfsUpdateDuplicateInfo( IrpContext, Fcb, LcbForUpdate, ParentScb );
 
             } except( (((Status = GetExceptionCode()) == STATUS_LOG_FILE_FULL) ||
+                       (Status == STATUS_CANT_WAIT) ||
                        !FsRtlIsNtstatusExpected( Status ))
                       ? EXCEPTION_CONTINUE_SEARCH
                       : EXCEPTION_EXECUTE_HANDLER ) {
@@ -1654,29 +1791,22 @@ Return Value:
 
         if (!OpenById) {
 
+            ULONG FilterMatch;
+
             //
             //  Check whether we need to report on file changes.
             //
 
-            if (UpdateDuplicateInfo || (FlagOn( Fcb->FcbState, FCB_STATE_MODIFIED_SECURITY ))) {
-
-                ULONG FilterMatch;
-                ULONG InfoFlags;
-
-                InfoFlags = Fcb->InfoFlags;
-
-                if (LcbForUpdate != NULL) {
-
-                    SetFlag( InfoFlags, LcbForUpdate->InfoFlags );
-                }
+            if ((Vcb->NotifyCount != 0) &&
+                (UpdateDuplicateInfo || FlagOn( Fcb->InfoFlags, FCB_INFO_MODIFIED_SECURITY ))) {
 
                 //
                 //  We map the Fcb info flags into the dir notify flags.
                 //
 
                 FilterMatch = NtfsBuildDirNotifyFilter( IrpContext,
-                                                        Fcb,
-                                                        InfoFlags );
+                                                        (Fcb->InfoFlags |
+                                                         (LcbForUpdate ? LcbForUpdate->InfoFlags : 0) ));
 
                 //
                 //  If the filter match is non-zero, that means we also need to do a
@@ -1691,6 +1821,7 @@ Return Value:
                                          Ccb->LastFileNameOffset,
                                          NULL,
                                          ((FlagOn( Ccb->Flags, CCB_FLAG_PARENT_HAS_DOS_COMPONENT ) &&
+                                           Ccb->Lcb != NULL &&
                                            Ccb->Lcb->Scb->ScbType.Index.NormalizedName.Buffer != NULL) ?
                                           &Ccb->Lcb->Scb->ScbType.Index.NormalizedName :
                                           NULL),
@@ -1698,82 +1829,93 @@ Return Value:
                                          FILE_ACTION_MODIFIED,
                                          ParentFcb );
                 }
-
-                ClearFlag( Fcb->FcbState, FCB_STATE_MODIFIED_SECURITY );
             }
+
+            ClearFlag( Fcb->InfoFlags, FCB_INFO_MODIFIED_SECURITY );
 
             //
             //  If this is a named stream with changes then report them as well.
             //
 
-            if (Scb->AttributeName.Length != 0
-                && Scb->AttributeTypeCode == $DATA
-                && FlagOn( Scb->ScbState, SCB_STATE_NOTIFY_REMOVE_STREAM
-                                          | SCB_STATE_NOTIFY_RESIZE_STREAM
-                                          | SCB_STATE_NOTIFY_MODIFY_STREAM )) {
+            if ((Scb->AttributeName.Length != 0) &&
+                NtfsIsTypeCodeUserData( Scb->AttributeTypeCode )) {
 
-                ULONG Filter = 0;
-                ULONG Action;
+                if ((Vcb->NotifyCount != 0) &&
+                    FlagOn( Scb->ScbState,
+                            SCB_STATE_NOTIFY_REMOVE_STREAM |
+                            SCB_STATE_NOTIFY_RESIZE_STREAM |
+                            SCB_STATE_NOTIFY_MODIFY_STREAM )) {
 
-                //
-                //  Start by checking for a delete.
-                //
+                    ULONG Action;
 
-                if (FlagOn( Scb->ScbState, SCB_STATE_NOTIFY_REMOVE_STREAM )) {
-
-                    Filter = FILE_NOTIFY_CHANGE_STREAM_NAME;
-                    Action = FILE_ACTION_REMOVED_STREAM;
-
-                } else {
+                    FilterMatch = 0;
 
                     //
-                    //  Check if the file size changed.
+                    //  Start by checking for a delete.
                     //
 
-                    if (FlagOn( Scb->ScbState, SCB_STATE_NOTIFY_RESIZE_STREAM )) {
+                    if (FlagOn( Scb->ScbState, SCB_STATE_NOTIFY_REMOVE_STREAM )) {
 
-                        Filter = FILE_NOTIFY_CHANGE_STREAM_SIZE;
+                        FilterMatch = FILE_NOTIFY_CHANGE_STREAM_NAME;
+                        Action = FILE_ACTION_REMOVED_STREAM;
+
+                    } else {
+
+                        //
+                        //  Check if the file size changed.
+                        //
+
+                        if (FlagOn( Scb->ScbState, SCB_STATE_NOTIFY_RESIZE_STREAM )) {
+
+                            FilterMatch = FILE_NOTIFY_CHANGE_STREAM_SIZE;
+                        }
+
+                        //
+                        //  Now check if the stream data was modified.
+                        //
+
+                        if (FlagOn( Scb->ScbState, SCB_STATE_NOTIFY_MODIFY_STREAM )) {
+
+                            SetFlag( FilterMatch, FILE_NOTIFY_CHANGE_STREAM_WRITE );
+                        }
+
+                        Action = FILE_ACTION_MODIFIED_STREAM;
                     }
 
-                    //
-                    //  Now check if the stream data was modified.
-                    //
-
-                    if (FlagOn( Scb->ScbState, SCB_STATE_NOTIFY_MODIFY_STREAM )) {
-
-                        Filter |= FILE_NOTIFY_CHANGE_STREAM_WRITE;
-                    }
-
-                    Action = FILE_ACTION_MODIFIED_STREAM;
+                    NtfsReportDirNotify( IrpContext,
+                                         Vcb,
+                                         &Ccb->FullFileName,
+                                         Ccb->LastFileNameOffset,
+                                         &Scb->AttributeName,
+                                         ((FlagOn( Ccb->Flags, CCB_FLAG_PARENT_HAS_DOS_COMPONENT ) &&
+                                           Ccb->Lcb != NULL &&
+                                           Ccb->Lcb->Scb->ScbType.Index.NormalizedName.Buffer != NULL) ?
+                                          &Ccb->Lcb->Scb->ScbType.Index.NormalizedName :
+                                          NULL),
+                                         FilterMatch,
+                                         Action,
+                                         ParentFcb );
                 }
 
-                NtfsReportDirNotify( IrpContext,
-                                     Vcb,
-                                     &Ccb->FullFileName,
-                                     Ccb->LastFileNameOffset,
-                                     &Scb->AttributeName,
-                                     ((FlagOn( Ccb->Flags, CCB_FLAG_PARENT_HAS_DOS_COMPONENT ) &&
-                                       Ccb->Lcb->Scb->ScbType.Index.NormalizedName.Buffer != NULL) ?
-                                      &Ccb->Lcb->Scb->ScbType.Index.NormalizedName :
-                                      NULL),
-                                     Filter,
-                                     Action,
-                                     ParentFcb );
-
                 ClearFlag( Scb->ScbState,
-                           SCB_STATE_NOTIFY_ADD_STREAM
-                           | SCB_STATE_NOTIFY_REMOVE_STREAM
-                           | SCB_STATE_NOTIFY_RESIZE_STREAM
-                           | SCB_STATE_NOTIFY_MODIFY_STREAM );
+                           SCB_STATE_NOTIFY_ADD_STREAM |
+                           SCB_STATE_NOTIFY_REMOVE_STREAM |
+                           SCB_STATE_NOTIFY_RESIZE_STREAM |
+                           SCB_STATE_NOTIFY_MODIFY_STREAM );
             }
         }
 
         if (UpdateDuplicateInfo) {
 
-            NtfsUpdateLcbDuplicateInfo( IrpContext, Fcb, LcbForUpdate );
-
+            NtfsUpdateLcbDuplicateInfo( Fcb, LcbForUpdate );
             Fcb->InfoFlags = 0;
         }
+
+        //
+        //  Always clear the update standard information flag.
+        //
+
+        ClearFlag( Fcb->FcbState, FCB_STATE_UPDATE_STD_INFO );
 
         //
         //  Let's give up the parent Fcb if we have acquired it.  This will
@@ -1787,44 +1929,6 @@ Return Value:
         }
 
         //
-        //  We remove the share access from the Scb.
-        //
-
-        if (FlagOn( Scb->ScbState, SCB_STATE_SHARE_ACCESS )) {
-
-            if (NodeType( Scb ) == NTFS_NTC_SCB_DATA) {
-
-                IoRemoveShareAccess( FileObject, &Scb->ScbType.Data.ShareAccess );
-
-            } else {
-
-                IoRemoveShareAccess( FileObject, &Scb->ScbType.Index.ShareAccess );
-            }
-
-            //
-            //  Modify the delete counts in the Fcb.
-            //
-
-            if (FlagOn( Ccb->Flags, CCB_FLAG_DELETE_FILE )) {
-
-                Fcb->FcbDeleteFile -= 1;
-                ClearFlag( Ccb->Flags, CCB_FLAG_DELETE_FILE );
-            }
-
-            if (FlagOn( Ccb->Flags, CCB_FLAG_DENY_DELETE )) {
-
-                Fcb->FcbDenyDelete -= 1;
-                ClearFlag( Ccb->Flags, CCB_FLAG_DENY_DELETE );
-            }
-        }
-
-        //
-        //  Now decrement the cleanup counts
-        //
-
-        NtfsDecrementCleanupCounts( IrpContext, Scb, LcbForCounts, 1 );
-
-        //
         //  Uninitialize the cache map if this file has been cached or we are
         //  trying to delete.
         //
@@ -1835,10 +1939,47 @@ Return Value:
         }
 
         //
-        //  Abort transaction on error by raising.
+        //  Check that the non-cached handle count is consistent.
         //
 
-        NtfsCleanupTransaction( IrpContext, Status );
+        ASSERT( !FlagOn( FileObject->Flags, FO_NO_INTERMEDIATE_BUFFERING ) ||
+                (Scb->NonCachedCleanupCount != 0 ));
+
+        if (CleanupAttrContext) {
+
+            NtfsCleanupAttributeContext( &AttrContext );
+            CleanupAttrContext = FALSE;
+        }
+
+        //
+        //  Now decrement the cleanup counts.
+        //
+
+        NtfsDecrementCleanupCounts( Scb,
+                                    LcbForCounts,
+                                    BooleanFlagOn( FileObject->Flags, FO_NO_INTERMEDIATE_BUFFERING ));
+
+        //
+        //  We remove the share access from the Scb.
+        //
+
+        IoRemoveShareAccess( FileObject, &Scb->ShareAccess );
+
+        //
+        //  Modify the delete counts in the Fcb.
+        //
+
+        if (FlagOn( Ccb->Flags, CCB_FLAG_DELETE_FILE )) {
+
+            Fcb->FcbDeleteFile -= 1;
+            ClearFlag( Ccb->Flags, CCB_FLAG_DELETE_FILE );
+        }
+
+        if (FlagOn( Ccb->Flags, CCB_FLAG_DENY_DELETE )) {
+
+            Fcb->FcbDenyDelete -= 1;
+            ClearFlag( Ccb->Flags, CCB_FLAG_DENY_DELETE );
+        }
 
         //
         //  Since this request has completed we can adjust the total link count
@@ -1847,20 +1988,36 @@ Return Value:
 
         Fcb->TotalLinks -= TotalLinkAdj;
 
-#ifndef NTFS_TEST_LINKS
-        ASSERT( Lcb == NULL ||
-                (LcbLinkIsDeleted( Lcb ) ? Fcb->LinkCount == 0 : Fcb->LinkCount == 1));
-#endif
+#ifdef _CAIRO_
+
+        //
+        //  Release the quota control block.  This does not have to be done
+        //  here however, it allows us to free up the quota control block
+        //  before the fcb is removed from the table.  This keeps the assert
+        //  about quota table empty from triggering in
+        //  NtfsClearAndVerifyQuotaIndex.
+        //
+
+        if (NtfsPerformQuotaOperation(Fcb) &&
+            FlagOn( Fcb->FcbState, FCB_STATE_FILE_DELETED )) {
+            NtfsDereferenceQuotaControlBlock( Vcb,
+                                              &Fcb->QuotaControl );
+        }
+
+#endif // _CAIRO_
+
 
     } finally {
 
         DebugUnwind( NtfsCommonCleanup );
 
+        ClearFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_QUOTA_DISABLE );
+
         //
         //  Release any resources held.
         //
 
-        NtfsReleaseVcb( IrpContext, Vcb, NULL );
+        NtfsReleaseVcb( IrpContext, Vcb );
 
         //
         //  We clear the file object pointer in the Ccb.
@@ -1875,17 +2032,15 @@ Return Value:
             NtfsReleaseScb( IrpContext, Scb );
         }
 
-        if (AcquiredPagingIo) {
+        if (CleanupAttrContext) {
 
-            NtfsReleasePagingIo( IrpContext, Fcb );
+            NtfsCleanupAttributeContext( &AttrContext );
         }
 
-        if (AcquiredParentScb) {
+        if (NamePair.Long.Buffer != NamePair.LongBuffer) {
 
-            NtfsReleaseScb( IrpContext, ParentScb );
+            NtfsFreePool(NamePair.Long.Buffer);
         }
-
-        NtfsCleanupAttributeContext( IrpContext, &AttrContext );
 
         if (!AbnormalTermination()) {
 
@@ -1896,8 +2051,79 @@ Return Value:
         //  And return to our caller
         //
 
-        DebugTrace(-1, Dbg, "NtfsCommonCleanup -> %08lx\n", Status);
+        DebugTrace( -1, Dbg, ("NtfsCommonCleanup -> %08lx\n", Status) );
     }
 
     return Status;
 }
+
+#ifdef _CAIRO_
+VOID
+NtfsContractQuotaToFileSize (
+    IN PIRP_CONTEXT IrpContext,
+    IN PSCB Scb
+    )
+
+/*++
+
+Routine Description:
+
+    This routine converts the quota charged for a stream from allocation size
+    to file size.  This should only be called for cleanup.
+
+Arguments:
+
+    Scb - Supplies a pointer to the being changed.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    LONGLONG Delta;
+    NTSTATUS Status;
+
+    PAGED_CODE();
+    ASSERT( IrpContext->MajorFunction == IRP_MJ_CLEANUP );
+    ASSERT(!FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_QUOTA_DISABLE ));
+
+    try {
+
+        ASSERT( NtfsIsTypeCodeSubjectToQuota( Scb->AttributeTypeCode ));
+        ASSERT( FlagOn( Scb->ScbState, SCB_STATE_SUBJECT_TO_QUOTA ));
+
+        if (FlagOn( Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT )) {
+
+            Delta = (LONG) Scb->Header.FileSize.LowPart -
+                           NtfsResidentStreamQuota( Scb->Vcb );
+        } else {
+            Delta = Scb->Header.FileSize.QuadPart -
+                    Scb->Header.AllocationSize.QuadPart;
+        }
+
+        if (Delta != 0) {
+
+            NtfsUpdateFileQuota( IrpContext,
+                                 Scb->Fcb,
+                                 &Delta,
+                                 TRUE,
+                                 FALSE );
+        }
+
+        ClearFlag( Scb->ScbState, SCB_STATE_QUOTA_ENLARGED );
+
+    } except( (((Status = GetExceptionCode()) == STATUS_LOG_FILE_FULL) ||
+               (Status == STATUS_CANT_WAIT) ||
+               !FsRtlIsNtstatusExpected( Status ))
+              ? EXCEPTION_CONTINUE_SEARCH
+              : EXCEPTION_EXECUTE_HANDLER ) {
+
+        NOTHING;
+    }
+
+}
+#endif // _CAIRO_
+
+

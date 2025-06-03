@@ -2322,9 +2322,9 @@ cfl_check_it_out:
         mov     es,[di].hi_first
         mov     cx,[di].gi_free_count
         or      cx,cx
-        jnz     short fuck_short_relative_jumps
+        jnz     short short_relative_jumps
         jmp     all_done
-fuck_short_relative_jumps:
+short_relative_jumps:
         mov     ax,es:[di].ga_freenext
         mov     es,ax
 check_chain_loop:

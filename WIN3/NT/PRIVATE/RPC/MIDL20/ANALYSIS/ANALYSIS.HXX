@@ -904,17 +904,6 @@ public:
 								}
 
 	//
-	// Should we optimize for speed ?
-	//
-
-	BOOL					ShouldOptimizeSpeed()
-								{
-								return (BOOL)
-									((OptimOptions & OPTIMIZE_SPEED) ==
-															 OPTIMIZE_SPEED );
-								}
-
-	//
 	// Should we optimize for size ?
 	//
 

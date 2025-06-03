@@ -44,7 +44,7 @@ Revision History:
 // BUFLEN is the maximum line length that can be passed or will be returned
 // by the editor.
 //
-#define BUFLEN     512
+#define BUFLEN     251
 
 //
 //  NT versions of the editor no longer use 16-bit specific attributes.
@@ -463,9 +463,9 @@ typedef union Rec {
 
 
 #define LOWVERSION  0x0014		// lowest version of extensions we handle
-#define HIGHVERSION 0x0015              // highest version of extensions we handle
+#define HIGHVERSION 0x0014		// highest version of extensions we handle
 
-#define VERSION     0x0015              // our current version
+#define VERSION     0x0014		// our current version
 
 typedef struct ExtensionTable {
     long	version;

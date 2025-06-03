@@ -68,7 +68,7 @@ McWriteBinaryFilesA( void )
     PMESSAGE_INFO MessageInfo;
     PMESSAGE_BLOCK BlockInfo;
     char *FileName;
-    ULONG cb;
+    ULONG cb, cbNeeded;
     ULONG MessageOffset;
     MESSAGE_RESOURCE_ENTRY MessageEntry;
     MESSAGE_RESOURCE_BLOCK MessageBlock;
@@ -148,7 +148,11 @@ McWriteBinaryFilesA( void )
 
                 if (LanguageInfo != NULL) {
                     cb = FIELD_OFFSET( MESSAGE_RESOURCE_ENTRY, Text[ 0 ] ) +
-                         LanguageInfo->Length + 1;
+                         WideCharToMultiByte( LanguageName->CodePage,
+                                              0,
+                                              LanguageInfo->Text,
+                                              LanguageInfo->Length,
+                                              NULL, 0, NULL, NULL ) + 1;
 
                     cb = (cb + 3) & ~3;
                     BlockInfo->InfoLength += cb;
@@ -193,8 +197,14 @@ McWriteBinaryFilesA( void )
                     }
 
                 if (LanguageInfo != NULL) {
+                    cbNeeded = WideCharToMultiByte( LanguageName->CodePage,
+                                                    0,
+                                                    LanguageInfo->Text,
+                                                    LanguageInfo->Length,
+                                                    NULL, 0, NULL, NULL );
+
                     cb = FIELD_OFFSET( MESSAGE_RESOURCE_ENTRY, Text[ 0 ] ) +
-                         LanguageInfo->Length + 1;
+                         cbNeeded + 1;
 
                     cb = (cb + 3) & ~3;
 
@@ -209,21 +219,24 @@ McWriteBinaryFilesA( void )
                                  BinaryMessageFile
                                );
 
-                    if (Size < LanguageInfo->Length ) {
-                        lpBuf = realloc( lpBuf, LanguageInfo->Length );
+                    if (Size < cbNeeded ) {
+                        lpBuf = realloc( lpBuf, cbNeeded );
                         if (!lpBuf) {
                             McInputErrorA( "Out of memory writing to output file - %s",
                                            TRUE, BinaryMessageFileName );
                             return( FALSE );
                         }
-                        Size = LanguageInfo->Length;
+                        Size = cbNeeded;
                     }
-                    WideCharToMultiByte( LanguageName->CodePage, 0, LanguageInfo->Text, LanguageInfo->Length,
-                                         lpBuf, Size, NULL, NULL );
+                    WideCharToMultiByte( LanguageName->CodePage,
+                                         0,
+                                         LanguageInfo->Text,
+                                         LanguageInfo->Length,
+                                         lpBuf, cbNeeded, NULL, NULL );
 
                     cb += fwrite( lpBuf,
                                   1,
-                                  (size_t)LanguageInfo->Length,
+                                  (size_t)cbNeeded,
                                   BinaryMessageFile
                                 );
 
@@ -253,9 +266,10 @@ McWriteBinaryFilesA( void )
             }
 
         fclose( BinaryMessageFile );
+        McClearArchiveBit( BinaryMessageFileName );
         }
 
-    LocalFree( lpBuf );
+    free( lpBuf );
     return( TRUE );
 }
 
@@ -339,7 +353,7 @@ McWriteBinaryFilesW( void )
 
                 if (LanguageInfo != NULL) {
                     cb = FIELD_OFFSET( MESSAGE_RESOURCE_ENTRY, Text[ 0 ] ) +
-                         ( LanguageInfo->Length + 1 ) * sizeof( WCHAR );
+                         ( LanguageInfo->Length + 1 );
 
                     cb = (cb + 3) & ~3;
                     BlockInfo->InfoLength += cb;
@@ -351,6 +365,7 @@ McWriteBinaryFilesW( void )
                              MessageInfo->SymbolicName
                            );
                     fclose( BinaryMessageFile );
+                    _unlink( BinaryMessageFileName );
                     return( FALSE );
                     }
 
@@ -385,7 +400,7 @@ McWriteBinaryFilesW( void )
 
                 if (LanguageInfo != NULL) {
                     cb = FIELD_OFFSET( MESSAGE_RESOURCE_ENTRY, Text[ 0 ] ) +
-                         ( LanguageInfo->Length + 1 ) * sizeof( WCHAR );
+                         ( LanguageInfo->Length + 1 ) ;
 
                     cb = (cb + 3) & ~3;
 
@@ -401,7 +416,7 @@ McWriteBinaryFilesW( void )
                                );
                     cb += fwrite( LanguageInfo->Text,
                                   1,
-                                  (size_t)( LanguageInfo->Length * sizeof( WCHAR ) ),
+                                  (size_t)( LanguageInfo->Length ),
                                   BinaryMessageFile
                                 );
 
@@ -431,8 +446,8 @@ McWriteBinaryFilesW( void )
             }
 
         fclose( BinaryMessageFile );
+        McClearArchiveBit( BinaryMessageFileName );
         }
 
     return( TRUE );
 }
-

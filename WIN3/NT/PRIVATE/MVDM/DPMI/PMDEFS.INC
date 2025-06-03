@@ -401,12 +401,6 @@ GDT_SIZE        = (((SEL_DYNALINK + (NUM_DYNALINK shl 3) + 8) shr 4) shl 4)
 GDT_SELECTORS   = (GDT_SIZE shr 3)
 
 ELSE
-SEL_DXDATA0     = 0
-SEL_DXCODE0     = 0
-SEL_RZIRET      = 0
-SEL_LDT         = 0
-SEL_RESET       = 0
-SEL_TSS         = 0
 
 SEL_GDT         = 80h           ;read/write data segment pointing to the
                                 ; global descriptor table
@@ -430,7 +424,17 @@ SEL_EH          = 0E0h          ;Ring 0 segment code for handling processor
 
 ; NOTE: The next 4 segment descriptors are reserved for WDEB386 debugger.
 
+ifndef WOW
 SEL_DEB386      = 0E8h
+endif
+
+SEL_DXDATA0     = 0f0h
+SEL_DXCODE0     = 0f8h
+SEL_RZIRET      = 0100h
+SEL_LDT         = 0108h
+SEL_RESET       = 0110h
+SEL_TSS         = 0118h
+SEL_TSS_ALIAS   = 0120h
 
 SEL_STACK_ALIAS = 0128h         ;Stack alias for Ring 3 exception handlers.
 

@@ -24,14 +24,14 @@
 static long StringToHex( char * str );
 extern CMD_ARG			*	pCommand;
 
-BOOL                    
+BOOL
 CG_POINTER::IsPointerToBaseType()
 {
     BOOL fIsPointerToBaseType = FALSE;
     CG_NDR * pChild;
 
 	if(GetCGID() == ID_CG_PTR)
-		{    
+		{
     	pChild = (CG_NDR *)GetChild();
 
 	    if ( pChild->GetCGID() == ID_CG_GENERIC_HDL )
@@ -44,12 +44,12 @@ CG_POINTER::IsPointerToBaseType()
     return fIsPointerToBaseType;
 }
 
-BOOL                    
+BOOL
 CG_POINTER::IsPointerToPointer()
 {
     BOOL fIsPointerToPointer = FALSE;
     CG_NDR * pChild;
-        
+
 	if(GetCGID() == ID_CG_PTR)
 		{
     	pChild = (CG_NDR *)GetChild();
@@ -64,7 +64,34 @@ CG_POINTER::IsPointerToPointer()
     return fIsPointerToPointer;
 }
 
-BOOL                    
+BOOL
+CG_POINTER::IsBasicRefPointer()
+{
+    short   Attributes;
+
+    if ( (GetCGID() == ID_CG_INTERFACE_PTR) ||
+         (GetCGID() == ID_CG_BC_PTR) ||
+         (GetCGID() == ID_CG_STRUCT_STRING_PTR) ||
+         (GetPtrType() != PTR_REF) ||
+         IsPointerToBaseType() )
+        return FALSE;
+
+    if ( ((GetCGID() == ID_CG_STRING_PTR) ||
+          (GetCGID() == ID_CG_SIZE_STRING_PTR)) &&
+         ((CG_STRING_POINTER *)this)->IsStringableStruct() )
+        return FALSE;
+
+    Attributes = GetAllocateDetails();
+
+    if ( IsPointerToPointer() ||
+         IS_ALLOCATE(Attributes, ALLOCATE_ALL_NODES) ||
+         IS_ALLOCATE(Attributes, ALLOCATE_DONT_FREE) )
+        return FALSE;
+
+    return TRUE;
+}
+
+BOOL
 CG_POINTER::IsMultiSize()
 {
     if ( (GetCGID() != ID_CG_SIZE_PTR) &&
@@ -86,7 +113,7 @@ CG_POINTER::SizedDimensions()
 {
     CG_NDR *    pNdr;
     long        Dim;
-   
+
     Dim = 0;
     pNdr = this;
 
@@ -101,8 +128,123 @@ CG_POINTER::SizedDimensions()
     return Dim;
 }
 
+long
+CG_POINTER::FixedBufferSize( CCB * pCCB )
+{
+    long    BufSize;
+
+    //
+    // Must give up on string or sized pointers.
+    //
+    if ( GetCGID() != ID_CG_PTR )
+        return -1;
+
+    BufSize = ((CG_NDR *)GetChild())->FixedBufferSize( pCCB );
+
+    if ( BufSize == -1 )
+        return -1;
+
+    if ( GetPtrType() != PTR_REF )
+        BufSize += 8;
+
+    return BufSize;
+}
+
+BOOL
+CG_POINTER::InterpreterAllocatesOnStack(
+    CCB *       pCCB,
+    CG_PARAM *  pMyParam,
+    long *      pAllocationSize )
+{
+    CG_NDR *    pNdr;
+    long        OutSize;
+
+    if ( ! pMyParam )
+        return FALSE;
+
+    pNdr = (CG_NDR *) GetChild();
+
+    if ( pNdr->GetCGID() == ID_CG_GENERIC_HDL )
+        pNdr = (CG_NDR *) pNdr->GetChild();
+
+    if ( pNdr->GetCGID() == ID_CG_CONTEXT_HDL )
+        {
+        //
+        // These get the "allocated on stack" attribute but a size of 0 since
+        // they are allocated by calling NDRSContextUnmarshall.
+        //
+        *pAllocationSize = 0;
+        return TRUE;
+        }
+
+    //
+    // Make sure this pointer is a top level parameter and doesn't have
+    // any allocate attributes.
+    //
+    if ( (pMyParam->GetCGID() == ID_CG_RETURN) ||
+         (pMyParam->GetChild() != this) ||
+         IS_ALLOCATE( GetAllocateDetails(), ALLOCATE_ALL_NODES ) ||
+         IS_ALLOCATE( GetAllocateDetails(), ALLOCATE_DONT_FREE ) )
+        return FALSE;
+
+    OutSize = pCCB->GetInterpreterOutSize();
+
+    //
+    // Watch for [out] only ref to ref pointers as they should be
+    // handled by NdrOutInit in the new interpreter, not on stack.
+    //
+
+    if ( ! pMyParam->IsParamIn()  &&  IsRef()  &&
+         IsPointerToPointer()  &&  ((CG_POINTER *)pNdr)->IsRef() )
+        return FALSE;
+
+    //
+    // Look for pointer to pointer, [out] only pointer to base type, or
+    // pointer to enum16 of any direction.
+    //
+    if ( IsPointerToPointer() ||
+         (IsPointerToBaseType() && ! pMyParam->IsParamIn()) ||
+         (IsPointerToBaseType() &&
+          (((CG_BASETYPE *)pNdr)->GetFormatChar() == FC_ENUM16) &&
+          pMyParam->IsParamIn()) )
+        {
+        if ( (OutSize + 8) <= MAX_INTERPRETER_OUT_SIZE )
+            {
+            *pAllocationSize = 8;
+            pCCB->SetInterpreterOutSize( pCCB->GetInterpreterOutSize() + 8 );
+            return TRUE;
+            }
+        }
+
+    //
+    // Finished with [in], [in,out] cases now.
+    //
+    if ( pMyParam->IsParamIn() )
+        return FALSE;
+
+    //
+    // This covers [out] pointers to structs and unions.  We don't allow
+    // any one parameter to eat up too much of the total stack space
+    // the interpreter has set aside for this optimization.
+    //
+    if ( pNdr->GetMemorySize() <= MAX_INTERPRETER_PARAM_OUT_SIZE )
+        {
+        OutSize += (pNdr->GetMemorySize() + 7) & ~0x7;
+
+        if ( OutSize <= MAX_INTERPRETER_OUT_SIZE )
+            {
+            *pAllocationSize = (pNdr->GetMemorySize() + 7) & ~0x7;
+            pCCB->SetInterpreterOutSize(
+                        pCCB->GetInterpreterOutSize() + *pAllocationSize );
+            return TRUE;
+            }
+        }
+
+    return FALSE;
+}
+
 void
-CG_POINTER::GenNdrPointerType( CCB * pCCB ) 
+CG_POINTER::GenNdrPointerType( CCB * pCCB )
 /*++
 
 Routine Description :
@@ -120,19 +262,19 @@ Return:
 
  --*/
 {
-    FORMAT_STRING *     pFormatString; 
+    FORMAT_STRING *     pFormatString;
 	CG_PARAM *			pParam;
 	short 				Attributes;
 	unsigned char		FormatAttr;
 
 	pFormatString = pCCB->GetFormatString();
 
-	pParam = (CG_PARAM *) pCCB->GetLastPlaceholderClass();
+    pParam = pCCB->GetCurrentParam();
 
 	//
 	// Set the pointer type.
 	//
-	switch ( GetPtrType() ) 
+	switch ( GetPtrType() )
 		{
 		case PTR_REF :
 			pFormatString->PushPointerFormatChar(FC_RP);
@@ -142,7 +284,7 @@ Return:
 			// Check if this is a unique pointer in an OLE interface, but
             // is not the top most pointer.
 			//
-		 	if ( pCCB->IsInObjectInterface() && 
+		 	if ( pCCB->IsInObjectInterface() &&
                  pParam->IsParamOut() &&
                  pParam->GetChild() != this )
 				pFormatString->PushPointerFormatChar(FC_OP);
@@ -154,7 +296,7 @@ Return:
 			break;
 		}
 
-	// 
+	//
 	// Now the attributes.
 	//
 	FormatAttr = 0;
@@ -167,40 +309,58 @@ Return:
 	if ( IS_ALLOCATE(Attributes, ALLOCATE_DONT_FREE) )
 		FormatAttr |= FC_DONT_FREE;
 
-	//
-	// Check if we are allocated on the stack by the stub.  Currently this
-	// only works for top level pointers.
-	//
-	if ( GetCGID() == ID_CG_PTR ) 
+	if ( GetCGID() == ID_CG_PTR )
 		{
+	    //
+	    // Check if we are allocated on the stack by the stub.  Currently this
+	    // only works for top level pointers.
+	    //
 		if ( ! ShouldPointerFree() &&
 			 ! (pCCB->GetOptimOption() & OPTIMIZE_INTERPRETER) )
 			FormatAttr |= FC_ALLOCED_ON_STACK;
 
 		//
-		// For /Oi we also set the alloced on stack attribute for 
-		// pointers to context handles 
+		// For the interpreter we set the alloced on stack attribute for
+		// those [out] pointers which we will be able to "allocate" on the
+        // server interpreter's stack.  We also do this for [in,out] double
+        // pointers.
+        // The version 1 interpreter simply looks for pointers to context
+        // handles.
 		//
-		if ( ( ((CG_NDR *)GetChild())->GetCGID() == ID_CG_CONTEXT_HDL ) && 
-			 ( pCCB->GetOptimOption() & OPTIMIZE_INTERPRETER ) )
-			FormatAttr |= FC_ALLOCED_ON_STACK;
+		if ( pCCB->GetOptimOption() & OPTIMIZE_INTERPRETER )
+            {
+            if ( ! (pCCB->GetOptimOption() & OPTIMIZE_INTERPRETER_V2) )
+                {
+                if ( ((CG_NDR *)GetChild())->GetCGID() == ID_CG_CONTEXT_HDL )
+                    FormatAttr |= FC_ALLOCED_ON_STACK;
+                }
+            else
+                {
+                long    OutSize;
+
+                if ( InterpreterAllocatesOnStack( pCCB, pParam, &OutSize ) )
+			        FormatAttr |= FC_ALLOCED_ON_STACK;
+                }
+            }
 		}
 
 	//
-	// Check for a pointer to simple type, non-sized string, or pointer to 
+	// Check for a pointer to simple type, non-sized string, or pointer to
 	// pointer.
-	// 
+	//
 	if ( IsPointerToBaseType() || (GetCGID() == ID_CG_STRING_PTR) )
-		FormatAttr |= FC_SIMPLE_POINTER; 
+		FormatAttr |= FC_SIMPLE_POINTER;
 
     if ( IsPointerToPointer() )
         FormatAttr |= FC_POINTER_DEREF;
 
 	pFormatString->PushByte( FormatAttr );
+
+    SetFormatAttr( FormatAttr );
 }
 
 void
-CG_POINTER::GenNdrFormat( CCB * pCCB ) 
+CG_POINTER::GenNdrFormat( CCB * pCCB )
 /*++
 
 Routine Description :
@@ -214,10 +374,10 @@ Arguments :
  --*/
 {
 
-    FORMAT_STRING *     pFormatString	= pCCB->GetFormatString(); 
+    FORMAT_STRING *     pFormatString	= pCCB->GetFormatString();
 	unsigned short 		StartOffset		= pFormatString->GetCurrentOffset();
 	
-	if ( GetFormatStringOffset() != -1 ) 
+	if ( GetFormatStringOffset() != -1 )
 		return;
 
 	SetFormatStringOffset( StartOffset );
@@ -231,7 +391,7 @@ Arguments :
 }
 
 void
-CG_POINTER::GenNdrFormatAlways( CCB * pCCB ) 
+CG_POINTER::GenNdrFormatAlways( CCB * pCCB )
 /*++
 
 Routine Description :
@@ -244,7 +404,7 @@ Arguments :
 
  --*/
 {
-    FORMAT_STRING *     pFormatString; 
+    FORMAT_STRING *     pFormatString;
 	long				Offset;
 
 	pFormatString = pCCB->GetFormatString();
@@ -252,10 +412,10 @@ Arguments :
 	GenNdrPointerType( pCCB );
 
 	//
-	// If it's an unattributed pointer to a simple type then the format 
-	// string is optimized.  
+	// If it's an unattributed pointer to a simple type then the format
+	// string is optimized.
 	//
-	if ( IsPointerToBaseType() ) 
+	if ( IsPointerToBaseType() )
 		{
 		GenNdrFormatPointee( pCCB );
 		pFormatString->PushFormatChar( FC_PAD );
@@ -276,7 +436,7 @@ Arguments :
 							  Offset );
 }
 
-void                    
+void
 CG_POINTER::GenNdrParamOffline( CCB * pCCB )
 {
 	GenNdrFormat( pCCB );
@@ -288,7 +448,7 @@ CG_POINTER::GenNdrFormatPointee( CCB * pCCB )
 
 Routine Description :
 
-	Generates the format string description for the pointee of an 
+	Generates the format string description for the pointee of an
 	unattributed pointer to anything.
 
 Arguments :
@@ -301,16 +461,28 @@ Arguments :
 
 	pChild = (CG_NDR *)GetChild();
 
-	//
-	// For unattributed pointers (no size or length), this is simply a 
-	// call to the child's GenNdrFormat method.
-	//
-	pChild->GenNdrFormat( pCCB );
+    if (pChild->IsProc())
+    {
+        assert(pCommand->IsHookOleEnabled());
+    	FORMAT_STRING * pFormatString = pCCB->GetFormatString();
+        SetPointeeFormatStringOffset(pFormatString->GetCurrentOffset());
+        pFormatString->PushFormatChar(FC_BLKHOLE);
+        pFormatString->PushByte( BLKHOLE_FUNCTION ); // flags
+        pFormatString->PushShort( (short) -1 ); // Reserved
+    } 
+	else
+    {
+        //
+	    // For unattributed pointers (no size or length), this is simply a
+	    // call to the child's GenNdrFormat method.
+	    //
+	    pChild->GenNdrFormat( pCCB );
 
-	SetPointeeFormatStringOffset( pChild->GetFormatStringOffset() );
+	    SetPointeeFormatStringOffset( pChild->GetFormatStringOffset() );
+    }
 }
 
-BOOL                    
+BOOL
 CG_POINTER::ShouldFreeOffline()
 {
 	CG_NDR *	pNdr;
@@ -334,7 +506,7 @@ CG_POINTER::ShouldFreeOffline()
 	// Check for handles.
 	//
 	if ( (pNdr->GetCGID() == ID_CG_CONTEXT_HDL) ||
-		 (pNdr->GetCGID() == ID_CG_PRIMITIVE_HDL) ) 
+		 (pNdr->GetCGID() == ID_CG_PRIMITIVE_HDL) )
 		return FALSE;
 
 	//
@@ -366,10 +538,13 @@ CG_POINTER::ShouldFreeOffline()
 	if ( pNdr->IsSimpleType() )
 		return FALSE;
 
+    if ( pNdr->IsStruct() )
+        return ((CG_STRUCT *)pNdr)->ShouldFreeOffline();
+
 	return TRUE;
 }
 
-void                    
+void
 CG_POINTER::GenFreeInline( CCB * pCCB )
 {
 	CG_PARAM *	pParam;
@@ -401,7 +576,7 @@ CG_POINTER::GenFreeInline( CCB * pCCB )
 	// Check for handles.
 	//
 	if ( (pNdr->GetCGID() == ID_CG_CONTEXT_HDL) ||
-		 (pNdr->GetCGID() == ID_CG_PRIMITIVE_HDL) ) 
+		 (pNdr->GetCGID() == ID_CG_PRIMITIVE_HDL) )
 		return;
 
 	//
@@ -415,7 +590,7 @@ CG_POINTER::GenFreeInline( CCB * pCCB )
 	// Out only pointer is freed if it wasn't allocated on the server's stack.
 	// We overwrite any previous freeing descision.
 	//
-	if ( ! pParam->IsParamIn() ) 
+	if ( ! pParam->IsParamIn() )
 		fFree = ShouldPointerFree();
 
 	if ( fFree )
@@ -432,10 +607,10 @@ void CG_SIZE_POINTER::GenNdrFormatPointee( CCB * pCCB )
 
 Routine Description :
 
-	Generates the format string description for the pointee of an 
+	Generates the format string description for the pointee of an
 	sized pointer to anything.
 	Since a sized pointer is really the same as a pointer to a conformant
-	array in Ndr terms, we just create a CG_CONFORMANT_ARRAY class on the 
+	array in Ndr terms, we just create a CG_CONFORMANT_ARRAY class on the
 	fly and tell it to generate it's code.
 
 Arguments :
@@ -445,10 +620,9 @@ Arguments :
  --*/
 {
 	CG_CONFORMANT_ARRAY *	pConformantArray;
-	FIELD_ATTR_INFO *		pFieldAttrInfo;
     CG_QUALIFIED_POINTER *  pOldSizePtr;
 
-	if ( GetPointeeFormatStringOffset() != -1 ) 
+	if ( GetPointeeFormatStringOffset() != -1 )
 		return;
 
     if ( IsMultiSize() )
@@ -466,19 +640,15 @@ Arguments :
             }
         }
 
-	pFieldAttrInfo = new FIELD_ATTR_INFO();
-	pFieldAttrInfo->SetMinIs( GetMinIsExpr() );
-	pFieldAttrInfo->SetSizeIs( GetSizeIsExpr() );
-
     pOldSizePtr = pCCB->GetCurrentSizePointer();
     pCCB->SetCurrentSizePointer( this );
 
-	pConformantArray = new CG_CONFORMANT_ARRAY( 
-                    NULL,			// node_skl *
-				 	pFieldAttrInfo,
-					1,
-					(unsigned short) ((CG_NDR *)GetChild())->GetWireAlignment() 
-                    );
+	
+	CG_NDR				*	pChild	= (CG_NDR *) GetChild();
+	
+	pConformantArray = new CG_CONFORMANT_ARRAY( this );
+
+    SetPointee( pConformantArray );
 
     pConformantArray->SetPtrType( PTR_REF );
 
@@ -486,15 +656,13 @@ Arguments :
 
     pConformantArray->SetIsInMultiDim( IsInMultiSized() );
 
+    pConformantArray->SetFormatStringOffset( -1 );
+
 	pConformantArray->GenNdrFormat( pCCB );
 
 	SetPointeeFormatStringOffset( pConformantArray->GetFormatStringOffset() );
 
     pCCB->SetCurrentSizePointer( pOldSizePtr );
-
-	// Let's actually free up some memory for once.
-	delete pConformantArray;
-	delete pFieldAttrInfo;
 }
 
 void CG_SIZE_LENGTH_POINTER::GenNdrFormatPointee( CCB * pCCB )
@@ -502,10 +670,10 @@ void CG_SIZE_LENGTH_POINTER::GenNdrFormatPointee( CCB * pCCB )
 
 Routine Description :
 
-	Generates the format string description for the pointee of a 
+	Generates the format string description for the pointee of a
 	size-length pointer to anything.
 	Since a size-length pointer is really the same as a pointer to a conformant
-	varying array in Ndr terms, we just create a CG_CONFORMANT_VARYING_ARRAY 
+	varying array in Ndr terms, we just create a CG_CONFORMANT_VARYING_ARRAY
 	class on the fly and tell it to generate it's code.
 
 Arguments :
@@ -515,10 +683,9 @@ Arguments :
  --*/
 {
 	CG_CONFORMANT_VARYING_ARRAY *	pConfVaryArray;
-	FIELD_ATTR_INFO *				pFieldAttrInfo;
     CG_QUALIFIED_POINTER *          pOldSizePtr;
 
-	if ( GetPointeeFormatStringOffset() != -1 ) 
+	if ( GetPointeeFormatStringOffset() != -1 )
 		return;
 
     if ( IsMultiSize() )
@@ -536,21 +703,12 @@ Arguments :
             }
         }
 
-	pFieldAttrInfo = new FIELD_ATTR_INFO();
-	pFieldAttrInfo->SetMinIs( GetMinIsExpr() );
-	pFieldAttrInfo->SetSizeIs( GetSizeIsExpr() );
-	pFieldAttrInfo->SetFirstIs( GetFirstIsExpr() );
-	pFieldAttrInfo->SetLengthIs( GetLengthIsExpr() );
-
     pOldSizePtr = pCCB->GetCurrentSizePointer();
     pCCB->SetCurrentSizePointer( this );
 
-	pConfVaryArray = new CG_CONFORMANT_VARYING_ARRAY( 
-                    NULL,	// node_skl *
-					pFieldAttrInfo,
-					1,
-					(unsigned short) ((CG_NDR *)GetChild())->GetWireAlignment() 
-                    );
+	pConfVaryArray = new CG_CONFORMANT_VARYING_ARRAY( this );
+
+    SetPointee( pConfVaryArray );
 
     pConfVaryArray->SetPtrType( PTR_REF );
 
@@ -558,15 +716,13 @@ Arguments :
 
     pConfVaryArray->SetIsInMultiDim( IsInMultiSized() );
 
+    pConfVaryArray->SetFormatStringOffset( -1 );
+
 	pConfVaryArray->GenNdrFormat( pCCB );
 
 	SetPointeeFormatStringOffset( pConfVaryArray->GetFormatStringOffset() );
 
     pCCB->SetCurrentSizePointer( pOldSizePtr );
-
-	// Let's actually free up some memory for once.
-	delete pConfVaryArray;
-	delete pFieldAttrInfo;
 }
 
 // --------------------------------------------------------------------------
@@ -587,10 +743,10 @@ Arguments :
 
  --*/
 {
-    FORMAT_STRING *     pFormatString	= pCCB->GetFormatString(); 
+    FORMAT_STRING *     pFormatString	= pCCB->GetFormatString();
 	unsigned short 		StartOffset		= pFormatString->GetCurrentOffset();
 	
-	if ( GetFormatStringOffset() != -1 ) 
+	if ( GetFormatStringOffset() != -1 )
 		return;
 
 	SetFormatStringOffset( StartOffset );
@@ -652,7 +808,7 @@ CG_STRING_POINTER::GenNdrFormatPointee( CCB * pCCB )
 
 Routine Description :
 
-	Generate the format string of the actual string type without the 
+	Generate the format string of the actual string type without the
 	pointer attributes.
 
 Arguments :
@@ -686,7 +842,7 @@ Arguments :
 	// string pointer is not shared.
 	//
 
-	switch ( ((CG_BASETYPE *)GetChild())->GetFormatChar() ) 
+	switch ( ((CG_BASETYPE *)GetChild())->GetFormatChar() )
 		{
 		case FC_CHAR :
 		case FC_BYTE :
@@ -714,10 +870,10 @@ Arguments :
 
  --*/
 {
-    FORMAT_STRING *     pFormatString	= pCCB->GetFormatString(); 
+    FORMAT_STRING *     pFormatString	= pCCB->GetFormatString();
 	unsigned short 		StartOffset		= pFormatString->GetCurrentOffset();
 	
-	if ( GetFormatStringOffset() != -1 ) 
+	if ( GetFormatStringOffset() != -1 )
 		return;
 
 	SetFormatStringOffset( StartOffset );
@@ -770,7 +926,7 @@ CG_SIZE_STRING_POINTER::GenNdrFormatPointee( CCB * pCCB )
 
 Routine Description :
 
-	Generate the format string of the actual string type without the 
+	Generate the format string of the actual string type without the
 	pointer attributes.
 
 Arguments :
@@ -808,7 +964,7 @@ Arguments :
         return;
         }
 
-	switch ( ((CG_BASETYPE *)GetChild())->GetFormatChar() ) 
+	switch ( ((CG_BASETYPE *)GetChild())->GetFormatChar() )
 		{
 		case FC_CHAR :
 		case FC_BYTE :
@@ -825,14 +981,14 @@ Arguments :
 
 	//
 	// Set the IsPointer parameter to TRUE.
-	// 
+	//
 	GenFormatStringConformanceDescription( pCCB, TRUE, IsInMultiSized() );
 
     pCCB->SetCurrentSizePointer( pOldSizePtr );
 }
 
 void
-CG_BYTE_COUNT_POINTER::GenNdrFormat( CCB * pCCB ) 
+CG_BYTE_COUNT_POINTER::GenNdrFormat( CCB * pCCB )
 /*++
 
 Routine Description :
@@ -845,13 +1001,13 @@ Arguments :
 
  --*/
 {
-	ITERATOR			Iterator;
+	CG_ITERATOR			Iterator;
 	FORMAT_STRING * 	pFormatString;
 	CG_PROC *			pProc;
 	CG_PARAM *			pParam;
 	CG_NDR *			pChild;
 
-	if ( GetFormatStringOffset() != -1 ) 
+	if ( GetFormatStringOffset() != -1 )
 		return;
 
 	pFormatString = pCCB->GetFormatString();
@@ -889,20 +1045,22 @@ Arguments :
 	// Byte count description, just do it here.
 	pFormatString->PushByte( Type );
 	pFormatString->PushByte( 0 );
-	pFormatString->PushShortStackOffset( 
-                pParam->GetStackOffset( pCCB, FALSE ),
-                pParam->GetStackOffset( pCCB, TRUE ),
-                pParam->GetStackOffset( pCCB, FALSE, TRUE ) );
+	pFormatString->PushShortStackOffset(
+                (short) pParam->GetStackOffset( pCCB, I386_STACK_SIZING ),
+                (short) pParam->GetStackOffset( pCCB, ALPHA_STACK_SIZING ),
+                (short) pParam->GetStackOffset( pCCB, MIPS_STACK_SIZING ),
+                (short) pParam->GetStackOffset( pCCB, PPC_STACK_SIZING ),
+                (short) pParam->GetStackOffset( pCCB, MAC_STACK_SIZING ) );
 
 	if ( ! pChild->IsSimpleType() )
 		{
-		pFormatString->PushShortOffset( pChild->GetFormatStringOffset() - 
+		pFormatString->PushShortOffset( pChild->GetFormatStringOffset() -
 								        pFormatString->GetCurrentOffset() );
 		}
 }
 
 void
-CG_INTERFACE_POINTER::GenNdrFormat( CCB * pCCB ) 
+CG_INTERFACE_POINTER::GenNdrFormat( CCB * pCCB )
 /*++
 
 Routine Description :
@@ -918,13 +1076,13 @@ Arguments :
 	FORMAT_STRING *		pFormatString;
 	node_interface *	pInterface;
 	node_guid *			pGuid;
-	char *				p1; 
-	char *				p2; 
-	char *				p3; 
-	char *				p4; 
-	char *				p5; 
+	char *				p1;
+	char *				p2;
+	char *				p3;
+	char *				p4;
+	char *				p5;
 
-	if ( GetFormatStringOffset() != -1 ) 
+	if ( GetFormatStringOffset() != -1 )
 		return;
 
 	pFormatString = pCCB->GetFormatString();
@@ -934,18 +1092,14 @@ Arguments :
 	//
 	// There are two cases, the constant UUID and the [iid_is] expression.
 	//
-	// In the normal case, we will get the 16 byte UUID from the [uuid] 
-	// attribute on the interface node.  The 16 byte UUID is written to the 
-	// format string.  Note that the UUID in the format string is not aligned 
-	// in memory.  The UUID must be copied to a local structure before being 
+	// In the normal case, we will get the 16 byte UUID from the [uuid]
+	// attribute on the interface node.  The 16 byte UUID is written to the
+	// format string.  Note that the UUID in the format string is not aligned
+	// in memory.  The UUID must be copied to a local structure before being
 	// used.
 	//
 
 	// Get the interface node.
-	pInterface = GetTheInterface();
-
-	assert( pInterface->NodeKind() == NODE_INTERFACE );
-
 	pFormatString->PushFormatChar( FC_IP );
 
 	if ( GetIIDExpr() )
@@ -954,7 +1108,7 @@ Arguments :
 		// Interface pointer has [iid_is] applied to it.
 		//
 		pFormatString->PushFormatChar( FC_PAD );
-		         
+		
 		GenNdrFormatAttributeDescription( pCCB,
 										  0,
 										  GetIIDExpr(),
@@ -969,6 +1123,10 @@ Arguments :
 	//
 	// Else handle a constant iid interface pointer.
 	//
+
+	pInterface = GetTheInterface();
+
+	assert( pInterface->NodeKind() == NODE_INTERFACE );
 
 	pFormatString->PushFormatChar( FC_CONSTANT_IID );
 
@@ -1004,7 +1162,7 @@ Arguments :
 
 }
 
-void                    
+void
 CG_INTERFACE_POINTER::GenNdrFormatAlways( CCB * pCCB )
 {
     long    OldOffset;
@@ -1014,23 +1172,22 @@ CG_INTERFACE_POINTER::GenNdrFormatAlways( CCB * pCCB )
     SetFormatStringOffset( -1 );
 
     GenNdrFormat( pCCB );
-    
+
     SetFormatStringOffset( OldOffset );
 }
 
 void
 CG_POINTER::SetNextNdrAlignment( CCB * pCCB )
 {
-    if ( GetPtrType() != PTR_REF ) 
+    if ( GetPtrType() != PTR_REF )
         {
         pCCB->SetNdrAlignment( NDR_ALWC1 );
         return;
         }
-    
-    switch ( GetCGID() ) 
+
+    switch ( GetCGID() )
         {
         case ID_CG_PTR :
-            pCCB->SetNextNdrAlignment( sizeof(void *) );
             pCCB->NdrAlignmentAction(
                     ((CG_NDR *)GetChild())->GetWireAlignment() );
             ((CG_NDR *)GetChild())->SetNextNdrAlignment( pCCB );
@@ -1051,17 +1208,17 @@ CG_POINTER::SetNextNdrAlignment( CCB * pCCB )
         }
 }
 
-void 
+void
 CG_STRING_POINTER::SetNextNdrAlignment( CCB * pCCB )
 {
     CG_BASETYPE * pChild;
 
-    if ( GetPtrType() != PTR_REF ) 
+    if ( GetPtrType() != PTR_REF )
         {
         pCCB->SetNdrAlignment( NDR_ALWC1 );
         return;
         }
-    
+
     if ( ((CG_NDR *)GetChild())->IsSimpleType() )
         {
         pChild = (CG_BASETYPE *) GetChild();
@@ -1076,7 +1233,7 @@ CG_STRING_POINTER::SetNextNdrAlignment( CCB * pCCB )
         }
 }
 
-static long 
+static long
 StringToHex( char * str )
 {
 	long	l;

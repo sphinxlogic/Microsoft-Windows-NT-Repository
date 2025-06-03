@@ -1031,10 +1031,7 @@ EVALUATE:
                     case 't':
                         value2 = 8;
                         GetRange(&value1, &value2, &fLength, 8);
-                        if (ProcessorType == 0)
-                            fnDumpTb3000(value1, value2);
-                        else
-                            fnDumpTb4000(value1, value2);
+                        fnDumpTb4000(value1, value2);
                         value1 = value1 + value2;
                         break;
 #endif

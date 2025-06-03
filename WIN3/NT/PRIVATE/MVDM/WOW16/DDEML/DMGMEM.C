@@ -39,6 +39,36 @@ typedef struct _GMLOG {
 
 GMLOG gmlog[MAX_CLOGS];
 WORD cGmLogs = 0;
+int TraceApiLevel = 0;
+
+
+VOID TraceApiIn(
+LPSTR psz)
+{
+    char szT[10];
+
+    wsprintf(szT, "%2d | ", TraceApiLevel);
+    TraceApiLevel++;
+    OutputDebugString(szT);
+    OutputDebugString(psz);
+    if (bDbgFlags & DBF_STOPONTRACE) {
+        DebugBreak();
+    }
+}
+
+VOID TraceApiOut(
+LPSTR psz)
+{
+    char szT[10];
+
+    TraceApiLevel--;
+    wsprintf(szT, "%2d | ", TraceApiLevel);
+    OutputDebugString(szT);
+    OutputDebugString(psz);
+    if (bDbgFlags & DBF_STOPONTRACE) {
+        DebugBreak();
+    }
+}
 
 VOID DumpGmObject(
 LPGMLOG pgmlog)
@@ -65,20 +95,27 @@ LPGMLOG pgmlog)
 }
 
 
-HGLOBAL LogGlobalAlloc(
-UINT flags,
-DWORD cb)
+HGLOBAL LogGlobalReAlloc(
+HGLOBAL h,
+DWORD cb,
+UINT flags)
 {
     HGLOBAL hRet;
     WORD i;
 
-    hRet = GlobalAlloc(flags, cb);
-    if (bDbgFlags & DBF_LOGALLOCS) {
+    hRet = GlobalReAlloc(h, cb, flags);
+    if (bDbgFlags & DBF_LOGALLOCS && h != hRet) {
         if (hRet != NULL) {
             for (i = 0; i < cGmLogs; i++) {
+                if ((gmlog[i].h & 0xFFFE) == (h & 0xFFFE)) {
+                    gmlog[i].flags = GML_FREE;
+                    hmemcpy(gmlog[i].stktracePrev, gmlog[i].stktrace,
+                            sizeof(WORD) * STKTRACE_LEN);
+                    StkTrace(STKTRACE_LEN, gmlog[i].stktrace);
+                }
                 if ((gmlog[i].h & 0xFFFE) == (hRet & 0xFFFE)) {
                     gmlog[i].flags = GML_ALLOC;
-                    memcpy(gmlog[i].stktracePrev, gmlog[i].stktrace,
+                    hmemcpy(gmlog[i].stktracePrev, gmlog[i].stktrace,
                             sizeof(WORD) * STKTRACE_LEN);
                     StkTrace(STKTRACE_LEN, gmlog[i].stktrace);
                     return(hRet);
@@ -95,7 +132,48 @@ DWORD cb)
             gmlog[cGmLogs].msg = 0;
             gmlog[cGmLogs].h = hRet;
             gmlog[cGmLogs].cLocks = 0;
-            memcpy(gmlog[cGmLogs].stktracePrev, gmlog[cGmLogs].stktrace,
+            hmemcpy(gmlog[cGmLogs].stktracePrev, gmlog[cGmLogs].stktrace,
+                    sizeof(WORD) * STKTRACE_LEN);
+            StkTrace(STKTRACE_LEN, gmlog[cGmLogs].stktrace);
+            cGmLogs++;
+        }
+    }
+    return(hRet);
+}
+
+
+
+HGLOBAL LogGlobalAlloc(
+UINT flags,
+DWORD cb)
+{
+    HGLOBAL hRet;
+    WORD i;
+
+    hRet = GlobalAlloc(flags, cb);
+    if (bDbgFlags & DBF_LOGALLOCS) {
+        if (hRet != NULL) {
+            for (i = 0; i < cGmLogs; i++) {
+                if ((gmlog[i].h & 0xFFFE) == (hRet & 0xFFFE)) {
+                    gmlog[i].flags = GML_ALLOC;
+                    hmemcpy(gmlog[i].stktracePrev, gmlog[i].stktrace,
+                            sizeof(WORD) * STKTRACE_LEN);
+                    StkTrace(STKTRACE_LEN, gmlog[i].stktrace);
+                    return(hRet);
+                }
+            }
+            if (cGmLogs >= MAX_CLOGS) {
+                OutputDebugString("\n\rGlobal logging table overflow.");
+                DumpGlobalLogs();
+                DebugBreak();
+                return(hRet);
+            }
+
+            gmlog[cGmLogs].flags = GML_ALLOC;
+            gmlog[cGmLogs].msg = 0;
+            gmlog[cGmLogs].h = hRet;
+            gmlog[cGmLogs].cLocks = 0;
+            hmemcpy(gmlog[cGmLogs].stktracePrev, gmlog[cGmLogs].stktrace,
                     sizeof(WORD) * STKTRACE_LEN);
             StkTrace(STKTRACE_LEN, gmlog[cGmLogs].stktrace);
             cGmLogs++;
@@ -167,7 +245,7 @@ HGLOBAL h)
                     DebugBreak();
                 }
                 gmlog[i].flags = GML_FREE;
-                memcpy(gmlog[i].stktracePrev, gmlog[i].stktrace,
+                hmemcpy(gmlog[i].stktracePrev, gmlog[i].stktrace,
                         sizeof(WORD) * STKTRACE_LEN);
                 StkTrace(STKTRACE_LEN, gmlog[i].stktrace);
                 return(GlobalFree(h));
@@ -260,31 +338,18 @@ HANDLE DmgCreateHeap(wSize)
 WORD wSize;
 {
     HANDLE hMem;
-    LPSTR   lpMem;
-    DWORD   dwSize;
+    DWORD  dwSize;
 
     dwSize = wSize;
     /* Allocate the memory from a global data segment */
     if (!(hMem = GLOBALALLOC(GMEM_MOVEABLE, dwSize)))
         return(NULL);
 
-    /* Lock it to get a far pointer */
-    if (!(lpMem = GLOBALLOCK(hMem))) {
-        GLOBALFREE(hMem);
-        return(NULL);
-    }
-
     /* use LocalInit to establish heap mgmt structures in the seg */
-    if (!LocalInit(HIWORD(lpMem), NULL, wSize - 1)) {
-        GLOBALUNLOCK(hMem);
+    if (!LocalInit(hMem, NULL, wSize - 1)) {
         GLOBALFREE(hMem);
         return(NULL);
     }
-
-    /* Unlock the block; remember, LocalInit already locked it,
-     * so we have to remember to unlock it when we destroy the heap.
-     */
-    GLOBALUNLOCK(hMem);
 
     return(hMem);
 }
@@ -302,11 +367,6 @@ WORD wSize;
 HANDLE DmgDestroyHeap(hheap)
 HANDLE hheap;
 {
-#if 0
-    /* First unlock the block, since LocalInit locked it */
-    if (GLOBALUNLOCK(hheap))
-        return(hheap); /* fail if lockcount != 0 */
-#endif
     /* now free the block and return the result (NULL if success) */
     return(GLOBALFREE(hheap));
 }
@@ -377,7 +437,8 @@ WORD wSize;
     WORD    wSaveDS;
 
     /* lock the handle to get a far pointer */
-    if (!(lpMem = GLOBALLOCK(hheap)))
+    lpMem = (LPSTR)GLOBALPTR(hheap);
+    if (!lpMem)
         return(NULL);
 
     do {
@@ -391,8 +452,6 @@ WORD wSize;
 
         SwitchDS(wSaveDS);
     } while (pMem == NULL && ProcessMemError(hheap));
-
-    GLOBALUNLOCK(hheap);
 
 #ifdef WATCHHEAPS
     if (pMem) {
@@ -463,9 +522,9 @@ WORD wDS;       /* data segment */
 WORD cbHS;      /* heapsize */
 LPCSTR lpszCL;   /* command line */
 {
-    /* first make sure we are running in protected mode */
-    if (!(GetWinFlags() & WF_PMODE))
-        return(0);
+    extern ATOM gatomDDEMLMom;
+    extern ATOM gatomDMGClass;
+
 
 #if 0
     /* We won't unlock the data segment, as typically happens here */
@@ -475,6 +534,12 @@ LPCSTR lpszCL;   /* command line */
 #endif
     /* set up the global instance handle variable */
     hInstance = hI;
+
+    /* set up class atoms.  Note we use RegisterWindowMessage because
+     * it comes from the same user atom table used for class atoms.
+     */
+    gatomDDEMLMom = RegisterWindowMessage("DDEMLMom");
+    gatomDMGClass = RegisterWindowMessage("DMGClass");
 
     return(1);
 
@@ -495,32 +560,32 @@ VOID RegisterClasses()
 
     cls.cbWndExtra = sizeof(VOID FAR *) + sizeof(WORD);
     cls.lpszClassName = SZCLIENTCLASS;
-    cls.lpfnWndProc = (long (FAR PASCAL * )()) ClientWndProc;
+    cls.lpfnWndProc = (WNDPROC)ClientWndProc;
     RegisterClass(&cls);
 
     // cls.cbWndExtra = sizeof(VOID FAR *) + sizeof(WORD);
     cls.lpszClassName = SZSERVERCLASS;
-    cls.lpfnWndProc = (long (FAR PASCAL * )()) ServerWndProc;
+    cls.lpfnWndProc = (WNDPROC)ServerWndProc;
     RegisterClass(&cls);
 
     // cls.cbWndExtra = sizeof(VOID FAR *) + sizeof(WORD);
     cls.lpszClassName = SZDMGCLASS;
-    cls.lpfnWndProc = (long (FAR PASCAL * )()) DmgWndProc;
+    cls.lpfnWndProc = (WNDPROC)DmgWndProc;
     RegisterClass(&cls);
 
     cls.cbWndExtra = sizeof(VOID FAR *) + sizeof(WORD) + sizeof(WORD);
     cls.lpszClassName = SZCONVLISTCLASS;
-    cls.lpfnWndProc = (long (FAR PASCAL * )()) ConvListWndProc;
+    cls.lpfnWndProc = (WNDPROC)ConvListWndProc;
     RegisterClass(&cls);
 
     cls.cbWndExtra = sizeof(VOID FAR *);
     cls.lpszClassName = SZMONITORCLASS;
-    cls.lpfnWndProc = (long (FAR PASCAL * )()) MonitorWndProc;
+    cls.lpfnWndProc = (WNDPROC)MonitorWndProc;
     RegisterClass(&cls);
 
     cls.cbWndExtra = sizeof(VOID FAR *);
     cls.lpszClassName = SZFRAMECLASS;
-    cls.lpfnWndProc = (long (FAR PASCAL * )()) subframeWndProc;
+    cls.lpfnWndProc = (WNDPROC)subframeWndProc;
     RegisterClass(&cls);
 
 #ifdef WATCHHEAPS
@@ -575,6 +640,3 @@ int     nParameter;
     }
 
 }
-
-
-

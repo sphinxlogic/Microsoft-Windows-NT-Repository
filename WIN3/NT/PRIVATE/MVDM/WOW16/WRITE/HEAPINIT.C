@@ -190,4 +190,3 @@ CompactHeap()
         }
 
 #endif /* NOT WINHEAP */
-

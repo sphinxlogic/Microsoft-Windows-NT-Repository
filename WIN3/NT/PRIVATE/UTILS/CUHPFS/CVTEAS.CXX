@@ -129,7 +129,7 @@ Return Value:
                                    IsCorrupt,
                                    NULL ) ) {
 
-        DbgPrint( "Cannot query packed EA list from FNode.\n" );
+        DebugPrint( "Cannot query packed EA list from FNode.\n" );
         return FALSE;
     }
 
@@ -236,8 +236,8 @@ Return Value:
     // the EA information structure and put it into a resident attribute
     // of type $EA_INFORMATION.
 
-    EaInformation.PackedEaSize = PackedListLength;
-    EaInformation.NeedEaCount = NeedEaCount;
+    EaInformation.PackedEaSize = (USHORT)PackedListLength;
+    EaInformation.NeedEaCount = (USHORT)NeedEaCount;
     EaInformation.UnpackedEaSize = UnpackedListLength;
 
 
@@ -268,7 +268,7 @@ Return Value:
                                          NULL,
                                          0 ) ) {
 
-            DbgPrint( "Cannot initialize resident attribute for EA.\n" );
+            DebugPrint( "Cannot initialize resident attribute for EA.\n" );
             FREE( UnpackedListBuffer );
             return FALSE;
         }
@@ -294,7 +294,7 @@ Return Value:
                                     VolumeBitmap ) ||
             BytesWritten != UnpackedListLength ) {
 
-            DbgPrint( "Cannot initialize a non-resident attribute for EA.\n" );
+            DebugPrint( "Cannot initialize a non-resident attribute for EA.\n" );
             FREE( UnpackedListBuffer );
             return FALSE;
         }

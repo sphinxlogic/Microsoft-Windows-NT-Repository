@@ -41,8 +41,9 @@ double frexp(double x, int *expptr)
 	*expptr = INT_NAN;
 	switch (_sptype(x)) {
 	case T_PINF:
+	    return _except1(FP_I, OP_FREXP, x, D_INF, savedcw);
 	case T_NINF:
-	    return _except1(FP_I, OP_FREXP, x, QNAN_FREXP, savedcw);
+	    return _except1(FP_I, OP_FREXP, x, -D_INF, savedcw);
 	case T_QNAN:
 	    return _handle_qnan1(OP_FREXP, x, savedcw);
 	default: //T_SNAN

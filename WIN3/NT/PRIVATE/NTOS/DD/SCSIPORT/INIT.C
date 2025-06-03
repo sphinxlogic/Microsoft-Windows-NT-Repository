@@ -32,6 +32,13 @@ Revision History:
 
 UCHAR MaxLuCount = SCSI_MAXIMUM_LOGICAL_UNITS;
 
+VOID
+SpBuildConfiguration(
+    IN PHW_INITIALIZATION_DATA         HwInitializationData,
+    IN PCM_FULL_RESOURCE_DESCRIPTOR    ControllerData,
+    IN PPORT_CONFIGURATION_INFORMATION ConfigInformation
+    );
+
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE, ScsiPortInitialize)
 #pragma alloc_text(PAGE, SpGetCommonBuffer)
@@ -46,6 +53,8 @@ UCHAR MaxLuCount = SCSI_MAXIMUM_LOGICAL_UNITS;
 #pragma alloc_text(PAGE, SpBuildDeviceMap)
 #pragma alloc_text(PAGE, SpCreateNumericKey)
 #pragma alloc_text(PAGE, GetPciConfiguration)
+#pragma alloc_text(PAGE, SpBuildConfiguration)
+#pragma alloc_text(PAGE, GetPcmciaConfiguration)
 #endif
 
 
@@ -76,41 +85,45 @@ Return Value:
 --*/
 
 {
-    PDRIVER_OBJECT driverObject = Argument1;
-    STRING deviceName;
-    OBJECT_ATTRIBUTES objectAttributes;
-    UNICODE_STRING unicodeString;
-    UNICODE_STRING dosUnicodeString;
-    NTSTATUS status;
-    NTSTATUS returnStatus = STATUS_DEVICE_DOES_NOT_EXIST;
+    PDRIVER_OBJECT    driverObject = Argument1;
+    ULONG             slotNumber = 0;
+    ULONG             functionNumber = 0;
     PDEVICE_EXTENSION deviceExtension = NULL;
-    PDEVICE_OBJECT deviceObject;
-    PPORT_CONFIGURATION_INFORMATION configInfo;
-    PORT_CONFIGURATION_INFORMATION originalConfigInfo;
-    PIO_SCSI_CAPABILITIES capabilities;
-    PIO_ERROR_LOG_PACKET errorLogEntry;
-    PSRB_DATA srbData;
-    ULONG extensionAllocationSize;
-    UCHAR scsiBus;
-    PCONFIGURATION_INFORMATION configurationInformation;
-    CONFIGURATION_CONTEXT configurationContext;
-    DEVICE_DESCRIPTION deviceDescription;
-    PULONG scsiPortNumber;
-    CCHAR deviceNameBuffer[256];
-    ULONG numberOfMapRegisters;
-    KIRQL irql;
-    KAFFINITY affinity;
-    ULONG vector;
-    BOOLEAN interruptSharable;
-    BOOLEAN callAgain;
-    BOOLEAN initialCall;
-    ULONG uniqueId;
-    ULONG findStatus;
+    NTSTATUS          returnStatus = STATUS_DEVICE_DOES_NOT_EXIST;
+    NTSTATUS          status;
+    STRING            deviceName;
+    OBJECT_ATTRIBUTES objectAttributes;
+    UNICODE_STRING    unicodeString;
+    UNICODE_STRING    dosUnicodeString;
+    PDEVICE_OBJECT    deviceObject;
+    PSRB_DATA         srbData;
+    ULONG             extensionAllocationSize;
+    ULONG             uniqueId;
+    ULONG             findStatus;
+    ULONG             numberOfMapRegisters;
+    ULONG             vector,
+                      vector2;
+    ULONG             count;
+    PULONG            scsiPortNumber;
+    CCHAR             deviceNameBuffer[256];
+    UCHAR             scsiBus;
+    BOOLEAN           interruptSharable;
+    BOOLEAN           callAgain;
+    BOOLEAN           initialCall;
+    BOOLEAN           conflict;
+    KAFFINITY         affinity,
+                      affinity2;
+    KIRQL             irql,
+                      irql2,
+                      syncIrql;
     PCM_RESOURCE_LIST resourceList;
-    BOOLEAN conflict;
-    ULONG count;
-    ULONG slotNumber = 0;
-    ULONG functionNumber = 0;
+    PPORT_CONFIGURATION_INFORMATION configInfo;
+    PORT_CONFIGURATION_INFORMATION  originalConfigInfo;
+    PCONFIGURATION_INFORMATION      configurationInformation;
+    PIO_SCSI_CAPABILITIES           capabilities;
+    PIO_ERROR_LOG_PACKET            errorLogEntry;
+    CONFIGURATION_CONTEXT           configurationContext;
+    DEVICE_DESCRIPTION              deviceDescription;
 
     //
     // Check that the length of this structure is equal to or less than
@@ -121,7 +134,7 @@ Return Value:
     if (HwInitializationData->HwInitializationDataSize > sizeof(HW_INITIALIZATION_DATA)) {
 
         DebugPrint((0,"ScsiPortInitialize: Miniport driver wrong version\n"));
-        return (ULONG)STATUS_REVISION_MISMATCH;
+        return (ULONG) STATUS_REVISION_MISMATCH;
     }
 
     //
@@ -182,11 +195,11 @@ Return Value:
     // Open the service node.
     //
 
-    InitializeObjectAttributes( &objectAttributes,
-                                Argument2,
-                                OBJ_CASE_INSENSITIVE,
-                                NULL,
-                                (PSECURITY_DESCRIPTOR) NULL);
+    InitializeObjectAttributes(&objectAttributes,
+                               Argument2,
+                               OBJ_CASE_INSENSITIVE,
+                               NULL,
+                               (PSECURITY_DESCRIPTOR) NULL);
 
     status = ZwOpenKey(&configurationContext.ServiceKey,
                        KEY_READ,
@@ -196,7 +209,6 @@ Return Value:
 
         DebugPrint((1, "ScsiPortInitialize: Cannot open sevice node for driver. Name: %WS Status: %lx\n",
             Argument2, status));
-
         configurationContext.ServiceKey = NULL;
     }
 
@@ -213,24 +225,18 @@ Return Value:
         //
 
         RtlInitUnicodeString(&unicodeString, L"Parameters");
-
-        InitializeObjectAttributes( &objectAttributes,
-                                    &unicodeString,
-                                    OBJ_CASE_INSENSITIVE,
-                                    configurationContext.ServiceKey,
-                                    (PSECURITY_DESCRIPTOR) NULL
-                                    );
-
+        InitializeObjectAttributes(&objectAttributes,
+                                   &unicodeString,
+                                   OBJ_CASE_INSENSITIVE,
+                                   configurationContext.ServiceKey,
+                                   (PSECURITY_DESCRIPTOR) NULL);
         //
         // Attempt to open the parameters key.
         //
 
-        status = ZwOpenKey(
-            &configurationContext.DeviceKey,
-            KEY_READ,
-            &objectAttributes
-            );
-
+        status = ZwOpenKey(&configurationContext.DeviceKey,
+                           KEY_READ,
+                           &objectAttributes);
         if (NT_SUCCESS(status)) {
 
             //
@@ -240,7 +246,7 @@ Return Value:
 
             ZwClose(configurationContext.ServiceKey);
             configurationContext.ServiceKey = configurationContext.DeviceKey;
-
+            configurationContext.DeviceKey = NULL;
         }
     }
 
@@ -249,24 +255,19 @@ Return Value:
     //
 
     RtlInitUnicodeString(&unicodeString, L"Device");
-
-    InitializeObjectAttributes( &objectAttributes,
-                                &unicodeString,
-                                OBJ_CASE_INSENSITIVE,
-                                configurationContext.ServiceKey,
-                                (PSECURITY_DESCRIPTOR) NULL
-                                );
-
+    InitializeObjectAttributes(&objectAttributes,
+                               &unicodeString,
+                               OBJ_CASE_INSENSITIVE,
+                               configurationContext.ServiceKey,
+                               (PSECURITY_DESCRIPTOR) NULL);
     //
     // It doesn't matter if this call fails or not.  If it fails, then there
     // is no default device node.  If it works, then the handle will be set.
     //
 
-    ZwOpenKey(
-        &configurationContext.DeviceKey,
-        KEY_READ,
-        &objectAttributes
-        );
+    ZwOpenKey(&configurationContext.DeviceKey,
+              KEY_READ,
+              &objectAttributes);
 
     //
     // Set last adapter number to an uninitialized value.
@@ -303,16 +304,11 @@ Return Value:
         // Create port driver name.
         //
 
-        sprintf(deviceNameBuffer,
-                "\\Device\\ScsiPort%d",
-                *scsiPortNumber);
-
+        sprintf(deviceNameBuffer, "\\Device\\ScsiPort%d", *scsiPortNumber);
         RtlInitString(&deviceName, deviceNameBuffer);
-
         status = RtlAnsiStringToUnicodeString(&unicodeString,
                                               &deviceName,
                                               TRUE);
-
         if (!NT_SUCCESS(status)) {
 
             uniqueId = 260;
@@ -330,7 +326,6 @@ Return Value:
                                 0,
                                 FALSE,
                                 &deviceObject);
-
         RtlFreeUnicodeString(&unicodeString);
 
         if (!NT_SUCCESS(status)) {
@@ -359,9 +354,7 @@ Return Value:
         deviceExtension->HwDmaStarted = HwInitializationData->HwDmaStarted;
         deviceExtension->HwLogicalUnitExtensionSize =
             HwInitializationData->SpecificLuExtensionSize;
-
-        deviceExtension->HwDeviceExtension =
-            (PVOID)(deviceExtension + 1);
+        deviceExtension->HwDeviceExtension = (PVOID)(deviceExtension + 1);
 
         //
         // Mark this object as supporting direct I/O so that I/O system
@@ -372,12 +365,12 @@ Return Value:
 
         //
         // Check if miniport driver requires any noncached memory.
-        // SRB extensions will come from this memory. Round the size to
-        // a PVOID.
+        // SRB extensions will come from this memory.  Round the size
+        // a multiple of quadwords
         //
 
-        deviceExtension->SrbExtensionSize = ~(sizeof(PVOID) - 1) &
-            (HwInitializationData->SrbExtensionSize + sizeof(PVOID) - 1);
+        deviceExtension->SrbExtensionSize = ~(sizeof(LONGLONG) - 1) &
+          (HwInitializationData->SrbExtensionSize + sizeof(LONGLONG) - 1);
 
         //
         // Initialize the maximum lu count variable.
@@ -385,11 +378,20 @@ Return Value:
 
         deviceExtension->MaxLuCount = MaxLuCount;
 
+        deviceExtension->NumberOfRequests = MINIMUM_SRB_EXTENSIONS;
+
         //
         // Allocate spin lock for critical sections.
         //
 
         KeInitializeSpinLock(&deviceExtension->SpinLock);
+
+        //
+        // Spin lock to sync. multiple IRQ's (PCI IDE).
+        //
+
+        KeInitializeSpinLock(&deviceExtension->MultipleIrqSpinLock);
+
 
         //
         // Initialize DPC routine.
@@ -441,9 +443,9 @@ NewConfiguration:
         //
 
         configInfo = ExAllocatePool(NonPagedPool,
-                                    sizeof(PORT_CONFIGURATION_INFORMATION) +
+                                    (sizeof(PORT_CONFIGURATION_INFORMATION) +
                                     HwInitializationData->NumberOfAccessRanges *
-                                    sizeof(ACCESS_RANGE));
+                                    sizeof(ACCESS_RANGE) + 7) & ~7);
 
         if (configInfo == NULL) {
 
@@ -463,16 +465,32 @@ NewConfiguration:
                       sizeof(PORT_CONFIGURATION_INFORMATION));
 
         //
+        // Copy the SrbExtensionSize from deviceExtension to ConfigInfo.
+        // A check will be made later to determine if the miniport
+        // updated this value.
+        //
+
+        configInfo->SrbExtensionSize = deviceExtension->SrbExtensionSize;
+        configInfo->SpecificLuExtensionSize = deviceExtension->HwLogicalUnitExtensionSize;
+
+        //
         // Initialize the access range array.
         //
 
         if (HwInitializationData->NumberOfAccessRanges != 0) {
 
             configInfo->AccessRanges = (PVOID) (configInfo+1);
-            RtlCopyMemory(
-                configInfo->AccessRanges,
-                configurationContext.AccessRanges,
-                HwInitializationData->NumberOfAccessRanges * sizeof(ACCESS_RANGE));
+
+            //
+            // Quadword align this.
+            //
+
+            (ULONG)(configInfo->AccessRanges) += 7;
+            (ULONG)(configInfo->AccessRanges) &= ~7;
+
+            RtlCopyMemory(configInfo->AccessRanges,
+                          configurationContext.AccessRanges,
+                          HwInitializationData->NumberOfAccessRanges * sizeof(ACCESS_RANGE));
         }
 
         //
@@ -485,6 +503,7 @@ NewConfiguration:
             HwInitializationData->DeviceId &&
             HwInitializationData->VendorId) {
 
+            configInfo->BusInterruptLevel = 0;
             if (!GetPciConfiguration(driverObject,
                                      deviceObject,
                                      HwInitializationData,
@@ -505,6 +524,34 @@ NewConfiguration:
                 goto NewConfiguration;
 
             }
+
+            if (!configInfo->BusInterruptLevel) {
+
+                //
+                // No interrupt was assigned - skip this slot and call again
+                //
+
+                deviceExtension->ConfigurationInformation = NULL;
+                ExFreePool(configInfo);
+                goto NewConfiguration;
+            }
+        } else {
+
+            //
+            // Check for PCMCIA enabled adapters.  All miniports pass
+            // through the same initialization structure, but change the
+            // bus type.  Searching for PCMCIA adapters should only
+            // happen once regardless of bus type.
+            //
+
+            if (!HwInitializationData->ReservedUshort) {
+                HwInitializationData->ReservedUshort = 1;
+
+                deviceExtension->PCCard =  GetPcmciaConfiguration(Argument2, // service key
+                                                                  HwInitializationData,
+                                                                  configInfo);
+
+            }
         }
 
         //
@@ -512,16 +559,12 @@ NewConfiguration:
         //
 
         callAgain = FALSE;
-
-        findStatus =
-            HwInitializationData->HwFindAdapter(
-                 deviceExtension->HwDeviceExtension,    // DeviceExtension
-                 HwContext,                             // HwContext
-                 NULL,                                  // BusInformation
-                 configurationContext.Parameter,        // ArgumentString
-                 configInfo,                            // ConfigurationInformation
-                 &callAgain);                           // Again
-
+        findStatus = HwInitializationData->HwFindAdapter(deviceExtension->HwDeviceExtension,
+                                                         HwContext,
+                                                         NULL, // BusInformation
+                                                         configurationContext.Parameter,
+                                                         configInfo,
+                                                         &callAgain);
         //
         // Check to see if an error was logged.
         //
@@ -588,8 +631,26 @@ NewConfiguration:
             break;
         }
 
-        DebugPrint((1,"ScsiPortInitialize: SCSI adapter ID is %d\n",
-            configInfo->InitiatorBusId[0]));
+        DebugPrint((1,
+                    "ScsiPortInitialize: SCSI adapter ID is %d\n",
+                    configInfo->InitiatorBusId[0]));
+
+        //
+        // Update SrbExtensionSize and SpecificLuExtensionSize, if necessary.
+        // If the common buffer has already been allocated, this has already been
+        // done.
+        //
+
+        if (!deviceExtension->NonCachedExtension &&
+            (configInfo->SrbExtensionSize != deviceExtension->SrbExtensionSize)) {
+            deviceExtension->SrbExtensionSize =
+                (configInfo->SrbExtensionSize + sizeof(LONGLONG)) &
+                    ~(sizeof(LONGLONG) - 1);
+        }
+
+        if (configInfo->SpecificLuExtensionSize != deviceExtension->HwLogicalUnitExtensionSize) {
+            deviceExtension->HwLogicalUnitExtensionSize = configInfo->SpecificLuExtensionSize;
+        }
 
         //
         // Check the resource requirements against the registry. This will
@@ -608,23 +669,19 @@ NewConfiguration:
             if (resourceList) {
 
                 RtlInitUnicodeString(&unicodeString, L"ScsiAdapter");
-
-                status = IoReportResourceUsage(
-                           &unicodeString,
-                           driverObject,
-                           NULL,
-                           0,
-                           deviceObject,
-                           resourceList,
-                           FIELD_OFFSET(CM_RESOURCE_LIST,
-                           List[0].PartialResourceList.PartialDescriptors) +
-                           resourceList->List[0].PartialResourceList.Count
-                           * sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR),
-                           FALSE,
-                           &conflict);
-
+                status = IoReportResourceUsage(&unicodeString,
+                                               driverObject,
+                                               NULL,
+                                               0,
+                                               deviceObject,
+                                               resourceList,
+                                               FIELD_OFFSET(CM_RESOURCE_LIST,
+                                               List[0].PartialResourceList.PartialDescriptors) +
+                                               resourceList->List[0].PartialResourceList.Count
+                                               * sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR),
+                                               FALSE,
+                                               &conflict);
                 ExFreePool(resourceList);
-
                 if ((!NT_SUCCESS(status)) || conflict) {
                     uniqueId=273;
                     if (conflict) {
@@ -645,8 +702,7 @@ NewConfiguration:
         if (configInfo->MaximumNumberOfTargets > SCSI_MAXIMUM_TARGETS_PER_BUS) {
             deviceExtension->MaximumTargetIds = SCSI_MAXIMUM_TARGETS_PER_BUS;
         } else {
-            deviceExtension->MaximumTargetIds =
-                configInfo->MaximumNumberOfTargets;
+            deviceExtension->MaximumTargetIds = configInfo->MaximumNumberOfTargets;
         }
 
         //
@@ -667,8 +723,7 @@ NewConfiguration:
 
         deviceExtension->ReceiveEvent = configInfo->ReceiveEvent;
         deviceExtension->TaggedQueuing = configInfo->TaggedQueuing;
-        deviceExtension->MultipleRequestPerLu =
-            configInfo->MultipleRequestPerLu;
+        deviceExtension->MultipleRequestPerLu = configInfo->MultipleRequestPerLu;
 
         //
         // Clear those options which have been disabled in the registry.
@@ -739,11 +794,8 @@ NewConfiguration:
             deviceDescription.DemandMode = configInfo->DemandMode;
             deviceDescription.MaximumLength = configInfo->MaximumTransferLength;
 
-            deviceExtension->DmaAdapterObject = HalGetAdapter(
-                &deviceDescription,
-                &numberOfMapRegisters
-                );
-
+            deviceExtension->DmaAdapterObject = HalGetAdapter(&deviceDescription,
+                                                              &numberOfMapRegisters);
             ASSERT(deviceExtension->DmaAdapterObject);
 
             //
@@ -796,15 +848,13 @@ NewConfiguration:
             if (deviceExtension->SrbDataCount != 0) {
                 count = deviceExtension->SrbDataCount;
             } else {
-                count = MINIMUM_SRB_EXTENSIONS * 2;
+                count = deviceExtension->NumberOfRequests * 2;
             }
 
             srbData = ExAllocatePool(NonPagedPool, count * sizeof(SRB_DATA));
-
             if (srbData == NULL) {
                 return (ULONG) STATUS_INSUFFICIENT_RESOURCES;
             }
-
             RtlZeroMemory(srbData, count * sizeof(SRB_DATA));
 
             deviceExtension->SrbData = srbData;
@@ -885,73 +935,182 @@ NewConfiguration:
             //
 
             KeInitializeSpinLock(&deviceExtension->InterruptSpinLock);
-
             deviceExtension->SynchronizeExecution = SpSynchronizeExecution;
             deviceExtension->InterruptObject = (PVOID) deviceExtension;
 
-            DebugPrint((1, "ScsiPortInitialize: Adpater as no interrupt.\n"));
+            DebugPrint((1, "ScsiPortInitialize: Adapter has no interrupt.\n"));
 
         } else {
 
-            DebugPrint((1,"ScsiPortInitialize: SCSI adapter IRQ is %d\n",
-                configInfo->BusInterruptLevel));
-
             //
-            // Save interrupt level.
+            // Determine if 2 interrupt sync. is needed.
             //
 
-            deviceExtension->InterruptLevel = configInfo->BusInterruptLevel;
+            if (deviceExtension->HwInterrupt != NULL &&
+                (configInfo->BusInterruptLevel != 0 ||
+                configInfo->BusInterruptVector != 0) &&
+                (configInfo->BusInterruptLevel2 != 0 ||
+                configInfo->BusInterruptVector2 != 0)) {
 
-            //
-            // Set up for a real interrupt.
-            //
+                syncIrql  = 0;
+                irql2     = 0;
+                vector2   = 0;
+                affinity2 = 0;
 
-            deviceExtension->SynchronizeExecution = KeSynchronizeExecution;
+                //
+                // Save interrupt level.
+                //
 
-            //
-            // Call HAL to get system interrupt parameters.
-            //
+                deviceExtension->InterruptLevel = configInfo->BusInterruptLevel;
 
-            vector = HalGetInterruptVector(
-                        configInfo->AdapterInterfaceType,// AdapterInterfaceType
-                        configInfo->SystemIoBusNumber,   // SystemIoBusNumber
-                        configInfo->BusInterruptLevel,   // BusInterruptLevel
-                        configInfo->BusInterruptVector,  // BusInterruptVector
-                        &irql,                           // Irql
-                        &affinity
-                        );
+                //
+                // Set up for a real interrupt.
+                //
 
-            //
-            // Initialize interrupt object and connect to interrupt.
-            //
+                deviceExtension->SynchronizeExecution = KeSynchronizeExecution;
 
-            if (configInfo->AdapterInterfaceType == MicroChannel ||
-                configInfo->InterruptMode == LevelSensitive) {
-                interruptSharable = TRUE;
+                //
+                // Call HAL to get system interrupt parameters for the first interrupt.
+                //
+
+                vector = HalGetInterruptVector(configInfo->AdapterInterfaceType,
+                                               configInfo->SystemIoBusNumber,
+                                               configInfo->BusInterruptLevel,
+                                               configInfo->BusInterruptVector,
+                                               &irql,
+                                               &affinity);
+
+                //
+                // Call HAL to get system interrupt parameters for the second interrupt.
+                //
+
+                vector2 = HalGetInterruptVector(configInfo->AdapterInterfaceType,
+                                               configInfo->SystemIoBusNumber,
+                                               configInfo->BusInterruptLevel2,
+                                               configInfo->BusInterruptVector2,
+                                               &irql2,
+                                               &affinity2);
+
+                syncIrql = (irql > irql2) ? irql : irql2;
+
+                if (configInfo->AdapterInterfaceType == MicroChannel ||
+                    configInfo->InterruptMode == LevelSensitive) {
+                    interruptSharable = TRUE;
+                } else {
+                    interruptSharable = FALSE;
+                }
+
+                status = IoConnectInterrupt(&deviceExtension->InterruptObject,
+                                            (PKSERVICE_ROUTINE)ScsiPortInterrupt,
+                                            deviceObject,
+                                            &deviceExtension->MultipleIrqSpinLock,
+                                            vector,
+                                            irql,
+                                            syncIrql,
+                                            configInfo->InterruptMode,
+                                            interruptSharable,
+                                            affinity,
+                                            FALSE);
+
+                if (!(NT_SUCCESS(status))) {
+
+                    DebugPrint((1,"ScsiPortInitialize: Can't connect interrupt %d\n", vector));
+                    deviceExtension->InterruptObject = NULL;
+                    uniqueId = 270;
+                    break;
+                }
+
+                DebugPrint((1,
+                            "ScsiPortInitialize: SCSI adapter Second IRQ is %d\n",
+                            configInfo->BusInterruptLevel2));
+
+                status = IoConnectInterrupt(&deviceExtension->InterruptObject2,
+                                            (PKSERVICE_ROUTINE)ScsiPortInterrupt,
+                                            deviceObject,
+                                            &deviceExtension->MultipleIrqSpinLock,
+                                            vector2,
+                                            irql2,
+                                            syncIrql,
+                                            configInfo->InterruptMode2,
+                                            interruptSharable,
+                                            affinity2,
+                                            FALSE);
+
+                if (!(NT_SUCCESS(status))) {
+
+                    //
+                    // If we needed both interrupts, we will continue but not claim any of the resources
+                    // for the second one.
+                    //
+
+                    DebugPrint((1,"ScsiPortInitialize: Can't connect second interrupt %d\n", vector2));
+                    deviceExtension->InterruptObject2 = NULL;
+                    configInfo->BusInterruptVector2 = 0;
+                    configInfo->BusInterruptLevel2 = 0;
+                }
             } else {
-                interruptSharable = FALSE;
-            }
 
-            status = IoConnectInterrupt(
-                            &deviceExtension->InterruptObject,
-                            (PKSERVICE_ROUTINE)ScsiPortInterrupt,
-                            deviceObject,
-                            (PKSPIN_LOCK)NULL,
-                            vector,
-                            irql,
-                            irql,
-                            configInfo->InterruptMode,
-                            interruptSharable,
-                            affinity,
-                            FALSE
-                            );
+                //
+                // Normal path. Only one interrupt is active for this device extension.
+                //
 
-            if (!(NT_SUCCESS(status))) {
+                DebugPrint((1,
+                            "ScsiPortInitialize: SCSI adapter IRQ is %d\n",
+                            configInfo->BusInterruptLevel));
 
-                DebugPrint((1,"ScsiPortInitialize: Can't connect interrupt %d\n", vector));
-                deviceExtension->InterruptObject = NULL;
-                uniqueId = 270;
-                break;
+                //
+                // Save interrupt level.
+                //
+
+                deviceExtension->InterruptLevel = configInfo->BusInterruptLevel;
+
+                //
+                // Set up for a real interrupt.
+                //
+
+                deviceExtension->SynchronizeExecution = KeSynchronizeExecution;
+
+                //
+                // Call HAL to get system interrupt parameters.
+                //
+
+                vector = HalGetInterruptVector(configInfo->AdapterInterfaceType,
+                                               configInfo->SystemIoBusNumber,
+                                               configInfo->BusInterruptLevel,
+                                               configInfo->BusInterruptVector,
+                                               &irql,
+                                               &affinity);
+
+                //
+                // Initialize interrupt object and connect to interrupt.
+                //
+
+                if (configInfo->AdapterInterfaceType == MicroChannel ||
+                    configInfo->InterruptMode == LevelSensitive) {
+                    interruptSharable = TRUE;
+                } else {
+                    interruptSharable = FALSE;
+                }
+
+                status = IoConnectInterrupt(&deviceExtension->InterruptObject,
+                                            (PKSERVICE_ROUTINE)ScsiPortInterrupt,
+                                            deviceObject,
+                                            (PKSPIN_LOCK)NULL,
+                                            vector,
+                                            irql,
+                                            irql,
+                                            configInfo->InterruptMode,
+                                            interruptSharable,
+                                            affinity,
+                                            FALSE);
+
+                if (!(NT_SUCCESS(status))) {
+
+                    DebugPrint((1,"ScsiPortInitialize: Can't connect interrupt %d\n", vector));
+                    deviceExtension->InterruptObject = NULL;
+                    uniqueId = 270;
+                    break;
+                }
             }
         }
 
@@ -1003,11 +1162,9 @@ NewConfiguration:
 
         KeRaiseIrql(DISPATCH_LEVEL, &irql);
 
-        if (!deviceExtension->SynchronizeExecution(
-                deviceExtension->InterruptObject,
-                deviceExtension->HwInitialize,
-                deviceExtension->HwDeviceExtension
-                )) {
+        if (!deviceExtension->SynchronizeExecution(deviceExtension->InterruptObject,
+                                                   deviceExtension->HwInitialize,
+                                                   deviceExtension->HwDeviceExtension)) {
 
             DebugPrint((1,"ScsiPortInitialize: initialization failed\n"));
             KeLowerIrql(irql);
@@ -1030,11 +1187,10 @@ NewConfiguration:
             // dispatch level.
             //
 
-            ScsiPortCompletionDpc( NULL,
-                                   deviceExtension->DeviceObject,
-                                   NULL,
-                                   NULL);
-
+            ScsiPortCompletionDpc(NULL,
+                                  deviceExtension->DeviceObject,
+                                  NULL,
+                                  NULL);
         }
 
         KeLowerIrql(irql);
@@ -1075,8 +1231,7 @@ NewConfiguration:
         // Save number of buses.
         //
 
-        deviceExtension->ScsiInfo->NumberOfBuses =
-            deviceExtension->NumberOfBuses;
+        deviceExtension->ScsiInfo->NumberOfBuses = deviceExtension->NumberOfBuses;
 
         //
         // Find devices on each SCSI bus.
@@ -1091,19 +1246,14 @@ NewConfiguration:
         // Update the device map.
         //
 
-        SpBuildDeviceMap(deviceExtension,
-                         Argument2);
+        SpBuildDeviceMap(deviceExtension, Argument2);
 
         //
         // Create the dos port driver name.
         //
 
-        sprintf(deviceNameBuffer,
-                "\\DosDevices\\Scsi%d:",
-                *scsiPortNumber);
-
+        sprintf(deviceNameBuffer, "\\DosDevices\\Scsi%d:", *scsiPortNumber);
         RtlInitString(&deviceName, deviceNameBuffer);
-
         status = RtlAnsiStringToUnicodeString(&dosUnicodeString,
                                               &deviceName,
                                               TRUE);
@@ -1117,12 +1267,8 @@ NewConfiguration:
         // Create port driver name.
         //
 
-        sprintf(deviceNameBuffer,
-                "\\Device\\ScsiPort%d",
-                *scsiPortNumber);
-
+        sprintf(deviceNameBuffer, "\\Device\\ScsiPort%d", *scsiPortNumber);
         RtlInitString(&deviceName, deviceNameBuffer);
-
         status = RtlAnsiStringToUnicodeString(&unicodeString,
                                               &deviceName,
                                               TRUE);
@@ -1186,10 +1332,8 @@ NewConfiguration:
         // An error occured log it.
         //
 
-        errorLogEntry = (PIO_ERROR_LOG_PACKET)IoAllocateErrorLogEntry(
-            deviceExtension->DeviceObject,
-            sizeof(IO_ERROR_LOG_PACKET)
-            );
+        errorLogEntry = (PIO_ERROR_LOG_PACKET)IoAllocateErrorLogEntry(deviceExtension->DeviceObject,
+                                                                      sizeof(IO_ERROR_LOG_PACKET));
 
         if (errorLogEntry != NULL) {
             errorLogEntry->ErrorCode = IO_ERR_DRIVER_ERROR;
@@ -1561,8 +1705,8 @@ Return Value:
     // PVOID and add it to the port driver's logical extension.
     //
 
-    size = (DeviceExtension->HwLogicalUnitExtensionSize + sizeof(PVOID) - 1)
-        & ~(sizeof(PVOID) -1);
+    size = (DeviceExtension->HwLogicalUnitExtensionSize + sizeof(LONGLONG) - 1)
+        & ~(sizeof(LONGLONG) -1);
     size += sizeof(LOGICAL_UNIT_EXTENSION);
 
     //
@@ -1777,8 +1921,11 @@ Return Value:
             // Remove mapped address from list.
             //
 
-            if (lastMappedAddress == deviceExtension->MappedAddressList) {
+            if (nextMappedAddress == deviceExtension->MappedAddressList) {
 
+                //
+                // Removing the first entry
+                //
                 deviceExtension->MappedAddressList =
                 nextMappedAddress->NextMappedAddress;
             } else {
@@ -1786,6 +1933,8 @@ Return Value:
                 lastMappedAddress->NextMappedAddress =
                 nextMappedAddress->NextMappedAddress;
             }
+
+            ExFreePool(nextMappedAddress);
 
             return;
 
@@ -1906,6 +2055,16 @@ Return Value:
     deviceExtension->AutoRequestSense = ConfigInfo->AutoRequestSense;
 
     //
+    // Update SrbExtensionSize, if necessary. The miniport's FindAdapter routine
+    // has the opportunity to adjust it after being called, depending upon
+    // it's Scatter/Gather List requirements.
+    //
+
+    if (deviceExtension->SrbExtensionSize != ConfigInfo->SrbExtensionSize) {
+        deviceExtension->SrbExtensionSize = ConfigInfo->SrbExtensionSize;
+    }
+
+    //
     // If the adapter supports AutoRequestSense or needs SRB extensions
     // then an SRB list needs to be allocated.
     //
@@ -1962,6 +2121,18 @@ Return Value:
     PVOID *srbExtension;
 
     //
+    // To ensure that we never transfer normal request data to the SrbExtension
+    // (ie. the case of Srb->SenseInfoBuffer == VirtualAddress in
+    // ScsiPortGetPhysicalAddress) on some platforms where an inconsistency in
+    // MM can result in the same Virtual address supplied for 2 different
+    // physical addresses, bump the SrbExtensionSize if it's zero.
+    //
+
+    if (DeviceExtension->SrbExtensionSize == 0) {
+        DeviceExtension->SrbExtensionSize = 16;
+    }
+
+    //
     // Calculate the block size for the list elements based on the Srb
     // Extension.
     //
@@ -1982,14 +2153,14 @@ Return Value:
     // Round blocksize up to the size of a PVOID.
     //
 
-    blockSize = (blockSize + sizeof(PVOID) - 1) & ~(sizeof(PVOID) - 1);
+    blockSize = (blockSize + sizeof(LONGLONG) - 1) & ~(sizeof(LONGLONG) - 1);
 
     //
     // The length of the common buffer should be equal to the size of the
     // noncached extension and a minimum number of srb extension
     //
 
-    length = NonCachedExtensionSize + blockSize * MINIMUM_SRB_EXTENSIONS;
+    length = NonCachedExtensionSize + blockSize * DeviceExtension->NumberOfRequests;
 
     //
     // Round the length up to a page size, since HalAllocateCommonBuffer
@@ -2120,8 +2291,7 @@ Return Value:
 --*/
 
 {
-    PDEVICE_EXTENSION deviceExtension =
-        (PDEVICE_EXTENSION) DeviceExtension - 1;
+    PDEVICE_EXTENSION deviceExtension = (PDEVICE_EXTENSION) DeviceExtension - 1;
     CM_EISA_SLOT_INFORMATION slotInformation;
 
     //
@@ -2130,11 +2300,11 @@ Return Value:
 
     if (Length != 0) {
 
-        return( HalGetBusData( BusDataType,
-                               SystemIoBusNumber,
-                               SlotNumber,
-                               Buffer,
-                               Length));
+        return HalGetBusData(BusDataType,
+                             SystemIoBusNumber,
+                             SlotNumber,
+                             Buffer,
+                             Length);
     }
 
     //
@@ -2166,7 +2336,7 @@ Return Value:
             // The data is messed up since this should never occur
             //
 
-            return(0);
+            return 0;
         }
 
         //
@@ -2192,7 +2362,7 @@ Return Value:
     deviceExtension->MapRegisterBase = ExAllocatePool(NonPagedPool, Length);
 
     if (deviceExtension->MapRegisterBase == NULL) {
-        return(0);
+        return 0;
     }
 
     //
@@ -2201,11 +2371,11 @@ Return Value:
 
     *((PVOID *)Buffer) = deviceExtension->MapRegisterBase;
 
-    return( HalGetBusData( BusDataType,
-                           SystemIoBusNumber,
-                           SlotNumber,
-                           deviceExtension->MapRegisterBase,
-                           Length));
+    return HalGetBusData(BusDataType,
+                         SystemIoBusNumber,
+                         SlotNumber,
+                         deviceExtension->MapRegisterBase,
+                         Length);
 
 }
 
@@ -2233,7 +2403,8 @@ Return Value:
 
 {
     //
-    // BUGBUG This should not be needed !
+    // NOTE: This routine should not be needed ! DriverEntry is defined
+    // in the miniport driver.
     //
 
     UNREFERENCED_PARAMETER(DriverObject);
@@ -2348,7 +2519,7 @@ Return Value:
     // Free the logical unit extension structures.
     //
 
-    for (j = 0; j < DeviceExtension->MaximumTargetIds; j++) {
+    for(j = 0; j < NUMBER_LOGICAL_UNIT_BINS; j++) {
 
         while (DeviceExtension->LogicalUnitList[j] != NULL) {
 
@@ -2491,7 +2662,6 @@ Return Value:
         ConfigInfo->AdapterInterfaceType = HwInitData->AdapterInterfaceType;
         ConfigInfo->InterruptMode = Latched;
         ConfigInfo->MaximumTransferLength = SP_UNINITIALIZED_VALUE;
-        ConfigInfo->NumberOfPhysicalBreaks = SP_UNINITIALIZED_VALUE;
         ConfigInfo->DmaChannel = SP_UNINITIALIZED_VALUE;
         ConfigInfo->DmaPort = SP_UNINITIALIZED_VALUE;
         ConfigInfo->NumberOfAccessRanges = HwInitData->NumberOfAccessRanges;
@@ -2520,6 +2690,8 @@ Return Value:
             ConfigInfo->InitiatorBusId[j] = (CCHAR)SP_UNINITIALIZED_VALUE;
         }
     }
+
+    ConfigInfo->NumberOfPhysicalBreaks = SP_NORMAL_PHYSICAL_BREAK_VALUE;
 
     //
     // Clear some of the context information.
@@ -2656,6 +2828,10 @@ NewAdapter:
     //
 
     key = NULL;
+    if (Context->Parameter) {
+        ExFreePool(Context->Parameter);
+        Context->Parameter = NULL;
+    }
 
     if (Context->ServiceKey != NULL) {
 
@@ -2828,9 +3004,9 @@ Note:
     PCONFIGURATION_INFORMATION configurationInformation;
     PACCESS_RANGE accessRange;
     ULONG listLength = 0;
-    BOOLEAN hasDma;
-    BOOLEAN hasInterrupt;
+    ULONG hasInterrupt;
     ULONG i;
+    BOOLEAN hasDma;
 
     //
     // Indicate the current AT disk usage.
@@ -2866,11 +3042,23 @@ Note:
         (ConfigInfo->BusInterruptLevel == 0 &&
         ConfigInfo->BusInterruptVector == 0)) {
 
-        hasInterrupt = FALSE;
+        hasInterrupt = 0;
 
     } else {
 
-        hasInterrupt = TRUE;
+        hasInterrupt = 1;
+        listLength++;
+    }
+
+    //
+    // Detemine whether the second interrupt is used.
+    //
+
+    if (DeviceExtension->HwInterrupt != NULL &&
+        (ConfigInfo->BusInterruptLevel2 != 0 ||
+        ConfigInfo->BusInterruptVector2 != 0)) {
+
+        hasInterrupt++;
         listLength++;
     }
 
@@ -2983,6 +3171,29 @@ Note:
             resourceDescriptor->u.Interrupt.Affinity = 0;
 
             resourceDescriptor++;
+            --hasInterrupt;
+        }
+
+        if (hasInterrupt) {
+
+            resourceDescriptor->Type = CmResourceTypeInterrupt;
+
+            if (ConfigInfo->AdapterInterfaceType == MicroChannel ||
+                ConfigInfo->InterruptMode2 == LevelSensitive) {
+               resourceDescriptor->ShareDisposition = CmResourceShareShared;
+               resourceDescriptor->Flags = CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE;
+            } else {
+               resourceDescriptor->ShareDisposition = CmResourceShareDeviceExclusive;
+               resourceDescriptor->Flags = CM_RESOURCE_INTERRUPT_LATCHED;
+            }
+
+            resourceDescriptor->u.Interrupt.Level =
+                        ConfigInfo->BusInterruptLevel2;
+            resourceDescriptor->u.Interrupt.Vector =
+                        ConfigInfo->BusInterruptVector2;
+            resourceDescriptor->u.Interrupt.Affinity = 0;
+
+            resourceDescriptor++;
         }
 
         if (hasDma) {
@@ -3051,17 +3262,17 @@ Return Value:
 --*/
 
 {
-    PKEY_VALUE_FULL_INFORMATION keyValueInformation;
-    NTSTATUS status = STATUS_SUCCESS;
-    PCM_FULL_RESOURCE_DESCRIPTOR resource;
+    PKEY_VALUE_FULL_INFORMATION     keyValueInformation;
+    NTSTATUS                        status = STATUS_SUCCESS;
+    PCM_FULL_RESOURCE_DESCRIPTOR    resource;
     PCM_PARTIAL_RESOURCE_DESCRIPTOR descriptor;
-    PCM_SCSI_DEVICE_DATA scsiData;
-    UNICODE_STRING unicodeString;
-    ANSI_STRING ansiString;
-    ULONG length;
-    ULONG index = 0;
-    ULONG rangeCount = 0;
-    ULONG count;
+    PCM_SCSI_DEVICE_DATA            scsiData;
+    UNICODE_STRING                  unicodeString;
+    ANSI_STRING                     ansiString;
+    ULONG                           length;
+    ULONG                           index = 0;
+    ULONG                           rangeCount = 0;
+    ULONG                           count;
 
     keyValueInformation = (PKEY_VALUE_FULL_INFORMATION) Buffer;
 
@@ -3109,7 +3320,7 @@ Return Value:
         // Check for a maximum lu number.
         //
 
-        if (wcsnicmp(keyValueInformation->Name, L"MaximumLogicalUnit",
+        if (_wcsnicmp(keyValueInformation->Name, L"MaximumLogicalUnit",
             keyValueInformation->NameLength/2) == 0) {
 
             if (keyValueInformation->Type != REG_DWORD) {
@@ -3132,7 +3343,7 @@ Return Value:
             }
         }
 
-        if (wcsnicmp(keyValueInformation->Name, L"InitiatorTargetId",
+        if (_wcsnicmp(keyValueInformation->Name, L"InitiatorTargetId",
             keyValueInformation->NameLength/2) == 0) {
 
             if (keyValueInformation->Type != REG_DWORD) {
@@ -3155,7 +3366,7 @@ Return Value:
             }
         }
 
-        if (wcsnicmp(keyValueInformation->Name, L"ScsiDebug",
+        if (_wcsnicmp(keyValueInformation->Name, L"ScsiDebug",
             keyValueInformation->NameLength/2) == 0) {
 
             if (keyValueInformation->Type != REG_DWORD) {
@@ -3168,7 +3379,7 @@ Return Value:
 #endif
         }
 
-        if (wcsnicmp(keyValueInformation->Name, L"BreakPointOnEntry",
+        if (_wcsnicmp(keyValueInformation->Name, L"BreakPointOnEntry",
             keyValueInformation->NameLength/2) == 0) {
 
             DebugPrint((0, "SpParseDevice: Break point requested on entry.\n"));
@@ -3179,7 +3390,7 @@ Return Value:
         // Check for disabled synchonous tranfers.
         //
 
-        if (wcsnicmp(keyValueInformation->Name, L"DisableSynchronousTransfers",
+        if (_wcsnicmp(keyValueInformation->Name, L"DisableSynchronousTransfers",
             keyValueInformation->NameLength/2) == 0) {
 
             DeviceExtension->SrbFlags |= SRB_FLAGS_DISABLE_SYNCH_TRANSFER;
@@ -3190,7 +3401,7 @@ Return Value:
         // Check for disabled disconnects.
         //
 
-        if (wcsnicmp(keyValueInformation->Name, L"DisableDisconnects",
+        if (_wcsnicmp(keyValueInformation->Name, L"DisableDisconnects",
             keyValueInformation->NameLength/2) == 0) {
 
             DeviceExtension->SrbFlags |= SRB_FLAGS_DISABLE_DISCONNECT;
@@ -3201,7 +3412,7 @@ Return Value:
         // Check for disabled tagged queuing.
         //
 
-        if (wcsnicmp(keyValueInformation->Name, L"DisableTaggedQueuing",
+        if (_wcsnicmp(keyValueInformation->Name, L"DisableTaggedQueuing",
             keyValueInformation->NameLength/2) == 0) {
 
             Context->DisableTaggedQueueing = TRUE;
@@ -3212,7 +3423,7 @@ Return Value:
         // Check for disabled multiple requests per logical unit.
         //
 
-        if (wcsnicmp(keyValueInformation->Name, L"DisableMultipleRequests",
+        if (_wcsnicmp(keyValueInformation->Name, L"DisableMultipleRequests",
             keyValueInformation->NameLength/2) == 0) {
 
             Context->DisableMultipleLu = TRUE;
@@ -3223,7 +3434,7 @@ Return Value:
         // Check for driver parameters tranfers.
         //
 
-        if (wcsnicmp(keyValueInformation->Name, L"DriverParameters",
+        if (_wcsnicmp(keyValueInformation->Name, L"DriverParameters",
             keyValueInformation->NameLength/2) == 0) {
 
             if (keyValueInformation->DataLength == 0) {
@@ -3294,12 +3505,69 @@ Return Value:
         }
 
         //
+        // See if an entry for Maximum Scatter-Gather List has been
+        // set.
+        //
+
+        if (_wcsnicmp(keyValueInformation->Name, L"MaximumSGList",
+            keyValueInformation->NameLength/2) == 0) {
+
+            if (keyValueInformation->Type != REG_DWORD) {
+
+                DebugPrint((1, "SpParseDevice:  Bad data type for MaximumSGList.\n"));
+                continue;
+            }
+
+            ConfigInfo->NumberOfPhysicalBreaks = *((PUCHAR)(Buffer + keyValueInformation->DataOffset));
+            DebugPrint((1, "SpParseDevice:  MaximumSGList = %d found.\n",
+                        ConfigInfo->NumberOfPhysicalBreaks));
+
+            //
+            // If the value is out of bounds, then reset it.
+            //
+
+            if (ConfigInfo->NumberOfPhysicalBreaks > SCSI_MAXIMUM_PHYSICAL_BREAKS) {
+                ConfigInfo->NumberOfPhysicalBreaks = SCSI_MAXIMUM_PHYSICAL_BREAKS;
+            } else if (ConfigInfo->NumberOfPhysicalBreaks < SCSI_MINIMUM_PHYSICAL_BREAKS) {
+                ConfigInfo->NumberOfPhysicalBreaks = SCSI_MINIMUM_PHYSICAL_BREAKS;
+            }
+        }
+
+        //
+        // See if an entry for Number of request has been set.
+        //
+
+        if (_wcsnicmp(keyValueInformation->Name, L"NumberOfRequests",
+            keyValueInformation->NameLength/2) == 0) {
+
+            if (keyValueInformation->Type != REG_DWORD) {
+
+                DebugPrint((1, "SpParseDevice:  Bad data type for NumberOfRequests.\n"));
+                continue;
+            }
+
+            DeviceExtension->NumberOfRequests = *((PUCHAR)(Buffer + keyValueInformation->DataOffset));
+            DebugPrint((1, "SpParseDevice:  Number Of Requests = %d found.\n",
+                        DeviceExtension->NumberOfRequests));
+
+            //
+            // If the value is out of bounds, then reset it.
+            //
+
+            if (DeviceExtension->NumberOfRequests < MINIMUM_SRB_EXTENSIONS) {
+                DeviceExtension->NumberOfRequests = MINIMUM_SRB_EXTENSIONS;
+            } else if (DeviceExtension->NumberOfRequests > MAXIMUM_SRB_EXTENSIONS) {
+                DeviceExtension->NumberOfRequests = MAXIMUM_SRB_EXTENSIONS;
+            }
+        }
+
+        //
         // Check for resource list.
         //
 
-        if (wcsnicmp(keyValueInformation->Name, L"ResourceList",
+        if (_wcsnicmp(keyValueInformation->Name, L"ResourceList",
                 keyValueInformation->NameLength/2) == 0 ||
-            wcsnicmp(keyValueInformation->Name, L"Configuration Data",
+            _wcsnicmp(keyValueInformation->Name, L"Configuration Data",
                 keyValueInformation->NameLength/2) == 0 ) {
 
             if (keyValueInformation->Type != REG_FULL_RESOURCE_DESCRIPTOR ||
@@ -3493,6 +3761,7 @@ Return Value:
     PLUNINFO existingLunInfo;
     UCHAR target;
     UCHAR lun;
+    UCHAR bin;
     UCHAR device = 0;
     BOOLEAN existingDevice;
     PLOGICAL_UNIT_EXTENSION logicalUnit;
@@ -3618,22 +3887,34 @@ Return Value:
             continue;
         }
 
-        //
-        // Link logical unit extension on list.
-        //
-
-        logicalUnit->NextLogicalUnit =
-            DeviceExtension->LogicalUnitList[target];
-
-        DeviceExtension->LogicalUnitList[target] = logicalUnit;
-
         for (lun = 0; lun < DeviceExtension->MaxLuCount; lun++) {
 
+            if (logicalUnit == NULL) {
+                break;
+            }
+
+            //
+            // Link logical unit extension on list.
+            //
+
+            bin = (target + lun) % NUMBER_LOGICAL_UNIT_BINS;
+
+            logicalUnit->NextLogicalUnit =
+                DeviceExtension->LogicalUnitList[bin];
+
+            DeviceExtension->LogicalUnitList[bin] = logicalUnit;
+
+
             logicalUnit->PathId = lunInfo->PathId = ScsiBus;
-
             logicalUnit->TargetId = lunInfo->TargetId = target;
-
             logicalUnit->Lun = lunInfo->Lun = lun;
+
+            //
+            // Set the flag to ensure that IOCTL_SCSI_MINIPORT requests
+            // don't attach to this logical unit.
+            //
+
+            logicalUnit->LuFlags |= PD_RESCAN_ACTIVE;
 
             //
             // Rezero hardware logical unit extension if it's being recycled.
@@ -3671,8 +3952,22 @@ Return Value:
                     // logical units on this target.
                     //
 
+                    //
+                    // Remove unused logical unit extension from list.
+                    //
+
+                    DeviceExtension->LogicalUnitList[bin] =
+                        DeviceExtension->LogicalUnitList[bin]->NextLogicalUnit;
+
                     continue;
                 }
+
+                //
+                // Clear rescan flag. Since this LogicalUnit will not be freed,
+                // the IOCTL_SCSI_MINIPORT requests can safely attach.
+                //
+
+                logicalUnit->LuFlags &= ~PD_RESCAN_ACTIVE;
 
                 DebugPrint((1,"ScsiBusScan: Found Device %d", device));
                 DebugPrint((1," Bus %d", lunInfo->PathId));
@@ -3729,15 +4024,6 @@ Return Value:
                     CreateLogicalUnitExtension(DeviceExtension);
 
                 //
-                // Link logical unit extension on list.
-                //
-
-                logicalUnit->NextLogicalUnit =
-                    DeviceExtension->LogicalUnitList[target];
-
-                DeviceExtension->LogicalUnitList[target] = logicalUnit;
-
-                //
                 // Increment the devices found count.
                 //
 
@@ -3750,9 +4036,23 @@ Return Value:
                 // this device, so keep looking.
                 //
 
+                //
+                // Remove unused logical unit extension from list.
+                //
+
+                DeviceExtension->LogicalUnitList[bin] =
+                    DeviceExtension->LogicalUnitList[bin]->NextLogicalUnit;
+
                 continue;
 
             } else {
+
+                //
+                // Remove unused logical unit extension from list.
+                //
+
+                DeviceExtension->LogicalUnitList[bin] =
+                    DeviceExtension->LogicalUnitList[bin]->NextLogicalUnit;
 
                 //
                 // Skip the rest of the logical units if the inquiry failed.
@@ -3761,19 +4061,20 @@ Return Value:
                 break;
             }
 
+
         } // end for (lun ...
 
-        //
-        // Remove unused logical unit extension from list.
-        //
-
-        DeviceExtension->LogicalUnitList[target] =
-            DeviceExtension->LogicalUnitList[target]->NextLogicalUnit;
 
     } // end for (target ...
 
-    ExFreePool(logicalUnit);
-    ExFreePool(lunInfo);
+    if (logicalUnit != NULL) {
+        ExFreePool(logicalUnit);
+
+    }
+
+    if (lunInfo != NULL) {
+        ExFreePool(lunInfo);
+    }
 
     scsiInfo->NumberOfLogicalUnits += device;
     DebugPrint((1,
@@ -3873,6 +4174,38 @@ Return Value:
 
     if (!NT_SUCCESS(status)) {
         return;
+    }
+
+    //
+    // Indicate if it is a PCCARD.
+    //
+
+    if (DeviceExtension->PCCard) {
+        RtlInitUnicodeString(&name, L"PCCARD");
+        i = 1;
+
+        status = ZwSetValueKey(key,
+                               &name,
+                               0,
+                               REG_DWORD,
+                               &i,
+                               sizeof(ULONG));
+    }
+
+    //
+    // indicate whether DMA is on or not
+    //
+    {
+        ULONG dmaOn = DeviceExtension->DmaAdapterObject ? 1 : 0;
+
+        RtlInitUnicodeString(&name, L"DMAEnabled");
+
+        status = ZwSetValueKey(key,
+                               &name,
+                               0,
+                               REG_DWORD,
+                               &dmaOn,
+                               4);
     }
 
     //
@@ -4255,17 +4588,127 @@ Return Value:
 
     return(status);
 }
+
+
+VOID
+SpBuildConfiguration(
+    IN PHW_INITIALIZATION_DATA         HwInitializationData,
+    IN PCM_FULL_RESOURCE_DESCRIPTOR    ControllerData,
+    IN PPORT_CONFIGURATION_INFORMATION ConfigInformation
+    )
+
+/*++
+
+Routine Description:
+
+    Given a full resource description, fill in the port configuration
+    information.
+
+Arguments:
+
+    HwInitializationData - to know maximum resources for device.
+    ControllerData - the CM_FULL_RESOURCE list for this configuration
+    ConfigInformation - the config info structure to be filled in
+
+Return Value:
+
+    None
+
+--*/
+
+{
+    ULONG             rangeNumber;
+    ULONG             index;
+    PACCESS_RANGE     accessRange;
+    PCM_PARTIAL_RESOURCE_DESCRIPTOR partialData;
+
+    rangeNumber = 0;
+
+    for (index = 0; index < ControllerData->PartialResourceList.Count; index++) {
+        partialData = &ControllerData->PartialResourceList.PartialDescriptors[index];
+
+        switch (partialData->Type) {
+        case CmResourceTypePort:
+
+           //
+           // Verify range count does not exceed what the
+           // miniport indicated.
+           //
+
+           if (HwInitializationData->NumberOfAccessRanges > rangeNumber) {
+
+                //
+                // Get next access range.
+                //
+
+                accessRange =
+                          &((*(ConfigInformation->AccessRanges))[rangeNumber]);
+
+                accessRange->RangeStart = partialData->u.Port.Start;
+                accessRange->RangeLength = partialData->u.Port.Length;
+
+                accessRange->RangeInMemory = FALSE;
+                rangeNumber++;
+            }
+            break;
+
+        case CmResourceTypeInterrupt:
+            ConfigInformation->BusInterruptLevel = partialData->u.Interrupt.Level;
+            ConfigInformation->BusInterruptVector = partialData->u.Interrupt.Vector;
+
+            //
+            // Check interrupt mode.
+            //
+
+            if (partialData->Flags == CM_RESOURCE_INTERRUPT_LATCHED) {
+                ConfigInformation->InterruptMode = Latched;
+            } else if (partialData->Flags == CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE) {
+                ConfigInformation->InterruptMode = LevelSensitive;
+            }
+            break;
+
+        case CmResourceTypeMemory:
+
+            //
+            // Verify range count does not exceed what the
+            // miniport indicated.
+            //
+
+            if (HwInitializationData->NumberOfAccessRanges > rangeNumber) {
+
+                 //
+                 // Get next access range.
+                 //
+
+                 accessRange =
+                          &((*(ConfigInformation->AccessRanges))[rangeNumber]);
+
+                 accessRange->RangeStart = partialData->u.Memory.Start;
+                 accessRange->RangeLength = partialData->u.Memory.Length;
+
+                 accessRange->RangeInMemory = TRUE;
+                 rangeNumber++;
+            }
+            break;
+
+        case CmResourceTypeDma:
+            ConfigInformation->DmaChannel = partialData->u.Dma.Channel;
+            ConfigInformation->DmaPort = partialData->u.Dma.Port;
+            break;
+        }
+    }
+}
 
 BOOLEAN
 GetPciConfiguration(
-    PDRIVER_OBJECT DriverObject,
-    PDEVICE_OBJECT DeviceObject,
+    PDRIVER_OBJECT          DriverObject,
+    PDEVICE_OBJECT          DeviceObject,
     PHW_INITIALIZATION_DATA HwInitializationData,
     PPORT_CONFIGURATION_INFORMATION ConfigInformation,
-    PVOID RegistryPath,
-    ULONG BusNumber,
-    PULONG SlotNumber,
-    PULONG FunctionNumber
+    PVOID                   RegistryPath,
+    ULONG                   BusNumber,
+    PULONG                  SlotNumber,
+    PULONG                  FunctionNumber
     )
 
 /*++
@@ -4296,17 +4739,14 @@ Return Value:
 --*/
 
 {
-    PCI_SLOT_NUMBER     slotData;
-    PPCI_COMMON_CONFIG  pciData;
+    ULONG               rangeNumber = 0;
     ULONG               pciBuffer;
     ULONG               slotNumber;
     ULONG               functionNumber;
-    ULONG               i;
-    ULONG               rangeNumber = 0;
-    PACCESS_RANGE       accessRange;
     ULONG               status;
+    PCI_SLOT_NUMBER     slotData;
+    PPCI_COMMON_CONFIG  pciData;
     PCM_RESOURCE_LIST   resourceList;
-    PCM_PARTIAL_RESOURCE_DESCRIPTOR resourceDescriptor;
     UNICODE_STRING      unicodeString;
     UCHAR               vendorString[5];
     UCHAR               deviceString[5];
@@ -4391,10 +4831,10 @@ Return Value:
             // Compare strings.
             //
 
-            if (strncmp(vendorString,
+            if (_strnicmp(vendorString,
                         HwInitializationData->VendorId,
                         HwInitializationData->VendorIdLength) ||
-                strncmp(deviceString,
+                _strnicmp(deviceString,
                         HwInitializationData->DeviceId,
                         HwInitializationData->DeviceIdLength)) {
 
@@ -4422,124 +4862,20 @@ Return Value:
 
             if (!NT_SUCCESS(status)) {
 
-               //
-               // ToDo: Log this error.
-               //
+                //
+                // ToDo: Log this error.
+                //
 
-               break;
+                break;
             }
 
             //
-            // Walk resource list to update configuration information.
+            // Construct the configuration information.
             //
 
-            for (i = 0;
-                 i < resourceList->List->PartialResourceList.Count;
-                 i++) {
-
-               //
-               // Get resource descriptor.
-               //
-
-               resourceDescriptor =
-                   &resourceList->List->PartialResourceList.PartialDescriptors[i];
-
-               //
-               // Check for interrupt descriptor.
-               //
-
-               if (resourceDescriptor->Type == CmResourceTypeInterrupt) {
-                   ConfigInformation->BusInterruptLevel =
-                       resourceDescriptor->u.Interrupt.Level;
-                   ConfigInformation->BusInterruptVector =
-                       resourceDescriptor->u.Interrupt.Vector;
-
-                   //
-                   // Check interrupt mode.
-                   //
-
-                   if ((resourceDescriptor->Flags ==
-                       CM_RESOURCE_INTERRUPT_LATCHED)) {
-                       ConfigInformation->InterruptMode = Latched;
-                   } else if (resourceDescriptor->Flags ==
-                              CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE) {
-                       ConfigInformation->InterruptMode = LevelSensitive;
-                   }
-               }
-
-               //
-               // Check for port descriptor.
-               //
-
-               if (resourceDescriptor->Type == CmResourceTypePort) {
-
-                  //
-                  // Verify range count does not exceed what the
-                  // miniport indicated.
-                  //
-
-                  if (HwInitializationData->NumberOfAccessRanges > rangeNumber) {
-
-                      //
-                      // Get next access range.
-                      //
-
-                      accessRange =
-                          &((*(ConfigInformation->AccessRanges))[rangeNumber]);
-
-                      accessRange->RangeStart =
-                          resourceDescriptor->u.Port.Start;
-                      accessRange->RangeLength =
-                          resourceDescriptor->u.Port.Length;
-
-                      accessRange->RangeInMemory = FALSE;
-                      rangeNumber++;
-                  }
-               }
-
-               //
-               // Check for memory descriptor.
-               //
-
-               if (resourceDescriptor->Type == CmResourceTypeMemory) {
-
-                  //
-                  // Verify range count does not exceed what the
-                  // miniport indicated.
-                  //
-
-                  if (HwInitializationData->NumberOfAccessRanges > rangeNumber) {
-
-                      //
-                      // Get next access range.
-                      //
-
-                      accessRange =
-                          &((*(ConfigInformation->AccessRanges))[rangeNumber]);
-
-                      accessRange->RangeStart =
-                          resourceDescriptor->u.Memory.Start;
-                      accessRange->RangeLength =
-                          resourceDescriptor->u.Memory.Length;
-
-                      accessRange->RangeInMemory = TRUE;
-                      rangeNumber++;
-                  }
-               }
-
-               //
-               // Check for DMA descriptor.
-               //
-
-               if (resourceDescriptor->Type == CmResourceTypeDma) {
-                  ConfigInformation->DmaChannel =
-                      resourceDescriptor->u.Dma.Channel;
-                  ConfigInformation->DmaPort =
-                      resourceDescriptor->u.Dma.Port;
-               }
-
-            } // next resource descriptor
-
+            SpBuildConfiguration(HwInitializationData,
+                                 resourceList->List,
+                                 ConfigInformation);
             ExFreePool(resourceList);
 
             //
@@ -4569,6 +4905,137 @@ Return Value:
 
 } // GetPciConfiguration()
 
+
+BOOLEAN
+GetPcmciaConfiguration(
+    IN PVOID                        RegistryPath,
+    PHW_INITIALIZATION_DATA         HwInitializationData,
+    PPORT_CONFIGURATION_INFORMATION ConfigInformation
+    )
+
+/*++
+
+Routine Description:
+
+    Search to see if there is a PCMCIA based adapter in the system.
+    If so, fill in the ConfigInformation structure with the enabled
+    values.
+
+Arguments:
+
+    RegistryPath - the path to the services node in the registry
+    ConfigInformation - The configuration structure
+
+Return Value:
+
+    TRUE - it is a PCMCIA adapter
+
+--*/
+
+{
+    PUNICODE_STRING   regPath = RegistryPath;
+    UNICODE_STRING    unicodeName;
+    UNICODE_STRING    serviceName;
+    OBJECT_ATTRIBUTES objectAttributes;
+    HANDLE            handle;
+    ULONG             size;
+    PWCHAR            wchar;
+    PUCHAR            buffer;
+    NTSTATUS          status;
+    PKEY_VALUE_FULL_INFORMATION  keyValueInformation;
+    PCM_FULL_RESOURCE_DESCRIPTOR controllerData;
+
+    //
+    // Get driver name from the RegistryPath
+    //
+
+    wchar = regPath->Buffer;
+    wchar += ((regPath->Length / sizeof(WCHAR)) - 1);
+
+    size = 0;
+    while (*wchar) {
+        if (*wchar == (WCHAR) '\\') {
+            break;
+        }
+        wchar--;
+        size++;
+    }
+
+    serviceName.Buffer = (++wchar);
+    serviceName.MaximumLength = serviceName.Length = (USHORT) (size * sizeof(WCHAR));
+
+    buffer = ExAllocatePool(NonPagedPool, 2048);
+    if (!buffer) {
+        return FALSE;
+    }
+
+    unicodeName.Buffer = (PWSTR) buffer;
+    unicodeName.MaximumLength = (2048 / sizeof(WCHAR));
+
+    RtlInitUnicodeString(&unicodeName,
+                         L"\\Registry\\Machine\\Hardware\\Description\\System\\PCMCIA PCCARDs");
+    InitializeObjectAttributes(&objectAttributes,
+                               &unicodeName,
+                               OBJ_CASE_INSENSITIVE,
+                               NULL,
+                               NULL);
+    //
+    // Check for entry in DeviceMap
+    //
+
+    if (!NT_SUCCESS(ZwOpenKey(&handle, MAXIMUM_ALLOWED, &objectAttributes))) {
+
+        //
+        // Nothing there
+        //
+
+        ExFreePool(buffer);
+        return FALSE;
+    }
+
+    //
+    // See if key value for this driver is present
+    //
+
+    keyValueInformation = (PKEY_VALUE_FULL_INFORMATION) ExAllocatePool(NonPagedPool,
+                                                                       2048);
+    if (!keyValueInformation) {
+        ExFreePool(buffer);
+        ZwClose(handle);
+        return FALSE;
+    }
+
+    status = ZwQueryValueKey(handle,
+                             &serviceName,
+                             KeyValueFullInformation,
+                             keyValueInformation,
+                             2048,
+                             &size);
+
+    ZwClose(handle);
+    ExFreePool(buffer);
+    if ((!NT_SUCCESS(status)) || (!keyValueInformation->DataLength)) {
+
+        //
+        // No value present
+        //
+
+        ExFreePool(keyValueInformation);
+        return FALSE;
+    }
+
+    //
+    // Set up structures for call to find adapter.
+    //
+
+    buffer = (PUCHAR)keyValueInformation + keyValueInformation->DataOffset;
+    controllerData = (PCM_FULL_RESOURCE_DESCRIPTOR) buffer;
+    SpBuildConfiguration(HwInitializationData,
+                         controllerData,
+                         ConfigInformation);
+    ExFreePool(keyValueInformation);
+    return TRUE;
+} // GetPcmciaConfiguration()
 
 ULONG
 ScsiPortSetBusDataByOffset(

@@ -954,6 +954,19 @@ Return Values:
                                 NULL            // Delta data
                                 );
 
+                            //
+                            // Do delete auditing
+                            //
+
+                            if (NT_SUCCESS(NtStatus)) {
+                                (VOID) NtDeleteObjectAuditAlarm(
+                                            &SampSamSubsystem,
+                                            *AliasHandle,
+                                            AccountContext->AuditOnClose
+                                            );
+                            }
+
+
                         }
                     }
 
@@ -1058,6 +1071,8 @@ Return Values:
     PSAMP_OBJECT            AccountContext;
     SAMP_OBJECT_TYPE        FoundType;
     ULONG                   ObjectRid;
+    SAMP_MEMBERSHIP_DELTA   AdminChange = NoChange;
+    SAMP_MEMBERSHIP_DELTA   OperatorChange = NoChange;
 
 
     //
@@ -1097,13 +1112,34 @@ Return Values:
         // sure the member ACL(s) don't allow access by account operators.
         //
 
-        if ( ( NT_SUCCESS( NtStatus ) ) &&
-            ( AccountContext->TypeBody.Alias.Rid == DOMAIN_ALIAS_RID_ADMINS ) ) {
+        if ( NT_SUCCESS( NtStatus ) ) {
+            if ( AccountContext->TypeBody.Alias.Rid == DOMAIN_ALIAS_RID_ADMINS ) {
 
-            NtStatus = SampChangeAccountOperatorAccessToMember(
-                           MemberId,
-                           TRUE
-                           );
+                AdminChange = AddToAdmin;
+
+            } else if ( ( AccountContext->TypeBody.Alias.Rid == DOMAIN_ALIAS_RID_SYSTEM_OPS ) ||
+                        ( AccountContext->TypeBody.Alias.Rid == DOMAIN_ALIAS_RID_PRINT_OPS ) ||
+                        ( AccountContext->TypeBody.Alias.Rid == DOMAIN_ALIAS_RID_BACKUP_OPS ) ||
+                        ( AccountContext->TypeBody.Alias.Rid == DOMAIN_ALIAS_RID_ACCOUNT_OPS ) ) {
+
+                OperatorChange = AddToAdmin;
+            }
+
+            //
+            // If either of these are changing, change account operator
+            // access to this member
+            //
+
+            if ( ( OperatorChange != NoChange ) ||
+                 ( AdminChange != NoChange ) ) {
+
+                NtStatus = SampChangeAccountOperatorAccessToMember(
+                                MemberId,
+                                AdminChange,
+                                OperatorChange
+                                );
+            }
+
         }
 
         if (NT_SUCCESS(NtStatus)) {
@@ -1224,6 +1260,107 @@ Return Values:
 
 
 NTSTATUS
+SamrAddMultipleMembersToAlias(
+    IN    SAMPR_HANDLE            AliasHandle,
+    IN    PSAMPR_PSID_ARRAY       MembersBuffer
+    )
+
+/*++
+
+Routine Description:
+
+    This api adds multiple members to an alias.
+
+    NOTE:  For now, this routine takes a brute force approach.
+           I tried to do it in a better (more efficient) manner,
+           but kept running into problems.  Finally, when I ran
+           into problems in the way SAM uses RXACT, I gave up
+           and did this brute force approach.
+
+Parameters:
+
+    AliasHandle - The handle of an opened Alias to operate on.
+
+    MembersBuffer - Contains a count of SIDs to be added to the
+        alias and a pointer to a buffer containing an array of
+        pointers to SIDs.  These SIDs are the SIDs of the members to
+        be added to the Alias.
+
+
+Return Values:
+
+    STATUS_SUCCESS - The Service completed successfully.  All of the
+        listed members are now members of the alias.  However, some of
+        the members may already have been members of the alias (this is
+        NOT an error or warning condition).
+
+    STATUS_ACCESS_DENIED - Caller does not have the object open for
+        the required access.
+
+    STATUS_INVALID_HANDLE - The handle passed is invalid.
+
+    STATUS_INVALID_MEMBER - The member has the wrong account type.
+
+    STATUS_INVALID_SID - The member sid is corrupted.
+
+    STATUS_INVALID_DOMAIN_STATE - The domain server is not in the
+        correct state (disabled or enabled) to perform the requested
+        operation.  The domain server must be enabled for this
+        operation
+
+    STATUS_INVALID_DOMAIN_ROLE - The domain server is serving the
+        incorrect role (primary or backup) to perform the requested
+        operation.
+
+--*/
+{
+
+    NTSTATUS
+        NtStatus;
+
+    LONG
+        MemberCount,
+        i;
+
+    PSID
+        *MemberId;
+
+    MemberCount = (LONG)MembersBuffer->Count;
+    MemberId    = (PSID *)MembersBuffer->Sids;
+
+
+    //
+    // Set completion status in case there are no members
+    //
+
+    NtStatus = STATUS_SUCCESS;
+
+
+    //
+    // Loop through the SIDs, adding them to the alias.
+    // Ignore any status value indicating the member is already
+    // a member.  Other errors, however, will cause us to abort.
+    //
+
+    for (i=0; i<MemberCount; i++) {
+
+        NtStatus = SamrAddMemberToAlias( AliasHandle, MemberId[i] );
+
+        if (NtStatus == STATUS_MEMBER_IN_ALIAS) {
+            NtStatus = STATUS_SUCCESS;
+        }
+
+        if (!NT_SUCCESS(NtStatus)) {
+            break; //for loop
+        }
+
+    } //end_for
+
+    return(NtStatus);
+}
+
+
+NTSTATUS
 SamrRemoveMemberFromAlias(
     IN SAMPR_HANDLE AliasHandle,
     IN PRPC_SID MemberId
@@ -1255,6 +1392,8 @@ Return Value:
     PSAMP_OBJECT            AccountContext;
     SAMP_OBJECT_TYPE        FoundType;
     ULONG                   ObjectRid;
+    SAMP_MEMBERSHIP_DELTA   AdminChange = NoChange;
+    SAMP_MEMBERSHIP_DELTA   OperatorChange = NoChange;
 
     //
     // Grab the lock
@@ -1320,13 +1459,34 @@ Return Value:
                 // sure the member ACL(s) allow access by account operators.
                 //
 
-                if ( ( NT_SUCCESS( NtStatus ) ) &&
-                    ( AccountContext->TypeBody.Alias.Rid == DOMAIN_ALIAS_RID_ADMINS ) ) {
+                if ( NT_SUCCESS( NtStatus ) ) {
+                    if ( AccountContext->TypeBody.Alias.Rid == DOMAIN_ALIAS_RID_ADMINS ) {
 
-                    NtStatus = SampChangeAccountOperatorAccessToMember(
-                                   MemberId,
-                                   FALSE
-                                   );
+                        AdminChange = RemoveFromAdmin;
+
+                    } else if ( ( AccountContext->TypeBody.Alias.Rid == DOMAIN_ALIAS_RID_SYSTEM_OPS ) ||
+                                ( AccountContext->TypeBody.Alias.Rid == DOMAIN_ALIAS_RID_PRINT_OPS ) ||
+                                ( AccountContext->TypeBody.Alias.Rid == DOMAIN_ALIAS_RID_BACKUP_OPS ) ||
+                                ( AccountContext->TypeBody.Alias.Rid == DOMAIN_ALIAS_RID_ACCOUNT_OPS ) ) {
+
+                        OperatorChange = RemoveFromAdmin;
+                    }
+
+                    //
+                    // If either of these are changing, change account operator
+                    // access to this member
+                    //
+
+                    if ( ( OperatorChange != NoChange ) ||
+                         ( AdminChange != NoChange ) ) {
+
+                        NtStatus = SampChangeAccountOperatorAccessToMember(
+                                        MemberId,
+                                        AdminChange,
+                                        OperatorChange
+                                        );
+                    }
+
                 }
             }
         }
@@ -1410,6 +1570,106 @@ Return Value:
 
 }
 
+
+NTSTATUS
+SamrRemoveMultipleMembersFromAlias(
+    IN    SAMPR_HANDLE            AliasHandle,
+    IN    PSAMPR_PSID_ARRAY       MembersBuffer
+    )
+
+/*++
+
+Routine Description:
+
+    This API removes members from an alias.  Note that this API requires
+    the ALIAS_REMOVE_MEMBER access type for the alias.
+
+    NOTE:  This api currently uses a brute-force approach to adding
+           members to the alias.  This is because of problems
+           encountered when trying to do "the right thing".
+
+
+Parameters:
+
+    AliasHandle - The handle of an opened alias to operate on.
+
+    MembersBuffer - Contains a count of SIDs to be added to the
+        alias and a pointer to a buffer containing an array of
+        pointers to SIDs.  These SIDs are the SIDs of the members to
+        be added to the Alias.
+
+
+Return Values:
+
+    STATUS_SUCCESS - The Service completed successfully.  All of the
+        listed members are now members of the alias.  However, some of
+        the members may already have been members of the alias (this is
+        NOT an error or warning condition).
+
+    STATUS_ACCESS_DENIED - Caller does not have the object open for
+        the required access.
+
+    STATUS_INVALID_HANDLE - The handle passed is invalid.
+
+    STATUS_INVALID_SID - The member sid is corrupted.
+
+    STATUS_INVALID_DOMAIN_STATE - The domain server is not in the
+        correct state (disabled or enabled) to perform the requested
+        operation.  The domain server must be enabled for this
+        operation
+
+    STATUS_INVALID_DOMAIN_ROLE - The domain server is serving the
+        incorrect role (primary or backup) to perform the requested
+        operation.
+
+
+--*/
+{
+
+    NTSTATUS
+        NtStatus;
+
+    LONG
+        MemberCount,
+        i;
+
+    PSID
+        *MemberId;
+
+    MemberCount = (LONG)MembersBuffer->Count;
+    MemberId    = (PSID *)MembersBuffer->Sids;
+
+
+    //
+    // Set completion status in case there are no members
+    //
+
+    NtStatus = STATUS_SUCCESS;
+
+
+    //
+    // Loop through the SIDs, adding them to the alias.
+    // Ignore any status value indicating the member is already
+    // a member.  Other errors, however, will cause us to abort.
+    //
+
+    for (i=0; i<MemberCount; i++) {
+
+        NtStatus = SamrAddMemberToAlias( AliasHandle, MemberId[i] );
+
+        if (NtStatus == STATUS_MEMBER_NOT_IN_ALIAS) {
+            NtStatus = STATUS_SUCCESS;
+        }
+
+        if (!NT_SUCCESS(NtStatus)) {
+            break; //for loop
+        }
+
+    } //end_for
+
+    return(NtStatus);
+
+}
 
 
 NTSTATUS
@@ -1687,12 +1947,19 @@ Return Value:
                                     // it doesn't get deleted.
                                     //
 
+                                    //
+                                    // BUGBUG: this may not do it - we may
+                                    // need to check the admin count on
+                                    // the group. MMS 9/5/95
+                                    //
+
                                     if ( LocalMembership[i] ==
                                         DOMAIN_ALIAS_RID_ADMINS ) {
 
                                         NtStatus = SampChangeAccountOperatorAccessToMember(
                                                        AccountSid,
-                                                       FALSE );
+                                                       RemoveFromAdmin,
+                                                       NoChange );
                                     }
 
                                     //

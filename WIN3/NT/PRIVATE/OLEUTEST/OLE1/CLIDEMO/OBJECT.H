@@ -38,4 +38,3 @@ VOID FAR       ExecuteVerb(UINT, APPITEMPTR);
 //* Local
 static VOID    Release(APPITEMPTR);
 BOOL FAR       ObjSetBounds(APPITEMPTR);
-

@@ -57,7 +57,7 @@ void go2gen(int c)
       {
       fprintf( foutput, "%s: gotos on ", nontrst[c].name );
       NTLOOP(i) if( temp1[i] ) fprintf( foutput, "%s ", nontrst[i].name);
-      fprintf( foutput, "\n");
+      fprintf( foutput, "\n");
       }
 #endif
    /* now, go through and put gotos into tystate */

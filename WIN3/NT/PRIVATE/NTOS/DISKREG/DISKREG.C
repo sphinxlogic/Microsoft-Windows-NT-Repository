@@ -1925,8 +1925,8 @@ Return Value:
 
                 diskPartition = &diskDescription->Partitions[j];
 
-                if ((LiEql(StartingOffset, diskPartition->StartingOffset)) &&
-                    (LiEql(Length, diskPartition->Length))) {
+                if ((StartingOffset.QuadPart == diskPartition->StartingOffset.QuadPart) &&
+                    (Length.QuadPart == diskPartition->Length.QuadPart)) {
 
                     if (diskPartition->FtType == NotAnFtMember) {
 

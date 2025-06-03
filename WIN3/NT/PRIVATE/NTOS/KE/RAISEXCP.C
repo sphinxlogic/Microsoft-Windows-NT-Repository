@@ -61,6 +61,7 @@ Return Value:
 --*/
 
 {
+
     CONTEXT ContextRecord2;
     KPROCESSOR_MODE PreviousMode;
     NTSTATUS Status;
@@ -68,9 +69,10 @@ Return Value:
     BOOLEAN IrqlChanged = FALSE;
 
     //
-    // Synchronize with other context operations
+    // Synchronize with other context operations.
     //
 
+    Status = STATUS_SUCCESS;
     if (KeGetCurrentIrql() < APC_LEVEL) {
 
         //
@@ -79,9 +81,8 @@ Return Value:
         //
 
         IrqlChanged = TRUE;
-        KeRaiseIrql (APC_LEVEL, &OldIrql);
+        KeRaiseIrql(APC_LEVEL, &OldIrql);
     }
-    Status = STATUS_SUCCESS;
 
     //
     // Establish an exception handler and probe and capture the specified
@@ -110,8 +111,11 @@ Return Value:
         // trap frames.
         //
 
-        KeContextToKframes(TrapFrame, ExceptionFrame, ContextRecord,
-                           ContextRecord->ContextFlags, PreviousMode);
+        KeContextToKframes(TrapFrame,
+                           ExceptionFrame,
+                           ContextRecord,
+                           ContextRecord->ContextFlags,
+                           PreviousMode);
 
     //
     // If an exception occurs during the probe or copy of the context
@@ -126,6 +130,7 @@ Return Value:
     if (IrqlChanged) {
         KeLowerIrql (OldIrql);
     }
+
     return Status;
 }
 
@@ -202,8 +207,10 @@ Return Value:
             if (Length > EXCEPTION_MAXIMUM_PARAMETERS) {
                 return STATUS_INVALID_PARAMETER;
             }
+
             Length = (sizeof(EXCEPTION_RECORD) +
                      ((Length - EXCEPTION_MAXIMUM_PARAMETERS) * sizeof(ULONG)));
+
             ProbeForRead(ExceptionRecord, Length, sizeof(ULONG));
 
             //
@@ -232,8 +239,11 @@ Return Value:
     // trap frames.
     //
 
-    KeContextToKframes(TrapFrame, ExceptionFrame, ContextRecord,
-                       ContextRecord->ContextFlags, PreviousMode);
+    KeContextToKframes(TrapFrame,
+                       ExceptionFrame,
+                       ContextRecord,
+                       ContextRecord->ContextFlags,
+                       PreviousMode);
 
     //
     // Make sure the reserved bit is clear in the exception code and
@@ -244,9 +254,11 @@ Return Value:
     //
 
     ExceptionRecord->ExceptionCode &= 0xefffffff;
-    KiDispatchException(ExceptionRecord, ExceptionFrame, TrapFrame,
-                        PreviousMode, FirstChance);
-    return STATUS_SUCCESS;
+    KiDispatchException(ExceptionRecord,
+                        ExceptionFrame,
+                        TrapFrame,
+                        PreviousMode,
+                        FirstChance);
 
+    return STATUS_SUCCESS;
 }
-

@@ -345,7 +345,7 @@ Notes:
 
     if( !IndexTree.Save( TargetFrs ) ) {
 
-        DbgPrint( "Couldn't save an index.\n" );
+        DebugPrint( "Couldn't save an index.\n" );
         return FALSE;
     }
 
@@ -586,17 +586,17 @@ Return Value:
                                FAT_DIRENT_ATTR_SYSTEM |
                                FAT_DIRENT_ATTR_ARCHIVE;
 
-    DbgPtrAssert( Drive );
-    DbgPtrAssert( Message );
-    DbgPtrAssert( VolumeBitmap );
-    DbgPtrAssert( HpfsOnlyBitmap );
-    DbgPtrAssert( Casemap );
-    DbgPtrAssert( Mft );
-    DbgPtrAssert( DirectoryEntry );
-    DbgPtrAssert( ParentIndex );
-    DbgPtrAssert( IsCorrupt );
-    DbgPtrAssert( NameBuffer );
-    DbgPtrAssert( EaBuffer );
+    DebugPtrAssert( Drive );
+    DebugPtrAssert( Message );
+    DebugPtrAssert( VolumeBitmap );
+    DebugPtrAssert( HpfsOnlyBitmap );
+    DebugPtrAssert( Casemap );
+    DebugPtrAssert( Mft );
+    DebugPtrAssert( DirectoryEntry );
+    DebugPtrAssert( ParentIndex );
+    DebugPtrAssert( IsCorrupt );
+    DebugPtrAssert( NameBuffer );
+    DebugPtrAssert( EaBuffer );
 
     // Set up a FILE_NAME structure for the name.  This includes
     // converting the name to Unicode.  Note that the duplicated
@@ -716,14 +716,14 @@ Return Value:
 
     if( !Fnode.Initialize( Drive, DirectoryEntry->lbnFnode ) ) {
 
-        DbgPrintf( "CONVERT: can't initialize FNode\n" );
+        DebugPrintf( "CONVERT: can't initialize FNode\n" );
         return FALSE;
     }
 
     if( !Fnode.Read() || !Fnode.IsFnode() ) {
 
         *IsCorrupt = TRUE;
-        DbgPrintf( "CONVERT: Bad FNode at lbn 0x%x\n", DirectoryEntry->lbnFnode );
+        DebugPrintf( "CONVERT: Bad FNode at lbn 0x%x\n", DirectoryEntry->lbnFnode );
         return FALSE;
     }
 
@@ -745,7 +745,7 @@ Return Value:
 
         // Insufficient disk space or insufficient memory.
 
-        DbgPrintf( "CONVERT: ConvertDirectoryEntryToNtfs--can't create FRS.\n" );
+        DebugPrintf( "CONVERT: ConvertDirectoryEntryToNtfs--can't create FRS.\n" );
         return FALSE;
     }
 
@@ -774,7 +774,7 @@ Return Value:
                                    FileName,
                                    NewFrs.QuerySegmentReference() ) ) {
 
-        DbgPrintf( "CONVERT: Can't add entry to index\n" );
+        DebugPrintf( "CONVERT: Can't add entry to index\n" );
         return FALSE;
     }
 
@@ -788,7 +788,7 @@ Return Value:
                               MaximumDosNameLength,
                               ParentIndex ) ) {
 
-            DbgPrintf( "HPFS Convert: can't generate a DOS name.\n" );
+            DebugPrintf( "HPFS Convert: can't generate a DOS name.\n" );
             return FALSE;
         }
 
@@ -799,7 +799,7 @@ Return Value:
                                        NewFrs.QuerySegmentReference() ) ||
             !NewFrs.AddFileNameAttribute( ShortName ) ) {
 
-            DbgPrintf( "HPFS Convert: can't add DOS name to FRS.\n" );
+            DebugPrintf( "HPFS Convert: can't add DOS name to FRS.\n" );
             return FALSE;
         }
     }
@@ -861,7 +861,7 @@ Return Value:
                                EaBuffer,
                                EaBufferLength ) ) {
 
-            DbgPrintf( "Cannot convert EAs in fnode at lbn 0x%x.\n, DirectoryEntry->lbnFnode" );
+            DebugPrintf( "Cannot convert EAs in fnode at lbn 0x%x.\n, DirectoryEntry->lbnFnode" );
             return FALSE;
         }
 
@@ -952,17 +952,17 @@ Return Value:
     PDIRENTD CurrentEntry;
     ULONG CurrentOffset;
 
-    DbgPtrAssert( Drive );
-    DbgPtrAssert( Message );
-    DbgPtrAssert( VolumeBitmap );
-    DbgPtrAssert( HpfsOnlyBitmap );
-    DbgPtrAssert( Casemap );
-    DbgPtrAssert( Mft );
-    DbgPtrAssert( Dirblk );
-    DbgPtrAssert( NtfsIndex );
-    DbgPtrAssert( IsCorrupt );
-    DbgPtrAssert( NameBuffer );
-    DbgPtrAssert( EaBuffer );
+    DebugPtrAssert( Drive );
+    DebugPtrAssert( Message );
+    DebugPtrAssert( VolumeBitmap );
+    DebugPtrAssert( HpfsOnlyBitmap );
+    DebugPtrAssert( Casemap );
+    DebugPtrAssert( Mft );
+    DebugPtrAssert( Dirblk );
+    DebugPtrAssert( NtfsIndex );
+    DebugPtrAssert( IsCorrupt );
+    DebugPtrAssert( NameBuffer );
+    DebugPtrAssert( EaBuffer );
 
     // Initialize the child dirblk once for all.  Note that Convert
     // requires that the volume have no hotfixes, so I can pass in
@@ -970,7 +970,7 @@ Return Value:
 
     if( !ChildDirblk.Initialize( Drive, NULL, 0 ) ) {
 
-        DbgPrintf( "CONVERT: Can't initialize Dirblk.\n" );
+        DebugPrintf( "CONVERT: Can't initialize Dirblk.\n" );
         return FALSE;
     }
 
@@ -995,7 +995,7 @@ Return Value:
             // This entry overflows the DIRBLK or has zero length.
             // In either case, it's corrupt.
             //
-            DbgPrintf( "Dirblk at lbn 0x%x has no END entry.\n", Dirblk->QueryStartSector() );
+            DebugPrintf( "Dirblk at lbn 0x%x has no END entry.\n", Dirblk->QueryStartSector() );
             *IsCorrupt = TRUE;
             return FALSE;
         }
@@ -1014,7 +1014,7 @@ Return Value:
 
                 // The volume is corrupt.
 
-                DbgPrintf( "CONVERT: Child dirblk is not a dirblk.\n" );
+                DebugPrintf( "CONVERT: Child dirblk is not a dirblk.\n" );
                 *IsCorrupt = TRUE;
                 return FALSE;
             }

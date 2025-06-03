@@ -434,13 +434,13 @@ VOID demSystemSymbolOp(VOID)
 VOID demOutputString(VOID)
 {
     LPSTR   lpText;
-    BOOL    fPE;
+    UCHAR   fPE;
 
     if ( !IsDebuggee() ) {
         return;
     }
 
-    fPE = getMSW() & MSW_PE;
+    fPE = ISPESET;
 
     lpText = (LPSTR)Sim32GetVDMPointer(
                         ((ULONG)getDS() << 16) + (ULONG)getSI(),
@@ -452,13 +452,13 @@ VOID demOutputString(VOID)
 VOID demInputString(VOID)
 {
     LPSTR   lpText;
-    BOOL    fPE;
+    UCHAR   fPE;
 
     if ( !IsDebuggee() ) {
         return;
     }
 
-    fPE = getMSW() & MSW_PE;
+    fPE = ISPESET;
 
     lpText = (LPSTR)Sim32GetVDMPointer(
                         ((ULONG)getDS() << 16) + (ULONG)getDI(),
@@ -608,8 +608,9 @@ VOID demDiskReset (VOID)
 {
     extern WORD * pFDAccess;	    // defined in SoftPC.
 
-    nt_floppy_release_lock();
-    *(pFDAccess) = 0;
+    HostFloppyReset();
+    HostFdiskReset();
+    *pFDAccess = 0;
 
     return;
 }

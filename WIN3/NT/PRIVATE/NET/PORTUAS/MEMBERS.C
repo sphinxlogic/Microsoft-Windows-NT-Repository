@@ -96,7 +96,11 @@ main(
 
             for ( j = 0; j < count; j++ ) {
 
+#if defined(DBCS) // main()
+                NetpCopyWStrToStrDBCSN( name, groups[j].grpi0_name, sizeof(name));
+#else
                 NetpCopyWStrToStr( name, groups[j].grpi0_name );
+#endif // defined(DBCS)
                 printf( "Group - %ld - %s\n", gids[j], name );
             }
 

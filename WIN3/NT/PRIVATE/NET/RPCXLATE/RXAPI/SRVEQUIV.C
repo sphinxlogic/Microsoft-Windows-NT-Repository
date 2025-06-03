@@ -51,7 +51,7 @@ Revision History:
 #include <dlserver.h>           // Old info levels, MAX_ stuff, my prototype.
 #include <lmerr.h>              // NERR_ and ERROR_ equates.
 #include <lmserver.h>           // New info level structures.
-#include <netdebug.h>           // NetpDbgPrint(), FORMAT_ equates, etc.
+#include <netdebug.h>           // NetpKdPrint(()), FORMAT_ equates, etc.
 #include <netlib.h>             // NetpPointerPlusSomeBytes(), etc.
 #include <prefix.h>     // PREFIX_ equates.
 #include <rap.h>                // LPDESC, etc.
@@ -98,16 +98,15 @@ Return Value:
     // LPDESC FromDataDesc;                // Desc for data we've got.
     // LPBYTE ToStringArea;
 
-    NetpAssert(ToLevel != NULL);
     NetpAssert(FromNative == TRUE);
     UNREFERENCED_PARAMETER(FromNative);
     NetpAssert(ToNative == TRUE);
     UNREFERENCED_PARAMETER(ToNative);
 
     IF_DEBUG(SERVER) {
-        NetpDbgPrint( PREFIX_NETAPI
+        NetpKdPrint(( PREFIX_NETAPI
                 "RxGetServerInfoLevelEquivalent: starting, "
-                "FromLevel=" FORMAT_DWORD ".\n", FromLevel);
+                "FromLevel=" FORMAT_DWORD ".\n", FromLevel));
     }
 
     //
@@ -249,42 +248,43 @@ Return Value:
     }
 
     IF_DEBUG(SERVER) {
-        NetpDbgPrint( PREFIX_NETAPI
-                "RxGetServerInfoLevelEquivalent: returning:\n");
-        NetpDbgPrint("  ToLevel=" FORMAT_DWORD "\n", *ToLevel);
-
+        NetpKdPrint(( PREFIX_NETAPI
+                "RxGetServerInfoLevelEquivalent: returning:\n"));
+        if ( ToLevel != NULL ) {
+            NetpKdPrint(("  ToLevel=" FORMAT_DWORD "\n", *ToLevel));
+        }
         if (ToDataDesc16 != NULL) {
-            NetpDbgPrint("  ToDataDesc16=" FORMAT_LPDESC "\n", *ToDataDesc16);
+            NetpKdPrint(("  ToDataDesc16=" FORMAT_LPDESC "\n", *ToDataDesc16));
         }
         if (ToDataDesc32 != NULL) {
-            NetpDbgPrint("  ToDataDesc32=" FORMAT_LPDESC "\n", *ToDataDesc32);
+            NetpKdPrint(("  ToDataDesc32=" FORMAT_LPDESC "\n", *ToDataDesc32));
         }
         if (ToDataDescSmb != NULL) {
-            NetpDbgPrint("  ToDataDescSmb=" FORMAT_LPDESC "\n", *ToDataDescSmb);
+            NetpKdPrint(("  ToDataDescSmb=" FORMAT_LPDESC "\n", *ToDataDescSmb));
         }
         if (FromMaxSize != NULL) {
-            NetpDbgPrint("  FromMaxSize=" FORMAT_DWORD "\n", *FromMaxSize);
+            NetpKdPrint(("  FromMaxSize=" FORMAT_DWORD "\n", *FromMaxSize));
         }
         if (FromFixedSize != NULL) {
-            NetpDbgPrint("  FromFixedSize=" FORMAT_DWORD "\n", *FromFixedSize);
+            NetpKdPrint(("  FromFixedSize=" FORMAT_DWORD "\n", *FromFixedSize));
         }
         if (FromStringSize != NULL) {
-            NetpDbgPrint("  FromStringSize=" FORMAT_DWORD "\n", *FromStringSize);
+            NetpKdPrint(("  FromStringSize=" FORMAT_DWORD "\n", *FromStringSize));
         }
         if (ToMaxSize != NULL) {
-            NetpDbgPrint("  ToMaxSize=" FORMAT_DWORD "\n", *ToMaxSize);
+            NetpKdPrint(("  ToMaxSize=" FORMAT_DWORD "\n", *ToMaxSize));
         }
         if (ToFixedSize != NULL) {
-            NetpDbgPrint("  ToFixedSize=" FORMAT_DWORD "\n", *ToFixedSize);
+            NetpKdPrint(("  ToFixedSize=" FORMAT_DWORD "\n", *ToFixedSize));
         }
         if (ToStringSize != NULL) {
-            NetpDbgPrint("  ToStringSize=" FORMAT_DWORD "\n", *ToStringSize);
+            NetpKdPrint(("  ToStringSize=" FORMAT_DWORD "\n", *ToStringSize));
         }
         if (IncompleteOutput != NULL) {
             if (*IncompleteOutput) {
-                NetpDbgPrint("  IncompleteOutput=TRUE.\n" );
+                NetpKdPrint(("  IncompleteOutput=TRUE.\n" ));
             } else {
-                NetpDbgPrint("  IncompleteOutput=FALSE.\n" );
+                NetpKdPrint(("  IncompleteOutput=FALSE.\n" ));
             }
         }
     }

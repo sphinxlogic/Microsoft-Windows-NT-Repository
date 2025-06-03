@@ -100,6 +100,7 @@ Return Value:
         }
 
         Context->drive_type = ioreq.x.ioDriveCfgData.device_descriptor.drive_class;
+        Context->DriveCfg = ioreq.x.ioDriveCfgData;
         Context->DeviceConfigured = TRUE;
     }
 
@@ -488,8 +489,8 @@ Return Value:
 
     if (StartPosition) {
 
-        CheckedDump(QIC117SHOWTD,(
-            "ReadRestore: SeekBlock(%d)\n",
+        CheckedDump(QIC117SHOWAPI,(
+            "ReadRestore: StartBlock(%d)\n",
             StartPosition));
 
         // BOBRI,  this is the logical block from one line

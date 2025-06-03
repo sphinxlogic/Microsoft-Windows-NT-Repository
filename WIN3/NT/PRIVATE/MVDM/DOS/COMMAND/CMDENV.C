@@ -19,137 +19,148 @@
 
 #define VDM_ENV_INC_SIZE    512
 
+CHAR windir[] = "windir";
+extern BOOL fSeparateWow;
+
 // Transform the given DOS environment to 32bits environment.
 // WARNING!! The environment block we passed to 32bits must be in sort order.
 //	     Therefore, we call RtlSetEnvironmentVariable to do the work
 // The result string must be in ANSI character set.
-PCHAR	cmdXformEnvironment(PCHAR pEnv16)
+BOOL	cmdXformEnvironment(PCHAR pEnv16, PANSI_STRING Env_A)
 {
-    CHAR	*lpszzEnv32Old, *lpchSepOp;
-    PWCHAR	lpszzEnv32New, pwch;
-    UNICODE_STRING	us;
-    STRING		as;
-    NTSTATUS	Status;
-    BOOL	fFoundComSpec;
-    DWORD	cchString;
-    CHAR	*lpAnsiBuffer, *lpAnsiBufferSave;
-    DWORD	cchAnsiBuffer;
-    CHAR	chDrive, achEnvDrive[] = "=?:";
+    UNICODE_STRING  Name_U, Value_U, Temp_U;
+    STRING	    String;
+    PWCHAR	    pwch, NewEnv, CurEnv, CurEnvCopy, pTmp;
+    NTSTATUS	    Status;
+    BOOL	    fFoundComSpec;
+    USHORT	    NewEnvLen;
 
     if (pEnv16 == NULL)
-	return NULL;
+	return FALSE;
 
     // flag true if we alread found comspec envirnment
     // !!!! Do we allow two or more comspec in environment????????
     fFoundComSpec = FALSE;
 
-    lpszzEnv32Old = GetEnvironmentStrings();
-    if (lpszzEnv32Old == NULL)
-	return NULL;
+    CurEnv = GetEnvironmentStringsW();
+    pwch = CurEnv;
+    // figure how long the environment strings is
+    while (*pwch != UNICODE_NULL || *(pwch + 1) != UNICODE_NULL)
+	pwch++;
 
-    lpszzEnv32New = NULL;
-    cchAnsiBuffer = 0;
-    lpAnsiBufferSave = NULL;
+    // plus 2  to include the last two NULL chars
+    CurEnvCopy = malloc((pwch - CurEnv + 2) * sizeof(WCHAR));
+    if (!CurEnvCopy)
+	return FALSE;
 
-    // create a new environment block
-    // we have to keep the current environment intact before we
-    // completely set up a new one
-    Status = RtlCreateEnvironment(FALSE, (PVOID *)&lpszzEnv32New);
-    if (!NT_SUCCESS(Status))
-	return NULL;
-    // now pick up environment we want from old environment
+    // make a copy of current process environment so we can walk through
+    // it. The environment can be changed by any threads in the process
+    // thus is not safe to walk through without a local copy
+    RtlMoveMemory(CurEnvCopy, CurEnv, (pwch - CurEnv + 2) * sizeof(WCHAR));
+
+    // create a new environment block. We don't want to change
+    // any currnt process environment variables, instead, we are
+    // preparing a new one for the new process.
+    Status = RtlCreateEnvironment(FALSE, (PVOID *)&NewEnv);
+    if (!NT_SUCCESS(Status)) {
+	free(CurEnvCopy);
+	return FALSE;
+    }
+    NewEnvLen = 0;
+    // now pick up environment we want from the current environment
     // and set it to the new environment block
     // the variables we want:
     // (1). comspec
     // (2). current directories settings
-    while (*lpszzEnv32Old != '\0') {
-	if ((*lpszzEnv32Old == '=' && lpszzEnv32Old[2] == ':' &&
-	     (chDrive = toupper(lpszzEnv32Old[1])) >= 'A' && chDrive <= 'Z')
-	   ) {
-	    achEnvDrive[1] = chDrive;
-	    Status = MyRtlSetEnvironmentVariable( &lpszzEnv32New,
-						  achEnvDrive,
-						  lpszzEnv32Old + 4
-						  );
 
-	     if (!NT_SUCCESS(Status)) {
-		RtlDestroyEnvironment(lpszzEnv32New);
-		return NULL;
-	     }
-	}
-	else if	(!fFoundComSpec &&
-		 (fFoundComSpec = (strnicmp(lpszzEnv32Old, comspec, 8) == 0))
-		) {
-		*(lpszzEnv32Old + 8 - 1) = '\0';
-		Status = MyRtlSetEnvironmentVariable( &lpszzEnv32New,
-						      lpszzEnv32Old,
-						      lpszzEnv32Old + 8
-						    );
+    pwch = CurEnvCopy;
 
-		*(lpszzEnv32Old + 8 - 1) = '=';
+    while (*pwch != UNICODE_NULL) {
+	if (*pwch == L'=') {
+	    // variable names started with L'=' are current directroy settings
+	    pTmp = wcschr(pwch + 1, L'=');
+	    if (pTmp) {
+		Name_U.Buffer = pwch;
+		Name_U.Length = (pTmp - pwch) * sizeof(WCHAR);
+		RtlInitUnicodeString(&Value_U, pTmp + 1);
+		Status = RtlSetEnvironmentVariable(&NewEnv, &Name_U, &Value_U);
 		if (!NT_SUCCESS(Status)) {
-		    RtlDestroyEnvironment(lpszzEnv32New);
-		    return NULL;
+		    RtlDestroyEnvironment(NewEnv);
+		    free(CurEnvCopy);
+		    return FALSE;
 		}
-	}
-	lpszzEnv32Old += strlen(lpszzEnv32Old) + 1;
-    }
-    // enviroment variables from 32bits are all set,
-    // now deal with 16bits settiings passed from dos.
-    // we have to convert them	from OEM to ANSI
-    if (lpszzEnv32New != NULL) {
-	fFoundComSpec = FALSE;
-	while (*pEnv16 != '\0') {
-	    cchString = strlen(pEnv16) + 1;
-	    // skip 16bits comspec because we don't need it
-	    if (cchString <= MAX_PATH &&
-		(fFoundComSpec || !(fFoundComSpec = strnicmp(pEnv16, comspec, 8) == 0))
-	       ){
-
-		if (cchAnsiBuffer < cchString) {
-		    lpAnsiBuffer = (CHAR *) realloc(lpAnsiBufferSave, cchString);
-		    // if not enough memory, free the old one and destroy the new environment
-		    if (lpAnsiBuffer == NULL){
-			if (lpAnsiBufferSave != NULL)
-			    free(lpAnsiBufferSave);
-			RtlDestroyEnvironment(lpszzEnv32New);
-			return NULL;
-		    }
-		    cchAnsiBuffer = cchString;
-		    lpAnsiBufferSave = lpAnsiBuffer;
-		}
-		OemToAnsiBuff(pEnv16, lpAnsiBuffer, cchString);
-		lpchSepOp = strrchr(lpAnsiBuffer, '=');
-		if (lpchSepOp != NULL) {
-		    *lpchSepOp = '\0';
-		    Status = MyRtlSetEnvironmentVariable( &lpszzEnv32New,
-							  lpAnsiBuffer,
-							  lpchSepOp + 1
-							);
-		    *lpchSepOp = '=';
-		    if (!NT_SUCCESS(Status)) {
-			RtlDestroyEnvironment(lpszzEnv32New);
-			return NULL;
-		    }
-		}
+		// <name> + <'='> + <value> + <'\0'>
+		NewEnvLen += Name_U.Length + Value_U.Length + 2 * sizeof(WCHAR);
 	    }
-	    pEnv16 += cchString;
 	}
+	else if	(!fFoundComSpec) {
+		fFoundComSpec = !_wcsnicmp(pwch, L"COMSPEC=", 8);
+		if (fFoundComSpec) {
+		    Name_U.Buffer = pwch;
+		    Name_U.Length = 7 * sizeof(WCHAR);
+		    RtlInitUnicodeString(&Value_U, pwch + 8);
+		    Status = RtlSetEnvironmentVariable(&NewEnv,
+						       &Name_U,
+						       &Value_U
+						       );
+		    if (!NT_SUCCESS(Status)) {
+			RtlDestroyEnvironment(NewEnv);
+			free(CurEnvCopy);
+			return FALSE;
+		    }
+		    NewEnvLen += Name_U.Length + Value_U.Length + 2 * sizeof(WCHAR);
+		}
+	}
+	pwch += wcslen(pwch) + 1;
     }
-    for (us.Length=0,pwch = lpszzEnv32New ; *pwch || *(pwch+1) ; pwch++)
-	us.Length++;
-    us.Length += 2;				/* count two nulls */
-    us.Length *= 2;				/* count of bytes */
-    us.MaximumLength = us.Length;
-    us.Buffer = lpszzEnv32New;
-    Status = RtlUnicodeStringToAnsiString(&as, &us, TRUE);
-    RtlDestroyEnvironment(lpszzEnv32New);	/* don't need it anymore */
-    if (!NT_SUCCESS(Status)) {
-	RtlFreeHeap(RtlProcessHeap(), 0, as.Buffer);
-	return NULL;
+    // we are done with current process environment.
+    free(CurEnvCopy);
+
+    // now deal with 16bits settings passed from dos.
+    // characters in 16bits environment are in OEM character set
+
+    // 16bit comspec environment variable
+    fFoundComSpec = FALSE;
+    while (*pEnv16 != '\0') {
+	RtlInitString(&String, pEnv16);
+	// discard 16bits comspec
+	if (!fFoundComSpec) {
+	    fFoundComSpec = !_strnicmp(pEnv16, comspec, 8);
+	    if (fFoundComSpec) {
+		// ignore 16bits comspec environment
+		pEnv16 += String.Length + 1;
+		continue;
+	    }
+	}
+	Status = RtlOemStringToUnicodeString(&Temp_U, &String, TRUE);
+	if (!NT_SUCCESS(Status)) {
+	    RtlDestroyEnvironment(NewEnv);
+	    return FALSE;
+	}
+	pwch = wcschr(Temp_U.Buffer, L'=');
+	if (pwch) {
+	    Name_U.Buffer = Temp_U.Buffer;
+	    Name_U.Length = (pwch - Temp_U.Buffer) * sizeof(WCHAR);
+	    RtlInitUnicodeString(&Value_U, pwch + 1);
+	    Status = RtlSetEnvironmentVariable( &NewEnv, &Name_U, &Value_U);
+	    RtlFreeUnicodeString(&Temp_U);
+	    if (!NT_SUCCESS(Status)) {
+		RtlDestroyEnvironment(NewEnv);
+		return FALSE;
+	    }
+	    NewEnvLen += Name_U.Length + Value_U.Length + 2 * sizeof(WCHAR);
+	}
+	pEnv16 += String.Length + 1;
     }
-    return as.Buffer;
+    // count the last terminated null char
+    Temp_U.Length = NewEnvLen + sizeof(WCHAR);
+    Temp_U.Buffer = NewEnv;
+    Status = RtlUnicodeStringToAnsiString(Env_A, &Temp_U, TRUE);
+    RtlDestroyEnvironment(NewEnv);	/* don't need it anymore */
+    return(NT_SUCCESS(Status));
 }
+
+
 
 
 /* get ntvdm initial environment. This initial environment is necessary
@@ -169,11 +180,13 @@ VOID cmdGetInitEnvironment(VOID)
 {
     CHAR *lpszzEnvBuffer, *lpszEnv;
     WORD cchEnvBuffer;
-    CHAR *lpszzEnvStrings;
+    CHAR *lpszzEnvStrings, * lpszz;
     WORD cchString;
     WORD cchRemain;
     WORD cchIncrement = MAX_PATH;
     BOOL fFoundComSpec = FALSE;
+    BOOL fFoundWindir = FALSE;
+    BOOL fVarIsWindir = FALSE;
 
     // if not during the initialization return nothing
     if (!IsFirstCall) {
@@ -204,6 +217,8 @@ VOID cmdGetInitEnvironment(VOID)
 	    cchVDMEnv32 += cchString;
 	    lpszEnv += cchString;
 	}
+	lpszz = lpszzEnvStrings;
+
 	if (lpszzVDMEnv32 != NULL)
 	    free(lpszzVDMEnv32);
 	lpszzVDMEnv32 = malloc(++cchVDMEnv32);
@@ -215,15 +230,30 @@ VOID cmdGetInitEnvironment(VOID)
 
         RtlMoveMemory(lpszzVDMEnv32, lpszzEnvStrings, cchVDMEnv32);
 
-	while (*lpszzEnvStrings != '\0') {
-	    cchString = strlen(lpszzEnvStrings) + 1;
-	    if (*lpszzEnvStrings != '=') {
+	while (*lpszz != '\0') {
+	    cchString = strlen(lpszz) + 1;
+	    if (*lpszz != '=') {
 
-		if (!fFoundComSpec && !strnicmp(lpszzEnvStrings, comspec, 8)){
+		if (!fFoundComSpec && !_strnicmp(lpszz, comspec, 8)){
 		    fFoundComSpec = TRUE;
-		    lpszzEnvStrings += cchString;
+		    lpszz += cchString;
 		    continue;
 		}
+
+		if (!fFoundWindir && !_strnicmp(lpszz, windir, 6)) {
+		    fFoundWindir = TRUE;
+		    if (fSeparateWow) {
+			// starting a separate WOW box - flag this one so its
+			// name won't be converted to uppercase later.
+			fVarIsWindir = TRUE;
+		    } else {
+			// starting a DOS app, so remove "windir" to make sure
+			// they don't think they are running under Windows.
+			lpszz += cchString;
+			continue;
+		    }
+		}
+
                 if (cchRemain < cchString) {
                     if (cchIncrement < cchString)
                         cchIncrement = cchString;
@@ -244,19 +274,23 @@ VOID cmdGetInitEnvironment(VOID)
                     cchRemain += cchIncrement;
 		}
 		// the environment strings from base is in ANSI and dos needs OEM
-		AnsiToOemBuff(lpszzEnvStrings, lpszzEnvBuffer, cchString);
+		AnsiToOemBuff(lpszz, lpszzEnvBuffer, cchString);
 		// convert the name to upper case -- ONLY THE NAME, NOT VALUE.
-		if ((lpszEnv = strchr(lpszzEnvBuffer, '=')) != NULL){
+		if (!fVarIsWindir && (lpszEnv = strchr(lpszzEnvBuffer, '=')) != NULL){
 		    *lpszEnv = '\0';
-		    strupr(lpszzEnvBuffer);
+		    _strupr(lpszzEnvBuffer);
 		    *lpszEnv = '=';
+		} else {
+		    fVarIsWindir = FALSE;
 		}
 		cchRemain -= cchString;
 		cchInitEnvironment += cchString ;
 		lpszzEnvBuffer += cchString;
 	    }
-	    lpszzEnvStrings += cchString;
+	    lpszz += cchString;
 	}
+	FreeEnvironmentStrings(lpszzEnvStrings);
+
 	lpszzEnvBuffer = (CHAR *) realloc(lpszzInitEnvironment,
 					  cchInitEnvironment + 1
 					  );
@@ -297,6 +331,7 @@ VOID cmdGetInitEnvironment(VOID)
 }
 
 
+
 /** create a DOS environment for DOS.
     This is to get 32bits environment(comes with the dos executanle)
     and merge it with the environment settings in autoexec.nt so that
@@ -319,6 +354,8 @@ PVDMENVBLK  pVDMEnvBlk
 {
 PCHAR	p1, p2;
 BOOL	fFoundComSpec;
+BOOL	fFoundWindir;
+BOOL	fVarIsWindir;
 DWORD	Length;
 PCHAR	lpszzVDMEnv, lpszzEnv;
 CHAR	achBuffer[MAX_PATH + 1];
@@ -344,42 +381,58 @@ CHAR	achBuffer[MAX_PATH + 1];
 	// (1). variable name begin with '='
 	// (2). compsec
 	// (3). string without a '=' -- malformatted environment variable
+	// (4). windir, so DOS apps don't think they're running under Windows
 	// Note that strings pointed by lpszzVDMEnv32 are in ANSI character set
 
 
 	fFoundComSpec = FALSE;
+	fFoundWindir = FALSE;
+	fVarIsWindir = FALSE;
 	lpszzEnv = lpszzVDMEnv32;
 
 	while (*lpszzEnv) {
 	    Length = strlen(lpszzEnv) + 1;
 	    if (*lpszzEnv != '=' &&
 		(p1 = strchr(lpszzEnv, '=')) != NULL &&
-		(fFoundComSpec || !(fFoundComSpec = strnicmp(lpszzEnv,
+		(fFoundComSpec || !(fFoundComSpec = _strnicmp(lpszzEnv,
 							     comspec,
 							     8
-							    ) == 0))){
-		if (Length >= pVDMEnvBlk->cchRemain) {
-		    lpszzVDMEnv = realloc(pVDMEnvBlk->lpszzEnv,
-					  pVDMEnvBlk->cchEnv +
-					  pVDMEnvBlk->cchRemain +
-					  VDM_ENV_INC_SIZE
-					 );
-		    if (lpszzVDMEnv == NULL){
-			free(pVDMEnvBlk->lpszzEnv);
-			return FALSE;
-		    }
-		    pVDMEnvBlk->cchRemain += VDM_ENV_INC_SIZE;
-		    pVDMEnvBlk->lpszzEnv = lpszzVDMEnv;
-		    lpszzVDMEnv += pVDMEnvBlk->cchEnv;
+							    ) == 0)) ){
+		if (!fFoundWindir) {
+		    fFoundWindir = (_strnicmp(lpszzEnv,
+							    windir,
+							    6) == 0);
+		    fVarIsWindir = fFoundWindir;
 		}
-		AnsiToOemBuff(lpszzEnv, lpszzVDMEnv, Length);
-		*(lpszzVDMEnv + (DWORD)(p1 - lpszzEnv)) = '\0';
-		strupr(lpszzVDMEnv);
-		*(lpszzVDMEnv + (DWORD)(p1 - lpszzEnv)) = '=';
-		pVDMEnvBlk->cchEnv += Length;
-		pVDMEnvBlk->cchRemain -= Length;
-		lpszzVDMEnv += Length;
-
+		if (!fVarIsWindir || fSeparateWow) {
+		    if (Length >= pVDMEnvBlk->cchRemain) {
+			lpszzVDMEnv = realloc(pVDMEnvBlk->lpszzEnv,
+					      pVDMEnvBlk->cchEnv +
+					      pVDMEnvBlk->cchRemain +
+					      VDM_ENV_INC_SIZE
+					     );
+			if (lpszzVDMEnv == NULL){
+			    free(pVDMEnvBlk->lpszzEnv);
+			    return FALSE;
+			}
+			pVDMEnvBlk->cchRemain += VDM_ENV_INC_SIZE;
+			pVDMEnvBlk->lpszzEnv = lpszzVDMEnv;
+			lpszzVDMEnv += pVDMEnvBlk->cchEnv;
+		    }
+		    AnsiToOemBuff(lpszzEnv, lpszzVDMEnv, Length);
+		    if (!fVarIsWindir) {
+			*(lpszzVDMEnv + (DWORD)(p1 - lpszzEnv)) = '\0';
+			_strupr(lpszzVDMEnv);
+			*(lpszzVDMEnv + (DWORD)(p1 - lpszzEnv)) = '=';
+		    } else {
+			fVarIsWindir = FALSE;
+		    }
+		    pVDMEnvBlk->cchEnv += Length;
+		    pVDMEnvBlk->cchRemain -= Length;
+		    lpszzVDMEnv += Length;
+                }
+                else
+                    fVarIsWindir = FALSE;
 	    }
 	    lpszzEnv += Length;
 	}
@@ -435,6 +488,7 @@ CHAR	achBuffer[MAX_PATH + 1];
     return TRUE;
 }
 
+
 BOOL  cmdSetEnvironmentVariable(
 PVDMENVBLK  pVDMEnvBlk,
 PCHAR	lpszName,
@@ -457,7 +511,7 @@ PCHAR	lpszValue
     Length = strlen(lpszName);
     while (*p && ((p1 = strchr(p, '=')) == NULL ||
 		  (DWORD)(p1 - p) != Length ||
-		  strnicmp(p, lpszName, Length)))
+		  _strnicmp(p, lpszName, Length)))
 	p += strlen(p) + 1;
 
     if (*p) {
@@ -513,7 +567,7 @@ PCHAR	lpszValue
 	}
 	p = pVDMEnvBlk->lpszzEnv + pVDMEnvBlk->cchEnv - 1;
 	RtlCopyMemory(p, lpszName, Length + 1);
-	strupr(p);
+	_strupr(p);
 	p += Length;
 	*p++ = '=';
 	RtlCopyMemory(p, lpszValue, cchValue + 1);
@@ -618,10 +672,17 @@ DWORD	cchValue
     RequiredLength = 0;
     Length = strlen(lpszName);
 
+    // if the name is "windir", get its value from ntvdm process's environment
+    // for DOS because we took it out of the environment block the application
+    // will see.
+    if (Length == 6 && !fSeparateWow && !_strnicmp(lpszName, windir, 6)) {
+	return(GetEnvironmentVariableOem(lpszName, lpszValue, cchValue));
+    }
+
     if (p = pVDMEnvBlk->lpszzEnv) {
        while (*p && ((p1 = strchr(p, '=')) == NULL ||
 		     (DWORD)(p1 - p) != Length ||
-		     strnicmp(lpszName, p, Length)))
+		     _strnicmp(lpszName, p, Length)))
 	    p += strlen(p) + 1;
        if (*p) {
 	    RequiredLength = strlen(p1 + 1);
@@ -632,60 +693,4 @@ DWORD	cchValue
        }
     }
     return RequiredLength;
-}
-
-
-// RtlSetEnvironmentVariable has a problem of resetting process
-// environment even we don't want it to do it.
-// For this reason, we save our current environment and restore it
-// if RtlSetEnvironment happens to reset it.
-
-NTSTATUS MyRtlSetEnvironmentVariable(
-    PWCHAR  *lpszzEnv,
-    PCHAR   lpszName,
-    PCHAR   lpszValue
-)
-{
-
-    NTSTATUS	Status;
-    PWCHAR	Environment, ProcessEnvironment;
-    STRING	NameString, ValueString;
-    UNICODE_STRING	UnicodeName, UnicodeValue;
-
-    // get current process environment
-    ProcessEnvironment = GetEnvironmentStringsW();
-
-    RtlInitString(&NameString, lpszName);
-    RtlInitString(&ValueString, lpszValue);
-    Status = RtlAnsiStringToUnicodeString(&UnicodeName, &NameString, TRUE);
-    if (!NT_SUCCESS(Status)) {
-	return Status;
-    }
-    Status = RtlAnsiStringToUnicodeString(&UnicodeValue, &ValueString, TRUE);
-    if (!NT_SUCCESS(Status)) {
-	RtlFreeHeap(RtlProcessHeap(), 0, UnicodeName.Buffer);
-	return Status;
-    }
-    Status = RtlSetEnvironmentVariable((PVOID*)lpszzEnv,
-				       &UnicodeName,
-				       &UnicodeValue
-				      );
-
-    RtlFreeHeap(RtlProcessHeap(), 0, UnicodeValue.Buffer);
-    RtlFreeHeap(RtlProcessHeap(), 0, UnicodeName.Buffer);
-
-    // get the process environment. If it is the same as process environment
-    // then nothing has been changed, otherwise, restore the
-    // process environment
-    Environment = GetEnvironmentStringsW();
-    if (Environment != ProcessEnvironment) {
-	// delete the old one and get the new one
-	RtlDestroyEnvironment((PVOID)*lpszzEnv);
-	// restore process environment without destroing the replaced one(
-	// the one we want).
-	RtlSetCurrentEnvironment((PVOID)ProcessEnvironment,
-				 (PVOID *)lpszzEnv);
-    }
-    return (Status);
-
 }

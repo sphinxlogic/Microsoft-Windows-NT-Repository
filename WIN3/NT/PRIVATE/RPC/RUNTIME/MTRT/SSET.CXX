@@ -10,10 +10,8 @@ History :
 
 -------------------------------------------------------------------- */
 
-#include <sysinc.h>
-#include <rpc.h>
+#include <precomp.hxx>
 #include <sset.hxx>
-#include <util.hxx>
 
 #ifdef NTENV
 #include <memory.h>

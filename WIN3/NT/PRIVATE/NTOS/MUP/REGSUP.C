@@ -19,7 +19,7 @@ Revision History:
 --*/
 
 #include "mup.h"
-//#include "wcstr.h"
+//#include "stdlib.h"
 //#include "zwapi.h"
 
 //

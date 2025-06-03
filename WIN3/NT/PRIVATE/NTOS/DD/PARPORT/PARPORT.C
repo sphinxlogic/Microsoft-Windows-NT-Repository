@@ -94,6 +94,13 @@ Revision History :
 #include "parport.h"
 #include "parlog.h"
 
+#ifdef POOL_TAGGING
+#ifdef ExAllocatePool
+#undef ExAllocatePool
+#endif
+#define ExAllocatePool(a,b) ExAllocatePoolWithTag(a,b,'PraP')
+#endif
+
 //
 // This is the actual definition of ParDebugLevel.
 // Note that it is only defined if this is a "debug"
@@ -262,6 +269,12 @@ PptQueryNumWaiters(
     IN  PVOID   Extension
     );
 
+BOOLEAN
+PptIsNecR98Machine(
+    void
+    );
+
+
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(INIT,DriverEntry)
 #pragma alloc_text(INIT,PptGetConfigInfo)
@@ -271,6 +284,14 @@ PptQueryNumWaiters(
 #pragma alloc_text(INIT,PptGetMappedAddress)
 #pragma alloc_text(INIT,PptPutInConfigList)
 #endif
+
+//
+// Keep track of GET and RELEASE port info.
+//
+ULONG PortInfoReferenceCount = 0;
+PFAST_MUTEX PortInfoMutex = NULL;
+
+
 
 NTSTATUS
 DriverEntry(
@@ -332,6 +353,17 @@ Return Value:
             PptDispatchDeviceControl;
     DriverObject->MajorFunction[IRP_MJ_CLEANUP] = PptDispatchCleanup;
     DriverObject->DriverUnload = PptUnload;
+
+    //
+    // Let this driver be paged until someone requests PORT_INFO.
+    //
+    PortInfoMutex = ExAllocatePool(NonPagedPool, sizeof(FAST_MUTEX));
+    if (!PortInfoMutex) {
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+    ExInitializeFastMutex(PortInfoMutex);
+
+    MmPageEntireDriver(DriverEntry);
 
     return STATUS_SUCCESS;
 }
@@ -487,11 +519,11 @@ Return Value:
     b.LowPart = B.LowPart;
     b.HighPart = B.HighPart;
 
-    if (RtlLargeIntegerEqualTo(a, b)) {
+    if (a.QuadPart == b.QuadPart) {
         return AddressesAreEqual;
     }
 
-    if (RtlLargeIntegerGreaterThan(a, b)) {
+    if (a.QuadPart > b.QuadPart) {
         higher = a;
         lower = b;
         lowerSpan = SpanOfB;
@@ -501,10 +533,7 @@ Return Value:
         lowerSpan = SpanOfA;
     }
 
-    if (RtlLargeIntegerGreaterThanOrEqualTo(
-            RtlLargeIntegerSubtract(higher, lower),
-            RtlConvertUlongToLargeInteger(lowerSpan))) {
-
+    if (higher.QuadPart - lower.QuadPart >= lowerSpan) {
         return AddressesAreDisjoint;
     }
 
@@ -729,12 +758,13 @@ Return Value:
             controller->Controller = partial->u.Port.Start;
             controller->AddressSpace = partial->Flags;
 
-            if (controller->SpanOfController > 512) {
+            if((controller->SpanOfController == 0x1000) &&
+               (PptIsNecR98Machine()))  {
 
-                // This number is WAY to big.  This happens on the
-                // MIPS these days.  Default to 3 registers.
-
-                controller->SpanOfController = 3;
+                ParDump(0, ("parport!PptConfigCallBack - "
+                            "found R98 machine with firmware bug. " 
+                            "Truncating SpanOfController to 8\n"));
+                controller->SpanOfController = 8;
             }
 
         } else if (partial->Type == CmResourceTypeInterrupt) {
@@ -1217,10 +1247,10 @@ Notes:
     extension->PortInfo.TryAllocatePort = PptTryAllocatePort;
     extension->PortInfo.QueryNumWaiters = PptQueryNumWaiters;
     extension->PortInfo.Context = extension;
+
     //
     // Save the configuration information about the interrupt.
     //
-
     extension->AddressSpace = ConfigData->AddressSpace;
     extension->InterfaceType = ConfigData->InterfaceType;
     extension->BusNumber = ConfigData->BusNumber;
@@ -1229,14 +1259,11 @@ Notes:
     extension->InterruptAffinity = ConfigData->InterruptAffinity;
     extension->InterruptMode = ConfigData->InterruptMode;
 
-
     //
     // Start off with an empty list of interrupt service routines.
     // Also, start off without the interrupt connected.
     //
     InitializeListHead(&extension->IsrList);
-    InitializeListHead(&extension->DeferredPortCheckList);
-    KeInitializeSpinLock(&extension->DeferredPortCheckListSpinLock);
     extension->InterruptObject = NULL;
     extension->InterruptRefCount = 0;
 
@@ -1354,8 +1381,12 @@ Return Value:
     PHYSICAL_ADDRESS    cardAddress;
     PVOID               address;
 
-    HalTranslateBusAddress(BusType, BusNumber, IoAddress, &AddressSpace,
-                           &cardAddress);
+    if (!HalTranslateBusAddress(BusType, BusNumber, IoAddress, &AddressSpace,
+                                &cardAddress)) {
+
+        AddressSpace = 1;
+        cardAddress.QuadPart = 0;
+    }
 
     //
     // Map the device base address into the virtual address space
@@ -1482,7 +1513,7 @@ Return Value:
         partial++;
         resourceList->List[0].PartialResourceList.Count += 1;
         partial->Type = CmResourceTypeInterrupt;
-        partial->ShareDisposition = CmResourceShareDeviceExclusive;
+        partial->ShareDisposition = CmResourceShareShared;
         if (Extension->InterruptMode == Latched) {
             partial->Flags = CM_RESOURCE_INTERRUPT_LATCHED;
         } else {
@@ -1597,7 +1628,7 @@ Return Value:
         status = IoConnectInterrupt(&Extension->InterruptObject,
                                     PptInterruptService, Extension, NULL,
                                     interruptVector, irql, irql,
-                                    Extension->InterruptMode, FALSE, affinity,
+                                    Extension->InterruptMode, TRUE, affinity,
                                     FALSE);
     }
 
@@ -1843,7 +1874,7 @@ Return Value:
 
         listEntry = CONTAINING_RECORD(current, ISR_LIST_ENTRY, ListEntry);
         if (listEntry->ServiceRoutine == ServiceRoutine &&
-            listEntry->Context == ServiceContext) {
+            listEntry->ServiceContext == ServiceContext) {
 
             RemoveEntryList(current);
             return TRUE;
@@ -2025,7 +2056,7 @@ Routine Description:
     This routine services the interrupt for the parallel port.
     This routine will call out to all of the interrupt routines
     that connected with this device via
-    IOCTL_INTERNAL_PARALLEL_CONNECT_INTERRUT in order until
+    IOCTL_INTERNAL_PARALLEL_CONNECT_INTERRUPT in order until
     one of them returns TRUE.
 
 Arguments:
@@ -2052,7 +2083,7 @@ Return Value:
          current = current->Flink) {
 
         isrListEntry = CONTAINING_RECORD(current, ISR_LIST_ENTRY, ListEntry);
-        if (isrListEntry->ServiceRoutine(Interrupt, isrListEntry->Context)) {
+        if (isrListEntry->ServiceRoutine(Interrupt, isrListEntry->ServiceContext)) {
             return(TRUE);
         }
     }
@@ -2103,6 +2134,57 @@ Return Value:
     return(b);
 }
 
+BOOLEAN
+PptTraversePortCheckList(
+    IN  PVOID   Extension
+    )
+
+/*++
+
+Routine Description:
+
+    This routine traverses the deferred port check routines.  This
+    call must be synchronized at interrupt level so that real
+    interrupts are blocked until these routines are completed.
+
+Arguments:
+
+    Extension   - Supplies the device extension.
+
+Return Value:
+
+    FALSE   - The port is in use so no action taken by this routine.
+    TRUE    - All of the deferred interrupt routines were called.
+
+--*/
+
+{
+    PDEVICE_EXTENSION   extension = Extension;
+    PLIST_ENTRY         current;
+    PISR_LIST_ENTRY     checkEntry;
+
+    // First check to make sure that the port is still free.
+
+    if (extension->WorkQueueCount >= 0) {
+        return FALSE;
+    }
+
+    for (current = extension->IsrList.Flink;
+         current != &extension->IsrList;
+         current = current->Flink) {
+        
+        checkEntry = CONTAINING_RECORD(current,
+                                       ISR_LIST_ENTRY,
+                                       ListEntry);
+
+        if (checkEntry->DeferredPortCheckRoutine) {
+            checkEntry->DeferredPortCheckRoutine(checkEntry->CheckContext);
+        }
+    }
+
+    return TRUE;
+}
+
 VOID
 PptFreePort(
     IN  PVOID   Extension
@@ -2127,15 +2209,12 @@ Return Value:
 {
     PDEVICE_EXTENSION               extension = Extension;
     SYNCHRONIZED_COUNT_CONTEXT      syncContext;
-    KIRQL                           cancelIrql, oldIrql;
-    PLIST_ENTRY                     head, current;
+    KIRQL                           cancelIrql;
+    PLIST_ENTRY                     head;
     PIRP                            irp;
-    PDEFERRED_PORT_CHECK_LIST_ENTRY checkEntry;
-    BOOLEAN                         callPortChecks = TRUE;
+    ULONG                           interruptRefCount;
 
     syncContext.Count = &extension->WorkQueueCount;
-
-START:
 
     IoAcquireCancelSpinLock(&cancelIrql);
 
@@ -2157,33 +2236,12 @@ START:
         IoCompleteRequest(irp, IO_PARALLEL_INCREMENT);
 
     } else {
+        interruptRefCount = extension->InterruptRefCount;
         IoReleaseCancelSpinLock(cancelIrql);
-
-        if (callPortChecks) {
-            KeAcquireSpinLock(&extension->DeferredPortCheckListSpinLock,
-                              &oldIrql);
-            if (IsListEmpty(&extension->DeferredPortCheckList)) {
-                KeReleaseSpinLock(&extension->DeferredPortCheckListSpinLock,
-                                  oldIrql);
-            } else if (PptTryAllocatePort(extension)) {
-                for (current = extension->DeferredPortCheckList.Flink;
-                     current != &extension->DeferredPortCheckList;
-                     current = current->Flink) {
-        
-                    checkEntry = CONTAINING_RECORD(current,
-                                                   DEFERRED_PORT_CHECK_LIST_ENTRY,
-                                                   ListEntry);
-    
-                    checkEntry->DeferredPortCheckRoutine(checkEntry->Context);
-                }
-                KeReleaseSpinLock(&extension->DeferredPortCheckListSpinLock,
-                                  oldIrql);
-                callPortChecks = FALSE;
-                goto START;
-            } else {
-                KeReleaseSpinLock(&extension->DeferredPortCheckListSpinLock,
-                                  oldIrql);
-            }
+        if (interruptRefCount) {
+            KeSynchronizeExecution(extension->InterruptObject,
+                                   PptTraversePortCheckList,
+                                   extension);
         }
     }
 }
@@ -2262,17 +2320,16 @@ Return Value:
     PDEVICE_EXTENSION                   extension;
     NTSTATUS                            status;
     PPARALLEL_PORT_INFORMATION          portInfo;
-    KIRQL                               cancelIrql, oldIrql;
+    PMORE_PARALLEL_PORT_INFORMATION     morePortInfo;
+    KIRQL                               cancelIrql;
     SYNCHRONIZED_COUNT_CONTEXT          syncContext;
     PPARALLEL_INTERRUPT_SERVICE_ROUTINE isrInfo;
     PPARALLEL_INTERRUPT_INFORMATION     interruptInfo;
     PISR_LIST_ENTRY                     isrListEntry;
-    PDEFERRED_PORT_CHECK_LIST_ENTRY     deferredListEntry;
     SYNCHRONIZED_LIST_CONTEXT           listContext;
     SYNCHRONIZED_DISCONNECT_CONTEXT     disconnectContext;
     BOOLEAN                             disconnectInterrupt;
     BOOLEAN                             deferredRoutinePresent;
-    PLIST_ENTRY                         current;
 
     irpSp = IoGetCurrentIrpStackLocation(Irp);
 
@@ -2338,6 +2395,42 @@ Return Value:
                 portInfo = Irp->AssociatedIrp.SystemBuffer;
                 *portInfo = extension->PortInfo;
                 status = STATUS_SUCCESS;
+
+                ExAcquireFastMutex(PortInfoMutex);
+                if (++PortInfoReferenceCount == 1) {
+                    MmResetDriverPaging(DriverEntry);
+                }
+                ExReleaseFastMutex(PortInfoMutex);
+            }
+            break;
+
+        case IOCTL_INTERNAL_RELEASE_PARALLEL_PORT_INFO:
+
+            ExAcquireFastMutex(PortInfoMutex);
+            if (--PortInfoReferenceCount == 0) {
+                MmPageEntireDriver(DriverEntry);
+            }
+            ExReleaseFastMutex(PortInfoMutex);
+            status = STATUS_SUCCESS;
+            break;
+
+        case IOCTL_INTERNAL_GET_MORE_PARALLEL_PORT_INFO:
+
+            if (irpSp->Parameters.DeviceIoControl.OutputBufferLength <
+                sizeof(MORE_PARALLEL_PORT_INFORMATION)) {
+
+                status = STATUS_BUFFER_TOO_SMALL;
+            } else {
+
+                Irp->IoStatus.Information = sizeof(MORE_PARALLEL_PORT_INFORMATION);
+                morePortInfo = Irp->AssociatedIrp.SystemBuffer;
+                morePortInfo->InterfaceType = extension->InterfaceType;
+                morePortInfo->BusNumber = extension->BusNumber;
+                morePortInfo->InterruptLevel = extension->InterruptLevel;
+                morePortInfo->InterruptVector = extension->InterruptVector;
+                morePortInfo->InterruptAffinity = extension->InterruptAffinity;
+                morePortInfo->InterruptMode = extension->InterruptMode;
+                status = STATUS_SUCCESS;
             }
             break;
 
@@ -2371,24 +2464,16 @@ Return Value:
                     isrListEntry = ExAllocatePool(NonPagedPool,
                                                   sizeof(ISR_LIST_ENTRY));
 
-                    if (isrInfo->DeferredPortCheckRoutine) {
-                        deferredRoutinePresent = TRUE;
-                        deferredListEntry = ExAllocatePool(
-                                NonPagedPool,
-                                sizeof(DEFERRED_PORT_CHECK_LIST_ENTRY));
-                    } else {
-                        deferredRoutinePresent = FALSE;
-                        deferredListEntry = NULL;
-                    }
-
-                    if (isrListEntry &&
-                        (!deferredRoutinePresent || deferredListEntry)) {
+                    if (isrListEntry) {
                         
                         isrListEntry->ServiceRoutine =
                                 isrInfo->InterruptServiceRoutine;
-                        isrListEntry->Context =
+                        isrListEntry->ServiceContext =
                                 isrInfo->InterruptServiceContext;
-
+                        isrListEntry->DeferredPortCheckRoutine =
+                                isrInfo->DeferredPortCheckRoutine;
+                        isrListEntry->CheckContext =
+                                isrInfo->DeferredPortCheckContext;
 
                         // Put the ISR_LIST_ENTRY onto the ISR list.
 
@@ -2397,24 +2482,6 @@ Return Value:
                         KeSynchronizeExecution(extension->InterruptObject,
                                                PptSynchronizedQueue,
                                                &listContext);
-
-                        // Put the deferred routine on the deferred list.
-
-                        if (deferredRoutinePresent) {
-                            deferredListEntry->DeferredPortCheckRoutine =
-                                    isrInfo->DeferredPortCheckRoutine;
-                            deferredListEntry->Context =
-                                    isrInfo->DeferredPortCheckContext;
-
-                            KeAcquireSpinLock(
-                                    &extension->DeferredPortCheckListSpinLock,
-                                    &oldIrql);
-                            InsertTailList(&extension->DeferredPortCheckList,
-                                           &deferredListEntry->ListEntry);
-                            KeReleaseSpinLock(
-                                    &extension->DeferredPortCheckListSpinLock,
-                                    oldIrql);
-                        }
 
                         interruptInfo->InterruptObject =
                                 extension->InterruptObject;
@@ -2430,14 +2497,6 @@ Return Value:
                         status = STATUS_SUCCESS;
 
                     } else {
-                        if (deferredListEntry) {
-                            ExFreePool(deferredListEntry);
-                        }
-
-                        if (isrListEntry) {
-                            ExFreePool(isrListEntry);
-                        }
-
                         status = STATUS_INSUFFICIENT_RESOURCES;
                     }
                 }
@@ -2488,39 +2547,6 @@ Return Value:
 
                 if (disconnectInterrupt) {
                     PptDisconnectInterrupt(extension);
-                }
-
-                // Take the deferred port check routine out.
-
-                if (NT_SUCCESS(status) && isrInfo->DeferredPortCheckRoutine) {
-
-                    KeAcquireSpinLock(
-                            &extension->DeferredPortCheckListSpinLock,
-                            &oldIrql);
-
-                    status = STATUS_INVALID_PARAMETER;
-                    for (current = extension->DeferredPortCheckList.Flink;
-                         current != &extension->DeferredPortCheckList;
-                         current = current->Flink) {
-
-                        deferredListEntry = CONTAINING_RECORD(
-                                current, DEFERRED_PORT_CHECK_LIST_ENTRY,
-                                ListEntry);
-
-                        if (deferredListEntry->DeferredPortCheckRoutine ==
-                            isrInfo->DeferredPortCheckRoutine &&
-                            deferredListEntry->Context ==
-                            isrInfo->DeferredPortCheckContext) {
-
-                            RemoveEntryList(&deferredListEntry->ListEntry);
-                            status = STATUS_SUCCESS;
-                            break;
-                        }
-                    }
-
-                    KeReleaseSpinLock(
-                            &extension->DeferredPortCheckListSpinLock,
-                            oldIrql);
                 }
             }
             break;
@@ -2640,7 +2666,6 @@ Return Value:
     PDEVICE_EXTENSION               extension;
     PLIST_ENTRY                     head;
     PISR_LIST_ENTRY                 entry;
-    PDEFERRED_PORT_CHECK_LIST_ENTRY deferredListEntry;
 
     ParDump(
         PARUNLOAD,
@@ -2662,16 +2687,99 @@ Return Value:
             ExFreePool(entry);
         }
 
-        while (!IsListEmpty(&extension->DeferredPortCheckList)) {
-            head = RemoveHeadList(&extension->DeferredPortCheckList);
-            deferredListEntry= CONTAINING_RECORD(
-                    head, DEFERRED_PORT_CHECK_LIST_ENTRY, ListEntry);
-            ExFreePool(deferredListEntry);
-        }
-
         PptUnReportResourcesDevice(extension);
 
         IoDeleteDevice(currentDevice);
         IoGetConfigurationInformation()->ParallelCount--;
     }
+
+    ExFreePool(PortInfoMutex);
 }
+
+BOOLEAN
+PptIsNecR98Machine(
+    void
+    )
+
+/*++
+
+Routine Description:
+
+    This routine checks the machine type in the registry to determine
+    if this is an Nec R98 machine.
+
+Arguments:
+
+    None.
+
+Return Value:
+
+    TRUE - this machine is an R98
+    FALSE - this machine is not
+    
+
+--*/
+
+{
+
+    UNICODE_STRING path;
+    RTL_QUERY_REGISTRY_TABLE paramTable[2];
+    NTSTATUS status;
+
+    UNICODE_STRING identifierString;
+    UNICODE_STRING necR98Identifier;
+    UNICODE_STRING necR98JIdentifier;
+
+    RtlInitUnicodeString(&path, L"\\Registry\\Machine\\HARDWARE\\DESCRIPTION\\System");
+    RtlInitUnicodeString(&necR98Identifier, L"NEC-R98");
+    RtlInitUnicodeString(&necR98JIdentifier, L"NEC-J98");
+
+
+    identifierString.Length = 0;
+    identifierString.MaximumLength = 32;
+    identifierString.Buffer = ExAllocatePool(PagedPool, identifierString.MaximumLength);
+
+    if(!identifierString.Buffer)    return FALSE;
+
+    RtlZeroMemory(paramTable, sizeof(paramTable));
+    paramTable[0].Flags = RTL_QUERY_REGISTRY_DIRECT | 
+                          RTL_QUERY_REGISTRY_REQUIRED;
+    paramTable[0].Name = L"Identifier";
+    paramTable[0].EntryContext = &identifierString;
+    paramTable[0].DefaultType = REG_SZ;
+    paramTable[0].DefaultData = &path;
+    paramTable[0].DefaultLength = 0;
+
+    status = RtlQueryRegistryValues(RTL_REGISTRY_ABSOLUTE,
+                                    path.Buffer,
+                                    paramTable,
+                                    NULL,
+                                    NULL);
+
+
+    if(NT_SUCCESS(status))  {
+
+        if((RtlCompareUnicodeString(&identifierString, 
+                                    &necR98Identifier, FALSE) == 0) ||
+           (RtlCompareUnicodeString(&identifierString, 
+                                    &necR98JIdentifier, FALSE) == 0)) {
+
+            ParDump(0, ("parport!PptIsNecR98Machine - this an R98 machine\n"));
+            ExFreePool(identifierString.Buffer);
+            return TRUE;
+        }
+    } else {
+
+        ParDump(0, ("parport!PptIsNecR98Machine - "
+                    "RtlQueryRegistryValues failed [status 0x%x]\n", status));
+        ExFreePool(identifierString.Buffer);
+        return FALSE;
+    }
+
+    ParDump(0,  ("parport!PptIsNecR98Machine - "
+                 "this is not an R98 machine\n"));
+    ExFreePool(identifierString.Buffer);
+    return FALSE;
+}
+        
+

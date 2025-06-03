@@ -7,8 +7,7 @@
 #include "HierFile.h"
 
 
-VOID HierFile_DrawTerm(LPHEIRDRAWSTRUCT lpHierFileStruct)
-{
+VOID HierFile_DrawTerm(LPHEIRDRAWSTRUCT lpHierFileStruct) {
    if (lpHierFileStruct->hbmIcons1) {
        if (lpHierFileStruct->hbmMem1)
            SelectObject(lpHierFileStruct->hdcMem1, lpHierFileStruct->hbmMem1);
@@ -35,26 +34,23 @@ VOID HierFile_DrawTerm(LPHEIRDRAWSTRUCT lpHierFileStruct)
       lpHierFileStruct->hdcMem2 = NULL;
    }
 
-}
+} // HierFile_DrawTerm
 
-VOID HierFile_DrawCloseAll(LPHEIRDRAWSTRUCT lpHierFileStruct )
-{
+VOID HierFile_DrawCloseAll(LPHEIRDRAWSTRUCT lpHierFileStruct ) {
    lpHierFileStruct->NumOpened= 0;
    if ( lpHierFileStruct->Opened ) {
       _ffree(lpHierFileStruct->Opened);
    }
    lpHierFileStruct->Opened = NULL;
-}
+} // HierFile_DrawCloseAll
 
 VOID HierFile_OnMeasureItem(HWND hwnd, MEASUREITEMSTRUCT FAR* lpMeasureItem,
-                            LPHEIRDRAWSTRUCT lpHierFileStruct)
-{
+                            LPHEIRDRAWSTRUCT lpHierFileStruct) {
    lpMeasureItem->itemHeight = max(lpHierFileStruct->nBitmapHeight1,
                                    lpHierFileStruct->nTextHeight);
-}
+} // HierFile_OnMeasureItem
 
-VOID HierFile_DrawSetTextHeight (HWND hwndList, HFONT hFont, LPHEIRDRAWSTRUCT lpHierFileStruct )
-{
+VOID HierFile_DrawSetTextHeight (HWND hwndList, HFONT hFont, LPHEIRDRAWSTRUCT lpHierFileStruct ) {
    TEXTMETRIC      TextMetrics;
    HANDLE          hOldFont=NULL;
    HDC             hdc;
@@ -77,20 +73,17 @@ VOID HierFile_DrawSetTextHeight (HWND hwndList, HFONT hFont, LPHEIRDRAWSTRUCT lp
    if ( hwndList != NULL )
        SendMessage(hwndList, LB_SETITEMHEIGHT, 0,
                    MAKELPARAM(lpHierFileStruct->nLineHeight, 0));
-}
+} // HierFile_DrawSetTextHeight
 
-static DWORD near RGB2BGR(DWORD rgb)
-{
+static DWORD near RGB2BGR(DWORD rgb) {
     return RGB(GetBValue(rgb),GetGValue(rgb),GetRValue(rgb));
-}
+} // RGB2BGR
 
 
 
 /*
  *  Creates the objects used while drawing the tree.  This may be called
  *  repeatedly in the event of a WM_SYSCOLORCHANGED message.
- *
- *  WARNING: the Tree icons bitmap is assumed to be a 16 color DIB!
  */
 
 BOOL HierFile_DrawInit(HINSTANCE hInstance,
@@ -100,14 +93,14 @@ BOOL HierFile_DrawInit(HINSTANCE hInstance,
                        int  nColumns,
                        BOOL bLines,
                        LPHEIRDRAWSTRUCT lpHierFileStruct,
-                       BOOL bInit)
-{
+                       BOOL bInit) {
     HANDLE hRes;
     HANDLE hResMem;
-    LPBITMAPINFO lpbih;
-    LPBITMAPINFOHEADER lpbi;
+    LPBITMAPINFOHEADER lpbiReadOnly;
+    LPBITMAPINFOHEADER lpbiReadWrite;
     DWORD FAR * lpColorTable;
     LPSTR lpBits;
+    int biSize;
     int bc;
     HDC hDC;
 
@@ -171,49 +164,50 @@ BOOL HierFile_DrawInit(HINSTANCE hInstance,
         return FALSE;
 
     // Now figure out the bitmaps background color.
-    // This code assumes the these are 16 color bitmaps
-    // and that the lower left corner is a bit in the background
-    // color.
-    lpbi = (LPBITMAPINFOHEADER)LockResource(hResMem);
-    lpbih = (LPBITMAPINFO)LockResource(hResMem);
-    if (!lpbi)
+    // This code assumes the lower left corner is a
+    // bit in the background color.
+    lpbiReadOnly = (LPBITMAPINFOHEADER)LockResource(hResMem);
+    if (!lpbiReadOnly)
         return FALSE;
 
-//    lpColorTable = (DWORD FAR *)(lpbi + 1);
-    lpColorTable = ((DWORD FAR *) &lpbih->bmiColors[0]);
+    // Determine size of bitmap information header plus color table entries
+    biSize = lpbiReadOnly->biSize + ((1 << (lpbiReadOnly->biBitCount)) * sizeof(RGBQUAD));
 
-    lpBits = (LPSTR)(lpColorTable + 16);            // ASSUMES 16 COLOR
+    // Allocate copy of the bitmap information to munge on
+    lpbiReadWrite = (LPBITMAPINFOHEADER)GlobalAlloc(GPTR, biSize);
+    if (!lpbiReadWrite)
+        return FALSE;
 
-    bc = (lpBits[0] & 0xF0) >> 4;                   // ASSUMES 16 COLOR
-                            // ALSO ASSUMES LOWER LEFT CORNER IS BG!!
-    { DWORD x, y;
-      x = lpColorTable[bc];
-      y = RGB2BGR(GetSysColor(COLOR_WINDOW));
-      lpColorTable[bc] = x;
-#ifdef DEBUG
-      if (IsBadWritePtr(lpColorTable, bc)) {
-         MessageBox(NULL, TEXT("no access"), TEXT(""), MB_OK);
-         dprintf(TEXT("No Access"));
-      }
-#endif
-      lpColorTable[bc] = y;
-    }
+    memcpy(lpbiReadWrite, lpbiReadOnly, biSize);
 
-//    lpColorTable[bc] = RGB2BGR(GetSysColor(COLOR_WINDOW));
+    // Color table immediately follows bitmap information header
+    lpColorTable = (DWORD FAR *)((LPBYTE)lpbiReadWrite + lpbiReadWrite->biSize);
+
+    // No need to munge bits so use original
+    lpBits = (LPBYTE)lpbiReadOnly + biSize;
+
+    bc = (lpBits[0] & 0xF0) >> 4;   // ASSUMES LOWER LEFT CORNER IS BG!!
+
+    lpColorTable[bc] = RGB2BGR(GetSysColor(COLOR_WINDOW));
 
     hDC = GetDC(NULL);
-
-    lpHierFileStruct->hbmIcons1 = CreateDIBitmap(hDC, lpbi, (DWORD) CBM_INIT, lpBits,
-                                    (LPBITMAPINFO) lpbi, DIB_RGB_COLORS);
+    lpHierFileStruct->hbmIcons1 = CreateDIBitmap(
+                                    hDC,
+                                    lpbiReadWrite,
+                                    CBM_INIT,
+                                    lpBits,
+                                    (LPBITMAPINFO)lpbiReadWrite,
+                                    DIB_RGB_COLORS
+                                    );
     ReleaseDC(NULL, hDC);
 
-
-    lpHierFileStruct->nBitmapHeight1 = (WORD) lpbi->biHeight / nRows;
-    lpHierFileStruct->nBitmapWidth1 = (WORD) lpbi->biWidth / nColumns;
+    lpHierFileStruct->nBitmapHeight1 = (WORD)lpbiReadWrite->biHeight / nRows;
+    lpHierFileStruct->nBitmapWidth1 = (WORD)lpbiReadWrite->biWidth / nColumns;
 
     lpHierFileStruct->nLineHeight =
          max(lpHierFileStruct->nBitmapHeight1, lpHierFileStruct->nTextHeight);
 
+    GlobalFree(lpbiReadWrite);
     UnlockResource(hResMem);
     FreeResource(hResMem);
 
@@ -224,9 +218,9 @@ BOOL HierFile_DrawInit(HINSTANCE hInstance,
     if (!lpHierFileStruct->hbmMem1)
         return FALSE;
 
-   /*+----------------------------------------------------------------------------------+
-     |                                 For Second Bitmap                                |
-     +----------------------------------------------------------------------------------+*/
+   /*+----------------------------------------------------------------------+
+     |                           For Second Bitmap                          |
+     +----------------------------------------------------------------------+*/
 
     // (Re)Load the Bitmap ( original from disk )
     hRes = FindResource(hInstance, MAKEINTRESOURCE(nBitmap2), RT_BITMAP);
@@ -238,32 +232,48 @@ BOOL HierFile_DrawInit(HINSTANCE hInstance,
         return FALSE;
 
     // Now figure out the bitmaps background color.
-    // This code assumes the these are 16 color bitmaps
-    // and that the lower left corner is a bit in the background
-    // color.
-    lpbi = (LPBITMAPINFOHEADER) LockResource(hResMem);
-    if (!lpbi)
+    // This code assumes the lower left corner is a
+    // bit in the background color.
+    lpbiReadOnly = (LPBITMAPINFOHEADER) LockResource(hResMem);
+    if (!lpbiReadOnly)
         return FALSE;
 
-    lpColorTable = (DWORD FAR *) (lpbi + 1);
+    // Determine size of bitmap information header plus color table entries
+    biSize = lpbiReadOnly->biSize + ((1 << (lpbiReadOnly->biBitCount)) * sizeof(RGBQUAD));
 
-    lpBits = (LPSTR) (lpColorTable + 16);            // ASSUMES 16 COLOR
+    // Allocate copy of the bitmap information to munge on
+    lpbiReadWrite = (LPBITMAPINFOHEADER)GlobalAlloc(GPTR, biSize);
+    if (!lpbiReadWrite)
+        return FALSE;
 
-    bc = (lpBits[0] & 0xF0) >> 4;                   // ASSUMES 16 COLOR
-                            // ALSO ASSUMES LOWER LEFT CORNER IS BG!!!
+    memcpy(lpbiReadWrite, lpbiReadOnly, biSize);
+
+    // Color table immediately follows bitmap information header
+    lpColorTable = (DWORD FAR *)((LPBYTE)lpbiReadWrite + lpbiReadWrite->biSize);
+
+    // No need to munge bits so use original
+    lpBits = (LPBYTE)lpbiReadOnly + biSize;
+
+    bc = (lpBits[0] & 0xF0) >> 4;   // ASSUMES LOWER LEFT CORNER IS BG!!
 
     lpColorTable[bc] = RGB2BGR(GetSysColor(COLOR_WINDOW));
 
     hDC = GetDC(NULL);
-
-    lpHierFileStruct->hbmIcons2 = CreateDIBitmap(hDC, lpbi, (DWORD) CBM_INIT, lpBits,
-                                    (LPBITMAPINFO) lpbi, DIB_RGB_COLORS);
+    lpHierFileStruct->hbmIcons2 = CreateDIBitmap(
+                                    hDC,
+                                    lpbiReadWrite,
+                                    CBM_INIT,
+                                    lpBits,
+                                    (LPBITMAPINFO)lpbiReadWrite,
+                                    DIB_RGB_COLORS
+                                    );
     ReleaseDC(NULL, hDC);
 
     // These are hard-coded as 1 row and 3 columns for the checkbox bitmap
-    lpHierFileStruct->nBitmapHeight2 = (WORD)lpbi->biHeight / 1;
-    lpHierFileStruct->nBitmapWidth2 = (WORD)lpbi->biWidth / 3;
+    lpHierFileStruct->nBitmapHeight2 = (WORD)lpbiReadWrite->biHeight / 1;
+    lpHierFileStruct->nBitmapWidth2 = (WORD)lpbiReadWrite->biWidth / 3;
 
+    GlobalFree(lpbiReadWrite);
     UnlockResource(hResMem);
     FreeResource(hResMem);
 
@@ -275,7 +285,7 @@ BOOL HierFile_DrawInit(HINSTANCE hInstance,
         return FALSE;
 
     return TRUE;
-}
+} // HierFile_DrawInit
 
 
 BOOL HierFile_InCheck(int nLevel, int xPos, LPHEIRDRAWSTRUCT lpHierFileStruct) {
@@ -299,8 +309,7 @@ VOID HierFile_OnDrawItem(HWND hwnd,
                          int nRow,
                          int nColumn,
                          int nColumn2,
-                         LPHEIRDRAWSTRUCT lpHierFileStruct)
-{
+                         LPHEIRDRAWSTRUCT lpHierFileStruct) {
     HDC        hDC;
     WORD       wIndent, wTopBitmap, wTopText;
     RECT       rcTemp;
@@ -322,9 +331,9 @@ VOID HierFile_OnDrawItem(HWND hwnd,
     else if (lpDrawItem->itemAction == ODA_SELECT)
         goto DealWithSelection;
 
-   /*+----------------------------------------------------------------------------------+
-     |                             Connecting Line code                                 |
-     +----------------------------------------------------------------------------------+*/
+   /*+-----------------------------------------------------------------------+
+     |                         Connecting Line code                          |
+     +-----------------------------------------------------------------------+*/
     if (lpHierFileStruct->bLines && nLevel) {
         DWORD    dwMask = 1;
         int      nTempLevel;
@@ -363,9 +372,9 @@ VOID HierFile_OnDrawItem(HWND hwnd,
         FastRect(hDC, x, rcTemp.bottom-lpHierFileStruct->nLineHeight / 2, lpHierFileStruct->nBitmapWidth1 / 2, 1);
       }
 
-   /*+----------------------------------------------------------------------------------+
-     |                                     Bitmaps                                      |
-     +----------------------------------------------------------------------------------+*/
+   /*+-----------------------------------------------------------------------+
+     |                                  Bitmaps                              |
+     +-----------------------------------------------------------------------+*/
     // Draw the checkbox bitmap
     BitBlt(hDC,
            wIndent, wTopBitmap,
@@ -404,7 +413,7 @@ DealWithFocus:
     }
 
 
-}
+} // HierFile_OnDrawItem
 
 
 // draw a solid color rectangle quickly
@@ -416,7 +425,7 @@ static VOID near FastRect(HDC hDC, int x, int y, int cx, int cy) {
     rc.top = y;
     rc.bottom = y+cy;
     ExtTextOut(hDC,x,y,ETO_OPAQUE,&rc,NULL,0,NULL);
-}
+} // FastRect
 
 
 BOOL HierFile_IsOpened(LPHEIRDRAWSTRUCT lpHierFileStruct, DWORD dwData) {
@@ -432,11 +441,10 @@ BOOL HierFile_IsOpened(LPHEIRDRAWSTRUCT lpHierFileStruct, DWORD dwData) {
 
    return FALSE;
 
-}
+} // HierFile_IsOpened
 
 
-VOID HierFile_OpenItem(LPHEIRDRAWSTRUCT lpHierFileStruct, DWORD dwData)
-{
+VOID HierFile_OpenItem(LPHEIRDRAWSTRUCT lpHierFileStruct, DWORD dwData) {
     lpHierFileStruct->NumOpened++;
 
     if (lpHierFileStruct->Opened == NULL )
@@ -448,10 +456,9 @@ VOID HierFile_OpenItem(LPHEIRDRAWSTRUCT lpHierFileStruct, DWORD dwData)
                sizeof(DWORD)*lpHierFileStruct->NumOpened);
 
     lpHierFileStruct->Opened[lpHierFileStruct->NumOpened-1] = dwData;
-}
+} // HierFile_OpenItem
 
-VOID HierFile_CloseItem(LPHEIRDRAWSTRUCT lpHierFileStruct, DWORD dwData)
-{
+VOID HierFile_CloseItem(LPHEIRDRAWSTRUCT lpHierFileStruct, DWORD dwData) {
    // For Now just a dumb  search
    //
    int Count;
@@ -474,12 +481,11 @@ VOID HierFile_CloseItem(LPHEIRDRAWSTRUCT lpHierFileStruct, DWORD dwData)
         }
      }
    }
-}
+} // HierFile_CloseItem
 
 
 VOID HierFile_ShowKids(LPHEIRDRAWSTRUCT lpHierFileStruct,
-                       HWND hwndList, WORD wCurrentSelection, WORD wKids)
-{
+                       HWND hwndList, WORD wCurrentSelection, WORD wKids) {
    WORD wBottomIndex;
    WORD wTopIndex;
    WORD wNewTopIndex;
@@ -497,4 +503,4 @@ VOID HierFile_ShowKids(LPHEIRDRAWSTRUCT lpHierFileStruct,
         SendMessage(hwndList, LB_SETTOPINDEX, (WORD)wNewTopIndex, 0L);
    }
 
-}
+} // HierFile_ShowKids

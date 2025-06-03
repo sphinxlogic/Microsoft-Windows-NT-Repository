@@ -18,7 +18,11 @@
 #endif
 
 #ifdef NT
+#ifdef _PNP_POWER
+#define	TCP_NAME					L"TCPIP"
+#else
 #define	TCP_NAME					L"MSTCP"
+#endif
 #else // NT
 #define	TCP_NAME					"MSTCP"
 #endif // NT
@@ -29,6 +33,24 @@
 #define	MASK_SUBNET					1
 
 #define	IP_DRIVER_VERSION			1
+
+#define PROTOCOL_ANY                0
+
+//*	IP Header format.
+struct IPHeader {
+	uchar		iph_verlen;				// Version and length.
+	uchar		iph_tos;				// Type of service.
+	ushort		iph_length;				// Total length of datagram.
+	ushort		iph_id;					// Identification.
+	ushort		iph_offset;				// Flags and fragment offset.
+	uchar		iph_ttl;				// Time to live.
+	uchar		iph_protocol;			// Protocol.
+	ushort		iph_xsum;				// Header checksum.
+	IPAddr		iph_src;				// Source address.
+	IPAddr		iph_dest;				// Destination address.
+}; /* IPHeader */
+
+typedef struct IPHeader IPHeader;
 
 /*NOINC*/
 #define	NULL_IP_ADDR	0
@@ -50,7 +72,7 @@ struct RouteCacheEntry {
 	struct RouteTableEntry	*rce_rte;		// Back pointer to owning RTE.
 	IPAddr					rce_dest;		// Destination address being cached.
 	IPAddr					rce_src;		// Source address for this RCE.
-	uchar					rce_valid;		// Valid flag.
+	uchar					rce_flags;		// Valid flags.
 	uchar					rce_dtype;		// Type of destination address.
 	ushort					rce_cnt;		// Ref count for this RCE.
 	uint					rce_usecnt;		// Count of people using it.
@@ -59,6 +81,20 @@ struct RouteCacheEntry {
 }; /* RouteCacheEntry */
 
 typedef struct RouteCacheEntry RouteCacheEntry;
+
+#define	RCE_VALID			0x1
+#define	RCE_CONNECTED		0x2
+#define RCE_REFERENCED		0x4
+
+#ifdef _PNP_POWER
+
+#define	RCE_ALL_VALID		(RCE_VALID | RCE_CONNECTED | RCE_REFERENCED)
+
+#else  // _PNP_POWER
+
+#define	RCE_ALL_VALID		(RCE_VALID | RCE_CONNECTED)
+
+#endif // _PNP_POWER
 
 /*INC*/
 
@@ -74,7 +110,6 @@ struct IPOptInfo {
 
 typedef struct IPOptInfo IPOptInfo;
 
-
 #define	IP_FLAG_SSRR	0x80		// There options have a SSRR in them.
 
 /*NOINC*/
@@ -89,6 +124,9 @@ struct PacketContext {
 	struct BufferReference *pc_br;		// Pointer to buffer reference structure.
 	struct ProtInfo *pc_pi;				// Protocol info structure for this packet.
 	void		*pc_context;			// Protocol context to be passed back on send cmplt.
+#ifdef _PNP_POWER
+	struct Interface	*pc_if;			// Interface this packet was sent on.
+#endif
 }; /* PacketContext */
 
 typedef struct PacketContext PacketContext;
@@ -99,7 +137,7 @@ struct IPInfo {
 	uint		ipi_version;			// Version of the IP driver.
 	uint		ipi_hsize;				// Size of the header.
 	IP_STATUS	(*ipi_xmit)(void *, void *, PNDIS_BUFFER, uint, IPAddr, IPAddr,
-					IPOptInfo *, RouteCacheEntry *);
+					IPOptInfo *, RouteCacheEntry *, uchar);
 	void		*(*ipi_protreg)(uchar, void *, void *, void *, void *);
 	IPAddr		(*ipi_openrce)(IPAddr, IPAddr, RouteCacheEntry **, uchar *,
 					ushort *, IPOptInfo *);
@@ -117,6 +155,8 @@ struct IPInfo {
 	long    	(*ipi_setinfo)(struct TDIObjectID *ID, void *Buffer, uint Size);
 	long        (*ipi_getelist)(void *, uint *);
 	IP_STATUS	(*ipi_setmcastaddr)(IPAddr, IPAddr, uint);
+	uint		(*ipi_invalidsrc)(IPAddr);
+    uint        (*ipi_isdhcpinterface)(void *IPContext);
 }; /* IPInfo */
 
 typedef struct IPInfo IPInfo;
@@ -204,4 +244,3 @@ IPRegisterProtocol(
 
 #endif // IP_H_INCLUDED
 
-

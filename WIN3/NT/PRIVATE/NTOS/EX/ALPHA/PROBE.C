@@ -22,7 +22,7 @@ Revision History:
 
 --*/
 
-#include "ntos.h"
+#include "exp.h"
 
 #if defined(ALLOC_PRAGMA)
 #pragma alloc_text(PAGE, ProbeForWrite)

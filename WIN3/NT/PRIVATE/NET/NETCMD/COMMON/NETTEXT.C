@@ -94,10 +94,10 @@ int USER_OP_TOTSIZE = (sizeof(USER_OP_PRINT) +
 
 TCHAR USER_MAXSTOR_UNLIMITED[] =     TEXT("UNLIMITED");
 
-TCHAR * fmtPSZ = 		    TEXT("%-*.*ws%Fws\n");
-TCHAR * fmtNPSZ =		    TEXT("%-*.*ws%ws\n");
-TCHAR * fmtUSHORT =		    TEXT("%-*.*ws%hu\n");
-TCHAR * fmtULONG =		    TEXT("%-*.*ws%lu\n");
+TCHAR * fmtPSZ = 		    TEXT("%-*.*ws%Fws\r\n");
+TCHAR * fmtNPSZ =		    TEXT("%-*.*ws%ws\r\n");
+TCHAR * fmtUSHORT =		    TEXT("%-*.*ws%hu\r\n");
+TCHAR * fmtULONG =		    TEXT("%-*.*ws%lu\r\n");
 
 TCHAR USER_NEVER[] =		TEXT("NEVER");
 TCHAR USER_ALL[] =		TEXT("ALL");
@@ -120,10 +120,10 @@ TCHAR * MSG_LINE =		    TEXT("\304\304\304\304\304\304\304\304\304\304")
 				    TEXT("\304\304\304\304\304\304\304\304\304\304")
 				    TEXT("\304\304\304\304\304\304\304\304\304\304")
 				    TEXT("\304\304\304\304\304\304\304\304\304\304")
-				    TEXT("\304\304\304\304\304\304\304\304\304\n") ;
+				    TEXT("\304\304\304\304\304\304\304\304\304\r\n") ;
 */
 TCHAR * MSG_HYPHENS =		    TEXT("----------------------------------------")
-				    TEXT("---------------------------------------\n");
+				    TEXT("---------------------------------------\r\n");
 
 
 /*
@@ -142,6 +142,8 @@ TCHAR swtxt_SW_PRIORITY[] = SW_PRIORITY;
 TCHAR swtxt_SW_ROUTE[] = SW_ROUTE;
 TCHAR swtxt_SW_PURGE[] = SW_PURGE;
 TCHAR swtxt_SW_DOMAIN[] = SW_DOMAIN;
+TCHAR swtxt_SW_NETWARE[] = SW_NETWARE;
+TCHAR swtxt_SW_RANDOM[] = SW_RANDOM;
 
 #ifdef OS2
 TCHAR swtxt_SW_COUNT[] = SW_COUNT;
@@ -275,7 +277,6 @@ TCHAR swtxt_SW_USER_EXPIRES[] = SW_USER_EXPIRES;
 TCHAR swtxt_SW_USER_ENABLESCRIPT[] = SW_USER_ENABLESCRIPT;
 TCHAR swtxt_SW_USER_FULLNAME[] = SW_USER_FULLNAME;
 TCHAR swtxt_SW_USER_HOMEDIR[] = SW_USER_HOMEDIR;
-TCHAR swtxt_SW_USER_HOMEDIRREQ[] = SW_USER_HOMEDIRREQ;
 TCHAR swtxt_SW_USER_LOGONSERVER[] = SW_USER_LOGONSERVER;
 TCHAR swtxt_SW_USER_MAXSTORAGE[] = SW_USER_MAXSTORAGE;
 TCHAR swtxt_SW_USER_PARMS[] = SW_USER_PARMS;

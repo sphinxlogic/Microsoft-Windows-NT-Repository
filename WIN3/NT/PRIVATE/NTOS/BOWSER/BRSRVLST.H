@@ -32,11 +32,16 @@ BowserFreeBrowserServerList (
     IN ULONG BrowserServerListLength
     );
 
-VOID
-BowserShuffleBrowserServerList (
+VOID
+BowserShuffleBrowserServerList(
     IN PWSTR *BrowserServerList,
     IN ULONG BrowserServerListLength,
-    IN BOOLEAN PrimaryDomain
+#ifdef _CAIRO_
+    IN BOOLEAN IsPrimaryDomain,
+    IN PDOMAIN_INFO DomainInfo
+#else // _CAIRO_
+    IN BOOLEAN IsPrimaryDomain
+#endif // _CAIRO_
     );
 
 NTSTATUS

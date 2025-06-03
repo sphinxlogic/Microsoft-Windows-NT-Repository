@@ -85,6 +85,14 @@ typedef struct _FAT_DATA {
     BOOLEAN ChicagoMode;
 
     //
+    //  The following field tells us if we are running on a Fujitsu
+    //  FMR Series. These machines supports extra formats on the
+    //  FAT file system.
+    //
+
+    BOOLEAN FujitsuFMR;
+
+    //
     //  Inidicates that FspClose is currently processing closes.
     //
 
@@ -98,15 +106,21 @@ typedef struct _FAT_DATA {
     BOOLEAN ShutdownStarted;
 
     //
+    //  The following flag tells us if we are going to generate LFNs
+    //  for valid 8.3 names with extended characters.
+    //
+
+    BOOLEAN CodePageInvariant;
+
+    //
     //  The following list entry is used for performing closes that can't
     //  be done in the context of the original caller.
     //
 
-
     LIST_ENTRY AsyncCloseList;
 
     //
-    //  The follow two fields record if we are delaying a close.
+    //  The following two fields record if we are delaying a close.
     //
 
     ULONG DelayedCloseCount;
@@ -120,14 +134,17 @@ typedef struct _FAT_DATA {
     WORK_QUEUE_ITEM FatCloseItem;
 
     //
-    //  The following fields are used to allocate IRP context structures
-    //  using the zone allocator, and other fixed sized structures from a
-    //  small cache.  The spinlock protects access to the zone/lists
+    //  This array is used to map unicode characters to their upper-case
+    //  oem analogues.
+    //
+
+    PCHAR UnicodeToUpcaseOemArray;
+
+    //
+    //  This spinlock protects access to the zone/lists.
     //
 
     KSPIN_LOCK StrucSupSpinLock;
-
-    ZONE_HEADER IrpContextZone;
 
     struct _CCB          *FreeCcbArray[FREE_CCB_SIZE];
     struct _FCB          *FreeFcbArray[FREE_FCB_SIZE];
@@ -160,18 +177,17 @@ typedef FAT_DATA *PFAT_DATA;
 
 typedef enum _VCB_CONDITION {
     VcbGood = 1,
-    VcbNotMounted
+    VcbNotMounted,
+    VcbBad
 } VCB_CONDITION;
-
 
 typedef struct _VCB {
 
     //
-    //  The type and size of this record (must be FAT_NTC_VCB)
+    //  This is a common head for the FAT volume file
     //
 
-    NODE_TYPE_CODE NodeTypeCode;
-    NODE_BYTE_SIZE NodeByteSize;
+    FSRTL_COMMON_FCB_HEADER VolumeFileHeader;
 
     //
     //  The links for the device queue off of FatData.VcbQueue
@@ -235,6 +251,8 @@ typedef struct _VCB {
 
     BIOS_PARAMETER_BLOCK Bpb;
 
+    PUCHAR First0x24BytesOfBootSector;
+
     //
     //  The following structure contains information useful to the
     //  allocation support routines.  Many of them are computed from
@@ -280,10 +298,10 @@ typedef struct _VCB {
     RTL_BITMAP FreeClusterBitMap;
 
     //
-    //  The following event controls access to the free cluster bit map
+    //  The following fast mutex controls access to the free cluster bit map
     //
 
-    KEVENT FreeClusterBitMapEvent;
+    FAST_MUTEX FreeClusterBitMapMutex;
 
     //
     //  A resource variable to control access to the volume specific data
@@ -368,11 +386,11 @@ typedef struct _VCB {
     PNOTIFY_SYNC NotifySync;
 
     //
-    //  The following event is used to synchronize directory stream file
-    //  object creation.
+    //  The following fast mutex is used to synchronize directory stream
+    //  file object creation.
     //
 
-    KEVENT DirectoryFileCreationEvent;
+    FAST_MUTEX DirectoryFileCreationMutex;
 
     //
     //  This field holds the thread address of the current (or most recent
@@ -395,6 +413,27 @@ typedef struct _VCB {
 
     LARGE_INTEGER LastFatMarkVolumeDirtyCall;
 
+    //
+    //  The following fields holds a pointer to a struct which is used to
+    //  hold performance counters.
+    //
+
+    PFILESYSTEM_STATISTICS Statistics;
+
+    //
+    //  The property tunneling cache for this volume
+    //
+
+    TUNNEL Tunnel;
+
+    //
+    //  The media change count is returned by IOCTL_CHECK_VERIFY and
+    //  is used to verify that no user-mode app has swallowed a media change
+    //  notification.  This is only meaningful for removable media.
+    //
+
+    ULONG ChangeCount;
+
 } VCB;
 typedef VCB *PVCB;
 
@@ -411,6 +450,7 @@ typedef VCB *PVCB;
 #define VCB_STATE_FLAG_COMPRESSED_VOLUME   (0x00001000)
 #define VCB_STATE_FLAG_ASYNC_CLOSE_ACTIVE  (0x00002000)
 #define VCB_STATE_FLAG_WRITE_PROTECTED     (0x00004000)
+#define VCB_STATE_FLAG_REMOVAL_PREVENTED   (0x00008000)
 
 
 //
@@ -455,6 +495,12 @@ typedef struct _VOLUME_DEVICE_OBJECT {
     //
 
     KSPIN_LOCK OverflowQueueSpinLock;
+
+    //
+    //  This is a common head for the FAT volume file
+    //
+
+    FSRTL_COMMON_FCB_HEADER VolumeFileHeader;
 
     //
     //  This is the file system specific volume control block.
@@ -588,6 +634,13 @@ typedef struct _FILE_NAME_NODE {
         UNICODE_STRING Unicode;
 
     } Name;
+
+    //
+    //  Marker so we can figure out what kind of name we opened up in
+    //  Fcb searches
+    //
+
+    BOOLEAN FileNameDos;
 
     //
     //  And the links.  Our parent Dcb has a pointer to the root entry.
@@ -743,6 +796,13 @@ typedef struct _FCB {
     CLONG OpenCount;
 
     //
+    //  A count of how many of "UncleanCount" handles were opened for
+    //  non-cached I/O.
+    //
+
+    CLONG NonCachedUncleanCount;
+
+    //
     //  The following field is used to locate the dirent for this fcb/dcb.
     //  All directory are opened as mapped files so the only additional
     //  information we need to locate this dirent (beside its parent directory)
@@ -776,6 +836,12 @@ typedef struct _FCB {
     LARGE_INTEGER CreationTime;
     LARGE_INTEGER LastAccessTime;
     LARGE_INTEGER LastWriteTime;
+
+    //
+    //  Valid data to disk
+    //
+
+    ULONG ValidDataToDisk;
 
     //
     //  The following field contains the retrieval mapping structure
@@ -836,6 +902,54 @@ typedef struct _FCB {
             //
             //  The following two entries links together all the Fcbs
             //  opened under this Dcb sorted in a splay tree by name.
+            //
+            //  I'd like to go into why we have (and must have) two separate
+            //  splay trees within the current fastfat architecture.  I will
+            //  provide some insight into what would have to change if we
+            //  wanted to have a single UNICODE tree.
+            //
+            //  What makes FAT unique is that both Oem and Unicode names sit
+            //  side by side on disk.  Several unique UNICODE names coming
+            //  into fastfat can match a single OEM on-disk name, and there
+            //  is really no way to enumerate all the possible UNICODE
+            //  source strings that can map to a given OEM name.  This argues
+            //  for converting the incomming UNICODE name into OEM, and then
+            //  running through an OEM splay tree of the open files.  This
+            //  works well when there are only OEM names on disk.
+            //
+            //  The UNICODE name on disk can be VERY different from the short
+            //  name in the DIRENT and not even representable in the OEM code
+            //  page.  Even if it were representable in OEM, it is possible
+            //  that a case varient of the original UNICODE name would match
+            //  a different OEM name, causing us to miss the Fcb in the
+            //  prefix lookup phase.  In these cases, we must put UNICODE
+            //  name in the splay to guarentee that we find any case varient
+            //  of the input UNICODE name.  See the routine description of
+            //  FatConstructNamesInFcb() for a detailed analysis of how we
+            //  detect this case.
+            //
+            //  The fundamental limitation we are imposing here is that if
+            //  an Fcb exists for an open file, we MUST find it during the
+            //  prefix stage.  This is a basic premise of the create path
+            //  in fastfat.  In fact if we later find it gravelling through
+            //  the disk (but not the splay tree), we will bug check if we
+            //  try to add a duplicate entry to the splay tree (not to
+            //  mention having two Fcbs).  If we had some mechanism to deal
+            //  with cases (and they would be rare) that we don't find the
+            //  entry in the splay tree, but the Fcb is actually in there,
+            //  then we could go to a single UNICODE splay tree.  While
+            //  this uses more pool for the splay tree, and makes string
+            //  compares maybe take a bit as longer, it would eliminate the
+            //  need for any NLS conversion during the prefix phase, so it
+            //  might really be a net win.
+            //
+            //  The current scheme was optimized for non-extended names
+            //  (i.e. US names).  As soon as you start using extended
+            //  characters, then it is clearly a win as many code paths
+            //  become active that would otherwise not be needed if we
+            //  only had a single UNICODE splay tree.
+            //
+            //  We may think about changing this someday.
             //
 
             PRTL_SPLAY_LINKS RootOemNode;
@@ -913,12 +1027,19 @@ typedef struct _FCB {
     FILE_NAME_NODE ShortName;
 
     //
-    //  The following field is only filled in if it is needed.
+    //  The following field is only filled in if it is needed with the user's
+    //  opened path
     //
 
     UNICODE_STRING FullFileName;
 
     USHORT FinalNameLength;
+
+    //
+    //  The case preserved long filename
+    //
+
+    UNICODE_STRING ExactCaseLongName;
 
     //
     //  If the UNICODE Lfn is fully expressible in the system Oem code
@@ -949,6 +1070,13 @@ typedef struct _FCB {
 
     } LongName;
 
+    //
+    //  Defragmentation / ReallocateOnWrite synchronization object.  This
+    //  is filled in by FatMoveFile() and affects the read and write paths.
+    //
+
+    PKEVENT MoveFileEvent;
+
 } FCB, DCB;
 typedef FCB *PFCB;
 typedef DCB *PDCB;
@@ -969,6 +1097,14 @@ typedef DCB *PDCB;
 #define FCB_STATE_HAS_OEM_LONG_NAME      (0x00000200)
 #define FCB_STATE_HAS_UNICODE_LONG_NAME  (0x00000400)
 #define FCB_STATE_DELAY_CLOSE            (0x00000800)
+
+//
+//  Copies of the dirent's FAT_DIRENT_NT_BYTE_* flags for
+//  preserving case of the short name of a file
+//
+
+#define FCB_STATE_8_LOWER_CASE           (0x00001000)
+#define FCB_STATE_3_LOWER_CASE           (0x00002000)
 
 //
 //  This is the MAX recursive resource limit.
@@ -1023,8 +1159,36 @@ typedef DCB *PDCB;
 //  These flags, are used is DASD handles in read and write.
 //
 
-#define CCB_FLAG_DASD_FLUSH_DONE         (0X0100)
-#define CCB_FLAG_DASD_PURGE_DONE         (0X0200)
+#define CCB_FLAG_DASD_FLUSH_DONE         (0x0100)
+#define CCB_FLAG_DASD_PURGE_DONE         (0x0200)
+
+//
+//  This flag keeps track of a handle that was opened for
+//  DELETE_ON_CLOSE.
+//
+
+#define CCB_FLAG_DELETE_ON_CLOSE         (0x0400)
+
+//
+//  This flag keeps track of which side of the name pair on the file
+//  associated with the handle was opened
+//
+
+#define CCB_FLAG_OPENED_BY_SHORTNAME     (0x0800)
+
+//
+//  This flag indicates that the query template has not been upcased
+// (i.e., query should be case-insensitive)
+//
+
+#define CCB_FLAG_QUERY_TEMPLATE_MIXED    (0x1000)
+
+//
+//  This flag indicates that reads and writes via this DASD handle
+//  are allowed to start or extend past the end of file.
+//
+
+#define CCB_FLAG_ALLOW_EXTENDED_DASD_IO  (0x2000)
 
 typedef struct _CCB {
 
@@ -1211,6 +1375,7 @@ typedef IRP_CONTEXT *PIRP_CONTEXT;
 #define IRP_CONTEXT_FLAG_VERIFY_READ     (0x00000080)
 #define IRP_CONTEXT_STACK_IO_CONTEXT     (0x00000100)
 #define IRP_CONTEXT_FLAG_IN_FSP          (0x00000200)
+#define IRP_CONTEXT_FLAG_USER_IO         (0x00000400)       // for performance counters
 
 
 //
@@ -1338,8 +1503,6 @@ typedef struct _CLEAN_AND_DIRTY_VOLUME_PACKET {
 //
 
 typedef struct _PAGING_FILE_OVERFLOW_PACKET {
-
-    WORK_QUEUE_ITEM Item;
     PIRP Irp;
     PFCB Fcb;
 } PAGING_FILE_OVERFLOW_PACKET, *PPAGING_FILE_OVERFLOW_PACKET;
@@ -1364,4 +1527,14 @@ typedef struct _EA_RANGE {
 
 #define EA_RANGE_HEADER_SIZE        (FIELD_OFFSET( EA_RANGE, BcbArray ))
 
+//
+//  These symbols are used by the upcase/downcase routines.
+//
+
+#define WIDE_LATIN_CAPITAL_A    (0xff21)
+#define WIDE_LATIN_CAPITAL_Z    (0xff3a)
+#define WIDE_LATIN_SMALL_A      (0xff41)
+#define WIDE_LATIN_SMALL_Z      (0xff5a)
+
 #endif // _FATSTRUC_
+

@@ -44,6 +44,7 @@ typedef struct _EXTENDED_SYSTEM_INFORMATION {
     ULONG   SystemRevision;
     UCHAR   SystemSerialNumber[16];
     UCHAR   FirmwareVersion[16];
+    UCHAR   FirmwareBuildTimeStamp[12];
 } EXTENDED_SYSTEM_INFORMATION, *PEXTENDED_SYSTEM_INFORMATION;
 
 //

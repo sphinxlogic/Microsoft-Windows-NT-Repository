@@ -89,7 +89,7 @@ INT16 WriteScriptFile( BSD_HAND bsd_hand, CHAR_PTR fname )
 
           if ( BSD_GetMarkStatus( cur_bsd ) != NONE_SELECTED ) {
                if ( !file_opened ) {
-                    fptr = fopen( fname, TEXT("w") );
+                    fptr = UNI_fopen( fname, _O_TEXT );
                     if ( fptr == NULL ) {
                          ret_val = SCR_CANNOT_OPEN_SCRIPT;
                          break;
@@ -168,19 +168,11 @@ INT16 SCR_ProcessBSD( FILE *fptr, BSD_PTR bsd )
                     strcat( quoted_path, qpath_ptr );
                     strcat( quoted_path, TEXT("\"") );
 
-#ifndef UNICODE
                     WriteScriptLine( fptr, TEXT("%s"), quoted_path );
-#else //UNICODE
-                    WriteScriptLine( fptr, TEXT("%ws"), quoted_path );
-#endif //UNICODE
 
                } else {
 
-#ifndef UNICODE
                     WriteScriptLine( fptr, TEXT("%s"), path );
-#else //UNICODE
-                    WriteScriptLine( fptr, TEXT("%ws"), path );
-#endif //UNICODE
 
                }
 

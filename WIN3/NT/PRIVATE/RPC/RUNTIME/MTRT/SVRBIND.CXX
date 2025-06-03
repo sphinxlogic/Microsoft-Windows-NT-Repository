@@ -19,15 +19,7 @@ Revision History:
 
 --*/
 
-#include <sysinc.h>
-#include <rpc.h>
-#include <rpcdcep.h>
-#include <util.hxx>
-#include <rpcuuid.hxx>
-#include <linklist.hxx>
-#include <binding.hxx>
-#include <handle.hxx>
-#include <svrbind.hxx>
+#include <precomp.hxx>
 
 
 RPC_STATUS
@@ -424,7 +416,12 @@ SVR_BINDING_HANDLE::BindingReset (
     Status = InsureRealBindingHandle();
     if (Status != RPC_S_OK)
         return(Status);
-    return(RealBindingHandle->BindingReset());
+    Status = RealBindingHandle->BindingReset();
+    if (Status == RPC_S_OK)
+        {
+        EndpointIsDynamic = 0;
+        }
+    return (Status);
 }
 
 

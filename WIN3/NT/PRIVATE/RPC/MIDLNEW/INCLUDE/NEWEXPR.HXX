@@ -1037,4 +1037,3 @@ public:
 	};
 
 #endif // __NEWEXPR_HXX__
-

@@ -71,7 +71,8 @@ DhcpNotifyConfigChange(
 
 DWORD
 DhcpQueryHWInfo(
-    DWORD IpInterfaceContext,
+    DWORD   IpInterfaceContext,
+    DWORD  *pIpInterfaceInstance,
     LPBYTE HardwareAddressType,
     LPBYTE *HardwareAddress,
     LPDWORD HardwareAddressLength

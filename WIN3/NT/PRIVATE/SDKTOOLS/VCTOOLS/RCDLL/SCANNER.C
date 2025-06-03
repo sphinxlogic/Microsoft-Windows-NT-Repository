@@ -8,8 +8,7 @@
 /*                                                                      */
 /************************************************************************/
 
-#include "prerc.h"
-#pragma hdrstop
+#include "rc.h"
 
 
 #define ABS(x) ((x > 0) ? x : -1 * x)
@@ -144,16 +143,16 @@ void   prep_string(REG WCHAR c)
                 continue;
         }
         *p_buf++ = c;
-        if(p_buf == &Reuse_W[MED_BUFFER - 1]) {
+        if(p_buf >= &Reuse_W[MED_BUFFER - 1]) {
             *p_buf = L'\0';
-            fwrite(Reuse_W, (size_t)(p_buf - Reuse_W) * sizeof(WCHAR), 1, OUTPUTFILE);
+            myfwrite(Reuse_W, (size_t)(p_buf - Reuse_W) * sizeof(WCHAR), 1, OUTPUTFILE);
             p_buf = Reuse_W;
         }
     }
 
 out_of_loop:
     *p_buf = L'\0';
-    fwrite(Reuse_W, (size_t)(p_buf - Reuse_W) * sizeof(WCHAR), 1, OUTPUTFILE);
+    myfwrite(Reuse_W, (size_t)(p_buf - Reuse_W) * sizeof(WCHAR), 1, OUTPUTFILE);
 }
 
 
@@ -244,8 +243,8 @@ void   str_const(VOID)
             strcpy (Msg_Text, GET_MSG (2001));
             error(2001);
             /*
-                        **  FALLTHROUGH
-                        */
+	    **  FALLTHROUGH
+	    */
         case LX_DQUOTE:
             *p_buf++ = L'\0';
             yylval.yy_string.str_len = (USHORT)(p_buf-yylval.yy_string.str_ptr);
@@ -280,6 +279,7 @@ void   str_const(VOID)
 /************************************************************************
 **  do_newline : does work after a newline has been found.
 ************************************************************************/
+
 void   do_newline()
 {
     ++Linenumber;
@@ -298,17 +298,21 @@ void   do_newline()
             }
             break;
         case LX_NL:
+            {
+                if ((lCPPTotalLinenumber++ & RC_PREPROCESS_UPDATE) == 0)
+                    UpdateStatus(1, lCPPTotalLinenumber);
+            }
             Linenumber++;
             // must manually write '\r' with '\n' when writing 16-bit strings
             if( Prep ) {        /*  preprocessing only */
-                fwrite(L"\r", sizeof(WCHAR), 1, OUTPUTFILE);
+                myfwrite(L"\r", sizeof(WCHAR), 1, OUTPUTFILE);
             }
             /*
                         **  FALLTHROUGH
                         */
         case LX_WHITE:
             if( Prep ) {        /*  preprocessing only, output whitespace  */
-                fwrite(&(PREVCH()), sizeof(WCHAR), 1, OUTPUTFILE);
+                myfwrite(&(PREVCH()), sizeof(WCHAR), 1, OUTPUTFILE);
             }
             else {
                 do {
@@ -457,7 +461,7 @@ check_suffix:
         return(L_NOTOKEN);
     }
     else if( Prep ) {
-        fwrite( Reuse_W, (size_t)(p - Reuse_W) * sizeof(WCHAR), 1, OUTPUTFILE);
+        myfwrite( Reuse_W, (size_t)(p - Reuse_W) * sizeof(WCHAR), 1, OUTPUTFILE);
         return(L_NOTOKEN);
     }
     value.v_long = matol(Reuse_W,radix);
@@ -558,7 +562,7 @@ token_t    get_real(REG PWCHAR p)
         return(L_NOTOKEN);
     }
     else if( Prep ) {
-        fwrite( Reuse_W, (size_t)(p - Reuse_W) * sizeof(WCHAR), 1, OUTPUTFILE);
+        myfwrite( Reuse_W, (size_t)(p - Reuse_W) * sizeof(WCHAR), 1, OUTPUTFILE);
         return(L_NOTOKEN);
     }
     /*
@@ -732,10 +736,10 @@ escape_again:
         return(L'\f');
         break;
     case L'n':
-        return(L'\n');
+        return fMacRsrcs ? (L'\r') : (L'\n');
         break;
     case L'r':
-        return(L'\r');
+        return fMacRsrcs ? (L'\n') : (L'\r');
         break;
     case L't':
         return(L'\t');
@@ -816,7 +820,7 @@ void   DumpSlashComment(VOID)
         skip_NLonly();
         return;
     }
-    fwrite(L"//", 2 * sizeof(WCHAR), 1, OUTPUTFILE);
+    myfwrite(L"//", 2 * sizeof(WCHAR), 1, OUTPUTFILE);
     for(;;) {
         WCHAR c;
 
@@ -831,7 +835,7 @@ void   DumpSlashComment(VOID)
             UNGETCH();
             return;
         }
-        fwrite(&c, sizeof(WCHAR), 1, OUTPUTFILE);
+        myfwrite(&c, sizeof(WCHAR), 1, OUTPUTFILE);
     }
 }
 
@@ -845,14 +849,14 @@ void   dump_comment()
         skip_1comment();
         return;
     }
-    fwrite(L"/*", 2 * sizeof(WCHAR), 1, OUTPUTFILE);
+    myfwrite(L"/*", 2 * sizeof(WCHAR), 1, OUTPUTFILE);
     for(;;) {
         WCHAR c;
 
         switch(CHARMAP(c = GETCH())) {
         case LX_STAR:
             if(checkop(L'/')) {
-                fwrite(L"*/", 2 * sizeof(WCHAR), 1, OUTPUTFILE);
+                myfwrite(L"*/", 2 * sizeof(WCHAR), 1, OUTPUTFILE);
                 return;
             }
             break;
@@ -866,7 +870,7 @@ void   dump_comment()
         //case LX_CR:
         //    continue;
         }
-        fwrite(&c, sizeof(WCHAR), 1, OUTPUTFILE);
+        myfwrite(&c, sizeof(WCHAR), 1, OUTPUTFILE);
     }
 }
 
@@ -932,7 +936,7 @@ recheck:
             if(c == L'\n') {
                 Linenumber++;
                 if(Prep) {
-                    fwrite(L"\r\n", 2 * sizeof(WCHAR), 1, OUTPUTFILE);
+                    myfwrite(L"\r\n", 2 * sizeof(WCHAR), 1, OUTPUTFILE);
                 }
             }
             else if(c == EOS_CHAR) {
@@ -1006,7 +1010,7 @@ int checknl(void)
             Linenumber++;
             // must manually write '\r' with '\n' when writing 16-bit strings
             if( Prep ) {
-                fwrite(L"\r\n", 2 * sizeof(WCHAR), 1, OUTPUTFILE);
+                myfwrite(L"\r\n", 2 * sizeof(WCHAR), 1, OUTPUTFILE);
             }
             return(TRUE);
             break;

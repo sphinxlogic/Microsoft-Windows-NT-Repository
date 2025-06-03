@@ -189,7 +189,7 @@ Return Value:
     //
     //  Check for NULL pointers
     //
-    DbgPtrAssert( KeyInfo );
+    DebugPtrAssert( KeyInfo );
 
     Destroy();
 
@@ -201,7 +201,7 @@ Return Value:
     _NodeIsExpanded = FALSE;
     if( _Separator == NULL ) {
         _Separator = ( PWSTRING ) NEW( DSTRING );
-        DbgPtrAssert( _Separator );
+        DebugPtrAssert( _Separator );
         if( !_Separator->Initialize( ( PSTR )"\\" ) ) {
             DELETE( _Separator );
             return( FALSE );
@@ -244,11 +244,11 @@ Return Value:
     PITERATOR       Iterator;
 
 
-    DbgPtrAssert( _Children );
+    DebugPtrAssert( _Children );
 
 
     if( !_Children->Put( ( PREGEDIT_NODE )ChildNode ) ) {
-        DbgPrint( "_Children->Put() failed" );
+        DebugPrint( "_Children->Put() failed" );
         return( FALSE );
     }
 
@@ -258,7 +258,7 @@ Return Value:
     //
     Iterator = _Children->QueryIterator();
     if( Iterator == NULL ) {
-        DbgPrint( "Unable to get iterator" );
+        DebugPrint( "Unable to get iterator" );
         return( TRUE );
     }
     Count = _Children->QueryMemberCount();
@@ -300,11 +300,11 @@ Return Value:
 --*/
 
 {
-    DbgPtrAssert( _Values );
+    DebugPtrAssert( _Values );
 
 
     if( !_Values->Put( ( PREGEDIT_FORMATTED_VALUE_ENTRY )Value ) ) {
-        DbgPrint( "_Value->Put() failed" );
+        DebugPrint( "_Value->Put() failed" );
         return( FALSE );
     }
 
@@ -345,7 +345,7 @@ Return Value:
     }
     if( _Children->QueryMemberCount() > 0 ) {
         if( !_Children->DeleteAllMembers() ) {
-            DbgPrint( "_Children->DeleteAllMembers() failed" );
+            DebugPrint( "_Children->DeleteAllMembers() failed" );
             return( FALSE );
         }
     }
@@ -384,7 +384,7 @@ Return Value:
     if( _Values != NULL ) {
         if( _Values->QueryMemberCount() > 0 ) {
             if( !_Values->DeleteAllMembers() ) {
-                DbgPrint( "_Values->DeleteAllMembers() failed" );
+                DebugPrint( "_Values->DeleteAllMembers() failed" );
                 return( FALSE );
             }
         }
@@ -428,15 +428,15 @@ Return Value:
     PITERATOR       Iterator;
 
 
-    DbgPtrAssert( _Children );
-    DbgPtrAssert( Node );
+    DebugPtrAssert( _Children );
+    DebugPtrAssert( Node );
 
     Count = _Children->QueryMemberCount();
-    DbgAssert( Count > 0 );
+    DebugAssert( Count > 0 );
 
     Iterator = _Children->QueryIterator();
     if( Iterator == NULL ) {
-        DbgPrint( "Unable to get iterator" );
+        DebugPrint( "Unable to get iterator" );
         return( FALSE );
     }
     TmpNode = NULL;
@@ -447,7 +447,7 @@ Return Value:
 
 
     if( TmpNode != Node ) {
-        DbgPrint( "Node to be removed is not in the list of children" );
+        DebugPrint( "Node to be removed is not in the list of children" );
         DELETE( Iterator );
         return( FALSE );
     }
@@ -514,15 +514,15 @@ Return Value:
     PITERATOR                       Iterator;
 
 
-    DbgPtrAssert( _Values );
-    DbgPtrAssert( Value );
+    DebugPtrAssert( _Values );
+    DebugPtrAssert( Value );
 
     Count = _Values->QueryMemberCount();
-    DbgAssert( Count > 0 );
+    DebugAssert( Count > 0 );
 
     Iterator = _Values->QueryIterator();
     if( Iterator == NULL ) {
-        DbgPrint( "Unable to get iterator" );
+        DebugPrint( "Unable to get iterator" );
         return( FALSE );
     }
     TmpValue = NULL;
@@ -533,7 +533,7 @@ Return Value:
 
 
     if( TmpValue != Value ) {
-        DbgPrint( "Node to be removed is not in the list of children" );
+        DebugPrint( "Node to be removed is not in the list of children" );
         DELETE( Iterator );
         return( FALSE );
     }
@@ -698,13 +698,13 @@ Return Value:
     PCWSTRING   KeyName;
 
     ParentName = _KeyInfo->GetParentName();
-    DbgPtrAssert( ParentName );
+    DebugPtrAssert( ParentName );
     KeyName = _KeyInfo->GetName();
-    DbgPtrAssert( KeyName );
+    DebugPtrAssert( KeyName );
 
     if( ParentName->QueryChCount() != 0 ) {
         if( !CompleteName->Initialize( ParentName ) ) {
-            DbgPrint( "ParentName->Initialize() failed" );
+            DebugPrint( "ParentName->Initialize() failed" );
             return( FALSE );
         }
         CompleteName->Strcat( _Separator );
@@ -712,7 +712,7 @@ Return Value:
         return( TRUE );
     } else {
         if( !CompleteName->Initialize( KeyName ) ) {
-            DbgPrint( "ParentName->Initialize() failed" );
+            DebugPrint( "ParentName->Initialize() failed" );
             return( FALSE );
         }
         return( TRUE );
@@ -795,47 +795,47 @@ Return Value:
 
 
 
-    DbgPrintf( "====Dumping a REGEDIT_NODE object ====\n \n" );
+    DebugPrintf( "====Dumping a REGEDIT_NODE object ====\n \n" );
     _KeyInfo->DbgPrintKeyInfo();
 
     if( _ParentNode == NULL ) {
-        DbgPrintf("        The node does not have a parent \n" );
+        DebugPrintf("        The node does not have a parent \n" );
     } else {
         TmpString = _ParentNode->GetKeyInfo()->GetName();
-        DbgPtrAssert( TmpString );
+        DebugPtrAssert( TmpString );
         Pointer = TmpString->QuerySTR();
-        DbgPtrAssert( Pointer );
-        DbgPrintf( "       ParentNodeName = %s \n", Pointer );
+        DebugPtrAssert( Pointer );
+        DebugPrintf( "       ParentNodeName = %s \n", Pointer );
         FREE( Pointer );
     }
 
-    DbgPrintf( "        Level = %d \n", _Level );
+    DebugPrintf( "        Level = %d \n", _Level );
     if( _FlagFirstChild ) {
-        DbgPrintf( "        FlagFirstChild = TRUE \n" );
+        DebugPrintf( "        FlagFirstChild = TRUE \n" );
     } else {
-        DbgPrintf( "        FlagFirstChild = FALSE \n" );
+        DebugPrintf( "        FlagFirstChild = FALSE \n" );
     }
 
     if( _FlagLastChild ) {
-        DbgPrintf( "        FlagLastChild = TRUE \n" );
+        DebugPrintf( "        FlagLastChild = TRUE \n" );
     } else {
-        DbgPrintf( "        FlagLastChild = FALSE \n" );
+        DebugPrintf( "        FlagLastChild = FALSE \n" );
     }
 
     if( _Values == NULL ) {
-        DbgPrintf( "        Values are not loaded in memory. \n" );
+        DebugPrintf( "        Values are not loaded in memory. \n" );
     } else {
-        DbgPrintf( "        Values are loaded in memory. \n" );
-        DbgPrintf( "        Values = %x, MemberCount = %d \n", _Values, _Values->QueryMemberCount() );
+        DebugPrintf( "        Values are loaded in memory. \n" );
+        DebugPrintf( "        Values = %x, MemberCount = %d \n", _Values, _Values->QueryMemberCount() );
     }
     if( _Children == NULL ) {
-        DbgPrintf( "        Children are not loaded in memory. \n" );
+        DebugPrintf( "        Children are not loaded in memory. \n" );
     } else {
-        DbgPrintf( "        Children are loaded in memory. \n" );
-        DbgPrintf( "        Children = %x, MemberCount = %d \n", _Children, _Children->QueryMemberCount() );
+        DebugPrintf( "        Children are loaded in memory. \n" );
+        DebugPrintf( "        Children = %x, MemberCount = %d \n", _Children, _Children->QueryMemberCount() );
     }
 
-    DbgPrintf( "\n\n" );
+    DebugPrintf( "\n\n" );
 }
 
 #endif // DBG
@@ -853,7 +853,7 @@ Routine Description:
     Compare two nodes based on their key names.
 
 Arguments:
-	
+
     Object - Supplies the node to compare with.
 
 Return Value:
@@ -869,7 +869,7 @@ Return Value:
     PCWSTRING   Name1;
     PCWSTRING   Name2;
 
-    DbgPtrAssert( Node );
+    DebugPtrAssert( Node );
 
     Name1 = _KeyInfo->GetName();
     Name2 = ( (PCREGEDIT_NODE)Node )->GetKeyInfo()->GetName();

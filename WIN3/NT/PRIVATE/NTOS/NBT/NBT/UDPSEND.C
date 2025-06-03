@@ -57,7 +57,8 @@ UdpSendNSBcast(
     IN PVOID                 pClientCompletion,
     IN ULONG                 Retries,
     IN ULONG                 Timeout,
-    IN enum eNSTYPE          eNsType
+    IN enum eNSTYPE          eNsType,
+	IN BOOL					 SendFlag
     )
 /*++
 
@@ -86,7 +87,7 @@ Return Value:
     USHORT                      NameType;
     tDGRAM_SEND_TRACKING        *pTracker;
     tTIMERQENTRY                *pTimerQEntry;
-
+    PFILE_OBJECT                pFileObject;
 
 
     if (pNameAddr->NameTypeState & (NAMETYPE_GROUP | NAMETYPE_INET_GROUP))
@@ -294,12 +295,35 @@ Return Value:
         *pHdrIpAddress = htonl(pDeviceContext->IpAddress);
     }
 
-    CTESpinFree(&NbtConfig.JointLock,OldIrq);
+    //
+    // in the event that DHCP has just removed the IP address, use a null
+    // FileObject to signal UdpSendDatagram not to do the send
+    //
+    if (
+    	(pDeviceContext->IpAddress == 0)
+		|| ( !SendFlag )
+	)
+    {
+        pFileObject = NULL;
+    }
+    else
+    {
+        //
+        // If the device has been destroyed, dont send anything.
+        //
+        if (InterlockedExchangeAdd(&pDeviceContext->IsDestroyed, 0) != 0) {
+            pFileObject = NULL;
+        } else {
+            pFileObject = pDeviceContext->pNameServerFileObject;
+        }
 
+    }
+
+    CTESpinFree(&NbtConfig.JointLock,OldIrq);
     status = UdpSendDatagram(
                              pTracker,
                              IpAddress,
-                             pDeviceContext->pNameServerFileObject,
+                             pFileObject,
                              NDgramSendCompleted,
                              pTracker,
                              Port,
@@ -339,12 +363,17 @@ Return Value:
     ULONG           uLength;
     ULONG           uScopeSize;
     tGENERALRR      *pGeneral;
+    CTELockHandle   OldIrq;
 
 
 #ifdef VXD
-    if (eNsType == eDNS_NAME_QUERY)
+    if ( (eNsType == eDNS_NAME_QUERY) || (eNsType == eDIRECT_DNS_NAME_QUERY) )
     {
-        uScopeSize = strlen(NbtConfig.pDomainName) + 1;
+        uScopeSize = domnamelen(pTracker->pchDomainName) + 1;   // +1 for len byte
+        if (uScopeSize > 1)
+        {
+            uScopeSize++;        // for the null byte
+        }
     }
     else
 #endif
@@ -356,25 +385,34 @@ Return Value:
     // scope + size of the General RR structure
     uLength = sizeof(tNAMEHDR) - 1
                             + (NETBIOS_NAME_SIZE << 1)
-                            + uScopeSize
-                            + sizeof(tGENERALRR);
+                            + uScopeSize;
 
     if (eNsType == eNAME_QUERY)
     {
-        uLength = uLength - sizeof(tGENERALRR) + sizeof(ULONG);
+        uLength = uLength + sizeof(ULONG);
     }
 #ifdef VXD
     // there is no half-ascii conversion in DNS.  we added 32 bytes above, but
     // we need only 16.  so, subtract 16.
     else if (eNsType == eDNS_NAME_QUERY)
     {
-        uLength = uLength - NETBIOS_NAME_SIZE - sizeof(tGENERALRR) + sizeof(ULONG);
+        uLength = uLength - NETBIOS_NAME_SIZE + sizeof(ULONG);
+    }
+	// This is a "raw" DNS name query.  Substitute raw string length of pName
+	// for NETBIOS_NAME_SIZE.
+    else if (eNsType == eDIRECT_DNS_NAME_QUERY)
+    {
+        uLength = uLength - (NETBIOS_NAME_SIZE << 1) + sizeof(ULONG) + strlen(pName) + 1;
     }
 #endif
+	else
+	{
+	    uLength += sizeof(tGENERALRR);
+	}
 
     // Note that this memory must be deallocated when the send completes in
     // tdiout.DgramSendCompletion
-    pNameHdr = CTEAllocMem((USHORT)uLength );
+    pNameHdr = NbtAllocMem((USHORT)uLength ,NBT_TAG('X'));
 
     if (!pNameHdr)
     {
@@ -393,19 +431,7 @@ Return Value:
     }
     else
     {
-
-        pNameHdr->TransactId = htons(NbtConfig.TransactionId);
-        NbtConfig.TransactionId++;
-
-        if (NbtConfig.TransactionId == 0xFFFF)
-        {
-#ifndef VXD
-            NbtConfig.TransactionId = WINS_MAXIMUM_TRANSACTION_ID +1;
-#else
-            NbtConfig.TransactionId = 0;
-#endif
-
-        }
+        pNameHdr->TransactId = htons(GetTransactId());
     }
 
     pNameHdr->QdCount = 1;
@@ -414,7 +440,7 @@ Return Value:
 
 
 #ifdef VXD
-    if (eNsType != eDNS_NAME_QUERY)
+    if ((eNsType != eDNS_NAME_QUERY)&&(eNsType != eDIRECT_DNS_NAME_QUERY))
     {
 #endif
         // Convert the name to half ascii and copy!! ... adding the scope too
@@ -438,11 +464,14 @@ Return Value:
 
 #ifdef VXD
     case eDNS_NAME_QUERY:
+    case eDIRECT_DNS_NAME_QUERY:
 
         // copy the netbios name ... adding the scope too
         pGeneral = (tGENERALRR *)DnsStoreName(
                         (PCHAR)&pNameHdr->NameRR.NameLength,
-                        pName);
+                        pName,
+                        pTracker->pchDomainName,
+                        eNsType);
 
         pGeneral->Question.QuestionTypeClass = htonl(QUEST_DNSINTERNET);
 
@@ -669,6 +698,7 @@ Return Value:
     USHORT                      in_port;
     ULONG                       IpAddress;
     USHORT                      NameType;
+    BOOLEAN                     DoNonProxyCode = TRUE;
 
     in_addr = ntohl(pDestIpAddress->in_addr);
     in_port = ntohs(pDestIpAddress->sin_port);
@@ -678,7 +708,7 @@ Return Value:
     // in disjoint WINS server domains. - for name Query responses only
     //
 
-    if (!(NodeType & PROXY) && (NbtConfig.MultiHomed) &&
+    if ((NbtConfig.MultiHomed) &&
         (!NbtConfig.SingleResponse) &&
         (NsType == eNAME_QUERY_RESPONSE))
     {
@@ -702,7 +732,7 @@ Return Value:
 
     // Note that this memory must be deallocated when the send completes in
     // tdiout.DgramSendCompletion
-    pNameHdr = CTEAllocMem((USHORT)uLength );
+    pNameHdr = NbtAllocMem((USHORT)uLength ,NBT_TAG('Y'));
     if (!pNameHdr)
     {
         CTESpinFree(&NbtConfig.JointLock,OldIrq);
@@ -879,6 +909,8 @@ Return Value:
             //
             IF_PROXY(NodeType)
             {
+                DoNonProxyCode = FALSE;
+
                 if (pNameAddr->NameTypeState & (NAMETYPE_INET_GROUP))
                 {
                     //
@@ -892,10 +924,23 @@ Return Value:
                     else
                         IpAddress = pNameAddr->pIpList->IpAddr[0];
                 }
+
+                //
+                // if this name is local and if this is a multihomed machine
+                // we should treat it like a regular multihomed machine, even
+                // though this is a Proxy node
+                //
+                else if ( (pNameAddr->Verify == LOCAL_NAME) &&
+                          (NbtConfig.MultiHomed) )
+                {
+                   DoNonProxyCode = TRUE;
+                }
+
                 else
                 {
                     IpAddress = pNameAddr->IpAddress;
                 }
+
                 if (IpAddress == 0)
                 {
                     // don't return 0, return the broadcast address
@@ -904,7 +949,8 @@ Return Value:
                 }
 
             }
-            else
+
+            if (DoNonProxyCode)
 #endif
             {
                 // the node could be multihomed, but we are saying, only
@@ -1306,7 +1352,7 @@ Return Value:
     tDGRAM_SEND_TRACKING        *pTracker;
     tSESSIONERROR               *pSessionHdr;
 
-    pSessionHdr = (tSESSIONERROR *)CTEAllocMem(sizeof(tSESSIONERROR));
+    pSessionHdr = (tSESSIONERROR *)NbtAllocMem(sizeof(tSESSIONERROR),NBT_TAG('Z'));
     if (!pSessionHdr)
     {
         return(STATUS_INSUFFICIENT_RESOURCES);
@@ -1563,7 +1609,8 @@ Return Values:
     pTracker = (tDGRAM_SEND_TRACKING *)pContext;
 
     pLowerConn = (tLOWERCONNECTION *)pTracker->Connect.pConnEle;
-    CTESpinLock(pLowerConn,OldIrq);
+    CTESpinLock(&NbtConfig.JointLock,OldIrq);
+    CTESpinLockAtDpc(pLowerConn);
 
     IF_DBG(NBT_DEBUG_DISCONNECT)
     KdPrint(("Nbt:Disconnect Irp has been returned...pLowerConn %X,state %X\n",
@@ -1588,8 +1635,9 @@ Return Values:
     //  If the disconnect was abortive, then there will not be a disconnect
     //  indication, so do the cleanup now.
     //
-    if ((pLowerConn->State == NBT_DISCONNECTING) &&
-        (pTracker->Flags == TDI_DISCONNECT_RELEASE ))
+    if ((pLowerConn->State == NBT_DISCONNECTING)
+        && (pTracker->Flags == TDI_DISCONNECT_RELEASE )
+        && (status == STATUS_SUCCESS) )
     {
         pLowerConn->State = NBT_DISCONNECTED ;
         CleanupLower = FALSE;
@@ -1647,7 +1695,8 @@ StreamsCode:
     else
         pIrp = NULL;
 
-    CTESpinFree(pLowerConn,OldIrq);
+    CTESpinFreeAtDpc(pLowerConn);
+    CTESpinFree(&NbtConfig.JointLock,OldIrq);
 
     if (pIrpClose)
     {
@@ -1662,7 +1711,7 @@ StreamsCode:
     if (CleanupLower)
     {
         PUSH_LOCATION(0x6c);
-#ifndef VXD
+#if !defined(VXD) && DBG
         //
         // DEBUG to catch upper connections being put on lower conn QUEUE
         //
@@ -1683,12 +1732,11 @@ StreamsCode:
         status = CTEQueueForNonDispProcessing(NULL,
                                               pLowerConn,
                                               NULL,
-                                              CleanupAfterDisconnect);
+                                              CleanupAfterDisconnect,
+                                              pLowerConn->pDeviceContext);
     }
 
     FreeTracker(pTracker,RELINK_TRACKER);
 
 }
-
-
-
+

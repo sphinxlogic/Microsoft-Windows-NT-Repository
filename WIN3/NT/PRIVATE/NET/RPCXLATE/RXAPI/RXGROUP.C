@@ -946,7 +946,7 @@ Return Value:
 
 #if DBG
         default:
-            NetpDbgPrint("%s.%u Unknown Level parameter: %u\n", __FILE__, __LINE__, Level);
+            NetpKdPrint(("%s.%u Unknown Level parameter: %u\n", __FILE__, __LINE__, Level));
             NetpBreakPoint();
 #endif
     }

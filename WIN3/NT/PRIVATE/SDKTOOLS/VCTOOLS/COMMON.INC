@@ -4,7 +4,7 @@ obj\$(TARGET_DIRECTORY)\$(MESSAGE_ERR) : $(MESSAGE_SRC)
 $(MESSAGE_H) : $(MESSAGE_SRC)
    $(MKMSG_DIR)\mkmsg -h $@ $?
 
-getmsg.c : $(LANGAPI_DIR)\getmsg\getmsg.c
+getmsg.c : ..\langapi\getmsg\getmsg.c
     copy /v $? $@
 
 

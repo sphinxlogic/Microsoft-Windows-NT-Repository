@@ -59,6 +59,8 @@ Return Value:
 {
     NTSTATUS Status;
 
+    PAGED_CODE();
+
     while (TRUE) {
         Status = NtReplyWaitReceivePort( PortHandle,
                                          NULL,

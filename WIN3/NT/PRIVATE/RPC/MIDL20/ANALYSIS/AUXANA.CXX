@@ -41,9 +41,9 @@ CG_STATUS
 CG_STRUCT::AuxMarshallAnalysis(
 	ANALYSIS_INFO	*	pAna )
 	{
-	ITERATOR			FieldList;
+	CG_ITERATOR			FieldList;
 	CG_FIELD		*	pField;
-	_expr_node		*	pSE	= 0;
+	expr_node		*	pSE	= 0;
 	CG_FIELD		*	pS;
 	ALIGNMENT_PROPERTY	NextWireAl;
 
@@ -61,7 +61,7 @@ CG_STRUCT::AuxMarshallAnalysis(
 		pField->MarshallAnalysis( pAna );
 
 		if( pSE )
-			pSE = new _expr_b_arithmetic( OP_PLUS,
+			pSE = new expr_b_arithmetic( OP_PLUS,
 										  pSE,
 										  pField->GetSizeExpression());
 		else
@@ -71,7 +71,7 @@ CG_STRUCT::AuxMarshallAnalysis(
 	if( pSE )
 		SetSizeExpression( pSE );
 	else
-		SetSizeExpression( new _expr_constant( 0L ) );
+		SetSizeExpression( new expr_constant( 0L ) );
 
 	return CG_OK;
 	}
@@ -118,7 +118,7 @@ CG_FIELD::MarshallAnalysis(
 	SetRpcBufSizeProperty( pAna->GetRpcBufSizeProperty() );
 	SetRpcBufferSize( pAna->GetRpcBufferSize() );
 
-	SetSizeExpression( new _expr_constant( GetRpcBufferSize() ) );
+	SetSizeExpression( new expr_constant( GetRpcBufferSize() ) );
 
 	return CG_OK;
 	}

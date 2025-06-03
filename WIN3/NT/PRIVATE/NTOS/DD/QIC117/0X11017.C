@@ -13,7 +13,26 @@
 *
 * HISTORY:
 *		$Log:   J:\se.vcs\driver\q117cd\src\0x11017.c  $
-*	
+*
+*	   Rev 1.8   15 May 1995 10:46:38   GaryKiwi
+*	Phoenix merge from CBW95s
+*
+*	   Rev 1.7.1.0   11 Apr 1995 18:03:18   garykiwi
+*	PHOENIX pass #1
+*
+*	   Rev 1.8   30 Jan 1995 14:24:46   BOBLEHMA
+*	Changed vendor to VENDOR_MOUNTAIN_SUMMIT.
+*
+*	   Rev 1.7   08 Dec 1994 11:34:30   BOBLEHMA
+*	Added a test for VENDOR_CMS on drive D.  This is needed to find a CMS
+*	drive connected to a ZEOS with the Machete FDC.  The new test is done
+*	after all others have failed.
+*
+*	   Rev 1.6   21 Oct 1994 16:02:58   BOBLEHMA
+*	Changed the search order.  Look on drive D before drive B.
+*	#ifdef placed around code that selects the B drive.  If testing doesn't
+*	produce an error, we can delete this code.
+*
 *	   Rev 1.5   18 Jan 1994 16:20:00   KEVINKES
 *	Updated debug code.
 *
@@ -39,6 +58,7 @@
 #define FCT_ID 0x11017
 #include "include\public\adi_api.h"
 #include "include\public\frb_api.h"
+#include "include\public\vendor.h"
 #include "include\private\kdi_pub.h"
 #include "include\private\cqd_pub.h"
 #include "q117cd\include\cqd_defs.h"
@@ -85,6 +105,11 @@ dStatus cqd_LocateDevice
          cqd_ResetFDC(cqd_context);
          status = cqd_LookForDevice(cqd_context, DRIVEU);
 
+#if DBG
+			kdi_DumpDebug(cqd_context);
+#endif
+			kdi_CheckedDump(QIC117INFO,"Q117i: driveu VENDOR UNKNOWN - Status: %08x\n",status);
+
          if ((kdi_GetErrorType(status) != ERR_DRIVE_FAULT) &&
 					(kdi_GetErrorType(status) != ERR_CMD_FAULT)) {
 
@@ -96,6 +121,11 @@ dStatus cqd_LocateDevice
          cqd_ResetFDC(cqd_context);
          status = cqd_LookForDevice(cqd_context, DRIVEU);
 
+#if DBG
+			kdi_DumpDebug(cqd_context);
+#endif
+			kdi_CheckedDump(QIC117INFO,"Q117i: driveu VENDOR CMS - Status: %08x\n",status);
+
          if ((kdi_GetErrorType(status) != ERR_DRIVE_FAULT) &&
 					(kdi_GetErrorType(status) != ERR_CMD_FAULT)) {
 
@@ -103,9 +133,14 @@ dStatus cqd_LocateDevice
 
          }
 
-         cqd_context->device_descriptor.vendor = VENDOR_SUMMIT;
+         cqd_context->device_descriptor.vendor = VENDOR_MOUNTAIN_SUMMIT;
          cqd_ResetFDC(cqd_context);
          status = cqd_LookForDevice(cqd_context, DRIVEU);
+
+#if DBG
+			kdi_DumpDebug(cqd_context);
+#endif
+			kdi_CheckedDump(QIC117INFO,"Q117i: driveu VENDOR SUMMIT - Status: %08x\n",status);
 
          if ((kdi_GetErrorType(status) != ERR_DRIVE_FAULT) &&
 					(kdi_GetErrorType(status) != ERR_CMD_FAULT)) {
@@ -115,6 +150,37 @@ dStatus cqd_LocateDevice
          }
 
          cqd_context->device_descriptor.vendor = VENDOR_UNKNOWN;
+         cqd_ResetFDC(cqd_context);
+         status = cqd_LookForDevice(cqd_context, DRIVED);
+
+#if DBG
+			kdi_DumpDebug(cqd_context);
+#endif
+			kdi_CheckedDump(QIC117INFO,"Q117i: drived VENDOR UNKNOWN - Status: %08x\n",status);
+
+         if ((kdi_GetErrorType(status) != ERR_DRIVE_FAULT) &&
+					(kdi_GetErrorType(status) != ERR_CMD_FAULT)) {
+
+            break;
+
+         }
+
+         cqd_context->device_descriptor.vendor = VENDOR_CMS;
+         cqd_ResetFDC(cqd_context);
+         status = cqd_LookForDevice(cqd_context, DRIVED);
+
+#if DBG
+			kdi_DumpDebug(cqd_context);
+#endif
+			kdi_CheckedDump(QIC117INFO,"Q117i: drived VENDOR CMS - Status: %08x\n",status);
+
+         if ((kdi_GetErrorType(status) != ERR_DRIVE_FAULT) &&
+					(kdi_GetErrorType(status) != ERR_CMD_FAULT)) {
+
+            break;
+
+         }
+#ifdef B_DRIVE
          cqd_ResetFDC(cqd_context);
          status = cqd_LookForDevice(cqd_context, DRIVEB);
 
@@ -125,16 +191,6 @@ dStatus cqd_LocateDevice
 
          }
 
-         cqd_ResetFDC(cqd_context);
-         status = cqd_LookForDevice(cqd_context, DRIVED);
-
-         if ((kdi_GetErrorType(status) != ERR_DRIVE_FAULT) &&
-					(kdi_GetErrorType(status) != ERR_CMD_FAULT)) {
-
-            break;
-
-         }
-
          cqd_context->device_descriptor.vendor = VENDOR_UNKNOWN;
          cqd_ResetFDC(cqd_context);
          status = cqd_LookForDevice(cqd_context, DRIVEUB);
@@ -157,7 +213,7 @@ dStatus cqd_LocateDevice
 
          }
 
-         cqd_context->device_descriptor.vendor = VENDOR_SUMMIT;
+         cqd_context->device_descriptor.vendor = VENDOR_MOUNTAIN_SUMMIT;
          cqd_ResetFDC(cqd_context);
          status = cqd_LookForDevice(cqd_context, DRIVEUB);
 
@@ -167,7 +223,7 @@ dStatus cqd_LocateDevice
             break;
 
          }
-
+#endif
          kdi_Sleep(cqd_context->kdi_context, kdi_wt001s, dFALSE);
 
    }

@@ -43,7 +43,7 @@ Revision History:
         Added code to track down empty queue name.
         Made changes suggested by PC-LINT 5.0
     15-Apr-1993 JohnRo
-        RAID 6167: avoid access violation or assert with WFW print server.
+        RAID 6167: avoid _access violation or assert with WFW print server.
 
 --*/
 
@@ -115,10 +115,10 @@ NetpDbgDisplayPrintDest(
 {
     LPTSTR Local = (LPTSTR) TEXT("(local)");
 
-    NetpDbgPrint( PREFIX_NETLIB "Dest info (level " FORMAT_DWORD ") %s at "
-                FORMAT_LPVOID ":\n", Level, 
+    NetpKdPrint(( PREFIX_NETLIB "Dest info (level " FORMAT_DWORD ") %s at "
+                FORMAT_LPVOID ":\n", Level,
                 (HasUnicodeStrings) ? ShowUnicode : ShowAnsi,
-                (LPVOID) Info);
+                (LPVOID) Info));
     NetpAssert(Info != NULL);
 
     switch (Level) {
@@ -245,10 +245,10 @@ NetpDbgDisplayPrintJob(
     )
 {
 
-    NetpDbgPrint( PREFIX_NETLIB "Job info (level " FORMAT_DWORD ") %s at "
+    NetpKdPrint(( PREFIX_NETLIB "Job info (level " FORMAT_DWORD ") %s at "
                 FORMAT_LPVOID ":\n", Level,
                 (HasUnicodeStrings) ? ShowUnicode : ShowAnsi,
-                (LPVOID) Info);
+                (LPVOID) Info));
     NetpAssert(Info != NULL);
 
     switch (Level) {
@@ -375,10 +375,10 @@ NetpDbgDisplayPrintQ(
     )
 {
 
-    NetpDbgPrint( PREFIX_NETLIB "Queue info (level " FORMAT_DWORD ") %s at "
+    NetpKdPrint(( PREFIX_NETLIB "Queue info (level " FORMAT_DWORD ") %s at "
                 FORMAT_LPVOID ":\n", Level,
                 (HasUnicodeStrings) ? ShowUnicode : ShowAnsi,
-                (LPVOID) Info);
+                (LPVOID) Info));
     NetpAssert(Info != NULL);
 
     switch (Level) {

@@ -1,7 +1,7 @@
 /* --------------------------------------------------------------------
 
-		      Microsoft OS/2 LAN Manager
-		   Copyright(c) Microsoft Corp., 1990
+              Microsoft OS/2 LAN Manager
+           Copyright(c) Microsoft Corp., 1990
 
 -------------------------------------------------------------------- */
 /* --------------------------------------------------------------------
@@ -22,18 +22,7 @@ mikemon    12-28-90    Cleaned up the comments.
 
 -------------------------------------------------------------------- */
 
-#include <sysinc.h>
-#include <rpc.h>
-#include <rpcdcep.h>
-#include <rpcerrp.h>
-#include <rpcssp.h>
-#include <util.hxx>
-#include <rpcuuid.hxx>
-#include <linklist.hxx>
-#include <binding.hxx>
-#include <handle.hxx>
-#include <sdict.hxx>
-#include <secclnt.hxx>
+#include <precomp.hxx>
 #include <epmap.h>
 
 #ifdef NTENV
@@ -43,6 +32,70 @@ mikemon    12-28-90    Cleaned up the comments.
 #if DOS && !defined(WIN)
 #include "dosdll.h"
 #endif
+
+extern unsigned  DefaultMaxDatagramLength = DEFAULT_MAX_DATAGRAM_LENGTH;
+extern unsigned  DefaultConnectionBufferLength = DEFAULT_CONNECTION_BUFFER_LENGTH;
+
+#ifdef NTENV
+
+/*
+
+   A helper routine to capture the logon ID of this thread, if it is 
+   impersonating another process.
+
+   Routine returns RPC_S_OK on success. If the process is not impersonating, 
+   but running under its own process identity, this routine will fail.
+
+   All failures, currently, get treated as if the thread is not impersonating
+
+*/
+
+RPC_STATUS
+CaptureLogonid(
+    LUID * LogonId
+    )
+{
+
+
+    BOOL Result;
+    TOKEN_STATISTICS TokenStatisticsInformation;
+    HANDLE Handle;
+    unsigned long Size;
+
+    Result = OpenThreadToken( 
+                 GetCurrentThread(), 
+                 TOKEN_READ,
+                 TRUE,
+                 &Handle
+                 );
+
+    if (Result != TRUE)
+        {
+        return (GetLastError());
+        }
+ 
+    Result = GetTokenInformation(
+                 Handle,
+                 TokenStatistics,
+                 &TokenStatisticsInformation,
+                 sizeof(TokenStatisticsInformation),
+                 &Size
+                 );
+
+    CloseHandle(Handle);
+    if (Result != TRUE)
+        {
+        return (GetLastError());
+        }
+ 
+     RpcpMemoryCopy(LogonId, &TokenStatisticsInformation.AuthenticationId, 
+                    sizeof(LUID));
+     return (RPC_S_OK);
+
+}
+#endif
+
+
 /* ====================================================================
 
 GENERIC_OBJECT
@@ -64,27 +117,27 @@ GENERIC_OBJECT::InvalidHandle ( // Validate a handle.
 // we can (such as on NT), we should check for readable and writeable memory.
 
     if (this == 0)
-	{
-	return(1);
-	}
+    {
+    return(1);
+    }
 
 // Check the magic long.  This allows us to catch stale handles and handles
 // which are just passed in as arbitray pointers into memory.  It does not
 // handle the case of copying the contents of a handle.
 
     if (MagicLong != MAGICLONG)
-	{
-	return(1);
-	}
+    {
+    return(1);
+    }
 
 // Finally, check that the type of handle is one of the allowed ones
 // specified by the HandleType argument.  Remember that the call to Type
 // is a virtual method which each type of handle will implement.
 
     if (!(HandleType & Type()))
-	{
-	return(1);
-	}
+    {
+    return(1);
+    }
 
   return(0);
 }
@@ -102,6 +155,195 @@ MESSAGE_OBJECT::BindingCopy (
     ASSERT( 0 );
     return(RPC_S_INTERNAL_ERROR);
 }
+
+
+void 
+CLIENT_AUTH_INFO::ReferenceCredentials(
+    )
+{
+
+  if (Credentials != 0)
+      {
+      Credentials->ReferenceCredentials();
+      }
+}
+
+
+#ifdef NTENV
+
+int
+CLIENT_AUTH_INFO::CredentialsMatch(
+     SECURITY_CREDENTIALS PAPI * SuppliedCredentials
+     )
+{
+  return(Credentials->CompareCredentials(SuppliedCredentials) == 0);
+}
+
+#endif
+
+
+CLIENT_AUTH_INFO::CLIENT_AUTH_INFO(
+    CLIENT_AUTH_INFO * myAuthInfo,
+    RPC_STATUS __RPC_FAR * pStatus
+    )
+{
+    if (myAuthInfo)
+        {
+        *this = *myAuthInfo;
+
+        if (myAuthInfo->ServerPrincipalName)
+            {
+            RPC_CHAR * NewString;
+
+            NewString = DuplicateString(myAuthInfo->ServerPrincipalName);
+            ServerPrincipalName = NewString;
+            if (0 == NewString)
+                {
+                *pStatus = RPC_S_OUT_OF_MEMORY;
+                }
+            }
+        myAuthInfo->ReferenceCredentials();
+        }
+    else
+        {
+        AuthenticationLevel   = RPC_C_AUTHN_LEVEL_NONE;
+        AuthenticationService = RPC_C_AUTHN_NONE;
+        AuthorizationService  = RPC_C_AUTHZ_NONE;
+        ServerPrincipalName   = 0;
+        AuthIdentity          = 0;
+        Credentials           = 0;
+#ifdef NTENV
+        ImpersonationType     = RPC_C_IMP_LEVEL_IMPERSONATE;
+        IdentityTracking      = RPC_C_QOS_IDENTITY_STATIC;
+        Capabilities          = RPC_C_QOS_CAPABILITIES_DEFAULT;
+        DefaultLogonId        = 1;
+#endif
+        }
+}
+
+
+CLIENT_AUTH_INFO::~CLIENT_AUTH_INFO(
+    )
+{
+    delete ServerPrincipalName;
+
+    if (Credentials)
+        {
+        Credentials->DereferenceCredentials();
+        }
+}
+
+int
+CLIENT_AUTH_INFO::IsSupportedAuthInfo (
+    IN CLIENT_AUTH_INFO * ClientAuthInfo
+    )
+/*++
+
+Arguments:
+
+    ClientAuthInfo - Supplies the authentication and authorization information
+        required of this connection.  A value of zero (the pointer is
+        zero) indicates that we want an unauthenticated connection.
+
+Return Value:
+
+    Non-zero indicates that the connection has the requested authentication
+    and authorization information; otherwise, zero will be returned.
+
+--*/
+{
+    if ( ClientAuthInfo == 0 )
+        {
+        return(AuthenticationLevel
+                == RPC_C_AUTHN_LEVEL_NONE);
+        }
+
+    if ( ClientAuthInfo->AuthenticationLevel
+                != AuthenticationLevel )
+        {
+        return(0);
+        }
+
+    if ( ClientAuthInfo->AuthenticationService != AuthenticationService )
+        {
+        return(0);
+        }
+
+    if ( ClientAuthInfo->AuthorizationService != AuthorizationService )
+        {
+        return(0);
+        }
+
+#ifdef NTENV
+    if (CredentialsMatch(ClientAuthInfo->Credentials) == 0)
+        {
+        //Credentials Dont Match
+        return(0);
+        }
+
+    if ( ClientAuthInfo->ImpersonationType != ImpersonationType )
+        {
+        return (0);
+        }
+
+    if ( (ClientAuthInfo->IdentityTracking == RPC_C_QOS_IDENTITY_DYNAMIC)
+         &&(IdentityTracking == RPC_C_QOS_IDENTITY_DYNAMIC) 
+         &&( (ClientAuthInfo->DefaultLogonId !=  DefaultLogonId)
+           ||( (ClientAuthInfo->DefaultLogonId == FALSE)
+              &&(DefaultLogonId == FALSE) 
+              &&(RpcpMemoryCompare(&ClientAuthInfo->LogonId,&LogonId,
+                                               sizeof(LUID)))  ))
+       ||(ClientAuthInfo->IdentityTracking != IdentityTracking) )
+        {
+        return (0);
+        }
+
+    if ( (ClientAuthInfo->Capabilities != Capabilities)
+       &&(ClientAuthInfo->Capabilities != RPC_C_QOS_CAPABILITIES_DEFAULT) )
+        {
+        return (0);
+        }
+#else
+    if ( ClientAuthInfo->AuthIdentity != AuthIdentity )
+        {
+        return (0);
+        }
+#endif
+
+    if (   ClientAuthInfo->ServerPrincipalName == 0
+        || ServerPrincipalName == 0 )
+        {
+        return(ServerPrincipalName == ClientAuthInfo->ServerPrincipalName);
+        }
+
+    if ( RpcpStringCompare(ClientAuthInfo->ServerPrincipalName,
+                           ServerPrincipalName) == 0 )
+        {
+        return(1);
+        }
+
+    return(0);
+}
+
+
+#if defined(NTENV) || defined(DOSWIN32RPC)
+
+RPC_STATUS
+CONNECTION::Cancel(
+    void * ThreadHandle
+    )
+{
+    return RPC_S_OK;
+}
+
+unsigned
+CONNECTION::TestCancel(
+    )
+{
+    return 0;
+}
+
+#endif
 
 /* ====================================================================
 
@@ -124,7 +366,7 @@ BINDING_HANDLE
 
 ==================================================================== */
 
-#ifdef WIN
+#if defined(WIN) || defined(MAC)
 
 NEW_SDICT(BINDING_HANDLE);
 
@@ -152,13 +394,12 @@ Routine Description:
     EntryName = 0;
     EpLookupHandle = 0;
 
-    ClientAuthInfo.AuthenticationService = RPC_C_AUTHN_NONE;
-    ClientAuthInfo.ServerPrincipalName = 0;
-
-#ifdef WIN
-
+#if defined(WIN) || defined(MAC)
+    ASSERT(GlobalBindingHandleSet) ;
     BindingSetKey = GlobalBindingHandleSet->Insert(this);
+#ifndef MAC
     TaskId = GetCurrentTask();
+#endif
 
 #endif // WIN
 }
@@ -167,23 +408,25 @@ BINDING_HANDLE::~BINDING_HANDLE (
     )
 {
     if ( EpLookupHandle != 0 )
-	{
-	EpFreeLookupHandle(EpLookupHandle);
-	}
+    {
+    EpFreeLookupHandle(EpLookupHandle);
+    }
 
-#ifdef WIN
-
+#if defined(WIN) || defined(MAC)
+    ASSERT(GlobalBindingHandleSet) ;
     GlobalBindingHandleSet->Delete(BindingSetKey);
 
 #endif // WIN
 }
 
 
-#ifdef WIN
+#if defined(WIN) || defined(MAC)
 START_C_EXTERN
-void __pascal __far
+void __pascal __RPC_FAR
 CloseBindings (
+#ifdef WIN
     IN HTASK TaskHandle
+#endif
     )
 /*++
 
@@ -202,15 +445,18 @@ Arguments:
 
     GlobalBindingHandleSet->Reset();
     while ( (BindingHandle = GlobalBindingHandleSet->Next()) != 0 )
-	{
-	ASSERT(!RpcpCheckHeap());
-	if ( TaskHandle == BindingHandle->TaskId )
-	    {
-	    BindingHandle->BindingFree();
-	    }
-	}
+    {
+    ASSERT(!RpcpCheckHeap());
+#ifdef WIN
+    if ( TaskHandle == BindingHandle->TaskId )
+#endif
+    delete BindingHandle ;
+    }
 
+#ifndef MAC
      CleanupDgTransports();
+#endif
+
 }
 END_C_EXTERN
 #endif
@@ -255,16 +501,16 @@ Arguments:
 --*/
 {
     if (   ( ObjectUuid == 0 )
-	|| ( ObjectUuid->IsNullUuid() != 0 ) )
-	{
-	NullObjectUuidFlag = 1;
-	this->ObjectUuid.SetToNullUuid();
-	}
+    || ( ObjectUuid->IsNullUuid() != 0 ) )
+    {
+    NullObjectUuidFlag = 1;
+    this->ObjectUuid.SetToNullUuid();
+    }
     else
-	{
-	this->ObjectUuid.CopyUuid(ObjectUuid);
-	NullObjectUuidFlag = 0;
-	}
+    {
+    this->ObjectUuid.CopyUuid(ObjectUuid);
+    NullObjectUuidFlag = 0;
+    }
 }
 
 
@@ -282,14 +528,14 @@ Routine Description:
 Arguments:
 
     Timeout - Supplies the new communications timeout value for this
-	binding handle.
+    binding handle.
 
 Return Value:
 
     RPC_S_OK - The operation completed successfully.
 
     RPC_S_INVALID_TIMEOUT - The specified timeout value is not in the
-	correct range.
+    correct range.
 
 --*/
 {
@@ -297,7 +543,7 @@ Return Value:
     // since the timeout is unsigned and the lowest value is zero.
 
     if (Timeout > RPC_C_BINDING_INFINITE_TIMEOUT)
-	return(RPC_S_INVALID_TIMEOUT);
+    return(RPC_S_INVALID_TIMEOUT);
 
     this->Timeout = Timeout;
     return(RPC_S_OK);
@@ -339,41 +585,46 @@ Routine Description:
 Arguments:
 
     EntryNameSyntax - Supplies the entry name syntax which the caller
-	wants the entry name to be returned in.  This may require that
-	we convert the entry name in the binding handle into a different
-	syntax.
+    wants the entry name to be returned in.  This may require that
+    we convert the entry name in the binding handle into a different
+    syntax.
 
     EntryName - Returns the entry name of the binding handle in the
-	requested entry name syntax.
+    requested entry name syntax.
 
 Return Value:
 
     RPC_S_OK - This binding handle has an entry name, and we were able
-	to convert the entry name in the binding handle into the requested
-	entry name syntax.
+    to convert the entry name in the binding handle into the requested
+    entry name syntax.
 
     RPC_S_NO_ENTRY_NAME - The binding handle does not have an entry
-	name.  If this value is returned, the entry name return value
-	will be set to point to a newly allocated empty string.
+    name.  If this value is returned, the entry name return value
+    will be set to point to a newly allocated empty string.
 
     RPC_S_INVALID_NAME_SYNTAX - The entry name in the binding handle
-	can not be converted to the entry name syntax requested.
+    can not be converted to the entry name syntax requested.
 
     RPC_S_UNSUPPORTED_NAME_SYNTAX - The entry name syntax requested
-	is not supported by the current configuration.
+    is not supported by the current configuration.
 
     RPC_S_OUT_OF_MEMORY - Insufficient memory is available to complete
-	the operation.
+    the operation.
 
 --*/
 {
+
+#ifdef MAC
+    ASSERT(0);
+    return(RPC_S_INTERNAL_ERROR);
+#else
     if ( this->EntryName == 0 )
-	{
-	*EntryName = AllocateEmptyStringPAPI();
-	if (*EntryName == 0)
-	    return(RPC_S_OUT_OF_MEMORY);
-	return(RPC_S_NO_ENTRY_NAME);
-	}
+    {
+    *EntryName = AllocateEmptyStringPAPI();
+    if (*EntryName == 0)
+        return(RPC_S_OUT_OF_MEMORY);
+    return(RPC_S_NO_ENTRY_NAME);
+    }
 
     //
     // If he chose the default syntax and the binding has an entry,
@@ -382,46 +633,47 @@ Return Value:
     // associated entry.
     //
     if (EntryNameSyntax == RPC_C_NS_SYNTAX_DEFAULT)
-	{
-	HINSTANCE NsDll = GetModuleHandle(NS_DLL_NAME);
-	if (NsDll)
-	    {
-	    GET_DEFAULT_ENTRY_FN GetDefaultEntry =
-				   (GET_DEFAULT_ENTRY_FN)
-				   GetProcAddress(NsDll,
-						  NS_ENTRYPOINT_NAME
-						  );
+    {
+    HINSTANCE NsDll = GetModuleHandle(NS_DLL_NAME);
+    if (NsDll)
+        {
+        GET_DEFAULT_ENTRY_FN GetDefaultEntry =
+                   (GET_DEFAULT_ENTRY_FN)
+                   GetProcAddress(NsDll,
+                          NS_ENTRYPOINT_NAME
+                          );
 
-	    if (GetDefaultEntry)
-		{
-		EntryNameSyntax = (*GetDefaultEntry)();
-		}
-	    else
-		{
-		//
-		// leave EntryNameSyntax zero; the fn will fail
-		// with invalid_name_syntax
-		//
-		}
-	    }
-	else
-	    {
-	    //
-	    // leave EntryNameSyntax zero; the fn will fail
-	    // with invalid_name_syntax
-	    //
-	    }
-	}
+        if (GetDefaultEntry)
+        {
+        EntryNameSyntax = (*GetDefaultEntry)();
+        }
+        else
+        {
+        //
+        // leave EntryNameSyntax zero; the fn will fail
+        // with invalid_name_syntax
+        //
+        }
+        }
+    else
+        {
+        //
+        // leave EntryNameSyntax zero; the fn will fail
+        // with invalid_name_syntax
+        //
+        }
+    }
 
     if (EntryNameSyntax == this->EntryNameSyntax)
-	{
-	*EntryName = DuplicateStringPAPI(this->EntryName);
-	if (*EntryName == 0)
-	    return(RPC_S_OUT_OF_MEMORY);
-	return(RPC_S_OK);
-	}
+    {
+    *EntryName = DuplicateStringPAPI(this->EntryName);
+    if (*EntryName == 0)
+        return(RPC_S_OUT_OF_MEMORY);
+    return(RPC_S_OK);
+    }
 
     return(RPC_S_INVALID_NAME_SYNTAX);
+#endif
 }
 
 
@@ -446,10 +698,10 @@ Arguments:
 Return Value:
 
     RPC_S_OK - We successfully set the entry name (and entry name syntax)
-	for this binding handle.
+    for this binding handle.
 
     RPC_S_OUT_OF_MEMORY - Insufficient memory is available to set the
-	entry name.
+    entry name.
 
 --*/
 {
@@ -457,11 +709,11 @@ Return Value:
 
     NewEntryName = DuplicateString(EntryName);
     if (NewEntryName == 0)
-	return(RPC_S_OUT_OF_MEMORY);
+    return(RPC_S_OUT_OF_MEMORY);
 
     this->EntryNameSyntax = EntryNameSyntax;
     if (this->EntryName != 0)
-	delete this->EntryName;
+    delete this->EntryName;
     this->EntryName = NewEntryName;
     return(RPC_S_OK);
 }
@@ -482,7 +734,7 @@ Routine Description:
 Arguments:
 
     DynamicEndpoint - Returns a pointer to the dynamic endpoint, if there
-	is one, or zero.
+    is one, or zero.
 
 Return Value:
 
@@ -493,117 +745,6 @@ Return Value:
     UNUSED(this);
 
     *DynamicEndpoint = 0;
-    return(RPC_S_OK);
-}
-
-
-RPC_STATUS
-BINDING_HANDLE::SetAuthInformation (
-    IN RPC_CHAR PAPI * ServerPrincipalName, OPTIONAL
-    IN unsigned long AuthenticationLevel,
-    IN unsigned long AuthenticationService,
-    IN RPC_AUTH_IDENTITY_HANDLE AuthIdentity, OPTIONAL
-    IN unsigned long AuthorizationService
-    )
-/*++
-
-Routine Description:
-
-    We set the authentication and authorization information in this binding
-    handle.
-
-Arguments:
-
-    ServerPrincipalName - Optionally supplies the server principal name.
-
-    AuthenticationLevel - Supplies the authentication level to use.
-
-    AuthenticationService - Supplies the authentication service to use.
-
-    AuthIdentity - Optionally supplies the security context to use.
-
-    AuthorizationService - Supplies the authorization service to use.
-
-Return Value:
-
-    RPC_S_OK - The supplied authentication and authorization information has
-	been set in the binding handle.
-
-    RPC_S_OUT_OF_MEMORY - Insufficient memory is available to complete the
-	operation.
-
-    RPC_S_UNKNOWN_AUTHN_SERVICE - The specified authentication service is
-	not supported.
-
-    RPC_S_UNKNOWN_AUTHN_LEVEL - The specified authentication level is
-	not supported.
-
-    RPC_S_INVALID_AUTH_IDENTITY - The specified security context (supplied
-	by the auth identity argument) is invalid.
-
-    RPC_S_UNKNOWN_AUTHZ_SERVICE - The specified authorization service is
-	not supported.
-
---*/
-{
-    RPC_CHAR * NewString;
-    RPC_STATUS RpcStatus;
-#ifdef WIN
-    static SECURITY_CREDENTIALS SecurityCredentials;
-#else // WIN
-    SECURITY_CREDENTIALS SecurityCredentials;
-#endif // WIN
-    unsigned long MappedAuthenticationLevel;
-
-    MappedAuthenticationLevel = MapAuthenticationLevel(AuthenticationLevel);
-    RpcStatus = SecurityCredentials.AcquireCredentialsForClient(AuthIdentity,
-	    AuthenticationService, MappedAuthenticationLevel);
-
-    if ( RpcStatus != RPC_S_OK )
-	{
-	ASSERT(   (RpcStatus == RPC_S_OUT_OF_MEMORY)
-	       || (RpcStatus == RPC_S_UNKNOWN_AUTHN_SERVICE)
-	       || (RpcStatus == RPC_S_UNKNOWN_AUTHN_LEVEL)
-           || (RpcStatus == RPC_S_SEC_PKG_ERROR)
-	       || (RpcStatus == RPC_S_INVALID_AUTH_IDENTITY));
-	return(RpcStatus);
-	}
-
-    SecurityCredentials.FreeCredentials();
-
-    if ( AuthenticationLevel > RPC_C_AUTHN_LEVEL_PKT_PRIVACY )
-	{
-	return(RPC_S_UNKNOWN_AUTHN_LEVEL);
-	}
-
-    if (ARGUMENT_PRESENT(ServerPrincipalName))
-	{
-	NewString = DuplicateString(ServerPrincipalName);
-	if ( NewString == 0 )
-	    {
-	    return(RPC_S_OUT_OF_MEMORY);
-	    }
-
-	RequestGlobalMutex();
-	if ( ClientAuthInfo.ServerPrincipalName != 0 )
-	    {
-	    delete ClientAuthInfo.ServerPrincipalName;
-	    }
-	ClientAuthInfo.ServerPrincipalName = NewString;
-	ClearGlobalMutex();
-	}
-
-    ClientAuthInfo.AuthenticationLevel = MappedAuthenticationLevel;
-
-    if ( ClientAuthInfo.AuthenticationLevel == RPC_C_AUTHN_LEVEL_DEFAULT )
-	{
-	ClientAuthInfo.AuthenticationLevel = RPC_C_AUTHN_LEVEL_CONNECT;
-	}
-
-    ClientAuthInfo.AuthenticationService = AuthenticationService;
-    ClientAuthInfo.AuthIdentity = AuthIdentity;
-    ClientAuthInfo.AuthorizationService = AuthorizationService;
-
     return(RPC_S_OK);
 }
 
@@ -634,15 +775,14 @@ Return Value:
     RequestGlobalMutex();
 
     if ( ClientAuthInfo.ServerPrincipalName == 0 )
-	{
-	ClientAuthInfo.ServerPrincipalName = DuplicateString(
-		ServerPrincipalName);
-	if ( ClientAuthInfo.ServerPrincipalName == 0 )
-	    {
-	    ClearGlobalMutex();
-	    return(1);
-	    }
-	}
+    {
+    ClientAuthInfo.ServerPrincipalName = DuplicateString(ServerPrincipalName);
+    if ( ClientAuthInfo.ServerPrincipalName == 0 )
+        {
+        ClearGlobalMutex();
+        return(1);
+        }
+    }
 
     ClearGlobalMutex();
     return(0);
@@ -663,7 +803,7 @@ Routine Description:
 Arguments:
 
     AuthenticationLevel - Supplies the proposed authentication level; this
-	value has already been validated.
+    value has already been validated.
 
 Return Value:
 
@@ -697,6 +837,34 @@ BINDING_HANDLE::SendReceive (
     return(RPC_S_INTERNAL_ERROR);
 }
 
+
+
+RPC_STATUS
+BINDING_HANDLE::Send (
+    IN OUT PRPC_MESSAGE Message
+    )
+{
+    UNUSED(this);
+    UNUSED(Message);
+
+    ASSERT( 0 );
+    return(RPC_S_INTERNAL_ERROR);
+}
+
+
+RPC_STATUS
+BINDING_HANDLE::Receive (
+    IN OUT PRPC_MESSAGE Message,
+    IN unsigned int Size
+    )
+{
+    UNUSED(this);
+    UNUSED(Message);
+
+    ASSERT( 0 );
+    return(RPC_S_INTERNAL_ERROR);
+}
+
 void
 BINDING_HANDLE::FreeBuffer (
     IN PRPC_MESSAGE Message
@@ -706,6 +874,131 @@ BINDING_HANDLE::FreeBuffer (
     UNUSED(Message);
 
     ASSERT( 0 );
+}
+
+RPC_STATUS
+BINDING_HANDLE::SetConnectionParameter (
+    IN unsigned Parameter,
+    IN unsigned long Value
+    )
+{
+    return RPC_S_OK;
+}
+
+RPC_STATUS
+BINDING_HANDLE::InqConnectionParameter (
+    IN unsigned Parameter,
+    IN unsigned long __RPC_FAR * pValue
+    )
+{
+    return RPC_S_INVALID_ARG;
+}
+
+
+#ifdef NTENV
+RPC_STATUS
+BINDING_HANDLE::ReAcquireCredentialsIfNecessary(
+         )
+{
+
+    LUID CurrentLogonId;
+    RPC_STATUS Status =  CaptureLogonid(&CurrentLogonId);
+    SECURITY_CREDENTIALS * SecurityCredentials;
+
+    if ( ((Status != RPC_S_OK) && (ClientAuthInfo.DefaultLogonId == FALSE))
+       ||((Status == RPC_S_OK) && (ClientAuthInfo.DefaultLogonId == TRUE)) 
+       ||( ((Status == RPC_S_OK) && (ClientAuthInfo.DefaultLogonId == FALSE))
+         &&(RpcpMemoryCompare((void *)&CurrentLogonId, 
+                              (void*)&ClientAuthInfo.LogonId,
+                              sizeof(LUID)) == 0))  )
+       {
+
+       if (Status == RPC_S_OK)
+           {
+           ClientAuthInfo.DefaultLogonId = FALSE;
+           }
+       else 
+           {     
+           ClientAuthInfo.DefaultLogonId = TRUE;
+           }
+
+        Status = RPC_S_OK;
+
+        SecurityCredentials = new SECURITY_CREDENTIALS(&Status);
+        if ((SecurityCredentials == 0) || (Status != RPC_S_OK))
+            {
+            if (SecurityCredentials == 0)
+                {
+                Status = RPC_S_OUT_OF_MEMORY;
+                }
+            delete SecurityCredentials;
+            return (Status);
+            }
+
+        Status = SecurityCredentials->AcquireCredentialsForClient(
+                                        ClientAuthInfo.AuthIdentity,
+                                        ClientAuthInfo.AuthenticationService,
+                                        ClientAuthInfo.AuthenticationLevel
+                                        );
+        if ( Status != RPC_S_OK )
+            {
+
+            ASSERT(
+               Status == RPC_S_OUT_OF_MEMORY         ||
+               Status == RPC_S_UNKNOWN_AUTHN_SERVICE ||
+               Status == RPC_S_UNKNOWN_AUTHN_LEVEL   ||
+               Status == RPC_S_SEC_PKG_ERROR         ||
+               Status == RPC_S_INVALID_AUTH_IDENTITY 
+               );
+
+             return(Status);
+            }
+
+        if (ClientAuthInfo.CredentialsMatch(SecurityCredentials) != 0)
+            {
+            SecurityCredentials->DereferenceCredentials();
+            }
+        else
+            {
+            if (ClientAuthInfo.Credentials != 0)
+                {
+                ClientAuthInfo.Credentials->DereferenceCredentials();
+                }
+
+            ClientAuthInfo.Credentials = SecurityCredentials;
+            RpcpMemoryCopy(&ClientAuthInfo.LogonId, &CurrentLogonId, 
+                               sizeof(LUID));
+            }
+
+        }
+
+      return (RPC_S_OK);
+   
+}
+#endif
+
+
+
+RPC_STATUS
+CONNECTION::Send (
+    IN OUT PRPC_MESSAGE Message
+    )
+{
+    ASSERT(0) ;
+
+    return (RPC_S_CANNOT_SUPPORT) ;
+}
+
+
+RPC_STATUS
+CONNECTION::Receive (
+    IN OUT PRPC_MESSAGE Message,
+    IN unsigned int Size
+    )
+{
+    ASSERT(0) ;
+
+    return (RPC_S_CANNOT_SUPPORT) ;
 }
 
 RPC_STATUS
@@ -728,68 +1021,73 @@ Arguments:
     DispatchTableCallback - Callback table.
 
     Message - Supplies the response message and returns the reply
-	message.
+    message.
 
     ExceptionCode - Returns the remote exception code if
-	RPC_P_EXCEPTION_OCCURED is returned.
+    RPC_P_EXCEPTION_OCCURED is returned.
 
 Return Value:
 
     RPC_S_OK - Everything worked just fine.
 
     RPC_P_EXCEPTION_OCCURED - An exception of some sort occured.  The
-	exact exception code will be returned in the ExceptionCode
-	argument.
+    exact exception code will be returned in the ExceptionCode
+    argument.
 
     RPC_S_PROCNUM_OUT_OF_RANGE - The supplied operation number in the
-	message is too large.
+    message is too large.
 
 --*/
 {
     RPC_STATUS RpcStatus = RPC_S_OK;
     void PAPI *OriginalBuffer = Message->Buffer;
 
+    //BUGBUG: my be we should change this to an assert later
+    // and set the flag after sendreceive is completed for each
+    // transport
+    Message->RpcFlags |= RPC_BUFFER_COMPLETE ;
+
     if ( Message->ProcNum >= DispatchTableCallback->DispatchTableCount )
-	{
-	return(RPC_S_PROCNUM_OUT_OF_RANGE);
-	}
+    {
+    return(RPC_S_PROCNUM_OUT_OF_RANGE);
+    }
 
     Message->ManagerEpv = 0;
 
 #ifdef NTENV
 
     if ( DispatchToStubInC(DispatchTableCallback->DispatchTable[
-	    Message->ProcNum], Message, ExceptionCode) != 0 )
-	{
-	RpcStatus = RPC_P_EXCEPTION_OCCURED;
-	}
-	
+        Message->ProcNum], Message, ExceptionCode) != 0 )
+    {
+    RpcStatus = RPC_P_EXCEPTION_OCCURED;
+    }
+
 #else // NTENV
 
     RpcTryExcept
-	{
-	(*DispatchTableCallback->DispatchTable[Message->ProcNum])(Message);
-	}
+    {
+    (*DispatchTableCallback->DispatchTable[Message->ProcNum])(Message);
+    }
     RpcExcept( 1 )
-	{
-	*ExceptionCode = RpcExceptionCode();
-	RpcStatus = RPC_P_EXCEPTION_OCCURED;
-	}
+    {
+    *ExceptionCode = RpcExceptionCode();
+    RpcStatus = RPC_P_EXCEPTION_OCCURED;
+    }
     RpcEndExcept
 
 #endif // NTENV
 
     if (OriginalBuffer == Message->Buffer && RpcStatus == RPC_S_OK)
-	{
-	//
-	// If the stub has NO out data, it may skip the call to
-	// I_RpcGetBuffer().  If it called I_RpcGetBuffer and
-	// still has the same Buffer, we have a bug!
-	//
+    {
+    //
+    // If the stub has NO out data, it may skip the call to
+    // I_RpcGetBuffer().  If it called I_RpcGetBuffer and
+    // still has the same Buffer, we have a bug!
+    //
 
-	Message->BufferLength = 0;
-	((MESSAGE_OBJECT *) Message->Handle)->GetBuffer(Message);
-	}
+    Message->BufferLength = 0;
+    ((MESSAGE_OBJECT *) Message->Handle)->GetBuffer(Message);
+    }
 
     return(RpcStatus);
 }
@@ -811,6 +1109,7 @@ Routine Description:
     OsfDeleteIdleConnections();
 }
 
+
 /* ====================================================================
 
 Client DLL initialization routine.
@@ -822,7 +1121,7 @@ START_C_EXTERN
 #endif
 
 #ifdef WIN
-int pascal far
+int pascal __RPC_FAR
 #else // WIN
 int
 #endif // WIN
@@ -837,32 +1136,247 @@ InitializeClientDLL (
     // of that routine for more description.
 
     if (InitializeLoadableTransportClient() != 0)
-	return(1);
+    return(1);
 
 #endif // !DOS || WIN
 
     if (InitializeRpcProtocolOfsClient() != 0)
-	return(1);
+    return(1);
 
-#ifndef DOSWIN32RPC
+#if !defined(MAC) && (!defined(DOSWIN32RPC) || defined(WIN96))
     if (InitializeRpcProtocolDgClient() != 0)
-	return(1);
+    return(1);
 #endif
 
-#ifdef WIN
+#if defined(WIN) || defined(MAC)
     GlobalBindingHandleSet = new BINDING_HANDLE_DICT;
 
     if (GlobalBindingHandleSet == 0)
-	return(1);
-
-    if (InitializeWinExceptions() != 0)
-	return(1);
-
+    return(1);
 #endif // WIN
+
+#ifdef WIN
+    if (InitializeWinExceptions() != 0)
+    return(1);
+#endif
+
 
     return(0);
 }
 
+
 #ifdef WIN
 END_C_EXTERN
 #endif
+
+
+RPC_STATUS
+BINDING_HANDLE::SetAuthInformation (
+    IN RPC_CHAR PAPI * ServerPrincipalName, OPTIONAL
+    IN unsigned long AuthenticationLevel,
+    IN unsigned long AuthenticationService,
+    IN RPC_AUTH_IDENTITY_HANDLE AuthIdentity, OPTIONAL
+    IN unsigned long AuthorizationService,
+#ifndef NTENV
+    IN SECURITY_CREDENTIALS * Credentials
+#else
+    IN SECURITY_CREDENTIALS * Credentials,
+    IN unsigned long ImpersonationType,
+    IN unsigned long IdentityTracking,
+    IN unsigned long Capabilities
+#endif
+    )
+/*++
+
+Routine Description:
+
+    We set the authentication and authorization information in this binding
+    handle.
+
+Arguments:
+
+    ServerPrincipalName - Optionally supplies the server principal name.
+
+    AuthenticationLevel - Supplies the authentication level to use.
+
+    AuthenticationService - Supplies the authentication service to use.
+
+    AuthIdentity - Optionally supplies the security context to use.
+
+    AuthorizationService - Supplies the authorization service to use.
+
+Return Value:
+
+    RPC_S_OK - The supplied authentication and authorization information has
+    been set in the binding handle.
+
+    RPC_S_OUT_OF_MEMORY - Insufficient memory is available to complete the
+    operation.
+
+    RPC_S_UNKNOWN_AUTHN_SERVICE - The specified authentication service is
+    not supported.
+
+    RPC_S_UNKNOWN_AUTHN_LEVEL - The specified authentication level is
+    not supported.
+
+    RPC_S_INVALID_AUTH_IDENTITY - The specified security context (supplied
+    by the auth identity argument) is invalid.
+
+    RPC_S_UNKNOWN_AUTHZ_SERVICE - The specified authorization service is
+    not supported.
+
+--*/
+{
+    RPC_CHAR * NewString;
+    RPC_STATUS RpcStatus = RPC_S_OK;
+    SECURITY_CREDENTIALS * SecurityCredentials;
+    unsigned long MappedAuthenticationLevel;
+
+    if ( AuthenticationLevel == RPC_C_AUTHN_LEVEL_DEFAULT )
+        {
+        AuthenticationLevel = RPC_C_AUTHN_LEVEL_CONNECT;
+        }
+
+    if ( AuthenticationLevel > RPC_C_AUTHN_LEVEL_PKT_PRIVACY )
+        {
+        return(RPC_S_UNKNOWN_AUTHN_LEVEL);
+        }
+
+    MappedAuthenticationLevel = MapAuthenticationLevel(AuthenticationLevel);
+
+    //
+    // Clear out stuff for NULL AUTHN_SVC
+    //
+
+    if (AuthenticationService == RPC_C_AUTHN_NONE)
+        {
+        //
+        // Dereference Credentials.. ServerPrincipal Name is 
+        // handled by deleting CLIENT_AUTH_INFO .. Each AUTH_INFO explicitly
+        // copy the credentials around...
+        //
+        if (ClientAuthInfo.Credentials != 0)
+            {
+            ClientAuthInfo.Credentials->DereferenceCredentials();
+            ClientAuthInfo.Credentials = 0;
+            }
+        }
+    else
+        {
+
+        SecurityCredentials = new SECURITY_CREDENTIALS(&RpcStatus);
+        if ((SecurityCredentials == 0) || (RpcStatus != RPC_S_OK))
+            {
+            if (SecurityCredentials == 0)
+                {
+                RpcStatus = RPC_S_OUT_OF_MEMORY;
+                }
+            delete SecurityCredentials;
+            return (RpcStatus);
+            }
+   
+        RpcStatus = SecurityCredentials->AcquireCredentialsForClient(
+                                        AuthIdentity,
+                                        AuthenticationService,
+                                        MappedAuthenticationLevel
+                                        );
+        if ( RpcStatus != RPC_S_OK )
+            {
+            ASSERT(RpcStatus == RPC_S_OUT_OF_MEMORY     ||
+               RpcStatus == RPC_S_UNKNOWN_AUTHN_SERVICE ||
+               RpcStatus == RPC_S_UNKNOWN_AUTHN_LEVEL   ||
+               RpcStatus == RPC_S_SEC_PKG_ERROR         ||
+               RpcStatus == RPC_S_INVALID_AUTH_IDENTITY );
+
+            delete SecurityCredentials;
+            return(RpcStatus);
+            }
+
+
+        if (ARGUMENT_PRESENT(ServerPrincipalName))
+            {
+            NewString = DuplicateString(ServerPrincipalName);
+            if ( NewString == 0 )
+                {
+                SecurityCredentials->DereferenceCredentials();
+                return(RPC_S_OUT_OF_MEMORY);
+                }
+
+            RequestGlobalMutex();
+            if ( ClientAuthInfo.ServerPrincipalName != 0 )
+                {
+                delete ClientAuthInfo.ServerPrincipalName;
+                }
+            ClientAuthInfo.ServerPrincipalName = NewString;
+            ClearGlobalMutex();
+            }
+
+#ifdef NTENV
+        if ( (ClientAuthInfo.Credentials != 0 ) &&
+             (ClientAuthInfo.CredentialsMatch(SecurityCredentials) != 0) )
+            {
+            SecurityCredentials->DereferenceCredentials();
+            }
+        else
+            {
+            if (ClientAuthInfo.Credentials != 0)
+                {
+                ClientAuthInfo.Credentials->DereferenceCredentials();
+                }
+            ClientAuthInfo.Credentials = SecurityCredentials;
+            }
+
+
+        if (IdentityTracking == RPC_C_QOS_IDENTITY_DYNAMIC)
+            {
+            RpcStatus = CaptureLogonid(&ClientAuthInfo.LogonId);
+
+            //
+            // If The Thread is not impersonating CaptureLogonId fails
+            // All failures get treated as if this process is using *default*
+            // identity. Mark the AuthId as such and proceed 
+            //
+ 
+            if (RpcStatus != RPC_S_OK)
+                {
+                ClientAuthInfo.DefaultLogonId = TRUE;
+                }
+            else
+                {
+                ClientAuthInfo.DefaultLogonId = FALSE;
+                }
+            }
+#else
+         if (ClientAuthInfo.Credentials != 0)
+             {
+             ClientAuthInfo.Credentials->DereferenceCredentials();
+             }
+          ClientAuthInfo.Credentials = SecurityCredentials;
+#endif
+
+         }
+
+    ClientAuthInfo.AuthenticationService = AuthenticationService;
+    ClientAuthInfo.AuthorizationService = AuthorizationService;
+    ClientAuthInfo.AuthIdentity = AuthIdentity;
+
+#ifdef NTENV
+    if (AuthenticationService == RPC_C_AUTHN_NONE)
+        {
+        ClientAuthInfo.IdentityTracking  =  RPC_C_QOS_IDENTITY_STATIC;
+        ClientAuthInfo.AuthenticationLevel = RPC_C_AUTHN_LEVEL_NONE;
+        }
+    else
+        {
+        ClientAuthInfo.AuthenticationLevel = MappedAuthenticationLevel;
+        ClientAuthInfo.IdentityTracking  =  IdentityTracking;
+        }
+
+    ClientAuthInfo.ImpersonationType =  ImpersonationType;
+    ClientAuthInfo.Capabilities      = Capabilities;
+#else
+    ClientAuthInfo.AuthenticationLevel = MappedAuthenticationLevel;
+#endif
+
+    return(RPC_S_OK);
+}

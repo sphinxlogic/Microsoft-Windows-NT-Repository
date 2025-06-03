@@ -6,134 +6,277 @@
 /************************************************************************/
 
 //  Brades:  Changes to be merged into Rob's source
-//
+//  
 //  904 -- frame address stored in dar[0]. we are rgistering our LFB addres
 //      in DriverIORanges, but assigning to frameaddress.
 //      Is this used,  or needed????
 
 /**********************       PolyTron RCS Utilities
-
-  $Revision:   1.12  $
-      $Date:   30 Jun 1994 18:11:36  $
-   $Author:   RWOLFF  $
-      $Log:   S:/source/wnt/ms11/miniport/vcs/atimp.c  $
- *
+   
+  $Revision:   1.43  $
+      $Date:   15 May 1996 16:29:52  $
+   $Author:   RWolff  $
+      $Log:   S:/source/wnt/ms11/miniport/archive/atimp.c_v  $
+ * 
+ *    Rev 1.43   15 May 1996 16:29:52   RWolff
+ * Added workaround for Alpha hang on PCI bus greater than 0, now reports
+ * failure of mode set on Mach 64.
+ * 
+ *    Rev 1.42   01 May 1996 14:07:52   RWolff
+ * Calls new routine DenseOnAlpha() to determine dense space support rather
+ * than assuming all PCI cards support dense space.
+ * 
+ *    Rev 1.41   23 Apr 1996 17:16:38   RWolff
+ * Now reports 1M cards with SDRAM (needs special alignment in display
+ * driver), separated "internal DAC cursor double buffering needed"
+ * from "this is a CT".
+ * 
+ *    Rev 1.40   15 Mar 1996 16:27:08   RWolff
+ * IOCTL_VIDEO_FREE_PUBLIC_ACCESS_RANGES now only frees the I/O mapped
+ * registers in NT 4.0 and above. This is because the mapped values for
+ * the permanent and test screens use the same virtual address, and
+ * in 3.51 VideoPortUnmapMemory() refuses to unmap them.
+ * 
+ *    Rev 1.39   12 Mar 1996 17:41:50   RWolff
+ * Made IOCTL_VIDEO_FREE_PUBLIC_ACCESS_RANGES work under new source
+ * stream display driver, removed debug print statements from ATIMPResetHw()
+ * since this routine can't call pageable routines and debug print
+ * statements are pageable.
+ * 
+ *    Rev 1.38   29 Jan 1996 16:53:30   RWolff
+ * Now uses VideoPortInt10() rather than no-BIOS code on PPC, removed
+ * dead code.
+ * 
+ *    Rev 1.37   23 Jan 1996 11:41:10   RWolff
+ * Eliminated level 3 warnings, added debug print statements.
+ * 
+ *    Rev 1.36   22 Dec 1995 14:51:42   RWolff
+ * Added support for Mach 64 GT internal DAC, switched to TARGET_BUILD
+ * to identify the NT version for which the driver is being built.
+ * 
+ *    Rev 1.35   23 Nov 1995 11:24:40   RWolff
+ * Added multihead support.
+ * 
+ *    Rev 1.34   17 Nov 1995 13:41:02   RWolff
+ * Temporary fallback until problem with VideoPortGetBaseAddress() is
+ * resolved. This should have gone in as branch revision 1.33.1.0, but
+ * the @#$%^&* configuration doesn't allow branches.
+ * 
+ *    Rev 1.33   27 Oct 1995 14:20:06   RWolff
+ * Fixes to bring up NT 3.51 on PPC, no longer makes mapped LFB part of
+ * hardware device extension.
+ * 
+ *    Rev 1.32   08 Sep 1995 16:36:04   RWolff
+ * Added support for AT&T 408 DAC (STG1703 equivalent).
+ * 
+ *    Rev 1.31   28 Aug 1995 16:37:36   RWolff
+ * No longer restores memory size on x86 boxes in ATIMPResetHw(). This
+ * is a fix for EPR 7839 - the restoration is not necessary on x86
+ * machines, but on some non-x86 boxes the memory size is not restored
+ * on a warm boot, so we must do it to allow the use of modes needing
+ * more than 1M after booting out of a 4BPP mode.
+ * 
+ *    Rev 1.30   24 Aug 1995 15:39:42   RWolff
+ * Changed detection of block I/O cards to match Microsoft's standard for
+ * plug-and-play, now reports CT and VT ASICs to the display driver.
+ * 
+ *    Rev 1.29   03 Aug 1995 16:22:42   RWOLFF
+ * Reverted to old bus ordering (PCI last) for non-Alpha machines under
+ * NT 3.5. Using the new ordering (PCI first) on an x86 under 3.5
+ * resulted in the display applet rejecting attempts to test 16 and 24 BPP
+ * on a Mach 32 (PCI or ISA) in a PCI machine.
+ * 
+ *    Rev 1.28   02 Jun 1995 14:19:14   RWOLFF
+ * Rearranged bus test order to put PCI first, added CT internal to
+ * DACs supported in no-BIOS version.
+ * 
+ *    Rev 1.27   31 Mar 1995 11:55:18   RWOLFF
+ * Changed from all-or-nothing debug print statements to thresholds
+ * depending on importance of the message.
+ * 
+ *    Rev 1.26   08 Mar 1995 11:33:18   ASHANMUG
+ * The pitch in 24bpp should be the pitch in engine pixels and not true pixels
+ * 
+ *    Rev 1.25   27 Feb 1995 17:51:50   RWOLFF
+ * Now reports (Mach 64 only) whether I/O space is packed (relocatable)
+ * or not, reports number of lines of offscreen memory for 4BPP as if
+ * the card has 1M of video memory, since we set the card to 1M for
+ * this depth.
+ * 
+ *    Rev 1.24   24 Feb 1995 12:24:40   RWOLFF
+ * Now adds text banding to the ATIModeInformation->ModeFlags bits
+ * that are filled in.
+ * 
+ *    Rev 1.23   20 Feb 1995 18:03:30   RWOLFF
+ * Reporting of screen tearing on 2M boundary is now DAC-independant, added
+ * 1600x1200 16BPP to modes which experience this tearing.
+ * 
+ *    Rev 1.22   03 Feb 1995 15:13:50   RWOLFF
+ * Added packets to support DCI.
+ * 
+ *    Rev 1.21   30 Jan 1995 12:16:24   RWOLFF
+ * Made definition of IBM DAC special cursor flag consistent with
+ * similar flag for TVP DAC.
+ * 
+ *    Rev 1.20   18 Jan 1995 15:38:46   RWOLFF
+ * Now looks for Mach64 before looking for our older accelerators, Chrontel
+ * DAC is now supported as a separate type rather than being lumped in
+ * with STG1702.
+ * 
+ *    Rev 1.19   11 Jan 1995 13:54:00   RWOLFF
+ * ATIMPResetHw() now restores the memory size on Mach64 cards. This is
+ * a fix for a problem that showed up on the DEC Alpha, but may affect
+ * other platforms as well. In 4BPP modes, we must tell the card that it
+ * has only 1M of memory, but on a warm boot, the x86 emulation did not
+ * re-initialize the memory size, so until the next cold boot, only modes
+ * available in 1M were listed.
+ * 
+ *    Rev 1.18   04 Jan 1995 11:59:28   RWOLFF
+ * ATIMPFindAdapter() will only detect ATI cards on the first invocation,
+ * to avoid the same card being detected once per bus and causing problems
+ * when Windows NT thinks it's multiple cards.
+ * 
+ *    Rev 1.17   23 Dec 1994 10:48:10   ASHANMUG
+ * ALPHA/Chrontel-DAC
+ * 
+ *    Rev 1.16   18 Nov 1994 11:36:52   RWOLFF
+ * Now checks for PCI bus, cleaned up temporary debug print statements,
+ * fixed non-x86 Mach 64 handling, added support for Power PC and
+ * STG1703 DAC.
+ * 
+ *    Rev 1.15   31 Aug 1994 16:14:00   RWOLFF
+ * IOCTL_VIDEO_ATI_GET_VERSION packet now reports TVP3026 DAC (different
+ * cursor handling needed in display driver),
+ * IOCTL_VIDEO_ATI_GET_MODE_INFORMATION now reports 1152x864 24BPP as
+ * having screen tearing at end of first 2M bank.
+ * 
+ *    Rev 1.14   22 Jul 1994 17:47:50   RWOLFF
+ * Merged with Richard's non-x86 code stream.
+ * 
+ *    Rev 1.13   20 Jul 1994 13:04:06   RWOLFF
+ * Changes required to support multiple I/O base addresses for Mach 64
+ * accelerator registers, ATIMPInitialize() now leaves the adapter in
+ * a state where an INT 10 can switch it to a VGA mode (fix for
+ * showstopper bug on Landtrain machines), calls new routine
+ * FillInRegistry() so the video applet can get information about
+ * the graphics card.
+ * 
  *    Rev 1.12   30 Jun 1994 18:11:36   RWOLFF
  * Changes to allow the new method of checking for aperture conflict.
- *
+ * 
  *    Rev 1.11   15 Jun 1994 11:04:24   RWOLFF
  * In IOCTL_VIDEO_ATI_GET_VERSION, now only sets
  * RequestPacket->StatusBlock->Information if the buffer is big enough.
- *
+ * 
  *    Rev 1.10   20 May 1994 19:18:00   RWOLFF
  * IOCTL_VIDEO_ATI_GET_VERSION old format packet now returns the highest
  * pixel depth for a given resolution even if it isn't the last mode
  * table for the resolution.
- *
+ * 
  *    Rev 1.9   20 May 1994 13:57:40   RWOLFF
  * Ajith's change: now saves in the query structure the bus type reported by NT.
- *
+ * 
  *    Rev 1.8   12 May 1994 11:04:24   RWOLFF
  * Now forces OEM handling on DEC ALPHA machines.
- *
+ * 
  *    Rev 1.7   04 May 1994 19:25:40   RWOLFF
  * Fixes for hanging and corrupting screen when display applet run.
- *
+ * 
  *    Rev 1.6   28 Apr 1994 10:59:56   RWOLFF
  * Moved mode-independent bug/feature flags to IOCTL_VIDEO_ATI_GET_VERSION
  * packet from IOCTL_VIDEO_ATI_GET_MODE_INFORMATION packet.
- *
+ * 
  *    Rev 1.5   27 Apr 1994 13:54:42   RWOLFF
  * IOCTL_VIDEO_ATI_GET_MODE_INFORMATION packet now reports whether MIO bug
  * is present on Mach 32 cards.
- *
+ * 
  *    Rev 1.4   31 Mar 1994 15:05:00   RWOLFF
  * Added DPMS support, brought ATIMPResetHw() up to latest specs, added
  * debugging code.
- *
+ * 
  *    Rev 1.3   14 Mar 1994 16:32:20   RWOLFF
  * Added ATIMPResetHw() function, fix for 2M boundary tearing, replaced
  * VCS logfile comments that were omitted in an earlier checkin.
- *
+ * 
  *    Rev 1.2   03 Mar 1994 12:36:56   ASHANMUG
  * Make pageable
- *
+ * 
  *    Rev 1.1   07 Feb 1994 13:56:18   RWOLFF
  * Added alloc_text() pragmas to allow miniport to be swapped out when
  * not needed, removed LookForSubstitute() since miniport is no longer
  * supposed to check whether mode has been substituted, no longer logs
  * a message when the miniport aborts due to no ATI card being found,
  * removed unused routine ATIMPQueryPointerCapabilities().
- *
+ * 
  *    Rev 1.0   31 Jan 1994 10:52:34   RWOLFF
  * Initial revision.
-
+        
            Rev 1.6   14 Jan 1994 15:14:08   RWOLFF
         Removed commented-out code, packet announcements now all controlled by
         DEBUG_SWITCH, device reset for old cards now done by a single call,
         new format for IOCTL_VIDEO_ATI_GET_VERSION packet, reports block write
         capability in IOCTL_VIDEO_ATI_GET_MODE_INFORMATION packet, added
         1600x1200 support.
-
+        
            Rev 1.5   30 Nov 1993 18:10:04   RWOLFF
         Moved query of card capabilities (once type of card is known) from
         ATIMPFindAdapter() to ATIMPInitialize() because query for Mach 64 needs
         to use VideoPortInt10(), which can't be used in ATIMPFindAdapter().
-
+        
            Rev 1.4   05 Nov 1993 13:22:12   RWOLFF
         Added initial Mach64 code (currently inactive).
-
+        
            Rev 1.3   08 Oct 1993 11:00:24   RWOLFF
         Removed code specific to a particular family of ATI accelerators.
-
+        
            Rev 1.2   24 Sep 1993 11:49:46   RWOLFF
         Removed cursor-specific IOCTLs (handled in display driver), now selects
         24BPP colour order best suited to the DAC being used instead of forcing
         BGR.
-
+        
            Rev 1.1   03 Sep 1993 14:20:46   RWOLFF
         Partway through CX isolation.
-
+        
            Rev 1.0   16 Aug 1993 13:27:50   Robert_Wolff
         Initial revision.
-
+        
            Rev 1.23   06 Jul 1993 15:46:14   RWOLFF
         Got rid of mach32_split_fixup special handling. This code was to support
         a non-production hardware combination.
-
+        
            Rev 1.22   10 Jun 1993 15:58:32   RWOLFF
         Reading from registry now uses a static buffer rather than a dynamically
         allocated one (originated by Andre Vachon at Microsoft).
-
+        
            Rev 1.21   07 Jun 1993 11:43:16   BRADES
         Rev 6 split transfer fixup.
-
+        
            Rev 1.19   18 May 1993 14:04:00   RWOLFF
         Removed reference to obsolete header TTY.H, calls to wait_for_idle()
         no longer pass hardware device extension, since it's a global variable.
-
+        
            Rev 1.18   12 May 1993 16:30:36   RWOLFF
         Now writes error messages to event log rather than blue screen,
         initializes "special handling" variables determined from BIOS
         to default values on cards with no BIOS. This revision contains
         code for experimental far call support, but it's "#if 0"ed out.
-
+        
            Rev 1.17   10 May 1993 16:35:12   RWOLFF
         LookForSubstitute() now recognizes all cases of colour depth not
         supported by the DAC, unusable linear frame buffer now falls back
         to LFB disabled operation rather than aborting the miniport, removed
         unused variables and unnecessary passing of hardware device extension
         as a parameter.
-
+        
            Rev 1.16   30 Apr 1993 17:58:50   BRADES
         ATIMP startio assign QueryPtr once at start of function.
         uses aVideoAddress virtual table for IO port addresses.
-
+        
            Rev 1.15   30 Apr 1993 16:33:42   RWOLFF
         Updated to use NT build 438 initialization data structure.
         Registry read buffer is now dynamically allocated to fit data requested
         rather than being a fixed "hope it's big enough" size.
-
+        
            Rev 1.14   21 Apr 1993 17:22:06   RWOLFF
         Now uses AMACH.H instead of 68800.H/68801.H.
         Accelerator detection now checks only for functionality, not our BIOS
@@ -142,64 +285,64 @@
         EEPROM are present. Added ability to switch between graphics and
         text modes using absolute far calls in BIOS. Removed handling
         of obsolete DriverOverride registry field.
-
+        
            Rev 1.13   14 Apr 1993 18:30:22   RWOLFF
         24BPP is now done as BGR (supported by both TI and Brooktree DACs)
         rather than RGB (only supported by TI DACs).
-
+        
            Rev 1.12   08 Apr 1993 16:53:18   RWOLFF
         Revision level as checked in at Microsoft.
-
+        
            Rev 1.9   25 Mar 1993 11:10:38   RWOLFF
         Cleaned up compile warnings, now returns failure if no EEPROM is present.
-
+        
            Rev 1.8   16 Mar 1993 17:15:16   BRADES
         get_cursor uses screen_pitch instead of x_size.
-
+        
            Rev 1.7   16 Mar 1993 17:04:58   BRADES
         Change ATI video to graphics message
-
+        
            Rev 1.6   15 Mar 1993 22:20:30   BRADES
         use m_screen_pitch for the # pixels per display lines
-
+        
            Rev 1.5   08 Mar 1993 19:23:44   BRADES
         update memory sizing to 256 increments, clean code.
-
+        
            Rev 1.4   10 Feb 1993 13:01:28   Robert_Wolff
         IOCTL_VIDEO_MAP_VIDEO_MEMORY no longer assumes frame buffer length
         is equal to video memory size (linear aperture present). It can now
         accept 64k (uses VGA aperture) and 0 (no aperture available).
-
+        
            Rev 1.3   06 Feb 1993 12:55:52   Robert_Wolff
         Now sets VIDEO_MODE_INFORMATION.ScreenStride to bytes per line (as listed
         in the documentation). In the October beta, it had to be pixels per line.
-
+        
            Rev 1.2   05 Feb 1993 22:12:36   Robert_Wolff
         Adjusted MessageDelay() to compensate for short_delay() no longer being
         optimized out of existence.
-
+        
            Rev 1.1   05 Feb 1993 16:15:28   Robert_Wolff
         Made it compatible with the new DDK, registry calls now use VideoPort
         functions rather than RTL functions. This version will work with the
         framebuffer driver.
-
+        
            Rev 1.0   02 Feb 1993 13:36:50   Robert_Wolff
         Initial revision.
-
+        
            Rev 1.2   26 Jan 1993 10:28:30   Robert_Wolff
         Now fills in Number<colour>Bits fields in VIDEO_MODE_INFORMATION structure.
-
+        
            Rev 1.1   25 Jan 1993 13:31:52   Robert_Wolff
         Re-enabled forcing of shared VGA/accelerator memory for Mach 32
         cards with no aperture enabled.
-
+        
            Rev 1.0   22 Jan 1993 16:44:42   Robert_Wolff
         Initial revision.
 
            Rev 1.26   21 Jan 1993 17:59:24   Robert_Wolff
         Eliminated multiple definition link warnings, updated comments
         in LookForSubstitute().
-
+        
            Rev 1.25   20 Jan 1993 17:47:48   Robert_Wolff
         Now checks optional DriverOverride field in registry, and forces
         use of appropriate (engine, framebuffer, or VGAWonder) driver
@@ -209,59 +352,59 @@
         pixel depth available at each resolution.
         Added mode substitution case for 16 BPP selected when using the
         engine-only (fixed 8 BPP colour depth) driver.
-
+        
            Rev 1.24   15 Jan 1993 15:12:26   Robert_Wolff
         Added IOCTL_VIDEO_ATI_GET_VERSION packet in ATIMPStartIO() to
         return version number of the miniport.
-
+        
            Rev 1.23   14 Jan 1993 17:49:40   Robert_Wolff
         Removed reference to blank screen in message printed before query
         structure filled in, moved printing of this message and the "Done."
         terminator so all checking for video cards is between them.
-
+        
            Rev 1.22   14 Jan 1993 10:37:28   Robert_Wolff
         Re-inserted "fail if VGAWonder but no ATI accelerator" check due
         to lack of VGAWONDER .DLL file in late January driver package.
-
+        
            Rev 1.21   13 Jan 1993 13:31:04   Robert_Wolff
         Added support for the Corsair and other machines which don't store
         their aperture location in the EEPROM, single miniport now handles
         VGAWonder in addition to accelerators.
-
+        
            Rev 1.20   07 Jan 1993 18:20:34   Robert_Wolff
         Now checks to see if aperture is configured but unusable, and
         forces the use of the engine-only driver if this is the case.
         Added message to let users know that the black screen during
         EEPROM read is normal.
-
+        
            Rev 1.19   06 Jan 1993 11:04:36   Robert_Wolff
         BIOS locations C0000-DFFFF now mapped as one block, cleaned up warnings.
-
+        
            Rev 1.18   04 Jan 1993 14:39:50   Robert_Wolff
         Added card type as a parameter to setmode().
-
+        
            Rev 1.17   24 Dec 1992 14:41:20   Chris_Brady
         fixup warnings
-
+        
            Rev 1.16   15 Dec 1992 13:34:46   Robert_Wolff
         Writing of MEM_CFG when forcing 4M aperture now preserves all but
         the aperture size bits. This allows operation on Corsair as well
         as standard versions of the Mach 32 card.
-
+        
            Rev 1.15   11 Dec 1992 14:45:44   Robert_Wolff
         Now forces the use of the FRAMEBUF driver if a 2M aperture is configured.
-
+        
            Rev 1.14   11 Dec 1992 09:47:34   Robert_Wolff
         Now sets the "don't show the substitution message" flag no matter what
         the status of the first call to LookForSubstitute() was (sub, no sub,
         or error), rather than only when a substitution was made and the message
         was displayed.
-
+        
            Rev 1.13   10 Dec 1992 14:24:16   Robert_Wolff
         Shortened mode substitution messages in LookForSubstitute(), messages
         are now displayed only on the first call to this routine, to avoid
         delays in switching back to graphics mode from a full-screen DOS box.
-
+        
            Rev 1.12   09 Dec 1992 14:18:38   Robert_Wolff
         Eliminated uninitialized pointer in IOCTL_VIDEO_SET_CURRENT_MODE
         packet, moved initialization of QueryPtr and FirstMode pointers
@@ -269,7 +412,7 @@
         packets where the pointers are used. This should prevent similar
         problems if other packets are changed to use the pointers, and
         eliminates redundant code.
-
+        
            Rev 1.11   09 Dec 1992 10:35:04   Robert_Wolff
         Added user-level "blue-screen" messages for fatal errors, checks BIOS
         revision to catch Mach 8 cards that can't do 1280x1024, forces the
@@ -278,20 +421,20 @@
         (since they're only available on Mach 32), sets split pixel mode for
         Mach 8 in 1280x1024, added mode substitution message for Mach 8 when
         registry is configured for 16 BPP or higher.
-
+        
            Rev 1.10   01 Dec 1992 17:00:18   Robert_Wolff
         "I-beam" text insertion cursor no longer has left side filled with a
         solid black block.
-
+        
            Rev 1.9   30 Nov 1992 17:34:38   Robert_Wolff
         Now allows 1M aperture if configured video mode uses less than 1M
         of video memory, prints message to user if Windows NT decides
         to use a video mode other than the one configured in the registry.
-
+        
            Rev 1.8   27 Nov 1992 18:40:24   Chris_Brady
         VGA Wonder detect looks for signature in a range.
         Graphics Ultra Pro Microchannel version moved it.
-
+        
            Rev 1.7   25 Nov 1992 09:47:36   Robert_Wolff
         Now tells GetCapMach32() to assume the VGA boundary is set to shared,
         since we will set it to this value later, and we don't want to lose
@@ -300,56 +443,56 @@
         ATIMPStartIO() after calculating the hardware cursor offset. This delay
         may not be needed, but I didn't want to remove it since this is the
         source for the driver sent to QA and I wanted it to be rebuildable.
-
+        
            Rev 1.6   20 Nov 1992 16:04:30   Robert_Wolff
         Now reads query information from Mach 8 cards instead of only
         from Mach 32 cards. Mach 8 cards still cause ATIMPFindAdapter()
-        to return ERROR_INVALID_PARAMETER, since until we get an engine-only
+	to return ERROR_INVALID_PARAMETER, since until we get an engine-only
         driver, we can't use a card that doesn't support an aperture.
-
+        
            Rev 1.5   19 Nov 1992 09:53:36   GRACE
         after setting a mode do a wait for idle to let the pixel clock settle before
         using engine to draw.
-
+        
            Rev 1.4   17 Nov 1992 14:07:52   GRACE
-        changed framelength to reflect the size of memory on the board not the
+        changed framelength to reflect the size of memory on the board not the 
         aperture size.
         In the StartIO section, only set up QueryPtr and FirstMode when necessary
-
+        
            Rev 1.3   12 Nov 1992 09:23:02   GRACE
         removed the struct definition for DeviceExtension to a68.h
         Not using DevInitATIMP, DevSetCursorShape, DevSetCursorPos or DevCursorOff.
-        DevCursorOff changed to a define that turns cursor off with an OUTP.
+	DevCursorOff changed to a define that turns cursor off with an OUTP.
         Also removed some excess junk that is left from the video program.
-
+        
            Rev 1.2   06 Nov 1992 19:12:48   Robert_Wolff
         Fixed signed/unsigned bug in multiple calls to VideoPortInitialize().
         Now requests access to I/O ports and ROM addresses used for VGA-style
         EEPROM reads, and gets information about installed modes from the
         Mach32 card.
-
+        
         NOTE: This is a checkpoint for further changes. Due to incompatibilities
-              between the old (hardcoded resolution) code in other modules and the
+              between the old (hardcoded resolution) code in other modules and the 
               new (read from the card) code here, this revision will not produce a
               working driver.
-
+        
            Rev 1.1   05 Nov 1992 12:02:18   Robert_Wolff
         Now reads query structure and mode tables from the MACH32 card
         rather than using hardcoded values for aperture size/location
         and supported modes.
-
+        
            Rev 1.0   02 Nov 1992 20:47:58   Chris_Brady
         Initial revision.
-
+        
 
 End of PolyTron RCS section                             *****************/
 
 #ifdef DOC
 
 DESCRIPTION
-     ATI Windows NT Miniport driver for the Mach32, Mach8 and VGA Wonder
+     ATI Windows NT Miniport driver for the Mach 64, Mach32, and Mach8 
      families.
-     This file will select the appropriate functions depending on the
+     This file will select the appropriate functions depending on the 
      computer configuration.
 
 OTHER FILES
@@ -398,6 +541,12 @@ OTHER FILES
 
 //------------------------------------------------------------------
 
+/*
+ * Initially assume we have not yet found a non-block card, and
+ * have found no block relocatable cards.
+ */
+BOOL FoundNonBlockCard = FALSE;
+USHORT NumBlockCardsFound = 0;
 
 /*------------------------------------------------------------------------
  *
@@ -457,7 +606,6 @@ ULONG RegistryBufferLength = 0;     /* Size of last retrieved value */
 #pragma alloc_text(PAGE_COM, ATIMPInitialize)
 #pragma alloc_text(PAGE_COM, ATIMPStartIO)
 #pragma alloc_text(PAGE_COM, RegistryParameterCallback)
-#pragma alloc_text(PAGE_COM, AtiStrcmp)
 #endif
 
 
@@ -532,9 +680,9 @@ Return Value:
     hwInitData.HwInterrupt   = NULL;
     hwInitData.HwStartIO     = ATIMPStartIO;
 
-#ifdef DAYTONA
+#if (TARGET_BUILD >= 350)
     /*
-     * Field added to structure for Daytona.
+     * Field added to structure for NT 3.5.
      */
     hwInitData.HwResetHw     = ATIMPResetHw;
 #endif
@@ -545,7 +693,20 @@ Return Value:
      * Call VideoPortInitialize() once for each type of interface we support.
      * As documented in the DDK, return the lowest status value returned
      * by this function.
+     *
+     * The DEC Alpha requires the new ordering (PCI first) in both
+     * 3.5 and 3.51, while the x86 requires the new ordering in 3.51
+     * and the old ordering in 3.5. I haven't built a new miniport
+     * for either Power PC or MIPS since implementing the new order,
+     * so for now assume that they require the old order.
+     *
+     * On the x86, using the new order in 3.5 will result in the
+     * IOCTL_VIDEO_QUERY_PUBLIC_ACCESS_RANGES packet failing on
+     * the Mach 32 in PCI systems, which leaves 16 and 24 BPP
+     * listed as available in the video applet but being rejected
+     * when they are tested.
      */
+#if !defined(_ALPHA_) && !defined(IOCTL_VIDEO_SHARE_VIDEO_MEMORY)
     hwInitData.AdapterInterfaceType = Eisa;
     LowestInitStatus =  (ULONG) VideoPortInitialize(Context1, Context2, &hwInitData, NULL);
 
@@ -558,6 +719,30 @@ Return Value:
     ThisInitStatus = (ULONG) VideoPortInitialize(Context1, Context2, &hwInitData, NULL);
     if (ThisInitStatus < LowestInitStatus)
         LowestInitStatus = ThisInitStatus;
+
+    hwInitData.AdapterInterfaceType = PCIBus;
+    ThisInitStatus = (ULONG) VideoPortInitialize(Context1, Context2, &hwInitData, NULL);
+    if (ThisInitStatus < LowestInitStatus)
+        LowestInitStatus = ThisInitStatus;
+#else
+    hwInitData.AdapterInterfaceType = PCIBus;
+    LowestInitStatus =  (ULONG) VideoPortInitialize(Context1, Context2, &hwInitData, NULL);
+
+    hwInitData.AdapterInterfaceType = Eisa;
+    ThisInitStatus = (ULONG) VideoPortInitialize(Context1, Context2, &hwInitData, NULL);
+    if (ThisInitStatus < LowestInitStatus)
+        LowestInitStatus = ThisInitStatus;
+
+    hwInitData.AdapterInterfaceType = Isa;
+    ThisInitStatus = (ULONG) VideoPortInitialize(Context1, Context2, &hwInitData, NULL);
+    if (ThisInitStatus < LowestInitStatus)
+        LowestInitStatus = ThisInitStatus;
+
+    hwInitData.AdapterInterfaceType = MicroChannel;
+    ThisInitStatus = (ULONG) VideoPortInitialize(Context1, Context2, &hwInitData, NULL);
+    if (ThisInitStatus < LowestInitStatus)
+        LowestInitStatus = ThisInitStatus;
+#endif
 
     return LowestInitStatus;
 
@@ -623,12 +808,54 @@ Return Value:
 {
     VP_STATUS status;
     struct query_structure *QueryPtr;   /* Query information for the card */
-
-
     phwDeviceExtension = HwDeviceExtension;
 
 
-    VideoDebugPrint((2, "ATI: FindAdapter\n"));
+    VideoDebugPrint((DEBUG_NORMAL, "ATI: FindAdapter\n"));
+
+    /*
+     * On systems with multiple buses (i.e. any PCI/ISA system), this
+     * routine will be called once for each bus, and each invocation
+     * will detect the ATI card. To keep Windows NT from thinking that
+     * there are multiple cards, check to see if we have found an ATI
+     * card on a previous invocation, and if we have, report that there
+     * is no ATI card.
+     */
+    if (ConfigInfo->AdapterInterfaceType == PCIBus)
+        {
+        VideoDebugPrint((DEBUG_NORMAL, "PCI bus\n"));
+#if defined(ALPHA) || defined(_ALPHA_)
+        /*
+         * On the DEC Alpha, our card detection runs into trouble
+         * on all but the first (bridged to ISA/EISA, supports
+         * VGA BIOS emulation) PCI bus.
+         */
+        if (ConfigInfo->SystemIoBusNumber > 0)
+            {
+            VideoDebugPrint((DEBUG_NORMAL, "Alpha, not first PCI bus - skipping\n"));
+            return ERROR_DEV_NOT_EXIST;
+            }
+#endif
+        }
+    else if (ConfigInfo->AdapterInterfaceType == Isa)
+        {
+        VideoDebugPrint((DEBUG_NORMAL, "ISA bus\n"));
+        }
+    else if (ConfigInfo->AdapterInterfaceType == Eisa)
+        {
+        VideoDebugPrint((DEBUG_NORMAL, "EISA bus\n"));
+        }
+    else if (ConfigInfo->AdapterInterfaceType == MicroChannel)
+        {
+        VideoDebugPrint((DEBUG_NORMAL, "MicroChannel bus\n"));
+        }
+
+    if ((FoundNonBlockCard == TRUE) || (NumBlockCardsFound == ATI_MAX_BLOCK_CARDS))
+        {
+        VideoDebugPrint((DEBUG_NORMAL, "ATI: FindAdapter already found maximum number of supported cards\n"));
+        *Again = 0;     /* We don't want to be called again */
+        return ERROR_DEV_NOT_EXIST;
+        }
 
     /*
      * Get a formatted pointer into the query section of HwDeviceExtension.
@@ -650,10 +877,13 @@ Return Value:
     /*
      * Make sure the size of the structure is at least as large as what we
      * are expecting (check version of the config info structure).
+     * If this test fails, it's an unrecoverable error, so we don't want
+     * to be called again.
      */
     if (ConfigInfo->Length < sizeof(VIDEO_PORT_CONFIG_INFO))
         {
         VideoPortLogError(HwDeviceExtension, NULL, VID_SMALL_BUFFER, 1);
+        *Again = 0;
         return ERROR_INVALID_PARAMETER;
         }
 
@@ -665,68 +895,129 @@ Return Value:
     /*
      * Look for an ATI accelerator card. This test does not require
      * information retrieved from the BIOS or the EEPROM (which may not
-     * be present in some versions of our cards). If we find an ATI
-     * accelerator, check for our BIOS signature string.
+     * be present in some versions of our cards).
      *
-     * Initially assume that we are looking for one of our
-     * 8514/A-compatible accelerators.
+     * Initially assume that we are looking for a Mach 64 accelerator,
+     * since the test for this family is less destructive (doesn't
+     * black out the screen on DEC Alpha machines) than the test for
+     * one of our 8514/A-compatible accelerators.
      *
-     * On non-MSDOS machines, don't report failure if we are unable
-     * to map the I/O ranges used by our 8514/A-compatible accelerators,
-     * since if we are dealing with a Mach 64 this is irrelevant. Instead,
-     * merely skip 8514/A-compatible routines, since they depend on
-     * these I/O ranges being usable.
+     * Don't report failure if we are unable to map the I/O ranges
+     * used by the Mach 64 accelerators, since if we are dealing with
+     * one of our 8514/A-compatible accelerators this is irrelevant.
      *
-     * If we are also unable to map the Mach 64 I/O ranges, or we find
-     * that there is no Mach 64, we will report failure at that point.
+     * CompatIORangesUsable_cx() calls DetectMach64() when it's checking
+     * to see which base address to use for the accelerator registers,
+     * so if this calll succeeds we know that a Mach 64 is present.
+     * If the call fails, there is no need to unmap the I/O ranges
+     * it has mapped, since it always cleans up after itself when it
+     * finds that a particular base address is not being used for a
+     * Mach 64. As a result, a failed call will not leave any addresses
+     * mapped, since no available base address was used by a Mach 64.
      */
-#ifndef MSDOS
-//    if ((status = CompatIORangesUsable_m()) != NO_ERROR)
-//        return status;
-    status = CompatIORangesUsable_m();
-#else
-    status = NO_ERROR;
-#endif
+    if ((status = CompatIORangesUsable_cx(ConfigInfo->AdapterInterfaceType)) == NO_ERROR)
+        {
+        phwDeviceExtension->ModelNumber = MACH64_ULTRA;
+        }
+    else if (NumBlockCardsFound == 0)
+        {
+        /*
+         * There is no Mach 64 present, so look for one of our
+         * 8514/A-compatible accelerators (Mach 8 and Mach 32).
+         * The check on NumBlockCardsFound is to catch the case
+         * where we found a relocatable card on a previous bus
+         * type, so we won't have dropped out due to FoundNonBlockCard
+         * being TRUE but CompatIORangesUsable_cx() won't find
+         * a Mach 64 on this bus type.
+         */
 
-#if defined (ALPHA) || defined (_ALPHA_)
-    /*
-     *  ALPHA - The miniport will have to perform the ROM Bios functions
-     * that are normally done on bootup in x86 machines.
-     * For now we will initialize them the way they are specifically
-     * on this card that we are currently using.
-     */
-    if (status == NO_ERROR)
+        /*
+         * Since we don't use PCI detection, don't look for these cards
+         * on the PCI bus
+         */
+        if (ConfigInfo->AdapterInterfaceType == PCIBus)
+        {
+            *Again = 0;
+            return ERROR_DEV_NOT_EXIST;
+        }
+
+        /* If we can't map the I/O base addresses used by these cards,
+         * then there is no ATI accelerator present. Unmap any of
+         * the ranges which may have been mapped, then report failure.
+         *
+         * In the event of failure to find a Mach 8 or Mach 32,
+         * report that we don't want to be called again for the
+         * current bus, but don't set LookForAnotherCard to zero.
+         * This is because there may still be a block relocatable
+         * card on a subsequent bus.
+         */
+        status = CompatIORangesUsable_m();
+        if (status != NO_ERROR)
+            {
+            UnmapIORanges_m();
+            VideoPortLogError(HwDeviceExtension, NULL, VID_CANT_MAP, 2);
+            *Again = 0;
+            return status;
+            }
+
+#if !defined (i386) && !defined (_i386_)
+        /*
+         *  ALPHA - The miniport will have to perform the ROM Bios functions
+         * that are normally done on bootup in x86 machines.
+         * For now we will initialize them the way they are specifically
+         * on this card that we are currently using.
+         */
         AlphaInit_m();
 
 #endif
 
-    if (status == NO_ERROR)
-        phwDeviceExtension->ModelNumber = WhichATIAccelerator_m();
-    else
-        phwDeviceExtension->ModelNumber = NO_ATI_ACCEL;
-
-    if (phwDeviceExtension->ModelNumber == NO_ATI_ACCEL)
-        {
         /*
-         * No 8514/A-compatible ATI accelerator found. Unmap the
-         * I/O address ranges used by our older accelerators, then
-         * check for the presence of a Mach 64.
+         * Check which of our 8514/A-accelerators is present. If we
+         * can't find one, unmap the I/O ranges and report failure.
          *
-         * Report an error if we can't map the Mach 64 I/O ranges,
-         * or a failure if we can't find a Mach 64 accelerator.
+         * Don't log an error, because NT tries all the miniports
+         * on initial setup to see which card is installed, and failure
+         * to find an ATI card is a normal condition if another brand
+         * of accelerator is present.
+         *
          */
-        UnmapIORanges_m();
-        if ((status = CompatIORangesUsable_cx()) != NO_ERROR)
+        phwDeviceExtension->ModelNumber = WhichATIAccelerator_m();
+        if (phwDeviceExtension->ModelNumber == NO_ATI_ACCEL)
             {
-            VideoPortLogError(HwDeviceExtension, NULL, VID_CANT_MAP, 2);
-            return status;
-            }
-
-        if ((phwDeviceExtension->ModelNumber = DetectMach64()) == NO_ATI_ACCEL)
-            {
+            UnmapIORanges_m();
+            *Again = 0;
             return ERROR_DEV_NOT_EXIST;
             }
+
+        /*
+         * We have found a Mach 8 or Mach 32. None of these cards are
+         * block relocatable, so we must not look for another card
+         * (since we don't support a mix of block and non-block
+         * cards).
+         */
+        FoundNonBlockCard = TRUE;
+        LookForAnotherCard = 0;
+
+        }   /* endif (no Mach 64) */
+    else
+        {
+        /*
+         * A relocatable Mach 64 was found on a previous bus type.
+         * Since we can't handle a mix of relocatable and fixed
+         * base cards, we have skipped the Mach 32 search (the
+         * Mach 64 search doesn't look for fixed base cards if
+         * a relocatable card has already been found), and must
+         * report that no ATI cards were found.
+         */
+        *Again = 0;
+        VideoDebugPrint((DEBUG_DETAIL, "Skipping 8514/A-compatible test because block cards found\n"));
+        return ERROR_DEV_NOT_EXIST;
         }
+
+    /*
+     * We have found one of our accelerators, so check for the
+     * BIOS signature string.
+     */
     QueryPtr->q_bios = (char far *) Get_BIOS_Seg();
 
     /*
@@ -740,8 +1031,38 @@ Return Value:
      * and extended BIOS functions are available.
      */
 
-#if defined(ALPHA) || defined(_ALPHA_)
-    QueryPtr->q_bios = FALSE;
+#if !defined (i386) && !defined (_i386_)
+    /*
+     * If we are using a Mach 64, we always use the extended BIOS
+     * functions (either emulated x86 in the firmware, or an approximation
+     * of the BIOS functions accessed through the same interface as
+     * the BIOS functions would use). For this reason, we must have
+     * the BIOS as non-FALSE. Since all searches that depend on the
+     * q_bios field being a valid address are Mach 8/32 specific,
+     * we can just set it to TRUE for Mach 64. For Mach 8 and 32,
+     * still assume that we don't have a BIOS.
+     */
+    if (phwDeviceExtension->ModelNumber == MACH64_ULTRA)
+        {
+        VideoDebugPrint((DEBUG_NORMAL, "Non-x86 machine with Mach64, assuming BIOS is available\n"));
+        QueryPtr->q_bios = (PUCHAR)TRUE;
+        }
+    else
+        {
+        VideoDebugPrint((DEBUG_NORMAL, "Non-x86 machine with Mach8/Mach32, forcing no-BIOS handling\n"));
+        QueryPtr->q_bios = FALSE;
+        }
+#endif
+
+#if defined (PPC)
+    /*
+     * Initial build - we only support Mach 64 cards on the Power PC
+     */
+    if (phwDeviceExtension->ModelNumber != MACH64_ULTRA)
+        {
+        *Again = LookForAnotherCard;
+        return ERROR_DEV_NOT_EXIST;
+        }
 #endif
 
     if (QueryPtr->q_bios == FALSE)
@@ -793,7 +1114,7 @@ Return Value:
     /*
      * If we get this far, we have enough information to be able to set
      * the video mode we want. ATI accelerator cards need the
-     * Emulator entries and state size cleared
+     * Emulator entries and state size cleared 
      */
     ConfigInfo->NumEmulatorAccessEntries = 0;
     ConfigInfo->EmulatorAccessEntries = NULL;
@@ -801,8 +1122,20 @@ Return Value:
 
     ConfigInfo->HardwareStateSize = 0;
 
-    // * End of accelerator-specific code
-    *Again = 0;               //  Indicate we do not wish to be called over
+    /*
+     * Setting *Again to 0 tells Windows NT not to call us again for
+     * the same bus, while setting it to 1 indicates that we want to
+     * look for another card on the current bus. LookForAnotherCard
+     * will have been set to 0 if we have found the maximum number
+     * of block-relocatable cards or a single non-relocatable card.
+     */
+    *Again = LookForAnotherCard;
+
+    /*
+     * Since ATIMPFindAdapter() is called before ATIMPInitialize(),
+     * this card has not yet had ATIMPInitialize() called.
+     */
+    phwDeviceExtension->CardInitialized = FALSE;
 
     return NO_ERROR;
 
@@ -852,6 +1185,30 @@ BOOLEAN ATIMPInitialize(PVOID HwDeviceExtension)
     phwDeviceExtension = HwDeviceExtension;
 
     /*
+     * We only need to keep track of which I/O base address is involved
+     * in multi-headed setups. In some single-headed setups, the
+     * additional data is not available.
+     */
+    if (NumBlockCardsFound >= 2)
+        VideoDebugPrint((DEBUG_NORMAL, "\nATIMPInitialize() called for base address 0x%X\n\n", phwDeviceExtension->BaseIOAddress));
+    else
+        VideoDebugPrint((DEBUG_NORMAL, "ATIMPInitialize: start\n"));
+
+    /*
+     * This function should only be called once for any card. Since
+     * we have no way of knowing whether or not the display driver
+     * will make multiple calls to the IOCTL_VIDEO_ATI_INIT_AUX_CARD
+     * packet, we must ensure that only the first call for any card
+     * actually does anything.
+     */
+    if (phwDeviceExtension->CardInitialized != FALSE)
+        {
+        VideoDebugPrint((DEBUG_ERROR, "This card already initialized, no further action needed\n"));
+        return TRUE;
+        }
+    phwDeviceExtension->CardInitialized = TRUE;
+
+    /*
      * Get a formatted pointer into the query section of HwDeviceExtension,
      * and another pointer to the first mode table. The CardInfo[] field
      * is an unformatted buffer.
@@ -879,17 +1236,17 @@ BOOLEAN ATIMPInitialize(PVOID HwDeviceExtension)
     switch(phwDeviceExtension->ModelNumber)
         {
         case _8514_ULTRA:
-            VideoDebugPrint((DEBUG_SWITCH, "8514/ULTRA found\n"));
+            VideoDebugPrint((DEBUG_NORMAL, "8514/ULTRA found\n"));
             QueryStatus = Query8514Ultra(QueryPtr);
             break;
 
         case GRAPHICS_ULTRA:
-            VideoDebugPrint((DEBUG_SWITCH, "Mach 8 combo found\n"));
+            VideoDebugPrint((DEBUG_NORMAL, "Mach 8 combo found\n"));
             QueryStatus = QueryGUltra(QueryPtr);
             break;
 
         case MACH32_ULTRA:
-            VideoDebugPrint((DEBUG_SWITCH, "Mach 32 found\n"));
+            VideoDebugPrint((DEBUG_NORMAL, "Mach 32 found\n"));
             QueryStatus = QueryMach32(QueryPtr, TRUE);
             if (QueryStatus == ERROR_INSUFFICIENT_BUFFER)
                 {
@@ -899,22 +1256,22 @@ BOOLEAN ATIMPInitialize(PVOID HwDeviceExtension)
             break;
 
         case MACH64_ULTRA:
-            VideoDebugPrint((DEBUG_SWITCH, "Mach 64 found\n"));
+            VideoDebugPrint((DEBUG_NORMAL, "Mach 64 found\n"));
             QueryStatus = QueryMach64(QueryPtr);
             if (QueryStatus == ERROR_INSUFFICIENT_BUFFER)
                 {
+                VideoDebugPrint((DEBUG_ERROR, "QueryMach64() failed due to small buffer\n"));
                 VideoPortLogError(HwDeviceExtension, NULL, VID_SMALL_BUFFER, 4);
                 return FALSE;
                 }
             else if (QueryStatus != NO_ERROR)
                 {
+                VideoDebugPrint((DEBUG_ERROR, "QueryMach64() failed due to unknown cause\n"));
                 VideoPortLogError(HwDeviceExtension, NULL, VID_QUERY_FAIL, 5);
                 return FALSE;
                 }
             break;
         }
-
-    VideoDebugPrint((2, "Query complete\n"));
 
     /*
      * If we have access to the extended BIOS functions, we can
@@ -931,19 +1288,16 @@ BOOLEAN ATIMPInitialize(PVOID HwDeviceExtension)
      */
     if (!QueryPtr->q_ext_bios_fcn && !QueryPtr->q_eeprom)
         {
-        VideoDebugPrint((2, "Checking OEM accelerator\n"));
         QueryStatus = OEMGetParms(QueryPtr);
         if (QueryStatus != NO_ERROR)
             {
-            VideoDebugPrint((0, "Failed check for OEM accelerator - aborting\n"));
-            return FALSE;
+		    return FALSE;
             }
-        VideoDebugPrint((2, "Check for OEM accelerator succeeded\n"));
         }
 
     phwDeviceExtension->VideoRamSize = QueryPtr->q_memory_size * QUARTER_MEG;
 
-    //  Subtract the amount of memory reserved for the VGA.
+    //  Subtract the amount of memory reserved for the VGA. 
     phwDeviceExtension->VideoRamSize -= (QueryPtr->q_VGA_boundary * QUARTER_MEG);
 
     phwDeviceExtension->PhysicalFrameAddress.HighPart = 0;
@@ -952,19 +1306,11 @@ BOOLEAN ATIMPInitialize(PVOID HwDeviceExtension)
     /*
      * If the linear aperture is available, the frame buffer size
      * is equal to the amount of accelerator-accessible video memory.
-     *
-     * Map the aperture into the system virtual address space.
      */
     if (QueryPtr->q_aperture_cfg)
         {
         phwDeviceExtension->FrameLength = phwDeviceExtension->VideoRamSize;
-        if ((phwDeviceExtension->FrameAddress =
-            MapFramebuffer(phwDeviceExtension->PhysicalFrameAddress.LowPart,
-                            phwDeviceExtension->FrameLength)) == (PVOID) 0)
-            {
-            VideoPortLogError(HwDeviceExtension, NULL, VID_CANT_MAP, 6);
-            return FALSE;
-            }
+        VideoDebugPrint((DEBUG_DETAIL, "LFB size = 0x%X bytes\n", phwDeviceExtension->FrameLength));
         }
 
     /*
@@ -1021,6 +1367,7 @@ BOOLEAN ATIMPInitialize(PVOID HwDeviceExtension)
             }
 
         Initialize_m();
+
         /*
          * This routine must leave the card in a state where an INT 10
          * can set it to a VGA mode. Only the Mach 8 and Mach 32 need
@@ -1037,13 +1384,10 @@ BOOLEAN ATIMPInitialize(PVOID HwDeviceExtension)
          */
         if (QueryPtr->q_aperture_cfg)
             {
-            VideoDebugPrint((2, "About to check for aperture conflict\n"));
             if (IsApertureConflict_cx(QueryPtr))
                 {
-                VideoDebugPrint((0, "Aperture conflict, about to log error\n"));
-
+                VideoDebugPrint((DEBUG_NORMAL, "Found LFB conflict, must use VGA aperture instead\n"));
                 VideoPortLogError(HwDeviceExtension, NULL, VID_LFB_CONFLICT, 8);
-
                 QueryPtr->q_aperture_cfg        = 0;
                 phwDeviceExtension->FrameLength = 0;
                 }
@@ -1061,12 +1405,10 @@ BOOLEAN ATIMPInitialize(PVOID HwDeviceExtension)
          * aperture). If memory mapped registers are unavailable,
          * we can't run.
          */
-
-        VideoDebugPrint((2, "About to map MM registers\n"));
-
         QueryStatus = CompatMMRangesUsable_cx();
         if (QueryStatus != NO_ERROR)
             {
+            VideoDebugPrint((DEBUG_ERROR, "Can't use memory-mapped registers, aborting\n"));
             VideoPortLogError(HwDeviceExtension, NULL, VID_CANT_MAP, 9);
             return FALSE;
             }
@@ -1081,7 +1423,7 @@ BOOLEAN ATIMPInitialize(PVOID HwDeviceExtension)
 
     /*
      * Set CrtTable to point to the mode table associated with the
-     * selected mode.
+     * selected mode. 
      *
      * When a pointer to a structure is incremented by an integer,
      * the integer represents the number of structure-sized blocks
@@ -1093,7 +1435,7 @@ BOOLEAN ATIMPInitialize(PVOID HwDeviceExtension)
     QueryPtr->q_pix_depth = CrtTable->m_pixel_depth;
 
 
-#if defined(DAYTONA)
+#if (TARGET_BUILD >= 350)
     /*
      * In Windows NT 3.5 and higher, fill in regsistry fields used
      * by the display applet to report card specifics to the user.
@@ -1101,7 +1443,8 @@ BOOLEAN ATIMPInitialize(PVOID HwDeviceExtension)
     FillInRegistry(QueryPtr);
 #endif
 
-VideoDebugPrint((0, "End of ATIMPInitialize()\n"));
+    VideoDebugPrint((DEBUG_NORMAL, "End of ATIMPInitialize()\n"));
+
     return TRUE;
 
 }   /* end ATIMPInitialize() */
@@ -1141,6 +1484,7 @@ Return Value:
     PENH_VERSION_NT EnhVersionInformation;
     PATI_MODE_INFO ATIModeInformation;
     PVIDEO_CLUT clutBuffer;
+    PVIDEO_MEMORY MappedMemory;
 
     UCHAR ModesLookedAt;    /* Number of mode tables we have already examined */
     short LastXRes;         /* X-resolution of last mode table examined */
@@ -1156,6 +1500,14 @@ Return Value:
 
     phwDeviceExtension = HwDeviceExtension;
 
+    /*
+     * We only need to keep track of which I/O base address is involved
+     * in multi-headed setups. In some single-headed setups, the
+     * additional data is not available.
+     */
+    if (NumBlockCardsFound >= 2)
+        VideoDebugPrint((DEBUG_NORMAL, "\nATIMPStartIO() called for base address 0x%X\n\n", phwDeviceExtension->BaseIOAddress));
+
     // * Get a formatted pointer into the query section of HwDeviceExtension.
     QueryPtr = (struct query_structure *) (phwDeviceExtension->CardInfo);
 
@@ -1167,7 +1519,7 @@ Return Value:
     switch (RequestPacket->IoControlCode)
         {
         case IOCTL_VIDEO_MAP_VIDEO_MEMORY:
-            VideoDebugPrint((DEBUG_SWITCH, "ATIMPStartIO - MapVideoMemory\n"));
+            VideoDebugPrint((DEBUG_NORMAL, "ATIMPStartIO - MapVideoMemory\n"));
 
             if ( (RequestPacket->OutputBufferLength <
                 (RequestPacket->StatusBlock->Information =
@@ -1175,6 +1527,7 @@ Return Value:
                 (RequestPacket->InputBufferLength < sizeof(VIDEO_MEMORY)) )
                 {
                 status = ERROR_INSUFFICIENT_BUFFER;
+                break;
                 }
 
             /*
@@ -1195,22 +1548,34 @@ Return Value:
             break;
 
         case IOCTL_VIDEO_UNMAP_VIDEO_MEMORY:
-            VideoDebugPrint((DEBUG_SWITCH, "ATIMPStartIO - UnMapVideoMemory\n"));
+            VideoDebugPrint((DEBUG_NORMAL, "ATIMPStartIO - UnMapVideoMemory\n"));
 
             if (RequestPacket->InputBufferLength < sizeof(VIDEO_MEMORY))
                 {
                 status = ERROR_INSUFFICIENT_BUFFER;
+                break;
                 }
-            status = VideoPortUnmapMemory(phwDeviceExtension,
+
+            //
+            // Note that in MapVideoMemory_m, the VP routine VideoMapMemory
+            // is not called, so don't try to call unmap here!
+            //
+
+            if ((QueryPtr->q_aperture_cfg == 0) &&
+                !((phwDeviceExtension->ModelNumber == MACH32_ULTRA) &&
+                  (QueryPtr->q_VGA_type == 1)))
+                status = NO_ERROR;
+            else
+                status = VideoPortUnmapMemory(phwDeviceExtension,
                      ((PVIDEO_MEMORY) (RequestPacket->InputBuffer))->RequestedVirtualAddress,  0);
             break;
 
 
         case IOCTL_VIDEO_QUERY_PUBLIC_ACCESS_RANGES:
-            VideoDebugPrint((DEBUG_SWITCH, "ATIMPStartIO - QueryPublicAccessRanges\n"));
+            VideoDebugPrint((DEBUG_NORMAL, "ATIMPStartIO - QueryPublicAccessRanges\n"));
 
             // HACKHACK - This is a temporary hack for ALPHA until we really
-            // decide how to do this.
+            // decide how to do this. 
 
             if ((phwDeviceExtension->ModelNumber == _8514_ULTRA) ||
                 (phwDeviceExtension->ModelNumber == GRAPHICS_ULTRA) ||
@@ -1226,22 +1591,71 @@ Return Value:
 
 
         case IOCTL_VIDEO_FREE_PUBLIC_ACCESS_RANGES:
-            VideoDebugPrint((DEBUG_SWITCH, "ATIMPStartIO - FreePublicAccessRanges\n"));
+            VideoDebugPrint((DEBUG_NORMAL, "ATIMPStartIO - FreePublicAccessRanges\n"));
 
-            if (RequestPacket->InputBufferLength < sizeof(VIDEO_PUBLIC_ACCESS_RANGES))
+            if (RequestPacket->InputBufferLength < 2 * sizeof(VIDEO_MEMORY))
                 {
+                VideoDebugPrint((DEBUG_ERROR, "Received length %d, need length %d\n", RequestPacket->InputBufferLength, sizeof(VIDEO_PUBLIC_ACCESS_RANGES)));
                 status = ERROR_INSUFFICIENT_BUFFER;
                 break;
                 }
 
-            status = VideoPortUnmapMemory(phwDeviceExtension,
-                       ((PVIDEO_PUBLIC_ACCESS_RANGES)
-                       (RequestPacket->InputBuffer))->VirtualAddress,
-                       0);
+            status = NO_ERROR;
+            MappedMemory = RequestPacket->InputBuffer;
+
+            if (MappedMemory->RequestedVirtualAddress != NULL)
+                {
+#if (TARGET_BUILD >= 400)
+                /*
+                 * This packet will be called as part of the cleanup
+                 * for the test of a new graphics mode. The packet
+                 * IOCTL_VIDEO_QUERY_PUBLIC_ACCESS_RANGES will have
+                 * generated the same virtual address for the test
+                 * screen as was generated for the main Windows session.
+                 *
+                 * In NT 3.51 (and presumably earlier versions), the
+                 * call to VideoPortUnmapMemory() will refuse to release
+                 * the mapping, while in NT 4.0 (and presumably subsequent
+                 * versions) it will release the mapping. This is probably
+                 * due to the routine being able to distinguish between
+                 * the test and permanent screens in 4.0, but not being
+                 * able to disginguish between them (and therefore refusing
+                 * to free resources which it thinks are currently in use
+                 * by the permanent screen) in 3.51.
+                 *
+                 * Freeing resources will be necessary if "on-the-fly"
+                 * mode switching is added to Windows NT, but this will
+                 * almost certainly not be added to 3.51 (if it is added,
+                 * it would be to the then-current version). Since we
+                 * don't really need to free the mapped I/O ranges under
+                 * 3.51 (under the old display driver source stream, this
+                 * packet didn't get called), let 3.51 and earlier think
+                 * that the resources were freed successfully to avoid
+                 * generating an error condition, and only attempt to
+                 * unmap the I/O registers under NT 4.0 and later.
+                 */
+                status = VideoPortUnmapMemory(phwDeviceExtension,
+                                            MappedMemory->RequestedVirtualAddress,
+                                            0);
+#endif
+                VideoDebugPrint((DEBUG_DETAIL, "VideoPortUnmapMemory() returned 0x%X\n", status));
+                }
+            else
+                {
+                VideoDebugPrint((DEBUG_DETAIL, "Address was NULL, no need to unmap\n"));
+                }
+
+            /*
+             * We have just unmapped the I/O mapped registers. Since our
+             * memory-mapped registers are contained in the block which
+             * is mapped by IOCTL_VIDEO_MAP_VIDEO_MEMORY, they will have
+             * already been freed by IOCTL_VIDEO_UNMAP_VIDEO_MEMORY, so
+             * there is no need to free them here.
+             */
             break;
 
         case IOCTL_VIDEO_QUERY_CURRENT_MODE:
-            VideoDebugPrint((DEBUG_SWITCH, "ATIMPStartIO - QueryCurrentModes\n"));
+            VideoDebugPrint((DEBUG_NORMAL, "ATIMPStartIO - QueryCurrentModes\n"));
 
             if ((phwDeviceExtension->ModelNumber == _8514_ULTRA) ||
                 (phwDeviceExtension->ModelNumber == GRAPHICS_ULTRA) ||
@@ -1256,7 +1670,7 @@ Return Value:
             break;
 
         case IOCTL_VIDEO_QUERY_AVAIL_MODES:
-            VideoDebugPrint((DEBUG_SWITCH, "ATIMPStartIO - QueryAvailableModes\n"));
+            VideoDebugPrint((DEBUG_NORMAL, "ATIMPStartIO - QueryAvailableModes\n"));
 
             if ((phwDeviceExtension->ModelNumber == _8514_ULTRA) ||
                 (phwDeviceExtension->ModelNumber == GRAPHICS_ULTRA) ||
@@ -1272,7 +1686,7 @@ Return Value:
 
 
         case IOCTL_VIDEO_QUERY_NUM_AVAIL_MODES:
-            VideoDebugPrint((DEBUG_SWITCH, "ATIMPStartIO - QueryNumAvailableModes\n"));
+            VideoDebugPrint((DEBUG_NORMAL, "ATIMPStartIO - QueryNumAvailableModes\n"));
 
             /*
              * Find out the size of the data to be put in the buffer and
@@ -1292,7 +1706,7 @@ Return Value:
             break;
 
         case IOCTL_VIDEO_SET_CURRENT_MODE:
-            VideoDebugPrint((DEBUG_SWITCH, "ATIMPStartIO - SetCurrentMode\n"));
+            VideoDebugPrint((DEBUG_NORMAL, "ATIMPStartIO - SetCurrentMode\n"));
 
             /*
              * Verify that the mode we've been asked to set is less
@@ -1301,7 +1715,7 @@ Return Value:
              * mode number is 1 less than number of modes).
              */
             if (((PVIDEO_MODE)(RequestPacket->InputBuffer))->RequestedMode
-                >= QueryPtr->q_number_modes)
+    	        >= QueryPtr->q_number_modes)
                 {
                 status = ERROR_INVALID_PARAMETER;
                 break;
@@ -1333,7 +1747,7 @@ Return Value:
                  */
                 if (phwDeviceExtension->ModelNumber == MACH64_ULTRA)
                     {
-                    SetCurrentMode_cx(QueryPtr, CrtTable);
+                    status = SetCurrentMode_cx(QueryPtr, CrtTable);
                     }
                 }
             else{
@@ -1342,26 +1756,26 @@ Return Value:
                     (phwDeviceExtension->ModelNumber == MACH32_ULTRA))
                     {
                     SetCurrentMode_m(QueryPtr, CrtTable);
+                    status = NO_ERROR;
                     }
                 }   /* end if (not using BIOS call for mode switch) */
 
-            status = NO_ERROR;
             break;
 
 
         case IOCTL_VIDEO_SET_PALETTE_REGISTERS:
-            VideoDebugPrint((DEBUG_SWITCH, "ATIMPStartIO - SetPaletteRegs\n"));
+            VideoDebugPrint((DEBUG_NORMAL, "ATIMPStartIO - SetPaletteRegs\n"));
             status = NO_ERROR;
             break;
 
         case IOCTL_VIDEO_SET_COLOR_REGISTERS:
-            VideoDebugPrint((DEBUG_SWITCH, "ATIMPStartIO - SetColorRegs\n"));
+            VideoDebugPrint((DEBUG_NORMAL, "ATIMPStartIO - SetColorRegs\n"));
 
             CrtTable = (struct st_mode_table *)QueryPtr;
-                ((struct query_structure *)CrtTable)++;
+	        ((struct query_structure *)CrtTable)++;
 
-                clutBuffer = RequestPacket->InputBuffer;
-                phwDeviceExtension->ReInitializing = TRUE;
+        	clutBuffer = RequestPacket->InputBuffer;
+        	phwDeviceExtension->ReInitializing = TRUE;
 
             /*
              * Check if the size of the data in the input
@@ -1376,7 +1790,7 @@ Return Value:
                 }
 
             CrtTable += phwDeviceExtension->ModeIndex;
-                if (CrtTable->m_pixel_depth <= 8)
+        	if (CrtTable->m_pixel_depth <= 8)
                 {
                 if ((phwDeviceExtension->ModelNumber == _8514_ULTRA) ||
                     (phwDeviceExtension->ModelNumber == GRAPHICS_ULTRA) ||
@@ -1400,19 +1814,19 @@ Return Value:
              * can re-initialize it in subsequent calls to the
              * IOCTL_VIDEO_SET_CURRENT_MODE packet.
              */
-                phwDeviceExtension->FirstEntry = clutBuffer->FirstEntry;
-                phwDeviceExtension->NumEntries = clutBuffer->NumEntries;
+        	phwDeviceExtension->FirstEntry = clutBuffer->FirstEntry;
+        	phwDeviceExtension->NumEntries = clutBuffer->NumEntries;
 
-                pSrc = (ULONG *) clutBuffer->LookupTable;
+        	pSrc = (ULONG *) clutBuffer->LookupTable;
 
             for (i = clutBuffer->FirstEntry; i < (int) clutBuffer->NumEntries; i++)
-                    {
+	            {
                 /*
                  * Save palette colours.
                  */
-                    phwDeviceExtension->Clut[i] = *pSrc;
+        	    phwDeviceExtension->Clut[i] = *pSrc;
                 pSrc++;
-                    }
+        	    }
 
             break;
 
@@ -1420,7 +1834,7 @@ Return Value:
 
 
     case IOCTL_VIDEO_RESET_DEVICE:
-        VideoDebugPrint((DEBUG_SWITCH, "ATIMPStartIO - RESET_DEVICE\n"));
+        VideoDebugPrint((DEBUG_NORMAL, "ATIMPStartIO - RESET_DEVICE\n"));
 
         /*
          * If we are using the extended BIOS functions to switch modes,
@@ -1448,7 +1862,7 @@ Return Value:
 
 
     case IOCTL_VIDEO_SET_POWER_MANAGEMENT:
-        VideoDebugPrint((DEBUG_SWITCH, "ATIMPStartIO - SET_POWER_MANAGEMENT\n"));
+        VideoDebugPrint((DEBUG_NORMAL, "ATIMPStartIO - SET_POWER_MANAGEMENT\n"));
 
         /*
          * If the VIDEO_POWER_MANAGEMENT structure is the wrong size
@@ -1467,23 +1881,23 @@ Return Value:
         switch (ulScratch)
             {
             case VideoPowerOn:
-                VideoDebugPrint((DEBUG_SWITCH, "DPMS ON selected\n"));
+                VideoDebugPrint((DEBUG_DETAIL, "DPMS ON selected\n"));
                 break;
 
             case VideoPowerStandBy:
-                VideoDebugPrint((DEBUG_SWITCH, "DPMS STAND-BY selected\n"));
+                VideoDebugPrint((DEBUG_DETAIL, "DPMS STAND-BY selected\n"));
                 break;
 
             case VideoPowerSuspend:
-                VideoDebugPrint((DEBUG_SWITCH, "DPMS SUSPEND selected\n"));
+                VideoDebugPrint((DEBUG_DETAIL, "DPMS SUSPEND selected\n"));
                 break;
 
             case VideoPowerOff:
-                VideoDebugPrint((DEBUG_SWITCH, "DPMS OFF selected\n"));
+                VideoDebugPrint((DEBUG_DETAIL, "DPMS OFF selected\n"));
                 break;
 
             default:
-                VideoDebugPrint((DEBUG_SWITCH, "DPMS invalid state selected\n"));
+                VideoDebugPrint((DEBUG_ERROR, "DPMS invalid state selected\n"));
                 break;
             }
 
@@ -1498,6 +1912,70 @@ Return Value:
         break;
 
 
+    /*
+     * Packets used in DCI support. They were added some time after
+     * the initial release of Windows NT 3.5, so not all versions of
+     * the DDK will support them. Make the packet code conditional on
+     * our building a driver for NT version 3.51 or later in order to
+     * avoid the need for a SOURCES flag to identify DCI vs. non-DCI builds.
+     */
+#if (TARGET_BUILD >= 351)
+    case IOCTL_VIDEO_SHARE_VIDEO_MEMORY:
+        VideoDebugPrint((DEBUG_NORMAL, "ATIMPStartIO - SHARE_VIDEO_MEMORY\n"));
+
+        if ((RequestPacket->OutputBufferLength < sizeof(VIDEO_SHARE_MEMORY_INFORMATION)) ||
+            (RequestPacket->InputBufferLength < sizeof(VIDEO_MEMORY)))
+            {
+            VideoDebugPrint((DEBUG_ERROR, "IOCTL_VIDEO_SHARE_VIDEO_MEMORY - ERROR_INSUFFICIENT_BUFFER\n"));
+            status = ERROR_INSUFFICIENT_BUFFER;
+            break;
+            }
+
+        /*
+         * Share the video memory in the manner appropriate to the
+         * card we are using. We can only share memory if the
+         * card supports an aperture - Mach 8 cards never support
+         * an aperture, so if we are working with one, we know
+         * that we can't share the memory. The card-specific
+         * routines will identify no-aperture and other cases
+         * where we can't share video memory on Mach 32 and
+         * Mach 64 cards.
+         */
+        if ((phwDeviceExtension->ModelNumber == _8514_ULTRA) ||
+            (phwDeviceExtension->ModelNumber == GRAPHICS_ULTRA))
+            {
+            VideoDebugPrint((DEBUG_ERROR, "IOCTL_VIDEO_SHARE_VIDEO_MEMORY - Mach 8 can't share memory\n"));
+            status = ERROR_INVALID_FUNCTION;
+            }
+        else if (phwDeviceExtension->ModelNumber == MACH32_ULTRA)
+            {
+            status = ShareVideoMemory_m(RequestPacket, QueryPtr);
+            }
+        else if (phwDeviceExtension->ModelNumber == MACH64_ULTRA)
+            {
+            status = ShareVideoMemory_cx(RequestPacket, QueryPtr);
+            }
+
+        break;
+
+
+    case IOCTL_VIDEO_UNSHARE_VIDEO_MEMORY:
+        VideoDebugPrint((DEBUG_NORMAL, "ATIMPStartIO - UNSHARE_VIDEO_MEMORY\n"));
+
+        if (RequestPacket->InputBufferLength < sizeof(VIDEO_SHARE_MEMORY))
+            {
+            status = ERROR_INSUFFICIENT_BUFFER;
+            break;
+            }
+
+        status = VideoPortUnmapMemory(phwDeviceExtension,
+                                    ((PVIDEO_SHARE_MEMORY)(RequestPacket->InputBuffer))->RequestedVirtualAddress,
+                                    ((PVIDEO_SHARE_MEMORY)(RequestPacket->InputBuffer))->ProcessHandle);
+
+        break;
+#endif  /* TARGET_BUILD >= 350 */
+
+
     // ------ * ATI-specific packets start here.  -------------
     /*
      * Get the version number of the miniport, and the
@@ -1505,7 +1983,7 @@ Return Value:
      * depth).
      */
     case IOCTL_VIDEO_ATI_GET_VERSION:
-        VideoDebugPrint((DEBUG_SWITCH, "ATIMPStartIO - ATIGetVersion\n"));
+        VideoDebugPrint((DEBUG_NORMAL, "ATIMPStartIO - ATIGetVersion\n"));
 
         /*
          * Two versions of this packet exist, depending on which display
@@ -1572,7 +2050,7 @@ Return Value:
             // each. init to a value which does not correspond to any
             // resolution.
             CrtTable = FirstMode;
-            LastXRes = -1;
+            LastXRes = -1;          
             ResolutionsDone = -1;
             for (ModesLookedAt = 0; ModesLookedAt < QueryPtr->q_number_modes; ModesLookedAt++)
                 {
@@ -1588,7 +2066,7 @@ Return Value:
                  * Write the desired information from the current mode table
                  * in the query structure into the current mode table in
                  * the OUTPut buffer.
-                 * Leave the OUTPut buffer with the highest colour depth in
+                 * Leave the OUTPut buffer with the highest colour depth in 
                  * each supported resolution.
                  */
                 if (CrtTable->m_pixel_depth > VersionInformation->resolution[ResolutionsDone].color)
@@ -1674,6 +2152,25 @@ Return Value:
                 }
 
             /*
+             * Report the number of ATI graphics cards in the system,
+             * so the display driver will know how many auxillary
+             * cards to initialize.
+             *
+             * Since multiheaded support requires all the ATI cards
+             * present to be block I/O cards, the global variable
+             * NumBlockCardsFound will always be 2 or higher in
+             * multiheaded systems. If it is 0 (non-block card found,
+             * since we will never get to this point if there are
+             * no ATI cards) or 1 (single block I/O card), report
+             * that there is 1 ATI card present.
+             */
+            if (NumBlockCardsFound >= 2)
+                EnhVersionInformation->NumCards = NumBlockCardsFound;
+            else
+                EnhVersionInformation->NumCards = 1;
+            VideoDebugPrint((DEBUG_DETAIL, "Reporting %d cards\n", EnhVersionInformation->NumCards));
+
+            /*
              * Fill in the list of features this card supports.
              *
              * We can disable the sync signals even on cards that
@@ -1681,6 +2178,23 @@ Return Value:
              * all our cards support DPMS.
              */
             EnhVersionInformation->FeatureFlags = EVN_DPMS;
+
+            /*
+             * All platforms except the DEC Alpha are always
+             * capable of using dense space. On the Alpha,
+             * some machines with some of our cards are
+             * capable of using dense space, while others
+             * aren't.
+             */
+#if defined(_ALPHA_)
+            if (DenseOnAlpha(QueryPtr) == TRUE)
+                {
+                EnhVersionInformation->FeatureFlags |= EVN_DENSE_CAPABLE;
+                VideoDebugPrint((DEBUG_DETAIL, "Reporting dense capable in FeatureFlags\n"));
+                }
+#else
+            EnhVersionInformation->FeatureFlags |= EVN_DENSE_CAPABLE;
+#endif
             if (phwDeviceExtension->ModelNumber == MACH32_ULTRA)
                 {
                 if ((QueryPtr->q_asic_rev == CI_68800_6) && (QueryPtr->q_aperture_cfg == 0)
@@ -1690,9 +2204,41 @@ Return Value:
                 if (IsMioBug_m(QueryPtr))
                     EnhVersionInformation->FeatureFlags |= EVN_MIO_BUG;
                 }
+            else if (phwDeviceExtension->ModelNumber == MACH64_ULTRA)
+                {
+                if (IsPackedIO_cx())
+                    EnhVersionInformation->FeatureFlags |= EVN_PACKED_IO;
+
+                if ((QueryPtr->q_memory_type == VMEM_SDRAM) &&
+                    (QueryPtr->q_memory_size == VRAM_1mb))
+                    EnhVersionInformation->FeatureFlags |= EVN_SDRAM_1M;
+
+                if (QueryPtr->q_DAC_type == DAC_TVP3026)
+                    {
+                    EnhVersionInformation->FeatureFlags |= EVN_TVP_DAC_CUR;
+                    }
+                else if (QueryPtr->q_DAC_type == DAC_IBM514)
+                    {
+                    EnhVersionInformation->FeatureFlags |= EVN_IBM514_DAC_CUR;
+                    }
+                else if (QueryPtr->q_DAC_type == DAC_INTERNAL_CT)
+                    {
+                    EnhVersionInformation->FeatureFlags |= EVN_INT_DAC_CUR;
+                    EnhVersionInformation->FeatureFlags |= EVN_CT_ASIC;
+                    }
+                else if (QueryPtr->q_DAC_type == DAC_INTERNAL_VT)
+                    {
+                    EnhVersionInformation->FeatureFlags |= EVN_INT_DAC_CUR;
+                    EnhVersionInformation->FeatureFlags |= EVN_VT_ASIC;
+                    }
+                else if (QueryPtr->q_DAC_type == DAC_INTERNAL_GT)
+                    {
+                    EnhVersionInformation->FeatureFlags |= EVN_INT_DAC_CUR;
+                    EnhVersionInformation->FeatureFlags |= EVN_GT_ASIC;
+                    }
+                }
             /*
-             * Currently there are no feature flags specific to either
-             * the Mach 8 or Mach 64.
+             * Currently there are no feature flags specific to the Mach 8.
              */
 
             status = NO_ERROR;
@@ -1710,7 +2256,7 @@ Return Value:
          * of the current mode.
          */
         case IOCTL_VIDEO_ATI_GET_MODE_INFORMATION:
-            VideoDebugPrint((DEBUG_SWITCH, "ATIMPStartIO - ATIGetModeInformation\n"));
+            VideoDebugPrint((DEBUG_NORMAL, "ATIMPStartIO - ATIGetModeInformation\n"));
             if (RequestPacket->OutputBufferLength <
                 (RequestPacket->StatusBlock->Information = sizeof(ENH_VERSION_NT)))
                 {
@@ -1726,7 +2272,18 @@ Return Value:
             ATIModeInformation->VisWidthPix = QueryPtr->q_desire_x;
             ATIModeInformation->VisHeight = QueryPtr->q_desire_y;
             ATIModeInformation->BitsPerPixel = QueryPtr->q_pix_depth;
-            ATIModeInformation->PitchPix = QueryPtr->q_screen_pitch;
+
+            /*
+             * We require the true pitch in 24bpp
+             */
+            if (QueryPtr->q_pix_depth == 24)
+                {
+                ATIModeInformation->PitchPix = QueryPtr->q_screen_pitch * 3;
+                }
+            else
+                {
+                ATIModeInformation->PitchPix = QueryPtr->q_screen_pitch;
+                }
             /*
              * The FracBytesPerPixel field represents the first 3 places
              * of decimal in the fractional part of bytes per pixel.
@@ -1783,7 +2340,7 @@ Return Value:
                 }
             ATIModeInformation->PitchByte = (QueryPtr->q_screen_pitch *
                 ((ATIModeInformation->IntBytesPerPixel * 1000) + ATIModeInformation->FracBytesPerPixel)) / 8000;
-            ATIModeInformation->VisWidthByte = (QueryPtr->q_desire_x *
+            ATIModeInformation->VisWidthByte = (QueryPtr->q_desire_x * 
                 ((ATIModeInformation->IntBytesPerPixel * 1000) + ATIModeInformation->FracBytesPerPixel)) / 8000;
 
             /*
@@ -1809,9 +2366,19 @@ Return Value:
              * video memory. "Soft" values are the maximum Y coordinate which
              * may be accessed without resetting the graphic engine offset
              * into video memory.
+             *
+             * In 4BPP modes, we always force the card to think it has
+             * only 1M of memory.
              */
-            ATIModeInformation->BottomEndOffHard = ((QueryPtr->q_memory_size - QueryPtr->q_VGA_boundary)
-                * QUARTER_MEG) / ATIModeInformation->PitchByte;
+            if (QueryPtr->q_pix_depth == 4)
+                {
+                ATIModeInformation->BottomEndOffHard = ONE_MEG / ATIModeInformation->PitchByte;
+                }
+            else
+                {
+                ATIModeInformation->BottomEndOffHard = ((QueryPtr->q_memory_size - QueryPtr->q_VGA_boundary)
+                    * QUARTER_MEG) / ATIModeInformation->PitchByte;
+                }
             if ((QueryPtr->q_asic_rev == CI_88800_GX) && (ATIModeInformation->BottomEndOffHard > 16387))
                 ATIModeInformation->BottomEndOffSoft = 16387;
             else if (ATIModeInformation->BottomEndOffHard > 1535)
@@ -1827,8 +2394,12 @@ Return Value:
             if (phwDeviceExtension->ModelNumber == MACH32_ULTRA)
                 {
                 if (((QueryPtr->q_desire_x == 1280) && (QueryPtr->q_desire_y == 1024)) ||
-                    ((QueryPtr->q_DAC_type == DAC_STG1700) && (QueryPtr->q_pix_depth >= 24)))
+                    (((QueryPtr->q_DAC_type == DAC_STG1700) ||
+                        (QueryPtr->q_DAC_type == DAC_STG1702) ||
+                        (QueryPtr->q_DAC_type == DAC_STG1703)) && (QueryPtr->q_pix_depth >= 24)))
+                    {
                     ATIModeInformation->ModeFlags |= AMI_ODD_EVEN;
+                    }
 
                 /*
                  * The test for block write mode must be made after we
@@ -1851,12 +2422,20 @@ Return Value:
                 }
             else if(phwDeviceExtension->ModelNumber == MACH64_ULTRA)
                 {
-                if ((QueryPtr->q_DAC_type == DAC_STG1700) && (QueryPtr->q_pix_depth >= 24))
+                if (((QueryPtr->q_DAC_type == DAC_STG1700) ||
+                        (QueryPtr->q_DAC_type == DAC_STG1702) ||
+                        (QueryPtr->q_DAC_type == DAC_STG1703) ||
+                        (QueryPtr->q_DAC_type == DAC_ATT408) ||
+                        (QueryPtr->q_DAC_type == DAC_CH8398)) &&
+                    (QueryPtr->q_pix_depth >= 24))
                     ATIModeInformation->ModeFlags |= AMI_ODD_EVEN;
-                if ((QueryPtr->q_DAC_type == DAC_ATI_68860) &&
-                    (QueryPtr->q_pix_depth >= 24) &&
-                    (QueryPtr->q_desire_x == 1280))
+                if (((QueryPtr->q_pix_depth == 24) && (QueryPtr->q_desire_x == 1280)) ||
+                    ((QueryPtr->q_pix_depth == 24) && (QueryPtr->q_desire_x == 1152)) ||
+                    ((QueryPtr->q_pix_depth == 16) && (QueryPtr->q_desire_x == 1600)))
                     ATIModeInformation->ModeFlags |= AMI_2M_BNDRY;
+
+                if (TextBanding_cx(QueryPtr))
+                    ATIModeInformation->ModeFlags |= AMI_TEXTBAND;
 
                 /*
                  * See Mach 32 section above for explanation.
@@ -1876,16 +2455,34 @@ Return Value:
             break;
 
 
+        /*
+         * Packet to force initialization of auxillary card in multiheaded
+         * setup. Currently (NT 3.51 retail), only the primrary card
+         * receives a call to ATIMPInitialize().
+         *
+         * This packet must be called for all auxillary cards before
+         * IOCTL_VIDEO_SET_CURRENT_MODE is called for any card, since
+         * ATIMPInitialize() uses resources that are only available
+         * when the primrary (VGA enabled) card is in a VGA mode.
+         */
+        case IOCTL_VIDEO_ATI_INIT_AUX_CARD:
+            VideoDebugPrint((DEBUG_NORMAL, "ATIMPStartIO - ATIInitAuxCard\n"));
+            ATIMPInitialize(phwDeviceExtension);
+            status = NO_ERROR;
+            break;
+
+
 
 
         default:
-            VideoDebugPrint((DEBUG_SWITCH, "Fell through ATIMP startIO routine - invalid command\n"));
+	    VideoDebugPrint((DEBUG_ERROR, "Fell through ATIMP startIO routine - invalid command\n"));
             status = ERROR_INVALID_FUNCTION;
             break;
 
     }
 
     RequestPacket->StatusBlock->Status = status;
+    VideoDebugPrint((DEBUG_NORMAL, "ATIMPStartIO: Returning with status=%d\n", status));
 
     return TRUE;
 
@@ -1924,10 +2521,42 @@ BOOLEAN ATIMPResetHw(PVOID HwDeviceExtension, ULONG Columns, ULONG Rows)
 
     /*
      * On the Mach 64, an INT 10 to VGA text mode will work even
-     * when in accelerator mode.
+     * when in accelerator mode, so we don't need to explicitly
+     * switch out of accelerator mode. On the Mach 8 and Mach 32,
+     * we must switch out of accelerator mode, and on the Mach 32
+     * we must load the VGA text font.
+     *
+     * On the Mach 64, some non-x86 machines (first noticed on the
+     * DEC Alpha) don't do the warm boot BIOS re-initialization that
+     * is done on the x86. Part of this re-initialization sets the
+     * memory size register to the correct amount of memory, which
+     * must be done if we were in a 4BPP mode (in 4BPP, we must force
+     * the memory size to 1M). To avoid locking out modes requiring
+     * over 1M (at least until the next cold boot) on these machines,
+     * we must restore the memory size to the correct value. Since this
+     * has the side effect of generating black vertical bands as a
+     * transient (due to interleaving of memory banks on 2M and higher
+     * configurations), only do this on non-x86 machines, since the
+     * BIOS will take care of it (without the visible side effect)
+     * on x86 platforms.
+     *
+     * Since this routine, and all routines it calls, must be
+     * nonpageable (in case the reason it is called is because
+     * there is a fatal error in the paging mechanism), and
+     * VideoDebugPrint() is pageable, we must not call VideoDebugPrint()
+     * from this routine. Temporary additions for testing are OK,
+     * but the calls must be removed before the code is released
+     * for production.
      */
+#if defined (i386) || defined (_i386_)
     if (phwDeviceExtension->ModelNumber != MACH64_ULTRA)
         SetTextMode_m();
+#else
+    if (phwDeviceExtension->ModelNumber == MACH64_ULTRA)
+        RestoreMemSize_cx();
+    else
+        SetTextMode_m();
+#endif
 
     return FALSE;
 
@@ -1967,46 +2596,8 @@ VP_STATUS RegistryParameterCallback(PHW_DEVICE_EXTENSION phwDeviceExtension,
     memcpy(RegistryBuffer, Data, Length);
     RegistryBufferLength = Length;
     return NO_ERROR;
-}
 
-
-
-//------------------------------------------------------------------------
-//                              AtiStrcmp
-
-LONG   AtiStrcmp (
-           PUCHAR         String1,      // Pointer to first string
-           PUCHAR         String2)      // Pointer to second string
-{
-//  Return Value:
-//    < 0         if string1 < string2
-//    = 0         if string1 == string2
-//    > 0         if string1 > string 2
-//
-//  all comparisons are to the first null in either string
-
-  UCHAR      Char1;
-  UCHAR      Char2;
-
-  while (TRUE) {
-    Char1 = VideoPortReadRegisterUchar (String1);
-    Char2 = VideoPortReadRegisterUchar (String2);
-    if ((Char1 == 0)  || (Char2 == 0))
-        return 0;
-
-    if (Char1 < Char2) {
-      return -1;
-    }
-    if (Char1 > Char1) {
-      return 1;
-    }
-
-    String1++;
-    String2++;
-  }
-
-  return 0;
-}
+}   /* RegistryParameterCallback() */
 
 
 // ***********************   End of  ATIMP.C  ****************************

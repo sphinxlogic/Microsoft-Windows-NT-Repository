@@ -178,7 +178,6 @@ Os2AllocateProcess( VOID )
     Process = (POS2_PROCESS)RtlAllocateHeap( Os2Heap, 0,
                                              sizeof( OS2_PROCESS )
                                            );
-    ASSERT( Process != NULL );
     if (Process == NULL) {
         return( NULL );
     }
@@ -207,6 +206,10 @@ Os2AllocateProcess( VOID )
 
     Process->TidBitMapHeader = Os2CreateTidBitmap();
 
+    if (Process->TidBitMapHeader == NULL) {
+        RtlFreeHeap(Os2Heap, 0, (PVOID)Process);
+        return( NULL );
+    }
     SearchMode = FALSE;
     while (TRUE) {
         if (Os2LastProcessId == MAXIMUM_PROCESS_ID) {
@@ -272,6 +275,12 @@ Os2AllocateProcess( VOID )
     Process->ErrorAction = OS2_ENABLE_ACCESS_VIO_POPUP | OS2_ENABLE_HARD_ERROR_POPUP;
     Process->FirstPtrace = TRUE;
     Process->LinkMte = RtlAllocateHeap(Os2Heap, 0, sizeof(LinkMTE));
+    if (Process->LinkMte == NULL) {
+        RtlFreeHeap(Os2Heap, 0, ((PRTL_BITMAP)(Process->TidBitMapHeader))->Buffer);
+        RtlFreeHeap(Os2Heap, 0, Process->TidBitMapHeader);
+        RtlFreeHeap(Os2Heap, 0, (PVOID)(Process));
+        return(NULL);
+    }
     ((LinkMTE *)Process->LinkMte)->MTE = 0;
     ((LinkMTE *)Process->LinkMte)->NextMTE = NULL;
     ((LinkMTE *)Process->LinkMte)->NeedToTransfer = FALSE;
@@ -289,8 +298,7 @@ Os2DeallocateProcess(
 
     if (Process->TidBitMapHeader) {
         RtlFreeHeap(Os2Heap, 0, ((PRTL_BITMAP)(Process->TidBitMapHeader))->Buffer);
-//        RtlDestroyHeap(((PRTL_BITMAP)(Process->TidBitMapHeader))->Buffer);
-        RtlFreeHeap( Os2Heap, 0, Process->TidBitMapHeader);
+        RtlFreeHeap(Os2Heap, 0, Process->TidBitMapHeader);
     }
 
     //
@@ -803,4 +811,3 @@ Os2LocateThreadByClientId(
 
     return( NULL );
 }
-

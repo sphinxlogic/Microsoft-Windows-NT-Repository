@@ -233,7 +233,7 @@ processargs(
         exit(1);
     }
 
-    if (stricmp(argv[1],"volatile")==0) {
+    if (_stricmp(argv[1],"volatile")==0) {
         CreateVolatile = TRUE;
         ++argv;
     }
@@ -274,4 +274,3 @@ processargs(
     }
     return;
 }
-

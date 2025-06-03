@@ -28,9 +28,9 @@ Revision History:
 
 FSRTL_COMPARISON_RESULT
 NtfsFileCompareValues (
-    IN PIRP_CONTEXT IrpContext,
+    IN PWCH UnicodeTable,
+    IN ULONG UnicodeTableSize,
     IN PVOID Value,
-    IN ULONG ValueLength,
     IN PINDEX_ENTRY IndexEntry,
     IN FSRTL_COMPARISON_RESULT WildCardIs,
     IN BOOLEAN IgnoreCase
@@ -38,41 +38,37 @@ NtfsFileCompareValues (
 
 BOOLEAN
 NtfsFileIsInExpression (
-    IN PIRP_CONTEXT IrpContext,
+    IN PWCH UnicodeTable,
     IN PVOID Value,
-    IN ULONG ValueLength,
     IN PINDEX_ENTRY IndexEntry,
     IN BOOLEAN IgnoreCase
     );
 
 BOOLEAN
 NtfsFileIsEqual (
-    IN PIRP_CONTEXT IrpContext,
+    IN PWCH UnicodeTable,
     IN PVOID Value,
-    IN ULONG ValueLength,
     IN PINDEX_ENTRY IndexEntry,
     IN BOOLEAN IgnoreCase
     );
 
 BOOLEAN
 NtfsFileContainsWildcards (
-    IN PIRP_CONTEXT IrpContext,
-    IN PVOID Value,
-    IN ULONG ValueLength
+    IN PVOID Value
     );
 
 VOID
 NtfsFileUpcaseValue (
-    IN PIRP_CONTEXT IrpContext,
-    IN OUT PVOID Value,
-    IN ULONG ValueLength
+    IN PWCH UnicodeTable,
+    IN ULONG UnicodeTableSize,
+    IN PVOID Value
     );
 
 FSRTL_COMPARISON_RESULT
 DummyCompareValues (
-    IN PIRP_CONTEXT IrpContext,
+    IN PWCH UnicodeTable,
+    IN ULONG UnicodeTableSize,
     IN PVOID Value,
-    IN ULONG ValueLength,
     IN PINDEX_ENTRY IndexEntry,
     IN FSRTL_COMPARISON_RESULT WildCardIs,
     IN BOOLEAN IgnoreCase
@@ -80,34 +76,30 @@ DummyCompareValues (
 
 BOOLEAN
 DummyIsInExpression (
-    IN PIRP_CONTEXT IrpContext,
+    IN PWCH UnicodeTable,
     IN PVOID Value,
-    IN ULONG ValueLength,
     IN PINDEX_ENTRY IndexEntry,
     IN BOOLEAN IgnoreCase
     );
 
 BOOLEAN
 DummyIsEqual (
-    IN PIRP_CONTEXT IrpContext,
+    IN PWCH UnicodeTable,
     IN PVOID Value,
-    IN ULONG ValueLength,
     IN PINDEX_ENTRY IndexEntry,
     IN BOOLEAN IgnoreCase
     );
 
 BOOLEAN
 DummyContainsWildcards (
-    IN PIRP_CONTEXT IrpContext,
-    IN PVOID Value,
-    IN ULONG ValueLength
+    IN PVOID Value
     );
 
 VOID
 DummyUpcaseValue (
-    IN PIRP_CONTEXT IrpContext,
-    IN OUT PVOID Value,
-    IN ULONG ValueLength
+    IN PWCH UnicodeTable,
+    IN ULONG UnicodeTableSize,
+    IN OUT PVOID Value
     );
 
 PCOMPARE_VALUES NtfsCompareValues[COLLATION_NUMBER_RULES] = {&DummyCompareValues,
@@ -146,9 +138,9 @@ PUPCASE_VALUE NtfsUpcaseValue[COLLATION_NUMBER_RULES] = {&DummyUpcaseValue,
 
 FSRTL_COMPARISON_RESULT
 NtfsFileCompareValues (
-    IN PIRP_CONTEXT IrpContext,
+    IN PWCH UnicodeTable,
+    IN ULONG UnicodeTableSize,
     IN PVOID Value,
-    IN ULONG ValueLength,
     IN PINDEX_ENTRY IndexEntry,
     IN FSRTL_COMPARISON_RESULT WildCardIs,
     IN BOOLEAN IgnoreCase
@@ -166,8 +158,6 @@ RoutineDescription:
 Arguments:
 
     Value - Pointer to the value expression, which is a FILE_NAME.
-
-    ValueLength - Length of the value expression in bytes.
 
     IndexEntry - Pointer to the index entry being compared to.
 
@@ -207,7 +197,8 @@ ReturnValue:
     IndexString.MaximumLength = (USHORT)IndexName->FileNameLength << 1;
     IndexString.Buffer = &IndexName->FileName[0];
 
-    return NtfsCollateNames( IrpContext,
+    return NtfsCollateNames( UnicodeTable,
+                             UnicodeTableSize,
                              &ValueString,
                              &IndexString,
                              WildCardIs,
@@ -217,9 +208,8 @@ ReturnValue:
 
 BOOLEAN
 NtfsFileIsInExpression (
-    IN PIRP_CONTEXT IrpContext,
+    IN PWCH UnicodeTable,
     IN PVOID Value,
-    IN ULONG ValueLength,
     IN PINDEX_ENTRY IndexEntry,
     IN BOOLEAN IgnoreCase
     )
@@ -234,8 +224,6 @@ RoutineDescription:
 Arguments:
 
     Value - Pointer to the value expression, which is a FILE_NAME.
-
-    ValueLength - Length of the value expression in bytes.
 
     IndexEntry - Pointer to the index entry being compared to.
 
@@ -253,8 +241,7 @@ ReturnValue:
 
     PAGED_CODE();
 
-    if ((IndexEntry->FileReference.LowPart < FIRST_USER_FILE_NUMBER) &&
-        (IndexEntry->FileReference.HighPart == 0) &&
+    if (NtfsSegmentNumber( &IndexEntry->FileReference ) < FIRST_USER_FILE_NUMBER &&
         NtfsProtectSystemFiles) {
 
         return FALSE;
@@ -279,7 +266,7 @@ ReturnValue:
     IndexString.MaximumLength = (USHORT)IndexName->FileNameLength << 1;
     IndexString.Buffer = &IndexName->FileName[0];
 
-    return NtfsIsNameInExpression( IrpContext,
+    return NtfsIsNameInExpression( UnicodeTable,
                                    &ValueString,
                                    &IndexString,
                                    IgnoreCase );
@@ -288,9 +275,8 @@ ReturnValue:
 
 BOOLEAN
 NtfsFileIsEqual (
-    IN PIRP_CONTEXT IrpContext,
+    IN PWCH UnicodeTable,
     IN PVOID Value,
-    IN ULONG ValueLength,
     IN PINDEX_ENTRY IndexEntry,
     IN BOOLEAN IgnoreCase
     )
@@ -305,8 +291,6 @@ RoutineDescription:
 Arguments:
 
     Value - Pointer to the value expression, which is a FILE_NAME.
-
-    ValueLength - Length of the value expression in bytes.
 
     IndexEntry - Pointer to the index entry being compared to.
 
@@ -343,7 +327,7 @@ ReturnValue:
     IndexString.MaximumLength = (USHORT)IndexName->FileNameLength << 1;
     IndexString.Buffer = &IndexName->FileName[0];
 
-    return NtfsAreNamesEqual( IrpContext,
+    return NtfsAreNamesEqual( UnicodeTable,
                               &ValueString,
                               &IndexString,
                               IgnoreCase );
@@ -352,9 +336,7 @@ ReturnValue:
 
 BOOLEAN
 NtfsFileContainsWildcards (
-    IN PIRP_CONTEXT IrpContext,
-    IN PVOID Value,
-    IN ULONG ValueLength
+    IN PVOID Value
     )
 
 /*++
@@ -367,7 +349,6 @@ Arguments:
 
     Value - Pointer to the value expression, which is a FILE_NAME.
 
-    ValueLength - Length of the value expression in bytes.
 
 ReturnValue:
 
@@ -395,16 +376,15 @@ ReturnValue:
     ValueString.MaximumLength = (USHORT)ValueName->FileNameLength << 1;
     ValueString.Buffer = &ValueName->FileName[0];
 
-    return NtfsDoesNameContainWildCards( IrpContext,
-                                         &ValueString );
+    return FsRtlDoesNameContainWildCards( &ValueString );
 }
 
 
 VOID
 NtfsFileUpcaseValue (
-    IN PIRP_CONTEXT IrpContext,
-    IN PVOID Value,
-    IN ULONG ValueLength
+    IN PWCH UnicodeTable,
+    IN ULONG UnicodeTableSize,
+    IN PVOID Value
     )
 
 /*++
@@ -445,8 +425,7 @@ ReturnValue:
     ValueString.MaximumLength = (USHORT)ValueName->FileNameLength << 1;
     ValueString.Buffer = &ValueName->FileName[0];
 
-    NtfsUpcaseName( IrpContext,
-                    &ValueString );
+    NtfsUpcaseName( UnicodeTable, UnicodeTableSize, &ValueString );
 
     return;
 }
@@ -458,83 +437,242 @@ ReturnValue:
 
 FSRTL_COMPARISON_RESULT
 DummyCompareValues (
-    IN PIRP_CONTEXT IrpContext,
+    IN PWCH UnicodeTable,
+    IN ULONG UnicodeTableSize,
     IN PVOID Value,
-    IN ULONG ValueLength,
     IN PINDEX_ENTRY IndexEntry,
     IN FSRTL_COMPARISON_RESULT WildCardIs,
     IN BOOLEAN IgnoreCase
     )
 
 {
+    //
+    //  Most parameters are ignored since this is a catch-all for
+    //  a corrupt volume.  We simply raise to indicate the corruption
+    //
+
+    UNREFERENCED_PARAMETER( UnicodeTable );
+    UNREFERENCED_PARAMETER( UnicodeTableSize );
+    UNREFERENCED_PARAMETER( IgnoreCase );
+    UNREFERENCED_PARAMETER( WildCardIs );
+    UNREFERENCED_PARAMETER( IndexEntry );
+    UNREFERENCED_PARAMETER( Value );
+
     PAGED_CODE();
 
     ASSERTMSG("Unused collation rule\n", FALSE);
-    NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, NULL );
+
     return EqualTo;
 }
 
 BOOLEAN
 DummyIsInExpression (
-    IN PIRP_CONTEXT IrpContext,
+    IN PWCH UnicodeTable,
     IN PVOID Value,
-    IN ULONG ValueLength,
     IN PINDEX_ENTRY IndexEntry,
     IN BOOLEAN IgnoreCase
     )
 
 {
+    //
+    //  Most parameters are ignored since this is a catch-all for
+    //  a corrupt volume.  We simply raise to indicate the corruption
+    //
+
+    UNREFERENCED_PARAMETER( UnicodeTable );
+    UNREFERENCED_PARAMETER( Value );
+    UNREFERENCED_PARAMETER( IndexEntry );
+    UNREFERENCED_PARAMETER( IgnoreCase );
+
     PAGED_CODE();
 
     ASSERTMSG("Unused collation rule\n", FALSE);
-    NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, NULL );
     return EqualTo;
 }
 
 BOOLEAN
 DummyIsEqual (
-    IN PIRP_CONTEXT IrpContext,
+    IN PWCH UnicodeTable,
     IN PVOID Value,
-    IN ULONG ValueLength,
     IN PINDEX_ENTRY IndexEntry,
     IN BOOLEAN IgnoreCase
     )
 
 {
+    //
+    //  Most parameters are ignored since this is a catch-all for
+    //  a corrupt volume.  We simply raise to indicate the corruption
+    //
+
+    UNREFERENCED_PARAMETER( UnicodeTable );
+    UNREFERENCED_PARAMETER( Value );
+    UNREFERENCED_PARAMETER( IndexEntry );
+    UNREFERENCED_PARAMETER( IgnoreCase );
+
     PAGED_CODE();
 
     ASSERTMSG("Unused collation rule\n", FALSE);
-    NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, NULL );
     return EqualTo;
 }
 
 BOOLEAN
 DummyContainsWildcards (
-    IN PIRP_CONTEXT IrpContext,
-    IN PVOID Value,
-    IN ULONG ValueLength
+    IN PVOID Value
     )
 
 {
+    //
+    //  Most parameters are ignored since this is a catch-all for
+    //  a corrupt volume.  We simply raise to indicate the corruption
+    //
+
+    UNREFERENCED_PARAMETER( Value );
+
     PAGED_CODE();
 
     ASSERTMSG("Unused collation rule\n", FALSE);
-    NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, NULL );
     return EqualTo;
 }
 
 VOID
 DummyUpcaseValue (
-    IN PIRP_CONTEXT IrpContext,
-    IN PVOID Value,
-    IN ULONG ValueLength
+    IN PWCH UnicodeTable,
+    IN ULONG UnicodeTableSize,
+    IN PVOID Value
     )
 
 {
+    //
+    //  Most parameters are ignored since this is a catch-all for
+    //  a corrupt volume.  We simply raise to indicate the corruption
+    //
+
+    UNREFERENCED_PARAMETER( UnicodeTable );
+    UNREFERENCED_PARAMETER( UnicodeTableSize );
+    UNREFERENCED_PARAMETER( Value );
+
     PAGED_CODE();
 
     ASSERTMSG("Unused collation rule\n", FALSE);
-    NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, NULL );
     return;
+}
+
+//
+//  The following routines are not general index match functions, but rather
+//  specific file name match functions used only for automatic Dos Name generation.
+//
+
+
+BOOLEAN
+NtfsFileNameIsInExpression (
+    IN PWCH UnicodeTable,
+    IN PFILE_NAME ExpressionName,
+    IN PFILE_NAME FileName,
+    IN BOOLEAN IgnoreCase
+    )
+
+/*++
+
+RoutineDescription:
+
+    This is a special match routine for matching FILE_NAME attributes only,
+    which is used only by the special code paths dealing with automatically
+    generated short names.
+
+    This routine is called to compare a file name expression (the value) with
+    a file name from the index to see if the file name is a match in this expression.
+
+Arguments:
+
+    ExpressionName - pointer to the expression for file name.
+
+    FileName - Pointer to the FileName to match.
+
+    IgnoreCase - whether case should be ignored or not.
+
+ReturnValue:
+
+    TRUE - if the file name is in the specified expression.
+
+--*/
+
+{
+    UNICODE_STRING ExpressionString, FileString;
+
+    PAGED_CODE();
+
+    //
+    //  Build the unicode strings and call namesup.
+    //
+
+    ExpressionString.Length =
+    ExpressionString.MaximumLength = (USHORT)ExpressionName->FileNameLength << 1;
+    ExpressionString.Buffer = &ExpressionName->FileName[0];
+
+    FileString.Length =
+    FileString.MaximumLength = (USHORT)FileName->FileNameLength << 1;
+    FileString.Buffer = &FileName->FileName[0];
+
+    return NtfsIsNameInExpression( UnicodeTable,
+                                   &ExpressionString,
+                                   &FileString,
+                                   IgnoreCase );
+}
+
+
+BOOLEAN
+NtfsFileNameIsEqual (
+    IN PWCH UnicodeTable,
+    IN PFILE_NAME ExpressionName,
+    IN PFILE_NAME FileName,
+    IN BOOLEAN IgnoreCase
+    )
+
+/*++
+
+RoutineDescription:
+
+    This is a special match routine for matching FILE_NAME attributes only,
+    which is used only by the special code paths dealing with automatically
+    generated short names.
+
+    This routine is called to compare a constant file name (the value) with
+    a file name from the index to see if the file name is an exact match.
+
+Arguments:
+
+    ExpressionName - pointer to the expression for file name.
+
+    FileName - Pointer to the FileName to match.
+
+    IgnoreCase - whether case should be ignored or not.
+
+ReturnValue:
+
+    TRUE - if the file name is a constant match.
+
+--*/
+
+{
+    UNICODE_STRING ExpressionString, FileString;
+
+    PAGED_CODE();
+
+    //
+    //  Build the unicode strings and call namesup.
+    //
+
+    ExpressionString.Length =
+    ExpressionString.MaximumLength = (USHORT)ExpressionName->FileNameLength << 1;
+    ExpressionString.Buffer = &ExpressionName->FileName[0];
+
+    FileString.Length =
+    FileString.MaximumLength = (USHORT)FileName->FileNameLength << 1;
+    FileString.Buffer = &FileName->FileName[0];
+
+    return NtfsAreNamesEqual( UnicodeTable,
+                              &ExpressionString,
+                              &FileString,
+                              IgnoreCase );
 }
 

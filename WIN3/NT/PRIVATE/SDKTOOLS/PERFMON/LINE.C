@@ -252,19 +252,27 @@ BOOL EquivalentLine (PLINE pLine1,
 
 PLINE FindEquivalentLine (PLINE pLineToFind,
                           PLINE pLineFirst)
-   {
-   PLINE          pLine ;
+{
+    PLINE          pLine = NULL;
+    PLINE          pLastEquivLine = NULL;
 
-   for (pLine = pLineFirst ;
+    for (pLine = pLineFirst ;
         pLine ;
-        pLine = pLine->pLineNext)
-      {  // for
-      if (EquivalentLine (pLine, pLineToFind))
-         return (pLine) ;
-      }  // for
+        pLine = pLine->pLineNext) {
 
-   return (NULL) ;
-   }  // FindEquivalentLine
+        if (EquivalentLine (pLine, pLineToFind)) {
+            if (pLastEquivLine == NULL) {
+                pLastEquivLine = pLine;
+            } else {
+                if (pLine->dwInstanceIndex > pLastEquivLine->dwInstanceIndex) {
+                    pLastEquivLine = pLine;
+                }
+            }
+        }
+    }  // for
+
+    return (pLastEquivLine) ;
+}  // FindEquivalentLine
 
 // This routine is used only to read the system name from a disk string
 // It is mainly for performance improvement.
@@ -445,12 +453,14 @@ PPERFINSTANCEDEF LineFindInstance (PPERFDATA pPerfData,
       
       if (pLine->lnUniqueID != PERF_NO_UNIQUE_ID)
          {
-         pInstance = GetInstanceByUniqueID(pObject, pLine->lnUniqueID) ;
+         pInstance = GetInstanceByUniqueID(pObject, pLine->lnUniqueID,
+            pLine->dwInstanceIndex) ;
          }
       else
          {
          pInstance = GetInstanceByName(pPerfData, pObject,
-                        pLine->lnInstanceName, pLine->lnPINName) ;
+                        pLine->lnInstanceName, pLine->lnPINName,
+                        pLine->dwInstanceIndex) ;
          }
       }
 
@@ -485,7 +495,7 @@ void ReadLines (HANDLE hFile,
 #if 0
    if (!pSystem)
       {
-      pSystem = SystemAdd (ppSystemFirst, LocalComputerName) ;
+      pSystem = SystemAdd (ppSystemFirst, LocalComputerName, NULL) ;
       pSystem = *ppSystemFirst ; //!!
       }
 
@@ -524,7 +534,8 @@ void ReadLines (HANDLE hFile,
 
    BuildValueListForSystems (*ppSystemFirst, *ppLineFirst) ;
 
-   MemoryFree (pPerfData) ;
+   
+MemoryFree ((LPMEMORY)pPerfData) ;
    }  // ReadLines
 
 
@@ -638,7 +649,7 @@ PLINE ReadLine (PPERFSYSTEM *ppSystem,
 
    if (!*ppSystem || !strsamei (pLine->lnSystemName, (*ppSystem)->sysName))
       {
-      *ppSystem = SystemAdd (ppSystemFirst, pLine->lnSystemName) ;
+      *ppSystem = SystemAdd (ppSystemFirst, pLine->lnSystemName, NULL) ;
       if (!*ppSystem)
          {
          SetLastError (ERROR_BAD_FORMAT) ;
@@ -877,9 +888,11 @@ BOOL WriteLine (PLINE pLine,
    MemoryFree (pDiskLine) ;
    return (TRUE) ;
 
+#if 0
 //ErrorBadLine:
    MemoryFree (pDiskLine) ;
    return (FALSE) ;
+#endif
    }  // WriteLine
 
 
@@ -959,5 +972,5 @@ VOID FreeLines (PLINESTRUCT pLineFirst)
       }
    }  // FreeLines
 
-
-
+
+

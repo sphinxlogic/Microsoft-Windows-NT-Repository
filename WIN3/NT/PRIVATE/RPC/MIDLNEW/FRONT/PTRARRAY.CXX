@@ -1799,7 +1799,7 @@ XlateToTempPtrAttr(
 	}
 /*****************************************************************************
  The MIPS compiler is of poor intelligence. It does not like virtual in-line
- functions. So I have to take care of the stupid fellow and out of line these
+ functions. So I have to take care of the fellow and out of line these
  *****************************************************************************/
 void
 npa::GetAllocBoundInfo(
@@ -1861,4 +1861,3 @@ node_array::GetFixedDimension()
     return 0;
 }
 
-

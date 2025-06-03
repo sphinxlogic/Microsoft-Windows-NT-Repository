@@ -61,6 +61,7 @@ ULONG   C4;
 #define INCR_COUNT(_Count)
 #endif
 
+
 //
 // This ntohl swaps just three bytes, since the 4th byte could be a session
 // keep alive message type.
@@ -106,18 +107,6 @@ NotEnoughDataYet(
     IN  ULONG                PduSize,
     OUT PVOID                *ppIrp
     );
-#if 0
-NTSTATUS
-ProcessIrp(
-    IN tLOWERCONNECTION *pLowerConn,
-    IN PIRP     pIrp,
-    IN PVOID    pBuffer,
-    IN PULONG   pBytesTaken,
-    IN ULONG    BytesIndicted,
-    IN ULONG    BytesAvailable,
-    IN PVOID    pTsdu
-    );
-#endif
 NTSTATUS
 ProcessIrp(
     IN tLOWERCONNECTION *pLowerConn,
@@ -140,6 +129,14 @@ AcceptCompletionRoutine(
     IN PDEVICE_OBJECT   DeviceObject,
     IN PIRP             pIrp,
     IN PVOID            pContext
+    );
+
+VOID
+DpcNextOutOfRsrcKill(
+    IN  PKDPC           pDpc,
+    IN  PVOID           Context,
+    IN  PVOID           SystemArgument1,
+    IN  PVOID           SystemArgument2
     );
 
 VOID
@@ -166,7 +163,7 @@ DpcHandleNewSessionPdu (
     );
 VOID
 HandleNewSessionPdu (
-    IN  tCONNECTELE     *pConnEle,
+    IN  tLOWERCONNECTION *pLowerConn,
     IN  ULONG           Offset,
     IN  ULONG           ToGet
     );
@@ -390,17 +387,6 @@ Return Value:
     //
     pConnectEle->ReceiveIndicated = PduSize - BytesTaken;
     ASSERT(pConnectEle->ReceiveIndicated <= 0x20000);
-
-#if 0
-    if (BytesAvailable > PduSize )
-    {
-        pConnectEle->ReceiveIndicated = PduSize - BytesTaken;
-    }
-    else
-    {
-        pConnectEle->ReceiveIndicated = BytesAvailable - BytesTaken;
-    }
-#endif
 
     // amount left in the transport...
     pConnectEle->BytesInXport = BytesAvailable - BytesTaken;
@@ -640,55 +626,6 @@ Return Value:
     // do nothing
 
 }
-#if 0
-//----------------------------------------------------------------------------
-VOID
-SetRcvLengthShorter(
-    IN  tCONNECTELE     *pConnEle,
-    IN  ULONG           RemainingPdu,
-    IN  ULONG           *pRcvLength
-    )
-/*++
-
-Routine Description:
-
-    This routine shortens the receive length when a client's irp is too
-    short
-
-Arguments:
-
-
-Return Value:
-
-    none
-
---*/
-{
-    tLOWERCONNECTION    *pLowerConn = pConnEle->pLowerConnId;
-
-    PUSH_LOCATION(0xb);
-    *pRcvLength = pConnEle->FreeBytesInMdl;
-
-    ASSERT(pConnEle->ReceiveIndicated == 0);
-    //
-    // ReceiveIndicated should already have been set when the irp
-    // was passed down from the client.
-    //
-    //pConnEle->ReceiveIndicated = (RemainingPdu - *pRcvLength);
-    //
-    // DONOT set the state to PARTIAL_RCV, since CompletionRcv will
-    // do that when it completes the client's irp and sees that ReceiveIndicated
-    // is not zero.
-    //
-    //***pLowerConn->StateRcv = PARTIAL_RCV;
-    //***pLowerConn->CurrentStateProc = PartialRcv;
-
-    IF_DBG(NBT_DEBUG_INDICATEBUFF)
-    KdPrint(("Nbt:Client Buffer too short buff= %X,Space Req'd %X,pLowerconn %X\n",
-                *pRcvLength,RemainingPdu,pLowerConn));
-
-}
-#endif
 //----------------------------------------------------------------------------
 NTSTATUS
 IndicateBuffer(
@@ -957,7 +894,15 @@ Return Value:
     ASSERT(pLowerConn->StateRcv == PARTIAL_RCV);
     pConnectEle = pLowerConn->pUpperConnection;
 
-    ASSERT(pConnectEle->BytesInXport == 0);
+//    ASSERT(pConnectEle->BytesInXport == 0);
+#if DBG
+    if (pConnectEle->BytesInXport != 0)
+    {
+        KdPrint(("Netbt!PartialRcv: pConnectEle->BytesInXport != 0 Avail %X, InIndicate=%X,InXport %X %X\n",
+                    BytesAvailable,pLowerConn->BytesInIndicate,
+                    pConnectEle->BytesInXport,pLowerConn));
+    }
+#endif  // DBG
     pConnectEle->BytesInXport = BytesAvailable;
 
     IF_DBG(NBT_DEBUG_NAMESRV)
@@ -1037,7 +982,8 @@ Return Value:
     // call the correct routine depending on the state of the connection
     // Normal/FillIrp/PartialRcv/IndicateBuffer/Inbound/OutBound
     //
-    if (pLowerConn->StateRcv == FILL_IRP)
+    if ((pLowerConn->State == NBT_SESSION_UP) &&
+        (pLowerConn->StateRcv == FILL_IRP))
     {
         PIO_STACK_LOCATION              pIrpSp;
         PMDL                            pNewMdl;
@@ -1298,7 +1244,7 @@ Return Value:
 
             pFileObject = pLowerConn->pFileObject;
             pIrpSp->FileObject = pFileObject;
-            pIrpSp->DeviceObject = pFileObject->DeviceObject;
+            pIrpSp->DeviceObject = IoGetRelatedDeviceObject(pFileObject);
 
             pParams->ReceiveFlags = pClientParams->ReceiveFlags;
 
@@ -1495,7 +1441,6 @@ Return Value:
                 else
                 {
                     PUSH_LOCATION(0x3);
-                    ASSERT(*BytesTaken <= (pConnEle->TotalPcktLen + sizeof(tSESSIONHDR)) );
 
                     status = ProcessIrp(pLowerConn,
                                         pIrp,
@@ -1505,6 +1450,7 @@ Return Value:
                                         BytesAvailable);
 
                     *BytesTaken = BTaken;
+                    ASSERT(*BytesTaken <= (pConnEle->TotalPcktLen + sizeof(tSESSIONHDR)) );
                     if (status == STATUS_RECEIVE_EXPEDITED)
                     {
                         // in this case the processirp routine has completed the
@@ -1576,6 +1522,9 @@ Return Value:
                     // and get the rest of the data, but wait for the client
                     // to post a rcv buffer.
                     //
+
+                    // amount left in the transport...
+                    pConnEle->BytesInXport = BytesAvailable - BTaken;
                     status = STATUS_SUCCESS;
                 }
                 else
@@ -1630,7 +1579,9 @@ Return Value:
                         if (BTaken > PduSize)
                         {
 #ifndef VXD
+#if DBG
                         DbgBreakPoint();
+#endif
 #endif
                             //
                             // the client took more than a PDU size worth,
@@ -1935,14 +1886,6 @@ Return Value:
             PUSH_LOCATION(0x17);
 
             ReceiveLength = pClientParams->ReceiveLength;
-#if 0
-            // don't change the State, but wait for completionRcv to see
-            // that Receiveindicated is not zero and let it change the state
-            //
-            pLowerConn->StateRcv = PARTIAL_RCV;
-            pLowerConn->CurrentStateProc = PartialRcv;
-#endif
-
             //
             // Adjust the number of bytes left in the transport up by the number of
             // bytes not taken by the client.  Be sure not to add in the number
@@ -2113,7 +2056,7 @@ ExitCode2:
 
     pFileObject           = pLowerConn->pFileObject;
     pIrpSp->FileObject    = pFileObject;
-    pIrpSp->DeviceObject  = pFileObject->DeviceObject;
+    pIrpSp->DeviceObject  = IoGetRelatedDeviceObject(pFileObject);
 
     pParams               = (PTDI_REQUEST_KERNEL_RECEIVE)&pIrpSp->Parameters;
     pParams->ReceiveFlags = pClientParams->ReceiveFlags;
@@ -2135,6 +2078,13 @@ ExitCode2:
     {
         if ((RemainingPdu == 0) || !pIrp->MdlAddress)
         {
+            //
+            // the call to IoCompleteRequest will call completionRcv which will
+            // decrement the RefCount. Similarly returning status success will
+            // cause the caller to decrement the ref count, so increment one
+            // more time here to account for this second decrement.
+            //
+            pLowerConn->RefCount++;
             CTESpinFreeAtDpc(pLowerConn);
 
             IoCompleteRequest(pIrp,IO_NETWORK_INCREMENT);
@@ -2475,14 +2425,20 @@ Return Value:
                 //
                 if (!IsListEmpty(&pConnectEle->RcvHead))
                 {
-                    pDpc = CTEAllocMem(sizeof(KDPC));
+                    pDpc = NbtAllocMem(sizeof(KDPC),NBT_TAG('p'));
                     if (pDpc)
                     {
                         KeInitializeDpc(pDpc,
                                         DpcGetRestOfIndication,
-                                        (PVOID)pConnectEle);
+                                        (PVOID)pLowerConn);
 
                         KeInsertQueueDpc(pDpc,NULL,NULL);
+                        //
+                        // we don't want to dereference pLowerConn at the end
+                        // since we will use it in the DPC routine.
+                        //
+                        CTESpinFree(pLowerConn,OldIrq);
+                        return(STATUS_MORE_PROCESSING_REQUIRED);
                     }
                     else
                     {
@@ -2495,17 +2451,23 @@ Return Value:
             }
             else
             {
-                pDpc = CTEAllocMem(sizeof(KDPC));
+                pDpc = NbtAllocMem(sizeof(KDPC),NBT_TAG('q'));
                 if (pDpc)
                 {
                     KeInitializeDpc(pDpc,
                                     DpcHandleNewSessionPdu,
-                                    (PVOID)pConnectEle);
+                                    (PVOID)pLowerConn);
                     //
                     // just get the session hdr to start with so we know how large
                     // the pdu is, then get the rest of the pdu after that completes.
                     //
                     KeInsertQueueDpc(pDpc,NULL,(PVOID)sizeof(tSESSIONHDR));
+                    //
+                    // we don't want to dereference pLowerConn at the end
+                    // since we will use it in the DPC routine.
+                    //
+                    CTESpinFree(pLowerConn,OldIrq);
+                    return(STATUS_MORE_PROCESSING_REQUIRED);
                 }
                 else
                 {
@@ -3153,22 +3115,6 @@ Return Value:
 
         }
     }
-#if 0
-    else
-    {
-        //
-        // someone has tried to dereference the pConnEle but found that we
-        // are in the receive code, and just cleared this flag.  Therefore
-        // this code must do the dereference now.
-        //
-        CTESpinFree(pLowerConn,OldIrq);
-        if (pConnEle)
-        {
-            NbtDereferenceConnection(pConnEle);
-        }
-        NbtDereferenceLowerConnection(pLowerConn);
-    }
-#endif
 }
 //----------------------------------------------------------------------------
 VOID
@@ -3197,23 +3143,26 @@ Return Value:
 {
     NTSTATUS            status;
     CTELockHandle       OldIrq;
-    tCONNECTELE         *pConnEle = (tCONNECTELE *)Context;
+    tCONNECTELE         *pConnEle;
     PIRP                pIrp;
     PIO_STACK_LOCATION  pIrpSp;
-    tLOWERCONNECTION    *pLowerConn;
+    tLOWERCONNECTION    *pLowerConn=(tLOWERCONNECTION *)Context;
     PLIST_ENTRY         pEntry;
 
     CTEMemFree((PVOID)pDpc);
 
     CTESpinLockAtDpc(&NbtConfig.JointLock);
-    pLowerConn = pConnEle->pLowerConnId;
 
     // a disconnect indication can come in any time and separate the lower and
     // upper connections, so check for that
-    if (!pLowerConn || pLowerConn->StateRcv != PARTIAL_RCV)
+    if (!pLowerConn->pUpperConnection || pLowerConn->StateRcv != PARTIAL_RCV)
     {
         PUSH_LOCATION(0xA4);
         CTESpinFreeAtDpc(&NbtConfig.JointLock);
+        //
+        // Dereference pLowerConn
+        //
+        NbtDereferenceLowerConnection(pLowerConn);
         return;
     }
 
@@ -3227,9 +3176,15 @@ Return Value:
         CTESpinFreeAtDpc(&NbtConfig.JointLock);
         KdPrint(("Nbt:Unable to get an Irp - Closing Connection!!\n",0));
         status = OutOfRsrcKill(pLowerConn);
+        //
+        // Dereference pLowerConn
+        //
+        NbtDereferenceLowerConnection(pLowerConn);
         return;
     }
     CTESpinLockAtDpc(pLowerConn);
+
+    pConnEle = (tCONNECTELE *)pLowerConn->pUpperConnection;
 
     if (!IsListEmpty(&pConnEle->RcvHead))
     {
@@ -3252,6 +3207,7 @@ Return Value:
         //
         status = NTReceive(pLowerConn->pDeviceContext,pIrp);
 
+
     }
     else
     {
@@ -3259,6 +3215,10 @@ Return Value:
         CTESpinFreeAtDpc(&NbtConfig.JointLock);
         PUSH_LOCATION(0xA6);
     }
+    //
+    // Dereference pLowerConn
+    //
+    NbtDereferenceLowerConnection(pLowerConn);
 
 }
 
@@ -3289,7 +3249,7 @@ Return Value:
     CTEMemFree((PVOID)pDpc);
 
 
-    HandleNewSessionPdu((tCONNECTELE *)Context,(ULONG)SystemArgument1,
+    HandleNewSessionPdu((tLOWERCONNECTION *)Context,(ULONG)SystemArgument1,
                         (ULONG)SystemArgument2);
 
 }
@@ -3297,7 +3257,7 @@ Return Value:
 //----------------------------------------------------------------------------
 VOID
 HandleNewSessionPdu (
-    IN  tCONNECTELE     *pConnEle,
+    IN  tLOWERCONNECTION *pLowerConn,
     IN  ULONG           Offset,
     IN  ULONG           ToGet
     )
@@ -3329,7 +3289,7 @@ Return Value:
     PFILE_OBJECT        pFileObject;
     PMDL                pMdl;
     ULONG               BytesToGet;
-    tLOWERCONNECTION    *pLowerConn;
+    tCONNECTELE         *pConnEle;
 
     pIrp = NULL;
     BytesTaken = 0;
@@ -3338,13 +3298,17 @@ Return Value:
     // upper connections, so with it we can check if they have been separated.
     //
     CTESpinLockAtDpc(&NbtConfig.JointLock);
-    pLowerConn = pConnEle->pLowerConnId;
+    pConnEle = pLowerConn->pUpperConnection;
 
     // a disconnect indication can come in any time and separate the lower and
     // upper connections, so check for that
-    if (!pLowerConn)
+    if (!pLowerConn->pUpperConnection)
     {
         CTESpinFreeAtDpc(&NbtConfig.JointLock);
+        //
+        // remove the reference from CompletionRcv
+        //
+        NbtDereferenceLowerConnection(pLowerConn);
         return;
     }
 
@@ -3358,6 +3322,10 @@ Return Value:
         CTESpinFreeAtDpc(&NbtConfig.JointLock);
         KdPrint(("Nbt:Unable to get an Irp - Closing Connection!!\n",0));
         status = OutOfRsrcKill(pLowerConn);
+        //
+        // remove the reference from CompletionRcv
+        //
+        NbtDereferenceLowerConnection(pLowerConn);
         return;
     }
     CTESpinLockAtDpc(pLowerConn);
@@ -3372,13 +3340,12 @@ Return Value:
                                     &NbtConfig.SpinLock);
         CTESpinFreeAtDpc(pLowerConn);
         CTESpinFreeAtDpc(&NbtConfig.JointLock);
+        //
+        // remove the reference from CompletionRcv
+        //
+        NbtDereferenceLowerConnection(pLowerConn);
         return;
     }
-
-    // this stuff should be UNdone in NewSessionCompletionRcv
-    //
-//    pLowerConn->InRcvHandler = TRUE;
-    pLowerConn->RefCount++;
 
     pFileObject = pLowerConn->pFileObject;
 
@@ -3429,7 +3396,7 @@ Return Value:
 
     TdiBuildReceive(
         pIrp,
-        pFileObject->DeviceObject,
+        IoGetRelatedDeviceObject(pFileObject),
         pFileObject,
         NewSessionCompletionRoutine,
         (PVOID)pLowerConn,
@@ -3440,7 +3407,8 @@ Return Value:
     CTESpinFreeAtDpc(pLowerConn);
     CTESpinFreeAtDpc(&NbtConfig.JointLock);
 
-    status = IoCallDriver(pFileObject->DeviceObject,pIrp);
+    CHECK_COMPLETION(pIrp);
+    status = IoCallDriver(IoGetRelatedDeviceObject(pFileObject),pIrp);
 
 }
 
@@ -3611,13 +3579,16 @@ Return Value:
                     //
                     // now go get this amount of data and add it to the header
                     //
-                    pDpc = CTEAllocMem(sizeof(KDPC));
+                    pDpc = NbtAllocMem(sizeof(KDPC),NBT_TAG('r'));
 
                     ASSERT(pDpc);
 
                     KeInitializeDpc(pDpc,
                                     DpcHandleNewSessionPdu,
-                                    (PVOID)pConnEle);
+                                    (PVOID)pLowerConn);
+
+
+                    CTESpinFree(pLowerConn,OldIrq);
 
                     // check that the pdu is not going to overflow the indicate buffer.
                     //
@@ -3640,7 +3611,7 @@ Return Value:
                     // return this status to stop to tell the io subsystem to stop processing
                     // this irp when we return it.
                     //
-                    goto ExitRoutine;
+                    return(STATUS_MORE_PROCESSING_REQUIRED);
                 }
             }
 
@@ -3757,6 +3728,7 @@ Return Value:
     //
     // get an Irp from the list
     //
+
     status = GetIrp(&pIrp);
 
     if (!NT_SUCCESS(status))
@@ -3786,7 +3758,7 @@ Return Value:
 
     TdiBuildReceive(
         pIrp,
-        pLowerConn->pFileObject->DeviceObject,
+        IoGetRelatedDeviceObject(pLowerConn->pFileObject),
         pLowerConn->pFileObject,
         NewSessionCompletionRoutine,
         (PVOID)pLowerConn,
@@ -3854,7 +3826,7 @@ Return Value:
 
     TdiBuildReceive(
         pIrp,
-        pLowerConn->pFileObject->DeviceObject,
+        IoGetRelatedDeviceObject(pLowerConn->pFileObject),
         pLowerConn->pFileObject,
         NewSessionCompletionRoutine,
         (PVOID)pLowerConn,
@@ -3978,6 +3950,15 @@ Return Value:
                     pBuffer,
                     (PVOID)&pIrp
                     );
+
+    //
+    // if the connection has disonnected, then just return
+    //
+    if (!pLowerConn->pUpperConnection)
+    {
+        *BytesTaken = BytesAvailable;
+        return(STATUS_SUCCESS);
+    }
 
     // do not use pConnEle->TotalPcktLen here becauase it won't be set for
     // keep alives - must use actual buffer to get length.
@@ -4251,7 +4232,8 @@ Return Value:
                 ASSERT(pIrp->CurrentLocation > 1);
 
                 CTESpinFreeAtDpc(pLowerConn);
-                IoCallDriver(pLowerConn->pFileObject->DeviceObject,pIrp);
+                CHECK_COMPLETION(pIrp);
+                IoCallDriver(IoGetRelatedDeviceObject(pLowerConn->pFileObject),pIrp);
                 CTESpinLockAtDpc(pLowerConn);
 
                 return(STATUS_MORE_PROCESSING_REQUIRED);
@@ -4327,19 +4309,20 @@ Return Value:
                 // there is still data in the transport so Q a Dpc to use
                 // the indicate buffer to get the data
                 //
-                pDpc = CTEAllocMem(sizeof(KDPC));
+                pDpc = NbtAllocMem(sizeof(KDPC),NBT_TAG('s'));
 
                 if (pDpc)
                 {
                     KeInitializeDpc(pDpc,
                                     DpcHandleNewSessionPdu,
-                                    (PVOID)pConnEle);
+                                    (PVOID)pLowerConn);
 
                     pLowerConn->StateRcv = INDICATE_BUFFER;
                     pLowerConn->CurrentStateProc = IndicateBuffer;
 
                     // get just the header first to see how large the pdu is
                     //
+                    pLowerConn->RefCount++;
                     KeInsertQueueDpc(pDpc,NULL,(PVOID)sizeof(tSESSIONHDR));
                 }
                 else
@@ -4532,7 +4515,7 @@ Return Value:
 
     TdiBuildAccept(
         pRequestIrp,
-        pFileObject->DeviceObject,
+        IoGetRelatedDeviceObject(pFileObject),
         pFileObject,
         AcceptCompletionRoutine,
         (PVOID)pConnectionId,
@@ -4583,38 +4566,52 @@ Return Value:
 --*/
 {
     tLOWERCONNECTION    *pLowerConn;
+    CTELockHandle       OldIrq;
+    tDEVICECONTEXT      *pDeviceContext;
 
     pLowerConn = (tLOWERCONNECTION *)pContext;
+    pDeviceContext = pLowerConn->pDeviceContext;
 
+
+    CTESpinLock(&NbtConfig.JointLock,OldIrq);
+    CTESpinLockAtDpc(pLowerConn);
     //
     // if the connection disconnects before the connect accept irp (this irp)
     // completes do not put back on the free list here but let  nbtdisconnect
     // handle it.
+    // (i.e if the state is no longer INBOUND, then don't touch the connection
     //
     if ((!NT_SUCCESS(pIrp->IoStatus.Status)) &&
         (pLowerConn->State == NBT_SESSION_INBOUND))
     {
-        tDEVICECONTEXT  *pDeviceContext;
 
         //
-        // the connection setup failed, so put the lower connection block
-        // back on the free list, but be sure to decrement the reference
-        // count that was incremented in ConnectHndlrNotOs
+        // the accept failed, so close the connection and create
+        // a new one to be sure all activity is run down on the connection.
         //
 
         pLowerConn->State = NBT_IDLE;
-        pDeviceContext = pLowerConn->pDeviceContext;
-        //
-        //  First remove it from pDeviceContext->LowerConnection
-        //
-        RemoveEntryList( &pLowerConn->Linkage ) ;
-        ExInterlockedDecrementLong(&pLowerConn->RefCount,&pLowerConn->SpinLock);
-        ExInterlockedInsertTailList(&pDeviceContext->LowerConnFreeHead,
-                        &pLowerConn->Linkage,
-                        &pDeviceContext->SpinLock);
+
+        CTESpinFreeAtDpc(pLowerConn);
+        CTESpinFree(&NbtConfig.JointLock,OldIrq);
+
+        KdPrint(("AcceptCompletionRoutine: error: %lx\n", pIrp->IoStatus.Status));
+
+        CTEQueueForNonDispProcessing(
+                                       NULL,
+                                       pLowerConn,
+                                       NULL,
+                                       CleanupAfterDisconnect,
+                                       pDeviceContext);
 
         PUSH_LOCATION(0x93);
     }
+    else
+    {
+        CTESpinFreeAtDpc(pLowerConn);
+        CTESpinFree(&NbtConfig.JointLock,OldIrq);
+    }
+
 
     // put the Irp back on its free list
     REMOVE_FROM_LIST(&pIrp->ThreadListEntry);
@@ -4822,23 +4819,30 @@ Return Value:
             // make an Mdl for a buffer to get all of the data from
             // the transprot
             //
-            pBuffer = CTEAllocMem(BytesAvailable);
+            pBuffer = NbtAllocMem(BytesAvailable,NBT_TAG('t'));
 
-            // Allocate a MDL and set the header sizes correctly
-            pMdl = IoAllocateMdl(
-                            pBuffer,
-                            BytesAvailable,
-                            FALSE,
-                            FALSE,
-                            NULL);
+            pMdl = NULL;
+            if (pBuffer)
+            {
+                // Allocate a MDL and set the header sizes correctly
+                pMdl = IoAllocateMdl(
+                                pBuffer,
+                                BytesAvailable,
+                                FALSE,
+                                FALSE,
+                                NULL);
 
+            }
             if (!pMdl)
             {
                 REMOVE_FROM_LIST(&pIrp->ThreadListEntry);
                 ExInterlockedInsertTailList(&NbtConfig.IrpFreeList,
                                             &pIrp->Tail.Overlay.ListEntry,
                                             &NbtConfig.SpinLock);
-                ASSERT(pMdl);
+                if (pBuffer)
+                    CTEMemFree(pBuffer);
+
+                //ASSERT(pMdl);
                 KdPrint(("Nbt:Unable to get Mdl, Kill Connection\n"));
                 return(STATUS_DATA_NOT_ACCEPTED);
             }
@@ -5015,7 +5019,7 @@ Return Value:
         //
         Length = BytesAvailable + SourceAddressLength + sizeof(ULONG);
         Length = ((Length + 3)/sizeof(ULONG)) * sizeof(ULONG);
-        pBuffer = CTEAllocMem(Length);
+        pBuffer = NbtAllocMem(Length,NBT_TAG('u'));
         if (pBuffer)
         {
             PVOID   pSrcAddr;
@@ -5200,7 +5204,8 @@ Return Value:
                         pDeviceContext,
                         pSourceAddress,
                         pNameSrv,
-                        BytesIndicated);
+                        BytesIndicated,
+                        (BOOLEAN)((ReceiveDatagramFlags & TDI_RECEIVE_BROADCAST) != 0));
 
 //        NbtConfig.DgramBytesRcvd += BytesIndicated
 
@@ -5377,7 +5382,7 @@ Return Value:
         pAddress            = pClientList->pAddress;
         pRemoteAddress      = pClientList->pRemoteAddress;
 
-        CTESpinLock(pClientList->pAddress, OldIrq);
+        CTESpinLock(&NbtConfig.JointLock,OldIrq);
 
         pHead               = &pClientList->pAddress->ClientHead;
         pEntry              = pHead->Flink;
@@ -5407,12 +5412,12 @@ Return Value:
                     //
                     if (pClientEle->pDeviceContext->AdapterNumber == AdapterNumber)
                     {
-                        ExInterlockedIncrementLong(&pClientEle->RefCount,&pClientEle->SpinLock);
+                        InterlockedIncrement(&pClientEle->RefCount);
 
                         EvRcvDgram = pClientEle->evRcvDgram;
                         RcvDgramEvContext = pClientEle->RcvDgramEvContext;
 
-                        CTESpinFree(pClientList->pAddress, OldIrq);
+                        CTESpinFree(&NbtConfig.JointLock, OldIrq);
 
                         // dereference the previous client in the list
                         if (pClientPrev)
@@ -5479,7 +5484,7 @@ Return Value:
                             IoCompleteRequest(pRcvIrp,IO_NETWORK_INCREMENT);
                         }
 
-                        CTESpinLock(pClientList->pAddress, OldIrq);
+                        CTESpinLock(&NbtConfig.JointLock, OldIrq);
 
 
                         pClientPrev = pClientEle;
@@ -5489,7 +5494,7 @@ Return Value:
                     // referencing the client prior to releasing the spin lock
                     // on the address.  The client element does not get
                     // removed from the address list until its ref count goes
-                    // to zero. We must hold the address spin lock to prevent the
+                    // to zero. We must hold the joint spin lock to prevent the
                     // next client from deleting itself from the list before we
                     // can increment its reference count.
                     //
@@ -5518,22 +5523,26 @@ Return Value:
                     //
                     if (pClientEle->pDeviceContext->AdapterNumber == AdapterNumber)
                     {
-                        ExInterlockedIncrementLong(&pClientEle->RefCount,
-                                                   &pClientEle->SpinLock);
+                        InterlockedIncrement(&pClientEle->RefCount);
 
                         // check for datagrams posted to this name
                         //
-                        CTESpinLock(pClientEle,OldIrq2);
+                        CTESpinFree(&NbtConfig.JointLock,OldIrq);
+                        // undo the InterlockedIncrement on the refcount
+                        if (pClientPrev)
+                        {
+                            NbtDereferenceClient(pClientPrev);
+                            pClientPrev = NULL;
+                        }
+
+                        CTESpinLock(&NbtConfig.JointLock,OldIrq);
                         if (pClientEle == pClientList->pClientEle)
                         {
                             // this is the client whose buffer we are using - it is
                             // passed up to the client after all other clients
                             // have been processed.
                             //
-                            CTESpinFree(pClientEle,OldIrq2);
-
-                            ExInterlockedDecrementLong(&pClientEle->RefCount,
-                                                       &pClientEle->SpinLock);
+                            InterlockedDecrement(&pClientEle->RefCount);
                             pEntry = pEntry->Flink;
                             continue;
                         }
@@ -5545,7 +5554,6 @@ Return Value:
                             pRcvEle   = CONTAINING_RECORD(pRcvEntry,tRCVELE,Linkage);
                             pRcvIrp   = pRcvEle->pIrp;
 
-                            CTESpinFree(pClientEle,OldIrq2);
                             //
                             // copy the data to the client's Irp
                             //
@@ -5569,24 +5577,16 @@ Return Value:
 
                             pRcvIrp->IoStatus.Information = BytesCopied;
 
-                            CTESpinFree(pClientList->pAddress, OldIrq);
+                            CTESpinFree(&NbtConfig.JointLock, OldIrq);
 
                             IoCompleteRequest(pRcvIrp,IO_NETWORK_INCREMENT);
 
-                            // undo the InterlockedIncrement on the refcount
-                            if (pClientPrev)
-                            {
-                                NbtDereferenceClient(pClientPrev);
-                            }
 
                             // free the receive block
                             CTEMemFree((PVOID)pRcvEle);
 
-                            CTESpinLock(pClientList->pAddress, OldIrq);
+                            CTESpinLock(&NbtConfig.JointLock, OldIrq);
                         }
-                        else
-                            CTESpinFree(pClientEle,OldIrq2);
-
 
                         pEntry = pEntry->Flink;
 
@@ -5598,7 +5598,7 @@ Return Value:
                 // free the remote address structure and the client list
                 // allocated in DgramHndlrNotOs
                 //
-                CTESpinFree(pClientList->pAddress, OldIrq);
+                CTESpinFree(&NbtConfig.JointLock, OldIrq);
 
                 // undo the InterlockedIncrement on the refcount
                 if (pClientPrev)
@@ -5607,7 +5607,14 @@ Return Value:
                 }
                 CTEMemFree(pClientList->pRemoteAddress);
 
+                //
+                // The address was referenced in DgramRcvNotOs to be sure it did not
+                // disappear until this dgram rcv was done, which is now.
+                //
+                NbtDereferenceAddress(pClientList->pAddress);
+
                 CTEMemFree(Context);
+
 
                 // returning success allows the IO subsystem to complete the
                 // irp that we used to get the data - i.e. one client's
@@ -5616,7 +5623,7 @@ Return Value:
                 return(STATUS_SUCCESS);
             }
 
-        CTESpinFree(pClientList->pAddress,OldIrq);
+        CTESpinFree(&NbtConfig.JointLock,OldIrq);
 
         // dereference the previous client in the list from the RcvHANDLER
         // case a page or so above...
@@ -5638,8 +5645,9 @@ Return Value:
         else
         {
             //
-            // Call the ProxyDoDgramDist
+            // Call the ProxyDoDgramDist after freeing the jointlock.
             //
+            CTESpinFree(&NbtConfig.JointLock,OldIrq);
             status = ProxyDoDgramDist(
                               pTsdu,
                               DataLength,
@@ -5983,13 +5991,17 @@ Return Value:
 {
     NTSTATUS                    status;
     CTELockHandle               OldIrq;
+    CTELockHandle               OldIrq1;
     PIRP                        pIrp;
     PFILE_OBJECT                pFileObject;
     PDEVICE_OBJECT              pDeviceObject;
+    tDEVICECONTEXT             *pDeviceContext = pLowerConn->pDeviceContext;
 
 
-    CTESpinLock(&NbtConfig,OldIrq);
+    CTESpinLock(pDeviceContext,OldIrq);
+    CTESpinLock(&NbtConfig,OldIrq1);
 
+    InterlockedIncrement(&pLowerConn->RefCount);
     if (NbtConfig.OutOfRsrc.pIrp)
     {
         // get an Irp to send the message in
@@ -5997,9 +6009,10 @@ Return Value:
         NbtConfig.OutOfRsrc.pIrp = NULL;
 
         pFileObject = pLowerConn->pFileObject;
-        pDeviceObject = pFileObject->DeviceObject;
+        pDeviceObject = IoGetRelatedDeviceObject(pFileObject);
 
-        CTESpinFree(&NbtConfig,OldIrq);
+        CTESpinFree(&NbtConfig,OldIrq1);
+        CTESpinFree(pDeviceContext,OldIrq);
 
         // store some context stuff in the Irp stack so we can call the completion
         // routine set by the Udpsend code...
@@ -6017,6 +6030,7 @@ Return Value:
         CHECK_PTR(pIrp);
         pIrp->MdlAddress = NULL;
 
+        CHECK_COMPLETION(pIrp);
         status = IoCallDriver(pDeviceObject,pIrp);
 
         IF_DBG(NBT_DEBUG_REF)
@@ -6024,13 +6038,31 @@ Return Value:
 
         return(status);
 
-
     }
     else
     {
+        //
+        // The lower conn could get removed here, then get dequed from the ConnectionHead and come here
+        // (via DpcNextOutOfRsrcKill), and fail to get an Irp; we re-enque it into the OutOfRsrc list,
+        // but should not try to deque it here.
+        //
+        if (!pLowerConn->OutOfRsrcFlag) {
+
+            RemoveEntryList(&pLowerConn->Linkage);
+
+            //
+            // The lower conn gets removed from the inactive list here and again when CleanupAfterDisconnect
+            // calls NbtDeleteLowerConn. In order to prevent the second deque, we set a flag here and test
+            // for it in NbtDeleteLowerConn.
+            //
+            pLowerConn->OutOfRsrcFlag = TRUE;
+        }
+
+        pLowerConn->Linkage.Flink = pLowerConn->Linkage.Blink = (struct _LIST_ENTRY * volatile)0x00006041;
         InsertTailList(&NbtConfig.OutOfRsrc.ConnectionHead,&pLowerConn->Linkage);
 
-        CTESpinFree(&NbtConfig,OldIrq);
+        CTESpinFree(&NbtConfig,OldIrq1);
+        CTESpinFree(pDeviceContext,OldIrq);
     }
 
     return(STATUS_SUCCESS);
@@ -6061,6 +6093,7 @@ Return Value:
     KIRQL               OldIrq;
     PLIST_ENTRY         pEntry;
     tLOWERCONNECTION    *pLowerConn;
+    PKDPC               pDpc;
 
 
 
@@ -6078,21 +6111,39 @@ Return Value:
                                    NULL,
                                    TDI_DISCONNECT_ABORT);
 
+    NbtDereferenceLowerConnection(pLowerConn);
+
     CTESpinLock(&NbtConfig,OldIrq);
     NbtConfig.OutOfRsrc.pIrp = pIrp;
 
     if (!IsListEmpty(&NbtConfig.OutOfRsrc.ConnectionHead))
     {
-        pEntry = RemoveHeadList(&NbtConfig.OutOfRsrc.ConnectionHead);
-        pLowerConn = CONTAINING_RECORD(pEntry,tLOWERCONNECTION,Linkage);
+        if (NbtConfig.OutOfRsrc.pDpc)
+        {
+            pDpc = NbtConfig.OutOfRsrc.pDpc;
+            NbtConfig.OutOfRsrc.pDpc = NULL;
 
-        CTESpinFree(&NbtConfig,OldIrq);
-        status = OutOfRsrcKill(pLowerConn);
+            pEntry = RemoveHeadList(&NbtConfig.OutOfRsrc.ConnectionHead);
+            pLowerConn = CONTAINING_RECORD(pEntry,tLOWERCONNECTION,Linkage);
+
+            pLowerConn->Linkage.Flink = pLowerConn->Linkage.Blink = (struct _LIST_ENTRY * volatile)0x00006109;
+            KeInitializeDpc(pDpc,
+                            DpcNextOutOfRsrcKill,
+                            (PVOID)pLowerConn);
+
+            KeInsertQueueDpc(pDpc,NULL,NULL);
+
+            CTESpinFree(&NbtConfig,OldIrq);
+
+        }
+        else
+            CTESpinFree(&NbtConfig,OldIrq);
     }
     else
     {
         CTESpinFree(&NbtConfig,OldIrq);
     }
+
 
 
     //
@@ -6102,6 +6153,49 @@ Return Value:
     //
     return(STATUS_MORE_PROCESSING_REQUIRED);
 }
+
+
+//----------------------------------------------------------------------------
+VOID
+DpcNextOutOfRsrcKill(
+    IN  PKDPC           pDpc,
+    IN  PVOID           Context,
+    IN  PVOID           SystemArgument1,
+    IN  PVOID           SystemArgument2
+    )
+/*++
+
+Routine Description:
+
+    This routine simply calls OutOfRsrcKill from a Dpc started in
+    RsrcKillCompletion.
+
+Arguments:
+
+
+Return Value:
+--*/
+{
+
+    KIRQL               OldIrq;
+    tLOWERCONNECTION   *pLowerConn;
+
+
+    pLowerConn = (tLOWERCONNECTION *)Context;
+
+    CTESpinLock(&NbtConfig,OldIrq);
+    NbtConfig.OutOfRsrc.pDpc = pDpc;
+    CTESpinFree(&NbtConfig,OldIrq);
+
+    OutOfRsrcKill(pLowerConn);
+
+    //
+    // to remove the extra reference put on pLowerConn when OutOfRsrc called
+    //
+    NbtDereferenceLowerConnection(pLowerConn);
+
+}
+
 
 //----------------------------------------------------------------------------
 VOID
@@ -6189,4 +6283,4 @@ Return Value:
 
 }
 
-
+

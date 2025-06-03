@@ -87,7 +87,7 @@ typedef struct {
 
      CHAR_PTR  path;                   /* path for catalog query     */
      INT16     path_size;              /* size of directory path     */
-     CHAR      itemname[80];           /* itemname for query         */
+     CHAR      itemname[256];           /* itemname for query         */
      INT16     item_size;              /* size of itemname for search*/
 
      FSE_PTR   fse_ptr;

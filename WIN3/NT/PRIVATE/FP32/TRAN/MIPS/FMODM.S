@@ -15,16 +15,16 @@
  */
 /* $Header: fmod.s,v 3000.3.1.6 91/10/09 11:14:56 zaineb Exp $ */
 
-.globl fmod
-.globl fmodf
+.extern _except2
+.extern errno 4
 
 #include <kxmips.h>
 #include <trans.h>
-#include <math.h>
 #include <fpieee.h>
 
 
 /* double fmod(double x, double y) */
+.text .text$fmodm
 .ent fmod_small
 fmod_small:
 	.frame	sp, 16, ra
@@ -35,7 +35,7 @@ fmod_small:
 	/* scale both x and y, compute remainder, and unscale it */
 	subu	sp, 16
 	sw	ra, 16(sp)
-    .prologue 1
+	.prologue 1
 	li.d	$f18, 1.2474001934591999e+291	/* 2^(1024-57) */
 	li.d	$f16, 1.4411518807585587e+17	/* 2^57 */
 	c.lt.d	$f0, $f18
@@ -61,12 +61,13 @@ fmod_small:
 	j	ra
 .end fmod_small
 
-.extern errno 4
 
+.text .text$fmodm
+.globl fmod
 .ent fmod
 fmod:
 	.frame	sp, 0, ra
-    .prologue 0
+	.prologue 0
 .set noreorder
 	c.un.d	$f12, $f14		/* x NaN or y NaN? */
 	mfc1	t0, $f13		/* sign and exponent of x */
@@ -166,6 +167,7 @@ fmod2:	/* entry from fmod_subnormal and fmod_small */
 	j	set_fmod_err
 .end fmod
 
+.text .text$fmodm
 .ent fmod_subnormal
 fmod_subnormal:
 	.frame	sp, 16, ra
@@ -176,7 +178,7 @@ fmod_subnormal:
 	/* scale both x and y, compute remainder, and unscale it */
 	subu	sp, 16
 	sw	ra, 16(sp)
-    .prologue 1
+	.prologue 1
 	li.d	$f18, 8.6555775981267394e+273	/* 2^(1024-114) */
 	li.d	$f16, 2.0769187434139311e+34	/* 2^114 */
 	c.lt.d	$f0, $f18
@@ -205,10 +207,12 @@ fmod_subnormal:
 
 /* float fmodf(float x, float y) */
 
+.text .text$fmodm
+.globl fmodf
 .ent fmodf
 fmodf:
 	.frame	sp, 0, ra
-    .prologue 0
+	.prologue 0
 .set noreorder
 	c.un.s	$f12, $f14		/* x NaN or y NaN? */
 	mfc1	t0, $f12		/* sign and exponent of x */
@@ -268,6 +272,7 @@ fmodf:
 80:	/* x = +-Infinity */
 	ctc1	t3, $31
 	sub.s	$f0, $f12, $f12		/* raise Invalid, return NaN */
+	mov.s	$f0,$f12
 	j	ra
 
 90:	/* y is zero or subnormal */
@@ -276,10 +281,11 @@ fmodf:
 
 	/* y = +-0 */
 	ctc1	t3, $31
-	div.s	$f0, $f14, $f14		/* raise Invalid, return NaN */
+     	div.s   $f0, $f14, $f14  /* raise Invalid, return NaN */
 	j	ra
 .end fmodf
 
+.text .text$fmodm
 .ent fmodf_punt
 fmodf_punt:
 	.frame	sp, 16, ra
@@ -288,7 +294,7 @@ fmodf_punt:
 	   t3 = fcsr, fcsr = round-to-zero */
 	subu	sp, 16
 	sw	ra, 16(sp)
-    .prologue 1
+	.prologue 1
 	cvt.d.s	$f12
 	cvt.d.s	$f14
 	li	t2, (2047<<20)
@@ -299,10 +305,8 @@ fmodf_punt:
 	j	ra
 .end fmodf_punt
 
-.extern _except2
 
-.text
-
+.text .text$fmodm
 .ent set_fmod_err
 set_fmod_err:
 #define FSIZE 48
@@ -310,12 +314,11 @@ set_fmod_err:
 	.mask   0x80000000, -4
 	subu    sp, FSIZE
 	sw      ra, FSIZE-4(sp)
-    .prologue 1
+	.prologue 1
 	li	$4, FP_I 	// exception mask
 	li	$5, OP_FMOD  	// operation code (funtion name index)
 	mfc1.d	$6, $f12   	// arg1 
 	s.d     $f14, 16(sp)    // arg2 (TODO:  pass 0.0 as arg2???, see above)
-	li.d	$f0, 0.0
 	s.d	$f0, 24(sp)	// default result
 	cfc1    t7, $31         // floating point control/status register
 	xor     t7, t7, 0xf80   // inverse exception enable bits

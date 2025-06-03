@@ -89,6 +89,10 @@ typedef union _UCHAR4 {
     *((UCHAR2 *)(Dst)) = *((UNALIGNED UCHAR2 *)(Src));       \
 }
 
+#define CopyU2char(Dst,Src) {                                \
+    *((UNALIGNED UCHAR2 *)(Dst)) = *((UCHAR2 *)(Src));       \
+}
+
 #define CopyUchar4(Dst,Src) {                                \
     *((UCHAR4 *)(Dst)) = *((UNALIGNED UCHAR4 *)(Src));       \
 }
@@ -122,16 +126,16 @@ typedef union _UCHAR4 {
 //  This macro takes an Unpacked BPB and fills in its Packed equivalent
 //
 #define PackBios(Bios,Pbios) {                                            \
-    CopyUchar2((Pbios)->BytesPerSector,    &((Bios)->BytesPerSector)   ); \
+    CopyU2char((Pbios)->BytesPerSector,    &((Bios)->BytesPerSector)   ); \
     CopyUchar1((Pbios)->SectorsPerCluster, &((Bios)->SectorsPerCluster)); \
-    CopyUchar2((Pbios)->ReservedSectors,   &((Bios)->ReservedSectors)  ); \
+    CopyU2char((Pbios)->ReservedSectors,   &((Bios)->ReservedSectors)  ); \
     CopyUchar1((Pbios)->Fats,              &((Bios)->Fats)             ); \
-    CopyUchar2((Pbios)->RootEntries,       &((Bios)->RootEntries)      ); \
-    CopyUchar2((Pbios)->Sectors,           &((Bios)->Sectors)          ); \
+    CopyU2char((Pbios)->RootEntries,       &((Bios)->RootEntries)      ); \
+    CopyU2char((Pbios)->Sectors,           &((Bios)->Sectors)          ); \
     CopyUchar1((Pbios)->Media,             &((Bios)->Media)            ); \
-    CopyUchar2((Pbios)->SectorsPerFat,     &((Bios)->SectorsPerFat)    ); \
-    CopyUchar2((Pbios)->SectorsPerTrack,   &((Bios)->SectorsPerTrack)  ); \
-    CopyUchar2((Pbios)->Heads,             &((Bios)->Heads)            ); \
+    CopyU2char((Pbios)->SectorsPerFat,     &((Bios)->SectorsPerFat)    ); \
+    CopyU2char((Pbios)->SectorsPerTrack,   &((Bios)->SectorsPerTrack)  ); \
+    CopyU2char((Pbios)->Heads,             &((Bios)->Heads)            ); \
     CopyU4char((Pbios)->HiddenSectors,     &((Bios)->HiddenSectors)    ); \
     CopyU4char((Pbios)->LargeSectors,      &((Bios)->LargeSectors)     ); \
 }
@@ -192,7 +196,7 @@ typedef struct _EXTENDED_BIOS_PARAMETER_BLOCK {
 #define PackExtendedBios( Bios, Pbios ) {                                   \
     PackBios( &((Bios)->Bpb), &((Pbios)->Bpb));                             \
     CopyUchar1( (Pbios)->IntelNearJumpCommand,  &((Bios)->IntelNearJumpCommand)  );    \
-    CopyUchar2( (Pbios)->BootStrapJumpOffset,   &((Bios)->BootStrapJumpOffset)   );    \
+    CopyU2char( (Pbios)->BootStrapJumpOffset,   &((Bios)->BootStrapJumpOffset)   );    \
     memcpy( (Pbios)->OemData,        (Bios)->OemData,       cOEM );         \
     CopyUchar1( (Pbios)->PhysicalDrive,     &((Bios)->PhysicalDrive ));     \
     CopyUchar1( (Pbios)->CurrentHead,       &((Bios)->CurrentHead ));       \

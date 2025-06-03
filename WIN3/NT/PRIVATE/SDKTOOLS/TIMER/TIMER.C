@@ -40,7 +40,7 @@ char *v[];
 
     t = clock();
 
-    if ( (i = spawnvp (P_WAIT, newv[0], newv)) == -1) {
+    if ( (i = _spawnvp (P_WAIT, newv[0], newv)) == -1) {
         printf("'%s' failed to run - %s\n", newv[0], error());
         exit(1);
         }
@@ -54,4 +54,3 @@ char *v[];
 
     return( 0 );
 }
-

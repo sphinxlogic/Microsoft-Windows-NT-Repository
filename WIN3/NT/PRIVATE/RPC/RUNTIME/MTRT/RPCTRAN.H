@@ -23,6 +23,10 @@ Revision History:
         modules was removed.  Status codes were specified for each routine,
         and coding convensions were fixed.
 
+    27-Jul-1995    jroberts
+
+        Moved the datagram interface here, too.
+
 --*/
 
 #ifndef __RPCTRAN_H__
@@ -32,23 +36,32 @@ Revision History:
 extern "C" {
 #endif
 
-#define IDLE_SECONDS 60
+#define RPC_TRANSPORT_INTERFACE_VERSION 9
+#define IDLE_SECONDS                    60
+#define RPC_BIND_TIMEOUT                30
 
 typedef void PAPI * RPC_TRANSPORT_CONNECTION;
 typedef void PAPI * RPC_TRANSPORT_ADDRESS;
 
 #define RPC_TRANS_STATUS RPC_STATUS
 
+#if defined(DOS) && !defined(WIN)
+#pragma warning(disable:4147)
+#endif
+
 
 typedef RPC_TRANS_STATUS
 (RPC_ENTRY * TRANS_SERVER_SETUPWITHENDPOINT) (
     IN RPC_TRANSPORT_ADDRESS ThisAddress,
     IN RPC_CHAR PAPI * Endpoint,
-    OUT RPC_CHAR PAPI * NetworkAddress,
+    OUT RPC_CHAR PAPI * lNetworkAddress,
+    OUT unsigned int PAPI * NumNetworkAddress,
     IN unsigned int NetworkAddressLength,
     IN void PAPI * SecurityDescriptor, OPTIONAL
     IN unsigned int PendingQueueSize,
-    IN RPC_CHAR PAPI * RpcProtocolSequence
+    IN RPC_CHAR PAPI * RpcProtocolSequence,
+    IN unsigned long EndpointFlags,
+    IN unsigned long NICFlags
     );
 /*++
 
@@ -124,17 +137,21 @@ Return Value:
 
 --*/
 
+
 
 typedef RPC_TRANS_STATUS
 (RPC_ENTRY * TRANS_SERVER_SETUPUNKNOWNENDPOINT) (
     IN RPC_TRANSPORT_ADDRESS ThisAddress,
     OUT RPC_CHAR PAPI * Endpoint,
     IN unsigned int EndpointLength,
-    OUT RPC_CHAR PAPI * NetworkAddress,
+    OUT RPC_CHAR PAPI * lNetworkAddress,
+    OUT unsigned int PAPI * NumNetworkAddress,
     IN unsigned int NetworkAddressLength,
     IN void PAPI * SecurityDescriptor, OPTIONAL
     IN unsigned int PendingQueueSize,
-    IN RPC_CHAR PAPI * RpcProtocolSequence
+    IN RPC_CHAR PAPI * RpcProtocolSequence,
+    IN unsigned long EndpointFlags,
+    IN unsigned long NICFlags
     );
 /*++
 
@@ -527,6 +544,31 @@ Return Value:
 
 --*/
 
+#if defined(NTENV) || defined(WIN96)
+
+
+typedef RPC_TRANS_STATUS
+(RPC_ENTRY * TRANS_SERVER_STARTLISTENING) (
+    IN RPC_TRANSPORT_ADDRESS ThisAddress
+    );
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+    ThisConnection - Supplies a pointer to the connection for which we want
+        to perform the operation.
+
+
+Return Value:
+
+    RPC_S_OK - The network address has successfully been obtained.
+--*/
+#endif
+
+
 typedef struct _RPC_SERVER_TRANSPORT_INFO
 {
     unsigned short TransInterfaceVersion;
@@ -544,6 +586,9 @@ typedef struct _RPC_SERVER_TRANSPORT_INFO
     TRANS_SERVER_QUERYCLIENTPROCESS QueryClientProcess;
     TRANS_SERVER_RECEIVEDIRECT ReceiveDirect;
     TRANS_SERVER_QUERYCLIENTADDRESS QueryClientAddress;
+#if defined(NTENV) || defined(WIN96)
+    TRANS_SERVER_STARTLISTENING  StartListening ;
+#endif
 } RPC_SERVER_TRANSPORT_INFO;
 
 RPC_TRANSPORT_CONNECTION RPC_ENTRY
@@ -592,6 +637,35 @@ void RPC_ENTRY
 I_RpcTransServerReceiveDirectReady (
     IN RPC_TRANSPORT_CONNECTION ThisConnection
     );
+
+void RPC_ENTRY
+I_RpcConnectionInqSockBuffSize2(
+    OUT unsigned long __RPC_FAR * RecvWindowSize
+    );
+
+#if defined(NTENV) || defined(WIN96)
+
+int RPC_ENTRY
+I_RpcTransMaybeMakeReceiveDirect (
+    IN RPC_TRANSPORT_ADDRESS TransAddress,
+    IN RPC_TRANSPORT_CONNECTION ThisConnection
+    ) ;
+
+int RPC_ENTRY
+I_RpcTransMaybeMakeReceiveAny (
+    IN RPC_TRANSPORT_CONNECTION ThisConnection
+    ) ;
+
+void RPC_ENTRY
+I_RpcTransCancelMigration(
+    IN RPC_TRANSPORT_CONNECTION ThisConnection
+    ) ;
+#endif
+
+RPC_STATUS RPC_ENTRY
+I_RpcTransPingServer(
+    IN RPC_TRANSPORT_CONNECTION ThisConnection
+    ) ;
 
 
 typedef RPC_TRANS_STATUS
@@ -877,6 +951,111 @@ Return Value:
 
 
 typedef RPC_TRANS_STATUS
+(RPC_ENTRY * TRANS_CLIENT_RECEIVE_WITH_TIMEOUT) (
+    IN RPC_TRANSPORT_CONNECTION ThisConnection,
+    IN OUT void PAPI * PAPI * Buffer,
+    IN OUT unsigned int PAPI * BufferLength,
+    IN unsigned long dwTimeout
+    );
+/*++
+
+Routine Description:
+
+Arguments:
+
+    ThisConnection - Supplies the connection to be received from.  The
+        connection is specified as a pointer to memory containing tranport
+        interface module level information about the connection.
+
+    Buffer - Supplies a preallocated buffer to the receive the packet into
+        if it will fit.  If the packet does not fit, the transport interface
+        module must allocate a larger buffer which will hold the entire
+        packet.  The buffer will contain the packet upon return.
+
+    BufferLength - Supplies the length of the preallocated buffer in bytes
+        and returns the length of the received packet in bytes.
+
+    dwTimeout - Receive Timeout
+
+Return Value:
+
+    RPC_S_OK - A packet was successfully received from the server.
+
+    RPC_S_OUT_OF_MEMORY - Insufficient memory is available to allocate a
+        buffer to receive the packet into.  The connection will not have
+        been closed if this error occurs.
+
+    RPC_S_OUT_OF_RESOURCES - Insufficient resources are available to perform
+        the operation.  The connection will not have been closed if this
+        error occurs.
+
+    RPC_P_RECEIVE_FAILED - The receive operation failed.  The connection
+        will have been closed, so the close operation must not be performed
+        on the connection after this error code has been returned.
+--*/
+
+
+
+typedef RPC_TRANS_STATUS
+(RPC_ENTRY * TRANS_CLIENT_SENDRECEIVE_WITH_TIMEOUT) (
+    IN RPC_TRANSPORT_CONNECTION ThisConnection,
+    IN void PAPI * SendBuffer,
+    IN unsigned int SendBufferLength,
+    IN OUT void PAPI * PAPI * ReceiveBuffer,
+    IN OUT unsigned int PAPI * ReceiveBufferLength,
+    IN unsigned long dwTimeout
+    );
+/*++
+
+Routine Description:
+
+Arguments:
+
+    ThisConnection - Supplies the connection to be sent on and then received
+        from.  The connection is specified as a pointer to memory containing
+        transport interface module level information about the connection.
+
+    SendBuffer - Supplies a buffer containing the packet to be sent to the
+        server.
+
+    SendBufferLength - Supplies the length of the send buffer in bytes.
+
+    ReceiveBuffer - Supplies a preallocated buffer to the receive the packet
+        into if it will fit.  If the packet does not fit, the transport
+        interface module must allocate a larger buffer which will hold the
+        entire packet.  The buffer will contain the packet upon return.
+
+    ReceiveBufferLength - Supplies the length of the preallocated receive
+        buffer in bytes and returns the length of the received packet in bytes.
+
+    dwTimeout - Receive Timeout
+
+Return Value:
+
+    RPC_S_OK - The packet was successfully sent to the server, and we
+        successfully received one back.
+
+    RPC_S_OUT_OF_MEMORY - Insufficient memory is available to perform the
+        operation.  The connection will not have been closed if this error
+        occurs.
+
+    RPC_S_OUT_OF_RESOURCES - Insufficient resources are available to perform
+        the operation.  The connection will not have been closed if this
+        error occurs.
+
+    RPC_P_SEND_FAILED - The send operation failed.  The connection
+        will have been closed, so the close operation must not be performed
+        on the connection after this error code has been returned.
+
+    RPC_P_RECEIVE_FAILED - The receive operation failed.  The connection
+        will have been closed, so the close operation must not be performed
+        on the connection after this error code has been returned.
+
+--*/
+
+
+
+typedef RPC_TRANS_STATUS
 (RPC_ENTRY * TRANS_CLIENT_TOWERCONSTRUCT) (
     IN char PAPI * Endpoint,
     IN char PAPI * NetworkAddress,
@@ -948,23 +1127,376 @@ Return Value:
 
 --*/
 
+
 typedef struct _RPC_CLIENT_TRANSPORT_INFO
 {
-    unsigned short TransInterfaceVersion;
-    unsigned int MaximumPacketSize;
-    unsigned int SizeOfConnection;
-    TRANS_CLIENT_OPEN Open;
-    TRANS_CLIENT_CLOSE Close;
-    TRANS_CLIENT_SEND Send;
-    TRANS_CLIENT_RECEIVE Receive;
-    TRANS_CLIENT_SENDRECEIVE SendReceive;
+    unsigned short  TransInterfaceVersion;
+    unsigned short  TransId;
+
+    // BUGBUG
+    //
+    // TowerConstruct and TowerExplode must be at the same offset in both
+    // connection and datagram transport info structures.  They are used
+    // by OsfTowerConstruct, which ignores the fact that c/o and DG use
+    // different structures.
+    //
     TRANS_CLIENT_TOWERCONSTRUCT TowerConstruct;
-    TRANS_CLIENT_TOWEREXPLODE TowerExplode;
-    unsigned short TransId;                     //Temporarily here
-    TRANS_CLIENT_SET_TIMEOUT SetTimeout;
+    TRANS_CLIENT_TOWEREXPLODE   TowerExplode;
+
+    unsigned        MaximumPacketSize;
+    unsigned        SizeOfConnection;
+
+    TRANS_CLIENT_OPEN           Open;
+    TRANS_CLIENT_CLOSE          Close;
+    TRANS_CLIENT_SEND           Send;
+    TRANS_CLIENT_RECEIVE        Receive;
+    TRANS_CLIENT_SENDRECEIVE    SendReceive;
+    TRANS_CLIENT_SET_TIMEOUT    SetTimeout;
+
+    TRANS_CLIENT_RECEIVE_WITH_TIMEOUT ReceiveWithTimeout ;
+    TRANS_CLIENT_SENDRECEIVE_WITH_TIMEOUT SendReceiveWithTimeout ;
+
 } RPC_CLIENT_TRANSPORT_INFO;
 
-#define RPC_TRANSPORT_INTERFACE_VERSION 3
+
+typedef RPC_STATUS (RPC_ENTRY * DG_TRANS_CLIENT_TRANSPORT_UNLOAD)();
+
+/*++
+
+Routine Description:
+
+    Destructor for the server transport.
+
+Arguments:
+
+    <none>
+
+Return Value:
+
+    <none>
+
+--*/
+
+
+
+typedef RPC_STATUS (RPC_ENTRY * DG_TRANS_CLIENT_RECEIVE_PACKET) (
+    IN void __RPC_FAR *             Endpoint,
+    IN void __RPC_FAR *             Buffer,
+    IN unsigned long  __RPC_FAR *   BufferLength,
+    IN unsigned long                Timeout,
+    IN void __RPC_FAR *             ServerAddress
+    );
+
+/*++
+
+Routine Description:
+
+    Receives a packet from the transport address the passed packet is
+    associated with.
+
+Arguments:
+
+    pTransAddress - Server's transport address information.
+
+    LargestPacketSize - Size of largest packet we can accept.
+
+    pNcaPacketHeader  - Pointer to buffer to place incoming pkt into.
+
+    pDataLength       - Number of bytes read in.
+
+    pTimeReceived     - Time the data was read in.
+
+    Timeout           - Receive timeout in milliseconds.
+
+    ppFrom            - Pointer to the client address structure.
+
+
+Return Value:
+
+    RPC_S_OK
+    <return from MapStatusCode>
+
+--*/
+
+typedef RPC_STATUS (RPC_ENTRY * DG_TRANS_CLIENT_REGISTER_CALL) (
+    IN void __RPC_FAR *             pClientCall,
+    IN RPC_CHAR __RPC_FAR *         Server,
+    IN RPC_CHAR __RPC_FAR *         Endpoint,
+    OUT void __RPC_FAR * __RPC_FAR* ppTransAddress
+    );
+
+typedef RPC_STATUS (RPC_ENTRY * DG_TRANS_CLIENT_DEREGISTER_CALL) (
+    IN void __RPC_FAR * pTransAddress
+    );
+
+typedef RPC_STATUS (RPC_ENTRY * DG_TRANS_CLIENT_SEND_PACKET)  (
+    IN     void __RPC_FAR *         Endpoint,
+    IN     void __RPC_FAR *         Buffer,
+    IN     unsigned long            BufferLength,
+    IN     BOOL                     Broadcast,
+    IN     void __RPC_FAR *         pTransAddress
+    );
+
+typedef RPC_STATUS (RPC_ENTRY * DG_TRANS_CLIENT_ASSIGN_ENDPOINT)  (
+    IN     void __RPC_FAR *                   Endpoint
+    );
+
+typedef RPC_STATUS (RPC_ENTRY * DG_TRANS_CLIENT_FREE_ENDPOINT)  (
+    IN     void __RPC_FAR *                   Endpoint
+    );
+
+typedef RPC_STATUS (RPC_ENTRY * DG_TRANS_CLIENT_TRANSLATE_CLIENT_ENDPOINT)
+    (
+    IN void PAPI * pBinaryEndpoint,
+    OUT RPC_CHAR PAPI * pClientEndpoint
+    );
+
+typedef RPC_STATUS (RPC_ENTRY * DG_TRANS_CLIENT_SET_BUFFER_LENGTH)
+    (
+    IN void PAPI * pBinaryEndpoint,
+    IN unsigned    Length
+    );
+
+typedef RPC_STATUS (RPC_ENTRY * DG_TRANS_CLIENT_INQ_BUFFER_LENGTH)
+    (
+    IN void     __RPC_FAR * pBinaryEndpoint,
+    IN unsigned __RPC_FAR * Length
+    );
+
+typedef RPC_STATUS (RPC_ENTRY * DG_TRANS_CLIENT_BEGIN_CALL)
+    (
+    IN void     __RPC_FAR * Endpoint,
+    IN void     __RPC_FAR * Connection
+    );
+
+typedef void       (RPC_ENTRY * DG_TRANS_CLIENT_END_CALL)
+    (
+    IN void     __RPC_FAR * Endpoint
+    );
+
+
+typedef struct _DG_RPC_CLIENT_TRANSPORT_INFO
+{
+    unsigned short TransInterfaceVersion;
+    unsigned short  TransId;
+
+    // BUGBUG
+    //
+    // TowerConstruct and TowerExplode must be at the same offset in both
+    // connection and datagram transport info structures.  They are used
+    // by OsfTowerConstruct, which ignores the fact that c/o and DG use
+    // different structures.
+    //
+    TRANS_CLIENT_TOWERCONSTRUCT TowerConstruct;
+    TRANS_CLIENT_TOWEREXPLODE   TowerExplode;
+
+    unsigned short  AddressSize;
+    unsigned short  EndpointSize;
+    unsigned short  EndpointStringSize;
+    void __RPC_FAR *EndpointManager;
+
+    DG_TRANS_CLIENT_TRANSPORT_UNLOAD    TransportUnload;
+    DG_TRANS_CLIENT_RECEIVE_PACKET      ReceivePacket;
+    DG_TRANS_CLIENT_SEND_PACKET         Send;
+    DG_TRANS_CLIENT_REGISTER_CALL       RegisterCall;
+    DG_TRANS_CLIENT_DEREGISTER_CALL     DeregisterCall;
+    DG_TRANS_CLIENT_ASSIGN_ENDPOINT     AssignEndpoint;
+    DG_TRANS_CLIENT_FREE_ENDPOINT       FreeEndpoint;
+    DG_TRANS_CLIENT_TRANSLATE_CLIENT_ENDPOINT GetEndpoint;
+    DG_TRANS_CLIENT_SET_BUFFER_LENGTH   SetBufferLength;
+    DG_TRANS_CLIENT_INQ_BUFFER_LENGTH   InqBufferLength;
+
+    DG_TRANS_CLIENT_BEGIN_CALL          BeginCall;
+    DG_TRANS_CLIENT_END_CALL            EndCall;
+
+    unsigned short BaselinePduSize;
+    unsigned short PreferredPduSize;
+    unsigned short MaxPduSize;
+
+    unsigned short MaxPacketSize;
+
+    unsigned DefaultBufferLength;
+
+} DG_RPC_CLIENT_TRANSPORT_INFO;
+
+typedef DG_RPC_CLIENT_TRANSPORT_INFO PAPI * PDG_RPC_CLIENT_TRANSPORT_INFO;
+
+
+#define MAX_ANY_ENDPOINT_STRING 128
+
+/*++
+DG_SERVER_DG_TRANS_ADDRESS Description:
+
+    This structure represents a network address. It is used on the server side
+    to identify an endpoint; it is used on the client side to identify a
+    binding.
+
+Fields:
+
+    pServerAddress - Pointer back to the DG_ADDRESS object that is associated
+        with this.
+
+    pTsap - The transport service access point we will receive on.  IE: socket.
+
+--*/
+
+typedef struct
+{
+        void   * pServerAddress;
+        void   * pTsap;
+
+} DG_SERVER_TRANS_ADDRESS;
+
+
+typedef DG_SERVER_TRANS_ADDRESS * PDG_SERVER_TRANS_ADDRESS;
+
+
+/*++
+DG_DG_TRANS_CLIENT_HANDLE Description:
+
+    This structure represents a network address. It is used on the server side
+    to identify an endpoint; it is used on the client side to identify a
+    binding.
+
+Fields:
+
+
+    pTransAddress - The transport address that the client is talking on.
+
+    pFrom  -  The client port address we are receiveing from. IE: sockaddr
+
+
+typedef struct _DG_DG_TRANS_CLIENT_HANDLE{
+        void   * pTransAddress;
+        void   * pFrom;
+        }DG_DG_TRANS_CLIENT_HANDLE;
+
+
+--*/
+
+
+
+typedef void * PDG_TRANS_CLIENT_ENDPOINT;
+
+
+typedef RPC_STATUS (RPC_ENTRY * DG_TRANS_SERVER_TRANSPORT_UNLOAD)
+    (
+    );
+
+typedef RPC_STATUS (RPC_ENTRY * DG_TRANS_SERVER_RECEIVE_PACKET)
+    (
+    IN void __RPC_FAR *             pAddress,
+    PDG_SERVER_TRANS_ADDRESS        pTransAddress,
+    unsigned long                   LargestPacketSize,
+    char *                          pNcaPacketHeader,
+    unsigned *                      pDataLength,
+    unsigned long                   Timeout,
+    void *                          pClientEndpoint
+    );
+
+typedef RPC_STATUS (RPC_ENTRY * DG_TRANS_SERVER_FORWARD_PACKET)
+    (
+    IN PDG_SERVER_TRANS_ADDRESS     pTransAddress,
+    IN char *                       pNcaPacketHeader,
+    IN unsigned long                DataLength,
+    void *                          pEndpoint
+    );
+
+typedef RPC_STATUS (RPC_ENTRY * DG_TRANS_SERVER_REGISTER_ENDPOINT)
+    (
+    IN void *                       pServerAddress,
+    IN RPC_CHAR *                   pEndpoint,
+    OUT PDG_SERVER_TRANS_ADDRESS *  ppTransAddress,
+    OUT RPC_CHAR PAPI *             lNetworkAddress,
+    OUT unsigned int PAPI *         NumNetworkAddress,
+    IN unsigned int                 NetworkAddressLength,
+    IN unsigned long EndpointFlags,
+    IN unsigned long NICFlags
+    );
+
+typedef RPC_STATUS (RPC_ENTRY * DG_TRANS_SERVER_DEREGISTER_ENDPOINT)
+    (
+    IN OUT PDG_SERVER_TRANS_ADDRESS *    pServerTransAddress
+    );
+
+typedef RPC_STATUS (RPC_ENTRY * DG_TRANS_SERVER_REGISTER_ANY_ENDPOINT)
+    (
+    IN void *                       pServerAddress,
+    OUT RPC_CHAR *                  pEndpointName,
+    OUT PDG_SERVER_TRANS_ADDRESS *  ppServerTransAddress,
+    OUT RPC_CHAR PAPI *                             lNetworkAddress,
+    OUT unsigned int PAPI *         NumNetworkAddress,
+    IN unsigned int                 NetworkAddressLength,
+    IN unsigned int                 EndpointLength,
+    IN unsigned long EndpointFlags,
+    IN unsigned long NICFlags
+    );
+
+typedef RPC_STATUS (RPC_ENTRY * DG_TRANS_SERVER_SEND_PACKET_BACK)
+    (
+    IN PDG_SERVER_TRANS_ADDRESS  pTransAddress,
+    IN char *                    pNcaPacketHeader,
+    IN unsigned                  DataLength,
+    void *                       pClientEndpoint
+    );
+
+typedef void (RPC_ENTRY * DG_TRANS_SERVER_CLOSE_CLIENT_ENDPOINT)
+    (
+    IN void *      pHandle
+    );
+
+typedef RPC_STATUS (RPC_ENTRY * DG_TRANS_SERVER_TRANSLATE_CLIENT_ADDRESS)
+    (
+    IN void * pClientEndpoint,
+    OUT RPC_CHAR * pClientAddress
+    );
+
+typedef RPC_STATUS (RPC_ENTRY * DG_TRANS_SERVER_TRANSLATE_CLIENT_ENDPOINT)
+    (
+    IN void * pBinaryEndpoint,
+    OUT RPC_CHAR * pClientEndpoint
+    );
+
+typedef RPC_STATUS (RPC_ENTRY * TRANS_SERVER_START_LISTENING)
+    (
+    IN PDG_SERVER_TRANS_ADDRESS   pTransAddress
+    );
+
+typedef RPC_STATUS (RPC_ENTRY * DG_TRANS_SERVER_SET_BUFFER_LENGTH)
+    (
+    IN void PAPI * pBinaryEndpoint,
+    IN unsigned    Length
+    );
+
+typedef struct _DG_RPC_SERVER_TRANSPORT_INFO
+{
+    unsigned short TransInterfaceVersion;
+    unsigned int SizeOfAddress;
+    unsigned int SizeOfConnection;
+    unsigned     SizeOfAddressString;
+    unsigned     SizeOfEndpointString;
+    DG_TRANS_SERVER_TRANSPORT_UNLOAD TransportUnload;
+    DG_TRANS_SERVER_RECEIVE_PACKET ReceivePacket;
+    DG_TRANS_SERVER_REGISTER_ENDPOINT RegisterEndpoint;
+    DG_TRANS_SERVER_DEREGISTER_ENDPOINT DeregisterEndpoint;
+    DG_TRANS_SERVER_REGISTER_ANY_ENDPOINT RegisterAnyEndpoint;
+    DG_TRANS_SERVER_SEND_PACKET_BACK SendPacketBack;
+    DG_TRANS_SERVER_FORWARD_PACKET ForwardPacket;
+    DG_TRANS_SERVER_CLOSE_CLIENT_ENDPOINT CloseClientEndpoint;
+    DG_TRANS_SERVER_TRANSLATE_CLIENT_ADDRESS  TranslateClientAddress;
+    DG_TRANS_SERVER_TRANSLATE_CLIENT_ENDPOINT TranslateClientEndpoint;
+    TRANS_SERVER_START_LISTENING StartListening;
+    DG_TRANS_SERVER_SET_BUFFER_LENGTH SetBufferLength;
+
+    unsigned short BaselinePduSize;
+    unsigned short PreferredPduSize;
+    unsigned short MaxPduSize;
+
+    unsigned short MaxPacketSize;
+
+} DG_RPC_SERVER_TRANSPORT_INFO;
+
+typedef DG_RPC_SERVER_TRANSPORT_INFO PAPI * PDG_RPC_SERVER_TRANSPORT_INFO;
 
 RPC_STATUS RPC_ENTRY
 I_RpcTransClientReallocBuffer (
@@ -979,7 +1511,25 @@ I_RpcTransClientMaxFrag (
     IN RPC_TRANSPORT_CONNECTION ThisConnection
     );
 
+RPC_STATUS RPC_ENTRY
+I_RpcIOAlerted(
+    IN RPC_TRANSPORT_CONNECTION TransportConnection
+    );
+
+#ifdef NTENV
+
+HANDLE RPC_ENTRY
+I_RpcGetThreadEvent();
+
+RPC_STATUS RPC_ENTRY
+I_RpcServerAllocatePort(
+    IN unsigned long flags,
+    IN unsigned short *pport);
+
+#endif
+
 #ifdef __RPC_WIN16__
+
 
 typedef RPC_STATUS
 (RPC_ENTRY * RPC_TRANS_CLIENT_REALLOC_BUFFER) (
@@ -994,10 +1544,11 @@ typedef HANDLE
     IN LPVOID lpContext
     );
 
-typedef BOOL
+typedef int
 (PAPI PASCAL * RPC_WIN_ASYNC_CALL_WAIT) (
     IN HANDLE hCall,
-    IN HWND hDallyWnd
+    IN HWND hDallyWnd,
+    IN unsigned long Timeout
     );
 
 typedef void
@@ -1040,18 +1591,39 @@ typedef long
     unsigned long __far * ValueLength
     );
 
+typedef unsigned
+(__far __pascal * RPC_WIN_IS_TASK_YIELDING) (
+    IN HANDLE hCall
+    );
+
+typedef BOOL
+(PASCAL FAR  * WIN_DLL_AT_EXIT) (
+    void * exitfunc
+    );
+
+#define RPC_WIN_CALLBACK_INFO_VERSION 1
+#define RPC_WIN_INFINITE_TIMEOUT (~0UL)
+
+#define RPC_WIN_WAIT_ABORTED  0
+#define RPC_WIN_WAIT_SUCCESS  1
+#define RPC_WIN_WAIT_TIMEOUT  2
+
 typedef struct _RPC_CLIENT_RUNTIME_INFO
 {
+    unsigned Version;
     RPC_TRANS_CLIENT_REALLOC_BUFFER ReallocBuffer;
     RPC_WIN_ASYNC_CALL_BEGIN AsyncCallBegin;
     RPC_WIN_ASYNC_CALL_WAIT AsyncCallWait;
     RPC_WIN_ASYNC_CALL_END AsyncCallEnd;
     RPC_WIN_ASYNC_CALL_COMPLETE AsyncCallComplete;
+    RPC_WIN_IS_TASK_YIELDING TaskYielding;
     RPC_ALLOCATE Allocate;
     RPC_FREE Free;
     RPC_REG_OPEN_KEY RegOpenKey;
     RPC_REG_CLOSE_KEY RegCloseKey;
     RPC_REG_QUERY_VALUE RegQueryValue;
+    unsigned short TaskExiting;
+    WIN_DLL_AT_EXIT WinDLLAtExit ;
 } RPC_CLIENT_RUNTIME_INFO;
 
 typedef RPC_CLIENT_TRANSPORT_INFO PAPI *
@@ -1076,11 +1648,16 @@ typedef RPC_SERVER_TRANSPORT_INFO PAPI *
 
 #ifdef DOS
 typedef int (*AT_EXIT)(void);
-void pascal I_DosAtExit(AT_EXIT);
+void RPC_ENTRY I_DosAtExit(AT_EXIT);
 #endif // DOS
+
+#if defined(DOS) && !defined(WIN)
+#pragma warning(default:4147)
+#endif
 
 #ifdef __cplusplus
 }
 #endif
 
 #endif // __RPCTRAN_H__
+

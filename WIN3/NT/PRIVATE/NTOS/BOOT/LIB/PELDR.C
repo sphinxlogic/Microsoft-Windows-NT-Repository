@@ -200,7 +200,7 @@ Return Value:
     // Read the entire image header from the file.
     //
 
-    SeekPosition = RtlConvertUlongToLargeInteger(0);
+    SeekPosition.QuadPart = 0;
     Status = BlSeek(FileId, &SeekPosition, SeekAbsolute);
     if (Status != ESUCCESS) {
         BlClose(FileId);

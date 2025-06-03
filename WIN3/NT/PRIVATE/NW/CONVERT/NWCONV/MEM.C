@@ -9,6 +9,7 @@
 //  stevehi             07/21/93    Added memory checking functionality
 //  raypa               07/21/93    Changed to use LPTR rather than LocalLock.
 //  Tom Laird-McConnell 08/16/93    Changed to fix no size info in functions
+//  arth                06/16/94    Added extra debug tracing code
 //=============================================================================
 
 #include "switches.h"
@@ -22,7 +23,7 @@
 #include <process.h>
 #include "utils.h"
 
-#ifdef DEBUG
+#ifdef DEBUG_MEM
 BOOL _rtlpheapvalidateoncall = TRUE;
 
 typedef struct _MEM_BUFFER {
@@ -59,13 +60,13 @@ void MemInit() {
 } // MemInit
 
 
-#ifdef DEBUG
+#ifdef DEBUG_MEM
 
 void DBG_MemEnum(void) {
    MEM_BUFFER *lpMem;
    ULONG TotSize = 0;
    ULONG i = 1;
-   LPBYTE lpByte;
+   UNALIGNED LPBYTE lpByte;
 
    lpMem = MemList;
 
@@ -116,7 +117,7 @@ LPVOID WINAPI AllocMemory(DWORD size) {
    register LPBYTE lpByte;
    int ret;
 
-#ifndef DEBUG
+#ifndef DEBUG_MEM
     do {
        ret = IDOK;
        lpByte = LocalAlloc(LPTR, size);
@@ -189,7 +190,7 @@ LPVOID WINAPI AllocMemory(DWORD size) {
 //=============================================================================
 
 LPVOID WINAPI ReallocMemory(LPVOID ptr, DWORD NewSize) {
-#ifdef DEBUG
+#ifdef DEBUG_MEM
     DWORD GSize;
     MEM_BUFFER *lpMem;
     MEM_BUFFER *OldMem;
@@ -203,7 +204,7 @@ LPVOID WINAPI ReallocMemory(LPVOID ptr, DWORD NewSize) {
         return AllocMemory(NewSize);
     }
 
-#ifndef DEBUG
+#ifndef DEBUG_MEM
     return LocalReAlloc(ptr, NewSize, LHND);
 #else
     // we are reallocing... might as well check the tags here...
@@ -241,6 +242,7 @@ LPVOID WINAPI ReallocMemory(LPVOID ptr, DWORD NewSize) {
     }
 
     lpMem = (MEM_BUFFER *) ((LPBYTE)ptr + sizeof(DWORD));
+
     if (MemList == OldMem)
       MemList = lpMem;
 
@@ -278,13 +280,13 @@ VOID WINAPI FreeMemory(LPBYTE ptr) {
     //=========================================================================
 
     if ( ptr != NULL ) {
-#ifdef DEBUG
+#ifdef DEBUG_MEM
         register DWORD Size;
         register LPDWORD DwordPtr;
         MEM_BUFFER *lpMem;
 
         ptr -= (sizeof(DWORD) + sizeof(MEM_BUFFER));
-        lpMem = (MEM_BUFFER *) &ptr[sizeof(DWORD)];
+        lpMem = (MEM_BUFFER *) ((LPBYTE)ptr + sizeof(DWORD));
 
         Size = LocalSize(ptr);
     
@@ -316,7 +318,8 @@ VOID WINAPI FreeMemory(LPBYTE ptr) {
         AllocCount--;
         if (MemList == lpMem)
             MemList = lpMem->Next;
-        else
+
+        if (lpMem->Prev != NULL)
             lpMem->Prev->Next = lpMem->Next;
 
         if (lpMem->Next != NULL)
@@ -338,7 +341,7 @@ VOID WINAPI FreeMemory(LPBYTE ptr) {
 //=============================================================================
 
 DWORD WINAPI MemorySize(LPBYTE ptr) {
-#ifdef DEBUG
+#ifdef DEBUG_MEM
     register DWORD Size;
 
     if ( ptr != NULL ) {

@@ -9,11 +9,11 @@ Module Name:
 Abstract:
 
     This module implements the File Directory Control routines for Cdfs called
-    by the dispatch driver.
+    by the Fsd/Fsp dispatch drivers.
 
 Author:
 
-    Brian Andrew    [BrianAn]   02-Jan-1991
+    Brian Andrew    [BrianAn]   01-July-1995
 
 Revision History:
 
@@ -28,45 +28,58 @@ Revision History:
 #define BugCheckFileId                   (CDFS_BUG_CHECK_DIRCTRL)
 
 //
-//  The local debug trace level
+//  Local support routines
 //
-
-#define Dbg                              (DEBUG_TRACE_DIRCTRL)
-
-//
-//  Local procedure prototypes
-//
-
-NTSTATUS
-CdCommonDirectoryControl (
-    IN PIRP_CONTEXT IrpContext,
-    IN PIRP Irp
-    );
 
 NTSTATUS
 CdQueryDirectory (
     IN PIRP_CONTEXT IrpContext,
-    IN PIRP Irp
+    IN PIRP Irp,
+    IN PIO_STACK_LOCATION IrpSp,
+    IN PFCB Fcb,
+    IN PCCB Ccb
     );
 
 NTSTATUS
 CdNotifyChangeDirectory (
     IN PIRP_CONTEXT IrpContext,
-    IN PIRP Irp
+    IN PIRP Irp,
+    IN PIO_STACK_LOCATION IrpSp,
+    IN PCCB Ccb
+    );
+
+VOID
+CdInitializeEnumeration (
+    IN PIRP_CONTEXT IrpContext,
+    IN PIO_STACK_LOCATION IrpSp,
+    IN PFCB Fcb,
+    IN OUT PCCB Ccb,
+    IN OUT PFILE_ENUM_CONTEXT FileContext,
+    OUT PBOOLEAN ReturnNextEntry,
+    OUT PBOOLEAN ReturnSingleEntry,
+    OUT PBOOLEAN InitialQuery
+    );
+
+BOOLEAN
+CdEnumerateIndex (
+    IN PIRP_CONTEXT IrpContext,
+    IN PCCB Ccb,
+    IN OUT PFILE_ENUM_CONTEXT FileContext,
+    IN BOOLEAN ReturnNextEntry
     );
 
 #ifdef ALLOC_PRAGMA
-#pragma alloc_text(PAGE, CdCommonDirectoryControl)
-#pragma alloc_text(PAGE, CdFsdDirectoryControl)
-#pragma alloc_text(PAGE, CdFspDirectoryControl)
+#pragma alloc_text(PAGE, CdCommonDirControl)
+#pragma alloc_text(PAGE, CdEnumerateIndex)
+#pragma alloc_text(PAGE, CdInitializeEnumeration)
 #pragma alloc_text(PAGE, CdNotifyChangeDirectory)
 #pragma alloc_text(PAGE, CdQueryDirectory)
 #endif
 
 
 NTSTATUS
-CdFsdDirectoryControl (
-    IN PVOLUME_DEVICE_OBJECT VolumeDeviceObject,
+CdCommonDirControl (
+    IN PIRP_CONTEXT IrpContext,
     IN PIRP Irp
     )
 
@@ -74,162 +87,42 @@ CdFsdDirectoryControl (
 
 Routine Description:
 
-    This routine implements the FSD part of directory control
+    This routine is the entry point for the directory control operations.  These
+    are directory enumerations and directory notify calls.  We verify the
+    user's handle is for a directory and then call the appropriate routine.
 
 Arguments:
 
-    VolumeDeviceObject - Supplies the volume device object where the
-        file exists
-
-    Irp - Supplies the Irp being processed
+    Irp - Irp for this request.
 
 Return Value:
 
-    NTSTATUS - The FSD status for the IRP
+    NTSTATUS - Status returned from the lower level routines.
 
 --*/
 
 {
     NTSTATUS Status;
-    PIRP_CONTEXT IrpContext = NULL;
+    PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation( Irp );
 
-    BOOLEAN TopLevel;
+    PFCB Fcb;
+    PCCB Ccb;
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "CdFsdDirectoryControl:  Entered\n", 0);
-
     //
-    //  Call the common directory Control routine, with blocking allowed if
-    //  synchronous
+    //  Decode the user file object and fail this request if it is not
+    //  a user directory.
     //
 
-    FsRtlEnterFileSystem();
+    if (CdDecodeFileObject( IrpContext,
+                            IrpSp->FileObject,
+                            &Fcb,
+                            &Ccb ) != UserDirectoryOpen) {
 
-    TopLevel = CdIsIrpTopLevel( Irp );
-
-    try {
-
-        IrpContext = CdCreateIrpContext( Irp, CanFsdWait( Irp ) );
-
-        Status = CdCommonDirectoryControl( IrpContext, Irp );
-
-    } except(CdExceptionFilter( IrpContext, GetExceptionInformation() )) {
-
-        //
-        //  We had some trouble trying to perform the requested
-        //  operation, so we'll abort the I/O request with
-        //  the error status that we get back from the
-        //  execption code
-        //
-
-        Status = CdProcessException( IrpContext, Irp, GetExceptionCode() );
+        CdCompleteRequest( IrpContext, Irp, STATUS_INVALID_PARAMETER );
+        return STATUS_INVALID_PARAMETER;
     }
-
-    if (TopLevel) { IoSetTopLevelIrp( NULL ); }
-
-    FsRtlExitFileSystem();
-
-    //
-    //  And return to our caller
-    //
-
-    DebugTrace(-1, Dbg, "CdFsdDirectoryControl:  Exit -> %08lx\n", Status);
-
-    return Status;
-
-    UNREFERENCED_PARAMETER( VolumeDeviceObject );
-}
-
-
-VOID
-CdFspDirectoryControl (
-    IN PIRP_CONTEXT IrpContext,
-    IN PIRP Irp
-    )
-
-/*++
-
-Routine Description:
-
-    This routine implements the FSP part of the directory control operations
-
-Arguments:
-
-    Irp - Supplies the Irp being processed
-
-Return Value:
-
-    None
-
---*/
-
-{
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "CdFspDirectoryControl:  Entered\n", 0);
-
-    //
-    //  Call the common Directory Control routine.
-    //
-
-    (VOID)CdCommonDirectoryControl( IrpContext, Irp );
-
-    //
-    //  And return to our caller
-    //
-
-    DebugTrace(-1, Dbg, "CdFspDirectoryControl:  Exit -> VOID\n", 0);
-
-    return;
-}
-
-
-//
-//  Internal support routine
-//
-
-NTSTATUS
-CdCommonDirectoryControl (
-    IN PIRP_CONTEXT IrpContext,
-    IN PIRP Irp
-    )
-
-/*++
-
-Routine Description:
-
-    This is the common routine for doing directory control operations called
-    by both the fsd and fsp threads
-
-Arguments:
-
-    Irp - Supplies the Irp to process
-
-    InFsp - Indicates whether we are operating in an Fsp or Fsd thread.
-
-Return Value:
-
-    NTSTATUS - The return status for the operation
-
---*/
-
-{
-    NTSTATUS Status;
-
-    PIO_STACK_LOCATION IrpSp;
-
-    //
-    //  Get a pointer to the current Irp stack location
-    //
-
-    IrpSp = IoGetCurrentIrpStackLocation( Irp );
-
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "CdCommonDirectoryControl:  Entered\n", 0);
-    DebugTrace( 0, Dbg, "Irp           = %08lx\n", Irp );
-    DebugTrace( 0, Dbg, "MinorFunction = %08lx\n", IrpSp->MinorFunction );
 
     //
     //  We know this is a directory control so we'll case on the
@@ -237,41 +130,40 @@ Return Value:
     //  the irp.
     //
 
-    switch ( IrpSp->MinorFunction ) {
+    switch (IrpSp->MinorFunction) {
 
     case IRP_MN_QUERY_DIRECTORY:
 
-        Status = CdQueryDirectory( IrpContext, Irp );
+        Status = CdQueryDirectory( IrpContext, Irp, IrpSp, Fcb, Ccb );
         break;
 
     case IRP_MN_NOTIFY_CHANGE_DIRECTORY:
 
-        Status = CdNotifyChangeDirectory( IrpContext, Irp );
+        Status = CdNotifyChangeDirectory( IrpContext, Irp, IrpSp, Ccb );
         break;
 
     default:
-
-        DebugTrace(0, Dbg, "CdCommonDirectoryControl:  Invalid Minor Function -> %08lx\n", IrpSp->MinorFunction);
 
         CdCompleteRequest( IrpContext, Irp, STATUS_INVALID_DEVICE_REQUEST );
         Status = STATUS_INVALID_DEVICE_REQUEST;
         break;
     }
 
-    DebugTrace(-1, Dbg, "CdCommonDirectoryControl:  Exit -> %08lx\n", Status);
-
     return Status;
 }
 
 
 //
-//  Local Support Routine
+//  Local support routines
 //
 
 NTSTATUS
 CdQueryDirectory (
     IN PIRP_CONTEXT IrpContext,
-    IN PIRP Irp
+    IN PIRP Irp,
+    IN PIO_STACK_LOCATION IrpSp,
+    IN PFCB Fcb,
+    IN PCCB Ccb
     )
 
 /*++
@@ -279,13 +171,18 @@ CdQueryDirectory (
 Routine Description:
 
     This routine performs the query directory operation.  It is responsible
-    for either completing of enqueuing the input Irp.
+    for either completing of enqueuing the input Irp.  We store the state of the
+    search in the Ccb.
 
 Arguments:
 
     Irp - Supplies the Irp to process
 
-    InFsp - Indicates whether we are operating in an Fsp or Fsd thread.
+    IrpSp - Stack location for this Irp.
+
+    Fcb - Fcb for this directory.
+
+    Ccb - Ccb for this directory open.
 
 Return Value:
 
@@ -294,332 +191,124 @@ Return Value:
 --*/
 
 {
-    NTSTATUS Status;
-    PIO_STACK_LOCATION IrpSp;
+    NTSTATUS Status = STATUS_SUCCESS;
+    ULONG Information = 0;
 
-    PMVCB Mvcb;
-    PVCB Vcb;
-    PDCB Dcb;
-    PCCB Ccb;
+    ULONG LastEntry = 0;
+    ULONG NextEntry = 0;
 
-    PUCHAR Buffer;
-    CLONG UserBufferLength;
+    ULONG FileNameBytes;
+    ULONG SeparatorBytes;
+    ULONG VersionStringBytes;
+    ULONG BytesConverted;
 
-    PUNICODE_STRING UniArgFileName;
-    STRING FileName;
-    FILE_INFORMATION_CLASS FileInformationClass;
-    ULONG FileIndex;
-    BOOLEAN RestartScan;
-    BOOLEAN ReturnSingleEntry;
-    BOOLEAN IndexSpecified;
-
+    FILE_ENUM_CONTEXT FileContext;
+    PDIRENT ThisDirent;
     BOOLEAN InitialQuery;
-    CD_VBO CurrentVbo;
-    BOOLEAN UpdateCcb;
-    BOOLEAN ReturnFirstEntry;
-    BOOLEAN DirentFound;
-    BOOLEAN MatchedVersion;
-    PSTRING MatchFileName;
-
-    DIRENT DirentA;
-    DIRENT DirentB;
-    PDIRENT CurrentDirent;
-    PDIRENT PreviousDirent;
-    PDIRENT TempDirent;
-    PBCB CurrentBcb;
-    PBCB PreviousBcb;
+    BOOLEAN ReturnNextEntry;
+    BOOLEAN ReturnSingleEntry;
+    BOOLEAN Found;
 
 
-    ULONG NextEntry;
-    ULONG LastEntry;
+    PCHAR UserBuffer;
+    ULONG BytesRemainingInBuffer;
 
-    PFILE_DIRECTORY_INFORMATION DirInfo;
+    ULONG BaseLength;
+
+    PFILE_BOTH_DIR_INFORMATION DirInfo;
     PFILE_NAMES_INFORMATION NamesInfo;
-
-    //
-    //  Get the current Stack location
-    //
-
-    IrpSp = IoGetCurrentIrpStackLocation( Irp );
-
-    //
-    //  Display the input values.
-    //
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "CdQueryDirectory:  Entered\n", 0);
-    DebugTrace( 0, Dbg, " Wait                   = %08lx\n", IrpContext->Wait);
-    DebugTrace( 0, Dbg, " Irp                    = %08lx\n", Irp);
-    DebugTrace( 0, Dbg, " ->Length               = %08lx\n", IrpSp->Parameters.QueryDirectory.Length);
-    DebugTrace( 0, Dbg, " ->FileName             = %08lx\n", IrpSp->Parameters.QueryDirectory.FileName);
-    DebugTrace( 0, Dbg, " ->FileInformationClass = %08lx\n", IrpSp->Parameters.QueryDirectory.FileInformationClass);
-    DebugTrace( 0, Dbg, " ->FileIndex            = %08lx\n", IrpSp->Parameters.QueryDirectory.FileIndex);
-    DebugTrace( 0, Dbg, " ->SystemBuffer         = %08lx\n", Irp->AssociatedIrp.SystemBuffer);
-    DebugTrace( 0, Dbg, " ->RestartScan          = %08lx\n", FlagOn( IrpSp->Flags, SL_RESTART_SCAN ));
-    DebugTrace( 0, Dbg, " ->ReturnSingleEntry    = %08lx\n", FlagOn( IrpSp->Flags, SL_RETURN_SINGLE_ENTRY ));
-    DebugTrace( 0, Dbg, " ->IndexSpecified       = %08lx\n", FlagOn( IrpSp->Flags, SL_INDEX_SPECIFIED ));
-
     //
-    //  Check on the type of open.  We return invalid parameter for all
-    //  but UserDirectoryOpens.
+    //  Check if we support this search mode.  Also remember the size of the base part of
+    //  each of these structures.
     //
-    if ( CdDecodeFileObject( IrpSp->FileObject,
-                             &Mvcb,
-                             &Vcb,
-                             &Dcb,
-                             &Ccb ) != UserDirectoryOpen ) {
 
-        CdCompleteRequest( IrpContext, Irp, STATUS_INVALID_PARAMETER );
-        DebugTrace(-1, Dbg, "CdQueryDirectory -> STATUS_INVALID_PARAMETER\n", 0);
+    switch (IrpSp->Parameters.QueryDirectory.FileInformationClass) {
 
-        return STATUS_INVALID_PARAMETER;
+    case FileDirectoryInformation:
+
+        BaseLength = FIELD_OFFSET( FILE_DIRECTORY_INFORMATION,
+                                   FileName[0] );
+        break;
+
+    case FileFullDirectoryInformation:
+
+        BaseLength = FIELD_OFFSET( FILE_FULL_DIR_INFORMATION,
+                                   FileName[0] );
+        break;
+
+    case FileNamesInformation:
+
+        BaseLength = FIELD_OFFSET( FILE_NAMES_INFORMATION,
+                                   FileName[0] );
+        break;
+
+    case FileBothDirectoryInformation:
+
+        BaseLength = FIELD_OFFSET( FILE_BOTH_DIR_INFORMATION,
+                                   FileName[0] );
+        break;
+
+    default:
+
+        CdCompleteRequest( IrpContext, Irp, STATUS_INVALID_INFO_CLASS );
+        return STATUS_INVALID_INFO_CLASS;
     }
 
     //
-    //  Reference our input parameters to make things easier
+    //  Get the user buffer.
     //
 
-    UserBufferLength = IrpSp->Parameters.QueryDirectory.Length;
-
-    FileInformationClass = IrpSp->Parameters.QueryDirectory.FileInformationClass;
-    FileIndex = IrpSp->Parameters.QueryDirectory.FileIndex;
-
-    UniArgFileName = (PUNICODE_STRING) IrpSp->Parameters.QueryDirectory.FileName;
-
-    RestartScan = BooleanFlagOn(IrpSp->Flags, SL_RESTART_SCAN);
-    ReturnSingleEntry = BooleanFlagOn(IrpSp->Flags, SL_RETURN_SINGLE_ENTRY);
-    IndexSpecified = BooleanFlagOn(IrpSp->Flags, SL_INDEX_SPECIFIED);
+    UserBuffer = CdMapUserBuffer( IrpContext );
 
     //
-    //  Initialize the local variables.
+    //  Initialize our search context.
     //
 
-    CurrentDirent = &DirentA;
-    PreviousDirent = &DirentB;
-    CurrentBcb = NULL;
-    PreviousBcb = NULL;
-
-    UpdateCcb = TRUE;
-
-    InitialQuery = (BOOLEAN) (Ccb->QueryTemplate.Buffer == NULL);
-    Status = STATUS_SUCCESS;
-    Irp->IoStatus.Information = 0;
+    CdInitializeFileContext( IrpContext, &FileContext );
 
     //
-    //  If this is the initial query, then grab exclusive access in
-    //  order to update the search string in the Ccb.  We may
-    //  discover that we are not the initial query once we grab the Fcb
-    //  and downgrade our status.
+    //  Acquire the directory.
     //
 
-    if (InitialQuery) {
+    CdAcquireFileShared( IrpContext, Fcb );
 
-        if (!CdAcquireExclusiveFcb( IrpContext, Dcb )) {
-
-            DebugTrace(0, Dbg, "CdQueryDirectory -> Enqueue to Fsp\n", 0);
-            Status = CdFsdPostRequest( IrpContext, Irp );
-            DebugTrace(-1, Dbg, "CdQueryDirectory -> %08lx\n", Status);
-
-            return Status;
-        }
-
-        if (Ccb->QueryTemplate.Buffer != NULL) {
-
-            InitialQuery = FALSE;
-
-            CdConvertToSharedFcb( IrpContext, Dcb );
-        }
-
-    } else {
-
-        if (!CdAcquireSharedFcb( IrpContext, Dcb )) {
-
-            DebugTrace(0, Dbg, "CdQueryDirectory -> Enqueue to Fsp\n", 0);
-            Status = CdFsdPostRequest( IrpContext, Irp );
-            DebugTrace(-1, Dbg, "CdQueryDirectory -> %08lx\n", Status);
-
-            return Status;
-
-        }
-    }
+    //
+    //  Use a try-finally to facilitate cleanup.
+    //
 
     try {
 
-        ULONG BaseLength;
-        ULONG BytesConverted;
-
         //
-        // If we are in the Fsp now because we had to wait earlier,
-        // we must map the user buffer, otherwise we can use the
-        // user's buffer directly.
+        //  Verify the Fcb is still good.
         //
 
-        Buffer = CdMapUserBuffer( IrpContext, Irp );
+        CdVerifyFcbOperation( IrpContext, Fcb );
 
         //
-        //  Make sure the Mvcb is in a usable condition.  This will raise
-        //  an error condition if the volume is unusable
+        //  Start by getting the initial state for the enumeration.  This will set up the Ccb with
+        //  the initial search parameters and let us know the starting offset in the directory
+        //  to search.
         //
 
-        CdVerifyFcb( IrpContext, Dcb );
+        CdInitializeEnumeration( IrpContext,
+                                 IrpSp,
+                                 Fcb,
+                                 Ccb,
+                                 &FileContext,
+                                 &ReturnNextEntry,
+                                 &ReturnSingleEntry,
+                                 &InitialQuery );
 
         //
-        //  Determine where to start the scan.  Highest priority is given
-        //  to the file index.  Lower priority is the restart flag.  If
-        //  neither of these is specified, then the Vbo offset field in the
-        //  Ccb is used.
+        //  The current dirent is stored in the InitialDirent field.  We capture
+        //  this here so that we have a valid restart point even if we don't
+        //  find a single entry.
         //
 
-        if (IndexSpecified) {
-
-            CurrentVbo = FileIndex;
-            ReturnFirstEntry = FALSE;
-
-        } else if (RestartScan) {
-
-            CurrentVbo = Dcb->DirentOffset;
-            ReturnFirstEntry = TRUE;
-
-        } else {
-
-            CurrentVbo = Ccb->OffsetToStartSearchFrom;
-            ReturnFirstEntry =  BooleanFlagOn( Ccb->Flags, CCB_FLAGS_RETURN_FIRST_DIRENT );
-        }
-
-        //
-        //  If this is the first try then allocate a buffer for the file
-        //  name.
-        //
-
-        if (InitialQuery) {
-
-            if (UniArgFileName == NULL
-                || UniArgFileName->Buffer == NULL) {
-
-                RtlInitString( &FileName, "*" );
-                Ccb->QueryTemplate = FileName;
-
-                SetFlag( Ccb->Flags, CCB_FLAGS_WILDCARD_EXPRESSION );
-
-            } else {
-
-                WCHAR TmpBuffer[12];
-                UNICODE_STRING UpcasedName;
-
-                //
-                //  Make sure the name can fit into the stack buffer, if not
-                //  allocate one.
-                //
-
-                if (UniArgFileName->Length > 12*sizeof(WCHAR)) {
-
-                    UpcasedName.Buffer = FsRtlAllocatePool( PagedPool,
-                                                            UniArgFileName->Length );
-
-                } else {
-
-                    UpcasedName.Buffer = &TmpBuffer[0];
-                }
-
-                //
-                //  Upcase the name and convert it to the Oem code page.
-                //
-
-                UpcasedName.Length = UniArgFileName->Length;
-                UpcasedName.MaximumLength = UniArgFileName->MaximumLength;
-
-                (VOID)RtlUpcaseUnicodeString( &UpcasedName, UniArgFileName, FALSE );
-
-                Status = RtlUnicodeStringToCountedOemString( &FileName,
-                                                             &UpcasedName,
-                                                             TRUE );
-
-                //
-                //  Free the buffer if we allocated one.
-                //
-
-                if (UpcasedName.Buffer != &TmpBuffer[0]) {
-
-                    ExFreePool( UpcasedName.Buffer );
-                }
-
-                if (!NT_SUCCESS(Status)) {
-
-                    CdRaiseStatus( IrpContext, Status );
-                }
-
-
-                SetFlag( Ccb->Flags, CCB_FLAGS_USE_RTL_FREE_ANSI );
-                Ccb->QueryTemplate = FileName;
-
-                //
-                //  Remember if the string contains wildcards.
-                //
-
-                if (FsRtlDoesDbcsContainWildCards( &Ccb->QueryTemplate )) {
-
-                    SetFlag( Ccb->Flags, CCB_FLAGS_WILDCARD_EXPRESSION );
-
-                } else {
-
-                    ClearFlag( Ccb->Flags, CCB_FLAGS_WILDCARD_EXPRESSION );
-                }
-
-                //
-                //  We convert to shared access.
-                //
-
-                CdConvertToSharedFcb( IrpContext, Dcb );
-            }
-
-        //
-        //  Else we use the filename from the Ccb.
-        //
-
-        } else {
-
-            FileName = Ccb->QueryTemplate;
-
-        }
-
-        LastEntry = 0;
-        NextEntry = 0;
-
-        //
-        //  Determine the size of the constant part of the structure.
-        //
-
-        switch (FileInformationClass) {
-
-        case FileDirectoryInformation:
-
-            BaseLength = FIELD_OFFSET( FILE_DIRECTORY_INFORMATION,
-                                       FileName[0] );
-            break;
-
-        case FileFullDirectoryInformation:
-
-            BaseLength = FIELD_OFFSET( FILE_FULL_DIR_INFORMATION,
-                                       FileName[0] );
-            break;
-
-        case FileNamesInformation:
-
-            BaseLength = FIELD_OFFSET( FILE_NAMES_INFORMATION,
-                                       FileName[0] );
-            break;
-
-        case FileBothDirectoryInformation:
-
-            BaseLength = FIELD_OFFSET( FILE_BOTH_DIR_INFORMATION,
-                                       FileName[0] );
-            break;
-
-        default:
-
-            try_return( Status = STATUS_INVALID_INFO_CLASS );
-        }
+        ThisDirent = &FileContext.InitialDirent->Dirent;
 
         //
         //  At this point we are about to enter our query loop.  We have
@@ -630,73 +319,33 @@ Return Value:
         //  at least one entry was added.
         //
 
-        while ( TRUE ) {
-
-            ULONG FileNameLength;
-            ULONG BytesRemainingInBuffer;
-
-            ULONG InitialOffset;
-
-            DebugTrace(0, Dbg, "CdQueryDirectory -> Top of loop\n", 0);
+        while (TRUE) {
 
             //
             //  If the user had requested only a single match and we have
-            //  returned that, then we stop at this point.
+            //  returned that, then we stop at this point.  We update the Ccb with
+            //  the status based on the last entry returned.
             //
 
-            if (ReturnSingleEntry && NextEntry != 0) {
-
-                DebugTrace(0, Dbg, "CdQueryDirectory:  Exiting after returning single\n", 0);
-
-                //
-                //  If the entry returned has no version number, then
-                //  we can look immediately for the next entry.
-                //
-
-                if ( PreviousDirent->VersionWithName ) {
-
-                    ReturnFirstEntry = FALSE;
-
-                } else {
-
-                    ReturnFirstEntry = TRUE;
-                    CurrentVbo = PreviousDirent->DirentOffset + PreviousDirent->DirentLength;
-                }
+            if ((NextEntry != 0) && ReturnSingleEntry) {
 
                 try_return( Status );
             }
 
             //
-            //  We try to locate the next matching dirent.  If this is the
-            //  first search we call 'CdLocateFileDirent' otherwise we
-            //  call 'CdContinueFileDirentSearch'.
+            //  We try to locate the next matching dirent.  Our search if based on a starting
+            //  dirent offset, whether we should return the current or next entry, whether
+            //  we should be doing a short name search and finally whether we should be
+            //  checking for a version match.
             //
 
-            if (NextEntry == 0) {
+            Found = CdEnumerateIndex( IrpContext, Ccb, &FileContext, ReturnNextEntry );
 
-                DebugTrace(0, Dbg, "CdQueryDirectory:  Initial search\n", 0);
+            //
+            //  Initialize the value for the next search.
+            //
 
-                DirentFound = CdLocateFileDirent( IrpContext,
-                                                  Dcb,
-                                                  &FileName,
-                                                  BooleanFlagOn( Ccb->Flags, CCB_FLAGS_WILDCARD_EXPRESSION ),
-                                                  CurrentVbo,
-                                                  ReturnFirstEntry,
-                                                  &MatchedVersion,
-                                                  CurrentDirent,
-                                                  &CurrentBcb );
-
-            } else {
-
-                DirentFound = CdContinueFileDirentSearch( IrpContext,
-                                                          Dcb,
-                                                          &FileName,
-                                                          BooleanFlagOn( Ccb->Flags, CCB_FLAGS_WILDCARD_EXPRESSION ),
-                                                          PreviousDirent,
-                                                          &MatchedVersion,
-                                                          CurrentDirent,
-                                                          &CurrentBcb );
-            }
+            ReturnNextEntry = TRUE;
 
             //
             //  If we didn't receive a dirent, then we are at the end of the
@@ -704,21 +353,15 @@ Return Value:
             //  success, otherwise we return STATUS_NO_MORE_FILES.
             //
 
-            if (!DirentFound) {
-
-                DebugTrace(0, Dbg, "CdQueryDirectory -> No dirent\n", 0);
+            if (!Found) {
 
                 if (NextEntry == 0) {
 
-                    UpdateCcb = FALSE;
+                    Status = STATUS_NO_MORE_FILES;
 
                     if (InitialQuery) {
 
                         Status = STATUS_NO_SUCH_FILE;
-
-                    } else {
-
-                        Status = STATUS_NO_MORE_FILES;
                     }
                 }
 
@@ -726,24 +369,10 @@ Return Value:
             }
 
             //
-            //  We need to remember if we need the entire filename with
-            //  the version number or just the base name.
+            //  Remember the dirent for the file we just found.
             //
 
-            if (MatchedVersion) {
-
-                MatchFileName = &CurrentDirent->FullFilename;
-
-            } else {
-
-                MatchFileName = &CurrentDirent->Filename;
-            }
-
-            //
-            //  Determine the UNICODE length of the file name.
-            //
-
-            FileNameLength = RtlOemStringToCountedUnicodeSize( MatchFileName );
+            ThisDirent = &FileContext.InitialDirent->Dirent;
 
             //
             //  Here are the rules concerning filling up the buffer:
@@ -761,32 +390,102 @@ Return Value:
             //      pick up with this record.
             //
 
-            BytesRemainingInBuffer = UserBufferLength - NextEntry;
+            //
+            //  Let's compute the number of bytes we need to transfer the current entry.
+            //
 
-            if ( (NextEntry != 0) &&
-                 ( (BaseLength + FileNameLength > BytesRemainingInBuffer) ||
-                   (UserBufferLength < NextEntry) ) ) {
+            SeparatorBytes =
+            VersionStringBytes = 0;
 
-                DebugTrace(0, Dbg, "Next entry won't fit\n", 0);
+            //
+            //  We can look directly at the dirent that we found.
+            //
 
+            FileNameBytes = ThisDirent->CdFileName.FileName.Length;
+
+            //
+            //  Compute the number of bytes for the version string if
+            //  we will return this. Allow directories with illegal ";".
+            //
+
+            if (((Ccb->SearchExpression.VersionString.Length != 0) ||
+                 (FlagOn(ThisDirent->DirentFlags, CD_ATTRIBUTE_DIRECTORY))) &&
+                (ThisDirent->CdFileName.VersionString.Length != 0)) {
+
+                SeparatorBytes = 2;
+
+                VersionStringBytes = ThisDirent->CdFileName.VersionString.Length;
+            }
+
+            //
+            //  If the slot for the next entry would be beyond the length of the
+            //  user's buffer just exit (we know we've returned at least one entry
+            //  already). This will happen when we align the pointer past the end.
+            //
+
+            if (NextEntry > IrpSp->Parameters.QueryDirectory.Length) {
+
+                ReturnNextEntry = FALSE;
                 try_return( Status = STATUS_SUCCESS );
             }
 
-            ASSERT( BytesRemainingInBuffer >= BaseLength );
-
             //
-            //  Compute the sector offset for the start of the file.
-            //
-
-            InitialOffset = ((CurrentDirent->LogicalBlock + CurrentDirent->XarBlocks)
-                             << Dcb->Vcb->LogOfBlockSize)
-                            & (CD_SECTOR_SIZE - 1);
-
-            //
-            //  Zero the base part of the structure.
+            //  Compute the number of bytes remaining in the buffer.  Round this
+            //  down to a WCHAR boundary so we can copy full characters.
             //
 
-            RtlZeroMemory( &Buffer[NextEntry], BaseLength );
+            BytesRemainingInBuffer = IrpSp->Parameters.QueryDirectory.Length - NextEntry;
+            ClearFlag( BytesRemainingInBuffer, 1 );
+
+            //
+            //  If this won't fit and we have returned a previous entry then just
+            //  return STATUS_SUCCESS.
+            //
+
+            if ((BaseLength + FileNameBytes + SeparatorBytes + VersionStringBytes) > BytesRemainingInBuffer) {
+
+                //
+                //  If we already found an entry then just exit.
+                //
+
+                if (NextEntry != 0) {
+
+                    ReturnNextEntry = FALSE;
+                    try_return( Status = STATUS_SUCCESS );
+                }
+
+                //
+                //  Don't even try to return the version string if it doesn't all fit.
+                //  Reduce the FileNameBytes to just fit in the buffer.
+                //
+
+                if ((BaseLength + FileNameBytes) > BytesRemainingInBuffer) {
+
+                    FileNameBytes = BytesRemainingInBuffer - BaseLength;
+                }
+
+                //
+                //  Don't return any version string bytes.
+                //
+
+                VersionStringBytes =
+                SeparatorBytes = 0;
+
+                //
+                //  Use a status code of STATUS_BUFFER_OVERFLOW.  Also set
+                //  ReturnSingleEntry so that we will exit the loop at the top.
+                //
+
+                Status = STATUS_BUFFER_OVERFLOW;
+                ReturnSingleEntry = TRUE;
+            }
+
+            //
+            //  Zero and initialize the base part of the current entry.
+            //
+
+            RtlZeroMemory( Add2Ptr( UserBuffer, NextEntry, PVOID ),
+                           BaseLength );
 
             //
             //  Now we have an entry to return to our caller.
@@ -794,209 +493,236 @@ Return Value:
             //  the user buffer if everything fits.
             //
 
-            switch ( FileInformationClass ) {
-
-            case FileFullDirectoryInformation:
-
-                DebugTrace(0, Dbg, "CdQueryDirectory -> Getting file full directory information\n", 0);
+            switch (IrpSp->Parameters.QueryDirectory.FileInformationClass) {
 
             case FileBothDirectoryInformation:
-
+            case FileFullDirectoryInformation:
             case FileDirectoryInformation:
 
-                DebugTrace(0, Dbg, "CdQueryDirectory -> Getting file directory information\n", 0);
-
-                DirInfo = (PFILE_DIRECTORY_INFORMATION)&Buffer[NextEntry];
-
-                CdConvertCdTimeToNtTime( IrpContext,
-                                         CurrentDirent->CdTime,
-                                         DirInfo->LastWriteTime );
-
-                DirInfo->CreationTime = DirInfo->LastWriteTime;
-
-                DirInfo->EndOfFile = LiFromUlong( CurrentDirent->DataLength );
-
-                DirInfo->AllocationSize = LiFromUlong( CD_ROUND_UP_TO_SECTOR( InitialOffset
-                                                                              + CurrentDirent->DataLength ));
+                DirInfo = Add2Ptr( UserBuffer, NextEntry, PFILE_BOTH_DIR_INFORMATION );
 
                 //
-                //  All Cdrom files are readonly.  We copy the existence
+                //  Use the create time for all the time stamps.
+                //
+
+                CdConvertCdTimeToNtTime( IrpContext,
+                                         FileContext.InitialDirent->Dirent.CdTime,
+                                         &DirInfo->CreationTime );
+
+                DirInfo->LastWriteTime = DirInfo->ChangeTime = DirInfo->CreationTime;
+
+                //
+                //  Set the attributes and sizes separately for directories and
+                //  files.
+                //
+
+                if (FlagOn( ThisDirent->DirentFlags, CD_ATTRIBUTE_DIRECTORY )) {
+
+                    DirInfo->EndOfFile.QuadPart = DirInfo->AllocationSize.QuadPart = 0;
+
+                    SetFlag( DirInfo->FileAttributes, FILE_ATTRIBUTE_DIRECTORY );
+
+                } else {
+
+                    DirInfo->EndOfFile.QuadPart = FileContext.FileSize;
+                    DirInfo->AllocationSize.QuadPart = LlSectorAlign( FileContext.FileSize );
+                }
+
+                //
+                //  All Cdrom files are readonly.  We also copy the existence
                 //  bit to the hidden attribute.
                 //
 
-                DirInfo->FileAttributes = FILE_ATTRIBUTE_READONLY;
+                SetFlag( DirInfo->FileAttributes, FILE_ATTRIBUTE_READONLY );
 
-                if (FlagOn( CurrentDirent->Flags, ISO_ATTR_HIDDEN )) {
+                if (FlagOn( ThisDirent->DirentFlags,
+                            CD_ATTRIBUTE_HIDDEN )) {
 
                     SetFlag( DirInfo->FileAttributes, FILE_ATTRIBUTE_HIDDEN );
                 }
 
-                if (FlagOn( CurrentDirent->Flags, ISO_ATTR_DIRECTORY )) {
+                DirInfo->FileIndex = ThisDirent->DirentOffset;
 
-                    SetFlag( DirInfo->FileAttributes, FILE_ATTRIBUTE_DIRECTORY );
-                }
-
-                DirInfo->FileIndex = CurrentDirent->DirentOffset;
-
-                DirInfo->FileNameLength = FileNameLength;
+                DirInfo->FileNameLength = FileNameBytes + SeparatorBytes + VersionStringBytes;
 
                 break;
 
             case FileNamesInformation:
 
-                DebugTrace(0, Dbg, "CdQueryDirectory -> Getting file names information\n", 0);
+                NamesInfo = Add2Ptr( UserBuffer, NextEntry, PFILE_NAMES_INFORMATION );
 
-                NamesInfo = (PFILE_NAMES_INFORMATION)&Buffer[NextEntry];
+                NamesInfo->FileIndex = ThisDirent->DirentOffset;
 
-                NamesInfo->FileIndex = CurrentDirent->DirentOffset;
-
-                NamesInfo->FileNameLength = FileNameLength;
+                NamesInfo->FileNameLength = FileNameBytes + SeparatorBytes + VersionStringBytes;
 
                 break;
-
-            default:
-
-                CdBugCheck( FileInformationClass, 0, 0 );
             }
 
             //
-            //  Now copy as much of the name as possible
+            //  Now copy as much of the name as possible.  We also may have a version
+            //  string to copy.
             //
 
-            DebugTrace(0, Dbg, "CdQueryDirectory -> Name = \"%Z\"\n", MatchFileName);
-
-            BytesConverted = 0;
-
-            Status = RtlOemToUnicodeN( (PWCH)&Buffer[NextEntry + BaseLength],
-                                       BytesRemainingInBuffer - BaseLength,
-                                       &BytesConverted,
-                                       MatchFileName->Buffer,
-                                       MatchFileName->Length );
-
-            //
-            //  Set up the previous next entry offset
-            //
-
-            *((PULONG)(&Buffer[LastEntry])) = NextEntry - LastEntry;
-
-            //
-            //  And indicate how much of the user buffer we have currently
-            //  used up.  We must compute this value before we long align
-            //  ourselves for the next entry
-            //
-
-            Irp->IoStatus.Information += BaseLength + BytesConverted;
-
-            //
-            //  If something happened with the conversion, bail here.
-            //
-
-            if ( !NT_SUCCESS( Status ) ) {
-
-                try_return( NOTHING );
-            }
-
-            //
-            //  Set ourselves up for the next iteration
-            //
-
-            LastEntry = NextEntry;
-            NextEntry += (ULONG)QuadAlign( BaseLength + BytesConverted );
-
-            //
-            //  Update the dirent pointers for the next search.
-            //
-
-            TempDirent = PreviousDirent;
-            PreviousDirent = CurrentDirent;
-            CurrentDirent = TempDirent;
-
-            if (PreviousBcb != NULL) {
-
-                CdUnpinBcb( IrpContext, PreviousBcb );
-            }
-
-            PreviousBcb = CurrentBcb;
-            CurrentBcb = NULL;
-
-            //
-            //  Update the ccb update values.
-            //
-
-            CurrentVbo = PreviousDirent->DirentOffset;
-            ReturnFirstEntry = FALSE;
-        }
-
-    try_exit: NOTHING;
-    } finally {
-
-        //
-        //  Unpin data in cache if still held.
-        //
-
-        if (PreviousBcb != NULL) {
-
-            CdUnpinBcb( IrpContext, PreviousBcb );
-        }
-
-        if (CurrentBcb != NULL) {
-
-            CdUnpinBcb( IrpContext, CurrentBcb );
-        }
-
-        //
-        //  Perform any cleanup.  If this is the first query, then store
-        //  the filename in the Ccb if successful.  Also update the
-        //  CD_VBO index for the next search.  This is done by transferring
-        //  from shared access to exclusive access and copying the
-        //  data from the local copies.
-        //
-
-        if (!AbnormalTermination()) {
-
-            if (UpdateCcb) {
+            if (FileNameBytes != 0) {
 
                 //
-                //  Store the most recent CD_VBO to use as a starting point for
-                //  the next search.
+                //  This is a Unicode name, we can copy the bytes directly.
                 //
 
-                Ccb->OffsetToStartSearchFrom = CurrentVbo;
+                RtlCopyMemory( Add2Ptr( UserBuffer, NextEntry + BaseLength, PVOID ),
+                               ThisDirent->CdFileName.FileName.Buffer,
+                               FileNameBytes );
 
-                if (ReturnFirstEntry) {
+                if (SeparatorBytes != 0) {
 
-                    SetFlag( Ccb->Flags, CCB_FLAGS_RETURN_FIRST_DIRENT );
+                    *(Add2Ptr( UserBuffer,
+                               NextEntry + BaseLength + FileNameBytes,
+                               PWCHAR )) = L';';
 
-                } else {
+                    if (VersionStringBytes != 0) {
 
-                    ClearFlag( Ccb->Flags, CCB_FLAGS_RETURN_FIRST_DIRENT );
+                        RtlCopyMemory( Add2Ptr( UserBuffer,
+                                                NextEntry + BaseLength + FileNameBytes + sizeof( WCHAR ),
+                                                PVOID ),
+                                       ThisDirent->CdFileName.VersionString.Buffer,
+                                       VersionStringBytes );
+                    }
                 }
             }
 
-            CdReleaseFcb( IrpContext, Dcb );
+            //
+            //  Fill in the short name if we got STATUS_SUCCESS.  The short name
+            //  may already be in the file context.  Otherwise we will check
+            //  whether the long name is 8.3.  Special case the self and parent
+            //  directory names.
+            //
 
-            CdCompleteRequest( IrpContext, Irp, Status );
+            if ((Status == STATUS_SUCCESS) &&
+                (IrpSp->Parameters.QueryDirectory.FileInformationClass == FileBothDirectoryInformation) &&
+                (Ccb->SearchExpression.VersionString.Length == 0) &&
+                (ThisDirent->CdFileName.FileName.Buffer != CdUnicodeSelfArray) &&
+                (ThisDirent->CdFileName.FileName.Buffer != CdUnicodeParentArray)) {
 
-        } else {
+                //
+                //  If we already have the short name then copy into the user's buffer.
+                //
 
-            CdReleaseFcb( IrpContext, Dcb );
+                if (FileContext.ShortName.FileName.Length != 0) {
+
+                    RtlCopyMemory( DirInfo->ShortName,
+                                   FileContext.ShortName.FileName.Buffer,
+                                   FileContext.ShortName.FileName.Length );
+
+                    DirInfo->ShortNameLength = (CCHAR) FileContext.ShortName.FileName.Length;
+
+                //
+                //  If the short name length is currently zero then check if
+                //  the long name is not 8.3.  We can copy the short name in
+                //  unicode form directly into the caller's buffer.
+                //
+
+                } else {
+
+                    if (!CdIs8dot3Name( IrpContext,
+                                        ThisDirent->CdFileName.FileName )) {
+
+                        CdGenerate8dot3Name( IrpContext,
+                                             &ThisDirent->CdCaseFileName.FileName,
+                                             ThisDirent->DirentOffset,
+                                             DirInfo->ShortName,
+                                             &FileContext.ShortName.FileName.Length );
+
+                        DirInfo->ShortNameLength = (CCHAR) FileContext.ShortName.FileName.Length;
+                    }
+                }
+
+            }
+
+            //
+            //  Sum the total number of bytes for the information field.
+            //
+
+            FileNameBytes += SeparatorBytes + VersionStringBytes;
+
+            //
+            //  Update the information with the number of bytes stored in the
+            //  buffer.  We quad-align the existing buffer to add any necessary
+            //  pad bytes.
+            //
+
+            Information = NextEntry + BaseLength + FileNameBytes;
+
+            //
+            //  Go back to the previous entry and fill in the update to this entry.
+            //
+
+            *(Add2Ptr( UserBuffer, LastEntry, PULONG )) = NextEntry - LastEntry;
+
+            //
+            //  Set up our variables for the next dirent.
+            //
+
+            InitialQuery = FALSE;
+
+            LastEntry = NextEntry;
+            NextEntry = QuadAlign( Information );
         }
 
-        DebugTrace(-1, Dbg, "CdQueryDirectory:  Exit -> %08lx\n", Status);
+    try_exit:  NOTHING;
+
+        //
+        //  Update the Ccb to show the current state of the enumeration.
+        //
+
+        CdLockFcb( IrpContext, Fcb );
+
+        Ccb->CurrentDirentOffset = ThisDirent->DirentOffset;
+
+        ClearFlag( Ccb->Flags, CCB_FLAG_ENUM_RETURN_NEXT );
+
+        if (ReturnNextEntry) {
+
+            SetFlag( Ccb->Flags, CCB_FLAG_ENUM_RETURN_NEXT );
+        }
+
+        CdUnlockFcb( IrpContext, Fcb );
+
+    } finally {
+
+        //
+        //  Cleanup our search context.
+        //
+
+        CdCleanupFileContext( IrpContext, &FileContext );
+
+        //
+        //  Release the Fcb.
+        //
+
+        CdReleaseFile( IrpContext, Fcb );
     }
 
+    //
+    //  Complete the request here.
+    //
+
+    Irp->IoStatus.Information = Information;
+
+    CdCompleteRequest( IrpContext, Irp, Status );
     return Status;
 }
 
 
 //
-//  Local Support Routine
+//  Local support routines
 //
 
 NTSTATUS
 CdNotifyChangeDirectory (
     IN PIRP_CONTEXT IrpContext,
-    IN PIRP Irp
+    IN PIRP Irp,
+    IN PIO_STACK_LOCATION IrpSp,
+    IN PCCB Ccb
     )
 
 /*++
@@ -1004,129 +730,702 @@ CdNotifyChangeDirectory (
 Routine Description:
 
     This routine performs the notify change directory operation.  It is
-    responsible for either completing of enqueuing the input Irp.
+    responsible for either completing of enqueuing the input Irp.  Although there
+    will never be a notify signalled on a CDROM disk we still support this call.
+
+    We have already checked that this is not an OpenById handle.
 
 Arguments:
 
     Irp - Supplies the Irp to process
 
+    IrpSp - Io stack location for this request.
+
+    Ccb - Handle to the directory being watched.
+
 Return Value:
 
-    NTSTATUS - The return status for the operation
+    NTSTATUS - STATUS_PENDING, any other error will raise.
+
+--*/
+
+{
+    PAGED_CODE();
+
+    //
+    //  Always set the wait bit in the IrpContext so the initial wait can't fail.
+    //
+
+    SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_WAIT );
+
+    //
+    //  Acquire the Vcb shared.
+    //
+
+    CdAcquireVcbShared( IrpContext, IrpContext->Vcb, FALSE );
+
+    //
+    //  Use a try-finally to facilitate cleanup.
+    //
+
+    try {
+
+        //
+        //  Verify the Vcb.
+        //
+
+        CdVerifyVcb( IrpContext, IrpContext->Vcb );
+
+        //
+        //  Call the Fsrtl package to process the request.  We cast the
+        //  unicode strings to ansi strings as the dir notify package
+        //  only deals with memory matching.
+        //
+
+        FsRtlNotifyFullChangeDirectory( IrpContext->Vcb->NotifySync,
+                                        &IrpContext->Vcb->DirNotifyList,
+                                        Ccb,
+                                        (PSTRING) &IrpSp->FileObject->FileName,
+                                        BooleanFlagOn( IrpSp->Flags, SL_WATCH_TREE ),
+                                        FALSE,
+                                        IrpSp->Parameters.NotifyDirectory.CompletionFilter,
+                                        Irp,
+                                        NULL,
+                                        NULL );
+
+    } finally {
+
+        //
+        //  Release the Vcb.
+        //
+
+        CdReleaseVcb( IrpContext, IrpContext->Vcb );
+    }
+
+    //
+    //  Cleanup the IrpContext.
+    //
+
+    CdCompleteRequest( IrpContext, NULL, STATUS_SUCCESS );
+
+    return STATUS_PENDING;
+}
+
+
+//
+//  Local support routine
+//
+
+VOID
+CdInitializeEnumeration (
+    IN PIRP_CONTEXT IrpContext,
+    IN PIO_STACK_LOCATION IrpSp,
+    IN PFCB Fcb,
+    IN OUT PCCB Ccb,
+    IN OUT PFILE_ENUM_CONTEXT FileContext,
+    OUT PBOOLEAN ReturnNextEntry,
+    OUT PBOOLEAN ReturnSingleEntry,
+    OUT PBOOLEAN InitialQuery
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called to initialize the enumeration variables and structures.
+    We look at the state of a previous enumeration from the Ccb as well as any
+    input values from the user.  On exit we will position the FileContext at
+    a file in the directory and let the caller know whether this entry or the
+    next entry should be returned.
+
+Arguments:
+
+    IrpSp - Irp stack location for this request.
+
+    Fcb - Fcb for this directory.
+
+    Ccb - Ccb for the directory handle.
+
+    FileContext - FileContext to use for this enumeration.
+
+    ReturnNextEntry - Address to store whether we should return the entry at
+        the FileContext position or the next entry.
+
+    ReturnSingleEntry - Address to store whether we should only return
+        a single entry.
+
+    InitialQuery - Address to store whether this is the first enumeration
+        query on this handle.
+
+Return Value:
+
+    None.
 
 --*/
 
 {
     NTSTATUS Status;
-    PIO_STACK_LOCATION IrpSp;
-    PMVCB Mvcb;
-    PVCB Vcb;
-    PDCB Dcb;
-    PCCB Ccb;
 
-    ULONG CompletionFilter;
-    BOOLEAN WatchTree;
-    BOOLEAN CompleteRequest;
+    PUNICODE_STRING FileName;
+    CD_NAME WildCardName;
+    CD_NAME SearchExpression;
 
-    //
-    //  Get the current Stack location
-    //
+    ULONG CcbFlags;
 
-    IrpSp = IoGetCurrentIrpStackLocation( Irp );
+    ULONG DirentOffset;
+    ULONG LastDirentOffset;
+    BOOLEAN KnownOffset;
+
+    BOOLEAN Found;
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "CdNotifyChangeDirectory...\n", 0);
-    DebugTrace( 0, Dbg, " Wait             = %08lx\n", IrpContext->Wait);
-    DebugTrace( 0, Dbg, " Irp              = %08lx\n", Irp);
-    DebugTrace( 0, Dbg, " ->CompletionFilter = %08lx\n", IrpSp->Parameters.NotifyDirectory.CompletionFilter);
-
     //
-    //  Assume we don't complete request.
+    //  If this is the initial query then build a search expression from the input
+    //  file name.
     //
 
-    CompleteRequest = FALSE;
+    if (!FlagOn( Ccb->Flags, CCB_FLAG_ENUM_INITIALIZED )) {
 
-    //
-    //  Check on the type of open.  We return invalid parameter for all
-    //  but UserDirectoryOpens.
-    //
+        FileName = (PUNICODE_STRING) IrpSp->Parameters.QueryDirectory.FileName;
 
-    if (CdDecodeFileObject( IrpSp->FileObject,
-                            &Mvcb,
-                            &Vcb,
-                            &Dcb,
-                            &Ccb ) != UserDirectoryOpen) {
-
-        CdCompleteRequest( IrpContext, Irp, STATUS_INVALID_PARAMETER );
-        DebugTrace(-1, Dbg, "CdQueryDirectory -> STATUS_INVALID_PARAMETER\n", 0);
-
-        return STATUS_INVALID_PARAMETER;
-    }
-
-    //
-    //  Reference our input parameter to make things easier
-    //
-
-    CompletionFilter = IrpSp->Parameters.NotifyDirectory.CompletionFilter;
-    WatchTree = BooleanFlagOn( IrpSp->Flags, SL_WATCH_TREE );
-
-    //
-    //  Try to acquire exclusive access to the Dcb and enqueue the Irp to the
-    //  Fsp if we didn't get access
-    //
-
-    if (!CdAcquireExclusiveFcb( IrpContext, Dcb )) {
-
-        DebugTrace(0, Dbg, "CdNotifyChangeDirectory -> Cannot Acquire Fcb\n", 0);
-
-        Status = CdFsdPostRequest( IrpContext, Irp );
-
-        DebugTrace(-1, Dbg, "CdNotifyChangeDirectory -> %08lx\n", Status);
-        return Status;
-    }
-
-    try {
+        CcbFlags = 0;
 
         //
-        //  Make sure the Fcb is still good
+        //  If the filename is not specified or is a single '*' then we will
+        //  match all names.
         //
 
-        CdVerifyFcb( IrpContext, Dcb );
+        if ((FileName == NULL) ||
+            (FileName->Buffer == NULL) ||
+            (FileName->Length == 0) ||
+            ((FileName->Length == sizeof( WCHAR )) &&
+             (FileName->Buffer[0] == L'*'))) {
 
-
-        //
-        //  Call the Fsrtl package to process the request.
-        //
-
-        FsRtlNotifyChangeDirectory( Mvcb->NotifySync,
-                                    Ccb,
-                                    &Dcb->FullFileName,
-                                    &Mvcb->DirNotifyList,
-                                    WatchTree,
-                                    CompletionFilter,
-                                    Irp );
-
-        Status = STATUS_PENDING;
-
-        CompleteRequest = TRUE;
-
-    } finally {
-
-        CdReleaseFcb( IrpContext, Dcb );
+            SetFlag( CcbFlags, CCB_FLAG_ENUM_MATCH_ALL );
+            RtlZeroMemory( &SearchExpression, sizeof( SearchExpression ));
 
         //
-        //  If the dir notify package is holding the Irp, we discard the
-        //  the IrpContext.
+        //  Otherwise build the CdName from the name in the stack location.
+        //  This involves building both the name and version portions and
+        //  checking for wild card characters.  We also upcase the string if
+        //  this is a case-insensitive search.
         //
 
-        if (CompleteRequest) {
+        } else {
 
-            CdCompleteRequest( IrpContext, CdNull, 0 );
+            //
+            //  Create a CdName to check for wild cards.
+            //
+
+            WildCardName.FileName = *FileName;
+
+            CdConvertNameToCdName( IrpContext, &WildCardName );
+
+            //
+            //  The name better have at least one character.
+            //
+
+            if (WildCardName.FileName.Length == 0) {
+
+                CdRaiseStatus( IrpContext, STATUS_INVALID_PARAMETER );
+            }
+
+            //
+            //  Check for wildcards in the separate components.
+            //
+
+            if (FsRtlDoesNameContainWildCards( &WildCardName.FileName)) {
+
+                SetFlag( CcbFlags, CCB_FLAG_ENUM_NAME_EXP_HAS_WILD );
+            }
+
+            if ((WildCardName.VersionString.Length != 0) &&
+                (FsRtlDoesNameContainWildCards( &WildCardName.VersionString ))) {
+
+                SetFlag( CcbFlags, CCB_FLAG_ENUM_VERSION_EXP_HAS_WILD );
+
+                //
+                //  Check if this is a wild card only and match all version
+                //  strings.
+                //
+
+                if ((WildCardName.VersionString.Length == sizeof( WCHAR )) &&
+                    (WildCardName.VersionString.Buffer[0] == L'*')) {
+
+                    SetFlag( CcbFlags, CCB_FLAG_ENUM_VERSION_MATCH_ALL );
+                }
+            }
+
+            //
+            //  Now create the search expression to store in the Ccb.
+            //
+
+            SearchExpression.FileName.Buffer = FsRtlAllocatePoolWithTag( CdPagedPool,
+                                                                         FileName->Length,
+                                                                         TAG_ENUM_EXPRESSION );
+
+            SearchExpression.FileName.MaximumLength = FileName->Length;
+
+            //
+            //  Either copy the name directly or perform the upcase.
+            //
+
+            if (FlagOn( Ccb->Flags, CCB_FLAG_IGNORE_CASE )) {
+
+                Status = RtlUpcaseUnicodeString( (PUNICODE_STRING) &SearchExpression.FileName,
+                                                 FileName,
+                                                 FALSE );
+
+                //
+                //  This should never fail.
+                //
+
+                ASSERT( Status == STATUS_SUCCESS );
+
+            } else {
+
+                RtlCopyMemory( SearchExpression.FileName.Buffer,
+                               FileName->Buffer,
+                               FileName->Length );
+            }
+
+            //
+            //  Now split into the separate name and version components.
+            //
+
+            SearchExpression.FileName.Length = WildCardName.FileName.Length;
+            SearchExpression.VersionString.Length = WildCardName.VersionString.Length;
+            SearchExpression.VersionString.MaximumLength = WildCardName.VersionString.MaximumLength;
+
+            SearchExpression.VersionString.Buffer = Add2Ptr( SearchExpression.FileName.Buffer,
+                                                             SearchExpression.FileName.Length + sizeof( WCHAR ),
+                                                             PWCHAR );
         }
 
-        DebugTrace(-1, Dbg, "CdNotifyChangeDirectory -> %08lx\n", Status);
+        //
+        //  Now lock the Fcb in order to update the Ccb with the inital
+        //  enumeration values.
+        //
+
+        CdLockFcb( IrpContext, Fcb );
+
+        //
+        //  Check again that this is the initial search.
+        //
+
+        if (!FlagOn( Ccb->Flags, CCB_FLAG_ENUM_INITIALIZED )) {
+
+            //
+            //  Update the values in the Ccb.
+            //
+
+            Ccb->CurrentDirentOffset = Fcb->StreamOffset;
+            Ccb->SearchExpression = SearchExpression;
+
+            //
+            //  Set the appropriate flags in the Ccb.
+            //
+
+            SetFlag( Ccb->Flags, CcbFlags | CCB_FLAG_ENUM_INITIALIZED );
+
+        //
+        //  Otherwise cleanup any buffer allocated here.
+        //
+
+        } else {
+
+            if (!FlagOn( CcbFlags, CCB_FLAG_ENUM_MATCH_ALL )) {
+
+                ExFreePool( SearchExpression.FileName.Buffer );
+            }
+        }
+
+    //
+    //  Otherwise lock the Fcb so we can read the current enumeration values.
+    //
+
+    } else {
+
+        CdLockFcb( IrpContext, Fcb );
     }
 
-    return Status;
+    //
+    //  Capture the current state of the enumeration.
+    //
+    //  If the user specified an index then use his offset.  We always
+    //  return the next entry in this case.
+    //
+
+    if (FlagOn( IrpSp->Flags, SL_INDEX_SPECIFIED )) {
+
+        KnownOffset = FALSE;
+        DirentOffset = IrpSp->Parameters.QueryDirectory.FileIndex;
+        *ReturnNextEntry = TRUE;
+
+    //
+    //  If we are restarting the scan then go from the self entry.
+    //
+
+    } else if (FlagOn( IrpSp->Flags, SL_RESTART_SCAN )) {
+
+        KnownOffset = TRUE;
+        DirentOffset = Fcb->StreamOffset;
+        *ReturnNextEntry = FALSE;
+
+    //
+    //  Otherwise use the values from the Ccb.
+    //
+
+    } else {
+
+        KnownOffset = TRUE;
+        DirentOffset = Ccb->CurrentDirentOffset;
+        *ReturnNextEntry = BooleanFlagOn( Ccb->Flags, CCB_FLAG_ENUM_RETURN_NEXT );
+    }
+
+    //
+    //  Unlock the Fcb.
+    //
+
+    CdUnlockFcb( IrpContext, Fcb );
+
+    //
+    //  We have the starting offset in the directory and whether to return
+    //  that entry or the next.  If we are at the beginning of the directory
+    //  and are returning that entry, then tell our caller this is the
+    //  initial query.
+    //
+
+    *InitialQuery = FALSE;
+
+    if ((DirentOffset == Fcb->StreamOffset) &&
+        !(*ReturnNextEntry)) {
+
+        *InitialQuery = TRUE;
+    }
+
+    //
+    //  If there is no file object then create it now.
+    //
+
+    if (Fcb->FileObject == NULL) {
+
+        CdCreateInternalStream( IrpContext, Fcb->Vcb, Fcb );
+    }
+
+    //
+    //  Determine the offset in the stream to position the FileContext and
+    //  whether this offset is known to be a file offset.
+    //
+    //  If this offset is known to be safe then go ahead and position the
+    //  file context.  This handles the cases where the offset is the beginning
+    //  of the stream, the offset is from a previous search or this is the
+    //  initial query.
+    //
+
+    if (KnownOffset) {
+
+        CdLookupInitialFileDirent( IrpContext, Fcb, FileContext, DirentOffset );
+
+    //
+    //  Otherwise we walk through the directory from the beginning until
+    //  we reach the entry which contains this offset.
+    //
+
+    } else {
+
+        LastDirentOffset = Fcb->StreamOffset;
+        Found = TRUE;
+
+        CdLookupInitialFileDirent( IrpContext, Fcb, FileContext, LastDirentOffset );
+
+        //
+        //  If the requested offset is prior to the beginning offset in the stream
+        //  then don't return the next entry.
+        //
+
+        if (DirentOffset < LastDirentOffset) {
+
+            *ReturnNextEntry = FALSE;
+
+        //
+        //  Else look for the last entry which ends past the desired index.
+        //
+
+        } else {
+
+            //
+            //  Keep walking through the directory until we run out of
+            //  entries or we find an entry which ends beyond the input
+            //  index value.
+            //
+
+            do {
+
+                //
+                //  If we have passed the index value then exit.
+                //
+
+                if (FileContext->InitialDirent->Dirent.DirentOffset > DirentOffset) {
+
+                    Found = FALSE;
+                    break;
+                }
+
+                //
+                //  Remember the current position in case we need to go back.
+                //
+
+                LastDirentOffset = FileContext->InitialDirent->Dirent.DirentOffset;
+
+                //
+                //  Exit if the next entry is beyond the desired index value.
+                //
+
+                if (LastDirentOffset + FileContext->InitialDirent->Dirent.DirentLength > DirentOffset) {
+
+                    break;
+                }
+
+                Found = CdLookupNextInitialFileDirent( IrpContext, Fcb, FileContext );
+
+            } while (Found);
+
+            //
+            //  If we didn't find the entry then go back to the last known entry.
+            //  This can happen if the index lies in the unused range at the
+            //  end of a sector.
+            //
+
+            if (!Found) {
+
+                CdCleanupFileContext( IrpContext, FileContext );
+                CdInitializeFileContext( IrpContext, FileContext );
+
+                CdLookupInitialFileDirent( IrpContext, Fcb, FileContext, LastDirentOffset );
+            }
+        }
+    }
+
+    //
+    //  Only update the dirent name if we will need it for some reason.
+    //  Don't update this name if we are returning the next entry and
+    //  the search string has a version component.
+    //
+
+    FileContext->ShortName.FileName.Length = 0;
+
+    if (!(*ReturnNextEntry) ||
+        (Ccb->SearchExpression.VersionString.Length == 0)) {
+
+        //
+        //  Update the name in the dirent into filename and version components.
+        //
+
+        CdUpdateDirentName( IrpContext,
+                            &FileContext->InitialDirent->Dirent,
+                            FlagOn( Ccb->Flags, CCB_FLAG_IGNORE_CASE ));
+    }
+
+    //
+    //  Look at the flag in the IrpSp indicating whether to return just
+    //  one entry.
+    //
+
+    *ReturnSingleEntry = FALSE;
+
+    if (FlagOn( IrpSp->Flags, SL_RETURN_SINGLE_ENTRY )) {
+
+        *ReturnSingleEntry = TRUE;
+    }
+
+    return;
 }
+
+
+//
+//  Local support routine
+//
+
+BOOLEAN
+CdEnumerateIndex (
+    IN PIRP_CONTEXT IrpContext,
+    IN PCCB Ccb,
+    IN OUT PFILE_ENUM_CONTEXT FileContext,
+    IN BOOLEAN ReturnNextEntry
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is the worker routine for index enumeration.  We are positioned
+    at some dirent in the directory and will either return the first match
+    at that point or look to the next entry.  The Ccb contains details about
+    the type of matching to do.  If the user didn't specify a version in
+    his search string then we only return the first version of a sequence
+    of files with versions.  We also don't return any associated files.
+
+Arguments:
+
+    Ccb - Ccb for this directory handle.
+
+    FileContext - File context already positioned at some entry in the directory.
+
+    ReturnNextEntry - Indicates if we are returning this entry or should start
+        with the next entry.
+
+Return Value:
+
+    BOOLEAN - TRUE if next entry is found, FALSE otherwise.
+
+--*/
+
+{
+    PDIRENT PreviousDirent = NULL;
+    PDIRENT ThisDirent = &FileContext->InitialDirent->Dirent;
+
+    BOOLEAN Found = FALSE;
+
+    PAGED_CODE();
+
+    //
+    //  Loop until we find a match or exaust the directory.
+    //
+
+    while (TRUE) {
+
+        //
+        //  Move to the next entry unless we want to consider the current
+        //  entry.
+        //
+
+        if (ReturnNextEntry) {
+
+            if (!CdLookupNextInitialFileDirent( IrpContext, Ccb->Fcb, FileContext )) {
+
+                break;
+            }
+
+            PreviousDirent = ThisDirent;
+            ThisDirent = &FileContext->InitialDirent->Dirent;
+
+            CdUpdateDirentName( IrpContext, ThisDirent, FlagOn( Ccb->Flags, CCB_FLAG_IGNORE_CASE ));
+        }
+
+        //
+        //  Look at the current entry if it is not an associated file
+        //  and the name doesn't match the previous file if the version
+        //  name is not part of the search.
+        //
+
+        if (!FlagOn( ThisDirent->DirentFlags, CD_ATTRIBUTE_ASSOC )) {
+
+            //
+            //  Check if this entry matches the previous entry except
+            //  for version number and whether we should return the
+            //  entry in that case.  Go directly to the name comparison
+            //  if:
+            //
+            //      There is no previous entry.
+            //      The search expression has a version component.
+            //      The name length doesn't match the length of the previous entry.
+            //      The base name strings don't match.
+            //
+
+            if ((PreviousDirent == NULL) ||
+                (Ccb->SearchExpression.VersionString.Length != 0) ||
+                (PreviousDirent->CdCaseFileName.FileName.Length != ThisDirent->CdCaseFileName.FileName.Length) ||
+                FlagOn( PreviousDirent->DirentFlags, CD_ATTRIBUTE_ASSOC ) ||
+                !RtlEqualMemory( PreviousDirent->CdCaseFileName.FileName.Buffer,
+                                 ThisDirent->CdCaseFileName.FileName.Buffer,
+                                 ThisDirent->CdCaseFileName.FileName.Length )) {
+
+                //
+                //  If we match all names then return to our caller.
+                //
+
+                if (FlagOn( Ccb->Flags, CCB_FLAG_ENUM_MATCH_ALL )) {
+
+                    FileContext->ShortName.FileName.Length = 0;
+                    Found = TRUE;
+                    break;
+                }
+
+                //
+                //  Check if the long name matches the search expression.
+                //
+
+                if (CdIsNameInExpression( IrpContext,
+                                          &ThisDirent->CdCaseFileName,
+                                          &Ccb->SearchExpression,
+                                          Ccb->Flags,
+                                          TRUE )) {
+
+                    //
+                    //  Let our caller know we found an entry.
+                    //
+
+                    Found = TRUE;
+                    FileContext->ShortName.FileName.Length = 0;
+                    break;
+                }
+
+                //
+                //  The long name didn't match so we need to check for a
+                //  possible short name match.  There is no match if the
+                //  long name is 8dot3 or the search expression has a
+                //  version component.  Special case the self and parent
+                //  entries.
+                //
+
+                if ((Ccb->SearchExpression.VersionString.Length == 0) &&
+                    (ThisDirent->CdFileName.FileName.Buffer != CdUnicodeSelfArray) &&
+                    (ThisDirent->CdFileName.FileName.Buffer != CdUnicodeParentArray) &&
+                    !CdIs8dot3Name( IrpContext,
+                                    ThisDirent->CdFileName.FileName )) {
+
+                    CdGenerate8dot3Name( IrpContext,
+                                         &ThisDirent->CdCaseFileName.FileName,
+                                         ThisDirent->DirentOffset,
+                                         FileContext->ShortName.FileName.Buffer,
+                                         &FileContext->ShortName.FileName.Length );
+
+                    //
+                    //  Check if this name matches.
+                    //
+
+                    if (CdIsNameInExpression( IrpContext,
+                                              &FileContext->ShortName,
+                                              &Ccb->SearchExpression,
+                                              Ccb->Flags,
+                                              FALSE )) {
+
+                        //
+                        //  Let our caller know we found an entry.
+                        //
+
+                        Found = TRUE;
+                        break;
+                    }
+                }
+            }
+        }
+
+        ReturnNextEntry = TRUE;
+    }
+
+    //
+    //  If we found the entry then make sure we walk through all of the
+    //  file dirents.
+    //
+
+    if (Found) {
+
+        CdLookupLastFileDirent( IrpContext, Ccb->Fcb, FileContext );
+    }
+
+    return Found;
+}
+

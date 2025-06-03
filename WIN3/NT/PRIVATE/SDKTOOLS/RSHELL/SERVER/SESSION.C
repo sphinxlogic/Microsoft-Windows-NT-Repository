@@ -649,11 +649,11 @@ StartShell(
     // Store away our normal i/o handles
     //
 
-    StdInputHandle = dup(STDIN);
+    StdInputHandle = _dup(STDIN);
     assert(StdInputHandle != -1);
-    StdOutputHandle = dup(STDOUT);
+    StdOutputHandle = _dup(STDOUT);
     assert(StdOutputHandle != -1);
-    StdErrorHandle = dup(STDERROR);
+    StdErrorHandle = _dup(STDERROR);
     assert(StdErrorHandle != -1);
 
     //

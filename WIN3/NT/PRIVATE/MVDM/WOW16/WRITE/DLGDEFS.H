@@ -180,4 +180,3 @@ items (idi) used by Windows Memo. */
 #define dlgTabs 		19
 #define dlgDivision		20
 #define dlgBadMargins		21
-

@@ -58,6 +58,18 @@ DriverEntry(
     );
 
 NTSTATUS
+FsRecCleanupClose(
+    IN PDEVICE_OBJECT DeviceObject,
+    IN PIRP Irp
+    );
+
+NTSTATUS
+FsRecCreate(
+    IN PDEVICE_OBJECT DeviceObject,
+    IN PIRP Irp
+    );
+
+NTSTATUS
 FsRecCreateAndRegisterDO(
     IN PDRIVER_OBJECT DriverObject,
     IN PWCHAR RecFileSystem,
@@ -84,12 +96,6 @@ CdfsRecFsControl(
 
 NTSTATUS
 FatRecFsControl(
-    IN PDEVICE_OBJECT DeviceObject,
-    IN PIRP Irp
-    );
-
-NTSTATUS
-HpfsRecFsControl(
     IN PDEVICE_OBJECT DeviceObject,
     IN PIRP Irp
     );

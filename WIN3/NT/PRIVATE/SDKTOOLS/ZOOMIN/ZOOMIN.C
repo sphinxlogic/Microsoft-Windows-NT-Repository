@@ -739,4 +739,4 @@ BOOL APIENTRY RefreshRateDlgProc(
     return FALSE;
 }
 
-
+

@@ -43,7 +43,7 @@ long _CRTAPI1 _wtol(
    char astring[INT_SIZE_LENGTH];
    int defused;
 
-   WideCharToMultiByte (CP_ACP, 0, nptr, INT_SIZE_LENGTH,
+   WideCharToMultiByte (CP_ACP, 0, nptr, -1,
                         astring, INT_SIZE_LENGTH, NULL, &defused);
 
    return (atol(astring));
@@ -75,7 +75,7 @@ int _CRTAPI1 _wtoi(
    char astring[INT_SIZE_LENGTH];
    int defused;
 
-   WideCharToMultiByte (CP_ACP, 0, nptr, INT_SIZE_LENGTH,
+   WideCharToMultiByte (CP_ACP, 0, nptr, -1,
                         astring, INT_SIZE_LENGTH, NULL, &defused);
 
    return ((int)atol(astring));

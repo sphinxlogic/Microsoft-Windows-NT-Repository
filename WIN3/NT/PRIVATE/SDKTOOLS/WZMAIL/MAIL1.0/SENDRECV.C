@@ -1171,7 +1171,7 @@ INT     PASCAL INTERNAL BringDown (PSTR  pFtpCmd, PSTR pSrcName, PSTR pDstName )
     }
     else if ( WaitForReply ( EQUAL, MTP_STRTOK ) != ERROR )
     {
-        filefd = fileno ( fp );
+        filefd = _fileno ( fp );
         while ((cnt = netreceive (nfd, netbuf, sizeof (netbuf))) > 0L)
         {
             if ( write ( filefd, netbuf, (INT) cnt ) == -1 )
@@ -1199,7 +1199,7 @@ INT     PASCAL INTERNAL BringDown (PSTR  pFtpCmd, PSTR pSrcName, PSTR pDstName )
     if ( fp != NULL )  {
 	fclose ( fp );
     }
-    unlink ( pDstName );
+    _unlink ( pDstName );
     return ERROR;
 }
 
@@ -1252,7 +1252,7 @@ INT     PASCAL INTERNAL SendUp ( PSTR pFtpCmd, PSTR pSrcName, PSTR pDstName )
             ByeBye ( );
 
         else if ( WaitForReply ( EQUAL, MTP_STRTOK ) != ERROR ) {
-            filefd = fileno ( fp );
+            filefd = _fileno ( fp );
             while ( ( cnt = read ( filefd, netbuf, sizeof ( netbuf ) ) ) >
                 0 ) {
                 if ( ( cnt = RmvChar ( netbuf, cnt ) ) >  0 ) {
@@ -1438,7 +1438,7 @@ VOID PASCAL INTERNAL DoMailInfo ( HW hWnd, char *p, int operation )
 	if (operation) {
 	    pEndToken = whitescan ( p );
 	    *pEndToken = '\0';
-	    strlwr(p);
+	    _strlwr(p);
 	}
 
 	//get the info string
@@ -1448,7 +1448,7 @@ VOID PASCAL INTERNAL DoMailInfo ( HW hWnd, char *p, int operation )
 	}
 	while (fgets(infostring, MAXLINELEN, fileInfo)) {
 	    if (operation)
-		strlwr(infostring);
+		_strlwr(infostring);
 	    if (pTmp = strchr (infostring, '\n'))
 		*pTmp = '\0';
 	    if (pTmp = strstr (infostring, p) )
@@ -1587,7 +1587,7 @@ INT     PASCAL INTERNAL DownloadMail (FLAG fNoisy )
                     break;
             }
         }
-        unlink ( pTmpFN );
+        _unlink ( pTmpFN );
         ZMfree ( pTmpFN );
     }
 
@@ -1804,14 +1804,14 @@ INT     PASCAL INTERNAL MailFile ( PSTR pFileName, FLAG fNoisy )
             if ( fNoisy && !fProblems )
                 RecordMessage ( pFileSend, hdrInfo.pstrRcd );
         }
-        unlink ( pFileSend );
+        _unlink ( pFileSend );
         ZMfree ( pFileSend );
     }
     ZMfree ( pSendTo );
     if ( fNoisy && fProblems ) {
         pFileAbort = MakeAbortFile ( &hdrInfo, pFileName, strEOH );
         fcopy ( pFileAbort, pFileName );
-        unlink ( pFileAbort );
+        _unlink ( pFileAbort );
         ZMfree ( pFileAbort );
     }
 

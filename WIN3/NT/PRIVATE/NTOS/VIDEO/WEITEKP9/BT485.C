@@ -18,14 +18,12 @@ Revision History may be found at the end of this file.
 
 --*/
 
-#include "miniport.h"
-#include "ntddvdeo.h"
-#include "video.h"
-#include "dac.h"
 #include "p9.h"
 #include "p9gbl.h"
 #include "p9000.h"
 #include "bt485.h"
+
+#include "p91dac.h"
 
 //
 // DAC specific static data.
@@ -36,6 +34,7 @@ Revision History may be found at the end of this file.
 //
 
 DAC Bt485 = {
+    DAC_ID_BT485,
     NUM_DAC_REGS,
     Bt485SetMode,
     Bt485RestoreMode,
@@ -46,10 +45,11 @@ DAC Bt485 = {
     Bt485SetPointerPos,
     Bt485SetPointerShape,
     CLK_MAX_FREQ,
-    TRUE,
     Bt485SetClkDoubler,
     Bt485ClrClkDoubler
 };
+
+
 
 
 VOID
@@ -406,24 +406,13 @@ Return Value:
     if (HwDeviceExtension->VideoData.dotfreq1 >
         HwDeviceExtension->Dac.ulMaxClkFreq)
     {
-        if (HwDeviceExtension->Dac.bClkDoubler)
-        {
-            //
-            // Enable the DAC clock doubler mode.
-            //
+        //
+        // Enable the DAC clock doubler mode.
+        //
 
-            HwDeviceExtension->Dac.DACSetClkDblMode(HwDeviceExtension);
-        }
-        else
-        {
-            //
-            // DAC doesn't support the desired frequency, return an error.
-            //
-
-            return(FALSE);
-        }
+        HwDeviceExtension->Dac.DACSetClkDblMode(HwDeviceExtension);
     }
-    else if (HwDeviceExtension->Dac.bClkDoubler)
+    else
     {
         //
         // Disable the DAC clock doubler mode.
@@ -442,13 +431,13 @@ Return Value:
     // Set cursor colors 1 and 2.
     //
 
-	WR_DAC(CURS_CLR_ADDR, 1);
-	WR_DAC(CURS_CLR_DATA, 0x00);
-	WR_DAC(CURS_CLR_DATA, 0x00);
-	WR_DAC(CURS_CLR_DATA, 0x00);
-	WR_DAC(CURS_CLR_DATA, 0xFF);
-	WR_DAC(CURS_CLR_DATA, 0xFF);
-	WR_DAC(CURS_CLR_DATA, 0xFF);
+    WR_DAC(CURS_CLR_ADDR, 1);
+    WR_DAC(CURS_CLR_DATA, 0x00);
+    WR_DAC(CURS_CLR_DATA, 0x00);
+    WR_DAC(CURS_CLR_DATA, 0x00);
+    WR_DAC(CURS_CLR_DATA, 0xFF);
+    WR_DAC(CURS_CLR_DATA, 0xFF);
+    WR_DAC(CURS_CLR_DATA, 0xFF);
 
     return(TRUE);
 }
@@ -567,14 +556,3 @@ return value:
     WR_CMD_REG_3(ucCurState & ~DAC_CLK_2X);	
     return;
 }
-
-/*++
-
-Revision History:
-
-    $Log:   N:/ntdrv.vcs/miniport.new/bt485.c_v  $
- *
- *    Rev 1.0   14 Jan 1994 22:39:58   robk
- * Initial revision.
-
---*/

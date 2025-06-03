@@ -25,15 +25,15 @@
 *
 * HISTORY:
 *		$Log:   J:\se.vcs\driver\q117cd\src\0x11041.c  $
-*	
+*
 *	   Rev 1.14   20 Apr 1994 16:28:20   BOBLEHMA
 *	Added a call to kdi_QIC117ClearIRQ for the case when sleep returns from
 *	a timeout, (after the sense interrupt status).  There are cases when the
 *	sleep returns from a timeout, but the interrupt in the trakker is still
 *	latched and must be cleared.
-*	
+*
 *	   Rev 1.13   23 Feb 1994 17:08:34   KEVINKES
-*	Added a reset FDC to the endo fo send byte to clear out any 
+*	Added a reset FDC to the endo fo send byte to clear out any
 *	state errors in the controller due to a timeout on the seek
 *	interrupt.
 *
@@ -128,6 +128,9 @@ dStatus cqd_SendByte
 
    if (command >= MAX_FDC_SEEK) {
 
+#if DBG
+   cqd_context->dbg_lockout = save;
+#endif
       return kdi_Error(ERR_INVALID_COMMAND, FCT_ID, ERR_SEQ_1);
 
    }
@@ -153,6 +156,9 @@ dStatus cqd_SendByte
                   dFALSE)) != DONT_PANIC) {
 
 		kdi_ClearInterruptEvent(cqd_context->kdi_context);
+#if DBG
+   cqd_context->dbg_lockout = save;
+#endif
 		cqd_ResetFDC(cqd_context);
       return status;
 
@@ -185,6 +191,9 @@ dStatus cqd_SendByte
 							(dUByte *)&result,
 							sizeof(result))) != DONT_PANIC) {
 
+#if DBG
+   cqd_context->dbg_lockout = save;
+#endif
          return status;
 
       } else {
@@ -206,6 +215,9 @@ dStatus cqd_SendByte
                if (result.ST0 !=
                      (dUByte)(cqd_context->device_cfg.drive_select | ST0_SE)) {
 
+#if DBG
+   cqd_context->dbg_lockout = save;
+#endif
 			    		return kdi_Error(ERR_FDC_FAULT, FCT_ID, ERR_SEQ_1);
 
                }
@@ -213,6 +225,9 @@ dStatus cqd_SendByte
 
             if (seek.NCN != result.PCN) {
 
+#if DBG
+   cqd_context->dbg_lockout = save;
+#endif
       			return kdi_Error(ERR_CMD_FAULT, FCT_ID, ERR_SEQ_1);
 
             }
@@ -221,6 +236,9 @@ dStatus cqd_SendByte
 
          } else {
 
+#if DBG
+   cqd_context->dbg_lockout = save;
+#endif
       		return kdi_Error(ERR_FDC_FAULT, FCT_ID, ERR_SEQ_2);
 
          }

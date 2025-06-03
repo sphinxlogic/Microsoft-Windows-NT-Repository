@@ -272,11 +272,6 @@ sigsuspend(const sigset_t *sigmask)
 		st = NtRequestWaitReplyPort(PsxPortHandle, (PPORT_MESSAGE)&m,
 			(PPORT_MESSAGE)&m);
 		if (!NT_SUCCESS(st)) {
-            if ((ULONG)st > 0xC00F0000L) {
-                errno = EINTR;
-                return -1;
-            }
-
 		    _exit(26);
 		}
 

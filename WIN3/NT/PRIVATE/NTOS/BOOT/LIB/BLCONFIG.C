@@ -63,6 +63,9 @@ typedef enum _CONTROLLER_TYPES {
 typedef enum _PERIPHERAL_TYPES {
     PeripheralRigidDisk,
     PeripheralFloppyDisk,
+#if defined(ELTORITO)
+    PeripheralElTorito,
+#endif
     PeripheralMaximum
     } PERIPHERAL_TYPES;
 
@@ -110,7 +113,11 @@ PCHAR MnemonicTable[] = {
 
 PCHAR BlAdapterTypes[AdapterMaximum + 1] = {"eisa","scsi","multi",NULL};
 PCHAR BlControllerTypes[ControllerMaximum + 1] = {"disk","cdrom",NULL};
+#if defined(ELTORITO)
+PCHAR BlPeripheralTypes[PeripheralMaximum + 1] = {"rdisk","fdisk","cdrom",NULL};
+#else
 PCHAR BlPeripheralTypes[PeripheralMaximum + 1] = {"rdisk","fdisk",NULL};
+#endif
 
 
 ARC_STATUS
@@ -635,7 +642,7 @@ Return Value:
             return EINVAL;
         }
 
-        if (stricmp(&PeripheralName[0], "fdisk") != 0) {
+        if (_stricmp(&PeripheralName[0], "fdisk") != 0) {
             return EINVAL;
         }
 
@@ -694,7 +701,7 @@ Return Value:
                 PartitionNumber = 1;
 
             } else {
-                if (stricmp(&PartitionName[0], "partition") != 0) {
+                if (_stricmp(&PartitionName[0], "partition") != 0) {
                     return EINVAL;
                 }
 
@@ -747,6 +754,34 @@ Return Value:
                 strcpy(NtDevicePrefix, "\\Device\\Floppy");
             }
             break;
+
+#if defined(ELTORITO)
+            //
+            // El Torito CD-ROM.
+            //
+
+        case PeripheralElTorito:
+            ArcDeviceName = BlGetNextToken(ArcDeviceName,
+                                           &TokenValue[0],
+                                           &MatchIndex);
+
+            if (ArcDeviceName != NULL) {
+                return EINVAL;
+            }
+
+            sprintf(ArcCanonicalName,
+                    "%s%s(%d)%s(%d)",
+                    &AdapterPath[0],
+                    &ControllerName[0],
+                    ControllerNumber,
+                    &PeripheralName[0],
+                    PeripheralNumber);
+
+            if (ARGUMENT_PRESENT(NtDevicePrefix)) {
+                strcpy(NtDevicePrefix, "\\Device\\CDRom");
+            }
+            break;
+#endif
 
             //
             // Invalid peripheral.

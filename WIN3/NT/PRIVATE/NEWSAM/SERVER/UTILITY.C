@@ -108,6 +108,12 @@ Return Value:
     Success = RtlAcquireResourceExclusive( &SampLock, TRUE );
     ASSERT(Success);
 
+    //
+    // Allow LSA a chance to perform an integrity check
+    //
+
+    LsaIHealthCheck( LsaIHealthSamJustLocked );
+
     return;
 }
 
@@ -137,6 +143,13 @@ Return Value:
 
 --*/
 {
+
+    //
+    // Allow LSA a chance to perform an integrity check
+    //
+
+    LsaIHealthCheck( LsaIHealthSamAboutToFree );
+
 
     SampTransactionWithinDomain = FALSE;
     RtlReleaseResource( &SampLock );
@@ -186,12 +199,20 @@ Return Value:
 
     (VOID)RtlAcquireResourceExclusive( &SampLock, TRUE );
 
+
+
+
     SampTransactionWithinDomain = FALSE;
 
     NtStatus = RtlStartRXact( SampRXactContext );
 
     if (NT_SUCCESS(NtStatus)) {
 
+        //
+        // Allow LSA a chance to perform an integrity check
+        //
+
+        LsaIHealthCheck( LsaIHealthSamJustLocked );
         return(NtStatus);
     }
 
@@ -311,20 +332,14 @@ Return Value:
     // time variables to affect performance.
     //
 
-    minDelayTime = RtlEnlargedIntegerMultiply(
-                        -(1000 * 1000 * 10),
-                        SampFlushThreadMinWaitSeconds
-                        );
+    minDelayTime.QuadPart = -1000 * 1000 * 10 *
+                   ((LONGLONG)SampFlushThreadMinWaitSeconds);
 
-    maxDelayTime = RtlEnlargedIntegerMultiply(
-                        -(1000 * 1000 * 10),
-                        SampFlushThreadMaxWaitSeconds
-                        );
+    maxDelayTime.QuadPart = -1000 * 1000 * 10 *
+                   ((LONGLONG)SampFlushThreadMaxWaitSeconds);
 
-    exitDelayTime = RtlEnlargedIntegerMultiply(
-                        -(1000 * 1000 * 10),
-                        SampFlushThreadExitDelaySeconds
-                        );
+    exitDelayTime.QuadPart = -1000 * 1000 * 10 *
+                    ((LONGLONG)SampFlushThreadExitDelaySeconds);
 
     do {
 
@@ -344,9 +359,7 @@ Return Value:
 
             NtQuerySystemTime( &currentTime );
 
-            if ( RtlLargeIntegerEqualTo(
-                     LastUnflushedChange,
-                     SampHasNeverTime) ) {
+            if ( LastUnflushedChange.QuadPart == SampHasNeverTime.QuadPart ) {
 
                 LARGE_INTEGER exitBecauseNoWorkRecentlyTime;
 
@@ -359,9 +372,7 @@ Return Value:
                                                     exitDelayTime
                                                     );
 
-                if ( RtlLargeIntegerLessThan(
-                         exitBecauseNoWorkRecentlyTime,
-                         currentTime) ) {
+                if ( exitBecauseNoWorkRecentlyTime.QuadPart < currentTime.QuadPart ) {
 
                     //
                     // We've waited for changes long enough; note that
@@ -391,13 +402,8 @@ Return Value:
                                             maxDelayTime
                                             );
 
-                if ( ( RtlLargeIntegerLessThan(
-                           noRecentChangesTime,
-                           currentTime ) ) ||
-                    ( RtlLargeIntegerLessThan(
-                          tooLongSinceFlushTime,
-                          currentTime ) )
-                    ) {
+                if ( (noRecentChangesTime.QuadPart < currentTime.QuadPart) ||
+                     (tooLongSinceFlushTime.QuadPart < currentTime.QuadPart) ) {
 
                     //
                     // Min time has passed since last change, or Max time
@@ -436,7 +442,7 @@ Return Value:
                     // (unless shutdown takes more than 30 seconds).  In
                     // other error situations though, we want to keep
                     // trying the flush until we succeed.   Jim Kelly
-                    // 
+                    //
 
 
                     if ( NT_SUCCESS(NtStatus) ) {
@@ -455,7 +461,6 @@ Return Value:
         } else {
 
             DbgPrint("SAM: Thread failed to get write lock, status = 0x%lx\n", NtStatus);
-            ASSERT( NT_SUCCESS(NtStatus) );
 
             FlushThreadCreated = FALSE;
             Finished = TRUE;
@@ -538,11 +543,9 @@ Return Value:
             // the replicator will explicitly set the modified count.
             //
 
-            SampDefinedDomains[SampTransactionDomainIndex].CurrentFixed.ModifiedCount =
-                RtlLargeIntegerAdd(
-                    SampDefinedDomains[SampTransactionDomainIndex].CurrentFixed.ModifiedCount,
-                    RtlConvertLongToLargeInteger(1)
-                    );
+            SampDefinedDomains[SampTransactionDomainIndex].CurrentFixed.ModifiedCount.QuadPart =
+                SampDefinedDomains[SampTransactionDomainIndex].CurrentFixed.ModifiedCount.QuadPart +
+                1;
 
             DomainInfoChanged = TRUE;
 
@@ -1061,6 +1064,14 @@ Return Value:
     }
 
     SampTransactionWithinDomain = FALSE;
+
+
+    //
+    // Allow LSA a chance to perform an integrity check
+    //
+
+    LsaIHealthCheck( LsaIHealthSamAboutToFree );
+
 
     //
     // And free the  lock...
@@ -1626,7 +1637,7 @@ Return Value:
 
     if (String->Buffer != NULL) {
         MIDL_user_free( String->Buffer );
-    }      
+    }
 
     return;
 }
@@ -3857,11 +3868,7 @@ Return Value:
         // enumeration context so that it starts at the beginning again.
         //
 
-        if ( (NtStatus == STATUS_SUCCESS) && (MoreNames == FALSE)) {
-
-            (*EnumerationContext) = 0;
-
-        } else {
+        if (!( (NtStatus == STATUS_SUCCESS) && (MoreNames == FALSE))) {
 
             NtStatus = STATUS_MORE_ENTRIES;
         }
@@ -4982,6 +4989,21 @@ Return Value:
             ReplicateImmediately,
             DeltaData
             );
+
+        //
+        // Let any notification packages know about the delta.
+        //
+
+        SampDeltaChangeNotify(
+            SampDefinedDomains[SampTransactionDomainIndex].Sid,
+            DeltaType,
+            ObjectType,
+            ObjectRid,
+            ObjectName,
+            &SampDefinedDomains[SampTransactionDomainIndex].CurrentFixed.ModifiedCount,
+            DeltaData
+            );
+
     }
 }
 
@@ -5189,14 +5211,14 @@ Return Values:
         if ( OemLength > MAXUSHORT ) {
             return STATUS_INVALID_PARAMETER_2;
         }
-        
+
         OutString->Length = (USHORT)(OemLength - 1);
         OutString->MaximumLength = (USHORT)OemLength;
         OutString->Buffer = MIDL_user_allocate(OemLength);
         if ( !OutString->Buffer ) {
             return STATUS_NO_MEMORY;
         }
-        
+
         NtStatus = RtlUnicodeToOemN(
                        OutString->Buffer,
                        OutString->Length,
@@ -5204,14 +5226,14 @@ Return Values:
                        InString->Buffer,
                        InString->Length
                        );
-        
+
         if (!NT_SUCCESS(NtStatus)) {
             MIDL_user_free(OutString->Buffer);
             return NtStatus;
         }
-        
+
         OutString->Buffer[Index] = '\0';
-        
+
 
     } else {
 
@@ -5226,7 +5248,8 @@ Return Values:
 NTSTATUS
 SampChangeAccountOperatorAccessToMember(
     IN PRPC_SID MemberSid,
-    IN BOOLEAN ChangingToAdmin
+    IN SAMP_MEMBERSHIP_DELTA ChangingToAdmin,
+    IN SAMP_MEMBERSHIP_DELTA ChangingToOperator
     )
 
 /*++
@@ -5256,8 +5279,11 @@ Arguments:
     MemberSid - The full ID of the member being added to/ deleted from
         an ADMIN alias.
 
-    ChangingToAdmin - TRUE if Member is being added to an ADMIN alias,
-        FALSE if it's being removed.
+    ChangingToAdmin - AddToAdmin if Member is being added to an ADMIN alias,
+        RemoveFromAdmin if it's being removed.
+
+    ChangingToOperator - AddToAdmin if Member is being added to an OPERATOR
+        alias, RemoveFromAdmin if it's being removed.
 
 
 Return Value:
@@ -5267,7 +5293,7 @@ Return Value:
 
 --*/
 {
-    SAMP_V1_FIXED_LENGTH_GROUP  GroupV1Fixed;
+    SAMP_V1_0A_FIXED_LENGTH_GROUP GroupV1Fixed;
     PSID                        MemberDomainSid = NULL;
     PULONG                      UsersInGroup = NULL;
     NTSTATUS                    NtStatus;
@@ -5277,6 +5303,10 @@ Return Value:
     ULONG                       i;
     ULONG                       MemberDomainIndex;
     SAMP_OBJECT_TYPE            MemberType;
+    PSECURITY_DESCRIPTOR        SecurityDescriptor;
+    PSECURITY_DESCRIPTOR        OldDescriptor;
+    ULONG                       SecurityDescriptorLength;
+    ULONG                       Revision;
 
     ASSERT( SampTransactionWithinDomain );
 
@@ -5347,7 +5377,8 @@ Return Value:
 
                     NtStatus = SampChangeOperatorAccessToUser(
                                    MemberRid,
-                                   ChangingToAdmin
+                                   ChangingToAdmin,
+                                   ChangingToOperator
                                    );
 
                     break;
@@ -5373,68 +5404,197 @@ Return Value:
                                      TRUE, // Account exists
                                      &GroupContext
                                      );
-
                     if (NT_SUCCESS(NtStatus)) {
 
-                        NtStatus = SampRetrieveGroupMembers(
+
+                        //
+                        // Now set a flag in the group itself,
+                        // so that when users are added and removed
+                        // in the future it is known whether this
+                        // group is in an ADMIN alias or not.
+                        //
+
+                        NtStatus = SampRetrieveGroupV1Fixed(
                                        GroupContext,
-                                       &NumberOfUsersInGroup,
-                                       &UsersInGroup
+                                       &GroupV1Fixed
                                        );
 
                         if ( NT_SUCCESS( NtStatus ) ) {
 
-                            for ( i = 0; i < NumberOfUsersInGroup; i++ ) {
+                            ULONG OldAdminStatus = 0;
+                            ULONG NewAdminStatus;
+                            SAMP_MEMBERSHIP_DELTA AdminChange = NoChange;
+                            SAMP_MEMBERSHIP_DELTA OperatorChange = NoChange;
 
-                                NtStatus = SampChangeOperatorAccessToUser(
-                                               UsersInGroup[i],
-                                               ChangingToAdmin
-                                               );
+                            if (GroupV1Fixed.AdminCount != 0 ) {
+                                OldAdminStatus++;
+                            }
+                            if (GroupV1Fixed.OperatorCount != 0) {
+                                OldAdminStatus++;
+                            }
+                            NewAdminStatus = OldAdminStatus;
 
-                                if ( !( NT_SUCCESS( NtStatus ) ) ) {
+                            //
+                            // Update the admin count.  If we added one and the
+                            // count is now 1, then the group became administrative.
+                            // If we subtracted one and the count is zero,
+                            // then the group lost its administrive membership.
+                            //
 
-                                    break;
+                            if (ChangingToAdmin == AddToAdmin) {
+                                if (++GroupV1Fixed.AdminCount == 1) {
+                                    NewAdminStatus++;
+                                    AdminChange = AddToAdmin;
                                 }
+                            } else if (ChangingToAdmin == RemoveFromAdmin) {
+
+
+                                //
+                                // For removing an admin count, we need to make
+                                // sure there is at least one.  In the upgrade
+                                // case there may not be, since prior versions
+                                // of NT only had a boolean.
+                                //
+                                if (GroupV1Fixed.AdminCount > 0) {
+                                    if (--GroupV1Fixed.AdminCount == 0) {
+                                        NewAdminStatus --;
+                                        AdminChange = RemoveFromAdmin;
+                                    }
+                                }
+
                             }
 
-                            MIDL_user_free( UsersInGroup );
-
                             //
-                            // Now set a flag in the group itself,
-                            // so that when users are added and removed
-                            // in the future it is known whether this
-                            // group is in an ADMIN alias or not.
+                            // Update the operator count
                             //
 
-                            NtStatus = SampRetrieveGroupV1Fixed(
-                                           GroupContext,
-                                           &GroupV1Fixed
-                                           );
+                            if (ChangingToOperator == AddToAdmin) {
+                                if (++GroupV1Fixed.OperatorCount == 1) {
+                                    NewAdminStatus++;
+                                    OperatorChange = AddToAdmin;
+                                }
+                            } else if (ChangingToOperator == RemoveFromAdmin) {
 
-                            if ( NT_SUCCESS( NtStatus ) ) {
 
-                                if (GroupV1Fixed.AdminGroup != ChangingToAdmin) {
+                                //
+                                // For removing an Operator count, we need to make
+                                // sure there is at least one.  In the upgrade
+                                // case there may not be, since prior versions
+                                // of NT only had a boolean.
+                                //
+                                if (GroupV1Fixed.OperatorCount > 0) {
+                                    if (--GroupV1Fixed.OperatorCount == 0) {
+                                        NewAdminStatus --;
+                                        OperatorChange = RemoveFromAdmin;
+                                    }
+                                }
 
-                                    GroupV1Fixed.AdminGroup = ChangingToAdmin;
+                            }
 
-                                    NtStatus = SampReplaceGroupV1Fixed(
-                                                   GroupContext,
-                                                   &GroupV1Fixed
+
+                            NtStatus = SampReplaceGroupV1Fixed(
+                                            GroupContext,
+                                            &GroupV1Fixed
+                                            );
+                            //
+                            // If the status of the group changed,
+                            // modify the security descriptor to
+                            // prevent account operators from adding
+                            // anybody to this group
+                            //
+
+                            if ( NT_SUCCESS( NtStatus ) &&
+                                ((NewAdminStatus != 0) != (OldAdminStatus != 0)) ) {
+
+                                //
+                                // Get the old security descriptor so we can
+                                // modify it.
+                                //
+
+                                NtStatus = SampGetAccessAttribute(
+                                                GroupContext,
+                                                SAMP_GROUP_SECURITY_DESCRIPTOR,
+                                                FALSE, // don't make copy
+                                                &Revision,
+                                                &OldDescriptor
+                                                );
+                                if (NT_SUCCESS(NtStatus)) {
+
+                                    NtStatus = SampModifyAccountSecurity(
+                                                   SampGroupObjectType,
+                                                   (BOOLEAN) ((NewAdminStatus != 0) ? TRUE : FALSE),
+                                                   OldDescriptor,
+                                                   &SecurityDescriptor,
+                                                   &SecurityDescriptorLength
                                                    );
+
+                                    if ( NT_SUCCESS( NtStatus ) ) {
+
+                                        //
+                                        // Write the new security descriptor into the object
+                                        //
+
+                                        NtStatus = SampSetAccessAttribute(
+                                                       GroupContext,
+                                                       SAMP_GROUP_SECURITY_DESCRIPTOR,
+                                                       SecurityDescriptor,
+                                                       SecurityDescriptorLength
+                                                       );
+
+                                        RtlDeleteSecurityObject( &SecurityDescriptor );
+                                    }
                                 }
                             }
-                        }
-
-
-                        if ( NT_SUCCESS( NtStatus ) ) {
 
                             //
-                            // Add the modified group to the current transaction
-                            // Don't use the open key handle since we'll be deleting the context.
+                            // Update all the members of this group so that
+                            // their security descriptors are changed.
                             //
 
-                            NtStatus = SampStoreObjectAttributes(GroupContext, FALSE);
+                            if ( NT_SUCCESS( NtStatus ) &&
+                                 ( (AdminChange != NoChange) ||
+                                   (OperatorChange != NoChange) ) ) {
+
+                                NtStatus = SampRetrieveGroupMembers(
+                                            GroupContext,
+                                            &NumberOfUsersInGroup,
+                                            &UsersInGroup
+                                            );
+
+                                if ( NT_SUCCESS( NtStatus ) ) {
+
+                                    for ( i = 0; i < NumberOfUsersInGroup; i++ ) {
+
+                                        NtStatus = SampChangeOperatorAccessToUser(
+                                                       UsersInGroup[i],
+                                                       AdminChange,
+                                                       OperatorChange
+                                                       );
+
+                                        if ( !( NT_SUCCESS( NtStatus ) ) ) {
+
+                                            break;
+                                        }
+                                    }
+
+                                    MIDL_user_free( UsersInGroup );
+
+                                }
+
+                            }
+
+                            if (NT_SUCCESS(NtStatus)) {
+
+                                //
+                                // Add the modified group to the current transaction
+                                // Don't use the open key handle since we'll be deleting the context.
+                                //
+
+                                NtStatus = SampStoreObjectAttributes(GroupContext, FALSE);
+                            }
+
                         }
+
 
 
                         //
@@ -5464,12 +5624,16 @@ Return Value:
                     //  the membership in the alias.
                     //
 
-                    if ( ChangingToAdmin ||
-                         OldTransactionDomainIndex == SampDefinedDomainsCount ){
-                        NtStatus = STATUS_INVALID_MEMBER;
-                    } else {
-                        NtStatus = STATUS_SUCCESS;
-                    }
+                    //
+                    // Now that this function is called during upgrade, we
+                    // can't fail if the account no longer exists.  It is
+                    // not really so bad to add a non-existant member to
+                    // and alias so return success.
+                    //
+
+                    NtStatus = STATUS_SUCCESS;
+
+
                 }
             }
         }
@@ -5497,7 +5661,8 @@ Return Value:
 NTSTATUS
 SampChangeOperatorAccessToUser(
     IN ULONG UserRid,
-    IN BOOLEAN ChangingToAdmin
+    IN SAMP_MEMBERSHIP_DELTA ChangingToAdmin,
+    IN SAMP_MEMBERSHIP_DELTA ChangingToOperator
     )
 
 /*++
@@ -5526,8 +5691,12 @@ Arguments:
     UserRid - The transaction-domain-relative ID of the user that is
         being added to or removed from an ADMIN alias.
 
-    ChangingToAdmin - TRUE if Member is being added to an ADMIN alias,
-        FALSE if it's being removed.
+    ChangingToAdmin - AddToAdmin if Member is being added to an ADMIN alias,
+        RemoveFromAdmin if it's being removed.
+
+    ChangingToOperator - AddToAdmin if Member is being added to an OPERATOR
+        alias, RemoveFromAdmin if it's being removed.
+
 
 Return Value:
 
@@ -5566,9 +5735,10 @@ Return Value:
             NtStatus = SampChangeOperatorAccessToUser2(
                             UserContext,
                             &UserV1aFixed,
-                            ChangingToAdmin
+                            ChangingToAdmin,
+                            ChangingToOperator
                             );
-            
+
             if ( NT_SUCCESS( NtStatus ) ) {
 
                 //
@@ -5603,7 +5773,8 @@ Return Value:
     }
 
     if ( ( !NT_SUCCESS( NtStatus ) ) &&
-        ( !ChangingToAdmin ) &&
+        (( ChangingToAdmin == RemoveFromAdmin )  ||
+         ( ChangingToOperator == RemoveFromAdmin )) &&
         ( NtStatus != STATUS_SPECIAL_ACCOUNT ) ) {
 
         //
@@ -5632,7 +5803,8 @@ NTSTATUS
 SampChangeOperatorAccessToUser2(
     IN PSAMP_OBJECT                    UserContext,
     IN PSAMP_V1_0A_FIXED_LENGTH_USER   V1aFixed,
-    IN BOOLEAN                         AddingToAdmin
+    IN SAMP_MEMBERSHIP_DELTA           AddingToAdmin,
+    IN SAMP_MEMBERSHIP_DELTA           AddingToOperator
     )
 
 /*++
@@ -5647,7 +5819,7 @@ Routine Description:
     This routine will also increment or decrement the domain's admin count,
     if this operation changes that.
 
-    NOTE: 
+    NOTE:
     This routine is similar to SampAccountOperatorAccessToUser().
     This routine should be used in cases where a user account context
     already exists.  You must be careful not to create two contexts,
@@ -5665,9 +5837,12 @@ Arguments:
         stored back out to disk on successful completion of this
         routine.
 
+    AddingToAdmin - AddToAdmin if Member is being added to an ADMIN alias,
+        RemoveFromAdmin if it's being removed.
 
-    AddingToAdmin - TRUE if Member is being added to an ADMIN alias,
-        FALSE if it's being removed.
+    AddingToOperator - AddToAdmin if Member is being added to an OPERATOR
+        alias, RemoveFromAdmin if it's being removed.
+
 
 Return Value:
 
@@ -5677,19 +5852,45 @@ Return Value:
 --*/
 {
     NTSTATUS                    NtStatus;
+    PSECURITY_DESCRIPTOR        OldDescriptor;
     PSECURITY_DESCRIPTOR        SecurityDescriptor;
     ULONG                       SecurityDescriptorLength;
+    ULONG                       OldAdminStatus = 0, NewAdminStatus = 0;
+    ULONG                       Revision;
 
-    if ( AddingToAdmin ) {
+    //
+    // Compute whether we are an admin now. From that we will figure
+    // out how many times we were may not an admin to tell if we need
+    // to update the security descriptor.
+    //
+
+    if (V1aFixed->AdminCount != 0) {
+        OldAdminStatus++;
+    }
+    if (V1aFixed->OperatorCount != 0) {
+        OldAdminStatus++;
+    }
+
+    NewAdminStatus = OldAdminStatus;
+
+
+
+    if ( AddingToAdmin == AddToAdmin ) {
 
         V1aFixed->AdminCount++;
+        NewAdminStatus++;
         SampDiagPrint( DISPLAY_ADMIN_CHANGES,
                        ("SAM DIAG: Incrementing admin count for user %d\n"
                         "          New admin count: %d\n",
                         V1aFixed->UserId, V1aFixed->AdminCount ) );
-    } else {
+    } else if (AddingToAdmin == RemoveFromAdmin) {
 
         V1aFixed->AdminCount--;
+
+        if (V1aFixed->AdminCount == 0) {
+            NewAdminStatus--;
+        }
+
         SampDiagPrint( DISPLAY_ADMIN_CHANGES,
                        ("SAM DIAG: Decrementing admin count for user %d\n"
                         "          New admin count: %d\n",
@@ -5708,12 +5909,40 @@ Return Value:
             }
         }
     }
+    if ( AddingToOperator == AddToAdmin ) {
+
+        V1aFixed->OperatorCount++;
+        NewAdminStatus++;
+        SampDiagPrint( DISPLAY_ADMIN_CHANGES,
+                       ("SAM DIAG: Incrementing operator count for user %d\n"
+                        "          New admin count: %d\n",
+                        V1aFixed->UserId, V1aFixed->OperatorCount ) );
+
+    } else if (AddingToOperator == RemoveFromAdmin) {
+
+        //
+        // Only decrement if the count is > 0, since in the upgrade case
+        // this field we start out zero.
+        //
+
+        if (V1aFixed->OperatorCount > 0) {
+            V1aFixed->OperatorCount--;
+
+            if (V1aFixed->OperatorCount == 0) {
+                NewAdminStatus--;
+            }
+        }
+
+        SampDiagPrint( DISPLAY_ADMIN_CHANGES,
+                       ("SAM DIAG: Decrementing operator count for user %d\n"
+                        "          New admin count: %d\n",
+                        V1aFixed->UserId, V1aFixed->OperatorCount ) );
+    }
 
 
     if (NT_SUCCESS(NtStatus)) {
 
-        if ( ( ( AddingToAdmin ) && ( V1aFixed->AdminCount == 1 ) ) ||
-            ( !( AddingToAdmin ) && ( V1aFixed->AdminCount == 0 ) ) ) {
+        if ( ( NewAdminStatus != 0 ) != ( OldAdminStatus != 0 ) ) {
 
             //
             // User's admin status is changing.  We must change the
@@ -5731,16 +5960,29 @@ Return Value:
                             V1aFixed->UserId ) );
             }
 #endif // SAMP_DIAGNOSTICS
-                            
-            NtStatus = SampGetNewAccountSecurity(
-                           SampUserObjectType,
-                           AddingToAdmin,
-                           TRUE,
-                           FALSE,       //RestrictCreatorAccess
-                           V1aFixed->UserId,
-                           &SecurityDescriptor,
-                           &SecurityDescriptorLength
-                           );
+
+            //
+            // Get the old security descriptor so we can
+            // modify it.
+            //
+
+            NtStatus = SampGetAccessAttribute(
+                            UserContext,
+                            SAMP_USER_SECURITY_DESCRIPTOR,
+                            FALSE, // don't make copy
+                            &Revision,
+                            &OldDescriptor
+                            );
+            if (NT_SUCCESS(NtStatus)) {
+
+                NtStatus = SampModifyAccountSecurity(
+                                SampUserObjectType,
+                                (BOOLEAN) ((NewAdminStatus != 0) ? TRUE : FALSE),
+                                OldDescriptor,
+                                &SecurityDescriptor,
+                                &SecurityDescriptorLength
+                                );
+            }
 
             if ( NT_SUCCESS( NtStatus ) ) {
 
@@ -5755,7 +5997,7 @@ Return Value:
                                SecurityDescriptorLength
                                );
 
-                MIDL_user_free( SecurityDescriptor );
+                RtlDeleteSecurityObject( &SecurityDescriptor );
             }
         }
     }
@@ -5774,7 +6016,7 @@ Return Value:
 
 
     if ( ( !NT_SUCCESS( NtStatus ) ) &&
-        ( !AddingToAdmin ) &&
+        ( AddingToAdmin != AddToAdmin ) &&
         ( NtStatus != STATUS_SPECIAL_ACCOUNT ) ) {
 
         //
@@ -6044,6 +6286,13 @@ Return Values:
 
     OutputUnicodeStringU = *UnicodeString;
 
+    TempStringU.Buffer = NULL;
+
+    if (AllocateDestinationString) {
+
+        OutputUnicodeStringU.Buffer = NULL;
+    }
+
     //
     // Verify that the maximum number of digits rquested has not been
     // exceeded.
@@ -6299,10 +6548,6 @@ Return Value:
                  &ClientToken
                  );
 
-    if ( !NT_SUCCESS(Status) ) {
-
-        goto WellKnownPrivilegeCheckError;
-    }
 
     //
     // Make sure that we did not get any error in opening the impersonation
@@ -6351,7 +6596,7 @@ Return Value:
 
     Privilege.PrivilegeCount = 1;
     Privilege.Control = PRIVILEGE_SET_ALL_NECESSARY;
-    Privilege.Privilege[0].Luid = RtlConvertLongToLargeInteger(PrivilegeId);
+    Privilege.Privilege[0].Luid = RtlConvertLongToLuid(PrivilegeId);
     Privilege.Privilege[0].Attributes = 0;
 
     Status = NtPrivilegeCheck(
@@ -6364,6 +6609,20 @@ Return Value:
 
         goto WellKnownPrivilegeCheckError;
     }
+
+    //
+    // Generate any necessary audits
+    //
+
+    SecondaryStatus = NtPrivilegedServiceAuditAlarm (
+                        &SampSamSubsystem,
+                        &SampSamSubsystem,
+                        ClientToken,
+                        &Privilege,
+                        PrivilegeHeld
+                        );
+    // ASSERT( NT_SUCCESS(SecondaryStatus) );
+
 
     if ( !PrivilegeHeld ) {
 
@@ -6582,7 +6841,11 @@ Return Value:
                 //
 
                 NtStatus = NtFlushKey( SampKey );
-                ASSERT( NT_SUCCESS(NtStatus) );
+
+                if (!NT_SUCCESS( NtStatus )) {
+                    DbgPrint("NtFlushKey failed, Status = %X\n",NtStatus);
+//                    ASSERT( NT_SUCCESS(NtStatus) );
+                }
 
             SampReleaseWriteLock( FALSE );
         }
@@ -6639,24 +6902,24 @@ Return Value:
         //
         // Query the account domain information
         //
-        
+
         NtStatus = LsarQueryInformationPolicy(
                        PolicyHandle,
                        PolicyAccountDomainInformation,
                        (PLSAPR_POLICY_INFORMATION *)PolicyAccountDomainInfo
                        );
-        
+
         if (NT_SUCCESS(NtStatus)) {
-        
+
             if ( (*PolicyAccountDomainInfo)->DomainSid == NULL ) {
-        
+
                 NtStatus = STATUS_INVALID_SID;
             }
         }
 
         IgnoreStatus = LsarClose( &PolicyHandle );
         ASSERT(NT_SUCCESS(IgnoreStatus));
-        
+
     }
 
 #if DBG

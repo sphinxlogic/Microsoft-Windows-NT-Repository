@@ -31,6 +31,13 @@ Revision History:
 #include <ntiologc.h>
 #include <stdarg.h>
 
+#ifdef POOL_TAGGING
+#ifdef ExAllocatePool
+#undef ExAllocatePool
+#endif
+#define ExAllocatePool(a,b) ExAllocatePoolWithTag(a,b,' UtF')
+#endif
+
 #if DBG
 
 //
@@ -567,6 +574,8 @@ Return Value:
                                       &fileObject,
                                       &deviceObject);
 
+    RtlFreeUnicodeString(&ntUnicodeString);
+
     if (!NT_SUCCESS(status)) {
         return status;
     }
@@ -662,8 +671,8 @@ PDEVICE_EXTENSION
 FtpFindDeviceExtension(
     IN PDEVICE_EXTENSION FtRootExtension,
     IN ULONG             Signature,
-    IN PLARGE_INTEGER    StartingOffset,
-    IN PLARGE_INTEGER    Length
+    IN LARGE_INTEGER     StartingOffset,
+    IN LARGE_INTEGER     Length
     )
 
 /*++
@@ -705,8 +714,8 @@ Return Values:
                 offset = currentExtension->FtUnion.Identity.PartitionOffset;
                 size   = currentExtension->FtUnion.Identity.PartitionLength;
 
-                if ((LiEql(*StartingOffset, offset)) &&
-                    (LiEql(*Length, size))) {
+                if (StartingOffset.QuadPart == offset.QuadPart &&
+                    Length.QuadPart == size.QuadPart) {
 
                      //
                      // This is the partition desired.
@@ -800,6 +809,7 @@ Return Value:
         *DeviceExtension = (PDEVICE_EXTENSION)newObject->DeviceExtension;
         ObDereferenceObject(fileObject);
         status = STATUS_OBJECT_NAME_EXISTS;
+        RtlFreeUnicodeString(&unicodeDeviceName);
 
     } else if (status == STATUS_OBJECT_NAME_NOT_FOUND) {
 
@@ -929,9 +939,9 @@ Return Value:
     case Stripe:
     case StripeWithParity:
 
-        total = LiFromUlong(0xFFFFFFFF);
+        total = DeviceExtension->FtUnion.Identity.PartitionLength;
 
-        currentExtension = DeviceExtension;
+        currentExtension = DeviceExtension->NextMember;
 
         while (currentExtension != NULL) {
 
@@ -939,8 +949,9 @@ Return Value:
             // Find smallest member.
             //
 
-            if (LiGtr(total,
-                      currentExtension->FtUnion.Identity.PartitionLength)) {
+            if (total.QuadPart >
+                currentExtension->FtUnion.Identity.PartitionLength.QuadPart) {
+
                 total = currentExtension->FtUnion.Identity.PartitionLength;
             }
             currentExtension = currentExtension->NextMember;
@@ -956,11 +967,9 @@ Return Value:
         // Multiply size of smallest member by number of data members.
         //
 
-        total =
-            RtlExtendedIntegerMultiply(total,
-                (DeviceExtension->Type == Stripe ?
-                (ULONG)DeviceExtension->FtCount.NumberOfMembers :
-                (ULONG)DeviceExtension->FtCount.NumberOfMembers - 1));
+        total.QuadPart *= (DeviceExtension->Type == Stripe ?
+                           DeviceExtension->FtCount.NumberOfMembers :
+                           DeviceExtension->FtCount.NumberOfMembers - 1);
 
         break;
 
@@ -970,14 +979,13 @@ Return Value:
         // Add up total size of all members.
         //
 
-        total = LiFromUlong(0);
+        total.QuadPart = 0;
 
         currentExtension = DeviceExtension;
 
         while (currentExtension != NULL) {
 
-            total = LiAdd(total,
-                          currentExtension->FtUnion.Identity.PartitionLength);
+            total.QuadPart += currentExtension->FtUnion.Identity.PartitionLength.QuadPart;
             currentExtension = currentExtension->NextMember;
         }
 
@@ -1126,8 +1134,8 @@ FtpAllocateRcb(
 
 Routine Description:
 
-    This routine attempts to allocate a request control block from zone.
-    If it fails it allocates one from nonpaged pool.
+    This routine attempts to allocate a request control block from the Rcb
+    lookaside list.
 
 Arguments:
 
@@ -1135,7 +1143,7 @@ Arguments:
 
 Return Value:
 
-    None.
+    The address of the RCB or NULL is returned as the function value.
 
 --*/
 
@@ -1145,71 +1153,40 @@ Return Value:
     PRCB rcb;
 
     //
-    // Allocate request control packet from zone.
+    // Allocate request control packet from lookaside list.
     //
 
-    rcb = ExInterlockedAllocateFromZone(&ftRootExtension->RcbZone,
-                                      &ftRootExtension->RcbZoneLock);
-
-    if (!rcb) {
+    rcb = ExAllocateFromNPagedLookasideList(&ftRootExtension->RcbLookasideListHead);
+    if (rcb != NULL) {
 
         //
-        // Can't get packet from zone. Try pool.
+        // Set up device extension pointer.
         //
 
-        rcb = ExAllocatePool(NonPagedPool, sizeof(RCB));
-
-        if (!rcb) {
-            return rcb;
-        }
+        rcb->ZeroExtension = DeviceExtension;
 
         //
-        // Clear RCB flags.
+        // Set active bit in flags to indicate that RCB is in use.
         //
 
-        rcb->Flags = 0;
-
-        DebugPrint((2,
-                    "FtpAllocateRcb: Rcb %x allocated from pool\n",
-                    rcb));
-
-    } else {
+        rcb->Flags = RCB_FLAGS_ACTIVE;
 
         //
-        // Set flag bit to indicate that RCB is from zone and clear
-        // all other bits.
+        // Set type and size fields.
         //
 
-        rcb->Flags = RCB_FLAGS_FROM_ZONE;
+        rcb->Type = RCB_TYPE;
+        rcb->Size = sizeof(RCB);
+
+        //
+        // Set links to zero.
+        //
+
+        rcb->Left = NULL;
+        rcb->Right = NULL;
+        rcb->Middle = NULL;
+        rcb->Link = NULL;
     }
-
-    //
-    // Set up device extension pointer.
-    //
-
-    rcb->ZeroExtension = DeviceExtension;
-
-    //
-    // Set active bit in flags to indicate that RCB is in use.
-    //
-
-    rcb->Flags |= RCB_FLAGS_ACTIVE;
-
-    //
-    // Set type and size fields.
-    //
-
-    rcb->Type = RCB_TYPE;
-    rcb->Size = sizeof(RCB);
-
-    //
-    // Set links to zero.
-    //
-
-    rcb->Left = NULL;
-    rcb->Right = NULL;
-    rcb->Middle = NULL;
-    rcb->Link = NULL;
 
     return rcb;
 
@@ -1225,7 +1202,7 @@ FtpFreeRcb(
 
 Routine Description:
 
-    This routine frees an RCB to zone or pool.
+    This routine frees an RCB to the RCB lookaside list.
 
 Arguments:
 
@@ -1249,17 +1226,11 @@ Return Value:
     Rcb->Flags &= ~RCB_FLAGS_ACTIVE;
 
     //
-    // Check if RCB came from zone.
+    // Free request control block to lookaside list.
     //
 
-    if (Rcb->Flags & RCB_FLAGS_FROM_ZONE) {
-        ExInterlockedFreeToZone(&ftRootExtension->RcbZone,
-                                Rcb,
-                                &ftRootExtension->RcbZoneLock);
-    } else {
-
-        ExFreePool(Rcb);
-    }
+    ExFreeToNPagedLookasideList(&ftRootExtension->RcbLookasideListHead,
+                                Rcb);
 
     return;
 
@@ -1593,7 +1564,8 @@ Return Value:
                                             &event,
                                             &ioStatusBlock);
         if (irp == NULL) {
-            LARGE_INTEGER delayTime = RtlConvertUlongToLargeInteger(IRP_DELAY);
+            LARGE_INTEGER delayTime;
+            delayTime.QuadPart = -(IRP_DELAY);
             KeDelayExecutionThread(KernelMode,
                                    FALSE,
                                    &delayTime);
@@ -1649,8 +1621,8 @@ Return Value:
                                               &event,
                                               &ioStatusBlock);
             if (irp == NULL) {
-                LARGE_INTEGER delayTime =
-                                  RtlConvertUlongToLargeInteger(IRP_DELAY);
+                LARGE_INTEGER delayTime;
+                delayTime.QuadPart = -(IRP_DELAY);
                 KeDelayExecutionThread(KernelMode,
                                        FALSE,
                                        &delayTime);

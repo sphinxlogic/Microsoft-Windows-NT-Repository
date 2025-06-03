@@ -83,7 +83,15 @@ Return Value:
 
     //
     // Compute the amount to rotate the logon hours by
-    BiasInHours = (tzi.Bias+30)/60;
+    //
+    // Round the bias in minutes to the closest bias in hours.
+    // Take into consideration that Bias can be negative.
+    // Do this by forcing the Bias to be positive, rounding,
+    // then adjusting it back negative again.
+    //
+
+    ASSERT( tzi.Bias > -(24*60) );
+    BiasInHours = ((tzi.Bias + (24*60) + 30)/60) - 24;
 
     if ( !ConvertToGmt ) {
         BiasInHours = - BiasInHours;

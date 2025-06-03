@@ -34,4 +34,3 @@ interface IDbOutput : public IUnknown
 
 
 #endif /* } DBALLOC_H_INCLUDED */
-

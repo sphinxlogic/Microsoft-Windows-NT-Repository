@@ -11,6 +11,9 @@
 //  to use the common transport environment.
 //
 
+#ifndef _CXPORT_H_INCLUDED_
+#define _CXPORT_H_INCLUDED_
+
 //
 // Typedefs used in this file
 //
@@ -61,7 +64,7 @@ typedef unsigned int uint;
 #define NdisBufferLength(Buffer)  (Buffer)->Length
 #define NdisBufferVirtualAddress(Buffer)  (Buffer)->VirtualAddress
 
-
+extern	ulong _vxdhandle__;
 /*INC*/
 
 
@@ -164,15 +167,6 @@ extern void _ICTEFreeLock(CTELock *, CTELockHandle);
 //
 
 /*NOINC*/
-#define RESULT_ZERO     1
-#define RESULT_POSITIVE 0
-#define RESULT_NEGATIVE 2
-
-typedef enum CTE_INTERLOCKED_RESULT {
-    ResultZero = RESULT_ZERO,
-    ResultPositive = RESULT_POSITIVE,
-    ResultNegative = RESULT_NEGATIVE
-} CTEInterlockedResult;
 
 // Adds an increment to a ULong. The increment may be negative. Returns the
 // original value of the addend.
@@ -180,19 +174,24 @@ typedef enum CTE_INTERLOCKED_RESULT {
 #define CTEInterlockedAddUlong(AddendPtr, Increment, LockPtr) \
     (*(AddendPtr)); { *(AddendPtr) += (Increment); }
 
-// Decrements a long Addend. Returns an INTERLOCKED_RESULT value denoting
+// Adds an increment to a ULong. The increment may be negative. Returns the
+// original value of the addend. Note that this version does not require
+// a lock.
+//
+#define CTEInterlockedExchangeAdd(AddendPtr, Increment) \
+    (*(AddendPtr)); { *(AddendPtr) += (Increment); }
+
+// Decrements a long Addend. Returns a long with the same sign as
 // the post-decrement state of the addend.
 //
-#define CTEInterlockedDecrementLong(AddendPtr, LockPtr) \
-    (((--(*(AddendPtr)) <= 0) ? 1 : 0) +        \
-        ( (*(AddendPtr) < 0) ? 1 : 0 ))
+#define CTEInterlockedDecrementLong(AddendPtr) \
+    (--(*(AddendPtr)))
 
-// Increments a long Addend. Returns an INTERLOCKED_RESULT value denoting
+// Increments a long Addend. Returns a long with the same sign as
 // the post-increment state of the addend.
 //
-#define CTEInterlockedIncrementLong(AddendPtr, LockPtr) \
-    (((++(*(AddendPtr)) <= 0) ? 1 : 0) +        \
-        ( (*(AddendPtr) < 0) ? 1 : 0 ))
+#define CTEInterlockedIncrementLong(AddendPtr) \
+    (++(*(AddendPtr)))
 
 /*INC*/
 
@@ -241,6 +240,7 @@ struct CTEEvent {
     CTEEventRtn ce_event;       // Procedure to be called.
     void        *ce_param;      // Parameter to be passed to event proc.
     void        *ce_ehandle;    // VMM event handle;
+	ulong		ce_handle;		// VxD handle
 }; /* CTEEvent */
 
 typedef struct CTEEvent CTEEvent;
@@ -248,7 +248,8 @@ typedef struct CTEEvent CTEEvent;
 // Macro to initialize an event. This macro must be used once on each event.
 /*NOINC*/
 #define CTEInitEvent(e,p)   (e)->ce_ehandle = (void *)0;\
-                            (e)->ce_event = (p)
+                            (e)->ce_event = (p);\
+							(e)->ce_handle = _vxdhandle__;
 /*INC*/
 // Routine to schedule an event.
 extern int CTEScheduleEvent(CTEEvent *, void *);
@@ -277,7 +278,8 @@ typedef struct CTETimer CTETimer;
 /*NOINC*/
 // Macro to initialize a timer. This macro must be used once on
 // every timer. It must not be invoked on a running timer.
-#define CTEInitTimer(t) (t)->t_thandle = (t)->t_event.ce_ehandle = (void *)0
+#define CTEInitTimer(t) (t)->t_thandle = (t)->t_event.ce_ehandle = (void *)0;\
+	(t)->t_event.ce_handle = _vxdhandle__
 
 // Start timer routine. CTEStartTimer takes a pointer to a timer structure,
 // a time (in milliseconds) for the timer, the time out routine to be
@@ -411,12 +413,14 @@ typedef struct CTEBufDesc   CTEBufDesc;
 struct CTEBlockStruc {
     uint        cbs_status;
     uint        cbs_flag;
+	uint		cbs_vm;
 }; /* CTEBlockStruc */
 
 typedef struct CTEBlockStruc CTEBlockStruc;
 
 /*NOINC*/
-#define CTEInitBlockStruc(x)    (x)->cbs_status = NDIS_STATUS_SUCCESS;(x)->cbs_flag = 0;
+#define CTEInitBlockStruc(x)    (x)->cbs_status = NDIS_STATUS_SUCCESS;(x)->cbs_flag = 0;\
+	(x)->cbs_vm = 0;
 
 extern uint CTEBlock(CTEBlockStruc *);
 extern void CTESignal(CTEBlockStruc *, uint);
@@ -476,6 +480,16 @@ extern void CTEPrintCRLF(void);
 //* Request completion routine definition.
 typedef void    (*CTEReqCmpltRtn)(void *, uint , uint);
 
+//* Routine to notify CTE that you're unloading.
+extern	void	CTEUnload(uchar *);
+
+//* Definition of a load/unload notification procedure handler.
+typedef	void	(*CTENotifyRtn)(uchar *);
+
+//* Routine to set load and unload notification handlers.
+extern	ulong	CTESetLoadNotifyProc(CTENotifyRtn Handler);
+extern	ulong	CTESetUnloadNotifyProc(CTENotifyRtn Handler);
+
 /*INC*/
 
 #else // VXD
@@ -489,8 +503,6 @@ typedef void    (*CTEReqCmpltRtn)(void *, uint , uint);
 //
 //////////////////////////////////////////////////////////////////////////////
 
-#include <updriver.h>
-
 #ifndef FAR
 #define FAR
 #endif
@@ -498,7 +510,9 @@ typedef void    (*CTEReqCmpltRtn)(void *, uint , uint);
 //
 // Structure manipulation macros
 //
+#ifndef offsetof
 #define offsetof(type, field) FIELD_OFFSET(type, field)
+#endif
 #define STRUCT_OF(type, address, field) CONTAINING_RECORD(address, type, field)
 
 //
@@ -598,7 +612,7 @@ typedef KIRQL       CTELockHandle;
 //
 //--
 
-#define CTEGetLock(l, h) KeAcquireSpinLock((l),(h))
+#define CTEGetLock(l, h) ExAcquireSpinLock((l),(h))
 
 
 //++
@@ -626,7 +640,7 @@ typedef KIRQL       CTELockHandle;
 //
 //--
 
-#define CTEGetLockAtDPC(l, h) KeAcquireSpinLockAtDpcLevel((l))
+#define CTEGetLockAtDPC(l, h) ExAcquireSpinLockAtDpcLevel((l))
 
 
 //++
@@ -652,7 +666,7 @@ typedef KIRQL       CTELockHandle;
 //
 //--
 
-#define CTEFreeLock(l, h) KeReleaseSpinLock((l),(h))
+#define CTEFreeLock(l, h) ExReleaseSpinLock((l),(h))
 
 
 //++
@@ -679,13 +693,12 @@ typedef KIRQL       CTELockHandle;
 //
 //--
 
-#define CTEFreeLockFromDPC(l, h) KeReleaseSpinLockFromDpcLevel((l))
+#define CTEFreeLockFromDPC(l, h) ExReleaseSpinLockFromDpcLevel((l))
 
 
 //
 // Interlocked counter management routines.
 //
-typedef INTERLOCKED_RESULT CTEInterlockedResult;
 
 
 //++
@@ -725,61 +738,52 @@ typedef INTERLOCKED_RESULT CTEInterlockedResult;
 
 //++
 //
-// CTEInterlockedResult
-// CTEInterlockedDecrementLong(
+// ulong
+// CTEInterlockedExchangeAdd(
 //     ulong     *AddendPtr,
-//     CTELock   *LockPtr
+//     ulong      Increment,
 //     );
 //
 // Routine Description:
 //
-//     Decrements a long quantity using a spinlock for synchronization.
+//     Adds an increment to an unsigned long quantity without using a spinlock.
 //
 // Arguments:
 //
 //     AddendPtr  - A pointer to the quantity to be updated.
-//     Increment  - The value to be added to addend.
-//     LockPtr    - A pointer to the spinlock used to synchronize the operation.
+//     Increment  - The amount to be added to *AddendPtr
 //
 // Return Value:
 //
-//     ResultNegative if Addend is < 0 after decrement.
-//     ResultZero     if Addend is = 0 after decrement.
-//     ResultPositive if Addend is > 0 after decrement.
+//     The initial value of the Added variable.
 //
 // Notes:
 //
-//     It is not permissible to mix calls to CTEInterlockedAddULong with
-//     calls to the CTEInterlockedIncrement/DecrementLong routines on the
-//     same value.
-//
 //--
 
-#define CTEInterlockedDecrementLong(AddendPtr, LockPtr) \
-            ExInterlockedDecrementLong(AddendPtr, LockPtr)
+#define CTEInterlockedExchangeAdd(AddendPtr, Increment) \
+            InterlockedExchangeAdd(AddendPtr, Increment)
 
 //++
 //
-// CTEInterlockedResult
-// CTEInterlockedIncrementLong(
-//     ulong     *AddendPtr,
-//     CTELock   *LockPtr
+// long
+// CTEInterlockedDecrementLong(
+//     ulong     *AddendPtr
 //     );
 //
 // Routine Description:
 //
-//     Increments a long quantity using a spinlock for synchronization.
+//     Decrements a long quantity atomically
 //
 // Arguments:
 //
-//     AddendPtr  - A pointer to the quantity to be incremented.
-//     LockPtr    - A pointer to the spinlock used to synchronize the operation.
+//     AddendPtr  - A pointer to the quantity to be decremented
 //
 // Return Value:
 //
-//     ResultNegative if Addend is < 0 after increment.
-//     ResultZero     if Addend is = 0 after increment.
-//     ResultPositive if Addend is > 0 after increment.
+//     < 0  if Addend is < 0 after decrement.
+//     == 0 if Addend is = 0 after decrement.
+//     > 0  if Addend is > 0 after decrement.
 //
 // Notes:
 //
@@ -789,8 +793,40 @@ typedef INTERLOCKED_RESULT CTEInterlockedResult;
 //
 //--
 
-#define CTEInterlockedIncrementLong(AddendPtr, LockPtr) \
-            ExInterlockedIncrementLong(AddendPtr, LockPtr)
+#define CTEInterlockedDecrementLong(AddendPtr) \
+            InterlockedDecrement(AddendPtr)
+
+//++
+//
+// long
+// CTEInterlockedIncrementLong(
+//     ulong     *AddendPtr
+//     );
+//
+// Routine Description:
+//
+//     Increments a long quantity atomically
+//
+// Arguments:
+//
+//     AddendPtr  - A pointer to the quantity to be incremented.
+//
+// Return Value:
+//
+//     < 0  if Addend is < 0 after decrement.
+//     == 0 if Addend is = 0 after decrement.
+//     > 0  if Addend is > 0 after decrement.
+//
+// Notes:
+//
+//     It is not permissible to mix calls to CTEInterlockedAddULong with
+//     calls to the CTEInterlockedIncrement/DecrementLong routines on the
+//     same value.
+//
+//--
+
+#define CTEInterlockedIncrementLong(AddendPtr) \
+            InterlockedIncrement(AddendPtr)
 
 
 //
@@ -1587,7 +1623,9 @@ CTELogEvent(
 // Debugging routines.
 //
 #if DBG
+#ifndef DEBUG
 #define DEBUG 1
+#endif
 #endif //DBG
 
 
@@ -1637,6 +1675,15 @@ CTELogEvent(
 //* Request completion routine definition.
 typedef void    (*CTEReqCmpltRtn)(void *, unsigned int , unsigned int);
 
+//* Defintion of CTEUnload
+#define	CTEUnload(Name)
+
+//* Definition of a load/unload notification procedure handler.
+typedef	void	(*CTENotifyRtn)(uchar *);
+
+//* Defintion of set load and unload notification handlers.
+#define	CTESetLoadNotifyProc(Handler)
+#define	CTESetUnloadNotifyProc(Handler)
 
 #else // NT
 
@@ -1651,4 +1698,5 @@ typedef void    (*CTEReqCmpltRtn)(void *, unsigned int , unsigned int);
 #endif // NT
 /*INC*/
 #endif // VXD
-
+
+#endif // _CXPORT_H_INCLUDED_

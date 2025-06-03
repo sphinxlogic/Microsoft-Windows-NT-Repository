@@ -205,7 +205,7 @@ Routine Description:
                     xlpBuffer,
                     FilePartPtr
                     );
-    if ( ReturnValue <= nBufferLength ) {
+    if (ReturnValue && ReturnValue <= nBufferLength ) {
         RtlInitUnicodeString(&UnicodeString,xlpBuffer);
         OemString.MaximumLength = (USHORT)(nBufferLength+1);
         OemString.Buffer = lpBuffer;
@@ -366,7 +366,7 @@ Routine Description:
 }
 
 
-
+#if 0  // unused
 BOOL
 WINAPI
 CreateProcessOem(
@@ -399,8 +399,9 @@ CreateProcessOem(
     UNICODE_STRING DynamicCommandLine;
     BOOL ReturnStatus;
 
+    CommandLine = &NtCurrentTeb()->StaticUnicodeString;
+
     if (ARGUMENT_PRESENT (lpCommandLine)) {
-	CommandLine = &NtCurrentTeb()->StaticUnicodeString;
         InitOemString(&OemString,lpCommandLine);
         if ( OemString.Length<<1 < NtCurrentTeb()->StaticUnicodeString.MaximumLength ) {
 	    DynamicCommandLine.Buffer = NULL;
@@ -554,7 +555,7 @@ tryexit:;
     return ReturnStatus;
 
 }
-
+#endif
 
 
 

@@ -142,8 +142,14 @@ void dir_closefile(DIRITEM item, int fh);
  */
 DWORD dir_getchecksum(DIRITEM item);
 
+/* Redo everything to do with checksums, size, etc */
+void dir_rescanfile(DIRITEM di);
+
 /* return a TRUE iff item has a valid checksum */
 BOOL dir_validchecksum(DIRITEM item);
+
+// return false if there is some error accessing this file
+BOOL dir_fileerror(DIRITEM item);
 
 /* return the (lower 32 bits) of the file size, as scanned at the
  * call to dir_buildlist
@@ -154,14 +160,13 @@ long dir_getfilesize(DIRITEM item);
  * create a copy of the file, in the new root directory. creates sub-dirs as
  * necessary. Works for local and remote files. For remote files, uses
  * ss_copy_reliable to ensure that the copy succeeds if possible.
- * To avoid logging, have hfLog==HFILE_ERROR (or -1 to you and me).
  *
  * returns TRUE for success and FALSE for failure.
  */
-BOOL dir_copy(DIRITEM item, LPSTR newroot, BOOL HitReadOnly, BOOL IgnoreAttributes, HFILE hfLog);
+BOOL dir_copy(DIRITEM item, LPSTR newroot, BOOL HitReadOnly, BOOL IgnoreAttributes);
 
 /* Call this before starting copying */
-BOOL dir_startcopy(DIRLIST dl, HFILE hfLog);
+BOOL dir_startcopy(DIRLIST dl);
 
 
 /* call this after copying.  Negative retcode = number of bad files

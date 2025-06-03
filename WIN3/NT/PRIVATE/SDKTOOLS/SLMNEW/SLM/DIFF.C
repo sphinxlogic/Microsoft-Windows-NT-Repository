@@ -7,24 +7,9 @@
  * To create temporary diffs (for scomp, or merge purposes), use FMkTmpDiff.
  */
 
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <errno.h>
-#include <wchar.h>
-#include <stdio.h>
-
-#include "slm.h"
-#include "sys.h"
-#include "util.h"
-#include "stfile.h"
-#include "ad.h"
-#include "log.h"
-#include "da.h"
-#include "rb.h"
-#include "proto.h"
+#include "precomp.h"
+#pragma hdrstop
 #include "messages.h"
-
 EnableAssert
 
 private F FValidCachedDiff(AD *pad, FI far *pfi, PTH *pthDiff, F *pfEmpty);
@@ -67,7 +52,7 @@ FMkDae(
     /* Append the output of the action function, and finish the DAE. */
     fOk = (*pfnd)(pad, pfi, pmfDA, &dae, fUtil, szDiff);
 
-    if (fOk ||
+    if (fOk || (pad->flags & flagProjectMerge) ||
         !FQueryApp("no changes detected for %&C/F", "OK to create no history", pad, pfi))
     {
         /* close the diff archive entry */
@@ -133,7 +118,7 @@ FMkDiff(
         PTH pthUser[cchPthMax];
         F fRetry = fFalse;
 
-        PthForSFile(pad, pfi, pthSrc);
+        PthForCachedSFile(pad, pfi, pthSrc);
         PthForUFile(pad, pfi, pthUser);
 
         RunDiff(pad, pfi, pthSrc, pthUser, fDashB, pmf, &fRetry, &fSame, fTrue /* fDoCkSum */);
@@ -156,8 +141,8 @@ FValidCachedDiff(
     F *pfEmpty)
 {
     PTH pthUFile[cchPthMax];
-    struct stat stUFile;
-    struct stat stDiff;
+    struct _stat stUFile;
+    struct _stat stDiff;
 
     *pfEmpty = fFalse;
 
@@ -202,7 +187,7 @@ FMkCkptFile(
     if (fLocal)
         PthForUFile(pad, pfi, pthSrc);
     else
-        PthForSFile(pad, pfi, pthSrc);
+        PthForCachedSFile(pad, pfi, pthSrc);
 
     pmfSrc = PmfOpen(pthSrc, omAReadOnly, fxNil);
     if (!FCopyPmfPmf(pmf, pmfSrc, permRW, fTrue /* fDoCkSum */))
@@ -239,7 +224,7 @@ FMkSimDiff(
         PthForUFile(pad, pfi, pthSrc);
     }
     else
-        PthForSFile(pad, pfi, pthSrc);
+        PthForCachedSFile(pad, pfi, pthSrc);
 
     pmfSrc = PmfOpen(pthSrc, omAReadOnly, fxNil);
     SimDiffNull(pmfSrc, pmf, fAdd, pfi->fk == fkUnicode);
@@ -288,7 +273,7 @@ EnsureCachedDiff(
     }
 
     PthForCachedDiff(pad, pfi, pthDiff);
-    PthForSFile(pad, pfi, pthSFile);
+	PthForCachedSFile(pad, pfi, pthSFile);
     PthForUFile(pad, pfi, pthUFile);
     pmfDiff = PmfCreate(pthDiff, permRO, fTrue, fxLocal);
     RunDiff(pad, pfi, pthSFile, pthUFile, fDashB, pmfDiff,
@@ -349,15 +334,15 @@ MkTmpDiff(
         PthForBase(pad, pfs->bi, pthSrc);
     }
     else
-        PthForSFile(pad, pfi, pthSrc);
+		PthForCachedSFile(pad, pfi, pthSrc);
 
     if (pfs->fm == fmMerge && fDifBaseSrc)
     {
         AssertF(pfs->bi != biNil);
-        PthForSFile(pad, pfi, pthFile);
+		PthForCachedSFile(pad, pfi, pthFile);
     }
     else
-        PthForUFile(pad, pfi, pthFile);
+		PthForUFile(pad, pfi, pthFile);
 
     /* If DOS, try keeping the output file in TMP directory, unless we got
      * burned doing this a previous time.  ("Fool me once, shame on you!
@@ -437,14 +422,15 @@ RunDiff(
         strcat(szDiffFlags, "b");
     if ((fDashB & flagInDashZ) || (fDashB & flagDifDashZ))
         strcat(szDiffFlags, "z");
-#if defined(_WIN32)
-    /* use old diff for 1.80 DOS and OS/2 and Heckel diff for Win32
-     * enable for DOS for Delta - gregc 12/8/92
-     */
     if (fDoCkSum)
         strcat(szDiffFlags, "c");
-#endif
-    w = RunSz("slmdiff", pmfDiff, szDiffFlags, sz1, sz2, (char *)0);
+    w = RunSz("slmdiff", pmfDiff, szDiffFlags, sz1, sz2,
+                (char *)0,
+                (char *)0,
+                (char *)0,
+                (char *)0,
+                (char *)0,
+                (char *)0);
     switch (w)
     {
         case 0 << 8:
@@ -728,7 +714,7 @@ chGetDiff(
 {
     if (pdb->ich == pdb->cb)
     {
-        if ((pdb->cb = read(pdb->fd, pdb->rgch, sizeof (pdb->rgch))) <= 0)
+        if ((pdb->cb = _read(pdb->fd, pdb->rgch, sizeof (pdb->rgch))) <= 0)
              FatalError("Diff entry short.\n");
         pdb->ich = 0;
     }
@@ -747,7 +733,7 @@ CheckDiffEntry(
     int ich;
     char szFilePhys[cchPthMax];
 
-    if ((db.fd = open(SzPhysPath(szFilePhys, pthFile), omReadOnly)) < 0)
+    if ((db.fd = _open(SzPhysPath(szFilePhys, pthFile), omReadOnly)) < 0)
         FatalError("Diff entry short.\n");
 
     db.cb = db.ich = 0;
@@ -790,7 +776,7 @@ CheckDiffEntry(
     db.ich += iDiff;
     while (iDiff < cbDiff)
     {
-        if ((db.cb = read(db.fd, db.rgch, WMinLL(cbDiff - iDiff, sizeof (db.rgch)))) <= 0)
+        if ((db.cb = _read(db.fd, db.rgch, WMinLL(cbDiff - iDiff, sizeof (db.rgch)))) <= 0)
             FatalError("Diff entry short.\n");
         ComputeCkSum((char far *)db.rgch, db.cb, &ulCkSumCalc);
         iDiff += db.cb;
@@ -824,17 +810,17 @@ CheckDiffEntry(
     }
     else
     {
-        close(db.fd);
+        _close(db.fd);
         return;         /* no checksum */
     }
 
-    close(db.fd);
+    _close(db.fd);
     if (ulCkSum != ulCkSumCalc)
         FatalError("Diff entry failed checksum.\n");
     return;
 
 DiffErr:
-    close(db.fd);
+    _close(db.fd);
     FatalError("Diff entry failed check.\n");
 }
 

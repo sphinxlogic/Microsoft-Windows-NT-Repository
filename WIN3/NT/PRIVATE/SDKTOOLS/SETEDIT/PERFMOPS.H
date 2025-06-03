@@ -13,7 +13,8 @@ void SystemTimeDateString (SYSTEMTIME *pSystemTime,
 
 
 void SystemTimeTimeString (SYSTEMTIME *pSystemTime,
-                           LPTSTR lpszTime) ;
+                           LPTSTR lpszTime,
+                           BOOL bOutputMsec) ;
 
 
 VOID dlg_error_box (HANDLE hDlg, UINT id) ;
@@ -47,10 +48,23 @@ void SetPerfmonOptions (OPTIONS *pOptions) ;
 
 void ChangeSaveFileName (LPTSTR szFileName, int iPMView) ;
 
+BOOL AppendObjectToValueList ( DWORD   dwObjectId, LPTSTR   pwszValueList );
+
+BOOL RemoveObjectsFromSystem (PPERFSYSTEM pSystem);
+
+BOOL BuildValueListForSystems (PPERFSYSTEM, PLINE);
+
 BOOL SetSystemValueNameToGlobal (PPERFSYSTEM);
 
 void CreatePerfmonSystemObjects () ;
 
 void DeletePerfmonSystemObjects () ;
 
-
+void ConvertDecimalPoint (LPTSTR lpFloatPointStr) ;
+
+void ReconvertDecimalPoint (LPTSTR lpFloatPointStr) ;
+
+void ShowPerfmonWindowText (void) ;
+
+
+

@@ -71,6 +71,34 @@ extern DWORD      SelectionCount;
 extern PDISKSTATE SelectedDS[MaxMembersInFtSet];
 extern ULONG      SelectedRG[MaxMembersInFtSet];
 
+VOID
+setUnicode(
+    char *astring,
+    WCHAR *wstring
+    )
+/*++
+
+Routine Description:
+
+    Convert an ansii string to Unicode.  Internal routine to fmifs module.
+
+Arguments:
+
+    astring - ansii string to convert to Unicode
+    wstring - resulting string location
+
+Return Value:
+
+    None
+
+--*/
+{
+
+    int len = lstrlen(astring)+1;
+
+    MultiByteToWideChar( CP_ACP, 0, astring, len, wstring, len );
+}
+
 BOOL
 LoadIfsDll(
     VOID
@@ -430,11 +458,8 @@ Return Value:
 
     // convert label to unicode
 
-    for (index = 0;
-         unicodeLabel[index] = (WCHAR)formatParams->Label[index];
-         index++) {
-        // operation done in for loop
-    }
+    setUnicode(formatParams->Label,
+               unicodeLabel);
 
     // convert filesystem type to unicode
 
@@ -522,11 +547,8 @@ Return Value:
 
     // convert label to unicode
 
-    for (index = 0;
-         unicodeLabel[index] = (WCHAR)formatParams->Label[index];
-         index++) {
-        // operation done in for loop
-    }
+    setUnicode(formatParams->Label,
+               unicodeLabel);
 
     (*DblSpaceCreateRoutine)(driveLetter,
                              formatParams->SpaceAvailable * 1024 * 1024,
@@ -991,7 +1013,7 @@ Return Value:
     case WM_COMMAND:
         switch (wParam) {
 
-        case IDHELP:
+        case FD_IDHELP:
 
             DialogHelp(HC_DM_DLG_LABEL);
             break;
@@ -1121,23 +1143,15 @@ Return Value:
             }
         }
 
+        selection = 0;
         if (IsDiskRemovable[regionDescriptor->Disk]) {
 
             // If removable, start from the bottom of the list so FAT is first.
             // Load the available File system types.
 
-            selection = NUM_FSTYPES - 1;
             for (i = NUM_FSTYPES - 1; i >= 0; i--) {
 
-                // While filling in the drop down, determine which FS
-                // this volume is already formated for and make it the
-                // default (if not found, NTFS is the default).
-
-                if (wcscmp(typeName, UnicodeFsTypes[i]) == 0) {
-                    selection = i;
-                }
-
-                // set the FS type into the dialog.
+                // Fill the drop down list.
 
                 SendMessage(hwndCombo, CB_ADDSTRING, 0, (LONG)FsTypes[i]);
             }
@@ -1146,7 +1160,6 @@ Return Value:
 
             // Load the available File system types.
 
-            selection = 0;
             for (i = 0; i < NUM_FSTYPES; i++) {
 
                 // While filling in the drop down, determine which FS
@@ -1172,7 +1185,7 @@ Return Value:
 
         switch (wParam) {
 
-        case IDHELP:
+        case FD_IDHELP:
 
             DialogHelp(HC_DM_DLG_FORMAT);
             break;
@@ -1306,6 +1319,15 @@ Return Value:
                         volumeLabel;
                 BOOLEAN volumeChanged = FALSE;
 
+                if (!RegionDescriptor->PartitionNumber) {
+
+                    // TODO: something has changed where the code gets to this
+                    // point with an incorrect partition number - This happens
+                    // when a partition is deleted and added to removable media.
+                    // For removable media the partition number is always 1.
+
+                    RegionDescriptor->PartitionNumber = 1;
+                }
                 if (GetVolumeTypeAndSize(RegionDescriptor->Disk,
                                          RegionDescriptor->PartitionNumber,
                                          &volumeLabel,
@@ -1314,10 +1336,15 @@ Return Value:
 
                     // Verify that this is still the same device.
 
-                    if (!lstrcmpiW(typeName, L"raw")) {
-                         Free(typeName);
-                         typeName = Malloc((wcslen(wszUnknown) * sizeof(WCHAR)) + sizeof(WCHAR));
-                         lstrcpyW(typeName, wszUnknown);
+                    if (typeName) {
+                        if (!lstrcmpiW(typeName, L"raw")) {
+                            Free(typeName);
+                            typeName = Malloc((wcslen(wszUnknown) * sizeof(WCHAR)) + sizeof(WCHAR));
+                            lstrcpyW(typeName, wszUnknown);
+                        }
+                    } else {
+                        typeName = Malloc((wcslen(wszUnknown) * sizeof(WCHAR)) + sizeof(WCHAR));
+                        lstrcpyW(typeName, wszUnknown);
                     }
                     if (regionData) {
                         if (regionData->VolumeLabel) {
@@ -1380,8 +1407,12 @@ Return Value:
                         TotalRedrawAndRepaint();
                         return;
                     } else {
-                        Free(volumeLabel);
-                        Free(typeName);
+                        if (volumeLabel) {
+                            Free(volumeLabel);
+                        }
+                        if (typeName) {
+                            Free(typeName);
+                        }
                     }
                 }
             }
@@ -1455,102 +1486,108 @@ Return Value:
             }
             SetCursor(hcurNormal);
 
-            // get the new label and FsType regardless of success of the
-            // format (i.e. user cancel may have occurred, so this stuff
-            // is not what it used to be even if the format failed.
+            // If the format was successful, update the volume
+            // information in the data structures.
 
-            {
-                // force mount by filesystem.  This is done with the
-                // extra \ on the end of the path.  This must be done
-                // in order to get the FS type.  Otherwise the filesystem
-                // recognisor may allow the open without actually getting
-                // the file system involved.
+            if (!formatParams.Result) {
 
-                char        ntDeviceName[100];
-                STATUS_CODE sc;
-                HANDLE_T    handle;
+                // get the new label and FsType regardless of success of the
+                // format (i.e. user cancel may have occurred, so this stuff
+                // is not what it used to be even if the format failed.
 
-                sprintf(ntDeviceName, "\\DosDevices\\%c:\\", regionData->DriveLetter);
-                sc = LowOpenNtName(ntDeviceName, &handle);
-                if (sc == OK_STATUS) {
-                    LowCloseDisk(handle);
-                }
-            }
-            typeName = NULL;
-            GetTypeName(RegionDescriptor->Disk, RegionDescriptor->PartitionNumber, &typeName);
+                {
+                    // force mount by filesystem.  This is done with the
+                    // extra \ on the end of the path.  This must be done
+                    // in order to get the FS type.  Otherwise the filesystem
+                    // recognisor may allow the open without actually getting
+                    // the file system involved.
 
-            if (!typeName) {
+                    char        ntDeviceName[100];
+                    STATUS_CODE sc;
+                    HANDLE_T    handle;
 
-                // Failed to get the type after a cancel.  This means
-                // GetTypeName() could not open the volume for some reason.
-                // This has been seen on Alpha's and x86 with large
-                // hardware raid devices.  Exiting and starting
-                // over will get an FS type.  For now, don't change the
-                // data structures.
-
-                TotalRedrawAndRepaint();
-                return;
-            }
-
-            tempLabel = NULL;
-            if (GetVolumeLabel(RegionDescriptor->Disk, RegionDescriptor->PartitionNumber, &tempLabel) == NO_ERROR) {
-
-                if (tempLabel) {
-                    Free(regionData->VolumeLabel);
-                    regionData->VolumeLabel = Malloc((lstrlenW(tempLabel) + 1) * sizeof(WCHAR));
-                    lstrcpyW(regionData->VolumeLabel, tempLabel);
-                }
-            } else {
-                *regionData->VolumeLabel = 0;
-            }
-
-            // update the type name.
-
-            if (regionData->TypeName) {
-                Free(regionData->TypeName);
-                regionData->TypeName = typeName;
-            }
-
-            // update the file system type information for all
-            // components of this region (i.e. fix up FT structures if
-            // it is an FT item).  This is done via knowledge about multiple
-            // selections as opposed to walking through the FtObject list.
-
-            if (SelectionCount > 1) {
-                PPERSISTENT_REGION_DATA passedRegionData;
-                ULONG index;
-
-                // Need to update all involved.
-
-                passedRegionData = regionData;
-
-                for (index = 0; index < SelectionCount; index++) {
-                    RegionDescriptor = &SELECTED_REGION(index);
-                    regionData = PERSISTENT_DATA(RegionDescriptor);
-
-                    if (regionData == passedRegionData) {
-                        continue;
+                    sprintf(ntDeviceName, "\\DosDevices\\%c:\\", regionData->DriveLetter);
+                    sc = LowOpenNtName(ntDeviceName, &handle);
+                    if (sc == OK_STATUS) {
+                        LowCloseDisk(handle);
                     }
+                }
+                typeName = NULL;
+                GetTypeName(RegionDescriptor->Disk, RegionDescriptor->PartitionNumber, &typeName);
 
-                    if (regionData->VolumeLabel) {
-                        Free(regionData->VolumeLabel);
-                        regionData->VolumeLabel = NULL;
-                    }
+                if (!typeName) {
+
+                    // Failed to get the type after a cancel.  This means
+                    // GetTypeName() could not open the volume for some reason.
+                    // This has been seen on Alpha's and x86 with large
+                    // hardware raid devices.  Exiting and starting
+                    // over will get an FS type.  For now, don't change the
+                    // data structures.
+
+                    TotalRedrawAndRepaint();
+                    return;
+                }
+
+                tempLabel = NULL;
+                if (GetVolumeLabel(RegionDescriptor->Disk, RegionDescriptor->PartitionNumber, &tempLabel) == NO_ERROR) {
+
                     if (tempLabel) {
+                        Free(regionData->VolumeLabel);
                         regionData->VolumeLabel = Malloc((lstrlenW(tempLabel) + 1) * sizeof(WCHAR));
                         lstrcpyW(regionData->VolumeLabel, tempLabel);
                     }
-
-                    if (regionData->TypeName) {
-                        Free(regionData->TypeName);
-                    }
-                    regionData->TypeName = Malloc((lstrlenW(passedRegionData->TypeName) + 1) * sizeof(WCHAR));
-                    lstrcpyW(regionData->TypeName, passedRegionData->TypeName);
+                } else {
+                    *regionData->VolumeLabel = 0;
                 }
-            }
 
-            if (tempLabel) {
-                Free(tempLabel);
+                // update the type name.
+
+                if (regionData->TypeName) {
+                    Free(regionData->TypeName);
+                    regionData->TypeName = typeName;
+                }
+
+                // update the file system type information for all
+                // components of this region (i.e. fix up FT structures if
+                // it is an FT item).  This is done via knowledge about multiple
+                // selections as opposed to walking through the FtObject list.
+
+                if (SelectionCount > 1) {
+                    PPERSISTENT_REGION_DATA passedRegionData;
+                    ULONG index;
+
+                    // Need to update all involved.
+
+                    passedRegionData = regionData;
+
+                    for (index = 0; index < SelectionCount; index++) {
+                        RegionDescriptor = &SELECTED_REGION(index);
+                        regionData = PERSISTENT_DATA(RegionDescriptor);
+
+                        if (regionData == passedRegionData) {
+                            continue;
+                        }
+
+                        if (regionData->VolumeLabel) {
+                            Free(regionData->VolumeLabel);
+                            regionData->VolumeLabel = NULL;
+                        }
+                        if (tempLabel) {
+                            regionData->VolumeLabel = Malloc((lstrlenW(tempLabel) + 1) * sizeof(WCHAR));
+                            lstrcpyW(regionData->VolumeLabel, tempLabel);
+                        }
+
+                        if (regionData->TypeName) {
+                            Free(regionData->TypeName);
+                        }
+                        regionData->TypeName = Malloc((lstrlenW(passedRegionData->TypeName) + 1) * sizeof(WCHAR));
+                        lstrcpyW(regionData->TypeName, passedRegionData->TypeName);
+                    }
+                }
+
+                if (tempLabel) {
+                    Free(tempLabel);
+                }
             }
 
             // force screen update.
@@ -1683,11 +1720,8 @@ Return Value:
 
         // convert to unicode - use variable doLabel as an index.
 
-        for (doLabel = 0;
-             unicodeLabel[doLabel] = (WCHAR)label[doLabel];
-             doLabel++) {
-            // operation done in for loop
-        }
+        setUnicode(label,
+                   unicodeLabel);
 
         // perform the label.
 

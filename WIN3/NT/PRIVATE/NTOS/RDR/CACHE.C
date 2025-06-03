@@ -188,6 +188,11 @@ Return Value:
     BOOLEAN FcbLocked = FALSE;
 
     PICB Icb;
+    PSMB_BUFFER SMBBuffer;
+    PSMB_HEADER Smb;
+    PREQ_FLUSH FlushFile;
+    PMDL SendMDL;
+    ULONG SendLength;
 
     PAGED_CODE();
     //
@@ -219,6 +224,9 @@ Return Value:
 
             switch ( Icb->Type ) {
             case NamedPipe:
+                if (!Wait) {
+                    try_return(Status = STATUS_PENDING);
+                }
                 Status = RdrNpFlushBuffers( Wait, Irp, Icb);
                 try_return(Status);
                 break;
@@ -229,6 +237,9 @@ Return Value:
                 //  If this file is cached, flush the cache contents
                 //
 
+                if (!Wait) {
+                    try_return(Status = STATUS_PENDING);
+                }
                 dprintf(DPRT_READWRITE, ("Flush cache for file %lx\n", IrpSp->FileObject));
 
                 Status = RdrFlushWriteBufferForFile(Irp, Icb, (BOOLEAN)!RdrUseAsyncWriteBehind);
@@ -237,10 +248,59 @@ Return Value:
                     try_return(Status);
                 }
 
-                RdrLog( "ccflush1", &Icb->Fcb->FileName, 0xffffffff, 0 );
+                //RdrLog(( "ccflush1", &Icb->Fcb->FileName, 1, 0xffffffff ));
                 CcFlushCache(&Icb->NonPagedFcb->SectionObjectPointer, NULL, 0, &Irp->IoStatus);
 
-                try_return(Status = Irp->IoStatus.Status);
+                if (!NT_SUCCESS(Status)) {
+                    try_return(Status);
+                }
+
+                //
+                // Serialize behind paging I/O to ensure flush is done.
+                //
+
+                ExAcquireResourceExclusive(Icb->Fcb->Header.PagingIoResource, TRUE);
+                ExReleaseResource(Icb->Fcb->Header.PagingIoResource);
+
+                //
+                // Send a flush SMB to the server.
+                //
+
+                if ((SMBBuffer = RdrAllocateSMBBuffer()) == NULL) {
+                    try_return(Status = STATUS_INSUFFICIENT_RESOURCES);
+                }
+
+                //
+                //  Build the SMB
+                //
+
+                Smb = (PSMB_HEADER)SMBBuffer->Buffer;
+                Smb->Command = SMB_COM_FLUSH;
+
+                FlushFile = (PREQ_FLUSH)(Smb+1);
+                FlushFile->WordCount = 1;
+
+                SmbPutUshort(&FlushFile->Fid, Icb->FileId);
+                SmbPutUshort( &FlushFile->ByteCount, 0);
+
+                SendLength = FlushFile->Buffer - (PUCHAR )(Smb);
+                SendMDL = SMBBuffer->Mdl;
+                SendMDL->ByteCount = SendLength;
+
+                Status = RdrNetTranceive(NT_NORMAL | NT_NORECONNECT, // Flags
+                                        Irp,
+                                        Icb->Fcb->Connection,
+                                        SendMDL,
+                                        NULL,       // Only interested in the error code.
+                                        Icb->Se);
+
+                RdrFreeSMBBuffer(SMBBuffer);
+
+                if (Status == STATUS_INVALID_HANDLE) {
+                    RdrInvalidateFileId(Icb->NonPagedFcb, Icb->FileId);
+                }
+
+                try_return(NOTHING);
                 break;
 
             default:
@@ -408,18 +468,6 @@ Return Value:
 
     RetValue = RdrAcquireFcbLock(Fcb, SharedLock, Wait);
 
-    if (RetValue) {
-
-        ASSERT (Fcb->ReadAheadThread == NULL);
-
-        //
-        //  Remember the thread ID of the read ahead thread.  We use this to
-        //  enable us to block during raw I/O.
-        //
-
-        Fcb->ReadAheadThread = PsGetCurrentThread();
-    }
-
     return RetValue;
 }
 
@@ -452,10 +500,6 @@ Return Value:
     PAGED_CODE();
 
     ASSERT(Fcb->Header.NodeTypeCode == STRUCTURE_SIGNATURE_FCB);
-
-    ASSERT (Fcb->ReadAheadThread != NULL);
-
-    Fcb->ReadAheadThread = NULL;
 
     RdrReleaseFcbLock(Fcb);
 
@@ -498,7 +542,9 @@ Note:
 
     dprintf(DPRT_CACHE, ("RdrPurgeCacheFile Fcb:%lx (%wZ)\n", Fcb, &Fcb->FileName));
 
-    ASSERT (Fcb->NonPagedFcb->Type == DiskFile);
+    ASSERT ((Fcb->NonPagedFcb->Type == DiskFile) ||
+            (Fcb->NonPagedFcb->Type == Directory) ||
+            (Fcb->NonPagedFcb->Type == FileOrDirectory));
 
     ASSERT (Fcb->NonPagedFcb->FileType == FileTypeDisk);
 
@@ -521,7 +567,7 @@ Note:
     //  file objects associated with this FCB.
     //
 
-    RdrLog( "ccpurge1", &Fcb->FileName, 0xffffffff, 1 << 24 );
+    //RdrLog(( "ccpurge1", &Fcb->FileName, 2, 0xffffffff, 1 << 24 ));
     CcPurgeCacheSection(&Fcb->NonPagedFcb->SectionObjectPointer, NULL, 0, TRUE);
 
     //
@@ -535,7 +581,7 @@ Note:
 
     if (CacheFileObject != NULL) {
 
-        RdrLog( "rdunini1", &Fcb->FileName, 0, 0 );
+        //RdrLog(( "rdunini1", &Fcb->FileName, 0 ));
         RdrUninitializeCacheMap(CacheFileObject, &RdrZero);
 
     } else {
@@ -592,7 +638,7 @@ Note:
     //  if the executable in question is still running.
     //
 
-    RdrLog( "mmflush1", &Fcb->FileName, MmFlushForWrite, 0 );
+    //RdrLog(( "mmflush1", &Fcb->FileName, 1, MmFlushForWrite ));
     MmFlushImageSection(&Fcb->NonPagedFcb->SectionObjectPointer, MmFlushForWrite);
 
     //
@@ -602,7 +648,7 @@ Note:
     //
 
 
-    RdrLog( "mmforce1", &Fcb->FileName, TRUE, 0 );
+    //RdrLog(( "mmforce1", &Fcb->FileName, 1, TRUE ));
     MmForceSectionClosed(&Fcb->NonPagedFcb->SectionObjectPointer, TRUE);
 
     //
@@ -682,9 +728,9 @@ Note:
 
     KeInitializeEvent(&PurgeCompleteEvent.Event, SynchronizationEvent, FALSE);
 
-    RdrLog( "ccunini1", &Fcb->FileName,
-            (TruncateSize == NULL) ? 0xffffffff : TruncateSize->LowPart,
-            (ULONG)&PurgeCompleteEvent );
+    //RdrLog(( "ccunini1", &Fcb->FileName, 2,
+    //        (TruncateSize == NULL) ? 0xffffffff : TruncateSize->LowPart,
+    //        (ULONG)&PurgeCompleteEvent ));
     CacheReturnValue = CcUninitializeCacheMap(FileObject, TruncateSize, &PurgeCompleteEvent);
 
     //
@@ -762,7 +808,9 @@ Note:
 
     dprintf(DPRT_CACHE, ("RdrFlushCacheFile Fcb:%lx (%wZ)\n", Fcb, &Fcb->FileName));
 
-    ASSERT (Fcb->NonPagedFcb->Type == DiskFile);
+    ASSERT ((Fcb->NonPagedFcb->Type == DiskFile) ||
+                (Fcb->NonPagedFcb->Type == Directory) ||
+                    (Fcb->NonPagedFcb->Type == FileOrDirectory));
 
     ASSERT (Fcb->NonPagedFcb->FileType == FileTypeDisk);
 
@@ -801,8 +849,18 @@ Note:
     //  Flush dirty data for this file object from the cache.
     //
 
-    RdrLog( "ccflush2", &Fcb->FileName, 0xffffffff, 0 );
+    //RdrLog(( "ccflush2", &Fcb->FileName, 1, 0xffffffff ));
     CcFlushCache(&Fcb->NonPagedFcb->SectionObjectPointer, NULL, 0, &IoStatus);
+
+    if (NT_SUCCESS(IoStatus.Status)) {
+
+        //
+        // Serialize behind paging I/O to ensure flush is done.
+        //
+
+        ExAcquireResourceExclusive(Fcb->Header.PagingIoResource, TRUE);
+        ExReleaseResource(Fcb->Header.PagingIoResource);
+    }
 
     //
     //  At this point, dirty data should be flushed for this file
@@ -841,76 +899,81 @@ Note:
 
 --*/
 {
-
-    ULONG CacheFileTimeout;
-    FINDOLDESTFCB Context;
-    BOOLEAN FcbLocked = FALSE;
-
     PAGED_CODE();
 
-    Context.NumberOfDormantCachedFiles = 0;
-
-    Context.OldestFcb = NULL;
-
     //
-    //  This thread cannot own the FCB resource on entry.  If it does, we
-    //  might deadlock.
+    // If we are in 'TurboMode' we will cache all of the files we can, without
+    //  limit.  This is for benchmarks
     //
+    if( RdrTurboMode == FALSE ) {
 
-    ASSERT (!ExIsResourceAcquiredExclusive(Fcb->Header.Resource));
+        FINDOLDESTFCB Context;
+        BOOLEAN FcbLocked = FALSE;
 
-    RdrForeachFcbOnConnection (Fcb->Connection, NoLock, FindOldestFcb, &Context);
+        Context.NumberOfDormantCachedFiles = 0;
 
-    //
-    //  Now that we've scanned the list to find the oldest cached file,
-    //  we want to pull this file out of the list if we've reached our
-    //  limit on dormant cached files.
-    //
-
-    if (Context.NumberOfDormantCachedFiles >= RdrData.DormantFileLimit) {
+        Context.OldestFcb = NULL;
 
         //
-        //  Lock this FCB to protect the DormantTimeout field in the FCB.
+        //  This thread cannot own the FCB resource on entry.  If it does, we
+        //  might deadlock.
         //
 
-        RdrAcquireFcbLock(Context.OldestFcb, ExclusiveLock, TRUE);
+        ASSERT (!ExIsResourceAcquiredExclusive(Fcb->Header.Resource));
 
-        FcbLocked = TRUE;
-
-        ASSERT (Context.OldestFcb != NULL);
-        ASSERT (Context.OldestFcb != Fcb);
+        RdrForeachFcbOnConnection (Fcb->Connection, NoLock, FindOldestFcb, &Context);
 
         //
-        // If the oldest FCB is still dormant, purge it now.  Note that
-        // if this FCB is no longer dormant, we'll end up with an extra
-        // dormant file, above the limit.  So be it.
+        //  Now that we've scanned the list to find the oldest cached file,
+        //  we want to pull this file out of the list if we've reached our
+        //  limit on dormant cached files.
         //
 
-        if (Context.OldestFcb->NumberOfOpens == 0) {
+        if (Context.NumberOfDormantCachedFiles >= RdrData.DormantFileLimit) {
 
-            RdrLog( "rdflush1", &Context.OldestFcb->FileName, 0, 0 );
-            RdrFlushCacheFile(Context.OldestFcb);
+            //
+            //  Lock this FCB to protect the DormantTimeout field in the FCB.
+            //
 
-            RdrLog( "rdpurge1", &Context.OldestFcb->FileName, 0, 0 );
-            RdrPurgeCacheFile(Context.OldestFcb);
+            RdrAcquireFcbLock(Context.OldestFcb, ExclusiveLock, TRUE);
+
+            FcbLocked = TRUE;
+
+            ASSERT (Context.OldestFcb != NULL);
+            ASSERT (Context.OldestFcb != Fcb);
+
+            //
+            // If the oldest FCB is still dormant, purge it now.  Note that
+            // if this FCB is no longer dormant, we'll end up with an extra
+            // dormant file, above the limit.  So be it.
+            //
+
+            if (Context.OldestFcb->NumberOfOpens == 0) {
+
+                //RdrLog(( "rdflush1", &Context.OldestFcb->FileName, 0 ));
+                RdrFlushCacheFile(Context.OldestFcb);
+
+                //RdrLog(( "rdpurge1", &Context.OldestFcb->FileName, 0 ));
+                RdrPurgeCacheFile(Context.OldestFcb);
+
+            }
 
         }
 
-    }
+        //
+        //  We're done with the oldest FCB, we can release it now.
+        //
 
-    //
-    //  We're done with the oldest FCB, we can release it now.
-    //
+        if (Context.OldestFcb != NULL) {
+            BOOLEAN FcbDeleted;
 
-    if (Context.OldestFcb != NULL) {
-        BOOLEAN FcbDeleted;
+            FcbDeleted = RdrDereferenceFcb(NULL, Context.OldestFcb->NonPagedFcb, FcbLocked, 0, NULL);
 
-        FcbDeleted = RdrDereferenceFcb(NULL, Context.OldestFcb->NonPagedFcb, FcbLocked, 0, NULL);
+//            if (!FcbDeleted) {
+//                ASSERT (Fcb->Header.Resource->Threads[0] != (ULONG) ExGetCurrentResourceThread());
+//            }
 
-//        if (!FcbDeleted) {
-//            ASSERT (Fcb->Header.Resource->Threads[0] != (ULONG) ExGetCurrentResourceThread());
-//        }
-
+        }
     }
 
 
@@ -921,19 +984,27 @@ Note:
     RdrAcquireFcbLock(Fcb, ExclusiveLock, TRUE);
 
     //
-    //  Now mark this file as being dormant - We've gotten rid of one
-    //  other file (if appropriate).
+    // Even for benchmarks, we want to eventually push out file changes
     //
+    if( Fcb->UpdatedFile || RdrTurboMode == FALSE ) {
 
-    //
-    //  If the timeout is -1, we don't want to ever purge dormant
-    //  files, otherwise we will set the dormant timeout appropriately.
-    //
+        ULONG CacheFileTimeout;
 
-    CacheFileTimeout = RdrData.CachedFileTimeout;
+        //
+        //  Mark this file as being dormant
+        //
 
-    if (CacheFileTimeout != -1) {
-        Fcb->DormantTimeout = RdrCurrentTime + CacheFileTimeout;
+        //
+        //  If the timeout is -1, we don't want to ever purge dormant
+        //  files, otherwise we will set the dormant timeout appropriately.
+        //
+
+        CacheFileTimeout = RdrData.CachedFileTimeout;
+
+        if (CacheFileTimeout != -1) {
+            Fcb->DormantTimeout = RdrCurrentTime + CacheFileTimeout;
+        }
+
     }
 
     RdrReleaseFcbLock(Fcb);
@@ -1112,14 +1183,14 @@ Return Value:
             //  Flush any write behind data outstanding on the file
             //
 
-            RdrLog( "rdflush2", &FcbToCheck->FileName, 0, 0 );
+            //RdrLog(( "rdflush2", &FcbToCheck->FileName, 0 ));
             RdrFlushCacheFile(FcbToCheck);
 
             //
             //  Now pull the file from the cache.
             //
 
-            RdrLog( "rdpurge2", &FcbToCheck->FileName, 0, 0 );
+            //RdrLog(( "rdpurge2", &FcbToCheck->FileName, 0 ));
             RdrPurgeCacheFile(FcbToCheck);
 
         }
@@ -1202,6 +1273,7 @@ Return Value:
     //
 
     if ((FcbToCheck->NonPagedFcb->Type == DiskFile) &&
+        (FcbToCheck->UpdatedFile == TRUE) &&
         (FcbToCheck->NumberOfOpens == 0)) {
 
         RdrAcquireFcbLock(FcbToCheck, ExclusiveLock, TRUE);
@@ -1212,14 +1284,14 @@ Return Value:
             //  Flush any write behind data outstanding on the file
             //
 
-            RdrLog( "rdflush3", &FcbToCheck->FileName, 0, 0 );
+            //RdrLog(( "rdflush3", &FcbToCheck->FileName, 0 ));
             RdrFlushCacheFile(FcbToCheck);
 
             //
             //  Now pull the file from the cache.
             //
 
-            RdrLog( "rdpurge3", &FcbToCheck->FileName, 0, 0 );
+            //RdrLog(( "rdpurge3", &FcbToCheck->FileName, 0 ));
             RdrPurgeCacheFile(FcbToCheck);
 
         }

@@ -218,7 +218,8 @@ SetSpyHook(
         {
             if (!(hmodHook = LoadLibrary("hook")))
             {
-                Message(MB_OK | MB_ICONEXCLAMATION, "Cannot load HOOK.DLL.");
+                Message(MB_OK | MB_ICONEXCLAMATION, 
+                        LoadResourceString(IDS_ERROR_CANT_LOAD_DLL));
                 return FALSE;
             }
         }
@@ -226,7 +227,7 @@ SetSpyHook(
         if (!hhkGetMessage)
         {
             if (!(hhkGetMessage = SetWindowsHookEx(WH_GETMESSAGE,
-                GetProcAddress(hmodHook, "SpyGetMsgProc"), hmodHook, 0)))
+                (HOOKPROC)GetProcAddress(hmodHook, "SpyGetMsgProc"), hmodHook, 0)))
             {
                 return FALSE;
             }
@@ -235,7 +236,7 @@ SetSpyHook(
         if (!hhkCallWndProc)
         {
             if (!(hhkCallWndProc = SetWindowsHookEx(WH_CALLWNDPROC,
-                GetProcAddress(hmodHook, "SpyCallWndProc"), hmodHook, 0)))
+                (HOOKPROC)GetProcAddress(hmodHook, "SpyCallWndProc"), hmodHook, 0)))
             {
                 UnhookWindowsHookEx(hhkGetMessage);
                 return FALSE;
@@ -321,6 +322,3 @@ VOID DbgPrintf(
     OutputDebugString(TEXT("\r\n"));
 }
 #endif
-
-
-

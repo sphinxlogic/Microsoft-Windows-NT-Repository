@@ -355,7 +355,7 @@ Return Value:
         //
 
         request = CONTAINING_RECORD (p, TP_REQUEST, Linkage);
-        request->IoRequestPacket->CancelRoutine = (PDRIVER_CANCEL)NULL;
+        IoSetCancelRoutine(request->IoRequestPacket, NULL);
         IoReleaseCancelSpinLock(cancelirql);
 
         irpSp = IoGetCurrentIrpStackLocation (request->IoRequestPacket);
@@ -733,7 +733,7 @@ Return Value:
         RELEASE_DPC_C_SPIN_LOCK (&Connection->SpinLock);
 
         request = CONTAINING_RECORD (p, TP_REQUEST, Linkage);
-        request->IoRequestPacket->CancelRoutine = (PDRIVER_CANCEL)NULL;
+        IoSetCancelRoutine(request->IoRequestPacket, NULL);
         IoReleaseCancelSpinLock (cancelirql);
 
         irpSp = IoGetCurrentIrpStackLocation (request->IoRequestPacket);
@@ -2437,11 +2437,13 @@ Return Value:
 #endif
 
             } else {
+                KIRQL cancelIrql;
 
                 //
                 // The normal path, for longer receives.
                 //
 
+                IoAcquireCancelSpinLock(&cancelIrql);
                 ACQUIRE_DPC_SPIN_LOCK (Connection->LinkSpinLock);
 
                 IRP_RECEIVE_IRP(irpSp) = irp;
@@ -2470,6 +2472,7 @@ Return Value:
                         0);
 
                     RELEASE_DPC_SPIN_LOCK (Connection->LinkSpinLock);
+                    IoReleaseCancelSpinLock(cancelIrql);
 
                     if (!deviceContext->MacInfo.SingleReceive) {
                         NbfDereferenceReceiveIrp ("Not ready", irpSp, RREF_RECEIVE);
@@ -2479,12 +2482,49 @@ Return Value:
                 }
 
                 //
+                // If this IRP has been cancelled, complete it now.
+                //
+
+                if (irp->Cancel) {
+
+                    Connection->Flags |= CONNECTION_FLAGS_RECEIVE_WAKEUP;
+
+                    Connection->IndicationInProgress = FALSE;
+
+                    NbfReferenceConnection("Special IRP cancelled", Connection, CREF_RECEIVE_IRP);
+
+                    //
+                    // It is safe to call this with locks held.
+                    //
+                    NbfCompleteReceiveIrp (irp, STATUS_CANCELLED, 0);
+
+                    RELEASE_DPC_SPIN_LOCK (Connection->LinkSpinLock);
+                    IoReleaseCancelSpinLock(cancelIrql);
+
+                    if (!deviceContext->MacInfo.SingleReceive) {
+                        NbfDereferenceReceiveIrp ("Cancelled", irpSp, RREF_RECEIVE);
+                    }
+
+                    return STATUS_SUCCESS;
+                }
+
+                //
                 // Insert the request on the head of the connection's
                 // receive queue, so it can be handled like a normal
                 // receive.
                 //
 
                 InsertHeadList (&Connection->ReceiveQueue, &irp->Tail.Overlay.ListEntry);
+
+                IoSetCancelRoutine(irp, NbfCancelReceive);
+
+                //
+                // Release the cancel spinlock out of order. Since we were
+                // at DPC level when we acquired it, we don't have to fiddle
+                // with swapping irqls.
+                //
+                ASSERT(cancelIrql == DISPATCH_LEVEL);
+                IoReleaseCancelSpinLock(cancelIrql);
 
                 Connection->Flags |= CONNECTION_FLAGS_ACTIVE_RECEIVE;
                 Connection->ReceiveLength = Parameters->ReceiveLength;
@@ -2498,57 +2538,28 @@ Return Value:
                 Connection->CurrentReceiveMdl = irp->MdlAddress;
                 Connection->ReceiveByteOffset = 0;
 
+#if DBG
                 //
-                // If this IRP has been cancelled, then call the
-                // cancel routine.
+                // switch our reference from PROCESS_DATA to
+                // REQUEST, this is OK because the REQUEST
+                // reference won't be removed until Transfer
+                // DataComplete, which is the last thing
+                // we call.
                 //
 
-                if (irp->Cancel) {
+                NbfReferenceConnection("Special IRP", Connection, CREF_RECEIVE_IRP);
+                NbfDereferenceConnection("ProcessIIndicate done", Connection, CREF_PROCESS_DATA);
+#endif
+                //
+                // Make a note so we know what to do below.
+                //
 
-                    Connection->Flags |= CONNECTION_FLAGS_RECEIVE_WAKEUP;
-                    Connection->Flags &= ~CONNECTION_FLAGS_ACTIVE_RECEIVE;
-
-                    Connection->IndicationInProgress = FALSE;
-                    (VOID)RemoveHeadList (&Connection->ReceiveQueue);
-
-                    NbfReferenceConnection("Special IRP cancelled", Connection, CREF_RECEIVE_IRP);
-                    NbfCompleteReceiveIrp (irp, STATUS_CANCELLED, 0);
-                    RELEASE_DPC_SPIN_LOCK (Connection->LinkSpinLock);
-
-                    if (!deviceContext->MacInfo.SingleReceive) {
-                        NbfDereferenceReceiveIrp ("Cancelled", irpSp, RREF_RECEIVE);
-                    }
-
-                    return STATUS_SUCCESS;
-
-                } else {
-
-                    irp->CancelRoutine = NbfCancelReceive;
+                ActivatedLongReceive = TRUE;
 
 #if DBG
-                    //
-                    // switch our reference from PROCESS_DATA to
-                    // REQUEST, this is OK because the REQUEST
-                    // reference won't be removed until Transfer
-                    // DataComplete, which is the last thing
-                    // we call.
-                    //
-
-                    NbfReferenceConnection("Special IRP", Connection, CREF_RECEIVE_IRP);
-                    NbfDereferenceConnection("ProcessIIndicate done", Connection, CREF_PROCESS_DATA);
+                NbfReceives[NbfReceivesNext].Irp = irp;
+                NbfReceivesNext = (NbfReceivesNext++) % TRACK_TDI_LIMIT;
 #endif
-                    //
-                    // Make a note so we know what to do below.
-                    //
-
-                    ActivatedLongReceive = TRUE;
-
-#if DBG
-                    NbfReceives[NbfReceivesNext].Irp = irp;
-                    NbfReceivesNext = (NbfReceivesNext++) % TRACK_TDI_LIMIT;
-#endif
-                }
-
             }
 
         } else if (status == STATUS_SUCCESS) {
@@ -3129,7 +3140,7 @@ NormalReceive:;
     } else {
 
         tmpstatus = BuildBufferChainFromMdlChain (
-                    deviceContext->NdisBufferPoolHandle,
+                    deviceContext,
                     Connection->CurrentReceiveMdl,
                     Connection->ReceiveByteOffset,
                     BytesToTransfer,

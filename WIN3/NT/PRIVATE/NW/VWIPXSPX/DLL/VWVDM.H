@@ -83,7 +83,7 @@ __inline LPVOID _inlinePointerFromWords(WORD seg, WORD off, WORD size) {
 
 __inline LPVOID _inlineGetPointer(WORD seg, WORD off, WORD size, BOOL mode) {
     return (seg | off)
-        ? (LPVOID)GetVDMPointer(MAKELONG(off, seg), size, mode)
+        ? (LPVOID)GetVDMPointer(MAKELONG(off, seg), size, (UCHAR)mode)
         : NULL;
 }
 

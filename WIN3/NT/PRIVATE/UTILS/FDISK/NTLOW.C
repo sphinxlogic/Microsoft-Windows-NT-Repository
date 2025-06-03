@@ -193,7 +193,7 @@ Return Value:
     oa.ObjectName = &unicodeName;
     oa.Attributes = OBJ_CASE_INSENSITIVE;
 
-    status = NtOpenFile(Handle,
+    status = DmOpenFile(Handle,
                         SYNCHRONIZE | FILE_READ_DATA | FILE_WRITE_DATA,
                         &oa,
                         &statusBlock,
@@ -210,7 +210,7 @@ Return Value:
         // partition
 
         Sleep(500);
-        status = NtOpenFile(Handle,
+        status = DmOpenFile(Handle,
                             SYNCHRONIZE | FILE_READ_DATA | FILE_WRITE_DATA,
                             &oa,
                             &statusBlock,
@@ -346,7 +346,7 @@ Return Value:
 --*/
 
 {
-    return(NtClose(DiskId));
+    return(DmClose(DiskId));
 }
 
 
@@ -984,4 +984,104 @@ Return Value:
     // Always update the state to the caller.
 
     return status;
+}
+
+
+
+#define NUMBER_OF_HANDLES_TRACKED 500
+HANDLE OpenHandleArray[NUMBER_OF_HANDLES_TRACKED];
+BOOLEAN DmFirstTime = TRUE;
+ULONG   HandleHighWaterMark = 0;
+
+NTSTATUS
+DmOpenFile(
+    OUT PHANDLE           FileHandle,
+    IN ACCESS_MASK        DesiredAccess,
+    IN POBJECT_ATTRIBUTES ObjectAttributes,
+    OUT PIO_STATUS_BLOCK  IoStatusBlock,
+    IN ULONG              ShareAccess,
+    IN ULONG              OpenOptions
+    )
+
+/*++
+
+Routine Description:
+
+    A debugging aid to track open and closes of partitions.
+
+Arguments:
+
+    Same as for NtOpenFile()
+
+Return Value:
+
+    Same as for NtOpenFile()
+
+--*/
+
+{
+    ULONG    index;
+    NTSTATUS status;
+
+    if (DmFirstTime) {
+        DmFirstTime = FALSE;
+        for (index = 0; index < NUMBER_OF_HANDLES_TRACKED; index++) {
+            OpenHandleArray[index] = (HANDLE) 0;
+        }
+    }
+
+    status = NtOpenFile(FileHandle,
+                        DesiredAccess,
+                        ObjectAttributes,
+                        IoStatusBlock,
+                        ShareAccess,
+                        OpenOptions);
+    if (NT_SUCCESS(status)) {
+        for (index = 0; index < NUMBER_OF_HANDLES_TRACKED; index++) {
+            if (OpenHandleArray[index] == (HANDLE) 0) {
+                OpenHandleArray[index] = *FileHandle;
+
+                if (index > HandleHighWaterMark) {
+                    HandleHighWaterMark = index;
+                }
+                break;
+            }
+        }
+    }
+    return status;
+}
+
+
+NTSTATUS
+DmClose(
+    IN HANDLE Handle
+    )
+
+/*++
+
+Routine Description:
+
+    A debugging aid for tracking open and closes
+
+Arguments:
+
+    Same as for NtClose()
+
+Return Value:
+
+    Same as for NtClose()
+
+--*/
+
+{
+    ULONG index;
+
+    for (index = 0; index < NUMBER_OF_HANDLES_TRACKED; index++) {
+        if (OpenHandleArray[index] == Handle) {
+            OpenHandleArray[index] = (HANDLE) 0;
+            break;
+        }
+    }
+
+    return NtClose(Handle);
 }

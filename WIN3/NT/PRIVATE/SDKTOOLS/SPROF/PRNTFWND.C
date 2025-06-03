@@ -264,7 +264,7 @@ SetBufferSizePrintfWindow(
 
 USHORT
 GetBufferSizePrintfWindow(
-    HANDLE Window,
+    HANDLE Window
     )
 {
     // bugbug not implemented yet
@@ -495,4 +495,3 @@ Return Value:
         return DefWindowProc(Window, Message, wParam, lParam);
     }
 }
-

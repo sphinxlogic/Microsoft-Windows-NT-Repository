@@ -75,6 +75,10 @@ Revision History:
                  |                                    |
                  |                                    |
                  +------------------------------------+
+        DE000000 | System mapped views                |
+                 |                                    |
+                 |                                    |
+                 +------------------------------------+
         E1000000 | Start of paged system area         |
                  |   Kernel mode access only.         |
                  |                                    |
@@ -104,18 +108,28 @@ Revision History:
 
 #define PDE_TOP (0xC01FFFFF)
 
+#define MM_PAGES_IN_KSEG0 (((ULONG)KSEG2_BASE - (ULONG)KSEG0_BASE) >> PAGE_SHIFT)
+
 #define MM_SYSTEM_RANGE_START (0x80000000)
 
 #define MM_SYSTEM_SPACE_START (0xC3000000)
 
 #define MM_SYSTEM_CACHE_START (0xC4000000)
 
-#define MM_SYSTEM_CACHE_END   (0xE1000000)
+#define MM_SYSTEM_CACHE_END   (0xDE000000)
 
 #define MM_MAXIMUM_SYSTEM_CACHE_SIZE     \
  ( ((ULONG)MM_SYSTEM_CACHE_END - (ULONG)MM_SYSTEM_CACHE_START) >> PAGE_SHIFT )
 
 #define MM_SYSTEM_CACHE_WORKING_SET (0xC3000000)
+
+//
+// Define area for mapping views into system space.
+//
+
+#define MM_SYSTEM_VIEW_START (0xDE000000)
+
+#define MM_SYSTEM_VIEW_SIZE (48*1024*1024)
 
 #define MM_PAGED_POOL_START    ((PVOID)0xE1000000)
 
@@ -133,17 +147,11 @@ Revision History:
 // Define absolute minumum and maximum count for system ptes.
 //
 
-#define MM_MINIMUM_SYSTEM_PTES 4000
+#define MM_MINIMUM_SYSTEM_PTES 5000
 
 #define MM_MAXIMUM_SYSTEM_PTES 20000
 
-#define MM_DEFAULT_SYSTEM_PTES 10000
-
-//
-// Number of PTEs to flush singularly before flushing the entire TB.
-//
-
-#define MM_MAXIMUM_FLUSH_COUNT 7
+#define MM_DEFAULT_SYSTEM_PTES 11000
 
 //
 // Pool limits.
@@ -153,7 +161,7 @@ Revision History:
 // The maximum amount of nonpaged pool that can be initially created.
 //
 
-#define MM_MAX_INITIAL_NONPAGED_POOL ((ULONG)(128*1024*1024))
+#define MM_MAX_INITIAL_NONPAGED_POOL ((ULONG)(96*1024*1024))
 
 //
 // The total amount of nonpaged pool
@@ -166,6 +174,14 @@ Revision History:
 //
 
 #define MM_MAX_PAGED_POOL ((ULONG)(240*1024*1024))
+
+//
+// Define the maximum default for pool (user specified 0 in registry).
+//
+
+#define MM_MAX_DEFAULT_NONPAGED_POOL ((ULONG)(128*1024*1024))
+
+#define MM_MAX_DEFAULT_PAGED_POOL ((ULONG)(128*1024*1024))
 
 //
 // The maximum total pool.
@@ -244,13 +260,6 @@ Revision History:
 
 #define PHYSICAL_ADDRESS_BITS (48)
 
-//
-// Page coloring on Alpha is optional and is enabled via the following
-// definition.
-//
-
-#define COLORED_PAGES 1
-
 #define MM_MAXIMUM_NUMBER_OF_COLORS (1)
 
 //
@@ -277,38 +286,45 @@ Revision History:
 
 #define MM_COLOR_MASK_VIRTUAL (0)
 
-#ifdef COLORED_PAGES
-
 //
 //  Define 1mb worth of secondary colors.
 //
 
-#define MM_SECONDARY_COLORS ((1024*1024) >> PAGE_SHIFT)
+#define MM_SECONDARY_COLORS_DEFAULT ((1024*1024) >> PAGE_SHIFT)
+
+#define MM_SECONDARY_COLORS_MIN (2)
+
+#define MM_SECONDARY_COLORS_MAX (2048)
 
 //
 // Mask for isolating secondary color from physical page number;
 //
 
-#define MM_SECONDARY_COLOR_MASK (MM_SECONDARY_COLORS - 1)
-
-#endif //COLORED_PAGES
-
-
+extern ULONG MmSecondaryColorMask;
 
 //
 // Hyper space definitions.
 //
 
 #define HYPER_SPACE         ((PVOID)0xC1000000)
+
 #define FIRST_MAPPING_PTE   ((ULONG)0xC1000000)
-#define NUMBER_OF_MAPPING_PTES (127L)
+
+#define NUMBER_OF_MAPPING_PTES (1023)
+
 #define LAST_MAPPING_PTE   \
      ((ULONG)((ULONG)FIRST_MAPPING_PTE + (NUMBER_OF_MAPPING_PTES * PAGE_SIZE)))
 
 #define IMAGE_MAPPING_PTE   ((PMMPTE)((ULONG)LAST_MAPPING_PTE + PAGE_SIZE))
 
 #define ZEROING_PAGE_PTE    ((PMMPTE)((ULONG)IMAGE_MAPPING_PTE + PAGE_SIZE))
+
 #define WORKING_SET_LIST   ((PVOID)((ULONG)ZEROING_PAGE_PTE + PAGE_SIZE))
+
+#define MM_MAXIMUM_WORKING_SET \
+       ((ULONG)((ULONG)2*1024*1024*1024 - 64*1024*1024) >> PAGE_SHIFT) //2Gb-64Mb
+
+#define MM_WORKING_SET_END ((ULONG)0xC2000000)
 
 #define MM_PTE_VALID_MASK         (0x1)
 #define MM_PTE_PROTOTYPE_MASK     (0x2)
@@ -347,7 +363,7 @@ Revision History:
 // Zero Kernel PTE
 //
 
-#define MM_ZERO_KERNEL_PTE (MM_PTE_GLOBAL_MASK)
+#define MM_ZERO_KERNEL_PTE 0
 
 //
 // A demand zero PTE with a protection or PAGE_READWRITE.
@@ -545,6 +561,74 @@ Revision History:
        }
 
 
+//++
+//VOID
+//MI_SET_PTE_DIRTY (
+//    IN MMPTE PTE
+//    );
+//
+// Routine Description:
+//
+//    This macro sets the dirty bit(s) in the specified PTE.
+//
+// Argments
+//
+//    PTE - Supplies the PTE to set dirty.
+//
+// Return Value:
+//
+//     None.
+//
+//--
+
+#define MI_SET_PTE_DIRTY(PTE) (PTE).u.Hard.Dirty = MM_PTE_DIRTY
+
+
+//++
+//VOID
+//MI_SET_PTE_CLEAN (
+//    IN MMPTE PTE
+//    );
+//
+// Routine Description:
+//
+//    This macro clears the dirty bit(s) in the specified PTE.
+//
+// Argments
+//
+//    PTE - Supplies the PTE to set clear.
+//
+// Return Value:
+//
+//     None.
+//
+//--
+
+#define MI_SET_PTE_CLEAN(PTE) (PTE).u.Hard.Dirty = MM_PTE_CLEAN
+
+
+
+//++
+//VOID
+//MI_IS_PTE_DIRTY (
+//    IN MMPTE PTE
+//    );
+//
+// Routine Description:
+//
+//    This macro checks the dirty bit(s) in the specified PTE.
+//
+// Argments
+//
+//    PTE - Supplies the PTE to check.
+//
+// Return Value:
+//
+//    TRUE if the page is dirty (modified), FALSE otherwise.
+//
+//--
+
+#define MI_IS_PTE_DIRTY(PTE) ((PTE).u.Hard.Dirty != MM_PTE_CLEAN)
 
 //++
 //VOID
@@ -577,7 +661,8 @@ Revision History:
 //++
 //VOID
 //MI_SET_GLOBAL_STATE (
-//    IN MMPTE PTE
+//    IN MMPTE PTE,
+//    IN ULONG STATE
 //    );
 //
 // Routine Description:
@@ -594,33 +679,11 @@ Revision History:
 //
 //--
 
-        // Global not implemented in software PTE for Alpha
-#define MI_SET_GLOBAL_STATE(PTE)
+#define MI_SET_GLOBAL_STATE(PTE,STATE)  \
+           (PTE).u.Hard.Global = STATE;
 
 
 
-//++
-//VOID
-//MI_CLEAR_GLOBAL_STATE (
-//    IN MMPTE PTE
-//    );
-//
-// Routine Description:
-//
-//    This macro clears the global bit if the pointer PTE.
-//
-// Argments
-//
-//    PTE - Supplies the PTE to clear global state from.
-//
-// Return Value:
-//
-//     None.
-//
-//--
-
-        // Global not implemented in software PTE for Alpha
-#define MI_CLEAR_GLOBAL_STATE(PTE)
 
 
 //++
@@ -820,13 +883,9 @@ Revision History:
 //
 //--
 
-#ifdef COLORED_PAGES
 
 #define MI_GET_PAGE_COLOR_FROM_PTE(PTEADDRESS)  \
-         ((ULONG)((MmSystemPageColor++) & MM_SECONDARY_COLOR_MASK))
-#else //COLORED_PAGES
-#define MI_GET_PAGE_COLOR_FROM_PTE(PTEADDRESS) (0)
-#endif //COLORED_PAGES
+         ((ULONG)((MmSystemPageColor++) & MmSecondaryColorMask))
 
 
 //++
@@ -850,16 +909,9 @@ Revision History:
 //
 //--
 
-#ifdef COLORED_PAGES
-
 #define MI_GET_PAGE_COLOR_FROM_VA(ADDRESS)  \
-         ((ULONG)((MmSystemPageColor++) & MM_SECONDARY_COLOR_MASK))
+         ((ULONG)((MmSystemPageColor++) & MmSecondaryColorMask))
 
-#else //COLORED_PAGES
-
-#define MI_GET_PAGE_COLOR_FROM_VA(ADDRESS) (0)
-
-#endif //COLORED_PAGES
 
 //++
 //ULONG
@@ -883,14 +935,8 @@ Revision History:
 //--
 
 
-#ifdef COLORED_PAGES
 #define MI_PAGE_COLOR_PTE_PROCESS(PTE,COLOR)  \
-         ((ULONG)((*(COLOR))++) & MM_SECONDARY_COLOR_MASK)
-
-#else
-#define MI_GET_PAGE_COLOR_FOR_PROCESS(PROCESS) 0
-
-#endif //COLORED_PAGES
+         ((ULONG)((*(COLOR))++) & MmSecondaryColorMask)
 
 
 
@@ -916,14 +962,8 @@ Revision History:
 //
 //--
 
-#ifdef COLORED_PAGES
 #define MI_PAGE_COLOR_VA_PROCESS(ADDRESS,COLOR) \
-         ((ULONG)((*(COLOR))++) & MM_SECONDARY_COLOR_MASK)
-
-#else
-#define MI_PAGE_COLOR_VA_PROCESS(ADDRESS,COLOR)  0
-
-#endif //COLORED_PAGES
+         ((ULONG)((*(COLOR))++) & MmSecondaryColorMask)
 
 
 
@@ -971,7 +1011,7 @@ Revision History:
 
 #define MI_GET_PREVIOUS_COLOR(COLOR) ((COLOR-1) & MM_COLOR_MASK)
 
-#define MI_GET_SECONDARY_COLOR(PAGE,PFN) (PAGE & MM_SECONDARY_COLOR_MASK)
+#define MI_GET_SECONDARY_COLOR(PAGE,PFN) (PAGE & MmSecondaryColorMask)
 
 #define MI_GET_COLOR_FROM_SECONDARY(SECONDARY_COLOR) (0)
 
@@ -1251,12 +1291,9 @@ Revision History:
 //   This macro returns the address of the corresponding prototype which
 //   was encoded earlier into the supplied PTE.
 //
-// NOTE THAT AS PROTOPTE CAN RESIDE IN BOTH PAGED AND NON-PAGED POOL
-// THIS MACRO LIMITS THE COMBINED SIZES OF TWO POOLS AND REQUIRES THEM
-// TO BE WITHIN THE MAX SIZE CONSTRAINTS
+//    NOTE THAT AS PROTOPTE CAN ONLY RESIDE IN PAGED POOL!!!!!!
 //
-// MAX SIZE = 2^(2+28) = 2^30 = 1GB
-// MAX SIZE OF KSEG_0 POOL = 2^(2+28) = 2^30 = 1GB
+//    MAX SIZE = 2^(2+7+21) = 2^30 = 1GB.
 //
 //    NOTE, that the valid bit must be zero!
 //
@@ -1272,11 +1309,9 @@ Revision History:
 //
 //
 
-#define MiPteToProto(lpte) ( ((lpte)->u.Long & 0x80000000) ?            \
-        ( (PMMPTE)( (( ((lpte)->u.Long << 1) >> 5 ) << 2 ) +            \
-                        (ULONG)MmNonPagedPoolStart) )                   \
-  :     ( (PMMPTE)(  ( ((lpte)->u.Long >> 4 ) << 2 )  +                 \
-                        MmProtopte_Base ) ) )
+#define MiPteToProto(lpte)   \
+       ( (PMMPTE)(  ( ((lpte)->u.Long >> 4 ) << 2 )  +                 \
+                        MmProtopte_Base ) )
 
 
 //++
@@ -1304,11 +1339,8 @@ Revision History:
 //--
 
 #define MiProtoAddressForPte(proto_va)                                \
-    ( ((ULONG)proto_va < (ULONG)KSEG2_BASE) ?                         \
-        (  ( (((ULONG)proto_va - (ULONG)MmNonPagedPoolStart) << 2) &  \
-                0xfffffff0) | KSEG0_BASE | MM_PTE_PROTOTYPE_MASK )    \
-    :   (( (((ULONG)proto_va - MmProtopte_Base) << 2) & 0x7ffffff0) | \
-                MM_PTE_PROTOTYPE_MASK ))
+         (((((ULONG)proto_va - MmProtopte_Base) << 2) & 0xfffffff0) | \
+                MM_PTE_PROTOTYPE_MASK )
 
 //++
 //ULONG
@@ -1341,6 +1373,10 @@ Revision History:
 #define MiProtoAddressForKernelPte(proto_va)  MiProtoAddressForPte(proto_va)
 
 
+
+#define MM_SUBSECTION_MAP (128*1024*1024)
+
+
 //++
 //PSUBSECTION
 //MiGetSubsectionAddress (
@@ -1368,9 +1404,9 @@ Revision History:
 //--
 #define MiGetSubsectionAddress(lpte)                               \
     ( ((lpte)->u.Subsect.WhichPool == 1) ?                         \
-       ((PSUBSECTION)((ULONG)MmNonPagedPoolStart +                 \
+       ((PSUBSECTION)((ULONG)MmSubsectionBase +                    \
                 (((lpte)->u.Long >> 8) << 3) ))                    \
-    :  ((PSUBSECTION)((ULONG)NON_PAGED_SYSTEM_END -                \
+    :  ((PSUBSECTION)((ULONG)MM_NONPAGED_POOL_END -                \
                  (((lpte)->u.Long >> 8) << 3))) )
 
 
@@ -1400,8 +1436,8 @@ Revision History:
 
 #define MiGetSubsectionAddressForPte(VA)                           \
     ( ((ULONG)VA < (ULONG)KSEG2_BASE) ?                            \
-         ( (((ULONG)VA - (ULONG)MmNonPagedPoolStart) << 5) | 0x4 ) \
-    :    ( (((ULONG)NON_PAGED_SYSTEM_END - (ULONG)VA) << 5 ) ) )
+         ( (((ULONG)VA - (ULONG)MmSubsectionBase) << 5) | 0x4 )    \
+    :    ( (((ULONG)MM_NONPAGED_POOL_END - (ULONG)VA) << 5 ) ) )
 
 
 //++
@@ -1893,16 +1929,14 @@ Revision History:
 //--
 
 #define MI_CONVERT_PHYSICAL_BUS_TO_PFN(Pa)                       \
-    ( RtlLargeIntegerShiftRight(Pa, (CCHAR)PAGE_SHIFT).LowPart )
+    ((ULONG)( (Pa).QuadPart >> ((CCHAR)PAGE_SHIFT)))
 
 
 
-#ifdef COLORED_PAGES
 
 typedef struct _MMCOLOR_TABLES {
     ULONG Flink;
     PVOID Blink;
-    LIST_ENTRY PrimaryColor;
 } MMCOLOR_TABLES, *PMMCOLOR_TABLES;
 
 typedef struct _MMPRIMARY_COLOR_TABLES {
@@ -1910,16 +1944,13 @@ typedef struct _MMPRIMARY_COLOR_TABLES {
 } MMPRIMARY_COLOR_TABLES, *PMMPRIMARY_COLOR_TABLES;
 
 
-extern MMPRIMARY_COLOR_TABLES MmFreePagesByPrimaryColor[2][MM_MAXIMUM_NUMBER_OF_COLORS];
+#if MM_MAXIMUM_NUMBER_OF_COLORS > 1
+extern MMPFNLIST MmFreePagesByPrimaryColor[2][MM_MAXIMUM_NUMBER_OF_COLORS];
+#endif
 
-extern MMCOLOR_TABLES MmFreePagesByColor[2][MM_SECONDARY_COLORS];
+extern PMMCOLOR_TABLES MmFreePagesByColor[2];
 
 extern ULONG MmTotalPagesForPagingFile;
-
-extern ULONG MiAlphaAxpNumberColors;
-extern ULONG MiAlphaAxpColorMask;
-
-#endif //COLORED_PAGES
 
 
 //
@@ -2003,6 +2034,7 @@ typedef struct _MMPTE {
     union  {
         ULONG Long;
         HARDWARE_PTE Hard;
+        HARDWARE_PTE Flush;
         MMPTE_PROTOTYPE Proto;
         MMPTE_SOFTWARE Soft;
         MMPTE_TRANSITION Trans;
@@ -2012,4 +2044,5 @@ typedef struct _MMPTE {
 } MMPTE;
 
 typedef MMPTE *PMMPTE;
+
 

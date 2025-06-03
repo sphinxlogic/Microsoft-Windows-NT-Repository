@@ -34,6 +34,15 @@ Environment:
 #include "wstring.hxx"
 
 
+#if defined ( _AUTOCHECK_ )
+#define IFSUTIL_EXPORT
+#elif defined ( _IFSUTIL_MEMBER_ )
+#define IFSUTIL_EXPORT    __declspec(dllexport)
+#else
+#define IFSUTIL_EXPORT    __declspec(dllimport)
+#endif
+
+
 DECLARE_CLASS( AUTOREG );
 
 
@@ -43,18 +52,22 @@ class AUTOREG : public OBJECT {
     public:
 
         STATIC
+        IFSUTIL_EXPORT
         BOOLEAN
         AddEntry (
             IN  PCWSTRING    CommandLine
             );
 
         STATIC
+        IFSUTIL_EXPORT
         BOOLEAN
         DeleteEntry (
-            IN  PCWSTRING    LineToMatch
+            IN  PCWSTRING    LineToMatch,
+            IN  BOOLEAN      PrefixOnly     DEFAULT FALSE
             );
 
         STATIC
+        IFSUTIL_EXPORT
         BOOLEAN
         IsEntryPresent (
             IN PCWSTRING     LineToMatch

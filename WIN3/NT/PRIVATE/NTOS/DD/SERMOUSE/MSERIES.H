@@ -32,7 +32,8 @@ Revision History:
 
 #define MSER_PROTOCOL_MP        0
 #define MSER_PROTOCOL_BP        1
-#define MSER_PROTOCOL_MAX       2
+#define MSER_PROTOCOL_Z         2
+#define MSER_PROTOCOL_MAX       3
 
 //
 // Type definitions.
@@ -43,6 +44,7 @@ typedef enum _MOUSETYPE {
         MOUSE_2B,
         MOUSE_3B,
         BALLPOINT,
+        MOUSE_Z,
         MAX_MOUSETYPE
 } MOUSETYPE;
 
@@ -66,6 +68,14 @@ MSerHandlerBP(
 
 BOOLEAN
 MSerHandlerMP(
+    IN PMOUSE_INPUT_DATA CurrentInput,
+    IN PHANDLER_DATA HandlerData,
+    IN UCHAR Value,
+    IN UCHAR LineState
+    );
+
+BOOLEAN
+MSerHandlerZ(
     IN PMOUSE_INPUT_DATA CurrentInput,
     IN PHANDLER_DATA HandlerData,
     IN UCHAR Value,

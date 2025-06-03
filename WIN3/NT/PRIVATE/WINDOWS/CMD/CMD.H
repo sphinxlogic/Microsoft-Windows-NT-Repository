@@ -6,12 +6,13 @@
 #undef iswspace
 #undef iswxdigit
 
-//#include <stdio.h>
+#include <stdio.h>
 #define  inpw _inpw                     /* To keep the compiler happy */
 #define  outpw _outpw                   /* To keep the compiler happy */
 #include <conio.h>
 #include <fcntl.h>
 #include <share.h>
+#include <search.h>
 #include <setjmp.h>
 #ifdef DOSWIN32
 #undef setjmp
@@ -21,7 +22,6 @@
 #include <io.h>
 #include <time.h>
 #include <locale.h>
-#include <malloc.h>
 #include <memory.h>
 #include <process.h>
 #include <string.h>
@@ -36,11 +36,15 @@
 #include <ntrtl.h>
 #include <nturtl.h>
 #include <windows.h>
+#include <shellapi.h>
+#include <shlapip.h>
 #include <tchar.h>
 #endif
 
 #ifndef UNICODE
+#ifndef WIN95_CMD
 #error Unicode must be defined!!!!
+#endif // WIN95_CMD
 #endif
 
 //
@@ -49,14 +53,25 @@
 
 #undef USE_STACKAVAIL
 
+//
+// CMDEXTVERSION is a number that is incremented whenever the Command
+// Extensions enabled by CMD /X undergo a significant revision.  Allow
+// batch scripts to use new features conditionally via the following
+// syntax:
+//
+//      IF CMDEXTVERSION 1 statement
+//
+
+#define CMDEXTVERSION 1
+
 
 /*  M000 - These are definitions for specific file classification and
  *  permission variables used in redirection
  */
 
-#define OP_APPEN   (O_RDWR|O_APPEND|O_CREAT)	/* Append redir file	   */
-#define OP_TRUNC   (O_WRONLY|O_CREAT|O_TRUNC)	/* Truncate redir file	   */
-#define OP_PERM    (S_IREAD|S_IWRITE|S_IEXEC)	/* R/W/X permission 0700   */
+#define OP_APPEN   (O_RDWR|O_APPEND|O_CREAT)    /* Append redir file       */
+#define OP_TRUNC   (O_WRONLY|O_CREAT|O_TRUNC)   /* Truncate redir file     */
+#define OP_PERM    (S_IREAD|S_IWRITE|S_IEXEC)   /* R/W/X permission 0700   */
 
 //
 // These 3 file handles are valid only for the Lowio routines exported
@@ -78,10 +93,9 @@
 
 #define RIO_OTHER   0   /* Means call by misc. function                    */
 #define RIO_MAIN    0   /* Means call by main()                            */
-#define RIO_DETACH  1   /* Means call by Detach()                          */
-#define RIO_PIPE    2   /* Means call by ePipe()                           */
-#define RIO_BATLOOP 3   /* Means call by BatLoop()                         */
-#define RIO_REPROCESS 4 /* Means reprocessing redir by AddRedir            */
+#define RIO_PIPE    1   /* Means call by ePipe()                           */
+#define RIO_BATLOOP 2   /* Means call by BatLoop()                         */
+#define RIO_REPROCESS 3 /* Means reprocessing redir by AddRedir            */
 
 
 #define APP_FLG     1   /* Flag bit indicates append when redir stdout     */
@@ -92,6 +106,7 @@
 #define NOFLAGS         0  /* No flag bits set                             */
 #define CHECKDRIVES     1  /* Check the drives of the args to this command */
 #define NOSWITCHES      2  /* No switches are allowed for this command     */
+#define EXTENSCMD       4  /* Only allowed if fEnableExtensions is TRUE    */
 /* M016 ends    */
 
 //
@@ -116,6 +131,8 @@
 #define CSSTR         TEXT("&")       /* Command separator string                */
 #define EQ            TEXT('=')       /* Equals character                        */
 #define EQSTR        TEXT("==")       /* Equals string                           */
+#define EQI           TEXT('~')       /* Equals character (case insensitive)     */
+#define EQISTR       TEXT("=~")       /* Equals string (case insensitive)        */
 #define INOP          TEXT('<')       /* Input redirection character             */
 #define INSTR         TEXT("<")       /* M008 - Input redirection string         */
 #define IAPSTR        TEXT("<<")      /* M022 - Will be used in future (<<foo)   */
@@ -145,7 +162,7 @@
 #define GT_LPOP         8       /* M002 - Ok to parse '(' & '@' as oper's   */
 #define GT_RPOP        16       /* M002 - Ok to parse ')' as operator      */
 #define GT_REM         32       /* M007 - Parsing REM arg token            */
-#define LBUFLEN      1024   /* Lexer's buffer length                        */
+#define LBUFLEN      2048   /* Lexer's buffer length                        */
 #define LEXERROR       -1   /* Lexer error code                             */
 #define LX_UNGET        0   /* M020 - Lexer flag, Unget last token          */
 #define LX_ARG          1   /* Lexer flag(), get an argstring               */
@@ -158,7 +175,7 @@
                                         of a double byte code               */
 #define LX_DELOP   0x0100   /* Returned by TExtCheck, found delimeter/operator*/
 #define MAINERROR       1   /* Main error code                              */
-#define MAXTOKLEN    1024   /* Maximum token length                         */
+#define MAXTOKLEN    4096   /* Maximum token length                         */
 #define PC_NOTS         0   /* Flag to ParseCond(), "NOT"s are allowed      */
 #define PC_NONOTS       1   /* Flag to ParseCond(), "NOT"s are not allowed  */
 #define PIO_DO          1   /* Flag to ParseInOut(), do read token first    */
@@ -170,7 +187,6 @@
 #define SECTSIZE      512   /* size of one disk sector                     */
 
 #define KBDBUFLEN 255           /* size of keyboard input buffer  @@4      */
-//#define TMPBUFLEN 256+768       /* size of temporary output buffers */
 #define TMPBUFLEN   (1024 * 2)
 
 
@@ -193,7 +209,7 @@
 #define SFE_FAIL        3   /*  Ret'd by SearchForExecutable, out of memory */
 #define SFE_BADPATH     4   /*  Ret'd by SearchForExecutable, specified
                                                         path is bad         */
-#define SFE_ISDBAT      5   /*  Ret'd by SearchForExecutable, Dos Bat found */
+#define SFE_ISDIR       5   /*  Ret'd by SearchForExecutable, directory     */
 
 
 /* Definitions used by or passed to the functions in CBATCH.C                */
@@ -270,6 +286,7 @@
 #define CI_ISDEVICE       128   /* File is a device                         */
 #define CI_FIRSTSRC       256   /* First source in source list              */
 #define CI_SHORTNAME      512   /* if copying to FAT from NTFS, use short name */
+#define CI_RESTARTABLE   1024   /* if the copy is restartable               */
 
 /* Flags passed to BuildFSpec()                                             */
 #define BF_SRC              1   /* Called from OpenSrc()                    */
@@ -288,7 +305,7 @@
 /* Definitions/structures used by or passed to the functions in CENV.C      */
 
 struct envdata {
-        PWCHAR    handle ;      /* Environment pointer                     */
+        TCHAR    *handle ;      /* Environment pointer                     */
         unsigned cursize ;      /* # of bytes used in the segment          */
         unsigned maxsize ;      /* # of bytes in the entire segment        */
 } ;
@@ -320,7 +337,6 @@ struct envdata {
 #define BACKGRND 1         /* Start session in background */
 #define ST_UNDEF   -1      /* Parameter isn't defined yet */
 #define INDEPENDANT 0      /* New session will be independant */
-#define MAXPARAMLENGTH 3   /* Maximum allowable length for any paramter */
 #define ST_KSWITCH   1     /* Start parameter /K */
 #define ST_CSWITCH   2     /* Start parameter /C */
 #define ST_NSWITCH   3     /* Start parameter /N */
@@ -369,10 +385,10 @@ typedef int CRTHANDLE;
  */
 
 struct pipedata {
-        CRTHANDLE	rh;		/* Pipe read handle                */
-        CRTHANDLE	wh;		/* Pipe write handle               */
-        CRTHANDLE	shr;		/* Handles where the normal...     */
-        CRTHANDLE	shw;		/* ...STDIN/OUT handles are saved  */
+        CRTHANDLE       rh;             /* Pipe read handle                */
+        CRTHANDLE       wh;             /* Pipe write handle               */
+        CRTHANDLE       shr;            /* Handles where the normal...     */
+        CRTHANDLE       shw;            /* ...STDIN/OUT handles are saved  */
         unsigned lPID ;                 /* Pipe lh side PID                */
         unsigned rPID ;                 /* Pipe rh side PID                */
         unsigned lstart ;               /* Start Information of lh side D64*/
@@ -412,7 +428,7 @@ struct pipedata {
 #define CTRLZ         0x1A  /* M004 - Def for ^Z for lexer                 */
 #define CTRLC         0x03  /* M035 - Def for ^C for ePause                */
 #define SPACE         TEXT(' ')  /* M014 - Def for space character         */
-#define SUCCESS 	0   /* Command/function succeeded		   */
+#define SUCCESS         0   /* Command/function succeeded                  */
 #define MAXTOWRITE    160   /* maximum number of chars to write - for ctrl-s */
 
 //
@@ -472,11 +488,11 @@ typedef struct PATDSC {
 // Name, Extension, Date/Time, Size and group directories first
 // Each can be sort either by Assending or descending order.
 //
-typedef struct {	    // srtdsc
+typedef struct {            // srtdsc
 
     USHORT  Order;
     USHORT  Type;
-    int(* fctCmp) (const void * elem1, const void * elem2);
+    int(_CRTAPI1 * fctCmp) (const void * elem1, const void * elem2);
 
 } SORTDESC, *PSORTDESC;
 
@@ -484,19 +500,25 @@ typedef struct {	    // srtdsc
 typedef struct {
 
         ULONG           rgfSwitchs;
-	ULONG	        rgfAttribs;
-	ULONG	        rgfAttribsOnOff;
+        ULONG           rgfAttribs;
+        ULONG           rgfAttribsOnOff;
         ULONG           csrtdsc;
         ULONG           dwTimeType;
-	SORTDESC        rgsrtdsc[MAXSORTDESC];
+        SORTDESC        rgsrtdsc[MAXSORTDESC];
         PATDSC          patdscFirst;
         ULONG           cpatdsc;
         PTCHAR          pszPattern;
-	} DRP;
+        } DRP;
 
 typedef DRP *PDRP;
 
-#define MAXCBMSGBUFFER 2048
+//
+// The following number is also in makefile.inc as a parameter to MC.EXE
+// to prevent it from generating a message that is bigger than we can handle.
+//
+
+#define MAXCBMSGBUFFER 6000
+TCHAR MsgBuf[MAXCBMSGBUFFER] ;
 
 //
 // The buffers holding WIN32_FIND_DATA for dir use a USHORT size field
@@ -513,8 +535,8 @@ typedef DRP *PDRP;
 typedef struct {
         USHORT  cb;
         USHORT  obAlternate;
-	WIN32_FIND_DATA data;
-	} FF, *PFF, **PPFF;
+        WIN32_FIND_DATA data;
+        } FF, *PFF, **PPFF;
 
 typedef struct FS {
 
@@ -523,6 +545,7 @@ typedef struct FS {
     ULONG       cpatdsc;
     struct FS * pfsNext;
     BOOLEAN     fIsFat;
+    BOOLEAN     fDelPrompted;
     ULONG       cff;
     PFF         pff;
     PPFF        prgpff;
@@ -547,7 +570,7 @@ typedef struct {            // scr
     ULONG  ccolMax;    // no. of cols on screen
     ULONG  crowPause;  // no. of rows to pause on.
     ULONG  cb;         // no. of characters in row - different than
-		       // ccol, since Kanjii characters are half-width
+                       // ccol, since Kanjii characters are half-width
 
 } SCREEN, *PSCREEN;
 
@@ -567,54 +590,62 @@ typedef struct {            // scr
 
 struct node {                   /* Used for operators                      */
         int type ;              /* Type of operator                        */
+        struct savtype *save ;  /* FOR processor saves orig strings here   */
+        struct relem *rio ;     /* M022 - Linked redirection list          */
         struct node *lhs ;      /* Ptr to left hand side of the operator   */
         struct node *rhs ;      /* Ptr to right hand side of the operator  */
-        struct relem *rio ;     /* M022 - Linked redirection list          */
-        int extra1 ;            /* M022 - Padding now needed               */
-        int extra2 ;            /* M022 - Padding now needed               */
-        struct savtype *save ;  /* FOR processor saves orig strings here   */
+        int extra[ 4 ] ;        /* M022 - Padding now needed               */
 } ;
 
 struct cmdnode {                /* Used for all commands except ones below */
         int type ;              /* Type of command                         */
-	PTCHAR cmdline ;	 /* Ptr to command line 		    */
-	PTCHAR	argptr ;	 /* Ptr to type of command		    */
-        struct relem *rio ;     /* M022 - Linked redirection list          */
-        int extra1 ;            /* M022 - Padding now needed               */
-        int extra2 ;            /* M022 - Padding now needed               */
         struct savtype *save ;  /* FOR processor saves orig strings here   */
+        struct relem *rio ;     /* M022 - Linked redirection list          */
+        PTCHAR cmdline ;         /* Ptr to command line                    */
+        PTCHAR  argptr ;         /* Ptr to type of command                 */
+        int flag ;              /* M022 - Valid for cond and goto types    */
+        int cmdarg ;            /* M022 - Argument to STRTYP routine       */
 } ;
+
+#define CMDNODE_FLAG_GOTO           0x0001
+#define CMDNODE_FLAG_IF_IGNCASE     0x0002
+#define CMDNODE_ARG_IF_EQU 1
+#define CMDNODE_ARG_IF_NEQ 2
+#define CMDNODE_ARG_IF_LSS 3
+#define CMDNODE_ARG_IF_LEQ 4
+#define CMDNODE_ARG_IF_GTR 5
+#define CMDNODE_ARG_IF_GEQ 6
 
 struct fornode {                /* Used for FOR commands                   */
         int type ;              /* FOR command type                        */
-	PTCHAR cmdline ;	 /* Ptr to command line 		    */
-	PTCHAR arglist ;	 /* Ptr to the FOR argument list	    */
+        struct savtype *save ;  /* FOR processor saves orig strings here   */
+        struct relem *rio ;     /* M022 - Linked redirection list          */
+        PTCHAR cmdline ;        /* Ptr to command line                     */
+        PTCHAR arglist ;        /* Ptr to the FOR argument list            */
         struct node *body ;     /* Ptr to the body of the FOR              */
         unsigned forvar ;       /* FOR variable - MUST BE UNSIGNED         */
         int flag ;              /* Flag                                    */
-        struct savtype *save ;  /* FOR processor saves orig strings here   */
+        union {
+            PTCHAR recurseDir ;
+            PTCHAR parseOpts ;
+        } ;
 } ;
+
+#define FOR_LOOP            0x0001
+#define FOR_MATCH_DIRONLY   0x0002
+#define FOR_MATCH_RECURSE   0x0004
+#define FOR_MATCH_PARSE     0x0008
 
 struct ifnode {                 /* Used for IF commands                    */
         int type ;              /* IF command type                         */
-	PTCHAR cmdline ;	 /* Ptr to command line 		    */
+        struct savtype *save ;  /* FOR processor saves orig strings here   */
+        struct relem *rio ;     /* M022 - Linked redirection list          */
+        PTCHAR cmdline ;        /* Ptr to command line                     */
         struct cmdnode *cond ;  /* Ptr to the IF condition                 */
         struct node *ifbody ;   /* Ptr to the body of the IF               */
-	PTCHAR elseline ;	 /* Ptr to ELSE command line		    */
+        PTCHAR elseline ;       /* Ptr to ELSE command line                */
         struct node *elsebody ; /* Ptr to the body of the ELSE             */
-        struct savtype *save ;  /* FOR processor saves orig strings here   */
 } ;
-
-struct detnode {                /* Used for DETACH commands                */
-        int type ;              /* DETACH command type                     */
-	PTCHAR cmdline ;	 /* Ptr to command line 		    */
-        struct node *body ;     /* Ptr to the body of the DETACH           */
-        int extra0 ;            /* Padding                                 */
-        int extra1 ;            /* Padding                                 */
-        int extra2 ;            /* Padding                                 */
-        struct savtype *save ;  /* FOR processor saves orig strings here   */
-} ;
-
 
 /* Operator and Command type values.  These definitions are the values
  * assigned to the type fields in the parse tree nodes and can be used as
@@ -653,35 +684,40 @@ struct detnode {                /* Used for DETACH commands                */
 #define STRTTYP    31   /* START @@*/
 #define APPDTYP    32   /* APPEND @@ */
 #define KEYSTYP    33   /* KEYS @@5 */
-#define MOVETYP    34	/* MOVE @@5 */
+#define MOVETYP    34   /* MOVE @@5 */
 
-#define PUSHTYP    35	/* PushD	*/
-#define POPTYP	   36	/* PopD 	*/
+#define PUSHTYP    35   /* PushD        */
+#define POPTYP     36   /* PopD         */
 #define BRKTYP     37   /* M012 - Added new command type                  @@*/
+#define ASSOCTYP   38   /* M012 - Added new command type                  @@*/
+#define FTYPETYP   39   /* M012 - Added new command type                  @@*/
+#define COLORTYP   40   /* COLOR */
 
-#define CMDHIGH    37   /* Cmds higher than this are unique parse types @@*/
+#define CMDHIGH    40   /* Cmds higher than this are unique parse types @@*/
 
-#define FORTYP     38   /* FOR                                                                    @@*/
-#define IFTYP      39   /* IF                                                                     @@*/
-#define DETTYP     40   /* DETACH                                                                 @@*/
-#define REMTYP     41   /* M007 - REM moved here from position 24 @@*/
+#define FORTYP     41   /* FOR                                                                    @@*/
+#define IFTYP      42   /* IF                                                                     @@*/
+#define REMTYP     43   /* M007 - REM moved here from position 24 @@*/
 
-#define CMDMAX	   41	/* M012 - Values higher are not commands  @@*/
+#define CMDMAX     43   /* M012 - Values higher are not commands  @@*/
 
-#define CSTYP	   42	/* Command separator				   @@*/
-#define ORTYP	   43	/* Or operator						   @@*/
-#define ANDTYP	   44	/* And operator 					   @@*/
-#define PIPTYP	   45	/* Pipe operator					   @@*/
-#define PARTYP	   46	/* Parenthesis						   @@*/
+#define CSTYP      44   /* Command separator                               @@*/
+#define ORTYP      45   /* Or operator                                             @@*/
+#define ANDTYP     46   /* And operator                                            @@*/
+#define PIPTYP     47   /* Pipe operator                                           @@*/
+#define PARTYP     48   /* Parenthesis                                             @@*/
 
-#define ERRTYP	   47	/* ERRORLEVEL		 (used by if)	   @@*/
-#define EXSTYP	   48	/* EXIST		 (used by if)		   @@*/
-#define NOTTYP	   49	/* NOT			 (used by if)		   @@*/
-#define STRTYP	   50	/* String comparison (used by if)	   @@*/
-#define SILTYP     51   /* M024 - "SILENT" unary operator      @@*/
-#define HELPTYP    52   /* Help for FOR, IF and REM              */
+#define CMDVERTYP  49   /* ERRORLEVEL            (used by if) */
+#define ERRTYP     50   /* ERRORLEVEL            (used by if) */
+#define DEFTYP     51   /* DEFINED               (used by if) */
+#define EXSTYP     52   /* EXIST                 (used by if) */
+#define NOTTYP     53   /* NOT                   (used by if) */
+#define STRTYP     54   /* String comparison (used by if) */
+#define CMPTYP     55   /* General comparison (used by if) */
+#define SILTYP     56   /* M024 - "SILENT" unary operator */
+#define HELPTYP    57   /* Help for FOR, IF and REM */
 
-#define TBLMAX     52   /* M012 - Highest numbered table entry @@*/
+#define TBLMAX     57   /* M012 - Highest numbered table entry */
 
 
 
@@ -692,6 +728,136 @@ struct detnode {                /* Used for DETACH commands                */
 
 #if DBG
 #define DEBUG(a) Deb a
+
+/* The following are definitions of the debugging group and level bits
+ * for the code in cbatch.c
+ */
+
+#define BPGRP   0x0100          /* Batch processor group                   */
+#define BPLVL   0x0001          /* Batch processor level                   */
+#define FOLVL   0x0002          /* FOR processor level                     */
+#define IFLVL   0x0004          /* IF processor level                      */
+#define OTLVL   0x0008          /* Other batch commands level              */
+
+/* The following are definitions of the debugging group and level bits
+ * for the code in cclock.c
+ */
+
+#define CLGRP   0x4000  /* Other commands group     */
+#define DALVL   0x0001  /* Date command level       */
+#define TILVL   0x0002  /* Time command level       */
+
+/* The following are definitions of the DEBUGging group and level bits
+ * for the code in cfile.c, cpparse.c, cpwork.c
+ */
+
+#define FCGRP   0x0020  // File commands group
+#define COLVL   0x0001  // Copy level
+#define DELVL   0x0002  // Delete level
+#define RELVL   0x0004  // Rename level
+
+
+/* The following are definitions of the debugging group and level bits
+ * for the code in cinfo.c and display.c
+ */
+
+#define ICGRP   0x0040  /* Informational commands group */
+#define DILVL   0x0001  /* Directory level              */
+#define TYLVL   0x0002  /* Type level                   */
+#define VOLVL   0x0008  /* Volume level                 */
+#define DISLVL  0x0040  /* Directory level              */
+
+/* The following are definitions of the debugging group and level bits
+ * for the code in cinit.c
+ */
+
+#define INGRP   0x0002          /* Command Initialization group            */
+#define ACLVL   0x0001          /* Argument checking level                 */
+#define EILVL   0x0002          /* Environment initialization level        */
+#define RSLVL   0x0004          /* Rest of initialization level            */
+
+/* The following are definitions of the debugging group and level bits
+ * for the code in clex.c, cparse.c
+ */
+
+#define PAGRP   0x0004  /* Parser                                          */
+#define PALVL   0x0001  /* Parsing          */
+#define LXLVL   0x0002  /* Lexing                                          */
+#define LFLVL   0x0004  /* Input routine                                   */
+#define DPLVL   0x0008  /* Dump parse tree      */
+#define BYLVL   0x0010  /* Byte input routines                             */
+
+//
+// The following are definitions of the debugging group and level bits
+// for the code in cmd.c
+//
+
+#define MNGRP   0x0001                  // Main command loop code group
+#define MNLVL   0x0001                  // Main function level
+#define DFLVL   0x0002                  // Dispatch function level
+#define RIOLVL  0x0004                  // Redirection function level
+
+/* The following are definitions of the debugging group and level bits
+ * for the code in cmem.c
+ */
+
+#define MMGRP   0x1000  /* Memory Manager                                  */
+#define MALVL   0x0001  /* Memory allocators                               */
+#define LMLVL   0x0002  /* List managers                                   */
+#define SMLVL   0x0004  /* Segment manipulators                            */
+
+
+/* The following are definitions of the debugging group and level bits
+ * for the code in cop.c
+ */
+
+#define OPGRP	0x0008	/* Operators group	    */
+#define PILVL	0x0001	/* Pipe level		    */
+#define PNLVL   0x0002  /* Paren operator level     */
+
+
+/* The following are definitions of the debugging group and level bits
+ * for the code in cother.c
+ */
+
+#define OCGRP   0x0400  /* Other commands group     */
+#define BRLVL   0x0001  /* Break command level      */
+#define CLLVL   0x0002  /* Cls command level        */
+#define CTLVL   0x0004  /* Ctty command level       */
+#define EXLVL   0x0008  /* Exit command level       */
+#define VELVL   0x0010  /* Verify command level     */
+
+
+/* The following are definitions of the debugging group and level bits
+ * for the code in cpath.c
+ */
+
+#define PCGRP   0x0010  /* Path commands group      */
+#define MDLVL   0x0001  /* Mkdir level              */
+#define CDLVL   0x0002  /* Chdir level              */
+#define RDLVL   0x0004  /* Rmdir level              */
+
+
+/* The following are definitions of the debugging group and level bits
+ * for the code in csig.c
+ */
+
+#define SHGRP   0x0800  /* Signal handler group     */
+#define MSLVL   0x0001  /* Main Signal handler level     */
+#define ISLVL   0x0002  /* Init Signal handler level     */
+
+/* The following are definitions of the debugging group and level bits
+ * for the code in ctools1.c, ctools2.c, ctools3.c and ffirst.c
+ */
+
+#define CTGRP   0x2000  /* Common tools group           */
+#define CTMLVL  0x0400  /* Common tools misc. level     */
+#define BFLVL   0x0800  /* BuildFSpec() level           */
+#define SFLVL   0x1000  /* ScanFSpec() level            */
+#define SSLVL   0x2000  /* SetAndSaveDir() level        */
+#define TSLVL   0x4000  /* TokStr() level               */
+#define FPLVL   0x8000  /* FullPath level               */
+
 #else
 #define DEBUG(a)
 #endif
@@ -710,6 +876,7 @@ struct detnode {                /* Used for DETACH commands                */
 #define A_AEV   55      /* all attributes except vol         */
 #define A_AEDV  39      /* all attributes except dir & vol   */
 #define A_AEDVH 37      /* all except dir/vol/hidden (M040)  */
+#define A_AEVH  53      /* all except vol/hidden             */
 
 
 /*  Batdata is the structure which contains all of the information needed to
@@ -735,20 +902,26 @@ struct detnode {                /* Used for DETACH commands                */
  *      nestable batch jobs are achieved.
  */
 
-#define CMD_MAX_SAVED_ENV 10
+#define CMD_MAX_SAVED_ENV 32
+
+struct batsaveddata {
+    TCHAR *dircpy ;
+    struct envdata * envcpy;
+    BOOLEAN fEnableExtensions;
+} ;
 
 struct batdata {
         TCHAR *filespec ;
-        TCHAR *dircpy[CMD_MAX_SAVED_ENV] ;
         long filepos ;
         int stackmin ;                                          /* M037    */
         int stacksize ;
         int numsavedenv;
-        struct envdata * envcpy[CMD_MAX_SAVED_ENV];
         TCHAR *orgargs ;
         TCHAR *args ;
         TCHAR *aptrs[10] ;
         int alens[10] ;
+        TCHAR *orgaptr0 ;
+        struct batsaveddata *saveddata[CMD_MAX_SAVED_ENV] ;
         struct batdata *backptr ;
 } ;
 
@@ -765,7 +938,7 @@ struct rio {
         int type ;                  /* Type of redir'ing process       */
         CRTHANDLE stdio ;           /* Highest handle for this node    */
         struct node *rnod ;         /* Associated parse node ptr       */
-	struct rio *back ;	    /* Pointer to prior list element   */
+        struct rio *back ;          /* Pointer to prior list element   */
 } ;
 
 // relem is used in a linked list, the head element of which is pointed to by
@@ -776,12 +949,12 @@ struct rio {
 // whether this is to be appended and a pointer to the next list element.
 
 struct relem {
-	CRTHANDLE rdhndl ;	// handle to be redirected
-	TCHAR *fname ;		// filename (or &n)
-	CRTHANDLE svhndl ;	// where orig handle is saved
-	int flag ;		// Append flag
-	TCHAR rdop ;		// Type ('>' | '<')
-	struct relem *nxt ;	// Next structure
+        CRTHANDLE rdhndl ;      // handle to be redirected
+        TCHAR *fname ;          // filename (or &n)
+        CRTHANDLE svhndl ;      // where orig handle is saved
+        int flag ;              // Append flag
+        TCHAR rdop ;            // Type ('>' | '<')
+        struct relem *nxt ;     // Next structure
 };
 
 /* Used to hold information on Copy sources and destinations.               */
@@ -797,6 +970,11 @@ struct cpyinfo {
         struct cpyinfo *next ;          /* Next ptr, used with sources only */
 } ;
 
+
+/* Following is true if user specifically enable the potentially incompatible */
+/* extensions to CMD.EXE.                                                     */
+
+extern BOOLEAN fEnableExtensions;
 
 /* Message Retriever definitions */
 
@@ -841,18 +1019,15 @@ extern BOOLEAN AnyDbcsLeadChars;
 // for NULL string pointer arguments and return NULL instead of generating
 // an access violation dereferencing a null pointer.
 //
-//
-// BUGBUG davegi Let's get rid of these hacks post-PDK1!
-//
 
 #define mystrlen( str )                     \
-    (( str != NULL ) ? _tcslen( str ) : ( 0 ))
+    ( (str) ? _tcslen( str ) : ( 0 ))
 
 #define mystrcpy( s1, s2 )                  \
-    ((( s1 != NULL ) && ( s2 != NULL )) ? _tcscpy( s1, s2 ) : ( NULL ))
+    ( ((s1) && (s2)) ? _tcscpy( s1, s2 ) : ( NULL ))
 
 #define mystrcat( s1, s2 )                  \
-    ((( s1 != NULL ) && ( s2 != NULL )) ? _tcscat( s1, s2 ) : ( NULL ))
+    ( ((s1) && (s2)) ? _tcscat( s1, s2 ) : ( NULL ))
 
 extern TCHAR DbcsFlags[];
 
@@ -877,3 +1052,44 @@ extern TCHAR DbcsFlags[];
 
 #define ALL_STOP        0       /* Terminate All Sessions                */
 #define SPEC_STOP       1       /* Terminate Specified Session           */
+
+
+// to handle OS/2 vs DOS behavior (e.g. errorlevel) in a script files
+
+#define NO_TYPE         0
+#define BAT_TYPE        1
+#define CMD_TYPE        2
+
+
+
+#if defined( JAPAN )  // v-junm - 06/03/93
+// Sets the Language Id in the TEB to Japanese if console output CP is
+// Japanese.  This is done in order for FormatMessage to display Japanese
+// when cmd is running in Japanese code page.  All messages displayed in
+// non-JP console output code page will be displayed in English.
+
+#define SetTEBLangID() \
+        if ( CurrentCP == 932 )                                         \
+            SetThreadLocale(                                            \
+                MAKELCID(                                               \
+                    MAKELANGID( LANG_JAPANESE, SUBLANG_ENGLISH_US ),    \
+                    SORT_DEFAULT                                        \
+                    )                                                   \
+                );                                                      \
+        else                                                            \
+            SetThreadLocale(                                            \
+                MAKELCID(                                               \
+                    MAKELANGID( LANG_ENGLISH, SUBLANG_ENGLISH_US ),     \
+                    SORT_DEFAULT                                        \
+                    )                                                   \
+                );
+
+#else  // not JAPAN
+#define SetTEBLangID()
+#endif  // JAPAN
+
+#include "cmdproto.h"
+#include "console.h"
+#include "dir.h"
+#include <vdmapi.h>
+#include <conapi.h>

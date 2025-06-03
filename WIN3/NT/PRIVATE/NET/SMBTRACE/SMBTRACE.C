@@ -179,7 +179,7 @@ _CRTAPI1 main (
 
     for ( i = 1; i < argc; i++ ) {
 
-        if ( strnicmp( "/v", argv[i], 2 ) == 0 ) {
+        if ( _strnicmp( "/v", argv[i], 2 ) == 0 ) {
 
             colon = strchr( argv[i], ':' );
             if ( !colon ) {
@@ -194,7 +194,7 @@ _CRTAPI1 main (
                 return 3;
             }
 
-        } else if ( strnicmp( "/d", argv[i], 2 ) == 0 ) {
+        } else if ( _strnicmp( "/d", argv[i], 2 ) == 0 ) {
 
             colon = strchr( argv[i], ':' );
             if ( !colon ) {
@@ -209,7 +209,7 @@ _CRTAPI1 main (
                 return 5;
             }
 
-        } else if ( strnicmp( "/m", argv[i], 2 ) == 0 ) {
+        } else if ( _strnicmp( "/m", argv[i], 2 ) == 0 ) {
 
             colon = strchr( argv[i], ':' );
             if ( !colon ) {
@@ -225,7 +225,7 @@ _CRTAPI1 main (
                 return 7;
             }
 
-        } else if ( strnicmp( "/b", argv[i], 2 ) == 0 ) {
+        } else if ( _strnicmp( "/b", argv[i], 2 ) == 0 ) {
 
             colon = strchr( argv[i], ':' );
             if ( !colon ) {
@@ -242,7 +242,7 @@ _CRTAPI1 main (
 
             ViewSize *= 1024L;
 
-        } else if ( strnicmp( "/n", argv[i], 2 ) == 0 ) {
+        } else if ( _strnicmp( "/n", argv[i], 2 ) == 0 ) {
 
             colon = strchr( argv[i], ':' );
             if ( !colon ) {
@@ -258,7 +258,7 @@ _CRTAPI1 main (
             }
 
 
-        } else if ( strnicmp( "/rdr", argv[i], 4 ) == 0 ) {
+        } else if ( _strnicmp( "/rdr", argv[i], 4 ) == 0 ) {
 
             IsServer         = FALSE;
             DeviceName       = DD_NFS_DEVICE_NAME_U;
@@ -268,8 +268,8 @@ _CRTAPI1 main (
             StartFsControl   = FSCTL_LMR_START_SMBTRACE;
             EndFsControl     = FSCTL_LMR_END_SMBTRACE;
 
-        } else if (( strnicmp( "/srv", argv[i], 4 ) == 0 )
-               ||  ( strnicmp( "/svr", argv[i], 4 ) == 0 )) {
+        } else if (( _strnicmp( "/srv", argv[i], 4 ) == 0 )
+               ||  ( _strnicmp( "/svr", argv[i], 4 ) == 0 )) {
 
             IsServer         = TRUE;
             DeviceName       = SERVER_DEVICE_NAME;
@@ -279,15 +279,15 @@ _CRTAPI1 main (
             StartFsControl   = FSCTL_SRV_START_SMBTRACE;
             EndFsControl     = FSCTL_SRV_END_SMBTRACE;
 
-        } else if ( strnicmp( "/slow", argv[i], 3 ) == 0 ) {
+        } else if ( _strnicmp( "/slow", argv[i], 3 ) == 0 ) {
 
             SlowMode = TRUE;
 
-        } else if ( strnicmp( "/fast", argv[i], 2 ) == 0 ) {
+        } else if ( _strnicmp( "/fast", argv[i], 2 ) == 0 ) {
 
             SlowMode = FALSE;
 
-        } else if ( strnicmp( "/stop", argv[i], 3 ) == 0 ) {
+        } else if ( _strnicmp( "/stop", argv[i], 3 ) == 0 ) {
 
             stopSmbTrace = TRUE;
 

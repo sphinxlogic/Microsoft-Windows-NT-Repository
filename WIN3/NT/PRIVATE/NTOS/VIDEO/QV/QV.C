@@ -53,7 +53,7 @@ QVInterruptService (
     PVOID HwDeviceExtension
     );
 
-BOOLEAN 
+BOOLEAN
 QVStartIO(
     PVOID HwDeviceExtension,
     PVIDEO_REQUEST_PACKET RequestPacket
@@ -92,7 +92,7 @@ ZeroMemAndDac(
 VP_STATUS
 QvSetExtendedMode(
     PHW_DEVICE_EXTENSION HwDeviceExtension,
-    ULONG ibMode, 
+    ULONG ibMode,
     ULONG ibMonClass
     );
 
@@ -168,7 +168,7 @@ Return Value:
     // Once all the relevant information has been stored, call the video
     // port driver to do the initialization.
     // For this device we will repeat this call two times, for ISA & EISA.
-    // 
+    //
     // We will return the minimum of all return values.
     //
 
@@ -263,11 +263,11 @@ Return Value:
     VP_STATUS status;
     BOOLEAN bFound = FALSE;
     BOOLEAN fDeviceDataDone;            // TRUE if the VideoPortGetDeviceData
-					// has been completed
+                                        // has been completed
 
 
     // Note that index 0 in this structure is the QVision framebuffer base
-    // address.  This information should eventually be retrieved from 
+    // address.  This information should eventually be retrieved from
     // registry info.
 
     VIDEO_ACCESS_RANGE accessRange[] = {
@@ -280,12 +280,12 @@ Return Value:
 #endif
         {0x000003C0, 0,16, 1, 1, 1}, // [1] Various VGA regs
         {0x000003D4, 0, 8, 1, 1, 1}, // [2] System Control Registers
-        {0x000013C6, 0, 4, 1, 1, 0}, // [3] Triton VDAC status, cursor ram, command 1 & 2 
+        {0x000013C6, 0, 4, 1, 1, 0}, // [3] Triton VDAC status, cursor ram, command 1 & 2
         {0x000023C0, 0, 6, 1, 1, 0}, // [4] Blt source addr, width, height
         {0x000023CA, 0, 8, 1, 1, 0}, // [5] Blt height wrk, src pitch, dest offst, dest pitch
         {0x000033C0, 0,16, 1, 1, 0}, // [6] Triton blt start & end mask, rot, skew; ROPs, cmd;
         {0x000063C0, 0, 6, 1, 1, 0}, // [7] Triton Line/Blt source addr, CRTC line counter;
-        {0x000063CA, 0, 1, 1, 1, 0}, // [8] Triton Control Reg 1 
+        {0x000063CA, 0, 1, 1, 1, 0}, // [8] Triton Control Reg 1
         {0x000063CC, 0, 4, 1, 1, 0}, // [9] Triton Line/Blt dest addr
         {0x000083C0, 0, 5, 1, 1, 0}, // [10] Triton Line pattern, Virt. controller select
         {0x000083C6, 0, 4, 1, 1, 0}, // [11] Triton DAC Cmd Reg 0, Cursor Index/read/write
@@ -344,38 +344,38 @@ Return Value:
     hwDeviceExtension->IOAddress =
         (PUCHAR) (hwDeviceExtension->MappedAddress[1]) -
         accessRange[1].RangeStart.LowPart;
-        
+
     //
     // Query the registry for EISA Config Utility Information
     //
 
     if (ConfigInfo->AdapterInterfaceType == Eisa) {
 
-	//
-	//    Call the registry and get the NVRAM information for the
-	//    QVision card.
-	//
-        //    Frame buffer information from ECU data is placed in 
+        //
+        //    Call the registry and get the NVRAM information for the
+        //    QVision card.
+        //
+        //    Frame buffer information from ECU data is placed in
         //    device extension as a side effect.
         //
 
-	fDeviceDataDone = FALSE;
-	VideoPortGetDeviceData((PVOID)HwDeviceExtension,
-				VpBusData,
-				GetDeviceDataCallback,
-				&fDeviceDataDone);
+        fDeviceDataDone = FALSE;
+        VideoPortGetDeviceData((PVOID)HwDeviceExtension,
+                                VpBusData,
+                                GetDeviceDataCallback,
+                                &fDeviceDataDone);
 
-	//
-	//   Wait for the registry call to be completed.
-	//
+        //
+        //   Wait for the registry call to be completed.
+        //
 
-	while (!fDeviceDataDone);
+        while (!fDeviceDataDone);
 
-	if (hwDeviceExtension->AdapterType == NotAries)
-	   {
-	   VideoDebugPrint((1,"\tQVISION CARD NOT FOUND.\n"));
-	   return ERROR_DEV_NOT_EXIST;
-	}
+        if (hwDeviceExtension->AdapterType == NotAries)
+           {
+           VideoDebugPrint((1,"\tQVISION CARD NOT FOUND.\n"));
+           return ERROR_DEV_NOT_EXIST;
+        }
     }
 
     //
@@ -385,7 +385,7 @@ Return Value:
     //
 
     //
-    // unlock extended graphics regs 
+    // unlock extended graphics regs
     //
 
     VideoPortWritePortUchar(((PUCHAR)hwDeviceExtension->IOAddress) + GC_INDEX,
@@ -424,7 +424,7 @@ Return Value:
         //
         // If we get here, we don't have a supported Compaq ASIC
         //
-          
+
         default:
 
             VideoDebugPrint((2, "QV.SYS!QVision ChipID failed = %x\n",
@@ -432,7 +432,7 @@ Return Value:
 
             return ERROR_DEV_NOT_EXIST;
 
-    } 
+    }
 
     //
     // For now, make sure it is an EISA QVision board
@@ -441,7 +441,7 @@ Return Value:
     //
 
     //
-    // get virtual ID of active board 
+    // get virtual ID of active board
     //
 
     ucActiveID = VideoPortReadPortUchar(
@@ -450,9 +450,9 @@ Return Value:
 
     //
     // check each EISA slot (16 total) for board with active
-    // virtual ID, get board EISA ID   
+    // virtual ID, get board EISA ID
     //
-    // BUGBUG
+    // NOTE
     // This should be a call to the port driver.
     //
 
@@ -469,7 +469,7 @@ Return Value:
             return ERROR_INVALID_PARAMETER;
 
         }
-      
+
         ulEisaID = VideoPortReadPortUlong( (PULONG) (eisaAddr) );
         ucActiveChk = (UCHAR) (VideoPortReadPortUchar( (PUCHAR) (eisaAddr) - EISA_ID_REG + EISA_VC_REG ) & 0x0f);
 
@@ -495,7 +495,7 @@ Return Value:
             case EISA_ID_FIR_E:
             case EISA_ID_JUNIPER_E:
 
-                VideoDebugPrint((2, "QV.SYS!QVision test passed - EISA board found\n"));      
+                VideoDebugPrint((2, "QV.SYS!QVision test passed - EISA board found\n"));
                 hwDeviceExtension->ulEisaID = ulEisaID;
 
                 bFound = TRUE;
@@ -531,7 +531,7 @@ Return Value:
     }
 
     if (!bFound) {
-	return ERROR_DEV_NOT_EXIST;
+        return ERROR_DEV_NOT_EXIST;
     }
 
 #ifdef NO_ECU_SUPPORT  // Do it ourselves: use hardcoded framebuffer location & size
@@ -609,7 +609,7 @@ Return Value:
     ULONG i;
 
     //
-    // BUGBUG
+    // NOTE
     // Currently set all the modes to valid since we do not detect memory
     //
 
@@ -617,8 +617,8 @@ Return Value:
 
     for (i = 0; i < NumVideoModes; i++) {
 
-	QVModes[i].modeInformation.ModeIndex = hwDeviceExtension->NumAvailableModes;
-	hwDeviceExtension->NumAvailableModes += 1;
+        QVModes[i].modeInformation.ModeIndex = hwDeviceExtension->NumAvailableModes;
+        hwDeviceExtension->NumAvailableModes += 1;
     }
 
     return TRUE;
@@ -627,7 +627,7 @@ Return Value:
 
 
 
-BOOLEAN 
+BOOLEAN
 QVStartIO(
     PVOID HwDeviceExtension,
     PVIDEO_REQUEST_PACKET RequestPacket
@@ -736,7 +736,7 @@ Return Value:
         VideoDebugPrint((2, "QvStartIO - QueryPublicAccessRanges\n"));
 
         // HACKHACK - This is a temporary hack until we really
-        // decide how to do this. 
+        // decide how to do this.
         {
 
            PVIDEO_PUBLIC_ACCESS_RANGES portAccess;
@@ -751,19 +751,19 @@ Return Value:
            }
 
            portAccess = RequestPacket->OutputBuffer;
-           
+
            portAccess->VirtualAddress  = (PVOID) NULL;    // Requested VA
            portAccess->InIoSpace       = 1;               // In IO space
            portAccess->MappedInIoSpace = portAccess->InIoSpace;
- 
+
            // Ports are really start at QVISION_BASE = 0x3c0.
            // However, we will map ports starting at 0x0000 for MEM_LARGE_PAGES
            //   support from the Video Port Driver.
 
-           physicalPortBase.HighPart = 0x00000000;  
-           physicalPortBase.LowPart  = 0x00000000;    
+           physicalPortBase.HighPart = 0x00000000;
+           physicalPortBase.LowPart  = 0x00000000;
            physicalPortLength        = QVISION_MAX_PORT + 1;
-           
+
            status = VideoPortMapMemory(hwDeviceExtension,
                                        physicalPortBase,
                                        &physicalPortLength,
@@ -799,7 +799,7 @@ Return Value:
 
         if (RequestPacket->OutputBufferLength <
             (RequestPacket->StatusBlock->Information =
-		 NumVideoModes * sizeof(VIDEO_MODE_INFORMATION)) ) {
+                 NumVideoModes * sizeof(VIDEO_MODE_INFORMATION)) ) {
 
             status = ERROR_INSUFFICIENT_BUFFER;
 
@@ -807,10 +807,10 @@ Return Value:
 
             modeInformation = RequestPacket->OutputBuffer;
 
-	    for (i = 0; i < NumVideoModes; i++) {
+            for (i = 0; i < NumVideoModes; i++) {
 
-		*modeInformation = QVModes[i].modeInformation;
-		modeInformation++;
+                *modeInformation = QVModes[i].modeInformation;
+                modeInformation++;
 
             }
 
@@ -890,7 +890,7 @@ Return Value:
 
             status = ERROR_INVALID_PARAMETER;
 
-            VideoDebugPrint((2, "bSetQVExtMode(%x, %.2x, %.2x ) failed\n", 
+            VideoDebugPrint((2, "bSetQVExtMode(%x, %.2x, %.2x ) failed\n",
                              hwDeviceExtension,
                              QVModes[modeNumber].qvMode,
                              QVModes[modeNumber].qvMonitorClass ));
@@ -912,11 +912,11 @@ Return Value:
 
         VideoPortWritePortUchar((PUCHAR) (hwDeviceExtension->IOAddress) + GC_INDEX, HI_ADDR_MAP);
         VideoPortWritePortUchar((PUCHAR) (hwDeviceExtension->IOAddress) + GC_DATA,
-                                (UCHAR) (FrameAddress & 0xff)); 
+                                (UCHAR) (FrameAddress & 0xff));
 
         VideoPortWritePortUchar((PUCHAR) (hwDeviceExtension->IOAddress) + GC_INDEX, HI_ADDR_MAP+1);
         VideoPortWritePortUchar((PUCHAR) (hwDeviceExtension->IOAddress) + GC_DATA,
-                                (UCHAR) ((FrameAddress >> 8) & 0x0f)); 
+                                (UCHAR) ((FrameAddress >> 8) & 0x0f));
 
         //
         // Zero the DAC and the Screen buffer memory.
@@ -954,6 +954,176 @@ Return Value:
 
         break;
 
+    case IOCTL_VIDEO_QUERY_POINTER_CAPABILITIES:
+
+        VideoDebugPrint((2, "QVStartIO - QueryPointerCapabilities\n"));
+
+        if (RequestPacket->OutputBufferLength <
+            (RequestPacket->StatusBlock->Information =
+                                    sizeof(VIDEO_POINTER_CAPABILITIES))) {
+
+            status = ERROR_INSUFFICIENT_BUFFER;
+
+        } else {
+
+            VIDEO_POINTER_CAPABILITIES *PointerCaps;
+
+            PointerCaps = (VIDEO_POINTER_CAPABILITIES *) RequestPacket->OutputBuffer;
+
+            //
+            // The hardware pointer works in all modes, and requires no
+            // part of off-screen memory.
+            //
+
+            PointerCaps->Flags = VIDEO_MODE_MONO_POINTER |
+                                 VIDEO_MODE_ASYNC_POINTER |
+                                 VIDEO_MODE_LOCAL_POINTER;
+            PointerCaps->MaxWidth = PTR_WIDTH_IN_PIXELS;
+            PointerCaps->MaxHeight = PTR_HEIGHT;
+            PointerCaps->HWPtrBitmapStart = (ULONG) -1;
+            PointerCaps->HWPtrBitmapEnd = (ULONG) -1;
+
+            status = NO_ERROR;
+        }
+
+        break;
+
+    case IOCTL_VIDEO_ENABLE_POINTER:
+
+        VideoDebugPrint((2, "QVStartIO - EnablePointer\n"));
+
+        VideoPortWritePortUchar((PUCHAR) hwDeviceExtension->MappedAddress[3] - 0x13c6 + DAC_CMD_2,
+                                (UCHAR) hwDeviceExtension->DacCmd2 | CURSOR_ENABLE);
+
+        status = NO_ERROR;
+
+        break;
+
+    case IOCTL_VIDEO_DISABLE_POINTER:
+
+        VideoDebugPrint((2, "QVStartIO - DisablePointer\n"));
+
+        VideoPortWritePortUchar((PUCHAR) hwDeviceExtension->MappedAddress[3] - 0x13c6 + DAC_CMD_2,
+                                (UCHAR) hwDeviceExtension->DacCmd2);
+
+        status = NO_ERROR;
+
+        break;
+
+    case IOCTL_VIDEO_SET_POINTER_POSITION:
+
+        VideoDebugPrint((2, "QVStartIO - SetPointerPosition\n"));
+
+        if (RequestPacket->InputBufferLength < sizeof(VIDEO_POINTER_POSITION)) {
+
+            status = ERROR_INSUFFICIENT_BUFFER;
+
+        } else {
+
+            VIDEO_POINTER_POSITION *pPointerPosition;
+
+            pPointerPosition = (VIDEO_POINTER_POSITION *) RequestPacket->InputBuffer;
+
+            //
+            // The QVision's HW pointer coordinate system is upper-left =
+            // (31, 31), lower-right = (0, 0).  Thus, we must always bias
+            // the pointer.  As a result, the pointer position register will
+            // never go negative.
+            //
+
+            VideoPortWritePortUshort((PUSHORT) ((PUCHAR)hwDeviceExtension->MappedAddress[13] - 0x93c6 + CURSOR_X),
+                                      pPointerPosition->Column + CURSOR_CX);
+            VideoPortWritePortUshort((PUSHORT) ((PUCHAR)hwDeviceExtension->MappedAddress[13] - 0x93c6 + CURSOR_Y),
+                                      pPointerPosition->Row + CURSOR_CY);
+
+            status = NO_ERROR;
+
+        }
+
+        break;
+
+    case IOCTL_VIDEO_SET_POINTER_ATTR:
+
+        VideoDebugPrint((2, "QVStartIO - SetPointerAttr\n"));
+
+        if (RequestPacket->InputBufferLength < sizeof(VIDEO_POINTER_ATTRIBUTES)) {
+
+            status = ERROR_INSUFFICIENT_BUFFER;
+
+        } else {
+
+            VIDEO_POINTER_ATTRIBUTES *pPointerAttributes;
+            LONG                      i;
+            LONG                      j;
+            UCHAR*                    pPointerBits;
+
+            pPointerAttributes = (VIDEO_POINTER_ATTRIBUTES *) RequestPacket->InputBuffer;
+
+            //
+            // We have to turn off the hardware pointer while we down-load
+            // the new shape, otherwise we get sparkles on the screen.
+            //
+
+            VideoPortWritePortUchar((PUCHAR) hwDeviceExtension->MappedAddress[3] - 0x13c6 + DAC_CMD_2,
+                                    (UCHAR) hwDeviceExtension->DacCmd2);
+
+            VideoPortWritePortUchar((PUCHAR) hwDeviceExtension->MappedAddress[1] - 0x3c0 + CURSOR_WRITE,
+                                      CURSOR_PLANE_0);
+
+            //
+            // Download XOR mask:
+            //
+
+            pPointerBits = pPointerAttributes->Pixels + (PTR_WIDTH * PTR_HEIGHT);
+            for (i = 0; i < PTR_HEIGHT; i++) {
+
+                for (j = 0; j < PTR_WIDTH; j++) {
+
+                    VideoPortWritePortUchar((PUCHAR) hwDeviceExtension->MappedAddress[3] - 0x13c6 + CURSOR_DATA,
+                                            (UCHAR) *pPointerBits++);
+                }
+            }
+
+            //
+            // Download AND mask:
+            //
+
+            pPointerBits = pPointerAttributes->Pixels;
+            for (i = 0; i < PTR_HEIGHT; i++) {
+
+                for (j = 0; j < PTR_WIDTH; j++) {
+
+                    VideoPortWritePortUchar((PUCHAR) hwDeviceExtension->MappedAddress[3] - 0x13c6 + CURSOR_DATA,
+                                            (UCHAR) *pPointerBits++);
+                }
+            }
+
+            //
+            // Set the new position:
+            //
+
+            VideoPortWritePortUshort((PUSHORT) ((PUCHAR)hwDeviceExtension->MappedAddress[13] - 0x93c6 + CURSOR_X),
+                                      pPointerAttributes->Column + CURSOR_CX);
+            VideoPortWritePortUshort((PUSHORT) ((PUCHAR)hwDeviceExtension->MappedAddress[13] - 0x93c6 + CURSOR_Y),
+                                      pPointerAttributes->Row + CURSOR_CY);
+
+            //
+            // Enable or disable pointer:
+            //
+
+            if (pPointerAttributes->Enable) {
+
+                VideoPortWritePortUchar((PUCHAR) hwDeviceExtension->MappedAddress[3] - 0x13c6 + DAC_CMD_2,
+                                        (UCHAR) hwDeviceExtension->DacCmd2 | CURSOR_ENABLE);
+
+            }
+
+            status = NO_ERROR;
+
+        }
+
+        break;
+
         //
         // if we get here, an invalid IoControlCode was specified.
         //
@@ -962,7 +1132,7 @@ Return Value:
 
         VideoDebugPrint((1, "Fell through QV startIO routine - invalid command\n"));
 
-        status = ERROR_INVALID_FUNCTION ;
+        status = ERROR_INVALID_FUNCTION;
 
         break;
 
@@ -978,7 +1148,7 @@ Return Value:
 VP_STATUS
 QvSetExtendedMode(
     PHW_DEVICE_EXTENSION HwDeviceExtension,
-    ULONG ibMode, 
+    ULONG ibMode,
     ULONG ibMonClass
     )
 
@@ -1052,7 +1222,7 @@ Return Value:
    VideoPortWritePortUchar( (PUCHAR) (IOAddress) + GC_INDEX, ENV_REG_0);
    VideoPortWritePortUchar( (PUCHAR) (IOAddress) + GC_DATA,  LOCK_KEY_QVISION);
 
-#if 0 
+#if 0
    VideoPortWritePortUchar( (PUCHAR) (IOAddress) + GC_INDEX, ENV_REG_1);
    if (((ibMode == MODE_37) || (ibMode == MODE_38)) && (ibMonClass == 0))
       return( ERROR_INVALID_PARAMETER);                                          /* error */
@@ -1104,6 +1274,8 @@ Return Value:
    VideoPortWritePortUchar( (PUCHAR) (HwDeviceExtension->MappedAddress[3])  - 0x13c6 + DAC_CMD_1, abDacCmd1[ibMode]);     /* bits per pixel */
    VideoPortWritePortUchar( (PUCHAR) (HwDeviceExtension->MappedAddress[3])  - 0x13c6 + DAC_CMD_2, 0x20);                  /* set PortSel mask */
 
+   HwDeviceExtension->DacCmd2 = 0x20;
+
    /* load CRTC parameters */
    VideoPortWritePortUchar( (PUCHAR) (IOAddress) + CRTC_INDEX, 0x11);
    VideoPortWritePortUchar( (PUCHAR) (IOAddress) + CRTC_DATA,  0x00);   /* unlock CRTC regs 0-7 */
@@ -1151,7 +1323,7 @@ Return Value:
    VideoPortWritePortUchar( (PUCHAR) (IOAddress) + CURSOR_COLOR_DATA,  0x00); /* red   */
    VideoPortWritePortUchar( (PUCHAR) (IOAddress) + CURSOR_COLOR_DATA,  0x00); /* green */
    VideoPortWritePortUchar( (PUCHAR) (IOAddress) + CURSOR_COLOR_DATA,  0x00); /* blue  */
-   
+
    /* turn video on */
    VideoPortReadPortUchar( (PUCHAR) (IOAddress) + INPUT_STATUS_REG_1);                   /* reset latch */
    VideoPortWritePortUchar((PUCHAR) (IOAddress) + ATTR_INDEX, 0x20);
@@ -1221,7 +1393,7 @@ Return Value:
     }
 
     //
-    //  Set CLUT registers directly on the hardware 
+    //  Set CLUT registers directly on the hardware
     //  Note that QVision DAC supports (and is inited for) 8 bit color data
     //
 
@@ -1299,7 +1471,7 @@ Return Value:
 
     //
     // Now do the blit.  First set the pattern registers.
-    // BUGBUGBUG - for now, the Display Driver Counts on the pattern regs to
+    // WARNNOTE - for now, the Display Driver Counts on the pattern regs to
     // to be initialized here - should move this to QvSetExtendedMode() !
     //
 
@@ -1327,7 +1499,7 @@ Return Value:
     ucReg = VideoPortReadPortUchar( (PUCHAR) (HwDeviceExtension->MappedAddress[8]) - 0x63ca + CTRL_REG_1) & 0x07 ;
     VideoPortWritePortUchar( (PUCHAR) (HwDeviceExtension->MappedAddress[8]) - 0x63ca + CTRL_REG_1, (UCHAR) (ucReg | EXPAND_TO_FG) );
     VideoPortWritePortUchar( (PUCHAR) (HwDeviceExtension->IOAddress) + GC_INDEX, DATAPATH_CTRL);
-    VideoPortWritePortUchar( (PUCHAR) (HwDeviceExtension->IOAddress) + GC_DATA,  
+    VideoPortWritePortUchar( (PUCHAR) (HwDeviceExtension->IOAddress) + GC_DATA,
                        ROPSELECT_NO_ROPS | PIXELMASK_ONLY | PLANARMASK_NONE_0XFF |
                        SRC_IS_PATTERN_REGS );
 
@@ -1336,7 +1508,7 @@ Return Value:
 
 
     //
-    // set BitBLT hardware registers and start engine 
+    // set BitBLT hardware registers and start engine
     //
 
     VideoPortWritePortUshort( (PUSHORT) ((PUCHAR) HwDeviceExtension->MappedAddress[7] - 0x63c0 + X0_SRC_ADDR_LO), 0);        // pattern starts in PReg4, no offset
@@ -1351,11 +1523,11 @@ Return Value:
     //
 
     VideoPortWritePortUchar(((PUCHAR)HwDeviceExtension->MappedAddress[6]) -
-                                0x33c0 + BLT_CMD_1, 
-                            XY_SRC_ADDR | XY_DEST_ADDR);  
+                                0x33c0 + BLT_CMD_1,
+                            XY_SRC_ADDR | XY_DEST_ADDR);
 
     VideoPortWritePortUchar(((PUCHAR)HwDeviceExtension->MappedAddress[6]) -
-                                0x33c0 + BLT_CMD_0, 
+                                0x33c0 + BLT_CMD_0,
                             FORWARD | NO_BYTE_SWAP | WRAP | START_BLT);
 
     //
@@ -1468,15 +1640,15 @@ Return Value:
 
     while ((PUCHAR)pCMEisaSlotInfo < pCMEndOfData) {
 
-	VideoDebugPrint((2, "\tpCMEisaSlotInfo = %x\n",pCMEisaSlotInfo));
+        VideoDebugPrint((2, "\tpCMEisaSlotInfo = %x\n",pCMEisaSlotInfo));
 
         if ((pCMEisaSlotInfo->ReturnCode == EISA_INVALID_SLOT) ||
-	    (pCMEisaSlotInfo->ReturnCode == EISA_INVALID_CONFIGURATION)) {
+            (pCMEisaSlotInfo->ReturnCode == EISA_INVALID_CONFIGURATION)) {
 
-	  VideoDebugPrint((1,"\tEISA_INVALID_SLOT or EISA_INVALID_CONFIGURATION.\n"));
-	  phwDeviceExtension->AdapterType = NotAries;
-	  returnStatus = ERROR_DEV_NOT_EXIST;
-	  break;                             // end the search
+          VideoDebugPrint((1,"\tEISA_INVALID_SLOT or EISA_INVALID_CONFIGURATION.\n"));
+          phwDeviceExtension->AdapterType = NotAries;
+          returnStatus = ERROR_DEV_NOT_EXIST;
+          break;                             // end the search
 
         } // if
 
@@ -1487,10 +1659,10 @@ Return Value:
 
         if (pCMEisaSlotInfo->ReturnCode == EISA_EMPTY_SLOT) {
 
-      	    VideoDebugPrint((2,"\tEISA_EMPTY_SLOT.\n"));
+            VideoDebugPrint((2,"\tEISA_EMPTY_SLOT.\n"));
 
-      	    pCMEisaSlotInfo = (CM_EISA_SLOT_INFORMATION *)((PUCHAR)pCMEisaSlotInfo +
-      	       (ULONG)sizeof(CM_EISA_SLOT_INFORMATION));
+            pCMEisaSlotInfo = (CM_EISA_SLOT_INFORMATION *)((PUCHAR)pCMEisaSlotInfo +
+               (ULONG)sizeof(CM_EISA_SLOT_INFORMATION));
 
 
             //
@@ -1499,18 +1671,18 @@ Return Value:
 
             if ((PUCHAR)pCMEisaSlotInfo >= (PUCHAR)pCMEndOfData) {
 
-      	       VideoDebugPrint((1,"\tEND_OF_ECU_DATA.\n"));
-      	       phwDeviceExtension->AdapterType = NotAries;
-      	       returnStatus = ERROR_DEV_NOT_EXIST;  // yes, return an error
-      	       break;
+               VideoDebugPrint((1,"\tEND_OF_ECU_DATA.\n"));
+               phwDeviceExtension->AdapterType = NotAries;
+               returnStatus = ERROR_DEV_NOT_EXIST;  // yes, return an error
+               break;
 
-      	    } // if
+            } // if
 
-      	    else {                             // no, skip empty slot
+            else {                             // no, skip empty slot
 
-      	       continue;
+               continue;
 
-      	    } // else
+            } // else
 
 
         } // if
@@ -1529,148 +1701,148 @@ Return Value:
 
 #if 0   // if we supported all of the Compaq QVision cards, it would look like this:
 
-	if ((pCMEisaSlotInfo->CompressedId == EISA_ID_QVISION_E) ||
-	    (pCMEisaSlotInfo->CompressedId == EISA_ID_QVISION_I) ||
-	    (pCMEisaSlotInfo->CompressedId == EISA_ID_FIR_E)     ||
-	    (pCMEisaSlotInfo->CompressedId == EISA_ID_FIR_I)     ||
-	    (pCMEisaSlotInfo->CompressedId == EISA_ID_JUNIPER_E) ||
-	    (pCMEisaSlotInfo->CompressedId == EISA_ID_JUNIPER_I)) {
+        if ((pCMEisaSlotInfo->CompressedId == EISA_ID_QVISION_E) ||
+            (pCMEisaSlotInfo->CompressedId == EISA_ID_QVISION_I) ||
+            (pCMEisaSlotInfo->CompressedId == EISA_ID_FIR_E)     ||
+            (pCMEisaSlotInfo->CompressedId == EISA_ID_FIR_I)     ||
+            (pCMEisaSlotInfo->CompressedId == EISA_ID_JUNIPER_E) ||
+            (pCMEisaSlotInfo->CompressedId == EISA_ID_JUNIPER_I)) {
 #endif
 
-	// Only EISA QVision cards are supported
+        // Only EISA QVision cards are supported
 
-	VideoDebugPrint((2, "\tpCMEisaSlotInfo->CompressedId = %x\n",
-			       pCMEisaSlotInfo->CompressedId));
+        VideoDebugPrint((2, "\tpCMEisaSlotInfo->CompressedId = %x\n",
+                               pCMEisaSlotInfo->CompressedId));
 
-	if ((pCMEisaSlotInfo->CompressedId == EISA_ID_QVISION_E) ||
-	    (pCMEisaSlotInfo->CompressedId == EISA_ID_FIR_E)     ||
-	    (pCMEisaSlotInfo->CompressedId == EISA_ID_JUNIPER_E)) {
+        if ((pCMEisaSlotInfo->CompressedId == EISA_ID_QVISION_E) ||
+            (pCMEisaSlotInfo->CompressedId == EISA_ID_FIR_E)     ||
+            (pCMEisaSlotInfo->CompressedId == EISA_ID_JUNIPER_E)) {
 
           //
           // get correct adapter type
           //
 
-	  switch (pCMEisaSlotInfo->CompressedId) {
+          switch (pCMEisaSlotInfo->CompressedId) {
 
-	    case EISA_ID_QVISION_E:
-	       VideoDebugPrint((2,"\tQVISION_EISA\n"));
-	       phwDeviceExtension->AdapterType = AriesEisa;
-	       break;
+            case EISA_ID_QVISION_E:
+               VideoDebugPrint((2,"\tQVISION_EISA\n"));
+               phwDeviceExtension->AdapterType = AriesEisa;
+               break;
 
-	    case EISA_ID_QVISION_I:
-	       VideoDebugPrint((2,"\tQVISION_ISA\n"));
-	       phwDeviceExtension->AdapterType = AriesIsa;
-	       break;
+            case EISA_ID_QVISION_I:
+               VideoDebugPrint((2,"\tQVISION_ISA\n"));
+               phwDeviceExtension->AdapterType = AriesIsa;
+               break;
 
-	    case EISA_ID_JUNIPER_E:
-	       VideoDebugPrint((2,"\tJUNIPER_EISA\n"));
-	       phwDeviceExtension->AdapterType = JuniperEisa;
-	       break;
+            case EISA_ID_JUNIPER_E:
+               VideoDebugPrint((2,"\tJUNIPER_EISA\n"));
+               phwDeviceExtension->AdapterType = JuniperEisa;
+               break;
 
-	    case EISA_ID_JUNIPER_I:
-	       VideoDebugPrint((2,"\tJUNIPER_ISA\n"));
-	       phwDeviceExtension->AdapterType = JuniperIsa;
-	       break;
+            case EISA_ID_JUNIPER_I:
+               VideoDebugPrint((2,"\tJUNIPER_ISA\n"));
+               phwDeviceExtension->AdapterType = JuniperIsa;
+               break;
 
-	    case EISA_ID_FIR_E:
-	       phwDeviceExtension->AdapterType = FirEisa;
-	       break;
+            case EISA_ID_FIR_E:
+               phwDeviceExtension->AdapterType = FirEisa;
+               break;
 
-	    case EISA_ID_FIR_I:
-	       phwDeviceExtension->AdapterType = FirIsa;
-	       break;
+            case EISA_ID_FIR_I:
+               phwDeviceExtension->AdapterType = FirIsa;
+               break;
 
-	  }
+          }
 
-	  phwDeviceExtension->ulEisaID =
-	    pCMEisaSlotInfo->CompressedId;
+          phwDeviceExtension->ulEisaID =
+            pCMEisaSlotInfo->CompressedId;
 
-	  pCMEisaFuncInfo =
-	    (PCM_EISA_FUNCTION_INFORMATION) ((PUCHAR)pCMEisaSlotInfo +
-				     (ULONG)sizeof(CM_EISA_SLOT_INFORMATION));
+          pCMEisaFuncInfo =
+            (PCM_EISA_FUNCTION_INFORMATION) ((PUCHAR)pCMEisaSlotInfo +
+                                     (ULONG)sizeof(CM_EISA_SLOT_INFORMATION));
 
           //
           // Go through all functions in the current slot looking for
           // the memory configuration data.
           //
 
-	  for (i=0; i<pCMEisaSlotInfo->NumberFunctions; i++, pCMEisaFuncInfo++) {
+          for (i=0; i<pCMEisaSlotInfo->NumberFunctions; i++, pCMEisaFuncInfo++) {
 
-	    VideoDebugPrint((2, "\tpCMEisaFuncInfo:%d = %x\n",
-		  	           i, pCMEisaFuncInfo));
+            VideoDebugPrint((2, "\tpCMEisaFuncInfo:%d = %x\n",
+                                   i, pCMEisaFuncInfo));
 
-	    if (!(pCMEisaFuncInfo->FunctionFlags & EISA_HAS_MEMORY_ENTRY)) {
+            if (!(pCMEisaFuncInfo->FunctionFlags & EISA_HAS_MEMORY_ENTRY)) {
 
-	      VideoDebugPrint((2,"\tSOME_FUNCTION\n"));
+              VideoDebugPrint((2,"\tSOME_FUNCTION\n"));
               VideoDebugPrint((2,"pCMEisaFuncInfo->FunctionFlags = %x\n",
                                   pCMEisaFuncInfo->FunctionFlags));
-	      continue;                      // skip function if it is not
+              continue;                      // skip function if it is not
                                              // a memory function
-	    } // if
+            } // if
 
-	    else {                           // this is a memory function
+            else {                           // this is a memory function
 
-	      VideoDebugPrint((2,"\tMEMORY_FUNCTION\n"));
+              VideoDebugPrint((2,"\tMEMORY_FUNCTION\n"));
 
               //
               // Go through all memory configurations looking for a set
               // which has at least 1MB of RAM, is non-cached and non-
               // shareable and extract the high address from it.
               //
-	      for (j=0; j< 9; j++) {
+              for (j=0; j< 9; j++) {
 
-	        VideoDebugPrint((2,
+                VideoDebugPrint((2,
                     "\tpCMEisaFuncInfo->EisaMemory[%d].ConfigurationByte.ReadWrite = %x\n",
                     j, pCMEisaFuncInfo->EisaMemory[j].ConfigurationByte.ReadWrite));
-	        VideoDebugPrint((2,
-		    "\tpCMEisaFuncInfo->EisaMemory[%d].ConfigurationByte.Cached = %x\n",
-		    j, pCMEisaFuncInfo->EisaMemory[j].ConfigurationByte.Cached));
-	        VideoDebugPrint((2,
-		    "\tpCMEisaFuncInfo->EisaMemory[%d].ConfigurationByte.Type = %x\n",
-		    j, pCMEisaFuncInfo->EisaMemory[j].ConfigurationByte.Type));
-	        VideoDebugPrint((2,
-		    "\tpCMEisaFuncInfo->EisaMemory[%d].ConfigurationByte.Shared = %x\n",
-		    j, pCMEisaFuncInfo->EisaMemory[j].ConfigurationByte.Shared));
-	        VideoDebugPrint((2,
-		    "\tpCMEisaFuncInfo->EisaMemory[%d].MemorySize = %x\n",
-		    j, pCMEisaFuncInfo->EisaMemory[j].MemorySize));
+                VideoDebugPrint((2,
+                    "\tpCMEisaFuncInfo->EisaMemory[%d].ConfigurationByte.Cached = %x\n",
+                    j, pCMEisaFuncInfo->EisaMemory[j].ConfigurationByte.Cached));
+                VideoDebugPrint((2,
+                    "\tpCMEisaFuncInfo->EisaMemory[%d].ConfigurationByte.Type = %x\n",
+                    j, pCMEisaFuncInfo->EisaMemory[j].ConfigurationByte.Type));
+                VideoDebugPrint((2,
+                    "\tpCMEisaFuncInfo->EisaMemory[%d].ConfigurationByte.Shared = %x\n",
+                    j, pCMEisaFuncInfo->EisaMemory[j].ConfigurationByte.Shared));
+                VideoDebugPrint((2,
+                    "\tpCMEisaFuncInfo->EisaMemory[%d].MemorySize = %x\n",
+                    j, pCMEisaFuncInfo->EisaMemory[j].MemorySize));
 
 
-	        if ((pCMEisaFuncInfo->EisaMemory[j].ConfigurationByte.ReadWrite == 0) &&
-		    (pCMEisaFuncInfo->EisaMemory[j].ConfigurationByte.Cached == 0)    &&
-		    (pCMEisaFuncInfo->EisaMemory[j].ConfigurationByte.Type == 3)      &&
-		    (pCMEisaFuncInfo->EisaMemory[j].ConfigurationByte.Shared == 0)    &&
-		    (pCMEisaFuncInfo->EisaMemory[j].MemorySize >= 0x400 )) {
+                if ((pCMEisaFuncInfo->EisaMemory[j].ConfigurationByte.ReadWrite == 0) &&
+                    (pCMEisaFuncInfo->EisaMemory[j].ConfigurationByte.Cached == 0)    &&
+                    (pCMEisaFuncInfo->EisaMemory[j].ConfigurationByte.Type == 3)      &&
+                    (pCMEisaFuncInfo->EisaMemory[j].ConfigurationByte.Shared == 0)    &&
+                    (pCMEisaFuncInfo->EisaMemory[j].MemorySize >= 0x400 )) {
 
                     phwDeviceExtension->PhysicalFrameAddress.HighPart = 0x00000000;
-                    phwDeviceExtension->PhysicalFrameAddress.LowPart  = 
-		      (pCMEisaFuncInfo->EisaMemory[j].AddressHighByte << 24) +
-		      (pCMEisaFuncInfo->EisaMemory[j].AddressLowWord << 8);
-                    phwDeviceExtension->FrameLength = 
+                    phwDeviceExtension->PhysicalFrameAddress.LowPart  =
+                      (pCMEisaFuncInfo->EisaMemory[j].AddressHighByte << 24) +
+                      (pCMEisaFuncInfo->EisaMemory[j].AddressLowWord << 8);
+                    phwDeviceExtension->FrameLength =
                        pCMEisaFuncInfo->EisaMemory[j].MemorySize * 0x400;
 
-	            VideoDebugPrint((2,"PhysicalFrameAddress.Lowpart = %x\n",
+                    VideoDebugPrint((2,"PhysicalFrameAddress.Lowpart = %x\n",
                        phwDeviceExtension->PhysicalFrameAddress.LowPart ));
-	            VideoDebugPrint((2,"FrameLength = %x\n",
+                    VideoDebugPrint((2,"FrameLength = %x\n",
                        phwDeviceExtension->FrameLength ));
 
 
 
-		} // if
+                } // if
 
-		else if (pCMEisaFuncInfo->EisaMemory[j].ConfigurationByte.MoreEntries == 0)
-		     {
-		     break;
-		} // else
+                else if (pCMEisaFuncInfo->EisaMemory[j].ConfigurationByte.MoreEntries == 0)
+                     {
+                     break;
+                } // else
 
-	      } // for
+              } // for
 
-	    } // else
+            } // else
 
-	  } // for
+          } // for
 
-	  returnStatus = NO_ERROR;
-	  break;
+          returnStatus = NO_ERROR;
+          break;
 
         } // if
 
@@ -1679,15 +1851,15 @@ Return Value:
         //
 
         else if ((PUCHAR)((PUCHAR)pCMEisaSlotInfo +
-			(ULONG)((ULONG)sizeof(CM_EISA_SLOT_INFORMATION)+
-				(ULONG)sizeof(CM_EISA_FUNCTION_INFORMATION)*
-				(ULONG)pCMEisaSlotInfo->NumberFunctions)) >=
-	          pCMEndOfData) {
+                        (ULONG)((ULONG)sizeof(CM_EISA_SLOT_INFORMATION)+
+                                (ULONG)sizeof(CM_EISA_FUNCTION_INFORMATION)*
+                                (ULONG)pCMEisaSlotInfo->NumberFunctions)) >=
+                  pCMEndOfData) {
 
-	 VideoDebugPrint((0,"\tEND_OF_DATA - LAST_SLOT\n"));
-	 phwDeviceExtension->AdapterType = NotAries;
-	 returnStatus = ERROR_DEV_NOT_EXIST;
-	 break;
+         VideoDebugPrint((0,"\tEND_OF_DATA - LAST_SLOT\n"));
+         phwDeviceExtension->AdapterType = NotAries;
+         returnStatus = ERROR_DEV_NOT_EXIST;
+         break;
 
         } // else
 
@@ -1697,11 +1869,11 @@ Return Value:
 
       else {
 
-	 pCMEisaSlotInfo = (CM_EISA_SLOT_INFORMATION *)((PUCHAR)pCMEisaSlotInfo +
-	                    (ULONG)((ULONG)sizeof(CM_EISA_SLOT_INFORMATION)+
-	        	    (ULONG)sizeof(CM_EISA_FUNCTION_INFORMATION)*
-	       		    (ULONG)pCMEisaSlotInfo->NumberFunctions));
-	 continue;
+         pCMEisaSlotInfo = (CM_EISA_SLOT_INFORMATION *)((PUCHAR)pCMEisaSlotInfo +
+                            (ULONG)((ULONG)sizeof(CM_EISA_SLOT_INFORMATION)+
+                            (ULONG)sizeof(CM_EISA_FUNCTION_INFORMATION)*
+                            (ULONG)pCMEisaSlotInfo->NumberFunctions));
+         continue;
 
       } // else
 

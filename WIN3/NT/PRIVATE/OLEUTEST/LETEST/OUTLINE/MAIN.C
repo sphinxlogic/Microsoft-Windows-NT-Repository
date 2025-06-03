@@ -2486,4 +2486,3 @@ int GetAccelItemCount(HACCEL hAccel)
 	return cAccelItems;
 #endif
 }
-

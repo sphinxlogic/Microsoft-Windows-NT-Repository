@@ -88,9 +88,9 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(WKSTA) {
-        NetpDbgPrint( "XsNetWkstaGetInfo: header at %lx, "
+        NetpKdPrint(( "XsNetWkstaGetInfo: header at %lx, "
                       "params at %lx, level %ld\n",
-                      Header, parameters, SmbGetUshort( &parameters->Level ) );
+                      Header, parameters, SmbGetUshort( &parameters->Level ) ));
     }
 
     //
@@ -126,8 +126,8 @@ Return Value:
         if ( !XsApiSuccess ( status )) {
 
             IF_DEBUG(API_ERRORS) {
-                NetpDbgPrint( "XsWkstaGetInfo: WkstaGetInfo (level 100) "
-                              "failed: %X\n", status);
+                NetpKdPrint(( "XsWkstaGetInfo: WkstaGetInfo (level 100) "
+                              "failed: %X\n", status));
             }
 
             Header->Status = (WORD) status;
@@ -147,8 +147,8 @@ Return Value:
         if ( !XsApiSuccess( status )) {
 
             IF_DEBUG(API_ERRORS) {
-                NetpDbgPrint( "XsWkstaGetInfo: WkstaGetInfo (level 101) "
-                              "failed: %X\n", status);
+                NetpKdPrint(( "XsWkstaGetInfo: WkstaGetInfo (level 101) "
+                              "failed: %X\n", status));
             }
 
             Header->Status = (WORD) status;
@@ -164,8 +164,8 @@ Return Value:
         if ( !XsApiSuccess( status )) {
 
             IF_DEBUG(API_ERRORS) {
-                NetpDbgPrint( "XsWkstaGetInfo: WkstaGetInfo (level 502) "
-                              "failed: %X\n", status);
+                NetpKdPrint(( "XsWkstaGetInfo: WkstaGetInfo (level 502) "
+                              "failed: %X\n", status));
             }
 
             Header->Status = (WORD) status;
@@ -189,28 +189,27 @@ Return Value:
 
         StructureDesc = Desc16_wksta_info_0;
         bytesRequired = sizeof( WKSTA_16_INFO_0 )
-                            + STRLEN( lanroot )
-                            + STRLEN( wksta_101->wki101_computername )
-                            + STRLEN( DEF16_wk_username )
-                            + STRLEN( wksta_101->wki101_langroup )
-                            + STRLEN( DEF16_wk_logon_server )
+                            + NetpUnicodeToDBCSLen( lanroot )
+                            + NetpUnicodeToDBCSLen( wksta_101->wki101_computername )
+                            + NetpUnicodeToDBCSLen( DEF16_wk_username )
+                            + NetpUnicodeToDBCSLen( wksta_101->wki101_langroup )
+                            + NetpUnicodeToDBCSLen( DEF16_wk_logon_server )
                             + SIZE_HEURISTICS
                             + 6;  // for terminating nulls
-
         break;
 
     case 1:
 
         StructureDesc = Desc16_wksta_info_1;
         bytesRequired = sizeof( WKSTA_16_INFO_1 )
-                            + STRLEN( lanroot )
-                            + STRLEN( wksta_101->wki101_computername )
-                            + STRLEN( DEF16_wk_username )
-                            + STRLEN( wksta_101->wki101_langroup )
-                            + STRLEN( DEF16_wk_logon_server )
+                            + NetpUnicodeToDBCSLen( lanroot )
+                            + NetpUnicodeToDBCSLen( wksta_101->wki101_computername )
+                            + NetpUnicodeToDBCSLen( DEF16_wk_username )
+                            + NetpUnicodeToDBCSLen( wksta_101->wki101_langroup )
+                            + NetpUnicodeToDBCSLen( DEF16_wk_logon_server )
                             + SIZE_HEURISTICS
-                            + STRLEN( DEF16_wk_logon_domain )
-                            + STRLEN( DEF16_wk_oth_domains )
+                            + NetpUnicodeToDBCSLen( DEF16_wk_logon_domain )
+                            + NetpUnicodeToDBCSLen( DEF16_wk_oth_domains )
                             + 8;  // for terminating nulls
 
         break;
@@ -219,13 +218,12 @@ Return Value:
 
         StructureDesc = Desc16_wksta_info_10;
         bytesRequired = sizeof( WKSTA_16_INFO_10 )
-                            + STRLEN( DEF16_wk_username )
-                            + STRLEN( DEF16_wk_logon_domain )
-                            + STRLEN( wksta_100->wki100_computername )
-                            + STRLEN( wksta_100->wki100_langroup )
-                            + STRLEN( DEF16_wk_oth_domains )
+                            + NetpUnicodeToDBCSLen( DEF16_wk_username )
+                            + NetpUnicodeToDBCSLen( DEF16_wk_logon_domain )
+                            + NetpUnicodeToDBCSLen( wksta_100->wki100_computername )
+                            + NetpUnicodeToDBCSLen( wksta_100->wki100_langroup )
+                            + NetpUnicodeToDBCSLen( DEF16_wk_oth_domains )
                             + 5;  // for terminating nulls
-
         break;
     }
 
@@ -251,7 +249,7 @@ Return Value:
              )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetWkstaGetInfo: Buffer too small.\n" );
+            NetpKdPrint(( "XsNetWkstaGetInfo: Buffer too small.\n" ));
         }
         Header->Status = NERR_BufTooSmall;
         SmbPutUshort( &parameters->TotalAvail, (WORD)bytesRequired );
@@ -730,8 +728,8 @@ Return Value:
 
         if ( status != NERR_Success ) {
             IF_DEBUG(ERRORS) {
-                NetpDbgPrint( "XsNetWkstaSetInfo : SetInfo of charwait failed"
-                              "%X\n", status );
+                NetpKdPrint(( "XsNetWkstaSetInfo : SetInfo of charwait failed"
+                              "%X\n", status ));
             }
             Header->Status = (WORD)status;
             goto cleanup;
@@ -764,8 +762,8 @@ Return Value:
 
         if ( status != NERR_Success ) {
             IF_DEBUG(ERRORS) {
-                NetpDbgPrint( "XsNetWkstaSetInfo : SetInfo of chartime failed"
-                              "%X\n", status );
+                NetpKdPrint(( "XsNetWkstaSetInfo : SetInfo of chartime failed"
+                              "%X\n", status ));
             }
             Header->Status = (WORD)status;
             goto cleanup;
@@ -798,8 +796,8 @@ Return Value:
 
         if ( status != NERR_Success ) {
             IF_DEBUG(ERRORS) {
-                NetpDbgPrint( "XsNetWkstaSetInfo : SetInfo of charcount failed"
-                              "%X\n", status );
+                NetpKdPrint(( "XsNetWkstaSetInfo : SetInfo of charcount failed"
+                              "%X\n", status ));
             }
             Header->Status = (WORD)status;
             goto cleanup;
@@ -953,8 +951,8 @@ Return Value:
 
                 if ( status != NERR_Success ) {
                     IF_DEBUG(ERRORS) {
-                        NetpDbgPrint( "XsNetWkstaSetInfo : SetInfo of a "
-                                      "heuristic failed: %X\n", status );
+                        NetpKdPrint(( "XsNetWkstaSetInfo : SetInfo of a "
+                                      "heuristic failed: %X\n", status ));
                     }
                     Header->Status = (WORD)status;
                     goto cleanup;

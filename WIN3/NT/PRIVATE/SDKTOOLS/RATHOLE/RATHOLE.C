@@ -242,13 +242,13 @@ void SaveConfig (void)
     ps.y = (SHORT)rect.top;
     params.y = rect.top;
 
-    itoa( (*((int FAR *)&(ps))), &buf[0], 10);
+    _itoa( (*((int FAR *)&(ps))), &buf[0], 10);
     WriteProfileString(szClientClass, "Position", &buf[0]);
 
-    itoa( params.timeout, &buf[0], 10);
+    _itoa( params.timeout, &buf[0], 10);
     WriteProfileString(szClientClass, "Timeout", &buf[0]);
 
-    itoa( params.topmost, &buf[0], 10);
+    _itoa( params.topmost, &buf[0], 10);
     WriteProfileString(szClientClass, "Topmost", &buf[0]);
 }
 
@@ -336,4 +336,3 @@ LONG TimeoutDlgProc (HWND hwnd, WORD msg, DWORD wParam, DWORD lParam)
 
     lParam;
 }
-

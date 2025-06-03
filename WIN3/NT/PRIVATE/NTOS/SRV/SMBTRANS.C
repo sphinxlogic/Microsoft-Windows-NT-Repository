@@ -30,22 +30,22 @@ Revision History:
 // Forward declarations
 //
 
-SMB_STATUS
+SMB_STATUS SRVFASTCALL
 ExecuteTransaction (
     IN OUT PWORK_CONTEXT WorkContext
     );
 
-VOID
+VOID SRVFASTCALL
 RestartTransactionResponse (
     IN PWORK_CONTEXT WorkContext
     );
 
-VOID
+VOID SRVFASTCALL
 RestartIpxMultipieceSend (
     IN OUT PWORK_CONTEXT WorkContext
     );
 
-VOID
+VOID SRVFASTCALL
 RestartIpxTransactionResponse (
     IN OUT PWORK_CONTEXT WorkContext
     );
@@ -55,7 +55,7 @@ MailslotTransaction (
     PWORK_CONTEXT WorkContext
     );
 
-VOID
+VOID SRVFASTCALL
 RestartMailslotWrite (
     IN OUT PWORK_CONTEXT WorkContext
     );
@@ -78,7 +78,7 @@ RestartMailslotWrite (
 #endif
 
 
-SMB_STATUS
+SMB_STATUS SRVFASTCALL
 ExecuteTransaction (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -120,10 +120,27 @@ Return Value:
 
     PAGED_CODE( );
 
+    transaction = WorkContext->Parameters.Transaction;
+
+    if ( (WorkContext->NextCommand == SMB_COM_TRANSACTION ||
+          WorkContext->NextCommand == SMB_COM_TRANSACTION_SECONDARY ) &&
+         transaction->RemoteApiRequest &&
+         WorkContext->UsingBlockingThread == 0 ) {
+
+        //
+        // This is a downlevel API request, we must make sure we are on
+        // a blocking thread before handling it, since it will LPC to the
+        // srvsvc which might take some time to complete.
+        //
+        WorkContext->FspRestartRoutine = ExecuteTransaction;
+        SrvQueueWorkToBlockingThread( WorkContext );
+
+        return SmbStatusInProgress;
+    }
+
     header = WorkContext->ResponseHeader;
     response = (PRESP_TRANSACTION)WorkContext->ResponseParameters;
     ntResponse = (PRESP_NT_TRANSACTION)WorkContext->ResponseParameters;
-    transaction = WorkContext->Parameters.Transaction;
 
     //
     // Setup output pointers
@@ -286,7 +303,7 @@ Return Value:
                 SrvLogInvalidSmb( WorkContext );
             }
 
-        } else if ( wcsnicmp(
+        } else if ( _wcsnicmp(
                         transaction->TransactionName.Buffer,
                         StrSlashMailslot,
                         UNICODE_SMB_MAILSLOT_PREFIX_LENGTH / sizeof(WCHAR)
@@ -527,6 +544,7 @@ Arguments:
                                 (PCHAR)WorkContext->ResponseHeader );
 
         WorkContext->ResponseBuffer->DataLength = sendLength;
+        WorkContext->ResponseHeader->Flags |= SMB_FLAGS_SERVER_TO_REDIR;
 
         //
         // Send the response.
@@ -559,7 +577,7 @@ Arguments:
     // response anyway, to respond to the preceeding commands.)
     //
 
-    if ( transaction->Flags & SMB_TRANSACTION_NO_RESPONSE &&
+    if ( (transaction->Flags & SMB_TRANSACTION_NO_RESPONSE) &&
         ResultStatus != SmbTransStatusErrorWithData ) {
 
         IF_SMB_DEBUG(TRANSACTION1) {
@@ -708,9 +726,18 @@ Arguments:
 
     byteCountPtr = transaction->OutSetup + transaction->SetupCount;
 
+    //
+    // Either we have a session, in which case the client's buffer sizes
+    // are contained therein, or someone put the size in the transaction.
+    // There is one known instance of the latter: Kerberos authentication
+    // that requires an extra negotiation leg.
+    //
+
     maxSize = MIN(
                 WorkContext->ResponseBuffer->BufferLength,
-                (CLONG)transaction->Session->MaxBufferSize
+                transaction->Session ?
+                  (CLONG)transaction->Session->MaxBufferSize :
+                    transaction->cMaxBufferSize
                 );
 
     if ( transaction->OutputBufferCopied ) {
@@ -1156,7 +1183,7 @@ Return Value:
 } // SrvInsertTransaction
 
 
-VOID
+VOID SRVFASTCALL
 RestartTransactionResponse (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -1335,9 +1362,18 @@ Return Value:
         byteCountPtr = (PSMB_USHORT)response->Buffer;
     }
 
+    //
+    // Either we have a session, in which case the client's buffer sizes
+    // are contained therein, or someone put the size in the transaction.
+    // There is one known instance of the latter: Kerberos authentication
+    // that requires an extra negotiation leg.
+    //
+
     maxSize = MIN(
                 WorkContext->ResponseBuffer->BufferLength,
-                (CLONG)transaction->Session->MaxBufferSize
+                transaction->Session ?
+                  (CLONG)transaction->Session->MaxBufferSize :
+                    transaction->cMaxBufferSize
                 );
 
     paramPtr = (PCHAR)(byteCountPtr + 1);       // first legal location
@@ -1756,7 +1792,8 @@ Return Value:
         status = SrvVerifyUidAndTid(
                     WorkContext,
                     &session,
-                    &treeConnect
+                    &treeConnect,
+                    ShareTypeWild
                     );
 
         if ( !NT_SUCCESS(status) ) {
@@ -1851,27 +1888,24 @@ Return Value:
         status = SrvVerifyUidAndTid(
                     WorkContext,
                     &session,
-                    &treeConnect
+                    &treeConnect,
+                    ShareTypeWild
                     );
 
         if ( !NT_SUCCESS(status) ) {
 
-#ifdef _CAIRO_
-            if (*(PSMB_USHORT) ((PCHAR) header + setupOffset) == TRANS2_SESSION_SETUP) {
+            if (SrvHaveKerberos && *(PSMB_USHORT) ((PCHAR) header + setupOffset) == TRANS2_SESSION_SETUP) {
                 session = NULL;
                 IF_SMB_DEBUG(TRANSACTION1) {
                     SrvPrint0( "SrvSmbTransaction - setting session setup request to true\n");
                 }
             } else {
-#endif // _CAIRO_
                 IF_DEBUG(SMB_ERRORS) {
                     SrvPrint0( "SrvSmbTransaction: Invalid UID or TID\n" );
                 }
                 SrvSetSmbError( WorkContext, status );
                 return noResponse ? SmbStatusNoResponse : SmbStatusSendResponse;
-#ifdef _CAIRO_
             }  // Not TRANS2_SESSION_SETUP
-#endif // _CAIRO_
 
         }
 
@@ -2012,9 +2046,7 @@ Return Value:
     transaction->Connection = connection;
     SrvReferenceConnection( connection );
 
-#ifdef _CAIRO_
     if ( session != NULL ) {
-#endif // _CAIRO_
 
         transaction->Session = session;
         transaction->TreeConnect = treeConnect;
@@ -2024,13 +2056,11 @@ Return Value:
             SrvReferenceTreeConnect( treeConnect );
         }
 
-#ifdef _CAIRO_
     } else {
         IF_SMB_DEBUG(TRANSACTION1) {
             SrvPrint0( "SrvSmbTransaction - Session Setup: skipping session and tree connect reference.\n" );
         }
     }
-#endif // _CAIRO_
 
     //
     // Save the TID, PID, UID, and MID from this request in the
@@ -2210,7 +2240,6 @@ Return Value:
                 );
         }
 
-#ifdef _CAIRO_
         //
         // We can now check to see if we are doing a session setup trans2
         //
@@ -2221,7 +2250,6 @@ Return Value:
                 SrvPrint0( "SrvSmbTransaction - Receiving a Session setup SMB\n");
             }
         }
-#endif // _CAIRO_
 
         if ( parameterCount != 0 ) {
             RtlMoveMemory(
@@ -2621,7 +2649,6 @@ Return Value:
                                                 RESP_TRANSACTION_INTERIM,
                                                 0
                                                 );
-
             //
             // Inhibit statistics gathering -- this isn't the end of the
             // transaction.
@@ -2785,7 +2812,8 @@ Return Value:
     status = SrvVerifyUidAndTid(
                 WorkContext,
                 &session,
-                &treeConnect
+                &treeConnect,
+                ShareTypeWild
                 );
 
     if ( !NT_SUCCESS(status) ) {
@@ -2837,7 +2865,6 @@ Return Value:
     //     copies to and from the SMB buffer.
     //
 
-#ifdef _CAIRO_
     parameterLength =
         MAX( ( (request->TotalParameterCount + 7) & ~7),
              ( (request->MaxParameterCount + 7) & ~7));
@@ -2855,15 +2882,6 @@ Return Value:
     //
 
     requiredBufferSize += 8;
-#else // _CAIRO_
-    parameterLength =
-        MAX( ( (request->TotalParameterCount + 3) & ~3),
-             ( (request->MaxParameterCount + 3) & ~3));
-
-    requiredBufferSize = parameterLength +
-        MAX( ( (request->TotalDataCount + 3) & ~3),
-             ( (request->MaxDataCount + 3) & ~3) );
-#endif // _CAIRO_
 
     //
     // Allocate a transaction block.  This block is used to retain
@@ -2905,14 +2923,14 @@ Return Value:
         SrvPrint1( "Allocated transaction 0x%lx\n", transaction );
     }
 
-#ifdef _CAIRO_
     //
     // BUGBUG quad-word align input buffer for OFS query FSCTL since
     // they are using MIDL to generate their marshalling (pickling)
     //
 
-    trailingBytes = (PCHAR) (((ULONG)trailingBytes + 7) & ~7);
-#endif // _CAIRO_
+    if (SrvHaveKerberos) {
+        trailingBytes = (PCHAR) (((ULONG)trailingBytes + 7) & ~7);
+    }
 
     //
     // Save the connection, session, and tree connect pointers in the
@@ -3425,7 +3443,6 @@ Return Value:
                                                 RESP_NT_TRANSACTION_INTERIM,
                                                 0
                                                 );
-
             //
             // Inhibit statistics gathering -- this isn't the end of the
             // transaction.
@@ -3705,7 +3722,7 @@ Return Value:
 } // MailslotTransaction
 
 
-VOID
+VOID SRVFASTCALL
 RestartMailslotWrite (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -3800,7 +3817,7 @@ Return Value:
 } // RestartMailslotWrite
 
 
-VOID
+VOID SRVFASTCALL
 SrvRestartExecuteTransaction (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -3834,7 +3851,7 @@ Return Value:
 
 } // SrvRestartExecuteTransaction
 
-VOID
+VOID SRVFASTCALL
 RestartIpxMultipieceSend (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -3914,7 +3931,7 @@ Return Value:
 } // RestartIpxMultipieceSend
 
 
-VOID
+VOID SRVFASTCALL
 RestartIpxTransactionResponse (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -4196,7 +4213,7 @@ Return Value:
          ((dataLength + dataDisp) == transaction->DataCount) ) {
 
         //
-        // This is the final piece. Close the transaction.
+        // This is the final piece.  Close the transaction.
         //
 
         WorkContext->StartTime = transaction->StartTime;

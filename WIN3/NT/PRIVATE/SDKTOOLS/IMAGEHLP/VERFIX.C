@@ -18,13 +18,9 @@ Author:
 Revision History:
 
 --*/
-#include <nt.h>
-#include <ntrtl.h>
-#include <nturtl.h>
-#include <windows.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <imagehlp.h>
+
+#include <private.h>
+
 
 #define NEW_MAJOR_VERSION  3
 #define NEW_MINOR_VERSION  10

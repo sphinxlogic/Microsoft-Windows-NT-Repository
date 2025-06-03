@@ -28,4 +28,3 @@ struct IFI
 	};
 
 #define cwIFI   (sizeof (struct IFI) / sizeof (int))
-

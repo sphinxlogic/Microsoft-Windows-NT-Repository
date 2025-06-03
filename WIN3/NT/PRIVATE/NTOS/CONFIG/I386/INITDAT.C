@@ -43,13 +43,23 @@ PCHAR BiosBegin = { 0 };
 PCHAR Start = { 0 };
 PCHAR End = { 0 };
 
+UCHAR CmpID1[] = "80%u86-%c%x";
+UCHAR CmpID2[] = "x86 Family %u Model %u Stepping %u";
 WCHAR CmpVendorID[] = L"VendorIdentifier";
-UCHAR CmpCyrixID[] = "CyrixInstead";
 WCHAR CmpFeatureBits[] = L"FeatureSet";
+WCHAR CmpMHz[] = L"~MHz";
+WCHAR CmpUpdateSignature[] = L"Update Signature";
+WCHAR CmDisabledFloatingPointProcessor[] = L"DisabledFloatingPointProcessor";
+
+#ifdef ALLOC_DATA_PRAGMA
+#pragma  data_seg("PAGE")
+#endif
+
+UCHAR CmpCyrixID[] = "CyrixInstead";
 
 #ifdef ALLOC_DATA_PRAGMA
 #pragma  data_seg()
 #endif
 
 
-
+

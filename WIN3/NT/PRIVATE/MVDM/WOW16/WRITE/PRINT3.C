@@ -291,4 +291,3 @@ DontDraw:
 		Error(IDPMTPrPictErr);
 		}
 	}
-

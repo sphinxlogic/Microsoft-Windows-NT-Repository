@@ -237,6 +237,11 @@ Added new table entry GeneratedErrorLog
              Macros for accessing the file system table
 **/
 
+#define FS_FindDrives( dle_type, hand, cfg, fsys_mask ) \
+               (msassert ( func_tab[ dle_type ].FindDrives != NULL),\
+               (func_tab [(dle_type)].FindDrives( hand, cfg, fsys_mask ) ) ) 
+
+
 #define FS_ProcessDDB( fsh, ddb )\
                (msassert( fsh->tab_ptr->ProcessDDB != NULL ), \
                (fsh->tab_ptr->ProcessDDB( fsh, ddb ) ) )
@@ -348,6 +353,9 @@ Added new table entry GeneratedErrorLog
                (msassert( fsh->tab_ptr->SetObjTypeDBLK != NULL ), \
                (fsh->tab_ptr->SetObjTypeDBLK( ddb, type ) ) )
 
+#define FS_EndOperationOnDLE( fsh )\
+               (msassert( fsh->tab_ptr->EndOperationOnDLE != NULL ), \
+               (fsh->tab_ptr->EndOperationOnDLE( fsh ) ) )
 
 /**
         Macros used to access the translation routines in the FSU table.
@@ -498,6 +506,9 @@ UINT16 FS_ViewPartSysIndIDB(  FSYS_HAND fsh, DBLK_PTR idb );
 
 #define FS_IsNoRedirectRestore( vcb )            ( ((VCB_PTR)(vcb))->no_redirect_restore )
 #define FS_IsNonVolume( vcb )                    ( ((VCB_PTR)(vcb))->non_volume )
+#define FS_ViewNumFiles( vcb )                   ( ((VCB_PTR)(vcb))->set_cat_num_files ) 
+#define FS_ViewNumDirs( vcb )                   ( ((VCB_PTR)(vcb))->set_cat_num_dirs ) 
+#define FS_ViewNumCorrupt( vcb )                   ( ((VCB_PTR)(vcb))->set_cat_num_corrupt ) 
 
 #define FS_ViewTapeNameInVCB( vcb )              ( ( ((VCB_PTR )vcb)->tape_name_leng) \
                                                    ? ( (CHAR_PTR)((INT8_PTR)(vcb) + ((VCB_PTR)(vcb))->tape_name) ) \
@@ -762,5 +773,26 @@ VOID    FS_InitStrmInfo( STREAM_INFO_PTR s_info, UINT32 id, UINT16 fs_attrib, UI
 
 #define FS_GetNameSpaceFromDBLK( dblk )      ((dblk)->com.name_space)
 #define FS_SetNameSpaceInDBLK( dblk, ns )    ((dblk)->com.name_space = (ns))
+
+//   The following is a layer violation
+#define EMS_PCT_CONTINUE      0xffffffff
+#ifdef FS_EMS 
+INT EMS_AddToServerList( DLE_HAND dle_list, CHAR_PTR server_name ) ;
+INT EMS_RemoveFromServerList( CHAR_PTR server_name ) ;
+
+VOID
+EMS_GetStreamName( 
+      FILE_HAND hand,          /* I - handle of object to read from                  */
+      BYTE_PTR  buf,           /* O - buffer to place data into                      */
+      UINT16    *size );       /*I/O- Entry: size of buf; Exit: number of bytes read */
+
+CHAR_PTR EMS_EnumSvrInList( INT *index );
+
+#else
+#define EMS_AddToServerList( x, y )     (FALSE)
+#define EMS_EnumSvrInList( x ) ( NULL )
+#define EMS_GetStreamName( x,y,z) (NULL)
+#define EMS_RemoveFromServerList( server_name ) (FALSE)
+#endif
 
 #endif

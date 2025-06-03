@@ -681,4 +681,4 @@ class   DNameStatusNode : public DNameNode
     virtual int         length () const;
     virtual pchar_t     getString ( pchar_t, int ) const;
 };
-
+

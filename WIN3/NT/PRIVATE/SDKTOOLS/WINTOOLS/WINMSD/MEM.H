@@ -31,22 +31,23 @@ Environment:
 
 #define ITM_MEM_TIMER        69
 
+#define SZ_PAGINGFILES       TEXT("PagingFiles")
+#define SZ_MEMORYKEY         TEXT( "System\\CurrentControlSet\\Control\\Session Manager\\Memory Management" )
+
+
 BOOL
-MemoryDlgProc(
+MemoryTabProc(
     IN HWND hWnd,
     IN UINT message,
     IN WPARAM wParam,
     IN LPARAM lParam
     );
-
-BOOL
-BuildMemoryReport(
-    IN HWND hWnd
-    );
 
 BOOL
-GetMemoryData(
-    IN OUT LPDIALOGTEXT MemoryData
-    ) ;
+BuildMemoryReport(
+    IN HWND hWnd,
+    IN UINT iDetailLevel
+    );
+
 
 #endif // _MEM_

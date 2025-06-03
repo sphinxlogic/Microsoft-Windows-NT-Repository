@@ -13,7 +13,7 @@
 *
 * HISTORY:
 *		$Log:   J:\se.vcs\driver\q117kdi\nt\src\0x15a1c.c  $
-*	
+*
 *	   Rev 1.4   26 Apr 1994 16:31:26   KEVINKES
 *	Updated strings to support new drive classes.
 *
@@ -33,11 +33,66 @@
 #define FCT_ID 0x15A1C
 #include "include\public\adi_api.h"
 #include "include\public\frb_api.h"
+#include "include\public\vendor.h"
 #include "q117kdi\include\kdiwhio.h"
 #include "q117kdi\include\kdiwpriv.h"
 #include "include\private\kdi_pub.h"
 /*endinclude*/
 
+NTSTATUS kdi_WriteRegString(
+    HANDLE          unit_key,
+    PSTR            name,
+    PSTR            value
+    )
+{
+    UNICODE_STRING  usValue;
+    UNICODE_STRING  usName;
+    STRING          sTemp;
+    NTSTATUS        nt_status;
+
+    RtlInitString(&sTemp,name);
+
+    nt_status = RtlAnsiStringToUnicodeString(
+                &usName,
+                &sTemp,
+                TRUE );
+
+    if ( NT_SUCCESS( nt_status ) ) {
+        RtlInitString(&sTemp,value);
+
+        //
+        // Include the NULL character at the end of the string in the
+        // unicode string.
+        //
+
+        sTemp.Length++;
+
+        nt_status = RtlAnsiStringToUnicodeString(
+                &usValue,
+                &sTemp,
+                TRUE );
+
+        if ( NT_SUCCESS( nt_status ) ) {
+
+            nt_status = ZwSetValueKey(
+                unit_key,
+                &usName,
+                0,
+                REG_SZ,
+                usValue.Buffer,
+                usValue.Length
+                );
+
+            RtlFreeUnicodeString(&usValue);
+
+        }
+
+        RtlFreeUnicodeString(&usName);
+
+    }
+
+    return nt_status;
+}
 dVoid kdi_UpdateRegistryInfo
 (
 /* INPUT PARAMETERS:  */
@@ -62,26 +117,32 @@ dVoid kdi_UpdateRegistryInfo
 
 /* DATA: ********************************************************************/
 
-    HANDLE          lun_key;
     HANDLE          unit_key;
     UNICODE_STRING  nt_unicode_string;
     UNICODE_STRING  name;
     OBJECT_ATTRIBUTES object_attributes;
-    UNICODE_STRING string;
-    UNICODE_STRING string_num;
-    WCHAR buffer_num[16];
-    WCHAR buffer[64];
+    CHAR buffer[100];
     NTSTATUS nt_status;
-    PWSTR pwstr;
+    PSTR pstr;
+    STRING          ntNameString;
 
 /* CODE: ********************************************************************/
 
     /* Create the Tape key in the device map. */
 
-    RtlInitUnicodeString(
-        &name,
-        L"\\Registry\\Machine\\Hardware\\DeviceMap\\Tape"
-        );
+    sprintf(buffer,"\\Registry\\Machine\\Hardware\\DeviceMap\\Tape\\Unit %d",
+        ((KdiContextPtr)kdi_context)->tape_number);
+
+    RtlInitString(&ntNameString,buffer);
+
+    nt_status = RtlAnsiStringToUnicodeString(
+                &name,
+                &ntNameString,
+                TRUE );
+
+    if (!NT_SUCCESS(nt_status)) {
+        return;
+    }
 
     /* Initialize the object for the key. */
 
@@ -91,177 +152,74 @@ dVoid kdi_UpdateRegistryInfo
                                 dNULL_PTR,
                                 (PSECURITY_DESCRIPTOR) dNULL_PTR );
 
+
     /* Create the key or open it. */
 
-    nt_status = ZwOpenKey(&lun_key,
+    nt_status = ZwOpenKey(&unit_key,
                         KEY_READ | KEY_WRITE,
                         &object_attributes );
+
+    RtlFreeUnicodeString(&name);
 
     if (!NT_SUCCESS(nt_status)) {
         return;
     }
-
-    /* Copy the Prefix into a string. */
-
-    string.Length = 0;
-    string.MaximumLength=sizeof(buffer);
-    string.Buffer = buffer;
-
-    RtlInitUnicodeString(&string_num,
-        L"Unit ");
-
-    RtlCopyUnicodeString(&string, &string_num);
-
-    /* Create a port number key entry. */
-
-    string_num.Length = 0;
-    string_num.MaximumLength = 16;
-    string_num.Buffer = buffer_num;
 
     kdi_CheckedDump(
 	 	QIC117INFO,
 		"Q117i: Tape Device Number %08x\n",
 		((KdiContextPtr)kdi_context)->tape_number);
 
-    nt_status = RtlIntegerToUnicodeString(((KdiContextPtr)kdi_context)->tape_number, 10, &string_num);
-
-    if (!NT_SUCCESS(nt_status)) {
-        return;
-    }
-
-    /* Append the prefix and the numeric name. */
-
-    RtlAppendUnicodeStringToString(&string, &string_num);
-
-    InitializeObjectAttributes( &object_attributes,
-                                &string,
-                                OBJ_CASE_INSENSITIVE,
-                                lun_key,
-                                (PSECURITY_DESCRIPTOR) dNULL_PTR );
-
-    nt_status = ZwOpenKey(&unit_key,
-                        KEY_READ | KEY_WRITE,
-                        &object_attributes );
-
-    ZwClose(lun_key);
-
     switch (((DeviceDescriptorPtr)device_descriptor)->vendor) {
 
     case VENDOR_CMS:
 
-			switch (((DeviceDescriptorPtr)device_descriptor)->drive_class) {
-
-			case QIC40_DRIVE:
-
-            RtlInitUnicodeString(&nt_unicode_string,
-                L"Colorado Jumbo 120 from Hewlett-Packard");
-				break;
-
-			case QIC80_DRIVE:
-
-            RtlInitUnicodeString(&nt_unicode_string,
-                L"Colorado Jumbo 250 from Hewlett-Packard");
-				break;
-
-			case QIC3010_DRIVE:
-
-            RtlInitUnicodeString(&nt_unicode_string,
-                L"Colorado 700 from Hewlett-Packard");
-				break;
-
-			default:
-
-            RtlInitUnicodeString(&nt_unicode_string,
-                L"Colorado floppy tape drive from Hewlett-Packard");
-			}
+        switch (((DeviceDescriptorPtr)device_descriptor)->model) {
+        case MODEL_CMS_QIC40:   pstr = "Colorado Jumbo 120 from Hewlett-Packard";  break;
+        case MODEL_CMS_QIC80_STINGRAY:
+        case MODEL_CMS_QIC80:   pstr = "Colorado Jumbo 250 from Hewlett-Packard";  break;
+        case MODEL_CMS_QIC3010: pstr = "Colorado 700 from Hewlett-Packard";    break;
+        case MODEL_CMS_QIC3020: pstr = "Colorado 1400 from Hewlett-Packard";   break;
+        case MODEL_CMS_QIC80W:  pstr = "Colorado T1000 from Hewlett-Packard";   break;
+        case MODEL_CMS_TR3:     pstr = "Colorado T3000 from Hewlett-Packard";   break;
+        default:    pstr = "Colorado floppy tape drive from Hewlett-Packard";
+        }
 
         break;
 
-    case VENDOR_SUMMIT:
+    case VENDOR_MOUNTAIN_SUMMIT:
 
-			switch (((DeviceDescriptorPtr)device_descriptor)->drive_class) {
+        switch (((DeviceDescriptorPtr)device_descriptor)->drive_class) {
 
-			case QIC40_DRIVE:
-
-            RtlInitUnicodeString(&nt_unicode_string,
-                L"Summit QIC-40 floppy tape drive");
-				break;
-
-			case QIC80_DRIVE:
-
-            RtlInitUnicodeString(&nt_unicode_string,
-                L"Summit QIC-80 floppy tape drive");
-				break;
-
-			case QIC3010_DRIVE:
-
-            RtlInitUnicodeString(&nt_unicode_string,
-                L"Summit QIC-3010 floppy tape drive");
-				break;
-
-			case QIC3020_DRIVE:
-
-            RtlInitUnicodeString(&nt_unicode_string,
-                L"Summit QIC-3020 floppy tape drive");
-				break;
-
-			default:
-
-            RtlInitUnicodeString(&nt_unicode_string,
-                L"Summit floppy tape drive");
-			}
+        case QIC40_DRIVE:   pstr = "Summit QIC-40 floppy tape drive";  break;
+        case QIC80_DRIVE:   pstr = "Summit QIC-80 floppy tape drive";  break;
+        case QIC3010_DRIVE: pstr = "Summit QIC-3010 floppy tape drive";    break;
+        case QIC3020_DRIVE: pstr = "Summit QIC-3020 floppy tape drive";    break;
+        default:            pstr = "Summit floppy tape drive";
+        }
 
         break;
 
-    case VENDOR_WANGTEK:
+    case VENDOR_WANGTEK_REXON:
 
-			switch (((DeviceDescriptorPtr)device_descriptor)->drive_class) {
+        switch (((DeviceDescriptorPtr)device_descriptor)->drive_class) {
 
-			case QIC40_DRIVE:
+        case QIC40_DRIVE:   pstr = "Wangtek QIC-40 floppy tape drive"; break;
+        case QIC80_DRIVE:   pstr = "Wangtek QIC-80 floppy tape drive"; break;
+        case QIC3010_DRIVE: pstr = "Wangtek QIC-3010 floppy tape drive";   break;
+        case QIC3020_DRIVE: pstr = "Wangtek QIC-3020 floppy tape drive";   break;
+        default:            pstr = "Wangtek floppy tape drive";
 
-            RtlInitUnicodeString(&nt_unicode_string,
-                L"Wangtek QIC-40 floppy tape drive");
-				break;
-
-			case QIC80_DRIVE:
-
-            RtlInitUnicodeString(&nt_unicode_string,
-                L"Wangtek QIC-80 floppy tape drive");
-				break;
-
-			case QIC3010_DRIVE:
-
-            RtlInitUnicodeString(&nt_unicode_string,
-                L"Wangtek QIC-3010 floppy tape drive");
-				break;
-
-			case QIC3020_DRIVE:
-
-            RtlInitUnicodeString(&nt_unicode_string,
-                L"Wangtek QIC-3020 floppy tape drive");
-				break;
-
-			default:
-
-            RtlInitUnicodeString(&nt_unicode_string,
-                L"Wangtek floppy tape drive");
-
-			}
+        }
 
         break;
 
     case VENDOR_CORE:
 
         if (((DeviceDescriptorPtr)device_descriptor)->drive_class == QIC80_DRIVE) {
-
-            RtlInitUnicodeString(&nt_unicode_string,
-                L"Core QIC-80 floppy tape drive");
-
+            pstr = "Core QIC-80 floppy tape drive";
         } else {
-
-            RtlInitUnicodeString(&nt_unicode_string,
-                L"Core QIC-40 floppy tape drive");
-
+            pstr = "Core QIC-40 floppy tape drive";
         }
 
         break;
@@ -269,194 +227,99 @@ dVoid kdi_UpdateRegistryInfo
     case VENDOR_EXABYTE:
 
         if (((DeviceDescriptorPtr)device_descriptor)->drive_class == QIC3020_DRIVE) {
-
-            RtlInitUnicodeString(&nt_unicode_string,
-                L"Exabyte QIC-3020 floppy tape drive");
-
+            pstr = "Exabyte QIC-3020 floppy tape drive";
         } else {
-
-            RtlInitUnicodeString(&nt_unicode_string,
-                L"Exabyte floppy tape drive");
-
+            pstr = "Exabyte floppy tape drive";
         }
 
         break;
 
     case VENDOR_IOMEGA:
 
-			switch (((DeviceDescriptorPtr)device_descriptor)->drive_class) {
+        switch (((DeviceDescriptorPtr)device_descriptor)->drive_class) {
 
-			case QIC40_DRIVE:
-
-            RtlInitUnicodeString(&nt_unicode_string,
-                L"Iomega QIC-40 floppy tape drive");
-				break;
-
-			case QIC80_DRIVE:
-
-            RtlInitUnicodeString(&nt_unicode_string,
-                L"Iomega QIC-80 floppy tape drive");
-				break;
-
-			case QIC3010_DRIVE:
-
-            RtlInitUnicodeString(&nt_unicode_string,
-                L"Iomega QIC-3010 floppy tape drive");
-				break;
-
-			case QIC3020_DRIVE:
-
-            RtlInitUnicodeString(&nt_unicode_string,
-                L"Iomega QIC-3020 floppy tape drive");
-				break;
-
-			default:
-
-            RtlInitUnicodeString(&nt_unicode_string,
-                L"Iomega floppy tape drive");
-			}
-
+        case QIC40_DRIVE:   pstr = "Iomega QIC-40 floppy tape drive";  break;
+        case QIC80_DRIVE:   pstr = "Iomega QIC-80 floppy tape drive";  break;
+        case QIC3010_DRIVE: pstr = "Iomega QIC-3010 floppy tape drive";    break;
+        case QIC3020_DRIVE: pstr = "Iomega QIC-3020 floppy tape drive";    break;
+        default:            pstr = "Iomega floppy tape drive";
+        }
         break;
 
     case VENDOR_CMS_ENHANCEMENTS:
 
         if (((DeviceDescriptorPtr)device_descriptor)->drive_class == QIC80_DRIVE) {
-
-            RtlInitUnicodeString(&nt_unicode_string,
-                L"CMS Enhancements QIC-80 floppy tape drive");
+            pstr = "CMS Enhancements QIC-80 floppy tape drive";
 
         } else {
-
-            RtlInitUnicodeString(&nt_unicode_string,
-                L"CMS Enhancements QIC-40 floppy tape drive");
+            pstr = "CMS Enhancements QIC-40 floppy tape drive";
 
         }
-
         break;
 
-    case VENDOR_CONNER:
+    case VENDOR_ARCHIVE_CONNER:
 
-			switch (((DeviceDescriptorPtr)device_descriptor)->drive_class) {
+        switch (((DeviceDescriptorPtr)device_descriptor)->drive_class) {
 
-			case QIC40_DRIVE:
-
-            RtlInitUnicodeString(&nt_unicode_string,
-                L"Conner QIC-40 floppy tape drive");
-				break;
-
-			case QIC80_DRIVE:
-
-            RtlInitUnicodeString(&nt_unicode_string,
-                L"Conner QIC-80 floppy tape drive");
-				break;
-
-			case QIC3010_DRIVE:
-
-            RtlInitUnicodeString(&nt_unicode_string,
-                L"Conner QIC-3010 floppy tape drive");
-				break;
-
-			case QIC3020_DRIVE:
-
-            RtlInitUnicodeString(&nt_unicode_string,
-                L"Conner QIC-3020 floppy tape drive");
-				break;
-
-			default:
-
-            RtlInitUnicodeString(&nt_unicode_string,
-                L"Conner floppy tape drive");
-			}
+        case QIC40_DRIVE:   pstr = "Conner QIC-40 floppy tape drive";  break;
+        case QIC80_DRIVE:   pstr = "Conner QIC-80 floppy tape drive";  break;
+        case QIC3010_DRIVE: pstr = "Conner QIC-3010 floppy tape drive";    break;
+        case QIC3020_DRIVE: pstr = "Conner QIC-3020 floppy tape drive";    break;
+        default:            pstr = "Conner floppy tape drive";
+        }
 
         break;
 
     default:
 
-        RtlInitUnicodeString(&nt_unicode_string,
-            L"QIC-40/QIC-80/QIC3010/QIC3020 floppy tape drive");
+
+        pstr = "QIC-40/QIC-80/QIC3010/QIC3020 floppy tape drive";
     }
 
     /* Add Identifier value. */
 
-    RtlInitUnicodeString(&name, L"Identifier");
+    nt_status = kdi_WriteRegString(unit_key, "Identifier", pstr);
 
-    nt_status = ZwSetValueKey(
-        unit_key,
-        &name,
-        0,
-        REG_SZ,
-        nt_unicode_string.Buffer,
-        nt_unicode_string.Length
-        );
-
-    // store name info
-    RtlInitUnicodeString(&name, L"FDCType");
     switch(((DeviceDescriptorPtr)device_descriptor)->fdc_type) {
-        case FDC_UNKNOWN:
-            pwstr = L"FDC_UNKNOWN";
-            break;
-        case FDC_NORMAL:
-            pwstr = L"FDC_NORMAL";
-            break;
-        case FDC_ENHANCED:
-            pwstr = L"FDC_ENHANCED";
-            break;
-        case FDC_82077:
-            pwstr = L"FDC_82077";
-            break;
-        case FDC_82077AA:
-            pwstr = L"FDC_82077AA";
-            break;
-        case FDC_82078_44:
-            pwstr = L"FDC_82078_44";
-            break;
-        case FDC_82078_64:
-            pwstr = L"FDC_82078_64";
-            break;
-        case FDC_NATIONAL:
-            pwstr = L"FDC_NATIONAL";
-            break;
-        default:
-            pwstr = L"";
+    case FDC_UNKNOWN:   pstr = "FDC_UNKNOWN";   break;
+    case FDC_NORMAL:    pstr = "FDC_NORMAL";    break;
+    case FDC_ENHANCED:  pstr = "FDC_ENHANCED";  break;
+    case FDC_82077:     pstr = "FDC_82077";     break;
+    case FDC_82077AA:   pstr = "FDC_82077AA";   break;
+    case FDC_82078_44:  pstr = "FDC_82078_44";  break;
+    case FDC_82078_64:  pstr = "FDC_82078_64";  break;
+    case FDC_NATIONAL:  pstr = "FDC_NATIONAL";  break;
+    default:            pstr = "Default";
     }
-    RtlInitUnicodeString(&nt_unicode_string, pwstr);
 
-    nt_status = ZwSetValueKey(
-        unit_key,
-        &name,
-        0,
-        REG_SZ,
-        nt_unicode_string.Buffer,
-        nt_unicode_string.Length
-        );
+    nt_status = kdi_WriteRegString(unit_key, "FDCType", pstr);
 
-    RtlInitUnicodeString(&name, L"FDCTransferSpeed");
-
-
-    pwstr = L"";
+    pstr = "";
     if (((DeviceCfgPtr)device_cfg)->supported_rates & XFER_2Mbps) {
-        pwstr = L"2Mbps";
+        pstr = "2Mbps";
     } else
     if (((DeviceCfgPtr)device_cfg)->supported_rates & XFER_1Mbps) {
-        pwstr = L"1Mbps";
+        pstr = "1Mbps";
     } else
     if (((DeviceCfgPtr)device_cfg)->supported_rates & XFER_500Kbps) {
-        pwstr = L"500Kbps";
+        pstr = "500Kbps";
     } else
     if (((DeviceCfgPtr)device_cfg)->supported_rates & XFER_250Kbps) {
-        pwstr = L"250Kbps";
+        pstr = "250Kbps";
     }
 
-    RtlInitUnicodeString(&nt_unicode_string, pwstr);
+    nt_status = kdi_WriteRegString(unit_key, "FDCTransferSpeed", pstr);
 
-    nt_status = ZwSetValueKey(
-        unit_key,
-        &name,
-        0,
-        REG_SZ,
-        nt_unicode_string.Buffer,
-        nt_unicode_string.Length
-        );
+
+    switch (((DeviceDescriptorPtr)device_descriptor)->drive_class) {
+    case QIC40_DRIVE:       pstr = "QIC-40";   break;
+    case QIC80_DRIVE:       pstr = "QIC-80";   break;
+    case QIC3010_DRIVE:     pstr = "QIC-3010"; break;
+    case QIC3020_DRIVE:     pstr = "QIC-3020"; break;
+    case QIC80W_DRIVE:      pstr = "QIC-80W";   break;
+    default:                pstr = "Unknown";
+    }
+    nt_status = kdi_WriteRegString(unit_key, "DriveClass", pstr);
 
     ZwClose(unit_key);
 

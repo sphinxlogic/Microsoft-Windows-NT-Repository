@@ -469,7 +469,7 @@ Return Value:
     PUCHAR TopOfEnvironment;
     PCHAR String;
     PUCHAR NvChars;
-    ULONG Count;
+    LONG Count;
     CHAR Char;
     KIRQL OldIrql;
 
@@ -517,13 +517,11 @@ Return Value:
 
     //
     // Handle the case where the content of the NVRAM has been corrupted
-    // such that the last character in the environment is non-zero.  In
-    // that case, we end up with a value of Count bigger than the whole
-    // of environment space, because it's unsigned.
+    // such that the last character in the environment is non-zero.
     //
 
     Count = &Environment[LENGTH_OF_ENVIRONMENT-1] - TopOfEnvironment;
-    if (Count > LENGTH_OF_ENVIRONMENT) {
+    if (Count < 0) {
         KeLowerIrql(OldIrql);
         return ENOSPC;
     }
@@ -623,11 +621,21 @@ Return Value:
         // return error.
         //
 
-        for ( String = Value ; *String != 0 ; String++ ) {
-            if (Count-- == 0) {
-                KeLowerIrql(OldIrql);
-                return ENOSPC;
-            }
+        //
+        // From the length of free space subtract new variable's length,
+        // Value's length and 2 chars, one for the '=' sign and one of the
+        // null terminator.
+        //
+
+        Count -= ( strlen(Variable) + strlen(Value) + 2 );
+
+        //
+        // Check if there is space to fit the new variable.
+        //
+
+        if (Count < 0) {
+            KeLowerIrql(OldIrql);
+            return ENOSPC;
         }
 
       }

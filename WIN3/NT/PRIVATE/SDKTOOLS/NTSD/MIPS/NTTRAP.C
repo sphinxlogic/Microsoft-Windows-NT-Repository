@@ -61,11 +61,6 @@ Return Value:
         return FALSE;
     }
 
-    if (ProcessorType == 0) {
-        // not an R4000
-        return FALSE;
-    }
-
     Pde = MiGetPdeAddress (Address);
     Pte = MiGetPteAddress (Address);
 

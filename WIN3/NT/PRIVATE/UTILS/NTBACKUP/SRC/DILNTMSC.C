@@ -1,4 +1,4 @@
-/**
+/**                     
 Copyright(c) Conner Software Products Group 1993
 
   Name:        dilntmsc.c
@@ -6,6 +6,9 @@ Copyright(c) Conner Software Products Group 1993
   Description: Contains all the async support code for dilnttp.c.
 
   $Log:   T:/LOGFILES/DILNTMSC.C_V  $
+
+   Rev 1.3.1.10   12 Aug 1994 14:56:16   GREGG
+If the drive is an Anaconda, issue a rewind before setting the block size.
 
    Rev 1.3.1.9   16 Mar 1994 19:27:22   GREGG
 Added support for two more DEC DLT drives: tz86 and tz87.
@@ -141,9 +144,12 @@ HANDLE              DILNT_SpecialThread = NULL ;
 // For storing drive registry string
 CHAR                DILNT_DriveName[81] ;
 
+
 /*------------------------------------------------------------------------
                          Function Declaration
 ------------------------------------------------------------------------*/
+
+VOID InitializeTapeBlockSize( void ) ;
 
 static BOOLEAN   IsCQueueFull( Q_HEADER_PTR queue,
                                Q_HEADER_PTR outqueue
@@ -577,6 +583,7 @@ VOID ProcessRequest (  )
                                                        TAPE_ERASE_LONG,
                                                        FALSE ) ;
                               } else {
+
                                    status = EraseTape( DILNT_deviceHandle,
                                                        TAPE_ERASE_SHORT,
                                                        FALSE ) ;
@@ -794,8 +801,7 @@ VOID ProcessRequest (  )
                     TAPE_SET_MEDIA_PARAMETERS  mediabuff;
 
                     if ( gb_drv_features.HighPart & TAPE_DRIVE_LOCK_UNLOCK ) {
-
-                           status = PrepareTape( DILNT_deviceHandle,
+                         PrepareTape( DILNT_deviceHandle,
                                                  TAPE_LOCK,
                                                  FALSE ) ;
                     }
@@ -804,6 +810,18 @@ VOID ProcessRequest (  )
 
                     StoreRetBufInfo( tmpTCB, status ) ;
 
+                    if ( tmpTCB->ret_stuff.gen_error != GEN_NO_ERR) {
+                         if (gb_drv_features.HighPart & TAPE_DRIVE_LOCK_UNLOCK) {
+
+                                status = PrepareTape( DILNT_deviceHandle,
+                                                 TAPE_UNLOCK,
+                                                 FALSE ) ;
+                           }
+
+                           break ;
+                    }
+
+
                     buffsize = sizeof( TAPE_GET_MEDIA_PARAMETERS );
 
                     status = GetTapeParameters( DILNT_deviceHandle,
@@ -811,7 +829,21 @@ VOID ProcessRequest (  )
                                                 &buffsize,
                                                 &parms ) ;
 
-                    if ( status == SUCCESS && parms.WriteProtected == TRUE) {
+                    StoreRetBufInfo( tmpTCB, status ) ;
+
+                    if ( status != NO_ERROR ) {
+                         if ( ( tmpTCB->ret_stuff.gen_error != GEN_NO_ERR) &&
+                              (gb_drv_features.HighPart & TAPE_DRIVE_LOCK_UNLOCK) ) {
+
+                                status = PrepareTape( DILNT_deviceHandle,
+                                                 TAPE_UNLOCK,
+                                                 FALSE ) ;
+                           }
+                           break ;
+                    }
+
+
+                    if (parms.WriteProtected == TRUE) {
                          tmpTCB->ret_stuff.status |= TPS_WRITE_PROTECT ;
                     }
 
@@ -822,18 +854,30 @@ VOID ProcessRequest (  )
                                                 &buffsize,
                                                 &drivebuff );
 
-                    if ( status == SUCCESS ) {
-                         // Store drive features
-                         gb_drv_features.LowPart = drivebuff.FeaturesLow;
-                         gb_drv_features.HighPart = drivebuff.FeaturesHigh;
+                    StoreRetBufInfo( tmpTCB, status ) ;
 
-                         if (parms.BlockSize == 0) {
-                              mediabuff.BlockSize = drivebuff.DefaultBlockSize;
+                    if (status != NO_ERROR) {
+                         if ( ( tmpTCB->ret_stuff.gen_error != GEN_NO_ERR) &&
+                              (gb_drv_features.HighPart & TAPE_DRIVE_LOCK_UNLOCK) ) {
 
-                              SetTapeParameters( DILNT_deviceHandle,
-                                                 SET_TAPE_MEDIA_INFORMATION,
-                                                 &mediabuff );
-                         }
+                               status = PrepareTape( DILNT_deviceHandle,
+                                                 TAPE_UNLOCK,
+                                                 FALSE ) ;
+                          }
+                          break ;
+                    }
+
+
+                    // Store drive features
+                    gb_drv_features.LowPart = drivebuff.FeaturesLow;
+                    gb_drv_features.HighPart = drivebuff.FeaturesHigh;
+
+                    if (parms.BlockSize == 0) {
+                         mediabuff.BlockSize = drivebuff.DefaultBlockSize;
+
+                         SetTapeParameters( DILNT_deviceHandle,
+                                            SET_TAPE_MEDIA_INFORMATION,
+                                            &mediabuff );
                     }
 
                     break;
@@ -857,7 +901,7 @@ VOID ProcessRequest (  )
 
                case GEN_EJECT:
                {
-                    DWORD         status ;
+                    DWORD         status = NO_ERROR;
 
 
                     if ( gb_drv_features.HighPart & TAPE_DRIVE_LOCK_UNLOCK ) {
@@ -866,9 +910,11 @@ VOID ProcessRequest (  )
                                                    FALSE ) ;
                     }
 
-                    status = PrepareTape( DILNT_deviceHandle,
+                    if ( status == NO_ERROR ) {
+                         status = PrepareTape( DILNT_deviceHandle,
                                           TAPE_UNLOAD,
                                           FALSE );
+                    }
 
                     StoreRetBufInfo( tmpTCB, status ) ;
                     break;
@@ -1044,9 +1090,19 @@ static VOID ProcessSpecial( VOID )
                if( getmedia.BlockSize == 0 ) {
                     setmedia.BlockSize = getmedia.BlockSize = getdrive.DefaultBlockSize ;
 
-                    SetTapeParameters( DILNT_deviceHandle,
+                    if ( SetTapeParameters( DILNT_deviceHandle,
                                        SET_TAPE_MEDIA_INFORMATION,
-                                       &setmedia );
+                                       &setmedia ) ) {
+
+                         setmedia.BlockSize = getmedia.BlockSize = 0x200 ;
+
+                         if ( SetTapeParameters( DILNT_deviceHandle,
+                                       SET_TAPE_MEDIA_INFORMATION,
+                                       &setmedia ) ) {
+                              getmedia.BlockSize = 0;
+                         }
+                    }
+
                }
 
 
@@ -1058,8 +1114,12 @@ static VOID ProcessSpecial( VOID )
 
                drvinf->drv_media    = UNKNOWN ;
                drvinf->drv_bsize    = (UINT16)getmedia.BlockSize ;
-               drvinf->drv_addr     = 0 ;
-               drvinf->drv_features = TDI_NODATA | TDI_NODATA_FMK ;
+               drvinf->drv_features &= TDI_DRV_COMPRES_INIT ;
+               drvinf->drv_features |= TDI_NODATA | TDI_NODATA_FMK ;
+
+               if ( getdrive.Compression ) {
+                    drvinf->drv_features |= TDI_DRV_COMPRESS_ON ;
+               }
 
                if( gb_drv_features.HighPart & TAPE_DRIVE_SET_COMPRESSION ) {
                     drvinf->drv_features |= TDI_DRV_COMPRESSION ;
@@ -1078,7 +1138,10 @@ static VOID ProcessSpecial( VOID )
                }
 
                if( gb_drv_features.HighPart & TAPE_DRIVE_REVERSE_POSITION ) {
-                    drvinf->drv_features |= TDI_REV_FMK ;
+
+                   if ( gb_drv_features.HighPart & TAPE_DRIVE_RELATIVE_BLKS )  {
+                        drvinf->drv_features |= TDI_REV_FMK ;
+                   }
                }
 
                if( ( gb_drv_features.LowPart & TAPE_DRIVE_FIXED ) ||
@@ -1129,7 +1192,10 @@ static VOID ProcessSpecial( VOID )
                if( strstr( DILNT_SpecialDriveName, TEXT( "scsi" ) ) != NULL &&
                    strstr( DILNT_SpecialDriveName, TEXT( "exb-2501" ) ) == NULL &&
                    strstr( DILNT_SpecialDriveName, TEXT( "wangtek" ) ) == NULL &&
-                   strstr( DILNT_SpecialDriveName, TEXT( "tandberg" ) ) == NULL &&
+                   ( strstr( DILNT_SpecialDriveName, TEXT( "tandberg" ) ) == NULL ||
+                     ( strstr( DILNT_SpecialDriveName, TEXT( " TDC 3500" ) ) == NULL &&
+                       strstr( DILNT_SpecialDriveName, TEXT( " TDC 3700" ) ) == NULL ) ) &&
+                   
                    strstr( DILNT_SpecialDriveName, TEXT( "cipher" ) ) == NULL &&
                    ( strstr( DILNT_SpecialDriveName, TEXT( "dec" ) ) == NULL ||
                      ( strstr( DILNT_SpecialDriveName, TEXT( "thz02" ) ) == NULL &&
@@ -1139,7 +1205,9 @@ static VOID ProcessSpecial( VOID )
                        strstr( DILNT_SpecialDriveName, TEXT( "dlt2700" ) ) == NULL ) ) &&
                    strstr( DILNT_SpecialDriveName, TEXT( "viper" ) ) == NULL ) {
 
-                    if( gb_drv_features.HighPart & TAPE_DRIVE_LOAD_UNLOAD ) {
+               }
+               if( gb_drv_features.HighPart & TAPE_DRIVE_LOAD_UNLOAD ) {
+                    if ( gb_drv_features.HighPart & TAPE_DRIVE_EJECT_MEDIA) {
                          drvinf->drv_features |= TDI_UNLOAD ;
                     }
                }
@@ -1277,7 +1345,9 @@ static VOID ProcessSpecial( VOID )
                                    if ( GetTapeParameters( DILNT_deviceHandle,
                                                            GET_TAPE_DRIVE_INFORMATION,
                                                            &buffsize,
-                                                           &getdrive ) ) ret_val = FAILURE ;
+                                                           &getdrive ) ) {
+                                        ret_val = FAILURE ;
+                                   }
                                    break;
 
                               default:
@@ -1291,11 +1361,46 @@ static VOID ProcessSpecial( VOID )
                }
 
                if( ret_val == SUCCESS ) {
-               /* Change the block size */
-                    if( SetTapeParameters( DILNT_deviceHandle,
-                                           SET_TAPE_MEDIA_INFORMATION,
-                                           &setmedia ) ) {
-                         ret_val = FAILURE ;
+                    if( strstr( DILNT_SpecialDriveName, TEXT( "archive" ) ) != NULL &&
+                        strstr( DILNT_SpecialDriveName, TEXT( "ancda" ) ) != NULL ) {
+
+                         /* This is a kludge for the stupid Anaconda drive
+                            because you can't set the block size unless
+                            you're at BOT.
+                         */
+
+                         if( SetTapePosition( DILNT_deviceHandle,
+                                              TAPE_REWIND,
+                                              0,
+                                              0,
+                                              0,
+                                              FALSE ) != NO_ERROR ) {
+                              ret_val = FAILURE ;
+                         }
+                    }
+
+                    if( ret_val == SUCCESS ) {
+                         /* Change the block size */
+                         if( SetTapeParameters( DILNT_deviceHandle,
+                                                SET_TAPE_MEDIA_INFORMATION,
+                                                &setmedia ) ) {
+
+                              if( misc == DEFAULT_BLOCK_SIZE ) {
+
+                                   /* this is a kludge for a stupid 1/4 in
+                                      drive that won't except its default
+                                      blk size   */
+
+                                   setmedia.BlockSize = 0x200 ;
+
+                                   if( SetTapeParameters( DILNT_deviceHandle,
+                                                SET_TAPE_MEDIA_INFORMATION,
+                                                &setmedia ) ) {
+
+                                       ret_val = FAILURE ;
+                                   }
+                              }
+                         }
                     }
                }
                break ;
@@ -1582,5 +1687,61 @@ BOOLEAN   CreateCQueue( Q_HEADER_PTR   queue,
      outqueue->q_head = elementptr;
 
      return( SUCCESS );
+}
+
+VOID  InitializeTapeBlockSize( )
+{
+     static DWORD TapeBlockSize = 0 ;
+     if ( TapeBlockSize == 0 ) {
+          // read the block size from the registry
+          HKEY key ;
+          
+          if ( !RegOpenKeyEx( HKEY_CURRENT_USER,
+                    TEXT("Software\\Microsoft\\Ntbackup\\Backup Engine"),
+                    0,
+                    KEY_QUERY_VALUE,
+                    &key ) ) {
+
+               DWORD type ;
+               CHAR  buffer[20] ;
+               DWORD num_bytes = sizeof(buffer) ;
+               if ( RegQueryValueEx( key, TEXT("Tape Block Size"),
+                         NULL, &type,
+                         (char *)buffer,
+                         &num_bytes ) ) {
+                    TapeBlockSize = 1 ;
+               } else {
+                    TapeBlockSize = atoi(buffer) ;
+               }
+               RegCloseKey( key ) ;
+          }
+
+     }
+
+     if ( TapeBlockSize < 512 ) {
+          TAPE_GET_DRIVE_PARAMETERS  drivebuff;
+          DWORD buffsize ;
+
+          buffsize = sizeof( TAPE_GET_DRIVE_PARAMETERS );
+
+          if (!GetTapeParameters( DILNT_deviceHandle,
+                                        GET_TAPE_DRIVE_INFORMATION,
+                                        &buffsize,
+                                        &drivebuff ) ) {
+
+               TapeBlockSize = drivebuff.DefaultBlockSize;
+          }
+     }
+
+
+     if ( TapeBlockSize >= 512 ) {
+          TAPE_SET_MEDIA_PARAMETERS  mediabuff;
+
+          mediabuff.BlockSize = TapeBlockSize ;
+
+          SetTapeParameters( DILNT_deviceHandle,
+                              SET_TAPE_MEDIA_INFORMATION,
+                              &mediabuff );
+     }
 }
 

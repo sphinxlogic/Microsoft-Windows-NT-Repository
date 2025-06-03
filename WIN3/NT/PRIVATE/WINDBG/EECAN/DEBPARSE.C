@@ -82,17 +82,17 @@ typedef enum PTN_flag {
 
 HDEP        hSRStack = 0;
 ushort      maxSRsp = SRSTACKSIZE;
-token_t FAR *pSRStack;
+token_t *pSRStack;
 ushort      SRsp;
 ushort      argcnt[FCNDEPTH];
 short       fdepth;
 
-LOCAL   ushort  NEAR    PASCAL  CvtOp (ptoken_t, ptoken_t, ushort);
-LOCAL   ushort  NEAR    PASCAL  CheckErr (op_t, op_t, ushort);
-LOCAL   bool_t  NEAR    PASCAL  GrowSR (void);
-LOCAL   EESTATUS NEAR   PASCAL  FParseExpr (uint radix);
-LOCAL   PTN_flag NEAR   PASCAL  ParseTypeName (ptoken_t, char FAR *, uint, EESTATUS FAR *);
-LOCAL   void    NEAR    PASCAL  ParseContext (ptoken_t, EESTATUS FAR *);
+LOCAL   ushort      CvtOp (ptoken_t, ptoken_t, ushort);
+LOCAL   ushort      CheckErr (op_t, op_t, ushort);
+LOCAL   bool_t      GrowSR (void);
+LOCAL   EESTATUS    FParseExpr (uint radix);
+LOCAL   PTN_flag    ParseTypeName (ptoken_t, char *, uint, EESTATUS *);
+LOCAL   void        ParseContext (ptoken_t, EESTATUS *);
 
 
 
@@ -117,11 +117,17 @@ LOCAL   void    NEAR    PASCAL  ParseContext (ptoken_t, EESTATUS FAR *);
  */
 
 
-EESTATUS PASCAL Parse (char FAR *szExpr, uint radix, SHFLAG fCase, PHTM phTM,
- uint FAR *pEnd)
+EESTATUS
+Parse (
+    char *szExpr,
+    uint radix,
+    SHFLAG fCase,
+    PHTM phTM,
+    uint *pEnd
+    )
 {
     ushort      len = 0;
-    uchar FAR   *p = (uchar FAR *)szExpr;
+    uchar   *p = (uchar *)szExpr;
 
     if ((*phTM = MHMemAllocate (sizeof (struct exstate_t))) == 0) {
         return (EECATASTROPHIC);
@@ -131,7 +137,7 @@ EESTATUS PASCAL Parse (char FAR *szExpr, uint radix, SHFLAG fCase, PHTM phTM,
 
     DASSERT(pExState == NULL);
     pExState = (pexstate_t)MHMemLock (*phTM);
-    _fmemset (pExState, 0, sizeof (exstate_t));
+    memset (pExState, 0, sizeof (exstate_t));
 
     // allocate buffer for input string and copy
 
@@ -144,10 +150,11 @@ EESTATUS PASCAL Parse (char FAR *szExpr, uint radix, SHFLAG fCase, PHTM phTM,
     if ((pExState->hExStr = MHMemAllocate (pExState->ExLen + 1)) == 0) {
         // clean up after error in allocation of input string buffer
         MHMemUnLock (*phTM);
+        pExState = NULL;
         EEFreeTM (phTM);
         return (EECATASTROPHIC);
     }
-    _fmemcpy (MHMemLock (pExState->hExStr), szExpr, pExState->ExLen + 1);
+    memcpy (MHMemLock (pExState->hExStr), szExpr, pExState->ExLen + 1);
     MHMemUnLock (pExState->hExStr);
     pExState = NULL;
     MHMemUnLock (*phTM);
@@ -175,10 +182,18 @@ EESTATUS PASCAL Parse (char FAR *szExpr, uint radix, SHFLAG fCase, PHTM phTM,
  */
 
 
-EESTATUS PASCAL DoParse (PHTM phTM, uint radix, bool_t fCase, uint FAR *pEnd)
+EESTATUS
+DoParse (
+    PHTM phTM,
+    uint radix,
+    bool_t fCase,
+    uint *pEnd
+    )
 {
     EESTATUS    error;
     uint        len;
+
+    DASSERT(pExState == NULL);
 
     pExState = (pexstate_t)MHMemLock (*phTM);
     pExState->radix = radix;
@@ -192,7 +207,7 @@ EESTATUS PASCAL DoParse (PHTM phTM, uint radix, bool_t fCase, uint FAR *pEnd)
         return (EECATASTROPHIC);
     }
     else {
-        _fmemset ((pTree = MHMemLock (pExState->hSTree)), 0, len);
+        memset ((pTree = MHMemLock (pExState->hSTree)), 0, len);
         pTree->size = len;
         pTree->stack_base = sizeof (stree_t) + NODE_DEFAULT;
         // note that stack_next is zero from memset above
@@ -245,7 +260,7 @@ EESTATUS PASCAL DoParse (PHTM phTM, uint radix, bool_t fCase, uint FAR *pEnd)
  *
  */
 
-LOCAL EESTATUS NEAR PASCAL FParseExpr (uint radix)
+LOCAL EESTATUS FParseExpr (uint radix)
 {
     EESTATUS    error = EENOERROR;
     ERRNUM      lexerr = ERR_NONE;
@@ -253,8 +268,8 @@ LOCAL EESTATUS NEAR PASCAL FParseExpr (uint radix)
     token_t     tokNext;
     token_t     tokT;
     short       pdepth = 0;
-    char FAR   *szStart;
-    char FAR   *szExpr;
+    char   *szStart;
+    char   *szExpr;
 
     // allocate memory for shift-reduce stack if not already allocated
 
@@ -264,7 +279,7 @@ LOCAL EESTATUS NEAR PASCAL FParseExpr (uint radix)
             return (EECATASTROPHIC);
         }
     }
-    pSRStack = (token_t FAR *)MHMemLock (hSRStack);
+    pSRStack = (token_t *)MHMemLock (hSRStack);
     SRsp = maxSRsp;
 
     // lock the expression buffer.  Note that all exits from this
@@ -290,7 +305,7 @@ LOCAL EESTATUS NEAR PASCAL FParseExpr (uint radix)
         lexerr = ERR_SYNTAX;
         tokNext.opTok = OP_badtok;
     }
-    else if ((lexerr = GetDBToken ((uchar FAR *)szExpr, &tokNext, radix,
+    else if ((lexerr = GetDBToken ((uchar *)szExpr, &tokNext, radix,
       SRCUR().opTok)) == ERR_NONE) {
         // compute the index of the start of the first token from
         // the beginning of the input
@@ -561,7 +576,7 @@ kludge:
             tokOld = tokNext;
             if (*szExpr) {
                 // If not at end of input
-                if ((lexerr = GetDBToken ((uchar FAR *)szExpr, &tokNext, radix, SRCUR().opTok)) == ERR_NONE) {
+                if ((lexerr = GetDBToken ((uchar *)szExpr, &tokNext, radix, SRCUR().opTok)) == ERR_NONE) {
                     tokNext.iTokStart = (ushort) (tokNext.pbTok - szStart);
                 }
             }
@@ -604,7 +619,7 @@ kludge:
 
 
 
-LOCAL bool_t NEAR PASCAL GrowSR ()
+LOCAL bool_t GrowSR ()
 {
     ushort  oldSRsp = maxSRsp;
 
@@ -615,7 +630,7 @@ LOCAL bool_t NEAR PASCAL GrowSR ()
     }
     maxSRsp += SRSTACKGROW;
     pSRStack = MHMemLock (hSRStack);
-    _fmemmove (((char FAR *)pSRStack) + SRSTACKGROW * sizeof (token_t),
+    memmove (((char *)pSRStack) + SRSTACKGROW * sizeof (token_t),
       pSRStack, oldSRsp * sizeof (token_t));
     SRsp += SRSTACKGROW;
     return (TRUE);
@@ -650,7 +665,7 @@ LOCAL bool_t NEAR PASCAL GrowSR ()
  */
 
 
-LOCAL ushort NEAR PASCAL
+LOCAL ushort
 CvtOp (
     ptoken_t ptokOld,
     ptoken_t ptokNext,
@@ -740,7 +755,7 @@ CvtOp (
  */
 
 
-LOCAL ushort NEAR PASCAL CheckErr (op_t op1, op_t op2, ushort pdepth)
+LOCAL ushort CheckErr (op_t op1, op_t op2, ushort pdepth)
 {
     switch (op1) {
         // Top token on shift-reduce stack
@@ -833,8 +848,8 @@ LOCAL ushort NEAR PASCAL CheckErr (op_t op1, op_t op2, ushort pdepth)
  */
 
 
-LOCAL PTN_flag NEAR PASCAL ParseTypeName (ptoken_t ptokEntry, char FAR *szExpr,
-  uint radix, EESTATUS FAR *perror)
+LOCAL PTN_flag ParseTypeName (ptoken_t ptokEntry, char *szExpr,
+  uint radix, EESTATUS *perror)
 {
     enum {
         PT_S0,
@@ -845,7 +860,7 @@ LOCAL PTN_flag NEAR PASCAL ParseTypeName (ptoken_t ptokEntry, char FAR *szExpr,
         PT_S5
     };
     token_t     tokNext;
-    char FAR   *pParen;
+    char   *pParen;
     bool_t      ParenReq;
     ushort      state = PT_S0;
     op_t        tokTerm;
@@ -892,7 +907,7 @@ LOCAL PTN_flag NEAR PASCAL ParseTypeName (ptoken_t ptokEntry, char FAR *szExpr,
                szExpr++;
            }
            if (*szExpr != 0) {
-               if ((GetDBToken ((uchar FAR *)szExpr, &tokNext, radix, OP_lowprec) != ERR_NONE) ||
+               if ((GetDBToken ((uchar *)szExpr, &tokNext, radix, OP_lowprec) != ERR_NONE) ||
                  (tokNext.opTok == OP_badtok)) {
                    pExState->err_num = ERR_SYNTAX;
                    *perror = EEGENERAL;
@@ -1132,11 +1147,11 @@ LOCAL PTN_flag NEAR PASCAL ParseTypeName (ptoken_t ptokEntry, char FAR *szExpr,
  */
 
 
-LOCAL void NEAR PASCAL ParseContext (ptoken_t ptokNext, EESTATUS FAR *perror)
+LOCAL void ParseContext (ptoken_t ptokNext, EESTATUS *perror)
 {
-    char FAR    *pb;
-    char FAR    *pbSave;
-    char FAR    *pbCurly;
+    char    *pb;
+    char    *pbSave;
+    char    *pbCurly;
 
     // Initialization.
 
@@ -1153,9 +1168,14 @@ LOCAL void NEAR PASCAL ParseContext (ptoken_t ptokNext, EESTATUS FAR *perror)
 
     //  skip to closing }
 
-    while ((*pb != 0) && (*pb != '}'))
+    while ((*pb != 0) && (*pb != '}')) {
         // M00KLUDGE need to check for } in quoted long file name
+#ifdef DBCS
+        pb = CharNext(pb);
+#else
         pb++;
+#endif
+    }
 
     ptokNext->cbTok = (uchar)(pb - pbCurly + 1);
     ptokNext->opTok = OP_context;

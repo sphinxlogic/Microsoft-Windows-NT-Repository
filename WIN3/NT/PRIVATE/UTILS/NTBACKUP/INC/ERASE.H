@@ -49,4 +49,4 @@ Initial revision.
 #define IDD_ERASE_EXCLAMATION_BITMAP  107
 
 #endif
-
+

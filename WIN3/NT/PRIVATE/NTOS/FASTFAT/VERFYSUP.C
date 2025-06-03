@@ -188,6 +188,8 @@ Return Value:
 --*/
 
 {
+    ULONG ChangeCount = 0;
+
     DebugTrace(+1, Dbg, "FatVerifyVcb, Vcb = %08lx\n", Vcb );
 
     //
@@ -214,8 +216,8 @@ Return Value:
                                              Vcb->TargetDeviceObject,
                                              NULL,
                                              0,
-                                             NULL,
-                                             0,
+                                             (PVOID)&ChangeCount,
+                                             sizeof(ChangeCount),
                                              FALSE,
                                              &Event,
                                              &Iosb );
@@ -226,7 +228,6 @@ Return Value:
         }
 
         Status = IoCallDriver( Vcb->TargetDeviceObject, Irp );
-
 
         if (Status == STATUS_PENDING) {
             Status = KeWaitForSingleObject( &Event,
@@ -256,6 +257,22 @@ Return Value:
 
                 FatNormalizeAndRaiseStatus( IrpContext, Status );
             }
+        }
+
+        if (ChangeCount != Vcb->ChangeCount) {
+
+            //
+            //  The disk driver lost a media change event, possibly
+            //  because it was eaten by a user request before the 
+            //  volume was mounted.  We set things up as they would
+            //  be if the driver had returned VERIFY_REQUIRED.
+            //
+
+            Vcb->ChangeCount = ChangeCount;
+            IoSetDeviceToVerify( PsGetCurrentThread(), Vcb->TargetDeviceObject );
+            SetFlag( Vcb->TargetDeviceObject->Flags, DO_VERIFY_VOLUME );
+
+            FatNormalizeAndRaiseStatus( IrpContext, STATUS_VERIFY_REQUIRED );
         }
     }
 
@@ -466,7 +483,8 @@ Return Value:
     //
 
     if ( VcbExists &&
-         (Vcb->VcbCondition == VcbGood) ) {
+         (Vcb->VcbCondition == VcbGood) &&
+         !FlagOn(Vcb->VcbState, VCB_STATE_FLAG_SHUTDOWN) ) {
 
         try {
 
@@ -572,7 +590,7 @@ Return Value:
 
         LARGE_INTEGER TwoSecondsFromNow;
 
-        TwoSecondsFromNow = LiFromLong(-2*1000*1000*10);
+        TwoSecondsFromNow.QuadPart = (LONG)-2*1000*1000*10;
 
         KeSetTimer( &Vcb->CleanVolumeTimer,
                     TwoSecondsFromNow,
@@ -636,6 +654,7 @@ Return Value:
     PBCB BootSectorBcb;
     KEVENT Event;
     PIRP Irp;
+    NTSTATUS Status;
 
     DebugTrace(+1, Dbg, "FatMarkVolumeClean, Vcb = %08lx\n", Vcb);
 
@@ -657,24 +676,35 @@ Return Value:
 
     try {
 
+        ULONG PinLength;
+
+        //
+        // If the FAT table is 12-bit then our strategy is to pin the entire
+        // thing when any of it is modified.  Here we're going to pin the
+        // first page, so in the 12-bit case we also want to pin the rest
+        // of the FAT table.
+        //
+
+        if (Vcb->AllocationSupport.FatIndexBitSize == 12) {
+
+            PinLength = FatReservedBytes(&Vcb->Bpb) + FatBytesPerFat(&Vcb->Bpb);
+
+        } else {
+            
+            PinLength = sizeof(PACKED_BOOT_SECTOR);
+        }
+
         //
         //  Call Cc directly here so that FatReadDirectoryFile doesn't
         //  have to be resident.
         //
 
-        try {
-
-            CcPinRead( Vcb->VirtualVolumeFile,
-                       &FatLargeZero,
-                       sizeof(PACKED_BOOT_SECTOR),
-                       TRUE,
-                       &BootSectorBcb,
-                       (PVOID *)&BootSector );
-
-        } except(FatExceptionFilter( IrpContext, GetExceptionInformation() )) {
-
-            NOTHING;
-        }
+        CcPinRead( Vcb->VirtualVolumeFile,
+                   &FatLargeZero,
+                   PinLength,
+                   TRUE,
+                   &BootSectorBcb,
+                   (PVOID *)&BootSector );
 
         DbgDoit( IrpContext->PinCount += 1 )
 
@@ -725,9 +755,18 @@ Return Value:
         //  Igmore any return status.
         //
 
-        (VOID)IoCallDriver( Vcb->TargetDeviceObject, Irp );
-        (VOID)KeWaitForSingleObject( &Event, Executive, KernelMode, FALSE, (PLARGE_INTEGER)NULL );
+#ifdef WE_WON_ON_APPEAL
+        Status = (Vcb->Dscb != NULL) ?
+                 FatLowLevelDblsReadWrite( IrpContext, Irp, Vcb ) :
+                 IoCallDriver( Vcb->TargetDeviceObject, Irp );
+#else
+        Status = IoCallDriver( Vcb->TargetDeviceObject, Irp );
+#endif // WE_WON_ON_APPEAL
 
+        if (Status == STATUS_PENDING) {
+
+            (VOID)KeWaitForSingleObject( &Event, Executive, KernelMode, FALSE, (PLARGE_INTEGER)NULL );
+        }
 
     try_exit: NOTHING;
     } finally {
@@ -910,6 +949,24 @@ Return Value:
 
     try {
 
+        ULONG PinLength;
+
+        //
+        // If the FAT table is 12-bit then our strategy is to pin the entire
+        // thing when any of it is modified.  Here we're going to pin the
+        // first page, so in the 12-bit case we also want to pin the rest
+        // of the FAT table.
+        //
+
+        if (Vcb->AllocationSupport.FatIndexBitSize == 12) {
+
+            PinLength = FatReservedBytes(&Vcb->Bpb) + FatBytesPerFat(&Vcb->Bpb);
+
+        } else {
+            
+            PinLength = sizeof(PACKED_BOOT_SECTOR);
+        }
+
         //
         //  Call Cc directly here so that FatReadDirectoryFile doesn't
         //  have to be resident.
@@ -917,7 +974,7 @@ Return Value:
 
         CcPinRead( Vcb->VirtualVolumeFile,
                    &FatLargeZero,
-                   sizeof(PACKED_BOOT_SECTOR),
+                   PinLength,
                    TRUE,
                    &BootSectorBcb,
                    (PVOID *)&BootSector );
@@ -980,8 +1037,18 @@ Return Value:
         //  Call the device to do the write and wait for it to finish.
         //
 
-        (VOID)IoCallDriver( Vcb->TargetDeviceObject, Irp );
-        (VOID)KeWaitForSingleObject( &Event, Executive, KernelMode, FALSE, (PLARGE_INTEGER)NULL );
+#ifdef WE_WON_ON_APPEAL
+        Status = (Vcb->Dscb != NULL) ?
+                 FatLowLevelDblsReadWrite( IrpContext, Irp, Vcb ) :
+                 IoCallDriver( Vcb->TargetDeviceObject, Irp );
+#else
+        Status = IoCallDriver( Vcb->TargetDeviceObject, Irp );
+#endif // WE_WON_ON_APPEAL
+
+        if (Status == STATUS_PENDING) {
+
+            (VOID)KeWaitForSingleObject( &Event, Executive, KernelMode, FALSE, (PLARGE_INTEGER)NULL );
+        }
 
         //
         //  Grab the Status.
@@ -1083,41 +1150,46 @@ Return Value:
                        &BootSectorBcb,
                        (PVOID *)&BootSector );
 
-    //
-    //  Check if the magic bit is set
-    //
+    try {
 
-    Dirty = BooleanFlagOn( BootSector->CurrentHead, FAT_BOOT_SECTOR_DIRTY );
+        //
+        //  Check if the magic bit is set
+        //
 
-    //
-    //  Setup the VolumeLabel string
-    //
+        Dirty = BooleanFlagOn( BootSector->CurrentHead, FAT_BOOT_SECTOR_DIRTY );
 
-    VolumeLabel.Length = Vcb->Vpb->VolumeLabelLength;
-    VolumeLabel.MaximumLength = MAXIMUM_VOLUME_LABEL_LENGTH;
-    VolumeLabel.Buffer = &Vcb->Vpb->VolumeLabel[0];
+        //
+        //  Setup the VolumeLabel string
+        //
 
-    if ( Dirty ) {
+        VolumeLabel.Length = Vcb->Vpb->VolumeLabelLength;
+        VolumeLabel.MaximumLength = MAXIMUM_VOLUME_LABEL_LENGTH;
+        VolumeLabel.Buffer = &Vcb->Vpb->VolumeLabel[0];
 
-        KdPrint(("FASTFAT: WARNING! Mounting Dirty Volume %Z\n", &VolumeLabel));
+        if ( Dirty ) {
 
-        SetFlag( Vcb->VcbState, VCB_STATE_FLAG_MOUNTED_DIRTY );
+            KdPrint(("FASTFAT: WARNING! Mounting Dirty Volume %Z\n", &VolumeLabel));
 
-    } else {
-
-        if (FlagOn(Vcb->VcbState, VCB_STATE_FLAG_MOUNTED_DIRTY)) {
-
-            KdPrint(("FASTFAT: Volume %Z has been cleaned.\n", &VolumeLabel));
-
-            ClearFlag( Vcb->VcbState, VCB_STATE_FLAG_MOUNTED_DIRTY );
+            SetFlag( Vcb->VcbState, VCB_STATE_FLAG_MOUNTED_DIRTY );
 
         } else {
 
-            (VOID)FsRtlBalanceReads( Vcb->TargetDeviceObject );
-        }
-    }
+            if (FlagOn(Vcb->VcbState, VCB_STATE_FLAG_MOUNTED_DIRTY)) {
 
-    FatUnpinBcb( IrpContext, BootSectorBcb );
+                KdPrint(("FASTFAT: Volume %Z has been cleaned.\n", &VolumeLabel));
+
+                ClearFlag( Vcb->VcbState, VCB_STATE_FLAG_MOUNTED_DIRTY );
+
+            } else {
+
+                (VOID)FsRtlBalanceReads( Vcb->TargetDeviceObject );
+            }
+        }
+
+    } finally {
+
+        FatUnpinBcb( IrpContext, BootSectorBcb );
+    }
 }
 
 
@@ -1169,37 +1241,6 @@ Return Value:
     if ( FileObject == NULL ) {
 
         return;
-    }
-
-    //
-    //  If we are trying to do any other operation than close on a file
-    //  object marked for delete, raise STATUS_DELETE_PENDING.
-    //
-
-    if ( ( FileObject->DeletePending == TRUE ) &&
-         ( IrpContext->MajorFunction != IRP_MJ_CLEANUP ) &&
-         ( IrpContext->MajorFunction != IRP_MJ_CLOSE ) ) {
-
-        FatRaiseStatus( IrpContext, STATUS_DELETE_PENDING );
-    }
-
-    //
-    //  If we are doing a create, and there is a related file objects, and
-    //  it it is marked for delete, raise STATUS_DELETE_PENDING.
-    //
-
-    if ( IrpContext->MajorFunction == IRP_MJ_CREATE ) {
-
-        PFILE_OBJECT RelatedFileObject;
-
-        RelatedFileObject = FileObject->RelatedFileObject;
-
-        if ( (RelatedFileObject != NULL) &&
-             FlagOn(((PFCB)RelatedFileObject->FsContext)->FcbState,
-                    FCB_STATE_DELETE_ON_CLOSE) )  {
-
-            FatRaiseStatus( IrpContext, STATUS_DELETE_PENDING );
-        }
     }
 
     //
@@ -1304,11 +1345,11 @@ Return Value:
 
         if ( Fcb->FirstClusterOfFile == 0 ) {
 
-            Fcb->Header.AllocationSize = FatLargeZero;
+            Fcb->Header.AllocationSize.QuadPart = 0;
 
         } else {
 
-            Fcb->Header.AllocationSize = LiFromLong(-1);
+            Fcb->Header.AllocationSize.QuadPart = (LONG)-1;
         }
     }
 
@@ -1402,41 +1443,44 @@ Return Value:
     //  in order to avoid a deadlock in CcUninitializeCacheMap.
     //
 
-    Name.MaximumLength = 16;
-    Name.Buffer = &Buffer[0];
+    try {
 
-    Fat8dot3ToString( IrpContext, Dirent, FALSE, &Name );
+        Name.MaximumLength = 16;
+        Name.Buffer = &Buffer[0];
 
-    if (!RtlEqualString( &Name, &Fcb->ShortName.Name.Oem, TRUE )
+        Fat8dot3ToString( IrpContext, Dirent, FALSE, &Name );
 
-            ||
+        if (!RtlEqualString( &Name, &Fcb->ShortName.Name.Oem, TRUE )
 
-         ( (NodeType(Fcb) == FAT_NTC_FCB) &&
-           (Fcb->Header.FileSize.LowPart != Dirent->FileSize) )
+                ||
 
-            ||
+             ( (NodeType(Fcb) == FAT_NTC_FCB) &&
+               (Fcb->Header.FileSize.LowPart != Dirent->FileSize) )
 
-         ((ULONG)Dirent->FirstClusterOfFile != Fcb->FirstClusterOfFile)
+                ||
 
-            ||
+             ((ULONG)Dirent->FirstClusterOfFile != Fcb->FirstClusterOfFile)
 
-          (Dirent->Attributes != Fcb->DirentFatFlags) ) {
+                ||
 
-        FatMarkFcbCondition( IrpContext, Fcb, FcbBad );
+              (Dirent->Attributes != Fcb->DirentFatFlags) ) {
+
+            FatMarkFcbCondition( IrpContext, Fcb, FcbBad );
+
+        } else {
+
+            //
+            //  We passed.  Get the Fcb ready to use again.
+            //
+
+            FatResetFcb( IrpContext, Fcb );
+
+            FatMarkFcbCondition( IrpContext, Fcb, FcbGood );
+        }
+
+    } finally {
 
         FatUnpinBcb( IrpContext, DirentBcb );
-
-    } else {
-
-        //
-        //  We passed.  Get the Fcb ready to use again.
-        //
-
-        FatUnpinBcb( IrpContext, DirentBcb );
-
-        FatResetFcb( IrpContext, Fcb );
-
-        FatMarkFcbCondition( IrpContext, Fcb, FcbGood );
     }
 
     return;
@@ -1544,6 +1588,14 @@ Return Value:
         SetFlag(Vcb->Vpb->RealDevice->Flags, DO_VERIFY_VOLUME);
 
         FatRaiseStatus( IrpContext, STATUS_WRONG_VOLUME );
+
+        break;
+
+    case VcbBad:
+
+        DebugTrace(0, Dbg, "The Vcb is bad\n", 0);
+
+        FatRaiseStatus( IrpContext, STATUS_FILE_INVALID );
 
         break;
 
@@ -1716,7 +1768,8 @@ Return Value:
 
                 ASSERT( ChildVcb->Vpb->RealDevice == Vcb->Vpb->RealDevice );
 
-                if ( (ChildVcb->VcbCondition == VcbNotMounted) &&
+                if ( ((ChildVcb->VcbCondition == VcbNotMounted) ||
+                      (ChildVcb->VcbCondition == VcbBad)) &&
                      (ChildVcb->OpenFileCount == 0) ) {
 
                     (VOID)FatCheckForDismount( IrpContext, ChildVcb );
@@ -1727,7 +1780,8 @@ Return Value:
 
 #endif // WE_WON_ON_APPEAL
 
-            if ( (Vcb->VcbCondition == VcbNotMounted) &&
+            if ( ((Vcb->VcbCondition == VcbNotMounted) ||
+                  (Vcb->VcbCondition == VcbBad)) &&
                  (Vcb->OpenFileCount == 0) ) {
 
                 (VOID)FatCheckForDismount( IrpContext, Vcb );
@@ -1811,3 +1865,4 @@ FatMarkVolumeCompletionRoutine(
 
     return STATUS_MORE_PROCESSING_REQUIRED;
 }
+

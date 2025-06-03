@@ -1,49 +1,33 @@
-/*++
-
-Copyright (c) 1989  Microsoft Corporation
-
-Module Name:
-
-    buildexe.c
-
-Abstract:
-
-    This is the Exec module for the NT Build Tool (BUILD.EXE)
-
-    This module contains routines for execing a subprocess and filtering
-    its output for error messages, using pipes and a separate thread.
-
-Author:
-
-    Steve Wood (stevewo) 22-May-1989
-
-Revision History:
-
---*/
+//+---------------------------------------------------------------------------
+//
+//  Microsoft Windows
+//  Copyright (C) Microsoft Corporation, 1994
+//
+//  File:       buildexe.c
+//
+//  Contents:   Functions related to spawning processes and processing
+//              their output, using pipes and multiple threads.
+//
+//  History:    22-May-89     SteveWo  Created
+//                 ... see SLM logs
+//              26-Jul-94     LyleC    Cleanup/Add Pass0 Support
+//
+//----------------------------------------------------------------------------
 
 #include "build.h"
 
-#define DEFAULT_LPS     (fStatusTree? 500 : 50)
+#include <fcntl.h>
 
-struct _THREADSTATE;
+//+---------------------------------------------------------------------------
+//
+// Global Data
+//
+//----------------------------------------------------------------------------
 
-typedef BOOL (*FILTERPROC)(struct _THREADSTATE *ThreadState, LPSTR p);
+#define DEFAULT_LPS     (fStatusTree? 5000 : 50)
 
-typedef struct _THREADSTATE {
-    USHORT cRowTotal;
-    USHORT cColTotal;
-    BOOL IsStdErrTty;
-    FILE *ChildOutput;
-    UINT ChildState;
-    UINT ChildFlags;
-    LPSTR ChildTarget;
-    UINT LinesToIgnore;
-    FILTERPROC FilterProc;
-    ULONG ThreadIndex;
-    CHAR UndefinedId[ DB_MAX_PATH_LENGTH ];
-    CHAR ChildCurrentDirectory[ DB_MAX_PATH_LENGTH ];
-    CHAR ChildCurrentFile[ DB_MAX_PATH_LENGTH ];
-} THREADSTATE, *PTHREADSTATE;
+#define LastRow(pts)    ((USHORT) ((pts)->cRowTotal - 1))
+#define LastCol(pts)    ((USHORT) ((pts)->cColTotal - 1))
 
 typedef struct _PARALLEL_CHILD {
     PTHREADSTATE ThreadState;
@@ -59,9 +43,9 @@ DWORD NewConsoleMode;
 HANDLE *WorkerThreads;
 HANDLE *WorkerEvents;
 ULONG NumberProcesses;
-ULONG ThreadsStarted=0;
-CRITICAL_SECTION TTYCriticalSection;
+ULONG ThreadsStarted;
 
+BOOLEAN fConsoleInitialized = FALSE;
 BYTE ScreenCell[2];
 BYTE StatusCell[2];
 
@@ -74,11 +58,15 @@ BYTE StatusCell[2];
 #define STATE_S_PREPROC     6
 #define STATE_PRECOMP       7
 #define STATE_MKTYPLIB      8
-#define STATE_MKHEADER      9
-#define STATE_MIDL          10
+#define STATE_MIDL          9
+#define STATE_MC            10
 #define STATE_STATUS        11
+#define STATE_BINPLACE      12
+#define STATE_VCTOOL        13
+#define STATE_ASN           14
 
-#define FLAGS_CXX_FILE      0x0001
+#define FLAGS_CXX_FILE              0x0001
+#define FLAGS_WARNINGS_ARE_ERRORS   0x0002
 
 LPSTR States[] = {
     "Unknown",                      // 0
@@ -90,23 +78,31 @@ LPSTR States[] = {
     "Assembling",                   // 6
     "Compiling Precompiled Header", // 7
     "Building Type Library",        // 8
-    "Generating Headers from",      // 9
-    "Running MIDL on",              // 10
-    "Build Status Line"             // 11
+    "Running MIDL on",              // 9
+    "Compiling error file",         // 10
+    "Build Status Line",            // 11
+    "Binplacing",                   // 12
+    "Processing",                   // 13
+    "Running ASN Compiler on",      // 14
 };
 
+//----------------------------------------------------------------------------
+//
+// Function prototypes
+//
+//----------------------------------------------------------------------------
 
 VOID
 GetScreenSize(THREADSTATE *ThreadState);
 
 VOID
-VioGetCurPos(USHORT *pRow, USHORT *pCol, USHORT *pRowTop);
+GetCursorPosition(USHORT *pRow, USHORT *pCol, USHORT *pRowTop);
 
 VOID
-VioSetCurPos(USHORT Row, USHORT Col);
+SetCursorPosition(USHORT Row, USHORT Col);
 
 VOID
-VioWrtCharStrAtt(
+WriteConsoleCells(
     LPSTR String,
     USHORT StringLength,
     USHORT Row,
@@ -114,7 +110,7 @@ VioWrtCharStrAtt(
     BYTE *Attribute);
 
 VOID
-VioScrollUp(
+MoveRectangleUp (
     USHORT Top,
     USHORT Left,
     USHORT Bottom,
@@ -123,9 +119,9 @@ VioScrollUp(
     BYTE  *FillCell);
 
 VOID
-VioReadCellStr(
+ReadConsoleCells(
     BYTE *pScreenCell,
-    USHORT *pcb,
+    USHORT cb,
     USHORT Row,
     USHORT Column);
 
@@ -154,6 +150,44 @@ ParallelChildStart(
     PPARALLEL_CHILD Data
     );
 
+DWORD
+PipeSpawnClose (
+    FILE *pstream
+    );
+
+FILE *
+PipeSpawn (
+    const CHAR *cmdstring
+    );
+
+
+//+---------------------------------------------------------------------------
+//
+//  Function:   RestoreConsoleMode
+//
+//----------------------------------------------------------------------------
+
+VOID
+RestoreConsoleMode(VOID)
+{
+    SetConsoleMode(GetStdHandle(STD_ERROR_HANDLE), OldConsoleMode);
+    NewConsoleMode = OldConsoleMode;
+}
+
+//+---------------------------------------------------------------------------
+//
+//  Function:   IsolateFirstToken
+//
+//  Synopsis:   Returns the first token in a string.
+//
+//  Arguments:  [pp]    -- String to parse
+//              [delim] -- Token delimiter
+//
+//  Returns:    Pointer to first token
+//
+//  Notes:      Leading spaces are ignored.
+//
+//----------------------------------------------------------------------------
 
 LPSTR
 IsolateFirstToken(
@@ -193,6 +227,21 @@ IsolateFirstToken(
 }
 
 
+//+---------------------------------------------------------------------------
+//
+//  Function:   IsolateLastToken
+//
+//  Synopsis:   Return the last token in a string.
+//
+//  Arguments:  [p]     -- String to parse
+//              [delim] -- Token delimiter
+//
+//  Returns:    Pointer to last token
+//
+//  Notes:      Trailing spaces are skipped.
+//
+//----------------------------------------------------------------------------
+
 LPSTR
 IsolateLastToken(
     LPSTR p,
@@ -230,6 +279,14 @@ IsolateLastToken(
 }
 
 
+//+---------------------------------------------------------------------------
+//
+//  Function:   TestPrefix
+//
+//  Synopsis:   Returns TRUE if [Prefix] is the first part of [pp]
+//
+//----------------------------------------------------------------------------
+
 BOOL
 TestPrefix(
     LPSTR  *pp,
@@ -239,7 +296,7 @@ TestPrefix(
     LPSTR p = *pp;
     UINT cb;
 
-    if (!strnicmp( p, Prefix, cb = strlen( Prefix ) )) {
+    if (!_strnicmp( p, Prefix, cb = strlen( Prefix ) )) {
         *pp = p + cb;
         return( TRUE );
         }
@@ -248,6 +305,12 @@ TestPrefix(
         }
 }
 
+
+//+---------------------------------------------------------------------------
+//
+//  Function:   Substr
+//
+//----------------------------------------------------------------------------
 
 BOOL
 Substr(
@@ -274,16 +337,33 @@ Substr(
 
 
 
+//+---------------------------------------------------------------------------
+//
+//  Function:   WriteTTY
+//
+//  Synopsis:   Writes the given string to the output device.
+//
+//  Arguments:  [ThreadState]   -- Struct containing info about the output dev.
+//              [p]             -- String to display
+//              [fStatusOutput] -- If TRUE then put on the status line.
+//
+//----------------------------------------------------------------------------
+
 VOID
-WriteTTY(THREADSTATE *ThreadState, LPSTR p, BOOL fStatusOutput)
+WriteTTY (THREADSTATE *ThreadState, LPSTR p, BOOL fStatusOutput)
 {
     USHORT SaveRow;
     USHORT SaveCol;
+    USHORT SaveRowTop;
     USHORT cb, cbT;
     PBYTE Attribute;
     BOOL ForceNewline;
 
-    if (!ThreadState->IsStdErrTty) {
+    //
+    // If we're not writing to the screen then don't do anything fancy, just
+    // output the string.
+    //
+    if (!fStatus || !ThreadState->IsStdErrTty) {
         while (TRUE) {
             int cch;
 
@@ -303,21 +383,52 @@ WriteTTY(THREADSTATE *ThreadState, LPSTR p, BOOL fStatusOutput)
         fflush(stderr);
         return;
     }
+    assert(ThreadState->cColTotal != 0);
+    assert(ThreadState->cRowTotal != 0);
 
-    VioGetCurPos(&SaveRow, &SaveCol, NULL);
-    if (SaveCol != 0 && SaveRow == ThreadState->cRowTotal - 1) {
-        VioScrollUp(
-            2,                                          // Top
-            0,                                          // Left
-            (USHORT) (ThreadState->cRowTotal - 1),      // Bottom
-            (USHORT) (ThreadState->cColTotal - 1),      // Right
-            2,                                          // NumRow
-            ScreenCell);                                // FillCell
+    //
+    // Scroll as necessary
+    //
+    GetCursorPosition(&SaveRow, &SaveCol, &SaveRowTop);
+
+    //  During processing, there might be N threads that are displaying
+    //  messages and a single thread displaying directory-level
+    //  linking and building messages.  We need to make sure there's room for
+    //  the single thread's message as well as ours.  Since that single
+    //  thread displays one line at a time (including CRLF) we must make sure
+    //  that his display (as well as ours) doesn't inadvertantly scroll
+    //  the status line at the top.  We do this by guaranteeing that there is
+    //  a blank line at the end.
+
+
+    //  We are synchronized with the single top-level thread
+    //  at a higher level than this routine via TTYCriticalSection.  We
+    //  are, thus, assured that we control the cursor completely.
+
+
+    //  Stay off the LastRow
+    if (SaveRow == LastRow(ThreadState)) {
+        USHORT RowTop = 2;
+
+        if (fStatus) {
+            RowTop += SaveRowTop + (USHORT) NumberProcesses + 1;
+        }
+
+        MoveRectangleUp (
+            RowTop,                     // Top
+            0,                          // Left
+            LastRow(ThreadState),       // Bottom
+            LastCol(ThreadState),       // Right
+            2,                          // NumRow
+            ScreenCell);                // FillCell
 
         SaveRow -= 2;
-        VioSetCurPos(SaveRow, SaveCol);
+        SetCursorPosition(SaveRow, SaveCol);
     }
 
+    //
+    // Different color for the status line.
+    //
     if (fStatusOutput) {
         Attribute = &StatusCell[1];
     }
@@ -326,6 +437,9 @@ WriteTTY(THREADSTATE *ThreadState, LPSTR p, BOOL fStatusOutput)
     }
     cb = (USHORT) strlen(p);
 
+    //
+    // Write out the string.
+    //
     while (cb > 0) {
         ForceNewline = FALSE;
 
@@ -338,12 +452,15 @@ WriteTTY(THREADSTATE *ThreadState, LPSTR p, BOOL fStatusOutput)
 
         if (cb >= ThreadState->cColTotal - SaveCol) {
             cbT = ThreadState->cColTotal - SaveCol;
-            ForceNewline = TRUE;
+            if (fFullErrors)
+                ForceNewline = TRUE;
         }
         else {
             cbT = cb;
         }
-        VioWrtCharStrAtt(p, cbT, SaveRow, SaveCol, Attribute);
+
+        WriteConsoleCells(p, cbT, SaveRow, SaveCol, Attribute);
+        SetCursorPosition(SaveRow, SaveCol);
 
         if (ForceNewline) {
             SaveCol = 0;
@@ -352,6 +469,7 @@ WriteTTY(THREADSTATE *ThreadState, LPSTR p, BOOL fStatusOutput)
         else {
             SaveCol += cbT;
         }
+
         if (!fFullErrors) {
             break;
         }
@@ -359,25 +477,48 @@ WriteTTY(THREADSTATE *ThreadState, LPSTR p, BOOL fStatusOutput)
         if (cb > cbT) {
             // we have more to go... do a newline
 
-            if (SaveCol == 0 && SaveRow == ThreadState->cRowTotal - 1) {
-                VioScrollUp(
-                    1,                                          // Top
-                    0,                                          // Left
-                    (USHORT) (ThreadState->cRowTotal - 1),      // Bottom
-                    (USHORT) (ThreadState->cColTotal - 1),      // Right
-                    1,                                          // NumRow
-                    ScreenCell);                                // FillCell
+            //  If we're back at the beginning of the bottom line
+            if (SaveRow == LastRow(ThreadState)) {
+                USHORT RowTop = 1;
+
+                if (fStatus) {
+                    RowTop += SaveRowTop + (USHORT) NumberProcesses + 1;
+                }
+
+                // move window up one line (leaving two lines blank at bottom)
+                MoveRectangleUp (
+                    RowTop,                     // Top
+                    0,                          // Left
+                    LastRow(ThreadState),       // Bottom
+                    LastCol(ThreadState),       // Right
+                    1,                          // NumRow
+                    ScreenCell);                // FillCell
 
                 SaveRow--;
             }
-	    VioSetCurPos(SaveRow, SaveCol);
+            SetCursorPosition(SaveRow, SaveCol);
         }
+
         cb -= cbT;
         p += cbT;
     }
-    VioSetCurPos(SaveRow, SaveCol);
+
+    SetCursorPosition(SaveRow, SaveCol);
 }
 
+
+//+---------------------------------------------------------------------------
+//
+//  Function:   WriteTTYLoggingErrors
+//
+//  Synopsis:   Writes a message to the appropriate log file and also the
+//              screen if specified.
+//
+//  Arguments:  [Warning]     -- TRUE if the message is a warning
+//              [ThreadState] -- Info about output device
+//              [p]           -- String
+//
+//----------------------------------------------------------------------------
 
 VOID
 WriteTTYLoggingErrors(
@@ -395,12 +536,58 @@ WriteTTYLoggingErrors(
     if (fShowWarningsOnScreen && Warning)
     {
         WriteTTY(ThreadState, p, FALSE);
+        return;
     }
     if (!fErrorLog || !Warning) {
         WriteTTY(ThreadState, p, FALSE);
     }
 }
 
+
+//+---------------------------------------------------------------------------
+//
+//  Function:   MsCompilerFilter
+//
+//  Synopsis:   Filters output from the compiler so we know what's happening
+//
+//  Arguments:  [ThreadState] -- State of thread watching the compiler
+//                               (compiling, linking, etc...)
+//              [p]           -- Message we're trying to parse.
+//              [FileName]    -- [out] Filename in message
+//              [LineNumber]  -- [out] Line number in message
+//              [Message]     -- [out] Message number (for post processing)
+//              [Warning]     -- [out] TRUE if message is a warning.
+//
+//  Returns:    TRUE  - Message is an error or warning
+//              FALSE - Message is not an error or a warning
+//
+//  History:    26-Jul-94     LyleC    Created
+//
+//  Notes:
+//
+//    This routine filters strings in the MS compiler format.  That is:
+//
+//       {toolname} : {number}: {text}
+//
+//    where:
+//
+//        toolname    If possible, the container and specific module that has
+//                    the error.  For instance, the compiler uses
+//                    filename(linenum), the linker uses library(objname), etc.
+//                    If unable to provide a container, use the tool name.
+//        number      A number, prefixed with some tool identifier (C for
+//                    compiler, LNK for linker, LIB for librarian, N for nmake,
+//                    etc).
+//        test        The descriptive text of the message/error.
+//
+//        Accepted String formats are:
+//
+//        container(module): error/warning NUM ...
+//        container(module) : error/warning NUM ...
+//        container (module): error/warning NUM ...
+//        container (module) : error/warning NUM ...
+//
+//----------------------------------------------------------------------------
 
 BOOL
 MsCompilerFilter(
@@ -411,46 +598,6 @@ MsCompilerFilter(
     LPSTR *Message,
     BOOL *Warning
     )
-
-/*++
-
-Routine Description:
-
-    This routine filters strings in the MS compiler format.  That is:
-
-       {toolname} : {number}: {text}
-
-    where:
-
-        toolname    If possible, the container and specific module that has the
-                    error.  For instance, the compiler uses filename(linenum),
-                    the linker uses library(objname), etc.  If unable to provide
-                    a container, use the tool name.
-        number      A number, prefixed with some tool identifier (C for compiler,
-                    LNK for linker, LIB for librarian, N for nmake, etc).
-        test        The descriptive text of the message/error.
-
-Arguments:
-
-    ThreadState - The current thread state for the build (compiling, linking, etc).
-
-    p - The message we're trying to parse.  It may not be an error/warning
-
-    FileName - The filename (container in the description)
-
-    LineNumber - The linenumber (specific module in the description)
-
-    Message - Points to the message number (for possible post filtering)
-
-    Warning - Set to TRUE if a warning, FALSE if an error.
-
-Return Value:
-
-    TRUE - message is an error or warning
-    FALSE - message is just noise.
-
---*/
-
 {
     LPSTR p1;
 
@@ -463,8 +610,8 @@ Return Value:
     while (*p1) {
         if ((p1[0] == ')') && (p1[1] == ' ')) p1++;
 
-        if ((p1[0] == ' ') || (p1[0] == ')'))
-            if (p1[1] == ':')
+        if ((p1[0] == ' ') || (p1[0] == ')')) {
+            if (p1[1] == ':') {
                 if (p1[2] == ' ') {
                     *Message = p1 + 3;
                     *p1 = '\0';
@@ -472,8 +619,12 @@ Return Value:
                 }
                 else
                     break;   // No sense going any further
+            }
+            else if ((p1[0] == ' ') && (p1[1] == '('))
+                p1++;
             else
                 break;   // No sense going any further
+        }
         else
             p1++;
     }
@@ -491,6 +642,10 @@ Return Value:
                                                  // past the warning message.
             *Warning = TRUE;
         }
+
+        if ((ThreadState->ChildFlags & FLAGS_WARNINGS_ARE_ERRORS) != 0) {
+            *Warning = FALSE;       // Warnings treated as errors for this compile
+            }
 
         // Set the container name and look for the module paren's
 
@@ -525,35 +680,14 @@ Return Value:
 }
 
 
-BOOL
-MsColonFilter(
-    PTHREADSTATE ThreadState,
-    LPSTR p,
-    LPSTR *FileName,
-    LPSTR *LineNumber,
-    LPSTR *Message,
-    BOOL *Warning
-    )
-{
-    LPSTR p1;
-
-    p1 = p;
-    while (*p1) {
-        if (*p1 == ':' && p1[1] != '\\') {
-            *FileName = NULL;
-            *LineNumber = NULL;
-            *Warning = FALSE;
-            *Message = p;
-            return( TRUE );
-            }
-        else {
-            p1++;
-            }
-        }
-
-    return( FALSE );
-}
-
+//+---------------------------------------------------------------------------
+//
+//  Function:   FormatMsErrorMessage
+//
+//  Synopsis:   Take the information obtained from MsCompilerFilter,
+//              reconstruct the error message, and print it to the screen.
+//
+//----------------------------------------------------------------------------
 
 VOID
 FormatMsErrorMessage(
@@ -573,7 +707,8 @@ FormatMsErrorMessage(
             }
         }
     else
-    if (ThreadState->ChildState == STATE_LINKING) {
+    if ((ThreadState->ChildState == STATE_LINKING) ||
+        (ThreadState->ChildState == STATE_BINPLACE)) {
         if (Warning) {
             NumberLinkWarnings++;
             }
@@ -587,9 +722,9 @@ FormatMsErrorMessage(
             }
         else {
             NumberCompileErrors++;
-	    if (CurrentCompileDirDB) {
-		CurrentCompileDirDB->Flags |= DIRDB_COMPILEERRORS;
-	        }
+            if (ThreadState->CompileDirDB) {
+                ThreadState->CompileDirDB->DirFlags |= DIRDB_COMPILEERRORS;
+                }
             }
         }
 
@@ -630,6 +765,21 @@ FormatMsErrorMessage(
 }
 
 
+//+---------------------------------------------------------------------------
+//
+//  Function:   PassThrough
+//
+//  Synopsis:   Keep track of and print the given message without any
+//              filtering.
+//
+//  Arguments:  [ThreadState] --
+//              [p]           -- Message
+//              [Warning]     -- TRUE if warning
+//
+//  Returns:    FALSE
+//
+//----------------------------------------------------------------------------
+
 BOOL
 PassThrough(
     PTHREADSTATE ThreadState,
@@ -646,7 +796,8 @@ PassThrough(
             }
         }
     else
-    if (ThreadState->ChildState == STATE_LINKING) {
+    if ((ThreadState->ChildState == STATE_LINKING) ||
+        (ThreadState->ChildState == STATE_BINPLACE)) {
         if (Warning) {
             NumberLinkWarnings++;
             }
@@ -660,9 +811,9 @@ PassThrough(
             }
         else {
             NumberCompileErrors++;
-	    if (CurrentCompileDirDB) {
-		CurrentCompileDirDB->Flags |= DIRDB_COMPILEERRORS;
-	        }
+            if (ThreadState->CompileDirDB) {
+                ThreadState->CompileDirDB->DirFlags |= DIRDB_COMPILEERRORS;
+                }
             }
         }
 
@@ -671,6 +822,14 @@ PassThrough(
     return( FALSE );
 }
 
+
+//+---------------------------------------------------------------------------
+//
+//  Function:   PassThroughFilter
+//
+//  Synopsis:   Straight pass-through filter for compiler messages
+//
+//----------------------------------------------------------------------------
 
 BOOL
 PassThroughFilter(
@@ -681,6 +840,17 @@ PassThroughFilter(
     return PassThrough( ThreadState, p, FALSE );
 }
 
+
+//+---------------------------------------------------------------------------
+//
+//  Function:   C510Filter
+//
+//  Synopsis:   Compiler filter which strips out unwanted warnings.
+//
+//  Arguments:  [ThreadState] --
+//              [p]           --
+//
+//----------------------------------------------------------------------------
 
 BOOL
 C510Filter(
@@ -711,7 +881,9 @@ C510Filter(
                 Substr( "C4127", Message ) ||
                 Substr( "C4135", Message ) ||
                 Substr( "C4201", Message ) ||
-                Substr( "C4204", Message )
+                Substr( "C4204", Message ) ||
+                Substr( "C4208", Message ) ||
+                Substr( "C4509", Message )
                ) {
                 return( FALSE );
                 }
@@ -736,8 +908,14 @@ C510Filter(
 }
 
 
+//+---------------------------------------------------------------------------
+//
+//  Function:   MSToolFilter
+//
+//----------------------------------------------------------------------------
+
 BOOL
-RcFilter(
+MSToolFilter(
     PTHREADSTATE ThreadState,
     LPSTR p
     )
@@ -763,67 +941,18 @@ RcFilter(
         }
 }
 
-
-BOOL
-MasmFilter(
-    PTHREADSTATE ThreadState,
-    LPSTR p
-    )
-{
-    LPSTR FileName;
-    LPSTR LineNumber;
-    LPSTR Message;
-    BOOL Warning;
-
-    if (MsCompilerFilter( ThreadState, p,
-                          &FileName,
-                          &LineNumber,
-                          &Message,
-                          &Warning
-                        )
-       ) {
-        FormatMsErrorMessage( ThreadState,
-                              FileName, LineNumber, Message, Warning );
-        return( TRUE );
-        }
-    else {
-        return( FALSE );
-        }
-}
-
-
-BOOL
-LibFilter(
-    PTHREADSTATE ThreadState,
-    LPSTR p
-    )
-{
-    LPSTR FileName;
-    LPSTR LineNumber;
-    LPSTR Message;
-    BOOL Warning;
-
-    if (MsCompilerFilter( ThreadState, p,
-                       &FileName,
-                       &LineNumber,
-                       &Message,
-                       &Warning
-                     )
-       ) {
-        FormatMsErrorMessage( ThreadState,
-                              FileName, LineNumber, Message, Warning );
-        return( TRUE );
-        }
-    else {
-        return( FALSE );
-        }
-}
 
 BOOL
 LinkFilter(
     PTHREADSTATE ThreadState,
     LPSTR p
     );
+
+//+---------------------------------------------------------------------------
+//
+//  Function:   LinkFilter1
+//
+//----------------------------------------------------------------------------
 
 BOOL
 LinkFilter1(
@@ -870,6 +999,12 @@ LinkFilter1(
     return( FALSE  );
 }
 
+
+//+---------------------------------------------------------------------------
+//
+//  Function:   LinkFilter
+//
+//----------------------------------------------------------------------------
 
 BOOL
 LinkFilter(
@@ -940,6 +1075,12 @@ DetermineChildState(
     LPSTR p
     );
 
+//+---------------------------------------------------------------------------
+//
+//  Function:   CoffFilter
+//
+//----------------------------------------------------------------------------
+
 BOOL
 CoffFilter(
     PTHREADSTATE ThreadState,
@@ -960,7 +1101,8 @@ CoffFilter(
        ) {
         if (fSilent && Warning) {
             if (Substr( "LNK4016", Message )) {
-                Warning = FALSE;        // undefined turns into an error for builds
+                Warning = FALSE;        // undefined turns into an error
+                                        // for builds
                 }
             }
 
@@ -972,6 +1114,16 @@ CoffFilter(
         return( FALSE );
         }
 }
+
+//+---------------------------------------------------------------------------
+//
+//  Function:   ClMipsFilter
+//
+//  Synopsis:   MIPS compiler filter
+//
+//  BUGBUG -- It may be possible to remove this filter.
+//
+//----------------------------------------------------------------------------
 
 BOOL
 ClMipsFilter(
@@ -985,14 +1137,7 @@ ClMipsFilter(
     BOOL Warning;
     LPSTR q;
 
-    // WriteTTY(ThreadState, "CL>>>", FALSE);
-    // WriteTTY(ThreadState, p, FALSE);
-    // WriteTTY(ThreadState, "<<<\r\n", FALSE);
-
     if (TestPrefix( &p, "cfe: " )) {
-        // WriteTTY(ThreadState, "WN>>>", FALSE);
-        // WriteTTY(ThreadState, p, FALSE);
-        // WriteTTY(ThreadState, "<<<\r\n", FALSE);
         if (strncmp(p, "Error: ", strlen("Error: ")) == 0) {
             p += strlen("Error: ");
             Warning = FALSE;
@@ -1011,9 +1156,6 @@ ClMipsFilter(
             p = q;
         }
 
-        // WriteTTY(ThreadState, "FN>>>", FALSE);
-        // WriteTTY(ThreadState, p, FALSE);
-        // WriteTTY(ThreadState, "<<<\r\n", FALSE);
         FileName = p;
         while (*p > ' ') {
             if (*p == ',' || (*p == ':' && *(p+1) == ' ')) {
@@ -1029,10 +1171,6 @@ ClMipsFilter(
             }
 
         *p++ = '\0';
-
-        // WriteTTY(ThreadState, "LN>>>", FALSE);
-        // WriteTTY(ThreadState, p, FALSE);
-        // WriteTTY(ThreadState, "<<<\r\n", FALSE);
 
         if (strcmp(p, "line ") == 0) {
             p += strlen("line ");
@@ -1052,10 +1190,6 @@ ClMipsFilter(
         if (*p == ' ') {
             Message = p+1;
             ThreadState->LinesToIgnore = 2;
-
-            // WriteTTY(ThreadState, "MS>>>", FALSE);
-            // WriteTTY(ThreadState, Message, FALSE);
-            // WriteTTY(ThreadState, "<<<\r\n", FALSE);
 
             if (fSilent && Warning) {
                 if (!strcmp( Message, "Unknown Control Statement" )
@@ -1081,6 +1215,11 @@ ClMipsFilter(
     return( C510Filter( ThreadState, p ) );
 }
 
+//+---------------------------------------------------------------------------
+//
+//  Function:   PpcAsmFilter
+//
+//----------------------------------------------------------------------------
 
 BOOL
 PpcAsmFilter(
@@ -1135,6 +1274,13 @@ PpcAsmFilter(
     return( FALSE );
 }
 
+
+//+---------------------------------------------------------------------------
+//
+//  Function:   MgClientFilter
+//
+//----------------------------------------------------------------------------
+
 BOOL
 MgClientFilter(
     PTHREADSTATE ThreadState,
@@ -1146,6 +1292,21 @@ MgClientFilter(
 
 BOOL fAlreadyUnknown = FALSE;
 
+//+---------------------------------------------------------------------------
+//
+//  Function:   DetermineChildState
+//
+//  Synopsis:   Parse the message given by the compiler (or whatever) and try
+//              to figure out what it's doing.
+//
+//  Arguments:  [ThreadState] -- Current thread state
+//              [p]           -- New message string
+//
+//  Returns:    TRUE if we figured it out, FALSE if we didn't recognize
+//              anything.
+//
+//----------------------------------------------------------------------------
+
 BOOL
 DetermineChildState(
     PTHREADSTATE ThreadState,
@@ -1155,6 +1316,7 @@ DetermineChildState(
     PFILEREC FileDB;
     USHORT SaveRow;
     USHORT SaveCol;
+    USHORT SaveRowTop;
     char buffer[ DB_MAX_PATH_LENGTH ];
     LPSTR FileName;
     ULONG PercentDone;
@@ -1165,10 +1327,10 @@ DetermineChildState(
     BOOL AlphaFlag;
     BOOL fStatusOutput = FALSE;
 
-    // WriteTTY(ThreadState, "CS>>>", FALSE);
-    // WriteTTY(ThreadState, p, FALSE);
-    // WriteTTY(ThreadState, "<<<\r\n", FALSE);
-
+    //
+    // ************ Determine what state the child process is in.
+    //               (Compiling, linking, running MIDL, etc.)
+    //
     if ( TestPrefix( &p, "rc ") ) {
         if (*p == ':')
             return FALSE;       // This is a warning/error string
@@ -1187,7 +1349,7 @@ DetermineChildState(
         else {
             ThreadState->ChildTarget = "unknown target";
             }
-        ThreadState->FilterProc = RcFilter;
+        ThreadState->FilterProc = MSToolFilter;
         ThreadState->ChildState = STATE_COMPILING;
         ThreadState->ChildFlags = 0;
         strcpy( ThreadState->ChildCurrentFile,
@@ -1195,23 +1357,36 @@ DetermineChildState(
               );
         }
     else
+
     if ( TestPrefix( &p, "cl " )  || TestPrefix( &p, "cl386 " )) {
         LPSTR pch;
         if (*p == ':')
             return FALSE;       // This is a warning/error string
         ThreadState->FilterProc = C510Filter;
         ThreadState->ChildFlags = 0;
-        if ( strstr( p, "/E" ) != NULL ) {
+        if ( strstr( p, "/WX" ) != NULL || strstr( p, "-WX" ) != NULL) {
+            ThreadState->ChildFlags |= FLAGS_WARNINGS_ARE_ERRORS;
+        }
+        if ((strstr( p, "/EP" ) != NULL) ||
+            (strstr( p, "/E" ) != NULL) ||
+            (strstr( p, "/P" ) != NULL) ) {
             if (strstr( p, "i386") || strstr( p, "I386")) {
                 ThreadState->ChildTarget = i386TargetMachine.Description;
-                }
+            }
+            else if (strstr( p, "mips") || strstr( p, "MIPS")) {
+                ThreadState->ChildTarget = MipsTargetMachine.Description;
+            }
+            else if (strstr( p, "alpha") || strstr( p, "ALPHA")) {
+                ThreadState->ChildTarget = AlphaTargetMachine.Description;
+            }
+            else if (strstr( p, "ppc") || strstr( p, "PPC")) {
+                ThreadState->ChildTarget = PpcTargetMachine.Description;
+            }
             else {
                 ThreadState->ChildTarget = "unknown target";
-                }
+            }
 
-            strcpy( ThreadState->ChildCurrentFile,
-                    IsolateLastToken( p, ' ' )
-                  );
+            strcpy( ThreadState->ChildCurrentFile,IsolateLastToken( p, ' ' ) );
             if ( strstr( p, ".s" ) != NULL )
                 ThreadState->ChildState = STATE_S_PREPROC;
             else
@@ -1236,10 +1411,11 @@ DetermineChildState(
             }
         }
     else
+
     if (TestPrefix( &p, "ml " )) {
         if (*p == ':')
             return FALSE;       // This is a warning/error string
-        ThreadState->FilterProc = MasmFilter;
+        ThreadState->FilterProc = MSToolFilter;
         ThreadState->ChildState = STATE_ASSEMBLING;
         ThreadState->ChildFlags = 0;
         ThreadState->ChildTarget = i386TargetMachine.Description;
@@ -1248,17 +1424,8 @@ DetermineChildState(
               );
         }
     else
-    if (TestPrefix( &p, "os2link " )) {
-        if (*p == ':')
-            return FALSE;       // This is a warning/error string
-        ThreadState->FilterProc = LinkFilter;
-        ThreadState->ChildState = STATE_LINKING;
-        ThreadState->ChildFlags = 0;
-        ThreadState->ChildTarget = i386TargetMachine.Description;
-        strcpy( ThreadState->ChildCurrentFile, ".exe" );
-        }
-    else
-    if ( TestPrefix( &p, "lib " ) || TestPrefix( &p, "lib32 " ) ) {
+
+    if (TestPrefix( &p, "lib " )) {
         if (*p == ':')
             return FALSE;       // This is a warning/error string
         while (*p == ' ') {
@@ -1306,7 +1473,8 @@ DetermineChildState(
             }
         }
     else
-    if ( TestPrefix( &p, "link " ) || TestPrefix( &p, "link32 " )) {
+
+    if (TestPrefix( &p, "link " )) {
         if (*p == ':')
             return FALSE;       // This is a warning/error string
         while (*p == ' ') {
@@ -1339,6 +1507,21 @@ DetermineChildState(
         }
     else
 
+    if ( TestPrefix( &p, "CpPpc ") ) {
+        while (*p == ' ') {
+            p++;
+            }
+
+        ThreadState->ChildState = STATE_PRECOMP;
+        ThreadState->ChildFlags = 0;
+        ThreadState->ChildTarget = PpcTargetMachine.Description;
+        ThreadState->FilterProc = C510Filter;
+        strcpy( ThreadState->ChildCurrentFile,
+                IsolateFirstToken( &p, ' ' )
+              );
+        }
+    else
+
     if ((AlphaFlag = TestPrefix( &p, "CpAlpha " )) ||
         TestPrefix( &p, "CpMips " )
        ) {
@@ -1358,30 +1541,16 @@ DetermineChildState(
         }
     else
 
-    if ( TestPrefix( &p, "CpPpc ") ) {
-        while (*p == ' ') {
-            p++;
-            }
-
-        ThreadState->ChildState = STATE_PRECOMP;
-        ThreadState->ChildFlags = 0;
-        ThreadState->ChildTarget = PpcTargetMachine.Description;
-        ThreadState->FilterProc = C510Filter;
-        strcpy( ThreadState->ChildCurrentFile,
-                IsolateFirstToken( &p, ' ' )
-              );
-        }
-    else
-
     if ((AlphaFlag = TestPrefix( &p, "ClAlpha " )) ||
-        TestPrefix( &p, "ClMips " ) ||
-        TestPrefix( &p, "F77Mips " )
-       ) {
+        TestPrefix( &p, "ClMips " )) {
         while (*p == ' ') {
             p++;
             }
 
         ThreadState->ChildState = STATE_COMPILING;
+        if (strstr( p, "/EP" ) != NULL) {
+            ThreadState->ChildState = STATE_C_PREPROC;
+        }
         ThreadState->ChildFlags = 0;
         ThreadState->ChildTarget = AlphaFlag ? AlphaTargetMachine.Description :
                                             MipsTargetMachine.Description;
@@ -1393,12 +1562,28 @@ DetermineChildState(
         }
     else
 
+    if (TestPrefix( &p, "asaxp " )) {
+        if (*p == ':')
+            return FALSE;       // This is a warning/error string
+        ThreadState->FilterProc = MSToolFilter;
+        ThreadState->ChildState = STATE_ASSEMBLING;
+        ThreadState->ChildFlags = 0;
+        ThreadState->ChildTarget = AlphaTargetMachine.Description;
+        strcpy( ThreadState->ChildCurrentFile,
+                IsolateLastToken( p, ' ' )
+              );
+        }
+    else
+
     if (TestPrefix( &p, "ClPpc " )) {
         while (*p == ' ') {
             p++;
             }
 
         ThreadState->ChildState = STATE_COMPILING;
+        if (strstr( p, "/EP" ) != NULL) {
+            ThreadState->ChildState = STATE_C_PREPROC;
+        }
         ThreadState->ChildFlags = 0;
         ThreadState->ChildTarget = PpcTargetMachine.Description;
         ThreadState->FilterProc = ClMipsFilter;
@@ -1448,42 +1633,6 @@ DetermineChildState(
 
     else
 
-    if ((AlphaFlag = TestPrefix( &p, "ArAlpha " )) ||
-        TestPrefix( &p, "ArMips " )) {
-        while (*p == ' ') {
-            p++;
-            }
-
-        ThreadState->ChildState = STATE_LIBING;
-        ThreadState->ChildFlags = 0;
-        ThreadState->ChildTarget = AlphaFlag ? AlphaTargetMachine.Description :
-                                            MipsTargetMachine.Description;
-        ThreadState->FilterProc = MgClientFilter;
-
-        strcpy( ThreadState->ChildCurrentFile,
-                IsolateFirstToken( &p, ' ' )
-              );
-        }
-    else
-
-    if ((AlphaFlag = TestPrefix( &p, "LdAlpha " )) ||
-        TestPrefix( &p, "LdMips " )) {
-        while (*p == ' ') {
-            p++;
-            }
-
-        ThreadState->ChildState = STATE_LINKING;
-        ThreadState->ChildFlags = 0;
-        ThreadState->ChildTarget = AlphaFlag ? AlphaTargetMachine.Description :
-                                            MipsTargetMachine.Description;
-        ThreadState->FilterProc = MgClientFilter;
-
-        strcpy( ThreadState->ChildCurrentFile,
-                IsolateFirstToken( &p, ' ' )
-              );
-        }
-    else
-
     if (TestPrefix( &p, "mktyplib " )) {
         if (*p == ':')
             return FALSE;       // This is a warning/error string
@@ -1494,7 +1643,7 @@ DetermineChildState(
         ThreadState->ChildState = STATE_MKTYPLIB;
         ThreadState->ChildFlags = 0;
         ThreadState->ChildTarget = "all platforms";
-        ThreadState->FilterProc = ClMipsFilter;
+        ThreadState->FilterProc = C510Filter;
 
         strcpy( ThreadState->ChildCurrentFile,
                 IsolateLastToken( p, ' ' )
@@ -1502,17 +1651,17 @@ DetermineChildState(
         }
     else
 
-    if (TestPrefix( &p, "mkheader " )) {
+    if (TestPrefix( &p, "MC: Compiling " )) {
         if (*p == ':')
             return FALSE;       // This is a warning/error string
         while (*p == ' ') {
             p++;
             }
 
-        ThreadState->ChildState = STATE_MKHEADER;
+        ThreadState->ChildState = STATE_MC;
         ThreadState->ChildFlags = 0;
         ThreadState->ChildTarget = "all platforms";
-        ThreadState->FilterProc = ClMipsFilter;
+        ThreadState->FilterProc = C510Filter;
 
         strcpy( ThreadState->ChildCurrentFile,
                 IsolateLastToken( p, ' ' )
@@ -1520,7 +1669,7 @@ DetermineChildState(
         }
     else
 
-    if (TestPrefix( &p, "midl " ) || TestPrefix( &p, "cmidl " )) {
+    if (TestPrefix( &p, "midl " )) {
         if (*p == ':')
             return FALSE;       // This is a warning/error string
         while (*p == ' ') {
@@ -1530,11 +1679,27 @@ DetermineChildState(
         ThreadState->ChildState = STATE_MIDL;
         ThreadState->ChildFlags = 0;
         ThreadState->ChildTarget = "all platforms";
-        ThreadState->FilterProc = ClMipsFilter;
+        ThreadState->FilterProc = C510Filter;
 
         strcpy( ThreadState->ChildCurrentFile,
                 IsolateLastToken( p, ' ' )
               );
+        }
+    else
+
+    if (TestPrefix( &p, "asn1 " )) {
+        if (*p == ':')
+            return FALSE;       // This is a warning/error string
+        while (*p == ' ') {
+            p++;
+            }
+
+        ThreadState->ChildState = STATE_ASN;
+        ThreadState->ChildFlags = 0;
+        ThreadState->ChildTarget = "all platforms";
+        ThreadState->FilterProc = C510Filter;
+
+        strcpy(ThreadState->ChildCurrentFile, IsolateLastToken(p, ' '));
         }
     else
 
@@ -1546,16 +1711,64 @@ DetermineChildState(
         ThreadState->ChildState = STATE_STATUS;
         ThreadState->ChildFlags = 0;
         ThreadState->ChildTarget = "";
-        ThreadState->FilterProc = ClMipsFilter;
+        ThreadState->FilterProc = C510Filter;
 
         strcpy( ThreadState->ChildCurrentFile, "" );
         }
 
+    else
+    if (TestPrefix( &p, "binplace " )) {
+        if (*p == ':')
+            return FALSE;       // This is a warning/error string
+        while (*p == ' ') {
+            p++;
+        }
+
+        // If this is a standard link/binplace step, don't tell the
+        // user what's going on, just pass any errors/warnings to
+        // the output.  If this is a straight binplace, list the state.
+
+        if (ThreadState->ChildState == STATE_LINKING) {
+            ThreadState->ChildState = STATE_BINPLACE;
+            ThreadState->ChildFlags = 0;
+            ThreadState->FilterProc = MSToolFilter;
+            return TRUE;
+        } else {
+            ThreadState->ChildState = STATE_BINPLACE;
+            ThreadState->ChildFlags = 0;
+            ThreadState->FilterProc = MSToolFilter;
+            strcpy( ThreadState->ChildCurrentFile, IsolateLastToken( p, ' ' ) );
+        }
+    }
+
+    else
+    if (TestPrefix( &p, "cmdcomp " ) ||
+        TestPrefix( &p, "cmtempl " ) ||
+        TestPrefix( &p, "maptweak ") ||
+        TestPrefix( &p, "genord ") ||
+        TestPrefix( &p, "makehm ")
+        ) {
+        if (*p == ':')
+            return FALSE;       // This is a warning/error string
+        while (*p == ' ') {
+            p++;
+        }
+
+        ThreadState->ChildState = STATE_VCTOOL;
+        ThreadState->ChildFlags = 0;
+        ThreadState->FilterProc = MSToolFilter;
+        strcpy( ThreadState->ChildCurrentFile, IsolateLastToken( p, ' ' ) );
+    }
     else {
+
         return FALSE;
         }
 
+    //
+    // ***************** Set the Thread State according to what we determined.
+    //
     FileName = ThreadState->ChildCurrentFile;
+
     if (TestPrefix( &FileName, CurrentDirectory )) {
         if (*FileName == '\\') {
             FileName++;
@@ -1571,6 +1784,7 @@ DetermineChildState(
         }
 
     FileDB = NULL;
+
     if (ThreadState->ChildState == STATE_LIBING) {
         NumberLibraries++;
         }
@@ -1580,11 +1794,12 @@ DetermineChildState(
         }
     else
     if ((ThreadState->ChildState == STATE_STATUS) ||
+        (ThreadState->ChildState == STATE_BINPLACE) ||
         (ThreadState->ChildState == STATE_UNKNOWN)) {
         ;  // Do nothing.
         }
     else {
-        if (CurrentCompileDirDB) {
+        if (ThreadState->CompileDirDB) {
             NumberCompiles++;
             CopyString(                         // fixup path string
                 ThreadState->ChildCurrentFile,
@@ -1593,36 +1808,56 @@ DetermineChildState(
 
             if (!fQuicky) {
                 FileDB = FindSourceFileDB(
-                            CurrentCompileDirDB,
+                            ThreadState->CompileDirDB,
                             ThreadState->ChildCurrentFile,
                             NULL);
             }
         }
     }
 
-    if (fParallel) {
-        EnterCriticalSection(&TTYCriticalSection);
-    }
-
+    //
+    // *********************** Print the thread state to the screen
+    //
     if (ThreadState->IsStdErrTty) {
-	GetScreenSize(ThreadState);
-	if (fStatus) {
-	    USHORT SaveRowTop;
+        GetScreenSize(ThreadState);
+        assert(ThreadState->cColTotal != 0);
+        assert(ThreadState->cRowTotal != 0);
 
-	    VioGetCurPos(&SaveRow, &SaveCol, &SaveRowTop);
-	    if (SaveRowTop != 0) {
-		VioScrollUp(
-		    2,                                      // Top
-		    0,                                      // Left
-		    (USHORT) (SaveRowTop + 1),              // Bottom
-		    (USHORT) (ThreadState->cColTotal - 1),  // Right
-		    2,                                      // NumRow
-		    ScreenCell);                            // FillCell
-	    }
-	    ClearRows(ThreadState, SaveRowTop, 2, StatusCell);
-	    VioSetCurPos(SaveRowTop, 0);
-	    fStatusOutput = TRUE;
-	}
+        if (fStatus) {
+            GetCursorPosition(&SaveRow, &SaveCol, &SaveRowTop);
+
+            //  Clear row for process message
+            ClearRows (ThreadState,
+                       (USHORT) (SaveRowTop + ThreadState->ThreadIndex - 1),
+                       1,
+                       StatusCell);
+
+            //  Clear row for status message
+            ClearRows (ThreadState,
+                       (USHORT) (SaveRowTop + NumberProcesses),
+                       1,
+                       StatusCell);
+
+            //  Make sure there's still some room at the bottom
+            if (SaveRow == LastRow(ThreadState)) {
+                USHORT RowTop = 1 + SaveRowTop + (USHORT) NumberProcesses + 1;
+
+                MoveRectangleUp (
+                    RowTop,                     // Top
+                    0,                          // Left
+                    LastRow(ThreadState),       // Bottom
+                    LastCol(ThreadState),       // Right
+                    1,                          // NumRow
+                    ScreenCell);                // FillCell
+
+                SaveRow--;
+            }
+
+            SetCursorPosition(
+                (USHORT) (SaveRowTop + ThreadState->ThreadIndex - 1),
+                0);
+            fStatusOutput = TRUE;
+        }
     }
 
     if (strstr(ThreadState->ChildCurrentFile, ".cxx") ||
@@ -1675,6 +1910,9 @@ DetermineChildState(
         StartCompileTime = 0L;
     }
 
+    //
+    // ****************** Update the status line
+    //
     if (fStatus) {
         if (FileDB != NULL) {
             FilesLeft = TotalFilesToCompile - TotalFilesCompiled;
@@ -1687,7 +1925,14 @@ DetermineChildState(
                 PercentDone = 99;
             }
             else if (TotalLinesToCompile != 0) {
-                PercentDone = (TotalLinesCompiled * 100L)/TotalLinesToCompile;
+                if (TotalLinesCompiled > 20000000L) {
+                    int TLC = TotalLinesCompiled / 100;
+                    int TLTC = TotalLinesToCompile / 100;
+
+                    PercentDone = (TLC * 100L)/TLTC;
+                }
+                else
+                    PercentDone = (TotalLinesCompiled * 100L)/TotalLinesToCompile;
             }
             else {
                 PercentDone = 0;
@@ -1718,30 +1963,44 @@ DetermineChildState(
                 fStatusTree? "Total " : "",
                 FormatNumber(LinesLeft));
 
+            SetCursorPosition((USHORT) (SaveRowTop + NumberProcesses), 0);
+
             WriteTTY(ThreadState, buffer, fStatusOutput);
         }
 
         if (ThreadState->IsStdErrTty) {
-            VioSetCurPos(SaveRow, SaveCol);
+            assert(ThreadState->cColTotal != 0);
+            assert(ThreadState->cRowTotal != 0);
+            SetCursorPosition(SaveRow, SaveCol);
         }
     }
-    if (fParallel) {
-        LeaveCriticalSection(&TTYCriticalSection);
-    }
 
+    //
+    // ***************** Keep track of how many files have been compiled.
+    //
     if (ThreadState->ChildState == STATE_COMPILING  ||
         ThreadState->ChildState == STATE_ASSEMBLING ||
         ThreadState->ChildState == STATE_MKTYPLIB   ||
         ThreadState->ChildState == STATE_MIDL       ||
+        ThreadState->ChildState == STATE_ASN        ||
         (FileDB != NULL && ThreadState->ChildState == STATE_PRECOMP)) {
         TotalFilesCompiled++;
     }
     if (FileDB != NULL) {
         TotalLinesCompiled += FileDB->TotalSourceLines;
     }
+
     return(TRUE);
 }
 
+
+//+---------------------------------------------------------------------------
+//
+//  Function:   ProcessLine
+//
+//  Synopsis:   Watch the lines coming from the thread for special strings.
+//
+//----------------------------------------------------------------------------
 
 BOOL
 ProcessLine(
@@ -1769,22 +2028,25 @@ ProcessLine(
         }
     *p1 = '\0';
 
-    // WriteTTY(ThreadState, ">>>", FALSE);
-    // WriteTTY(ThreadState, p, FALSE);
-    // WriteTTY(ThreadState, "<<<\r\n", FALSE);
-
     p1 = p;
     if (TestPrefix( &p1, "Stop." )) {
         return( TRUE );
         }
-    else
+
+    //  Stop multithread access to shared:
+    //      database
+    //      window
+    //      compilation stats
+
+    EnterCriticalSection(&TTYCriticalSection);
+
     if (TestPrefix( &p1, "nmake :" )) {
         PassThrough( ThreadState, p, FALSE );
-        }
+    }
     else
     if (ThreadState->LinesToIgnore) {
         ThreadState->LinesToIgnore--;
-        }
+    }
     else {
         if ( !DetermineChildState( ThreadState, p ) ) {
             if (ThreadState->FilterProc != NULL) {
@@ -1793,9 +2055,19 @@ ProcessLine(
             }
         }
 
+    LeaveCriticalSection(&TTYCriticalSection);
+
     return( FALSE );
 }
 
+
+//+---------------------------------------------------------------------------
+//
+//  Function:   FilterThread
+//
+//  Synopsis:   Capture the output of the thread and process it.
+//
+//----------------------------------------------------------------------------
 
 VOID
 FilterThread(
@@ -1846,6 +2118,31 @@ FilterThread(
 }
 
 
+//+---------------------------------------------------------------------------
+//
+//  Function:   ExecuteProgram
+//
+//  Synopsis:   Spawn a new thread to execute the given program and filter
+//              its output.
+//
+//  Arguments:  [ProgramName]       --
+//              [CommandLine]       --
+//              [MoreCommandLine]   --
+//              [MustBeSynchronous] -- For synchronous operation on a
+//                                      multi-processor machine.
+//
+//  Returns:    ERROR_SUCCESS, ERROR_NOTENOUGHMEMORY, or return code from
+//              PipeSpawnClose.
+//
+//  Notes:      On a multiprocessor machine, this will spawn a new thread
+//              and then return, letting the thread run asynchronously.  Use
+//              WaitForParallelThreads() to ensure all threads are finished.
+//              By default, this routine will spawn as many threads as the
+//              machine has processors.  This can be overridden with the -M
+//              option.
+//
+//----------------------------------------------------------------------------
+
 char ExecuteProgramCmdLine[ 1024 ];
 
 UINT
@@ -1865,27 +2162,48 @@ ExecuteProgram(
     memset(ThreadState, 0, sizeof(*ThreadState));
     ThreadState->ChildState = STATE_UNKNOWN;
     ThreadState->ChildTarget = "Unknown Target";
-    ThreadState->IsStdErrTty = (BOOL) isatty(fileno(stderr));
+    ThreadState->IsStdErrTty = (BOOL) _isatty(_fileno(stderr));
+    ThreadState->CompileDirDB = CurrentCompileDirDB;
 
     if (ThreadState->IsStdErrTty) {
-	USHORT cb;
+        GetScreenSize(ThreadState);
+        assert(ThreadState->cColTotal != 0);
+        assert(ThreadState->cRowTotal != 0);
 
-	GetScreenSize(ThreadState);
-        cb = sizeof(ScreenCell);
-        VioReadCellStr(ScreenCell, &cb, (USHORT) 2, 0);
-        ScreenCell[0] = ' ';
-        StatusCell[0] = ' ';
-        StatusCell[1] = BACKGROUND_RED | FOREGROUND_RED |
-                        FOREGROUND_BLUE | FOREGROUND_GREEN |
+        // We're displaying to the screen, so initialize the console.
+
+        if (!fConsoleInitialized) {
+            StatusCell[1] =
+                        BACKGROUND_RED |
+                        FOREGROUND_RED | FOREGROUND_BLUE | FOREGROUND_GREEN |
                         FOREGROUND_INTENSITY;
 
-        GetConsoleMode(GetStdHandle(STD_ERROR_HANDLE), &OldConsoleMode);
+            ReadConsoleCells(ScreenCell, sizeof(ScreenCell), 2, 0);
+
+            // If we stumbled upon an old Status line in row 2 of the window,
+            // try the current row to avoid using the Status line background
+            // colors for fill when scrolling.
+
+            if (ScreenCell[1] == StatusCell[1]) {
+                USHORT Row, Col;
+
+                GetCursorPosition(&Row, &Col, NULL);
+                ReadConsoleCells(ScreenCell, sizeof(ScreenCell), Row, 0);
+            }
+            ScreenCell[0] = StatusCell[0] = ' ';
+
+            GetConsoleMode(GetStdHandle(STD_ERROR_HANDLE), &OldConsoleMode);
+            NewConsoleMode = OldConsoleMode;
+            fConsoleInitialized = TRUE;
+        }
         if (fStatus)
         {
-            NewConsoleMode = OldConsoleMode & ~(ENABLE_PROCESSED_OUTPUT |
-                                                ENABLE_WRAP_AT_EOL_OUTPUT);
-            SetConsoleMode(GetStdHandle(STD_ERROR_HANDLE), NewConsoleMode);
+            NewConsoleMode = OldConsoleMode & ~(ENABLE_WRAP_AT_EOL_OUTPUT);
+        } else
+        {
+            NewConsoleMode = OldConsoleMode | ENABLE_WRAP_AT_EOL_OUTPUT;
         }
+        SetConsoleMode(GetStdHandle(STD_ERROR_HANDLE), NewConsoleMode);
     }
     else {
         ThreadState->cRowTotal = 0;
@@ -1906,11 +2224,9 @@ ExecuteProgram(
         strcat(ThreadState->ChildCurrentDirectory, "\\");
     }
 
-    flushall();
-
     sprintf(
         ExecuteProgramCmdLine,
-        "%s %s%s 2>&1",
+        "%s %s%s",
         ProgramName,
         CommandLine,
         MoreCommandLine);
@@ -1988,7 +2304,12 @@ ExecuteProgram(
         return(ERROR_SUCCESS);
 
     } else {
+
+        //
+        // Synchronous operation
+        //
         StartCompileTime = 0L;
+        ThreadState->ThreadIndex = 1;
 
         //
         // Disable child error popups in child processes.
@@ -1998,10 +2319,12 @@ ExecuteProgram(
             OldErrorMode = SetErrorMode( SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX );
             }
 
-        ThreadState->ChildOutput = _popen( ExecuteProgramCmdLine, "rb" );
+        ThreadState->ChildOutput = PipeSpawn( ExecuteProgramCmdLine );
         if (fClean) {
             SetErrorMode( OldErrorMode );
             }
+
+        rc = ERROR_SUCCESS;
 
         if (ThreadState->ChildOutput == NULL) {
             BuildError(
@@ -2016,9 +2339,9 @@ ExecuteProgram(
                 ElapsedCompileTime += time(NULL) - StartCompileTime;
                 }
 
-            rc = _pclose( ThreadState->ChildOutput );
+            rc = PipeSpawnClose( ThreadState->ChildOutput );
             if (rc == -1) {
-                BuildError("_pclose failed - errno = %d\n", errno);
+                BuildError("Child Terminate failed - errno = %d\n", errno);
             }
             else
             if (rc) {
@@ -2027,14 +2350,22 @@ ExecuteProgram(
             }
 
         if (ThreadState->IsStdErrTty) {
-            SetConsoleMode( GetStdHandle( STD_ERROR_HANDLE ), OldConsoleMode );
-            }
+            RestoreConsoleMode();
+        }
 
         FreeMem(&ThreadState, MT_THREADSTATE);
         return( rc );
     }
 }
 
+
+//+---------------------------------------------------------------------------
+//
+//  Function:   WaitForParallelThreads
+//
+//  Synopsis:   Wait for all threads to finish before returning.
+//
+//----------------------------------------------------------------------------
 
 VOID
 WaitForParallelThreads(
@@ -2058,6 +2389,16 @@ WaitForParallelThreads(
 }
 
 
+//+---------------------------------------------------------------------------
+//
+//  Function:   ParallelChildStart
+//
+//  Synopsis:   Function that is run once for each thread.
+//
+//  Arguments:  [Data] -- Data given to CreateThread.
+//
+//----------------------------------------------------------------------------
+
 DWORD
 ParallelChildStart(
     PPARALLEL_CHILD Data
@@ -2072,7 +2413,11 @@ ParallelChildStart(
     if (fClean) {
         OldErrorMode = SetErrorMode( SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX );
     }
-    Data->ThreadState->ChildOutput = _popen(Data->ExecuteProgramCmdLine, "rb");
+    Data->ThreadState->ChildOutput = PipeSpawn(Data->ExecuteProgramCmdLine);
+
+    if (fClean) {
+        SetErrorMode(OldErrorMode);
+    }
 
     //
     // Poke the event to indicate that the child process has
@@ -2080,9 +2425,7 @@ ParallelChildStart(
     // the current directory.
     //
     SetEvent(Data->Event);
-    if (fClean) {
-        SetErrorMode(OldErrorMode);
-    }
+
     if (Data->ThreadState->ChildOutput==NULL) {
         BuildError(
             "Exec of '%s' failed - errno = %d\n",
@@ -2090,9 +2433,9 @@ ParallelChildStart(
             errno);
     } else {
         FilterThread(Data->ThreadState);
-        rc = _pclose(Data->ThreadState->ChildOutput);
+        rc = PipeSpawnClose(Data->ThreadState->ChildOutput);
         if (rc == -1) {
-            BuildError("_pclose failed - errno = %d\n", errno);
+            BuildError("Child terminate failed - errno = %d\n", errno);
         } else {
             if (rc) {
                 BuildError("%s failed - rc = %d\n", Data->ExecuteProgramCmdLine, rc);
@@ -2101,7 +2444,7 @@ ParallelChildStart(
     }
 
     if (Data->ThreadState->IsStdErrTty) {
-        SetConsoleMode( GetStdHandle( STD_ERROR_HANDLE ), OldConsoleMode );
+        RestoreConsoleMode();
     }
     FreeMem(&Data->ThreadState, MT_THREADSTATE);
     FreeMem(&Data, MT_CHILDDATA);
@@ -2109,6 +2452,12 @@ ParallelChildStart(
 
 }
 
+
+//+---------------------------------------------------------------------------
+//
+//  Function:   ClearRows
+//
+//----------------------------------------------------------------------------
 
 VOID
 ClearRows(
@@ -2138,6 +2487,12 @@ ClearRows(
 }
 
 
+//+---------------------------------------------------------------------------
+//
+//  Function:   GetScreenSize
+//
+//----------------------------------------------------------------------------
+
 VOID
 GetScreenSize(THREADSTATE *ThreadState)
 {
@@ -2148,14 +2503,20 @@ GetScreenSize(THREADSTATE *ThreadState)
         ThreadState->cColTotal = 80;
     }
     else {
-        ThreadState->cRowTotal = csbi.dwSize.Y;
+        ThreadState->cRowTotal = csbi.srWindow.Bottom + 1;
         ThreadState->cColTotal = csbi.dwSize.X;
     }
 }
 
 
+//+---------------------------------------------------------------------------
+//
+//  Function:   GetCursorPosition
+//
+//----------------------------------------------------------------------------
+
 VOID
-VioGetCurPos(
+GetCursorPosition(
     USHORT *pRow,
     USHORT *pCol,
     USHORT *pRowTop)
@@ -2171,8 +2532,14 @@ VioGetCurPos(
 }
 
 
+//+---------------------------------------------------------------------------
+//
+//  Function:   SetCursorPosition
+//
+//----------------------------------------------------------------------------
+
 VOID
-VioSetCurPos(USHORT Row, USHORT Col)
+SetCursorPosition(USHORT Row, USHORT Col)
 {
     COORD Coord;
 
@@ -2182,8 +2549,14 @@ VioSetCurPos(USHORT Row, USHORT Col)
 }
 
 
+//+---------------------------------------------------------------------------
+//
+//  Function:   WriteConsoleCells
+//
+//----------------------------------------------------------------------------
+
 VOID
-VioWrtCharStrAtt(
+WriteConsoleCells(
     LPSTR String,
     USHORT StringLength,
     USHORT Row,
@@ -2240,8 +2613,14 @@ VioWrtCharStrAtt(
 }
 
 
+//+---------------------------------------------------------------------------
+//
+//  Function:   MoveRectangleUp
+//
+//----------------------------------------------------------------------------
+
 VOID
-VioScrollUp(
+MoveRectangleUp (
     USHORT Top,
     USHORT Left,
     USHORT Bottom,
@@ -2271,10 +2650,16 @@ VioScrollUp(
 }
 
 
+//+---------------------------------------------------------------------------
+//
+//  Function:   ReadConsoleCells
+//
+//----------------------------------------------------------------------------
+
 VOID
-VioReadCellStr(
+ReadConsoleCells(
     BYTE *ScreenCell,
-    USHORT *pcb,
+    USHORT cb,
     USHORT Row,
     USHORT Column)
 {
@@ -2283,12 +2668,12 @@ VioReadCellStr(
     CHAR_INFO CharInfo[1], *p;
     USHORT CountCells;
 
-    CountCells = *pcb >> 1;
+    CountCells = cb >> 1;
     assert(CountCells * sizeof(CHAR_INFO) <= sizeof(CharInfo));
     ReadRegion.Top = Row;
     ReadRegion.Left = Column;
     ReadRegion.Bottom = Row;
-    ReadRegion.Right = Column + CountCells;
+    ReadRegion.Right = Column + CountCells - 1;
     BufferSize.X = 1;
     BufferSize.Y = CountCells;
     BufferCoord.X = 0;
@@ -2308,6 +2693,12 @@ VioReadCellStr(
     }
 }
 
+
+//+---------------------------------------------------------------------------
+//
+//  Function:   ClearLine
+//
+//----------------------------------------------------------------------------
 
 VOID
 ClearLine(VOID)
@@ -2329,4 +2720,122 @@ ClearLine(VOID)
 
     SetConsoleCursorPosition(GetStdHandle(STD_ERROR_HANDLE), Coord);
     fLineCleared = TRUE;
+}
+
+
+// PipeSpawn variables.  We can get away with one copy per thread.
+
+__declspec(thread) HANDLE ProcHandle;
+__declspec(thread) FILE *pstream;
+
+//+---------------------------------------------------------------------------
+//
+//  Function:   PipeSpawn (similar to _popen)
+//
+//----------------------------------------------------------------------------
+
+FILE *
+PipeSpawn (
+    const CHAR *cmdstring
+    )
+{
+    int PipeHandle[2];
+    HANDLE WriteHandle, ErrorHandle;
+    STARTUPINFO StartupInfo;
+    PROCESS_INFORMATION ProcessInformation;
+    BOOL Status;
+    char CmdLine[1024];
+
+    if (cmdstring == NULL)
+        return (NULL);
+
+    // Open the pipe where we'll collect the output.
+
+    _pipe(PipeHandle, 1024, _O_BINARY|_O_NOINHERIT);
+
+    DuplicateHandle(GetCurrentProcess(),
+                    (HANDLE)_get_osfhandle((LONG)PipeHandle[1]),
+                    GetCurrentProcess(),
+                    &WriteHandle,
+                    0L,
+                    TRUE,
+                    DUPLICATE_SAME_ACCESS);
+
+    DuplicateHandle(GetCurrentProcess(),
+                    (HANDLE)_get_osfhandle((LONG)PipeHandle[1]),
+                    GetCurrentProcess(),
+                    &ErrorHandle,
+                    0L,
+                    TRUE,
+                    DUPLICATE_SAME_ACCESS);
+
+    _close(PipeHandle[1]);
+
+    pstream = _fdopen(PipeHandle[0], "rb" );
+    if (!pstream) {
+        CloseHandle(WriteHandle);
+        CloseHandle(ErrorHandle);
+        _close(PipeHandle[0]);
+        return(NULL);
+    }
+
+    strcpy(CmdLine, cmdexe);
+    strcat(CmdLine, " /c ");
+    strcat(CmdLine, cmdstring);
+
+    memset(&StartupInfo, 0, sizeof(STARTUPINFO));
+    StartupInfo.cb = sizeof(STARTUPINFO);
+
+    StartupInfo.hStdOutput = WriteHandle;
+    StartupInfo.hStdError = ErrorHandle;
+    StartupInfo.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+
+    memset(&ProcessInformation, 0, sizeof(PROCESS_INFORMATION));
+
+    // And start the process.
+
+    Status = CreateProcess(cmdexe, CmdLine, NULL, NULL, TRUE, 0, NULL, NULL, &StartupInfo, &ProcessInformation);
+
+    CloseHandle(WriteHandle);
+    CloseHandle(ErrorHandle);
+    CloseHandle(ProcessInformation.hThread);
+
+    if (!Status) {
+        fclose(pstream);        // This will close the read handle
+        pstream = NULL;
+        ProcHandle = NULL;
+    } else {
+        ProcHandle = ProcessInformation.hProcess;
+    }
+
+    return(pstream);
+}
+
+
+//+---------------------------------------------------------------------------
+//
+//  Function:   PipeSpawnClose (similar to _pclose)
+//
+//----------------------------------------------------------------------------
+
+DWORD
+PipeSpawnClose (
+    FILE *pstream
+    )
+{
+    DWORD retval;   /* return value (to caller) */
+
+    if ( pstream == NULL) {
+        return retval;
+    }
+
+    (void)fclose(pstream);
+
+    if ( WaitForSingleObject(ProcHandle, (DWORD) -1L) == 0) {
+        GetExitCodeProcess(ProcHandle, &retval);
+    }
+    CloseHandle(ProcHandle);
+
+    return(retval);
 }

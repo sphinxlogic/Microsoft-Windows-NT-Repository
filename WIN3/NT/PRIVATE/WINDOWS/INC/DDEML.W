@@ -6,7 +6,7 @@
 /****************************** Module Header ******************************\
 * Module Name: ddemlp.h
 *
-* Copyright (c) 1985-92, Microsoft Corporation
+* Copyright (c) 1985-1996, Microsoft Corporation
 *
 * This header file contains stuff used by all parts of USER DDEML code.
 *
@@ -19,11 +19,11 @@
 ;end_internal
 /*****************************************************************************\
 *                                                                             *
-*  ddeml.h -    DDEML API header file
+*  ddeml.h -    DDEML API header file                                         *
 *                                                                             *
-*               Version 3.10                                                  *                   *
+*               Version 3.10                                                  *
 *                                                                             *
-*               Copyright (c) 1993, Microsoft Corp.  All rights reserved.     *
+*               Copyright (c) 1993-96, Microsoft Corp.  All rights reserved.  *
 *                                                                             *
 \*****************************************************************************/
 #ifndef _INC_DDEMLH
@@ -35,10 +35,10 @@ extern "C" {                            ;both
                                         ;both
 /******** public types ********/
 
-typedef DWORD           HCONVLIST;
-typedef DWORD           HCONV;
-typedef DWORD           HSZ;
-typedef DWORD           HDDEDATA;
+DECLARE_HANDLE(HCONVLIST);
+DECLARE_HANDLE(HCONV);
+DECLARE_HANDLE(HSZ);
+DECLARE_HANDLE(HDDEDATA);
 #define EXPENTRY        CALLBACK
 
 /* the following structure is for use with XTYP_WILDCONNECT processing. */
@@ -152,6 +152,11 @@ typedef CONVINFO FAR *PCONVINFO;
 
 #define CP_WINANSI      1004    /* default codepage for windows & old DDE convs. */
 #define CP_WINUNICODE   1200
+#ifdef UNICODE
+#define CP_WINNEUTRAL   CP_WINUNICODE
+#else  // !UNICODE
+#define CP_WINNEUTRAL   CP_WINANSI
+#endif // !UNICODE
 
 /***** transaction types *****/
 
@@ -222,7 +227,7 @@ typedef HDDEDATA CALLBACK FNCALLBACK(UINT wType, UINT wFmt, HCONV hConv,
 typedef HDDEDATA (CALLBACK *PFNCALLBACK)(UINT wType, UINT wFmt, HCONV hConv,
         HSZ hsz1, HSZ hsz2, HDDEDATA hData, DWORD dwData1, DWORD dwData2);
 
-#define     CBR_BLOCK                0xffffffffL
+#define     CBR_BLOCK           ((HDDEDATA)0xffffffffL)
 
 /* DLL registration functions */
 
@@ -374,7 +379,7 @@ UINT WINAPI DdeGetLastError(DWORD idInst);
 
 #define     DMLERR_LAST                        0x4011
 
-HSZ  WINAPI DdeCreateStringHandle%(DWORD idInst, LPTSTR% psz, int iCodePage);
+HSZ  WINAPI DdeCreateStringHandle%(DWORD idInst, LPCTSTR% psz, int iCodePage);
 DWORD WINAPI DdeQueryString%(DWORD idInst, HSZ hsz, LPTSTR% psz, DWORD cchMax, int iCodePage);
 BOOL WINAPI DdeFreeStringHandle(DWORD idInst, HSZ hsz);
 BOOL WINAPI DdeKeepStringHandle(DWORD idInst, HSZ hsz);
@@ -468,7 +473,7 @@ typedef struct tagMONCONVSTRUCT {
     HSZ     hszTopic;
     HCONV   hConvClient;        // Globally unique value != apps local hConv
     HCONV   hConvServer;        // Globally unique value != apps local hConv
-} MONCONVSTRUCT, PMONCONVSTRUCT;
+} MONCONVSTRUCT, *PMONCONVSTRUCT;
 
 #define     MAX_MONITORS            4
 #define     APPCLASS_MONITOR        0x00000001L
@@ -504,4 +509,3 @@ typedef struct tagMONCONVSTRUCT {
 
 #endif /* _INC_DDEMLPH */
 ;end_internal
-

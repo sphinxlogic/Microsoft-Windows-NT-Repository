@@ -89,11 +89,10 @@ int cookie_lock_RB(char *, char *);
 int cookie_free(char *, int);
 
 int     Make_SLM_Redir  (char *);
-int     Check_SLM_Redir (char *);
 int     SLM_endredir    (char *);
 
 #if defined(_WIN32)
-unsigned long Query_Free_Space(void);
+unsigned long Query_Free_Space(int);
 #endif
 
 char SLMdev[_MAX_DRIVE];

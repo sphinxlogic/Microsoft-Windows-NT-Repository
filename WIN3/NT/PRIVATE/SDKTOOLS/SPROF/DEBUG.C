@@ -373,7 +373,7 @@ Return Value:
     //
     // This is the interval the rtl profile stuff uses
     //
-    NtSetIntervalProfile(DefaultProfileInterval);
+    NtSetIntervalProfile(DefaultProfileInterval,ProfileTime);
 
     ModuleList = GetProcessModule32List(
         ProcessList,

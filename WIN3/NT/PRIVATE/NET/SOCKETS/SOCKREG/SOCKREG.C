@@ -1,5 +1,8 @@
 #include "local.h"
 
+#define malloc(x)   RtlAllocateHeap( RtlProcessHeap(), 0, (x) )
+#define free(p)     RtlFreeHeap( RtlProcessHeap(), 0, (p) )
+
 
 #define WORK_BUFFER_SIZE  1024
 

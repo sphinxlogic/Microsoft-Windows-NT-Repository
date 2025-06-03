@@ -223,7 +223,7 @@ Return Value:
             EndDialog(hwnd, 0);
             break;
 
-        case IDHELP:
+        case FD_IDHELP:
 
             DialogHelp(helpContextId);
             break;
@@ -318,7 +318,7 @@ Return Value:
         if (ftObject = GET_FT_OBJECT(regionDescriptor)) {
 
             TCHAR descr[256];
-            DWORD resid;
+            DWORD resid = 0;
 
             // Ft.  Description is something like "Stripe set with parity #0"
 
@@ -432,7 +432,7 @@ Return Value:
             EndDialog(hdlg, 0);
             break;
 
-        case IDHELP:
+        case FD_IDHELP:
 
             DialogHelp(HC_DM_DLG_DRIVELETTER);
             break;
@@ -547,7 +547,7 @@ Return Value:
             EndDialog(hdlg, IDCANCEL);
             break;
 
-        case IDHELP:
+        case FD_IDHELP:
             DialogHelp(HC_DM_DLG_DISPLAYOPTION);
             break;
 
@@ -555,7 +555,7 @@ Return Value:
 
             if (HIWORD(wParam) == CBN_SELCHANGE) {
 
-                int rb;
+                int rb = 0;
 
                 // Selection in the combobox has changed; update the radio buttons
 
@@ -689,7 +689,7 @@ Return Value:
             EndDialog(hdlg, IDCANCEL);
             break;
 
-        case IDHELP:
+        case FD_IDHELP:
             DialogHelp(HC_DM_COLORSANDPATTERNS);
             break;
 

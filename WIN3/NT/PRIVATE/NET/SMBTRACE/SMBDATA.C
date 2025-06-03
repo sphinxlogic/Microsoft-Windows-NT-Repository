@@ -80,6 +80,10 @@ SMB_FLAGS_DESCRIPTION SmbAttributesFlags[] = {
     0x04, "-", "s",
     0x40, "-", "c",            // NT - obsolete
     0x80, "-", "n",            // NT
+    0x100,"-", "t",
+    0x200,"-", "A",
+    0x400,"-", "x",
+    0x800,"-", "C",
     END_FLAGS
 };
 
@@ -1047,7 +1051,7 @@ SMB_FIELD_DESCRIPTION ReqNtCreateAndXDesc[] = {
     "Flags.............: ", SmbDumpFlags4,  SmbNtCreateFlags, NULL, RET, TRUE,
     "RootDirectoryFid..: ", SmbDumpUlong,   NULL, NULL, RET, TRUE,
     "DesiredAccess.....: ", SmbDumpFlags4,  SmbNtAccessFlags, NULL,RET,TRUE,
-    "AllocationSize....: ", SmbDumpUquad,   NULL, NULL, TB1, FALSE,
+    "AllocationSize....: ", SmbDumpUquad,   NULL, NULL, TB1, TRUE,
     "FileAttributes....: ", SmbDumpFlags4,  SmbAttributesFlags,NULL,RET,TRUE,
     "ShareAccess.......: ", SmbDumpFlags4,  SmbNtShareAccessFlags,NULL,RET,TRUE,
     "CreateDisposition.: ", SmbDumpEnum4,SmbNtDispositionEnum,NULL,RET,TRUE,
@@ -1132,6 +1136,7 @@ SMB_FLAGS_DESCRIPTION SmbNtCapabilitiesFlags[] = {
     0x0040, NULL, "NtStatus ",
     0x0080, NULL, "LevelIIOplocks ",
     0x0100, NULL, "Lock&Read ",
+    0x0200, NULL, "NtFind",
     END_FLAGS
 };
 

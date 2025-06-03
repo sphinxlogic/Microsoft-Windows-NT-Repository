@@ -11,6 +11,9 @@ Copyright(c) Maynard Electronics, Inc. 1984-89
 
      $Log:   T:/LOGFILES/DRIVES.C_V  $
 
+   Rev 1.50.1.7   12 Aug 1994 14:54:22   GREGG
+Make sure the drive block size is one the app can deal with in SetupDriveList.
+
    Rev 1.50.1.6   06 Jul 1994 18:34:30   GREGG
 In Erase, report no tape as a TFLE, not TF and ignore TF returns from Rewind.
 
@@ -234,6 +237,8 @@ Initial revision.
 
 /* Debug Stuff */
 #include "be_debug.h"
+
+VOID InitializeTapeBlockSize( void ) ;
 
 /**/
 /**
@@ -627,6 +632,8 @@ INT16 EraseDrive(
           }
      }
 
+     InitializeTapeBlockSize( ) ;
+
      BE_Zprintf(DEBUG_TAPE_FORMAT, RES_CALLING_WRITE_END_SET );
      if( TpWriteEndSet( drv_hdl ) != SUCCESS ) {
                return( TFLE_DRIVER_FAILURE ) ;
@@ -748,6 +755,13 @@ INT16  CloseDrive(
      INT16     ret_val = TFLE_NO_ERR ;
 
      BE_Zprintf(DEBUG_TAPE_FORMAT, RES_CLOSE_DRIVE ) ;
+
+     if( drive->thw_inf.drv_info.drv_features
+                                & TDI_DRV_COMPRES_INIT ) {
+          TpSpecial( drive->drv_hdl, SS_SET_DRV_COMPRESSION, ENABLE_DRV_COMPRESSION ) ;
+     } else {
+          TpSpecial( drive->drv_hdl, SS_SET_DRV_COMPRESSION, DISABLE_DRV_COMPRESSION ) ;
+     }
 
      /* Somebody has told us not to really close the drive, We are
      probably in the middle of a set */
@@ -875,12 +889,51 @@ INT16 SetupDriveList(
                                    return( TFLE_DRIVER_FAILURE ) ;
                               }
 
+                              /* There is a limited set of physical block
+                                 sizes our app can deal with.  So if the
+                                 current setting doesn't match any of these
+                                 we're going to force the drive to its
+                                 default size.
+                              */
+                              if( lw_drives[tdrives].thw_inf.drv_info.drv_features
+                                  & TDI_CHNG_BLK_SIZE ) {
+
+                                   BOOLEAN size_ok = FALSE ;
+                                   INT     idx ;
+                                   UINT16  bsize = lw_drives[tdrives].thw_inf.drv_info.drv_bsize ;
+
+                                   for( idx = 0; idx < lw_num_blk_sizes; idx++ ) {
+                                        if( bsize == lw_blk_size_list[idx] ) {
+                                             size_ok = TRUE ;
+                                             break ;
+                                        }
+                                   }
+                                   if( !size_ok ) {
+                                        if( TpSpecial( thdl, SS_CHANGE_BLOCK_SIZE, DEFAULT_BLOCK_SIZE ) != SUCCESS ) {
+                                             return( TFLE_DRIVER_FAILURE ) ;
+                                        }
+                                        if( TpSpecial( thdl, (INT16)SS_GET_DRV_INF, ( UINT32 ) &lw_drives[tdrives].thw_inf.drv_info ) == FAILURE ) {
+                                             return( TFLE_DRIVER_FAILURE ) ;
+                                        }
+                                   }
+                              }
+
                               /* If the drive supports hardware compression
                                  we need to keep it in uncompressed mode
                                  unless we're actually writing a compressed
                                  set.  This is a work-around for a firmware
                                  bug in early Archive DAT DC drives.
                               */
+                              if( lw_drives[tdrives].thw_inf.drv_info.drv_features
+                                  & TDI_DRV_COMPRESS_ON ) {
+
+                                   lw_drives[tdrives].thw_inf.drv_info.drv_features |=
+                                       TDI_DRV_COMPRES_INIT ;
+                              } else {
+                                   lw_drives[tdrives].thw_inf.drv_info.drv_features &=
+                                       ~TDI_DRV_COMPRES_INIT ;
+                              }
+
                               if( lw_drives[tdrives].thw_inf.drv_info.drv_features
                                   & TDI_DRV_COMPRESSION ) {
 

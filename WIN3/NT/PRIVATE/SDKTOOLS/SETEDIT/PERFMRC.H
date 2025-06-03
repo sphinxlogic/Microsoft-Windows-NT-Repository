@@ -49,4 +49,4 @@
 #define idBitmapAlertStatus         ID (6002)
 #define idBitmapLogStatus           ID (6003)
 
-
+

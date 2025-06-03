@@ -1,271 +1,563 @@
-auxilary.obj auxilary.lst: ../auxilary.c $(PUBLIC)/inc/cguid.h \
-	$(PUBLIC)/inc/crt/excpt.h $(PUBLIC)/inc/crt/limits.h \
-	$(PUBLIC)/inc/crt/stdio.h $(PUBLIC)/inc/crt/stdlib.h \
-	$(PUBLIC)/inc/crt/string.h $(PUBLIC)/inc/poppack.h \
-	$(PUBLIC)/inc/pshpack4.h $(PUBLIC)/inc/pshpack8.h \
-	$(PUBLIC)/inc/rpcdce.h $(PUBLIC)/inc/rpcdcep.h $(PUBLIC)/inc/rpcndr.h \
-	$(PUBLIC)/inc/rpcnsi.h $(PUBLIC)/inc/rpcnsip.h \
-	$(PUBLIC)/inc/rpcnterr.h $(PUBLIC)/inc/winerror.h \
-	$(RPC)/runtime/mtrt/win32c/rpc.h $(RPC)/runtime/mtrt/win32c/sysinc.h \
-	../../midl20/include/ndrtypes.h ../bufsizep.h ../dosdefs.h \
-	../endianp.h ../freep.h ../fullptr.h ../memsizep.h ../mrshlp.h \
-	../ndrole.h ../ndrp.h ../objbase.h ../srvoutp.h ../unmrshlp.h \
-	../wtypes.h
+stubless.obj stubless.lst: ../i386/stubless.asm
 
-bufsize.obj bufsize.lst: ../bufsize.c $(PUBLIC)/inc/cguid.h \
-	$(PUBLIC)/inc/crt/excpt.h $(PUBLIC)/inc/crt/stdio.h \
-	$(PUBLIC)/inc/crt/stdlib.h $(PUBLIC)/inc/crt/string.h \
-	$(PUBLIC)/inc/poppack.h $(PUBLIC)/inc/pshpack4.h \
-	$(PUBLIC)/inc/pshpack8.h $(PUBLIC)/inc/rpcdce.h \
-	$(PUBLIC)/inc/rpcdcep.h $(PUBLIC)/inc/rpcndr.h $(PUBLIC)/inc/rpcnsi.h \
-	$(PUBLIC)/inc/rpcnsip.h $(PUBLIC)/inc/rpcnterr.h \
-	$(PUBLIC)/inc/winerror.h $(RPC)/runtime/mtrt/win32c/rpc.h \
-	$(RPC)/runtime/mtrt/win32c/sysinc.h ../../midl20/include/ndrtypes.h \
-	../bufsizep.h ../dosdefs.h ../endianp.h ../freep.h ../fullptr.h \
-	../memsizep.h ../mrshlp.h ../ndrole.h ../ndrp.h ../objbase.h \
-	../srvoutp.h ../unmrshlp.h ../wtypes.h
+auxilary.obj auxilary.lst: ../auxilary.c $(CHICODEV)/sdk/inc/cguid.h \
+	$(CHICODEV)/sdk/inc/oaidl.h $(CHICODEV)/sdk/inc/objbase.h \
+	$(CHICODEV)/sdk/inc/objidl.h $(CHICODEV)/sdk/inc/ole2.h \
+	$(CHICODEV)/sdk/inc/oleauto.h $(CHICODEV)/sdk/inc/oleidl.h \
+	$(CHICODEV)/sdk/inc/poppack.h $(CHICODEV)/sdk/inc/pshpack4.h \
+	$(CHICODEV)/sdk/inc/pshpack8.h $(CHICODEV)/sdk/inc/unknwn.h \
+	$(CHICODEV)/sdk/inc/winerror.h $(CHICODEV)/sdk/inc/wtypes.h \
+	$(CHICODEV)/tools/c1032/inc/assert.h \
+	$(CHICODEV)/tools/c1032/inc/excpt.h \
+	$(CHICODEV)/tools/c1032/inc/limits.h $(CHICODEV)/tools/c1032/inc/rpc.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdce.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdcep.h \
+	$(CHICODEV)/tools/c1032/inc/rpcndr.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsi.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsip.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnterr.h \
+	$(CHICODEV)/tools/c1032/inc/stdio.h \
+	$(CHICODEV)/tools/c1032/inc/stdlib.h $(RPC)/runtime/mtrt/sysinc.h \
+	../../midl20/include/ndrtypes.h ../bufsizep.h ../endianp.h ../freep.h \
+	../fullptr.h ../interp2.h ../memsizep.h ../mrshlp.h ../ndrole.h \
+	../ndrp.h ../pipendr.h ../unmrshlp.h
 
-cltcall.obj cltcall.lst: ../cltcall.c $(PUBLIC)/inc/cguid.h \
-	$(PUBLIC)/inc/crt/excpt.h $(PUBLIC)/inc/crt/memory.h \
-	$(PUBLIC)/inc/crt/stdarg.h $(PUBLIC)/inc/crt/stdio.h \
-	$(PUBLIC)/inc/crt/stdlib.h $(PUBLIC)/inc/crt/string.h \
-	$(PUBLIC)/inc/poppack.h $(PUBLIC)/inc/pshpack4.h \
-	$(PUBLIC)/inc/pshpack8.h $(PUBLIC)/inc/rpcdce.h \
-	$(PUBLIC)/inc/rpcdcep.h $(PUBLIC)/inc/rpcndr.h $(PUBLIC)/inc/rpcnsi.h \
-	$(PUBLIC)/inc/rpcnsip.h $(PUBLIC)/inc/rpcnterr.h \
-	$(PUBLIC)/inc/rpcproxy.h $(PUBLIC)/inc/winerror.h \
-	$(RPC)/runtime/mtrt/win32c/rpc.h $(RPC)/runtime/mtrt/win32c/sysinc.h \
-	../../midl20/include/ndrtypes.h ../bufsizep.h ../dosdefs.h \
-	../endianp.h ../freep.h ../fullptr.h ../getargs.h ../hndl.h \
-	../memsizep.h ../mrshlp.h ../ndrdbg.h ../ndrole.h ../ndrp.h \
-	../ndrvargs.h ../objbase.h ../srvoutp.h ../unmrshlp.h ../wtypes.h
+bufsize.obj bufsize.lst: ../bufsize.c $(CHICODEV)/sdk/inc/cguid.h \
+	$(CHICODEV)/sdk/inc/oaidl.h $(CHICODEV)/sdk/inc/objbase.h \
+	$(CHICODEV)/sdk/inc/objidl.h $(CHICODEV)/sdk/inc/ole2.h \
+	$(CHICODEV)/sdk/inc/oleauto.h $(CHICODEV)/sdk/inc/oleidl.h \
+	$(CHICODEV)/sdk/inc/poppack.h $(CHICODEV)/sdk/inc/pshpack4.h \
+	$(CHICODEV)/sdk/inc/pshpack8.h $(CHICODEV)/sdk/inc/unknwn.h \
+	$(CHICODEV)/sdk/inc/winerror.h $(CHICODEV)/sdk/inc/wtypes.h \
+	$(CHICODEV)/tools/c1032/inc/assert.h \
+	$(CHICODEV)/tools/c1032/inc/excpt.h $(CHICODEV)/tools/c1032/inc/rpc.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdce.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdcep.h \
+	$(CHICODEV)/tools/c1032/inc/rpcndr.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsi.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsip.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnterr.h \
+	$(CHICODEV)/tools/c1032/inc/stdio.h \
+	$(CHICODEV)/tools/c1032/inc/stdlib.h $(RPC)/runtime/mtrt/sysinc.h \
+	../../midl20/include/ndrtypes.h ../bufsizep.h ../endianp.h ../freep.h \
+	../fullptr.h ../memsizep.h ../mrshlp.h ../ndrole.h ../ndrp.h \
+	../unmrshlp.h
 
-endian.obj endian.lst: ../endian.c $(PUBLIC)/inc/crt/excpt.h \
-	$(PUBLIC)/inc/crt/stdio.h $(PUBLIC)/inc/crt/string.h \
-	$(PUBLIC)/inc/poppack.h $(PUBLIC)/inc/pshpack4.h \
-	$(PUBLIC)/inc/rpcdce.h $(PUBLIC)/inc/rpcdcep.h $(PUBLIC)/inc/rpcndr.h \
-	$(PUBLIC)/inc/rpcnsi.h $(PUBLIC)/inc/rpcnsip.h \
-	$(PUBLIC)/inc/rpcnterr.h $(PUBLIC)/inc/winerror.h \
-	$(RPC)/runtime/mtrt/win32c/rpc.h $(RPC)/runtime/mtrt/win32c/sysinc.h \
-	../../midl20/include/ndrtypes.h ../bufsizep.h ../dosdefs.h \
-	../endianp.h ../freep.h ../fullptr.h ../memsizep.h ../mrshlp.h \
-	../ndrp.h ../srvoutp.h ../unmrshlp.h
+cltcall.obj cltcall.lst: ../cltcall.c $(CHICODEV)/sdk/inc/cguid.h \
+	$(CHICODEV)/sdk/inc/oaidl.h $(CHICODEV)/sdk/inc/objbase.h \
+	$(CHICODEV)/sdk/inc/objidl.h $(CHICODEV)/sdk/inc/ole2.h \
+	$(CHICODEV)/sdk/inc/oleauto.h $(CHICODEV)/sdk/inc/oleidl.h \
+	$(CHICODEV)/sdk/inc/poppack.h $(CHICODEV)/sdk/inc/pshpack4.h \
+	$(CHICODEV)/sdk/inc/pshpack8.h $(CHICODEV)/sdk/inc/unknwn.h \
+	$(CHICODEV)/sdk/inc/winerror.h $(CHICODEV)/sdk/inc/wtypes.h \
+	$(CHICODEV)/tools/c1032/inc/assert.h \
+	$(CHICODEV)/tools/c1032/inc/excpt.h \
+	$(CHICODEV)/tools/c1032/inc/memory.h $(CHICODEV)/tools/c1032/inc/rpc.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdce.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdcep.h \
+	$(CHICODEV)/tools/c1032/inc/rpcndr.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsi.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsip.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnterr.h \
+	$(CHICODEV)/tools/c1032/inc/rpcproxy.h \
+	$(CHICODEV)/tools/c1032/inc/stdarg.h \
+	$(CHICODEV)/tools/c1032/inc/stdio.h \
+	$(CHICODEV)/tools/c1032/inc/stdlib.h \
+	$(CHICODEV)/tools/c1032/inc/string.h $(RPC)/runtime/mtrt/sysinc.h \
+	../../midl20/include/ndrtypes.h ../bufsizep.h ../endianp.h ../freep.h \
+	../fullptr.h ../hndl.h ../interp.h ../interp2.h ../memsizep.h \
+	../mrshlp.h ../ndrole.h ../ndrp.h ../pipendr.h ../unmrshlp.h
 
-free.obj free.lst: ../free.c $(PUBLIC)/inc/cguid.h \
-	$(PUBLIC)/inc/crt/excpt.h $(PUBLIC)/inc/crt/stdio.h \
-	$(PUBLIC)/inc/crt/stdlib.h $(PUBLIC)/inc/crt/string.h \
-	$(PUBLIC)/inc/poppack.h $(PUBLIC)/inc/pshpack4.h \
-	$(PUBLIC)/inc/pshpack8.h $(PUBLIC)/inc/rpcdce.h \
-	$(PUBLIC)/inc/rpcdcep.h $(PUBLIC)/inc/rpcndr.h $(PUBLIC)/inc/rpcnsi.h \
-	$(PUBLIC)/inc/rpcnsip.h $(PUBLIC)/inc/rpcnterr.h \
-	$(PUBLIC)/inc/winerror.h $(RPC)/runtime/mtrt/win32c/rpc.h \
-	$(RPC)/runtime/mtrt/win32c/sysinc.h ../../midl20/include/ndrtypes.h \
-	../bufsizep.h ../dosdefs.h ../endianp.h ../freep.h ../fullptr.h \
-	../memsizep.h ../mrshlp.h ../ndrole.h ../ndrp.h ../objbase.h \
-	../srvoutp.h ../unmrshlp.h ../wtypes.h
+cvtf.obj cvtf.lst: ../cvtf.c $(CHICODEV)/sdk/inc/winerror.h \
+	$(CHICODEV)/tools/c1032/inc/excpt.h $(CHICODEV)/tools/c1032/inc/rpc.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdce.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdcep.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsi.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnterr.h \
+	$(CHICODEV)/tools/c1032/inc/stdio.h \
+	$(CHICODEV)/tools/c1032/inc/stdlib.h $(RPC)/runtime/mtrt/sysinc.h \
+	../cvt.h ../cvtpvt.h ../descrip.h ../pack_ies.c ../round.c \
+	../unp_vaxf.c
 
-fullptr.obj fullptr.lst: ../fullptr.c $(PUBLIC)/inc/crt/excpt.h \
-	$(PUBLIC)/inc/crt/stdio.h $(PUBLIC)/inc/crt/string.h \
-	$(PUBLIC)/inc/poppack.h $(PUBLIC)/inc/pshpack4.h \
-	$(PUBLIC)/inc/rpcdce.h $(PUBLIC)/inc/rpcdcep.h $(PUBLIC)/inc/rpcndr.h \
-	$(PUBLIC)/inc/rpcnsi.h $(PUBLIC)/inc/rpcnsip.h \
-	$(PUBLIC)/inc/rpcnterr.h $(PUBLIC)/inc/winerror.h \
-	$(RPC)/runtime/mtrt/win32c/rpc.h $(RPC)/runtime/mtrt/win32c/sysinc.h \
-	../../midl20/include/ndrtypes.h ../bufsizep.h ../dosdefs.h \
-	../endianp.h ../freep.h ../fullptr.h ../memsizep.h ../mrshlp.h \
-	../ndrp.h ../srvoutp.h ../unmrshlp.h
+cvtg.obj cvtg.lst: ../cvtg.c $(CHICODEV)/sdk/inc/winerror.h \
+	$(CHICODEV)/tools/c1032/inc/excpt.h $(CHICODEV)/tools/c1032/inc/rpc.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdce.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdcep.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsi.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnterr.h \
+	$(CHICODEV)/tools/c1032/inc/stdio.h \
+	$(CHICODEV)/tools/c1032/inc/stdlib.h $(RPC)/runtime/mtrt/sysinc.h \
+	../cvt.h ../cvtpvt.h ../descrip.h ../pack_iet.c ../round.c \
+	../unp_vaxg.c
 
-global.obj global.lst: ../global.c
+cvtglo.obj cvtglo.lst: ../cvtglo.c ../cvt.h ../cvtpvt.h ../descrip.h
 
-hndl.obj hndl.lst: ../hndl.c $(PUBLIC)/inc/crt/excpt.h \
-	$(PUBLIC)/inc/crt/stdio.h $(PUBLIC)/inc/crt/string.h \
-	$(PUBLIC)/inc/poppack.h $(PUBLIC)/inc/pshpack4.h \
-	$(PUBLIC)/inc/rpcdce.h $(PUBLIC)/inc/rpcdcep.h $(PUBLIC)/inc/rpcndr.h \
-	$(PUBLIC)/inc/rpcnsi.h $(PUBLIC)/inc/rpcnsip.h \
-	$(PUBLIC)/inc/rpcnterr.h $(PUBLIC)/inc/winerror.h \
-	$(RPC)/runtime/mtrt/win32c/rpc.h $(RPC)/runtime/mtrt/win32c/sysinc.h \
-	../../midl20/include/ndrtypes.h ../bufsizep.h ../dosdefs.h \
-	../endianp.h ../freep.h ../fullptr.h ../hndl.h ../memsizep.h \
-	../mrshlp.h ../ndrdbg.h ../ndrp.h ../srvoutp.h ../unmrshlp.h
+endian.obj endian.lst: ../endian.c $(CHICODEV)/sdk/inc/poppack.h \
+	$(CHICODEV)/sdk/inc/pshpack4.h $(CHICODEV)/sdk/inc/winerror.h \
+	$(CHICODEV)/tools/c1032/inc/assert.h \
+	$(CHICODEV)/tools/c1032/inc/excpt.h $(CHICODEV)/tools/c1032/inc/rpc.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdce.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdcep.h \
+	$(CHICODEV)/tools/c1032/inc/rpcndr.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsi.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsip.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnterr.h \
+	$(CHICODEV)/tools/c1032/inc/stdio.h \
+	$(CHICODEV)/tools/c1032/inc/stdlib.h $(RPC)/runtime/mtrt/sysinc.h \
+	../../midl20/include/ndrtypes.h ../bufsizep.h ../cvt.h ../endianp.h \
+	../freep.h ../fullptr.h ../interp2.h ../memsizep.h ../mrshlp.h \
+	../ndrp.h ../unmrshlp.h
+
+factory.obj factory.lst: ../factory.c $(CHICODEV)/sdk/inc/cguid.h \
+	$(CHICODEV)/sdk/inc/oaidl.h $(CHICODEV)/sdk/inc/objbase.h \
+	$(CHICODEV)/sdk/inc/objidl.h $(CHICODEV)/sdk/inc/ole2.h \
+	$(CHICODEV)/sdk/inc/oleauto.h $(CHICODEV)/sdk/inc/oleidl.h \
+	$(CHICODEV)/sdk/inc/poppack.h $(CHICODEV)/sdk/inc/pshpack4.h \
+	$(CHICODEV)/sdk/inc/pshpack8.h $(CHICODEV)/sdk/inc/unknwn.h \
+	$(CHICODEV)/sdk/inc/winerror.h $(CHICODEV)/sdk/inc/wtypes.h \
+	$(CHICODEV)/tools/c1032/inc/assert.h \
+	$(CHICODEV)/tools/c1032/inc/excpt.h \
+	$(CHICODEV)/tools/c1032/inc/memory.h $(CHICODEV)/tools/c1032/inc/rpc.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdce.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdcep.h \
+	$(CHICODEV)/tools/c1032/inc/rpcndr.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsi.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsip.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnterr.h \
+	$(CHICODEV)/tools/c1032/inc/rpcproxy.h \
+	$(CHICODEV)/tools/c1032/inc/stdio.h \
+	$(CHICODEV)/tools/c1032/inc/stdlib.h \
+	$(CHICODEV)/tools/c1032/inc/string.h $(RPC)/runtime/mtrt/sysinc.h \
+	../../midl20/include/ndrtypes.h ../bufsizep.h ../endianp.h ../freep.h \
+	../fullptr.h ../memsizep.h ../mrshlp.h ../ndrole.h ../ndrp.h \
+	../unmrshlp.h
+
+free.obj free.lst: ../free.c $(CHICODEV)/sdk/inc/cguid.h \
+	$(CHICODEV)/sdk/inc/oaidl.h $(CHICODEV)/sdk/inc/objbase.h \
+	$(CHICODEV)/sdk/inc/objidl.h $(CHICODEV)/sdk/inc/ole2.h \
+	$(CHICODEV)/sdk/inc/oleauto.h $(CHICODEV)/sdk/inc/oleidl.h \
+	$(CHICODEV)/sdk/inc/poppack.h $(CHICODEV)/sdk/inc/pshpack4.h \
+	$(CHICODEV)/sdk/inc/pshpack8.h $(CHICODEV)/sdk/inc/unknwn.h \
+	$(CHICODEV)/sdk/inc/winerror.h $(CHICODEV)/sdk/inc/wtypes.h \
+	$(CHICODEV)/tools/c1032/inc/assert.h \
+	$(CHICODEV)/tools/c1032/inc/excpt.h $(CHICODEV)/tools/c1032/inc/rpc.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdce.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdcep.h \
+	$(CHICODEV)/tools/c1032/inc/rpcndr.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsi.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsip.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnterr.h \
+	$(CHICODEV)/tools/c1032/inc/stdio.h \
+	$(CHICODEV)/tools/c1032/inc/stdlib.h $(RPC)/runtime/mtrt/sysinc.h \
+	../../midl20/include/ndrtypes.h ../bufsizep.h ../endianp.h ../freep.h \
+	../fullptr.h ../memsizep.h ../mrshlp.h ../ndrole.h ../ndrp.h \
+	../unmrshlp.h
+
+fullptr.obj fullptr.lst: ../fullptr.c $(CHICODEV)/sdk/inc/poppack.h \
+	$(CHICODEV)/sdk/inc/pshpack4.h $(CHICODEV)/sdk/inc/winerror.h \
+	$(CHICODEV)/tools/c1032/inc/assert.h \
+	$(CHICODEV)/tools/c1032/inc/excpt.h $(CHICODEV)/tools/c1032/inc/rpc.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdce.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdcep.h \
+	$(CHICODEV)/tools/c1032/inc/rpcndr.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsi.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsip.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnterr.h \
+	$(CHICODEV)/tools/c1032/inc/stdio.h \
+	$(CHICODEV)/tools/c1032/inc/stdlib.h $(RPC)/runtime/mtrt/sysinc.h \
+	../../midl20/include/ndrtypes.h ../bufsizep.h ../endianp.h ../freep.h \
+	../fullptr.h ../memsizep.h ../mrshlp.h ../ndrp.h ../unmrshlp.h
+
+global.obj global.lst: ../global.c $(CHICODEV)/sdk/inc/poppack.h \
+	$(CHICODEV)/sdk/inc/pshpack4.h $(CHICODEV)/sdk/inc/winerror.h \
+	$(CHICODEV)/tools/c1032/inc/assert.h \
+	$(CHICODEV)/tools/c1032/inc/excpt.h $(CHICODEV)/tools/c1032/inc/rpc.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdce.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdcep.h \
+	$(CHICODEV)/tools/c1032/inc/rpcndr.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsi.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsip.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnterr.h \
+	$(CHICODEV)/tools/c1032/inc/stdio.h \
+	$(CHICODEV)/tools/c1032/inc/stdlib.h $(RPC)/runtime/mtrt/sysinc.h \
+	../../midl20/include/ndrtypes.h ../bufsizep.h ../endianp.h ../freep.h \
+	../fullptr.h ../memsizep.h ../mrshlp.h ../ndrp.h ../unmrshlp.h
+
+hndl.obj hndl.lst: ../hndl.c $(CHICODEV)/sdk/inc/poppack.h \
+	$(CHICODEV)/sdk/inc/pshpack4.h $(CHICODEV)/sdk/inc/winerror.h \
+	$(CHICODEV)/tools/c1032/inc/assert.h \
+	$(CHICODEV)/tools/c1032/inc/excpt.h $(CHICODEV)/tools/c1032/inc/rpc.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdce.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdcep.h \
+	$(CHICODEV)/tools/c1032/inc/rpcndr.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsi.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsip.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnterr.h \
+	$(CHICODEV)/tools/c1032/inc/stdio.h \
+	$(CHICODEV)/tools/c1032/inc/stdlib.h $(RPC)/runtime/mtrt/sysinc.h \
+	../../midl20/include/ndrtypes.h ../bufsizep.h ../endianp.h ../freep.h \
+	../fullptr.h ../hndl.h ../memsizep.h ../mrshlp.h ../ndrp.h \
+	../unmrshlp.h
 
 iid.obj iid.lst: ../iid.c
 
-memsize.obj memsize.lst: ../memsize.c $(PUBLIC)/inc/crt/excpt.h \
-	$(PUBLIC)/inc/crt/stdio.h $(PUBLIC)/inc/crt/string.h \
-	$(PUBLIC)/inc/poppack.h $(PUBLIC)/inc/pshpack4.h \
-	$(PUBLIC)/inc/rpcdce.h $(PUBLIC)/inc/rpcdcep.h $(PUBLIC)/inc/rpcndr.h \
-	$(PUBLIC)/inc/rpcnsi.h $(PUBLIC)/inc/rpcnsip.h \
-	$(PUBLIC)/inc/rpcnterr.h $(PUBLIC)/inc/winerror.h \
-	$(RPC)/runtime/mtrt/win32c/rpc.h $(RPC)/runtime/mtrt/win32c/sysinc.h \
-	../../midl20/include/ndrtypes.h ../bufsizep.h ../dosdefs.h \
-	../endianp.h ../freep.h ../fullptr.h ../memsizep.h ../mrshlp.h \
-	../ndrp.h ../srvoutp.h ../unmrshlp.h
+memsize.obj memsize.lst: ../memsize.c $(CHICODEV)/sdk/inc/poppack.h \
+	$(CHICODEV)/sdk/inc/pshpack4.h $(CHICODEV)/sdk/inc/winerror.h \
+	$(CHICODEV)/tools/c1032/inc/assert.h \
+	$(CHICODEV)/tools/c1032/inc/excpt.h $(CHICODEV)/tools/c1032/inc/rpc.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdce.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdcep.h \
+	$(CHICODEV)/tools/c1032/inc/rpcndr.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsi.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsip.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnterr.h \
+	$(CHICODEV)/tools/c1032/inc/stdio.h \
+	$(CHICODEV)/tools/c1032/inc/stdlib.h $(RPC)/runtime/mtrt/sysinc.h \
+	../../midl20/include/ndrtypes.h ../bufsizep.h ../endianp.h ../freep.h \
+	../fullptr.h ../memsizep.h ../mrshlp.h ../ndrp.h ../unmrshlp.h
 
-misc.obj misc.lst: ../misc.c $(PUBLIC)/inc/crt/excpt.h \
-	$(PUBLIC)/inc/crt/stdio.h $(PUBLIC)/inc/crt/string.h \
-	$(PUBLIC)/inc/poppack.h $(PUBLIC)/inc/pshpack4.h \
-	$(PUBLIC)/inc/rpcdce.h $(PUBLIC)/inc/rpcdcep.h $(PUBLIC)/inc/rpcndr.h \
-	$(PUBLIC)/inc/rpcnsi.h $(PUBLIC)/inc/rpcnsip.h \
-	$(PUBLIC)/inc/rpcnterr.h $(PUBLIC)/inc/winerror.h \
-	$(RPC)/runtime/mtrt/win32c/rpc.h $(RPC)/runtime/mtrt/win32c/sysinc.h \
-	../../midl20/include/ndrtypes.h ../bufsizep.h ../dosdefs.h \
-	../endianp.h ../freep.h ../fullptr.h ../memsizep.h ../mrshlp.h \
-	../ndrp.h ../srvoutp.h ../unmrshlp.h
+misc.obj misc.lst: ../misc.c $(CHICODEV)/sdk/inc/poppack.h \
+	$(CHICODEV)/sdk/inc/pshpack4.h $(CHICODEV)/sdk/inc/winerror.h \
+	$(CHICODEV)/tools/c1032/inc/assert.h \
+	$(CHICODEV)/tools/c1032/inc/excpt.h $(CHICODEV)/tools/c1032/inc/rpc.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdce.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdcep.h \
+	$(CHICODEV)/tools/c1032/inc/rpcndr.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsi.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsip.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnterr.h \
+	$(CHICODEV)/tools/c1032/inc/stdio.h \
+	$(CHICODEV)/tools/c1032/inc/stdlib.h $(RPC)/runtime/mtrt/sysinc.h \
+	../../midl20/include/ndrtypes.h ../bufsizep.h ../endianp.h ../freep.h \
+	../fullptr.h ../memsizep.h ../mrshlp.h ../ndrp.h ../unmrshlp.h
 
-mrshl.obj mrshl.lst: ../mrshl.c $(PUBLIC)/inc/cguid.h \
-	$(PUBLIC)/inc/crt/excpt.h $(PUBLIC)/inc/crt/stdio.h \
-	$(PUBLIC)/inc/crt/stdlib.h $(PUBLIC)/inc/crt/string.h \
-	$(PUBLIC)/inc/poppack.h $(PUBLIC)/inc/pshpack4.h \
-	$(PUBLIC)/inc/pshpack8.h $(PUBLIC)/inc/rpcdce.h \
-	$(PUBLIC)/inc/rpcdcep.h $(PUBLIC)/inc/rpcndr.h $(PUBLIC)/inc/rpcnsi.h \
-	$(PUBLIC)/inc/rpcnsip.h $(PUBLIC)/inc/rpcnterr.h \
-	$(PUBLIC)/inc/winerror.h $(RPC)/runtime/mtrt/win32c/rpc.h \
-	$(RPC)/runtime/mtrt/win32c/sysinc.h ../../midl20/include/ndrtypes.h \
-	../bufsizep.h ../dosdefs.h ../endianp.h ../freep.h ../fullptr.h \
-	../hndl.h ../memsizep.h ../mrshlp.h ../ndrole.h ../ndrp.h \
-	../objbase.h ../srvoutp.h ../unmrshlp.h ../wtypes.h
+mrshl.obj mrshl.lst: ../mrshl.c $(CHICODEV)/sdk/inc/cguid.h \
+	$(CHICODEV)/sdk/inc/oaidl.h $(CHICODEV)/sdk/inc/objbase.h \
+	$(CHICODEV)/sdk/inc/objidl.h $(CHICODEV)/sdk/inc/ole2.h \
+	$(CHICODEV)/sdk/inc/oleauto.h $(CHICODEV)/sdk/inc/oleidl.h \
+	$(CHICODEV)/sdk/inc/poppack.h $(CHICODEV)/sdk/inc/pshpack4.h \
+	$(CHICODEV)/sdk/inc/pshpack8.h $(CHICODEV)/sdk/inc/unknwn.h \
+	$(CHICODEV)/sdk/inc/winerror.h $(CHICODEV)/sdk/inc/wtypes.h \
+	$(CHICODEV)/tools/c1032/inc/assert.h \
+	$(CHICODEV)/tools/c1032/inc/excpt.h $(CHICODEV)/tools/c1032/inc/rpc.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdce.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdcep.h \
+	$(CHICODEV)/tools/c1032/inc/rpcndr.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsi.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsip.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnterr.h \
+	$(CHICODEV)/tools/c1032/inc/stdio.h \
+	$(CHICODEV)/tools/c1032/inc/stdlib.h $(RPC)/runtime/mtrt/sysinc.h \
+	../../midl20/include/ndrtypes.h ../bufsizep.h ../endianp.h ../freep.h \
+	../fullptr.h ../hndl.h ../memsizep.h ../mrshlp.h ../ndrole.h \
+	../ndrp.h ../unmrshlp.h
 
-mrshlp.obj mrshlp.lst: ../mrshlp.c $(PUBLIC)/inc/crt/excpt.h \
-	$(PUBLIC)/inc/crt/stdio.h $(PUBLIC)/inc/crt/string.h \
-	$(PUBLIC)/inc/poppack.h $(PUBLIC)/inc/pshpack4.h \
-	$(PUBLIC)/inc/rpcdce.h $(PUBLIC)/inc/rpcdcep.h $(PUBLIC)/inc/rpcndr.h \
-	$(PUBLIC)/inc/rpcnsi.h $(PUBLIC)/inc/rpcnsip.h \
-	$(PUBLIC)/inc/rpcnterr.h $(PUBLIC)/inc/winerror.h \
-	$(RPC)/runtime/mtrt/win32c/rpc.h $(RPC)/runtime/mtrt/win32c/sysinc.h \
-	../../midl20/include/ndrtypes.h ../bufsizep.h ../dosdefs.h \
-	../endianp.h ../freep.h ../fullptr.h ../memsizep.h ../mrshlp.h \
-	../ndrp.h ../srvoutp.h ../unmrshlp.h
+mrshlp.obj mrshlp.lst: ../mrshlp.c $(CHICODEV)/sdk/inc/poppack.h \
+	$(CHICODEV)/sdk/inc/pshpack4.h $(CHICODEV)/sdk/inc/winerror.h \
+	$(CHICODEV)/tools/c1032/inc/assert.h \
+	$(CHICODEV)/tools/c1032/inc/excpt.h $(CHICODEV)/tools/c1032/inc/rpc.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdce.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdcep.h \
+	$(CHICODEV)/tools/c1032/inc/rpcndr.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsi.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsip.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnterr.h \
+	$(CHICODEV)/tools/c1032/inc/stdio.h \
+	$(CHICODEV)/tools/c1032/inc/stdlib.h $(RPC)/runtime/mtrt/sysinc.h \
+	../../midl20/include/ndrtypes.h ../bufsizep.h ../endianp.h ../freep.h \
+	../fullptr.h ../memsizep.h ../mrshlp.h ../ndrp.h ../unmrshlp.h
 
-rpcproxy.obj rpcproxy.lst: ../rpcproxy.c $(PUBLIC)/inc/cguid.h \
-	$(PUBLIC)/inc/crt/excpt.h $(PUBLIC)/inc/crt/memory.h \
-	$(PUBLIC)/inc/crt/stdlib.h $(PUBLIC)/inc/crt/string.h \
-	$(PUBLIC)/inc/poppack.h $(PUBLIC)/inc/pshpack4.h \
-	$(PUBLIC)/inc/pshpack8.h $(PUBLIC)/inc/rpcdce.h \
-	$(PUBLIC)/inc/rpcdcep.h $(PUBLIC)/inc/rpcndr.h $(PUBLIC)/inc/rpcnsi.h \
-	$(PUBLIC)/inc/rpcnsip.h $(PUBLIC)/inc/rpcnterr.h \
-	$(PUBLIC)/inc/rpcproxy.h $(PUBLIC)/inc/winerror.h \
-	$(RPC)/runtime/mtrt/win32c/rpc.h ../ndrole.h ../objbase.h ../wtypes.h
+pack_ies.obj pack_ies.lst: ../pack_ies.c ../round.c
 
-rpcprxy1.obj rpcprxy1.lst: ../rpcprxy1.c $(PUBLIC)/inc/cguid.h \
-	$(PUBLIC)/inc/crt/excpt.h $(PUBLIC)/inc/crt/memory.h \
-	$(PUBLIC)/inc/crt/stddef.h $(PUBLIC)/inc/crt/stdio.h \
-	$(PUBLIC)/inc/crt/stdlib.h $(PUBLIC)/inc/crt/string.h \
-	$(PUBLIC)/inc/poppack.h $(PUBLIC)/inc/pshpack4.h \
-	$(PUBLIC)/inc/pshpack8.h $(PUBLIC)/inc/rpcdce.h \
-	$(PUBLIC)/inc/rpcdcep.h $(PUBLIC)/inc/rpcndr.h $(PUBLIC)/inc/rpcnsi.h \
-	$(PUBLIC)/inc/rpcnsip.h $(PUBLIC)/inc/rpcnterr.h \
-	$(PUBLIC)/inc/rpcproxy.h $(PUBLIC)/inc/winerror.h \
-	$(RPC)/runtime/mtrt/win32c/rpc.h $(RPC)/runtime/mtrt/win32c/sysinc.h \
-	../../midl20/include/ndrtypes.h ../bufsizep.h ../dosdefs.h \
-	../endianp.h ../freep.h ../fullptr.h ../memsizep.h ../mrshlp.h \
-	../ndrole.h ../ndrp.h ../objbase.h ../srvoutp.h ../unmrshlp.h \
-	../wtypes.h
+pack_iet.obj pack_iet.lst: ../pack_iet.c ../round.c
 
-sh.obj sh.lst: ../sh.c $(PUBLIC)/inc/crt/excpt.h $(PUBLIC)/inc/poppack.h \
-	$(PUBLIC)/inc/pshpack4.h $(PUBLIC)/inc/rpcdce.h \
-	$(PUBLIC)/inc/rpcdcep.h $(PUBLIC)/inc/rpcndr.h $(PUBLIC)/inc/rpcnsi.h \
-	$(PUBLIC)/inc/rpcnsip.h $(PUBLIC)/inc/rpcnterr.h \
-	$(PUBLIC)/inc/winerror.h $(RPC)/runtime/mtrt/win32c/rpc.h ../dosdefs.h \
-	../sh.h
-
-srvcall.obj srvcall.lst: ../srvcall.c $(PUBLIC)/inc/cguid.h \
-	$(PUBLIC)/inc/crt/excpt.h $(PUBLIC)/inc/crt/memory.h \
-	$(PUBLIC)/inc/crt/stdarg.h $(PUBLIC)/inc/crt/stdio.h \
-	$(PUBLIC)/inc/crt/stdlib.h $(PUBLIC)/inc/crt/string.h \
-	$(PUBLIC)/inc/poppack.h $(PUBLIC)/inc/pshpack4.h \
-	$(PUBLIC)/inc/pshpack8.h $(PUBLIC)/inc/rpcdce.h \
-	$(PUBLIC)/inc/rpcdcep.h $(PUBLIC)/inc/rpcndr.h $(PUBLIC)/inc/rpcnsi.h \
-	$(PUBLIC)/inc/rpcnsip.h $(PUBLIC)/inc/rpcnterr.h \
-	$(PUBLIC)/inc/rpcproxy.h $(PUBLIC)/inc/winerror.h \
-	$(RPC)/runtime/mtrt/win32c/rpc.h $(RPC)/runtime/mtrt/win32c/sysinc.h \
-	../../midl20/include/ndrtypes.h ../bufsizep.h ../dosdefs.h \
-	../endianp.h ../freep.h ../fullptr.h ../getargs.h ../hndl.h \
-	../memsizep.h ../mrshlp.h ../ndrdbg.h ../ndrole.h ../ndrp.h \
-	../ndrvargs.h ../objbase.h ../srvcall.h ../srvoutp.h ../unmrshlp.h \
-	../wtypes.h
-
-srvout.obj srvout.lst: ../srvout.c $(PUBLIC)/inc/crt/excpt.h \
-	$(PUBLIC)/inc/crt/stdio.h $(PUBLIC)/inc/crt/stdlib.h \
-	$(PUBLIC)/inc/crt/string.h $(PUBLIC)/inc/poppack.h \
-	$(PUBLIC)/inc/pshpack4.h $(PUBLIC)/inc/rpcdce.h \
-	$(PUBLIC)/inc/rpcdcep.h $(PUBLIC)/inc/rpcndr.h $(PUBLIC)/inc/rpcnsi.h \
-	$(PUBLIC)/inc/rpcnsip.h $(PUBLIC)/inc/rpcnterr.h \
-	$(PUBLIC)/inc/winerror.h $(RPC)/runtime/mtrt/win32c/rpc.h \
-	$(RPC)/runtime/mtrt/win32c/sysinc.h ../../midl20/include/ndrtypes.h \
-	../bufsizep.h ../dosdefs.h ../endianp.h ../freep.h ../fullptr.h \
-	../hndl.h ../memsizep.h ../mrshlp.h ../ndrp.h ../srvoutp.h \
+proxy.obj proxy.lst: ../proxy.c $(CHICODEV)/sdk/inc/cguid.h \
+	$(CHICODEV)/sdk/inc/oaidl.h $(CHICODEV)/sdk/inc/objbase.h \
+	$(CHICODEV)/sdk/inc/objidl.h $(CHICODEV)/sdk/inc/ole2.h \
+	$(CHICODEV)/sdk/inc/oleauto.h $(CHICODEV)/sdk/inc/oleidl.h \
+	$(CHICODEV)/sdk/inc/poppack.h $(CHICODEV)/sdk/inc/pshpack4.h \
+	$(CHICODEV)/sdk/inc/pshpack8.h $(CHICODEV)/sdk/inc/unknwn.h \
+	$(CHICODEV)/sdk/inc/winerror.h $(CHICODEV)/sdk/inc/wtypes.h \
+	$(CHICODEV)/tools/c1032/inc/assert.h \
+	$(CHICODEV)/tools/c1032/inc/excpt.h \
+	$(CHICODEV)/tools/c1032/inc/memory.h $(CHICODEV)/tools/c1032/inc/rpc.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdce.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdcep.h \
+	$(CHICODEV)/tools/c1032/inc/rpcndr.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsi.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsip.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnterr.h \
+	$(CHICODEV)/tools/c1032/inc/rpcproxy.h \
+	$(CHICODEV)/tools/c1032/inc/stddef.h \
+	$(CHICODEV)/tools/c1032/inc/stdio.h \
+	$(CHICODEV)/tools/c1032/inc/stdlib.h \
+	$(CHICODEV)/tools/c1032/inc/string.h $(RPC)/runtime/mtrt/sysinc.h \
+	../../midl20/include/ndrtypes.h ../bufsizep.h ../endianp.h ../freep.h \
+	../fullptr.h ../memsizep.h ../mrshlp.h ../ndrole.h ../ndrp.h \
 	../unmrshlp.h
 
-testc.obj testc.lst: ../testc.c $(PUBLIC)/inc/crt/excpt.h \
-	$(PUBLIC)/inc/crt/stdio.h $(PUBLIC)/inc/crt/string.h \
-	$(PUBLIC)/inc/poppack.h $(PUBLIC)/inc/pshpack4.h \
-	$(PUBLIC)/inc/rpcdce.h $(PUBLIC)/inc/rpcdcep.h $(PUBLIC)/inc/rpcndr.h \
-	$(PUBLIC)/inc/rpcnsi.h $(PUBLIC)/inc/rpcnsip.h \
-	$(PUBLIC)/inc/rpcnterr.h $(PUBLIC)/inc/winerror.h \
-	$(RPC)/runtime/mtrt/win32c/rpc.h $(RPC)/runtime/mtrt/win32c/sysinc.h
+registry.obj registry.lst: ../registry.c $(CHICODEV)/sdk/inc/cguid.h \
+	$(CHICODEV)/sdk/inc/oaidl.h $(CHICODEV)/sdk/inc/objbase.h \
+	$(CHICODEV)/sdk/inc/objidl.h $(CHICODEV)/sdk/inc/ole2.h \
+	$(CHICODEV)/sdk/inc/oleauto.h $(CHICODEV)/sdk/inc/oleidl.h \
+	$(CHICODEV)/sdk/inc/poppack.h $(CHICODEV)/sdk/inc/pshpack4.h \
+	$(CHICODEV)/sdk/inc/pshpack8.h $(CHICODEV)/sdk/inc/unknwn.h \
+	$(CHICODEV)/sdk/inc/winerror.h $(CHICODEV)/sdk/inc/wtypes.h \
+	$(CHICODEV)/tools/c1032/inc/assert.h \
+	$(CHICODEV)/tools/c1032/inc/excpt.h \
+	$(CHICODEV)/tools/c1032/inc/memory.h $(CHICODEV)/tools/c1032/inc/rpc.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdce.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdcep.h \
+	$(CHICODEV)/tools/c1032/inc/rpcndr.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsi.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsip.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnterr.h \
+	$(CHICODEV)/tools/c1032/inc/rpcproxy.h \
+	$(CHICODEV)/tools/c1032/inc/stdio.h \
+	$(CHICODEV)/tools/c1032/inc/stdlib.h \
+	$(CHICODEV)/tools/c1032/inc/string.h $(RPC)/runtime/mtrt/sysinc.h \
+	../../midl20/include/ndrtypes.h ../bufsizep.h ../endianp.h ../freep.h \
+	../fullptr.h ../memsizep.h ../mrshlp.h ../ndrole.h ../ndrp.h \
+	../unmrshlp.h
 
-unmrshl.obj unmrshl.lst: ../unmrshl.c $(PUBLIC)/inc/cguid.h \
-	$(PUBLIC)/inc/crt/excpt.h $(PUBLIC)/inc/crt/stdio.h \
-	$(PUBLIC)/inc/crt/stdlib.h $(PUBLIC)/inc/crt/string.h \
-	$(PUBLIC)/inc/poppack.h $(PUBLIC)/inc/pshpack4.h \
-	$(PUBLIC)/inc/pshpack8.h $(PUBLIC)/inc/rpcdce.h \
-	$(PUBLIC)/inc/rpcdcep.h $(PUBLIC)/inc/rpcndr.h $(PUBLIC)/inc/rpcnsi.h \
-	$(PUBLIC)/inc/rpcnsip.h $(PUBLIC)/inc/rpcnterr.h \
-	$(PUBLIC)/inc/winerror.h $(RPC)/runtime/mtrt/win32c/rpc.h \
-	$(RPC)/runtime/mtrt/win32c/sysinc.h ../../midl20/include/ndrtypes.h \
-	../bufsizep.h ../dosdefs.h ../endianp.h ../freep.h ../fullptr.h \
-	../hndl.h ../memsizep.h ../mrshlp.h ../ndrole.h ../ndrp.h \
-	../objbase.h ../srvoutp.h ../unmrshlp.h ../wtypes.h
+round.obj round.lst: ../round.c
 
-unmrshlp.obj unmrshlp.lst: ../unmrshlp.c $(PUBLIC)/inc/crt/excpt.h \
-	$(PUBLIC)/inc/crt/stdio.h $(PUBLIC)/inc/crt/string.h \
-	$(PUBLIC)/inc/poppack.h $(PUBLIC)/inc/pshpack4.h \
-	$(PUBLIC)/inc/rpcdce.h $(PUBLIC)/inc/rpcdcep.h $(PUBLIC)/inc/rpcndr.h \
-	$(PUBLIC)/inc/rpcnsi.h $(PUBLIC)/inc/rpcnsip.h \
-	$(PUBLIC)/inc/rpcnterr.h $(PUBLIC)/inc/winerror.h \
-	$(RPC)/runtime/mtrt/win32c/rpc.h $(RPC)/runtime/mtrt/win32c/sysinc.h \
-	../../midl20/include/ndrtypes.h ../bufsizep.h ../dosdefs.h \
-	../endianp.h ../freep.h ../fullptr.h ../memsizep.h ../mrshlp.h \
-	../ndrp.h ../srvoutp.h ../unmrshlp.h
+sh.obj sh.lst: ../sh.c $(CHICODEV)/sdk/inc/poppack.h \
+	$(CHICODEV)/sdk/inc/pshpack4.h $(CHICODEV)/sdk/inc/winerror.h \
+	$(CHICODEV)/tools/c1032/inc/assert.h \
+	$(CHICODEV)/tools/c1032/inc/excpt.h $(CHICODEV)/tools/c1032/inc/rpc.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdce.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdcep.h \
+	$(CHICODEV)/tools/c1032/inc/rpcndr.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsi.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsip.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnterr.h \
+	$(CHICODEV)/tools/c1032/inc/stdio.h \
+	$(CHICODEV)/tools/c1032/inc/stdlib.h $(RPC)/runtime/mtrt/sysinc.h \
+	../../midl20/include/ndrtypes.h ../bufsizep.h ../endianp.h ../freep.h \
+	../fullptr.h ../memsizep.h ../mrshlp.h ../ndrp.h ../unmrshlp.h
 
-ndrstrm.obj ndrstrm.lst: ../ndrstrm.cxx $(PUBLIC)/inc/cguid.h \
-	$(PUBLIC)/inc/crt/excpt.h $(PUBLIC)/inc/crt/stdlib.h \
-	$(PUBLIC)/inc/poppack.h $(PUBLIC)/inc/pshpack4.h \
-	$(PUBLIC)/inc/pshpack8.h $(PUBLIC)/inc/rpcdce.h \
-	$(PUBLIC)/inc/rpcdcep.h $(PUBLIC)/inc/rpcndr.h $(PUBLIC)/inc/rpcnsi.h \
-	$(PUBLIC)/inc/rpcnsip.h $(PUBLIC)/inc/rpcnterr.h \
-	$(PUBLIC)/inc/winerror.h $(RPC)/runtime/mtrt/win32c/rpc.h ../ndrole.h \
-	../objbase.h ../wtypes.h
+srvcall.obj srvcall.lst: ../srvcall.c $(CHICODEV)/sdk/inc/cguid.h \
+	$(CHICODEV)/sdk/inc/oaidl.h $(CHICODEV)/sdk/inc/objbase.h \
+	$(CHICODEV)/sdk/inc/objidl.h $(CHICODEV)/sdk/inc/ole2.h \
+	$(CHICODEV)/sdk/inc/oleauto.h $(CHICODEV)/sdk/inc/oleidl.h \
+	$(CHICODEV)/sdk/inc/poppack.h $(CHICODEV)/sdk/inc/pshpack4.h \
+	$(CHICODEV)/sdk/inc/pshpack8.h $(CHICODEV)/sdk/inc/unknwn.h \
+	$(CHICODEV)/sdk/inc/winerror.h $(CHICODEV)/sdk/inc/wtypes.h \
+	$(CHICODEV)/tools/c1032/inc/assert.h \
+	$(CHICODEV)/tools/c1032/inc/excpt.h \
+	$(CHICODEV)/tools/c1032/inc/memory.h $(CHICODEV)/tools/c1032/inc/rpc.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdce.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdcep.h \
+	$(CHICODEV)/tools/c1032/inc/rpcndr.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsi.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsip.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnterr.h \
+	$(CHICODEV)/tools/c1032/inc/rpcproxy.h \
+	$(CHICODEV)/tools/c1032/inc/stdarg.h \
+	$(CHICODEV)/tools/c1032/inc/stdio.h \
+	$(CHICODEV)/tools/c1032/inc/stdlib.h \
+	$(CHICODEV)/tools/c1032/inc/string.h $(RPC)/runtime/mtrt/sysinc.h \
+	../../midl20/include/ndrtypes.h ../bufsizep.h ../endianp.h ../freep.h \
+	../fullptr.h ../hndl.h ../interp.h ../interp2.h ../memsizep.h \
+	../mrshlp.h ../ndrole.h ../ndrp.h ../pipendr.h ../unmrshlp.h
 
-pickle.obj pickle.lst: ../pickle.cxx $(PUBLIC)/inc/crt/excpt.h \
-	$(PUBLIC)/inc/crt/malloc.h $(PUBLIC)/inc/crt/stdarg.h \
-	$(PUBLIC)/inc/crt/stdio.h $(PUBLIC)/inc/crt/string.h \
-	$(PUBLIC)/inc/midles.h $(PUBLIC)/inc/poppack.h \
-	$(PUBLIC)/inc/pshpack4.h $(PUBLIC)/inc/rpcdce.h \
-	$(PUBLIC)/inc/rpcdcep.h $(PUBLIC)/inc/rpcndr.h $(PUBLIC)/inc/rpcnsi.h \
-	$(PUBLIC)/inc/rpcnsip.h $(PUBLIC)/inc/rpcnterr.h \
-	$(PUBLIC)/inc/winerror.h $(RPC)/runtime/mtrt/win32c/rpc.h \
-	$(RPC)/runtime/mtrt/win32c/sysinc.h ../../midl20/include/ndrtypes.h \
-	../bufsizep.h ../dosdefs.h ../endianp.h ../freep.h ../fullptr.h \
-	../getargs.h ../memsizep.h ../mrshlp.h ../ndrp.h ../ndrvargs.h \
-	../picklep.hxx ../srvoutp.h ../unmrshlp.h
+srvout.obj srvout.lst: ../srvout.c $(CHICODEV)/sdk/inc/poppack.h \
+	$(CHICODEV)/sdk/inc/pshpack4.h $(CHICODEV)/sdk/inc/winerror.h \
+	$(CHICODEV)/tools/c1032/inc/assert.h \
+	$(CHICODEV)/tools/c1032/inc/excpt.h $(CHICODEV)/tools/c1032/inc/rpc.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdce.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdcep.h \
+	$(CHICODEV)/tools/c1032/inc/rpcndr.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsi.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsip.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnterr.h \
+	$(CHICODEV)/tools/c1032/inc/stdio.h \
+	$(CHICODEV)/tools/c1032/inc/stdlib.h $(RPC)/runtime/mtrt/sysinc.h \
+	../../midl20/include/ndrtypes.h ../bufsizep.h ../endianp.h ../freep.h \
+	../fullptr.h ../hndl.h ../interp.h ../memsizep.h ../mrshlp.h \
+	../ndrp.h ../unmrshlp.h
 
-rpcssm.obj rpcssm.lst: ../rpcssm.cxx $(PUBLIC)/inc/crt/assert.h \
-	$(PUBLIC)/inc/crt/excpt.h $(PUBLIC)/inc/crt/stdio.h \
-	$(PUBLIC)/inc/crt/string.h $(PUBLIC)/inc/poppack.h \
-	$(PUBLIC)/inc/pshpack4.h $(PUBLIC)/inc/rpcdce.h \
-	$(PUBLIC)/inc/rpcdcep.h $(PUBLIC)/inc/rpcndr.h $(PUBLIC)/inc/rpcnsi.h \
-	$(PUBLIC)/inc/rpcnsip.h $(PUBLIC)/inc/rpcnterr.h \
-	$(PUBLIC)/inc/winerror.h $(RPC)/runtime/mtrt/win32c/rpc.h \
-	$(RPC)/runtime/mtrt/win32c/sysinc.h ../../midl20/include/ndrtypes.h \
-	../bufsizep.h ../dosdefs.h ../endianp.h ../freep.h ../fullptr.h \
-	../memsizep.h ../mrshlp.h ../ndrp.h ../rpcssm.hxx ../sdict2.hxx \
-	../srvoutp.h ../unmrshlp.h
+stblsclt.obj stblsclt.lst: ../stblsclt.c $(CHICODEV)/sdk/inc/cguid.h \
+	$(CHICODEV)/sdk/inc/oaidl.h $(CHICODEV)/sdk/inc/objbase.h \
+	$(CHICODEV)/sdk/inc/objidl.h $(CHICODEV)/sdk/inc/ole2.h \
+	$(CHICODEV)/sdk/inc/oleauto.h $(CHICODEV)/sdk/inc/oleidl.h \
+	$(CHICODEV)/sdk/inc/poppack.h $(CHICODEV)/sdk/inc/pshpack4.h \
+	$(CHICODEV)/sdk/inc/pshpack8.h $(CHICODEV)/sdk/inc/unknwn.h \
+	$(CHICODEV)/sdk/inc/winerror.h $(CHICODEV)/sdk/inc/wtypes.h \
+	$(CHICODEV)/tools/c1032/inc/assert.h \
+	$(CHICODEV)/tools/c1032/inc/excpt.h \
+	$(CHICODEV)/tools/c1032/inc/memory.h $(CHICODEV)/tools/c1032/inc/rpc.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdce.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdcep.h \
+	$(CHICODEV)/tools/c1032/inc/rpcndr.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsi.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsip.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnterr.h \
+	$(CHICODEV)/tools/c1032/inc/rpcproxy.h \
+	$(CHICODEV)/tools/c1032/inc/stdarg.h \
+	$(CHICODEV)/tools/c1032/inc/stdio.h \
+	$(CHICODEV)/tools/c1032/inc/stdlib.h \
+	$(CHICODEV)/tools/c1032/inc/string.h $(RPC)/runtime/mtrt/sysinc.h \
+	../../midl20/include/ndrtypes.h ../bufsizep.h ../endianp.h ../freep.h \
+	../fullptr.h ../hndl.h ../interp.h ../memsizep.h ../mrshlp.h \
+	../ndrole.h ../ndrp.h ../unmrshlp.h
 
-sdict2.obj sdict2.lst: ../sdict2.cxx $(PUBLIC)/inc/crt/excpt.h \
-	$(PUBLIC)/inc/crt/stdio.h $(PUBLIC)/inc/crt/string.h \
-	$(PUBLIC)/inc/rpcdce.h $(PUBLIC)/inc/rpcdcep.h $(PUBLIC)/inc/rpcnsi.h \
-	$(PUBLIC)/inc/rpcnterr.h $(PUBLIC)/inc/winerror.h \
-	$(RPC)/runtime/mtrt/win32c/rpc.h $(RPC)/runtime/mtrt/win32c/sysinc.h \
+stub.obj stub.lst: ../stub.c $(CHICODEV)/sdk/inc/cguid.h \
+	$(CHICODEV)/sdk/inc/oaidl.h $(CHICODEV)/sdk/inc/objbase.h \
+	$(CHICODEV)/sdk/inc/objidl.h $(CHICODEV)/sdk/inc/ole2.h \
+	$(CHICODEV)/sdk/inc/oleauto.h $(CHICODEV)/sdk/inc/oleidl.h \
+	$(CHICODEV)/sdk/inc/poppack.h $(CHICODEV)/sdk/inc/pshpack4.h \
+	$(CHICODEV)/sdk/inc/pshpack8.h $(CHICODEV)/sdk/inc/unknwn.h \
+	$(CHICODEV)/sdk/inc/winerror.h $(CHICODEV)/sdk/inc/wtypes.h \
+	$(CHICODEV)/tools/c1032/inc/assert.h \
+	$(CHICODEV)/tools/c1032/inc/excpt.h \
+	$(CHICODEV)/tools/c1032/inc/memory.h $(CHICODEV)/tools/c1032/inc/rpc.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdce.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdcep.h \
+	$(CHICODEV)/tools/c1032/inc/rpcndr.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsi.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsip.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnterr.h \
+	$(CHICODEV)/tools/c1032/inc/rpcproxy.h \
+	$(CHICODEV)/tools/c1032/inc/stddef.h \
+	$(CHICODEV)/tools/c1032/inc/stdio.h \
+	$(CHICODEV)/tools/c1032/inc/stdlib.h \
+	$(CHICODEV)/tools/c1032/inc/string.h $(RPC)/runtime/mtrt/sysinc.h \
+	../../midl20/include/ndrtypes.h ../bufsizep.h ../endianp.h ../freep.h \
+	../fullptr.h ../memsizep.h ../mrshlp.h ../ndrole.h ../ndrp.h \
+	../unmrshlp.h
+
+testc.obj testc.lst: ../testc.c $(CHICODEV)/sdk/inc/poppack.h \
+	$(CHICODEV)/sdk/inc/pshpack4.h $(CHICODEV)/sdk/inc/winerror.h \
+	$(CHICODEV)/tools/c1032/inc/excpt.h $(CHICODEV)/tools/c1032/inc/rpc.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdce.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdcep.h \
+	$(CHICODEV)/tools/c1032/inc/rpcndr.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsi.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsip.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnterr.h \
+	$(CHICODEV)/tools/c1032/inc/stdlib.h $(RPC)/runtime/mtrt/sysinc.h
+
+unmrshl.obj unmrshl.lst: ../unmrshl.c $(CHICODEV)/sdk/inc/cguid.h \
+	$(CHICODEV)/sdk/inc/oaidl.h $(CHICODEV)/sdk/inc/objbase.h \
+	$(CHICODEV)/sdk/inc/objidl.h $(CHICODEV)/sdk/inc/ole2.h \
+	$(CHICODEV)/sdk/inc/oleauto.h $(CHICODEV)/sdk/inc/oleidl.h \
+	$(CHICODEV)/sdk/inc/poppack.h $(CHICODEV)/sdk/inc/pshpack4.h \
+	$(CHICODEV)/sdk/inc/pshpack8.h $(CHICODEV)/sdk/inc/unknwn.h \
+	$(CHICODEV)/sdk/inc/winerror.h $(CHICODEV)/sdk/inc/wtypes.h \
+	$(CHICODEV)/tools/c1032/inc/assert.h \
+	$(CHICODEV)/tools/c1032/inc/excpt.h $(CHICODEV)/tools/c1032/inc/rpc.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdce.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdcep.h \
+	$(CHICODEV)/tools/c1032/inc/rpcndr.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsi.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsip.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnterr.h \
+	$(CHICODEV)/tools/c1032/inc/stdio.h \
+	$(CHICODEV)/tools/c1032/inc/stdlib.h $(RPC)/runtime/mtrt/sysinc.h \
+	../../midl20/include/ndrtypes.h ../bufsizep.h ../endianp.h ../freep.h \
+	../fullptr.h ../hndl.h ../memsizep.h ../mrshlp.h ../ndrole.h \
+	../ndrp.h ../unmrshlp.h
+
+unmrshlp.obj unmrshlp.lst: ../unmrshlp.c $(CHICODEV)/sdk/inc/poppack.h \
+	$(CHICODEV)/sdk/inc/pshpack4.h $(CHICODEV)/sdk/inc/winerror.h \
+	$(CHICODEV)/tools/c1032/inc/assert.h \
+	$(CHICODEV)/tools/c1032/inc/excpt.h $(CHICODEV)/tools/c1032/inc/rpc.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdce.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdcep.h \
+	$(CHICODEV)/tools/c1032/inc/rpcndr.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsi.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsip.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnterr.h \
+	$(CHICODEV)/tools/c1032/inc/stdio.h \
+	$(CHICODEV)/tools/c1032/inc/stdlib.h $(RPC)/runtime/mtrt/sysinc.h \
+	../../midl20/include/ndrtypes.h ../bufsizep.h ../endianp.h ../freep.h \
+	../fullptr.h ../memsizep.h ../mrshlp.h ../ndrp.h ../unmrshlp.h
+
+unp_vaxf.obj unp_vaxf.lst: ../unp_vaxf.c
+
+unp_vaxg.obj unp_vaxg.lst: ../unp_vaxg.c
+
+pickle.obj pickle.lst: ../pickle.cxx $(CHICODEV)/sdk/inc/poppack.h \
+	$(CHICODEV)/sdk/inc/pshpack4.h $(CHICODEV)/sdk/inc/winerror.h \
+	$(CHICODEV)/tools/c1032/inc/assert.h \
+	$(CHICODEV)/tools/c1032/inc/excpt.h \
+	$(CHICODEV)/tools/c1032/inc/malloc.h \
+	$(CHICODEV)/tools/c1032/inc/midles.h $(CHICODEV)/tools/c1032/inc/rpc.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdce.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdcep.h \
+	$(CHICODEV)/tools/c1032/inc/rpcndr.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsi.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsip.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnterr.h \
+	$(CHICODEV)/tools/c1032/inc/stdarg.h \
+	$(CHICODEV)/tools/c1032/inc/stdio.h \
+	$(CHICODEV)/tools/c1032/inc/stdlib.h $(RPC)/runtime/mtrt/sysinc.h \
+	$(RPC)/runtime/mtrt/win32c/util.hxx ../../midl20/include/ndrtypes.h \
+	../bufsizep.h ../endianp.h ../freep.h ../fullptr.h ../interp.h \
+	../memsizep.h ../mrshlp.h ../ndrp.h ../picklep.hxx ../unmrshlp.h
+
+pipes.obj pipes.lst: ../pipes.cxx $(CHICODEV)/sdk/inc/poppack.h \
+	$(CHICODEV)/sdk/inc/pshpack4.h $(CHICODEV)/sdk/inc/winerror.h \
+	$(CHICODEV)/tools/c1032/inc/assert.h \
+	$(CHICODEV)/tools/c1032/inc/excpt.h $(CHICODEV)/tools/c1032/inc/rpc.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdce.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdcep.h \
+	$(CHICODEV)/tools/c1032/inc/rpcndr.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsi.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsip.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnterr.h \
+	$(CHICODEV)/tools/c1032/inc/stdarg.h \
+	$(CHICODEV)/tools/c1032/inc/stdio.h \
+	$(CHICODEV)/tools/c1032/inc/stdlib.h $(RPC)/runtime/mtrt/sysinc.h \
+	../../midl20/include/ndrtypes.h ../bufsizep.h ../endianp.h ../freep.h \
+	../fullptr.h ../interp.h ../interp2.h ../memsizep.h ../mrshlp.h \
+	../ndrp.h ../pipendr.h ../unmrshlp.h
+
+rpcssm.obj rpcssm.lst: ../rpcssm.cxx $(CHICODEV)/sdk/inc/poppack.h \
+	$(CHICODEV)/sdk/inc/pshpack4.h $(CHICODEV)/sdk/inc/winerror.h \
+	$(CHICODEV)/tools/c1032/inc/assert.h \
+	$(CHICODEV)/tools/c1032/inc/excpt.h $(CHICODEV)/tools/c1032/inc/rpc.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdce.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdcep.h \
+	$(CHICODEV)/tools/c1032/inc/rpcndr.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsi.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsip.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnterr.h \
+	$(CHICODEV)/tools/c1032/inc/stdio.h \
+	$(CHICODEV)/tools/c1032/inc/stdlib.h $(RPC)/runtime/mtrt/sysinc.h \
+	$(RPC)/runtime/mtrt/win32c/util.hxx ../../midl20/include/ndrtypes.h \
+	../bufsizep.h ../endianp.h ../freep.h ../fullptr.h ../memsizep.h \
+	../mrshlp.h ../ndrp.h ../rpcssm.hxx ../sdict2.hxx ../unmrshlp.h
+
+sdict2.obj sdict2.lst: ../sdict2.cxx $(CHICODEV)/sdk/inc/winerror.h \
+	$(CHICODEV)/tools/c1032/inc/excpt.h $(CHICODEV)/tools/c1032/inc/rpc.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdce.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdcep.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsi.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnterr.h \
+	$(CHICODEV)/tools/c1032/inc/stdlib.h $(RPC)/runtime/mtrt/sysinc.h \
 	$(RPC)/runtime/mtrt/win32c/util.hxx ../sdict2.hxx
+
+stream.obj stream.lst: ../stream.cxx $(CHICODEV)/sdk/inc/cguid.h \
+	$(CHICODEV)/sdk/inc/oaidl.h $(CHICODEV)/sdk/inc/objbase.h \
+	$(CHICODEV)/sdk/inc/objidl.h $(CHICODEV)/sdk/inc/ole2.h \
+	$(CHICODEV)/sdk/inc/oleauto.h $(CHICODEV)/sdk/inc/oleidl.h \
+	$(CHICODEV)/sdk/inc/poppack.h $(CHICODEV)/sdk/inc/pshpack4.h \
+	$(CHICODEV)/sdk/inc/pshpack8.h $(CHICODEV)/sdk/inc/unknwn.h \
+	$(CHICODEV)/sdk/inc/winerror.h $(CHICODEV)/sdk/inc/wtypes.h \
+	$(CHICODEV)/tools/c1032/inc/assert.h \
+	$(CHICODEV)/tools/c1032/inc/excpt.h $(CHICODEV)/tools/c1032/inc/rpc.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdce.h \
+	$(CHICODEV)/tools/c1032/inc/rpcdcep.h \
+	$(CHICODEV)/tools/c1032/inc/rpcndr.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsi.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnsip.h \
+	$(CHICODEV)/tools/c1032/inc/rpcnterr.h \
+	$(CHICODEV)/tools/c1032/inc/stdio.h \
+	$(CHICODEV)/tools/c1032/inc/stdlib.h $(RPC)/runtime/mtrt/sysinc.h \
+	../../midl20/include/ndrtypes.h ../bufsizep.h ../endianp.h ../freep.h \
+	../fullptr.h ../memsizep.h ../mrshlp.h ../ndrole.h ../ndrp.h \
+	../unmrshlp.h
 

@@ -107,6 +107,8 @@ Return Value:
     NTSTATUS Status;
     BOOLEAN UnNamedPort;
 
+    PAGED_CODE();
+
     //
     // Get previous processor mode and probe output arguments if necessary.
     //
@@ -182,7 +184,11 @@ Return Value:
     // All ports get a request message queue.
     //
 
-    LpcpInitializePortQueue( ConnectionPort );
+    Status = LpcpInitializePortQueue( ConnectionPort );
+    if (!NT_SUCCESS(Status)) {
+        ObDereferenceObject( ConnectionPort );
+        return(Status);
+    }
 
     //
     // Initialize the port zone
@@ -202,23 +208,31 @@ Return Value:
                 ConnectionPort->MaxMessageLength,
                 ConnectionPort->MaxConnectionInfoLength
              ));
+#endif
 
     if (ConnectionPort->MaxMessageLength < MaxMessageLength) {
+#if DBG
         LpcpPrint(( "MaxMessageLength granted is %x but requested %x\n",
                     ConnectionPort->MaxMessageLength,
                     MaxMessageLength
                  ));
         DbgBreakPoint();
+#endif
+        ObDereferenceObject( ConnectionPort );
+        return STATUS_INVALID_PARAMETER_4;
         }
 
     if (ConnectionPort->MaxConnectionInfoLength < MaxConnectionInfoLength) {
+#if DBG
         LpcpPrint(( "MaxConnectionInfoLength granted is %x but requested %x\n",
                     ConnectionPort->MaxConnectionInfoLength,
                     MaxConnectionInfoLength
                  ));
         DbgBreakPoint();
-        }
 #endif
+        ObDereferenceObject( ConnectionPort );
+        return STATUS_INVALID_PARAMETER_3;
+        }
 
     //
     // Insert connection port object in specified object table.  Set port

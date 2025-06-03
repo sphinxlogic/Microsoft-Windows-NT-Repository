@@ -83,7 +83,16 @@ NwCancelFindNotify (
 #pragma alloc_text( PAGE, GetNextFile )
 #pragma alloc_text( PAGE, NtSearchMaskToNw )
 
+#ifndef QFE_BUILD
 #pragma alloc_text( PAGE1, NwCommonDirectoryControl )
+#endif
+
+#endif
+
+
+#if 0  // Not pageable
+
+// see ifndef QFE_BUILD above
 
 #endif
 
@@ -113,7 +122,7 @@ Return Value:
 --*/
 
 {
-    PIRP_CONTEXT pIrpContext;
+    PIRP_CONTEXT pIrpContext = NULL;
     NTSTATUS status;
     BOOLEAN TopLevel;
 
@@ -135,17 +144,35 @@ Return Value:
 
     } except(NwExceptionFilter( Irp, GetExceptionInformation() )) {
 
-        //
-        // We had some trouble trying to perform the requested
-        // operation, so we'll abort the I/O request with
-        // the error status that we get back from the
-        // execption code.
-        //
+        if ( pIrpContext == NULL ) {
 
-        status = NwProcessException( pIrpContext, GetExceptionCode() );
+            //
+            //  If we couldn't allocate an irp context, just complete
+            //  irp without any fanfare.
+            //
+
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            Irp->IoStatus.Status = status;
+            Irp->IoStatus.Information = 0;
+            IoCompleteRequest ( Irp, IO_NETWORK_INCREMENT );
+
+        } else {
+
+            //
+            // We had some trouble trying to perform the requested
+            // operation, so we'll abort the I/O request with
+            // the error status that we get back from the
+            // execption code.
+            //
+
+            status = NwProcessException( pIrpContext, GetExceptionCode() );
+        }
+
     }
 
-    NwCompleteRequest( pIrpContext, status );
+    if ( pIrpContext ) {
+        NwCompleteRequest( pIrpContext, status );
+    }
 
     if ( TopLevel ) {
         NwSetTopLevelIrp( NULL );
@@ -404,7 +431,18 @@ Return Value:
 
     systemBufferLength = irpSp->Parameters.QueryDirectory.Length;
 
-    fileIndexLow = irpSp->Parameters.QueryDirectory.FileIndex;
+    if (pIrpContext->pScb->UserUid.QuadPart != DefaultLuid.QuadPart) {
+        fileIndexLow = 0;
+    } else {
+        //
+        //  Tell the gateway we do support resume from index so long
+        //  as the index returned is the same as the last file we
+        //  returned. Otherwise the SMB server does a brute force rewind
+        //  on each find next.
+        //
+
+        fileIndexLow = irpSp->Parameters.QueryDirectory.FileIndex;
+    }
     fileIndexHigh = 0;
 
     fileInformationClass =
@@ -472,11 +510,13 @@ Return Value:
                          searchRetry );
 
             if ( !NT_SUCCESS( status ) ) {
+                DebugTrace(-1, Dbg, "NwQueryDirectory -> %08lx\n", status);
                 return( status );
             }
 
             Icb->UQueryTemplate.Buffer = ALLOCATE_POOL( PagedPool, searchMask.Length );
             if (Icb->UQueryTemplate.Buffer == NULL ) {
+                DebugTrace(-1, Dbg, "NwQueryDirectory -> %08lx\n", STATUS_INSUFFICIENT_RESOURCES );
                 return( STATUS_INSUFFICIENT_RESOURCES );
             }
 
@@ -520,7 +560,7 @@ Return Value:
                 status = ExchangeWithWait(
                              pIrpContext,
                              SynchronousResponseCallback,
-                             "FbU",
+                            "FbJ",
                              NCP_SEARCH_INITIATE,
                              vcb->Specific.Disk.Handle,
                              &Icb->SuperType.Fcb->RelativeFileName );
@@ -564,8 +604,10 @@ Return Value:
 
         if ( !NT_SUCCESS( status ) ) {
             if (status == STATUS_UNSUCCESSFUL) {
+                DebugTrace(-1, Dbg, "NwQueryDirectory -> %08lx\n", STATUS_NO_SUCH_FILE);
                 return( STATUS_NO_SUCH_FILE );
             }
+            DebugTrace(-1, Dbg, "NwQueryDirectory -> %08lx\n", status);
             return( status );
         }
 
@@ -614,6 +656,64 @@ Return Value:
             fileIndexLow = (ULONG)-1;
             fileIndexHigh = Icb->SearchIndexHigh;
 
+            //
+            //  Send a Search Initialize NCP. The server often times out search
+            //  handles and if this one has been sitting at the end of the
+            //  directory then its likely we would get no files at all!
+            //
+            //  Do a short search if the server doesn't support long names,
+            //  or this is a short-name non-wild card search
+            //
+
+            if ( !Icb->ShortNameSearch ) {
+
+                status = ExchangeWithWait(
+                             pIrpContext,
+                             SynchronousResponseCallback,
+                             "Lbb-DbC",
+                             NCP_LFN_SEARCH_INITIATE,
+                             vcb->Specific.Disk.LongNameSpace,
+                             vcb->Specific.Disk.VolumeNumber,
+                             vcb->Specific.Disk.Handle,
+                             LFN_FLAG_SHORT_DIRECTORY,
+                             &Icb->SuperType.Fcb->RelativeFileName );
+
+                if ( NT_SUCCESS( status ) ) {
+
+                    status = ParseResponse(
+                                 pIrpContext,
+                                 pIrpContext->rsp,
+                                 pIrpContext->ResponseLength,
+                                 "Nbee",
+                                 &Icb->SearchVolume,
+                                 &Icb->SearchIndexHigh,
+                                 &Icb->SearchIndexLow );
+                }
+
+            } else {
+
+                status = ExchangeWithWait(
+                             pIrpContext,
+                             SynchronousResponseCallback,
+                            "FbJ",
+                             NCP_SEARCH_INITIATE,
+                             vcb->Specific.Disk.Handle,
+                             &Icb->SuperType.Fcb->RelativeFileName );
+
+                if ( NT_SUCCESS( status ) ) {
+
+                    status = ParseResponse(
+                                 pIrpContext,
+                                 pIrpContext->rsp,
+                                 pIrpContext->ResponseLength,
+                                 "Nbww-",
+                                 &Icb->SearchVolume,
+                                 &Icb->SearchHandle,
+                                 &Icb->SearchIndexLow );
+                }
+
+            }
+
             Icb->ReturnedSomething = FALSE;
 
             //
@@ -624,15 +724,17 @@ Return Value:
             SearchAttributes = NW_ATTRIBUTE_SYSTEM |
                                NW_ATTRIBUTE_HIDDEN |
                                NW_ATTRIBUTE_READ_ONLY;
+            Icb->SearchAttributes = SearchAttributes;
 
             Icb->DotReturned = FALSE;
             Icb->DotDotReturned = FALSE;
 
         } else if ((!indexSpecified) ||
-                   (fileIndexLow == Icb->SearchIndexLow)) {
+                   ((fileIndexLow == Icb->SearchIndexLow) &&
+                    (pIrpContext->pScb->UserUid.QuadPart == DefaultLuid.QuadPart))) {
             //
-            //  Either specified no index or continue from the last
-            //  filename.
+            //  Continue from the last filename. If an index is specified then its
+            //  only allowed for the gateway (and other system services).
             //
 
             fileIndexLow = Icb->SearchIndexLow;
@@ -645,16 +747,33 @@ Return Value:
                 //  This is a completed search.
                 //
 
+                DebugTrace(-1, Dbg, "NwQueryDirectory -> %08lx\n", STATUS_NO_MORE_FILES);
                 return( STATUS_NO_MORE_FILES );
             }
 
         } else {
 
             //
+            //  SVR to avoid rescanning from end of dir all
+            //  the way through the directory again.
+            //
+
+            if ((Icb->SearchIndexLow == -1) &&
+                (Icb->LastSearchIndexLow == fileIndexLow) &&
+                (pIrpContext->pScb->UserUid.QuadPart == DefaultLuid.QuadPart) &&
+                (Icb->SearchAttributes == 0xFF )) {
+
+                DebugTrace(-1, Dbg, "NwQueryDirectory SVR exit-> %08lx\n", STATUS_NO_MORE_FILES);
+                return( STATUS_NO_MORE_FILES );
+            }
+            //  SVR end
+
+            //
             //  Someone's trying to do a resume from key.  The netware
             //  server doesn't support this, so neither do we.
             //
 
+            DebugTrace(-1, Dbg, "NwQueryDirectory -> %08lx\n", STATUS_NOT_IMPLEMENTED);
             return( STATUS_NOT_IMPLEMENTED );
         }
 
@@ -840,11 +959,15 @@ Return Value:
                     dirInfo->EndOfFile.LowPart = nwDirInfo.FileSize;
                     dirInfo->EndOfFile.HighPart = 0;
                     dirInfo->AllocationSize = dirInfo->EndOfFile;
-                    dirInfo->CreationTime = NwDateTimeToNtTime( nwDirInfo.CreationDate, 0 );
+                    dirInfo->CreationTime = NwDateTimeToNtTime( nwDirInfo.CreationDate, nwDirInfo.CreationTime );
                     dirInfo->LastAccessTime = NwDateTimeToNtTime( nwDirInfo.LastAccessDate, 0 );
                     dirInfo->LastWriteTime = NwDateTimeToNtTime( nwDirInfo.LastUpdateDate, nwDirInfo.LastUpdateTime );
                     dirInfo->ChangeTime = dirInfo->LastWriteTime;
-                    dirInfo->FileIndex = fileIndexLow;
+                    if (pIrpContext->pScb->UserUid.QuadPart != DefaultLuid.QuadPart) {
+                        dirInfo->FileIndex = 0;
+                    } else {
+                        dirInfo->FileIndex = fileIndexLow;
+                    }
                     break;
 
                 case FileNamesInformation:
@@ -855,7 +978,11 @@ Return Value:
                     namesInfo = (PFILE_NAMES_INFORMATION)&buffer[nextEntry];
 
                     namesInfo->FileNameLength = FileNameLength;
-                    namesInfo->FileIndex = fileIndexLow;
+                    if (pIrpContext->pScb->UserUid.QuadPart != DefaultLuid.QuadPart) {
+                        namesInfo->FileIndex = 0;
+                    } else {
+                        namesInfo->FileIndex = fileIndexLow;
+                    }
 
                     break;
 
@@ -882,7 +1009,7 @@ Return Value:
                 //
 
                 lastEntry = nextEntry;
-                nextEntry += (ULONG)LongAlign( lengthAdded );
+                nextEntry += (ULONG)QuadAlign( lengthAdded );
 
                 //
                 //  Check if the last entry didn't completely fit
@@ -914,6 +1041,7 @@ Return Value:
 
                     SetFlag( SearchAttributes, NW_ATTRIBUTE_DIRECTORY );
                     fileIndexLow = (ULONG)-1;
+                    continue;
 
                 } else {
 
@@ -992,6 +1120,14 @@ Return Value:
         //  Remember the last file index, so that we can resume this
         //  search.
         //
+
+
+        //  SVR to avoid rescanning from end of dir all
+
+        if (fileIndexLow != -1) {
+            Icb->LastSearchIndexLow = fileIndexLow;
+        }
+        //  SVR end
 
         Icb->SearchIndexLow = fileIndexLow;
         Icb->SearchIndexHigh = fileIndexHigh;
@@ -1304,21 +1440,76 @@ Return Value:
 
         } else {
 
+
             for ( i = 0; i < OemSearchMask->Length ; i++ ) {
-                switch ( OemSearchMask->Buffer[i] ) {
 
-                case ANSI_DOS_STAR:
-                    OemSearchMask->Buffer[i] = (UCHAR)( 0x80 | '*' );
-                    break;
+                if( FsRtlIsLeadDbcsCharacter( OemSearchMask->Buffer[i] ) ) {
 
-                case ANSI_DOS_QM:
-                    OemSearchMask->Buffer[i] = (UCHAR)( 0x80 | '?' );
-                    break;
+                    i++;    //  Skip to the trailing byte.
 
-                case ANSI_DOS_DOT:
-                    OemSearchMask->Buffer[i] = (UCHAR)( 0x80 | '.' );
-                    break;
+                    if (( Japan ) &&
+                        ((UCHAR)(OemSearchMask->Buffer[i]) == 0x5C )) {
 
+                        //
+                        // The trailbyte is 0x5C, replace it with 0x13
+                        //
+
+
+                        OemSearchMask->Buffer[i] = (UCHAR)( 0x13 );
+                        continue;
+
+                    }
+
+                } else {
+
+                    //  Single byte character that may need modification.
+
+                    switch ( (UCHAR)(OemSearchMask->Buffer[i]) ) {
+
+                    case ANSI_DOS_STAR:
+                        OemSearchMask->Buffer[i] = (UCHAR)( 0x80 | '*' );
+                        break;
+
+                    case ANSI_DOS_QM:
+                        OemSearchMask->Buffer[i] = (UCHAR)( 0x80 | '?' );
+                        break;
+
+                    case ANSI_DOS_DOT:
+                        OemSearchMask->Buffer[i] = (UCHAR)( 0x80 | '.' );
+                        break;
+
+                    //
+                    // Netware Japanese version The following character is
+                    // replaced with another one if the string is for File
+                    // Name only when sendding from Client to Server.
+                    //
+                    // SO        U+0xFF7F SJIS+0xBF     -> 0x10
+                    // SMALL_YO  U+0xFF6E SJIS+0xAE     -> 0x11
+                    // SMALL_E   U+0xFF64 SJIS+0xAA     -> 0x12
+                    //
+                    // The reason is unknown, Should ask Novell Japan.
+                    //
+                    // See Also exchange.c
+
+                    case 0xBF: // ANSI_DOS_KATAKANA_SO:
+                        if (Japan) {
+                            OemSearchMask->Buffer[i] = (UCHAR)( 0x10 );
+                        }
+                        break;
+
+                    case 0xAE: // ANSI_DOS_KATAKANA_SMALL_YO:
+                        if (Japan) {
+                            OemSearchMask->Buffer[i] = (UCHAR)( 0x11 );
+                        }
+                        break;
+
+                    case 0xAA: // ANSI_DOS_KATAKANA_SMALL_E:
+                        if (Japan) {
+                            OemSearchMask->Buffer[i] = (UCHAR)( 0x12 );
+                        }
+                        break;
+
+                    }
                 }
             }
         }
@@ -1336,7 +1527,14 @@ Return Value:
         // Allocate space for and initialize the query templates.
         //
 
-        buffer = ExAllocatePoolWithTag( PagedPool, UcSearchMask->Length, 'scwn' );
+#ifndef QFE_BUILD
+        buffer = ExAllocatePoolWithTag( PagedPool,
+                                        UcSearchMask->Length,
+                                        'scwn' );
+#else
+        buffer = ExAllocatePool( PagedPool,
+                                 UcSearchMask->Length );
+#endif
         if ( buffer == NULL ) {
             return( STATUS_INSUFFICIENT_RESOURCES );
         }

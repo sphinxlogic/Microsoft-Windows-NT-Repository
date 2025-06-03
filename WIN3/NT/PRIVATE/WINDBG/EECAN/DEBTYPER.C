@@ -373,7 +373,7 @@ bool_t PASCAL CastNode (peval_t pv, CV_typ_t dType, CV_typ_t uType)
                 hType = THGetTypeFromIndex( EVAL_MOD(pv) , dType );
                 DASSERT( hType != (HTYPE) NULL );
                 pType = (plfPointer) (&((TYPPTR) MHOmfLock( (HDEP)hType ))->leaf);
-                if (pType->u.leaf != LF_POINTER) {
+                if (pType->leaf != LF_POINTER) {
                     pExState->err_num = ERR_NEEDLVALUE;
                     MHOmfUnLock((HDEP)hType);
                     return FALSE;
@@ -386,7 +386,7 @@ bool_t PASCAL CastNode (peval_t pv, CV_typ_t dType, CV_typ_t uType)
                  *      result then manipulate the address appropriately
                  */
 
-                switch ( pType->u.attr.ptrtype ) {
+                switch ( pType->attr.ptrtype ) {
                     /*
                      *  To make a near pointer use the low 16-bits
                      *  and DS to make an address.
@@ -1256,8 +1256,7 @@ LOCAL void NEAR PASCAL CvtSizeUp (peval_t pv)
 
                 case T_LONG:
                 case T_INT4:
-                    EVAL_QUAD (pv) =
-                         RtlConvertLongToLargeInteger(EVAL_LONG (pv));
+                    EVAL_QUAD(pv).QuadPart = EVAL_LONG(pv);
                     break;
 
                 case T_ULONG:

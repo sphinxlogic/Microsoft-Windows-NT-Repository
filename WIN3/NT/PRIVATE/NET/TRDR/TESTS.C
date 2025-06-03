@@ -36,7 +36,6 @@ Revision History:
 #include "getinfo.h"
 #include "setinfo.h"
 //#include <lui.h>
-#include <wcstr.h>
 
 HANDLE FileTable[TEST_MAX_FILES];
 
@@ -1665,8 +1664,7 @@ Return Value:
 
     ASSERT (NT_SUCCESS(Status));
 
-    DeltaTime = RtlLargeIntegerSubtract(*(PLARGE_INTEGER )&TestEndTime,
-                                        *(PLARGE_INTEGER )&TestStartTime);
+    DeltaTime.QuadPart = TestEndTime.QuadPart - TestStartTime.QuadPart;
 
     dprintf(("%lx Iterations, Time Delta: %lx%lx00 Nanoseconds\n", IterationCount, DeltaTime.HighPart, DeltaTime.LowPart));
 
@@ -1758,8 +1756,7 @@ Return Value:
 
     ASSERT (NT_SUCCESS(Status));
 
-    DeltaTime = RtlLargeIntegerSubtract(*(PLARGE_INTEGER )&TestStartTime,
-                                        *(PLARGE_INTEGER )&TestEndTime);
+    DeltaTime.QuadPart = TestStartTime.QuadPart - TestEndTime.QuadPart;
     dprintf(("%lx Iterations, Time Delta: %lx%lx00 Nanoseconds ", IterationCount, DeltaTime.HighPart, DeltaTime.LowPart));
 
     //
@@ -1857,7 +1854,7 @@ TestLock(
     }
 
 
-    TmpLength = RtlConvertUlongToLargeInteger( IOLength );
+    TmpLength.QuadPart = IOLength;
     Status = NtLockFile(FileTable[FileNumber],
                         EventHandle,
                         NULL,           // APC routine
@@ -1955,7 +1952,7 @@ TestUnlock(
         }
     }
 
-    TmpLength = RtlConvertUlongToLargeInteger( IOLength );
+    TmpLength.QuadPart = IOLength;
     Status = NtUnlockFile(FileTable[FileNumber],
                         &Iosb,          // I/O Status block
                         &Offset,        // Read offset to file.
@@ -2576,7 +2573,7 @@ Return Value:
             case Integer:
                 {
                     CHAR Int[20];
-                    ltoa(ParsePtr->IntegerDefault, Int , 16);
+                    _ltoa(ParsePtr->IntegerDefault, Int , 16);
                     strcat(Prompt, Int);
                 }
                 break;
@@ -2848,7 +2845,7 @@ Return Value:
         }
 
         for (i = 0 ; i < ParseTableSize ; i++ ) {
-            if (stricmp(Token, ParseTable[i].FieldName)==0) {
+            if (_stricmp(Token, ParseTable[i].FieldName)==0) {
                 *Ret |= ParseTable[i].FieldValue;
                 break;
             }
@@ -2925,7 +2922,7 @@ Return Value:
     //
 
     for (i = 0 ; i < ParseTableSize ; i++ ) {
-        if (stricmp(Buffer, ParseTable[i].FieldName)==0) {
+        if (_stricmp(Buffer, ParseTable[i].FieldName)==0) {
             *Ret = ParseTable[i].FieldValue;
             return 0;
         }

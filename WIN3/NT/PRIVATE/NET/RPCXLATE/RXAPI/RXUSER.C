@@ -8,7 +8,7 @@ Module Name:
 
 Abstract:
 
-    Routines in this module implement the down-level User and Modals UAS access
+    Routines in this module implement the down-level User and Modals UAS _access
     functionality
 
     Contains RxNetUser routines:
@@ -62,7 +62,7 @@ Revision History:
     01-Apr-1992 JohnRo
         Use NetApiBufferAllocate() instead of private version.
     06-Apr-1992 JohnRo
-        RAID 8927: usrmgr.exe: access violation, memory corruption.
+        RAID 8927: usrmgr.exe: _access violation, memory corruption.
         (Fixed RxNetUserSetGroups when it called NetpMoveMemory.)
     02-Apr-1993 JohnRo
         RAID 5098: DOS app NetUserPasswordSet to downlevel gets NT return code.
@@ -77,7 +77,7 @@ Revision History:
 #include "downlevl.h"
 #include <rxuser.h>
 #include <lmaccess.h>
-#include <wcstr.h>              // wcslen().
+#include <stdlib.h>              // wcslen().
 #include <ntddnfs.h>            // LMR_REQUEST_PACKET
 #include <lmuse.h>              // USE_IPC
 #include <netlibnt.h>           // NetpRdrFsControlTree
@@ -313,7 +313,7 @@ Return Value:
                                 pwdlen * sizeof(WCHAR)
                                 );
         ansiPassword[lmOwfPasswordLen] = 0;
-        (VOID) strupr(ansiPassword);
+        (VOID) _strupr(ansiPassword);
 
 #ifdef DOWN_LEVEL_ENCRYPTION
 
@@ -863,7 +863,7 @@ Return Value:
             + STRING_SPACE_REQD(LM20_MAXCOMMENTSZ + 1)  // usri2_usr_comment
             + STRING_SPACE_REQD(LM20_MAXCOMMENTSZ + 1)  // usri2_parms
             + STRING_SPACE_REQD(MAX_WORKSTATION_LIST)   // usri2_workstations
-            + STRING_SPACE_REQD(LM20_UNCLEN + 1)        // usri2_logon_server
+            + STRING_SPACE_REQD(MAX_PATH + 1)        // usri2_logon_server
 
             //
             // BUGBUG - is there a manifest for this 21?
@@ -888,7 +888,7 @@ Return Value:
             + STRING_SPACE_REQD(LM20_MAXCOMMENTSZ + 1)  // usri11_full_name
             + STRING_SPACE_REQD(LM20_PATHLEN + 1)       // usri11_home_dir
             + STRING_SPACE_REQD(LM20_MAXCOMMENTSZ + 1)  // usri11_parms
-            + STRING_SPACE_REQD(LM20_UNCLEN + 1)        // usri11_logon_server
+            + STRING_SPACE_REQD(MAX_PATH + 1)           // usri11_logon_server
             + STRING_SPACE_REQD(MAX_WORKSTATION_LIST)   // usri11_workstations
 
             //
@@ -1020,7 +1020,7 @@ Return Value:
 
     *Buffer = NULL;
     buflen = Level ? sizeof(USER_MODALS_INFO_1) : sizeof(USER_MODALS_INFO_0);
-    buflen += Level ? STRING_SPACE_REQD(LM20_UNCLEN + 1) : 0;
+    buflen += Level ? STRING_SPACE_REQD(MAX_PATH + 1) : 0;
     buflen = DWORD_ROUNDUP(buflen);
     if (rc = NetApiBufferAllocate(buflen, (LPVOID *) &bufptr)) {
         return rc;
@@ -1120,7 +1120,7 @@ Return Value:
 
                     case 2: // MODALS_PRIMARY_PARMNUM
                         buflen = STRLEN( (LPTSTR) Buffer);
-                        if (buflen > LM20_UNCLEN) {
+                        if (buflen > MAX_PATH) {
                             *ParmError = MODALS_PRIMARY_INFOLEVEL;
                             return ERROR_INVALID_PARAMETER;
                         }
@@ -1128,10 +1128,10 @@ Return Value:
 
                     default:
 #if DBG
-                        NetpDbgPrint("error: RxNetUserModalsSet.%d: bad parmnum %d\n",
+                        NetpKdPrint(("error: RxNetUserModalsSet.%d: bad parmnum %d\n",
                         __LINE__,
                         parmnum
-                        );
+                        ));
 #endif
                         return ERROR_INVALID_LEVEL;
                 }
@@ -1147,10 +1147,10 @@ Return Value:
                 buflen = sizeof(DWORD);
             } else {
 #if DBG
-                NetpDbgPrint("error: RxNetUserModalsSet.%d: bad level %d\n",
+                NetpKdPrint(("error: RxNetUserModalsSet.%d: bad level %d\n",
                 __LINE__,
                 Level
-                );
+                ));
 #endif
                 return ERROR_INVALID_LEVEL;
             }
@@ -1284,8 +1284,8 @@ Return Value:
     // cleartext
     //
 
-    (VOID) strupr(OldAnsiPassword);
-    (VOID) strupr(NewAnsiPassword);
+    (VOID) _strupr(OldAnsiPassword);
+    (VOID) _strupr(NewAnsiPassword);
 
 #ifdef DOWN_LEVEL_ENCRYPTION
 
@@ -1876,7 +1876,7 @@ Return Value:
             if (parmnum == PARMNUM_ALL) {
                 pointer = ((PUSER_INFO_2)Buffer)->usri2_logon_server;
             }
-            if ((stringlen = POSSIBLE_WCSLEN(pointer)) > LM20_UNCLEN) {
+            if ((stringlen = POSSIBLE_WCSLEN(pointer)) > MAX_PATH) {
                 *ParmError = USER_LOGON_SERVER_PARMNUM;
                 NetStatus = ERROR_INVALID_PARAMETER;
                 goto Cleanup;
@@ -1937,7 +1937,7 @@ Return Value:
                                 originalPasswordLength * sizeof(WCHAR)
                                 );
         ansiPassword[lmOwfPasswordLen] = 0;
-        (VOID) strupr(ansiPassword);   // down-level wants upper-cased passwords
+        (VOID) _strupr(ansiPassword);   // down-level wants upper-cased passwords
 
 #ifdef DOWN_LEVEL_ENCRYPTION
 
@@ -2205,7 +2205,7 @@ Return Value:
     LMR_REQUEST_PACKET request;
     LMR_CONNECTION_INFO_2 connectInfo;
     NET_API_STATUS apiStatus;
-    WCHAR connectionName[UNCLEN + 1];
+    WCHAR connectionName[MAX_PATH];
 
     ntStatus = NtOpenProcessToken(NtCurrentProcess(), GENERIC_READ, &hToken);
     if (NT_SUCCESS(ntStatus)) {

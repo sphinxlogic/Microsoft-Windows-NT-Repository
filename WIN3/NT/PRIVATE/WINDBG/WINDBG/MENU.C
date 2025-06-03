@@ -474,10 +474,14 @@ Return Value:
         break;
 
     case IDM_RUN_ATTACH:
-        if (runDebugParams.fKernelDebugger) {
-            Enabled = FALSE;
+        if (OsVersionInfo.dwPlatformId == VER_PLATFORM_WIN32_NT) {
+            if (runDebugParams.fKernelDebugger) {
+                Enabled = FALSE;
+            } else {
+                Enabled = TRUE;
+            }
         } else {
-            Enabled = TRUE;
+            Enabled = FALSE;
         }
         break;
 

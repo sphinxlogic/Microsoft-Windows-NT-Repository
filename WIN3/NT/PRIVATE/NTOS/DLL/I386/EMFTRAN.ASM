@@ -750,6 +750,7 @@ ExpSpcl:
 	cmp	cl,bTAG_DEN
 	jz	ExpDenorm
 	cmp	cl,bTAG_INF
+        mov     al, cl
 	jnz	SpclDestNotDen		;Check for Empty or NAN
 ;Have infinity, check its sign.  
 ;Return -1 for -infinity, no change if +infinity

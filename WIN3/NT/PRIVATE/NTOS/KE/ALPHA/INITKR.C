@@ -159,6 +159,7 @@ Return Value:
 
     PCR->Number = Number;
     PCR->SetMember = 1 << Number;
+    PCR->NotMember = ~PCR->SetMember;
 
 
     //
@@ -193,10 +194,10 @@ Return Value:
 
 #if !defined(NT_UP)
 
+    Prcb->TargetSet = 0;
     Prcb->WorkerRoutine = NULL;
     Prcb->RequestSummary = 0;
     Prcb->IpiFrozen = 0;
-    RtlZeroMemory( &Prcb->RequestPacket[0], sizeof(Prcb->RequestPacket) );
 
 #if NT_INST
 
@@ -205,6 +206,10 @@ Return Value:
 #endif //NT_INST
 
 #endif //NT_UP
+
+    Prcb->MaximumDpcQueueDepth = KiMaximumDpcQueueDepth;
+    Prcb->MinimumDpcRate = KiMinimumDpcRate;
+    Prcb->AdjustDpcThreshold = KiAdjustDpcThreshold;
 
     //
     // Initialize DPC listhead and lock.
@@ -241,6 +246,24 @@ Return Value:
     }
 
     //
+    // Set global processor architecture, level and revision.  The
+    // latter two are the least common denominator on an MP system.
+    //
+
+    KeProcessorArchitecture = PROCESSOR_ARCHITECTURE_ALPHA;
+    KeFeatureBits = 0;
+    if ( KeProcessorLevel == 0 ||
+         KeProcessorLevel > (USHORT)PCR->ProcessorType
+       ) {
+        KeProcessorLevel = (USHORT)PCR->ProcessorType;
+    }
+    if ( KeProcessorRevision == 0 ||
+         KeProcessorRevision > (USHORT)PCR->ProcessorRevision
+       ) {
+        KeProcessorRevision = (USHORT)PCR->ProcessorRevision;
+    }
+
+    //
     // Initialize all interrupt vectors to transfer control to the unexpected
     // interrupt routine.
     //
@@ -258,6 +281,12 @@ Return Value:
         //
 
         KxUnexpectedInterrupt.DispatchAddress = KiUnexpectedInterrupt;
+
+        //
+        // Initialize the context swap spinlock.
+        //
+
+        KeInitializeSpinLock(&KiContextSwapLock);
 
         //
         // Copy the interrupt dispatch code template into the interrupt object
@@ -314,7 +343,7 @@ Return Value:
         //
 
         if (KdPollBreakIn() != FALSE){
-            KiBreakinBreakpoint();
+            DbgBreakPointWithStatus(DBG_STATUS_CONTROL_C);
         }
 
 #endif //DBG
@@ -328,11 +357,9 @@ Return Value:
         }
 
         //
-        // Initialize the profile count and interval.
+        // Initialize default DMA coherency value for Alpha
         //
-
-        PCR->ProfileCount = 0;
-        PCR->ProfileInterval = 0x200000;
+        KiDmaIoCoherency = DMA_READ_DCACHE_INVALIDATE | DMA_WRITE_DCACHE_SNOOP;
 
         //
         // Perform architecture independent initialization.
@@ -350,7 +377,7 @@ Return Value:
 
         KeInitializeProcess(Process,
                             (KPRIORITY)0,
-                            (KAFFINITY)(0x7f),
+                            (KAFFINITY)(0xffffffff),
                             (PULONG)(PDE_BASE + ((PDE_BASE >> PDI_SHIFT - 2) & 0xffc)),
                             FALSE);
 
@@ -381,6 +408,8 @@ Return Value:
                        (PVOID)NULL, (PCONTEXT)NULL, (PVOID)NULL, Process);
 
     Thread->InitialStack = IdleStack;
+    Thread->StackBase = IdleStack;
+    Thread->StackLimit = (PVOID)((ULONG)IdleStack - KERNEL_STACK_SIZE);
     Thread->NextProcessor = Number;
     Thread->Priority = HIGH_PRIORITY;
     Thread->State = Running;
@@ -397,12 +426,6 @@ Return Value:
     }
 
     //
-    // Insert thread in active matrix.
-    //
-
-    InsertActiveMatrix(Number, HIGH_PRIORITY);
-
-    //
     // call the executive initialization routine.
     //
 
@@ -415,12 +438,17 @@ Return Value:
 
     //
     // If the initial processor is being initialized, then compute the
-    // timer table reciprocal value.
+    // timer table reciprocal value and reset the PRCB values for
+    // the controllable DPC behavior in order to reflect any registry
+    // overrides
     //
 
     if (Number == 0) {
         KiTimeIncrementReciprocal = KiComputeReciprocal((LONG)KeMaximumIncrement,
                                                         &KiTimeIncrementShiftCount);
+        Prcb->MaximumDpcQueueDepth = KiMaximumDpcQueueDepth;
+        Prcb->MinimumDpcRate = KiMinimumDpcRate;
+        Prcb->AdjustDpcThreshold = KiAdjustDpcThreshold;
     }
 
     //
@@ -457,13 +485,11 @@ Return Value:
     }
 
     //
-    // If the current processor is a secondary processor then remove the idle
-    // thread from active summary and set the appropriate bit in the idle
-    // summary.
+    // If the current processor is a secondary processor then set the
+    // appropriate bit in the idle summary.
     //
 
     if( Number != 0 ){
-        RemoveActiveMatrix( Number, 0 );
         SetMember( Number, KiIdleSummary );
     }
 

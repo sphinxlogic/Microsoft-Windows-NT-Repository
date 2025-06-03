@@ -8,7 +8,7 @@ Module Name:
 
 Abstract:
 
-    This module contains helper routines to read fields out of the NT
+    This module contains helper routines to _read fields out of the NT
     configuration files.  This is for temporary use until the Configuration
     Registry is available.
 
@@ -156,9 +156,9 @@ Return Value:
                 & ValueSize
                 );
         IF_DEBUG(CONFIG) {
-            NetpDbgPrint( PREFIX_NETLIB "NetpGetConfigValue: RegQueryValueEx("
+            NetpKdPrint(( PREFIX_NETLIB "NetpGetConfigValue: RegQueryValueEx("
                     FORMAT_LPTSTR ") returned " FORMAT_LONG ".\n",
-                    lptstrKeyword, Error );
+                    lptstrKeyword, Error ));
         }
         if (Error == ERROR_FILE_NOT_FOUND) {
             NetpMemoryFree( lptstrValue );
@@ -202,9 +202,9 @@ Return Value:
         } else if (dwType != REG_SZ) {
             NetpMemoryFree( lptstrValue );
             IF_DEBUG(CONFIG) {
-                NetpDbgPrint( PREFIX_NETLIB
+                NetpKdPrint(( PREFIX_NETLIB
                         "NetpGetConfigValue: read unexpected reg type "
-                        FORMAT_DWORD ":\n", dwType );
+                        FORMAT_DWORD ":\n", dwType ));
                 NetpDbgHexDump( (LPVOID) lptstrValue, ValueSize );
             }
             return (ERROR_INVALID_DATA);
@@ -298,9 +298,9 @@ Return Value:
     NetpAssert( lptstrValue != NULL );
 
     IF_DEBUG(CONFIG) {
-        NetpDbgPrint( PREFIX_NETLIB "NetpGetConfigValue: value for '"
+        NetpKdPrint(( PREFIX_NETLIB "NetpGetConfigValue: value for '"
                 FORMAT_LPTSTR "' is '" FORMAT_LPTSTR "'.\n",
-                lptstrKeyword, lptstrValue);
+                lptstrKeyword, lptstrValue));
     }
 
     *ValueBufferPtr = lptstrValue;

@@ -4,11 +4,11 @@ Copyright (c) 1990  Microsoft Corporation
 
 Module Name:
 
-    access.c
+    _access.c
 
 Abstract:
 
-    Control routines (etc.) for the access checking test.
+    Control routines (etc.) for the _access checking test.
 
 Author:
 

@@ -20,12 +20,14 @@ Revision History:
 --*/
 
 #include "kdp.h"
-
+
 //
 // Define spin lock used to synchronize access to the debuger port.
 //
-
 extern KSPIN_LOCK KdpDebuggerLock;
+
+extern BOOLEAN KdpControlCPressed;
+
 
 VOID
 KdpPortLock(
@@ -121,12 +123,11 @@ Return Value:
 --*/
 
 {
-
     BOOLEAN BreakIn;
     BOOLEAN Enable;
-    UCHAR Input;
-    KIRQL OldIrql;
-    ULONG Status;
+    UCHAR   Input;
+    KIRQL   OldIrql;
+    ULONG   Status;
 
     //
     // If the debugger is enabled, see if a breakin by the kernel
@@ -136,8 +137,11 @@ Return Value:
     BreakIn = FALSE;
     if (KdDebuggerEnabled != FALSE) {
         Enable = KiDisableInterrupts();
+#ifndef _X86_
         KeRaiseIrql(HIGH_LEVEL, &OldIrql);
+#endif
         if (KdpControlCPending != FALSE) {
+            KdpControlCPressed = TRUE;
             BreakIn = TRUE;
             KdpControlCPending = FALSE;
 
@@ -147,13 +151,16 @@ Return Value:
                 if ((Status == CP_GET_SUCCESS) &&
                     (Input == BREAKIN_PACKET_BYTE)) {
                     BreakIn = TRUE;
+                    KdpControlCPressed = TRUE;
                 }
 
                 KdpPortUnlock();
             }
         }
 
+#ifndef _X86_
         KeLowerIrql(OldIrql);
+#endif
         KiRestoreInterrupts(Enable);
     }
 

@@ -118,4 +118,20 @@ Language=English
 %1!s! %2!s! (%3!s! %4!04X!-%5!04X!)%0
 .
 
+MessageId=9046 SymbolicName=IDS_FORMAT_COMMAND_LINE_HELP
+Language=English
+
+Usage: winmsd [\\computername] [/a | /s] [/f | /p]
+
+	computername	Specifies the Windows NT system to be viewed
+	/a		Causes a complete system report to be generated
+	/s		Causes a summary system report to be generated
+	/f		Causes the system report to be sent to a file
+	/p		Causes the system report to be sent to the current printer
+
+	Hot Keys:
+	F2		Copy a summary of the current tab to the clipboard
+	Shift-F2		Copy all details from the current tab to the clipboard
+.
+
 ;#endif // _MSG_

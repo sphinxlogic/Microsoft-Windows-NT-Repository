@@ -251,7 +251,7 @@ Return Value:
 
             if (DataEntry->DataEntryType == Unbuffered) {
 
-                ReadIrp->Overlay.AllocationSize = LiFromUlong( WriteQueue->BytesInQueue );
+                ReadIrp->Overlay.AllocationSize.QuadPart = WriteQueue->BytesInQueue;
             }
         }
 
@@ -327,4 +327,3 @@ Return Value:
     return Result;
 }
 
-

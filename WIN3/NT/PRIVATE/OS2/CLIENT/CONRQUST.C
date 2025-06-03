@@ -415,15 +415,30 @@ Od2WaitForSingleObject(
     )
 {
     NTSTATUS    NtStatus;
+    LARGE_INTEGER StartTimeStamp;
 
-    NtStatus = NtWaitForSingleObject(Semaphore,
+    do {
+        if (TimeOut) {
+            Od2StartTimeout(&StartTimeStamp);
+        }
+        NtStatus = NtWaitForSingleObject(Semaphore,
                                      Alertable,
                                      TimeOut);
+#if DBG
+        if (NtStatus == STATUS_USER_APC) {
+            DbgPrint("[%d,%d] WARNING !!! Od2WaitForSingleObject was broken by APC\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId()
+                    );
+        }
+#endif
+    } while (NtStatus == STATUS_USER_APC &&
+             (NtStatus = Od2ContinueTimeout(&StartTimeStamp, TimeOut)) == STATUS_SUCCESS
+            );
 
     if (( !NT_SUCCESS(NtStatus) ) ||
         (NtStatus == STATUS_TIMEOUT) ||
         (NtStatus == STATUS_ABANDONED) ||
-        (NtStatus == STATUS_USER_APC) ||
         (NtStatus == STATUS_ALERTED))
     {
         return ERROR_SEM_TIMEOUT;

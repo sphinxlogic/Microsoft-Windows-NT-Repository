@@ -113,7 +113,7 @@ Return Value:
         //
 
         targetDevice = irpSp->Parameters.MountVolume.DeviceObject;
-        byteOffset = LiFromUlong( 0 );
+        byteOffset.QuadPart = 0;
 
         if (FatReadBlock( targetDevice, &byteOffset, 512, &extStatus, &buffer )) {
             if (IsFatVolume( buffer )) {
@@ -212,14 +212,25 @@ Return Value:
         bios.LargeSectors = 0;
     }
 
-    if (Buffer->Jump[0] != 0xe9 && Buffer->Jump[0] != 0xeb) {
+    // FMR Jul.11.1994 NaokiM - Fujitsu -
+    // FMR boot sector has 'IPL1' string at the beginnig.
+
+    if (Buffer->Jump[0] != 0x49 && /* FMR */
+        Buffer->Jump[0] != 0xe9 &&
+        Buffer->Jump[0] != 0xeb) {
 
         result = FALSE;
+
+
+    // FMR Jul.11.1994 NaokiM - Fujitsu -
+    // Sector size of FMR partition is 2048.
 
     } else if (bios.BytesPerSector !=  128 &&
                bios.BytesPerSector !=  256 &&
                bios.BytesPerSector !=  512 &&
-               bios.BytesPerSector != 1024) {
+               bios.BytesPerSector != 1024 &&
+               bios.BytesPerSector != 2048 && /* FMR */
+               bios.BytesPerSector != 4096) {
 
         result = FALSE;
 
@@ -246,8 +257,11 @@ Return Value:
 
         result = FALSE;
 
-    } else if ((!bios.Sectors && !bios.LargeSectors) ||
-               (bios.Sectors && bios.LargeSectors)) {
+    //
+    // Prior to DOS 3.2 might contains value in both of Sectors and
+    // Sectors Large.
+    //
+    } else if (!bios.Sectors && !bios.LargeSectors) {
 
         result = FALSE;
 
@@ -255,9 +269,17 @@ Return Value:
 
         result = FALSE;
 
-    } else if (bios.Media != 0xf0 &&
+    // FMR Jul.11.1994 NaokiM - Fujitsu -
+    // 1. Media descriptor of FMR partitions is 0xfa.
+    // 2. Media descriptor of partitions formated by FMR OS/2 is 0x00.
+    // 3. Media descriptor of floppy disks formated by FMR DOS is 0x01.
+
+    } else if (bios.Media != 0x00 && /* FMR */
+               bios.Media != 0x01 && /* FMR */
+               bios.Media != 0xf0 &&
                bios.Media != 0xf8 &&
                bios.Media != 0xf9 &&
+               bios.Media != 0xfa && /* FMR */
                bios.Media != 0xfb &&
                bios.Media != 0xfc &&
                bios.Media != 0xfd &&

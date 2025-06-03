@@ -85,12 +85,12 @@ TestMemory(
 
 #ifdef TRY_ZERO_SIZE
     IF_DEBUG(MEMORY) {
-        NetpDbgPrint("\nTestMemory: Testing LocalAlloc(0) for comparison\n");
+        NetpKdPrint(("\nTestMemory: Testing LocalAlloc(0) for comparison\n"));
     }
     NullPtr = (LPVOID) LocalAlloc( LMEM_FIXED, 0 );
     IF_DEBUG(MEMORY) {
-        NetpDbgPrint("TestMemory: allocated (0 size) at " FORMAT_LPVOID ".\n",
-                (LPVOID) NullPtr);
+        NetpKdPrint(("TestMemory: allocated (0 size) at " FORMAT_LPVOID ".\n",
+                (LPVOID) NullPtr));
     }
     if (NullPtr != NULL) {
        (VOID) LocalFree( NullPtr );
@@ -99,12 +99,12 @@ TestMemory(
 
 #ifdef TRY_ZERO_SIZE
     IF_DEBUG(MEMORY) {
-        NetpDbgPrint("\nTestMemory: Testing NetApiBufferAllocate(0)\n");
+        NetpKdPrint(("\nTestMemory: Testing NetApiBufferAllocate(0)\n"));
     }
     Status = NetApiBufferAllocate( 0, (LPVOID *) (LPVOID) &NullPtr );
     IF_DEBUG(MEMORY) {
-        NetpDbgPrint("TestMemory: allocated (0 size) at " FORMAT_LPVOID ".\n",
-                (LPVOID) NullPtr);
+        NetpKdPrint(("TestMemory: allocated (0 size) at " FORMAT_LPVOID ".\n",
+                (LPVOID) NullPtr));
     }
     if (NullPtr != NULL) {
        (VOID) NetApiBufferFree( NullPtr );
@@ -146,9 +146,9 @@ TestMemory(
 
 
     IF_DEBUG(MEMORY) {
-        NetpDbgPrint("\nTestMemory: Testing memory alloc,realloc,free...\n");
-        NetpDbgPrint("TestMemory: allocating " FORMAT_DWORD " bytes...\n",
-                OLD_SIZE );
+        NetpKdPrint(("\nTestMemory: Testing memory alloc,realloc,free...\n"));
+        NetpKdPrint(("TestMemory: allocating " FORMAT_DWORD " bytes...\n",
+                OLD_SIZE ));
     }
 
     OldPtr = NULL;
@@ -156,8 +156,8 @@ TestMemory(
     TestAssert( Status == NERR_Success );
     TestAssert( OldPtr != NULL );
     IF_DEBUG(MEMORY) {
-        NetpDbgPrint("TestMemory: allocated old at " FORMAT_LPVOID ".\n",
-                (LPVOID) OldPtr);
+        NetpKdPrint(("TestMemory: allocated old at " FORMAT_LPVOID ".\n",
+                (LPVOID) OldPtr));
     }
     TestAssert( POINTER_IS_ALIGNED( OldPtr, ALIGN_WORST ) );
 
@@ -168,8 +168,8 @@ TestMemory(
     Status = NetApiBufferSize( OldPtr, & ByteCount );
     TestAssert( Status == NERR_Success );
     IF_DEBUG(MEMORY) {
-        NetpDbgPrint("TestMemory: size of old area is supposedly "
-                FORMAT_DWORD ".\n", ByteCount );
+        NetpKdPrint(("TestMemory: size of old area is supposedly "
+                FORMAT_DWORD ".\n", ByteCount ));
     }
     TestAssert( ByteCount >= OLD_SIZE );
 
@@ -181,8 +181,8 @@ TestMemory(
                 OldPtr,                         // dest
                 Source);                        // src
     IF_DEBUG(MEMORY) {
-        NetpDbgPrint("TestMemory: old area contains '" FORMAT_LPTSTR "'.\n",
-                OldPtr);
+        NetpKdPrint(("TestMemory: old area contains '" FORMAT_LPTSTR "'.\n",
+                OldPtr));
     }
 
     //
@@ -194,8 +194,8 @@ TestMemory(
     TestAssert( Status == NERR_Success );
     TestAssert( InBetweenPtr != NULL );
     IF_DEBUG(MEMORY) {
-        NetpDbgPrint("TestMemory: allocated in between at " FORMAT_LPVOID
-                ".\n", (LPVOID) InBetweenPtr);
+        NetpKdPrint(("TestMemory: allocated in between at " FORMAT_LPVOID
+                ".\n", (LPVOID) InBetweenPtr));
     }
     TestAssert( POINTER_IS_ALIGNED( InBetweenPtr, ALIGN_WORST) );
 
@@ -205,8 +205,8 @@ TestMemory(
     Status = NetApiBufferSize( InBetweenPtr, & ByteCount );
     TestAssert( Status == NERR_Success );
     IF_DEBUG(MEMORY) {
-        NetpDbgPrint("TestMemory: size of in between area is supposedly "
-                FORMAT_DWORD ".\n", ByteCount );
+        NetpKdPrint(("TestMemory: size of in between area is supposedly "
+                FORMAT_DWORD ".\n", ByteCount ));
     }
     TestAssert( ByteCount >= IN_BETWEEN_SIZE );
 
@@ -221,14 +221,14 @@ TestMemory(
     TestAssert( Status == NERR_Success );
     TestAssert( NewPtr != NULL );
     IF_DEBUG(MEMORY) {
-        NetpDbgPrint("TestMemory: reallocated new at " FORMAT_LPVOID ".\n",
-                (LPVOID) NewPtr);
-        NetpDbgPrint("TestMemory: new area contains '" FORMAT_LPTSTR "'.\n",
-                NewPtr);
+        NetpKdPrint(("TestMemory: reallocated new at " FORMAT_LPVOID ".\n",
+                (LPVOID) NewPtr));
+        NetpKdPrint(("TestMemory: new area contains '" FORMAT_LPTSTR "'.\n",
+                NewPtr));
     }
     TestAssert( POINTER_IS_ALIGNED( NewPtr, ALIGN_WORST) );
     if (STRCMP(NewPtr,Source) != 0) {
-        NetpDbgPrint( "TestMemory: realloc didn't copy data!\n" );
+        NetpKdPrint(( "TestMemory: realloc didn't copy data!\n" ));
         Fail(NERR_InternalError);
     }
 
@@ -238,8 +238,8 @@ TestMemory(
     Status = NetApiBufferSize( InBetweenPtr, & ByteCount );
     TestAssert( Status == NERR_Success );
     IF_DEBUG(MEMORY) {
-        NetpDbgPrint("TestMemory: size of in between area is supposedly "
-                FORMAT_DWORD ".\n", ByteCount );
+        NetpKdPrint(("TestMemory: size of in between area is supposedly "
+                FORMAT_DWORD ".\n", ByteCount ));
     }
     TestAssert( ByteCount >= IN_BETWEEN_SIZE );
 
@@ -247,7 +247,7 @@ TestMemory(
     // OK, free that "in between" and create another (much larger) one.
     //
     IF_DEBUG(MEMORY) {
-        NetpDbgPrint("TestMemory: freeing in between...\n");
+        NetpKdPrint(("TestMemory: freeing in between...\n"));
     }
     Status = NetApiBufferFree(InBetweenPtr);
     TestAssert( Status == NERR_Success );
@@ -257,8 +257,8 @@ TestMemory(
     TestAssert( Status == NERR_Success );
     TestAssert( InBetweenPtr != NULL );
     IF_DEBUG(MEMORY) {
-        NetpDbgPrint("TestMemory: allocated 2nd in between at " FORMAT_LPVOID
-                ".\n", (LPVOID) InBetweenPtr);
+        NetpKdPrint(("TestMemory: allocated 2nd in between at " FORMAT_LPVOID
+                ".\n", (LPVOID) InBetweenPtr));
     }
     TestAssert( POINTER_IS_ALIGNED( InBetweenPtr, ALIGN_WORST) );
 
@@ -273,14 +273,14 @@ TestMemory(
     TestAssert( Status == NERR_Success );
     TestAssert( NewPtr != NULL );
     IF_DEBUG(MEMORY) {
-        NetpDbgPrint("TestMemory: 2nd reallocated new at " FORMAT_LPVOID ".\n",
-                (LPVOID) NewPtr);
-        NetpDbgPrint("TestMemory: 2nd new area contains '" FORMAT_LPTSTR "'.\n",
-                NewPtr);
+        NetpKdPrint(("TestMemory: 2nd reallocated new at " FORMAT_LPVOID ".\n",
+                (LPVOID) NewPtr));
+        NetpKdPrint(("TestMemory: 2nd new area contains '" FORMAT_LPTSTR "'.\n",
+                NewPtr));
     }
     TestAssert( POINTER_IS_ALIGNED( NewPtr, ALIGN_WORST) );
     if (STRCMP(NewPtr,Source) != 0) {
-        NetpDbgPrint( "TestMemory: 2nd realloc didn't copy data!\n" );
+        NetpKdPrint(( "TestMemory: 2nd realloc didn't copy data!\n" ));
         Fail(NERR_InternalError);
     }
 
@@ -290,13 +290,13 @@ TestMemory(
     //
 
     IF_DEBUG(MEMORY) {
-        NetpDbgPrint("TestMemory: freeing in between...\n");
+        NetpKdPrint(("TestMemory: freeing in between...\n"));
     }
     Status = NetApiBufferFree(InBetweenPtr);
     TestAssert( Status == NERR_Success );
 
     IF_DEBUG(MEMORY) {
-        NetpDbgPrint("TestMemory: freeing new...\n");
+        NetpKdPrint(("TestMemory: freeing new...\n"));
     }
     Status = NetApiBufferFree(NewPtr);
     TestAssert( Status == NERR_Success );

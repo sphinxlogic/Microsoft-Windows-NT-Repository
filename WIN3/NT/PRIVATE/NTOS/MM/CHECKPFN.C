@@ -18,9 +18,9 @@ Revision History:
 
 --*/
 
-#if DBG
-
 #include "mi.h"
+
+#if DBG
 
 PRTL_BITMAP CheckPfnBitMap;
 
@@ -87,7 +87,7 @@ Environment:
         }
         RtlSetBits (CheckPfnBitMap, Link, 1L);
         Pfn1 = MI_PFN_ELEMENT(Link);
-        if (Pfn1->ReferenceCount != 0) {
+        if (Pfn1->u3.e2.ReferenceCount != 0) {
             DbgPrint("non zero reference count on free list\n");
             MiFormatPfn(Pfn1);
 
@@ -98,10 +98,6 @@ Environment:
         }
         if (Pfn1->u2.Blink != Previous) {
             DbgPrint("bad blink on free list\n");
-            MiFormatPfn(Pfn1);
-        }
-        if (Pfn1->ValidPteCount != 0) {
-            DbgPrint("free page with non-zero pte count\n");
             MiFormatPfn(Pfn1);
         }
         Previous = Link;
@@ -129,7 +125,7 @@ Environment:
         }
         RtlSetBits (CheckPfnBitMap, Link, 1L);
         Pfn1 = MI_PFN_ELEMENT(Link);
-        if (Pfn1->ReferenceCount != 0) {
+        if (Pfn1->u3.e2.ReferenceCount != 0) {
             DbgPrint("non zero reference count on zero list\n");
             MiFormatPfn(Pfn1);
 
@@ -140,10 +136,6 @@ Environment:
         }
         if (Pfn1->u2.Blink != Previous) {
             DbgPrint("bad blink on zero list\n");
-            MiFormatPfn(Pfn1);
-        }
-        if (Pfn1->ValidPteCount != 0) {
-            DbgPrint("zero page with non-zero pte count\n");
             MiFormatPfn(Pfn1);
         }
         Previous = Link;
@@ -170,7 +162,7 @@ Environment:
         }
         RtlSetBits (CheckPfnBitMap, Link, 1L);
         Pfn1 = MI_PFN_ELEMENT(Link);
-        if (Pfn1->ReferenceCount != 0) {
+        if (Pfn1->u3.e2.ReferenceCount != 0) {
             DbgPrint("non zero reference count on Bad list\n");
             MiFormatPfn(Pfn1);
 
@@ -181,10 +173,6 @@ Environment:
         }
         if (Pfn1->u2.Blink != Previous) {
             DbgPrint("bad blink on Bad list\n");
-            MiFormatPfn(Pfn1);
-        }
-        if (Pfn1->ValidPteCount != 0) {
-            DbgPrint("Bad page with non-zero pte count\n");
             MiFormatPfn(Pfn1);
         }
         Previous = Link;
@@ -212,7 +200,7 @@ Environment:
         }
         RtlSetBits (CheckPfnBitMap, Link, 1L);
         Pfn1 = MI_PFN_ELEMENT(Link);
-        if (Pfn1->ReferenceCount != 0) {
+        if (Pfn1->u3.e2.ReferenceCount != 0) {
             DbgPrint("non zero reference count on Standby list\n");
             MiFormatPfn(Pfn1);
 
@@ -223,10 +211,6 @@ Environment:
         }
         if (Pfn1->u2.Blink != Previous) {
             DbgPrint("bad blink on Standby list\n");
-            MiFormatPfn(Pfn1);
-        }
-        if (Pfn1->ValidPteCount != 0) {
-            DbgPrint("Standby page with non-zero pte count\n");
             MiFormatPfn(Pfn1);
         }
 
@@ -244,7 +228,7 @@ Environment:
                             (MmIsAddressValid (Pfn1->PteAddress))) {
                 PointerPte = Pfn1->PteAddress;
             } else {
-                PointerPte = MiMapPageInHyperSpace(Pfn1->u3.e1.PteFrame,
+                PointerPte = MiMapPageInHyperSpace(Pfn1->PteFrame,
                                                    &OldIrql);
                 PointerPte = (PMMPTE)((ULONG)PointerPte +
                                     MiGetByteOffset(Pfn1->PteAddress));
@@ -291,7 +275,7 @@ Environment:
         }
         RtlSetBits (CheckPfnBitMap, Link, 1L);
         Pfn1 = MI_PFN_ELEMENT(Link);
-        if (Pfn1->ReferenceCount != 0) {
+        if (Pfn1->u3.e2.ReferenceCount != 0) {
             DbgPrint("non zero reference count on Modified list\n");
             MiFormatPfn(Pfn1);
 
@@ -302,10 +286,6 @@ Environment:
         }
         if (Pfn1->u2.Blink != Previous) {
             DbgPrint("bad blink on Modified list\n");
-            MiFormatPfn(Pfn1);
-        }
-        if (Pfn1->ValidPteCount != 0) {
-            DbgPrint("Modified page with non-zero pte count\n");
             MiFormatPfn(Pfn1);
         }
         //
@@ -321,7 +301,7 @@ Environment:
                             (MmIsAddressValid (Pfn1->PteAddress))) {
                 PointerPte = Pfn1->PteAddress;
             } else {
-                PointerPte = MiMapPageInHyperSpace(Pfn1->u3.e1.PteFrame, &OldIrql);
+                PointerPte = MiMapPageInHyperSpace(Pfn1->PteFrame, &OldIrql);
                 PointerPte = (PMMPTE)((ULONG)PointerPte +
                                     MiGetByteOffset(Pfn1->PteAddress));
             }
@@ -430,7 +410,7 @@ Environment:
                             (MmIsAddressValid (Pfn1->PteAddress))) {
             PointerPte = Pfn1->PteAddress;
         } else {
-            PointerPte = MiMapPageInHyperSpace(Pfn1->u3.e1.PteFrame, &OldIrql);
+            PointerPte = MiMapPageInHyperSpace(Pfn1->PteFrame, &OldIrql);
             PointerPte = (PMMPTE)((ULONG)PointerPte +
                                     MiGetByteOffset(Pfn1->PteAddress));
         }
@@ -456,36 +436,23 @@ Environment:
             }
         }
 
-        if (Pfn1->ReferenceCount != 1) {
+        if (Pfn1->u3.e2.ReferenceCount != 1) {
             DbgPrint("refcount not 1\n");
             MiFormatPfn(Pfn1);
         }
 
-        if (Pfn1->ValidPteCount != 0) {
-            if ((Pfn1->PteAddress < (PMMPTE)PDE_BASE)) {
-
-                DbgPrint("valid count for bad page\n");
-                MiFormatPfn(Pfn1);
-            }
-
-        }
 
         //
         // Check to make sure the PTE count for the frame is okay.
         //
 
         if (Pfn1->u3.e1.PrototypePte == 1) {
-            PfnX = MI_PFN_ELEMENT(Pfn1->u3.e1.PteFrame);
-            if (PfnX->ValidPteCount == 0) {
-                DbgPrint("valid pte count for referenced PTE frame is wrong\n");
-                MiFormatPfn(Pfn1);
-                MiFormatPfn(PfnX);
-            }
+            PfnX = MI_PFN_ELEMENT(Pfn1->PteFrame);
             for (i = 0; i < 4; i++) {
                 if (ValidPage[i] == 0) {
-                    ValidPage[i] = (USHORT)Pfn1->u3.e1.PteFrame;
+                    ValidPage[i] = (USHORT)Pfn1->PteFrame;
                 }
-                if (ValidPage[i] == (USHORT)Pfn1->u3.e1.PteFrame) {
+                if (ValidPage[i] == (USHORT)Pfn1->PteFrame) {
                     ValidCheck[i] += 1;
                     break;
                 }
@@ -508,10 +475,6 @@ NoCheck:
             break;
         }
         PfnX = MI_PFN_ELEMENT(ValidPage[i]);
-        if (PfnX->ValidPteCount != ValidCheck[i]) {
-            DbgPrint("protoptes valid page count wrong %lx\n",ValidCheck[i]);
-            MiFormatPfn(PfnX);
-        }
     }
 
     UNLOCK_PFN (OldIrql);

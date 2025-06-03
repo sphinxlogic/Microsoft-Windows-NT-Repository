@@ -8,7 +8,7 @@ Module Name:
 
 Abstract:
 
-    Subroutines (etc.) for the read, write, and copy tests.  (See
+    Subroutines (etc.) for the _read, _write, and copy tests.  (See
     rdwrt.c for "main" routines for these tests.)
 
 Author:
@@ -455,6 +455,13 @@ DoBulkRead(
     OUT PUCHAR *ActualData
     )
 {
+#if 1
+    Redir, DebugString, IdSelections, IdValues, Mode, MaxLength, Offset;
+    ActualLength, ActualData;
+
+    printf( "DoBulkRead: not implemented\n" );
+    return STATUS_NOT_IMPLEMENTED;
+#else
     PSMB_HEADER header;
     PREQ_READ2 request;
     PRESP_READ2 response;
@@ -662,6 +669,7 @@ DoBulkRead(
     free( tempBuffer );
 
     return STATUS_SUCCESS;
+#endif
 
 } // DoBulkRead
 

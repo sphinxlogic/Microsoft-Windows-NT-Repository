@@ -23,8 +23,6 @@ LIBRARIAN     =$(WIN_BIN)\lib
 LINK          =$(WIN_BIN)\link
 MASM          =$(MASM_BIN)\bin\ml -Zm
 ML            =$(MASM_BIN)\bin\ml
-MIDL          =$(SYSTEMROOT)\mstools\midl.exe
-INCLUDES      =$(SYSTEMROOT)\idw\includes.exe
 RC            =$(WINSDK_BIN)\rc
 MAPSYM        =forcedos $(WINSDK_BIN)\mapsym
 IMPLIB        =$(WIN_BIN)\implib
@@ -36,7 +34,7 @@ AFLAGS        =$(AFLAGS)
 LIBFLAGS      =$(LIBFLAGS)
 LINKFLAGS     =$(LINKFLAGS) /nol/nod/noe/map/ba
 MIDLFLAGS     =$(MIDLFLAGS) -Zp2 -env win16 -DDOS -DWIN -I.. -cpp_cmd $(CC)
-RCFLAGS       =$(RCFLAGS) /nologo -I$(WINSDK_INC)
+RCFLAGS       =$(RCFLAGS) /nologo
 MAPSYMFLAGS   =$(MAPSYMGLAGS)
 IMPLIBFLAGS   =$(IMPLIBFLAGS) /nologo
 
@@ -60,8 +58,7 @@ LINKFLAGS     =$(LINKFLAGS) /co
 !endif # RELEASE
 
 CINC          =$(CINC) -I. -I.. -I$(RPC)\runtime\mtrt -I$(RPC)\runtime\mtrt\win -I$(PUBLIC)\inc
-CDEF          =$(CDEF) -DDOS -DWIN -D_cdecl=cdecl -D_far=far -D_near=near -DUNALIGNED=
-
+CDEF          =$(CDEF) -DDOS -DWIN
 CFLAGS        =$(CFLAGS) $(CFLAGSBASE) $(CINC) $(CDEF)
 CAPPFLAGS     =$(CFLAGS:GD=GA)
 CXXFLAGS      =$(CXXFLAGS) $(CFLAGSBASE) $(CINC) $(CDEF)
@@ -119,6 +116,7 @@ CXXAPPFLAGS   =$(CXXFLAGS:GD=GA)
     $(MAPSYM) $(MAPSYMFLAGS) $<
 
 .rc.res :
+    set INCLUDE=$(WINSDK_INC)
     $(RC) $(RCFLAGS) -r $<
 
 #

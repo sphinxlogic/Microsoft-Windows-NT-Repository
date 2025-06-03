@@ -208,4 +208,3 @@ typedef struct _JAZZ_BT468_CONFIGURATION_DATA {
 
 
 #endif // _VIDEOXL_
-

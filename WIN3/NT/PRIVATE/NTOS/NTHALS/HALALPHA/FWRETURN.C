@@ -30,7 +30,16 @@ Revision History:
 #include "halp.h"
 
 #if !defined(NT_UP)
-#include "ntmp.h"                       // #definition of KiIpiSendPacket
+
+
+VOID                                    // #definition of KiIpiSendPacket
+KiIpiSendPacket(                        // not in ntmp.h. Define here
+    IN KAFFINITY TargetProcessors,
+    IN PKIPI_WORKER WorkerFunction,
+    IN PVOID Parameter1,
+    IN PVOID Parameter2,
+    IN PVOID Parameter3
+    );
 #endif
 
 VOID

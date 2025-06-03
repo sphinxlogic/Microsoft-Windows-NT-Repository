@@ -192,7 +192,7 @@ BOOL PseudoObj_Close(LPPSEUDOOBJ lpPseudoObj)
 	LPSERVERNAME lpServerName = (LPSERVERNAME)lpPseudoObj->m_lpName;
 	LPOLEAPP lpOleApp = (LPOLEAPP)g_lpApp;
 	LPOLEDOC lpOleDoc = (LPOLEDOC)lpServerDoc;
-	BOOL fStatus;
+	BOOL fStatus = TRUE;
 
 	if (lpPseudoObj->m_fObjIsClosing)
 		return TRUE;    // Closing is already in progress

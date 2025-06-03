@@ -23,6 +23,8 @@ Revision History:
 
 #include <ntos.h>
 #include <FsRtl.h>
+#include <NtDdFt.h>
+#include <zwapi.h>
 
 //
 //  The global FsRtl debug level variable, its values are:
@@ -126,7 +128,7 @@ extern LONG FsRtlDebugTraceIndent;
 
 extern KSPIN_LOCK FsRtlStrucSupSpinLock;
 
-extern ZONE_HEADER FsRtlFastMutexZone;
+extern NPAGED_LOOKASIDE_LIST FsRtlFastMutexLookasideList;
 
 
 //
@@ -138,6 +140,16 @@ FsRtlInitProcessorLockQueue (
     VOID
     );
 
+NTSTATUS
+FsRtlInitializeWorkerThread (
+    VOID
+    );
+
+VOID
+FsRtlInitializeTunnel(
+    VOID
+    );
+
 //
 //  This macro returns TRUE if a flag in a set of flags is on and FALSE
 //  otherwise
@@ -146,6 +158,14 @@ FsRtlInitProcessorLockQueue (
 #define FlagOn(Flags,SingleFlag)        ((Flags) & (SingleFlag))
 
 #define BooleanFlagOn(Flags,SingleFlag) ((BOOLEAN)(((Flags) & (SingleFlag)) != 0))
+
+#define SetFlag(F,SF) { \
+    (F) |= (SF);        \
+}
+
+#define ClearFlag(F,SF) { \
+    (F) &= ~(SF);         \
+}
 
 //
 //  This macro takes a pointer (or ulong) and returns its rounded up word

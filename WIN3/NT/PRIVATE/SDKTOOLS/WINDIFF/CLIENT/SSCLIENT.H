@@ -22,21 +22,23 @@ void ss_terminate(HANDLE hpipe);
 /* send a SSREQ_UNC */
 BOOL ss_sendunc(HANDLE hpipe, PSTR password, PSTR server);
 
-/* return a checksum for a file */
-ULONG ss_checksum(HANDLE hFile);
+// I think this is obsolete - let's see if it still links without error.
+// if so, please delete me!
+// /* return a checksum for a file */
+// ULONG ss_checksum(HANDLE hFile);
 
 /* return a checksum for a block of data */
 ULONG ss_checksum_block(PSTR block, int size);
 
 /* checksum a single file using the checksum server */
-BOOL ss_checksum_remote(HANDLE hpipe, PSTR path, ULONG * psum);
+BOOL ss_checksum_remote( HANDLE hpipe, PSTR path, ULONG * psum, FILETIME * pft, LONG * pSize );
 
 /* Call this before a sequence of ss_bulkcopy calls.  This should be
    considerably faster than calls to ss_copy_reliable.
    Call ss_endcopy afterwards (the copying is not complete until endcopy
    has completed.
 */
-BOOL ss_startcopy(PSTR server,  PSTR uncname, PSTR password, HFILE hfLog);
+BOOL ss_startcopy(PSTR server,  PSTR uncname, PSTR password);
 
 /* negative retcode = number of bad files,
    else number of files copied (none bad)

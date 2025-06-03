@@ -262,6 +262,7 @@ extern ULONG DefaultSourceRoutingLength;
 #define MacReturnSourceRouting(_MacInfo, _Packet, _SourceRouting, _SourceRoutingLength) \
 {                                                               \
     PUCHAR TmpPacket = (PUCHAR)(_Packet);                       \
+    *(_SourceRoutingLength) = 0;                                \
     if ((_MacInfo)->SourceRouting) {                            \
         if (TmpPacket[8] & 0x80) {                              \
             *(_SourceRouting) = TmpPacket + 14;                 \

@@ -53,6 +53,9 @@ typedef
     IN ULONG ReceiveFlags
     );
 
+LONG BowserPostedDatagramCount;
+LONG BowserPostedCriticalDatagramCount;
+
 typedef struct _POST_DATAGRAM_CONTEXT {
     WORK_QUEUE_ITEM WorkItem;
     PTRANSPORT_NAME TransportName;

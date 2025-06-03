@@ -43,12 +43,239 @@ Revision History:
 #define RECEIVE_BUFFER_QUOTA(_DeviceContext)   (_DeviceContext)->ReceiveBufferLength
 #endif
 
+#define PACKET_POOL_GROW_COUNT  32
+
 #if DBG
 ULONG NbfCreatePacketThreshold = 5;
 extern ULONG NbfPacketPanic;
 #endif
 
+NDIS_STATUS
+NbfAllocateNdisSendPacket(
+    IN PDEVICE_CONTEXT DeviceContext,
+    OUT PNDIS_PACKET *NdisPacket
+    )
 
+/*++
+
+Routine Description:
+
+    This routine allocates a recieve packet from the receive packet pool.
+    It Grows the packet pool if necessary.  
+
+    NOTE: This routine is called with the device context spinlock
+    held, or at such a time as synchronization is unnecessary.
+
+Arguments:
+
+    DeviceContext - Pointer to our device context to charge the packet to.
+
+    UIFrame - Returns a pointer to the frame, or NULL if no storage
+        can be allocated.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+
+    PNBF_POOL_LIST_DESC SendPacketPoolDesc;
+    NDIS_STATUS NdisStatus;
+    KIRQL oldirql;
+
+    ACQUIRE_SPIN_LOCK (&DeviceContext->SendPoolListLock, &oldirql);
+    for (SendPacketPoolDesc = DeviceContext->SendPacketPoolDesc; 
+         SendPacketPoolDesc != NULL; 
+         SendPacketPoolDesc = SendPacketPoolDesc->Next) {
+
+        NdisAllocatePacket (
+             &NdisStatus,
+             NdisPacket,
+             SendPacketPoolDesc->PoolHandle);
+
+
+        if (NdisStatus == NDIS_STATUS_SUCCESS) {
+
+            RELEASE_SPIN_LOCK (&DeviceContext->SendPoolListLock, oldirql);
+            return(NdisStatus);
+        }
+    }
+
+    if (NdisStatus != NDIS_STATUS_SUCCESS) {
+        if ((DeviceContext->MemoryLimit != 0) &&
+            ((DeviceContext->MemoryUsage + 
+                PACKET_POOL_GROW_COUNT * 
+                (sizeof(NDIS_PACKET) + sizeof(SEND_PACKET_TAG))) >
+                DeviceContext->MemoryLimit)) {
+
+                PANIC("NBF: Could not grow packet pool: limit\n");
+            NbfWriteResourceErrorLog(
+                DeviceContext,
+                EVENT_TRANSPORT_RESOURCE_LIMIT,
+                106,
+                DeviceContext->UIFrameLength,
+                UI_FRAME_RESOURCE_ID);
+            RELEASE_SPIN_LOCK (&DeviceContext->SendPoolListLock, oldirql);
+            return(NdisStatus);
+        }
+    }
+
+    DeviceContext->MemoryUsage +=
+        (PACKET_POOL_GROW_COUNT * 
+        (sizeof(NDIS_PACKET) + sizeof(SEND_PACKET_TAG)));
+
+    // Allocate Packet pool descriptors for dynamic packet allocation.
+
+    SendPacketPoolDesc = ExAllocatePoolWithTag(
+                    NonPagedPool,
+                    sizeof(NBF_POOL_LIST_DESC),
+                    ' FBN');
+
+    if (DeviceContext->SendPacketPoolDesc == NULL) {
+        return(NdisStatus);
+    }
+
+    RtlZeroMemory(SendPacketPoolDesc,  sizeof(NBF_POOL_LIST_DESC));
+
+    SendPacketPoolDesc->NumElements = 
+    SendPacketPoolDesc->TotalElements = PACKET_POOL_GROW_COUNT;
+
+    NdisAllocatePacketPool ( &NdisStatus, &SendPacketPoolDesc->PoolHandle,
+        PACKET_POOL_GROW_COUNT, sizeof (SEND_PACKET_TAG));
+
+    if (NdisStatus != NDIS_STATUS_SUCCESS) {
+#if DBG
+        NbfPrint1 ("NbfGrowSendPacketPool: NdisInitializePacketPool failed, reason: %s.\n",
+            NbfGetNdisStatus (NdisStatus));
+#endif
+        RELEASE_SPIN_LOCK (&DeviceContext->SendPoolListLock, oldirql);
+        ExFreePool (SendPacketPoolDesc);
+        return(NdisStatus);
+    }
+    SendPacketPoolDesc->Next = DeviceContext->SendPacketPoolDesc;
+    DeviceContext->SendPacketPoolDesc = SendPacketPoolDesc;
+    RELEASE_SPIN_LOCK (&DeviceContext->SendPoolListLock, oldirql);
+    NdisAllocatePacket ( &NdisStatus, NdisPacket, 
+                        SendPacketPoolDesc->PoolHandle);
+    
+    return(NdisStatus);
+}
+
+NDIS_STATUS
+NbfAllocateNdisRcvPacket(
+    IN PDEVICE_CONTEXT DeviceContext,
+    OUT PNDIS_PACKET *NdisPacket
+    )
+
+/*++
+
+Routine Description:
+
+    This routine allocates a recieve packet from the receive packet pool.
+    It Grows the packet pool if necessary.  
+
+    NOTE: This routine is called with the device context spinlock
+    held, or at such a time as synchronization is unnecessary.
+
+Arguments:
+
+    DeviceContext - Pointer to our device context to charge the packet to.
+
+    UIFrame - Returns a pointer to the frame, or NULL if no storage
+        can be allocated.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+
+    PNBF_POOL_LIST_DESC RcvPacketPoolDesc;
+    NDIS_STATUS NdisStatus;
+    KIRQL oldirql;
+
+    ACQUIRE_SPIN_LOCK (&DeviceContext->RcvPoolListLock, &oldirql);
+    for (RcvPacketPoolDesc = DeviceContext->ReceivePacketPoolDesc; 
+         RcvPacketPoolDesc != NULL; 
+         RcvPacketPoolDesc = RcvPacketPoolDesc->Next) {
+
+        NdisAllocatePacket (
+             &NdisStatus,
+             NdisPacket,
+             RcvPacketPoolDesc->PoolHandle);
+
+
+        if (NdisStatus == NDIS_STATUS_SUCCESS) {
+            RELEASE_SPIN_LOCK (&DeviceContext->RcvPoolListLock, oldirql);
+            return(NdisStatus);
+        }
+    }
+
+    if (NdisStatus != NDIS_STATUS_SUCCESS) {
+        if ((DeviceContext->MemoryLimit != 0) &&
+            ((DeviceContext->MemoryUsage + 
+                PACKET_POOL_GROW_COUNT * 
+                (sizeof(NDIS_PACKET) + sizeof(SEND_PACKET_TAG))) >
+                DeviceContext->MemoryLimit)) {
+
+                PANIC("NBF: Could not grow packet pool: limit\n");
+            NbfWriteResourceErrorLog(
+                DeviceContext,
+                EVENT_TRANSPORT_RESOURCE_LIMIT,
+                106,
+                DeviceContext->UIFrameLength,
+                UI_FRAME_RESOURCE_ID);
+            RELEASE_SPIN_LOCK (&DeviceContext->RcvPoolListLock, oldirql);
+            return(NdisStatus);
+        }
+    }
+
+    DeviceContext->MemoryUsage +=
+        (PACKET_POOL_GROW_COUNT * 
+        (sizeof(NDIS_PACKET) + sizeof(SEND_PACKET_TAG)));
+
+    // Allocate Packet pool descriptors for dynamic packet allocation.
+
+    RcvPacketPoolDesc = ExAllocatePoolWithTag(
+                    NonPagedPool,
+                    sizeof(NBF_POOL_LIST_DESC),
+                    ' FBN');
+
+    if (RcvPacketPoolDesc == NULL) {
+        RELEASE_SPIN_LOCK (&DeviceContext->RcvPoolListLock, oldirql);
+        return(NdisStatus);
+    }
+
+    RtlZeroMemory(RcvPacketPoolDesc,  sizeof(NBF_POOL_LIST_DESC));
+
+    RcvPacketPoolDesc->NumElements = 
+    RcvPacketPoolDesc->TotalElements = PACKET_POOL_GROW_COUNT;
+
+    NdisAllocatePacketPool ( &NdisStatus, &RcvPacketPoolDesc->PoolHandle,
+        PACKET_POOL_GROW_COUNT, sizeof (RECEIVE_PACKET_TAG));
+
+    if (NdisStatus != NDIS_STATUS_SUCCESS) {
+#if DBG
+        NbfPrint1 ("NbfGrowSendPacketPool: NdisInitializePacketPool failed, reason: %s.\n",
+            NbfGetNdisStatus (NdisStatus));
+#endif
+        RELEASE_SPIN_LOCK (&DeviceContext->RcvPoolListLock, oldirql);
+        ExFreePool (RcvPacketPoolDesc);
+        return(NdisStatus);
+    }
+    RcvPacketPoolDesc->Next = DeviceContext->ReceivePacketPoolDesc;
+    DeviceContext->ReceivePacketPoolDesc = RcvPacketPoolDesc;
+    RELEASE_SPIN_LOCK (&DeviceContext->RcvPoolListLock, oldirql);
+    NdisAllocatePacket ( &NdisStatus, NdisPacket, 
+                        RcvPacketPoolDesc->PoolHandle);
+    
+    return(NdisStatus);
+}
+    
 
 VOID
 NbfAllocateUIFrame(
@@ -86,6 +313,7 @@ Return Value:
     PSEND_PACKET_TAG SendTag;
     PTP_UI_FRAME UIFrame;
     PNDIS_BUFFER NdisBuffer;
+    PNBF_POOL_LIST_DESC SendPacketPoolDesc;
 
     if ((DeviceContext->MemoryLimit != 0) &&
             ((DeviceContext->MemoryUsage + DeviceContext->UIFrameLength) >
@@ -119,11 +347,22 @@ Return Value:
     RtlZeroMemory (UIFrame, DeviceContext->UIFrameLength);
 
     DeviceContext->MemoryUsage += DeviceContext->UIFrameLength;
+    NdisStatus = NbfAllocateNdisSendPacket(DeviceContext, &NdisPacket);
+#if 0    
+    for (SendPacketPoolDesc = DeviceContext->SendPacketPoolDesc; 
+         SendPacketPoolDesc != NULL; 
+         SendPacketPoolDesc = SendPacketPoolDesc->Next) {
 
-    NdisAllocatePacket (
-        &NdisStatus,
-        &NdisPacket,
-        DeviceContext->SendPacketPoolHandle);
+        NdisAllocatePacket (
+             &NdisStatus,
+             &NdisPacket,
+             SendPacketPoolDesc->PoolHandle);
+
+
+        if (NdisStatus == NDIS_STATUS_SUCCESS)
+            break;
+    }
+#endif
 
     if (NdisStatus != NDIS_STATUS_SUCCESS) {
         ExFreePool (UIFrame);
@@ -154,7 +393,7 @@ Return Value:
     NdisAllocateBuffer(
         &NdisStatus,
         &NdisBuffer,
-        DeviceContext->NdisBufferPoolHandle,
+        DeviceContext->NdisBufferPool,
         UIFrame->Header,
         DeviceContext->UIFrameHeaderLength);
 
@@ -262,6 +501,7 @@ Return Value:
     PNDIS_PACKET NdisPacket;
     PSEND_PACKET_TAG SendTag;
     PNDIS_BUFFER NdisBuffer;
+    PNBF_POOL_LIST_DESC SendPacketPoolDesc;
 
     if ((DeviceContext->MemoryLimit != 0) &&
             ((DeviceContext->MemoryUsage + DeviceContext->PacketLength) >
@@ -296,10 +536,22 @@ Return Value:
 
     DeviceContext->MemoryUsage += DeviceContext->PacketLength;
 
-    NdisAllocatePacket (
-        &NdisStatus,
-        &NdisPacket,
-        DeviceContext->SendPacketPoolHandle);
+    NdisStatus = NbfAllocateNdisSendPacket(DeviceContext, &NdisPacket);
+#if 0
+    for (SendPacketPoolDesc = DeviceContext->SendPacketPoolDesc; 
+         SendPacketPoolDesc != NULL; 
+         SendPacketPoolDesc = SendPacketPoolDesc->Next) {
+
+        NdisAllocatePacket (
+             &NdisStatus,
+             &NdisPacket,
+             SendPacketPoolDesc->PoolHandle);
+
+
+        if (NdisStatus == NDIS_STATUS_SUCCESS)
+            break;
+    }
+#endif
 
     if (NdisStatus != NDIS_STATUS_SUCCESS) {
         ExFreePool (Packet);
@@ -316,9 +568,9 @@ Return Value:
     }
 
     NdisAllocateBuffer(
-        &NdisStatus,
+        &NdisStatus, 
         &NdisBuffer,
-        DeviceContext->NdisBufferPoolHandle,
+        DeviceContext->NdisBufferPool,
         Packet->Header,
         DeviceContext->PacketHeaderLength);
 
@@ -444,10 +696,13 @@ Return Value:
     // the storage is allocated when we allocate the packet pool.
     //
 
+    NdisStatus = NbfAllocateNdisRcvPacket(DeviceContext, &NdisPacket);
+#if 0
     NdisAllocatePacket (
         &NdisStatus,
         &NdisPacket,
-        DeviceContext->ReceivePacketPoolHandle);
+        DeviceContext->ReceivePacketPoolDesc->PoolHandle);
+#endif
 
     if (NdisStatus != NDIS_STATUS_SUCCESS) {
 #if 0
@@ -588,7 +843,7 @@ Return Value:
     NdisAllocateBuffer(
         &NdisStatus,
         &NdisBuffer,
-        DeviceContext->NdisBufferPoolHandle,
+        DeviceContext->NdisBufferPool,
         BufferTag->Buffer,
         DeviceContext->MaxReceivePacketSize);
 
@@ -718,20 +973,35 @@ Return Value:
 #endif
 
     if (s == NULL) {
-#if DBG
-        ++Link->CreatePacketFailures;
-        if ((ULONG)Link->CreatePacketFailures >= NbfCreatePacketThreshold) {
-            if (NbfPacketPanic) {
-                NbfPrint1 ("NbfCreatePacket: PANIC! no more packets in provider's pool (%d times).\n",
-                         Link->CreatePacketFailures);
-            }
-            Link->CreatePacketFailures = 0;
+        NbfGrowSendPacketPool(DeviceContext);
+        
+#if defined(NBF_UP)
+        s = DeviceContext->PacketPool.Next;
+        if (s != NULL) {
+            DeviceContext->PacketPool.Next = s->Next;
         }
+#else
+        s = ExInterlockedPopEntryList (
+                &DeviceContext->PacketPool,
+                &DeviceContext->Interlock);
 #endif
-        ACQUIRE_SPIN_LOCK (&DeviceContext->SpinLock, &oldirql);
-        ++DeviceContext->PacketExhausted;
-        RELEASE_SPIN_LOCK (&DeviceContext->SpinLock, oldirql);
-        return STATUS_INSUFFICIENT_RESOURCES;
+        if (s == NULL) {
+#if DBG
+            ++Link->CreatePacketFailures;
+            if ((ULONG)Link->CreatePacketFailures >= NbfCreatePacketThreshold) {
+                if (NbfPacketPanic) {
+                    NbfPrint1 ("NbfCreatePacket: PANIC! no more packets in provider's pool (%d times).\n",
+                             Link->CreatePacketFailures);
+                }
+                Link->CreatePacketFailures = 0;
+            }
+#endif
+            ACQUIRE_SPIN_LOCK (&DeviceContext->SpinLock, &oldirql);
+            ++DeviceContext->PacketExhausted;
+            RELEASE_SPIN_LOCK (&DeviceContext->SpinLock, oldirql);
+            return STATUS_INSUFFICIENT_RESOURCES;
+        }
+
     }
 #if DBG
     Link->CreatePacketFailures = 0;
@@ -1244,6 +1514,49 @@ Return Value:
 
 } /* NbfDestroyPacket */
 
+VOID NbfGrowSendPacketPool(PDEVICE_CONTEXT DeviceContext)
+{
+    
+    NDIS_STATUS NdisStatus;
+    PNBF_POOL_LIST_DESC SendPacketPoolDesc;
+    PTP_PACKET TransportSendPacket;
+    UINT    i;
+
+    if ((DeviceContext->MemoryLimit != 0) &&
+            ((DeviceContext->MemoryUsage + DeviceContext->PacketLength) >
+                DeviceContext->MemoryLimit)) {
+        PANIC("NBF: Could not grow send packet pool: limit\n");
+        NbfWriteResourceErrorLog(
+            DeviceContext,
+            EVENT_TRANSPORT_RESOURCE_LIMIT,
+            107,
+            DeviceContext->PacketLength,
+            PACKET_RESOURCE_ID);
+        return;
+    }
+
+    for (i = 0; i < PACKET_POOL_GROW_COUNT; i += 1) {
+        NbfAllocateSendPacket(DeviceContext, &TransportSendPacket);
+
+        if (TransportSendPacket != NULL) {
+            ExInterlockedPushEntryList(&(DeviceContext)->PacketPool, 
+                (PSINGLE_LIST_ENTRY)&TransportSendPacket->Linkage, 
+                &(DeviceContext)->Interlock); 
+        }
+        else {
+            break;
+        }    
+    }
+
+    if (i == PACKET_POOL_GROW_COUNT) {
+        return;
+    }
+
+#ifdef DBG
+    DbgBreakPoint();
+#endif      //  DBG
+
+}
 
 #if DBG
 VOID
@@ -1269,18 +1582,16 @@ Return Value:
 --*/
 
 {
-    INTERLOCKED_RESULT result;
+    LONG result;
 
     IF_NBFDBG (NBF_DEBUG_PACKET) {
         NbfPrint3 ("NbfReferencePacket:  Entered, NdisPacket: %lx Packet: %lx Ref Count: %lx.\n",
             Packet->NdisPacket, Packet, Packet->ReferenceCount);
     }
 
-    result =  ExInterlockedIncrementLong (
-                  &Packet->ReferenceCount,
-                  Packet->ProviderInterlock);
+    result =  InterlockedIncrement (&Packet->ReferenceCount);
 
-    ASSERT (result != ResultNegative);
+    ASSERT (result >= 0);
 
 } /* NbfReferencePacket */
 
@@ -1310,11 +1621,9 @@ Return Value:
 --*/
 
 {
-    INTERLOCKED_RESULT result;
+    LONG result;
 
-    result = ExInterlockedDecrementLong (
-                &Packet->ReferenceCount,
-                Packet->ProviderInterlock);
+    result = InterlockedDecrement (&Packet->ReferenceCount);
 
     //
     // If we have deleted all references to this packet, then we can
@@ -1327,9 +1636,9 @@ Return Value:
         NbfPrint1 ("NbfDereferencePacket:  Entered, result: %lx\n", result);
     }
 
-    ASSERT (result != ResultNegative);
+    ASSERT (result >= 0);
 
-    if (result == ResultZero) {
+    if (result == 0) {
         NbfDestroyPacket (Packet);
     }
 
@@ -1461,9 +1770,9 @@ Return Value:
 
 
     NdisAllocateBuffer(
-        &NdisStatus,
+        &NdisStatus, 
         &NdisBuffer,
-        DeviceContext->NdisBufferPoolHandle,
+        DeviceContext->NdisBufferPool,
         DeviceContext->MagicBullet,
         32);
 

@@ -27,6 +27,11 @@ Environment:
 
 #include "dbugexcp.h"
 
+#ifdef DBCS
+#include <mbstring.h>
+#define strchr  _mbschr
+#define strcspn _mbscspn
+#endif
 
 /************************** Data declaration    *************************/
 
@@ -923,7 +928,8 @@ Return Value:
 
             if (lpFile != (LPSTR)NULL) {
                 bMap = FALSE;
-                nRet = SrcMapSourceFilename (lpFile,_MAX_PATH, SRC_MAP_OPEN);
+                nRet = SrcMapSourceFilename (lpFile,_MAX_PATH,
+                                             SRC_MAP_OPEN, NULL);
 
                 if ((nRet >= 1) && (nRet <= 2)) {
                     bMap = TRUE;
@@ -985,6 +991,10 @@ done:
 }                   /* LogBPSet() */
 
 
+LPSTR
+ParseContext_FileName(
+    LPSTR lpContext
+    )
 /*++
 
 Routine Description:
@@ -1002,9 +1012,7 @@ Return Value:
 
 --*/
 
-LPSTR ParseContext_FileName(LPSTR lpContext)
 {
-    //static char szContextFile[_MAX_PATH];
     LPSTR   lpBegin;
     LPSTR   lpEnd;
     LPSTR   lpTarget = (LPSTR)NULL;
@@ -1066,7 +1074,7 @@ Return Value:
 
     Dbg(BPNextHbpt(&hbpt, bptNext) == BPNOERROR);
 
-    if (hbpt == hbptNull) {
+    if (hbpt == NULL) {
         /*
         **  No breakpoints to list
         */
@@ -1075,7 +1083,7 @@ Return Value:
         CmdLogVar(ERR_No_Breakpoints);
 
     } else {
-        for ( ; hbpt != hbptNull; BPNextHbpt( &hbpt, bptNext )) {
+        for ( ; hbpt != NULL; BPNextHbpt( &hbpt, bptNext )) {
 
             if (FSetLppd && LppdCommand && LppdCommand != (LPPD)-1) {
                 BPGetHpid(hbpt, &hpid);
@@ -1151,7 +1159,7 @@ Return Value:
             goto done;
         }
         Dbg( BPNextHbpt(&hbpt, bptFirst) == BPNOERROR);
-        for ( ; hbpt != hbptNull; hbpt = hbptN) {
+        for ( ; hbpt != NULL; hbpt = hbptN) {
 
             hbptN = hbpt;
             Dbg( BPNextHbpt( &hbptN, bptNext ) == BPNOERROR);
@@ -1389,8 +1397,8 @@ Return Value:
                     tail->next = malloc( sizeof(HTMLIST) );
                     tail = tail->next;
                     tail->next = NULL;
-                    tail->lpszName = strdup( lpszName );
-                    tail->lpszValue = strdup( lpszValue );
+                    tail->lpszName = _strdup( lpszName );
+                    tail->lpszValue = _strdup( lpszValue );
                     tail->fArg = TRUE;
 
                     MMbUnlockMb( hValue );
@@ -1450,7 +1458,7 @@ Return Value:
 
                     found = head.next;
                     while (found) {
-                        if (found->fArg && (stricmp(found->lpszName,lpszName)==0)) {
+                        if (found->fArg && (_stricmp(found->lpszName,lpszName)==0)) {
                             break;
                         }
                         found = found->next;
@@ -1460,8 +1468,8 @@ Return Value:
                         tail->next = malloc( sizeof(HTMLIST) );
                         tail = tail->next;
                         tail->next = NULL;
-                        tail->lpszName = strdup( lpszName );
-                        tail->lpszValue = strdup( lpszValue );
+                        tail->lpszName = _strdup( lpszName );
+                        tail->lpszValue = _strdup( lpszValue );
                         tail->fArg = FALSE;
                     }
 
@@ -1990,7 +1998,7 @@ Return Value:
     }
 
     p = CPSkipWhitespace( lpsz );
-    if (p && stricmp(p,"*!")==0) {
+    if (p && _stricmp(p,"*!")==0) {
         LogListModules("");
         return LOGERROR_NOERROR;
     }
@@ -2015,7 +2023,11 @@ Return Value:
     if ( *lpsz == '{' ) {
 
         for (p = lpsz; *p && *p != '}'; ) {
+#ifdef DBCS
+            p = CharNext(p);
+#else
             p++;
+#endif
         }
 
         if (!*p) {
@@ -2088,6 +2100,8 @@ Return Value:
 
     lpRE = lpsz;
 
+    // UNDONE: The tests below don't make sense to me.  Why check for either alpha or '_', '@'?  BryanT
+
     if ( isalpha(*lpRE) || *lpRE == '_' ) {
         *szStr = '_';
         strcpy(szStr+1, lpRE);
@@ -2096,6 +2110,12 @@ Return Value:
     if ( isalpha(*lpRE) || *lpRE == '@' ) {
         *szStr = '@';
         strcpy(szStr+1, lpRE);
+        err = XWorker(szStr, mask, &cxf);
+    }
+    if ( isalpha(*lpRE) || (*lpRE == '.' && *(lpRE + 1) == '.') ) {
+        *szStr   = '.';
+        *(szStr+1) = '.';
+        strcpy(szStr+2, lpRE);
         err = XWorker(szStr, mask, &cxf);
     }
     if (err == LOGERROR_NOERROR) {
@@ -2184,6 +2204,12 @@ Return Value:
     //
     chCmd = *lpsz;
     if ( chCmd != '\0' ) {
+#ifdef DBCS
+        if ( IsDBCSLeadByte( chCmd ) ) {
+            rVal = LOGERROR_UNKNOWN;
+            goto done;
+        }
+#endif
         lpsz++;
         if ( strchr( " \t", chCmd ) ) {
             chCmd = '\0';
@@ -2670,7 +2696,7 @@ Return Value:
 --*/
 {
     ADDR    addr;
-    HBPT    hbpt = hbptNull;
+    HBPT    hbpt = NULL;
     CXF     cxf = CxfIp;
     LPPD    LppdT;
     LPTD    LptdT;
@@ -2843,7 +2869,7 @@ Return Value:
                 LppdCur ? LppdCur->hpid: 0)
            != BPNOERROR)
     {
-        Assert( hbpt == hbptNull );
+        Assert( hbpt == NULL );
         CmdLogVar(ERR_AddrExpr_Invalid);
         rVal = LOGERROR_QUIET;
 
@@ -3015,6 +3041,11 @@ Return Value:
         UpdateDebuggerState(UPDATE_CONTEXT);
     }
 
+    if (!DebuggeeActive()) {
+        CmdLogVar(ERR_Debuggee_Not_Alive);
+        rVal = LOGERROR_QUIET;
+        goto done;
+    }
 
     /*
     **  get address
@@ -3327,7 +3358,7 @@ Return Value:
 
                             if ( !SelSort  &&
                                   LastName &&
-                                  stricmp( LastName, lpModName )) {
+                                  _stricmp( LastName, lpModName )) {
 
                                 CmdLogFmt("\r\n" );
                             }
@@ -3460,6 +3491,11 @@ Return Value:
                         } else {
                             char *p = ModNameBuffer;
                             while ( *lpsz && *lpsz != ' ' && *lpsz != '\t' ) {
+#ifdef DBCS
+                                if (IsDBCSLeadByte(*lpsz)) {
+                                    *p++ = *lpsz++;
+                                }
+#endif
                                 *p++ = *lpsz++;
                             }
                             *p++ = '\0';
@@ -3673,7 +3709,7 @@ Return Value:
         if (LpszCommandLine) {
             free(LpszCommandLine);
         }
-        LpszCommandLine = strdup(lpsz);
+        LpszCommandLine = _strdup(lpsz);
     }
 
     if (!ExecDebuggee(EXEC_RESTART)) {
@@ -3967,7 +4003,7 @@ Return Value:
 
     lpsz = CPSkipWhitespace(lpsz);
 
-    if (stricmp(lpsz,"stop")==0) {
+    if (_stricmp(lpsz,"stop")==0) {
 
         pig = (PIOCTLGENERIC) malloc( sizeof(IOCTLGENERIC) );
         if (!pig) {

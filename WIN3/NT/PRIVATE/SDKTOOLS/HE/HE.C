@@ -1,8 +1,8 @@
 
-/*****************************************************************/ 
-/**          Microsoft LAN Manager          **/ 
-/**        Copyright(c) Microsoft Corp., 1988-1991      **/ 
-/*****************************************************************/ 
+/*****************************************************************/
+/**          Microsoft LAN Manager          **/
+/**        Copyright(c) Microsoft Corp., 1988-1991      **/
+/*****************************************************************/
 
 /****   he - HexEdit a file
  *
@@ -24,6 +24,9 @@
 #include "hexedit.h"
 
 NTSTATUS fncRead(), fncWrite(), fncWriteDASD();
+
+void EditFile (char *name);
+void ReadIni ();
 
 WORD vAttrList, vAttrTitle, vAttrHigh;
 
@@ -67,8 +70,10 @@ char    *argv[];
 
 
 
-EditFile (name)
-char    *name;
+void
+EditFile (
+    char *name
+    )
 {
     FILE_ALIGNMENT_INFORMATION AlignmentInfo;
     DISK_GEOMETRY              DiskGeo;
@@ -126,7 +131,7 @@ char    *name;
         HexEdit (&ei);
         return ;
     }
-    rc = GetLastError ();
+    rc = (USHORT)GetLastError ();
 
     //
     // Try expanding the name from dosname to ntname.
@@ -331,7 +336,7 @@ char *pt;
 }
 
 
-
+void
 ReadIni ()
 {
     static  char    Delim[] = " :=;\t\r\n";
@@ -354,7 +359,7 @@ ReadIni ()
     while (fgets (s, 200, fp) != NULL) {
         if (s[0] != '[')
             continue;
-        strupr (s);
+        _strupr (s);
         if (strstr (s, "LIST") == NULL)
             continue;
         /*
@@ -370,7 +375,7 @@ ReadIni ()
             if (value == NULL)
                 value = "";
 
-            strupr (verb);
+            _strupr (verb);
             if (strcmp (verb, "LCOLOR")  == 0) vAttrList = (WORD)xtoi(value);
             else if (strcmp (verb, "TCOLOR")  == 0) vAttrTitle= (WORD)xtoi(value);
             else if (strcmp (verb, "HCOLOR")  == 0) vAttrHigh = (WORD)xtoi(value);

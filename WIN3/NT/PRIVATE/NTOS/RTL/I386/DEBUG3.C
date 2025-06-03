@@ -4,11 +4,11 @@
 //
 // Module Name:
 //
-//    debug.c
+//    debug3.c
 //
 // Abstract:
 //
-//    This module implements functions to support debugging NT.
+//    This module implements architecture specific functions to support debugging NT.
 //
 // Author:
 //
@@ -26,7 +26,7 @@
 #include "stdio.h"
 #include "string.h"
 #include "ntrtlp.h"
-
+
 //
 // Prototype for local procedure
 //
@@ -40,159 +40,41 @@ DebugService(
 
 VOID _fptrap() {};
 
-ULONG
-DbgPrint (
-    IN PCH Format,
-    ...
+NTSTATUS
+DebugPrint(
+    IN PSTRING Output
     )
-
-//++
-//
-//  Routine Description:
-//
-//      Effectively DbgPrint to the debugging console.
-//
-//  Arguments:
-//
-//      Same as for DbgPrint
-//
-//--
-
 {
-    va_list arglist;
-    UCHAR Buffer[512];
-    STRING Output;
-
-    //
-    // Format the output into a buffer and then print it.
-    //
-
-    va_start(arglist, Format);
-    Output.Length = _vsnprintf(Buffer, sizeof(Buffer), Format, arglist);
-    Output.Buffer = Buffer;
-    return DebugService(BREAKPOINT_PRINT, &Output, 0);
+    return DebugService( BREAKPOINT_PRINT, Output, 0 );
 }
+
 
 ULONG
-DbgPrompt (
-    IN PCHAR Prompt,
-    OUT PCHAR Response,
-    IN ULONG MaximumResponseLength
+DebugPrompt(
+    IN PSTRING Output,
+    IN PSTRING Input
     )
-
-//++
-//
-// Routine Description:
-//
-//    This function displays the prompt string on the debugging console and
-//    then reads a line of text from the debugging console.  The line read
-//    is returned in the memory pointed to by the second parameter.  The
-//    third parameter specifies the maximum number of characters that can
-//    be stored in the response area.
-//
-// Arguments:
-//
-//    Prompt - specifies the text to display as the prompt.
-//
-//    Response - specifies where to store the response read from the
-//       debugging console.
-//
-//    Prompt - specifies the maximum number of characters that can be
-//       stored in the Response buffer.
-//
-// Return Value:
-//
-//    Number of characters stored in the Response buffer.  Includes the
-//    terminating newline character, but not the null character after
-//    that.
-//
-//--
-
 {
-
-    STRING Input;
-    STRING Output;
-
-    //
-    // Output the prompt string and read input.
-    //
-
-    Input.MaximumLength = (USHORT)MaximumResponseLength;
-    Input.Buffer = Response;
-    Output.Length = strlen(Prompt);
-    Output.Buffer = Prompt;
-    return DebugService(BREAKPOINT_PROMPT, &Output, &Input);
+    return DebugService( BREAKPOINT_PROMPT, Output, Input );
 }
 
 VOID
-DbgLoadImageSymbols (
+DebugLoadImageSymbols(
     IN PSTRING FileName,
-    IN PVOID ImageBase,
-    IN ULONG ProcessId
+    IN PKD_SYMBOLS_INFO SymbolInfo
     )
-
-//++
-//
-// Routine Description:
-//
-//    Tells the debugger about newly loaded symbols.
-//
-// Arguments:
-//
-// Return Value:
-//
-//--
-
 {
-    PIMAGE_NT_HEADERS NtHeaders;
-    KD_SYMBOLS_INFO SymbolInfo;
-
-    SymbolInfo.BaseOfDll = ImageBase;
-    SymbolInfo.ProcessId = ProcessId;
-    NtHeaders = RtlImageNtHeader(ImageBase);
-    if (NtHeaders) {
-        SymbolInfo.CheckSum    = (ULONG)NtHeaders->OptionalHeader.CheckSum;
-        SymbolInfo.SizeOfImage = (ULONG)NtHeaders->OptionalHeader.SizeOfImage;
-        }
-    else {
-        SymbolInfo.CheckSum    = 0;
-        SymbolInfo.SizeOfImage = 0;
-        }
-
-    DebugService(BREAKPOINT_LOAD_SYMBOLS, FileName, &SymbolInfo);
-    return;
+    DebugService( BREAKPOINT_LOAD_SYMBOLS, FileName, SymbolInfo );
 }
 
 
 VOID
-DbgUnLoadImageSymbols (
+DebugUnLoadImageSymbols(
     IN PSTRING FileName,
-    IN PVOID ImageBase,
-    IN ULONG ProcessId
+    IN PKD_SYMBOLS_INFO SymbolInfo
     )
-
-//++
-//
-// Routine Description:
-//
-//    Tells the debugger about newly unloaded symbols.
-//
-// Arguments:
-//
-// Return Value:
-//
-//--
-
 {
-    KD_SYMBOLS_INFO SymbolInfo;
-
-    SymbolInfo.BaseOfDll = ImageBase;
-    SymbolInfo.ProcessId = ProcessId;
-    SymbolInfo.CheckSum    = 0;
-    SymbolInfo.SizeOfImage = 0;
-
-    DebugService(BREAKPOINT_UNLOAD_SYMBOLS, FileName, &SymbolInfo);
-    return;
+    DebugService( BREAKPOINT_UNLOAD_SYMBOLS, FileName, SymbolInfo );
 }
 
 NTSTATUS

@@ -67,12 +67,9 @@ void out(char *fmt, ...)
     }
 }
 
-// Print out an error message and terminate the DRT
-void error(int code, char *fmt, ...)
+//  internal error print
+void _errorprint (char *fmt, va_list args)
 {
-    va_list args;
-
-    va_start(args, fmt);
 #if !defined(FLAT) || defined(FPRINTF_WORKS)
     fprintf(stderr, "** Fatal error **: ");
     vfprintf(stderr, fmt, args);
@@ -80,11 +77,35 @@ void error(int code, char *fmt, ...)
     printf("** Fatal error **: ");
     vprintf(fmt, args);
 #endif
+}
+
+//  error print
+void errorprint (char *fmt, ...)
+{
+    va_list args;
+
+    va_start (args, fmt);
+
+    _errorprint (fmt, args);
+
+    va_end (args);
+}
+
+// Print out an error message and terminate the DRT
+void error(int code, char *fmt, ...)
+{
+    va_list args;
+
+    va_start(args, fmt);
+
+    _errorprint (fmt, args);
+
     va_end(args);
     CleanData();
     UnsetData();
     exit(code);
 }
+
 
 // Converts a TCHAR string to a char pointer in a temporary buffer
 // This implementation treats the conversion buffer as a circular
@@ -490,8 +511,12 @@ void Unforce(void)
 // Equality for FILETIME
 BOOL IsEqualTime(FILETIME ttTime, FILETIME ttCheck)
 {
-    return ttTime.dwLowDateTime == ttCheck.dwLowDateTime &&
-        ttTime.dwHighDateTime == ttCheck.dwHighDateTime;
+    //  File times can be off by as much as 2 seconds due to FAT rounding
+    LONGLONG tmTime = *(LONGLONG *)&ttTime;
+    LONGLONG tmCheck = *(LONGLONG *)&ttCheck;
+    LONGLONG tmDelta = tmTime - tmCheck;
+
+    return tmDelta < 20000000i64 && tmDelta > -2i64 ;
 }
 
 // Get a fully qualified path for a file name

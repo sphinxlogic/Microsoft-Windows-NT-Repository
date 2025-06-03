@@ -724,7 +724,7 @@ TransFindController (
                 infoLevel
                 );
             SmbPutUlong(
-                &((PREQ_FIND_FIRST2)parameters)->Reserved,
+                &((PREQ_FIND_FIRST2)parameters)->SearchStorageType,
                 0
                 );
 

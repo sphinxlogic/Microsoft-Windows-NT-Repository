@@ -157,7 +157,10 @@ extern LONG NbfCompletedReceivesNext;
 // MAJOR PROTOCOL IDENTIFIERS THAT CHARACTERIZE THIS DRIVER.
 //
 
-#define NBF_DEVICE_NAME         L"\\Device\\Nbf" // name of our driver.
+#define NBF_DEVICE_NAME         L"\\Device\\Nbf"// name of our driver.
+#ifdef _PNP_POWER
+#define NBF_NAME                L"Nbf"          // name for protocol chars.
+#endif
 #define DSAP_NETBIOS_OVER_LLC   0xf0            // NETBEUI always has DSAP 0xf0.
 #define PSAP_LLC                0               // LLC always runs over PSAP 0.
 #define MAX_SOURCE_ROUTE_LENGTH 32              // max. bytes of SR. info.

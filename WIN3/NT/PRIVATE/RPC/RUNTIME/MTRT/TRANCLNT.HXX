@@ -71,7 +71,8 @@ public:
         IN RPC_CHAR * NetworkOptions,
         IN RPC_CHAR * RpcProtocolSequence,
         OUT RPC_STATUS PAPI * ErrorCode,
-        IN unsigned int Timeout
+        IN unsigned int Timeout,
+        IN CLIENT_AUTH_INFO * myAuthInfo
         );
 
     ~TRANS_CCONNECTION (
@@ -96,6 +97,15 @@ public:
         OUT void PAPI * PAPI * ReceiveBuffer,
         OUT unsigned int PAPI * ReceiveBufferLength
         );
+
+    RPC_STATUS
+    TransSendReceiveWithTimeout (
+        IN void PAPI * SendBuffer,
+        IN unsigned int SendBufferLength,
+        OUT void PAPI * PAPI * ReceiveBuffer,
+        OUT unsigned int PAPI * ReceiveBufferLength,
+        IN DWORD dwTimeout
+        ) ;
 
     RPC_STATUS
     TransSetTimeout (

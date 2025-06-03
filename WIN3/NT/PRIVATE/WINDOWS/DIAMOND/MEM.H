@@ -16,6 +16,8 @@
  *	11-Aug-1993 bens    Lift code from STOCK.EXE win app
  *	12-Aug-1993 bens    Improved comments
  *      18-Mar-1994 bens    strdup() now called _strdup(); renamed
+ *      18-May-1994 bens    Allow turning off MemCheckHeap() in debug build
+ *                              (it can really, really slow things down!)
  *
  *  Functions:
  *	MemAlloc  - Allocate memory block
@@ -23,9 +25,11 @@
  *	MemStrDup - Duplicate string to new memory block
  *
  *  Functions available in ASSERT build:
- *	MemAssert    - Assert that pointer was allocated by MemAlloc
- *	MemCheckHeap - Check entire memory heap
- *	MemGetSize   - Return allocated size of memory block
+ *      MemAssert       - Assert that pointer was allocated by MemAlloc
+ *      MemCheckHeap    - Check entire memory heap
+ *      MemGetSize      - Return allocated size of memory block
+ *      MemSetCheckHeap - Control whether MemCheckHeap is done on every
+ *                          every MemAlloc and MemFree!
  */
 
 #ifndef INCLUDED_MEMORY
@@ -46,6 +50,7 @@ void  MMFree(void *pv, char *pszFile, int iLine);
 void  MMAssert(void *pv, char *pszFile, int iLine);
 void  MMCheckHeap(char *pszFile, int iLine);
 char *MMStrDup(char *pv, char *pszFile, int iLine);
+void  MemSetCheckHeap(BOOL f);
 
 #else // !ASSERT
 
@@ -61,7 +66,8 @@ char *MMStrDup(char *pv, char *pszFile, int iLine);
 
 #define MemAssert(pv)
 #define MemCheckHeap()
-#define MemGetSize(pv)	  // Not available
+#define MemGetSize(pv)
+#define MemSetCheckHeap(f)
 
 #endif // !ASSERT
 

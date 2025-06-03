@@ -131,6 +131,12 @@ typedef struct _IO_REQUEST {
 
         /* Direct firmware communication FRB */
         struct S_DComFirm ioDComFirm;
+
+        /* Direct firmware communication FRB */
+        struct S_TapeParms ioTapeParms;
+
+        /* device info FRB (CMD_REPORT_DEVICE_INFO) */
+        struct S_ReportDeviceInfo ioDeviceInfo;
     } x;
 
     KEVENT DoneEvent;               // Event that IoCompleteReqeust will set
@@ -199,7 +205,8 @@ typedef union U_BadMap {
 typedef struct _TAPE_HEADER {
     ULONG   Signature;                  // set to 0xaa55aa55l
     UBYTE   FormatCode;                 // set to 0x01
-    UBYTE   unused1;
+    UBYTE   SubFormatCode;              // Zero for pre-rev L tapes and
+                                        //  value + 'A' for rev L and above
     SEGMENT HeaderSegment;              // segment number of header
     SEGMENT DupHeaderSegment;           // segment number of duplicate header
     SEGMENT FirstSegment;               // segment number of Data area
@@ -279,10 +286,30 @@ typedef struct _VOLUME_TABLE_ENTRY {
 //
 typedef struct _Q117_CONTEXT {
 
+    struct {
+        BOOLEAN VerifyOnlyOnFormat;     // Verify only on format.  If TRUE
+                                        // Then do NOT perform LOW-LEVEL
+                                        // Format
+
+        BOOLEAN DetectOnly;             // If TRUE,  allow only the CMS_DETECT
+                                        // ioctl,  and do not allocate memory
+
+        BOOLEAN FormatDisabled;         // If TRUE,  Tape API format will be
+                                        // Disabled.
+
+    } Parameters;
+
+    ULONG TapeNumber;                   // Tape number of this context (used
+                                        // for DEVICEMAP\tape\Unit {x} and
+                                        // device \\.\tape{x}
+
     BOOLEAN DriverOpened;               // Set if q117Create called (this driver opened)
     BOOLEAN DeviceConfigured;           // Set if CMD_REPORT_DEVICE_CFG performed
     BOOLEAN DeviceSelected;             // Set if CMD_SELECT_DEVICE performed,
                                         // Reset if CMD_DESELECT_DEVICE performed
+
+    struct S_DriveCfgData DriveCfg;
+
 
     PVOID PageHandle;
 
@@ -370,6 +397,13 @@ typedef struct _Q117_CONTEXT {
         ULONG BadSectorMapSize;
         USHORT CurBadListIndex;
         USHORT TapeFormatCode;
+        enum {
+            BadMap3ByteList,
+            BadMap8ByteList,
+            BadMap4ByteArray,
+            BadMapFormatUnknown
+            } BadSectorMapFormat;
+
 
         } CurrentTape;
 
@@ -390,10 +424,12 @@ typedef struct _Q117_CONTEXT {
     ULONG CurrentMark;
     struct _MARKENTRIES {
         ULONG TotalMarks;
+        ULONG MarksAllocated;       // size of mark entry buffer (in entries not bytes)
+        ULONG MaxMarks;
         struct _MARKLIST {
             ULONG Type;
             ULONG Offset;
-        } MarkEntry[MAX_MARKS];
+        } *MarkEntry;
     } MarkArray;
 #endif
 
@@ -448,4 +484,3 @@ typedef enum _DEQUEUE_TYPE {
 #define ERR_BAD_BLOCK_DETECTED      0x0117
 #define ERR_OP_PENDING_COMPLETION   0x0118
 #define ERR_INVALID_REQUEST         0x0119
-

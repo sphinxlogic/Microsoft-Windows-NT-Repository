@@ -22,14 +22,13 @@ Revision History:
 
 --*/
 
-#include "..\mi.h"
-#include "mm.h"
+#include "mi.h"
 
 VOID
 MiSetDirtyBit (
     IN PVOID FaultingAddress,
     IN PMMPTE PointerPte,
-    IN BOOLEAN PfnHeld
+    IN ULONG PfnHeld
     )
 
 /*++

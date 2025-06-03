@@ -89,6 +89,7 @@ typedef struct _LSAP_LOGON_USER_ARGS {
     NTSTATUS SubStatus;                // OUT parameter
     PVOID ProfileBuffer;               // OUT parameter
     ULONG ProfileBufferLength;         // OUT parameter
+    ULONG DummySpacer;                 // Spacer to force LUID to 8 byte alignment
     LUID LogonId;                      // OUT parameter
     HANDLE Token;                      // OUT parameter
     QUOTA_LIMITS Quotas;               // OUT parameter

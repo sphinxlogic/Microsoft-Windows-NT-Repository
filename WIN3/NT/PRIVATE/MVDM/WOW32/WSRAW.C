@@ -24,12 +24,68 @@ Revision History:
 #include "wsdynmc.h"
 
 LIST_ENTRY WWS32SocketHandleListHead;
-DWORD WWS32SocketHandleCounter;
+WORD WWS32SocketHandleCounter;
+BOOL WWS32SocketHandleCounterWrapped;
 
-int
-SocketOption16To32 (
-    IN WORD SocketOption16
-    );
+//
+// The (PCHAR) casts in the following macro force the compiler to assume
+// only BYTE alignment.
+//
+
+#define SockCopyMemory(d,s,l) RtlCopyMemory( (PCHAR)(d), (PCHAR)(s), (l) )
+
+
+#define WSEXIT_IF_NOT_INTIALIZED()           \
+    if(!WWS32IsThreadInitialized) {          \
+        SetLastError(WSANOTINITIALISED);     \
+        RETURN((ULONG)SOCKET_ERROR);         \
+    }
+
+
+int SocketOption16To32(IN WORD SocketOption16);
+
+DWORD WSGetWinsock32(IN  HAND16 h16,
+                     OUT PULONG pul);
+
+BOOL WSThunkAddrBufAndLen(IN  PSOCKADDR  fastSockaddr, 
+                          IN  VPSOCKADDR vpSockAddr16,
+                          IN  VPWORD     vpwAddrLen16,
+                          OUT PINT       addressLength,
+                          OUT PINT      *pAddressLength,
+                          OUT PSOCKADDR *realSockaddr);
+
+VOID WSUnThunkAddrBufAndLen(IN ULONG      ret,
+                            IN VPWORD     vpwAddrLen16,
+                            IN VPSOCKADDR vpSockAddr16,
+                            IN INT        addressLength,
+                            IN PSOCKADDR  fastSockaddr,
+                            IN PSOCKADDR  realSockaddr);
+
+BOOL WSThunkAddrBuf(IN  INT         addressLength,
+                    IN  VPSOCKADDR  vpSockAddr16,
+                    IN  PSOCKADDR   fastSockaddr, 
+                    OUT PSOCKADDR  *realSockaddr);
+
+VOID WSUnThunkAddrBuf(IN PSOCKADDR  fastSockaddr, 
+                      IN PSOCKADDR  realSockaddr);
+
+BOOL WSThunkRecvBuffer(IN  INT    BufferLength,
+                       IN  VPBYTE vpBuf16,
+                       OUT PBYTE  *buffer);
+
+VOID WSUnthunkRecvBuffer(IN INT    cBytes,
+                         IN INT    BufferLength, 
+                         IN VPBYTE vpBuf16,
+                         IN PBYTE  buffer);
+
+BOOL WSThunkSendBuffer(IN  INT    BufferLength,
+                       IN  VPBYTE vpBuf16,
+                       OUT PBYTE  *buffer);
+
+VOID WSUnthunkSendBuffer(IN PBYTE buffer);
+
+
+
 
 /*++
 
@@ -86,25 +142,31 @@ NOTE:
 
   Also, never update structures in 16 bit land if the 32 bit call fails.
 
+  Be aware that the GETxxxPTR macros return the CURRENT selector-to-flat_memory
+  mapping.  Calls to some 32-bit functions may indirectly cause callbacks into
+  16-bit code.  These may cause 16-bit memory to move due to allocations
+  made in 16-bit land.  If the 16-bit memory does move, the corresponding 32-bit
+  ptr in WOW32 needs to be refreshed to reflect the NEW selector-to-flat_memory
+  mapping.
+
 --*/
 
 
 ULONG FASTCALL WWS32accept(PVDMFRAME pFrame)
 {
-    ULONG ul;
-    register PACCEPT16 parg16;
-    SOCKET s32;
-    SOCKET news32;
-    HSOCKET16 news16;
-    PSOCKADDR sockaddr;
-    PWORD addressLength16;
-    INT addressLength;
-    PINT pAddressLength;
+    ULONG      ul = GETWORD16(INVALID_SOCKET);
+    register   PACCEPT16 parg16;
+    SOCKET     s32;
+    SOCKET     news32;
+    HSOCKET16  news16;
+    INT        addressLength;
+    PINT       pAddressLength;
+    SOCKADDR   fastSockaddr;
+    PSOCKADDR  realSockaddr;
+    VPWORD     vpwAddrLen16;
+    VPSOCKADDR vpSockAddr16;
 
-    if ( !WWS32IsThreadInitialized ) {
-        SetLastError( WSANOTINITIALISED );
-        RETURN((ULONG)SOCKET_ERROR);
-    }
+    WSEXIT_IF_NOT_INTIALIZED();
 
     GETARGPTR(pFrame, sizeof(PACCEPT16), parg16);
 
@@ -112,58 +174,64 @@ ULONG FASTCALL WWS32accept(PVDMFRAME pFrame)
     // Find the 32-bit socket handle.
     //
 
-    s32 = GetWinsock32( parg16->hSocket );
-
-    if ( s32 == INVALID_SOCKET ) {
-
-        (*wsockapis[WOW_WSASETLASTERROR].lpfn)( WSAENOTSOCK );
-        ul = (ULONG)GETWORD16( SOCKET_ERROR );
-
-    } else {
-
-        GETVDMPTR( parg16->AddressLength, sizeof(*addressLength16), addressLength16 );
-        GETVDMPTR( parg16->Address, *addressLength16, sockaddr );
-
-        if ( addressLength16 == NULL ) {
-            pAddressLength = NULL;
-        } else {
-            addressLength = INT32( *addressLength16 );
-            pAddressLength = &addressLength;
-        }
-
-        news32 = (*wsockapis[WOW_ACCEPT].lpfn)( s32, sockaddr, pAddressLength );
-
-        if ( addressLength16 != NULL ) {
-            STOREWORD( *addressLength16, addressLength );
-        }
-
-        //
-        // If the call succeeded, alias the 32-bit socket handle we just
-        // obtained into a 16-bit handle.
-        //
-
-        if ( news32 != INVALID_SOCKET ) {
-
-            news16 = GetWinsock16( news32, 0 );
-
-            if ( news16 == 0 ) {
-                (*wsockapis[WOW_CLOSESOCKET].lpfn)( news32 );
-                (*wsockapis[WOW_WSASETLASTERROR].lpfn)( WSAENOBUFS );
-                ul = GETWORD16( INVALID_SOCKET );
-            }
-
-            ul = news16;
-
-        } else {
-
-            ul = GETWORD16( INVALID_SOCKET );
-        }
-
-        FLUSHVDMPTR( parg16->AddressLength, sizeof(*addressLength16), addressLength16 );
-        FLUSHVDMPTR( parg16->Address, addressLength, sockaddr );
-        FREEVDMPTR( addressLength16 );
-        FREEVDMPTR( sockaddr );
+    if((s32 = WSGetWinsock32(parg16->hSocket, &ul)) == INVALID_SOCKET) {
+        goto exit;
     }
+
+    vpwAddrLen16 = (VPWORD)FETCHDWORD(parg16->AddressLength);
+    vpSockAddr16 = (VPSOCKADDR)FETCHDWORD(parg16->Address);
+
+    // Thunk the 16-bit Address name and length buffers
+    if(!WSThunkAddrBufAndLen(&fastSockaddr, 
+                             vpSockAddr16,
+                             vpwAddrLen16, 
+                             &addressLength,
+                             &pAddressLength,
+                             &realSockaddr)) {
+        goto exit;
+    }
+
+    // call the 32-bit API
+    news32 = (*wsockapis[WOW_ACCEPT].lpfn)( s32, realSockaddr, pAddressLength);
+
+    // Note: 16-bit callbacks resulting from above function 
+    //       call may have caused 16-bit memory movement
+    FREEARGPTR(pFrame);
+    FREEARGPTR(parg16);
+
+    // Un-Thunk the 16-bit Address name and length buffers
+    WSUnThunkAddrBufAndLen((ULONG)news32,
+                           vpwAddrLen16,
+                           vpSockAddr16,
+                           addressLength,
+                           &fastSockaddr,
+                           realSockaddr);
+
+    //
+    // If the call succeeded, alias the 32-bit socket handle we just
+    // obtained into a 16-bit handle.
+    //
+
+    if ( news32 != INVALID_SOCKET ) {
+
+        news16 = GetWinsock16( news32, 0 );
+
+        if ( news16 == 0 ) {
+
+            (*wsockapis[WOW_CLOSESOCKET].lpfn)( news32 );
+            (*wsockapis[WOW_WSASETLASTERROR].lpfn)( WSAENOBUFS );
+
+            // Note: 16-bit callbacks resulting from above function 
+            //       call may have caused 16-bit memory movement
+
+            goto exit;
+        }
+
+        ul = news16;
+
+    }
+
+exit:
 
     FREEARGPTR( parg16 );
 
@@ -171,17 +239,25 @@ ULONG FASTCALL WWS32accept(PVDMFRAME pFrame)
 
 } // WWS32accept
 
+
+
+
+
+
+
+
+
 ULONG FASTCALL WWS32bind(PVDMFRAME pFrame)
 {
-    ULONG ul;
-    register PBIND16 parg16;
-    SOCKET s32;
-    PSOCKADDR sockaddr;
+    ULONG       ul = GETWORD16(INVALID_SOCKET);
+    register    PBIND16 parg16;
+    SOCKET      s32;
+    SOCKADDR    fastSockaddr;
+    PSOCKADDR   realSockaddr;
+    INT         addressLength;
+    VPSOCKADDR  vpSockAddr16;
 
-    if ( !WWS32IsThreadInitialized ) {
-        SetLastError( WSANOTINITIALISED );
-        RETURN((ULONG)SOCKET_ERROR);
-    }
+    WSEXIT_IF_NOT_INTIALIZED();
 
     GETARGPTR(pFrame, sizeof(PBIND16), parg16);
 
@@ -189,21 +265,35 @@ ULONG FASTCALL WWS32bind(PVDMFRAME pFrame)
     // Find the 32-bit socket handle.
     //
 
-    s32 = GetWinsock32( parg16->hSocket );
-
-    if ( s32 == INVALID_SOCKET ) {
-
-        (*wsockapis[WOW_WSASETLASTERROR].lpfn)( WSAENOTSOCK );
-        ul = (ULONG)GETWORD16( SOCKET_ERROR );
-
-    } else {
-
-        GETVDMPTR( parg16->Address, sizeof(*sockaddr), sockaddr );
-
-        ul = GETWORD16( (*wsockapis[WOW_BIND].lpfn)( s32, sockaddr, parg16->AddressLength ) );
-
-        FREEVDMPTR( sockaddr );
+    if((s32 = WSGetWinsock32(parg16->hSocket, &ul)) == INVALID_SOCKET) {
+        goto exit;
     }
+
+    vpSockAddr16 = (VPSOCKADDR)FETCHDWORD(parg16->Address);
+
+    addressLength = INT32(parg16->AddressLength);
+
+    // Thunk the 16-bit address buffer
+    if(!WSThunkAddrBuf(addressLength,
+                       vpSockAddr16,
+                       &fastSockaddr, 
+                       &realSockaddr)) {
+        goto exit;
+    }
+
+    ul = GETWORD16( (*wsockapis[WOW_BIND].lpfn)(s32, 
+                                                realSockaddr, 
+                                                addressLength));
+
+    // Note: 16-bit callbacks resulting from above function 
+    //       call may have caused 16-bit memory movement
+    FREEARGPTR(pFrame);
+    FREEARGPTR(parg16);
+
+    // Un-Thunk the 16-bit address buffer
+    WSUnThunkAddrBuf(&fastSockaddr, realSockaddr);
+
+exit:
 
     FREEARGPTR( parg16 );
 
@@ -211,40 +301,49 @@ ULONG FASTCALL WWS32bind(PVDMFRAME pFrame)
 
 } // WWS32bind
 
+
+
+
+
+
+
+
+
 ULONG FASTCALL WWS32closesocket(PVDMFRAME pFrame)
 {
-    ULONG ul;
-    register PCLOSESOCKET16 parg16;
-    SOCKET s32;
+    ULONG     ul = GETWORD16(INVALID_SOCKET);
+    register  PCLOSESOCKET16 parg16;
+    SOCKET    s32;
+    HSOCKET16 hSocket16;
 
-    if ( !WWS32IsThreadInitialized ) {
-        SetLastError( WSANOTINITIALISED );
-        RETURN((ULONG)SOCKET_ERROR);
-    }
+    WSEXIT_IF_NOT_INTIALIZED();
 
     GETARGPTR(pFrame, sizeof(CLOSESOCKET16), parg16);
+
+    hSocket16 = (HSOCKET16)FETCHWORD(parg16->hSocket);
 
     //
     // Find the 32-bit socket handle.
     //
 
-    s32 = GetWinsock32( parg16->hSocket );
-
-    if ( s32 == INVALID_SOCKET ) {
-
-        (*wsockapis[WOW_WSASETLASTERROR].lpfn)( WSAENOTSOCK );
-        ul = (ULONG)GETWORD16( SOCKET_ERROR );
-
-    } else {
-
-        ul = GETWORD16( (*wsockapis[WOW_CLOSESOCKET].lpfn)( s32 ) );
+    if((s32 = WSGetWinsock32(hSocket16, &ul)) == INVALID_SOCKET) {
+        goto exit;
     }
 
+    ul = GETWORD16( (*wsockapis[WOW_CLOSESOCKET].lpfn)( s32 ) );
+
+    // Note: 16-bit callbacks resulting from above function 
+    //       call may have caused 16-bit memory movement
+    FREEARGPTR(pFrame);
+    FREEARGPTR(parg16);
+
+
+exit:
     //
     // Free the space in the alias table.
     //
 
-    FreeWinsock16( parg16->hSocket );
+    FreeWinsock16( hSocket16 );
 
     FREEARGPTR( parg16 );
 
@@ -252,39 +351,60 @@ ULONG FASTCALL WWS32closesocket(PVDMFRAME pFrame)
 
 } // WWS32closesocket
 
+
+
+
+
+
+
+
 ULONG FASTCALL WWS32connect(PVDMFRAME pFrame)
 {
-    ULONG ul;
-    register PCONNECT16 parg16;
-    SOCKET s32;
-    PSOCKADDR sockaddr;
+    ULONG      ul = GETWORD16(INVALID_SOCKET);
+    register   PCONNECT16 parg16;
+    SOCKET     s32;
+    SOCKADDR   fastSockaddr;
+    PSOCKADDR  realSockaddr;
+    INT        addressLength;
+    VPSOCKADDR vpSockAddr16;
 
-    if ( !WWS32IsThreadInitialized ) {
-        SetLastError( WSANOTINITIALISED );
-        RETURN((ULONG)SOCKET_ERROR);
-    }
+    WSEXIT_IF_NOT_INTIALIZED();
 
     GETARGPTR(pFrame, sizeof(PCONNECT16), parg16);
+
+    vpSockAddr16  = (VPSOCKADDR)FETCHDWORD(parg16->Address);
+    addressLength = INT32(parg16->AddressLength);
 
     //
     // Find the 32-bit socket handle.
     //
 
-    s32 = GetWinsock32( parg16->hSocket );
-
-    if ( s32 == INVALID_SOCKET ) {
-
-        (*wsockapis[WOW_WSASETLASTERROR].lpfn)( WSAENOTSOCK );
-        ul = (ULONG)GETWORD16( SOCKET_ERROR );
-
-    } else {
-
-        GETVDMPTR( parg16->Address, sizeof(*sockaddr), sockaddr );
-
-        ul = GETWORD16( (*wsockapis[WOW_CONNECT].lpfn)( s32, sockaddr, parg16->AddressLength ) );
-
-        FREEVDMPTR( sockaddr );
+    if((s32 = WSGetWinsock32(parg16->hSocket, &ul)) == INVALID_SOCKET) {
+        goto exit;
     }
+
+    // Thunk the 16-bit address buffer
+    if(!WSThunkAddrBuf(addressLength,
+                       vpSockAddr16,
+                       &fastSockaddr, 
+                       &realSockaddr)) {
+        goto exit;
+    }
+
+    ul = GETWORD16( (*wsockapis[WOW_CONNECT].lpfn)(s32, 
+                                                   realSockaddr, 
+                                                   addressLength));
+
+
+    // Note: 16-bit callbacks resulting from above function 
+    //       call may have caused 16-bit memory movement
+    FREEARGPTR(pFrame);
+    FREEARGPTR(parg16);
+
+    // Un-Thunk the 16-bit address buffer
+    WSUnThunkAddrBuf(&fastSockaddr, realSockaddr);
+
+exit:
 
     FREEARGPTR( parg16 );
 
@@ -292,19 +412,26 @@ ULONG FASTCALL WWS32connect(PVDMFRAME pFrame)
 
 } // WWS32connect
 
+
+
+
+
+
+
+
 ULONG FASTCALL WWS32getpeername(PVDMFRAME pFrame)
 {
-    ULONG ul;
-    register PGETPEERNAME16 parg16;
-    SOCKET s32;
-    PSOCKADDR sockaddr;
-    PWORD addressLength16;
-    INT addressLength;
+    ULONG       ul = GETWORD16(INVALID_SOCKET);
+    register    PGETPEERNAME16 parg16;
+    SOCKET      s32;
+    INT         addressLength;
+    PINT        pAddressLength;
+    SOCKADDR    fastSockaddr;
+    PSOCKADDR   realSockaddr;
+    VPWORD      vpwAddrLen16;
+    VPSOCKADDR  vpSockAddr16;
 
-    if ( !WWS32IsThreadInitialized ) {
-        SetLastError( WSANOTINITIALISED );
-        RETURN((ULONG)SOCKET_ERROR);
-    }
+    WSEXIT_IF_NOT_INTIALIZED();
 
     GETARGPTR(pFrame, sizeof(PGETPEERNAME16), parg16);
 
@@ -312,29 +439,41 @@ ULONG FASTCALL WWS32getpeername(PVDMFRAME pFrame)
     // Find the 32-bit socket handle.
     //
 
-    s32 = GetWinsock32( parg16->hSocket );
-
-    if ( s32 == INVALID_SOCKET ) {
-
-        (*wsockapis[WOW_WSASETLASTERROR].lpfn)( WSAENOTSOCK );
-        ul = (ULONG)GETWORD16( SOCKET_ERROR );
-
-    } else {
-
-        GETVDMPTR( parg16->AddressLength, sizeof(*addressLength16), addressLength16 );
-        GETVDMPTR( parg16->Address, addressLength16, sockaddr );
-
-        addressLength = INT32( *addressLength16 );
-
-        ul = GETWORD16( (*wsockapis[WOW_GETPEERNAME].lpfn)( s32, sockaddr, &addressLength ) );
-
-        STOREWORD( *addressLength16, GETWORD16( addressLength ) );
-
-        FLUSHVDMPTR( parg16->AddressLength, sizeof(parg16->AddressLength), addressLength );
-        FLUSHVDMPTR( parg16->Address, addressLength, sockaddr );
-        FREEVDMPTR( addressLength16 );
-        FREEVDMPTR( sockaddr );
+    if((s32 = WSGetWinsock32(parg16->hSocket, &ul)) == INVALID_SOCKET) {
+        goto exit;
     }
+
+    vpSockAddr16 = (VPSOCKADDR)FETCHDWORD(parg16->Address);
+    vpwAddrLen16 = (VPWORD)FETCHDWORD(parg16->AddressLength);
+
+    // Thunk the 16-bit Address name and length buffers
+    if(!WSThunkAddrBufAndLen(&fastSockaddr, 
+                             vpSockAddr16,
+                             vpwAddrLen16, 
+                             &addressLength,
+                             &pAddressLength,
+                             &realSockaddr)) {
+        goto exit;
+    }
+
+    ul = GETWORD16( (*wsockapis[WOW_GETPEERNAME].lpfn)(s32, 
+                                                       realSockaddr, 
+                                                       pAddressLength));
+
+    // Note: 16-bit callbacks resulting from above function 
+    //       call may have caused 16-bit memory movement
+    FREEARGPTR(pFrame);
+    FREEARGPTR(parg16);
+
+    // Un-Thunk the 16-bit Address name and length buffers
+    WSUnThunkAddrBufAndLen(ul,
+                           vpwAddrLen16,
+                           vpSockAddr16,
+                           addressLength,
+                           &fastSockaddr,
+                           realSockaddr);
+
+exit:
 
     FREEARGPTR( parg16 );
 
@@ -342,19 +481,26 @@ ULONG FASTCALL WWS32getpeername(PVDMFRAME pFrame)
 
 } // WWS32getpeername
 
+
+
+
+
+
+
+
 ULONG FASTCALL WWS32getsockname(PVDMFRAME pFrame)
 {
-    ULONG ul;
-    register PGETSOCKNAME16 parg16;
-    SOCKET s32;
-    PSOCKADDR sockaddr;
-    PWORD addressLength16;
-    INT addressLength;
+    ULONG       ul = GETWORD16(INVALID_SOCKET);
+    register    PGETSOCKNAME16 parg16;
+    SOCKET      s32;
+    INT         addressLength;
+    PINT        pAddressLength;
+    SOCKADDR    fastSockaddr;
+    PSOCKADDR   realSockaddr;
+    VPWORD      vpwAddrLen16;
+    VPSOCKADDR  vpSockAddr16;
 
-    if ( !WWS32IsThreadInitialized ) {
-        SetLastError( WSANOTINITIALISED );
-        RETURN((ULONG)SOCKET_ERROR);
-    }
+    WSEXIT_IF_NOT_INTIALIZED();
 
     GETARGPTR(pFrame, sizeof(PGETSOCKNAME16), parg16);
 
@@ -362,29 +508,39 @@ ULONG FASTCALL WWS32getsockname(PVDMFRAME pFrame)
     // Find the 32-bit socket handle.
     //
 
-    s32 = GetWinsock32( parg16->hSocket );
-
-    if ( s32 == INVALID_SOCKET ) {
-
-        (*wsockapis[WOW_WSASETLASTERROR].lpfn)( WSAENOTSOCK );
-        ul = (ULONG)GETWORD16( SOCKET_ERROR );
-
-    } else {
-
-        GETVDMPTR( parg16->AddressLength, sizeof(*addressLength16), addressLength16 );
-        GETVDMPTR( parg16->Address, addressLength16, sockaddr );
-
-        addressLength = INT32( *addressLength16 );
-
-        ul = GETWORD16( (*wsockapis[WOW_GETSOCKNAME].lpfn)( s32, sockaddr, &addressLength ) );
-
-        STOREWORD( *addressLength16, GETWORD16( addressLength ) );
-
-        FLUSHVDMPTR( parg16->AddressLength, sizeof(parg16->AddressLength), addressLength );
-        FLUSHVDMPTR( parg16->Address, addressLength, sockaddr );
-        FREEVDMPTR( addressLength16 );
-        FREEVDMPTR( sockaddr );
+    if((s32 = WSGetWinsock32(parg16->hSocket, &ul)) == INVALID_SOCKET) {
+        goto exit;
     }
+
+    vpSockAddr16 = (VPSOCKADDR)FETCHDWORD(parg16->Address);
+    vpwAddrLen16 = (VPWORD)FETCHDWORD(parg16->AddressLength);
+
+    // Thunk the 16-bit Address name and length buffers
+    if(!WSThunkAddrBufAndLen(&fastSockaddr, 
+                             vpSockAddr16,
+                             vpwAddrLen16, 
+                             &addressLength,
+                             &pAddressLength,
+                             &realSockaddr)) {
+        goto exit;
+    }
+
+    ul = GETWORD16( (*wsockapis[WOW_GETSOCKNAME].lpfn)( s32, realSockaddr, pAddressLength ) );
+
+    // Note: 16-bit callbacks resulting from above function 
+    //       call may have caused 16-bit memory movement
+    FREEARGPTR(pFrame);
+    FREEARGPTR(parg16);
+
+    // Un-Thunk the 16-bit Address name and length buffers
+    WSUnThunkAddrBufAndLen(ul,
+                           vpwAddrLen16,
+                           vpSockAddr16,
+                           addressLength,
+                           &fastSockaddr,
+                           realSockaddr);
+
+exit:
 
     FREEARGPTR( parg16 );
 
@@ -392,21 +548,28 @@ ULONG FASTCALL WWS32getsockname(PVDMFRAME pFrame)
 
 } // WWS32getsockname
 
+
+
+
+
+
+
+
+
 ULONG FASTCALL WWS32getsockopt(PVDMFRAME pFrame)
 {
-    ULONG ul;
-    register PGETSOCKOPT16 parg16;
-    SOCKET s32;
-    WORD UNALIGNED *optionLength16;
-    WORD actualOptionLength16;
-    PBYTE optionValue16;
-    DWORD optionLength32;
-    PBYTE optionValue32;
+    ULONG       ul = GETWORD16(INVALID_SOCKET);
+    register    PGETSOCKOPT16 parg16;
+    SOCKET      s32;
+    WORD        UNALIGNED *optionLength16;
+    WORD        actualOptionLength16;
+    PBYTE       optionValue16;
+    DWORD       optionLength32;
+    PBYTE       optionValue32;
+    VPWORD      vpwOptLen16;
+    VPBYTE      vpwOptVal16;
 
-    if ( !WWS32IsThreadInitialized ) {
-        SetLastError( WSANOTINITIALISED );
-        RETURN((ULONG)SOCKET_ERROR);
-    }
+    WSEXIT_IF_NOT_INTIALIZED();
 
     GETARGPTR(pFrame, sizeof(PGETSOCKOPT16), parg16);
 
@@ -414,72 +577,86 @@ ULONG FASTCALL WWS32getsockopt(PVDMFRAME pFrame)
     // Find the 32-bit socket handle.
     //
 
-    s32 = GetWinsock32( parg16->hSocket );
-
-    if ( s32 == INVALID_SOCKET ) {
-
-        (*wsockapis[WOW_WSASETLASTERROR].lpfn)( WSAENOTSOCK );
-        ul = (ULONG)GETWORD16( SOCKET_ERROR );
-
-    } else {
-
-        GETVDMPTR( parg16->OptionLength, sizeof(WORD), optionLength16 );
-        GETVDMPTR( parg16->OptionValue, FETCHWORD(*optionLength16), optionValue16 );
-
-        if ( FETCHWORD(*optionLength16) < sizeof(WORD) ) {
-            FREEVDMPTR( optionLength16 );
-            FREEVDMPTR( optionValue16 );
-            FREEARGPTR( parg16 );
-            (*wsockapis[WOW_WSASETLASTERROR].lpfn)( WSAEFAULT );
-            ul = (ULONG)GETWORD16(SOCKET_ERROR );
-            RETURN( ul );
-        } else if ( FETCHWORD(*optionLength16) < sizeof(DWORD) ) {
-            optionLength32 = sizeof(DWORD);
-        } else {
-            optionLength32 = FETCHWORD(*optionLength16);
-        }
-
-        optionValue32 = RtlAllocateHeap( RtlProcessHeap( ), 0, optionLength32 );
-        if ( optionValue32 == NULL ) {
-            FREEVDMPTR( optionLength16 );
-            FREEVDMPTR( optionValue16 );
-            FREEARGPTR( parg16 );
-            (*wsockapis[WOW_WSASETLASTERROR].lpfn)( WSAENOBUFS );
-            ul = (ULONG)GETWORD16(SOCKET_ERROR );
-            RETURN( ul );
-        }
-
-        RtlCopyMemory( optionValue32, optionValue16, optionLength32 );
-
-        ul = GETWORD16( (*wsockapis[WOW_GETSOCKOPT].lpfn)(
-                            s32,
-                            parg16->Level,
-                            SocketOption16To32( parg16->OptionName ),
-                            (char *)optionValue32,
-                            (int *)&optionLength32
-                            ));
-
-        if ( ul == NO_ERROR ) {
-
-            actualOptionLength16 = min(optionLength32, FETCHWORD(*optionLength16));
-
-            RtlMoveMemory( optionValue16, optionValue32, actualOptionLength16 );
-
-            *optionLength16 = actualOptionLength16;
-
-            FLUSHVDMPTR( parg16->OptionLength, sizeof(parg16->OptionLength), optionLength16 );
-            FLUSHVDMPTR( parg16->OptionValue, actualOptionLength16, optionValue16 );
-        }
-
-        FREEVDMPTR( optionLength16 );
-        FREEVDMPTR( optionValue16 );
+    if((s32 = WSGetWinsock32(parg16->hSocket, &ul)) == INVALID_SOCKET) {
+        goto exit;
     }
 
+    vpwOptLen16 = (VPWORD)FETCHDWORD(parg16->OptionLength);
+    vpwOptVal16 = (VPBYTE)FETCHDWORD(parg16->OptionValue);
+    GETVDMPTR( vpwOptLen16, sizeof(WORD), optionLength16 );
+    GETVDMPTR( vpwOptVal16, FETCHWORD(*optionLength16), optionValue16 );
+
+    if ( FETCHWORD(*optionLength16) < sizeof(WORD) ) {
+        FREEVDMPTR( optionLength16 );
+        FREEVDMPTR( optionValue16 );
+        FREEARGPTR( parg16 );
+        (*wsockapis[WOW_WSASETLASTERROR].lpfn)( WSAEFAULT );
+        ul = (ULONG)GETWORD16(SOCKET_ERROR );
+        RETURN( ul );
+    } else if ( FETCHWORD(*optionLength16) < sizeof(DWORD) ) {
+        optionLength32 = sizeof(DWORD);
+    } else {
+        optionLength32 = FETCHWORD(*optionLength16);
+    }
+
+    optionValue32 = malloc_w(optionLength32);
+
+    if ( optionValue32 == NULL ) {
+        FREEVDMPTR( optionLength16 );
+        FREEVDMPTR( optionValue16 );
+        FREEARGPTR( parg16 );
+        (*wsockapis[WOW_WSASETLASTERROR].lpfn)( WSAENOBUFS );
+        ul = (ULONG)GETWORD16(SOCKET_ERROR );
+        RETURN( ul );
+    }
+
+    SockCopyMemory( optionValue32, optionValue16, optionLength32 );
+
+    ul = GETWORD16( (*wsockapis[WOW_GETSOCKOPT].lpfn)(
+                     s32,
+                     parg16->Level,
+                     SocketOption16To32( parg16->OptionName ),
+                     (char *)optionValue32,
+                     (int *)&optionLength32));
+
+    // Note: 16-bit callbacks resulting from above function 
+    //       call may have caused 16-bit memory movement
+    FREEARGPTR(pFrame);
+    FREEARGPTR(parg16);
+    FREEVDMPTR(optionLength16);
+    FREEVDMPTR(optionValue16);
+
+    if ( ul == NO_ERROR ) {
+        GETVDMPTR( vpwOptLen16, sizeof(WORD), optionLength16 );
+        GETVDMPTR( vpwOptVal16, FETCHWORD(*optionLength16), optionValue16 );
+
+        actualOptionLength16 = (WORD) min(optionLength32, FETCHWORD(*optionLength16));
+
+        RtlMoveMemory( optionValue16, optionValue32, actualOptionLength16 );
+
+        STOREWORD(*optionLength16, actualOptionLength16);
+
+        FLUSHVDMPTR( vpwOptLen16, sizeof(parg16->OptionLength), optionLength16 );
+        FLUSHVDMPTR( vpwOptVal16, actualOptionLength16, optionValue16 );
+    }
+
+    FREEVDMPTR( optionLength16 );
+    FREEVDMPTR( optionValue16 );
+
+exit:
     FREEARGPTR( parg16 );
 
     RETURN( ul );
 
 } // WWS32getsockopt
+
+
+
+
+
+
+
+
 
 ULONG FASTCALL WWS32htonl(PVDMFRAME pFrame)
 {
@@ -496,6 +673,14 @@ ULONG FASTCALL WWS32htonl(PVDMFRAME pFrame)
 
 } // WWS32htonl
 
+
+
+
+
+
+
+
+
 ULONG FASTCALL WWS32htons(PVDMFRAME pFrame)
 {
     ULONG ul;
@@ -511,21 +696,31 @@ ULONG FASTCALL WWS32htons(PVDMFRAME pFrame)
 
 } // WWS32htons
 
+
+
+
+
+
+
+
+
 ULONG FASTCALL WWS32inet_addr(PVDMFRAME pFrame)
 {
     ULONG ul;
     register PINET_ADDR16 parg16;
     PSZ addressString;
+    CHAR     szAddrStr[32];
     register PINET_ADDR16 realParg16;
 
-    if ( !WWS32IsThreadInitialized ) {
-        SetLastError( WSANOTINITIALISED );
-        RETURN((ULONG)SOCKET_ERROR);
-    }
+    WSEXIT_IF_NOT_INTIALIZED();
 
     GETARGPTR(pFrame, sizeof(INET_ADDR16), parg16);
 
     realParg16 = parg16;
+
+    GETVDMPTR( parg16->cp, 1, addressString );
+    strcpy(szAddrStr, addressString);
+    FREEVDMPTR( addressString );
 
     //
     // If the thread is version 1.0 of Windows Sockets, play special
@@ -542,9 +737,7 @@ ULONG FASTCALL WWS32inet_addr(PVDMFRAME pFrame)
 
         parg16 = (PINET_ADDR16)( (PCHAR)parg16 + 2 );
 
-        GETVDMPTR( parg16->cp, 13, addressString );
-        inAddr32 = (*wsockapis[WOW_INET_ADDR].lpfn)( addressString );
-        FREEVDMPTR( addressString );
+        inAddr32 = (*wsockapis[WOW_INET_ADDR].lpfn)( szAddrStr );
 
         ASSERT( sizeof(IN_ADDR) == sizeof(DWORD) );
         GETVDMPTR( ul, sizeof(DWORD), inAddr16 );
@@ -553,10 +746,7 @@ ULONG FASTCALL WWS32inet_addr(PVDMFRAME pFrame)
         FREEVDMPTR( inAddr16 );
 
     } else {
-
-        GETVDMPTR( parg16->cp, 13, addressString );
-        ul = (*wsockapis[WOW_INET_ADDR].lpfn)( addressString );
-        FREEVDMPTR( addressString );
+        ul = (*wsockapis[WOW_INET_ADDR].lpfn)( szAddrStr );
     }
 
     FREEARGPTR( realParg16 );
@@ -564,6 +754,14 @@ ULONG FASTCALL WWS32inet_addr(PVDMFRAME pFrame)
     RETURN( ul );
 
 } // WWS32inet_addr
+
+
+
+
+
+
+
+
 
 ULONG FASTCALL WWS32inet_ntoa(PVDMFRAME pFrame)
 {
@@ -573,10 +771,7 @@ ULONG FASTCALL WWS32inet_ntoa(PVDMFRAME pFrame)
     PSZ ipAddress16;
     IN_ADDR in32;
 
-    if ( !WWS32IsThreadInitialized ) {
-        SetLastError( WSANOTINITIALISED );
-        RETURN((ULONG)SOCKET_ERROR);
-    }
+    WSEXIT_IF_NOT_INTIALIZED();
 
     GETARGPTR(pFrame, sizeof(INET_NTOA16), parg16);
 
@@ -600,6 +795,14 @@ ULONG FASTCALL WWS32inet_ntoa(PVDMFRAME pFrame)
 
 } // WWS32inet_ntoa
 
+
+
+
+
+
+
+
+
 ULONG FASTCALL WWS32ioctlsocket(PVDMFRAME pFrame)
 {
     ULONG ul;
@@ -608,11 +811,9 @@ ULONG FASTCALL WWS32ioctlsocket(PVDMFRAME pFrame)
     PDWORD argument16;
     DWORD argument32;
     DWORD command;
+    VPDWORD vpdwArg16;
 
-    if ( !WWS32IsThreadInitialized ) {
-        SetLastError( WSANOTINITIALISED );
-        RETURN((ULONG)SOCKET_ERROR);
-    }
+    WSEXIT_IF_NOT_INTIALIZED();
 
     GETARGPTR(pFrame, sizeof(IOCTLSOCKET16), parg16);
 
@@ -620,22 +821,18 @@ ULONG FASTCALL WWS32ioctlsocket(PVDMFRAME pFrame)
     // Find the 32-bit socket handle.
     //
 
-    s32 = GetWinsock32( parg16->hSocket );
+    if((s32 = WSGetWinsock32(parg16->hSocket, &ul)) == INVALID_SOCKET) {
+        goto exit;
+    }
 
-    if ( s32 == INVALID_SOCKET ) {
+    vpdwArg16 = (VPDWORD)FETCHDWORD(parg16->Argument);
+    GETVDMPTR( vpdwArg16, sizeof(*argument16), argument16 );
 
-        (*wsockapis[WOW_WSASETLASTERROR].lpfn)( WSAENOTSOCK );
-        ul = (ULONG)GETWORD16( SOCKET_ERROR );
+    //
+    // Translate the command value as necessary.
+    //
 
-    } else {
-
-        GETVDMPTR( parg16->Argument, sizeof(*argument16), argument16 );
-
-        //
-        // Translate the command value as necessary.
-        //
-
-        switch ( FETCHDWORD( parg16->Command ) & IOCPARM_MASK ) {
+    switch ( FETCHDWORD( parg16->Command ) & IOCPARM_MASK ) {
 
         case 127:
             command = FIONREAD;
@@ -672,16 +869,24 @@ ULONG FASTCALL WWS32ioctlsocket(PVDMFRAME pFrame)
         default:
             command = 0;
             break;
-        }
-
-        argument32 = FETCHDWORD( *argument16 );
-
-        ul = GETWORD16( (*wsockapis[WOW_IOCTLSOCKET].lpfn)( s32, command, &argument32 ) );
-
-        STOREDWORD( *argument16, argument32 );
-        FLUSHVDMPTR( parg16->Argument, sizeof(*argument16), argument16 );
-        FREEVDMPTR( argument16 );
     }
+
+    argument32 = FETCHDWORD( *argument16 );
+
+    ul = GETWORD16( (*wsockapis[WOW_IOCTLSOCKET].lpfn)(s32, 
+                                                       command, 
+                                                       &argument32));
+
+    // Note: 16-bit callbacks resulting from above function 
+    //       call may have caused 16-bit memory movement
+    FREEARGPTR( parg16 );
+
+    GETVDMPTR( vpdwArg16, sizeof(*argument16), argument16 );
+    STOREDWORD( *argument16, argument32 );
+    FLUSHVDMPTR( vpdwArg16, sizeof(*argument16), argument16 );
+    FREEVDMPTR( argument16 );
+
+exit:
 
     FREEARGPTR( parg16 );
 
@@ -689,16 +894,21 @@ ULONG FASTCALL WWS32ioctlsocket(PVDMFRAME pFrame)
 
 } // WWS32ioctlsocket
 
+
+
+
+
+
+
+
+
 ULONG FASTCALL WWS32listen(PVDMFRAME pFrame)
 {
     ULONG ul;
     register PLISTEN16 parg16;
     SOCKET s32;
 
-    if ( !WWS32IsThreadInitialized ) {
-        SetLastError( WSANOTINITIALISED );
-        RETURN((ULONG)SOCKET_ERROR);
-    }
+    WSEXIT_IF_NOT_INTIALIZED();
 
     GETARGPTR(pFrame, sizeof(PLISTEN6), parg16);
 
@@ -706,23 +916,27 @@ ULONG FASTCALL WWS32listen(PVDMFRAME pFrame)
     // Find the 32-bit socket handle.
     //
 
-    s32 = GetWinsock32( parg16->hSocket );
-
-    if ( s32 == INVALID_SOCKET ) {
-
-        (*wsockapis[WOW_WSASETLASTERROR].lpfn)( WSAENOTSOCK );
-        ul = (ULONG)GETWORD16( SOCKET_ERROR );
-
-    } else {
-
-        ul = GETWORD16( (*wsockapis[WOW_LISTEN].lpfn)( s32, parg16->Backlog ) );
+    if((s32 = WSGetWinsock32(parg16->hSocket, &ul)) == INVALID_SOCKET) {
+        goto exit;
     }
 
+
+    ul = GETWORD16( (*wsockapis[WOW_LISTEN].lpfn)( s32, parg16->Backlog ) );
+
+exit:
     FREEARGPTR( parg16 );
 
     RETURN( ul );
 
 } // WWS32listen
+
+
+
+
+
+
+
+
 
 ULONG FASTCALL WWS32ntohl(PVDMFRAME pFrame)
 {
@@ -739,6 +953,14 @@ ULONG FASTCALL WWS32ntohl(PVDMFRAME pFrame)
 
 } // WWS32ntohl
 
+
+
+
+
+
+
+
+
 ULONG FASTCALL WWS32ntohs(PVDMFRAME pFrame)
 {
     ULONG ul;
@@ -754,17 +976,24 @@ ULONG FASTCALL WWS32ntohs(PVDMFRAME pFrame)
 
 } // WWS32ntohs
 
+
+
+
+
+
+
+
+
 ULONG FASTCALL WWS32recv(PVDMFRAME pFrame)
 {
-    ULONG ul;
-    register PRECV16 parg16;
-    SOCKET s32;
-    PBYTE buffer;
+    ULONG       ul = GETWORD16(INVALID_SOCKET);
+    register    PRECV16 parg16;
+    SOCKET      s32;
+    PBYTE       buffer;
+    INT         BufferLength;
+    VPBYTE      vpBuf16;
 
-    if ( !WWS32IsThreadInitialized ) {
-        SetLastError( WSANOTINITIALISED );
-        RETURN((ULONG)SOCKET_ERROR);
-    }
+    WSEXIT_IF_NOT_INTIALIZED();
 
     GETARGPTR(pFrame, sizeof(PRECV16), parg16);
 
@@ -772,44 +1001,62 @@ ULONG FASTCALL WWS32recv(PVDMFRAME pFrame)
     // Find the 32-bit socket handle.
     //
 
-    s32 = GetWinsock32( parg16->hSocket );
-
-    if ( s32 == INVALID_SOCKET ) {
-
-        (*wsockapis[WOW_WSASETLASTERROR].lpfn)( WSAENOTSOCK );
-        ul = (ULONG)GETWORD16( SOCKET_ERROR );
-
-    } else {
-
-        GETVDMPTR( parg16->Buffer, parg16->BufferLength, buffer );
-
-        ul = GETWORD16( (*wsockapis[WOW_RECV].lpfn)( s32, buffer, parg16->BufferLength, parg16->Flags ) );
-
-        FLUSHVDMPTR( parg16->Buffer, parg16->BufferLength, buffer );
-        FREEVDMPTR( buffer );
+    if((s32 = WSGetWinsock32(parg16->hSocket, &ul)) == INVALID_SOCKET) {
+        goto exit;
     }
 
+    BufferLength = INT32(parg16->BufferLength);
+    vpBuf16      = (VPBYTE)FETCHDWORD(parg16->Buffer);
+
+    // Thunk the 16-bit recv buffer
+    if(!WSThunkRecvBuffer(BufferLength, vpBuf16, &buffer)) {
+        goto exit;
+    }
+
+    ul = GETWORD16( (*wsockapis[WOW_RECV].lpfn)(s32, 
+                                                buffer, 
+                                                BufferLength, 
+                                                parg16->Flags));
+
+    // Note: 16-bit callbacks resulting from above function 
+    //       call may have caused 16-bit memory movement
+    FREEARGPTR(pFrame);
+    FREEARGPTR(parg16);
+
+    // Un-Thunk the 16-bit recv buffer
+    WSUnthunkRecvBuffer((INT)ul, BufferLength, vpBuf16, buffer);
+
+exit:
     FREEARGPTR( parg16 );
 
     RETURN( ul );
 
 } // WWS32recv
 
+
+
+
+
+
+
+
+
 ULONG FASTCALL WWS32recvfrom(PVDMFRAME pFrame)
 {
-    ULONG ul;
-    register PRECVFROM16 parg16;
-    SOCKET s32;
-    PBYTE buffer;
-    PSOCKADDR sockaddr;
-    PWORD addressLength16;
-    INT addressLength;
-    PINT pAddressLength;
+    ULONG       ul = GETWORD16(INVALID_SOCKET);
+    register    PRECVFROM16 parg16;
+    SOCKET      s32;
+    INT         addressLength;
+    PINT        pAddressLength;
+    SOCKADDR    fastSockaddr;
+    PSOCKADDR   realSockaddr;
+    PBYTE       buffer;
+    INT         BufferLength;
+    VPBYTE      vpBuf16;
+    VPWORD      vpwAddrLen16;
+    VPSOCKADDR  vpSockAddr16;
 
-    if ( !WWS32IsThreadInitialized ) {
-        SetLastError( WSANOTINITIALISED );
-        RETURN((ULONG)SOCKET_ERROR);
-    }
+    WSEXIT_IF_NOT_INTIALIZED();
 
     GETARGPTR(pFrame, sizeof(PRECVFROM16), parg16);
 
@@ -817,49 +1064,55 @@ ULONG FASTCALL WWS32recvfrom(PVDMFRAME pFrame)
     // Find the 32-bit socket handle.
     //
 
-    s32 = GetWinsock32( parg16->hSocket );
-
-    if ( s32 == INVALID_SOCKET ) {
-
-        (*wsockapis[WOW_WSASETLASTERROR].lpfn)( WSAENOTSOCK );
-        ul = (ULONG)GETWORD16( SOCKET_ERROR );
-
-    } else {
-
-        GETVDMPTR( parg16->Buffer, parg16->BufferLength, buffer );
-        GETVDMPTR( parg16->AddressLength, sizeof(*addressLength16), addressLength16 );
-        GETVDMPTR( parg16->Address, *addressLength16, sockaddr );
-
-        if ( addressLength16 == NULL ) {
-            pAddressLength = NULL;
-        } else {
-            addressLength = INT32( *addressLength16 );
-            pAddressLength = &addressLength;
-        }
-
-        ul = GETWORD16( (*wsockapis[WOW_RECVFROM].lpfn)(
-                            s32,
-                            buffer,
-                            parg16->BufferLength,
-                            parg16->Flags,
-                            sockaddr,
-                            pAddressLength
-                            ) );
-
-        if ( addressLength16 != NULL ) {
-            STOREWORD( *addressLength16, GETWORD16( addressLength ) );
-        }
-
-        if ( addressLength16 != NULL ) {
-            FLUSHVDMPTR( parg16->AddressLength, sizeof(parg16->AddressLength), addressLength );
-            FREEVDMPTR( addressLength16 );
-        }
-
-        FLUSHVDMPTR( parg16->Address, addressLength, sockaddr );
-        FLUSHVDMPTR( parg16->Buffer, parg16->BufferLength, buffer );
-        FREEVDMPTR( sockaddr );
-        FREEVDMPTR( buffer );
+    if((s32 = WSGetWinsock32(parg16->hSocket, &ul)) == INVALID_SOCKET) {
+        goto exit;
     }
+
+    vpwAddrLen16 = (VPWORD)FETCHDWORD(parg16->AddressLength);
+    vpSockAddr16 = (VPSOCKADDR)FETCHDWORD(parg16->Address);
+    BufferLength = INT32(parg16->BufferLength);
+    vpBuf16      = (VPBYTE)parg16->Buffer;
+
+    // Thunk the 16-bit Address name and length buffers
+    if(!WSThunkAddrBufAndLen(&fastSockaddr, 
+                             vpSockAddr16,
+                             vpwAddrLen16, 
+                             &addressLength,
+                             &pAddressLength,
+                             &realSockaddr)) {
+        goto exit;
+    }
+
+    // Thunk the 16-bit recv buffer
+    if(!WSThunkRecvBuffer(BufferLength, vpBuf16, &buffer)) {
+        goto exit;
+    }
+
+    ul = GETWORD16( (*wsockapis[WOW_RECVFROM].lpfn)(s32,
+                                                    buffer,
+                                                    BufferLength,
+                                                    parg16->Flags,
+                                                    realSockaddr,
+                                                    pAddressLength));
+
+    // Note: 16-bit callbacks resulting from above function 
+    //       call may have caused 16-bit memory movement
+    FREEARGPTR(pFrame);
+    FREEARGPTR(parg16);
+
+    // Un-Thunk the 16-bit Address name and length buffers
+    WSUnThunkAddrBufAndLen(ul,
+                           vpwAddrLen16,
+                           vpSockAddr16,
+                           addressLength,
+                           &fastSockaddr,
+                           realSockaddr);
+
+    // Un-Thunk the 16-bit recv buffer
+    WSUnthunkRecvBuffer((INT)ul, BufferLength, vpBuf16, buffer);
+
+
+exit:
 
     FREEARGPTR( parg16 );
 
@@ -867,13 +1120,21 @@ ULONG FASTCALL WWS32recvfrom(PVDMFRAME pFrame)
 
 } // WWS32recvfrom
 
+
+
+
+
+
+
+
+
 ULONG FASTCALL WWS32select(PVDMFRAME pFrame)
 {
     ULONG ul = (ULONG)GETWORD16( SOCKET_ERROR );
     register PSELECT16 parg16;
-    PFD_SET readfds32;
-    PFD_SET writefds32;
-    PFD_SET exceptfds32;
+    PFD_SET readfds32   = NULL;
+    PFD_SET writefds32  = NULL;
+    PFD_SET exceptfds32 = NULL;
     PFD_SET16 readfds16;
     PFD_SET16 writefds16;
     PFD_SET16 exceptfds16;
@@ -881,11 +1142,12 @@ ULONG FASTCALL WWS32select(PVDMFRAME pFrame)
     struct timeval *ptimeout32;
     PTIMEVAL16 timeout16;
     INT err;
+    VPFD_SET16  vpreadfds16;
+    VPFD_SET16  vpwritefds16;
+    VPFD_SET16  vpexceptfds16;
+    VPTIMEVAL16 vptimeout16;
 
-    if ( !WWS32IsThreadInitialized ) {
-        SetLastError( WSANOTINITIALISED );
-        RETURN((ULONG)SOCKET_ERROR);
-    }
+    WSEXIT_IF_NOT_INTIALIZED();
 
     GETARGPTR( pFrame, sizeof(PSELECT16), parg16 );
 
@@ -895,10 +1157,14 @@ ULONG FASTCALL WWS32select(PVDMFRAME pFrame)
     // !!! This sizeof(FD_SET16) here and below is wrong if the app is
     //     using more than FDSETSIZE handles!!!
 
-    GETOPTPTR( parg16->Readfds, sizeof(FD_SET16), readfds16 );
-    GETOPTPTR( parg16->Writefds, sizeof(FD_SET16), writefds16 );
-    GETOPTPTR( parg16->Exceptfds, sizeof(FD_SET16), exceptfds16 );
-    GETOPTPTR( parg16->Timeout, sizeof(TIMEVAL16), timeout16 );
+    vpreadfds16   = parg16->Readfds;
+    vpwritefds16  = parg16->Writefds;
+    vpexceptfds16 = parg16->Exceptfds;
+    vptimeout16   = parg16->Timeout;
+    GETOPTPTR(vpreadfds16, sizeof(FD_SET16), readfds16);
+    GETOPTPTR(vpwritefds16, sizeof(FD_SET16), writefds16);
+    GETOPTPTR(vpexceptfds16, sizeof(FD_SET16), exceptfds16);
+    GETOPTPTR(vptimeout16, sizeof(TIMEVAL16), timeout16);
 
     //
     // Translate readfds.
@@ -918,9 +1184,6 @@ ULONG FASTCALL WWS32select(PVDMFRAME pFrame)
             goto exit;
         }
 
-    } else {
-
-        readfds32 = NULL;
     }
 
     //
@@ -941,10 +1204,7 @@ ULONG FASTCALL WWS32select(PVDMFRAME pFrame)
             goto exit;
         }
 
-    } else {
-
-        writefds32 = NULL;
-    }
+    } 
 
     //
     // Translate exceptfds.
@@ -964,9 +1224,6 @@ ULONG FASTCALL WWS32select(PVDMFRAME pFrame)
             goto exit;
         }
 
-    } else {
-
-        exceptfds32 = NULL;
     }
 
     //
@@ -985,15 +1242,28 @@ ULONG FASTCALL WWS32select(PVDMFRAME pFrame)
     // Call the 32-bit select function.
     //
 
-    ul = GETWORD16( (*wsockapis[WOW_SELECT].lpfn)( 0, readfds32, writefds32, exceptfds32, ptimeout32 ) );
+    ul = GETWORD16( (*wsockapis[WOW_SELECT].lpfn)(0, 
+                                                  readfds32, 
+                                                  writefds32, 
+                                                  exceptfds32, 
+                                                  ptimeout32));
+
+    // Note: 16-bit callbacks resulting from above function 
+    //       call may have caused 16-bit memory movement
+    FREEARGPTR(pFrame);
+    FREEARGPTR(parg16);
+    FREEOPTPTR(readfds16);
+    FREEOPTPTR(writefds16);
+    FREEOPTPTR(exceptfds16);
+    FREEOPTPTR(timeout16);
 
     //
     // Copy 32-bit readfds back to the 16-bit readfds.
     //
-
     if ( readfds32 != NULL ) {
+        GETOPTPTR(vpreadfds16, sizeof(FD_SET16), readfds16);
         ConvertFdSet32To16( readfds32, readfds16 );
-        FLUSHVDMPTR( parg16->Readfds, sizeof(FD_SET16), readfds16 );
+        FLUSHVDMPTR(vpreadfds16, sizeof(FD_SET16), readfds16);
     }
 
     //
@@ -1001,8 +1271,9 @@ ULONG FASTCALL WWS32select(PVDMFRAME pFrame)
     //
 
     if ( writefds32 != NULL ) {
+        GETOPTPTR(vpwritefds16, sizeof(FD_SET16), writefds16);
         ConvertFdSet32To16( writefds32, writefds16 );
-        FLUSHVDMPTR( parg16->Writefds, sizeof(FD_SET16), writefds16 );
+        FLUSHVDMPTR(vpwritefds16, sizeof(FD_SET16), writefds16);
     }
 
     //
@@ -1010,8 +1281,9 @@ ULONG FASTCALL WWS32select(PVDMFRAME pFrame)
     //
 
     if ( exceptfds32 != NULL ) {
+        GETOPTPTR(vpexceptfds16, sizeof(FD_SET16), exceptfds16);
         ConvertFdSet32To16( exceptfds32, exceptfds16 );
-        FLUSHVDMPTR( parg16->Exceptfds, sizeof(FD_SET16), exceptfds16 );
+        FLUSHVDMPTR(vpexceptfds16, sizeof(FD_SET16), exceptfds16);
     }
 
 exit:
@@ -1019,16 +1291,15 @@ exit:
     FREEOPTPTR( readfds16 );
     FREEOPTPTR( writefds16 );
     FREEOPTPTR( exceptfds16 );
-    FREEOPTPTR( timeout16 );
 
     if ( readfds32 != NULL ) {
-        RtlFreeHeap( RtlProcessHeap( ), 0, (PVOID)readfds32 );
+        free_w((PVOID)readfds32);
     }
     if ( writefds32 != NULL ) {
-        RtlFreeHeap( RtlProcessHeap( ), 0, (PVOID)writefds32 );
+        free_w((PVOID)writefds32);
     }
     if ( exceptfds32 != NULL ) {
-        RtlFreeHeap( RtlProcessHeap( ), 0, (PVOID)exceptfds32 );
+        free_w((PVOID)exceptfds32);
     }
 
     FREEARGPTR( parg16 );
@@ -1037,17 +1308,24 @@ exit:
 
 } // WWS32select
 
+
+
+
+
+
+
+
+
 ULONG FASTCALL WWS32send(PVDMFRAME pFrame)
 {
-    ULONG ul;
-    register PSEND16 parg16;
-    SOCKET s32;
-    PBYTE buffer;
+    ULONG       ul = GETWORD16(INVALID_SOCKET);
+    register    PSEND16 parg16;
+    SOCKET      s32;
+    INT         BufferLength;
+    PBYTE       buffer;
+    VPBYTE      vpBuf16;
 
-    if ( !WWS32IsThreadInitialized ) {
-        SetLastError( WSANOTINITIALISED );
-        RETURN((ULONG)SOCKET_ERROR);
-    }
+    WSEXIT_IF_NOT_INTIALIZED();
 
     GETARGPTR(pFrame, sizeof(PSEND16), parg16);
 
@@ -1055,40 +1333,59 @@ ULONG FASTCALL WWS32send(PVDMFRAME pFrame)
     // Find the 32-bit socket handle.
     //
 
-    s32 = GetWinsock32( parg16->hSocket );
-
-    if ( s32 == INVALID_SOCKET ) {
-
-        (*wsockapis[WOW_WSASETLASTERROR].lpfn)( WSAENOTSOCK );
-        ul = (ULONG)GETWORD16( SOCKET_ERROR );
-
-    } else {
-
-        GETVDMPTR( parg16->Buffer, parg16->BufferLength, buffer );
-
-        ul = GETWORD16( (*wsockapis[WOW_SEND].lpfn)( s32, buffer, parg16->BufferLength, parg16->Flags ) );
-
-        FREEVDMPTR( buffer );
+    if((s32 = WSGetWinsock32(parg16->hSocket, &ul)) == INVALID_SOCKET) {
+        goto exit;
     }
 
+    BufferLength = INT32(parg16->BufferLength);
+    vpBuf16      = FETCHDWORD(parg16->Buffer);
+
+    // Thunk the 16-bit send buffer
+    if(!WSThunkSendBuffer(BufferLength, vpBuf16, &buffer)) {
+        goto exit;
+    }
+
+    ul = GETWORD16( (*wsockapis[WOW_SEND].lpfn)(s32, 
+                                                buffer, 
+                                                BufferLength, 
+                                                parg16->Flags));
+
+    // Note: 16-bit callbacks resulting from above function 
+    //       call may have caused 16-bit memory movement
+    FREEARGPTR(pFrame);
+    FREEARGPTR(parg16);
+
+    // Un-Thunk the 16-bit send buffer
+    WSUnthunkSendBuffer(buffer);
+
+exit:
     FREEARGPTR( parg16 );
 
     RETURN( ul );
 
 } // WWS32send
 
+
+
+
+
+
+
+
 ULONG FASTCALL WWS32sendto(PVDMFRAME pFrame)
 {
-    ULONG ul;
-    register PSENDTO16 parg16;
-    SOCKET s32;
-    PBYTE buffer;
-    PSOCKADDR sockaddr;
+    ULONG      ul = GETWORD16(INVALID_SOCKET);
+    register   PSENDTO16 parg16;
+    SOCKET     s32;
+    PBYTE      buffer;
+    SOCKADDR   fastSockaddr;
+    PSOCKADDR  realSockaddr;
+    INT        addressLength;
+    INT        BufferLength;
+    VPSOCKADDR vpSockAddr16;
+    VPBYTE     vpBuf16;
 
-    if ( !WWS32IsThreadInitialized ) {
-        SetLastError( WSANOTINITIALISED );
-        RETURN((ULONG)SOCKET_ERROR);
-    }
+    WSEXIT_IF_NOT_INTIALIZED();
 
     GETARGPTR(pFrame, sizeof(PSENDTO16), parg16);
 
@@ -1096,30 +1393,47 @@ ULONG FASTCALL WWS32sendto(PVDMFRAME pFrame)
     // Find the 32-bit socket handle.
     //
 
-    s32 = GetWinsock32( parg16->hSocket );
-
-    if ( s32 == INVALID_SOCKET ) {
-
-        (*wsockapis[WOW_WSASETLASTERROR].lpfn)( WSAENOTSOCK );
-        ul = (ULONG)GETWORD16( SOCKET_ERROR );
-
-    } else {
-
-        GETVDMPTR( parg16->Buffer, parg16->BufferLength, buffer );
-        GETVDMPTR( parg16->Address, parg16->AddressLength, sockaddr );
-
-        ul = GETWORD16( (*wsockapis[WOW_SENDTO].lpfn)(
-                            s32,
-                            buffer,
-                            parg16->BufferLength,
-                            parg16->Flags,
-                            sockaddr,
-                            parg16->AddressLength
-                            ) );
-
-        FREEVDMPTR( sockaddr );
-        FREEVDMPTR( buffer );
+    if((s32 = WSGetWinsock32(parg16->hSocket, &ul)) == INVALID_SOCKET) {
+        goto exit;
     }
+
+    addressLength = INT32(parg16->AddressLength);
+    vpSockAddr16  = (VPSOCKADDR)FETCHDWORD(parg16->Address);
+    BufferLength  = INT32(parg16->BufferLength);
+    vpBuf16       = (VPBYTE)FETCHDWORD(parg16->Buffer);
+
+    // Thunk the 16-bit Address buffer
+    if(!WSThunkAddrBuf(addressLength,
+                       vpSockAddr16,
+                       &fastSockaddr,
+                       &realSockaddr)) {
+        goto exit;
+    }
+
+    // Thunk the 16-bit send buffer
+    if(!WSThunkSendBuffer(BufferLength, vpBuf16, &buffer)) {
+        goto exit;
+    }
+
+    ul = GETWORD16( (*wsockapis[WOW_SENDTO].lpfn)(s32,
+                                                  buffer,
+                                                  BufferLength,
+                                                  parg16->Flags,
+                                                  realSockaddr,
+                                                  addressLength));
+
+    // Note: 16-bit callbacks resulting from above function 
+    //       call may have caused 16-bit memory movement
+    FREEARGPTR(pFrame);
+    FREEARGPTR(parg16);
+
+    // Un-Thunk the 16-bit address buffer
+    WSUnThunkAddrBuf(&fastSockaddr, realSockaddr);
+
+    // Un-Thunk the 16-bit send buffer
+    WSUnthunkSendBuffer(buffer);
+
+exit:
 
     FREEARGPTR( parg16 );
 
@@ -1127,19 +1441,24 @@ ULONG FASTCALL WWS32sendto(PVDMFRAME pFrame)
 
 } // WWS32sendto
 
+
+
+
+
+
+
+
+
 ULONG FASTCALL WWS32setsockopt(PVDMFRAME pFrame)
 {
-    ULONG ul;
+    ULONG    ul = GETWORD16(INVALID_SOCKET);
     register PSETSOCKOPT16 parg16;
-    SOCKET s32;
-    PBYTE optionValue16;
-    PBYTE optionValue32;
-    DWORD optionLength32;
+    SOCKET   s32;
+    PBYTE    optionValue16;
+    PBYTE    optionValue32;
+    DWORD    optionLength32;
 
-    if ( !WWS32IsThreadInitialized ) {
-        SetLastError( WSANOTINITIALISED );
-        RETURN((ULONG)SOCKET_ERROR);
-    }
+    WSEXIT_IF_NOT_INTIALIZED();
 
     GETARGPTR(pFrame, sizeof(PSETSOCKOPT16), parg16);
 
@@ -1147,63 +1466,67 @@ ULONG FASTCALL WWS32setsockopt(PVDMFRAME pFrame)
     // Find the 32-bit socket handle.
     //
 
-    s32 = GetWinsock32( parg16->hSocket );
-
-    if ( s32 == INVALID_SOCKET ) {
-
-        (*wsockapis[WOW_WSASETLASTERROR].lpfn)( WSAENOTSOCK );
-        ul = (ULONG)GETWORD16( SOCKET_ERROR );
-
-    } else {
-
-        GETVDMPTR( parg16->OptionValue, parg16->OptionLength, optionValue16 );
-
-        if ( parg16->OptionLength < sizeof(DWORD) ) {
-            optionLength32 = sizeof(DWORD);
-        } else {
-            optionLength32 = parg16->OptionLength;
-        }
-
-        optionValue32 = RtlAllocateHeap( RtlProcessHeap( ), 0, optionLength32 );
-        if ( optionValue32 == NULL ) {
-            (*wsockapis[WOW_WSASETLASTERROR].lpfn)( WSAENOBUFS );
-            ul = (ULONG)GETWORD16( SOCKET_ERROR );
-            FREEVDMPTR( optionValue16 );
-            FREEARGPTR( parg16 );
-            RETURN( ul );
-        }
-
-        RtlZeroMemory( optionValue32, optionLength32 );
-        RtlMoveMemory( optionValue32, optionValue16, parg16->OptionLength );
-
-        ul = GETWORD16( (*wsockapis[WOW_SETSOCKOPT].lpfn)(
-                            s32,
-                            parg16->Level,
-                            SocketOption16To32( parg16->OptionName ),
-                            optionValue32,
-                            optionLength32
-                            ));
-
-        RtlFreeHeap( RtlProcessHeap( ), 0, optionValue32 );
-        FREEVDMPTR( optionValue16 );
+    if((s32 = WSGetWinsock32(parg16->hSocket, &ul)) == INVALID_SOCKET) {
+        goto exit;
     }
 
+    GETVDMPTR( parg16->OptionValue, parg16->OptionLength, optionValue16 );
+
+    if ( parg16->OptionLength < sizeof(DWORD) ) {
+        optionLength32 = sizeof(DWORD);
+    } else {
+        optionLength32 = parg16->OptionLength;
+    }
+
+    optionValue32 = malloc_w(optionLength32);
+    if ( optionValue32 == NULL ) {
+        (*wsockapis[WOW_WSASETLASTERROR].lpfn)( WSAENOBUFS );
+        ul = (ULONG)GETWORD16( SOCKET_ERROR );
+        FREEVDMPTR( optionValue16 );
+        FREEARGPTR( parg16 );
+        RETURN( ul );
+    }
+
+    RtlZeroMemory( optionValue32, optionLength32 );
+    RtlMoveMemory( optionValue32, optionValue16, parg16->OptionLength );
+
+    ul = GETWORD16( (*wsockapis[WOW_SETSOCKOPT].lpfn)(
+                     s32,
+                     parg16->Level,
+                     SocketOption16To32( parg16->OptionName ),
+                     optionValue32,
+                     optionLength32));
+
+    // Note: 16-bit callbacks resulting from above function 
+    //       call may have caused 16-bit memory movement
+    FREEARGPTR(pFrame);
+    FREEARGPTR(parg16);
+    FREEVDMPTR( optionValue16 );
+
+    free_w(optionValue32);
+
+exit:
     FREEARGPTR( parg16 );
 
     RETURN( ul );
 
 } // WWS32setsockopt
 
+
+
+
+
+
+
+
+
 ULONG FASTCALL WWS32shutdown(PVDMFRAME pFrame)
 {
-    ULONG ul;
+    ULONG    ul = GETWORD16(INVALID_SOCKET);
     register PSHUTDOWN16 parg16;
-    SOCKET s32;
+    SOCKET   s32;
 
-    if ( !WWS32IsThreadInitialized ) {
-        SetLastError( WSANOTINITIALISED );
-        RETURN((ULONG)SOCKET_ERROR);
-    }
+    WSEXIT_IF_NOT_INTIALIZED();
 
     GETARGPTR(pFrame, sizeof(PBIND16), parg16);
 
@@ -1211,43 +1534,47 @@ ULONG FASTCALL WWS32shutdown(PVDMFRAME pFrame)
     // Find the 32-bit socket handle.
     //
 
-    s32 = GetWinsock32( parg16->hSocket );
-
-    if ( s32 == INVALID_SOCKET ) {
-
-        (*wsockapis[WOW_WSASETLASTERROR].lpfn)( WSAENOTSOCK );
-        ul = (ULONG)GETWORD16( SOCKET_ERROR );
-
-    } else {
-
-        ul = GETWORD16( (*wsockapis[WOW_SHUTDOWN].lpfn)( s32, parg16->How ) );
+    if((s32 = WSGetWinsock32(parg16->hSocket, &ul)) == INVALID_SOCKET) {
+        goto exit;
     }
 
+    ul = GETWORD16( (*wsockapis[WOW_SHUTDOWN].lpfn)( s32, parg16->How ) );
+
+exit:
     FREEARGPTR( parg16 );
 
     RETURN( ul );
 
 } // WWS32shutdown
 
+
+
+
+
+
+
+
+
+
 ULONG FASTCALL WWS32socket(PVDMFRAME pFrame)
 {
-    ULONG ul;
-    register PSOCKET16 parg16;
-    SOCKET s32;
-    HSOCKET16 s16;
+    ULONG      ul = GETWORD16(INVALID_SOCKET);
+    register   PSOCKET16 parg16;
+    SOCKET     s32;
+    HSOCKET16  s16;
 
-    if ( !WWS32IsThreadInitialized ) {
-        SetLastError( WSANOTINITIALISED );
-        RETURN((ULONG)SOCKET_ERROR);
-    }
+    WSEXIT_IF_NOT_INTIALIZED();
 
     GETARGPTR(pFrame, sizeof(SOCKET16), parg16);
 
-    s32 = (*wsockapis[WOW_SOCKET].lpfn)(
-              INT32(parg16->AddressFamily),
-              INT32(parg16->Type),
-              INT32(parg16->Protocol)
-              );
+    s32 = (*wsockapis[WOW_SOCKET].lpfn)(INT32(parg16->AddressFamily),
+                                        INT32(parg16->Type),
+                                        INT32(parg16->Protocol));
+
+    // Note: 16-bit callbacks resulting from above function 
+    //       call may have caused 16-bit memory movement
+    FREEARGPTR(pFrame);
+    FREEARGPTR(parg16);
 
     //
     // If the call succeeded, alias the 32-bit socket handle we just
@@ -1258,13 +1585,13 @@ ULONG FASTCALL WWS32socket(PVDMFRAME pFrame)
 
         s16 = GetWinsock16( s32, 0 );
 
+        ul = s16;
+
         if ( s16 == 0 ) {
             (*wsockapis[WOW_CLOSESOCKET].lpfn)( s32 );
             (*wsockapis[WOW_WSASETLASTERROR].lpfn)( WSAENOBUFS );
             ul = GETWORD16( INVALID_SOCKET );
         }
-
-        ul = s16;
 
     } else {
 
@@ -1277,27 +1604,37 @@ ULONG FASTCALL WWS32socket(PVDMFRAME pFrame)
 
 } // WWS32socket
 
-
+
+
+
+
+
+
+
+
+
 //
 // Routines for converting between 16- and 32-bit FD_SET structures.
 //
 
-PFD_SET
-AllocateFdSet32 (
-    IN PFD_SET16 FdSet16
-    )
+PFD_SET AllocateFdSet32(IN PFD_SET16 FdSet16)
 {
     int bytes = 4 + (FETCHWORD(FdSet16->fd_count) * sizeof(SOCKET));
 
-    return (PFD_SET)( RtlAllocateHeap( RtlProcessHeap( ), 0, bytes ) );
+    return (PFD_SET)( malloc_w(bytes) );
 
 } // AlloacteFdSet32
 
-INT
-ConvertFdSet16To32 (
-    IN PFD_SET16 FdSet16,
-    IN PFD_SET FdSet32
-    )
+
+
+
+
+
+
+
+
+INT ConvertFdSet16To32(IN PFD_SET16 FdSet16,
+                       IN PFD_SET FdSet32)
 {
     int i;
 
@@ -1315,11 +1652,15 @@ ConvertFdSet16To32 (
 
 } // ConvertFdSet16To32
 
-VOID
-ConvertFdSet32To16 (
-    IN PFD_SET FdSet32,
-    IN PFD_SET16 FdSet16
-    )
+
+
+
+
+
+
+
+VOID ConvertFdSet32To16(IN PFD_SET FdSet32,
+                        IN PFD_SET16 FdSet16)
 {
     int i;
 
@@ -1336,16 +1677,21 @@ ConvertFdSet32To16 (
 
 } // ConvertFdSet32To16
 
-
+
+
+
+
+
+
+
+
+
 //
 // Routines for aliasing 32-bit socket handles to 16-bit handles.
 //
 
-PWINSOCK_SOCKET_INFO
-FindSocketInfo16 (
-    IN SOCKET h32,
-    IN HAND16 h16
-    )
+PWINSOCK_SOCKET_INFO FindSocketInfo16(IN SOCKET h32,
+                                      IN HAND16 h16)
 {
     PLIST_ENTRY listEntry;
     PWINSOCK_SOCKET_INFO socketInfo;
@@ -1359,11 +1705,9 @@ FindSocketInfo16 (
           listEntry != &WWS32SocketHandleListHead;
           listEntry = listEntry->Flink ) {
 
-        socketInfo = CONTAINING_RECORD(
-                         listEntry,
-                         WINSOCK_SOCKET_INFO,
-                         GlobalSocketListEntry
-                         );
+        socketInfo = CONTAINING_RECORD(listEntry,
+                                       WINSOCK_SOCKET_INFO,
+                                       GlobalSocketListEntry);
 
         if ( socketInfo->SocketHandle32 == h32 ||
                  socketInfo->SocketHandle16 == h16 ) {
@@ -1375,13 +1719,138 @@ FindSocketInfo16 (
 
 } // FindSocketInfo16
 
-HAND16
-GetWinsock16 (
-    IN INT h32,
-    IN INT iClass
-    )
+
+
+
+
+
+
+
+HAND16 AllocateUnique16BitHandle(VOID)
+{
+
+    PLIST_ENTRY listEntry;
+    PWINSOCK_SOCKET_INFO socketInfo;
+    HAND16 h16;
+    WORD i;
+
+    //
+    // This function assumes it is called with the WWS32CriticalSection
+    // lock held!
+    //
+
+    //
+    // If the socket list is empty, then we can reset our socket handle
+    // counter because we know there are no active sockets. We'll only
+    // do this if the handle counter is above some value (just pulled
+    // out of the air) so that handles are not reused too quickly.
+    // (Frequent handle reuse can confuse poorly written 16-bit apps.)
+    //
+
+    if( ( WWS32SocketHandleCounter > 255 ) &&
+        IsListEmpty( &WWS32SocketHandleListHead ) ) {
+
+        WWS32SocketHandleCounter = 1;
+        WWS32SocketHandleCounterWrapped = FALSE;
+
+    }
+
+    //
+    // If the socket handle counter has not wrapped around,
+    // then we can quickly return a unique handle.
+    //
+
+    if( !WWS32SocketHandleCounterWrapped ) {
+
+        h16 = (HAND16)WWS32SocketHandleCounter++;
+
+        if( WWS32SocketHandleCounter == 0xFFFF ) {
+
+            WWS32SocketHandleCounter = 1;
+            WWS32SocketHandleCounterWrapped = TRUE;
+
+        }
+
+        ASSERT( h16 != 0 );
+        return h16;
+
+    }
+
+    //
+    // There are active sockets, and the socket handle counter has
+    // wrapped, so we'll need to perform a painful search for a unique
+    // handle. We'll put a cap on the maximum number of times through
+    // this search loop so that, if all handles from 1 to 0xFFFE are
+    // in use, we won't search forever for something we'll never find.
+    //
+
+    for( i = 1 ; i <= 0xFFFE ; i++ ) {
+
+        h16 = (HAND16)WWS32SocketHandleCounter++;
+
+        if( WWS32SocketHandleCounter == 0xFFFF ) {
+
+            WWS32SocketHandleCounter = 1;
+
+        }
+
+        for ( listEntry = WWS32SocketHandleListHead.Flink;
+              listEntry != &WWS32SocketHandleListHead;
+              listEntry = listEntry->Flink ) {
+
+            socketInfo = CONTAINING_RECORD(
+                             listEntry,
+                             WINSOCK_SOCKET_INFO,
+                             GlobalSocketListEntry
+                             );
+
+            if( socketInfo->SocketHandle16 == h16 ) {
+
+                break;
+
+            }
+
+        }
+
+        //
+        // If listEntry == &WWS32SocketHandleListHead, then we have
+        // scanned the entire list and found no match. This is good,
+        // and we'll just return the current handle. Otherwise, there
+        // was a collision, so we'll get another potential handle and
+        // rescan the list.
+        //
+
+        if( listEntry == &WWS32SocketHandleListHead ) {
+
+            ASSERT( h16 != 0 );
+            return h16;
+
+        }
+
+    }
+
+    //
+    // If we made it this far, then there were no unique handles
+    // available. Bad news.
+    //
+
+    return 0;
+
+} // AllocateUnique16BitHandle
+
+
+
+
+
+
+
+
+
+HAND16 GetWinsock16(IN INT h32,
+                    IN INT iClass)
 {
     PWINSOCK_SOCKET_INFO socketInfo;
+    HAND16 h16;
 
     RtlEnterCriticalSection( &WWS32CriticalSection );
 
@@ -1397,37 +1866,53 @@ GetWinsock16 (
     }
 
     //
+    // If this thread has not yet been initialized, then we cannot
+    // create the new socket data. This should only happen if a 16-bit
+    // app closes a socket while an async connect is outstanding.
+    //
+
+    if( !WWS32IsThreadInitialized ) {
+        RtlLeaveCriticalSection( &WWS32CriticalSection );
+        return 0;
+    }
+
+    //
     // The handle is not in use.  Create a new entry in the list.
     //
 
-    socketInfo = RtlAllocateHeap( RtlProcessHeap( ), 0, sizeof(*socketInfo) );
+    h16 = AllocateUnique16BitHandle();
+    if( h16 == 0 ) {
+        RtlLeaveCriticalSection( &WWS32CriticalSection );
+        return 0;
+    }
+
+    socketInfo = malloc_w(sizeof(*socketInfo));
     if ( socketInfo == NULL ) {
         RtlLeaveCriticalSection( &WWS32CriticalSection );
         return 0;
     }
 
-    socketInfo->SocketHandle16 = (HAND16)WWS32SocketHandleCounter++;
-    if ( WWS32SocketHandleCounter == 0 ) {
-        WWS32SocketHandleCounter = 1;
-    }
-
+    socketInfo->SocketHandle16 = h16;
     socketInfo->SocketHandle32 = h32;
     socketInfo->ThreadSerialNumber = WWS32ThreadSerialNumber;
 
     InsertTailList( &WWS32SocketHandleListHead, &socketInfo->GlobalSocketListEntry );
 
-    ASSERT( socketInfo->SocketHandle16 != 0 );
-
     RtlLeaveCriticalSection( &WWS32CriticalSection );
 
-    return socketInfo->SocketHandle16;
+    ASSERT( h16 != 0 );
+    return h16;
 
 } // GetWinsock16
 
-VOID
-FreeWinsock16 (
-    IN HAND16 h16
-    )
+
+
+
+
+
+
+
+VOID FreeWinsock16(IN HAND16 h16)
 {
     PWINSOCK_SOCKET_INFO socketInfo;
 
@@ -1441,17 +1926,21 @@ FreeWinsock16 (
     }
 
     RemoveEntryList( &socketInfo->GlobalSocketListEntry );
-    RtlFreeHeap( RtlProcessHeap( ), 0, (PVOID)socketInfo );
+    free_w((PVOID)socketInfo);
     RtlLeaveCriticalSection( &WWS32CriticalSection );
 
     return;
 
 } // FreeWinsock16
 
-DWORD
-GetWinsock32 (
-    IN HAND16 h16
-    )
+
+
+
+
+
+
+
+DWORD GetWinsock32(IN HAND16 h16)
 {
     PWINSOCK_SOCKET_INFO socketInfo;
     SOCKET socket32;
@@ -1478,11 +1967,14 @@ GetWinsock32 (
 
 } // GetWinsock32
 
-
-int
-SocketOption16To32 (
-    IN WORD SocketOption16
-    )
+
+
+
+
+
+
+
+int SocketOption16To32(IN WORD SocketOption16)
 {
 
     if ( SocketOption16 == 0xFF7F ) {
@@ -1492,3 +1984,307 @@ SocketOption16To32 (
     return (int)SocketOption16;
 
 } // SocketOption16To32
+
+
+
+
+
+
+
+
+
+DWORD WSGetWinsock32 (IN  HAND16 h16,
+                      OUT PULONG pul)
+{
+
+    DWORD  s32;
+
+
+    s32 = GetWinsock32(h16);
+
+    if(s32 == INVALID_SOCKET) {
+
+        (*wsockapis[WOW_WSASETLASTERROR].lpfn)(WSAENOTSOCK);
+        *pul = (ULONG)GETWORD16(SOCKET_ERROR);
+
+    }
+
+    return(s32);
+
+}
+
+
+
+
+
+
+
+
+BOOL WSThunkAddrBufAndLen(IN  PSOCKADDR  fastSockaddr, 
+                          IN  VPSOCKADDR vpSockAddr16,
+                          IN  VPWORD     vpwAddrLen16,
+                          OUT PINT       addressLength,
+                          OUT PINT      *pAddressLength,
+                          OUT PSOCKADDR *realSockaddr)
+{
+    PWORD      addressLength16;
+    PSOCKADDR  Sockaddr;
+    
+    GETVDMPTR(vpwAddrLen16, sizeof(*addressLength16), addressLength16);
+    GETVDMPTR(vpSockAddr16, *addressLength16, Sockaddr);
+
+    if(Sockaddr) {
+        *realSockaddr = fastSockaddr;
+    }
+    else {
+        *realSockaddr = NULL;
+    }
+
+    if (addressLength16 == NULL) {
+
+        *pAddressLength = NULL;
+
+    } else {
+
+        *addressLength  = INT32(*addressLength16);
+        *pAddressLength = addressLength;
+
+        if(*addressLength > sizeof(SOCKADDR)) {
+
+            *realSockaddr = malloc_w(*addressLength);
+
+            if(*realSockaddr == NULL) {
+
+                (*wsockapis[WOW_WSASETLASTERROR].lpfn)(WSAENOBUFS);
+                return(FALSE);
+
+            }
+        }
+    }
+
+    FREEVDMPTR(Sockaddr);
+    FREEVDMPTR(addressLength16);
+    return(TRUE);
+}
+
+
+
+
+
+
+
+
+
+VOID WSUnThunkAddrBufAndLen(IN ULONG      ret,
+                            IN VPWORD     vpwAddrLen16,
+                            IN VPSOCKADDR vpSockAddr16,
+                            IN INT        addressLength,
+                            IN PSOCKADDR  fastSockaddr,
+                            IN PSOCKADDR  realSockaddr)
+{
+    PWORD      addressLength16;
+    PSOCKADDR  Sockaddr;
+
+    GETVDMPTR(vpwAddrLen16, sizeof(*addressLength16), addressLength16);
+    if((ret != SOCKET_ERROR) && addressLength16) {
+        STOREWORD(*addressLength16, addressLength);
+        FLUSHVDMPTR(vpwAddrLen16, sizeof(WORD), addressLength16);
+
+        GETVDMPTR(vpSockAddr16, addressLength, Sockaddr);
+        if(Sockaddr) {
+
+            // don't copy back to the 16-bit address buffer if it's too small
+            if(addressLength <= *addressLength16) {
+                SockCopyMemory(Sockaddr, realSockaddr, addressLength);
+                FLUSHVDMPTR(vpSockAddr16, addressLength, Sockaddr);
+            }
+        }
+    }
+
+    if( (realSockaddr) && (realSockaddr != fastSockaddr) ) {
+
+        free_w(realSockaddr);
+
+    }
+
+    FREEVDMPTR(addressLength16);
+    FREEVDMPTR(Sockaddr);
+}
+
+
+
+
+
+
+
+
+BOOL WSThunkAddrBuf(IN  INT         addressLength,
+                    IN  VPSOCKADDR  vpSockAddr16,
+                    IN  PSOCKADDR   fastSockaddr, 
+                    OUT PSOCKADDR  *realSockaddr)
+{
+    PSOCKADDR  Sockaddr;
+
+    GETVDMPTR(vpSockAddr16, addressLength, Sockaddr);
+
+    if(Sockaddr) {
+
+
+        if(addressLength <= sizeof(SOCKADDR)) {
+            *realSockaddr = fastSockaddr;
+        }
+        else {
+
+            *realSockaddr = malloc_w(addressLength);
+
+            if(*realSockaddr == NULL) {
+
+                (*wsockapis[WOW_WSASETLASTERROR].lpfn)(WSAENOBUFS);
+                FREEVDMPTR(Sockaddr);
+                return(FALSE);
+
+            }
+        }
+
+        SockCopyMemory(*realSockaddr, Sockaddr, addressLength);
+    }
+    else {
+        *realSockaddr = NULL;
+    }
+
+    FREEVDMPTR(Sockaddr);
+    return(TRUE);
+
+}
+
+
+
+
+
+
+
+
+VOID WSUnThunkAddrBuf(IN PSOCKADDR  fastSockaddr, 
+                      IN PSOCKADDR  realSockaddr)
+{
+        if( (realSockaddr) && (realSockaddr != fastSockaddr) ) {
+
+            free_w(realSockaddr);
+
+        }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+BOOL WSThunkRecvBuffer(IN  INT    BufferLength,
+                       IN  VPBYTE vpBuf16,
+                       OUT PBYTE  *buffer)
+{
+    PBYTE  lpBuf16;
+
+    GETVDMPTR(vpBuf16, BufferLength, lpBuf16);
+
+    if(lpBuf16) {
+
+        *buffer = malloc_w(BufferLength);
+
+        if(*buffer == NULL) {
+            (*wsockapis[WOW_WSASETLASTERROR].lpfn)(WSAENOBUFS);
+            return(FALSE);
+        }
+    }
+    else {
+        *buffer = NULL;
+    }
+
+    return(TRUE);
+        
+}
+
+
+
+
+
+
+
+
+VOID WSUnthunkRecvBuffer(IN INT    cBytes,
+                         IN INT    BufferLength, 
+                         IN VPBYTE vpBuf16,
+                         IN PBYTE  buffer)
+{
+    PBYTE lpBuf16;
+
+    GETVDMPTR(vpBuf16, BufferLength, lpBuf16);
+
+    if(buffer) { 
+
+        if( (cBytes > 0) && lpBuf16 ) {
+            SockCopyMemory(lpBuf16, buffer, cBytes);
+            FLUSHVDMPTR(vpBuf16, cBytes, lpBuf16);
+        }
+
+        free_w(buffer);
+
+    }
+
+    FREEVDMPTR(lpBuf16);
+
+}
+
+
+
+
+
+
+BOOL WSThunkSendBuffer(IN  INT    BufferLength, 
+                       IN  VPBYTE vpBuf16,
+                       OUT PBYTE  *buffer)
+{
+    PBYTE  lpBuf16;
+
+    GETVDMPTR(vpBuf16, BufferLength, lpBuf16);
+
+    if(lpBuf16) {
+
+        *buffer = malloc_w(BufferLength);
+
+        if(*buffer) {
+            SockCopyMemory(*buffer, lpBuf16, BufferLength);
+        }
+        else {
+            (*wsockapis[WOW_WSASETLASTERROR].lpfn)(WSAENOBUFS);
+            return(FALSE);
+        }
+
+        FREEVDMPTR(lpBuf16);
+    }
+    else {
+        *buffer = NULL;
+    }
+
+    return(TRUE);
+        
+}
+
+
+
+
+
+
+VOID WSUnthunkSendBuffer(IN PBYTE buffer)
+{
+
+    if(buffer) {
+        free_w(buffer);
+    }
+}

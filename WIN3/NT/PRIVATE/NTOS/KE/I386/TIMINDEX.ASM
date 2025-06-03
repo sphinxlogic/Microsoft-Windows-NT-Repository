@@ -81,13 +81,15 @@ _TEXT$00   SEGMENT DWORD PUBLIC 'CODE'
 ;
 ;--
 
-Interval     equ [esp+8]
-CurrentTime  equ [esp+16]
-Timer        equ [esp+24]
+LocalStack  equ  20
+
+Interval    equ [esp+LocalStack+4]
+CurrentTime equ [esp+LocalStack+12]
+Timer       equ [esp+LocalStack+20]
 
 cPublicProc _KiComputeTimerTableIndex ,5
-
-        push    ebx                     ; save register
+        sub     esp, LocalStack
+        mov     [esp+16], ebx
         mov     ebx,CurrentTime         ; get low current time
         mov     ecx,CurrentTime + 4     ; get high current time
         sub     ebx,Interval            ; subtract low parts
@@ -102,7 +104,7 @@ cPublicProc _KiComputeTimerTableIndex ,5
 
         mov     eax,ebx                 ; copy low 32-bits of dividend
         mul     [_KiTimeIncrementReciprocal] ; multiply by low 32-bits of divisor
-        push    edx                     ; save high order 32-bits of product
+        mov     [esp+12], edx           ; save high order 32-bits of product
 
 ;
 ; Compute low 32-bits of dividend times high 32-bits of divisor.
@@ -110,8 +112,8 @@ cPublicProc _KiComputeTimerTableIndex ,5
 
         mov     eax,ebx                 ; copy low 32-bits of dividend
         mul     [_KiTimeIncrementReciprocal+4] ;multiply by high 32-bits of divisor
-        push    eax                     ; save full 64-bit product
-        push    edx                     ;
+        mov     [esp+8], eax            ; save full 64-bit product
+        mov     [esp+4], edx            ;
 
 ;
 ; Compute high 32-bits of dividend times low 32-bits of divisor.
@@ -119,7 +121,7 @@ cPublicProc _KiComputeTimerTableIndex ,5
 
         mov     eax,ecx                 ; copy high 32-bits of dividend
         mul     [_KiTimeIncrementReciprocal] ; multiply by low 32-bits of divisor
-        push    edx                     ; save high 32-bits of product
+        mov     [esp+0], edx            ; save high 32-bits of product
 
 ;
 ; Compute carry out of low 64-bits of 128-bit product.
@@ -156,9 +158,10 @@ cPublicProc _KiComputeTimerTableIndex ,5
 
         mov     cl,[_KiTimeIncrementShiftCount] ; get shift count value
         shrd    eax,edx,cl              ; extract appropriate product bits
-        add     esp,(4*4)               ; trim stack
+
+        mov     ebx, [esp+16]           ; restore register
+        add     esp, LocalStack         ; trim stack
         and     eax,(TIMER_TABLE_SIZE-1); reduce to size of table
-        pop     ebx                     ; restore register
 
         stdRET    _KicomputeTimerTableIndex
 

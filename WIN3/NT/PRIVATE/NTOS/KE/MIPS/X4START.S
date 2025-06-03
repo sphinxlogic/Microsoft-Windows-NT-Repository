@@ -35,7 +35,9 @@
         .extern KeNumberProcessors 1
         .extern KeNumberTbEntries  4
         .extern KiBarrierWait      4
+        .extern KiContextSwapLock  4
         .extern KiDispatcherLock   4
+        .extern KiSynchIrql        4
 
         SBTTL("System Initialization")
 //++
@@ -65,16 +67,12 @@ SsArgA3:.space  4                       // processor block address argument (a3)
 SsPrNum:.space  4                       // processor number argument
 SsLdPrm:.space  4                       // loader parameter block address
 SsPte:  .space  2 * 4                   // Pte values
-SsStart:.space  4                       // start of DPC fucntion execution
-SsFunct:.space  4                       // address of DPC function
-SsTime: .space  4                       // interrupt time at start of DPC
-SsCount:.space  4                       // interrupt count at start of DPC
-        .space  3 * 4                   // fill
+        .space  4                       // fill
 SsRa:   .space  4                       // saved return address
 
 SsFrameLength:                          // length of stack frame
 
-        NESTED_ENTRY(KiSystemBegin, SsFrameLength, zero)
+        NESTED_ENTRY_S(KiSystemBegin, SsFrameLength, zero, INIT)
 
         subu    sp,sp,SsFrameLength     // allocate stack frame
         sw      ra,SsRa(sp)             // save return address
@@ -103,15 +101,6 @@ SsFrameLength:                          // length of stack frame
         lw      s6,LpbPcrPage2(a0)      // set second PCR page
 
 //
-// Set the processor type to a MIPS R4000.
-//
-
-        bne     zero,s3,10f             // if ne, not processor zero
-        la      t0,KeProcessorType      // set processor type
-        li      t1,1                    //
-        sh      t1,0(t0)                //
-
-//
 // Initialize the configuration, context, page mask, watch, and wired
 // registers.
 //
@@ -122,20 +111,26 @@ SsFrameLength:                          // length of stack frame
 //      is assumed that bits <31:30> of PTE_BASE are set.
 //
 
-10:     li      t0,PTE_BASE << 1        // set base virtual page table address
+        li      t0,PTE_BASE << 1        // set base virtual page table address
         li      t1,FIXED_ENTRIES        // set number of fixed TB entries
+        li      t2,0xf000               // set frame mask register value
 
         .set    noreorder
         .set    noat
-        mfc0    s4,config               // get processor configuration
+        mfc0    s7,config               // get processor configuration
+        mfc0    s8,prid                 // get processor id
         mtc0    t0,context              // initialize the context register
         mtc0    zero,pagemask           // initialize the page mask register
         mtc0    zero,taglo              // initialize the tag low register
         mtc0    zero,watchlo            // initialize the watch address register
         mtc0    zero,watchhi            //
         mtc0    t1,wired                // initialize the wired register
-        and     s4,s4,0x7               // isolate KSEG0 cache policy
+        and     s4,s7,0x7               // isolate KSEG0 cache policy
+        and     t3,s8,0xff00            // isolate processor id
+        xor     t3,t3,0x900             // check if r10000 processor
+        bne     zero,t3,5f              // if ne, not r10000 processor
         sll     s5,s4,ENTRYLO_C         // shift cache policy into position
+        mtc0    t2,framemask            // set frame mask register
         .set    at
         .set    reorder
 
@@ -143,10 +138,14 @@ SsFrameLength:                          // length of stack frame
 // Clear the translation buffer.
 //
 
-        bne     zero,s3,20f             // if ne, not processor zero
-        li      t0,48                   // set default number of TB entries
-        sw      t0,KeNumberTbEntries    //
-        li      t0,1 << ENTRYHI_PID     // set default number of process id's
+5:      bne     zero,s3,20f             // if ne, not processor zero
+        li      t0,48                   // set number of TB entries for r4x00
+        and     t1,s8,0xff00            // isolate processor id
+        xor     t1,t1,0x900             // check if r10000 processor
+        bne     zero,t1,10f             // if ne, not r10000 processor
+        li      t0,64                   // set number of TB entries for r10000
+10:     sw      t0,KeNumberTbEntries    // store number of TB entries
+        li      t0,256                  // set number of process id's
         sw      t0,KeNumberProcessIds   //
 20:     jal     KiFlushFixedTb          // flush fixed TB entries
         jal     KiFlushRandomTb         // flush random TB entries
@@ -311,8 +310,12 @@ SsFrameLength:                          // length of stack frame
         sw      t2,PcXcodeDispatch + XCODE_INTERRUPT(t1) //
         la      t2,KiModifyException    //
         sw      t2,PcXcodeDispatch + XCODE_MODIFY(t1) //
-        la      t2,KiReadMissException  //
-        sw      t2,PcXcodeDispatch + XCODE_READ_MISS(t1) //
+        la      t2,KiReadMissException  // set read miss address for r4x00
+        and     t3,s8,0xff00            // isolate processor id
+        xor     t3,t3,0x900             // check if r10000 processor
+        bne     zero,t3,55f             // if ne, not r10000 processor
+        la      t2,KiReadMissException9.x // set read miss address for r10000
+55:     sw      t2,PcXcodeDispatch + XCODE_READ_MISS(t1) //
         la      t2,KiWriteMissException //
         sw      t2,PcXcodeDispatch + XCODE_WRITE_MISS(t1) //
         la      t2,KiReadAddressErrorException //
@@ -339,6 +342,8 @@ SsFrameLength:                          // length of stack frame
         sw      t2,PcXcodeDispatch + XCODE_VIRTUAL_INSTRUCTION(t1) //
         la      t2,KiFloatingException //
         sw      t2,PcXcodeDispatch + XCODE_FLOATING_EXCEPTION(t1) //
+        la      t2,KiUserAddressErrorException //
+        sw      t2,PcXcodeDispatch + XCODE_INVALID_USER_ADDRESS(t1)
         la      t2,KiPanicException     //
         sw      t2,PcXcodeDispatch + XCODE_PANIC(t1) //
         la      t2,KiDataCoherencyException //
@@ -364,9 +369,6 @@ SsFrameLength:                          // length of stack frame
         sw      gp,PcSystemGp(t1)       // set system global pointer address
         lw      t2,LpbThread(s2)        // set current thread address
         sw      t2,PcCurrentThread(t1)  //
-        lw      t2,LpbPrcb(s2)          // set quantum end DPC address
-        addu    t2,t2,PbQuantumEndDpc   //
-        sw      t2,PcQuantumEndDpc(t1)  //
 
 //
 // Set current IRQL to highest value.
@@ -376,18 +378,21 @@ SsFrameLength:                          // length of stack frame
         sb      t2,PcCurrentIrql(t1)    //
 
 //
+// Set processor id and configuration.
+//
+
+        sw      s7,PcSystemReserved(t1) // save processor configuration
+        sw      s8,PcProcessorId(t1)    // save processor id
+
+//
 // Clear floating status and zero the count and compare registers.
 //
 
         .set    noreorder
         .set    noat
-        mfc0    a0,prid                 // get processor identification
-        mfc0    a1,config               // get processor configuration
         ctc1    zero,fsr                // clear floating status
         mtc0    zero,count              // initialize the count register
         mtc0    zero,compare            // initialize the compare register
-        sw      a0,PcProcessorId(t1)    // save processor id
-        sw      a1,PcSystemReserved(t1) // save processor configuration
         .set    at
         .set    reorder
 
@@ -401,23 +406,59 @@ SsFrameLength:                          // length of stack frame
         sw      t2,PcSystemServiceDispatchEnd(t1) //
 
 //
-// Copy the TB miss, cache parity, and general exception handlers to low
-// memory.
+// Copy the TB miss, XTB miss, cache parity, and general exception handlers to
+// low memory.
 //
 
         bne     zero,s3,100f            // if ne, not processor zero
+
+//
+// Copy TB Miss Handler.
+//
+
         la      t2,KiTbMissStartAddress2.x // get user TB miss start address
-        and     a0,a0,0xfff << 4        // isolate id and major chip version
-        xor     a0,a0,0x42 << 4         // test if id 4 and version 2.0 chip
+        la      t3,KiTbMissEndAddress3.x // get user TB miss end address
+        and     a0,s8,0xfff0            // isolate id and major chip version
+        xor     a0,a0,0x420             // test if id 4 and version 2.0 chip
         beq     zero,a0,60f             // if eq, version 2.0 chip
         la      t2,KiTbMissStartAddress3.x // get user TB miss start address
-60:     la      t3,KiTbMissEndAddress   // get user TB miss end address
-        li      t4,KSEG0_BASE           // get copy address
+        and     a0,s8,0xff00            // isolate processor id
+        xor     a0,a0,0x900             // check if r10000 processor
+        bne     zero,a0,60f             // if ne, not r10000 processor
+        la      t2,KiTbMissStartAddress9.x // get user TB miss start address
+        la      t3,KiTbMissEndAddress9.x // get user TB miss end address
+60:     li      t4,KSEG0_BASE           // get copy address
 70:     lw      t5,0(t2)                // copy code to low memory
         sw      t5,0(t4)                //
         addu    t2,t2,4                 // advance copy pointers
         addu    t4,t4,4                 //
         bne     t2,t3,70b               // if ne, more to copy
+
+//
+// Copy XTB Miss Handler.
+//
+
+        la      t2,KiXTbMissStartAddress2.x // get user TB miss start address
+        la      t3,KiXTbMissEndAddress3.x // get user TB miss end address
+        and     a0,s8,0xfff0            // isolate id and major chip version
+        xor     a0,a0,0x420             // test if id 4 and version 2.0 chip
+        beq     zero,a0,73f             // if eq, version 2.0 chip
+        la      t2,KiXTbMissStartAddress3.x // get user TB miss start address
+        and     a0,s8,0xff00            // isolate processor id
+        xor     a0,a0,0x900             // check if r10000 processor
+        bne     zero,a0,73f             // if ne, not r10000 processor
+        la      t2,KiXTbMissStartAddress9.x // get user TB miss start address
+        la      t3,KiXTbMissEndAddress9.x // get user TB miss end address
+73:     li      t4,KSEG0_BASE + 0x80    // get copy address
+77:     lw      t5,0(t2)                // copy code to low memory
+        sw      t5,0(t4)                //
+        addu    t2,t2,4                 // advance copy pointers
+        addu    t4,t4,4                 //
+        bne     t2,t3,77b               // if ne, more to copy
+
+//
+// Copy Cache Error Handler.
+//
 
         la      t2,KiCacheErrorStartAddress // get cache error start address
         la      t3,KiCacheErrorEndAddress // get cache error end address
@@ -427,6 +468,10 @@ SsFrameLength:                          // length of stack frame
         addu    t2,t2,4                 // advance copy pointers
         addu    t4,t4,4                 //
         bne     t2,t3,80b               // if ne, more to copy
+
+//
+// Copy General Exception Handler.
+//
 
         la      t2,KiGeneralExceptionStartAddress // get general exception start address
         la      t3,KiGeneralExceptionEndAddress // get general exception end address
@@ -481,35 +526,32 @@ SsFrameLength:                          // length of stack frame
         jal     KiInitializeKernel      // initialize system data structures
 
 //
-// Control is returned to the idle thread with IRQL at HIGH_LEVEL. Reload
-// the address of the dispatcher and DPC locks into the PCR, lower IRQL to
-// DISPATCH_LEVEL, and set wait IRQL of idle thread. Load global register
-// values and enter idle loop.
+// Control is returned to the idle thread with IRQL at HIGH_LEVEL. Lower IRQL
+// to DISPATCH_LEVEL, set wait IRQL of idle thread, load global register values,
+// and enter idle loop.
 //
 
-        move    s0,s3                   // set processor number
-        lw      s2,KiPcr + PcPrcb(zero) // get processor control block address
-        addu    s3,s2,PbDpcListHead     // compute DPC listhead address
-
-#if !defined(NT_UP)
-
-        addu    s4,s2,PbDpcLock         // compute DPC lock address
-        la      s5,KiDispatcherLock     // get address of dispatcher lock
-
-#endif
-
+        move    s7,s3                   // set processor number
+        lw      s0,KiPcr + PcPrcb(zero) // get processor control block address
+        addu    s3,s0,PbDpcListHead     // compute DPC listhead address
         li      a0,DISPATCH_LEVEL       // get dispatch level IRQL
         sb      a0,ThWaitIrql(s1)       // set wait IRQL of idle thread
         jal     KeLowerIrql             // lower IRQL
 
-        DISABLE_INTERRUPTS(t0)          // disable interrupts
+        DISABLE_INTERRUPTS(s8)          // disable interrupts
 
-        and     s6,t0,~(1 << PSR_IE)    // save PSR with interrupts disabled
-        or      t0,t0,1 << PSR_IE       // make sure interrupt enable bit set
-        move    s7,zero                 // clear breakin loop counter
-        move    s8,t0                   // save PSR with interrupts enabled
+        or      s8,s8,1 << PSR_IE       // set interrupt enable bit set
+        subu    s6,s8,1 << PSR_IE       // clear interrupt enable bit
 
-        ENABLE_INTERRUPTS(t0)           // enable interrupts
+        ENABLE_INTERRUPTS(s8)           // enable interrupts
+
+        move    s4,zero                 // clear breakin loop counter
+        lbu     a0,KiSynchIrql          // get new IRQL value
+        lbu     t0,KiPcr + PcIrqlTable(a0) // get translation table entry value
+        li      t1,~(0xff << PSR_INTMASK) // get interrupt enable mask
+        sll     t0,t0,PSR_INTMASK       // shift table entry into position
+        and     s5,s8,t1                // clear current interrupt enables
+        or      s5,s5,t0                // set new interrupt enables
 
 //
 // In a multiprocessor system the boot processor proceeds directly into
@@ -528,9 +570,41 @@ SsFrameLength:                          // length of stack frame
         bne     zero,v0,120f            // if ne, initialization succeeded
         li      a0,HAL1_INITIALIZATION_FAILED // set bug check reason
         jal     KeBugCheck              // bug check
-120:    move    s1,zero                 // set processor block array index
 
 #endif
+
+//
+// Allocate an exception frame and store the nonvolatile register and
+// return address in the frame so when a context switch from the idle
+// thread to another thread occurs, context does not have to be saved
+// and the special swtich from idle entry pointer in the context swap
+// code can be called.
+//
+// Registers s0 - s8 have the following contents:
+//
+//    s0 - Address of the current processor block.
+//    s1 - Not used.
+//    s2 - Not used.
+//    s3 - Address of DPC listhead for current processor.
+//    s4 - Debugger breakin poll counter.
+//    s5 - Saved PSR with interrupt enabled and IRQL of synchronization level.
+//    s6 - Saved PSR with interrupts disabled and an IRQL of DISPATCH_LEVEL.
+//    s7 - Number of the current processor.
+//    s8 - Saved PSR with interrupt enabled and IRQL of DISPATCH_LEVEL.
+//
+
+120:    subu    sp,sp,ExceptionFrameLength // allocate exception frame
+        sw      s3,ExIntS3(sp)          // save register s3 - s8
+        sw      s4,ExIntS4(sp)          //
+        sw      s5,ExIntS5(sp)          //
+        sw      s6,ExIntS6(sp)          //
+        sw      s7,ExIntS7(sp)          //
+        sw      s8,ExIntS8(sp)          //
+        la      ra,KiIdleLoop           // set address of swap return
+        sw      ra,ExSwapReturn(sp)     //
+        j       KiIdleLoop              //
+
+        .end    KiSystemBegin
 
 //
 // The following code represents the idle thread for a processor. The idle
@@ -540,186 +614,112 @@ SsFrameLength:                          // length of stack frame
 // processor in a multiprocessor configuration.
 //
 
-        .globl  KiIdleLoop
-KiIdleLoop:                             //
+        LEAF_ENTRY(KiIdleLoop)
+
+#if DBG
+
+        move    s4,zero                 // clear breakin loop counter
+
+#endif
+
+//
+// Lower IRQL to DISPATCH_LEVEL and enable interrupts.
+//
+
+        DISABLE_INTERRUPTS(t0)          // disable interrupts
+
+        li      a0,DISPATCH_LEVEL       // get new IRQL value
+        sb      a0,KiPcr + PcCurrentIrql(zero) // set new IRQL
+
+        ENABLE_INTERRUPTS(s8)           // enable interrupts
 
 //
 // Check if the debugger is enabled, the current processor is zero, and
 // whether it is time to poll for a debugger breakin.
 //
 
+KiIdleTop:                              //
+
+#if DBG
 
 #if !defined(NT_UP)
 
-        bne     zero,s0,CheckDpcList    // if ne, not processor zero
+        bne     zero,s7,CheckDpcList    // if ne, not processor zero
 
 #endif
 
+        subu    s4,s4,1                 // decrement poll counter
+        bgtz    s4,CheckDpcList         // if gtz, then not time to poll
         lbu     t0,KdDebuggerEnabled    // check if debugger is enabled
+        li      s4,200 * 1000           // set breakin loop counter
         beq     zero,t0,CheckDpcList    // if eq, debugger not enabled
-        subu    s7,s7,1                 // decrement poll counter
-        bgtz    s7,CheckDpcList         // if gtz, then not time to poll
-        li      s7,20 * 1000            // set breakin loop counter
         jal     KdPollBreakIn           // check if breakin is requested
         beq     zero,v0,CheckDpcList    // if eq, no breakin requested
-        break   BREAKIN_BREAKPOINT      // break into the debugger
+        li      a0,DBG_STATUS_CONTROL_C // break in and send
+        jal     DbgBreakPointWithStatus //  status to the debugger
+
+#endif
 
 //
-// Disable interrupts and check if there is any work in the DPC list.
+// Enable interrupts to allow any outstanding interrupts to occur, then
+// disable interrupts and check if there is any work in the DPC list of
+// the current processor.
 //
 
 CheckDpcList:                           //
-        sw      zero,PbQuantumEnd(s2)   // clear quantum end indicator
+
+//
+// N.B. The following code enables interrupts for a few cycles, then
+//      disables them again for the subsequent DPC and next thread
+//      checks.
+//
 
         .set    noreorder
         .set    noat
+        mtc0    s8,psr                  // enable interrupts
+        nop                             //
+        nop                             //
+        nop                             //
+        nop                             // allow interrupts to occur
+        nop                             //
         mtc0    s6,psr                  // disable interrupts
         nop                             // 3 cycle hazzard
         nop                             //
         nop                             //
+        .set    at
+        .set    reorder
+
+//
+// Process the deferred procedure call list for the current processor.
+//
+
+        lw      a0,LsFlink(s3)          // get address of next entry
+        beq     a0,s3,CheckNextThread   // if eq, DPC list is empty
+
+        .set    noreorder
+        .set    noat
         mfc0    t0,cause                // get exception cause register
         and     t0,t0,APC_INTERRUPT     // clear dispatch interrupt pending
         mtc0    t0,cause                // set exception cause register
         .set    at
         .set    reorder
 
-        move    v0,s3                   // set address of DPC listhead
-        move    v1,s4                   // set address of DPC lock
-        lw      t0,LsFlink(v0)          // get address of first entry
-
-#if !defined(NT_UP)
-
-        bne     v0,t0,LockDpcList       // if ne, list contains an entry
-        lbu     t0,KeNumberProcessors   // get number of processors
-        la      t1,KiProcessorBlock     // get processor block array address
-        sltu    t2,s1,t0                // check if number within range
-        bne     zero,t2,10f             // if ne, number within range
-        move    s1,zero                 // reset processor block array index
-10:     sll     t0,s1,2                 // scale array index
-        addu    t0,t0,t1                // compute processor block address
-        lw      v0,0(t0)                // get address of processor block
-        addu    s1,s1,1                 // increment array index
-        beq     zero,v0,CheckNextThread // if eq, processor not enabled
-        addu    v1,v0,PbDpcLock         // compute address of DPC lock
-        beq     v0,s2,CheckNextThread   // if eq, current processor block
-        lw      t0,0(v1)                // get current lock value
-        addu    v0,v0,PbDpcListHead     // compute address of DPC Listhead
-        bne     zero,t0,CheckNextThread // if ne, lock currently owned
-        lw      t0,LsFlink(v0)          // get address of first entry
-
-#endif
-
-        beq     v0,t0,CheckNextThread   // if eq, list is empty
-
-//
-// Process an entry from the DPC list.
-//
-
-LockDpcList:                            //
-        move    s7,zero                 // clear breakin loop counter
-
-#if !defined(NT_UP)
-
-10:     ll      t0,0(v1)                // get current lock value
-        move    t1,v1                   // set lock ownership value
-        bne     zero,t0,10b             // if ne, spin lock owned
-        sc      t1,0(v1)                // set spin lock owned
-        beq     zero,t1,10b             // if eq, store conditional failed
-
-#endif
-
-        lw      a0,LsFlink(v0)          // get address of next entry
-        beq     a0,v0,20f               // if eq, DPC List is empty
-        lw      t0,LsFlink(a0)          // get address of next entry
-        subu    a0,a0,DpDpcListEntry    // compute address of DPC object
-        sw      t0,LsFlink(v0)          // set address of next in header
-        sw      v0,LsBlink(t0)          // set address of previous in next
-        lw      a1,DpDeferredContext(a0) // get deferred context argument
-        lw      a2,DpSystemArgument1(a0) // get first system argument
-        lw      a3,DpSystemArgument2(a0) // get second system argument
-        lw      t0,DpDeferredRoutine(a0) // get deferred routine address
-        sw      zero,DpLock(a0)         // clear DPC inserted state
-
-#if !defined(NT_UP)
-
-        sw      zero,0(v1)              // set spin lock not owned
-
-#endif
-
-        ENABLE_INTERRUPTS(s8)           // enable interrupts
+        move    v0,s8                   // set previous PSR value
+        jal     KiRetireDpcList         // process the DPC list
 
 #if DBG
 
-        sw      t0,SsFunct(sp)          // save DPC function address
-        lw      t1,KeTickCount          // save current tick count
-        sw      t1,SsStart(sp)          //
-        lw      t1,KiPcr + PcPrcb(zero) // get address of current PRCB
-        lw      t2,PbInterruptCount(t1) // get current interrupt count
-        lw      t3,PbInterruptTime(t1)  // get current interrupt time
-        sw      t2,SsCount(sp)          // save interrupt count at start of DPC
-        sw      t3,SsTime(sp)           // save interrupt time at start of DPC
-
-#endif
-
-        li      t1,TRUE                 // set DPC routine active
-        sw      t1,KiPcr + PcDpcRoutineActive(zero) //
-        jal     t0                      // call DPC routine
-
-#if DBG
-
-        lbu     t0,KiPcr + PcCurrentIrql(zero) // get current IRQL
-        sltu    t1,t0,DISPATCH_LEVEL    // check if less than dispatch level
-        beq     zero,t1,15f             // if eq, not less than dispatch level
-        lw      t1,SsFunct(sp)          // get DPC function address
-        jal     DbgBreakPoint           // execute debug breakpoint
-
-#endif
-
-15:     sw      zero,KiPcr + PcDpcRoutineActive(zero) // clear DPC routine active
-
-#if DBG
-
-        lw      t0,KeTickCount          // get current tick count
-        lw      t1,SsStart(sp)          // get starting tick count
-        lw      t2,SsFunct(sp)          // get DPC function address
-        subu    t3,t0,t1                // compute time in DPC function
-        sltu    t3,t3,100               // check if less than one second
-        bne     zero,t3,CheckDpcList    // if ne, less than one second
-        lw      a0,KiPcr + PcPrcb(zero) // get address of current PRCB
-        lw      t3,PbInterruptCount(a0) // get current interrupt count
-        lw      t4,PbInterruptTime(a0)  // get current interrupt time
-        lw      t5,SsCount(sp)          // get starting interrupt count
-        lw      t6,SsTime(sp)           // get starting interrupt time
-        subu    t3,t3,t5                // compute number of interrupts
-        subu    t4,t4,t6                // compute time of interrupts
-        jal     DbgBreakPoint           // execute debug breakpoint
-
-#endif
-
-        b       CheckDpcList            //
-
-//
-// Release DPC lock and check for ready thread.
-//
-
-20:                                     //
-
-#if !defined(NT_UP)
-
-        sw      zero,0(v1)              // set spin lock not owned
+        move    s4,zero                 // clear breakin loop counter
 
 #endif
 
 //
-// Check if a thread has been selected to run on this processor.
+// Check if a thread has been selected to run on the current processor.
 //
 
 CheckNextThread:                        //
-        lw      a0,PbNextThread(s2)     // get address of next thread object
-        beq     zero,a0,20f             // if eq, no thread selected
-        move    s7,zero                 // clear breakin loop counter
-
-        ENABLE_INTERRUPTS(s8)           // enable interrupts
+        lw      s2,PbNextThread(s0)     // get address of next thread object
+        beq     zero,s2,20f             // if eq, no thread selected
 
 //
 // A thread has been selected for execution on this processor. Acquire
@@ -732,21 +732,62 @@ CheckNextThread:                        //
 //      dispatcher database lock.
 //
 
+        lbu     a0,KiSynchIrql          // get new IRQL value
+
 #if !defined(NT_UP)
 
-10:     ll      t0,0(s5)                // get current lock value
-        move    t1,s5                   // set lock ownership value
+10:     ll      t0,KiDispatcherLock     // get current lock value
+        move    t1,s2                   // set lock ownership value
         bne     zero,t0,CheckDpcList    // if ne, spin lock owned
-        sc      t1,0(s5)                // set spin lock owned
+        sc      t1,KiDispatcherLock     // set spin lock owned
         beq     zero,t1,10b             // if eq, store conditional failed
-        lw      a0,PbNextThread(s2)     // get address of next thread object
 
 #endif
 
-        move    a1,zero                 // set ready flag to false
-        sw      zero,PbNextThread(s2)   // clear address of next thread object
-        jal     KiSwapContext           // swap context to new thread
-        b       KiIdleLoop              //
+//
+// Raise IRQL to synchronization level and enable interrupts.
+//
+
+        sb      a0,KiPcr + PcCurrentIrql(zero) // set new IRQL
+
+        ENABLE_INTERRUPTS(s5)           // enable interrupts
+
+        lw      s1,PbCurrentThread(s0)  // get address of current thread
+        lw      s2,PbNextThread(s0)     // get address of next thread object
+        sw      zero,PbNextThread(s0)   // clear next thread address
+        sw      s2,PbCurrentThread(s0)  // set address of current thread object
+
+//
+// Set the thread state to running.
+//
+
+        li      t0,Running              // set thread state to running
+        sb      t0,ThState(s2)          //
+
+//
+// Acquire the context swap lock so the address space of the old process
+// cannot be deleted and then release the dispatcher database lock. In
+// this case the old process is the system process, but the context swap
+// code releases the context swap lock so it must be acquired.
+//
+// N.B. This lock is used to protect the address space until the context
+//    switch has sufficiently progressed to the point where the address
+//    space is no longer needed. This lock is also acquired by the reaper
+//    thread before it finishes thread termination.
+//
+
+#if !defined(NT_UP)
+
+15:     ll      t0,KiContextSwapLock    // get current lock value
+        move    t1,s2                   // set ownership value
+        bne     zero,t0,15b             // if ne, lock already owned
+        sc      t1,KiContextSwapLock    // set lock ownership value
+        beq     zero,t1,15b             // if eq, store conditional failed
+        sw      zero,KiDispatcherLock   // set lock not owned
+
+#endif
+
+        j       SwapFromIdle            // swap context to new thread
 
 //
 // There are no entries in the DPC list and a thread has not been selected
@@ -757,7 +798,171 @@ CheckNextThread:                        //
 //      with interrupts enabled.
 //
 
-20:     jal     HalProcessorIdle        // notify HAL of idle state
-        b       KiIdleLoop              //
+20:     la      ra,KiIdleTop            // set return address
+        j       HalProcessorIdle        // notify HAL of idle state
 
-        .end    KiSystemBegin
+        .end    KiIdleLoop
+
+        SBTTL("Retire Deferred Procedure Call List")
+//++
+//
+// Routine Description:
+//
+//    This routine is called to retire the specified deferred procedure
+//    call list. DPC routines are called using the idle thread (current)
+//    stack.
+//
+//    N.B. Interrupts must be disabled on entry to this routine. Control
+//         is returned to the caller with the same conditions true.
+//
+// Arguments:
+//
+//    v0 - Previous PSR value.
+//    s0 - Address of the current PRCB.
+//
+// Return value:
+//
+//    None.
+//
+//--
+
+        .struct 0
+        .space  4 * 4                   // argument save area
+DpRa:   .space  4                       // return address
+        .space  4                       // fill
+
+#if DBG
+
+DpStart:.space  4                       // DPC start time in ticks
+DpFunct:.space  4                       // DPC function address
+DpCount:.space  4                       // interrupt count at start of DPC
+DpTime: .space  4                       // interrupt time at start of DPC
+
+#endif
+
+DpcFrameLength:                         // DPC frame length
+
+        NESTED_ENTRY(KiRetireDpcList, DpcFrameLength, zero)
+
+        subu    sp,sp,DpcFrameLength    // allocate stack frame
+        sw      ra,DpRa(sp)             // save return address
+
+        PROLOGUE_END
+
+5:      sw      sp,PbDpcRoutineActive(s0) // set DPC routine active
+        sw      sp,KiPcr + PcDpcRoutineActive(zero) //
+
+//
+// Process the DPC list.
+//
+
+10:     addu    a1,s0,PbDpcListHead     // compute DPC listhead address
+        lw      a0,LsFlink(a1)          // get address of next entry
+        beq     a0,a1,60f               // if eq, DPC list is empty
+
+#if !defined(NT_UP)
+
+20:     ll      t1,PbDpcLock(s0)        // get current lock value
+        move    t2,s0                   // set lock ownership value
+        bne     zero,t1,20b             // if ne, spin lock owned
+        sc      t2,PbDpcLock(s0)        // set spin lock owned
+        beq     zero,t2,20b             // if eq, store conditional failed
+        lw      a0,LsFlink(a1)          // get address of next entry
+        beq     a0,a1,50f               // if eq, DPC list is empty
+
+#endif
+
+        lw      t1,LsFlink(a0)          // get address of next entry
+        subu    a0,a0,DpDpcListEntry    // compute address of DPC Object
+        sw      t1,LsFlink(a1)          // set address of next in header
+        sw      a1,LsBlink(t1)          // set address of previous in next
+        lw      a1,DpDeferredContext(a0) // get deferred context argument
+        lw      a2,DpSystemArgument1(a0) // get first system argument
+        lw      a3,DpSystemArgument2(a0) // get second system argument
+        lw      t1,DpDeferredRoutine(a0) // get deferred routine address
+        sw      zero,DpLock(a0)         // clear DPC inserted state
+        lw      t2,PbDpcQueueDepth(s0)  // decrement the DPC queue depth
+        subu    t2,t2,1                 //
+        sw      t2,PbDpcQueueDepth(s0)  //
+
+#if !defined(NT_UP)
+
+        sw      zero,PbDpcLock(s0)      // set spin lock not owned
+
+#endif
+
+        ENABLE_INTERRUPTS(v0)           // enable interrupts
+
+#if DBG
+
+        sw      t1,DpFunct(sp)          // save DPC function address
+        lw      t2,KeTickCount          // save current tick count
+        sw      t2,DpStart(sp)          //
+        lw      t3,PbInterruptCount(s0) // get current interrupt count
+        lw      t4,PbInterruptTime(s0)  // get current interrupt time
+        sw      t3,DpCount(sp)          // save interrupt count at start of DPC
+        sw      t4,DpTime(sp)           // save interrupt time at start of DPC
+
+#endif
+
+        jal     t1                      // call DPC routine
+
+#if DBG
+
+        lbu     t0,KiPcr + PcCurrentIrql(zero) // get current IRQL
+        sltu    t1,t0,DISPATCH_LEVEL    // check if less than dispatch level
+        beq     zero,t1,30f             // if eq, not less than dispatch level
+        lw      t1,DpFunct(sp)          // get DPC function address
+        jal     DbgBreakPoint           // execute debug breakpoint
+30:     lw      t0,KeTickCount          // get current tick count
+        lw      t1,DpStart(sp)          // get starting tick count
+        lw      t2,DpFunct(sp)          // get DPC function address
+        subu    t3,t0,t1                // compute time in DPC function
+        sltu    t3,t3,100               // check if less than one second
+        bne     zero,t3,40f             // if ne, less than one second
+        lw      t3,PbInterruptCount(s0) // get current interrupt count
+        lw      t4,PbInterruptTime(s0)  // get current interrupt time
+        lw      t5,DpCount(sp)          // get starting interrupt count
+        lw      t6,DpTime(sp)           // get starting interrupt time
+        subu    t3,t3,t5                // compute number of interrupts
+        subu    t4,t4,t6                // compute time of interrupts
+        jal     DbgBreakPoint           // execute debug breakpoint
+
+#endif
+
+40:     DISABLE_INTERRUPTS(v0)          // disable interrupts
+
+        b       10b                     //
+
+//
+// Unlock DPC list and clear DPC active.
+//
+
+50:
+
+#if !defined(NT_UP)
+
+        sw      zero,PbDpcLock(s0)      // set spin lock not owned
+
+#endif
+
+60:     sw      zero,PbDpcRoutineActive(s0) // clear DPC routine active
+        sw      zero,KiPcr + PcDpcRoutineActive(zero) //
+        sw      zero,PbDpcInterruptRequested(s0) // clear DPC interrupt requested
+
+//
+// Check one last time that the DPC list is empty. This is required to
+// close a race condition with the DPC queuing code where it appears that
+// a DPC routine is active (and thus an interrupt is not requested), but
+// this code has decided the DPC list is empty and is clearing the DPC
+// active flag.
+//
+
+        addu    a1,s0,PbDpcListHead     // compute DPC listhead address
+        lw      a0,LsFlink(a1)          // get address of next entry
+        bne     a0,a1,5b                // if ne, DPC list is not empty
+        lw      ra,DpRa(sp)             // restore return address
+        addu    sp,sp,DpcFrameLength    // deallocate stack frame
+        j       ra                      // return
+
+        .end    KiRetireDpcList

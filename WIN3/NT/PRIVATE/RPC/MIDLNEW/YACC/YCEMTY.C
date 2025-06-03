@@ -61,7 +61,7 @@ more:
 
    /* set pempty to WHOKNOWS */
 
-   aryfil( pempty, nnonter+1, WHOKNOWS );
+   aryfil( pempty, nnonter+1, WHOKNOWS );
    /* loop as long as we keep finding empty nonterminals */
 
 again:

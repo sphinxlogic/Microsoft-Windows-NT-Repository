@@ -80,4 +80,4 @@ ComputeChecksum(  char *szExeFile )
     CloseHandle(hFile);
     return;
 }
-
+

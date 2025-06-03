@@ -173,6 +173,7 @@ ObpLookupDirectoryEntry(
     POBJECT_HEADER ObjectHeader;
     POBJECT_HEADER_NAME_INFO NameInfo;
     PWCH s;
+    WCHAR c;
     ULONG h;
     ULONG n;
     BOOLEAN CaseInSensitive;
@@ -202,8 +203,20 @@ ObpLookupDirectoryEntry(
 
     h = 0;
     while (n--) {
-        h += (h << 1) + (h >> 1) + RtlUpcaseUnicodeChar( *s++ );
+        c = *s++;
+        h += (h << 1) + (h >> 1);
+        if (c < 'a') {
+            h += c;
+            }
+        else
+        if (c > 'z') {
+            h += RtlUpcaseUnicodeChar( c );
+            }
+        else {
+            h += (c - ('a'-'A'));
+            }
         }
+
     h %= NUMBER_HASH_BUCKETS;
     HeadDirectoryEntry =
         (POBJECT_DIRECTORY_ENTRY *)&Directory->HashBuckets[ h ];
@@ -447,7 +460,6 @@ Return Value:
     POBJECT_DIRECTORY RootDirectory;
     POBJECT_DIRECTORY Directory;
     POBJECT_DIRECTORY ParentDirectory = NULL;
-    PNONPAGED_OBJECT_HEADER NonPagedObjectHeader;
     POBJECT_HEADER ObjectHeader;
     POBJECT_HEADER_NAME_INFO NameInfo;
     PVOID Object;
@@ -457,6 +469,7 @@ Return Value:
     NTSTATUS Status;
     BOOLEAN Reparse;
     ULONG MaxReparse = OBJ_MAX_REPARSE_ATTEMPTS;
+    OB_PARSE_METHOD ParseProcedure;
 
     PAGED_CODE();
     ObpValidateIrql( "ObpLookupObjectName" );
@@ -482,10 +495,9 @@ Return Value:
             return( Status );
             }
 
-        NonPagedObjectHeader = OBJECT_TO_NONPAGED_OBJECT_HEADER( RootDirectory );
         ObjectHeader = OBJECT_TO_OBJECT_HEADER( RootDirectory );
-        if (NonPagedObjectHeader->Type != ObpDirectoryObjectType) {
-            if (NonPagedObjectHeader->Type->TypeInfo.ParseProcedure == NULL) {
+        if (ObjectHeader->Type != ObpDirectoryObjectType) {
+            if (ObjectHeader->Type->TypeInfo.ParseProcedure == NULL) {
                 ObDereferenceObject( RootDirectory );
                 return( STATUS_INVALID_HANDLE );
                 }
@@ -495,7 +507,7 @@ Return Value:
                     RemainingName = *ObjectName;
 
                     ObpBeginTypeSpecificCallOut( SaveIrql );
-                    Status = (*NonPagedObjectHeader->Type->TypeInfo.ParseProcedure)(
+                    Status = (*ObjectHeader->Type->TypeInfo.ParseProcedure)(
                                 RootDirectory,
                                 ObjectType,
                                 AccessState,
@@ -507,7 +519,7 @@ Return Value:
                                 SecurityQos,
                                 &Object
                                 );
-                    ObpEndTypeSpecificCallOut( SaveIrql, "Parse", NonPagedObjectHeader->Type, Object );
+                    ObpEndTypeSpecificCallOut( SaveIrql, "Parse", ObjectHeader->Type, Object );
 
                     if (Status != STATUS_REPARSE) {
                         if (!NT_SUCCESS( Status )) {
@@ -593,12 +605,28 @@ Return Value:
                 return( Status );
                 }
             }
-
+        else
+        if (ObpDosDevicesDirectoryObject != NULL &&
+            (Attributes & OBJ_CASE_INSENSITIVE) != 0 &&
+            ObjectName->Length >= ObpDosDevicesShortName.Length &&
+            !((ULONG)(ObjectName->Buffer) & (sizeof(ULONGLONG)-1)) &&
+            *(PULONGLONG)(ObjectName->Buffer) == ObpDosDevicesShortNamePrefix
+           ) {
+            *DirectoryLocked = TRUE;
+            ObpEnterRootDirectoryMutex();
+            ParentDirectory = RootDirectory;
+            Directory = ObpDosDevicesDirectoryObject;
+            RemainingName = *ObjectName;
+            RemainingName.Buffer += (ObpDosDevicesShortName.Length / sizeof( WCHAR ));
+            RemainingName.Length -= ObpDosDevicesShortName.Length;
+            goto quickStart;
+            }
         }
 
     Reparse = TRUE;
     while (Reparse) {
         RemainingName = *ObjectName;
+quickStart:
         Reparse = FALSE;
 
         while (TRUE) {
@@ -637,7 +665,7 @@ Return Value:
 
             if ( !(AccessState->Flags & TOKEN_HAS_TRAVERSE_PRIVILEGE) && (ParentDirectory != NULL) ) {
 
-                if (!ObCheckTraverseAccess( ParentDirectory,
+                if (!ObpCheckTraverseAccess( ParentDirectory,
                                             DIRECTORY_TRAVERSE,
                                             AccessState,
                                             FALSE,
@@ -657,7 +685,6 @@ Return Value:
             //
 
             Object = ObpLookupDirectoryEntry( Directory, &ComponentName, Attributes );
-
             if (!Object) {
                 if (RemainingName.Length != 0) {
                     Status = STATUS_OBJECT_PATH_NOT_FOUND;
@@ -694,20 +721,10 @@ Return Value:
                     break;
                     }
 
-                ObReferenceObjectByPointer( InsertObject,
-                                            0,
-                                            NULL,
-                                            KernelMode
-                                          );
-
-                NonPagedObjectHeader = OBJECT_TO_NONPAGED_OBJECT_HEADER( InsertObject );
+                ObReferenceObject( InsertObject );
                 ObjectHeader = OBJECT_TO_OBJECT_HEADER( InsertObject );
                 NameInfo = OBJECT_HEADER_TO_NAME_INFO( ObjectHeader );
-                ObReferenceObjectByPointer( Directory,
-                                            0,
-                                            ObpDirectoryObjectType,
-                                            KernelMode
-                                          );
+                ObReferenceObject( Directory );
                 RtlMoveMemory( NewName,
                                ComponentName.Buffer,
                                ComponentName.Length
@@ -725,18 +742,19 @@ Return Value:
                 break;
                 }
 
-            NonPagedObjectHeader = OBJECT_TO_NONPAGED_OBJECT_HEADER( Object );
+ReparseObject:
             ObjectHeader = OBJECT_TO_OBJECT_HEADER( Object );
-            if (!InsertObject && NonPagedObjectHeader->Type->TypeInfo.ParseProcedure) {
+            ParseProcedure = ObjectHeader->Type->TypeInfo.ParseProcedure;
+            if (ParseProcedure && (!InsertObject || ParseProcedure == ObpParseSymbolicLink)) {
                 KIRQL SaveIrql;
-                ObpIncrPointerCount( NonPagedObjectHeader );
+                ObpIncrPointerCount( ObjectHeader );
 
                 ASSERT(*DirectoryLocked);
                 ObpLeaveRootDirectoryMutex();
                 *DirectoryLocked = FALSE;
 
                 ObpBeginTypeSpecificCallOut( SaveIrql );
-                Status = (*NonPagedObjectHeader->Type->TypeInfo.ParseProcedure)(
+                Status = (*ParseProcedure)(
                             Object,
                             (PVOID)ObjectType,
                             AccessState,
@@ -748,14 +766,16 @@ Return Value:
                             SecurityQos,
                             &Object
                             );
-                ObpEndTypeSpecificCallOut( SaveIrql, "Parse", NonPagedObjectHeader->Type, Object );
+                ObpEndTypeSpecificCallOut( SaveIrql, "Parse", ObjectHeader->Type, Object );
 
-                ObDereferenceObject( NonPagedObjectHeader->Object );
+                ObDereferenceObject( &ObjectHeader->Body );
 
-                if (Status == STATUS_REPARSE) {
+                if (Status == STATUS_REPARSE || Status == STATUS_REPARSE_OBJECT) {
                     if (--MaxReparse) {
                         Reparse = TRUE;
-                        if (*(ObjectName->Buffer) == OBJ_NAME_PATH_SEPARATOR) {
+                        if (Status == STATUS_REPARSE_OBJECT ||
+                            *(ObjectName->Buffer) == OBJ_NAME_PATH_SEPARATOR
+                           ) {
                             if (ARGUMENT_PRESENT( RootDirectoryHandle )) {
                                 ObDereferenceObject( RootDirectory );
                                 RootDirectoryHandle = NULL;
@@ -763,6 +783,17 @@ Return Value:
 
                             ParentDirectory = NULL;
                             RootDirectory = ObpRootDirectoryObject;
+                            if (Status == STATUS_REPARSE_OBJECT) {
+                                Reparse = FALSE;
+                                if (Object == NULL) {
+                                    Status = STATUS_OBJECT_NAME_NOT_FOUND;
+                                    }
+                                else {
+                                    *DirectoryLocked = TRUE;
+                                    ObpEnterRootDirectoryMutex();
+                                    goto ReparseObject;
+                                    }
+                                }
                             }
                         else
                         if (RootDirectory == ObpRootDirectoryObject) {
@@ -770,6 +801,9 @@ Return Value:
                             Status = STATUS_OBJECT_NAME_NOT_FOUND;
                             Reparse = FALSE;
                             }
+
+
+
                         }
                     else {
                         Object = NULL;
@@ -799,7 +833,7 @@ Return Value:
 
                         if ( !(AccessState->Flags & TOKEN_HAS_TRAVERSE_PRIVILEGE) ) {
 
-                            if (!ObCheckTraverseAccess( Directory,
+                            if (!ObpCheckTraverseAccess( Directory,
                                                         DIRECTORY_TRAVERSE,
                                                         AccessState,
                                                         FALSE,
@@ -826,7 +860,7 @@ Return Value:
                     break;
                     }
                 else {
-                    if (NonPagedObjectHeader->Type == ObpDirectoryObjectType) {
+                    if (ObjectHeader->Type == ObpDirectoryObjectType) {
                         ParentDirectory = Directory;
                         Directory = (POBJECT_DIRECTORY)Object;
                         }
@@ -892,7 +926,6 @@ Return Value:
 {
     POBJECT_DIRECTORY Directory;
     POBJECT_DIRECTORY_ENTRY DirectoryEntry;
-    PNONPAGED_OBJECT_HEADER NonPagedObjectHeader;
     POBJECT_HEADER ObjectHeader;
     POBJECT_HEADER_NAME_INFO NameInfo;
     UNICODE_STRING ObjectName;
@@ -970,7 +1003,6 @@ Return Value:
         DirectoryEntry = Directory->HashBuckets[ Bucket ];
         while (DirectoryEntry) {
             if (CapturedContext == EntryNumber++) {
-                NonPagedObjectHeader = OBJECT_TO_NONPAGED_OBJECT_HEADER( DirectoryEntry->Object );
                 ObjectHeader = OBJECT_TO_OBJECT_HEADER( DirectoryEntry->Object );
                 NameInfo = OBJECT_HEADER_TO_NAME_INFO( ObjectHeader );
                 if (NameInfo != NULL) {
@@ -982,7 +1014,7 @@ Return Value:
 
                 LengthNeeded = sizeof( *DirInfo ) +
                                ObjectName.Length + sizeof( UNICODE_NULL ) +
-                               NonPagedObjectHeader->Type->Name.Length + sizeof( UNICODE_NULL );
+                               ObjectHeader->Type->Name.Length + sizeof( UNICODE_NULL );
 
                 if ((TotalLengthNeeded + LengthNeeded) > Length) {
                     if (ReturnSingleEntry) {
@@ -1003,10 +1035,10 @@ Return Value:
                         (ObjectName.Length+sizeof( UNICODE_NULL ));
                     DirInfo->Name.Buffer = ObjectName.Buffer;
 
-                    DirInfo->TypeName.Length = NonPagedObjectHeader->Type->Name.Length;
+                    DirInfo->TypeName.Length = ObjectHeader->Type->Name.Length;
                     DirInfo->TypeName.MaximumLength = (USHORT)
-                        (NonPagedObjectHeader->Type->Name.Length+sizeof( UNICODE_NULL ));
-                    DirInfo->TypeName.Buffer = NonPagedObjectHeader->Type->Name.Buffer;
+                        (ObjectHeader->Type->Name.Length+sizeof( UNICODE_NULL ));
+                    DirInfo->TypeName.Buffer = ObjectHeader->Type->Name.Buffer;
 
                     Status = STATUS_SUCCESS;
                     }

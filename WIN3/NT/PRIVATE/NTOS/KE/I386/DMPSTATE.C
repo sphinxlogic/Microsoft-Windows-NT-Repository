@@ -25,7 +25,6 @@ Revision History:
 --*/
 
 #include "ki.h"
-#include "stdio.h"
 
 
 BOOLEAN
@@ -93,10 +92,10 @@ Return Value:
     ULONG CursorColumn, CursorRow;
     ULONG i, j;
     PLDR_DATA_TABLE_ENTRY DataTableEntry;
-    PIMAGE_NT_HEADERS NtHeaders;
     PVOID ImageBase;
     PKPRCB  Prcb;
     UCHAR AnsiBuffer[ 32 ];
+    ULONG DateStamp;
 
 
     //
@@ -136,7 +135,7 @@ Return Value:
     Prcb = KeGetCurrentPrcb();
     if (Prcb->CpuID) {
         sprintf(Buffer, "\n\nCPUID:%.12s %x.%x.%x",
-            Prcb->CpuVendorString,
+            Prcb->VendorString,
             Prcb->CpuType,
             Prcb->CpuStep >> 8,
             Prcb->CpuStep & 0x0f
@@ -181,10 +180,18 @@ Return Value:
                                       InLoadOrderLinks);
 
                 Next = Next->Flink;
-                NtHeaders = RtlImageNtHeader(DataTableEntry->DllBase);
+                if (MmDbgReadCheck(DataTableEntry->DllBase) != NULL) {
+                    PIMAGE_NT_HEADERS NtHeaders;
+
+                    NtHeaders = RtlImageNtHeader(DataTableEntry->DllBase);
+                    DateStamp = NtHeaders->FileHeader.TimeDateStamp;
+
+                } else {
+                    DateStamp = 0;
+                }
                 sprintf (Buffer, "%08lx %08lx - %-18.18s ",
                             DataTableEntry->DllBase,
-                            NtHeaders->FileHeader.TimeDateStamp,
+                            DateStamp,
                             (*UnicodeToAnsiRoutine)( &DataTableEntry->BaseDllName, AnsiBuffer, sizeof( AnsiBuffer )));
 
                 HalDisplayString (Buffer);
@@ -284,7 +291,6 @@ Return Value:
     PLIST_ENTRY Next;
     ULONG Bounds;
     PVOID ReturnBase, Base;
-    PIMAGE_NT_HEADERS NtHeaders;
 
     //
     // If the module list has been initialized, then scan the list to
@@ -308,8 +314,7 @@ Return Value:
 
             Next = Next->Flink;
             Base = Entry->DllBase;
-            NtHeaders = RtlImageNtHeader(Base);
-            Bounds = (ULONG)Base + NtHeaders->OptionalHeader.SizeOfImage;
+            Bounds = (ULONG)Base + Entry->SizeOfImage;
             if ((ULONG)PcValue >= (ULONG)Base && (ULONG)PcValue < Bounds) {
                 *DataTableEntry = Entry;
                 ReturnBase = Base;

@@ -2,18 +2,18 @@
 // Pcimac.c - Main file for pcimac miniport wan driver
 //
 //
-// 
 //
-#include	<ntddk.h>
-#include	<ntddndis.h>
+//
+//#include	<ntddk.h>
+//#include	<ntddndis.h>
 #include	<ndis.h>
-#include	<ndismini.h>
+//#include	<ndismini.h>
 #include	<ndiswan.h>
-#include	<ntddndis.h>
 #include	<stdio.h>
 #include	<stdlib.h>
 #include	<mytypes.h>
 #include	<mydefs.h>
+#include	<opcodes.h>
 #include	<disp.h>
 #include	<adapter.h>
 #include	<util.h>
@@ -28,14 +28,11 @@
 /* driver global vars */
 DRIVER_BLOCK	Pcimac;
 
-/* forward for unload function */
-VOID		PcimacUnload(DRIVER_OBJECT* DriverObject);
-
 /* store location for prev. ioctl handler */
 NTSTATUS	(*PrevIoctl)(DEVICE_OBJECT* DeviceObject, IRP* Irp) = NULL;
 
 /* forward for external name manager */
-VOID		BindName(BOOL create);
+VOID		BindName(ADAPTER *Adapter, BOOL create);
 
 //VOID		RegistryInit (VOID);
 //VOID		NdisTapiRequest(PNDIS_STATUS, NDIS_HANDLE, PNDIS_REQUEST);
@@ -63,7 +60,15 @@ GetLTermConfigParams(
 	);
 
 VOID
-GetEaddrFromNvram(
+IdpGetEaddrFromNvram(
+	IDD *idd,
+	CM *cm,
+	USHORT Line,
+	USHORT LineIndex
+	);
+
+VOID
+AdpGetEaddrFromNvram(
 	IDD *idd,
 	CM *cm,
 	USHORT Line,
@@ -82,7 +87,7 @@ DriverEntry(
     UNICODE_STRING  *RegistryPath
     )
 {
-    ULONG	RetVal, n;
+    ULONG	RetVal, n, m;
 
 	NDIS_STATUS		Status = NDIS_STATUS_SUCCESS;
 
@@ -92,10 +97,10 @@ DriverEntry(
 	//
 	// Used for debugging at init time only
 	//
-//	DbgBreakPoint();
+//   DbgBreakPoint();
 
 	NdisZeroMemory(&Pcimac, sizeof(DRIVER_BLOCK));
-    
+
     /* initialize ndis wrapper */
     NdisMInitializeWrapper(&NdisWrapperHandle, DriverObject, RegistryPath, NULL);
 
@@ -107,6 +112,8 @@ DriverEntry(
     D_LOG(D_ALWAYS, ("WrapperHandle: 0x%x", NdisWrapperHandle));
 
 	Pcimac.NdisWrapperHandle = NdisWrapperHandle;
+
+	NdisAllocateSpinLock (&Pcimac.lock);
 
     /* initialize classes */
 	if ((RetVal = idd_init()) != IDD_E_SUCC)
@@ -132,7 +139,7 @@ DriverEntry(
     MiniportChars.InitializeHandler = PcimacInitialize;
 	MiniportChars.ISRHandler = NULL;
     MiniportChars.QueryInformationHandler = PcimacSetQueryInfo;
-    MiniportChars.ReconfigureHandler = NULL;
+    MiniportChars.ReconfigureHandler = PcimacReconfigure;
     MiniportChars.ResetHandler = PcimacReset;
     MiniportChars.SendHandler = (WM_SEND_HANDLER)PcimacSend;
     MiniportChars.SetInformationHandler = PcimacSetQueryInfo;
@@ -145,27 +152,48 @@ DriverEntry(
 	if (!EnumAdaptersInSystem())
 		goto exit_event_error;
 
-//	RegistryInit ();
-
-    /* initialize termination handlers */
-    DriverObject->DriverUnload = PcimacUnload;
-
 	/* initialize ioctl filter */
 	PrevIoctl = DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL];
 	DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = PcimacIoctl;
 
-	/* create external name binding */
-	BindName(TRUE);
-
-   	//
-	// Start idd polling timer 
+	//
+	// get an adapter to create a binding I/O name binding to
 	//
 	for (n = 0; n < MAX_ADAPTERS_IN_SYSTEM; n++)
 	{
 		ADAPTER	*Adapter = Pcimac.AdapterTbl[n];
 
 		if (Adapter)
-			StartTimers(Adapter);
+		{
+			/* create external name binding */
+			BindName(Adapter, TRUE);
+			break;
+		}
+	}
+
+	//
+	// turn off the trace on all idd's in the system
+	//
+	for (n = 0; n < MAX_ADAPTERS_IN_SYSTEM; n++)
+	{
+		ADAPTER	*Adapter = Pcimac.AdapterTbl[n];
+		IDD_MSG	msg;
+
+		if (Adapter)
+		{
+			for (m = 0; m < MAX_IDD_PER_ADAPTER; m++)
+			{
+				IDD	*idd = Adapter->IddTbl[m];
+
+				if (idd)
+				{
+					/* issue idd command to stop trace */
+					NdisZeroMemory(&msg, sizeof(msg));
+					msg.opcode = CMD_TRC_OFF;
+					idd_send_msg(idd, &msg, IDD_PORT_CMD_TX, NULL, NULL);
+				}
+			}
+		}
 	}
 
     D_LOG(D_EXIT, ("DriverEntry: exit success!"));
@@ -184,38 +212,11 @@ exit_res_error:
 exit_cm_error:
 exit_idd_error:
     D_LOG(D_ALWAYS, ("CmIddError!"));
+
+	NdisFreeSpinLock(&Pcimac.lock);
+
+    NdisTerminateWrapper(Pcimac.NdisWrapperHandle, NULL);
 	return(NDIS_STATUS_FAILURE);
-}
-
-/* unload function, trigger cleanup */
-VOID
-PcimacUnload(DRIVER_OBJECT *DriverObject)
-{
-	ULONG	n;
-    
-    
-    D_LOG(D_ENTRY, ("PcimacUnload: entry, DriverObject: %p", DriverObject));
-
-	//
-	// Reset all adpaters
-	//
-	for (n = 0; n < MAX_ADAPTERS_IN_SYSTEM; n++)
-	{
-		ADAPTER	*Adapter = Pcimac.AdapterTbl[n];
-
-		if (Adapter != NULL)
-			PcimacHalt(Adapter);
-	}
-
-	res_term();
-	cm_term();
-
-    D_LOG(D_ENTRY, ("PcimacUnload: DeleteBindName"));
-	/* delete external name binding */
-	BindName(FALSE);
-
-    D_LOG(D_ENTRY, ("PcimacUnload: TerminateWrapper"));
-    NdisTerminateWrapper(Pcimac.NdisWrapperHandle, NULL); 
 }
 
 BOOLEAN
@@ -223,7 +224,7 @@ PcimacCheckForHang(
 	NDIS_HANDLE AdapterContext
 	)
 {
-	ULONG	n;
+	ULONG	n, IdpCounter = 0;
 	ADAPTER *Adapter = (ADAPTER *)AdapterContext;
 	BOOLEAN	ReturnStatus = FALSE;
 
@@ -237,15 +238,22 @@ PcimacCheckForHang(
 		IDD	*idd = Adapter->IddTbl[n];
 
 		//
-		// if the idd has shutdown let wrapper know
+		// see if this idd is dead
 		//
 		if (!idd || idd->state == IDD_S_SHUTDOWN)
-		{
-			ReturnStatus = TRUE;
-			break;
-		}
+			continue;
+
+		IdpCounter++;
 	}
+
+	//
+	// if there are no idps alive on this adapter tell the wrapper
+	//
+	if (!IdpCounter)
+		ReturnStatus = TRUE;
+
 	D_LOG(D_ALWAYS, ("PcimacCheckForHang: ReturnStatus: %d", ReturnStatus));
+
 	return(ReturnStatus);
 }
 
@@ -283,6 +291,7 @@ PcimacHalt(
 	ADAPTER	*Adapter = (ADAPTER*)AdapterContext;
 
 	D_LOG(D_ENTRY, ("PcimacHalt: Adapter: 0x%p", AdapterContext));
+	DbgPrint("PcimacHalt: Adapter: 0x%p\n", AdapterContext);
 
 	//
 	// destroy cm objects
@@ -290,6 +299,8 @@ PcimacHalt(
 	for (n = 0; n < MAX_CM_PER_ADAPTER; n++)
 	{
 		CM	*cm = Adapter->CmTbl[n];
+
+		Adapter->CmTbl[n] = NULL;
 
 		if (cm)
 			cm_destroy(cm);
@@ -302,14 +313,11 @@ PcimacHalt(
 	{
 		MTL	*mtl = Adapter->MtlTbl[n];
 
+		Adapter->MtlTbl[n] = NULL;
+
 		if (mtl)
 			mtl_destroy(mtl);
 	}
-
-	//
-	// stop idd timers
-	//
-	StopTimers(Adapter);
 
 	//
 	// destroy idd objects
@@ -318,9 +326,14 @@ PcimacHalt(
 	{
 		IDD	*idd = (IDD*)Adapter->IddTbl[n];
 
+		Adapter->IddTbl[n] = NULL;
+
 		if (idd)
 			idd_destroy(idd);
 	}
+
+	/* delete external name binding */
+	BindName(Adapter, FALSE);
 
 	//
 	// deregister adapter
@@ -385,7 +398,7 @@ PcimacInitialize(
     if ( !Adapter)
     {
         D_LOG(D_ALWAYS, ("PcimacInitiailize: Adapter memory allocate failed!"));
-        return (NDIS_STATUS_FAILURE);
+        return (NDIS_STATUS_ADAPTER_NOT_FOUND);
     }
     D_LOG(D_ALWAYS, ("PcimacInitialize: Allocated an Adapter: 0x%p", Adapter));
     NdisZeroMemory(Adapter, sizeof(ADAPTER));
@@ -398,6 +411,7 @@ PcimacInitialize(
 		if (!Pcimac.AdapterTbl[n])
 		{
 			Pcimac.AdapterTbl[n] = Adapter;
+			Pcimac.NumberOfAdaptersInSystem++;
 			BoardNumber = (USHORT)n;
 			break;
 		}
@@ -410,26 +424,31 @@ PcimacInitialize(
 	{
 		D_LOG(D_ALWAYS, ("PcimacInitialize: No room in Adapter Table"));
 		NdisFreeMemory(Adapter, sizeof(ADAPTER), 0);
-		return (NDIS_STATUS_FAILURE);
+		return (NDIS_STATUS_ADAPTER_NOT_FOUND);
 	}
 
 	//
 	// set in driver access lock
 	//
-	NdisAllocateSpinLock (&Adapter->InDriverLock);
+//	NdisAllocateSpinLock (&Adapter->InDriverLock);
 
 
 	//
 	// store adapter handle
 	//
-	Adapter->AdapterHandle = AdapterHandle;
+	Adapter->Handle = AdapterHandle;
 
 	//
 	// initialize adapter specific timers
 	//
-    NdisMInitializeTimer(&Adapter->IddPollTimer, Adapter->AdapterHandle, IddPollFunction, Adapter);
-    NdisMInitializeTimer(&Adapter->MtlPollTimer, Adapter->AdapterHandle, MtlPollFunction, Adapter);
-    NdisMInitializeTimer(&Adapter->CmPollTimer, Adapter->AdapterHandle, CmPollFunction, Adapter);
+    NdisMInitializeTimer(&Adapter->IddPollTimer, Adapter->Handle, IddPollFunction, Adapter);
+	NdisMSetTimer(&Adapter->IddPollTimer, IDD_POLL_T);
+
+    NdisMInitializeTimer(&Adapter->MtlPollTimer, Adapter->Handle, MtlPollFunction, Adapter);
+	NdisMSetTimer(&Adapter->MtlPollTimer, MTL_POLL_T);
+
+    NdisMInitializeTimer(&Adapter->CmPollTimer, Adapter->Handle, CmPollFunction, Adapter);
+	NdisMSetTimer(&Adapter->CmPollTimer, CM_POLL_T);
 
 	ConfigParam.AdapterHandle = AdapterHandle;
 	
@@ -457,12 +476,14 @@ PcimacInitialize(
 	if (!GetBaseConfigParams(&ConfigParam, PCIMAC_KEY_BOARDTYPE))
 		goto InitErrorExit;
 
-	if (!strncmp(ConfigParam.String, "PCIMAC/4", 8))
+	if (!strncmp(ConfigParam.String, "PCIMAC4", 7))
 		BoardType = IDD_BT_PCIMAC4;
 	else if (!strncmp(ConfigParam.String, "PCIMAC - ISA", 12))
 		BoardType = IDD_BT_PCIMAC;
 	else if (!strncmp(ConfigParam.String, "PCIMAC - MC", 11))
 		BoardType = IDD_BT_MCIMAC;
+	else if (!strncmp(ConfigParam.String, "DATAFIRE - ISA1U", 16))
+		BoardType = IDD_BT_DATAFIREU;
 	else
 	{
 		D_LOG(D_ALWAYS, ("PcimacInitialize: Invalid BoardType: %s", ConfigParam.String));
@@ -512,74 +533,76 @@ PcimacInitialize(
 	}
 	Adapter->VBaseIO = VBaseIO;
 
-	//
-	// read registry base mem
-	//
-	ConfigParam.StringLen = 0;
-	ConfigParam.ParamType = NdisParameterInteger;
-	ConfigParam.MustBePresent = TRUE;
-	if (!GetBaseConfigParams(&ConfigParam, PCIMAC_KEY_BASEMEM))
-		goto InitErrorExit;
-
-	BaseMem = ConfigParam.Value;
-
-	//
-	// save base memory for this adapter
-	//
-	Adapter->BaseMem = BaseMem;
-
-	//
-	// since our adapters can share the same base memory we need to
-	// see if we have already mapped this memory range.  if we have already
-	// mapped the memory once then save that previous value
-	//
-	for (n = 0; n < MAX_ADAPTERS_IN_SYSTEM; n++)
-	{
-		ADAPTER	*PreviousAdapter = Pcimac.AdapterTbl[n];
-
-		//
-		// if this is a valid adapter, this is not the current adapter, and
-		// this adapter has the same shared memory address as the current
-		// adapter, then use this adapters mapped memory for the current
-		// adpaters mapped memory
-		//
-		if (PreviousAdapter &&
-			(PreviousAdapter != Adapter) &&
-			(PreviousAdapter->BaseMem == Adapter->BaseMem))
-		{
-			VBaseMem = PreviousAdapter->VBaseMem;
-			break;
-		}
-	}
-
-	//
-	// if we did not find a previous adapter with this memory range
-	// we need to map this memory range
-	//
-	if (n >= MAX_ADAPTERS_IN_SYSTEM)
+	if (BoardType != IDD_BT_DATAFIREU)
 	{
 		//
-		// map our physical memory into virtual memory
+		// read registry base mem
 		//
-		NdisSetPhysicalAddressLow(MemPhyAddr, BaseMem);
-		NdisSetPhysicalAddressHigh(MemPhyAddr, 0);
-	
-		RetVal = NdisMMapIoSpace(&VBaseMem,
-								 AdapterHandle,
-								 MemPhyAddr,
-								 0x4000);
-	
-		if (RetVal != NDIS_STATUS_SUCCESS)
-		{
-			NdisWriteErrorLogEntry(AdapterHandle,
-								   NDIS_ERROR_CODE_RESOURCE_CONFLICT,
-								   0);
+		ConfigParam.StringLen = 0;
+		ConfigParam.ParamType = NdisParameterInteger;
+		ConfigParam.MustBePresent = TRUE;
+		if (!GetBaseConfigParams(&ConfigParam, PCIMAC_KEY_BASEMEM))
 			goto InitErrorExit;
+	
+		BaseMem = ConfigParam.Value;
+	
+		//
+		// save base memory for this adapter
+		//
+		Adapter->BaseMem = BaseMem;
+	
+		//
+		// since our adapters can share the same base memory we need to
+		// see if we have already mapped this memory range.  if we have already
+		// mapped the memory once then save that previous value
+		//
+		for (n = 0; n < MAX_ADAPTERS_IN_SYSTEM; n++)
+		{
+			ADAPTER	*PreviousAdapter = Pcimac.AdapterTbl[n];
+	
+			//
+			// if this is a valid adapter, this is not the current adapter, and
+			// this adapter has the same shared memory address as the current
+			// adapter, then use this adapters mapped memory for the current
+			// adpaters mapped memory
+			//
+			if (PreviousAdapter &&
+				(PreviousAdapter != Adapter) &&
+				(PreviousAdapter->BaseMem == Adapter->BaseMem))
+			{
+				VBaseMem = PreviousAdapter->VBaseMem;
+				break;
+			}
 		}
 	
-		Adapter->VBaseMem = VBaseMem;
+		//
+		// if we did not find a previous adapter with this memory range
+		// we need to map this memory range
+		//
+		if (n >= MAX_ADAPTERS_IN_SYSTEM)
+		{
+			//
+			// map our physical memory into virtual memory
+			//
+			NdisSetPhysicalAddressHigh(MemPhyAddr, 0);
+			NdisSetPhysicalAddressLow(MemPhyAddr, BaseMem);
+		
+			RetVal = NdisMMapIoSpace(&VBaseMem,
+									 AdapterHandle,
+									 MemPhyAddr,
+									 0x4000);
+		
+			if (RetVal != NDIS_STATUS_SUCCESS)
+			{
+				NdisWriteErrorLogEntry(AdapterHandle,
+									   NDIS_ERROR_CODE_RESOURCE_CONFLICT,
+									   0);
+				goto InitErrorExit;
+			}
+		
+			Adapter->VBaseMem = VBaseMem;
+		}
 	}
-
 
 	//
 	// read registry  name
@@ -604,60 +627,6 @@ PcimacInitialize(
 		NumberOfLines = (BoardType == IDD_BT_PCIMAC4) ? 4 : 1;
 	else
 		NumberOfLines = (USHORT)ConfigParam.Value;
-
-	//
-	// add code to read generic multistring at the board level
-	// Key is "GenericDefines"
-	// each string will look like "name=value\0" should
-	// remove "=" and replace with '\0'
-	//
-	NdisZeroMemory(ConfigParam.String, sizeof(ConfigParam.String));
-	ConfigParam.StringLen = sizeof(ConfigParam.String);
-	ConfigParam.ParamType = NdisParameterMultiString;
-	ConfigParam.MustBePresent = FALSE;
-	if (GetBaseConfigParams(&ConfigParam, PCIMAC_KEY_GENERICDEFINES))
-	{
-		CHAR	Name[50] = {0};
-		CHAR	Value[50] = {0};
-		CHAR	*StringPointer = ConfigParam.String;
-
-		while (strlen(StringPointer))
-		{
-			//
-			// copy the name part of the generic define
-			//
-			strcpy(Name, StringPointer);
-
-			D_LOG(D_ALWAYS, ("PcimacInitialize: GenericDefines: Name: %s", Name));
-			//
-			// push pointer over the name
-			//
-			StringPointer += strlen(StringPointer);
-
-			//
-			// get over the null character
-			//
-			StringPointer += 1;
-
-			//
-			// copy the value part of the generic define
-			//
-			strcpy(Value, StringPointer);
-			D_LOG(D_ALWAYS, ("PcimacInitialize: GenericDefines: Value: %s", Value));
-
-			idd_add_def(Name, Value);
-
-			//
-			// push pointer over the value
-			//
-			StringPointer += strlen(StringPointer);
-
-			//
-			// get over the null character
-			//
-			StringPointer += 1;
-		}
-	}
 
 	//
 	// for number of lines
@@ -690,6 +659,8 @@ PcimacInitialize(
 			}
 		}
 
+		Adapter->NumberOfIddOnAdapter++;
+
 		//
 		// set idd physical base i/o and memory
 		//
@@ -714,25 +685,6 @@ PcimacInitialize(
 		res_set_data(idd->res_mem, (ULONG)VBaseMem);
 
 		//
-		// check for board at this I/O address
-		//
-		if (BoardType == IDD_BT_PCIMAC || BoardType == IDD_BT_PCIMAC4)
-		{
-			UCHAR	BoardID;
-
-			BoardID = (idd__inp(idd, 5) & 0x0F);
-	
-			if (((BoardType == IDD_BT_PCIMAC) && (BoardID != 0x02)) ||
-				((BoardType == IDD_BT_PCIMAC4) && (BoardID != 0x04)) )
-			{
-				NdisWriteErrorLogEntry(AdapterHandle,
-									   NDIS_ERROR_CODE_BAD_IO_BASE_ADDRESS,
-									   0);
-				goto InitErrorExit;
-			}
-		}
-
-		//
 		// save adapter handle
 		//
 		idd->adapter_handle = AdapterHandle;
@@ -751,6 +703,14 @@ PcimacInitialize(
 		// save the board type that this idd belongs to
 		//
 		idd->btype = BoardType;
+
+		if(idd->CheckIO(idd))
+		{
+			NdisWriteErrorLogEntry(AdapterHandle,
+								   NDIS_ERROR_CODE_BAD_IO_BASE_ADDRESS,
+								   0);
+			goto InitErrorExit;
+		}
 
 		//
 		// read registry line name
@@ -827,7 +787,7 @@ PcimacInitialize(
 		//
 		CmSetSwitchStyle(ConfigParam.String);
 
-		idd_add_def("q931.style", ConfigParam.String);
+		idd_add_def(idd, "q931.style", ConfigParam.String);
 	
 		//
 		// read registry terminal management
@@ -840,7 +800,7 @@ PcimacInitialize(
 			                     PCIMAC_KEY_TERMINALMANAGEMENT))
 			goto InitErrorExit;
 
-		idd_add_def("q931.tm", ConfigParam.String);
+		idd_add_def(idd, "q931.tm", ConfigParam.String);
 
 		//
 		// read WaitForL3 value
@@ -853,7 +813,7 @@ PcimacInitialize(
 			                     PCIMAC_KEY_WAITFORL3))
 			strcpy(ConfigParam.String, "5");
 
-		idd_add_def("q931.wait_l3", ConfigParam.String);
+		idd_add_def(idd, "q931.wait_l3", ConfigParam.String);
 
 		//
 		// read registry logical terminals
@@ -867,7 +827,7 @@ PcimacInitialize(
 		NumberOfLTerms = (USHORT)ConfigParam.Value;
 
 		if (NumberOfLTerms > 1)
-			idd_add_def("dual_q931", "any");
+			idd_add_def(idd, "dual_q931", "any");
 
 		//
 		// store number of lterms that this idd has
@@ -891,7 +851,7 @@ PcimacInitialize(
 
 			NdisZeroMemory(DefName, sizeof(DefName));
             sprintf(DefName, "q931.%d.tei", l);
-            idd_add_def(DefName, ConfigParam.String);
+            idd_add_def(idd, DefName, ConfigParam.String);
 
 			//
 			// read registry spid
@@ -922,8 +882,8 @@ PcimacInitialize(
 
 				NdisZeroMemory(DefName, sizeof(DefName));
 				sprintf(DefName, "q931.%d.spid", l);
-				idd_add_def(DefName, TempVal);
-				idd_add_def("q931.multipoint", "any");
+				idd_add_def(idd, DefName, TempVal);
+				idd_add_def(idd, "q931.multipoint", "any");
 			}
 			
 			//
@@ -935,9 +895,27 @@ PcimacInitialize(
 			ConfigParam.MustBePresent = FALSE;
 			if (GetLTermConfigParams(&ConfigParam, n, l, PCIMAC_KEY_ADDRESS))
 			{
+				CHAR	TempVal[64];
+				ULONG	i, j;
+
+				//
+				// remove any non digits except # & *
+				//
+				NdisZeroMemory(TempVal, sizeof(TempVal));
+
+				for (i = 0, j = 0; i < ConfigParam.StringLen; i++)
+				{
+					if ((ConfigParam.String[i] >= '0' && ConfigParam.String[i] <= '9') ||
+						ConfigParam.String[i] ==  '*' ||
+						ConfigParam.String[i] == '#')
+					{
+						TempVal[j++] = ConfigParam.String[i];
+					}
+				}
+
 				NdisZeroMemory(DefName, sizeof(DefName));
 				sprintf(DefName, "q931.%d.addr", l);
-				idd_add_def(DefName, ConfigParam.String);
+				idd_add_def(idd, DefName, TempVal);
 			}
 
 			//
@@ -950,12 +928,58 @@ PcimacInitialize(
 		}
 
 		//
-		// add code to read generic multistring at the line level
-		// Key is "LineDefinitions" these will be added to the
-		// enviornment database
+		// add code to read generic multistring at the board level
+		// Key is "GenericDefines"
 		// each string will look like "name=value\0" should
 		// remove "=" and replace with '\0'
 		//
+		NdisZeroMemory(ConfigParam.String, sizeof(ConfigParam.String));
+		ConfigParam.StringLen = sizeof(ConfigParam.String);
+		ConfigParam.ParamType = NdisParameterMultiString;
+		ConfigParam.MustBePresent = FALSE;
+		if (GetBaseConfigParams(&ConfigParam, PCIMAC_KEY_GENERICDEFINES))
+		{
+			CHAR	Name[50] = {0};
+			CHAR	Value[50] = {0};
+			CHAR	*StringPointer = ConfigParam.String;
+	
+			while (strlen(StringPointer))
+			{
+				//
+				// copy the name part of the generic define
+				//
+				strcpy(Name, StringPointer);
+	
+				D_LOG(D_ALWAYS, ("PcimacInitialize: GenericDefines: Name: %s", Name));
+				//
+				// push pointer over the name
+				//
+				StringPointer += strlen(StringPointer);
+	
+				//
+				// get over the null character
+				//
+				StringPointer += 1;
+	
+				//
+				// copy the value part of the generic define
+				//
+				strcpy(Value, StringPointer);
+				D_LOG(D_ALWAYS, ("PcimacInitialize: GenericDefines: Value: %s", Value));
+	
+				idd_add_def(idd, Name, Value);
+	
+				//
+				// push pointer over the value
+				//
+				StringPointer += strlen(StringPointer);
+	
+				//
+				// get over the null character
+				//
+				StringPointer += 1;
+			}
+		}
 
 		//
 		// startup idd
@@ -972,6 +996,7 @@ PcimacInitialize(
 				if (Adapter->IddTbl[m] == idd)
 					Adapter->IddTbl[m] = NULL;
 
+			Adapter->NumberOfIddOnAdapter--;
 			continue;
 		}
 
@@ -1030,7 +1055,7 @@ PcimacInitialize(
 			//
 			// name cm object format: AdapterName-LineName-chan#
 			//
-			sprintf(cm->name,"%s-%d",idd->name, l);
+			sprintf(cm->name,"%s-%d", idd->name, l);
 
 			//
 			// set local address, format: NetCard#-idd#-chan#
@@ -1040,7 +1065,10 @@ PcimacInitialize(
 			//
 			// get ethernet addresses for this cm
 			//
-			GetEaddrFromNvram(idd, cm, (USHORT)n, (USHORT)l);
+			if(idd->btype == IDD_BT_DATAFIREU)
+				AdpGetEaddrFromNvram(idd, cm, (USHORT)n, (USHORT)l);
+			else
+				IdpGetEaddrFromNvram(idd, cm, (USHORT)n, (USHORT)l);
 
 			//
 			// Allocate memory for mtl object
@@ -1068,7 +1096,6 @@ PcimacInitialize(
 			cm->mtl = mtl;
 			mtl->cm = cm;
 		}
-
 	}
 
 	NdisCloseConfiguration(ConfigParam.ConfigHandle);
@@ -1133,7 +1160,7 @@ InitErrorExit:
 	//
 	AdapterDestroy(Adapter);
 
-	return (NDIS_STATUS_FAILURE);
+	return (NDIS_STATUS_ADAPTER_NOT_FOUND);
 }
 
 VOID
@@ -1193,6 +1220,7 @@ PcimacSetQueryInfo(
 	NDIS_STATUS Status = NDIS_STATUS_SUCCESS;
 
 	D_LOG(D_ENTRY, ("PcimacSetQueryInfo: Adapter: 0x%p, Oid: 0x%x", AdapterContext, Oid));
+
 	//
 	// get oid type
 	//
@@ -1218,7 +1246,7 @@ PcimacSetQueryInfo(
 								 BytesNeeded);
 			break;
 
- 
+
 		case OID_GEN_INFO:
 		case OID_8023_INFO:
 			Status = LanOidProc(AdapterContext,
@@ -1260,7 +1288,7 @@ PcimacReset(
 {
 	D_LOG(D_ENTRY, ("PcimacReset: Adapter: 0x%p", AdapterContext));
 
-	return(NDIS_STATUS_SUCCESS);
+	return(NDIS_STATUS_HARD_ERRORS);
 }
 
 NDIS_STATUS
@@ -1275,59 +1303,49 @@ PcimacSend(
 	D_LOG(D_ENTRY, ("PcimacSend: Link: 0x%p", mtl));
 
     /* send packet */
-	mtl_tx_packet(mtl, WanPacket);
+	mtl__tx_packet(mtl, WanPacket);
 
 	return(NDIS_STATUS_PENDING);
 }
 
 /* create/delete external name binding */
 VOID
-BindName(BOOL create)
+BindName(ADAPTER *Adapter, BOOL create)
 {
 #define	LINKNAME	"\\DosDevices\\PCIMAC0"
 	UNICODE_STRING	linkname, devname;
 	NTSTATUS		stat;
 	ULONG			n;
+	CHAR			name[128];
+	ANSI_STRING		aname;
+	ANSI_STRING		lname;
 
+	if (Adapter)
+		sprintf(name,"\\Device\\%s",Adapter->Name);
+
+	if ( !name )
+		sprintf(name,"\\Device\\Pcimac69");
+
+	D_LOG(D_ENTRY, ("BindName: LinkName: %s, NdisName: %s", LINKNAME, name));
+
+	/* convert to unicode string */
+	RtlInitAnsiString(&lname, LINKNAME);
+	stat = RtlAnsiStringToUnicodeString(&linkname, &lname, TRUE);
+
+	/* convert to unicode string */
+	RtlInitAnsiString(&aname, name);
+	stat = RtlAnsiStringToUnicodeString(&devname, &aname, TRUE);
 
 	/* create? */
 	if ( create )
-	{
-		CHAR			name[128];
-		ANSI_STRING		aname;
-		ANSI_STRING		lname;
-
-		for (n = 0; n < MAX_ADAPTERS_IN_SYSTEM; n++)
-		{
-			ADAPTER	*Adapter = Pcimac.AdapterTbl[n];
-
-			if (Adapter)
-			{
-				sprintf(name,"\\Device\\%s",Adapter->Name);
-				break;
-			}
-		}
-		if ( !name )
-			sprintf(name,"\\Device\\Pcimac69");
-
-		D_LOG(D_ENTRY, ("BindName: LinkName: %s, NdisName: %s", LINKNAME, name));
-
-		/* convert to unicode string */
-		RtlInitAnsiString(&lname, LINKNAME);
-		stat = RtlAnsiStringToUnicodeString(&linkname, &lname, TRUE);
-
-		/* convert to unicode string */
-		RtlInitAnsiString(&aname, name);
-		stat = RtlAnsiStringToUnicodeString(&devname, &aname, TRUE);
-
 		stat = IoCreateSymbolicLink (&linkname, &devname);
-		D_LOG(D_ENTRY, ("BindName: stat: 0x%x", stat));
-
-		RtlFreeUnicodeString(&devname);
-		RtlFreeUnicodeString(&linkname);
-	}
 	else /* delete */
 		stat = IoDeleteSymbolicLink (&linkname);
+
+	D_LOG(D_ENTRY, ("BindName: Operation: 0x%x, stat: 0x%x", create, stat));
+
+	RtlFreeUnicodeString(&devname);
+	RtlFreeUnicodeString(&linkname);
 }
 
 //
@@ -1494,7 +1512,7 @@ GetBaseConfigParams(
 			RetParam->StringLen = n/2;
 
 			for (n = 0; n < RetParam->StringLen; n++)
-				if (!strnicmp((CHAR*)&RetParam->String[n], (CHAR*)"=", 1))
+				if (!_strnicmp((CHAR*)&RetParam->String[n], (CHAR*)"=", 1))
 					RetParam->String[n] = '\0';
 			D_LOG(D_ALWAYS, ("GetBaseConfigParams: String: %s, Length: %d", RetParam->String, RetParam->StringLen));
 			break;
@@ -1583,7 +1601,7 @@ GetLineConfigParams(
 			RetParam->StringLen = n/2;
 
 			for (n = 0; n < RetParam->StringLen; n++)
-				if (!strnicmp((CHAR*)&RetParam->String[n], (CHAR*)"=", 1))
+				if (!_strnicmp((CHAR*)&RetParam->String[n], (CHAR*)"=", 1))
 					RetParam->String[n] = '\0';
 			D_LOG(D_ALWAYS, ("GetBaseConfigParams: String: %s, Length: %d", RetParam->String, RetParam->StringLen));
 			break;
@@ -1676,7 +1694,7 @@ GetLTermConfigParams(
 			RetParam->StringLen = n/2;
 
 			for (n = 0; n < RetParam->StringLen; n++)
-				if (!strnicmp((CHAR*)&RetParam->String[n], (CHAR*)"=", 1))
+				if (!_strnicmp((CHAR*)&RetParam->String[n], (CHAR*)"=", 1))
 					RetParam->String[n] = '\0';
 			D_LOG(D_ALWAYS, ("GetLTermConfigParams: String: %s, Length: %d", RetParam->String, RetParam->StringLen));
 			break;
@@ -1694,35 +1712,65 @@ GetLTermConfigParams(
 }
 
 VOID
-SetInDriverFlag (ADAPTER *Adapter)
+SetInDriverFlag (
+	ADAPTER	*Adapter
+	)
 {
-	NdisAcquireSpinLock(&Adapter->InDriverLock);
-	Adapter->InDriverFlag = 1;
-	NdisReleaseSpinLock(&Adapter->InDriverLock);
+	NdisAcquireSpinLock(&Pcimac.lock);
+
+	Pcimac.InDriverFlag = 1;
+
+	Pcimac.CurrentAdapter = Adapter;
+
+	Pcimac.NextAdapterToPoll++;
+
+	if (Pcimac.NextAdapterToPoll == Pcimac.NumberOfAdaptersInSystem)
+		Pcimac.NextAdapterToPoll = 0;
+
+	NdisReleaseSpinLock(&Pcimac.lock);
 }
 
 VOID
-ClearInDriverFlag (ADAPTER *Adapter)
+ClearInDriverFlag (
+	ADAPTER	*Adapter
+)
 {
-	NdisAcquireSpinLock(&Adapter->InDriverLock);
-	Adapter->InDriverFlag = 0;
-	NdisReleaseSpinLock(&Adapter->InDriverLock);
+	NdisAcquireSpinLock(&Pcimac.lock);
+
+	Pcimac.InDriverFlag = 0;
+
+	NdisReleaseSpinLock(&Pcimac.lock);
 }
 
 ULONG
-CheckInDriverFlag (ADAPTER *Adapter)
+CheckInDriverFlag (
+	ADAPTER	*Adapter
+)
 {
+	ADAPTER	*CurrentAdapter;
 	INT		RetVal = 0;
 
-	NdisAcquireSpinLock(&Adapter->InDriverLock);
-	if (Adapter->InDriverFlag)
+	NdisAcquireSpinLock(&Pcimac.lock);
+
+	//
+	// get the current in driver adapter
+	//
+	CurrentAdapter = (ADAPTER*)Pcimac.CurrentAdapter;
+
+	//
+	// if someone is in the driver and they are using the same
+	// shared memory window as the new prospective user send them
+	// away unhappy
+	//
+	if (Pcimac.InDriverFlag && CurrentAdapter && (Adapter->VBaseMem == CurrentAdapter->VBaseMem))
 		RetVal = 1;
-	NdisReleaseSpinLock(&Adapter->InDriverLock);
+
+	NdisReleaseSpinLock(&Pcimac.lock);
+
 	return(RetVal);
 }
 
-
-#pragma NDIS_INIT_FUNCTION(GetEaddrFromNvram)
+#pragma NDIS_INIT_FUNCTION(IdpGetEaddrFromNvram)
 
 /*
  * get ethernet address(s) out on nvram & register
@@ -1737,7 +1785,7 @@ CheckInDriverFlag (ADAPTER *Adapter)
  * address - remember?).
  */
 VOID
-GetEaddrFromNvram(
+IdpGetEaddrFromNvram(
 	IDD *idd,
 	CM *cm,
 	USHORT Line,
@@ -1745,21 +1793,18 @@ GetEaddrFromNvram(
 	)
 {
     UCHAR   eaddr[6];
-    USHORT  nvaddr;
     USHORT  nvval;
 
-
 	/* extract original stored ethernet address */
-	nvaddr = 0;
-    idd_get_nvram(idd, (USHORT)(nvaddr + 8), &nvval);
-    eaddr[2 * (nvaddr % 3) + 0] = LOBYTE(nvval);
-	eaddr[2 * (nvaddr % 3) + 1] = HIBYTE(nvval);
-    idd_get_nvram(idd, (USHORT)(nvaddr + 9), &nvval);
-    eaddr[2 * (nvaddr % 3) + 2] = LOBYTE(nvval);
-    eaddr[2 * (nvaddr % 3) + 3] = HIBYTE(nvval);
-    idd_get_nvram(idd, (USHORT)(nvaddr + 10), &nvval);
-    eaddr[2 * (nvaddr % 3) + 4] = LOBYTE(nvval);
-    eaddr[2 * (nvaddr % 3) + 5] = HIBYTE(nvval);
+    idd_get_nvram(idd, (USHORT)(8), &nvval);
+    eaddr[0] = LOBYTE(nvval);
+	eaddr[1] = HIBYTE(nvval);
+    idd_get_nvram(idd, (USHORT)(9), &nvval);
+    eaddr[2] = LOBYTE(nvval);
+    eaddr[3] = HIBYTE(nvval);
+    idd_get_nvram(idd, (USHORT)(10), &nvval);
+    eaddr[4] = LOBYTE(nvval);
+    eaddr[5] = HIBYTE(nvval);
 
 	/* create derived address and store it */
 	eaddr[3] += (Line * 2) + LineIndex;
@@ -1767,37 +1812,117 @@ GetEaddrFromNvram(
 	NdisMoveMemory(cm->SrcAddr, eaddr, sizeof(cm->SrcAddr));
 }
 
+#pragma NDIS_INIT_FUNCTION(AdpGetEaddrFromNvram)
+
+/*
+ * get ethernet address(s) out on nvram & register
+ *
+ * note that line number inside board (bline) argument was added here.
+ * for each idd installed, this function is called to add two ethernet
+ * addresses associated with it (it's two B channels - or it's capability to
+ * handle two connections). All ethernet address are derived from the
+ * single address stored starting at nvram address 8. since the manufecturer
+ * code is the first 3 bytes, we must not modify these bytes. therefor,
+ * addresses are generated by indexing the 4'th byte by bline*2 (need two
+ * address - remember?).
+ */
+VOID
+AdpGetEaddrFromNvram(
+	IDD *idd,
+	CM *cm,
+	USHORT Line,
+	USHORT LineIndex
+	)
+{
+    UCHAR   eaddr[6];
+    USHORT  nvval;
+
+	//
+	// the MAC address lines at offset 0x950 in the onboard memory
+	// this is NVRAM_WINDOW 0x940 + 0x10
+	//
+    idd_get_nvram(idd, (USHORT)(0x10), &nvval);
+    eaddr[0] = LOBYTE(nvval);
+	eaddr[1] = HIBYTE(nvval);
+    idd_get_nvram(idd, (USHORT)(0x12), &nvval);
+    eaddr[2] = LOBYTE(nvval);
+    eaddr[3] = HIBYTE(nvval);
+    idd_get_nvram(idd, (USHORT)(0x14), &nvval);
+    eaddr[4] = LOBYTE(nvval);
+    eaddr[5] = HIBYTE(nvval);
+
+	/* create derived address and store it */
+	eaddr[3] += (Line * 2) + LineIndex;
+
+	NdisMoveMemory(cm->SrcAddr, eaddr, sizeof(cm->SrcAddr));
+}
+
+#ifdef	OLD
 ULONG
 EnumAdaptersInSystem()
 {
-	ULONG	n;
+	ULONG	n, NumAdapters = 0;
 
 	for (n = 0; n < MAX_ADAPTERS_IN_SYSTEM; n++)
 	{
-		if (Pcimac.AdapterTbl[n] == NULL)
-			break;
+		if (Pcimac.AdapterTbl[n])
+			NumAdapters++;
 	}
-	return(n);
+	return(NumAdapters);
+}
+#endif
+
+ULONG
+EnumAdaptersInSystem()
+{
+	ULONG	NumAdapters;
+
+	NdisAcquireSpinLock(&Pcimac.lock);
+
+	NumAdapters = Pcimac.NumberOfAdaptersInSystem;
+
+	NdisReleaseSpinLock(&Pcimac.lock);
+
+	return(NumAdapters);
 }
 
+ADAPTER*
+GetAdapterByIndex(
+	ULONG	Index
+	)
+{
+	ADAPTER	*Adapter;
+
+	NdisAcquireSpinLock(&Pcimac.lock);
+
+	Adapter = Pcimac.AdapterTbl[Index];
+
+	NdisReleaseSpinLock(&Pcimac.lock);
+
+	return(Adapter);
+}
 
 INT
 IoEnumAdapter(VOID *cmd_1)
 {
 	IO_CMD	*cmd = (IO_CMD*)cmd_1;
-	ULONG	n;
+	ULONG	n, m, NumberOfAdapters;
 
-	cmd->val.enum_adapters.num = (USHORT)EnumAdaptersInSystem();
+	NumberOfAdapters = cmd->val.enum_adapters.num = (USHORT)EnumAdaptersInSystem();
 
-	for (n = 0; n < cmd->val.enum_adapters.num; n++)
+	for (n = 0, m = 0; n < NumberOfAdapters; n++)
 	{
-		ADAPTER	*Adapter = Pcimac.AdapterTbl[n];
+		ADAPTER	*Adapter = GetAdapterByIndex(n);
 
-		cmd->val.enum_adapters.BaseIO[n] = Adapter->BaseIO;
-		cmd->val.enum_adapters.BaseMem[n] = Adapter->BaseMem;
-		cmd->val.enum_adapters.BoardType[n] = Adapter->BoardType;
-		NdisMoveMemory (&cmd->val.enum_adapters.Name[n], Adapter->Name, sizeof(cmd->val.enum_adapters.Name[n]));
-		cmd->val.enum_adapters.tbl[n] = Adapter;
+		if (Adapter)
+		{
+			cmd->val.enum_adapters.BaseIO[m] = Adapter->BaseIO;
+			cmd->val.enum_adapters.BaseMem[m] = Adapter->BaseMem;
+			cmd->val.enum_adapters.BoardType[m] = Adapter->BoardType;
+			NdisMoveMemory (&cmd->val.enum_adapters.Name[m], Adapter->Name, sizeof(cmd->val.enum_adapters.Name[n]));
+			cmd->val.enum_adapters.tbl[m] = Adapter;
+			m++;
+		}
 	}
 
 	return(0);
@@ -1819,7 +1944,14 @@ AdapterDestroy(
 	if (n == MAX_ADAPTERS_IN_SYSTEM)
 		return;
 
+	//
+	// stop idd timers
+	//
+	StopTimers(Adapter);
+
 	Pcimac.AdapterTbl[n] = NULL;
+
+	Pcimac.NumberOfAdaptersInSystem--;
 
 	//
 	// if we have successfully mapped our base i/o then we need to release
@@ -1829,7 +1961,7 @@ AdapterDestroy(
 		//
 		// deregister adapters I/O and memory
 		//
-		NdisMDeregisterIoPortRange((NDIS_HANDLE)Adapter->AdapterHandle,
+		NdisMDeregisterIoPortRange((NDIS_HANDLE)Adapter->Handle,
 								   Adapter->BaseIO,
 								   8,
 								   Adapter->VBaseIO);
@@ -1840,12 +1972,12 @@ AdapterDestroy(
 	//
 	if (Adapter->VBaseMem)
 	{
-		NdisMUnmapIoSpace((NDIS_HANDLE)Adapter->AdapterHandle,
+		NdisMUnmapIoSpace((NDIS_HANDLE)Adapter->Handle,
 						  Adapter->VBaseMem,
 						  0x4000);
 	}
 
-	NdisFreeSpinLock(&Adapter->InDriverLock);
+//	NdisFreeSpinLock(&Adapter->lock);
 
 	NdisFreeMemory(Adapter, sizeof(ADAPTER), 0);
 }
@@ -1858,8 +1990,8 @@ StartTimers(
 	)
 {
 	NdisMSetTimer(&Adapter->IddPollTimer, IDD_POLL_T);
-	NdisMSetTimer(&Adapter->CmPollTimer, CM_POLL_T);
 	NdisMSetTimer(&Adapter->MtlPollTimer, MTL_POLL_T);
+	NdisMSetTimer(&Adapter->CmPollTimer, CM_POLL_T);
 }
 
 VOID
@@ -1869,8 +2001,71 @@ StopTimers(
 {
 	BOOLEAN	TimerCanceled;
 
-	NdisMCancelTimer(&Adapter->IddPollTimer, &TimerCanceled);		
+	NdisMCancelTimer(&Adapter->IddPollTimer, &TimerCanceled);
+	NdisMCancelTimer(&Adapter->MtlPollTimer, &TimerCanceled);
 	NdisMCancelTimer(&Adapter->CmPollTimer, &TimerCanceled);		
-	NdisMCancelTimer(&Adapter->MtlPollTimer, &TimerCanceled);		
 }
-
+
+#pragma NDIS_INIT_FUNCTION(IdpCheckIO)
+
+ULONG
+IdpCheckIO(IDD *idd)
+{
+	ULONG ReturnValue = 1;
+
+	//
+	// check for board at this I/O address
+	//
+	if (idd->btype == IDD_BT_PCIMAC || idd->btype == IDD_BT_PCIMAC4)
+	{
+		UCHAR	BoardID;
+	
+		BoardID = (idd->InFromPort(idd, 5) & 0x0F);
+	
+		if ( ((idd->btype == IDD_BT_PCIMAC) && (BoardID == 0x02)) ||
+			((idd->btype == IDD_BT_PCIMAC4) && (BoardID == 0x04)))
+			ReturnValue = 0;
+	}
+
+	return(ReturnValue);
+}
+
+#pragma NDIS_INIT_FUNCTION(AdpCheckIO)
+
+ULONG
+AdpCheckIO(IDD *idd)
+{
+    D_LOG(D_ENTRY, ("AdpCheckIO: entry, idd: 0x%p BoardType: %d", idd, idd->btype));
+
+	if (idd->btype == IDD_BT_DATAFIREU)
+	{
+		UCHAR BoardId = idd->InFromPort(idd, ADP_REG_ID);
+
+		D_LOG(D_ALWAYS, ("AdpCheckIO: ADP_REG_ID: %d", BoardId));
+
+		if (BoardId != ADP_BT_ADP1)
+			return(1);
+
+		return(0);
+	}
+	return(1);
+}
+
+#pragma NDIS_INIT_FUNCTION(IdpCheckMem)
+
+ULONG
+IdpCheckMem(IDD *idd)
+{
+	return(0);
+}
+
+#pragma NDIS_INIT_FUNCTION(AdpCheckMem)
+
+ULONG
+AdpCheckMem(IDD *idd)
+{
+	return(0);
+	
+}
+
+

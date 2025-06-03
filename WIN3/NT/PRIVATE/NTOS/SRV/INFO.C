@@ -29,7 +29,7 @@ Revision History:
 // Global constant used in this file
 //
 
-LARGE_INTEGER AlmostTwoSeconds = {2*1000*1000*10-1,0};
+#define AlmostTwoSeconds ((2*1000*1000*10)-1)
 
 NTSTATUS
 BruteForceRewind(
@@ -44,6 +44,7 @@ BruteForceRewind(
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text( PAGE, SrvCloseQueryDirectory )
 #pragma alloc_text( PAGE, SrvQueryInformationFile )
+#pragma alloc_text( PAGE, SrvQueryInformationFileAbbreviated )
 #pragma alloc_text( PAGE, SrvQueryNtInformationFile )
 #pragma alloc_text( PAGE, SrvQueryDirectoryFile )
 #pragma alloc_text( PAGE, BruteForceRewind )
@@ -52,6 +53,7 @@ BruteForceRewind(
 #pragma alloc_text( PAGE, SrvDosTimeToTime )
 #pragma alloc_text( PAGE, SrvGetOs2TimeZone )
 #pragma alloc_text( PAGE, SrvQueryBasicAndStandardInformation )
+#pragma alloc_text( PAGE, SrvQueryNetworkOpenInformation )
 #endif
 
 
@@ -131,14 +133,8 @@ Return Value:
 --*/
 
 {
-
-    IO_STATUS_BLOCK ioStatusBlock;
-    FILE_BASIC_INFORMATION fileBasicInformation;
-    FILE_STANDARD_INFORMATION fileStandardInformation;
-    FILE_EA_INFORMATION fileEaInformation;
-    FILE_PIPE_INFORMATION pipeInformation;
+    SRV_NETWORK_OPEN_INFORMATION srvNetworkOpenInformation;
     FILE_PIPE_LOCAL_INFORMATION pipeLocalInformation;
-    USHORT pipeHandleState;
     NTSTATUS status;
 
     PAGED_CODE( );
@@ -150,16 +146,16 @@ Return Value:
     //
 
 #if SRV_COMM_DEVICES
-    if ( ShareType != ShareTypeComm && ShareType != ShareTypePrint ) {
+    if ( ShareType != ShareTypeComm && ShareType != ShareTypePrint )
 #else
-    if ( ShareType != ShareTypePrint ) {
+    if ( ShareType != ShareTypePrint )
 #endif
+    {
 
-        status = SrvQueryBasicAndStandardInformation(
-                                                FileHandle,
-                                                FileObject,
-                                                &fileBasicInformation,
-                                                &fileStandardInformation
+        status = SrvQueryNetworkOpenInformation( FileHandle,
+                                                 FileObject,
+                                                 &srvNetworkOpenInformation,
+                                                 QueryEaSize
                                                 );
 
         if ( !NT_SUCCESS(status) ) {
@@ -176,25 +172,18 @@ Return Value:
         }
 
     } else {
-
         //
         // Use defaults for comm and print shares.
         //
 
-        fileBasicInformation.CreationTime.QuadPart = 0;
-        fileBasicInformation.LastAccessTime.QuadPart = 0;
-        fileBasicInformation.LastWriteTime.QuadPart = 0;
-        fileBasicInformation.ChangeTime.QuadPart = 0;
-        fileBasicInformation.FileAttributes = 0;
-
-        fileStandardInformation.AllocationSize.QuadPart = 0;
-        fileStandardInformation.EndOfFile.QuadPart = 0;
-        fileStandardInformation.NumberOfLinks = 0;
-        fileStandardInformation.DeletePending = FALSE;
-        fileStandardInformation.Directory = FALSE;
+        RtlZeroMemory( &srvNetworkOpenInformation, sizeof( srvNetworkOpenInformation ) );
     }
 
     if ( ShareType == ShareTypePipe ) {
+
+        FILE_PIPE_INFORMATION pipeInformation;
+        IO_STATUS_BLOCK ioStatusBlock;
+        USHORT pipeHandleState;
 
         status = NtQueryInformationFile(
                      FileHandle,
@@ -255,6 +244,10 @@ Return Value:
                             << PIPE_MAXIMUM_INSTANCES_BITS;
 
         SrvFileInformation->HandleState = pipeHandleState;
+    } else {
+
+        SrvFileInformation->HandleState = 0;
+
     }
 
 
@@ -266,7 +259,7 @@ Return Value:
         LARGE_INTEGER newTime;
 
         ExSystemTimeToLocalTime(
-                        &fileBasicInformation.LastWriteTime,
+                        &srvNetworkOpenInformation.LastWriteTime,
                         &newTime
                         );
 
@@ -275,7 +268,7 @@ Return Value:
         // Make sure we round up to two seconds.
         //
 
-        newTime.QuadPart += AlmostTwoSeconds.QuadPart;
+        newTime.QuadPart += AlmostTwoSeconds;
 
         if ( !RtlTimeToSecondsSince1970(
                 &newTime,
@@ -297,30 +290,42 @@ Return Value:
     }
 
     SrvTimeToDosTime(
-        &fileBasicInformation.CreationTime,
-        &SrvFileInformation->CreationDate,
-        &SrvFileInformation->CreationTime
-        );
-
-    SrvTimeToDosTime(
-        &fileBasicInformation.LastAccessTime,
-        &SrvFileInformation->LastAccessDate,
-        &SrvFileInformation->LastAccessTime
-        );
-
-    SrvTimeToDosTime(
-        &fileBasicInformation.LastWriteTime,
+        &srvNetworkOpenInformation.LastWriteTime,
         &SrvFileInformation->LastWriteDate,
         &SrvFileInformation->LastWriteTime
         );
+
+    if( srvNetworkOpenInformation.CreationTime.QuadPart == srvNetworkOpenInformation.LastWriteTime.QuadPart ) {
+        SrvFileInformation->CreationDate = SrvFileInformation->LastWriteDate;
+        SrvFileInformation->CreationTime = SrvFileInformation->LastWriteTime;
+    } else {
+        SrvTimeToDosTime(
+            &srvNetworkOpenInformation.CreationTime,
+            &SrvFileInformation->CreationDate,
+            &SrvFileInformation->CreationTime
+            );
+    }
+
+    if( srvNetworkOpenInformation.LastAccessTime.QuadPart == srvNetworkOpenInformation.LastWriteTime.QuadPart ) {
+        SrvFileInformation->LastAccessDate = SrvFileInformation->LastWriteDate;
+        SrvFileInformation->LastAccessTime = SrvFileInformation->LastWriteTime;
+
+    } else {
+
+        SrvTimeToDosTime(
+            &srvNetworkOpenInformation.LastAccessTime,
+            &SrvFileInformation->LastAccessDate,
+            &SrvFileInformation->LastAccessTime
+            );
+    }
 
     //
     // Set File Attributes field of structure.
     //
 
-    SrvNtAttributesToSmb(
-        fileBasicInformation.FileAttributes,
-        fileStandardInformation.Directory,
+    SRV_NT_ATTRIBUTES_TO_SMB(
+        srvNetworkOpenInformation.FileAttributes,
+        srvNetworkOpenInformation.FileAttributes & FILE_ATTRIBUTE_DIRECTORY,
         &SrvFileInformation->Attributes
         );
 
@@ -333,10 +338,12 @@ Return Value:
     //     protocol can't express that.
     //
 
-    SrvFileInformation->AllocationSize =
-                            fileStandardInformation.AllocationSize.LowPart;
+    SrvFileInformation->AllocationSize.QuadPart =
+                            srvNetworkOpenInformation.AllocationSize.QuadPart;
 
-    SrvFileInformation->DataSize = fileStandardInformation.EndOfFile.LowPart;
+    SrvFileInformation->DataSize.QuadPart =
+                            srvNetworkOpenInformation.EndOfFile.QuadPart;
+
 
     //
     // Set the file device type.
@@ -383,19 +390,204 @@ Return Value:
 
     if ( QueryEaSize ) {
 
+        //
+        // If the file has no EAs, return an FEA size = 4 (that's what OS/2
+        // does--it accounts for the size of the cbList field of an
+        // FEALIST).
+        //
+
+        if ( srvNetworkOpenInformation.EaSize == 0 ) {
+            SrvFileInformation->EaSize = 4;
+        } else {
+            SrvFileInformation->EaSize = srvNetworkOpenInformation.EaSize;
+        }
+
+    }
+
+    return STATUS_SUCCESS;
+
+} // SrvQueryInformationFile
+
+NTSTATUS
+SrvQueryInformationFileAbbreviated(
+    IN HANDLE FileHandle,
+    IN PFILE_OBJECT FileObject OPTIONAL,
+    OUT PSRV_FILE_INFORMATION_ABBREVIATED SrvFileInformation,
+    IN SHARE_TYPE ShareType
+    )
+
+/*++
+
+Routine Description:
+
+    This routine makes calls to NtQueryInformationFile to get information
+    about a file opened by the server.
+
+Arguments:
+
+    FileHandle - a handle of the file to get information about.
+
+    FileInformation - pointer to a structure in which to store the
+        information.
+
+    ShareType - The file type.  It will be disk, comm, print, pipe
+                or (-1) for don't care.
+
+    QueryEaSize - Try if EA size info is requested.
+
+Return Value:
+
+    A status indicating success or failure of the operation.
+
+--*/
+
+{
+
+    IO_STATUS_BLOCK ioStatusBlock;
+    SRV_NETWORK_OPEN_INFORMATION srvNetworkOpenInformation;
+    NTSTATUS status;
+    LARGE_INTEGER newTime;
+
+    PAGED_CODE( );
+
+    //
+    // Most query operations will fail on comm devices and print shares.
+    // If this is a disk file, etc.  do the queries.  If it is a comm
+    // device, fake it with defaults.
+    //
+
+#if SRV_COMM_DEVICES
+    if ( ShareType != ShareTypeComm && ShareType != ShareTypePrint )
+#else
+    if ( ShareType != ShareTypePrint )
+#endif
+    {
+
+        status = SrvQueryNetworkOpenInformation(
+                                                FileHandle,
+                                                FileObject,
+                                                &srvNetworkOpenInformation,
+                                                FALSE
+                                                );
+
+        if ( !NT_SUCCESS(status) ) {
+            INTERNAL_ERROR(
+                ERROR_LEVEL_UNEXPECTED,
+                "SrvQueryInformationFile: NtQueryInformationFile "
+                    " failed: %X",
+                status,
+                NULL
+                );
+
+            SrvLogServiceFailure( SRV_SVC_NT_QUERY_INFO_FILE, status );
+            return status;
+        }
+
+    } else {
+
+        //
+        // Use defaults for comm and print shares.
+        //
+
+        RtlZeroMemory( &srvNetworkOpenInformation, sizeof( srvNetworkOpenInformation ) );
+    }
+
+    //
+    // Set up creation time fields.
+    //
+    ExSystemTimeToLocalTime(
+                    &srvNetworkOpenInformation.LastWriteTime,
+                    &newTime
+                    );
+
+    //
+    // Make sure we round up to two seconds.
+    //
+
+    newTime.QuadPart += AlmostTwoSeconds;
+
+    if ( !RtlTimeToSecondsSince1970(
+            &newTime,
+            &SrvFileInformation->LastWriteTimeInSeconds
+            ) ) {
+
+        SrvFileInformation->LastWriteTimeInSeconds = 0;
+
+    } else {
+
+        //
+        // Mask off the low bit so we can be consistent with LastWriteTime.
+        // (We need to round up to 2 seconds)
+            //
+    
+            SrvFileInformation->LastWriteTimeInSeconds &= ~1;
+        }
+    
+        //
+        // Set File Attributes field of structure.
+        //
+    
+        SRV_NT_ATTRIBUTES_TO_SMB(
+            srvNetworkOpenInformation.FileAttributes,
+            srvNetworkOpenInformation.FileAttributes & FILE_ATTRIBUTE_DIRECTORY,
+            &SrvFileInformation->Attributes
+            );
+    
+        SrvFileInformation->DataSize.QuadPart =
+                            srvNetworkOpenInformation.EndOfFile.QuadPart;
+    
+        //
+        // Set the file device type.
+        //
+    
+        switch( ShareType ) {
+    
+        case ShareTypeDisk: {
+    
+            SrvFileInformation->Type = FileTypeDisk;
+            SrvFileInformation->HandleState = 0;
+            break;
+    
+        } case ShareTypePipe: {
+    
+            FILE_PIPE_INFORMATION pipeInformation;
+            FILE_PIPE_LOCAL_INFORMATION pipeLocalInformation;
+        USHORT pipeHandleState;
+
         status = NtQueryInformationFile(
                      FileHandle,
                      &ioStatusBlock,
-                     (PVOID)&fileEaInformation,
-                     sizeof(FILE_EA_INFORMATION),
-                     FileEaInformation
+                     (PVOID)&pipeInformation,
+                     sizeof(pipeInformation),
+                     FilePipeInformation
                      );
 
         if ( !NT_SUCCESS(status) ) {
             INTERNAL_ERROR(
                 ERROR_LEVEL_UNEXPECTED,
                 "SrvQueryInformationFile: NtQueryInformationFile "
-                    "(EA information) failed: %X",
+                    "(pipe information) failed: %X",
+                 status,
+                 NULL
+                 );
+
+            SrvLogServiceFailure( SRV_SVC_NT_QUERY_INFO_FILE, status );
+            return status;
+        }
+
+        status = NtQueryInformationFile(
+                     FileHandle,
+                     &ioStatusBlock,
+                     (PVOID)&pipeLocalInformation,
+                     sizeof(pipeLocalInformation),
+                     FilePipeLocalInformation
+                     );
+
+        if ( !NT_SUCCESS(status) ) {
+            INTERNAL_ERROR(
+                ERROR_LEVEL_UNEXPECTED,
+                "SrvQueryInformationFile: NtQueryInformationFile "
+                    "(pipe local information) failed: %X",
                  status,
                  NULL
                  );
@@ -405,30 +597,58 @@ Return Value:
         }
 
         //
-        // If the file has no EAs, return an FEA size = 4 (that's what OS/2
-        // does--it accounts for the size of the cbList field of an
-        // FEALIST).
+        // Fill in the handle state information in SMB format
         //
 
-        if ( fileEaInformation.EaSize == 0 ) {
-            SrvFileInformation->EaSize = 4;
+        pipeHandleState = (USHORT)pipeInformation.CompletionMode
+                            << PIPE_COMPLETION_MODE_BITS;
+        pipeHandleState |= (USHORT)pipeLocalInformation.NamedPipeEnd
+                            << PIPE_PIPE_END_BITS;
+        pipeHandleState |= (USHORT)pipeLocalInformation.NamedPipeType
+                            << PIPE_PIPE_TYPE_BITS;
+        pipeHandleState |= (USHORT)pipeInformation.ReadMode
+                            << PIPE_READ_MODE_BITS;
+        pipeHandleState |= (USHORT)(pipeLocalInformation.MaximumInstances &
+                                    0xFF)
+                            << PIPE_MAXIMUM_INSTANCES_BITS;
+
+        SrvFileInformation->HandleState = pipeHandleState;
+
+        if (pipeLocalInformation.NamedPipeType == FILE_PIPE_MESSAGE_TYPE) {
+            SrvFileInformation->Type = FileTypeMessageModePipe;
         } else {
-            SrvFileInformation->EaSize = fileEaInformation.EaSize;
+            SrvFileInformation->Type = FileTypeByteModePipe;
         }
+        break;
+
+    } case ShareTypePrint: {
+
+        SrvFileInformation->Type = FileTypePrinter;
+        break;
+
+#if SRV_COMM_DEVICES
+    } case ShareTypeComm: {
+
+        SrvFileInformation->Type = FileTypeCommDevice;
+        break;
+#endif
+
+    } default:
+
+        SrvFileInformation->Type = FileTypeUnknown;
 
     }
 
     return STATUS_SUCCESS;
 
-} // SrvQueryInformationFile
-
+} // SrvQueryInformationFileAbbreviated
 
 NTSTATUS
 SrvQueryNtInformationFile (
     IN HANDLE FileHandle,
     IN PFILE_OBJECT FileObject OPTIONAL,
     IN SHARE_TYPE ShareType,
-    OUT PSRV_NT_FILE_INFORMATION SrvFileInformation
+    IN OUT PSRV_NT_FILE_INFORMATION SrvFileInformation
     )
 
 /*++
@@ -454,8 +674,6 @@ Return Value:
 {
 
     IO_STATUS_BLOCK ioStatusBlock;
-    FILE_BASIC_INFORMATION fileBasicInformation;
-    FILE_STANDARD_INFORMATION fileStandardInformation;
     FILE_PIPE_INFORMATION pipeInformation;
     FILE_PIPE_LOCAL_INFORMATION pipeLocalInformation;
     USHORT pipeHandleState;
@@ -463,34 +681,27 @@ Return Value:
 
     PAGED_CODE( );
 
-    status = SrvQueryBasicAndStandardInformation(
-                                            FileHandle,
-                                            FileObject,
-                                            &fileBasicInformation,
-                                            &fileStandardInformation
-                                            );
+    status = SrvQueryNetworkOpenInformation( FileHandle,
+                                             FileObject,
+                                             &SrvFileInformation->NwOpenInfo,
+                                             FALSE
+                                             );
 
     if ( !NT_SUCCESS(status) ) {
-        INTERNAL_ERROR(
-            ERROR_LEVEL_UNEXPECTED,
-            "SrvQueryNtInformationFile: NtQueryInformationFile "
-                " failed: %X",
-            status,
-            NULL
-            );
+        if ( ShareType != ShareTypePipe ) {
 
-        SrvLogServiceFailure( SRV_SVC_NT_QUERY_INFO_FILE, status );
+            INTERNAL_ERROR(
+                ERROR_LEVEL_UNEXPECTED,
+                "SrvQueryNtInformationFile: NtQueryInformationFile "
+                    " failed: %X",
+                status,
+                NULL
+                );
+
+            SrvLogServiceFailure( SRV_SVC_NT_QUERY_INFO_FILE, status );
+        }
         return status;
     }
-
-    SrvFileInformation->CreationTime = fileBasicInformation.CreationTime;
-    SrvFileInformation->LastAccessTime = fileBasicInformation.LastAccessTime;
-    SrvFileInformation->LastWriteTime = fileBasicInformation.LastWriteTime;
-    SrvFileInformation->ChangeTime = fileBasicInformation.ChangeTime;
-    SrvFileInformation->AllocationSize = fileStandardInformation.AllocationSize;
-    SrvFileInformation->EndOfFile = fileStandardInformation.EndOfFile;
-    SrvFileInformation->Attributes = fileBasicInformation.FileAttributes;
-    SrvFileInformation->IsDirectory = fileStandardInformation.Directory;
 
     if ( ShareType == ShareTypePipe ) {
 
@@ -549,6 +760,10 @@ Return Value:
                             << PIPE_MAXIMUM_INSTANCES_BITS;
 
         SrvFileInformation->HandleState = pipeHandleState;
+    } else {
+
+        SrvFileInformation->HandleState = 0;
+
     }
 
     //
@@ -601,6 +816,7 @@ SrvQueryDirectoryFile (
     IN BOOLEAN FilterLongNames,
     IN BOOLEAN FindWithBackupIntent,
     IN FILE_INFORMATION_CLASS FileInformationClass,
+    IN ULONG SearchStorageType,
     IN PUNICODE_STRING FilePathName,
     IN PULONG ResumeFileIndex OPTIONAL,
     IN USHORT SmbSearchAttributes,
@@ -618,7 +834,7 @@ Routine Description:
     passed in an SMB.  This localizes the code for this operation and
     simplifies the writing of SMB processing routines that use wildcards.
 
-    The calling routine is responsible for setting up a longword-aligned
+    The calling routine is responsible for setting up a quadword-aligned
     buffer in nonpaged pool that may be used by this routine.  A pointer
     to the buffer and the buffer length are passed in as parameters.
     The buffer must be allocated from nonpaged pool because one of
@@ -644,10 +860,13 @@ Routine Description:
     to NtQueryDirectoryFile.  The minimum buffer size is equal to:
 
         sizeof(SRV_DIRECTORY_INFORMATION) +
-        sizeof(FILE_DIRECTORY_INFORMATION) + 256
+        sizeof(SRV_QUERY_DIRECTORY_INFORMATION) +
+        MAXIMUM_FILENAME_LENGTH * sizeof(WCHAR) +
+        sizeof(UNICODE_STRING) +
+        MAXIMUM_FILENAME_LENGTH * sizeof(WCHAR)
 
     This ensures that NtQueryDirectoryFile will be able to put at least
-    one entry in the buffer (256 is the maximum filename size).
+    one entry in the buffer.
 
     On the first call to this routine, it fills up its buffer with
     information from NtQueryDirectoryFile and passes back the name of
@@ -679,8 +898,9 @@ Arguments:
         for backup intent.
 
     FileInformationClass - the type of file structures to return.  This
-        field can be either FileDirectoryInformation or
-        FileFullDirectoryInformation.
+        field can be one of FileDirectoryInformation,
+        FileFullDirectoryInformation, FileOleDirectoryInformation, or
+        FileBothDirectoryInformation.
 
     FilePathName - a pointer to a string describing the file path name
         to do directory searches on.  This path is relative to the
@@ -697,7 +917,7 @@ Arguments:
         will be found, in addition to normal files.
 
     DirectoryInformation - a pointer to the buffer to be used by this
-        routine to do its work.  This buffer must be longword-aligned.
+        routine to do its work.  This buffer must be quadword-aligned.
 
     BufferLength - the length of the buffer passed to this routine.
 
@@ -734,6 +954,7 @@ Return Value:
 
     ASSERT( ( FileInformationClass == FileDirectoryInformation ) ||
             ( FileInformationClass == FileFullDirectoryInformation ) ||
+            ( FileInformationClass == FileOleDirectoryInformation ) ||
             ( FileInformationClass == FileBothDirectoryInformation ) );
 
     //
@@ -772,6 +993,8 @@ Return Value:
     } else if ( FileInformationClass == FileBothDirectoryInformation ) {
         fileNameOffset =
             FIELD_OFFSET( FILE_BOTH_DIR_INFORMATION, FileName[0] );
+    } else if (FileInformationClass == FileOleDirectoryInformation) {
+        fileNameOffset = FIELD_OFFSET(FILE_OLE_DIR_INFORMATION, FileName[0]);
     } else {
         fileNameOffset =
             FIELD_OFFSET( FILE_DIRECTORY_INFORMATION, FileName[0] );
@@ -799,6 +1022,7 @@ Return Value:
 
         DirectoryInformation->DirectoryHandle = 0L;
         DirectoryInformation->ErrorOnFileOpen = FALSE;
+        DirectoryInformation->OnlySingleEntries = FALSE;
 
         //
         // We must get the appropriate directory name in which to perform the
@@ -817,7 +1041,7 @@ Return Value:
                         FsRtlDoesNameContainWildCards( &baseFileName );
 
         if ( DirectoryInformation->Wildcards &&
-             (WorkContext->Connection->SmbDialect != SmbDialectNtLanMan) ) {
+             (!IS_NT_DIALECT(WorkContext->Connection->SmbDialect) ) ) {
 
             //
             // Bogus code to workaround ~* problem
@@ -843,7 +1067,7 @@ Return Value:
             //
 
             if ( (baseFileName.Length == 6) &&
-                 (RtlCompareMemory(baseFileName.Buffer, StrStarDotStar, 6) == 6) ) {
+                 (RtlEqualMemory(baseFileName.Buffer, StrStarDotStar, 6) ) ) {
 
                 baseFileName.Length = 2;
 
@@ -934,14 +1158,24 @@ Return Value:
         // profile to check access.  (We call SrvIoCreateFile, rather than
         // NtOpenFile, in order to get user-mode access checking.)
         //
-
         INCREMENT_DEBUG_STAT( SrvDbgStatistics.TotalOpenAttempts );
         INCREMENT_DEBUG_STAT( SrvDbgStatistics.TotalOpensForPathOperations );
+        //
+        // There's no need to specify FILE_DIRECTORY_FILE; the file systems
+        // will open whatever is there and reject later QueryDirectoryFile
+        // when the object opened does not support enumeration.  For
+        // FileOleDirectoryInformation, however, we need to open the target
+        // as structured storage if and only if the original open requested
+        // a structured storage.
+        //
 
-        if ( FindWithBackupIntent ) {
-            createOptions = FILE_DIRECTORY_FILE | FILE_OPEN_FOR_BACKUP_INTENT;
-        } else {
-            createOptions = FILE_DIRECTORY_FILE;
+        createOptions = 0;
+        if (FindWithBackupIntent) {
+            createOptions = FILE_OPEN_FOR_BACKUP_INTENT;
+        }
+        if (FileInformationClass == FileOleDirectoryInformation &&
+            SearchStorageType != 0) {
+            createOptions |= FILE_STORAGE_TYPE_SPECIFIED | SearchStorageType;
         }
 
         status = SrvIoCreateFile(
@@ -980,7 +1214,6 @@ Return Value:
             }
             DirectoryInformation->DirectoryHandle = NULL;
 
-            SrvLogServiceFailure( SRV_SVC_IO_CREATE_FILE, status );
             return status;
         }
 
@@ -1062,13 +1295,13 @@ Return Value:
     // Convert the inclusive and exclusive search bits to NT format.
     //
 
-    SrvSmbAttributesToNt(
+    SRV_SMB_ATTRIBUTES_TO_NT(
         (USHORT)(SmbSearchAttributes & 0xFF),
         &returnDirectories,
         &inclusiveSearchAttributes
         );
 
-    SrvSmbAttributesToNt(
+    SRV_SMB_ATTRIBUTES_TO_NT(
         (USHORT)(SmbSearchAttributes >> 8),
         &returnDirectoriesOnly,
         &exclusiveSearchAttributes
@@ -1238,7 +1471,7 @@ Return Value:
             // call, then pass the file spec given by the user.  If this
             // is a resume search and we haven't yet done a directory
             // query, then use the resume file name and index.
-            // Otherwise, pass NULL for trese and the file system will
+            // Otherwise, pass NULL for these and the file system will
             // continue from where it left off after the last directory
             // query.
             //
@@ -1305,7 +1538,8 @@ Return Value:
                          FileInformationClass,
                          actualString,
                          ResumeFileIndex,
-                         FALSE
+                         FALSE,
+                         DirectoryInformation->OnlySingleEntries
                          );
 
             calledQueryDirectory = TRUE;
@@ -1326,6 +1560,7 @@ Return Value:
                 }
 
                 bruteForceRewind = TRUE;
+                DirectoryInformation->OnlySingleEntries = TRUE;
 
                 status = BruteForceRewind(
                              DirectoryInformation->DirectoryHandle,
@@ -1348,6 +1583,7 @@ Return Value:
                 if ( status == STATUS_NOT_IMPLEMENTED ) {
 
                     bruteForceRewind = FALSE;
+                    DirectoryInformation->OnlySingleEntries = FALSE;
 
                     status = SrvIssueQueryDirectoryRequest(
                                  DirectoryInformation->DirectoryHandle,
@@ -1356,7 +1592,8 @@ Return Value:
                                  FileInformationClass,
                                  actualString,
                                  ResumeFileIndex,
-                                 TRUE
+                                 TRUE,
+                                 FALSE
                                  );
                 }
             }
@@ -1458,9 +1695,10 @@ Arguments:
 
     FileName - the rewind file name.  The file *after* this one is returned.
 
-    FileInformationClass - either FileDirectoryInformation or
-        FileFullDirectoryInformation, depending on whether EA sizes
-        are being requested.
+    FileInformationClass - one of FileDirectoryInformation,
+        FileBothDirInformation, FileOleDirInformation, or
+        FileFullDirectoryInformation.
+        (The latter of the four if EA sizes are being requested.)
 
     CurrentEntry - a pointer to receive a pointer to the file after
         FileName in the directory.
@@ -1490,6 +1728,8 @@ Return Value:
     } else if ( FileInformationClass == FileBothDirectoryInformation ) {
         fileNameOffset =
             FIELD_OFFSET( FILE_BOTH_DIR_INFORMATION, FileName[0] );
+    } else if (FileInformationClass == FileOleDirectoryInformation) {
+        fileNameOffset = FIELD_OFFSET(FILE_OLE_DIR_INFORMATION, FileName[0]);
     } else {
         fileNameOffset =
             FIELD_OFFSET( FILE_DIRECTORY_INFORMATION, FileName[0] );
@@ -1510,7 +1750,8 @@ Return Value:
                          FileInformationClass,
                          NULL,
                          NULL,
-                         restartScan
+                         restartScan,
+                         TRUE
                          );
 
             restartScan = FALSE;
@@ -1641,7 +1882,7 @@ Routine Description:
     by requesting a large number of EAs from the IO system at a
     time.
 
-    The calling routine is responsible for setting up a longword-aligned
+    The calling routine is responsible for setting up a quadword-aligned
     buffer in nonpaged pool that may be used by this routine.  A pointer
     to the buffer and the buffer length are passed in as parameters.
     The buffer must be allocated from nonpaged pool because one of
@@ -1680,7 +1921,7 @@ Arguments:
     EaListLength - length in bytes of ths get EA list.
 
     EaInformation - a pointer to the buffer to be used by this routine
-        to do its work.  This buffer must be longword-aligned.
+        to do its work.  This buffer must be quadword-aligned.
 
     BufferLength - the length of the buffer passed to this routine.
 
@@ -1947,7 +2188,7 @@ Return Value:
     // filesystem.
     //
 
-    SystemTime->QuadPart += AlmostTwoSeconds.QuadPart;
+    SystemTime->QuadPart += AlmostTwoSeconds;
 
     //
     // Convert System time (UTC) to local NT time
@@ -2091,7 +2332,7 @@ Return Value:
 NTSTATUS
 SrvQueryBasicAndStandardInformation(
     HANDLE FileHandle,
-    PFILE_OBJECT FileObject,
+    PFILE_OBJECT FileObject OPTIONAL,
     PFILE_BASIC_INFORMATION FileBasicInfo,
     PFILE_STANDARD_INFORMATION FileStandardInfo OPTIONAL
     )
@@ -2219,3 +2460,146 @@ SrvQueryBasicAndStandardInformation(
     return(status);
 
 } // SrvQueryBasicAndStandardInformation
+
+NTSTATUS
+SrvQueryNetworkOpenInformation(
+    HANDLE FileHandle,
+    PFILE_OBJECT FileObject OPTIONAL,
+    PSRV_NETWORK_OPEN_INFORMATION SrvNetworkOpenInformation,
+    BOOLEAN QueryEaSize
+    )
+{
+    NTSTATUS status;
+    PFILE_OBJECT fileObject;
+    PDEVICE_OBJECT deviceObject;
+    PFAST_IO_DISPATCH fastIoDispatch;
+    PFAST_IO_QUERY_NETWORK_OPEN_INFO fastQueryNetworkOpenInfo;
+    FILE_BASIC_INFORMATION FileBasicInfo;
+    FILE_STANDARD_INFORMATION FileStandardInfo;
+    IO_STATUS_BLOCK ioStatus;
+
+    PAGED_CODE( );
+
+    //
+    // Get a pointer to the file object, so that we can directly
+    // access the fast IO routines, if they exist.
+    //
+    if ( !ARGUMENT_PRESENT( FileObject ) ) {
+
+        status = ObReferenceObjectByHandle(
+                    FileHandle,
+                    0,
+                    NULL,
+                    KernelMode,
+                    (PVOID *)&fileObject,
+                    NULL
+                    );
+
+        if ( !NT_SUCCESS(status) ) {
+
+            SrvLogServiceFailure( SRV_SVC_OB_REF_BY_HANDLE, status );
+
+            //
+            // This internal error bugchecks the system.
+            //
+
+            INTERNAL_ERROR(
+                ERROR_LEVEL_IMPOSSIBLE,
+                "CompleteOpen: unable to reference file handle 0x%lx",
+                FileHandle,
+                NULL
+                );
+
+            return(status);
+
+        }
+
+    } else {
+        fileObject = FileObject;
+    }
+
+    deviceObject = IoGetRelatedDeviceObject( fileObject );
+    fastIoDispatch = deviceObject->DriverObject->FastIoDispatch;
+
+    if(  !QueryEaSize &&
+         fastIoDispatch &&
+         fastIoDispatch->SizeOfFastIoDispatch > FIELD_OFFSET(FAST_IO_DISPATCH,FastIoQueryNetworkOpenInfo)) {
+
+        fastQueryNetworkOpenInfo = fastIoDispatch->FastIoQueryNetworkOpenInfo;
+
+        if( fastQueryNetworkOpenInfo &&
+
+            fastQueryNetworkOpenInfo(
+                fileObject,
+                TRUE,
+                (PFILE_NETWORK_OPEN_INFORMATION)SrvNetworkOpenInformation,
+                &ioStatus,
+                deviceObject ) ) {
+
+            status = ioStatus.Status;
+            
+            if ( !ARGUMENT_PRESENT( FileObject ) ) {
+                ObDereferenceObject( fileObject );
+            }
+
+            return status;
+        }
+    }
+
+    //
+    // The fast path didn't work.  Do it the slow way
+    //
+    status = SrvQueryBasicAndStandardInformation(
+                FileHandle,
+                fileObject,
+                &FileBasicInfo,
+                &FileStandardInfo
+             );
+
+    if ( !ARGUMENT_PRESENT( FileObject ) ) {
+        ObDereferenceObject( fileObject );
+    }
+
+    if( !NT_SUCCESS( status ) ) {
+        return status;
+    }
+
+    SrvNetworkOpenInformation->CreationTime   = FileBasicInfo.CreationTime;
+    SrvNetworkOpenInformation->LastAccessTime = FileBasicInfo.LastAccessTime;
+    SrvNetworkOpenInformation->LastWriteTime  = FileBasicInfo.LastWriteTime;
+    SrvNetworkOpenInformation->ChangeTime     = FileBasicInfo.ChangeTime;
+    SrvNetworkOpenInformation->AllocationSize = FileStandardInfo.AllocationSize;
+    SrvNetworkOpenInformation->EndOfFile      = FileStandardInfo.EndOfFile;
+    SrvNetworkOpenInformation->FileAttributes = FileBasicInfo.FileAttributes;
+
+    if ( QueryEaSize ) {
+
+            FILE_EA_INFORMATION fileEaInformation;
+
+            status = NtQueryInformationFile(
+                         FileHandle,
+                         &ioStatus,
+                         (PVOID)&fileEaInformation,
+                         sizeof(FILE_EA_INFORMATION),
+                         FileEaInformation
+                         );
+
+            if ( !NT_SUCCESS(status) ) {
+                INTERNAL_ERROR(
+                    ERROR_LEVEL_UNEXPECTED,
+                    "SrvQueryInformationFile: NtQueryInformationFile "
+                        "(EA information) failed: %X",
+                     status,
+                     NULL
+                     );
+
+                SrvLogServiceFailure( SRV_SVC_NT_QUERY_INFO_FILE, status );
+                return status;
+            }
+
+            SrvNetworkOpenInformation->EaSize = fileEaInformation.EaSize;
+    }
+
+    return(status);
+
+} // SrvQueryNetworkOpenInformation

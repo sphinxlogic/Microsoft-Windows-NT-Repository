@@ -28,17 +28,6 @@ Revision History:
 #include "precomp.h"
 #pragma hdrstop
 
-
-NTSTATUS
-RdrQueryNtFileInformation(
-    IN PIRP Irp,
-    IN PICB Icb,
-    IN USHORT FileInformationClass,
-    IN OUT PVOID Buffer,
-    IN OUT PULONG BufferSize
-    );
-
-
 DBGSTATIC
 BOOLEAN
 QueryBasicInfo(
@@ -128,6 +117,39 @@ QueryStreamInfo(
 
 DBGSTATIC
 BOOLEAN
+QueryCompressionInfo(
+    PIRP Irp,
+    PICB Icb,
+    PFILE_COMPRESSION_INFORMATION UsersBuffer,
+    PULONG BufferSize,
+    PNTSTATUS FinalStatus,
+    BOOLEAN Wait
+    );
+
+DBGSTATIC
+BOOLEAN
+QueryOleAllMiscInfo(
+    PIRP Irp,
+    PICB Icb,
+    PFILE_OLE_ALL_INFORMATION UsersBuffer,
+    PULONG BufferSize,
+    PNTSTATUS FinalStatus,
+    BOOLEAN Wait
+    );
+
+DBGSTATIC
+BOOLEAN
+QueryOleInfo(
+    PIRP Irp,
+    PICB Icb,
+    PFILE_OLE_INFORMATION UsersBuffer,
+    PULONG BufferSize,
+    PNTSTATUS FinalStatus,
+    BOOLEAN Wait
+    );
+
+DBGSTATIC
+BOOLEAN
 SetBasicInfo(
     IN PIRP Irp,
     PICB Icb,
@@ -157,7 +179,8 @@ SetRenameInfo(
     PFILE_RENAME_INFORMATION UsersBuffer,
     ULONG BufferSize,
     PNTSTATUS FinalStatus,
-    BOOLEAN Wait
+    BOOLEAN Wait,
+    USHORT NtInformationLevel
     );
 
 DBGSTATIC
@@ -193,6 +216,19 @@ SetEndOfFileInfo(
     BOOLEAN Wait
     );
 
+DBGSTATIC
+BOOLEAN
+SetGenericInfo(
+    IN PIRP Irp,
+    PICB Icb,
+    VOID *pvUsersBuffer,
+    ULONG cbBuffer,
+    ULONG cbMin,
+    USHORT NtInformationLevel,
+    PNTSTATUS FinalStatus,
+    BOOLEAN Wait
+    );
+
 #ifdef  ALLOC_PRAGMA
 #pragma alloc_text(PAGE, RdrFsdQueryInformationFile)
 #pragma alloc_text(PAGE, RdrFspQueryInformationFile)
@@ -203,6 +239,7 @@ SetEndOfFileInfo(
 #pragma alloc_text(PAGE, RdrFastQueryBasicInfo)
 #pragma alloc_text(PAGE, RdrFastQueryStdInfo)
 #pragma alloc_text(PAGE, RdrQueryNtFileInformation)
+#pragma alloc_text(PAGE, RdrQueryNtPathInformation)
 #pragma alloc_text(PAGE, QueryBasicInfo)
 #pragma alloc_text(PAGE, QueryStandardInfo)
 #pragma alloc_text(PAGE, QueryInternalInfo)
@@ -211,13 +248,16 @@ SetEndOfFileInfo(
 #pragma alloc_text(PAGE, QueryAlternateNameInfo)
 #pragma alloc_text(PAGE, QueryPositionInfo)
 #pragma alloc_text(PAGE, QueryStreamInfo)
+#pragma alloc_text(PAGE, QueryCompressionInfo)
+#pragma alloc_text(PAGE, QueryOleAllMiscInfo)
+#pragma alloc_text(PAGE, QueryOleInfo)
 #pragma alloc_text(PAGE, SetBasicInfo)
 #pragma alloc_text(PAGE, SetRenameInfo)
 #pragma alloc_text(PAGE, SetDispositionInfo)
 #pragma alloc_text(PAGE, SetPositionInfo)
 #pragma alloc_text(PAGE, SetAllocationInfo)
 #pragma alloc_text(PAGE, SetEndOfFileInfo)
-
+#pragma alloc_text(PAGE, SetGenericInfo)
 #endif
 
 
@@ -428,6 +468,7 @@ Note:
         break;
 
 
+    case FileOleAllInformation:
     case FileAllInformation:
     {
         PFILE_ALL_INFORMATION AllInfo = UsersBuffer;
@@ -489,15 +530,25 @@ Note:
             break;
         }
 
-        QueryNameInfo(Irp, Icb, &AllInfo->NameInformation,
-                                    &BufferSize,
-                                    &Status,
-                                    Wait);
-        if (!NT_SUCCESS(Status)) {
-            break;
+        if (IrpSp->Parameters.QueryFile.FileInformationClass ==
+                                                    FileOleAllInformation) {
+            PFILE_OLE_ALL_INFORMATION OleAllInfo = UsersBuffer;
+
+            QueryOleAllMiscInfo(
+                    Irp,
+                    Icb,
+                    OleAllInfo,
+                    &BufferSize,
+                    &Status,
+                    Wait);
+        } else {
+
+            QueryNameInfo(Irp, Icb, &AllInfo->NameInformation,
+                                        &BufferSize,
+                                        &Status,
+                                        Wait);
         }
     }
-
     break;
 
     case FilePipeInformation:
@@ -532,9 +583,27 @@ Note:
 
         break;
 
+    case FileCompressionInformation:
+        QueueToFsp = QueryCompressionInfo(Irp, Icb,
+                                    UsersBuffer,
+                                    &BufferSize,
+                                    &Status,
+                                    Wait);
+
+        break;
+
+    case FileOleInformation:
+        QueueToFsp = QueryOleInfo(Irp, Icb,
+                                    UsersBuffer,
+                                    &BufferSize,
+                                    &Status,
+                                    Wait);
+
+        break;
+
 #if RDRDBG
     //
-    //  Special case three information fields handled in the I/O subsystem
+    //  Special case information fields handled in the I/O subsystem
     //
 
     case FileAlignmentInformation:
@@ -548,9 +617,27 @@ Note:
         break;
 
     //
-    //  Special case the information fields that can never be passed on Qinfo.
+    //  Special case information fields that can never be passed on Qinfo.
     //
 
+    case FileFullDirectoryInformation:
+        InternalError(("FileFullDirectory illegal for NtQueryInformationFile"));
+        break;
+    case FileBothDirectoryInformation:
+        InternalError(("FileBothDirectory illegal for NtQueryInformationFile"));
+        break;
+    case FileRenameInformation:
+        InternalError(("FileRename illegal for NtQueryInformationFile"));
+        break;
+    case FileMailslotQueryInformation:
+        InternalError(("FileMailslotQuery illegal for NtQueryInformationFile"));
+        break;
+    case FileMailslotSetInformation:
+        InternalError(("FileMailslotSet illegal for NtQueryInformationFile"));
+        break;
+    case FileCompletionInformation:
+        InternalError(("FileCompletion illegal for NtQueryInformationFile"));
+        break;
     case FileLinkInformation:
         InternalError(("FileLink illegal for NtQueryInformationFile"));
         break;
@@ -571,6 +658,24 @@ Note:
         break;
     case FileEndOfFileInformation:
         InternalError(("FileEndOfFile illegal for NtQueryInformationFile"));
+        break;
+    case FileCopyOnWriteInformation:
+        InternalError(("FileCopyOnWrite illegal for NtQueryInformationFile"));
+        break;
+    case FileMoveClusterInformation:
+        InternalError(("FileMoveCluster illegal for NtQueryInformationFile"));
+        break;
+    case FileOleClassIdInformation:
+        InternalError(("FileOleClassId illegal for NtQueryInformationFile"));
+        break;
+    case FileOleStateBitsInformation:
+        InternalError(("FileOleStateBits illegal for NtQueryInformationFile"));
+        break;
+    case FileObjectIdInformation:
+        InternalError(("FileObjectId illegal for NtQueryInformationFile"));
+        break;
+    case FileOleDirectoryInformation:
+        InternalError(("FileOleDirectory illegal for NtQueryInformationFile"));
         break;
 #endif  // RDRDBG
     default:
@@ -731,6 +836,8 @@ Note:
     PVOID UsersBuffer = Irp->AssociatedIrp.SystemBuffer;
     PICB Icb = ICB_OF(IrpSp);
     BOOLEAN QueueToFsp = FALSE;
+    ULONG cbMin = 0;
+    USHORT NtInformationLevel;
 
     PAGED_CODE();
 
@@ -749,6 +856,9 @@ Note:
         RdrCompleteRequest(Irp, Status);
         return Status;
     }
+
+    Icb->Fcb->UpdatedFile = TRUE;
+    InterlockedIncrement( &RdrServerStateUpdated );
 
     switch (Icb->NonPagedFcb->FileType) {
 
@@ -802,12 +912,16 @@ Note:
                                       &Status,
                                       Wait);
             break;
+        case FileCopyOnWriteInformation:
+        case FileMoveClusterInformation:
+        case FileLinkInformation:
         case FileRenameInformation:
             QueueToFsp = SetRenameInfo(Irp, Icb,
                                       Irp->AssociatedIrp.SystemBuffer,
                                       IrpSp->Parameters.SetFile.Length,
                                       &Status,
-                                      Wait);
+                                      Wait,
+                                      (USHORT)IrpSp->Parameters.SetFile.FileInformationClass);
             break;
         case FilePositionInformation:
             QueueToFsp = SetPositionInfo(Icb, IrpSp,
@@ -830,9 +944,34 @@ Note:
                                       &Status,
                                       Wait);
             break;
+        case FileOleClassIdInformation:
+            cbMin = sizeof(FILE_OLE_CLASSID_INFORMATION);
+            NtInformationLevel = SMB_SET_FILE_OLE_CLASSID_INFO;
+            break;
+        case FileOleStateBitsInformation:
+            cbMin = sizeof(FILE_OLE_STATE_BITS_INFORMATION);
+            NtInformationLevel = SMB_SET_FILE_OLE_STATE_BITS_INFO;
+            break;
+        case FileObjectIdInformation:
+            cbMin = sizeof(FILE_OBJECTID_INFORMATION);
+            NtInformationLevel = SMB_SET_FILE_OBJECTID_INFO;
+            break;
+        case FileContentIndexInformation:
+            cbMin = sizeof(BOOLEAN);
+            NtInformationLevel = SMB_SET_FILE_CONTENT_INDEX_INFO;
+            break;
+        case FileInheritContentIndexInformation:
+            cbMin = sizeof(BOOLEAN);
+            NtInformationLevel = SMB_SET_FILE_INHERIT_CONTENT_INDEX_INFO;
+            break;
+        case FileOleInformation:
+            cbMin = sizeof(FILE_OLE_INFORMATION);
+            NtInformationLevel = SMB_SET_FILE_OLE_INFO;
+            break;
+
 #if RDRDBG
         //
-        //  Special case three information fields handled in the I/O subsystem
+        //  Special case information fields handled in the I/O subsystem
         //
 
         case FileModeInformation:
@@ -840,23 +979,93 @@ Note:
             break;
 
         //
-        //  Special case the information fields that can never be passed on Qinfo.
+        //  Special case information fields that can never be passed on Qinfo.
         //
 
+        case FileDirectoryInformation:
+            InternalError(("FileDirectory illegal for NtSetInformationFile"));
+            break;
+        case FileFullDirectoryInformation:
+            InternalError(("FileFullDirectory illegal for NtSetInformationFile"));
+            break;
+        case FileBothDirectoryInformation:
+            InternalError(("FileBothDirectory illegal for NtSetInformationFile"));
+            break;
+        case FileStandardInformation:
+            InternalError(("FileStandard illegal for NtSetInformationFile"));
+            break;
+        case FileInternalInformation:
+            InternalError(("FileInternal illegal for NtSetInformationFile"));
+            break;
+        case FileEaInformation:
+            InternalError(("FileEa illegal for NtSetInformationFile"));
+            break;
+        case FileAccessInformation:
+            InternalError(("FileAccess illegal for NtSetInformationFile"));
+            break;
+        case FileNameInformation:
+            InternalError(("FileName illegal for NtSetInformationFile"));
+            break;
+        case FileNamesInformation:
+            InternalError(("FileNames illegal for NtSetInformationFile"));
+            break;
         case FileFullEaInformation:
             InternalError(("FileFullEa illegal for NtSetInformationFile"));
             break;
         case FileAlignmentInformation:
             InternalError(("FileAlignment illegal for NtSetInformationFile"));
             break;
-        case FileAccessInformation:
-            InternalError(("FileAccess illegal for NtSetInformationFile"));
+        case FileAllInformation:
+            InternalError(("FileAll illegal for NtSetInformationFile"));
+            break;
+        case FileAlternateNameInformation:
+            InternalError(("FileAlternateName illegal for NtSetInformationFile"));
+            break;
+        case FileStreamInformation:
+            InternalError(("FileStream illegal for NtSetInformationFile"));
+            break;
+        case FilePipeInformation:
+            InternalError(("FilePipe illegal for NtSetInformationFile"));
+            break;
+        case FilePipeLocalInformation:
+            InternalError(("FilePipeLocal illegal for NtSetInformationFile"));
+            break;
+        case FilePipeRemoteInformation:
+            InternalError(("FilePipeRemote illegal for NtSetInformationFile"));
+            break;
+        case FileMailslotQueryInformation:
+            InternalError(("FileMailslotQuery illegal for NtSetInformationFile"));
+            break;
+        case FileMailslotSetInformation:
+            InternalError(("FileMailslotSet illegal for NtSetInformationFile"));
+            break;
+        case FileCompressionInformation:
+            InternalError(("FileCompression illegal for NtSetInformationFile"));
+            break;
+        case FileCompletionInformation:
+            InternalError(("FileCompletion illegal for NtSetInformationFile"));
+            break;
+        case FileOleAllInformation:
+            InternalError(("FileOleAll illegal for NtSetInformationFile"));
+            break;
+        case FileOleDirectoryInformation:
+            InternalError(("FileOleDirectory illegal for NtSetInformationFile"));
             break;
 #endif  // RDRDBG
         default:
             Status = STATUS_NOT_IMPLEMENTED;
         }
-
+        if (cbMin != 0) {
+            QueueToFsp = SetGenericInfo(
+                                Irp,
+                                Icb,
+                                Irp->AssociatedIrp.SystemBuffer,
+                                IrpSp->Parameters.SetFile.Length,
+                                cbMin,
+                                NtInformationLevel,
+                                &Status,
+                                Wait);
+        }
     }
 
     if (QueueToFsp) {
@@ -924,7 +1133,10 @@ Return Value:
 
     ASSERT (Fcb->Header.NodeTypeCode == STRUCTURE_SIGNATURE_FCB);
 
+    FsRtlEnterFileSystem();
+
     if (!RdrAcquireFcbLock(Fcb, SharedLock, Wait)) {
+        FsRtlExitFileSystem();
         return Results;
     }
 
@@ -946,20 +1158,19 @@ Return Value:
             //  to find this information out, we have it cached locally anyway!
             //
 
+            ASSERT ((Fcb->Attribute & ~FILE_ATTRIBUTE_VALID_FLAGS) == 0);
+
             try {
                 Buffer->CreationTime = Fcb->CreationTime;
                 Buffer->LastAccessTime = Fcb->LastAccessTime;
                 Buffer->LastWriteTime = Fcb->LastWriteTime;
                 Buffer->ChangeTime = Fcb->ChangeTime;
                 Buffer->FileAttributes = Fcb->Attribute;
-
             } except (EXCEPTION_EXECUTE_HANDLER) {
                 IoStatus->Status = GetExceptionCode();
-                IoStatus->Information = FALSE;
-
+                IoStatus->Information = 0;
                 try_return(Results = FALSE);
             }
-            ASSERT ((Fcb->Attribute & ~FILE_ATTRIBUTE_VALID_FLAGS) == 0);
 
             IoStatus->Status = STATUS_SUCCESS;
 
@@ -979,23 +1190,62 @@ Return Value:
         //  Query the file attributes over the net.
         //
 
-        IoStatus->Status = RdrQueryFileAttributes(NULL, Icb, &FileAttribs);
+        if ( FlagOn(Icb->Fcb->Connection->Server->Capabilities, DF_NT_SMBS) ) {
 
-        if (NT_SUCCESS(IoStatus->Status)) {
+            FILE_BASIC_INFORMATION LocalBuffer;
 
-            try {
-                Buffer->CreationTime = FileAttribs.CreationTime;
-                Buffer->LastAccessTime = FileAttribs.LastAccessTime;
-                Buffer->LastWriteTime = FileAttribs.LastWriteTime;
-                Buffer->ChangeTime = FileAttribs.ChangeTime;
-                Buffer->FileAttributes = FileAttribs.Attributes;
+            IoStatus->Information = sizeof(FILE_BASIC_INFORMATION);
+            if ( FlagOn(Icb->Flags, ICB_HASHANDLE) ) {
+                IoStatus->Status = RdrQueryNtFileInformation(
+                                        NULL,
+                                        Icb,
+                                        SMB_QUERY_FILE_BASIC_INFO,
+                                        &LocalBuffer,
+                                        &IoStatus->Information
+                                        );
+            } else {
+                IoStatus->Status = RdrQueryNtPathInformation(
+                                        NULL,
+                                        Icb,
+                                        SMB_QUERY_FILE_BASIC_INFO,
+                                        &LocalBuffer,
+                                        &IoStatus->Information
+                                        );
+            }
+            IoStatus->Information = sizeof(FILE_BASIC_INFORMATION) - IoStatus->Information;
+
+            if (NT_SUCCESS(IoStatus->Status)) {
+
+                try {
+                    RtlCopyMemory( Buffer, &LocalBuffer, sizeof(FILE_BASIC_INFORMATION) );
+                } except (EXCEPTION_EXECUTE_HANDLER) {
+                    IoStatus->Status = GetExceptionCode();
+                    IoStatus->Information = 0;
+                    try_return (Results = FALSE);
+                }
+
+            }
+
+        } else {
+
+            IoStatus->Status = RdrQueryFileAttributes(NULL, Icb, &FileAttribs);
+
+            if (NT_SUCCESS(IoStatus->Status)) {
 
                 ASSERT ((FileAttribs.Attributes & ~FILE_ATTRIBUTE_VALID_FLAGS) == 0);
 
-            } except (EXCEPTION_EXECUTE_HANDLER) {
-                IoStatus->Status = GetExceptionCode();
-                IoStatus->Information = FALSE;
-                try_return (Results = FALSE);
+                try {
+                    Buffer->CreationTime = FileAttribs.CreationTime;
+                    Buffer->LastAccessTime = FileAttribs.LastAccessTime;
+                    Buffer->LastWriteTime = FileAttribs.LastWriteTime;
+                    Buffer->ChangeTime = FileAttribs.ChangeTime;
+                    Buffer->FileAttributes = FileAttribs.Attributes;
+                } except (EXCEPTION_EXECUTE_HANDLER) {
+                    IoStatus->Status = GetExceptionCode();
+                    IoStatus->Information = 0;
+                    try_return (Results = FALSE);
+                }
+
             }
 
             IoStatus->Information = sizeof(FILE_BASIC_INFORMATION);
@@ -1010,6 +1260,7 @@ try_exit: NOTHING;
         if (FcbAcquired) {
             RdrReleaseFcbLock( Fcb );
         }
+        FsRtlExitFileSystem();
     }
 
     //
@@ -1066,7 +1317,10 @@ Return Value:
 
     ASSERT (Fcb->Header.NodeTypeCode == STRUCTURE_SIGNATURE_FCB);
 
+    FsRtlEnterFileSystem();
+
     if (!RdrAcquireFcbLock(Fcb, SharedLock, Wait)) {
+        FsRtlExitFileSystem();
         return Results;
     }
 
@@ -1120,6 +1374,7 @@ try_exit: NOTHING;
         if (FcbAcquired) {
             RdrReleaseFcbLock( Fcb );
         }
+        FsRtlExitFileSystem();
     }
 
     //
@@ -1210,16 +1465,29 @@ Return Value:
         return TRUE;
     }
 
-    if ((Icb->Fcb->Connection->Server->Capabilities & DF_NT_SMBS) &&
-        (Icb->Flags & ICB_HASHANDLE)) {
+    if ( FlagOn(Icb->Fcb->Connection->Server->Capabilities, DF_NT_SMBS) ) {
 
-        *FinalStatus = RdrQueryNtFileInformation(Irp, Icb, SMB_QUERY_FILE_BASIC_INFO, UsersBuffer, BufferSize);
+        if ( FlagOn(Icb->Flags, ICB_HASHANDLE) ) {
+            *FinalStatus = RdrQueryNtFileInformation(
+                                Irp,
+                                Icb,
+                                SMB_QUERY_FILE_BASIC_INFO,
+                                UsersBuffer,
+                                BufferSize
+                                );
+        } else {
+            *FinalStatus = RdrQueryNtPathInformation(
+                                Irp,
+                                Icb,
+                                SMB_QUERY_FILE_BASIC_INFO,
+                                UsersBuffer,
+                                BufferSize
+                                );
+        }
 
     } else {
 
         *FinalStatus = RdrQueryFileAttributes(Irp, Icb, &FileAttribs);
-
-        //  BUGBUG: Cache attributes and times returned in FCB for SIZZLE work
 
         if (NT_SUCCESS(*FinalStatus)) {
             UsersBuffer->CreationTime = FileAttribs.CreationTime;
@@ -1348,11 +1616,25 @@ Return Value:
         return TRUE;
     }
 
-    if ((Icb->Fcb->Connection->Server->Capabilities & DF_NT_SMBS) &&
-        (Icb->Flags & ICB_HASHANDLE)) {
+    if ( FlagOn(Icb->Fcb->Connection->Server->Capabilities, DF_NT_SMBS) ) {
 
-        *FinalStatus = RdrQueryNtFileInformation(Irp, Icb, SMB_QUERY_FILE_STANDARD_INFO, UsersBuffer, BufferSize);
-
+        if ( FlagOn(Icb->Flags, ICB_HASHANDLE) ) {
+            *FinalStatus = RdrQueryNtFileInformation(
+                                Irp,
+                                Icb,
+                                SMB_QUERY_FILE_STANDARD_INFO,
+                                UsersBuffer,
+                                BufferSize
+                                );
+        } else {
+            *FinalStatus = RdrQueryNtPathInformation(
+                                Irp,
+                                Icb,
+                                SMB_QUERY_FILE_STANDARD_INFO,
+                                UsersBuffer,
+                                BufferSize
+                                );
+        }
 
     } else {
 
@@ -1415,7 +1697,7 @@ Arguments:
 
     IN PICB Icb - Supplies the ICB associated with this request.
 
-    OUT PFILE_BASIC_INFORMATION UsersBuffer - Supplies the user's buffer
+    OUT PFILE_STREAM_INFORMATION UsersBuffer - Supplies the user's buffer
                                                 that is filled in with the
                                                 requested data.
     IN OUT PULONG BufferSize - Supplies the size of the buffer, and is updated
@@ -1440,14 +1722,309 @@ Return Value:
         return TRUE;
     }
 
-    if ((Icb->Fcb->Connection->Server->Capabilities & DF_NT_SMBS) &&
-        (Icb->Flags & ICB_HASHANDLE)) {
+    if ( FlagOn(Icb->Fcb->Connection->Server->Capabilities, DF_NT_SMBS) ) {
 
-        *FinalStatus = RdrQueryNtFileInformation(Irp, Icb, SMB_QUERY_FILE_STREAM_INFO, UsersBuffer, BufferSize);
+        if ( FlagOn(Icb->Flags, ICB_HASHANDLE) ) {
+            *FinalStatus = RdrQueryNtFileInformation(
+                                Irp,
+                                Icb,
+                                SMB_QUERY_FILE_STREAM_INFO,
+                                UsersBuffer,
+                                BufferSize
+                                );
+        } else {
+            *FinalStatus = RdrQueryNtPathInformation(
+                                Irp,
+                                Icb,
+                                SMB_QUERY_FILE_STREAM_INFO,
+                                UsersBuffer,
+                                BufferSize
+                                );
+        }
 
     } else {
 
         *FinalStatus = STATUS_NOT_SUPPORTED;
+    }
+
+    return FALSE;
+
+}
+
+DBGSTATIC
+BOOLEAN
+QueryCompressionInfo (
+    IN PIRP Irp,
+    IN PICB Icb,
+    OUT PFILE_COMPRESSION_INFORMATION UsersBuffer,
+    IN OUT PULONG BufferSize,
+    PNTSTATUS FinalStatus,
+    BOOLEAN Wait
+    )
+
+/*++
+
+Routine Description:
+
+    This routine implements the FileCompressionInformation value of the
+    NtQueryInformationFile API.
+
+
+Arguments:
+
+    IN PIRP Irp - Supplies the IRP associated with this request.
+
+    IN PICB Icb - Supplies the ICB associated with this request.
+
+    OUT PFILE_COMPRESSION_INFORMATION UsersBuffer - Supplies the user's buffer
+                                                that is filled in with the
+                                                requested data.
+    IN OUT PULONG BufferSize - Supplies the size of the buffer, and is updated
+                                                with the amount used.
+    OUT PNTSTATUS FinalStatus - Status to be returned for this operation.
+
+    IN BOOLEAN Wait - True if FSP can wait for this request.
+
+
+Return Value:
+
+    BOOLEAN - Indicates whether the IRP should be posted.
+
+
+--*/
+
+{
+    PAGED_CODE();
+
+    if ( !Wait ) {
+        return TRUE;
+    }
+
+    if ( FlagOn(Icb->Fcb->Connection->Server->Capabilities, DF_NT_SMBS) ) {
+        if ( FlagOn(Icb->Flags, ICB_HASHANDLE) ) {
+            *FinalStatus = RdrQueryNtFileInformation(
+                                Irp,
+                                Icb,
+                                SMB_QUERY_FILE_COMPRESSION_INFO,
+                                UsersBuffer,
+                                BufferSize
+                                );
+        } else {
+            *FinalStatus = RdrQueryNtPathInformation(
+                                Irp,
+                                Icb,
+                                SMB_QUERY_FILE_COMPRESSION_INFO,
+                                UsersBuffer,
+                                BufferSize
+                                );
+        }
+
+    } else {
+
+        *FinalStatus = STATUS_NOT_SUPPORTED;
+    }
+
+    return FALSE;
+
+}
+
+DBGSTATIC
+BOOLEAN
+QueryOleAllMiscInfo (
+    IN PIRP Irp,
+    IN PICB Icb,
+    OUT PFILE_OLE_ALL_INFORMATION UsersBuffer,
+    IN OUT PULONG BufferSize,
+    PNTSTATUS FinalStatus,
+    BOOLEAN Wait
+    )
+
+/*++
+
+Routine Description:
+
+    This routine implements selected portions of FileQueryOleAllInformation
+    of the NtQueryInformationFile api.
+    It returns the following information:
+
+Arguments:
+
+    IN PICB Icb - Supplies the ICB associated with this request.
+
+    OUT PFILE_OLE_INFORMATION UsersBuffer - Supplies the user's buffer
+                                                that is filled in with the
+                                                requested data.
+    IN OUT PULONG BufferSize - Supplies the size of the buffer, and is updated
+                                                with the amount used.
+    OUT PNTSTATUS FinalStatus - Status to be returned for this operation.
+
+    IN BOOLEAN Wait - True if FSP can wait for this request.
+
+
+Return Value:
+
+    NTSTATUS - Status of operation performed.
+
+
+--*/
+
+{
+    PAGED_CODE();
+
+    ASSERT (!ExIsResourceAcquiredExclusive(Icb->Fcb->Header.Resource));
+
+    if (!Wait) {
+
+        return TRUE;
+    }
+
+    if ((Icb->Fcb->Connection->Server->Capabilities & DF_NT_SMBS) &&
+        (Icb->Flags & ICB_HASHANDLE)) {
+
+        FILE_OLE_ALL_INFORMATION *pfoai;
+
+        //
+        // We are going to ask the remote server for OLE_ALL_INFORMATION.
+        // We do not want to perturb the contents of the user's buffer that
+        // have been filled in so far. So, we allocate a new
+        // OLE_ALL_INFORMATION struct, get the info in it, and then copy only
+        // a subpart to the user's buffer.
+        //
+        // We will copy everything from the LastChangeUsn field of the struct.
+        //
+        // Hence, we need to allocate *BufferSize + field offset of
+        // LastChangeUsn bytes.
+        //
+
+        ULONG cb = *BufferSize + FIELD_OFFSET(FILE_OLE_ALL_INFORMATION, LastChangeUsn);
+
+        pfoai = ALLOCATE_POOL(PagedPool, cb, POOL_OLE_ALL_BUFFER);
+        if (pfoai == NULL) {
+
+            *FinalStatus = STATUS_NO_MEMORY;
+
+        } else {
+            try {
+                *FinalStatus = RdrQueryNtFileInformation(
+                                        Irp,
+                                        Icb,
+                                        SMB_QUERY_FILE_OLE_ALL_INFO,
+                                        pfoai,
+                                        &cb);
+                if (NT_SUCCESS(*FinalStatus)
+                        ||
+                    *FinalStatus == STATUS_BUFFER_OVERFLOW) {
+
+                    ULONG cbCopy;
+
+                    UsersBuffer->InternalInformation.IndexNumber =
+                          pfoai->InternalInformation.IndexNumber;
+
+                    cbCopy = FIELD_OFFSET(
+                                FILE_OLE_ALL_INFORMATION,
+                                NameInformation.FileName[0]) +
+                            pfoai->NameInformation.FileNameLength -
+                            FIELD_OFFSET( FILE_OLE_ALL_INFORMATION, LastChangeUsn);
+
+                    if (cbCopy > *BufferSize) {
+                        cbCopy = *BufferSize;
+                        *FinalStatus = STATUS_BUFFER_OVERFLOW;
+                    }
+                    RtlCopyMemory(&UsersBuffer->LastChangeUsn, &pfoai->LastChangeUsn, cbCopy);
+                    *BufferSize -= cbCopy;
+                }
+
+            } finally {
+
+                FREE_POOL(pfoai);
+            }
+        }
+    } else {
+
+        *FinalStatus = STATUS_NOT_SUPPORTED;
+    }
+
+    ASSERT (!ExIsResourceAcquiredExclusive(Icb->Fcb->Header.Resource));
+
+    return FALSE;
+
+}
+
+DBGSTATIC
+BOOLEAN
+QueryOleInfo (
+    IN PIRP Irp,
+    IN PICB Icb,
+    OUT PFILE_OLE_INFORMATION UsersBuffer,
+    IN OUT PULONG BufferSize,
+    PNTSTATUS FinalStatus,
+    BOOLEAN Wait
+    )
+
+/*++
+
+Routine Description:
+
+    This routine implements the FileQueryOleInformation value of the
+NtQueryInformationFile api.  It returns the following information:
+
+
+Arguments:
+
+    IN PICB Icb - Supplies the ICB associated with this request.
+
+    OUT PFILE_OLE_INFORMATION UsersBuffer - Supplies the user's buffer
+                                                that is filled in with the
+                                                requested data.
+    IN OUT PULONG BufferSize - Supplies the size of the buffer, and is updated
+                                                with the amount used.
+    OUT PNTSTATUS FinalStatus - Status to be returned for this operation.
+
+    IN BOOLEAN Wait - True if FSP can wait for this request.
+
+
+Return Value:
+
+    NTSTATUS - Status of operation performed.
+
+
+--*/
+
+{
+    PAGED_CODE();
+
+    if (!Wait) {
+
+        return TRUE;
+    }
+
+    if ( FlagOn(Icb->Fcb->Connection->Server->Capabilities, DF_NT_SMBS) ) {
+
+        if ( FlagOn(Icb->Flags, ICB_HASHANDLE) ) {
+            *FinalStatus = RdrQueryNtFileInformation(
+                                Irp,
+                                Icb,
+                                SMB_QUERY_FILE_OLE_INFO,
+                                UsersBuffer,
+                                BufferSize
+                                );
+        } else {
+            *FinalStatus = RdrQueryNtPathInformation(
+                                Irp,
+                                Icb,
+                                SMB_QUERY_FILE_OLE_INFO,
+                                UsersBuffer,
+                                BufferSize
+                                );
+        }
+
+    } else {
+        ULONG TransferSize = min(sizeof(*UsersBuffer), *BufferSize);
+
+        RtlZeroMemory(UsersBuffer, TransferSize);
+        *FinalStatus = (sizeof(*UsersBuffer) > *BufferSize)?
+                            STATUS_BUFFER_OVERFLOW : STATUS_SUCCESS;
+        *BufferSize -= TransferSize;
     }
 
     return FALSE;
@@ -1498,15 +2075,18 @@ Return Value:
 
     REQ_QUERY_FILE_INFORMATION Parameters;
 
-    CLONG OutParameterCount = sizeof(REQ_QUERY_FILE_INFORMATION);
-
-    CLONG OutDataCount = *BufferSize;
-
-    CLONG OutSetupCount = 0;
+    CLONG OutParameterCount;
+    CLONG OutDataCount;
+    CLONG OutSetupCount;
 
     NTSTATUS Status;
 
     PAGED_CODE();
+
+    ASSERT( sizeof(REQ_QUERY_FILE_INFORMATION) >= sizeof(RESP_QUERY_FILE_INFORMATION) );
+    OutParameterCount = sizeof(RESP_QUERY_FILE_INFORMATION);
+    OutDataCount = *BufferSize;
+    OutSetupCount = 0;
 
     SmbPutAlignedUshort(&Parameters.InformationLevel, FileInformationClass);
 
@@ -1528,7 +2108,7 @@ Return Value:
             &OutDataCount,
             &Icb->FileId,           // Fid
             0,                      // Timeout
-            0,                      // Flags
+            (USHORT) (FlagOn(Icb->NonPagedFcb->Flags, FCB_DFSFILE) ? SMB_TRANSACTION_DFSFILE : 0),
             0,                      // NtTransactionFunction
             NULL,
             NULL
@@ -1540,6 +2120,150 @@ Return Value:
 
     if (NT_SUCCESS(Status)) {
         *BufferSize -= OutDataCount;
+    }
+
+    return Status;
+}
+
+
+NTSTATUS
+RdrQueryNtPathInformation(
+    IN PIRP Irp,
+    IN PICB Icb,
+    IN USHORT FileInformationClass,
+    IN OUT PVOID Buffer,
+    IN OUT PULONG BufferSize
+    )
+
+/*++
+
+Routine Description:
+
+    This routine remotes a simple NtQueryInformationFile API to the server.
+
+
+Arguments:
+
+    IN PIRP Irp - Supplies an IRP to use for the request.
+    IN PICB Icb - Supplies the ICB associated with this request.
+    IN USHORT FileInformationClass - Information class to query.
+    OUT PVOID UsersBuffer - Supplies the user's buffer
+                                that is filled in with the requested data.
+
+    IN OUT PULONG BufferSize - Supplies the size of the buffer, and is updated
+                                                with the amount used.
+
+
+Return Value:
+
+    NTSTATUS - True if request is to be processed in the FSP.
+
+
+--*/
+
+{
+    //
+    //  Use TRANSACT2_QPATHINFO to query FileInformationClass.
+    //
+
+    USHORT Setup[] = {TRANS2_QUERY_PATH_INFORMATION};
+
+    PREQ_QUERY_PATH_INFORMATION Parameters;
+    PUCHAR Path;
+    PCONNECTLISTENTRY Connect = Icb->Fcb->Connection;
+    LARGE_INTEGER currentTime;
+
+    CLONG InParameterCount;
+    CLONG OutParameterCount;
+    CLONG OutDataCount;
+    CLONG OutSetupCount;
+
+    NTSTATUS Status;
+
+    PAGED_CODE();
+
+    KeQuerySystemTime( &currentTime );
+
+    if( currentTime.QuadPart <= Connect->CachedInvalidPathExpiration.QuadPart &&
+        RdrStatistics.SmbsTransmitted.LowPart == Connect->CachedInvalidSmbCount &&
+        RtlEqualUnicodeString( &Icb->Fcb->FileName, &Connect->CachedInvalidPath, TRUE ) ) {
+
+        //
+        // We know that this file does not exist on the server, so return error right now
+        //
+        return STATUS_OBJECT_NAME_NOT_FOUND;
+    }
+
+    InParameterCount = sizeof(REQ_QUERY_FILE_INFORMATION) + Icb->Fcb->FileName.Length;
+    Parameters = ALLOCATE_POOL( NonPagedPool, InParameterCount, POOL_PATH_BUFFER );
+    if ( Parameters == NULL ) {
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    Path = Parameters->Buffer;
+    Status = RdrCopyNetworkPath(
+                &Path,
+                &Icb->Fcb->FileName,
+                Connect->Server,
+                0,
+                SKIP_SERVER_SHARE
+                );
+    if ( !NT_SUCCESS(Status) ) {
+        FREE_POOL( Parameters );
+        return Status;
+    }
+
+    InParameterCount = (ULONG)(Path - (PUCHAR)Parameters);
+    ASSERT( sizeof(REQ_QUERY_PATH_INFORMATION) >= sizeof(RESP_QUERY_PATH_INFORMATION) );
+    OutParameterCount = sizeof(RESP_QUERY_PATH_INFORMATION);
+    OutDataCount = *BufferSize;
+    OutSetupCount = 0;
+
+    SmbPutAlignedUshort(&Parameters->InformationLevel, FileInformationClass);
+    SmbPutAlignedUlong(&Parameters->Reserved, 0);
+
+    Status = RdrTransact(Irp,  // Irp,
+            Connect,
+            Icb->Se,
+            Setup,
+            (CLONG) sizeof(Setup),  // InSetupCount,
+            &OutSetupCount,
+            NULL,                   // Name,
+            Parameters,
+            InParameterCount,
+            &OutParameterCount,
+            NULL,                   // InData,
+            0,                      // InDataCount,
+            Buffer,                 // OutData,
+            &OutDataCount,
+            NULL,                   // Fid
+            0,                      // Timeout
+            (USHORT) (FlagOn(Icb->NonPagedFcb->Flags, FCB_DFSFILE) ? SMB_TRANSACTION_DFSFILE : 0),
+            0,                      // NtTransactionFunction
+            NULL,
+            NULL
+            );
+
+    FREE_POOL( Parameters );
+
+    if (NT_SUCCESS(Status)) {
+        *BufferSize -= OutDataCount;
+
+    } else if( Status == STATUS_OBJECT_NAME_NOT_FOUND &&
+               Icb->Fcb->FileName.Length <= Connect->CachedInvalidPath.MaximumLength ) {
+        //
+        // Cache the fact that this file does not exist on the server
+        //
+        RtlCopyMemory( Connect->CachedInvalidPath.Buffer,
+                       Icb->Fcb->FileName.Buffer,
+                       Icb->Fcb->FileName.Length );
+
+        Connect->CachedInvalidPath.Length = Icb->Fcb->FileName.Length;
+
+        Connect->CachedInvalidSmbCount = RdrStatistics.SmbsTransmitted.LowPart;
+
+        KeQuerySystemTime( &currentTime );
+        Connect->CachedInvalidPathExpiration.QuadPart = currentTime.QuadPart + 2 * 10 * 1000 * 1000;
     }
 
     return Status;
@@ -1674,12 +2398,26 @@ Return Value:
         *FinalStatus = STATUS_EAS_NOT_SUPPORTED;
         return FALSE;
 
-    } else if ((Icb->Fcb->Connection->Server->Capabilities & DF_NT_SMBS) &&
-        (Icb->Flags & ICB_HASHANDLE)) {
+    } else if ( FlagOn(Icb->Fcb->Connection->Server->Capabilities, DF_NT_SMBS) ) {
 
-        *FinalStatus = RdrQueryNtFileInformation(Irp, Icb, SMB_QUERY_FILE_EA_INFO,
-                                                        UsersBuffer,
-                                                        BufferSize);
+        if ( FlagOn(Icb->Flags, ICB_HASHANDLE) ) {
+            *FinalStatus = RdrQueryNtFileInformation(
+                                Irp,
+                                Icb,
+                                SMB_QUERY_FILE_EA_INFO,
+                                UsersBuffer,
+                                BufferSize
+                                );
+        } else {
+            *FinalStatus = RdrQueryNtPathInformation(
+                                Irp,
+                                Icb,
+                                SMB_QUERY_FILE_EA_INFO,
+                                UsersBuffer,
+                                BufferSize
+                                );
+        }
+
     } else {
         USHORT Setup[] = {TRANS2_QUERY_PATH_INFORMATION};
 
@@ -1739,7 +2477,7 @@ Return Value:
                     &OutDataCount,
                     NULL,                   // Fid
                     0,                      // Timeout
-                    0,                      // Flags
+                    (USHORT) (FlagOn(Icb->NonPagedFcb->Flags, FCB_DFSFILE) ? SMB_TRANSACTION_DFSFILE : 0),
                     0,
                     NULL,
                     NULL
@@ -1868,7 +2606,7 @@ Return Value:
             &OutDataCount,
             &Icb->FileId,           // Fid
             0,                      // Timeout
-            0,                      // Flags
+            (USHORT) (FlagOn(Icb->NonPagedFcb->Flags, FCB_DFSFILE) ? SMB_TRANSACTION_DFSFILE : 0),
             0,                      // NtTransact function
             NULL,
             NULL
@@ -1991,12 +2729,26 @@ Return Value:
 {
     PAGED_CODE();
 
-    if ((Icb->Fcb->Connection->Server->Capabilities & DF_NT_SMBS) &&
-        (Icb->Flags & ICB_HASHANDLE)) {
+    if ( FlagOn(Icb->Fcb->Connection->Server->Capabilities, DF_NT_SMBS) ) {
 
-        *FinalStatus = RdrQueryNtFileInformation(Irp, Icb, SMB_QUERY_FILE_ALT_NAME_INFO,
-                                                        UsersBuffer,
-                                                        BufferSize);
+        if ( FlagOn(Icb->Flags, ICB_HASHANDLE) ) {
+            *FinalStatus = RdrQueryNtFileInformation(
+                                Irp,
+                                Icb,
+                                SMB_QUERY_FILE_ALT_NAME_INFO,
+                                UsersBuffer,
+                                BufferSize
+                                );
+        } else {
+            *FinalStatus = RdrQueryNtPathInformation(
+                                Irp,
+                                Icb,
+                                SMB_QUERY_FILE_ALT_NAME_INFO,
+                                UsersBuffer,
+                                BufferSize
+                                );
+        }
+
     } else {
         *FinalStatus = STATUS_NOT_SUPPORTED;
     }
@@ -2049,15 +2801,6 @@ Return Value:
 
 {
     PAGED_CODE();
-
-    //
-    //  If the file was pseudo-opened, this is an invalid operation.
-    //
-
-    if (Icb->Flags & ICB_PSEUDOOPENED) {
-        *FinalStatus = STATUS_ACCESS_DENIED;
-        return FALSE;
-    }
 
     //
     //  Snarf the position out of the file object.  Please note that
@@ -2159,7 +2902,6 @@ Return Value:
                 //      the file has a handle (isn't pseudo-opened) &&
                 //      the new file attributes indicate that the file isn't
                 //              readonly and
-                //      the file was ever cached and
                 //      the file is currently cached, and
                 //      we can't keep the file open for any other reason,
                 //      then purge the cache for the file.
@@ -2170,19 +2912,19 @@ Return Value:
 
                     if ((!(UsersBuffer->FileAttributes & FILE_ATTRIBUTE_READONLY))
                             &&
-                        (Icb->u.f.FileObject != NULL)
-                            &&
                         (CcIsFileCached(Icb->u.f.FileObject))) {
 
                         if (!(Icb->u.f.Flags & (ICBF_OPLOCKED | ICBF_OPENEDEXCLUSIVE))) {
                             ASSERT (RdrData.BufferReadOnlyFiles);
 
-                            RdrLog( "rdflusha", &Icb->Fcb->FileName, 0, 0 );
+                            //RdrLog(( "rdflusha", &Icb->Fcb->FileName, 0 ));
                             *FinalStatus = RdrFlushCacheFile(Icb->Fcb);
 
-                            *FinalStatus = RdrFlushFileLocks(Icb->Fcb);
+                            if (Icb->Fcb->NonPagedFcb->OplockLevel != SMB_OPLOCK_LEVEL_II) {
+                                *FinalStatus = RdrFlushFileLocks(Icb->Fcb);
+                            }
 
-                            RdrLog( "rdpurgea", &Icb->Fcb->FileName, 0, 0 );
+                            //RdrLog(( "rdpurgea", &Icb->Fcb->FileName, 0 ));
                             *FinalStatus = RdrPurgeCacheFile(Icb->Fcb);
 
                         }
@@ -2256,15 +2998,18 @@ SetRenameInfo (
     OUT PFILE_RENAME_INFORMATION UsersBuffer,
     IN ULONG BufferSize,
     PNTSTATUS FinalStatus,
-    BOOLEAN Wait
+    BOOLEAN Wait,
+    USHORT NtInformationLevel
     )
 
 /*++
 
 Routine Description:
 
-    This routine implements the FileSetRenameInformation value of the
-NtSetInformationFile api.  It returns the following information:
+    This routine implements the FileCopyOnWriteInformation,
+    FileMoveClusterInformation, FileLinkInformation and
+    FileRenameInformation info levels of the NtSetInformationFile api.
+    It returns the following information:
 
 
 Arguments:
@@ -2281,6 +3026,8 @@ Arguments:
     OUT PNTSTATUS FinalStatus - Status to be returned for this operation.
 
     IN BOOLEAN Wait - True if FSP can wait for this request.
+
+    IN USHORT NtInformationLevel - Nt info level
 
 
 Return Value:
@@ -2314,6 +3061,11 @@ Return Value:
         *FinalStatus = STATUS_BUFFER_TOO_SMALL;
         return FALSE;
     }
+    if (NtInformationLevel != FileRenameInformation &&
+        !(Fcb->Connection->Server->Capabilities & DF_NT_SMBS)) {
+        *FinalStatus = STATUS_INVALID_DEVICE_REQUEST;
+        return FALSE;
+    }
 
     //
     //  Acquire the FCB lock to the source file for exclusive access to
@@ -2323,7 +3075,7 @@ Return Value:
     RdrAcquireFcbLock(Fcb, ExclusiveLock, TRUE);
 
     try {
-// BUGBUG: Need NT support for rename functionality.
+// WARNING: Need NT support for rename functionality.
 //        if ( !(Fcb->Connection->Server->Capabilities & DF_NT_SMBS)
 //
 //                ||
@@ -2519,18 +3271,27 @@ Return Value:
                 //  Flush any write behind data from the cache for this file.
                 //
 
-                RdrLog( "rdflushb", &Icb->Fcb->FileName, 0, 0 );
+                //RdrLog(( "rdflushb", &Icb->Fcb->FileName, 0 ));
                 *FinalStatus = RdrFlushCacheFile(Icb->Fcb);
 
                 //
                 //  Purge the file from the cache.
                 //
 
-                RdrLog( "rdpurgeb", &Icb->Fcb->FileName, 0, 0 );
+                //RdrLog(( "rdpurgeb", &Icb->Fcb->FileName, 0 ));
                 *FinalStatus = RdrPurgeCacheFile(Icb->Fcb);
             }
 
-            if (Icb->Flags & ICB_HASHANDLE) {
+            //
+            //  Force close the file.
+            //
+            //  The SMB protocol sharing rules do not allow renaming open
+            //  files, so we force close the file before renaming the
+            //  old file to the new.
+            //
+
+            if (NtInformationLevel == FileRenameInformation &&
+                (Icb->Flags & ICB_HASHANDLE)) {
                 RdrCloseFile(Irp, Icb, IrpSp->FileObject, TRUE);
 #if DBG
                 {
@@ -2546,21 +3307,14 @@ Return Value:
                     }
                 }
 #endif
-
-
             }
 
-            //
-            //  Force close the file.
-            //
-            //
-            //  The SMB protocol sharing rules do not allow renaming open
-            //  files, so we force close the file before renaming the
-            //  old file to the new.
-            //
+            if (NtInformationLevel == FileRenameInformation &&
+                Fcb->NumberOfOpens != 1 &&
+                !(Fcb->Connection->Server->Capabilities & DF_NT_SMBS) ) {
 
-            if (Fcb->NumberOfOpens != 1) {
                 *FinalStatus = STATUS_ACCESS_DENIED;
+
             } else {
 
                 //
@@ -2574,7 +3328,8 @@ Return Value:
                 //  bother with the rename operation.
                 //
 
-                if (IrpSp->Parameters.SetFile.ReplaceIfExists &&
+                if (NtInformationLevel != FileMoveClusterInformation &&
+                    IrpSp->Parameters.SetFile.ReplaceIfExists &&
                     !(Fcb->NonPagedFcb->Flags & FCB_DOESNTEXIST)) {
 
 
@@ -2584,6 +3339,7 @@ Return Value:
                     //
 
                     *FinalStatus = RdrDeleteFile(Irp, &RenameDestination,
+                                                BooleanFlagOn(Icb->NonPagedFcb->Flags, FCB_DFSFILE),
                                                 Icb->Fcb->Connection, Icb->Se);
 
 #ifdef NOTIFY
@@ -2606,7 +3362,14 @@ Return Value:
 #endif
                 }
 
-                *FinalStatus = RdrRenameFile(Irp, Icb, &Fcb->FileName, &RenameDestination);
+                *FinalStatus = RdrRenameFile(
+                                    Irp,
+                                    Icb,
+                                    &Fcb->FileName,
+                                    &RenameDestination,
+                                    NtInformationLevel,
+                                    IrpSp->Parameters.SetFile.ClusterCount
+                                    );
 
 #ifdef NOTIFY
                 if (NT_SUCCESS(*FinalStatus)) {
@@ -2615,7 +3378,9 @@ Return Value:
                                      &Fcb->Connection->DirNotifyList,
                                      (PSTRING)&Icb->Fcb->FileName,
                                      (PSTRING)&Icb->Fcb->LastFileName,
-                                     FILE_NOTIFY_CHANGE_NAME );
+                                     NtInformationLevel == FileMoveClusterInformation?
+                                         FILE_NOTIFY_CHANGE_SIZE :
+                                         FILE_NOTIFY_CHANGE_NAME );
                 }
 #endif
             }
@@ -2681,7 +3446,8 @@ Return Value:
 //                );
 //        }
 //
-        if (NT_SUCCESS(*FinalStatus)) {
+        if (NT_SUCCESS(*FinalStatus) &&
+            NtInformationLevel == FileRenameInformation) {
 
             //
             //  The rename operation succeeded.
@@ -2841,6 +3607,7 @@ Return Value:
                                     &Icb->Fcb->FileName,
                                     Icb->Fcb->Connection,
                                     Icb->Se,
+                                    BooleanFlagOn(Icb->NonPagedFcb->Flags, FCB_DFSFILE),
                                     &FileAttributes,
                                     &IsDirectory,
                                     NULL);
@@ -2865,14 +3632,14 @@ Return Value:
                 //  Flush any write behind data from the cache for this file.
                 //
 
-                RdrLog( "rdflushc", &Icb->Fcb->FileName, 0, 0 );
+                //RdrLog(( "rdflushc", &Icb->Fcb->FileName, 0 ));
                 *FinalStatus = RdrFlushCacheFile(Icb->Fcb);
 
                 //
                 //  Purge the file from the cache.
                 //
 
-                RdrLog( "rdpurgec", &Icb->Fcb->FileName, 0, 0 );
+                //RdrLog(( "rdpurgec", &Icb->Fcb->FileName, 0 ));
                 *FinalStatus = RdrPurgeCacheFile(Icb->Fcb);
             }
 
@@ -2897,13 +3664,14 @@ Return Value:
             }
 
             //
-            //  If there are other openers of this file left, deny the user's
-            //  request.
+            //  If there are other openers of this file left, and it is an old server,
+            //   deny the user's request.
             //
 
-            if (Fcb->NumberOfOpens != 1) {
+            if (Fcb->NumberOfOpens != 1 && 
+                !(Icb->Fcb->Connection->Server->Capabilities & DF_NT_SMBS) ) {
 
-                *FinalStatus = STATUS_ACCESS_DENIED;
+                *FinalStatus = STATUS_SHARING_VIOLATION;
 
                 //
                 //  Release the FCB lock to allow potential oplock breaks
@@ -2944,6 +3712,7 @@ Return Value:
                     //
 
                     *FinalStatus = RdrDeleteFile(Irp, &Fcb->FileName,
+                                                BooleanFlagOn(Icb->NonPagedFcb->Flags, FCB_DFSFILE),
                                                 Icb->Fcb->Connection, Icb->Se);
 
                 } else {
@@ -2954,6 +3723,7 @@ Return Value:
 
                     *FinalStatus = RdrGenericPathSmb(Irp,
                             SMB_COM_DELETE_DIRECTORY,
+                            BooleanFlagOn(Icb->NonPagedFcb->Flags, FCB_DFSFILE),
                             &Fcb->FileName,
                             Fcb->Connection,
                             Icb->Se);
@@ -3012,7 +3782,7 @@ Return Value:
             //
 
             if (Icb->Type == DiskFile) {
-                RdrLog( "rdpurged", &Icb->Fcb->FileName, 0, 0 );
+                //RdrLog(( "rdpurged", &Icb->Fcb->FileName, 0 ));
                 *FinalStatus = RdrPurgeCacheFile(Icb->Fcb);
             }
 
@@ -3038,7 +3808,7 @@ Return Value:
                 &OutDataCount,          // OutDataCount
                 &Icb->FileId,           // Fid
                 0,                      // Timeout
-                0,                      // Flags
+                (USHORT) (FlagOn(Icb->NonPagedFcb->Flags, FCB_DFSFILE) ? SMB_TRANSACTION_DFSFILE : 0),
                 0,                      // NtTransact function
                 NULL,
                 NULL
@@ -3339,7 +4109,7 @@ Return Value:
                     &OutDataCount,          // OutDataCount
                     &Icb->FileId,           // Fid
                     0,                      // Timeout
-                    0,                      // Flags
+                    (USHORT) (FlagOn(Icb->NonPagedFcb->Flags, FCB_DFSFILE) ? SMB_TRANSACTION_DFSFILE : 0),
                     0,                      // NtTransact function
                     NULL,
                     NULL
@@ -3586,4 +4356,87 @@ try_exit: NOTHING;
 
     return RetValue;
 
+}
+
+
+DBGSTATIC
+BOOLEAN
+SetGenericInfo(
+    IN PIRP Irp,
+    PICB Icb,
+    VOID *pvUsersBuffer,
+    ULONG cbBuffer,
+    ULONG cbMin,
+    USHORT NtInformationLevel,
+    PNTSTATUS FinalStatus,
+    BOOLEAN Wait)
+
+/*++
+
+Routine Description:
+
+    This routine implements the extended portions of the NtSetInformationFile
+    api for Cairo.  It returns the following information:
+
+
+Arguments:
+
+    IN PICB Icb - Supplies the ICB associated with this request.
+
+    OUT VOID *pvUsersBuffer - Supplies the user's buffer
+                                                that is filled in with the
+                                                requested data.
+    IN ULONG cbBuffer - Supplies the size of the buffer.  On return,
+                                    the amount of the buffer consumed is
+                                    subtracted from the initial size.
+
+    IN ULONG cbMin - Supplies the minimum required size of the buffer.
+
+    OUT PNTSTATUS FinalStatus - Status to be returned for this operation.
+
+    IN BOOLEAN Wait - True if FSP can wait for this request.
+
+
+Return Value:
+
+    BOOLEAN - True if request is to be processed in the FSP.
+
+
+--*/
+
+{
+    PAGED_CODE();
+
+    if (Icb->Type != DiskFile && Icb->Type != Directory) {
+        *FinalStatus = STATUS_INVALID_DEVICE_REQUEST;
+        return(FALSE);
+    }
+    if (cbBuffer < cbMin) {
+        *FinalStatus = STATUS_BUFFER_TOO_SMALL;
+        return(FALSE);
+    }
+    if (!Wait) {
+        return(TRUE);
+    }
+
+    //
+    //  Prevent other people from messing with the file.
+    //
+
+    RdrAcquireFcbLock(Icb->Fcb, ExclusiveLock, TRUE);
+
+    if ((Icb->Fcb->Connection->Server->Capabilities & DF_NT_SMBS) == 0) {
+        *FinalStatus = STATUS_INVALID_DEVICE_REQUEST;
+    } else if ((Icb->Flags & ICB_HASHANDLE) == 0) {
+        *FinalStatus = STATUS_INVALID_HANDLE;
+    } else {
+        *FinalStatus = RdrSetGeneric(
+                            Irp,
+                            Icb,
+                            NtInformationLevel,
+                            cbBuffer,
+                            pvUsersBuffer);
+    }
+    RdrReleaseFcbLock(Icb->Fcb);
+    return(FALSE);
 }

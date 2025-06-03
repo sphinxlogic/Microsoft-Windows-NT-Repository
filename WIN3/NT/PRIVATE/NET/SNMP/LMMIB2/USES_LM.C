@@ -1,87 +1,26 @@
-//-------------------------- MODULE DESCRIPTION ----------------------------
-//
-//  uses_lm.c
-//
-//  Copyright 1992 Technology Dynamics, Inc.
-//
-//  All Rights Reserved!!!
-//
-//      This source code is CONFIDENTIAL and PROPRIETARY to Technology
-//      Dynamics. Unauthorized distribution, adaptation or use may be
-//      subject to civil and criminal penalties.
-//
-//  All Rights Reserved!!!
-//
-//---------------------------------------------------------------------------
-//
-//  This file contains the routines which actually call Lan Manager and
-//  retrieve the contents of the workstation uses table, including cacheing.
-//
-//  Project:  Implementation of an SNMP Agent for Microsoft's NT Kernel
-//
-//  $Revision:   1.10  $
-//  $Date:   03 Jul 1992 13:20:36  $
-//  $Author:   ChipS  $
-//
-//  $Log:   N:/lmmib2/vcs/uses_lm.c_v  $
-//
-//     Rev 1.10   03 Jul 1992 13:20:36   ChipS
-//  Final Unicode Changes
-//
-//     Rev 1.9   03 Jul 1992 12:18:42   ChipS
-//  Enable Unicode
-//
-//     Rev 1.8   15 Jun 1992 17:33:12   ChipS
-//  Initialize resumehandle
-//
-//     Rev 1.7   13 Jun 1992 11:05:52   ChipS
-//  Fix a problem with Enum resumehandles.
-//
-//     Rev 1.6   07 Jun 1992 17:16:20   ChipS
-//  Turn off unicode.
-//
-//     Rev 1.5   07 Jun 1992 16:11:54   ChipS
-//  Fix cast problem
-//
-//     Rev 1.4   07 Jun 1992 15:53:30   ChipS
-//  Fix include file order
-//
-//     Rev 1.3   07 Jun 1992 15:22:00   ChipS
-//  Initial unicode changes
-//
-//     Rev 1.2   01 Jun 1992 12:35:30   todd
-//  Added 'dynamic' field to octet string
-//
-//     Rev 1.1   21 May 1992 15:44:48   todd
-//  Added return codes to lmget
-//
-//     Rev 1.0   20 May 1992 15:11:16   mlk
-//  Initial revision.
-//
-//     Rev 1.5   03 May 1992 16:56:24   Chip
-//  No change.
-//
-//     Rev 1.4   02 May 1992 19:10:12   todd
-//  code cleanup
-//
-//     Rev 1.3   01 May 1992 15:40:40   Chip
-//  Get rid of warnings.
-//
-//     Rev 1.2   30 Apr 1992 23:55:18   Chip
-//  Added code to free complex structures.
-//
-//     Rev 1.1   30 Apr 1992  9:57:08   Chip
-//  Added cacheing.
-//
-//     Rev 1.0   29 Apr 1992 11:17:24   Chip
-//  Initial revision.
-//
-//
-//---------------------------------------------------------------------------
+/*++
 
-//--------------------------- VERSION INFO ----------------------------------
+Copyright (c) 1992-1996  Microsoft Corporation
 
-static char *vcsid = "@(#) $Logfile:   N:/lmmib2/vcs/uses_lm.c_v  $ $Revision:   1.10  $";
+Module Name:
+
+    uses_lm.c
+
+Abstract:
+
+    This file contains the routines which actually call Lan Manager and
+    retrieve the contents of the workstation uses table, including cacheing.
+
+Environment:
+
+    User Mode - Win32
+
+Revision History:
+
+    10-May-1996 DonRyan
+        Removed banner from Technology Dynamics, Inc.
+
+--*/
 
 //--------------------------- WINDOWS DEPENDENCIES --------------------------
 
@@ -96,12 +35,10 @@ static char *vcsid = "@(#) $Logfile:   N:/lmmib2/vcs/uses_lm.c_v  $ $Revision:  
 #include <lm.h>
 #endif
 
-#include <malloc.h>
 #include <string.h>
 #include <search.h>
 #include <stdlib.h>
 #include <time.h>
-#include <uniconv.h>
 
 //--------------------------- MODULE DEPENDENCIES -- #include"xxxxx.h" ------
 
@@ -118,7 +55,7 @@ static char *vcsid = "@(#) $Logfile:   N:/lmmib2/vcs/uses_lm.c_v  $ $Revision:  
 //--------------------------- PRIVATE CONSTANTS -----------------------------
 
 #define SafeBufferFree(x)       if(NULL != x) NetApiBufferFree( x )
-#define SafeFree(x)             if(NULL != x) free( x )
+#define SafeFree(x)             if(NULL != x) SnmpUtilMemFree( x )
 
 //--------------------------- PRIVATE STRUCTS -------------------------------
 
@@ -129,14 +66,14 @@ static char *vcsid = "@(#) $Logfile:   N:/lmmib2/vcs/uses_lm.c_v  $ $Revision:  
 //--------------------------- PRIVATE PROCEDURES ----------------------------
 
 #ifdef UNICODE
-#define Tstrlen strlen_W
+#define Tstrlen SnmpUtilStrlenW
 #else
 #define Tstrlen strlen
 #endif
 
 int _CRTAPI1 uses_entry_cmp(
-       IN WKSTA_USES_ENTRY *A,
-       IN WKSTA_USES_ENTRY *B
+       IN const WKSTA_USES_ENTRY *A,
+       IN const WKSTA_USES_ENTRY *B
        ) ;
 
 void build_uses_entry_oids( );
@@ -212,7 +149,7 @@ DWORD resumehandle=0;
      for(i=0; i<MIB_WkstaUsesTable.Len ;i++)
      {
         // free any alloc'ed elements of the structure
-        SNMP_oidfree(&(MIB_WkstaUsesTableElement->Oid));
+        SnmpUtilOidFree(&(MIB_WkstaUsesTableElement->Oid));
         SafeFree(MIB_WkstaUsesTableElement->useLocalName.stream);
         SafeFree(MIB_WkstaUsesTableElement->useRemote.stream);
 
@@ -231,12 +168,11 @@ DWORD resumehandle=0;
 
    do {  //  as long as there is more data to process
 
-
    lmCode =
         NetUseEnum(     NULL,                   // local server
-        1,                      // level 2, no admin priv.
+        1,                      // level 1, no admin priv.
         &bufptr,                // data structure to return
-        4096,
+        MAX_PREFERRED_LENGTH,
         &entriesread,
         &totalentries,
         &resumehandle           //  resume handle
@@ -250,7 +186,7 @@ DWORD resumehandle=0;
 
         if(0 == MIB_WkstaUsesTable.Len) {  // 1st time, alloc the whole table
                 // alloc the table space
-                MIB_WkstaUsesTable.Table = malloc(totalentries *
+                MIB_WkstaUsesTable.Table = SnmpUtilMemAlloc(totalentries *
                                                 sizeof(WKSTA_USES_ENTRY) );
         }
 
@@ -266,14 +202,14 @@ DWORD resumehandle=0;
                 // Stuff the data into each item in the table
 
                 // client name
-                MIB_WkstaUsesTableElement->useLocalName.stream = malloc (
+                MIB_WkstaUsesTableElement->useLocalName.stream = SnmpUtilMemAlloc (
                                 Tstrlen( DataTable->ui1_local ) + 1 ) ;
                 MIB_WkstaUsesTableElement->useLocalName.length =
                                 Tstrlen( DataTable->ui1_local ) ;
                 MIB_WkstaUsesTableElement->useLocalName.dynamic = TRUE;
 
 #ifdef UNICODE
-                convert_uni_to_ansi(
+                SnmpUtilUnicodeToAnsi(
                         &MIB_WkstaUsesTableElement->useLocalName.stream,
                         DataTable->ui1_local,
                         FALSE);
@@ -284,14 +220,14 @@ DWORD resumehandle=0;
 #endif
 
                 // remote name
-                MIB_WkstaUsesTableElement->useRemote.stream = malloc (
+                MIB_WkstaUsesTableElement->useRemote.stream = SnmpUtilMemAlloc (
                                 Tstrlen( DataTable->ui1_remote ) + 1 ) ;
                 MIB_WkstaUsesTableElement->useRemote.length =
                                 Tstrlen( DataTable->ui1_remote ) ;
                 MIB_WkstaUsesTableElement->useRemote.dynamic = TRUE;
 
 #ifdef UNICODE
-                convert_uni_to_ansi(
+                SnmpUtilUnicodeToAnsi(
                         &MIB_WkstaUsesTableElement->useRemote.stream,
                         DataTable->ui1_remote,
                         FALSE);
@@ -373,13 +309,14 @@ Exit:
 //    None.
 //
 int _CRTAPI1 uses_entry_cmp(
-       IN WKSTA_USES_ENTRY *A,
-       IN WKSTA_USES_ENTRY *B
+       IN const WKSTA_USES_ENTRY *A,
+       IN const WKSTA_USES_ENTRY *B
        )
 
 {
    // Compare the OID's
-   return SNMP_oidcmp( &A->Oid, &B->Oid );
+   return SnmpUtilOidCmp( (AsnObjectIdentifier *)&A->Oid,
+                       (AsnObjectIdentifier *)&B->Oid );
 } // MIB_uses_cmp
 
 
@@ -391,7 +328,7 @@ void build_uses_entry_oids(
 
 {
 AsnOctetString OSA ;
-char *StrA = malloc(MIB_USES_LOCAL_NAME_LEN+MIB_USES_REMOTE_LEN);
+AsnObjectIdentifier RemoteOid ;
 WKSTA_USES_ENTRY *WkstaUsesEntry ;
 unsigned i;
 
@@ -402,28 +339,21 @@ WkstaUsesEntry = MIB_WkstaUsesTable.Table ;
 for( i=0; i<MIB_WkstaUsesTable.Len ; i++)  {
    // for each entry in the session table
 
-   StrA = realloc(StrA, (WkstaUsesEntry->useLocalName.length + WkstaUsesEntry->useRemote.length));
-   // Make string to use as index
-   memcpy( StrA, WkstaUsesEntry->useLocalName.stream,
-                 WkstaUsesEntry->useLocalName.length );
+   // copy the local name into the oid buffer first
+   MakeOidFromStr( &WkstaUsesEntry->useLocalName, &WkstaUsesEntry->Oid );
 
-   memcpy( &StrA[WkstaUsesEntry->useLocalName.length],
-           WkstaUsesEntry->useRemote.stream,
-           WkstaUsesEntry->useRemote.length );
+   // copy the remote name into a temporary oid buffer
+   MakeOidFromStr( &WkstaUsesEntry->useRemote, &RemoteOid );
 
-   OSA.stream = StrA ;
-   OSA.length =  WkstaUsesEntry->useLocalName.length +
-        WkstaUsesEntry->useRemote.length ;
-   OSA.dynamic = FALSE;
+   // append the two entries forming the index
+   SnmpUtilOidAppend( &WkstaUsesEntry->Oid, &RemoteOid );
 
-
-   // Make the entry's OID from string index
-   MakeOidFromStr( &OSA, &WkstaUsesEntry->Oid );
+   // free the temporary buffer
+   SnmpUtilOidFree( &RemoteOid );
 
    WkstaUsesEntry++; // point to the next guy in the table
 
    } // for
-   free(StrA);
 
 } // build_uses_entry_oids
 //-------------------------------- END --------------------------------------

@@ -33,7 +33,7 @@ Revision History:
 
 // These may be included in any order:
 
-#include <netdebug.h>   // NetpDbgPrint(), NetpAssert(), FORMAT_ equates.
+#include <netdebug.h>   // NetpKdPrint(()), NetpAssert(), FORMAT_ equates.
 #include <prefix.h>     // PREFIX_ equates.
 
 
@@ -62,9 +62,9 @@ Return Value:
 
 
     if ((RpcStatus = RpcImpersonateClient(NULL)) != RPC_S_OK) {
-        NetpDbgPrint( PREFIX_NETLIB
+        NetpKdPrint(( PREFIX_NETLIB
                 "Failed to impersonate client " FORMAT_RPC_STATUS "\n",
-                RpcStatus);
+                RpcStatus));
     }
 
     return NetpRpcStatusToApiStatus(RpcStatus);
@@ -96,8 +96,8 @@ Return Value:
 
 
     if ((RpcStatus = RpcRevertToSelf()) != RPC_S_OK) {
-        NetpDbgPrint( PREFIX_NETLIB
-                "Failed to revert to self " FORMAT_RPC_STATUS "\n", RpcStatus);
+        NetpKdPrint(( PREFIX_NETLIB
+                "Failed to revert to self " FORMAT_RPC_STATUS "\n", RpcStatus));
         NetpAssert(FALSE);
     }
 

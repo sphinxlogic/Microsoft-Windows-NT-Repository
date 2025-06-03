@@ -192,6 +192,7 @@ SspGetPrimaryDomainNameAndTargetName(
 SECURITY_STATUS
 SspDuplicateToken(
     IN HANDLE OriginalToken,
+    IN SECURITY_IMPERSONATION_LEVEL ImpersonationLevel,
     OUT PHANDLE DuplicatedToken
     );
 
@@ -199,6 +200,23 @@ LPWSTR
 SspAllocWStrFromWStr(
     IN LPWSTR Unicode
     );
+
+SECURITY_STATUS
+SspDuplicateUnicodeString(
+    OUT PUNICODE_STRING Destination,
+    IN PUNICODE_STRING Source
+    );
+
+VOID
+SspHidePassword(
+    IN OUT PUNICODE_STRING Password
+    );
+
+VOID
+SspRevealPassword(
+    IN OUT PUNICODE_STRING HiddenPassword
+    );
+
 
 
 //
@@ -208,6 +226,8 @@ SspAllocWStrFromWStr(
 SECURITY_STATUS
 SsprAcquireCredentialHandle(
     IN PSSP_CLIENT_CONNECTION ClientConnection,
+    IN PHANDLE ClientTokenHandle,
+    IN PLUID LogonId,
     IN ULONG CredentialUseFlags,
     OUT PCredHandle CredentialHandle,
     OUT PTimeStamp Lifetime,
@@ -236,7 +256,7 @@ SspGetUnicodeStringFromClient(
     IN LPWSTR String,
     IN ULONG StringSize,
     IN ULONG MaximumLength,
-    OUT PVOID* OutputString
+    OUT PUNICODE_STRING OutputString
     );
 
 
@@ -255,7 +275,9 @@ SsprHandleFirstCall(
     IN OUT PULONG OutputTokenSize,
     OUT PVOID OutputToken,
     OUT PULONG ContextAttributes,
-    OUT PTimeStamp ExpirationTime
+    OUT PTimeStamp ExpirationTime,
+    OUT PUCHAR SessionKey,
+    OUT PULONG NegotiateFlags
     );
 
 
@@ -276,10 +298,10 @@ SsprHandleNegotiateMessage(
 SECURITY_STATUS
 SsprHandleChallengeMessage(
     IN PSSP_CLIENT_CONNECTION ClientConnection,
-    IN PLARGE_INTEGER LogonId,
-    IN PHANDLE ClientTokenHandle OPTIONAL,
     IN PCredHandle CredentialHandle,
     IN OUT PCtxtHandle ContextHandle,
+    IN HANDLE ClientTokenHandle, OPTIONAL
+    IN PLUID LogonId, OPTIONAL
     IN ULONG ContextReqFlags,
     IN LPWSTR DomainName,
     IN ULONG DomainNameSize,
@@ -294,7 +316,8 @@ SsprHandleChallengeMessage(
     OUT PULONG ContextAttributes,
     OUT PTimeStamp ExpirationTime,
     OUT PUCHAR SessionKey,
-    OUT PULONG NegotiateFlags
+    OUT PULONG NegotiateFlags,
+    OUT LPWSTR ContextNames
     );
 
 SECURITY_STATUS
@@ -310,19 +333,20 @@ SsprHandleAuthenticateMessage(
     OUT PULONG ContextAttributes,
     OUT PTimeStamp ExpirationTime,
     OUT PUCHAR SessionKey,
-    OUT PULONG NegotiateFlags
+    OUT PULONG NegotiateFlags,
+    OUT PHANDLE TokenHandle,
+    OUT PNTSTATUS SubStatus,
+    OUT LPWSTR ContextNames,
+    OUT PTimeStamp PasswordExpiry
     );
 
 SECURITY_STATUS
 SsprImpersonateSecurityContext(
-    IN PSSP_CLIENT_CONNECTION ClientConnection,
-    IN PCtxtHandle ContextHandle,
-    IN PCLIENT_ID ClientId
+    IN PCtxtHandle ContextHandle
     );
 
 SECURITY_STATUS
 SsprRevertSecurityContext(
-    IN PSSP_CLIENT_CONNECTION ClientConnection,
     IN PCtxtHandle ContextHandle
     );
 
@@ -348,13 +372,15 @@ SspContextClientConnectionDropped(
 
 SECURITY_STATUS
 SsprContextGetCredentials(
-    PCtxtHandle ContextHandle,
-    LPWSTR * DomainName,
-    PULONG DomainNameSize,
-    LPWSTR * UserName,
-    PULONG UserNameSize,
-    LPWSTR * Password,
-    PULONG PasswordSize
+    IN PCtxtHandle ContextHandle,
+    OUT LPWSTR * DomainName,
+    OUT PULONG DomainNameSize,
+    OUT LPWSTR * UserName,
+    OUT PULONG UserNameSize,
+    OUT LPWSTR * Password,
+    OUT PULONG PasswordSize,
+    OUT PHANDLE ClientTokenHandle,
+    OUT PLUID LogonId
     );
 
 SECURITY_STATUS
@@ -376,6 +402,9 @@ IsEncryptionPermitted(VOID);
 
 VOID
 SspInitLocalContexts(VOID);
+
+VOID
+SspReleaseLocalContexts(VOID);
 
 
 SECURITY_STATUS
@@ -400,9 +429,11 @@ SspHandleSealMessage(
 SECURITY_STATUS
 SspMapContext(
     IN PCtxtHandle phContext,
-    IN PCtxtHandle phOldContext OPTIONAL,
     IN PUCHAR pSessionKey,
-    IN ULONG NegotiateFlags
+    IN ULONG NegotiateFlags,
+    IN HANDLE TokenHandle,
+    IN LPWSTR ContextNames,
+    IN PTimeStamp PasswordExpiry OPTIONAL
     );
 
 SECURITY_STATUS
@@ -425,6 +456,13 @@ SspHandleUnsealMessage(
 VOID
 SspHandleLocalDelete(
     IN PCtxtHandle ContextHandle
+    );
+
+SECURITY_STATUS
+SspLocalQueryContextAttributes(
+    IN PCtxtHandle ContextHandle,
+    IN ULONG Attribute,
+    OUT PVOID Buffer
     );
 
 //

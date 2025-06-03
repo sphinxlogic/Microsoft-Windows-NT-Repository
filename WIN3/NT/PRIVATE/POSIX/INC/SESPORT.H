@@ -74,7 +74,8 @@ typedef enum {
     ScReadFile,
     ScWriteFile,
     ScKbdCharIn,
-    ScIsatty
+    ScIsatty,
+    ScIsatty2
 } SCCONREQUESTNUMBER;
 
 

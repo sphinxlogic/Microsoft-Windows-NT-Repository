@@ -185,16 +185,15 @@ Return Value:
                 Os2ssKeyboardLayout[1] = (CHAR) Value[5];
 #if PMNT
                 for (i=0,ValueLen -= 6;
-                    (ValueLen > 0) && ((CHAR)Value[i] != ',');
+                    (i < 4) && (ValueLen > 0) && ((CHAR)Value[6+i] != ',');
                     ValueLen--,i++)
                 {
                     Os2ssKeyboardName[i] = (CHAR) Value[6+i];
                 }
-                // Pad the rest of the string with blanks, then make it null-terminated
+                // Pad the rest of the array with blanks. A null char at end is
+                // not required.
                 for (; i < 4; i++)
                     Os2ssKeyboardName[i] = ' ';
-                if (i < 5)
-                    Os2ssKeyboardName[i] = '\0';
 #endif // PMNT
             }
             break;

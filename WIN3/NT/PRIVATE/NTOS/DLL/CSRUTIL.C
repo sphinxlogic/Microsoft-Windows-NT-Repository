@@ -163,23 +163,6 @@ Return Value:
                                          (PPORT_MESSAGE)m
                                        );
         //
-        // Check for failed status and do something.
-        //
-        if (!NT_SUCCESS( Status )) {
-            IF_DEBUG {
-                if (Status != STATUS_PORT_DISCONNECTED &&
-                    Status != STATUS_INVALID_HANDLE
-                   ) {
-                    DbgPrint( "CSRDLL: NtRequestWaitReplyPort failed - Status == %X\n",
-                              Status
-                            );
-                    }
-                }
-
-            return( Status );
-            }
-
-        //
         // If the CaptureBuffer argument is present then reverse what we did
         // to the pointers above so that the client side code can use them
         // again.
@@ -233,8 +216,24 @@ Return Value:
                     }
                 }
             }
-        }
 
+        //
+        // Check for failed status and do something.
+        //
+        if (!NT_SUCCESS( Status )) {
+            IF_DEBUG {
+                if (Status != STATUS_PORT_DISCONNECTED &&
+                    Status != STATUS_INVALID_HANDLE
+                   ) {
+                    DbgPrint( "CSRDLL: NtRequestWaitReplyPort failed - Status == %X\n",
+                              Status
+                            );
+                    }
+                }
+
+            m->ReturnValue = Status;
+            }
+        }
     else {
         m->h.ClientId = NtCurrentTeb()->ClientId;
         Status = (CsrServerApiRoutine)((PCSR_API_MSG)m,
@@ -252,9 +251,8 @@ Return Value:
                         );
                 }
 
-            return( Status );
+            m->ReturnValue = Status;
             }
-
         }
 
     //
@@ -318,6 +316,12 @@ Return Value:
     // points to data whose length is not aligned on a 32-bit boundary.
     //
 
+    if (Size >= MAXLONG) {
+        //
+        // Bail early if too big
+        //
+        return NULL;
+        }
     Size += sizeof( CSR_CAPTURE_HEADER ) + (CountPointers * sizeof( PVOID ));
     Size = (Size + (3 * (CountPointers+1))) & ~3;
 
@@ -325,7 +329,7 @@ Return Value:
     // Allocate the capture buffer from the Port Memory Heap.
     //
 
-    CaptureBuffer = RtlAllocateHeap( CsrPortHeap, 0, Size );
+    CaptureBuffer = RtlAllocateHeap( CsrPortHeap, MAKE_CSRPORT_TAG( CAPTURE_TAG ), Size );
     if (CaptureBuffer == NULL) {
 
         //
@@ -460,6 +464,13 @@ Return Value:
         //
         // Round the length up to a multiple of 4
         //
+
+        if (Length >= MAXLONG) {
+            //
+            // Bail early if too big
+            //
+            return 0;
+            }
 
         Length = (Length + 3) & ~3;
 

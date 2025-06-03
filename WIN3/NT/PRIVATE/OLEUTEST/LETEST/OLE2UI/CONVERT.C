@@ -1799,4 +1799,4 @@ void SwapWindows(HWND hDlg, HWND hWnd1, HWND hWnd2)
    return;
 
 }
-
+

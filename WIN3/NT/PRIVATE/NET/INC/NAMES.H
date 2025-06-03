@@ -47,6 +47,11 @@ NetpIsComputerNameValid(
     IN LPTSTR ComputerName
     );
 
+BOOL
+NetpIsDomainNameValid(
+    IN LPTSTR DomainName
+    );
+
 // This checks "X:", "LPT1:", etc.
 BOOL
 NetpIsLocalNameValid(

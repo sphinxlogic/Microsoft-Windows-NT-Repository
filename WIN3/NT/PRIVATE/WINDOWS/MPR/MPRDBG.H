@@ -4,7 +4,7 @@ Copyright (c) 1991  Microsoft Corporation
 
 Module Name:
 
-    mprdbg.h 
+    mprdbg.h
 
 Abstract:
 
@@ -66,28 +66,23 @@ extern DWORD    MprDebugLevel;
 //
 #define MPR_LOG0(level,string)                  \
     if( MprDebugLevel & (DEBUG_ ## level)){     \
-        (VOID) DbgPrint("[MPR] ");              \
-        (VOID) DbgPrint(string);                \
+        (VOID) DbgPrint("[MPR] " string);       \
     }
 #define MPR_LOG1(level,string,var)              \
     if( MprDebugLevel & (DEBUG_ ## level)){     \
-        (VOID) DbgPrint("[MPR] ");              \
-        (VOID) DbgPrint(string,var);            \
+        (VOID) DbgPrint("[MPR] " string,var);   \
     }
 #define MPR_LOG2(level,string,var1,var2)        \
     if( MprDebugLevel & (DEBUG_ ## level)){     \
-        (VOID) DbgPrint("[MPR] ");              \
-        (VOID) DbgPrint(string,var1,var2);      \
+        (VOID) DbgPrint("[MPR] " string,var1,var2); \
     }
 #define MPR_LOG3(level,string,var1,var2,var3)   \
     if( MprDebugLevel & (DEBUG_ ## level)){     \
-        (VOID) DbgPrint("[MPR] ");              \
-        (VOID) DbgPrint(string,var1,var2,var3); \
+        (VOID) DbgPrint("[MPR] " string,var1,var2,var3); \
     }
 #define MPR_LOG(level,string,var)               \
     if( MprDebugLevel & (DEBUG_ ## level)){     \
-        (VOID) DbgPrint("[MPR] ");              \
-        (VOID) DbgPrint(string,var);            \
+        (VOID) DbgPrint("[MPR] " string,var);   \
     }
 
 #else  // DBG
@@ -109,6 +104,8 @@ extern DWORD    MprDebugLevel;
 #define DEBUG_PS        0x00000008      // Thread and Process information
 #define DEBUG_RESTORE   0x00000010      // Restore Connection information
 #define DEBUG_CNOTIFY   0x00000020      // Connection Notify information
+#define DEBUG_ANSI      0x00000040      // Ansi API thunks
+#define DEBUG_ROUTE     0x00000080      // Routing of calls among providers
 
 #define DEBUG_ALL       0xffffffff
 

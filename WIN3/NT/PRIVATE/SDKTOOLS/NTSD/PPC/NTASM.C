@@ -12,4 +12,4 @@ void assem(PADDR paddr, PUCHAR pchInput)
 //  X86assem(paddr, pchInput);
     return;
 }
-
+

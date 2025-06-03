@@ -38,7 +38,10 @@ idd_send_msg(VOID *idd_1, IDD_MSG *msg, USHORT port, VOID (*handler)(), VOID *ha
 
     /* check for space */
     if ( sq->num >= sq->max )
+	{
+		DbgPrint("sq->num: %d, sq->max: %d\n", sq->num, sq->max);
         ret = IDD_E_NOROOM;
+	}
     else
     {
         /* space avail, fill in entry */
@@ -55,9 +58,12 @@ idd_send_msg(VOID *idd_1, IDD_MSG *msg, USHORT port, VOID (*handler)(), VOID *ha
     NdisReleaseSpinLock(&sq->lock);
 
 
-    /* (maybe) trigger processing */
-    if ( ret == IDD_E_SUCC )
-        idd_process(idd, 1);
+//    /* (maybe) trigger processing */
+//    if ( ret == IDD_E_SUCC )
+//        idd_process(idd, 1);
+
+	if (ret == IDD_E_SUCC)
+		idd->PollTx(idd);
 
     /* return here */
     D_LOG(D_EXIT, ("idd_send_msg: exit, ret=0x%x", ret));
@@ -155,4 +161,3 @@ idd_detach(VOID *idd_1, USHORT port, VOID (*handler)(), VOID *handler_arg)
     return(ret);    
 }
 
-

@@ -27,6 +27,18 @@ Revision History:
 ULONG MmNumberOfColors;
 
 //
+// Number of secondary colcors, based on level 2 d cache size.
+//
+
+ULONG MmSecondaryColors;
+
+//
+// The starting color index seed, incrmented at each process creation.
+//
+
+ULONG MmProcessColorSeed = 0x12345678;
+
+//
 // Total number of physical pages available on the system.
 //
 
@@ -274,8 +286,6 @@ PMMPTE MmFirstPteForPagedPool;
 
 PMMPTE MmLastPteForPagedPool;
 
-PMMPTE MmPagedPoolPdes;
-
 PMMPTE MmPagedPoolBasePde;
 
 //
@@ -337,9 +347,9 @@ ULONG MmSizeOfSystemCacheInPages = 64 * 256; //64MB.
 // Default sizes for the system cache.
 //
 
-ULONG MmSystemCacheWsMinimum = 128;
+ULONG MmSystemCacheWsMinimum = 288;
 
-ULONG MmSystemCacheWsMaximum = 168;
+ULONG MmSystemCacheWsMaximum = 350;
 
 //
 // Cells to track unused thread kernel stacks to avoid TB flushes
@@ -452,6 +462,8 @@ KEVENT MmModifiedPageWriterEvent;
 
 KEVENT MmWorkingSetManagerEvent;
 
+KEVENT MmCollidedFlushEvent;
+
 //
 // Total number of committed pages.
 //
@@ -527,7 +539,7 @@ ULONG MmMinimumPageFileReduction = 256;  //256 pages (1mb)
 // Number of pages to write in a single I/O.
 //
 
-ULONG MmModifiedWriteClusterSize = MM_MAXIMUM_DISK_IO_SIZE / PAGE_SIZE;
+ULONG MmModifiedWriteClusterSize = MM_MAXIMUM_WRITE_CLUSTER;
 
 //
 // Number of pages to read in a single I/O if possible.
@@ -545,25 +557,34 @@ ULONG MmReadClusterSize = 7;
 // system makes use of it for unlocking pages during I/O complete.
 //
 
-extern KSPIN_LOCK MmPfnLock;
+// KSPIN_LOCK MmPfnLock;
+
+//
+// Spinlock which guards the working set list for the system shared
+// address space (paged pool, system cache, pagable drivers).
+//
+
+ERESOURCE MmSystemWsLock;
+
+PETHREAD MmSystemLockOwner;
 
 //
 // Spin lock for allocating non-paged PTEs from system space.
 //
 
-extern KSPIN_LOCK MmSystemSpaceLock;
+// KSPIN_LOCK MmSystemSpaceLock;
 
 //
 // Spin lock for operating on page file commit charges.
 //
 
-extern KSPIN_LOCK MmChargeCommitmentLock;
+// KSPIN_LOCK MmChargeCommitmentLock;
 
 //
 // Spin lock for allowing working set expansion.
 //
 
-extern KSPIN_LOCK MmAllowWSExpansionLock;
+KSPIN_LOCK MmExpansionLock;
 
 //
 // Spin lock for protecting hyper space access.
@@ -573,9 +594,9 @@ extern KSPIN_LOCK MmAllowWSExpansionLock;
 // System process working set sizes.
 //
 
-USHORT MmSystemProcessWorkingSetMin = 50;
+ULONG MmSystemProcessWorkingSetMin = 50;
 
-USHORT MmSystemProcessWorkingSetMax = 450;
+ULONG MmSystemProcessWorkingSetMax = 450;
 
 ULONG MmMaximumWorkingSetSize;
 
@@ -593,23 +614,38 @@ ULONG MmSystemPageColor;
 //
 
 LARGE_INTEGER MmSevenMinutes = {0, -1};
-LARGE_INTEGER MmFiveSecondsAbsolute = {5 * 1000 * 1000 * 10, 0};
+
+//
+// note that the following constant is initialized to five seconds,
+// but is set to 3 on very small workstations. The constant used to
+// be called MmFiveSecondsAbsolute, but since its value changes depending on
+// the system type and size, I decided to change the name to reflect this
+//
+LARGE_INTEGER MmWorkingSetProtectionTime = {5 * 1000 * 1000 * 10, 0};
+
 LARGE_INTEGER MmOneSecond = {(ULONG)(-1 * 1000 * 1000 * 10), -1};
 LARGE_INTEGER MmTwentySeconds = {(ULONG)(-20 * 1000 * 1000 * 10), -1};
 LARGE_INTEGER MmShortTime = {(ULONG)(-10 * 1000 * 10), -1}; // 10 milliseconds
 LARGE_INTEGER MmHalfSecond = {(ULONG)(-5 * 100 * 1000 * 10), -1};
 LARGE_INTEGER Mm30Milliseconds = {(ULONG)(-30 * 1000 * 10), -1};
 
-LARGE_INTEGER MmCriticalSectionTimeout;
+//
+// Parameters for user mode passed up via PEB in MmCreatePeb
+//
 ULONG MmCritsectTimeoutSeconds = 2592000;
-
+LARGE_INTEGER MmCriticalSectionTimeout;     // Fill in by miinit.c
+ULONG MmHeapSegmentReserve = 1024 * 1024;
+ULONG MmHeapSegmentCommit = PAGE_SIZE * 2;
+ULONG MmHeapDeCommitTotalFreeThreshold = 64 * 1024;
+ULONG MmHeapDeCommitFreeBlockThreshold = PAGE_SIZE;
 
 //
-// Boolean which indicates if a check of the PTE should be done
-// for a write probe in x86 machines.
+// Set from ntos\config\CMDAT3.C  Used by customers to disable paging
+// of executive on machines with lots of memory.  Worth a few TPS on a
+// data base server.
 //
 
-BOOLEAN MmCheckPteOnProbe = TRUE;
+ULONG MmDisablePagingExecutive;
 
 #if DBG
 ULONG MmDebug;
@@ -756,3 +792,4 @@ ACCESS_MASK MmMakeFileAccess[8] = { FILE_READ_DATA,
                                 FILE_READ_DATA,
                                 FILE_EXECUTE | FILE_WRITE_DATA | FILE_READ_DATA,
                                 FILE_EXECUTE | FILE_READ_DATA };
+

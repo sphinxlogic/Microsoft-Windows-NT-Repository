@@ -170,7 +170,7 @@ INT16 NTFS_EnqueueLinkInfo( FSYS_HAND fsh,
                strcat( elem->linkName, TEXT("\\") );
           }
           strcat( elem->linkName, name );
-          elem->linkNameLen = strsize( elem->linkName ) * sizeof( CHAR );
+          elem->linkNameLen = strsize( elem->linkName ) ;
 
           for ( p = elem->linkName; ( *p ); p++ )
           {
@@ -259,8 +259,12 @@ INT16 NTFS_LinkFileToFDB( FILE_HAND hand )
           CHAR   *p = nt_hand->linkBuffer;
           UINT16 i;
 
-          for ( i = 0; (i < (nt_hand->linkNameLen - 1)); i++, p++ )
+          for ( i = 0; (i < (nt_hand->linkNameLen - 1)/sizeof(CHAR)); i++, p++ )
           {
+               if ( (*p == TEXT('\0')) && (*(p+1) == TEXT('\0')) ) {
+                    break ;
+               }
+                    
                if ( *p == TEXT('\0') )
                {
                     *p = TEXT('\\');
@@ -276,8 +280,12 @@ INT16 NTFS_LinkFileToFDB( FILE_HAND hand )
                          FILE_ATTRIBUTE_NORMAL | FILE_FLAG_BACKUP_SEMANTICS,
                          NULL ) ;
 
-     if ( fhand != INVALID_HANDLE_VALUE )
-     {
+     if ( fhand == INVALID_HANDLE_VALUE ) {
+          return FS_ACCESS_DENIED ;
+
+     } else {
+//     if ( fhand != INVALID_HANDLE_VALUE )
+//     {
           NTFS_DBLK_PTR  fdb = (NTFS_DBLK_PTR)hand->dblk;
           BOOLEAN        stat;
           WCHAR_PTR      uniPath;
@@ -286,17 +294,17 @@ INT16 NTFS_LinkFileToFDB( FILE_HAND hand )
 
           /* Stuff the current path and name as link data to the original. */
 
-          pathCharCount  = strlen( DLE_GetDeviceName( hand->fsh->attached_dle ) ) * sizeof (CHAR);
-          pathCharCount += sizeof( CHAR );
-          pathCharCount += strlen( hand->fsh->cur_dir ) * sizeof (CHAR);
+          pathCharCount  = strsize( DLE_GetDeviceName( hand->fsh->attached_dle ) );
+          pathCharCount += sizeof( CHAR ) ;
+          pathCharCount += strsize( hand->fsh->cur_dir ) ;
           if ( *(hand->fsh->cur_dir + strlen( hand->fsh->cur_dir) - 1) != TEXT('\\') )
           {
                pathCharCount += sizeof( CHAR );
           }
-          pathCharCount += strlen( fdb->full_name_ptr->name );
-          pathCharCount++;    // Account for NULL
+          pathCharCount += strsize( fdb->full_name_ptr->name );
+          pathCharCount+= sizeof(CHAR);    // Account for NULL
 
-          uniBufferSize = pathCharCount * sizeof(WCHAR) / sizeof(CHAR);
+          uniBufferSize = pathCharCount * sizeof(WCHAR) ;
 
           uniPath = (WCHAR_PTR)malloc( uniBufferSize );
 

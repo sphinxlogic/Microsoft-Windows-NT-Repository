@@ -55,8 +55,6 @@ public:
 							return pNext;
 							}
 
-	BOOL				IsAttrID( ATTR_T );
-
 	ATTR_T				GetAttrID()
 							{
 							return AttrID;
@@ -214,13 +212,17 @@ public:
 
 	node_base_attr	*	GetAttribute( ATTR_T flag );
 
-	ATTRLIST		&	Clone();
+	ATTRLIST			Clone();
 
 	STATUS_T			GetAttributeList( type_node_list * pTNList );
 
 	void				Reverse();
 
 	BOOL				FInSummary( ATTR_T flag );
+
+	BOOL				FMATTRInSummary( MATTR_T flag );
+
+	BOOL				FTATTRInSummary( TATTR_T flag );
 
 						operator node_base_attr*()
 								{
@@ -237,7 +239,7 @@ public:
 							return pHead;
 							}
 	
-	void				Dump(STREAM *);
+	void				Dump( ISTREAM *);
 
 	};
 

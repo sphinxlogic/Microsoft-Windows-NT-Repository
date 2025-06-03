@@ -38,23 +38,12 @@ CmpNameFromAttributes(
 
 #ifdef POOL_TAGGING
 
-#define ALLOCATE_WITH_QUOTA(a,b,c) CmpAllocatePoolWithQuota(a,b,c)
+#define ALLOCATE_WITH_QUOTA(a,b,c) ExAllocatePoolWithQuotaTag((a)|POOL_QUOTA_FAIL_INSTEAD_OF_RAISE,b,c)
 
-PVOID
-CmpAllocatePoolWithQuota(
-    POOL_TYPE   PoolType,
-    ULONG       NumberOfBytes,
-    ULONG       Tag
-    );
 #else
 
-#define ALLOCATE_WITH_QUOTA(a,b,c) CmpAllocatePoolWithQuota(a,b)
+#define ALLOCATE_WITH_QUOTA(a,b,c) ExAllocatePoolWithQuota((a)|POOL_QUOTA_FAIL_INSTEAD_OF_RAISE,b)
 
-PVOID
-CmpAllocatePoolWithQuota(
-    POOL_TYPE   PoolType,
-    ULONG       NumberOfBytes
-    );
 #endif
 
 #if DBG
@@ -86,6 +75,7 @@ CmpExceptionFilter(
 #pragma alloc_text(PAGE,NtOpenKey)
 #pragma alloc_text(PAGE,NtQueryKey)
 #pragma alloc_text(PAGE,NtQueryValueKey)
+#pragma alloc_text(PAGE,NtQueryMultipleValueKey)
 #pragma alloc_text(PAGE,NtRestoreKey)
 #pragma alloc_text(PAGE,NtSaveKey)
 #pragma alloc_text(PAGE,NtSetValueKey)
@@ -94,11 +84,15 @@ CmpExceptionFilter(
 #pragma alloc_text(PAGE,NtSetInformationKey)
 #pragma alloc_text(PAGE,NtReplaceKey)
 #pragma alloc_text(PAGE,CmpNameFromAttributes)
-#pragma alloc_text(PAGE,CmpAllocatePoolWithQuota)
 #pragma alloc_text(PAGE,CmpAllocatePostBlock)
 #pragma alloc_text(PAGE,CmpFreePostBlock)
 #endif
 
+// #define LOG_NT_API 1
+
+#ifdef LOG_NT_API
+BOOLEAN CmpLogApi = FALSE;
+#endif
 
 //
 // Nt level registry API calls
@@ -201,8 +195,15 @@ Return Value:
     }
 
     mode = KeGetPreviousMode();
-
     CmpLockRegistryExclusive();
+
+#ifdef LOG_NT_API
+    if (CmpLogApi) {
+        DbgPrint("NtCreateKey %wZ relative to %d...",
+                 ObjectAttributes->ObjectName,
+                 ObjectAttributes->RootDirectory);
+    }
+#endif
 
     try {
 
@@ -219,7 +220,7 @@ Return Value:
                     sizeof(WCHAR)
                     );
             }
-            ProbeForWriteHandle(KeyHandle);
+            ProbeAndZeroHandle(KeyHandle);
 
             if (ARGUMENT_PRESENT(Disposition)) {
                 ProbeForWriteUlong(Disposition);
@@ -279,12 +280,22 @@ Return Value:
         }
         status = GetExceptionCode();
     }
+#ifdef LOG_NT_API
+    if (CmpLogApi) {
+        if (NT_SUCCESS(status)) {
+            DbgPrint("succeeded %d\n",Handle);
+        } else {
+            DbgPrint("failed %08lx\n",status);
+        }
+    }
+#endif
 
     CmpUnlockRegistry();
 
     return  status;
 }
 
+extern PCM_KEY_BODY ExpControlKey[2];
 
 NTSTATUS
 NtDeleteKey(
@@ -313,32 +324,58 @@ Return Value:
 {
     PCM_KEY_BODY   KeyBody;
     NTSTATUS    status;
+    BOOLEAN     GenerateOnClose;
 
     PAGED_CODE();
     CMLOG(CML_API, CMS_NTAPI) KdPrint(("NtDeleteKey\n"));
     CMLOG(CML_API_ARGS, CMS_NTAPI) {
         KdPrint(("\tKeyHandle=%08lx\n", KeyHandle));
     }
+#ifdef LOG_NT_API
+    if (CmpLogApi) {
+        DbgPrint("NtDeleteKey %d\n",KeyHandle);
+    }
+#endif
 
-    status = ObReferenceObjectByHandle(
-                KeyHandle,
-                DELETE,
-                CmpKeyObjectType,
-                KeGetPreviousMode(),
-                (PVOID *)(&KeyBody),
-                NULL
-                );
+    status = ObReferenceObjectByHandle(KeyHandle,
+                                       DELETE,
+                                       CmpKeyObjectType,
+                                       KeGetPreviousMode(),
+                                       (PVOID *)(&KeyBody),
+                                       NULL);
 
     if (NT_SUCCESS(status)) {
 
-        status = CmDeleteKey(
-                    KeyBody
-                    );
+        //
+        // Silently fail deletes of setup key and productoptions key
+        //
 
+        if ( (ExpControlKey[0] && KeyBody->KeyControlBlock == ExpControlKey[0]->KeyControlBlock) ||
+             (ExpControlKey[1] && KeyBody->KeyControlBlock == ExpControlKey[1]->KeyControlBlock) ) {
+            ObDereferenceObject((PVOID)KeyBody);
+            return STATUS_SUCCESS;
+        }
+
+        status = CmDeleteKey(KeyBody);
+
+        if (NT_SUCCESS(status)) {
+            NTSTATUS TempStatus;
+
+            //
+            // Audit the deletion
+            //
+
+            TempStatus = ObQueryObjectAuditingByHandle(KeyHandle,
+                                                       &GenerateOnClose );
+            ASSERT(NT_SUCCESS(TempStatus));
+
+            if (GenerateOnClose) {
+                SeDeleteObjectAuditAlarm(KeyBody,
+                                         KeyHandle );
+            }
+        }
         ObDereferenceObject((PVOID)KeyBody);
-
     }
-
     return status;
 }
 
@@ -384,6 +421,11 @@ Return Value:
         KdPrint(("\tKeyHandle=%08lx\n", KeyHandle));
         KdPrint(("\tValueName='%wZ'\n", ValueName));
     }
+#ifdef LOG_NT_API
+    if (CmpLogApi) {
+        DbgPrint("NtDeleteValueKey %d %wZ\n",KeyHandle,ValueName);
+    }
+#endif
 
     mode = KeGetPreviousMode();
 
@@ -497,6 +539,11 @@ Return Value:
         KdPrint(("\tKeyHandle=%08lx Index=%08lx\n", KeyHandle, Index));
     }
 
+#ifdef LOG_NT_API
+    if (CmpLogApi) {
+        DbgPrint("NtEnumerateKey %d %d %d\n",KeyHandle,Index,KeyInformationClass);
+    }
+#endif
 
     if ((KeyInformationClass != KeyBasicInformation) &&
         (KeyInformationClass != KeyNodeInformation)  &&
@@ -619,6 +666,12 @@ Return Value:
         KdPrint(("\tKeyHandle=%08lx Index=%08lx\n", KeyHandle, Index));
     }
 
+#ifdef LOG_NT_API
+    if (CmpLogApi) {
+        DbgPrint("NtEnumerateValueKey %d %d %d\n",KeyHandle,Index,KeyValueInformationClass);
+    }
+#endif
+
     if ((KeyValueInformationClass != KeyValueBasicInformation) &&
         (KeyValueInformationClass != KeyValueFullInformation)  &&
         (KeyValueInformationClass != KeyValuePartialInformation))
@@ -708,6 +761,12 @@ Return Value:
     PAGED_CODE();
     CMLOG(CML_API, CMS_NTAPI) KdPrint(("NtFlushKey\n"));
 
+#ifdef LOG_NT_API
+    if (CmpLogApi) {
+        DbgPrint("NtFlushKey(%d)\n",KeyHandle);
+    }
+#endif
+
     status = ObReferenceObjectByHandle(
                 KeyHandle,
                 0,
@@ -779,6 +838,12 @@ Return Value:
     REGISTRY_COMMAND Command;
 
     PAGED_CODE();
+#ifdef LOG_NT_API
+    if (CmpLogApi) {
+        DbgPrint("NtInitializeRegistry()\n");
+    }
+#endif
+
     //
     // Force previous mode to be KernelMode
     //
@@ -884,9 +949,17 @@ Arguments:
         operation completes.  For more information about this
         parameter see the NtReadFile system service description.
 
+        If PreviousMode == Kernel, this parameter is an optional
+        pointer to a WORK_QUEUE_ITEM to be queued when the notify
+        is signaled.
+
     ApcContext - A pointer to pass as an argument to the ApcRoutine,
         if one was specified, when the operation completes.  This
         argument is required if an ApcRoutine was specified.
+
+        If PreviousMode == Kernel, this parameter is an optional
+        WORK_QUEUE_TYPE describing the queue to be used. This argument
+        is required if an ApcRoutine was specified.
 
     IoStatusBlock - A variable to receive the final completion status.
         For more information about this parameter see the NtCreateFile
@@ -940,10 +1013,16 @@ Return Value:
     PKEVENT             UserEvent;
     PCM_POST_BLOCK      PostBlock;
     KIRQL               OldIrql;
+    POST_BLOCK_TYPE     PostType = PostSynchronous;
 
 
     PAGED_CODE();
     CMLOG(CML_API, CMS_NTAPI) KdPrint(("NtNotifyChangeKey\n"));
+#ifdef LOG_NT_API
+    if (CmpLogApi) {
+        DbgPrint("NtNotifyChangeKey(%d)\n",KeyHandle);
+    }
+#endif
 
     //
     // Threads that are attached give us real grief, so disallow it.
@@ -965,11 +1044,24 @@ Return Value:
                 sizeof(ULONG)
                 );
             ProbeForWrite(Buffer, BufferSize, sizeof(ULONG));
+
+            //
+            // Initialize IOSB
+            //
+            IoStatusBlock->Status = STATUS_PENDING;
+            IoStatusBlock->Information = 0;
         } except(EXCEPTION_EXECUTE_HANDLER) {
             CMLOG(CML_API, CMS_EXCEPTION) {
                 KdPrint(("!!NtChangeNotifyKey: code:%08lx\n", GetExceptionCode()));
             }
             return GetExceptionCode();
+        }
+        if (Asynchronous) {
+            PostType = PostAsyncUser;
+        }
+    } else {
+        if (Asynchronous) {
+            PostType = PostAsyncKernel;
         }
     }
 
@@ -1003,7 +1095,7 @@ Return Value:
     //          of Notify will free it!
     //
     KeEnterCriticalRegion();
-    PostBlock = CmpAllocatePostBlock(!Asynchronous);
+    PostBlock = CmpAllocatePostBlock(PostType);
     if (PostBlock == NULL) {
         ObDereferenceObject(KeyBody);
         KeLeaveCriticalRegion();
@@ -1011,9 +1103,9 @@ Return Value:
     }
 
 
-    if (Asynchronous) {
+    if ((PostType == PostAsyncUser) ||
+        (PostType == PostAsyncKernel)) {
 
-        PostBlock->u.Async.IoStatusBlock = IoStatusBlock;
         //
         // If event is present, reference it, save its address, and set
         // it to the not signaled state.
@@ -1028,30 +1120,38 @@ Return Value:
                             NULL
                             );
             if (!NT_SUCCESS(status)) {
+                CmpFreePostBlock(PostBlock);
                 ObDereferenceObject(KeyBody);
                 KeLeaveCriticalRegion();
                 return status;
             } else {
                 KeClearEvent(UserEvent);
             }
-            PostBlock->u.Async.UserEvent = UserEvent;
         } else {
-            PostBlock->u.Async.UserEvent = UserEvent = NULL;
+            UserEvent = NULL;
         }
-        //
-        // Initialize APC.  May or may not be a user apc, will always
-        // be a kernel apc.
-        //
-        KeInitializeApc(
-            PostBlock->u.Async.Apc,
-            KeGetCurrentThread(),
-            CurrentApcEnvironment,
-            (PKKERNEL_ROUTINE)CmpPostApc,
-            (PKRUNDOWN_ROUTINE)CmpPostApcRunDown,
-            (PKNORMAL_ROUTINE)ApcRoutine,
-            PreviousMode,
-            ApcContext
-            );
+
+        if (PostType == PostAsyncUser) {
+            PostBlock->u.AsyncUser.IoStatusBlock = IoStatusBlock;
+            PostBlock->u.AsyncUser.UserEvent = UserEvent;
+            //
+            // Initialize APC.  May or may not be a user apc, will always
+            // be a kernel apc.
+            //
+            KeInitializeApc(PostBlock->u.AsyncUser.Apc,
+                            KeGetCurrentThread(),
+                            CurrentApcEnvironment,
+                            (PKKERNEL_ROUTINE)CmpPostApc,
+                            (PKRUNDOWN_ROUTINE)CmpPostApcRunDown,
+                            (PKNORMAL_ROUTINE)ApcRoutine,
+                            PreviousMode,
+                            ApcContext);
+
+        } else {
+            PostBlock->u.AsyncKernel.Event = UserEvent;
+            PostBlock->u.AsyncKernel.WorkItem = (PWORK_QUEUE_ITEM)ApcRoutine;
+            PostBlock->u.AsyncKernel.QueueType = (WORK_QUEUE_TYPE)ApcContext;
+        }
     }
 
 
@@ -1079,7 +1179,7 @@ Return Value:
         //
         ASSERT(status == STATUS_PENDING);
 
-        if (Asynchronous == FALSE) {
+        if (PostType == PostSynchronous) {
             WaitStatus = KeWaitForSingleObject(PostBlock->u.Sync.SystemEvent,
                                                Executive,
                                                PreviousMode,
@@ -1192,15 +1292,21 @@ Return Value:
         KdPrint(("\tName='%wZ'\n", ObjectAttributes->ObjectName));
     }
 
-
     mode = KeGetPreviousMode();
 
     CmpLockRegistry();
+#ifdef LOG_NT_API
+    if (CmpLogApi) {
+        DbgPrint("NtOpenKey %wZ relative to %d...",
+                 ObjectAttributes->ObjectName,
+                 ObjectAttributes->RootDirectory);
+    }
+#endif
 
     try {
 
         if (mode == UserMode) {
-            ProbeForWriteHandle(KeyHandle);
+            ProbeAndZeroHandle(KeyHandle);
         }
 
         status = ObOpenObjectByName(
@@ -1236,6 +1342,15 @@ Return Value:
         }
         status = GetExceptionCode();
     }
+#ifdef LOG_NT_API
+    if (CmpLogApi) {
+        if (NT_SUCCESS(status)) {
+            DbgPrint("succeeded %d\n",Handle);
+        } else {
+            DbgPrint("failed %08lx\n",status);
+        }
+    }
+#endif
 
     CmpUnlockRegistry();
 
@@ -1303,6 +1418,11 @@ Return Value:
 
     PAGED_CODE();
     CMLOG(CML_API, CMS_NTAPI) KdPrint(("NtQueryKey\n"));
+#ifdef LOG_NT_API
+    if (CmpLogApi) {
+        DbgPrint("NtQueryKey %d %d\n",KeyHandle,KeyInformationClass);
+    }
+#endif
 
     if ((KeyInformationClass != KeyBasicInformation) &&
         (KeyInformationClass != KeyNodeInformation)  &&
@@ -1422,6 +1542,11 @@ Return Value:
         KdPrint(("\tKeyHandle=%08lx\n", KeyHandle));
         KdPrint(("\tValueName='%wZ'\n", ValueName));
     }
+#ifdef LOG_NT_API
+    if (CmpLogApi) {
+        DbgPrint("NtQueryValueKey %d %wZ %d\n",KeyHandle,ValueName,KeyValueInformationClass);
+    }
+#endif
 
     if ((KeyValueInformationClass != KeyValueBasicInformation) &&
         (KeyValueInformationClass != KeyValueFullInformation)  &&
@@ -1446,29 +1571,31 @@ Return Value:
         try {
             if (mode == UserMode) {
                 LocalValueName = ProbeAndReadUnicodeString(ValueName);
-                ProbeForRead(
-                    LocalValueName.Buffer,
-                    LocalValueName.Length,
-                    sizeof(WCHAR)
-                    );
-                ProbeForWrite(
-                    KeyValueInformation,
-                    Length,
-                    sizeof(ULONG)
-                    );
+                ProbeForRead(LocalValueName.Buffer,
+                             LocalValueName.Length,
+                             sizeof(WCHAR));
+
+                //
+                // We only probe the output buffer for Read to avoid touching
+                // all the pages. Some people like to pass in gigantic buffers
+                // Just In Case. The actual copy into the buffer is done under
+                // an exception handler.
+                //
+
+                ProbeForRead(KeyValueInformation,
+                             Length,
+                             sizeof(ULONG));
                 ProbeForWriteUlong(ResultLength);
             } else {
                 LocalValueName = *ValueName;
             }
 
-            status = CmQueryValueKey(
-                        KeyBody->KeyControlBlock,
-                        LocalValueName,
-                        KeyValueInformationClass,
-                        KeyValueInformation,
-                        Length,
-                        ResultLength
-                        );
+            status = CmQueryValueKey(KeyBody->KeyControlBlock,
+                                     LocalValueName,
+                                     KeyValueInformationClass,
+                                     KeyValueInformation,
+                                     Length,
+                                     ResultLength);
 
         } except (EXCEPTION_EXECUTE_HANDLER) {
             CMLOG(CML_API, CMS_EXCEPTION) {
@@ -1552,6 +1679,11 @@ Return Value:
 
     PAGED_CODE();
     CMLOG(CML_API, CMS_NTAPI) KdPrint(("NtRestoreKey\n"));
+#ifdef LOG_NT_API
+    if (CmpLogApi) {
+        DbgPrint("NtRestoreKey\n");
+    }
+#endif
 
     mode = KeGetPreviousMode();
     //
@@ -1640,6 +1772,11 @@ Return Value:
 
     PAGED_CODE();
     CMLOG(CML_API, CMS_NTAPI) KdPrint(("NtSaveKey\n"));
+#ifdef LOG_NT_API
+    if (CmpLogApi) {
+        DbgPrint("NtSaveKey\n");
+    }
+#endif
 
     mode = KeGetPreviousMode();
 
@@ -1740,6 +1877,11 @@ Return Value:
         KdPrint(("\tKeyHandle=%08lx\n", KeyHandle));
         KdPrint(("\tValueName='%wZ'n", ValueName));
     }
+#ifdef LOG_NT_API
+    if (CmpLogApi) {
+        DbgPrint("NtSetValueKey %d %wZ\n",KeyHandle,ValueName);
+    }
+#endif
 
     mode = KeGetPreviousMode();
 
@@ -1754,40 +1896,33 @@ Return Value:
 
     if (NT_SUCCESS(status)) {
 
-        try {
-
-            if (mode == UserMode) {
+        if (mode == UserMode) {
+            try {
                 LocalValueName = ProbeAndReadUnicodeString(ValueName);
-                ProbeForRead(
-                    LocalValueName.Buffer,
-                    LocalValueName.Length,
-                    sizeof(WCHAR)
-                    );
-                ProbeForRead(
-                    Data,
-                    DataSize,
-                    sizeof(UCHAR)
-                    );
-            } else {
-                LocalValueName = *ValueName;
+                ProbeForRead(LocalValueName.Buffer,
+                             LocalValueName.Length,
+                             sizeof(WCHAR));
+                ProbeForRead(Data,
+                             DataSize,
+                             sizeof(UCHAR));
+            } except (CmpExceptionFilter(GetExceptionInformation())) {
+                CMLOG(CML_API, CMS_EXCEPTION) {
+                    KdPrint(("!!NtSetValueKey: code:%08lx\n", GetExceptionCode()));
+                }
+                status = GetExceptionCode();
+                goto Exit;
             }
-
-            status = CmSetValueKey(
-                        KeyBody->KeyControlBlock,
-                        LocalValueName,
-                        0,
-                        Type,
-                        Data,
-                        DataSize
-                        );
-
-        } except (CmpExceptionFilter(GetExceptionInformation())) {
-            CMLOG(CML_API, CMS_EXCEPTION) {
-                KdPrint(("!!NtSetValueKey: code:%08lx\n", GetExceptionCode()));
-            }
-            status = GetExceptionCode();
+        } else {
+            LocalValueName = *ValueName;
         }
 
+        status = CmSetValueKey(KeyBody->KeyControlBlock,
+                               &LocalValueName,
+                               Type,
+                               Data,
+                               DataSize);
+
+Exit:
         ObDereferenceObject((PVOID)KeyBody);
     }
     return status;
@@ -1838,6 +1973,60 @@ Return Value:
 --*/
 
 {
+    return(NtLoadKey2(TargetKey, SourceFile, 0));
+}
+
+
+NTSTATUS
+NtLoadKey2(
+    IN POBJECT_ATTRIBUTES TargetKey,
+    IN POBJECT_ATTRIBUTES SourceFile,
+    IN ULONG Flags
+    )
+
+/*++
+
+Routine Description:
+
+    A hive (file in the format created by NtSaveKey) may be linked
+    into the active registry with this call.  UNLIKE NtRestoreKey,
+    the file specified to NtLoadKey will become the actual backing
+    store of part of the registry (that is, it will NOT be copied.)
+
+    The file may have an associated .log file.
+
+    If the hive file is marked as needing a .log file, and one is
+    not present, the call will fail.
+
+    The name specified by SourceFile must be such that ".log" can
+    be appended to it to generate the name of the log file.  Thus,
+    on FAT file systems, the hive file may not have an extension.
+
+    Caller must have SeRestorePrivilege privilege.
+
+    This call is used by logon to make the user's profile available
+    in the registry.  It is not intended for use doing backup,
+    restore, etc.  Use NtRestoreKey for that.
+
+Arguments:
+
+    TargetKey - specifies the path to a key to link the hive to.
+                path must be of the form "\registry\user\<username>"
+
+    SourceFile - specifies a file.  while file could be remote,
+                that is strongly discouraged.
+
+    Flags - specifies any flags that should be used for the load operation.
+            The only valid flag is REG_NO_LAZY_FLUSH.
+
+
+Return Value:
+
+    NTSTATUS - values TBS.
+
+--*/
+
+{
     OBJECT_ATTRIBUTES File;
     OBJECT_ATTRIBUTES Key;
     KPROCESSOR_MODE PreviousMode;
@@ -1853,6 +2042,17 @@ Return Value:
     CMLOG(CML_API_ARGS, CMS_NTAPI) {
         KdPrint(("\tTargetKey ='%wZ'\n", TargetKey->ObjectName));
         KdPrint(("\tSourceFile='%wZ'\n", SourceFile->ObjectName));
+    }
+#ifdef LOG_NT_API
+    if (CmpLogApi) {
+        DbgPrint("NtLoadKey\n");
+    }
+#endif
+    //
+    // Check for illegal flags
+    //
+    if (Flags & ~REG_NO_LAZY_FLUSH) {
+        return(STATUS_INVALID_PARAMETER);
     }
 
     FileName.Buffer = NULL;
@@ -1970,7 +2170,7 @@ Return Value:
         return(Status);
     }
 
-    Status = CmLoadKey(&Key, &File);
+    Status = CmLoadKey(&Key, &File, Flags);
 
     ExFreePool(FileName.Buffer);
     ExFreePool(KeyBuffer);
@@ -2003,11 +2203,7 @@ Routine Description:
     will fail.  Terminate relevent processes so that handles are
     closed.
 
-    This call will NOT NOT NOT flush the hive being dropped.
-
-    If the hive being dropped is "clean", its log file will be
-    deleted.  Obviously, it must have been NtFlushKey'd to
-    be clean.
+    This call will flush the hive being dropped.
 
     Caller must have SeRestorePrivilege privilege.
 
@@ -2035,6 +2231,11 @@ Return Value:
     CMLOG(CML_API_ARGS, CMS_NTAPI) {
         KdPrint(("\tTargetKey ='%wZ'\n", TargetKey->ObjectName));
     }
+#ifdef LOG_NT_API
+    if (CmpLogApi) {
+        DbgPrint("NtUnloadKey\n");
+    }
+#endif
 
     PreviousMode = KeGetPreviousMode();
 
@@ -2119,6 +2320,11 @@ NtSetInformationKey(
         KdPrint(("\tKeyHandle=%08lx\n", KeyHandle));
         KdPrint(("\tInfoClass=%08x\n", KeySetInformationClass));
     }
+#ifdef LOG_NT_API
+    if (CmpLogApi) {
+        DbgPrint("NtSetInformationKey %d %d\n",KeyHandle,KeySetInformationClass);
+    }
+#endif
 
     switch (KeySetInformationClass) {
     case KeyWriteTimeInformation:
@@ -2232,6 +2438,11 @@ Return Value:
         KdPrint(("\tNewFile ='%wZ'\n", NewFile->ObjectName));
         KdPrint(("\tOldFile ='%wZ'\n", OldFile->ObjectName));
     }
+#ifdef LOG_NT_API
+    if (CmpLogApi) {
+        DbgPrint("NtReplaceKey\n");
+    }
+#endif
 
     PreviousMode = KeGetPreviousMode();
 
@@ -2281,6 +2492,112 @@ Return Value:
     KeLeaveCriticalRegion();
 
     return(Status);
+}
+
+
+NTSYSAPI
+NTSTATUS
+NTAPI
+NtQueryMultipleValueKey(
+    IN HANDLE KeyHandle,
+    IN PKEY_VALUE_ENTRY ValueEntries,
+    IN ULONG EntryCount,
+    OUT PVOID ValueBuffer,
+    IN OUT PULONG BufferLength,
+    OUT OPTIONAL PULONG RequiredBufferLength
+    )
+/*++
+
+Routine Description:
+
+    Multiple values of any key may be queried atomically with
+    this api.
+
+Arguments:
+
+    KeyHandle - Supplies the key to be queried.
+
+    ValueNames - Supplies an array of value names to be queried
+
+    ValueEntries - Returns an array of KEY_VALUE_ENTRY structures, one for each value.
+
+    EntryCount - Supplies the number of entries in the ValueNames and ValueEntries arrays
+
+    ValueBuffer - Returns the value data for each value.
+
+    BufferLength - Supplies the length of the ValueBuffer array in bytes.
+                   Returns the length of the ValueBuffer array that was filled in.
+
+    RequiredBufferLength - if present, Returns the length in bytes of the ValueBuffer
+                    array required to return all the values of this key.
+
+Return Value:
+
+    NTSTATUS
+
+--*/
+
+{
+    KPROCESSOR_MODE PreviousMode;
+    NTSTATUS Status;
+    PCM_KEY_BODY KeyBody;
+    ULONG i;
+    ULONG LocalBufferLength;
+
+    PAGED_CODE();
+    CMLOG(CML_API, CMS_NTAPI) KdPrint(("NtQueryMultipleValueKey\n"));
+    CMLOG(CML_API_ARGS, CMS_NTAPI) {
+        KdPrint(("\tKeyHandle=%08lx\n", KeyHandle));
+    }
+#ifdef LOG_NT_API
+    if (CmpLogApi) {
+        DbgPrint("NtQueryMultipleValueKey\n");
+    }
+#endif
+
+    PreviousMode = KeGetPreviousMode();
+    Status = ObReferenceObjectByHandle(KeyHandle,
+                                       KEY_QUERY_VALUE,
+                                       CmpKeyObjectType,
+                                       PreviousMode,
+                                       (PVOID *)(&KeyBody),
+                                       NULL);
+    if (NT_SUCCESS(Status)) {
+        try {
+            if (PreviousMode == UserMode) {
+                LocalBufferLength = ProbeAndReadUlong(BufferLength);
+
+                //
+                // Probe the output buffers
+                //
+                ProbeForWrite(ValueEntries,
+                              EntryCount * sizeof(KEY_VALUE_ENTRY),
+                              sizeof(ULONG));
+                if (ARGUMENT_PRESENT(RequiredBufferLength)) {
+                    ProbeForWriteUlong(RequiredBufferLength);
+                }
+
+            } else {
+                LocalBufferLength = *BufferLength;
+            }
+            Status = CmQueryMultipleValueKey(KeyBody->KeyControlBlock,
+                                             ValueEntries,
+                                             EntryCount,
+                                             ValueBuffer,
+                                             &LocalBufferLength,
+                                             RequiredBufferLength);
+            *BufferLength = LocalBufferLength;
+        } except(EXCEPTION_EXECUTE_HANDLER) {
+            CMLOG(CML_API, CMS_EXCEPTION) {
+                KdPrint(("!!NtQueryMultipleValueKey: code:%08lx\n",GetExceptionCode()));
+            }
+            Status = GetExceptionCode();
+        }
+        ObDereferenceObject((PVOID)KeyBody);
+    }
+
+    return(Status);
+
 }
 
 
@@ -2449,10 +2766,15 @@ Return Value:
 --*/
 
 {
-    if (PostBlock->IsSynchronous) {
-        ExFreePool(PostBlock->u.Sync.SystemEvent);
-    } else {
-        ExFreePool(PostBlock->u.Async.Apc);
+    switch (PostBlock->NotifyType) {
+        case PostSynchronous:
+            ExFreePool(PostBlock->u.Sync.SystemEvent);
+            break;
+        case PostAsyncUser:
+            ExFreePool(PostBlock->u.AsyncUser.Apc);
+            break;
+        case PostAsyncKernel:
+            break;
     }
     ExFreePool(PostBlock);
 }
@@ -2460,7 +2782,7 @@ Return Value:
 
 PCM_POST_BLOCK
 CmpAllocatePostBlock(
-    IN BOOLEAN IsSynchronous
+    IN POST_BLOCK_TYPE BlockType
     )
 
 /*++
@@ -2491,75 +2813,36 @@ Return Value:
         return(NULL);
     }
 
-    if (IsSynchronous) {
-        PostBlock->u.Sync.SystemEvent = ALLOCATE_WITH_QUOTA(NonPagedPool,
-                                                            sizeof(KEVENT),
-                                                            CM_POSTEVENT_TAG);
-        if (PostBlock->u.Sync.SystemEvent == NULL) {
-            ExFreePool(PostBlock);
-            return(NULL);
-        }
-        KeInitializeEvent(PostBlock->u.Sync.SystemEvent,
-                          SynchronizationEvent,
-                          FALSE);
-    } else {
-        PostBlock->u.Async.Apc = ALLOCATE_WITH_QUOTA(NonPagedPool,
-                                                     sizeof(KAPC),
-                                                     CM_POSTAPC_TAG);
-        if (PostBlock->u.Async.Apc==NULL) {
-            ExFreePool(PostBlock);
-            return(NULL);
-        }
+    switch (BlockType) {
+        case PostSynchronous:
+            PostBlock->u.Sync.SystemEvent = ALLOCATE_WITH_QUOTA(NonPagedPool,
+                                                                sizeof(KEVENT),
+                                                                CM_POSTEVENT_TAG);
+            if (PostBlock->u.Sync.SystemEvent == NULL) {
+                ExFreePool(PostBlock);
+                return(NULL);
+            }
+            KeInitializeEvent(PostBlock->u.Sync.SystemEvent,
+                              SynchronizationEvent,
+                              FALSE);
+            break;
+        case PostAsyncUser:
+            PostBlock->u.AsyncUser.Apc = ALLOCATE_WITH_QUOTA(NonPagedPool,
+                                                         sizeof(KAPC),
+                                                         CM_POSTAPC_TAG);
+            if (PostBlock->u.AsyncUser.Apc==NULL) {
+                ExFreePool(PostBlock);
+                return(NULL);
+            }
+            break;
+        case PostAsyncKernel:
+            RtlZeroMemory(&PostBlock->u.AsyncKernel, sizeof(CM_ASYNC_KERNEL_POST_BLOCK));
+            break;
     }
-    PostBlock->IsSynchronous = IsSynchronous;
+
+    PostBlock->NotifyType = BlockType;
 
     return(PostBlock);
-}
-
-
-PVOID
-CmpAllocatePoolWithQuota(
-    POOL_TYPE   PoolType,
-    ULONG       NumberOfBytes
-#ifdef POOL_TAGGING
-    , ULONG     Tag
-#endif
-    )
-/*++
-
-Routine Description:
-
-    Call ExAllocatePoolWithQuota, capturing any exception that occurs.
-    If STATUS_QUOTA_EXCEEDED occurs, report NULL.  Else report what
-    ExAllocatePoolWithQuota reports.
-
-Arguments:
-
-    PoolType and NumberOfBytes are as for ExAllocatePoolWithQuota
-
-Return Value:
-
-    NTSTATUS
-
---*/
-{
-    PVOID   result;
-    NTSTATUS    ec;
-
-    try {
-        result = ExAllocatePoolWithQuotaTag(PoolType, NumberOfBytes, Tag);
-    } except (EXCEPTION_EXECUTE_HANDLER) {
-        ec = GetExceptionCode();
-        if ((ec == STATUS_QUOTA_EXCEEDED) ||
-            (ec == STATUS_INSUFFICIENT_RESOURCES))
-        {
-            result = NULL;
-
-        } else {
-            KeBugCheckEx(REGISTRY_ERROR,8,2,0,0);
-        }
-    }
-    return result;
 }
 
 #if DBG

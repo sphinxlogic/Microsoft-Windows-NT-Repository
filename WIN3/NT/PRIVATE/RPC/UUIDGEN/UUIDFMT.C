@@ -138,11 +138,7 @@ RPC_STATUS I_UuidStringGenerate(
         {
         Result = UuidToString(
             &MyUuid,
-            (RPC_CHAR PAPI * PAPI *) &MyUuidString
-                // BUGBUG: This will currently only work on non-Unicode
-                // systems.  Fix this cast later to work on Unicode systems.
-                // Also, it causes a compiler warning that can be ignored
-                // until we want to work on Unicode systems.
+            &MyUuidString
             );
         ASSERT((Result == RPC_S_OK) || (Result == RPC_S_OUT_OF_MEMORY));
         if (Result == RPC_S_OK)

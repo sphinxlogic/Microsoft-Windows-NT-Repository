@@ -34,6 +34,7 @@ include i386\kimacro.inc
 
 if DBG
         EXTRNP  _KeBugCheck,1
+        EXTRNP  _KeGetCurrentIrql,0,IMPORT
 ifdef DBGMP
         EXTRNP  _KiPollDebugger,0
 endif
@@ -135,8 +136,13 @@ ssl_timeout:
         test    byte ptr [esp+16], 4    ; Timeout check enabled?
         jz      short ssl_10            ; no, continue
 
+        stdCall _KeGetCurrentIrql       ; Check to see what level we're spinning at
+        cmp     al, DISPATCH_LEVEL
+        mov     eax, [esp+12]           ; restore eax
+        jc      short ssl_10            ; if < dispatch_level, don't timeout
+
         test    dword ptr [eax], 1      ; Check to see if spinlock was freed
-        jz      short ssl_exit          ; while timer interrupt was handled
+        jz      short ssl_exit
 
         public SpinLockSpinningForTooLong
 SpinLockSpinningForTooLong:

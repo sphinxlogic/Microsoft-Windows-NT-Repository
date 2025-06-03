@@ -80,5 +80,9 @@ GetProfileInt		     equ  <IGetProfileInt>
 GetProfileString	     equ  <IGetProfileString>
 GetPrivateProfileInt	     equ  <IGetPrivateProfileInt>
 GetPrivateProfileString      equ  <IGetPrivateProfileString>
-WriteProfileString	     equ  <IWriteProfileString>
+RegEnumKey32             equ    <IRegEnumKey32>
+RegOpenKey32             equ    <IRegOpenKey32>
+RegCloseKey32            equ    <IRegCloseKey32>
+RegEnumValue32           equ    <IRegEnumValue32>
+WriteProfileString       equ  <IWriteProfileString>
 WritePrivateProfileString    equ  <IWritePrivateProfileString>

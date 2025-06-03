@@ -19,16 +19,16 @@ Abstract:
 Author:
 
     Lou Perazzoli (loup) 5-Apr-1989
-    Joe Notarangelo (loup) 23-Apr-1992   ALPHA version from MIPS version
+    Joe Notarangelo 23-Apr-1992   ALPHA version from MIPS version
 
 Revision History:
+
+    Chao Chen 21-Aug-1995 Fixed accessing pages above 1 gig problem through
+                          hyperspace.
 
 --*/
 
 #include "mi.h"
-#include "mm.h"
-
-extern KSPIN_LOCK KiDispatcherLock;
 
 
 PVOID
@@ -86,7 +86,7 @@ Environment:
 
     LOCK_HYPERSPACE (OldIrql);
 
-    if( PageFrameIndex < (__1GB >> PAGE_SHIFT) ){
+    if (PageFrameIndex < MM_PAGES_IN_KSEG0) {
         return (PVOID)(KSEG0_BASE + (PageFrameIndex << PAGE_SHIFT));
     }
 
@@ -137,7 +137,7 @@ Environment:
     ASSERT (PointerPte->u.Hard.Valid == 0);
 
 
-    TempPte = ValidKernelPte;
+    TempPte = ValidPtePte;
     TempPte.u.Hard.PageFrameNumber = PageFrameIndex;
     *PointerPte = TempPte;
 
@@ -179,7 +179,6 @@ Environment:
     MMPTE TempPte;
     PMMPTE PointerPte;
     KIRQL OldIrql;
-    KEVENT Event;
 
 #if DBG
 
@@ -203,12 +202,10 @@ Environment:
         if (MmWorkingSetList->WaitingForImageMapping == (PKEVENT)NULL) {
 
             //
-            // Initialize an event (on our kernel stack) and issue a wait.
+            // Set the global event into the field and wait for it.
             //
 
-            KeInitializeEvent (&Event, NotificationEvent, FALSE);
-            MmWorkingSetList->WaitingForImageMapping = &Event;
-
+            MmWorkingSetList->WaitingForImageMapping = &MmImageMappingPteEvent;
         }
 
         //
@@ -216,6 +213,7 @@ Environment:
         // atomic operation.
         //
 
+        KeEnterCriticalRegion();
         UNLOCK_PFN_AND_THEN_WAIT(OldIrql);
 
         KeWaitForSingleObject(MmWorkingSetList->WaitingForImageMapping,
@@ -223,13 +221,14 @@ Environment:
                               KernelMode,
                               FALSE,
                               (PLARGE_INTEGER)NULL);
+        KeLeaveCriticalRegion();
 
         LOCK_PFN (OldIrql);
     }
 
     ASSERT (PointerPte->u.Long == 0);
 
-    TempPte = ValidKernelPte;
+    TempPte = ValidPtePte;
     TempPte.u.Hard.PageFrameNumber = PageFrameIndex;
 
     *PointerPte = TempPte;
@@ -303,7 +302,7 @@ Environment:
         // If there was an event specified, set the event.
         //
 
-        KeSetEvent (Event, 0, FALSE);
+        KePulseEvent (Event, 0, FALSE);
     }
 
     return;
@@ -358,7 +357,7 @@ Environment:
     // KSEG0.
     //
 
-    if( PageFrameIndex < (__1GB >> PAGE_SHIFT) ){
+    if (PageFrameIndex < MM_PAGES_IN_KSEG0) {
         return (PVOID)(KSEG0_BASE + (PageFrameIndex << PAGE_SHIFT));
     }
 
@@ -369,10 +368,12 @@ Environment:
 
     TempPte.u.Long = 0;
 
-    KeFlushSingleTb (MappedAddress, TRUE, FALSE,
+    KeFlushSingleTb (MappedAddress,
+                     TRUE,
+                     FALSE,
                      (PHARDWARE_PTE)PointerPte, TempPte.u.Hard);
 
-    TempPte = ValidKernelPte;
+    TempPte = ValidPtePte;
     TempPte.u.Hard.PageFrameNumber = PageFrameIndex;
 
     *PointerPte = TempPte;

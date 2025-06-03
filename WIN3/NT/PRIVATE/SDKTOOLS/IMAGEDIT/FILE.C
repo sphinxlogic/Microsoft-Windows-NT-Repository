@@ -30,7 +30,7 @@ typedef BOOL (APIENTRY *LPOFNHOOKPROC) (HWND, UINT, WPARAM, LONG);
 
 STATICFN VOID NEAR AddFilterString(PSTR pszBuf, PSTR pszType, PSTR pszExt,
     BOOL fFirst);
-STATICFN PSTR NEAR DefExtFromFilter(INT index, PSTR pszFilter);
+STATICFN PCSTR NEAR DefExtFromFilter(INT index, PCSTR pszFilter);
 STATICFN BOOL NEAR LoadFile(PSTR pszFullFileName);
 STATICFN INT NEAR GetTypeFromExt(PSTR pszFileName);
 STATICFN VOID NEAR FileCat(PSTR pchName, PSTR pchCat);
@@ -470,9 +470,9 @@ STATICFN VOID NEAR AddFilterString(
 *
 ************************************************************************/
 
-STATICFN PSTR NEAR DefExtFromFilter(
+STATICFN PCSTR NEAR DefExtFromFilter(
     INT index,
-    PSTR pszFilter)
+    PCSTR pszFilter)
 {
     if (!pszFilter)
         return NULL;
@@ -681,9 +681,9 @@ STATICFN INT NEAR GetTypeFromExt(
 
     pszExt = pszFileName + strlen(pszFileName) - 3;
 
-    if (strcmpi(pszExt, ids(IDS_DEFEXTICO)) == 0)
+    if (_strcmpi(pszExt, ids(IDS_DEFEXTICO)) == 0)
         return FT_ICON;
-    else if (strcmpi(pszExt, ids(IDS_DEFEXTCUR)) == 0)
+    else if (_strcmpi(pszExt, ids(IDS_DEFEXTCUR)) == 0)
         return FT_CURSOR;
     else
         return FT_BITMAP;

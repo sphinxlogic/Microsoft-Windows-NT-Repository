@@ -4,6 +4,8 @@
 .386p
 
 
+ifndef WOWRTL
+
 EXTRN	GetAppCompatFlags:FAR
 PUBLIC	 _GetAppCompatFlags@4
 _TEXT	SEGMENT
@@ -17,6 +19,13 @@ _GetAppCompatFlags@4 PROC FAR				; COMDAT
 _GetAppCompatFlags@4 ENDP
 _TEXT	ENDS
 
+else
+
+_TEXT	SEGMENT
+EXTRN   _GetAppCompatFlags@4:FAR
+_TEXT	ENDS
+
+endif
 
 _TEXT	SEGMENT
 EXTRN _wow16gpsi:NEAR

@@ -34,9 +34,9 @@ Environment:
 #include "regsys.hxx"
 #include "defmsg.h"
 
-extern "C" {
-    #include <stdio.h>
+#include <stdio.h>
                       //
+extern "C" {
     #include "clb.h"  // on \nt\private\sdktools\wintools\clb
                       //
 }
@@ -225,7 +225,7 @@ Return Value:
             DELETE( _MsgShareDriverExclusive );
             DELETE( _MsgShareShared          );
 
-        DbgPrintf( "REGEDT32: Unable to initialize strings on REGISTRY_DATA \n" );
+        DebugPrintf( "REGEDT32: Unable to initialize strings on REGISTRY_DATA \n" );
         _StringsInitialized = FALSE;
     } else {
         _StringsInitialized = TRUE;
@@ -690,7 +690,7 @@ Return Value:
             PWSTR                   String2;
 
             lpcis = ( LPCOMPAREITEMSTRUCT ) lParam;
-            DbgAssert( lpcis->CtlType == ODT_LISTBOX );
+            DebugAssert( lpcis->CtlType == ODT_LISTBOX );
 
             //
             // Extract the rows to be compared.
@@ -1034,7 +1034,7 @@ Return Value:
                               Interrupt->GetVector() );
                     swprintf( InterruptLevelString,
                               ( LPWSTR )L"%d",
-                              Interrupt->GetVector() );
+                              Interrupt->GetLevel() );
                     swprintf( InterruptAffinityString,
                               ( LPWSTR )L"0x%08x",
                               Interrupt->GetAffinity() );
@@ -1153,7 +1153,7 @@ Return Value:
                                 &ClbRow );
 
                 } else {
-                    DbgPrintf( "REGEDT32: Unknown Descriptor \n\n" );
+                    DebugPrintf( "REGEDT32: Unknown Descriptor \n\n" );
                     continue;
                 }
 
@@ -1178,7 +1178,7 @@ Return Value:
             PCPARTIAL_DESCRIPTOR    Descriptor2;
 
             lpcis = ( LPCOMPAREITEMSTRUCT ) lParam;
-            DbgAssert( lpcis->CtlType == ODT_LISTBOX );
+            DebugAssert( lpcis->CtlType == ODT_LISTBOX );
 
             //
             // Extract the two rows to be compared.
@@ -2064,13 +2064,13 @@ Return Value:
             //  Write share disposition
             //
 
-            if( Port->IsResourceShareUndetermined ) {
+            if( Port->IsResourceShareUndetermined() ) {
                 String = _MsgShareUndetermined;
-            } else if( Port->IsResourceShareDeviceExclusive ) {
+            } else if( Port->IsResourceShareDeviceExclusive() ) {
                 String = _MsgShareDeviceExclusive;
-            } else if( Port->IsResourceShareDriverExclusive ) {
+            } else if( Port->IsResourceShareDriverExclusive() ) {
                 String = _MsgShareDriverExclusive;
-            } else if( Port->IsResourceShareShared ) {
+            } else if( Port->IsResourceShareShared() ) {
                 String = _MsgShareShared;
             } else {
                 String = _MsgInvalid;
@@ -2239,13 +2239,13 @@ Return Value:
             //  Write share disposition
             //
 
-            if( Memory->IsResourceShareUndetermined ) {
+            if( Memory->IsResourceShareUndetermined() ) {
                 String = _MsgShareUndetermined;
-            } else if( Memory->IsResourceShareDeviceExclusive ) {
+            } else if( Memory->IsResourceShareDeviceExclusive() ) {
                 String = _MsgShareDeviceExclusive;
-            } else if( Memory->IsResourceShareDriverExclusive ) {
+            } else if( Memory->IsResourceShareDriverExclusive() ) {
                 String = _MsgShareDriverExclusive;
-            } else if( Memory->IsResourceShareShared ) {
+            } else if( Memory->IsResourceShareShared() ) {
                 String = _MsgShareShared;
             } else {
                 String = _MsgInvalid;
@@ -2373,13 +2373,13 @@ Return Value:
             //  Write share disposition
             //
 
-            if( Interrupt->IsResourceShareUndetermined ) {
+            if( Interrupt->IsResourceShareUndetermined() ) {
                 String = _MsgShareUndetermined;
-            } else if( Interrupt->IsResourceShareDeviceExclusive ) {
+            } else if( Interrupt->IsResourceShareDeviceExclusive() ) {
                 String = _MsgShareDeviceExclusive;
-            } else if( Interrupt->IsResourceShareDriverExclusive ) {
+            } else if( Interrupt->IsResourceShareDriverExclusive() ) {
                 String = _MsgShareDriverExclusive;
-            } else if( Interrupt->IsResourceShareShared ) {
+            } else if( Interrupt->IsResourceShareShared() ) {
                 String = _MsgShareShared;
             } else {
                 String = _MsgInvalid;
@@ -2490,13 +2490,13 @@ Return Value:
             //  Write share disposition
             //
 
-            if( Dma->IsResourceShareUndetermined ) {
+            if( Dma->IsResourceShareUndetermined() ) {
                 String = _MsgShareUndetermined;
-            } else if( Dma->IsResourceShareDeviceExclusive ) {
+            } else if( Dma->IsResourceShareDeviceExclusive() ) {
                 String = _MsgShareDeviceExclusive;
-            } else if( Dma->IsResourceShareDriverExclusive ) {
+            } else if( Dma->IsResourceShareDriverExclusive() ) {
                 String = _MsgShareDriverExclusive;
-            } else if( Dma->IsResourceShareShared ) {
+            } else if( Dma->IsResourceShareShared() ) {
                 String = _MsgShareShared;
             } else {
                 String = _MsgInvalid;

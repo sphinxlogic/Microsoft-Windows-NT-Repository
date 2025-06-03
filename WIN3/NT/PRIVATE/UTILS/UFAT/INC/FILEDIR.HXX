@@ -27,6 +27,14 @@ Author:
 #include "fatdir.hxx"
 #include "mem.hxx"
 
+#if defined ( _AUTOCHECK_ )
+#define UFAT_EXPORT
+#elif defined ( _UFAT_MEMBER_ )
+#define UFAT_EXPORT    __declspec(dllexport)
+#else
+#define UFAT_EXPORT    __declspec(dllimport)
+#endif
+
 //
 // Forward references
 //
@@ -40,13 +48,16 @@ class FILEDIR : public FATDIR {
 
     public:
 
+        UFAT_EXPORT
         DECLARE_CONSTRUCTOR( FILEDIR );
 
         VIRTUAL
+        UFAT_EXPORT
         ~FILEDIR(
             );
 
         NONVIRTUAL
+        UFAT_EXPORT
         BOOLEAN
         Initialize(
             IN OUT  PMEM                Mem,

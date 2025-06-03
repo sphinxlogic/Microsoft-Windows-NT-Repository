@@ -158,12 +158,6 @@ main(
     PRTL_USER_PROCESS_PARAMETERS ProcessParameters;
     RTL_USER_PROCESS_INFORMATION ProcessInformation;
 
-    NtPartyByNumber( PARTY_SET_GLOBAL_FLAG,
-                     FLG_STOP_ON_EXCEPTION |
-                     FLG_OB_DELETE_MESSAGE |
-                     FLG_STATS_ON_PROCESS_EXIT
-                   );
-
     if (argc == 1) {
         TestParent();
 

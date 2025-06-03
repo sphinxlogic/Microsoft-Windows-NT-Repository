@@ -20,6 +20,8 @@ Revision History:
 
 #include "mc.h"
 
+WCHAR * wszMessageType;
+
 BOOLEAN
 McParseFile( void )
 {
@@ -30,7 +32,7 @@ McParseFile( void )
     if (!McOpenInputFile()) {
         fprintf( stderr, "MC: Unable to open %s for input\n", MessageFileName );
         return( FALSE );
-        }
+    }
 
     fprintf( stderr, "MC: Compiling %s\n", MessageFileName );
     while ((t = McGetToken( TRUE )) != MCTOK_END_OF_FILE) {
@@ -39,16 +41,28 @@ McParseFile( void )
             if ((t = McGetToken( FALSE )) == MCTOK_EQUAL) {
                 if ((t = McGetToken( FALSE )) == MCTOK_NAME) {
                     MessageIdTypeName = McMakeString( TokenCharValue );
-                    }
-                else {
+                } else {
                     McInputErrorW( L"Symbol name must follow %s=", TRUE, TokenKeyword->Name );
                     return( FALSE );
-                    }
                 }
-            else {
+            } else {
                 McInputErrorW( L"Equal sign must follow %s", TRUE, TokenKeyword->Name );
                 return( FALSE );
+            }
+            break;
+
+        case MCTOK_MSGTYPEDEF_KEYWORD:
+            if ((t = McGetToken( FALSE )) == MCTOK_EQUAL) {
+                if ((t = McGetToken( FALSE )) == MCTOK_NAME) {
+                    MessageIdTypeMacro = McMakeString( TokenCharValue );
+                } else {
+                    McInputErrorW( L"Symbol name must follow %s=", TRUE, TokenKeyword->Name );
+                    return( FALSE );
                 }
+            } else {
+                McInputErrorW( L"Equal sign must follow %s", TRUE, TokenKeyword->Name );
+                return( FALSE );
+            }
             break;
 
         case MCTOK_OUTBASE_KEYWORD:
@@ -56,23 +70,19 @@ McParseFile( void )
                 if ((t = McGetToken( FALSE )) == MCTOK_NUMBER) {
                     if (TokenNumericValue == 16) {
                         GenerateDecimalMessageValues = FALSE;
-                        }
-                    else if (TokenNumericValue == 10) {
+                    } else if (TokenNumericValue == 10) {
                         GenerateDecimalMessageValues = TRUE;
-                        }
-                    else {
+                    } else {
                         McInputErrorW( L"Illegal value for %s=", TRUE, TokenKeyword->Name );
-                        }
                     }
-                else {
+                } else {
                     McInputErrorW( L"Number must follow %s=", TRUE, TokenKeyword->Name );
                     return( FALSE );
-                    }
                 }
-            else {
+            } else {
                 McInputErrorW( L"Equal sign must follow %s", TRUE, TokenKeyword->Name );
                 return( FALSE );
-                }
+            }
             break;
 
         case MCTOK_SEVNAMES_KEYWORD:
@@ -80,17 +90,15 @@ McParseFile( void )
                 if ((t = McGetToken( FALSE )) == MCTOK_LEFT_PAREN) {
                     if (!McParseNameList( &SeverityNames, FALSE, 0x3L )) {
                         return( FALSE );
-                        }
                     }
-                else {
+                } else {
                     McInputErrorW( L"Left parenthesis name must follow %s=", TRUE, TokenKeyword->Name );
                     return( FALSE );
-                    }
                 }
-            else {
+            } else {
                 McInputErrorW( L"Equal sign must follow %s", TRUE, TokenKeyword->Name );
                 return( FALSE );
-                }
+            }
             break;
 
         case MCTOK_FACILITYNAMES_KEYWORD:
@@ -98,17 +106,15 @@ McParseFile( void )
                 if ((t = McGetToken( FALSE )) == MCTOK_LEFT_PAREN) {
                     if (!McParseNameList( &FacilityNames, FALSE, 0xFFFL )) {
                         return( FALSE );
-                        }
                     }
-                else {
+                } else {
                     McInputErrorW( L"Left parenthesis name must follow %s=", TRUE, TokenKeyword->Name );
                     return( FALSE );
-                    }
                 }
-            else {
+            } else {
                 McInputErrorW( L"Equal sign must follow %s", TRUE, TokenKeyword->Name );
                 return( FALSE );
-                }
+            }
             break;
 
         case MCTOK_LANGNAMES_KEYWORD:
@@ -116,28 +122,24 @@ McParseFile( void )
                 if ((t = McGetToken( FALSE )) == MCTOK_LEFT_PAREN) {
                     if (!McParseNameList( &LanguageNames, TRUE, 0xFFFFL )) {
                         return( FALSE );
-                        }
                     }
-                else {
+                } else {
                     McInputErrorW( L"Left parenthesis name must follow %s=", TRUE, TokenKeyword->Name );
                     return( FALSE );
-                    }
                 }
-            else {
+            } else {
                 McInputErrorW( L"Equal sign must follow %s", TRUE, TokenKeyword->Name );
                 return( FALSE );
-                }
+            }
             break;
 
-//dee
         case MCTOK_MESSAGEID_KEYWORD:
             McUnGetToken();
             if (FirstMessageDefinition) {
                 FirstMessageDefinition = FALSE;
                 McFlushComments();
-                if (OleOutput)
-                {
-                    fprintf( HeaderFile,
+                if (OleOutput) {
+                    fputs(
                         "//\r\n"
                         "//  Values are 32 bit values layed out as follows:\r\n"
                         "//\r\n"
@@ -170,11 +172,10 @@ McParseFile( void )
                         "//      Facility - is the facility code\r\n"
                         "//\r\n"
                         "//      Code - is the facility's status code\r\n"
-                        "//\r\n" );
-                }
-                else
-                {
-                    fprintf( HeaderFile,
+                        "//\r\n",
+                        HeaderFile );
+                } else {
+                    fputs(
                         "//\r\n"
                         "//  Values are 32 bit values layed out as follows:\r\n"
                         "//\r\n"
@@ -200,13 +201,15 @@ McParseFile( void )
                         "//      Facility - is the facility code\r\n"
                         "//\r\n"
                         "//      Code - is the facility's status code\r\n"
-                        "//\r\n" );
+                        "//\r\n",
+                        HeaderFile );
                 }
 
-                fprintf( HeaderFile,
+                fputs(
                     "//\r\n"
                     "// Define the facility codes\r\n"
-                    "//\r\n" );
+                    "//\r\n",
+                    HeaderFile );
 
                 p = FacilityNames;
                 while( p ) {
@@ -216,16 +219,18 @@ McParseFile( void )
                                              "#define %-32ws 0x%lX\r\n",
                                  p->Value, p->Id
                                );
-                        }
+                    }
 
                     p = p->Next;
-                    }
-                fprintf( HeaderFile, "\r\n" );
-                fprintf( HeaderFile, "\r\n" );
+                }
+                fputs(
+                    "\r\n"
+                    "\r\n"
+                    "//\r\n"
+                    "// Define the severity codes\r\n"
+                    "//\r\n",
+                    HeaderFile );
 
-                fprintf( HeaderFile, "//\r\n" );
-                fprintf( HeaderFile, "// Define the severity codes\r\n" );
-                fprintf( HeaderFile, "//\r\n" );
                 p = SeverityNames;
                 while( p ) {
                     if (p->Value) {
@@ -234,28 +239,41 @@ McParseFile( void )
                                              "#define %-32ws 0x%lX\r\n",
                                  p->Value, p->Id
                                );
-                        }
+                    }
 
                     p = p->Next;
-                    }
-                fprintf( HeaderFile, "\r\n" );
-                fprintf( HeaderFile, "\r\n" );
-                if (GenerateDebugFile) {
-                    fprintf( DebugFile, "//\n" );
-                    fprintf( DebugFile, "// This file maps message Id values in to a text string that contains\n" );
-                    fprintf( DebugFile, "// the symbolic name used for the message Id.  Useful for debugging\n" );
-                    fprintf( DebugFile, "// output.\n" );
-                    fprintf( DebugFile, "//\n\n" );
-                    fprintf( DebugFile, "struct {\n" );
-                    fprintf( DebugFile, "    %ws MessageId;\n", MessageIdTypeName ? MessageIdTypeName : L"DWORD" );
-                    fprintf( DebugFile, "    char *SymbolicName;\n" );
-                    fprintf( DebugFile, "} %sSymbolicNames[] = {\n", MessageFileNameNoExt );
-                    }
                 }
+
+                fputs(
+                    "\r\n"
+                    "\r\n",
+                    HeaderFile );
+
+                wszMessageType = MessageIdTypeName ? MessageIdTypeName : L"DWORD";
+
+                if (GenerateDebugFile) {
+                    fputs(
+                        "//\n"
+                        "// This file maps message Id values in to a text string that contains\n"
+                        "// the symbolic name used for the message Id.  Useful for debugging\n"
+                        "// output.\n"
+                        "//\n\n"
+                        "struct {\n",
+                        DebugFile );
+
+                    fprintf(
+                        DebugFile,
+                        "    %ws MessageId;\n"
+                        "    char *SymbolicName;\n"
+                        "} %sSymbolicNames[] = {\n",
+                        wszMessageType,
+                        MessageFileNameNoExt );
+                }
+            }
 
             if (!McParseMessageDefinition()) {
                 return( FALSE );
-                }
+            }
             break;
 
         default:
@@ -266,8 +284,8 @@ McParseFile( void )
     }
 
     if (GenerateDebugFile) {
-        fprintf( DebugFile, "    0xFFFFFFFF, NULL\n};\n" );
-        }
+        fprintf( DebugFile, " (%ws) 0xFFFFFFFF, NULL\n};\n", wszMessageType );
+    }
 
     McFlushComments();
     return( TRUE );
@@ -280,7 +298,7 @@ McParseMessageDefinition( void )
     unsigned int t;
     PMESSAGE_INFO MessageInfo;
     BOOLEAN MessageIdSeen;
-    PMESSAGE_INFO MessageInfoTemp;
+    PMESSAGE_INFO MessageInfoTemp, *pp;
 
     McFlushComments();
 
@@ -299,74 +317,65 @@ McParseMessageDefinition( void )
             if (MessageIdSeen) {
                 McInputErrorA( "Invalid message definition - text missing.", TRUE, NULL );
                 return( FALSE );
-                }
+            }
 
             MessageIdSeen = TRUE;
             if ((t = McGetToken( FALSE )) == MCTOK_EQUAL) {
                 if ((t = McGetToken( FALSE )) == MCTOK_NUMBER) {
                     MessageInfo->Id = TokenNumericValue;
                     MessageInfo->Method = MSG_ABSOLUTE;
-                    }
-                else
+                } else
                 if (t == MCTOK_PLUS) {
                     if ((t = McGetToken( FALSE )) == MCTOK_NUMBER) {
                         MessageInfo->Id = TokenNumericValue;
                         MessageInfo->Method = MSG_PLUS_VALUE;
-                        }
-                    else {
+                    } else {
                         McInputErrorW( L"Number must follow %s=+", TRUE, TokenKeyword->Name );
                         return( FALSE );
-                        }
                     }
-                else {
+                } else {
                     McUnGetToken();
-                    }
-
                 }
-            else {
+            } else {
                 McInputErrorW( L"Equal sign must follow %s", TRUE, TokenKeyword->Name );
                 return( FALSE );
-                }
+            }
             break;
 
         case MCTOK_SEVERITY_KEYWORD:
             if ((t = McGetToken( FALSE )) == MCTOK_EQUAL) {
                 if (!McParseName( SeverityNames, &CurrentSeverityName )) {
                     return( FALSE );
-                    }
                 }
-            else {
+            } else {
                 McInputErrorW( L"Equal sign must follow %s", TRUE, TokenKeyword->Name );
                 return( FALSE );
-                }
+            }
             break;
 
         case MCTOK_FACILITY_KEYWORD:
             if ((t = McGetToken( FALSE )) == MCTOK_EQUAL) {
                 if (!McParseName( FacilityNames, &CurrentFacilityName )) {
                     return( FALSE );
-                    }
                 }
-            else {
+            } else {
                 McInputErrorW( L"Equal sign must follow %s", TRUE, TokenKeyword->Name );
                 return( FALSE );
-                }
+            }
             break;
 
         case MCTOK_SYMBOLNAME_KEYWORD:
             if ((t = McGetToken( FALSE )) == MCTOK_EQUAL) {
                 if ((t = McGetToken( FALSE )) == MCTOK_NAME) {
                     MessageInfo->SymbolicName = McMakeString( TokenCharValue );
-                    }
-                else {
+                } else {
                     McInputErrorW( L"Symbol name must follow %s=+", TRUE, TokenKeyword->Name );
                     return( FALSE );
-                    }
                 }
-            else {
+            } else {
                 McInputErrorW( L"Equal sign must follow %s", TRUE, TokenKeyword->Name );
                 return( FALSE );
-                }
+            }
             break;
 
 
@@ -380,16 +389,15 @@ McParseMessageDefinition( void )
 
             if (MessageInfo->Method == MSG_PLUS_ONE) {
                 MessageInfo->Id = CurrentFacilityName->LastId + 1;
-                }
-            else
+            } else
             if (MessageInfo->Method == MSG_PLUS_VALUE) {
                 MessageInfo->Id = CurrentFacilityName->LastId + MessageInfo->Id;
-                }
+            }
 
             if (MessageInfo->Id > 0xFFFFL) {
                 McInputErrorA( "Message Id value (%lx) too large", TRUE, (PVOID)MessageInfo->Id );
                 return( FALSE );
-                }
+            }
 
             MessageInfo->Id |= (CurrentSeverityName->Id << 30) |
                                CustomerMsgIdBit |
@@ -400,12 +408,11 @@ McParseMessageDefinition( void )
                 fprintf( HeaderFile, "// MessageId: %ws\r\n",
                                      MessageInfo->SymbolicName
                        );
-                }
-            else {
+            } else {
                 fprintf( HeaderFile, "// MessageId: 0x%08lXL (No symbolic name defined)\r\n",
                                      MessageInfo->Id
                        );
-                }
+            }
 
             fprintf( HeaderFile, "//\r\n" );
             fprintf( HeaderFile, "// MessageText:\r\n" );
@@ -415,83 +422,101 @@ McParseMessageDefinition( void )
                 fprintf( HeaderFile, "//\r\n" );
                 if (MessageInfo->SymbolicName) {
                     if (GenerateDebugFile) {
-                        fprintf( DebugFile, "    %ws, \"%ws\",\n",
+                        fprintf( DebugFile, " (%ws) %ws, \"%ws\",\n",
+                                 wszMessageType,
                                  MessageInfo->SymbolicName,
                                  MessageInfo->SymbolicName
                                );
-                        }
+                    }
 
-                    if (MessageIdTypeName != NULL) {
+                    if (MessageIdTypeMacro != NULL) {
                         fprintf( HeaderFile, GenerateDecimalMessageValues ?
-                                             "#define %-32ws ((%ws)%ldL)" :
-                                             "#define %-32ws ((%ws)0x%08lXL)",
+                                             "#define %-32ws %ws(%ldL)" :
+                                             "#define %-32ws %ws(0x%08lXL)",
                                              MessageInfo->SymbolicName,
-                                             MessageIdTypeName,
+                                             MessageIdTypeMacro,
                                              MessageInfo->Id
                                );
-                        }
-                    else {
-                        fprintf( HeaderFile, GenerateDecimalMessageValues ?
-                                             "#define %-32ws %ldL" :
-                                             "#define %-32ws 0x%08lXL",
-                                             MessageInfo->SymbolicName,
-                                             MessageInfo->Id
-                               );
+                    } else {
+                        if (MessageIdTypeName != NULL) {
+                            fprintf( HeaderFile, GenerateDecimalMessageValues ?
+                                                 "#define %-32ws ((%ws)%ldL)" :
+                                                 "#define %-32ws ((%ws)0x%08lXL)",
+                                                 MessageInfo->SymbolicName,
+                                                 wszMessageType,
+                                                 MessageInfo->Id
+                                   );
+                        } else {
+                            fprintf( HeaderFile, GenerateDecimalMessageValues ?
+                                                 "#define %-32ws %ldL" :
+                                                 "#define %-32ws 0x%08lXL",
+                                                 MessageInfo->SymbolicName,
+                                                 MessageInfo->Id
+                                   );
                         }
                     }
+                }
 
                 if (MessageInfo->EndOfLineComment) {
                     fprintf( HeaderFile, "    %ws", MessageInfo->EndOfLineComment );
-                    }
-                else {
+                } else {
                     fprintf( HeaderFile, "\r\n" );
-                    }
+                }
                 fprintf( HeaderFile, "\r\n" );
 
-                if (Messages == NULL) {
-                    Messages = MessageInfo;
-                    }
-                else {
-                    MessageInfoTemp = Messages;
+                //
+                //  Scan the existing messages to see if this message
+                //  exists in the message file.
+                //
+                //  If it does, generate and error for the user.  Otherwise
+                //  insert new message in list in ascending Id order.
+                //
 
-                    //
-                    //  Scan the existing messages to see if this message
-                    //  exists in the message file.
-                    //
-                    //  If it does, generate and error for the user.
-                    //
-
-                    while (MessageInfoTemp != NULL) {
-
-                        if (MessageInfoTemp->Id == MessageInfo->Id) {
-                            McInputErrorA( "Duplicate message ID - 0x%lx", FALSE, (PVOID)(MessageInfo->Id) );
-                            }
-
-                        MessageInfoTemp = MessageInfoTemp->Next;
+                pp = &Messages;
+                while (MessageInfoTemp = *pp) {
+                    if (MessageInfoTemp->Id == MessageInfo->Id) {
+                        if (MessageInfo->SymbolicName && MessageInfoTemp->SymbolicName) {
+                            fprintf( stderr,
+                                     "%s(%d) : error : Duplicate message ID - 0x%x (%ws and %ws)\n",
+                                     MessageFileName,
+                                     MessageFileLineNumber,
+                                     MessageInfo->Id,
+                                     MessageInfoTemp->SymbolicName,
+                                     MessageInfo->SymbolicName
+                                     );
+                        } else {
+                            McInputErrorA( "Duplicate message ID - 0x%lx", TRUE, (PVOID)(MessageInfo->Id) );
                         }
-
-                    CurrentMessage->Next = MessageInfo;
+                    } else {
+                        if (MessageInfoTemp->Id > MessageInfo->Id) {
+                            break;
+                        }
                     }
+
+                    pp = &MessageInfoTemp->Next;
+                }
+
+                MessageInfo->Next = *pp;
+                *pp = MessageInfo;
 
                 CurrentMessage = MessageInfo;
                 CurrentFacilityName->LastId = MessageInfo->Id & 0xFFFF;
                 return( TRUE );
-                }
-            else {
+            } else {
                 return( FALSE );
-                }
+            }
 
         default:
             McInputErrorW( L"Invalid message definition token - '%s'", TRUE, TokenCharValue );
             return( FALSE );
-            }
         }
+    }
 
     return( FALSE );
 }
 
 
-WCHAR MessageTextBuffer[ 8192 ];
+WCHAR MessageTextBuffer[ 32767 ];
 
 BOOLEAN
 McParseMessageText(
@@ -511,18 +536,16 @@ McParseMessageText(
             if ((t = McGetToken( FALSE )) == MCTOK_EQUAL) {
                 if (!McParseName( LanguageNames, &CurrentLanguageName )) {
                     return( FALSE );
-                    }
-		GetCPInfo(CurrentLanguageName->CodePage, &CPInfo);
                 }
-            else {
+                GetCPInfo(CurrentLanguageName->CodePage, &CPInfo);
+            } else {
                 McInputErrorW( L"Equal sign must follow %s", TRUE, TokenKeyword->Name );
                 return( FALSE );
-                }
             }
-        else {
+        } else {
             McUnGetToken();
             break;
-            }
+        }
 
         MessageText = malloc( sizeof( *MessageText ) );
         MessageText->Next = NULL;
@@ -531,67 +554,105 @@ McParseMessageText(
         MessageText->Text = NULL;
 
         dst = MessageTextBuffer;
+        *MessageTextBuffer = L'\0';
         while (src = McGetLine()) {
-            if (!wcscmp( src, L".\r\n" )) {
+            n = wcslen( MessageTextBuffer );
+            // If the message buffer is complete, see if this is a '.' record.
+            if (((n == 0) || *(MessageTextBuffer+n-1) == L'\n') &&
+                !wcscmp( src, L".\r\n" )) {
                 if (MessageText->Length == 0) {
                     if (MessageInfo->SymbolicName) {
                         wcscpy( dst, MessageInfo->SymbolicName );
-                        }
-                    else {
+                    } else {
                         swprintf( dst, L"No symbolic name defined for0x%08lXL" );
-                        }
+                    }
 
                     wcscat( dst, L"\r\n" );
                     if (!FirstLanguageProcessed) {
                         fprintf( HeaderFile, "//  %ws", dst );
-                        }
+                    }
 
                     n = wcslen( dst );
                     dst += n;
                     MessageText->Length += n;
-                    }
+                }
 
                 McSkipLine();
                 break;
-                }
-            else if (!wcsnicmp( src, L"LanguageId=", 11 ) ||
-                     !wcsnicmp( src, L"MessageId=", 10 )) {
+            }
+            else if (!_wcsnicmp( src, L"LanguageId=", 11 ) ||
+                     !_wcsnicmp( src, L"MessageId=", 10 )) {
                 McInputErrorA( "Unterminated message definition", TRUE, NULL );
                 return( FALSE );
-                }
+            }
 
             if (!FirstLanguageProcessed) {
-                fprintf( HeaderFile, "//  %ws", src );
-                }
+                // To write DBCS comments to the header file.
+                //
+                // fprintf() does not work correctly with Unicode
+                // to write DBCS characters.  Convert Unicode to
+                // MultiByte and use the Ansi string instead...
+                char * pch;
+
+                int len = WideCharToMultiByte(CurrentLanguageName->CodePage,
+                                              0,        // No flags
+                                              src,      // The buffer to convert
+                                              -1,       // It's zero terminated
+                                              NULL,
+                                              0,        // Tell us how much to allocate
+                                              NULL,     // No default char
+                                              NULL);    // No used default char
+
+                pch = malloc(len + 1);
+
+                WideCharToMultiByte(CurrentLanguageName->CodePage,
+                                              0,
+                                              src,
+                                              -1,
+                                              pch,      // The buffer to fill in
+                                              len,      // How big it is
+                                              NULL,
+                                              NULL);
+
+                fprintf( HeaderFile, "//  %s", pch );
+                free(pch);
+            }
 
             n = wcslen( src );
             if (MessageText->Length + n > sizeof( MessageTextBuffer )) {
-                McInputErrorA( "Message text too long - > %ld", TRUE,
+                McInputErrorA( "Message text too long (> %ld)", TRUE,
                               (PVOID)(ULONG)sizeof( MessageTextBuffer )
                             );
                 return( FALSE );
-                }
+            }
 
             wcscpy( dst, src );
             dst += n;
             MessageText->Length += n;
+
+            if (MaxMessageLength != 0 && (MessageText->Length > (ULONG)MaxMessageLength)) {
+                McInputErrorA( "Message text larger than size specified by -m %d",
+                               TRUE,
+                               (PVOID)MaxMessageLength
+                             );
             }
+        }
         *dst = L'\0';
 
         n = (((USHORT)MessageText->Length) + 1) * sizeof( WCHAR );
         MessageText->Text = malloc( n );
         memcpy( MessageText->Text, MessageTextBuffer, n );
-	if (UnicodeOutput)
-	    MessageText->Length = n - sizeof( WCHAR );
-	else
-	    MessageText->Length = WideCharToMultiByte(
+        if (UnicodeOutput)
+            MessageText->Length = n - sizeof( WCHAR );
+        else
+            MessageText->Length = WideCharToMultiByte(
                     CurrentLanguageName->CodePage,
-		    0, MessageTextBuffer, MessageText->Length,
-		    NULL, 0, NULL, NULL );
+                    0, MessageTextBuffer, MessageText->Length,
+                    NULL, 0, NULL, NULL );
         *pp = MessageText;
         pp = &MessageText->Next;
         FirstLanguageProcessed = TRUE;
-        }
+    }
 
     return( TRUE );
 }
@@ -613,7 +674,7 @@ McParseNameList(
     while ((t = McGetToken( FALSE )) != MCTOK_END_OF_FILE) {
         if (t == MCTOK_RIGHT_PAREN) {
             return( TRUE );
-            }
+        }
 
         if (t == MCTOK_NAME) {
             Name = McMakeString( TokenCharValue );
@@ -625,56 +686,51 @@ McParseNameList(
                     if ((t = McGetToken( FALSE )) == MCTOK_COLON) {
                         if ((t = McGetToken( FALSE )) == MCTOK_NAME) {
                             Value = McMakeString( TokenCharValue );
-                            }
-                        else {
+                        } else {
                             McInputErrorA( "File name must follow =%ld:", TRUE, (PVOID)Id );
                             return( FALSE );
-                            }
                         }
-                    else {
+                    } else {
                         if (ValueRequired) {
                             McInputErrorA( "Colon must follow =%ld", TRUE, (PVOID)Id );
                             return( FALSE );
-                            }
+                        }
 
                         McUnGetToken();
-                        }
                     }
-                else {
+                } else {
                     McInputErrorW( L"Number must follow %s=", TRUE, Name );
                     return( FALSE );
-                    }
                 }
-            else {
+            } else {
                 McInputErrorW( L"Equal sign name must follow %s", TRUE, Name );
                 return( FALSE );
-                }
+            }
 
             if (Id > MaximumValue) {
                 McInputErrorA( "Value is too large (> %lx)", TRUE, (PVOID)MaximumValue );
                 return( FALSE );
-                }
+            }
 
             p = McAddName( NameListHead, Name, Id, Value );
             free( Name );
-            }
-	else if (t == MCTOK_COLON && p) {
-	    if ((t = McGetToken( FALSE )) == MCTOK_NUMBER) {
-		p->CodePage = (USHORT)TokenNumericValue;
-		if (!IsValidCodePage(TokenNumericValue)) {
-		    McInputErrorW( L"CodePage %d is invalid", TRUE, (PVOID)TokenNumericValue );
-		    return( FALSE );
-		    }
-		if (VerboseOutput) {
-		    fprintf( stderr, "Using CodePage %d for Language %04x\n", TokenNumericValue, Id);
-		    }
-		}
-	    else {
-		McInputErrorW( L"CodePage must follow %s=:", TRUE, Name );
-		return( FALSE );
-		}
-	    }
         }
+        else if (t == MCTOK_COLON && p) {
+            if ((t = McGetToken( FALSE )) == MCTOK_NUMBER) {
+                p->CodePage = (USHORT)TokenNumericValue;
+                if (!IsValidCodePage(TokenNumericValue)) {
+                    McInputErrorW( L"CodePage %d is invalid", TRUE, (PVOID)TokenNumericValue );
+                    return( FALSE );
+                }
+                if (VerboseOutput) {
+                    fprintf( stderr, "Using CodePage %d for Language %04x\n", TokenNumericValue, Id);
+                }
+            } else {
+                McInputErrorW( L"CodePage must follow %s=:", TRUE, Name );
+                return( FALSE );
+            }
+        }
+    }
 
     return( FALSE );
 }
@@ -693,14 +749,12 @@ McParseName(
         if (p != NULL) {
             *Result = p;
             return( TRUE );
-            }
-        else {
+        } else {
             McInputErrorW( L"Invalid name - %s", TRUE, TokenCharValue );
-            }
         }
-    else {
+    } else {
         McInputErrorW( L"Missing name after %s=", TRUE, TokenKeyword->Name );
-        }
+    }
 
     return( FALSE );
 }

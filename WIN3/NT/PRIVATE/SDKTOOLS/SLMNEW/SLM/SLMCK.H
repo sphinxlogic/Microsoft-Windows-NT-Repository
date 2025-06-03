@@ -1,3 +1,5 @@
+#ifndef SLMCK_INCLUDED
+#define SLMCK_INCLUDED
 /* must include slm.h, sys.h and stfile.h first.  We typedef all data
    structures for the current version to be the same structures as SLMn where
    n is the current version.
@@ -18,16 +20,16 @@ typedef FS FS2;
 typedef struct
 	{
 	MF *pmfStat;		/* current status file (left open for checks) */
-	char huge *hpbStatus;	/* status buffer */
-	char huge *hpbStatMac;	/* end of status buffer */
+        char *hpbStatus;        /* status buffer */
+        char *hpbStatMac;       /* end of status buffer */
 	short fAnyChanges;	/* flag that is set if any changes are made */
 
 	PTH pthSd[cchPthMax];	/* pmfStat->pthReal points here */
 
-	SH2 far *psh2; 		/* version 2 status header */
-	FI2 far *rgfi2;		/* version 2 FI */
-	ED2 far *rged2;		/* version 2 ED */
-	FS2 far *rgfs2;		/* version 2 FS */
+        SH2 *psh2;              /* version 2 status header */
+        FI2 *rgfi2;             /* version 2 FI */
+        ED2 *rged2;             /* version 2 ED */
+        FS2 *rgfs2;             /* version 2 FS */
 	} SD;
 
 /* the following typedefs and macros are to allow easier and more consistent
@@ -63,7 +65,7 @@ typedef struct
 /* AddWpF adds results of a Boolean test into the wp */
 #define AddWpF(pwp, tw, f) AddWpSp(pwp, tw, (f) ? spDefYes : spDefNo)
 
-/* SpFromWp returns Sp as weighted average (rounded) of the tests so far */
+/* SpFromWp returns Sp as weighted average (rounded) of the tests so */
 #define SpFromWp(pwp) ((int)(((pwp)->sumSp + (pwp)->sumTw/2)/(pwp)->sumTw))
 
 /* negates an sp i.e. switches true and false values */
@@ -89,6 +91,4 @@ typedef struct
 	PFN_CMP pfnCmp; /* comparison function		 */
 	} INO;		/* INdex Ordering		 */
 
-#ifndef SLMCK_INCLUDED
-#define SLMCK_INCLUDED
 #endif

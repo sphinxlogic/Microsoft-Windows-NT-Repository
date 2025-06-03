@@ -451,7 +451,7 @@ Return Value:
 
 
     IF_DEBUG(FORMAT) {
-        NetpDbgPrint("[Alerter] Got admin alert\n");
+        NetpKdPrint(("[Alerter] Got admin alert\n"));
     }
 
     while (AdminToAlert != NULL && *AdminToAlert != TCHAR_EOS) {
@@ -490,10 +490,10 @@ Return Value:
                          );
 
             if (status != NERR_Success) {
-                NetpDbgPrint(
+                NetpKdPrint((
                     "[Alerter] Alert not sent.  Error making message header %lu\n",
                     status
-                    );
+                    ));
                 return;
             }
 
@@ -660,7 +660,7 @@ Return Value:
         for (i = 0; i < NumberOfMergeStrings; i++) {
 
             IF_DEBUG(FORMAT) {
-                NetpDbgPrint("Merge string #%lu: " FORMAT_LPTSTR "\n", i, MergeStrings);
+                NetpKdPrint(("Merge string #%lu: " FORMAT_LPTSTR "\n", i, MergeStrings));
             }
 
 #ifdef UNICODE
@@ -706,7 +706,7 @@ Return Value:
             // Could not find message of MessageId in message file.  An error
             // message will be sent.
             //
-            itoa(MessageId, String, 10);
+            _itoa(MessageId, String, 10);
             SubstituteStrings[0] = String;
             AlAppendMessage(
                 APE2_ALERTER_ERROR_MSG,
@@ -814,7 +814,7 @@ Return Value:
 
 
     IF_DEBUG(FORMAT) {
-        NetpDbgPrint("[Alerter] Got user alert\n");
+        NetpKdPrint(("[Alerter] Got user alert\n"));
     }
 
     MergeStrings = (LPTSTR) ALERT_VAR_DATA(UserInfo);
@@ -837,9 +837,9 @@ Return Value:
     // message
     //
     if (*Username == TCHAR_EOS && *ComputerNameOfUser == TCHAR_EOS) {
-        NetpDbgPrint(
+        NetpKdPrint((
             "[Alerter] Alert not sent.  Username or computername not specified.\n"
-            );
+            ));
         return;
     }
 
@@ -870,9 +870,9 @@ Return Value:
     // Both username and computer name are not acceptable.
     //
     if (To == NULL) {
-        NetpDbgPrint(
+        NetpKdPrint((
             "[Alerter] Alert not sent.  Username & computername are not acceptable.\n"
-            );
+            ));
         return;
     }
 
@@ -890,10 +890,10 @@ Return Value:
                  );
 
     if (status != NERR_Success) {
-        NetpDbgPrint(
+        NetpKdPrint((
             "[Alerter] Alert not sent.  Error making message header %lu\n",
             status
-            );
+            ));
         return;
     }
 
@@ -980,7 +980,7 @@ Return Value:
 
 
     IF_DEBUG(FORMAT) {
-        NetpDbgPrint("[Alerter] Got print alert\n");
+        NetpKdPrint(("[Alerter] Got print alert\n"));
     }
 
     ComputerName = (LPTSTR) ALERT_VAR_DATA(PrintInfo);
@@ -1150,14 +1150,14 @@ Return Value:
                  );
 
     if (status != NERR_Success) {
-        NetpDbgPrint(
+        NetpKdPrint((
             "[Alerter] Alert not sent.  Error making message header %lu\n",
             status
-            );
+            ));
         return;
     }
 
-    itoa(PrintInfo->alrtpr_jobid, TempString, 10);
+    _itoa(PrintInfo->alrtpr_jobid, TempString, 10);
     SubstituteStrings[0] = TempString;
 
     if (PrintInfo->alrtpr_status & PRJOB_DELETED) {
@@ -1354,7 +1354,7 @@ Return Value:
     //
     if (PrintInfo->alrtpr_size != MAXULONG) {
 
-        ltoa(PrintInfo->alrtpr_size, TempString, 10);
+        _ltoa(PrintInfo->alrtpr_size, TempString, 10);
         SubstituteStrings[0] = TempString;
 
         AlAppendMessage(
@@ -1396,20 +1396,29 @@ Return Value:
     NET_API_STATUS Status;
 
     LPWSTR MessageW;
+#ifdef DBCS // AlSendMessage():
+    // fixes alterts to DOS clients and garbage in NT to NT altert message
+    DWORD MessageSize;
+#else
     DWORD MessageSize = strlen(MessageBuffer) * sizeof(WCHAR);
+#endif // DBCS
 
     MessageW = NetpAllocWStrFromStr(MessageBuffer);
     if (MessageW == NULL) {
-        NetpDbgPrint("[Alerter] AlSendMessage: NetpAllocWStrFromStr failed\n");
+        NetpKdPrint(("[Alerter] AlSendMessage: NetpAllocWStrFromStr failed\n"));
         return ERROR_NOT_ENOUGH_MEMORY;
     }
 
+#ifdef DBCS // AlSendMessage():
+    // fixes alterts to DOS clients and garbage in NT to NT altert message
+    MessageSize = wcslen( MessageW ) * sizeof(WCHAR) ;
+#endif // DBCS
     //
     // Send a directed message to the specified message alias
     //
 
     IF_DEBUG(FORMAT) {
-        NetpDbgPrint("\n\nMessage To " FORMAT_LPTSTR "\n\n", MessageAlias);
+        NetpKdPrint(("\n\nMessage To " FORMAT_LPTSTR "\n\n", MessageAlias));
         NetpDbgHexDump((LPBYTE) MessageW, MessageSize);
     }
 
@@ -1421,8 +1430,8 @@ Return Value:
                      MessageSize
                      )) != NERR_Success) {
 
-        NetpDbgPrint("[Alerter] Error sending message to "
-                     FORMAT_LPTSTR " %lu\n", MessageAlias, Status);
+        NetpKdPrint(("[Alerter] Error sending message to "
+                     FORMAT_LPTSTR " %lu\n", MessageAlias, Status));
 
         if (Status != NERR_NameNotFound &&
             Status != NERR_BadReceive &&
@@ -1656,7 +1665,7 @@ Return Value:
 #ifdef UNICODE
     ultow(Status, ErrorMessage, 10);
 #else
-    ltoa(Status, ErrorMessage, 10);
+    _ltoa(Status, ErrorMessage, 10);
 #endif
 
     MBPtr = &ErrorMessage[STRLEN(ErrorMessage) + 1];
@@ -1764,8 +1773,8 @@ Return Value:
 
     if (Status != NERR_Success) {
 
-        NetpDbgPrint("[Alerter] Error canonicalizing message alias " FORMAT_LPTSTR " %lu\n",
-                     MessageAlias, Status);
+        NetpKdPrint(("[Alerter] Error canonicalizing message alias " FORMAT_LPTSTR " %lu\n",
+                     MessageAlias, Status));
         AlHandleError(AlErrorSendMessage, Status, MessageAlias);
     }
 

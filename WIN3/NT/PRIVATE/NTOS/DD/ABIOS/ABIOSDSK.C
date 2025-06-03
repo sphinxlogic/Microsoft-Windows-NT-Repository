@@ -47,6 +47,13 @@ Revision History:
 #include "ntdddisk.h"
 #include "abiosdev.h"
 
+#ifdef POOL_TAGGING
+#ifdef ExAllocatePool
+#undef ExAllocatePool
+#endif
+#define ExAllocatePool(a,b) ExAllocatePoolWithTag(a,b,'sobA')
+#endif
+
 //
 // Abios support routine definitions.
 //
@@ -82,6 +89,12 @@ KeI386AllocateGdtSelectors(
     OUT PUSHORT SelectorArray,
     IN USHORT NumberOfSelectors
     );
+NTSTATUS
+KeI386ReleaseGdtSelectors(
+    OUT PUSHORT SelectorArray,
+    IN USHORT NumberOfSelectors
+    );
+
 
 #if DBG
 
@@ -649,6 +662,12 @@ Return Value:
         //
 
         relativeLid++;
+    }
+
+    if (!NT_SUCCESS(returnStatus)  &&
+        status == STATUS_ABIOS_NOT_PRESENT) {
+
+        KeI386ReleaseGdtSelectors(selectorArray, NUMBER_MCA_ADAPTERS);
     }
 
     return returnStatus;
@@ -1249,7 +1268,7 @@ Return Value:
     // device, starting at byte offset 0.
     //
 
-    deviceExtension->StartingOffset = RtlConvertLongToLargeInteger(0);
+    deviceExtension->StartingOffset.QuadPart = 0;
 
     //
     // Copy results of ABIOS Read Device Parameter call.
@@ -1273,8 +1292,8 @@ Return Value:
     deviceExtension->SectorsInPage = PAGE_SIZE >> SECTOR_SHIFT;
     deviceExtension->DiskGeometry.TracksPerCylinder =
                                                     diskParameters->NumberHeads;
-    deviceExtension->DiskGeometry.Cylinders =
-                 RtlConvertUlongToLargeInteger(diskParameters->NumberCylinders);
+    deviceExtension->DiskGeometry.Cylinders.QuadPart =
+                                                diskParameters->NumberCylinders;
 
     if (diskParameters->SoftwareRetryCount <= 1) {
 
@@ -1307,12 +1326,12 @@ Return Value:
     }
 
     //
-    // Calculate size of physical disk.
-    // BUGBUG: Calculate this correctly.
+    // Calculate size of physical disk.  This is set to the maximum
+    // signed long value to encompass all disks.
     //
 
     deviceExtension->PartitionLength.LowPart = (ULONG) -1;
-    deviceExtension->PartitionLength.HighPart = -1;
+    deviceExtension->PartitionLength.HighPart = 0x7fffffff;
 
     //
     // Set physical device pointer to this device extension.
@@ -1513,8 +1532,7 @@ Return Value:
     // the sector size.
     //
 
-    if ((RtlLargeIntegerSubtract(deviceExtension->PartitionLength,
-                                     startingOffset).LowPart <
+    if (((deviceExtension->PartitionLength.QuadPart - startingOffset.QuadPart) <
                 transferByteCount) ||
         (transferByteCount % deviceExtension->DiskGeometry.BytesPerSector)) {
 
@@ -1543,16 +1561,15 @@ Return Value:
     // beginning of disk.
     //
 
-    irpStack->Parameters.Read.ByteOffset = RtlLargeIntegerAdd(startingOffset,
-                                               deviceExtension->StartingOffset);
+    irpStack->Parameters.Read.ByteOffset.QuadPart = startingOffset.QuadPart +
+                                       deviceExtension->StartingOffset.QuadPart;
 
     //
     // Calculate sector offset for queue sort.
     //
 
-    sectorOffset = RtlLargeIntegerShiftRight(
-                                          irpStack->Parameters.Read.ByteOffset,
-                                          deviceExtension->SectorShift).LowPart;
+    sectorOffset = (ULONG) (irpStack->Parameters.Read.ByteOffset.QuadPart >>
+                                                  deviceExtension->SectorShift);
 
     //
     // Queue or start IRP.
@@ -1744,9 +1761,9 @@ Return Value:
     // added in to first sector.
     //
 
-    controllerExtension->StartingSector =
-               RtlLargeIntegerShiftRight(irpStack->Parameters.Read.ByteOffset,
-                                         deviceExtension->SectorShift).LowPart;
+    controllerExtension->StartingSector = (ULONG)
+                          (irpStack->Parameters.Read.ByteOffset.QuadPart >>
+                                                  deviceExtension->SectorShift);
     controllerExtension->RemainingSectors = controllerExtension->TotalSectors =
                                              irpStack->Parameters.Read.Length >>
                                              deviceExtension->SectorShift;
@@ -1846,9 +1863,9 @@ Return Value:
     // added in to first sector.
     //
 
-    controllerExtension->StartingSector =
-               RtlLargeIntegerShiftRight(irpStack->Parameters.Read.ByteOffset,
-                                         deviceExtension->SectorShift).LowPart;
+    controllerExtension->StartingSector = (ULONG)
+                         (irpStack->Parameters.Read.ByteOffset.QuadPart >>
+                                                  deviceExtension->SectorShift);
     controllerExtension->RemainingSectors = controllerExtension->TotalSectors =
                                              irpStack->Parameters.Read.Length >>
                                              deviceExtension->SectorShift;
@@ -2932,17 +2949,15 @@ Return Value:
 
         verifyInfo = Irp->AssociatedIrp.SystemBuffer;
         irpStack->Parameters.Read.Length = verifyInfo->Length;
-        irpStack->Parameters.Read.ByteOffset =
-                            RtlLargeIntegerAdd(verifyInfo->StartingOffset,
-                                               deviceExtension->StartingOffset);
+        irpStack->Parameters.Read.ByteOffset.QuadPart =
+            verifyInfo->StartingOffset.QuadPart + deviceExtension->StartingOffset.QuadPart;
 
         //
         // Calculate the key and queue or start IRP.
         //
 
-        sectorOffset = RtlLargeIntegerShiftRight(
-                                          irpStack->Parameters.Read.ByteOffset,
-                                          deviceExtension->SectorShift).LowPart;
+        sectorOffset = (ULONG) (irpStack->Parameters.Read.ByteOffset.QuadPart >>
+                                                  deviceExtension->SectorShift);
         IoStartPacket(deviceExtension->PhysicalDevice->DeviceObject,
                       Irp,
                       &sectorOffset,
@@ -3282,13 +3297,7 @@ Return Value:
     NTSTATUS                  status;
     BOOLEAN                   found;
 
-    //
-    // BUGBUG: WINDISK has a bug where it is setting up the partition
-    // count incorrectly. This accounts for that bug.
-    //
-
-    partitionCount =
-      ((partitionList->PartitionCount + 3) / 4) * 4;
+    partitionCount = ((partitionList->PartitionCount + 3) / 4) * 4;
 
     //
     // LastExtension is used to link new partitions onto the partition
@@ -3340,7 +3349,7 @@ Return Value:
         // Check if this partition is not currently being used.
         //
 
-        if (LiEqlZero(deviceExtension->PartitionLength)) {
+        if (!deviceExtension->PartitionLength.QuadPart) {
            continue;
         }
 
@@ -3364,7 +3373,7 @@ Return Value:
             //
 
             if (partitionEntry->PartitionType == PARTITION_ENTRY_UNUSED ||
-                partitionEntry->PartitionType == PARTITION_EXTENDED) {
+                IsContainerPartition(partitionEntry->PartitionType)) {
                 continue;
             }
 
@@ -3372,7 +3381,7 @@ Return Value:
             // Check if new partition starts where this partition starts.
             //
 
-            if (LiNeq(partitionEntry->StartingOffset, deviceExtension->StartingOffset)) {
+            if (partitionEntry->StartingOffset.QuadPart != deviceExtension->StartingOffset.QuadPart) {
                 continue;
             }
 
@@ -3380,7 +3389,7 @@ Return Value:
             // Check if partition length is the same.
             //
 
-            if (LiEql(partitionEntry->PartitionLength, deviceExtension->PartitionLength)) {
+            if (partitionEntry->PartitionLength.QuadPart == deviceExtension->PartitionLength.QuadPart) {
 
                 DebugPrint((1,
                            "UpdateDeviceObjects: Found match for \\Harddisk%d\\Partition%d\n",
@@ -3419,7 +3428,7 @@ Return Value:
                        physicalExtension->DiskNumber,
                        deviceExtension->PartitionNumber));
 
-            deviceExtension->PartitionLength = LiFromUlong(0);
+            deviceExtension->PartitionLength.QuadPart = 0;
         }
     } while (TRUE);
 
@@ -3444,7 +3453,7 @@ Return Value:
         //
 
         if (partitionEntry->PartitionType == PARTITION_ENTRY_UNUSED ||
-            partitionEntry->PartitionType == PARTITION_EXTENDED ||
+            IsContainerPartition(partitionEntry->PartitionType) ||
             !partitionEntry->RewritePartition) {
             continue;
         }
@@ -3482,7 +3491,7 @@ Return Value:
             // A device object is free if the partition length is set to zero.
             //
 
-            if (LiEqlZero(deviceExtension->PartitionLength)) {
+            if (!deviceExtension->PartitionLength.QuadPart) {
                partitionNumber = deviceExtension->PartitionNumber;
                break;
             }

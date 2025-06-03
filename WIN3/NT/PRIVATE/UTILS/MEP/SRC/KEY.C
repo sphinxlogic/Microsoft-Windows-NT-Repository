@@ -785,7 +785,7 @@ SetKey (
     PCMD    pCmd;
 
     if (strlen(strcpy (keybuf, p)) > 1) {
-        strlwr (keybuf) ;
+        _strlwr (keybuf) ;
     }
     Code = NameToCode (keybuf);
     if (Code) {

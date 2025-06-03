@@ -63,11 +63,11 @@
 /* Output formats */
 
 static TCHAR fmt10[] = TEXT("%-*.*ws");
-static TCHAR fmt11[] = TEXT("%-*.*ws\\\\%Fws\n");
-static TCHAR fmt12[] = TEXT("%-*.*ws%-0.31ws %u.%u\n");
-static TCHAR fmt13[] = TEXT("%-*.*ws%u.%u\n");
-static TCHAR fmt14[] = TEXT("%-*.*ws%d\n");
-static TCHAR fmt15[] = TEXT("%-*.*ws%-0.31ws\n");
+static TCHAR fmt11[] = TEXT("%-*.*ws\\\\%Fws\r\n");
+static TCHAR fmt12[] = TEXT("%-*.*ws%-0.31ws %u.%u\r\n");
+static TCHAR fmt13[] = TEXT("%-*.*ws%u.%u\r\n");
+static TCHAR fmt14[] = TEXT("%-*.*ws%d\r\n");
+static TCHAR fmt15[] = TEXT("%-*.*ws%-0.31ws\r\n");
 
 /* The list of configurable services */
 
@@ -162,7 +162,7 @@ VOID config_display(VOID)
 {
     USHORT                  err;                /* API return status */
     TCHAR FAR *              pBuffer;
-    USHORT2ULONG            read;       /* num entries read by API */
+    USHORT2ULONG            _read;       /* num entries read by API */
     USHORT2ULONG            i;
     USHORT2ULONG            j;
     int                     printed = 0;
@@ -172,16 +172,16 @@ VOID config_display(VOID)
                             DEFAULT_SERVER,
                             2,
                             (LPBYTE*)&pBuffer,
-                            &read))
+                            &_read))
         ErrorExit(err);
 
-    if (read == 0)
+    if (_read == 0)
         EmptyExit();
 
     InfoPrint(APE_CnfgHeader);
 
     for (i=0, info_list_entry = (struct service_info_2 FAR *) pBuffer;
-        i < read; i++, info_list_entry++)
+        i < _read; i++, info_list_entry++)
     {
         for (j = 0 ;  allowed_svc[j] ; j++)
         {
@@ -227,37 +227,46 @@ VOID config_wksta_display(VOID)
 
     GetMessageList(NUMVMSG, valmsg_list, &maxmsglen);
 
-    WriteToCon(fmt11, fsz, fsz, wkstamsg_list[CWMN_CNAME].msg_text,
-                    (TCHAR FAR *) info_entry_w->wki1_computername);
-    WriteToCon(fmtPSZ, fsz, fsz, wkstamsg_list[CWMN_UNAME].msg_text,
-                    (TCHAR FAR *) info_entry_w->wki1_username);
+    WriteToCon(fmt11, 0, fsz,
+               PaddedString(fsz, wkstamsg_list[CWMN_CNAME].msg_text, NULL),
+               (TCHAR FAR *) info_entry_w->wki1_computername);
+    WriteToCon(fmtPSZ, 0, fsz,
+               PaddedString(fsz, wkstamsg_list[CWMN_UNAME].msg_text, NULL),
+               (TCHAR FAR *) info_entry_w->wki1_username);
 
     PrintNL();
 
-    WriteToCon(fmt10, fsz, fsz, wkstamsg_list[CWMN_ACTIVE].msg_text);
+    WriteToCon(fmt10,   0, fsz, PaddedString(fsz, wkstamsg_list[CWMN_ACTIVE].msg_text,NULL));
     print_lan_mask(info_entry_w->wki1_reserved_3, NETNAME_WKSTA);
 
     product_name = valmsg_list[CVMN_S_VERSION_LM].msg_text;
 
-    WriteToCon(fmt12, fsz, fsz, wkstamsg_list[CWMN_VERSION].msg_text,
-                product_name,
-                (unsigned int)(info_entry_w->wki1_ver_major),
-                (unsigned int)(info_entry_w->wki1_ver_minor));
+    WriteToCon(fmt12, 0, fsz,
+               PaddedString(fsz,wkstamsg_list[CWMN_VERSION].msg_text,NULL),
+               product_name,
+               (unsigned int)(info_entry_w->wki1_ver_major),
+               (unsigned int)(info_entry_w->wki1_ver_minor));
 
     PrintNL();
 
-    WriteToCon(fmtPSZ, fsz, fsz, wkstamsg_list[CWMN_DOMAIN_P].msg_text,
-                    info_entry_w->wki1_langroup );
-    WriteToCon(fmtPSZ, fsz, fsz, wkstamsg_list[CWMN_DOMAIN_L].msg_text,
-                    info_entry_w->wki1_logon_domain );
+    WriteToCon(fmtPSZ, 0, fsz,
+               PaddedString(fsz, wkstamsg_list[CWMN_DOMAIN_P].msg_text, NULL),
+               info_entry_w->wki1_langroup );
+    WriteToCon(fmtPSZ, 0, fsz,
+               PaddedString(fsz, wkstamsg_list[CWMN_DOMAIN_L].msg_text, NULL),
+               info_entry_w->wki1_logon_domain );
+
     PrintNL();
 
-    WriteToCon(fmtUSHORT, fsz, fsz, wkstamsg_list[CWMN_COM_OTIME].msg_text,
+    WriteToCon(fmtUSHORT, 0, fsz,
+               PaddedString(fsz, wkstamsg_list[CWMN_COM_OTIME].msg_text, NULL),
                     info_entry_w->wki1_charwait );
-    WriteToCon(fmtUSHORT, fsz, fsz, wkstamsg_list[CWMN_COM_SCNT].msg_text,
+    WriteToCon(fmtUSHORT, 0, fsz,
+               PaddedString(fsz, wkstamsg_list[CWMN_COM_SCNT].msg_text, NULL),
                     info_entry_w->wki1_charcount );
-    WriteToCon(fmtULONG, fsz, fsz, wkstamsg_list[CWMN_COM_STIME].msg_text,
-                    info_entry_w->wki1_chartime );
+    WriteToCon(fmtULONG, 0, fsz,
+               PaddedString(fsz, wkstamsg_list[CWMN_COM_STIME].msg_text, NULL),
+               info_entry_w->wki1_chartime );
     NetApiBufferFree((TCHAR FAR *) info_entry_w);
 
     InfoSuccess();
@@ -356,28 +365,32 @@ VOID config_server_display(VOID)
     // a fair number of ifdef's in this code.
     //
 
-    WriteToCon(fmt11, fsz, fsz, srvmsg_list[CSMN_SRVNAME].msg_text,
-                    (TCHAR FAR *) info_entry->sv3_name);
-    WriteToCon(fmtPSZ, fsz, fsz, srvmsg_list[CSMN_SRVCOMM].msg_text,
-                    (TCHAR FAR *) info_entry->sv3_comment);
+    WriteToCon(fmt11, 0, fsz,
+               PaddedString(fsz, srvmsg_list[CSMN_SRVNAME].msg_text, NULL),
+               (TCHAR FAR *) info_entry->sv3_name);
+    WriteToCon(fmtPSZ, 0, fsz,
+               PaddedString(fsz, srvmsg_list[CSMN_SRVCOMM].msg_text, NULL),
+               (TCHAR FAR *) info_entry->sv3_comment);
 
     PrintNL();
 
     major_ver = (USHORT)info_entry->sv3_version_major;
     product_name = valmsg_list[CVMN_S_VERSION_LM].msg_text;
 
-    WriteToCon(fmt12, fsz, fsz, srvmsg_list[CSMN_VERSION].msg_text,
+    WriteToCon(fmt12, 0, fsz,
+                PaddedString(fsz, srvmsg_list[CSMN_VERSION].msg_text, NULL),
                 product_name,
                 (unsigned int)(major_ver & MAJOR_VERSION_MASK),
                 (unsigned int)(info_entry->sv3_version_minor));
 
-    WriteToCon(fmt10, fsz, fsz, srvmsg_list[CSMN_NETS].msg_text);
+    WriteToCon(fmt10,   0, fsz, PaddedString(fsz,srvmsg_list[CSMN_NETS].msg_text,NULL));
     print_lan_mask((ULONG)info_entry->sv3_lanmask, NETNAME_SERVER);
 
     PrintNL();
 
-    WriteToCon(fmtNPSZ, fsz, fsz, srvmsg_list[CSMN_SRVHIDDEN].msg_text,
-                    YES_OR_NO(info_entry->sv3_hidden) );
+    WriteToCon(fmtNPSZ, 0, fsz,
+               PaddedString(fsz, srvmsg_list[CSMN_SRVHIDDEN].msg_text, NULL),
+               YES_OR_NO(info_entry->sv3_hidden) );
 
     {
 
@@ -390,28 +403,35 @@ VOID config_server_display(VOID)
         val = * (ULONG FAR *) ptr;
 
         if (val != 0xFFFFFFFF)
-            WriteToCon(fmtULONG, fsz, fsz, srvmsg_list[srv_max[0].msgno].msg_text, 
-                   val);
+            WriteToCon(fmtULONG, 0, fsz,
+                       PaddedString(fsz, srvmsg_list[srv_max[0].msgno].msg_text, NULL),
+                       val);
         else
-            WriteToCon(fmtPSZ, fsz, fsz, srvmsg_list[srv_max[0].msgno].msg_text,
-                   srvmsg_list[CSMN_UNLIMITED].msg_text) ;
+            WriteToCon(fmtPSZ, 0, fsz,
+                       PaddedString(fsz, srvmsg_list[srv_max[0].msgno].msg_text, NULL),
+                       srvmsg_list[CSMN_UNLIMITED].msg_text) ;
 
 
         ptr = ((BYTE FAR *)info_entry) + srv_max[5].offset;
         val = * (ULONG FAR *) ptr;
 
-        WriteToCon(fmtULONG, fsz, fsz, srvmsg_list[srv_max[5].msgno].msg_text, val);
+        WriteToCon(fmtULONG, 0, fsz,
+                   PaddedString(fsz, srvmsg_list[srv_max[5].msgno].msg_text, NULL),
+                   val);
 
         PrintNL();
     }
 
 
     if (info_entry->sv3_disc == SV_NODISC)
-        WriteToCon(fmt14, fsz, fsz, srvmsg_list[CSMN_IDLETIME].msg_text,
-                info_entry->sv3_disc);
+        WriteToCon(fmt14, 0, fsz,
+                   PaddedString(fsz, srvmsg_list[CSMN_IDLETIME].msg_text, NULL),
+                   info_entry->sv3_disc);
     else
-        WriteToCon(fmtUSHORT, fsz, fsz, srvmsg_list[CSMN_IDLETIME].msg_text,
-                info_entry->sv3_disc);
+        WriteToCon(fmtUSHORT, 0, fsz,
+                   PaddedString(fsz, srvmsg_list[CSMN_IDLETIME].msg_text, NULL),
+                   info_entry->sv3_disc);
+
 
     NetApiBufferFree((TCHAR FAR *) info_entry);
 

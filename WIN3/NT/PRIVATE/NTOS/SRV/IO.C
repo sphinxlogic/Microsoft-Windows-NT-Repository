@@ -125,7 +125,7 @@ Return Value:
     PIRP irp;
     PIO_STACK_LOCATION irpSp;
 
-    PAGED_CODE( );
+    PAGED_CODE();
 
     //
     // Initialize the kernel event that will signal I/O completion.
@@ -141,12 +141,7 @@ Return Value:
 
     if ( ARGUMENT_PRESENT(FileObject) ) {
 
-        status = ObReferenceObjectByPointer(
-                     FileObject,
-                     0L,                        // DesiredAccess
-                     NULL,                      // ObjectType
-                     KernelMode
-                     );
+        ObReferenceObject(FileObject);
 
     } else {
 
@@ -161,10 +156,9 @@ Return Value:
                     NULL
                     );
 
-    }
-
-    if ( !NT_SUCCESS(status) ) {
-        return NULL;
+        if ( !NT_SUCCESS(status) ) {
+            return NULL;
+        }
     }
 
     //
@@ -183,6 +177,7 @@ Return Value:
     }
 
     irp = IoAllocateIrp( (*DeviceObject)->StackSize, TRUE );
+
     if ( irp == NULL ) {
 
         ULONG packetSize = sizeof(IRP) +
@@ -230,8 +225,8 @@ Return Value:
     irp->Tail.Overlay.OriginalFileObject = FileObject;
     irp->Tail.Overlay.AuxiliaryBuffer = NULL;
 
-    DEBUG IoStatusBlock->Status = STATUS_UNSUCCESSFUL;
-    DEBUG IoStatusBlock->Information = (ULONG)-1;
+    irp->IoStatus.Status = 0;
+    irp->IoStatus.Information = 0;
 
     //
     // Put the file object pointer in the stack location.
@@ -288,20 +283,13 @@ Return Value:
     NTSTATUS status;
     KIRQL oldIrql;
 
-    PAGED_CODE( );
+    PAGED_CODE();
 
     //
     // Queue the IRP to the thread and pass it to the driver.
     //
 
-    KeRaiseIrql( APC_LEVEL, &oldIrql );
-
-    SrvInsertHeadList(
-        &Irp->Tail.Overlay.Thread->IrpList,
-        &Irp->ThreadListEntry
-        );
-
-    KeLowerIrql( oldIrql );
+    IoQueueThreadIrp( Irp );
 
     status = IoCallDriver( DeviceObject, Irp );
 
@@ -505,9 +493,11 @@ Return Value:
     }
 
     Irp->Tail.Overlay.OriginalFileObject = FileObject;
-    Irp->Tail.Overlay.Thread = SrvIrpThread;
+    Irp->Tail.Overlay.Thread = PROCESSOR_TO_QUEUE()->IrpThread;
     DEBUG Irp->RequestorMode = KernelMode;
 
+    Irp->IoStatus.Status = 0;
+    Irp->IoStatus.Information = 0;
 
     //
     // Get a pointer to the next stack location.  This one is used to
@@ -700,8 +690,11 @@ Return Value:
     ASSERT( Irp->StackCount >= deviceObject->StackSize );
 
     Irp->Tail.Overlay.OriginalFileObject = FileObject;
-    Irp->Tail.Overlay.Thread = SrvIrpThread;
+    Irp->Tail.Overlay.Thread = PROCESSOR_TO_QUEUE()->IrpThread;
     DEBUG Irp->RequestorMode = KernelMode;
+
+    Irp->IoStatus.Status = 0;
+    Irp->IoStatus.Information = 0;
 
     //
     // Get a pointer to the next stack location.  This one is used to
@@ -796,8 +789,11 @@ Return Value:
     ASSERT( Irp->StackCount >= deviceObject->StackSize );
 
     Irp->Tail.Overlay.OriginalFileObject = FileObject;
-    Irp->Tail.Overlay.Thread = SrvIrpThread;
+    Irp->Tail.Overlay.Thread = PROCESSOR_TO_QUEUE()->IrpThread;
     DEBUG Irp->RequestorMode = KernelMode;
+
+    Irp->IoStatus.Status = 0;
+    Irp->IoStatus.Information = 0;
 
     //
     // Get a pointer to the next stack location.  This one is used to
@@ -841,6 +837,87 @@ Return Value:
     return;
 
 } // SrvBuildLockRequest
+
+
+NTSTATUS
+SrvMdlCompletionRoutine (
+    IN PDEVICE_OBJECT DeviceObject,
+    IN PIRP Irp,
+    IN PVOID Context
+    )
+{
+    DeviceObject; Irp; Context;
+    return STATUS_MORE_PROCESSING_REQUIRED;
+}
+
+NTSTATUS
+SrvIssueMdlCompleteRequest (
+    IN PWORK_CONTEXT WorkContext OPTIONAL,
+    IN PFILE_OBJECT FileObject OPTIONAL,
+    IN PMDL Mdl,
+    IN UCHAR Function,
+    IN PLARGE_INTEGER ByteOffset,
+    IN ULONG Length
+    )
+{
+    PIRP irp;
+    PIO_STACK_LOCATION irpSp;
+    PFILE_OBJECT fileObject = FileObject ? FileObject : WorkContext->Rfcb->Lfcb->FileObject;
+    PDEVICE_OBJECT deviceObject = IoGetRelatedDeviceObject( fileObject );
+    NTSTATUS status;
+
+    if( ARGUMENT_PRESENT( WorkContext ) ) {
+
+        irp = WorkContext->Irp;
+
+        //
+        // Make sure this IRP is not freed by the Io system
+        //
+        IoSetCompletionRoutine(
+            irp,
+            SrvMdlCompletionRoutine,
+            NULL,
+            TRUE,
+            TRUE,
+            TRUE
+        );
+
+    } else if(  (irp = IoAllocateIrp( deviceObject->StackSize, TRUE )) == NULL ) {
+
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+
+    irp->MdlAddress = Mdl;
+    irp->Flags = IRP_SYNCHRONOUS_API;
+    irp->RequestorMode = KernelMode;
+    irp->PendingReturned = FALSE;
+    irp->Tail.Overlay.Thread = PsGetCurrentThread();
+    irp->Tail.Overlay.OriginalFileObject = fileObject;
+    irp->IoStatus.Status = 0;
+    irp->IoStatus.Information = 0;
+
+    irpSp = IoGetNextIrpStackLocation( irp );
+    irpSp->FileObject = fileObject;
+    irpSp->DeviceObject = deviceObject;
+    irpSp->Flags = 0;
+    irpSp->MinorFunction = IRP_MN_MDL | IRP_MN_COMPLETE;
+    irpSp->MajorFunction = Function;
+
+    if( Function == IRP_MJ_WRITE ) {
+        irpSp->Parameters.Write.ByteOffset = *ByteOffset;
+        irpSp->Parameters.Write.Length = Length;
+    } else {
+        irpSp->Parameters.Read.ByteOffset = *ByteOffset;
+        irpSp->Parameters.Read.Length = Length;
+    }
+
+    status = IoCallDriver( deviceObject, irp );
+
+    ASSERT( status == STATUS_SUCCESS );
+
+    return status;
+}
 
 
 VOID
@@ -897,8 +974,11 @@ Return Value:
     ASSERT( Irp->StackCount >= deviceObject->StackSize );
 
     Irp->Tail.Overlay.OriginalFileObject = FileObject;
-    Irp->Tail.Overlay.Thread = SrvIrpThread;
+    Irp->Tail.Overlay.Thread = PROCESSOR_TO_QUEUE()->IrpThread;
     DEBUG Irp->RequestorMode = KernelMode;
+
+    Irp->IoStatus.Status = 0;
+    Irp->IoStatus.Information = 0;
 
     //
     // Get a pointer to the next stack location.  This one is used to
@@ -1039,8 +1119,11 @@ Return Value:
     ASSERT( Irp->StackCount >= deviceObject->StackSize );
 
     Irp->Tail.Overlay.OriginalFileObject = FileObject;
-    Irp->Tail.Overlay.Thread = SrvIrpThread;
+    Irp->Tail.Overlay.Thread = PROCESSOR_TO_QUEUE()->IrpThread;
     DEBUG Irp->RequestorMode = KernelMode;
+
+    Irp->IoStatus.Status = 0;
+    Irp->IoStatus.Information = 0;
 
     //
     // Get a pointer to the next stack location.  This one is used to
@@ -1234,9 +1317,12 @@ Return Value:
     deviceObject = IoGetRelatedDeviceObject( FileObject );
 
     Irp->Tail.Overlay.OriginalFileObject = FileObject;
-    Irp->Tail.Overlay.Thread = SrvIrpThread;
+    Irp->Tail.Overlay.Thread = PROCESSOR_TO_QUEUE()->IrpThread;
     Irp->RequestorMode = KernelMode;
     Irp->MdlAddress = NULL;
+
+    Irp->IoStatus.Status = 0;
+    Irp->IoStatus.Information = 0;
 
     //
     // Get a pointer to the next stack location.  This one is used to
@@ -1272,23 +1358,7 @@ Return Value:
     irpSp->Parameters.NotifyDirectory.Length = BufferLength;
     irpSp->Parameters.NotifyDirectory.CompletionFilter = CompletionFilter;
 
-    //
-    // The file system has been updated.  Determine whether the driver wants
-    // buffered, direct, or "neither" I/O.
-    //
-
-    if ( (deviceObject->Flags & DO_BUFFERED_IO) != 0 ) {
-
-        //
-        // The file system wants buffered I/O.  Pass the address of the
-        // "system buffer" in the IRP.  Note that we don't want the buffer
-        // deallocated, nor do we want the I/O system to copy to a user
-        // buffer, so we don't set the corresponding flags in irp->Flags.
-        //
-
-        Irp->AssociatedIrp.SystemBuffer = Buffer;
-
-    } else if ( (deviceObject->Flags & DO_DIRECT_IO) != 0 ) {
+    if ( (deviceObject->Flags & DO_DIRECT_IO) != 0 ) {
 
         mdl = IoAllocateMdl(
                 Buffer,
@@ -1310,20 +1380,13 @@ Return Value:
 
         MmProbeAndLockPages( mdl, KernelMode, IoWriteAccess );
 
+        Irp->AssociatedIrp.SystemBuffer = NULL;
+        Irp->UserBuffer = NULL;
+
     } else {
 
-        //
-        // The file system wants "neither" I/O.  Simply pass the address
-        // of the buffer.
-        //
-        // *** Note that if the file system decides to do this as buffered
-        //     I/O, it will be wasting nonpaged pool, since our buffer is
-        //     already in nonpaged pool.  But since we're doing this as a
-        //     synchronous request, the file system probably won't do that.
-        //
-
-        Irp->UserBuffer = Buffer;
-
+        Irp->AssociatedIrp.SystemBuffer = Buffer;
+        Irp->UserBuffer = NULL;
     }
 
     //
@@ -1713,7 +1776,8 @@ SrvIssueQueryDirectoryRequest (
     IN FILE_INFORMATION_CLASS FileInformationClass,
     IN PUNICODE_STRING FileName OPTIONAL,
     IN PULONG FileIndex OPTIONAL,
-    IN BOOLEAN RestartScan
+    IN BOOLEAN RestartScan,
+    IN BOOLEAN SingleEntriesOnly
     )
 
 /*++
@@ -1749,6 +1813,9 @@ Arguments:
 
     RestartScan - Supplies a BOOLEAN value that, if TRUE, indicates that the
         scan should be restarted from the beginning.
+
+    SingleEntriesOnly - Supplies a BOOLEAN value that, if TRUE, indicates that
+        the scan should ask only for one entry at a time.
 
 Return Value:
 
@@ -1860,11 +1927,24 @@ Return Value:
     irpSp->Flags = 0;
 
     if ( ARGUMENT_PRESENT( FileIndex ) ) {
+        IF_DEBUG( SEARCH ) {
+            KdPrint(("SrvIssueQueryDirectoryRequest: SL_INDEX_SPECIFIED\n" ));
+        }
         irpSp->Flags |= SL_INDEX_SPECIFIED;
     }
 
     if ( RestartScan ) {
+        IF_DEBUG( SEARCH ) {
+            KdPrint(("SrvIssueQueryDirectoryRequest: SL_RESTART_SCAN\n" ));
+        }
         irpSp->Flags |= SL_RESTART_SCAN;
+    }
+
+    if( SingleEntriesOnly ) {
+        IF_DEBUG( SEARCH ) {
+            KdPrint(("SrvIssueQueryDirectoryRequest: SL_RETURN_SINGLE_ENTRY\n" ));
+        }
+        irpSp->Flags |= SL_RETURN_SINGLE_ENTRY;
     }
 
     //
@@ -2666,7 +2746,7 @@ Return Value:
                                     FileObject,
                                     &ByteOffset,
                                     &Length,
-                                    SRV_CURRENT_PROCESS,
+                                    IoGetCurrentProcess(),
                                     Key,
                                     &iosb,
                                     *DeviceObject
@@ -2681,7 +2761,7 @@ Return Value:
             INCREMENT_DEBUG_STAT2( SrvDbgStatistics.FastUnlocksAttempted );
             if ( fastIoDispatch->FastIoUnlockAllByKey(
                                     FileObject,
-                                    SRV_CURRENT_PROCESS,
+                                    IoGetCurrentProcess(),
                                     Key,
                                     &iosb,
                                     *DeviceObject
@@ -2941,14 +3021,7 @@ Return Value:
     // Queue the IRP to the thread and pass it to the driver.
     //
 
-    KeRaiseIrql( APC_LEVEL, &oldIrql );
-
-    SrvInsertHeadList(
-        &irp->Tail.Overlay.Thread->IrpList,
-        &irp->ThreadListEntry
-        );
-
-    KeLowerIrql( oldIrql );
+    IoQueueThreadIrp( irp );
 
     status = IoCallDriver( deviceObject, irp );
 

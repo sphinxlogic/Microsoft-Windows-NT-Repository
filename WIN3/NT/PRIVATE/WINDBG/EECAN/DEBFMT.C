@@ -256,7 +256,11 @@ ushort PASCAL FormatCXT (PCXT pCXT, PEEHSTR phStr, BOOL fAbbreviated)
 
         if (fAbbreviated) {
             strcpy(pStr,pExe);
-            strupr(pStr);
+#ifdef DBCS
+            CharUpper(pStr);
+#else
+            _strupr(pStr);
+#endif
             strcat (pStr,"!");
             MHMemUnLock (*phStr);
         } else {
@@ -527,13 +531,13 @@ LOCAL void NEAR PASCAL FormatExpand (peval_t pv, char FAR * FAR *buf,
 
             // set up a node to evaluate this field
 
-            model = ((plfPointer)pType)->u.attr.ptrtype;
-            if (((plfPointer)pType)->u.attr.ptrmode == (uchar)CV_PTR_MODE_REF) {
+            model = ((plfPointer)pType)->attr.ptrtype;
+            if (((plfPointer)pType)->attr.ptrmode == (uchar)CV_PTR_MODE_REF) {
                 model = CV_PTR_UNUSEDPTR;
             }
             // format the underlying type
             *pvT = *pv;
-            EVAL_TYP (pvT) = ((plfPointer)pType)->u.utype;
+            EVAL_TYP (pvT) = ((plfPointer)pType)->utype;
             MHOmfUnLock ((HDEP)hType);
             SetNodeType (pvT, EVAL_TYP (pvT));
             FormatType (pvT, buf, buflen, 0, select, pHdr);
@@ -570,7 +574,7 @@ LOCAL void NEAR PASCAL FormatExpand (peval_t pv, char FAR * FAR *buf,
             // order
 
             if (count != 0) {
-                ultoa (count / TypeSize (pvT), tempbuf, 10);
+                _ultoa (count / TypeSize (pvT), tempbuf, 10);
                 len = _fstrlen (tempbuf);
             }
             else {
@@ -723,7 +727,7 @@ FormatProc (
     pvT = &evalT;
     *pvT = *pv;
 
-    if (GettingChild == FALSE && select & 0x00000001 == FALSE ) {
+    if (GettingChild == FALSE && (select & 1) == 0 ) {
         // output function return type if we are not getting a child TM.
         // If we are getting a child tm and the function type is included,
         // the subsequent parse of the generated expression will fail
@@ -1696,7 +1700,7 @@ LOCAL void NEAR PASCAL FormatClass(
     } else if (EVAL_IS_REGREL(pv)) {
         reg.hReg = EVAL_REGREL(pv);
         GetReg( &reg, pCxt );
-        GetAddrOff( addr ) += reg.u.b.Byte4;
+        GetAddrOff( addr ) += reg.Byte4;
         GetAddrSeg( addr ) = pExState->frame.SS;
         ADDR_IS_LI( addr )  = FALSE;
     }

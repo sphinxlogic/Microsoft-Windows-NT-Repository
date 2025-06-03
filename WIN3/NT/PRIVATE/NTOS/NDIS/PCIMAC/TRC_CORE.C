@@ -3,7 +3,7 @@
  */
 
 #include	<ndis.h>
-#include    <ndismini.h>
+//#include	<ndismini.h>
 #include	<ndiswan.h>
 #include	<mydefs.h>
 #include	<mytypes.h>
@@ -82,7 +82,7 @@ trc_create(VOID **trc_1, ULONG depth)
     if ( !trc )
     {
         mem_alloc_failed:
-        D_LOG(D_ALWAYS, ("trc_create: memory allocate failed!"));
+        D_LOG(D_ALWAYS, ("trc_create: memory allocate failed!")); 
         return(TRC_E_NOMEM);
     }
     D_LOG(D_ALWAYS, ("trc_create: trc: 0x%p", trc));
@@ -92,15 +92,15 @@ trc_create(VOID **trc_1, ULONG depth)
     NdisAllocateMemory((PVOID*)&trc->ent_tbl, sizeof(TRC_ENTRY) * depth,
                                                         0, pa);
     if ( !trc->ent_tbl )
-        goto mem_alloc_failed;
+        goto mem_alloc_failed;                                         
     D_LOG(D_ALWAYS, ("trc_create: trc->ent_tbl: 0x%p", trc->ent_tbl));
     NdisZeroMemory(trc->ent_tbl, sizeof(TRC_ENTRY) * depth);
-
+    
     /* setup initial field values */
     trc->stat.state = TRC_ST_STOP;
     trc->stat.filter = TRC_FT_NONE;
     trc->stat.depth = depth;
-
+    
     /* return succ */
     *ret_trc = trc;
 	return(TRC_E_SUCC);
@@ -111,14 +111,14 @@ INT
 trc_destroy(VOID *trc_1)
 {
 	TRC		*trc = (TRC*)trc_1;
-
+    
     D_LOG(D_ENTRY, ("trc_destroy: entry, trc: 0x%p", trc));
 
     /* free memory */
     NdisFreeMemory(trc->ent_tbl, sizeof(TRC_ENTRY) * trc->stat.depth, 0);
     NdisFreeMemory(trc, sizeof(*trc), 0);
 
-    return(TRC_E_SUCC);
+    return(TRC_E_SUCC);        
 }
 
 /* perform a trace control function */
@@ -258,7 +258,7 @@ trc_get_status(VOID *trc_1, TRC_STATUS *stat)
     *stat = trc->stat;
     stat->entries = trc->ent_num;
     stat->seq_1st = trc->ent_seq;
-
+ 
     return(TRC_E_SUCC);
 }
 
@@ -268,7 +268,7 @@ trc_get_entry(VOID *trc_1, ULONG seq, TRC_ENTRY *ent)
 {
 	TRC		*trc = (TRC*)trc_1;
     ULONG     n, index;
-
+    
     D_LOG(D_ENTRY, ("trc_get_entry: entry, trc: 0x%p, seq: %ld, ent: 0x%p", \
                                 trc, seq, ent));
 
@@ -339,7 +339,11 @@ trc__cmd_handler(VOID *idd_1, USHORT chan, ULONG Reserved, IDD_MSG *msg)
 	ent->attr = msg->bufid;
 	ent->org_len = msg->buflen;
 	ent->len = MIN(msg->buflen, sizeof(ent->data));
-	NdisMoveFromMappedMemory (ent->data, msg->bufptr, ent->len);
+	IddGetDataFromAdapter(idd,
+	                      (PUCHAR)ent->data,
+						  (PUCHAR)msg->bufptr,
+						  (USHORT)ent->len);
+//	NdisMoveMemory (ent->data, msg->bufptr, ent->len);
 }
 
 /* filter trace frame */
@@ -348,9 +352,7 @@ trc__filter(ULONG filter, CHAR *buf, ULONG len)
 {
     D_LOG(D_ENTRY, ("trc__filter: entry, filter: %ld, buf: 0x%p, len: %ld",\
                                 filter, buf, len));
-// any memory move done from buf should be done by NdisMoveFromMappedMemory if
-// buf is a pointer to memory on the adapter TB
-//
+
     /* not implemented, all frames filter in */
     return(1);
-}
+}  

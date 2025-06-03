@@ -112,7 +112,7 @@ G300InterruptService (
     PVOID HwDeviceExtension
     );
 
-BOOLEAN 
+BOOLEAN
 G300StartIO(
     PVOID HwDeviceExtension,
     PVIDEO_REQUEST_PACKET RequestPacket
@@ -301,7 +301,7 @@ Return Value:
                                            ConfigInfo)) {
 
         VideoDebugPrint((2, "G300: VideoPort get controller info failed\n"));
-        
+
         return ERROR_INVALID_PARAMETER;
 
     }
@@ -312,7 +312,7 @@ Return Value:
                                            NULL)) {
 
         VideoDebugPrint((2, "G300: VideoPort get monitor info failed\n"));
-        
+
         return ERROR_INVALID_PARAMETER;
 
     }
@@ -542,14 +542,14 @@ Return Value:
         return NO_ERROR;
 
         break;
-            
+
 
     case VpMonitorData:
 
         VideoDebugPrint((2, "G300: getting monitor information\n"));
 
         //
-        // BUGBUG because we had a RESOURCE LIST header at the top.
+        // NOTE: because we had a RESOURCE LIST header at the top.
         // + 8 should be the offset of the paertial resource descriptor
         // in a full resource descriptor.
         //
@@ -639,7 +639,7 @@ Return Value:
 
 } // end G300Initialize()
 
-BOOLEAN 
+BOOLEAN
 G300StartIO(
     PVOID HwDeviceExtension,
     PVIDEO_REQUEST_PACKET RequestPacket
@@ -674,6 +674,11 @@ Return Value:
     PVIDEO_POINTER_ATTRIBUTES pointerAttributes;
     PVIDEO_POINTER_POSITION pointerPostion;
     PVIDEO_CLUT clutBuffer;
+    PVIDEO_SHARE_MEMORY pShareMemory;
+    PVIDEO_SHARE_MEMORY_INFORMATION pShareMemoryInformation;
+    PHYSICAL_ADDRESS shareAddress;
+    PVOID virtualAddress;
+    ULONG sharedViewSize;
 
     //
     // Switch on the IoContolCode in the RequestPacket. It indicates which
@@ -681,6 +686,86 @@ Return Value:
     //
 
     switch (RequestPacket->IoControlCode) {
+
+    case IOCTL_VIDEO_SHARE_VIDEO_MEMORY:
+
+        VideoDebugPrint((2, "DGXStartIO - ShareVideoMemory\n"));
+
+        if ( (RequestPacket->OutputBufferLength < sizeof(VIDEO_SHARE_MEMORY_INFORMATION)) ||
+             (RequestPacket->InputBufferLength < sizeof(VIDEO_MEMORY)) ) {
+
+            status = ERROR_INSUFFICIENT_BUFFER;
+            break;
+
+        }
+
+        pShareMemory = RequestPacket->InputBuffer;
+
+        if ( (pShareMemory->ViewOffset > hwDeviceExtension->FrameLength) ||
+             ((pShareMemory->ViewOffset + pShareMemory->ViewSize) >
+                  hwDeviceExtension->FrameLength) ) {
+
+            status = ERROR_INVALID_PARAMETER;
+            break;
+
+        }
+
+        RequestPacket->StatusBlock->Information =
+                                    sizeof(VIDEO_SHARE_MEMORY_INFORMATION);
+
+        //
+        // Beware: the input buffer and the output buffer are the same
+        // buffer, and therefore data should not be copied from one to the
+        // other
+        //
+
+        virtualAddress = pShareMemory->ProcessHandle;
+        sharedViewSize = pShareMemory->ViewSize;
+
+        inIoSpace = 0;
+
+        //
+        // NOTE: we are ignoring ViewOffset
+        //
+
+        shareAddress.QuadPart =
+            hwDeviceExtension->PhysicalFrameAddress.QuadPart;
+
+        status = VideoPortMapMemory(hwDeviceExtension,
+                                    shareAddress,
+                                    &sharedViewSize,
+                                    &inIoSpace,
+                                    &virtualAddress);
+
+        pShareMemoryInformation = RequestPacket->OutputBuffer;
+
+        pShareMemoryInformation->SharedViewOffset = pShareMemory->ViewOffset;
+        pShareMemoryInformation->VirtualAddress = virtualAddress;
+        pShareMemoryInformation->SharedViewSize = sharedViewSize;
+
+
+        break;
+
+
+    case IOCTL_VIDEO_UNSHARE_VIDEO_MEMORY:
+
+        VideoDebugPrint((2, "G300StartIO - UnshareVideoMemory\n"));
+
+        if (RequestPacket->InputBufferLength < sizeof(VIDEO_SHARE_MEMORY)) {
+
+            status = ERROR_INSUFFICIENT_BUFFER;
+            break;
+
+        }
+
+        pShareMemory = RequestPacket->InputBuffer;
+
+        status = VideoPortUnmapMemory(hwDeviceExtension,
+                                      pShareMemory->RequestedVirtualAddress,
+                                      pShareMemory->ProcessHandle);
+
+        break;
+
 
     case IOCTL_VIDEO_MAP_VIDEO_MEMORY:
 
@@ -768,8 +853,8 @@ Return Value:
             modeInformation->BitsPerPlane = DISPLAY_BITS_PER_PIXEL;
             modeInformation->Frequency = 1;
 
-            modeInformation->XMillimeter = 320;  // BUGBUG This should come
-            modeInformation->YMillimeter = 240;  // from the monitor
+            modeInformation->XMillimeter = 320;
+            modeInformation->YMillimeter = 240;
 
             modeInformation->NumberRedBits = 8;
             modeInformation->NumberGreenBits = 8;
@@ -778,7 +863,7 @@ Return Value:
             modeInformation->RedMask = 0;
             modeInformation->GreenMask = 0;
             modeInformation->BlueMask = 0;
-        
+
             modeInformation->AttributeFlags = VIDEO_MODE_COLOR |
                 VIDEO_MODE_GRAPHICS | VIDEO_MODE_PALETTE_DRIVEN |
                 VIDEO_MODE_MANAGED_PALETTE;
@@ -789,7 +874,7 @@ Return Value:
 
         break;
 
-    
+
     case IOCTL_VIDEO_QUERY_NUM_AVAIL_MODES:
 
         VideoDebugPrint((2, "G300StartIO - QueryNumAvailableModes\n"));
@@ -851,7 +936,7 @@ Return Value:
 
         break;
 
-    
+
     case IOCTL_VIDEO_SET_COLOR_REGISTERS:
 
         VideoDebugPrint((2, "G300StartIO - SetColorRegs\n"));
@@ -956,7 +1041,7 @@ Return Value:
 {
     PHW_DEVICE_EXTENSION hwDeviceExtension = Context;
     PVIDEO_CLUT clutBuffer = hwDeviceExtension->SynchronizeClutBuffer;
-    ULONG index1;
+    USHORT index1;
     PULONG colorSource;
 
     index1 = clutBuffer->FirstEntry;
@@ -1011,7 +1096,7 @@ Return Value:
     SHORT x;
     SHORT y;
     PG300_VIDEO_REGISTERS videoRegisters = hwDeviceExtension->VideoAddress;
-    
+
     //
     // Disable the verticle retrace interrupt.
     //
@@ -1335,7 +1420,7 @@ Return Value:
     // Compute the X and Y origin values for the cursor.
     //
 
-    HwDeviceExtension->CursorXOrigin = (((halfSync * 2) + backPorch) * 4) - 36;
+    HwDeviceExtension->CursorXOrigin = (USHORT)((((halfSync * 2) + backPorch) * 4) - 36);
     HwDeviceExtension->CursorYOrigin = 24;
 
     return;

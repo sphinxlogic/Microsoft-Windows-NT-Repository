@@ -108,19 +108,20 @@ struct Global {
 //
 
 int heUpdateStats(), hePositionCursor(), heRefresh(), heSetDisp();
-int heUpdateAllLines(), heInitScr(), heSetCursorBuf(), heUpdateFncs();
+int heInitConsole(), heUpdateAllLines(), heInitScr(), heSetCursorBuf(), heUpdateFncs();
 VOID _CRTAPI1 heDisp (USHORT, USHORT, PUCHAR, ...);
 USHORT heIOErr (UCHAR *str, ULONG loc, ULONG ploc, ULONG errcd);
 
 int heFlushBuf (struct Buffer *pBuf);
 
-VOID heInitConsole(), heEndConsole(), heGotoPosition(), heJumpToLink();
+VOID heEndConsole(), heGotoPosition(), heJumpToLink();
 VOID heUpdateCurLine(), heUndo(), heCopyOut(), heCopyIn(), heSearch();
 VOID heBox (USHORT x, USHORT y, USHORT len_x, USHORT len_y);
 UCHAR heGetChar (PUCHAR keys);
 VOID heFlushAllBufs (USHORT update);
 VOID heFindMousePos (COORD);
 VOID heShowBuf (ULONG, ULONG);
+VOID heSetDisplayMode (ULONG mode);
 
 #define RefreshDisp()    heShowBuf(0, HeGbl.LineTot)
 #define SetCurPos(a,b)  { \
@@ -271,7 +272,7 @@ struct HexEditParm *pParm;
                                   &cEvents );
 
                 if (!bSuccess || cEvents == 0) {
-                    heSetUpdate (vUpdate-1);
+                    heSetUpdate ((USHORT)(vUpdate-1));
                     continue;
                 }
             } else {
@@ -578,13 +579,13 @@ struct HexEditParm *pParm;
     }
 }
 
-heSetDisplayMode (ULONG mode)
+VOID heSetDisplayMode (ULONG mode)
 {
     PUCHAR  p;
     UCHAR   d,i,j,h,len;
 
     HeGbl.DisplayMode  = mode;
-    HeGbl.CurAscIndent = vrgAscIndent[HeGbl.DisplayMode];
+    HeGbl.CurAscIndent = (UCHAR)vrgAscIndent[HeGbl.DisplayMode];
     HeGbl.DWidth       = vrgDWidth[HeGbl.DisplayMode];
     HeGbl.ItemWrap     = (HeGbl.DisplayMode << 1) | 1;
 
@@ -657,7 +658,7 @@ VOID heUpdateCurLine ()
         HeGbl.CurBuf = heGetBuf (HeGbl.CurEditLoc);
     }
 
-    heHexLine (HeGbl.CurBuf, (HeGbl.CurEditLoc & LINEMASK) - HeGbl.CurBuf->offset, line);
+    heHexLine (HeGbl.CurBuf, (USHORT)((HeGbl.CurEditLoc & LINEMASK) - HeGbl.CurBuf->offset), line);
     heShowBuf (line+TOPLINE, 1);
     heSetUpdate (U_NEWPOS);
     if (HeGbl.Flag & FHE_KICKDIRTY) {
@@ -680,7 +681,7 @@ COORD Pos;
 
     heSetUpdate (U_NONE);
     HoldLocation = HeGbl.CurEditLoc;
-    HoldFlag     = HeGbl.CurFlag;
+    HoldFlag     = (USHORT)HeGbl.CurFlag;
 
     //
     // Take the cheap way out - simply run all the possibilities for the
@@ -1253,7 +1254,7 @@ VOID heCopyOut ()
             rem   -= u;
             len   += BUFSZ;
         }
-        NtClose(h);
+        CloseHandle(h);
     }
 
     if (!NT_SUCCESS(status)) {
@@ -1331,7 +1332,7 @@ heCopyIn ()
                 pErr = "Larger then data";
         }
 
-        NtClose(h);
+        CloseHandle(h);
     }
 
     if (!NT_SUCCESS(status)  ||  pErr) {
@@ -1456,8 +1457,13 @@ USHORT u, line;
     asc = pt + HeGbl.CurAscIndent;
 
     l = pBuf->offset + u;
-    heHexDWord (pt+LINEINDENT, pBuf->physloc + u,
-        (l & ((ULONG) BUFSZ-1)) ? AttrNorm : HeGbl.AttrHigh);
+    if (l & ((ULONG) BUFSZ-1)) {
+        heHexDWord (pt+LINEINDENT, pBuf->physloc + u,
+                AttrNorm);
+    } else {
+        heHexDWord (pt+LINEINDENT, pBuf->physloc + u,
+                HeGbl.AttrHigh);
+    }
 
     if (pBuf->flag & FB_BAD) {                          // If read error on
         pt[LINEINDENT+8].Char.AsciiChar = 'E';          // this sector, then
@@ -1551,8 +1557,8 @@ heInitScr ()
 
     GetConsoleScreenBufferInfo(HeGbl.Console, &Mode);
     if (HeGbl.Parm->MaxLine) {
-        HeGbl.TopLine = HeGbl.Parm->TopLine;
-        li = HeGbl.Parm->MaxLine;  // +1;    adjust for no fnc key line
+        HeGbl.TopLine = (USHORT)HeGbl.Parm->TopLine;
+        li = (USHORT)HeGbl.Parm->MaxLine;  // +1;    adjust for no fnc key line
     } else {
         li = Mode.srWindow.Bottom - Mode.srWindow.Top + 1;
         if (li < 10)
@@ -1583,7 +1589,7 @@ heInitScr ()
         GlobalFree (HeGbl.pVioBuf);
 
     HeGbl.pVioBuf = (PCHAR_INFO) GlobalAlloc (0,
-                            HeGbl.LineTot*CELLPERLINE*sizeof(CHAR_INFO));
+                            (HeGbl.LineTot+1)*CELLPERLINE*sizeof(CHAR_INFO));
 
     HeGbl.dwVioBufSize.X = CELLPERLINE;
     HeGbl.dwVioBufSize.Y = HeGbl.LineTot +
@@ -1597,7 +1603,7 @@ heInitScr ()
     return heSetDisp ();
 }
 
-VOID heInitConsole ()
+int heInitConsole ()
 {
     CONSOLE_SCREEN_BUFFER_INFO  screenMode;
     DWORD   mode;
@@ -1628,6 +1634,7 @@ VOID heInitConsole ()
     }
 
     GetConsoleCursorInfo(HeGbl.Console, &HeGbl.CursorInfo);
+    return 0;
 }
 
 
@@ -1737,6 +1744,7 @@ int heSetDisp ()
 int heUpdateFncs ()
 {
     heShowBuf (HeGbl.LineTot - 1, 1);
+    return 0;
 }
 
 
@@ -1773,14 +1781,14 @@ VOID heShowBuf (ULONG StartingLine, ULONG NoLines)
     COORD dwBufferCoord;
     SMALL_RECT lpWriteRegion;
 
-    dwBufferCoord.X = 0;
-    dwBufferCoord.Y = StartingLine;
+    dwBufferCoord.X = (SHORT)0;
+    dwBufferCoord.Y = (SHORT)StartingLine;
 
     StartingLine += HeGbl.TopLine;
-    lpWriteRegion.Left   = 0;
-    lpWriteRegion.Top    = StartingLine;
-    lpWriteRegion.Right  = CELLPERLINE-1;
-    lpWriteRegion.Bottom = StartingLine+NoLines-1;
+    lpWriteRegion.Left   = (SHORT)0;
+    lpWriteRegion.Top    = (SHORT)StartingLine;
+    lpWriteRegion.Right  = (SHORT)(CELLPERLINE-1);
+    lpWriteRegion.Bottom = (SHORT)(StartingLine+NoLines-1);
 
     WriteConsoleOutputA (
         HeGbl.Console,
@@ -1999,8 +2007,8 @@ UCHAR   *pIn;
 
 void heHexDWord (s, l, attr)
 PCHAR_INFO  s;
-WORD    attr;
 ULONG   l;
+WORD    attr;
 {
     UCHAR   d, c;
     UCHAR   *pt;
@@ -2146,4 +2154,3 @@ heWriteFile (HANDLE h, PUCHAR buffer, ULONG len)
         return GetLastError();
     return (bw != len ? ERROR_WRITE_FAULT : STATUS_SUCCESS);
 }
-

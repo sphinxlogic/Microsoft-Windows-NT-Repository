@@ -148,6 +148,7 @@ HANDLE CsrSmApiPort;
 HANDLE CsrExceptionPort;
 
 ULONG CsrMaxApiRequestThreads;
+BOOLEAN CsrpServerDebugInitialize;
 
 #define CSR_MAX_THREADS 16
 
@@ -370,33 +371,6 @@ CsrSrvAttachSharedSection(
     );
 
 //
-// Routines and data defined in srvquick.c
-//
-
-ULONG
-CsrSrvThreadConnect(
-    IN OUT PCSR_API_MSG m,
-    IN OUT PCSR_REPLY_STATUS ReplyStatus
-    );
-
-NTSTATUS
-CsrpDedicatedClientThread(
-    IN PVOID Parameter
-    );
-
-VOID
-CsrpProcessApiRequest(
-    PCSR_QLPC_API_MSG Msg,
-    PCSR_QLPC_STACK Stack
-    );
-
-VOID
-CsrpCallExceptionHandlers(
-    PEXCEPTION_POINTERS ExceptionPointers,
-    BOOLEAN FirstPass
-    );
-
-//
 // Routines and data defined in process.c
 //
 
@@ -568,6 +542,7 @@ CsrComputeImageInformation(
 
 VOID
 CsrOpenLdrEntry(
+    IN PCSR_THREAD Thread,
     IN PCSR_PROCESS Process,
     IN PLDR_DATA_TABLE_ENTRY LdrEntry,
     OUT PHANDLE FileHandle
@@ -593,6 +568,7 @@ CsrTeardownCsrDebugProcess(
 #define ReleaseWaitListsLock() RtlLeaveCriticalSection( &CsrWaitListsLock )
 
 RTL_CRITICAL_SECTION CsrWaitListsLock;
+extern SECURITY_QUALITY_OF_SERVICE CsrSecurityQos;
 
 BOOLEAN
 CsrInitializeWait(
@@ -612,3 +588,16 @@ CsrNotifyWaitBlock(
     IN ULONG WaitFlags,
     IN BOOLEAN DereferenceThread
     );
+
+ULONG CsrBaseTag;
+ULONG CsrSharedBaseTag;
+
+#define MAKE_TAG( t ) (RTL_HEAP_MAKE_TAG( CsrBaseTag, t ))
+
+#define TMP_TAG 0
+#define INIT_TAG 1
+#define CAPTURE_TAG 2
+#define PROCESS_TAG 3
+
+#define MAKE_SHARED_TAG( t ) (RTL_HEAP_MAKE_TAG( CsrSharedBaseTag, t ))
+#define SHR_INIT_TAG 0

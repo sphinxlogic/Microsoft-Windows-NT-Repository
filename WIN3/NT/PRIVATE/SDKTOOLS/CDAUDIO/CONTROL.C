@@ -139,7 +139,7 @@ ControlInit(
     lf.lfClipPrecision = CLIP_DEFAULT_PRECIS;
     lf.lfQuality = DEFAULT_QUALITY;
     lf.lfPitchAndFamily = FIXED_PITCH | FF_MODERN;
-    sprintf( (LPTSTR)lf.lfFaceName, "MS Sans Serif" );
+    sprintf( (LPTSTR)lf.lfFaceName, "MS Shell Dlg" );
 
     //
     // Load font

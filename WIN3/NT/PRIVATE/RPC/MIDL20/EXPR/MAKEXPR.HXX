@@ -34,38 +34,42 @@ extern "C"
  *	routine prototypes.
  ***************************************************************************/
 
-_expr_node	*	MakeRefExprOutOfDeref( _expr_node * pExpr );
+expr_node	*	MakeRefExprOutOfDeref( expr_node * pExpr );
 
-_expr_node	*	MakeReferentExpressionIfNecessary( _expr_node * pExpr );
+expr_node	*	MakeReferentExpressionIfNecessary( expr_node * pExpr );
 
-_expr_node	*	MakeDereferentExpressionIfNecessary( _expr_node * pExpr );
+expr_node	*	MakeDereferentExpressionIfNecessary( expr_node * pExpr );
 
-_expr_node	*	MakeAddressExpressionNoMatterWhat( _expr_node * pExpr );
+expr_node	*	MakeAddressExpressionNoMatterWhat( expr_node * pExpr );
 
-_expr_node	*	MakeDerefExpressionOfCastPtrToType( node_skl * pType,
-											   		_expr_node * pSrcExpr
+expr_node	*	MakeDerefExpressionOfCastPtrToType( node_skl * pType,
+											   		expr_node * pSrcExpr
 											 	  );
-_expr_node	*	MakeExpressionOfCastPtrToType( node_skl	*	pType,
-											   _expr_node	*	pExpr );
+expr_node	*	MakeExpressionOfCastPtrToType( node_skl	*	pType,
+											   expr_node	*	pExpr );
 
-_expr_node	*	MakeExpressionOfCastToTypeName( PNAME	pName,
-											  _expr_node * pExpr );
-_expr_proc_call * MakeProcCallOutOfParamExprList( PNAME ProcName,
+expr_node	*	MakeExpressionOfCastToTypeName( PNAME	pName,
+											  expr_node * pExpr );
+expr_proc_call * MakeProcCallOutOfParamExprList( PNAME ProcName,
 												  node_skl * pProcType,
 												  ITERATOR& ParamExprList );
-_expr_node *	MakeAddressOfPointer( _expr_node * pExpr );
+expr_node *	MakeAddressOfPointer( expr_node * pExpr );
 
-_expr_node	*	MakeCastExprPtrToUChar( _expr_node * pExpr );
+expr_node	*	MakeCastExprPtrToUChar( expr_node * pExpr );
 
-_expr_node	*	MakeCastExprPtrToPtrToUChar( _expr_node * pExpr );
+expr_node	*	MakeCastExprPtrToPtrToUChar( expr_node * pExpr );
 
-_expr_node	*	MakeCastExprPtrToVoid( _expr_node * pExpr );
+expr_node	*	MakeCastExprPtrToVoid( expr_node * pExpr );
 
 void			SetPrefixes( ITERATOR& VarListToBeMangled,
 							 char * pPrefix,
-							 _expr_node * pTargetExpr );
+							 expr_node * pTargetExpr );
 
 void			ResetPrefixes( ITERATOR& VarListToBeMangled,
-							   _expr_node * pTargetExpr );
+							   expr_node * pTargetExpr );
 
-_expr_node *    Make_1_ArrayExpressionFromVarName( PNAME pName, int Dimension );
+expr_node *    Make_1_ArrayExpressionFromVarName( PNAME pName, int Dimension );
+
+expr_node *     CombineIntoLogicalAndExpr( ITERATOR& List );
+
+expr_node *     MakeAttrExprWithNullPtrChecks( expr_node * pExpr );

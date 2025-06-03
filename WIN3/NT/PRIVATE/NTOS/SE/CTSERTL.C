@@ -1135,4 +1135,3 @@ TestSeRtl()
 
     return Result;
 }
-

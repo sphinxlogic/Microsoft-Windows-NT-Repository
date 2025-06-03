@@ -11,7 +11,15 @@ Copyright(c) Maynard Electronics, Inc. 1984-89
                     complete details.
 
 
-     $Log:   T:\logfiles\mayn31.h_v  $
+     $Log:   T:/LOGFILES/MAYN31.H_V  $
+ * 
+ *    Rev 1.15   10 Jan 1995 14:27:14   GREGG
+ * Added code to deal with continuation bits wrongly set in DDBs.
+ * 
+ *    Rev 1.14   01 Aug 1994 21:56:42   GREGG
+ * Added replaced internal structures in the Novell OS Info with packed
+ * versions.  The unpacked versions made the structure size different than
+ * the size on tape!  MAYN31RD.C rev 1.54 is needed with this change.
  * 
  *    Rev 1.13   17 Jan 1994 14:56:56   GREGG
  * Unicode fixes.
@@ -85,6 +93,7 @@ typedef struct {
      BOOLEAN        stream_mode ;
      UINT32         curr_lba ;
      BOOLEAN        in_streams ;
+     BOOLEAN        cont_vcb ;
 } F31_ENV, *F31_ENV_PTR ;
 
 
@@ -383,34 +392,54 @@ typedef struct {
 #define   F31_IDB_ENCRYPT_BIT           BIT24
 #define   F31_IDB_COMPRESS_BIT          BIT25
 
+typedef struct F31_NOVELL_386_DIR {
+     BOOLEAN info_valid ;          /* TRUE when info below is valid   */
+     UINT32  maximum_space ;       /* Max disk space allowed for dir  */
+     UINT16  attributes_386 ;      /* Most sig 16 bits of 32-bit attr */
+     UINT8   extend_attr ;         /* Most sig byte of low 16 bits    */
+     UINT8   inherited_rights ;    /* Most sig byte of rights mask    */
+} F31_NOVELL_386_DIR ;
+
+typedef struct F31_NOVELL_386_FILE {
+     BOOLEAN info_valid ;          /* TRUE when info below is valid   */
+     UINT16  creation_time ;
+     UINT32  archiver_id ;
+     UINT16  attributes_386 ;      /* Most sig 16 bits of 32-bit attr */
+     UINT32  last_modifier_id ;
+     UINT32  trust_fork_size ;     /* Trustee info                    */
+     UINT32  trust_fork_offset ;
+     UINT8   trust_fork_format ;   /* See NOVCOM.H for trust formats  */
+     UINT16  inherited_rights ;
+} F31_NOVELL_386_FILE ;
+
 typedef struct F31_NOV_FILE_OS_INFO {
-     UINT32          owner_id;
-     UINT16          access_date ;
-     NOVELL_386_FILE info_386 ;
-     UINT32          data_fork_offset ;
+     UINT32              owner_id;
+     UINT16              access_date ;
+     F31_NOVELL_386_FILE info_386 ;
+     UINT32              data_fork_offset ;
 } F31_NOV_FILE_OS_INFO, *F31_NOV_FILE_OS_INFO_PTR;
 
 
 typedef struct F31_NOV_DIR_OS_INFO {
-     UINT32         owner_id;
-     UINT32         trust_fork_size ;
-     UINT32         trust_fork_offset;
-     UINT8          trust_fork_format ;
-     NOVELL_386_DIR info_386 ;
+     UINT32              owner_id;
+     UINT32              trust_fork_size ;
+     UINT32              trust_fork_offset;
+     UINT8               trust_fork_format ;
+     F31_NOVELL_386_DIR  info_386 ;
 } F31_NOV_DIR_OS_INFO, *F31_NOV_DIR_OS_INFO_PTR;
 
 
 typedef struct F31_AFP_FILE_OS_INFO {
-     UINT8           finder[32];
-     ACHAR           long_name[32] ;
-     UINT32          data_fork_size ;
-     UINT32          data_fork_offset ;
-     UINT32          res_fork_size ;
-     UINT32          res_fork_offset ;
-     UINT32          owner_id ;
-     UINT16          access_date ;
-     NOVELL_386_FILE info_386 ;
-     UINT8           proDosInfo[6] ;      /* Added in version 1.  */
+     UINT8               finder[32];
+     ACHAR               long_name[32] ;
+     UINT32              data_fork_size ;
+     UINT32              data_fork_offset ;
+     UINT32              res_fork_size ;
+     UINT32              res_fork_offset ;
+     UINT32              owner_id ;
+     UINT16              access_date ;
+     F31_NOVELL_386_FILE info_386 ;
+     UINT8               proDosInfo[6] ;      /* Added in version 1.  */
 } F31_AFP_FILE_OS_INFO, *F31_AFP_FILE_OS_INFO_PTR;
 
 typedef struct F31_OLD_AFP_DIR_OS_INFO {
@@ -424,15 +453,15 @@ typedef struct F31_OLD_AFP_DIR_OS_INFO {
 
 
 typedef struct F31_AFP_DIR_OS_INFO {
-     UINT8          finder[32];
-     UINT32         owner_id;
-     UINT32         trust_fork_size ;
-     UINT32         trust_fork_offset;
-     UINT8          trust_fork_format ;
-     UINT16         lpath_leng ;
-     UINT16         long_path ;              /* :fred:sue */
-     NOVELL_386_DIR info_386 ;
-     UINT8          proDosInfo[6] ;      /* Added in version 1.  */
+     UINT8               finder[32];
+     UINT32              owner_id;
+     UINT32              trust_fork_size ;
+     UINT32              trust_fork_offset;
+     UINT8               trust_fork_format ;
+     UINT16              lpath_leng ;
+     UINT16              long_path ;              /* :fred:sue */
+     F31_NOVELL_386_DIR  info_386 ;
+     UINT8               proDosInfo[6] ;      /* Added in version 1.  */
 } F31_AFP_DIR_OS_INFO, *F31_AFP_DIR_OS_INFO_PTR;
 
 

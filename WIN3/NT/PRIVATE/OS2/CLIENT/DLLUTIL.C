@@ -655,7 +655,78 @@ Return Value:
     return;
 }
 
+void
+Od2StartTimeout(
+    PLARGE_INTEGER StartTimeStamp
+    )
+{
+    NTSTATUS Status;
 
+    Status = NtQuerySystemTime(StartTimeStamp);
+#if DBG
+    if (Status != STATUS_SUCCESS) {
+        DbgPrint("ERROR !!! NtQuerySystemTime: Status = %X\n", Status);
+    }
+#endif
+}
+
+NTSTATUS
+Od2ContinueTimeout(
+    PLARGE_INTEGER StartTimeStamp,
+    PLARGE_INTEGER Timeout
+    )
+{
+    NTSTATUS Status;
+    LONGLONG time;
+
+    if (Timeout == NULL) {
+#if DBG
+    IF_OD2_DEBUG( TIMERS ) {
+        DbgPrint("Od2ContinueTimeout: Indefinite wait\n");
+    }
+#endif
+        return STATUS_SUCCESS;
+    }
+
+    Status = NtQuerySystemTime((PLARGE_INTEGER)&time);
+#if DBG
+    if (Status != STATUS_SUCCESS) {
+        DbgPrint("ERROR !!! NtQuerySystemTime: Status = %X\n", Status);
+    }
+#endif
+    time -= *(PLONGLONG)StartTimeStamp;
+#if DBG
+    IF_OD2_DEBUG( TIMERS ) {
+        DbgPrint("Od2ContinueTimeout: Timeout=0x%08X%08X, Expired time=0x%08X%08X\n",
+            Timeout->HighPart,
+            Timeout->LowPart,
+            ((PLARGE_INTEGER)&time)->HighPart,
+            ((PLARGE_INTEGER)&time)->LowPart
+            );
+    }
+#endif
+    time += *(PLONGLONG)Timeout;
+    if (time < 0) {
+        *(PLONGLONG)Timeout = time;
+#if DBG
+        IF_OD2_DEBUG( TIMERS ) {
+            DbgPrint("Od2ContinueTimeout: New timeout=0x%08X%08X\n",
+                Timeout->HighPart,
+                Timeout->LowPart
+                );
+        }
+#endif
+        return STATUS_SUCCESS;
+    }
+    else {
+#if DBG
+        IF_OD2_DEBUG( TIMERS ) {
+            DbgPrint("Od2ContinueTimeout: Timeout Expired\n");
+        }
+#endif
+        return STATUS_TIMEOUT;
+    }
+}
 
 PLARGE_INTEGER
 Od2CaptureTimeout(
@@ -1193,6 +1264,34 @@ ReleaseFileLockExclusive(
 #else // DBG
 
 VOID
+AcquireFileLockShared()
+{
+    PTEB Teb;
+
+    Teb = NtCurrentTeb();
+
+    if (Teb->EnvironmentPointer != NULL && Od2CurrentThreadId() == 1) {
+        DosHoldSignal(HLDSIG_DISABLE, 0);
+    }
+
+    (VOID)RtlAcquireResourceShared( &Od2Process->FileLock, TRUE );
+}
+
+VOID
+ReleaseFileLockShared()
+{
+    PTEB Teb;
+
+    Teb = NtCurrentTeb();
+
+    RtlReleaseResource( &Od2Process->FileLock );
+
+    if (Teb->EnvironmentPointer != NULL && Od2CurrentThreadId() == 1) {
+        DosHoldSignal(HLDSIG_ENABLE, 0);
+    }
+}
+
+VOID
 AcquireFileLockExclusive()
 {
 
@@ -1432,4 +1531,3 @@ APIRET Od2FixFEA2List(
 
     return NO_ERROR;
 }
-

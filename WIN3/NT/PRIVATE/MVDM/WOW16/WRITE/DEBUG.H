@@ -13,4 +13,3 @@
 #else /* not DEBUG */
 #define Scribble(a, b)
 #endif /* not DEBUG */
-

@@ -3,15 +3,16 @@
 #define _PSTAT_INCLUDED_
 
 
-#define MAX_P5_COUNTER          2
+#define MAX_EVENTS              2
 #define MAX_THUNK_COUNTERS     64
 #define MAX_PROCESSORS         32
 
 
-#define P5STAT_READ_STATS  CTL_CODE (FILE_DEVICE_UNKNOWN, 0, METHOD_NEITHER, FILE_ANY_ACCESS)
-#define P5STAT_SET_CESR    CTL_CODE (FILE_DEVICE_UNKNOWN, 1, METHOD_NEITHER, FILE_ANY_ACCESS)
-#define P5STAT_HOOK_THUNK  CTL_CODE (FILE_DEVICE_UNKNOWN, 2, METHOD_NEITHER, FILE_ANY_ACCESS)
-#define P5STAT_REMOVE_HOOK CTL_CODE (FILE_DEVICE_UNKNOWN, 3, METHOD_NEITHER, FILE_ANY_ACCESS)
+#define PSTAT_READ_STATS    CTL_CODE (FILE_DEVICE_UNKNOWN, 0, METHOD_NEITHER, FILE_ANY_ACCESS)
+#define PSTAT_SET_CESR      CTL_CODE (FILE_DEVICE_UNKNOWN, 1, METHOD_NEITHER, FILE_ANY_ACCESS)
+#define PSTAT_HOOK_THUNK    CTL_CODE (FILE_DEVICE_UNKNOWN, 2, METHOD_NEITHER, FILE_ANY_ACCESS)
+#define PSTAT_REMOVE_HOOK   CTL_CODE (FILE_DEVICE_UNKNOWN, 3, METHOD_NEITHER, FILE_ANY_ACCESS)
+#define PSTAT_QUERY_EVENTS  CTL_CODE (FILE_DEVICE_UNKNOWN, 4, METHOD_NEITHER, FILE_ANY_ACCESS)
 
 #define OFFSET(type, field) ((LONG)(&((type *)0)->field))
 
@@ -20,24 +21,40 @@
 //
 
 typedef struct {
-    LARGE_INTEGER   P5Counters[MAX_P5_COUNTER];
-    LARGE_INTEGER   P5TSC;
-    ULONG           CESR;
+    ULONGLONG       Counters[MAX_EVENTS];
+    ULONGLONG       TSC;
+    ULONG           reserved;
     ULONG           SpinLockAcquires;
     ULONG           SpinLockCollisions;
     ULONG           SpinLockSpins;
     ULONG           Irqls;
     ULONG           ThunkCounters[MAX_THUNK_COUNTERS];
-} P5STATS, *pP5STATS;
-
+} PSTATS, *pPSTATS;
 
 typedef struct {
-    PUCHAR  SourceModule;
-    ULONG   ImageBase;
-    PUCHAR  TargetModule;
-    PUCHAR  Function;
+    ULONG           EventId;
+    BOOLEAN         Active;
+    BOOLEAN         UserMode;
+    BOOLEAN         KernelMode;
+    BOOLEAN         EdgeDetect;
+    ULONG           AppReserved;
+    ULONG           reserved;
+} SETEVENT, *PSETEVENT;
 
-    ULONG   TracerId;
+typedef struct {
+    PUCHAR          SourceModule;
+    ULONG           ImageBase;
+    PUCHAR          TargetModule;
+    PUCHAR          Function;
+    ULONG           TracerId;
 } HOOKTHUNK, *PHOOKTHUNK;
+
+typedef struct {
+    ULONG           EventId;
+    KPROFILE_SOURCE ProfileSource;
+    ULONG           DescriptionOffset;
+    ULONG           SuggestedIntervalBase;
+    UCHAR           Buffer[];
+} EVENTID, *PEVENTID;
 
 #endif /* _PSTAT_INCLUDED */

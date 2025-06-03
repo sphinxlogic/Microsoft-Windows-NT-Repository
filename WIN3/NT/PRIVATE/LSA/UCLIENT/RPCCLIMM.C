@@ -101,4 +101,3 @@ Note:
 {
     LocalFree(MemPointer);
 }
-

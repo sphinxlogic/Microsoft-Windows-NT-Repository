@@ -69,7 +69,7 @@ TestErrorLog(
     )
 {
     IF_DEBUG(ERRLOG) {
-        NetpDbgPrint("\nTestErrorLog: first test beginning...\n");
+        NetpKdPrint(("\nTestErrorLog: first test beginning...\n"));
     }
 
     //
@@ -122,7 +122,7 @@ TestErrorLogRead(
     NET_API_STATUS Status;
 
     IF_DEBUG(ERRLOG) {
-        NetpDbgPrint("\nTestErrorLogRead: trying NetErrorLogRead...\n");
+        NetpKdPrint(("\nTestErrorLogRead: trying NetErrorLogRead...\n"));
     }
 
     LogHandle.time = 0L;
@@ -144,10 +144,10 @@ TestErrorLogRead(
             &BytesLeft);        // Count of bytes available after this
 
     IF_DEBUG(ERRLOG) {
-        NetpDbgPrint("TestErrorLogRead: back from NetErrorLogRead, stat="
-                FORMAT_API_STATUS "\n", Status);
-        NetpDbgPrint(INDENT "bytes read=" FORMAT_DWORD
-                ", bytes left=" FORMAT_DWORD "\n", BytesRead, BytesLeft);
+        NetpKdPrint(("TestErrorLogRead: back from NetErrorLogRead, stat="
+                FORMAT_API_STATUS "\n", Status));
+        NetpKdPrint((INDENT "bytes read=" FORMAT_DWORD
+                ", bytes left=" FORMAT_DWORD "\n", BytesRead, BytesLeft));
     }
 
     if (RxTestIsApiNotSupported( Status ) ) {

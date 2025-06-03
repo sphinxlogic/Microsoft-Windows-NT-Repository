@@ -30,6 +30,13 @@ Revision History:
 
 extern ULONG LsapAdtInitializationPass;
 
+
+//
+// Flag indicating whether shutdown is in progress
+//
+
+extern BOOLEAN LsapShutdownInProgress;
+
 //
 // Audit Log Information.  This must be kept in sync with the information
 // in the Lsa Database.
@@ -51,6 +58,14 @@ extern POLICY_AUDIT_FULL_QUERY_INFO LsapAdtLogFullInformation;
 //
 
 #define LSAP_ADT_MAXIMUM_RECORD_ID   (0x7fffffffL)
+
+//
+// Flag for console handler indicating how late we should be shutdown.
+// This number is intentionally lower than the value used by the
+// the service controller.
+//
+
+#define LSAP_SHUTDOWN_LEVEL 400
 
 //
 // Options for LsapAdtQueryAuditLogFullInfo

@@ -25,7 +25,8 @@ Revision History:
 // Define global data.
 //
 
-BOOLEAN KdpControlCPending = FALSE;
+BOOLEAN KdpControlCPending   = FALSE;
+BOOLEAN KdpControlCPressed   = FALSE;
 BOOLEAN KdDebuggerNotPresent = FALSE;
 
 //
@@ -45,7 +46,7 @@ KdpComputeChecksum (
     IN ULONG Length
     );
 
-USHORT
+ULONG
 KdpReceiveString (
     OUT PCHAR Destination,
     IN ULONG Length
@@ -141,11 +142,11 @@ Return Value:
     UCHAR Input, PreviousByte = 0;
     ULONG PacketId = 0;
     ULONG Index;
-    USHORT ReturnCode;
+    ULONG ReturnCode;
     BOOLEAN BreakinDetected = FALSE;
 
     //
-    // BUGBUG shielint - With all the interrupts being off, it is very hard
+    // NOTE - With all the interrupts being off, it is very hard
     // to implement the actual timeout code. (Maybe, by reading the CMOS.)
     // Here we use a loop count to wait about 3 seconds.  The CpGetByte
     // will return with error code = CP_GET_NODATA if it cannot find data
@@ -223,7 +224,7 @@ Return Value:
     return KDP_PACKET_RECEIVED;
 }
 
-USHORT
+ULONG
 KdpReceiveString (
     OUT PCHAR Destination,
     IN ULONG Length
@@ -253,7 +254,7 @@ Return Value:
 {
 
     UCHAR Input;
-    USHORT ReturnCode;
+    ULONG ReturnCode;
 
     //
     // Read bytes until either a error is encountered or the entire string
@@ -356,7 +357,7 @@ Return Value:
     return;
 }
 
-USHORT
+ULONG
 KdpReceivePacket (
     IN ULONG PacketType,
     OUT PSTRING MessageHeader,
@@ -401,7 +402,7 @@ Return Value:
     UCHAR Input;
     ULONG MessageLength;
     KD_PACKET PacketHeader;
-    USHORT ReturnCode;
+    ULONG ReturnCode;
     ULONG Checksum;
 
 WaitForPacketLeader:
@@ -731,7 +732,7 @@ Return Value:
 
     KD_PACKET PacketHeader;
     ULONG MessageDataLength;
-    USHORT ReturnCode;
+    ULONG ReturnCode;
     PDBGKD_DEBUG_IO DebugIo;
     PDBGKD_WAIT_STATE_CHANGE StateChange;
 

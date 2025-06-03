@@ -297,7 +297,7 @@ ldrNewExeInit(
         strncpy(ldrLibPathBuf, a->LibPathName.Buffer, SizeOfldrLibPathBuf);
         ldrLibPathBuf[SizeOfldrLibPathBuf - 1] = '\0';
 
-        strupr(ldrpLibPath);
+        _strupr(ldrpLibPath);
 
         *cb = (USHORT)a->ProcessName.Length;
 
@@ -1575,7 +1575,7 @@ register ldrmte_t       **ppmte;
 {
         int             rc;
 
-        if ((cb <= 4) || strnicmp(&pachModname[cb-4], ".DLL", 4)) {
+        if ((cb <= 4) || _strnicmp(&pachModname[cb-4], ".DLL", 4)) {
             return(FALSE);
         }
 
@@ -2793,6 +2793,32 @@ LARGE_INTEGER   ByteOffset;
                 pmte->mte_mflags |= GINISETUP | GINIDONE;
                 pmte->mte_mflags &= ~INSTLIBINIT;
             }
+            else {
+                /*
+                 * if SS = DS and SP = 0 (this is a dll, so ignore the case
+                 * where SS = DS = 0).
+                 */
+                if (psmte->smte_stackobj == psmte->smte_autods &&
+                    psmte->smte_stackobj != 0 &&
+                    psmte->smte_esp == 0) {
+
+                    /*
+                     * Validate stack segment
+                     */
+                    if ((pste = ldrNumToSte(pmte, psmte->smte_stackobj)) == 0 ||
+                        pste->ste_flags & STE_SHARED) {
+                        rc = ERROR_INVALID_STACKSEG;
+                        goto createerror;
+                    }
+
+                    /*
+                     * Set SP to top of auto data segment just below
+                     * the additional heap
+                     */
+                    psmte->smte_esp = RESIZE64K(pste->ste_minsiz) +
+                                    psmte->smte_stacksize;
+                }
+            }
         }                               /* end if for NE module */
         else {                          /* 32-bit module */
 
@@ -3792,7 +3818,7 @@ int    errcode;       /* loader error code */
             BufferLen -= cnt;
         }
         else {      /* errcode == ERROR_INVALID_ORDINAL */
-            pordbuf = itoa((int) ldrProcNameBuf, ordbuf, 10);
+            pordbuf = _itoa((int) ldrProcNameBuf, ordbuf, 10);
             cnt = (USHORT) strlen(pordbuf);
             if (cnt > BufferLen)
                 cnt = BufferLen;
@@ -4262,4 +4288,3 @@ LDRUnloadExe(
     return(TRUE);
 }
 
-

@@ -28,8 +28,11 @@ Environment:
 #include <pch.cxx>
 
 #define _NTAPI_ULIB_
+#define _IFSUTIL_MEMBER_
 
 #include "ulib.hxx"
+#include "ifsutil.hxx"
+
 #include "autoreg.hxx"
 #include "autoentr.hxx"
 
@@ -41,12 +44,14 @@ extern "C" {
 
 CONST BootExecuteBufferSize = 0x2000;
 
+STATIC BYTE BootExecuteBuffer[BootExecuteBufferSize];
+
+IFSUTIL_EXPORT
 BOOLEAN
 AUTOREG::AddEntry (
     IN  PCWSTRING    CommandLine
     )
 {
-    BYTE BootExecuteBuffer[BootExecuteBufferSize];
     PWCHAR BootExecuteValue = (PWCHAR)BootExecuteBuffer;
     ULONG CharsInValue, NewCharCount;
 
@@ -101,21 +106,23 @@ AUTOREG::AddEntry (
 
 BOOLEAN
 AUTOREG::DeleteEntry (
-    IN  PCWSTRING    LineToMatch
+    IN  PCWSTRING    LineToMatch,
+    IN  BOOLEAN      PrefixOnly
     )
 /*++
 
 Routine Description:
 
-    This method removes an Autocheck entry.  Since the utilities
-    only assume responsibility for removing entries that we created,
-    we can assume that the
+    This method removes an Autocheck entry.  
 
 Arguments:
 
     LineToMatch --  Supplies a pattern for the entry to delete.
                     All lines which match this pattern will be
                     deleted.
+
+    PrefixOnly  --  LineToMatch specifies a prefix, and all lines
+                    beginning with that prefix are deleted.
 
 Return Value:
 
@@ -132,7 +139,6 @@ Notes:
 
 --*/
 {
-    BYTE BootExecuteBuffer[BootExecuteBufferSize];
     DSTRING CurrentString;
     PWCHAR BootExecuteValue = (PWCHAR)BootExecuteBuffer;
     PWCHAR pw;
@@ -156,7 +162,10 @@ Notes:
             return FALSE;
         }
 
-        if( CurrentString.Stricmp( LineToMatch ) == 0 ) {
+        if( CurrentString.Stricmp( LineToMatch ) == 0 ||
+            (PrefixOnly && CurrentString.Stricmp( LineToMatch,
+                                                  0, LineToMatch->QueryChCount(),
+                                                  0, LineToMatch->QueryChCount()) == 0)) {
 
             // This line is a match--delete it.  We simply expunge
             // the current string plus its terminating null by
@@ -181,6 +190,7 @@ Notes:
 }
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 AUTOREG::IsEntryPresent (
     IN PCWSTRING     LineToMatch
@@ -209,7 +219,6 @@ Notes:
 
 --*/
 {
-    BYTE BootExecuteBuffer[BootExecuteBufferSize];
     DSTRING CurrentString;
     PWCHAR BootExecuteValue = (PWCHAR)BootExecuteBuffer;
     PWCHAR pw;

@@ -805,6 +805,17 @@ typedef struct _XS_NET_SERVER_ENUM_2 {
     LPSTR Domain;
 } XS_NET_SERVER_ENUM_2, *PXS_NET_SERVER_ENUM_2;
 
+typedef struct _XS_NET_SERVER_ENUM_3 {
+    WORD Level;
+    LPBYTE Buffer;
+    WORD BufLen;
+    WORD EntriesRead;
+    WORD TotalAvail;
+    DWORD ServerType;
+    LPSTR Domain;
+    LPSTR FirstNameToReturn;
+} XS_NET_SERVER_ENUM_3, *PXS_NET_SERVER_ENUM_3;
+
 typedef struct _XS_NET_SERVER_GET_INFO {
     WORD Level;
     LPBYTE Buffer;
@@ -1049,6 +1060,13 @@ typedef struct _XS_NET_USER_PASSWORD_SET_2 {
     WORD DataEncryption;
     WORD PasswordLength;
 } XS_NET_USER_PASSWORD_SET_2, *PXS_NET_USER_PASSWORD_SET_2;
+
+typedef struct _XS_SAMOEMCHGPASSWORDUSER2_P {
+    LPSTR  UserName;
+    LPBYTE Buffer;
+    WORD   BufLen;
+} XS_SAMOEMCHGPASSWORDUSER2_P, *PXS_SAMOEMCHGPASSWORDUSER2_P;
+
 
 typedef struct _XS_NET_USER_GET_GROUPS {
     LPSTR UserName;

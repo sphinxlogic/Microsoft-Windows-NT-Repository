@@ -37,8 +37,8 @@ KiGetRegisterValue (
 
 Routine Description:
 
-    This function is called to get the value of a register from the specified
-    exception or trap frame.
+    This function is called to get the 32-bit value of a register from the
+    specified exception or trap frame.
 
 Arguments:
 
@@ -62,455 +62,511 @@ Return Value:
     // Dispatch on the register number.
     //
 
-    switch (Register) {
-
-        //
-        // Integer register zero.
-        //
-
-    case 0:
+    if (Register == 0) {
         return 0;
 
-        //
-        // Integer register AT.
-        //
+    } else if (Register < 32) {
+        return (ULONG)(&TrapFrame->XIntZero)[Register];
 
-    case 1:
-        return TrapFrame->IntAt;
+    } else {
+        switch (Register) {
 
-        //
-        // Integer register V0.
-        //
+            //
+            // Floating register F0.
+            //
 
-    case 2:
-        return TrapFrame->IntV0;
+        case 32:
+            return TrapFrame->FltF0;
 
-        //
-        // Integer register V1.
-        //
+            //
+            // Floating register F1.
+            //
 
-    case 3:
-        return TrapFrame->IntV1;
+        case 33:
+            return TrapFrame->FltF1;
 
-        //
-        // Integer register A0.
-        //
+            //
+            // Floating register F2.
+            //
 
-    case 4:
-        return TrapFrame->IntA0;
+        case 34:
+            return TrapFrame->FltF2;
 
-        //
-        // Integer register A1.
-        //
+            //
+            // Floating register F3.
+            //
 
-    case 5:
-        return TrapFrame->IntA1;
+        case 35:
+            return TrapFrame->FltF3;
 
-        //
-        // Integer register A2.
-        //
+            //
+            // Floating register F4.
+            //
 
-    case 6:
-        return TrapFrame->IntA2;
+        case 36:
+            return TrapFrame->FltF4;
 
-        //
-        // Integer register A3.
-        //
+            //
+            // Floating register F5.
+            //
 
-    case 7:
-        return TrapFrame->IntA3;
+        case 37:
+            return TrapFrame->FltF5;
 
-        //
-        // Integer register T0.
-        //
+            //
+            // Floating register F6.
+            //
 
-    case 8:
-        return TrapFrame->IntT0;
+        case 38:
+            return TrapFrame->FltF6;
 
-        //
-        // Integer register T1.
-        //
+            //
+            // Floating register F7.
+            //
 
-    case 9:
-        return TrapFrame->IntT1;
+        case 39:
+            return TrapFrame->FltF7;
 
-        //
-        // Integer register T2.
-        //
+            //
+            // Floating register F8.
+            //
 
-    case 10:
-        return TrapFrame->IntT2;
+        case 40:
+            return TrapFrame->FltF8;
 
-        //
-        // Integer register T3.
-        //
+            //
+            // Floating register F9.
+            //
 
-    case 11:
-        return TrapFrame->IntT3;
+        case 41:
+            return TrapFrame->FltF9;
 
-        //
-        // Integer register T4.
-        //
+            //
+            // Floating register F10.
+            //
 
-    case 12:
-        return TrapFrame->IntT4;
+        case 42:
+            return TrapFrame->FltF10;
 
-        //
-        // Integer register T5.
-        //
+            //
+            // Floating register F11.
+            //
 
-    case 13:
-        return TrapFrame->IntT5;
+        case 43:
+            return TrapFrame->FltF11;
 
-        //
-        // Integer register T6.
-        //
+            //
+            // Floating register F12.
+            //
 
-    case 14:
-        return TrapFrame->IntT6;
+        case 44:
+            return TrapFrame->FltF12;
 
-        //
-        // Integer register T7.
-        //
+            //
+            // Floating register F13.
+            //
 
-    case 15:
-        return TrapFrame->IntT7;
+        case 45:
+            return TrapFrame->FltF13;
 
-        //
-        // Integer register S0.
-        //
+            //
+            // Floating register F14.
+            //
 
-    case 16:
-        return ExceptionFrame->IntS0;
+        case 46:
+            return TrapFrame->FltF14;
 
-        //
-        // Integer register S1.
-        //
+            //
+            // Floating register F15.
+            //
 
-    case 17:
-        return ExceptionFrame->IntS1;
+        case 47:
+            return TrapFrame->FltF15;
 
-        //
-        // Integer register S2.
-        //
+            //
+            // Floating register F16.
+            //
 
-    case 18:
-        return ExceptionFrame->IntS2;
+        case 48:
+            return TrapFrame->FltF16;
 
-        //
-        // Integer register S3.
-        //
+            //
+            // Floating register F17.
+            //
 
-    case 19:
-        return ExceptionFrame->IntS3;
+        case 49:
+            return TrapFrame->FltF17;
 
-        //
-        // Integer register S4.
-        //
+            //
+            // Floating register F18.
+            //
 
-    case 20:
-        return ExceptionFrame->IntS4;
+        case 50:
+            return TrapFrame->FltF18;
 
-        //
-        // Integer register S5.
-        //
+            //
+            // Floating register F19.
+            //
 
-    case 21:
-        return ExceptionFrame->IntS5;
+        case 51:
+            return TrapFrame->FltF19;
 
-        //
-        // Integer register S6.
-        //
+            //
+            // Floating register F20.
+            //
 
-    case 22:
-        return ExceptionFrame->IntS6;
+        case 52:
+            return ExceptionFrame->FltF20;
 
-        //
-        // Integer register S7.
-        //
+            //
+            // Floating register F21.
+            //
 
-    case 23:
-        return ExceptionFrame->IntS7;
+        case 53:
+            return ExceptionFrame->FltF21;
 
-        //
-        // Integer register T8.
-        //
+            //
+            // Floating register F22.
+            //
 
-    case 24:
-        return TrapFrame->IntT8;
+        case 54:
+            return ExceptionFrame->FltF22;
 
-        //
-        // Integer register T9.
-        //
+            //
+            // Floating register F23.
+            //
 
-    case 25:
-        return TrapFrame->IntT9;
+        case 55:
+            return ExceptionFrame->FltF23;
 
-        //
-        // Integer register K0.
-        //
+            //
+            // Floating register F24.
+            //
 
-    case 26:
+        case 56:
+            return ExceptionFrame->FltF24;
+
+            //
+            // Floating register F25.
+            //
+
+        case 57:
+            return ExceptionFrame->FltF25;
+
+            //
+            // Floating register F26.
+            //
+
+        case 58:
+            return ExceptionFrame->FltF26;
+
+            //
+            // Floating register F27.
+            //
+
+        case 59:
+            return ExceptionFrame->FltF27;
+
+            //
+            // Floating register F28.
+            //
+
+        case 60:
+            return ExceptionFrame->FltF28;
+
+            //
+            // Floating register F29.
+            //
+
+        case 61:
+            return ExceptionFrame->FltF29;
+
+            //
+            // Floating register F30.
+            //
+
+        case 62:
+            return ExceptionFrame->FltF30;
+
+            //
+            // Floating register F31.
+            //
+
+        case 63:
+            return ExceptionFrame->FltF31;
+        }
+    }
+}
+
+ULONGLONG
+KiGetRegisterValue64 (
+    IN ULONG Register,
+    IN PKEXCEPTION_FRAME ExceptionFrame,
+    IN PKTRAP_FRAME TrapFrame
+    )
+
+/*++
+
+Routine Description:
+
+    This function is called to get the 64-bit value of a register from the
+    specified exception or trap frame.
+
+Arguments:
+
+    Register - Supplies the number of the register whose value is to be
+        returned. Integer registers are specified as 0 - 31 and floating
+        registers are specified as 32 - 63.
+
+    ExceptionFrame - Supplies a pointer to an exception frame.
+
+    TrapFrame - Supplies a pointer to a trap frame.
+
+Return Value:
+
+    The value of the specified register is returned as the function value.
+
+--*/
+
+{
+
+    //
+    // Dispatch on the register number.
+    //
+
+    if (Register == 0) {
         return 0;
 
-        //
-        // Integer register K1.
-        //
+    } else if (Register < 32) {
+        return (&TrapFrame->XIntZero)[Register];
 
-    case 27:
-        return 0;
+    } else {
+        switch (Register) {
 
-        //
-        // Integer register gp.
-        //
+            //
+            // Floating register F0.
+            //
 
-    case 28:
-        return TrapFrame->IntGp;
+        case 32:
+            return TrapFrame->XFltF0;
 
-        //
-        // Integer register Sp.
-        //
+            //
+            // Floating register F1.
+            //
 
-    case 29:
-        return TrapFrame->IntSp;
+        case 33:
+            return TrapFrame->XFltF1;
 
-        //
-        // Integer register S8.
-        //
+            //
+            // Floating register F2.
+            //
 
-    case 30:
-        return TrapFrame->IntS8;
+        case 34:
+            return TrapFrame->XFltF2;
 
-        //
-        // Integer register Ra.
-        //
+            //
+            // Floating register F3.
+            //
 
-    case 31:
-        return TrapFrame->IntRa;
+        case 35:
+            return TrapFrame->XFltF3;
 
-        //
-        // Floating register F0.
-        //
+            //
+            // Floating register F4.
+            //
 
-    case 32:
-        return TrapFrame->FltF0;
+        case 36:
+            return TrapFrame->XFltF4;
 
-        //
-        // Floating register F1.
-        //
+            //
+            // Floating register F5.
+            //
 
-    case 33:
-        return TrapFrame->FltF1;
+        case 37:
+            return TrapFrame->XFltF5;
 
-        //
-        // Floating register F2.
-        //
+            //
+            // Floating register F6.
+            //
 
-    case 34:
-        return TrapFrame->FltF2;
+        case 38:
+            return TrapFrame->XFltF6;
 
-        //
-        // Floating register F3.
-        //
+            //
+            // Floating register F7.
+            //
 
-    case 35:
-        return TrapFrame->FltF3;
+        case 39:
+            return TrapFrame->XFltF7;
 
-        //
-        // Floating register F4.
-        //
+            //
+            // Floating register F8.
+            //
 
-    case 36:
-        return TrapFrame->FltF4;
+        case 40:
+            return TrapFrame->XFltF8;
 
-        //
-        // Floating register F5.
-        //
+            //
+            // Floating register F9.
+            //
 
-    case 37:
-        return TrapFrame->FltF5;
+        case 41:
+            return TrapFrame->XFltF9;
 
-        //
-        // Floating register F6.
-        //
+            //
+            // Floating register F10.
+            //
 
-    case 38:
-        return TrapFrame->FltF6;
+        case 42:
+            return TrapFrame->XFltF10;
 
-        //
-        // Floating register F7.
-        //
+            //
+            // Floating register F11.
+            //
 
-    case 39:
-        return TrapFrame->FltF7;
+        case 43:
+            return TrapFrame->XFltF11;
 
-        //
-        // Floating register F8.
-        //
+            //
+            // Floating register F12.
+            //
 
-    case 40:
-        return TrapFrame->FltF8;
+        case 44:
+            return TrapFrame->XFltF12;
 
-        //
-        // Floating register F9.
-        //
+            //
+            // Floating register F13.
+            //
 
-    case 41:
-        return TrapFrame->FltF9;
+        case 45:
+            return TrapFrame->XFltF13;
 
-        //
-        // Floating register F10.
-        //
+            //
+            // Floating register F14.
+            //
 
-    case 42:
-        return TrapFrame->FltF10;
+        case 46:
+            return TrapFrame->XFltF14;
 
-        //
-        // Floating register F11.
-        //
+            //
+            // Floating register F15.
+            //
 
-    case 43:
-        return TrapFrame->FltF11;
+        case 47:
+            return TrapFrame->XFltF15;
 
-        //
-        // Floating register F12.
-        //
+            //
+            // Floating register F16.
+            //
 
-    case 44:
-        return TrapFrame->FltF12;
+        case 48:
+            return TrapFrame->XFltF16;
 
-        //
-        // Floating register F13.
-        //
+            //
+            // Floating register F17.
+            //
 
-    case 45:
-        return TrapFrame->FltF13;
+        case 49:
+            return TrapFrame->XFltF17;
 
-        //
-        // Floating register F14.
-        //
+            //
+            // Floating register F18.
+            //
 
-    case 46:
-        return TrapFrame->FltF14;
+        case 50:
+            return TrapFrame->XFltF18;
 
-        //
-        // Floating register F15.
-        //
+            //
+            // Floating register F19.
+            //
 
-    case 47:
-        return TrapFrame->FltF15;
+        case 51:
+            return TrapFrame->XFltF19;
 
-        //
-        // Floating register F16.
-        //
+            //
+            // Floating register F20.
+            //
 
-    case 48:
-        return TrapFrame->FltF16;
+        case 52:
+            return ExceptionFrame->XFltF20;
 
-        //
-        // Floating register F17.
-        //
+            //
+            // Floating register F21.
+            //
 
-    case 49:
-        return TrapFrame->FltF17;
+        case 53:
+            return TrapFrame->XFltF21;
 
-        //
-        // Floating register F18.
-        //
+            //
+            // Floating register F22.
+            //
 
-    case 50:
-        return TrapFrame->FltF18;
+        case 54:
+            return ExceptionFrame->XFltF22;
 
-        //
-        // Floating register F19.
-        //
+            //
+            // Floating register F23.
+            //
 
-    case 51:
-        return TrapFrame->FltF19;
+        case 55:
+            return TrapFrame->XFltF23;
 
-        //
-        // Floating register F20.
-        //
+            //
+            // Floating register F24.
+            //
 
-    case 52:
-        return ExceptionFrame->FltF20;
+        case 56:
+            return ExceptionFrame->XFltF24;
 
-        //
-        // Floating register F21.
-        //
+            //
+            // Floating register F25.
+            //
 
-    case 53:
-        return ExceptionFrame->FltF21;
+        case 57:
+            return TrapFrame->XFltF25;
 
-        //
-        // Floating register F22.
-        //
+            //
+            // Floating register F26.
+            //
 
-    case 54:
-        return ExceptionFrame->FltF22;
+        case 58:
+            return ExceptionFrame->XFltF26;
 
-        //
-        // Floating register F23.
-        //
+            //
+            // Floating register F27.
+            //
 
-    case 55:
-        return ExceptionFrame->FltF23;
+        case 59:
+            return TrapFrame->XFltF27;
 
-        //
-        // Floating register F24.
-        //
+            //
+            // Floating register F28.
+            //
 
-    case 56:
-        return ExceptionFrame->FltF24;
+        case 60:
+            return ExceptionFrame->XFltF28;
 
-        //
-        // Floating register F25.
-        //
+            //
+            // Floating register F29.
+            //
 
-    case 57:
-        return ExceptionFrame->FltF25;
+        case 61:
+            return TrapFrame->XFltF29;
 
-        //
-        // Floating register F26.
-        //
+            //
+            // Floating register F30.
+            //
 
-    case 58:
-        return ExceptionFrame->FltF26;
+        case 62:
+            return ExceptionFrame->XFltF30;
 
-        //
-        // Floating register F27.
-        //
+            //
+            // Floating register F31.
+            //
 
-    case 59:
-        return ExceptionFrame->FltF27;
-
-        //
-        // Floating register F28.
-        //
-
-    case 60:
-        return ExceptionFrame->FltF28;
-
-        //
-        // Floating register F29.
-        //
-
-    case 61:
-        return ExceptionFrame->FltF29;
-
-        //
-        // Floating register F30.
-        //
-
-    case 62:
-        return ExceptionFrame->FltF30;
-
-        //
-        // Floating register F31.
-        //
-
-    case 63:
-        return ExceptionFrame->FltF31;
+        case 63:
+            return TrapFrame->XFltF31;
+        }
     }
 }
 
@@ -526,8 +582,8 @@ KiSetRegisterValue (
 
 Routine Description:
 
-    This function is called to set the value of a register in the specified
-    exception or trap frame.
+    This function is called to set the 32-bit value of a register in the
+    specified exception or trap frame.
 
 Arguments:
 
@@ -553,515 +609,571 @@ Return Value:
     // Dispatch on the register number.
     //
 
-    switch (Register) {
+    if (Register < 32) {
+        (&TrapFrame->XIntZero)[Register] = (LONG)Value;
 
-        //
-        // Integer register zero.
-        //
+    } else {
+        switch (Register) {
+
+            //
+            // Floating register F0.
+            //
+
+        case 32:
+            TrapFrame->FltF0 = Value;
+            return;
+
+            //
+            // Floating register F1.
+            //
+
+        case 33:
+            TrapFrame->FltF1 = Value;
+            return;
+
+            //
+            // Floating register F2.
+            //
+
+        case 34:
+            TrapFrame->FltF2 = Value;
+            return;
+
+            //
+            // Floating register F3.
+            //
+
+        case 35:
+            TrapFrame->FltF3 = Value;
+            return;
+
+            //
+            // Floating register F4.
+            //
+
+        case 36:
+            TrapFrame->FltF4 = Value;
+            return;
+
+            //
+            // Floating register F5.
+            //
+
+        case 37:
+            TrapFrame->FltF5 = Value;
+            return;
+
+            //
+            // Floating register F6.
+            //
+
+        case 38:
+            TrapFrame->FltF6 = Value;
+            return;
+
+            //
+            // Floating register F7.
+            //
+
+        case 39:
+            TrapFrame->FltF7 = Value;
+            return;
+
+            //
+            // Floating register F8.
+            //
+
+        case 40:
+            TrapFrame->FltF8 = Value;
+            return;
+
+            //
+            // Floating register F9.
+            //
+
+        case 41:
+            TrapFrame->FltF9 = Value;
+            return;
+
+            //
+            // Floating register F10.
+            //
+
+        case 42:
+            TrapFrame->FltF10 = Value;
+            return;
+
+            //
+            // Floating register F11.
+            //
+
+        case 43:
+            TrapFrame->FltF11 = Value;
+            return;
+
+            //
+            // Floating register F12.
+            //
+
+        case 44:
+            TrapFrame->FltF12 = Value;
+            return;
+
+            //
+            // Floating register F13.
+            //
+
+        case 45:
+            TrapFrame->FltF13 = Value;
+            return;
+
+            //
+            // Floating register F14.
+            //
+
+        case 46:
+            TrapFrame->FltF14 = Value;
+            return;
+
+            //
+            // Floating register F15.
+            //
+
+        case 47:
+            TrapFrame->FltF15 = Value;
+            return;
+
+            //
+            // Floating register F16.
+            //
+
+        case 48:
+            TrapFrame->FltF16 = Value;
+            return;
+
+            //
+            // Floating register F17.
+            //
+
+        case 49:
+            TrapFrame->FltF17 = Value;
+            return;
+
+            //
+            // Floating register F18.
+            //
+
+        case 50:
+            TrapFrame->FltF18 = Value;
+            return;
+
+            //
+            // Floating register F19.
+            //
+
+        case 51:
+            TrapFrame->FltF19 = Value;
+            return;
+
+            //
+            // Floating register F20.
+            //
+
+        case 52:
+            ExceptionFrame->FltF20 = Value;
+            return;
+
+            //
+            // Floating register F21.
+            //
+
+        case 53:
+            ExceptionFrame->FltF21 = Value;
+            return;
+
+            //
+            // Floating register F22.
+            //
+
+        case 54:
+            ExceptionFrame->FltF22 = Value;
+            return;
+
+            //
+            // Floating register F23.
+            //
 
-    case 0:
-        return;
+        case 55:
+            ExceptionFrame->FltF23 = Value;
+            return;
 
-        //
-        // Integer register AT.
-        //
+            //
+            // Floating register F24.
+            //
 
-    case 1:
-        TrapFrame->IntAt = Value;
-        return;
+        case 56:
+            ExceptionFrame->FltF24 = Value;
+            return;
 
-        //
-        // Integer register V0.
-        //
+            //
+            // Floating register F25.
+            //
 
-    case 2:
-        TrapFrame->IntV0 = Value;
-        return;
+        case 57:
+            ExceptionFrame->FltF25 = Value;
+            return;
 
-        //
-        // Integer register V1.
-        //
+            //
+            // Floating register F26.
+            //
 
-    case 3:
-        TrapFrame->IntV1 = Value;
-        return;
+        case 58:
+            ExceptionFrame->FltF26 = Value;
+            return;
 
-        //
-        // Integer register A0.
-        //
+            //
+            // Floating register F27.
+            //
 
-    case 4:
-        TrapFrame->IntA0 = Value;
-        return;
+        case 59:
+            ExceptionFrame->FltF27 = Value;
+            return;
 
-        //
-        // Integer register A1.
-        //
+            //
+            // Floating register F28.
+            //
 
-    case 5:
-        TrapFrame->IntA1 = Value;
-        return;
+        case 60:
+            ExceptionFrame->FltF28 = Value;
+            return;
 
-        //
-        // Integer register A2.
-        //
+            //
+            // Floating register F29.
+            //
 
-    case 6:
-        TrapFrame->IntA2 = Value;
-        return;
+        case 61:
+            ExceptionFrame->FltF29 = Value;
+            return;
 
-        //
-        // Integer register A3.
-        //
+            //
+            // Floating register F30.
+            //
 
-    case 7:
-        TrapFrame->IntA3 = Value;
-        return;
+        case 62:
+            ExceptionFrame->FltF30 = Value;
+            return;
 
-        //
-        // Integer register T0.
-        //
+            //
+            // Floating register F31.
+            //
 
-    case 8:
-        TrapFrame->IntT0 = Value;
-        return;
+        case 63:
+            ExceptionFrame->FltF31 = Value;
+            return;
+        }
+    }
+}
+
+VOID
+KiSetRegisterValue64 (
+    IN ULONG Register,
+    IN ULONGLONG Value,
+    OUT PKEXCEPTION_FRAME ExceptionFrame,
+    OUT PKTRAP_FRAME TrapFrame
+    )
 
-        //
-        // Integer register T1.
-        //
+/*++
 
-    case 9:
-        TrapFrame->IntT1 = Value;
-        return;
+Routine Description:
 
-        //
-        // Integer register T2.
-        //
+    This function is called to set the 64-bit value of a register in the
+    specified exception or trap frame.
 
-    case 10:
-        TrapFrame->IntT2 = Value;
-        return;
+Arguments:
 
-        //
-        // Integer register T3.
-        //
+    Register - Supplies the number of the register whose value is to be
+        stored. Integer registers are specified as 0 - 31 and floating
+        registers are specified as 32 - 63.
 
-    case 11:
-        TrapFrame->IntT3 = Value;
-        return;
+    Value - Supplies the value to be stored in the specified register.
 
-        //
-        // Integer register T4.
-        //
+    ExceptionFrame - Supplies a pointer to an exception frame.
 
-    case 12:
-        TrapFrame->IntT4 = Value;
-        return;
+    TrapFrame - Supplies a pointer to a trap frame.
 
-        //
-        // Integer register T5.
-        //
+Return Value:
 
-    case 13:
-        TrapFrame->IntT5 = Value;
-        return;
+    None.
 
-        //
-        // Integer register T6.
-        //
+--*/
 
-    case 14:
-        TrapFrame->IntT6 = Value;
-        return;
+{
 
-        //
-        // Integer register T7.
-        //
+    //
+    // Dispatch on the register number.
+    //
 
-    case 15:
-        TrapFrame->IntT7 = Value;
-        return;
+    if (Register < 32) {
+        (&TrapFrame->XIntZero)[Register] = Value;
 
-        //
-        // Integer register S0.
-        //
+    } else {
+        switch (Register) {
 
-    case 16:
-        ExceptionFrame->IntS0 = Value;
-        return;
+            //
+            // Floating register F0.
+            //
 
-        //
-        // Integer register S1.
-        //
+        case 32:
+            TrapFrame->XFltF0 = Value;
+            return;
 
-    case 17:
-        ExceptionFrame->IntS1 = Value;
-        return;
+            //
+            // Floating register F1.
+            //
 
-        //
-        // Integer register S2.
-        //
+        case 33:
+            TrapFrame->XFltF1 = Value;
+            return;
 
-    case 18:
-        ExceptionFrame->IntS2 = Value;
-        return;
+            //
+            // Floating register F2.
+            //
 
-        //
-        // Integer register S3.
-        //
+        case 34:
+            TrapFrame->XFltF2 = Value;
+            return;
 
-    case 19:
-        ExceptionFrame->IntS3 = Value;
-        return;
+            //
+            // Floating register F3.
+            //
 
-        //
-        // Integer register S4.
-        //
+        case 35:
+            TrapFrame->XFltF3 = Value;
+            return;
 
-    case 20:
-        ExceptionFrame->IntS4 = Value;
-        return;
+            //
+            // Floating register F4.
+            //
 
-        //
-        // Integer register S5.
-        //
+        case 36:
+            TrapFrame->XFltF4 = Value;
+            return;
 
-    case 21:
-        ExceptionFrame->IntS5 = Value;
-        return;
+            //
+            // Floating register F5.
+            //
 
-        //
-        // Integer register S6.
-        //
+        case 37:
+            TrapFrame->XFltF5 = Value;
+            return;
 
-    case 22:
-        ExceptionFrame->IntS6 = Value;
-        return;
+            //
+            // Floating register F6.
+            //
 
-        //
-        // Integer register S7.
-        //
+        case 38:
+            TrapFrame->XFltF6 = Value;
+            return;
 
-    case 23:
-        ExceptionFrame->IntS7 = Value;
-        return;
+            //
+            // Floating register F7.
+            //
 
-        //
-        // Integer register T8.
-        //
+        case 39:
+            TrapFrame->XFltF7 = Value;
+            return;
 
-    case 24:
-        TrapFrame->IntT8 = Value;
-        return;
+            //
+            // Floating register F8.
+            //
 
-        //
-        // Integer register T9.
-        //
+        case 40:
+            TrapFrame->XFltF8 = Value;
+            return;
 
-    case 25:
-        TrapFrame->IntT9 = Value;
-        return;
+            //
+            // Floating register F9.
+            //
 
-        //
-        // Integer register K0.
-        //
+        case 41:
+            TrapFrame->XFltF9 = Value;
+            return;
 
-    case 26:
-        return;
+            //
+            // Floating register F10.
+            //
 
-        //
-        // Integer register K1.
-        //
+        case 42:
+            TrapFrame->XFltF10 = Value;
+            return;
 
-    case 27:
-        return;
+            //
+            // Floating register F11.
+            //
 
-        //
-        // Integer register gp.
-        //
+        case 43:
+            TrapFrame->XFltF11 = Value;
+            return;
 
-    case 28:
-        TrapFrame->IntGp = Value;
-        return;
+            //
+            // Floating register F12.
+            //
 
-        //
-        // Integer register Sp.
-        //
+        case 44:
+            TrapFrame->XFltF12 = Value;
+            return;
 
-    case 29:
-        TrapFrame->IntSp = Value;
-        return;
+            //
+            // Floating register F13.
+            //
 
-        //
-        // Integer register S8.
-        //
+        case 45:
+            TrapFrame->XFltF13 = Value;
+            return;
 
-    case 30:
-        TrapFrame->IntS8 = Value;
-        return;
+            //
+            // Floating register F14.
+            //
 
-        //
-        // Integer register Ra.
-        //
+        case 46:
+            TrapFrame->XFltF14 = Value;
+            return;
 
-    case 31:
-        TrapFrame->IntRa = Value;
-        return;
+            //
+            // Floating register F15.
+            //
 
-        //
-        // Floating register F0.
-        //
+        case 47:
+            TrapFrame->XFltF15 = Value;
+            return;
 
-    case 32:
-        TrapFrame->FltF0 = Value;
-        return;
+            //
+            // Floating register F16.
+            //
 
-        //
-        // Floating register F1.
-        //
+        case 48:
+            TrapFrame->XFltF16 = Value;
+            return;
 
-    case 33:
-        TrapFrame->FltF1 = Value;
-        return;
+            //
+            // Floating register F17.
+            //
 
-        //
-        // Floating register F2.
-        //
+        case 49:
+            TrapFrame->XFltF17 = Value;
+            return;
 
-    case 34:
-        TrapFrame->FltF2 = Value;
-        return;
+            //
+            // Floating register F18.
+            //
 
-        //
-        // Floating register F3.
-        //
+        case 50:
+            TrapFrame->XFltF18 = Value;
+            return;
 
-    case 35:
-        TrapFrame->FltF3 = Value;
-        return;
+            //
+            // Floating register F19.
+            //
 
-        //
-        // Floating register F4.
-        //
+        case 51:
+            TrapFrame->XFltF19 = Value;
+            return;
 
-    case 36:
-        TrapFrame->FltF4 = Value;
-        return;
+            //
+            // Floating register F20.
+            //
 
-        //
-        // Floating register F5.
-        //
+        case 52:
+            ExceptionFrame->XFltF20 = Value;
+            return;
 
-    case 37:
-        TrapFrame->FltF5 = Value;
-        return;
+            //
+            // Floating register F21.
+            //
 
-        //
-        // Floating register F6.
-        //
+        case 53:
+            TrapFrame->XFltF21 = Value;
+            return;
 
-    case 38:
-        TrapFrame->FltF6 = Value;
-        return;
+            //
+            // Floating register F22.
+            //
 
-        //
-        // Floating register F7.
-        //
+        case 54:
+            ExceptionFrame->XFltF22 = Value;
+            return;
 
-    case 39:
-        TrapFrame->FltF7 = Value;
-        return;
+            //
+            // Floating register F23.
+            //
 
-        //
-        // Floating register F8.
-        //
+        case 55:
+            TrapFrame->XFltF23 = Value;
+            return;
 
-    case 40:
-        TrapFrame->FltF8 = Value;
-        return;
+            //
+            // Floating register F24.
+            //
 
-        //
-        // Floating register F9.
-        //
+        case 56:
+            ExceptionFrame->XFltF24 = Value;
+            return;
 
-    case 41:
-        TrapFrame->FltF9 = Value;
-        return;
+            //
+            // Floating register F25.
+            //
 
-        //
-        // Floating register F10.
-        //
+        case 57:
+            TrapFrame->XFltF25 = Value;
+            return;
 
-    case 42:
-        TrapFrame->FltF10 = Value;
-        return;
+            //
+            // Floating register F26.
+            //
 
-        //
-        // Floating register F11.
-        //
+        case 58:
+            ExceptionFrame->XFltF26 = Value;
+            return;
 
-    case 43:
-        TrapFrame->FltF11 = Value;
-        return;
+            //
+            // Floating register F27.
+            //
 
-        //
-        // Floating register F12.
-        //
+        case 59:
+            TrapFrame->XFltF27 = Value;
+            return;
 
-    case 44:
-        TrapFrame->FltF12 = Value;
-        return;
+            //
+            // Floating register F28.
+            //
 
-        //
-        // Floating register F13.
-        //
+        case 60:
+            ExceptionFrame->XFltF28 = Value;
+            return;
 
-    case 45:
-        TrapFrame->FltF13 = Value;
-        return;
+            //
+            // Floating register F29.
+            //
 
-        //
-        // Floating register F14.
-        //
+        case 61:
+            TrapFrame->XFltF29 = Value;
+            return;
 
-    case 46:
-        TrapFrame->FltF14 = Value;
-        return;
+            //
+            // Floating register F30.
+            //
 
-        //
-        // Floating register F15.
-        //
+        case 62:
+            ExceptionFrame->XFltF30 = Value;
+            return;
 
-    case 47:
-        TrapFrame->FltF15 = Value;
-        return;
+            //
+            // Floating register F31.
+            //
 
-        //
-        // Floating register F16.
-        //
-
-    case 48:
-        TrapFrame->FltF16 = Value;
-        return;
-
-        //
-        // Floating register F17.
-        //
-
-    case 49:
-        TrapFrame->FltF17 = Value;
-        return;
-
-        //
-        // Floating register F18.
-        //
-
-    case 50:
-        TrapFrame->FltF18 = Value;
-        return;
-
-        //
-        // Floating register F19.
-        //
-
-    case 51:
-        TrapFrame->FltF19 = Value;
-        return;
-
-        //
-        // Floating register F20.
-        //
-
-    case 52:
-        ExceptionFrame->FltF20 = Value;
-        return;
-
-        //
-        // Floating register F21.
-        //
-
-    case 53:
-        ExceptionFrame->FltF21 = Value;
-        return;
-
-        //
-        // Floating register F22.
-        //
-
-    case 54:
-        ExceptionFrame->FltF22 = Value;
-        return;
-
-        //
-        // Floating register F23.
-        //
-
-    case 55:
-        ExceptionFrame->FltF23 = Value;
-        return;
-
-        //
-        // Floating register F24.
-        //
-
-    case 56:
-        ExceptionFrame->FltF24 = Value;
-        return;
-
-        //
-        // Floating register F25.
-        //
-
-    case 57:
-        ExceptionFrame->FltF25 = Value;
-        return;
-
-        //
-        // Floating register F26.
-        //
-
-    case 58:
-        ExceptionFrame->FltF26 = Value;
-        return;
-
-        //
-        // Floating register F27.
-        //
-
-    case 59:
-        ExceptionFrame->FltF27 = Value;
-        return;
-
-        //
-        // Floating register F28.
-        //
-
-    case 60:
-        ExceptionFrame->FltF28 = Value;
-        return;
-
-        //
-        // Floating register F29.
-        //
-
-    case 61:
-        ExceptionFrame->FltF29 = Value;
-        return;
-
-        //
-        // Floating register F30.
-        //
-
-    case 62:
-        ExceptionFrame->FltF30 = Value;
-        return;
-
-        //
-        // Floating register F31.
-        //
-
-    case 63:
-        ExceptionFrame->FltF31 = Value;
-        return;
+        case 63:
+            TrapFrame->XFltF31 = Value;
+            return;
+        }
     }
 }

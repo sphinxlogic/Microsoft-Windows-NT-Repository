@@ -4,7 +4,7 @@ Copyright (c) 1993 Microsoft Corporation
 
 Module Name:
 
-    rpcssm.c
+    rpcssm.hxx
 
 Abstract:
 
@@ -23,14 +23,11 @@ Revision History:
 
 #define ALIGN_TO_8(x)     (size_t)(((x)+7) & 0xfffffff8)
 
-#if defined(__RPC_WIN32__)
+#if defined( WIN ) || defined( DOS ) || defined( MAC )
+#define SIMPLE_BLOCK_LIST
+#endif
 
-#define DESCR_ARRAY_SIZE        1024
-#define DESCR_ARRAY_INCR        1024
-#define RPCSS_FULL_BLOCK_SIZE   4096
-#define RPCSS_RPC_BLOCK_MGMNT     16
-
-#else  // 32 bit
+#if defined( SIMPLE_BLOCK_LIST )
 
 #define InitializeCriticalSection(x)
 #define LeaveCriticalSection(x)
@@ -46,9 +43,18 @@ typedef struct _WIN16_ALLOCATION_BLOCK
 
 #define  ALLOCATION_BLOCK_SIZE_TO_8   ALIGN_TO_8(sizeof(ALLOCATION_BLOCK))
 
-#endif // 32 bit
+#else // Page array allocation
 
-#define RPCSS_PURE_BLOCK_SIZE   RPCSS_FULL_BLOCK_SIZE - RPCSS_RPC_BLOCK_MGMNT
+#define DESCR_ARRAY_SIZE        1024
+#define DESCR_ARRAY_INCR        1024
+
+#define ENABLE_STACK_SIZE         16
+#define ENABLE_STACK_INCR         16
+
+#endif 
+
+//  Enable stack keeps longs.
+//  Descr block stack keeps descr blocks.
 
 typedef struct _ALLOC_BLOCK_DESCR
 {
@@ -63,24 +69,57 @@ typedef struct _ALLOC_BLOCK_DESCR
 } ALLOC_BLOCK_DESCR, __RPC_FAR * PALLOC_BLOCK_DESCR;
 
 
+#if !defined( SIMPLE_BLOCK_LIST )
+
+// Initial boundle of Win32 stacks: we save an allocation at the expense
+// of keeping initial block around.
+// Of course we hope that initial block is good enough for most apps.
+
+typedef struct _INIT_STACKS_BLOCK
+{
+    unsigned long       EnableStack[ ENABLE_STACK_SIZE ];
+    ALLOC_BLOCK_DESCR   DescrStack[ DESCR_ARRAY_SIZE ];
+} INIT_STACKS_BLOCK;
+
+#endif
+
+
 typedef struct _ALLOCATION_CONTEXT
 {
     RPC_CLIENT_ALLOC __RPC_FAR *    ClientAlloc;
     RPC_CLIENT_FREE __RPC_FAR *     ClientFree;
-    short                           EnableCounter;
+    unsigned int                    EnableCount;
 
-    #if defined(__RPC_WIN32__)
+    #if defined( SIMPLE_BLOCK_LIST )
+
+        PALLOCATION_BLOCK           FirstBlock;
+
+    #else // 32 bit now
+
         CRITICAL_SECTION            CriticalSection;
+        unsigned long               ThreadCount;
+
+        INIT_STACKS_BLOCK *         pInitialStacks;
+
+        unsigned long     *         pEnableStack;
+        unsigned long               StackMax;
+        unsigned long               StackTop;
+
         PALLOC_BLOCK_DESCR          pBlockDescr;
         unsigned long               DescrSize;
         unsigned long               FFIndex;
-    #else
-        PALLOCATION_BLOCK           FirstBlock;
+
+        DWORD                       PageSize;
+        DWORD                       Granularity;
+
     #endif
 
 } ALLOCATION_CONTEXT, __RPC_FAR * PALLOCATION_CONTEXT;
 
 #ifdef NEWNDR_INTERNAL
+
+#undef RequestGlobalMutex
+#undef ClearGlobalMutex
 
 #define RequestGlobalMutex() 
 #define ClearGlobalMutex()
@@ -92,12 +131,12 @@ PALLOCATION_CONTEXT GetAllocContext ();
 void                SetAllocContext ( IN PALLOCATION_CONTEXT AllocContext );
 
 
+#if defined(__RPC_WIN16__)
+
 //
 //  For 16 bit Windows, we need to keep a dictionary of memory contexts
 //  on per task basis.
 //
-
-#if !defined(__RPC_WIN32__) && !defined(__RPC_DOS__)
 
 #include <sdict2.hxx>
 
@@ -129,9 +168,7 @@ public:
 };
 
 
-#endif // win16
+#endif // win16 but not dos
 
 #endif // __RPCSSM_HXX__
 
-
-

@@ -51,5 +51,15 @@ cPublicFpo 0,0
         stdRET    _DbgUserBreakPoint
 stdENDP _DbgUserBreakPoint
 
+cPublicProc _DbgBreakPointWithStatus,1
+cPublicFpo 1,0
+        mov eax,[esp+4]
+        public _RtlpBreakWithStatusInstruction@0
+_RtlpBreakWithStatusInstruction@0:
+        int 3
+        stdRET  _DbgBreakPointWithStatus
+stdENDP _DbgBreakPointWithStatus
+
+
 _TEXT   ends
         end

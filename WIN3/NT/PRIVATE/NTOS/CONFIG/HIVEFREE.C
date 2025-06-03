@@ -202,6 +202,13 @@ Return Value:
             FreeBin = (PFREE_HBIN)Me->BlockAddress;
             if (FreeBin->Flags & FREE_HBIN_DISCARDABLE) {
                 CmpFree((PVOID)(Me->BinAddress & HMAP_BASE), FreeBin->Size);
+            } else {
+                //
+                // The bin has been freed, but quota is still charged.
+                // Since the file will now shrink, the quota must be
+                // returned here.
+                //
+                CmpReleaseGlobalQuota(FreeBin->Size);
             }
             RemoveEntryList(&FreeBin->ListEntry);
             Address += FreeBin->Size;
@@ -242,4 +249,3 @@ Return Value:
 
     return;
 }
-

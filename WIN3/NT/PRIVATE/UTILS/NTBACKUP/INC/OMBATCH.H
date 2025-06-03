@@ -134,6 +134,21 @@ BOOL OEM_AddPathToBackupSets (
                    BSD_HAND hbsd,      //IO - list of backup sets to update
                    DLE_HAND hdle,      //I  - list of drives
                    LPSTR pszPath );    //I  - Path to insert into backup set
+
+BOOL OEM_AddEMSServerToBackupSets (
+                   BSD_HAND hbsd,      //IO - list of backup sets to update
+                   DLE_HAND hdle,      //I  - list of drives
+                   LPSTR pszPath,      //I  - Path to insert into backup set
+                   UINT8 uType );      //I  - FS_EMS_MDB_ID (Monolithic) or 
+                                       //      FS_EMS_DSA_ID (DSA)
+
 INT OEM_CharInSet ( CHAR chTarg, LPSTR pszSet );
+
+INT16 DLE_FindByEMSServerName ( 
+     DLE_HAND        hand,   /* I - DLE list handle           */
+     LPSTR           name,   /* I - name to search for        */
+     UINT8           uType,  /* I - type of dle to search for */
+     GENERIC_DLE_PTR *dle );  /* O - pointer to matched DLE    */
+
 
 #endif //OEMBATCH_H_INCL

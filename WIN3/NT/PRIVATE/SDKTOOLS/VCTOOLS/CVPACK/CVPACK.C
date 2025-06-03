@@ -21,10 +21,6 @@
 #include <getmsg.h>		// external error message file
 
 #include "version.h"
-#include <process.h>
-#include <fcntl.h>
-
-#include "pelines.h"
 
 extern ulong dwPECheckSum;
 
@@ -38,52 +34,39 @@ extern ulong dwPECheckSum;
 
 #endif
 
-		void	__cdecl main (int, char	**);
-LOCAL	void	ProcessArgs (int, char **);
-INLINE	void	OpenExeFile (char *path);
+LOCAL	void	ProcessArgs(int, char **);
+LOCAL	void	OpenExeFile(char *path);
 
-extern int	   _fDosExt;
-extern uchar   fLinearExe;
-extern short   fHasSource;
+extern uchar	fLinearExe;
+extern short	fHasSource;
+extern void BuildFileIndex(void);
 
-#define SwapSize	11000
+int 	exefile = -1;				   // the exefile we're working on
+bool_t	logo		= TRUE; 		   // suppress logo and compression numbers
+bool_t	verbose;					   // output trailer stats
+bool_t	strip;						   // strip the exe
+bool_t	fDelete;					   // delete symbols and types
+bool_t	runMpc;
+bool_t	NeedsBanner = TRUE; 		   // false if banner displayed
+bool_t	IsMFCobol;					   // true if packing MF cobol
+char *pDbgFilename; 				   // dbg file name
 
-int 	exefile = -1;				// the exefile we're working on
-bool_t	verifyDebug = FALSE;	// verify debug data correctness
-bool_t	logo		= TRUE; 	// suppress logo and compression numbers
-bool_t	verbose 	= FALSE;	// output trailer stats
-bool_t	strip		= FALSE;	// strip the exe
-bool_t	delete		= FALSE;	// delete symbols and types
-bool_t	runMpc		= FALSE;
-bool_t	NeedsBanner = TRUE; 	// false if banner displayed
-#if 0
-bool_t	IDEFeedback = FALSE;
-#endif
-bool_t	IsMFCobol	= FALSE;	// true if packing MF cobol
-bool_t	fCVNew = TRUE;
-char *pDbgFilename = NULL;		// dbg file name
-extern int fBuildIndices;
-
-#ifdef DEBUGVER
+#if DBG
 void DumpStringHashHits();
 #endif
+
 
 void __cdecl main(int argc, char **argv)
 {
 	ushort		i;
 	ushort		nMod = 0;
-#if 0
-	char *		pIdeFlags;
-#endif
 	ushort		retcode = 0;
 	char szExeFile[_MAX_PATH];
-	extern char * _pgmptr;		// full path from CRT
 
-#if !defined(DEBUGVER)
+#if !DBG
 	unsigned long	dwExceptionCode;
 
 	__try {
-
 #endif
 
 	// Set the name for external message file
@@ -92,23 +75,6 @@ void __cdecl main(int argc, char **argv)
 	// set stdout to text mode so as to overwrite whatever mode we are
 	// in when we are spawned by link 5.4
 	_setmode (_fileno(stdout), _O_TEXT);
-
-#if 0
-	// initialize IDE Feedback if necessary
-	if (IDEFeedback = ((pIdeFlags = getenv ("_MSC_IDE_FLAGS")) != NULL)) {
-		char *pFeedBack = "-FEEDBACK ";
-		IDEFeedback = (strncmp(pIdeFlags, pFeedBack, 10) == 0);
-	}
-	if (IDEFeedback) {
-		char tmpBuff[80];
-		sprintf(tmpBuff, "%s\n", get_err(IDE_INIT));
-		OutIDEFeedback(tmpBuff);
-		sprintf(tmpBuff, "%s %d.%02d.%02d\n", get_err(IDE_TOOLNAME), rmj, rmm, rup);
-		OutIDEFeedback(tmpBuff);
-		sprintf(tmpBuff, "%s\n", get_err(IDE_COPYRIGHT));
-		OutIDEFeedback(tmpBuff);
-	}
-#endif
 
 	// print startup microsoft banner and process the arguments
 
@@ -123,57 +89,41 @@ void __cdecl main(int argc, char **argv)
 		TRUE
 	);
 
-	if ((logo == TRUE) && (NeedsBanner == TRUE)) {
-		Banner ();
+	if (logo && NeedsBanner) {
+		Banner();
 	}
+
 	strcpy(szExeFile, argv[argc-1]);
-	OpenExeFile ( szExeFile );
+	OpenExeFile(szExeFile);
 
 	// initialize compaction tables
 
-	InitializeTables ();
+	InitializeTables();
 
 	// verify exe file and read subsection directory table
 
-	ReadDir ();
+	ReadDir();
 
 	// do the compaction of files in packorder
 
-	if ( !fBuildIndices )
-		for (i = 0; i < cMod; i++) {
-			CompactOneModule (i);
+	for (i = 0; i < cMod; i++) {
+		CompactOneModule(i);
+	}
 
-		}
-
-#ifdef DEBUGVER
+#if DBG
 	DumpStringHashHits();
 #endif
 
-	if (fLinearExe && fCVNew && !fHasSource) {
-		PEProcessFile ( exefile );
-	}
+	free(pSSTMOD);
+	free(pTypes);
+	free(pPublics);
+	free(pSymbols);
+	free(pSrcLn);
 
-	free (pSSTMOD);
-	free (pTypes);
-	free (pPublics);
-	free (pSymbols);
-	free (pSrcLn);
-
-#if defined (NEVER)
-	if (verifyDebug) {
-		VerifyTypes ();
-		VerifySymbols ();
-	}
-#endif
 	CleanUpTables ();
 
-	{
-		extern short fHasSource;
-		extern void BuildFileIndex ( void );
-
-		if ( fHasSource ) {
-			BuildFileIndex ( );
-		}
+	if (fHasSource) {
+		BuildFileIndex();
 	}
 
 	// fixup the publics and symbols with the newly assigned type indices,
@@ -181,15 +131,7 @@ void __cdecl main(int argc, char **argv)
 
 	DDHeapUsage("before exe write");
 
-#if 0
-	if (IDEFeedback) {
-		char tmpBuff[80];
-		sprintf (tmpBuff, "%s\n", get_err(IDE_WRITING));
-		OutIDEFeedback(tmpBuff);
-	}
-#endif
-
-	FixupExeFile ();
+	FixupExeFile();
 
 #ifndef CVPACKLIB
 	if ( dwPECheckSum ) {
@@ -241,7 +183,7 @@ void __cdecl main(int argc, char **argv)
 
 	link_exit(retcode);
 
-#if !defined(DEBUGVER)
+#if !DBG
 	}
 	__except (
 		dwExceptionCode = GetExceptionCode(),
@@ -283,18 +225,6 @@ LOCAL void ProcessArgs (int argc, char **argv)
 	while (argc && (**argv == '/' || **argv == '-')) {
 		cArg = *++*argv;
 		switch (toupper ( cArg )) {
-#if defined (NEVER)
-			case 'C':
-				// cross check type and symbol information
-				verifyDebug = TRUE;
-				break;
-#endif
-			case 'C':
-				if ( !_strcmpi ( *argv, "cvold" ) ) {
-					fCVNew = FALSE;
-				}
-				break;
-
 			case 'N':
 				logo = FALSE;
 				break;
@@ -328,10 +258,10 @@ LOCAL void ProcessArgs (int argc, char **argv)
 
 			case 'M':
 				if ( !_strcmpi ( *argv, "min" ) ) {
-					delete = TRUE;
+					fDelete = TRUE;
 				}
 				else {
-					ErrorExit (ERR_USAGE, NULL, NULL);
+					ErrorExit(ERR_USAGE, NULL, NULL);
 				}
 				break;
 
@@ -343,14 +273,9 @@ LOCAL void ProcessArgs (int argc, char **argv)
 					(**argv != '-')) {
 					argc--;
 				}
-#if 0
-				else {
-					ErrorExit (ERR_USAGE, NULL, NULL);
-				}
-#endif
 				break;
 
-#ifdef DEBUGVER
+#if DBG
 			case 'Z':
 				argv++;
 				argc--;
@@ -392,9 +317,10 @@ LOCAL void ProcessArgs (int argc, char **argv)
 		argc--;
 	}
 	if (argc != 1) {
-		if ((logo == TRUE) && (NeedsBanner == TRUE)) {
-			Banner ();
+		if (logo && NeedsBanner) {
+			Banner();
 		}
+
 		link_exit(0);
 	}
 }
@@ -411,20 +337,11 @@ void Banner (void)
 	NeedsBanner = FALSE;
 }
 
-INLINE void OpenExeFile (char *path)
+LOCAL void OpenExeFile (char *path)
 {
 	char *pOutpath;
 
 	pOutpath = BuildFilename(path, ".exe");
-
-#if 0
-	if (IDEFeedback) {
-		char tmpBuff[80];
-
-		_snprintf(tmpBuff, 80, "%s %s\n", get_err(IDE_MAINFILE),pOutpath);
-		OutIDEFeedback(tmpBuff);
-	}
-#endif
 
 	if ((exefile = link_open (pOutpath, O_RDWR | O_BINARY, 0)) == -1) {
 		if ((exefile = link_open (pOutpath, O_RDONLY | O_BINARY, 0)) == -1) {

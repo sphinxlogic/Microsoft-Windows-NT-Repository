@@ -30,6 +30,9 @@ Revision History:
 #include "video.h"
 #include "cirrus.h"
 
+#include "sr754x.h"
+#include "cmdcnst.h"
+
 //---------------------------------------------------------------------------
 //
 // Function declarations
@@ -155,9 +158,44 @@ SetCirrusBanking(
     USHORT BankNumber
     );
 
+VOID
+vBankMap_CL64xx(
+    LONG iBankRead,
+    LONG iBankWrite,
+    PVOID pvContext
+    );
+
+VOID
+vBankMap_CL543x(
+    LONG iBankRead,
+    LONG iBankWrite,
+    PVOID pvContext
+    );
+
+VOID
+vBankMap_CL542x(
+    LONG iBankRead,
+    LONG iBankWrite,
+    PVOID pvContext
+    );
+
 USHORT
 CirrusFind6410DisplayType(
     PHW_DEVICE_EXTENSION HwDeviceExtension
+    );
+
+USHORT
+CirrusFind754xDisplayType(
+    PHW_DEVICE_EXTENSION HwDeviceExtension,
+    PUCHAR CRTCAddrPort,
+    PUCHAR CRTCDataPort
+    );
+
+USHORT
+CirrusFind755xDisplayType(
+    PHW_DEVICE_EXTENSION HwDeviceExtension,
+    PUCHAR CRTCAddrPort,
+    PUCHAR CRTCDataPort
     );
 
 BOOLEAN
@@ -208,6 +246,55 @@ VgaGetBankSelectCode(
     PULONG OutputSize
     );
 
+BOOLEAN
+CirrusConfigurePCI(
+   PHW_DEVICE_EXTENSION HwDeviceExtension,
+   PULONG NumPCIAccessRanges,
+   PVIDEO_ACCESS_RANGE PCIAccessRanges
+   );
+
+VOID
+WriteRegistryInfo(
+   PHW_DEVICE_EXTENSION hwDeviceExtension
+   );
+
+VP_STATUS
+CirrusGetDeviceDataCallback(
+   PVOID HwDeviceExtension,
+   PVOID Context,
+   VIDEO_DEVICE_DATA_TYPE DeviceDataType,
+   PVOID Identifier,
+   ULONG IdentifierLength,
+   PVOID ConfigurationData,
+   ULONG ConfigurationDataLength,
+   PVOID ComponentInformation,
+   ULONG ComponentInformationLength
+   );
+
+VOID
+IOWaitDisplEnableThenWrite(
+    PHW_DEVICE_EXTENSION hwDeviceExtension,
+    ULONG port,
+    UCHAR value
+    );
+
+VOID
+ReadVESATiming(
+    PHW_DEVICE_EXTENSION hwDeviceExtension
+    );
+
+//
+// NOTE:
+//
+// This is a High Priority system callback.  DO NOT mark this
+// routine as pageable!
+//
+
+BOOLEAN
+IOCallback(
+    PHW_DEVICE_EXTENSION HwDeviceExtension
+    );
+
 #if defined(ALLOC_PRAGMA)
 #pragma alloc_text(PAGE,DriverEntry)
 #pragma alloc_text(PAGE,VgaFindAdapter)
@@ -222,8 +309,11 @@ VgaGetBankSelectCode(
 #pragma alloc_text(PAGE,CirrusLogicIsPresent)
 #pragma alloc_text(PAGE,CirrusFindVmemSize)
 #pragma alloc_text(PAGE,SetCirrusBanking)
+#pragma alloc_text(PAGE,CirrusFind754xDisplayType)
+#pragma alloc_text(PAGE,CirrusFind755xDisplayType)
 #pragma alloc_text(PAGE,CirrusFind6410DisplayType)
 #pragma alloc_text(PAGE,CirrusFind6340)
+#pragma alloc_text(PAGE,CirrusConfigurePCI)
 #pragma alloc_text(PAGE,VgaSetPaletteReg)
 #pragma alloc_text(PAGE,VgaSetColorLookup)
 #pragma alloc_text(PAGE,VgaRestoreHardwareState)
@@ -233,6 +323,9 @@ VgaGetBankSelectCode(
 #pragma alloc_text(PAGE,VgaValidatorUcharEntry)
 #pragma alloc_text(PAGE,VgaValidatorUshortEntry)
 #pragma alloc_text(PAGE,VgaValidatorUlongEntry)
+
+#pragma alloc_text(PAGE,WriteRegistryInfo)
+#pragma alloc_text(PAGE,CirrusGetDeviceDataCallback)
 #endif
 
 
@@ -256,7 +349,7 @@ Arguments:
         the value with which the miniport driver calls VideoPortInitialize().
 
     Context2 - Second context value passed by the operating system. This is
-        the value with which the miniport driver calls VideoPortInitialize().
+        the value with which the miniport driver calls 3VideoPortInitialize().
 
 Return Value:
 
@@ -268,7 +361,7 @@ Return Value:
 
     VIDEO_HW_INITIALIZATION_DATA hwInitData;
     ULONG status;
-    ULONG initializationStatus;
+    ULONG initializationStatus = (ULONG) -1;
 
     //
     // Zero out structure.
@@ -303,15 +396,79 @@ Return Value:
     // VGA type adapter in a machine.
     //
 
-//    hwInitData.StartingDeviceNumber = 0;
+    // hwInitData.StartingDeviceNumber = 0;
 
     //
     // Once all the relevant information has been stored, call the video
     // port driver to do the initialization.
     // For this device we will repeat this call three times, for ISA, EISA
-    // and MCA.
+    // and PCI.
     // We will return the minimum of all return values.
     //
+
+    //
+    // We will try the PCI bus first so that our ISA detection does'nt claim
+    // PCI cards (since it is impossible to differentiate between the two
+    // by looking at the registers).
+    //
+
+    //
+    // NOTE: since this driver only supports one adapter, we will return
+    // as soon as we find a device, without going on to the following buses.
+    // Normally one would call for each bus type and return the smallest
+    // value.
+    //
+
+#if !defined(_ALPHA_)
+
+    //
+    // Before we can enable this on ALPHA we need to find a way to map a
+    // sparse view of a 4MB region successfully.
+    //
+
+    hwInitData.AdapterInterfaceType = PCIBus;
+
+    initializationStatus = VideoPortInitialize(Context1,
+                                               Context2,
+                                               &hwInitData,
+                                               NULL);
+
+    if (initializationStatus == NO_ERROR)
+    {
+        return initializationStatus;
+    }
+
+#endif
+
+    hwInitData.AdapterInterfaceType = MicroChannel;
+
+    initializationStatus = VideoPortInitialize(Context1,
+                                               Context2,
+                                               &hwInitData,
+                                               NULL);
+
+    //
+    // Return immediately instead of checkin for smallest return code.
+    //
+
+    if (initializationStatus == NO_ERROR)
+    {
+        return initializationStatus;
+    }
+
+
+    hwInitData.AdapterInterfaceType = Internal;
+
+    initializationStatus = VideoPortInitialize(Context1,
+                                               Context2,
+                                               &hwInitData,
+                                               NULL);
+
+    if (initializationStatus == NO_ERROR)
+    {
+        return initializationStatus;
+    }
+
 
     hwInitData.AdapterInterfaceType = Isa;
 
@@ -320,18 +477,14 @@ Return Value:
                                                &hwInitData,
                                                NULL);
 
-    hwInitData.AdapterInterfaceType = Eisa;
-
-    status = VideoPortInitialize(Context1,
-                                 Context2,
-                                 &hwInitData,
-                                 NULL);
-
-    if (initializationStatus > status) {
-        initializationStatus = status;
+    if (initializationStatus == NO_ERROR)
+    {
+        return initializationStatus;
     }
 
-    hwInitData.AdapterInterfaceType = MicroChannel;
+
+
+    hwInitData.AdapterInterfaceType = Eisa;
 
     status = VideoPortInitialize(Context1,
                                  Context2,
@@ -407,6 +560,8 @@ Return Value:
 
     PHW_DEVICE_EXTENSION hwDeviceExtension = HwDeviceExtension;
     VP_STATUS status;
+    ULONG NumAccessRanges = NUM_VGA_ACCESS_RANGES;
+    ULONG VESATimingBits ;
 
     //
     // Make sure the size of the structure is at least as large as what we
@@ -420,6 +575,59 @@ Return Value:
     }
 
     //
+    // Store the bus type
+    //
+
+    hwDeviceExtension->BusType = ConfigInfo->AdapterInterfaceType;
+
+    //
+    // Set the BoardType and adjust access ranges for
+    // SNI VL machines.
+    //
+
+    VideoPortGetDeviceData(HwDeviceExtension,
+                           VpControllerData,
+                           &CirrusGetDeviceDataCallback,
+                           ConfigInfo);
+
+    //
+    // Detect the PCI card.
+    //
+
+    if (ConfigInfo->AdapterInterfaceType == PCIBus)
+    {
+        VideoDebugPrint((1, "Cirrus!VgaFindAdapter: "
+                            "ConfigInfo->AdapterInterfaceType == PCIBus\n"));
+
+        if (!CirrusConfigurePCI(HwDeviceExtension,
+                                &NumAccessRanges,
+                                VgaAccessRange))
+        {
+            VideoDebugPrint((1, "Failure Returned From CirrusConfigurePCI\n"));
+            return ERROR_DEV_NOT_EXIST;
+        }
+    }
+    else
+    {
+        VideoDebugPrint((1, "Cirrus!VgaFindAdapter: "
+                            "ConfigInfo->AdapterInterfaceType != PCIBus\n"));
+    }
+
+    //
+    // If we are on an internal bus, then we need to
+    // be a siemens!
+    //
+
+    if ((ConfigInfo->AdapterInterfaceType == Internal) &&
+        (hwDeviceExtension->BoardType != SIEMENS_ONBOARD_CIRRUS) &&
+        (hwDeviceExtension->BoardType != NEC_ONBOARD_CIRRUS))
+    {
+        VideoDebugPrint((0, "Cirrus not supported on this machine!\n"));
+
+        return ERROR_DEV_NOT_EXIST;
+    }
+
+    //
     // No interrupt information is necessary.
     //
 
@@ -427,11 +635,26 @@ Return Value:
     // Check to see if there is a hardware resource conflict.
     //
 
+    if (VgaAccessRange[3].RangeLength == 0)
+    {
+        //
+        // The last access range (range[3]) is the access range for
+        // the linear frame buffer.  If this access range has a
+        // range length of 0, then some HAL's will fail the request.
+        // Therefore, if we are not using the last access range,
+        // I'll not try to reserve it.
+        //
+
+        NumAccessRanges--;
+    }
+
     status = VideoPortVerifyAccessRanges(HwDeviceExtension,
-                                         NUM_VGA_ACCESS_RANGES,
+                                         NumAccessRanges,
                                          VgaAccessRange);
 
     if (status != NO_ERROR) {
+
+        VideoDebugPrint((0, "ERROR: VPVerifyAccessRanges failed!\n"));
 
         return status;
 
@@ -441,17 +664,18 @@ Return Value:
     // Get logical IO port addresses.
     //
 
-    if ( (hwDeviceExtension->IOAddress =
-              VideoPortGetDeviceBase(hwDeviceExtension,
-                                     VgaAccessRange->RangeStart,
-                                     VGA_MAX_IO_PORT - VGA_BASE_IO_PORT + 1,
-                                     TRUE)) == NULL) {
-
+    if ((hwDeviceExtension->IOAddress =
+         VideoPortGetDeviceBase(hwDeviceExtension,
+         VgaAccessRange->RangeStart,
+         VGA_MAX_IO_PORT - VGA_BASE_IO_PORT + 1,
+         VgaAccessRange->RangeInIoSpace)) == NULL)
+    {
         VideoDebugPrint((2, "VgaFindAdapter - Fail to get io address\n"));
 
         return ERROR_INVALID_PARAMETER;
-
     }
+
+    hwDeviceExtension->IOAddress -= VGA_BASE_IO_PORT;
 
     //
     // Determine whether a VGA is present.
@@ -459,8 +683,40 @@ Return Value:
 
     if (!VgaIsPresent(hwDeviceExtension)) {
 
+        VideoDebugPrint((0, "CirrusFindAdapter - VGA Failed\n"));
         return ERROR_DEV_NOT_EXIST;
+    }
 
+    //
+    // Minimum size of the buffer required to store the hardware state
+    // information returned by IOCTL_VIDEO_SAVE_HARDWARE_STATE.
+    //
+
+    ConfigInfo->HardwareStateSize = VGA_TOTAL_STATE_SIZE;
+
+    //
+    // now that we have the video memory address in protected mode, lets do
+    // the required video card initialization. We will try to detect a Cirrus
+    // Logic chipset...
+    //
+
+    //
+    // Determine whether an CL6410/6420/542x/543x is present.
+    //
+
+    //
+    // CirrusLogicIsPresent may set up the
+    // hwDeviceExtesion->AdapterMemorySize field.  Set it
+    // to 0 now, so I can compare against this later to
+    // see if CirrusLogicIsPresent assigned a value.
+    //
+
+    hwDeviceExtension->AdapterMemorySize = 0;
+
+    if (!CirrusLogicIsPresent(hwDeviceExtension))
+    {
+        VideoDebugPrint((0, "CirrusFindAdapter - Failed\n"));
+        return ERROR_DEV_NOT_EXIST;
     }
 
     //
@@ -471,25 +727,15 @@ Return Value:
     ConfigInfo->EmulatorAccessEntries = VgaEmulatorAccessEntries;
     ConfigInfo->EmulatorAccessEntriesContext = (ULONG) hwDeviceExtension;
 
-    ConfigInfo->VdmPhysicalVideoMemoryAddress.LowPart = MEM_VGA;
-    ConfigInfo->VdmPhysicalVideoMemoryAddress.HighPart = 0x00000000;
-    ConfigInfo->VdmPhysicalVideoMemoryLength = MEM_VGA_SIZE;
-
     //
-    // Minimum size of the buffer required to store the hardware state
-    // information returned by IOCTL_VIDEO_SAVE_HARDWARE_STATE.
+    // BUGBUG
     //
-
-    ConfigInfo->HardwareStateSize = VGA_TOTAL_STATE_SIZE;
-
-    //
-    // Video memory information
+    // There is really no reason to have the frame buffer mapped. On an
+    // x86 we use if for save/restore (supposedly) but even then we
+    // would only need to map a 64K window, not all 16 Meg!
     //
 
-
-    hwDeviceExtension->PhysicalVideoMemoryBase.HighPart = 0x00000000;
-    hwDeviceExtension->PhysicalVideoMemoryBase.LowPart = MEM_VGA;
-    hwDeviceExtension->PhysicalVideoMemoryLength = MEM_VGA_SIZE;
+#ifdef _X86_
 
     //
     // Map the video memory into the system virtual address space so we can
@@ -498,28 +744,96 @@ Return Value:
 
     if ( (hwDeviceExtension->VideoMemoryAddress =
               VideoPortGetDeviceBase(hwDeviceExtension,
-                      hwDeviceExtension->PhysicalVideoMemoryBase,
-              hwDeviceExtension->PhysicalVideoMemoryLength, FALSE)) == NULL) {
-
+                                     VgaAccessRange[2].RangeStart,
+                                     VgaAccessRange[2].RangeLength,
+                                     FALSE)) == NULL)
+    {
         VideoDebugPrint((1, "VgaFindAdapter - Fail to get memory address\n"));
 
         return ERROR_INVALID_PARAMETER;
-
     }
-//
-// now that we have the video memory address in portected mode, lets do
-// the required video card initialization. We will try to detect a Cirrus
-// Logic chipset...
-//
+
+#endif
+
     //
-    // Determine whether an CL6410/6420/542x/543x is present.
+    // Size the memory
     //
 
-    if (!CirrusLogicIsPresent(hwDeviceExtension)) {
+    //
+    // The size may have been set up in detection code, so
+    // don't destroy if already set.
+    //
 
-        return ERROR_DEV_NOT_EXIST;
-
+    if( hwDeviceExtension->AdapterMemorySize == 0 )
+    {
+        hwDeviceExtension->AdapterMemorySize =
+            CirrusFindVmemSize(hwDeviceExtension);
     }
+
+    //
+    // Write hardware info into registry
+    //
+
+    WriteRegistryInfo(hwDeviceExtension);
+
+    ConfigInfo->VdmPhysicalVideoMemoryAddress.LowPart = MEM_VGA;
+    ConfigInfo->VdmPhysicalVideoMemoryLength = MEM_VGA_SIZE;
+    ConfigInfo->VdmPhysicalVideoMemoryAddress.HighPart = 0x00000000;
+
+#if 0
+    //
+    // Check DDC2B monitor, get EDID table.
+    // Turn on/off extended modes according the properties of the monitor.  
+    //
+
+    ReadVESATiming ( hwDeviceExtension ) ;
+#endif
+
+    //
+    // Determines which modes are valid.
+    //
+    // We do this once here because we may have no available modes,
+    // and we need to fail detection in that case.  However, we will
+    // validate the modes again in VgaInitialize, after determining
+    // more hardware info.
+    //
+
+    CirrusValidateModes(hwDeviceExtension);
+
+    if (hwDeviceExtension->NumAvailableModes == 0)
+    {
+        VideoDebugPrint((0, "FindAdapter failed because there are no"
+                            "available modes.\n"));
+
+        return ERROR_INVALID_PARAMETER;
+    }
+
+    //
+    // Once modes are validated, all 543x's are the same (the number
+    // of modes available is the only difference).
+    //
+
+    if ((hwDeviceExtension->ChipType == CL5434) ||
+        (hwDeviceExtension->ChipType == CL5434_6) ||
+        (hwDeviceExtension->ChipType == CL5436) ||
+        (hwDeviceExtension->ChipType == CL5446))
+    {
+        hwDeviceExtension->ChipType = CL543x;
+    }
+
+    //
+    // I don't think we need this anymore.  I'll leave it here until
+    // I verify.
+    //
+
+#if 0
+    if ((hwDeviceExtension->ChipType == CL754x) ||
+        (hwDeviceExtension->ChipType == CL755x) ||
+        (hwDeviceExtension->ChipType == CL756x))
+    {
+       ConfigInfo->HardwareStateSize += sizeof(NORDIC_REG_SAVE_BUF);
+    }
+#endif
 
     //
     // Indicate we do not wish to be called again for another initialization.
@@ -570,6 +884,103 @@ Return Value:
     hwDeviceExtension->CursorBottomScanLine = 31;
     hwDeviceExtension->CursorEnable = TRUE;
 
+    //
+    // If this is a 75xx based machine, then we need to check
+    // the panel type, and validate modes again.
+    //
+
+    if ((hwDeviceExtension->ChipType == CL754x) ||
+        (hwDeviceExtension->ChipType == CL755x) ||
+        (hwDeviceExtension->ChipType == CL756x)) {
+
+        VIDEO_X86_BIOS_ARGUMENTS biosArguments;
+
+        VideoPortZeroMemory(&biosArguments, sizeof(VIDEO_X86_BIOS_ARGUMENTS));
+
+        //
+        // Do an int 10 to try to get flat panel information
+        //
+
+        biosArguments.Eax = 0x1280;  // Inquire flat panel information
+        biosArguments.Ebx = 0x009c;
+        biosArguments.Ecx = 0x0000;  // init Ecx to zero
+
+        VideoPortInt10(hwDeviceExtension, &biosArguments);
+
+        //
+        // First, check to see if we can trust the results.  If not,
+        // we'll rely on what we detected earlier.
+        //
+        // If the function succeeds the Ecx will contain the panel
+        // height.
+        //
+
+        if (biosArguments.Ecx != 0) {
+
+            UCHAR Result = (UCHAR) biosArguments.Eax;
+
+            //
+            // The int 10 call succeeded, so update panel information
+            // based on what the int 10 call returned.
+            //
+
+            hwDeviceExtension->DisplayType &= ~(STN_LCD | TFT_LCD |
+                                                Mono_LCD | Color_LCD |
+                                                Single_LCD | Dual_LCD);
+
+            //
+            // Is the LCD mono or color?
+            //
+            // <Bit 0>
+            //          0 = Color
+            //          1 = Monochrome
+            //
+
+            if (Result & 0x1) {
+                hwDeviceExtension->DisplayType |= Mono_LCD;
+            } else {
+                hwDeviceExtension->DisplayType |= Color_LCD;
+            }
+
+            //
+            // Is this an STN, DSTN, or TFT display?
+            //
+            // <Bit 2:1>
+            //          00 = Single STN
+            //          01 = Dual STN
+            //          10 = TFT
+            //          11 = Reserved
+            //
+
+            switch ((Result & 0x6) >> 1) {
+
+            case 0: hwDeviceExtension->DisplayType |= (STN_LCD | Single_LCD);
+                    VideoDebugPrint((1, "Single STN panel detected.\n"));
+                    break;
+
+            case 1: hwDeviceExtension->DisplayType |= (STN_LCD | Dual_LCD);
+                    VideoDebugPrint((1, "Dual STN panel detected.\n"));
+                    break;
+
+            case 2: hwDeviceExtension->DisplayType |= (TFT_LCD);
+                    VideoDebugPrint((1, "TFT panel detected.\n"));
+                    break;
+
+            case 3: ASSERT(FALSE);
+
+            }
+
+            //
+            // This may effect our list of available modes, so re-evalutate!
+            //
+
+            VideoDebugPrint((1, "We have additional flat panel information "
+                                "so re-evalutate available modes.\n"));
+
+            CirrusValidateModes(hwDeviceExtension);
+        }
+    }
+
     return TRUE;
 
 } // VgaInitialize()
@@ -611,12 +1022,139 @@ Return Value:
     PVIDEO_MEMORY_INFORMATION memoryInformation;
     ULONG inIoSpace;
 
+    PVIDEO_SHARE_MEMORY pShareMemory;
+    PVIDEO_SHARE_MEMORY_INFORMATION pShareMemoryInformation;
+    PHYSICAL_ADDRESS shareAddress;
+    PVOID virtualAddress;
+    ULONG sharedViewSize;
+    ULONG ulBankSize;
+
+    VOID (*pfnBank)(LONG,LONG,PVOID);
+
     //
     // Switch on the IoContolCode in the RequestPacket. It indicates which
     // function must be performed by the driver.
     //
 
-    switch (RequestPacket->IoControlCode) {
+    switch (RequestPacket->IoControlCode)
+    {
+    case IOCTL_VIDEO_SHARE_VIDEO_MEMORY:
+
+        VideoDebugPrint((2, "VgaStartIO - ShareVideoMemory\n"));
+
+        if ( (RequestPacket->OutputBufferLength < sizeof(VIDEO_SHARE_MEMORY_INFORMATION)) ||
+                         (RequestPacket->InputBufferLength < sizeof(VIDEO_MEMORY)) ) {
+
+            status = ERROR_INSUFFICIENT_BUFFER;
+            VideoDebugPrint((0, "VgaStartIO - ShareVideoMemory - ERROR_INSUFFICIENT_BUFFER\n"));
+            break;
+
+        }
+
+        pShareMemory = RequestPacket->InputBuffer;
+
+        if ( (pShareMemory->ViewOffset > hwDeviceExtension->AdapterMemorySize) ||
+                         ((pShareMemory->ViewOffset + pShareMemory->ViewSize) >
+                                          hwDeviceExtension->AdapterMemorySize) ) {
+
+            status = ERROR_INVALID_PARAMETER;
+            VideoDebugPrint((0, "VgaStartIO - ShareVideoMemory - ERROR_INVALID_PARAMETER\n"));
+            break;
+       }
+
+       RequestPacket->StatusBlock->Information =
+                                   sizeof(VIDEO_SHARE_MEMORY_INFORMATION);
+
+       //
+       // Beware: the input buffer and the output buffer are the same
+       // buffer, and therefore data should not be copied from one to the
+       // other
+       //
+
+       virtualAddress = pShareMemory->ProcessHandle;
+
+       sharedViewSize = pShareMemory->ViewSize;
+
+       //
+       // If you change to using a dense space frame buffer, make this
+       // value a 4 for the ALPHA.
+       //
+
+       inIoSpace = 0;
+
+       //
+       // NOTE: we are ignoring ViewOffset
+       //
+
+       shareAddress.QuadPart =
+           hwDeviceExtension->PhysicalFrameOffset.QuadPart +
+           hwDeviceExtension->PhysicalVideoMemoryBase.QuadPart;
+
+
+       switch (hwDeviceExtension->ChipType) {
+
+           case CL542x: pfnBank = vBankMap_CL542x;
+                        break;
+
+           case CL543x: pfnBank = vBankMap_CL543x;
+                        break;
+
+           default:     pfnBank = vBankMap_CL64xx;
+                        break;
+
+       };
+
+#if ONE_64K_BANK
+         //
+         // The Cirrus Logic VGA's support one 64K read/write bank.
+         //
+
+         ulBankSize = 0x10000; // 64K bank start adjustment
+#endif
+#if TWO_32K_BANKS
+         //
+         // The Cirrus Logic VGA's support two 32K read/write banks.
+         //
+
+         ulBankSize = 0x8000; // 32K bank start adjustment
+#endif
+
+         status = VideoPortMapBankedMemory(hwDeviceExtension,
+                                           shareAddress,
+                                           &sharedViewSize,
+                                           &inIoSpace,
+                                           &virtualAddress,
+                                           ulBankSize,   // bank size
+                                           FALSE,        // we have separate read/write
+                                           pfnBank,
+                                           (PVOID)hwDeviceExtension);
+
+         pShareMemoryInformation = RequestPacket->OutputBuffer;
+
+         pShareMemoryInformation->SharedViewOffset = pShareMemory->ViewOffset;
+         pShareMemoryInformation->VirtualAddress = virtualAddress;
+         pShareMemoryInformation->SharedViewSize = sharedViewSize;
+
+         break;
+
+    case IOCTL_VIDEO_UNSHARE_VIDEO_MEMORY:
+
+        VideoDebugPrint((2, "VgaStartIO - UnshareVideoMemory\n"));
+
+        if (RequestPacket->InputBufferLength < sizeof(VIDEO_SHARE_MEMORY)) {
+
+            status = ERROR_INSUFFICIENT_BUFFER;
+                    break;
+
+        }
+
+        pShareMemory = RequestPacket->InputBuffer;
+
+        status = VideoPortUnmapMemory(hwDeviceExtension,
+                                      pShareMemory->RequestedVirtualAddress,
+                                      pShareMemory->ProcessHandle);
+
+        break;
 
 
     case IOCTL_VIDEO_MAP_VIDEO_MEMORY:
@@ -626,8 +1164,8 @@ Return Value:
         if ( (RequestPacket->OutputBufferLength <
               (RequestPacket->StatusBlock->Information =
                                      sizeof(VIDEO_MEMORY_INFORMATION))) ||
-             (RequestPacket->InputBufferLength < sizeof(VIDEO_MEMORY)) ) {
-
+             (RequestPacket->InputBufferLength < sizeof(VIDEO_MEMORY)) )
+        {
             status = ERROR_INSUFFICIENT_BUFFER;
         }
 
@@ -636,25 +1174,41 @@ Return Value:
         memoryInformation->VideoRamBase = ((PVIDEO_MEMORY)
                 (RequestPacket->InputBuffer))->RequestedVirtualAddress;
 
+        //
+        // We reserved 16 meg for the frame buffer, however, it makes
+        // no sense to map more memory than there is on the card.  So
+        // only map the amount of memory we have on the card.
+        //
+
         memoryInformation->VideoRamLength =
-                hwDeviceExtension->PhysicalVideoMemoryLength;
+                hwDeviceExtension->AdapterMemorySize;
+
+        //
+        // If you change to using a dense space frame buffer, make this
+        // value a 4 for the ALPHA.
+        //
 
         inIoSpace = 0;
 
         status = VideoPortMapMemory(hwDeviceExtension,
                                     hwDeviceExtension->PhysicalVideoMemoryBase,
-                                    &(memoryInformation->VideoRamLength),
+                                    &(hwDeviceExtension->PhysicalVideoMemoryLength),
                                     &inIoSpace,
                                     &(memoryInformation->VideoRamBase));
 
+        if (status != NO_ERROR) {
+            VideoDebugPrint((0, "VgaStartIO - IOCTL_VIDEO_MAP_VIDEO_MEMORY failed VideoPortMapMemory (%x)\n", status));
+        }
+
         memoryInformation->FrameBufferBase =
-        ((PUCHAR) (memoryInformation->VideoRamBase)) +
+            ((PUCHAR) (memoryInformation->VideoRamBase)) +
             hwDeviceExtension->PhysicalFrameOffset.LowPart;
 
         memoryInformation->FrameBufferLength =
             hwDeviceExtension->PhysicalFrameLength ?
             hwDeviceExtension->PhysicalFrameLength :
             memoryInformation->VideoRamLength;
+
 
         VideoDebugPrint((2, "physical VideoMemoryBase %08lx\n", hwDeviceExtension->PhysicalVideoMemoryBase));
         VideoDebugPrint((2, "physical VideoMemoryLength %08lx\n", hwDeviceExtension->PhysicalVideoMemoryLength));
@@ -668,13 +1222,12 @@ Return Value:
 
         break;
 
-
     case IOCTL_VIDEO_UNMAP_VIDEO_MEMORY:
 
         VideoDebugPrint((2, "VgaStartIO - UnMapVideoMemory\n"));
 
-        if (RequestPacket->InputBufferLength < sizeof(VIDEO_MEMORY)) {
-
+        if (RequestPacket->InputBufferLength < sizeof(VIDEO_MEMORY))
+        {
             status = ERROR_INSUFFICIENT_BUFFER;
         }
 
@@ -742,9 +1295,19 @@ Return Value:
 
         videoMode.RequestedMode = DEFAULT_MODE;
 
-        status = VgaSetMode(HwDeviceExtension,
-                                 (PVIDEO_MODE) &videoMode,
-                                 sizeof(videoMode));
+        VgaSetMode(HwDeviceExtension,
+                        (PVIDEO_MODE) &videoMode,
+                        sizeof(videoMode));
+
+        //
+        // Always return succcess since settings the text mode will fail on
+        // non-x86.
+        //
+        // Also, failiure to set the text mode is not fatal in any way, since
+        // this operation must be followed by another set mode operation.
+        //
+
+        status = NO_ERROR;
 
         break;
 
@@ -884,52 +1447,110 @@ Return Value:
         VideoDebugPrint((2, "VgaStartIO - END GetBankSelectCode\n"));
         break;
 
-#ifndef _X86_
-
-    /* START M006 */
-
     case IOCTL_VIDEO_QUERY_PUBLIC_ACCESS_RANGES:
 
         {
-        PVIDEO_PUBLIC_ACCESS_RANGES portAccess;
-        ULONG physicalPortLength;
+            PVIDEO_PUBLIC_ACCESS_RANGES portAccess;
+            PHYSICAL_ADDRESS physicalPortAddress;
+            ULONG physicalPortLength;
 
-        if (RequestPacket->OutputBufferLength <
-            sizeof(VIDEO_PUBLIC_ACCESS_RANGES)) {
+            if (RequestPacket->OutputBufferLength <
+                sizeof(VIDEO_PUBLIC_ACCESS_RANGES))
+            {
+                status = ERROR_INSUFFICIENT_BUFFER;
+                break;
+            }
 
-            status = ERROR_INSUFFICIENT_BUFFER;
-            break;
+            RequestPacket->StatusBlock->Information =
+                sizeof(VIDEO_PUBLIC_ACCESS_RANGES);
 
-        }
+            portAccess = RequestPacket->OutputBuffer;
 
-        RequestPacket->StatusBlock->Information =
-            sizeof(VIDEO_PUBLIC_ACCESS_RANGES);
+            //
+            // The first public access range is the IO ports.
+            //
 
-        portAccess = RequestPacket->OutputBuffer;
+            portAccess->VirtualAddress  = (PVOID) NULL;
+            portAccess->InIoSpace       = TRUE;
+            portAccess->MappedInIoSpace = portAccess->InIoSpace;
+            physicalPortLength = VGA_MAX_IO_PORT - VGA_BASE_IO_PORT + 1;
 
-        portAccess->VirtualAddress  = (PVOID) NULL;
-        portAccess->InIoSpace       = TRUE;
-        portAccess->MappedInIoSpace = portAccess->InIoSpace;
-        physicalPortLength = VGA_MAX_IO_PORT - VGA_BASE_IO_PORT + 1;
+            status =  VideoPortMapMemory(hwDeviceExtension,
+                                         VgaAccessRange->RangeStart,
+                                         &physicalPortLength,
+                                         &(portAccess->MappedInIoSpace),
+                                         &(portAccess->VirtualAddress));
 
-        status =  VideoPortMapMemory(hwDeviceExtension,
-                                     VgaAccessRange->RangeStart,
-                                     &physicalPortLength,
-                                     &(portAccess->MappedInIoSpace),
-                                     &(portAccess->VirtualAddress));
+            (PUCHAR)portAccess->VirtualAddress -= VGA_BASE_IO_PORT;
+            VideoDebugPrint((1, "VgaStartIO - mapping ports to (%x)\n", portAccess->VirtualAddress));
 
+            if ((status == NO_ERROR) &&
+                (RequestPacket->OutputBufferLength >=     // if we have room for
+                 sizeof(VIDEO_PUBLIC_ACCESS_RANGES) * 2)) // another access range
+            {
+                RequestPacket->StatusBlock->Information =
+                    sizeof(VIDEO_PUBLIC_ACCESS_RANGES) * 2;
+
+                portAccess++;
+
+                //
+                // If we are running on a chip which supports Memory Mapped
+                // IO, then return a pointer to the MMIO Ports.  Otherwise,
+                // return zero to indicate we do not support memory mapped IO.
+                //
+
+#if defined(_MIPS_)
+                if (0)
+#else
+                if ((hwDeviceExtension->ChipType == CL543x) &&
+                    (hwDeviceExtension->BusType != Isa)     &&
+                    (VideoPortGetDeviceData(hwDeviceExtension,
+                                            VpMachineData,
+                                            &CirrusGetDeviceDataCallback,
+                                            NULL) != NO_ERROR))
+#endif
+                {
+                    //
+                    // map a region for memory mapped IO
+                    //
+                    // memory mapped IO is located in physical addresses B8000
+                    // to BFFFF, but we will only touch the first 256 bytes.
+                    //
+
+                    portAccess->VirtualAddress  = (PVOID) NULL;    // Requested VA
+                    portAccess->InIoSpace       = FALSE;
+                    portAccess->MappedInIoSpace = portAccess->InIoSpace;
+
+                    physicalPortAddress = VgaAccessRange[2].RangeStart;
+                    physicalPortAddress.QuadPart += MEMORY_MAPPED_IO_OFFSET;
+
+                    physicalPortLength = 0x100;
+
+                    status = VideoPortMapMemory(hwDeviceExtension,
+                                                physicalPortAddress,
+                                                &physicalPortLength,
+                                                &(portAccess->MappedInIoSpace),
+                                                &(portAccess->VirtualAddress));
+
+                    VideoDebugPrint((0, "The base MMIO address is: %x\n",
+                                        portAccess->VirtualAddress));
+                }
+                else
+                {
+                    portAccess->VirtualAddress = 0;
+                }
+
+            }
         }
 
         break;
 
-
     case IOCTL_VIDEO_FREE_PUBLIC_ACCESS_RANGES:
 
-        if (RequestPacket->InputBufferLength < sizeof(VIDEO_MEMORY)) {
-
+        if (RequestPacket->InputBufferLength < sizeof(VIDEO_MEMORY))
+        {
             status = ERROR_INSUFFICIENT_BUFFER;
             break;
-
         }
 
         status = VideoPortUnmapMemory(hwDeviceExtension,
@@ -939,8 +1560,6 @@ Return Value:
                                       0);
 
         break;
-
-#endif
 
     //
     // if we get here, an invalid IoControlCode was specified.
@@ -1460,6 +2079,12 @@ Return Value:
 
     CursorAttributes->Height = (USHORT) HwDeviceExtension->CursorTopScanLine;
     CursorAttributes->Width = (USHORT) HwDeviceExtension->CursorBottomScanLine;
+
+    if (HwDeviceExtension->cursor_vert_exp_flag)
+       CursorAttributes->Enable = FALSE;
+    else
+       CursorAttributes->Enable = TRUE;
+
     CursorAttributes->Enable = HwDeviceExtension->CursorEnable;
 
     return NO_ERROR;
@@ -2096,12 +2721,33 @@ Return Value:
             DAC_ADDRESS_WRITE_PORT, (UCHAR) ClutBuffer->FirstEntry);
 
     for (i = 0; i < ClutBuffer->NumEntries; i++) {
+        VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
+                                DAC_ADDRESS_WRITE_PORT,
+                                (UCHAR)(i + ClutBuffer->FirstEntry));
 
-        VideoPortWritePortBufferUchar((PUCHAR)HwDeviceExtension->IOAddress +
-                                          DAC_DATA_REG_PORT,
-                                      &(ClutBuffer->LookupTable[i].RgbArray.Red),
-                                          0x03);
+        VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
+                                DAC_DATA_REG_PORT,
+                                ClutBuffer->LookupTable[i].RgbArray.Red);
 
+        VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
+                                DAC_DATA_REG_PORT,
+                                ClutBuffer->LookupTable[i].RgbArray.Green);
+
+        VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
+                                DAC_DATA_REG_PORT,
+                                ClutBuffer->LookupTable[i].RgbArray.Blue);
+    }
+
+    //
+    // The GD5430 on NEC MIPS machines are occur write miss with
+    // 640x480 60 Hz mode.
+    // When read for DAC state port, this problem wa not occured.
+    //
+
+    if (HwDeviceExtension->BoardType == NEC_ONBOARD_CIRRUS)
+    {
+        VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
+            DAC_STATE_PORT);
     }
 
     return NO_ERROR;
@@ -2163,7 +2809,8 @@ Return Value:
     PUCHAR portValue;
     PUCHAR portValueDAC;
     ULONG bIsColor;
-
+    ULONG portIO ;
+    UCHAR value ;
 
     //
     // Check if the size of the data in the input buffer is large enough.
@@ -2499,9 +3146,11 @@ Return Value:
     // Restore the Miscellaneous Output register.
     //
 
-    VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
-            MISC_OUTPUT_REG_WRITE_PORT,
-            (UCHAR) (hardwareStateHeader->PortValue[MISC_OUTPUT_REG_WRITE_PORT] & 0xF7));
+    portIO = MISC_OUTPUT_REG_WRITE_PORT ;
+    value = (UCHAR) (hardwareStateHeader->PortValue[MISC_OUTPUT_REG_WRITE_PORT-VGA_BASE_IO_PORT] & 0xF7) ;
+    IOWaitDisplEnableThenWrite ( HwDeviceExtension,
+                                 portIO,
+                                 value ) ;
 
     //
     // Restore all Sequencer registers except the Sync Reset register, which
@@ -2531,8 +3180,9 @@ Return Value:
         portValue = ((PUCHAR) hardwareStateHeader) +
                           hardwareStateHeader->ExtendedSequencerOffset;
 
-        if ((HwDeviceExtension->ChipType == CL542x) ||
-            (HwDeviceExtension->ChipType == CL543x) ) {
+        if ((HwDeviceExtension->ChipType != CL6410) &&
+            (HwDeviceExtension->ChipType != CL6420))
+        {
 
             //
             // No extended sequencer registers for the CL64xx
@@ -2585,19 +3235,25 @@ Return Value:
     // which is read from 3CC but written at 3C2.
     //
 
-    if (hardwareStateHeader->PortValue[MISC_OUTPUT_REG_WRITE_PORT] & 0x01) {
+    if (hardwareStateHeader->PortValue[MISC_OUTPUT_REG_WRITE_PORT-VGA_BASE_IO_PORT] & 0x01) {
         bIsColor = TRUE;
     } else {
         bIsColor = FALSE;
     }
 
 
+    //if (HwDeviceExtension->ChipType == CL754x)
+    //   {
+    //
+    //   NordicRestoreRegs(HwDeviceExtension,
+    //      (PUSHORT)hardwareStateHeader + sizeof(NORDIC_REG_SAVE_BUF));
+    //   }
+
     //
     // Restore the CRT Controller indexed registers.
     //
     // Unlock CRTC registers 0-7.
     //
-
     portValue = (PUCHAR) hardwareStateHeader +
             hardwareStateHeader->BasicCrtContOffset;
 
@@ -2626,9 +3282,9 @@ Return Value:
         portValue = (PUCHAR) hardwareStateHeader +
                          hardwareStateHeader->ExtendedCrtContOffset;
 
-        if ((HwDeviceExtension->ChipType == CL542x) ||
-            (HwDeviceExtension->ChipType == CL543x) ) {
-
+        if ((HwDeviceExtension->ChipType != CL6410) &&
+            (HwDeviceExtension->ChipType != CL6420))
+        {
             //
             // No CRTC Extensions in CL64xx chipset
             //
@@ -2637,6 +3293,26 @@ Return Value:
 
                 if (bIsColor) {
 
+                    VideoPortWritePortUshort((PUSHORT) (HwDeviceExtension->IOAddress +
+                                                 CRTC_ADDRESS_PORT_COLOR),
+                                             (USHORT) (i + ((*portValue++) << 8)));
+
+                } else {
+
+                    VideoPortWritePortUshort((PUSHORT) (HwDeviceExtension->IOAddress +
+                                                 CRTC_ADDRESS_PORT_MONO),
+                                             (USHORT) (i + ((*portValue++) << 8)));
+
+                }
+            }
+        }
+
+        if (HwDeviceExtension->ChipType == CL755x)
+        {
+            for (i = 0x81; i <= 0x91; i++)
+            {
+                if (bIsColor)
+                {
                     VideoPortWritePortUshort((PUSHORT) (HwDeviceExtension->IOAddress +
                                                  CRTC_ADDRESS_PORT_COLOR),
                                              (USHORT) (i + ((*portValue++) << 8)));
@@ -2704,9 +3380,9 @@ Return Value:
     portValue = (PUCHAR) hardwareStateHeader +
                          hardwareStateHeader->ExtendedGraphContOffset;
 
-        if ((HwDeviceExtension->ChipType == CL542x) ||
-            (HwDeviceExtension->ChipType == CL543x) ) {
-
+        if ((HwDeviceExtension->ChipType != CL6410) &&
+            (HwDeviceExtension->ChipType != CL6420))
+        {
             for (i = CL542x_GRAPH_EXT_START; i <= CL542x_GRAPH_EXT_END; i++) {
 
                 VideoPortWritePortUshort((PUSHORT) (HwDeviceExtension->IOAddress +
@@ -2808,13 +3484,13 @@ Return Value:
 
         VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
                 FEAT_CTRL_WRITE_PORT_COLOR,
-                hardwareStateHeader->PortValue[FEAT_CTRL_WRITE_PORT_COLOR]);
+                hardwareStateHeader->PortValue[FEAT_CTRL_WRITE_PORT_COLOR-VGA_BASE_IO_PORT]);
 
     } else {
 
         VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
                 FEAT_CTRL_WRITE_PORT_MONO,
-                hardwareStateHeader->PortValue[FEAT_CTRL_WRITE_PORT_MONO]);
+                hardwareStateHeader->PortValue[FEAT_CTRL_WRITE_PORT_MONO-VGA_BASE_IO_PORT]);
 
     }
 
@@ -2825,7 +3501,7 @@ Return Value:
 
     VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
             SEQ_ADDRESS_PORT,
-            hardwareStateHeader->PortValue[SEQ_ADDRESS_PORT]);
+            hardwareStateHeader->PortValue[SEQ_ADDRESS_PORT-VGA_BASE_IO_PORT]);
 
     //
     // Restore the CRT Controller Index.
@@ -2835,13 +3511,13 @@ Return Value:
 
         VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
                 CRTC_ADDRESS_PORT_COLOR,
-                hardwareStateHeader->PortValue[CRTC_ADDRESS_PORT_COLOR]);
+                hardwareStateHeader->PortValue[CRTC_ADDRESS_PORT_COLOR-VGA_BASE_IO_PORT]);
 
     } else {
 
         VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
                 CRTC_ADDRESS_PORT_MONO,
-                hardwareStateHeader->PortValue[CRTC_ADDRESS_PORT_MONO]);
+                hardwareStateHeader->PortValue[CRTC_ADDRESS_PORT_MONO-VGA_BASE_IO_PORT]);
 
     }
 
@@ -2852,7 +3528,7 @@ Return Value:
 
     VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
             GRAPH_ADDRESS_PORT,
-            hardwareStateHeader->PortValue[GRAPH_ADDRESS_PORT]);
+            hardwareStateHeader->PortValue[GRAPH_ADDRESS_PORT-VGA_BASE_IO_PORT]);
 
 
     //
@@ -2869,7 +3545,7 @@ Return Value:
 
     VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
             ATT_ADDRESS_PORT,  // restore the AC Index
-            hardwareStateHeader->PortValue[ATT_ADDRESS_PORT]);
+            hardwareStateHeader->PortValue[ATT_ADDRESS_PORT-VGA_BASE_IO_PORT]);
 
     //
     // If the toggle should be in Data state, we're all set. If it should be in
@@ -2900,7 +3576,7 @@ Return Value:
 
     VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
             DAC_PIXEL_MASK_PORT,
-            hardwareStateHeader->PortValue[DAC_PIXEL_MASK_PORT]);
+            hardwareStateHeader->PortValue[DAC_PIXEL_MASK_PORT-VGA_BASE_IO_PORT]);
 
     //
     // Restore DAC register 0.
@@ -2924,7 +3600,7 @@ Return Value:
     // for the current index.)
     //
 
-    if ((hardwareStateHeader->PortValue[DAC_STATE_PORT] & 0x0F) == 3) {
+    if ((hardwareStateHeader->PortValue[DAC_STATE_PORT-VGA_BASE_IO_PORT] & 0x0F) == 3) {
 
         //
         // The DAC Read Index was written to last. Restore the DAC by setting
@@ -2938,7 +3614,7 @@ Return Value:
         // register into a temporary buffer, then adds 1 to the index.
         //
 
-        if (hardwareStateHeader->PortValue[DAC_ADDRESS_WRITE_PORT] == 0) {
+        if (hardwareStateHeader->PortValue[DAC_ADDRESS_WRITE_PORT-VGA_BASE_IO_PORT] == 0) {
 
             VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
                     DAC_ADDRESS_READ_PORT, 255);
@@ -2947,7 +3623,7 @@ Return Value:
 
             VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
                     DAC_ADDRESS_READ_PORT, (UCHAR)
-                    (hardwareStateHeader->PortValue[DAC_ADDRESS_WRITE_PORT] -
+                    (hardwareStateHeader->PortValue[DAC_ADDRESS_WRITE_PORT-VGA_BASE_IO_PORT] -
                     1));
 
         }
@@ -2957,7 +3633,7 @@ Return Value:
         // the partial read state we saved.
         //
 
-        for (i = hardwareStateHeader->PortValue[DAC_STATE_PORT] >> 4;
+        for (i = hardwareStateHeader->PortValue[DAC_STATE_PORT-VGA_BASE_IO_PORT] >> 4;
                 i > 0; i--) {
 
             dummy = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
@@ -2980,7 +3656,7 @@ Return Value:
 
         VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
                 DAC_ADDRESS_WRITE_PORT,
-                hardwareStateHeader->PortValue[DAC_ADDRESS_WRITE_PORT]);
+                hardwareStateHeader->PortValue[DAC_ADDRESS_WRITE_PORT-VGA_BASE_IO_PORT]);
 
         //
         // Now write to the hardware however many times are required to get to
@@ -2993,9 +3669,9 @@ Return Value:
 
         portValueDAC = (PUCHAR) hardwareStateHeader +
                 hardwareStateHeader->BasicDacOffset +
-                (hardwareStateHeader->PortValue[DAC_ADDRESS_WRITE_PORT] * 3);
+                (hardwareStateHeader->PortValue[DAC_ADDRESS_WRITE_PORT-VGA_BASE_IO_PORT] * 3);
 
-        for (i = hardwareStateHeader->PortValue[DAC_STATE_PORT] >> 4;
+        for (i = hardwareStateHeader->PortValue[DAC_STATE_PORT-VGA_BASE_IO_PORT] >> 4;
                 i > 0; i--) {
 
             VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
@@ -3075,6 +3751,8 @@ Return Value:
     UCHAR ucCRTC03;
     ULONG bIsColor;
 
+    ULONG portIO ;
+    UCHAR value ;
 
     //
     // See if the buffer is big enough to hold the hardware state structure.
@@ -3151,7 +3829,7 @@ Return Value:
     // which is read from 3CC but written at 3C2.
     //
 
-    if ((hardwareStateHeader->PortValue[MISC_OUTPUT_REG_WRITE_PORT] =
+    if ((hardwareStateHeader->PortValue[MISC_OUTPUT_REG_WRITE_PORT-VGA_BASE_IO_PORT] =
             VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
                     MISC_OUTPUT_REG_READ_PORT))
             & 0x01) {
@@ -3174,7 +3852,7 @@ Return Value:
     // Save the DAC Mask register.
     //
 
-    hardwareStateHeader->PortValue[DAC_PIXEL_MASK_PORT] =
+    hardwareStateHeader->PortValue[DAC_PIXEL_MASK_PORT-VGA_BASE_IO_PORT] =
             VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
                     DAC_PIXEL_MASK_PORT);
 
@@ -3184,7 +3862,7 @@ Return Value:
     // Index as needed.
     //
 
-    hardwareStateHeader->PortValue[DAC_ADDRESS_WRITE_PORT] =
+    hardwareStateHeader->PortValue[DAC_ADDRESS_WRITE_PORT-VGA_BASE_IO_PORT] =
             VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
                     DAC_ADDRESS_WRITE_PORT);
 
@@ -3200,11 +3878,11 @@ Return Value:
     // we can do about it.
     //
 
-    hardwareStateHeader->PortValue[DAC_STATE_PORT] =
+    hardwareStateHeader->PortValue[DAC_STATE_PORT-VGA_BASE_IO_PORT] =
              VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
                     DAC_STATE_PORT);
 
-    if (hardwareStateHeader->PortValue[DAC_STATE_PORT] == 3) {
+    if (hardwareStateHeader->PortValue[DAC_STATE_PORT-VGA_BASE_IO_PORT] == 3) {
 
         //
         // The DAC Read Index was written to last. Figure out how many reads
@@ -3221,7 +3899,7 @@ Return Value:
 
         if (VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
                     DAC_ADDRESS_WRITE_PORT) !=
-                hardwareStateHeader->PortValue[DAC_ADDRESS_WRITE_PORT]) {
+                hardwareStateHeader->PortValue[DAC_ADDRESS_WRITE_PORT-VGA_BASE_IO_PORT]) {
 
             //
             // The DAC Index changed, so two reads had already been done from
@@ -3229,7 +3907,7 @@ Return Value:
             // the read/write state field.
             //
 
-            hardwareStateHeader->PortValue[DAC_STATE_PORT] |= 0x20;
+            hardwareStateHeader->PortValue[DAC_STATE_PORT-VGA_BASE_IO_PORT] |= 0x20;
 
         } else {
 
@@ -3242,7 +3920,7 @@ Return Value:
 
             if (VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
                         DAC_ADDRESS_WRITE_PORT) !=
-                    hardwareStateHeader->PortValue[DAC_ADDRESS_WRITE_PORT]) {
+                    hardwareStateHeader->PortValue[DAC_ADDRESS_WRITE_PORT-VGA_BASE_IO_PORT]) {
 
                 //
                 // The DAC Index changed, so one read had already been done
@@ -3250,7 +3928,7 @@ Return Value:
                 // nibble of the read/write state field.
                 //
 
-                hardwareStateHeader->PortValue[DAC_STATE_PORT] |= 0x10;
+                hardwareStateHeader->PortValue[DAC_STATE_PORT-VGA_BASE_IO_PORT] |= 0x10;
             }
 
             //
@@ -3282,7 +3960,7 @@ Return Value:
 
         if (VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
                     DAC_ADDRESS_WRITE_PORT) !=
-                hardwareStateHeader->PortValue[DAC_ADDRESS_WRITE_PORT]) {
+                hardwareStateHeader->PortValue[DAC_ADDRESS_WRITE_PORT-VGA_BASE_IO_PORT]) {
 
             //
             // The DAC Index changed, so two writes had already been done to
@@ -3290,7 +3968,7 @@ Return Value:
             // the read/write state field.
             //
 
-            hardwareStateHeader->PortValue[DAC_STATE_PORT] |= 0x20;
+            hardwareStateHeader->PortValue[DAC_STATE_PORT-VGA_BASE_IO_PORT] |= 0x20;
 
         } else {
 
@@ -3303,7 +3981,7 @@ Return Value:
 
             if (VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
                         DAC_ADDRESS_WRITE_PORT) !=
-                    hardwareStateHeader->PortValue[DAC_ADDRESS_WRITE_PORT]) {
+                    hardwareStateHeader->PortValue[DAC_ADDRESS_WRITE_PORT-VGA_BASE_IO_PORT]) {
 
                 //
                 // The DAC Index changed, so one write had already been done
@@ -3311,7 +3989,7 @@ Return Value:
                 // nibble of the read/write state field.
                 //
 
-                hardwareStateHeader->PortValue[DAC_STATE_PORT] |= 0x10;
+                hardwareStateHeader->PortValue[DAC_STATE_PORT-VGA_BASE_IO_PORT] |= 0x10;
             }
 
             //
@@ -3373,7 +4051,7 @@ Return Value:
     // so we can test in which state the toggle currently is.
     //
 
-    originalACIndex = hardwareStateHeader->PortValue[ATT_ADDRESS_PORT] =
+    originalACIndex = hardwareStateHeader->PortValue[ATT_ADDRESS_PORT-VGA_BASE_IO_PORT] =
             VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
                     ATT_ADDRESS_PORT);
     originalACData = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
@@ -3383,7 +4061,7 @@ Return Value:
     // Sequencer Index.
     //
 
-    hardwareStateHeader->PortValue[SEQ_ADDRESS_PORT] =
+    hardwareStateHeader->PortValue[SEQ_ADDRESS_PORT-VGA_BASE_IO_PORT] =
             VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
                     SEQ_ADDRESS_PORT);
 
@@ -3487,13 +4165,13 @@ Return Value:
 
     if (bIsColor) {
 
-        hardwareStateHeader->PortValue[FEAT_CTRL_WRITE_PORT_COLOR] =
+        hardwareStateHeader->PortValue[FEAT_CTRL_WRITE_PORT_COLOR-VGA_BASE_IO_PORT] =
                 VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
                         FEAT_CTRL_READ_PORT);
 
     } else {
 
-        hardwareStateHeader->PortValue[FEAT_CTRL_WRITE_PORT_MONO] =
+        hardwareStateHeader->PortValue[FEAT_CTRL_WRITE_PORT_MONO-VGA_BASE_IO_PORT] =
                 VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
                         FEAT_CTRL_READ_PORT);
 
@@ -3505,13 +4183,13 @@ Return Value:
 
     if (bIsColor) {
 
-        hardwareStateHeader->PortValue[CRTC_ADDRESS_PORT_COLOR] =
+        hardwareStateHeader->PortValue[CRTC_ADDRESS_PORT_COLOR-VGA_BASE_IO_PORT] =
                 VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
                         CRTC_ADDRESS_PORT_COLOR);
 
     } else {
 
-        hardwareStateHeader->PortValue[CRTC_ADDRESS_PORT_MONO] =
+        hardwareStateHeader->PortValue[CRTC_ADDRESS_PORT_MONO-VGA_BASE_IO_PORT] =
                 VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
                         CRTC_ADDRESS_PORT_MONO);
 
@@ -3521,7 +4199,7 @@ Return Value:
     // Graphics Controller Index.
     //
 
-    hardwareStateHeader->PortValue[GRAPH_ADDRESS_PORT] =
+    hardwareStateHeader->PortValue[GRAPH_ADDRESS_PORT-VGA_BASE_IO_PORT] =
             VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
                     GRAPH_ADDRESS_PORT);
 
@@ -3549,9 +4227,9 @@ Return Value:
 
     portValue = ((PUCHAR) hardwareStateHeader) + VGA_EXT_SEQUENCER_OFFSET;
 
-    if ((HwDeviceExtension->ChipType == CL542x) ||
-        (HwDeviceExtension->ChipType == CL543x) ) {
-
+    if ((HwDeviceExtension->ChipType != CL6410) &&
+        (HwDeviceExtension->ChipType != CL6420))
+    {
         //
         // No extended sequencer registers for the CL64xx
         //
@@ -3634,9 +4312,9 @@ Return Value:
 
     portValue = (PUCHAR) hardwareStateHeader + VGA_EXT_CRTC_OFFSET;
 
-    if ((HwDeviceExtension->ChipType == CL542x) ||
-        (HwDeviceExtension->ChipType == CL543x) ) {
-
+    if ((HwDeviceExtension->ChipType != CL6410) &&
+        (HwDeviceExtension->ChipType != CL6420))
+    {
         //
         // No CRTC Extensions in CL64xx chipset
         //
@@ -3664,6 +4342,38 @@ Return Value:
         }
     }
 
+    if (HwDeviceExtension->ChipType == CL755x)
+    {
+        for (i = 0x81; i <= 0x91; i++)
+        {
+            if (bIsColor)
+            {
+                VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
+                                        CRTC_ADDRESS_PORT_COLOR, (UCHAR)i);
+                *portValue++ =
+                    VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
+                                           CRTC_DATA_PORT_COLOR);
+
+            } else {
+
+                VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
+                                        CRTC_ADDRESS_PORT_MONO, (UCHAR)i);
+
+                *portValue++ =
+                    VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
+                                           CRTC_DATA_PORT_MONO);
+            }
+        }
+    }
+
+    //if ((HwDeviceExtension->ChipType == CL754x) ||
+    //    (HwDeviceExtension->ChipType == CL755x) ||
+    //    (HwDeviceExtension->ChipType == CL756x)) {
+    //   {
+    //   NordicSaveRegs(HwDeviceExtension,
+    //      (PUSHORT)hardwareStateHeader + sizeof(NORDIC_REG_SAVE_BUF));
+    //   }
+
 #endif
 
     //
@@ -3689,9 +4399,9 @@ Return Value:
 
     portValue = (PUCHAR) hardwareStateHeader + VGA_EXT_GRAPH_CONT_OFFSET;
 
-    if ((HwDeviceExtension->ChipType == CL542x) ||
-        (HwDeviceExtension->ChipType == CL543x) ) {
-
+    if ((HwDeviceExtension->ChipType != CL6410) &&
+        (HwDeviceExtension->ChipType != CL6420))
+    {
         for (i = CL542x_GRAPH_EXT_START; i <= CL542x_GRAPH_EXT_END; i++) {
 
             VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
@@ -3766,10 +4476,13 @@ Return Value:
     // Set the Miscellaneous register to make sure we can access video RAM.
     //
 
-    VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
-            MISC_OUTPUT_REG_WRITE_PORT, (UCHAR)(
-            hardwareStateHeader->PortValue[MISC_OUTPUT_REG_WRITE_PORT] |
-            0x02));
+    portIO = MISC_OUTPUT_REG_WRITE_PORT ;
+    value = (UCHAR) (hardwareStateHeader->
+                PortValue[MISC_OUTPUT_REG_WRITE_PORT-VGA_BASE_IO_PORT] |
+                0x02) ;
+    IOWaitDisplEnableThenWrite ( HwDeviceExtension,
+                                 portIO,
+                                 value ) ;
 
     //
     // Turn off Chain mode and map display memory at A0000 for 64K.
@@ -3950,10 +4663,27 @@ Return Value:
         //
         // Copy this plane into the buffer.
         //
+        // Some cirrus cards have a bug where DWORD reads from
+        // the frame buffer fail.  When we restore the video
+        // memory, fonts are corrupted.
+        //
 
+#if 1
+        {
+            int c;
+
+            for (c = 0; c < VGA_PLANE_SIZE / 2; c++)
+            {
+                ((PUSHORT)bufferPointer)[c] =
+                    ((PUSHORT)(HwDeviceExtension->VideoMemoryAddress))[c];
+            }
+        }
+#else
         VideoPortMoveMemory(bufferPointer,
                            (PUCHAR) HwDeviceExtension->VideoMemoryAddress,
                            VGA_PLANE_SIZE);
+#endif
+
         //
         // Point to the next plane's save area.
         //
@@ -4090,23 +4820,24 @@ Return Value:
 
         // 64K bank start adjustment in planar HC mode as well
 
-        if ((HwDeviceExtension->ChipType == CL542x) ||
-            (HwDeviceExtension->ChipType == CL543x) ) {
-
-            if (HwDeviceExtension->ChipType == CL543x)
-               {
-               codePlanarSize =  ((ULONG)&CL543xPlanarHCBankSwitchEnd) -
+        if ((HwDeviceExtension->ChipType != CL6410) &&
+            (HwDeviceExtension->ChipType != CL6420))
+        {
+            if (HwDeviceExtension->ChipType != CL542x)
+            {
+                codePlanarSize =  ((ULONG)&CL543xPlanarHCBankSwitchEnd) -
                                  ((ULONG)&CL543xPlanarHCBankSwitchStart);
 
-               pCodePlanarBank = &CL543xPlanarHCBankSwitchStart;
-               }
+                pCodePlanarBank = &CL543xPlanarHCBankSwitchStart;
+            }
             else
-               {
-               codePlanarSize =  ((ULONG)&CL542xPlanarHCBankSwitchEnd) -
-                                 ((ULONG)&CL542xPlanarHCBankSwitchStart);
+            {
+                codePlanarSize =  ((ULONG)&CL542xPlanarHCBankSwitchEnd) -
+                                  ((ULONG)&CL542xPlanarHCBankSwitchStart);
 
-               pCodePlanarBank = &CL542xPlanarHCBankSwitchStart;
-               }
+                pCodePlanarBank = &CL542xPlanarHCBankSwitchStart;
+            }
+
             codeEnablePlanarSize = ((ULONG)&CL542xEnablePlanarHCEnd) -
                                    ((ULONG)&CL542xEnablePlanarHCStart);
 
@@ -4115,7 +4846,9 @@ Return Value:
             pCodeEnablePlanar = &CL542xEnablePlanarHCStart;
             pCodeDisablePlanar = &CL542xDisablePlanarHCStart;
 
-        } else { // must be a CL64xx product
+        }
+        else
+        {   // must be a CL64xx product
 
             codePlanarSize =  ((ULONG)&CL64xxPlanarHCBankSwitchEnd) -
                               ((ULONG)&CL64xxPlanarHCBankSwitchStart);
@@ -4129,8 +4862,6 @@ Return Value:
             pCodePlanarBank = &CL64xxPlanarHCBankSwitchStart;
             pCodeEnablePlanar = &CL64xxEnablePlanarHCStart;
             pCodeDisablePlanar = &CL64xxDisablePlanarHCStart;
-
-
         }
 
     //
@@ -4156,25 +4887,29 @@ Return Value:
         BankSelect->Granularity = 0x8000;
 #endif
 
-        if (AdapterType == CL542x) {
+        if (AdapterType == CL542x)
+        {
 
             codeSize = ((ULONG)&CL542xBankSwitchEnd) -
                        ((ULONG)&CL542xBankSwitchStart);
 
             pCodeBank = &CL542xBankSwitchStart;
 
-        } else if (AdapterType == CL543x) {
-            codeSize = ((ULONG)&CL543xBankSwitchEnd) -
-                       ((ULONG)&CL543xBankSwitchStart);
-
-            pCodeBank = &CL543xBankSwitchStart;
-
-        } else { // must be a CL64xx
-
+        }
+        else if  ((AdapterType == CL6410) ||
+                  (AdapterType == CL6420))
+        {
             codeSize = ((ULONG)&CL64xxBankSwitchEnd) -
                        ((ULONG)&CL64xxBankSwitchStart);
 
             pCodeBank = &CL64xxBankSwitchStart;
+        }
+        else
+        {
+            codeSize = ((ULONG)&CL543xBankSwitchEnd) -
+                       ((ULONG)&CL543xBankSwitchStart);
+
+            pCodeBank = &CL543xBankSwitchStart;
 
         }
 
@@ -4341,8 +5076,8 @@ Return Value:
     PHW_DEVICE_EXTENSION hwDeviceExtension = (PHW_DEVICE_EXTENSION) Context;
     ULONG endEmulation;
     UCHAR temp;
-
-    Port -= VGA_BASE_IO_PORT;
+    UCHAR tempB ;
+    ULONG portIO ;
 
     if (hwDeviceExtension->TrappedValidatorCount) {
 
@@ -4524,8 +5259,11 @@ Return Value:
                                          (USHORT) (IND_SYNC_RESET +
                                              (START_SYNC_RESET_VALUE << 8)));
 
-                VideoPortWritePortUchar(hwDeviceExtension->IOAddress + Port,
-                                         (UCHAR) (*Data & 0xF7) );
+                tempB = (UCHAR) (*Data & 0xF7) ;
+                portIO = Port ;
+                IOWaitDisplEnableThenWrite ( hwDeviceExtension,
+                                            portIO, 
+                                            tempB ) ;
 
                 VideoPortWritePortUshort((PUSHORT) (hwDeviceExtension->IOAddress +
                                              SEQ_ADDRESS_PORT),
@@ -4627,8 +5365,7 @@ Return Value:
     PHW_DEVICE_EXTENSION hwDeviceExtension = (PHW_DEVICE_EXTENSION) Context;
     ULONG endEmulation;
     UCHAR temp;
-
-    Port -= VGA_BASE_IO_PORT;
+    UCHAR tempB ;
 
     if (hwDeviceExtension->TrappedValidatorCount) {
 
@@ -4705,11 +5442,9 @@ Return Value:
                     return NO_ERROR;
 
                 }
-
                 endEmulation = 0;
             }
         }
-
         //
         // We are either in a READ path or a WRITE path that caused a
         // a full buffer. So flush the buffer either way.
@@ -4717,7 +5452,6 @@ Return Value:
         // To do this put an END_SYNC_RESET at the end since we want to make
         // the buffer is ended sync reset ended.
         //
-
         hwDeviceExtension->TrappedValidatorData[hwDeviceExtension->
             TrappedValidatorCount].Port = SEQ_ADDRESS_PORT;
 
@@ -4735,47 +5469,34 @@ Return Value:
                                       (PMINIPORT_SYNCHRONIZE_ROUTINE)
                                           VgaPlaybackValidatorData,
                                       hwDeviceExtension);
-
         //
         // Write back the real value of the sequencer address port.
         //
-
         VideoPortWritePortUchar((PUCHAR) (hwDeviceExtension->IOAddress +
                                     SEQ_ADDRESS_PORT),
                                 (UCHAR) hwDeviceExtension->SequencerAddressValue);
-
         //
         // If we are in a READ path, read the data
         //
-
         if (AccessMode & EMULATOR_READ_ACCESS) {
 
             *Data = VideoPortReadPortUshort((PUSHORT)(hwDeviceExtension->IOAddress
                                                 + Port));
-
             endEmulation = 0;
-
         }
-
         //
         // If we are ending emulation, reset trapping to the minimal amount
         // and exit.
         //
-
         if (endEmulation) {
-
             VideoPortSetTrappedEmulatorPorts(hwDeviceExtension,
                                              NUM_MINIMAL_VGA_VALIDATOR_ACCESS_RANGE,
                                              MinimalVgaValidatorAccessRange);
-
             return NO_ERROR;
-
         }
-
         //
         // For both cases, put back a START_SYNC_RESET in the buffer.
         //
-
         hwDeviceExtension->TrappedValidatorCount = 1;
 
         hwDeviceExtension->TrappedValidatorData[0].Port = SEQ_ADDRESS_PORT;
@@ -4785,23 +5506,18 @@ Return Value:
 
         hwDeviceExtension->TrappedValidatorData[0].Data =
                 (ULONG) (IND_SYNC_RESET + (START_SYNC_RESET_VALUE << 8));
-
     } else {
-
         //
         // Nothing trapped.
         // Lets check is the IO is trying to do something that would require
         // us to stop trapping
         //
-
         if (AccessMode & EMULATOR_WRITE_ACCESS) {
-
             //
             // Make sure Bit 3 of the Miscelaneous register is always 0.
             // If it is 1 it could select a non-existant clock, and kill the
             // system
             //
-
             if (Port == MISC_OUTPUT_REG_WRITE_PORT) {
 
                 temp = VideoPortReadPortUchar(hwDeviceExtension->IOAddress +
@@ -4823,11 +5539,8 @@ Return Value:
 
                 VideoPortWritePortUchar(hwDeviceExtension->IOAddress + SEQ_ADDRESS_PORT,
                                         temp);
-
                 return NO_ERROR;
-
             }
-
             if ( (Port == SEQ_ADDRESS_PORT) &&
                  (((*Data>> 8) & END_SYNC_RESET_VALUE) != END_SYNC_RESET_VALUE) &&
                  ((*Data & 0xFF) == IND_SYNC_RESET)) {
@@ -4842,29 +5555,20 @@ Return Value:
                     VGA_VALIDATOR_USHORT_ACCESS;
 
                 hwDeviceExtension->TrappedValidatorData[0].Data = *Data;
-
                 //
                 // Start keeping track of the state of the sequencer port.
                 //
-
                 hwDeviceExtension->SequencerAddressValue = IND_SYNC_RESET;
-
             } else {
-
                 VideoPortWritePortUshort((PUSHORT)(hwDeviceExtension->IOAddress +
                                              Port),
                                          *Data);
-
             }
-
         } else {
-
             *Data = VideoPortReadPortUshort((PUSHORT)(hwDeviceExtension->IOAddress +
                                             Port));
-
         }
     }
-
     return NO_ERROR;
 
 } // end VgaValidatorUshortEntry()
@@ -4906,17 +5610,12 @@ Return Value:
     NO_ERROR.
 
 --*/
-
 {
-
     PHW_DEVICE_EXTENSION hwDeviceExtension = (PHW_DEVICE_EXTENSION) Context;
     ULONG endEmulation;
     UCHAR temp;
 
-    Port -= VGA_BASE_IO_PORT;
-
     if (hwDeviceExtension->TrappedValidatorCount) {
-
         //
         // If we are processing a WRITE instruction, then store it in the
         // playback buffer. If the buffer is full, then play it back right
@@ -4928,73 +5627,50 @@ Return Value:
         // sync reset, and put back a sync reset instruction in the buffer
         // so we can go on appropriately
         //
-
         if (AccessMode & EMULATOR_WRITE_ACCESS) {
-
             //
             // Make sure Bit 3 of the Miscellaneous register is always 0.
             // If it is 1 it could select a non-existent clock, and kill the
             // system
             //
-
             if (Port == MISC_OUTPUT_REG_WRITE_PORT) {
-
                 *Data &= 0xFFFFFFF7;
-
             }
-
             hwDeviceExtension->TrappedValidatorData[hwDeviceExtension->
                 TrappedValidatorCount].Port = Port;
-
             hwDeviceExtension->TrappedValidatorData[hwDeviceExtension->
                 TrappedValidatorCount].AccessType = VGA_VALIDATOR_ULONG_ACCESS;
-
             hwDeviceExtension->TrappedValidatorData[hwDeviceExtension->
                 TrappedValidatorCount].Data = *Data;
-
             hwDeviceExtension->TrappedValidatorCount++;
-
             //
             // Check to see if this instruction was ending sync reset.
             // If it did, we must flush the buffer and reset the trapped
             // IO ports to the minimal set.
             //
-
             if (Port == SEQ_ADDRESS_PORT) {
-
                 //
                 // If we are accessing the seq address port, keep track of its
                 // value
                 //
-
                 hwDeviceExtension->SequencerAddressValue = (*Data & 0xFF);
-
             }
-
             if ((Port == SEQ_ADDRESS_PORT) &&
                 ( ((*Data >> 8) & END_SYNC_RESET_VALUE) ==
                    END_SYNC_RESET_VALUE) &&
                 (hwDeviceExtension->SequencerAddressValue == IND_SYNC_RESET)) {
-
                 endEmulation = 1;
-
             } else {
-
                 //
                 // If the buffer is not full, then just return right away.
                 //
-
                 if (hwDeviceExtension->TrappedValidatorCount <
                        VGA_MAX_VALIDATOR_DATA - 1) {
-
                     return NO_ERROR;
-
                 }
-
                 endEmulation = 0;
             }
         }
-
         //
         // We are either in a READ path or a WRITE path that caused a
         // a full buffer. So flush the buffer either way.
@@ -5002,167 +5678,121 @@ Return Value:
         // To do this put an END_SYNC_RESET at the end since we want to make
         // the buffer is ended sync reset ended.
         //
-
         hwDeviceExtension->TrappedValidatorData[hwDeviceExtension->
             TrappedValidatorCount].Port = SEQ_ADDRESS_PORT;
-
         hwDeviceExtension->TrappedValidatorData[hwDeviceExtension->
             TrappedValidatorCount].AccessType = VGA_VALIDATOR_USHORT_ACCESS;
-
         hwDeviceExtension->TrappedValidatorData[hwDeviceExtension->
             TrappedValidatorCount].Data = (USHORT) (IND_SYNC_RESET +
                                           (END_SYNC_RESET_VALUE << 8));
-
         hwDeviceExtension->TrappedValidatorCount++;
-
         VideoPortSynchronizeExecution(hwDeviceExtension,
                                       VpHighPriority,
                                       (PMINIPORT_SYNCHRONIZE_ROUTINE)
                                           VgaPlaybackValidatorData,
                                       hwDeviceExtension);
-
         //
         // Write back the real value of the sequencer address port.
         //
-
         VideoPortWritePortUchar(hwDeviceExtension->IOAddress +
                                     SEQ_ADDRESS_PORT,
                                 (UCHAR) hwDeviceExtension->SequencerAddressValue);
-
         //
         // If we are in a READ path, read the data
         //
-
         if (AccessMode & EMULATOR_READ_ACCESS) {
-
             *Data = VideoPortReadPortUlong((PULONG) (hwDeviceExtension->IOAddress +
                                                Port));
-
             endEmulation = 0;
-
         }
-
         //
         // If we are ending emulation, reset trapping to the minimal amount
         // and exit.
         //
-
         if (endEmulation) {
-
             VideoPortSetTrappedEmulatorPorts(hwDeviceExtension,
                                              NUM_MINIMAL_VGA_VALIDATOR_ACCESS_RANGE,
                                              MinimalVgaValidatorAccessRange);
-
             return NO_ERROR;
-
         }
-
         //
         // For both cases, put back a START_SYNC_RESET in the buffer.
         //
-
         hwDeviceExtension->TrappedValidatorCount = 1;
-
         hwDeviceExtension->TrappedValidatorData[0].Port = SEQ_ADDRESS_PORT;
-
         hwDeviceExtension->TrappedValidatorData[0].AccessType =
                 VGA_VALIDATOR_USHORT_ACCESS;
-
         hwDeviceExtension->TrappedValidatorData[0].Data =
                 (ULONG) (IND_SYNC_RESET + (START_SYNC_RESET_VALUE << 8));
 
     } else {
-
         //
         // Nothing trapped.
         // Lets check is the IO is trying to do something that would require
         // us to stop trapping
         //
-
         if (AccessMode & EMULATOR_WRITE_ACCESS) {
-
             //
             // Make sure Bit 3 of the Miscelaneous register is always 0.
             // If it is 1 it could select a non-existant clock, and kill the
             // system
             //
-
             if (Port == MISC_OUTPUT_REG_WRITE_PORT) {
-
                 temp = VideoPortReadPortUchar(hwDeviceExtension->IOAddress +
                                                   SEQ_ADDRESS_PORT);
-
                 VideoPortWritePortUshort((PUSHORT) (hwDeviceExtension->IOAddress +
                                              SEQ_ADDRESS_PORT),
                                          (USHORT) (IND_SYNC_RESET +
                                              (START_SYNC_RESET_VALUE << 8)));
-
                 VideoPortWritePortUlong((PULONG) (hwDeviceExtension->IOAddress +
                                              Port),
                                          (ULONG) (*Data & 0xFFFFFFF7) );
-
                 VideoPortWritePortUshort((PUSHORT) (hwDeviceExtension->IOAddress +
                                              SEQ_ADDRESS_PORT),
                                          (USHORT) (IND_SYNC_RESET +
                                              (END_SYNC_RESET_VALUE << 8)));
-
                 VideoPortWritePortUchar(hwDeviceExtension->IOAddress + SEQ_ADDRESS_PORT,
                                         temp);
-
                 return NO_ERROR;
-
             }
-
             if ( (Port == SEQ_ADDRESS_PORT) &&
                  (((*Data>> 8) & END_SYNC_RESET_VALUE) != END_SYNC_RESET_VALUE) &&
                  ((*Data & 0xFF) == IND_SYNC_RESET)) {
-
                 VideoPortSetTrappedEmulatorPorts(hwDeviceExtension,
                                                  NUM_FULL_VGA_VALIDATOR_ACCESS_RANGE,
                                                  FullVgaValidatorAccessRange);
-
                 hwDeviceExtension->TrappedValidatorCount = 1;
                 hwDeviceExtension->TrappedValidatorData[0].Port = Port;
                 hwDeviceExtension->TrappedValidatorData[0].AccessType =
                     VGA_VALIDATOR_ULONG_ACCESS;
 
                 hwDeviceExtension->TrappedValidatorData[0].Data = *Data;
-
                 //
                 // Start keeping track of the state of the sequencer port.
                 //
-
                 hwDeviceExtension->SequencerAddressValue = IND_SYNC_RESET;
 
             } else {
-
                 VideoPortWritePortUlong((PULONG) (hwDeviceExtension->IOAddress +
                                             Port),
                                         *Data);
 
             }
-
         } else {
-
             *Data = VideoPortReadPortUlong((PULONG) (hwDeviceExtension->IOAddress +
                                            Port));
-
         }
     }
-
     return NO_ERROR;
 
 } // end VgaValidatorUlongEntry()
-
 
 //---------------------------------------------------------------------------
 BOOLEAN
 VgaPlaybackValidatorData(
     PVOID Context
     )
-
 /*++
-
 Routine Description:
 
     Performs all the DOS apps IO port accesses that were trapped by the
@@ -5181,30 +5811,22 @@ Arguments:
 Return Value:
 
     TRUE.
-
 --*/
-
 {
     PHW_DEVICE_EXTENSION hwDeviceExtension = Context;
     ULONG ioBaseAddress = (ULONG) hwDeviceExtension->IOAddress;
     UCHAR i;
     PVGA_VALIDATOR_DATA validatorData = hwDeviceExtension->TrappedValidatorData;
-
     //
     // Loop through the array of data and do instructions one by one.
     //
-
     for (i = 0; i < hwDeviceExtension->TrappedValidatorCount;
          i++, validatorData++) {
-
         //
         // Calculate base address first
         //
-
         ioBaseAddress = (ULONG)hwDeviceExtension->IOAddress +
                             validatorData->Port;
-
-
         //
         // This is a write operation. We will automatically stop when the
         // buffer is empty.
@@ -5236,23 +5858,19 @@ Return Value:
         default:
 
             VideoDebugPrint((0, "InvalidValidatorAccessType\n" ));
-
         }
     }
-
     hwDeviceExtension->TrappedValidatorCount = 0;
 
     return TRUE;
 
 } // end VgaPlaybackValidatorData()
-
 
 //---------------------------------------------------------------------------
 BOOLEAN
 CirrusLogicIsPresent(
     PHW_DEVICE_EXTENSION HwDeviceExtension
     )
-
 /*++
 
 Routine Description:
@@ -5299,43 +5917,71 @@ Return Value:
     UCHAR originalCRTCIndex;
     UCHAR originalSeqIndex;
     UCHAR originalExtsEnb;
+    UCHAR SystemBusSelect;
     PUCHAR CRTCAddressPort, CRTCDataPort;
     UCHAR temp1, temp2, temp3;
     UCHAR revision;
+    ULONG rev10bit;
+
     BOOLEAN retvalue = FALSE;    // default return value
 
+
+    //
     // first, save the Graphics controller index
+    //
+
     originalGRIndex = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
             GRAPH_ADDRESS_PORT);
 
+    //
     // Then save the value of GR0A
+    //
+
     VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
             GRAPH_ADDRESS_PORT, CL64xx_EXTENSION_ENABLE_INDEX);
     originalGR0A = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
             GRAPH_DATA_PORT);
 
+    //
     // then, Unlock the CL6410 extended registers., GR0A = 0ECH
+    //
+
     VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
             GRAPH_DATA_PORT, CL64xx_EXTENSION_ENABLE_VALUE);
 
+    //
     // read back GR0A, it should be a 1
+    //
+
     temp1 = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
             GRAPH_DATA_PORT);
 
+    //
     // then, Lock the CL6410 extended registers., GR0A = 0CEH
+    //
+
     VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
             GRAPH_DATA_PORT, CL64xx_EXTENSION_DISABLE_VALUE);
 
+    //
     // read back GR0A, it should be a 0
+    //
+
     temp2 = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
             GRAPH_DATA_PORT);
 
+    //
     // restore the GR0A value
     // this will not have any effect if the chip IS a CL6410 or 6420
+    //
+
     VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
             GRAPH_DATA_PORT, originalGR0A);
 
+    //
     // now restore the graphics index
+    //
+
     VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
             GRAPH_ADDRESS_PORT, originalGRIndex);
 
@@ -5343,34 +5989,39 @@ Return Value:
     // now test to see if the returned values were correct!
     //
 
-    if ((temp1 == 1) && (temp2 == 0)) {
-
+    if ((temp1 == 1) && (temp2 == 0))
+    {
         //
         // By golly, it *is* a CL6410 or CL6420!
         //
         // but now we have to determine the chip type, and which display is
         // active.
         // reenable the extension registers first
+        //
 
         VideoPortWritePortUshort((PUSHORT)(HwDeviceExtension->IOAddress +
             GRAPH_ADDRESS_PORT), CL64xx_EXTENSION_ENABLE_INDEX +
             (CL64xx_EXTENSION_ENABLE_VALUE << 8));
 
+        //
         // now get the chip type at ERAA
+        //
 
         VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
             GRAPH_ADDRESS_PORT, 0xaa);
 
         revision = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
-            GRAPH_DATA_PORT);
+             GRAPH_DATA_PORT);
 
+        //
         // now restore the graphics index
+        //
 
         VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
-            GRAPH_ADDRESS_PORT, originalGRIndex);
+         GRAPH_ADDRESS_PORT, originalGRIndex);
 
-        if ((revision & 0xf0) == 0x80) {     // 6410 rev code
-
+        if ((revision & 0xf0) == 0x80)      // 6410 rev code
+        {
             VideoDebugPrint((1, "CL 6410 found\n"));
 
             //
@@ -5378,17 +6029,17 @@ Return Value:
             // installed.
             //
 
-            if (!CirrusFind6340(HwDeviceExtension)) {
-
-               HwDeviceExtension->ChipType = CL6410;
-               HwDeviceExtension->AdapterMemorySize = 0x00040000; // 256K
-               HwDeviceExtension->DisplayType =
-                                    CirrusFind6410DisplayType(HwDeviceExtension);
-               retvalue = TRUE;
+            if (!CirrusFind6340(HwDeviceExtension))
+            {
+                HwDeviceExtension->ChipType = CL6410;
+                HwDeviceExtension->AdapterMemorySize = 0x00040000; // 256K
+                HwDeviceExtension->DisplayType =
+                                 CirrusFind6410DisplayType(HwDeviceExtension);
+                retvalue = TRUE;
             }
-
-        } else if ((revision & 0xf0) == 0x70) {         // 6420 rev code
-
+        }
+        else if ((revision & 0xf0) == 0x70)           // 6420 rev code
+        {
             VideoDebugPrint((1, "CL 6420 found\n"));
 
             //
@@ -5396,45 +6047,44 @@ Return Value:
             // installed.
             //
 
-            if (!CirrusFind6340(HwDeviceExtension)) {
+            if (!CirrusFind6340(HwDeviceExtension))
+            {
+                HwDeviceExtension->ChipType = CL6420;
+                HwDeviceExtension->ChipRevision = (USHORT) revision;
+                HwDeviceExtension->DisplayType =
+                                 CirrusFind6410DisplayType(HwDeviceExtension);
 
-               HwDeviceExtension->ChipType = CL6420;
-               HwDeviceExtension->ChipRevision = (USHORT) revision;
-               HwDeviceExtension->AdapterMemorySize =
-                                    CirrusFindVmemSize(HwDeviceExtension);
-               HwDeviceExtension->DisplayType =
-                                    CirrusFind6410DisplayType(HwDeviceExtension);
-
-               VideoDebugPrint((2, "CL 64xxx Adapter Memory size = %08lx\n",
-                                HwDeviceExtension->AdapterMemorySize));
+                VideoDebugPrint((2, "CL 64xxx Adapter Memory size = %08lx\n",
+                                 HwDeviceExtension->AdapterMemorySize));
 
 
-               retvalue = TRUE;
+                retvalue = TRUE;
             }
-
-        } else { // we dont support 5410 at this time
-
+        }
+        else  // we dont support 5410 at this time
+        {
             VideoDebugPrint((1, "Unsupported CL VGA chip found\n"));
-            // retvalue = FALSE;                // already FALSE
         }
     }
 
-    if (retvalue == FALSE) {   // Did not detect a 64x0, see if it's a 542x
-
+    if (retvalue == FALSE)         // Did not detect a 64x0, see if it's a 542x
+    {
         //
         // Determine where the CRTC registers are addressed (color or mono).
         //
-
         CRTCAddressPort = HwDeviceExtension->IOAddress;
         CRTCDataPort = HwDeviceExtension->IOAddress;
 
         if (VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
-                    MISC_OUTPUT_REG_READ_PORT) & 0x01) {
+                    MISC_OUTPUT_REG_READ_PORT) & 0x01)
+        {
 
             CRTCAddressPort += CRTC_ADDRESS_PORT_COLOR;
             CRTCDataPort += CRTC_DATA_PORT_COLOR;
 
-        } else {
+        }
+        else
+        {
 
             CRTCAddressPort += CRTC_ADDRESS_PORT_MONO;
             CRTCDataPort += CRTC_DATA_PORT_MONO;
@@ -5443,10 +6093,10 @@ Return Value:
         //
         // Save the original state of the CRTC and Sequencer Indices.
         //
+
         originalCRTCIndex = VideoPortReadPortUchar(CRTCAddressPort);
         originalSeqIndex = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
-                            SEQ_ADDRESS_PORT);
-
+                          SEQ_ADDRESS_PORT);
         //
         // Try to enable all extensions:
         // a) Set the Sequencer Index to IND_CL_EXTS_ENB.
@@ -5454,6 +6104,7 @@ Return Value:
 
         VideoPortWritePortUchar(HwDeviceExtension->IOAddress + SEQ_ADDRESS_PORT,
                                 IND_CL_EXTS_ENB);
+
         //
         // b) Save the original state of Sequencer register IND_CL_EXTS_ENB.
         //
@@ -5466,10 +6117,9 @@ Return Value:
         //
 
         VideoPortWritePortUshort((PUSHORT)(HwDeviceExtension->IOAddress +
-               SEQ_ADDRESS_PORT),(USHORT)((0x12 << 8) + IND_CL_EXTS_ENB));
-
+                SEQ_ADDRESS_PORT),(USHORT)((0x12 << 8) + IND_CL_EXTS_ENB));
         VideoPortWritePortUchar(HwDeviceExtension->IOAddress + SEQ_ADDRESS_PORT,
-                                IND_CL_EXTS_ENB);
+                IND_CL_EXTS_ENB);
         temp1 = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
                 SEQ_DATA_PORT);
 
@@ -5478,8 +6128,9 @@ Return Value:
         //
 
         VideoPortWritePortUchar(CRTCAddressPort, IND_CL_ID_REG);
-
-        temp3 = (VideoPortReadPortUchar(CRTCDataPort) & 0xFC);
+        temp3 = VideoPortReadPortUchar(CRTCDataPort);
+        rev10bit = (ULONG)temp3 & 0x3;  // lo bits of ID are high bits of rev code
+        temp3 = temp3 >> 2;   // shift off revision bits
 
         //
         // Write another value (!= 0x12) to IND_CL_EXTS_ENB to disable extensions
@@ -5487,30 +6138,19 @@ Return Value:
         //
 
         VideoPortWritePortUshort((PUSHORT)(HwDeviceExtension->IOAddress +
-               SEQ_ADDRESS_PORT),(USHORT)((0 << 8) + IND_CL_EXTS_ENB));
-
+                SEQ_ADDRESS_PORT),(USHORT)((0 << 8) + IND_CL_EXTS_ENB));
         VideoPortWritePortUchar(HwDeviceExtension->IOAddress + SEQ_ADDRESS_PORT,
-                                IND_CL_EXTS_ENB);
-
+                IND_CL_EXTS_ENB);
         temp2 = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
-               SEQ_DATA_PORT);
+                SEQ_DATA_PORT);
 
         //
         // Restore the original IND_CL_EXTS_ENB state.
         //
 
-        VideoPortWritePortUchar(HwDeviceExtension->IOAddress + SEQ_ADDRESS_PORT,
-                                IND_CL_EXTS_ENB);
-        VideoPortWritePortUchar(HwDeviceExtension->IOAddress + SEQ_DATA_PORT,
-                                originalExtsEnb);
-
-        //
-        // Restore the original Sequencer and CRTC Indices.
-        //
-
-        VideoPortWritePortUchar((HwDeviceExtension->IOAddress + SEQ_ADDRESS_PORT),
-                                originalSeqIndex);
-        VideoPortWritePortUchar(CRTCAddressPort, originalCRTCIndex);
+        VideoPortWritePortUshort((PUSHORT)(HwDeviceExtension->IOAddress
+              + SEQ_ADDRESS_PORT),
+                (USHORT)((originalExtsEnb << 8) + IND_CL_EXTS_ENB));
 
         //
         // Check values read from IND_CL_EXTS_ENB and IND_CL_ID_REG to be correct
@@ -5518,9 +6158,9 @@ Return Value:
 
         if ((temp1 != (UCHAR) (0x12)) ||
             (temp2 != (UCHAR) (0x0F)) ||
-            (temp3 >  (UCHAR) (0x2C << 2))    ||       // 2C is Alpine A/V
-            (temp3 <  (UCHAR) (0x22 << 2)))     {      // 22 is 5420
-
+            (temp3 >  (UCHAR) (0x2F)) ||        // 2E is 5446s (assume 543x for now)
+            (temp3 <  (UCHAR) (0x0B)) )         // 0B is Nordic (7542)
+        {
             //
             // Did not find appropriate CL VGA Chip.
             //
@@ -5528,91 +6168,263 @@ Return Value:
             VideoDebugPrint((1, "CL VGA chip not found\n"));
 
             retvalue = FALSE;
-
-        } else {
+        }
+        else
+        {
 
             //
             // It's a supported CL adapter.
             //
+            // Save actual Chip ID in ChipRevision field of HwDeviceExtension
+            //
 
-             if (temp3 > (UCHAR) (0x27 << 2)) {
+            HwDeviceExtension->ChipRevision = temp3;
+            if ((temp3 > (UCHAR) (0x27)) ||  // 27 is 5429
+                (temp3 < (UCHAR) (0x22) ) )   // 22 is 5422
+            {
+                if ((temp3 >= (UCHAR) (0x0B)) &&  // Nordic
+                    (temp3 <= (UCHAR) (0x0E)) )   // Everest
 
-                VideoDebugPrint((1, "CL 543x found\n"));
-                HwDeviceExtension->ChipType = CL543x;
+                {
+                    VideoDebugPrint((1, "CL 754x found\n"));
+                    HwDeviceExtension->ChipType = CL754x;
+                    HwDeviceExtension->DisplayType =
+                        CirrusFind754xDisplayType(HwDeviceExtension,
+                                                  CRTCAddressPort,
+                                                  CRTCDataPort);
+                } else if (temp3 == (UCHAR) (0x10)) {
+                    VideoDebugPrint((1, "CL 755x found\n")) ;
+                    HwDeviceExtension -> ChipType = CL755x ;
+                    HwDeviceExtension -> DisplayType =
+                      CirrusFind755xDisplayType(HwDeviceExtension,
+                                                  CRTCAddressPort,
+                                                  CRTCDataPort) ;
+                     } else if (temp3 == (UCHAR) (0x11)) {
+                         VideoDebugPrint((1, "CL 756x found\n")) ;
+                         HwDeviceExtension->ChipType = CL756x ;
+                         HwDeviceExtension->DisplayType =
+                        CirrusFind755xDisplayType(HwDeviceExtension,
+                                                  CRTCAddressPort,
+                                                  CRTCDataPort) ;
+                } else {
+                    VideoDebugPrint((1, "CL 543x found\n"));
+                    HwDeviceExtension->ChipType = CL543x;
+                    HwDeviceExtension->DisplayType = crt;
 
-             } else {
+                    if (temp3 == (UCHAR) (0x2A))      // or a 5434?
+                    {
+                        VideoDebugPrint((1, "CL 5434 found\n"));
 
+                        //
+                        //Default to .8u 5434
+                        //
+
+                        HwDeviceExtension->ChipType = CL5434;
+
+                        //
+                        // Read the revision code from CR25&27 and compare to
+                        // lowest rev that we know to be .6u
+                        //
+
+                        VideoPortWritePortUchar(CRTCAddressPort, IND_CL_REV_REG);
+                        revision = (VideoPortReadPortUchar(CRTCDataPort));
+                        rev10bit = (ULONG)(rev10bit << 8) | revision;
+
+                        if ((rev10bit >= 0xB0) ||  // B0 is rev "EP", first .6u 5434
+                            (rev10bit == 0x28) )   // 28 is rev "AH" also .6u 5434
+                        {
+                            VideoDebugPrint((1, "CL 5434.6 found\n"));
+                            HwDeviceExtension->ChipType = CL5434_6;
+                        }
+                    } else if (temp3 == (UCHAR) (0x2B)) {           // 5436 ?
+                        HwDeviceExtension->ChipType = CL5436 ;
+                    } else if ((temp3 == (UCHAR) (0x2E)) ||         // 5446
+                               (temp3 == (UCHAR) (0x2F))) {          // 5446s
+                        HwDeviceExtension->ChipType = CL5446 ;
+                    } else if (temp3 == (UCHAR) (0x3A)) {           // 54UM36 ?
+                        HwDeviceExtension->ChipType = CL54UM36 ;
+                    }
+                }
+            }
+            else
+            {
                 VideoDebugPrint((1, "CL 542x found\n"));
                 HwDeviceExtension->ChipType = CL542x;
+                HwDeviceExtension->DisplayType = crt;
+            }
 
-             }
-
-             HwDeviceExtension->DisplayType = crt;
-             HwDeviceExtension->AdapterMemorySize =
-                   CirrusFindVmemSize(HwDeviceExtension);
-
-             VideoDebugPrint((2, "CL Adapter Memory size = %08lx\n",
-                              HwDeviceExtension->AdapterMemorySize));
-
-             retvalue = TRUE;
+            retvalue = TRUE;
         }
     }
 
-    if (retvalue) {
+    //
+    // Assumption: If this is an ALPHA or an X86 lets assune we have
+    // a BIOS, otherwise, we'll assume we do not.
+    //
 
-        //
-        // Detect a SpeedStarPRO board.
-        //
-        // Map in the ROM address space at 0xc000:0
-        //
+#if defined(_ALPHA_) || defined(_X86_)
+    HwDeviceExtension->BIOSPresent = TRUE;
+#else
+    HwDeviceExtension->BIOSPresent = FALSE;
+#endif
 
-        pRomAddr = VideoPortGetDeviceBase(HwDeviceExtension,
-                                          paRom,
-                                          (ULONG)0x00008000,
-                                          FALSE);
 
-        if (pRomAddr) {       // Valid ROM address?
+    if (retvalue)
+    {
 
-            //
-            // Look for brand name signatures (from DIAMOND) in the ROM.
-            //
+#ifdef _X86_
 
-            //
-            // We will try to recognize a few boards.
-            // make sure we are looking at a bios!
-            //
+         //
+         // Detect a SpeedStarPRO board.
+         //
+         // Map in the ROM address space at 0xc000:0
+         //
 
-            if (*((PUSHORT) pRomAddr) == 0xAA55) {
+         pRomAddr = VideoPortGetDeviceBase(HwDeviceExtension,
+                                           paRom,
+                                           (ULONG)0x00008000,
+                                           FALSE);
 
-                if (VideoPortScanRom(HwDeviceExtension,
+         //
+         // Lets assume there is no BIOS present
+         //
+
+         HwDeviceExtension->BIOSPresent = FALSE;
+
+         if (pRomAddr)   // Valid ROM address?
+         {
+             //
+             // Look for brand name signatures (from DIAMOND) in the ROM.
+             //
+             // make sure we are looking at a bios!
+             //
+
+             if (VideoPortReadRegisterUshort((PUSHORT)pRomAddr) == 0xAA55)
+             {
+                 //
+                 // We found the BIOS signature, so we have
+                 // a BIOS.
+                 //
+
+                 HwDeviceExtension->BIOSPresent = TRUE;
+
+                 if (VideoPortScanRom(HwDeviceExtension,
                                      pRomAddr,
                                      MAX_ROM_SCAN,
-                                     "  SpeedStar PRO")) {
+                                     "  SpeedStar PRO"))
+                 {
+                     HwDeviceExtension->BoardType = SPEEDSTARPRO;
+                 }
 
-                    HwDeviceExtension->BoardType = SPEEDSTARPRO;
-                }
-            }
+                 #define MIN_ROM_SCAN 256
+                 HwDeviceExtension->BiosGT130 = FALSE ;
 
-            VideoPortFreeDeviceBase(HwDeviceExtension,
-                                    pRomAddr);
+                 if (HwDeviceExtension->ChipRevision == 0x2A)
+                 {
+                     if (VideoPortScanRom(HwDeviceExtension,
+                                          pRomAddr,
+                                          MIN_ROM_SCAN,
+                                          "BIOS Version 1.30"))
+                     {
+                        HwDeviceExtension->BiosGT130 = TRUE ;
+                     }
+                 }
+             }
 
-        }
+             VideoPortFreeDeviceBase(HwDeviceExtension,
+                                     pRomAddr);
+         }
 
-        //
-        // Determines which modes are valid.
-        //
+#endif
 
-        CirrusValidateModes(HwDeviceExtension);
+//
+// The following code in the miniport was added due to a problem with the
+// 5436_6 (5434 0.6 micron - later revs of the 5434) on PCI bus where when
+// opaque text was used a hardware bug was found. The code in the
+// miniport was trying to avoid opaque text from being used.
+// Opaque text in our [cirrus's] original display driver used system to screen opaque
+// bitblt so text could be performed in one path. When opaque text is
+// disabled, the background rectangle is drawn first and then the
+// transparent text. It was a little bit faster using opaque text, but
+// there were problems in certain revs of the chip on PCI.
+//
+// The code in the miniport was wrong, the mask should be 38h and it
+// should compare with 20h (bits 543 = 100).
+//
+// The check is not needed because the current display driver will always
+// use two passes for opaque text.
+//
 
-        //
-        // Write the hardware information to the reigstry.
-        //
+#if 0
+         //
+         // Set default for this flag
+         //
 
-        VideoPortSetRegistryParameters(HwDeviceExtension,
-                                       L"HardwareInformation.MemorySize",
-                                       &HwDeviceExtension->AdapterMemorySize,
-                                       sizeof(ULONG));
+         HwDeviceExtension->AllowOpaqueText = TRUE;
 
+         if (HwDeviceExtension->ChipType == CL5434_6)
+         {
+             //
+             // Check for certain revs of .6u 5434 on PCI bus,
+             // disable opaque text
+             //
+
+             VideoPortWritePortUchar(
+                       (HwDeviceExtension->IOAddress + SEQ_ADDRESS_PORT),
+                       0x17);
+
+             SystemBusSelect =
+                       VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
+                       SEQ_DATA_PORT) & 0x38;
+
+             if (SystemBusSelect == 0x20))      // Bits 5:3 from SR17 == 100
+             {
+                 HwDeviceExtension->AllowOpaqueText = FALSE;
+             }
+         }
+#endif
+
+         //
+         // Restore the original Sequencer and CRTC Indices.
+         //
+
+         HwDeviceExtension->AutoFeature = FALSE ;
+
+         if ((HwDeviceExtension->ChipType == CL5436) ||
+             (HwDeviceExtension->ChipType == CL5446) ||
+             (HwDeviceExtension->ChipType == CL54UM36))
+         {
+             HwDeviceExtension->AutoFeature = TRUE;
+
+             // i 3ce originalGRIndex
+             originalGRIndex = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
+                 GRAPH_ADDRESS_PORT);
+
+             // o 3ce 31
+             VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
+                 GRAPH_ADDRESS_PORT, INDEX_ENABLE_AUTO_START);
+
+             // i 3cf temp2
+             temp2 = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
+                         GRAPH_DATA_PORT);
+
+             temp2 |= (UCHAR) 0x80;                  //enable auto start bit 7
+
+
+             // o 3cf temp2
+             VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
+                 GRAPH_DATA_PORT, temp2);
+
+             // o 3ce originalGRIndex
+             VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
+                 GRAPH_ADDRESS_PORT, originalGRIndex);
+         }
+
+         VideoPortWritePortUchar(
+              (HwDeviceExtension->IOAddress + SEQ_ADDRESS_PORT),
+              originalSeqIndex);
+
+         VideoPortWritePortUchar(CRTCAddressPort, originalCRTCIndex);
 
     }
 
@@ -5620,6 +6432,90 @@ Return Value:
 
 } // CirrusLogicIsPresent()
 
+//---------------------------------------------------------------------------
+//
+// The memory manager needs a "C" interface to the banking functions
+//
+
+/*++
+
+Routine Description:
+
+    Each of these functions is a "C" callable interface to the ASM banking
+    functions.  They are NON paged because they are called from the
+    Memory Manager during some page faults.
+
+Arguments:
+
+    iBankRead -     Index of bank we want mapped in to read from.
+    iBankWrite -    Index of bank we want mapped in to write to.
+
+Return Value:
+
+    None.
+
+--*/
+
+
+VOID
+vBankMap_CL64xx(
+    LONG iBankRead,
+    LONG iBankWrite,
+    PVOID pvContext
+    )
+{
+    VideoDebugPrint((1, "vBankMap_CL64xx(%d,%d) - enter\n",iBankRead,iBankWrite));
+#ifdef _X86_
+    _asm {
+        mov     eax,iBankRead
+        mov     edx,iBankWrite
+        lea     ebx,CL64xxBankSwitchStart
+        call    ebx
+    }
+#endif
+    VideoDebugPrint((1, "vBankMap_CL64xx - exit\n"));
+}
+
+
+VOID
+vBankMap_CL543x(
+    LONG iBankRead,
+    LONG iBankWrite,
+    PVOID pvContext
+    )
+{
+    VideoDebugPrint((1, "vBankMap_CL543x(%d,%d) - enter\n",iBankRead,iBankWrite));
+#ifdef _X86_
+    _asm {
+        mov     eax,iBankRead
+        mov     edx,iBankWrite
+        lea     ebx,CL543xBankSwitchStart
+        call    ebx
+    }
+#endif
+    VideoDebugPrint((1, "vBankMap_CL543x - exit\n"));
+}
+
+VOID
+vBankMap_CL542x(
+    LONG iBankRead,
+    LONG iBankWrite,
+    PVOID pvContext
+    )
+{
+    VideoDebugPrint((1, "vBankMap_CL542x(%d,%d) - enter\n",iBankRead,iBankWrite));
+#ifdef _X86_
+    _asm {
+        mov     eax,iBankRead
+        mov     edx,iBankWrite
+        lea     ebx,CL542xBankSwitchStart
+        call    ebx
+    }
+#endif
+    VideoDebugPrint((1, "vBankMap_CL542x - exit\n"));
+}
+
+
 //---------------------------------------------------------------------------
 ULONG
 CirrusFindVmemSize(
@@ -5646,12 +6542,14 @@ Return Value:
 {
 
     UCHAR temp;
-    ULONG memsize;
+    ULONG memsize=0;
     UCHAR originalSeqIndex;
     UCHAR originalGraphicsIndex;
     UCHAR PostScratchPad;
 
     if (HwDeviceExtension->ChipType == CL6420) {
+
+#ifdef _X86_
 
         originalGraphicsIndex =
             VideoPortReadPortUchar((HwDeviceExtension->IOAddress +
@@ -5706,7 +6604,6 @@ Return Value:
             } else {
 
                 memsize = 0x00080000; // 512K
-
             }
 
             SetCirrusBanking(HwDeviceExtension,0);    // reset the memory value
@@ -5716,8 +6613,6 @@ Return Value:
             VideoPortWritePortUchar((HwDeviceExtension->IOAddress
                                     + GRAPH_ADDRESS_PORT),
                                     originalGraphicsIndex);
-
-
         }
 
         VideoPortWritePortUchar((HwDeviceExtension->IOAddress +
@@ -5725,7 +6620,11 @@ Return Value:
 
         return memsize;
 
+#endif
+
    } else {   // its 542x or 543x
+
+#ifndef _MIPS_
 
         originalSeqIndex = VideoPortReadPortUchar((HwDeviceExtension->IOAddress +
                                                   SEQ_ADDRESS_PORT));
@@ -5747,10 +6646,21 @@ Return Value:
                                                    SEQ_DATA_PORT);
            PostScratchPad = ((PostScratchPad & 0x18) >> 3);  // in bits 3 and 4
         }
-        else {    // its 543x
-           VideoPortWritePortUchar(HwDeviceExtension->IOAddress + SEQ_ADDRESS_PORT,
+        else
+         {    // its 543x or 754x
+           if ((HwDeviceExtension->ChipType == CL754x) ||
+               (HwDeviceExtension->ChipType == CL755x) ||
+               (HwDeviceExtension->ChipType == CL756x))
+            {
+            VideoPortWritePortUchar(HwDeviceExtension->IOAddress + SEQ_ADDRESS_PORT,
+                                   IND_NORD_SCRATCH_PAD);
+            }
+           else // it's 543x, 5434, or 5434_6 by default
+            {
+            VideoPortWritePortUchar(HwDeviceExtension->IOAddress + SEQ_ADDRESS_PORT,
                                    IND_ALP_SCRATCH_PAD);
-
+            }
+           // Nordic family uses same bits as 543x, but in different register
            PostScratchPad = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
                                                    SEQ_DATA_PORT);
            PostScratchPad &= 0x0F; // It's in bits 0-3
@@ -5762,40 +6672,80 @@ Return Value:
         // Installed video memory is stored in scratch pad register by POST.
         //
 
-#ifdef _X86_
-
         switch (PostScratchPad) {
 
         case 0x00:
 
-            return 0x00040000; // 256K
+            memsize = 0x00040000; // 256K
             break;
 
         case 0x01:
 
-            return 0x00080000; // 512K
+            memsize = 0x00080000; // 512K
             break;
 
         case 0x02:
-            return 0x00100000; // 1 MEG
+
+            memsize = 0x00100000; // 1 MEG
             break;
 
         case 0x03:
-            return 0x00200000; // 2 MEG
+
+            memsize = 0x00200000; // 2 MEG
             break;
 
         case 0x04:
-            return 0x00400000; // 4 MEG
+
+            memsize = 0x00400000; // 4 MEG
             break;
+
+        case 0x05:
+
+            memsize = 0x00300000; // 3 MEG
+            break;
+
         }
+
+        //
+        // BUGBUG - The 542x cards don't properly address more than 1MB of
+        //          video memory, so lie and limit these cards to 1MB.
+        //
+
+        if ((HwDeviceExtension->ChipType == CL542x) &&
+            (memsize > 0x00100000)) {
+
+            memsize = 0x00100000; // 1 MEG
+
+        }
+
+        //
+        // The memory size should not be zero!
+        //
+
+        ASSERT(memsize != 0);
+
+        return memsize;
 
 #else
 
-//
-// For MIPS NEC machine only
-//
+        //
+        // We do not have a way to determine the amount of memory on the card.
+        // Therefore, we will have to use the info we have to determine what
+        // amount to report back.
+        //
+        // We do know that all Siemens machines ship with 2 meg of RAM. Others
+        // have 1 meg.
+        //
 
-        return (MEM_VGA_SIZE);
+        if (HwDeviceExtension->BoardType == SIEMENS_ONBOARD_CIRRUS)
+        {
+            return MEM_SNI_LINEAR_SIZE;
+        }
+        else
+        {
+            // for MIPS NEC machine only
+            return (MEM_LINEAR_SIZE);
+        }
 
 #endif
 
@@ -5838,7 +6788,8 @@ Return Value:
                                  GRAPH_ADDRESS_PORT),
                                  (USHORT)(0x0009 + (BankNumber << (8+4))) );
 
-    } else if (HwDeviceExtension->ChipType == CL543x) {
+    } else if ((HwDeviceExtension->ChipType == CL543x) ||
+               (HwDeviceExtension->ChipType == CL754x) ) {
 
         VideoPortWritePortUshort((PUSHORT) (HwDeviceExtension->IOAddress +
                                  GRAPH_ADDRESS_PORT), 0x1206);
@@ -5883,7 +6834,7 @@ Arguments:
 
 Return Value:
 
-    crt, panel, (no simulscan yet) as defined in cirrus.h
+    crt, panel as defined in cirrus.h
 
 --*/
 {
@@ -5908,7 +6859,7 @@ Return Value:
                             + GRAPH_ADDRESS_PORT), originalGraphicsIndex);
 
 
-    if (temp1 & 0x02) {  // display is LCD Panel(or simulscan)
+    if (temp1 & 0x02) {  // display is LCD Panel
 
         return panel;
 
@@ -5920,6 +6871,185 @@ Return Value:
 
 } // CirrusFind6410DisplayType()
 
+//---------------------------------------------------------------------------
+USHORT
+CirrusFind754xDisplayType(
+    PHW_DEVICE_EXTENSION HwDeviceExtension,
+    PUCHAR CRTCAddrPort, PUCHAR CRTCDataPort
+    )
+
+/*++
+
+Routine Description:
+
+   Determines the display type for CL754x crt/panel controllers.
+Arguments:
+
+    HwDeviceExtension - Pointer to the miniport driver's device extension.
+    CRTCAddrPort, CRTCDataPort - Index of CRTC registers for current mode.
+
+Return Value:
+
+    crt, panel, or panel8x6 as defined in cirrus.h
+
+--*/
+{
+    UCHAR originalCRTCIndex, originalLCDControl, temp1;
+    UCHAR temp2;
+    USHORT temp3;
+
+    // we need to check to see which display we are on...
+    //
+    originalCRTCIndex = VideoPortReadPortUchar(CRTCAddrPort);
+
+    VideoPortWritePortUchar(CRTCAddrPort, 0x20);
+    if (VideoPortReadPortUchar(CRTCDataPort) & 0x20)
+      {
+      // bit 5 set indicates that display is on LCD Panel
+      // Check extended reg to see if panel supports 800x600 display
+      //
+      VideoPortWritePortUchar (CRTCAddrPort, 0x2D);
+      originalLCDControl = VideoPortReadPortUchar(CRTCDataPort);
+
+      // Allow access to extended CRTC regs and read R9X[3:2]
+      //
+      VideoPortWritePortUchar (CRTCDataPort,
+                               (UCHAR) (originalLCDControl | 0x80));
+      VideoPortWritePortUchar (CRTCAddrPort, 0x09);
+      temp1 = (VideoPortReadPortUchar(CRTCDataPort) & 0x0C) >> 2;
+
+      // CR2C bit 6,7 set indicate LCD type, TFT, STN color or STN mono
+      // STN mono, R8X bit 5 set Single or Dual
+      // STN color, CR2C bit 7,6 must 10 & SR21 bit 6 set Dual or Single
+
+      VideoPortWritePortUchar (CRTCAddrPort, 0x2C);
+      temp2 =  VideoPortReadPortUchar(CRTCDataPort) & 0xC0;
+      temp3 = 0;
+      if (temp2 == 0)           //STN mono LCD
+      {
+         VideoPortWritePortUchar (CRTCAddrPort, 0x08);
+         if ((VideoPortReadPortUchar(CRTCDataPort) & 0x20) == 0)
+            temp3 |= Dual_LCD | Mono_LCD | STN_LCD;
+         else
+            temp3 |= Single_LCD | Mono_LCD | STN_LCD;
+      }
+      else if (temp2 == 0x80)           //STN color LCD
+      {
+         VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
+                  SEQ_ADDRESS_PORT, 0x21);
+         if ((VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
+                  SEQ_DATA_PORT) & 0x40) == 0)
+            temp3 |= (USHORT)Single_LCD | Color_LCD | STN_LCD;
+         else
+            temp3 |= (USHORT)Dual_LCD | Color_LCD | STN_LCD;
+      }
+      else if (temp2 == 0xC0)           //TFT LCD
+         temp3 |= (USHORT)TFT_LCD;
+
+      // Restore LCD Display Controls register and CRTC index to original state
+      //
+      VideoPortWritePortUchar (CRTCAddrPort, 0x2D);
+      VideoPortWritePortUchar (CRTCDataPort, originalLCDControl);
+      VideoPortWritePortUchar(CRTCAddrPort, originalCRTCIndex);
+
+      if (temp1 == 1)   // this means panel connected is 800x600
+         {
+          // will support either 800x600 or 640x480
+          // return panel type
+         return (temp3 | panel8x6);
+         }
+      else if (temp1 == 2)
+         {
+         return (temp3 | panel10x7);
+         }
+      else
+         {
+         return (temp3 | panel);
+         }
+      }
+   else              // the display is a crt
+      {
+      VideoPortWritePortUchar(CRTCAddrPort, originalCRTCIndex);
+      return crt;
+      }
+} // CirrusFind754xDisplayType()
+
+//---------------------------------------------------------------------------
+USHORT
+CirrusFind755xDisplayType(
+    PHW_DEVICE_EXTENSION HwDeviceExtension,
+    PUCHAR CRTCAddrPort, PUCHAR CRTCDataPort
+    )
+
+/*++
+
+Routine Description:
+
+   Determines the display type for CL754x crt/panel controllers.
+Arguments:
+
+    HwDeviceExtension - Pointer to the miniport driver's device extension.
+    CRTCAddrPort, CRTCDataPort - Index of CRTC registers for current mode.
+
+Return Value:
+
+    crt, panel, or panel8x6 LCD_type as defined in cirrus.h
+
+--*/
+{
+    UCHAR originalCRTCIndex, originalLCDControl, temp1, temp2;
+    USHORT temp3;
+
+    // we need to check to see which display we are on...
+    //
+    originalCRTCIndex = VideoPortReadPortUchar(CRTCAddrPort);
+
+    VideoPortWritePortUchar(CRTCAddrPort, 0x80);
+    if (VideoPortReadPortUchar(CRTCDataPort) & 0x03)
+    {
+      // bit 0 set indicates that display is on LCD Panel
+      // Check extended reg to see panel data format
+      //
+        VideoPortWritePortUchar (CRTCAddrPort, 0x83);
+        originalLCDControl = VideoPortReadPortUchar(CRTCDataPort);
+        temp1 = originalLCDControl & 0x03;
+
+      // check LCD support mode
+      // CR83 bit 6:4 set indicate LCD type, TFT, DSTN color
+
+      temp2 =  originalLCDControl & 0x70;
+      temp3 = 0;
+      if (temp2 == 0)           //DSTN color LCD
+      {
+         temp3 |= Dual_LCD | Color_LCD | STN_LCD;
+      }
+      else if (temp2 == 0x20)           //TFT color LCD
+         temp3 |= (USHORT)TFT_LCD;
+
+      // Restore CRTC index to original state
+      //
+      VideoPortWritePortUchar(CRTCAddrPort, originalCRTCIndex);
+
+      if (temp1 == 1)   // this means panel connected is 800x600
+      {
+          // will support either 800x600 or 640x480
+         return (temp3 | panel8x6);
+      }
+      else if (temp1 == 2)
+      {
+         return (temp3 | panel10x7);
+      }
+      else
+      {
+         return (temp3 | panel);
+      }
+   }
+   else              // the display is a crt
+   {
+      VideoPortWritePortUchar(CRTCAddrPort, originalCRTCIndex);
+      return crt;
+   }
+} // CirrusFind755xDisplayType()
 //---------------------------------------------------------------------------
 BOOLEAN
 CirrusFind6340(
@@ -6003,4 +7133,671 @@ UCHAR temp1,temp2;
       return FALSE;
 
 } // CirrusFind6410DisplayType()
-//---------------------------------------------------------------------------
+
+BOOLEAN
+CirrusConfigurePCI(
+   PHW_DEVICE_EXTENSION HwDeviceExtension,
+   PULONG NumPCIAccessRanges,
+   PVIDEO_ACCESS_RANGE PCIAccessRanges
+   )
+{
+    USHORT      VendorId = 0x1013;     // Vender Id for Cirrus Logic
+
+    //
+    // The device id order is important.  We want "most powerful"
+    // first on the assumption that someone might want to plug
+    // in a "more powerful" adapter into a system that has a "less
+    // powerful" on-board device.
+    //
+
+    USHORT      DeviceId[] = {0x00B8,  // 5446
+                              0x00AC,  // 5436
+                              0x00E8,  // UM36
+                              0x00A8,  // 5434
+                              0x00A0,  // 5430/5440
+                              0x1200,  // Nordic
+                              0x1202,  // Viking
+                              0x1204,  // Nordic Light
+                              0x1213,  // Everest
+                              0x0040,  // Matterhorn
+                              0};
+
+    ULONG       Slot;
+    ULONG       ulRet;
+    PUSHORT     pDeviceId;
+    VP_STATUS   status;
+    UCHAR       Command;
+
+    VIDEO_ACCESS_RANGE AccessRanges[3];
+
+    VideoPortZeroMemory(AccessRanges, 3 * sizeof(VIDEO_ACCESS_RANGE));
+
+    pDeviceId = DeviceId;
+
+    while (*pDeviceId != 0)
+    {
+        Slot = 0;
+
+        status = VideoPortGetAccessRanges(HwDeviceExtension,
+                                          0,
+                                          NULL,
+                                          3,
+                                          AccessRanges,
+                                          &VendorId,
+                                          pDeviceId,
+                                          &Slot);
+
+        if (status == NO_ERROR)
+        {
+            VideoDebugPrint((2, "\t Found Cirrus chip in Slot[0x%02.2x]\n",
+                             Slot));
+
+            PCIAccessRanges[3].RangeStart  = AccessRanges[0].RangeStart;
+            PCIAccessRanges[3].RangeLength = AccessRanges[0].RangeLength;
+
+            VideoDebugPrint((0, "VideoMemoryAddress %x , length %x\n",
+                                             PCIAccessRanges[3].RangeStart.LowPart,
+                                             PCIAccessRanges[3].RangeLength));
+
+
+#if defined(_MIPS_)
+
+            //
+            // Even though we will not use PCIAccessRanges[2] on the RISC
+            // boxes, initialize it to a legal value so that when we try to
+            // verify the access ranges we'll succeed.
+            //
+
+            PCIAccessRanges[2].RangeStart = PCIAccessRanges[3].RangeStart;
+            PCIAccessRanges[2].RangeLength = PCIAccessRanges[3].RangeLength;
+
+            //
+            // If we have something returned in AccessRanges[1] then
+            // relocatable IO is enabled.
+            //
+
+            if (AccessRanges[1].RangeLength != 0)
+            {
+                // NEC On-Board CL-GD5430 uses PCI Relocatable I/O base.
+
+                VideoDebugPrint((0, "Relocatable IO enabled.\n"));
+
+                PCIAccessRanges[0] = AccessRanges[1];
+                PCIAccessRanges[0].RangeStart.LowPart += VGA_BASE_IO_PORT;
+
+                PCIAccessRanges[1] = AccessRanges[1];
+                PCIAccessRanges[1].RangeStart.LowPart += VGA_END_BREAK_PORT;
+
+                VideoDebugPrint((0, " I/O Address(0) %x , length %x, InIoSpace %x\n",
+                                 PCIAccessRanges[0].RangeStart.LowPart,
+                                 PCIAccessRanges[0].RangeLength,
+                                 PCIAccessRanges[0].RangeInIoSpace));
+
+                VideoDebugPrint((0, " I/O Address(1) %x , length %x, InIoSpace %x\n",
+                                PCIAccessRanges[1].RangeStart.LowPart,
+                                PCIAccessRanges[1].RangeLength,
+                                PCIAccessRanges[1].RangeInIoSpace));
+            }
+#endif
+
+            return TRUE;
+
+        }
+        else
+        {
+
+#if 0
+            //
+            // We were not able to allocate resources.  Was this because we
+            // could not find the device, or because the card requested
+            // resources which the system could not allocate?
+            //
+            // Lets look for the card manually, and if we find it we'll
+            // reserve space for the frame buffer.
+            //
+
+            PCI_COMMON_CONFIG   pciBuffer;
+            PPCI_COMMON_CONFIG  pciData;
+
+            pciData = (PPCI_COMMON_CONFIG) &pciBuffer;
+
+            for (Slot=0; Slot<32; Slot++)
+            {
+
+                VideoPortGetBusData(HwDeviceExtension,
+                                    PCIConfiguration,
+                                    Slot,
+                                    (PVOID) pciData,
+                                    0,
+                                    sizeof(PCI_COMMON_HDR_LENGTH));
+
+                if ((pciData->VendorID == VendorId) &&
+                    (pciData->DeviceID == *pDeviceId))
+                {
+                    //
+                    // We found a cirrus with a PCI bug, so allocate the resources
+                    // we need manually.
+                    //
+
+                    IO_RESOURCE_DESCRIPTOR ioResource = {
+                        IO_RESOURCE_PREFERRED,
+                        CmResourceTypeMemory,
+                        CmResourceShareDeviceExclusive,
+                        0,
+                        CM_RESOURCE_MEMORY_READ_WRITE,
+                        0,
+                        {
+                          0x01000000,        // Length
+                          0x01000000,        // Alignment
+                          { 0x10000000, 0},  // Minimum start address
+                          { /* 0x10ffffff */ 0xffffffff, 0}   // Maximum end address
+                        }
+                    };
+
+                    VideoDebugPrint((0, "PCI Base Address: 0x%x\n",
+                                         pciData->u.type0.BaseAddresses[0]));
+
+                    VideoDebugPrint((0, "\t Found cirrus chip %04lx in Slot[0x%02.2x]\n",
+                                     *pDeviceId, Slot));
+
+                    //
+                    // The cirrus card we found requests resources which the system
+                    // can't allocate.  Lets just request what we need.
+                    //
+
+                    status = VideoPortGetAccessRanges(HwDeviceExtension,
+                                                      1,
+                                                      &ioResource,
+                                                      1,
+                                                      AccessRanges,
+                                                      &pciData->VendorID,
+                                                      &pciData->DeviceID,
+                                                      &Slot);
+
+                    if (status == NO_ERROR)
+                    {
+
+                        VideoDebugPrint((0, "Cirrus: Force allocted 16Meg linear frame buffer.\n"));
+
+                        PCIAccessRanges[3].RangeStart  = AccessRanges[0].RangeStart;
+                        PCIAccessRanges[3].RangeLength = AccessRanges[0].RangeLength;
+
+                        VideoDebugPrint((0, "VideoMemoryAddress %x , length %x\n",
+                                         PCIAccessRanges[3].RangeStart.LowPart,
+                                         PCIAccessRanges[3].RangeLength));
+
+                        //
+                        // Test to see if pci base address field updated
+                        //
+
+                        VideoPortGetBusData(HwDeviceExtension,
+                                            PCIConfiguration,
+                                            Slot,
+                                            (PVOID) pciData,
+                                            0,
+                                            sizeof(PCI_COMMON_HDR_LENGTH));
+
+                        VideoDebugPrint((0, "PCI Base Address: 0x%x\n",
+                                            pciData->u.type0.BaseAddresses[0]));
+
+                        //
+                        // BUGBUG: Do we need to tell the video card what
+                        // access ranges to monitor?
+                        //
+
+#if 0
+                        VideoPortSetBusData(HwDeviceExtension,
+                                            PCIConfiguration,
+                                            Slot,
+                                            (PVOID) &(AccessRanges[0].RangeStart),
+                                            FIELD_OFFSET(PCI_COMMON_CONFIG, u.type0.BaseAddresses),
+                                            sizeof(LONGLONG));
+#endif
+
+                        //
+                        // Now lets read the value back, again to see if we set it correctly
+                        //
+
+                        VideoPortGetBusData(HwDeviceExtension,
+                                            PCIConfiguration,
+                                            Slot,
+                                            (PVOID) pciData,
+                                            0,
+                                            sizeof(PCI_COMMON_HDR_LENGTH));
+
+                        VideoDebugPrint((0, "PCI Base Address: 0x%x\n",
+                                            pciData->u.type0.BaseAddresses[0]));
+
+
+
+                        return TRUE;
+
+                    }
+                    else
+                    {
+                        //
+                        // Should we return from here? or continue looking for PCI
+                        // devices.
+                        //
+
+                        VideoDebugPrint((0, "Couldn't allocate 16Meg window. "
+                                            "Continue looking for PCI device.\n"));
+                    }
+                }
+            }
+
+#endif
+
+            //
+            // We did not find the device.  Use the next device ID.
+            //
+
+            VideoDebugPrint((1, "Check for DeviceID = %x failed.\n", *pDeviceId));
+
+            pDeviceId++;
+        }
+    }
+
+    VideoDebugPrint((1, "Returning a false from CirrusConfigurePCI\n"));
+
+    return FALSE;
+}
+
+VOID
+WriteRegistryInfo(
+    PHW_DEVICE_EXTENSION hwDeviceExtension
+    )
+{
+    PWSTR pwszChipType;
+    ULONG cbString;
+
+    //
+    // Store Memory Size
+    //
+
+    VideoPortSetRegistryParameters(hwDeviceExtension,
+                                   L"HardwareInformation.MemorySize",
+                                   &hwDeviceExtension->AdapterMemorySize,
+                                   sizeof(ULONG));
+
+    //
+    // Store chip Type
+    //
+
+    switch (hwDeviceExtension->ChipType)
+    {
+        case CL6410: pwszChipType =    L"CL 6410";
+                     cbString = sizeof(L"CL 6410");
+                     break;
+
+        case CL6420: pwszChipType =    L"CL 6420";
+                     cbString = sizeof(L"CL 6420");
+                     break;
+
+        case CL542x: if (hwDeviceExtension->ChipRevision >= 0x22 &&
+                         hwDeviceExtension->ChipRevision <= 0x27)
+                     {
+                         static PWSTR RevTable[] = { L"CL 5420",
+                                                     L"CL 5422",
+                                                     L"CL 5426",  // yes, the 26
+                                                     L"CL 5424",  // is before
+                                                     L"CL 5428",  // the 24
+                                                     L"CL 5429" };
+
+                         pwszChipType =
+                             RevTable[hwDeviceExtension->ChipRevision - 0x22];
+                     }
+                     else
+                     {
+                         pwszChipType =    L"CL 542x";
+                     }
+
+                     cbString = sizeof(L"CL 542x");
+                     break;
+
+        case CL543x: if (hwDeviceExtension->ChipRevision == CL5430_ID)
+                     {
+                         pwszChipType =    L"CL 5430";
+                         cbString = sizeof(L"CL 5430");
+                     }
+                     else
+                     {
+                         pwszChipType =    L"CL 543x";
+                         cbString = sizeof(L"CL 543x");
+                     }
+                     break;
+
+        case CL5434_6:
+                     pwszChipType =    L"CL 5434 (.6 micron)";
+                     cbString = sizeof(L"CL 5434 (.6 micron)");
+                     break;
+
+        case CL5434: pwszChipType =    L"CL 5434";
+                     cbString = sizeof(L"CL 5434");
+                     break;
+
+        case CL5436: pwszChipType =    L"Cirrus Logic 5436";
+                     cbString = sizeof(L"Cirrus Logic 5436");
+                     break;
+
+        case CL5446: pwszChipType =    L"Cirrus Logic 5446";
+                     cbString = sizeof(L"Cirrus Logic 5446");
+                     break;
+
+
+        case CL754x: pwszChipType =    L"CL 754x";
+                     cbString = sizeof(L"CL 754x");
+                     break;
+
+        case CL755x: pwszChipType =     L"Cirrus Logic 755x";
+                     cbString = sizeof(L"Cirrus Logic 755x");
+                     break;
+
+        case CL756x: pwszChipType =     L"Cirrus Logic 756x";
+                     cbString = sizeof(L"Cirrus Logic 756x");
+                     break;
+
+        default:
+                     //
+                     // we should never get here
+                     //
+
+                     ASSERT(FALSE);
+
+                     pwszChipType = NULL;
+                     cbString = 0;
+    }
+
+    VideoPortSetRegistryParameters(hwDeviceExtension,
+                                   L"HardwareInformation.ChipType",
+                                   pwszChipType,
+                                   cbString);
+
+    //
+    // Store Adapter String
+    //
+    // the only interesting adapter string is
+    // for the speedstar pro
+    //
+
+    VideoPortSetRegistryParameters(hwDeviceExtension,
+                                   L"HardwareInformation.DacType",
+                                   L"Integrated RAMDAC",
+                                   sizeof(L"Integrated RAMDAC") );
+
+    if( hwDeviceExtension->BoardType == SPEEDSTARPRO )
+    {
+        VideoPortSetRegistryParameters(hwDeviceExtension,
+                                       L"HardwareInformation.AdapterString",
+                                              L"SpeedStar PRO",
+                                       sizeof(L"SpeedStar PRO"));
+    }
+    else
+    {
+        VideoPortSetRegistryParameters(hwDeviceExtension,
+                                       L"HardwareInformation.AdapterString",
+                                               L"Cirrus Logic Compatible",
+                                       sizeof (L"Cirrus Logic Compatible") );
+    }
+
+
+}
+
+VP_STATUS
+CirrusGetDeviceDataCallback(
+    PVOID HwDeviceExtension,
+    PVOID Context,
+    VIDEO_DEVICE_DATA_TYPE DeviceDataType,
+    PVOID Identifier,
+    ULONG IdentifierLength,
+    PVOID ConfigurationData,
+    ULONG ConfigurationDataLength,
+    PVOID ComponentInformation,
+    ULONG ComponentInformationLength
+    )
+
+/*++
+
+Routine Description:
+
+    Callback routine for the VideoPortGetDeviceData function.
+
+Arguments:
+
+    HwDeviceExtension - Pointer to the miniport drivers device extension.
+
+    Context - Context value passed to the VideoPortGetDeviceData function.
+
+    DeviceDataType - The type of data that was requested in
+        VideoPortGetDeviceData.
+
+    Identifier - Pointer to a string that contains the name of the device,
+        as setup by the ROM or ntdetect.
+
+    IdentifierLength - Length of the Identifier string.
+
+    ConfigurationData - Pointer to the configuration data for the device or
+        BUS.
+
+    ConfigurationDataLength - Length of the data in the configurationData
+        field.
+
+    ComponentInformation - Undefined.
+
+    ComponentInformationLength - Undefined.
+
+Return Value:
+
+    Returns NO_ERROR if the function completed properly.
+    Returns ERROR_DEV_NOT_EXIST if we did not find the device.
+    Returns ERROR_INVALID_PARAMETER otherwise.
+
+--*/
+
+{
+    PWCHAR identifier = Identifier;
+    PVIDEO_PORT_CONFIG_INFO ConfigInfo = (PVIDEO_PORT_CONFIG_INFO) Context;
+    PHW_DEVICE_EXTENSION hwDeviceExtension = HwDeviceExtension;
+
+    switch (DeviceDataType) {
+
+    case VpControllerData:
+
+        //
+        // Check to see if this is a Seimens Nixdorf machine with
+        // onboard cirrus.
+        //
+
+        if (VideoPortCompareMemory(L"CIRRUS ON BOARD",
+                                   identifier,
+                                   sizeof(L"CIRRUS ON BOARD")) ==
+                                   sizeof(L"CIRRUS ON BOARD"))
+        {
+            if (ConfigInfo->AdapterInterfaceType == Internal)
+            {
+                VideoDebugPrint((0, "Siemens Nixdorf RM200 with onboard Cirrus\n"));
+
+                hwDeviceExtension->BoardType = SIEMENS_ONBOARD_CIRRUS;
+
+                //
+                // readjust the address, and put them in memory space.
+                //
+
+                VgaAccessRange[0].RangeStart.LowPart += RM200_ONBOARD_ISA_IO_PHYS;
+                VgaAccessRange[0].RangeInIoSpace = 0;
+                VgaAccessRange[1].RangeStart.LowPart += RM200_ONBOARD_ISA_IO_PHYS;
+                VgaAccessRange[1].RangeInIoSpace = 0;
+                // override #2 for now.  It should not be used anyway.
+                VgaAccessRange[2].RangeStart.LowPart  = RM200_ONBOARD_VIDEO_MEM_PHYS;
+                VgaAccessRange[2].RangeInIoSpace = 0;
+                VgaAccessRange[3].RangeStart.LowPart  = RM200_ONBOARD_VIDEO_MEM_PHYS;
+                VgaAccessRange[3].RangeInIoSpace = 0;
+            }
+
+            return NO_ERROR;
+        }
+
+        if (VideoPortCompareMemory(identifier, L"necvdfrb", 18) == 18)
+        {
+            VideoDebugPrint((0, "NEC machine with onboard cirrus\n"));
+
+            hwDeviceExtension->BoardType = NEC_ONBOARD_CIRRUS;
+            return NO_ERROR;
+        }
+
+        break;
+
+    case VpMachineData:
+
+        //
+        // The caller assumes no-error mean that this machine was found, and
+        // then memory mapped IO will be disabled.
+        //
+        // All other machine types must return an error.
+        //
+
+        if (VideoPortCompareMemory(L"TRICORDES",
+                                   Identifier,
+                                   sizeof(L"TRICORDES")) ==
+                                   sizeof(L"TRICORDES"))
+        {
+            return NO_ERROR;
+        }
+
+        break;
+
+    default:
+
+        VideoDebugPrint((2, "Cirrus: callback has bad device type\n"));
+    }
+
+    return ERROR_INVALID_PARAMETER;
+
+} //end CirrusGetDeviceDataCallback()
+
+
+VOID
+IOWaitDisplEnableThenWrite(
+    PHW_DEVICE_EXTENSION hwDeviceExtension,
+    ULONG portIO,
+    UCHAR value
+    )
+{
+    USHORT FCReg ;                     // feature control register
+    UCHAR PSReg  ;                     // 3?4.25
+    UCHAR DeviceID ;                   // 3?4.27
+    UCHAR bIsColor ;                   // 1 : Color, 0 : Mono
+    UCHAR tempB, tempB1 ;
+    ULONG port ;
+    PUCHAR CRTCAddrPort, CRTCDataPort;
+
+    // Figure out if color/mono switchable registers are at 3BX or 3DX.
+
+    port = (ULONG)(hwDeviceExtension->IOAddress) + portIO ;
+    tempB = VideoPortReadPortUchar (hwDeviceExtension->IOAddress +
+                                    MISC_OUTPUT_REG_READ_PORT) ;
+    tempB &= 0x01 ;
+
+    if (tempB)
+    {
+        bIsColor = TRUE ;
+        FCReg = FEAT_CTRL_WRITE_PORT_COLOR ;
+        CRTCAddrPort = hwDeviceExtension->IOAddress + CRTC_ADDRESS_PORT_COLOR;
+    }
+    else
+    {
+        bIsColor = FALSE ;
+        FCReg = FEAT_CTRL_WRITE_PORT_MONO ;
+        CRTCAddrPort = hwDeviceExtension->IOAddress + CRTC_ADDRESS_PORT_MONO;
+    }
+
+    CRTCDataPort = CRTCAddrPort + 1;
+
+    tempB = VideoPortReadPortUchar(CRTCAddrPort);
+
+    VideoPortWritePortUchar(CRTCAddrPort, 0x27);
+    DeviceID = VideoPortReadPortUchar(CRTCDataPort);
+
+    VideoPortWritePortUchar(CRTCAddrPort, 0x25);
+    PSReg = VideoPortReadPortUchar(CRTCDataPort);
+
+    VideoPortWritePortUchar (CRTCAddrPort, tempB);
+
+    if ((DeviceID == 0xAC) &&                  // 5436
+        ((PSReg == 0x45) || (PSReg == 0x47)))  // BG or BE
+    {
+
+        hwDeviceExtension->DEPort = portIO;
+        hwDeviceExtension->DEValue = value;
+
+        while (!(0x1 & VideoPortReadPortUchar(hwDeviceExtension->IOAddress + FCReg)));
+        while ( (0x1 & VideoPortReadPortUchar(hwDeviceExtension->IOAddress + FCReg)));
+
+        VideoPortSynchronizeExecution(hwDeviceExtension,
+                                      VpHighPriority,
+                                      (PMINIPORT_SYNCHRONIZE_ROUTINE) IOCallback,
+                                      hwDeviceExtension);
+    }
+    else
+    {
+        VideoPortWritePortUchar(hwDeviceExtension->IOAddress + portIO, value);
+    }
+
+} // IOWaitDisplEnableThenWrite
+
+
+BOOLEAN
+IOCallback(
+    PHW_DEVICE_EXTENSION HwDeviceExtension
+    )
+
+/*++
+
+Routine Description:
+
+    Perform an IO operation during display enable.
+
+Arguments:
+
+    HwDeviceExtension - Pointer to the miniport driver's device extension.
+
+Return Value:
+
+    The routine always returns TRUE.
+
+--*/
+
+{
+    ULONG InputStatusReg;
+
+    //
+    // Figure out if color/mono switchable registers are at 3BX or 3DX.
+    //
+
+    if (VideoPortReadPortUchar (HwDeviceExtension->IOAddress +
+                                MISC_OUTPUT_REG_READ_PORT))
+    {
+        InputStatusReg = INPUT_STATUS_1_COLOR;
+    }
+    else
+    {
+        InputStatusReg = INPUT_STATUS_1_MONO;
+    }
+
+    //
+    // Guarantee that the display is in display mode
+    //
+
+    while (0x1 & VideoPortReadPortUchar(HwDeviceExtension->IOAddress
+                                        + InputStatusReg));
+
+    //
+    // Perform the IO operation
+    //
+
+    VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
+                             HwDeviceExtension->DEPort,
+                             HwDeviceExtension->DEValue);
+
+    return TRUE;
+}

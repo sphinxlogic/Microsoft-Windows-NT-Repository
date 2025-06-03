@@ -91,7 +91,7 @@ Revision History:
 
 #include <limits.h>             // CHAR_BIT.
 #include <lmerr.h>              // NERR_ and ERROR_ equates.
-#include <netdebug.h>           // NetpDbgPrint(), FORMAT_ equates, etc.
+#include <netdebug.h>           // NetpKdPrint(()), FORMAT_ equates, etc.
 #include <netlib.h>             // NetpMoveMemory(), etc.
 #include <prefix.h>     // PREFIX_ equates.
 #include <remtypes.h>           // REM_BYTE, etc.
@@ -307,17 +307,17 @@ Return Value:
     BOOL convertUnstructuredDataToString = FALSE;
 
     IF_DEBUG(CONVARGS) {
-        NetpDbgPrint("RxpConvertArgs: parm desc='" FORMAT_LPDESC "',\n",
-                ParmDescriptorString);
+        NetpKdPrint(("RxpConvertArgs: parm desc='" FORMAT_LPDESC "',\n",
+                ParmDescriptorString));
 
         if (DataDesc32 != NULL) {
-            NetpDbgPrint("  Data desc 32='" FORMAT_LPDESC "',\n",
-                    DataDesc32);
+            NetpKdPrint(("  Data desc 32='" FORMAT_LPDESC "',\n",
+                    DataDesc32));
             NetpAssert(DataDesc16 != NULL);
             NetpAssert(DataDescSmb != NULL);
             if (DataDescSmb != NULL) {
-                NetpDbgPrint("  Data desc (SMB)='" FORMAT_LPDESC "',\n",
-                        DataDescSmb);
+                NetpKdPrint(("  Data desc (SMB)='" FORMAT_LPDESC "',\n",
+                        DataDescSmb));
             }
         } else {
             NetpAssert(DataDesc16 == NULL);
@@ -325,26 +325,26 @@ Return Value:
         }
 
         if (AuxDesc32 != NULL) {
-            NetpDbgPrint("  Aux desc 32='" FORMAT_LPDESC "',\n",
-                    AuxDesc32);
+            NetpKdPrint(("  Aux desc 32='" FORMAT_LPDESC "',\n",
+                    AuxDesc32));
             NetpAssert(AuxDesc16 != NULL);
             NetpAssert(AuxDescSmb != NULL);
             if (AuxDescSmb != NULL) {
-                NetpDbgPrint("  Aux desc (SMB)='" FORMAT_LPDESC "',\n",
-                        AuxDescSmb);
+                NetpKdPrint(("  Aux desc (SMB)='" FORMAT_LPDESC "',\n",
+                        AuxDescSmb));
             }
         } else {
             NetpAssert(AuxDesc16 == NULL);
             NetpAssert(AuxDescSmb == NULL);
         }
 
-        NetpDbgPrint("  max inp blk len=" FORMAT_DWORD
+        NetpKdPrint(("  max inp blk len=" FORMAT_DWORD
                 ", max outp blk len=" FORMAT_DWORD ",\n",
-                MaximumInputBlockSize, MaximumOutputBlockSize);
+                MaximumInputBlockSize, MaximumOutputBlockSize));
 
-        NetpDbgPrint("  curr inp blk len=" FORMAT_DWORD
+        NetpKdPrint(("  curr inp blk len=" FORMAT_DWORD
                 ", curr outp blk len=" FORMAT_DWORD ".\n",
-                *CurrentInputBlockSizePtr, *CurrentOutputBlockSizePtr);
+                *CurrentInputBlockSizePtr, *CurrentOutputBlockSizePtr));
 
         NetpAssert( SendDataPtrPtr16 != NULL );
         NetpAssert( SendDataSizePtr16 != NULL );
@@ -386,9 +386,9 @@ Return Value:
     for(; *CurrentParmDescPtr; CurrentParmDescPtr++) {
 
         IF_DEBUG(CONVARGS) {
-            NetpDbgPrint("RxpConvertArgs: "
+            NetpKdPrint(("RxpConvertArgs: "
                     "desc at " FORMAT_LPVOID " (" FORMAT_DESC_CHAR ")\n",
-                    (LPVOID) CurrentParmDescPtr, *CurrentParmDescPtr);
+                    (LPVOID) CurrentParmDescPtr, *CurrentParmDescPtr));
         }
 
         switch(*CurrentParmDescPtr) {
@@ -402,7 +402,7 @@ Return Value:
                 }
                 Temp = va_arg(CurrentArgumentPtr, DWORD);
                 if (RapValueWouldBeTruncated(Temp)) {
-                    NetpDbgPrint("RxpConvertArgs: WORD would be trunc'ed.\n");
+                    NetpKdPrint(("RxpConvertArgs: WORD would be trunc'ed.\n"));
                     return (ERROR_INVALID_PARAMETER);   // Would be truncated.
                 }
 
@@ -428,7 +428,11 @@ Return Value:
                     *(CurrentParmDescPtr ) = REM_NULL_PTR;
                     break;
                 }
+#if defined(DBCS) && defined(UNICODE) // RxpConvertArgs()
+                ArgumentSize = NetpUnicodeToDBCSLen(Temp) + 1;
+#else
                 ArgumentSize = STRLEN(Temp) + 1;
+#endif // defined(DBCS) && defined(UNICODE)
                 CurrentOutputBlockSize += ArgumentSize;
                 if (CurrentOutputBlockSize > MaximumOutputBlockSize) {
                     return (NERR_NoRoom);
@@ -439,9 +443,15 @@ Return Value:
                 // (This handles UNICODE to default LAN codepage.)
                 //
 
+#if defined(DBCS) && defined(UNICODE) // RxpConvertArgs()
+                NetpCopyWStrToStrDBCS(
+                                    (LPSTR) CurrentOutputBlockPtr,  // dest
+                                    Temp );                         // src
+#else
                 NetpCopyTStrToStr(
                                 (LPSTR) CurrentOutputBlockPtr,  // dest
                                 Temp);                          // src
+#endif // defined(DBCS) && defined(UNICODE)
                 CurrentOutputBlockPtr += ArgumentSize;
                 break;
             }
@@ -536,7 +546,7 @@ Return Value:
                             &CurrentParmDescPtr,
                             Response);
                 if ( CurrentInputBlockSize > MaximumInputBlockSize) {
-                    NetpDbgPrint("RxpConvertArgs: len exceeded\n");
+                    NetpKdPrint(("RxpConvertArgs: len exceeded\n"));
                     NetpBreakPoint();
                     return (NERR_InternalError);
                 }
@@ -562,12 +572,12 @@ Return Value:
                 Temp = va_arg(CurrentArgumentPtr, DWORD);
 
                 IF_DEBUG(CONVARGS) {
-                    NetpDbgPrint("RxpConvertArgs: 32-bit rcv buf len is "
-                            FORMAT_DWORD "\n", Temp);
+                    NetpKdPrint(("RxpConvertArgs: 32-bit rcv buf len is "
+                            FORMAT_DWORD "\n", Temp));
                 }
 
                 if (RapValueWouldBeTruncated(Temp)) {
-                    NetpDbgPrint("RxpConvertArgs: rcv.buf.len trunc'ed.\n");
+                    NetpKdPrint(("RxpConvertArgs: rcv.buf.len trunc'ed.\n"));
                     return (ERROR_INVALID_PARAMETER);
                 }
 
@@ -651,7 +661,7 @@ Return Value:
         case REM_ENTRIES_READ:          // Entries read identifier
             CurrentInputBlockSize += sizeof(WORD);
             if (CurrentInputBlockSize > MaximumInputBlockSize) {
-                NetpDbgPrint("RxpConvertArgs: entries read, len exceeded\n");
+                NetpKdPrint(("RxpConvertArgs: entries read, len exceeded\n"));
                 NetpBreakPoint();
                 return (NERR_InternalError);
             }
@@ -677,7 +687,7 @@ Return Value:
 // the following check meaningless
 
                 if (RapValueWouldBeTruncated(Temp)) {
-                    NetpDbgPrint("RxpConvertArgs: parmnum truncated.\n");
+                    NetpKdPrint(("RxpConvertArgs: parmnum truncated.\n"));
                     return (ERROR_INVALID_PARAMETER);
                 }
 #endif
@@ -864,7 +874,7 @@ Return Value:
             }
 
             IF_DEBUG(CONVARGS) {
-                NetpDbgPrint( "RxpConvertArgs: copying aux desc...\n" );
+                NetpKdPrint(( "RxpConvertArgs: copying aux desc...\n" ));
             }
             NetpMoveMemory(
                         CurrentOutputBlockPtr,          // dest
@@ -890,7 +900,7 @@ Return Value:
                 // Error if N in AuxDescSmb
                 //
 
-                NetpDbgPrint("RxpConvertArgs: N in aux desc str.\n");
+                NetpKdPrint(("RxpConvertArgs: N in aux desc str.\n"));
                 NetpBreakPoint();
                 return (NERR_InternalError);
             }
@@ -933,8 +943,8 @@ Return Value:
             //
 
             IF_DEBUG(CONVARGS) {
-                NetpDbgPrint(
-                    "RxpConvertArgs: copying unstructured (no desc)...\n" );
+                NetpKdPrint((
+                    "RxpConvertArgs: copying unstructured (no desc)...\n" ));
             }
 
             //
@@ -948,7 +958,11 @@ Return Value:
                 // of the buffer really required
                 //
 
+#if defined(DBCS) && defined(UNICODE) // RxpConvertArgs()
+                NetpCopyWStrToStrDBCS( ptr, SendDataPtrNative );
+#else
                 NetpCopyTStrToStr(ptr, SendDataPtrNative);
+#endif // defined(DBCS) && defined(UNICODE)
 
                 //
                 // recompute the data size as the length of the narrow-character
@@ -983,7 +997,7 @@ Return Value:
             DWORD TotalStructSize32;
 
             IF_DEBUG(CONVARGS) {
-                NetpDbgPrint( "RxpConvertArgs: PARMNUM_ALL...\n" );
+                NetpKdPrint(( "RxpConvertArgs: PARMNUM_ALL...\n" ));
             }
 
             //
@@ -1098,15 +1112,15 @@ Return Value:
             }
 
             IF_DEBUG(CONVARGS) {
-                NetpDbgPrint( "RxpConvertArgs: total size(32)="
-                        FORMAT_DWORD ".\n", TotalStructSize32 );
+                NetpKdPrint(( "RxpConvertArgs: total size(32)="
+                        FORMAT_DWORD ".\n", TotalStructSize32 ));
             }
 
             NetpAssert(TotalStructSize16 >= FixedStructSize16);
 
             IF_DEBUG(CONVARGS) {
-                NetpDbgPrint( "RxpConvertArgs: total size(16)="
-                        FORMAT_DWORD ".\n", TotalStructSize16 );
+                NetpKdPrint(( "RxpConvertArgs: total size(16)="
+                        FORMAT_DWORD ".\n", TotalStructSize16 ));
             }
 
             // BUGBUG: Handle this more gracefully!
@@ -1120,15 +1134,15 @@ Return Value:
             StringLocation = (pSendData) + TotalStructSize16;
 
             IF_DEBUG(CONVARGS) {
-                NetpDbgPrint("RxpConvertArgs: initial StringLocation is "
-                        FORMAT_LPVOID "\n", (LPVOID) StringLocation );
-                NetpDbgPrint("RxpConvertArgs: input data "
-                        "(before CSE, partial):\n");
+                NetpKdPrint(("RxpConvertArgs: initial StringLocation is "
+                        FORMAT_LPVOID "\n", (LPVOID) StringLocation ));
+                NetpKdPrint(("RxpConvertArgs: input data "
+                        "(before CSE, partial):\n"));
                 NetpDbgHexDump( SendDataPtrNative,
                         NetpDbgReasonable( TotalStructSize16 ) );
 
-                NetpDbgPrint("RxpConvertArgs: output data area "
-                        "(before CSE, partial):\n");
+                NetpKdPrint(("RxpConvertArgs: output data area "
+                        "(before CSE, partial):\n"));
                 NetpDbgHexDump( pSendData,
                         NetpDbgReasonable( TotalStructSize16 ) );
             }
@@ -1181,14 +1195,14 @@ Return Value:
                         );
 
             if (Status != NERR_Success) {
-                NetpDbgPrint("RxpConvertArgs: pack send buffer failed, stat="
-                        FORMAT_API_STATUS "\n", Status);
+                NetpKdPrint(("RxpConvertArgs: pack send buffer failed, stat="
+                        FORMAT_API_STATUS "\n", Status));
                 return (Status);
             }
 
             IF_DEBUG(CONVARGS) {
-                NetpDbgPrint("RxpConvertArgs: data "
-                        "(after RxpPackSendBuffer):\n");
+                NetpKdPrint(("RxpConvertArgs: data "
+                        "(after RxpPackSendBuffer):\n"));
                 NetpDbgHexDump( pSendData, BytesRequired );
             }
 
@@ -1216,7 +1230,7 @@ Return Value:
             DWORD   bytes_required;
 
             IF_DEBUG(CONVARGS) {
-                NetpDbgPrint( "RxpConvertArgs: parmnum (not all)...\n" );
+                NetpKdPrint(( "RxpConvertArgs: parmnum (not all)...\n" ));
             }
 
             if ((ptr = NetpMemoryAllocate(SendDataSizeNative)) == NULL) {
@@ -1246,7 +1260,7 @@ Return Value:
 
 #if DBG
             if (!(bytes_required <= SendDataSizeNative)) {
-                NetpDbgPrint("error: RxpConvertArgs.%d: "
+                NetpKdPrint(("error: RxpConvertArgs.%d: "
                 "bytes_required=%d, SendDataSizeNative=%d\n"
                 "parm_desc_16=%s, parm_desc_32=%s\n",
                 __LINE__,
@@ -1254,7 +1268,7 @@ Return Value:
                 SendDataSizeNative,
                 parm_desc_16,
                 parm_desc_32
-                );
+                ));
             }
             NetpAssert(bytes_required <= SendDataSizeNative);
 #endif
@@ -1291,8 +1305,8 @@ Return Value:
             NetpAssert( *DataDesc16 == REM_DATA_BLOCK );
             NetpAssert( SendDataSizeNative > 0 );
             IF_DEBUG(CONVARGS) {
-                NetpDbgPrint( "RxpConvertArgs: "
-                        "copying unstructured data with desc...\n" );
+                NetpKdPrint(( "RxpConvertArgs: "
+                        "copying unstructured data with desc...\n" ));
             }
 
             //
@@ -1389,7 +1403,7 @@ Return Value:
         // don't expect this to happen - trap it in debug version
         //
 
-        NetpDbgPrint("error: RxpGetSetInfoDescriptor: RapParmNumDescriptor didn't allocate string\n");
+        NetpKdPrint(("error: RxpGetSetInfoDescriptor: RapParmNumDescriptor didn't allocate string\n"));
         NetpBreakPoint();
 #endif
     } else if (*lpdesc == REM_UNSUPPORTED_FIELD) {
@@ -1399,7 +1413,7 @@ Return Value:
         // don't expect this to happen - trap it in debug version
         //
 
-        NetpDbgPrint("error: RxpGetSetInfoDescriptor: parameter defines unsupported field\n");
+        NetpKdPrint(("error: RxpGetSetInfoDescriptor: parameter defines unsupported field\n"));
         NetpBreakPoint();
 #endif
         NetpMemoryFree(lpdesc);

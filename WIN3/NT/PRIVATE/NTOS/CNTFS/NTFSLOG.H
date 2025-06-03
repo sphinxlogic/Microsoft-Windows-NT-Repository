@@ -21,7 +21,6 @@ Revision History:
 #ifndef _NTFSLOG_
 #define _NTFSLOG_
 
-#pragma pack(4)
 
 //
 //  The following type defines the Ntfs log operations.
@@ -64,7 +63,9 @@ typedef enum _NTFS_LOG_OPERATION {
     OpenAttributeTableDump =       0x1D, //  OPEN_ATTRIBUTE_ENTRY array
     AttributeNamesDump =           0x1E, //  (all attribute names)
     DirtyPageTableDump =           0x1F, //  DIRTY_PAGE_ENTRY array
-    TransactionTableDump =         0x20  //  TRANSACTION_ENTRY array
+    TransactionTableDump =         0x20, //  TRANSACTION_ENTRY array
+    UpdateRecordDataRoot =         0x21, //  (value)
+    UpdateRecordDataAllocation =   0x22  //  (value)
 
 } NTFS_LOG_OPERATION, *PNTFS_LOG_OPERATION;
 
@@ -136,7 +137,9 @@ typedef struct _NTFS_LOG_RECORD_HEADER {
     //
     //  If the update is to some other (nonresident) attribute, then
     //  TargetVcn and RecordOffset may be used to calculate the reference
-    //  point for the update.
+    //  point for the update.  The ClusterBlockOffset refers to the number
+    //  of 512 byte blocks this structure is from the beginning of the
+    //  logged Vcn.
     //
     //  As a bottom line, the exact use of these fields is up to the
     //  writer of this particular log operation, and the associated
@@ -145,7 +148,8 @@ typedef struct _NTFS_LOG_RECORD_HEADER {
 
     USHORT RecordOffset;
     USHORT AttributeOffset;
-    USHORT Reserved[2];
+    USHORT ClusterBlockOffset;
+    USHORT Reserved;
     VCN TargetVcn;
 
     //
@@ -377,6 +381,8 @@ typedef struct _ATTRIBUTE_NAME_ENTRY {
 //  It is maintained in the running system.
 //
 
+#pragma pack(4)
+
 typedef struct _OPEN_ATTRIBUTE_ENTRY {
 
     //
@@ -435,10 +441,18 @@ typedef struct _OPEN_ATTRIBUTE_ENTRY {
     BOOLEAN DirtyPagesSeen;
 
     //
+    //  Flag to indicate if the pointer in Overlay above is to an Scb or
+    //  attribute name.  It is only used during restart when cleaning up
+    //  the open attribute table.
+    //
+
+    BOOLEAN AttributeNamePresent;
+
+    //
     //  Reserved for alignment
     //
 
-    UCHAR Reserved[3];
+    UCHAR Reserved[2];
 
     //
     //  The following two fields identify the actual attribute
@@ -460,6 +474,8 @@ typedef struct _OPEN_ATTRIBUTE_ENTRY {
 
 } OPEN_ATTRIBUTE_ENTRY, *POPEN_ATTRIBUTE_ENTRY;
 
+#pragma pack()
+
 #define SIZEOF_OPEN_ATTRIBUTE_ENTRY (                               \
     FIELD_OFFSET( OPEN_ATTRIBUTE_ENTRY, BytesPerIndexBuffer ) + 4   \
 )
@@ -474,6 +490,8 @@ typedef struct _OPEN_ATTRIBUTE_ENTRY {
 //  DEFAULT_DIRTY_PAGES_TABLE_SIZE or the size of the table in the log file.
 //  It is *not* maintained in the running system.
 //
+
+#pragma pack(4)
 
 typedef struct _DIRTY_PAGE_ENTRY {
 
@@ -536,6 +554,8 @@ typedef struct _DIRTY_PAGE_ENTRY {
     LCN LcnsForPage[1];
 
 } DIRTY_PAGE_ENTRY, *PDIRTY_PAGE_ENTRY;
+
+#pragma pack()
 
 //
 //  Transaction Table
@@ -654,8 +674,17 @@ typedef struct _NEW_ATTRIBUTE_SIZES {
     LONGLONG AllocationSize;
     LONGLONG ValidDataLength;
     LONGLONG FileSize;
+    LONGLONG TotalAllocated;
 
 } NEW_ATTRIBUTE_SIZES, *PNEW_ATTRIBUTE_SIZES;
+
+#define SIZEOF_FULL_ATTRIBUTE_SIZES (                   \
+    sizeof( NEW_ATTRIBUTE_SIZES )                       \
+)
+
+#define SIZEOF_PARTIAL_ATTRIBUTE_SIZES (                \
+    FIELD_OFFSET( NEW_ATTRIBUTE_SIZES, TotalAllocated ) \
+)
 
 //
 //  Describe a bitmap range
@@ -679,7 +708,4 @@ typedef struct _LCN_RANGE {
 
 } LCN_RANGE, *PLCN_RANGE;
 
-#pragma pack()
-
 #endif //  _NTFSLOG_
-

@@ -67,6 +67,7 @@
 /* External variables */
 
 extern int YorN_Switch;
+extern CPINFO CurrentCPInfo;
 
 #define MAX_BUF_SIZE	4096
 CHAR	AnsiBuf[MAX_BUF_SIZE*3];	/* worst case is DBCS, which	*/
@@ -382,7 +383,7 @@ PrintDot()
  */
 VOID DOSNEAR FASTCALL PrintNL(VOID)
 {
-    WriteToCon(TEXT("\n"), NULL);
+    WriteToCon(TEXT("\r\n"), NULL);
 }
 
 
@@ -523,6 +524,69 @@ VOID DOSNEAR FASTCALL PromptForString(USHORT msgid, TCHAR FAR *buffer,
     return;
 }
 
+/*
+** There is no need to have these functions in the Chinese/Korean
+** cases, as there are no half-width varients used in the console
+** in those languages (at least, let's hope so.)  However, in the
+** interests of a single binary, let's put them in with a CP/932 check.
+**
+** FloydR 7/10/95
+*/
+/***************************************************************************\
+* BOOL IsFullWidth(WCHAR wch)
+*
+* Determine if the given Unicode char is fullwidth or not.
+*
+* History:
+* 04-08-92 ShunK       Created.
+\***************************************************************************/
+
+BOOL IsFullWidth(WCHAR wch)
+{
+
+    /* Assert cp == double byte codepage */
+    if (wch <= 0x007f || (wch >= 0xff60 && wch <= 0xff9f))
+        return(FALSE);	// Half width.
+    else if (wch >= 0x300)
+        return(TRUE);	// Full width.
+    else
+        return(FALSE);	// Half width.
+}
+
+
+
+/***************************************************************************\
+* BOOL SizeOfHalfWidthString(PWCHAR pwch)
+*
+* Determine size of the given Unicode string, adjusting for half-width chars.
+*
+* History:
+* 08-08-93 FloydR      Created.
+\***************************************************************************/
+int  SizeOfHalfWidthString(PWCHAR pwch)
+{
+    int		c=0;
+    DWORD	cp;
+
+
+    switch (cp=GetConsoleOutputCP()) {
+	case 932:
+	case 936:
+	case 949:
+	case 950:
+	    while (*pwch) {
+		if (IsFullWidth(*pwch))
+		    c += 2;
+		else
+		    c++;
+		pwch++;
+	    }
+	    return c;
+
+	default:
+	    return wcslen(pwch);
+    }
+}
 
 
 
@@ -567,7 +631,7 @@ VOID DOSNEAR FASTCALL GetMessageList (USHORT usNumMsg, MESSAGELIST Buffer,
     for (pMsg = Buffer; pMsg < pMaxMsg; pMsg++)
     {
 #ifdef DEBUG
-        WriteToCon(TEXT("GetMessageList(): Reading msgID %u\n"),pMsg->msg_number);
+        WriteToCon(TEXT("GetMessageList(): Reading msgID %u\r\n"),pMsg->msg_number);
 #endif
         if ((pMsg->msg_text = malloc(MSGLST_MAXLEN)) == NULL)
             ErrorExit(ERROR_NOT_ENOUGH_MEMORY);
@@ -583,6 +647,8 @@ VOID DOSNEAR FASTCALL GetMessageList (USHORT usNumMsg, MESSAGELIST Buffer,
 
         realloc(pMsg->msg_text, (ThisMsgLen + 1) * sizeof(TCHAR));
 
+        ThisMsgLen = max(ThisMsgLen, (USHORT)SizeOfHalfWidthString(pMsg->msg_text));
+
         if (ThisMsgLen > MaxMsgLen)
             MaxMsgLen = (USHORT) ThisMsgLen;
     }
@@ -590,7 +656,7 @@ VOID DOSNEAR FASTCALL GetMessageList (USHORT usNumMsg, MESSAGELIST Buffer,
     *pusMaxActLength = MaxMsgLen;
 
 #ifdef DEBUG
-    WriteToCon(TEXT("GetMessageList(): NumMsg = %d, MaxActLen=%d, MallocBytes = %d\n"),
+    WriteToCon(TEXT("GetMessageList(): NumMsg = %d, MaxActLen=%d, MallocBytes = %d\r\n"),
         usNumMsg, MaxMsgLen, MallocBytes);
 #endif
 
@@ -656,3 +722,47 @@ WriteToCon(TCHAR*fmt, ...)
     return MyWriteConsole(1);
 }
 
+
+
+/***************************************************************************\
+* PWCHAR PaddedString(int size, PWCHAR pwch)
+*
+* Realize the string, left aligned and padded on the right to the field
+* width/precision specified.
+*
+* Limitations:  This uses a static buffer under the assumption that
+* no more than one such string is printed in a single 'printf'.
+*
+* History:
+* 11-03-93 FloydR      Created.
+\***************************************************************************/
+WCHAR  	PaddingBuffer[MAX_BUF_SIZE];
+
+PWCHAR
+PaddedString(int size, PWCHAR pwch, PWCHAR buffer)
+{
+    int realsize;
+    int fEllipsis = FALSE;
+
+    if (buffer==NULL) buffer = PaddingBuffer;
+
+    if (size < 0) {
+	fEllipsis = TRUE;
+	size = -size;
+    }
+    realsize = _snwprintf(buffer, MAX_BUF_SIZE, L"%-*.*ws", size, size, pwch);
+    if (realsize == 0)
+	return NULL;
+    if (SizeOfHalfWidthString(buffer) > size) {
+	do {
+	    buffer[--realsize] = NULLC;
+	} while (SizeOfHalfWidthString(buffer) > size);
+
+	if (fEllipsis && buffer[realsize-1] != L' ') {
+	    buffer[realsize-1] = L'.';
+	    buffer[realsize-2] = L'.';
+	    buffer[realsize-3] = L'.';
+	}
+    }
+    return buffer;
+}

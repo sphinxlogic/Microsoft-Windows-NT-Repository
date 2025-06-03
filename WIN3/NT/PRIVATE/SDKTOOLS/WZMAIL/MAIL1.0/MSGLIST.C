@@ -563,7 +563,7 @@ VOID PASCAL INTERNAL FindTextList (PVECTOR *ppVecTmp, PSTR token)
                 while ( !fFound && fgetl ( pbuf, ILRGBUF, fp ) ) {
                     p2 = strend ( pbuf ) - cchToken;
                     for ( p1 = pbuf; p1 <= p2; p1++ ) {
-                        fFound = !strnicmp (token, p1, cchToken);
+                        fFound = !_strnicmp (token, p1, cchToken);
                         if (fFound) {
                             AddList (ppVecTmp, idoc);
                             break;
@@ -572,7 +572,7 @@ VOID PASCAL INTERNAL FindTextList (PVECTOR *ppVecTmp, PSTR token)
                     }
                 fclose ( fp );
                 }
-            unlink ( pTmpFN );
+            _unlink ( pTmpFN );
             }
         }
     ZMfree ( pTmpFN );

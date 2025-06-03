@@ -370,4 +370,3 @@ NoWw:           wwCur = -1;
         NoUndo();
 }
 #endif      /* CASHMERE */
-

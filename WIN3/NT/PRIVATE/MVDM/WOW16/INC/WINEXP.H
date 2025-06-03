@@ -44,4 +44,4 @@ FARPROC API GetPrtScHook(void);
 /* module stuff */
 HANDLE	API GetDSModule( WORD );
 HANDLE	API GetDSInstance( WORD );
-
+

@@ -43,35 +43,15 @@ assumes CS,CODE
 assumes DS,DATA
 assumes ES,NOTHING
 
-if 0
-cProc   COMMDLG16,<PUBLIC,FAR,PASCAL,NODATA,ATOMIC>
+        CommdlgThunk        GETOPENFILENAME
+        CommdlgThunk        GETSAVEFILENAME
+        CommdlgThunk        FINDTEXT
+        CommdlgThunk        REPLACETEXT
+        CommdlgThunk        CHOOSECOLOR
+        CommdlgThunk        CHOOSEFONT
+        CommdlgThunk        PRINTDLG
+        CommdlgThunk        WOWCOMMDLGEXTENDEDERROR
 
-        cBegin  <nogen>
-            mov     ax,1
-        ret
-        cEnd    <nogen>
-
-
-assumes DS,NOTHING
-
-cProc   WEP,<PUBLIC,FAR,PASCAL,NODATA,NOWIN,ATOMIC>
-        parmW   iExit           ;DLL exit code
-
-        cBegin
-        mov     ax,1            ;always indicate success
-        cEnd
-endif
-
-
-        FUN_WOWGETOPENFILENAME equ FUN_GETOPENFILENAME
-        CommdlgThunk    WOWGETOPENFILENAME, %(size GETOPENFILENAME16)
-        CommdlgThunk    GETSAVEFILENAME
-        CommdlgThunk    CHOOSECOLOR
-        CommdlgThunk    CHOOSEFONT
-        CommdlgThunk    PRINTDLG
-        CommdlgThunk    WOWCOMMDLGEXTENDEDERROR
-
-; End of additions
 
 sEnd    CODE
 

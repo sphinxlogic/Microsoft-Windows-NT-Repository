@@ -46,8 +46,13 @@ typedef struct _RpcRegHandle
     char PAPI *         pKeyName;
 } RPC_REG_HANDLE, PAPI * PRPC_REG_HANDLE;
 
+#ifndef MAC
 #define DEFAULT_RPC_REG_DATA_FILE   "c:\\RpcReg.dat"
+#else
+#define DEFAULT_RPC_REG_DATA_FILE   "RPC Preferences"
+#endif
 #define RPC_REG_DATA_FILE_ENV       "RPC_REG_DATA_FILE"
+#define RPC_SECTION                          "RPC Runtime Preferences"
 
 #define MAX_KEY_NAME_LEN        256
 #define MAX_DATA_FILE_LINE_LEN  512
@@ -66,10 +71,16 @@ typedef struct _RpcRegHandle
 #ifdef DEBUGRPC
 
 #ifndef WIN
-
+#ifdef MAC
+  extern void MacDbgPrint(char *,...);
+  #define ASSERT(con) \
+    if (!(con)) \
+        MacDbgPrint("Assert %s(%d): "#con"\n", __FILE__, __LINE__); 
+#else
     #define ASSERT(con) \
     if (!(con)) \
         printf("Assert %s(%d): "#con"\n", __FILE__, __LINE__);
+#endif
 
 #else /* WIN */
 
@@ -90,8 +101,12 @@ extern __far I_RpcWinAssert(char __far *, char __far *, int);
 #define STATE_FOUND_EXACT   1
 #define STATE_FOUND_PARENT  2
 
+#ifdef MAC
+#define MAX_FILE_NAME_LEN   512
+#else
 #ifndef MAX_FILE_NAME_LEN
 #define MAX_FILE_NAME_LEN   256
+#endif
 #endif
 
 //

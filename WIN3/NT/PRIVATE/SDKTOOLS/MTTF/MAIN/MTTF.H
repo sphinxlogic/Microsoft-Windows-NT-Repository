@@ -65,33 +65,8 @@ typedef enum {
 #define X86_CPU     'X'
 #define MIP_CPU     'M'
 #define AXP_CPU     'A'
+#define PPC_CPU     'P'
 
-#define CPU_TYPE(Num,cputype) {                                   \
-                                switch(Num)                       \
-                                {                                 \
-                                                                  \
-                                    case 1:                       \
-                                    case PROCESSOR_INTEL_386:     \
-                                    case PROCESSOR_INTEL_486:     \
-                                    case PROCESSOR_INTEL_PENTIUM: \
-                                                cputype=X86_CPU;  \
-                                                break;            \
-                                                                  \
-                                    case 2:                       \
-                                    case PROCESSOR_MIPS_R3000:    \
-                                    case PROCESSOR_MIPS_R4000:    \
-                                                cputype=MIP_CPU;  \
-                                                break;            \
-                                                                  \
-                                    case PROCESSOR_ALPHA_21064:   \
-                                                cputype=AXP_CPU;  \
-                                                break;            \
-                                                                  \
-                                    default:                      \
-                                                cputype=UNKNOWN_CPU;\
-                                                break;            \
-                                }                                 \
-                              }                                   \
 
 VOID IncrementStats(StatType stattype);
 VOID ReadIniFile();

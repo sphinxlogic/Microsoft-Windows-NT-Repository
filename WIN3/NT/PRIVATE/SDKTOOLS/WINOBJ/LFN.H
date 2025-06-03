@@ -11,7 +11,6 @@
 #define FILE_83_CS  1
 #define FILE_LONG   2
 
-#define ERROR_SUCCESS   0
 #define ERROR_OOM   8
 
 /* we need to add an extra field to distinguish DOS vs. LFNs

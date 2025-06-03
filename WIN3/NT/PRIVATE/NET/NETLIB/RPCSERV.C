@@ -71,7 +71,7 @@ Revision History:
 #include <string.h>             // for strcpy strcat strlen memcmp
 #include <tstring.h>            // for STRCPY STRCAT STRLEN memcmp
 #include <debuglib.h>           // IF_DEBUG
-#include <netdebug.h>          // FORMAT_NTSTATUS, NetpDbgPrint().
+#include <netdebug.h>          // FORMAT_NTSTATUS, NetpKdPrint(()).
 
 //
 // GLOBALS
@@ -149,7 +149,7 @@ Return Value:
     if (Endpoint == 0) {
         status = GetLastError();
         IF_DEBUG(RPC) {
-            NetpDbgPrint("NetpStartRpcServer:LocalAlloc Failure %ld\n",status);
+            NetpKdPrint(("NetpStartRpcServer:LocalAlloc Failure %ld\n",status));
         }
         return(status);
     }
@@ -158,7 +158,7 @@ Return Value:
     STRCAT(Endpoint, InterfaceName);
 
     IF_DEBUG(RPC) {
-        NetpDbgPrint("Creating Interface: %s\n", Endpoint);
+        NetpKdPrint(("Creating Interface: %s\n", Endpoint));
     }
 
     //
@@ -167,7 +167,7 @@ Return Value:
     EnterCriticalSection(&RpcpCriticalSection);
 
     IF_DEBUG(RPC) {
-        NetpDbgPrint("[NetpStartRpcServer]Adding Address & Interface...\n");
+        NetpKdPrint(("[NetpStartRpcServer]Adding Address & Interface...\n"));
     }
 
     //
@@ -213,7 +213,7 @@ Return Value:
     if ((RpcStatus != RPC_S_OK) && (RpcStatus != RPC_S_DUPLICATE_ENDPOINT)) {
 
         IF_DEBUG(RPC) {
-            NetpDbgPrint("RpcServerUseProtseqA failed! rpcstatus = %u\n",RpcStatus);
+            NetpKdPrint(("RpcServerUseProtseqA failed! rpcstatus = %u\n",RpcStatus));
         }
         goto CleanExit;
     }
@@ -222,7 +222,7 @@ Return Value:
 
     if (RpcStatus != RPC_S_OK) {
         IF_DEBUG(RPC) {
-            NetpDbgPrint("RpcServerRegisterIf failed! rpcstatus = %u\n",RpcStatus);
+            NetpKdPrint(("RpcServerRegisterIf failed! rpcstatus = %u\n",RpcStatus));
         }
         goto CleanExit;
     }

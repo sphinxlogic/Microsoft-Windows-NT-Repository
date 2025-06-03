@@ -64,10 +64,16 @@ VOID
     IN ULONG Delay
     );
 
+//
+// Define memory block header -- ensure always quad-aligned (code assumes that
+// it is always aligned)
+//
+
 typedef struct _MEMORY_HEADER {
     struct _MEMORY_HEADER *Next;
     PVOID Address;
     ULONG Length;
+    ULONG Spare;
 } MEMORY_HEADER, *PMEMORY_HEADER;
 
 //
@@ -153,7 +159,7 @@ typedef struct _DEVICE_EXTENSION {
     // Dma Adapter information.
     //
 
-    PVOID MapRegisterBase;
+    PVOID MapRegisterBase[2];
     PADAPTER_OBJECT DmaAdapterObject;
     ADAPTER_TRANSFER FlushAdapterParameters;
     ULONG NumberOfMapRegisters;
@@ -293,6 +299,13 @@ typedef struct _DEVICE_EXTENSION {
 
     ULONG TimerValue;
 
+    //
+    // Value is set to true when the dump is done.  We use this so that
+    // we don't do a request sense incase one of the shutdown operations
+    // fail.
+    //
+    BOOLEAN FinishingUp;
+
 } DEVICE_EXTENSION, *PDEVICE_EXTENSION;
 
 #define DEVICE_EXTENSION_SIZE sizeof(DEVICE_EXTENSION)
@@ -349,4 +362,3 @@ extern ULONG ScsiPortCount;
 #if defined(i386)
 #define HalFlushIoBuffers
 #endif
-

@@ -29,6 +29,7 @@
 ;--
 .386p
         .xlist
+include i386\cpu.inc
 include ks386.inc
 include i386\kimacro.inc
 include mac386.inc
@@ -37,28 +38,36 @@ include callconv.inc
 
         option  segment:flat
 
+        extrn   @ExfInterlockedPopEntrySList@8:DWORD
+        extrn   @ExfInterlockedPushEntrySList@12:DWORD
+        extrn   @ExInterlockedCompareExchange64@16:DWORD
+        extrn   @ExInterlockedPopEntrySList@8:DWORD
+        extrn   @ExInterlockedPushEntrySList@12:DWORD
+        extrn   @ExpInterlockedCompareExchange64@16:DWORD
+        extrn   _ExInterlockedAddLargeInteger@16:DWORD
+        extrn   _ExInterlockedExchangeAddLargeInteger@16:DWORD
+        extrn   _KiBootFeatureBits:DWORD
         EXTRNP  _KdInitSystem,2
         EXTRNP  KfRaiseIrql,1,IMPORT,FASTCALL
         EXTRNP  KfLowerIrql,1,IMPORT,FASTCALL
         EXTRNP  _KiInitializeKernel,6
-        EXTRNP  KiSwapContext,2,,FASTCALL
+        extrn   SwapContext:PROC
         EXTRNP  GetMachineBootPointers
         EXTRNP  _KiInitializePcr,6
         EXTRNP  _KiSwapIDT
-        EXTRNP  _DbgBreakPoint,0
         EXTRNP  _KiInitializeTSS,1
         EXTRNP  _KiInitializeTSS2,2
         EXTRNP  _KiInitializeGdtEntry,6
         extrn   _KiTrap08:PROC
         extrn   _KiTrap02:PROC
         EXTRNP  _HalDisplayString,1,IMPORT
-        EXTRNP  _HalProcessorIdle,0,IMPORT
         EXTRNP  _KiInitializeAbios,1
         EXTRNP  _KiInitializeMachineType
         EXTRNP  _KeGetCurrentIrql,0,IMPORT
         EXTRNP  _KeBugCheck, 1
         EXTRNP  _KeBugCheckEx, 5
         EXTRNP  _HalInitializeProcessor,1,IMPORT
+        EXTRNP  _HalProcessorIdle,0,IMPORT
         EXTRNP  HalClearSoftwareInterrupt,1,IMPORT,FASTCALL
         EXTRNP  _ZwAcceptConnectPort,6
         EXTRNP  _ZwUnmapViewOfSection,2
@@ -71,9 +80,8 @@ endif
         extrn   _KiDispatcherLock:DWORD
 
         extrn   _IDT:BYTE
-        extrn   _IDTLEN:BYTE            ; BUGBUG - really an ABS (bryanwi)
+        extrn   _IDTLEN:BYTE            ; NOTE - really an ABS, linker problems
 
-        extrn   _NtGlobalFlag:DWORD
         extrn   _KeNumberProcessors:BYTE
         extrn   _KeActiveProcessors:DWORD
         extrn   _KiIdleSummary:DWORD
@@ -92,6 +100,8 @@ ifndef NT_UP
 endif
 
 if DBG
+        extrn   _KdDebuggerEnabled:BYTE
+        EXTRNP  _DbgBreakPoint,0
         extrn   _DbgPrint:near
         extrn   _KiDPCTimeout:DWORD
         extrn   _MsgDpcTrashedEsp:BYTE
@@ -196,9 +206,7 @@ DFInternalError db  'DF Stack internal error', 0
 ;           The system code (ntoskrnl.exe) is mapped into virtual memory
 ;           as described by its memory descriptor.
 ;       DS=ES=SS = flat
-;       (BUGBUG - not true yet)
 ;       ESP->a useable boot stack
-;       (BUGBUG - do we need to switch so the loader stack can be freed?)
 ;       Interrupts OFF
 ;
 ; For processor > 0, Routine Description:
@@ -247,7 +255,7 @@ cPublicProc _KiSystemStartup        ,1
         mov     ebx, dword ptr KissLoaderBlock
         mov     _KeLoaderBlock, ebx         ; Get loader block param
 
-        movzx   ecx, _KeNumberProcessors
+        movzx   ecx, _KeNumberProcessors    ; get number of processors
         mov     KissPbNumber, ecx
         or      ecx, ecx                    ; Is the the boot processor?
         jnz     @f                          ; no
@@ -268,13 +276,9 @@ cPublicProc _KiSystemStartup        ,1
         mov     eax, dword ptr [ebx].LpbKernelStack
         mov     dword ptr KissIdleStack, eax
 
-;
-; BUGBUG 22Jan91 kenr - KiInitializeMachineType should be per processor
-;
         stdCall   _KiInitializeMachineType
         cmp     byte ptr KissPbNumber, 0    ; if not p0, then
         jne     kiss_notp0                  ; skip a bunch
-
 
 ;
 ;+++++++++++++++++++++++
@@ -299,9 +303,7 @@ cPublicProc _KiSystemStartup        ,1
         mov     KissIdt, eax
 
 ;
-;   BUGBUG 19april90 bryanwi - gross hack - edit TSS to be 32bits
-;       we really need to clean up the boot process.  loader gives
-;       us a tss, but it's 16bits!
+;       edit TSS to be 32bits.  loader gives us a tss, but it's 16bits!
 ;
         lea     ecx,[edi]+KGDT_TSS      ; (ecx) -> TSS descriptor
         mov     byte ptr [ecx+5],089h   ; 32bit, dpl=0, present, TSS32, not busy
@@ -319,8 +321,7 @@ cPublicProc _KiSystemStartup        ,1
 
 
 ;
-;   BUGBUG 25april90 bryanwi - yet another hack - set up 32bit double fault
-;       task gate so we can catch double faults.
+;   set up 32bit double fault task gate so we can catch double faults.
 ;
 
         mov     eax,KissIdt
@@ -380,8 +381,7 @@ endif
         mov     word ptr [edx+054h],KGDT_R3_DATA OR RPL_MASK ; Ds
 
 ;
-;   BUGBUG 09July92 kenr - yet another hack - set up 32bit NMI
-;       task gate so we can catch NMI faults.
+;   set up 32bit NMI task gate so we can catch NMI faults.
 ;
 
         mov     eax,KissIdt
@@ -501,10 +501,11 @@ if NT_INST
         lea     eax, _KiFreezeExecutionLock
         stdCall _KiAcquireSpinLock, <eax>
 else
-@@:     mov     eax, 1
-        xchg    _KiFreezeExecutionLock, eax
-        test    eax, 1
-        jnz     @b
+@@:     test    _KiFreezeExecutionLock, 1
+        jnz     short @b
+
+        lock bts _KiFreezeExecutionLock, 0
+        jc      short @b
 endif
 
 
@@ -566,6 +567,69 @@ endif   ; DEVL
         mov     KissIrql, al
 
 ;
+; If the target machine does not implement the cmpxchg8b instruction,
+; then patch the routines that use this instrucntion to simply jump
+; to the corresponding routines that use spinlocks.
+;
+        pushfd                          ; Save flags
+
+        cmp     byte ptr KissPbNumber, 0
+        jnz     cx8done                 ; only test on boot processor
+
+        pop     ebx                     ; Get flags into eax
+        push    ebx                     ; Save original flags
+
+        mov     ecx, ebx
+        xor     ecx, EFLAGS_ID          ; flip ID bit
+        push    ecx
+        popfd                           ; load it into flags
+        pushfd                          ; re-save flags
+        pop     ecx                     ; get flags into eax
+        cmp     ebx, ecx                ; did bit stay flipped?
+        je      short nocx8             ; No, don't try CPUID
+
+        or      ebx, EFLAGS_ID
+        push    ebx
+        popfd                           ; Make sure ID bit is set
+.586p
+        mov     eax, 1                  ; Get feature bits
+        cpuid                           ; Uses eax, ebx, ecx, edx
+.386p
+        test    edx, 100h
+        jz      short nocx8
+        or      _KiBootFeatureBits, KF_CMPXCHG8B ; We're committed to using
+        jmp     short cx8done           ; this feature
+
+nocx8:
+        lea     eax, @ExInterlockedCompareExchange64@16 ; get target address
+        lea     ecx, @ExpInterlockedCompareExchange64@16 ; get source address
+        mov     byte ptr [eax], 0e9H    ; set jump opcode value
+        lea     edx, [eax] + 5          ; get simulated eip value
+        sub     ecx, edx                ; compute displacement
+        mov     [eax] + 1, ecx          ; set jump displacement value
+        lea     eax, @ExInterlockedPopEntrySList@8 ; get target address
+        lea     ecx, @ExfInterlockedPopEntrySList@8 ; get source address
+        mov     byte ptr [eax], 0e9H    ; set jump opcode value
+        lea     edx, [eax] + 5          ; get simulated eip value
+        sub     ecx, edx                ; compute displacement
+        mov     [eax] + 1, ecx          ; set jump displacement value
+        lea     eax, @ExInterlockedPushEntrySList@12 ; get target address
+        lea     ecx, @ExfInterlockedPushEntrySList@12 ; get source address
+        mov     byte ptr [eax], 0e9H    ; set jump opcode value
+        lea     edx, [eax] + 5          ; get simulated eip value
+        sub     ecx, edx                ; compute displacement
+        mov     [eax] + 1, ecx          ; set jump displacement value
+        lea     eax, _ExInterlockedExchangeAddLargeInteger@16 ; get target address
+        lea     ecx, _ExInterlockedAddLargeInteger@16 ; get source address
+        mov     byte ptr [eax], 0e9H    ; set jump opcode value
+        lea     edx, [eax] + 5          ; get simulated eip value
+        sub     ecx, edx                ; compute displacement
+        mov     [eax] + 1, ecx          ; set jump displacement value
+
+cx8done:
+        popfd
+
+;
 ; Initialize ebp, esp, and argument registers for initializing the kernel.
 ;
         mov     ebx, KissIdleThread
@@ -589,15 +653,16 @@ endif   ; DEVL
 
         stdCall    _KiInitializeKernel,<offset _KiIdleProcess,ebx,edx,dword ptr fs:PcPrcb,eax,_KeLoaderBlock>
 
+
 ;
 ; Set "shadow" priority value for Idle thread.  This will keep the Mutex
 ; priority boost/drop code from dropping priority on the Idle thread, and
 ; thus avoids leaving a bit set in the ActiveMatrix for the Idle thread when
 ; there should never be any such bit.
 ;
+
         mov     ebx,fs:PcPrcbData+PbCurrentThread               ; (eax)->Thread
         mov     byte ptr [ebx]+ThPriority,LOW_REALTIME_PRIORITY ; set pri.
-
 
 ;
 ; Control is returned to the idle thread with IRQL at HIGH_LEVEL. Lower IRQL
@@ -605,11 +670,8 @@ endif   ; DEVL
 ;
 
         sti
-
-; lower IRQL to DISPATCH_LEVEL
         mov     ecx, DISPATCH_LEVEL
         fstCall KfLowerIrql
-
         mov     byte ptr [ebx]+ThWaitIrql, DISPATCH_LEVEL
 
 ;
@@ -619,23 +681,24 @@ endif   ; DEVL
 ; the system initialize routine or as the result of starting up another
 ; processor in a multiprocessor configuration.
 ;
-        mov     ebx, PCR[PcPrcb]        ; get processor control block address
-        add     ebx, PbDpcListHead      ; compute DPC listhead address
-        mov     edi, 1
-        xor     esi, esi                ; Rover DPC
-        mov     ebp, ebx                ; pre-load ebp
 
-ifndef NT_UP
+        mov     ebx, PCR[PcSelfPcr]     ; get address of PCR
+
 ;
 ; In a multiprocessor system the boot processor proceeds directly into
 ; the idle loop. As other processors start executing, however, they do
 ; not directly enter the idle loop and spin until all processors have
 ; been started and the boot master allows them to proceed.
 ;
-@@:     cmp     _KiBarrierWait, 0
-        jnz     short @b
+
+ifndef NT_UP
+
+@@:     cmp     _KiBarrierWait, 0       ; check if barrier set
+        jnz     short @b                ; if nz, barrier set
+
 endif
-        jmp     CheckDpcQueue
+
+        jmp     KiIdleLoop              ; enter idle loop
 
 stdENDP _KiSystemStartup
 
@@ -644,277 +707,367 @@ INIT   ends
 _TEXT$00  SEGMENT DWORD PUBLIC 'CODE'      ; Put IdleLoop in text section
         ASSUME  DS:FLAT, ES:FLAT, SS:NOTHING, FS:NOTHING, GS:NOTHING
 
-cPublicProc _KiIdleLoop,0
-
-; (ebx) = DpcListHead
-; (esi) = Rover DPC list
-; (edi) = PollBreakIn count
-
+        page ,132
+        subttl  "Idle Loop"
+;++
 ;
-; We are at the top of the loop - there were no pending DPCs or
-; threads to run.  Disable interrupts and re-check for a DPC.  If there's
-; still no DPC then Sti-Halt.  The only way a DPC can appear is via some
-; interrupt which will wake the halted state.
+; Routine Description:
 ;
-        cli
-        mov     dword ptr PCR[PcPrcbData+PbQuantumEnd],0 ; clear indicator
-        cmp     ebx, dword ptr [ebx]+LsFlink
-        mov     ebp, ebx
-        jne     short ProcessDpcQueue   ; if neq, list is not empty
-
-        cmp     dword ptr PCR[PcPrcbData+PbNextThread],0
-        jne     kil46
-
-        stdCall _HalProcessorIdle
-
-    ALIGN 4
-CheckDpcQueue:
-ifdef NT_UP
-        cmp     ebx, dword ptr [ebx]+LsFlink
-        mov     ebp, ebx
-        je      CheckNextThread         ; if eq, list is empty
-else
-        cmp     ebx, dword ptr [ebx]+LsFlink
-        mov     ebp, ebx                ; de-queue from local DPC queue
-        jne     short ProcessDpcQueue   ; if neq, list is busy - go get it
-
-CheckNextDpcQueue:
-        xor     ecx, ecx
-        inc     esi
-        mov     cl, _KeNumberProcessors
-        cmp     esi, ecx
-        jc      short kil10
-
-        xor     esi, esi
-
-kil10:  mov     ebp, _KiProcessorBlock[esi*4]
-        add     ebp, PbDpcListHead      ; compute DPC listhead address
-
-        cmp     ebp, dword ptr [ebp]+LsFlink
-        je      CheckNextThread         ; if eq, list is empty
-endif
-
-ProcessDpcQueue:
-        cli                             ; prevent any interrupt
-        lea     eax, [ebp]+(PbDpcLock - PbDpcListHead)
-IF DBG
-        ACQUIRE_SPINLOCK        eax,<kil30>
-ELSE
-        ACQUIRE_SPINLOCK        eax,<short kil30>
-ENDIF
-        mov     edx, [ebp]+LsFlink      ; (edx)->next dpc entry
-        cmp     edx, ebp
-        je      kil45             ; if eq, list is empty
-        mov     ecx, [edx]+LsFlink      ; get addr of next entry
-        mov     [ebp]+LsFlink, ecx      ; set address of next in header
-        mov     [ecx]+LsBlink, ebp      ; set address of previous in next
-        sub     edx, DpDpcListEntry     ; (edx)->DPC object
-        mov     dword ptr [edx]+DpLock, 0 ; set DPC inserted state FALSE
-
+;    This routine continuously executes the idle loop and never returns.
 ;
-; Set up parameters to call Deferred Routine
+; Arguments:
 ;
-IF DBG
-        push    edi
-        push    [edx]+DpDeferredRoutine ; Save DPC routine address
-        push    dword ptr PCR[PcPrcbData.PbInterruptCount]
-        push    dword ptr PCR[PcPrcbData.PbInterruptTime.LiLowPart]
-        push    _KeTickCount            ; Save current TickCount
-        mov     edi,esp                 ; Save current ESP
-ENDIF
-
-        push    [edx]+DpSystemArgument2 ; second system argument
-        push    [edx]+DpSystemArgument1 ; first system argument
-        push    [edx]+DpDeferredContext ; get deferred context argument
-        push    edx                     ; addr of DPC object
-        mov     ebp, [edx]+DpDeferredRoutine ; (ebp)-> DPC routine
-        RELEASE_SPINLOCK    eax
-
+;    ebx - Address of the current processor PCR.
 ;
-; NOTE Following 'sti' returns irql to normal.
+; Return value:
 ;
+;    None - routine never returns.
+;
+;--
 
-        sti                             ; end of critical section
+        public  KiIdleLoop
+KiIdleLoop proc
 
-        mov     byte ptr PCR[PcIsExecutingDpc],1
-        call    ebp                     ; call DPC routine
-
-IF DBG
-        cmp     esp,edi                 ; Is ESP correct?
-        jne     kil_error_esp           ; No, go error
-
-        mov     edi, [esp]              ; (edi) = Time DPC started
-        add     edi, _KiDPCTimeout      ; adjust for max dpc time allowed
-        cmp     _KeTickCount, edi       ; Did DPC take too long?
-        jnc     kil_error_timeout       ; Yes, go timeout
-
-kil_error_continue:
-        add     esp, 4 * 4
-        pop     edi
-
-        mov     edi, 1                  ; Clear PollBreakIn counter
-endif
+        lea     ebp, [ebx].PcPrcbData.PbDpcListHead ; set DPC listhead address
 
 if DBG
-        stdCall _KeGetCurrentIrql
-        cmp     al, DISPATCH_LEVEL      ; Verify still at IRQL == DISPATCH
-        mov     byte ptr PCR[PcIsExecutingDpc],0
-        je      CheckDpcQueue           ; Yes, go check for next DPC
-        stdCall _KeBugCheckEx,<IRQL_NOT_GREATER_OR_EQUAL, ebp, eax, 0, 0>
-else
-        mov     byte ptr PCR[PcIsExecutingDpc],0
-        jmp     CheckDpcQueue
+
+        xor     edi, edi                ; reset poll breakin counter
+
 endif
 
+        jmp     short kid20             ; Skip HalIdleProcessor on first iteration
+
 ;
-; Lock is currently owned; spin until free and then attempt to acquire
-; lock again.
+; There are no entries in the DPC list and a thread has not been selected
+; for execution on this processor. Call the HAL so power managment can be
+; performed.
+;
+; N.B. The HAL is called with interrupts disabled. The HAL will return
+;      with interrupts enabled.
+;
+; N.B. Use a call instruction instead of a push-jmp, as the call instruction
+;      executes faster and won't invalidate the processors call-return stack
+;      cache.
 ;
 
-ifndef NT_UP
-kil30:  sti
-        SPIN_ON_SPINLOCK        eax, ProcessDpcQueue
-endif
+kid10:  stdCall _HalProcessorIdle       ;
+
+
+;
+; Give debugger an opportunity to gain control on debug systems.
+;
+; N.B. On an MP system the lowest numbered idle processor is the only
+;      processor that polls for a breakin request.
+;
+
+kid20:
 
 if DBG
-kil_error_esp:
-        mov     edx,[edi+12]
-        push    edx
-        push    offset FLAT:_MsgDpcTrashedEsp
-        call    _DbgPrint
-        add     esp,8
-        int     3
-        jmp     kil_error_continue
+ifndef NT_UP
 
-kil_error_timeout:
-        mov     edx, PCR[PcPrcbData.PbInterruptTime.LiLowPart]
-        sub     edx, [esp+4]            ; interrupt time at dpc start
-        jc      kil_error_continue      ; time wrapped
+        mov     eax, _KiIdleSummary     ; get idle summary
+        mov     ecx, [ebx].PcSetMember  ; get set member
+        dec     ecx                     ; compute right bit mask
+        and     eax, ecx                ; check if any lower bits set
+        jnz     short CheckDpcList      ; if nz, not lowest numbered
 
-        mov     ecx, PCR[PcPrcbData.PbInterruptCount]
-        sub     ecx, [esp+8]
-
-        mov     eax, [esp+12]           ; dpc routine
-
-        push    edx                     ; interrupt time
-        push    ecx                     ; # of interrupts
-        push    eax                     ; DPC routine
-        push    offset FLAT:_MsgDpcTimeout
-        call    _DbgPrint
-        add     esp, 4 * 4
-        int     3
-        jmp     kil_error_continue
 endif
 
-;
-; Release DPC lock.
-;
+        dec     edi                     ; decrement poll counter
+        jg      short CheckDpcList      ; if g, not time to poll
 
-kil45:  RELEASE_SPINLOCK        eax
-kil46:  sti                             ; end of critical section
+        POLL_DEBUGGER                   ; check if break in requested
+endif
 
-;
-; Check if a thread has been selected to run on this processor.
-;
+kid30:
 
-    ALIGN 4
-CheckNextThread:
 if DBG
-
-;
-; Give debugger an opportunity to gain control.
-;
-
 ifndef NT_UP
-;
-; On MP system, only have one processor in the idle loop check
-;
-        mov     ecx, 3                  ; (cl) = 3, (ch) = 0
-        mov     eax, _KiIdleSummary
-kil48:
-        or      al, al
-        jnz     short kil49             ; any idle processors in low byte?
 
-        add     ch, 8
-        shr     eax, 8
-        dec     cl
-        jnz     short kil48
-        jmp     short kil50
+        mov     edi, 20 * 1000          ; set breakin poll interval
 
-kil49:  movzx   eax, al
-        movzx   eax, _KiFindFirstSetRight[eax]
-        add     al, ch
-        cmp     al, byte ptr PCR[PcPrcbData+PbNumber]
-        jne     short kil50
-endif
-        dec     edi
-        jnz     short kil50
-
-        POLL_DEBUGGER
-
-ifndef NT_UP
-        mov     edi, 20 * 1000          ; initialize PollBreakIn counter
 else
+
         mov     edi, 100                ; UP idle loop has a HLT in it
+
+endif
 endif
 
-ALIGN 4
-kil50:
-endif   ; DBG
-
 ;
-; Check if a thread has been selected to run on this processor.
+; Disable interrupts and check if there is any work in the DPC list
+; of the current processor or a target processor.
 ;
 
-        cmp     dword ptr PCR[PcPrcbData+PbNextThread],0
-                                        ; check addr of next thread object
-        je      _KiIdleLoop@0           ; if eq, then no new thread or DPC
+CheckDpcList:                           ;
+
+;
+; N.B. The following code enables interrupts for a few cycles, then
+;      disables them again for the subsequent DPC and next thread
+;      checks.
+;
+
+        sti                             ; enable interrupts
+        nop                             ;
+        nop                             ;
+        cli                             ; disable interrupts
+
+;
+; Process the deferred procedure call list for the current processor.
+;
+
+        cmp     ebp, [ebp].LsFlink      ; check if DPC list is empty
+        je      short CheckNextThread   ; if eq, DPC list is empty
+        mov     cl, DISPATCH_LEVEL      ; set interrupt level
+        fstCall HalClearSoftwareInterrupt ; clear software interrupt
+        call    KiRetireDpcList         ; process the current DPC list
 
 if DBG
-        mov     edi, 1                  ; Clear PollBreakIn counter
+
+        xor     edi, edi                ; clear breakin poll interval
+
 endif
 
 ;
-; A thread has been selected for execution on this processor.
-; There's likely an outstanding DPC interrupt - verify we don't
-; need it and request to have it cleared
+; Check if a thread has been selected to run on the current processor.
 ;
-        cli
-        cmp     ebx, dword ptr [ebx]+LsFlink
-        jne     CheckDpcQueue           ; queue is not empty - go get it
 
-        mov     ecx, DISPATCH_LEVEL
-        fstCall HalClearSoftwareInterrupt
-kil60:
-        sti
+CheckNextThread:                        ;
+        cmp     dword ptr [ebx].PcPrcbData.PbNextThread, 0 ; thread selected?
+        je      short kid10             ; if eq, no thread selected
 
 ;
-; Acquire dispatcher database lock, get the thread address again (it may
-; have changed), clear the address of the next thread in the processor
-; block, and call swap context to start execution of the selected thread.
+; A thread has been selected for execution on this processor. Acquire
+; dispatcher database lock, get the thread address again (it may have
+; changed), clear the address of the next thread in the processor block,
+; and call swap context to start execution of the selected thread.
+;
+; N.B. If the dispatcher database lock cannot be obtained immediately,
+;      then attempt to process another DPC rather than spinning on the
+;      dispatcher database lock.
+;
+; N.B. This polls for the spinlock by first using a non-interlocked
+;      instruction.  This way if the lock is busy, and the code is
+;      spinning, this processor won't be generating lots of locked cycles
 ;
 
 ifndef NT_UP
-        lea     eax,_KiDispatcherLock
-        TEST_SPINLOCK       eax, CheckNextDpcQueue
-        ACQUIRE_SPINLOCK    eax, CheckNextDpcQueue
+
+        lea     eax, _KiDispatcherLock  ; get address of dispatcher lock
+        TEST_SPINLOCK eax, <short CheckDpcList>
+        ACQUIRE_SPINLOCK eax, <short CheckDpcList>, NoChecking ; acquire dispatcher database lock
+
 endif
-        mov     edx, 0                  ; set ready flag to false
-        mov     ecx, PCR[PcPrcbData+PbNextThread]  ; addr of next thread object
-        mov     dword ptr PCR[PcPrcbData+PbNextThread],0
-        fstCall KiSwapContext           ; call context swap routine
+
+;
+; Raise IRQL to synchronization level and enable interrupts.
+;
+
+
+        mov     ecx, SYNCH_LEVEL        ; raise IRQL to synchronization level
+        fstCall KfRaiseIrql             ;
+        sti                             ; enable interrupts
+        mov     esi, [ebx].PcPrcbData.PbNextThread ; get next thread address
+        mov     edi, [ebx].PcPrcbData.PbCurrentThread ; set current thread address
+        mov     dword ptr [ebx].PcPrcbData.PbNextThread, 0 ; clear next thread address
+        mov     [ebx].PcPrcbData.PbCurrentThread, esi ; set current thread address
+
+        mov     cl, 1                   ; set APC interrupt bypass disable
+        call    SwapContext             ;
+        mov     ecx, DISPATCH_LEVEL     ; lower IRQL to dispatch level
+        fstCall KfLowerIrql             ;
+
+        lea     ebp, [ebx].PcPrcbData.PbDpcListHead ; set DPC listhead address
+        jmp     kid30                   ;
+
+KiIdleLoop      endp
+
+        page ,132
+        subttl  "Retire Deferred Procedure Call List"
+;++
+;
+; Routine Description:
+;
+;    This routine is called to retire the specified deferred procedure
+;    call list. DPC routines are called using the idle thread (current)
+;    stack.
+;
+;    N.B. Interrupts must be disabled and the DPC list lock held on entry
+;         to this routine. Control is returned to the caller with the same
+;         conditions true.
+;
+;    N.B. The registers ebx and ebp are preserved across the call.
+;
+; Arguments:
+;
+;    ebx - Address of the target processor PCR.
+;    ebp - Address of the target DPC listhead.
+;
+; Return value:
+;
+;    None.
+;
+;--
+
+        public  KiRetireDpcList
+KiRetireDpcList proc
+
+ifndef NT_UP
+
+        push    esi                     ; save register
+        lea     esi, [ebx].PcPrcbData.PbDpcLock ; get DPC lock address
+
+endif
+
+rdl5:   mov     PCR[PcPrcbData.PbDpcRoutineActive], esp ; set DPC routine active
+
+
+;
+; Process the DPC List.
+;
+
+
+rdl10:                                  ;
+
+ifndef NT_UP
+
+        ACQUIRE_SPINLOCK esi, rdl50, NoChecking ; acquire DPC lock
+        cmp     ebp, [ebp].LsFlink      ; check if DPC list is empty
+        je      rdl45                   ; if eq, DPC list is empty
+
+endif
+
+        mov     edx, [ebp].LsFlink      ; get address of next entry
+        mov     ecx, [edx].LsFlink      ; get address of next entry
+        mov     [ebp].LsFlink, ecx      ; set address of next in header
+        mov     [ecx].LsBlink, ebp      ; set address of previous in next
+        sub     edx, DpDpcListEntry     ; compute address od DPC object
+        mov     ecx, [edx].DpDeferredRoutine ; get DPC routine address
 
 if DBG
-        stdCall _KeGetCurrentIrql       ; Verify still at IRQL == DISPATCH
-        cmp     al, DISPATCH_LEVEL
-        je      CheckDpcQueue           ; loop again
 
-        stdCall _KeBugCheck,<IRQL_NOT_GREATER_OR_EQUAL>
-else
-        jmp     CheckDpcQueue           ; loop again
+.fpo (5, 0, 0, 0, 0, 0)
+
+        push    edi                     ; save register
+        push    ecx                     ; save DPC routine address
+        push    dword ptr PCR[PcPrcbData.PbInterruptCount] ; save interrupt count
+        push    dword ptr PCR[PcPrcbData.PbInterruptTime] ; save interrupt time
+        push    _KeTickCount            ; save current tick count
+        mov     edi, esp                ; save current stack pointer
+
 endif
 
-stdENDP _KiIdleLoop
+.fpo (4, 0, 0, 0, 0, 0)
+
+        push    [edx].DpSystemArgument2 ; second system argument
+        push    [edx].DpSystemArgument1 ; first system argument
+        push    [edx].DpDeferredContext ; get deferred context argument
+        push    edx                     ; address of DPC object
+        mov     dword ptr [edx]+DpLock, 0 ; clear DPC inserted state
+        dec     dword ptr [ebx].PcPrcbData.PbDpcQueueDepth ; decrement depth
+
+ifndef NT_UP
+
+        RELEASE_SPINLOCK esi, NoChecking ; release DPC lock
+
+endif
+
+        sti                             ; enable interrupts
+        call    ecx                     ; call DPC routine
+
+if DBG
+
+        stdCall _KeGetCurrentIrql       ; get current IRQL
+        cmp     al, DISPATCH_LEVEL      ; check if still at dispatch level
+        jne     rdl55                   ; if ne, not at dispatch level
+        cmp     esp, edi                ; check if stack pointer is correct
+        jne     rdl60                   ; if ne, stack pointer is not correct
+        mov     edi, [esp]              ; get starting tick count
+        add     edi, _KiDPCTimeout      ; adjust for max dpc time allowed
+        cmp     _KeTickCount, edi       ; check if DPC executed too long
+        jae     rdl70                   ; if ae, DPC executed too long
+rdl30:  add     esp, 4 * 4              ; remove parameters from stack
+        pop     edi                     ; restore register
+
+endif
+
+rdl35:  cli                             ; disable interrupts
+        cmp     ebp, [ebp].LsFlink      ; check if DPC list is empty
+        jne     rdl10                   ; if ne, DPC list not empty
+rdl40:  mov     PCR[PcPrcbData.PbDpcRoutineActive], 0 ; clear DPC routine active
+        mov     [ebx].PcPrcbData.PbDpcInterruptRequested, 0 ; clear DPC requested
+
+;
+; Check one last time that the DPC list is empty. This is required to
+; close a race condition with the DPC queuing code where it appears that
+; a DPC routine is active (and thus an interrupt is not requested), but
+; this code has decided the DPC list is empty and is clearing the DPC
+; active flag.
+;
+
+        cmp     ebp, [ebp].LsFlink      ; check if DPC list is empty
+        jne     rdl5                    ; if ne, DPC list not empty
+
+ifndef NT_UP
+
+        pop     esi                     ; retore register
+
+endif
+
+        ret                             ; return
+
+;
+; Unlock DPC list and clear DPC active.
+;
+
+rdl45:                                  ;
+
+ifndef NT_UP
+
+        RELEASE_SPINLOCK esi, NoChecking ; release DPC lock
+        jmp     short rdl40             ;
+
+endif
+
+ifndef NT_UP
+
+rdl50:  sti                             ; enable interrupts
+        SPIN_ON_SPINLOCK esi, <short rdl35> ; spin until lock is freee
+
+endif
+
+if DBG
+
+rdl55:  stdCall _KeBugCheckEx, <IRQL_NOT_GREATER_OR_EQUAL, ebx, eax, 0, 0> ;
+
+rdl60:  push    dword ptr [edi+12]      ; push address of DPC function
+        push    offset FLAT:_MsgDpcTrashedEsp ; push message address
+        call    _DbgPrint               ; print debug message
+        add     esp, 8                  ; remove arguments from stack
+        int     3                       ; break into debugger
+        mov     esp, edi                ; reset stack pointer
+        jmp     rdl30                   ;
+
+rdl70:  mov     edx, PCR[PcPrcbData.PbInterruptTime] ; get staring interrupt time
+        sub     edx, [esp+4]            ; compute time in DPC routine
+        jc      rdl30                   ; if c, interrupt time wrapped
+        mov     ecx, PCR[PcPrcbData.PbInterruptCount] ; get starting interrupt count
+        sub     ecx, [esp+8]            ; compute interrupts in while in DPC
+        mov     eax, [esp+12]           ; get address of DPC function
+        push    edx                     ; push interrupt time
+        push    ecx                     ; push interrupts count
+        push    eax                     ; push address of DPC function
+        push    offset FLAT:_MsgDpcTimeout ; push message address
+        call    _DbgPrint               ; print debug message
+        add     esp, 4 * 4              ; remove arguments from stack
+        cmp     _KdDebuggerEnabled, 0   ; check if debugger enabled
+        je      rdl30                   ; if eq, debugger not enabled
+        call    _DbgBreakPoint@0        ; break into debugger
+        jmp     rdl30                   ;
+
+endif
+
+KiRetireDpcList endp
 
 _TEXT$00   ends
 
@@ -961,7 +1114,7 @@ cPublicProc _KiSetCR0Bits ,0
 ;       CR0_WP - Write protect (so we get page faults if we write to a
 ;                write-protected page from kernel mode)
 ;
-        cmp     word ptr fs:PcPrcbData.PbCpuType, 3h
+        cmp     byte ptr fs:PcPrcbData.PbCpuType, 3h
         jbe     @f
 ;
 ; The processor is not a 386, (486 or greater) so we assume it is ok to

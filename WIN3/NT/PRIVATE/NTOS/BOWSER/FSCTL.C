@@ -27,10 +27,6 @@ Revision History:
 #include "precomp.h"
 #pragma hdrstop
 
-#if 0
-IRP_QUEUE
-BowserLogonStatusQueue = {0};
-#endif
 
 NTSTATUS
 BowserCommonDeviceIoControlFile (
@@ -230,6 +226,11 @@ BowserIpAddressChanged(
     IN PLMDR_REQUEST_PACKET InputBuffer
     );
 
+NTSTATUS
+EnableDisableTransport (
+    IN PLMDR_REQUEST_PACKET InputBuffer
+    );
+
 #ifdef  ALLOC_PRAGMA
 #pragma alloc_text(PAGE, BowserCommonDeviceIoControlFile)
 #pragma alloc_text(PAGE, BowserFspDeviceIoControlFile)
@@ -256,6 +257,7 @@ BowserIpAddressChanged(
 #pragma alloc_text(PAGE, GetBrowserServerList)
 #pragma alloc_text(PAGE, WaitForNewMaster)
 #pragma alloc_text(PAGE, BowserIpAddressChanged)
+#pragma alloc_text(PAGE, EnableDisableTransport)
 #pragma alloc_text(PAGE4BROW, QueryStatistics)
 #pragma alloc_text(PAGE4BROW, ResetStatistics)
 #if DBG
@@ -484,10 +486,12 @@ Return Value:
                     break;
 
                 case IOCTL_LMDR_ADD_NAME:
+                case IOCTL_LMDR_ADD_NAME_DOM:
                     Status = AddBowserName(Wait, InFsd, InputBuffer, InputBufferLength);
                     break;
 
                 case IOCTL_LMDR_DELETE_NAME:
+                case IOCTL_LMDR_DELETE_NAME_DOM:
                     Status = DeleteName (Wait, InFsd, InputBuffer, InputBufferLength);
                     break;
 
@@ -569,6 +573,10 @@ Return Value:
 
                 case IOCTL_LMDR_IP_ADDRESS_CHANGED:
                     Status = BowserIpAddressChanged( InputBuffer );
+                    break;
+
+                case IOCTL_LMDR_ENABLE_DISABLE_TRANSPORT:
+                    Status = EnableDisableTransport( InputBuffer );
                     break;
 
 #if DBG
@@ -769,10 +777,6 @@ NTSTATUS
 
         IoStartTimer((PDEVICE_OBJECT )DeviceObject);
 
-#if 0
-        BowserInitializeIrpQueue(&BowserLogonStatusQueue);
-#endif
-
         KeQuerySystemTime(&BowserStartTime);
 
         RtlZeroMemory(&BowserStatistics, sizeof(BOWSER_STATISTICS));
@@ -883,10 +887,6 @@ NTSTATUS
         //
 
         IoStopTimer((PDEVICE_OBJECT )DeviceObject);
-
-#if 0
-        BowserUninitializeIrpQueue(&BowserLogonStatusQueue);
-#endif
 
         try_return(Status = STATUS_SUCCESS);
 try_exit:NOTHING;
@@ -1664,22 +1664,6 @@ Please note that this IRP is cancelable.
 
     return STATUS_NOT_SUPPORTED;
 
-#if 0
-    //
-    //  If the users provided buffer
-    //
-
-    if (IoGetCurrentIrpStackLocation(Irp)->Parameters.DeviceIoControl.OutputBufferLength < BowserMaxDatagramSize) {
-
-        return STATUS_BUFFER_TOO_SMALL;
-    }
-    Status = BowserQueueNonBufferRequest(Irp,
-                                        &BowserLogonStatusQueue,
-                                        BowserCancelQueuedRequest
-                                        );
-
-    return Status;
-#endif
 }
 
 NTSTATUS
@@ -2345,6 +2329,12 @@ UpdateStatus(
         Transport = BowserFindTransport(&InputBuffer->TransportName);
 
         if (Transport == NULL) {
+            return STATUS_OBJECT_NAME_NOT_FOUND;
+        }
+
+
+        if ( Transport->PrimaryDomain == NULL ) {
+            BowserDereferenceTransport(Transport);
             return STATUS_OBJECT_NAME_NOT_FOUND;
         }
 
@@ -3105,6 +3095,120 @@ NTSTATUS
     //
 
     Status = BowserUpdateProviderInformation( Transport->PagedTransport );
+
+ReturnStatus:
+    if (Transport != NULL) {
+        BowserDereferenceTransport(Transport);
+    }
+
+    return Status;
+
+}
+
+
+NTSTATUS
+EnableDisableTransport (
+    IN PLMDR_REQUEST_PACKET InputBuffer
+    )
+
+/*++
+
+Routine Description:
+
+    This routine Implements the IOCTL to enable or disable a transport.
+
+Arguments:
+
+    InputBuffer - Buffer indicating whether we should enable or disable the
+        transport.
+
+Return Value:
+
+    Status of operation.
+
+
+--*/
+
+{
+    NTSTATUS Status;
+    PTRANSPORT Transport = NULL;
+    PPAGED_TRANSPORT PagedTransport;
+
+    PAGED_CODE();
+
+    dprintf(DPRT_FSCTL, ("NtDeviceIoControlFile: Enable/Disable transport"));
+
+    ExAcquireResourceShared(&BowserDataResource, TRUE);
+
+    if (BowserData.Initialized != TRUE) {
+        dprintf(DPRT_FSCTL, ("Redirector not started.\n"));
+        ExReleaseResource(&BowserDataResource);
+        Status = STATUS_REDIRECTOR_NOT_STARTED;
+        goto ReturnStatus;
+    }
+
+    ExReleaseResource(&BowserDataResource);
+
+    //
+    // Check some fields in the input buffer.
+    //
+
+    if (InputBuffer->Version != LMDR_REQUEST_PACKET_VERSION) {
+        Status = STATUS_INVALID_PARAMETER;
+        goto ReturnStatus;
+    }
+
+    if (InputBuffer->TransportName.Length == 0) {
+        Status = STATUS_INVALID_PARAMETER;
+        goto ReturnStatus;
+    }
+
+
+    //
+    // Find the transport whose address has changed.
+    //
+
+    Transport = BowserFindTransport(&InputBuffer->TransportName);
+
+    if (Transport == NULL) {
+        Status = STATUS_OBJECT_NAME_NOT_FOUND;
+        goto ReturnStatus;
+    }
+
+    PagedTransport = Transport->PagedTransport;
+
+    //
+    // Set the disabled bit correctly.
+    //
+
+    InputBuffer->Parameters.EnableDisableTransport.PreviouslyEnabled =
+        !PagedTransport->DisabledTransport;
+
+    if ( InputBuffer->Parameters.EnableDisableTransport.EnableTransport ) {
+        PagedTransport->DisabledTransport = FALSE;
+
+        //
+        // If the transport was previously disabled and this is an NTAS server,
+        //  force an election.
+        //
+
+        if ( (!InputBuffer->Parameters.EnableDisableTransport.PreviouslyEnabled) &&
+             BowserData.IsLanmanNt ) {
+            BowserStartElection( Transport );
+        }
+
+    } else {
+        PagedTransport->DisabledTransport = TRUE;
+
+        //
+        // If we're disabling a previously enabled transport,
+        //  ensure we're not the master browser.
+        //
+
+        BowserLoseElection( Transport );
+    }
+
+    Status = STATUS_SUCCESS;
 
 ReturnStatus:
     if (Transport != NULL) {

@@ -184,6 +184,9 @@ Initial revision.
 #define   WMTYPE_DEBUG     10
 #define   WMTYPE_SEARCH    11
 #define   WMTYPE_LOGVIEW   12
+#ifdef OEM_EMS
+#define   WMTYPE_EXCHANGE  13
+#endif
 
 //  Application message IDs
 
@@ -267,7 +270,7 @@ Initial revision.
 #define   WM_FLATLISTBOXMC ( WS_CHILD | WS_VISIBLE | WS_HSCROLL | WS_BORDER | \
                              LBS_NOTIFY | LBS_OWNERDRAWFIXED | LBS_NOINTEGRALHEIGHT | \
                              LBS_EXTENDEDSEL | LBS_MULTICOLUMN )
-#define   WM_FLATLISTBOXSC ( WS_CHILD | WS_VISIBLE | WS_HSCROLL | WS_BORDER | \
+#define   WM_FLATLISTBOXSC ( WS_CHILD | WS_VISIBLE | WS_HSCROLL | WS_VSCROLL | WS_BORDER | \
                              LBS_NOTIFY | LBS_OWNERDRAWFIXED | LBS_NOINTEGRALHEIGHT | \
                              LBS_EXTENDEDSEL )
 

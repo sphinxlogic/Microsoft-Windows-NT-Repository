@@ -34,83 +34,28 @@ Revision History:
 #define Dbg                              (DEBUG_TRACE_ATTRSUP)
 
 //
+//  Define a tag for general pool allocations from this module
+//
+
+#undef MODULE_POOL_TAG
+#define MODULE_POOL_TAG                  ('AFtN')
+
+//
 //
 //  Internal support routines
 //
-
-BOOLEAN
-NtfsLookupInFileRecord (
-    IN PIRP_CONTEXT IrpContext,
-    IN PFCB Fcb,
-    IN PFILE_REFERENCE BaseFileReference OPTIONAL,
-    IN PATTRIBUTE_TYPE_CODE QueriedTypeCode OPTIONAL,
-    IN PUNICODE_STRING QueriedName OPTIONAL,
-    IN BOOLEAN IgnoreCase,
-    IN PVOID QueriedValue OPTIONAL,
-    IN ULONG QueriedValueLength,
-    IN OUT PATTRIBUTE_ENUMERATION_CONTEXT Context
-    );
 
 BOOLEAN
 NtfsFindInFileRecord (
     IN PIRP_CONTEXT IrpContext,
     IN PATTRIBUTE_RECORD_HEADER Attribute,
     OUT PATTRIBUTE_RECORD_HEADER *ReturnAttribute,
-    IN PATTRIBUTE_TYPE_CODE QueriedTypeCode,
+    IN ATTRIBUTE_TYPE_CODE QueriedTypeCode,
     IN PUNICODE_STRING QueriedName OPTIONAL,
     IN BOOLEAN IgnoreCase,
     IN PVOID QueriedValue OPTIONAL,
     IN ULONG QueriedValueLength
     );
-
-BOOLEAN
-NtfsLookupExternalAttribute (
-    IN PIRP_CONTEXT IrpContext,
-    IN PFCB Fcb,
-    IN PATTRIBUTE_TYPE_CODE QueriedTypeCode OPTIONAL,
-    IN PUNICODE_STRING QueriedName OPTIONAL,
-    IN BOOLEAN IgnoreCase,
-    IN PVOID QueriedValue OPTIONAL,
-    IN ULONG QueriedValueLength,
-    IN OUT PATTRIBUTE_ENUMERATION_CONTEXT Context
-    );
-
-//
-//  This macro detects if we are enumerating through base or external
-//  attributes, and calls the appropriate function.
-//
-//  BOOLEAN
-//  LookupNextAttribute (
-//      IN PRIP_CONTEXT IrpContext,
-//      IN PFCB Fcb,
-//      IN PATTRIBUTE_TYPE_CODE Code OPTIONAL,
-//      IN PUNICODE_STRING Name OPTIONAL,
-//      IN BOOLEAN IgnoreCase,
-//      IN PVOID Value OPTIONAL,
-//      IN ULONG ValueLength,
-//      IN PATTRIBUTE_ENUMERATION_CONTEXT Context
-//      );
-//
-
-#define LookupNextAttribute(IRPCTXT,FCB,CODE,NAME,IC,VALUE,LENGTH,CONTEXT) \
-    ( (CONTEXT)->AttributeList.Bcb == NULL                                 \
-      ?   NtfsLookupInFileRecord( (IRPCTXT),                               \
-                                  (FCB),                                   \
-                                  NULL,                                    \
-                                  (CODE),                                  \
-                                  (NAME),                                  \
-                                  (IC),                                    \
-                                  (VALUE),                                 \
-                                  (LENGTH),                                \
-                                  (CONTEXT))                               \
-      :   NtfsLookupExternalAttribute((IRPCTXT),                           \
-                                      (FCB),                               \
-                                      (CODE),                              \
-                                      (NAME),                              \
-                                      (IC),                                \
-                                      (VALUE),                             \
-                                      (LENGTH),                            \
-                                      (CONTEXT)) )
 
 //
 //  Internal support routines for managing file record space
@@ -149,22 +94,12 @@ MakeRoomForAttribute (
 
 VOID
 FindLargestAttributes (
-    IN PIRP_CONTEXT IrpContext,
     IN PFILE_RECORD_SEGMENT_HEADER FileRecord,
     IN ULONG Number,
     OUT PATTRIBUTE_RECORD_HEADER *AttributeArray
     );
 
-VOID
-ConvertToNonresident (
-    IN PIRP_CONTEXT IrpContext,
-    IN PFCB Fcb,
-    IN OUT PATTRIBUTE_RECORD_HEADER Attribute,
-    IN BOOLEAN CreateSectionUnderway,
-    IN OUT PATTRIBUTE_ENUMERATION_CONTEXT Context OPTIONAL
-    );
-
-VOID
+LONGLONG
 MoveAttributeToOwnRecord (
     IN PIRP_CONTEXT IrpContext,
     IN PFCB Fcb,
@@ -193,7 +128,6 @@ NtfsCloneFileRecord (
 
 ULONG
 GetSizeForAttributeList (
-    IN PIRP_CONTEXT IrpContext,
     IN PFILE_RECORD_SEGMENT_HEADER FileRecord
     );
 
@@ -220,8 +154,39 @@ UpdateAttributeListEntry (
     IN OUT PATTRIBUTE_ENUMERATION_CONTEXT ListContext
     );
 
+VOID
+NtfsAddNameToParent (
+    IN PIRP_CONTEXT IrpContext,
+    IN PSCB ParentScb,
+    IN PFCB ThisFcb,
+    IN BOOLEAN IgnoreCase,
+    IN PBOOLEAN LogIt,
+    IN PFILE_NAME FileNameAttr,
+    OUT PUCHAR FileNameFlags,
+    OUT PQUICK_INDEX QuickIndex OPTIONAL,
+    IN PNAME_PAIR NamePair OPTIONAL
+    );
+
+VOID
+NtfsAddDosOnlyName (
+    IN PIRP_CONTEXT IrpContext,
+    IN PSCB ParentScb,
+    IN PFCB ThisFcb,
+    IN UNICODE_STRING FileName,
+    IN BOOLEAN LogIt,
+    IN PUNICODE_STRING SuggestedDosName OPTIONAL
+    );
+
+BOOLEAN
+NtfsAddTunneledNtfsOnlyName (
+    IN PIRP_CONTEXT IrpContext,
+    IN PSCB ParentScb,
+    IN PFCB ThisFcb,
+    IN PUNICODE_STRING FileName,
+    IN PBOOLEAN LogIt
+    );
+
 #ifdef ALLOC_PRAGMA
-#pragma alloc_text(PAGE, ConvertToNonresident)
 #pragma alloc_text(PAGE, CreateAttributeList)
 #pragma alloc_text(PAGE, FindLargestAttributes)
 #pragma alloc_text(PAGE, GetSizeForAttributeList)
@@ -232,35 +197,27 @@ UpdateAttributeListEntry (
 #pragma alloc_text(PAGE, NtfsAddLink)
 #pragma alloc_text(PAGE, NtfsAddNameToParent)
 #pragma alloc_text(PAGE, NtfsAddToAttributeList)
+#pragma alloc_text(PAGE, NtfsAddTunneledNtfsOnlyName)
 #pragma alloc_text(PAGE, NtfsChangeAttributeSize)
 #pragma alloc_text(PAGE, NtfsChangeAttributeValue)
 #pragma alloc_text(PAGE, NtfsCleanupAttributeContext)
 #pragma alloc_text(PAGE, NtfsCloneFileRecord)
+#pragma alloc_text(PAGE, NtfsConvertToNonresident)
 #pragma alloc_text(PAGE, NtfsCreateAttributeWithAllocation)
 #pragma alloc_text(PAGE, NtfsCreateAttributeWithValue)
 #pragma alloc_text(PAGE, NtfsCreateNonresidentWithValue)
 #pragma alloc_text(PAGE, NtfsDeleteAllocationFromRecord)
 #pragma alloc_text(PAGE, NtfsDeleteAttributeAllocation)
 #pragma alloc_text(PAGE, NtfsDeleteAttributeRecord)
+#pragma alloc_text(PAGE, NtfsDeleteFile)
 #pragma alloc_text(PAGE, NtfsDeleteFromAttributeList)
-#pragma alloc_text(PAGE, NtfsEqualAttributeName)
-#pragma alloc_text(PAGE, NtfsGetAttributeDefinition)
 #pragma alloc_text(PAGE, NtfsGetAttributeTypeCode)
 #pragma alloc_text(PAGE, NtfsGetSpaceForAttribute)
+#pragma alloc_text(PAGE, NtfsGrowStandardInformation)
 #pragma alloc_text(PAGE, NtfsIsFileDeleteable)
-#pragma alloc_text(PAGE, NtfsLookupAttribute)
-#pragma alloc_text(PAGE, NtfsLookupAttributeByCode)
-#pragma alloc_text(PAGE, NtfsLookupAttributeByName)
-#pragma alloc_text(PAGE, NtfsLookupAttributeByValue)
-#pragma alloc_text(PAGE, NtfsLookupAttributeForScb)
 #pragma alloc_text(PAGE, NtfsLookupEntry)
 #pragma alloc_text(PAGE, NtfsLookupExternalAttribute)
 #pragma alloc_text(PAGE, NtfsLookupInFileRecord)
-#pragma alloc_text(PAGE, NtfsLookupNextAttribute)
-#pragma alloc_text(PAGE, NtfsLookupNextAttributeByCode)
-#pragma alloc_text(PAGE, NtfsLookupNextAttributeByName)
-#pragma alloc_text(PAGE, NtfsLookupNextAttributeByValue)
-#pragma alloc_text(PAGE, NtfsLookupNextAttributeForScb)
 #pragma alloc_text(PAGE, NtfsMapAttributeValue)
 #pragma alloc_text(PAGE, NtfsPrepareForUpdateDuplicate)
 #pragma alloc_text(PAGE, NtfsRemoveLink)
@@ -272,6 +229,7 @@ UpdateAttributeListEntry (
 #pragma alloc_text(PAGE, NtfsRestartRemoveAttribute)
 #pragma alloc_text(PAGE, NtfsRestartWriteEndOfFileRecord)
 #pragma alloc_text(PAGE, NtfsRewriteMftMapping)
+#pragma alloc_text(PAGE, NtfsSetTotalAllocatedField)
 #pragma alloc_text(PAGE, NtfsUpdateDuplicateInfo)
 #pragma alloc_text(PAGE, NtfsUpdateFcb)
 #pragma alloc_text(PAGE, NtfsUpdateFcbInfoFromDisk)
@@ -286,7 +244,6 @@ UpdateAttributeListEntry (
 
 ATTRIBUTE_TYPE_CODE
 NtfsGetAttributeTypeCode (
-    IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb,
     IN UNICODE_STRING AttributeTypeName
     )
@@ -313,11 +270,9 @@ Return Value:
 
 {
     PATTRIBUTE_DEFINITION_COLUMNS AttributeDef = Vcb->AttributeDefinitions;
-    ATTRIBUTE_TYPE_CODE AttributeTypeCode = 0;
+    ATTRIBUTE_TYPE_CODE AttributeTypeCode = $UNUSED;
 
     UNICODE_STRING AttributeCodeName;
-
-    UNREFERENCED_PARAMETER(IrpContext);
 
     PAGED_CODE();
 
@@ -334,9 +289,9 @@ Return Value:
         //
 
         if ((AttributeCodeName.Length == AttributeTypeName.Length)
-            && (RtlCompareMemory( AttributeTypeName.Buffer,
-                                  AttributeDef->AttributeName,
-                                  AttributeTypeName.Length ) == (ULONG)AttributeTypeName.Length)) {
+            && (RtlEqualMemory( AttributeTypeName.Buffer,
+                                AttributeDef->AttributeName,
+                                AttributeTypeName.Length ))) {
 
             AttributeTypeCode = AttributeDef->AttributeTypeCode;
             break;
@@ -350,102 +305,6 @@ Return Value:
     }
 
     return AttributeTypeCode;
-}
-
-
-PATTRIBUTE_DEFINITION_COLUMNS
-NtfsGetAttributeDefinition (
-    IN PIRP_CONTEXT IrpContext,
-    IN PVCB Vcb,
-    IN ATTRIBUTE_TYPE_CODE AttributeTypeCode
-    )
-
-/*++
-
-Routine Description:
-
-    This routine returns the attribute definition for a given attribute type code.
-
-Arguments:
-
-    Vcb - Pointer to the Vcb from which to consult the attribute definitions.
-
-    AttributeTypeCode - The attribute type code to be looked up.  This must be
-                        a valid attribute type code.
-
-Return Value:
-
-    The attribute definition record corresponding to the specified attribute type
-    code.
-
---*/
-
-{
-    ASSERT((AttributeTypeCode & 0xF) == 0);
-    ASSERT(AttributeTypeCode < $FIRST_USER_DEFINED_ATTRIBUTE);
-
-    UNREFERENCED_PARAMETER(IrpContext);
-
-    PAGED_CODE();
-
-    //
-    //  Note, this simple return takes advantage of the current attribute code
-    //  values.  If some are added which are not divisible by 0x10, then this
-    //  routine will have to change.
-    //
-
-    return (&Vcb->AttributeDefinitions[(AttributeTypeCode / 0x10) - 1]);
-}
-
-
-VOID
-NtfsLookupAttributeForScb (
-    IN PIRP_CONTEXT IrpContext,
-    IN PSCB Scb,
-    IN OUT PATTRIBUTE_ENUMERATION_CONTEXT Context
-    )
-
-/*++
-
-Routine Description:
-
-    This routine looks up and returns the attribute for a given Scb.
-
-Arguments:
-
-    Scb - Pointer to the Scb for the opened attribute
-
-    Context - Pointer to an initialized attribute context variable to
-              return positioned at the attribute record.
-
-Return Value:
-
-    None.
-
---*/
-
-{
-    PAGED_CODE();
-
-    //
-    //  Lookup the first occurence of this attribute.  We do an exact
-    //  case match since we have the name in the attribute.
-    //
-
-    if (!NtfsLookupAttributeByName( IrpContext,
-                                    Scb->Fcb,
-                                    &Scb->Fcb->FileReference,
-                                    Scb->AttributeTypeCode,
-                                    &Scb->AttributeName,
-                                    FALSE,
-                                    Context )) {
-
-        DebugTrace(0, 0, "Could not find attribute for Scb @ %08lx\n", Scb);
-
-        ASSERTMSG("Could not find attribute for Scb\n", FALSE);
-
-        NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, Scb->Fcb );
-    }
 }
 
 
@@ -482,7 +341,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsUpdateScbFromAttribute:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsUpdateScbFromAttribute:  Entered\n") );
 
     //
     //  If the attribute has been deleted, we can return immediately
@@ -492,7 +351,7 @@ Return Value:
     if (FlagOn( Scb->ScbState, SCB_STATE_ATTRIBUTE_DELETED )) {
 
         SetFlag( Scb->ScbState, SCB_STATE_HEADER_INITIALIZED );
-        DebugTrace( -1, Dbg, "NtfsUpdateScbFromAttribute:  Exit\n", 0 );
+        DebugTrace( -1, Dbg, ("NtfsUpdateScbFromAttribute:  Exit\n") );
 
         return;
     }
@@ -513,7 +372,7 @@ Return Value:
 
             CleanupAttrContext = TRUE;
 
-            NtfsLookupAttributeForScb( IrpContext, Scb, &AttrContext );
+            NtfsLookupAttributeForScb( IrpContext, Scb, NULL, &AttrContext );
 
             AttrHeader = NtfsFoundAttribute( &AttrContext );
         }
@@ -536,6 +395,8 @@ Return Value:
             Scb->Header.AllocationSize.LowPart =
               QuadAlign( Scb->Header.AllocationSize.LowPart );
 
+            Scb->TotalAllocated = Scb->Header.AllocationSize.QuadPart;
+
             //
             //  Set the resident flag in the Scb.
             //
@@ -552,11 +413,26 @@ Return Value:
                 Scb->Header.ValidDataLength.QuadPart = AttrHeader->Form.Nonresident.ValidDataLength;
                 Scb->Header.FileSize.QuadPart = AttrHeader->Form.Nonresident.FileSize;
                 SetFlag(Scb->ScbState, SCB_STATE_FILE_SIZE_LOADED);
-                Scb->HighestVcnToDisk =
-                    LlClustersFromBytes(Scb->Vcb, AttrHeader->Form.Nonresident.ValidDataLength) - 1;
+                Scb->ValidDataToDisk = AttrHeader->Form.Nonresident.ValidDataLength;
             }
 
             Scb->Header.AllocationSize.QuadPart = AttrHeader->Form.Nonresident.AllocatedLength;
+
+            Scb->TotalAllocated = Scb->Header.AllocationSize.QuadPart;
+
+            if (FlagOn(AttrHeader->Flags, ATTRIBUTE_FLAG_COMPRESSION_MASK)) {
+
+                Scb->TotalAllocated = AttrHeader->Form.Nonresident.TotalAllocated;
+
+                if (Scb->TotalAllocated < 0) {
+
+                    Scb->TotalAllocated = 0;
+
+                } else if (Scb->TotalAllocated > Scb->Header.AllocationSize.QuadPart) {
+
+                    Scb->TotalAllocated = Scb->Header.AllocationSize.QuadPart;
+                }
+            }
 
             ClearFlag( Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT );
 
@@ -568,14 +444,16 @@ Return Value:
                    (AttrHeader->Form.Nonresident.CompressionUnit == NTFS_CLUSTERS_PER_COMPRESSION));
 
             Scb->CompressionUnit = 0;
+            Scb->CompressionUnitShift = 0;
 
             if ((AttrHeader->Form.Nonresident.CompressionUnit != 0) &&
                 (AttrHeader->Form.Nonresident.CompressionUnit < 31)) {
 
                 Scb->CompressionUnit = BytesFromClusters( Scb->Vcb,
                                                           1 << AttrHeader->Form.Nonresident.CompressionUnit );
+                Scb->CompressionUnitShift = AttrHeader->Form.Nonresident.CompressionUnit;
 
-                ASSERT( Scb->AttributeTypeCode == $DATA );
+                ASSERT( NtfsIsTypeCodeCompressible( Scb->AttributeTypeCode ));
             }
 
             //
@@ -613,6 +491,11 @@ Return Value:
 
             Scb->AttributeFlags = AttrHeader->Flags;
 
+            if (FlagOn( Scb->AttributeFlags, ATTRIBUTE_FLAG_SPARSE )) {
+
+                NtfsRaiseStatus( IrpContext, STATUS_ACCESS_DENIED, NULL, NULL );
+            }
+
             if (FlagOn(AttrHeader->Flags, ATTRIBUTE_FLAG_COMPRESSION_MASK)) {
 
                 //
@@ -632,8 +515,9 @@ Return Value:
                 if (Scb->CompressionUnit == 0) {
 
                     Scb->CompressionUnit = BytesFromClusters( Scb->Vcb, 1 << NTFS_CLUSTERS_PER_COMPRESSION );
+                    Scb->CompressionUnitShift = NTFS_CLUSTERS_PER_COMPRESSION;
 
-                    ASSERT( Scb->AttributeTypeCode == $DATA );
+                    ASSERT( NtfsIsTypeCodeCompressible( Scb->AttributeTypeCode ));
                 }
             } else {
 
@@ -651,6 +535,7 @@ Return Value:
                 //
 
                 Scb->CompressionUnit = 0;
+                Scb->CompressionUnitShift = 0;
             }
         }
 
@@ -659,16 +544,7 @@ Return Value:
         //  then set the flag in the common header for the Modified page writer.
         //
 
-        if (Scb->CompressionUnit != 0
-            || FlagOn( Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT )) {
-
-            SetFlag( Scb->Header.Flags, FSRTL_FLAG_ACQUIRE_MAIN_RSRC_EX );
-
-        } else {
-
-            ClearFlag( Scb->Header.Flags, FSRTL_FLAG_ACQUIRE_MAIN_RSRC_EX );
-        }
-
+        NtfsAcquireFsrtlHeader( Scb );
         if (NodeType( Scb ) == NTFS_NTC_SCB_DATA) {
 
             Scb->Header.IsFastIoPossible = NtfsIsFastIoPossible( Scb );
@@ -677,6 +553,8 @@ Return Value:
 
             Scb->Header.IsFastIoPossible = FastIoIsNotPossible;
         }
+
+        NtfsReleaseFsrtlHeader( Scb );
 
         //
         //  Set the flag indicating this is the data attribute.
@@ -709,10 +587,10 @@ Return Value:
 
         if (CleanupAttrContext) {
 
-            NtfsCleanupAttributeContext( IrpContext, &AttrContext );
+            NtfsCleanupAttributeContext( &AttrContext );
         }
 
-        DebugTrace( -1, Dbg, "NtfsUpdateScbFromAttribute:  Exit\n", 0 );
+        DebugTrace( -1, Dbg, ("NtfsUpdateScbFromAttribute:  Exit\n") );
     }
 
     return;
@@ -768,7 +646,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsUpdateFcbInfoFromDisk:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsUpdateFcbInfoFromDisk:  Entered\n") );
 
     NtfsInitializeAttributeContext( &AttrContext );
 
@@ -819,6 +697,25 @@ Return Value:
             Info->LastChangeTime = StandardInformation->LastChangeTime;
             Info->LastAccessTime = StandardInformation->LastAccessTime;
             Info->FileAttributes = StandardInformation->FileAttributes;
+
+#ifdef _CAIRO_
+            if (AttributeHeader->Form.Resident.ValueLength >=
+                sizeof(STANDARD_INFORMATION)) {
+                Fcb->ClassId = StandardInformation->ClassId;
+                Fcb->OwnerId = StandardInformation->OwnerId;
+                Fcb->SecurityId = StandardInformation->SecurityId;
+                Fcb->Usn = StandardInformation->Usn;
+
+                SetFlag(Fcb->FcbState, FCB_STATE_LARGE_STD_INFO);
+            }
+
+#else _CAIRO_
+
+            if (AttributeHeader->Form.Resident.ValueLength > sizeof( STANDARD_INFORMATION )) {
+
+                SetFlag(Fcb->FcbState, FCB_STATE_LARGE_STD_INFO);
+            }
+#endif _CAIRO_
         }
 
         Fcb->CurrentLastAccess = Info->LastAccessTime;
@@ -846,9 +743,10 @@ Return Value:
         Fcb->TotalLinks =
         Fcb->LinkCount = 0;
 
-        FoundEntry = NtfsLookupNextAttribute( IrpContext,
-                                              Fcb,
-                                              &AttrContext );
+        FoundEntry = NtfsLookupNextAttributeByCode( IrpContext,
+                                                    Fcb,
+                                                    $FILE_NAME,
+                                                    &AttrContext );
 
         while (FoundEntry) {
 
@@ -856,24 +754,22 @@ Return Value:
 
             AttributeHeader = NtfsFoundAttribute( &AttrContext );
 
-            if (AttributeHeader->TypeCode == $FILE_NAME) {
-
-                FileName = (PFILE_NAME) NtfsAttributeValue( AttributeHeader );
-
-                //
-                //  We increment the count as long as this is not a 8.3 link
-                //  only.
-                //
-
-                if (FileName->Flags != FILE_NAME_DOS) {
-
-                    Fcb->LinkCount += 1;
-                    Fcb->TotalLinks += 1;
-                }
-
-            } else if (AttributeHeader->TypeCode > $FILE_NAME) {
+            if (AttributeHeader->TypeCode != $FILE_NAME) {
 
                 break;
+            }
+
+            FileName = (PFILE_NAME) NtfsAttributeValue( AttributeHeader );
+
+            //
+            //  We increment the count as long as this is not a 8.3 link
+            //  only.
+            //
+
+            if (FileName->Flags != FILE_NAME_DOS) {
+
+                Fcb->LinkCount += 1;
+                Fcb->TotalLinks += 1;
             }
 
             //
@@ -894,65 +790,88 @@ Return Value:
             try_return( CorruptDisk = TRUE );
         }
 
-#ifndef NTFS_TEST_LINKS
-        ASSERT( Fcb->LinkCount == 1 && Fcb->TotalLinks == 1 );
-#endif
-
         //
         //  If we are to load the security and it is not already present we
         //  find the security attribute.
         //
 
-        if (LoadSecurity
-            && Fcb->SharedSecurity == NULL) {
+        if (LoadSecurity && Fcb->SharedSecurity == NULL) {
 
-            PSECURITY_DESCRIPTOR SecurityDescriptor;
-            ULONG SecurityDescriptorLength;
+#ifdef _CAIRO_
+            //
+            //  We have two sources of security descriptors.  First, we have
+            //  the SecurityId that is present in a large $STANDARD_INFORMATION.
+            //  The other case is where we don't have such a security Id and must
+            //  retrieve it from the $SECURITY_DESCRIPTOR attribute
+            //
+            //  In the case where we have the Id, we load it from the volume
+            //  cache or index.
+            //
 
-            while (FoundEntry) {
+            if (FlagOn( Fcb->FcbState, FCB_STATE_LARGE_STD_INFO ) &&
+                Fcb->SecurityId != SECURITY_ID_INVALID) {
 
-                if (AttributeHeader->TypeCode == $SECURITY_DESCRIPTOR) {
+                NtfsLoadSecurityDescriptorById( IrpContext, Fcb, ParentFcb );
 
-                    NtfsMapAttributeValue( IrpContext,
-                                           Fcb,
-                                           (PVOID *)&SecurityDescriptor,
-                                           &SecurityDescriptorLength,
-                                           &Bcb,
-                                           &AttrContext );
+            } else {
 
-                    NtfsUpdateFcbSecurity( IrpContext,
-                                           Fcb,
-                                           ParentFcb,
-                                           SecurityDescriptor,
-                                           SecurityDescriptorLength );
+#endif  //  _CAIRO_
+                PSECURITY_DESCRIPTOR SecurityDescriptor;
+                ULONG SecurityDescriptorLength;
 
-                    //
-                    //  If the security descriptor was resident then the Bcb field
-                    //  in the attribute context was stored in the returned Bcb and
-                    //  the Bcb in the attribute context was cleared.  In that case
-                    //  the resumption of the attribute search will fail because
-                    //  this module using the Bcb field to determine if this
-                    //  is the initial enumeration.
-                    //
+                //
+                //  We may have to walk forward to the security descriptor.
+                //
 
-                    if (NtfsIsAttributeResident( AttributeHeader )) {
-
-                        NtfsFoundBcb( &AttrContext ) = Bcb;
-                        Bcb = NULL;
-                    }
-
-                } else if (AttributeHeader->TypeCode > $SECURITY_DESCRIPTOR) {
-
-                    break;
-                }
-
-                if (FoundEntry = NtfsLookupNextAttribute( IrpContext,
-                                                          Fcb,
-                                                          &AttrContext )) {
+                while (FoundEntry) {
 
                     AttributeHeader = NtfsFoundAttribute( &AttrContext );
+
+                    if (AttributeHeader->TypeCode == $SECURITY_DESCRIPTOR) {
+
+                        NtfsMapAttributeValue( IrpContext,
+                                               Fcb,
+                                               (PVOID *)&SecurityDescriptor,
+                                               &SecurityDescriptorLength,
+                                               &Bcb,
+                                               &AttrContext );
+
+                        NtfsUpdateFcbSecurity( IrpContext,
+                                               Fcb,
+                                               ParentFcb,
+#ifdef _CAIRO_
+                                               SECURITY_ID_INVALID,
+#endif  //  _CAIRO_
+                                               SecurityDescriptor,
+                                               SecurityDescriptorLength );
+
+                        //
+                        //  If the security descriptor was resident then the Bcb field
+                        //  in the attribute context was stored in the returned Bcb and
+                        //  the Bcb in the attribute context was cleared.  In that case
+                        //  the resumption of the attribute search will fail because
+                        //  this module using the Bcb field to determine if this
+                        //  is the initial enumeration.
+                        //
+
+                        if (NtfsIsAttributeResident( AttributeHeader )) {
+
+                            NtfsFoundBcb( &AttrContext ) = Bcb;
+                            Bcb = NULL;
+                        }
+
+                    } else if (AttributeHeader->TypeCode > $SECURITY_DESCRIPTOR) {
+
+                        break;
+                    }
+
+                    FoundEntry = NtfsLookupNextAttribute( IrpContext,
+                                                          Fcb,
+                                                          &AttrContext );
                 }
+#ifdef _CAIRO_
             }
+#endif
         }
 
         //
@@ -969,19 +888,15 @@ Return Value:
 
             while (FoundEntry) {
 
+                AttributeHeader = NtfsFoundAttribute( &AttrContext );
+
                 if (AttributeHeader->TypeCode > $DATA) {
 
                     break;
                 }
 
-#ifndef NTFS_ALLOW_COMPRESSED
-                if (AttributeHeader->Flags != 0) {
-
-                    NtfsRaiseStatus( IrpContext, STATUS_NOT_SUPPORTED, NULL, NULL );
-                }
-#endif
-                if (AttributeHeader->TypeCode == $DATA
-                    && AttributeHeader->NameLength == 0) {
+                if ((AttributeHeader->TypeCode == $DATA) &&
+                    (AttributeHeader->NameLength == 0)) {
 
                     //
                     //  This can vary depending whether the attribute is resident
@@ -1003,6 +918,7 @@ Return Value:
 
                         if (ARGUMENT_PRESENT( UnnamedDataSizes )) {
 
+                            UnnamedDataSizes->TotalAllocated =
                             UnnamedDataSizes->AllocationSize = Info->AllocatedLength;
                             UnnamedDataSizes->FileSize = Info->FileSize;
                             UnnamedDataSizes->ValidDataLength = Info->FileSize;
@@ -1022,6 +938,7 @@ Return Value:
 
                         if (ARGUMENT_PRESENT( UnnamedDataSizes )) {
 
+                            UnnamedDataSizes->TotalAllocated =
                             UnnamedDataSizes->AllocationSize = Info->AllocatedLength;
                             UnnamedDataSizes->FileSize = Info->FileSize;
                             UnnamedDataSizes->ValidDataLength = AttributeHeader->Form.Nonresident.ValidDataLength;
@@ -1036,16 +953,34 @@ Return Value:
                             UnnamedDataSizes->AttributeFlags = AttributeHeader->Flags;
                         }
 
+                        if (FlagOn( AttributeHeader->Flags, ATTRIBUTE_FLAG_COMPRESSION_MASK )) {
+
+                            Info->AllocatedLength = AttributeHeader->Form.Nonresident.TotalAllocated;
+
+                            if (ARGUMENT_PRESENT( UnnamedDataSizes )) {
+
+                                UnnamedDataSizes->TotalAllocated = Info->AllocatedLength;
+
+                                if (UnnamedDataSizes->TotalAllocated < 0) {
+
+                                    UnnamedDataSizes->TotalAllocated = 0;
+
+                                } else if (UnnamedDataSizes->TotalAllocated > Info->AllocatedLength) {
+
+                                    UnnamedDataSizes->TotalAllocated = Info->AllocatedLength;
+                                }
+                            }
+                        }
+
                         FoundData = TRUE;
                     }
+
+                    break;
                 }
 
-                if (FoundEntry = NtfsLookupNextAttribute( IrpContext,
-                                                          Fcb,
-                                                          &AttrContext )) {
-
-                    AttributeHeader = NtfsFoundAttribute( &AttrContext );
-                }
+                FoundEntry = NtfsLookupNextAttribute( IrpContext,
+                                                      Fcb,
+                                                      &AttrContext );
             }
 
             if (!FoundData) {
@@ -1070,6 +1005,8 @@ Return Value:
 
             PEA_INFORMATION EaInformation;
 
+            AttributeHeader = NtfsFoundAttribute( &AttrContext );
+
             if (AttributeHeader->TypeCode > $EA_INFORMATION) {
 
                 break;
@@ -1083,18 +1020,10 @@ Return Value:
                 break;
             }
 
-#ifndef NTFS_ALLOW_COMPRESSED
-            if (AttributeHeader->Flags != 0) {
-
-                NtfsRaiseStatus( IrpContext, STATUS_NOT_SUPPORTED, NULL, NULL );
-            }
-#endif
-            if (FoundEntry = NtfsLookupNextAttribute( IrpContext,
-                                                      Fcb,
-                                                      &AttrContext )) {
-
-                AttributeHeader = NtfsFoundAttribute( &AttrContext );
-            }
+            FoundEntry = NtfsLookupNextAttributeByCode( IrpContext,
+                                                        Fcb,
+                                                        $EA_INFORMATION,
+                                                        &AttrContext );
         }
 
         //
@@ -1108,10 +1037,10 @@ Return Value:
 
         DebugUnwind( NtfsUpdateFcbInfoFromDisk );
 
-        NtfsCleanupAttributeContext( IrpContext, &AttrContext );
-        NtfsUnpinBcb( IrpContext, &Bcb );
+        NtfsCleanupAttributeContext( &AttrContext );
+        NtfsUnpinBcb( &Bcb );
 
-        DebugTrace( -1, Dbg, "NtfsUpdateFcbInfoFromDisk:  Exit\n", 0 );
+        DebugTrace( -1, Dbg, ("NtfsUpdateFcbInfoFromDisk:  Exit\n") );
     }
 
     //
@@ -1128,599 +1057,8 @@ Return Value:
 }
 
 
-BOOLEAN
-NtfsLookupNextAttributeForScb (
-    IN PIRP_CONTEXT IrpContext,
-    IN PSCB Scb,
-    IN OUT PATTRIBUTE_ENUMERATION_CONTEXT Context
-    )
-
-/*++
-
-Routine Description:
-
-    This routine looks up and returns the next attribute for a given Scb.
-
-Arguments:
-
-    Scb - Pointer to the Scb for the opened attribute
-
-    Context - Pointer to an initialized attribute context variable to
-              return positioned at the attribute record.
-
-Return Value:
-
-    None.
-
---*/
-
-{
-    PAGED_CODE();
-
-    //
-    //  Lookup the first occurence of this attribute.
-    //
-
-    return NtfsLookupNextAttributeByName( IrpContext,
-                                          Scb->Fcb,
-                                          Scb->AttributeTypeCode,
-                                          &Scb->AttributeName,
-                                          FALSE,
-                                          Context );
-}
-
-
-BOOLEAN
-NtfsEqualAttributeName(
-    IN PIRP_CONTEXT IrpContext,
-    IN PATTRIBUTE_RECORD_HEADER Attribute,
-    IN UNICODE_STRING Name,
-    IN BOOLEAN IgnoreCase
-    )
-
-/*++
-
-Routine Description:
-
-    This routine compares the input name against the name in the attibute
-    record for equality.
-
-    This would have been a macro but for the need of intermediate storage.
-
-Arguments:
-
-    Attribute - Supplies the input attribute record containing the name
-        being examined.
-
-    Name - Supplies the unicode string to compare against the attribute
-        name.
-
-    IgnoreCase - Indicates if the comparison should ignore case.
-
-Return Value:
-
-    BOOLEAN - TRUE if the Attribute name is equal to the input Name and
-        FALSE otherwise.
-
---*/
-
-{
-    BOOLEAN Result;
-    UNICODE_STRING AttributeName;
-
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "NtfsEqualAttributeName\n", 0);
-
-    NtfsInitializeStringFromAttribute( &AttributeName, Attribute );
-
-    Result = NtfsAreNamesEqual( IrpContext, &AttributeName, &Name, IgnoreCase );
-
-    DebugTrace(-1, Dbg, "NtfsEqualAttributeName -> %08lx\n", Result);
-
-    return Result;
-}
-
-
-BOOLEAN
-NtfsLookupAttribute (
-    IN PIRP_CONTEXT IrpContext,
-    IN PFCB Fcb,
-    IN PFILE_REFERENCE BaseFileReference,
-    OUT PATTRIBUTE_ENUMERATION_CONTEXT Context
-    )
-
-/*++
-
-Routine Description:
-
-    This routine attempts to find the fist occurrence of an attribute with
-    the specified AttributeTypeCode in the specified BaseFileReference.  If we
-    find one, its attribute record is pinned and returned.
-
-Arguments:
-
-    Fcb - Requested file.
-
-    BaseFileReference - The base entry for this file in the MFT.
-
-    Context - A handle to the located attribute.
-
-Return Value:
-
-    BOOLEAN - True if we found an attribute, false otherwise.
-
---*/
-
-{
-    BOOLEAN Result;
-
-    ASSERT_IRP_CONTEXT( IrpContext );
-    ASSERT_FCB( Fcb );
-
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "NtfsLookupAttribute\n", 0 );
-
-    //
-    //  Mark this as the initial enumeration.
-    //
-
-    ASSERT(Context->FoundAttribute.Bcb == NULL);
-
-    Result = NtfsLookupInFileRecord( IrpContext,
-                                     Fcb,
-                                     BaseFileReference,
-                                     NULL,
-                                     NULL,
-                                     FALSE,
-                                     NULL,
-                                     0,
-                                     Context );
-
-    DebugTrace(-1, Dbg, "NtfsLookupAttribute -> %08lx\n", Result );
-
-    return Result;
-}
-
-
-BOOLEAN
-NtfsLookupNextAttribute (
-    IN PIRP_CONTEXT IrpContext,
-    IN PFCB Fcb,
-    IN OUT PATTRIBUTE_ENUMERATION_CONTEXT Context
-    )
-
-/*++
-
-Routine Description:
-
-    This function continues where the prior left off.
-
-Arguments:
-
-    Fcb - Requested file.
-
-    Context - Describes the prior found attribute on invocation, and
-        contains the next attribute on return.
-
-Return Value:
-
-    BOOLEAN - True if we found an attribute, false otherwise.
-
---*/
-
-{
-    BOOLEAN Result;
-
-    ASSERT_IRP_CONTEXT( IrpContext );
-    ASSERT_FCB( Fcb );
-
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "NtfsLookupNextAttribute\n", 0 );
-
-    Result = LookupNextAttribute( IrpContext,
-                                  Fcb,
-                                  NULL,
-                                  NULL,
-                                  FALSE,
-                                  NULL,
-                                  0,
-                                  Context );
-
-    DebugTrace(-1, Dbg, "NtfsLookupNextAttribute -> %08lx\n", Result );
-
-    return Result;
-}
-
-
-BOOLEAN
-NtfsLookupAttributeByCode (
-    IN PIRP_CONTEXT IrpContext,
-    IN PFCB Fcb,
-    IN PFILE_REFERENCE BaseFileReference,
-    IN ATTRIBUTE_TYPE_CODE QueriedTypeCode,
-    OUT PATTRIBUTE_ENUMERATION_CONTEXT Context
-    )
-
-/*++
-
-Routine Description:
-
-    This routine attempts to find the fist occurrence of an attribute with
-    the specified AttributeTypeCode in the specified BaseFileReference.  If we
-    find one, its attribute record is pinned and returned.
-
-Arguments:
-
-    Fcb - Requested file.
-
-    BaseFileReference - The base entry for this file in the MFT.
-
-    QueriedTypeCode - The code to search for.
-
-    Context - A handle to the located attribute.
-
-Return Value:
-
-    BOOLEAN - True if we found an attribute, false otherwise.
-
---*/
-
-{
-    BOOLEAN Result;
-
-    ASSERT_IRP_CONTEXT( IrpContext );
-    ASSERT_FCB( Fcb );
-
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "NtfsLookupAttributeByCode\n", 0 );
-
-    //
-    //  Mark this as the initial enumeration.
-    //
-
-    ASSERT(Context->FoundAttribute.Bcb == NULL);
-
-    Result = NtfsLookupInFileRecord( IrpContext,
-                                     Fcb,
-                                     BaseFileReference,
-                                     &QueriedTypeCode,
-                                     NULL,
-                                     FALSE,
-                                     NULL,
-                                     0,
-                                     Context );
-
-    DebugTrace(-1, Dbg, "NtfsLookupAttributeByCode -> %08lx\n", Result );
-
-    return Result;
-}
-
-
-BOOLEAN
-NtfsLookupNextAttributeByCode (
-    IN PIRP_CONTEXT IrpContext,
-    IN PFCB Fcb,
-    IN ATTRIBUTE_TYPE_CODE QueriedTypeCode,
-    IN OUT PATTRIBUTE_ENUMERATION_CONTEXT Context
-    )
-
-/*++
-
-Routine Description:
-
-    This function continues where the prior left off.
-
-Arguments:
-
-    Fcb - Requested file.
-
-    QueriedTypeCode - The code to search for.
-
-    Context - Describes the prior found attribute on invocation, and
-        contains the next attribute on return.
-
-Return Value:
-
-    BOOLEAN - True if we found an attribute, false otherwise.
-
---*/
-
-{
-    BOOLEAN Result;
-
-    ASSERT_IRP_CONTEXT( IrpContext );
-    ASSERT_FCB( Fcb );
-
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "NtfsLookupNextAttributeByCode\n", 0 );
-
-    Result = LookupNextAttribute( IrpContext,
-                                  Fcb,
-                                  &QueriedTypeCode,
-                                  NULL,
-                                  FALSE,
-                                  NULL,
-                                  0,
-                                  Context );
-
-    DebugTrace(-1, Dbg, "NtfsLookupNextAttributeByCode -> %08lx\n", Result );
-
-    return Result;
-}
-
-
-BOOLEAN
-NtfsLookupAttributeByName (
-    IN PIRP_CONTEXT IrpContext,
-    IN PFCB Fcb,
-    IN PFILE_REFERENCE BaseFileReference,
-    IN ATTRIBUTE_TYPE_CODE QueriedTypeCode,
-    IN PUNICODE_STRING QueriedName OPTIONAL,
-    IN BOOLEAN IgnoreCase,
-    OUT PATTRIBUTE_ENUMERATION_CONTEXT Context
-    )
-
-/*++
-
-Routine Description:
-
-    This routine attempts to find the fist occurrence of an attribute with
-    the specified AttributeTypeCode and the specified QueriedName in the
-    specified BaseFileReference.  If we find one, its attribute record is
-    pinned and returned.
-
-Arguments:
-
-    Fcb - Requested file.
-
-    BaseFileReference - The base entry for this file in the MFT.
-
-    QueriedTypeCode - The attribute code to search for.
-
-    QueriedName - The attribute name to search for.
-
-    IgnoreCase - Ignore case while comparing names.
-
-    Context - A handle to the located attribute.
-
-Return Value:
-
-    BOOLEAN - True if we found an attribute, false otherwise.
-
---*/
-
-{
-    BOOLEAN Result;
-
-    ASSERT_IRP_CONTEXT( IrpContext );
-    ASSERT_FCB( Fcb );
-
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "NtfsLookupAttributeByName\n", 0 );
-
-    //
-    //  Mark this as the initial enumeration.
-    //
-
-    ASSERT(Context->FoundAttribute.Bcb == NULL);
-
-    Result = NtfsLookupInFileRecord( IrpContext,
-                                     Fcb,
-                                     BaseFileReference,
-                                     &QueriedTypeCode,
-                                     QueriedName,
-                                     IgnoreCase,
-                                     NULL,
-                                     0,
-                                     Context );
-
-    DebugTrace(-1, Dbg, "NtfsLookupAttributeByName -> %08lx\n", Result );
-
-    return Result;
-}
-
-
-BOOLEAN
-NtfsLookupNextAttributeByName (
-    IN PIRP_CONTEXT IrpContext,
-    IN PFCB Fcb,
-    IN ATTRIBUTE_TYPE_CODE QueriedTypeCode,
-    IN PUNICODE_STRING QueriedName OPTIONAL,
-    IN BOOLEAN IgnoreCase,
-    IN OUT PATTRIBUTE_ENUMERATION_CONTEXT Context
-    )
-
-/*++
-
-Routine Description:
-
-    This function continues where the prior left off.
-
-Arguments:
-
-    Fcb - Requested file.
-
-    QueriedTypeCode - The attribute code to search for.
-
-    QueriedName - The attribute name to search for.
-
-    IgnoreCase - Ignore case while comparing names.
-
-    Context - Describes the prior found attribute on invocation, and
-        contains the next attribute on return.
-
-Return Value:
-
-    BOOLEAN - True if we found an attribute, false otherwise.
-
---*/
-
-{
-    BOOLEAN Result;
-
-    ASSERT_IRP_CONTEXT( IrpContext );
-    ASSERT_FCB( Fcb );
-
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "NtfsLookupNextAttributeByName\n", 0 );
-
-    Result = LookupNextAttribute( IrpContext,
-                                  Fcb,
-                                  &QueriedTypeCode,
-                                  QueriedName,
-                                  IgnoreCase,
-                                  NULL,
-                                  0,
-                                  Context );
-
-    DebugTrace(-1, Dbg, "NtfsLookupNextAttributeByName -> %08lx\n", Result );
-
-    return Result;
-}
-
-
-BOOLEAN
-NtfsLookupAttributeByValue (
-    IN PIRP_CONTEXT IrpContext,
-    IN PFCB Fcb,
-    IN PFILE_REFERENCE BaseFileReference,
-    IN ATTRIBUTE_TYPE_CODE QueriedTypeCode,
-    IN PVOID QueriedValue,
-    IN ULONG QueriedValueLength,
-    OUT PATTRIBUTE_ENUMERATION_CONTEXT Context
-    )
-
-/*++
-
-Routine Description:
-
-    This routine attempts to find the fist occurrence of an attribute with
-    the specified AttributeTypeCode and the specified QueriedValue in the
-    specified BaseFileReference.  If we find one, its attribute record is
-    pinned and returned.
-
-Arguments:
-
-    Fcb - Requested file.
-
-    BaseFileReference - The base entry for this file in the MFT.
-
-    QueriedTypeCode - The attribute code to search for.
-
-    QueriedValue - The actual attribute value to search for.
-
-    QueriedValueLength - The length of the attribute value to search for.
-
-    Context - A handle to the located attribute.
-
-Return Value:
-
-    BOOLEAN - True if we found an attribute, false otherwise.
-
---*/
-
-{
-    BOOLEAN Result;
-
-    ASSERT_IRP_CONTEXT( IrpContext );
-    ASSERT_FCB( Fcb );
-
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "NtfsLookupAttributeByValue\n", 0 );
-
-    //
-    //  Mark this as the initial enumeration.
-    //
-
-    ASSERT(Context->FoundAttribute.Bcb == NULL);
-
-    Result = NtfsLookupInFileRecord( IrpContext,
-                                     Fcb,
-                                     BaseFileReference,
-                                     &QueriedTypeCode,
-                                     NULL,
-                                     FALSE,
-                                     QueriedValue,
-                                     QueriedValueLength,
-                                     Context );
-
-    DebugTrace(-1, Dbg, "NtfsLookupAttributeByValue -> %08lx\n", Result );
-
-    return Result;
-}
-
-
-BOOLEAN
-NtfsLookupNextAttributeByValue (
-    IN PIRP_CONTEXT IrpContext,
-    IN PFCB Fcb,
-    IN ATTRIBUTE_TYPE_CODE QueriedTypeCode,
-    IN PVOID QueriedValue,
-    IN ULONG QueriedValueLength,
-    IN OUT PATTRIBUTE_ENUMERATION_CONTEXT Context
-    )
-
-/*++
-
-Routine Description:
-
-    This function continues where the prior left off.
-
-Arguments:
-
-    Fcb - Requested file.
-
-    QueriedTypeCode - The attribute code to search for.
-
-    QueriedValue - The actual attribute value to search for.
-
-    QueriedValueLength - The length of the attribute value to search for.
-
-    Context - Describes the prior found attribute on invocation, and
-        contains the next attribute on return.
-
-Return Value:
-
-    BOOLEAN - True if we found an attribute, false otherwise.
-
---*/
-
-{
-    BOOLEAN Result;
-
-    ASSERT_IRP_CONTEXT( IrpContext );
-    ASSERT_FCB( Fcb );
-
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "NtfsLookupNextAttributeByValue\n", 0 );
-
-    Result = LookupNextAttribute( IrpContext,
-                                  Fcb,
-                                  &QueriedTypeCode,
-                                  NULL,
-                                  FALSE,
-                                  QueriedValue,
-                                  QueriedValueLength,
-                                  Context );
-
-    DebugTrace(-1, Dbg, "NtfsLookupNextAttributeByValue -> %08lx\n", Result );
-
-    return Result;
-}
-
-
 VOID
-NtfsCleanupAttributeContext(
-    IN PIRP_CONTEXT IrpContext,
+NtfsCleanupAttributeContext (
     IN OUT PATTRIBUTE_ENUMERATION_CONTEXT AttributeContext
     )
 
@@ -1743,11 +1081,9 @@ Return Value:
 --*/
 
 {
-    ASSERT_IRP_CONTEXT( IrpContext );
-
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsCleanupAttributeContext\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsCleanupAttributeContext\n") );
 
     //
     //  TEMPCODE   We need a call to cleanup any Scb's created.
@@ -1757,13 +1093,29 @@ Return Value:
     //  Unpin any Bcb's pinned here.
     //
 
-    NtfsUnpinBcb( IrpContext, &AttributeContext->FoundAttribute.Bcb );
-    NtfsUnpinBcb( IrpContext, &AttributeContext->AttributeList.Bcb );
+    NtfsUnpinBcb( &AttributeContext->FoundAttribute.Bcb );
+    NtfsUnpinBcb( &AttributeContext->AttributeList.Bcb );
+    NtfsUnpinBcb( &AttributeContext->AttributeList.NonresidentListBcb );
 
-    DebugDoit( RtlZeroMemory( AttributeContext,
-                              sizeof(ATTRIBUTE_ENUMERATION_CONTEXT) ));
+    //
+    //  Originally, we zeroed the entire context at this point.  This is
+    //  wildly inefficient since the context is either deallocated soon thereafter
+    //  or is initialized again.
+    //
+    //  RtlZeroMemory( AttributeContext, sizeof(ATTRIBUTE_ENUMERATION_CONTEXT) );
+    //
 
-    DebugTrace(-1, Dbg, "NtfsCleanupAttributeContext -> VOID\n", 0 );
+    //  BUGBUG - set entire contents to -1 (and reset Bcb's to NULL) to verify
+    //  that no one reuses this data structure
+
+#if DBG
+    RtlFillMemory( AttributeContext, sizeof( *AttributeContext ), -1 );
+    AttributeContext->FoundAttribute.Bcb = NULL;
+    AttributeContext->AttributeList.Bcb = NULL;
+    AttributeContext->AttributeList.NonresidentListBcb = NULL;
+#endif
+
+    DebugTrace( -1, Dbg, ("NtfsCleanupAttributeContext -> VOID\n") );
 
     return;
 }
@@ -1773,8 +1125,7 @@ VOID
 NtfsWriteFileSizes (
     IN PIRP_CONTEXT IrpContext,
     IN PSCB Scb,
-    IN LONGLONG FileSize,
-    IN LONGLONG ValidDataLength,
+    IN PLONGLONG ValidDataLength,
     IN BOOLEAN AdvanceOnly,
     IN BOOLEAN LogIt
     )
@@ -1784,15 +1135,13 @@ NtfsWriteFileSizes (
 Routine Description:
 
     This routine is called to modify the filesize and valid data size
-    on the disk.
+    on the disk from the Scb.
 
 Arguments:
 
     Scb - Scb whose attribute is being modified.
 
-    FileSize - New file size.
-
-    ValidDataLength - New valid data length for attribute.
+    ValidDataLength - Supplies pointer to the new desired ValidDataLength
 
     AdvanceOnly - TRUE if the valid data length should be set only if
                   greater than the current value on disk.  FALSE if
@@ -1815,9 +1164,8 @@ Return Value:
     NEW_ATTRIBUTE_SIZES OldAttributeSizes;
     NEW_ATTRIBUTE_SIZES NewAttributeSizes;
 
-    LONGLONG Temp;
-
-    BOOLEAN ReleaseExcess = FALSE;
+    ULONG LogRecordSize = SIZEOF_PARTIAL_ATTRIBUTE_SIZES;
+    BOOLEAN CompressedStream = FALSE;
 
     BOOLEAN UpdateMft = FALSE;
 
@@ -1832,7 +1180,7 @@ Return Value:
         return;
     }
 
-    DebugTrace( +1, Dbg, "NtfsWriteFileSizes:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsWriteFileSizes:  Entered\n") );
 
     //
     //  Use a try_finally to facilitate cleanup.
@@ -1846,7 +1194,7 @@ Return Value:
 
         NtfsInitializeAttributeContext( &AttrContext );
 
-        NtfsLookupAttributeForScb( IrpContext, Scb, &AttrContext );
+        NtfsLookupAttributeForScb( IrpContext, Scb, NULL, &AttrContext );
 
         //
         //  Pull the pointers out of the attribute context.
@@ -1867,74 +1215,19 @@ Return Value:
         }
 
         //
-        //  Don't allow the filesize to be less than this valid data.
-        //
-
-        if (FileSize < ValidDataLength) {
-
-            ValidDataLength = FileSize;
-        }
-
-        //
-        //  In case there has been a truncation inbetween, we make sure
-        //  we do not set the ValidDataLength beyond the value
-        //  in the Scb.
-        //
-
-        if (Scb->Header.ValidDataLength.QuadPart < ValidDataLength) {
-
-            ValidDataLength = Scb->Header.ValidDataLength.QuadPart;
-        }
-
-        //
-        //  Compressed files generally accumulate free space as the file
-        //  is written.  It would be nice to only worry about the case
-        //  where all files are lazy written, and everyone closes handles
-        //  in a timely fashion.  Then we could just free the space when
-        //  the handle is gone and the lazy writer makes his last valid
-        //  data length callback.  However, some file handles are kept
-        //  open, and not all are lazy written.  So instead, every time
-        //  valid data length on disk catches up with the valid data length
-        //  in the Scb, we will free any space generated by calls to
-        //  split the mcb.
-        //
-
-        if (AdvanceOnly &&
-            (Scb->ExcessFromSplitMcb != 0) &&
-            (ValidDataLength == Scb->Header.ValidDataLength.QuadPart)) {
-
-            Temp = Scb->Header.AllocationSize.QuadPart -
-                   ((Scb->ExcessFromSplitMcb + Scb->CompressionUnit - 1) & ~(Scb->CompressionUnit - 1));
-
-            //
-            //  This will correct if the excess number gets too high because
-            //  of log file full, etc.  (We do not want to snapshot the darn
-            //  number or anything...)
-            //
-
-            if (Temp < Scb->Header.FileSize.QuadPart) {
-                Temp = Scb->Header.FileSize.QuadPart;
-            }
-
-
-            NtfsDeleteAllocation( IrpContext,
-                                  NULL,
-                                  Scb,
-                                  LlClustersFromBytes(Scb->Vcb, Temp),
-                                  MAXLONGLONG,
-                                  TRUE,
-                                  TRUE );
-
-            ReleaseExcess = TRUE;
-        }
-
-        //
         //  Remember the existing values.
         //
 
+        OldAttributeSizes.TotalAllocated =
         OldAttributeSizes.AllocationSize = AttributeHeader->Form.Nonresident.AllocatedLength;
         OldAttributeSizes.ValidDataLength = AttributeHeader->Form.Nonresident.ValidDataLength;
         OldAttributeSizes.FileSize = AttributeHeader->Form.Nonresident.FileSize;
+
+        if (FlagOn( AttributeHeader->Flags, ATTRIBUTE_FLAG_COMPRESSION_MASK )) {
+
+            CompressedStream = TRUE;
+            OldAttributeSizes.TotalAllocated = AttributeHeader->Form.Nonresident.TotalAllocated;
+        }
 
         //
         //  Copy these values.
@@ -1944,20 +1237,26 @@ Return Value:
 
         //
         //  Check if we will be modifying the valid data length on
-        //  disk.
+        //  disk.  Don't acquire this for the paging file in case the
+        //  current code block needs to be paged in.
         //
 
+        if (!FlagOn( Scb->Fcb->FcbState, FCB_STATE_PAGING_FILE )) {
+
+            NtfsAcquireFsrtlHeader(Scb);
+        }
+
         if ((AdvanceOnly
-             && (ValidDataLength > AttributeHeader->Form.Nonresident.ValidDataLength))
+             && (*ValidDataLength > OldAttributeSizes.ValidDataLength))
 
             || (!AdvanceOnly
-                && (ValidDataLength < AttributeHeader->Form.Nonresident.ValidDataLength))) {
+                && (*ValidDataLength < OldAttributeSizes.ValidDataLength))) {
 
             //
             //  Copy the valid data length into the new size structure.
             //
 
-            NewAttributeSizes.ValidDataLength = ValidDataLength;
+            NewAttributeSizes.ValidDataLength = *ValidDataLength;
 
             UpdateMft = TRUE;
 
@@ -1967,11 +1266,31 @@ Return Value:
         //  Now check if we're modifying the filesize.
         //
 
-        if (FileSize != AttributeHeader->Form.Nonresident.FileSize) {
+        if (Scb->Header.FileSize.QuadPart != OldAttributeSizes.FileSize) {
 
-            NewAttributeSizes.FileSize = FileSize;
+            NewAttributeSizes.FileSize = Scb->Header.FileSize.QuadPart;
 
             UpdateMft = TRUE;
+        }
+
+        if (!FlagOn( Scb->Fcb->FcbState, FCB_STATE_PAGING_FILE )) {
+
+            NtfsReleaseFsrtlHeader(Scb);
+        }
+
+        //
+        //  If this is compressed then check if totally allocated has changed.
+        //
+
+        if (CompressedStream) {
+
+            LogRecordSize = SIZEOF_FULL_ATTRIBUTE_SIZES;
+
+            if (Scb->TotalAllocated != OldAttributeSizes.TotalAllocated) {
+
+                NewAttributeSizes.TotalAllocated = Scb->TotalAllocated;
+                UpdateMft = TRUE;
+            }
         }
 
         //
@@ -1984,7 +1303,6 @@ Return Value:
 
             UpdateMft = TRUE;
         }
-
 
         //
         //  Continue on if we need to update the Mft.
@@ -2023,23 +1341,35 @@ Return Value:
                                                 NtfsFoundBcb( &AttrContext ),
                                                 SetNewAttributeSizes,
                                                 &NewAttributeSizes,
-                                                sizeof( NEW_ATTRIBUTE_SIZES ),
+                                                LogRecordSize,
                                                 SetNewAttributeSizes,
                                                 &OldAttributeSizes,
-                                                sizeof( NEW_ATTRIBUTE_SIZES ),
-                                                NtfsMftVcn( &AttrContext, Scb->Vcb ),
+                                                LogRecordSize,
+                                                NtfsMftOffset( &AttrContext ),
                                                 PtrOffset( FileRecord, AttributeHeader ),
                                                 0,
-                                                Scb->Vcb->ClustersPerFileRecordSegment );
+                                                Scb->Vcb->BytesPerFileRecordSegment );
 
             } else {
 
-                NtfsSetDirtyBcb( IrpContext, NtfsFoundBcb( &AttrContext ), NULL, Scb->Vcb );
+                CcSetDirtyPinnedData( NtfsFoundBcb( &AttrContext ), NULL );
             }
 
             AttributeHeader->Form.Nonresident.AllocatedLength = NewAttributeSizes.AllocationSize;
             AttributeHeader->Form.Nonresident.FileSize = NewAttributeSizes.FileSize;
             AttributeHeader->Form.Nonresident.ValidDataLength = NewAttributeSizes.ValidDataLength;
+
+            //
+            //  Don't modify the total allocated field unless there is an actual field for it.
+            //
+
+            if (CompressedStream &&
+                ((AttributeHeader->NameOffset >= SIZEOF_FULL_NONRES_ATTR_HEADER) ||
+                 ((AttributeHeader->NameOffset == 0) &&
+                  (AttributeHeader->Form.Nonresident.MappingPairsOffset >= SIZEOF_FULL_NONRES_ATTR_HEADER)))) {
+
+                AttributeHeader->Form.Nonresident.TotalAllocated = NewAttributeSizes.TotalAllocated;
+            }
         }
 
     try_exit: NOTHING;
@@ -2051,13 +1381,9 @@ Return Value:
         //  Cleanup the attribute context.
         //
 
-        NtfsCleanupAttributeContext( IrpContext, &AttrContext );
+        NtfsCleanupAttributeContext( &AttrContext );
 
-        if (ReleaseExcess && !AbnormalTermination()) {
-            Scb->ExcessFromSplitMcb = 0;
-        }
-
-        DebugTrace( -1, Dbg, "NtfsWriteFileSizes:  Exit\n", 0 );
+        DebugTrace( -1, Dbg, ("NtfsWriteFileSizes:  Exit\n") );
     }
 
     return;
@@ -2091,10 +1417,11 @@ Return Value:
 {
     ATTRIBUTE_ENUMERATION_CONTEXT AttrContext;
     STANDARD_INFORMATION StandardInformation;
+    ULONG Length;
 
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsUpdateStandardInformation:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsUpdateStandardInformation:  Entered\n") );
 
     //
     //  Use a try-finally to cleanup the attribute context.
@@ -2118,11 +1445,23 @@ Return Value:
                                         $STANDARD_INFORMATION,
                                         &AttrContext )) {
 
-            DebugTrace( 0, Dbg, "Can't find standard information\n", 0 );
+            DebugTrace( 0, Dbg, ("Can't find standard information\n") );
 
             NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, Fcb );
         }
 
+#ifdef _CAIRO_
+        Length = NtfsFoundAttribute( &AttrContext )->Form.Resident.ValueLength;
+        //
+        //  Copy the existing standard information to our buffer.
+        //
+
+        RtlCopyMemory( &StandardInformation,
+                       NtfsAttributeValue( NtfsFoundAttribute( &AttrContext )),
+                       Length);
+
+
+#else
         //
         //  Copy the existing standard information to our buffer.
         //
@@ -2130,6 +1469,171 @@ Return Value:
         RtlCopyMemory( &StandardInformation,
                        NtfsAttributeValue( NtfsFoundAttribute( &AttrContext )),
                        sizeof( STANDARD_INFORMATION ));
+
+#endif
+        //
+        //  Since we are updating standard information, make sure the last
+        //  access time is up-to-date.
+        //
+
+        if (Fcb->Info.LastAccessTime != Fcb->CurrentLastAccess) {
+
+            Fcb->Info.LastAccessTime = Fcb->CurrentLastAccess;
+            SetFlag( Fcb->InfoFlags, FCB_INFO_CHANGED_LAST_ACCESS );
+        }
+
+        //
+        //  Change the relevant time fields.
+        //
+
+        StandardInformation.CreationTime = Fcb->Info.CreationTime;
+        StandardInformation.LastModificationTime = Fcb->Info.LastModificationTime;
+        StandardInformation.LastChangeTime = Fcb->Info.LastChangeTime;
+        StandardInformation.LastAccessTime = Fcb->Info.LastAccessTime;
+        StandardInformation.FileAttributes = Fcb->Info.FileAttributes;
+
+        //
+        //  We clear the directory bit.
+        //
+
+        ClearFlag( StandardInformation.FileAttributes, DUP_FILE_NAME_INDEX_PRESENT );
+
+#ifdef _CAIRO_
+
+        // Fill in the new fields if necessary.
+
+        if (FlagOn(Fcb->FcbState, FCB_STATE_LARGE_STD_INFO)) {
+
+            StandardInformation.ClassId = Fcb->ClassId;
+            StandardInformation.OwnerId = Fcb->OwnerId;
+            StandardInformation.SecurityId = Fcb->SecurityId;
+            StandardInformation.Usn = Fcb->Usn;
+        }
+
+        //
+        //  Call to change the attribute value.
+        //
+
+        NtfsChangeAttributeValue( IrpContext,
+                                  Fcb,
+                                  0,
+                                  &StandardInformation,
+                                  Length,
+                                  FALSE,
+                                  FALSE,
+                                  FALSE,
+                                  FALSE,
+                                  &AttrContext );
+
+
+#else
+
+        //
+        //  Call to change the attribute value.
+        //
+
+        NtfsChangeAttributeValue( IrpContext,
+                                  Fcb,
+                                  0,
+                                  &StandardInformation,
+                                  sizeof( STANDARD_INFORMATION ),
+                                  FALSE,
+                                  FALSE,
+                                  FALSE,
+                                  FALSE,
+                                  &AttrContext );
+
+
+#endif
+
+    } finally {
+
+        DebugUnwind( NtfsUpdateStandadInformation );
+
+        NtfsCleanupAttributeContext( &AttrContext );
+
+        DebugTrace( -1, Dbg, ("NtfsUpdateStandardInformation:  Exit\n") );
+    }
+
+    return;
+}
+
+
+#ifdef _CAIRO_
+VOID
+NtfsGrowStandardInformation (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB Fcb
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called to grow and update the standard information
+    attribute for a file from the information in the Fcb.
+
+Arguments:
+
+    Fcb - Fcb for the file to modify.
+
+Return Value:
+
+    None
+
+--*/
+
+{
+    ATTRIBUTE_ENUMERATION_CONTEXT AttrContext;
+    STANDARD_INFORMATION StandardInformation;
+
+    PAGED_CODE();
+
+    DebugTrace( +1, Dbg, ("NtfsGrowStandardInformation:  Entered\n") );
+
+    //
+    //  Use a try-finally to cleanup the attribute context.
+    //
+
+    try {
+
+        //
+        //  Initialize the context structure.
+        //
+
+        NtfsInitializeAttributeContext( &AttrContext );
+
+        //
+        //  Locate the standard information, it must be there.
+        //
+
+        if (!NtfsLookupAttributeByCode( IrpContext,
+                                        Fcb,
+                                        &Fcb->FileReference,
+                                        $STANDARD_INFORMATION,
+                                        &AttrContext )) {
+
+            DebugTrace( 0, Dbg, ("Can't find standard information\n") );
+
+            NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, Fcb );
+        }
+
+        if (NtfsFoundAttribute( &AttrContext )->Form.Resident.ValueLength ==
+            SIZEOF_OLD_STANDARD_INFORMATION) {
+
+            //
+            //  Copy the existing standard information to our buffer.
+            //
+
+            RtlCopyMemory( &StandardInformation,
+                           NtfsAttributeValue( NtfsFoundAttribute( &AttrContext )),
+                           SIZEOF_OLD_STANDARD_INFORMATION);
+
+            RtlZeroMemory((PCHAR) &StandardInformation +
+                            SIZEOF_OLD_STANDARD_INFORMATION,
+                            sizeof( STANDARD_INFORMATION) -
+                            SIZEOF_OLD_STANDARD_INFORMATION);
+        }
 
         //
         //  Since we are updating standard information, make sure the last
@@ -2156,8 +1660,17 @@ Return Value:
         //  We clear the directory bit.
         //
 
-        ClearFlag( StandardInformation.FileAttributes,
-                   DUP_FILE_NAME_INDEX_PRESENT );
+        ClearFlag( StandardInformation.FileAttributes, DUP_FILE_NAME_INDEX_PRESENT );
+
+
+        //
+        //  Fill in the new fields.
+        //
+
+        StandardInformation.ClassId = Fcb->ClassId;
+        StandardInformation.OwnerId = Fcb->OwnerId;
+        StandardInformation.SecurityId = Fcb->SecurityId;
+        StandardInformation.Usn = Fcb->Usn;
 
         //
         //  Call to change the attribute value.
@@ -2167,26 +1680,29 @@ Return Value:
                                   Fcb,
                                   0,
                                   &StandardInformation,
-                                  sizeof( STANDARD_INFORMATION ),
-                                  FALSE,
+                                  sizeof( STANDARD_INFORMATION),
+                                  TRUE,
                                   FALSE,
                                   FALSE,
                                   FALSE,
                                   &AttrContext );
 
+
         ClearFlag( Fcb->FcbState, FCB_STATE_UPDATE_STD_INFO );
+        SetFlag( Fcb->FcbState, FCB_STATE_LARGE_STD_INFO );
 
     } finally {
 
-        DebugUnwind( NtfsUpdateStandadInformation );
+        DebugUnwind( NtfsGrowStandadInformation );
 
-        NtfsCleanupAttributeContext( IrpContext, &AttrContext );
+        NtfsCleanupAttributeContext( &AttrContext );
 
-        DebugTrace( -1, Dbg, "NtfsUpdateStandardInformation:  Exit\n", 0 );
+        DebugTrace( -1, Dbg, ("NtfsGrowStandardInformation:  Exit\n") );
     }
 
     return;
 }
+#endif
 
 
 BOOLEAN
@@ -2251,7 +1767,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsLookupEntry:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsLookupEntry:  Entered\n") );
 
     //
     //  We compute the size of the buffer needed to build the filename
@@ -2266,13 +1782,13 @@ Return Value:
 
         if (*FileNameAttr != NULL) {
 
-            DebugTrace( 0, Dbg, "Deallocating previous file name attribute buffer\n", 0 );
-            NtfsFreePagedPool( *FileNameAttr );
+            DebugTrace( 0, Dbg, ("Deallocating previous file name attribute buffer\n") );
+            NtfsFreePool( *FileNameAttr );
 
             *FileNameAttr = NULL;
         }
 
-        *FileNameAttr = NtfsAllocatePagedPool( Size << 1 );
+        *FileNameAttr = NtfsAllocatePool(PagedPool, Size << 1 );
         *FileNameAttrLength = Size << 1;
     }
 
@@ -2294,7 +1810,6 @@ Return Value:
     FoundEntry = NtfsFindIndexEntry( IrpContext,
                                      ParentScb,
                                      *FileNameAttr,
-                                     NtfsFileNameSize( *FileNameAttr ),
                                      IgnoreCase,
                                      QuickIndex,
                                      IndexEntryBcb,
@@ -2312,301 +1827,9 @@ Return Value:
                        Name->Length );
     }
 
-    DebugTrace( +1, Dbg, "NtfsLookupEntry:  Exit -> %04x\n", FoundEntry );
+    DebugTrace( +1, Dbg, ("NtfsLookupEntry:  Exit -> %04x\n", FoundEntry) );
 
     return FoundEntry;
-}
-
-
-VOID
-NtfsAddNameToParent (
-    IN PIRP_CONTEXT IrpContext,
-    IN PSCB ParentScb,
-    IN PFCB ThisFcb,
-    IN BOOLEAN IgnoreCase,
-    IN BOOLEAN LogIt,
-    IN PFILE_NAME FileNameAttr,
-    OUT PUCHAR FileNameFlags,
-    OUT PQUICK_INDEX QuickIndex OPTIONAL
-    )
-
-/*++
-
-Routine Description:
-
-    This routine will create the filename attribute with the given name.
-    Depending on the IgnoreCase flag, this is either a link or an Ntfs
-    name.  If it is an Ntfs name, we check if it is also the Dos name.
-
-    We build a file name attribute and then add it via ThisFcb, we then
-    add this entry to the parent.
-
-Arguments:
-
-    ParentScb - This is the parent directory for the file.
-
-    ThisFcb - This is the file to add the filename to.
-
-    FileName - This is the file name to add.
-
-    IgnoreCase - Indicates if this name is case insensitive.  Only for Posix
-        will this be FALSE.
-
-    LogIt - Indicates if we should log this operation.
-
-    FileNameAttr - This contains a file name attribute structure to use.
-
-    FileNameFlags - We store a copy of the File name flags used in the file
-        name attribute.
-
-    QuickIndex - If specified, we store the information about the location of the
-        index entry added.
-
-Return Value:
-
-    None - This routine will raise on error.
-
---*/
-
-{
-    ATTRIBUTE_ENUMERATION_CONTEXT AttrContext;
-
-    PAGED_CODE();
-
-    DebugTrace( +1, Dbg, "NtfsAddNameToParent:  Entered\n", 0 );
-
-    NtfsInitializeAttributeContext( &AttrContext );
-
-    //
-    //  Use a try-finally to facilitate cleanup.
-    //
-
-    try {
-
-        //
-        //  Decide whether the name is a link, Ntfs-Only or Ntfs/8.3 combined name.
-        //  Update the filename attribute to reflect this.
-        //
-
-        if (!IgnoreCase) {
-
-            *FileNameFlags = 0;
-
-        } else {
-
-            UNICODE_STRING FileName;
-
-            FileName.Length = (USHORT)(FileNameAttr->FileNameLength * sizeof(WCHAR));
-            FileName.Buffer = FileNameAttr->FileName;
-
-            *FileNameFlags = FILE_NAME_NTFS;
-
-            if (NtfsIsFatNameValid( IrpContext, &FileName, FALSE )) {
-
-                *FileNameFlags |= FILE_NAME_DOS;
-            }
-        }
-
-        //
-        //  Now update the file name attribute.
-        //
-
-        FileNameAttr->Flags = *FileNameFlags;
-
-        //
-        //  Put it in the file record.
-        //
-
-        NtfsCreateAttributeWithValue( IrpContext,
-                                      ThisFcb,
-                                      $FILE_NAME,
-                                      NULL,
-                                      FileNameAttr,
-                                      NtfsFileNameSize( FileNameAttr ),
-                                      0,
-                                      &FileNameAttr->ParentDirectory,
-                                      LogIt,
-                                      &AttrContext );
-
-        //
-        //  Now put it in the index entry.
-        //
-
-        NtfsAddIndexEntry( IrpContext,
-                           ParentScb,
-                           FileNameAttr,
-                           NtfsFileNameSize( FileNameAttr ),
-                           &ThisFcb->FileReference,
-                           QuickIndex );
-
-    } finally {
-
-        DebugUnwind( NtfsAddNameToParent );
-
-        NtfsCleanupAttributeContext( IrpContext, &AttrContext );
-
-        DebugTrace( -1, Dbg, "NtfsAddNameToParent:  Exit\n", 0 );
-    }
-
-    return;
-}
-
-VOID
-NtfsAddDosOnlyName (
-    IN PIRP_CONTEXT IrpContext,
-    IN PSCB ParentScb,
-    IN PFCB ThisFcb,
-    IN UNICODE_STRING FileName,
-    IN BOOLEAN LogIt
-    )
-
-/*++
-
-Routine Description:
-
-    This routine is called to build a Dos only name attribute an put it in
-    the file record and the parent index.  We need to allocate pool large
-    enough to hold the name (easy for 8.3) and then check that the generated
-    names don't already exist in the parent.
-
-Arguments:
-
-    ParentScb - This is the parent directory for the file.
-
-    ThisFcb - This is the file to add the filename to.
-
-    FileName - This is the file name to add.
-
-    LogIt - Indicates whether we need to log the creation of a file name attribute.
-
-Return Value:
-
-    None - This routine will raise on error.
-
---*/
-
-{
-    GENERATE_NAME_CONTEXT NameContext;
-    PFILE_NAME FileNameAttr;
-    UNICODE_STRING Name8dot3;
-
-    PINDEX_ENTRY IndexEntry;
-    PBCB IndexEntryBcb;
-
-    ATTRIBUTE_ENUMERATION_CONTEXT AttrContext;
-
-    PAGED_CODE();
-
-    DebugTrace( +1, Dbg, "NtfsAddDosOnlyName:  Entered\n", 0 );
-
-    IndexEntryBcb = NULL;
-
-    RtlZeroMemory( &NameContext, sizeof( GENERATE_NAME_CONTEXT ));
-
-    //
-    //  The maximum length is 24 bytes, but 2 are already defined with the
-    //  FILE_NAME structure.
-    //
-
-    FileNameAttr = NtfsAllocatePagedPool( sizeof( FILE_NAME ) + 22 );
-
-    //
-    //  Use a try-finally to facilitate cleanup.
-    //
-
-    try {
-
-        NtfsInitializeAttributeContext( &AttrContext );
-
-        //
-        //  Set up the string to hold the generated name.  It will be part
-        //  of the file name attribute structure.
-        //
-
-        Name8dot3.Buffer = FileNameAttr->FileName;
-        Name8dot3.MaximumLength = 24;
-
-        FileNameAttr->ParentDirectory = ParentScb->Fcb->FileReference;
-        FileNameAttr->Flags = FILE_NAME_DOS;
-
-        //
-        //  Copy the info values into the filename attribute.
-        //
-
-        RtlCopyMemory( &FileNameAttr->Info,
-                       &ThisFcb->Info,
-                       sizeof( DUPLICATED_INFORMATION ));
-
-        //
-        //  We will loop indefinitely.  We generate a name, look in the parent
-        //  for it.  If found we continue generating.  If not then we have the
-        //  name we need.
-        //
-
-        while( TRUE ) {
-
-            RtlGenerate8dot3Name( &FileName,
-                                  FALSE,
-                                  &NameContext,
-                                  &Name8dot3 );
-
-            FileNameAttr->FileNameLength = (UCHAR)(Name8dot3.Length / 2);
-
-            if (!NtfsFindIndexEntry( IrpContext,
-                                     ParentScb,
-                                     FileNameAttr,
-                                     NtfsFileNameSize( FileNameAttr ),
-                                     TRUE,
-                                     NULL,
-                                     &IndexEntryBcb,
-                                     &IndexEntry )) {
-
-                break;
-            }
-
-            NtfsUnpinBcb( IrpContext, &IndexEntryBcb );
-        }
-
-        //
-        //  We add this entry to the file record.
-        //
-
-        NtfsCreateAttributeWithValue( IrpContext,
-                                      ThisFcb,
-                                      $FILE_NAME,
-                                      NULL,
-                                      FileNameAttr,
-                                      NtfsFileNameSize( FileNameAttr ),
-                                      0,
-                                      &FileNameAttr->ParentDirectory,
-                                      LogIt,
-                                      &AttrContext );
-
-        //
-        //  We add this entry to the parent.
-        //
-
-        NtfsAddIndexEntry( IrpContext,
-                           ParentScb,
-                           FileNameAttr,
-                           NtfsFileNameSize( FileNameAttr ),
-                           &ThisFcb->FileReference,
-                           NULL );
-
-    } finally {
-
-        DebugUnwind( NtfsAddDosOnlyName );
-
-        NtfsFreePagedPool( FileNameAttr );
-
-        NtfsUnpinBcb( IrpContext, &IndexEntryBcb );
-
-        NtfsCleanupAttributeContext( IrpContext, &AttrContext );
-
-        DebugTrace( -1, Dbg, "NtfsAddDosOnlyName:  Exit  ->  %08lx\n", 0 );
-    }
-
-    return;
 }
 
 
@@ -2670,7 +1893,7 @@ Return Value:
 --*/
 
 {
-    UCHAR AttributeBuffer[SIZEOF_NONRESIDENT_ATTRIBUTE_HEADER];
+    UCHAR AttributeBuffer[SIZEOF_FULL_NONRES_ATTR_HEADER];
     ULONG RecordOffset;
     PATTRIBUTE_RECORD_HEADER Attribute;
     PFILE_RECORD_SEGMENT_HEADER FileRecord;
@@ -2684,15 +1907,21 @@ Return Value:
 
     PAGED_CODE();
 
-    ASSERT( AttributeFlags == 0
-            || AttributeTypeCode == $INDEX_ROOT
-            || AttributeTypeCode == $DATA );
+    ASSERT( (AttributeFlags == 0) ||
+            (AttributeTypeCode == $INDEX_ROOT) ||
+            NtfsIsTypeCodeCompressible( AttributeTypeCode ));
 
     Vcb = Fcb->Vcb;
 
-    DebugTrace(+1, Dbg, "NtfsCreateAttributeWithValue\n", 0 );
-    DebugTrace( 0, Dbg, "Value = %08lx\n", Value );
-    DebugTrace( 0, Dbg, "ValueLength = %08lx\n", ValueLength );
+    DebugTrace( +1, Dbg, ("NtfsCreateAttributeWithValue\n") );
+    DebugTrace( 0, Dbg, ("Value = %08lx\n", Value) );
+    DebugTrace( 0, Dbg, ("ValueLength = %08lx\n", ValueLength) );
+
+    //
+    //  Clear out the invalid attribute flags for this volume.
+    //
+
+    AttributeFlags &= Vcb->AttributeFlagsMask;
 
     //
     //  Calculate the size needed for this attribute
@@ -2714,7 +1943,7 @@ Return Value:
 
         if (Passes != 0) {
 
-            NtfsCleanupAttributeContext( IrpContext, Context );
+            NtfsCleanupAttributeContext( Context );
             NtfsInitializeAttributeContext( Context );
         }
 
@@ -2734,12 +1963,13 @@ Return Value:
                                            &Fcb->FileReference,
                                            AttributeTypeCode,
                                            AttributeName,
+                                           NULL,
                                            FALSE,
                                            Context )) {
 
                 DebugTrace( 0, 0,
-                            "Nonindexed attribute already exists, TypeCode = %08lx\n",
-                            AttributeTypeCode );
+                            ("Nonindexed attribute already exists, TypeCode = %08lx\n",
+                             AttributeTypeCode ));
 
                 ASSERTMSG("Nonindexed attribute already exists, About to bugcheck ", FALSE);
                 NtfsBugCheck( AttributeTypeCode, 0, 0 );
@@ -2754,8 +1984,7 @@ Return Value:
 
             if ((SizeNeeded > (FileRecord->BytesAvailable - FileRecord->FirstFreeByte)) &&
                 (SizeNeeded >= Vcb->BigEnoughToMove) &&
-                !FlagOn(NtfsGetAttributeDefinition(IrpContext,
-                                                   Vcb,
+                !FlagOn(NtfsGetAttributeDefinition(Vcb,
                                                    AttributeTypeCode)->Flags,
                         ATTRIBUTE_DEF_MUST_BE_RESIDENT)) {
 
@@ -2792,8 +2021,8 @@ Return Value:
                                             Context )) {
 
                 DebugTrace( 0, 0,
-                            "Indexed attribute already exists, TypeCode = %08lx\n",
-                            AttributeTypeCode );
+                            ("Indexed attribute already exists, TypeCode = %08lx\n",
+                            AttributeTypeCode ));
 
                 ASSERTMSG("Indexed attribute already exists, About to bugcheck ", FALSE);
                 NtfsBugCheck( AttributeTypeCode, 0, 0 );
@@ -2918,10 +2147,10 @@ Return Value:
                           DeleteAttribute,
                           NULL,
                           0,
-                          NtfsMftVcn(Context, Vcb),
+                          NtfsMftOffset( Context ),
                           RecordOffset,
                           0,
-                          Vcb->ClustersPerFileRecordSegment );
+                          Vcb->BytesPerFileRecordSegment );
 
         } except(NtfsExceptionFilter( IrpContext, GetExceptionInformation() )) {
 
@@ -2938,16 +2167,14 @@ Return Value:
     if (Context->AttributeList.Bcb != NULL) {
 
         MFT_SEGMENT_REFERENCE SegmentReference;
-        VCN Vcn;
 
-        Vcn = NtfsMftVcn(Context, Vcb);
-        *(PLONGLONG)&SegmentReference = Vcn >> (Vcb->MftShift - Vcb->ClusterShift);
+        *(PLONGLONG)&SegmentReference = LlFileRecordsFromBytes( Vcb, NtfsMftOffset( Context ));
         SegmentReference.SequenceNumber = FileRecord->SequenceNumber;
 
         NtfsAddToAttributeList( IrpContext, Fcb, SegmentReference, Context );
     }
 
-    DebugTrace(-1, Dbg, "NtfsCreateAttributeWithValue -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsCreateAttributeWithValue -> VOID\n") );
 
     return;
 }
@@ -2998,6 +2225,8 @@ Arguments:
     WriteClusters - if supplied as TRUE, then we cannot write the data into the
         cache but must write the clusters directly to the disk.  The value buffer
         in this case must be quad-aligned and a multiple of cluster size in size.
+        If TRUE it also means we are being called during the NtfsConvertToNonresident
+        path.  We need to set a flag in the Scb in that case.
 
     ThisScb - If present, this is the Scb to use for the create.  It also indicates
               that this call is from convert to non-resident.
@@ -3024,14 +2253,19 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsCreateNonresidentWithValue\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsCreateNonresidentWithValue\n") );
 
     AdvanceOnly =
-    LogNonresidentToo = BooleanFlagOn(NtfsGetAttributeDefinition(IrpContext, Vcb, AttributeTypeCode)->Flags,
+    LogNonresidentToo = BooleanFlagOn(NtfsGetAttributeDefinition(Vcb, AttributeTypeCode)->Flags,
                                       ATTRIBUTE_DEF_LOG_NONRESIDENT);
 
-    ASSERT( AttributeFlags == 0
-            || AttributeTypeCode == $DATA );
+    ASSERT( (AttributeFlags == 0) || NtfsIsTypeCodeCompressible( AttributeTypeCode ));
+
+    //
+    //  Clear out the invalid attribute flags for this volume.
+    //
+
+    AttributeFlags &= Vcb->AttributeFlagsMask;
 
     if (ARGUMENT_PRESENT(AttributeName)) {
 
@@ -3051,10 +2285,10 @@ Return Value:
     } else {
 
         Scb = NtfsCreateScb( IrpContext,
-                             Vcb,
                              Fcb,
                              AttributeTypeCode,
-                             LocalName,
+                             &LocalName,
+                             FALSE,
                              &ReturnedExistingScb );
 
         //
@@ -3067,19 +2301,10 @@ Return Value:
                                   SCB_STATE_FILE_SIZE_LOADED );
 
         //
-        //  If the compression unit is non-zero or this is a resident file
-        //  then set the flag in the common header for the Modified page writer.
+        //  Set a flag in the Scb to indicate that we are converting to non-resident.
         //
 
-        if (Scb->CompressionUnit != 0
-            || FlagOn( Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT )) {
-
-            SetFlag( Scb->Header.Flags, FSRTL_FLAG_ACQUIRE_MAIN_RSRC_EX );
-
-        } else {
-
-            ClearFlag( Scb->Header.Flags, FSRTL_FLAG_ACQUIRE_MAIN_RSRC_EX );
-        }
+        if (WriteClusters) { SetFlag( Scb->ScbState, SCB_STATE_CONVERT_UNDERWAY ); }
     }
 
     //
@@ -3125,7 +2350,6 @@ Return Value:
 
         if (LogNonresidentToo || !WriteClusters) {
 
-            LONGLONG SavedFileSize;
             ULONG BytesThisPage;
             PVOID Buffer;
             PBCB Bcb = NULL;
@@ -3142,6 +2366,8 @@ Return Value:
 
             try {
 
+                CC_FILE_SIZES FileSizes;
+
                 //
                 //  Call the Cache Manager to truncate and reestablish the FileSize,
                 //  so that we are guaranteed to get a valid data length call when
@@ -3149,13 +2375,11 @@ Return Value:
                 //  have to call us.
                 //
 
-                SavedFileSize = Scb->Header.FileSize.QuadPart;
-                Scb->Header.FileSize = Li0;
+                RtlCopyMemory( &FileSizes, &Scb->Header.AllocationSize, sizeof( CC_FILE_SIZES ));
 
-                CcSetFileSizes( Scb->FileObject,
-                                (PCC_FILE_SIZES)&Scb->Header.AllocationSize );
+                FileSizes.FileSize.QuadPart = 0;
 
-                Scb->Header.FileSize.QuadPart = SavedFileSize;
+                CcSetFileSizes( Scb->FileObject, &FileSizes );
 
                 CcSetFileSizes( Scb->FileObject,
                                 (PCC_FILE_SIZES)&Scb->Header.AllocationSize );
@@ -3164,7 +2388,7 @@ Return Value:
 
                     BytesThisPage = (RemainingBytes < PAGE_SIZE ? RemainingBytes : PAGE_SIZE);
 
-                    NtfsUnpinBcb( IrpContext, &Bcb );
+                    NtfsUnpinBcb( &Bcb );
                     NtfsPinStream( IrpContext,
                                    Scb,
                                    CurrentFileOffset,
@@ -3198,15 +2422,15 @@ Return Value:
                                       Noop,
                                       NULL,
                                       0,
-                                      LlClustersFromBytes( Vcb, CurrentFileOffset),
+                                      CurrentFileOffset,
                                       0,
                                       0,
-                                      ClustersFromBytes(Vcb, BytesThisPage) );
+                                      BytesThisPage );
 
 
                     } else {
 
-                        NtfsSetDirtyBcb( IrpContext, Bcb, NULL, NULL );
+                        CcSetDirtyPinnedData( Bcb, NULL );
                     }
 
                     RemainingBytes -= BytesThisPage;
@@ -3217,7 +2441,7 @@ Return Value:
 
             } finally {
 
-                NtfsUnpinBcb( IrpContext, &Bcb );
+                NtfsUnpinBcb( &Bcb );
             }
 
         } else {
@@ -3251,8 +2475,7 @@ Return Value:
 
     NtfsWriteFileSizes( IrpContext,
                         Scb,
-                        Scb->Header.FileSize.QuadPart,
-                        Scb->Header.ValidDataLength.QuadPart,
+                        &Scb->Header.ValidDataLength.QuadPart,
                         AdvanceOnly,
                         LogIt );
 
@@ -3272,14 +2495,14 @@ Return Value:
 
     if (FlagOn( Scb->ScbState, SCB_STATE_UNNAMED_DATA )) {
 
-        Fcb->Info.AllocatedLength = Scb->Header.AllocationSize.QuadPart;
+        Fcb->Info.AllocatedLength = Scb->TotalAllocated;
         Fcb->Info.FileSize = Scb->Header.FileSize.QuadPart;
 
         SetFlag( Fcb->InfoFlags,
                  (FCB_INFO_CHANGED_ALLOC_SIZE | FCB_INFO_CHANGED_FILE_SIZE) );
     }
 
-    DebugTrace(-1, Dbg, "NtfsCreateNonresidentWithValue -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsCreateNonresidentWithValue -> VOID\n") );
 }
 
 
@@ -3338,9 +2561,9 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsMapAttributeValue\n", 0 );
-    DebugTrace( 0, Dbg, "Fcb = %08lx\n", Fcb );
-    DebugTrace( 0, Dbg, "Context = %08lx\n", Context );
+    DebugTrace( +1, Dbg, ("NtfsMapAttributeValue\n") );
+    DebugTrace( 0, Dbg, ("Fcb = %08lx\n", Fcb) );
+    DebugTrace( 0, Dbg, ("Context = %08lx\n", Context) );
 
     Attribute = NtfsFoundAttribute(Context);
 
@@ -3356,10 +2579,10 @@ Return Value:
         *Bcb = NtfsFoundBcb(Context);
         NtfsFoundBcb(Context) = NULL;
 
-        DebugTrace( 0, Dbg, "Buffer < %08lx\n", *Buffer );
-        DebugTrace( 0, Dbg, "Length < %08lx\n", *Length );
-        DebugTrace( 0, Dbg, "Bcb < %08lx\n", *Bcb );
-        DebugTrace(-1, Dbg, "NtfsMapAttributeValue -> VOID\n", 0 );
+        DebugTrace( 0, Dbg, ("Buffer < %08lx\n", *Buffer) );
+        DebugTrace( 0, Dbg, ("Length < %08lx\n", *Length) );
+        DebugTrace( 0, Dbg, ("Bcb < %08lx\n", *Bcb) );
+        DebugTrace( -1, Dbg, ("NtfsMapAttributeValue -> VOID\n") );
 
         return;
     }
@@ -3374,13 +2597,15 @@ Return Value:
     NtfsInitializeStringFromAttribute( &AttributeName, Attribute );
 
     Scb = NtfsCreateScb( IrpContext,
-                         Fcb->Vcb,
                          Fcb,
                          Attribute->TypeCode,
-                         AttributeName,
+                         &AttributeName,
+                         FALSE,
                          &ReturnedExistingScb );
 
-    NtfsUpdateScbFromAttribute( IrpContext, Scb, Attribute );
+    if (!FlagOn( Scb->ScbState, SCB_STATE_HEADER_INITIALIZED )) {
+        NtfsUpdateScbFromAttribute( IrpContext, Scb, Attribute );
+    }
 
     NtfsCreateInternalAttributeStream( IrpContext, Scb, FALSE );
 
@@ -3398,10 +2623,10 @@ Return Value:
 
     *Length = ((ULONG)Attribute->Form.Nonresident.FileSize);
 
-    DebugTrace( 0, Dbg, "Buffer < %08lx\n", *Buffer );
-    DebugTrace( 0, Dbg, "Length < %08lx\n", *Length );
-    DebugTrace( 0, Dbg, "Bcb < %08lx\n", *Bcb );
-    DebugTrace(-1, Dbg, "NtfsMapAttributeValue -> VOID\n", 0 );
+    DebugTrace( 0, Dbg, ("Buffer < %08lx\n", *Buffer) );
+    DebugTrace( 0, Dbg, ("Length < %08lx\n", *Length) );
+    DebugTrace( 0, Dbg, ("Bcb < %08lx\n", *Bcb) );
+    DebugTrace( -1, Dbg, ("NtfsMapAttributeValue -> VOID\n") );
 }
 
 
@@ -3587,14 +2812,14 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsChangeAttributeValue\n", 0 );
-    DebugTrace( 0, Dbg, "Fcb = %08lx\n", Fcb );
-    DebugTrace( 0, Dbg, "ValueOffset = %08lx\n", ValueOffset );
-    DebugTrace( 0, Dbg, "Value = %08lx\n", Value );
-    DebugTrace( 0, Dbg, "ValueLength = %08lx\n", ValueLength );
-    DebugTrace( 0, Dbg, "SetNewLength = %02lx\n", SetNewLength );
-    DebugTrace( 0, Dbg, "LogNonresidentToo = %02lx\n", LogNonresidentToo );
-    DebugTrace( 0, Dbg, "Context = %08lx\n", Context );
+    DebugTrace( +1, Dbg, ("NtfsChangeAttributeValue\n") );
+    DebugTrace( 0, Dbg, ("Fcb = %08lx\n", Fcb) );
+    DebugTrace( 0, Dbg, ("ValueOffset = %08lx\n", ValueOffset) );
+    DebugTrace( 0, Dbg, ("Value = %08lx\n", Value) );
+    DebugTrace( 0, Dbg, ("ValueLength = %08lx\n", ValueLength) );
+    DebugTrace( 0, Dbg, ("SetNewLength = %02lx\n", SetNewLength) );
+    DebugTrace( 0, Dbg, ("LogNonresidentToo = %02lx\n", LogNonresidentToo) );
+    DebugTrace( 0, Dbg, ("Context = %08lx\n", Context) );
 
     //
     //  Get the file record and attribute pointers.
@@ -3733,7 +2958,7 @@ Return Value:
 
             if (SavedName.Length > sizeof(NameBuffer)) {
 
-                SavedName.Buffer = FsRtlAllocatePool( NonPagedPool, SavedName.Length );
+                SavedName.Buffer = NtfsAllocatePool( NonPagedPool, SavedName.Length );
             }
 
             //
@@ -3764,7 +2989,7 @@ Return Value:
 
                         BOOLEAN Found;
 
-                        NtfsCleanupAttributeContext( IrpContext, Context );
+                        NtfsCleanupAttributeContext( Context );
                         NtfsInitializeAttributeContext( Context );
 
                         Found =
@@ -3773,6 +2998,7 @@ Return Value:
                                                    &Fcb->FileReference,
                                                    TypeCode,
                                                    &SavedName,
+                                                   NULL,
                                                    FALSE,
                                                    Context );
 
@@ -3800,7 +3026,7 @@ Return Value:
 
                 if (SavedName.Buffer != NameBuffer) {
 
-                    ExFreePool(SavedName.Buffer);
+                    NtfsFreePool(SavedName.Buffer);
                 }
             }
 
@@ -3870,10 +3096,10 @@ Return Value:
                           UpdateResidentValue,
                           NULL,
                           0,
-                          NtfsMftVcn(Context, Vcb),
+                          NtfsMftOffset( Context ),
                           RecordOffset,
                           AttributeOffset,
-                          Vcb->ClustersPerFileRecordSegment );
+                          Vcb->BytesPerFileRecordSegment );
 
             //
             //  Now zero this data by calling the same routine as restart.
@@ -3966,10 +3192,10 @@ Return Value:
                           UpdateResidentValue,
                           UndoBuffer,
                           UndoLength,
-                          NtfsMftVcn(Context, Vcb),
+                          NtfsMftOffset( Context ),
                           RecordOffset,
                           AttributeOffset,
-                          Vcb->ClustersPerFileRecordSegment );
+                          Vcb->BytesPerFileRecordSegment );
 
             //
             //  Now update this data by calling the same routine as restart.
@@ -3984,7 +3210,7 @@ Return Value:
                                     (BOOLEAN)(SizeChange != 0) );
         }
 
-        DebugTrace(-1, Dbg, "NtfsChangeAttributeValue -> VOID\n", 0 );
+        DebugTrace( -1, Dbg, ("NtfsChangeAttributeValue -> VOID\n") );
 
         return;
     }
@@ -3997,10 +3223,10 @@ Return Value:
     AttributeTypeCode = Attribute->TypeCode;
 
     Scb = NtfsCreateScb( IrpContext,
-                         Vcb,
                          Fcb,
                          AttributeTypeCode,
-                         AttributeName,
+                         &AttributeName,
+                         FALSE,
                          &ReturnedExistingScb );
 
     //
@@ -4039,11 +3265,11 @@ Return Value:
 
         if (NtfsIsAttributeResident(Attribute)) {
 
-            ConvertToNonresident( IrpContext,
-                                  Fcb,
-                                  Attribute,
-                                  CreateSectionUnderway,
-                                  Context );
+            NtfsConvertToNonresident( IrpContext,
+                                      Fcb,
+                                      Attribute,
+                                      CreateSectionUnderway,
+                                      Context );
 
             //
             //  Reload the attribute pointer from the context.
@@ -4060,6 +3286,9 @@ Return Value:
         } else {
 
             NtfsCreateInternalAttributeStream( IrpContext, Scb, TRUE );
+
+            NtfsExpandQuotaToAllocationSize( IrpContext, Scb );
+
         }
 
         //
@@ -4090,7 +3319,7 @@ Return Value:
 
                 if (SavedName.Length > sizeof(NameBuffer)) {
 
-                    SavedName.Buffer = FsRtlAllocatePool( NonPagedPool, SavedName.Length );
+                    SavedName.Buffer = NtfsAllocatePool( NonPagedPool, SavedName.Length );
                 }
 
                 //
@@ -4107,7 +3336,24 @@ Return Value:
                 LookupAttribute = TRUE;
             }
 
+            //
+            //  If this is the attribute list then check if we want to allocate a larger block.
+            //  This way the attribute list doesn't get too fragmented.
+            //
+
             NewAllocation = NewSize - ((ULONG)Attribute->Form.Nonresident.AllocatedLength);
+
+            if (Scb->AttributeTypeCode == $ATTRIBUTE_LIST) {
+
+                if ((ULONG) Attribute->Form.Nonresident.AllocatedLength > (4 * PAGE_SIZE)) {
+
+                    NewAllocation = (2 * PAGE_SIZE) + NewSize - ((ULONG)Attribute->Form.Nonresident.AllocatedLength);
+
+                } else if ((ULONG) Attribute->Form.Nonresident.AllocatedLength > PAGE_SIZE) {
+
+                    NewAllocation = PAGE_SIZE + NewSize - ((ULONG)Attribute->Form.Nonresident.AllocatedLength);
+                }
+            }
 
             NtfsAddAllocation( IrpContext,
                                Scb->FileObject,
@@ -4124,7 +3370,7 @@ Return Value:
 
             if (FlagOn( Scb->ScbState, SCB_STATE_UNNAMED_DATA )) {
 
-                Fcb->Info.AllocatedLength = Scb->Header.AllocationSize.QuadPart;
+                Fcb->Info.AllocatedLength = Scb->TotalAllocated;
 
                 SetFlag( Fcb->InfoFlags, FCB_INFO_CHANGED_ALLOC_SIZE );
             }
@@ -4132,7 +3378,11 @@ Return Value:
         } else if (Vcb->BytesPerCluster <=
                    ((ULONG)Attribute->Form.Nonresident.AllocatedLength) - NewSize) {
 
-            DeleteAllocation = TRUE;
+            if ((Scb->AttributeTypeCode != $ATTRIBUTE_LIST) ||
+                (NewSize * 2 < ((ULONG) Attribute->Form.Nonresident.AllocatedLength))) {
+
+                DeleteAllocation = TRUE;
+            }
         }
 
         //
@@ -4246,7 +3496,7 @@ Return Value:
                     //  this page.
                     //
 
-                    NtfsUnpinBcb( IrpContext, &Bcb );
+                    NtfsUnpinBcb( &Bcb );
 
                     NtfsPinStream( IrpContext,
                                    Scb,
@@ -4271,10 +3521,10 @@ Return Value:
                                   Noop,
                                   NULL,
                                   0,
-                                  LlClustersFromBytes( Vcb, CurrentPage ),
+                                  CurrentPage,
                                   PageOffset,
                                   0,
-                                  ClustersFromBytes( Vcb, ZeroBytesThisPage + PageOffset ));
+                                  ZeroBytesThisPage + PageOffset );
 
                     //
                     //  Zero any data necessary.
@@ -4323,7 +3573,7 @@ Return Value:
                     if (AllocateBufferCopy
                         && NewBytesRemaining + PageOffset > PAGE_SIZE) {
 
-                        CopyInputBuffer = NtfsAllocatePagedPool( NewBytesRemaining );
+                        CopyInputBuffer = NtfsAllocatePool(PagedPool, NewBytesRemaining );
                         RtlCopyMemory( CopyInputBuffer,
                                        Value,
                                        NewBytesRemaining );
@@ -4405,7 +3655,7 @@ Return Value:
                         //  buffer in the page.
                         //
 
-                        NtfsUnpinBcb( IrpContext, &Bcb );
+                        NtfsUnpinBcb( &Bcb );
 
                         NtfsPinStream( IrpContext,
                                        Scb,
@@ -4431,10 +3681,10 @@ Return Value:
                                       UpdateNonresidentValue,
                                       Buffer,
                                       UndoBytesThisPage,
-                                      LlClustersFromBytes( Vcb, CurrentPage ),
+                                      CurrentPage,
                                       PageOffset,
                                       0,
-                                      ClustersFromBytes( Vcb, BytesThisPage ) );
+                                      BytesThisPage );
 
                         //
                         //  Move the data into place if we have new data.
@@ -4485,7 +3735,7 @@ Return Value:
                     //  buffer in the page.
                     //
 
-                    NtfsUnpinBcb( IrpContext, &Bcb );
+                    NtfsUnpinBcb( &Bcb );
 
                     NtfsPinStream( IrpContext,
                                    Scb,
@@ -4510,10 +3760,10 @@ Return Value:
                                   Noop,
                                   NULL,
                                   0,
-                                  LlClustersFromBytes( Vcb, CurrentPage ),
+                                  CurrentPage,
                                   PageOffset,
                                   0,
-                                  ClustersFromBytes( Vcb, PageOffset + RedoBytesThisPage ));
+                                  PageOffset + RedoBytesThisPage );
 
                     //
                     //  Move the data into place.
@@ -4614,9 +3864,9 @@ Return Value:
             }
         }
 
-        if (LlClustersFromBytes(Vcb, Scb->Header.ValidDataLength.QuadPart) <= Scb->HighestVcnToDisk) {
+        if (Scb->Header.ValidDataLength.QuadPart < Scb->ValidDataToDisk) {
 
-            Scb->HighestVcnToDisk = LlClustersFromBytes(Vcb, Scb->Header.ValidDataLength.QuadPart) - 1;
+            Scb->ValidDataToDisk = Scb->Header.ValidDataLength.QuadPart;
         }
 
         //
@@ -4641,7 +3891,7 @@ Return Value:
 
             if (FlagOn( Scb->ScbState, SCB_STATE_UNNAMED_DATA )) {
 
-                Fcb->Info.AllocatedLength = Scb->Header.AllocationSize.QuadPart;
+                Fcb->Info.AllocatedLength = Scb->TotalAllocated;
                 Fcb->Info.FileSize = Scb->Header.FileSize.QuadPart;
 
                 SetFlag( Fcb->InfoFlags,
@@ -4652,8 +3902,7 @@ Return Value:
 
                 NtfsWriteFileSizes( IrpContext,
                                     Scb,
-                                    Scb->Header.FileSize.QuadPart,
-                                    Scb->Header.ValidDataLength.QuadPart,
+                                    &Scb->Header.ValidDataLength.QuadPart,
                                     TRUE,
                                     TRUE );
             }
@@ -4712,8 +3961,7 @@ Return Value:
 
             NtfsWriteFileSizes( IrpContext,
                                 Scb,
-                                Scb->Header.FileSize.QuadPart,
-                                Scb->Header.ValidDataLength.QuadPart,
+                                &Scb->Header.ValidDataLength.QuadPart,
                                 AdvanceValidData,
                                 TRUE );
 
@@ -4721,8 +3969,7 @@ Return Value:
 
             NtfsWriteFileSizes( IrpContext,
                                 Scb,
-                                Scb->Header.FileSize.QuadPart,
-                                Scb->Header.ValidDataLength.QuadPart,
+                                &Scb->Header.ValidDataLength.QuadPart,
                                 TRUE,
                                 TRUE );
         }
@@ -4735,7 +3982,7 @@ Return Value:
 
             BOOLEAN Found;
 
-            NtfsCleanupAttributeContext( IrpContext, Context );
+            NtfsCleanupAttributeContext( Context );
             NtfsInitializeAttributeContext( Context );
 
             Found =
@@ -4744,6 +3991,7 @@ Return Value:
                                        &Fcb->FileReference,
                                        TypeCode,
                                        &SavedName,
+                                       NULL,
                                        FALSE,
                                        Context );
 
@@ -4757,17 +4005,387 @@ Return Value:
 
         if (CopyInputBuffer != NULL) {
 
-            NtfsFreePagedPool( CopyInputBuffer );
+            NtfsFreePool( CopyInputBuffer );
         }
 
         if (SaveBuffer != NULL) {
 
-            ExFreePool( SaveBuffer );
+            NtfsFreePool( SaveBuffer );
         }
 
-        NtfsUnpinBcb( IrpContext, &Bcb );
+        NtfsUnpinBcb( &Bcb );
 
-        DebugTrace(-1, Dbg, "NtfsChangeAttributeValue -> VOID\n", 0 );
+        DebugTrace( -1, Dbg, ("NtfsChangeAttributeValue -> VOID\n") );
+    }
+}
+
+
+VOID
+NtfsConvertToNonresident (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB Fcb,
+    IN OUT PATTRIBUTE_RECORD_HEADER Attribute,
+    IN BOOLEAN CreateSectionUnderway,
+    IN OUT PATTRIBUTE_ENUMERATION_CONTEXT Context OPTIONAL
+    )
+
+/*++
+
+Routine Description:
+
+    This routine converts a resident attribute to nonresident.  It does so
+    by allocating a buffer and copying the data and attribute name away,
+    deleting the attribute, allocating a new attribute of the right size,
+    and then copying the data back out again.
+
+Arguments:
+
+    Fcb - Requested file.
+
+    Attribute - Supplies a pointer to the attribute to convert.
+
+    CreateSectionUnderway - if supplied as TRUE, then to the best of the caller's
+                            knowledge, an MM Create Section could be underway,
+                            which means that we cannot initiate caching on
+                            this attribute, as that could cause deadlock.  The
+                            value buffer in this case must be quad-aligned and
+                            a multiple of cluster size in size.
+
+    Context - An attribute context to look up another attribute in the same
+              file record.  If supplied, we insure that the context is valid
+              for converted attribute.
+
+Return Value:
+
+    None
+
+--*/
+
+{
+    PVOID Buffer;
+    PVOID AllocatedBuffer = NULL;
+    ULONG AllocatedLength;
+    ULONG AttributeNameOffset;
+
+    ATTRIBUTE_ENUMERATION_CONTEXT LocalContext;
+    BOOLEAN CleanupLocalContext = FALSE;
+
+    ATTRIBUTE_TYPE_CODE AttributeTypeCode = Attribute->TypeCode;
+     USHORT AttributeFlags = Attribute->Flags;
+    PVOID AttributeValue = NULL;
+    ULONG ValueLength;
+
+    UNICODE_STRING AttributeName;
+    WCHAR AttributeNameBuffer[16];
+
+    BOOLEAN WriteClusters = CreateSectionUnderway;
+
+    PBCB ResidentBcb = NULL;
+    PSCB Scb = NULL;
+
+#ifdef _CAIRO_
+    ULONG IrpContextFlags = FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_QUOTA_DISABLE );
+#endif // _CAIRO_
+
+    PAGED_CODE();
+
+    //
+    //  Use a try-finally to facilitate cleanup.
+    //
+
+    try {
+
+        //
+        //  Build a temporary copy of the name out of the attribute.
+        //
+
+        AttributeName.MaximumLength =
+        AttributeName.Length = Attribute->NameLength * sizeof( WCHAR );
+        AttributeName.Buffer = Add2Ptr( Attribute, Attribute->NameOffset );
+
+        //
+        //  If we don't have an attribute context for this attribute then look it
+        //  up now.
+        //
+
+        if (!ARGUMENT_PRESENT( Context )) {
+
+            Context = &LocalContext;
+            NtfsInitializeAttributeContext( Context );
+            CleanupLocalContext = TRUE;
+
+            //
+            //  Lookup the first occurence of this attribute.
+            //
+
+            if (!NtfsLookupAttributeByName( IrpContext,
+                                            Fcb,
+                                            &Fcb->FileReference,
+                                            AttributeTypeCode,
+                                            &AttributeName,
+                                            NULL,
+                                            FALSE,
+                                            Context )) {
+
+                DebugTrace( 0, 0, ("Could not find attribute being converted\n") );
+
+                ASSERTMSG("Could not find attribute being converted, About to bugcheck ", FALSE);
+                NtfsBugCheck( AttributeTypeCode, 0, 0 );
+            }
+        }
+
+        //
+        //  We need to figure out how much pool to allocate.  If there is a mapped
+        //  view of this section or a section is being created we will allocate a buffer
+        //  and copy the data into the buffer.  Otherwise we will pin the data in
+        //  the cache, mark it dirty and use that buffer to perform the conversion.
+        //
+
+        AllocatedLength = AttributeName.Length;
+
+        if (CreateSectionUnderway) {
+
+#ifdef _CAIRO_
+
+            //
+            //  CAIROBUG: The following should be combined with the
+            //  code below when the cairo ifdefs are removed.
+            //
+
+            BOOLEAN ReturnedExistingScb;
+
+            Scb = NtfsCreateScb( IrpContext,
+                                 Fcb,
+                                 AttributeTypeCode,
+                                 &AttributeName,
+                                 FALSE,
+                                 &ReturnedExistingScb );
+
+            //
+            //  If the quota has been expanded already then the rigth
+            //  things will happen below.  If the quota has not been
+            //  expanded then no quota changes are required since
+            //  file size is not changing.
+            //
+
+            ClearFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_QUOTA_DISABLE );
+
+            if (!FlagOn( Scb->ScbState, SCB_STATE_QUOTA_ENLARGED)) {
+                SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_QUOTA_DISABLE );
+            }
+
+            Scb = NULL;
+
+#endif // _CAIRO_
+
+            AttributeNameOffset = ClusterAlign( Fcb->Vcb,
+                                                Attribute->Form.Resident.ValueLength );
+            AllocatedLength += AttributeNameOffset;
+            ValueLength = Attribute->Form.Resident.ValueLength;
+
+        } else {
+
+            BOOLEAN ReturnedExistingScb;
+
+            Scb = NtfsCreateScb( IrpContext,
+                                 Fcb,
+                                 AttributeTypeCode,
+                                 &AttributeName,
+                                 FALSE,
+                                 &ReturnedExistingScb );
+
+            //
+            //  Make sure the Scb is up-to-date.
+            //
+
+            NtfsUpdateScbFromAttribute( IrpContext,
+                                        Scb,
+                                        Attribute );
+
+#ifdef _CAIRO_
+
+            //
+            //  If the quota has been expanded already then the rigth
+            //  things will happen below.  If the quota has not been
+            //  expanded then no quota changes are required since
+            //  file size is not changing.
+            //
+
+            ClearFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_QUOTA_DISABLE );
+
+            if (!FlagOn( Scb->ScbState, SCB_STATE_QUOTA_ENLARGED)) {
+                SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_QUOTA_DISABLE );
+            }
+
+#endif // _CAIRO_
+
+            //
+            //  Set the flag in the Scb to indicate that we are converting this to
+            //  non resident.
+            //
+
+            SetFlag( Scb->ScbState, SCB_STATE_CONVERT_UNDERWAY );
+
+            //
+            //  Now check if the file is mapped by a user.
+            //
+
+            if (!MmCanFileBeTruncated( &Scb->NonpagedScb->SegmentObject, NULL )) {
+
+                AttributeNameOffset = ClusterAlign( Fcb->Vcb,
+                                                    Attribute->Form.Resident.ValueLength );
+                AllocatedLength += AttributeNameOffset;
+                ValueLength = Attribute->Form.Resident.ValueLength;
+                Scb = NULL;
+                WriteClusters = TRUE;
+
+            } else {
+
+                volatile UCHAR VolatileUchar;
+
+                AttributeNameOffset = 0;
+                NtfsCreateInternalAttributeStream( IrpContext, Scb, TRUE );
+
+                //
+                //  Make sure the cache is up-to-date.
+                //
+
+                CcSetFileSizes( Scb->FileObject,
+                                (PCC_FILE_SIZES)&Scb->Header.AllocationSize );
+
+                ValueLength = Scb->Header.ValidDataLength.LowPart;
+
+                if (ValueLength != 0) {
+
+                    NtfsPinStream( IrpContext,
+                                   Scb,
+                                   (LONGLONG)0,
+                                   ValueLength,
+                                   &ResidentBcb,
+                                   &AttributeValue );
+
+                    //
+                    //  Close the window where this page can leave memory before we
+                    //  have the new attribute initialized.  The result will be that
+                    //  we may fault in this page again and read uninitialized data
+                    //  out of the newly allocated sectors.
+                    //
+                    //  Make the page dirty so that the cache manager will write it out
+                    //  and update the valid data length.
+                    //
+
+                    VolatileUchar = *((PUCHAR) AttributeValue);
+
+                    *((PUCHAR) AttributeValue) = VolatileUchar;
+                }
+            }
+        }
+
+        if (AllocatedLength > 8) {
+
+            Buffer = AllocatedBuffer = NtfsAllocatePool(PagedPool, AllocatedLength );
+
+        } else {
+
+            Buffer = &AttributeNameBuffer;
+        }
+
+        //
+        //  Now update the attribute name in the buffer.
+        //
+
+        AttributeName.Buffer = Add2Ptr( Buffer, AttributeNameOffset );
+
+        RtlCopyMemory( AttributeName.Buffer,
+                       Add2Ptr( Attribute, Attribute->NameOffset ),
+                       AttributeName.Length );
+
+        //
+        //  If we are going to write the clusters directly to the disk then copy
+        //  the bytes into the buffer.
+        //
+
+        if (WriteClusters) {
+
+            AttributeValue = Buffer;
+
+            RtlCopyMemory( AttributeValue, NtfsAttributeValue( Attribute ), ValueLength );
+        }
+
+        //
+        //  Now just delete the current record and create it nonresident.
+        //  Create nonresident with attribute does the right thing if we
+        //  are being called by MM.
+        //
+
+        NtfsDeleteAttributeRecord( IrpContext, Fcb, TRUE, TRUE, Context );
+
+        NtfsCreateNonresidentWithValue( IrpContext,
+                                        Fcb,
+                                        AttributeTypeCode,
+                                        &AttributeName,
+                                        AttributeValue,
+                                        ValueLength,
+                                        AttributeFlags,
+                                        WriteClusters,
+                                        Scb,
+                                        TRUE,
+                                        Context );
+
+        //
+        //  If we were passed an attribute context, then we want to
+        //  reload the context with the new location of the file.
+        //
+
+        if (!CleanupLocalContext) {
+
+            NtfsCleanupAttributeContext( Context );
+            NtfsInitializeAttributeContext( Context );
+
+            if (!NtfsLookupAttributeByName( IrpContext,
+                                            Fcb,
+                                            &Fcb->FileReference,
+                                            AttributeTypeCode,
+                                            &AttributeName,
+                                            NULL,
+                                            FALSE,
+                                            Context )) {
+
+                DebugTrace( 0, 0, ("Could not find attribute being converted\n") );
+
+                ASSERTMSG("Could not find attribute being converted, About to raise corrupt ", FALSE);
+
+                NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, Fcb );
+            }
+        }
+
+    } finally {
+
+        DebugUnwind( NtfsConvertToNonresident );
+
+        if (AllocatedBuffer != NULL) {
+
+            NtfsFreePool( AllocatedBuffer );
+        }
+
+        if (CleanupLocalContext) {
+
+            NtfsCleanupAttributeContext( Context );
+        }
+
+        NtfsUnpinBcb( &ResidentBcb );
+
+#ifdef _CAIRO_
+
+        //
+        //  Restore the value of the quota disable flag.
+        //
+
+        ClearFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_QUOTA_DISABLE );
+        SetFlag( IrpContext->Flags, IrpContextFlags );
+
+#endif // _CAIRO_
+
     }
 }
 
@@ -4827,9 +4445,9 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsDeleteAttribute\n", 0 );
-    DebugTrace( 0, Dbg, "Fcb = %08lx\n", Fcb );
-    DebugTrace( 0, Dbg, "Context =%08lx\n", Context );
+    DebugTrace( +1, Dbg, ("NtfsDeleteAttribute\n") );
+    DebugTrace( 0, Dbg, ("Fcb = %08lx\n", Fcb) );
+    DebugTrace( 0, Dbg, ("Context =%08lx\n", Context) );
 
     //
     //  Get the pointers we need.
@@ -4844,7 +4462,35 @@ Return Value:
         !Context->FoundAttribute.AttributeAllocationDeleted) {
 
         NtfsDeleteAllocationFromRecord( IrpContext, Fcb, Context, TRUE );
+
+        //
+        //  Reload our local pointers.
+        //
+
+        Attribute = NtfsFoundAttribute(Context);
+        FileRecord = NtfsContainingFileRecord(Context);
     }
+
+#ifdef _CAIRO_
+
+    //
+    //  If this is a resident stream then release the quota.  Quota for
+    //  non-resident streams is handled by NtfsDeleteAllocaiton.
+    //
+
+    if ((Attribute->FormCode == RESIDENT_FORM) &&
+        NtfsIsTypeCodeSubjectToQuota( Attribute->TypeCode )) {
+
+        LONGLONG Delta = -NtfsResidentStreamQuota( Vcb );
+
+        NtfsConditionallyUpdateQuota( IrpContext,
+                                      Fcb,
+                                      &Delta,
+                                      LogIt,
+                                      FALSE );
+    }
+
+#endif //_CAIRO
 
     //
     //  Be sure the attribute is pinned.
@@ -4868,10 +4514,10 @@ Return Value:
                       CreateAttribute,
                       Attribute,
                       Attribute->RecordLength,
-                      NtfsMftVcn(Context, Vcb),
+                      NtfsMftOffset( Context ),
                       (PCHAR)Attribute - (PCHAR)FileRecord,
                       0,
-                      Vcb->ClustersPerFileRecordSegment );
+                      Vcb->BytesPerFileRecordSegment );
     }
 
     NtfsRestartRemoveAttribute( IrpContext,
@@ -4903,16 +4549,15 @@ Return Value:
         FileRecord->FirstFreeByte == ((ULONG)FileRecord->FirstAttributeOffset +
                                       QuadAlign( sizeof( ATTRIBUTE_TYPE_CODE )))) {
 
-        ASSERT( Fcb->FileReference.HighPart == 0 );
+        ASSERT( NtfsFullSegmentNumber( &Fcb->FileReference ) ==
+                NtfsUnsafeSegmentNumber( &Fcb->FileReference ) );
 
         NtfsDeallocateMftRecord( IrpContext,
                                  Vcb,
-                                 (ULONG)Context->FoundAttribute.MftFileOffset >> Vcb->MftShift,
-                                 (BOOLEAN)((Fcb == Vcb->MftScb->Fcb) &&
-                                           (AttributeTypeCode == $DATA)) );
+                                 (ULONG)Context->FoundAttribute.MftFileOffset >> Vcb->MftShift );
     }
 
-    DebugTrace(-1, Dbg, "NtfsDeleteAttributeRecord -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsDeleteAttributeRecord -> VOID\n") );
 
     return;
 }
@@ -4982,10 +4627,10 @@ Return Value:
     //
 
     Scb = NtfsCreateScb( IrpContext,
-                         Fcb->Vcb,
                          Fcb,
                          Attribute->TypeCode,
-                         AttributeName,
+                         &AttributeName,
+                         FALSE,
                          &ScbExisted );
 
     try {
@@ -5000,6 +4645,12 @@ Return Value:
         if (!FlagOn( Scb->ScbState, SCB_STATE_HEADER_INITIALIZED )) {
 
             NtfsUpdateScbFromAttribute( IrpContext, Scb, Attribute );
+
+            if (!FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_QUOTA_DISABLE )) {
+
+                NtfsExpandQuotaToAllocationSize( IrpContext, Scb );
+
+            }
         }
 
         //
@@ -5074,10 +4725,10 @@ Return Value:
 
         if (ReinitializeContext) {
 
-            NtfsCleanupAttributeContext( IrpContext, Context );
+            NtfsCleanupAttributeContext( Context );
             NtfsInitializeAttributeContext( Context );
 
-            NtfsLookupAttributeForScb( IrpContext, Scb, Context );
+            NtfsLookupAttributeForScb( IrpContext, Scb, NULL, Context );
         }
 
     } finally {
@@ -5098,7 +4749,7 @@ Return Value:
 //  the routines in allocsup.
 //
 
-VOID
+BOOLEAN
 NtfsCreateAttributeWithAllocation (
     IN PIRP_CONTEXT IrpContext,
     IN PSCB Scb,
@@ -5147,12 +4798,14 @@ Arguments:
 
 Return Value:
 
-    None.
+    BOOLEAN - TRUE if we created the attribute with all the allocation.  FALSE
+        otherwise.  We should only return FALSE if we are creating a file
+        and don't want to log any of the changes to the file record.
 
 --*/
 
 {
-    UCHAR AttributeBuffer[SIZEOF_NONRESIDENT_ATTRIBUTE_HEADER];
+    UCHAR AttributeBuffer[SIZEOF_FULL_NONRES_ATTR_HEADER];
     UCHAR MappingPairsBuffer[64];
     ULONG RecordOffset;
     PATTRIBUTE_RECORD_HEADER Attribute;
@@ -5167,20 +4820,28 @@ Return Value:
     PVCB Vcb;
     ULONG Passes = 0;
     PFCB Fcb = Scb->Fcb;
-    PLARGE_MCB Mcb = &Scb->Mcb;
+    PNTFS_MCB Mcb = &Scb->Mcb;
+    ULONG AttributeHeaderSize = SIZEOF_PARTIAL_NONRES_ATTR_HEADER;
+    BOOLEAN AllocateAll = TRUE;
 
     ASSERT_IRP_CONTEXT( IrpContext );
     ASSERT_FCB( Fcb );
 
     PAGED_CODE();
 
-    ASSERT( AttributeFlags == 0
-            || AttributeTypeCode == $DATA );
+    ASSERT( (AttributeFlags == 0) ||
+            NtfsIsTypeCodeCompressible( AttributeTypeCode ));
 
     Vcb = Fcb->Vcb;
 
-    DebugTrace(+1, Dbg, "NtfsCreateAttributeWithAllocation\n", 0 );
-    DebugTrace( 0, Dbg, "Mcb = %08lx\n", Mcb );
+    //
+    //  Clear out the invalid attribute flags for this volume.
+    //
+
+    AttributeFlags &= Vcb->AttributeFlagsMask;
+
+    DebugTrace( +1, Dbg, ("NtfsCreateAttributeWithAllocation\n") );
+    DebugTrace( 0, Dbg, ("Mcb = %08lx\n", Mcb) );
 
     //
     //  Calculate the size needed for this attribute.  (We say we have
@@ -5189,14 +4850,22 @@ Return Value:
     //  unusual that we would really have to extend.)
     //
 
-    MappingPairsLength = QuadAlign( NtfsGetSizeForMappingPairs( IrpContext,
-                                                                Mcb,
+    MappingPairsLength = QuadAlign( NtfsGetSizeForMappingPairs( Mcb,
                                                                 Vcb->BigEnoughToMove,
                                                                 (LONGLONG)0,
                                                                 NULL,
                                                                 &LastVcn ));
 
-    SizeNeeded = SIZEOF_NONRESIDENT_ATTRIBUTE_HEADER +
+    //
+    //  Remember the size of the attribute header needed for this file.
+    //
+
+    if (FlagOn( AttributeFlags, ATTRIBUTE_FLAG_COMPRESSION_MASK )) {
+
+        AttributeHeaderSize = SIZEOF_FULL_NONRES_ATTR_HEADER;
+    }
+
+    SizeNeeded = AttributeHeaderSize +
                  MappingPairsLength +
                  (ARGUMENT_PRESENT(AttributeName) ?
                    QuadAlign( AttributeName->Length ) : 0);
@@ -5215,7 +4884,7 @@ Return Value:
 
         if (Passes != 0) {
 
-            NtfsCleanupAttributeContext( IrpContext, Context );
+            NtfsCleanupAttributeContext( Context );
             NtfsInitializeAttributeContext( Context );
         }
 
@@ -5234,12 +4903,13 @@ Return Value:
                                        &Fcb->FileReference,
                                        AttributeTypeCode,
                                        AttributeName,
+                                       NULL,
                                        FALSE,
                                        Context )) {
 
             DebugTrace( 0, 0,
-                        "Nonresident attribute already exists, TypeCode = %08lx\n",
-                        AttributeTypeCode );
+                        ("Nonresident attribute already exists, TypeCode = %08lx\n",
+                        AttributeTypeCode) );
 
             ASSERTMSG("Nonresident attribute already exists, About to bugcheck ", FALSE);
             NtfsBugCheck( AttributeTypeCode, 0, 0 );
@@ -5294,7 +4964,7 @@ Return Value:
     RecordOffset = (PCHAR)NtfsFoundAttribute(Context) - (PCHAR)FileRecord;
     Attribute = (PATTRIBUTE_RECORD_HEADER)AttributeBuffer;
 
-    RtlZeroMemory( Attribute, SIZEOF_NONRESIDENT_ATTRIBUTE_HEADER );
+    RtlZeroMemory( Attribute, SIZEOF_FULL_NONRES_ATTR_HEADER );
 
     Attribute->TypeCode = AttributeTypeCode;
     Attribute->RecordLength = SizeNeeded;
@@ -5305,7 +4975,7 @@ Return Value:
     //  will go.  (Update below if we are wrong.)
     //
 
-    MappingPairs = (PCHAR)Attribute + SIZEOF_NONRESIDENT_ATTRIBUTE_HEADER;
+    MappingPairs = Add2Ptr( Attribute, AttributeHeaderSize );
 
     //
     //  If the attribute has a name, take care of that now.
@@ -5317,7 +4987,7 @@ Return Value:
         ASSERT( AttributeName->Length <= 0x1FF );
 
         Attribute->NameLength = (UCHAR)(AttributeName->Length / sizeof(WCHAR));
-        Attribute->NameOffset = (USHORT)SIZEOF_NONRESIDENT_ATTRIBUTE_HEADER;
+        Attribute->NameOffset = (USHORT)AttributeHeaderSize;
         MappingPairs += QuadAlign( AttributeName->Length );
     }
 
@@ -5348,7 +5018,7 @@ Return Value:
 
     if (MappingPairsLength > 64) {
 
-        MappingPairs = FsRtlAllocatePool( NonPagedPool, MappingPairsLength );
+        MappingPairs = NtfsAllocatePool( NonPagedPool, MappingPairsLength );
     }
     *MappingPairs = 0;
 
@@ -5360,16 +5030,15 @@ Return Value:
 
     Attribute->Form.Nonresident.HighestVcn =
     HighestVcn = -1;
-    if (FsRtlLookupLastLargeMcbEntry( Mcb, &HighestVcn, &Lcn )) {
+    if (NtfsLookupLastNtfsMcbEntry( Mcb, &HighestVcn, &Lcn )) {
 
-        ASSERT_LCN_RANGE_CHECKING( Vcb, Lcn.QuadPart );
+        ASSERT_LCN_RANGE_CHECKING( Vcb, Lcn );
 
         //
         //  Now build the mapping pairs in place.
         //
 
-        NtfsBuildMappingPairs( IrpContext,
-                               Mcb,
+        NtfsBuildMappingPairs( Mcb,
                                0,
                                &LastVcn,
                                MappingPairs );
@@ -5381,7 +5050,18 @@ Return Value:
         //
 
         Attribute->Form.Nonresident.AllocatedLength =
-            (LastVcn + 1 ) << Vcb->ClusterShift;
+            Int64ShllMod32((LastVcn + 1 ), Vcb->ClusterShift);
+
+        //
+        //  The totally allocated field in the Scb will contain the current allocated
+        //  value for this stream.
+        //
+
+        if (FlagOn( AttributeFlags, ATTRIBUTE_FLAG_COMPRESSION_MASK )) {
+
+            ASSERT( Scb->Header.NodeTypeCode == NTFS_NTC_SCB_DATA );
+            Attribute->Form.Nonresident.TotalAllocated = Scb->TotalAllocated;
+        }
 
     //
     //  We are creating a attribute with zero allocation.  Make the Vcn sizes match
@@ -5435,10 +5115,10 @@ Return Value:
                           DeleteAttribute,
                           NULL,
                           0,
-                          NtfsMftVcn(Context, Vcb),
+                          NtfsMftOffset( Context ),
                           RecordOffset,
                           0,
-                          Vcb->ClustersPerFileRecordSegment );
+                          Vcb->BytesPerFileRecordSegment );
 
         } except(NtfsExceptionFilter( IrpContext, GetExceptionInformation() )) {
 
@@ -5446,7 +5126,7 @@ Return Value:
 
             if (MappingPairs != MappingPairsBuffer) {
 
-                ExFreePool( MappingPairs );
+                NtfsFreePool( MappingPairs );
             }
 
             NtfsRaiseStatus( IrpContext, GetExceptionCode(), NULL, NULL );
@@ -5459,7 +5139,7 @@ Return Value:
 
     if (MappingPairs != MappingPairsBuffer) {
 
-        ExFreePool( MappingPairs );
+        NtfsFreePool( MappingPairs );
     }
 
     //
@@ -5469,27 +5149,75 @@ Return Value:
     if (Context->AttributeList.Bcb != NULL) {
 
         MFT_SEGMENT_REFERENCE SegmentReference;
-        VCN Vcn;
 
-        Vcn = NtfsMftVcn(Context, Vcb);
-        *(PLONGLONG)&SegmentReference = Vcn >> (Vcb->MftShift - Vcb->ClusterShift);
+        *(PLONGLONG)&SegmentReference = LlFileRecordsFromBytes( Vcb, NtfsMftOffset( Context ));
         SegmentReference.SequenceNumber = FileRecord->SequenceNumber;
 
         NtfsAddToAttributeList( IrpContext, Fcb, SegmentReference, Context );
     }
 
     //
-    //  Now extend the attribute if we did not allocate everything.
+    //  We couldn't create all of the mapping for the allocation above.  If
+    //  this is a create then we want to truncate the allocation to what we
+    //  have already allocated.  Otherwise we want to call
+    //  NtfsAddAttributeAllocation to map the remaining allocation.
     //
 
     if (LastVcn != HighestVcn) {
 
-        NtfsAddAttributeAllocation( IrpContext, Scb, Context, NULL, NULL );
+        if (LogIt ||
+            !NtfsIsTypeCodeUserData( AttributeTypeCode ) ||
+            IrpContext->MajorFunction != IRP_MJ_CREATE) {
+
+            NtfsAddAttributeAllocation( IrpContext, Scb, Context, NULL, NULL );
+
+        } else {
+
+            //
+            //  Truncate away the clusters beyond the last Vcn and set the
+            //  flag in the IrpContext indicating there is more allocation
+            //  to do.
+            //
+
+            NtfsDeallocateClusters( IrpContext,
+                                    Fcb->Vcb,
+                                    &Scb->Mcb,
+                                    LastVcn + 1,
+                                    MAXLONGLONG,
+                                    NULL );
+
+            NtfsUnloadNtfsMcbRange( &Scb->Mcb,
+                                    LastVcn + 1,
+                                    MAXLONGLONG,
+                                    TRUE,
+                                    FALSE );
+
+#ifdef _CAIRO_
+            if (FlagOn( Scb->ScbState, SCB_STATE_SUBJECT_TO_QUOTA )) {
+
+                LONGLONG Delta = LlBytesFromClusters(Fcb->Vcb, LastVcn - HighestVcn);
+                ASSERT( NtfsIsTypeCodeSubjectToQuota( AttributeTypeCode ));
+                ASSERT( NtfsIsTypeCodeSubjectToQuota( Scb->AttributeTypeCode ));
+
+                //
+                //  Return any quota charged.
+                //
+
+                NtfsConditionallyUpdateQuota( IrpContext,
+                                              Fcb,
+                                              &Delta,
+                                              LogIt,
+                                              TRUE );
+            }
+#endif // _CAIRO_
+
+            AllocateAll = FALSE;
+        }
     }
 
-    DebugTrace(-1, Dbg, "NtfsCreateAttributeWithAllocation -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsCreateAttributeWithAllocation -> VOID\n") );
 
-    return;
+    return AllocateAll;
 }
 
 
@@ -5570,13 +5298,17 @@ Return Value:
     WCHAR NameBuffer[8];
     UNICODE_STRING AttributeName;
     ATTRIBUTE_TYPE_CODE AttributeTypeCode;
+    VCN LowestVcnRemapped;
+    VCN LocalClusterCount;
     VCN OldHighestVcn;
     VCN NewHighestVcn;
     VCN LastVcn;
     BOOLEAN IsHotFixScb;
     PBCB NewBcb = NULL;
+    LONGLONG MftReferenceNumber;
     PFCB Fcb = Scb->Fcb;
-    PLARGE_MCB Mcb = &Scb->Mcb;
+    PNTFS_MCB Mcb = &Scb->Mcb;
+    ULONG AttributeHeaderSize;
 
     ASSERT_IRP_CONTEXT( IrpContext );
 
@@ -5584,77 +5316,84 @@ Return Value:
 
     Vcb = Fcb->Vcb;
 
-    DebugTrace(+1, Dbg, "NtfsAddAttributeAllocation\n", 0 );
-    DebugTrace( 0, Dbg, "Fcb = %08lx\n", Fcb );
-    DebugTrace( 0, Dbg, "Mcb = %08lx\n", Mcb );
-    DebugTrace( 0, Dbg, "Context = %08lx\n", Context );
+    DebugTrace( +1, Dbg, ("NtfsAddAttributeAllocation\n") );
+    DebugTrace( 0, Dbg, ("Fcb = %08lx\n", Fcb) );
+    DebugTrace( 0, Dbg, ("Mcb = %08lx\n", Mcb) );
+    DebugTrace( 0, Dbg, ("Context = %08lx\n", Context) );
 
     //
-    //  Make sure the buffer is pinned.
+    //  Make a local copy of cluster count, if given.  We will use this local
+    //  copy to determine the shrinking range if we move to a previous file
+    //  record on a second pass through this loop.
     //
 
-    NtfsPinMappedAttribute( IrpContext, Vcb, Context );
+    if (ARGUMENT_PRESENT( ClusterCount )) {
 
-    //
-    //  Make sure we cleanup on the way out
-    //
+        LocalClusterCount = *ClusterCount;
+    }
 
-    try {
-
-        //
-        //  Step 1.
-        //
-        //  Save a description of the attribute to help us look it up
-        //  again, and to make clones if necessary.
-        //
-
-        Attribute = NtfsFoundAttribute(Context);
-        ASSERT( Attribute->RecordLength == QuadAlign( Attribute->RecordLength ));
-        AttributeTypeCode = Attribute->TypeCode;
-        AttributeFlags = Attribute->Flags;
-        AttributeName.Length =
-        AttributeName.MaximumLength = (USHORT)Attribute->NameLength << 1;
-        AttributeName.Buffer = NameBuffer;
-
-        if (AttributeName.Length > sizeof(NameBuffer)) {
-
-            AttributeName.Buffer = FsRtlAllocatePool( NonPagedPool, AttributeName.Length );
-        }
-
-        RtlCopyMemory( AttributeName.Buffer,
-                       Add2Ptr( Attribute, Attribute->NameOffset ),
-                       AttributeName.Length );
-
-        ASSERT(Attribute->Form.Nonresident.LowestVcn == 0);
-
-        OldHighestVcn = LlClustersFromBytes(Vcb, Attribute->Form.Nonresident.AllocatedLength) - 1;
+    while (TRUE) {
 
         //
-        //  Get the file record pointer.
+        //  Make sure the buffer is pinned.
         //
 
-        FileRecord = NtfsContainingFileRecord(Context);
+        NtfsPinMappedAttribute( IrpContext, Vcb, Context );
 
         //
-        //  Step 2.
-        //
-        //  Come up with the Vcn we will stop on.  If a StartingVcn and ClusterCount
-        //  were specified, then use them to calculate where we will stop.  Otherwise
-        //  lookup the largest Vcn in this Mcb, so that we will know when we are done.
-        //  We will also write the new allocation size here.
+        //  Make sure we cleanup on the way out
         //
 
-        {
-            LCN TempLcn;
-
-            NewHighestVcn = -1;
+        try {
 
             //
-            //  If there are no entries in the file record then we have no new
-            //  sizes to report.
+            //  Step 1.
+            //
+            //  Save a description of the attribute to help us look it up
+            //  again, and to make clones if necessary.
             //
 
-            if (FsRtlLookupLastLargeMcbEntry(Mcb, &NewHighestVcn, &TempLcn)) {
+            Attribute = NtfsFoundAttribute(Context);
+            ASSERT( Attribute->RecordLength == QuadAlign( Attribute->RecordLength ));
+            AttributeTypeCode = Attribute->TypeCode;
+            AttributeFlags = Attribute->Flags;
+            AttributeName.Length =
+            AttributeName.MaximumLength = (USHORT)Attribute->NameLength << 1;
+            AttributeName.Buffer = NameBuffer;
+
+            if (AttributeName.Length > sizeof(NameBuffer)) {
+
+                AttributeName.Buffer = NtfsAllocatePool( NonPagedPool, AttributeName.Length );
+            }
+
+            RtlCopyMemory( AttributeName.Buffer,
+                           Add2Ptr( Attribute, Attribute->NameOffset ),
+                           AttributeName.Length );
+
+            ASSERT(Attribute->Form.Nonresident.LowestVcn == 0);
+
+            OldHighestVcn = LlClustersFromBytes(Vcb, Attribute->Form.Nonresident.AllocatedLength) - 1;
+
+            //
+            //  Get the file record pointer.
+            //
+
+            FileRecord = NtfsContainingFileRecord(Context);
+
+            //
+            //  Step 2.
+            //
+            //  Come up with the Vcn we will stop on.  If a StartingVcn and ClusterCount
+            //  were specified, then use them to calculate where we will stop.  Otherwise
+            //  lookup the largest Vcn in this Mcb, so that we will know when we are done.
+            //  We will also write the new allocation size here.
+            //
+
+            {
+                LCN TempLcn;
+                BOOLEAN UpdateFileSizes = FALSE;
+
+                NewHighestVcn = -1;
 
                 //
                 //  If a StartingVcn and ClusterCount were specified, then use them.
@@ -5664,20 +5403,54 @@ Return Value:
 
                     ASSERT(ARGUMENT_PRESENT(ClusterCount));
 
-                    NewHighestVcn = (*StartingVcn + *ClusterCount) - 1;
+                    NewHighestVcn = (*StartingVcn + LocalClusterCount) - 1;
 
                 //
-                //  If this is an attribute being written compressed, then always
-                //  insure that we keep the allocation size on a compression unit
-                //  boundary, by pushing NewHighestVcn to a boundary - 1.
-                //  We only do this if this adjusted size is greater than the current
-                //  old highest Vcn.
+                //  If there are no entries in the file record then we have no new
+                //  sizes to report.
                 //
 
-                } else if (FlagOn(Scb->ScbState, SCB_STATE_COMPRESSED) &&
-                    (Scb->Header.NodeTypeCode == NTFS_NTC_SCB_DATA)) {
+                } else if (NtfsLookupLastNtfsMcbEntry(Mcb, &NewHighestVcn, &TempLcn)) {
 
-                    ((ULONG)NewHighestVcn) |= ClustersFromBytes(Vcb, Scb->CompressionUnit) - 1;
+                    //
+                    //  For compressed files, make sure we are not shrinking allocation
+                    //  size (OldHighestVcn) due to a compression unit that was all zeros
+                    //  and has no allocation.  Note, truncates are done in
+                    //  NtfsDeleteAttributeAllocation, so we should not be shrinking the
+                    //  file here.
+                    //
+                    //  If this is an attribute being written compressed, then always
+                    //  insure that we keep the allocation size on a compression unit
+                    //  boundary, by pushing NewHighestVcn to a boundary - 1.
+                    //
+
+                    if (Scb->CompressionUnit != 0) {
+
+                        //
+                        //  Don't shrink the file on this path.
+                        //
+
+                        if (OldHighestVcn > NewHighestVcn) {
+                            NewHighestVcn = OldHighestVcn;
+                        }
+
+                        ((PLARGE_INTEGER) &NewHighestVcn)->LowPart |= ClustersFromBytes(Vcb, Scb->CompressionUnit) - 1;
+
+                        //
+                        //  Make sure we didn't push a hole into the next compression
+                        //  unit.  If so then truncate to the current NewHighestVcn.  We
+                        //  know this will be on a compression unit boundary.
+                        //
+
+                        if (NewHighestVcn < Scb->Mcb.NtfsMcbArray[Scb->Mcb.NtfsMcbArraySizeInUse - 1].EndingVcn) {
+
+                            NtfsUnloadNtfsMcbRange( &Scb->Mcb,
+                                                    NewHighestVcn + 1,
+                                                    MAXLONGLONG,
+                                                    TRUE,
+                                                    FALSE );
+                        }
+                    }
                 }
 
                 //
@@ -5688,189 +5461,320 @@ Return Value:
                 if (NewHighestVcn > OldHighestVcn) {
 
                     Scb->Header.AllocationSize.QuadPart = LlBytesFromClusters(Fcb->Vcb, NewHighestVcn + 1);
+                    UpdateFileSizes = TRUE;
+                }
+
+                //
+                //  If we moved the allocation size up or the totally allocated does
+                //  not match the value on the disk (only for compressed files,
+                //  then update the file sizes.
+                //
+
+                if (UpdateFileSizes ||
+                    (FlagOn( Attribute->Flags, ATTRIBUTE_FLAG_COMPRESSION_MASK ) &&
+                     (Attribute->Form.Nonresident.TotalAllocated != Scb->TotalAllocated))) {
 
                     NtfsWriteFileSizes( IrpContext,
                                         Scb,
-                                        Scb->Header.FileSize.QuadPart,
-                                        Scb->Header.ValidDataLength.QuadPart,
+                                        &Scb->Header.ValidDataLength.QuadPart,
                                         FALSE,
                                         TRUE );
                 }
             }
-        }
-
-        //
-        //  Step 3.
-        //
-        //  Scan to the attribute record where the change begins.  We stop
-        //  at the last record or at the latest record that contains the
-        //  highest Vcn we are adding.
-        //
-
-        while ((Attribute->Form.Nonresident.HighestVcn != OldHighestVcn) &&
-               (NewHighestVcn > Attribute->Form.Nonresident.HighestVcn)) {
-
-            VCN LastHighestVcn;
-            BOOLEAN Found;
-
-            LastHighestVcn = Attribute->Form.Nonresident.HighestVcn;
-
-            Found =
-            NtfsLookupNextAttributeByName( IrpContext,
-                                           Fcb,
-                                           AttributeTypeCode,
-                                           &AttributeName,
-                                           FALSE,
-                                           Context );
 
             //
-            //  Occassionally we leave the attribute in such a state that
-            //  we do not know the correct OldHighestVcn.  In this case we
-            //  really just want to start regenerating run information with
-            //  the last occurrence of this attribute.  To do so we just
-            //  set OldHighestVcn to the highest one we saw, reset the attribute
-            //  context and rescan for the last attribute record.
+            //  Step 3.
+            //
+            //  Lookup the attribute record at which the change begins, if it is not
+            //  the first file record that we are looking at.
             //
 
-            if (!Found) {
+            if ((Attribute->Form.Nonresident.HighestVcn != OldHighestVcn) &&
+                (NewHighestVcn > Attribute->Form.Nonresident.HighestVcn)) {
 
-                OldHighestVcn = LastHighestVcn;
-
-                NtfsCleanupAttributeContext( IrpContext, Context );
+                NtfsCleanupAttributeContext( Context );
                 NtfsInitializeAttributeContext( Context );
 
-                NtfsLookupAttributeForScb( IrpContext, Scb, Context );
+                NtfsLookupAttributeForScb( IrpContext, Scb, &NewHighestVcn, Context );
+
+                Attribute = NtfsFoundAttribute(Context);
+                ASSERT( Attribute->RecordLength == QuadAlign( Attribute->RecordLength ));
+                FileRecord = NtfsContainingFileRecord(Context);
             }
 
-            Attribute = NtfsFoundAttribute(Context);
-            ASSERT( Attribute->RecordLength == QuadAlign( Attribute->RecordLength ));
-            FileRecord = NtfsContainingFileRecord(Context);
-        }
-
-        //
-        //  Remember the last Vcn we will need to create mapping pairs
-        //  for.  We use either NewHighestVcn or the highest Vcn in this
-        //  file record in the case that we are just inserting a run into
-        //  an existing record.
-        //
-
-        if ((Attribute->Form.Nonresident.HighestVcn > NewHighestVcn) &&
-            ARGUMENT_PRESENT(StartingVcn)) {
-
-            NewHighestVcn = Attribute->Form.Nonresident.HighestVcn;
-        }
-
-        //
-        //  Now we must make sure that we never ask for more than can fit in
-        //  one file record with our attribute and a $END record.
-        //
-
-        SizeAvailable = NtfsMaximumAttributeSize(Vcb->BytesPerFileRecordSegment) -
-                        SIZEOF_NONRESIDENT_ATTRIBUTE_HEADER -
-                        QuadAlign( AttributeName.Length );
-
-        //
-        //  For the Mft, we will leave a "fudge factor" of 1/8th a file record
-        //  free to make sure that possible hot fixes do not cause us to
-        //  break the bootstrap process to finding the mapping for the Mft.
-        //  Only take this action if we already have an attribute list for
-        //  the Mft, otherwise we may not detect when we need to move to own
-        //  record.
-        //
-
-        IsHotFixScb = NtfsIsTopLevelHotFixScb( Scb );
-
-        if ((Scb == Vcb->MftScb) &&
-            (Context->AttributeList.Bcb != NULL) &&
-            !IsHotFixScb &&
-            !ARGUMENT_PRESENT( StartingVcn )) {
-
-            SizeAvailable -= Vcb->MftCushion;
-        }
-
-        //
-        //  Calculate how much space is actually needed, independent of whether it will
-        //  fit.
-        //
-
-        MappingPairsSize = QuadAlign( NtfsGetSizeForMappingPairs( IrpContext,
-                                                                  Mcb,
-                                                                  SizeAvailable,
-                                                                  Attribute->Form.Nonresident.LowestVcn,
-                                                                  &NewHighestVcn,
-                                                                  &LastVcn ));
-
-        NewSize = SIZEOF_NONRESIDENT_ATTRIBUTE_HEADER
-                  + QuadAlign( AttributeName.Length )
-                  + MappingPairsSize;
-
-        SizeChange = (LONG)NewSize - (LONG)Attribute->RecordLength;
-
-        //
-        //  Step 4.
-        //
-        //  Here we decide if we need to move the attribute to its own record,
-        //  or whether there is enough room to grow it in place.
-        //
-
-        {
-            VCN LowestVcn;
-            ULONG Pass = 0;
-
             //
-            //  It is important to note that at this point, if we will need an
-            //  attribute list attribute, then we will already have it.  This is
-            //  because we calculated the size needed for the attribute, and moved
-            //  to a our own record if we were not going to fit and we were not
-            //  already in a separate record.  Later on we assume that the attribute
-            //  list exists, and just add to it as required.  If we didn't move to
-            //  own record because this is the Mft and this is not file record 0,
-            //  then we already have an attribute list from a previous split.
+            //  Make sure we nuke this range if we get an error, by expanding
+            //  the error recovery range.
             //
 
-            do {
+            if (Scb->Mcb.PoolType == PagedPool) {
+
+                if (Scb->ScbSnapshot != NULL) {
+
+                    if (Attribute->Form.Nonresident.LowestVcn < Scb->ScbSnapshot->LowestModifiedVcn) {
+                        Scb->ScbSnapshot->LowestModifiedVcn = Attribute->Form.Nonresident.LowestVcn;
+                    }
+
+                    if (NewHighestVcn > Scb->ScbSnapshot->HighestModifiedVcn) {
+                        Scb->ScbSnapshot->HighestModifiedVcn = NewHighestVcn;
+                    }
+
+                    if (Attribute->Form.Nonresident.HighestVcn > Scb->ScbSnapshot->HighestModifiedVcn) {
+                        Scb->ScbSnapshot->HighestModifiedVcn = Attribute->Form.Nonresident.HighestVcn;
+                    }
+                }
+            }
+
+            //
+            //  Remember the last Vcn we will need to create mapping pairs
+            //  for.  We use either NewHighestVcn or the highest Vcn in this
+            //  file record in the case that we are just inserting a run into
+            //  an existing record.
+            //
+
+            if (ARGUMENT_PRESENT(StartingVcn)) {
+
+                if (Attribute->Form.Nonresident.HighestVcn > NewHighestVcn) {
+
+                    NewHighestVcn = Attribute->Form.Nonresident.HighestVcn;
+                }
+
+            //
+            //  Otherwise we know we have looked up the last file record to regenerate
+            //  that.  Let's make sure that the range lines up so we do not end up
+            //  generating a hole of one or a few clusters in the next file record.
+            //
+
+            } else {
+
+                if (Attribute->Form.Nonresident.HighestVcn < NewHighestVcn) {
+
+                    NtfsDefineNtfsMcbRange( &Scb->Mcb,
+                                            Attribute->Form.Nonresident.LowestVcn,
+                                            NewHighestVcn,
+                                            FALSE );
+                }
+            }
+
+            //
+            //  Remember the lowest Vcn for this attribute.  We will use this to
+            //  decide whether to loop back and look for an earlier file record.
+            //
+
+            LowestVcnRemapped = Attribute->Form.Nonresident.LowestVcn;
+
+            //
+            //  Remember the header size for this attribute.  This will be the
+            //  mapping pairs offset except for attributes with names.
+            //
+
+            AttributeHeaderSize = Attribute->Form.Nonresident.MappingPairsOffset;
+
+            if (Attribute->NameOffset != 0) {
+
+                AttributeHeaderSize = Attribute->NameOffset;
+            }
+
+            //
+            //  If we are making space for a totally allocated field then we
+            //  want to add space to the non-resident header for these entries.
+            //  To detect this we know that a starting Vcn was specified and
+            //  we specified exactly the entire file record.  Also the major
+            //  and minor Irp codes are exactly that for a compression operation.
+            //
+
+            if ((IrpContext->MajorFunction == IRP_MJ_FILE_SYSTEM_CONTROL) &&
+                (IrpContext->MinorFunction == IRP_MN_USER_FS_REQUEST) &&
+                (IoGetCurrentIrpStackLocation( IrpContext->OriginatingIrp)->Parameters.FileSystemControl.FsControlCode == FSCTL_SET_COMPRESSION) &&
+                ARGUMENT_PRESENT( StartingVcn ) &&
+                (*StartingVcn == 0) &&
+                (LocalClusterCount == Attribute->Form.Nonresident.HighestVcn + 1)) {
+
+                AttributeHeaderSize += sizeof( LONGLONG );
+            }
+
+            //
+            //  Now we must make sure that we never ask for more than can fit in
+            //  one file record with our attribute and a $END record.
+            //
+
+            SizeAvailable = NtfsMaximumAttributeSize(Vcb->BytesPerFileRecordSegment) -
+                            AttributeHeaderSize -
+                            QuadAlign( AttributeName.Length );
+
+            //
+            //  For the Mft, we will leave a "fudge factor" of 1/8th a file record
+            //  free to make sure that possible hot fixes do not cause us to
+            //  break the bootstrap process to finding the mapping for the Mft.
+            //  Only take this action if we already have an attribute list for
+            //  the Mft, otherwise we may not detect when we need to move to own
+            //  record.
+            //
+
+            IsHotFixScb = NtfsIsTopLevelHotFixScb( Scb );
+
+            if ((Scb == Vcb->MftScb) &&
+                (Context->AttributeList.Bcb != NULL) &&
+                !IsHotFixScb &&
+                !ARGUMENT_PRESENT( StartingVcn )) {
+
+                SizeAvailable -= Vcb->MftCushion;
+            }
+
+            //
+            //  Calculate how much space is actually needed, independent of whether it will
+            //  fit.
+            //
+
+            MappingPairsSize = QuadAlign( NtfsGetSizeForMappingPairs( Mcb,
+                                                                      SizeAvailable,
+                                                                      Attribute->Form.Nonresident.LowestVcn,
+                                                                      &NewHighestVcn,
+                                                                      &LastVcn ));
+
+            NewSize = AttributeHeaderSize + QuadAlign( AttributeName.Length ) + MappingPairsSize;
+
+            SizeChange = (LONG)NewSize - (LONG)Attribute->RecordLength;
+
+            //
+            //  Step 4.
+            //
+            //  Here we decide if we need to move the attribute to its own record,
+            //  or whether there is enough room to grow it in place.
+            //
+
+            {
+                VCN LowestVcn;
+                ULONG Pass = 0;
 
                 //
-                //  If not the first pass, we have to lookup the attribute
-                //  again.  (It looks terrible to have to refind an attribute
-                //  record other than the first one, but this should never
-                //  happen, since subsequent attributes should always be in
-                //  their own record.)
+                //  It is important to note that at this point, if we will need an
+                //  attribute list attribute, then we will already have it.  This is
+                //  because we calculated the size needed for the attribute, and moved
+                //  to a our own record if we were not going to fit and we were not
+                //  already in a separate record.  Later on we assume that the attribute
+                //  list exists, and just add to it as required.  If we didn't move to
+                //  own record because this is the Mft and this is not file record 0,
+                //  then we already have an attribute list from a previous split.
                 //
 
-                if (Pass != 0) {
+                do {
 
-                    BOOLEAN Found;
+                    //
+                    //  If not the first pass, we have to lookup the attribute
+                    //  again.  (It looks terrible to have to refind an attribute
+                    //  record other than the first one, but this should never
+                    //  happen, since subsequent attributes should always be in
+                    //  their own record.)
+                    //
 
-                    NtfsCleanupAttributeContext( IrpContext, Context );
-                    NtfsInitializeAttributeContext( Context );
+                    if (Pass != 0) {
 
-                    Found =
-                    NtfsLookupAttributeByName( IrpContext,
-                                               Fcb,
-                                               &Fcb->FileReference,
-                                               AttributeTypeCode,
-                                               &AttributeName,
-                                               FALSE,
-                                               Context );
+                        BOOLEAN Found;
 
-                    ASSERT(Found);
-
-                    while (LowestVcn != NtfsFoundAttribute(Context)->Form.Nonresident.LowestVcn) {
+                        NtfsCleanupAttributeContext( Context );
+                        NtfsInitializeAttributeContext( Context );
 
                         Found =
-                        NtfsLookupNextAttributeByName( IrpContext,
-                                                       Fcb,
-                                                       AttributeTypeCode,
-                                                       &AttributeName,
-                                                       FALSE,
-                                                       Context );
+                        NtfsLookupAttributeByName( IrpContext,
+                                                   Fcb,
+                                                   &Fcb->FileReference,
+                                                   AttributeTypeCode,
+                                                   &AttributeName,
+                                                   &LowestVcn,
+                                                   FALSE,
+                                                   Context );
 
                         ASSERT(Found);
                     }
-                }
 
-                Pass += 1;
+                    Pass += 1;
+
+                    //
+                    //  Now we have to reload our pointers
+                    //
+
+                    Attribute = NtfsFoundAttribute(Context);
+                    FileRecord = NtfsContainingFileRecord(Context);
+
+                    //
+                    //  If the attribute doesn't fit, and it is not alone in this file
+                    //  record, and the attribute is big enough to move, then we will
+                    //  have to take some special action.  Note that if we do not already
+                    //  have an attribute list, then we will only do the move if we are
+                    //  currently big enough to move, otherwise there may not be enough
+                    //  space in MoveAttributeToOwnRecord to create the attribute list,
+                    //  and that could cause us to recursively try to create the attribute
+                    //  list in Create Attribute With Value.
+                    //
+                    //  We won't make this move if we are dealing with the Mft and it
+                    //  is not file record 0.
+                    //
+                    //  Also we never move an attribute list to its own record.
+                    //
+
+                    if ((Attribute->TypeCode != $ATTRIBUTE_LIST)
+
+                                &&
+
+                        (SizeChange > (LONG)(FileRecord->BytesAvailable - FileRecord->FirstFreeByte))
+
+                                &&
+
+                        ((NtfsFirstAttribute(FileRecord) != Attribute) ||
+                        (((PATTRIBUTE_RECORD_HEADER)NtfsGetNextRecord(Attribute))->TypeCode != $END))
+
+                                &&
+
+                        (((NewSize >= Vcb->BigEnoughToMove) && (Context->AttributeList.Bcb != NULL)) ||
+                         (Attribute->RecordLength >= Vcb->BigEnoughToMove))
+
+                                &&
+
+                        ((Scb != Vcb->MftScb)
+
+                                ||
+
+                         (*(PLONGLONG)&FileRecord->BaseFileRecordSegment == 0))) {
+
+                        //
+                        //  If we are moving the Mft $DATA out of the base file record, the
+                        //  attribute context will point to the split portion on return.
+                        //  The attribute will only contain previously existing mapping, none
+                        //  of the additional clusters which exist in the Mcb.
+                        //
+
+                        MftReferenceNumber = MoveAttributeToOwnRecord( IrpContext,
+                                                                       Fcb,
+                                                                       Attribute,
+                                                                       Context,
+                                                                       &NewBcb,
+                                                                       &FileRecord );
+
+                        Attribute = NtfsFirstAttribute(FileRecord);
+                        ASSERT( Attribute->RecordLength == QuadAlign( Attribute->RecordLength ));
+                        FileRecord = NtfsContainingFileRecord(Context);
+                    }
+
+                    //
+                    //  Remember the lowest Vcn so that we can find this record again
+                    //  if we have to.  We capture the value now, after the move attribute
+                    //  in case this is the Mft doing a split and the entire attribute
+                    //  didn't move.  We depend on MoveAttributeToOwnRecord to return
+                    //  the new file record for the Mft split.
+                    //
+
+                    LowestVcn = Attribute->Form.Nonresident.LowestVcn;
+
+                //
+                //  If FALSE is returned, then the space was not allocated and
+                //  we have to loop back and try again.  Second time must work.
+                //
+
+                } while (!NtfsChangeAttributeSize( IrpContext,
+                                                   Fcb,
+                                                   NewSize,
+                                                   Context ));
 
                 //
                 //  Now we have to reload our pointers
@@ -5878,499 +5782,472 @@ Return Value:
 
                 Attribute = NtfsFoundAttribute(Context);
                 FileRecord = NtfsContainingFileRecord(Context);
+            }
+
+            //
+            //  Step 5.
+            //
+            //  Get pointer to mapping pairs
+            //
+
+            {
+                ULONG AttributeOffset;
+                ULONG MappingPairsOffset;
+                CHAR MappingPairsBuffer[64];
+                ULONG RecordOffset = PtrOffset(FileRecord, Attribute);
 
                 //
-                //  If the attribute doesn't fit, and it is not alone in this file
-                //  record, and the attribute is big enough to move, then we will
-                //  have to take some special action.  Note that if we do not already
-                //  have an attribute list, then we will only do the move if we are
-                //  currently big enough to move, otherwise there may not be enough
-                //  space in MoveAttributeToOwnRecord to create the attribute list,
-                //  and that could cause us to recursively try to create the attribute
-                //  list in Create Attribute With Value.
-                //
-                //  We won't make this move if we are dealing with the Mft and it
-                //  is not file record 0.
-                //
-                //  Also we never move an attribute list to its own record.
+                //  See if it is the case that all mapping pairs will not fit into
+                //  the current file record, as we may wish to split in the middle
+                //  rather than at the end as we are currently set up to do.
                 //
 
-                if ((Attribute->TypeCode != $ATTRIBUTE_LIST)
+                if (LastVcn < NewHighestVcn) {
 
-                            &&
+                    if (ARGUMENT_PRESENT(StartingVcn) &&
+                        (Scb != Vcb->MftScb)) {
 
-                    (SizeChange > (LONG)(FileRecord->BytesAvailable - FileRecord->FirstFreeByte))
+                        //
+                        //  In this case we have run out of room for mapping pairs via
+                        //  an overwrite somewhere in the middle of the file.  To avoid
+                        //  shoving a couple mapping pairs off the end over and over, we
+                        //  will arbitrarily split this attribute in the middle.  We do
+                        //  so by looking up the lowest and highest Vcns that we are working
+                        //  with and get their indices, then split in the middle.
+                        //
 
-                            &&
+                        LCN TempLcn;
+                        LONGLONG TempCount;
+                        PVOID RangeLow, RangeHigh;
+                        ULONG IndexLow, IndexHigh;
+                        BOOLEAN Found;
 
-                    ((NtfsFirstAttribute(FileRecord) != Attribute) ||
-                    (((PATTRIBUTE_RECORD_HEADER)NtfsGetNextRecord(Attribute))->TypeCode != $END))
+                        //
+                        //  Get the low and high Mcb indices for these runs.
+                        //
 
-                            &&
+                        Found = NtfsLookupNtfsMcbEntry( Mcb,
+                                                        Attribute->Form.Nonresident.LowestVcn,
+                                                        NULL,
+                                                        NULL,
+                                                        NULL,
+                                                        NULL,
+                                                        &RangeLow,
+                                                        &IndexLow );
+                        ASSERT(Found);
 
-                    (((NewSize >= Vcb->BigEnoughToMove) && (Context->AttributeList.Bcb != NULL)) ||
-                     (Attribute->RecordLength >= Vcb->BigEnoughToMove))
+                        //
+                        //  Point to the last Vcn we know is actually in the Mcb...
+                        //
 
-                            &&
+                        LastVcn = LastVcn - 1;
 
-                    ((Scb != Vcb->MftScb)
+                        Found = NtfsLookupNtfsMcbEntry( Mcb,
+                                                        LastVcn,
+                                                        NULL,
+                                                        NULL,
+                                                        NULL,
+                                                        NULL,
+                                                        &RangeHigh,
+                                                        &IndexHigh );
+                        ASSERT(Found);
+                        ASSERT(RangeLow == RangeHigh);
 
-                            ||
+                        //
+                        //  Calculate the index in the middle.
+                        //
 
-                     (*(PLONGLONG)&FileRecord->BaseFileRecordSegment == 0))) {
+                        IndexLow += (IndexHigh - IndexLow) /2;
 
-                    //
-                    //  If we are moving the Mft $DATA out of the base file record, the
-                    //  attribute context will point to the split portion on return.
-                    //  The attribute will only contain previously existing mapping, none
-                    //  of the additional clusters which exist in the Mcb.
-                    //
+                        //
+                        //  If we are inserting past he ValidDataToDisk (SplitMcb case),
+                        //  then the allocation behind us may be relatively static, so
+                        //  let's just move with our preallocated space to the new buffer.
+                        //
 
-                    MoveAttributeToOwnRecord( IrpContext,
-                                              Fcb,
-                                              Attribute,
-                                              Context,
-                                              &NewBcb,
-                                              &FileRecord );
+                        if (*StartingVcn >= LlClustersFromBytes(Vcb, Scb->ValidDataToDisk)) {
 
-                    Attribute = NtfsFirstAttribute(FileRecord);
-                    ASSERT( Attribute->RecordLength == QuadAlign( Attribute->RecordLength ));
-                    FileRecord = NtfsContainingFileRecord(Context);
+                            //
+                            //  Calculate the index at about 7/8 the way.  Hopefully this will
+                            //  move over all of the unallocated piece, while still leaving
+                            //  some small amount of expansion space behind for overwrites.
+                            //
+
+                            IndexLow += (IndexHigh - IndexLow) /2;
+                            IndexLow += (IndexHigh - IndexLow) /2;
+                        }
+
+                        //
+                        //  Lookup the middle run and use the Last Vcn in that run.
+                        //
+
+                        Found = NtfsGetNextNtfsMcbEntry( Mcb,
+                                                         &RangeLow,
+                                                         IndexLow,
+                                                         &LastVcn,
+                                                         &TempLcn,
+                                                         &TempCount );
+                        ASSERT(Found);
+
+                        LastVcn = (LastVcn + TempCount) - 1;
+
+                        //
+                        //  Calculate how much space is now needed given our new LastVcn.
+                        //
+
+                        MappingPairsSize = QuadAlign( NtfsGetSizeForMappingPairs( Mcb,
+                                                                                  SizeAvailable,
+                                                                                  Attribute->Form.Nonresident.LowestVcn,
+                                                                                  &LastVcn,
+                                                                                  &LastVcn ));
+                    }
                 }
 
                 //
-                //  Remember the lowest Vcn so that we can find this record again
-                //  if we have to.  We capture the value now, after the move attribute
-                //  in case this is the Mft doing a split and the entire attribute
-                //  didn't move.  We depend on MoveAttributeToOwnRecord to return
-                //  the new file record for the Mft split.
+                //  If we are growing this range, then we need to make sure we fix
+                //  its definition.
                 //
 
-                LowestVcn = Attribute->Form.Nonresident.LowestVcn;
+                if ((LastVcn - 1) > Attribute->Form.Nonresident.HighestVcn) {
 
-            //
-            //  If FALSE is returned, then the space was not allocated and
-            //  we have to loop back and try again.  Second time must work.
-            //
-
-            } while (!NtfsChangeAttributeSize( IrpContext,
-                                               Fcb,
-                                               NewSize,
-                                               Context ));
-
-            //
-            //  Now we have to reload our pointers
-            //
-
-            Attribute = NtfsFoundAttribute(Context);
-            FileRecord = NtfsContainingFileRecord(Context);
-        }
-
-        //
-        //  Step 5.
-        //
-        //  Get pointer to mapping pairs
-        //
-
-        {
-            ULONG AttributeOffset;
-            ULONG MappingPairsOffset;
-            CHAR MappingPairsBuffer[64];
-            ULONG RecordOffset = PtrOffset(FileRecord, Attribute);
-
-            //
-            //  See if it is the case that all mapping pairs will not fit into
-            //  the current file record, as we may wish to split in the middle
-            //  rather than at the end as we are currently set up to do.
-            //
-
-            if ((LastVcn < NewHighestVcn) &&
-                ARGUMENT_PRESENT(StartingVcn) &&
-                (Scb != Vcb->MftScb)) {
+                    NtfsDefineNtfsMcbRange( &Scb->Mcb,
+                                            Attribute->Form.Nonresident.LowestVcn,
+                                            LastVcn - 1,
+                                            FALSE );
+                }
 
                 //
-                //  If we are inserting past he HighestVcnToDisk (SplitMcb case),
-                //  then the allocation behind us may be relatively static, so
-                //  let's just move with our preallocated space to the new buffer.
+                //  Point to our local mapping pairs buffer, or allocate one if it is not
+                //  big enough.
                 //
 
+                MappingPairs = MappingPairsBuffer;
+
+                if (MappingPairsSize > 64) {
+
+                    MappingPairs = NtfsAllocatePool( NonPagedPool, MappingPairsSize + 8 );
+                }
+
                 //
-                //  ****    Just split for now.
+                //  Use try-finally to insure we free any pool on the way out.
                 //
 
-                if (FALSE) {                //  *StartingVcn > Scb->HighestVcnToDisk) {
+                try {
+
+                    DebugDoit(
+
+                        VCN TempVcn;
+
+                        TempVcn = LastVcn - 1;
+
+                        ASSERT(MappingPairsSize ==
+                                QuadAlign( NtfsGetSizeForMappingPairs( Mcb, SizeAvailable,
+                                                                      Attribute->Form.Nonresident.LowestVcn,
+                                                                      &TempVcn, &LastVcn )));
+                    );
 
                     //
-                    //  Of course it is only safe to make this change
-                    //  if we would really be changing to a lower Vcn.
+                    //  Now add the space in the file record.
                     //
 
-                    if (*StartingVcn <= LastVcn) {
-                        LastVcn = *StartingVcn - 1;
+                    *MappingPairs = 0;
+                    NtfsBuildMappingPairs( Mcb,
+                                           Attribute->Form.Nonresident.LowestVcn,
+                                           &LastVcn,
+                                           MappingPairs );
+
+                    //
+                    //  Now find the first different byte.  (Most of the time the
+                    //  cost to do this is probably more than paid for by less
+                    //  logging.)
+                    //
+
+                    AttributeOffset = Attribute->Form.Nonresident.MappingPairsOffset;
+                    MappingPairsOffset =
+                      RtlCompareMemory( MappingPairs,
+                                        Add2Ptr(Attribute, AttributeOffset),
+                                        ((Attribute->RecordLength - AttributeOffset) > MappingPairsSize ?
+                                         MappingPairsSize :
+                                         (Attribute->RecordLength - AttributeOffset)));
+
+                    AttributeOffset += MappingPairsOffset;
+
+                    //
+                    //  Log the change.
+                    //
+
+                    {
+                        LONGLONG LogOffset;
+
+                        if (NewBcb != NULL) {
+
+                            //
+                            //  We know the file record number of the new file
+                            //  record.  Convert it to a file offset.
+                            //
+
+                            LogOffset = LlBytesFromFileRecords( Vcb, MftReferenceNumber );
+
+                        } else {
+
+                            LogOffset = NtfsMftOffset( Context );
+                        }
+
+                        FileRecord->Lsn =
+                        NtfsWriteLog( IrpContext,
+                                      Vcb->MftScb,
+                                      NewBcb != NULL ? NewBcb : NtfsFoundBcb(Context),
+                                      UpdateMappingPairs,
+                                      Add2Ptr(MappingPairs, MappingPairsOffset),
+                                      MappingPairsSize - MappingPairsOffset,
+                                      UpdateMappingPairs,
+                                      Add2Ptr(Attribute, AttributeOffset),
+                                      Attribute->RecordLength - AttributeOffset,
+                                      LogOffset,
+                                      RecordOffset,
+                                      AttributeOffset,
+                                      Vcb->BytesPerFileRecordSegment );
                     }
 
+                    //
+                    //  Now do the mapping pairs update by calling the same
+                    //  routine called at restart.
+                    //
+
+                    NtfsRestartChangeMapping( IrpContext,
+                                              Vcb,
+                                              FileRecord,
+                                              RecordOffset,
+                                              AttributeOffset,
+                                              Add2Ptr(MappingPairs, MappingPairsOffset),
+                                              MappingPairsSize - MappingPairsOffset );
+
+
+                } finally {
+
+                    if (MappingPairs != MappingPairsBuffer) {
+
+                        NtfsFreePool(MappingPairs);
+                    }
+                }
+            }
+
+            ASSERT( Attribute->Form.Nonresident.HighestVcn == LastVcn );
+
+            //
+            //  Check if have spilled into the reserved area of an Mft file record.
+            //
+
+            if ((Scb == Vcb->MftScb) &&
+                (Context->AttributeList.Bcb != NULL)) {
+
+                if (FileRecord->BytesAvailable - FileRecord->FirstFreeByte < Vcb->MftReserved
+                    && (*(PLONGLONG)&FileRecord->BaseFileRecordSegment != 0)) {
+
+                    NtfsAcquireCheckpoint( IrpContext, Vcb );
+
+                    SetFlag( Vcb->MftDefragState,
+                             VCB_MFT_DEFRAG_EXCESS_MAP | VCB_MFT_DEFRAG_ENABLED );
+
+                    NtfsReleaseCheckpoint( IrpContext, Vcb );
+                }
+            }
+
+            //
+            //  Step 6.
+            //
+            //  Now loop to create new file records if we have more allocation to
+            //  describe.  We use the highest Vcn of the file record we began with
+            //  as our stopping point or the last Vcn we are adding.
+            //
+
+            while (LastVcn < NewHighestVcn) {
+
+                MFT_SEGMENT_REFERENCE Reference;
+                LONGLONG FileRecordNumber;
+                PATTRIBUTE_TYPE_CODE NewEnd;
+
                 //
-                //  In this case we have run out of room for mapping pairs via
-                //  an overwrite somewhere in the middle of the file.  To avoid
-                //  shoving a couple mapping pairs off the end over and over, we
-                //  will arbitrarily split this attribute in the middle.  We do
-                //  so by looking up the lowest and highest Vcns that we are working
-                //  with and get their indices, then split in the middle.
+                //  If we get here as the result of a hot fix in the Mft, bail
+                //  out.  We could cause a disconnect in the Mft.
                 //
 
-                } else {
-
-                    LCN TempLcn;
-                    LONGLONG TempCount;
-                    ULONG IndexLow, IndexHigh;
-                    BOOLEAN Found;
-
-                    //
-                    //  Get the low and high Mcb indices for these runs.
-                    //
-
-                    Found = FsRtlLookupLargeMcbEntry ( Mcb,
-                                                       Attribute->Form.Nonresident.LowestVcn,
-                                                       NULL,
-                                                       NULL,
-                                                       NULL,
-                                                       NULL,
-                                                       &IndexLow );
-                    ASSERT(Found);
-
-                    //
-                    //  Point to the last Vcn we know is actually in the Mcb...
-                    //
-
-                    LastVcn = LastVcn - 1;
-
-                    Found = FsRtlLookupLargeMcbEntry ( Mcb,
-                                                       LastVcn,
-                                                       NULL,
-                                                       NULL,
-                                                       NULL,
-                                                       NULL,
-                                                       &IndexHigh );
-                    ASSERT(Found);
-
-                    //
-                    //  Calculate the index in the middle.
-                    //
-
-                    IndexLow += (IndexHigh - IndexLow) /2;
-
-                    //
-                    //  Lookup the middle run and use the Last Vcn in that run.
-                    //
-
-                    Found = FsRtlGetNextLargeMcbEntry ( Mcb,
-                                                        IndexLow,
-                                                        &LastVcn,
-                                                        &TempLcn,
-                                                        &TempCount );
-                    ASSERT(Found);
-
-                    LastVcn = (LastVcn + TempCount) - 1;
+                if (IsHotFixScb && (Scb == Vcb->MftScb)) {
+                    ExRaiseStatus( STATUS_INTERNAL_ERROR );
                 }
 
                 //
-                //  Calculate how much space is now needed given our new LastVcn.
+                //  Clone our current file record, and point to our new attribute.
                 //
 
-                MappingPairsSize = QuadAlign( NtfsGetSizeForMappingPairs( IrpContext,
-                                                                          Mcb,
-                                                                          SizeAvailable,
-                                                                          Attribute->Form.Nonresident.LowestVcn,
-                                                                          &LastVcn,
-                                                                          &LastVcn ));
+                NtfsUnpinBcb( &NewBcb );
 
-            }
+                FileRecord = NtfsCloneFileRecord( IrpContext,
+                                                  Fcb,
+                                                  (BOOLEAN)(Scb == Vcb->MftScb),
+                                                  &NewBcb,
+                                                  &Reference );
 
-            //
-            //  Point to our local mapping pairs buffer, or allocate one if it is not
-            //  big enough.
-            //
+                Attribute = Add2Ptr( FileRecord, FileRecord->FirstAttributeOffset );
 
-            MappingPairs = MappingPairsBuffer;
+                //
+                //  Next LowestVcn is the LastVcn + 1
+                //
 
-            if (MappingPairsSize > 64) {
+                LastVcn = LastVcn + 1;
+                Attribute->Form.Nonresident.LowestVcn = LastVcn;
 
-                MappingPairs = FsRtlAllocatePool( NonPagedPool, MappingPairsSize + 8 );
-            }
+                //
+                //  Calculate the size of the attribute record we will need.
+                //
 
-            //
-            //  Use try-finally to insure we free any pool on the way out.
-            //
+                NewSize = SIZEOF_PARTIAL_NONRES_ATTR_HEADER
+                          + QuadAlign( AttributeName.Length )
+                          + QuadAlign( NtfsGetSizeForMappingPairs( Mcb,
+                                                                   SizeAvailable,
+                                                                   LastVcn,
+                                                                   &NewHighestVcn,
+                                                                   &LastVcn ));
 
-            try {
+                //
+                //  Define the new range.
+                //
+
+                NtfsDefineNtfsMcbRange( &Scb->Mcb,
+                                        Attribute->Form.Nonresident.LowestVcn,
+                                        LastVcn - 1,
+                                        FALSE );
+
+                //
+                //  Initialize the new attribute from the old one.
+                //
+
+                Attribute->TypeCode = AttributeTypeCode;
+                Attribute->RecordLength = NewSize;
+                Attribute->FormCode = NONRESIDENT_FORM;
+
+                //
+                //  Assume no attribute name, and calculate where the Mapping Pairs
+                //  will go.  (Update below if we are wrong.)
+                //
+
+                MappingPairs = (PCHAR)Attribute + SIZEOF_PARTIAL_NONRES_ATTR_HEADER;
+
+                //
+                //  If the attribute has a name, take care of that now.
+                //
+
+                if (AttributeName.Length != 0) {
+
+                    Attribute->NameLength = (UCHAR)(AttributeName.Length / sizeof(WCHAR));
+                    Attribute->NameOffset = (USHORT)PtrOffset(Attribute, MappingPairs);
+                    RtlCopyMemory( MappingPairs,
+                                   AttributeName.Buffer,
+                                   AttributeName.Length );
+                    MappingPairs += QuadAlign( AttributeName.Length );
+                }
+
+                Attribute->Flags = AttributeFlags;
+                Attribute->Instance = FileRecord->NextAttributeInstance++;
+
+                //
+                //  We always need the mapping pairs offset.
+                //
+
+                Attribute->Form.Nonresident.MappingPairsOffset = (USHORT)(MappingPairs -
+                                                                 (PCHAR)Attribute);
+                NewEnd = Add2Ptr( Attribute, Attribute->RecordLength );
+                *NewEnd = $END;
+                FileRecord->FirstFreeByte = PtrOffset( FileRecord, NewEnd )
+                                            + QuadAlign( sizeof(ATTRIBUTE_TYPE_CODE ));
 
                 //
                 //  Now add the space in the file record.
                 //
 
                 *MappingPairs = 0;
-                NtfsBuildMappingPairs( IrpContext,
-                                       Mcb,
+
+                NtfsBuildMappingPairs( Mcb,
                                        Attribute->Form.Nonresident.LowestVcn,
                                        &LastVcn,
                                        MappingPairs );
 
-                //
-                //  Now find the first different byte.  (Most of the time the
-                //  cost to do this is probably more than paid for by less
-                //  logging.)
-                //
-
-                AttributeOffset = Attribute->Form.Nonresident.MappingPairsOffset;
-                MappingPairsOffset =
-                  RtlCompareMemory( MappingPairs,
-                                    Add2Ptr(Attribute, AttributeOffset),
-                                    Attribute->RecordLength - AttributeOffset );
-
-                AttributeOffset += MappingPairsOffset;
+                Attribute->Form.Nonresident.HighestVcn = LastVcn;
 
                 //
-                //  Log the change.
+                //  Now log these changes and fix up the first file record.
                 //
 
-                {
-                    VCN LogVcn;
-
-                    if (NewBcb != NULL) {
-
-                        //
-                        //  Get the cluster for the start of the page and then
-                        //  add the clusters for the page offset.
-                        //
-
-                        NtfsVcnFromBcb( Vcb, *(PLARGE_INTEGER)&LogVcn, FileRecord, NewBcb );
-
-                    } else {
-
-                        LogVcn = NtfsMftVcn( Context, Vcb );
-                    }
-
-                    FileRecord->Lsn =
-                    NtfsWriteLog( IrpContext,
-                                  Vcb->MftScb,
-                                  NewBcb != NULL ? NewBcb : NtfsFoundBcb(Context),
-                                  UpdateMappingPairs,
-                                  Add2Ptr(MappingPairs, MappingPairsOffset),
-                                  MappingPairsSize - MappingPairsOffset,
-                                  UpdateMappingPairs,
-                                  Add2Ptr(Attribute, AttributeOffset),
-                                  Attribute->RecordLength - AttributeOffset,
-                                  LogVcn,
-                                  RecordOffset,
-                                  AttributeOffset,
-                                  Vcb->ClustersPerFileRecordSegment );
-                }
+                FileRecordNumber = NtfsFullSegmentNumber(&Reference);
 
                 //
-                //  Now do the mapping pairs update by calling the same
-                //  routine called at restart.
+                //  Now log these changes and fix up the first file record.
                 //
 
-                NtfsRestartChangeMapping( IrpContext,
-                                          Vcb,
-                                          FileRecord,
-                                          RecordOffset,
-                                          AttributeOffset,
-                                          Add2Ptr(MappingPairs, MappingPairsOffset),
-                                          MappingPairsSize - MappingPairsOffset );
+                FileRecord->Lsn =
+                NtfsWriteLog( IrpContext,
+                              Vcb->MftScb,
+                              NewBcb,
+                              InitializeFileRecordSegment,
+                              FileRecord,
+                              FileRecord->FirstFreeByte,
+                              Noop,
+                              NULL,
+                              0,
+                              LlBytesFromFileRecords( Vcb, FileRecordNumber ),
+                              0,
+                              0,
+                              Vcb->BytesPerFileRecordSegment );
 
-            } finally {
+                //
+                //  Finally, we have to add the entry to the attribute list.
+                //  The routine we have to do this gets most of its inputs
+                //  out of an attribute context.  Our context at this point
+                //  does not have quite the right information, so we have to
+                //  update it here before calling AddToAttributeList.  (OK
+                //  this interface ain't pretty, but any normal person would
+                //  have fallen asleep before getting to this comment!)
+                //
 
-                if (MappingPairs != MappingPairsBuffer) {
+                Context->FoundAttribute.FileRecord = FileRecord;
+                Context->FoundAttribute.Attribute = Attribute;
+                Context->AttributeList.Entry =
+                  NtfsGetNextRecord(Context->AttributeList.Entry);
 
-                    ExFreePool(MappingPairs);
-                }
+                NtfsAddToAttributeList( IrpContext, Fcb, Reference, Context );
+            }
+
+        } finally {
+
+            NtfsUnpinBcb( &NewBcb );
+
+            if (AttributeName.Buffer != NameBuffer) {
+
+                NtfsFreePool(AttributeName.Buffer);
             }
         }
 
-        //
-        //  Check if have spilled into the reserved area of an Mft file record.
-        //
+        if (!ARGUMENT_PRESENT( StartingVcn) ||
+            (LowestVcnRemapped <= *StartingVcn)) {
 
-        if ((Scb == Vcb->MftScb) &&
-            (Context->AttributeList.Bcb != NULL)) {
-
-            if (FileRecord->BytesAvailable - FileRecord->FirstFreeByte < Vcb->MftReserved
-                && (*(PLONGLONG)&FileRecord->BaseFileRecordSegment != 0)) {
-
-                NtfsAcquireCheckpoint( IrpContext, Vcb );
-
-                SetFlag( Vcb->MftDefragState,
-                         VCB_MFT_DEFRAG_EXCESS_MAP | VCB_MFT_DEFRAG_ENABLED );
-
-                NtfsReleaseCheckpoint( IrpContext, Vcb );
-            }
+            break;
         }
 
         //
-        //  Step 6.
-        //
-        //  Now loop to create new file records if we have more allocation to
-        //  describe.  We use the highest Vcn of the file record we began with
-        //  as our stopping point or the last Vcn we are adding.
+        //  Move the range to be remapped down.
         //
 
-        while (LastVcn < NewHighestVcn) {
+        LocalClusterCount = LowestVcnRemapped - *StartingVcn;
 
-            MFT_SEGMENT_REFERENCE Reference;
-            PATTRIBUTE_TYPE_CODE NewEnd;
-            VCN Vcn;
+        NtfsCleanupAttributeContext( Context );
+        NtfsInitializeAttributeContext( Context );
 
-            //
-            //  If we get here as the result of a hot fix in the Mft, bail
-            //  out.  We could cause a disconnect in the Mft.
-            //
-
-            if (IsHotFixScb && (Scb == Vcb->MftScb)) {
-                ExRaiseStatus( STATUS_INTERNAL_ERROR );
-            }
-
-            //
-            //  Clone our current file record, and point to our new attribute.
-            //
-
-            NtfsUnpinBcb( IrpContext, &NewBcb );
-
-            FileRecord = NtfsCloneFileRecord( IrpContext,
-                                              Fcb,
-                                              (BOOLEAN)(Scb == Vcb->MftScb),
-                                              &NewBcb,
-                                              &Reference );
-
-            NtfsVcnFromBcb( Vcb, *(PLARGE_INTEGER)&Vcn, FileRecord, NewBcb );
-            Attribute = Add2Ptr( FileRecord, FileRecord->FirstAttributeOffset );
-
-            //
-            //  Next LowestVcn is the LastVcn + 1
-            //
-
-            LastVcn = LastVcn + 1;
-            Attribute->Form.Nonresident.LowestVcn = LastVcn;
-
-            //
-            //  Calculate the size of the attribute record we will need.
-            //
-
-            NewSize = SIZEOF_NONRESIDENT_ATTRIBUTE_HEADER
-                      + QuadAlign( AttributeName.Length )
-                      + QuadAlign( NtfsGetSizeForMappingPairs( IrpContext,
-                                                               Mcb,
-                                                               SizeAvailable,
-                                                               LastVcn,
-                                                               &NewHighestVcn,
-                                                               &LastVcn ));
-
-            //
-            //  Initialize the new attribute from the old one.
-            //
-
-            Attribute->TypeCode = AttributeTypeCode;
-            Attribute->RecordLength = NewSize;
-            Attribute->FormCode = NONRESIDENT_FORM;
-
-            //
-            //  Assume no attribute name, and calculate where the Mapping Pairs
-            //  will go.  (Update below if we are wrong.)
-            //
-
-            MappingPairs = (PCHAR)Attribute + SIZEOF_NONRESIDENT_ATTRIBUTE_HEADER;
-
-            //
-            //  If the attribute has a name, take care of that now.
-            //
-
-            if (AttributeName.Length != 0) {
-
-                Attribute->NameLength = (UCHAR)(AttributeName.Length / sizeof(WCHAR));
-                Attribute->NameOffset = (USHORT)PtrOffset(Attribute, MappingPairs);
-                RtlCopyMemory( MappingPairs,
-                               AttributeName.Buffer,
-                               AttributeName.Length );
-                MappingPairs += QuadAlign( AttributeName.Length );
-            }
-
-            Attribute->Flags = AttributeFlags;
-            Attribute->Instance = FileRecord->NextAttributeInstance++;
-
-            //
-            //  We always need the mapping pairs offset.
-            //
-
-            Attribute->Form.Nonresident.MappingPairsOffset = (USHORT)(MappingPairs -
-                                                             (PCHAR)Attribute);
-            NewEnd = Add2Ptr( Attribute, Attribute->RecordLength );
-            *NewEnd = $END;
-            FileRecord->FirstFreeByte = PtrOffset( FileRecord, NewEnd )
-                                        + QuadAlign( sizeof(ATTRIBUTE_TYPE_CODE ));
-
-            //
-            //  Now add the space in the file record.
-            //
-
-            *MappingPairs = 0;
-
-            NtfsBuildMappingPairs( IrpContext,
-                                   Mcb,
-                                   Attribute->Form.Nonresident.LowestVcn,
-                                   &LastVcn,
-                                   MappingPairs );
-
-            Attribute->Form.Nonresident.HighestVcn = LastVcn;
-
-            //
-            //  Now log these changes and fix up the first file record.
-            //
-
-            FileRecord->Lsn =
-            NtfsWriteLog( IrpContext,
-                          Vcb->MftScb,
-                          NewBcb,
-                          InitializeFileRecordSegment,
-                          FileRecord,
-                          FileRecord->FirstFreeByte,
-                          Noop,
-                          NULL,
-                          0,
-                          Vcn,
-                          0,
-                          0,
-                          Vcb->ClustersPerFileRecordSegment );
-
-            //
-            //  Finally, we have to add the entry to the attribute list.
-            //  The routine we have to do this gets most of its inputs
-            //  out of an attribute context.  Our context at this point
-            //  does not have quite the right information, so we have to
-            //  update it here before calling AddToAttributeList.  (OK
-            //  this interface ain't pretty, but any normal person would
-            //  have fallen asleep before getting to this comment!)
-            //
-
-            Context->FoundAttribute.FileRecord = FileRecord;
-            Context->FoundAttribute.Attribute = Attribute;
-            Context->AttributeList.Entry =
-              NtfsGetNextRecord(Context->AttributeList.Entry);
-
-            NtfsAddToAttributeList( IrpContext, Fcb, Reference, Context );
-        }
-
-    } finally {
-
-        NtfsUnpinBcb( IrpContext, &NewBcb );
-
-        if (AttributeName.Buffer != NameBuffer) {
-
-            ExFreePool(AttributeName.Buffer);
-        }
+        NtfsLookupAttributeForScb( IrpContext, Scb, NULL, Context );
     }
 
-    DebugTrace(-1, Dbg, "NtfsAddAttributeAllocation -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsAddAttributeAllocation -> VOID\n") );
 }
+
 
 //
 //  This routine is intended for use by allocsup.c.  Other callers should use
@@ -6443,9 +6320,9 @@ Return Value:
     //  For now we only support truncation.
     //
 
-    DebugTrace(+1, Dbg, "NtfsDeleteAttributeAllocation\n", 0 );
-    DebugTrace( 0, Dbg, "Scb = %08lx\n", Scb );
-    DebugTrace( 0, Dbg, "Context = %08lx\n", Context );
+    DebugTrace( +1, Dbg, ("NtfsDeleteAttributeAllocation\n") );
+    DebugTrace( 0, Dbg, ("Scb = %08lx\n", Scb) );
+    DebugTrace( 0, Dbg, ("Context = %08lx\n", Context) );
 
     //
     //  Make sure the buffer is pinned.
@@ -6467,16 +6344,27 @@ Return Value:
     //  Calculate how much space is actually needed.
     //
 
-    MappingPairsSize = QuadAlign(NtfsGetSizeForMappingPairs( IrpContext,
-                                                             &Scb->Mcb,
+    MappingPairsSize = QuadAlign(NtfsGetSizeForMappingPairs( &Scb->Mcb,
                                                              MAXULONG,
                                                              Attribute->Form.Nonresident.LowestVcn,
                                                              StopOnVcn,
                                                              &LastVcn ));
 
-    NewSize = SIZEOF_NONRESIDENT_ATTRIBUTE_HEADER
-              + QuadAlign(Attribute->NameLength << 1)
-              + MappingPairsSize;
+    //
+    //  Don't assume we understand everything about the size of the current header.
+    //  Find the offset of the name or the mapping pairs to use as the size
+    //  of the header.
+    //
+
+
+    NewSize = Attribute->Form.Nonresident.MappingPairsOffset;
+
+    if (Attribute->NameLength != 0) {
+
+        NewSize = Attribute->NameOffset + QuadAlign( Attribute->NameLength << 1 );
+    }
+
+    NewSize += MappingPairsSize;
 
     //
     //  If the record could somehow grow by deleting allocation, then
@@ -6490,7 +6378,7 @@ Return Value:
 
     if (MappingPairsSize > 64) {
 
-        MappingPairs = FsRtlAllocatePool( NonPagedPool, MappingPairsSize + 8 );
+        MappingPairs = NtfsAllocatePool( NonPagedPool, MappingPairsSize + 8 );
     }
 
     //
@@ -6504,8 +6392,7 @@ Return Value:
         //
 
         *MappingPairs = 0;
-        NtfsBuildMappingPairs( IrpContext,
-                               &Scb->Mcb,
+        NtfsBuildMappingPairs( &Scb->Mcb,
                                Attribute->Form.Nonresident.LowestVcn,
                                &LastVcn,
                                MappingPairs );
@@ -6540,10 +6427,10 @@ Return Value:
                           UpdateMappingPairs,
                           Add2Ptr(Attribute, AttributeOffset),
                           Attribute->RecordLength - AttributeOffset,
-                          NtfsMftVcn(Context, Vcb),
+                          NtfsMftOffset( Context ),
                           RecordOffset,
                           AttributeOffset,
-                          Vcb->ClustersPerFileRecordSegment );
+                          Vcb->BytesPerFileRecordSegment );
         }
 
         //
@@ -6586,13 +6473,11 @@ Return Value:
             }
 
             //
-            //  Possibly update HighestVcnToDisk
+            //  Possibly update ValidDataToDisk
             //
 
-            Size = LlClustersFromBytes( Scb->Vcb, Size );
-
-            if (Size <= Scb->HighestVcnToDisk) {
-                Scb->HighestVcnToDisk = Size - 1;
+            if (Size < Scb->ValidDataToDisk) {
+                Scb->ValidDataToDisk = Size;
             }
         }
 
@@ -6600,11 +6485,11 @@ Return Value:
 
         if (MappingPairs != MappingPairsBuffer) {
 
-            ExFreePool(MappingPairs);
+            NtfsFreePool(MappingPairs);
         }
     }
 
-    DebugTrace(-1, Dbg, "NtfsDeleteAttributeAllocation -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsDeleteAttributeAllocation -> VOID\n") );
 }
 
 
@@ -6657,10 +6542,11 @@ Return Value:
         //  Enumerate all of the attributes to check whether they may be deleted.
         //
 
-        MoreToGo = NtfsLookupAttribute( IrpContext,
-                                        Fcb,
-                                        &Fcb->FileReference,
-                                        &Context );
+        MoreToGo = NtfsLookupAttributeByCode( IrpContext,
+                                              Fcb,
+                                              &Fcb->FileReference,
+                                              $INDEX_ROOT,
+                                              &Context );
 
         while (MoreToGo) {
 
@@ -6674,29 +6560,27 @@ Return Value:
             //  If the attribute is an index, then it must be empty.
             //
 
-            if (Attribute->TypeCode == $INDEX_ROOT) {
+            if (!NtfsIsIndexEmpty( IrpContext, Attribute )) {
 
-                if (!NtfsIsIndexEmpty( IrpContext, Attribute )) {
-
-                    *NonEmptyIndex = TRUE;
-                    break;
-                }
+                *NonEmptyIndex = TRUE;
+                break;
             }
 
             //
             //  Go to the next attribute.
             //
 
-            MoreToGo = NtfsLookupNextAttribute( IrpContext,
-                                                Fcb,
-                                                &Context );
+            MoreToGo = NtfsLookupNextAttributeByCode( IrpContext,
+                                                      Fcb,
+                                                      $INDEX_ROOT,
+                                                      &Context );
         }
 
     } finally {
 
         DebugUnwind( NtfsIsFileDeleteable );
 
-        NtfsCleanupAttributeContext( IrpContext, &Context );
+        NtfsCleanupAttributeContext( &Context );
     }
 
     //
@@ -6708,22 +6592,12 @@ Return Value:
 }
 
 
-//
-//  Local structure for remembering file records to delete.
-//
-
-typedef struct _NUKEM {
-
-    struct _NUKEM *Next;
-    ULONG RecordNumbers[4];
-
-} NUKEM, *PNUKEM;
-
 VOID
 NtfsDeleteFile (
-    PIRP_CONTEXT IrpContext,
-    PFCB Fcb,
-    PSCB ParentScb OPTIONAL
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB Fcb,
+    IN PSCB ParentScb OPTIONAL,
+    IN OUT PNAME_PAIR NamePair OPTIONAL
     )
 
 /*++
@@ -6734,6 +6608,8 @@ Routine Description:
     be deleted from the specified parent (i.e., if the specified parent
     were to be acquired exclusive).  This routine should be called from
     fileinfo, to see whether it is ok to mark an open file for delete.
+
+    NamePair will capture the names of the file being deleted if supplied.
 
     Note that once a file is marked for delete, none of we must insure
     that none of the conditions checked by this routine are allowed to
@@ -6752,6 +6628,8 @@ Arguments:
                 be acquired exclusive to perform the delete.  There may be
                 no parent Fcb for a file whose links have already been
                 removed.
+
+    NamePair - optionally provided to capture the name pair of a file
 
 Return Value:
 
@@ -6774,6 +6652,8 @@ Return Value:
     ULONG NukemIndex = 0;
     BOOLEAN NonresidentAttributeList = FALSE;
 
+    PAGED_CODE();
+
     ASSERT_EXCLUSIVE_FCB( Fcb );
 
     if (ARGUMENT_PRESENT( ParentScb )) {
@@ -6784,6 +6664,8 @@ Return Value:
     RtlZeroMemory( &LocalNuke, sizeof(NUKEM) );
 
     Vcb = Fcb->Vcb;
+
+    SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_QUOTA_DISABLE );
 
     try {
 
@@ -6839,6 +6721,13 @@ Return Value:
                             Attribute->Form.Nonresident.LowestVcn == 0) {
 
                             NtfsDeleteAllocationFromRecord( IrpContext, Fcb, &Context, TRUE );
+
+                            //
+                            //  Reload the attribute pointer in the event it
+                            //  was remapped.
+                            //
+
+                            Attribute = NtfsFoundAttribute( &Context );
                         }
 
                     } else {
@@ -6847,8 +6736,48 @@ Return Value:
                             Attribute->Form.Nonresident.LowestVcn == 0) {
 
                             NtfsDeleteAllocationFromRecord( IrpContext, Fcb, &Context, FALSE );
+
+                            //
+                            //  Reload the attribute pointer in the event it
+                            //  was remapped.
+                            //
+
+                            Attribute = NtfsFoundAttribute( &Context );
                         }
                     }
+                } else {
+
+#ifdef _CAIRO_
+                    if (Pass == 0 &&
+                        Attribute->TypeCode == $STANDARD_INFORMATION &&
+                        Attribute->Form.Resident.ValueLength ==
+                        sizeof( STANDARD_INFORMATION )) {
+
+                        ASSERT( !FlagOn( Vcb->QuotaFlags, QUOTA_FLAG_TRACKING_ENABLED ) ||
+                                NtfsPerformQuotaOperation( Fcb ) ||
+                                ((PSTANDARD_INFORMATION) NtfsAttributeValue( Attribute ))->QuotaCharged == 0);
+
+                        //
+                        //  Return all of the user's quota for this file.
+                        //
+
+                        if (NtfsPerformQuotaOperation( Fcb )) {
+
+                            LONGLONG Delta = -(LONGLONG) ((PSTANDARD_INFORMATION)
+                                                 NtfsAttributeValue( Attribute ))->
+                                                 QuotaCharged;
+
+                            NtfsUpdateFileQuota( IrpContext,
+                                                 Fcb,
+                                                 &Delta,
+                                                 TRUE,
+                                                 FALSE );
+                        }
+
+                    }
+
+#endif // _CAIRO_
+
                 }
 
                 if (Pass == 1) {
@@ -6869,11 +6798,21 @@ Return Value:
                         ASSERT(NtfsEqualMftRef(&FileName->ParentDirectory,
                                                &ParentScb->Fcb->FileReference));
 
+                        if (ARGUMENT_PRESENT(NamePair)) {
+
+                            //
+                            //  Squirrel away names
+                            //
+
+                            NtfsCopyNameToNamePair( NamePair,
+                                                    FileName->FileName,
+                                                    FileName->FileNameLength,
+                                                    FileName->Flags );
+                        }
+
                         NtfsDeleteIndexEntry( IrpContext,
                                               ParentScb,
                                               (PVOID)FileName,
-                                              (ULONG)(sizeof(FILE_NAME) +
-                                                ((FileName->FileNameLength - 1) * sizeof(WCHAR))),
                                               &Fcb->FileReference );
                     }
 
@@ -6889,9 +6828,9 @@ Return Value:
                     //
 
                     if (Context.AttributeList.Bcb != NULL) {
-                        RecordNumber = Context.AttributeList.Entry->SegmentReference.LowPart;
+                        RecordNumber = NtfsUnsafeSegmentNumber( &Context.AttributeList.Entry->SegmentReference );
                     } else {
-                        RecordNumber = Fcb->FileReference.LowPart;
+                        RecordNumber = NtfsUnsafeSegmentNumber( &Fcb->FileReference );
                     }
 
                     //
@@ -6923,7 +6862,7 @@ Return Value:
 
                         if (NukemIndex > 3) {
 
-                            NtfsAllocateNukem( &TempNukem );
+                            TempNukem = (PNUKEM)ExAllocateFromPagedLookasideList( &NtfsNukemLookasideList );
                             RtlZeroMemory( TempNukem, sizeof(NUKEM) );
                             TempNukem->Next = Nukem;
                             Nukem = TempNukem;
@@ -6961,7 +6900,7 @@ Return Value:
                                                     &Context );
             }
 
-            NtfsCleanupAttributeContext( IrpContext, &Context );
+            NtfsCleanupAttributeContext( &Context );
         }
 
         //
@@ -6979,7 +6918,7 @@ Return Value:
                                        &Context );
 
             NtfsDeleteAllocationFromRecord( IrpContext, Fcb, &Context, FALSE );
-            NtfsCleanupAttributeContext( IrpContext, &Context );
+            NtfsCleanupAttributeContext( &Context );
         }
 
         //
@@ -6995,14 +6934,13 @@ Return Value:
 
                     NtfsDeallocateMftRecord( IrpContext,
                                              Vcb,
-                                             Nukem->RecordNumbers[i],
-                                             FALSE );
+                                             Nukem->RecordNumbers[i] );
                 }
             }
 
             TempNukem = Nukem->Next;
             if (Nukem != &LocalNuke) {
-                NtfsFreeNukem( Nukem );
+                ExFreeToPagedLookasideList( &NtfsNukemLookasideList, Nukem );
             }
             Nukem = TempNukem;
         }
@@ -7011,7 +6949,10 @@ Return Value:
 
         DebugUnwind( NtfsDeleteFile );
 
-        NtfsCleanupAttributeContext( IrpContext, &Context );
+        NtfsCleanupAttributeContext( &Context );
+
+        ClearFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_QUOTA_DISABLE );
+
     }
 
     return;
@@ -7024,7 +6965,7 @@ NtfsPrepareForUpdateDuplicate (
     IN PFCB Fcb,
     IN OUT PLCB *Lcb,
     IN OUT PSCB *ParentScb,
-    IN OUT PBOOLEAN AcquiredParentScb
+    IN BOOLEAN AcquireShared
     )
 
 /*++
@@ -7033,7 +6974,7 @@ Routine Description:
 
     This routine is called to prepare for updating the duplicate information.
     At the conclusion of this routine we will have the Lcb and Scb for the
-    update with the Scb acquired exclusively.  This routine will look at
+    update along with the Scb acquired.  This routine will look at
     the existing values for the input parameters in deciding what actions
     need to be done.
 
@@ -7047,9 +6988,7 @@ Arguments:
     ParentScb - This is the address to store the parent Scb for the update.
         This may already point to a valid Scb.
 
-    AcquiredParentScb - This is the address to indicate whether this routine
-        has acquired the Scb.  This will contain the current state of the
-        Scb on entry.
+    AcquireShared - Indicates how to acquire the parent Scb.
 
 Return Value:
 
@@ -7060,7 +6999,6 @@ Return Value:
 {
     PLIST_ENTRY Links;
     PLCB ThisLcb;
-    BOOLEAN ScbIsAcquired;
 
     PAGED_CODE();
 
@@ -7085,10 +7023,10 @@ Return Value:
             //
 
             if (!FlagOn( ThisLcb->LcbState, LCB_STATE_LINK_IS_GONE ) &&
-                (*ParentScb == NULL ||
-                 *ParentScb == ThisLcb->Scb ||
-                 (ThisLcb == Fcb->Vcb->RootLcb &&
-                  *ParentScb == Fcb->Vcb->RootIndexScb))) {
+                ((*ParentScb == NULL) ||
+                 (*ParentScb == ThisLcb->Scb) ||
+                 ((ThisLcb == Fcb->Vcb->RootLcb) &&
+                  (*ParentScb == Fcb->Vcb->RootIndexScb)))) {
 
                 *Lcb = ThisLcb;
                 break;
@@ -7098,37 +7036,37 @@ Return Value:
         }
     }
 
-    ScbIsAcquired = *AcquiredParentScb;
-
     //
     //  If we have an Lcb, try to find the correct Scb.
     //
 
-    if (*Lcb != NULL &&
-        *ParentScb == NULL) {
+    if ((*Lcb != NULL) && (*ParentScb == NULL)) {
 
         if (*Lcb == Fcb->Vcb->RootLcb) {
 
             *ParentScb = Fcb->Vcb->RootIndexScb;
-            ScbIsAcquired = TRUE;
 
         } else {
 
             *ParentScb = (*Lcb)->Scb;
-            ScbIsAcquired = FALSE;
         }
     }
 
     //
-    //  Check if we should acquire the parent Scb.
+    //  Acquire the parent Scb and put it in the transaction queue in the
+    //  IrpContext.
     //
 
-    if (*ParentScb != NULL &&
-        !ScbIsAcquired) {
+    if (*ParentScb != NULL) {
 
-        NtfsAcquireExclusiveScb( IrpContext, *ParentScb );
+        if (AcquireShared) {
 
-        *AcquiredParentScb = TRUE;
+            NtfsAcquireSharedScbForTransaction( IrpContext, *ParentScb );
+
+        } else {
+
+            NtfsAcquireExclusiveScb( IrpContext, *ParentScb );
+        }
     }
 
     return;
@@ -7151,8 +7089,9 @@ Routine Description:
     in the duplicated information of its parent.  If the Lcb is specified
     then this parent is the parent to update.  If the link is either an
     NTFS or DOS only link then we must update the complementary link as
-    well.  If no Lcb is specified then this open was by file id and we
-    will update the first file name entry we find.
+    well.  If no Lcb is specified then this open was by file id or the
+    original link has been deleted.  In that case we will try to find a different
+    link to update.
 
 Arguments:
 
@@ -7176,7 +7115,7 @@ Return Value:
     PFILE_NAME FileNameAttr;
 
     BOOLEAN AcquiredFcbTable = FALSE;
-    BOOLEAN AcquiredParentScb = FALSE;
+
     BOOLEAN ReturnedExistingFcb = TRUE;
     BOOLEAN Found;
     UCHAR FileNameFlags;
@@ -7188,9 +7127,6 @@ Return Value:
     PAGED_CODE();
 
     ASSERT_EXCLUSIVE_FCB( Fcb );
-
-    ASSERT( !ARGUMENT_PRESENT( ParentScb ) ||
-            NtfsIsExclusiveScb( ParentScb ));
 
     //
     //  Return immediately if the volume is locked.
@@ -7212,6 +7148,9 @@ Return Value:
 
         if (Fcb == Fcb->Vcb->RootIndexScb->Fcb) {
 
+            Lcb = Fcb->Vcb->RootLcb;
+            ParentScb = Fcb->Vcb->RootIndexScb;
+
             QuickIndex = &Fcb->Vcb->RootLcb->QuickIndex;
 
             FileNameAttr = (PFILE_NAME) &Buffer;
@@ -7226,16 +7165,36 @@ Return Value:
                                         FileNameAttr );
 
         //
-        //  If there is no Lcb then lookup the first filename attribute
-        //  and update its first index entry.
+        //  If we have and Lcb then it is either present or we noop this update.
         //
 
-        } else if (!ARGUMENT_PRESENT( Lcb )) {
+        } else if (ARGUMENT_PRESENT( Lcb )) {
+
+            if (!FlagOn( Lcb->LcbState, LCB_STATE_LINK_IS_GONE )) {
+
+                QuickIndex = &Lcb->QuickIndex;
+                FileNameAttr = Lcb->FileNameAttr;
+
+            } else {
+
+                leave;
+            }
+
+        //
+        //  If there is no Lcb then lookup the first filename attribute
+        //  and update its index entry.  If there is a parent Scb then we
+        //  must find a file name attribute for the same parent or we could
+        //  get into a deadlock situation.
+        //
+
+        } else {
 
             //
             //  We now have a name link to update.  We will now need
             //  an Scb for the parent index.  Remember that we may
-            //  have teardown the Scb.  Don't forget to acquire the Scb.
+            //  have to teardown the Scb.  If we already have a ParentScb
+            //  then we must find a link to the same parent or to the root.
+            //  Otherwise we could hit a deadlock.
             //
 
             Found = NtfsLookupAttributeByCode( IrpContext,
@@ -7249,55 +7208,92 @@ Return Value:
                 NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, Fcb );
             }
 
-            FileNameAttr = (PFILE_NAME) NtfsAttributeValue( NtfsFoundAttribute( &Context ));
-
             //
-            //  Get an Fcb and Scb for the parent.
+            //  Loop until we find a suitable link or there are no more on the file.
             //
 
-            if (!NtfsEqualMftRef( &FileNameAttr->ParentDirectory,
-                                  &Vcb->RootIndexScb->Fcb->FileReference )) {
+            do {
 
-                NtfsAcquireFcbTable( IrpContext, Vcb );
-                AcquiredFcbTable = TRUE;
+                FileNameAttr = (PFILE_NAME) NtfsAttributeValue( NtfsFoundAttribute( &Context ));
 
-                ParentFcb = NtfsCreateFcb( IrpContext,
-                                           Vcb,
-                                           FileNameAttr->ParentDirectory,
-                                           FALSE,
-                                           &ReturnedExistingFcb );
+                //
+                //  If there is a parent and this attribute has the same parent we are
+                //  done.  Our caller will always have acquired the ParentScb.
+                //
 
-                NtfsReleaseFcbTable( IrpContext, Vcb );
-                AcquiredFcbTable = FALSE;
+                if (ARGUMENT_PRESENT( ParentScb )) {
 
-                ParentScb = NtfsCreateScb( IrpContext,
-                                           Vcb,
-                                           ParentFcb,
-                                           $INDEX_ALLOCATION,
-                                           NtfsFileNameIndex,
-                                           NULL );
+                    if (NtfsEqualMftRef( &FileNameAttr->ParentDirectory,
+                                         &ParentScb->Fcb->FileReference )) {
 
-            } else {
+                        ASSERT_SHARED_SCB( ParentScb );
+                        break;
+                    }
 
-                ParentScb = Vcb->RootIndexScb;
-            }
+                //
+                //  If this is the parent of this link is the root then
+                //  acquire the root directory.
+                //
 
-            NtfsAcquireExclusiveScb( IrpContext, ParentScb );
+                } else if (NtfsEqualMftRef( &FileNameAttr->ParentDirectory,
+                                            &Vcb->RootIndexScb->Fcb->FileReference )) {
 
-            AcquiredParentScb = TRUE;
+                    ParentScb = Vcb->RootIndexScb;
+                    NtfsAcquireSharedScbForTransaction( IrpContext, ParentScb );
+                    break;
 
-        //
-        //  Otherwise build a file name attribute for this Lcb.
-        //
+                //
+                //  We have a link for this file.  If we weren't given a parent
+                //  Scb then create one here.
+                //
 
-        } else if (!FlagOn( Lcb->LcbState, LCB_STATE_LINK_IS_GONE )) {
+                } else if (!ARGUMENT_PRESENT( ParentScb )) {
 
-            QuickIndex = &Lcb->QuickIndex;
-            FileNameAttr = Lcb->FileNameAttr;
+                    NtfsAcquireFcbTable( IrpContext, Vcb );
+                    AcquiredFcbTable = TRUE;
 
-        } else {
+                    ParentFcb = NtfsCreateFcb( IrpContext,
+                                               Vcb,
+                                               FileNameAttr->ParentDirectory,
+                                               FALSE,
+                                               TRUE,
+                                               &ReturnedExistingFcb );
 
-            try_return( NOTHING );
+                    ParentFcb->ReferenceCount += 1;
+
+                    if (!NtfsAcquireExclusiveFcb( IrpContext, ParentFcb, NULL, TRUE, TRUE )) {
+
+                        NtfsReleaseFcbTable( IrpContext, Vcb );
+                        NtfsAcquireExclusiveFcb( IrpContext, ParentFcb, NULL, TRUE, FALSE );
+                        NtfsAcquireFcbTable( IrpContext, Vcb );
+                    }
+
+                    ParentFcb->ReferenceCount -= 1;
+
+                    NtfsReleaseFcbTable( IrpContext, Vcb );
+                    AcquiredFcbTable = FALSE;
+
+                    ParentScb = NtfsCreateScb( IrpContext,
+                                               ParentFcb,
+                                               $INDEX_ALLOCATION,
+                                               &NtfsFileNameIndex,
+                                               FALSE,
+                                               NULL );
+
+                    NtfsAcquireExclusiveScb( IrpContext, ParentScb );
+                    break;
+                }
+
+            } while (Found = NtfsLookupNextAttributeByCode( IrpContext,
+                                                             Fcb,
+                                                             $FILE_NAME,
+                                                             &Context ));
+
+            //
+            //  If we didn't find anything then return.
+            //
+
+            if (!Found) { leave; }
         }
 
         //
@@ -7307,7 +7303,6 @@ Return Value:
         NtfsUpdateFileNameInIndex( IrpContext,
                                    ParentScb,
                                    FileNameAttr,
-                                   NtfsFileNameSize( FileNameAttr ),
                                    &Fcb->Info,
                                    QuickIndex );
 
@@ -7316,8 +7311,8 @@ Return Value:
         //  we need to find the other link.
         //
 
-        if (FileNameAttr->Flags == FILE_NAME_NTFS ||
-            FileNameAttr->Flags == FILE_NAME_DOS) {
+        if ((FileNameAttr->Flags == FILE_NAME_NTFS) ||
+            (FileNameAttr->Flags == FILE_NAME_DOS)) {
 
             //
             //  Find out which flag we should be looking for.
@@ -7334,7 +7329,7 @@ Return Value:
 
             if (!ARGUMENT_PRESENT( Lcb )) {
 
-                NtfsCleanupAttributeContext( IrpContext, &Context );
+                NtfsCleanupAttributeContext( &Context );
                 NtfsInitializeAttributeContext( &Context );
             }
 
@@ -7375,12 +7370,10 @@ Return Value:
             NtfsUpdateFileNameInIndex( IrpContext,
                                        ParentScb,
                                        FileNameAttr,
-                                       NtfsFileNameSize( FileNameAttr ),
                                        &Fcb->Info,
                                        NULL );
         }
 
-    try_exit:  NOTHING;
     } finally {
 
         DebugUnwind( NtfsUpdateDuplicateInfo );
@@ -7394,38 +7387,21 @@ Return Value:
         //  Cleanup the attribute context for this attribute search.
         //
 
-        NtfsCleanupAttributeContext( IrpContext, &Context );
+        NtfsCleanupAttributeContext( &Context );
 
         //
-        //  If we created the ParentScb here then release it and
+        //  If we created the ParentFcb here then release it and
         //  call teardown on it.
         //
 
-        if (ParentFcb != NULL &&
-            !ReturnedExistingFcb) {
-
-            BOOLEAN RemovedFcb = FALSE;
+        if (!ReturnedExistingFcb) {
 
             NtfsTeardownStructures( IrpContext,
-                                    ParentScb,
+                                    ParentFcb,
                                     NULL,
                                     FALSE,
-                                    &RemovedFcb,
-                                    FALSE );
-
-            if (RemovedFcb) {
-
-                AcquiredParentScb = FALSE;
-            }
-        }
-
-        //
-        //  Release the parent Scb if we acquired it here.
-        //
-
-        if (AcquiredParentScb) {
-
-            NtfsReleaseScb( IrpContext, ParentScb );
+                                    FALSE,
+                                    NULL );
         }
     }
 
@@ -7435,7 +7411,6 @@ Return Value:
 
 VOID
 NtfsUpdateLcbDuplicateInfo (
-    IN PIRP_CONTEXT IrpContext,
     IN PFCB Fcb,
     IN PLCB Lcb
     )
@@ -7480,11 +7455,11 @@ Return Value:
         //  Check if this is an NTFS only or DOS only link.
         //
 
-        if (Lcb->FileNameFlags == FILE_NAME_NTFS) {
+        if (Lcb->FileNameAttr->Flags == FILE_NAME_NTFS) {
 
             FileNameFlags = FILE_NAME_DOS;
 
-        } else if (Lcb->FileNameFlags == FILE_NAME_DOS) {
+        } else if (Lcb->FileNameAttr->Flags == FILE_NAME_DOS) {
 
             FileNameFlags = FILE_NAME_NTFS;
 
@@ -7505,7 +7480,7 @@ Return Value:
 
             if (NextLcb != Lcb) {
 
-                if (NextLcb->FileNameFlags == FileNameFlags) {
+                if (NextLcb->FileNameAttr->Flags == FileNameFlags) {
 
                     NextLcb->InfoFlags = 0;
 
@@ -7526,9 +7501,7 @@ Return Value:
 
 VOID
 NtfsUpdateFcb (
-    IN PIRP_CONTEXT IrpContext,
-    IN PFCB Fcb,
-    IN BOOLEAN UpdateLastWrite
+    IN PFCB Fcb
     )
 
 /*++
@@ -7537,13 +7510,11 @@ Routine Description:
 
     This routine is called when a timestamp may be updated on an Fcb which
     may have no open handles.  We always update the last change time to the
-    current time.  We conditionally update the last write time.
+    current time as well as last access and last write.
 
 Arguments:
 
     Fcb - Fcb for the file.
-
-    UpdateLastWrite - Do we update the last write time.
 
 Return Value:
 
@@ -7563,57 +7534,11 @@ Return Value:
 
     SetFlag( Fcb->FcbState, FCB_STATE_UPDATE_STD_INFO );
 
-    SetFlag( Fcb->InfoFlags, FCB_INFO_CHANGED_LAST_MOD );
+    SetFlag( Fcb->InfoFlags,
+             FCB_INFO_CHANGED_LAST_CHANGE | FCB_INFO_CHANGED_LAST_MOD );
 
-    if (UpdateLastWrite) {
-
-        Fcb->Info.LastModificationTime = Fcb->Info.LastChangeTime;
-        SetFlag( Fcb->InfoFlags, FCB_INFO_CHANGED_LAST_MOD );
-    }
-
-    //
-    //  If there are open handles on this directory, we let them
-    //  report this change.  Otherwise we call update duplicate
-    //  info directly.
-    //
-
-    //
-    //  Don't do the following loop because of deadlock possibilities.
-    //
-
-    //  if (Fcb->CleanupCount == 0) {
-    //
-    //      //
-    //      //  Use a try-finally to facilitate cleanup.
-    //      //
-    //
-    //      try {
-    //
-    //          Lcb = NULL;
-    //          ParentScb = NULL;
-    //          AcquiredParentScb = FALSE;
-    //
-    //          NtfsPrepareForUpdateDuplicate( IrpContext, Fcb, &Lcb, &ParentScb, &AcquiredParentScb );
-    //
-    //          NtfsUpdateStandardInformation( IrpContext, Fcb );
-    //          NtfsUpdateDuplicateInfo( IrpContext, Fcb, Lcb, ParentScb );
-    //
-    //          NtfsUpdateLcbDuplicateInfo( IrpContext, Fcb, Lcb );
-    //
-    //          Fcb->InfoFlags = 0;
-    //          ClearFlag( Fcb->FcbState, FCB_STATE_UPDATE_STD_INFO );
-    //          ClearFlag( Fcb->FcbState, FCB_STATE_MODIFIED_SECURITY );
-    //
-    //      } finally {
-    //
-    //          DebugUnwind( NtfsUpdateFcb );
-    //
-    //          if (AcquiredParentScb) {
-    //
-    //              NtfsReleaseScb( IrpContext, ParentScb );
-    //          }
-    //      }
-    //  }
+    Fcb->CurrentLastAccess =
+    Fcb->Info.LastModificationTime = Fcb->Info.LastChangeTime;
 
     return;
 }
@@ -7626,9 +7551,10 @@ NtfsAddLink (
     IN PSCB ParentScb,
     IN PFCB Fcb,
     IN PFILE_NAME FileNameAttr,
-    IN BOOLEAN LogIt,
+    IN PBOOLEAN LogIt OPTIONAL,
     OUT PUCHAR FileNameFlags,
-    OUT PQUICK_INDEX QuickIndex OPTIONAL
+    OUT PQUICK_INDEX QuickIndex OPTIONAL,
+    IN PNAME_PAIR NamePair OPTIONAL
     )
 
 /*++
@@ -7638,7 +7564,8 @@ Routine Description:
     This routine adds a link to a file by adding the filename attribute
     for the filename to the file and inserting the name in the parent Scb
     index.  If we are creating the primary link for the file and need
-    to generate an auxilary name, we will do that here.
+    to generate an auxilary name, we will do that here. Use the optional
+    NamePair to suggest auxilary names if provided.
 
 Arguments:
 
@@ -7652,12 +7579,18 @@ Arguments:
     FileNameAttr - File name attribute which is guaranteed only to have the
         name in it.
 
-    LogIt - Indicates whether we should log the creation of this name.
+    LogIt - Indicates whether we should log the creation of this name.  If not
+        specified then we always log the name creation.  On exit we will
+        update this to TRUE if we logged the name creation because it
+        might cause a split.
 
     FileNameFlags - We return the file name flags we use to create the link.
 
     QuickIndex - If specified, supplies a pointer to a quik lookup structure
         to be updated by this routine.
+
+    NamePair - If specified, supplies names that will be checked first as
+        possible auxilary names
 
 Return Value:
 
@@ -7666,9 +7599,16 @@ Return Value:
 --*/
 
 {
+    BOOLEAN LocalLogIt = TRUE;
+
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsAddLink:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsAddLink:  Entered\n") );
+
+    if (!ARGUMENT_PRESENT( LogIt )) {
+
+        LogIt = &LocalLogIt;
+    }
 
     *FileNameFlags = 0;
 
@@ -7700,7 +7640,8 @@ Return Value:
                          LogIt,
                          FileNameAttr,
                          FileNameFlags,
-                         QuickIndex );
+                         QuickIndex,
+                         NamePair );
 
     //
     //  If the name is Ntfs only, we need to generate the DOS name.
@@ -7717,10 +7658,11 @@ Return Value:
                             ParentScb,
                             Fcb,
                             NtfsName,
-                            LogIt );
+                            *LogIt,
+                            (NamePair ? &NamePair->Short : NULL) );
     }
 
-    DebugTrace( -1, Dbg, "NtfsAddLink:  Exit\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsAddLink:  Exit\n") );
 
     return;
 }
@@ -7731,7 +7673,8 @@ NtfsRemoveLink (
     IN PIRP_CONTEXT IrpContext,
     IN PFCB Fcb,
     IN PSCB ParentScb,
-    IN UNICODE_STRING LinkName
+    IN UNICODE_STRING LinkName,
+    IN OUT PNAME_PAIR NamePair OPTIONAL
     )
 
 /*++
@@ -7742,6 +7685,8 @@ Routine Description:
     for the filename from the file and removing the name from the parent Scb
     index.  It will also remove the other half of a primary link pair.
 
+    A name pair may be used to capture the names.
+
 Arguments:
 
     Fcb - This is the file to remove the hard link from
@@ -7749,6 +7694,8 @@ Arguments:
     ParentScb - This is the Scb to remove the index entry for this link from
 
     LinkName - This is the file name to remove.  It will be exact case.
+
+    NamePair - optional name pair for capture
 
 Return Value:
 
@@ -7763,7 +7710,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsRemoveLink:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsRemoveLink:  Entered\n") );
 
     NtfsInitializeAttributeContext( &AttrContext );
 
@@ -7784,7 +7731,7 @@ Return Value:
                                         $FILE_NAME,
                                         &AttrContext )) {
 
-            DebugTrace(0, Dbg, "Can't find filename attribute Fcb @ %08lx\n", Fcb);
+            DebugTrace( 0, Dbg, ("Can't find filename attribute Fcb @ %08lx\n", Fcb) );
 
             NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, Fcb );
         }
@@ -7806,9 +7753,9 @@ Return Value:
 
                 ((FoundFileName->FileNameLength * sizeof( WCHAR )) == (ULONG)LinkName.Length) &&
 
-                (RtlCompareMemory( LinkName.Buffer,
-                                   FoundFileName->FileName,
-                                   LinkName.Length ) == (ULONG)LinkName.Length)) {
+                (RtlEqualMemory( LinkName.Buffer,
+                                 FoundFileName->FileName,
+                                 LinkName.Length ))) {
 
                 break;
             }
@@ -7822,10 +7769,22 @@ Return Value:
                                                 $FILE_NAME,
                                                 &AttrContext )) {
 
-                DebugTrace(0, Dbg, "Can't find filename attribute Fcb @ %08lx\n", Fcb);
+                DebugTrace( 0, Dbg, ("Can't find filename attribute Fcb @ %08lx\n", Fcb) );
 
                 NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, Fcb );
             }
+        }
+
+        //
+        //  Capture the name into caller's area
+        //
+
+        if (ARGUMENT_PRESENT(NamePair)) {
+
+            NtfsCopyNameToNamePair( NamePair,
+                                    FoundFileName->FileName,
+                                    FoundFileName->FileNameLength,
+                                    FoundFileName->Flags );
         }
 
         //
@@ -7835,7 +7794,6 @@ Return Value:
         NtfsDeleteIndexEntry( IrpContext,
                               ParentScb,
                               FoundFileName,
-                              NtfsFileNameSize( FoundFileName ),
                               &Fcb->FileReference );
 
         //
@@ -7867,16 +7825,17 @@ Return Value:
                                     ParentScb,
                                     (UCHAR)(FlagOn( FileNameFlags, FILE_NAME_NTFS )
                                      ? FILE_NAME_DOS
-                                     : FILE_NAME_NTFS) );
+                                     : FILE_NAME_NTFS),
+                                    NamePair );
         }
 
     } finally {
 
         DebugUnwind( NtfsRemoveLink );
 
-        NtfsCleanupAttributeContext( IrpContext, &AttrContext );
+        NtfsCleanupAttributeContext( &AttrContext );
 
-        DebugTrace( -1, Dbg, "NtfsRemoveLink:  Exit\n", 0 );
+        DebugTrace( -1, Dbg, ("NtfsRemoveLink:  Exit\n") );
     }
 
     return;
@@ -7888,7 +7847,8 @@ NtfsRemoveLinkViaFlags (
     IN PIRP_CONTEXT IrpContext,
     IN PFCB Fcb,
     IN PSCB Scb,
-    IN UCHAR FileNameFlags
+    IN UCHAR FileNameFlags,
+    IN OUT PNAME_PAIR NamePair OPTIONAL
     )
 
 /*++
@@ -7898,6 +7858,8 @@ Routine Description:
     This routine is called to remove only a Dos name or only an Ntfs name.  We
     already must know that these will be described by separate filename attributes.
 
+    A name pair may be used to capture the name.
+
 Arguments:
 
     Fcb - This is the file to remove the hard link from
@@ -7905,6 +7867,8 @@ Arguments:
     ParentScb - This is the Scb to remove the index entry for this link from
 
     FileNameFlags - This is the single name flag that we must match exactly.
+
+    NamePair - optional name pair for capture
 
 Return Value:
 
@@ -7920,7 +7884,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsRemoveLinkViaFlags:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsRemoveLinkViaFlags:  Entered\n") );
 
     NtfsInitializeAttributeContext( &AttrContext );
 
@@ -7943,7 +7907,7 @@ Return Value:
                                         $FILE_NAME,
                                         &AttrContext )) {
 
-            DebugTrace(0, Dbg, "Can't find filename attribute Fcb @ %08lx\n", Fcb);
+            DebugTrace( 0, Dbg, ("Can't find filename attribute Fcb @ %08lx\n", Fcb) );
 
             NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, Fcb );
         }
@@ -7978,13 +7942,26 @@ Return Value:
                                                 $FILE_NAME,
                                                 &AttrContext )) {
 
-                DebugTrace(0, Dbg, "Can't find filename attribute Fcb@ %08lx\n", Fcb);
+                DebugTrace( 0, Dbg, ("Can't find filename attribute Fcb@ %08lx\n", Fcb) );
 
                 NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, Fcb );
             }
         }
 
-        FileNameAttr = NtfsAllocatePagedPool( sizeof( FILE_NAME )
+        //
+        //  Capture the name into caller's area
+        //
+
+        if (ARGUMENT_PRESENT(NamePair)) {
+
+            NtfsCopyNameToNamePair( NamePair,
+                                    FoundFileName->FileName,
+                                    FoundFileName->FileNameLength,
+                                    FoundFileName->Flags );
+
+        }
+
+        FileNameAttr = NtfsAllocatePool(PagedPool, sizeof( FILE_NAME )
                                               + (FoundFileName->FileNameLength << 1));
 
         //
@@ -8012,18 +7989,17 @@ Return Value:
         NtfsDeleteIndexEntry( IrpContext,
                               Scb,
                               FileNameAttr,
-                              NtfsFileNameSize( FileNameAttr ),
                               &Fcb->FileReference );
 
     } finally {
 
         DebugUnwind( NtfsRemoveLinkViaFlags );
 
-        NtfsCleanupAttributeContext( IrpContext, &AttrContext );
+        NtfsCleanupAttributeContext( &AttrContext );
 
-        NtfsFreePagedPool( FileNameAttr );
+        NtfsFreePool( FileNameAttr );
 
-        DebugTrace( -1, Dbg, "NtfsRemoveLinkViaFlags:  Exit\n", 0 );
+        DebugTrace( -1, Dbg, ("NtfsRemoveLinkViaFlags:  Exit\n") );
     }
 
     return;
@@ -8079,17 +8055,17 @@ Return Value:
 {
     PVOID From, To;
     ULONG MoveLength;
+    ULONG AttributeHeaderSize;
 
     ASSERT_IRP_CONTEXT( IrpContext );
     ASSERT( Attribute->RecordLength == QuadAlign( Attribute->RecordLength ));
-    UNREFERENCED_PARAMETER( IrpContext );
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsRestartInsertAttribute\n", 0 );
-    DebugTrace( 0, Dbg, "FileRecord = %08lx\n", FileRecord );
-    DebugTrace( 0, Dbg, "RecordOffset = %08lx\n", RecordOffset );
-    DebugTrace( 0, Dbg, "Attribute = %08lx\n", Attribute );
+    DebugTrace( +1, Dbg, ("NtfsRestartInsertAttribute\n") );
+    DebugTrace( 0, Dbg, ("FileRecord = %08lx\n", FileRecord) );
+    DebugTrace( 0, Dbg, ("RecordOffset = %08lx\n", RecordOffset) );
+    DebugTrace( 0, Dbg, ("Attribute = %08lx\n", Attribute) );
 
     //
     //  First make room for the attribute
@@ -8113,11 +8089,22 @@ Return Value:
         //  First move the attribute header in.
         //
 
+        if (Attribute->FormCode == RESIDENT_FORM) {
+
+            AttributeHeaderSize = SIZEOF_RESIDENT_ATTRIBUTE_HEADER;
+
+        } else if (Attribute->NameOffset != 0) {
+
+            AttributeHeaderSize = Attribute->NameOffset;
+
+        } else {
+
+            AttributeHeaderSize = Attribute->Form.Nonresident.MappingPairsOffset;
+        }
+
         RtlCopyMemory( From,
                        Attribute,
-                       Attribute->FormCode == RESIDENT_FORM ?
-                         SIZEOF_RESIDENT_ATTRIBUTE_HEADER :
-                         SIZEOF_NONRESIDENT_ATTRIBUTE_HEADER );
+                       AttributeHeaderSize );
 
         if (ARGUMENT_PRESENT(AttributeName)) {
 
@@ -8190,7 +8177,7 @@ Return Value:
         FileRecord->ReferenceCount += 1;
     }
 
-    DebugTrace(-1, Dbg, "NtfsRestartInsertAttribute -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsRestartInsertAttribute -> VOID\n") );
 
     return;
 }
@@ -8230,13 +8217,12 @@ Return Value:
     PATTRIBUTE_RECORD_HEADER Attribute;
 
     ASSERT_IRP_CONTEXT( IrpContext );
-    UNREFERENCED_PARAMETER( IrpContext );
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsRestartRemoveAttribute\n", 0 );
-    DebugTrace( 0, Dbg, "FileRecord = %08lx\n", FileRecord );
-    DebugTrace( 0, Dbg, "RecordOffset = %08lx\n", RecordOffset );
+    DebugTrace( +1, Dbg, ("NtfsRestartRemoveAttribute\n") );
+    DebugTrace( 0, Dbg, ("FileRecord = %08lx\n", FileRecord) );
+    DebugTrace( 0, Dbg, ("RecordOffset = %08lx\n", RecordOffset) );
 
     //
     //  Calculate the address of the attribute we are removing.
@@ -8267,7 +8253,7 @@ Return Value:
                    (PCHAR)Attribute + Attribute->RecordLength,
                    FileRecord->FirstFreeByte - RecordOffset );
 
-    DebugTrace(-1, Dbg, "NtfsRestartRemoveAttribute -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsRestartRemoveAttribute -> VOID\n") );
 
     return;
 }
@@ -8310,14 +8296,14 @@ Return Value:
     LONG SizeChange = NewRecordLength - Attribute->RecordLength;
     PVOID AttributeEnd = Add2Ptr(Attribute, Attribute->RecordLength);
 
-    UNREFERENCED_PARAMETER(IrpContext);
+    UNREFERENCED_PARAMETER( IrpContext );
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsRestartChangeAttributeSize\n", 0 );
-    DebugTrace( 0, Dbg, "FileRecord = %08lx\n", FileRecord );
-    DebugTrace( 0, Dbg, "Attribute = %08lx\n", Attribute );
-    DebugTrace( 0, Dbg, "NewRecordLength = %08lx\n", NewRecordLength );
+    DebugTrace( +1, Dbg, ("NtfsRestartChangeAttributeSize\n") );
+    DebugTrace( 0, Dbg, ("FileRecord = %08lx\n", FileRecord) );
+    DebugTrace( 0, Dbg, ("Attribute = %08lx\n", Attribute) );
+    DebugTrace( 0, Dbg, ("NewRecordLength = %08lx\n", NewRecordLength) );
 
     //
     //  First move the end of the file record after the attribute we are changing.
@@ -8334,7 +8320,7 @@ Return Value:
     FileRecord->FirstFreeByte += SizeChange;
     Attribute->RecordLength = NewRecordLength;
 
-    DebugTrace(-1, Dbg, "NtfsRestartChangeAttributeSize -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsRestartChangeAttributeSize -> VOID\n") );
 }
 
 
@@ -8390,13 +8376,13 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsRestartChangeValue\n", 0 );
-    DebugTrace( 0, Dbg, "FileRecord = %08lx\n", FileRecord );
-    DebugTrace( 0, Dbg, "RecordOffset = %08lx\n", RecordOffset );
-    DebugTrace( 0, Dbg, "AttributeOffset = %08lx\n", AttributeOffset );
-    DebugTrace( 0, Dbg, "Data = %08lx\n", Data );
-    DebugTrace( 0, Dbg, "Length = %08lx\n", Length );
-    DebugTrace( 0, Dbg, "SetNewLength = %02lx\n", SetNewLength );
+    DebugTrace( +1, Dbg, ("NtfsRestartChangeValue\n") );
+    DebugTrace( 0, Dbg, ("FileRecord = %08lx\n", FileRecord) );
+    DebugTrace( 0, Dbg, ("RecordOffset = %08lx\n", RecordOffset) );
+    DebugTrace( 0, Dbg, ("AttributeOffset = %08lx\n", AttributeOffset) );
+    DebugTrace( 0, Dbg, ("Data = %08lx\n", Data) );
+    DebugTrace( 0, Dbg, ("Length = %08lx\n", Length) );
+    DebugTrace( 0, Dbg, ("SetNewLength = %02lx\n", SetNewLength) );
 
     //
     //  Calculate the address of the attribute being changed.
@@ -8487,7 +8473,7 @@ Return Value:
         }
     }
 
-    DebugTrace(-1, Dbg, "NtfsRestartChangeValue -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsRestartChangeValue -> VOID\n") );
 
     return;
 }
@@ -8544,14 +8530,16 @@ Return Value:
 
     ASSERT_IRP_CONTEXT( IrpContext );
 
+    UNREFERENCED_PARAMETER( Vcb );
+
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsRestartChangeMapping\n", 0 );
-    DebugTrace( 0, Dbg, "FileRecord = %08lx\n", FileRecord );
-    DebugTrace( 0, Dbg, "RecordOffset = %08lx\n", RecordOffset );
-    DebugTrace( 0, Dbg, "AttributeOffset = %08lx\n", AttributeOffset );
-    DebugTrace( 0, Dbg, "Data = %08lx\n", Data );
-    DebugTrace( 0, Dbg, "Length = %08lx\n", Length );
+    DebugTrace( +1, Dbg, ("NtfsRestartChangeMapping\n") );
+    DebugTrace( 0, Dbg, ("FileRecord = %08lx\n", FileRecord) );
+    DebugTrace( 0, Dbg, ("RecordOffset = %08lx\n", RecordOffset) );
+    DebugTrace( 0, Dbg, ("AttributeOffset = %08lx\n", AttributeOffset) );
+    DebugTrace( 0, Dbg, ("Data = %08lx\n", Data) );
+    DebugTrace( 0, Dbg, ("Length = %08lx\n", Length) );
 
     //
     //  Calculate the address of the attribute being changed.
@@ -8602,7 +8590,7 @@ Return Value:
 
     Attribute->Form.Nonresident.HighestVcn = HighestVcn;
 
-    DebugTrace(-1, Dbg, "NtfsRestartChangeMapping -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsRestartChangeMapping -> VOID\n") );
 
     return;
 }
@@ -8683,7 +8671,7 @@ Return Value:
 
     if (EntrySize > sizeof(NewEntry)) {
 
-        ListEntry = (PATTRIBUTE_LIST_ENTRY)FsRtlAllocatePool( NonPagedPool,
+        ListEntry = (PATTRIBUTE_LIST_ENTRY)NtfsAllocatePool( NonPagedPool,
                                                               EntrySize );
     }
 
@@ -8796,13 +8784,6 @@ Return Value:
             //
 
             //
-            //  Unpin the Bcb in the context structure for the
-            //  resident list.
-            //
-
-            NtfsUnpinBcb( IrpContext, &Context->AttributeList.Bcb );
-
-            //
             //  Map the non-resident attribute list.
             //
 
@@ -8810,8 +8791,18 @@ Return Value:
                                    Fcb,
                                    (PVOID *) &Context->AttributeList.FirstEntry,
                                    &Length,
-                                   &Context->AttributeList.Bcb,
+                                   &Context->AttributeList.NonresidentListBcb,
                                    &ListContext );
+
+            //
+            //  If the list is still resident then unpin the current Bcb in
+            //  the original context to keep our pin counts in sync.
+            //
+
+            if (Context->AttributeList.Bcb == Context->AttributeList.NonresidentListBcb) {
+
+                NtfsUnpinBcb( &Context->AttributeList.NonresidentListBcb );
+            }
 
             Context->AttributeList.Entry = Add2Ptr( Context->AttributeList.FirstEntry,
                                                     EntryOffset );
@@ -8825,20 +8816,26 @@ Return Value:
         //
 
         ASSERT( ((EntryOffset == 0) ||
-                 (RtlCompareMemory((PVOID)((PCHAR)Context->AttributeList.Entry - EntrySize),
-                                   ListEntry,
-                                   EntrySize) != EntrySize))
+                 (!RtlEqualMemory((PVOID)((PCHAR)Context->AttributeList.Entry - EntrySize),
+                                  ListEntry,
+                                  EntrySize)))
 
                     &&
 
                 ((BeyondEntryOffset == EntryOffset) ||
-                 (RtlCompareMemory(Context->AttributeList.Entry,
-                                   ListEntry,
-                                   EntrySize) != EntrySize)) );
+                 (!RtlEqualMemory(Context->AttributeList.Entry,
+                                  ListEntry,
+                                  EntrySize))) );
 
         //
-        //  Now shift the old contents up to make room for our new entry.
+        //  Now shift the old contents up to make room for our new entry.  We don't let
+        //  the attribute list grow larger than a cache view however.
         //
+
+        if (EntrySize + BeyondEntryOffset > VACB_MAPPING_GRANULARITY) {
+
+            NtfsRaiseStatus( IrpContext, STATUS_INSUFFICIENT_RESOURCES, NULL, NULL );
+        }
 
         NtfsChangeAttributeValue( IrpContext,
                                   Fcb,
@@ -8900,7 +8897,7 @@ Return Value:
          LastEntry = Entry, Entry = NtfsGetNextRecord(LastEntry)) {
 
         ASSERT( (LastEntry->RecordLength != Entry->RecordLength) ||
-                (RtlCompareMemory(LastEntry, Entry, Entry->RecordLength) != Entry->RecordLength) );
+                (!RtlEqualMemory(LastEntry, Entry, Entry->RecordLength)) );
     }
 }
 #endif
@@ -8913,14 +8910,14 @@ Return Value:
 
         if (ListEntry != &NewEntry.EntryBuffer) {
 
-            ExFreePool(ListEntry);
+            NtfsFreePool(ListEntry);
         }
 
         //
         //  Cleanup the enumeration context for the list entry.
         //
 
-        NtfsCleanupAttributeContext(IrpContext, &ListContext);
+        NtfsCleanupAttributeContext( &ListContext);
     }
 }
 
@@ -9028,7 +9025,7 @@ Return Value:
         //  Cleanup the enumeration context for the list entry.
         //
 
-        NtfsCleanupAttributeContext(IrpContext, &ListContext);
+        NtfsCleanupAttributeContext(&ListContext);
     }
 }
 
@@ -9107,7 +9104,7 @@ Return Value:
         //  Find the initial file record for the Mft.
         //
 
-        NtfsLookupAttributeForScb( IrpContext, Vcb->MftScb, &AttrContext );
+        NtfsLookupAttributeForScb( IrpContext, Vcb->MftScb, NULL, &AttrContext );
 
         //
         //  Compute some initial values.  If this is the only file record
@@ -9118,7 +9115,7 @@ Return Value:
 
         Attribute = NtfsFoundAttribute( &AttrContext );
 
-        LastMftVcn = (Vcb->MftScb->Header.AllocationSize.QuadPart >> Vcb->ClusterShift) - 1;
+        LastMftVcn = Int64ShraMod32(Vcb->MftScb->Header.AllocationSize.QuadPart, Vcb->ClusterShift) - 1;
 
         CurrentVcn = Attribute->Form.Nonresident.HighestVcn + 1;
 
@@ -9133,10 +9130,10 @@ Return Value:
         //  call should succeed until the remapping is done.
         //
 
-        while (SkipLookup
-               || NtfsLookupNextAttributeForScb( IrpContext,
-                                                 Vcb->MftScb,
-                                                 &AttrContext )) {
+        while (SkipLookup ||
+               NtfsLookupNextAttributeForScb( IrpContext,
+                                              Vcb->MftScb,
+                                              &AttrContext )) {
 
             BOOLEAN ReplaceFileRecord;
             BOOLEAN ReplaceAttributeListEntry;
@@ -9185,11 +9182,11 @@ Return Value:
 
             //
             //  If we have already remapped this entire file record then
-            //  remove the attribute and it's list entry.
+            //  remove the attribute and it list entry.
             //
 
-            if (!SkipLookup
-                && (CurrentVcn > LastMftVcn)) {
+            if (!SkipLookup &&
+                (CurrentVcn > LastMftVcn)) {
 
                 PATTRIBUTE_LIST_ENTRY ListEntry;
                 ULONG Count;
@@ -9202,16 +9199,15 @@ Return Value:
 
                 ListEntry = AttrContext.AttributeList.Entry;
 
-                while (ListEntry != AttrContext.AttributeList.BeyondFinalEntry
-                       && ListEntry->AttributeTypeCode == $DATA
-                       && ListEntry->AttributeNameLength == 0) {
+                while ((ListEntry != AttrContext.AttributeList.BeyondFinalEntry) &&
+                       (ListEntry->AttributeTypeCode == $DATA) &&
+                       (ListEntry->AttributeNameLength == 0)) {
 
                     Count += 1;
 
                     NtfsDeallocateMftRecord( IrpContext,
                                              Vcb,
-                                             ListEntry->SegmentReference.LowPart,
-                                             TRUE );
+                                             NtfsUnsafeSegmentNumber( &ListEntry->SegmentReference ) );
 
                     NtfsDeleteFromAttributeList( IrpContext,
                                                  Vcb->MftScb->Fcb,
@@ -9241,7 +9237,7 @@ Return Value:
             //  the reserved record.
             //
 
-            if (ReservedIndex < FileRecordReference.LowPart) {
+            if (ReservedIndex < NtfsSegmentNumber( &FileRecordReference )) {
 
                 PATTRIBUTE_RECORD_HEADER NewAttribute;
                 PATTRIBUTE_TYPE_CODE NewEnd;
@@ -9251,7 +9247,7 @@ Return Value:
                 //  Vcn.
                 //
 
-                NextIndex = FileRecordReference.LowPart;
+                NextIndex = NtfsUnsafeSegmentNumber( &FileRecordReference );
 
                 FileRecord = NtfsCloneFileRecord( IrpContext,
                                                   Vcb->MftScb->Fcb,
@@ -9270,7 +9266,7 @@ Return Value:
                                         - QuadAlign( sizeof( ATTRIBUTE_TYPE_CODE )));
 
                 NewAttribute->TypeCode = Attribute->TypeCode;
-                NewAttribute->RecordLength = SIZEOF_NONRESIDENT_ATTRIBUTE_HEADER;
+                NewAttribute->RecordLength = SIZEOF_PARTIAL_NONRES_ATTR_HEADER;
                 NewAttribute->FormCode = NONRESIDENT_FORM;
                 NewAttribute->Flags = Attribute->Flags;
                 NewAttribute->Instance = FileRecord->NextAttributeInstance++;
@@ -9302,10 +9298,10 @@ Return Value:
                 //  Now switch this new file record into the attribute context.
                 //
 
-                NtfsUnpinBcb( IrpContext, &NtfsFoundBcb( &AttrContext ));
+                NtfsUnpinBcb( &NtfsFoundBcb( &AttrContext ));
 
                 NtfsFoundBcb( &AttrContext ) = FileRecordBcb;
-                AttrContext.FoundAttribute.MftFileOffset = FileRecordReference.LowPart << Vcb->MftShift;
+                AttrContext.FoundAttribute.MftFileOffset = LlBytesFromFileRecords( Vcb, NextIndex );
                 AttrContext.FoundAttribute.Attribute = NewAttribute;
                 AttrContext.FoundAttribute.FileRecord = FileRecord;
 
@@ -9325,7 +9321,7 @@ Return Value:
                 //
 
                 Attribute = NewAttribute;
-                AttributeOffset = SIZEOF_NONRESIDENT_ATTRIBUTE_HEADER;
+                AttributeOffset = SIZEOF_PARTIAL_NONRES_ATTR_HEADER;
 
                 RecordOffset = PtrOffset( FileRecord, Attribute );
 
@@ -9336,7 +9332,14 @@ Return Value:
                 //  have to be in the current mapping.
                 //
 
-                MinimumVcn = (NextIndex + 1) << Vcb->MftToClusterShift;
+                if (Vcb->FileRecordsPerCluster == 0) {
+
+                    MinimumVcn = (NextIndex + 1) << Vcb->MftToClusterShift;
+
+                } else {
+
+                    MinimumVcn = (NextIndex + Vcb->FileRecordsPerCluster - 1) << Vcb->MftToClusterShift;
+                }
 
                 ReplaceFileRecord = TRUE;
 
@@ -9363,7 +9366,14 @@ Return Value:
                     NextVcn = Attribute->Form.Nonresident.HighestVcn;
                 }
 
-                NextIndex = (ULONG)((NextVcn + 1) >> Vcb->MftToClusterShift);
+                if (Vcb->FileRecordsPerCluster == 0) {
+
+                    NextIndex = (ULONG)Int64ShraMod32((NextVcn + 1), Vcb->MftToClusterShift);
+
+                } else {
+
+                    NextIndex = (ULONG)Int64ShllMod32((NextVcn + 1), Vcb->MftToClusterShift);
+                }
 
                 if (ReservedIndex < NextIndex) {
 
@@ -9447,6 +9457,7 @@ Return Value:
                 NtfsLogMftFileRecord( IrpContext,
                                       Vcb,
                                       FileRecord,
+                                      LlBytesFromFileRecords( Vcb, NtfsSegmentNumber( &FileRecordReference ) ),
                                       NtfsFoundBcb( &AttrContext ),
                                       FALSE );
 
@@ -9456,12 +9467,19 @@ Return Value:
                 //  to be in the current mapping.
                 //
 
-                MinimumVcn = NextIndex << Vcb->MftToClusterShift;
+                if (Vcb->FileRecordsPerCluster == 0) {
+
+                    MinimumVcn = NextIndex << Vcb->MftToClusterShift;
+
+                } else {
+
+                    MinimumVcn = (NextIndex + Vcb->FileRecordsPerCluster - 1) << Vcb->MftToClusterShift;
+                }
             }
 
             //
             //  Move back one vcn to adhere to the mapping pairs interface.
-            //  This is now the last Vcn which must appear in the current
+            //  This is now the last Vcn which MUST appear in the current
             //  mapping.
             //
 
@@ -9472,10 +9490,7 @@ Return Value:
             //  include the cushion here.
             //
 
-            MappingSizeAvailable = FileRecord->BytesAvailable
-                                   + Attribute->RecordLength
-                                   - FileRecord->FirstFreeByte
-                                   - SIZEOF_NONRESIDENT_ATTRIBUTE_HEADER;
+            MappingSizeAvailable = FileRecord->BytesAvailable + Attribute->RecordLength - FileRecord->FirstFreeByte - SIZEOF_PARTIAL_NONRES_ATTR_HEADER;
 
             //
             //  We know the range of Vcn's the mapping must cover.
@@ -9485,8 +9500,7 @@ Return Value:
             //  for the run after the last run in the current mapping.
             //
 
-            MappingPairsSize = NtfsGetSizeForMappingPairs( IrpContext,
-                                                           &Vcb->MftScb->Mcb,
+            MappingPairsSize = NtfsGetSizeForMappingPairs( &Vcb->MftScb->Mcb,
                                                            MappingSizeAvailable - Vcb->MftCushion,
                                                            CurrentVcn,
                                                            NULL,
@@ -9504,8 +9518,7 @@ Return Value:
                 //  since it already fits.
                 //
 
-                MappingPairsSize = NtfsGetSizeForMappingPairs( IrpContext,
-                                                               &Vcb->MftScb->Mcb,
+                MappingPairsSize = NtfsGetSizeForMappingPairs( &Vcb->MftScb->Mcb,
                                                                MappingSizeAvailable,
                                                                CurrentVcn,
                                                                &MinimumVcn,
@@ -9548,9 +9561,9 @@ Return Value:
             //      The attributes's HighestVcn doesn't match.
             //
 
-            if (ReplaceFileRecord
-                || (CurrentVcn != Attribute->Form.Nonresident.LowestVcn)
-                || (LastVcn != Attribute->Form.Nonresident.HighestVcn )) {
+            if (ReplaceFileRecord ||
+                (CurrentVcn != Attribute->Form.Nonresident.LowestVcn) ||
+                (LastVcn != Attribute->Form.Nonresident.HighestVcn )) {
 
                 Attribute->Form.Nonresident.LowestVcn = CurrentVcn;
 
@@ -9577,11 +9590,10 @@ Return Value:
 
                 if (MappingPairs == NULL) {
 
-                    MappingPairs = NtfsAllocatePagedPool( NtfsMaximumAttributeSize( Vcb->BytesPerFileRecordSegment ));
+                    MappingPairs = NtfsAllocatePool(PagedPool, NtfsMaximumAttributeSize( Vcb->BytesPerFileRecordSegment ));
                 }
 
-                NtfsBuildMappingPairs( IrpContext,
-                                       &Vcb->MftScb->Mcb,
+                NtfsBuildMappingPairs( &Vcb->MftScb->Mcb,
                                        CurrentVcn,
                                        &NextVcn,
                                        MappingPairs );
@@ -9603,6 +9615,7 @@ Return Value:
                 NtfsLogMftFileRecord( IrpContext,
                                       Vcb,
                                       FileRecord,
+                                      LlBytesFromFileRecords( Vcb, NtfsSegmentNumber( &FileRecordReference ) ),
                                       NtfsFoundBcb( &AttrContext ),
                                       TRUE );
 
@@ -9621,8 +9634,7 @@ Return Value:
             //  have written out the entire mapping.
             //
 
-            if (LastFileRecord
-                && (CurrentVcn < LastMftVcn)) {
+            if (LastFileRecord && (CurrentVcn < LastMftVcn)) {
 
                 PATTRIBUTE_RECORD_HEADER NewAttribute;
                 PATTRIBUTE_TYPE_CODE NewEnd;
@@ -9661,7 +9673,7 @@ Return Value:
                                         - QuadAlign( sizeof( ATTRIBUTE_TYPE_CODE )));
 
                 NewAttribute->TypeCode = Attribute->TypeCode;
-                NewAttribute->RecordLength = SIZEOF_NONRESIDENT_ATTRIBUTE_HEADER;
+                NewAttribute->RecordLength = SIZEOF_PARTIAL_NONRES_ATTR_HEADER;
                 NewAttribute->FormCode = NONRESIDENT_FORM;
                 NewAttribute->Flags = Attribute->Flags;
                 NewAttribute->Instance = FileRecord->NextAttributeInstance++;
@@ -9693,10 +9705,11 @@ Return Value:
                 //  Now switch this new file record into the attribute context.
                 //
 
-                NtfsUnpinBcb( IrpContext, &NtfsFoundBcb( &AttrContext ));
+                NtfsUnpinBcb( &NtfsFoundBcb( &AttrContext ));
 
                 NtfsFoundBcb( &AttrContext ) = FileRecordBcb;
-                AttrContext.FoundAttribute.MftFileOffset = FileRecordReference.LowPart << Vcb->MftShift;
+                AttrContext.FoundAttribute.MftFileOffset =
+                    LlBytesFromFileRecords( Vcb, NtfsSegmentNumber( &FileRecordReference ) );
                 AttrContext.FoundAttribute.Attribute = NewAttribute;
                 AttrContext.FoundAttribute.FileRecord = FileRecord;
 
@@ -9751,17 +9764,260 @@ Return Value:
 
         DebugUnwind( NtfsRewriteMftMapping );
 
-        NtfsCleanupAttributeContext( IrpContext, &AttrContext );
+        NtfsCleanupAttributeContext(  &AttrContext );
 
-        NtfsUnpinBcb( IrpContext, &FileRecordBcb );
+        NtfsUnpinBcb( &FileRecordBcb );
 
         if (MappingPairs != NULL) {
 
-            NtfsFreePagedPool( MappingPairs );
+            NtfsFreePool( MappingPairs );
         }
     }
 
     return MadeChanges;
+}
+
+
+//
+//  Local Support Routine
+//
+
+VOID
+NtfsSetTotalAllocatedField (
+    IN PIRP_CONTEXT IrpContext,
+    IN PSCB Scb,
+    IN USHORT CompressionState
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called to insure that first attribute of a stream has
+    the correct size attribute header based on the compression state of the
+    file.  Compressed streams will have a field for the total allocated space
+    in the file in the nonresident header.
+
+    This routine will see if the header is in a valid state and make space
+    if necessary.  Then it will rewrite any of the attribute data after
+    the header.
+
+Arguments:
+
+    Scb - Scb for affected stream
+
+    CompressionState - 0 for no compression or nonzero for Rtl compression code - 1
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    ATTRIBUTE_ENUMERATION_CONTEXT AttrContext;
+    PFILE_RECORD_SEGMENT_HEADER FileRecord;
+    PATTRIBUTE_RECORD_HEADER Attribute;
+    PATTRIBUTE_RECORD_HEADER NewAttribute = NULL;
+    PUNICODE_STRING NewAttributeName = NULL;
+
+    ULONG OldHeaderSize;
+    ULONG NewHeaderSize;
+
+    LONG SizeChange;
+
+    PAGED_CODE();
+
+    //
+    //  This must be a non-resident user data file.
+    //
+
+    if (!NtfsIsTypeCodeUserData( Scb->AttributeTypeCode ) ||
+        FlagOn( Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT )) {
+
+        return;
+    }
+
+    NtfsInitializeAttributeContext( &AttrContext );
+
+    //
+    //  Use a try-finally to facilitate cleanup.
+    //
+
+    try {
+
+        while (TRUE) {
+
+            //
+            //  Find the current and the new size for the attribute.
+            //
+
+            NtfsLookupAttributeForScb( IrpContext, Scb, NULL, &AttrContext );
+
+            FileRecord = NtfsContainingFileRecord( &AttrContext );
+            Attribute = NtfsFoundAttribute( &AttrContext );
+
+            OldHeaderSize = Attribute->Form.Nonresident.MappingPairsOffset;
+
+            if (Attribute->NameOffset != 0) {
+
+                OldHeaderSize = Attribute->NameOffset;
+            }
+
+            if (CompressionState == 0) {
+
+                NewHeaderSize = SIZEOF_PARTIAL_NONRES_ATTR_HEADER;
+
+            } else {
+
+                NewHeaderSize = SIZEOF_FULL_NONRES_ATTR_HEADER;
+            }
+
+            SizeChange = NewHeaderSize - OldHeaderSize;
+
+            //
+            //  Make space if we need to do so.  Lookup the attribute again
+            //  if necessary.
+            //
+
+            if (SizeChange > 0) {
+
+                VCN StartingVcn;
+                VCN ClusterCount;
+
+                //
+                //  If the attribute is alone in the file record and there isn't
+                //  enough space available then the call to ChangeAttributeSize
+                //  can't make any space available.  In that case we call
+                //  NtfsChangeAttributeAllocation and let that routine rewrite
+                //  the mapping to make space available.
+                //
+
+                if ((FileRecord->BytesAvailable - FileRecord->FirstFreeByte < (ULONG) SizeChange) &&
+                    (NtfsFirstAttribute( FileRecord ) == Attribute) &&
+                    (((PATTRIBUTE_RECORD_HEADER) NtfsGetNextRecord( Attribute ))->TypeCode == $END)) {
+
+                    NtfsLookupAllocation( IrpContext,
+                                          Scb,
+                                          Attribute->Form.Nonresident.HighestVcn,
+                                          &StartingVcn,
+                                          &ClusterCount,
+                                          NULL,
+                                          NULL );
+
+                    StartingVcn = 0;
+                    ClusterCount = Attribute->Form.Nonresident.HighestVcn + 1;
+
+                    NtfsAddAttributeAllocation( IrpContext,
+                                                Scb,
+                                                &AttrContext,
+                                                &StartingVcn,
+                                                &ClusterCount );
+
+                } else if (NtfsChangeAttributeSize( IrpContext,
+                                                    Scb->Fcb,
+                                                    Attribute->RecordLength + SizeChange,
+                                                    &AttrContext)) {
+
+                    break;
+                }
+
+                NtfsCleanupAttributeContext(  &AttrContext );
+                NtfsInitializeAttributeContext( &AttrContext );
+                continue;
+            }
+
+            break;
+        }
+
+        NtfsPinMappedAttribute( IrpContext, Scb->Vcb, &AttrContext );
+
+        //
+        //  Make a copy of the existing attribute and modify the total allocated field
+        //  if necessary.
+        //
+
+        NewAttribute = NtfsAllocatePool(PagedPool, Attribute->RecordLength + SizeChange );
+
+        RtlCopyMemory( NewAttribute,
+                       Attribute,
+                       SIZEOF_PARTIAL_NONRES_ATTR_HEADER );
+
+        if (Attribute->NameOffset != 0) {
+
+            NewAttribute->NameOffset += (USHORT) SizeChange;
+            NewAttributeName = &Scb->AttributeName;
+        }
+
+        NewAttribute->Form.Nonresident.MappingPairsOffset += (USHORT) SizeChange;
+        NewAttribute->RecordLength += SizeChange;
+
+        RtlCopyMemory( Add2Ptr( NewAttribute, NewAttribute->Form.Nonresident.MappingPairsOffset ),
+                       Add2Ptr( Attribute, Attribute->Form.Nonresident.MappingPairsOffset ),
+                       Attribute->RecordLength - Attribute->Form.Nonresident.MappingPairsOffset );
+
+        if (CompressionState != 0) {
+
+            NewAttribute->Form.Nonresident.TotalAllocated = Scb->TotalAllocated;
+        }
+
+        //
+        //  We now have the before and after image to log.
+        //
+
+        FileRecord->Lsn =
+        NtfsWriteLog( IrpContext,
+                      Scb->Vcb->MftScb,
+                      NtfsFoundBcb( &AttrContext ),
+                      DeleteAttribute,
+                      NULL,
+                      0,
+                      CreateAttribute,
+                      Attribute,
+                      Attribute->RecordLength,
+                      NtfsMftOffset( &AttrContext ),
+                      PtrOffset( FileRecord, Attribute ),
+                      0,
+                      Scb->Vcb->BytesPerFileRecordSegment );
+
+        NtfsRestartRemoveAttribute( IrpContext, FileRecord, PtrOffset( FileRecord, Attribute ));
+
+        FileRecord->Lsn =
+        NtfsWriteLog( IrpContext,
+                      Scb->Vcb->MftScb,
+                      NtfsFoundBcb( &AttrContext ),
+                      CreateAttribute,
+                      NewAttribute,
+                      NewAttribute->RecordLength,
+                      DeleteAttribute,
+                      NULL,
+                      0,
+                      NtfsMftOffset( &AttrContext ),
+                      PtrOffset( FileRecord, Attribute ),
+                      0,
+                      Scb->Vcb->BytesPerFileRecordSegment );
+
+        NtfsRestartInsertAttribute( IrpContext,
+                                    FileRecord,
+                                    PtrOffset( FileRecord, Attribute ),
+                                    NewAttribute,
+                                    NewAttributeName,
+                                    Add2Ptr( NewAttribute, NewAttribute->Form.Nonresident.MappingPairsOffset ),
+                                    NewAttribute->RecordLength - NewAttribute->Form.Nonresident.MappingPairsOffset );
+
+    } finally {
+
+        DebugUnwind( NtfsSetTotalAllocatedField );
+
+        if (NewAttribute != NULL) {
+
+            NtfsFreePool( NewAttribute );
+        }
+
+        NtfsCleanupAttributeContext(  &AttrContext );
+    }
+
+    return;
 }
 
 
@@ -9774,8 +10030,9 @@ NtfsLookupInFileRecord (
     IN PIRP_CONTEXT IrpContext,
     IN PFCB Fcb,
     IN PFILE_REFERENCE BaseFileReference OPTIONAL,
-    IN PATTRIBUTE_TYPE_CODE QueriedTypeCode OPTIONAL,
+    IN ATTRIBUTE_TYPE_CODE QueriedTypeCode,
     IN PUNICODE_STRING QueriedName OPTIONAL,
+    IN PVCN Vcn OPTIONAL,
     IN BOOLEAN IgnoreCase,
     IN PVOID QueriedValue OPTIONAL,
     IN ULONG QueriedValueLength,
@@ -9802,6 +10059,8 @@ Arguments:
 
     QueriedName - The attribute name to search for, if present.
 
+    Vcn - Search for the nonresident attribute instance that has this Vcn
+
     IgnoreCase - Ignore case while comparing names.  Ignored if QueriedName
         not present.
 
@@ -9825,21 +10084,18 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsLookupInFileRecord\n", 0 );
-    DebugTrace( 0, Dbg, "Fcb = %08lx\n", Fcb );
-    DebugTrace2(0, Dbg, "BaseFileReference = %08lx, %08lx\n",
-                ARGUMENT_PRESENT(BaseFileReference) ?
-                  BaseFileReference->LowPart :
-                  0xFFFFFFFF,
-                ARGUMENT_PRESENT(BaseFileReference) ?
-                  ((PLARGE_INTEGER)BaseFileReference)->HighPart :
-                  0xFFFFFFFF );
-    DebugTrace( 0, Dbg, "*QueriedTypeCode = %08lx\n", *QueriedTypeCode );
-    DebugTrace( 0, Dbg, "QueriedName = %08lx\n", QueriedName );
-    DebugTrace( 0, Dbg, "IgnoreCase = %02lx\n", IgnoreCase );
-    DebugTrace( 0, Dbg, "QueriedValue = %08lx\n", QueriedValue );
-    DebugTrace( 0, Dbg, "QueriedValueLength = %08lx\n", QueriedValueLength );
-    DebugTrace( 0, Dbg, "Context = %08lx\n", Context );
+    DebugTrace( +1, Dbg, ("NtfsLookupInFileRecord\n") );
+    DebugTrace( 0, Dbg, ("Fcb = %08lx\n", Fcb) );
+    DebugTrace( 0, Dbg, ("BaseFileReference = %08I64x\n",
+                        ARGUMENT_PRESENT(BaseFileReference) ?
+                        NtfsFullSegmentNumber( BaseFileReference ) :
+                        0xFFFFFFFFFFFF) );
+    DebugTrace( 0, Dbg, ("QueriedTypeCode = %08lx\n", QueriedTypeCode) );
+    DebugTrace( 0, Dbg, ("QueriedName = %08lx\n", QueriedName) );
+    DebugTrace( 0, Dbg, ("IgnoreCase = %02lx\n", IgnoreCase) );
+    DebugTrace( 0, Dbg, ("QueriedValue = %08lx\n", QueriedValue) );
+    DebugTrace( 0, Dbg, ("QueriedValueLength = %08lx\n", QueriedValueLength) );
+    DebugTrace( 0, Dbg, ("Context = %08lx\n", Context) );
 
     //
     //  Is this the initial enumeration?  If so start at the beginning.
@@ -9886,6 +10142,11 @@ Return Value:
 
         while (TempAttribute->TypeCode <= $ATTRIBUTE_LIST) {
 
+            if (TempAttribute->RecordLength == 0) {
+
+                NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, Fcb );
+            }
+
             if (TempAttribute->TypeCode == $ATTRIBUTE_LIST) {
 
                 ULONG AttributeListLength;
@@ -9893,16 +10154,16 @@ Return Value:
 
                 Context->FoundAttribute.Attribute = TempAttribute;
 
-                if (ARGUMENT_PRESENT(QueriedTypeCode) &&
-                    (*QueriedTypeCode == $ATTRIBUTE_LIST)) {
+                if (QueriedTypeCode != $UNUSED &&
+                    (QueriedTypeCode == $ATTRIBUTE_LIST)) {
 
                     //
                     //  We found it.  Return it in the enumeration context.
                     //
 
-                    DebugTrace( 0, Dbg, "Context->FoundAttribute.Attribute < %08lx\n",
-                                        TempAttribute );
-                    DebugTrace(-1, Dbg, "NtfsLookupInFileRecord -> TRUE (attribute list)\n", 0 );
+                    DebugTrace( 0, Dbg, ("Context->FoundAttribute.Attribute < %08lx\n",
+                                        TempAttribute) );
+                    DebugTrace( -1, Dbg, ("NtfsLookupInFileRecord -> TRUE (attribute list)\n") );
 
                     return TRUE;
                 }
@@ -9924,7 +10185,25 @@ Return Value:
                 Ex->Entry = Ex->FirstEntry;
                 Ex->BeyondFinalEntry = Add2Ptr( Ex->FirstEntry, AttributeListLength );
 
-                NtfsUnpinBcb( IrpContext, &Context->FoundAttribute.Bcb );
+                //
+                //  If the list is non-resident then remember the correct Bcb for
+                //  the list.
+                //
+
+                if (!NtfsIsAttributeResident( TempAttribute )) {
+
+                    Ex->NonresidentListBcb = Ex->Bcb;
+                    Ex->Bcb = Context->FoundAttribute.Bcb;
+                    Context->FoundAttribute.Bcb = NULL;
+
+                //
+                //  Otherwise unpin the Bcb for the current attribute.
+                //
+
+                } else {
+
+                    NtfsUnpinBcb( &Context->FoundAttribute.Bcb );
+                }
 
                 //
                 //  We are now ready to itterate through the external attributes.
@@ -9937,6 +10216,7 @@ Return Value:
                                                     Fcb,
                                                     QueriedTypeCode,
                                                     QueriedName,
+                                                    Vcn,
                                                     IgnoreCase,
                                                     QueriedValue,
                                                     QueriedValueLength,
@@ -9947,8 +10227,8 @@ Return Value:
             NtfsCheckRecordBound( TempAttribute, FileRecord, Fcb->Vcb->BytesPerFileRecordSegment );
         }
 
-        if (!ARGUMENT_PRESENT(QueriedTypeCode) ||
-            ((*QueriedTypeCode == $STANDARD_INFORMATION) &&
+        if (QueriedTypeCode == $UNUSED  ||
+            ((QueriedTypeCode == $STANDARD_INFORMATION) &&
              (Attribute->TypeCode == $STANDARD_INFORMATION))) {
 
             //
@@ -9957,9 +10237,9 @@ Return Value:
 
             Context->FoundAttribute.Attribute = Attribute;
 
-            DebugTrace( 0, Dbg, "Context->FoundAttribute.Attribute < %08lx\n",
-                                Attribute );
-            DebugTrace(-1, Dbg, "NtfsLookupInFileRecord -> TRUE (No code or SI)\n", 0 );
+            DebugTrace( 0, Dbg, ("Context->FoundAttribute.Attribute < %08lx\n",
+                               Attribute ));
+            DebugTrace( -1, Dbg, ("NtfsLookupInFileRecord -> TRUE (No code or SI)\n") );
 
             return TRUE;
         }
@@ -9981,12 +10261,17 @@ Return Value:
 
         if (Attribute->TypeCode == $END) {
 
-            DebugTrace(-1, Dbg, "NtfsLookupInFileRecord -> FALSE ($END)\n", 0);
+            DebugTrace( -1, Dbg, ("NtfsLookupInFileRecord -> FALSE ($END)\n") );
 
             return FALSE;
         }
 
-        if (!ARGUMENT_PRESENT(QueriedTypeCode)) {
+        if (Attribute->RecordLength == 0) {
+
+            NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, Fcb );
+        }
+
+        if (QueriedTypeCode == $UNUSED) {
 
             //
             //  We found it.  Return it in the enumeration context.
@@ -9994,15 +10279,15 @@ Return Value:
 
             Context->FoundAttribute.Attribute = Attribute;
 
-            DebugTrace( 0, Dbg, "Context->FoundAttribute.Attribute < %08lx\n",
-                                Attribute );
-            DebugTrace(-1, Dbg, "NtfsLookupInFileRecord -> TRUE (No code)\n", 0 );
+            DebugTrace( 0, Dbg, ("Context->FoundAttribute.Attribute < %08lx\n",
+                                Attribute) );
+            DebugTrace( -1, Dbg, ("NtfsLookupInFileRecord -> TRUE (No code)\n") );
 
             return TRUE;
         }
     }
 
-    DebugTrace(-1, Dbg, "NtfsLookupInFileRecord ->\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsLookupInFileRecord ->\n") );
 
     return NtfsFindInFileRecord( IrpContext,
                                  Attribute,
@@ -10024,7 +10309,7 @@ NtfsFindInFileRecord (
     IN PIRP_CONTEXT IrpContext,
     IN PATTRIBUTE_RECORD_HEADER Attribute,
     OUT PATTRIBUTE_RECORD_HEADER *ReturnAttribute,
-    IN PATTRIBUTE_TYPE_CODE QueriedTypeCode,
+    IN ATTRIBUTE_TYPE_CODE QueriedTypeCode,
     IN PUNICODE_STRING QueriedName OPTIONAL,
     IN BOOLEAN IgnoreCase,
     IN PVOID QueriedValue OPTIONAL,
@@ -10069,6 +10354,9 @@ Return Value:
 --*/
 
 {
+    PWCH UpcaseTable = IrpContext->Vcb->UpcaseTable;
+    ULONG UpcaseTableSize = IrpContext->Vcb->UpcaseTableSize;
+
     //
     //  Now walk through the base file record looking for the atttribute.  If
     //  the query is "exhausted", i.e., if a type code, attribute name, or
@@ -10103,12 +10391,17 @@ Return Value:
         //      Attributes are ordered by increasing attribute type code.
         //
 
-        if (*QueriedTypeCode < Attribute->TypeCode) {
+        if (QueriedTypeCode < Attribute->TypeCode) {
 
-            DebugTrace(-1, Dbg, "NtfsLookupInFileRecord->FALSE (Type Code)\n", 0);
+            DebugTrace( -1, Dbg, ("NtfsLookupInFileRecord->FALSE (Type Code)\n") );
 
             return FALSE;
 
+        }
+
+        if (Attribute->RecordLength == 0) {
+
+            NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, NULL );
         }
 
         //
@@ -10125,7 +10418,7 @@ Return Value:
         //      case.
         //
 
-        if (*QueriedTypeCode == Attribute->TypeCode) {
+        if (QueriedTypeCode == Attribute->TypeCode) {
 
             //
             //  Handle name-match case
@@ -10142,7 +10435,7 @@ Return Value:
                 //  See if we have a name match.
                 //
 
-                if (NtfsAreNamesEqual( IrpContext,
+                if (NtfsAreNamesEqual( UpcaseTable,
                                        &AttributeName,
                                        QueriedName,
                                        IgnoreCase )) {
@@ -10154,7 +10447,8 @@ Return Value:
                 //  Compare the names ignoring case.
                 //
 
-                Result = NtfsCollateNames( IrpContext,
+                Result = NtfsCollateNames( UpcaseTable,
+                                           UpcaseTableSize,
                                            QueriedName,
                                            &AttributeName,
                                            GreaterThan,
@@ -10166,7 +10460,8 @@ Return Value:
                 //
 
                 if ((Result == LessThan) || ((Result == EqualTo) &&
-                    (NtfsCollateNames( IrpContext,
+                    (NtfsCollateNames( UpcaseTable,
+                                       UpcaseTableSize,
                                        QueriedName,
                                        &AttributeName,
                                        GreaterThan,
@@ -10284,8 +10579,9 @@ BOOLEAN
 NtfsLookupExternalAttribute (
     IN PIRP_CONTEXT IrpContext,
     IN PFCB Fcb,
-    IN PATTRIBUTE_TYPE_CODE QueriedTypeCode OPTIONAL,
+    IN ATTRIBUTE_TYPE_CODE QueriedTypeCode,
     IN PUNICODE_STRING QueriedName OPTIONAL,
+    IN PVCN Vcn OPTIONAL,
     IN BOOLEAN IgnoreCase,
     IN PVOID QueriedValue OPTIONAL,
     IN ULONG QueriedValueLength,
@@ -10296,7 +10592,7 @@ NtfsLookupExternalAttribute (
 
 Routine Description:
 
-    This routine attempts to find the fist occurrence of an attribute with
+    This routine attempts to find the first occurrence of an attribute with
     the specified AttributeTypeCode and the specified QueriedName and Value
     among the external attributes described by the Context.  If we find one,
     its attribute record is pinned and returned.
@@ -10308,6 +10604,8 @@ Arguments:
     QueriedTypeCode - The attribute code to search for, if present.
 
     QueriedName - The attribute name to search for, if present.
+
+    Vcn - Lookup nonresident attribute instance with this Vcn
 
     IgnoreCase - Ignore case while comparing names.  Ignored if QueriedName
         not present.
@@ -10329,19 +10627,21 @@ Return Value:
 
 {
     PATTRIBUTE_LIST_ENTRY Entry, LastEntry;
+    PWCH UpcaseTable = IrpContext->Vcb->UpcaseTable;
+    ULONG UpcaseTableSize = IrpContext->Vcb->UpcaseTableSize;
     BOOLEAN Terminating = FALSE;
     BOOLEAN TerminateOnNext = FALSE;
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsLookupExternalAttribute\n", 0 );
-    DebugTrace( 0, Dbg, "Fcb = %08lx\n", Fcb );
-    DebugTrace( 0, Dbg, "*QueriedTypeCode = %08lx\n", *QueriedTypeCode );
-    DebugTrace( 0, Dbg, "QueriedName = %08lx\n", QueriedName );
-    DebugTrace( 0, Dbg, "IgnoreCase = %02lx\n", IgnoreCase );
-    DebugTrace( 0, Dbg, "QueriedValue = %08lx\n", QueriedValue );
-    DebugTrace( 0, Dbg, "QueriedValueLength = %08lx\n", QueriedValueLength );
-    DebugTrace( 0, Dbg, "Context = %08lx\n", Context );
+    DebugTrace( +1, Dbg, ("NtfsLookupExternalAttribute\n") );
+    DebugTrace( 0, Dbg, ("Fcb = %08lx\n", Fcb) );
+    DebugTrace( 0, Dbg, ("QueriedTypeCode = %08lx\n", QueriedTypeCode) );
+    DebugTrace( 0, Dbg, ("QueriedName = %08lx\n", QueriedName) );
+    DebugTrace( 0, Dbg, ("IgnoreCase = %02lx\n", IgnoreCase) );
+    DebugTrace( 0, Dbg, ("QueriedValue = %08lx\n", QueriedValue) );
+    DebugTrace( 0, Dbg, ("QueriedValueLength = %08lx\n", QueriedValueLength) );
+    DebugTrace( 0, Dbg, ("Context = %08lx\n", Context) );
 
     //
     //  Check that our list is kosher.
@@ -10389,9 +10689,9 @@ Return Value:
             //  of the first file record, an always try to insert new attributes there.
             //
 
-            NtfsUnpinBcb( IrpContext, &Context->FoundAttribute.Bcb );
+            NtfsUnpinBcb( &Context->FoundAttribute.Bcb );
 
-            if (ARGUMENT_PRESENT(QueriedTypeCode)) {
+            if (QueriedTypeCode != $UNUSED) {
 
                 NtfsReadFileRecord( IrpContext,
                                     Fcb->Vcb,
@@ -10416,7 +10716,7 @@ Return Value:
                                       QueriedValueLength );
             }
 
-            DebugTrace(-1, Dbg, "NtfsLookupExternalAttribute -> FALSE\n", 0 );
+            DebugTrace( -1, Dbg, ("NtfsLookupExternalAttribute -> FALSE\n") );
 
             return FALSE;
         }
@@ -10433,6 +10733,8 @@ Return Value:
         UNICODE_STRING EntryName;
         UNICODE_STRING AttributeName;
 
+        PATTRIBUTE_LIST_ENTRY NextEntry;
+
         BOOLEAN CorrespondingAttributeFound;
 
         //
@@ -10446,6 +10748,20 @@ Return Value:
             Terminating = TRUE;
             TerminateOnNext = TRUE;
             Entry = Context->AttributeList.Entry;
+
+        } else {
+
+            NtfsCheckRecordBound( Entry,
+                                  Context->AttributeList.FirstEntry,
+                                  PtrOffset(Context->AttributeList.FirstEntry,
+                                            Context->AttributeList.BeyondFinalEntry) );
+
+            if (Entry->RecordLength == 0) {
+
+                NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, Fcb );
+            }
+
+            NextEntry = NtfsGetNextRecord(Entry);
         }
 
         Context->AttributeList.Entry = Entry;
@@ -10458,13 +10774,12 @@ Return Value:
         //  If equal, we move on to compare names.
         //
 
-        if (ARGUMENT_PRESENT(QueriedTypeCode) && !Terminating &&
-             (*QueriedTypeCode != Entry->AttributeTypeCode)) {
+        if (QueriedTypeCode != $UNUSED && !Terminating &&
+             (QueriedTypeCode != Entry->AttributeTypeCode)) {
 
-            if ( *QueriedTypeCode > Entry->AttributeTypeCode ) {
+            if ( QueriedTypeCode > Entry->AttributeTypeCode ) {
 
-                Entry = NtfsGetNextRecord( Entry );
-
+                Entry = NextEntry;
                 continue;
 
             //
@@ -10493,7 +10808,7 @@ Return Value:
             //  See if we have a name match.
             //
 
-            if (!NtfsAreNamesEqual( IrpContext,
+            if (!NtfsAreNamesEqual( UpcaseTable,
                                     &EntryName,
                                     QueriedName,
                                     IgnoreCase )) {
@@ -10502,7 +10817,8 @@ Return Value:
                 //  Compare the names ignoring case.
                 //
 
-                Result = NtfsCollateNames( IrpContext,
+                Result = NtfsCollateNames( UpcaseTable,
+                                           UpcaseTableSize,
                                            QueriedName,
                                            &EntryName,
                                            GreaterThan,
@@ -10514,7 +10830,8 @@ Return Value:
                 //
 
                 if ((Result == LessThan) || ((Result == EqualTo) &&
-                    (NtfsCollateNames( IrpContext,
+                    (NtfsCollateNames( UpcaseTable,
+                                       UpcaseTableSize,
                                        QueriedName,
                                        &EntryName,
                                        GreaterThan,
@@ -10524,15 +10841,40 @@ Return Value:
 
                 } else {
 
-                    Entry = NtfsGetNextRecord( Entry );
-
+                    Entry = NextEntry;
                     continue;
                 }
             }
         }
 
         //
-        //  Now we are also OK by name, so now go find the attribute and
+        //  Now search for the right Vcn range, if specified.
+        //
+
+        if (ARGUMENT_PRESENT(Vcn) && !Terminating) {
+
+            ASSERT(Entry->LowestVcn <= *Vcn);
+
+            //
+            //  If there is a next entry for our attribute and its LowestVcn is still <=
+            //  to the one we are looking for, then we have to go on.
+            //
+
+            if ((NextEntry < Context->AttributeList.BeyondFinalEntry) &&
+                (NextEntry->LowestVcn <= *Vcn) &&
+                (NextEntry->AttributeTypeCode == Entry->AttributeTypeCode) &&
+                (NextEntry->AttributeNameLength == Entry->AttributeNameLength) &&
+                (RtlEqualMemory(Add2Ptr(NextEntry, NextEntry->AttributeNameOffset),
+                                Add2Ptr(Entry, Entry->AttributeNameOffset),
+                                Entry->AttributeNameLength * 2 ))) {
+
+                Entry = NextEntry;
+                continue;
+            }
+        }
+
+        //
+        //  Now we are also OK by name and Vcn, so now go find the attribute and
         //  compare against value, if specified.
         //
 
@@ -10541,7 +10883,7 @@ Return Value:
 
             PFILE_RECORD_SEGMENT_HEADER FileRecord;
 
-            NtfsUnpinBcb( IrpContext, &Context->FoundAttribute.Bcb );
+            NtfsUnpinBcb( &Context->FoundAttribute.Bcb );
 
             NtfsReadFileRecord( IrpContext,
                                 Fcb->Vcb,
@@ -10569,11 +10911,33 @@ Return Value:
 
         CorrespondingAttributeFound = FALSE;
 
-        while ( Attribute->TypeCode != $END ) {
+        while (TRUE) {
+
+            //
+            //  Check that we can safely access this attribute.
+            //
 
             NtfsCheckRecordBound( Attribute,
                                   Context->FoundAttribute.FileRecord,
                                   Fcb->Vcb->BytesPerFileRecordSegment );
+
+            //
+            //  Exit the loop if we have reached the $END record.
+            //
+
+            if (Attribute->TypeCode == $END) {
+
+                break;
+            }
+
+            //
+            //  Check that the attribute has a non-zero length.
+            //
+
+            if (Attribute->RecordLength == 0) {
+
+                NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, Fcb );
+            }
 
             if (Entry->Instance == Attribute->Instance) {
 
@@ -10593,7 +10957,7 @@ Return Value:
 
                     NtfsInitializeStringFromAttribute( &AttributeName, Attribute );
 
-                    if (!NtfsAreNamesEqual( IrpContext, &AttributeName, &EntryName, FALSE)) {
+                    if (!NtfsAreNamesEqual( UpcaseTable, &AttributeName, &EntryName, FALSE)) {
                         break;
                     }
                 }
@@ -10631,9 +10995,9 @@ Return Value:
                     //  of the first file record, an always try to insert new attributes there.
                     //
 
-                    NtfsUnpinBcb( IrpContext, &Context->FoundAttribute.Bcb );
+                    NtfsUnpinBcb( &Context->FoundAttribute.Bcb );
 
-                    if (ARGUMENT_PRESENT(QueriedTypeCode)) {
+                    if (QueriedTypeCode != $UNUSED) {
 
                         NtfsReadFileRecord( IrpContext,
                                             Fcb->Vcb,
@@ -10658,9 +11022,9 @@ Return Value:
                                               QueriedValueLength );
                     }
 
-                    DebugTrace( 0, Dbg, "Context->FoundAttribute.Attribute < %08lx\n",
-                                        Attribute );
-                    DebugTrace(-1, Dbg, "NtfsLookupExternalAttribute -> FALSE\n", 0 );
+                    DebugTrace( 0, Dbg, ("Context->FoundAttribute.Attribute < %08lx\n",
+                                        Attribute) );
+                    DebugTrace( -1, Dbg, ("NtfsLookupExternalAttribute -> FALSE\n") );
 
                     return FALSE;
                 }
@@ -10678,9 +11042,9 @@ Return Value:
                     //  It matches.  Return it in the enumeration context.
                     //
 
-                    DebugTrace( 0, Dbg, "Context->FoundAttribute.Attribute < %08lx\n",
-                                        Attribute );
-                    DebugTrace(-1, Dbg, "NtfsLookupExternalAttribute -> TRUE\n", 0 );
+                    DebugTrace( 0, Dbg, ("Context->FoundAttribute.Attribute < %08lx\n",
+                                        Attribute ));
+                    DebugTrace( -1, Dbg, ("NtfsLookupExternalAttribute -> TRUE\n") );
 
                     return TRUE;
                 }
@@ -10772,10 +11136,10 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsGetSpaceForAttribute\n", 0 );
-    DebugTrace( 0, Dbg, "Fcb = %08lx\n", Fcb );
-    DebugTrace( 0, Dbg, "Length = %08lx\n", Length );
-    DebugTrace( 0, Dbg, "Context = %08lx\n", Context );
+    DebugTrace( +1, Dbg, ("NtfsGetSpaceForAttribute\n") );
+    DebugTrace( 0, Dbg, ("Fcb = %08lx\n", Fcb) );
+    DebugTrace( 0, Dbg, ("Length = %08lx\n", Length) );
+    DebugTrace( 0, Dbg, ("Context = %08lx\n", Context) );
 
     ASSERT( Length == QuadAlign( Length ));
 
@@ -10796,11 +11160,11 @@ Return Value:
 
         MakeRoomForAttribute( IrpContext, Fcb, Length, Context );
 
-        DebugTrace(-1, Dbg, "NtfsGetSpaceForAttribute -> FALSE\n", 0 );
+        DebugTrace( -1, Dbg, ("NtfsGetSpaceForAttribute -> FALSE\n") );
         return FALSE;
     }
 
-    DebugTrace(-1, Dbg, "NtfsGetSpaceForAttribute -> TRUE\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsGetSpaceForAttribute -> TRUE\n") );
     return TRUE;
 }
 
@@ -10860,10 +11224,10 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsChangeAttributeSize\n", 0 );
-    DebugTrace( 0, Dbg, "Fcb = %08lx\n", Fcb );
-    DebugTrace( 0, Dbg, "Length = %08lx\n", Length );
-    DebugTrace( 0, Dbg, "Context = %08lx\n", Context );
+    DebugTrace( +1, Dbg, ("NtfsChangeAttributeSize\n") );
+    DebugTrace( 0, Dbg, ("Fcb = %08lx\n", Fcb) );
+    DebugTrace( 0, Dbg, ("Length = %08lx\n", Length) );
+    DebugTrace( 0, Dbg, ("Context = %08lx\n", Context) );
 
     ASSERT( Length == QuadAlign( Length ));
 
@@ -10892,12 +11256,12 @@ Return Value:
 
         MakeRoomForAttribute( IrpContext, Fcb, SizeChange, Context );
 
-        DebugTrace(-1, Dbg, "NtfsChangeAttributeSize -> FALSE\n", 0 );
+        DebugTrace( -1, Dbg, ("NtfsChangeAttributeSize -> FALSE\n") );
 
         return FALSE;
     }
 
-    DebugTrace(-1, Dbg, "NtfsChangeAttributeSize -> TRUE\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsChangeAttributeSize -> TRUE\n") );
 
     return TRUE;
 }
@@ -10981,34 +11345,63 @@ Return Value:
     //  Find the largest attributes for this file record.
     //
 
-    FindLargestAttributes( IrpContext, FileRecord, MAX_MOVEABLE_ATTRIBUTES, LargestAttributes );
+    FindLargestAttributes( FileRecord, MAX_MOVEABLE_ATTRIBUTES, LargestAttributes );
 
     //
     //  Now loop from largest to smallest of the largest attributes,
     //  and see if there is something we can do.
     //
 
-    for (i = 0; i < MAX_MOVEABLE_ATTRIBUTES; i++) {
+    for (i = 0; i < MAX_MOVEABLE_ATTRIBUTES; i += 1) {
 
         Attribute = LargestAttributes[i];
 
         //
-        //  See if there are no more attributes, or if this one is not
-        //  large enough to consider.  If this is the Mft then all attributes
-        //  are large enough to consider except the $DATA attribute in
-        //  any file record other that base file record.
+        //  Look to the next attribute if there is no attribute at this array
+        //  position.
         //
 
-        if ((Attribute == NULL)
-            || ((Fcb == Vcb->MftScb->Fcb)
-
-                ? ((Attribute->TypeCode == $DATA)
-                   && ((*(PLONGLONG)&FileRecord->BaseFileRecordSegment != 0)
-                       || (Attribute->RecordLength < Vcb->BigEnoughToMove)))
-
-                : (Attribute->RecordLength < Vcb->BigEnoughToMove))) {
+        if (Attribute == NULL) {
 
             continue;
+
+        //
+        //  If this is the Mft then any attribute that is 'BigEnoughToMove'
+        //  except $DATA/$PROPERTY_SET attributes outside the base file record.
+        //  We need to keep those where they are in order to enforce the
+        //  boot-strap mapping.
+        //
+
+        } else if (Fcb == Vcb->MftScb->Fcb) {
+
+            if (Attribute->TypeCode == $DATA &&
+                ((*(PLONGLONG) &FileRecord->BaseFileRecordSegment != 0) ||
+                 (Attribute->RecordLength < Vcb->BigEnoughToMove))) {
+
+                continue;
+            }
+
+        //
+        //  Any attribute in a non-Mft file which is 'BigEnoughToMove' can
+        //  be considered.  We also accept an $ATTRIBUTE_LIST attribute
+        //  in a non-Mft file which must go non-resident in order for
+        //  the attribute name to fit.  Otherwise we could be trying to
+        //  add an attribute with a large name into the base file record.
+        //  We will need space to store the name twice, once for the
+        //  attribute list entry and once in the attribute.  This can take
+        //  up 1024 bytes by itself.  We want to force the attribute list
+        //  non-resident first so that the new attribute will fit.  We
+        //  look at whether the attribute list followed by just the new data
+        //  will fit in the file record.
+        //
+
+        } else if (Attribute->RecordLength < Vcb->BigEnoughToMove) {
+
+            if ((Attribute->TypeCode != $ATTRIBUTE_LIST) ||
+                ((PtrOffset( FileRecord, Attribute ) + Attribute->RecordLength + SizeNeeded + sizeof( LONGLONG)) <= FileRecord->BytesAvailable)) {
+
+                continue;
+            }
         }
 
         //
@@ -11027,10 +11420,10 @@ Return Value:
             IndexName.Buffer = Add2Ptr( Attribute, Attribute->NameOffset );
 
             IndexScb = NtfsCreateScb( IrpContext,
-                                      Vcb,
                                       Fcb,
                                       $INDEX_ALLOCATION,
-                                      IndexName,
+                                      &IndexName,
+                                      FALSE,
                                       NULL );
 
             NtfsPushIndexRoot( IrpContext, IndexScb );
@@ -11043,12 +11436,11 @@ Return Value:
         //
 
         } else if ((Attribute->FormCode == RESIDENT_FORM) &&
-                   !FlagOn(NtfsGetAttributeDefinition(IrpContext,
-                                                      Vcb,
+                   !FlagOn(NtfsGetAttributeDefinition(Vcb,
                                                       Attribute->TypeCode)->Flags,
                            ATTRIBUTE_DEF_MUST_BE_RESIDENT)) {
 
-            ConvertToNonresident( IrpContext, Fcb, Attribute, FALSE, NULL );
+            NtfsConvertToNonresident( IrpContext, Fcb, Attribute, FALSE, NULL );
 
             return;
 
@@ -11096,7 +11488,6 @@ Return Value:
 
 VOID
 FindLargestAttributes (
-    IN PIRP_CONTEXT IrpContext,
     IN PFILE_RECORD_SEGMENT_HEADER FileRecord,
     IN ULONG Number,
     OUT PATTRIBUTE_RECORD_HEADER *AttributeArray
@@ -11128,8 +11519,6 @@ Return Value:
 {
     ULONG i, j;
     PATTRIBUTE_RECORD_HEADER Attribute;
-
-    UNREFERENCED_PARAMETER(IrpContext);
 
     PAGED_CODE();
 
@@ -11166,320 +11555,7 @@ Return Value:
 //  Internal support routine
 //
 
-VOID
-ConvertToNonresident (
-    IN PIRP_CONTEXT IrpContext,
-    IN PFCB Fcb,
-    IN OUT PATTRIBUTE_RECORD_HEADER Attribute,
-    IN BOOLEAN CreateSectionUnderway,
-    IN OUT PATTRIBUTE_ENUMERATION_CONTEXT Context OPTIONAL
-    )
-
-/*++
-
-Routine Description:
-
-    This routine converts a resident attribute to nonresident.  It does so
-    by allocating a buffer and copying the data and attribute name away,
-    deleting the attribute, allocating a new attribute of the right size,
-    and then copying the data back out again.
-
-Arguments:
-
-    Fcb - Requested file.
-
-    Attribute - Supplies a pointer to the attribute to convert.
-
-    CreateSectionUnderway - if supplied as TRUE, then to the best of the caller's
-                            knowledge, an MM Create Section could be underway,
-                            which means that we cannot initiate caching on
-                            this attribute, as that could cause deadlock.  The
-                            value buffer in this case must be quad-aligned and
-                            a multiple of cluster size in size.
-
-    Context - An attribute context to look up another attribute in the same
-              file record.  If supplied, we insure that the context is valid
-              for converted attribute.
-
-Return Value:
-
-    None
-
---*/
-
-{
-    PVOID Buffer;
-    PVOID AllocatedBuffer = NULL;
-    ULONG AllocatedLength;
-    ULONG AttributeNameOffset;
-
-    ATTRIBUTE_ENUMERATION_CONTEXT LocalContext;
-    BOOLEAN CleanupLocalContext = FALSE;
-
-    ATTRIBUTE_TYPE_CODE AttributeTypeCode = Attribute->TypeCode;
-     USHORT AttributeFlags = Attribute->Flags;
-    PVOID AttributeValue = NULL;
-    ULONG ValueLength;
-
-    UNICODE_STRING AttributeName;
-    WCHAR AttributeNameBuffer[16];
-
-    BOOLEAN WriteClusters = CreateSectionUnderway;
-
-    PBCB ResidentBcb = NULL;
-    PSCB Scb = NULL;
-
-    PAGED_CODE();
-
-    //
-    //  Always acquire the paging Io resource since we are moving attributes.
-    //
-
-    if (Fcb->PagingIoResource != NULL) {
-
-        NtfsAcquireExclusivePagingIo( IrpContext, Fcb );
-    }
-
-    //
-    //  Use a try-finally to facilitate cleanup.
-    //
-
-    try {
-
-        //
-        //  Build a temporary copy of the name out of the attribute.
-        //
-
-        AttributeName.MaximumLength =
-        AttributeName.Length = Attribute->NameLength * sizeof( WCHAR );
-        AttributeName.Buffer = Add2Ptr( Attribute, Attribute->NameOffset );
-
-        //
-        //  If we don't have an attribute context for this attribute then look it
-        //  up now.
-        //
-
-        if (!ARGUMENT_PRESENT( Context )) {
-
-            Context = &LocalContext;
-            NtfsInitializeAttributeContext( Context );
-            CleanupLocalContext = TRUE;
-
-            //
-            //  Lookup the first occurence of this attribute.
-            //
-
-            if (!NtfsLookupAttributeByName( IrpContext,
-                                            Fcb,
-                                            &Fcb->FileReference,
-                                            AttributeTypeCode,
-                                            &AttributeName,
-                                            FALSE,
-                                            Context )) {
-
-                DebugTrace(0, 0, "Could not find attribute being converted\n", 0);
-
-                ASSERTMSG("Could not find attribute being converted, About to bugcheck ", FALSE);
-                NtfsBugCheck( AttributeTypeCode, 0, 0 );
-            }
-        }
-
-        //
-        //  We need to figure out how much pool to allocate.  If there is a mapped
-        //  view of this section or a section is being created we will allocate a buffer
-        //  and copy the data into the buffer.  Otherwise we will pin the data in
-        //  the cache, mark it dirty and use that buffer to perform the conversion.
-        //
-
-        AllocatedLength = AttributeName.Length;
-
-        if (CreateSectionUnderway) {
-
-            AttributeNameOffset = ClusterAlign( Fcb->Vcb,
-                                                Attribute->Form.Resident.ValueLength );
-            AllocatedLength += AttributeNameOffset;
-            ValueLength = Attribute->Form.Resident.ValueLength;
-
-        } else {
-
-            BOOLEAN ReturnedExistingScb;
-
-            Scb = NtfsCreateScb( IrpContext,
-                                 Fcb->Vcb,
-                                 Fcb,
-                                 AttributeTypeCode,
-                                 AttributeName,
-                                 &ReturnedExistingScb );
-
-            //
-            //  Make sure the Scb is up-to-date.
-            //
-
-            NtfsUpdateScbFromAttribute( IrpContext,
-                                        Scb,
-                                        Attribute );
-
-            //
-            //  Now check if the file is mapped by a user.
-            //
-
-            if (!MmCanFileBeTruncated( &Scb->NonpagedScb->SegmentObject, NULL )) {
-
-                AttributeNameOffset = ClusterAlign( Fcb->Vcb,
-                                                    Attribute->Form.Resident.ValueLength );
-                AllocatedLength += AttributeNameOffset;
-                ValueLength = Attribute->Form.Resident.ValueLength;
-                Scb = NULL;
-                WriteClusters = TRUE;
-
-            } else {
-
-                volatile UCHAR VolatileUchar;
-
-                AttributeNameOffset = 0;
-                NtfsCreateInternalAttributeStream( IrpContext, Scb, TRUE );
-
-                //
-                //  Make sure the cache is up-to-date.
-                //
-
-                CcSetFileSizes( Scb->FileObject,
-                                (PCC_FILE_SIZES)&Scb->Header.AllocationSize );
-
-                ValueLength = Scb->Header.FileSize.LowPart;
-
-                if (ValueLength != 0) {
-
-                    NtfsPinStream( IrpContext,
-                                   Scb,
-                                   (LONGLONG)0,
-                                   ValueLength,
-                                   &ResidentBcb,
-                                   &AttributeValue );
-
-                    //
-                    //  Close the window where this page can leave memory before we
-                    //  have the new attribute initialized.  The result will be that
-                    //  we may fault in this page again and read uninitialized data
-                    //  out of the newly allocated sectors.
-                    //
-                    //  Make the page dirty so that the cache manager will write it out
-                    //  and update the valid data length.
-                    //
-
-                    VolatileUchar = *((PUCHAR) AttributeValue);
-
-                    *((PUCHAR) AttributeValue) = VolatileUchar;
-                }
-            }
-        }
-
-        if (AllocatedLength > 8) {
-
-            Buffer = AllocatedBuffer = NtfsAllocatePagedPool( AllocatedLength );
-
-        } else {
-
-            Buffer = &AttributeNameBuffer;
-        }
-
-        //
-        //  Now update the attribute name in the buffer.
-        //
-
-        AttributeName.Buffer = Add2Ptr( Buffer, AttributeNameOffset );
-
-        RtlCopyMemory( AttributeName.Buffer,
-                       Add2Ptr( Attribute, Attribute->NameOffset ),
-                       AttributeName.Length );
-
-        //
-        //  If we are going to write the clusters directly to the disk then copy
-        //  the bytes into the buffer.
-        //
-
-        if (WriteClusters) {
-
-            AttributeValue = Buffer;
-
-            RtlCopyMemory( AttributeValue, NtfsAttributeValue( Attribute ), ValueLength );
-        }
-
-        //
-        //  Now just delete the current record and create it nonresident.
-        //  Create nonresident with attribute does the right thing if we
-        //  are being called by MM.
-        //
-
-        NtfsDeleteAttributeRecord( IrpContext, Fcb, TRUE, TRUE, Context );
-
-        NtfsCreateNonresidentWithValue( IrpContext,
-                                        Fcb,
-                                        AttributeTypeCode,
-                                        &AttributeName,
-                                        AttributeValue,
-                                        ValueLength,
-                                        AttributeFlags,
-                                        WriteClusters,
-                                        Scb,
-                                        TRUE,
-                                        Context );
-
-        //
-        //  If we were passed an attribute context, then we want to
-        //  reload the context with the new location of the file.
-        //
-
-        if (!CleanupLocalContext) {
-
-            NtfsCleanupAttributeContext( IrpContext, Context );
-            NtfsInitializeAttributeContext( Context );
-
-            if (!NtfsLookupAttributeByName( IrpContext,
-                                            Fcb,
-                                            &Fcb->FileReference,
-                                            AttributeTypeCode,
-                                            &AttributeName,
-                                            FALSE,
-                                            Context )) {
-
-                DebugTrace(0, 0, "Could not find attribute being converted\n", 0);
-
-                ASSERTMSG("Could not find attribute being converted, About to raise corrupt ", FALSE);
-
-                NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, Fcb );
-            }
-        }
-
-    } finally {
-
-        DebugUnwind( ConvertToNonresident );
-
-        if (Fcb->PagingIoResource != NULL) {
-
-            NtfsReleasePagingIo( IrpContext, Fcb );
-        }
-
-        if (AllocatedBuffer != NULL) {
-
-            NtfsFreePagedPool( AllocatedBuffer );
-        }
-
-        if (CleanupLocalContext) {
-
-            NtfsCleanupAttributeContext( IrpContext, Context );
-        }
-
-        NtfsUnpinBcb( IrpContext, &ResidentBcb );
-    }
-}
-
-
-//
-//  Internal support routine
-//
-
-VOID
+LONGLONG
 MoveAttributeToOwnRecord (
     IN PIRP_CONTEXT IrpContext,
     IN PFCB Fcb,
@@ -11521,7 +11597,7 @@ Arguments:
 
 Return Value:
 
-    None
+    LONGLONG - Segment reference number of new record without a sequence number.
 
 --*/
 
@@ -11532,7 +11608,7 @@ Return Value:
     PATTRIBUTE_RECORD_HEADER Attribute2;
     BOOLEAN FoundListContext;
     MFT_SEGMENT_REFERENCE Reference2;
-    VCN Vcn2;
+    LONGLONG MftRecordNumber2;
     WCHAR NameBuffer[8];
     UNICODE_STRING AttributeName;
     ATTRIBUTE_TYPE_CODE AttributeTypeCode;
@@ -11582,7 +11658,7 @@ Return Value:
 
     if (AttributeName.Length > sizeof(NameBuffer)) {
 
-        AttributeName.Buffer = FsRtlAllocatePool( NonPagedPool, AttributeName.Length );
+        AttributeName.Buffer = NtfsAllocatePool( NonPagedPool, AttributeName.Length );
     }
 
     RtlCopyMemory( AttributeName.Buffer,
@@ -11618,7 +11694,7 @@ Return Value:
 
             ASSERT( FileRecord1 == NtfsContainingFileRecord(&ListContext) );
 
-            NewListSize = GetSizeForAttributeList( IrpContext, FileRecord1 );
+            NewListSize = GetSizeForAttributeList( FileRecord1 );
 
         //
         //  Now if the attribute list already exists, we have to look up
@@ -11628,32 +11704,19 @@ Return Value:
 
         } else {
 
-            UNICODE_STRING AttributeName;
-            BOOLEAN Found;
-
-            AttributeName.Length =
-            AttributeName.MaximumLength = (USHORT)Attribute->NameLength << 1;
-            AttributeName.Buffer = Add2Ptr( Attribute, Attribute->NameOffset );
-
             Found = NtfsLookupAttributeByName( IrpContext,
                                                Fcb,
                                                &Fcb->FileReference,
                                                Attribute->TypeCode,
                                                &AttributeName,
+                                               IsNonresident ?
+                                                 &LowestVcn :
+                                                 NULL,
                                                FALSE,
                                                &MoveContext );
 
-            while (Attribute != NtfsFoundAttribute(&MoveContext)) {
-
-                ASSERT(Found);
-
-                Found = NtfsLookupNextAttributeByName( IrpContext,
-                                                       Fcb,
-                                                       Attribute->TypeCode,
-                                                       &AttributeName,
-                                                       FALSE,
-                                                       &MoveContext );
-            }
+            ASSERT(Found);
+            ASSERT(Attribute == NtfsFoundAttribute(&MoveContext));
         }
 
         //
@@ -11663,10 +11726,10 @@ Return Value:
         FileRecord2 = NtfsCloneFileRecord( IrpContext, Fcb, MftData, &Bcb, &Reference2 );
 
         //
-        //  Convert the file reference number to a Vcn.
+        //  Remember the file record number for the new file record.
         //
 
-        NtfsVcnFromBcb( Vcb, *(PLARGE_INTEGER)&Vcn2, FileRecord2, Bcb );
+        MftRecordNumber2 = NtfsFullSegmentNumber( &Reference2 );
 
         Attribute2 = Add2Ptr( FileRecord2, FileRecord2->FirstAttributeOffset );
         RtlCopyMemory( Attribute2, Attribute, (ULONG)Attribute->RecordLength );
@@ -11689,9 +11752,9 @@ Return Value:
             VCN LastVcn;
             LONGLONG SavedFileSize = Attribute->Form.Nonresident.FileSize;
             LONGLONG SavedValidDataLength = Attribute->Form.Nonresident.ValidDataLength;
-            PLARGE_MCB Mcb = &Vcb->MftScb->Mcb;
+            PNTFS_MCB Mcb = &Vcb->MftScb->Mcb;
 
-            NtfsCleanupAttributeContext( IrpContext, Context );
+            NtfsCleanupAttributeContext(  Context );
             NtfsInitializeAttributeContext( Context );
 
             Found =
@@ -11703,7 +11766,15 @@ Return Value:
 
             ASSERT(Found);
 
-            LastVcn = FIRST_USER_FILE_NUMBER * Vcb->ClustersPerFileRecordSegment - 1;
+            //
+            //  Calculate the number of clusters in the Mft up to (possibly past) the
+            //  first user file record, and decrement to get LastVcn to stay in first
+            //  file record.
+            //
+
+            LastVcn = LlClustersFromBytes( Vcb,
+                                           FIRST_USER_FILE_NUMBER *
+                                           Vcb->BytesPerFileRecordSegment ) - 1;
             OriginalLastVcn = Attribute->Form.Nonresident.HighestVcn;
 
             //
@@ -11731,10 +11802,9 @@ Return Value:
             //  Mcb yet.
             //
 
-            NewSize = SIZEOF_NONRESIDENT_ATTRIBUTE_HEADER
+            NewSize = SIZEOF_PARTIAL_NONRES_ATTR_HEADER
                       + QuadAlign( AttributeName.Length )
-                      + QuadAlign( NtfsGetSizeForMappingPairs( IrpContext,
-                                                               Mcb,
+                      + QuadAlign( NtfsGetSizeForMappingPairs( Mcb,
                                                                MAXULONG,
                                                                LastVcn,
                                                                &OriginalLastVcn,
@@ -11747,7 +11817,7 @@ Return Value:
             //  will go.  (Update below if we are wrong.)
             //
 
-            MappingPairs = (PCHAR)Attribute2 + SIZEOF_NONRESIDENT_ATTRIBUTE_HEADER;
+            MappingPairs = (PCHAR)Attribute2 + SIZEOF_PARTIAL_NONRES_ATTR_HEADER;
 
             //
             //  If the attribute has a name, take care of that now.
@@ -11779,8 +11849,7 @@ Return Value:
             //
 
             *MappingPairs = 0;
-            NtfsBuildMappingPairs( IrpContext,
-                                   Mcb,
+            NtfsBuildMappingPairs( Mcb,
                                    Attribute2->Form.Nonresident.LowestVcn,
                                    &LastVcn,
                                    MappingPairs );
@@ -11803,10 +11872,10 @@ Return Value:
                           CreateAttribute,
                           Attribute,
                           Attribute->RecordLength,
-                          NtfsMftVcn(Context, Vcb),
+                          NtfsMftOffset( Context ),
                           (PCHAR)Attribute - (PCHAR)FileRecord1,
                           0,
-                          Vcb->ClustersPerFileRecordSegment );
+                          Vcb->BytesPerFileRecordSegment );
 
             //
             //  Remember the old position for the CreateAttributeList
@@ -11829,10 +11898,10 @@ Return Value:
                       Noop,
                       NULL,
                       0,
-                      Vcn2,
+                      LlBytesFromFileRecords( Vcb, MftRecordNumber2 ),
                       0,
                       0,
-                      Vcb->ClustersPerFileRecordSegment );
+                      Vcb->BytesPerFileRecordSegment );
 
         //
         //  Finally, create the attribute list attribute if needed.
@@ -11840,7 +11909,7 @@ Return Value:
 
         if (!FoundListContext) {
 
-            NtfsCleanupAttributeContext( IrpContext, &ListContext );
+            NtfsCleanupAttributeContext( &ListContext );
             NtfsInitializeAttributeContext( &ListContext );
             CreateAttributeList( IrpContext,
                                  Fcb,
@@ -11867,7 +11936,7 @@ Return Value:
                                       &ListContext );
         }
 
-        NtfsCleanupAttributeContext( IrpContext, Context );
+        NtfsCleanupAttributeContext( Context );
         NtfsInitializeAttributeContext( Context );
 
         Found =
@@ -11876,24 +11945,12 @@ Return Value:
                                    &Fcb->FileReference,
                                    AttributeTypeCode,
                                    &AttributeName,
+                                   IsNonresident ? &LowestVcn : NULL,
                                    FALSE,
                                    Context );
 
         ASSERT(Found);
-
-        while (IsNonresident &&
-               (LowestVcn != NtfsFoundAttribute(Context)->Form.Nonresident.LowestVcn)) {
-
-            Found =
-            NtfsLookupNextAttributeByName( IrpContext,
-                                           Fcb,
-                                           AttributeTypeCode,
-                                           &AttributeName,
-                                           FALSE,
-                                           Context );
-
-            ASSERT(Found);
-        }
+        ASSERT(!IsNonresident || (LowestVcn == NtfsFoundAttribute(Context)->Form.Nonresident.LowestVcn));
 
         //
         //  For the case of the Mft split, we now add the final entry.
@@ -11916,7 +11973,7 @@ Return Value:
 
             NtfsAddToAttributeList( IrpContext, Fcb, Reference2, Context );
 
-            NtfsCleanupAttributeContext( IrpContext, Context );
+            NtfsCleanupAttributeContext( Context );
             NtfsInitializeAttributeContext( Context );
 
             Found =
@@ -11945,7 +12002,7 @@ Return Value:
     } finally {
 
         if (AttributeName.Buffer != NameBuffer) {
-            ExFreePool(AttributeName.Buffer);
+            NtfsFreePool(AttributeName.Buffer);
         }
 
         if (ARGUMENT_PRESENT(NewBcb)) {
@@ -11959,12 +12016,14 @@ Return Value:
 
             ASSERT(!ARGUMENT_PRESENT(NewFileRecord));
 
-            NtfsUnpinBcb( IrpContext, &Bcb );
+            NtfsUnpinBcb( &Bcb );
         }
 
-        NtfsCleanupAttributeContext( IrpContext, &ListContext );
-        NtfsCleanupAttributeContext( IrpContext, &MoveContext );
+        NtfsCleanupAttributeContext( &ListContext );
+        NtfsCleanupAttributeContext( &MoveContext );
     }
+
+    return MftRecordNumber2;
 }
 
 
@@ -12020,9 +12079,9 @@ Return Value:
     ULONG SizeToStay;
     ULONG CurrentOffset, FutureOffset;
     ULONG SizeToMove;
-    VCN Vcn2;
     BOOLEAN FoundListContext;
     MFT_SEGMENT_REFERENCE Reference1, Reference2;
+    LONGLONG MftFileRecord2;
     PBCB Bcb = NULL;
     ATTRIBUTE_TYPE_CODE EndCode = $END;
     PVCB Vcb = Fcb->Vcb;
@@ -12075,13 +12134,13 @@ Return Value:
             NewListOffset = PtrOffset( FileRecord1,
                                        NtfsFoundAttribute(&ListContext) );
 
-            NewListSize = GetSizeForAttributeList( IrpContext, FileRecord1 ) +
+            NewListSize = GetSizeForAttributeList( FileRecord1 ) +
                           SIZEOF_RESIDENT_ATTRIBUTE_HEADER;
         }
 
         //
         //  Similarly describe where the new attribute is to go, and how
-        //  big it is (already in SizeNeeded.
+        //  big it is (already in SizeNeeded).
         //
 
         NewAttributeOffset = PtrOffset( FileRecord1, Attribute1 );
@@ -12096,12 +12155,45 @@ Return Value:
                       SizeNeeded + sizeof(FILE_RECORD_SEGMENT_HEADER)) / 2;
 
         //
+        //  We know that since we called this routine we need to split at
+        //  least one entry from this file record.  We also base our
+        //  split logic by finding the first attribute which WILL lie beyond
+        //  the split point (after adding an attribute list and possibly
+        //  an intermediate attribute).  We shrink the split point to the
+        //  position at the end of where the current last attribute will be
+        //  after adding the attribute list.  If we also add space before
+        //  the last attribute then we know the last attribute will surely
+        //  be split out.
+        //
+
+        if (SizeToStay > (FileRecord1->FirstFreeByte - sizeof( LONGLONG ) + NewListSize)) {
+
+            SizeToStay = FileRecord1->FirstFreeByte - sizeof( LONGLONG ) + NewListSize;
+        }
+
+        //
         //  Now begin the loop through the attributes to find the splitting
         //  point.  We stop when we reach the end record or are past the attribute
         //  which contains the split point.  We will split at the current attribute
         //  if the remaining bytes after this attribute won't allow us to add
         //  the bytes we need for the caller or create an attribute list if
         //  it doesn't exist.
+        //
+        //  At this point the following variables indicate the following:
+        //
+        //      FutureOffset - This the offset of the current attribute
+        //          after adding an attribute list and the attribute we
+        //          are making space for.
+        //
+        //      CurrentOffset - Current position in the file record of
+        //          of attribute being examined now.
+        //
+        //      NewListOffset - Offset to insert new attribute list into
+        //          file record (0 indicates the list already exists).
+        //
+        //      NewAttributeOffset - Offset in the file record of the new
+        //          attribute.  This refers to the file record as it exists
+        //          when this routine is called.
         //
 
         FutureOffset =
@@ -12118,6 +12210,11 @@ Return Value:
 
             if (CurrentOffset == NewListOffset) {
 
+                //
+                //  This attribute and all later attributes will be moved
+                //  by the size of attribute list.
+                //
+
                 FutureOffset += NewListSize;
             }
 
@@ -12127,25 +12224,42 @@ Return Value:
 
             if (CurrentOffset == NewAttributeOffset) {
 
+                //
+                //  This attribute and all later attributes will be moved
+                //  by the size of new attribute.
+                //
+
                 FutureOffset += SizeNeeded;
             }
 
+            FutureOffset += Attribute1->RecordLength;
+
             //
-            //  If adding in the above values has pushed us past our split
-            //  point then we want to split at the current attribute.  We also
-            //  check that there is enough room after the new location for this
-            //  attribute to insert the new bytes.
+            //  Check if we are at the split point.  We split at this point
+            //  if the end of the current attribute will be at or beyond the
+            //  split point after adjusting for adding either an attribute list
+            //  or new attribute.  We make this test >= since these two values
+            //  will be equal if we reach the last attribute without finding
+            //  the split point.  This way we guarantee a split will happen.
+            //
+            //  Note that we will go to the next attribute if the current attribute
+            //  is the first attribute in the file record.  This can happen if the
+            //  first attribute is resident and must stay resident but takes up
+            //  half the file record or more (i.e. large filename attribute).
+            //  We must make sure to split at least one attribute out of this
+            //  record.
+            //
+            //  Never split when pointing at $STANDARD_INFORMATION or $ATTRIBUTE_LIST.
             //
 
-            if ((FutureOffset >= SizeToStay) ||
-                (FoundListContext && (AdjustedAvailBytes < (SizeNeeded + Attribute1->RecordLength + CurrentOffset))) ||
-                (!FoundListContext && (AdjustedAvailBytes < (Attribute1->RecordLength + FutureOffset)))) {
+            if ((Attribute1->TypeCode > $ATTRIBUTE_LIST) &&
+                (FutureOffset >= SizeToStay) &&
+                (CurrentOffset != FileRecord1->FirstAttributeOffset)) {
 
                 break;
             }
 
             CurrentOffset += Attribute1->RecordLength;
-            FutureOffset += Attribute1->RecordLength;
 
             Attribute1 = Add2Ptr( Attribute1, Attribute1->RecordLength );
         }
@@ -12157,10 +12271,9 @@ Return Value:
         //  we don't do the split.
         //
 
-        if ((Attribute1->TypeCode == $END)
-            || (Attribute1->TypeCode <= $ATTRIBUTE_LIST)) {
+        if ((Attribute1->TypeCode == $END) || (Attribute1->TypeCode <= $ATTRIBUTE_LIST)) {
 
-            try_return( NOTHING );
+            NtfsRaiseStatus( IrpContext, STATUS_INSUFFICIENT_RESOURCES, NULL, NULL );
         }
 
         //
@@ -12183,12 +12296,20 @@ Return Value:
                                                  &Fcb->FileReference,
                                                  Attribute1->TypeCode,
                                                  &AttributeName,
+                                                 (Attribute1->FormCode == NONRESIDENT_FORM) ?
+                                                   &Attribute1->Form.Nonresident.LowestVcn :
+                                                   NULL,
                                                  FALSE,
                                                  &MoveContext );
 
-            while (Attribute1 != NtfsFoundAttribute(&MoveContext)) {
+            //
+            //  If we are splitting the file record between multiple attributes with
+            //  the same name (i.e.  FILE_NAME attributes) then we need to find the
+            //  correct attribute.  Since this is an unusual case we will just scan
+            //  forwards from the current attribute until we find the correct attribute.
+            //
 
-                ASSERT(FoundIt);
+            while (FoundIt && (Attribute1 != NtfsFoundAttribute( &MoveContext ))) {
 
                 FoundIt = NtfsLookupNextAttributeByName( IrpContext,
                                                          Fcb,
@@ -12196,8 +12317,10 @@ Return Value:
                                                          &AttributeName,
                                                          FALSE,
                                                          &MoveContext );
-
             }
+
+            ASSERT(FoundIt);
+            ASSERT(Attribute1 == NtfsFoundAttribute(&MoveContext));
         }
 
         //
@@ -12209,15 +12332,14 @@ Return Value:
         if (FoundListContext) {
             Reference1 = MoveContext.AttributeList.Entry->SegmentReference;
         }
+
         FileRecord2 = NtfsCloneFileRecord( IrpContext, Fcb, FALSE, &Bcb, &Reference2 );
 
         //
-        //  Convert the file reference number to a Vcn.
+        //  Capture the file record number of the new file record.
         //
 
-        Vcn2 = *(PVCN)&Reference2;
-        ((PMFT_SEGMENT_REFERENCE)&Vcn2)->SequenceNumber = 0;
-        Vcn2 = Vcn2 * Fcb->Vcb->ClustersPerFileRecordSegment;
+        MftFileRecord2 = NtfsFullSegmentNumber( &Reference2 );
 
         Attribute2 = Add2Ptr( FileRecord2, FileRecord2->FirstAttributeOffset );
         RtlCopyMemory( Attribute2, Attribute1, SizeToMove );
@@ -12262,10 +12384,10 @@ Return Value:
                                          Noop,
                                          NULL,
                                          0,
-                                         Vcn2,
+                                         LlBytesFromFileRecords( Vcb, MftFileRecord2 ),
                                          0,
                                          0,
-                                         Vcb->ClustersPerFileRecordSegment );
+                                         Vcb->BytesPerFileRecordSegment );
 
         FileRecord1->Lsn = NtfsWriteLog( IrpContext,
                                          Vcb->MftScb,
@@ -12276,13 +12398,12 @@ Return Value:
                                          WriteEndOfFileRecordSegment,
                                          Attribute1,
                                          SizeToMove,
-                                         NtfsMftVcn(Context, Vcb),
+                                         NtfsMftOffset( Context ),
                                          CurrentOffset,
                                          0,
-                                         Vcb->ClustersPerFileRecordSegment );
+                                         Vcb->BytesPerFileRecordSegment );
 
-        NtfsRestartWriteEndOfFileRecord( IrpContext,
-                                         FileRecord1,
+        NtfsRestartWriteEndOfFileRecord( FileRecord1,
                                          Attribute1,
                                          (PATTRIBUTE_RECORD_HEADER)&EndCode,
                                          sizeof(ATTRIBUTE_TYPE_CODE) );
@@ -12293,7 +12414,7 @@ Return Value:
 
         if (!FoundListContext) {
 
-            NtfsCleanupAttributeContext( IrpContext, &ListContext );
+            NtfsCleanupAttributeContext( &ListContext );
             NtfsInitializeAttributeContext( &ListContext );
             CreateAttributeList( IrpContext,
                                  Fcb,
@@ -12305,20 +12426,18 @@ Return Value:
                                  &ListContext );
         }
 
-    try_exit:  NOTHING;
     } finally {
 
-        NtfsUnpinBcb( IrpContext, &Bcb );
+        NtfsUnpinBcb( &Bcb );
 
-        NtfsCleanupAttributeContext( IrpContext, &ListContext );
-        NtfsCleanupAttributeContext( IrpContext, &MoveContext );
+        NtfsCleanupAttributeContext( &ListContext );
+        NtfsCleanupAttributeContext( &MoveContext );
     }
 }
 
 
 VOID
 NtfsRestartWriteEndOfFileRecord (
-    IN PIRP_CONTEXT IrpContext,
     IN PFILE_RECORD_SEGMENT_HEADER FileRecord,
     IN PATTRIBUTE_RECORD_HEADER OldAttribute,
     IN PATTRIBUTE_RECORD_HEADER NewAttributes,
@@ -12351,8 +12470,6 @@ Return Value:
 
 {
     PAGED_CODE();
-
-    UNREFERENCED_PARAMETER(IrpContext);
 
     RtlMoveMemory( OldAttribute, NewAttributes, SizeOfNewAttributes );
 
@@ -12417,7 +12534,6 @@ Return Value:
 
     *FileReference = NtfsAllocateMftRecord( IrpContext,
                                             Vcb,
-                                            Fcb->FileReference,
                                             MftData );
 
     //
@@ -12457,7 +12573,6 @@ Return Value:
 
 ULONG
 GetSizeForAttributeList (
-    IN PIRP_CONTEXT IrpContext,
     IN PFILE_RECORD_SEGMENT_HEADER FileRecord
     )
 
@@ -12483,8 +12598,6 @@ Return Value:
 {
     PATTRIBUTE_RECORD_HEADER Attribute;
     ULONG Size = 0;
-
-    UNREFERENCED_PARAMETER(IrpContext);
 
     PAGED_CODE();
 
@@ -12583,7 +12696,7 @@ Return Value:
     //
 
     ListEntry =
-    AttributeList = (PATTRIBUTE_LIST_ENTRY) NtfsAllocatePagedPool( SizeOfList );
+    AttributeList = (PATTRIBUTE_LIST_ENTRY) NtfsAllocatePool(PagedPool, SizeOfList );
 
     //
     //  Use try-finally to deallocate on the way out.
@@ -12692,7 +12805,7 @@ Return Value:
 
     } finally {
 
-        NtfsFreePagedPool( AttributeList );
+        NtfsFreePool( AttributeList );
     }
 }
 
@@ -12744,22 +12857,40 @@ Return Value:
 
 {
     PATTRIBUTE_LIST_ENTRY AttributeList, ListEntry, BeyondList;
-    PBCB Bcb;
+    PBCB Bcb = NULL;
     ULONG SizeOfList;
     ATTRIBUTE_LIST_ENTRY NewEntry;
+    PATTRIBUTE_RECORD_HEADER Attribute;
 
     PAGED_CODE();
 
     //
-    //  Map the attribute list.
+    //  Map the attribute list if the attribute is non-resident.  Otherwise the
+    //  attribute is already mapped and we have a Bcb in the attribute context.
     //
 
-    NtfsMapAttributeValue( IrpContext,
-                           Fcb,
-                           (PVOID *) &AttributeList,
-                           &SizeOfList,
-                           &Bcb,
-                           ListContext );
+    Attribute = NtfsFoundAttribute( ListContext );
+
+    if (!NtfsIsAttributeResident( Attribute )) {
+
+        NtfsMapAttributeValue( IrpContext,
+                               Fcb,
+                               (PVOID *) &AttributeList,
+                               &SizeOfList,
+                               &Bcb,
+                               ListContext );
+
+    //
+    //  Don't call the Map attribute routine because it NULLs the Bcb in the
+    //  attribute list.  This Bcb is needed for ChangeAttributeValue to mark
+    //  the page dirty.
+    //
+
+    } else {
+
+        AttributeList = (PATTRIBUTE_LIST_ENTRY) NtfsAttributeValue( Attribute );
+        SizeOfList = Attribute->Form.Resident.ValueLength;
+    }
 
     //
     //  Make sure we unpin the list.
@@ -12827,8 +12958,647 @@ Return Value:
 
     } finally {
 
-        NtfsUnpinBcb( IrpContext, &Bcb );
+        NtfsUnpinBcb( &Bcb );
     }
+}
+
+
+//
+//  Local support routine
+//
+
+VOID
+NtfsAddNameToParent (
+    IN PIRP_CONTEXT IrpContext,
+    IN PSCB ParentScb,
+    IN PFCB ThisFcb,
+    IN BOOLEAN IgnoreCase,
+    IN PBOOLEAN LogIt,
+    IN PFILE_NAME FileNameAttr,
+    OUT PUCHAR FileNameFlags,
+    OUT PQUICK_INDEX QuickIndex OPTIONAL,
+    IN PNAME_PAIR NamePair OPTIONAL
+    )
+
+/*++
+
+Routine Description:
+
+    This routine will create the filename attribute with the given name.
+    Depending on the IgnoreCase flag, this is either a link or an Ntfs
+    name.  If it is an Ntfs name, we check if it is also the Dos name.
+
+    We build a file name attribute and then add it via ThisFcb, we then
+    add this entry to the parent.
+
+    If the name is a Dos name and we are given tunneling information on
+    the long name, we will add the long name attribute as well.
+
+Arguments:
+
+    ParentScb - This is the parent directory for the file.
+
+    ThisFcb - This is the file to add the filename to.
+
+    IgnoreCase - Indicates if this name is case insensitive.  Only for Posix
+        will this be FALSE.
+
+    LogIt - Indicates if we should log this operation.  If FALSE and this is a large
+        name then log the file record and begin logging.
+
+    FileNameAttr - This contains a file name attribute structure to use.
+
+    FileNameFlags - We store a copy of the File name flags used in the file
+        name attribute.
+
+    QuickIndex - If specified, we store the information about the location of the
+        index entry added.
+
+    NamePair - If specified, we add the tunneled NTFS-only name if the name we are
+        directly adding is DOS-only.
+
+Return Value:
+
+    None - This routine will raise on error.
+
+--*/
+
+{
+    PFILE_RECORD_SEGMENT_HEADER FileRecord;
+    ATTRIBUTE_ENUMERATION_CONTEXT AttrContext;
+
+    PAGED_CODE();
+
+    DebugTrace( +1, Dbg, ("NtfsAddNameToParent:  Entered\n") );
+
+    NtfsInitializeAttributeContext( &AttrContext );
+
+    //
+    //  Use a try-finally to facilitate cleanup.
+    //
+
+    try {
+
+        //
+        //  Decide whether the name is a link, Ntfs-Only or Ntfs/8.3 combined name.
+        //  Update the filename attribute to reflect this.
+        //
+
+        if (!IgnoreCase) {
+
+            *FileNameFlags = 0;
+
+        } else {
+
+            UNICODE_STRING FileName;
+
+            FileName.Length = FileName.MaximumLength = (USHORT)(FileNameAttr->FileNameLength * sizeof(WCHAR));
+            FileName.Buffer = FileNameAttr->FileName;
+
+            *FileNameFlags = FILE_NAME_NTFS;
+
+            if (NtfsIsFatNameValid( &FileName, FALSE )) {
+
+                *FileNameFlags |= FILE_NAME_DOS;
+            }
+
+            //
+            //  If the name is DOS and there was a tunneled NTFS name, add it first if both names
+            //  exist in the pair (there may only be one in the long side). Note that we
+            //  really need to do this first so we lay down the correct filename flags.
+            //
+
+            if (NamePair &&
+                (NamePair->Long.Length > 0) &&
+                (NamePair->Short.Length > 0) &&
+                (*FileNameFlags == (FILE_NAME_NTFS | FILE_NAME_DOS))) {
+
+                if (NtfsAddTunneledNtfsOnlyName(IrpContext,
+                                                ParentScb,
+                                                ThisFcb,
+                                                &NamePair->Long,
+                                                LogIt )) {
+
+                    //
+                    //  Name didn't conflict and was added, so fix up the FileNameFlags
+                    //
+
+                    *FileNameFlags = FILE_NAME_DOS;
+
+                    //
+                    //  We also need to upcase the short DOS name since we don't know the
+                    //  case of what the user handed us and all DOS names are upcase. Note
+                    //  that prior to tunneling being supported it was not possible for a user
+                    //  to specify a short name, so this is a new situation.
+                    //
+
+                    RtlUpcaseUnicodeString(&FileName, &FileName, FALSE);
+                }
+            }
+        }
+
+        //
+        //  Now update the file name attribute.
+        //
+
+        FileNameAttr->Flags = *FileNameFlags;
+
+        //
+        //  If we haven't been logging and this is a large name then begin logging.
+        //
+
+        if (!(*LogIt) &&
+            (FileNameAttr->FileNameLength > 100)) {
+
+            //
+            //  Look up the file record and log its current state.
+            //
+
+            if (!NtfsLookupAttributeByCode( IrpContext,
+                                            ThisFcb,
+                                            &ThisFcb->FileReference,
+                                            $STANDARD_INFORMATION,
+                                            &AttrContext )) {
+
+                NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, ThisFcb );
+            }
+
+            NtfsPinMappedAttribute( IrpContext, ThisFcb->Vcb, &AttrContext );
+            FileRecord = NtfsContainingFileRecord( &AttrContext );
+
+            //
+            //  Log the current state of the file record.
+            //
+
+            FileRecord->Lsn = NtfsWriteLog( IrpContext,
+                                            ThisFcb->Vcb->MftScb,
+                                            NtfsFoundBcb( &AttrContext ),
+                                            InitializeFileRecordSegment,
+                                            FileRecord,
+                                            FileRecord->FirstFreeByte,
+                                            Noop,
+                                            NULL,
+                                            0,
+                                            NtfsMftOffset( &AttrContext ),
+                                            0,
+                                            0,
+                                            ThisFcb->Vcb->BytesPerFileRecordSegment );
+
+            *LogIt = TRUE;
+            NtfsCleanupAttributeContext( &AttrContext );
+            NtfsInitializeAttributeContext( &AttrContext );
+        }
+
+        //
+        //  Put it in the file record.
+        //
+
+        NtfsCreateAttributeWithValue( IrpContext,
+                                      ThisFcb,
+                                      $FILE_NAME,
+                                      NULL,
+                                      FileNameAttr,
+                                      NtfsFileNameSize( FileNameAttr ),
+                                      0,
+                                      &FileNameAttr->ParentDirectory,
+                                      *LogIt,
+                                      &AttrContext );
+
+        //
+        //  Now put it in the index entry.
+        //
+
+        NtfsAddIndexEntry( IrpContext,
+                           ParentScb,
+                           FileNameAttr,
+                           NtfsFileNameSize( FileNameAttr ),
+                           &ThisFcb->FileReference,
+                           QuickIndex );
+
+    } finally {
+
+        DebugUnwind( NtfsAddNameToParent );
+
+        NtfsCleanupAttributeContext( &AttrContext );
+
+        DebugTrace( -1, Dbg, ("NtfsAddNameToParent:  Exit\n") );
+    }
+
+    return;
+}
+
+
+//
+//  Local support routine
+//
+
+VOID
+NtfsAddDosOnlyName (
+    IN PIRP_CONTEXT IrpContext,
+    IN PSCB ParentScb,
+    IN PFCB ThisFcb,
+    IN UNICODE_STRING FileName,
+    IN BOOLEAN LogIt,
+    IN PUNICODE_STRING SuggestedDosName OPTIONAL
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called to build a Dos only name attribute an put it in
+    the file record and the parent index.  We need to allocate pool large
+    enough to hold the name (easy for 8.3) and then check that the generated
+    names don't already exist in the parent. Use the suggested name first if
+    possible.
+
+Arguments:
+
+    ParentScb - This is the parent directory for the file.
+
+    ThisFcb - This is the file to add the filename to.
+
+    FileName - This is the file name to add.
+
+    LogIt - Indicates if we should log this operation.
+
+    SuggestedDosName - If supplied, a name to try to use before auto-generation
+
+Return Value:
+
+    None - This routine will raise on error.
+
+--*/
+
+{
+    GENERATE_NAME_CONTEXT NameContext;
+    PFILE_NAME FileNameAttr;
+    UNICODE_STRING Name8dot3;
+
+    PINDEX_ENTRY IndexEntry;
+    PBCB IndexEntryBcb;
+    UCHAR TrailingDotAdj;
+
+    ATTRIBUTE_ENUMERATION_CONTEXT AttrContext;
+
+    BOOLEAN TrySuggestedDosName = TRUE;
+
+    PAGED_CODE();
+
+    DebugTrace( +1, Dbg, ("NtfsAddDosOnlyName:  Entered\n") );
+
+    IndexEntryBcb = NULL;
+
+    RtlZeroMemory( &NameContext, sizeof( GENERATE_NAME_CONTEXT ));
+
+    if (SuggestedDosName == NULL || SuggestedDosName->Length == 0) {
+
+        //
+        //  The SuggestedDosName can be zero length if we have a tunneled
+        //  link or a tunneled file which was created whilst short name
+        //  generation was disabled. It is a bad thing to drop down null
+        //  filenames ...
+        //
+
+        TrySuggestedDosName = FALSE;
+    }
+
+    //
+    //  The maximum length is 24 bytes, but 2 are already defined with the
+    //  FILE_NAME structure.
+    //
+
+    FileNameAttr = NtfsAllocatePool(PagedPool, sizeof( FILE_NAME ) + 22 );
+
+    //
+    //  Use a try-finally to facilitate cleanup.
+    //
+
+    try {
+
+        NtfsInitializeAttributeContext( &AttrContext );
+
+        //
+        //  Set up the string to hold the generated name.  It will be part
+        //  of the file name attribute structure.
+        //
+
+        Name8dot3.Buffer = FileNameAttr->FileName;
+        Name8dot3.MaximumLength = 24;
+
+        FileNameAttr->ParentDirectory = ParentScb->Fcb->FileReference;
+        FileNameAttr->Flags = FILE_NAME_DOS;
+
+        //
+        //  Copy the info values into the filename attribute.
+        //
+
+        RtlCopyMemory( &FileNameAttr->Info,
+                       &ThisFcb->Info,
+                       sizeof( DUPLICATED_INFORMATION ));
+
+        //
+        //  We will loop indefinitely.  We generate a name, look in the parent
+        //  for it.  If found we continue generating.  If not then we have the
+        //  name we need.  Attempt to use the suggested name first.
+        //
+
+        while( TRUE ) {
+
+            TrailingDotAdj = 0;
+
+            if (TrySuggestedDosName) {
+
+                Name8dot3.Length = SuggestedDosName->Length;
+                RtlCopyMemory(Name8dot3.Buffer, SuggestedDosName->Buffer, SuggestedDosName->Length);
+                Name8dot3.MaximumLength = SuggestedDosName->MaximumLength;
+
+            } else {
+
+                RtlGenerate8dot3Name( &FileName,
+                                      BooleanFlagOn(NtfsData.Flags,NTFS_FLAGS_ALLOW_EXTENDED_CHAR),
+                                      &NameContext,
+                                      &Name8dot3 );
+
+                if ((Name8dot3.Buffer[(Name8dot3.Length / 2) - 1] == L'.') &&
+                    (Name8dot3.Length > sizeof( WCHAR ))) {
+
+                    TrailingDotAdj = 1;
+                }
+            }
+
+            FileNameAttr->FileNameLength = (UCHAR)(Name8dot3.Length / 2) - TrailingDotAdj;
+
+            if (!NtfsFindIndexEntry( IrpContext,
+                                     ParentScb,
+                                     FileNameAttr,
+                                     TRUE,
+                                     NULL,
+                                     &IndexEntryBcb,
+                                     &IndexEntry )) {
+
+                break;
+            }
+
+            NtfsUnpinBcb( &IndexEntryBcb );
+
+            if (TrySuggestedDosName) {
+
+                //
+                //  Failed to use the suggested name, so fix up the 8.3 space
+                //
+
+                Name8dot3.Buffer = FileNameAttr->FileName;
+                Name8dot3.MaximumLength = 24;
+
+                TrySuggestedDosName = FALSE;
+            }
+        }
+
+        //
+        //  We add this entry to the file record.
+        //
+
+        NtfsCreateAttributeWithValue( IrpContext,
+                                      ThisFcb,
+                                      $FILE_NAME,
+                                      NULL,
+                                      FileNameAttr,
+                                      NtfsFileNameSize( FileNameAttr ),
+                                      0,
+                                      &FileNameAttr->ParentDirectory,
+                                      LogIt,
+                                      &AttrContext );
+
+        //
+        //  We add this entry to the parent.
+        //
+
+        NtfsAddIndexEntry( IrpContext,
+                           ParentScb,
+                           FileNameAttr,
+                           NtfsFileNameSize( FileNameAttr ),
+                           &ThisFcb->FileReference,
+                           NULL );
+
+    } finally {
+
+        DebugUnwind( NtfsAddDosOnlyName );
+
+        NtfsFreePool( FileNameAttr );
+
+        NtfsUnpinBcb( &IndexEntryBcb );
+
+        NtfsCleanupAttributeContext( &AttrContext );
+
+        DebugTrace( -1, Dbg, ("NtfsAddDosOnlyName:  Exit  ->  %08lx\n") );
+    }
+
+    return;
+}
+
+
+//
+//  Local support routine
+//
+
+BOOLEAN
+NtfsAddTunneledNtfsOnlyName (
+    IN PIRP_CONTEXT IrpContext,
+    IN PSCB ParentScb,
+    IN PFCB ThisFcb,
+    IN PUNICODE_STRING FileName,
+    IN PBOOLEAN LogIt
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called to attempt to insert a tunneled NTFS-only name
+    attribute and put it in the file record and the parent index. If the
+    name collides with an existing name nothing occurs.
+
+Arguments:
+
+    ParentScb - This is the parent directory for the file.
+
+    ThisFcb - This is the file to add the filename to.
+
+    FileName - This is the file name to add.
+
+    LogIt - Indicates if we should log this operation.  If FALSE and this is a large
+        name then log the file record and begin logging.
+
+Return Value:
+
+    Boolean true if the name is added, false otherwise
+
+--*/
+
+{
+    PFILE_NAME FileNameAttr;
+    PFILE_RECORD_SEGMENT_HEADER FileRecord;
+
+    PINDEX_ENTRY IndexEntry;
+    PBCB IndexEntryBcb;
+
+    BOOLEAN Added = FALSE;
+
+    ATTRIBUTE_ENUMERATION_CONTEXT AttrContext;
+
+    PAGED_CODE();
+
+    DebugTrace( +1, Dbg, ("NtfsAddTunneledNtfsOnlyName:  Entered\n") );
+
+    IndexEntryBcb = NULL;
+
+    //
+    //  One WCHAR is already defined with the FILE_NAME structure. It is unfortunate
+    //  that we need to go to pool to do this ...
+    //
+
+    FileNameAttr = NtfsAllocatePool(PagedPool, sizeof( FILE_NAME ) + FileName->Length - sizeof(WCHAR) );
+
+    //
+    //  Use a try-finally to facilitate cleanup.
+    //
+
+    try {
+
+        NtfsInitializeAttributeContext( &AttrContext );
+
+        RtlCopyMemory( FileNameAttr->FileName,
+                       FileName->Buffer,
+                       FileName->Length );
+
+        FileNameAttr->FileNameLength = FileName->Length / sizeof(WCHAR);
+
+        FileNameAttr->ParentDirectory = ParentScb->Fcb->FileReference;
+        FileNameAttr->Flags = FILE_NAME_NTFS;
+
+        //
+        //  Copy the info values into the filename attribute.
+        //
+
+        RtlCopyMemory( &FileNameAttr->Info,
+                       &ThisFcb->Info,
+                       sizeof( DUPLICATED_INFORMATION ));
+
+        //
+        //  Try out the name
+        //
+
+        if (!NtfsFindIndexEntry( IrpContext,
+                                ParentScb,
+                                FileNameAttr,
+                                TRUE,
+                                NULL,
+                                &IndexEntryBcb,
+                                &IndexEntry )) {
+
+            //
+            //  Restore the case of the tunneled name
+            //
+
+            RtlCopyMemory( FileNameAttr->FileName,
+                           FileName->Buffer,
+                           FileName->Length );
+
+            //
+            //  If we haven't been logging and this is a large name then begin logging.
+            //
+
+            if (!(*LogIt) &&
+                (FileName->Length > 200)) {
+
+                //
+                //  Look up the file record and log its current state.
+                //
+
+                if (!NtfsLookupAttributeByCode( IrpContext,
+                                                ThisFcb,
+                                                &ThisFcb->FileReference,
+                                                $STANDARD_INFORMATION,
+                                                &AttrContext )) {
+
+                    NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, ThisFcb );
+                }
+
+                NtfsPinMappedAttribute( IrpContext, ThisFcb->Vcb, &AttrContext );
+
+                FileRecord = NtfsContainingFileRecord( &AttrContext );
+
+                //
+                //  Log the current state of the file record.
+                //
+
+                FileRecord->Lsn = NtfsWriteLog( IrpContext,
+                                                ThisFcb->Vcb->MftScb,
+                                                NtfsFoundBcb( &AttrContext ),
+                                                InitializeFileRecordSegment,
+                                                FileRecord,
+                                                FileRecord->FirstFreeByte,
+                                                Noop,
+                                                NULL,
+                                                0,
+                                                NtfsMftOffset( &AttrContext ),
+                                                0,
+                                                0,
+                                                ThisFcb->Vcb->BytesPerFileRecordSegment );
+
+                *LogIt = TRUE;
+                NtfsCleanupAttributeContext( &AttrContext );
+                NtfsInitializeAttributeContext( &AttrContext );
+            }
+
+            //
+            //  We add this entry to the file record.
+            //
+
+            NtfsCreateAttributeWithValue( IrpContext,
+                                          ThisFcb,
+                                          $FILE_NAME,
+                                          NULL,
+                                          FileNameAttr,
+                                          NtfsFileNameSize( FileNameAttr ),
+                                          0,
+                                          &FileNameAttr->ParentDirectory,
+                                          *LogIt,
+                                          &AttrContext );
+
+            //
+            //  We add this entry to the parent.
+            //
+
+            NtfsAddIndexEntry( IrpContext,
+                               ParentScb,
+                               FileNameAttr,
+                               NtfsFileNameSize( FileNameAttr ),
+                               &ThisFcb->FileReference,
+                               NULL );
+
+            //
+            //  Flag the addition
+            //
+
+            Added = TRUE;
+         }
+
+    } finally {
+
+        DebugUnwind( NtfsAddTunneledNtfsOnlyName );
+
+        NtfsFreePool( FileNameAttr );
+
+        NtfsUnpinBcb( &IndexEntryBcb );
+
+        NtfsCleanupAttributeContext( &AttrContext );
+
+        DebugTrace( -1, Dbg, ("NtfsAddTunneledNtfsOnlyName:  Exit  ->  %08lx\n", Added) );
+    }
+
+    return Added;
 }
 
 

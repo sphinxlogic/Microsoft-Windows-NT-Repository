@@ -58,7 +58,7 @@ int state(int c)
          }
       return (i);
       }
-   /* state is new */
+   /* state is new */
    if( nolook ) error( "yacc state/nolook error" );
    pstate[nstate+2] = p2;
    if(nstate+1 >= NSTATES) error("too many states" );

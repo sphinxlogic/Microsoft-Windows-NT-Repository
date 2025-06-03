@@ -13,7 +13,7 @@
 *
 * HISTORY:
 *		$Log:   J:\se.vcs\driver\q117kdi\nt\src\0x15a16.c  $
-*	
+*
 *	   Rev 1.5   19 Jan 1994 15:41:16   KEVINKES
 *	Moved Checked dump inside the conditional.
 *
@@ -35,6 +35,8 @@
 *
 *****************************************************************************/
 #define FCT_ID 0x15A16
+#include <ntddk.h>
+#include <flpyenbl.h>
 #include "include\public\adi_api.h"
 #include "include\public\frb_api.h"
 #include "q117kdi\include\kdiwhio.h"
@@ -65,17 +67,27 @@ dVoid kdi_ReleaseFloppyController
 
 	if (kdi_context->own_floppy_event) {
 
-		(dVoid) KeSetEvent(
-   		kdi_context->controller_event,
-   		(KPRIORITY) 0,
-   		dFALSE );
+        if (kdi_context->controller_data.floppyEnablerApiSupported) {
 
-		kdi_context->current_interrupt = dFALSE;
-	 	kdi_context->own_floppy_event = dFALSE;
+            kdi_FloppyEnabler(
+                    kdi_context->controller_data.apiDeviceObject,
+                    IOCTL_RELEASE_FDC, NULL);
 
-		kdi_CheckedDump(
-			QIC117INFO,
-			"Setting Floppy Controller Event\n", 0l);
+        } else {
+
+            (dVoid) KeSetEvent(
+                kdi_context->controller_event,
+                (KPRIORITY) 0,
+                dFALSE );
+
+            kdi_CheckedDump(
+                QIC117INFO,
+                "Setting Floppy Controller Event\n", 0l);
+
+        }
+
+        kdi_context->current_interrupt = dFALSE;
+        kdi_context->own_floppy_event = dFALSE;
 
 	}
 

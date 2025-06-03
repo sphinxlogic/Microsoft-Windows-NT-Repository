@@ -38,33 +38,46 @@ Revision History:
 #define DP_START_UNDEFINED      107
 #define DP_LOAD_STATUS_BASE     DP_START_AT_BOOT
 
-#define DP_CMD_HELP_1           108
-#define DP_CMD_HELP_2           109
-#define DP_CMD_HELP_3           110
-#define DP_CMD_HELP_4           111
-#define DP_CMD_HELP_5           112
-#define DP_CMD_HELP_6           113
-#define DP_CMD_HELP_7           114
+#define DP_CMD_HELP_1           201
+#define DP_CMD_HELP_2           202
+#define DP_CMD_HELP_3           203
+#define DP_CMD_HELP_4           204
+#define DP_CMD_HELP_5           205
+#define DP_CMD_HELP_6           206
+#define DP_CMD_HELP_7           207
+#define DP_CMD_HELP_8           208
+#define DP_CMD_HELP_9           209
+#define DP_CMD_HELP_10          210
+#define DP_CMD_HELP_11          211
+#define DP_CMD_HELP_12          212
 #define DP_CMD_HELP_START       DP_CMD_HELP_1
-#define DP_CMD_HELP_END         DP_CMD_HELP_7
+#define DP_CMD_HELP_END         DP_CMD_HELP_12
 
-#define DP_HELP_TEXT_1          115
-#define DP_HELP_TEXT_2          116
-#define DP_HELP_TEXT_3          117
-#define DP_HELP_TEXT_4          118
+#define DP_HELP_TEXT_1          301
+#define DP_HELP_TEXT_2          302
+#define DP_HELP_TEXT_3          303
+#define DP_HELP_TEXT_4          304
+#define DP_HELP_TEXT_5          305
+#define DP_HELP_TEXT_6          306
+#define DP_HELP_TEXT_7          307
+#define DP_HELP_TEXT_8          308
+#define DP_HELP_TEXT_9          309
+#define DP_HELP_TEXT_10         310
 #define DP_HELP_TEXT_START      DP_HELP_TEXT_1
-#define DP_HELP_TEXT_END        DP_HELP_TEXT_4
+#define DP_HELP_TEXT_END        DP_HELP_TEXT_10
 
-#define DP_CURRENT_FORMAT       119
-#define DP_UNABLE_READ_START    120
-#define DP_UNABLE_READ_REGISTRY 121
-#define DP_UNABLE_CONNECT       122
-#define DP_UNABLE_MODIFY_VALUE  123
-#define DP_NEW_DISKPERF_STATUS  124
-#define DP_REBOOTED             125
-#define DP_STATUS_FORMAT        126
-#define DP_TEXT_FORMAT          127
+#define DP_CURRENT_FORMAT       401
+#define DP_UNABLE_READ_START    402
+#define DP_UNABLE_READ_REGISTRY 403
+#define DP_UNABLE_CONNECT       404
+#define DP_UNABLE_MODIFY_VALUE  405
+#define DP_NEW_DISKPERF_STATUS  406
+#define DP_REBOOTED             407
+#define DP_STATUS_FORMAT        408
+#define DP_TEXT_FORMAT          409
+#define DP_ENHANCED             410
+#define DP_DISCLAIMER           411
 
 #endif // _DISKPERF_H_
 
-
+

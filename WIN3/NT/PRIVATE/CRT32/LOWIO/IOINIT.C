@@ -179,7 +179,7 @@ void _CALLTYPE1 _ioinit (
 
 	GetStartupInfo( &StartupInfo );
 
-	if ( StartupInfo.lpReserved2 != NULL ) {
+        if ( StartupInfo.cbReserved2 != 0 && StartupInfo.lpReserved2 != NULL ) {
 		/*
 		 * Get the number of handles inherited.
 		 */

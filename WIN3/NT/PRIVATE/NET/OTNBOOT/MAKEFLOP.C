@@ -434,8 +434,9 @@ Return Value:
     LPTSTR  szTemp2;
     LPTSTR  szNifKey;
     LPTSTR  szSectionBuffer;
-    LPCTSTR  szDefaultValue;
-    BOOL    bTcp;
+    LPCTSTR  szDefaultValue = cszEmptyString;
+    BOOL    bTcp;   // TRUE if protocol is TCP
+    BOOL    bIpx;   // TRUE if protocol is IPX
 
     szSectionBuffer = (LPTSTR)GlobalAlloc(GPTR, SMALL_BUFFER_SIZE * sizeof(TCHAR));
     szTemp = (LPTSTR)GlobalAlloc (GPTR, MAX_PATH_BYTES);
@@ -450,12 +451,17 @@ Return Value:
     }
 
     //
-    //  TCP/IP is a special case, so detect it here
+    //  TCP/IP & IPX are special cases, so detect them here
     //
     if (_tcsnicmp(pAppInfo->piFloppyProtocol.szKey, cszTcpKey, lstrlen(cszTcpKey)) == 0) {
         bTcp = TRUE;
-    } else {
+        bIpx = FALSE;
+    } else if (_tcsnicmp(pAppInfo->piFloppyProtocol.szName, cszIpxKey, lstrlen(cszTcpKey)) == 0) {
         bTcp = FALSE;
+        bIpx = TRUE;
+    } else { // it's neither
+        bTcp = FALSE;
+        bIpx = FALSE;
     }
 
     if (szSectionBuffer != NULL) {
@@ -724,7 +730,16 @@ Return Value:
                 // drivername entry is a special case
                 AddStringToMultiSz (mszProtocolIni, szThisString);
             } else {
-                szDefaultValue = GetItemFromEntry(szThisString, 5);
+                if (bIpx && pAppInfo->niNetCard.bTokenRing) {
+                // another special case is when IPX is used with Token Ring
+                // cards.
+                    if (_tcsnicmp(GetItemFromEntry(szThisString,1),
+                        cszFrame, lstrlen(cszFrame)) == 0) {
+                        szDefaultValue = cszTokenRingEntry;
+                    }
+                } else {
+                    szDefaultValue = GetItemFromEntry(szThisString, 5);
+                }
                 // only write parameters that actually have a default value
                 // to write
                 if (lstrlen(szDefaultValue) > 0) {
@@ -1084,6 +1099,7 @@ Return Value:
     DWORD   dwSystemFileSize;
 
     MSG     msg;
+    UINT    nExitCode = IDOK;
 
     mszNetFileList = (LPTSTR)GlobalAlloc(GPTR, MEDIUM_BUFFER_SIZE);
     mszProtocolIni = (LPTSTR)GlobalAlloc(GPTR, MEDIUM_BUFFER_SIZE);
@@ -1108,6 +1124,8 @@ Return Value:
         *(PDWORD)mszSystemIni = 0L;
         *(PDWORD)mszAutoexecBat = 0L;
         *(PDWORD)mszConfigSys = 0L;
+
+        szDestFilePart = szDestFile;    // to initialize the var
 
         lstrcpy (szInfFile, pAppInfo->szDistPath);
         if (szInfFile[lstrlen(szInfFile)-1] != cBackslash)
@@ -1206,6 +1224,7 @@ Return Value:
                 MB_OK_TASK_EXCL);
             bCopying = FALSE;
             bAborted = TRUE;
+            nExitCode = IDCANCEL; // operation ended in error
         } else {
             if (!bBootable) {
                 // see if there will be room to add the system files
@@ -1218,6 +1237,7 @@ Return Value:
                         MB_OKCANCEL_TASK_INFO | MB_DEFBUTTON2) == IDCANCEL) {
                         bCopying = FALSE;
                         bAborted = TRUE;
+                        nExitCode = IDCANCEL; // operation ended in error
                     } else {
                         // they want to continue so stick a message in the
                         // exit messages
@@ -1227,15 +1247,15 @@ Return Value:
             }
         }
 
-        // write files to root directory
-        lstrcpy (szDestFile, pAppInfo->szBootFilesPath);
-        if (szDestFile[lstrlen(szDestFile)-1] != cBackslash) lstrcat (szDestFile, cszBackslash);
-        szDestFilePart = &szDestFile[lstrlen(szDestFile)];
-
-        // make sure destination path exists
-        CreateDirectoryFromPath (szDestFile, NULL);
-
         if (bCopying) {
+            // write files to root directory
+            lstrcpy (szDestFile, pAppInfo->szBootFilesPath);
+            if (szDestFile[lstrlen(szDestFile)-1] != cBackslash) lstrcat (szDestFile, cszBackslash);
+            szDestFilePart = &szDestFile[lstrlen(szDestFile)];
+
+            // make sure destination path exists
+            CreateDirectoryFromPath (szDestFile, NULL);
+
             // config.sys
             lstrcpy (szDestFilePart, cszConfigSys);
             if (WriteMszToFile (hwndDlg, mszConfigSys, szDestFile, CREATE_ALWAYS)) {
@@ -1249,6 +1269,7 @@ Return Value:
                     MB_OKCANCEL_TASK_EXCL);
                 if (nMbResult == IDCANCEL) {
                     bCopying = FALSE;
+                    nExitCode = IDCANCEL; // operation ended in error
                 } else {
                     AddMessageToExitList (pAppInfo, NCDU_FLOPPY_NOT_COMPLETE);
                 }
@@ -1269,6 +1290,7 @@ Return Value:
                     MB_OKCANCEL_TASK_EXCL);
                 if (nMbResult == IDCANCEL) {
                     bCopying = FALSE;
+                    nExitCode = IDCANCEL; // operation ended in error
                 } else {
                     AddMessageToExitList (pAppInfo, NCDU_FLOPPY_NOT_COMPLETE);
                 }
@@ -1297,6 +1319,7 @@ Return Value:
                     MB_OKCANCEL_TASK_EXCL);
                 if (nMbResult == IDCANCEL) {
                     bCopying = FALSE;
+                    nExitCode = IDCANCEL; // operation ended in error
                 } else {
                     AddMessageToExitList (pAppInfo, NCDU_FLOPPY_NOT_COMPLETE);
                 }
@@ -1316,18 +1339,19 @@ Return Value:
                     MB_OKCANCEL_TASK_EXCL);
                 if (nMbResult == IDCANCEL) {
                     bCopying = FALSE;
+                    nExitCode = IDCANCEL; // operation ended in error
                 } else {
                     AddMessageToExitList (pAppInfo, NCDU_FLOPPY_NOT_COMPLETE);
                 }
             }
         }
 
-        // copy files in list from ??? to destination dir
-        lstrcpy (szSrcFile, pAppInfo->piFloppyProtocol.szDir);
-        if (szSrcFile[lstrlen(szSrcFile)-1] != cBackslash) lstrcat (szSrcFile, cszBackslash);
-        szSrcFilePart = &szSrcFile[lstrlen(szSrcFile)];
-
         if (bCopying) {
+            // copy files in list from ??? to destination dir
+            lstrcpy (szSrcFile, pAppInfo->piFloppyProtocol.szDir);
+            if (szSrcFile[lstrlen(szSrcFile)-1] != cBackslash) lstrcat (szSrcFile, cszBackslash);
+            szSrcFilePart = &szSrcFile[lstrlen(szSrcFile)];
+
             for (szThisFile = mszNetFileList;
                 *szThisFile != 0;
                 szThisFile += (lstrlen(szThisFile) + 1)) {
@@ -1348,6 +1372,7 @@ Return Value:
                             MB_OKCANCEL_TASK_EXCL);
                         if (nMbResult == IDCANCEL) {
                             bCopying = FALSE;
+                            nExitCode = IDCANCEL; // operation ended in error
                         } else {
                             AddMessageToExitList (pAppInfo, NCDU_FLOPPY_NOT_COMPLETE);
                         }
@@ -1393,11 +1418,12 @@ Return Value:
         }
     }
 
-    // enable display of exit messages since a floppy was created
+    if (nExitCode == IDOK) {
+        // enable display of exit messages since a floppy was created
+        EnableExitMessage(TRUE);
+    }
 
-    EnableExitMessage(TRUE);
-
-    EndDialog (hwndDlg, IDOK);
+    EndDialog (hwndDlg, nExitCode);
 
     FREE_IF_ALLOC (mszNetFileList);
     FREE_IF_ALLOC (mszProtocolIni);
@@ -1544,4 +1570,3 @@ Return Value:
     }
 }
 
-

@@ -91,6 +91,11 @@ INT16 NTFS_GetSpecDBLKS( FSYS_HAND fsh,
      NTFS_DBLK_PTR    ddblk   = (NTFS_DBLK_PTR)dblk;
      GENERIC_DLE_PTR  dle     = fsh->attached_dle ;
 
+   // special files are now handled differently for NtBackup
+
+     return FS_NO_MORE ;
+
+
      /* does this device have special files */
      if ( DLE_HasFeatures( dle, DLE_FEAT_BKUP_SPECIAL_FILES ) == FALSE )
      {

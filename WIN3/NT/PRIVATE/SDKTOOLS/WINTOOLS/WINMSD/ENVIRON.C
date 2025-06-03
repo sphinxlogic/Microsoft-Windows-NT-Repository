@@ -21,7 +21,6 @@ Environment:
 
 --*/
 
-#include "clb.h"
 #include "dialogs.h"
 #include "environ.h"
 #include "dlgprint.h"
@@ -32,6 +31,7 @@ Environment:
 #include <string.h>
 #include <tchar.h>
 
+extern HKEY _hKeyLocalMachine;
 //
 // System environment variables.
 //
@@ -92,7 +92,6 @@ hRegEnvironKey;
 BOOL
 FillEnvironmentListBox(
     IN HWND hWnd,
-    IN INT  ListBoxId,
     IN LPKEY Key
     );
 
@@ -111,11 +110,33 @@ FindNextEnvironmentVariableW(
 LPENV_VAR
 FindNextRegistryEnvironmentVariableW(
     );
-
+
+BOOL
+DoEnvironReport(
+    LPKEY Key
+    );
+
+BOOL
+InitializeEnvironmentTab(
+    HWND hWnd
+    );
+
+BOOL
+EnvDisplayList(
+    IN HWND hWnd,
+    IN UINT iDisplayOption
+    );
+
+DWORD
+WinMSDExpandEnvironmentStrings(
+    LPCWSTR lpSrc,
+    LPWSTR lpDst,
+    DWORD nSize
+	);
+
 BOOL
 FillEnvironmentListBox(
     IN HWND hWnd,
-    IN INT  ListBoxId,
     IN LPKEY Key
     )
 
@@ -132,7 +153,6 @@ Arguments:
 
     hWnd        = Supplies the window handle for the window that contains
                   the list box.
-    ListBoxId   - Supplies the control id for the list box to fill.
     Key         - Supplies a pointer to a registry KEY object that describes
                   the location of the environment.
 
@@ -147,9 +167,8 @@ Return Value:
     BOOL        Success;
     LPENV_VAR   EnvVar;
     LPENV_VAR   ( *NextEnvVarFunc )( );
-
-    DbgHandleAssert( hWnd );
-
+    LV_ITEM     lvI;
+    UINT        index = 0;
     //
     // If the supplied Key is NULL get the environment variables from the
     // current process, otherwise get them from the supplied Registry key.
@@ -173,26 +192,17 @@ Return Value:
 
     while( EnvVar ) {
 
-        CLB_ROW     ClbRow;
-        CLB_STRING  ClbString[ 2 ];
+        // Add the service name and its state to the ListView. Store a
+        // pointer to the service details in the lParam.
+        lvI.mask = LVIF_TEXT;
+        lvI.iItem = index++;
+        lvI.iSubItem = 0;
+        lvI.pszText= EnvVar->Variable;
+        lvI.cchTextMax = 1024;
 
-        ClbRow.Count    = NumberOfEntries( ClbString );
-        ClbRow.Strings  = ClbString;
+        Success = ListView_InsertItem( hWnd, &lvI);
 
-        ClbString[ 0 ].String = EnvVar->Variable;
-        ClbString[ 0 ].Length = _tcslen( EnvVar->Variable );
-        ClbString[ 0 ].Format = CLB_LEFT;
-
-        ClbString[ 1 ].String = EnvVar->Value;
-        ClbString[ 1 ].Length = _tcslen( EnvVar->Value );
-        ClbString[ 1 ].Format = CLB_LEFT;
-
-        Success  = ClbAddData(
-                        hWnd,
-                        ListBoxId,
-                        &ClbRow
-                        );
-        DbgAssert( Success );
+        ListView_SetItemText( hWnd, Success, 1, EnvVar->Value);
 
         //
         // Get the next environment variable.
@@ -317,7 +327,7 @@ Return Value:
 {
 
     static
-    WCHAR       Buffer[ MAX_PATH ];
+    WCHAR       Buffer[ 2048 ];
 
     static
     ENV_VAR     EnvVar;
@@ -329,33 +339,12 @@ Return Value:
 
     if( *CurrentEnvVar == TEXT('\0') ) {
         return NULL;
+    }     
+
+    lstrcpyn(Buffer, CurrentEnvVar,2048);
+    if ( lstrlen(Buffer) >= 2048){
+        Buffer[(2048*2)-2]=L'\0';
     }
-
-#ifdef UNICODE
-    wcscpy(Buffer, CurrentEnvVar);
-#else /* not UNICODE */
-    //
-    // Convert the environment variable to Unicode.
-    //
-    {
-
-        int         rc;
-
-        rc = MultiByteToWideChar(
-                CP_ACP,
-                0,
-                ( LPCSTR ) CurrentEnvVar,
-                -1,
-                Buffer,
-                sizeof( Buffer )
-                );
-        DbgAssert( rc != 0 );
-        if( rc == 0 ) {
-            return NULL;
-        }
-    }
-
-#endif
 
     //
     // Update the current environment variable pointer to point to the
@@ -408,7 +397,7 @@ Return Value:
     DWORD       Length;
 
     static
-    WCHAR       Buffer[ MAX_PATH ];
+    WCHAR       Buffer[ 2048 ];
 
     static
     ENV_VAR     EnvVar;
@@ -425,10 +414,10 @@ Return Value:
 
         EnvVar.Variable = hRegEnvironKey->ValueName;
 
-        switch( hRegEnvironKey->Type ) {
+        switch( hRegEnvironKey->Type ) {                
 
         case REG_SZ:
-
+            
             //
             // Remember the environment variable's value.
             //
@@ -437,28 +426,31 @@ Return Value:
             break;
 
         case REG_EXPAND_SZ:
+			{
+				//
+				// Replace the variable portion of the environment variable by
+				// expanding into the static buffer.
+				//
 
-            //
-            // Replace the variable portion of the environment variable by
-            // expanding into the static buffer.
-            //
+				EnvVar.Value = Buffer;
 
-            EnvVar.Value = Buffer;
-            Length = ExpandEnvironmentStrings(
-                        ( LPTSTR ) hRegEnvironKey->Data,
-                        Buffer,
-                        sizeof( Buffer )
-                        );
-            DbgAssert( Length <= sizeof( Buffer ));
-            break;
+				Length = WinMSDExpandEnvironmentStrings(
+							   ( LPTSTR ) hRegEnvironKey->Data,
+							   Buffer,
+							   2048
+							   );
 
+				DbgAssert( Length <= 2048);
+
+				break;
+			}
         default:
 
             DbgAssert( FALSE );
         }
 
         //
-        // Return the curent environment variable.
+        // Return the current environment variable.
         //
 
         return &EnvVar;
@@ -480,7 +472,7 @@ Return Value:
 
 
 BOOL
-EnvironmentDlgProc(
+EnvironmentTabProc(
     IN HWND hWnd,
     IN UINT message,
     IN WPARAM wParam,
@@ -504,249 +496,44 @@ Return Value:
 --*/
 
 {
-    BOOL    Success;
 
     switch( message ) {
-
-    CASE_WM_CTLCOLOR_DIALOG;
 
     case WM_INITDIALOG:
         {
 
-            TCHAR       UserName[ MAX_PATH ];
-            DWORD       UserNameLength;
-            KEY         SystemEnvironKey;
-            KEY         UserEnvironKey;
+            InitializeEnvironmentTab( hWnd );
 
-            //
-            // Restore the initial state of the KEYs.
-            //
-
-            CopyMemory(
-                &SystemEnvironKey,
-                &_SystemEnvironKey,
-                sizeof( SystemEnvironKey )
-                );
-
-            CopyMemory(
-                &UserEnvironKey,
-                &_UserEnvironKey,
-                sizeof( UserEnvironKey )
-                );
-
-            //
-            // Fill the system environment variable list box.
-            //
-
-            Success = FillEnvironmentListBox(
-                            hWnd,
-                            IDC_LIST_SYSTEM_ENVIRONMENT,
-                            &SystemEnvironKey
-                            );
-            DbgAssert( Success );
-            if( Success == FALSE ) {
-                EndDialog( hWnd, 0 );
-                return TRUE;
-            }
-
-            //
-            // Fill the per user environment variable list box.
-            //
-
-            Success = FillEnvironmentListBox(
-                            hWnd,
-                            IDC_LIST_USER_ENVIRONMENT,
-                            &UserEnvironKey
-                            );
-
-            DbgAssert( Success );
-            if( Success == FALSE ) {
-                EndDialog( hWnd, 0 );
-                return TRUE;
-            }
-
-            //
-            // Fill the process' environment variable list box.
-            //
-
-            Success = FillEnvironmentListBox(
-                            hWnd,
-                            IDC_LIST_PROCESS_ENVIRONMENT,
-                            NULL
-                            );
-            DbgAssert( Success );
-            if( Success == FALSE ) {
-                EndDialog( hWnd, 0 );
-                return TRUE;
-            }
-
-            //
-            // Display the name of the user that user environment variable list
-            // belongs to.
-            //
-
-            UserNameLength = sizeof( UserName );
-            Success = GetUserName(
-                        UserName,
-                        &UserNameLength
-                        );
-            DbgAssert( Success );
-            if( Success == FALSE ) {
-                EndDialog( hWnd, 0 );
-                return TRUE;
-            }
-            Success = SetDlgItemText(
-                        hWnd,
-                        IDC_EDIT_USER_NAME,
-                        UserName
-                        );
-            DbgAssert( Success );
-            if( Success == FALSE ) {
-                EndDialog( hWnd, 0 );
-                return TRUE;
-            }
-
-            return TRUE;
+            break;
         }
 
-    case WM_COMPAREITEM:
-        {
-            //
-            // Sort (and find) the environment variables alphabetically
-            // by variable name.
-            //
-
-            LPCOMPAREITEMSTRUCT     lpcis;
-            LPCLB_ROW               ClbRow1;
-            LPCLB_ROW               ClbRow2;
-
-            lpcis = ( LPCOMPAREITEMSTRUCT ) lParam;
-
-            ClbRow1 = ( LPCLB_ROW ) lpcis->itemData1;
-            ClbRow2 = ( LPCLB_ROW ) lpcis->itemData2;
-
-            return Stricmp(
-                    ClbRow1->Strings[ 0 ].String,
-                    ClbRow2->Strings[ 0 ].String
-                    );
-        }
-
-    case WM_COMMAND:
+     case WM_COMMAND:
 
         switch( LOWORD( wParam )) {
 
-        case IDOK:
-        case IDCANCEL:
-
-            EndDialog( hWnd, 1 );
-            return TRUE;
+        case IDC_PUSH_SHOW_SYSTEM:
+        case IDC_PUSH_SHOW_USER:
+           EnvDisplayList( GetDlgItem( hWnd, IDC_LV_ENV ), LOWORD( wParam ) );
+           break;
         }
-
-        if( HIWORD( wParam ) == LBN_SELCHANGE ) {
-
-            int         i;
-            DWORD       Index;
-            LPCLB_ROW   ClbRow;
-            UINT        Clb[ 2 ];
-
-            //
-            // If the user changed the selection in any of the list boxes
-            // remember the other two.
-            //
-
-            switch( LOWORD( wParam )) {
-
-            case IDC_LIST_SYSTEM_ENVIRONMENT:
-
-                Clb[ 0 ] = IDC_LIST_USER_ENVIRONMENT;
-                Clb[ 1 ] = IDC_LIST_PROCESS_ENVIRONMENT;
-                break;
-
-            case IDC_LIST_USER_ENVIRONMENT:
-
-                Clb[ 0 ] = IDC_LIST_SYSTEM_ENVIRONMENT;
-                Clb[ 1 ] = IDC_LIST_PROCESS_ENVIRONMENT;
-                break;
-
-            case IDC_LIST_PROCESS_ENVIRONMENT:
-
-                Clb[ 0 ] = IDC_LIST_SYSTEM_ENVIRONMENT;
-                Clb[ 1 ] = IDC_LIST_USER_ENVIRONMENT;
-                break;
-
-            default:
-
-                DbgAssert( FALSE );
-            }
-
-            //
-            // Get the currently selected item.
-            //
-
-            Index = SendMessage(
-                        ( HWND ) lParam,
-                        LB_GETCURSEL,
-                        0,
-                        0
-                        );
-            if( Index == LB_ERR ) {
-                return ~0;
-            }
-
-            //
-            // Get the row data associated with the current selection.
-            //
-
-            ClbRow = ( LPCLB_ROW ) SendMessage(
-                                    ( HWND ) lParam,
-                                    LB_GETITEMDATA,
-                                    Index,
-                                    0
-                                    );
-            DbgPointerAssert( ClbRow );
-            if( ClbRow == NULL ) {
-                return ~0;
-            }
-
-            //
-            // Search for a match in each of the other lists based on the
-            // environment varaiable name. If it exists make it the current
-            // selection otherwise clear the current selection (assumes that
-            // LB_ERR == -1).
-            //
-
-            for( i = 0; i < NumberOfEntries( Clb ); i++ ) {
-
-                Index = SendDlgItemMessage(
-                            hWnd,
-                            Clb[ i ],
-                            LB_FINDSTRING,
-                            ( WPARAM ) -1,
-                            ( LPARAM ) ClbRow
-                            );
-                DbgAssert( LB_ERR == -1 );
-
-                Index = SendDlgItemMessage(
-                            hWnd,
-                            Clb[ i ],
-                            LB_SETCURSEL,
-                            ( WPARAM ) Index,
-                            0
-                            );
-            }
-        }
+        break;
 
     }
 
+    //
+    // Handle unhandled messages.
+    //
+
     return FALSE;
+
 }
 
 
 BOOL
 BuildEnvironmentReport(
-    IN HWND hWnd
+    IN HWND hWnd,
+    IN UINT iDetailLevel
     )
-
 
 /*++
 
@@ -765,13 +552,413 @@ Return Value:
 
 --*/
 {
+    KEY         SystemEnvironKey,
+                UserEnvironKey;
 
     AddLineToReport( 2, RFO_SKIPLINE, NULL, NULL );
     AddLineToReport( 0, RFO_SINGLELINE, (LPTSTR) GetString( IDS_ENVIRON_REPORT ), NULL );
     AddLineToReport( 0, RFO_SEPARATOR,  NULL, NULL );
 
+    AddLineToReport( 2, RFO_SKIPLINE, NULL, NULL );
+    AddLineToReport( 0, RFO_SINGLELINE, (LPTSTR) GetString( IDS_SYSTEM_VARS ), NULL );
+
+    CopyMemory(
+        &SystemEnvironKey,
+        &_SystemEnvironKey,
+        sizeof( SystemEnvironKey )
+        );
+
+    DoEnvironReport(&SystemEnvironKey);
+
+    if( _fIsRemote == FALSE ){
+
+       AddLineToReport( 2, RFO_SKIPLINE, NULL, NULL );
+       AddLineToReport( 0, RFO_SINGLELINE, (LPTSTR) GetString( IDS_CURRENT_USERS_VARS ), NULL );
+
+       CopyMemory(
+           &UserEnvironKey,
+           &_UserEnvironKey,
+           sizeof( UserEnvironKey)
+           );
+
+       DoEnvironReport(&UserEnvironKey);
+
+    }
+
     return TRUE;
 
 }
 
+BOOL
+DoEnvironReport(
+    LPKEY Key
+)
 
+{
+   LPENV_VAR   EnvVar;
+   LPENV_VAR   ( *NextEnvVarFunc ) ( );
+   TCHAR OutputBuffer [2048];
+
+   //
+   // If the supplied Key is NULL get the environment variables from the
+   // current process, otherwise get them from the supplied Registry key.
+   //
+
+   if( Key == NULL ) {
+
+      EnvVar = FindFirstEnvironmentVariableW( );
+      NextEnvVarFunc = FindNextEnvironmentVariableW;
+
+   } else {
+
+      EnvVar = FindFirstRegistryEnvironmentVariableW( Key );
+      NextEnvVarFunc = FindNextRegistryEnvironmentVariableW;
+   }
+
+   while ( EnvVar ){
+
+      wsprintf(OutputBuffer,L"%s=%s",
+          EnvVar->Variable,
+          EnvVar->Value
+          );  
+   
+      AddLineToReport( SINGLE_INDENT, RFO_SINGLELINE, OutputBuffer, NULL );
+            
+      EnvVar = NextEnvVarFunc();
+      
+   }
+
+   return TRUE;
+
+}
+
+
+BOOL
+EnvDisplayList(
+    IN HWND hWnd,
+    IN UINT iDisplayOption
+    )
+/*++
+
+Routine Description:
+
+    Displays the appropriate enviroment variables in the ListView box
+
+Arguments:
+
+    hWnd - to the ListView Window
+    iDisplayOption - indicated whether we are displaying user or system variables
+
+Return Value:
+
+    BOOL - TRUE if successful
+
+--*/
+{
+   LV_COLUMN   lvc;
+   UINT        index = 0;
+   TCHAR       szBuffer[128];
+   RECT        rect;
+   BOOL        Success;
+   KEY         SystemEnvironKey;
+   KEY         UserEnvironKey;
+
+   static
+   UINT        iType;
+
+
+   //
+   // Restore the initial state of the KEYs.
+   //
+
+   CopyMemory(
+       &SystemEnvironKey,
+       &_SystemEnvironKey,
+       sizeof( SystemEnvironKey )
+       );
+
+   CopyMemory(
+       &UserEnvironKey,
+       &_UserEnvironKey,
+       sizeof( UserEnvironKey )
+       );
+
+   // as long as this is not 0 set iType to iDisplayOption
+   if (iDisplayOption)
+      iType = iDisplayOption;
+
+   // make sure we have a valid type
+   if ( (iType != IDC_PUSH_SHOW_SYSTEM)  &&
+        (iType != IDC_PUSH_SHOW_USER)    ) {
+
+        iType = IDC_PUSH_SHOW_SYSTEM;
+   }
+
+   //
+   // initialize the list view
+   //
+
+   // first delete any items
+   Success = ListView_DeleteAllItems( hWnd );
+
+   // delete all columns
+   index = 2;
+
+   while(index) {
+      Success = ListView_DeleteColumn( hWnd, --index );
+   }
+
+   // Get the column rect
+   GetClientRect( hWnd, &rect );
+
+   //initialize the new columns
+   lvc.mask = LVCF_FMT | LVCF_WIDTH | LVCF_TEXT ;
+   lvc.fmt = LVCFMT_LEFT;
+
+   LoadString(_hModule, IDS_VARIABLE, szBuffer, cchSizeof(szBuffer));
+   lvc.pszText = szBuffer;
+   lvc.cx = 180;
+   Success = ListView_InsertColumn(hWnd, 0, &lvc);
+
+   LoadString(_hModule, IDS_VALUE, szBuffer, cchSizeof(szBuffer));
+   lvc.pszText = szBuffer;
+   lvc.cx = 400;
+   Success = ListView_InsertColumn( hWnd, 1, &lvc);
+
+   // do case specific column initialization
+   switch(iType){
+
+   case IDC_PUSH_SHOW_SYSTEM:
+      //
+      // Fill the system environment variable list box.
+      //
+
+      Success = FillEnvironmentListBox(
+                      hWnd,
+                      &SystemEnvironKey
+                      );
+
+      DbgAssert( Success );
+      if( Success == FALSE ) {
+          return TRUE;
+      }
+
+      break;
+
+   case IDC_PUSH_SHOW_USER:
+      //
+      // Fill the per user environment variable list box.
+      //
+
+      Success = FillEnvironmentListBox(
+                      hWnd,
+                      &UserEnvironKey
+                      );
+
+      DbgAssert( Success );
+      if( Success == FALSE ) {
+          return TRUE;
+      }
+
+
+      break;
+   }
+
+
+   //
+   // Set the column widths
+   //
+
+   ListView_SetColumnWidth( hWnd, 0, LVSCW_AUTOSIZE);
+
+   if ( ListView_GetColumnWidth( hWnd, 0) < 60 )
+   {
+       ListView_SetColumnWidth( hWnd, 0, 60);
+   }
+
+   ListView_SetColumnWidth( hWnd, 1, LVSCW_AUTOSIZE);
+
+   UpdateWindow ( hWnd );
+
+}
+
+
+
+BOOL
+InitializeEnvironmentTab(
+    HWND hWnd
+    )
+/*++
+
+Routine Description:
+
+    Adds the appropriate controls to the version tab control and
+    initializes any needed structures.
+
+Arguments:
+
+    hWnd - to the main window
+
+Return Value:
+
+    BOOL - TRUE if successful
+
+--*/
+{
+   HCURSOR hSaveCursor;
+   DLGHDR *pHdr = (DLGHDR *) GetWindowLong(
+        GetParent(hWnd), GWL_USERDATA);
+
+   //
+   // Set the pointer to an hourglass
+   //
+
+   hSaveCursor = SetCursor ( LoadCursor ( NULL, IDC_WAIT ) ) ;
+   DbgHandleAssert( hSaveCursor ) ;
+
+   //
+   // set state of global buttons
+   //
+   EnableControl( GetParent(hWnd),
+                  IDC_PUSH_PROPERTIES,
+                  FALSE);
+
+   EnableControl( GetParent(hWnd),
+                  IDC_PUSH_REFRESH,
+                  FALSE);
+
+   //
+   // Size and position the child dialog
+   //
+   SetWindowPos(hWnd, HWND_TOP,
+        pHdr->rcDisplay.left,
+        pHdr->rcDisplay.top,
+        pHdr->rcDisplay.right - pHdr->rcDisplay.left,
+        pHdr->rcDisplay.bottom - pHdr->rcDisplay.top,
+        SWP_SHOWWINDOW);
+
+   
+
+   //
+   // Set the extended style to get full row selection
+   //
+   SendDlgItemMessage(hWnd, IDC_LV_ENV, LVM_SETEXTENDEDLISTVIEWSTYLE, 0, LVS_EX_FULLROWSELECT);
+
+   //
+   // Initialize the selection buttons
+   //
+   SendDlgItemMessage( hWnd,
+                       IDC_PUSH_SHOW_SYSTEM,
+                       BM_SETCHECK,
+                       BST_CHECKED,
+                       0
+                       );
+
+
+   //
+   // Disable the User button if we are remote
+   //
+
+   if(_fIsRemote){
+
+      EnableControl( hWnd, IDC_PUSH_SHOW_USER, FALSE);
+
+   }  else {
+
+      EnableControl( hWnd, IDC_PUSH_SHOW_USER, TRUE);
+   }
+
+   UpdateWindow( hWnd );
+
+   //
+   // Fill out the fields initially with services
+   //
+   {
+      EnvDisplayList( GetDlgItem( hWnd, IDC_LV_ENV ), IDC_PUSH_SHOW_SYSTEM);
+   }
+
+  SetCursor ( hSaveCursor ) ;
+
+  return( TRUE );
+
+}
+
+DWORD
+WinMSDExpandEnvironmentStrings(
+    LPCWSTR lpSrc,
+    LPWSTR lpDst,
+    DWORD nSize
+	)
+{
+	DWORD Length;
+	DWORD indexSrc = 0;
+	DWORD indexDst = 0;
+	TCHAR szTemp[64];
+    TCHAR szSystemRoot[64];
+    DWORD cbSystemRoot;
+    UINT  Success;
+    HKEY  hkey;
+
+    ZeroMemory(szSystemRoot, sizeof(szSystemRoot)); 
+
+	if (_fIsRemote)
+	{
+
+        //
+        // first get the remote systems %systemroot% value
+        //
+
+        if (!RegOpenKeyEx(_hKeyLocalMachine, SZ_SYSTEMROOTKEY, 0, KEY_READ, &hkey)) 
+        {
+            cbSystemRoot = sizeof(szSystemRoot); 
+
+            if (RegQueryValueEx(hkey, L"SystemRoot", NULL, NULL, (LPBYTE) szSystemRoot, &cbSystemRoot) == ERROR_SUCCESS) 
+            {   
+                //
+		        // if we are remote, the only env var we are
+		        // going to expand is %systemroot%, the value of
+		        // which we read from the remote registry
+		        //
+		        while( lpSrc[indexSrc] != L'\0')
+		        {
+			        lstrcpyn(szTemp, &lpSrc[indexSrc], 13 );
+			        if(lstrcmpi(L"%systemroot%", szTemp ) == 0)
+			        {
+				        lstrcpy(&lpDst[indexDst], szSystemRoot);
+				        indexDst += lstrlen(szSystemRoot);					
+				        indexSrc += 12;
+			        }
+			        else
+			        {
+				        lpDst[indexDst++] = lpSrc[indexSrc++];
+			        }
+                    
+		        }
+
+                lpDst[indexDst++] = L'\0';
+
+
+            }
+            else
+            {
+                //
+                // we failed to get a windir var from the remote system, so return raw string
+                //
+                lstrcpyn(lpDst, lpSrc, nSize);
+                RegCloseKey(hkey);
+                return nSize;
+
+            }
+
+            RegCloseKey(hkey);
+        }       
+                                                             
+		Length = indexDst;
+
+	}
+	else  //we are local, so call the real version of the API
+	{
+        Length = ExpandEnvironmentStrings( lpSrc, lpDst, nSize );
+	}
+	return Length;
+}

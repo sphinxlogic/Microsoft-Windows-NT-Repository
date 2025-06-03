@@ -120,7 +120,15 @@ BOOL OleApp_InitInstance(LPOLEAPP lpOleApp, HINSTANCE hInst, int nCmdShow)
 	**    therefore we pass NULL to OleInitialize.
 	*/
 	OLEDBG_BEGIN2("OleInitialize called\r\n")
-	hrErr = OleInitialize(lpMalloc);
+        hrErr = OleInitialize(lpMalloc);
+
+        if (FAILED(hrErr))
+        {
+            //  Replacing the allocator may not be legal - try initializing
+            //  without overriding the allocator
+            hrErr = OleInitialize(NULL);
+        }
+
 	OLEDBG_END2
 
 #if defined( _DEBUG )
@@ -2979,4 +2987,3 @@ BOOL ContainerApp_InitVtbls(LPCONTAINERAPP lpApp)
 
 
 #endif  // OLE_CNTR
-

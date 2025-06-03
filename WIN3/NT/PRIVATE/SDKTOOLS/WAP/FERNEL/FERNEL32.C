@@ -69,13 +69,14 @@ BOOL  FCloseHandle (HANDLE hObject)
     // Find the handle type now, because later the handle will be closed
     bDiskFileType = (GetFileType (hObject) == FILE_TYPE_DISK);
     if ( ! bDiskFileType ) {
-      if ( NtQueryObject ( hObject, ObjectTypeInformation, &tiTypeInfo,
-					 BUFSIZE, NULL ) == STATUS_SUCCESS ) {
-	if ( lstrcmpi ( (LPCTSTR)TypeInfoBuffer, (LPCTSTR)EVENAME ) == 0 )
+      if ( NtQueryObject ( hObject, ObjectTypeInformation, &QueryBuf.TypeInfo,
+				 sizeof(QueryBuf), NULL ) == STATUS_SUCCESS )
+	{
+	if ( lstrcmpi ( (LPCTSTR)QueryBuf.TypeInfo.TypeName.Buffer, (LPCTSTR)EVENAME ) == 0 )
 	    Type = EVENT;
-	else if ( lstrcmpi ( (LPCTSTR)TypeInfoBuffer, (LPCTSTR)SEMNAME ) == 0 )
+	else if ( lstrcmpi ( (LPCTSTR)QueryBuf.TypeInfo.TypeName.Buffer, (LPCTSTR)SEMNAME ) == 0 )
 	    Type = SEMAPHORE;
-	else if ( lstrcmpi ( (LPCTSTR)TypeInfoBuffer, (LPCTSTR)MUTNAME ) == 0 )
+	else if ( lstrcmpi ( (LPCTSTR)QueryBuf.TypeInfo.TypeName.Buffer, (LPCTSTR)MUTNAME ) == 0 )
 	    Type = MUTEX;
       }
     }
@@ -1566,10 +1567,12 @@ BOOL  FPulseEvent (HANDLE hEvent)
     PSP_Handle phHandleData;
     UCHAR Type = NOTYPE;
 
-    if ( NtQueryObject ( hEvent, ObjectTypeInformation, &tiTypeInfo, BUFSIZE,
-						     NULL ) == STATUS_SUCCESS )
-      if ( lstrcmpi ( (LPCTSTR)TypeInfoBuffer, (LPCTSTR)EVENAME ) == 0 )
-	Type = EVENT;
+    if ( NtQueryObject ( hEvent, ObjectTypeInformation,&QueryBuf.TypeInfo,
+    					  sizeof(QueryBuf), NULL ) == STATUS_SUCCESS )
+		{
+      	if ( lstrcmpi ( (LPCTSTR)QueryBuf.TypeInfo.TypeName.Buffer, (LPCTSTR)EVENAME ) == 0 )
+			Type = EVENT;
+		}
 
     TimerOpen(&sTimerHandle, MICROSECONDS);
     TimerInit(sTimerHandle);
@@ -1605,11 +1608,13 @@ BOOL  FReleaseMutex (HANDLE hMutex)
     ULONG ulElapsedTime;
     PSP_Handle phHandleData;
     UCHAR Type = NOTYPE;
-
-    if ( NtQueryObject ( hMutex, ObjectTypeInformation, &tiTypeInfo, BUFSIZE,
-						      NULL ) == STATUS_SUCCESS )
-      if ( lstrcmpi ( (LPCTSTR)TypeInfoBuffer, (LPCTSTR)MUTNAME ) == 0 )
-	Type = MUTEX;
+ 	
+    if ( NtQueryObject ( hMutex, ObjectTypeInformation, &QueryBuf.TypeInfo,
+    				sizeof(QueryBuf), NULL ) == STATUS_SUCCESS )
+        {
+      	if ( lstrcmpi ( (LPCTSTR)QueryBuf.TypeInfo.TypeName.Buffer, (LPCTSTR)MUTNAME ) == 0 )
+	    Type = MUTEX;
+        }
 
     TimerOpen(&sTimerHandle, MICROSECONDS);
     TimerInit(sTimerHandle);
@@ -1647,10 +1652,12 @@ BOOL  FReleaseSemaphore (HANDLE hSemaphore,LONG lReleaseCount,LPLONG lpPreviousC
     PSP_Handle phHandleData;
     UCHAR Type = NOTYPE;
 
-    if ( NtQueryObject (hSemaphore, ObjectTypeInformation, &tiTypeInfo, BUFSIZE,
-						       NULL) == STATUS_SUCCESS )
-      if ( lstrcmpi ( (LPCTSTR)TypeInfoBuffer, (LPCTSTR)SEMNAME ) == 0 )
-	Type = SEMAPHORE;
+    if ( NtQueryObject (hSemaphore, ObjectTypeInformation, &QueryBuf.TypeInfo,
+    			sizeof(QueryBuf), NULL) == STATUS_SUCCESS )
+        {
+      	if ( lstrcmpi ( (LPCTSTR)QueryBuf.TypeInfo.TypeName.Buffer, (LPCTSTR)SEMNAME ) == 0 )
+	   Type = SEMAPHORE;
+	}
 
     TimerOpen(&sTimerHandle, MICROSECONDS);
     TimerInit(sTimerHandle);
@@ -1687,10 +1694,12 @@ BOOL  FResetEvent (HANDLE hEvent)
     PSP_Handle phHandleData;
     UCHAR Type = NOTYPE;
 
-    if ( NtQueryObject ( hEvent, ObjectTypeInformation, &tiTypeInfo, BUFSIZE,
-					             NULL ) == STATUS_SUCCESS )
-      if ( lstrcmpi ( (LPCTSTR)TypeInfoBuffer, (LPCTSTR)EVENAME ) == 0 )
-	Type = EVENT;
+    if ( NtQueryObject ( hEvent, ObjectTypeInformation, &QueryBuf.TypeInfo,
+			 sizeof(QueryBuf), NULL ) == STATUS_SUCCESS )
+	{
+      	if ( lstrcmpi ( (LPCTSTR)QueryBuf.TypeInfo.TypeName.Buffer, (LPCTSTR)EVENAME ) == 0 )
+	   Type = EVENT;
+	}
 
     TimerOpen(&sTimerHandle, MICROSECONDS);
     TimerInit(sTimerHandle);
@@ -1727,10 +1736,12 @@ BOOL  FSetEvent (HANDLE hEvent)
     PSP_Handle phHandleData;
     UCHAR Type = NOTYPE;
 
-    if ( NtQueryObject ( hEvent, ObjectTypeInformation, &tiTypeInfo, BUFSIZE,
-						     NULL ) == STATUS_SUCCESS )
-      if ( lstrcmpi ( (LPCTSTR)TypeInfoBuffer, (LPCTSTR)EVENAME ) == 0 )
-	Type = EVENT;
+    if ( NtQueryObject ( hEvent, ObjectTypeInformation, &QueryBuf.TypeInfo,
+    			sizeof(QueryBuf), NULL ) == STATUS_SUCCESS )
+	{
+      	if ( lstrcmpi ( (LPCTSTR)QueryBuf.TypeInfo.TypeName.Buffer, (LPCTSTR)EVENAME ) == 0 )
+	   Type = EVENT;
+	}
 
     TimerOpen(&sTimerHandle, MICROSECONDS);
     TimerInit(sTimerHandle);
@@ -1786,14 +1797,16 @@ DWORD  FWaitForMultipleObjects (DWORD nCount,LPHANDLE lpHandles,BOOL bWaitAll,DW
     for ( ; i < nCount; i++ ) {
       Type = NOTYPE;
       if ( NtQueryObject ( *(lpHandles + i), ObjectTypeInformation,
-			&tiTypeInfo, BUFSIZE, NULL ) == STATUS_SUCCESS ) {
-    	if ( lstrcmpi ( (LPCTSTR)TypeInfoBuffer, (LPCTSTR)EVENAME ) == 0 )
+			&QueryBuf.TypeInfo, sizeof(QueryBuf), NULL ) == STATUS_SUCCESS ) 
+	 {
+    	 if ( lstrcmpi ( (LPCTSTR)QueryBuf.TypeInfo.TypeName.Buffer, (LPCTSTR)EVENAME ) == 0 )
 	    Type = EVENT;
-    	else if ( lstrcmpi ( (LPCTSTR)TypeInfoBuffer, (LPCTSTR)SEMNAME ) == 0 )
+    	 else if ( lstrcmpi ( (LPCTSTR)QueryBuf.TypeInfo.TypeName.Buffer, (LPCTSTR)SEMNAME ) == 0 )
 	    Type = SEMAPHORE;
-    	else if ( lstrcmpi ( (LPCTSTR)TypeInfoBuffer, (LPCTSTR)MUTNAME ) == 0 )
+    	 else if ( lstrcmpi ( (LPCTSTR)QueryBuf.TypeInfo.TypeName.Buffer, (LPCTSTR)MUTNAME ) == 0 )
 	    Type = MUTEX;
-      }
+         }
+
       if ( Type != NOTYPE ) {
 	if ( bWaitAll )
 	    bSuccess = bSucc;
@@ -1845,14 +1858,16 @@ DWORD  FWaitForMultipleObjectsEx (DWORD nCount,LPHANDLE lpHandles,BOOL bWaitAll,
     for ( ; i < nCount; i++ ) {
 	Type = NOTYPE;
     	if ( NtQueryObject ( *(lpHandles + i), ObjectTypeInformation,
-			     &tiTypeInfo, BUFSIZE, NULL ) == STATUS_SUCCESS ) {
-    	  if ( lstrcmpi ((LPCTSTR)TypeInfoBuffer, (LPCTSTR)EVENAME) == 0 )
-	    Type = EVENT;
-    	  else if ( lstrcmpi ((LPCTSTR)TypeInfoBuffer, (LPCTSTR)SEMNAME) == 0 )
-	    Type = SEMAPHORE;
-    	  else if ( lstrcmpi ((LPCTSTR)TypeInfoBuffer, (LPCTSTR)MUTNAME) == 0 )
-	    Type = MUTEX;
-	}
+			     &QueryBuf.TypeInfo, sizeof(QueryBuf), NULL ) == STATUS_SUCCESS )
+	  {
+    	  if ( lstrcmpi ((LPCTSTR)QueryBuf.TypeInfo.TypeName.Buffer, (LPCTSTR)EVENAME) == 0 )
+	     Type = EVENT;
+    	  else if ( lstrcmpi ((LPCTSTR)QueryBuf.TypeInfo.TypeName.Buffer, (LPCTSTR)SEMNAME) == 0 )
+	     Type = SEMAPHORE;
+    	  else if ( lstrcmpi ((LPCTSTR)QueryBuf.TypeInfo.TypeName.Buffer, (LPCTSTR)MUTNAME) == 0 )
+	     Type = MUTEX;
+	  }
+
 	if ( Type != NOTYPE ) {
 	    if ( bWaitAll )
 	    	bSuccess = bSucc;
@@ -1885,15 +1900,16 @@ DWORD  FWaitForSingleObject (HANDLE hHandle,DWORD dwMilliseconds)
     UCHAR Type = NOTYPE;
     BOOL bSuccess;
 
-    if ( NtQueryObject (hHandle, ObjectTypeInformation, &tiTypeInfo, BUFSIZE,
-						    NULL) == STATUS_SUCCESS ) {
-      if ( lstrcmpi ( (LPCTSTR)TypeInfoBuffer, (LPCTSTR)EVENAME ) == 0 )
-	Type = EVENT;
-      else if ( lstrcmpi ( (LPCTSTR)TypeInfoBuffer, (LPCTSTR)SEMNAME ) == 0 )
-	Type = SEMAPHORE;
-      else if ( lstrcmpi ( (LPCTSTR)TypeInfoBuffer, (LPCTSTR)MUTNAME ) == 0 )
-	Type = MUTEX;
-    }
+    if ( NtQueryObject (hHandle, ObjectTypeInformation, &QueryBuf.TypeInfo, 
+    			sizeof(QueryBuf), NULL) == STATUS_SUCCESS )
+    	{
+        if ( lstrcmpi ( (LPCTSTR)QueryBuf.TypeInfo.TypeName.Buffer, (LPCTSTR)EVENAME ) == 0 )
+	   Type = EVENT;
+        else if ( lstrcmpi ( (LPCTSTR)QueryBuf.TypeInfo.TypeName.Buffer, (LPCTSTR)SEMNAME ) == 0 )
+	   Type = SEMAPHORE;
+        else if ( lstrcmpi ( (LPCTSTR)QueryBuf.TypeInfo.TypeName.Buffer, (LPCTSTR)MUTNAME ) == 0 )
+	   Type = MUTEX;
+        }
 
     TimerOpen(&sTimerHandle, MICROSECONDS);
     TimerInit(sTimerHandle);
@@ -1934,15 +1950,16 @@ DWORD  FWaitForSingleObjectEx (HANDLE hHandle,DWORD dwMilliseconds,BOOL bAlertab
     UCHAR Type = NOTYPE;
     BOOL bSuccess;
 
-    if ( NtQueryObject (hHandle, ObjectTypeInformation, &tiTypeInfo, BUFSIZE,
-						    NULL) == STATUS_SUCCESS ) {
-      if ( lstrcmpi ( (LPCTSTR)TypeInfoBuffer, (LPCTSTR)EVENAME ) == 0 )
-	Type = EVENT;
-      else if ( lstrcmpi ( (LPCTSTR)TypeInfoBuffer, (LPCTSTR)SEMNAME ) == 0 )
-	Type = SEMAPHORE;
-      else if ( lstrcmpi ( (LPCTSTR)TypeInfoBuffer, (LPCTSTR)MUTNAME ) == 0 )
-	Type = MUTEX;
-    }
+    if ( NtQueryObject (hHandle, ObjectTypeInformation, &QueryBuf.TypeInfo, 
+    			sizeof(QueryBuf), NULL) == STATUS_SUCCESS ) 
+    	{
+        if ( lstrcmpi ( (LPCTSTR)QueryBuf.TypeInfo.TypeName.Buffer, (LPCTSTR)EVENAME ) == 0 )
+	   Type = EVENT;
+        else if ( lstrcmpi ( (LPCTSTR)QueryBuf.TypeInfo.TypeName.Buffer, (LPCTSTR)SEMNAME ) == 0 )
+	   Type = SEMAPHORE;
+        else if ( lstrcmpi ( (LPCTSTR)QueryBuf.TypeInfo.TypeName.Buffer, (LPCTSTR)MUTNAME ) == 0 )
+	   Type = MUTEX;
+        }
 
     TimerOpen(&sTimerHandle, MICROSECONDS);
     TimerInit(sTimerHandle);
@@ -1970,5 +1987,5 @@ DWORD  FWaitForSingleObjectEx (HANDLE hHandle,DWORD dwMilliseconds,BOOL bAlertab
     return(RetVal);
 }
 
-
-
+
+

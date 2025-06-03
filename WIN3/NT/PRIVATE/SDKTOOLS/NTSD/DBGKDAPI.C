@@ -14,19 +14,18 @@ Author:
 
     Mark Lucovsky (markl) 25-Jul-1990
 
-Environment:
-
-    OS/2 1.21
-
 Revision History:
 
     Shie-Lin Tzong (shielint) Updated for packet control protocol.
 
 --*/
 
-#include "dbgpnt.h"
 #include "ntsdp.h"
+#include "dbgpnt.h"
 #include <xxsetjmp.h>
+
+extern PSTR CrashFileName;
+extern PCONTEXT CrashContext;
 
 extern HANDLE ConsoleInputHandle;
 extern HANDLE ConsoleOutputHandle;
@@ -62,15 +61,15 @@ UCHAR DbgKdpPacketLeader[4] = {
 // back to kd prompt.
 //
 
-BOOLEAN DbgKdpCmdCanceled = FALSE;
+BOOLEAN DbgKdpCmdCanceled;
 extern jmp_buf cmd_return;
 
 #ifdef DBG
-BOOLEAN KdDebug = FALSE;
+BOOLEAN KdDebug;
 #endif
 
-BOOLEAN KdResync = FALSE;
-ULONG   KdPollThreadMode = 0;
+BOOLEAN KdResync;
+ULONG   KdPollThreadMode;
 #define OUT_NORMAL      0
 #define OUT_TERMINAL    1
 
@@ -81,6 +80,9 @@ UCHAR PrintBuf[PACKET_MAX_SIZE];
 #define CONTROL_R   18
 #define CONTROL_V   22
 #define CONTROL_X   24
+#ifdef _PPC_
+#define CONTROL_T   20
+#endif
 
 extern ULONG DbgKdpPacketExpected;     // ID for expected incoming packet
 extern ULONG DbgKdpNextPacketToSend;   // ID for Next packet to send
@@ -158,7 +160,7 @@ DbgKdConnectAndInitialize(
 
             fprintf(
                 stderr,
-                "OS2KD: Boot pathname Error rc %d BytesWritten %d\n",
+                "KD: Boot pathname Error rc %d BytesWritten %d\n",
                 rc,
                 BytesWritten
                 );
@@ -189,6 +191,11 @@ Routine Description:
     DWORD   TrashErr;
     COMSTAT TrashStat;
 
+
+    if (CrashFileName) {
+        dprintf( "attempted to write to the com port while debugging a crash dump\n" );
+        DebugBreak();
+    }
 
     if (DbgKdpComEvent) {
         DbgKdpCheckComStatus ();
@@ -224,7 +231,6 @@ Routine Description:
                 &TrashErr,
                 &TrashStat
                 );
-
         }
     }
 
@@ -250,6 +256,11 @@ Routine Description:
     DWORD   TrashErr;
     COMSTAT TrashStat;
 
+
+    if (CrashFileName) {
+        dprintf( "attempted to read from the com port while debugging a crash dump\n" );
+        DebugBreak();
+    }
 
     if (DbgKdpComEvent) {
         DbgKdpCheckComStatus ();
@@ -285,7 +296,6 @@ Routine Description:
                 &TrashErr,
                 &TrashStat
                 );
-
         }
     }
 
@@ -353,7 +363,7 @@ Routine Description:
             //
 
             if (loghandle != -1) {
-                write(loghandle,buf,br);
+                _write(loghandle,buf,br);
             }
         }
 
@@ -387,7 +397,6 @@ Routine Description:
             dprintf (" [PARITY ERR] ");
         }
     }
-
 
     //
     // Reset trigger
@@ -451,7 +460,7 @@ DbgKdpHandlePromptString(
     //
 
     if (loghandle != -1) {
-        write(loghandle,IoData,j);
+        _write(loghandle,IoData,j);
         dprintf("\n");
     }
 
@@ -486,7 +495,7 @@ DbgKdpPrint(
     d = PrintBuf;
     if (NumberProcessors > 1  &&  Processor != LastProcessorToPrint) {
         LastProcessorToPrint = Processor;
-        itoa(Processor, d, 10);
+        _itoa(Processor, d, 10);
         while (*d != 0) {
             d++;
         }
@@ -519,7 +528,7 @@ DbgKdpPrint(
     //
 
     if (loghandle != -1) {
-        write(loghandle,PrintBuf,j);
+        _write(loghandle,PrintBuf,j);
     }
 }
 
@@ -582,9 +591,18 @@ Return Value:
 
         switch ( (USHORT) StateChange->NewState ) {
             case DbgKdExceptionStateChange:
-                pt = (UCHAR *)LocalStateChange + sizeof(DBGKD_WAIT_STATE_CHANGE);
-                memcpy(Buffer, pt,
-                    PacketHeader.ByteCount - sizeof(DBGKD_WAIT_STATE_CHANGE));
+                //
+                // do signed compare here for packets shorter than
+                // WAIT_STATE_CHANGE struct
+                //
+                if ((LONG)BufferLength < (LONG)(PacketHeader.ByteCount - sizeof(DBGKD_WAIT_STATE_CHANGE))) {
+                    st = STATUS_BUFFER_OVERFLOW;
+                } else {
+                    pt = (UCHAR *)LocalStateChange +
+                                               sizeof(DBGKD_WAIT_STATE_CHANGE);
+                    memcpy(Buffer, pt,
+                      PacketHeader.ByteCount - sizeof(DBGKD_WAIT_STATE_CHANGE));
+                }
                 break;
             case DbgKdLoadSymbolsStateChange:
                 if ( BufferLength < LocalStateChange->u.LoadSymbols.PathNameLength ) {
@@ -637,6 +655,12 @@ Return Value:
     DBGKD_MANIPULATE_STATE m;
     PDBGKD_CONTINUE a = &m.u.Continue;
     NTSTATUS st;
+
+
+    if (CrashFileName) {
+        dprintf( "cannot continue a crash dump" );
+        return STATUS_UNSUCCESSFUL;
+    }
 
     if ( ContinueStatus == DBG_EXCEPTION_HANDLED ||
          ContinueStatus == DBG_EXCEPTION_NOT_HANDLED ||
@@ -698,6 +722,12 @@ Return Value:
     DBGKD_MANIPULATE_STATE m;
     NTSTATUS st;
 
+
+    if (CrashFileName) {
+        dprintf( "cannot continue a crash dump" );
+        return STATUS_UNSUCCESSFUL;
+    }
+
     if ( ContinueStatus == DBG_EXCEPTION_HANDLED ||
          ContinueStatus == DBG_EXCEPTION_NOT_HANDLED ||
          ContinueStatus == DBG_CONTINUE) {
@@ -754,6 +784,12 @@ Return Value:
     DBGKD_MANIPULATE_STATE m;
     ULONG i;
 
+
+    if (CrashFileName) {
+        dprintf( "cannot continue a crash dump" );
+        return STATUS_UNSUCCESSFUL;
+    }
+
     ClearTraceDataSyms();
 
     m.ApiNumber = DbgKdClearSpecialCallsApi;
@@ -805,6 +841,11 @@ Return Value:
     DBGKD_MANIPULATE_STATE m;
     NTSTATUS st;
 
+    if (CrashFileName) {
+        dprintf( "cannot bp a crash dump" );
+        return STATUS_UNSUCCESSFUL;
+    }
+
     m.ApiNumber = DbgKdSetInternalBreakPointApi;
     m.ReturnStatus = STATUS_PENDING;
 
@@ -855,6 +896,12 @@ Return Value:
     NTSTATUS st;
     ULONG rc;
 
+
+    if (CrashFileName) {
+        dprintf( "cannot bp a crash dump" );
+        return STATUS_UNSUCCESSFUL;
+    }
+
     m.ApiNumber = DbgKdGetInternalBreakPointApi;
     m.ReturnStatus = STATUS_PENDING;
 
@@ -878,7 +925,8 @@ Return Value:
 
     return st;
 }
-
+
+
 NTSTATUS
 DbgKdReadVirtualMemory(
     IN PVOID TargetBaseAddress,
@@ -984,72 +1032,105 @@ Return Value:
 --*/
 
 {
-    DBGKD_MANIPULATE_STATE m;
-    PDBGKD_MANIPULATE_STATE Reply;
-    PDBGKD_READ_MEMORY a = &m.u.ReadMemory;
-    NTSTATUS st;
-    BOOLEAN rc;
+    DBGKD_MANIPULATE_STATE   m;
+    PDBGKD_MANIPULATE_STATE  Reply;
+    PDBGKD_READ_MEMORY       a = &m.u.ReadMemory;
+    NTSTATUS                 st;
+    BOOLEAN                  rc;
+    ULONG                    cb, cb2;
 
-    if ( TransferCount + sizeof(m) > PACKET_MAX_SIZE ) {
-        return STATUS_BUFFER_OVERFLOW;
+    if (CrashFileName) {
+        cb = DmpReadMemory( TargetBaseAddress, UserInterfaceBuffer, TransferCount );
+        if (ActualBytesRead) {
+            *ActualBytesRead = cb;
         }
+        if (cb == 0) {
+            return STATUS_UNSUCCESSFUL;
+        }
+        return STATUS_SUCCESS;
+    }
 
-    //
-    // Format state manipulate message
-    //
+    if (TransferCount > PACKET_MAX_SIZE) {
+        // Read the partial the first time.
+        cb = TransferCount % PACKET_MAX_SIZE;
+    } else {
+        cb = TransferCount;
+    }
 
-    m.ApiNumber = DbgKdReadVirtualMemoryApi;
-    m.ReturnStatus = STATUS_PENDING;
-    a->TargetBaseAddress = TargetBaseAddress;
-    a->TransferCount = TransferCount;
-    a->ActualBytesRead = 0L;
-
-    //
-    // Send the message and then wait for reply
-    //
-
-    do {
-        DbgKdpWritePacket(&m,sizeof(m),PACKET_TYPE_KD_STATE_MANIPULATE,NULL,0);
-
-        rc = DbgKdpWaitForPacket(PACKET_TYPE_KD_STATE_MANIPULATE,
-                                 &Reply
-                                 );
-    } while (rc == FALSE);
-
-    //
-    // If this is not a ReadMemory response than protocol is screwed up.
-    // assert that protocol is ok.
-    //
-
-    st = Reply->ReturnStatus;
-    assert(Reply->ApiNumber == DbgKdReadVirtualMemoryApi);
-
-    //
-    // Reset message address to reply.
-    //
-
-    a = &Reply->u.ReadMemory;
-    assert(a->ActualBytesRead <= TransferCount);
-
-    //
-    // Return actual bytes read, and then transfer the bytes
-    //
+    cb2 = 0;
 
     if (ARGUMENT_PRESENT(ActualBytesRead)) {
-        *ActualBytesRead = a->ActualBytesRead;
+        *ActualBytesRead = 0;
     }
-    st = Reply->ReturnStatus;
 
-    //
-    // Since read response data follows message, Reply+1 should point
-    // at the data
-    //
+    while (TransferCount != 0) {
+        //
+        // Format state manipulate message
+        //
 
-    memcpy(UserInterfaceBuffer, Reply+1, (int)a->ActualBytesRead);
+        m.ApiNumber = DbgKdReadVirtualMemoryApi;
+        m.ReturnStatus = STATUS_PENDING;
+        a->TargetBaseAddress = (PVOID) ((DWORD)TargetBaseAddress+cb2);
+        a->TransferCount = cb;
+        a->ActualBytesRead = 0L;
+
+        //
+        // Send the message and then wait for reply
+        //
+
+        do {
+            DbgKdpWritePacket(&m,sizeof(m),PACKET_TYPE_KD_STATE_MANIPULATE,NULL,0);
+
+            rc = DbgKdpWaitForPacket(PACKET_TYPE_KD_STATE_MANIPULATE,
+                                     &Reply
+                                     );
+        } while (rc == FALSE);
+
+        //
+        // If this is not a ReadMemory response than protocol is screwed up.
+        // assert that protocol is ok.
+        //
+
+        st = Reply->ReturnStatus;
+        assert(Reply->ApiNumber == DbgKdReadVirtualMemoryApi);
+
+        //
+        // Reset message address to reply.
+        //
+
+        a = &Reply->u.ReadMemory;
+        assert(a->ActualBytesRead <= cb);
+
+        //
+        // Return actual bytes read, and then transfer the bytes
+        //
+
+        if (ARGUMENT_PRESENT(ActualBytesRead)) {
+            *ActualBytesRead += a->ActualBytesRead;
+        }
+
+        //
+        // Since read response data follows message, Reply+1 should point
+        // at the data
+        //
+
+        memcpy((PVOID)((DWORD)UserInterfaceBuffer+cb2), Reply+1, (int)a->ActualBytesRead);
+
+        st = Reply->ReturnStatus;
+
+        if (st != STATUS_SUCCESS) {
+            TransferCount = 0;
+        } else {
+            TransferCount -= cb;
+            cb2 += cb;
+            cb = PACKET_MAX_SIZE;
+        }
+    }
 
     return st;
 }
-
+
+
 NTSTATUS
 DbgKdWriteVirtualMemory(
     IN PVOID TargetBaseAddress,
@@ -1096,11 +1177,12 @@ Return Value:
 --*/
 
 {
-    DBGKD_MANIPULATE_STATE m;
-    PDBGKD_MANIPULATE_STATE Reply;
-    PDBGKD_WRITE_MEMORY a = &m.u.WriteMemory;
-    NTSTATUS st;
-    BOOLEAN rc;
+    DBGKD_MANIPULATE_STATE   m;
+    PDBGKD_MANIPULATE_STATE  Reply;
+    PDBGKD_WRITE_MEMORY      a = &m.u.WriteMemory;
+    NTSTATUS                 st;
+    BOOLEAN                  rc;
+    ULONG                    cb, cb2;
 
     KdpWriteCachedVirtualMemory (
         (ULONG) TargetBaseAddress,
@@ -1108,63 +1190,93 @@ Return Value:
         (PUCHAR) UserInterfaceBuffer
     );
 
-    if ( TransferCount + sizeof(m) > PACKET_MAX_SIZE ) {
-        return STATUS_BUFFER_OVERFLOW;
+    if (CrashFileName) {
+        cb = DmpWriteMemory( TargetBaseAddress, UserInterfaceBuffer, TransferCount );
+        if (ActualBytesWritten) {
+            *ActualBytesWritten = cb;
         }
+        if (cb == 0) {
+            return STATUS_UNSUCCESSFUL;
+        }
+        return STATUS_SUCCESS;
+    }
 
-    //
-    // Format state manipulate message
-    //
+    if (TransferCount > PACKET_MAX_SIZE) {
+        // Read the partial the first time.
+        cb = TransferCount % PACKET_MAX_SIZE;
+    } else {
+        cb = TransferCount;
+    }
 
-    m.ApiNumber = DbgKdWriteVirtualMemoryApi;
-    m.ReturnStatus = STATUS_PENDING;
-    a->TargetBaseAddress = TargetBaseAddress;
-    a->TransferCount = TransferCount;
-    a->ActualBytesWritten = 0L;
-
-    //
-    // Send the message and data to write and then wait for reply
-    //
-
-    do {
-        DbgKdpWritePacket(
-            &m,
-            sizeof(m),
-            PACKET_TYPE_KD_STATE_MANIPULATE,
-            UserInterfaceBuffer,
-            (USHORT)TransferCount
-            );
-        rc = DbgKdpWaitForPacket(PACKET_TYPE_KD_STATE_MANIPULATE,
-                                 &Reply
-                                 );
-    } while (rc == FALSE);
-
-    //
-    // If this is not a WriteMemory response than protocol is screwed up.
-    // assert that protocol is ok.
-    //
-
-    st = Reply->ReturnStatus;
-    assert(Reply->ApiNumber == DbgKdWriteVirtualMemoryApi);
-
-    //
-    // Reset message address to reply.
-    //
-
-    a = &Reply->u.WriteMemory;
-    assert(a->ActualBytesWritten <= TransferCount);
-
-    //
-    // Return actual bytes written
-    //
+    cb2 = 0;
 
     if (ARGUMENT_PRESENT(ActualBytesWritten)) {
-        *ActualBytesWritten = a->ActualBytesWritten;
+        *ActualBytesWritten = 0;
     }
-    st = Reply->ReturnStatus;
+
+    while (TransferCount != 0) {
+        //
+        // Format state manipulate message
+        //
+
+        m.ApiNumber = DbgKdWriteVirtualMemoryApi;
+        m.ReturnStatus = STATUS_PENDING;
+        a->TargetBaseAddress = (PVOID)((DWORD)TargetBaseAddress + cb2);
+        a->TransferCount = cb;
+        a->ActualBytesWritten = 0L;
+
+        //
+        // Send the message and data to write and then wait for reply
+        //
+
+        do {
+            DbgKdpWritePacket(
+                &m,
+                sizeof(m),
+                PACKET_TYPE_KD_STATE_MANIPULATE,
+                (PVOID)((DWORD)UserInterfaceBuffer + cb2),
+                (USHORT)cb
+                );
+            rc = DbgKdpWaitForPacket(PACKET_TYPE_KD_STATE_MANIPULATE,
+                                     &Reply
+                                     );
+        } while (rc == FALSE);
+
+        //
+        // If this is not a WriteMemory response than protocol is screwed up.
+        // assert that protocol is ok.
+        //
+
+        assert(Reply->ApiNumber == DbgKdWriteVirtualMemoryApi);
+
+        //
+        // Reset message address to reply.
+        //
+
+        a = &Reply->u.WriteMemory;
+        assert(a->ActualBytesWritten <= cb);
+
+        //
+        // Return actual bytes written
+        //
+
+        if (ARGUMENT_PRESENT(ActualBytesWritten)) {
+            *ActualBytesWritten = a->ActualBytesWritten;
+        }
+        st = Reply->ReturnStatus;
+
+        if (st != STATUS_SUCCESS) {
+            TransferCount = 0;
+        } else {
+            TransferCount -= cb;
+            cb2 += cb;
+            cb = PACKET_MAX_SIZE;
+        }
+    }
 
     return st;
 }
+
 
 NTSTATUS
 DbgKdReadControlSpace(
@@ -1217,6 +1329,21 @@ Return Value:
     PDBGKD_READ_MEMORY a = &m.u.ReadMemory;
     NTSTATUS st;
     BOOLEAN rc;
+
+
+    if (CrashFileName) {
+        if (!DmpReadControlSpace(
+                Processor,
+                TargetBaseAddress,
+                UserInterfaceBuffer,
+                TransferCount,
+                ActualBytesRead
+                )) {
+            return STATUS_UNSUCCESSFUL;
+        } else {
+            return 0;
+        }
+    }
 
     if ( TransferCount + sizeof(m) > PACKET_MAX_SIZE ) {
         return STATUS_BUFFER_OVERFLOW;
@@ -1343,6 +1470,11 @@ Return Value:
         return STATUS_BUFFER_OVERFLOW;
         }
 
+    if (CrashFileName) {
+        dprintf( "cannot write control space on a crash dump" );
+        return STATUS_UNSUCCESSFUL;
+    }
+
     //
     // Format state manipulate message
     //
@@ -1432,6 +1564,12 @@ Return Value:
     PDBGKD_GET_CONTEXT a = &m.u.GetContext;
     NTSTATUS st;
     BOOLEAN rc;
+
+
+    if (CrashFileName) {
+        DmpGetContext( (ULONG)Processor, Context );
+        return 0;
+    }
 
     //
     // Format state manipulate message
@@ -1523,6 +1661,12 @@ Return Value:
     NTSTATUS st;
     BOOLEAN rc;
 
+
+    if (CrashFileName) {
+        dprintf( "cannot set context on a crash dump" );
+        return STATUS_UNSUCCESSFUL;
+    }
+
     //
     // Format state manipulate message
     //
@@ -1572,6 +1716,7 @@ Return Value:
     return st;
 }
 
+
 NTSTATUS
 DbgKdWriteBreakPoint(
     IN PVOID BreakPointAddress,
@@ -1614,6 +1759,12 @@ Return Value:
     PDBGKD_WRITE_BREAKPOINT a = &m.u.WriteBreakPoint;
     NTSTATUS st;
     BOOLEAN rc;
+
+
+    if (CrashFileName) {
+        dprintf( "cannot set bps on a crash dump" );
+        return STATUS_UNSUCCESSFUL;
+    }
 
     //
     // Format state manipulate message
@@ -1665,6 +1816,7 @@ Return Value:
     return st;
 }
 
+
 NTSTATUS
 DbgKdRestoreBreakPoint(
     IN ULONG BreakPointHandle
@@ -1700,6 +1852,12 @@ Return Value:
     PDBGKD_RESTORE_BREAKPOINT a = &m.u.RestoreBreakPoint;
     NTSTATUS st;
     BOOLEAN rc;
+
+
+    if (CrashFileName) {
+        dprintf( "cannot set bps on a crash dump" );
+        return STATUS_UNSUCCESSFUL;
+    }
 
     //
     // Format state manipulate message
@@ -1747,6 +1905,7 @@ Return Value:
     return st;
 }
 
+
 NTSTATUS
 DbgKdReadIoSpace(
     IN PVOID IoAddress,
@@ -1789,6 +1948,12 @@ Return Value:
     PDBGKD_READ_WRITE_IO a = &m.u.ReadWriteIo;
     NTSTATUS st;
     BOOLEAN rc;
+
+
+    if (CrashFileName) {
+        dprintf( "cannot read io space on a crash dump" );
+        return STATUS_UNSUCCESSFUL;
+    }
 
     switch ( DataSize ) {
         case 1:
@@ -1863,6 +2028,7 @@ Return Value:
     return st;
 }
 
+
 NTSTATUS
 DbgKdWriteIoSpace(
     IN PVOID IoAddress,
@@ -1905,6 +2071,12 @@ Return Value:
     PDBGKD_READ_WRITE_IO a = &m.u.ReadWriteIo;
     NTSTATUS st;
     BOOLEAN rc;
+
+
+    if (CrashFileName) {
+        dprintf( "cannot write io space on a crash dump" );
+        return STATUS_UNSUCCESSFUL;
+    }
 
     switch ( DataSize ) {
         case 1:
@@ -1973,6 +2145,208 @@ Return Value:
 
 
 NTSTATUS
+DbgKdReadMsr(
+    IN ULONG MsrReg,
+    OUT PULONGLONG MsrValue
+    )
+
+/*++
+
+Routine Description:
+
+    This function is used read a MSR at the specified location
+
+Arguments:
+
+    MsrReg  - Which model specific register to read
+    MsrValue - It's value
+
+Return Value:
+
+    STATUS_SUCCESS - Data was successfully read from the I/O
+        address.
+
+    STATUS_INVALID_PARAMETER - A DataSize value other than 1,2, or 4 was
+        specified.
+
+    !NT_SUCCESS() - TBD
+
+--*/
+
+{
+    DBGKD_MANIPULATE_STATE m;
+    PDBGKD_MANIPULATE_STATE Reply;
+    PDBGKD_READ_WRITE_MSR a = &m.u.ReadWriteMsr;
+    LARGE_INTEGER li;
+    NTSTATUS st;
+    BOOLEAN rc;
+
+
+    if (CrashFileName) {
+        dprintf( "cannot read MSR space on a crash dump" );
+        return STATUS_UNSUCCESSFUL;
+    }
+
+    //
+    // Format state manipulate message
+    //
+
+    m.ApiNumber = DbgKdReadMachineSpecificRegister;
+    m.ReturnStatus = STATUS_PENDING;
+
+    a->Msr = MsrReg;
+
+    //
+    // Send the message and then wait for reply
+    //
+
+    do {
+        DbgKdpWritePacket(
+            &m,
+            sizeof(m),
+            PACKET_TYPE_KD_STATE_MANIPULATE,
+            NULL,
+            0
+            );
+
+        rc = DbgKdpWaitForPacket(PACKET_TYPE_KD_STATE_MANIPULATE, &Reply);
+    } while (rc == FALSE);
+
+    //
+    // If this is not a ReadIo response than protocol is screwed up.
+    // assert that protocol is ok.
+    //
+
+    st = Reply->ReturnStatus;
+    assert(Reply->ApiNumber == DbgKdReadMachineSpecificRegister);
+
+    //
+    // Reset message address to reply.
+    //
+
+    a = &Reply->u.ReadWriteMsr;
+    st = Reply->ReturnStatus;
+
+    li.LowPart = a->DataValueLow;
+    li.HighPart = a->DataValueHigh;
+    *MsrValue = li.QuadPart;
+
+    //
+    // Check if current command has been canceled.  If yes, go back to
+    // kd prompt.  BUGBUG Do we really need to check for this call?
+    //
+
+    if (DbgKdpCmdCanceled) {
+        longjmp(cmd_return, 1);
+    }
+    return st;
+}
+
+
+NTSTATUS
+DbgKdWriteMsr(
+    IN ULONG MsrReg,
+    IN ULONGLONG MsrValue
+    )
+
+/*++
+
+Routine Description:
+
+    This function is used write a MSR to the specified location
+
+Arguments:
+
+    MsrReg  - Which model specific register to read
+    MsrValue - It's value
+
+Return Value:
+
+    STATUS_SUCCESS - Data was successfully written to the I/O
+        address.
+
+    STATUS_INVALID_PARAMETER - A DataSize value other than 1,2, or 4 was
+        specified.
+
+    !NT_SUCCESS() - TBD
+
+--*/
+
+{
+    DBGKD_MANIPULATE_STATE m;
+    PDBGKD_MANIPULATE_STATE Reply;
+    PDBGKD_READ_WRITE_MSR a = &m.u.ReadWriteMsr;
+    LARGE_INTEGER li;
+    NTSTATUS st;
+    BOOLEAN rc;
+
+
+    if (CrashFileName) {
+        dprintf( "cannot write MSR space on a crash dump" );
+        return STATUS_UNSUCCESSFUL;
+    }
+
+    li.QuadPart = MsrValue;
+
+    //
+    // Format state manipulate message
+    //
+
+    m.ApiNumber = DbgKdWriteMachineSpecificRegister;
+    m.ReturnStatus = STATUS_PENDING;
+
+    a->Msr = MsrReg;
+    a->DataValueLow = li.LowPart;
+    a->DataValueHigh = li.HighPart;
+
+    //
+    // Send the message and then wait for reply
+    //
+
+    do {
+        DbgKdpWritePacket(
+            &m,
+            sizeof(m),
+            PACKET_TYPE_KD_STATE_MANIPULATE,
+            NULL,
+            0
+            );
+
+        rc = DbgKdpWaitForPacket(PACKET_TYPE_KD_STATE_MANIPULATE, &Reply);
+    } while (rc == FALSE);
+
+    //
+    // If this is not a WriteIo response than protocol is screwed up.
+    // assert that protocol is ok.
+    //
+
+    st = Reply->ReturnStatus;
+    assert(Reply->ApiNumber == DbgKdWriteMachineSpecificRegister);
+
+    //
+    // Reset message address to reply.
+    //
+
+    a = &Reply->u.ReadWriteMsr;
+    st = Reply->ReturnStatus;
+
+    //
+    // free the packet
+    //
+
+    //
+    // Check should we return to caller or to kd prompt.
+    //
+
+    if (DbgKdpCmdCanceled) {
+        longjmp(cmd_return, 1);
+    }
+    return st;
+}
+
+
+
+NTSTATUS
 DbgKdReadIoSpaceExtended(
     IN PVOID IoAddress,
     OUT PVOID ReturnedData,
@@ -2025,6 +2399,12 @@ Return Value:
     PDBGKD_READ_WRITE_IO_EXTENDED a = &m.u.ReadWriteIoExtended;
     NTSTATUS st;
     BOOLEAN rc;
+
+
+    if (CrashFileName) {
+        dprintf( "cannot read io space on a crash dump" );
+        return STATUS_UNSUCCESSFUL;
+    }
 
     switch ( DataSize ) {
         case 1:
@@ -2107,6 +2487,7 @@ Return Value:
     return st;
 }
 
+
 NTSTATUS
 DbgKdWriteIoSpaceExtended(
     IN PVOID IoAddress,
@@ -2152,6 +2533,12 @@ Return Value:
     PDBGKD_READ_WRITE_IO_EXTENDED a = &m.u.ReadWriteIoExtended;
     NTSTATUS st;
     BOOLEAN rc;
+
+
+    if (CrashFileName) {
+        dprintf( "cannot write io space on a crash dump" );
+        return STATUS_UNSUCCESSFUL;
+    }
 
     switch ( DataSize ) {
         case 1:
@@ -2226,6 +2613,7 @@ Return Value:
     return st;
 }
 
+
 NTSTATUS
 DbgKdGetVersion (
     PDBGKD_GET_VERSION GetVersion
@@ -2236,6 +2624,12 @@ DbgKdGetVersion (
     PDBGKD_GET_VERSION a = &m.u.GetVersion;
     DWORD st;
     NTSTATUS rc;
+
+
+    if (CrashFileName) {
+        dprintf( "cannot get version packet on a crash dump" );
+        return STATUS_UNSUCCESSFUL;
+    }
 
     m.ApiNumber = DbgKdGetVersionApi;
     m.ReturnStatus = STATUS_PENDING;
@@ -2254,6 +2648,32 @@ DbgKdGetVersion (
 
     return st;
 }
+
+
+NTSTATUS
+DbgKdPageIn(
+    ULONG Address
+    )
+{
+    DBGKD_MANIPULATE_STATE m;
+    PDBGKD_MANIPULATE_STATE Reply;
+    NTSTATUS rc;
+
+
+    ZeroMemory( &m, sizeof(m) );
+    m.ApiNumber = DbgKdPageInApi;
+    m.ReturnStatus = STATUS_PENDING;
+    m.u.PageIn.Address = Address;
+    m.u.PageIn.ContinueStatus = DBG_CONTINUE;
+
+    do {
+      DbgKdpWritePacket(&m,sizeof(m),PACKET_TYPE_KD_STATE_MANIPULATE,NULL,0);
+      rc = DbgKdpWaitForPacket(  PACKET_TYPE_KD_STATE_MANIPULATE, &Reply );
+    } while (rc == FALSE);
+
+    return Reply->ReturnStatus;
+}
+
 
 VOID far
 DbgKdpKbdPollThread(VOID)
@@ -2289,6 +2709,17 @@ DbgKdpKbdPollThread(VOID)
                 chLastCommand[0] = '\0';
                 KdDebug = !KdDebug;
                 continue;
+
+#ifdef _PPC_
+            //
+            // Toggle register names to MIPS or PPC naming conventions
+            //
+            case CONTROL_T:
+
+                chLastCommand[0] = '\0';
+                ToggleRegisterNames();
+                continue;
+#endif
 
             case CONTROL_R:
                 chLastCommand[0] = '\0';
@@ -2327,6 +2758,7 @@ DbgKdpKbdPollThread(VOID)
     }
 }
 
+
 BOOL
 DbgKdpGetConsoleByte(
     PVOID pBuf,
@@ -2336,6 +2768,7 @@ DbgKdpGetConsoleByte(
 {
     return ReadFile(PipeRead,pBuf,cbBuf,pcbBytesRead,NULL);
 }
+
 
 PUCHAR
 DbgKdGets(
@@ -2394,6 +2827,12 @@ Return Value:
 {
     DBGKD_MANIPULATE_STATE m;
 
+
+    if (CrashFileName) {
+        dprintf( "cannot reboot a crash dump" );
+        return STATUS_UNSUCCESSFUL;
+    }
+
     //
     // Format state manipulate message
     //
@@ -2436,6 +2875,11 @@ Return Value:
 {
     DBGKD_MANIPULATE_STATE m;
 
+    if (CrashFileName) {
+        dprintf( "cannot crash a crash dump" );
+        return STATUS_UNSUCCESSFUL;
+    }
+
     //
     // Format state manipulate message
     //
@@ -2454,7 +2898,7 @@ Return Value:
     return STATUS_SUCCESS;
 }
 
-
+
 NTSTATUS
 DbgKdReadPhysicalMemory(
     IN PHYSICAL_ADDRESS TargetBaseAddress,
@@ -2503,77 +2947,109 @@ Return Value:
     PDBGKD_READ_MEMORY a = &m.u.ReadMemory;
     NTSTATUS st;
     BOOLEAN rc;
+    ULONG cb, cb2;
 
-    if ( TransferCount + sizeof(m) > PACKET_MAX_SIZE ) {
-        return STATUS_BUFFER_OVERFLOW;
+    if (CrashFileName) {
+        cb = DmpReadPhysicalMemory( (PVOID)TargetBaseAddress.LowPart, UserInterfaceBuffer, TransferCount );
+        if (ActualBytesRead) {
+            *ActualBytesRead = cb;
         }
+        if (cb == 0) {
+            return STATUS_UNSUCCESSFUL;
+        }
+        return STATUS_SUCCESS;
+    }
 
-    //
-    // Format state manipulate message
-    //
+    if (TransferCount > PACKET_MAX_SIZE) {
+        // Read the partial the first time.
+        cb = TransferCount % PACKET_MAX_SIZE;
+    } else {
+        cb = TransferCount;
+    }
 
-    m.ApiNumber = DbgKdReadPhysicalMemoryApi;
-    m.ReturnStatus = STATUS_PENDING;
-    //
-    // BUGBUG TargetBaseAddress should be >32 bits
-    //
-    a->TargetBaseAddress = (PVOID)TargetBaseAddress.LowPart;
-    a->TransferCount = TransferCount;
-    a->ActualBytesRead = 0L;
-
-    //
-    // Send the message and then wait for reply
-    //
-
-    do {
-        DbgKdpWritePacket(&m,sizeof(m),PACKET_TYPE_KD_STATE_MANIPULATE,NULL,0);
-
-        rc = DbgKdpWaitForPacket(PACKET_TYPE_KD_STATE_MANIPULATE, &Reply);
-    } while (rc == FALSE);
-
-    //
-    // If this is not a ReadMemory response then protocol is screwed up.
-    // assert that protocol is ok.
-    //
-
-    st = Reply->ReturnStatus;
-    assert(Reply->ApiNumber == DbgKdReadPhysicalMemoryApi);
-
-    //
-    // Reset message address to reply.
-    //
-
-    a = &Reply->u.ReadMemory;
-    assert(a->ActualBytesRead <= TransferCount);
-
-    //
-    // Return actual bytes read, and then transfer the bytes
-    //
+    cb2 = 0;
 
     if (ARGUMENT_PRESENT(ActualBytesRead)) {
-        *ActualBytesRead = a->ActualBytesRead;
+        *ActualBytesRead = 0;
     }
-    st = Reply->ReturnStatus;
 
-    //
-    // Since read response data follows message, Reply+1 should point
-    // at the data
-    //
+    while (TransferCount != 0) {
+        //
+        // Format state manipulate message
+        //
 
-    memcpy(UserInterfaceBuffer, Reply+1, (int)a->ActualBytesRead);
+        m.ApiNumber = DbgKdReadPhysicalMemoryApi;
+        m.ReturnStatus = STATUS_PENDING;
+        //
+        // BUGBUG TargetBaseAddress should be >32 bits
+        //
+        a->TargetBaseAddress = (PVOID)(TargetBaseAddress.LowPart+cb2);
+        a->TransferCount = cb;
+        a->ActualBytesRead = 0L;
 
-    //
-    // Check if current command has been canceled.  If yes, go back to
-    // kd prompt.
-    //
+        //
+        // Send the message and then wait for reply
+        //
 
-    if (DbgKdpCmdCanceled) {
-        longjmp(cmd_return, 1);
+        do {
+            DbgKdpWritePacket(&m,sizeof(m),PACKET_TYPE_KD_STATE_MANIPULATE,NULL,0);
+
+            rc = DbgKdpWaitForPacket(PACKET_TYPE_KD_STATE_MANIPULATE, &Reply);
+        } while (rc == FALSE);
+
+        //
+        // If this is not a ReadMemory response then protocol is screwed up.
+        // assert that protocol is ok.
+        //
+
+        st = Reply->ReturnStatus;
+        assert(Reply->ApiNumber == DbgKdReadPhysicalMemoryApi);
+
+        //
+        // Reset message address to reply.
+        //
+
+        a = &Reply->u.ReadMemory;
+        assert(a->ActualBytesRead <= cb);
+
+        //
+        // Return actual bytes read, and then transfer the bytes
+        //
+
+        if (ARGUMENT_PRESENT(ActualBytesRead)) {
+            *ActualBytesRead += a->ActualBytesRead;
+        }
+        st = Reply->ReturnStatus;
+
+        //
+        // Since read response data follows message, Reply+1 should point
+        // at the data
+        //
+
+        memcpy((PCHAR)((DWORD) UserInterfaceBuffer+cb2), Reply+1, (int)a->ActualBytesRead);
+
+        //
+        // Check if current command has been canceled.  If yes, go back to
+        // kd prompt.
+        //
+
+        if (DbgKdpCmdCanceled) {
+            longjmp(cmd_return, 1);
+        }
+
+        if (st != STATUS_SUCCESS) {
+            TransferCount = 0;
+        } else {
+            TransferCount -= cb;
+            cb2 += cb;
+            cb = PACKET_MAX_SIZE;
+        }
     }
+
     return st;
 }
 
-
+
 NTSTATUS
 DbgKdWritePhysicalMemory(
     IN PHYSICAL_ADDRESS TargetBaseAddress,
@@ -2622,70 +3098,101 @@ Return Value:
     PDBGKD_WRITE_MEMORY a = &m.u.WriteMemory;
     NTSTATUS st;
     BOOLEAN rc;
-
-    if ( TransferCount + sizeof(m) > PACKET_MAX_SIZE ) {
-        return STATUS_BUFFER_OVERFLOW;
-        }
+    ULONG cb, cb2;
 
     KdpPurgeCachedVirtualMemory ();
 
-    //
-    // Format state manipulate message
-    //
+    if (CrashFileName) {
+        cb = DmpWritePhysicalMemory( (PVOID)TargetBaseAddress.LowPart, UserInterfaceBuffer, TransferCount );
+        if (ActualBytesWritten) {
+            *ActualBytesWritten = cb;
+        }
+        if (cb == 0) {
+            return STATUS_UNSUCCESSFUL;
+        }
+        return STATUS_SUCCESS;
+    }
 
-    m.ApiNumber = DbgKdWritePhysicalMemoryApi;
-    m.ReturnStatus = STATUS_PENDING;
-    //
-    // BUGBUG TargetBaseAddress should be >32 bits
-    //
-    a->TargetBaseAddress = (PVOID)TargetBaseAddress.LowPart;
-    a->TransferCount = TransferCount;
-    a->ActualBytesWritten = 0L;
+    if (TransferCount > PACKET_MAX_SIZE) {
+        // Read the partial the first time.
+        cb = TransferCount % PACKET_MAX_SIZE;
+    } else {
+        cb = TransferCount;
+    }
 
-    //
-    // Send the message and data to write and then wait for reply
-    //
-
-    do {
-        DbgKdpWritePacket(
-            &m,
-            sizeof(m),
-            PACKET_TYPE_KD_STATE_MANIPULATE,
-            UserInterfaceBuffer,
-            (USHORT)TransferCount
-            );
-
-        rc = DbgKdpWaitForPacket(PACKET_TYPE_KD_STATE_MANIPULATE, &Reply);
-    } while (rc == FALSE);
-
-    //
-    // If this is not a WriteMemory response than protocol is screwed up.
-    // assert that protocol is ok.
-    //
-
-    st = Reply->ReturnStatus;
-    assert(Reply->ApiNumber == DbgKdWritePhysicalMemoryApi);
-
-    //
-    // Reset message address to reply.
-    //
-
-    a = &Reply->u.WriteMemory;
-    assert(a->ActualBytesWritten <= TransferCount);
-
-    //
-    // Return actual bytes written
-    //
+    cb2 = 0;
 
     if (ARGUMENT_PRESENT(ActualBytesWritten)) {
-        *ActualBytesWritten = a->ActualBytesWritten;
+        *ActualBytesWritten = 0;
     }
-    st = Reply->ReturnStatus;
+
+    while (TransferCount != 0) {
+        //
+        // Format state manipulate message
+        //
+
+        m.ApiNumber = DbgKdWritePhysicalMemoryApi;
+        m.ReturnStatus = STATUS_PENDING;
+        //
+        // BUGBUG TargetBaseAddress should be >32 bits
+        //
+        a->TargetBaseAddress = (PVOID)(TargetBaseAddress.LowPart+cb2);
+        a->TransferCount = cb;
+        a->ActualBytesWritten = 0L;
+
+        //
+        // Send the message and data to write and then wait for reply
+        //
+
+        do {
+            DbgKdpWritePacket(
+                &m,
+                sizeof(m),
+                PACKET_TYPE_KD_STATE_MANIPULATE,
+                (PVOID)((DWORD)UserInterfaceBuffer+cb2),
+                (USHORT)cb
+                );
+
+            rc = DbgKdpWaitForPacket(PACKET_TYPE_KD_STATE_MANIPULATE, &Reply);
+        } while (rc == FALSE);
+
+        //
+        // If this is not a WriteMemory response than protocol is screwed up.
+        // assert that protocol is ok.
+        //
+
+        st = Reply->ReturnStatus;
+        assert(Reply->ApiNumber == DbgKdWritePhysicalMemoryApi);
+
+        //
+        // Reset message address to reply.
+        //
+
+        a = &Reply->u.WriteMemory;
+        assert(a->ActualBytesWritten <= cb);
+
+        //
+        // Return actual bytes written
+        //
+
+        if (ARGUMENT_PRESENT(ActualBytesWritten)) {
+            *ActualBytesWritten += a->ActualBytesWritten;
+        }
+        st = Reply->ReturnStatus;
+
+        if (st != STATUS_SUCCESS) {
+            TransferCount = 0;
+        } else {
+            TransferCount -= cb;
+            cb2 += cb;
+            cb = PACKET_MAX_SIZE;
+        }
+    }
 
     return st;
 }
 
-
+
 NTSTATUS
 DbgKdSwitchActiveProcessor (
     IN ULONG ProcessorNumber
@@ -2712,8 +3219,13 @@ Return Value:
 {
     DBGKD_MANIPULATE_STATE m;
 
-    m.ApiNumber   = DbgKdSwitchProcessor;
-    m.Processor   = ProcessorNumber;
+    if (CrashFileName) {
+        dprintf( "cannot change active processors on a crash dump" );
+        return STATUS_UNSUCCESSFUL;
+    }
+
+    m.ApiNumber   = (USHORT)DbgKdSwitchProcessor;
+    m.Processor   = (USHORT)ProcessorNumber;
 
     DbgKdpWritePacket(&m,sizeof(m),PACKET_TYPE_KD_STATE_MANIPULATE,NULL,0);
     KdpPurgeCachedVirtualMemory ();

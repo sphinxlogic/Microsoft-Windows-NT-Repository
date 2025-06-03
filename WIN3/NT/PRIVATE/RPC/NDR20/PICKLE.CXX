@@ -12,11 +12,6 @@ Abstract:
 
 Notes:
 
-    This implementation supports only the little endian.
-
-    If the generic case is needed, change the MsgInit routine as well as
-    all the Decode routines (should call type_from_ndr() routines).
-
 Author:
 
     Ryszard K. Kott (ryszardk)  Oct 10, 1993
@@ -30,20 +25,27 @@ Revision History:
 
 extern "C"
 {
-#include <sysinc.h>
-#include <rpc.h>
-#include <rpcdcep.h>
 #include <ndrp.h>
+#include <rpcdcep.h>
 #include <midles.h>
 
 #include <stdarg.h>
-#include <ndrvargs.h>
-#include <getargs.h>
 #include <malloc.h>
+#include "interp.h"
 }
+
+#if defined( DOS ) && !defined( WIN )
+#pragma code_seg( "NDR20_6" )
+#endif
+
 #include "picklep.hxx"
+#include <util.hxx>     // RpcpCheckHeap
 
 extern const MIDL_FORMAT_STRING __MIDLFormatString;
+
+// DCE puts endianness on the low nibble in the pickling header.
+
+#define NDR_LOCAL_ENDIAN_LOW    (NDR_LOCAL_ENDIAN >> 4)
 
 
 // =======================================================================
@@ -60,13 +62,30 @@ NdrpHandleAllocate(
     So we need near malloc to be within the default segment.
 --*/
 {
+    RPC_STATUS RpcStatus;
+
     if ( pHandle == NULL )
         return( RPC_S_INVALID_ARG );
 
-    #if defined(__RPC_WIN32__)  ||  defined(__RPC_DOS__)
-        *pHandle = new char[ sizeof(MIDL_ES_MESSAGE) ];
-    #else
+    // Rpc mtrt heap allocation initialization (any platform).
+    // This is a macro that returns from NdrpHandleAllocate with
+    // out of memory error when it fails.
+    // It's under an if only to facilitate testing.
+
+    #if  defined (RPC_DELAYED_INITIALIZATION) && !defined(NEWNDR_INTERNAL)
+        
+    RpcStatus = PerformRpcInitialization();
+    if ( RpcStatus != RPC_S_OK )
+        return(RpcStatus);
+
+    #endif // NEWNDR_INTERNAL
+
+    // Now allocate.
+
+    #if defined(__RPC_WIN16__)  // win16 only
         *pHandle = _nmalloc( sizeof(MIDL_ES_MESSAGE) );
+    #else
+        *pHandle = new char[ sizeof(MIDL_ES_MESSAGE) ];
     #endif
 
     if ( *pHandle == NULL )
@@ -83,10 +102,10 @@ MesHandleFree( handle_t  Handle )
 {
     if ( Handle)
         {
-        #if defined(__RPC_WIN32__)  ||  defined(__RPC_DOS__)
-            delete Handle;
-        #else
+        #if defined(__RPC_WIN16__)
             _nfree( Handle );
+        #else
+            delete Handle;
         #endif
         }
     return( RPC_S_OK );
@@ -216,6 +235,9 @@ MesEncodeFixedBufferHandleCreate(
 {
     RPC_STATUS Status;
 
+    if( (long)Buffer & 0x7 )
+        return( RPC_X_INVALID_BUFFER );
+
     if ( (Status = NdrpHandleAllocate( pHandle )) == RPC_S_OK )
         {
         ((PMIDL_ES_MESSAGE) *pHandle)->HandleStyle = MES_FIXED_BUFFER_HANDLE;
@@ -271,6 +293,9 @@ MesDecodeBufferHandleCreate(
     if ( Buffer == NULL  ||
          BufferSize < MES_CTYPE_HEADER_SIZE + 8 )
         return( RPC_S_INVALID_ARG );
+
+    if( (long)Buffer & 0x7 )
+        return( RPC_X_INVALID_BUFFER );
 
     RPC_STATUS Status;
 
@@ -497,7 +522,7 @@ NdrpWritePicklingBuffer(
 {
     PMIDL_STUB_MESSAGE  pStubMsg = &pMesMsg->StubMsg;
 
-    NDR_ASSERT( ! ((long)pStubMsg->Buffer & 0x7), "Analigned buffer" );
+    NDR_ASSERT( ! ((long)pStubMsg->Buffer & 0x7), "Misaligned buffer" );
     NDR_ASSERT( ! (WriteLength & 0x7 ), "Length should be multiple of 8" );
 
     // Write the marshalling buffer.
@@ -540,7 +565,7 @@ NdrpProcHeaderMarshall(
         RpcRaiseException( RPC_X_INVALID_BUFFER );
 
     * pStubMsg->Buffer++ = MIDL_ES_VERSION;
-    * pStubMsg->Buffer++ = NDR_LITTLE_ENDIAN;
+    * pStubMsg->Buffer++ = NDR_LOCAL_ENDIAN_LOW;
     *( PSHORT_LV_CAST pStubMsg->Buffer)++ = (short)0xcccc;    // filler
 
     // Marshall transfer syntax from the stub.
@@ -567,7 +592,7 @@ NdrpProcHeaderMarshall(
 
     pStubMsg->Buffer += 2 * sizeof(RPC_SYNTAX_IDENTIFIER) + sizeof(long);
 
-    * pStubMsg->Buffer++ = NDR_LITTLE_ENDIAN;
+    * pStubMsg->Buffer++ = NDR_LOCAL_ENDIAN_LOW;
     * pStubMsg->Buffer++ = NDR_ASCII_CHAR;
     * pStubMsg->Buffer++ = (char) (NDR_IEEE_FLOAT >> 8);
     * pStubMsg->Buffer++ = 0;   // filler
@@ -600,10 +625,14 @@ NdrpProcHeaderUnmarshall(
 
     BufferToRestore = pStubMsg->Buffer + 4 + sizeof(RPC_SYNTAX_IDENTIFIER);
 
-    byte Endianness = pStubMsg->Buffer[1];
-    if ( Endianness != NDR_LITTLE_ENDIAN )
+    if ( pStubMsg->Buffer[1] != NDR_LOCAL_ENDIAN_LOW )
         {
         // We need to simulate RpcMsg for the conversion routines.
+        // The DCE header has the endianness on the low nibble, while
+        // our DataRep has it on the high nibble.
+        // We need only endianess to convert the proc header.
+
+        byte Endianness = (pStubMsg->Buffer[1] << 4 );
 
         pStubMsg->RpcMsg = &RpcMsg;
         MIDL_memset( &RpcMsg, 0, sizeof(RPC_MESSAGE) );
@@ -626,7 +655,7 @@ NdrpProcHeaderUnmarshall(
     pStubMsg->Buffer += sizeof(RPC_SYNTAX_IDENTIFIER) + sizeof(long);
 
     unsigned long AlienDataRepresentation =
-                        ( pStubMsg->Buffer[0]  |                  // endianness
+                        ( (pStubMsg->Buffer[0] << 4)  |           // endianness
                           pStubMsg->Buffer[1]  |                       // chars
                         ((unsigned long)(pStubMsg->Buffer[2]) << 8) ); // float
     pMesMsg->AlienDataRep = AlienDataRepresentation;
@@ -810,8 +839,11 @@ Note:
 
         LENGTH_ALIGN( pStubMsg->BufferLength, 7 );
 
+        size_t  LengthSaved;
+
         NdrpAllocPicklingBuffer( pMesMsg, pStubMsg->BufferLength );
         BufferSaved = pStubMsg->Buffer;
+        LengthSaved = pStubMsg->BufferLength;
 
         //
         // Marshalling.
@@ -880,6 +912,12 @@ Note:
         * (unsigned long __RPC_FAR *)
                 ( BufferSaved + MES_PROC_HEADER_SIZE - 4) =
                                     WriteLength - MES_PROC_HEADER_SIZE;
+
+        if ( LengthSaved < WriteLength )
+            {
+            NDR_ASSERT( 0, "NdrMesProcEncodeDecode: encode buffer overflow" );
+            RpcRaiseException( RPC_S_INTERNAL_ERROR );
+            }
 
         NdrpWritePicklingBuffer( pMesMsg, BufferSaved, WriteLength );
         }
@@ -970,9 +1008,12 @@ Note:
             ALIGN( pStubMsg->Buffer, 7 );
 
         }   // if decode
-}
 
+    if ( pStubMsg->FullPtrXlatTables )
+        NdrFullPointerXlatFree( pStubMsg->FullPtrXlatTables );
 }
+} // extern C
+
 
 // =======================================================================
 //
@@ -1084,7 +1125,7 @@ NdrpCommonTypeHeaderMarshall(
         MIDL_memset( pStubMsg->Buffer, 0xcc, MES_CTYPE_HEADER_SIZE );
 
         *pStubMsg->Buffer++ = MIDL_ES_VERSION;
-        *pStubMsg->Buffer++ = NDR_LITTLE_ENDIAN;
+        *pStubMsg->Buffer++ = NDR_LOCAL_ENDIAN;
         * PSHORT_CAST pStubMsg->Buffer = MES_CTYPE_HEADER_SIZE;
 
         pStubMsg->Buffer += MES_CTYPE_HEADER_SIZE - 2;
@@ -1128,7 +1169,7 @@ Note:
 --*/
 {
     uchar __RPC_FAR *   pBufferSaved;
-    size_t              RequiredLen, CommonHeaderSize;
+    size_t              RequiredLen, CommonHeaderSize, LengthSaved;
 
     PMIDL_ES_MESSAGE    pMesMsg = (PMIDL_ES_MESSAGE) Handle;
     PMIDL_STUB_MESSAGE  pStubMsg = &pMesMsg->StubMsg;
@@ -1156,6 +1197,7 @@ Note:
     NdrpAllocPicklingBuffer( pMesMsg, RequiredLen );
 
     pBufferSaved = pStubMsg->Buffer;
+    LengthSaved  = RequiredLen;
 
     // See if we need to marshall the common type header
 
@@ -1187,6 +1229,12 @@ Note:
     *(unsigned long __RPC_FAR *)(pBufferSaved + CommonHeaderSize) =
                      WriteLength - CommonHeaderSize - MES_HEADER_SIZE;
 
+    if ( LengthSaved < WriteLength )
+        {
+        NDR_ASSERT( 0, "NdrMesTypeEncode: encode buffer overflow" );
+        RpcRaiseException( RPC_S_INTERNAL_ERROR );
+        }
+
     NdrpWritePicklingBuffer( pMesMsg, pBufferSaved, WriteLength );
 }
 
@@ -1209,17 +1257,23 @@ NdrpCommonTypeHeaderUnmarshall(
         // Check the version number, endianness.
 
         if ( *pStubMsg->Buffer != MIDL_ES_VERSION )
-            RpcRaiseException( RPC_S_INVALID_ARG );
-
-        if ( pStubMsg->Buffer[1] != NDR_LITTLE_ENDIAN )
-            {
             RpcRaiseException( RPC_X_WRONG_ES_VERSION );
 
+        if ( pStubMsg->Buffer[1] == NDR_LOCAL_ENDIAN )
+            {
             // Read the note about endianess at NdrMesTypeDecode.
             //
-            // unsigned char temp = pStubMsg->Buffer[2];
-            // pStubMsg->Buffer[2] = pStubMsg->Buffer[3];
-            // pStubMsg->Buffer[3] = temp;
+            pMesMsg->AlienDataRep = NDR_LOCAL_DATA_REPRESENTATION;
+            }
+        else
+            {
+            unsigned char temp = pStubMsg->Buffer[2];
+            pStubMsg->Buffer[2] = pStubMsg->Buffer[3];
+            pStubMsg->Buffer[3] = temp;
+
+            pMesMsg->AlienDataRep = ( NDR_ASCII_CHAR       |     // chars
+                                      pStubMsg->Buffer[1]  |     // endianness
+                                      NDR_IEEE_FLOAT );          // float
             }
 
         pStubMsg->Buffer += MES_CTYPE_HEADER_SIZE;
@@ -1257,23 +1311,24 @@ Returns:
 Note:
 
     Endianness and other conversions when decoding *types*.
-    This has been deemed as not worthy doing in the Daytona time frame.
-    However, it is fairly easy to do it as it would require only adding
-    a dispatch routine for conversion, similar to NdrConvert, except that
-    it would be based on the pFormat to the type stream.
-    This one could then call a specific NdrConvertFoo routine via the
-    table of conversion routine pointers.
-    To modify the compiler for generating a proc stream for this purpose
-    before daytona has been thought of as unjustified in view of the
-    solution described above.
-    Also note that a type pickling can be changed into a proc pickling
-    easily; the proc pickling has a conversion solution already.
+    Starting with Mac implementation, types have a conversion that
+    takes care of different endianness. ASCII and VAX_FLOAT are still
+    assummed for types.
+    Common header conveys the endianness information. The handle gets the
+    endian info from the common header and so when decoding types, the
+    handle is used to check if the conversion is needed.
+
+    We cannot convert the whole buffer at the time of processing the common
+    header as the buffer may not be there yet (for incremental handle).
+
 --*/
 {
     size_t              RequiredLen;
+    RPC_MESSAGE         RpcMsg;
 
     PMIDL_ES_MESSAGE    pMesMsg = (PMIDL_ES_MESSAGE) Handle;
     PMIDL_STUB_MESSAGE  pStubMsg = &pMesMsg->StubMsg;
+    uchar *             BufferSaved;
 
     if ( ! pObject )
         RpcRaiseException( RPC_X_NULL_REF_POINTER );
@@ -1290,18 +1345,109 @@ Note:
 
     NdrpReadPicklingBuffer( pMesMsg, MES_HEADER_SIZE );
 
-    // Reading the object
+    // Reading the object. Get the length of the buffer first.
+
+    if ( pMesMsg->AlienDataRep != NDR_LOCAL_DATA_REPRESENTATION )
+        {
+        pStubMsg->RpcMsg = &RpcMsg;
+        MIDL_memset( &RpcMsg, 0, sizeof(RPC_MESSAGE) );
+        RpcMsg.DataRepresentation = pMesMsg->AlienDataRep;
+        
+        BufferSaved = pStubMsg->Buffer;
+        NdrSimpleTypeConvert( pStubMsg, FC_LONG );
+        pStubMsg->Buffer = BufferSaved;
+        }
 
     RequiredLen = (size_t) *(unsigned long __RPC_FAR *)pStubMsg->Buffer;
     pStubMsg->Buffer += MES_HEADER_SIZE;
 
     NdrpReadPicklingBuffer( pMesMsg, RequiredLen );
 
-    // Conversion would go in here.
+    // Now the conversion of the object, if needed.
+
+    if ( pMesMsg->AlienDataRep != NDR_LOCAL_DATA_REPRESENTATION )
+        {
+        BufferSaved = pStubMsg->Buffer;
+        (*pfnConvertRoutines[ ROUTINE_INDEX( *pFormat) ])
+            ( pStubMsg,
+              pFormat,
+              FALSE );
+        pStubMsg->Buffer = BufferSaved;
+        }
+
     // Unmarshalling.
 
     pStubMsg->pfnAllocate = pStubDesc->pfnAllocate;
     pStubMsg->pfnFree     = pStubDesc->pfnFree;
+
+    void * pArg = pObject;
+
+    if ( IS_POINTER_TYPE(*pFormat) )
+        {
+        // We have to dereference the pointer once.
+        //
+        pArg = *(void **)pArg;
+        }
+
+    (*pfnUnmarshallRoutines[ ROUTINE_INDEX( *pFormat )])
+                            ( pStubMsg,
+                              (uchar __RPC_FAR * __RPC_FAR *)&pArg,
+                              pFormat,
+                              FALSE );
+
+    if ( IS_POINTER_TYPE(*pFormat) )
+        {
+        // Don't drop the pointee, if it was allocated.
+
+        *(void **)pObject = pArg;
+        }
+
+    // Next decoding needs to start at aligned to 8.
+
+    ALIGN( pStubMsg->Buffer, 7 );
+}
+
+void  RPC_ENTRY
+NdrMesTypeFree(
+    handle_t            Handle,
+    PMIDL_STUB_DESC     pStubDesc,
+    PFORMAT_STRING      pFormat,
+    void __RPC_FAR *    pObject
+    )
+/*++
+
+Routine description:
+
+    Free the object.
+
+Arguments:
+
+    Handle      - a pickling handle,
+    pStubDesc   - a pointer to the stub descriptor,
+    pFormat     - a pointer to the format code describing the object type
+    pObject     - a pointer to the object being freed.
+
+Returns:
+
+Note:
+
+    The pickling header is included in the sizing.
+
+--*/
+{
+    PMIDL_STUB_MESSAGE  pStubMsg = &((PMIDL_ES_MESSAGE)Handle)->StubMsg;
+
+    if ( ! pObject )
+        RpcRaiseException( RPC_X_NULL_REF_POINTER );
+
+    if( (long)pStubMsg->Buffer & 0x7 )
+        RpcRaiseException( RPC_X_INVALID_BUFFER );
+
+    pStubMsg->StubDesc = pStubDesc;
+    pStubMsg->pfnAllocate = pStubDesc->pfnAllocate;
+    pStubMsg->pfnFree     = pStubDesc->pfnFree;
+
+    // Now the individual type object.
 
     if ( IS_POINTER_TYPE(*pFormat) )
         {
@@ -1309,17 +1455,11 @@ Note:
         pObject = *(void __RPC_FAR * __RPC_FAR *)pObject;
         }
 
-    (*pfnUnmarshallRoutines[ ROUTINE_INDEX( *pFormat )])
-                            ( pStubMsg,
-                              (uchar __RPC_FAR * __RPC_FAR *)&pObject,
-                              pFormat,
-                              FALSE );
-
-    // Next decoding needs to start at aligned to 8.
-
-    ALIGN( pStubMsg->Buffer, 7 );
+    (*pfnFreeRoutines[ ROUTINE_INDEX(*pFormat) ])
+                                        ( pStubMsg,
+                                        (uchar __RPC_FAR *)pObject,
+                                        pFormat );
 }
-
 
 
 // =======================================================================
@@ -1438,7 +1578,10 @@ NdrMesSimpleTypeDecode(
     This makes it possible to call NdrSimpleTypeConvert, if needed.
 --*/
 {
+    PMIDL_ES_MESSAGE    pMesMsg = (PMIDL_ES_MESSAGE) Handle;
     PMIDL_STUB_MESSAGE  pStubMsg = &((PMIDL_ES_MESSAGE)Handle)->StubMsg;
+    RPC_MESSAGE         RpcMsg;
+    uchar *             BufferSaved;
 
     // See if we need to unmarshall the common type header.
 
@@ -1448,7 +1591,16 @@ NdrMesSimpleTypeDecode(
 
     NdrpReadPicklingBuffer( (PMIDL_ES_MESSAGE) Handle, 8);
 
-    // Needed because of the plug for the data conversion.
+    if ( pMesMsg->AlienDataRep != NDR_LOCAL_DATA_REPRESENTATION )
+        {
+        pStubMsg->RpcMsg = &RpcMsg;
+        MIDL_memset( &RpcMsg, 0, sizeof(RPC_MESSAGE) );
+        RpcMsg.DataRepresentation = pMesMsg->AlienDataRep;
+        
+        BufferSaved = pStubMsg->Buffer;
+        NdrSimpleTypeConvert( pStubMsg, (unsigned char)FormatChar );
+        pStubMsg->Buffer = BufferSaved;
+        }
 
     switch ( FormatChar )
         {
@@ -1548,4 +1700,3 @@ static const MIDL_FORMAT_STRING __MIDLFormatString =
     };
 
 
-

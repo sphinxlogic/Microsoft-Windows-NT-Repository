@@ -21,6 +21,8 @@ Environment:
 
 Revision History:
 
+    Cheng Yang (t-cheny)  18-Jun-1996  superscope
+
 --*/
 
 #ifndef _DHCPAPI_
@@ -463,6 +465,9 @@ typedef struct _DHCP_MIB_INFO {
 #define Set_RestoreFlag                 0x00000040
 #define Set_DatabaseCleanupInterval     0x00000080
 #define Set_DebugFlag                   0x00000100
+#define Set_PingRetries                 0x00000200
+#define Set_BootFileTable               0x00000400
+#define Set_AuditLogState               0x00000800
 
 typedef struct _DHCP_SERVER_CONFIG_INFO {
     DWORD APIProtocolSupport;       // bit map of the protocols supported.
@@ -475,6 +480,24 @@ typedef struct _DHCP_SERVER_CONFIG_INFO {
     DWORD DatabaseCleanupInterval;  // Database Cleanup Interval in mins.
     DWORD DebugFlag;                // Bit map of server debug flags.
 } DHCP_SERVER_CONFIG_INFO, *LPDHCP_SERVER_CONFIG_INFO;
+
+typedef enum _DHCP_SCAN_FLAG {
+    DhcpRegistryFix,
+    DhcpDatabaseFix
+} DHCP_SCAN_FLAG, *LPDHCP_SCAN_FLAG;
+
+typedef struct _DHCP_SCAN_ITEM {
+    DHCP_IP_ADDRESS IpAddress;
+    DHCP_SCAN_FLAG ScanFlag;
+} DHCP_SCAN_ITEM, *LPDHCP_SCAN_ITEM;
+
+typedef struct _DHCP_SCAN_LIST {
+    DWORD NumScanItems;
+#if defined(MIDL_PASS)
+    [size_is(NumScanItems)]
+#endif // MIDL_PASS
+        DHCP_SCAN_ITEM *ScanItems;     // array
+} DHCP_SCAN_LIST, *LPDHCP_SCAN_LIST;
 
 //
 // API proto types
@@ -698,9 +721,258 @@ DhcpServerGetConfig(
     LPDHCP_SERVER_CONFIG_INFO *ConfigInfo
     );
 
+
+DWORD DHCP_API_FUNCTION
+DhcpScanDatabase(
+    DHCP_CONST WCHAR *ServerIpAddress,
+    DHCP_IP_ADDRESS SubnetAddress,
+    DWORD FixFlag,
+    LPDHCP_SCAN_LIST *ScanList
+    );
+
 VOID DHCP_API_FUNCTION
 DhcpRpcFreeMemory(
     PVOID BufferPointer
     );
 
+DWORD DHCP_API_FUNCTION
+DhcpGetVersion(
+    LPWSTR ServerIpAddress,
+    LPDWORD MajorVersion,
+    LPDWORD MinorVersion
+    );
+
+//
+// new structures for NT4SP1
+//
+
+typedef struct _DHCP_IP_RESERVATION_V4 {
+    DHCP_IP_ADDRESS  ReservedIpAddress;
+    DHCP_CLIENT_UID *ReservedForClient;
+    BYTE             bAllowedClientTypes;
+} DHCP_IP_RESERVATION_V4, *LPDHCP_IP_RESERVATION_V4;
+
+typedef struct _DHCP_SUBNET_ELEMENT_DATA_V4 {
+    DHCP_SUBNET_ELEMENT_TYPE ElementType;
+#if defined(MIDL_PASS)
+    [switch_is(ElementType), switch_type(DHCP_SUBNET_ELEMENT_TYPE)]
+    union _DHCP_SUBNET_ELEMENT_UNION_V4 {
+        [case(DhcpIpRanges)] DHCP_IP_RANGE *IpRange;
+        [case(DhcpSecondaryHosts)] DHCP_HOST_INFO *SecondaryHost;
+        [case(DhcpReservedIps)] DHCP_IP_RESERVATION_V4 *ReservedIp;
+        [case(DhcpExcludedIpRanges)] DHCP_IP_RANGE *ExcludeIpRange;
+        [case(DhcpIpUsedClusters)] DHCP_IP_CLUSTER *IpUsedCluster;
+        [default] ;
+    } Element;
+#else
+    union _DHCP_SUBNET_ELEMENT_UNION_V4 {
+        DHCP_IP_RANGE *IpRange;
+        DHCP_HOST_INFO *SecondaryHost;
+        DHCP_IP_RESERVATION_V4 *ReservedIp;
+        DHCP_IP_RANGE *ExcludeIpRange;
+        DHCP_IP_CLUSTER *IpUsedCluster;
+    } Element;
+#endif // MIDL_PASS
+} DHCP_SUBNET_ELEMENT_DATA_V4, *LPDHCP_SUBNET_ELEMENT_DATA_V4;
+
+#if !defined(MIDL_PASS)
+typedef union _DHCP_SUBNET_ELEMENT_UNION_V4
+    DHCP_SUBNET_ELEMENT_UNION_V4, *LPDHCP_SUBNET_ELEMENT_UNION_V4;
+#endif
+
+typedef struct _DHCP_SUBNET_ELEMENT_INFO_ARRAY_V4 {
+    DWORD NumElements;
+#if defined(MIDL_PASS)
+    [size_is(NumElements)]
+#endif // MIDL_PASS
+    LPDHCP_SUBNET_ELEMENT_DATA_V4 Elements; //array
+} DHCP_SUBNET_ELEMENT_INFO_ARRAY_V4, *LPDHCP_SUBNET_ELEMENT_INFO_ARRAY_V4;
+
+
+// DHCP_CLIENT_INFO:bClientType
+
+#define CLIENT_TYPE_UNSPECIFIED     0x0 // for backward compatibility
+#define CLIENT_TYPE_DHCP            0x1
+#define CLIENT_TYPE_BOOTP           0x2
+#define CLIENT_TYPE_BOTH    ( CLIENT_TYPE_DHCP | CLIENT_TYPE_BOOTP )
+#define CLIENT_TYPE_NONE            0x64
+#define BOOT_FILE_STRING_DELIMITER  ','
+#define BOOT_FILE_STRING_DELIMITER_W L','
+
+
+typedef struct _DHCP_CLIENT_INFO_V4 {
+    DHCP_IP_ADDRESS ClientIpAddress;    // currently assigned IP address.
+    DHCP_IP_MASK SubnetMask;
+    DHCP_CLIENT_UID ClientHardwareAddress;
+    LPWSTR ClientName;                  // optional.
+    LPWSTR ClientComment;
+    DATE_TIME ClientLeaseExpires;       // UTC time in FILE_TIME format.
+    DHCP_HOST_INFO OwnerHost;           // host that distributed this IP address.
+    //
+    // new fields for NT4SP1
+    //
+
+    BYTE   bClientType;          // CLIENT_TYPE_DHCP | CLIENT_TYPE_BOOTP |
+                                 // CLIENT_TYPE_NONE
+} DHCP_CLIENT_INFO_V4, *LPDHCP_CLIENT_INFO_V4;
+
+typedef struct _DHCP_CLIENT_INFO_ARRAY_V4 {
+    DWORD NumElements;
+#if defined(MIDL_PASS)
+    [size_is(NumElements)]
+#endif // MIDL_PASS
+        LPDHCP_CLIENT_INFO_V4 *Clients; // array of pointers
+} DHCP_CLIENT_INFO_ARRAY_V4, *LPDHCP_CLIENT_INFO_ARRAY_V4;
+
+
+typedef struct _DHCP_SERVER_CONFIG_INFO_V4 {
+    DWORD APIProtocolSupport;       // bit map of the protocols supported.
+    LPWSTR DatabaseName;            // JET database name.
+    LPWSTR DatabasePath;            // JET database path.
+    LPWSTR BackupPath;              // Backup path.
+    DWORD BackupInterval;           // Backup interval in mins.
+    DWORD DatabaseLoggingFlag;      // Boolean database logging flag.
+    DWORD RestoreFlag;              // Boolean database restore flag.
+    DWORD DatabaseCleanupInterval;  // Database Cleanup Interval in mins.
+    DWORD DebugFlag;                // Bit map of server debug flags.
+
+    // new fields for NT4 SP1
+
+    DWORD  dwPingRetries;           // valid range: 0-5 inclusive
+    DWORD  cbBootTableString;
+#if defined( MIDL_PASS )
+    [ size_is( cbBootTableString ) ]
+#endif
+    WCHAR  *wszBootTableString;
+    BOOL   fAuditLog;               // TRUE to enable audit log
+
+} DHCP_SERVER_CONFIG_INFO_V4, *LPDHCP_SERVER_CONFIG_INFO_V4;
+
+
+//
+// superscope info structure  (added by t-cheny)
+//
+
+typedef struct _DHCP_SUPER_SCOPE_TABLE_ENTRY {
+    DHCP_IP_ADDRESS SubnetAddress; // subnet address
+    DWORD  SuperScopeNumber;       // super scope group number
+    DWORD  NextInSuperScope;       // index of the next subnet in the superscope
+    LPWSTR SuperScopeName;         // super scope name
+                                   // NULL indicates no superscope membership.
+} DHCP_SUPER_SCOPE_TABLE_ENTRY, *LPDHCP_SUPER_SCOPE_TABLE_ENTRY;
+
+
+typedef struct _DHCP_SUPER_SCOPE_TABLE
+{
+    DWORD cEntries;
+#if defined( MIDL_PASS )
+    [ size_is( cEntries ) ]
+#endif;
+    DHCP_SUPER_SCOPE_TABLE_ENTRY *pEntries;
+} DHCP_SUPER_SCOPE_TABLE, *LPDHCP_SUPER_SCOPE_TABLE;
+
+//
+// NT4SP1 RPC interface
+//
+
+DWORD DHCP_API_FUNCTION
+DhcpAddSubnetElementV4(
+    DHCP_CONST WCHAR *ServerIpAddress,
+    DHCP_IP_ADDRESS SubnetAddress,
+    DHCP_CONST DHCP_SUBNET_ELEMENT_DATA_V4 * AddElementInfo
+    );
+
+DWORD DHCP_API_FUNCTION
+DhcpEnumSubnetElementsV4(
+    DHCP_CONST WCHAR *ServerIpAddress,
+    DHCP_IP_ADDRESS SubnetAddress,
+    DHCP_SUBNET_ELEMENT_TYPE EnumElementType,
+    DHCP_RESUME_HANDLE *ResumeHandle,
+    DWORD PreferredMaximum,
+    LPDHCP_SUBNET_ELEMENT_INFO_ARRAY_V4 *EnumElementInfo,
+    DWORD *ElementsRead,
+    DWORD *ElementsTotal
+    );
+
+DWORD DHCP_API_FUNCTION
+DhcpRemoveSubnetElementV4(
+    DHCP_CONST WCHAR *ServerIpAddress,
+    DHCP_IP_ADDRESS SubnetAddress,
+    DHCP_CONST DHCP_SUBNET_ELEMENT_DATA_V4 * RemoveElementInfo,
+    DHCP_FORCE_FLAG ForceFlag
+    );
+
+
+ DWORD DHCP_API_FUNCTION
+DhcpCreateClientInfoV4(
+    DHCP_CONST WCHAR *ServerIpAddress,
+    DHCP_CONST DHCP_CLIENT_INFO_V4 *ClientInfo
+    );
+
+
+DWORD DHCP_API_FUNCTION
+DhcpSetClientInfoV4(
+    DHCP_CONST WCHAR *ServerIpAddress,
+    DHCP_CONST DHCP_CLIENT_INFO_V4 *ClientInfo
+    );
+
+
+DWORD DHCP_API_FUNCTION
+DhcpGetClientInfoV4(
+    DHCP_CONST WCHAR *ServerIpAddress,
+    DHCP_CONST DHCP_SEARCH_INFO *SearchInfo,
+    LPDHCP_CLIENT_INFO_V4 *ClientInfo
+    );
+
+
+DWORD DHCP_API_FUNCTION
+DhcpEnumSubnetClientsV4(
+    DHCP_CONST WCHAR *ServerIpAddress,
+    DHCP_IP_ADDRESS SubnetAddress,
+    DHCP_RESUME_HANDLE *ResumeHandle,
+    DWORD PreferredMaximum,
+    LPDHCP_CLIENT_INFO_ARRAY_V4 *ClientInfo,
+    DWORD *ClientsRead,
+    DWORD *ClientsTotal
+    );
+
+
+DWORD DHCP_API_FUNCTION
+DhcpServerSetConfigV4(
+    DHCP_CONST WCHAR *ServerIpAddress,
+    DWORD FieldsToSet,
+    LPDHCP_SERVER_CONFIG_INFO_V4 ConfigInfo
+    );
+
+DWORD DHCP_API_FUNCTION
+DhcpServerGetConfigV4(
+    DHCP_CONST WCHAR *ServerIpAddress,
+    LPDHCP_SERVER_CONFIG_INFO_V4 *ConfigInfo
+    );
+
+
+DWORD
+DhcpSetSuperScopeV4(
+    DHCP_CONST WCHAR *ServerIpAddress,
+    DHCP_CONST DHCP_IP_ADDRESS SubnetAddress,
+    DHCP_CONST LPWSTR SuperScopeName,
+    DHCP_CONST BOOL ChangeExisting
+    );
+
+DWORD
+DhcpDeleteSuperScopeV4(
+    DHCP_CONST WCHAR *ServerIpAddress,
+    DHCP_CONST LPWSTR SuperScopeName
+    );
+
+DWORD
+DhcpGetSuperScopeInfoV4(
+    DHCP_CONST WCHAR *ServerIpAddress,
+    LPDHCP_SUPER_SCOPE_TABLE *SuperScopeTable
+    );
+
+
+
+
 #endif // _DHCPAPI_
+

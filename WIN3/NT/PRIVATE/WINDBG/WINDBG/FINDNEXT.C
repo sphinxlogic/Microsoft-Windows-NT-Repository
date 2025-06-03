@@ -97,7 +97,7 @@ DlgFindNext(
               frMem.exitModelessFind = TRUE;
               return TRUE;
 
-          case IDHELP :
+          case IDWINDBGHELP :
               Dbg(WinHelp(hDlg,szHelpFileName, HELP_CONTEXT, ID_FINDNEXT_HELP));
               return TRUE;
         }

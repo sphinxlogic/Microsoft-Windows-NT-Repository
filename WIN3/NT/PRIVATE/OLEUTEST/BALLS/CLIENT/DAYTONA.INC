@@ -8,36 +8,26 @@ Module Name:
 
 Abstract:
 
-    This file specifies the target component being built and the list of
-    sources files needed to build that component.  Also specifies optional
-    compiler switches and libraries that are unique for the component being
-    built.
-
-
-Author:
- 
-    David Plummer (davepl)   19-Mar-94
- 
-        Modifed by via awk to include global project include file
-        and to wrap precompiled header line within a conditional
-        that can be set in this include file.
-
-    Donna Liu (DonnaLi) 19-Dec-1993
+    This file specifies the general build options for this subtree.
 
 !ENDIF
 
+MAJORCOMP   = oletest
+MINORCOMP   = com
 
 !include      ..\..\..\daytona.inc
 
-INCLUDES=     ..\;..\..\..\oleprx32\daytona;..\..\..\common;..\..\..\..\..\cinc;
+INCLUDES=     ;..;$(OLEBALLSDIR)\common;
+INCLUDES=     $(INCLUDES);$(OLEUTESTDIR)\balls\oleprx32\daytona
 
 UMTYPE=       windows
 UMENTRY=      winmain
 UMAPPL=
 UMTEST=
-UMLIBS=	      ..\..\..\oleprx32\daytona\obj\*\uuid.lib	   \
-	      ..\..\..\common\daytona\obj\*\servers.lib	   \
-	      $(BASEDIR)\private\cairole\com\port\daytona\obj\*\port.lib   \
+
+UMLIBS=       $(OLEBALLSDIR)\common\daytona\obj\*\servers.lib	\
+	      $(OLEUTESTDIR)\balls\oleprx32\uuid\daytona\obj\*\uuid.lib	   \
+	      $(OLEDIR)\common\daytona\obj\*\common.lib	   \
 	      $(BASEDIR)\public\sdk\lib\*\uuid.lib	   \
 	      $(BASEDIR)\public\sdk\lib\*\ole32.lib	   \
               $(BASEDIR)\public\sdk\lib\*\rpcndr.lib       \

@@ -21,7 +21,6 @@
 #include <commctrl.h>
 
 extern HINSTANCE hInst;
-extern BOOL bJapan;
 
 BOOL FAR PASCAL InitToolbarClass(HINSTANCE hInstance);
 
@@ -68,9 +67,8 @@ void FAR PASCAL NewSize(HWND hWnd, int nClientHeight, LONG style,
 #define IDC_RESET       202
 #define IDC_CURRENT     203
 #define IDC_REMOVE      204
-#define IDC_HELP        205
-#define IDC_MOVEUP      206
-#define IDC_MOVEDOWN    207
+#define IDC_MOVEUP      205
+#define IDC_MOVEDOWN    206
 
 /* bitmap IDs
  */
@@ -172,4 +170,3 @@ extern DWORD rgbFace;         // globals used a lot
 extern DWORD rgbShadow;
 extern DWORD rgbHilight;
 extern DWORD rgbFrame;
-

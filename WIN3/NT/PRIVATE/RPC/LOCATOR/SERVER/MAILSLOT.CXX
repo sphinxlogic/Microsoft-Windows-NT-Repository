@@ -25,8 +25,6 @@ Author:
 #include <ntrtl.h>
 
 
-defModule
-
 
 WRITE_MAIL_SLOT::WRITE_MAIL_SLOT(
     IN PUZ NameI,
@@ -77,7 +75,7 @@ Arguments:
     RtlInitUnicodeString(&unicodestring, Buffer);
 
     InitializeObjectAttributes(&objectattributes, &unicodestring,
-				 OBJ_CASE_INSENSITIVE, 0, 0);
+                 OBJ_CASE_INSENSITIVE, 0, 0);
     status = NtOpenFile(&hHandle,
                 GENERIC_WRITE | SYNCHRONIZE,
                 &objectattributes, &iostatus,
@@ -116,7 +114,7 @@ WRITE_MAIL_SLOT::Write(
 
 Routine Description:
 
-    Write data to a mailslot.	The mailslot is created with sync attributes,
+    Write data to a mailslot.   The mailslot is created with sync attributes,
     so there is no need to wait for the operation.
 
 Arguments:
@@ -136,7 +134,7 @@ Returns:
 
     DLIST(3, "**\n ==a write of **" << Size << " Bytes**\n");
     return(NT_ERROR(NtWriteFile(hHandle, 0, 0, 0,
-				&iostatus, Buffer, Size,0,0)));
+                &iostatus, Buffer, Size,0,0)));
 }
 
 
@@ -169,7 +167,7 @@ Arguments:
     UNICODE_STRING unicodestring;
     UICHAR Buffer[200];
 
-    Size = SizeI;	// max buffer size for reads
+    Size = SizeI;   // max buffer size for reads
     hHandle = 0;
 
     // Form the name of the READ_MAIL_SLOT.  For Write, we open an name to the
@@ -185,7 +183,7 @@ Arguments:
     RtlInitUnicodeString(&unicodestring, Buffer);
 
     InitializeObjectAttributes(&objectattributes, &unicodestring,
-				 OBJ_CASE_INSENSITIVE, 0, 0);
+                 OBJ_CASE_INSENSITIVE, 0, 0);
 
     status = NtCreateMailslotFile(&hHandle,
                 GENERIC_READ | SYNCHRONIZE,
@@ -270,28 +268,28 @@ Returns:
        }
 */
 
-    if (status == STATUS_PENDING) 
+    if (status == STATUS_PENDING)
       {
-	// Read was not satisified, so wait the reqested period.
-	// Convert to 10,000 from 1,000 of a seconds.
+    // Read was not satisified, so wait the reqested period.
+    // Convert to 10,000 from 1,000 of a seconds.
 
         Time = RtlEnlargedIntegerMultiply(-10000, TimeOut);
 
         do {
-	     status = NtWaitForSingleObject(hHandle,
-				            TRUE, 
+         status = NtWaitForSingleObject(hHandle,
+                            TRUE,
                                             (TimeOut == -1)? 0: &Time);
 /*
 
-             DLIST(3, "Thread " << Id << "status from WtFSnglO= on hndl " << 
+             DLIST(3, "Thread " << Id << "status from WtFSnglO= on hndl " <<
                        h << " ret "  << status << " \n");
-            
+
              if (!status)
                 {
                  DLIST ( 3, "Thread " << Id <<
-                            "info on read on hndl " << h << 
+                            "info on read on hndl " << h <<
                             "iostatus info = " << iostatus.Information <<
-                            "iostatus status  = " << iostatus.Status << "\n"); 
+                            "iostatus status  = " << iostatus.Status << "\n");
                 }
 */
 
@@ -315,12 +313,12 @@ Returns:
       {
          SizeOut = 0;
       }
-    else 
+    else
      {
         SizeOut = (int) iostatus.Information;
         status  =     iostatus.Status;
      }
-    
+
     if ((SizeOut == 0) && (status != STATUS_TIMEOUT))
      {
       DLIST(3, "\n\n Serious Problem Dude - 0ByteRead\n\n");
@@ -334,7 +332,7 @@ Returns:
 
     if (!status)
         DLIST(3, "Read .." << SizeOut << "..Bytes\n");
- 
+
     SerializeReaders.Clear();
 
     return(NT_ERROR(status) || status == STATUS_TIMEOUT);

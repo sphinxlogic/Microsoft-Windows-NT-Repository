@@ -70,6 +70,7 @@ HCURSOR         ghCursor[2];                        // 0 = arrow, 1 = hourglass
 HANDLE          ghMemUpdateEvent;                   // to signal a refresh of mem stats
 HANDLE          ghMemUpdateMutex;                   // to restrict overlapping refreshes
 
+HINSTANCE       ghInstance;                         // handle for pviewer app
 
 
 
@@ -127,6 +128,9 @@ HANDLE  hWndDialog;
 MSG     msg;
 
 
+    ghInstance = hInstance;
+
+
     // load our default cursors
     //
     ghCursor[0] = LoadCursor (0, IDC_ARROW);
@@ -139,11 +143,6 @@ MSG     msg;
                                     NULL,
                                     (DLGPROC) PviewDlgProc,
                                     (LONG)0);
-
-    // associate the icon with our window
-    //
-    SetClassLong (hWndDialog, GCL_HICON, (LONG)LoadIcon(hInstance, TEXT("VIEWPICON")) );
-
 
     // the almighty Windows message loop:
     //
@@ -188,6 +187,7 @@ MSG     Msg;
         {
 
         case WM_INITDIALOG:
+            SetClassLong (hWnd, GCL_HICON, (LONG)LoadIcon(ghInstance, TEXT("VIEWPICON")) );
             SetListBoxTabStops (hWnd);
             SendDlgItemMessage (hWnd, PVIEW_COMPUTER, EM_LIMITTEXT, MACHINE_NAME_LEN, 0);
             PostMessage (hWnd, WM_COMMAND, PVIEW_REFRESH, 0);

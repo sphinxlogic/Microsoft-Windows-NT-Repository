@@ -144,7 +144,7 @@ zspawnp (
 
     KbdMode = KbGetMode();
 	prespawn (CE_VM);
-	i = fCmd ? spawnlp (P_WAIT, (char *)p, (char *)p, NULL) : system (p);
+	i = fCmd ? _spawnlp (P_WAIT, (char *)p, (char *)p, NULL) : system (p);
     postspawn ((flagType)(!mtest () && fAskRtn && (i != -1) && fAsk));
     // Hook the keyboard
     KbHook();

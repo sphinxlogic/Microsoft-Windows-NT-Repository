@@ -650,4 +650,4 @@ if( vmsgLast.wParam == VK_EXECUTE )
     }	/* End of for ( ;; ) loop to process messages */
 }
 #endif	/* ifdef KOREA */
-
+

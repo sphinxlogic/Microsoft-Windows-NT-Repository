@@ -185,8 +185,8 @@ Return Value:
     LONG RegStatus;
 
     ULONG DllNumber;
-    PSUBAUTHENTICATION_DLL SubAuthenticationDll;
-    PSUBAUTHENTICATION_ROUTINE SubAuthenticationRoutine;
+    PSUBAUTHENTICATION_DLL SubAuthenticationDll = NULL;
+    PSUBAUTHENTICATION_ROUTINE SubAuthenticationRoutine = NULL;
 
     PNETLOGON_LOGON_IDENTITY_INFO LogonInfo;
     BOOLEAN CritSectLocked = FALSE;
@@ -341,12 +341,20 @@ Return Value:
         }
 
         //
-        // Find the SubAuthenticationRoutine
+        // Find the SubAuthenticationRoutine. For packages other than
+        // zero, this will be Msv1_0SubauthenticationRoutine. For packge
+        // zero it will be Msv1_0SubauthenticationFilter.
         //
 
+        if (DllNumber == 0) {
+            SubAuthenticationRoutine = (PSUBAUTHENTICATION_ROUTINE)
+                GetProcAddress(DllHandle, "Msv1_0SubAuthenticationFilter");
 
-        SubAuthenticationRoutine = (PSUBAUTHENTICATION_ROUTINE)
-            GetProcAddress(DllHandle, "Msv1_0SubAuthenticationRoutine");
+        } else {
+            SubAuthenticationRoutine = (PSUBAUTHENTICATION_ROUTINE)
+                GetProcAddress(DllHandle, "Msv1_0SubAuthenticationRoutine");
+
+        }
 
         if ( SubAuthenticationRoutine == NULL ) {
             KdPrint(( "MSV1_0: Cannot find required entry point in %s %ld.\n",
@@ -406,6 +414,16 @@ Return Value:
     //
 
 Cleanup:
+
+    //
+    // If this was package zero and we didn't find it, remember it for
+    // next time.
+    //
+
+    if (!NT_SUCCESS(Status) && (DllNumber == 0) && (SubAuthenticationDll == NULL)) {
+        NlpSubAuthZeroExists = FALSE;
+        Status = STATUS_SUCCESS;
+    }
 
     if ( BaseHandle != NULL ) {
         RegCloseKey( BaseHandle );

@@ -97,6 +97,7 @@ typedef struct IPRouteEntry {
 	ulong		ire_age;
 	ulong		ire_mask;
 	ulong		ire_metric5;
+	void		*ire_context;
 } IPRouteEntry;
 
 typedef struct AddrXlatInfo {
@@ -148,4 +149,3 @@ typedef struct IPInterfaceInfo {
 #define IP_INTFC_INFO_ID                0x103
 
 #endif // IPINFO_INCLUDED
-

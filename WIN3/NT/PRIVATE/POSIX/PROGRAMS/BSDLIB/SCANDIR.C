@@ -52,6 +52,8 @@ static char sccsid[] = "@(#)scandir.c	5.10 (Berkeley) 2/23/91";
 #include <stdlib.h>
 #include <string.h>
 
+extern void bcopy();
+
 /*
  * The DIRSIZ macro gives the minimum record length which will hold
  * the directory entry.  This requires the amount of space in struct dirent
@@ -80,13 +82,15 @@ scandir(dirname, namelist, select, dcomp)
 #ifndef _POSIX_SOURCE
 	if (fstat(dirp->dd_fd, &stb) < 0)
 		return(-1);
+#else
+    stb.st_size = 1024;
 #endif
-
 	/*
 	 * estimate the array size by taking the size of the directory file
 	 * and dividing it by a multiple of the minimum size entry. 
 	 */
 	arraysz = (stb.st_size / 24);
+
 	names = (struct dirent **)malloc(arraysz * sizeof(struct dirent *));
 	if (names == NULL)
 		return(-1);
@@ -116,7 +120,7 @@ scandir(dirname, namelist, select, dcomp)
 		 * Check to make sure the array has space left and
 		 * realloc the maximum size.
 		 */
-		if (++nitems >= arraysz) {
+		if (++nitems >= (unsigned long)arraysz) {
 #ifndef _POSIX_SOURCE
 			if (fstat(dirp->dd_fd, &stb) < 0)
 				return(-1);	/* just might have grown */

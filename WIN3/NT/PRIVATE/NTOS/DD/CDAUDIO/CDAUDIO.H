@@ -25,19 +25,23 @@ CdAudioDebugPrint(
 
 #endif // DBG
 
-#include "class.h"
+#include "class2.h"
 
-#define CDAUDIO_NOT_ACTIVE 0
-#define CDAUDIO_NEC        1
-#define CDAUDIO_PIONEER    2
-#define CDAUDIO_DENON      3
-#define CDAUDIO_HITACHI    4
-#define CDAUDIO_CDS535     5
-#define CDAUDIO_CDS435     6
-#define CDAUDIO_CR533      7
+#define CDAUDIO_NOT_ACTIVE   0
+#define CDAUDIO_NEC          1
+#define CDAUDIO_PIONEER      2
+#define CDAUDIO_DENON        3
+#define CDAUDIO_HITACHI      4
+#define CDAUDIO_CDS535       5
+#define CDAUDIO_CDS435       6
+#define CDAUDIO_CR533        7
+#define CDAUDIO_ATAPI        8
+#define CDAUDIO_FUJITSU      9
+#define CDAUDIO_PIONEER624  10
+#define CDAUDIO_HPCDR       11
 
-#define CDAUDIO_NOT_PAUSED 0
-#define CDAUDIO_PAUSED     1
+#define CDAUDIO_NOT_PAUSED   0
+#define CDAUDIO_PAUSED       1
 
 //
 // Device Extension
@@ -274,6 +278,8 @@ typedef union _NEC_CDB {
 #define PIONEER_PLAY_AUDIO_CODE         0xC9
 #define PIONEER_PAUSE_CODE              0xCA
 #define PIONEER_AUDIO_STATUS_CODE       0xCC
+#define PIONEER_READ_STATUS_CODE        0xE0
+
 
 #define PIONEER_READ_FIRST_AND_LAST     0x00
 #define PIONEER_READ_TRACK_INFO         0x02
@@ -281,6 +287,24 @@ typedef union _NEC_CDB {
 #define PIONEER_TRANSFER_SIZE           0x04
 #define PIONEER_TYPE_ATIME              0x01
 #define PIONEER_STOP_ADDRESS            0x10
+
+//
+// Page codes for the READ_STATUS command.
+//
+
+#define PIONEER_PC_DRIVE_STATUS            0x01
+#define PIONEER_PC_AUDIO_STATUS            0x02
+
+typedef struct _PIONEER_DRIVE_STATUS_BUFFER {
+    UCHAR PageCode : 6;
+    UCHAR Reserved : 2;
+    UCHAR PageLengthMsb;
+    UCHAR PageLengthLsb;
+    UCHAR DriveStatusLsb;
+    UCHAR DriveStatusMsb;
+} PIONEER_DRIVE_STATUS_BUFFER, *PPIONEER_DRIVE_STATUS_BUFFER;
+
+#define PIONEER_DISC_PRESENT 0x08
 
 //
 // Pioneer cdb definitions.
@@ -434,6 +458,21 @@ typedef union _PIONEER_CDB {
         UCHAR Reserved5 : 2;
     } PNR_EJECT, *PPNR_EJECT;
 
+    struct _PNR_READ_STATUS {
+        UCHAR OperationCode;
+        UCHAR Reserved1 : 4;
+        UCHAR Lun : 3;
+        UCHAR PageCode : 5;
+        UCHAR PCField : 1;
+        UCHAR Reserved2[5];
+        UCHAR AllocationLengthMsb;
+        UCHAR AllocationLengthLsb;
+        UCHAR Link : 1;
+        UCHAR Flag : 1;
+        UCHAR Reserved3 : 4;
+        UCHAR Reserved4 : 2;
+    } PNR_READ_STATUS, *PPNR_READ_STATUS;
+
 } PNR_CDB, *PPNR_CDB;
 
 
@@ -458,7 +497,7 @@ typedef union _PIONEER_CDB {
 #define HITACHI_READ_SUB_Q_CHANNEL_CODE    0xE5
 
 //
-// 12 byte cdbs for Hitachi
+// 12 byte cdbs for Hitachi and Atapi
 //
 
 typedef union _CDB12 {
@@ -562,6 +601,15 @@ typedef union _CDB12 {
 
     } AUDIO_STATUS, *PAUDIO_STATUS;
 
+    //
+    // Stop play
+    //
+
+    struct _STOP_PLAY {
+        UCHAR OperationCode;
+        UCHAR Reserved[11];
+    } STOP_PLAY, *PSTOP_PLAY;
+
 } CDB12, *PCDB12;
 
 //
@@ -591,4 +639,13 @@ typedef union _CDB12 {
 
 #define CR533_READ_LAST_SESSION         0xC1
 #define CR533_MULTI_FLAG                0x80
-
+
+//
+// Define for Fujitsu CDROM device.
+//
+
+#define FUJITSU_READ_TOC_CODE           0xE3
+
+
+#define MSF_TO_LBA(Minutes,Seconds,Frames) \
+                (ULONG)((60 * 75 * (Minutes)) + (75 * (Seconds)) + ((Frames) - 150))

@@ -22,4 +22,3 @@ void DumpFormatetc(FORMATETC *pformatetc, FILE *fp);
 
 #endif // _UTILS_H
 
-

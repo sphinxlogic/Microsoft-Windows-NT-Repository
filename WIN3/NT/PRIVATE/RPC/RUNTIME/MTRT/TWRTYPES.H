@@ -19,8 +19,6 @@ Revision History:
 
 --*/
 
-
-
 #define ByteSwapLong(Value) \
     Value = (  (((Value) & 0xFF000000) >> 24) \
              | (((Value) & 0x00FF0000) >> 8) \
@@ -105,6 +103,7 @@ typedef GENERIC_ID PAPI UNALIGNED * PGENERIC_ID;
 
 #define MS_CN_HOSTNAME    0x11
 #define IP_HOSTNAME       0x09
+#define AT_NBP_NAME       0x18
 
 #define CONNECTIONLESS    0x0A
 #define CONNECTIONFUL     0x0B
@@ -120,7 +119,10 @@ typedef GENERIC_ID PAPI UNALIGNED * PGENERIC_ID;
 #define NCADG_IP_UDP      0x08
 #define NCACN_SPX         0x0C
 #define NCADG_IPX         0x0E
-#define NCACN_NB          0x012
+#define NCACN_NB          0x12
+#define NCACN_AT_DSP      0x16
+#define NCADG_AT_DDP      0x17
+#define NCACN_VNS_SPP    0x1A
 
 
 /*

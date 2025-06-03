@@ -289,12 +289,12 @@ Return Value:
     ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
 
     //
-    // Raise IRQl to DISPATCH_LEVEL to avoid a possible context switch.
+    // Raise IRQl to synchronization level to avoid a possible context switch.
     //
 
 #if !defined(NT_UP)
 
-    KeRaiseIrql(DISPATCH_LEVEL, &OldIrql);
+    OldIrql = KeRaiseIrqlToSynchLevel();
 
     //
     // Initialize the reset performance counter packet, compute the target
@@ -303,7 +303,7 @@ Return Value:
     //
 
     Prcb = KeGetCurrentPrcb();
-    TargetProcessors = KeActiveProcessors & ~Prcb->SetMember;
+    TargetProcessors = KeActiveProcessors & PCR->NotMember;
     if (TargetProcessors != 0) {
         Count = (LONG)KeNumberProcessors;
         KiIpiSendPacket(TargetProcessors,
@@ -329,7 +329,7 @@ Return Value:
 #if !defined(NT_UP)
 
     if (TargetProcessors != 0) {
-        KiIpiStallOnPacketTargets(TargetProcessors);
+        KiIpiStallOnPacketTargets();
     }
 
     //
@@ -384,7 +384,7 @@ Return Value:
 #if !defined(NT_UP)
 
     HalCalibratePerformanceCounter((volatile PLONG)Count);
-    *SignalDone = 0;
+    KiIpiSignalPacketDone(SignalDone);
 
 #endif
 

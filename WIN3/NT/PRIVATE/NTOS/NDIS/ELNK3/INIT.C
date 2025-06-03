@@ -36,58 +36,18 @@ Revision History:
 
 #include "debug.h"
 
-
 #include "elnk3hrd.h"
 #include "elnk3sft.h"
 #include "elnk3.h"
-
-
-
-NDIS_STATUS
-Elnk3InitializeAdapter(
-    IN PMAC_BLOCK     pMac,
-    IN PELNK3_ADAPTER pAdapter,
-    IN NDIS_HANDLE ConfigurationHandle
-    );
-
-
-
-NDIS_STATUS
-Elnk3AllocateBuffers(
-    IN PELNK3_ADAPTER    pAdapter,
-    IN NDIS_HANDLE         NdisAdapterHandle,
-    BOOLEAN              Allocate
-    );
-
-
-
-
-VOID
-Elnk3InitAdapterBlock(
-    IN PELNK3_ADAPTER    pAdapter
-    );
-
-
-
-NTSTATUS
-DriverEntry(
-    IN PDRIVER_OBJECT DriverObject,
-    IN PUNICODE_STRING RegistryPath
-    );
 
 #if defined(ALLOC_PRAGMA)
 #pragma NDIS_INIT_FUNCTION(DriverEntry)
 #pragma NDIS_INIT_FUNCTION(Elnk3Initialize)
 #pragma NDIS_INIT_FUNCTION(Elnk3InitializeAdapter)
+#pragma NDIS_INIT_FUNCTION(Elnk3Init3C589)
 #endif
 
 
-
-
-
-
-
-
 #if DBG
 
 ULONG      Elnk3DebugFlag;
@@ -96,10 +56,7 @@ ULONG      ElnkLogPointer;
 
 #endif
 
-
 MAC_BLOCK    MacBlock = {0};
-
-
 
 
 NTSTATUS
@@ -138,16 +95,22 @@ Return Value:
     Elnk3DebugFlag = 0;
     Elnk3DebugFlag|= ELNK3_DEBUG_LOG;
 //    Elnk3DebugFlag|= ELNK3_DEBUG_LOUD;
+//    Elnk3DebugFlag|= ELNK3_DEBUG_VERY_LOUD;
 //    Elnk3DebugFlag|= ELNK3_DEBUG_INIT;
+//    Elnk3DebugFlag|= ELNK3_DEBUG_IO;
 //    Elnk3DebugFlag|= ELNK3_DEBUG_REQ;
 //    Elnk3DebugFlag|= ELNK3_DEBUG_RCV;
 //    Elnk3DebugFlag|= ELNK3_DEBUG_SEND;
+//    Elnk3DebugFlag|= ELNK3_DEBUG_INIT_BREAK;
 
 
 #endif
 
     IF_INIT_LOUD(DbgPrint("Elnk3: DriverEntry\n");)
-
+#if DBG
+    if (Elnk3DebugFlag & ELNK3_DEBUG_INIT_BREAK) DbgBreakPoint();
+    if (Elnk3DebugFlag & ELNK3_DEBUG_INIT_FAIL) return STATUS_UNSUCCESSFUL;
+#endif
 
     NdisMInitializeWrapper(
         &WrapperHandle,
@@ -297,7 +260,6 @@ Return Value:
 
     pAdapter->NdisAdapterHandle=AdapterHandle;
 
-
     //
     //  Read Registery information into Adapter structure
     //
@@ -372,13 +334,12 @@ Return Value:
 
     Elnk3InitAdapterBlock(pAdapter);
 
-
-
     //
     //  Initialize various elments in the Adapter Structure;
     //
 
-    if (pAdapter->CardType==ELNK3_3C509) {
+    if ((pAdapter->CardType==ELNK3_3C509) ||
+		((pAdapter->CardType==ELNK3_3C589))) {
 
         InterfaceType = NdisInterfaceIsa;
 
@@ -401,7 +362,6 @@ Return Value:
        FALSE,
        InterfaceType
        );
-
 
     if ((pMac->TranslatedIdPort==0) && (pAdapter->CardType==ELNK3_3C509)) {
 
@@ -430,9 +390,7 @@ Return Value:
         //
         //  See if there are any boards around
         //
-        Elnk3FindIsaBoards(
-            pMac
-            );
+        Elnk3FindIsaBoards(pMac);
     }
 
     Status=NdisMRegisterIoPortRange(
@@ -508,7 +466,7 @@ Return Value:
 
 
 
-    if (pAdapter->CardType==ELNK3_3C579) {
+    else if (pAdapter->CardType==ELNK3_3C579) {
         //
         //  Get the Irq from the eisa adapter since the 3com
         //  CFG put the interrupt information in the second
@@ -522,6 +480,16 @@ Return Value:
             );
     }
 
+	else if (pAdapter->CardType==ELNK3_3C589)
+	{
+		Status = Elnk3Init3C589( pAdapter);
+		if (Status != NDIS_STATUS_SUCCESS) {
+	
+			IF_INIT_LOUD(DbgPrint("Elnk3: Failed to initialize 3C589\n");)
+	
+			goto fail1;
+		}
+	}
 
 
     //
@@ -538,10 +506,6 @@ Return Value:
 
         goto  fail2;
     }
-
-
-
-
 
 
     //
@@ -605,6 +569,13 @@ Return Value:
         goto fail4;
     }
 
+	// register a shutdown handler for this card
+	NdisMRegisterAdapterShutdownHandler(
+		pAdapter->NdisAdapterHandle,		// miniport handle.
+		pAdapter,							// shutdown context.
+		Elnk3Shutdown						// shutdown handler.
+		);
+
     CardReStart(pAdapter);
     CardReStartDone(pAdapter);
 
@@ -616,7 +587,6 @@ Return Value:
     //
     //    IF WE ARE HERE SOME INITIALIZATION FAILURE OCCURRED
     //
-
 
 
     //
@@ -789,10 +759,24 @@ Elnk3InitAdapterBlock(
 
 
 VOID
+Elnk3Shutdown(
+    IN NDIS_HANDLE  MiniportHandle
+    )
+{
+    PELNK3_ADAPTER   pAdapter=MiniportHandle;
+
+    IF_INIT_LOUD(DbgPrint("Elnk3: Shutdown\n");)
+
+    //
+    //  It's time to rock and roll
+    //
+    CardReStart(pAdapter);
+}
+
+VOID
 Elnk3Halt(
     IN NDIS_HANDLE  MiniportHandle
     )
-
 {
 
     PELNK3_ADAPTER   pAdapter=MiniportHandle;
@@ -815,8 +799,6 @@ Elnk3Halt(
             1,
             MacBlock.TranslatedIdPort
             );
-
-
 
         MacBlock.TranslatedIdPort=0;
     }
@@ -841,9 +823,6 @@ Elnk3Halt(
         sizeof(ELNK3_ADAPTER),
         0
         );
-
-
-
 }
 
 
@@ -862,3 +841,57 @@ Elnk3Reconfigure(
 
 
 }
+
+
+NDIS_STATUS
+Elnk3Init3C589(
+	IN OUT PELNK3_ADAPTER pAdapter
+	)
+	
+{
+	ELNK3_Address_Configuration_Register    acr;
+	ELNK3_Resource_Configuration_Register   rcr;
+    USHORT i, window;
+	NDIS_STATUS Status;
+
+    Status = NDIS_STATUS_SUCCESS;
+
+	ELNK3ReadAdapterUshort ( pAdapter , PORT_CmdStatus , &window );
+	window &= 0xE000;	// Current window - high 3 bits
+
+	ELNK3_SELECT_WINDOW( pAdapter, WNO_SETUP );
+	
+    //
+    // init address configuration
+    //
+    acr.eacf_contents = 0;
+
+	if ( pAdapter->Transceiver == TRANSCEIVER_BNC ) {
+      acr.eacf_XCVR =  TRANSCEIVER_BNC;
+	}
+
+    ELNK3WriteAdapterUshort(pAdapter,PORT_CfgAddress,acr.eacf_contents);
+
+	// Believe it or not, to make the 3C589 (not 3C589B) the IRQ have to be set
+	// to 3 (it can be anything - the card must be told 3).
+	rcr.ercf_contents = 0;
+	// rcr.ercf_IRQ = (USHORT)pAdapter->IrqLevel;
+	rcr.ercf_IRQ = 3;
+	rcr.ercf_reserved_F = 0xF;
+	ELNK3WriteAdapterUshort(pAdapter,PORT_CfgResource,rcr.ercf_contents);
+
+    // read in product ID
+	i = ELNK3ReadEEProm( pAdapter, EEPROM_PRODUCT_ID );
+	ELNK3WriteAdapterUshort( pAdapter, PORT_ProductID, i );
+
+	// Enable the adapter by setting the bit in the configuration control register
+	ELNK3WriteAdapterUchar(pAdapter,PORT_CfgControl,CCR_ENABLE);
+
+    // restore to whatever it used to be
+	ELNK3_SELECT_WINDOW( pAdapter, window);
+
+    return (Status);
+
+}
+
+

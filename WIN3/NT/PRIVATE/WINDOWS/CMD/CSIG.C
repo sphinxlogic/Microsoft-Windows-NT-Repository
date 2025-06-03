@@ -1,14 +1,4 @@
 #include "cmd.h"
-#include "cmdproto.h"
-#include "..\inc\vdmapi.h"
-
-/* The following are definitions of the debugging group and level bits
- * for the code in this file.
- */
-
-#define SHGRP	0x0800	/* Signal handler group     */
-#define MSLVL	0x0001	/* Main Signal handler level	 */
-#define ISLVL	0x0002	/* Init Signal handler level	 */
 
 //
 // console mode at program startup time. Used to reset mode
@@ -29,45 +19,42 @@ int SigHandFlag = FALSE ;
 TCHAR *SaveDir = NULL ;
 unsigned SIGNALcnt = 0;
 
-extern int PipeCnt ;		/* M016 - Cnt of active pipes		   */
+extern int PipeCnt ;            /* M016 - Cnt of active pipes              */
 
 extern int LastRetCode ;
 
 extern jmp_buf MainEnv ;
 extern jmp_buf CmdJBuf1 ;
 
-extern unsigned long OHTbl[] ;	/* M024 - Revised to be bit map 	   */
+extern unsigned long OHTbl[] ;  /* M024 - Revised to be bit map            */
 
-extern PHANDLE FFhandles;		  /* @@1 */
-extern unsigned FFhndlsaved;		  /* @@1 */
+extern PHANDLE FFhandles;                 /* @@1 */
+extern unsigned FFhndlsaved;              /* @@1 */
 
 extern struct sellist *prexxsellist;
 
-extern struct rio *rioCur ;		/* M000 		   */
+extern struct rio *rioCur ;             /* M000                    */
 extern struct batdata *CurBat ;
-extern TCHAR *Fvars ;						/* M026    */
-extern TCHAR **Fsubs ;						/* M026    */
+extern TCHAR *Fvars ;                                           /* M026    */
+extern TCHAR **Fsubs ;                                          /* M026    */
 extern TCHAR *save_Fvars ;  /* @@ */
 extern TCHAR **save_Fsubs ; /* @@ */
-extern int FvarsSaved;	   /* @@ */
+extern int FvarsSaved;     /* @@ */
 
 extern TCHAR InternalError[] ;
-extern TCHAR VerVal ;
 extern int EchoFlag ;
-extern int EchoSave ;		/* M013 - Used to restore echo status	   */
-extern TCHAR ComSpec[] ; 	/* M008 - For clearing SM shared memory    */
-extern TCHAR ComSpecStr[] ;	/* M026 - Use ComSpec for SM memory	   */
-extern TCHAR *CmdSpec ;						/* M026    */
-extern TCHAR YesChar, NoChar ;
+extern int EchoSave ;           /* M013 - Used to restore echo status      */
+extern TCHAR ComSpec[] ;        /* M008 - For clearing SM shared memory    */
+extern TCHAR ComSpecStr[] ;     /* M026 - Use ComSpec for SM memory        */
+extern TCHAR *CmdSpec ;                                         /* M026    */
 extern TCHAR GotoFlag ;
 
 extern unsigned Heof;
 extern struct batdata *CurBat;  /* Ptr to current batch data structure     */
-extern unsigned start_type ;	/* Flag to indicate which API started the  */
+extern unsigned start_type ;    /* Flag to indicate which API started the  */
                                 /* program.  D64                           */
 
-extern BOOLEAN CtrlCSeen;
-extern TCHAR     MsgBuf[];
+extern BOOL CtrlCSeen;
 extern PTCHAR    pszTitleCur;
 extern BOOLEAN  fTitleChanged;
 
@@ -78,42 +65,18 @@ Abort( void )
     DEBUG((SHGRP, MSLVL, "SIGHAND: Aborting Command")) ;
     SigCleanUp();
     longjmp(MainEnv, 1) ;
-#if 0
-    if ( !Retcds.TermCode_PID ) {
-	DEBUG((SHGRP, MSLVL, "SIGHAND: Jump w/MainEnv.")) ;
-	if (mode == SH_NORM) {
-	    longjmp(MainEnv, 1) ;
-	} else {
-	    longjmp(CmdJBuf1, 1) ;
-	}
-    }
-#endif
 
-
-    exit( FAILURE );
+    CMDexit( FAILURE );
 }
 
 void
 CtrlCAbort( ) {
 
-    TCHAR   chAnsw;
-    TCHAR   chYes_Char = YesChar;
-    TCHAR   chNo_Char  = NoChar;
     struct batdata *bdat;
 
     if (CurBat) {
 
-        //
-        // Get yes and no message strings
-        //
-        if (GetMsg(MSG_RESPONSE_DATA,0) == 0 ) {
-                chYes_Char = MsgBuf[0];
-                chNo_Char  = MsgBuf[2];
-        }
-
-        chAnsw = PromptUser(NULL, MSG_BATCH_TERM, chYes_Char, chNo_Char );
-
-        if (chAnsw == chNo_Char) {
+        if (!PromptUser(NULL, MSG_BATCH_TERM)) {
             ResetCtrlC();
             return;
 
@@ -157,40 +120,40 @@ ExitAbort(
     SigCleanUp();
     longjmp(MainEnv, rcExitCode) ;
 
-    exit( FAILURE );
+    CMDexit( FAILURE );
 }
 
 
 
-/***	SigCleanUp - close files and reset I/O after a signal
+/***    SigCleanUp - close files and reset I/O after a signal
  *
  *  Purpose:
- *	This function is called to finish the cleanup after an int 23 or 24.
- *	It resets all redirection back to the main level and it closes all
- *	files except those for stdin, stdout, stderr, stdaux and stdprint.
+ *      This function is called to finish the cleanup after an int 23 or 24.
+ *      It resets all redirection back to the main level and it closes all
+ *      files except those for stdin, stdout, stderr, stdaux and stdprint.
  *
  *  void SigCleanUp()
  *
  *  Args:
- *	None.
+ *      None.
  *
  *  Returns:
- *	Nothing.
+ *      Nothing.
  *
  *  Notes:
  *    - M024 * Revised handle closing to be bit map based rather than struct.
  *
  */
 
-void SigCleanUp()				/* M000 - Now void	   */
+void SigCleanUp()                               /* M000 - Now void         */
 {
-	int i = 0 ;				/* Temp variable	   */
-	extern unsigned Winthorn_Flag ; 	/*  Winthorn flag D64	   */
-	int cnt, cnt2 ;
-	unsigned long mask;
+        int i = 0 ;                             /* Temp variable           */
+        int cnt, cnt2 ;
+        unsigned long mask;
 
-	Heof = FALSE;
+        Heof = FALSE;
 
+#ifndef WIN95_CMD
         if (CurBat) {
 
             // 27-May-1993 sudeepb
@@ -202,15 +165,16 @@ void SigCleanUp()				/* M000 - Now void	   */
             GotoFlag = FALSE ;
             eEndlocal((struct cmdnode *) NULL) ;
             CurBat = NULL ;
-	} ;
+        } ;
+#endif // WIN95_CMD
 
-	if (!FvarsSaved) {     /* @WM If already saved, don't save again */
-	   save_Fvars = Fvars; /* @@ */
-	   save_Fsubs = Fsubs; /* @@ */
-	   FvarsSaved = TRUE;  /* @@ */
-	}
-	Fvars = NULL ;			/* M026 - Must kill FOR    */
-	Fsubs = NULL ;			/* ...variable subst's     */
+        if (!FvarsSaved) {     /* @WM If already saved, don't save again */
+           save_Fvars = Fvars; /* @@ */
+           save_Fsubs = Fsubs; /* @@ */
+           FvarsSaved = TRUE;  /* @@ */
+        }
+        Fvars = NULL ;                  /* M026 - Must kill FOR    */
+        Fsubs = NULL ;                  /* ...variable subst's     */
 
 /*  M000 - New method is simpler.  If redirection has been done, the highest
  *  numbered handle resulting from redirection is saved, then the linked
@@ -224,44 +188,43 @@ void SigCleanUp()				/* M000 - Now void	   */
  *  rioCur pointer to the last valid riodata structure before returning;
  *  same as if "rioCur=rioCur->back" was in the while loop.
  */
-	DEBUG((SHGRP, MSLVL, "SCLEANUP: Resetting redirection.")) ;
+        DEBUG((SHGRP, MSLVL, "SCLEANUP: Resetting redirection.")) ;
 
-	if (rioCur) {
-		i = rioCur->stdio ;		/* Save highest handle	   */
+        if (rioCur) {
+                i = rioCur->stdio ;             /* Save highest handle     */
 
-		while (rioCur)
-			ResetRedir() ;
-	} ;
+                while (rioCur)
+                        ResetRedir() ;
+        } ;
 
-	DEBUG((SHGRP, MSLVL, "SCLEANUP: Breaking pipes.")) ;
+        DEBUG((SHGRP, MSLVL, "SCLEANUP: Breaking pipes.")) ;
 
-	BreakPipes() ;
+        BreakPipes() ;
 
-	DEBUG((SHGRP, MSLVL, "SCLEANUP: Now closing extra handles.")) ;
+        DEBUG((SHGRP, MSLVL, "SCLEANUP: Now closing extra handles.")) ;
 
-	for (cnt = 0; cnt < 3; cnt++) {
-	   if (OHTbl[cnt]) {  /* Any handles to reset? */
-	      mask = 1; 					    /* @@1 */
-	      for (cnt2 = 0; cnt2 < 32; cnt2++, mask <<= 1) {	    /* @@1 */
-		 if ((OHTbl[cnt] & mask) &&			    /* @@1 */
-		     ((cnt == 0 && cnt2 > 2) || cnt != 0) ) {	    /* @@1 */
-		     /* Don't close STDIN, STDOUT, STDERR */        /* @@1 */
-		    Cclose(cnt2 + 32*cnt);			    /* @@1 */
-		 }						    /* @@1 */
-	      } 						    /* @@1 */
-	   }							    /* @@1 */
-	}
+        for (cnt = 0; cnt < 3; cnt++) {
+           if (OHTbl[cnt]) {  /* Any handles to reset? */
+              mask = 1;                                             /* @@1 */
+              for (cnt2 = 0; cnt2 < 32; cnt2++, mask <<= 1) {       /* @@1 */
+                 if ((OHTbl[cnt] & mask) &&                         /* @@1 */
+                     ((cnt == 0 && cnt2 > 2) || cnt != 0) ) {       /* @@1 */
+                     /* Don't close STDIN, STDOUT, STDERR */        /* @@1 */
+                    Cclose(cnt2 + 32*cnt);                          /* @@1 */
+                 }                                                  /* @@1 */
+              }                                                     /* @@1 */
+           }                                                        /* @@1 */
+        }
 
-	/* Close find first handles */				    /* @@1 */
+        /* Close find first handles */                              /* @@1 */
 
-	while (FFhndlsaved) {		/* findclose will dec this     @@1 */
-	   findclose(FFhandles[FFhndlsaved - 1]);		    /* @@1 */
-	}							    /* @@1 */
+        while (FFhndlsaved) {           /* findclose will dec this     @@1 */
+           findclose(FFhandles[FFhndlsaved - 1]);                   /* @@1 */
+        }                                                           /* @@1 */
 
         ResetConTitle( pszTitleCur );
 
-        SetConsoleMode(CRTTONT(STDIN),dwCurInputConMode);
-        SetConsoleMode(CRTTONT(STDOUT), dwCurOutputConMode);
+        ResetConsoleMode();
 
-	DEBUG((SHGRP, MSLVL, "SCLEANUP: Returning.")) ;
+        DEBUG((SHGRP, MSLVL, "SCLEANUP: Returning.")) ;
 }

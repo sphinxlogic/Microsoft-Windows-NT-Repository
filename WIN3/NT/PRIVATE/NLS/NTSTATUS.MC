@@ -28,7 +28,12 @@
 ;#ifndef _NTSTATUS_
 ;#define _NTSTATUS_
 ;
+;#ifndef WIN32_NO_STATUS // winnt
+;// begin_ntsecapi
+;
 ;/*lint -save -e767 */  // Don't complain about different definitions // winnt
+;
+;
 
 MessageIdTypedef=NTSTATUS
 
@@ -57,7 +62,7 @@ FacilityNames=(System=0x0
 ;//
 ;// The success status codes 0 - 63 are reserved for wait completion status.
 ;//
-;#define STATUS_SUCCESS                          ((NTSTATUS)0x00000000L)
+;#define STATUS_SUCCESS                          ((NTSTATUS)0x00000000L) // ntsubauth
 ;
 
 MessageId=0x0000 Facility=System Severity=Success SymbolicName=STATUS_WAIT_0                    ;// winnt
@@ -241,7 +246,7 @@ Page fault was a demand zero fault.
 
 MessageId=0x0114 Facility=System Severity=Success SymbolicName=STATUS_PAGE_FAULT_PAGING_FILE
 Language=English
-Page fault was a satisfied by reading from a secondary storage device.
+Page fault was satisfied by reading from a secondary storage device.
 .
 
 MessageId=0x0115 Facility=System Severity=Success SymbolicName=STATUS_CACHE_PAGE_LOCKED
@@ -258,6 +263,13 @@ MessageId=0x0117 Facility=System Severity=Success SymbolicName=STATUS_BUFFER_ALL
 Language=English
 Specified buffer contains all zeros.
 .
+
+MessageId=0x0118 Facility=System Severity=Success SymbolicName=STATUS_REPARSE_OBJECT
+Language=English
+A reparse should be performed by the Object Manager since the name of the
+file resulted in a symbolic link.
+.
+
 
 ;
 ;
@@ -309,7 +321,7 @@ transaction package (RXact).
 .
 
 
-MessageId=0x0005 Facility=System Severity=Informational SymbolicName=STATUS_SEGMENT_NOTIFICATION
+MessageId=0x0005 Facility=System Severity=Informational SymbolicName=STATUS_SEGMENT_NOTIFICATION ;// winnt
 Language=English
 {Segment Load}
 A virtual DOS machine (VDM) is loading, unloading, or moving an MS-DOS
@@ -329,7 +341,7 @@ returned is a constant value and not unique to this connection.
 MessageId=0x0007 Facility=System Severity=Informational SymbolicName=STATUS_BAD_CURRENT_DIRECTORY
 Language=English
 {Invalid Current Directory}
-The process can not switch to the startup current directory %s.
+The process cannot switch to the startup current directory %s.
 Select OK to set current directory to %s, or select CANCEL
 to exit.
 .
@@ -382,8 +394,8 @@ The LAN Manager password returned is a NULL string.
 
 MessageId=0x000E Facility=System Severity=Informational SymbolicName=STATUS_IMAGE_MACHINE_TYPE_MISMATCH
 Language=English
-The specified image file is valid, but is for a machine type other than
-the current machine.
+{Machine Type Mismatch}
+The image file %s is valid, but is for a machine type other than the current machine. Select OK to continue, or CANCEL to fail the DLL load.
 .
 
 MessageId=0x000F Facility=System Severity=Informational SymbolicName=STATUS_RECEIVE_PARTIAL
@@ -459,6 +471,60 @@ Language=English
 Application popup: %1 : %2
 .
 
+MessageId=0x001b Facility=System Severity=Informational SymbolicName=STATUS_ALREADY_WIN32
+Language=English
+.
+
+MessageId=0x001c Facility=System Severity=Informational SymbolicName=STATUS_WX86_UNSIMULATE
+Language=English
+Exception status code used by Win32 x86 emulation subsystem.
+.
+
+MessageId=0x001d Facility=System Severity=Informational SymbolicName=STATUS_WX86_CONTINUE
+Language=English
+Exception status code used by Win32 x86 emulation subsystem.
+.
+
+MessageId=0x001e Facility=System Severity=Informational SymbolicName=STATUS_WX86_SINGLE_STEP
+Language=English
+Exception status code used by Win32 x86 emulation subsystem.
+.
+
+MessageId=0x001f Facility=System Severity=Informational SymbolicName=STATUS_WX86_BREAKPOINT
+Language=English
+Exception status code used by Win32 x86 emulation subsystem.
+.
+
+MessageId=0x0020 Facility=System Severity=Informational SymbolicName=STATUS_WX86_EXCEPTION_CONTINUE
+Language=English
+Exception status code used by Win32 x86 emulation subsystem.
+.
+
+MessageId=0x0021 Facility=System Severity=Informational SymbolicName=STATUS_WX86_EXCEPTION_LASTCHANCE
+Language=English
+Exception status code used by Win32 x86 emulation subsystem.
+.
+
+MessageId=0x0022 Facility=System Severity=Informational SymbolicName=STATUS_WX86_EXCEPTION_CHAIN
+Language=English
+Exception status code used by Win32 x86 emulation subsystem.
+.
+
+MessageId=0x0023 Facility=System Severity=Informational SymbolicName=STATUS_IMAGE_MACHINE_TYPE_MISMATCH_EXE
+Language=English
+{Machine Type Mismatch}
+The image file %s is valid, but is for a machine type other than the current machine.
+.
+
+MessageId=0x0024 Facility=System Severity=Informational SymbolicName=STATUS_NO_YIELD_PERFORMED
+Language=English
+A yield execution was performed and no thread was available to run.
+.
+
+MessageId=0x0025 Facility=System Severity=Informational SymbolicName=STATUS_TIMER_RESUME_IGNORED
+Language=English
+The resumeable flag to a timer API was ignored.
+.
 
 ;
 ;
@@ -547,7 +613,7 @@ An access control list (ACL) contains no components that can be inherited.
 MessageId=0x000C Facility=System Severity=Warning SymbolicName=STATUS_GUID_SUBSTITUTION_MADE
 Language=English
 {GUID Substitution}
-During the translation of an HPFS global identifier (GUID) to a Windows NT
+During the translation of a global identifier (GUID) to a Windows NT
 security ID (SID), no administratively-defined GUID prefix was found.
 A substitute prefix was used, which will not compromise system security.
 However, this may provide a more restrictive access than intended.
@@ -743,7 +809,7 @@ The requested operation is not implemented.
 .
 
 
-MessageId=0x0003 Facility=System Severity=Error SymbolicName=STATUS_INVALID_INFO_CLASS
+MessageId=0x0003 Facility=System Severity=Error SymbolicName=STATUS_INVALID_INFO_CLASS ;// ntsubauth
 Language=English
 {Invalid Parameter}
 The specified information class is not a valid information class for
@@ -758,7 +824,7 @@ required for the specified information class.
 .
 
 
-MessageId=0x0005 Facility=System Severity=Error SymbolicName=STATUS_ACCESS_VIOLATION         ;// winnt
+MessageId=0x0005 Facility=System Severity=Error SymbolicName=STATUS_ACCESS_VIOLATION         ;// winnt ntsubauth
 Language=English
 The instruction at "0x%08lx" referenced memory at "0x%08lx". The memory
 could not be "%s".
@@ -777,7 +843,7 @@ The pagefile quota for the process has been exhausted.
 .
 
 
-MessageId=0x0008 Facility=System Severity=Error SymbolicName=STATUS_INVALID_HANDLE
+MessageId=0x0008 Facility=System Severity=Error SymbolicName=STATUS_INVALID_HANDLE           ;// winnt
 Language=English
 An invalid HANDLE was specified.
 .
@@ -811,7 +877,7 @@ with an associated APC routine.
 
 MessageId=0x000D Facility=System Severity=Error SymbolicName=STATUS_INVALID_PARAMETER
 Language=English
-An invalid parameter was passed to the a service or function.
+An invalid parameter was passed to a service or function.
 .
 
 
@@ -1054,7 +1120,7 @@ was longer than the maximum message allowed by the port.
 
 MessageId=0x0030 Facility=System Severity=Error SymbolicName=STATUS_INVALID_PARAMETER_MIX
 Language=English
-An invalid combination of parameters was specified
+An invalid combination of parameters was specified.
 .
 
 
@@ -1074,25 +1140,25 @@ Please run the Chkdsk utility on the volume %s.
 
 MessageId=0x0033 Facility=System Severity=Error SymbolicName=STATUS_OBJECT_NAME_INVALID
 Language=English
-Object Name invalid
+Object Name invalid.
 .
 
 
 MessageId=0x0034 Facility=System Severity=Error SymbolicName=STATUS_OBJECT_NAME_NOT_FOUND
 Language=English
-Object Name not found
+Object Name not found.
 .
 
 
 MessageId=0x0035 Facility=System Severity=Error SymbolicName=STATUS_OBJECT_NAME_COLLISION
 Language=English
-Object Name already exists
+Object Name already exists.
 .
 
 
 MessageId=0x0037 Facility=System Severity=Error SymbolicName=STATUS_PORT_DISCONNECTED
 Language=English
-Attempt the send a message to a disconnected communication port
+Attempt to send a message to a disconnected communication port.
 .
 
 
@@ -1105,7 +1171,7 @@ another device.
 
 MessageId=0x0039 Facility=System Severity=Error SymbolicName=STATUS_OBJECT_PATH_INVALID
 Language=English
-Object Path Component was not a directory object
+Object Path Component was not a directory object.
 .
 
 
@@ -1118,7 +1184,7 @@ The path %s does not exist.
 
 MessageId=0x003B Facility=System Severity=Error SymbolicName=STATUS_OBJECT_PATH_SYNTAX_BAD
 Language=English
-Object Path Component was not a directory object
+Object Path Component was not a directory object.
 .
 
 
@@ -1219,7 +1285,7 @@ which does not map an image.
 MessageId=0x004A Facility=System Severity=Error SymbolicName=STATUS_SUSPEND_COUNT_EXCEEDED
 Language=English
 An attempt was made to suspend a thread whose suspend count
-was at its maximum
+was at its maximum.
 .
 
 
@@ -1247,7 +1313,7 @@ to an already existing section which maps the same file.
 MessageId=0x004E Facility=System Severity=Error SymbolicName=STATUS_SECTION_PROTECTION
 Language=English
 A view to a section specifies a protection which is incompatible
-with the initial views protection.
+with the initial view's protection.
 .
 
 
@@ -1260,13 +1326,13 @@ support EAs.
 
 MessageId=0x0050 Facility=System Severity=Error SymbolicName=STATUS_EA_TOO_LARGE
 Language=English
-An EA operation failed because ea set is too large
+An EA operation failed because EA set is too large.
 .
 
 
 MessageId=0x0051 Facility=System Severity=Error SymbolicName=STATUS_NONEXISTENT_EA_ENTRY
 Language=English
-An EA operation failed because the name or ea index is invalid
+An EA operation failed because the name or EA index is invalid.
 .
 
 
@@ -1278,26 +1344,26 @@ The file for which EAs were requested has no EAs.
 
 MessageId=0x0053 Facility=System Severity=Error SymbolicName=STATUS_EA_CORRUPT_ERROR
 Language=English
-The EA is corrupt and non-readable
+The EA is corrupt and non-readable.
 .
 
 
 MessageId=0x0054 Facility=System Severity=Error SymbolicName=STATUS_FILE_LOCK_CONFLICT
 Language=English
-A requested read/write cannot be granted due to a conflicting file lock
+A requested read/write cannot be granted due to a conflicting file lock.
 .
 
 
 MessageId=0x0055 Facility=System Severity=Error SymbolicName=STATUS_LOCK_NOT_GRANTED
 Language=English
-A requested file lock cannot be granted due to other existing locks
+A requested file lock cannot be granted due to other existing locks.
 .
 
 
 MessageId=0x0056 Facility=System Severity=Error SymbolicName=STATUS_DELETE_PENDING
 Language=English
 A non close operation has been requested of a file object with a
-delete pending
+delete pending.
 .
 
 
@@ -1387,7 +1453,7 @@ The specified user already exists.
 .
 
 
-MessageId=0x0064 Facility=System Severity=Error SymbolicName=STATUS_NO_SUCH_USER
+MessageId=0x0064 Facility=System Severity=Error SymbolicName=STATUS_NO_SUCH_USER; // ntsubauth
 Language=English
 The specified user does not exist.
 .
@@ -1408,7 +1474,7 @@ The specified group does not exist.
 MessageId=0x0067 Facility=System Severity=Error SymbolicName=STATUS_MEMBER_IN_GROUP
 Language=English
 The specified user account is already in the specified group account.
-Also used to indicate a group can not be deleted because it contains
+Also used to indicate a group cannot be deleted because it contains
 a member.
 .
 
@@ -1427,7 +1493,7 @@ creating a situation in which the system cannot be administrated.
 .
 
 
-MessageId=0x006A Facility=System Severity=Error SymbolicName=STATUS_WRONG_PASSWORD
+MessageId=0x006A Facility=System Severity=Error SymbolicName=STATUS_WRONG_PASSWORD; // ntsubauth
 Language=English
 When trying to update a password, this return status indicates that
 the value provided as the current password is not correct.
@@ -1441,7 +1507,7 @@ the value provided for the new password contains values that are
 not allowed in passwords.
 .
 
-MessageId=0x006C Facility=System Severity=Error SymbolicName=STATUS_PASSWORD_RESTRICTION
+MessageId=0x006C Facility=System Severity=Error SymbolicName=STATUS_PASSWORD_RESTRICTION; // ntsubauth
 Language=English
 When trying to update a password, this status indicates that some
 password update rule has been violated.  For example, the password
@@ -1449,13 +1515,13 @@ may not meet length criteria.
 .
 
 
-MessageId=0x006D Facility=System Severity=Error SymbolicName=STATUS_LOGON_FAILURE
+MessageId=0x006D Facility=System Severity=Error SymbolicName=STATUS_LOGON_FAILURE; // ntsubauth
 Language=English
 The attempted logon is invalid.  This is either due to a bad username
 or authentication information.
 .
 
-MessageId=0x006E Facility=System Severity=Error SymbolicName=STATUS_ACCOUNT_RESTRICTION
+MessageId=0x006E Facility=System Severity=Error SymbolicName=STATUS_ACCOUNT_RESTRICTION; // ntsubauth
 Language=English
 Indicates a referenced user name and authentication information are
 valid, but some user account restriction has prevented successful
@@ -1463,27 +1529,27 @@ authentication (such as time-of-day restrictions).
 .
 
 
-MessageId=0x006F Facility=System Severity=Error SymbolicName=STATUS_INVALID_LOGON_HOURS
+MessageId=0x006F Facility=System Severity=Error SymbolicName=STATUS_INVALID_LOGON_HOURS; // ntsubauth
 Language=English
 The user account has time restrictions and may not be logged onto
 at this time.
 .
 
 
-MessageId=0x0070 Facility=System Severity=Error SymbolicName=STATUS_INVALID_WORKSTATION
+MessageId=0x0070 Facility=System Severity=Error SymbolicName=STATUS_INVALID_WORKSTATION; // ntsubauth
 Language=English
 The user account is restricted such that it may not be used to
 log on from the source workstation.
 .
 
 
-MessageId=0x0071 Facility=System Severity=Error SymbolicName=STATUS_PASSWORD_EXPIRED
+MessageId=0x0071 Facility=System Severity=Error SymbolicName=STATUS_PASSWORD_EXPIRED; // ntsubauth
 Language=English
 The user account's password has expired.
 .
 
 
-MessageId=0x0072 Facility=System Severity=Error SymbolicName=STATUS_ACCOUNT_DISABLED
+MessageId=0x0072 Facility=System Severity=Error SymbolicName=STATUS_ACCOUNT_DISABLED; // ntsubauth
 Language=English
 The referenced account is currently disabled and may not be logged on to.
 .
@@ -1534,8 +1600,8 @@ Indicates the SECURITY_DESCRIPTOR structure is not valid.
 
 MessageId=0x007A Facility=System Severity=Error SymbolicName=STATUS_PROCEDURE_NOT_FOUND
 Language=English
-Indicates the specified procedure address can not be found in the
-DLL
+Indicates the specified procedure address cannot be found in the
+DLL.
 .
 
 
@@ -1549,7 +1615,7 @@ Please check this against your installation diskette.
 
 MessageId=0x007C Facility=System Severity=Error SymbolicName=STATUS_NO_TOKEN
 Language=English
-An attempt was made to reference a token that doesn't exist was made.
+An attempt was made to reference a token that doesn't exist.
 This is typically done by referencing the token associated with a thread
 when the thread is not impersonating a client.
 .
@@ -1617,7 +1683,7 @@ identifier authority value.
 
 MessageId=0x0086 Facility=System Severity=Error SymbolicName=STATUS_INVALID_VOLUME_LABEL
 Language=English
-An invalid volume label has been specified
+An invalid volume label has been specified.
 .
 
 
@@ -1642,14 +1708,14 @@ section.
 
 MessageId=0x008A Facility=System Severity=Error SymbolicName=STATUS_RESOURCE_TYPE_NOT_FOUND
 Language=English
-Indicates the specified resource type can not be found in the
+Indicates the specified resource type cannot be found in the
 image file.
 .
 
 
 MessageId=0x008B Facility=System Severity=Error SymbolicName=STATUS_RESOURCE_NAME_NOT_FOUND
 Language=English
-Indicates the specified resource name can not be found in the
+Indicates the specified resource name cannot be found in the
 image file.
 .
 
@@ -1757,15 +1823,15 @@ been allotted must fail and the STATUS_ALLOTED_SPACE_EXCEEDED error returned.
 .
 
 
-MessageId=0x009A Facility=System Severity=Error SymbolicName=STATUS_INSUFFICIENT_RESOURCES
+MessageId=0x009A Facility=System Severity=Error SymbolicName=STATUS_INSUFFICIENT_RESOURCES; // ntsubauth
 Language=English
-Insufficient system resources exist to complete the API
+Insufficient system resources exist to complete the API.
 .
 
 
 MessageId=0x009B Facility=System Severity=Error SymbolicName=STATUS_DFS_EXIT_PATH_FOUND
 Language=English
-An attempt has been made to open a DFS exit path control file
+An attempt has been made to open a DFS exit path control file.
 .
 
 
@@ -1869,19 +1935,19 @@ and the host system does not support unaligned instruction references.
 
 MessageId=0x00AB Facility=System Severity=Error SymbolicName=STATUS_INSTANCE_NOT_AVAILABLE
 Language=English
-The maximum named pipe instance count has been reached
+The maximum named pipe instance count has been reached.
 .
 
 
 MessageId=0x00AC Facility=System Severity=Error SymbolicName=STATUS_PIPE_NOT_AVAILABLE
 Language=English
-An instance of a named pipe cannot be found in the listening state
+An instance of a named pipe cannot be found in the listening state.
 .
 
 
 MessageId=0x00AD Facility=System Severity=Error SymbolicName=STATUS_INVALID_PIPE_STATE
 Language=English
-The named pipe is not in the connected or closing state
+The named pipe is not in the connected or closing state.
 .
 
 
@@ -1894,37 +1960,37 @@ I/O operations queued so it cannot be changed to queue operations.
 
 MessageId=0x00AF Facility=System Severity=Error SymbolicName=STATUS_ILLEGAL_FUNCTION
 Language=English
-The specified handle is not open to the server end of the named pipe
+The specified handle is not open to the server end of the named pipe.
 .
 
 
 MessageId=0x00B0 Facility=System Severity=Error SymbolicName=STATUS_PIPE_DISCONNECTED
 Language=English
-The specified named pipe is in the disconnected state
+The specified named pipe is in the disconnected state.
 .
 
 
 MessageId=0x00B1 Facility=System Severity=Error SymbolicName=STATUS_PIPE_CLOSING
 Language=English
-The specified named pipe is in the closing state
+The specified named pipe is in the closing state.
 .
 
 
 MessageId=0x00B2 Facility=System Severity=Error SymbolicName=STATUS_PIPE_CONNECTED
 Language=English
-The specified named pipe is in the connected state
+The specified named pipe is in the connected state.
 .
 
 
 MessageId=0x00B3 Facility=System Severity=Error SymbolicName=STATUS_PIPE_LISTENING
 Language=English
-The specified named pipe is in the listening state
+The specified named pipe is in the listening state.
 .
 
 
 MessageId=0x00B4 Facility=System Severity=Error SymbolicName=STATUS_INVALID_READ_MODE
 Language=English
-The specified named pipe is not in message mode
+The specified named pipe is not in message mode.
 .
 
 
@@ -1938,7 +2004,7 @@ period expired.
 
 MessageId=0x00B6 Facility=System Severity=Error SymbolicName=STATUS_FILE_FORCED_CLOSED
 Language=English
-The specified file has been closed by another process
+The specified file has been closed by another process.
 .
 
 
@@ -1956,7 +2022,7 @@ Profiling not stopped.
 
 MessageId=0x00B9 Facility=System Severity=Error SymbolicName=STATUS_COULD_NOT_INTERPRET
 Language=English
-The passed ACL did not contain the minimum required information
+The passed ACL did not contain the minimum required information.
 .
 
 
@@ -2159,7 +2225,7 @@ an object that does not have security associated with it.
 MessageId=0x00D8 Facility=System Severity=Error SymbolicName=STATUS_CANT_WAIT
 Language=English
 Used to indicate that an operation cannot continue without blocking
-for I/O
+for I/O.
 .
 
 
@@ -2219,21 +2285,21 @@ The specified Domain already exists.
 
 MessageId=0x00E1 Facility=System Severity=Error SymbolicName=STATUS_DOMAIN_LIMIT_EXCEEDED
 Language=English
-An attempt to exceed the limit on the number of domains per server
+An attempt was made to exceed the limit on the number of domains per server
 for this release.
 .
 
 
 MessageId=0x00E2 Facility=System Severity=Error SymbolicName=STATUS_OPLOCK_NOT_GRANTED
 Language=English
- Error status returned when oplock request is denied
+Error status returned when oplock request is denied.
 .
 
 
 MessageId=0x00E3 Facility=System Severity=Error SymbolicName=STATUS_INVALID_OPLOCK_PROTOCOL
 Language=English
- Error status returned when an invalid oplock acknowledgment
- is received by a file system
+Error status returned when an invalid oplock acknowledgment
+is received by a file system.
 .
 
 
@@ -2241,7 +2307,7 @@ MessageId=0x00E4 Facility=System Severity=Error SymbolicName=STATUS_INTERNAL_DB_
 Language=English
 This error indicates that the requested operation cannot be
 completed due to a catastrophic media failure or on-disk data
-structure corruption
+structure corruption.
 .
 
 
@@ -2249,7 +2315,7 @@ MessageId=0x00E5 Facility=System Severity=Error SymbolicName=STATUS_INTERNAL_ERR
 Language=English
 This error indicates that the SAM server has encountered an
 internal consistency error in its database.  This catastrophic
-failure will prevent further operation of SAM
+failure will prevent further operation of SAM.
 .
 
 
@@ -2326,92 +2392,92 @@ only.  The calling process has not registered as a logon process.
 
 MessageId=0x00EE Facility=System Severity=Error SymbolicName=STATUS_LOGON_SESSION_EXISTS
 Language=English
-A attempt has been made to start a new session manager or
+An attempt has been made to start a new session manager or
 LSA logon session with an ID that is already in use.
 .
 
 
 MessageId=0x00EF Facility=System Severity=Error SymbolicName=STATUS_INVALID_PARAMETER_1
 Language=English
-An invalid parameter was passed to the a service or function as
-the first argument
+An invalid parameter was passed to a service or function as
+the first argument.
 .
 
 
 MessageId=0x00F0 Facility=System Severity=Error SymbolicName=STATUS_INVALID_PARAMETER_2
 Language=English
-An invalid parameter was passed to the a service or function as
-the second argument
+An invalid parameter was passed to a service or function as
+the second argument.
 .
 
 
 MessageId=0x00F1 Facility=System Severity=Error SymbolicName=STATUS_INVALID_PARAMETER_3
 Language=English
-An invalid parameter was passed to the a service or function as
-the third argument
+An invalid parameter was passed to a service or function as
+the third argument.
 .
 
 
 MessageId=0x00F2 Facility=System Severity=Error SymbolicName=STATUS_INVALID_PARAMETER_4
 Language=English
-An invalid parameter was passed to the a service or function as
-the fourth argument
+An invalid parameter was passed to a service or function as
+the fourth argument.
 .
 
 
 MessageId=0x00F3 Facility=System Severity=Error SymbolicName=STATUS_INVALID_PARAMETER_5
 Language=English
-An invalid parameter was passed to the a service or function as
-the fifth argument
+An invalid parameter was passed to a service or function as
+the fifth argument.
 .
 
 
 MessageId=0x00F4 Facility=System Severity=Error SymbolicName=STATUS_INVALID_PARAMETER_6
 Language=English
-An invalid parameter was passed to the a service or function as
-the sixth argument
+An invalid parameter was passed to a service or function as
+the sixth argument.
 .
 
 
 MessageId=0x00F5 Facility=System Severity=Error SymbolicName=STATUS_INVALID_PARAMETER_7
 Language=English
-An invalid parameter was passed to the a service or function as
-the seventh argument
+An invalid parameter was passed to a service or function as
+the seventh argument.
 .
 
 
 MessageId=0x00F6 Facility=System Severity=Error SymbolicName=STATUS_INVALID_PARAMETER_8
 Language=English
-An invalid parameter was passed to the a service or function as
-the eighth argument
+An invalid parameter was passed to a service or function as
+the eighth argument.
 .
 
 
 MessageId=0x00F7 Facility=System Severity=Error SymbolicName=STATUS_INVALID_PARAMETER_9
 Language=English
-An invalid parameter was passed to the a service or function as
-the ninth argument
+An invalid parameter was passed to a service or function as
+the ninth argument.
 .
 
 
 MessageId=0x00F8 Facility=System Severity=Error SymbolicName=STATUS_INVALID_PARAMETER_10
 Language=English
-An invalid parameter was passed to the a service or function as
-the tenth argument
+An invalid parameter was passed to a service or function as
+the tenth argument.
 .
 
 
 MessageId=0x00F9 Facility=System Severity=Error SymbolicName=STATUS_INVALID_PARAMETER_11
 Language=English
-An invalid parameter was passed to the a service or function as
-the eleventh argument
+An invalid parameter was passed to a service or function as
+the eleventh argument.
 .
 
 
 MessageId=0x00FA Facility=System Severity=Error SymbolicName=STATUS_INVALID_PARAMETER_12
 Language=English
-An invalid parameter was passed to the a service or function as
-the twelfth argument
+An invalid parameter was passed to a service or function as
+the twelfth argument.
 .
 
 
@@ -2437,7 +2503,7 @@ A new guard page for the stack cannot be created.
 
 MessageId=0x00FE Facility=System Severity=Error SymbolicName=STATUS_NO_SUCH_PACKAGE
 Language=English
-A specified authentication package is unknown
+A specified authentication package is unknown.
 .
 
 
@@ -2456,7 +2522,7 @@ in the specified environment block.
 
 MessageId=0x0101 Facility=System Severity=Error SymbolicName=STATUS_DIRECTORY_NOT_EMPTY
 Language=English
-Indicates that the directory trying to be deleted is not empty
+Indicates that the directory trying to be deleted is not empty.
 .
 
 
@@ -2470,7 +2536,7 @@ Please run the Chkdsk utility.
 
 MessageId=0x0103 Facility=System Severity=Error SymbolicName=STATUS_NOT_A_DIRECTORY
 Language=English
-A requested opened file is not a directory
+A requested opened file is not a directory.
 .
 
 
@@ -2513,7 +2579,7 @@ did not specify a sufficient level of force.
 
 MessageId=0x0109 Facility=System Severity=Error SymbolicName=STATUS_MESSAGE_NOT_FOUND
 Language=English
-RtlFindMessage could not locate the requested message Id in the
+RtlFindMessage could not locate the requested message ID in the
 message table resource.
 .
 
@@ -2521,23 +2587,23 @@ message table resource.
 MessageId=0x010A Facility=System Severity=Error SymbolicName=STATUS_PROCESS_IS_TERMINATING
 Language=English
 An attempt was made to duplicate an object handle into or out
-of an exiting process
+of an exiting process.
 .
 
 
 MessageId=0x010B Facility=System Severity=Error SymbolicName=STATUS_INVALID_LOGON_TYPE
 Language=English
-Indicates an invalid value has been provided for LogonType has been
+Indicates an invalid value has been provided for the LogonType
 requested.
 .
 
 
 MessageId=0x010C Facility=System Severity=Error SymbolicName=STATUS_NO_GUID_TRANSLATION
 Language=English
-Indicates that an attempt was made to assign protection to an HPFS
+Indicates that an attempt was made to assign protection to a
 file system file or directory and one of the SIDs in the security
 descriptor could not be translated into a GUID that could be stored
-in HPFS.
+by the file system.
 This causes the protection attempt to fail, which may cause a file
 creation attempt to fail.
 .
@@ -2608,34 +2674,34 @@ Language=English
 MessageId=0x0117 Facility=System Severity=Error SymbolicName=STATUS_NO_LDT
 Language=English
 Indicates that an attempt was made to change the size of the LDT for
-a process that has no LDT
+a process that has no LDT.
 .
 
 
 MessageId=0x0118 Facility=System Severity=Error SymbolicName=STATUS_INVALID_LDT_SIZE
 Language=English
 Indicates that an attempt was made to grow an LDT by setting its size,
-or that the size was not an even number of selectors
+or that the size was not an even number of selectors.
 .
 
 
 MessageId=0x0119 Facility=System Severity=Error SymbolicName=STATUS_INVALID_LDT_OFFSET
 Language=English
 Indicates that the starting value for the LDT information was not
-an integral multiple of the selector size
+an integral multiple of the selector size.
 .
 
 
 MessageId=0x011A Facility=System Severity=Error SymbolicName=STATUS_INVALID_LDT_DESCRIPTOR
 Language=English
 Indicates that the user supplied an invalid descriptor when trying
-to set up Ldt descriptors
+to set up Ldt descriptors.
 .
 
 
 MessageId=0x011B Facility=System Severity=Error SymbolicName=STATUS_INVALID_IMAGE_NE_FORMAT
 Language=English
-The specified image file did not have the correct format, it
+The specified image file did not have the correct format. It
 appears to be NE format.
 .
 
@@ -2647,8 +2713,8 @@ Language=English
 Indicates that the transaction state of a registry sub-tree is
 incompatible with the requested operation.
 For example, a request has been made to start a new transaction with
-one already in progress, or a request to apply a transaction when one
-is not currently in progress.
+one already in progress, or a request has been made to apply a transaction
+when one is not currently in progress.
 This status value is returned by the runtime library (RTL) registry
 transaction package (RXact).
 .
@@ -2711,7 +2777,7 @@ MessageId=0x0124 Facility=System Severity=Error SymbolicName=STATUS_SPECIAL_ACCO
 Language=English
 Indicates an operation has been attempted on a built-in (special)
 SAM account which is incompatible with built-in accounts.  For
-example, built-in accounts can not be deleted.
+example, built-in accounts cannot be deleted.
 .
 
 
@@ -2725,13 +2791,13 @@ group because it is a built-in special group.
 MessageId=0x0126 Facility=System Severity=Error SymbolicName=STATUS_SPECIAL_USER
 Language=English
 The operation requested may not be performed on the specified
-user  because it is a built-in special user.
+user because it is a built-in special user.
 .
 
 
 MessageId=0x0127 Facility=System Severity=Error SymbolicName=STATUS_MEMBERS_PRIMARY_GROUP
 Language=English
-Indicates a member can not be removed from a group because the
+Indicates a member cannot be removed from a group because the
 group is currently the member's primary group.
 .
 
@@ -2806,7 +2872,7 @@ did not have a proper e_lfarlc in the MZ header.
 MessageId=0x0131 Facility=System Severity=Error SymbolicName=STATUS_INVALID_IMAGE_WIN_16
 Language=English
 The specified image file did not have the correct format, it
-looks like a 16-bit windows image.
+appears to be a 16-bit Windows image.
 .
 
 
@@ -2819,7 +2885,7 @@ in the domain conflicts with the specified role.
 
 MessageId=0x0133 Facility=System Severity=Error SymbolicName=STATUS_TIME_DIFFERENCE_AT_DC
 Language=English
-The time at the Primary Domain Controller is different then the
+The time at the Primary Domain Controller is different than the
 time at the Backup Domain Controller or member server by too large
 an amount.
 .
@@ -3071,7 +3137,7 @@ export restrictions.
 
 MessageId=0x0158 Facility=System Severity=Error SymbolicName=STATUS_INTERNAL_DB_ERROR
 Language=English
-The Local Security Authority (LSA) database contains in internal inconsistency.
+The Local Security Authority (LSA) database contains an internal inconsistency.
 .
 
 MessageId=0x0159 Facility=System Severity=Error SymbolicName=STATUS_FULLSCREEN_MODE
@@ -3090,7 +3156,7 @@ incorporate into the security context.
 MessageId=0x015B Facility=System Severity=Error SymbolicName=STATUS_LOGON_TYPE_NOT_GRANTED
 Language=English
 A user has requested a type of logon (e.g., interactive or network) that
-has not be granted.  An administrator has control over who may logon
+has not been granted.  An administrator has control over who may logon
 interactively and through the network.
 .
 
@@ -3328,18 +3394,18 @@ This operation is only allowed for the Primary Domain Controller of the domain.
 
 MessageId=0x0188 Facility=System Severity=Error SymbolicName=STATUS_LOG_FILE_FULL
 Language=English
-Log file space is insufficient to support this operation
+Log file space is insufficient to support this operation.
 .
 
 MessageId=0x0189 Facility=System Severity=Error SymbolicName=STATUS_TOO_LATE
 Language=English
-A write operation was attempted to a volume after it was shutdown.
+A write operation was attempted to a volume after it was dismounted.
 .
 
 MessageId=0x018A Facility=System Severity=Error SymbolicName=STATUS_NO_TRUST_LSA_SECRET
 Language=English
 The workstation does not have a trust secret for the primary domain in
-local LSA database.
+the local LSA database.
 .
 
 MessageId=0x018B Facility=System Severity=Error SymbolicName=STATUS_NO_TRUST_SAM_ACCOUNT
@@ -3362,7 +3428,7 @@ workstation and the primary domain failed.
 
 MessageId=0x018E Facility=System Severity=Error SymbolicName=STATUS_EVENTLOG_FILE_CORRUPT
 Language=English
-The Eventlog logfile is corrupt.
+The Eventlog log file is corrupt.
 .
 
 MessageId=0x18F Facility=System Severity=Error SymbolicName=STATUS_EVENTLOG_CANT_START
@@ -3372,8 +3438,8 @@ No Eventlog log file could be opened.  The Eventlog service did not start.
 
 MessageId=0x0190 Facility=System Severity=Error SymbolicName=STATUS_TRUST_FAILURE
 Language=English
-The network logon failed. This may be due the validation authority can't
-be reached
+The network logon failed. This may be because the validation authority can't
+be reached.
 .
 
 MessageId=0x0191 Facility=System Severity=Error SymbolicName=STATUS_MUTANT_LIMIT_EXCEEDED
@@ -3387,7 +3453,7 @@ Language=English
  An attempt was made to logon, but the netlogon service was not started.
 .
 
-MessageId=0x0193 Facility=System Severity=Error SymbolicName=STATUS_ACCOUNT_EXPIRED
+MessageId=0x0193 Facility=System Severity=Error SymbolicName=STATUS_ACCOUNT_EXPIRED ;// ntsubauth
 Language=English
 The user's account has expired.
 .
@@ -3410,7 +3476,7 @@ are already too many sessions established to that server.
 
 MessageId=0x0197 Facility=System Severity=Error SymbolicName=STATUS_EVENTLOG_FILE_CHANGED
 Language=English
-The logfile has changed between reads.
+The log file has changed between reads.
 .
 
 MessageId=0x0198 Facility=System Severity=Error SymbolicName=STATUS_NOLOGON_INTERDOMAIN_TRUST_ACCOUNT
@@ -3450,7 +3516,7 @@ The remote user session has been deleted.
 
 MessageId=0x0204 Facility=System Severity=Error SymbolicName=STATUS_RESOURCE_LANG_NOT_FOUND
 Language=English
-Indicates the specified resource language Id can not be found in the
+Indicates the specified resource language ID cannot be found in the
 image file.
 .
 
@@ -3518,7 +3584,7 @@ The transport timed out a request waiting for a response.
 
 MessageId=0x0211 Facility=System Severity=Error SymbolicName=STATUS_TRANSACTION_NO_RELEASE
 Language=English
-The transport did not receive a release for a pending response
+The transport did not receive a release for a pending response.
 .
 
 MessageId=0x0212 Facility=System Severity=Error SymbolicName=STATUS_TRANSACTION_NO_MATCH
@@ -3568,7 +3634,7 @@ It is corrupt, absent, or not writeable.
 MessageId=0x0219 Facility=System Severity=Error SymbolicName=STATUS_DEBUG_ATTACH_FAILED
 Language=English
 {Unexpected Failure in DebugActiveProcess}
-An unexpected failure occured while processing a DebugActiveProcess API
+An unexpected failure occurred while processing a DebugActiveProcess API
 request.  You may choose OK to terminate the process, or Cancel to
 ignore the error.
 .
@@ -3578,7 +3644,7 @@ Language=English
 {Fatal System Error}
 The %s system process terminated unexpectedly
 with a status of 0x%08x (0x%08x 0x%08x).
-The system has been shutdown.
+The system has been shut down.
 .
 
 MessageId=0x021B Facility=System Severity=Error SymbolicName=STATUS_DATA_NOT_ACCEPTED
@@ -3609,7 +3675,7 @@ MessageId=0x021F Facility=System Severity=Error SymbolicName=STATUS_REPLY_MESSAG
 Language=English
 {Reply Message Mismatch}
 An attempt was made to reply to an LPC message, but the thread specified
-by the client Id in the message was not waiting on that message.
+by the client ID in the message was not waiting on that message.
 .
 
 MessageId=0x0220 Facility=System Severity=Error SymbolicName=STATUS_MAPPED_ALIGNMENT
@@ -3642,7 +3708,7 @@ window were invalid. Too much data may have been put in the shared memory
 window.
 .
 
-MessageId=0x0224 Facility=System Severity=Error SymbolicName=STATUS_PASSWORD_MUST_CHANGE
+MessageId=0x0224 Facility=System Severity=Error SymbolicName=STATUS_PASSWORD_MUST_CHANGE ;// ntsubauth
 Language=English
 The user must change his password before he logs on the first time.
 .
@@ -3654,7 +3720,7 @@ The object was not found.
 
 MessageId=0x0226 Facility=System Severity=Error SymbolicName=STATUS_NOT_TINY_STREAM
 Language=English
-The steam is not a tiny stream.
+The stream is not a tiny stream.
 .
 
 MessageId=0x0227 Facility=System Severity=Error SymbolicName=STATUS_RECOVERY_FAILURE
@@ -3674,21 +3740,21 @@ A consistancy check failed.
 
 MessageId=0x022a Facility=System Severity=Error SymbolicName=STATUS_DUPLICATE_OBJECTID
 Language=English
-The attempt to insert the id in the index failed because the
-id is already in the index.
+The attempt to insert the ID in the index failed because the
+ID is already in the index.
 .
 
 MessageId=0x022b Facility=System Severity=Error SymbolicName=STATUS_OBJECTID_EXISTS
 Language=English
-The attempt to set the object's id failed because the object
-already has an id.
+The attempt to set the object's ID failed because the object
+already has an ID.
 .
 
 MessageId=0x022c Facility=System Severity=Error SymbolicName=STATUS_CONVERT_TO_LARGE
 Language=English
 Internal OFS status codes indicating how an allocation operation is
 handled.  Either it is retried after the containing onode is moved
-or the extent stream is converted to a large stream
+or the extent stream is converted to a large stream.
 .
 
 MessageId=0x022d Facility=System Severity=Error SymbolicName=STATUS_RETRY
@@ -3698,29 +3764,29 @@ The request needs to be retried.
 
 MessageId=0x022e Facility=System Severity=Error SymbolicName=STATUS_FOUND_OUT_OF_SCOPE
 Language=English
-The attempt to find the object found an object matching by id
+The attempt to find the object found an object matching by ID
 on the volume but it is out of the scope of the handle used
-to send the fsctl.
+for the operation.
 .
 
 MessageId=0x022f Facility=System Severity=Error SymbolicName=STATUS_ALLOCATE_BUCKET
 Language=English
-The bucket array must be grown.  Retry transaction after doing so
+The bucket array must be grown.  Retry transaction after doing so.
 .
 
 MessageId=0x0230 Facility=System Severity=Error SymbolicName=STATUS_PROPSET_NOT_FOUND
 Language=English
-the property set specified does not exist on the object
+The property set specified does not exist on the object.
 .
 
 MessageId=0x0231 Facility=System Severity=Error SymbolicName=STATUS_MARSHALL_OVERFLOW
 Language=English
-the user/kernel marshalling buffer has overflowed
+The user/kernel marshalling buffer has overflowed.
 .
 
 MessageId=0x0232 Facility=System Severity=Error SymbolicName=STATUS_INVALID_VARIANT
 Language=English
-the supplied variant structure contains invalid data
+The supplied variant structure contains invalid data.
 .
 
 MessageId=0x0233 Facility=System Severity=Error SymbolicName=STATUS_DOMAIN_CONTROLLER_NOT_FOUND
@@ -3728,9 +3794,10 @@ Language=English
 Could not find a domain controller for this domain.
 .
 
-MessageId=0x0234 Facility=System Severity=Error SymbolicName=STATUS_ACCOUNT_LOCKED_OUT
+MessageId=0x0234 Facility=System Severity=Error SymbolicName=STATUS_ACCOUNT_LOCKED_OUT ;// ntsubauth
 Language=English
-The user acocount has been automatically locked because too many invalid logon attempts or password change attempts have been requested.
+The user account has been automatically locked because too many invalid logon
+attempts or password change attempts have been requested.
 .
 
 MessageId=0x0235 Facility=System Severity=Error SymbolicName=STATUS_HANDLE_NOT_CLOSABLE
@@ -3760,7 +3827,7 @@ An address has not yet been associated with the transport endpoint.
 
 MessageId=0x023a Facility=System Severity=Error SymbolicName=STATUS_CONNECTION_INVALID
 Language=English
-An operation was attempted on a non-existent transport connection.
+An operation was attempted on a nonexistent transport connection.
 .
 
 MessageId=0x023b Facility=System Severity=Error SymbolicName=STATUS_CONNECTION_ACTIVE
@@ -3839,8 +3906,8 @@ The account is not authorized to login from this station.
 MessageId=0x0249 Facility=System Severity=Error SymbolicName=STATUS_IMAGE_MP_UP_MISMATCH
 Language=English
 {UP/MP Image Mismatch}
-The image %s has been modified for use on a uni-processor system,
-but you are running it on a multi-processor machine.
+The image %s has been modified for use on a uniprocessor system,
+but you are running it on a multiprocessor machine.
 Please reinstall the image file.
 .
 
@@ -3888,6 +3955,170 @@ More details are available in the system event log. Consult your network
 administrator immediately to resolve the conflict.
 .
 
+
+MessageId=0x0256 Facility=System Severity=Error SymbolicName=STATUS_REGISTRY_QUOTA_LIMIT
+Language=English
+{Low on Registry Quota}
+Your system is running low on registry quota.
+Start the System option in the Control Panel and choose the Virtual Memory button to increase the registry quota.
+.
+
+MessageId=0x0257 Facility=System Severity=Error SymbolicName=STATUS_PATH_NOT_COVERED
+Language=English
+The contacted server does not support the indicated part of the DFS namespace.
+.
+
+MessageId=0x0258 Facility=System Severity=Error SymbolicName=STATUS_NO_CALLBACK_ACTIVE
+Language=English
+A callback return system service cannot be executed when no callback is active.
+.
+
+MessageId=0x0259 Facility=System Severity=Error SymbolicName=STATUS_LICENSE_QUOTA_EXCEEDED
+Language=English
+The service being accessed is licensed for a particular number of connections.
+No more connections can be made to the service at this time
+because there are already as many connections as the service can accept.
+.
+
+MessageId=0x025A Facility=System Severity=Error SymbolicName=STATUS_PWD_TOO_SHORT
+Language=English
+The password provided is too short to meet the policy of your user account.
+Please choose a longer password.
+.
+
+MessageId=0x025B Facility=System Severity=Error SymbolicName=STATUS_PWD_TOO_RECENT
+Language=English
+The policy of your user account does not allow you to change passwords too
+frequently.  This is done to prevent users from changing back to a familiar, but
+potentially discovered, password.  If you feel your password has been compromised
+then please contact your administrator immediately to have a new one assigned.
+.
+
+MessageId=0x025C Facility=System Severity=Error SymbolicName=STATUS_PWD_HISTORY_CONFLICT
+Language=English
+You have attempted to change your password to one that you have used in the past.
+The policy of your user account does not allow this.  Please select a password
+that you have not previously used.
+.
+
+MessageId=0x025E Facility=System Severity=Error SymbolicName=STATUS_PLUGPLAY_NO_DEVICE
+Language=English
+You have attempted to load a legacy device driver while its device instance had
+been disabled.
+.
+
+MessageId=0x025F Facility=System Severity=Error SymbolicName=STATUS_UNSUPPORTED_COMPRESSION
+Language=English
+The specified compression format is unsupported.
+.
+
+MessageId=0x0260 Facility=System Severity=Error SymbolicName=STATUS_INVALID_HW_PROFILE
+Language=English
+The specified hardware profile configuration is invalid.
+.
+
+MessageId=0x0261 Facility=System Severity=Error SymbolicName=STATUS_INVALID_PLUGPLAY_DEVICE_PATH
+Language=English
+The specified Plug and Play registry device path is invalid.
+.
+
+MessageId=0x0262 Facility=System Severity=Error SymbolicName=STATUS_DRIVER_ORDINAL_NOT_FOUND
+Language=English
+{Driver Entry Point Not Found}
+The %s device driver could not locate the ordinal %ld in driver %s.
+.
+
+MessageId=0x0263 Facility=System Severity=Error SymbolicName=STATUS_DRIVER_ENTRYPOINT_NOT_FOUND
+Language=English
+{Driver Entry Point Not Found}
+The %s device driver could not locate the entry point %s in driver %s.
+.
+
+MessageId=0x0264 Facility=System Severity=Error SymbolicName=STATUS_RESOURCE_NOT_OWNED
+Language=English
+{Application Error}
+The application attempted to release a resource it did not own.  Click on OK to
+terminate the application.
+.
+
+MessageId=0x0265 Facility=System Severity=Error SymbolicName=STATUS_TOO_MANY_LINKS
+Language=English
+An attempt was made to create more links on a file than
+the file system supports.
+.
+
+MessageId=0x0266 Facility=System Severity=Error SymbolicName=STATUS_QUOTA_LIST_INCONSISTENT
+Language=English
+The specified quota list is internally inconsistent with its descriptor.
+.
+
+MessageId=0x0267 Facility=System Severity=Error SymbolicName=STATUS_FILE_IS_OFFLINE
+Language=English
+The specified file has been relocated to offline storage.
+.
+
+MessageId=0x0268 Facility=System Severity=Error SymbolicName=STATUS_EVALUATION_EXPIRATION
+Language=English
+{Windows NT Evaluation Notification}
+The evaluation period for this installation of Windows NT has expired.
+This system will shutdown in 1 hour. To restore access to this installation
+of Windows NT, please upgrade this installation using a licensed distribution
+of this product.
+.
+
+MessageId=0x0269 Facility=System Severity=Error SymbolicName=STATUS_ILLEGAL_DLL_RELOCATION
+Language=English
+{Illegal System DLL Relocation}
+The system DLL %s was relocated in memory. The application will not run properly.
+The relocation occured because the DLL %s occupied an address range reserved for
+Windows NT system DLL's. The vendor supplying the DLL should be contacted for a new DLL.
+.
+
+MessageId=0x026A Facility=System Severity=Error SymbolicName=STATUS_LICENSE_VIOLATION
+Language=English
+{License Violation}
+The system has detected tampering with your registered product type. This is a violation
+of your software license. Tampering with product type is not permitted.
+.
+
+MessageId=0x026B Facility=System Severity=Error SymbolicName=STATUS_DLL_INIT_FAILED_LOGOFF
+Language=English
+{DLL Initialization Failed}
+The application failed to initialize because the window station is shutting down.
+.
+
+MessageId=0x026C Facility=System Severity=Error SymbolicName=STATUS_DRIVER_UNABLE_TO_LOAD
+Language=English
+{Unable to Load Device Driver}
+%s device driver could not be loaded.
+Error Status was 0x%x
+.
+
+MessageId=0x026D Facility=System Severity=Error SymbolicName=STATUS_DFS_UNAVAILABLE
+Language=English
+DFS is unavailable on the contacted server.
+.
+
+MessageId=0x026E Facility=System Severity=Error SymbolicName=STATUS_VOLUME_DISMOUNTED
+Language=English
+An operation was attempted to a volume after it was dismounted.
+.
+
+MessageId=0x026F Facility=System Severity=Error SymbolicName=STATUS_WX86_INTERNAL_ERROR
+Language=English
+An internal error occurred in the Win32 x86 emulation subsystem.
+.
+
+MessageId=0x0270 Facility=System Severity=Error SymbolicName=STATUS_WX86_FLOAT_STACK_CHECK
+Language=English
+Win32 x86 emulation subsystem Floating-point stack check.
+.
+
+MessageId=0x9898 Facility=System Severity=Error SymbolicName=STATUS_WOW_ASSERTION
+Language=English
+WOW Assertion Error.
+.
+
 MessageId=0x0001 Facility=RpcRuntime Severity=Error SymbolicName=RPC_NT_INVALID_STRING_BINDING
 Language=English
 The string binding is invalid.
@@ -3904,17 +4135,17 @@ The binding handle is invalid.
 
 MessageId=0x0004 Facility=RpcRuntime Severity=Error SymbolicName=RPC_NT_PROTSEQ_NOT_SUPPORTED
 Language=English
-The Rpc protocol sequence is not supported.
+The RPC protocol sequence is not supported.
 .
 
 MessageId=0x0005 Facility=RpcRuntime Severity=Error SymbolicName=RPC_NT_INVALID_RPC_PROTSEQ
 Language=English
-The rpc protocol sequence is invalid.
+The RPC protocol sequence is invalid.
 .
 
 MessageId=0x0006 Facility=RpcRuntime Severity=Error SymbolicName=RPC_NT_INVALID_STRING_UUID
 Language=English
-The string uuid is invalid.
+The string UUID is invalid.
 .
 
 MessageId=0x0007 Facility=RpcRuntime Severity=Error SymbolicName=RPC_NT_INVALID_ENDPOINT_FORMAT
@@ -3939,22 +4170,22 @@ The timeout value is invalid.
 
 MessageId=0x000B Facility=RpcRuntime Severity=Error SymbolicName=RPC_NT_OBJECT_NOT_FOUND
 Language=English
-The object uuid was not found.
+The object UUID was not found.
 .
 
 MessageId=0x000C Facility=RpcRuntime Severity=Error SymbolicName=RPC_NT_ALREADY_REGISTERED
 Language=English
-The object uuid has already been registered.
+The object UUID has already been registered.
 .
 
 MessageId=0x000D Facility=RpcRuntime Severity=Error SymbolicName=RPC_NT_TYPE_ALREADY_REGISTERED
 Language=English
-The type uuid has already been registered.
+The type UUID has already been registered.
 .
 
 MessageId=0x000E Facility=RpcRuntime Severity=Error SymbolicName=RPC_NT_ALREADY_LISTENING
 Language=English
-The rpc server is already listening.
+The RPC server is already listening.
 .
 
 MessageId=0x000F Facility=RpcRuntime Severity=Error SymbolicName=RPC_NT_NO_PROTSEQS_REGISTERED
@@ -3964,7 +4195,7 @@ No protocol sequences have been registered.
 
 MessageId=0x0010 Facility=RpcRuntime Severity=Error SymbolicName=RPC_NT_NOT_LISTENING
 Language=English
-The rpc server is not listening.
+The RPC server is not listening.
 .
 
 MessageId=0x0011 Facility=RpcRuntime Severity=Error SymbolicName=RPC_NT_UNKNOWN_MGR_TYPE
@@ -3989,7 +4220,7 @@ There are no protocol sequences.
 
 MessageId=0x0015 Facility=RpcRuntime Severity=Error SymbolicName=RPC_NT_CANT_CREATE_ENDPOINT
 Language=English
-The endpoint can not be created.
+The endpoint cannot be created.
 .
 
 MessageId=0x0016 Facility=RpcRuntime Severity=Error SymbolicName=RPC_NT_OUT_OF_RESOURCES
@@ -3999,12 +4230,12 @@ Not enough resources are available to complete this operation.
 
 MessageId=0x0017 Facility=RpcRuntime Severity=Error SymbolicName=RPC_NT_SERVER_UNAVAILABLE
 Language=English
-The rpc server is unavailable.
+The RPC server is unavailable.
 .
 
 MessageId=0x0018 Facility=RpcRuntime Severity=Error SymbolicName=RPC_NT_SERVER_TOO_BUSY
 Language=English
-The rpc server is too busy to complete this operation.
+The RPC server is too busy to complete this operation.
 .
 
 MessageId=0x0019 Facility=RpcRuntime Severity=Error SymbolicName=RPC_NT_INVALID_NETWORK_OPTIONS
@@ -4029,17 +4260,17 @@ The remote procedure call failed and did not execute.
 
 MessageId=0x001D Facility=RpcRuntime Severity=Error SymbolicName=RPC_NT_PROTOCOL_ERROR
 Language=English
-An rpc protocol error occurred.
+An RPC protocol error occurred.
 .
 
 MessageId=0x001F Facility=RpcRuntime Severity=Error SymbolicName=RPC_NT_UNSUPPORTED_TRANS_SYN
 Language=English
-The transfer syntax is not supported by the rpc server.
+The transfer syntax is not supported by the RPC server.
 .
 
 MessageId=0x0021 Facility=RpcRuntime Severity=Error SymbolicName=RPC_NT_UNSUPPORTED_TYPE
 Language=English
-The type uuid is not supported.
+The type UUID is not supported.
 .
 
 MessageId=0x0022 Facility=RpcRuntime Severity=Error SymbolicName=RPC_NT_INVALID_TAG
@@ -4069,7 +4300,7 @@ The name syntax is not supported.
 
 MessageId=0x0028 Facility=RpcRuntime Severity=Error SymbolicName=RPC_NT_UUID_NO_ADDRESS
 Language=English
-No network address is available to use to construct a uuid.
+No network address is available to use to construct a UUID.
 .
 
 MessageId=0x0029 Facility=RpcRuntime Severity=Error SymbolicName=RPC_NT_DUPLICATE_ENDPOINT
@@ -4094,7 +4325,7 @@ The string is too long.
 
 MessageId=0x002D Facility=RpcRuntime Severity=Error SymbolicName=RPC_NT_PROTSEQ_NOT_FOUND
 Language=English
-The rpc protocol sequence was not found.
+The RPC protocol sequence was not found.
 .
 
 MessageId=0x002E Facility=RpcRuntime Severity=Error SymbolicName=RPC_NT_PROCNUM_OUT_OF_RANGE
@@ -4134,12 +4365,12 @@ The entry is invalid.
 
 MessageId=0x0035 Facility=RpcRuntime Severity=Error SymbolicName=EPT_NT_CANT_PERFORM_OP
 Language=English
-The operation can not be performed.
+The operation cannot be performed.
 .
 
 MessageId=0x0036 Facility=RpcRuntime Severity=Error SymbolicName=EPT_NT_NOT_REGISTERED
 Language=English
-There are not more endpoints available from the endpoint mapper.
+There are no more endpoints available from the endpoint mapper.
 .
 
 MessageId=0x0037 Facility=RpcRuntime Severity=Error SymbolicName=RPC_NT_NOTHING_TO_EXPORT
@@ -4204,36 +4435,36 @@ No security context is available to allow impersonation.
 
 MessageId=0x0043 Facility=RpcRuntime Severity=Error SymbolicName=RPC_NT_INTERNAL_ERROR
 Language=English
-An internal error occurred in rpc.
+An internal error occurred in RPC.
 .
 
 MessageId=0x0044 Facility=RpcRuntime Severity=Error SymbolicName=RPC_NT_ZERO_DIVIDE
 Language=English
-The rpc server attempted an integer divide by zero.
+The RPC server attempted an integer divide by zero.
 .
 
 MessageId=0x0045 Facility=RpcRuntime Severity=Error SymbolicName=RPC_NT_ADDRESS_ERROR
 Language=English
-An addressing error occurred in the rpc server.
+An addressing error occurred in the RPC server.
 .
 
 MessageId=0x0046 Facility=RpcRuntime Severity=Error SymbolicName=RPC_NT_FP_DIV_ZERO
 Language=English
-A floating point operation at the rpc server caused a divide by zero.
+A floating point operation at the RPC server caused a divide by zero.
 .
 
 MessageId=0x0047 Facility=RpcRuntime Severity=Error SymbolicName=RPC_NT_FP_UNDERFLOW
 Language=English
-A floating point underflow occurred at the rpc server.
+A floating point underflow occurred at the RPC server.
 .
 
 MessageId=0x0048 Facility=RpcRuntime Severity=Error SymbolicName=RPC_NT_FP_OVERFLOW
 Language=English
-A floating point overflow occurred at the rpc server.
+A floating point overflow occurred at the RPC server.
 .
 
 MessageId=0x0001 Facility=RpcStubs Severity=Error SymbolicName=RPC_NT_NO_MORE_ENTRIES Language=English
-The list of rpc servers available for auto_handle binding has been exhausted.
+The list of RPC servers available for auto-handle binding has been exhausted.
 .
 
 MessageId=0x0002 Facility=RpcStubs Severity=Error SymbolicName=RPC_NT_SS_CHAR_TRANS_OPEN_FAIL Language=English
@@ -4274,7 +4505,7 @@ The enumeration value is out of range.
 .
 
 MessageId=0x000B Facility=RpcStubs Severity=Error SymbolicName=RPC_NT_BYTE_COUNT_TOO_SMALL Language=English
-The byte count is too small
+The byte count is too small.
 .
 
 MessageId=0x000C Facility=RpcStubs Severity=Error SymbolicName=RPC_NT_BAD_STUB_DATA Language=English
@@ -4303,7 +4534,7 @@ The endpoint mapper database could not be created.
 
 MessageId=0x004D Facility=RpcRuntime Severity=Error SymbolicName=RPC_NT_INVALID_OBJECT
 Language=English
-The object uuid is the nil uuid.
+The object UUID is the nil UUID.
 .
 
 MessageId=0x004F Facility=RpcRuntime Severity=Error SymbolicName=RPC_NT_NO_INTERFACES
@@ -4343,12 +4574,12 @@ The error specified is not a valid Windows NT RPC error code.
 
 MessageId=0x0056  Facility=RpcRuntime Severity=Informational SymbolicName=RPC_NT_UUID_LOCAL_ONLY
 Language=English
-A Uuid that is valid only on this computer has been allocated.
+A UUID that is valid only on this computer has been allocated.
 .
 
 MessageId=0x0057  Facility=RpcRuntime Severity=Error  SymbolicName=RPC_NT_SEC_PKG_ERROR
 Language=English
-A security package specific error occured.
+A security package specific error occurred.
 .
 
 MessageId=0x0058  Facility=RpcRuntime Severity=Error  SymbolicName=RPC_NT_NOT_CANCELLED
@@ -4371,7 +4602,29 @@ Language=English
 Incompatible version of the RPC stub.
 .
 
+MessageId=0x005C  Facility=RpcStubs Severity=Error  SymbolicName=RPC_NT_INVALID_PIPE_OBJECT
+Language=English
+The idl pipe object is invalid or corrupted.
+.
+
+MessageId=0x005D  Facility=RpcStubs Severity=Error  SymbolicName=RPC_NT_INVALID_PIPE_OPERATION
+Language=English
+The operation is invalid for a given idl pipe object.
+.
+
+MessageId=0x005E  Facility=RpcStubs Severity=Error  SymbolicName=RPC_NT_WRONG_PIPE_VERSION
+Language=English
+The idl pipe version is not supported.
+.
+
+MessageId=0x00AF  Facility=RpcRuntime Severity=Informational SymbolicName=RPC_NT_SEND_INCOMPLETE
+Language=English
+Some data remains to be sent in the request buffer.
+.
+
+
 ;/*lint -restore */  // Resume checking for different macro definitions // winnt
+;// end_ntsecapi
 ;
-;
+;#endif // WIN32_NO_STATUS // winnt
 ;#endif // _NTSTATUS_

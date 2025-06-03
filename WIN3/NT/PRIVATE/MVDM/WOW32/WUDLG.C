@@ -22,10 +22,6 @@ extern DOSWOWDATA DosWowData;
 // SendDlgItemMessage cache
 extern HWND  hdlgSDIMCached ;
 
-#define SCDLG_ANSI 0x0002
-#define SCDLG_CLIENT 0x0001
-#define SCDLG_NOREVALIDATE  0x0004
-
 LONG W32DialogFunc(HWND hdlg, UINT uMsg, DWORD uParam, LPARAM lParam)
 {
     BOOL fSuccess;
@@ -42,8 +38,13 @@ LONG W32DialogFunc(HWND hdlg, UINT uMsg, DWORD uParam, LPARAM lParam)
     // This should be removed when USER32 does clean up on task death so
     // it doesn't call us - mattfe june 24 92
 
-    if (CURRENTPTD()->gfIgnoreInput) {
+    if (CURRENTPTD()->dwFlags & TDF_IGNOREINPUT) {
         LOGDEBUG(6,("    W32DialogFunc Ignoring Input Messsage %04X\n",uMsg));
+        WOW32ASSERTMSG(!gfIgnoreInputAssertGiven,
+                       "WCD32CommonDialogProc: TDF_IGNOREINPUT hack was used, shouldn't be, "
+                       "please email DaveHart with repro instructions.  Hit 'g' to ignore this "
+                       "and suppress this assertion from now on.\n");
+        gfIgnoreInputAssertGiven = TRUE;
         goto SilentError;
     }
 
@@ -99,11 +100,11 @@ LONG W32DialogFunc(HWND hdlg, UINT uMsg, DWORD uParam, LPARAM lParam)
         LOGDEBUG(6,("    No Thunking was required for the 32-bit message %s(%04x)\n", (LPSZ)GetWMMsgName(uMsg), uMsg));
     }
 
-    *pNtVDMState &= ~VDM_WOWBLOCKED;
+    BlockWOWIdle(FALSE);
 
     fSuccess = CallBack16(RET_WNDPROC, &wm32mpex.Parm16, pww->vpfnDlgProc, (PVPVOID)&wm32mpex.lReturn);
 
-    *pNtVDMState |= VDM_WOWBLOCKED;
+    BlockWOWIdle(TRUE);
 
     // the callback function of a dialog is of type FARPROC whose return value
     // is of type 'int'. Since dx:ax is copied into lReturn in the above
@@ -1074,14 +1075,41 @@ ULONG FASTCALL WU32IsDialogMessage(PVDMFRAME pFrame)
     MSG t2;
     register PISDIALOGMESSAGE16 parg16;
     MSGPARAMEX mpex;
+    PMSG16 pMsg16;
 
     GETARGPTR(pFrame, sizeof(ISDIALOGMESSAGE16), parg16);
-    getmsg16(parg16->f2, &t2, &mpex);
+    GETMISCPTR(parg16->f2, pMsg16);
+
+    mpex.Parm16.WndProc.hwnd = pMsg16->hwnd;
+    mpex.Parm16.WndProc.wMsg = pMsg16->message;
+    mpex.Parm16.WndProc.wParam = pMsg16->wParam;
+    mpex.Parm16.WndProc.lParam = pMsg16->lParam;
+    mpex.iMsgThunkClass = WOWCLASS_UNKNOWN;
+
+    ThunkMsg16(&mpex);
+
+    GETFRAMEPTR(((PTD)CURRENTPTD())->vpStack, pFrame);
+    GETARGPTR(pFrame, sizeof(ISDIALOGMESSAGE16), parg16);
+
+    t2.message   = mpex.uMsg;
+    t2.wParam    = mpex.uParam;
+    t2.lParam    = mpex.lParam;
+    t2.hwnd      = HWND32(FETCHWORD(pMsg16->hwnd));
+    t2.time      = FETCHLONG(pMsg16->time);
+    t2.pt.x      = FETCHSHORT(pMsg16->pt.x);
+    t2.pt.y      = FETCHSHORT(pMsg16->pt.y);
 
     ul = GETBOOL16(IsDialogMessage(
     HWND32(parg16->f1),
     &t2
     ));
+
+    if (MSG16NEEDSTHUNKING(&mpex)) {
+        mpex.uMsg   = t2.message;
+        mpex.uParam = t2.wParam;
+        mpex.lParam = t2.lParam;
+        (mpex.lpfnUnThunk16)(&mpex);
+    }
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -1459,4 +1487,3 @@ ULONG FASTCALL WU32SysErrorBox(PVDMFRAME pFrame)
     FREEARGPTR(parg16);
     RETURN(dwExitCode);
 }
-

@@ -99,7 +99,7 @@ Another driver on the system, which did not report its resources, has already cl
 
 MessageId=0x0008 Facility=Serial Severity=Error SymbolicName=SERIAL_INSUFFICIENT_RESOURCES
 Language=English
-Not enough memory was available to allocate internal storage needed for %2.
+Not enough resources were available for the driver.
 .
 
 MessageId=0x0009 Facility=Serial Severity=Error SymbolicName=SERIAL_UNSUPPORTED_CLOCK_RATE
@@ -243,7 +243,7 @@ Parameter %2 data is unretrievable from the registry.
 
 MessageId=0x0024 Facility=Serial Severity=Error SymbolicName=SERIAL_DLAB_INVALID
 Language=English
-While validating that %2 was really a serial port, the contents of the divisor latch register was identical to the interrupt enable and the recieve registers.
+While validating that %2 was really a serial port, the contents of the divisor latch register was identical to the interrupt enable and the receive registers.
 The device is assumed not to be a serial port and will be deleted.
 .
 

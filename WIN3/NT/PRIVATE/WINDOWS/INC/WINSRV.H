@@ -8,6 +8,65 @@
 * 12-10-93  SanfordS    Created
 \*****************************************************************************/
 
+//
+// USER and GDI use FASTCALL functions
+//
+
+#ifndef FASTCALL
+#if defined(_X86_)
+#define FASTCALL    __fastcall
+#else
+#define FASTCALL
+#endif
+#endif
+
+//
+// Device Lock structure
+//
+
+typedef PRTL_CRITICAL_SECTION PDEVICE_LOCK;
+
+
+HDEV hdevOpenDisplayDevice(
+PWSZ      pwszDriver,       // The device driver name.
+PDEVMODEW pdriv,            // Driver data.
+HANDLE    hScreen,          // Handle to the base driver.
+BOOL      bDefaultDisplay,  // Is this the default display device.
+PDEVICE_LOCK *devLock);     // Pointer to a variable for the semaphore pointer
+
+LBOOL APIENTRY bCloseDisplayDevice(HDEV hdev);
+BOOL  APIENTRY bDisableDisplay(HDEV hdev);
+VOID  APIENTRY vEnableDisplay(HDEV hdev);
+
+VOID  APIENTRY GreLockDisplay(PDEVICE_LOCK devlock);
+VOID  APIENTRY GreUnlockDisplay(PDEVICE_LOCK devlock);
+
+LBOOL APIENTRY GreLoadLayeredDisplayDriver(PWSZ pwszDriver);
+
+HDC   APIENTRY hdcOpenDisplayDC(HDEV hdev,ULONG iType);
+
+ULONG APIENTRY GreGetResourceId(HDEV, ULONG, ULONG);
+BOOL  APIENTRY bSetDevDragRect(HDEV, RECTL*, RECTL *);
+BOOL  APIENTRY bSetDevDragWidth(HDEV, ULONG);
+BOOL  APIENTRY bMoveDevDragRect(HDEV, RECTL*);
+
+typedef struct _CURSINFO /* ci */
+{
+    SHORT   xHotspot;
+    SHORT   yHotspot;
+    HBITMAP hbmMask;      // AND/XOR bits
+    HBITMAP hbmColor;
+    FLONG   flMode;
+} CURSINFO, *PCURSINFO;
+
+ULONG APIENTRY GreGetDriverModes(PWSZ pwszDriver, HANDLE hDriver, ULONG cjSize, DEVMODEW *pdm);
+
+ULONG APIENTRY GreSaveScreenBits(HDEV hdev, ULONG iMode, ULONG iIdent, RECTL *prcl);
+VOID  APIENTRY GreSetPointer(HDEV hdev,PCURSINFO pci,ULONG fl);
+VOID  APIENTRY GreMovePointer(HDEV hdev,int x,int y);
+
+
+
 /*
  * ----------------------- From usersrvl.lib module ------------------------
  */
@@ -61,18 +120,26 @@ BOOL GetProfileIntsW(PPROFINTINFO ppii);
 #define PMAP_TIMEOUT           29
 #define PMAP_SOUNDSENTRY       30
 #define PMAP_SHOWSOUNDS        31
+#define PMAP_KBDLAYOUTSUBST    32
+#define PMAP_AEDEBUG           33
+#define PMAP_NETWORK           34
+#define PMAP_LSA               35
+#define PMAP_CONTROL           36
 #if (WINVER >= 0x0400)
-#define PMAP_METRICS           32
-#define PMAP_LAST              32
+#define PMAP_METRICS           37
+#define PMAP_KBDLAYOUTTOGGLE   38
+#define PMAP_LAST              38
 #else
-#define PMAP_LAST              31
+#define PMAP_LAST              36
 #endif
 
 typedef struct tagFASTREGMAP {
     HANDLE hKeyCache;
     LPWSTR szSection;
+    WORD   wType;
 } FASTREGMAP, *PFASTREGMAP;
 
+BOOL    OpenCacheKey(UINT idSection, ACCESS_MASK amRequest);
 BOOL    FastOpenProfileUserMapping(void);
 BOOL    FastCloseProfileUserMapping(void);
 DWORD   FastGetProfileDwordW(UINT idSection, LPCWSTR lpKeyName, DWORD dwDefault);
@@ -88,5 +155,6 @@ UINT    UT_FastGetProfileStringW(UINT idSection, LPCWSTR pwszKey, LPCWSTR pwszDe
             LPWSTR pwszReturn, DWORD cch);
 UINT    UT_FastWriteProfileStringW(UINT idSection, LPCWSTR pwszKey, LPCWSTR pwszString);
 UINT    UT_FastGetProfileIntW(UINT idSection, LPCWSTR lpKeyName, DWORD nDefault);
-BOOL    FastGetProfileIntsW(PPROFINTINFO ppii);
+BOOL    UT_FastGetProfileIntsW(PPROFINTINFO ppii);
 BOOL    UT_FastUpdateWinIni(UINT idSection, UINT wKeyNameId, LPWSTR lpszValue);
+

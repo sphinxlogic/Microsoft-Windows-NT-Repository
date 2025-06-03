@@ -29,11 +29,13 @@ Revision History:
 #include "nt.h"
 #include "ntrtl.h"
 #include "nturtl.h"
+#include "slist.h"
 
 //
 // Define locals constants.
 //
 
+#define CALLBACK_ITERATIONS 500000
 #define CHECKSUM_BUFFER_SIZE   (1 << 16)
 #define CHECKSUM_ITERATIONS 1000
 #define CHECKSUM_IP_ITERATIONS 40000000
@@ -42,12 +44,17 @@ Revision History:
 #define EVENT_CREATION_ITERATIONS 20000
 #define EVENT_OPEN_ITERATIONS 20000
 #define EVENT_QUERY_ITERATIONS 500000
-#define EVENT1_SWITCHES 100000
-#define EVENT2_SWITCHES 100000
-#define EVENT3_SWITCHES 1000000
+#define EVENT1_SWITCHES 300000
+#define EVENT2_SWITCHES 200000
+#define EVENT3_SWITCHES 1500000
+#define EVENT4_SWITCHES 400000
 #define IO_ITERATIONS 70000
 #define MUTANT_SWITCHES 100000
+#define SLIST_ITERATIONS 20000000
+#define SEMAPHORE1_SWITCHES 300000
+#define SEMAPHORE2_SWITCHES 600000
 #define SYSCALL_ITERATIONS 2000000
+#define TIMER_INDEX_ITERATIONS 10000000
 #define TIMER_OPERATION_ITERATIONS 500000
 #define WAIT_SINGLE_ITERATIONS 200000
 #define WAIT_MULTIPLE_ITERATIONS 200000
@@ -79,6 +86,11 @@ typedef struct _PERFINFO {
 //
 // Define test prototypes.
 //
+
+VOID
+CallbackTest (
+    VOID
+    );
 
 VOID
 ChecksumTest (
@@ -126,6 +138,11 @@ Event3SwitchTest (
     );
 
 VOID
+Event4SwitchTest (
+    VOID
+    );
+
+VOID
 Io1Test (
     VOID
     );
@@ -136,7 +153,27 @@ MutantSwitchTest (
     );
 
 VOID
+Semaphore1SwitchTest (
+    VOID
+    );
+
+VOID
+Semaphore2SwitchTest (
+    VOID
+    );
+
+VOID
+SlistTest (
+    VOID
+    );
+
+VOID
 SystemCallTest (
+    VOID
+    );
+
+VOID
+TimerIndexTest (
     VOID
     );
 
@@ -190,12 +227,42 @@ Event3Thread2 (
     );
 
 NTSTATUS
+Event4Thread1 (
+    IN PVOID Context
+    );
+
+NTSTATUS
+Event4Thread2 (
+    IN PVOID Context
+    );
+
+NTSTATUS
 MutantThread1 (
     IN PVOID Context
     );
 
 NTSTATUS
 MutantThread2 (
+    IN PVOID Context
+    );
+
+NTSTATUS
+Semaphore1Thread1 (
+    IN PVOID Context
+    );
+
+NTSTATUS
+Semaphore1Thread2 (
+    IN PVOID Context
+    );
+
+NTSTATUS
+Semaphore2Thread1 (
+    IN PVOID Context
+    );
+
+NTSTATUS
+Semaphore2Thread2 (
     IN PVOID Context
     );
 
@@ -232,6 +299,20 @@ StartBenchMark (
 //
 
 ULONG
+ComputeTimerTableIndex32 (
+    IN LARGE_INTEGER Interval,
+    IN LARGE_INTEGER CurrentTime,
+    IN PULONGLONG DueTime
+    );
+
+ULONG
+ComputeTimerTableIndex64 (
+    IN LARGE_INTEGER Interval,
+    IN LARGE_INTEGER CurrentTime,
+    IN PULONGLONG DueTime
+    );
+
+ULONG
 ChkSum (
     IN ULONG Sum,
     IN PUSHORT Buffer,
@@ -261,6 +342,8 @@ HANDLE EventHandle1;
 HANDLE EventHandle2;
 HANDLE EventPairHandle;
 HANDLE MutantHandle;
+HANDLE SemaphoreHandle1;
+HANDLE SemaphoreHandle2;
 HANDLE Thread1Handle;
 HANDLE Thread2Handle;
 HANDLE TimerEventHandle;
@@ -315,7 +398,8 @@ main(
 
     Status = NtCreateTimer(&TimerTimerHandle,
                            TIMER_ALL_ACCESS,
-                           NULL);
+                           NULL,
+                           NotificationTimer);
 
     if (!NT_SUCCESS(Status)) {
         printf("Failed to create timer during initialization\n");
@@ -339,7 +423,8 @@ main(
     // Execute performance tests.
     //
 
-    ChecksumTest();
+//    CallbackTest();
+//    ChecksumTest();
 //    EventClearTest();
 //    EventCreationTest();
 //    EventOpenTest();
@@ -348,9 +433,14 @@ main(
 //    Event1SwitchTest();
 //    Event2SwitchTest();
 //    Event3SwitchTest();
+//    Event4SwitchTest();
 //    Io1Test();
 //    MutantSwitchTest();
+//    Semaphore1SwitchTest();
+//    Semaphore2SwitchTest();
+    SlistTest();
 //    SystemCallTest();
+//    TimerIndexTest();
 //    TimerOperationTest();
 //    WaitSingleTest();
 //    WaitMultipleTest();
@@ -381,6 +471,60 @@ EndOfTest:
     NtClose(TimerEventHandle);
     NtClose(TimerTimerHandle);
     NtClose(TimerThreadHandle);
+    return;
+}
+
+CHAR InputBuffer[] = "this is the input buffer";
+CHAR OutputBuffer[] = "this is the output buffer";
+
+NTSTATUS
+Callback (
+    IN PVOID ValueBuffer,
+    IN ULONG ValueLength
+    )
+
+{
+
+    NtCallbackReturn((PVOID)&OutputBuffer[0], 26, STATUS_SUCCESS);
+    return STATUS_SUCCESS;
+}
+
+VOID
+CallbackTest (
+    VOID
+    )
+
+{
+
+    PVOID Buffer;
+    ULONG Index;
+    ULONG Length;
+    PERFINFO PerfInfo;
+
+    //
+    // Announce start of benchmark and capture performance parmeters.
+    //
+
+    StartBenchMark("Callback Benchmark (NtW32Call)",
+                   CALLBACK_ITERATIONS,
+                   &PerfInfo);
+
+    //
+    // Repeatedly call a short callback routine.
+    //
+
+    for (Index = 0; Index < CALLBACK_ITERATIONS; Index += 1) {
+        NtW32Call((ULONG)Callback, (PVOID)&InputBuffer[0], 24, &Buffer, &Length);
+         if ((Buffer != (PVOID)&OutputBuffer[0]) || (Length != 26)) {
+             printf("**** output buffer mismatch\n");
+         }
+    }
+
+    //
+    // Print out performance statistics.
+    //
+
+    FinishBenchMark(&PerfInfo);
     return;
 }
 
@@ -1147,7 +1291,7 @@ Event1SwitchTest (
 
     Status = CreateThread(&Thread1Handle,
                           Event1Thread1,
-                          LOW_REALTIME_PRIORITY + 11);
+                          LOW_REALTIME_PRIORITY - 2);
 
     if (!NT_SUCCESS(Status)) {
         printf("Failed to create first thread event1 context switch test\n");
@@ -1156,7 +1300,7 @@ Event1SwitchTest (
 
     Status = CreateThread(&Thread2Handle,
                           Event1Thread2,
-                          LOW_REALTIME_PRIORITY + 11);
+                          LOW_REALTIME_PRIORITY - 2);
 
     if (!NT_SUCCESS(Status)) {
         printf("Failed to create second thread event1 context switch test\n");
@@ -1328,7 +1472,7 @@ Event2SwitchTest (
 
     Status = CreateThread(&Thread1Handle,
                           Event2Thread1,
-                          LOW_REALTIME_PRIORITY + 11);
+                          LOW_REALTIME_PRIORITY - 2);
 
     if (!NT_SUCCESS(Status)) {
         printf("Failed to create first thread event2 context switch test\n");
@@ -1337,7 +1481,7 @@ Event2SwitchTest (
 
     Status = CreateThread(&Thread2Handle,
                           Event2Thread2,
-                          LOW_REALTIME_PRIORITY + 11);
+                          LOW_REALTIME_PRIORITY - 2);
 
     if (!NT_SUCCESS(Status)) {
         printf("Failed to create second thread event2 context switch test\n");
@@ -1467,7 +1611,6 @@ Event2Thread2 (
     NtTerminateThread(Thread2Handle, STATUS_SUCCESS);
 }
 
-
 VOID
 Event3SwitchTest (
     VOID
@@ -1498,7 +1641,7 @@ Event3SwitchTest (
 
     Status = CreateThread(&Thread1Handle,
                           Event3Thread1,
-                          LOW_REALTIME_PRIORITY - 1);
+                          LOW_REALTIME_PRIORITY - 2);
 
     if (!NT_SUCCESS(Status)) {
         printf("Failed to create first thread event3 context switch test\n");
@@ -1507,7 +1650,7 @@ Event3SwitchTest (
 
     Status = CreateThread(&Thread2Handle,
                           Event3Thread2,
-                          LOW_REALTIME_PRIORITY -1);
+                          LOW_REALTIME_PRIORITY - 2);
 
     if (!NT_SUCCESS(Status)) {
         printf("Failed to create second thread event3 context switch test\n");
@@ -1660,6 +1803,191 @@ Event3Thread2 (
     }
 
     Status = NtSetLowEventPair(EventPairHandle);
+    NtTerminateThread(Thread2Handle, STATUS_SUCCESS);
+}
+
+VOID
+Event4SwitchTest (
+    VOID
+    )
+
+{
+
+    PERFINFO PerfInfo;
+    NTSTATUS Status;
+    PVOID WaitObjects[2];
+
+    //
+    // Create two event objects for the event1 context switch test.
+    //
+
+    Status = NtCreateEvent(&EventHandle1,
+                           DESIRED_EVENT_ACCESS,
+                           NULL,
+                           SynchronizationEvent,
+                           FALSE);
+
+    if (!NT_SUCCESS(Status)) {
+        printf("EVENT4: Failed to create event1 object for context switch test.\n");
+        goto EndOfTest;
+    }
+
+    Status = NtCreateEvent(&EventHandle2,
+                           DESIRED_EVENT_ACCESS,
+                           NULL,
+                           SynchronizationEvent,
+                           FALSE);
+
+    if (!NT_SUCCESS(Status)) {
+        printf("EVENT4: Failed to create event2 object for context switch test.\n");
+        goto EndOfTest;
+    }
+
+    //
+    // Create the thread objects to execute the test.
+    //
+
+    Status = CreateThread(&Thread1Handle,
+                          Event4Thread1,
+                          LOW_REALTIME_PRIORITY - 2);
+
+    if (!NT_SUCCESS(Status)) {
+        printf("EVENT4: Failed to create first thread event4 context switch test\n");
+        goto EndOfTest;
+    }
+
+    Status = CreateThread(&Thread2Handle,
+                          Event4Thread2,
+                          LOW_REALTIME_PRIORITY - 2);
+
+    if (!NT_SUCCESS(Status)) {
+        printf("EVENT4: Failed to create second thread event3 context switch test\n");
+        goto EndOfTest;
+    }
+
+    //
+    // Initialize the wait objects array.
+    //
+
+    WaitObjects[0] = Thread1Handle;
+    WaitObjects[1] = Thread2Handle;
+
+    //
+    // Announce start of benchmark and capture performance parmeters.
+    //
+
+    StartBenchMark("Event (signal/wait) Context Switch Benchmark (Round Trips)",
+                   EVENT4_SWITCHES,
+                   &PerfInfo);
+
+    //
+    // Set event and wait for threads to terminate.
+    //
+
+    Status = NtSetEvent(EventHandle1, NULL);
+    if (!NT_SUCCESS(Status)) {
+        printf("EVENT4: Failed to set event event1 context switch test.\n");
+        goto EndOfTest;
+    }
+
+    Status = NtWaitForMultipleObjects(2,
+                                      WaitObjects,
+                                      WaitAll,
+                                      FALSE,
+                                      NULL);
+
+    //
+    // Print out performance statistics.
+    //
+
+    FinishBenchMark(&PerfInfo);
+
+    //
+    // End of event3 context switch test.
+    //
+
+EndOfTest:
+    NtClose(EventHandle1);
+    NtClose(EventHandle2);
+    NtClose(Thread1Handle);
+    NtClose(Thread2Handle);
+    return;
+}
+
+NTSTATUS
+Event4Thread1 (
+    IN PVOID Context
+    )
+
+{
+
+    ULONG Index;
+    NTSTATUS Status;
+
+    //
+    // Wait for event 1 and then enter signal/wait loop.
+    //
+
+    Status = NtWaitForSingleObject(EventHandle1,
+                                   FALSE,
+                                   NULL);
+
+    if (!NT_SUCCESS(Status)) {
+        printf("EVENT4: Thread1 initial wait failed, %x\n", Status);
+
+    } else {
+        for (Index = 0; Index < EVENT4_SWITCHES; Index += 1) {
+            Status = NtSignalAndWaitForSingleObject(EventHandle2,
+                                                    EventHandle1,
+                                                    FALSE,
+                                                    NULL);
+
+            if (!NT_SUCCESS(Status)) {
+                printf("EVENT4: Thread1 signal/wait failed, %x\n", Status);
+                break;
+            }
+        }
+    }
+
+    Status = NtSetEvent(EventHandle2, NULL);
+    NtTerminateThread(Thread1Handle, STATUS_SUCCESS);
+}
+
+NTSTATUS
+Event4Thread2 (
+    IN PVOID Context
+    )
+
+{
+
+    ULONG Index;
+    NTSTATUS Status;
+
+    //
+    // Wait for event 1 and then enter signal/wait loop.
+    //
+
+    Status = NtWaitForSingleObject(EventHandle2,
+                                   FALSE,
+                                   NULL);
+
+    if (!NT_SUCCESS(Status)) {
+        printf("EVENT4: Thread2 initial wait failed, %x\n", Status);
+
+    } else {
+        for (Index = 0; Index < EVENT4_SWITCHES; Index += 1) {
+            Status = NtSignalAndWaitForSingleObject(EventHandle1,
+                                                    EventHandle2,
+                                                    FALSE,
+                                                    NULL);
+
+            if (!NT_SUCCESS(Status)) {
+                printf("EVENT4: Thread2 signal/wait failed, %x\n", Status);
+                break;
+            }
+        }
+    }
+
     NtTerminateThread(Thread2Handle, STATUS_SUCCESS);
 }
 
@@ -1947,6 +2275,418 @@ MutantThread2 (
 }
 
 VOID
+Semaphore1SwitchTest (
+    VOID
+    )
+
+{
+
+    PERFINFO PerfInfo;
+    NTSTATUS Status;
+    HANDLE WaitObjects[2];
+
+    //
+    // Create two semaphore objects for the semaphore1 context switch test.
+    //
+
+    Status = NtCreateSemaphore(&SemaphoreHandle1,
+                               DESIRED_EVENT_ACCESS,
+                               NULL,
+                               0,
+                               1);
+
+    if (!NT_SUCCESS(Status)) {
+        printf("SEMAPHORE1: Failed to create semaphore1 object.\n");
+        goto EndOfTest;
+    }
+
+    Status = NtCreateSemaphore(&SemaphoreHandle2,
+                               DESIRED_EVENT_ACCESS,
+                               NULL,
+                               0,
+                               1);
+
+    if (!NT_SUCCESS(Status)) {
+        printf("SEMAPHORE1: Failed to create semaphore2 object.\n");
+        goto EndOfTest;
+    }
+
+    //
+    // Create the thread objects to execute the test.
+    //
+
+    Status = CreateThread(&Thread1Handle,
+                          Semaphore1Thread1,
+                          LOW_REALTIME_PRIORITY - 2);
+
+    if (!NT_SUCCESS(Status)) {
+        printf("SEMAPHORE1: Failed to create thread1 object.\n");
+        goto EndOfTest;
+    }
+
+    Status = CreateThread(&Thread2Handle,
+                          Semaphore1Thread2,
+                          LOW_REALTIME_PRIORITY - 2);
+
+    if (!NT_SUCCESS(Status)) {
+        printf("SEMAPHORE1: Failed to create thread2 object.\n");
+        goto EndOfTest;
+    }
+
+    //
+    // Initialize the wait objects array.
+    //
+
+    WaitObjects[0] = Thread1Handle;
+    WaitObjects[1] = Thread2Handle;
+
+    //
+    // Announce start of benchmark and capture performance parmeters.
+    //
+
+    StartBenchMark("Semaphore (release/wait) Context Switch Benchmark (Round Trips)",
+                   SEMAPHORE1_SWITCHES,
+                   &PerfInfo);
+
+    //
+    // Release semaphore and wait for threads to terminate.
+    //
+
+    Status = NtReleaseSemaphore(SemaphoreHandle1, 1, NULL);
+    if (!NT_SUCCESS(Status)) {
+        printf("SEMAPHORE1: Failed to release semaphore1 at start of test.\n");
+        goto EndOfTest;
+    }
+
+    Status = NtWaitForMultipleObjects(2,
+                                      WaitObjects,
+                                      WaitAll,
+                                      FALSE,
+                                      NULL);
+
+    if (!NT_SUCCESS(Status)) {
+        printf("SEMAPHORE1: Failed to wait for threads.\n");
+        goto EndOfTest;
+    }
+
+    //
+    // Print out performance statistics.
+    //
+
+    FinishBenchMark(&PerfInfo);
+
+    //
+    // End of semaphore1 context switch test.
+    //
+
+EndOfTest:
+    NtClose(SemaphoreHandle1);
+    NtClose(SemaphoreHandle2);
+    NtClose(Thread1Handle);
+    NtClose(Thread2Handle);
+    return;
+}
+
+NTSTATUS
+Semaphore1Thread1 (
+    IN PVOID Context
+    )
+
+{
+
+    ULONG Index;
+    NTSTATUS Status;
+
+    //
+    // Wait for semaphore 1 and then release semaphore 2.
+    //
+
+    for (Index = 0; Index < SEMAPHORE1_SWITCHES; Index += 1) {
+        Status = NtWaitForSingleObject(SemaphoreHandle1,
+                                       FALSE,
+                                       NULL);
+
+        if (!NT_SUCCESS(Status)) {
+            printf("SEMAPHORE1: Thread1 bad wait status, %x\n", Status);
+            break;
+        }
+
+        Status = NtReleaseSemaphore(SemaphoreHandle2, 1, NULL);
+        if (!NT_SUCCESS(Status)) {
+            printf("SEMAPHORE1: Thread1 bad release status, %x\n", Status);
+            break;
+        }
+    }
+
+    NtTerminateThread(Thread1Handle, STATUS_SUCCESS);
+}
+
+NTSTATUS
+Semaphore1Thread2 (
+    IN PVOID Context
+    )
+
+{
+
+    ULONG Index;
+    NTSTATUS Status;
+
+    //
+    // Wait for semaphore 2 and then release semaphore 1.
+    //
+
+    for (Index = 0; Index < SEMAPHORE1_SWITCHES; Index += 1) {
+        Status = NtWaitForSingleObject(SemaphoreHandle2,
+                                       FALSE,
+                                       NULL);
+
+        if (!NT_SUCCESS(Status)) {
+            printf("SEMAPHORE1: Thread2 bad wait status, %x\n", Status);
+            break;
+        }
+
+        Status = NtReleaseSemaphore(SemaphoreHandle1, 1, NULL);
+        if (!NT_SUCCESS(Status)) {
+            printf("SEMAPHORE1: Thread2 bad release status, %x\n", Status);
+            break;
+        }
+    }
+
+    NtTerminateThread(Thread2Handle, STATUS_SUCCESS);
+}
+
+VOID
+Semaphore2SwitchTest (
+    VOID
+    )
+
+{
+
+    PERFINFO PerfInfo;
+    NTSTATUS Status;
+    HANDLE WaitObjects[2];
+
+    //
+    // Create two semaphore objects for the semaphore1 context switch test.
+    //
+
+    Status = NtCreateSemaphore(&SemaphoreHandle1,
+                               DESIRED_EVENT_ACCESS,
+                               NULL,
+                               0,
+                               1);
+
+    if (!NT_SUCCESS(Status)) {
+        printf("SEMAPHORE2: Failed to create semaphore1 object.\n");
+        goto EndOfTest;
+    }
+
+    Status = NtCreateSemaphore(&SemaphoreHandle2,
+                               DESIRED_EVENT_ACCESS,
+                               NULL,
+                               0,
+                               1);
+
+    if (!NT_SUCCESS(Status)) {
+        printf("SEMAPHORE2: Failed to create semaphore2 object.\n");
+        goto EndOfTest;
+    }
+
+    //
+    // Create the thread objects to execute the test.
+    //
+
+    Status = CreateThread(&Thread1Handle,
+                          Semaphore2Thread1,
+                          LOW_REALTIME_PRIORITY - 2);
+
+    if (!NT_SUCCESS(Status)) {
+        printf("SEMAPHORE2: Failed to create thread1 object.\n");
+        goto EndOfTest;
+    }
+
+    Status = CreateThread(&Thread2Handle,
+                          Semaphore2Thread2,
+                          LOW_REALTIME_PRIORITY - 2);
+
+    if (!NT_SUCCESS(Status)) {
+        printf("SEMAPHORE2: Failed to create thread2 object.\n");
+        goto EndOfTest;
+    }
+
+    //
+    // Initialize the wait objects array.
+    //
+
+    WaitObjects[0] = Thread1Handle;
+    WaitObjects[1] = Thread2Handle;
+
+    //
+    // Announce start of benchmark and capture performance parmeters.
+    //
+
+    StartBenchMark("Semaphore (signal/wait) Context Switch Benchmark (Round Trips)",
+                   SEMAPHORE2_SWITCHES,
+                   &PerfInfo);
+
+    //
+    // Release semaphore and wait for threads to terminate.
+    //
+
+    Status = NtReleaseSemaphore(SemaphoreHandle1, 1, NULL);
+    if (!NT_SUCCESS(Status)) {
+        printf("SEMAPHORE2: Failed to release semaphore1 at start of test.\n");
+        goto EndOfTest;
+    }
+
+    Status = NtWaitForMultipleObjects(2,
+                                      WaitObjects,
+                                      WaitAll,
+                                      FALSE,
+                                      NULL);
+
+    if (!NT_SUCCESS(Status)) {
+        printf("SEMAPHORE2: Failed to wait for threads.\n");
+        goto EndOfTest;
+    }
+
+    //
+    // Print out performance statistics.
+    //
+
+    FinishBenchMark(&PerfInfo);
+
+    //
+    // End of semaphore 2 context switch test.
+    //
+
+EndOfTest:
+    NtClose(SemaphoreHandle1);
+    NtClose(SemaphoreHandle2);
+    NtClose(Thread1Handle);
+    NtClose(Thread2Handle);
+    return;
+}
+
+NTSTATUS
+Semaphore2Thread1 (
+    IN PVOID Context
+    )
+
+{
+
+    ULONG Index;
+    NTSTATUS Status;
+
+    //
+    // Wait for semaphore 1 and then enter signal/wait loop.
+    //
+
+    Status = NtWaitForSingleObject(SemaphoreHandle1,
+                                   FALSE,
+                                   NULL);
+
+    if (!NT_SUCCESS(Status)) {
+        printf("SEMAPHORE2: Thread1 initial wait failed, %x\n", Status);
+
+    } else {
+        for (Index = 0; Index < SEMAPHORE2_SWITCHES; Index += 1) {
+            Status = NtSignalAndWaitForSingleObject(SemaphoreHandle2,
+                                                    SemaphoreHandle1,
+                                                    FALSE,
+                                                    NULL);
+
+            if (!NT_SUCCESS(Status)) {
+                printf("SEMAPHORE2: Thread1 signal/wait failed, %x\n", Status);
+                break;
+            }
+        }
+    }
+
+    Status = NtReleaseSemaphore(SemaphoreHandle2, 1, NULL);
+    NtTerminateThread(Thread1Handle, STATUS_SUCCESS);
+}
+
+NTSTATUS
+Semaphore2Thread2 (
+    IN PVOID Context
+    )
+
+{
+
+    ULONG Index;
+    NTSTATUS Status;
+
+    //
+    // Wait for semaphore 2 and then enter signal/wait loop.
+    //
+
+    Status = NtWaitForSingleObject(SemaphoreHandle2,
+                                   FALSE,
+                                   NULL);
+
+    if (!NT_SUCCESS(Status)) {
+        printf("SEMAPHORE2: Thread2 initial wait failed, %x\n", Status);
+
+    } else {
+        for (Index = 0; Index < SEMAPHORE2_SWITCHES; Index += 1) {
+            Status = NtSignalAndWaitForSingleObject(SemaphoreHandle1,
+                                                    SemaphoreHandle2,
+                                                    FALSE,
+                                                    NULL);
+
+            if (!NT_SUCCESS(Status)) {
+                printf("SEMAPHORE2: Thread2 signal/wait failed, %x\n", Status);
+                break;
+            }
+        }
+    }
+
+    NtTerminateThread(Thread2Handle, STATUS_SUCCESS);
+}
+
+VOID
+SlistTest (
+    VOID
+    )
+
+{
+
+    SINGLE_LIST_ENTRY Entry;
+    SLIST_HEADER SListHead;
+    ULONG Index;
+    PERFINFO PerfInfo;
+    LARGE_INTEGER SystemTime;
+
+    //
+    // Announce start of benchmark and capture performance parmeters.
+    //
+
+    StartBenchMark("S-List Benchmark",
+                   SLIST_ITERATIONS,
+                   &PerfInfo);
+
+    //
+    // Repeatedly call a short system service.
+    //
+
+    InitializeSListHead(&SListHead);
+    for (Index = 0; Index < SLIST_ITERATIONS; Index += 1) {
+        InterlockedPushEntrySList(&SListHead, &Entry);
+        if (InterlockedPopEntrySList(&SListHead) != (PVOID)&Entry) {
+            printf("SLIST: Entry does match %lx\n", Entry);
+        }
+    }
+
+    //
+    // Print out performance statistics.
+    //
+
+    FinishBenchMark(&PerfInfo);
+    return;
+}
+
+VOID
 SystemCallTest (
     VOID
     )
@@ -1961,7 +2701,7 @@ SystemCallTest (
     // Announce start of benchmark and capture performance parmeters.
     //
 
-    StartBenchMark("System Call Benchmark (NtGetTickCount)",
+    StartBenchMark("System Call Benchmark (NtQuerySystemTime)",
                    SYSCALL_ITERATIONS,
                    &PerfInfo);
 
@@ -1970,7 +2710,7 @@ SystemCallTest (
     //
 
     for (Index = 0; Index < SYSCALL_ITERATIONS; Index += 1) {
-        NtGetTickCount();
+        NtQuerySystemTime(&SystemTime);
     }
 
     //
@@ -1978,6 +2718,104 @@ SystemCallTest (
     //
 
     FinishBenchMark(&PerfInfo);
+    return;
+}
+
+VOID
+TimerIndexTest (
+    VOID
+    )
+
+{
+
+#if defined(_MIPS_)
+
+    ULONG Count;
+    LARGE_INTEGER CurrentTime;
+    LONG Index1;
+    LONG Index2;
+    PERFINFO PerfInfo;
+    LARGE_INTEGER Interval;
+    ULONGLONG Result1;
+    ULONGLONG Result2;
+
+    //
+    // Test if old and new timer index algorithms get the same index and
+    // due time.
+    //
+
+    printf("*** Start timer index verification\n");
+    CurrentTime.QuadPart = 0x7fff000;
+    Interval.QuadPart = -1;
+    for (Count = 0; Count < 10000000 ; Count += 1) {
+        Index1 = ComputeTimerTableIndex32(Interval, CurrentTime, &Result1);
+        Index2 = ComputeTimerTableIndex64(Interval, CurrentTime, &Result2);
+        if (Result1 != Result2) {
+            printf("    Timer result mismatch result1 = %lx%0lx result2 = %ls%0lx\n",
+                   (ULONG)Result1,
+                   (ULONG)(Result1 >> 32),
+                   (ULONG)Result2,
+                   (ULONG)(Result2 >> 32));
+        }
+
+        if (Index1 != Index2) {
+            printf("    Timer index mismatch index1 = %d index2 = %d\n",
+                   Index1,
+                   Index2);
+        }
+
+        Interval.QuadPart -= 100000;
+        CurrentTime.QuadPart += 10000;
+    }
+
+    printf("*** End timer index verification\n");
+
+    //
+    // Announce start of benchmark and capture performance parameters.
+    //
+
+    StartBenchMark("Old Timer Index Computation Benchmark",
+                   TIMER_INDEX_ITERATIONS,
+                   &PerfInfo);
+
+    //
+    // Repeatedly compute the timer index.
+    //
+
+    for (Count = 0; Count < TIMER_INDEX_ITERATIONS; Count += 1) {
+        Index1 = ComputeTimerTableIndex32(Interval, CurrentTime, &Result1);
+    }
+
+    //
+    // Print out performance statistics.
+    //
+
+    FinishBenchMark(&PerfInfo);
+
+    //
+    // Announce start of benchmark and capture performance parameters.
+    //
+
+    StartBenchMark("New Timer Index Computation Benchmark",
+                   TIMER_INDEX_ITERATIONS,
+                   &PerfInfo);
+
+    //
+    // Repeatedly compute the timer index.
+    //
+
+    for (Count = 0; Count < TIMER_INDEX_ITERATIONS; Count += 1) {
+        Index1 = ComputeTimerTableIndex64(Interval, CurrentTime, &Result1);
+    }
+
+    //
+    // Print out performance statistics.
+    //
+
+    FinishBenchMark(&PerfInfo);
+
+#endif
+
     return;
 }
 
@@ -2009,7 +2847,8 @@ TimerOperationTest (
 
     Status = NtCreateTimer(&Handle,
                            TIMER_ALL_ACCESS,
-                           NULL);
+                           NULL,
+                           NotificationTimer);
 
     if (!NT_SUCCESS(Status)) {
         printf("Failed to create timer during initialization\n");
@@ -2022,7 +2861,7 @@ TimerOperationTest (
 
     DueTime = RtlConvertLongToLargeInteger(- 100 * 1000 * 10);
     for (Index = 0; Index < TIMER_OPERATION_ITERATIONS; Index += 1) {
-        NtSetTimer(Handle, &DueTime, NULL, NULL, NULL);
+        NtSetTimer(Handle, &DueTime, NULL, NULL, FALSE, 0, NULL);
         NtCancelTimer(Handle, NULL);
     }
 
@@ -2206,6 +3045,8 @@ TimerThread (
                             &DueTime,
                             NULL,
                             NULL,
+                            FALSE,
+                            0,
                             NULL);
 
         if (!NT_SUCCESS(Status)) {
@@ -2321,9 +3162,9 @@ FinishBenchMark (
         return;
     }
 
-    Duration = RtlLargeIntegerSubtract(PerfInfo->StopTime, PerfInfo->StartTime);
+    Duration.QuadPart = PerfInfo->StopTime.QuadPart - PerfInfo->StartTime.QuadPart;
     Length = Duration.LowPart / 10000;
-    TotalCycles = RtlLargeIntegerSubtract(PerfInfo->StopCycles, PerfInfo->StartCycles);
+    TotalCycles.QuadPart = PerfInfo->StopCycles.QuadPart - PerfInfo->StartCycles.QuadPart;
     TotalCycles = RtlExtendedLargeIntegerDivide(TotalCycles,
                                                 PerfInfo->Iterations,
                                                 &Remainder);

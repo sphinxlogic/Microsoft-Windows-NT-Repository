@@ -175,7 +175,7 @@ int mo, dy, hr, mn, sc;
     tb.tm_year = yr + 80;
     tb.tm_mon = mo - 1;
     tb.tm_hour = hr;
-    if (daylight && _isindst(&tb))
+    if (_daylight && _isindst(&tb))
         scount -= 3600L;
     return(scount);
 }
@@ -193,7 +193,7 @@ int len;
     int i;
 
     for (i=0; i < len; i++)
-        if (strcmpi(p, *q++)== 0)
+        if (_strcmpi(p, *q++)== 0)
             break;
     return i;
 }
@@ -242,7 +242,7 @@ char *p;
         tb.tm_mon  = istr(mon, strMon, 12);
         tb.tm_wday = istr(day, strDay, 7);
         tb.tm_yday = yday(tb.tm_year, tb.tm_mon, tb.tm_mday);
-        tb.tm_isdst = (daylight && _isindst(&tb) ? 1 : 0);
+        tb.tm_isdst = (_daylight && _isindst(&tb) ? 1 : 0);
         return &tb;
         }
 
@@ -327,4 +327,3 @@ char *p;
     return date2l (tb.tm_year +1900, tb.tm_mon + 1, tb.tm_mday, tb.tm_hour,
         tb.tm_min, tb.tm_sec);
 }
-

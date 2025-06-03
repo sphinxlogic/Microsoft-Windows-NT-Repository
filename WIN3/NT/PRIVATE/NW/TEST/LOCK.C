@@ -78,4 +78,3 @@ main( void )
    _close( fh );
 }
 
-

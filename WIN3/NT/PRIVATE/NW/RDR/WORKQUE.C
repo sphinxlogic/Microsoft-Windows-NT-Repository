@@ -42,9 +42,11 @@ LONG MiniContextCount = 0;  //  Allow up to 20 free mini contexts
 #pragma alloc_text( PAGE, UninitializeIrpContext )
 #pragma alloc_text( PAGE, NwAppendToQueueAndWait )
 
+#ifndef QFE_BUILD
 #pragma alloc_text( PAGE1, NwDequeueIrpContext )
 #pragma alloc_text( PAGE1, AllocateMiniIrpContext )
 #pragma alloc_text( PAGE1, FreeMiniIrpContext )
+#endif
 
 #endif
 
@@ -52,6 +54,9 @@ LONG MiniContextCount = 0;  //  Allow up to 20 free mini contexts
 AllocateIrpContext
 FreeIrpContext
 NwCompleteRequest
+
+// see ifndef QFE_BUILD above
+
 #endif
 
 
@@ -99,13 +104,13 @@ Return Value:
             IrpContext->NodeTypeCode = NW_NTC_IRP_CONTEXT;
             IrpContext->NodeByteSize = sizeof(IRP_CONTEXT);
 
-            IrpContext->TxMdl = ALLOCATE_MDL( &IrpContext->req, MAX_DATA, FALSE, FALSE, NULL );
+            IrpContext->TxMdl = ALLOCATE_MDL( &IrpContext->req, MAX_SEND_DATA, FALSE, FALSE, NULL );
             if ( IrpContext->TxMdl == NULL) {
                 InternalError(("Could not allocate TxMdl for IRP context\n"));
                 ExRaiseStatus( STATUS_INSUFFICIENT_RESOURCES );
             }
 
-            IrpContext->RxMdl = ALLOCATE_MDL( &IrpContext->rsp, MAX_DATA, FALSE, FALSE, NULL );
+            IrpContext->RxMdl = ALLOCATE_MDL( &IrpContext->rsp, MAX_RECV_DATA, FALSE, FALSE, NULL );
             if ( IrpContext->RxMdl == NULL) {
                 InternalError(("Could not allocate RxMdl for IRP context\n"));
                 ExRaiseStatus( STATUS_INSUFFICIENT_RESOURCES );
@@ -159,7 +164,7 @@ Return Value:
 
         IrpContext->TxMdl->Next = NULL;
         IrpContext->RxMdl->Next = NULL;
-        IrpContext->RxMdl->ByteCount = MAX_DATA;
+        IrpContext->RxMdl->ByteCount = MAX_RECV_DATA;
 
         //
         // Clean "used" fields
@@ -172,6 +177,12 @@ Return Value:
         IrpContext->CompletionSendRoutine = NULL;
         IrpContext->ReceiveDataRoutine = NULL;
         IrpContext->pTdiStruct = NULL;
+
+        //
+        // Clean the specific data zone.
+        //
+
+        RtlZeroMemory( &(IrpContext->Specific), sizeof( IrpContext->Specific ) );
     }
 
     ExInterlockedIncrementLong(&ContextCount,&ContextInterlock);
@@ -499,6 +510,8 @@ Return Value:
 --*/
 {
     PLIST_ENTRY pListEntry;
+    KIRQL OldIrql;
+    PNONPAGED_SCB pNpScb;
 
     DebugTrace(+1, Dbg, "NwDequeueIrpContext\n", 0);
 
@@ -507,12 +520,22 @@ Return Value:
         return;
     }
 
-    if ( OwnSpinLock ) {
-        pListEntry = RemoveHeadList( &pIrpContext->pNpScb->Requests );
-    } else {
-        pListEntry = ExInterlockedRemoveHeadList(
-                         &pIrpContext->pNpScb->Requests,
-                         &pIrpContext->pNpScb->NpScbSpinLock );
+    pNpScb = pIrpContext->pNpScb;
+
+    if ( !OwnSpinLock ) {
+        KeAcquireSpinLock( &pNpScb->NpScbSpinLock, &OldIrql );
+    }
+
+    //
+    //  Disable timer from looking at this queue.
+    //
+
+    pNpScb->OkToReceive = FALSE;
+
+    pListEntry = RemoveHeadList( &pNpScb->Requests );
+
+    if ( !OwnSpinLock ) {
+        KeReleaseSpinLock( &pNpScb->NpScbSpinLock, OldIrql );
     }
 
 #ifdef NWDBG
@@ -532,6 +555,11 @@ Return Value:
         Dbg,
         "Dequeued IRP Context %08lx\n",
         CONTAINING_RECORD( pListEntry, IRP_CONTEXT, NextRequest ) );
+
+#ifdef MSWDBG
+    pNpScb->RequestDequeued = TRUE;
+#endif
+
 #endif
 
     ClearFlag( pIrpContext->Flags, IRP_FLAG_ON_SCB_QUEUE );
@@ -540,7 +568,7 @@ Return Value:
     //  Give the next IRP context on the SCB queue a chance to run.
     //
 
-    KickQueue( pIrpContext->pNpScb );
+    KickQueue( pNpScb );
 
     DebugTrace(-1, Dbg, "NwDequeueIrpContext\n", 0);
     return;
@@ -714,7 +742,7 @@ Return Value:
 
         } except( EXCEPTION_EXECUTE_HANDLER ) {
 
-            if ( Buffer = NULL ) {
+            if ( Buffer != NULL ) {
                 FREE_POOL( Buffer );
             }
 

@@ -160,7 +160,7 @@ InitDiff(
 {
     long cchTextBufTry;
 
-    setmode(HSTDOUT, O_BINARY);
+    _setmode(HSTDOUT, O_BINARY);
 
     InitFDD(&fdd1, szFileName1);
     InitFDD(&fdd2, szFileName2);
@@ -957,6 +957,7 @@ LoadTextBuff(
             ((long)(pfdd->oFileNextLine + cbRead / sizeof(WCHAR)) == pfdd->cbFile)) {
 
             /* make sure last line in file is terminated by CR-LF */
+            cbRead = (cbRead + 1) & ~1;   // Make sure it's a multiple of 2
             pch = (WCHAR *)&pfdd->pchTextBuf[cbRead];
             if (*(pch - 1) != chLF) {
                 if (*(pch - 1) == chCR)

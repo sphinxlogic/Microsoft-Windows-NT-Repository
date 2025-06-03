@@ -94,14 +94,9 @@ UINT16 PD_Open(
      pd_hnd->fhand = NULL ;
 
      /*  open the specified "existing" database file */
-     if( ( pd_hnd->fhand = fopen( pwd_name, TEXT("r+b")) ) == NULL ) {
+     if( ( pd_hnd->fhand = UNI_fopen( pwd_name, 0) ) == NULL ) {
 
-
-          /* create a new one */
-          if( ( pd_hnd->fhand = fopen( pwd_name, TEXT("w+b")) ) == NULL ) {
-
-               return (UINT16) PD_FILE_OPEN_ERROR ;
-          }
+          return (UINT16) PD_FILE_OPEN_ERROR ;
      }
 
      return PD_NO_ERROR ;

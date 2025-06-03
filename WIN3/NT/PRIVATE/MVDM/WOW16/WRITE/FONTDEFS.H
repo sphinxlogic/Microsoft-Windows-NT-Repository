@@ -364,4 +364,4 @@ typedef struct {
 
 /* Used in DOPRM.C and FONTENUM.C */
 #define csizeApprovedMax 13
-
+

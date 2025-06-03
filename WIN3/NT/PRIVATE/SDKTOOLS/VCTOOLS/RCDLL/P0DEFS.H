@@ -112,7 +112,7 @@ typedef struct s_expstr {
 #define HASH_MASK               0x5f
 
 #define LIMIT_ID_LENGTH         31
-#define LIMIT_NESTED_INCLUDES   10
+#define LIMIT_NESTED_INCLUDES   1024
 #define LIMIT_MACRO_DEPTH       64
 #define LIMIT_STRING_LENGTH     2043
 #define LEVEL_0                 0xffL
@@ -124,4 +124,3 @@ typedef struct s_expstr {
 
 #define TS_STR(idx)     (Tokstrings[idx-L_NOTOKEN].k_text)
 #define TS_VALUE(idx)   (Tokstrings[idx-L_NOTOKEN].k_token)
-

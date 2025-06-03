@@ -19,3 +19,8 @@
 #include <com.hxx>
 #include "safepnt.hxx"
 #include  "olesrv.hxx"
+
+#if defined _CAIRO_
+#define _DCOM_
+#include    <oleext.h>
+#endif

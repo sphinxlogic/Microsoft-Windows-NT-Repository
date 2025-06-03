@@ -47,7 +47,7 @@ FindNameInCmd (
     PCMD    pCmd
     ) {
     while (pCmd->name) {
-        if (!stricmp (pName, pCmd->name)) {
+        if (!_stricmp (pName, pCmd->name)) {
             return pCmd;
         }
         pCmd++;
@@ -72,7 +72,7 @@ NameToFunc (
         if (*pName != '\0') {
             *pName++ = '\0';
             for (i = 0; i < cCmdTab; i++) {
-		if (!stricmp (pExt, pExtName[i])) {
+		if (!_stricmp (pExt, pExtName[i])) {
 		    pCmd = FindNameInCmd (pName, cmdSet[i]);
 		    pName[-1] = '.';
 		    return pCmd;
@@ -87,7 +87,7 @@ NameToFunc (
         REGISTER int k;
 
         for (k = 0; k < cMac; k++) {
-            if (!stricmp (pName, rgMac[k]->name)) {
+            if (!_stricmp (pName, rgMac[k]->name)) {
                 return rgMac[k];
             }
         }
@@ -140,7 +140,7 @@ DoAssign (
     }
 
     *p++ = 0;
-    strlwr (asg);
+    _strlwr (asg);
     RemoveTrailSpace (asg);
     p = whiteskip (p);
 
@@ -355,7 +355,7 @@ SetSwitch (
      */
 
     if ((pSwi = FindSwitch (p)) == NULL) {
-        if (!strnicmp ("no", p, 2)) {
+        if (!_strnicmp ("no", p, 2)) {
             p += 2;
             f = FALSE;
             if ((pSwi = FindSwitch (p)) != NULL && pSwi->type != SWI_BOOLEAN) {
@@ -376,10 +376,10 @@ SetSwitch (
         } else if (!f) {
             printerror ("Boolean switch style conflict");
             return FALSE;
-        } else if (!stricmp (val, "no")) {
+        } else if (!_stricmp (val, "no")) {
             *pSwi->act.fval = FALSE;
             return TRUE;
-        } else if (!stricmp (val, "yes")) {
+        } else if (!_stricmp (val, "yes")) {
             *pSwi->act.fval = TRUE;
             return TRUE;
         }
@@ -784,9 +784,9 @@ FindMatchLine (
         return -1L;
     }
 
-    if (!stricmp (pszLeft, "user")) {
+    if (!_stricmp (pszLeft, "user")) {
         fUser = TRUE;
-    } else if (!stricmp (pszLeft, "extmake")) {
+    } else if (!_stricmp (pszLeft, "extmake")) {
         pchRight = whitescan (pszRight);
         cchExt = pchRight - pszRight;
         fExtmake = TRUE;
@@ -811,13 +811,13 @@ FindMatchLine (
 
         switch (asgType) {
             case ASG_KEY:
-                if (!stricmp (pszRight, pchRight)) {
+                if (!_stricmp (pszRight, pchRight)) {
                     lReplace = lCur;
                 }
                 break;
 
             case ASG_SWITCH:
-                if (!stricmp (pszLeft, pchLeft)) {
+                if (!_stricmp (pszLeft, pchLeft)) {
                     lReplace = lCur;
                 }
                 break;
@@ -827,8 +827,8 @@ FindMatchLine (
                     continue;
                 }
 
-                if (!stricmp (pszLeft, pchLeft)) {
-                    if (!(fExtmake && strnicmp (pszRight, pchRight, cchExt))) {
+                if (!_stricmp (pszLeft, pchLeft)) {
+                    if (!(fExtmake && _strnicmp (pszRight, pchRight, cchExt))) {
                         lReplace = lCur;
                     }
                 }

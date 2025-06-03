@@ -1,6 +1,5 @@
 
 #include "windows.h"
-#include "..\nwconv\ctl3d\ctl3d.h"
 
 #ifndef WIN16
 #ifndef WIN32
@@ -8,8 +7,6 @@
 #endif
     #include <commdlg.h>
 #endif
-
-#define Ctl3d 1
 
 #define CCHKEYMAX             32    // max characters in search string
 
@@ -140,6 +137,7 @@
 #define IDS_CLOSESAVE   7
 #define IDS_CANTFIND    8
 #define IDS_HELPNOTAVAIL 9
+#define IDS_CANTFINDSTR  10
 
 #define IDS_CLIENTTITLE 16
 #define IDS_UNTITLED    17
@@ -155,6 +153,9 @@
 #define IDS_AVAIL_MEM            30
 #define IDS_PHYSICAL_MEM         31
 
+#define IDS_OPENTEXT    32
+#define IDS_OPENFILTER  33
+#define IDS_DEFEXT      34
 
 #define IDC_STATIC                      -1
 

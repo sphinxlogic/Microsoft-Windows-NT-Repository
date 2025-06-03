@@ -72,7 +72,7 @@ _CRTAPI1 main(
              ClientCommand->ClientKeyword;
              ClientCommand++
             ) {
-            if (!stricmp( ClientCommand->ClientKeyword, argv[ 0 ] )) {
+            if (!_stricmp( ClientCommand->ClientKeyword, argv[ 0 ] )) {
                 argc--;
                 argv++;
                 break;
@@ -85,7 +85,7 @@ _CRTAPI1 main(
             }
         }
 
-    if (argc > 0 && !stricmp( *argv, "-d" )) {
+    if (argc > 0 && !_stricmp( *argv, "-d" )) {
         DebugFlag = TRUE;
         fprintf( stderr, "sizeof( LOCK_MESSAGE ) == %u\n", sizeof( LOCK_MESSAGE ) );
         fprintf( stderr, "sizeof( PROJECT_MESSAGE ) == %u\n", sizeof( PROJECT_MESSAGE ) );
@@ -340,7 +340,7 @@ ServerUpdateLock(
 
     Msg = OwnedLocks;
     while (Msg) {
-        if (!stricmp( Message.UserName, Msg->UserName ) &&
+        if (!_stricmp( Message.UserName, Msg->UserName ) &&
             Message.WriteLock == '0' && Msg->WriteLock == '0' &&
             Message.TimeOfRequest == Msg->TimeOfRequest
            ) {
@@ -418,7 +418,7 @@ ServerProcessLockMessage()
 
     pp = &OwnedLocks;
     while (Msg = *pp) {
-        if (!stricmp( Message.UserName, Msg->UserName )) {
+        if (!_stricmp( Message.UserName, Msg->UserName )) {
             if (DebugFlag) {
                 fprintf( stderr, "NTSLM(Server) - Matched on UserName - Request == %c\n",
                                  Message.RequestType
@@ -958,7 +958,7 @@ ClientInitialize(
 
     OnlyRequestedProjects = FALSE;
     Result = TRUE;
-    if (argc > 0 && !stricmp( *argv, "-p" )) {
+    if (argc > 0 && !_stricmp( *argv, "-p" )) {
         OnlyRequestedProjects = TRUE;
         while (--argc > 0) {
             s = *++argv;
@@ -1030,7 +1030,7 @@ MyGetUserName( void )
 
     if (s = getenv( "LOGNAME" )) {
         strcpy( Message.UserName, s );
-        strupr( Message.UserName );
+        _strupr( Message.UserName );
         return( TRUE );
         }
 
@@ -1039,7 +1039,7 @@ MyGetUserName( void )
         return( FALSE );
         }
 
-    strupr( Message.UserName );
+    _strupr( Message.UserName );
     return( TRUE );
 }
 
@@ -1065,7 +1065,7 @@ ClientValidateEnvironment(
         }
 
     if (!GetCurrentDirectory( sizeof( PathName ), PathName ) ||
-        strnicmp( PathName, s, 2 )
+        _strnicmp( PathName, s, 2 )
        ) {
         fprintf( stderr, "NTSLM: _NTDRIVE=%s is not the current drive.\n", s );
         return( FALSE );
@@ -1077,7 +1077,7 @@ ClientValidateEnvironment(
         }
 
     strcpy( PathName, s );
-    if (!strstr( Message.UserName, strupr( PathName ) )) {
+    if (!strstr( Message.UserName, _strupr( PathName ) )) {
         fprintf( stderr, "NTSLM: User Name (%s) does not contain %s\n",
                          Message.UserName,
                          PathName
@@ -1496,7 +1496,7 @@ ClientQueryEnlist(
 
     while (TRUE) {
         cprintf( "Enlist in the %s project? ", p->Name );
-        c = getch();
+        c = _getch();
         cprintf( "\r\n" );
         if (c == 'y' || c == 'Y') {
             return( TRUE );
@@ -1766,9 +1766,9 @@ AddSlmProject(
 
     pp = &SlmProjects;
     while (p = *pp) {
-        if (!stricmp( p->Name, Name )) {
+        if (!_stricmp( p->Name, Name )) {
             strcpy( p->Server, Server );
-            p->Directory = strdup( Directory );
+            p->Directory = _strdup( Directory );
             p->ClientEnlisted = Enlisted;
             return( TRUE );
             }
@@ -1807,7 +1807,7 @@ FindSlmProject(
 
     p = SlmProjects;
     while (p) {
-        if (!stricmp( p->Name, Name )) {
+        if (!_stricmp( p->Name, Name )) {
             return( p );
             }
 

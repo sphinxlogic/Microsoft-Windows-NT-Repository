@@ -21,16 +21,3 @@
 			}\
 		}\
 	}
-
-
-
-#ifdef NEVER
-#define CALCNEWLEN(newlength,pad,StructType,varlength)\
-	{														\
-		register ushort usNTotal;							\
-															\
-		usNTotal = sizeof (StructType) - 1 + varlength;		\
-		newlength = ALIGN4 (usNTotal) - LNGTHSZ;			\
-		pad = PAD4 (usNTotal);								\
-	}
-#endif

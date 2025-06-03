@@ -86,7 +86,10 @@ Return :
 	SwitchType = ( pUnionField->GetMemOffset() - pSwitchField->GetMemOffset() )
 				 << 4;
 
-	SwitchType |= pSwitchIsNode->GetFormatChar();
+    if ( pSwitchIsNode->GetFormatChar() == FC_ENUM16 ) 
+        SwitchType |= FC_ENUM16;
+    else
+	    SwitchType |= pSwitchIsNode->GetSignedFormatChar();
 
 	pFormatString->PushByte( SwitchType );
 
@@ -129,9 +132,37 @@ Return :
 
 	pFormatString->PushFormatChar( FC_NON_ENCAPSULATED_UNION );
 
-	// The switch type.
-	pFormatString->PushFormatChar( 
-			((CG_BASETYPE *)pCGSwitchType)->GetFormatChar() );
+	// The switch type's signed format char type.
+    if (NULL == pCGSwitchType && pCommand->IsHookOleEnabled())
+        {
+        RpcError(NULL, 0, NO_SWITCH_IS_HOOKOLE, GetSymName());
+        exit(NO_SWITCH_IS_HOOKOLE);
+        }
+
+    if ( ((CG_BASETYPE *)pCGSwitchType)->GetFormatChar() == FC_ENUM16 ) 
+	    pFormatString->PushFormatChar( FC_ENUM16 );
+    else
+        {
+        FORMAT_CHARACTER SwitchTypeFc;
+
+        // Note that we take the signed format character this time.
+
+        SwitchTypeFc = ((CG_BASETYPE *)pCGSwitchType)->GetSignedFormatChar();
+
+#if defined(TARGET_RKK)
+        if ( pCommand->GetTargetSystem() == NT35  &&
+             SwitchTypeFc == FC_USMALL )
+            {
+            // The NT 807 NDR engine doesn't know about usmall.
+
+    	    pFormatString->PushFormatChar( FC_BYTE );
+    	    pFormatString->PushFormatChar( FC_SMALL );
+            }
+        else
+#endif
+
+        pFormatString->PushFormatChar( SwitchTypeFc );
+        }
 
 	GenNdrSwitchIsDescription( pCCB );
 
@@ -168,7 +199,7 @@ Return :
 
 --*/
 {
-	ITERATOR	Iterator;
+	CG_ITERATOR	Iterator;
 	CG_CASE *	pCase;
 	CG_NDR *	pNdr;
 
@@ -272,7 +303,7 @@ Return :
 	// Find out where the arms' descriptions begin.
 	FormatOffset = GetNdrSizeAndArmDescriptionOffset() + 4;
 
-	ITERATOR			Iterator;
+	CG_ITERATOR			Iterator;
 	CG_CASE *			pCase;
 	CG_NDR *			pNdr;
 	CG_NDR *			pNdrDefaultCase;
@@ -300,6 +331,11 @@ Return :
 		//
 		// Fill in the arm's case value.
 		//
+        if (NULL == pCase->GetExpr())
+            {
+            RpcError(NULL, 0, NO_CASE_EXPR, GetSymName());
+            exit(NO_CASE_EXPR);
+            }
 		pFormatString->PushLong( pCase->GetExpr()->GetValue(), FormatOffset );
 		FormatOffset += 4;
 
@@ -331,8 +367,7 @@ Return :
 			// make it look negative.
 			//
 			s = (short) ((CG_BASETYPE *)pNdr)->GetFormatChar();
-
-			s |= (short) 0x8000;
+			s |= MAGIC_UNION_SHORT;
 
 			pFormatString->PushShort( s, FormatOffset );
 			}
@@ -367,7 +402,7 @@ Return :
 				{
 				short s;
 				s = (short) ((CG_BASETYPE *)pNdrDefaultCase)->GetFormatChar(); 
-				s |= (short) 0x8000;
+				s |= MAGIC_UNION_SHORT;
 				pFormatString->PushShort( s, FormatOffset );
 				}
 			else
@@ -381,7 +416,7 @@ Return :
 BOOL 
 CG_UNION::CanUseBuffer()
 {
-    ITERATOR    Iterator;
+    CG_ITERATOR	Iterator;
     CG_CASE *   pCase;
     CG_NDR *    pNdr;
     unsigned long Size;
@@ -449,7 +484,7 @@ Return :
 {
 	CG_NDR *			pParamOrField;
 	CG_FIELD *			pField;
-	_expr_node *		pSwitchExpr;
+	expr_node *		pSwitchExpr;
 	BOOL				IsPointer;
 
 	pParamOrField = pCCB->GetLastPlaceholderClass();
@@ -539,7 +574,7 @@ void
 CG_UNION::GenNdrPointerFixUp( CCB *       pCCB,
                               CG_STRUCT * pStruct )
 {
-    ITERATOR        Iterator;
+    CG_ITERATOR		Iterator;
     CG_NDR *        pMember;
     CG_NDR *        pNdr;
     long            OffsetOffset;

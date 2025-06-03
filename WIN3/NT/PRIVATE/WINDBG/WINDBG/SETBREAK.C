@@ -43,7 +43,7 @@ static  char            rgchT[255];
 static int  TopIndex;
 
 
-VOID FAR PASCAL
+VOID
 EnableBPButtons(
     HWND hDlg,
     int iBP
@@ -60,7 +60,8 @@ FillMsgCombo(
     HWND
     );
 
-BOOL FAR PASCAL EXPORT
+BOOL
+WINAPI
 DlgMessage(
     HWND hDlg,
     UINT message,
@@ -93,7 +94,10 @@ BPLB_HbptOfI(
 **      type. (i.e. on message)
 */
 
-void NEAR PASCAL FillWndProcCombo(HWND hDlg)
+VOID
+FillWndProcCombo(
+    HWND hDlg
+    )
 {
     int i;
 
@@ -121,7 +125,10 @@ void NEAR PASCAL FillWndProcCombo(HWND hDlg)
 **      box and store them into the array
 */
 
-void NEAR PASCAL StoreWndProcHistory(HWND hDlg)
+VOID
+StoreWndProcHistory(
+    HWND hDlg
+    )
 {
     int i;
 
@@ -140,7 +147,7 @@ void NEAR PASCAL StoreWndProcHistory(HWND hDlg)
 
 
 
-BOOLEAN
+BOOL
 ClearWndProcHistory (
     void
     )
@@ -156,7 +163,7 @@ Arguments:
 
 Return Value:
 
-    BOOLEAN -   TRUE if cleared
+    BOOL -   TRUE if cleared
 
 --*/
 {
@@ -174,7 +181,7 @@ Return Value:
 
 
 
-BOOLEAN
+BOOL
 SetWndProcHistory (
     LPSTR   List,
     DWORD   ListLength
@@ -193,7 +200,7 @@ Arguments:
 
 Return Value:
 
-    BOOLEAN - TRUE if ALL WndProcs in the list were added.
+    BOOL - TRUE if ALL WndProcs in the list were added.
 
 --*/
 {
@@ -305,7 +312,11 @@ BreakDefPushButton(
 **
 */
 
-void NEAR PASCAL SetbreakControls(HWND hDlg, int bpType)
+VOID
+SetbreakControls(
+    HWND hDlg,
+    int bpType
+    )
 {
     BOOL fEnableLocation, fEnableWndProc,
         fEnableExpression, fEnableLength,
@@ -411,13 +422,16 @@ void NEAR PASCAL SetbreakControls(HWND hDlg, int bpType)
 **      Return TRUE if ok, FALSE otherwise.
 */
 
-BOOL NEAR PASCAL fGetSetbreakControls(HWND hDlg)
+BOOL
+fGetSetbreakControls(
+    HWND hDlg
+    )
 {
     int         type;
     HWND hAction, hLocation, hWndProc, hExpression, hLength, hMessages;
     char *      pch;
-    BOOLEAN     fLoc     = FALSE;
-    BOOLEAN     fWndProc = FALSE;
+    BOOL     fLoc     = FALSE;
+    BOOL     fWndProc = FALSE;
     char BigBuffer[255];
     char Buffer[255];
     int         i;
@@ -726,7 +740,10 @@ BOOL NEAR PASCAL fGetSetbreakControls(HWND hDlg)
 **
 */
 
-void PASCAL NEAR FillBPListbox(HWND hDlg)
+VOID
+FillBPListbox(
+    HWND hDlg
+    )
 {
     HBPT        hBpt = 0;
     HBPT        hBpt2;
@@ -739,7 +756,7 @@ void PASCAL NEAR FillBPListbox(HWND hDlg)
 
     Dbg(BPNextHbpt(&hBpt, bptNext) == BPNOERROR);
 
-    if (hBpt == hbptNull) {
+    if (hBpt == NULL) {
         /*
         **      No breakpoints so grey out the Clear All button
         */
@@ -750,7 +767,7 @@ void PASCAL NEAR FillBPListbox(HWND hDlg)
         hdc = GetDC(GetDlgItem(hDlg, ID_SETBREAK_BREAKPOINT) );
         Count = 0;
 
-        while (hBpt != hbptNull) {
+        while (hBpt != NULL) {
             /*
             **  M00BUG: check to see if it is marked as deleted and
             **          if not then display it
@@ -812,7 +829,11 @@ void PASCAL NEAR FillBPListbox(HWND hDlg)
 **      Updates the breakpoint list box with the just added breakpoint.
 */
 
-void PASCAL NEAR AddBPToListBox(HWND hDlg, HBPT hBpt)
+VOID
+AddBPToListBox(
+    HWND hDlg,
+    HBPT hBpt
+    )
 {
     char szBigBuffer[255];
     WORD wRet;
@@ -848,13 +869,17 @@ void PASCAL NEAR AddBPToListBox(HWND hDlg, HBPT hBpt)
 **      Mark the passed bp as deleted and update the breakpoint list box.
 */
 
-void PASCAL NEAR DeleteBPListbox(HWND hDlg, int BPNum)
+VOID
+DeleteBPListbox(
+    HWND hDlg,
+    int BPNum
+    )
 {
     HBPT        hBpt = 0;
 
     Dbg(BPNextHbpt( & hBpt, bptNext) == BPNOERROR);
 
-    Assert(hBpt != hbptNull);           // Must be something or we should not
+    Assert(hBpt != NULL);           // Must be something or we should not
                                         // attempt to delete anything
 
     do {
@@ -884,7 +909,7 @@ void PASCAL NEAR DeleteBPListbox(HWND hDlg, int BPNum)
 
         BPNum -= 1;
         BPNextHbpt( &hBpt, bptNext);
-    } while (hBpt != hbptNull);
+    } while (hBpt != NULL);
 
     Assert(FALSE);                      /* Should never get here        */
 
@@ -907,7 +932,10 @@ Unused(hDlg);
 **      Mark all the bps as deleted and clear the listbox
 */
 
-void PASCAL NEAR ClearAllBP(HWND hDlg)
+VOID
+ClearAllBP(
+    HWND hDlg
+    )
 {
     BPDeleteAll();
 
@@ -949,11 +977,16 @@ void PASCAL NEAR ClearAllBP(HWND hDlg)
 **
 */
 
-void PASCAL NEAR EnableBPListbox(HWND hDlg, int iBP, BOOL fEnable)
+VOID
+EnableBPListbox(
+    HWND hDlg,
+    int iBP,
+    BOOL fEnable
+    )
 {
     HBPT        hBpt = BPLB_HbptOfI(iBP);
 
-    if (hBpt != hbptNull) {
+    if (hBpt != NULL) {
         if (fEnable) {
             BPEnable( hBpt );
         } else {
@@ -979,18 +1012,21 @@ void PASCAL NEAR EnableBPListbox(HWND hDlg, int iBP, BOOL fEnable)
 **
 */
 
-HBPT BPLB_HbptOfI(int iBP)
+HBPT
+BPLB_HbptOfI(
+    int iBP
+    )
 {
     HBPT        hbpt = 0;
 
     //  THere must be some record or we should never have been called.
 
     Dbg(BPNextHbpt(&hbpt, bptNext) == BPNOERROR);
-    Assert( hbpt != hbptNull);
+    Assert( hbpt != NULL);
 
-    for (;(iBP > 0) && (hbpt != hbptNull); iBP-= 1) {
+    for (;(iBP > 0) && (hbpt != NULL); iBP-= 1) {
         Dbg( BPNextHbpt( &hbpt, bptNext ) == BPNOERROR );
-        Assert( hbpt != hbptNull);
+        Assert( hbpt != NULL);
     }
 
     return hbpt;
@@ -1010,7 +1046,8 @@ HBPT BPLB_HbptOfI(int iBP)
 **      changes.
 */
 
-void PASCAL NEAR OKBP(void)
+VOID
+OKBP(void)
 {
     ChangeDebuggerState();
     BPCommit();
@@ -1028,7 +1065,10 @@ void PASCAL NEAR OKBP(void)
 **      Delete any BPs marked as added and reset the BP editing flags.
 */
 
-void PASCAL NEAR CancelBP(void)
+VOID
+CancelBP(
+    VOID
+    )
 {
     BPUnCommit();
 
@@ -1036,7 +1076,10 @@ void PASCAL NEAR CancelBP(void)
 }                                       /* CancelBP() */
 
 
-BOOL    NEAR PASCAL BreakFieldsChanged( HWND hDlg )
+BOOL
+BreakFieldsChanged(
+    HWND hDlg
+    )
 {
     HWND        hLocation;
     HWND        hWndProc;
@@ -1108,7 +1151,11 @@ BOOL    NEAR PASCAL BreakFieldsChanged( HWND hDlg )
 **      Set the contents of the various fields to match the passed bpIndex.
 */
 
-void NEAR PASCAL SetbreakFields(HWND hDlg, int bpIndex)
+VOID
+SetbreakFields(
+    HWND hDlg,
+    int bpIndex
+    )
 {
     HWND        hAction;
     HWND        hLocation;
@@ -1182,7 +1229,7 @@ void NEAR PASCAL SetbreakFields(HWND hDlg, int bpIndex)
             Dbg( BPNextHbpt( &hBpt2, bptNext) == BPNOERROR);
         }
 
-        Assert( hBpt2 != hbptNull );
+        Assert( hBpt2 != NULL );
 
         Dbg(BPGetFinalHbpt( hBpt2, &hBpt ) == BPNOERROR);
         BPQueryBPTypeOfHbpt( hBpt2, &bpType );
@@ -1359,7 +1406,8 @@ SetChooseClass(
 }
 
 
-BOOL FAR PASCAL EXPORT
+BOOL
+WINAPI
 DlgMessage(
     HWND    hDlg,
     UINT    message,
@@ -1498,7 +1546,7 @@ Return Value:
                     EndDialog(hDlg, FALSE);
                     break;
 
-                case IDHELP:
+                case IDWINDBGHELP:
                     Dbg( WinHelp( hDlg, szHelpFileName, HELP_CONTEXT, ID_MESSAGE_HELP) );
                     break;
 
@@ -1549,7 +1597,8 @@ EnableButtons(
 */
 
 
-BOOL FAR PASCAL EXPORT
+BOOL
+WINAPI
 DlgSetBreak(
     HWND    hDlg,
     UINT    message,
@@ -1619,7 +1668,7 @@ DlgSetBreak(
 
                   sprintf( rgch, "{,%s,}@", Docs[Views[curView].Doc].FileName );
 
-                  itoa( Views[curView].Y+1, rgch + strlen(rgch), 10);
+                  _itoa( Views[curView].Y+1, rgch + strlen(rgch), 10);
                   SetDlgItemText(hDlg, ID_SETBREAK_LOCATION, rgch);
                  }
 
@@ -1628,7 +1677,7 @@ DlgSetBreak(
         //
         // Length
         //
-        itoa((int)(sizeof(BYTE)), szTmp, 10);
+        _itoa((int)(sizeof(BYTE)), szTmp, 10);
         SetDlgItemText(hDlg, ID_SETBREAK_LENGTH, szTmp);
 
         //
@@ -1658,9 +1707,15 @@ DlgSetBreak(
 
         SetFocus(hAction);
 
+        PostMessage(hDlg, WU_INFO, ERR_Cant_Modify_BP_While_Running, 0);
+
         return TRUE;
 
     case WM_DESTROY:
+        return TRUE;
+
+    case WU_INFO:
+        InformationBox(wParam);
         return TRUE;
 
     case WM_COMMAND:
@@ -1976,7 +2031,7 @@ OKPressed:
                 StartDialog( DLG_MESSAGES, DlgMessage );
                 break;
 
-            case IDHELP:
+            case IDWINDBGHELP:
                 Dbg(WinHelp(hDlg, szHelpFileName, HELP_CONTEXT, ID_SETBREAK_HELP));
                 return TRUE;
             }
@@ -1986,9 +2041,8 @@ OKPressed:
 
     return FALSE;
 }                                       /* DlgSetBreak() */
+
 VOID
-FAR
-PASCAL
 EnableBPButtons(
     IN  HWND hDlg,
     IN  int  iBP
@@ -2034,5 +2088,5 @@ Return Value:
         iBP -= 1;
         Dbg( BPNextHbpt( &hBpt, bptNext ) == BPNOERROR );
 
-    } while (hBpt != hbptNull);
+    } while (hBpt != NULL);
 }

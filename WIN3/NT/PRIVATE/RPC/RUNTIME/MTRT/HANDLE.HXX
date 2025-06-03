@@ -46,12 +46,12 @@ mikemon    12-28-90    Cleaned up the comments.
 // RPC runtime.  Since they are just defines, we might as well stick
 // the server handle types here as well.
 
-#define SERVER_HANDLE_TYPE 0x0001
-#define ADDRESS_HANDLE_TYPE 0x0002
-#define INTERFACE_HANDLE_TYPE 0x0004
-#define SCONNECTION_TYPE 0x0008
-#define CCONNECTION_TYPE 0x0010
-#define BINDING_HANDLE_TYPE 0x0040
+#define SERVER_HANDLE_TYPE      0x0001
+#define ADDRESS_HANDLE_TYPE     0x0002
+#define INTERFACE_HANDLE_TYPE   0x0004
+#define SCONNECTION_TYPE        0x0008
+#define CCONNECTION_TYPE        0x0010
+#define BINDING_HANDLE_TYPE     0x0040
 
 typedef unsigned short HANDLE_TYPE;
 
@@ -73,6 +73,11 @@ NOTE: Every handle which the user gives us is validated.
 // GENERIC_OBJECT.
 
 #define MAGICLONG 0x89ABCDEF
+#define MAGICLONGDEAD 0x99DEAD99
+
+#ifdef NTENV
+extern RPC_STATUS CaptureLogonid( LUID * LogonId );
+#endif
 
 class GENERIC_OBJECT
 {
@@ -86,6 +91,9 @@ protected:
 
     GENERIC_OBJECT ( // Constructor.
         ) {MagicLong = MAGICLONG;}
+
+    ~GENERIC_OBJECT ( // Destructor.
+        ) {MagicLong = MAGICLONGDEAD;}
 
 public:
 
@@ -128,20 +136,58 @@ public:
     virtual RPC_STATUS // Value to be returned by SendReceive API.
     SendReceive ( // Perform a send-receive operation in a handle specific
                   // way.
-	IN OUT PRPC_MESSAGE Message
+    IN OUT PRPC_MESSAGE Message
         ) = 0;
+
+    // Perform a send operationin a handle specific way
+    // this API is used in conjunction with pipes
+    virtual RPC_STATUS
+    Send (
+        IN OUT PRPC_MESSAGE Message
+        ) = 0;
+
+    // Perform a receive in a handle specific way
+    // this API is used in conjunction with pipes
+    virtual RPC_STATUS
+    Receive (
+        IN OUT PRPC_MESSAGE Message,
+        IN unsigned int Size
+        ) = 0;
+
 
     virtual RPC_STATUS // Value to be returned by RpcGetBuffer API.
     GetBuffer ( // Perform a buffer allocation operation in a handle specific
                 // way.
-	IN OUT PRPC_MESSAGE Message
+    IN OUT PRPC_MESSAGE Message
         ) = 0;
 
     virtual void
     FreeBuffer ( // Perform a buffer deallocation operation in a handle
                  // specific way.
-	IN PRPC_MESSAGE Message
+    IN PRPC_MESSAGE Message
         ) = 0;
+
+    // deallocate a buffer associated with pipes, in a handle specific way
+    virtual void
+    FreePipeBuffer (
+        IN PRPC_MESSAGE Messsage
+        )  ;
+
+    // reallocate a buffer associated with pipes, in a handle specific way
+    virtual RPC_STATUS
+    ReallocPipeBuffer (
+        IN PRPC_MESSAGE Message,
+        IN unsigned int NewSize
+        ) ;
+
+#if defined(WIN32) && !defined(DOSWIN32RPC)
+    virtual RPC_STATUS
+    AsyncSendReceive(
+        IN OUT PRPC_MESSAGE Message,
+        IN OPTIONAL void *Context,
+        IN HWND hWnd
+        ) ;
+#endif
 
     virtual RPC_STATUS
     BindingCopy (
@@ -150,40 +196,267 @@ public:
         );
 };
 
+inline void
+MESSAGE_OBJECT::FreePipeBuffer (
+        IN PRPC_MESSAGE Messsage
+    )
+{
+    ASSERT(0) ;
+
+    return ;
+}
+
+inline RPC_STATUS
+MESSAGE_OBJECT::ReallocPipeBuffer (
+   IN PRPC_MESSAGE Messsage,
+   IN unsigned int NewSize
+   )
+{
+    ASSERT(0) ;
+
+    return (RPC_S_CANNOT_SUPPORT) ;
+}
+
+#if defined(WIN32) && !defined(DOSWIN32RPC)
+
+inline RPC_STATUS
+MESSAGE_OBJECT::AsyncSendReceive(
+    IN OUT PRPC_MESSAGE Message,
+    IN OPTIONAL void *Context,
+    IN HWND hWnd
+    )
+{
+    UNUSED(Message) ;
+
+    return (RPC_S_CANNOT_SUPPORT) ;
+}
+#endif
+
+class SECURITY_CREDENTIALS;
+
+
+struct CLIENT_AUTH_INFO
+{
+    RPC_CHAR *    ServerPrincipalName;
+    unsigned long AuthenticationLevel;
+    unsigned long AuthenticationService;
+    RPC_AUTH_IDENTITY_HANDLE AuthIdentity;
+    unsigned long AuthorizationService;
+#ifdef NTENV
+    unsigned long IdentityTracking;
+    unsigned long ImpersonationType;
+    unsigned long Capabilities;
+    LUID          LogonId;
+    unsigned long DefaultLogonId;
+#endif
+
+    SECURITY_CREDENTIALS * Credentials;
+
+    CLIENT_AUTH_INFO(
+        );
+
+    CLIENT_AUTH_INFO::CLIENT_AUTH_INFO(
+        CLIENT_AUTH_INFO * myAuthInfo,
+        RPC_STATUS PAPI * pStatus
+        );
+
+    ~CLIENT_AUTH_INFO(
+        );
+
+    IsSupportedAuthInfo(
+        CLIENT_AUTH_INFO * AuthInfo
+        );
+
+    int
+    CredentialsMatch(
+        SECURITY_CREDENTIALS PAPI * Creds
+        );
+
+    void
+    ReferenceCredentials(
+        );
+
+};
+
+
+
+inline
+CLIENT_AUTH_INFO::CLIENT_AUTH_INFO(
+    )
+{
+    AuthenticationLevel   = RPC_C_AUTHN_LEVEL_NONE;
+    AuthenticationService = RPC_C_AUTHN_NONE;
+    AuthorizationService  = RPC_C_AUTHZ_NONE;
+    ServerPrincipalName   = 0;
+    AuthIdentity          = 0;
+    Credentials           = 0;
+#ifdef NTENV
+    ImpersonationType     = RPC_C_IMP_LEVEL_IMPERSONATE;
+    IdentityTracking      = RPC_C_QOS_IDENTITY_STATIC;
+    Capabilities          = RPC_C_QOS_CAPABILITIES_DEFAULT;
+    DefaultLogonId        = 1;
+#endif
+}
+
 /* --------------------------------------------------------------------
 CCONNECTION :
 
 This class provides one method: Type, used to obtain the type of a
 handle.
 -------------------------------------------------------------------- */
+#define LOW_BITS 0x0000007L
+#define NOT_MULTIPLE_OF_EIGHT(_x_) (_x_ & 0x00000007L)
 
-class CCONNECTION : public MESSAGE_OBJECT
+
+class CONNECTION : public MESSAGE_OBJECT
 {
-
 public:
 
-    virtual HANDLE_TYPE  // Return CCONNECTION_TYPE.
+    CLIENT_AUTH_INFO AuthInfo;
+
+    CONNECTION * NestingCall;
+
+    inline
+    CONNECTION(
+        CLIENT_AUTH_INFO * myAuthInfo,
+        RPC_STATUS __RPC_FAR * pStatus
+        )
+        : AuthInfo(myAuthInfo, pStatus)
+    {
+    RemainingData[0] = 0 ;
+    }
+
+    inline
+    CONNECTION(
+        )
+    {
+    RemainingData[0] = 0 ;
+    }
+
+    virtual HANDLE_TYPE
     Type (
-        );
+        ) = 0;
 
     virtual RPC_STATUS // Value to be returned by SendReceive API.
     SendReceive ( // Perform a send-receive operation in a handle specific
                   // way.
-	IN OUT PRPC_MESSAGE Message
+    IN OUT PRPC_MESSAGE Message
         ) = 0;
+
+    // Perform a send operationin a handle specific way
+    // this API is used in conjunction with pipes
+    virtual RPC_STATUS
+    Send (
+        IN OUT PRPC_MESSAGE Message
+        ) ;
+
+    // Perform a receive in a handle specific way
+    // this API is used in conjunction with pipes
+    virtual RPC_STATUS
+    Receive (
+        IN OUT PRPC_MESSAGE Message,
+        IN unsigned int Size
+        ) ;
 
     virtual RPC_STATUS // Value to be returned by RpcGetBuffer API.
     GetBuffer ( // Perform a buffer allocation operation in a handle specific
                 // way.
-	IN OUT PRPC_MESSAGE Message
+    IN OUT PRPC_MESSAGE Message
         ) = 0;
 
     virtual void
     FreeBuffer ( // Perform a buffer deallocation operation in a handle
                  // specific way.
-	IN PRPC_MESSAGE Message
+    IN PRPC_MESSAGE Message
         ) = 0;
+
+#if defined(NTENV) || defined(DOSWIN32RPC)
+
+    virtual RPC_STATUS
+    Cancel(
+        void * ThreadHandle
+        );
+
+    virtual unsigned
+    TestCancel(
+        );
+
+#endif
+
+protected:
+    char RemainingData[8] ;
+
+    void
+    SaveRemainingData (
+        IN OUT PRPC_MESSAGE Message
+        ) ;
+
 };
+
+inline void
+CONNECTION::SaveRemainingData (
+    IN OUT PRPC_MESSAGE Message
+    )
+{
+    RemainingData[0] = Message->BufferLength & LOW_BITS ;
+    Message->BufferLength &= ~LOW_BITS ;
+
+    RpcpMemoryCopy(&RemainingData[1],
+        (char PAPI *) Message->Buffer+Message->BufferLength, RemainingData[0]) ;
+}
+
+
+class CCONNECTION : public CONNECTION
+//
+// This class represents a call on the client side.  It implements
+// the pure virtual fns from class CONNECTION.
+//
+{
+public:
+
+    inline
+    CCONNECTION(
+        CLIENT_AUTH_INFO * myAuthInfo,
+        RPC_STATUS __RPC_FAR * pStatus
+        )
+        : CONNECTION(myAuthInfo, pStatus)
+    {
+    }
+
+    inline
+    CCONNECTION(
+        )
+    {
+    }
+
+    HANDLE_TYPE
+    Type (
+        );
+
+#if defined(WIN32) && !defined(DOSWIN32RPC)
+    virtual RPC_STATUS
+    AsyncSendReceive(
+        IN OUT PRPC_MESSAGE Message,
+        IN OPTIONAL void *Context,
+        IN HWND hWnd
+        ) ;
+#endif
+
+};
+
+#if defined(WIN32) && !defined(DOSWIN32RPC)
+inline RPC_STATUS
+CCONNECTION::AsyncSendReceive(
+    IN OUT PRPC_MESSAGE Message,
+    IN  void *Context,
+    IN  HWND hWnd
+    )
+{
+    UNUSED(Message) ;
+
+    return (RPC_S_CANNOT_SUPPORT) ;
+}
+#endif
 
 RPC_STATUS
 DispatchCallback(
@@ -192,23 +465,13 @@ DispatchCallback(
     OUT RPC_STATUS PAPI * ExceptionCode
     );
 
-typedef struct
-{
-    RPC_CHAR * ServerPrincipalName;
-    unsigned long AuthenticationLevel;
-    unsigned long AuthenticationService;
-    RPC_AUTH_IDENTITY_HANDLE AuthIdentity;
-    unsigned long AuthorizationService;
-} CLIENT_AUTH_INFO;
-
 /* --------------------------------------------------------------------
 BINDING_HANDLE :
 
 A BINDING_HANDLE is the binding handle used by clients to make remote
 procedure calls.  We derive the BINDING_HANDLE class from the MESSAGE_OBJECT
 class because binding handles are used to send remote procedure calls.
-The LINK_LIST_DERVIVED macro is used so that we can link all of the
-binding handles together.  For some operating environments and transports
+For some operating environments and transports
 we need to clean up the transports when the process ends.
 -------------------------------------------------------------------- */
 
@@ -262,15 +525,17 @@ private:
     unsigned long EntryNameSyntax;
     RPC_CHAR * EntryName;
     void PAPI * EpLookupHandle;
-    CLIENT_AUTH_INFO ClientAuthInfo;
 
-#ifdef WIN
+
+#if defined(WIN) || defined(MAC)
 
     unsigned int BindingSetKey;
 
-#endif // WIN
+#endif // WIN || MAC
 
 protected:
+
+    CLIENT_AUTH_INFO ClientAuthInfo;
 
     BINDING_HANDLE (
         );
@@ -359,20 +624,28 @@ public:
     InquireEpLookupHandle (
         );
 
-    CLIENT_AUTH_INFO *
+    virtual CLIENT_AUTH_INFO *
     InquireAuthInformation (
         );
 
-    RPC_STATUS
+    virtual  RPC_STATUS
     SetAuthInformation (
         IN RPC_CHAR PAPI * ServerPrincipalName, OPTIONAL
         IN unsigned long AuthenticationLevel,
         IN unsigned long AuthenticationService,
         IN RPC_AUTH_IDENTITY_HANDLE AuthIdentity, OPTIONAL
-        IN unsigned long AuthorizationService
+        IN unsigned long AuthorizationService, OPTIONAL
+#ifndef NTENV
+        IN SECURITY_CREDENTIALS * Credentials
+#else
+        IN SECURITY_CREDENTIALS PAPI * Credentials=0, OPTIONAL
+        IN unsigned long ImpersonationType=RPC_C_IMP_LEVEL_IMPERSONATE,OPTIONAL
+        IN unsigned long IdentityTracking=RPC_C_QOS_IDENTITY_STATIC, OPTIONAL
+        IN unsigned long Capabilities=RPC_C_QOS_CAPABILITIES_DEFAULT
+#endif
         );
 
-    int
+    virtual int
     SetServerPrincipalName (
         IN RPC_CHAR PAPI * ServerPrincipalName
         );
@@ -389,26 +662,74 @@ public:
     virtual RPC_STATUS // Value to be returned by SendReceive API.
     SendReceive ( // Perform a send-receive operation in a handle specific
                   // way.
-	IN OUT PRPC_MESSAGE Message
+    IN OUT PRPC_MESSAGE Message
         );
+
+    virtual RPC_STATUS
+    Send (
+        IN OUT PRPC_MESSAGE Message
+        ) ;
+
+    virtual RPC_STATUS
+    Receive (
+        IN OUT PRPC_MESSAGE Message,
+        IN unsigned int Size
+        ) ;
 
     virtual RPC_STATUS // Value to be returned by RpcGetBuffer API.
     GetBuffer ( // Perform a buffer allocation operation in a handle specific
                 // way.
-	IN OUT PRPC_MESSAGE Message
+    IN OUT PRPC_MESSAGE Message
         ) = 0;
 
     virtual void
     FreeBuffer ( // Perform a buffer deallocation operation in a handle
                  // specific way.
-	IN PRPC_MESSAGE Message
+    IN PRPC_MESSAGE Message
         );
 
     virtual RPC_STATUS
     InquireTransportType(
         OUT unsigned int PAPI * Type
         ) = 0;
+
+    virtual RPC_STATUS
+    SetConnectionParameter (
+        IN unsigned Parameter,
+        IN unsigned long Value
+        );
+
+    virtual RPC_STATUS
+    InqConnectionParameter (
+        IN unsigned Parameter,
+        IN unsigned long __RPC_FAR * pValue
+        );
+
+#if defined(WIN32) && !defined(DOSWIN32RPC)
+    virtual
+    RPC_STATUS
+    SetAsync(
+        IN RPC_BLOCKING_FN BlockingFn
+        ) ;
+#endif
+
+#ifdef NTENV
+    virtual RPC_STATUS
+    ReAcquireCredentialsIfNecessary(
+        );
+
+#endif
 };
+
+#if defined(WIN32) && !defined(DOSWIN32RPC)
+inline RPC_STATUS
+BINDING_HANDLE::SetAsync(
+    IN RPC_BLOCKING_FN BlockingFn
+    )
+{
+    return (RPC_S_CANNOT_SUPPORT) ;
+}
+#endif
 
 
 inline unsigned int
@@ -502,7 +823,7 @@ Return Value:
 
 --*/
 {
-    return(( (ClientAuthInfo.AuthenticationService == RPC_C_AUTHN_NONE)
+    return(( (ClientAuthInfo.AuthenticationLevel == RPC_C_AUTHN_LEVEL_NONE)
             ? 0 : &ClientAuthInfo));
 }
 
@@ -565,6 +886,25 @@ extern void
 CleanupDgTransports(
     );
 #endif
+
+
+#define DEFAULT_MAX_DATAGRAM_LENGTH  (0)
+
+extern unsigned  DefaultMaxDatagramLength;
+
+
+#define DEFAULT_CONNECTION_BUFFER_LENGTH (0)
+
+extern unsigned  DefaultConnectionBufferLength;
+
+typedef struct _RPC_RUNTIME_INFO
+{
+    unsigned int Length ;
+    unsigned long Flags ;
+    void __RPC_FAR *OldBuffer ;
+} RPC_RUNTIME_INFO, __RPC_FAR *PRPC_RUNTIME_INFO ;
+
+
 
 #endif // __HANDLE_HXX__
 

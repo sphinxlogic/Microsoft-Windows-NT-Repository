@@ -102,4 +102,3 @@ NdrpDataBufferInit(
 #endif __PICKLEP_HXX__
 
 
-

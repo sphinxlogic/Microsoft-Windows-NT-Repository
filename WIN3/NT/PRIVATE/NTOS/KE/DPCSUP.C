@@ -26,7 +26,19 @@ Revision History:
 
 #include "ki.h"
 
-PKTHREAD
+//
+// Define DPC entry structure and maximum DPC List size.
+//
+
+#define MAXIMUM_DPC_LIST_SIZE 16
+
+typedef struct _DPC_ENTRY {
+    PRKDPC Dpc;
+    PKDEFERRED_ROUTINE Routine;
+    PVOID Context;
+} DPC_ENTRY, *PDPC_ENTRY;
+
+PRKTHREAD
 KiQuantumEnd (
     VOID
     )
@@ -55,11 +67,12 @@ Return Value:
 {
 
     KPRIORITY NewPriority;
+    KIRQL OldIrql;
     PKPRCB Prcb;
     KPRIORITY Priority;
     PKPROCESS Process;
-    PKTHREAD Thread;
-    PKTHREAD NextThread;
+    PRKTHREAD Thread;
+    PRKTHREAD NextThread;
 
     //
     // Acquire the dispatcher database lock.
@@ -67,7 +80,7 @@ Return Value:
 
     Prcb = KeGetCurrentPrcb();
     Thread = KeGetCurrentThread();
-    KiAcquireSpinLock(&KiDispatcherLock);
+    KiLockDispatcherDatabase(&OldIrql);
 
     //
     // If the quantum has expired for the current thread, then update its
@@ -109,9 +122,7 @@ Return Value:
 
         } else {
             if (Prcb->NextThread == NULL) {
-                NextThread = KiFindReadyThread(Thread->NextProcessor,
-                                               Priority,
-                                               Priority);
+                NextThread = KiFindReadyThread(Thread->NextProcessor, Priority);
 
                 if (NextThread != NULL) {
                     NextThread->State = Standby;
@@ -132,7 +143,7 @@ Return Value:
 
     NextThread = Prcb->NextThread;
     if (NextThread == NULL) {
-        KiReleaseSpinLock(&KiDispatcherLock);
+        KiUnlockDispatcherDatabase(OldIrql);
     }
 
     return NextThread;
@@ -201,9 +212,6 @@ Routine Description:
     This function is called when the clock interupt routine discovers that
     a timer has expired.
 
-    N.B. This function runs at DISPATCH_LEVEL IRQL , and therefore, does not
-         need to raise IRQL to acquire the dispatcher database lock.
-
 Arguments:
 
     TimerDpc - Supplies a pointer to a control object of type DPC.
@@ -222,28 +230,21 @@ Return Value:
 --*/
 
 {
-
     ULARGE_INTEGER CurrentTime;
-    PKDPC Dpc;
     LIST_ENTRY ExpiredListHead;
     LONG HandLimit;
     LONG Index;
     PLIST_ENTRY ListHead;
     PLIST_ENTRY NextEntry;
-    LARGE_INTEGER SystemTime;
+    KIRQL OldIrql;
     PKTIMER Timer;
 
     //
-    // Acquire the dispatcher database lock.
+    // Acquire the dispatcher database lock and read the current interrupt
+    // time to determine which timers have expired.
     //
 
-    KiAcquireSpinLock(&KiDispatcherLock);
-
-    //
-    // Read the current interrupt time to determine which timers have
-    // expired.
-    //
-
+    KiLockDispatcherDatabase(&OldIrql);
     KiQueryInterruptTime((PLARGE_INTEGER)&CurrentTime);
 
     //
@@ -303,36 +304,124 @@ Return Value:
     //
     // Process the expired timer list.
     //
-    // Remove the next timer from the expired timer list, set the state of
-    // the timer to signaled, and optionally call the DPC routine if one is
-    // specified.
+    // N.B. The following function returns with the dispatcher database
+    //      unlocked.
+    //
+
+    KiTimerListExpire(&ExpiredListHead, OldIrql);
+    return;
+}
+
+VOID
+FASTCALL
+KiTimerListExpire (
+    IN PLIST_ENTRY ExpiredListHead,
+    IN KIRQL OldIrql
+    )
+
+/*++
+
+Routine Description:
+
+    This function is called to process a list of timers that have expired.
+
+    N.B. This function is called with the dispatcher database locked and
+        returns with the dispatcher database unlocked.
+
+Arguments:
+
+    ExpiredListHead - Supplies a pointer to a list of timers that have
+        expired.
+
+    OldIrql - Supplies the previous IRQL.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+
+    LONG Count;
+    PKDPC Dpc;
+    DPC_ENTRY DpcList[MAXIMUM_DPC_LIST_SIZE];
+    LONG Index;
+    LARGE_INTEGER Interval;
+    KIRQL OldIrql1;
+    LARGE_INTEGER SystemTime;
+    PKTIMER Timer;
+
+    //
+    // Capture the timer expiration time.
     //
 
     KiQuerySystemTime(&SystemTime);
-    while (ExpiredListHead.Flink != &ExpiredListHead) {
-        Timer = CONTAINING_RECORD(ExpiredListHead.Flink, KTIMER, TimerListEntry);
+
+    //
+    // Remove the next timer from the expired timer list, set the state of
+    // the timer to signaled, reinsert the timer in the timer tree if it is
+    // periodic, and optionally call the DPC routine if one is specified.
+    //
+
+RestartScan:
+    Index = 0;
+    while (ExpiredListHead->Flink != ExpiredListHead) {
+        Timer = CONTAINING_RECORD(ExpiredListHead->Flink, KTIMER, TimerListEntry);
         KiRemoveTreeTimer(Timer);
         Timer->Header.SignalState = 1;
         if (IsListEmpty(&Timer->Header.WaitListHead) == FALSE) {
             KiWaitTest(Timer, TIMER_EXPIRE_INCREMENT);
         }
 
+        if (Timer->Period != 0) {
+            Interval.QuadPart = Int32x32To64(Timer->Period, - 10 * 1000);
+            KiInsertTreeTimer(Timer, Interval);
+        }
+
         if (Timer->Dpc != NULL) {
             Dpc = Timer->Dpc;
-            KiReleaseSpinLock(&KiDispatcherLock);
-            (Dpc->DeferredRoutine)(Dpc,
-                                   Dpc->DeferredContext,
-                                   (PVOID)SystemTime.LowPart,
-                                   (PVOID)SystemTime.HighPart);
-
-            KiAcquireSpinLock(&KiDispatcherLock);
+            DpcList[Index].Dpc = Dpc;
+            DpcList[Index].Routine = Dpc->DeferredRoutine;
+            DpcList[Index].Context = Dpc->DeferredContext;
+            Index += 1;
+            if (Index == MAXIMUM_DPC_LIST_SIZE) {
+                break;
+            }
         }
     }
 
     //
-    // Release the dispatcher database lock.
+    // Unlock the dispacher database and process DPC list entries.
     //
 
-    KiReleaseSpinLock(&KiDispatcherLock);
+    if (Index != 0) {
+        KiUnlockDispatcherDatabase(DISPATCH_LEVEL);
+        Count = Index;
+        do {
+            Index -= 1;
+            (DpcList[Index].Routine)(DpcList[Index].Dpc,
+                                     DpcList[Index].Context,
+                                     (PVOID)SystemTime.LowPart,
+                                     (PVOID)SystemTime.HighPart);
+
+        } while (Index > 0);
+
+        //
+        // If processing of the expired timer list was terminated because
+        // the DPC List was full, then process any remaining entries.
+        //
+
+        if (Count == MAXIMUM_DPC_LIST_SIZE) {
+            KiLockDispatcherDatabase(&OldIrql1);
+            goto RestartScan;
+        }
+
+        KeLowerIrql(OldIrql);
+
+    } else {
+        KiUnlockDispatcherDatabase(OldIrql);
+    }
+
     return;
 }

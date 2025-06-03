@@ -36,15 +36,11 @@ XsControlHandler (
     IN DWORD opCode
     );
 
-NTSTATUS
-XsProcessApis (
-    DWORD ThreadNum
-    );
-
-NTSTATUS
+VOID
 XsProcessApisWrapper (
     DWORD ThreadNum
     );
+
 
 //
 // Helper subroutines.
@@ -64,7 +60,7 @@ XsProcessApisWrapper (
 // !!UNICODE!! - Changed strcpy to NetpCopyTStrToStr. Fix WKSTA.H to use this!
 
 #define XsAddVarString( StringLocation, String, Pointer, OffsetBegin ) \
-    NetpCopyTStrToStr((StringLocation), (String));                     \
+    NetpCopyWStrToStrDBCS((StringLocation), (String));                 \
     SmbPutUlong((LPDWORD)(Pointer),                                    \
         ((LPBYTE)(StringLocation)-(LPBYTE)(OffsetBegin)));             \
     StringLocation += (strlen((LPSTR)StringLocation) + 1)

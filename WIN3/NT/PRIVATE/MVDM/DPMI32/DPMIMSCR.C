@@ -19,7 +19,9 @@ Revision History:
 
 --*/
 
-#include "dpmi32p.h"
+#include "precomp.h"
+#pragma hdrstop
+#include "softpc.h"
 
 VOID
 DpmiGetFastBopEntry(
@@ -79,6 +81,7 @@ Return Value:
 --*/
 {
     EnableEmulatorIretHooks();
+    EnableIntHooks();
 }
 
 VOID
@@ -103,39 +106,5 @@ Return Value:
 --*/
 {
     DisableEmulatorIretHooks();
-}
-
-VOID
-DpmiIllegalRiscFunction(
-    VOID
-    )
-/*++
-
-Routine Description:
-
-    This routine ignores any Dpmi bops that are not implemented on risc
-
-Arguments:
-
-    None.
-
-Return Value:
-
-    None.
-
---*/
-{
-   char szFormat[] = "NtVdm: Invalid DPMI BOP 0x%x from CS:IP %4.4x:%4.4x (%s mode), could be i386 dosx.exe.\n";
-   char szMsg[sizeof(szFormat)+64];
-
-   sprintf(
-       szMsg,
-       szFormat,
-       Index,
-       (int)getCS(),
-       (int)getIP(),
-       (getMSW() & MSW_PE) ? "prot" : "real"
-       );
-
-   OutputDebugString(szMsg);
+    DisableIntHooks();
 }

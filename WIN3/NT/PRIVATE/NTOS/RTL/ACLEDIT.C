@@ -21,7 +21,6 @@ Environment:
 
 Revision History:
 
-
 --*/
 
 #include "ntrtlp.h"
@@ -54,7 +53,15 @@ Revision History:
 
 #define NextAce(Ace) ((PVOID)((PUCHAR)(Ace) + ((PACE_HEADER)(Ace))->AceSize))
 
-VOID
+
+//
+// Test to determine if two ACLs are of the same revision.
+//
+
+#define RevisionsMatch(Acl,AceRevision) ( (((Acl)->AclRevision == ACL_REVISION2) && ((AceRevision) == ACL_REVISION2)) ||    \
+                                          (((Acl)->AclRevision == ACL_REVISION3) && ((AceRevision) == ACL_REVISION3))       \
+                                        )
+    VOID
 RtlpAddData (
     IN PVOID From,
     IN ULONG FromSize,
@@ -68,7 +75,6 @@ RtlpDeleteData (
     IN ULONG RemoveSize,
     IN ULONG TotalSize
     );
-
 
 #if defined(ALLOC_PRAGMA) && defined(NTOS_KERNEL_RUNTIME)
 #pragma alloc_text(PAGE,RtlpAddData)
@@ -85,7 +91,6 @@ RtlpDeleteData (
 #pragma alloc_text(PAGE,RtlAddAuditAccessAce)
 #pragma alloc_text(PAGE,RtlFirstFreeAce)
 #endif
-
 
 
 NTSTATUS
@@ -143,7 +148,7 @@ Return Value:
     //  of this procedure might accept more revision levels
     //
 
-    if (AclRevision != ACL_REVISION2) {
+    if (AclRevision != ACL_REVISION2 && AclRevision != ACL_REVISION3) {
 
         //
         //  Revision not current
@@ -162,9 +167,9 @@ Return Value:
     //  Initialize the ACL
     //
 
-    Acl->AclRevision = ACL_REVISION2;
+    Acl->AclRevision = (UCHAR)AclRevision;  // Used to hardwire ACL_REVISION2 here
     Acl->Sbz1 = 0;
-    Acl->AclSize = (USHORT)AclLength;
+    Acl->AclSize = (USHORT) (AclLength & 0xfffc);
     Acl->AceCount = 0;
     Acl->Sbz2 = 0;
 
@@ -199,7 +204,6 @@ Return Value:
 
     BOOLEAN - TRUE if the structure of Acl is valid.
 
-
 --*/
 
 {
@@ -210,21 +214,28 @@ Return Value:
 
     try {
 
-
         //
         //  Check the ACL revision level
         //
-    
-        if (Acl->AclRevision != ACL_REVISION2) {
-    
+
+        if (!ValidAclRevision( Acl )) {
+
             return FALSE;
-    
+
         }
-    
+
+        //
+        // Check that the length is aligned. The kernel checks this,
+        // so we should too.
+        //
+
+        if ((USHORT) LongAlign(Acl->AclSize) != Acl->AclSize) {
+            return FALSE;
+        }
         //
         //  Check to see that the Acl is well formed.
         //
-    
+
         return ( RtlFirstFreeAce( Acl, &FirstFree ));
 
     } except(EXCEPTION_EXECUTE_HANDLER) {
@@ -274,6 +285,7 @@ Return Value:
     PACL_SIZE_INFORMATION SizeInfo;
 
     PVOID FirstFree;
+    NTSTATUS Status;
 
     RTL_PAGED_CODE();
 
@@ -281,7 +293,7 @@ Return Value:
     //  Check the ACL revision level
     //
 
-    if (Acl->AclRevision != ACL_REVISION2) {
+    if (!ValidAclRevision( Acl )) {
 
         return STATUS_INVALID_PARAMETER;
 
@@ -430,7 +442,7 @@ Return Value:
     //  Check the ACL revision level
     //
 
-    if (Acl->AclRevision != ACL_REVISION2) {
+    if (!ValidAclRevision( Acl )) {
 
         return STATUS_INVALID_PARAMETER;
 
@@ -461,17 +473,19 @@ Return Value:
         RevisionInfo = (PACL_REVISION_INFORMATION)AclInformation;
 
         //
-        //  And make sure it is equal to ACL_REVISION2
+        //  Don't let them lower the revision of an ACL.
         //
 
-        if (RevisionInfo->AclRevision != ACL_REVISION2) {
+        if (RevisionInfo->AclRevision < Acl->AclRevision ) {
 
             return STATUS_INVALID_PARAMETER;
         }
 
         //
-        //  And because we only accept a revision level of 1 this operation
-        //  is really a noop.
+        // Assign the new revision.
+        //
+
+        Acl->AclRevision = (UCHAR)RevisionInfo->AclRevision;
 
         break;
 
@@ -533,6 +547,7 @@ Return Value:
 
     PVOID AcePosition;
     ULONG i;
+    UCHAR NewRevision;
 
     RTL_PAGED_CODE();
 
@@ -540,7 +555,7 @@ Return Value:
     //  Check the ACL revision level
     //
 
-    if (Acl->AclRevision != ACL_REVISION2) {
+    if (!ValidAclRevision(Acl)) {
 
         return STATUS_INVALID_PARAMETER;
 
@@ -558,28 +573,47 @@ Return Value:
     }
 
     //
-    //  Check that the AceRevision is equal to the current ACL revision
+    // If the AceRevision is greater than the ACL revision, then we want to
+    // increase the ACL revision to be the same as the new ACE revision.
+    // We can do this because our previously defined ACE types ( 0 -> 3 ) have
+    // not changed structure nor been discontinued in the new revision.  So
+    // we can bump the revision and the older types will not be misinterpreted.
+    //
+    // Compute what the final revision of the ACL is going to be, and save it
+    // for later so we can update it once we know we're going to succeed.
     //
 
-    if (AceRevision != ACL_REVISION2) {
-
-        return STATUS_INVALID_PARAMETER;
-
-    }
+    NewRevision = (UCHAR)AceRevision > Acl->AclRevision ? (UCHAR)AceRevision : Acl->AclRevision;
 
     //
-    //  Check that the AceList is well formed, we do this by simply zooming
-    //  down the Ace list until we're equal to or have exceeded the ace list
-    //  length.  If we are equal to the length then we're well formed otherwise
-    //  we're ill-formed.  We'll also calculate how many Ace's there are
-    //  in the AceList
+    // Check that the AceList is well formed, we do this by simply zooming
+    // down the Ace list until we're equal to or have exceeded the ace list
+    // length.  If we are equal to the length then we're well formed otherwise
+    // we're ill-formed.  We'll also calculate how many Ace's there are
+    // in the AceList
+    //
+    // In addition, now we have to make sure that we haven't been handed an
+    // ACE type that is inappropriate for the AceRevision that was passed
+    // in.
     //
 
     for (Ace = AceList, NewAceCount = 0;
          Ace < (PACE_HEADER)((PUCHAR)AceList + AceListLength);
          Ace = NextAce( Ace ), NewAceCount++) {
 
-        NOTHING;
+         //
+         // Compound ACEs weren't defined before ACL_REVISION3.  That means that
+         // if we got passed that type with a lower revision number, it means
+         // that someone stole one of our reserved types.  Return an error.
+         //
+
+         if (((PACE_HEADER)Ace)->AceType == ACCESS_ALLOWED_COMPOUND_ACE_TYPE) {
+
+             if (AceRevision < ACL_REVISION3) {
+
+                 return STATUS_INVALID_PARAMETER;
+             }
+         }
     }
 
     //
@@ -605,7 +639,7 @@ Return Value:
     }
 
     //
-    //  All of the input has check okay we now we need to locate the position
+    //  All of the input has checked okay, we now need to locate the position
     //  where to insert the new ace list.  We won't check the acl for
     //  validity because we did earlier when got the first free ace position.
     //
@@ -632,7 +666,9 @@ Return Value:
     //  Update the Acl Header
     //
 
-    Acl->AceCount += NewAceCount;
+    Acl->AceCount = (USHORT)(Acl->AceCount + NewAceCount);
+
+    Acl->AclRevision = NewRevision;
 
     //
     //  And return to our caller
@@ -679,7 +715,7 @@ Return Value:
     //  Check the ACL revision level
     //
 
-    if (Acl->AclRevision != ACL_REVISION2) {
+    if (!ValidAclRevision(Acl)) {
 
         return STATUS_INVALID_PARAMETER;
 
@@ -781,7 +817,7 @@ Return Value:
     //  Check the ACL revision level
     //
 
-    if (Acl->AclRevision != ACL_REVISION2) {
+    if (!ValidAclRevision(Acl)) {
 
         return STATUS_INVALID_PARAMETER;
 
@@ -846,6 +882,279 @@ Return Value:
 
 
 NTSTATUS
+RtlAddCompoundAce (
+    IN PACL Acl,
+    IN ULONG AceRevision,
+    IN UCHAR CompoundAceType,
+    IN ACCESS_MASK AccessMask,
+    IN PSID ServerSid,
+    IN PSID ClientSid
+    )
+
+/*++
+
+Routine Description:
+
+    This routine adds a KNOWN_COMPOUND_ACE to an ACL.  This is
+    expected to be a common form of ACL modification.
+
+Arguments:
+
+    Acl - Supplies the Acl being modified
+
+    AceRevision - Supplies the Acl/Ace revision of the ACE being added
+
+    CompoundAceType - Supplies the type of compound ACE being added.
+        Currently the only defined type is COMPOUND_ACE_IMPERSONATION.
+
+    AccessMask - The mask of accesses to be granted to the specified SID pair.
+
+    ServerSid - Pointer to the Server SID to be placed in the ACE.
+
+    ClientSid - Pointer to the Client SID to be placed in the ACE.
+
+Return Value:
+
+    NTSTATUS - STATUS_SUCCESS if successful and an appropriate error
+        status otherwise
+
+--*/
+
+
+
+
+{
+    PVOID FirstFree;
+    USHORT AceSize;
+    PKNOWN_COMPOUND_ACE GrantAce;
+    UCHAR NewRevision;
+
+    RTL_PAGED_CODE();
+
+    //
+    // Validate the structure of the SID
+    //
+
+    if (!RtlValidSid(ServerSid) || !RtlValidSid(ClientSid)) {
+        return STATUS_INVALID_SID;
+    }
+
+    //
+    //  Check the ACL & ACE revision levels
+    //
+
+    if ( Acl->AclRevision > ACL_REVISION3 || AceRevision != ACL_REVISION3 ) {
+        return STATUS_REVISION_MISMATCH;
+    }
+
+    //
+    // Calculate the new revision of the ACL.  The new revision is the maximum
+    // of the old revision and and new ACE's revision.  This is possible because
+    // the format of previously defined ACEs did not change across revisions.
+    //
+
+    NewRevision = Acl->AclRevision > (UCHAR)AceRevision ? Acl->AclRevision : (UCHAR)AceRevision;
+
+    //
+    //  Locate the first free ace and check to see that the Acl is
+    //  well formed.
+    //
+
+    if (!RtlFirstFreeAce( Acl, &FirstFree )) {
+
+        return STATUS_INVALID_ACL;
+    }
+
+    //
+    //  Check to see if there is enough room in the Acl to store the new
+    //  ACE
+    //
+
+    AceSize = (USHORT)(sizeof(KNOWN_COMPOUND_ACE) -
+                       sizeof(ULONG)              +
+                       RtlLengthSid(ClientSid)    +
+                       RtlLengthSid(ServerSid)
+                       );
+
+    if (  FirstFree == NULL ||
+          ((PUCHAR)FirstFree + AceSize > ((PUCHAR)Acl + Acl->AclSize))
+       ) {
+
+        return STATUS_ALLOTTED_SPACE_EXCEEDED;
+    }
+
+    //
+    // Add the ACE to the end of the ACL
+    //
+
+    GrantAce = (PKNOWN_COMPOUND_ACE)FirstFree;
+    GrantAce->Header.AceFlags = 0;
+    GrantAce->Header.AceType = ACCESS_ALLOWED_COMPOUND_ACE_TYPE;
+    GrantAce->Header.AceSize = AceSize;
+    GrantAce->Mask = AccessMask;
+    GrantAce->CompoundAceType = CompoundAceType;
+    RtlCopySid( RtlLengthSid(ServerSid), (PSID)(&GrantAce->SidStart), ServerSid );
+    RtlCopySid( RtlLengthSid(ClientSid), (PSID)(((ULONG)&GrantAce->SidStart) + RtlLengthSid(ServerSid)), ClientSid );
+
+    //
+    // Increment the number of ACEs by 1.
+    //
+
+    Acl->AceCount += 1;
+
+    //
+    // Adjust the Acl revision, if necessary
+    //
+
+    Acl->AclRevision = NewRevision;
+
+    //
+    //  And return to our caller
+    //
+
+    return STATUS_SUCCESS;
+}
+
+
+NTSTATUS
+RtlpAddKnownAce (
+    IN OUT PACL Acl,
+    IN ULONG AceRevision,
+    IN ACCESS_MASK AccessMask,
+    IN PSID Sid,
+    IN UCHAR NewType
+    )
+
+/*++
+
+Routine Description:
+
+    This routine adds KNOWN_ACE to an ACL.  This is
+    expected to be a common form of ACL modification.
+
+    A very bland ACE header is placed in the ACE.  It provides no
+    inheritance and no ACE flags.  The type is specified by the caller.
+
+Arguments:
+
+    Acl - Supplies the Acl being modified
+
+    AceRevision - Supplies the Acl/Ace revision of the ACE being added
+
+    AccessMask - The mask of accesses to be denied to the specified SID.
+
+    Sid - Pointer to the SID being denied access.
+
+    NewType - Type of ACE to be added.
+
+Return Value:
+
+    STATUS_SUCCESS - The ACE was successfully added.
+
+    STATUS_INVALID_ACL - The specified ACL is not properly formed.
+
+    STATUS_REVISION_MISMATCH - The specified revision is not known
+        or is incompatible with that of the ACL.
+
+    STATUS_ALLOTTED_SPACE_EXCEEDED - The new ACE does not fit into the
+        ACL.  A larger ACL buffer is required.
+
+    STATUS_INVALID_SID - The provided SID is not a structurally valid
+        SID.
+
+--*/
+
+{
+    PVOID FirstFree;
+    USHORT AceSize;
+    PKNOWN_ACE GrantAce;
+    UCHAR NewRevision;
+
+    RTL_PAGED_CODE();
+
+    //
+    // Validate the structure of the SID
+    //
+
+    if (!RtlValidSid(Sid)) {
+        return STATUS_INVALID_SID;
+    }
+
+    //
+    //  Check the ACL & ACE revision levels
+    //
+
+    if ( Acl->AclRevision > ACL_REVISION3 || AceRevision > ACL_REVISION3 ) {
+
+        return STATUS_REVISION_MISMATCH;
+    }
+
+    //
+    // Calculate the new revision of the ACL.  The new revision is the maximum
+    // of the old revision and and new ACE's revision.  This is possible because
+    // the format of previously defined ACEs did not change across revisions.
+    //
+
+    NewRevision = Acl->AclRevision > (UCHAR)AceRevision ? Acl->AclRevision : (UCHAR)AceRevision;
+
+    //
+    //  Locate the first free ace and check to see that the Acl is
+    //  well formed.
+    //
+
+    if (!RtlFirstFreeAce( Acl, &FirstFree )) {
+
+        return STATUS_INVALID_ACL;
+    }
+
+    //
+    //  Check to see if there is enough room in the Acl to store the new
+    //  ACE
+    //
+
+    AceSize = (USHORT)(sizeof(ACE_HEADER) +
+                      sizeof(ACCESS_MASK) +
+                      RtlLengthSid(Sid));
+
+    if (  FirstFree == NULL ||
+          ((PUCHAR)FirstFree + AceSize > ((PUCHAR)Acl + Acl->AclSize))
+       ) {
+
+        return STATUS_ALLOTTED_SPACE_EXCEEDED;
+    }
+
+    //
+    // Add the ACE to the end of the ACL
+    //
+
+    GrantAce = (PKNOWN_ACE)FirstFree;
+    GrantAce->Header.AceFlags = 0;
+    GrantAce->Header.AceType = NewType;
+    GrantAce->Header.AceSize = AceSize;
+    GrantAce->Mask = AccessMask;
+    RtlCopySid( RtlLengthSid(Sid), (PSID)(&GrantAce->SidStart), Sid );
+
+    //
+    // Increment the number of ACEs by 1.
+    //
+
+    Acl->AceCount += 1;
+
+    //
+    // Adjust the Acl revision, if necessary
+    //
+
+    Acl->AclRevision = NewRevision;
+
+    //
+    //  And return to our caller
+    //
+
+    return STATUS_SUCCESS;
+}
+
+
+NTSTATUS
 RtlAddAccessAllowedAce (
     IN OUT PACL Acl,
     IN ULONG AceRevision,
@@ -863,7 +1172,6 @@ Routine Description:
     A very bland ACE header is placed in the ACE.  It provides no
     inheritance and no ACE flags.
 
-
 Arguments:
 
     Acl - Supplies the Acl being modified
@@ -873,7 +1181,6 @@ Arguments:
     AccessMask - The mask of accesses to be granted to the specified SID.
 
     Sid - Pointer to the SID being granted access.
-
 
 Return Value:
 
@@ -890,89 +1197,18 @@ Return Value:
     STATUS_INVALID_SID - The provided SID is not a structurally valid
         SID.
 
-
 --*/
 
 {
-    PVOID FirstFree;
-    USHORT AceSize;
-
-    PACCESS_ALLOWED_ACE GrantAce;
-
     RTL_PAGED_CODE();
 
-    //
-    // Validate the structure of the SID
-    //
-
-    if (!RtlValidSid(Sid)) {
-        return STATUS_INVALID_SID;
-    }
-
-    //
-    //  Check the ACL & ACE revision levels
-    //
-
-    if ((Acl->AclRevision != ACL_REVISION2) || (AceRevision != ACL_REVISION2) ) {
-
-        return STATUS_REVISION_MISMATCH;
-
-    }
-
-    //
-    //  Locate the first free ace and check to see that the Acl is
-    //  well formed.
-    //
-
-    if (!RtlFirstFreeAce( Acl, &FirstFree )) {
-
-        return STATUS_INVALID_ACL;
-
-    }
-
-
-
-    //
-    //  Check to see if there is enough room in the Acl to store the new
-    //  ACE
-    //
-
-
-    AceSize = (USHORT)(sizeof(ACE_HEADER) +
-                      sizeof(ACCESS_MASK) +
-                      RtlLengthSid(Sid));
-
-    if (  FirstFree == NULL ||
-          ((PUCHAR)FirstFree + AceSize > ((PUCHAR)Acl + Acl->AclSize))
-       ) {
-
-        return STATUS_ALLOTTED_SPACE_EXCEEDED;
-
-    }
-
-    //
-    // Add the ACE to the end of the ACL
-    //
-
-    GrantAce = (PACCESS_ALLOWED_ACE)FirstFree;
-    GrantAce->Header.AceFlags = 0;
-    GrantAce->Header.AceType = ACCESS_ALLOWED_ACE_TYPE;
-    GrantAce->Header.AceSize = AceSize;
-    GrantAce->Mask = AccessMask;
-    RtlCopySid( RtlLengthSid(Sid), (PSID)(&GrantAce->SidStart), Sid );
-
-
-    //
-    // Increment the number of ACEs by 1.
-    //
-
-    Acl->AceCount += 1;
-
-    //
-    //  And return to our caller
-    //
-
-    return STATUS_SUCCESS;
+    return RtlpAddKnownAce (
+               Acl,
+               AceRevision,
+               AccessMask,
+               Sid,
+               ACCESS_ALLOWED_ACE_TYPE
+               );
 }
 
 
@@ -994,7 +1230,6 @@ Routine Description:
     A very bland ACE header is placed in the ACE.  It provides no
     inheritance and no ACE flags.
 
-
 Arguments:
 
     Acl - Supplies the Acl being modified
@@ -1004,7 +1239,6 @@ Arguments:
     AccessMask - The mask of accesses to be denied to the specified SID.
 
     Sid - Pointer to the SID being denied access.
-
 
 Return Value:
 
@@ -1021,89 +1255,19 @@ Return Value:
     STATUS_INVALID_SID - The provided SID is not a structurally valid
         SID.
 
-
 --*/
 
 {
-    PVOID FirstFree;
-    USHORT AceSize;
-
-    PACCESS_DENIED_ACE DenyAce;
-
     RTL_PAGED_CODE();
 
-    //
-    // Validate the structure of the SID
-    //
+    return RtlpAddKnownAce (
+               Acl,
+               AceRevision,
+               AccessMask,
+               Sid,
+               ACCESS_DENIED_ACE_TYPE
+               );
 
-    if (!RtlValidSid(Sid)) {
-        return STATUS_INVALID_SID;
-    }
-
-    //
-    //  Check the ACL & ACE revision levels
-    //
-
-    if ((Acl->AclRevision != ACL_REVISION2) || (AceRevision != ACL_REVISION2) ) {
-
-        return STATUS_REVISION_MISMATCH;
-
-    }
-
-    //
-    //  Locate the first free ace and check to see that the Acl is
-    //  well formed.
-    //
-
-    if (!RtlFirstFreeAce( Acl, &FirstFree )) {
-
-        return STATUS_INVALID_ACL;
-
-    }
-
-
-
-    //
-    //  Check to see if there is enough room in the Acl to store the new
-    //  ACE
-    //
-
-
-    AceSize = (USHORT)(sizeof(ACE_HEADER) +
-                      sizeof(ACCESS_MASK) +
-                      RtlLengthSid(Sid));
-
-    if (  FirstFree == NULL ||
-          ((PUCHAR)FirstFree + AceSize > ((PUCHAR)Acl + Acl->AclSize))
-       ) {
-
-        return STATUS_ALLOTTED_SPACE_EXCEEDED;
-
-    }
-
-    //
-    // Add the ACE to the end of the ACL
-    //
-
-    DenyAce = (PACCESS_DENIED_ACE)FirstFree;
-    DenyAce->Header.AceFlags = 0;
-    DenyAce->Header.AceType = ACCESS_DENIED_ACE_TYPE;
-    DenyAce->Header.AceSize = AceSize;
-    DenyAce->Mask = AccessMask;
-    RtlCopySid( RtlLengthSid(Sid), (PSID)(&DenyAce->SidStart), Sid );
-
-
-    //
-    // Increment the number of ACEs by 1.
-    //
-
-    Acl->AceCount += 1;
-
-    //
-    //  And return to our caller
-    //
-
-    return STATUS_SUCCESS;
 }
 
 
@@ -1129,7 +1293,6 @@ Routine Description:
 
     Parameters are used to indicate whether auditing is to be performed
     on success, failure, or both.
-
 
 Arguments:
 
@@ -1162,7 +1325,6 @@ Return Value:
     STATUS_INVALID_SID - The provided SID is not a structurally valid
         SID.
 
-
 --*/
 
 {
@@ -1182,7 +1344,6 @@ Return Value:
         AuditFlags |= FAILED_ACCESS_ACE_FLAG;
     }
 
-
     //
     // Validate the structure of the SID
     //
@@ -1195,10 +1356,9 @@ Return Value:
     //  Check the ACL & ACE revision levels
     //
 
-    if ((Acl->AclRevision != ACL_REVISION2) || (AceRevision != ACL_REVISION2) ) {
+    if ( Acl->AclRevision > ACL_REVISION3 || AceRevision > ACL_REVISION3 ) {
 
         return STATUS_REVISION_MISMATCH;
-
     }
 
     //
@@ -1212,13 +1372,10 @@ Return Value:
 
     }
 
-
-
     //
     //  Check to see if there is enough room in the Acl to store the new
     //  ACE
     //
-
 
     AceSize = (USHORT)(sizeof(ACE_HEADER) +
                       sizeof(ACCESS_MASK) +
@@ -1242,7 +1399,6 @@ Return Value:
     AuditAce->Header.AceSize = AceSize;
     AuditAce->Mask = AccessMask;
     RtlCopySid( RtlLengthSid(Sid), (PSID)(&AuditAce->SidStart), Sid );
-
 
     //
     // Increment the number of ACEs by 1.
@@ -1340,7 +1496,6 @@ Return Values:
     GroupSidLength = RtlLengthSid( GroupSid );
     WorldSidLength = RtlLengthRequiredSid( 1 );
 
-
     //
     // Figure out how much room we need for an ACL and three
     // ACCESS_ALLOWED Ace's
@@ -1396,7 +1551,6 @@ Return Values:
     CurrentAce += (ULONG)(Ace->Header.AceSize);
     Ace = (PACCESS_ALLOWED_ACE)CurrentAce;
 
-
     //
     // Build the group ACE
     //
@@ -1437,9 +1591,6 @@ Return Values:
     return( STATUS_SUCCESS );
 
 }
-
-
-
 
 NTSTATUS
 RtlInterpretPosixAcl(
@@ -1636,6 +1787,10 @@ Return Value:
 
         }
 
+        if ( (Ace->AceType == ACCESS_ALLOWED_COMPOUND_ACE_TYPE) && (Acl->AclRevision < ACL_REVISION3) ) {
+
+            return FALSE;
+        }
     }
 
     //
@@ -1646,8 +1801,7 @@ Return Value:
 
     if (Ace <= (PACE_HEADER)((PUCHAR)Acl + Acl->AclSize)) {
 
-    *FirstFree = Ace;
-
+        *FirstFree = Ace;
     }
 
     //
@@ -1814,5 +1968,3 @@ Return Value:
     return;
 
 }
-
-

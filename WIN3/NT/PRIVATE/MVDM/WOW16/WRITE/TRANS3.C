@@ -978,11 +978,11 @@ CHAR szFileName[];
 HANDLE HszGlobalCreate( CHAR * );
 int fpe=0;
 int fOk;
-HANDLE h;
+ATOM a;
 
-if ((h = HszGlobalCreate( szFileName )) != NULL)
+if ((a = GlobalAddAtom( szFileName )) != NULL)
     {
-    fOk = WBroadcastMsg( wWndMsgDeleteFile, h, (LONG) 0, FALSE );
+    fOk = WBroadcastMsg( wWndMsgDeleteFile, a, (LONG) 0, FALSE );
     if (fOk)
     {   /* Ok to delete, no other instance needs it */
     fpe = FpeDeleteSzFfname( szFileName );
@@ -991,7 +991,7 @@ if ((h = HszGlobalCreate( szFileName )) != NULL)
      else
      Assert( !FIsErrFpe( fpe ) );
 #endif
-    GlobalFree( h );
+    GlobalDeleteAtom( a );
     }
 
     /* OK if: (1) Deleted OK  (2) Error was "File not found" */
@@ -1001,28 +1001,25 @@ return (!FIsErrFpe(fpe)) || fpe == fpeFnfError;
 
 
 
-FDeleteFileMessage( hName )
-HANDLE hName;
+FDeleteFileMessage( a )
+ATOM a;
 {   /* We are being notified that the file hName is being deleted.
-       hName is a WINDOWS global handle.
+       a is a global atom.  (Was global handle before fixing for NT 3.5)
        Return TRUE = Ok to delete; FALSE = Don't delete, this instance
         needs the file */
 
  LPCH lpch;
+ CHAR sz[ cchMaxFile ];
 
  Scribble( 5, 'D' );
 
- if ((lpch=GlobalLock( hName )) != NULL)
+ if (GlobalGetAtomName( a, sz, sizeof(sz)) != 0)
     {
-    CHAR sz[ cchMaxFile ];
-
-    bltszx( lpch, (LPCH)sz );
-    GlobalUnlock( hName );
     if (FnFromSz( sz ) != fnNil)
-    {
-    Scribble( 4, 'F' );
-    return FALSE;
-    }
+       {
+       Scribble( 4, 'F' );
+       return FALSE;
+       }
     }
 
  Scribble( 4, 'T' );
@@ -1846,4 +1843,4 @@ BOOL NEAR PASCAL CanReadEveryFile(char *szFilename)
     return bRetval;
 }
 
-
+

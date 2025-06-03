@@ -20,19 +20,17 @@ Revision History:
 
 --*/
 
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-#include <memory.h>
-#include <windows.h>
-#include <imagehlp.h>
+#include <private.h>
+#include <ntverp.h>
+#include <common.ver>
+
 
 void
 Usage( void )
 {
-    fprintf( stderr, "Microsoft(R) Windows NT UNDNAME Version 3.1\n" );
-    fprintf( stderr, "(C) 1989-1993 Microsoft Corp. All rights reserved\n\n" );
-    fprintf( stderr, "usage: UNDNAME decorated-names...\n" );
+    fprintf( stderr,
+             "usage: UNDNAME [-f] decorated-names...\n"
+             "       -f Undecorate fully.  Default is to only undecorate the class::member\n");
     exit( 1 );
 }
 
@@ -43,21 +41,33 @@ main(
     char *envp[]
     )
 {
-    char UnDecoratedName[256];
+    char UnDecoratedName[4000];
+    DWORD Flags;
+
+    fputs(VER_PRODUCTNAME_STR "\nUNDNAME Version " VER_PRODUCTVERSION_STR, stderr );
+    fputs(VER_LEGALCOPYRIGHT_STR "\n\n", stderr);
 
     if (argc <= 1) {
         Usage();
     }
 
-    printf( "Microsoft(R) Windows NT UNDNAME Version 3.1\n" );
-    printf( "(C) 1989-1993 Microsoft Corp. All rights reserved\n\n" );
+    if ((argv[1][0] == '-') && (argv[1][1] == 'f')) {
+        Flags = UNDNAME_COMPLETE;
+        argc--;
+        argv++;
+    } else {
+        Flags = UNDNAME_NAME_ONLY;
+    }
+
+    if (argc <= 1) {
+        Usage();
+    }
 
     while (--argc) {
-        UnDecorateSymbolName( *++argv, UnDecoratedName, sizeof(UnDecoratedName), 0 );
+        UnDecorateSymbolName( *++argv, UnDecoratedName, sizeof(UnDecoratedName), Flags );
         printf( ">> %s == %s\n", *argv, UnDecoratedName );
     }
 
     exit( 0 );
     return 0;
 }
-

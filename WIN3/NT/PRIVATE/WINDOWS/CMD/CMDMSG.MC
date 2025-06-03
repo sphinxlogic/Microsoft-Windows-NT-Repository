@@ -30,7 +30,7 @@
 
 MessageId=9000 SymbolicName=MSG_RESPONSE_DATA
 Language=English
-Y N A R I
+Y N
 .
 
 MessageId=9001 SymbolicName=MSG_BAD_PARM1
@@ -73,7 +73,7 @@ The system cannot accept the date entered.
 
 MessageId=9008 SymbolicName=MSG_NO_BAT_LABEL
 Language=English
-The system cannot find the batch label specified.
+No batch label specified to GOTO command.
 .
 
 MessageId=9009 SymbolicName=MSG_DIR_BAD_COMMAND_OR_FILE
@@ -95,8 +95,8 @@ with the version of the operating system being used.
 
 MessageId=9012 SymbolicName=MSG_COMM_VER
 Language=English
-Microsoft(R) Windows NT(TM)
-(C) Copyright 1985-1994 Microsoft Corp.
+Microsoft(R) Windows %1(TM)
+(C) Copyright 1985-1996 Microsoft Corp.
 .
 
 MessageId=9013 SymbolicName=MSG_C
@@ -242,7 +242,7 @@ The following character string is too long:
 
 MessageId=9040 SymbolicName=MSG_MS_DOS_VERSION
 Language=English
-Windows NT Version %1.%2 %0
+Windows %1 Version %2.%3 %0
 .
 
 MessageId=9041 SymbolicName=MSG_PIPE_FAILURE
@@ -261,39 +261,17 @@ Language=English
 The system cannot complete the process.
 .
 
-MessageId=9044 SymbolicName=MSG_SUNDAY
+MessageId=9044 SymbolicName=MSG_TYPE_FILENAME
 Language=English
-Sun%0
+
+%1
+
+
 .
 
-MessageId=9045 SymbolicName=MSG_MONDAY
+MessageId=9045 SymbolicName=MSG_INVALID_INPUT
 Language=English
-Mon%0
-.
-
-MessageId=9046 SymbolicName=MSG_TUEDAY
-Language=English
-Tue%0
-.
-
-MessageId=9047 SymbolicName=MSG_WEDDAY
-Language=English
-Wed%0
-.
-
-MessageId=9048 SymbolicName=MSG_THRDAY
-Language=English
-Thu%0
-.
-
-MessageId=9049 SymbolicName=MSG_FRIDAY
-Language=English
-Fri%0
-.
-
-MessageId=9050 SymbolicName=MSG_SATDAY
-Language=English
-Sat%0
+Unable to read from input.
 .
 
 MessageId=9051 SymbolicName=MSG_DR_VOL_SERIAL
@@ -381,7 +359,6 @@ a non-existent math processor.
 MessageId=9066 SymbolicName=MSG_CMD_KILLED
 Language=English
 The external process was canceled by a Ctrl+Break or another process.
-
 .
 
 MessageId=9067 SymbolicName=MSG_CMD_NOT_RECOGNIZED
@@ -513,6 +490,7 @@ COPY [/A | /B] source [/A | /B] [+ source [/A | /B] [+ ...]] [destination
   /V           Verifies that new files are written correctly.
   /N           Uses short filename, if available, when copying a file with a
                non-8dot3 name.
+  /Z           Copies networked files in restartable mode.
 
 To append files, specify a single file for destination, but multiple files
 for source (using wildcards or file1+file2+file3 format).
@@ -644,20 +622,20 @@ Prompt can be made up of normal characters and the following special codes:
   $V   Windows NT version number
   $_   Carriage return and linefeed
   $$   $ (dollar sign)
-
-
 .
 
 MessageId=9095 SymbolicName=MSG_HELP_RMDIR
 Language=English
 Removes (deletes) a directory.
 
-RMDIR [/S] [drive:]path
-RD [/S] [drive:]path
+RMDIR [/S] [/Q] [drive:]path
+RD [/S] [/Q] [drive:]path
 
     /S      Removes all directories and files in the specified directory
             in addition to the directory itself.  Used to remove a directory
             tree.
+
+    /Q      Quiet mode, do not ask if ok to remove a directory tree with /S
 .
 
 MessageId=9096 SymbolicName=MSG_HELP_RENAME
@@ -773,7 +751,7 @@ MessageId=9108 SymbolicName=MSG_HELP_SHIFT
 Language=English
 Changes the position of replaceable parameters in a batch file.
 
-SHIFT
+SHIFT [/n]
 .
 
 MessageId=9109 SymbolicName=MSG_HELP_IF
@@ -808,16 +786,16 @@ FOR %%variable IN (set) DO command [command-parameters]
   command-parameters
              Specifies parameters or switches for the specified command.
 
-To use the FOR command in a batch program, specify %%%%variable instead of
-%%variable
-
+To use the FOR command in a batch program, specify %%%%variable instead
+of %%variable Variable names are case sensitive, so %%i is different
+from %%I.
 .
 
 MessageId=9111 SymbolicName=MSG_HELP_START
 Language=English
 Starts a separate window to run a specified program or command.
 
-START ["title"] [/Dpath] [/I] [/MIN] [/MAX] [/SEPARATE]
+START ["title"] [/Dpath] [/I] [/MIN] [/MAX] [/SEPARATE | /SHARED]
       [/LOW | /NORMAL | /HIGH | /REALTIME] [/WAIT] [/B] [command/program] [parameters]
 
     "title"     Title to display in  window title bar.
@@ -827,6 +805,7 @@ START ["title"] [/Dpath] [/I] [/MIN] [/MAX] [/SEPARATE]
     MIN         Start window minimized
     MAX         Start window maximized
     SEPARATE    Start 16-bit Windows program in separate memory space
+    SHARED      Start 16-bit Windows program in shared memory space
     LOW         Start application in the IDLE priority class
     NORMAL      Start application in the NORMAL priority class
     HIGH        Start application in the HIGH priority class
@@ -863,18 +842,752 @@ MessageId=9113 SymbolicName=MSG_HELP_CMD
 Language=English
 Starts a new instance of the Windows/NT command interpreter
 
-CMD [[/C | /K] [/Q] string]
+CMD [/X | /Y] [/A | /U] [/Q] [[/C | /K] string]
 
 /C      Carries out the command specified by string and then terminates
 /K      Carries out the command specified by string but remains
-/Q      Silently Carries out the command specified by string but remains
+/Q      Turns the echo off
 /A      Causes the output of internal commands to a pipe or file to be ANSI
-/U      Causes the output of internal commands to a pipe or file to be UNICODE
+/U      Causes the output of internal commands to a pipe or file to be Unicode
+/T:fg   Sets the foreground/background colors (see COLOR /? for more info)
+/X      Enable extensions to the Windows NT version of CMD.EXE
+/Y      Disable extensions to the Windows NT version of CMD.EXE
 
 Note that multiple commands separated by the command separator '&&'
 are accepted for string if surrounded by quotes
 
 .
+
+MessageId= SymbolicName=MSG_HELP_CMD_EXTENSIONS
+Language=English
+Command Extensions are enabled by default.  You may also disable
+extensions for all invocations of the command processor by setting the
+following value in the registry to 0
+
+    HKEY_CURRENT_USER\Software\Microsoft\Command Processor\EnableExtensions
+
+The command extensions involve changes and/or additions to the following
+commands:
+
+    DEL or ERASE
+    COLOR
+    CD or CHDIR
+    MD or MKDIR
+    PROMPT
+    PUSHD
+    POPD
+    SET
+    SETLOCAL
+    ENDLOCAL
+    IF
+    FOR
+    CALL
+    SHIFT
+    GOTO
+    START (also includes changes to external command invocation)
+    ASSOC
+    FTYPE
+
+To get specific details, type HELP commandname to view the specifics.
+.
+
+MessageId= SymbolicName=MSG_EXT_ENABLED
+Language=English
+Command Processor Extensions Enabled
+.
+
+MessageId= SymbolicName=MSG_EXT_ENABLED_BY_DEFAULT
+Language=English
+Command Processor Extensions enabled by default.  Use CMD /? for details.
+.
+
+MessageId= SymbolicName=MSG_FILE_DELETED
+Language=English
+Deleted file - %1
+.
+
+MessageId= SymbolicName=MSG_HELP_ASSOC
+Language=English
+Displays or modifies file extension associations
+
+ASSOC [.ext[=[fileType]]]
+
+  .ext      Specifies the file extension to associate the file type with
+  fileType  Specifies the file type to associate with the file extension
+
+Type ASSOC without parameters to display the current file associations.
+If ASSOC is invoked with just a file extension, it displays the current
+file association for that file extension.  Specify nothing for the file
+type and the command will delete the association for the file extension.
+.
+
+MessageID= SymbolicName=MSG_ASSOC_NOT_FOUND
+Language=English
+File association not found for extension %1
+.
+
+MessageId= SymbolicName=MSG_HELP_FTYPE
+Language=English
+Displays or modifies file types used in file extension associations
+
+FTYPE [fileType[=[openCommandString]]]
+
+  fileType  Specifies the file type examine or change
+  openCommandString Specifies the open command to use when launching files
+                    of this type.
+
+Type FTYPE without parameters to display the current file types that
+have open command strings defined.  FTYPE is invoked with just a file
+type, it displays the current open command string for that file type.
+Specify nothing for the open command string and the FTYPE command will
+delete the open command string for the file type.  Within an open
+command string %%0 or %%1 are substituted with the file name being
+launched through the assocation.  %%* gets all the parameters and %%2
+gets the 1st parameter, %%4 the second, etc.  %%~n gets all the remaining
+parameters starting with the nth parameter, where n may be between 2 and 9,
+inclusive.  For example:
+
+    ASSOC .pl=PerlScript
+    FTYPE PerlScript=perl.exe %%1 %%*
+
+would allow you to invoke a Perl script as follows:
+
+    script.pl 1 2 3
+
+If you want to eliminate the need to type the extensions, then do the
+following:
+
+    set PATHEXT=.pl;%%PATHEXT%%
+
+and the script could be invoked as follows:
+
+    script 1 2 3
+.
+
+MessageID= SymbolicName=MSG_FTYPE_NOT_FOUND
+Language=English
+File type '%1' not found or no open command associated with it.
+.
+
+MessageID= SymbolicName=MSG_SETLOCAL_BAD_ARG
+Language=English
+Invalid parameter to SETLOCAL command
+.
+
+MessageID= SymbolicName=MSG_NO_COPYFILEEX
+Language=English
+The restartable option to the COPY command is not supported by
+this version of the operating system.
+.
+
+MessageID= SymbolicName=MSG_PATH_OPERATOR_INVALID
+Language=English
+The following usage of the path operator in batch-parameter
+substitution is invalid: %1
+
+For valid formats type CALL /? or FOR /?
+.
+
+MessageID= SymbolicName=MSG_ENV_VAR_NOT_FOUND
+Language=English
+Environment variable %1 not defined
+.
+
+MessageID= SymbolicName=MSG_CALL_LABEL_INVALID
+Language=English
+Invalid attempt to call batch label outside of batch script.
+.
+
+MessageId= SymbolicName=MSG_MISSING_BAT_LABEL
+Language=English
+The system cannot find the batch label specified - %1
+.
+
+MessageId= SymbolicName=MSG_UNICODE_NOT_SUPPORTED
+Language=English
+The unicode output option to CMD.EXE is not supported by this
+version of the operating system.
+.
+
+MessageId= SymbolicName=MSG_HELP_DEL_ERASE_X
+Language=English
+
+If Command Extensions are enabled DEL and ERASE change as follows:
+
+The display semantics of the /S switch are reversed in that it shows
+you only the files that are deleted, not the ones it could not find.
+.
+
+MessageId= SymbolicName=MSG_HELP_CHDIR_X
+Language=English
+
+If Command Extensions are enabled CHDIR changes as follows:
+
+The current directory string is converted to use the same case as
+the on disk names.  So CD C:\TEMP would actually set the current
+directory to C:\Temp if that is the case on disk.
+
+CHDIR command does not treat spaces as delimeters, so it is possible to
+CD into a subdirectory name that contains a space without surrounding
+the name with quotes.  For example:
+
+    cd \winnt\profiles\username\programs\start menu
+
+is the same as:
+
+    cd "\winnt\profiles\username\programs\start menu"
+
+which is what you would have to type if extensions were disabled.
+.
+
+MessageId= SymbolicName=MSG_HELP_MKDIR_X
+Language=English
+
+If Command Extensions are enabled MKDIR changes as follows:
+
+MKDIR creates any intermediate directories in the path, if needed.
+For example, assume \a does not exist then:
+
+    mkdir \a\b\c\d
+
+is the same as:
+
+    mkdir \a
+    chdir \a
+    mkdir b
+    chdir b
+    mkdir c
+    chdir c
+    mkdir d
+
+which is what you would have to type if extensions were disabled.
+.
+
+MessageId= SymbolicName=MSG_HELP_DATE_X
+Language=English
+
+If Command Extensions are enabled the DATE command supports
+the /T switch which tells the command to just output the
+current date, without prompting for a new date.
+.
+
+MessageId= SymbolicName=MSG_HELP_TIME_X
+Language=English
+
+If Command Extensions are enabled the TIME command supports
+the /T switch which tells the command to just output the
+current time, without prompting for a new time.
+.
+
+MessageId= SymbolicName=MSG_HELP_PROMPT_X
+Language=English
+
+If Command Extensions are enabled the PROMPT command supports
+the following additional formatting characters:
+
+  $+   zero or more plus sign (+) characters depending upon the
+       depth of the PUSHD directory stack, one character for each
+       level pushed.
+
+  $M   Displays the remote name associated with the current drive
+       letter or the empty string if current drive is not a network
+       drive.
+.
+
+MessageId= SymbolicName=MSG_HELP_PUSHDIR_X
+Language=English
+
+If Command Extensions are enabled the PUSHD command accepts
+network paths in addition to the normal drive letter and path.
+If a network path is specified, PUSHD will create a temporary
+drive letter that points to that specified network resource and
+then change the current drive and directory, using the newly
+defined drive letter.  Temporary drive letters are allocated from
+Z: on down, using the first unused drive letter found.
+.
+
+MessageId= SymbolicName=MSG_HELP_POPDIR_X
+Language=English
+
+If Command Extensions are enabled the POPD command will delete
+any temporary drive letter created by PUSHD when you POPD that
+drive off the pushed directory stack.
+.
+
+MessageId= SymbolicName=MSG_HELP_SET_X
+Language=English
+
+If Command Extensions are enabled SET changes as follows:
+
+SET command invoked with just a variable name, no equal sign or value
+will display the value of all variables whose prefix matches the name
+given to the SET command.  For example:
+
+    SET P
+
+would display all variables that begin with the letter 'P'
+
+SET command will set the ERRORLEVEL to 1 if the variable name is not
+found in the current environment.
+
+SET command will allow an equal sign (=) in the value of an environment
+variable in any position other than the first character.
+
+A new switch is added to the SET command:
+
+    SET /A expression
+
+The /A switch specifies that the string to the right of the equal sign
+is a numerical expression that is evaluated.  The expression evaluator
+is pretty simple and supports the following operations, in decreasing
+order of precedence:
+
+    ()                  - grouping
+    * / %%               - arithmetic operators
+    + -                 - arithmetic operators
+    << >>               - logical shift
+    &                   - bitwise and
+    ^                   - bitwise exclusive or
+    |                   - bitwise or
+    = *= /= %%= += -=    - assignment
+      &= ^= |= <<= >>=
+    ,                   - expression separator
+
+If you use any of the logical or modulus operators, you will need to
+enclose the expression string in quotes.  Any non-numeric strings in the
+expression are treated as environment variable names whose values are
+converted to numbers before using them.  If an environment variable name
+is specified but is not defined in the current environment, then a value
+of zero is used.  This allows you to do arithmetic with environment
+variable values without having to type all those %% signs to get their
+values.  If SET /A is executed from the command line outside of a
+command script, then it displays the final value of the expression.  The
+assignment operator requires an environment variable name to the left of
+the assignment operator.  Numeric values are decimal numbers, unless
+prefixed by 0x for hexidecimal numbers, 0b for binary numbers and 0 for
+octals numbers.  So 0x12 is the same as 0b10010 is the same as 022.
+Please note that the octal notation can be confusing: 08 and 09 are
+not valid numbers because 8 and 9 are not valid octal digits.
+
+Environment variable substitution has been enhanced as follows:
+
+    %%PATH:str1=str2%%
+
+would expand the PATH environment variable, substituting each occurrence
+of "str1" in the expanded result with "str2".  "str2" can be the empty
+string to effectively delete all occurrences of "str1" from the expanded
+output.  "str1" can begin with an asterisk, in which case it will match
+everything from the begining of the expanded output to the first
+occurrence of the remaining portion of str1.
+
+    %%PATH:~10,5%%
+
+would expand the PATH environment variable, and then use only the 5
+characters that begin at the 11th (offset 10) character of the expanded
+result.
+.
+
+MessageId= SymbolicName=MSG_HELP_GOTO_X
+Language=English
+
+If Command Extensions are enabled GOTO changes as follows:
+
+GOTO command now accepts a target label of :EOF which transfers control
+to the end of the current batch script file.  This is an easy way to
+exit a batch script file without defining a label.  Type CALL /?  for a
+description of extensions to the CALL command that make this feature
+useful.
+.
+
+MessageId= SymbolicName=MSG_HELP_SHIFT_X
+Language=English
+
+If Command Extensions are enabled the SHIFT command supports
+the /n switch which tells the command to start shifting at the
+nth argument, where n may be between zero and eight.  For example:
+
+    SHIFT /2
+
+would shift %%3 to %%2, %%4 to %%3, etc. and leave %%0 and %%1 unaffected.
+.
+
+MessageId= SymbolicName=MSG_HELP_CALL_X
+Language=English
+
+If Command Extensions are enabled CALL changes as follows:
+
+CALL command now accepts labels as the target of the CALL.  The syntax
+is:
+
+    CALL :label arguments
+
+A new batch file context is created with the specified arguments and
+control is passed to the statement after the label specified.  You must
+"exit" twice by reaching the end of the batch script file twice.  The
+first time you read the end, control will return to just after the CALL
+statement.  The second time will exit the batch script.  Type GOTO /?
+for a description of the GOTO :EOF extension that will allow you to
+"return" from a batch script.
+
+In addition, expansion of batch script argument references (%%0, %%1,
+etc.) have been changed as follows:
+
+
+    %%* in a batch script refers to all the arguments (e.g. %%1 %%2 %%3
+        %%4 %%5 ...)
+
+    Substitution of batch parameters (%%n) has been enhanced.  You can
+    now use the following optional syntax:
+
+        %%~f1        - expands %%1 to a fully qualified path name
+        %%~d1        - expands %%1 to a drive letter only
+        %%~p1        - expands %%1 to a path only
+        %%~n1        - expands %%1 to a file name only
+        %%~x1        - expands %%1 to a file extension only
+        %%~s1        - changes the meaning of n and x options to
+                       reference the short name instead
+        %%~$PATH:1   - searches the directories listed in the PATH
+                       environment variable and expands %%1 to the fully
+                       qualified name of the first one found.  If the
+                       environment variable name is not defined or the
+                       file is not found by the search, then this
+                       modifier expands to the empty string
+
+    The modifiers can be combined to get compound results:
+
+        %%~dp1       - expands %%1 to a drive letter and path only
+        %%~nx1       - expands %%1 to a file name and extension only
+        %%~dp$PATH:1 - searches the directories listed in the PATH
+                       environment variable for %%1 and expands to the
+                       drive letter and path of the first one found.
+
+    In the above examples %%1 and PATH can be replaced by other
+    valid values
+.
+
+MessageId= SymbolicName=MSG_HELP_SETLOCAL_X
+Language=English
+
+If Command Extensions are enabled SETLOCAL changes as follows:
+
+SETLOCAL batch command now accepts an optional argument, which can be
+either ENABLEEXTENSIONS or DISABLEEXTENSIONS.  This will enable or
+disable the Command process extensions until the matching ENDLOCAL
+command, regardless of their setting prior to the SETLOCAL command.
+
+The SETLOCAL command will set the ERRORLEVEL value if given
+an argument.  It will be zero if one of the two valid arguments
+is given and one otherwise.  You can use this in batch scripts
+to determine if the extensions are available, using the following
+technique:
+
+    VERIFY OTHER 2>nul
+    SETLOCAL ENABLEEXTENSIONS
+    IF ERRORLEVEL 1 echo Unable to enable extensions
+
+This works because on old versions of CMD.EXE, SETLOCAL does NOT
+set the ERRORLEVEL value. The VERIFY command with a bad argument
+initializes the ERRORLEVEL value to a non-zero value.
+.
+
+MessageId= SymbolicName=MSG_HELP_ENDLOCAL_X
+Language=English
+
+If Command Extensions are enabled ENDLOCAL changes as follows:
+
+If the corresponding SETLOCAL enable or disabled command extensions
+using the new ENABLEEXTENSIONS or DISABLEEXTENSIONS options, then
+after the ENDLOCAL, the enabled/disabled state of command extensions
+will be restored to what it was prior to the matching SETLOCAL
+command execution.
+.
+
+MessageId= SymbolicName=MSG_HELP_START_X
+Language=English
+
+If Command Extensions are enabled, external command invocation
+through the command line or the START command changes as follows:
+
+non-executable files may be invoked through their file association just
+    by typing the name of the file as a command.  (e.g.  WORD.DOC would
+    launch the application associated with the .DOC file extension).
+    See the ASSOC and FTYPE commands for how to create these
+    associations from within a command script.
+
+When executing an application that is a 32-bit GUI application, CMD.EXE
+    does not wait for the application to terminate before returning to
+    the command prompt.  This new behavior does NOT occur if executing
+    within a command script.
+
+When executing a command line whose first token is CMD without an
+    extension or path qualifier, then replaces CMD with the value of the
+    COMSPEC variable, thus avoiding picking up random versions of
+    CMD.EXE when you least expect them.
+
+When executing a command line whose first token does NOT contain an
+    extension, then CMD.EXE uses the value of the PATHEXT
+    environment variable to determine which extensions to look for
+    and in what order.  The default value for the PATHEXT variable
+    is:
+
+        .COM;.EXE;.BAT;.CMD
+
+    Notice the syntax is the same as the PATH variable, with
+    semicolons separating the different elements.
+
+When executing a command, if there is no match on any extension, then
+looks to see if the name, without any extension, matches a directory name
+and if it does, the START command launches the Explorer on that path.
+If done from the command line, it is the equivalent to doing a CD /D
+to that path.
+.
+
+MessageId= SymbolicName=MSG_HELP_BREAK_X
+Language=English
+
+If Command Extensions are enabled, and running on the Windows NT
+platform, then the BREAK command will enter a hard coded breakpoint
+if being debugged by a debugger.
+.
+
+MessageId= SymbolicName=MSG_HELP_FOR_X
+Language=English
+
+If Command Extensions are enabled, the following additional
+forms of the FOR command are supported:
+
+FOR /D %%variable IN (set) DO command [command-parameters]
+
+    If set contains wildcards, then specifies to match against directory
+    names instead of file names.
+
+FOR /R [[drive:]path] %%variable IN (set) DO command [command-parameters]
+
+    Walks the directory tree rooted at [drive:]path, executing the FOR
+    statement in each directory of the tree.  If no directory
+    specification is specified after /R then the current directory is
+    assumed.  If set is just a single period (.) character then it
+    will just enumerate the directory tree.
+
+FOR /L %%variable IN (start,step,end) DO command [command-parameters]
+
+    The set is a sequence of numbers from start to end, by step amount.
+    So (1,1,5) would generate the sequence 1 2 3 4 5 and (5,-1,1) would
+    generate the sequence (5 4 3 2 1)
+
+FOR /F ["options"] %%variable IN (filenameset) DO command [command-parameters]
+
+    filenameset is one or more file names.  Each file is opened, read
+    and processed before going on to the next file in filenameset.
+    Processing consists of reading in the file, breaking it up into
+    individual lines of text and then parsing each line into zero or
+    more tokens.  The body of the for loop is then called with the
+    variable value(s) set to the found token string(s).  By default, /F
+    passes the first blank separated token from each line of each file.
+    Blank lines are skipped.  You can override the default parsing
+    behavior by specifying the optional "options" parameter.  This
+    is a quoted string which contains one or more keywords to specify
+    different parsing parameters.  The keywords are:
+
+        eol=c           - specifies an end of line comment character
+                          (just one)
+        skip=n          - specifies the number of lines to skip at the
+                          beginning of the file.
+        delims=xxx      - specifies a delimeter set.  This replaces the
+                          default delimiter set of space and tab.
+        tokens=x,y,m-n  - specifies which tokens from each line are to
+                          be passed to the for body for each iteration.
+                          This will cause additional variable names to
+                          be allocated.  The m-n form is a range,
+                          specifying the mth through the nth tokens.  If
+                          the last character in the tokens= string is an
+                          asterisk, then an additional variable is
+                          allocated and receives the remaining text on
+                          the line after the last token parsed.
+.
+
+MessageId= SymbolicName=MSG_HELP_FOR_X1
+Language=English
+
+    Some examples might help:
+
+      FOR /F "eol=; tokens=2,3* delims=, " %%i in (myfile.txt) do @echo %%i %%j %%k
+
+    would parse each line in myfile.txt, ignoring lines that begin with
+    a semicolon, passing the 2nd and 3rd token from each line to the for
+    body, with tokens delimited by commas and/or spaces.  Notice the for
+    body statements reference %%i to get the 2nd token, %%j to get the
+    3rd token, and %%k to get all remaining tokens after the 3rd.
+
+    %%i is explicitly declared in the for statement and the %%j and %%k
+    are implicitly declared via the tokens= option.  You can specify up
+    to 26 tokens via the tokens= line, provided it does not cause an
+    attempt to declare a variable higher than the letter 'z'.  Remember,
+    FOR variable names are global, and you can't have more than 26 total
+    active at any one time.
+
+    You can also use the FOR /F parsing logic on an immediate string, by
+    making the filenameset between the parenthesis a quoted string.  It
+    will be treated as a single line of input from a file and parsed.
+
+    Finally, you can use the FOR /F command to parse the output of a
+    command.  You do this by making the filenameset between the
+    parenthesis a single quoted string.  It will be treated as a command
+    line, which is passed to a child CMD.EXE and the output is captured
+    into memory and parsed as if it was a file.  So the following
+    example:
+
+      FOR /F "delims==" %%i IN ('set') DO @echo %%i
+
+    would enumerate the environment variable names in the current
+    environment.
+
+In addition, substitution of FOR variable references has been enhanced.
+You can now use the following optional syntax:
+
+    %%~fi        - expands %%i to a fully qualified path name
+    %%~di        - expands %%i to a drive letter only
+    %%~pi        - expands %%i to a path only
+    %%~ni        - expands %%i to a file name only
+    %%~xi        - expands %%i to a file extension only
+    %%~si        - expanded path contains short names only
+    %%~$PATH:i   - searches the directories listed in the PATH
+                   environment variable and expands %%i to the
+                   fully qualified name of the first one found.
+                   If the environment variable name is not
+                   defined or the file is not found by the
+                   search, then this modifier expands to the
+                   empty string
+
+The modifiers can be combined to get compound results:
+
+    %%~dpi       - expands %%i to a drive letter and path only
+    %%~nxi       - expands %%i to a file name and extension only
+    %%~fsi       - expands %%i to a full path name with short names only
+    %%~dp$PATH:i - searches the directories listed in the PATH
+                   environment variable for %%i and expands to the
+                   drive letter and path of the first one found.
+
+In the above examples %%i and PATH can be replaced by other
+valid values.  Just be careful to pick your FOR variable letters
+to not conflict with any of the format specifier letters if you
+plan on using the enhanced substitution logic.
+.
+
+MessageId= SymbolicName=MSG_HELP_IF_X
+Language=English
+
+If Command Extensions are enabled IF changes as follows:
+
+    IF [/I] string1 compare-op string2 command
+    IF CMDEXTVERSION number command
+    IF DEFINED variable command
+
+where compare-op may be one of:
+
+    EQU - equal
+    NEQ - not equal
+    LSS - less than
+    LEQ - less than or equal
+    GTR - greater than
+    GEQ - greater than or equal
+
+and the /I switch, if specified, says to do case insensitive string
+compares.  The /I switch can also be used on the string1==string2 form
+of IF.  These comparisons are generic, in that if both string1 and
+string2 are both comprised of all numeric digits, then the strings are
+converted to numbers and a numeric comparison is performed.
+
+The CMDEXTVERSION conditional works just like ERRORLEVEL, except it is
+comparing against an internal version number associated with the Command
+Extensions.  The first version is 1.  It will be incremented by one when
+significant enhancements are added to the Command Extensions.
+CMDEXTVERSION conditional is never true when Command Extensions are
+disabled.
+
+The DEFINED conditional works just like EXISTS except it takes an
+environment variable name and returns true if the environment variable
+is defined.
+
+%%ERRORLEVEL%% will expand into a string representation of
+the current value of ERRORLEVEL, provided that there is not already
+an environment variable with the name ERRORLEVEL, in which case you
+will get its value instead.  Using this and the above numerical
+comparision operators, you can do the following
+
+    choice
+    goto answer%%ERRORLEVEL%%
+    :answer0
+    echo You typed Y for yes
+    :answer1
+    echo You typed N for no
+
+you can also using the numerical comparisons above:
+
+    IF %%ERRORLEVEL%% LEQ 1 goto okay
+
+%%CMDCMDLINE%% will expand into the original command line passed to
+CMD.EXE prior to any processing by CMD.EXE, provided that there is not
+already an environment variable with the name CMDCMDLINE, in which case
+you will get its value instead.
+.
+
+MessageId= SymbolicName=MSG_HELP_KEYS
+Language=English
+Enables or disables command line editing on DOS system
+
+This is present for Compatibility with DOS systems. It has no effect
+under Windows NT, as command line editing is always enabled.
+.
+
+MessageId= SymbolicName=MSG_NO_UNC_CURDIR
+Language=English
+'%1' is an invalid current directory path.  UNC paths are not supported.
+Defaulting to Windows directory.
+.
+
+MessageId= SymbolicName=MSG_SIM_UNC_CURDIR
+Language=English
+UNC paths not supported for current directory. Using
+
+    PUSHD %1
+
+to create temporary drive letter to support UNC current
+directory.  Use POPD or EXIT to delete temporary drive
+letter.
+.
+
+MessageID= SymbolicName=MSG_SHIFT_BAD_ARG
+Language=English
+Invalid parameter to SHIFT command
+.
+
+MessageID= SymbolicName=MSG_SET_A_MISMATCHED_PARENS
+Language=English
+Unbalanced parenthesis.
+.
+
+MessageID= SymbolicName=MSG_SET_A_MISSING_OPERAND
+Language=English
+Missing operand.
+.
+
+MessageID= SymbolicName=MSG_SET_A_BAD_ASSIGN
+Language=English
+Environment variable name required to left of assignment operator.
+.
+
+MessageID= SymbolicName=MSG_SET_A_MISSING_OPERATOR
+Language=English
+Missing operator.
+.
+
+MessageID= SymbolicName=MSG_SET_A_INVALID_NUMBER
+Language=English
+Invalid number.  Numeric contants are either decimal (17),
+hexidecimal (0x11), binary (0b10001) or octal (021).
+.
+
 MessageId=10000 SymbolicName=MSG_TOO_MANY_PARAMETERS
 Language=English
 Too many parameters - %1
@@ -883,13 +1596,11 @@ Too many parameters - %1
 MessageID=10001 SymbolicName=MSG_FILE_NOT_FOUND
 Language=English
 File Not Found
-
 .
 
 MessageID=10002 SymbolicName=MSG_NOT_FOUND
 Language=English
 Could Not Find %1
-
 .
 
 MessageID=10003 SymbolicName=MSG_TIME_NOT_SUPPORTED
@@ -905,7 +1616,6 @@ local to the batch file.  ENDLOCAL must be issued to
 restore the previous settings.
 
 SETLOCAL
-
 .
 
 MessageId=10005 SymbolicName=MSG_HELP_ENDLOCAL
@@ -916,7 +1626,6 @@ not local to the batch file; the previous settings are not
 restored on termination of the batch file.
 
 ENDLOCAL
-
 .
 
 MessageId=10006 SymbolicName=MSG_HELP_TITLE
@@ -950,7 +1659,6 @@ APPEND ;
 
 Type APPEND ; to clear the appended directory list.
 Type APPEND without parameters to display the appended directory list.
-
 .
 
 MessageId=10008 SymbolicName=MSG_HELP_MOVE
@@ -1001,6 +1709,63 @@ Language=English
 Enter the new date: (dd-mm-yy) %0
 .
 
+MessageID=10015 SymbolicName=MSG_VERIFY_FAIL
+Language=English
+ERROR Verify - %1
+.
 
+MessageID=10016 SymbolicName=MSG_MOVE_MULTIPLE_FAIL
+Language=English
+Cannot move multiple files to a single file.
+.
+
+MessageId=10017 SymbolicName=MSG_RDR_HNDL_OPEN
+Language=English
+The handle could not be opened
+during redirection of handle %1.
+.
+
+MessageId=10018 SymbolicName=MSG_PROGRESS
+Language=English
+%r%1%% copied %0
+.
+
+MessageId=10019 SymbolicName=MSG_HELP_COLOR
+Language=English
+Sets the default console foreground and background colors.
+
+COLOR [attr]
+
+  attr        Specifies color attribute of console output
+
+Color attributes are specified by TWO hex digits -- the first
+corresponds to the background; the second the foreground.  Each digit
+can be any of the following values:
+
+    0 = Black       8 = Gray
+    1 = Blue        9 = Light Blue
+    2 = Green       A = Light Green
+    3 = Aqua        B = Light Aqua
+    4 = Red         C = Light Red
+    5 = Purple      D = Light Purple
+    6 = Yellow      E = Light Yellow
+    7 = White       F = Bright White
+
+If no argument is given, this command restores the color to what it was
+when CMD.EXE started.  This value either comes from the current console
+window, the /T command line switch or from the DefaultColor registry
+value.
+
+The COLOR command sets ERRORLEVEL to 1 if an attempt is made to execute
+the COLOR command with a foreground and background color that are the
+same.
+
+Example: "COLOR fc" produces light red on bright white
+.
+
+MessageId=10020 SymbolicName=MSG_MAX_PATH_EXCEEDED
+Language=English
+Maximum path length exceeded - %1
+.
 
 ;#endif // _CMDMSG_

@@ -46,7 +46,6 @@ static HANDLE         hThreadDebug;
 static PDEBUGPACKET   dp;
 
 
-DWORD TimerKillThread( HWND hwnd );
 LRESULT NotifyWndProc (HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
 BOOL CALLBACK UsageDialogProc (HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam);
 
@@ -81,6 +80,8 @@ Return Value:
     memset( dp, 0, sizeof(DEBUGPACKET) );
     GetCommandLineArgs( &dp->dwPidToDebug, &dp->hEventToSignal );
 
+    InitializeListHead(&dp->ThreadList);
+
     RegInitialize( &dp->options );
 
     if (dp->options.fVisual) {
@@ -92,7 +93,7 @@ Return Value:
         wndclass.hInstance      = hInst;
         wndclass.hIcon          = LoadIcon( hInst, MAKEINTRESOURCE(APPICON) );
         wndclass.hCursor        = LoadCursor( NULL, IDC_ARROW );
-        wndclass.hbrBackground  = (HBRUSH) (COLOR_WINDOW + 1);
+        wndclass.hbrBackground  = (HBRUSH) (COLOR_3DFACE + 1);
         wndclass.lpszMenuName   = NULL;
         wndclass.lpszClassName  = "NotifyDialog";
         RegisterClass( &wndclass );
@@ -107,7 +108,7 @@ Return Value:
                             16000,
                             (LPTHREAD_START_ROUTINE)DispatchDebugEventThread,
                             dp,
-                            THREAD_SET_INFORMATION,
+                            0,
                             (LPDWORD)&dwThreadId
                           );
 
@@ -133,6 +134,8 @@ Return Value:
     else {
         WaitForSingleObject( hThreadDebug, INFINITE );
     }
+
+    CloseHandle( hThreadDebug );
 
     return;
 }
@@ -200,23 +203,12 @@ Return Value:
             //
             // prevent recursion in the case where drwatson faults
             //
-            if (stricmp(szTaskName,"drwtsn32")==0) {
+            if (_stricmp(szTaskName,"drwtsn32")==0) {
                 ExitProcess(0);
             }
 
             SetDlgItemText( hwnd, ID_TEXT1, szTaskName);
 
-            //
-            // create a thread to terminate DrWatson if the user does
-            // not push the OK putton
-            //
-            CreateThread( NULL,
-                          16000,
-                          (LPTHREAD_START_ROUTINE)TimerKillThread,
-                          (LPVOID)hwnd,
-                          THREAD_SET_INFORMATION,
-                          (LPDWORD)&dwThreadId
-                        );
             return TRUE;
 
         case WM_ACTIVATEAPP:
@@ -245,7 +237,7 @@ Return Value:
                                   16000,
                                   (LPTHREAD_START_ROUTINE)TerminationThread,
                                   dp,
-                                  THREAD_SET_INFORMATION,
+                                  0,
                                   (LPDWORD)&dwThreadId
                                 );
 
@@ -253,6 +245,8 @@ Return Value:
                     // wait for the termination thread to kill the debuggee
                     //
                     WaitForSingleObject( hThread, 30000 );
+
+                    CloseHandle( hThread );
 
                     //
                     // now post a quit message so that DrWatson will go away
@@ -265,7 +259,7 @@ Return Value:
                     // call winhelp
                     //
                     GetHelpFileName( szHelpFileName, sizeof(szHelpFileName) );
-                    WinHelp( hwnd, szHelpFileName, HELP_CONTEXT, IDH_WHAT );
+                    WinHelp( hwnd, szHelpFileName, HELP_FINDER, IDH_WHAT );
                     break;
             }
             break;
@@ -308,42 +302,6 @@ Return Value:
     }
 
     return DefWindowProc( hwnd, message, wParam, lParam );
-}
-
-DWORD
-TimerKillThread( HWND hwnd )
-
-/*++
-
-Routine Description:
-
-    This function executes in its own thread.  The purpose is to wait
-    dwMilliseconds and notify the hwndMain window by destroting it.
-    This thread is used to terminate DRWTSN32 when the use does not
-    respond to the application error popup.
-
-Arguments:
-
-    dwMilliseconds   - amount of time to wait
-
-Return Value:
-
-    Zero.
-
---*/
-
-{
-    //
-    // wait as long as i'm told to
-    //
-    Sleep( DEFAULT_WAIT_TIME );
-
-    //
-    // tell the popup that its time to go away
-    //
-//  SendMessage( hwnd, WM_DESTROY, 0, 0 );
-
-    return 0;
 }
 
 BOOLEAN

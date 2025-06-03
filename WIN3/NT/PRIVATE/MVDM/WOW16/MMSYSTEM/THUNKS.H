@@ -96,6 +96,7 @@ midiIIDMessage(
 ** Joystick stuff
 ** -------------------------------------------------------------------------
 */
+typedef DWORD (FAR PASCAL *JOYMESSAGEPROC)( HDRVR, UINT, DWORD, DWORD );
 extern UINT FAR PASCAL
 joyMessage(
     HDRVR hdrv,
@@ -146,6 +147,8 @@ mciMessage(
 #define THUNK_MCI_GETCREATORTASK             0x0009
 #define THUNK_TIMEGETTIME                    0x000A
 #define THUNK_APP_EXIT                       0x000B
+#define THUNK_MCI_ALLOCATE_NODE              0x000C
+#define THUNK_MCI_FREE_NODE                  0x000D
 
 /* -------------------------------------------------------------------------
 ** Interrupt callback stuff

@@ -4,27 +4,25 @@ Copyright (c) 1991  Microsoft Corporation
 
 Module Name:
 
-	datavw.cxx
+        datavw.cxx
 
 Abstract:
 
-	Methods for DATA_VIEW class.
+        Methods for DATA_VIEW class.
 
 Author:
 
-	Bruce W. Wilson (w-wilson) 14-Aug-1991
+        Bruce W. Wilson (w-wilson) 14-Aug-1991
 
 Environment:
 
-	Ulib, Regedit, Windows, User Mode
+        Ulib, Regedit, Windows, User Mode
 
 --*/
-extern "C" {
-    #include <wchar.h>
-    #include <stdio.h>
-    #include <string.h>
-    #include <ctype.h>
-}
+#include <wchar.h>
+#include <stdio.h>
+#include <string.h>
+#include <ctype.h>
 
 #include "uapp.hxx"
 
@@ -57,7 +55,7 @@ extern "C" {
 //
 
 LPWSTR   DATA_VIEW::_WindowClassName     = (LPWSTR)L"DATA_VIEW";
-BOOLEAN	DATA_VIEW::_Registered			= FALSE;
+BOOLEAN DATA_VIEW::_Registered                  = FALSE;
 PWSTRING  DATA_VIEW::_RegBinaryString;
 PWSTRING  DATA_VIEW::_RegDwordString;
 PWSTRING  DATA_VIEW::_RegSzString;
@@ -89,50 +87,50 @@ BOOLEAN
 DATA_VIEW::Initialize (
     IN HWND                          ParentHandle,
     IN PREGEDIT_INTERNAL_REGISTRY    IR
-	)
+        )
 
 /*++
 
 Routine Description:
 
-	Initialize a DATA_VIEW object by registering its window class,
-	creating its window. If each of these is successful, the
-	window is displayed and updated.
+        Initialize a DATA_VIEW object by registering its window class,
+        creating its window. If each of these is successful, the
+        window is displayed and updated.
 
 Arguments:
 
-	None.
+        None.
 
 Return Value:
 
-	BOOLEAN	- Returns TRUE if the registration and creation operations
-			  are successful.
+        BOOLEAN - Returns TRUE if the registration and creation operations
+                          are successful.
 
 --*/
 
 {
-	HWND					hWnd;
+        HWND                                    hWnd;
 
     _CurrentValueName = NULL;
-	if( Register( )) {
+        if( Register( )) {
 
-		//
-		// If the window class was succesfully registered attempt to
-		// create the frame window. Note that we pass the 'this' pointer
-		// to the window.
-		//
+                //
+                // If the window class was succesfully registered attempt to
+                // create the frame window. Note that we pass the 'this' pointer
+                // to the window.
+                //
 
         _IR = IR;
         _Node = IR->GetRootNode();
         _HasFocus = FALSE;
         _MaxWidth = 0;
 
-		if(( hWnd = CreateWindow( _WindowClassName, NULL,
-							WS_CHILD | WS_VISIBLE,
-							CW_USEDEFAULT, 0,
-							CW_USEDEFAULT, 0,
-							ParentHandle, (HMENU)1,
-							(HINSTANCE)WINDOWS_APPLICATION::QueryInstance( ),
+                if(( hWnd = CreateWindow( _WindowClassName, NULL,
+                                                        WS_CHILD | WS_VISIBLE,
+                                                        CW_USEDEFAULT, 0,
+                                                        CW_USEDEFAULT, 0,
+                                                        ParentHandle, (HMENU)1,
+                                                        (HINSTANCE)WINDOWS_APPLICATION::QueryInstance( ),
                             this )) != NULL ) {
 
             DbgWinAssert( hWnd == _Handle );
@@ -143,35 +141,35 @@ Return Value:
             _RegMultiSzString = REGEDIT_BASE_SYSTEM::QueryString( MSG_VALUE_TYPE_REG_MULTI_SZ, "" );
             _RegExpandSzString = REGEDIT_BASE_SYSTEM::QueryString( MSG_VALUE_TYPE_REG_EXPAND_SZ, "" );
 
-			return TRUE;
+                        return TRUE;
 
-		} else {
+                } else {
 
-			//
-			// Creating the window failed.
-			//
+                        //
+                        // Creating the window failed.
+                        //
 
-			return FALSE;
-		}
-	}
-	return FALSE;
+                        return FALSE;
+                }
+        }
+        return FALSE;
 }
 
 
 VOID
 DATA_VIEW::DrawItem(
-	LPDRAWITEMSTRUCT lpLBItem
-	)
+        LPDRAWITEMSTRUCT lpLBItem
+        )
 
 /*++
 
 Routine Description:
 
-	
+
 
 Arguments:
 
-	
+
 
 Return Value:
 
@@ -194,35 +192,35 @@ Return Value:
 
 
     HFONT           hFont;
-    HFONT	    PreviousHFont;
+    HFONT           PreviousHFont;
     SIZE        Size;
 
 #if 0
-    DbgPrintf("DATA::DrawItem\n");
-    DbgPrintf("CtlType = %x\n", lpLBItem->CtlType);
-    DbgPrintf("CtlID = %x\n", lpLBItem->CtlID);
-    DbgPrintf("itemID = %x\n", lpLBItem->itemID);
-    DbgPrintf("itemAction = %x\n", lpLBItem->itemAction);
-    DbgPrintf("itemState = %x\n", lpLBItem->itemState);
-    DbgPrintf("hwndItem = %x\n", lpLBItem->hwndItem);
-    DbgPrintf("hDC = %x\n", lpLBItem->hDC);
-    DbgPrintf("rcItem = (%x, %x)\n", lpLBItem->rcItem.top, lpLBItem->rcItem.left);
-    DbgPrintf("itemData = %x\n\n", lpLBItem->itemData);
+    DebugPrintf("DATA::DrawItem\n");
+    DebugPrintf("CtlType = %x\n", lpLBItem->CtlType);
+    DebugPrintf("CtlID = %x\n", lpLBItem->CtlID);
+    DebugPrintf("itemID = %x\n", lpLBItem->itemID);
+    DebugPrintf("itemAction = %x\n", lpLBItem->itemAction);
+    DebugPrintf("itemState = %x\n", lpLBItem->itemState);
+    DebugPrintf("hwndItem = %x\n", lpLBItem->hwndItem);
+    DebugPrintf("hDC = %x\n", lpLBItem->hDC);
+    DebugPrintf("rcItem = (%x, %x)\n", lpLBItem->rcItem.top, lpLBItem->rcItem.left);
+    DebugPrintf("itemData = %x\n\n", lpLBItem->itemData);
 #endif
 
     DbgWinAssert( lpLBItem->CtlType & ODT_LISTBOX );
     //
-	// itemID == -1 means empty list box so let defwndproc draw the dotted
-	// rectangle
-	//
+        // itemID == -1 means empty list box so let defwndproc draw the dotted
+        // rectangle
+        //
     if( (ItemID = lpLBItem->itemID) == -1) {
         return;
     }
 
     //
-	// extract DC and pointer to node into IR from DRAWITEM struct
-	//
-	hdc = lpLBItem->hDC;
+        // extract DC and pointer to node into IR from DRAWITEM struct
+        //
+        hdc = lpLBItem->hDC;
     pValue = (PCREGEDIT_FORMATTED_VALUE_ENTRY)lpLBItem->itemData;
 
     PreviousHFont = NULL;
@@ -230,32 +228,32 @@ Return Value:
         PreviousHFont = (HFONT)SelectObject( hdc, hFont );
     }
 
-	//
-	// determine length of name (in pixels?)
+        //
+        // determine length of name (in pixels?)
     //
     FormattedString = pValue->GetFormattedString();
-    DbgPtrAssert( FormattedString );
+    DebugPtrAssert( FormattedString );
     len = ( INT )FormattedString->QueryChCount();
     String = FormattedString->QueryWSTR();
-    DbgPtrAssert( String );
+    DebugPtrAssert( String );
     if (!String) {
         return;
     }
     GetTextExtentPoint( hdc, String, len, &Size );
     dx = ( INT )Size.cx;
 
-	dx += dyBorder;
+        dx += dyBorder;
 
-	//
-	// determine size of rectangle we can draw in (or what we need?]
-	//
-	rc = lpLBItem->rcItem;
-	rc.left = 0;
-	rc.right = rc.left + dx + 4 * dyBorderx2;
+        //
+        // determine size of rectangle we can draw in (or what we need?]
+        //
+        rc = lpLBItem->rcItem;
+        rc.left = 0;
+        rc.right = rc.left + dx + 4 * dyBorderx2;
 
     if (lpLBItem->itemAction & (ODA_DRAWENTIRE | ODA_SELECT | ODA_FOCUS)) {
 
-		x = dyBorderx2 - dxText;
+                x = dyBorderx2 - dxText;
         dy = ( INT )( lpLBItem->rcItem.bottom - lpLBItem->rcItem.top );
         y = ( INT )( lpLBItem->rcItem.top + (dy/2) );
 
@@ -275,7 +273,7 @@ Return Value:
             rgbText = SetTextColor(hdc, GetSysColor(COLOR_WINDOWTEXT));
         }
 
-		ExtTextOut(hdc, x + dxText, y-(dyText/2), ETO_OPAQUE, &rc,
+                ExtTextOut(hdc, x + dxText, y-(dyText/2), ETO_OPAQUE, &rc,
                         String, len, NULL);
 
         if (bDrawSelected) {
@@ -472,8 +470,8 @@ Return Value:
                     TextMessage = MSG_CANT_ACCESS_REMOTE_REGISTRY;
                     CaptionMessage = MSG_SERVER_UNAVAILABLE;
                 } else {
-                    DbgPrint( "Unknown error code" );
-                    DbgPrintf( "ErrorCode = %d \n", ErrorCode );
+                    DebugPrint( "Unknown error code" );
+                    DebugPrintf( "ErrorCode = %d \n", ErrorCode );
                     TextMessage = MSG_FAILED_OPERATION_EX;
                     CaptionMessage = 0;
                 }
@@ -489,7 +487,7 @@ Return Value:
 
 BOOLEAN
 DATA_VIEW::Register (
-	)
+        )
 
 /*++
 
@@ -537,31 +535,31 @@ Return Value:
 
 VOID
 DATA_VIEW::InitMenu(
-	IN	HMENU	Menu,
-	IN	INT		PopupMenu
-	)
+        IN      HMENU   Menu,
+        IN      INT             PopupMenu
+        )
 
 /*++
 
 Routine Description:
 
-	Figures out which items of the pulldown menu which should be enabled
-	or grayed.  Windows will generate a WM_INITMENUPOPUP just before a
-	pulldown menu is painted.
+        Figures out which items of the pulldown menu which should be enabled
+        or grayed.  Windows will generate a WM_INITMENUPOPUP just before a
+        pulldown menu is painted.
 
-	Passes the message along if it can't figure out the status of menu
-	items.
+        Passes the message along if it can't figure out the status of menu
+        items.
 
 
 Arguments:
 
-	Menu				- handle of the main menu
-	PopupMenu 			- the item number of the pulldown menu.  eg.
-						  File menu is 0, Edit is 1.
+        Menu                            - handle of the main menu
+        PopupMenu                       - the item number of the pulldown menu.  eg.
+                                                  File menu is 0, Edit is 1.
 
 Return Value:
 
-	None.
+        None.
 
 
 --*/
@@ -621,21 +619,21 @@ VOID
 DATA_VIEW::SetDataNode(
     IN  PCREGEDIT_NODE   NewNode,
     IN  BOOLEAN          ForceRefresh
-	)
+        )
 
 /*++
 
 Routine Description:
 
-	
+
 
 Arguments:
 
-	
+
 
 Return Value:
 
-	
+
 
 --*/
 
@@ -651,30 +649,30 @@ Return Value:
     INT                             Index;
 
 /*
-	if( NewNode == _Node && !ForceRefresh ) {
-		return;
-	}
+        if( NewNode == _Node && !ForceRefresh ) {
+                return;
+        }
 */
-	_Node = NewNode;
+        _Node = NewNode;
 
     // Disable redrawing.
-	SendMessage( _hwndList, WM_SETREDRAW, FALSE, 0L );
+        SendMessage( _hwndList, WM_SETREDRAW, FALSE, 0L );
 
-	SendMessage( _hwndList, LB_RESETCONTENT, 0, 0L );
+        SendMessage( _hwndList, LB_RESETCONTENT, 0, 0L );
 
     _MaxWidth = 0;
     AdjustHorizontalScrollBar();
 
 //
-//	FOR:	preface entries in dataview (may contain parent/children
-//			entries as well)
+//      FOR:    preface entries in dataview (may contain parent/children
+//                      entries as well)
 //
-//	ACTION:	- add _PrefaceEntriesCount to object
-//			- when handling a message determine if the item number
-//			  is > _PrefaceEntriesCount then pointer is PVALUE else ???
-//			  (see WM_DRAWITEM for more)
-//			- stuff PNODE into listbox for entries in preface block,
-//			  PVALUE for value block
+//      ACTION: - add _PrefaceEntriesCount to object
+//                      - when handling a message determine if the item number
+//                        is > _PrefaceEntriesCount then pointer is PVALUE else ???
+//                        (see WM_DRAWITEM for more)
+//                      - stuff PNODE into listbox for entries in preface block,
+//                        PVALUE for value block
 //
 
     if( ( _IR->AreValuesInMemory( NewNode ) ) ||
@@ -712,8 +710,8 @@ Return Value:
     }
 
     // Re-enable redrawing and refresh the listbox
-	SendMessage( _hwndList, WM_SETREDRAW, TRUE, 0L );
-	InvalidateRect( _hwndList, NULL, TRUE );
+        SendMessage( _hwndList, WM_SETREDRAW, TRUE, 0L );
+        InvalidateRect( _hwndList, NULL, TRUE );
 }
 
 
@@ -722,25 +720,25 @@ LONG
 APIENTRY
 EXPORT
 DATA_VIEW::WndProc (
-	IN HWND 	hWnd,
-	IN WORD 	wMessage,
-	IN WPARAM wParam,
-	IN LONG 	lParam
-	)
+        IN HWND         hWnd,
+        IN WORD         wMessage,
+        IN WPARAM wParam,
+        IN LONG         lParam
+        )
 
 /*++
 
 Routine Description:
 
-	Handle all requests made of the DATA_VIEW window class.
+        Handle all requests made of the DATA_VIEW window class.
 
 Arguments:
 
-	Standard Window's exported function signature.
+        Standard Window's exported function signature.
 
 Return Value:
 
-	LONG	- Returns 0 if the message was handled.
+        LONG    - Returns 0 if the message was handled.
 
 --*/
 
@@ -806,16 +804,16 @@ Return Value:
 
         DbgWinAssert( hWnd == pDataView->_Handle );
 
-		switch( wMessage ) {
+                switch( wMessage ) {
 
-		case WM_DRAWITEM:
+                case WM_DRAWITEM:
 //
-//	ACTION:	- add an if( item# > _PrefaceCount )
-//						 call DrawValueItem()
-//					 else
-//						 call DrawPrefaceItem()
-//							- will do switch on item number to figure out
-//							  what data from node to draw
+//      ACTION: - add an if( item# > _PrefaceCount )
+//                                               call DrawValueItem()
+//                                       else
+//                                               call DrawPrefaceItem()
+//                                                      - will do switch on item number to figure out
+//                                                        what data from node to draw
 
             pDataView->DrawItem( (LPDRAWITEMSTRUCT)lParam );
             break;
@@ -845,7 +843,7 @@ Return Value:
                 MoveWindow(pDataView->_hwndList, 0, -1, LOWORD(lParam)+1, HIWORD(lParam)+2, TRUE);
 
             }
-			break;
+                        break;
 
         case INFORM_CHANGE_FONT:
             pDataView->ChangeItemHeight();
@@ -914,10 +912,10 @@ Return Value:
 
 
             FormattedString = CurrentValue->GetFormattedString();
-            DbgPtrAssert( FormattedString );
+            DebugPtrAssert( FormattedString );
             len = ( INT )FormattedString->QueryChCount();
             String = FormattedString->QueryWSTR();
-            DbgPtrAssert( String );
+            DebugPtrAssert( String );
             GetTextExtentPoint( hdc, String, len, &Size );
             FREE( String );
 
@@ -1103,7 +1101,7 @@ Return Value:
                 /* Do it this way to be case insensitive. */
                 w[0] = ch;
                 w[1] = ( WCHAR )'\0';
-                if (!wcsicmp( w, szB))
+                if (!_wcsicmp( w, szB))
                     break;
             }
 
@@ -1115,39 +1113,32 @@ Return Value:
         }
 
 
-		default:
+                default:
 
-			//
-			// Let Windows handle this message.
-			//
+                        //
+                        // Let Windows handle this message.
+                        //
 
-			return DefWindowProc( hWnd, wMessage, wParam, lParam );
-		}
+                        return DefWindowProc( hWnd, wMessage, wParam, lParam );
+                }
 
-	} else {
+        } else {
 
-		//
-		// No 'this' pointer (pDataView == NULL). Handle messages before
-		// WM_CREATE.
-		//
+                //
+                // No 'this' pointer (pDataView == NULL). Handle messages before
+                // WM_CREATE.
+                //
+                // Let Windows handle the message.
+                //
 
-		switch( wMessage ) {
+                return DefWindowProc( hWnd, wMessage, wParam, lParam );
+        }
 
-		default:
+        //
+        // Message handled...
+        //
 
-			//
-			// Let Windows handle the message.
-			//
-
-			return DefWindowProc( hWnd, wMessage, wParam, lParam );
-		}
-	}
-
-	//
-	// Message handled...
-	//
-
-	return 0 ;
+        return 0 ;
 }
 
 
@@ -1304,7 +1295,7 @@ Return Value:
 
     case WM_COMMAND:
 
-	switch( LOWORD( wParam ) ) {
+        switch( LOWORD( wParam ) ) {
 
         case IDOK:
             //
@@ -1328,19 +1319,12 @@ Return Value:
             //
             //  Let the user enter the data
             //
-            if( ValueSize != 0 ) {
-                Index = SendDlgItemMessage( hDlg, IDD_ADD_VALUE_DATA_TYPE, CB_GETCURSEL, 0, 0 );
-                DataType = ( REG_TYPE )SendDlgItemMessage( hDlg,
-                                                           IDD_ADD_VALUE_DATA_TYPE,
-                                                           ( UINT )CB_GETITEMDATA,
-                                                           ( WPARAM )Index,
-                                                           0 );
-            } else {
-                //
-                //  If value entry has no name, force the data type to be REG_SZ
-                //
-                DataType = TYPE_REG_SZ;
-            }
+            Index = SendDlgItemMessage( hDlg, IDD_ADD_VALUE_DATA_TYPE, CB_GETCURSEL, 0, 0 );
+            DataType = ( REG_TYPE )SendDlgItemMessage( hDlg,
+                                                       IDD_ADD_VALUE_DATA_TYPE,
+                                                       ( UINT )CB_GETITEMDATA,
+                                                       ( WPARAM )Index,
+                                                       0 );
             Data = ( PBYTE )Editor.Edit( hDlg, DataType, NULL, 0, &DataSize, DataType );
             if( Data == NULL ) {
                 //
@@ -1356,7 +1340,7 @@ Return Value:
             //
             ValueSize = ValueSize + 1;
             ValueName = ( LPWSTR )MALLOC( ( size_t )(ValueSize*sizeof( WCHAR )) );
-            DbgPtrAssert( ValueName );
+            DebugPtrAssert( ValueName );
             SendDlgItemMessage( hDlg,
                                 IDD_ADD_VALUE_NAME,
                                 ( UINT )WM_GETTEXT,
@@ -1366,23 +1350,23 @@ Return Value:
 
 
             ValueId = ( PWSTRING )NEW( DSTRING );
-            DbgPtrAssert( ValueId );
+            DebugPtrAssert( ValueId );
             if( !ValueId->Initialize( ValueName ) ) {
-                DbgAbort( "ValueId->Initialize() failed \n" );
+                DebugAbort( "ValueId->Initialize() failed \n" );
                 return( FALSE );
             }
             FREE( ValueName );
 
             ValueEntry = ( PREGISTRY_VALUE_ENTRY )NEW( REGISTRY_VALUE_ENTRY );
-            DbgPtrAssert( ValueEntry );
+            DebugPtrAssert( ValueEntry );
             if( !ValueEntry->Initialize( ValueId, 0, DataType, Data, DataSize ) ) {
-                DbgAbort( "ValueEntry->Initialize() failed \n" );
+                DebugAbort( "ValueEntry->Initialize() failed \n" );
                 return( FALSE );
             }
 
             FormattedValue =
                 ( PREGEDIT_FORMATTED_VALUE_ENTRY )NEW( REGEDIT_FORMATTED_VALUE_ENTRY );
-            DbgPtrAssert( FormattedValue );
+            DebugPtrAssert( FormattedValue );
 
             FormattedValue->Initialize( ValueEntry );
             *ReturnValue = FormattedValue;
@@ -1398,7 +1382,7 @@ Return Value:
             EndDialog( hDlg, FALSE );
             return( TRUE );
 
-        case IDHELP:
+        case IDB_HELP:
             //
             //  The user hit HELP
             //
@@ -1406,7 +1390,7 @@ Return Value:
             return( TRUE );
         }
     }
-	return( FALSE );
+        return( FALSE );
 }
 
 
@@ -1486,7 +1470,7 @@ Return Value:
                 _MaxWidth = 0;
 
                 if( SendMessage( _hwndList, LB_DELETESTRING, ( UINT )SelectedItem, 0 ) == LB_ERR ) {
-                    DbgPrint( "SendMessage( _hwndList, LB_DELETESTRING, SelectedItem, 0 ) failed" );
+                    DebugPrint( "SendMessage( _hwndList, LB_DELETESTRING, SelectedItem, 0 ) failed" );
                     return( FALSE );
                 }
 
@@ -1507,7 +1491,7 @@ Return Value:
                     }
 
                     if( SendMessage( _hwndList, LB_SETCURSEL, ( UINT )SelectedItem, 0 ) == LB_ERR ) {
-                        DbgPrint( "SendMessage( _hwndList, LB_SETCURSEL, SelectedItem, 0 ) failed" );
+                        DebugPrint( "SendMessage( _hwndList, LB_SETCURSEL, SelectedItem, 0 ) failed" );
                     }
                 }
                 AdjustHorizontalScrollBar();
@@ -1515,7 +1499,7 @@ Return Value:
                 //
                 //  Couldn't delete the value entry
                 //
-                DbgPrint( "Value Entry was not deleted \n" );
+                DebugPrint( "Value Entry was not deleted \n" );
 
 
                 if (ErrorCode == REGEDIT_ERROR_ACCESS_DENIED) {
@@ -1531,8 +1515,8 @@ Return Value:
                     TextMessage = MSG_CANT_ACCESS_REMOTE_REGISTRY;
                     CaptionMessage = MSG_SERVER_UNAVAILABLE;
                 } else {
-                    DbgPrint( "Unknown error code" );
-                    DbgPrintf( "ErrorCode = %d \n", ErrorCode );
+                    DebugPrint( "Unknown error code" );
+                    DebugPrintf( "ErrorCode = %d \n", ErrorCode );
                     TextMessage = MSG_FAILED_OPERATION_EX;
                     CaptionMessage = 0;
                 }
@@ -1595,7 +1579,7 @@ Return Value:
                             _Handle,
                             ( DLGPROC )DATA_VIEW::AddValueDialogProc,
                             ( DWORD )&Value ) == -1 ) {
-            DbgPrint( "Unable to create dialog box" );
+            DebugPrint( "Unable to create dialog box" );
             return( FALSE );
         }
         if( Value != NULL ) {
@@ -1612,7 +1596,7 @@ Return Value:
                 Status = _IR->AddValue( _Node, Value, FALSE, &ErrorCode );
                 WINDOWS_APPLICATION::RestoreCursor( Cursor );
                 if( !Status ) {
-                    DbgPrint( "New Value was not added to the registry" );
+                    DebugPrint( "New Value was not added to the registry" );
 
                     if (ErrorCode == REGEDIT_ERROR_ACCESS_DENIED) {
                         TextMessage = MSG_ADD_VALUE_ACCESS_DENIED_EX;
@@ -1627,8 +1611,8 @@ Return Value:
                         TextMessage = MSG_CANT_ACCESS_REMOTE_REGISTRY;
                         CaptionMessage = MSG_SERVER_UNAVAILABLE;
                     } else {
-                        DbgPrint( "Unknown error code" );
-                        DbgPrintf( "ErrorCode = %d \n", ErrorCode );
+                        DebugPrint( "Unknown error code" );
+                        DebugPrintf( "ErrorCode = %d \n", ErrorCode );
                         TextMessage = MSG_FAILED_OPERATION_EX;
                         CaptionMessage = 0;
                     }

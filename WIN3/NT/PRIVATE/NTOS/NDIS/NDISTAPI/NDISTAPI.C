@@ -14,6 +14,12 @@ Author:
 
     Dan Knudson (DanKn)    20-Feb-1994
 
+Notes:
+
+    (Future/outstanding issues)
+
+    - stuff marked with "PnP" needs to be rev'd for plug 'n play support
+
 Revision History:
 
 --*/
@@ -352,8 +358,6 @@ NdisTapiCancel(
     //
 
     KeAcquireSpinLock (&DeviceExtension->SpinLock, &oldIrql);
-
-    // BUGBUG need to wrap this in a try/except?
 
     if (TRUE != KeRemoveEntryDeviceQueue(
                     &DeviceExtension->DeviceQueue,
@@ -718,7 +722,7 @@ Return Value:
                         // since it's not wanting to talk to us right now
                         //
 
-                        //BUGBUG provider = DoRemoveProvider (provider);
+                        // PnP provider = DoRemoveProvider (provider);
 
                         break;
 
@@ -1134,11 +1138,6 @@ Return Value:
             DBGOUT ((2, "IOCTL_NDISTAPI_GET_LINE_EVENTS, Irp=x%x", Irp));
 
 
-            // BUGBUG Verify some nominal bufsize
-
-            // BUGBUG Verify that we're connected
-
-
             //
             // Sync event buf access by acquiring EventSpinLock
             //
@@ -1385,7 +1384,7 @@ Return Value:
 
 //    KeReleaseSpinLock (&DeviceExtension->SpinLock, oldIrql);
 
-    // BUGBUG we should keep track of the current # of providers
+    // Pnp:  we should keep track of the current # of providers
     //        registered, so that we can bump up NdisTapiNumDevices
     //        appropriately
 
@@ -1473,8 +1472,8 @@ Return Value:
         provider->Status = PROVIDER_STATUS_OFFLINE;
 
 
-        // BUGBUG what if providerInfo->State == PROVIDER_INIT_PENDING
-        // BUGBUG what if providerInfo->State == PROVIDER_OFFLINE
+        // PnP: what if providerInfo->State == PROVIDER_INIT_PENDING
+        // PnP: what if providerInfo->State == PROVIDER_OFFLINE
 
         break;
 
@@ -1500,7 +1499,7 @@ Return Value:
 
     case NDISTAPI_STATUS_CONNECTING:
 
-        // BUGBUG implement
+        // PnP: implement
 
         break;
 
@@ -1683,7 +1682,7 @@ Return Value:
             // log an overrun error.
             //
 
-            // BUGBUG log err?
+            DBGOUT((1,"NdisTapiIndicateStatus: event queue overflow"));
         }
         else
         {
@@ -1881,11 +1880,9 @@ Return Value:
             {
             case NDISTAPI_STATUS_CONNECTED:
 
-                // BUGBUG what if NdisStatus != NDIS_STATUS_SUCCESS?
+                // PnP: what if NdisStatus != NDIS_STATUS_SUCCESS?
 
                 DoProviderInitComplete (providerRequest);
-
-                // BUGBUG do we need to queue a Dpc for this?
 
                 if (SyncInitAllProviders() == TRUE)
                 {
@@ -1900,7 +1897,7 @@ Return Value:
 
             case NDISTAPI_STATUS_CONNECTING:
 
-                // BUGBUG what if NdisStatus != NDIS_STATUS_SUCCESS?
+                // PnP: what if NdisStatus != NDIS_STATUS_SUCCESS?
 
                 //
                 // Mark provider as online, etc.
@@ -2232,8 +2229,8 @@ Note:
     }
 
     //
-    // BUGBUG Check to see if this is a provider that registered &
-    //        deregistered earlier (look at ProviderID's).
+    // PnP: Check to see if this is a provider that registered &
+    //      deregistered earlier (look at ProviderID's).
     //
 
     DBGOUT ((2, "DoProviderInitComplete: exit"));
@@ -2675,7 +2672,7 @@ Note:
     }
     else
     {
-        // BUGBUG an error occured, clean up & act like this never happened
+        // PnP: an error occured, clean up & act like this never happened
     }
 
     DBGOUT ((2, "SendProviderInitRequest: exit"));
@@ -2864,7 +2861,7 @@ Note:
     else if ((DeviceExtension->Status == NDISTAPI_STATUS_CONNECTED) &&
         (numDevices > DeviceExtension->NdisTapiNumDevices))
     {
-        // BUGBUG need to send TAPI a reinit msg
+        // PnP: need to send TAPI a reinit msg (or LINE_CREATE?)
 
         DBGOUT((1, "SyncInitAllProviders: exceeded numDevs, must reinit"));
     }

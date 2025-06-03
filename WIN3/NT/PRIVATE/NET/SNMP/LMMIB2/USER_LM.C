@@ -1,78 +1,26 @@
-//-------------------------- MODULE DESCRIPTION ----------------------------
-//
-//  user_lm.c
-//
-//  Copyright 1992 Technology Dynamics, Inc.
-//
-//  All Rights Reserved!!!
-//
-//      This source code is CONFIDENTIAL and PROPRIETARY to Technology
-//      Dynamics. Unauthorized distribution, adaptation or use may be
-//      subject to civil and criminal penalties.
-//
-//  All Rights Reserved!!!
-//
-//---------------------------------------------------------------------------
-//
-//  This file contains the routines which actually call Lan Manager and
-//  retrieve the contents of the user table, including cacheing.
-//
-//  Project:  Implementation of an SNMP Agent for Microsoft's NT Kernel
-//
-//  $Revision:   1.6  $
-//  $Date:   03 Jul 1992 13:20:42  $
-//  $Author:   ChipS  $
-//
-//  $Log:   N:/lmmib2/vcs/user_lm.c_v  $
-//
-//     Rev 1.6   03 Jul 1992 13:20:42   ChipS
-//  Final Unicode Changes
-//
-//     Rev 1.5   15 Jun 1992 17:33:12   ChipS
-//  Initialize resumehandle
-//
-//     Rev 1.4   13 Jun 1992 11:05:50   ChipS
-//  Fix a problem with Enum resumehandles.
-//
-//     Rev 1.3   07 Jun 1992 15:53:30   ChipS
-//  Fix include file order
-//
-//     Rev 1.2   01 Jun 1992 12:35:28   todd
-//  Added 'dynamic' field to octet string
-//
-//     Rev 1.1   21 May 1992 15:44:38   todd
-//  Added return codes to lmget
-//
-//     Rev 1.0   20 May 1992 15:11:12   mlk
-//  Initial revision.
-//
-//     Rev 1.6   03 May 1992 16:56:30   Chip
-//  No change.
-//
-//     Rev 1.5   02 May 1992 19:10:08   todd
-//  code cleanup
-//
-//     Rev 1.4   01 May 1992 15:41:06   Chip
-//  Get rid of warnings.
-//
-//     Rev 1.3   30 Apr 1992 23:55:00   Chip
-//  Added code to free complex structures.
-//
-//     Rev 1.2   30 Apr 1992 18:51:14   todd
-//  Removed prototype for unicode conversion.  Moved to uniconv.h in COMMON
-//
-//     Rev 1.1   30 Apr 1992  9:57:48   Chip
-//  Added cacheing.
-//
-//     Rev 1.0   29 Apr 1992 11:19:42   Chip
-//  Initial revision.
-//
-//
-//---------------------------------------------------------------------------
+/*++
 
-//--------------------------- VERSION INFO ----------------------------------
+Copyright (c) 1992-1996  Microsoft Corporation
 
-static char *vcsid = "@(#) $Logfile:   N:/lmmib2/vcs/user_lm.c_v  $ $Revision:   1.6  $";
+Module Name:
+
+    user_lm.c
+
+Abstract:
+
+    This file contains the routines which actually call Lan Manager and
+    retrieve the contents of the user table, including cacheing.
+
+Environment:
+
+    User Mode - Win32
+
+Revision History:
+
+    10-May-1996 DonRyan
+        Removed banner from Technology Dynamics, Inc.
+
+--*/
 
 //--------------------------- WINDOWS DEPENDENCIES --------------------------
 
@@ -83,7 +31,6 @@ static char *vcsid = "@(#) $Logfile:   N:/lmmib2/vcs/user_lm.c_v  $ $Revision:  
 #include <lm.h>
 #endif
 
-#include <malloc.h>
 #include <string.h>
 #include <search.h>
 #include <stdlib.h>
@@ -92,7 +39,6 @@ static char *vcsid = "@(#) $Logfile:   N:/lmmib2/vcs/user_lm.c_v  $ $Revision:  
 //--------------------------- MODULE DEPENDENCIES -- #include"xxxxx.h" ------
 
 
-#include <uniconv.h>
 #include "mib.h"
 #include "mibfuncs.h"
 #include "user_tbl.h"
@@ -106,7 +52,7 @@ static char *vcsid = "@(#) $Logfile:   N:/lmmib2/vcs/user_lm.c_v  $ $Revision:  
 //--------------------------- PRIVATE CONSTANTS -----------------------------
 
 #define SafeBufferFree(x)       if(NULL != x) NetApiBufferFree( x )
-#define SafeFree(x)             if(NULL != x) free( x )
+#define SafeFree(x)             if(NULL != x) SnmpUtilMemFree( x )
 
 //--------------------------- PRIVATE STRUCTS -------------------------------
 
@@ -118,8 +64,8 @@ static char *vcsid = "@(#) $Logfile:   N:/lmmib2/vcs/user_lm.c_v  $ $Revision:  
 
 
 int _CRTAPI1 user_entry_cmp(
-       IN USER_ENTRY *A,
-       IN USER_ENTRY *B
+       IN const USER_ENTRY *A,
+       IN const USER_ENTRY *B
        ) ;
 
 void build_user_entry_oids( );
@@ -197,7 +143,7 @@ DWORD resumehandle=0;
      for(i=0; i<MIB_UserTable.Len ;i++)
      {
         // free any alloc'ed elements of the structure
-        SNMP_oidfree(&(MIB_UserTableElement->Oid));
+        SnmpUtilOidFree(&(MIB_UserTableElement->Oid));
         SafeFree(MIB_UserTableElement->svUserName.stream);
 
         MIB_UserTableElement ++ ;  // increment table entry
@@ -222,7 +168,7 @@ DWORD resumehandle=0;
                         0,                      // level 0, no admin priv.
             FILTER_NORMAL_ACCOUNT,
                         &bufptr,                // data structure to return
-                        4096,
+                        MAX_PREFERRED_LENGTH,
                         &entriesread,
                         &totalentries,
                         &resumehandle           //  resume handle
@@ -236,7 +182,7 @@ DWORD resumehandle=0;
 
         if(0 == MIB_UserTable.Len) {  // 1st time, alloc the whole table
                 // alloc the table space
-                MIB_UserTable.Table = malloc(totalentries *
+                MIB_UserTable.Table = SnmpUtilMemAlloc(totalentries *
                                                 sizeof(USER_ENTRY) );
         }
 
@@ -252,7 +198,7 @@ DWORD resumehandle=0;
                 // Stuff the data into each item in the table
 
                 // convert the undocumented unicode to something readable
-                convert_uni_to_ansi(
+                SnmpUtilUnicodeToAnsi(
                         &ansi_string,
                         DataTable->usri0_name,
                         TRUE ); // auto alloc the space for ansi
@@ -330,13 +276,14 @@ Exit:
 //    None.
 //
 int _CRTAPI1 user_entry_cmp(
-       IN USER_ENTRY *A,
-       IN USER_ENTRY *B
+       IN const USER_ENTRY *A,
+       IN const USER_ENTRY *B
        )
 
 {
    // Compare the OID's
-   return SNMP_oidcmp( &A->Oid, &B->Oid );
+   return SnmpUtilOidCmp( (AsnObjectIdentifier *)&A->Oid,
+                       (AsnObjectIdentifier *)&B->Oid );
 } // MIB_user_cmp
 
 
@@ -358,7 +305,7 @@ UserEntry = MIB_UserTable.Table ;
 for( i=0; i<MIB_UserTable.Len ; i++)  {
    // for each entry in the session table
 
-   OSA.stream = &UserEntry->svUserName.stream ;
+   OSA.stream = UserEntry->svUserName.stream ;
    OSA.length =  UserEntry->svUserName.length ;
    OSA.dynamic = FALSE;
 

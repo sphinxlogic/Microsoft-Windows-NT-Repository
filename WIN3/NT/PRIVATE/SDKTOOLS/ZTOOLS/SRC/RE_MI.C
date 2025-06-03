@@ -288,7 +288,7 @@ int REMatch( struct patType *pat, char *bos, char *str, RE_OPCODE *Stack[], unsi
     if ((REPat = pat) == NULL)
         return REM_INVALID;
 
-    pfncomp = REPat->fCase ? strncmp : strnicmp;
+    pfncomp = REPat->fCase ? strncmp : _strnicmp;
 
     /* initialize the machine */
     memset ((char far *) REPat->pArgBeg, -1, sizeof (REPat->pArgBeg));
@@ -906,4 +906,3 @@ void pascal INTERNAL REEstimate( char *p )
     else
         EstimateAction (EPILOG, 0, '\0', '\0');
 }
-

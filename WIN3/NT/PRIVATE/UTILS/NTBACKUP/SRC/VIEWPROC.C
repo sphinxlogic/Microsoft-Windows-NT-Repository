@@ -298,7 +298,7 @@ register  MP1   mp1,       // I - another message parameter
                CHAR    szLineNo[ 30 ] ;
                INT      nOffset ;
 
-               L_SetFilePtr  ( pDlm, fopen ( L_GetFileName( pDlm ), TEXT("rb") ) ) ;
+               L_SetFilePtr  ( pDlm, UNI_fopen ( L_GetFileName( pDlm ), _O_RDONLY ) ) ;
 
                if ( L_GetFilePtr( pDlm ) == NULL ) {
                     

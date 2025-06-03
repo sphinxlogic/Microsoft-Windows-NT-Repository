@@ -39,4 +39,3 @@ Revision History:
 #endif // MIDL_PASS
 
 #include <lmat.h>
-

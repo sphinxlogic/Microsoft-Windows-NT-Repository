@@ -1,20 +1,10 @@
-#include <ctype.h>
-#include <stdarg.h>
-#include <stdlib.h>
-
-#include "slm.h"
-#include "sys.h"
-#include "util.h"
-#include "stfile.h"
-#include "ad.h"
-#include "log.h"
-#include "proto.h"
+#include "precomp.h"
+#pragma hdrstop
+EnableAssert
 
 private const char *SzReadCch(const char *, int *);
 private char *SzDecL(char *, char, char, int, char, long);
 private char *SzDecLsz(char *, char, int, int, char far *);
-
-EnableAssert
 
 /* print - sprintf like features
 
@@ -202,6 +192,7 @@ VaSzPrint(
     PTH *pthConv;           /* string to pass through SzPhysPth */
     char *sz;
     PTH far *pth;
+    NM far *nm;
     MF *pmf;
     IED ied;
     FI far *pfi;
@@ -359,6 +350,12 @@ VaSzPrint(
                         case 'Q':
                             pth = (PTH far *)pad->pthUSubDir;
                             goto CheckPth;
+
+                        case 'Y':
+                            AssertF(pad->pthCRoot[0]);
+                            pth = (PTH far *)pad->pthCRoot;
+                            goto CheckPth;
+
                         case 'L':
                             pth = (PTH far *)pthLog;
                             goto CheckPth;
@@ -411,8 +408,14 @@ RemoveSlash:
                             ied = va_arg(ap, int);
                             AssertF(ied != iedNil);
                             AssertLoaded(pad);
-                            AssertF(!FEmptyNm(pad->rged[ied].nmOwner));
-                            szT = SzDecLsz(szT, fFalse, cchDefWidth, cchUserMax, pad->rged[ied].nmOwner);
+                            if (pad->fQuickIO) {
+                                nm = pad->rged1->nmOwner;
+                            }
+                            else {
+                                nm = pad->rged[ied].nmOwner;
+                            }
+                            AssertF(!FEmptyNm(nm));
+                            szT = SzDecLsz(szT, fFalse, cchDefWidth, cchUserMax, nm);
                             break;
 
                         case 'K':
@@ -432,7 +435,12 @@ RemoveSlash:
                                 goto RemoveSlash;
 
                             AssertLoaded(pad);
-                            pth = pad->rged[ied].pthEd;
+                            if (pad->fQuickIO) {
+                                pth = pad->rged1->pthEd;
+                            }
+                            else {
+                                pth = pad->rged[ied].pthEd;
+                            }
                             goto CheckPth;
 
                         case 'F':
@@ -459,7 +467,6 @@ RemoveSlash:
 
                             AssertF(sizeof(BI) <= sizeof(int));
                             bi = va_arg(ap, BI);
-                            AssertF(bi != biNil);
 
                             *szT++ = 'B';
                             szT = SzDecL(szT, fFalse, ' ', cchDefWidth, 'd', bi);
@@ -566,19 +573,19 @@ SzDecL(
             AssertF(fFalse);
 
         case 'd':
-            ltoa(l, szIn, 10);
+            _ltoa(l, szIn, 10);
             break;
 
         case 'u':
-            ultoa((unsigned long)l, szIn, 10);
+            _ultoa((unsigned long)l, szIn, 10);
             break;
 
         case 'x':
-            ultoa((unsigned long)l, szIn, 16);
+            _ultoa((unsigned long)l, szIn, 16);
             break;
 
         case 'o':
-            ultoa((unsigned long)l, szIn, 8);
+            _ultoa((unsigned long)l, szIn, 8);
             break;
     }
 

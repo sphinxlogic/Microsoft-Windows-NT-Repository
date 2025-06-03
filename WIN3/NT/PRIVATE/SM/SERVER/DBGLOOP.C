@@ -18,7 +18,7 @@ Revision History:
 
 --*/
 
-#include "dbgsrvp.h"
+#include "smsrvp.h"
 
 NTSTATUS
 DbgpSsHandleConnectionRequest(
@@ -245,7 +245,7 @@ DbgpSsHandleConnectionRequest(
         // port context in all calls from a subsystem.
         //
 
-        Subsystem = RtlAllocateHeap(RtlProcessHeap(), 0,sizeof(DBGP_SUBSYSTEM));
+        Subsystem = RtlAllocateHeap(RtlProcessHeap(), MAKE_TAG( DBG_TAG ), sizeof(DBGP_SUBSYSTEM));
         Subsystem->SubsystemProcessHandle = SubsystemProcessHandle;
         Subsystem->SubsystemClientId = ConnectionRequest->ClientId;
     }
@@ -446,7 +446,7 @@ DbgpUiHandleConnectionRequest(
         // port context in all calls from a DebugUi.
         //
 
-        UserInterface = RtlAllocateHeap(RtlProcessHeap(), 0,sizeof(DBGP_USER_INTERFACE));
+        UserInterface = RtlAllocateHeap(RtlProcessHeap(), MAKE_TAG( DBG_TAG ), sizeof(DBGP_USER_INTERFACE));
         if ( !UserInterface ) {
             st = STATUS_NO_MEMORY;
         } else {
@@ -545,7 +545,7 @@ DbgpUiHandleConnectionRequest(
     st = NtAcceptConnectPort(
             &CommunicationPort,
             (PVOID)UserInterface,
-            Message,
+            (PPORT_MESSAGE)Message,
             Accept,
             NULL,
             NULL

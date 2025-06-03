@@ -46,6 +46,22 @@ char dszCLD[]       = "cld";
 char dszCLI[]       = "cli";
 char dszCLTS[]      = "clts";
 char dszCMC[]       = "cmc";
+char dszCMOVO[]     = "cmovo";
+char dszCMOVNO[]    = "cmovno";
+char dszCMOVB[]     = "cmovb";
+char dszCMOVNB[]    = "cmovnb";
+char dszCMOVE[]     = "cmove";
+char dszCMOVNE[]    = "cmovne";
+char dszCMOVBE[]    = "cmovbe";
+char dszCMOVA[]     = "cmova";
+char dszCMOVS[]     = "cmovs";
+char dszCMOVNS[]    = "cmovns";
+char dszCMOVP[]     = "cmovp";
+char dszCMOVNP[]    = "cmovnp";
+char dszCMOVL[]     = "cmovl";
+char dszCMOVGE[]    = "cmovge";
+char dszCMOVLE[]    = "cmovle";
+char dszCMOVNLE[]   = "cmovnle";
 char dszCMP[]       = "cmp";
 char dszCMPS[]      = "cmps";
 char dszCMPSB[]     = "cmpsb";
@@ -72,7 +88,17 @@ char dszFBLD[]      = "fbld";
 char dszFBSTP[]     = "fbstp";
 char dszFCHS[]      = "fchs";
 char dszFCLEX[]     = "fclex";
+char dszFCMOVB[]    = "fcmovb";
+char dszFCMOVE[]    = "fcmove";
+char dszFCMOVBE[]   = "fcmovbe";
+char dszFCMOVU[]    = "fcmovu";
+char dszFCMOVNB[]   = "fcmovnb";
+char dszFCMOVNE[]   = "fcmovne";
+char dszFCMOVNBE[]  = "fcmovnbe";
+char dszFCMOVNU[]   = "fcmovnu";
 char dszFCOM[]      = "fcom";
+char dszFCOMI[]     = "fcomi";
+char dszFCOMIP[]    = "fcomip";
 char dszFCOMP[]     = "fcomp";
 char dszFCOMPP[]    = "fcompp";
 char dszFCOS[]      = "fcos";
@@ -144,6 +170,8 @@ char dszFSUBRP[]    = "fsubrp";
 char dszFS_[]       = "fs:";
 char dszFTST[]      = "ftst";
 char dszFUCOM[]     = "fucom";
+char dszFUCOMI[]    = "fucomi";
+char dszFUCOMIP[]   = "fucomip";
 char dszFUCOMP[]    = "fucomp";
 char dszFUCOMPP[]   = "fucompp";
 char dszFWAIT[]     = "fwait";
@@ -165,6 +193,8 @@ char dszINSD[]      = "insd";
 char dszINSW[]      = "insw";
 char dszINT[]       = "int";
 char dszINTO[]      = "into";
+char dszINVD[]      = "invd";
+char dszINVLPG[]    = "invlpg";
 char dszIRET[]      = "iret";
 char dszIRETD[]     = "iretd";
 char dszJA[]        = "ja";
@@ -258,6 +288,7 @@ char dszRCL[]       = "rcl";
 char dszRCR[]       = "rcr";
 char dszRDTSC[]     = "rdtsc";
 char dszRDMSR[]     = "rdmsr";
+char dszRDPMC[]     = "rdpmc";
 char dszREP[]       = "rep ";
 char dszREPE[]      = "repe";
 char dszREPNE[]     = "repne ";
@@ -326,9 +357,11 @@ char dszSTOSW[]     = "stosw";
 char dszSTR[]       = "str";
 char dszSUB[]       = "sub";
 char dszTEST[]      = "test";
+char dszUD2[]       = "ud2";
 char dszVERR[]      = "verr";
 char dszVERW[]      = "verw";
 char dszWAIT[]      = "wait";
+char dszWBINVD[]    = "wbinvd";
 char dszWRMSR[]     = "wrmsr";
 char dszXADD[]      = "xadd";
 char dszXBTS[]      = "xbts";
@@ -580,6 +613,26 @@ typedef struct Tdistbl{
 #pragma pack()
 #endif
 
+// 
+// Secondary opcode table is compressed - only "filled" locations are 
+// allocated space in distbl. Offsets for indexing into the secondary
+// opcode table are calculcated as follows and defined below.
+//  
+//  Pack#  Opcodes in Pack  #Ops before   Offset(add to opcode)
+//     1     0h -  Bh            0            256 (# of primary opcodes)
+//     2    20h - 26h           12        256-32+12 = 236
+//     3    30h - 33h           19        256-48+19 = 227
+//     4    40h - 4fh           23        256-64+23 = 215
+//     5    7dh - cfh           39        256-125+39 = 170
+//
+
+#define SECTAB_OFFSET_1 256
+#define SECTAB_OFFSET_2 236
+#define SECTAB_OFFSET_3 227
+#define SECTAB_OFFSET_4 215
+#define SECTAB_OFFSET_5 170
+#define SECTAB_OFFSET_UNDEF 260
+
 /* List of ordered pairs for each instruction:                           */
 /*    (pointer to string literal mnemonic,                               */
 /*     instruction class index for action table)                         */
@@ -841,7 +894,13 @@ static Tdistbl distbl[] = {
     dszSTD,   O_NoOperands,             /* FD STD                        */
     dszMULTI, O_GROUP4,                 /* FE INC, DEC mem/reg (byte)    */
     dszMULTI, O_GROUP5,                 /* FF INC, DEC, CALL, JMP, PUSH  */
-
+    
+    // secondary opcode table begins. Only "filled" locations are stored
+    // to compress the secondary table. Hence while disassembling 
+    // opcode needs to be displaced appropriately to account for the.
+    // The displacements are defined in 86dis.c and need to be reevaluated
+    // if new opcodes are added here. 
+          
     dszMULTI, O_GROUP6,                 /* 0 MULTI                       */
     dszMULTI, O_GROUP7,                 /* 1 MULTI                       */
     dszLAR,   O_Reg_Modrm,              /* 2 LAR                         */
@@ -849,6 +908,11 @@ static Tdistbl distbl[] = {
     dszRESERVED, O_DoDB,                /* 4                             */
     dszLOADALL, O_NoOperands,           /* 5 LOADALL                     */
     dszCLTS,  O_NoOperands,             /* 6 CLTS                        */
+    dszMULTI, O_GROUP7,                 /* 7 MULTI                       */
+    dszINVD,  O_NoOperands,             /* 8 INVD                        */
+    dszWBINVD,O_NoOperands,             /* 9 WBINVD                      */
+    dszRESERVED, O_DoDB,                /* A                             */
+    dszUD2,   O_NoOperands,             /* B UD2 undefined               */
     dszMOV,   O_Modrm_CReg,             /* 20 MOV Rd,Cd                  */
     dszMOV,   O_Modrm_CReg,             /* 21 MOV Rd,Dd                  */
     dszMOV,   O_CReg_Modrm,             /* 22 MOV Cd,Rd                  */
@@ -860,6 +924,24 @@ static Tdistbl distbl[] = {
     dszWRMSR, O_NoOperands,             /* 30 WRMSR                      */
     dszRDTSC, O_NoOperands,             /* 31 RDTSC                      */
     dszRDMSR, O_NoOperands,             /* 32 RDMSR                      */
+    dszRDPMC, O_NoOperands,             /* 33 RDPMC                      */
+
+    dszCMOVO,  O_Reg_Modrm,             /* 40 CMOVO                      */
+    dszCMOVNO, O_Reg_Modrm,             /* 41 CMOVNO                     */
+    dszCMOVB,  O_Reg_Modrm,             /* 42 CMOVB                      */
+    dszCMOVNB, O_Reg_Modrm,             /* 43 CMOVNB                     */
+    dszCMOVE,  O_Reg_Modrm,             /* 44 CMOVE                      */
+    dszCMOVNE, O_Reg_Modrm,             /* 45 CMOVNE                     */
+    dszCMOVBE, O_Reg_Modrm,             /* 46 CMOVBE                     */
+    dszCMOVA,  O_Reg_Modrm,             /* 47 CMOVNBE                    */
+    dszCMOVS,  O_Reg_Modrm,             /* 48 CMOVS                      */
+    dszCMOVNS, O_Reg_Modrm,             /* 49 CMOVNS                     */
+    dszCMOVP,  O_Reg_Modrm,             /* 4A CMOVP                      */
+    dszCMOVNP, O_Reg_Modrm,             /* 4B CMOVNP                     */
+    dszCMOVL,  O_Reg_Modrm,             /* 4C CMOVL                      */
+    dszCMOVGE, O_Reg_Modrm,             /* 4D CMOVGE                     */
+    dszCMOVLE, O_Reg_Modrm,             /* 4E CMOVLE                     */
+    dszCMOVNLE,O_Reg_Modrm,             /* 4F CMOVNLE                    */
 
     dszSETNL, O_bModrm,                 /* 7D SETNL                      */
     dszRESERVED, O_DoDB,                /* 7E                            */
@@ -1009,7 +1091,7 @@ static Tdistbl groupt[][8] = {
             { dszFLD,      O_iST,        /* D9-0 FLD     */
               dszFXCH,     O_iST,        /* D9-1 FXCH    */
               dszFNOP,     O_NoOperands, /* D9-2 FNOP    */
-              dszFSTP,     O_iST,        /* D9-3 FSTP    */
+              dszFSTP,     O_iST,        /* D9-3 FSTP    */ 
               dszRESERVED, O_DoDB,       /* D9-4         */
               dszRESERVED, O_DoDB,       /* D9-5         */
               dszRESERVED, O_DoDB,       /* D9-6         */
@@ -1026,10 +1108,10 @@ static Tdistbl groupt[][8] = {
               dszFIDIVR,   O_dModrm },   /* DA-7 FIDIVR  */
 
 /* 05                         x87-DA-2                   */
-            { dszRESERVED, O_DoDB,       /* DA-0         */
-              dszRESERVED, O_DoDB,       /* DA-1         */
-              dszRESERVED, O_DoDB,       /* DA-2         */
-              dszRESERVED, O_DoDB,       /* DA-3         */
+            { dszFCMOVB,   O_ST_iST,     /* DA-0 FCMOVB  */
+              dszFCMOVE,   O_ST_iST,     /* DA-1 FCMOVE  */
+              dszFCMOVBE,  O_ST_iST,     /* DA-2 FCMOVBE */
+              dszFCMOVU,   O_ST_iST,     /* DA-3 FCMOVU  */
               dszRESERVED, O_DoDB,       /* DA-4         */
               dszFUCOMPP,  O_NoOperands, /* DA-5         */
               dszRESERVED, O_DoDB,       /* DA-6         */
@@ -1125,14 +1207,14 @@ static Tdistbl groupt[][8] = {
               dszFBSTP,    O_tModrm,     /* DF-6 FBSTP   */
               dszFISTP,    O_qModrm },   /* DF-7 FISTP   */
 
-/* 15                         x87-DF-2                   */
+/* 15                         x87-DF-2                   */   
             { dszFFREE,    O_iST,        /* DF-0 FFREE   */
               dszFXCH,     O_iST,        /* DF-1 FXCH    */
               dszFST,      O_iST,        /* DF-2 FST     */
               dszFSTP,     O_iST,        /* DF-3 FSTP    */
               dszFSTSW,    O_NoOperands, /* DF-4 FSTSW   */
-              dszRESERVED, O_DoDB,       /* DF-5         */
-              dszRESERVED, O_DoDB,       /* DF-6         */
+              dszFUCOMIP,  O_ST_iST,     /* DF-5 FUCOMIP */
+              dszFCOMIP,   O_ST_iST,     /* DF-6 FCOMIP  */
               dszRESERVED, O_DoDB },     /* DF-7         */
 
 /* 16   01            x87-D9 Mod=3 TTT=4                 */
@@ -1213,6 +1295,16 @@ static Tdistbl groupt[][8] = {
               dszSMSW,     O_wModrm,     /* 0F-4 MSW       */
               dszRESERVED, O_DoDB,       /* 0F-5           */
               dszLMSW,     O_wModrm,     /* 0F-6 LMSW      */
-              dszRESERVED, O_DoDB }      /* 0F-7           */
+              dszINVLPG,   O_Modrm },    /* 0F-7 INVLPG    */
+
+/* 24                 x87-DB Mod=3 TTT != 4                */
+            { dszFCMOVNB,  O_ST_iST,     /* DB-0 FCMOVNB   */
+              dszFCMOVNE,  O_ST_iST,     /* DB-1 FCMOVNE   */
+              dszFCMOVNBE, O_ST_iST,     /* DB-2 FCMOVNBE  */
+              dszFCMOVNU,  O_ST_iST,     /* DB-3 FCMOVNU   */
+              dszRESERVED, O_DoDB,       /* DB-4           */
+              dszFUCOMI,   O_ST_iST,     /* DB-5 FUCOMI    */
+              dszFCOMI,    O_ST_iST,     /* DB-6 FCOMI     */
+              dszRESERVED, O_DoDB }      /* DB-7           */
 
             };

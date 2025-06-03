@@ -348,7 +348,7 @@ GetCurPath (
     if (!GetCurrentDirectory(MAX_PATH, szBuf)) {
         *szBuf = '\00';
     }
-    strlwr (szBuf);
+    _strlwr (szBuf);
 }
 
 
@@ -370,7 +370,7 @@ SetCurPath (
     )
 {
 
-    if (chdir (szPath) == -1) {
+    if (_chdir (szPath) == -1) {
 	return FALSE;
     }
 

@@ -364,15 +364,16 @@ Os2CompleteResumeThread(
 
     do {
             Status = NtResumeThread (Thread->ThreadHandle, &SuspendCount);
-#if DBG
             if (!NT_SUCCESS(Status)) {
-                DbgPrint("SERVER: [%d,%d] NtResumeThread Status=%x\n",
+#if DBG
+                DbgPrint("OS2SRV: [%d,%d] NtResumeThread Status=%x\n",
                     Thread->Process->ProcessId,
                     Thread->ThreadId,
                     Status);
                 ASSERT(FALSE);
-            }
 #endif // DBG
+                break;
+            }
         } while (SuspendCount > 1);
 
     return Status;
@@ -931,9 +932,8 @@ Os2ApiGPPopupThread(
     )
 {
     POS2_THREAD t;
-    OS2_API_MSG m1;
-    POS2_DOSEXIT_MSG b = &m1.u.DosExit;
     POS2_API_MSG m = (POS2_API_MSG)Parameter;
+    UCHAR ApplName[OS2_PROCESS_MAX_APPL_NAME];
 
 #if DBG
     IF_OS2_DEBUG( TASKING ) {
@@ -941,55 +941,80 @@ Os2ApiGPPopupThread(
     }
 #endif
 
-    Os2AcquireStructureLock();
-    t = Os2LocateThreadByClientId( NULL /*Process*/, &m->h.ClientId );
-    if (t == NULL){
-        //
-        // Another event caused this thread to be removed before we got the lock
-        //
+    __try {
+
+        Os2AcquireStructureLock();
+        t = Os2LocateThreadByClientId( NULL /*Process*/, &m->h.ClientId );
+
+        if (t == NULL){
+            //
+            // Another event caused this thread to be removed before we got the lock
+            //
 #if DBG
-    DbgPrint("OS2SRV: ApiGPPopupThread occurred while executing API %s, thread terminated, cancel popup\n", &m->u.DosExitGP.ApiName[0]);
+            DbgPrint("OS2SRV: ApiGPPopupThread occurred while executing API %s, thread terminated, cancel popup\n", &m->u.DosExitGP.ApiName[0]);
 #endif
+            Os2ReleaseStructureLock();
+            __leave;
+        }
+
+        RtlCopyMemory(ApplName, t->Process->ApplName, OS2_PROCESS_MAX_APPL_NAME);
+#if PMNT
         Os2ReleaseStructureLock();
-        ExitThread(0);
-    }
-    Os2ApiGPPopup(
-                t->Process->ApplName,
-                &m->u.DosExitGP.ApiName[0]
-                );
+#endif // PMNT
+
 #if DBG
-    DbgPrint("OS2SRV: GP occurred while executing API %s\n", &m->u.DosExitGP.ApiName[0]);
+        DbgPrint("OS2SRV: GP occurred while executing API %s\n", &m->u.DosExitGP.ApiName[0]);
 #endif
 
-    if ((t->Flags & OS2_THREAD_THREAD1) &&
-        (t->Process->ExitStatus & OS2_EXIT_IN_PROGRESS)){
+        Os2ApiGPPopup(
+                ApplName,
+                &m->u.DosExitGP.ApiName[0]
+                );
+
+#if PMNT
+        Os2AcquireStructureLock();
+        t = Os2LocateThreadByClientId( NULL /*Process*/, &m->h.ClientId );
+
+        if (t == NULL){
+            //
+            // Another event caused this thread to be removed before we got the lock
+            //
+#if DBG
+            DbgPrint("OS2SRV: Os2ApiGPPopupThread: thread terminated already\n");
+#endif
+            Os2ReleaseStructureLock();
+            __leave;
+        }
+#endif // PMNT
+
+        if ((t->Flags & OS2_THREAD_THREAD1) &&
+            (t->Process->ExitStatus & OS2_EXIT_IN_PROGRESS)){
             //
             // An Exception happened while processing exit list - terminate the process
             //
-        OS2_API_MSG m;
-        POS2_TERMINATEPROCESS_MSG a = &m.u.TerminateProcess;
-
 #if DBG
-        DbgPrint("OS2SRV: GP occurred while executing exitlist routine\n");
+            DbgPrint("OS2SRV: GP occurred while executing exitlist routine\n");
 #endif
-        PORT_MSG_DATA_LENGTH(m) = sizeof(m) - sizeof(PORT_MESSAGE);
-        PORT_MSG_TOTAL_LENGTH(m) = sizeof(m);
-        PORT_MSG_ZERO_INIT(m) = 0L;
-        a->ExitReason = TC_EXIT;
-        a->ExitResult = ERROR_INTERRUPT;
-        ((POS2_DOSEXIT_MSG)a)->ExitAction = EXIT_PROCESS;
+            Os2ForceClientCleanup(t);
+            Os2ReleaseStructureLock();
+            __leave;
+        }
 
-        Os2ForceClientCleanup(t);
+        {
+            POS2_DOSEXIT_MSG b = &m->u.DosExit;
+            b->ExitAction = EXIT_PROCESS;
+            b->ExitResult = 13;
+            ASSERT(m->h.ClientId.UniqueProcess == t->ClientId.UniqueProcess);
+            ASSERT(m->h.ClientId.UniqueThread == t->ClientId.UniqueThread);
+            Os2DosExit(t, m);
+        }
+
         Os2ReleaseStructureLock();
+    }
+    __finally {
+        RtlFreeHeap(Os2Heap, 0, m);
         ExitThread(0);
     }
-
-    b->ExitAction = EXIT_PROCESS;
-    b->ExitResult = 13;
-    m1.h.ClientId = t->ClientId;
-    Os2DosExit(t, &m1);
-    Os2ReleaseStructureLock();
-    ExitThread(0);
 }
 
 BOOLEAN
@@ -1001,8 +1026,6 @@ Os2DosExitGP(
 /*++
 
 Routine Description:
-
-    This routine implements the DosExit API.
 
 Arguments:
 
@@ -1020,9 +1043,6 @@ Note:
 --*/
 
 {
-    OS2_API_MSG m1;
-    POS2_DOSEXIT_MSG b = &m1.u.DosExit;
-
 #if DBG
     IF_OS2_DEBUG( TASKING ) {
         KdPrint(( "Entering Os2DosExitGP\n"));
@@ -1035,46 +1055,55 @@ Note:
         // Create a separate thread to do the popup and kill the process
         //
         ULONG Tid;
-        HANDLE GPThreadHandle = CreateThread( NULL,
+        POS2_API_MSG pm1;
+
+        pm1 = RtlAllocateHeap(Os2Heap, 0, sizeof(OS2_API_MSG));
+
+        if (pm1) {
+            HANDLE GPThreadHandle;
+
+            RtlCopyMemory(pm1, m, sizeof(OS2_API_MSG));
+            GPThreadHandle = CreateThread( NULL,
                                 0,
                                 (PFNTHREAD)Os2ApiGPPopupThread,
-                                m,
+                                pm1,
                                 0,
                                 &Tid);
-        if (!GPThreadHandle){
-            ASSERT( FALSE );
+            if (!GPThreadHandle){
 #if DBG
-            KdPrint(("Os2ExitGP - fail at win32 CreateThread, %d\n",GetLastError()));
+                KdPrint(("Os2ExitGP - fail at win32 CreateThread, %d\n",GetLastError()));
 #endif
-            return (FALSE);
+                RtlFreeHeap(Os2Heap, 0, pm1);
+            }
+            else {
+                Os2SuspendProcess(t->Process);
+                NtClose(GPThreadHandle);
+                return (FALSE);
+            }
         }
-        Os2SuspendProcess(t->Process);
-        NtClose(GPThreadHandle);
+        else {
+#if DBG
+            KdPrint(("Os2ExitGP - fail at RtlAllocateHeap\n"));
+#endif
+        }
     }
-    else {
-        if ((t->Flags & OS2_THREAD_THREAD1) &&
-            (t->Process->ExitStatus & OS2_EXIT_IN_PROGRESS)){
-                //
-                // An Exception happened while processing exit list - terminate the process
-                //
-            OS2_API_MSG m;
-            POS2_TERMINATEPROCESS_MSG a = &m.u.TerminateProcess;
 
+    if ((t->Flags & OS2_THREAD_THREAD1) &&
+        (t->Process->ExitStatus & OS2_EXIT_IN_PROGRESS)){
+        //
+        // An Exception happened while processing exit list - terminate the process
+        //
 #if DBG
-            DbgPrint("OS2SRV: GP occurred while executing exitlist routine\n");
+        DbgPrint("OS2SRV: GP occurred while executing exitlist routine\n");
 #endif
-            PORT_MSG_DATA_LENGTH(m) = sizeof(m) - sizeof(PORT_MESSAGE);
-            PORT_MSG_TOTAL_LENGTH(m) = sizeof(m);
-            PORT_MSG_ZERO_INIT(m) = 0L;
-            a->ExitReason = TC_EXIT;
-            a->ExitResult = ERROR_INTERRUPT;
-            ((POS2_DOSEXIT_MSG)a)->ExitAction = EXIT_PROCESS;
+        Os2ForceClientCleanup(t);
+        return(FALSE);
+    }
 
-            Os2ForceClientCleanup(t);
-            return(FALSE);
-        }
-
-
+    {
+        OS2_API_MSG m1;
+        POS2_DOSEXIT_MSG b = &m1.u.DosExit;
+        m1.h.ClientId = t->ClientId;
         b->ExitAction = EXIT_PROCESS;
         b->ExitResult = 13;
         return Os2DosExit(t, &m1);
@@ -1252,36 +1281,7 @@ Return Value:
         Process->Session=NULL;
     }
 
-    if (Process->Parent != Os2RootProcess || RootProcessInSession != Process) {
-        //
-        // This is a process that was created as a result of an OS/2 API.
-        // We have to terminate it. The RootProcess of each session is quiting
-        // by itself as a result of the last Os2DereferenceSession
-        //
-        Os2TermCmd.op = Os2TerminateProcess;
-        Os2TermCmd.Handle = Process->ProcessHandle;
-        Os2TermCmd.Param1 = m;
-        Os2TermCmd.Param2 = Process;
-
-        if (!WriteFile(
-                Os2hWritePipe,
-                (VOID *)&Os2TermCmd,
-                sizeof(Os2TermCmd),
-                &nNumberOfBytesWritten,
-                NULL)){
-
-            //
-            // The Pipe of Os2TerminationThread is full
-            //
-            ASSERT(FALSE);
-#if DBG
-            KdPrint(("OS2SRV: Os2InternalTerminateProcess: can't post process termination command, status %d, ignore\n",
-                    GetLastError()));
-#endif
-
-        }
-    }
-    else {
+    if (Process->Parent == Os2RootProcess && RootProcessInSession == Process) {
         //
         // Root Process of a Session
         //
@@ -1353,6 +1353,37 @@ Return Value:
         //
         Os2DeallocateProcess( Process );
     }
+    else {
+        //
+        // This is a process that was created as a result of an OS/2 API.
+        // We have to terminate it. The RootProcess of each session is quiting
+        // by itself as a result of the last Os2DereferenceSession
+        // The termination thread will call Os2NotifyDeathOfProcess which will
+        // deallocate the process
+        //
+        Os2TermCmd.op = Os2TerminateProcess;
+        Os2TermCmd.Handle = Process->ProcessHandle;
+        Os2TermCmd.Param1 = m;
+        Os2TermCmd.Param2 = Process;
+
+        if (!WriteFile(
+                Os2hWritePipe,
+                (VOID *)&Os2TermCmd,
+                sizeof(Os2TermCmd),
+                &nNumberOfBytesWritten,
+                NULL)){
+
+            //
+            // The Pipe of Os2TerminationThread is full
+            //
+            ASSERT(FALSE);
+#if DBG
+            KdPrint(("OS2SRV: Os2InternalTerminateProcess: can't post process termination command, status %d, ignore\n",
+                    GetLastError()));
+#endif
+
+        }
+    }
 
 #if DBG
     IF_OS2_DEBUG( TASKING ) {
@@ -1377,20 +1408,6 @@ Os2NotifyDeathOfProcess(
     //
     Os2NotifyWait( WaitProcess, Process, (PVOID) a);
     Os2DeallocateProcess( Process );
-
-//    // Obsolete code below: was keeping processes around as zombie so that
-//    // DosCWait doesn't fail when father calls it after child termination.
-//    // However, it turns out that OS/2 doesn't do this.
-//    if (Os2NotifyWait( WaitProcess, Process, (PVOID) a)) {
-//        Os2DeallocateProcess( Process );
-//    }
-//    else {
-//
-//        //
-//        // No one is waiting on this process (yet)
-//        //
-//        InsertTailList( &Os2ZombieList, &Process->ListLink );
-//    }
 }
 
 BOOLEAN
@@ -1652,53 +1669,12 @@ Return Value:
     }
 }
 
-
 VOID
-Os2AccessGPPopupThread(
-    IN PVOID Parameter
+Os2ExceptionTerminateProcess(
+    POS2_THREAD Thread,
+    PDBGKM_APIMSG ReceiveMsg
     )
 {
-    POS2_THREAD Thread;
-    OS2_API_MSG m1;
-    POS2_DOSEXIT_MSG b = &m1.u.DosExit;
-    PDBGKM_APIMSG ReceiveMsg = (PDBGKM_APIMSG)Parameter;
-    CONTEXT Context;
-    NTSTATUS Status;
-
-#if DBG
-    IF_OS2_DEBUG( TASKING ) {
-        KdPrint(( "Os2AccessGPPopupThread\n"));
-    }
-#endif
-
-    Os2AcquireStructureLock();
-    Thread = Os2LocateThreadByClientId( NULL /*Process*/, &ReceiveMsg->h.ClientId );
-    if (Thread == NULL){
-        //
-        // Another event caused this thread to be removed before we got the lock
-        //
-#if DBG
-    DbgPrint("OS2SRV: AccessGPPopupThread: thread terminated, cancel popup\n");
-#endif
-        Os2ReleaseStructureLock();
-        ExitThread(0);
-    }
-
-    //
-    // Get the context record for the target thread.
-    //
-    Context.ContextFlags = CONTEXT_FULL;
-    Status = NtGetContextThread(Thread->ThreadHandle, &Context);
-
-    Os2AccessGPPopup(
-                Context.SegCs,
-                Context.Eip & 0xffff,
-                Thread->Process->ApplName
-                );
-#if DBG
-    DbgPrint("OS2SRV: GP occurred at CS=%x, IP=%x\n", Context.SegCs, Context.Eip & 0xffff);
-#endif
-
     // The TC_TRAP value which is put in the process
     // ResultCodes structure prevents from further setting
     // this structure and is returned to the parent process.
@@ -1719,26 +1695,114 @@ Os2AccessGPPopupThread(
 
     if ((Thread->Flags & OS2_THREAD_THREAD1) &&
         (Thread->Process->ExitStatus & OS2_EXIT_IN_PROGRESS)){
-            //
-            // An Exception happened while processing exit list - terminate the process
-            //
-        OS2_API_MSG m;
-        POS2_TERMINATEPROCESS_MSG a = &m.u.TerminateProcess;
-
-        PORT_MSG_DATA_LENGTH(m) = sizeof(m) - sizeof(PORT_MESSAGE);
-        PORT_MSG_TOTAL_LENGTH(m) = sizeof(m);
-        PORT_MSG_ZERO_INIT(m) = 0L;
-        a->ExitReason = TC_EXIT;
-        a->ExitResult = ERROR_INTERRUPT;
-        ((POS2_DOSEXIT_MSG)a)->ExitAction = EXIT_PROCESS;
-
+        //
+        // An Exception happened while processing exit list - terminate the process
+        //
+#if DBG
+        DbgPrint("OS2SRV: GP occurred while executing exitlist routine\n");
+#endif
         Os2ForceClientCleanup(Thread);
     }
-    else
+    else {
         Os2SigKillProcess(Thread->Process);
+    }
+}
 
-    Os2ReleaseStructureLock();
-    ExitThread(0);
+VOID
+Os2AccessGPPopupThread(
+    IN PVOID Parameter
+    )
+{
+    POS2_THREAD Thread;
+    PDBGKM_APIMSG ReceiveMsg = (PDBGKM_APIMSG)Parameter;
+    CONTEXT Context;
+    NTSTATUS Status;
+    UCHAR ApplName[OS2_PROCESS_MAX_APPL_NAME];
+
+#if DBG
+    IF_OS2_DEBUG( TASKING ) {
+        KdPrint(( "Os2AccessGPPopupThread\n"));
+    }
+#endif
+
+    __try {
+
+        Os2AcquireStructureLock();
+        Thread = Os2LocateThreadByClientId( NULL /*Process*/, &ReceiveMsg->h.ClientId );
+
+        if (Thread == NULL){
+            //
+            // Another event caused this thread to be removed before we got the lock
+            //
+#if DBG
+            DbgPrint("OS2SRV: AccessGPPopupThread: thread terminated, cancel popup\n");
+#endif
+            Os2ReleaseStructureLock();
+            __leave;
+        }
+
+        //
+        // Get the context record for the target thread.
+        //
+        Context.ContextFlags = CONTEXT_FULL;
+        Status = NtGetContextThread(Thread->ThreadHandle, &Context);
+
+        if (NT_SUCCESS(Status)) {
+
+#if DBG
+            DbgPrint("OS2SRV: GP occurred at CS=%x, IP=%x\n", Context.SegCs, Context.Eip & 0xffff);
+#endif
+            RtlCopyMemory(ApplName, Thread->Process->ApplName, OS2_PROCESS_MAX_APPL_NAME);
+#if PMNT
+            Os2ReleaseStructureLock();
+#endif // PMNT
+            Os2AccessGPPopup(
+                    Context.SegCs,
+                    Context.Eip & 0xffff,
+                    Context.Eax & 0xffff,
+                    Context.Ebx & 0xffff,
+                    Context.Ecx & 0xffff,
+                    Context.Edx & 0xffff,
+                    Context.Esi & 0xffff,
+                    Context.Edi & 0xffff,
+                    Context.Ebp & 0xffff,
+                    Context.Esp & 0xffff,
+                    Context.SegSs & 0xffff,
+                    Context.SegDs & 0xffff,
+                    Context.SegEs & 0xffff,
+                    ApplName
+                    );
+
+#if PMNT
+            Os2AcquireStructureLock();
+            Thread = Os2LocateThreadByClientId( NULL /*Process*/, &ReceiveMsg->h.ClientId );
+
+            if (Thread == NULL){
+                //
+                // Another event caused this thread to be removed before we got the lock
+                //
+#if DBG
+                DbgPrint("OS2SRV: AccessGPPopupThread: thread terminated already\n");
+#endif
+                Os2ReleaseStructureLock();
+                __leave;
+            }
+#endif // PMNT
+        }
+        else {
+#if DBG
+            DbgPrint("OS2SRV: GP occurred at 16bit. Fail to get context, Status=0x%X", Status);
+#endif
+            ASSERT(FALSE);
+        }
+
+        Os2ExceptionTerminateProcess(Thread, ReceiveMsg);
+        Os2ReleaseStructureLock();
+    }
+    __finally {
+        RtlFreeHeap(Os2Heap, 0, ReceiveMsg);
+        ExitThread(0);
+    }
 }
 
 VOID
@@ -1803,29 +1867,46 @@ Return Value:
             // Create a separate thread to do the popup and kill the process
             //
             ULONG Tid;
-            HANDLE GPThreadHandle = CreateThread( NULL,
-                                    0,
-                                    (PFNTHREAD)Os2AccessGPPopupThread,
-                                    ReceiveMsg,
-                                    0,
-                                    &Tid);
-            if (GPThreadHandle){
-                //
-                // Success, the thread will do the popup
-                //
-                NtClose(GPThreadHandle);
+            PDBGKM_APIMSG ReceiveMsg1;
+
+            ReceiveMsg1 = RtlAllocateHeap(Os2Heap, 0, sizeof(DBGKM_APIMSG));
+
+            if (ReceiveMsg1) {
+                HANDLE GPThreadHandle;
+
+                RtlCopyMemory(ReceiveMsg1, ReceiveMsg, sizeof(DBGKM_APIMSG));
+
+                GPThreadHandle = CreateThread( NULL,
+                                        0,
+                                        (PFNTHREAD)Os2AccessGPPopupThread,
+                                        ReceiveMsg1,
+                                        0,
+                                        &Tid);
+                if (GPThreadHandle){
                     //
-                    // Suspend the falted process and let debugger go
+                    // Success, the thread will do the popup
                     //
-                Os2SuspendProcess(Thread->Process);
-                ReceiveMsg->ReturnedStatus = DBG_EXCEPTION_HANDLED;
-                NtReplyPort(Os2DebugPort, (PPORT_MESSAGE) ReceiveMsg);
-                return;
-            }
-            ASSERT( FALSE );
+                    NtClose(GPThreadHandle);
+                        //
+                        // Suspend the falted process and let debugger go
+                        //
+                    Os2SuspendProcess(Thread->Process);
+                    ReceiveMsg->ReturnedStatus = DBG_EXCEPTION_HANDLED;
+                    NtReplyPort(Os2DebugPort, (PPORT_MESSAGE) ReceiveMsg);
+                    return;
+                }
+                else {
+                    RtlFreeHeap(Os2Heap, 0, ReceiveMsg1);
 #if DBG
-            KdPrint(("Os2ExitGP - fail at win32 CreateThread, %d\n",GetLastError()));
+                    KdPrint(("Os2HandleException - fail at win32 CreateThread, %d\n",GetLastError()));
 #endif
+                }
+            }
+            else {
+#if DBG
+                KdPrint(("Os2HandleException - fail at RtlAllocateHeap\n"));
+#endif
+            }
             // fall thru, handle the exception with no popup
         }
     }
@@ -1834,47 +1915,23 @@ Return Value:
     DbgPrint("OS2SRV: GP occurred at CS=%x, IP=%x\n", Context.SegCs, Context.Eip & 0xffff);
 #endif
 
-    // The TC_TRAP value which is put in the process
-    // ResultCodes structure prevents from further setting
-    // this structure and is returned to the parent process.
-
-    Thread->Process->ResultCodes.ExitReason = TC_TRAP;
-    switch (ReceiveMsg->u.Exception.ExceptionRecord.ExceptionCode) {
-        case STATUS_ACCESS_VIOLATION:
-            Thread->Process->ResultCodes.ExitResult = 13;
-            break;
-
-        case STATUS_ILLEGAL_FLOAT_CONTEXT:
-            Thread->Process->ResultCodes.ExitResult = 7;
-            break;
-
-        default:
-            Thread->Process->ResultCodes.ExitResult = 0;
-    }
-
-    if ((Thread->Flags & OS2_THREAD_THREAD1) &&
-        (Thread->Process->ExitStatus & OS2_EXIT_IN_PROGRESS)){
-            //
-            // An Exception happened while processing exit list - terminate the process
-            //
-        OS2_API_MSG m;
-        POS2_TERMINATEPROCESS_MSG a = &m.u.TerminateProcess;
-
-        PORT_MSG_DATA_LENGTH(m) = sizeof(m) - sizeof(PORT_MESSAGE);
-        PORT_MSG_TOTAL_LENGTH(m) = sizeof(m);
-        PORT_MSG_ZERO_INIT(m) = 0L;
-        a->ExitReason = TC_EXIT;
-        a->ExitResult = ERROR_INTERRUPT;
-        ((POS2_DOSEXIT_MSG)a)->ExitAction = EXIT_PROCESS;
-
-        Os2ForceClientCleanup(Thread);
-    }
-    else
-        Os2SigKillProcess(Thread->Process);
+    Os2ExceptionTerminateProcess(Thread, ReceiveMsg);
 
     ReceiveMsg->ReturnedStatus = DBG_EXCEPTION_HANDLED;
     NtReplyPort(Os2DebugPort, (PPORT_MESSAGE) ReceiveMsg);
 }
+
+#if DBG
+// DbgPrint already defined
+#else
+// DbgPrint is used in free build to handle DbgPrint exception
+#undef DbgPrint
+ULONG
+DbgPrint(
+    PCH Format,
+    ...
+    );
+#endif
 
 VOID
 Os2HandleDebugEvent(
@@ -1928,8 +1985,55 @@ Return Value:
 
     if (ReceiveMsg->ApiNumber == DbgKmExceptionApi) {
         ExceptionCode = ReceiveMsg->u.Exception.ExceptionRecord.ExceptionCode;
+
+        if (ExceptionCode == DBG_PRINTEXCEPTION_C) {
+            PEXCEPTION_RECORD pExceptionRecord = &(ReceiveMsg->u.Exception.ExceptionRecord);
+
+            if (pExceptionRecord->NumberParameters == 2) {
+
+#define DBG_PRINTEXCEPTION_BUFFER_LEN 512
+                UCHAR buffer[DBG_PRINTEXCEPTION_BUFFER_LEN];
+                LONG length = pExceptionRecord->ExceptionInformation[0] > DBG_PRINTEXCEPTION_BUFFER_LEN ?
+                                        DBG_PRINTEXCEPTION_BUFFER_LEN :
+                                        pExceptionRecord->ExceptionInformation[0];
+
+                Process = Os2LocateProcessByClientId(&(ReceiveMsg->h.ClientId));
+
+                if (Process) {
+                    Status = NtReadVirtualMemory(
+                           Process->ProcessHandle,
+                           (PVOID) pExceptionRecord->ExceptionInformation[1],
+                           buffer,
+                           length,
+                           &length);
+
+                    if (NT_SUCCESS(Status) && length > 1) {
+                        buffer[length - 1] = '\0';
+                        DbgPrint(buffer);
+                    }
+                }
+                else {
+                    //
+                    // Process already died. Ignore this DbgPrint
+                    //
+                    DbgPrint("OS2SRV: DbgPrint called during process termination\n");
+                }
+#if DBG
+// DbgPrint remain defined
+#else
+#undef DbgPrint
+#define DbgPrint(_x_) Or2DbgPrintFunctionNeverExisted(_x_)
+#endif
+            }
+
+            ReceiveMsg->ReturnedStatus = DBG_EXCEPTION_HANDLED;
+            NtReplyPort(Os2DebugPort, (PPORT_MESSAGE) ReceiveMsg);
+            return;
+        }
+
         Thread = Os2LocateThreadByClientId(Process,
                                            &(ReceiveMsg->h.ClientId));
+
         if (Thread == NULL) {
                 //
                 // Look for A Ctrl C message was sent from the console
@@ -1957,10 +2061,11 @@ Return Value:
 #if PMNT
                               // Don't propagate CTRL-BREAK in case of a PM process !
                               ((ExceptionCode == DBG_CONTROL_BREAK) &&
-                               !Os2srvProcessIsPMProcess(CtrlProcess)))) {
+                               !Os2srvProcessIsPMProcess(CtrlProcess))))
 #else
-                              (ExceptionCode == DBG_CONTROL_BREAK))) {
+                              (ExceptionCode == DBG_CONTROL_BREAK)))
 #endif
+                        {
                             if (ExceptionCode == DBG_CONTROL_C){
 #if DBG
                                 IF_OS2_DEBUG(SIG) {
@@ -2121,6 +2226,33 @@ Return Value:
                     return;
                 }
             case STATUS_PRIVILEGED_INSTRUCTION:
+                //
+                // Check to see if client or server raised the exception
+                // if so return as not handled so the stack based handler
+                // will handle it.
+                //
+                if (Context.SegCs == 0x1b) {
+#if DBG
+                    IF_OS2_DEBUG( EXCEPTIONS ) {
+                        KdPrint(( "Os2HandleDebugEvent - STATUS_PRIVELEGED_INSTRUCTION at 32 bit code %X:%X, let stack based handler deal with it\n",
+                                    Context.SegCs,Context.Eip));
+                    }
+#endif
+                    if (!ReceiveMsg->u.Exception.FirstChance) {
+                        //
+                        // Second Chance message in 32 bit code - break to debugger
+                        //
+                        if (Os2DebugUserClientId.UniqueProcess != NULL) {
+                            DbgSsHandleKmApiMsg(ReceiveMsg, NULL);
+                            return;
+                        }
+                    }
+
+                    ReceiveMsg->ReturnedStatus = DBG_EXCEPTION_NOT_HANDLED;
+                    NtReplyPort(Os2DebugPort,
+                                (PPORT_MESSAGE) ReceiveMsg);
+                    return;
+                }
 
                 FlatCliAddress = (ULONG)(SELTOFLAT((USHORT)Context.SegCs)) | (ULONG)(Context.Eip);
                 Status = NtReadVirtualMemory( Thread->Process->ProcessHandle,
@@ -2652,6 +2784,7 @@ Os2CreateProcess(
     CONTEXT         Context;
     HANDLE          ReplyEvent;
     ULONG           Length;
+    PROCESS_BASIC_INFORMATION BasicInfo;
 
                                     // uses stuff from the parent process
     if ( ARGUMENT_PRESENT(t) ) // && !ARGUMENT_PRESENT(Session) )
@@ -2959,6 +3092,32 @@ Os2CreateProcess(
     if (Session)
     {
         Session->ProcessId = (ULONG)Process->ProcessId;
+ 
+        //
+        // Save the process unique id, and the process parent unique
+        // id. We will use it in Os2DereferenceSession, when a win32 process
+        // is about to terminate, and we have to terminate its children.
+        //
+        Status = NtQueryInformationProcess(
+                    Process->ProcessHandle,
+                    ProcessBasicInformation,
+                    &BasicInfo,
+                    sizeof(BasicInfo),
+                    NULL
+                    );
+        ASSERT(NT_SUCCESS(Status));
+        if ( !NT_SUCCESS( Status ) ) {
+#if DBG
+            DbgPrint( "Os2CreateProcess failed: NtQueryProcessInformation Status == %X\n",
+                      Status
+                    );
+#endif // DBG
+        }
+        else
+        {
+            Session->dwProcessId = BasicInfo.UniqueProcessId;
+            Session->dwParentProcessId = BasicInfo.InheritedFromUniqueProcessId;
+        }
     }
 
     if (!(Process->Flags & OS2_PROCESS_SYNCHRONOUS))
@@ -3028,10 +3187,11 @@ Os2DosExecPgm(
                 return( FALSE );
             }
             else {
+                POS2_PROCESS p = NewThread->Process;
                 m->ReturnedErrorValue = ERROR_NOT_ENOUGH_MEMORY;
                 Os2DeallocateThread( NewThread );
-                Os2DeallocateProcess( NewThread->Process );
-                Os2DereferenceSession(NewThread->Process->Session, 0, (BOOLEAN)TRUE);
+                Os2DereferenceSession(p->Session, 0, (BOOLEAN)TRUE);
+                Os2DeallocateProcess( p );
                 NtClose(m->u.DosExecPgm.hThread);
                 NtClose(m->u.DosExecPgm.hProcess);
                 return( TRUE );
@@ -4572,7 +4732,17 @@ Os2DosPTrace(
                 //
                 // want the name of the EXE itself
                 //
-                mte = ((LinkMTE *)Process->LinkMte)->NextMTE->MTE;
+                if (((LinkMTE *)Process->LinkMte)->NextMTE != NULL) {
+                    mte = ((LinkMTE *)Process->LinkMte)->NextMTE->MTE;
+                }
+                else {
+                    //
+                    // EXE failed to load.
+                    //
+                    a->cmd = (USHORT)TRC_C_ERR_ret;  // Failed to get module name
+                    m->ReturnedErrorValue = ERROR_INVALID_HANDLE;
+                    break;
+                }
             }
 
             if (ldrGetModName(

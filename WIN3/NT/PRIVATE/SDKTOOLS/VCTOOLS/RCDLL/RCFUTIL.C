@@ -7,8 +7,7 @@
 /*                                                                     */
 /***********************************************************************/
 
-#include "prerc.h"
-#pragma hdrstop
+#include "rc.h"
 
 
 /* IsTextUnicode has to be here so this will run on Chicago and NT 1.0. */
@@ -234,7 +233,7 @@ Return Value:
     GetCPInfo(CP_ACP, &cpinfo);
     if (cpinfo.MaxCharSize != 1) {
         for (iTmp = 0; iTmp < iMaxTmp; iTmp++) {
-            if (IsDBCSLeadByte(lpb[iTmp])) {
+            if (IsDBCSLeadByteEx(uiCodePage, lpb[iTmp])) {
                 cLeadByte++;
                 iTmp++;         /* should check for trailing-byte range */
                 }
@@ -418,7 +417,7 @@ Return Value:
 /* fgetl expands tabs and return lines w/o separators */
 /* returns line from file (no CRLFs); returns NULL if EOF */
 
-int fgetl (PWCHAR wbuf, int len, BOOL bUnicode, FILE *fh)
+int fgetl (PWCHAR wbuf, int len, BOOL bUnicode, PFILE fh)
 {
     int c = 0;
     int second;
@@ -500,3 +499,20 @@ int fgetl (PWCHAR wbuf, int len, BOOL bUnicode, FILE *fh)
     return !(c == EOF && !*wbuf);
 }
 
+/*------------------------------------------------------------------*/
+/*                                                                  */
+/* myfwrite() -                                                     */
+/*                                                                  */
+/*	Wrapper for fwrite to ensure data gets to the disk.	    */
+/*		returns if ok, calls quit if write fails	    */
+/*------------------------------------------------------------------*/
+
+void
+myfwrite(const void *pv, size_t s, size_t n, PFILE fp)
+{
+    if (fwrite(pv, s, n, fp) == n)
+	return;
+    else
+	quit(GET_MSG(1122));
+	/* doesn't return */
+}

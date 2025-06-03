@@ -131,7 +131,7 @@ makeMessage(
 
     va_start (args, msg);
 
-    if (ON(gFlags,F1_CRYPTIC_OUTPUT))
+    if (msg != USER_MESSAGE && ON(gFlags,F1_CRYPTIC_OUTPUT))
 	return;
     displayBanner();
     if (msg >= FATAL_ERROR_MESSAGE && msg <= COPYRIGHT_MESSAGE_2)

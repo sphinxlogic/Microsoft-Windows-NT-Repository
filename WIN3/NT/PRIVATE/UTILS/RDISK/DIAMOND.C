@@ -21,15 +21,8 @@ Environment:
 
 --*/
 
-#include "rdisk.h"
-#include "dialogs.h"
-#include "gauge.h"
-#include <diamondc.h>
-#include <fcntl.h>
-#include <sys\types.h>
-#include <sys\stat.h>
-#include <io.h>
-
+#include "precomp.h"
+#pragma hdrstop
 
 typedef struct _COMPRESS_CONTEXT {
     DWORD GaugeBasePosition;
@@ -298,7 +291,7 @@ Return Value:
         //
         SendDlgItemMessage( context->GaugeWindow,
                             ID_BAR,
-                            BAR_SETPOS,
+                            PBM_SETPOS,
                             context->GaugeBasePosition + delta,
                             0L
                           );
@@ -442,10 +435,11 @@ DiamondCompressFile(
                 FciContext,
                 SourceFile,         // file to add to cabinet.
                 SourceFilenamePart, // filename part, name to store in cabinet.
+                FALSE,              // fExecute on extract
                 fciNextCabinetCB,   // routine for next cabinet (always fails)
                 fciStatusCB,
                 fciOpenInfoCB,
-                tcompMSZIP,
+                tcompTYPE_MSZIP,
                 &GaugeContext
                 );
 
@@ -480,6 +474,3 @@ void __cdecl main(int argc,char *argv[])
     }
 }
 #endif
-
-
-

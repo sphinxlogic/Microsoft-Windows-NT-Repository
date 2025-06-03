@@ -34,6 +34,71 @@ HANDLE LdrpKnownDllObjectDirectory;
 WCHAR LdrpKnownDllPathBuffer[LDRP_MAX_KNOWN_PATH];
 UNICODE_STRING LdrpKnownDllPath;
 
+
+
+#if defined(WX86)
+
+typedef BOOLEAN
+(*WX86DllMAPNOTIY)(
+     PVOID DllBase,
+     BOOLEAN Mapped,
+     PUNICODE_STRING OPTIONAL SystemDllPath
+     );
+
+extern WX86DllMAPNOTIY Wx86DllMapNotify;
+
+PLDR_DATA_TABLE_ENTRY
+LdrpWx86CheckForLoadedDll(
+    IN PUNICODE_STRING DllName,
+    IN BOOLEAN Wx86KnownDll,
+    OUT PUNICODE_STRING FullDllName
+    );
+
+
+NTSTATUS
+LdrpWx86MapDll(
+    IN PWSTR DllPath OPTIONAL,
+    IN PULONG DllCharacteristics OPTIONAL,
+    IN BOOLEAN Wx86KnownDll,
+    IN BOOLEAN StaticLink,
+    OUT PUNICODE_STRING DllName,
+    OUT PLDR_DATA_TABLE_ENTRY *pEntry,
+    OUT ULONG *pViewSize,
+    OUT HANDLE *pSection
+    );
+
+NTSTATUS
+LdrpRunWx86DllEntryPoint(
+    IN  PDLL_INIT_ROUTINE InitRoutine,
+    OUT BOOLEAN *pInitStatus,
+    IN  PVOID DllBase,
+    IN  ULONG Reason,
+    IN  PCONTEXT Context
+    );
+
+NTSTATUS
+LdrpLoadWx86Dll(
+    IN PCONTEXT Context
+    );
+
+NTSTATUS
+LdrpInitWx86(
+    IN PWX86TIB Wx86Tib,
+    IN PCONTEXT Context,
+    IN BOOLEAN NewThread
+    );
+
+#if defined (_ALPHA_)
+BOOLEAN
+LdrpWx86FormatVirtualImage(
+    IN PIMAGE_NT_HEADERS NtHeaders,
+    IN PVOID DllBase
+    );
+#endif
+
+#endif
+
+
 #define LDRP_HASH_TABLE_SIZE 32
 #define LDRP_HASH_MASK       (LDRP_HASH_TABLE_SIZE-1)
 #define LDRP_COMPUTE_HASH_INDEX(wch) ( (RtlUpcaseUnicodeChar((wch)) - (WCHAR)'A') & LDRP_HASH_MASK )
@@ -70,6 +135,7 @@ NTSTATUS
 LdrpSnapThunk(
     IN PVOID DllBase,
     IN PVOID ImageBase,
+    IN PIMAGE_THUNK_DATA OriginalThunk,
     IN OUT PIMAGE_THUNK_DATA Thunk,
     IN PIMAGE_EXPORT_DIRECTORY ExportDirectory,
     IN ULONG ExportSize,
@@ -79,7 +145,7 @@ LdrpSnapThunk(
 
 USHORT
 LdrpNameToOrdinal(
-    IN PIMAGE_THUNK_DATA Thunk,
+    IN PSZ Name,
     IN ULONG NumberOfNames,
     IN PVOID DllBase,
     IN PULONG NameTableBase,
@@ -91,15 +157,16 @@ LdrpAllocateDataTableEntry(
     IN PVOID DllBase
     );
 
-NTSTATUS
+BOOLEAN
 LdrpCheckForLoadedDll(
     IN PWSTR DllPath OPTIONAL,
     IN PUNICODE_STRING DllName,
     IN BOOLEAN StaticLink,
+    IN BOOLEAN Wx86KnownDll,
     OUT PLDR_DATA_TABLE_ENTRY *LdrDataTableEntry
     );
 
-NTSTATUS
+BOOLEAN
 LdrpCheckForLoadedDllHandle(
     IN PVOID DllHandle,
     OUT PLDR_DATA_TABLE_ENTRY *LdrDataTableEntry
@@ -109,7 +176,9 @@ NTSTATUS
 LdrpMapDll(
     IN PWSTR DllPath OPTIONAL,
     IN PWSTR DllName,
+    IN PULONG DllCharacteristics OPTIONAL,
     IN BOOLEAN StaticLink,
+    IN BOOLEAN Wx86KnownDll,
     OUT PLDR_DATA_TABLE_ENTRY *LdrDataTableEntry
     );
 
@@ -124,15 +193,20 @@ LdrpRunInitializeRoutines(
     IN PCONTEXT Context OPTIONAL
     );
 
+#define LdrpReferenceLoadedDll( lde ) LdrpUpdateLoadCount( lde, TRUE )
+#define LdrpDereferenceLoadedDll( lde ) LdrpUpdateLoadCount( lde, FALSE )
+
 VOID
-LdrpDereferenceLoadedDll(
-    IN PLDR_DATA_TABLE_ENTRY LdrDataTableEntry
+LdrpUpdateLoadCount (
+    IN PLDR_DATA_TABLE_ENTRY LdrDataTableEntry,
+    IN BOOLEAN IncrementCount
     );
 
 NTSTATUS
 LdrpInitializeProcess(
     IN PCONTEXT Context OPTIONAL,
-    IN PVOID SystemDllBase
+    IN PVOID SystemDllBase,
+    IN PUNICODE_STRING UnicodeImageName
     );
 
 VOID
@@ -156,11 +230,13 @@ LdrpResolveDllName(
     OUT PHANDLE DllFile
     );
 
-HANDLE
-LdrCreateDllSection(
+NTSTATUS
+LdrpCreateDllSection(
     IN PUNICODE_STRING FullDllName,
     IN HANDLE DllFile,
-    IN PUNICODE_STRING BaseName
+    IN PUNICODE_STRING BaseName,
+    IN PULONG DllCharacteristics OPTIONAL,
+    OUT PHANDLE SectionHandle
     );
 
 VOID
@@ -226,17 +302,37 @@ ULONG LdrpSectionOpens;
 ULONG LdrpSectionCreates;
 ULONG LdrpSectionMaps;
 ULONG LdrpSectionRelocates;
+BOOLEAN LdrpDisplayLoadTime;
 LARGE_INTEGER BeginTime, InitcTime, InitbTime, IniteTime, EndTime, ElapsedTime, Interval;
 
 #endif // DBG
 
-#if DEVL
 BOOLEAN ShowSnaps;
+BOOLEAN RtlpTimoutDisable;
 LARGE_INTEGER RtlpTimeout;
 ULONG NtGlobalFlag;
 LIST_ENTRY RtlCriticalSectionList;
 RTL_CRITICAL_SECTION RtlCriticalSectionLock;
-#endif // DEVL
+BOOLEAN LdrpShutdownInProgress;
+extern BOOLEAN LdrpInLdrInit;
+extern BOOLEAN LdrpLdrDatabaseIsSetup;
+extern BOOLEAN LdrpVerifyDlls;
+extern BOOLEAN LdrpShutdownInProgress;
+extern BOOLEAN LdrpImageHasTls;
+extern BOOLEAN LdrpVerifyDlls;
+
+PLDR_DATA_TABLE_ENTRY LdrpImageEntry;
+LIST_ENTRY LdrpUnloadHead;
+BOOLEAN LdrpActiveUnloadCount;
+PLDR_DATA_TABLE_ENTRY LdrpGetModuleHandleCache;
+PLDR_DATA_TABLE_ENTRY LdrpLoadedDllHandleCache;
+ULONG LdrpFatalHardErrorCount;
+UNICODE_STRING LdrpDefaultPath;
+RTL_CRITICAL_SECTION FastPebLock;
+HANDLE LdrpShutdownThreadId;
+PLDR_DATA_TABLE_ENTRY LdrpImageEntry;
+ULONG LdrpNumberOfProcessors;
+
 
 
 typedef struct _LDRP_TLS_ENTRY {
@@ -267,6 +363,25 @@ LdrpCallTlsInitializers(
     ULONG Reason
     );
 
+NTSTATUS
+NTAPI
+LdrpLoadDll(
+    IN PWSTR DllPath OPTIONAL,
+    IN PULONG DllCharacteristics OPTIONAL,
+    IN PUNICODE_STRING DllName,
+    OUT PVOID *DllHandle,
+    IN BOOLEAN RunInitRoutines
+    );
+
+NTSTATUS
+NTAPI
+LdrpGetProcedureAddress(
+    IN PVOID DllHandle,
+    IN PANSI_STRING ProcedureName OPTIONAL,
+    IN ULONG ProcedureNumber OPTIONAL,
+    OUT PVOID *ProcedureAddress,
+    IN BOOLEAN RunInitRoutines
+    );
 
 #if DBG
 
@@ -275,5 +390,36 @@ extern PRTL_EVENT_ID_INFO LdrpLoadModuleEventId;
 extern PRTL_EVENT_ID_INFO LdrpUnloadModuleEventId;
 
 #endif // DBG
+
+PLIST_ENTRY
+RtlpLockProcessHeapsList( VOID );
+
+
+VOID
+RtlpUnlockProcessHeapsList( VOID );
+
+BOOLEAN
+RtlpSerializeHeap(
+    IN PVOID HeapHandle
+    );
+
+ULONG NtdllBaseTag;
+
+#define MAKE_TAG( t ) (RTL_HEAP_MAKE_TAG( NtdllBaseTag, t ))
+
+#define CSR_TAG 0
+#define LDR_TAG 1
+#define CURDIR_TAG 2
+#define TLS_TAG 3
+#define DBG_TAG 4
+#define SE_TAG 5
+#define TEMP_TAG 6
+#define ATOM_TAG 7
+
+PVOID
+LdrpDefineDllTag(
+    PWSTR TagName,
+    PUSHORT TagIndex
+    );
 
 #endif // _LDRP_

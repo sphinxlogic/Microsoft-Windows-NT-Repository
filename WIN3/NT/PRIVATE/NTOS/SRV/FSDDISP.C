@@ -84,17 +84,41 @@ Return Value:
 
     DeviceObject;   // prevent compiler warnings
 
-#ifndef BUILD_FOR_511
-    FsRtlEnterFileSystem( );
-#endif
-
     irpSp = IoGetCurrentIrpStackLocation( Irp );
 
     switch ( irpSp->MajorFunction ) {
 
     case IRP_MJ_CREATE:
 
-        ExInterlockedAddUlong( &SrvOpenCount, 1, &GLOBAL_SPIN_LOCK(Fsd) );
+        ACQUIRE_LOCK( &SrvConfigurationLock );
+
+        if( SrvOpenCount == 0 ) {
+            //
+            // This is the first open.  Let's not allow it if the server
+            // seems to be in a weird state.
+            //
+            if( SrvFspActive != FALSE || SrvFspTransitioning != FALSE ) {
+                //
+                // How can this be?  Better not let anybody in, since we're sick
+                //
+                RELEASE_LOCK( &SrvConfigurationLock );
+                status = STATUS_ACCESS_DENIED;
+                break;
+            }
+
+        } else if( SrvFspActive && SrvFspTransitioning ) {
+            //
+            // We currently have some open handles, but
+            // we are in the middle of terminating. Don't let new
+            // opens in
+            //
+            RELEASE_LOCK( &SrvConfigurationLock );
+            status = STATUS_ACCESS_DENIED;
+            break;
+        }
+
+        SrvOpenCount++;
+        RELEASE_LOCK( &SrvConfigurationLock );
         break;
 
     case IRP_MJ_CLEANUP:
@@ -108,7 +132,24 @@ Return Value:
 
     case IRP_MJ_CLOSE:
 
-        ExInterlockedAddUlong( &SrvOpenCount, (ULONG)-1, &GLOBAL_SPIN_LOCK(Fsd) );
+        ACQUIRE_LOCK( &SrvConfigurationLock );
+        if( --SrvOpenCount == 0 ) {
+            if( SrvFspActive && !SrvFspTransitioning ) {
+                //
+                // Uh oh.  This is our last close, and we think
+                //  we're still running.  We can't run sensibly
+                //  without srvsvc to help out.  Suicide time!
+                //
+                SrvXsActive = FALSE;
+                SrvFspTransitioning = TRUE;
+                IoMarkIrpPending( Irp );
+                QueueConfigurationIrp( Irp );
+                RELEASE_LOCK( &SrvConfigurationLock );
+                status = STATUS_PENDING;
+                goto exit;
+            }
+        }
+        RELEASE_LOCK( &SrvConfigurationLock );
         break;
 
     case IRP_MJ_FILE_SYSTEM_CONTROL:
@@ -154,6 +195,8 @@ Return Value:
 
         }
 
+        RELEASE_LOCK( &SrvConfigurationLock );
+
         break;
 
     default:
@@ -172,10 +215,6 @@ Return Value:
     IoCompleteRequest( Irp, 2 );
 
 exit:
-
-#ifndef BUILD_FOR_511
-    FsRtlExitFileSystem( );
-#endif
 
     return status;
 
@@ -376,24 +415,20 @@ Return Value:
         break;
     }
 
+    case FSCTL_SRV_REGISTRY_CHANGE:
+    case FSCTL_SRV_BEGIN_PNP_NOTIFICATIONS:
     case FSCTL_SRV_XACTSRV_CONNECT:
-
-        //
-        // If the server is not running, or if it is in the process
-        // of shutting down, reject this request.
-        //
-
-        if ( !SrvFspActive || SrvFspTransitioning ) {
+    {
+        if( !SrvFspActive || SrvFspTransitioning ) {
             //IF_DEBUG(ERRORS) {
             //    SrvPrint0( "LAN Manager server FSP not started.\n" );
             //}
-
             status = STATUS_SERVER_NOT_STARTED;
             goto exit_with_lock;
         }
 
         break;
-
+    }
     case FSCTL_SRV_XACTSRV_DISCONNECT: {
 
         //
@@ -410,6 +445,90 @@ Return Value:
             status = STATUS_SUCCESS;
             goto exit_with_lock;
         }
+
+        break;
+    }
+
+    case FSCTL_SRV_IPX_SMART_CARD_START: {
+
+        //
+        // If the server is not running, or if it is in the process of
+        //  shutting down, ignore this request.
+        //
+        if( !SrvFspActive || SrvFspTransitioning ) {
+            status = STATUS_SERVER_NOT_STARTED;
+            goto exit_with_lock;
+        }
+
+        //
+        // Make sure the caller is a driver
+        //
+        if( Irp->RequestorMode != KernelMode ) {
+            status = STATUS_ACCESS_DENIED;
+            goto exit_with_lock;
+        }
+
+        //
+        // Make sure the buffer is big enough
+        //
+        if( IrpSp->Parameters.FileSystemControl.InputBufferLength <
+            sizeof( SrvIpxSmartCard ) ) {
+
+            status = STATUS_BUFFER_TOO_SMALL;
+            goto exit_with_lock;
+        }
+
+        if( SrvIpxSmartCard.Open == NULL ) {
+
+            PSRV_IPX_SMART_CARD pSipx;
+
+            //
+            // Load up the pointers
+            //
+
+            pSipx = (PSRV_IPX_SMART_CARD)(Irp->AssociatedIrp.SystemBuffer);
+
+            if( pSipx == NULL ) {
+                status = STATUS_INVALID_PARAMETER;
+                goto exit_with_lock;
+            }
+
+            if( pSipx->Read && pSipx->Close && pSipx->DeRegister && pSipx->Open ) {
+
+                IF_DEBUG( SIPX ) {
+                    KdPrint(( "Accepting entry points for IPX Smart Card:\n" ));
+                    KdPrint(( "    Open %X, Read %X, Close %x, DeRegister %x",
+                                SrvIpxSmartCard.Open,
+                                SrvIpxSmartCard.Read,
+                                SrvIpxSmartCard.Close,
+                                SrvIpxSmartCard.DeRegister
+                            ));
+                }
+
+                //
+                // First set our entry point
+                //
+                pSipx->ReadComplete = SrvIpxSmartCardReadComplete;
+
+                //
+                // Now accept the card's entry points.
+                //
+                SrvIpxSmartCard.Read = pSipx->Read;
+                SrvIpxSmartCard.Close= pSipx->Close;
+                SrvIpxSmartCard.DeRegister = pSipx->DeRegister;
+                SrvIpxSmartCard.Open = pSipx->Open;
+                            
+                status = STATUS_SUCCESS;
+            } else {
+                status = STATUS_INVALID_PARAMETER;
+            }
+
+        } else {
+
+            status = STATUS_DEVICE_ALREADY_ATTACHED;
+        }
+
+        goto exit_with_lock;
 
         break;
     }
@@ -505,6 +624,137 @@ Return Value:
         break;
     }
 
+    case FSCTL_SRV_SHARE_STATE_CHANGE:
+    {
+        ULONG srpLength;
+        PSERVER_REQUEST_PACKET srp;
+        PSHARE share;
+
+        if ( !SrvFspActive || SrvFspTransitioning ) {
+            status = STATUS_SUCCESS;
+            goto exit_with_lock;
+        }
+
+        srp = Irp->AssociatedIrp.SystemBuffer;
+        srpLength = IrpSp->Parameters.FileSystemControl.InputBufferLength;
+
+        OFFSET_TO_POINTER( srp->Name1.Buffer, srp );
+
+        if (!POINTER_IS_VALID( srp->Name1.Buffer, srp, srpLength)) {
+            status = STATUS_ACCESS_VIOLATION;
+            goto exit_with_lock;
+        }
+
+        ACQUIRE_LOCK( &SrvShareLock );
+
+        share = SrvFindShare( &srp->Name1 );
+
+        if ( share != NULL) {
+
+            share->IsDfs = ((srp->Flags & SRP_SET_SHARE_IN_DFS) != 0);
+
+            status = STATUS_SUCCESS;
+
+        } else {
+
+            status = STATUS_OBJECT_NAME_NOT_FOUND;
+
+        }
+
+        RELEASE_LOCK( &SrvShareLock );
+
+        goto exit_with_lock;
+
+        break;
+    }
+
+    case FSCTL_SRV_GET_QUEUE_STATISTICS:
+    {
+        PSRV_QUEUE_STATISTICS qstats;
+        SRV_QUEUE_STATISTICS  tmpqstats;
+        PWORK_QUEUE queue;
+        LONG timeIncrement = (LONG)KeQueryTimeIncrement();
+
+        //
+        // Make sure the server is active.
+        //
+        if ( !SrvFspActive || SrvFspTransitioning ) {
+
+            status = STATUS_SERVER_NOT_STARTED;
+            goto exit_with_lock;
+        }
+
+        if ( IrpSp->Parameters.FileSystemControl.OutputBufferLength <
+                 (SrvNumberOfProcessors+1) * sizeof( *qstats ) ) {
+
+            status = STATUS_BUFFER_TOO_SMALL;
+            goto exit_with_lock;
+        }
+
+        qstats = Irp->AssociatedIrp.SystemBuffer;
+
+        //
+        // Get the data for the normal processor queues
+        //
+        for( queue = SrvWorkQueues; queue < eSrvWorkQueues; queue++, qstats++ ) {
+
+            tmpqstats.QueueLength      = KeReadStateQueue( &queue->Queue );
+            tmpqstats.ActiveThreads    = queue->Threads - queue->AvailableThreads;
+            tmpqstats.AvailableThreads = queue->Threads;
+            tmpqstats.FreeWorkItems    = queue->FreeWorkItems;                 // no lock!
+            tmpqstats.StolenWorkItems  = queue->StolenWorkItems;               // no lock!
+            tmpqstats.NeedWorkItem     = queue->NeedWorkItem;
+            tmpqstats.CurrentClients   = queue->CurrentClients;
+
+            tmpqstats.BytesReceived.QuadPart    = queue->stats.BytesReceived;
+            tmpqstats.BytesSent.QuadPart        = queue->stats.BytesSent;
+            tmpqstats.ReadOperations.QuadPart   = queue->stats.ReadOperations;
+            tmpqstats.BytesRead.QuadPart        = queue->stats.BytesRead;
+            tmpqstats.WriteOperations.QuadPart  = queue->stats.WriteOperations;
+            tmpqstats.BytesWritten.QuadPart     = queue->stats.BytesWritten;
+            tmpqstats.TotalWorkContextBlocksQueued = queue->stats.WorkItemsQueued;
+            tmpqstats.TotalWorkContextBlocksQueued.Count *= STATISTICS_SMB_INTERVAL;
+            tmpqstats.TotalWorkContextBlocksQueued.Time.QuadPart *= timeIncrement;
+
+            RtlCopyMemory( qstats, &tmpqstats, sizeof(tmpqstats) );
+        }
+
+        //
+        // Get the data for the blocking work queue
+        //
+
+        tmpqstats.QueueLength      = KeReadStateQueue( &SrvBlockingWorkQueue.Queue );
+        tmpqstats.ActiveThreads    = SrvBlockingWorkQueue.Threads -
+                                     SrvBlockingWorkQueue.AvailableThreads;
+        tmpqstats.AvailableThreads = SrvBlockingWorkQueue.Threads;
+        tmpqstats.FreeWorkItems    = SrvBlockingWorkQueue.FreeWorkItems;         // no lock!
+        tmpqstats.StolenWorkItems  = SrvBlockingWorkQueue.StolenWorkItems;       // no lock!
+        tmpqstats.NeedWorkItem     = SrvBlockingWorkQueue.NeedWorkItem;
+        tmpqstats.CurrentClients   = SrvBlockingWorkQueue.CurrentClients;
+
+        tmpqstats.BytesReceived.QuadPart    = SrvBlockingWorkQueue.stats.BytesReceived;
+        tmpqstats.BytesSent.QuadPart        = SrvBlockingWorkQueue.stats.BytesSent;
+        tmpqstats.ReadOperations.QuadPart   = SrvBlockingWorkQueue.stats.ReadOperations;
+        tmpqstats.BytesRead.QuadPart        = SrvBlockingWorkQueue.stats.BytesRead;
+        tmpqstats.WriteOperations.QuadPart  = SrvBlockingWorkQueue.stats.WriteOperations;
+        tmpqstats.BytesWritten.QuadPart     = SrvBlockingWorkQueue.stats.BytesWritten;
+
+        tmpqstats.TotalWorkContextBlocksQueued
+                                   = SrvBlockingWorkQueue.stats.WorkItemsQueued;
+        tmpqstats.TotalWorkContextBlocksQueued.Count *= STATISTICS_SMB_INTERVAL;
+        tmpqstats.TotalWorkContextBlocksQueued.Time.QuadPart *= timeIncrement;
+
+        RtlCopyMemory( qstats, &tmpqstats, sizeof(tmpqstats) );
+
+        Irp->IoStatus.Information = (SrvNumberOfProcessors + 1) * sizeof( *qstats );
+
+        status = STATUS_SUCCESS;
+        goto exit_with_lock;
+
+        break;
+
+    }
+
     case FSCTL_SRV_GET_STATISTICS:
 
         //
@@ -541,9 +791,7 @@ Return Value:
             // the tick count stored to system time.
             //
 
-            SrvUpdateStatisticsFromShadow( &tmpStatistics );
-
-            tmpStatistics = SrvStatistics;
+            SrvUpdateStatisticsFromQueues( &tmpStatistics );
 
             tmpStatistics.TotalWorkContextBlocksQueued.Time.QuadPart *=
                                                 (LONG)KeQueryTimeIncrement();
@@ -551,10 +799,10 @@ Return Value:
             RtlCopyMemory(
                 Irp->AssociatedIrp.SystemBuffer,
                 &tmpStatistics,
-                sizeof(SrvStatistics)
+                sizeof(tmpStatistics)
                 );
 
-            Irp->IoStatus.Information = sizeof(SrvStatistics);
+            Irp->IoStatus.Information = sizeof(tmpStatistics);
 
         }
 
@@ -610,31 +858,22 @@ Return Value:
             if ( IrpSp->Parameters.FileSystemControl.OutputBufferLength >=
                      sizeof(SrvDbgStatistics) ) {
                 PWORK_QUEUE queue;
-                ULONG i;
-                queue = &SrvWorkQueue;
+                ULONG i, j;
                 i = 0;
-                stats->QueueStatistics[i].Depth = KeReadStateQueue( &queue->Queue );
-                stats->QueueStatistics[i].Threads = queue->Threads;
+                stats->QueueStatistics[i].Depth = 0;
+                stats->QueueStatistics[i].Threads = 0;
 #if SRVDBG_STATS2
-                stats->QueueStatistics[i].ItemsQueued = queue->ItemsQueued;
-                stats->QueueStatistics[i].MaximumDepth = queue->MaximumDepth + 1;
+                stats->QueueStatistics[i].ItemsQueued = 0;
+                stats->QueueStatistics[i].MaximumDepth = 0;
 #endif
-                queue = &SrvBlockingWorkQueue;
-                i = 1;
-                stats->QueueStatistics[i].Depth = KeReadStateQueue( &queue->Queue );
-                stats->QueueStatistics[i].Threads = queue->Threads;
+                for( queue = SrvWorkQueues; queue < eSrvWorkQueues; queue++ ) {
+                    stats->QueueStatistics[i].Depth += KeReadStateQueue( &queue->Queue );
+                    stats->QueueStatistics[i].Threads += queue->Threads;
 #if SRVDBG_STATS2
-                stats->QueueStatistics[i].ItemsQueued = queue->ItemsQueued;
-                stats->QueueStatistics[i].MaximumDepth = queue->MaximumDepth + 1;
+                    stats->QueueStatistics[i].ItemsQueued += queue->ItemsQueued;
+                    stats->QueueStatistics[i].MaximumDepth += queue->MaximumDepth + 1;
 #endif
-                queue = &SrvCriticalWorkQueue;
-                i = 2;
-                stats->QueueStatistics[i].Depth = KeReadStateQueue( &queue->Queue );
-                stats->QueueStatistics[i].Threads = queue->Threads;
-#if SRVDBG_STATS2
-                stats->QueueStatistics[i].ItemsQueued = queue->ItemsQueued;
-                stats->QueueStatistics[i].MaximumDepth = queue->MaximumDepth + 1;
-#endif
+                }
                 Irp->IoStatus.Information = sizeof(SrvDbgStatistics);
             }
 
@@ -643,7 +882,6 @@ Return Value:
         status = STATUS_SUCCESS;
         goto exit_with_lock;
 #endif // SRVDBG_STATS || SRVDBG_STATS2
-
     //
     // The follwing APIs must be processed in the server FSP because
     // they open or close handles.
@@ -969,7 +1207,7 @@ Return Value:
             oldValues.SrvDebugOff = 0xffffffff;
             oldValues.SmbDebugOff = 0xffffffff;
 #if SRVDBG
-            oldValues.SrvDebugOn = SrvDebug;
+            oldValues.SrvDebugOn = SrvDebug.QuadPart;
             oldValues.SmbDebugOn = SmbDebug;
 #else
             oldValues.SrvDebugOn = 0;
@@ -1119,42 +1357,6 @@ Return Value:
 
         status = STATUS_SUCCESS;
         goto exit_with_lock;
-
-#ifdef OLDNET
-#if DBG
-    case FSCTL_SRV_QUERY_CONNECTIONS:
-
-        //
-        // If the server is not running, or if it is in the process
-        // of shutting down, reject this request.
-        //
-
-        if ( !SrvFspActive || SrvFspTransitioning ) {
-            //IF_DEBUG(ERRORS) {
-            //    SrvPrint0( "LAN Manager server FSP not started.\n" );
-            //}
-
-            status = STATUS_SERVER_NOT_STARTED;
-            goto exit_with_lock;
-        }
-
-        RELEASE_LOCK( &SrvConfigurationLock );
-
-        //
-        // Put information about the server's endpoints and
-        // connections in the output buffer.
-        //
-
-        Irp->IoStatus.Status =
-            SrvQueryConnections(
-                Irp->AssociatedIrp.SystemBuffer,
-                IrpSp->Parameters.FileSystemControl.OutputBufferLength,
-                &Irp->IoStatus.Information
-                );
-
-        goto exit_without_lock;
-#endif // DBG
-#endif // def OLDNET
 
     case FSCTL_SRV_PAUSE:
 
@@ -1330,26 +1532,34 @@ QueueConfigurationIrp (
     IN PIRP Irp
     )
 {
-    PLIST_ENTRY oldHead;
+    PWORK_QUEUE_ITEM p;
 
     PAGED_CODE( );
 
-    oldHead = SrvConfigurationWorkQueue.Flink;
+    InterlockedIncrement( (PLONG)&SrvConfigurationIrpsInProgress );
 
     SrvInsertTailList(
         &SrvConfigurationWorkQueue,
         &Irp->Tail.Overlay.ListEntry
         );
 
-    if ( oldHead == &SrvConfigurationWorkQueue ) {
-        SrvFsdQueueExWorkItem(
-            &SrvConfigurationThreadWorkItem,
-            &SrvConfigurationThreadRunning,
-            DelayedWorkQueue
-            );
-    }
+    //
+    // Hunt for a SrvConfigurationThreadWorkItem we can use.  If they
+    //  are all occupied, this means that config threads are going to
+    //  run and we don't need to worry about it.
+    //
 
-    return;
+    for( p = SrvConfigurationThreadWorkItem;
+         p < &SrvConfigurationThreadWorkItem[ MAX_CONFIG_WORK_ITEMS ];
+         p++ ) {
+
+        if( p->Parameter == 0 ) {
+            p->Parameter = p;
+            ExQueueWorkItem( p, DelayedWorkQueue );
+            break;
+        }
+
+    }
 
 } // QueueConfigurationIrp
 

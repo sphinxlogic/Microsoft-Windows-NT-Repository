@@ -74,4 +74,3 @@ struct EDL
 #define cwEDL           (cchEDL / sizeof(int))
 
 #define cedlInit        20
-

@@ -30,6 +30,7 @@
 #include "legend.h"     // external declarations for this file
 
 #include "owndraw.h"
+#include "perfmops.h"
 
 #include "grafdata.h"   // for EditChart
 #include "pmemory.h"    // for MemoryXXX (mallloc-type) routines
@@ -440,12 +441,13 @@ void DrawLegendItem (PLEGEND pLegend,
       {
       if (pLine->eScale < (FLOAT) 1.0)
          {
-         TSPRINTF (szValue, TEXT("%6.6f"), pLine->eScale) ;
+         TSPRINTF (szValue, TEXT("%7.7f"), pLine->eScale) ;
          }
       else
          {
          TSPRINTF (szValue, TEXT("%10.3f"), pLine->eScale) ;
          }
+      ConvertDecimalPoint (szValue);
       }
 
    SetTextAlign (hDC, TA_TOP) ;   
@@ -1252,4 +1254,4 @@ void LegendSetRedraw (HWND hWndLegend, BOOL bRedraw)
 }
 
 
-
+

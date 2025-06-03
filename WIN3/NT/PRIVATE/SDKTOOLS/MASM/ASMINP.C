@@ -382,13 +382,13 @@ readmore ()
 		TERMINATE1(ER_ULI, EX_UINP, save);  /* Report unable to access file */
 	    }
 	    /* Seek to old position */
-	    if( lseek( pFCBCur->fh, pFCBCur->savefilepos, SEEK_SET ) == -1L ){
+	    if( _lseek( pFCBCur->fh, pFCBCur->savefilepos, SEEK_SET ) == -1L ){
 		TERMINATE1(ER_ULI, EX_UINP, save);  /* Report unable to access file */
 	    }
 	}
 
 #if !defined CPDOS || defined OS2_2 || defined OS2_NT
-	cb = read( pFCBCur->fh, pFCBCur->buf, pFCBCur->cbbuf );
+        cb = _read( pFCBCur->fh, pFCBCur->buf, pFCBCur->cbbuf );
 #else
 	if( DosRead( pFCBCur->fh, pFCBCur->buf, pFCBCur->cbbuf, &cb ) ){
 	    cb = -1;
@@ -531,7 +531,7 @@ closefile()
     #endif
 
     if( pFCBCur->fh != FH_CLOSED ){   /* Check to see if the file is already closed */
-	 close(pFCBCur->fh);
+         _close(pFCBCur->fh);
     }
     pFCBOld = pFCBCur;
     pFCBCur = pFCBCur->pFCBParent;  /* Remove from bidirectional linked list */

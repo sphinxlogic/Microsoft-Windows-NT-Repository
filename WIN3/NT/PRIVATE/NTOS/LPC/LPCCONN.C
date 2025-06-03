@@ -20,10 +20,6 @@ Revision History:
 
 #include "lpcp.h"
 
-#ifdef ALLOC_PRAGMA
-#pragma alloc_text(PAGE,NtConnectPort)
-#endif
-
 PVOID
 LpcpFreeConMsg(
     IN PLPCP_MESSAGE *Msg,
@@ -31,17 +27,11 @@ LpcpFreeConMsg(
     IN PETHREAD CurrentThread
     );
 
-VOID
-LpcpInsertConMsg(
-    IN PLPCP_MESSAGE Msg,
-    IN PETHREAD CurrentThread,
-    IN PLPCP_PORT_OBJECT ConnectionPort
-    );
+#ifdef ALLOC_PRAGMA
+#pragma alloc_text(PAGE,NtConnectPort)
+#pragma alloc_text(PAGE,LpcpFreeConMsg)
+#endif
 
-VOID
-LpcpDecConMsg(
-    IN PLPCP_MESSAGE Msg
-    );
 
 NTSTATUS
 NtConnectPort(
@@ -399,7 +389,11 @@ Return Value:
     // replies.
     //
 
-    LpcpInitializePortQueue( ClientPort );
+    Status = LpcpInitializePortQueue( ClientPort );
+    if (!NT_SUCCESS( Status )) {
+        ObDereferenceObject( ClientPort );
+        return( Status );
+    }
 
     //
     // If client has allocated a port memory section, then map a view of
@@ -461,11 +455,12 @@ Return Value:
         ConnectionInfoLength = ConnectionPort->MaxConnectionInfoLength;
         }
 
+    ExAcquireFastMutex( &LpcpLock );
     Msg = LpcpAllocateFromPortZone( sizeof( *Msg ) +
                                     sizeof( *ConnectMsg ) +
-                                    ConnectionInfoLength,
-                                    NULL
+                                    ConnectionInfoLength
                                   );
+    ExReleaseFastMutex( &LpcpLock );
     if (Msg == NULL) {
         if (SectionToMap != NULL) {
             ObDereferenceObject( SectionToMap );
@@ -515,30 +510,55 @@ Return Value:
         }
 
     //
-    // Acquire the spin lock that gaurds the LpcReplyMessage field of
-    // the thread.  Also acquire the spin lock that gaurds the connection
+    // Acquire the mutex that gaurds the LpcReplyMessage field of
+    // the thread.  Also acquire the semaphore that gaurds the connection
     // request message queue.  Stamp the connection request message with
     // a serial number, insert the message at the tail of the connection
     // request message queue and remember the address of the message in
     // the LpcReplyMessage field for the current thread.
     //
 
-    LpcpInsertConMsg( Msg, CurrentThread, ConnectionPort );
-    LpcpTrace(( "Send Connect Msg %lx to Port %wZ (%lx)\n", Msg, PortName, ConnectionPort ));
-
+    ExAcquireFastMutex( &LpcpLock );
     //
-    // Increment the connection request message queue semaphore by one for
-    // the newly inserted connection request message.  Release the spin
-    // locks, while remaining at the dispatcher IRQL.  Then wait for the
-    // reply to this connection request by waiting on the LpcReplySemaphore
-    // for the current thread.
+    // See if the port name has been deleted from under us.  If so, then
+    // don't queue the message and don't wait for a reply
     //
+    if (ConnectionPort->Flags & PORT_NAME_DELETED) {
+        Status = STATUS_OBJECT_NAME_NOT_FOUND;
+        }
+    else {
+        Status = STATUS_SUCCESS;
+        LpcpTrace(( "Send Connect Msg %lx to Port %wZ (%lx)\n", Msg, PortName, ConnectionPort ));
 
-    Status = KeReleaseWaitForSemaphore( &ConnectionPort->MsgQueue.Semaphore,
-                                        &CurrentThread->LpcReplySemaphore,
-                                        Executive,
-                                        PreviousMode
-                                      );
+        //
+        // Stamp the request message with a serial number, insert the message
+        // at the tail of the request message queue
+        //
+        Msg->RepliedToThread = NULL;
+        Msg->Request.MessageId = LpcpGenerateMessageId();
+        CurrentThread->LpcReplyMessageId = Msg->Request.MessageId;
+        InsertTailList( &ConnectionPort->MsgQueue.ReceiveHead, &Msg->Entry );
+        InsertTailList( &ConnectionPort->LpcReplyChainHead, &CurrentThread->LpcReplyChain );
+        CurrentThread->LpcReplyMessage = Msg;
+        }
+
+    ExReleaseFastMutex( &LpcpLock );
+    if (NT_SUCCESS( Status )) {
+        //
+        // Increment the connection request message queue semaphore by one for
+        // the newly inserted connection request message.  Release the spin
+        // locks, while remaining at the dispatcher IRQL.  Then wait for the
+        // reply to this connection request by waiting on the LpcReplySemaphore
+        // for the current thread.
+        //
+
+        Status = KeReleaseWaitForSemaphore( ConnectionPort->MsgQueue.Semaphore,
+                                            &CurrentThread->LpcReplySemaphore,
+                                            Executive,
+                                            PreviousMode
+                                          );
+        }
+
     if (Status == STATUS_USER_APC) {
         //
         // if the semaphore is signaled, then clear it
@@ -638,7 +658,12 @@ Return Value:
                     ObDereferenceObject( SectionToMap );
                     }
                 ObDereferenceObject( ClientPort );
-                Status = STATUS_PORT_CONNECTION_REFUSED;
+                if (ConnectionPort->Flags & PORT_NAME_DELETED) {
+                    Status = STATUS_OBJECT_NAME_NOT_FOUND;
+                    }
+                else {
+                    Status = STATUS_PORT_CONNECTION_REFUSED;
+                    }
                 }
 
             LpcpFreeToPortZone( Msg, FALSE );
@@ -654,7 +679,7 @@ Return Value:
         }
     else {
         //
-        // Acquire the LPC spin lock, remove the connection request message
+        // Acquire the LPC mutex, remove the connection request message
         // from the received queue and free the message back to the connection
         // port's zone.
         //
@@ -686,31 +711,6 @@ Return Value:
 }
 
 
-VOID
-LpcpInsertConMsg(
-    IN PLPCP_MESSAGE Msg,
-    IN PETHREAD CurrentThread,
-    IN PLPCP_PORT_OBJECT ConnectionPort
-    )
-{
-    KIRQL OldIrql;
-
-    ExAcquireSpinLock( &LpcpLock, &OldIrql );
-    //
-    // Stamp the request message with a serial number, insert the message
-    // at the tail of the request message queue
-    //
-    Msg->RepliedToThread = NULL;
-    Msg->Request.MessageId = LpcpGenerateMessageId();
-    CurrentThread->LpcReplyMessageId = Msg->Request.MessageId;
-    InsertTailList( &ConnectionPort->MsgQueue.ReceiveHead, &Msg->Entry );
-    InsertTailList( &ConnectionPort->LpcReplyChainHead, &CurrentThread->LpcReplyChain );
-    CurrentThread->LpcReplyMessage = Msg;
-
-    ExReleaseSpinLock( &LpcpLock, OldIrql );
-}
-
-
 PVOID
 LpcpFreeConMsg(
     IN PLPCP_MESSAGE *Msg,
@@ -718,16 +718,15 @@ LpcpFreeConMsg(
     IN PETHREAD CurrentThread
     )
 {
-    KIRQL OldIrql;
     PVOID SectionToMap;
 
     //
-    // Acquire the LPC spin lock, remove the connection request message
+    // Acquire the LPC mutex, remove the connection request message
     // from the received queue and free the message back to the connection
     // port's zone.
     //
 
-    ExAcquireSpinLock( &LpcpLock, &OldIrql );
+    ExAcquireFastMutex( &LpcpLock );
 
     //
     // Remove the thread from the reply rundown list in case we did not wakeup due to
@@ -751,6 +750,6 @@ LpcpFreeConMsg(
         SectionToMap = NULL;
         }
 
-    ExReleaseSpinLock( &LpcpLock, OldIrql );
+    ExReleaseFastMutex( &LpcpLock );
     return SectionToMap;
 }

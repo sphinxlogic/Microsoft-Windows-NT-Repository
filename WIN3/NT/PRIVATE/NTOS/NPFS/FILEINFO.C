@@ -735,7 +735,7 @@ Return Value:
     //  instance
     //
 
-    Buffer->AllocationSize = LiFromUlong( Inbound->Quota + Outbound->Quota );
+    Buffer->AllocationSize.QuadPart = Inbound->Quota + Outbound->Quota;
 
     //
     //  The Eof is the number of writen bytes ready to be read from the inbound
@@ -744,7 +744,7 @@ Return Value:
 
     if (NpIsDataQueueWriters( Inbound )) {
 
-        Buffer->EndOfFile = LiFromUlong( Inbound->BytesInQueue );
+        Buffer->EndOfFile.QuadPart = Inbound->BytesInQueue;
     }
 
     Buffer->NumberOfLinks = 1;
@@ -1019,14 +1019,14 @@ Return Value:
 
         if (NpIsDataQueueWriters( Outbound )) {
 
-            Buffer->CurrentByteOffset = LiFromUlong( Outbound->BytesInQueue );
+            Buffer->CurrentByteOffset.QuadPart = Outbound->BytesInQueue;
         }
 
     } else {
 
         if (NpIsDataQueueWriters( Inbound )) {
 
-            Buffer->CurrentByteOffset = LiFromUlong( Inbound->BytesInQueue );
+            Buffer->CurrentByteOffset.QuadPart = Inbound->BytesInQueue;
         }
     }
 
@@ -1247,7 +1247,7 @@ Return Value:
 
     DebugTrace(0, Dbg, "NpSetBasicInfo...\n", 0);
 
-    if (LiNeqZero(*(PLARGE_INTEGER)&Buffer->CreationTime)) {
+    if (((PLARGE_INTEGER)&Buffer->CreationTime)->QuadPart != 0) {
 
         //
         //  Modify the creation time
@@ -1256,7 +1256,7 @@ Return Value:
         //**** need to add time fields
     }
 
-    if (LiNeqZero(*(PLARGE_INTEGER)&Buffer->LastAccessTime)) {
+    if (((PLARGE_INTEGER)&Buffer->LastAccessTime)->QuadPart != 0) {
 
         //
         //  Modify the last access time
@@ -1265,7 +1265,7 @@ Return Value:
         //**** need to add time fields
     }
 
-    if (LiNeqZero(*(PLARGE_INTEGER)&Buffer->LastWriteTime)) {
+    if (((PLARGE_INTEGER)&Buffer->LastWriteTime)->QuadPart != 0) {
 
         //
         //  Modify the last write time
@@ -1274,7 +1274,7 @@ Return Value:
         //**** need to add time fields
     }
 
-    if (LiNeqZero(*(PLARGE_INTEGER)&Buffer->ChangeTime)) {
+    if (((PLARGE_INTEGER)&Buffer->ChangeTime)->QuadPart != 0) {
 
         //
         //  Modify the change time
@@ -1410,4 +1410,3 @@ Return Value:
 
     return STATUS_SUCCESS;
 }
-

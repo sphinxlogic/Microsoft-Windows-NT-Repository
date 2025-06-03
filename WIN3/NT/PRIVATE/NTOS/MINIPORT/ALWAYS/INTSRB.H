@@ -98,4 +98,3 @@ struct SG_LIST {
 
 
 #endif
-

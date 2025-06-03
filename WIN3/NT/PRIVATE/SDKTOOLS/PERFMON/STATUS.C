@@ -370,7 +370,8 @@ BOOL StatusInitializeApplication (void)
    wc.cbWndExtra     = iStatusWindowExtra ;
    wc.hIcon          = NULL ;
    wc.hCursor        = LoadCursor (NULL, IDC_ARROW) ;
-   wc.hbrBackground  = hbLightGray ;
+//   wc.hbrBackground  = hbLightGray ;
+   wc.hbrBackground  = hBrushFace ;
    wc.lpszMenuName   = NULL ;
    wc.lpszClassName  = szStatusClass ;
 
@@ -456,4 +457,4 @@ void StatusUpdateIcons (HWND hWndStatus)
    PaintStatusBar (hWndStatus, hStatusDC, PaintIcons) ;
    }
 
-
+

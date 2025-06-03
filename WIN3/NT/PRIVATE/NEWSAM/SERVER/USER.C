@@ -36,6 +36,7 @@ Revision History:
 #include <ntlsa.h>                    // need for nlrepl.h
 #include <nlrepl.h>                   // I_NetNotifyMachineAccount prototype
 #include <msaudite.h>
+#include <rc4.h>                      // rc4_key(), rc4()
 
 
 
@@ -579,6 +580,19 @@ Return Values:
                             NULL            // Delta data
                             );
 
+                        //
+                        // Do delete auditing
+                        //
+
+                        if (NT_SUCCESS(NtStatus)) {
+                            (VOID) NtDeleteObjectAuditAlarm(
+                                        &SampSamSubsystem,
+                                        *UserHandle,
+                                        AccountContext->AuditOnClose
+                                        );
+                        }
+
+
                         if ( ( V1aFixed.UserAccountControl &
                             USER_MACHINE_ACCOUNT_MASK ) != 0 ) {
 
@@ -889,6 +903,19 @@ Return Value:
         switch (UserInformationClass) {
 
         case UserInternal3Information:
+            //
+            // Only trusted clients may query for this class.
+            //
+
+            if ( !AccountContext->TrustedClient ) {
+                NtStatus = STATUS_INVALID_INFO_CLASS;
+                break;
+            }
+
+            //
+            // Drop through to the UserAll case
+            //
+
         case UserAllInformation: {
 
             //
@@ -911,9 +938,6 @@ Return Value:
 
             } else {
 
-                if (UserInformationClass == UserInternal3Information) {
-                    return(STATUS_INVALID_INFO_CLASS);
-                }
 
                 //
                 // Only return fields that the caller has access to.
@@ -1262,9 +1286,7 @@ Return Value:
 
                     NtStatus = NtQuerySystemTime( &TimeNow );
                     if (NT_SUCCESS(NtStatus)) {
-                        if ( RtlLargeIntegerGreaterThanOrEqualTo(
-                            TimeNow,
-                            All->PasswordMustChange ) ) {
+                        if ( TimeNow.QuadPart >= All->PasswordMustChange.QuadPart) {
 
                             All->PasswordExpired = TRUE;
 
@@ -2492,6 +2514,558 @@ Return Values:
 }
 
 
+
+
+NTSTATUS
+SampCalculateLmPassword(
+    IN PUNICODE_STRING NtPassword,
+    OUT PCHAR *LmPasswordBuffer
+    )
+
+/*++
+
+Routine Description:
+
+    This service converts an NT password into a LM password.
+
+Parameters:
+
+    NtPassword - The Nt password to be converted.
+
+    LmPasswordBuffer - On successful return, points at the LM password
+                The buffer should be freed using MIDL_user_free
+
+Return Values:
+
+    STATUS_SUCCESS - LMPassword contains the LM version of the password.
+
+    STATUS_NULL_LM_PASSWORD - The password is too complex to be represented
+        by a LM password. The LM password returned is a NULL string.
+
+
+--*/
+{
+
+#define LM_BUFFER_LENGTH    (LM20_PWLEN + 1)
+
+    NTSTATUS       NtStatus;
+    ANSI_STRING    LmPassword;
+
+    //
+    // Prepare for failure
+    //
+
+    *LmPasswordBuffer = NULL;
+
+
+    //
+    // Compute the Ansi version to the Unicode password.
+    //
+    //  The Ansi version of the Cleartext password is at most 14 bytes long,
+    //      exists in a trailing zero filled 15 byte buffer,
+    //      is uppercased.
+    //
+
+    LmPassword.Buffer = MIDL_user_allocate(LM_BUFFER_LENGTH);
+    if (LmPassword.Buffer == NULL) {
+        return(STATUS_INSUFFICIENT_RESOURCES);
+    }
+
+    LmPassword.MaximumLength = LmPassword.Length = LM_BUFFER_LENGTH;
+    RtlZeroMemory( LmPassword.Buffer, LM_BUFFER_LENGTH );
+
+    NtStatus = RtlUpcaseUnicodeStringToOemString( &LmPassword, NtPassword, FALSE );
+
+
+    if ( !NT_SUCCESS(NtStatus) ) {
+
+        //
+        // The password is longer than the max LM password length
+        //
+
+        NtStatus = STATUS_NULL_LM_PASSWORD; // Informational return code
+        RtlZeroMemory( LmPassword.Buffer, LM_BUFFER_LENGTH );
+
+    }
+
+
+
+
+    //
+    // Return a pointer to the allocated LM password
+    //
+
+    if (NT_SUCCESS(NtStatus)) {
+
+        *LmPasswordBuffer = LmPassword.Buffer;
+
+    } else {
+
+        MIDL_user_free(LmPassword.Buffer);
+    }
+
+    return(NtStatus);
+}
+
+
+
+NTSTATUS
+SampCalculateLmAndNtOwfPasswords(
+    IN PUNICODE_STRING ClearNtPassword,
+    OUT PBOOLEAN LmPasswordPresent,
+    OUT PLM_OWF_PASSWORD LmOwfPassword,
+    OUT PNT_OWF_PASSWORD NtOwfPassword
+    )
+/*++
+
+Routine Description:
+
+    This routine calculates the LM and NT OWF passwordw from the cleartext
+    password.
+
+Arguments:
+
+    ClearNtPassword - A Cleartext unicode password
+
+    LmPasswordPresent - indicates whether an LM OWF password could be
+        calculated
+
+    LmOwfPassword - Gets the LM OWF hash of the cleartext password.
+
+    NtOwfPassword - Gets the NT OWF hash of the cleartext password.
+
+
+Return Value:
+
+--*/
+{
+    PCHAR LmPassword = NULL;
+    NTSTATUS NtStatus;
+
+    //
+    // First compute the LM password.  If the password is too complex
+    // this may not be possible.
+    //
+
+
+    NtStatus = SampCalculateLmPassword(
+                ClearNtPassword,
+                &LmPassword
+                );
+
+    //
+    // If it faield because the LM password could not be calculated, that
+    // is o.k.
+    //
+
+    if (NtStatus != STATUS_SUCCESS) {
+
+        if (NtStatus == STATUS_NULL_LM_PASSWORD) {
+            *LmPasswordPresent = FALSE;
+            NtStatus = STATUS_SUCCESS;
+
+        }
+
+    } else {
+
+        //
+        // Now compute the OWF passwords
+        //
+
+        *LmPasswordPresent = TRUE;
+
+        NtStatus = RtlCalculateLmOwfPassword(
+                        LmPassword,
+                        LmOwfPassword
+                        );
+
+    }
+
+
+    if (NT_SUCCESS(NtStatus)) {
+
+        NtStatus = RtlCalculateNtOwfPassword(
+                        ClearNtPassword,
+                        NtOwfPassword
+                   );
+    }
+
+    if (LmPassword != NULL) {
+        MIDL_user_free(LmPassword);
+    }
+
+    return(NtStatus);
+
+}
+
+
+
+NTSTATUS
+SampDecryptPasswordWithKey(
+    IN PSAMPR_ENCRYPTED_USER_PASSWORD EncryptedPassword,
+    IN PBYTE Key,
+    IN ULONG KeySize,
+    IN BOOLEAN UnicodePasswords,
+    OUT PUNICODE_STRING ClearNtPassword
+    )
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+--*/
+{
+    struct RC4_KEYSTRUCT Rc4Key;
+    NTSTATUS NtStatus;
+    OEM_STRING OemPassword;
+    PSAMPR_USER_PASSWORD Password = (PSAMPR_USER_PASSWORD) EncryptedPassword;
+
+    //
+    // Decrypt the key.
+    //
+
+    rc4_key(
+        &Rc4Key,
+        KeySize,
+        Key
+        );
+
+    rc4(&Rc4Key,
+        sizeof(SAMPR_ENCRYPTED_USER_PASSWORD),
+        (PUCHAR) Password
+        );
+
+    //
+    // Check that the length is valid.  If it isn't bail here.
+    //
+
+    if (Password->Length > SAM_MAX_PASSWORD_LENGTH * sizeof(WCHAR)) {
+        return(STATUS_WRONG_PASSWORD);
+    }
+
+
+    //
+    // Convert the password into a unicode string.
+    //
+
+    if (UnicodePasswords) {
+        NtStatus = SampInitUnicodeString(
+                        ClearNtPassword,
+                        (USHORT) (Password->Length + sizeof(WCHAR))
+                   );
+        if (NT_SUCCESS(NtStatus)) {
+
+            ClearNtPassword->Length = (USHORT) Password->Length;
+
+            RtlCopyMemory(
+                ClearNtPassword->Buffer,
+                ((PCHAR) Password->Buffer) +
+                    (SAM_MAX_PASSWORD_LENGTH * sizeof(WCHAR)) -
+                    Password->Length,
+                Password->Length
+                );
+            NtStatus = STATUS_SUCCESS;
+        }
+    } else {
+
+        //
+        // The password is in the OEM character set.  Convert it to Unicode
+        // and then copy it into the ClearNtPassword structure.
+        //
+
+        OemPassword.Buffer = ((PCHAR)Password->Buffer) +
+                                (SAM_MAX_PASSWORD_LENGTH * sizeof(WCHAR)) -
+                                Password->Length;
+
+        OemPassword.Length = (USHORT) Password->Length;
+
+
+        NtStatus = RtlOemStringToUnicodeString(
+                        ClearNtPassword,
+                        &OemPassword,
+                        TRUE            // allocate destination
+                    );
+    }
+
+    return(NtStatus);
+}
+
+
+NTSTATUS
+SampDecryptPasswordWithSessionKey(
+    IN SAMPR_HANDLE UserHandle,
+    IN PSAMPR_ENCRYPTED_USER_PASSWORD EncryptedPassword,
+    OUT PUNICODE_STRING ClearNtPassword
+    )
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+--*/
+{
+    NTSTATUS NtStatus;
+    USER_SESSION_KEY UserSessionKey;
+
+    NtStatus = RtlGetUserSessionKeyServer(
+                    (RPC_BINDING_HANDLE)UserHandle,
+                    &UserSessionKey
+                    );
+
+    if (!NT_SUCCESS(NtStatus)) {
+        return(NtStatus);
+    }
+
+
+
+    return(SampDecryptPasswordWithKey(
+                EncryptedPassword,
+                (PUCHAR) &UserSessionKey,
+                sizeof(USER_SESSION_KEY),
+                TRUE,
+                ClearNtPassword
+                ) );
+}
+
+
+
+NTSTATUS
+SampCheckPasswordRestrictions(
+    IN SAMPR_HANDLE UserHandle,
+    PUNICODE_STRING NewNtPassword
+    )
+
+/*++
+
+Routine Description:
+
+    This service is called to make sure that the password presented meets
+    our quality requirements.
+
+
+Arguments:
+
+    UserHandle - Handle to a user.
+
+    NewNtPassword - Pointer to the UNICODE_STRING containing the new
+        password.
+
+
+Return Value:
+
+    STATUS_SUCCESS - The password is acceptable.
+
+    STATUS_PASSWORD_RESTRICTION - The password is too short, or is not
+        complex enough, etc.
+
+    STATUS_INVALID_RESOURCES - There was not enough memory to do the
+        password checking.
+
+
+--*/
+{
+    USER_DOMAIN_PASSWORD_INFORMATION  PasswordInformation;
+    NTSTATUS                          NtStatus;
+    PWORD                             CharInfoBuffer = NULL;
+    ULONG                             i;
+    PSAMP_DEFINED_DOMAINS             Domain;
+    SAMP_V1_0A_FIXED_LENGTH_USER      V1aFixed;
+    PSAMP_OBJECT                      AccountContext = (PSAMP_OBJECT) UserHandle;
+
+
+
+    //
+    // Query information domain to get password length and
+    // complexity requirements.
+    //
+
+    //
+    // BUGBUG: this code was copied from SamrGetUserDomainPasswordInformation
+    //
+
+    //
+    // When the user was opened, we checked to see if the domain handle
+    // allowed access to the domain password information.  Check that here.
+    //
+
+    if ( !( AccountContext->TypeBody.User.DomainPasswordInformationAccessible ) ) {
+
+        NtStatus = STATUS_ACCESS_DENIED;
+
+    } else {
+
+        Domain = &SampDefinedDomains[ AccountContext->DomainIndex ];
+
+        //
+        // If the user account is a machine account,
+        // then restrictions are generally not enforced.
+        // This is so that simple initial passwords can be
+        // established.  IT IS EXPECTED THAT COMPLEX PASSWORDS,
+        // WHICH MEET THE MOST STRINGENT RESTRICTIONS, WILL BE
+        // AUTOMATICALLY ESTABLISHED AND MAINTAINED ONCE THE MACHINE
+        // JOINS THE DOMAIN.  It is the UI's responsibility to
+        // maintain this level of complexity.
+        //
+
+
+        NtStatus = SampRetrieveUserV1aFixed(
+                       AccountContext,
+                       &V1aFixed
+                       );
+
+        if (NT_SUCCESS(NtStatus)) {
+            if ( (V1aFixed.UserAccountControl &
+                  (USER_WORKSTATION_TRUST_ACCOUNT | USER_SERVER_TRUST_ACCOUNT))
+                  != 0 ) {
+
+                PasswordInformation.MinPasswordLength = 0;
+                PasswordInformation.PasswordProperties = 0;
+            } else {
+
+                PasswordInformation.MinPasswordLength = Domain->UnmodifiedFixed.MinPasswordLength;
+                PasswordInformation.PasswordProperties = Domain->UnmodifiedFixed.PasswordProperties;
+            }
+        }
+    }
+
+
+    if ( NT_SUCCESS( NtStatus ) ) {
+
+        if ( (USHORT)( NewNtPassword->Length / sizeof(WCHAR) ) < PasswordInformation.MinPasswordLength ) {
+
+            NtStatus = STATUS_PASSWORD_RESTRICTION;
+
+        } else {
+
+            //
+            // Check password complexity.
+            //
+
+            if ( PasswordInformation.PasswordProperties & DOMAIN_PASSWORD_COMPLEX ) {
+
+                //
+                // Make sure that the password meets our requirements for
+                // complexity.  If it's got an odd byte count, it's
+                // obviously not a hand-entered UNICODE string so we'll
+                // consider it complex by default.
+                //
+
+                if ( !( NewNtPassword->Length & 1 ) ) {
+
+                    USHORT NumsInPassword = 0;
+                    USHORT UppersInPassword = 0;
+                    USHORT LowersInPassword = 0;
+                    USHORT OthersInPassword = 0;
+
+                    CharInfoBuffer = MIDL_user_allocate( NewNtPassword->Length );
+
+                    if ( CharInfoBuffer == NULL ) {
+
+                        NtStatus = STATUS_INSUFFICIENT_RESOURCES;
+
+                    } else {
+
+                        if ( GetStringTypeW(
+                                 CT_CTYPE1,
+                                 NewNtPassword->Buffer,
+                                 NewNtPassword->Length / 2,
+                                 CharInfoBuffer ) ) {
+
+                            for ( i = 0; i < (ULONG)( NewNtPassword->Length / sizeof(WCHAR) ); i++ ) {
+
+                                if ( CharInfoBuffer[i] & C1_DIGIT ) {
+
+                                    NumsInPassword = 1;
+                                }
+
+                                if ( CharInfoBuffer[i] & C1_UPPER ) {
+
+                                    UppersInPassword = 1;
+                                }
+
+                                if ( CharInfoBuffer[i] & C1_LOWER ) {
+
+                                    LowersInPassword = 1;
+                                }
+
+                                if ( !( CharInfoBuffer[i] & ( C1_ALPHA | C1_DIGIT ) ) ) {
+
+                                    //
+                                    // Having any "other" characters is
+                                    // sufficient to make the password
+                                    // complex.
+                                    //
+
+                                    OthersInPassword = 2;
+                                }
+                            }
+
+                            if ( ( NumsInPassword + UppersInPassword +
+                                LowersInPassword + OthersInPassword ) < 2 ) {
+
+                                //
+                                // It didn't have at least two of the four
+                                // types of characters, so it's not complex
+                                // enough.
+                                //
+
+                                NtStatus = STATUS_PASSWORD_RESTRICTION;
+                            }
+
+                        } else {
+
+                            //
+                            // GetStringTypeW failed; dunno why.  Perhaps the
+                            // password is binary.  Consider it complex by
+                            // default.
+                            //
+
+                            NtStatus = STATUS_SUCCESS;
+                        }
+
+                        MIDL_user_free( CharInfoBuffer );
+                    }
+                }
+            }
+        }
+    }
+
+    return( NtStatus );
+}
+
+
+
+NTSTATUS
+SamrSetInformationUser2(
+    IN SAMPR_HANDLE UserHandle,
+    IN USER_INFORMATION_CLASS UserInformationClass,
+    IN PSAMPR_USER_INFO_BUFFER Buffer
+    )
+{
+    //
+    // This is a thin veil to SamrSetInformationUser().
+    // This is needed so that new-release systems can call
+    // this routine without the danger of passing an info
+    // level that release 1.0 systems didn't understand.
+    //
+
+
+    return( SamrSetInformationUser(
+                UserHandle,
+                UserInformationClass,
+                Buffer
+                ) );
+}
 
 NTSTATUS
 SamrSetInformationUser(
@@ -2556,7 +3130,8 @@ Parameters:
         UserInternal1Information        USER_FORCE_PASSWORD_CHANGE
         UserInternal2Information        (Trusted client only)
         UserInternal3Information        (Trusted client only) -
-                                        similar to All Information
+        UserInternal4Information        Similar to All Information
+        UserInternal5Information        Similar to SetPassword
         UserAllInformation              Will set fields that are
                                         requested by caller.  Access
                                         to fields to be set must be
@@ -2617,6 +3192,10 @@ Return Values:
 
     USER_SESSION_KEY        UserSessionKey;
 
+    BOOLEAN                 LmPresent;
+    BOOLEAN                 NtPresent;
+    BOOLEAN                 PasswordExpired;
+
     ULONG                   ObjectRid,
                             OldUserAccountControl,
                             DomainIndex;
@@ -2631,6 +3210,9 @@ Return Values:
                             Unlocking;
 
     SECURITY_DB_DELTA_TYPE  DeltaType = SecurityDbChange;
+    UNICODE_STRING          ClearTextPassword;
+    UNICODE_STRING          AccountName;
+    ULONG                   UserRid = 0;
 
 #if DBG
 
@@ -2639,6 +3221,13 @@ Return Values:
 
 #endif //DBG
 
+    //
+    // Initialization.
+    //
+
+    ClearTextPassword.Buffer = NULL;
+    ClearTextPassword.Length = 0;
+    AccountName.Buffer = NULL;
 
     //
     // Make sure we understand what RPC is doing for (to) us.
@@ -2688,6 +3277,7 @@ Return Values:
 
     case UserSetPasswordInformation:
     case UserInternal1Information:
+    case UserInternal5Information:
 
         DeltaType = SecurityDbChangePassword;
         DesiredAccess = USER_FORCE_PASSWORD_CHANGE;
@@ -2695,16 +3285,16 @@ Return Values:
 
 
 
-
     case UserAllInformation:
     case UserInternal3Information:
+    case UserInternal4Information:
 
         //////////////////////////////////////////////////////////////
         //                                                          //
         //  !!!! WARNING !!!!                                       //
         //                                                          //
         //  Be warned that the buffer structure for                 //
-        //  UserInternal3Information MUST begin with the same       //
+        //  UserInternal3/4Information MUST begin with the same     //
         //  structure as UserAllInformation.                        //
         //                                                          //
         //////////////////////////////////////////////////////////////
@@ -2742,7 +3332,7 @@ Return Values:
 
             OLD_TO_NEW_LARGE_INTEGER(All->AccountExpires, Temp);
 
-            if (!RtlLargeIntegerEqualTo( Temp, AccountNeverExpires )) {
+            if (!( Temp.QuadPart == AccountNeverExpires.QuadPart)) {
 
                 return( STATUS_SPECIAL_ACCOUNT );
             }
@@ -2838,85 +3428,118 @@ Return Values:
         Domain = &SampDefinedDomains[ DomainIndex ];
 
         //
-        // If the information level requires, retrieve the V1_FIXED
-        // record from the registry.  We need to fetch V1_FIXED if we
-        // are going to change it or if we need the AccountControl
-        // flags for display cache updating.
-        //
-        // The following information levels change data that is in the cached
-        // display list.
+        // Get the user's rid. This is used for notifying other
+        // packages of a password change.
         //
 
-        switch (UserInformationClass) {
+        UserRid = AccountContext->TypeBody.User.Rid;
 
-        case UserAllInformation:
-        case UserInternal3Information:
 
-            if ( ( All->WhichFields &
-                ( USER_ALL_USERNAME | USER_ALL_FULLNAME |
-                USER_ALL_ADMINCOMMENT | USER_ALL_USERACCOUNTCONTROL ) )
-                == 0 ) {
+        //
+        // If this information level contains reversibly encrypted passwords
+        // it is not allowed if the DOMAIN_PASSWORD_NO_CLEAR_CHANGE bit is
+        // set.  If that happens, return an error indicating that
+        // the older information level should be used.
+        //
 
-                //
-                // We're not changing any of the fields in the display
-                // info, we don't update the account display.
-                //
+        if ((UserInformationClass == UserInternal4Information) ||
+            (UserInformationClass == UserInternal5Information)) {
 
-                break;
+            if (Domain->UnmodifiedFixed.PasswordProperties &
+                DOMAIN_PASSWORD_NO_CLEAR_CHANGE) {
+
+                NtStatus = RPC_NT_INVALID_TAG;
             }
 
-        case UserControlInformation:
-        case UserNameInformation:
-        case UserAccountNameInformation:
-        case UserFullNameInformation:
-        case UserAdminCommentInformation:
-
-            MustUpdateAccountDisplay = TRUE;
         }
 
-        //
-        // These levels involve updating the V1aFixed structure
-        //
-
-        switch (UserInformationClass) {
-
-        case UserAllInformation:
-        case UserInternal3Information:
+        if (NT_SUCCESS(NtStatus)) {
 
             //
-            // Earlier, we might have just trusted that the caller
-            // was a trusted client.  Check it out here.
+            // If the information level requires, retrieve the V1_FIXED
+            // record from the registry.  We need to fetch V1_FIXED if we
+            // are going to change it or if we need the AccountControl
+            // flags for display cache updating.
+            //
+            // The following information levels change data that is in the cached
+            // display list.
             //
 
-            if ( ( DesiredAccess == 0 ) &&
-                ( !AccountContext->TrustedClient ) ) {
+            switch (UserInformationClass) {
 
-                NtStatus = STATUS_ACCESS_DENIED;
-                break;
+            case UserAllInformation:
+            case UserInternal3Information:
+            case UserInternal4Information:
+
+                if ( ( All->WhichFields &
+                    ( USER_ALL_USERNAME | USER_ALL_FULLNAME |
+                    USER_ALL_ADMINCOMMENT | USER_ALL_USERACCOUNTCONTROL ) )
+                    == 0 ) {
+
+                    //
+                    // We're not changing any of the fields in the display
+                    // info, we don't update the account display.
+                    //
+
+                    break;
+                }
+
+            case UserControlInformation:
+            case UserNameInformation:
+            case UserAccountNameInformation:
+            case UserFullNameInformation:
+            case UserAdminCommentInformation:
+
+                MustUpdateAccountDisplay = TRUE;
             }
 
             //
-            // Otherwise fall through
+            // These levels involve updating the V1aFixed structure
             //
 
-        case UserPreferencesInformation:
-        case UserPrimaryGroupInformation:
-        case UserControlInformation:
-        case UserExpiresInformation:
-        case UserSetPasswordInformation:
-        case UserInternal1Information:
-        case UserInternal2Information:
+            switch (UserInformationClass) {
 
-            MustQueryV1aFixed = TRUE;
+            case UserAllInformation:
+            case UserInternal3Information:
+            case UserInternal4Information:
 
-            break;
+                //
+                // Earlier, we might have just trusted that the caller
+                // was a trusted client.  Check it out here.
+                //
 
-        default:
+                if ( ( DesiredAccess == 0 ) &&
+                    ( !AccountContext->TrustedClient ) ) {
 
-            NtStatus = STATUS_SUCCESS;
+                    NtStatus = STATUS_ACCESS_DENIED;
+                    break;
+                }
 
-        } // end_switch
+                //
+                // Otherwise fall through
+                //
 
+            case UserPreferencesInformation:
+            case UserPrimaryGroupInformation:
+            case UserControlInformation:
+            case UserExpiresInformation:
+            case UserSetPasswordInformation:
+            case UserInternal1Information:
+            case UserInternal2Information:
+            case UserInternal5Information:
+
+                MustQueryV1aFixed = TRUE;
+
+                break;
+
+            default:
+
+                NtStatus = STATUS_SUCCESS;
+
+            } // end_switch
+
+
+        }
 
         if ( NT_SUCCESS( NtStatus ) &&
             ( MustQueryV1aFixed || MustUpdateAccountDisplay ) ) {
@@ -2946,6 +3569,7 @@ Return Values:
 
             case UserAllInformation:
             case UserInternal3Information:
+            case UserInternal4Information:
 
                 //
                 // Set the string data
@@ -3101,105 +3725,226 @@ Return Values:
                     BOOLEAN             TmpLmPresent;
                     BOOLEAN             TmpNtPresent;
 
-                    if ( AccountContext->TrustedClient ) {
+
+                    //
+                    // Get copy of the account name to pass to
+                    // notification packages.
+                    //
+
+                    NtStatus = SampGetUnicodeStringAttribute(
+                                    AccountContext,
+                                    SAMP_USER_ACCOUNT_NAME,
+                                    TRUE,    // Make copy
+                                    &AccountName
+                                    );
+
+                    if (!NT_SUCCESS(NtStatus)) {
+                        break;
+                    }
+
+
+                    if (UserInformationClass != UserInternal4Information) {
 
                         //
-                        // Set password buffers as trusted client has
-                        // indicated.
+                        // Hashed passwords were sent.
                         //
 
-                        if ( All->WhichFields & USER_ALL_LMPASSWORDPRESENT ) {
+                        if ( AccountContext->TrustedClient ) {
 
-                            TmpLmBuffer = (PLM_OWF_PASSWORD)All->LmPassword.Buffer;
-                            TmpLmPresent = All->LmPasswordPresent;
+                            //
+                            // Set password buffers as trusted client has
+                            // indicated.
+                            //
+
+                            if ( All->WhichFields & USER_ALL_LMPASSWORDPRESENT ) {
+
+                                TmpLmBuffer = (PLM_OWF_PASSWORD)All->LmPassword.Buffer;
+                                TmpLmPresent = All->LmPasswordPresent;
+
+                            } else {
+
+                                TmpLmBuffer = (PLM_OWF_PASSWORD)NULL;
+                                TmpLmPresent = FALSE;
+                            }
+
+                            if ( All->WhichFields & USER_ALL_NTPASSWORDPRESENT ) {
+
+                                TmpNtBuffer = (PNT_OWF_PASSWORD)All->NtPassword.Buffer;
+                                TmpNtPresent = All->NtPasswordPresent;
+
+                            } else {
+
+                                TmpNtBuffer = (PNT_OWF_PASSWORD)NULL;
+                                TmpNtPresent = FALSE;
+                            }
 
                         } else {
 
-                            TmpLmBuffer = (PLM_OWF_PASSWORD)NULL;
-                            TmpLmPresent = FALSE;
-                        }
+                            //
+                            // This call came from the client-side.
+                            // The OWFs will have been encrypted with the session
+                            // key across the RPC link.
+                            //
+                            // Get the session key and decrypt both OWFs
+                            //
 
-                        if ( All->WhichFields & USER_ALL_NTPASSWORDPRESENT ) {
+                            NtStatus = RtlGetUserSessionKeyServer(
+                                           (RPC_BINDING_HANDLE)UserHandle,
+                                           &UserSessionKey
+                                           );
 
-                            TmpNtBuffer = (PNT_OWF_PASSWORD)All->NtPassword.Buffer;
-                            TmpNtPresent = All->NtPasswordPresent;
+                            if ( !NT_SUCCESS( NtStatus ) ) {
+                                break; // out of switch
+                            }
 
-                        } else {
+                            //
+                            // Decrypt the LM OWF Password with the session key
+                            //
 
-                            TmpNtBuffer = (PNT_OWF_PASSWORD)NULL;
-                            TmpNtPresent = FALSE;
+                            if ( All->WhichFields & USER_ALL_LMPASSWORDPRESENT ) {
+
+                                NtStatus = RtlDecryptLmOwfPwdWithUserKey(
+                                               (PENCRYPTED_LM_OWF_PASSWORD)
+                                                   All->LmPassword.Buffer,
+                                               &UserSessionKey,
+                                               &LmOwfBuffer
+                                               );
+                                if ( !NT_SUCCESS( NtStatus ) ) {
+                                    break; // out of switch
+                                }
+
+                                TmpLmBuffer = &LmOwfBuffer;
+                                TmpLmPresent = All->LmPasswordPresent;
+
+                            } else {
+
+                                TmpLmBuffer = (PLM_OWF_PASSWORD)NULL;
+                                TmpLmPresent = FALSE;
+                            }
+
+                            //
+                            // Decrypt the NT OWF Password with the session key
+                            //
+
+                            if ( All->WhichFields & USER_ALL_NTPASSWORDPRESENT ) {
+
+                                NtStatus = RtlDecryptNtOwfPwdWithUserKey(
+                                               (PENCRYPTED_NT_OWF_PASSWORD)
+                                               All->NtPassword.Buffer,
+                                               &UserSessionKey,
+                                               &NtOwfBuffer
+                                               );
+
+                                if ( !NT_SUCCESS( NtStatus ) ) {
+                                    break; // out of switch
+                                }
+
+                                TmpNtBuffer = &NtOwfBuffer;
+                                TmpNtPresent = All->NtPasswordPresent;
+
+                            } else {
+
+                                TmpNtBuffer = (PNT_OWF_PASSWORD)NULL;
+                                TmpNtPresent = FALSE;
+                            }
+
                         }
 
                     } else {
 
                         //
-                        // This call came from the client-side.
-                        // The OWFs will have been encrypted with the session
-                        // key across the RPC link.
-                        //
-                        // Get the session key and decrypt both OWFs
+                        // The clear text password was sent, so use that.
                         //
 
-                        NtStatus = RtlGetUserSessionKeyServer(
-                                       (RPC_BINDING_HANDLE)UserHandle,
-                                       &UserSessionKey
-                                       );
-
-                        if ( !NT_SUCCESS( NtStatus ) ) {
-                            break; // out of switch
+                        NtStatus = SampDecryptPasswordWithSessionKey(
+                                        UserHandle,
+                                        &Buffer->Internal4.UserPassword,
+                                        &ClearTextPassword
+                                        );
+                        if (!NT_SUCCESS(NtStatus)) {
+                            break;
                         }
 
                         //
-                        // Decrypt the LM OWF Password with the session key
+                        // The caller might be simultaneously setting
+                        // the password and changing the account to be
+                        // a machine or trust account.  In this case,
+                        // we don't validate the password (e.g., length).
+                        //
+                        // If the account is already a workstation or server
+                        // trust account, don't check restrictions then either.
                         //
 
-                        if ( All->WhichFields & USER_ALL_LMPASSWORDPRESENT ) {
+                        if (!((All->WhichFields & USER_ALL_USERACCOUNTCONTROL) &&
+                             (All->UserAccountControl &
+                                (USER_WORKSTATION_TRUST_ACCOUNT | USER_SERVER_TRUST_ACCOUNT))
+                                    ) &&
+                            ((V1aFixed.UserAccountControl &
+                                (USER_WORKSTATION_TRUST_ACCOUNT | USER_SERVER_TRUST_ACCOUNT)) == 0 )
+                                    ) {
 
-                            NtStatus = RtlDecryptLmOwfPwdWithUserKey(
-                                           (PENCRYPTED_LM_OWF_PASSWORD)
-                                               All->LmPassword.Buffer,
-                                           &UserSessionKey,
-                                           &LmOwfBuffer
-                                           );
-                            if ( !NT_SUCCESS( NtStatus ) ) {
-                                break; // out of switch
+                            UNICODE_STRING FullName;
+
+                            NtStatus = SampCheckPasswordRestrictions(
+                                            UserHandle,
+                                            &ClearTextPassword
+                                            );
+
+                            if (!NT_SUCCESS(NtStatus)) {
+                                break;
                             }
 
-                            TmpLmBuffer = &LmOwfBuffer;
-                            TmpLmPresent = All->LmPasswordPresent;
+                            //
+                            // Get the account name and full name to pass
+                            // to the password filter.
+                            //
 
-                        } else {
+                            NtStatus = SampGetUnicodeStringAttribute(
+                                            AccountContext,           // Context
+                                            SAMP_USER_FULL_NAME,          // AttributeIndex
+                                            FALSE,                   // MakeCopy
+                                            &FullName             // UnicodeAttribute
+                                            );
 
-                            TmpLmBuffer = (PLM_OWF_PASSWORD)NULL;
-                            TmpLmPresent = FALSE;
-                        }
+                            if (NT_SUCCESS(NtStatus)) {
 
-                        //
-                        // Decrypt the NT OWF Password with the session key
-                        //
+                                NtStatus = SampPasswordChangeFilter(
+                                                &AccountName,
+                                                &FullName,
+                                                &ClearTextPassword,
+                                                TRUE                // set operation
+                                                );
 
-                        if ( All->WhichFields & USER_ALL_NTPASSWORDPRESENT ) {
-
-                            NtStatus = RtlDecryptNtOwfPwdWithUserKey(
-                                           (PENCRYPTED_NT_OWF_PASSWORD)
-                                           All->NtPassword.Buffer,
-                                           &UserSessionKey,
-                                           &NtOwfBuffer
-                                           );
-
-                            if ( !NT_SUCCESS( NtStatus ) ) {
-                                break; // out of switch
                             }
 
-                            TmpNtBuffer = &NtOwfBuffer;
-                            TmpNtPresent = All->NtPasswordPresent;
 
-                        } else {
+                            if (!NT_SUCCESS(NtStatus)) {
+                                break;
+                            }
 
-                            TmpNtBuffer = (PNT_OWF_PASSWORD)NULL;
-                            TmpNtPresent = FALSE;
                         }
+
+
+                        //
+                        // Compute the hashed passwords.
+                        //
+
+                        NtStatus = SampCalculateLmAndNtOwfPasswords(
+                                        &ClearTextPassword,
+                                        &TmpLmPresent,
+                                        &LmOwfBuffer,
+                                        &NtOwfBuffer
+                                        );
+                        if (!NT_SUCCESS(NtStatus)) {
+                            break;
+                        }
+
+
+                        TmpNtPresent = TRUE;
+                        TmpLmBuffer = &LmOwfBuffer;
+                        TmpNtBuffer = &NtOwfBuffer;
                     }
+
 
                     //
                     // Set the password data
@@ -3237,6 +3982,7 @@ Return Values:
                         ReplicateImmediately = TRUE;
                     }
                     DeltaType = SecurityDbChangePassword;
+
                 }
 
                 if ( ( NT_SUCCESS( NtStatus ) ) &&
@@ -3254,9 +4000,7 @@ Return Values:
                     // called and the password will never expire.
                     //
                     if ( All->PasswordExpired ||
-                         RtlLargeIntegerEqualTo(
-                                SampHasNeverTime,
-                                V1aFixed.PasswordLastSet ) ) {
+                         (SampHasNeverTime.QuadPart == V1aFixed.PasswordLastSet.QuadPart) ) {
 
                         NtStatus = SampComputePasswordExpired(
                                         All->PasswordExpired,
@@ -3864,9 +4608,9 @@ Return Values:
                                               SAMP_ACCOUNT_NEVER_EXPIRES
                                               );
 
-                    OLD_TO_NEW_LARGE_INTEGER(All->AccountExpires, Temp);
+                    OLD_TO_NEW_LARGE_INTEGER(Buffer->Expires.AccountExpires, Temp);
 
-                    if (!RtlLargeIntegerEqualTo( Temp, AccountNeverExpires )) {
+                    if (!( Temp.QuadPart == AccountNeverExpires.QuadPart)) {
 
                         NtStatus = STATUS_SPECIAL_ACCOUNT;
                         break;
@@ -3891,89 +4635,183 @@ Return Values:
 
  
             case UserInternal1Information:
+            case UserInternal5Information:
 
                 //
-                // If our client is trusted, they are on the server side
-                // and data from them will not have been encrypted with the
-                // user session key - so don't decrypt them
+                // Get copy of the account name to pass to
+                // notification packages.
                 //
 
-                if ( AccountContext->TrustedClient ) {
+                NtStatus = SampGetUnicodeStringAttribute(
+                                AccountContext,
+                                SAMP_USER_ACCOUNT_NAME,
+                                TRUE,    // Make copy
+                                &AccountName
+                                );
 
-                    //
-                    // Copy the (not) encrypted owfs into the owf buffers
-                    //
-
-                    ASSERT(ENCRYPTED_LM_OWF_PASSWORD_LENGTH == LM_OWF_PASSWORD_LENGTH);
-                    ASSERT(ENCRYPTED_NT_OWF_PASSWORD_LENGTH == NT_OWF_PASSWORD_LENGTH);
-
-                    RtlCopyMemory(&LmOwfPassword,
-                                  &Buffer->Internal1.EncryptedLmOwfPassword,
-                                  LM_OWF_PASSWORD_LENGTH
-                                  );
-
-                    RtlCopyMemory(&NtOwfPassword,
-                                  &Buffer->Internal1.EncryptedNtOwfPassword,
-                                  NT_OWF_PASSWORD_LENGTH
-                                  );
-
-                } else {
-
-
-                    //
-                    // This call came from the client-side. The
-                    // The OWFs will have been encrypted with the session
-                    // key across the RPC link.
-                    //
-                    // Get the session key and decrypt both OWFs
-                    //
-
-                    NtStatus = RtlGetUserSessionKeyServer(
-                                   (RPC_BINDING_HANDLE)UserHandle,
-                                   &UserSessionKey
-                                   );
-
-                    if ( !NT_SUCCESS( NtStatus ) ) {
-                        break; // out of switch
-                    }
-
-
-                    //
-                    // Decrypt the LM OWF Password with the session key
-                    //
-
-                    if ( Buffer->Internal1.LmPasswordPresent) {
-
-                        NtStatus = RtlDecryptLmOwfPwdWithUserKey(
-                                       &Buffer->Internal1.EncryptedLmOwfPassword,
-                                       &UserSessionKey,
-                                       &LmOwfPassword
-                                       );
-                        if ( !NT_SUCCESS( NtStatus ) ) {
-                            break; // out of switch
-                        }
-                    }
-
-
-                    //
-                    // Decrypt the NT OWF Password with the session key
-                    //
-
-                    if ( Buffer->Internal1.NtPasswordPresent) {
-
-                        NtStatus = RtlDecryptNtOwfPwdWithUserKey(
-                                       &Buffer->Internal1.EncryptedNtOwfPassword,
-                                       &UserSessionKey,
-                                       &NtOwfPassword
-                                       );
-
-                        if ( !NT_SUCCESS( NtStatus ) ) {
-                            break; // out of switch
-                        }
-                    }
+                if (!NT_SUCCESS(NtStatus)) {
+                    break;
                 }
 
 
+
+                if (UserInformationClass == UserInternal1Information) {
+
+                    LmPresent = Buffer->Internal1.LmPasswordPresent;
+                    NtPresent = Buffer->Internal1.NtPasswordPresent;
+                    PasswordExpired = Buffer->Internal1.PasswordExpired;
+
+                    //
+                    // If our client is trusted, they are on the server side
+                    // and data from them will not have been encrypted with the
+                    // user session key - so don't decrypt them
+                    //
+
+                    if ( AccountContext->TrustedClient ) {
+
+                        //
+                        // Copy the (not) encrypted owfs into the owf buffers
+                        //
+
+                        ASSERT(ENCRYPTED_LM_OWF_PASSWORD_LENGTH == LM_OWF_PASSWORD_LENGTH);
+                        ASSERT(ENCRYPTED_NT_OWF_PASSWORD_LENGTH == NT_OWF_PASSWORD_LENGTH);
+
+                        RtlCopyMemory(&LmOwfPassword,
+                                      &Buffer->Internal1.EncryptedLmOwfPassword,
+                                      LM_OWF_PASSWORD_LENGTH
+                                      );
+
+                        RtlCopyMemory(&NtOwfPassword,
+                                      &Buffer->Internal1.EncryptedNtOwfPassword,
+                                      NT_OWF_PASSWORD_LENGTH
+                                      );
+
+                    } else {
+
+
+                        //
+                        // This call came from the client-side. The
+                        // The OWFs will have been encrypted with the session
+                        // key across the RPC link.
+                        //
+                        // Get the session key and decrypt both OWFs
+                        //
+
+                        NtStatus = RtlGetUserSessionKeyServer(
+                                       (RPC_BINDING_HANDLE)UserHandle,
+                                       &UserSessionKey
+                                       );
+
+                        if ( !NT_SUCCESS( NtStatus ) ) {
+                            break; // out of switch
+                        }
+
+
+                        //
+                        // Decrypt the LM OWF Password with the session key
+                        //
+
+                        if ( Buffer->Internal1.LmPasswordPresent) {
+
+                            NtStatus = RtlDecryptLmOwfPwdWithUserKey(
+                                           &Buffer->Internal1.EncryptedLmOwfPassword,
+                                           &UserSessionKey,
+                                           &LmOwfPassword
+                                           );
+                            if ( !NT_SUCCESS( NtStatus ) ) {
+                                break; // out of switch
+                            }
+                        }
+
+
+                        //
+                        // Decrypt the NT OWF Password with the session key
+                        //
+
+                        if ( Buffer->Internal1.NtPasswordPresent) {
+
+                            NtStatus = RtlDecryptNtOwfPwdWithUserKey(
+                                           &Buffer->Internal1.EncryptedNtOwfPassword,
+                                           &UserSessionKey,
+                                           &NtOwfPassword
+                                           );
+
+                            if ( !NT_SUCCESS( NtStatus ) ) {
+                                break; // out of switch
+                            }
+                        }
+                    }
+                } else {
+                    UNICODE_STRING FullName;
+
+                    //
+                    // Password was sent cleartext.
+                    //
+
+                    NtStatus = SampDecryptPasswordWithSessionKey(
+                                    UserHandle,
+                                    &Buffer->Internal5.UserPassword,
+                                    &ClearTextPassword
+                                    );
+                    if (!NT_SUCCESS(NtStatus)) {
+                        break;
+                    }
+
+
+                    //
+                    // Compute the hashed passwords.
+                    //
+
+                    NtStatus = SampCalculateLmAndNtOwfPasswords(
+                                    &ClearTextPassword,
+                                    &LmPresent,
+                                    &LmOwfPassword,
+                                    &NtOwfPassword
+                                    );
+                    if (!NT_SUCCESS(NtStatus)) {
+                        break;
+                    }
+
+
+
+                    NtPresent = TRUE;
+                    PasswordExpired = Buffer->Internal5.PasswordExpired;
+
+                    //
+                    // If the account is not a workstation & server trust account
+                    // Get the full name to pass
+                    // to the password filter.
+                    //
+
+                    if ((V1aFixed.UserAccountControl &
+                        (USER_WORKSTATION_TRUST_ACCOUNT | USER_SERVER_TRUST_ACCOUNT)) == 0 ) {
+
+                        NtStatus = SampGetUnicodeStringAttribute(
+                                        AccountContext,           // Context
+                                        SAMP_USER_FULL_NAME,          // AttributeIndex
+                                        FALSE,                   // MakeCopy
+                                        &FullName             // UnicodeAttribute
+                                        );
+
+                        if (NT_SUCCESS(NtStatus)) {
+
+                            NtStatus = SampPasswordChangeFilter(
+                                            &AccountName,
+                                            &FullName,
+                                            &ClearTextPassword,
+                                            TRUE                // set operation
+                                            );
+
+                        }
+
+                        }
+
+                    if (!NT_SUCCESS(NtStatus)) {
+                        break;
+                    }
+
+
+                }
                 //
                 // Store away the new OWF passwords
                 //
@@ -3981,9 +4819,9 @@ Return Values:
                 NtStatus = SampStoreUserPasswords(
                                 AccountContext,
                                 &LmOwfPassword,
-                                Buffer->Internal1.LmPasswordPresent,
+                                LmPresent,
                                 &NtOwfPassword,
-                                Buffer->Internal1.NtPasswordPresent,
+                                NtPresent,
                                 FALSE
                                 );
 
@@ -3991,7 +4829,7 @@ Return Values:
 
                     NtStatus = SampStorePasswordExpired(
                                    AccountContext,
-                                   Buffer->Internal1.PasswordExpired
+                                   PasswordExpired
                                    );
                 }
 
@@ -4032,7 +4870,9 @@ Return Values:
 
                         if ( (Buffer->Internal2.StatisticsToApply
                                  & ~USER_LOGON_INTER_SUCCESS_LOGON)  != 0 ) {
+
                             NtStatus = STATUS_INVALID_PARAMETER;
+                            break;
                         } else {
 
                             //
@@ -4074,8 +4914,10 @@ Return Values:
                     if (Buffer->Internal2.StatisticsToApply
                         & USER_LOGON_INTER_SUCCESS_LOGOFF) {
                         if ( (Buffer->Internal2.StatisticsToApply
-                                 & ~USER_LOGON_NET_SUCCESS_LOGOFF)  != 0 ) {
+                                 & ~USER_LOGON_INTER_SUCCESS_LOGOFF)  != 0 ) {
+
                             NtStatus = STATUS_INVALID_PARAMETER;
+                            break;
                         } else {
 
                             //
@@ -4095,7 +4937,9 @@ Return Values:
 
                         if ( (Buffer->Internal2.StatisticsToApply
                                  & ~USER_LOGON_NET_SUCCESS_LOGON)  != 0 ) {
+
                             NtStatus = STATUS_INVALID_PARAMETER;
+                            break;
                         } else {
 
                             //
@@ -4134,7 +4978,9 @@ Return Values:
                         & USER_LOGON_NET_SUCCESS_LOGOFF) {
                         if ( (Buffer->Internal2.StatisticsToApply
                                  & ~USER_LOGON_NET_SUCCESS_LOGOFF)  != 0 ) {
+
                             NtStatus = STATUS_INVALID_PARAMETER;
+                            break;
                         } else {
 
                             //
@@ -4149,7 +4995,9 @@ Return Values:
                         & USER_LOGON_BAD_PASSWORD) {
                         if ( (Buffer->Internal2.StatisticsToApply
                                  & ~USER_LOGON_BAD_PASSWORD)  != 0 ) {
+
                             NtStatus = STATUS_INVALID_PARAMETER;
+                            break;
                         } else {
 
                             //
@@ -4299,11 +5147,13 @@ Return Values:
 
 
         //
-        // Generate an audit if necessary
+        // Generate an audit if necessary. We don't account statistic
+        // updates, which we also don't notify Netlogon of.
         //
 
         if (NT_SUCCESS(NtStatus) &&
-            SampDoAccountAuditing(DomainIndex)) {
+            SampDoAccountAuditing(DomainIndex) &&
+            TellNetlogon) {
 
             UNICODE_STRING
                 AccountName;
@@ -4377,11 +5227,9 @@ Return Values:
             if (SampDefinedDomains[SampTransactionDomainIndex].CurrentFixed.ServerRole
                 != DomainServerRoleBackup) {
 
-                SampDefinedDomains[SampTransactionDomainIndex].CurrentFixed.ModifiedCount =
-                    RtlLargeIntegerSubtract(
-                        SampDefinedDomains[SampTransactionDomainIndex].CurrentFixed.ModifiedCount,
-                        RtlConvertLongToLargeInteger(1)
-                        );
+                SampDefinedDomains[SampTransactionDomainIndex].CurrentFixed.ModifiedCount.QuadPart =
+                    SampDefinedDomains[SampTransactionDomainIndex].CurrentFixed.ModifiedCount.QuadPart -
+                    1;
             }
         }
 
@@ -4495,6 +5343,35 @@ Return Values:
     IgnoreStatus = SampReleaseWriteLock( FALSE );
     ASSERT(NT_SUCCESS(IgnoreStatus));
 
+
+    //
+    // Notify any packages that a password was changed.
+    //
+
+    if (NT_SUCCESS(NtStatus) && (DeltaType == SecurityDbChangePassword)) {
+
+        //
+        // If the account name was changed, use the new account name.
+        //
+
+        if (NewAccountName.Buffer != NULL) {
+            (void) SampPasswordChangeNotify(
+                        &NewAccountName,
+                        UserRid,
+                        &ClearTextPassword
+                        );
+        } else {
+            (void) SampPasswordChangeNotify(
+                        &AccountName,
+                        UserRid,
+                        &ClearTextPassword
+                        );
+
+        }
+
+    }
+
+
     //
     // Clean up strings
     //
@@ -4503,7 +5380,18 @@ Return Values:
     SampFreeUnicodeString( &NewAccountName );
     SampFreeUnicodeString( &NewFullName );
     SampFreeUnicodeString( &NewAdminComment );
+    SampFreeUnicodeString( &AccountName );
 
+    if (ClearTextPassword.Buffer != NULL) {
+
+        RtlZeroMemory(
+            ClearTextPassword.Buffer,
+            ClearTextPassword.Length
+            );
+
+        RtlFreeUnicodeString( &ClearTextPassword );
+
+    }
 
 
 
@@ -4629,6 +5517,12 @@ Return Values:
     ULONG                   UserRid;
     SAMP_V1_0A_FIXED_LENGTH_USER V1aFixed;
 
+
+    RtlInitUnicodeString(
+        &AccountName,
+        NULL
+        );
+
     //
     // Grab the lock
     //
@@ -4662,19 +5556,21 @@ Return Values:
                    SampUserObjectType,           // ExpectedType
                    &FoundType
                    );
-
-    if (NT_SUCCESS( NtStatus )) {
-
-        //
-        // Auditing information
-        //
-
-        NtStatus = SampGetUnicodeStringAttribute( AccountContext,
-                                                  SAMP_USER_ACCOUNT_NAME,
-                                                  TRUE,           // make a copy
-                                                  &AccountName
-                                                  );
+    if (!NT_SUCCESS(NtStatus)) {
+        IgnoreStatus = SampReleaseWriteLock( FALSE );
+        return(NtStatus);
     }
+
+    //
+    // Auditing information
+    //
+
+
+    NtStatus = SampGetUnicodeStringAttribute( AccountContext,
+                                              SAMP_USER_ACCOUNT_NAME,
+                                              TRUE,           // make a copy
+                                              &AccountName
+                                              );
 
     if (NT_SUCCESS(NtStatus)) {
 
@@ -4724,16 +5620,22 @@ Return Values:
                            );
 
                 if (NT_SUCCESS(NtStatus)) {
+                    //
+                    // If the min password age is non zero, check it here
+                    //
+                    if (Domain->UnmodifiedFixed.MinPasswordAge.QuadPart != SampHasNeverTime.QuadPart) {
 
-                    LARGE_INTEGER PasswordCanChange = SampAddDeltaTime(
-                                     V1aFixed.PasswordLastSet,
-                                     Domain->UnmodifiedFixed.MinPasswordAge);
+                        LARGE_INTEGER PasswordCanChange = SampAddDeltaTime(
+                                         V1aFixed.PasswordLastSet,
+                                         Domain->UnmodifiedFixed.MinPasswordAge);
 
-                    V1aFixedRetrieved = TRUE;
+                        V1aFixedRetrieved = TRUE;
 
-                    if (RtlLargeIntegerLessThan(TimeNow, PasswordCanChange)) {
-                        NtStatus = STATUS_ACCOUNT_RESTRICTION;
+                        if (TimeNow.QuadPart < PasswordCanChange.QuadPart) {
+                            NtStatus = STATUS_ACCOUNT_RESTRICTION;
+                        }
                     }
+
                 }
             }
         }
@@ -5047,8 +5949,6 @@ Return Values:
             }
         }
 
-
-
         //
         // We now have a NewLmOwfPassword.
         // If NtPresent = TRUE, we also have a NewNtOwfPassword
@@ -5229,7 +6129,6 @@ Return Values:
 
     }
 
-    SampFreeUnicodeString( &AccountName );
 
     //
     // Release the write lock
@@ -5238,8 +6137,1037 @@ Return Values:
     TmpStatus = SampReleaseWriteLock( FALSE );
     ASSERT(NT_SUCCESS(TmpStatus));
 
+    if (NT_SUCCESS(NtStatus)) {
+
+        (void) SampPasswordChangeNotify(
+                    &AccountName,
+                    UserRid,
+                    NULL
+                    );
+
+    } else {
+
+        //
+        // Sleep for three seconds to prevent dictionary attacks.
+        //
+
+        Sleep( 3000 );
+
+    }
+
+    SampFreeUnicodeString( &AccountName );
 
     return(NtStatus);
+}
+
+
+
+
+
+NTSTATUS
+SampDecryptPasswordWithLmOwfPassword(
+    IN PSAMPR_ENCRYPTED_USER_PASSWORD EncryptedPassword,
+    IN PLM_OWF_PASSWORD StoredPassword,
+    IN BOOLEAN UnicodePasswords,
+    OUT PUNICODE_STRING ClearNtPassword
+    )
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+--*/
+{
+    return( SampDecryptPasswordWithKey(
+                EncryptedPassword,
+                (PUCHAR) StoredPassword,
+                LM_OWF_PASSWORD_LENGTH,
+                UnicodePasswords,
+                ClearNtPassword
+                ) );
+}
+
+
+NTSTATUS
+SampDecryptPasswordWithNtOwfPassword(
+    IN PSAMPR_ENCRYPTED_USER_PASSWORD EncryptedPassword,
+    IN PNT_OWF_PASSWORD StoredPassword,
+    IN BOOLEAN UnicodePasswords,
+    OUT PUNICODE_STRING ClearNtPassword
+    )
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+--*/
+{
+    //
+    // The code is the same as for LM owf password.
+    //
+
+    return(SampDecryptPasswordWithKey(
+                EncryptedPassword,
+                (PUCHAR) StoredPassword,
+                NT_OWF_PASSWORD_LENGTH,
+                UnicodePasswords,
+                ClearNtPassword
+                ) );
+}
+
+NTSTATUS
+SampOpenUserInServer(
+    PUNICODE_STRING UserName,
+    BOOLEAN Unicode,
+    SAMPR_HANDLE * UserHandle
+    )
+/*++
+
+Routine Description:
+
+    Opens a user in the account domain.
+
+Arguments:
+
+    UserName - an OEM or Unicode string of the user's name
+
+    Unicode - Indicates whether UserName is OEM or Unicode
+
+    UserHandle - Receives handle to the user, opened with SamOpenUser for
+        USER_CHANGE_PASSWORD access
+
+
+Return Value:
+
+--*/
+
+{
+    NTSTATUS NtStatus;
+    SAM_HANDLE ServerHandle = NULL;
+    SAM_HANDLE DomainHandle = NULL;
+    SAMPR_ULONG_ARRAY UserId;
+    SAMPR_ULONG_ARRAY SidUse;
+    UNICODE_STRING UnicodeUserName;
+    ULONG DomainIndex;
+
+
+    UserId.Element = NULL;
+    SidUse.Element = NULL;
+
+    //
+    // Get the unicode user name.
+    //
+
+    if (Unicode) {
+        UnicodeUserName = *UserName;
+    } else {
+        NtStatus = RtlOemStringToUnicodeString(
+                        &UnicodeUserName,
+                        (POEM_STRING) UserName,
+                        TRUE                    // allocate destination.
+                        );
+
+        if (!NT_SUCCESS(NtStatus)) {
+            return(NtStatus);
+        }
+    }
+
+
+
+    NtStatus = SamrConnect(
+                NULL,
+                &ServerHandle,
+                SAM_SERVER_LOOKUP_DOMAIN
+                );
+    if (!NT_SUCCESS(NtStatus)) {
+        goto Cleanup;
+    }
+
+    NtStatus = SamrOpenDomain(
+                ServerHandle,
+                DOMAIN_LOOKUP |
+                    DOMAIN_LIST_ACCOUNTS |
+                    DOMAIN_READ_PASSWORD_PARAMETERS,
+                SampDefinedDomains[1].Sid,
+                &DomainHandle
+                );
+
+    if (!NT_SUCCESS(NtStatus)) {
+        goto Cleanup;
+    }
+
+    //
+    // If cleartext password change is not allowed, we return the error code
+    // indicating that the rpc client should try using the old interfaces.
+    //
+
+    DomainIndex = ((PSAMP_OBJECT) DomainHandle)->DomainIndex;
+    if (SampDefinedDomains[DomainIndex].UnmodifiedFixed.PasswordProperties &
+        DOMAIN_PASSWORD_NO_CLEAR_CHANGE) {
+
+       NtStatus = RPC_NT_UNKNOWN_IF;
+       goto Cleanup;
+    }
+
+    NtStatus = SamrLookupNamesInDomain(
+                DomainHandle,
+                1,
+                (PRPC_UNICODE_STRING) &UnicodeUserName,
+                &UserId,
+                &SidUse
+                );
+
+    if (!NT_SUCCESS(NtStatus)) {
+        if (NtStatus == STATUS_NONE_MAPPED) {
+            NtStatus = STATUS_NO_SUCH_USER;
+        }
+        goto Cleanup;
+    }
+
+    NtStatus = SamrOpenUser(
+                DomainHandle,
+                USER_CHANGE_PASSWORD,
+                UserId.Element[0],
+                UserHandle
+                );
+
+    if (!NT_SUCCESS(NtStatus)) {
+        goto Cleanup;
+    }
+
+Cleanup:
+    if (DomainHandle != NULL) {
+        SamrCloseHandle(&DomainHandle);
+    }
+    if (ServerHandle != NULL) {
+        SamrCloseHandle(&ServerHandle);
+    }
+    if (UserId.Element != NULL) {
+        MIDL_user_free(UserId.Element);
+    }
+    if (SidUse.Element != NULL) {
+        MIDL_user_free(SidUse.Element);
+    }
+    if (!Unicode && UnicodeUserName.Buffer != NULL) {
+        RtlFreeUnicodeString( &UnicodeUserName );
+    }
+
+    return(NtStatus);
+}
+
+
+NTSTATUS
+SampChangePasswordUser2(
+    IN PUNICODE_STRING ServerName,
+    IN PUNICODE_STRING UserName,
+    IN BOOLEAN Unicode,
+    IN BOOLEAN NtPresent,
+    IN PSAMPR_ENCRYPTED_USER_PASSWORD NewEncryptedWithOldNt,
+    IN PENCRYPTED_NT_OWF_PASSWORD OldNtOwfEncryptedWithNewNt,
+    IN BOOLEAN LmPresent,
+    IN PSAMPR_ENCRYPTED_USER_PASSWORD NewEncryptedWithOldLm,
+    IN BOOLEAN NtKeyUsed,
+    IN PENCRYPTED_LM_OWF_PASSWORD OldLmOwfEncryptedWithNewLmOrNt
+    )
+
+
+/*++
+
+Routine Description:
+
+    This service sets the password to NewPassword only if OldPassword
+    matches the current user password for this user and the NewPassword
+    is not the same as the domain password parameter PasswordHistoryLength
+    passwords.  This call allows users to change their own password if
+    they have access USER_CHANGE_PASSWORD.  Password update restrictions
+    apply.
+
+
+Parameters:
+
+    ServerName - Name of the machine this SAM resides on. Ignored by this
+        routine, may be UNICODE or OEM string depending on Unicode parameter.
+
+    UserName - User Name of account to change password on, may be UNICODE or
+        OEM depending on Unicode parameter.
+
+    Unicode - Indicated whether the strings passed in are Unicode or OEM
+        strings.
+
+    NtPresent - Are the Nt encrypted passwords present.
+
+    NewEncryptedWithOldNt - The new cleartext password encrypted with the old
+        NT OWF password. Dependinf on the Unicode parameter, the clear text
+        password may be Unicode or OEM.
+
+    OldNtOwfEncryptedWithNewNt - Old NT OWF password encrypted with the new
+        NT OWF password.
+
+    LmPresent - are the Lm encrypted passwords present.
+
+    NewEncryptedWithOldLm - Contains new cleartext password (OEM or Unicode)
+        encrypted with the old LM OWF password
+
+    NtKeyUsed - Indicates whether the LM or NT OWF key was used to encrypt
+        the OldLmOwfEncryptedWithNewlmOrNt parameter.
+
+    OldLmOwfEncryptedWithNewlmOrNt - The old LM OWF password encrypted
+        with either the new LM OWF password or NT OWF password, depending
+        on the NtKeyUsed parameter.
+
+
+Return Values:
+
+    STATUS_SUCCESS - The Service completed successfully.
+
+    STATUS_ACCESS_DENIED - Caller does not have the appropriate
+        access to complete the operation.
+
+    STATUS_INVALID_HANDLE - The handle passed is invalid.
+
+    STATUS_ILL_FORMED_PASSWORD - The new password is poorly formed,
+        e.g. contains characters that can't be entered from the
+        keyboard, etc.
+
+    STATUS_PASSWORD_RESTRICTION - A restriction prevents the password
+        from being changed.  This may be for a number of reasons,
+        including time restrictions on how often a password may be
+        changed or length restrictions on the provided password.
+
+        This error might also be returned if the new password matched
+        a password in the recent history log for the account.
+        Security administrators indicate how many of the most
+        recently used passwords may not be re-used.  These are kept
+        in the password recent history log.
+
+    STATUS_WRONG_PASSWORD - OldPassword does not contain the user's
+        current password.
+
+    STATUS_INVALID_DOMAIN_STATE - The domain server is not in the
+        correct state (disabled or enabled) to perform the requested
+        operation.  The domain server must be enabled for this
+        operation
+
+    STATUS_INVALID_DOMAIN_ROLE - The domain server is serving the
+        incorrect role (primary or backup) to perform the requested
+        operation.
+
+    STATUS_CROSS_ENCRYPTION_REQUIRED - No NT password is stored, so the caller
+        must provide the OldNtEncryptedWithOldLm parameter.
+
+--*/
+{
+    NTSTATUS                NtStatus, TmpStatus, IgnoreStatus;
+    PSAMP_OBJECT            AccountContext;
+    PSAMP_DEFINED_DOMAINS   Domain;
+    SAMP_OBJECT_TYPE        FoundType;
+    LARGE_INTEGER           TimeNow;
+    LM_OWF_PASSWORD         StoredLmOwfPassword;
+    NT_OWF_PASSWORD         StoredNtOwfPassword;
+    NT_OWF_PASSWORD         NewNtOwfPassword, OldNtOwfPassword;
+    LM_OWF_PASSWORD         NewLmOwfPassword, OldLmOwfPassword;
+    UNICODE_STRING          NewClearPassword;
+    BOOLEAN                 LmPasswordPresent;
+    BOOLEAN                 StoredLmPasswordNonNull;
+    BOOLEAN                 StoredNtPasswordPresent;
+    BOOLEAN                 StoredNtPasswordNonNull;
+    BOOLEAN                 AccountLockedOut;
+    BOOLEAN                 V1aFixedRetrieved = FALSE;
+    BOOLEAN                 V1aFixedModified = FALSE;
+    ULONG                   ObjectRid;
+    UNICODE_STRING          AccountName;
+    ULONG                   UserRid;
+    SAMP_V1_0A_FIXED_LENGTH_USER V1aFixed;
+    SAMPR_HANDLE            UserHandle = NULL;
+
+    //
+    // Initialize variables
+    //
+
+    NtStatus = STATUS_SUCCESS;
+    NewClearPassword.Buffer = NULL;
+    AccountName.Buffer = NULL;
+
+    //
+    // Validate some parameters.  We require that one of the two passwords
+    // be present.
+    //
+
+    if (!NtPresent && !LmPresent) {
+
+        return(STATUS_INVALID_PARAMETER_MIX);
+    }
+
+    //
+    // Open the user
+    //
+
+    NtStatus = SampOpenUserInServer(
+                    (PUNICODE_STRING) UserName,
+                    Unicode,
+                    &UserHandle
+                    );
+
+    if (!NT_SUCCESS(NtStatus)) {
+        return(NtStatus);
+    }
+
+    //
+    // Grab the lock
+    //
+
+    NtStatus = SampAcquireWriteLock();
+    if (!NT_SUCCESS(NtStatus)) {
+        SamrCloseHandle(&UserHandle);
+        return(NtStatus);
+    }
+
+
+    //
+    // Get the current time
+    //
+
+    NtStatus = NtQuerySystemTime( &TimeNow );
+    if (!NT_SUCCESS(NtStatus)) {
+        IgnoreStatus = SampReleaseWriteLock( FALSE );
+        SamrCloseHandle(&UserHandle);
+        return(NtStatus);
+    }
+
+
+    //
+    // Validate type of, and access to object.
+    //
+
+    AccountContext = (PSAMP_OBJECT)UserHandle;
+    ObjectRid = AccountContext->TypeBody.User.Rid;
+    NtStatus = SampLookupContext(
+                   AccountContext,
+                   USER_CHANGE_PASSWORD,
+                   SampUserObjectType,           // ExpectedType
+                   &FoundType
+                   );
+    if (!NT_SUCCESS(NtStatus)) {
+        IgnoreStatus = SampReleaseWriteLock( FALSE );
+        SamrCloseHandle(&UserHandle);
+        return(NtStatus);
+    }
+
+    //
+    // Auditing information
+    //
+
+    NtStatus = SampGetUnicodeStringAttribute( AccountContext,
+                                              SAMP_USER_ACCOUNT_NAME,
+                                              TRUE,           // make a copy
+                                              &AccountName
+                                              );
+
+    if (NT_SUCCESS(NtStatus)) {
+
+        //
+        // Auditing information
+        //
+
+        UserRid = AccountContext->TypeBody.User.Rid;
+
+        //
+        // Get a pointer to the domain object
+        //
+
+        Domain = &SampDefinedDomains[ AccountContext->DomainIndex ];
+
+
+        //
+        // Read the old OWF passwords from disk
+        //
+
+        NtStatus = SampRetrieveUserPasswords(
+                        AccountContext,
+                        &StoredLmOwfPassword,
+                        &StoredLmPasswordNonNull,
+                        &StoredNtOwfPassword,
+                        &StoredNtPasswordPresent,
+                        &StoredNtPasswordNonNull
+                        );
+
+        //
+        // Check the password can be changed at this time
+        //
+
+        if (NT_SUCCESS(NtStatus)) {
+
+            NtStatus = SampRetrieveUserV1aFixed(
+                           AccountContext,
+                           &V1aFixed
+                       );
+
+            if (NT_SUCCESS(NtStatus)) {
+
+                //
+                // Only do the check if one of the passwords is non-null.
+                // A Null password can always be changed.
+                //
+
+                if (StoredNtPasswordNonNull || StoredLmPasswordNonNull) {
+
+
+
+                    //
+                    // If the min password age is non zero, check it here
+                    //
+
+                    if (Domain->UnmodifiedFixed.MinPasswordAge.QuadPart != SampHasNeverTime.QuadPart) {
+
+                        LARGE_INTEGER PasswordCanChange = SampAddDeltaTime(
+                                         V1aFixed.PasswordLastSet,
+                                         Domain->UnmodifiedFixed.MinPasswordAge);
+
+                        V1aFixedRetrieved = TRUE;
+
+                        if (TimeNow.QuadPart < PasswordCanChange.QuadPart) {
+                            NtStatus = STATUS_ACCOUNT_RESTRICTION;
+                        }
+                    }
+                }
+            }
+        }
+
+
+
+        //
+        // If we have old NtOwf passwords, use them
+        // Decrypt the doubly-encrypted NT passwords sent to us
+        //
+
+        if (NT_SUCCESS(NtStatus)) {
+
+            if (StoredNtPasswordPresent && NtPresent) {
+
+                NtStatus = SampDecryptPasswordWithNtOwfPassword(
+                                NewEncryptedWithOldNt,
+                                &StoredNtOwfPassword,
+                                Unicode,
+                                &NewClearPassword
+                           );
+
+            } else if (LmPresent) {
+
+                //
+                // There was no stored NT password and NT passed, so our only
+                // hope now is that the stored LM password works.
+                //
+
+                //
+                // Decrypt the new password encrypted with the old LM password
+                //
+
+                NtStatus = SampDecryptPasswordWithLmOwfPassword(
+                                NewEncryptedWithOldLm,
+                                &StoredLmOwfPassword,
+                                Unicode,
+                                &NewClearPassword
+                           );
+
+
+            } else {
+
+                NtStatus = STATUS_NT_CROSS_ENCRYPTION_REQUIRED;
+
+            }
+        }
+
+
+        //
+        // We now have the cleartext new password.
+        // Compute the new LmOwf and NtOwf password
+        //
+
+        if (NT_SUCCESS(NtStatus)) {
+
+            NtStatus = SampCalculateLmAndNtOwfPasswords(
+                            &NewClearPassword,
+                            &LmPasswordPresent,
+                            &NewLmOwfPassword,
+                            &NewNtOwfPassword
+                       );
+
+        }
+
+        //
+        // If we have both NT passwords, compute the old NT password,
+        // otherwise compute the old LM password
+        //
+
+        if (NT_SUCCESS(NtStatus)) {
+
+            if (StoredNtPasswordPresent && NtPresent) {
+                NtStatus = RtlDecryptNtOwfPwdWithNtOwfPwd(
+                                OldNtOwfEncryptedWithNewNt,
+                                &NewNtOwfPassword,
+                                &OldNtOwfPassword
+                           );
+
+            }
+
+            if (LmPresent) {
+
+
+                //
+                // If the NT key was used to encrypt this, use the NT key
+                // to decrypt it.
+                //
+
+
+                if (NtKeyUsed) {
+
+                    ASSERT(LM_OWF_PASSWORD_LENGTH == NT_OWF_PASSWORD_LENGTH);
+
+                    NtStatus = RtlDecryptLmOwfPwdWithLmOwfPwd(
+                                    OldLmOwfEncryptedWithNewLmOrNt,
+                                    (PLM_OWF_PASSWORD) &NewNtOwfPassword,
+                                    &OldLmOwfPassword
+                               );
+
+
+                } else if (LmPasswordPresent) {
+
+                    NtStatus = RtlDecryptLmOwfPwdWithLmOwfPwd(
+                                    OldLmOwfEncryptedWithNewLmOrNt,
+                                    &NewLmOwfPassword,
+                                    &OldLmOwfPassword
+                               );
+
+
+                } else {
+                    NtStatus = STATUS_NT_CROSS_ENCRYPTION_REQUIRED;
+                }
+
+            }
+
+        }
+
+
+        //
+        // Authenticate the password change operation based on what
+        // we have stored and what was passed.  We authenticate whatever
+        // passwords were sent .
+        //
+
+        if (NT_SUCCESS(NtStatus)) {
+
+            if (NtPresent && StoredNtPasswordPresent) {
+
+                //
+                // NtPresent = TRUE, we were passed an NT password
+                //
+
+                if (!RtlEqualNtOwfPassword(&OldNtOwfPassword, &StoredNtOwfPassword)) {
+
+                    //
+                    // Old NT passwords didn't match
+                    //
+
+                    NtStatus = STATUS_WRONG_PASSWORD;
+
+                }
+            } else if (LmPresent) {
+
+                //
+                // LM data passed. Use LM data for authentication
+                //
+
+                if (!RtlEqualLmOwfPassword(&OldLmOwfPassword, &StoredLmOwfPassword)) {
+
+                    //
+                    // Old LM passwords didn't match
+                    //
+
+                    NtStatus = STATUS_WRONG_PASSWORD;
+
+                }
+
+            } else {
+                NtStatus = STATUS_NT_CROSS_ENCRYPTION_REQUIRED;
+            }
+
+        }
+
+        //
+        // Now we should check password restrictions.
+        //
+
+        if (NT_SUCCESS(NtStatus)) {
+
+            NtStatus = SampCheckPasswordRestrictions(
+                            UserHandle,
+                            &NewClearPassword
+                            );
+
+        }
+
+        //
+        // Now check our password filter if the account is not a workstation
+        // or server trust account.
+        //
+
+        if (NT_SUCCESS(NtStatus ) &&
+             ((V1aFixed.UserAccountControl &
+                (USER_WORKSTATION_TRUST_ACCOUNT | USER_SERVER_TRUST_ACCOUNT)) == 0 )) {
+
+
+            UNICODE_STRING    FullName;
+
+
+            NtStatus = SampGetUnicodeStringAttribute(
+                            AccountContext,
+                            SAMP_USER_FULL_NAME,
+                            FALSE,    // Make copy
+                            &FullName
+                            );
+
+            if (NT_SUCCESS(NtStatus)) {
+
+                //
+                // now see what the filter dll thinks of this password
+                //
+
+                NtStatus = SampPasswordChangeFilter(
+                                &AccountName,
+                                &FullName,
+                                &NewClearPassword,
+                                FALSE                   // change operation
+                                );
+
+            }
+        }
+
+
+
+        //
+        // We now have a NewLmOwfPassword and a NewNtOwfPassword.
+        //
+
+        //
+        // Write the new passwords to disk
+        //
+
+        if (NT_SUCCESS(NtStatus)) {
+
+            //
+            // We should always have an LM and an NT password to store.
+            //
+
+
+            NtStatus = SampStoreUserPasswords(
+                           AccountContext,
+                           &NewLmOwfPassword,
+                           LmPasswordPresent,
+                           &NewNtOwfPassword,
+                           TRUE,
+                           TRUE
+                           );
+
+            if ( NT_SUCCESS( NtStatus ) ) {
+
+                //
+                // We know the password is not expired.
+                //
+
+                NtStatus = SampStorePasswordExpired(
+                               AccountContext,
+                               FALSE
+                               );
+            }
+        }
+
+
+
+        //
+        // if we have a bad password, then increment the bad password
+        // count and check to see if the account should be locked.
+        //
+
+        if (NtStatus == STATUS_WRONG_PASSWORD) {
+
+            //
+            // Get the V1aFixed so we can update the bad password count
+            //
+
+
+            TmpStatus = STATUS_SUCCESS;
+            if (!V1aFixedRetrieved) {
+                TmpStatus = SampRetrieveUserV1aFixed(
+                                AccountContext,
+                                &V1aFixed
+                                );
+            }
+
+            if (!NT_SUCCESS(TmpStatus)) {
+
+                //
+                // If we can't update the V1aFixed, then return this
+                // error so that the user doesn't find out the password
+                // was not correct.
+                //
+
+                NtStatus = TmpStatus;
+
+            } else {
+
+
+                //
+                // Increment BadPasswordCount (might lockout account)
+                //
+
+
+                AccountLockedOut = SampIncrementBadPasswordCount(
+                                       AccountContext,
+                                       &V1aFixed
+                                       );
+
+                V1aFixedModified = TRUE;
+
+
+            }
+        }
+
+        if (V1aFixedModified) {
+            TmpStatus = SampReplaceUserV1aFixed(
+                            AccountContext,
+                            &V1aFixed
+                            );
+            if (!NT_SUCCESS(TmpStatus)) {
+                NtStatus = TmpStatus;
+            }
+        }
+
+        //
+        // Dereference the account context
+        //
+
+        if (NT_SUCCESS(NtStatus) || (NtStatus == STATUS_WRONG_PASSWORD)) {
+
+
+
+            //
+            // De-reference the object, write out any change to current xaction.
+            //
+
+            TmpStatus = SampDeReferenceContext( AccountContext, TRUE );
+
+            //
+            // retain previous error/success value unless we have
+            // an over-riding error from our dereference.
+            //
+
+            if (!NT_SUCCESS(TmpStatus)) {
+                NtStatus = TmpStatus;
+            }
+
+        } else {
+
+            //
+            // De-reference the object, ignore changes
+            //
+
+            IgnoreStatus = SampDeReferenceContext( AccountContext, FALSE );
+            ASSERT(NT_SUCCESS(IgnoreStatus));
+        }
+
+    }
+
+    //
+    // Commit changes to disk.
+    //
+
+    if ( NT_SUCCESS(NtStatus) || NtStatus == STATUS_WRONG_PASSWORD) {
+
+        TmpStatus = SampCommitAndRetainWriteLock();
+
+        //
+        // retain previous error/success value unless we have
+        // an over-riding error from our dereference.
+        //
+
+        if (!NT_SUCCESS(TmpStatus)) {
+            NtStatus = TmpStatus;
+        }
+
+        if ( NT_SUCCESS(TmpStatus) ) {
+
+            SampNotifyNetlogonOfDelta(
+                SecurityDbChangePassword,
+                SecurityDbObjectSamUser,
+                ObjectRid,
+                (PUNICODE_STRING) NULL,
+                (DWORD) FALSE,      // Don't Replicate immediately
+                NULL                // Delta data
+                );
+        }
+    }
+
+    if (SampDoAccountAuditing(AccountContext->DomainIndex)) {
+
+            LsaIAuditSamEvent( NtStatus,
+                               SE_AUDITID_USER_PWD_CHANGED, // AuditId
+                               Domain->Sid,                 // Domain SID
+                               NULL,                        // Member Rid (not used)
+                               NULL,                        // Member Sid (not used)
+                               &AccountName,                // Account Name
+                               &Domain->ExternalName,       // Domain
+                               &UserRid,                    // Account Rid
+                               NULL                         // Privileges used
+                               );
+
+    }
+
+
+
+    //
+    // Release the write lock
+    //
+
+    TmpStatus = SampReleaseWriteLock( FALSE );
+    ASSERT(NT_SUCCESS(TmpStatus));
+
+    SamrCloseHandle(&UserHandle);
+
+    //
+    // Notify any notification packages that a password has changed.
+    //
+
+    if (NT_SUCCESS(NtStatus)) {
+
+        IgnoreStatus = SampPasswordChangeNotify(
+                        &AccountName,
+                        UserRid,
+                        &NewClearPassword
+                        );
+
+    } else {
+
+        //
+        // Sleep for three seconds to prevent dictionary attacks.
+        //
+
+        Sleep( 3000 );
+    }
+
+    if (NewClearPassword.Buffer != NULL) {
+
+        RtlZeroMemory(
+            NewClearPassword.Buffer,
+            NewClearPassword.Length
+            );
+
+    }
+
+    if ( Unicode ) {
+
+        SampFreeUnicodeString( &NewClearPassword );
+    } else {
+
+        RtlFreeUnicodeString( &NewClearPassword );
+    }
+
+    SampFreeUnicodeString( &AccountName );
+
+    return(NtStatus);
+}
+
+
+NTSTATUS
+SamrOemChangePasswordUser2(
+    IN handle_t BindingHandle,
+    IN PRPC_STRING ServerName,
+    IN PRPC_STRING UserName,
+    IN PSAMPR_ENCRYPTED_USER_PASSWORD NewEncryptedWithOldLm,
+    IN PENCRYPTED_LM_OWF_PASSWORD OldLmOwfEncryptedWithNewLm
+    )
+/*++
+
+Routine Description:
+
+    Server side stub for Unicode password change.
+    See SampChangePasswordUser2 for details
+
+Arguments:
+
+
+Return Value:
+
+--*/
+{
+    return(SampChangePasswordUser2(
+                (PUNICODE_STRING) ServerName,
+                (PUNICODE_STRING) UserName,
+                FALSE,                          // not unicode
+                FALSE,                          // NT not present
+                NULL,                           // new NT password
+                NULL,                           // old NT password
+                TRUE,                           // LM present
+                NewEncryptedWithOldLm,
+                FALSE,                          // NT key not used
+                OldLmOwfEncryptedWithNewLm
+                ) );
+
+
+
+}
+
+
+
+
+
+NTSTATUS
+SamrUnicodeChangePasswordUser2(
+    IN handle_t BindingHandle,
+    IN PRPC_UNICODE_STRING ServerName,
+    IN PRPC_UNICODE_STRING UserName,
+    IN PSAMPR_ENCRYPTED_USER_PASSWORD NewEncryptedWithOldNt,
+    IN PENCRYPTED_NT_OWF_PASSWORD OldNtOwfEncryptedWithNewNt,
+    IN BOOLEAN LmPresent,
+    IN PSAMPR_ENCRYPTED_USER_PASSWORD NewEncryptedWithOldLm,
+    IN PENCRYPTED_LM_OWF_PASSWORD OldLmOwfEncryptedWithNewNt
+    )
+/*++
+
+Routine Description:
+
+    Server side stub for Unicode password change.
+    See SampChangePasswordUser2 for details
+
+Arguments:
+
+
+Return Value:
+
+--*/
+
+{
+    return(SampChangePasswordUser2(
+                (PUNICODE_STRING) ServerName,
+                (PUNICODE_STRING) UserName,
+                TRUE,                           // unicode
+                TRUE,                           // NT present
+                NewEncryptedWithOldNt,
+                OldNtOwfEncryptedWithNewNt,
+                LmPresent,
+                NewEncryptedWithOldLm,
+                TRUE,                           // NT key used
+                OldLmOwfEncryptedWithNewNt
+                ) );
 }
 
 
@@ -5316,7 +7244,7 @@ Return Values:
     (*Groups) = MIDL_user_allocate( sizeof(SAMPR_GET_GROUPS_BUFFER) );
 
     if ( (*Groups) == NULL) {
-        NtStatus = STATUS_INSUFFICIENT_RESOURCES;
+        return(STATUS_INSUFFICIENT_RESOURCES);
     }
 
 
@@ -5368,6 +7296,17 @@ Return Values:
 
         MIDL_user_free( (*Groups) );
         (*Groups) = NULL;
+    } else {
+        ULONG Index;
+
+        //
+        // We want to return constant group attributes, so go update them
+        // all now.
+        //
+
+        for (Index = 0; Index < (*Groups)->MembershipCount ; Index++ ) {
+            (*Groups)->Groups[Index].Attributes = SAMP_DEFAULT_GROUP_ATTRIBUTES;
+        }
     }
 
     return( NtStatus );
@@ -5484,6 +7423,107 @@ Return Values:
     }
 
     SampReleaseReadLock();
+
+    return( NtStatus );
+}
+
+
+
+NTSTATUS
+SamrGetDomainPasswordInformation(
+    IN handle_t BindingHandle,
+    IN OPTIONAL PRPC_UNICODE_STRING ServerName,
+    OUT PUSER_DOMAIN_PASSWORD_INFORMATION PasswordInformation
+    )
+
+
+/*++
+
+Routine Description:
+
+    Takes a user handle, finds the domain for that user, and returns
+    password information for the domain.  This is so the client\wrappers.c
+    can get the information to verify the user's password before it is
+    OWF'd.
+
+
+Parameters:
+
+    UserHandle - The handle of an opened user to operate on.
+
+    PasswordInformation - Receives information about password restrictions
+        for the user's domain.
+
+
+Return Values:
+
+    STATUS_SUCCESS - The Service completed successfully.
+
+    Other errors may be returned from SampLookupContext() if the handle
+    is invalid or does not indicate proper access to the domain's password
+    inforamtion.
+
+--*/
+{
+    SAMP_OBJECT_TYPE            FoundType;
+    NTSTATUS                    NtStatus;
+    NTSTATUS                    IgnoreStatus;
+    PSAMP_OBJECT                AccountContext;
+    PSAMP_DEFINED_DOMAINS       Domain;
+    SAMP_V1_0A_FIXED_LENGTH_USER   V1aFixed;
+    SAMPR_HANDLE                ServerHandle = NULL;
+    SAMPR_HANDLE                DomainHandle = NULL;
+
+    //
+    // Connect to the server and open the account domain for
+    // DOMAIN_READ_PASSWORD_PARAMETERS access.
+    //
+
+    NtStatus = SamrConnect(
+                NULL,
+                &ServerHandle,
+                SAM_SERVER_LOOKUP_DOMAIN
+                );
+
+    if (!NT_SUCCESS(NtStatus)) {
+        return(NtStatus);
+    }
+
+    NtStatus = SamrOpenDomain(
+                ServerHandle,
+                DOMAIN_READ_PASSWORD_PARAMETERS,
+                SampDefinedDomains[1].Sid,
+                &DomainHandle
+                );
+
+    if (!NT_SUCCESS(NtStatus)) {
+        SamrCloseHandle(&ServerHandle);
+        return(NtStatus);
+    }
+
+
+    SampAcquireReadLock();
+
+
+    //
+    // We want to look at the account domain, which is domains[1].
+    //
+
+    Domain = &SampDefinedDomains[1];
+
+    //
+    // Copy the password properites into the returned structure.
+    //
+
+    PasswordInformation->MinPasswordLength = Domain->UnmodifiedFixed.MinPasswordLength;
+    PasswordInformation->PasswordProperties = Domain->UnmodifiedFixed.PasswordProperties;
+
+
+    SampReleaseReadLock();
+
+    SamrCloseHandle(&DomainHandle);
+    SamrCloseHandle(&ServerHandle);
+
 
     return( NtStatus );
 }
@@ -5610,11 +7650,11 @@ Return Value:
                 // list of valid workstations - or if the list of valid workstations
                 // is null, which means that all are valid.
                 //
-            
+
                 NtStatus = SampMatchworkstation( LogonWorkStation, WorkStations );
-            
+
                 if ( NT_SUCCESS( NtStatus ) ) {
-            
+
                     //
                     // Check to make sure that the current time is a valid time to logon
                     // in the LogonHours.
@@ -5635,15 +7675,15 @@ Return Value:
                     //
                     // the Bias is a negative number.  Thus we actually subtract the
                     // signed Bias from the Current Time.
-            
+
                     //
                     // First, get the Time Zone Information.
                     //
-            
+
                     TimeZoneId = GetTimeZoneInformation(
                                      (LPTIME_ZONE_INFORMATION) &TimeZoneInformation
                                      );
-            
+
                     //
                     // Next, get the appropriate bias (signed integer in minutes) to subtract from
                     // the Universal Time Convention (UTC) time returned by NtQuerySystemTime
@@ -5653,126 +7693,122 @@ Return Value:
                     //
                     // local time  = UTC time - bias in 100Ns units
                     //
-            
+
                     switch (TimeZoneId) {
-            
+
                     case TIME_ZONE_ID_UNKNOWN:
-            
+
                         //
                         // There is no differentiation between standard and
                         // daylight savings time.  Proceed as for Standard Time
                         //
-            
+
                         BiasInMinutes = TimeZoneInformation.StandardBias;
                         break;
-            
+
                     case TIME_ZONE_ID_STANDARD:
-            
+
                         BiasInMinutes = TimeZoneInformation.StandardBias;
                         break;
-            
+
                     case TIME_ZONE_ID_DAYLIGHT:
-            
+
                         BiasInMinutes = TimeZoneInformation.DaylightBias;
                         break;
-            
+
                     default:
-            
+
                         //
                         // Something is wrong with the time zone information.  Fail
                         // the logon request.
                         //
-            
+
                         NtStatus = STATUS_INVALID_LOGON_HOURS;
                         break;
                     }
-            
+
                     if (NT_SUCCESS(NtStatus)) {
-            
+
                         //
                         // Convert the Bias from minutes to 100ns units
                         //
-            
-                        BiasIn100NsUnits = RtlEnlargedIntegerMultiply(
-                                               BiasInMinutes,
-                                               (LONG) 60*10000000
-                                               );
-            
+
+                        BiasIn100NsUnits.QuadPart = ((LONGLONG)BiasInMinutes)
+                                                    * 60 * 10000000;
+
                         //
                         // Get the UTC time in 100Ns units used by Windows Nt.  This
                         // time is GMT.
                         //
-            
+
                         NtStatus = NtQuerySystemTime( &CurrentUTCTime );
                     }
-            
+
                     if ( NT_SUCCESS( NtStatus ) ) {
-            
-                        CurrentTime = RtlLargeIntegerSubtract(
-                                          CurrentUTCTime,
-                                          BiasIn100NsUnits
-                                          );
-            
+
+                        CurrentTime.QuadPart = CurrentUTCTime.QuadPart -
+                                      BiasIn100NsUnits.QuadPart;
+
                         RtlTimeToTimeFields( &CurrentTime, &CurrentTimeFields );
-            
+
                         CurrentMsIntoWeek = (((( CurrentTimeFields.Weekday * 24 ) +
                                                CurrentTimeFields.Hour ) * 60 +
                                                CurrentTimeFields.Minute ) * 60 +
                                                CurrentTimeFields.Second ) * 1000 +
                                                CurrentTimeFields.Milliseconds;
-            
-                        MillisecondsIntoWeekXUnitsPerWeek = RtlEnlargedUnsignedMultiply(
-                                                                CurrentMsIntoWeek,
-                                                                (ULONG)LogonHours->UnitsPerWeek );
-            
+
+                        MillisecondsIntoWeekXUnitsPerWeek.QuadPart =
+                            ((LONGLONG)CurrentMsIntoWeek) *
+                            ((LONGLONG)LogonHours->UnitsPerWeek);
+
                         LargeUnitsIntoWeek = RtlExtendedLargeIntegerDivide(
                                                  MillisecondsIntoWeekXUnitsPerWeek,
                                                  MILLISECONDS_PER_WEEK,
                                                  (PULONG)NULL );
-            
+
                         CurrentUnitsIntoWeek = LargeUnitsIntoWeek.LowPart;
-            
+
                         if ( !( LogonHours->LogonHours[ CurrentUnitsIntoWeek / 8] &
                             ( 0x01 << ( CurrentUnitsIntoWeek % 8 ) ) ) ) {
-            
+
                             NtStatus = STATUS_INVALID_LOGON_HOURS;
-            
+
                         } else {
-            
+
                             //
                             // Determine the next time that the user is NOT supposed to be logged
                             // in, and return that as LogoffTime.
                             //
-            
+
                             i = 0;
                             LogoffUnitsIntoWeek = CurrentUnitsIntoWeek;
-            
+
                             do {
-            
+
                                 i++;
-            
+
                                 LogoffUnitsIntoWeek = ( LogoffUnitsIntoWeek + 1 ) % LogonHours->UnitsPerWeek;
-            
+
                             } while ( ( i <= LogonHours->UnitsPerWeek ) &&
                                 ( LogonHours->LogonHours[ LogoffUnitsIntoWeek / 8 ] &
                                 ( 0x01 << ( LogoffUnitsIntoWeek % 8 ) ) ) );
-            
+
                             if ( i > LogonHours->UnitsPerWeek ) {
-            
+
                                 //
                                 // All times are allowed, so there's no logoff
                                 // time.  Return forever for both logofftime and
                                 // kickofftime.
                                 //
-            
+
                                 LogoffTime->HighPart = 0x7FFFFFFF;
                                 LogoffTime->LowPart = 0xFFFFFFFF;
-            
+
                                 KickoffTime->HighPart = 0x7FFFFFFF;
                                 KickoffTime->LowPart = 0xFFFFFFFF;
-            
+
                             } else {
-            
+
                                 //
                                 // LogoffUnitsIntoWeek points at which time unit the
                                 // user is to log off.  Calculate actual time from
@@ -5783,30 +7819,28 @@ Return Value:
                                 // to the logoff time during this week and convert
                                 // to time format.
                                 //
-            
+
                                 MillisecondsPerUnit = MILLISECONDS_PER_WEEK / LogonHours->UnitsPerWeek;
-            
+
                                 LogoffMsIntoWeek = MillisecondsPerUnit * LogoffUnitsIntoWeek;
-            
+
                                 if ( LogoffMsIntoWeek < CurrentMsIntoWeek ) {
-            
+
                                     DeltaMs = MILLISECONDS_PER_WEEK - ( CurrentMsIntoWeek - LogoffMsIntoWeek );
-            
+
                                 } else {
-            
+
                                     DeltaMs = LogoffMsIntoWeek - CurrentMsIntoWeek;
                                 }
-            
+
                                 Delta100Ns = RtlExtendedIntegerMultiply(
                                                  RtlConvertUlongToLargeInteger( DeltaMs ),
                                                  10000
                                                  );
-            
-                                *LogoffTime = RtlLargeIntegerAdd(
-                                                  CurrentUTCTime,
-                                                  Delta100Ns
-                                                  );
-            
+
+                                LogoffTime->QuadPart = CurrentUTCTime.QuadPart +
+                                              Delta100Ns.QuadPart;
+
                                 //
                                 // Subtract Domain->ForceLogoff from LogoffTime, and return
                                 // that as KickoffTime.  Note that Domain->ForceLogoff is a
@@ -5817,16 +7851,14 @@ Return Value:
                                 // case, reset the KickOffTime to this largest positive
                                 // large integer (i.e. "never") value.
                                 //
-            
+
                                 Domain = &SampDefinedDomains[ AccountContext->DomainIndex ];
-            
-                                *KickoffTime = RtlLargeIntegerSubtract(
-                                                   *LogoffTime,
-                                                   Domain->UnmodifiedFixed.ForceLogoff
-                                                   );
-            
-                                if (RtlLargeIntegerLessThanZero( *KickoffTime )) {
-            
+
+                                KickoffTime->QuadPart = LogoffTime->QuadPart -
+                                               Domain->UnmodifiedFixed.ForceLogoff.QuadPart;
+
+                                if (KickoffTime->QuadPart < 0) {
+
                                     KickoffTime->HighPart = 0x7FFFFFFF;
                                     KickoffTime->LowPart = 0xFFFFFFFF;
                                 }
@@ -5834,13 +7866,7 @@ Return Value:
                         }
                     }
                 }
-            
-                //
-                // De-reference the object, discarding changes
-                //
-            
-                IgnoreStatus = SampDeReferenceContext( AccountContext, FALSE );
-                ASSERT(NT_SUCCESS(IgnoreStatus));
+
             } else {
 
                 //
@@ -5853,6 +7879,13 @@ Return Value:
                 KickoffTime->LowPart  = 0xFFFFFFFF;
             }
         }
+
+        //
+        // De-reference the object, discarding changes
+        //
+
+        IgnoreStatus = SampDeReferenceContext( AccountContext, FALSE );
+        ASSERT(NT_SUCCESS(IgnoreStatus));
     }
 
     SampReleaseReadLock();
@@ -5972,9 +8005,7 @@ Return Value:
     // little off from ours.
     //
 
-    } else if ( RtlLargeIntegerEqualTo(
-                        PasswordLastSet,
-                        SampHasNeverTime ) ) {
+    } else if ( PasswordLastSet.QuadPart == SampHasNeverTime.QuadPart ) {
 
         PasswordMustChange = SampHasNeverTime;
 
@@ -6261,7 +8292,7 @@ Return Value:
 
         if (NT_SUCCESS(NtStatus)) {
 
-            if ((!LmPasswordPresent) &&
+            if ((!LmPasswordPresent || LmPasswordNull) &&
                 (NtPasswordPresent && !NtPasswordNull) ) {
 
                 if (Domain->UnmodifiedFixed.UasCompatibilityRequired) {
@@ -6380,68 +8411,6 @@ Return Value:
                            );
         }
     }
-
-
-
-
-//    if (NT_SUCCESS(NtStatus ) ) {
-//
-//        //
-//        // If the filter DLL was loaded, get its blessing of this
-//        // password
-//        //
-//
-//        UNICODE_STRING    AccountName, FullName;
-//
-//        if (SampPasswordFilterDllRoutine != NULL) {
-//
-//
-//            UNICODE_STRING          AccountName,
-//                                    FullName;
-//
-//            //
-//            // Get the account name and full name
-//            //
-//
-//            NtStatus = SampGetUnicodeStringAttribute(
-//                           Context,
-//                           SAMP_USER_ACCOUNT_NAME,
-//                           TRUE,    // Make copy
-//                           &AccountName
-//                           );
-//
-//            if (NT_SUCCESS(NtStatus)) {
-//
-//                NtStatus = SampGetUnicodeStringAttribute(
-//                               Context,
-//                               SAMP_USER_FULL_NAME,
-//                               TRUE,    // Make copy
-//                               &FullName
-//                               );
-//
-//                if (NT_SUCCESS(NtStatus)) {
-//
-//                    //
-//                    // now see what the filter dll thinks of this password
-//                    //
-//
-//                    NtStatus = (SampPasswordFilterDllRoutine)(
-//                                    &AccountName,
-//                                    &FullName,
-//                                    LmOwfPassword,
-//                                    LmPasswordPresent,
-//                                    NtOwfPassword,
-//                                    NtPasswordPresent
-//                                    );
-//
-//                    SampFreeUnicodeString(&FullName);
-//                }
-//
-//                SampFreeUnicodeString(&AccountName);
-//            }
-//        }
-//    }
-
 
 
     if (NT_SUCCESS(NtStatus ) ) {
@@ -7342,7 +9311,8 @@ SampAddGroupToUserMembership(
     IN ULONG GroupRid,
     IN ULONG Attributes,
     IN ULONG UserRid,
-    IN BOOLEAN AdminGroup,
+    IN SAMP_MEMBERSHIP_DELTA AdminGroup,
+    IN SAMP_MEMBERSHIP_DELTA OperatorGroup,
     OUT PBOOLEAN UserActive
     )
 
@@ -7373,6 +9343,11 @@ Arguments:
     AdminGroup - Indicates whether the group the user is being
         added to is an administrator group (that is, directly
         or indirectly a member of the Administrators alias).
+
+    OperatorGroup - Indicates whether the group the user is being
+        added to is an operator group (that is, directly
+        or indirectly a member of the Account Operators, Print
+        Operators, Backup Operators, or Server Operators aliases)
 
     UserActive - is the address of a BOOLEAN to be set to indicate
         whether the user account is currently active.  TRUE indicates
@@ -7432,7 +9407,7 @@ Return Value:
         // get the V1aFixed data.
         //
 
-        if (AdminGroup) {
+        if ((AdminGroup == AddToAdmin) || (OperatorGroup == AddToAdmin)) {
             NtStatus = SampRetrieveUserV1aFixed(
                            UserContext,
                            &V1aFixed
@@ -7445,10 +9420,10 @@ Return Value:
         //
 
         if (NT_SUCCESS(NtStatus)) {
-        
+
             if (GroupRid == DOMAIN_GROUP_RID_ADMINS) {
 
-                ASSERT(AdminGroup);  // Make sure we retrieved the V1aFixed
+                ASSERT(AdminGroup == AddToAdmin);  // Make sure we retrieved the V1aFixed
 
                 if ((V1aFixed.UserAccountControl & USER_ACCOUNT_DISABLED) == 0) {
                     (*UserActive) = TRUE;
@@ -7467,11 +9442,12 @@ Return Value:
             // is no longer a member of any admin groups.
             //
 
-            if (AdminGroup) {
+            if ((AdminGroup == AddToAdmin) || (OperatorGroup == AddToAdmin)) {
                 NtStatus = SampChangeOperatorAccessToUser2(
                                UserContext,
                                &V1aFixed,
-                               TRUE         //Adding to admin
+                               AdminGroup,
+                               OperatorGroup
                                );
             }
         }
@@ -7560,7 +9536,8 @@ NTSTATUS
 SampRemoveMembershipUser(
     IN ULONG GroupRid,
     IN ULONG UserRid,
-    IN BOOLEAN AdminGroup,
+    IN SAMP_MEMBERSHIP_DELTA AdminGroup,
+    IN SAMP_MEMBERSHIP_DELTA OperatorGroup,
     OUT PBOOLEAN UserActive
     )
 
@@ -7588,6 +9565,11 @@ Arguments:
     AdminGroup - Indicates whether the group the user is being
         removed from is an administrator group (that is, directly
         or indirectly a member of the Administrators alias).
+
+    OperatorGroup - Indicates whether the group the user is being
+        added to is an operator group (that is, directly
+        or indirectly a member of the Account Operators, Print
+        Operators, Backup Operators, or Server Operators aliases)
 
     UserActive - is the address of a BOOLEAN to be set to indicate
         whether the user account is currently active.  TRUE indicates
@@ -7658,60 +9640,62 @@ Return Value:
         // is no longer a member of any admin groups.
         //
 
-        if (AdminGroup) {
+        if ((AdminGroup == RemoveFromAdmin) ||
+            (OperatorGroup == RemoveFromAdmin)) {
             NtStatus = SampChangeOperatorAccessToUser2(
                            UserContext,
                            &V1aFixed,
-                           FALSE        //removing from admin 
+                           AdminGroup,
+                           OperatorGroup
                            );
         }
 
         if (NT_SUCCESS(NtStatus)) {
-        
+
             //
             // If necessary, return an indication as to whether this account
             // is enabled or not.
             //
-        
+
             if (GroupRid == DOMAIN_GROUP_RID_ADMINS) {
-        
+
                 if ((V1aFixed.UserAccountControl & USER_ACCOUNT_DISABLED) == 0) {
                     (*UserActive) = TRUE;
                 } else {
                     (*UserActive) = FALSE;
                 }
             }
-        
-        
+
+
             //
             // See if this is the user's primary group...
             //
-        
+
             if (GroupRid == V1aFixed.PrimaryGroupId) {
                 NtStatus = STATUS_MEMBERS_PRIMARY_GROUP;
             }
-        
-        
-        
+
+
+
             if (NT_SUCCESS(NtStatus)) {
-        
+
                 //
                 // Get the user membership
                 //
-        
+
                 NtStatus = SampRetrieveUserMembership(
                                UserContext,
                                TRUE, // Make copy
                                &MembershipCount,
                                &MembershipArray
                                );
-        
+
                 if (NT_SUCCESS(NtStatus)) {
-        
+
                     //
                     // See if the user is a member ...
                     //
-        
+
                     NtStatus = STATUS_MEMBER_NOT_IN_GROUP;
                     for (i = 0; i<MembershipCount ; i++ ) {
                         if ( MembershipArray[i].RelativeId == GroupRid )
@@ -7720,14 +9704,14 @@ Return Value:
                             break;
                         }
                     }
-        
+
                     if (NT_SUCCESS(NtStatus)) {
-        
+
                         //
                         // Replace the removed group information
                         // with the last entry's information.
                         //
-        
+
                         MembershipCount -= 1;
                         if (MembershipCount > 0) {
                             MembershipArray[i].RelativeId =
@@ -7735,22 +9719,22 @@ Return Value:
                             MembershipArray[i].Attributes =
                             MembershipArray[MembershipCount].Attributes;
                         }
-        
+
                         //
                         // Update the object with the new information
                         //
-        
+
                         NtStatus = SampReplaceUserMembership(
                                         UserContext,
                                         MembershipCount,
                                         MembershipArray
                                         );
                     }
-        
+
                     //
                     // Free up the membership array
                     //
-        
+
                     MIDL_user_free( MembershipArray );
                 }
             }
@@ -8587,12 +10571,12 @@ Return Value:
     // Check the time and delta time aren't switched
     //
 
-    ASSERT(!RtlLargeIntegerLessThanZero(Time));
-    ASSERT(!RtlLargeIntegerGreaterThanZero(DeltaTime));
+    ASSERT(!(Time.QuadPart < 0));
+    ASSERT(!(DeltaTime.QuadPart > 0));
 
     try {
 
-        Time = RtlLargeIntegerSubtract(Time, DeltaTime);
+        Time.QuadPart = (Time.QuadPart - DeltaTime.QuadPart);
 
     } except(EXCEPTION_EXECUTE_HANDLER) {
 
@@ -8603,7 +10587,7 @@ Return Value:
     // Limit the resultant time to the maximum valid absolute time
     //
 
-    if (RtlLargeIntegerLessThanZero(Time)) {
+    if (Time.QuadPart < 0) {
         Time = SampWillNeverTime;
     }
 
@@ -8908,7 +10892,7 @@ Return Value:
 
     EndOfWindow = SampAddDeltaTime( LastBadPassword, WindowLength );
 
-    return(RtlLargeIntegerLessThanOrEqualTo(CurrentTime, EndOfWindow));
+    return(CurrentTime.QuadPart <= EndOfWindow.QuadPart);
 
 }
 
@@ -9150,8 +11134,7 @@ Return Value:
 
         NtQuerySystemTime( &CurrentTime );
 
-        BeyondLockoutDuration =
-            RtlLargeIntegerGreaterThan(CurrentTime, EndOfLockout);
+        BeyondLockoutDuration = CurrentTime.QuadPart > EndOfLockout.QuadPart;
 
 #if DBG
 
@@ -9159,7 +11142,7 @@ Return Value:
         RtlTimeToTimeFields( &CurrentTime,      &AT2);
         RtlTimeToTimeFields( &EndOfLockout,     &AT3 );
 
-        TmpTime = RtlLargeIntegerNegate( LockoutDuration );
+        TmpTime.QuadPart = -LockoutDuration.QuadPart;
         RtlTimeToElapsedTimeFields( &TmpTime, &DT1 );
 
         SampDiagPrint( DISPLAY_LOCKOUT,

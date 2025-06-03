@@ -18,6 +18,7 @@
 #define MiscTextLen                 80
 #define ShortTextLen                25
 #define LongTextLen                256
+#define FileExtLen                   8
 #define TEMP_BUF_LEN               256
 
 
@@ -42,5 +43,5 @@
 // the min and max for the Graph Vertical max.
 #define MAX_VERTICAL        2000000000
 #define MIN_VERTICAL        1
-
-
+
+

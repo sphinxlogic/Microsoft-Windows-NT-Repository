@@ -67,8 +67,8 @@ void  enqueue( BUF *fpbuf );
 TCHAR *fastcopy( HANDLE hfSrcParm, HANDLE hfDstParm );
 
 /*+-------------------------------------------------------------------------+
-  | writer()                                                                |
-  |                                                                         |
+  | writer()
+  |
   +-------------------------------------------------------------------------+*/
 LPTSTR writer ( void ) {
     BUF *fpbuf;
@@ -130,8 +130,8 @@ dprintf(TEXT("ERROR: WriteFile - FileBuffer is NULL\n"));
 
 
 /*+-------------------------------------------------------------------------+
-  | reader()                                                                |
-  |                                                                         |
+  | reader()
+  |
   +-------------------------------------------------------------------------+*/
 DWORD reader( void ) {
     BUF *fpbuf;
@@ -159,8 +159,8 @@ dprintf(TEXT("ERROR: MemoryAlloc error %ld\n"), GetLastError());
 
 
 /*+-------------------------------------------------------------------------+
-  | dequeue()                                                               |
-  |                                                                         |
+  | dequeue()
+  |
   +-------------------------------------------------------------------------+*/
 BUF *dequeue( void ) {
     BUF *fpbuf;
@@ -187,8 +187,8 @@ BUF *dequeue( void ) {
 
 
 /*+-------------------------------------------------------------------------+
-  | enqueue()                                                               |
-  |                                                                         |
+  | enqueue()
+  |
   +-------------------------------------------------------------------------+*/
 void enqueue( BUF *fpbuf ) {
     fpbuf->fpbufNext = NULL;
@@ -208,13 +208,13 @@ void enqueue( BUF *fpbuf ) {
 
 
 /*+-------------------------------------------------------------------------+
-  | fastcopy()                                                              |
-  |                                                                         |
-  |  hfSrcParm       file handle to read from                               |
-  |  hfDstParm       file handle to write to                                |
-  |                                                                         |
-  |  returns         NULL if successful                                     |
-  |                  pointer to error string otherwise                      |
+  | fastcopy()
+  |
+  |  hfSrcParm       file handle to read from
+  |  hfDstParm       file handle to write to
+  |
+  |  returns         NULL if successful
+  |                  pointer to error string otherwise
   +-------------------------------------------------------------------------+*/
 TCHAR *fastcopy (HANDLE hfSrcParm, HANDLE hfDstParm) {
     DWORD dwReader;

@@ -503,7 +503,14 @@ STATICFN PCONTROLDATA WriteControl(
      * Write out the text field, if this type of control has one.
      */
     if (fWriteText) {
+#ifdef JAPAN
+        TCHAR   szTmp[CCHTEXTMAX];
+
+        KDExpandCopy(szTmp, pszText, CCHTEXTMAX);
+        WriteText(szTmp);
+#else
         WriteText(pszText);
+#endif
         Comma();
     }
 
@@ -1286,7 +1293,7 @@ STATICFN VOID WriteQuotedString(
         if (*pszT == CHAR_DBLQUOTE || *pszT == CHAR_BACKSLASH)
             nLen++;
 
-        pszT++;
+        pszT = CharNext(pszT);
     }
 
     /*
@@ -1325,7 +1332,19 @@ STATICFN VOID WriteEscapedString(
         if (*psz == CHAR_DBLQUOTE)
             WriteDlgChar(CHAR_DBLQUOTE);
         else if (*psz == CHAR_BACKSLASH)
+#ifdef JAPAN
+#ifndef UNICODE
+#define wcsncmp     strncmp
+#endif
+            if ((wcsncmp(psz+1, TEXT("036"), 3)) &&
+                (wcsncmp(psz+1, TEXT("037"), 3)))
+#endif
             WriteDlgChar(CHAR_BACKSLASH);
+
+#if defined(DBCS) && !defined(UNICODE)
+        if(IsDBCSLeadByte((BYTE)*psz))
+            WriteDlgChar(*psz++);
+#endif
 
         WriteDlgChar(*psz++);
     }
@@ -1370,14 +1389,15 @@ STATICFN VOID WriteDlgChar(
      * Is the buffer full?
      */
     if (cbWritePos == CCHFILEBUFFER) {
-        CHAR abWriteBuffer[CCHFILEBUFFER];
+        CHAR abWriteBuffer[CCHFILEBUFFER*sizeof(WCHAR)];
         BOOL fDefCharUsed;
+	int cbReq;
 
-        WideCharToMultiByte(CP_ACP, 0, gachWriteBuffer, CCHFILEBUFFER,
-                abWriteBuffer, CCHFILEBUFFER, NULL, &fDefCharUsed);
+        cbReq = WideCharToMultiByte(CP_ACP, 0, gachWriteBuffer, CCHFILEBUFFER,
+                abWriteBuffer, CCHFILEBUFFER*sizeof(WCHAR), NULL, &fDefCharUsed);
 
-        cbWritten = (INT)M_lwrite(hfDlg, abWriteBuffer, cbWritePos);
-        if (cbWritten != cbWritePos)
+        cbWritten = (INT)M_lwrite(hfDlg, abWriteBuffer, cbReq);
+        if (cbWritten != cbReq)
             longjmp(jbWriteDlg, 1);
 
         cbWritePos = 0;
@@ -1424,14 +1444,15 @@ STATICFN VOID WriteDlgFlush(VOID)
      * Are any bytes remaining in the buffer?
      */
     if (cbWritePos) {
-        CHAR abWriteBuffer[CCHFILEBUFFER];
+        CHAR abWriteBuffer[CCHFILEBUFFER*sizeof(WCHAR)];
         BOOL fDefCharUsed;
+	int cbReq;
 
-        WideCharToMultiByte(CP_ACP, 0, gachWriteBuffer, cbWritePos,
-                abWriteBuffer, CCHFILEBUFFER, NULL, &fDefCharUsed);
+        cbReq = WideCharToMultiByte(CP_ACP, 0, gachWriteBuffer, cbWritePos,
+                abWriteBuffer, CCHFILEBUFFER*sizeof(WCHAR), NULL, &fDefCharUsed);
 
-        cbWritten = (INT)M_lwrite(hfDlg, abWriteBuffer, cbWritePos);
-        if (cbWritten != cbWritePos)
+        cbWritten = (INT)M_lwrite(hfDlg, abWriteBuffer, cbReq);
+        if (cbWritten != cbReq)
             longjmp(jbWriteDlg, 1);
 
         cbWritePos = 0;

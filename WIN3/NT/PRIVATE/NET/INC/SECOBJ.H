@@ -129,6 +129,13 @@ NetpAccessCheckAndAudit(
     );
 
 NET_API_STATUS
+NetpAccessCheck(
+    IN  PSECURITY_DESCRIPTOR SecurityDescriptor,
+    IN  ACCESS_MASK DesiredAccess,
+    IN  PGENERIC_MAPPING GenericMapping
+    );
+
+NET_API_STATUS
 NetpGetBuiltinDomainSID(
     PSID *BuiltinDomainSID
     );

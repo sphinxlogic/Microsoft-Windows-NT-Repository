@@ -19,7 +19,6 @@ Revision History:
 --*/
 
 #include "obp.h"
-#include "seopaque.h"
 
 
 #if DBG
@@ -265,7 +264,7 @@ Return Value:
 
     Buffer = (PCHAR)Data;
 
-    for (i=0 ; i<=((LONG)Length-3)-(sizeof(ULONG)) ; i++) {
+    for (i=0 ; i<=(LONG)((Length-3)-sizeof(ULONG)) ; i++) {
 
         ULONG Tmp;
 
@@ -377,7 +376,7 @@ Return Value:
 
     if ( NewDescriptor == NULL ) {
         ObpReleaseDescriptorCacheLock();
-        return( STATUS_NO_MEMORY );
+        return( STATUS_INSUFFICIENT_RESOURCES );
     }
 
 #if OB_DIAGNOSTICS_ENABLED
@@ -510,12 +509,12 @@ Return Value:
 
 {
     PSECURITY_DESCRIPTOR_HEADER SecurityDescriptorHeader;
-    PNONPAGED_OBJECT_HEADER NonPagedObjectHeader;
+    POBJECT_HEADER ObjectHeader;
     POBJECT_TYPE ObjectType;
     PSECURITY_DESCRIPTOR SecurityDescriptor;
 
-    NonPagedObjectHeader = OBJECT_TO_NONPAGED_OBJECT_HEADER( Object );
-    ObjectType = NonPagedObjectHeader->Type;
+    ObjectHeader = OBJECT_TO_OBJECT_HEADER( Object );
+    ObjectType = ObjectHeader->Type;
     ASSERT( ObpCentralizedSecurity(ObjectType) );
 
     ObpAcquireDescriptorCacheWriteLock();
@@ -718,9 +717,7 @@ Return Value:
         return( FALSE );
     }
 
-    Compare = RtlCompareMemory ( SD1, SD2, Length1 );
-
-    return( Compare == Length1 );
+    return (BOOLEAN)RtlEqualMemory ( SD1, SD2, Length1 );
 }
 
 
